@@ -181,6 +181,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 text, said = got_words
             t0 = loop.time()
             judging_text[kind] = text
+            flow.on_judging(kind, turn, said)   # まだ答えの返っていない判定（Flow._end_pending）
             try:
                 kq, kasked, kbefore = questions[kind]
                 # 受け持ちの仕組み（JudgePanel）の判定には、裏で出した代わりの読みを知らせてもらう（early。meaning_judge.JudgePanel.ask）
@@ -203,6 +204,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                             # 止める側だけの判定（お呼びする段の 3.5 Flash Lite＝meaning_judge.STOP_ONLY）の読み：答えにはせず、止める側だけに使う
                             # （✅ 2026-10-30 夜 ユーザー：「(1)(2)ともお勧めの形でOKです」）
                             flow.on_unsure(kind, t["stop_only"], turn, said, answer=False)
+                flow.on_judged(kind, turn, said)
                 return None
             info.setdefault(f"{kind}_calls_s", []).append(round(loop.time() - t0, 3))  # 判定そのものにかかった秒（待つ長さを決めるため）
             # 判定の間に相手がまた話し始めたら、話し終わるのを待ってから、言葉が増えたかを見る（増えていれば、この判定は渡さない）
@@ -210,6 +212,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 await asyncio.sleep(0.02)
             if said is not None and said != flow.callee_said and flow.callee_turns == turn:
                 info.setdefault(f"{kind}_stale", []).append(text)
+                flow.on_judged(kind, turn, said)
                 judged, text, said = text, None, None
                 continue
             info.update({kind: got, f"{kind}_firm": getattr(got, "firm", None), f"{kind}_text": text,
@@ -224,6 +227,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 # 止める側だけ＝Flow.on_unsure。⛔ 2026-10-21 G-57 tc10：弱い「代わった人」を捨て、読みが2つそろったとして別の方に繋いだ）
                 info[f"{kind}_weak"] = got.weak
                 flow.on_unsure(kind, got.weak, turn, said)
+            flow.on_judged(kind, turn, said)
             return got
     jobs = {kind: started(judging(kind)) for kind in runs}
 
@@ -241,7 +245,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 return
             await asyncio.wait(live, return_when=asyncio.FIRST_COMPLETED)
 
-    async def hold(ear_too: bool, ack: bool = True, every: bool = False, play_for=None) -> None:
+    async def hold(ear_too: bool, ack: bool = True, every: bool = False, play_for=None, rejudge: bool = True) -> None:
         """報告を受け取る前（・報告を促すかを決める前）に、いまの相手の言葉の確かめがそろうのを待つ：別の耳（ear_too）と、判定はどちらか先に
         届いた1つ（⛔ 2026-10-19 G-57 の9回目：その場の判定だけを待ち、2秒超が328回中58回・報告を待たせた185回中21回で間に合わなかった。
         G-61：同じ会社の2本は遅れが一緒に出るが、違う会社の2つで早く届いたほうは、遅いほうから1割 1.53秒）。
@@ -249,7 +253,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         相手が話している間は待ち続ける（会話AIの話し終わりの知らせまで。相手が話しているので、こちらが黙っていても間にはならない。
         ⛔ AIが相手の言葉の間で報告した＝G-57 の「岡田ですね。」「少々お待ちください。」）。話し終わってからは flow.limits.hold_s 秒まで。
         報告を待たせる間は「はい、」の相づち（ack。held_ack）。
-        判定した言葉より相手の言葉が増えていたら（判定のあとに相手が話し続けた）、いまの言葉で判定し直す。"""
+        判定した言葉より相手の言葉が増えていたら（判定のあとに相手が話し続けた）、いまの言葉で判定し直す（rejudge＝False なら、待つだけ）。"""
         t0 = quiet = loop.time()
         # 出揃うまで待つ：相手が話している間は待ち続け、話していないのに出揃わない（会話AIが声の終わりまで聞き取っていない＝遅れ）のは、
         # 相手が話し終えてから hold_s まで（その間に判定もそろえる）
@@ -268,7 +272,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         for kind in runs:
             # いまの言葉の判定が無く、走っている判定も無いか古い言葉のもの ⇒ いまの言葉で判定し直す
             stale = jobs[kind].done() or judging_text.get(kind) not in (None, flow.callee_said)
-            if complete() and flow.callee_said and kind not in flow.check and stale:
+            if rejudge and complete() and flow.callee_said and kind not in flow.check and stale:
                 jobs[kind] = started(judging(kind, flow.callee_said, flow.callee_said))
                 info.setdefault("rejudged", []).append(kind)
         waits = [etask] if ear_too and etask is not None and not etask.done() else []
@@ -339,12 +343,19 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             binding = flow.binding(fc.name, fc.args)
             await hold(ear_too=True, every=flow.waits_every(fc.name, fc.args),
                        play_for=(lambda: flow.hold_play(fc.name, fc.args)) if binding else None)
+            if flow.waits_again(fc.name, fc.args):
+                # 電話を終えるかを決める所で、まだ答えの返っていない判定がある：もう一度だけ、黙って全部待つ（Flow.waits_again。最大 hold_s）
+                info["end_waited_again"] = True
+                await hold(ear_too=False, ack=False, every=True, rejudge=False)
         if grounding is not None:
             await ground(job[2], *grounding)
         return flow.handle_call(fc, midway)
 
     async def settle() -> None:
         await hold(ear_too=False, ack=False)
+        if flow.waits_again(None, None):
+            info["end_waited_again"] = True   # 届いた読みに電話を終える読みがあり、まだ答えの返っていない判定がある：もう一度だけ全部待つ
+            await hold(ear_too=False, ack=False, every=True, rejudge=False)
     return handle, task, info, settle
 
 
@@ -756,9 +767,21 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     muted = any(t.get("muted") and t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
                     if (spoke and not ops or waited or muted) and settle is not None:
                         await settle()  # 判定が「答え」と決めたときだけ知らせる（Flow.unreported_note）
-                        if flow.judged_end() is not None:
+                        if (r := flow.judged_end()) is not None:
                             # 判定が電話を終える言葉と読んだ：会話AIが報告しなくても、プログラムが締める（締めの録音は記録から流す＝deliver_plays。
-                            # ✅ 2026-11-01 日本時間17時04分 ユーザー：(a)「OK」）。締めたので、このあとの台詞は送らない（flow.phase が closing）
+                            # ✅ 2026-11-01 日本時間17時04分 ユーザー：(a)「OK」）。締めたら、このあとの台詞は送らない（flow.phase が closing）。
+                            # 締めていなければ（ご遠慮の一言・急いでいる方への伺い・受付の方への確かめ＝録音はプログラムが流した／引き止めの一言＝
+                            # 会話AIが言う）、次にすることを会話AIへ知らせる。⛔ 2026-11-01 夜の見直しで見つけた穴：前は、締めたものとして次の
+                            # 台詞へ進み、録音で伺ったことを会話AIに知らせていなかった（会話AIは、相手の返事が何への返事か分からない）
+                            if flow.end_reason is None:
+                                if r.get("say"):
+                                    log_start = len(flow.log)
+                                    await send_text(s, r["message"])
+                                    told = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool,
+                                                              timeout_s=followup_wait_s or 8.0, on_heard=None)
+                                    await add_turn(told, {"judged_end_of": line, "note": r["message"]}, log_start, i, voice)
+                                else:
+                                    await send_note(s, r["message"])
                             i += 1
                             continue
                     if (spoke and not ops or waited or muted) and (note := flow.unreported_note(muted=muted)):
