@@ -951,7 +951,10 @@ class AckChoiceTest(unittest.TestCase):
         self.assertEqual(self.report(f, "confirm_field", question_id="Q3", result="corrected", correction="4人"), "shitsurei")
         g = self.flow()
         self.assertEqual(self.report(g, "record_answer", question_id="Q1", condition_id="unknown"), "shouchi")
-        self.assertEqual(self.report(g, "request_end", reason="callee_refused_call"), "shouchi")
+        # 「承知しました。」が続くときは「かしこまりました。」（✅ 2026-11-02 日本時間7時12分 ユーザー）
+        self.assertEqual(self.report(g, "request_end", reason="callee_refused_call"), "kashikomari")
+        h = self.flow()
+        self.assertEqual(self.report(h, "request_end", reason="callee_refused_call"), "shouchi")   # 前に流していなければ「承知しました。」
         h = self.flow()
         self.assertEqual(self.report(h, "request_end", reason="callee_hurry"), "hai")
 
@@ -1012,7 +1015,7 @@ class AckChoiceTest(unittest.TestCase):
         # 「。」のあとは 10-14 の 0.6秒（聞き比べの道具も同じ1か所を読む）。「、」のあとは 10-25 の聞き比べで 0.5秒（「。」より短い）
         self.assertEqual((ACK_PAUSE_S["。"], ACK_TO_AI_S, ACK_PAUSE_S["、"]), (0.6, 0.6, 0.5))
         self.assertEqual((ack_pause_s("hai"), ack_pause_s("moushiwake_heavy"), ack_pause_s("arigatou")), (0.5, 0.5, 0.6))
-        self.assertEqual([k for k in ACK if ACK[k].endswith("。")], ["shouchi", "arigatou", "shitsurei"])
+        self.assertEqual([k for k in ACK if ACK[k].endswith("。")], ["shouchi", "arigatou", "kashikomari", "shitsurei"])
         f = self.flow()
         f.on_callee()
         out = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
@@ -4223,7 +4226,8 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "next")
         f.on_heard("、すみません、間違えました。16日の午後2時でお願いします。")
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
-        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "shouchi", "それでは16日の14時、午後2時でよろしいでしょうか？"))
+        # 相手の言い間違いを受けて「承知しました。それでは…」。直前の「合っている」の報告で「承知しました。」を流したので「かしこまりました。」（7時12分 ユーザー）
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "kashikomari", "それでは16日の14時、午後2時でよろしいでしょうか？"))
         self.assertEqual((f.items["Q1"].state, f.items["Q1"].value, f.awaiting_confirm), ("checking", "16日の午後2時", "Q1"))
         self.heard(f, "はい、そうです。")
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
@@ -6667,7 +6671,8 @@ class ClipTablesTest(unittest.TestCase):
         from make_ack_clips import CHAR_S
         for aid, (text, how) in table.items():
             self.assertIn(how, MAX_S, aid)
-            self.assertTrue(how in HOW or aid in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake", "moushiwake_heavy"), aid)
+            from phrases import ACK
+            self.assertTrue(how in HOW or aid in ACK, aid)   # 相づちの録音は既定の読み方
             # 長い文の上限が、文の長さの見込みに届いている（⛔ 2026-10-22 の4回目：言い方を長くしたのに上限がそのままだと、作っても全部落ちる）
             if len(text) >= 15:
                 self.assertLessEqual(len(text) * CHAR_S * 1.15, MAX_S[how], aid)
@@ -10281,10 +10286,12 @@ class ApprovalTest(unittest.TestCase):
         f = Flow([q0, *goals, q3], goal_mode="any")
         r0 = AmbiguousAnswerTest.say(f, "はい、あります。", "record_answer", question_id="Q0", condition_id="はい")
         r1 = AmbiguousAnswerTest.say(f, "いえ、登録は結構です。", "record_answer", question_id="Q1", condition_id="いいえ")
-        self.assertEqual((r0["ack"], r1["ack"], f.current), ("shouchi", "shouchi", "Q2"))   # 順番なら「ありがとうございます。」だった
+        # 順番なら「ありがとうございます。」だった。「承知しました。」が続くので2つ目は「かしこまりました。」（✅ 2026-11-02 日本時間7時12分 ユーザー：「「かしこまりました」
+        # も使えばいいんじゃないですか」）
+        self.assertEqual((r0["ack"], r1["ack"], f.current), ("shouchi", "kashikomari", "Q2"))
         g = Flow([q0, Question("Q4", "資料はメールと郵送のどちらでお送りしましょうか？", "choice", conditions=("メール", "郵送")), q3])
         AmbiguousAnswerTest.say(g, "はい、あります。", "record_answer", question_id="Q0", condition_id="はい")
-        self.assertEqual(AmbiguousAnswerTest.say(g, "どちらも要らないです。", "record_answer", question_id="Q4", condition_id=NONE)["ack"], "shouchi")
+        self.assertEqual(AmbiguousAnswerTest.say(g, "どちらも要らないです。", "record_answer", question_id="Q4", condition_id=NONE)["ack"], "kashikomari")
         # ご承認の「いいえ」：N1 は手順のほかの質問と同じ「はい、」／最終目的でないご承認で、お断りしようとしている ⇒「承知しました。」で次の質問へ
         h = self.flow(goal=False)
         AmbiguousAnswerTest.say(h, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
