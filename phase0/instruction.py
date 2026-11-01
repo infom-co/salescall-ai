@@ -12,7 +12,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 
-from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, TAKEN, Question,
+from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, TAKEN, Question,
                      check_policies, choices_note, offers_rule, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
@@ -514,6 +514,9 @@ def system_rules(play_recordings: bool = False, target: bool = False, follow_up:
         f"- 選択肢から選ぶ質問で、相手が、どれを選んでもよいとこちらに任せたときだけ（「どちらでも大丈夫です」「どれでもいいです」など）、"
         f"{ARG_LABEL['condition_id']}を「{ANY_LABEL}」にして record_answer を呼びます。まだ決めていない・分からないとき（「まだ決めてないです」"
         f"「ちょっと分からないです」）は「{SYSTEM_LABEL['unknown']}」です。\n"
+        # ✅ 2026-11-02 日本時間4時36分 ユーザー：(a)「OK」＝選ぶ質問で、どの選択肢も要らないと言われたら「どれも要らない」（最終目的なら断る答え＝flowctl.NONE）
+        f"- 選択肢から選ぶ質問で、どの選択肢も要らない・どれもしないでほしいと言われたとき（「どちらも必要ありません」「そもそも要りません」など）は、"
+        f"{ARG_LABEL['condition_id']}を「{NONE_LABEL}」にして record_answer を呼びます。答えることだけを拒んだときは「{SYSTEM_LABEL['refused']}」です。\n"
         "- 日付・時刻・数・金額・名前・電話番号・メール・住所は、返事に「言い直して」とあれば、返事に書いてある確認の言い方のとおりに言って、"
         "相手の返事を待ちます。相手が返事をしてから confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。\n"
         # ✅ 2026-10-15 ユーザー：午前・午後の確かめは、AIからプログラムへ移す（営業時間から決める。flowctl.fill_ampm）。⛔ G-37：AIが「32 です」を

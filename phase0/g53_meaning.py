@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, CHOICE_TYPES, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question,
+from flowctl import (ANY, CHOICE_TYPES, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, NONE, SYSTEM_CONDITIONS, Flow, Question,
                      off_talk, prior_answer)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
@@ -459,7 +459,7 @@ def dangerous(it: dict, q: Question, key: str) -> bool:
     if it["set"] == "D":
         return misread_as_affirmed(it, key)
     got = it.get(key)
-    return got not in accept(it) and (got in q.conditions or got == ANY) and it.get(f"{key}言い切り") is not False
+    return got not in accept(it) and (got in q.conditions or got in (ANY, NONE)) and it.get(f"{key}言い切り") is not False
 
 
 # 流れの制御がすること（判定1つの読みから。Flow._agree の向き：最初の答えは、言い切っていなければ念のため確かめる・決められなければ聞き直す／
@@ -487,7 +487,9 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
         return ASK_AGAIN if got in (UNDECIDED, "unknown") else DENIED
     if got in (UNDECIDED, "unknown"):
         return ASK_AGAIN
-    return f"念のため確かめる：{got}" if got in q.conditions and firm is False else f"受け取る：{got}"
+    # 言い切っていない読みは、選択肢も「どちらでも」「どれも要らない」も確かめる（流れの制御は「わからない」「答えたくない」のほかを確かめる＝
+    # Flow._checks。⛔ 2026-11-02 に見つけた：この数えは「どちらでも」を確かめずに受け取ると数えていた＝流れの制御の動きと違う）
+    return f"念のため確かめる：{got}" if (got in q.conditions or got in (ANY, NONE)) and firm is False else f"受け取る：{got}"
 
 
 def flow_wants(it: dict, q: Question) -> set[str]:
@@ -504,7 +506,7 @@ def flow_wants(it: dict, q: Question) -> set[str]:
                 ok.add(ASK_AGAIN if a in (UNDECIDED, "unknown") else DENIED)
         elif a in (UNDECIDED, "unknown"):
             ok.add(ASK_AGAIN)
-        elif a in q.conditions:
+        elif a in q.conditions or a in (ANY, NONE):
             ok |= {f"受け取る：{a}", f"念のため確かめる：{a}"} if e else {f"念のため確かめる：{a}" if h else f"受け取る：{a}"}
         else:
             ok.add(f"受け取る：{a}")

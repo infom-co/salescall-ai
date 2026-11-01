@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HOLD, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HOLD, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      UNDECIDED, WHO, called_words, facts_reading, label)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
@@ -33,7 +33,10 @@ from flowctl import (ABOUT, ANY, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LA
 SYSTEM_DESC = {ANY: "こちらに任せた・どれでもよい・希望は無い、と言った（選ぶのを頼んだときも。選ぶのを避けただけの言葉は入れない）",
                "unknown": "わからない・覚えていない・確かめていない・まだ決めていない、と言った（選ぶ前の状態。言ったことそのものが選べるものにあれば、そちら）",
                "refused": "この質問に答えることそのものを、はっきり拒んだ（知らないとは言わずに、答えを言わない・言えない、と言ったのも。どの答えを選んでも"
-                          "要ることを言うのを拒んだのも。申し出を断ったのは、断る側の答え。選ぶこと・指定することを避けただけの言葉は入れない）"}
+                          "要ることを言うのを拒んだのも。申し出を断ったのは、断る側の答え。選ぶこと・指定することを避けただけの言葉は入れない）",
+               # ✅ 2026-11-02 日本時間4時36分 ユーザー：(a)「OK」（選ぶ質問の「連絡自体控えてほしいです」＝電話もメールも控える・最終目的なら営業拒否）
+               NONE: "どの選択肢も要らない・どれもしないでほしい、と言った（選ぶもとになっていること＝連絡・訪問・送付・打ち合わせなど、そのものを断った。"
+                     "答えることだけを拒んだのは入れない）"}
 REFUSED_FACT = ("この質問に答えることそのものを、はっきり拒んだ（知らないとは言わずに、答えを言わない・言えない、と言ったのも。どの答えを選んでも"
                 "要ることを言うのを拒んだのも。お客様に事実を伺う質問なので、答えることを控える・断る、と言ったのも、これ＝事実の答えにはならない。"
                 "選ぶこと・指定することを避けただけの言葉は入れない）")

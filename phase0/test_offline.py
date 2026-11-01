@@ -3705,7 +3705,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
         from flowctl import Flow
         f = self.flow()
         self.assertNotIn("どちらでも", f.questions["Q1"].labels)
-        self.assertEqual(f.questions["Q2"].labels, ("カード", "振込", "どちらでも", "わからない", "答えたくない"))
+        self.assertEqual(f.questions["Q2"].labels, ("カード", "振込", "どちらでも", "どれも要らない", "わからない", "答えたくない"))
         self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい")
         r = f.handle(type("FC", (), {"name": "record_answer", "args": {"質問": "Q2", "答えの種類": "どちらでも", "値": "どちらでも大丈夫です"}})())
         self.assertEqual((f.items["Q2"].state, f.export()["Q2"]), ("accepted", "どちらでも"))
@@ -10103,6 +10103,93 @@ class G53EndTest(unittest.TestCase):
         for who, text, ends, _, _ in CALLING:
             self.assertEqual(rows[(text, BEFORE_TARGET if who == "ご本人" else None)][5][END], set(ends), text)
 
+
+
+class NoneOfThemTest(unittest.TestCase):
+    """選ぶ質問の「どれも要らない」（flowctl.NONE）。✅ 2026-11-02 日本時間4時16分 ユーザー：「連絡しないと最終目的を果たせないような流れだったのなら
+    営業拒否になるし、登録など別の手段が目的の営業であれば電話やメールは控えるという意味合いになるんじゃないですか。」・(a)「OK」"""
+
+    CONTACT = "ご連絡はお電話とメールのどちらがよろしいでしょうか？"
+
+    def flow(self, goal):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"), final_goal=goal),
+                     Question("Q2", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+
+    def test_only_choice_questions_offer_it(self):
+        from flowctl import NONE, Question
+        q = Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"))
+        self.assertEqual((NONE in q.all_conditions, q.condition_of("どれも要らない")), (True, NONE))
+        self.assertNotIn(NONE, Question("Q2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ")).all_conditions)
+        self.assertNotIn(NONE, Question("Q3", "ご契約はA社とB社のどちらでしょうか？", "choice", conditions=("A社", "B社"), asks_fact=True).all_conditions)
+
+    def test_final_goal_is_lost(self):
+        from flowctl import NONE
+        # 連絡が最終目的の業務：どれも要らない＝断る答え（断る答えの宣言が無くても）＝お礼を言って締め、その業務はかけない
+        from phrases import CLOSING
+        f = self.flow(True)
+        r = AmbiguousAnswerTest.say(f, "そもそも要りません。", "record_answer", question_id="Q1", condition_id=NONE)
+        self.assertEqual((r["result"], r["say"], f.end_reason, f.facts["goal_refused"][0]["goals"]), ("end", CLOSING, "goal_refused", ["Q1"]))
+
+    def test_otherwise_it_is_an_answer(self):
+        from flowctl import NONE
+        # 別のことが目的の業務：答えとして受け取って続ける（依頼者へは「どれも要らない」）
+        f = self.flow(False)
+        AmbiguousAnswerTest.say(f, "そもそも要りません。", "record_answer", question_id="Q1", condition_id=NONE)
+        self.assertEqual((f.current, f.end_reason, f.export()["Q1"]), ("Q2", None, "どれも要らない"))
+
+    def test_hedged_is_confirmed(self):
+        from flowctl import NONE
+        # 言い切っていなければ、締める前にも確かめる（ほかの答えと同じ）
+        f = self.flow(True)
+        r = AmbiguousAnswerTest.say(f, "たぶんどちらも要らないです。", "record_answer", question_id="Q1", condition_id=NONE)
+        self.assertEqual((r["result"], r["say"], f.end_reason), ("confirm_required", "念のためどちらもご不要ということでよろしかったでしょうか？", None))
+
+
+class ApprovalTest(unittest.TestCase):
+    """前の答えで伺う質問（Question.ask_if）と、説明した内容のご承認を伺う質問（Question.approval）。✅ 2026-11-02 日本時間4時16分 ユーザー：「相手が資料を
+    見ていなくても業務の進展ができるのであれば、そのまま進めたらいいと思いますし、確認しないと進められないのであれば、こちらから重要な事項を説明して、
+    それの承認をもらう形になるんじゃないでしょうか。」・4時36分「(b) いいえ＝「ご納得いただけなかった点はどの部分になりますでしょうか？」のような確認が
+    必要ではないですか？」「今回は形だけ作ります：OK」"""
+
+    INTRO = "それでは重要な点だけご説明させていただきます。（依頼者の説明）"
+
+    def flow(self, goal=False, play=False):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
+                     Question("Q2", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.INTRO,
+                              ask_if=("Q1", ("いいえ", "unknown")), final_goal=goal, declines=("いいえ",) if goal else ()),
+                     Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=play)
+
+    def test_asked_only_after_the_answer(self):
+        f = self.flow()
+        self.assertEqual(f.order, ["Q1", "Q3"])
+        AmbiguousAnswerTest.say(f, "はい、届いてます。", "record_answer", question_id="Q1", condition_id="はい")
+        self.assertEqual(f.current, "Q3")   # 見ていただけている＝そのまま進める
+        g = self.flow()
+        r = AmbiguousAnswerTest.say(g, "確認する時間がないんです。", "record_answer", question_id="Q1", condition_id="unknown")
+        self.assertEqual(g.current, "Q2")   # 見ていない＝重要な事項を説明して、ご承認を伺う（説明は、その質問に入る一言）
+        self.assertIn(f"「{self.INTRO}」から話し始めてください", r["message"])   # AIが話す形
+        h = self.flow(play=True)
+        r = AmbiguousAnswerTest.say(h, "確認する時間がないんです。", "record_answer", question_id="Q1", condition_id="unknown")
+        self.assertEqual([p.get("text") for p in r["play"]][-1], self.INTRO + "以上の内容でよろしいでしょうか？")   # 録音で流す形（入る一言＋質問の1本）
+
+    def test_not_agreed_is_asked_and_kept(self):
+        from flowctl import CALLBACK_IDS
+        n1 = CALLBACK_IDS["not_agreed"]
+        f = self.flow()
+        AmbiguousAnswerTest.say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        r = AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((f.current, f.questions[n1].text), (n1, "ご納得いただけなかった点はどの部分になりますでしょうか？"))
+        AmbiguousAnswerTest.say(f, "料金のところですね。", "record_answer", question_id=n1, condition_id="答えた", value="料金のところ")
+        self.assertEqual((f.facts["not_agreed"][0]["question"], f.facts["not_agreed"][0]["said"], f.current), ("Q2", "料金のところ", "Q3"))
+        # ご承認が最終目的の業務：ご納得いただけなかった点を伺ってから締める（その業務はかけない）
+        g = self.flow(goal=True)
+        AmbiguousAnswerTest.say(g, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        AmbiguousAnswerTest.say(g, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((g.current, g.end_reason), (n1, None))
+        AmbiguousAnswerTest.say(g, "料金のところですね。", "record_answer", question_id=n1, condition_id="答えた", value="料金のところ")
+        self.assertEqual((g.end_reason, g.facts["not_agreed"][0]["said"]), ("goal_refused", "料金のところ"))
 
 
 class OfferTest(unittest.TestCase):
