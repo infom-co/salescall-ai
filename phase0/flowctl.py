@@ -1759,6 +1759,7 @@ class Flow:
         self.designated_limit = designated_limit  # お客様指定の歯止め時間（営業時間と合わせて、午前・午後を決める。業務ごとの設定）
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack）
+        self.last_ack: str | None = None # 最後に流した相づち（同じ「承知しました。」が続かないように＝_ack）
         # AIが答えを報告せずに言い直し、相手に値を直された：(質問, 直され方＝AFTER の鍵)。その答えの報告で、直され方に合う言い直しにする
         self.unreported_correction: tuple[str, str] | None = None
         self.callee_said = ""            # いまの相手の発話の文字（会話AIの聞き取り。届いた分だけ。on_heard）
@@ -2734,6 +2735,17 @@ class Flow:
         return "さきほどのあなたの声は、相手に流していません（録音と、操作の返事で渡した言い方だけを流します）。" if muted and not heard else ""
 
     def _ack(self, name: str, args: dict, reply: dict) -> str | None:
+        """流す相づち（唯一の入口）：場面で選んだ相づち（_ack_choice）が、前に流した相づちと同じ「承知しました。」なら「かしこまりました。」に替える
+        （✅ 2026-11-02 日本時間7時12分 ユーザー：「「かしこまりました」も使えばいいんじゃないですか」＝「はい、あります。」→「承知しました。」・
+        「いえ、登録は結構です。」→「承知しました。」と続いていた）。どの場面から来ても同じ（次の質問の順番・お断り・わからない・かけ直しの申し出）。"""
+        ack = self._ack_choice(name, args, reply)
+        if ack == "shouchi" and self.last_ack == "shouchi":
+            ack = "kashikomari"
+        if ack is not None:
+            self.last_ack = ack
+        return ack
+
+    def _ack_choice(self, name: str, args: dict, reply: dict) -> str | None:
         """報告が届いた瞬間に、電話接続側が流す相づち（phrases.ACK の中の名前。流さないなら None）。DESIGN.md 6-15。
         ✅ 2026-10-14 ユーザー：基本は「はい、」。違和感のある場面や「はい」が続くときは、別の相づち。
         - 言い直し（AIの言葉は「ありがとうございます。」などの受けの言葉から始まる）・締め・引き止めの一言 ⇒「はい、」

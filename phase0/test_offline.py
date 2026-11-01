@@ -951,7 +951,10 @@ class AckChoiceTest(unittest.TestCase):
         self.assertEqual(self.report(f, "confirm_field", question_id="Q3", result="corrected", correction="4人"), "shitsurei")
         g = self.flow()
         self.assertEqual(self.report(g, "record_answer", question_id="Q1", condition_id="unknown"), "shouchi")
-        self.assertEqual(self.report(g, "request_end", reason="callee_refused_call"), "shouchi")
+        # 「承知しました。」が続くときは「かしこまりました。」（✅ 2026-11-02 日本時間7時12分 ユーザー）
+        self.assertEqual(self.report(g, "request_end", reason="callee_refused_call"), "kashikomari")
+        h = self.flow()
+        self.assertEqual(self.report(h, "request_end", reason="callee_refused_call"), "shouchi")   # 前に流していなければ「承知しました。」
         h = self.flow()
         self.assertEqual(self.report(h, "request_end", reason="callee_hurry"), "hai")
 
@@ -1012,7 +1015,7 @@ class AckChoiceTest(unittest.TestCase):
         # 「。」のあとは 10-14 の 0.6秒（聞き比べの道具も同じ1か所を読む）。「、」のあとは 10-25 の聞き比べで 0.5秒（「。」より短い）
         self.assertEqual((ACK_PAUSE_S["。"], ACK_TO_AI_S, ACK_PAUSE_S["、"]), (0.6, 0.6, 0.5))
         self.assertEqual((ack_pause_s("hai"), ack_pause_s("moushiwake_heavy"), ack_pause_s("arigatou")), (0.5, 0.5, 0.6))
-        self.assertEqual([k for k in ACK if ACK[k].endswith("。")], ["shouchi", "arigatou", "shitsurei"])
+        self.assertEqual([k for k in ACK if ACK[k].endswith("。")], ["shouchi", "arigatou", "kashikomari", "shitsurei"])
         f = self.flow()
         f.on_callee()
         out = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
@@ -4223,7 +4226,8 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "next")
         f.on_heard("、すみません、間違えました。16日の午後2時でお願いします。")
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
-        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "shouchi", "それでは16日の14時、午後2時でよろしいでしょうか？"))
+        # 相手の言い間違いを受けて「承知しました。それでは…」。直前の「合っている」の報告で「承知しました。」を流したので「かしこまりました。」（7時12分 ユーザー）
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "kashikomari", "それでは16日の14時、午後2時でよろしいでしょうか？"))
         self.assertEqual((f.items["Q1"].state, f.items["Q1"].value, f.awaiting_confirm), ("checking", "16日の午後2時", "Q1"))
         self.heard(f, "はい、そうです。")
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
@@ -6667,7 +6671,8 @@ class ClipTablesTest(unittest.TestCase):
         from make_ack_clips import CHAR_S
         for aid, (text, how) in table.items():
             self.assertIn(how, MAX_S, aid)
-            self.assertTrue(how in HOW or aid in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake", "moushiwake_heavy"), aid)
+            from phrases import ACK
+            self.assertTrue(how in HOW or aid in ACK, aid)   # 相づちの録音は既定の読み方
             # 長い文の上限が、文の長さの見込みに届いている（⛔ 2026-10-22 の4回目：言い方を長くしたのに上限がそのままだと、作っても全部落ちる）
             if len(text) >= 15:
                 self.assertLessEqual(len(text) * CHAR_S * 1.15, MAX_S[how], aid)
@@ -10146,6 +10151,32 @@ class NoneOfThemTest(unittest.TestCase):
         self.assertEqual((r["result"], r["say"], f.end_reason), ("confirm_required", "念のためどちらもご不要ということでよろしかったでしょうか？", None))
 
 
+class OnelinerGuardTest(unittest.TestCase):
+    """道具を呼ぶ前に、最近の一言が英語なら止める見張り（oneliner_guard。✅ 2026-11-02 日本時間7時12分 ユーザー「(b) OK」）。記録への書き込みが
+    道具の呼び出しより遅れるので、最近の段（直近3回の道具の結果まで・15分以内）を読み、止めた文は二度は止めない。"""
+
+    def run_guard(self, rows, state):
+        import json, os, subprocess, sys, tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
+        p = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "oneliner_guard.py")], input=json.dumps({"transcript_path": f.name}),
+                           capture_output=True, text=True, env={**os.environ, "ONELINER_GUARD_STATE": state})
+        os.unlink(f.name)
+        return p.returncode
+
+    def test_stops_an_english_line_once(self):
+        import os, tempfile
+        row = lambda t, c, ts: {"type": t, "timestamp": f"2026-11-01T22:{ts}Z", "message": {"content": c}}   # noqa: E731
+        res, use = (lambda ts: row("user", [{"type": "tool_result"}], ts)), (lambda ts: row("assistant", [{"type": "tool_use"}], ts))
+        txt = lambda s, ts: row("assistant", [{"type": "text", "text": s}], ts)   # noqa: E731
+        en, ja = "Now the flow control side: choosing the variant each time and the closing.", "次に、`Flow._ack` の相づちの決まりを確かめます。"
+        state = os.path.join(tempfile.mkdtemp(), "seen.json")
+        late = [txt(en, "00:05"), use("00:06"), res("00:08")]   # いまの一言がまだ記録に無い・前の段が英語
+        self.assertEqual((self.run_guard(late, state), self.run_guard(late, state)), (2, 0))   # 止める・同じ文で二度は止めない
+        self.assertEqual(self.run_guard([res("00:00"), txt(ja, "00:05"), use("00:06")], state), 0)
+        self.assertEqual(self.run_guard([txt(en, "00:01"), use("00:02"), res("30:00"), txt(ja, "30:05")], state + "2"), 0)   # 15分より古い
+
+
 class ApprovalTest(unittest.TestCase):
     """前の答えで伺う質問（Question.ask_if）と、説明した内容のご承認を伺う質問（Question.approval）。✅ 2026-11-02 日本時間4時16分 ユーザー：「相手が資料を
     見ていなくても業務の進展ができるのであれば、そのまま進めたらいいと思いますし、確認しないと進められないのであれば、こちらから重要な事項を説明して、
@@ -10281,10 +10312,12 @@ class ApprovalTest(unittest.TestCase):
         f = Flow([q0, *goals, q3], goal_mode="any")
         r0 = AmbiguousAnswerTest.say(f, "はい、あります。", "record_answer", question_id="Q0", condition_id="はい")
         r1 = AmbiguousAnswerTest.say(f, "いえ、登録は結構です。", "record_answer", question_id="Q1", condition_id="いいえ")
-        self.assertEqual((r0["ack"], r1["ack"], f.current), ("shouchi", "shouchi", "Q2"))   # 順番なら「ありがとうございます。」だった
+        # 順番なら「ありがとうございます。」だった。「承知しました。」が続くので2つ目は「かしこまりました。」（✅ 2026-11-02 日本時間7時12分 ユーザー：「「かしこまりました」
+        # も使えばいいんじゃないですか」）
+        self.assertEqual((r0["ack"], r1["ack"], f.current), ("shouchi", "kashikomari", "Q2"))
         g = Flow([q0, Question("Q4", "資料はメールと郵送のどちらでお送りしましょうか？", "choice", conditions=("メール", "郵送")), q3])
         AmbiguousAnswerTest.say(g, "はい、あります。", "record_answer", question_id="Q0", condition_id="はい")
-        self.assertEqual(AmbiguousAnswerTest.say(g, "どちらも要らないです。", "record_answer", question_id="Q4", condition_id=NONE)["ack"], "shouchi")
+        self.assertEqual(AmbiguousAnswerTest.say(g, "どちらも要らないです。", "record_answer", question_id="Q4", condition_id=NONE)["ack"], "kashikomari")
         # ご承認の「いいえ」：N1 は手順のほかの質問と同じ「はい、」／最終目的でないご承認で、お断りしようとしている ⇒「承知しました。」で次の質問へ
         h = self.flow(goal=False)
         AmbiguousAnswerTest.say(h, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
