@@ -206,6 +206,10 @@ CALLBACK_ASK = {
     "other_point": "ほかにご納得いただけない点はございますでしょうか？",
     "agreed_now": "ご説明した内容でご納得いただけましたでしょうか？",
 }
+# 同じシステムの質問を1通話に何度か伺うときの、2回目からの言い方（順に回す。1回目は CALLBACK_ASK。録音は callback_（役目）_2 から）。
+# ✅ 2026-11-02 日本時間6時33分 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」が続いて機械ぽいので、「ご不明点などほかにも
+# ございますでしょうか？」なども織り交ぜた方がいいんじゃないでしょうか？」
+CALLBACK_ASK_AGAIN = {"other_point": ("ご不明点などほかにもございますでしょうか？",)}
 
 
 def joiner(value: str) -> str:
@@ -313,6 +317,11 @@ WAIT = "少々お待ちいただいてもよろしいでしょうか？"
 # 締めの言葉（質問が全部終わったとき）。✅ 2026-10-15 ユーザー：「『お忙しいところ、お時間をいただきまして、ありがとうございました。』⇒
 # 『お忙しいところお時間をいただきましてありがとうございました。』」「『それでは、失礼いたします。』⇒『それでは失礼いたします。』」（ユーザーが直した形）
 CLOSING = "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+# お客様がお断りになって、業務の最終目的が果たせなくなったときの締め（flowctl.Flow._close の goal_refused。頭の「はい、」は相づちの録音）。
+# ✅ 2026-11-02 日本時間6時33分 ユーザー：「お客様「でもやっぱり、今の業者で十分なので。」こちら「はい、お忙しいところお時間をいただきましてありがとう
+# ございました。それでは失礼いたします。」だと唐突なので、こちら「はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。
+# それでは失礼いたします。」の方がいいんじゃないでしょうか？」（ご承認いただけなかったときの手順の外の、最終目的の申し出を断られたときにも当てた）
+CLOSING_AFTER_DECLINE = "承知いたしました。" + CLOSING
 # 次の質問の前のつなぎの言葉の録音の名前（ファイル名に使う）。✅ 2026-10-15 ユーザー：「両方録音の場合は、良いものを録音として残すので
 # 問題ない。AIが喋る時だけ、相槌を入れないと問題が起こる」⇒ つなぎの言葉は契約者の単位で録音し、質問の文（依頼主の単位）の前に流す
 # 録音の読み上げには、続きの言葉があることを示す読点を付けて渡す（つなぎの言葉だけの録音が、言い切りの調子にならないように。録音の
@@ -455,6 +464,8 @@ BACK_TO = "話を戻させていただきますね。"
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
+            **{f"callback_{k}_{i}": v for k, vs in CALLBACK_ASK_AGAIN.items() for i, v in enumerate(vs, 2)},
+            "closing_after_decline": CLOSING_AFTER_DECLINE, "own_fallback_point": OWN_FALLBACK_POINT,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},

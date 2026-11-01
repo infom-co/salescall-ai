@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -113,6 +113,13 @@ CHAR_S = 0.141
 # 録音の中の名前ごとの読み方の鍵（無ければ中の名前のまま）。かけ直しで足す質問は、質問の読み方（⛔ 2026-10-19 の見直しで見つけた漏れ：
 # 足す質問を契約者の単位の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
 HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}
+HOW_OF.update({f"callback_{k}_{i}": "question" for k, vs in CALLBACK_ASK_AGAIN.items() for i, _ in enumerate(vs, 2)})   # 2回目からの言い方も質問の読み方
+# 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
+HOW_OF.update({"own_fallback_point": "own_fallback"})
+# お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
+HOW["closing_after_decline"] = ("電話の最後に、お客様のお断りを丁寧に受け止めてから、お時間をいただいたことへの感謝を伝えるように、前向きに、心を込めて、"
+                                "落ち着いた調子で。言葉の途中で区切らずに、なめらかに、ひと続きで")
+MAX_S["closing_after_decline"] = 9.0
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
 HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場か・お取次ぎのみかを聞く一言は長い（76字）ので、読み方と長さの上限は別  # 後任の方をお呼びする・確かめる一言（phrases.SUCCESSOR）も質問の読み方
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも

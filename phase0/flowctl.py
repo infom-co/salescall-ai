@@ -20,7 +20,7 @@ import dataclasses
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
+from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, OWN_FALLBACK_POINT, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
@@ -1568,7 +1568,7 @@ _ROLE_MEANINGS = {
     "agreed_now": {"はい": "ご説明した内容でご納得いただけたということ", "いいえ": "ご説明した内容ではご納得いただけなかったということ"}}
 
 
-def callback_question(role: str, text: str | None = None) -> "Question":
+def callback_question(role: str, text: str | None = None, nth: int = 0) -> "Question":
     """システムが足す質問（役目＝SYSTEM_ROLES の1つ）を作る唯一の場所：かけ直し・ほかの手段で聞くこと（時刻＝日時の型＝日にちだけの答えも
     受け取る・番号＝電話番号の型・メール・住所。どれも言い直して確かめる型）と、選んでいただくこと（代わりの方に、判断いただけるお立場か・
     お取次ぎのみか＝✅ 2026-10-22 ユーザー（4回目）の2つから選んでいただく問い／伝言を伝えていただけるか＝はい／いいえ）。
@@ -1576,8 +1576,12 @@ def callback_question(role: str, text: str | None = None) -> "Question":
     話を進めない側＝お礼を言って戻る時刻を聞く）。text：伝言の文（依頼主の単位。業務設定の message）。"""
     qtype = _ROLE_TYPE.get(role, "datetime")
     qid = SUBSTITUTE_ID if role == "authority" else CALLBACK_IDS[ROLE_KEY[role]]
+    # nth＝この通話で同じ質問を伺う何回目か（0から）：2回目からの言い方を順に回す（phrases.CALLBACK_ASK_AGAIN。録音は callback_（役目）_2 から）
+    lines = (CALLBACK_ASK.get(role, ""), *CALLBACK_ASK_AGAIN.get(role, ()))   # 伝言の文などは言い方の表に無い（text で渡す）
+    i = nth % len(lines)
+    recording = f"callback_{role}_{i + 1}" if i else ""
     if qtype in CHOICE_TYPES:
-        return Question(qid, text or CALLBACK_ASK[role], qtype, required=False, conditions=tuple(_ROLE_MEANINGS[role]),
+        return Question(qid, text or lines[i], qtype, required=False, conditions=tuple(_ROLE_MEANINGS[role]), recording=recording,
                         meanings=dict(_ROLE_MEANINGS[role]), topic=CALLBACK_TOPIC[role], callback=role,
                         firm_not_needed=role in ("not_agreed", "other_point", "agreed_now"))
     return Question(qid, CALLBACK_ASK[role], qtype, required=role not in ("reachable_time", "ask_who", "ask_when", "not_agreed"), conditions=("答えた",),
@@ -5382,8 +5386,11 @@ class Flow:
             self._point_end("agreed" if cond == "はい" else "declined" if cond == "いいえ" else "unresolved")
 
     def _ask_point(self, role: str, after: str) -> None:
-        """ご承認いただけなかったときの手順のシステムの質問を、前の質問のすぐあとに伺う（2回目の「ほかに…」は、答えを空にして伺い直す）。"""
-        q = callback_question(role)
+        """ご承認いただけなかったときの手順のシステムの質問を、前の質問のすぐあとに伺う（2回目からの「ほかに…」は、答えを空にして、言い方を替えて
+        伺い直す＝callback_question の nth）。"""
+        nth = self.point.setdefault("asked", {}).get(role, 0)
+        self.point["asked"][role] = nth + 1
+        q = callback_question(role, nth=nth)
         self.questions[q.id], self.items[q.id] = q, Item()
         self.follow_ups[q.id] = self.point["q"]
         self._insert_after(after, q.id)
@@ -5607,7 +5614,10 @@ class Flow:
         if self.end_reason is not None or self.trouble is not None:
             return self._ended()
         polite = ("done", "callback", "not_transferred", "departed", "other_means", "goal_refused", "not_agreed")  # お礼の締め（ほかは断られたときの締め）
-        text, rid = text or ((CLOSING, "closing") if reason in polite else (CLOSE_DECLINED, "closing_declined"))
+        # お客様がお断りになって業務の最終目的が果たせなくなった（goal_refused）：「承知いたしました。」で受けてからお礼の締め（✅ 2026-11-02 日本時間
+        # 6時33分 ユーザー：「…だと唐突なので、こちら「はい、承知いたしました。お忙しいところ…」の方がいいんじゃないでしょうか？」）
+        text, rid = text or ((CLOSING_AFTER_DECLINE, "closing_after_decline") if reason == "goal_refused" else (CLOSING, "closing") if reason in polite
+                             else (CLOSE_DECLINED, "closing_declined"))
         self._end(reason)
         if self.play_recordings and not spoken:
             item = {"kind": "opening", "part": rid, "text": text} if part else {"kind": "closing", "id": rid, "text": text}

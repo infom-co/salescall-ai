@@ -7064,7 +7064,7 @@ class EndJudgedTest(unittest.TestCase):
         # ✅ 2026-11-01 日本時間22時31分 ユーザー：「片方だけでも目的が達成できるときは、質問を続け、片方断られたら、目的は達成できない場合は、途中で
         # 締めるという形になるんではないでしょうか。」（20時56分：最終目的は業務ごと・複数ありうる・断られたらその業務だけかけない）
         from flowctl import Flow, Question
-        from phrases import CLOSING
+        from phrases import CLOSING_AFTER_DECLINE   # お断りのあとの締め（✅ 2026-11-02 日本時間6時33分 ユーザー）
         def goals(mode):
             f = Flow([Question("Q1", "会員登録のご案内をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                                final_goal=True, declines=("いいえ",)),
@@ -7080,7 +7080,7 @@ class EndJudgedTest(unittest.TestCase):
         f.on_callee(); f.on_heard("いえ、お電話も結構です。")
         r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "いいえ"})   # 全部断られた ⇒ 途中で締める（残りの質問は伺わない）
         self.assertEqual((r["result"], r["say"], f.end_reason, f.facts["goal_refused"][0]["goals"], bool(f.facts.get("do_not_call"))),
-                         ("end", CLOSING, "goal_refused", ["Q1", "Q2"], False))
+                         ("end", CLOSING_AFTER_DECLINE, "goal_refused", ["Q1", "Q2"], False))
         # 全部が要る業務：1つ断られたら、途中で締める
         g = goals("all")
         self.assertEqual((g.end_reason, g.facts["goal_refused"][0]["goals"]), ("goal_refused", ["Q1"]))
@@ -7148,7 +7148,7 @@ class EndWordsTest(unittest.TestCase):
         from end_words import ANSWER, QUIET, answer_flow
         want = [
             (self.H1, "続ける"), (self.NEXT, "続ける"),
-            ("はい、お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。", "締め（goal_refused）・この業務はかけない"),
+            ("はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。", "締め（goal_refused）・この業務はかけない"),
             (self.NEXT, "続ける"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.NEXT, "続ける"), (self.H1, "続ける"),
             (self.NEXT, "続ける"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"),
             (self.H1, "続ける"), (self.H1, "続ける"), ("", "続ける"),
@@ -10126,10 +10126,10 @@ class NoneOfThemTest(unittest.TestCase):
     def test_final_goal_is_lost(self):
         from flowctl import NONE
         # 連絡が最終目的の業務：どれも要らない＝断る答え（断る答えの宣言が無くても）＝お礼を言って締め、その業務はかけない
-        from phrases import CLOSING
+        from phrases import CLOSING_AFTER_DECLINE
         f = self.flow(True)
         r = AmbiguousAnswerTest.say(f, "そもそも要りません。", "record_answer", question_id="Q1", condition_id=NONE)
-        self.assertEqual((r["result"], r["say"], f.end_reason, f.facts["goal_refused"][0]["goals"]), ("end", CLOSING, "goal_refused", ["Q1"]))
+        self.assertEqual((r["result"], r["say"], f.end_reason, f.facts["goal_refused"][0]["goals"]), ("end", CLOSING_AFTER_DECLINE, "goal_refused", ["Q1"]))
 
     def test_otherwise_it_is_an_answer(self):
         from flowctl import NONE
@@ -10262,8 +10262,33 @@ class ApprovalTest(unittest.TestCase):
         AmbiguousAnswerTest.say(g, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
         AmbiguousAnswerTest.say(g, "料金のところですね。", "record_answer", question_id=n1, condition_id="点を言った")
         self.explained(g, "answer_料金")
-        AmbiguousAnswerTest.say(g, "でもやっぱり、今の業者で十分なので。", "record_answer", question_id=n2, condition_id="断ろうとしている")
+        r = AmbiguousAnswerTest.say(g, "でもやっぱり、今の業者で十分なので。", "record_answer", question_id=n2, condition_id="断ろうとしている")
         self.assertEqual((g.end_reason, g.facts["not_agreed"][-1]["outcome"]), ("goal_refused", "declined"))
+        # 締めは「はい、承知いたしました。お忙しいところ…」（✅ 2026-11-02 日本時間6時33分 ユーザー：「…だと唐突なので、こちら「はい、承知いたしました。
+        # お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」の方がいいんじゃないでしょうか？」）
+        from phrases import CLOSING_AFTER_DECLINE
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("end", "hai", CLOSING_AFTER_DECLINE))
+        self.assertTrue(CLOSING_AFTER_DECLINE.startswith("承知いたしました。お忙しいところ"))
+
+    def test_other_point_wording_alternates(self):
+        # 「ほかに…」を何度か伺うときは、言い方を替える（✅ 2026-11-02 日本時間6時33分 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」
+        # が続いて機械ぽいので、「ご不明点などほかにもございますでしょうか？」なども織り交ぜた方がいいんじゃないでしょうか？」）。AIが話す形も、録音で流す形も
+        from flowctl import CALLBACK_IDS
+        n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        first, second = "ほかにご納得いただけない点はございますでしょうか？", "ご不明点などほかにもございますでしょうか？"
+        for play in (False, True):
+            f = self.flow(goal=True, play=play)
+            AmbiguousAnswerTest.say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+            AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+            AmbiguousAnswerTest.say(f, "料金のところですね。", "record_answer", question_id=n1, condition_id="点を言った")
+            r, seen = self.explained(f, "answer_料金"), []
+            for words, part in (("あと、期間も気になります。", "answer_期間"), ("途中でやめられるんですか？", "answer_解約"), ("やめたら費用はかかりますか？", "answer_費用")):
+                seen.append([(p["id"], p["text"]) for p in r["play"]] if play else f.questions[n2].text)
+                AmbiguousAnswerTest.say(f, words, "record_answer", question_id=n2, condition_id="分からない点がある")
+                r = self.explained(f, part)
+            seen.append([(p["id"], p["text"]) for p in r["play"]] if play else f.questions[n2].text)
+            want = [first, second, first, second]
+            self.assertEqual(seen, [[(i, t)] for i, t in zip(["callback_other_point", "callback_other_point_2"] * 2, want)] if play else want, play)
 
     def test_point_choices_are_only_the_meanings(self):
         # システムの質問（ご承認いただけなかったときの手順・お立場）には「どちらでも」「どれも要らない」を出さない
