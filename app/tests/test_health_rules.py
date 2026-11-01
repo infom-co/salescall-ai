@@ -172,6 +172,8 @@ def task_events(state):
     yield "E5 ほかの行・前", ev("E5", now, own=False, started_at=T0 - 10 * MIN)
     yield "E11 frozen", ev("E11", now)
     yield "E11 ほかの種類", ev("E11", now, kind="poor_db")
+    yield "E21 frozen", ev("E21", now, kind="frozen")                  # 書き込みの戻り（試験では待っている種類と同じ名前で当てる）
+    yield "E21 ほかの種類", ev("E21", now, kind="poor_db")
     yield "E12", ev("E12", now)
     yield "E15", ev("E15", now)
     for blame, attempt in itertools.product(("番号", "回線"), ("a1", "a8")):
@@ -500,7 +502,7 @@ class Decisions(unittest.TestCase):
         """2026-10-15 管理者：「何で止まったのかは確認できるようにしてあるの？人の判断でが再開できる仕組みは？」（L-21・C-6）"""
         rest = Line(LS.AUDIO_REST, j=2, t=3, audio=frozenset({"n7"}), next_at=T0, entered_at=T0 - 60 * MIN)
         out = ok(self, h.apply(rest, ev("E12"), R))
-        self.assertEqual((out.state, out.rows), (Line(LS.HEALTHY), ("L-21",)))   # t・m・j を0に
+        self.assertEqual((out.state, out.rows), (Line(LS.HEALTHY, j=2), ("L-21",)))   # t・m・声の続きを0に（j は残す＝見直し28）
         self.assertIn("直ったことを確かめた", out.actions[0].get("about"))         # 理由を記録する
         stopped = Tenant(CS.STOPPED, rows=(("frozen", frozenset({"t1", "t2", "t3"})),), stopped=frozenset({"frozen"}), since=T0)
         out = ok(self, h.apply(stopped, ev("E12"), R))
@@ -538,6 +540,22 @@ class Decisions(unittest.TestCase):
         self.assertEqual(whats(fixed), [h.REDIAL])
         before = ok(self, h.apply(Task(TS.ON_PLAN, plan="p"), ev("E3"), R))     # お客様が出る前に終えた：かけた予定のまま
         self.assertEqual(ok(self, h.apply(before.state, ev("E11", T0 + MIN), R)).actions[0].get("how"), "かけた予定のまま")
+
+    def test_1031_a_database_stall_is_called_back_when_writes_come_back(self):
+        """2026-10-31 管理者（伺い5）：「話していた電話はお詫びして終え、復旧次第お詫びとともにかけ直します」（R-6 の E21）。書き込みの
+        戻り（E21）で、データベースの止まりで待つ行はお詫びとともにかけ直す（ほかの行の電話を話し終えるのを待たない）。違う種類で待つ行は
+        何もしない（R-19）。休みの行（同じ行で2回）には渡さない（G-R14）＝直した版か手で戻す（R-8・R-10 は変えない）。"""
+        stall = ev("E3", answered=True, rang=True, kind="call_storage_stuck")
+        out = ok(self, h.apply(Task(TS.ON_PLAN, plan="p"), stall, R))
+        self.assertEqual((out.state.stage, out.rows), (TS.AWAIT_RECOVERY, ("R-5",)))
+        back = ok(self, h.apply(out.state, ev("E21", T0 + MIN, kind="call_storage_stuck"), R))
+        self.assertEqual((back.state.stage, back.state.n, whats(back), back.rows), (TS.ON_PLAN, 1, [h.REDIAL], ("R-6",)))
+        other = ok(self, h.apply(out.state, ev("E21", T0 + MIN, kind="call_frozen"), R))
+        self.assertEqual((other.state, other.rows), (out.state, ("R-19",)))
+        rest = ok(self, h.apply(back.state, ev("E3", T0 + 2 * MIN, answered=True, rang=True, kind="call_storage_stuck"), R))
+        self.assertEqual((rest.state.stage, rest.rows), (TS.RESTING, ("R-8",)))   # 同じ行で2回：休む（変えない）
+        gap = h.apply(rest.state, ev("E21", T0 + 3 * MIN, kind="call_storage_stuck"), R)
+        self.assertEqual((type(gap).__name__, gap.gap), ("Mistake", "G-R14"))
 
     def test_1018_plan_a_immediate_apology_calls_twice_in_a_row_then_the_usual_rule(self):
         """2026-10-18 管理者 案A：お詫びのすぐのかけ直しは、同じ行で続けて2回まで。それでも切れたら、ふつうのかけ直しの決まり（R-11）。"""
@@ -813,8 +831,13 @@ class Decisions(unittest.TestCase):
             self.assertEqual(third.state.next_at - (again.state.next_at + 2 * MIN), GAP[1])   # 15→30
             talked = ok(self, h.apply(resumed, ev("E5", T0 + 3 * MIN), r)).state
             self.assertEqual(talked.j, 0)   # 声が聞き取れて話し終えた電話で0に戻る
-        manual = ok(self, h.apply(Line(LS.AUDIO_REST, j=3, next_at=T0, entered_at=T0), ev("E12"), R))
-        self.assertEqual(manual.state, Line(LS.HEALTHY))
+        # 手で再開しても、テスト番号で再開したのと同じ（再開したあとの欄は1か所＝health_rules._resumed）：j は残し、また聞き取れなければ
+        # 1本で止め直し、次に試すまで並びの次の長さをあける（⛔ 見直し28：前は手で再開すると j まで0に戻した）
+        manual = ok(self, h.apply(Line(LS.AUDIO_REST, j=3, suspect=2, audio=frozenset({"n1"}), next_at=T0, entered_at=T0),
+                                  ev("E12"), R))
+        self.assertEqual(manual.state, Line(LS.HEALTHY, j=3))
+        again = ok(self, h.apply(manual.state, ev("E4", T0 + MIN, number="n5"), R))
+        self.assertEqual((again.state.stage, again.state.j, again.state.next_at), (LS.AUDIO_REST, 4, T0 + MIN + GAP[2]))
 
     def test_1029_a_temporary_test_number_in_the_settings_and_tell_when_none(self):
         """2026-10-29 管理者：「一時的なtestcallは環境設定に追加」（L-8・L-13・L-15：テスト番号が無いときは知らせて待つ。E14 で動く）"""

@@ -22,7 +22,7 @@
 - **CL-1 の 10-22 の報告（2026-10-22 足した。CL-1 の連絡帳 2-2・4-26・4-27。どれも無くてもよい＝版は3のまま）**：
   - 締めた理由 `not_transferred`（受付の方が、営業のお断りではない事情で取り次げないと言った）と、同じ発話の事実 `not_transferred`。
     判定は、繋がらなかった理由（`not_reached`）で読む（事実は記録だけ）。
-  - 事実 `answered`（相手の質問に、決まった答えの録音を流した。`part`＝想定問答の部分の名前 `answer_…` か、答えられない質問 `unknown`）。
+  - 事実 `answered`（相手の質問に、決まった答えの録音を流した。`part`＝想定問答の部分の名前 `answer_…`。2026-10-22 に「答えられない質問」`unknown` は取り下げ＝CL-1 の連絡帳 4-28）。
     記録だけ（判定には使わない）。
   - 事実 `target_back`（かけ直しの質問の途中で、目的のお客様かを確かめに戻った。`why`）・`callback_resume`（確かめた方が目的のお客様で
     なく、かけ直しの質問の続きへ戻った。`why`・`read`）。記録だけ。
@@ -107,7 +107,7 @@ CALLBACK_REASONS = ("absent", "long_absent", "day_off", "other_number", "later",
 ABSENT_REASONS = ("absent", "long_absent", "day_off")   # 不在の仲間（戻る時刻が取れなければ「不在」の方針。judge の順7 の1か所が読む）
 ENDING_CALLBACKS = ("other_means",)                      # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
 CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")   # お客様の申し出（CL-1 の OFFER_LABEL）：折り返し・伝言・メール・ファクス・郵送
-CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた宛先・伝言の答え（取れた値の文字か null。CL-1 の CALLBACK_IDS）
+CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた宛先・伝言の答え（取れた値の文字か null。CL-1 の CALLBACK_FIELD の値の一部）
 CONNECT_WHO = ("target", "successor", "substitute")      # 繋いだ方：目的のお客様・後任の方・代わりの方（CL-1 の connect の who）
 # 相手の申し出への応じ方の選択肢（業務設定。CL-1 の flowctl.POLICIES と同じ値。最初が既定＝2026-10-22 ユーザー決定）。正本はここだけ：
 # 業務設定の確かめ（business_settings.POLICIES＝鍵に _policy を付けたもの）も、会話の報告の事実（代わりの方・在籍していない）も、これを読む
@@ -223,7 +223,7 @@ class Callback:
 @dataclass(frozen=True)
 class Answered:
     """相手の質問に、決まった答えの録音を流した（事実 answered）。"""
-    part: str                    # 想定問答の部分の名前（answer_…）か、答えられない質問（unknown）
+    part: str                    # 想定問答の部分の名前（answer_…。CL-1 の Flow が流した答えだけ。「答えられない質問」unknown は取り下げ済み）
     evidence: Said
 
 

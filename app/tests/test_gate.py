@@ -1601,9 +1601,20 @@ class NameLedger(Content):
         self.tx(s, lambda tx: next_action.schedule_now(tx, tid, cause="試験"))
         return dict(s, task=tid, contact=k)
 
+    def test_the_parts_cl1_added_on_11_01_are_received(self):
+        """CL-1 が main（c4c8ffe・fe0e765）で足した、理由を言わずに取り次げないと言われたときの録音の部分（2026-11-01 ユーザーのご指示）：
+        お取り次ぎいただける日時を伺う一言 callback_transfer_time・後任の方への確かめ successor_unavailable は契約者の単位の録音（話して
+        よい声が求める＝`CONTRACTOR_PARTS`）、お名前の入る確かめの一言 unavailable_confirm は名前の録音の台帳の続く言葉（`NAME_TAILS`・
+        データベースの守り 0165）で、質問の番号に使えない名前（`business_settings.RESERVED_IDS`）。⛔ 見直し28：前はどれも無く、その一言を
+        流せないまま声を「話してよい」にしていた。"""
+        from salescall.core import business_settings
+        self.assertLessEqual({"callback_transfer_time", "successor_unavailable"}, set(recordings.CONTRACTOR_PARTS))
+        self.assertIn("unavailable_confirm", recordings.NAME_TAILS)
+        self.assertIn("unavailable_confirm", business_settings.RESERVED_IDS)
+
     def test_what_a_row_needs(self):
         """その行で要るもの（name_needs の1か所）：法人の名前の行は、役職の部分（部署・役職があるとき）・名前の部分と、続く言葉の呼ぶ
-        一言・確かめる一言・聞き返し・約束の一言・後任の方の一言。役職のみは役職の呼び方が名前の部分（役職の部分は要らない）。個人は
+        一言・確かめる一言・聞き返し・約束の一言・取り次げないの確かめの一言・後任の方の一言。役職のみは役職の呼び方が名前の部分（役職の部分は要らない）。個人は
         呼ぶ一言が target_individual で、後任の方が無い。誰でもは何も要らない。"""
         s = self.ready()
         self.switch_to(s, {"kind": "role_and_name", "role": "営業部部長"})
@@ -1611,7 +1622,8 @@ class NameLedger(Content):
         got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         K = recordings.NameKey
         self.assertEqual((got.roles, got.names), (("営業部部長",), (K(reading="おかだ"),)))
-        self.assertEqual(got.tails, ("target", "target_confirm", "target_reconfirm", "promise_again", "target_successor"))
+        self.assertEqual(got.tails, ("target", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm",
+                                     "target_successor"))   # 取り次げないの確かめの一言（CL-1 が 11-01 に足した）も、目的のお客様のいる行はいつも要る
         b = self.ready()
         got = self.tx(b, lambda tx: recordings.name_needs(tx, b["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(role=support.DEFAULT_ROLE),)))
@@ -1622,7 +1634,7 @@ class NameLedger(Content):
         with mock.patch.object(recordings.business_settings, "target_of", return_value=person):
             got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(reading="おかだ"),)))
-        self.assertEqual(got.tails, ("target_individual", "target_confirm", "target_reconfirm", "promise_again"))
+        self.assertEqual(got.tails, ("target_individual", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm"))
         with self.assertRaises(ValueError):                                   # 名前の部分の鍵は、読みか役職のどちらか1つ
             K(reading="おかだ", role="社長")
 

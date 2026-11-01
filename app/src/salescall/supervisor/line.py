@@ -66,7 +66,8 @@ from uuid import UUID
 
 from salescall.core import (attempts, conversation_io, dial_exit, gate, health, leases, next_action, ring_test, scheduler, settings,
                             troubles, watch)
-from salescall.core.access import Access, Actor, Tx
+from salescall.core.access import Access, Actor, TimedOut, Tx
+from salescall.core.errors import ErrorReport
 from salescall.core.health_rules import LineStage
 from salescall.link.protocol import APOLOGY_WAIT
 from salescall.supervisor import ACTOR, call_began, call_over, plugins, report, updates
@@ -463,16 +464,38 @@ def call_limits(tx: Any) -> CallLimits:
     return CallLimits(frozen_after(tx))
 
 
-def storage_back(access: Access, tenant_id: UUID) -> bool:
-    """データベースが止まって電話を終えた回線が、次の電話をかけてよいか（1か所）：いちばん小さな書き込み（core/attempts.write_probe）が、
-    確定まで call.frozen_after のうちに終わったときだけ True（データベースへの書き込みが戻った＝復旧）。2026-10-31 管理者「数えないで
-    OK」（伺い5 の案1）：データベースの一時的な止まりは違う行の数に数えず（errors.counts_rows）、話していた電話はおわびして終え、復旧
-    次第おわびとともにかけ直す。戻らないあいだは、その回線は新しい電話をかけない（⛔ 前は、データベースが遅いだけで動いているときは、
-    門が通って次のお客様へかけ、また止まっておわびして終えることがあった）。書けなければ（誤り）、外の見張りが記録して待つ。"""
+def storage_back(access: Access, tenant_id: UUID, line_id: UUID, holder: str) -> bool:
+    """データベースが止まって電話を終えた回線が、次の電話をかけてよいか（1か所）：その回線の借用を延ばす実際の書き込み（core/leases.take_line。
+    表の行の鍵を取って書く＝鍵を待つ形の止まりも見える）が、確定まで call.frozen_after のうちに終わったときだけ True（データベースへの
+    書き込みが戻った＝復旧）。取引には同じ長さの時間切れ（statement_timeout）を付け、時間切れなら False（データベースが固まっていても、
+    回線の流れごと止まらない＝止める合図も効く）。2026-10-31 管理者「数えないでOK」（伺い5 の案1）：データベースの一時的な止まりは違う行の
+    数に数えず（errors.counts_rows）、話していた電話はおわびして終え、復旧次第おわびとともにかけ直す（戻ったら core/health.storage_back が
+    復旧待ちの行へ伝える＝`loop`）。戻らないあいだは、その回線は新しい電話をかけない。⛔ 見直し28：前の確かめ（取引の番号を取るだけ）は、
+    表の鍵を待つ形の止まりを見られず、時間切れも無かった。"""
     limit = access.in_tenant(ACTOR, tenant_id, frozen_after)
+
+    def probe(tx: Tx) -> None:
+        tx.time_limit(limit)
+        leases.take_line(tx, line_id, holder)
     began = time.monotonic()
-    access.in_tenant(ACTOR, tenant_id, attempts.write_probe)
+    try:
+        access.in_tenant(ACTOR, tenant_id, probe)
+    except TimedOut:
+        return False
     return time.monotonic() - began <= limit
+
+
+def storage_not_back(access: Access, tenant_id: UUID, line_id: UUID) -> None:
+    """書き込みが戻らない続きのはじめに1回だけ（`loop`）：保存の誤りとして記録し、管理者へ知らせ、CL-2 へ修正依頼を出す（errors の
+    「storage」の処置。回線が知らせも記録もないまま止まり続けない＝⛔ 見直し28：前は、確定に毎回 call.frozen_after より長くかかる状態が
+    続くと、その回線は黙って新しい電話をかけなくなった）。記録できなくても止めない（データベースに届かないときは、門が判断できないので
+    発信は自然に止まる）。"""
+    try:
+        watch.after_error(access, ACTOR, ErrorReport("storage", None, "データベースへの書き込みが、決めた長さのうちに終わらない"
+                                                     "（データベースの止まりで電話を終えた回線が、次の電話を待っている）"),
+                          tenant_id=tenant_id, line_id=line_id)
+    except Exception:  # noqa: BLE001 データベースに届かないときも、回線の処理は止めない
+        pass
 
 
 def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id: UUID, client_id: UUID) -> Any:
@@ -591,13 +614,18 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
     pause = int(access.in_tenant(ACTOR, tenant_id, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))
     stuck = Stuck()
     storage = False   # 前の電話を、データベースが止まって終えた：書き込みが戻ったと確かめるまで、次の電話をかけない（`storage_back`）
+    told = False      # 書き込みが戻らない続きを、もう記録した（続きのあいだは2回目を出さない。戻ったら数え直す）
     while not stop.is_set():
         try:
             if storage:
-                if not storage_back(access, tenant_id):
+                if not storage_back(access, tenant_id, line, holder):
+                    if not told:
+                        storage_not_back(access, tenant_id, line)
+                        told = True
                     stop.wait(IDLE_SECONDS)
                     continue
-                storage = False
+                storage = told = False
+                access.in_tenant(ACTOR, tenant_id, health.storage_back)   # 復旧待ちの行へ（E21。止まりで終えた行をかけ直す）
             # プログラムとデータベースの版が合わなければ、新しい電話をかけない（中央の見守り役が立ち上げたあとでデータベースが
             # 新しくなった、でも、かける処理が自分の版で確かめる。supervisor.updates）
             if access.in_tenant(ACTOR, tenant_id, updates.current) != updates.SAME:

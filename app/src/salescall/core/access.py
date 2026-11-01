@@ -70,6 +70,10 @@ class RetryExhausted(Exception):
     """ほかの取引とのぶつかりが続き、決めた回数やり直しても終わらなかった。"""
 
 
+class TimedOut(Exception):
+    """取引の中の読み書きが、`Tx.time_limit` で決めた長さのうちに終わらなかった（データベースが固まった・遅い）。"""
+
+
 # データベースが「約束に反する」として拒んだもの。⇒ Rejected にする
 _REJECTIONS = (errors.IntegrityError, errors.InsufficientPrivilege, errors.RaiseException,
                errors.ReadOnlySqlTransaction)   # 書かない取引で書こうとした
@@ -83,11 +87,18 @@ class Tx:
     def __init__(self, conn: psycopg.Connection[dict[str, Any]]) -> None:
         self._conn = conn
 
+    def time_limit(self, seconds: float) -> None:
+        """この取引の、ここから先の読み書き1つずつの長さの上限（1か所。データベースの決まり statement_timeout をこの取引だけに付ける）。
+        超えたら `TimedOut`。データベースが固まっていても、待ち続けない所が使う（supervisor/line.storage_back。見直し28）。"""
+        self._conn.execute("SELECT set_config('statement_timeout', %s, true)", (f"{max(1, int(seconds * 1000))}ms",))
+
     def execute(self, sql: str, params: tuple[Any, ...] | dict[str, Any] | None = None) -> psycopg.Cursor[dict[str, Any]]:
         try:
             return self._conn.execute(sql, params)
         except _CONFLICTS:
             raise
+        except errors.QueryCanceled as e:
+            raise TimedOut(str(e)) from e
         except _REJECTIONS as e:
             diag = e.diag
             raise Rejected(e.sqlstate, diag.constraint_name, diag.message_primary or str(e)) from e

@@ -514,6 +514,13 @@ class Import(unittest.TestCase):
             with self.subTest(decide=decide):
                 p = self.preview(data, decide_facts=decide)
                 self.assertEqual((p.problems, [q["asks_fact"] for q in p.raw["questions"]]), ([], [True, True]))
+        from tests.test_business_settings import raw            # 文が空の質問：AI には聞かず真で埋め、問題は「文」の1つだけ
+        r = raw()
+        r["questions"][1].update(text="", asks_fact=None)
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], r))
+        self.assertEqual(p.raw["questions"][1]["asks_fact"], True)
+        self.assertEqual([x for x in p.problems if "Q2" in x], [next(x for x in p.problems if "Q2" in x and "文" in x)])
+        self.assertFalse([x for x in p.problems if "事実を伺う質問か" in x])
 
     def test_other_entrances_go_the_same_way(self):
         """依頼者の画面から抜き出した中身（同じ形）も、同じ確かめと登録の道を通る。"""

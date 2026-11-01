@@ -559,6 +559,21 @@ def stuck(tx: Tx, line_id: UUID, lasted: float, since: datetime | None = None) -
     return since
 
 
+def storage_back(tx: Tx) -> None:
+    """データベースへの書き込みが戻った（E21。データベースの止まりで電話を終えた回線が、次の電話の前に、決めた長さのうちに書けると
+    確かめた＝supervisor/line.storage_back の1か所が呼ぶ）：その契約者の復旧待ちの行へ渡す。待っている種類がデータベースの止まり
+    （errors.TROUBLES の storage_stuck）の行は、R-6 のとおり、お詫びとともにすぐかけ直す（2026-10-31 管理者：伺い5「話していた電話は
+    お詫びして終え、復旧次第お詫びとともにかけ直します」。⛔ 見直し28：前は、ほかの行の電話を不具合なく話し終えるか、直した版に替わる
+    まで戻らず、一覧の最後の1行のように、ほかにかける行が無いと、お詫びの電話がかからなかった）。休みの行（同じ行で2回止まった）には
+    渡さない（その行の問題かもしれない＝R-10 のとおり、直した版か手で戻す）。"""
+    run = _Run(tx, "storage_back")
+    (waiting,) = run.take((TASK, Stages(("await_recovery",))))
+    ev = hr.Event("E21", run.now, kind=errors.TROUBLES["storage_stuck"])
+    for t in waiting:
+        run.give(t, ev)
+    run.save()
+
+
 def fixed(tx: Tx) -> None:
     """種類 k の修正依頼が「直した」と記録され、そのあと動いているプログラムの版が替わった（E11。時刻は今の作りの1か所
     salescall.trouble_fixed_at）。同じ「直した版」は1回だけ（契約者の移った記録の once）。その契約者の欄が動き始める前に替わった版は

@@ -214,10 +214,10 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "ai_again", "apology_cut_off", "apology_missed_promise", "apology_purpose_later", "apology_purpose_same_day", "arigatou", "back", "callback_address", "callback_ask_when",
     "callback_ask_who", "callback_authority", "callback_back_date", "callback_back_time", "callback_back_today",
     "callback_call_again", "callback_email", "callback_next_workday", "callback_fax", "callback_later_time", "callback_number",
-    "callback_reachable_time", "closing", "closing_declined", "departed", "dou", "greeting", "hai", "hold_timeout", "ikaga",
+    "callback_reachable_time", "callback_transfer_time", "closing", "closing_declined", "departed", "dou", "greeting", "hai", "hold_timeout", "ikaga",
     "line_trouble_ask", "line_trouble_bye", "moshimoshi", "moushiwake", "moushiwake_heavy", "number_again_unreachable",
     "number_again_wrong_party", "offer_thanks", "own_fallback", "shitsurei", "shouchi", "successor_call",
-    "successor_confirm", "successor_reconfirm", "talk_agree_deep", "talk_agree_high", "talk_agree_light", "talk_cared",
+    "successor_confirm", "successor_reconfirm", "successor_unavailable", "talk_agree_deep", "talk_agree_high", "talk_agree_light", "talk_cared",
     "talk_hard_bright", "talk_hard_sad", "talk_heard_glad", "talk_heard_nod", "talk_heard_sad", "talk_osewa",
     "talk_praised", "talk_welcome", "talk_yoroshiku", "wait", "wait_heavy")
 
@@ -269,7 +269,7 @@ def missing_parts(tx: Tx) -> list[str]:
 # 続く言葉の名前（データベースの守り 0134 の recording_sets_name_key と同じ。名前の正本は CL-1 の Business.replay_parts の部分の名前。呼ぶ一言は法人と個人で
 # 続く言葉が違うので、個人は target_individual）
 NAME_TAILS: tuple[str, ...] = ("target", "target_individual", "target_confirm", "target_reconfirm", "promise_again",
-                               "target_successor")
+                               "target_successor", "unavailable_confirm")
 
 
 @dataclass(frozen=True)
@@ -312,7 +312,7 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
     role = target["role"] or None
     named = bool(target["name"])
     tails = ("target" if corporate or not named else "target_individual", "target_confirm", "target_reconfirm",
-             "promise_again") + (("target_successor",) if corporate else ())
+             "promise_again", "unavailable_confirm") + (("target_successor",) if corporate else ())
     if named:
         reading = target["reading"] or None
         if reading is None:

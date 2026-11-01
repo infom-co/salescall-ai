@@ -311,6 +311,26 @@ class Versions(unittest.TestCase):
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v",
                                                    (self.s["run"],))["v"]), back)
 
+    def test_a_version_saved_before_asks_fact_is_read_as_fact_questions(self):
+        """「事実を伺う質問か」（asks_fact。2026-11-01 に足した）の無い、前に置いた版も読める（版の中身は書き換えられないので、読む側の
+        1か所 `_current_shape` で今の形に直す）。無い質問は真（事実を伺う質問＝取込で決まらないときと同じ側）。前の版へ戻した新しい版は、
+        今の形で置かれる（⛔ 見直し28：前は、足す前に置いた版が読めず、その版の実施回はかけられなかった）。"""
+        from unittest import mock
+        old_content = bs._content
+
+        def before_asks_fact(s):
+            c = old_content(s)
+            return dict(c, questions=[{k: v for k, v in q.items() if k != "asks_fact"} for q in c["questions"]])
+
+        with mock.patch.object(bs, "_content", before_asks_fact):
+            v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
+        stored = self.tx(lambda tx: tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (v,)))
+        self.assertFalse(any("asks_fact" in q for q in stored["content"]["questions"]))   # 前の形のまま置いてある
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual([q.asks_fact for q in got.questions], [True, True])
+        back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
+        self.assertEqual([q["asks_fact"] for q in back.raw["questions"]], [True, True])
+
     def test_responses_are_kept_in_the_version(self):
         """相手の申し出への応じ方・伝言の文・業務の情報は版に残り、読み直しても同じ（前の版へ戻しても同じ）。"""
         r = raw()

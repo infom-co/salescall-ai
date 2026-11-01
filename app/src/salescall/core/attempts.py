@@ -205,13 +205,6 @@ def end_for_trouble(tx: Tx, attempt_id: UUID, reason: str, why: str | None = Non
                   " RETURNING attempt_id", (reason, why, attempt_id)) is not None
 
 
-def write_probe(tx: Tx) -> None:
-    """データベースへの書き込みが戻ったかを確かめる、いちばん小さな書き込み（取引の番号を取らせ、確定まで書かせる。表は変えない）。
-    データベースが止まって通話を終えた回線が、次の電話の前に、これが call.frozen_after のうちに終わるかを見る（supervisor/line.loop の
-    1か所。2026-10-31 管理者：データベースの一時的な止まりは違う行の数に数えず、戻らないあいだは新しい電話をかけない）。"""
-    tx.one("SELECT pg_current_xact_id() AS x")
-
-
 def withheld(tx: Tx, attempt_id: UUID) -> None:
     """発信の出口だけが呼ぶ。PC の部品が電話をかけようとしなかった（PC の上の緊急停止・PC がつながっていない・前の頼みを待つうちに
     答えの期限を過ぎた＝お客様の電話は鳴っていないし、番号も回線も試していない。かけようとして、かけられなかったものは「発信に失敗」

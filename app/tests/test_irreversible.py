@@ -754,6 +754,13 @@ class ForbiddenUnclearCut(Helpers):
         self.assertEqual(self.tx(s, settle.rejudge_held), [])                    # もう待っていない（繰り返さない）
         with self.assertRaises(LookupError):                                    # 答えを求めていない
             self.approve(s, aid)
+        # 決まったとみなした中身は、承認と同じく決まった扱い：設定を戻して締め直しても、契約者に答えを求め直さず、知らせも重ねない
+        # （⛔ 見直し28：前は待つ中身から外さず、もう発信禁止と行の終わりを書いたお客様について答えを求め直しえた）
+        self.put_client(s, "decision.undecided_as_decided", False)
+        self.tx(s, lambda tx: settle.resettle(tx, aid))
+        self.assertEqual((self.asks(s), self.notices(s, "decision_assumed")), ([], before + 1))
+        self.assertEqual(self.last_wait(s, aid)["checked"], "assumed")
+        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
         t = self.ready()                                                          # はじめから「はい」：締めた時に決まったとみなす
         self.put_client(t, "decision.undecided_as_decided", True)
         aid = self.forbidden_call(t, rebuilt=rep(cut=self.UNCLEAR, check="none"))

@@ -232,12 +232,12 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         time.sleep(1.1)
         sid = self.config_stop()
         self.assertIn(sid, [r["event_id"] for r in self.a.in_tenant(SYSTEM, self.s["tenant"], watch.due_checks)])
-        got = self.check(sid, True)
+        got = self.check(sid, False)                              # 失敗：まだ解かない
+        self.assertEqual((got["streak"], got["resumed"]), (0, None))
         with self.assertRaises(watch.NotDue):                      # 待ちの途中の確かめは受け付けない
             self.check(sid, True)
-        self.wait_until_due(got)
-        got = self.check(sid, False)                              # 失敗で数え直し
-        self.assertEqual(got["streak"], 0)
+        # 確かめが通れば再開（2026-10-31 管理者：「確かめが通れば自動で再開します」。0165 で 2 回から 1 回に＝見直し28）
+        self.assertEqual(got["need"], 1)
         for n in range(1, got["need"] + 1):
             self.wait_until_due(got)
             got = self.check(sid, True)
@@ -247,10 +247,10 @@ class TenantAiStopsAndChecks(unittest.TestCase):
 
     def test_flapping_makes_the_wait_longer(self):
         first = self.config_stop()
-        g1 = self.check(first, True)
+        g1 = self.check(first, False)                               # 通らない確かめ（1回通れば解ける＝0165）
         self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, first, reason="試験"))
         second = self.config_stop()                                 # 短い間に、また止まった
-        g2 = self.check(second, True)
+        g2 = self.check(second, False)
         at = lambda sid: self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
             "SELECT checked_at FROM salescall.stop_checks WHERE stop_event_id = %s", (sid,)))["checked_at"]
         self.assertGreater(g2["next_check_at"] - at(second), g1["next_check_at"] - at(first))

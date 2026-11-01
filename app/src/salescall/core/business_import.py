@@ -581,8 +581,12 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     for key in ("meanings", "replies"):                              # 選択肢の質問：入口が持ってこなければ、AI の答えを入れる
         for q, choices in _choice_questions(raw, key):
             q[key] = (ai.get(key) or {}).get(_pair_key(q["text"], choices)) or None
-    for q in _fact_questions(raw):                                  # 事実を伺う質問か：決まらなければ真（`FactDecider`・CL-1 の決め方と同じ側）
-        q["asks_fact"] = (ai.get("facts") or {}).get(q["text"], True)
+    for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else []):
+        # 事実を伺う質問か：入口に無ければ AI の答え、決まらなければ（文が空で聞いていない質問も）真（`FactDecider`・CL-1 の決め方と
+        # 同じ側。文が空の質問は「文が空」の問題だけが出る＝同じ質問に問題を2つ出さない）
+        if isinstance(q, dict) and q.get("asks_fact") is None:
+            text = q.get("text") if isinstance(q.get("text"), str) else None
+            q["asks_fact"] = (ai.get("facts") or {}).get(text, True)
     for key in ("company", "person"):
         c = caller.get(key)
         if isinstance(c, dict) and c.get("text"):

@@ -112,8 +112,11 @@ class SameNames(unittest.TestCase):
         self.assertEqual(usage.judge_service(JEV), usage.JUDGE_SERVICES[JEV])
         self.assertEqual(usage.judge_service(SONNET, errors.DIRECT), usage.JUDGE_SERVICES[SONNET])
         self.assertEqual(usage.judge_service(SONNET, EMERGENCY), usage.JUDGE_EMERGENCY_SERVICE)
-        with self.assertRaises(KeyError):
-            usage.judge_service("知らない判定")
+        # 知らない判定の名前（会話の側が顔ぶれ・版を替えて、ここに足し忘れた）でも落ちない：単価の無い名前で量だけ残す（⛔ 見直し28：
+        # 前は KeyError で落ち、その判定の利用量が残らなかった）。緊急の道は、判定の名前によらず緊急の道の名前
+        self.assertEqual(usage.judge_service("知らない判定"), usage.JUDGE_UNKNOWN + "知らない判定")
+        self.assertEqual(usage.judge_service("知らない判定", EMERGENCY), usage.JUDGE_EMERGENCY_SERVICE)
+        self.assertFalse(set(usage.JUDGE_SERVICES.values()) & {usage.JUDGE_UNKNOWN + n for n in usage.JUDGE_SERVICES})
 
 
 class _Base(unittest.TestCase):

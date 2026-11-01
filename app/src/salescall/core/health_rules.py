@@ -290,6 +290,8 @@ EVENT_NAMES = {
     "E19": "お客様の「もうかけないで」・業務の終わり（R-14）",
     # 2026-10-30 夜 管理者の決定で足した出来事
     "E20": "声が聞き取れなかったお客様が、ほかの回線でも聞き取れなかった（お客様の回線のせいと分かった。番号 n）",
+    # 2026-11-01 の見直し28で足した出来事（2026-10-31 管理者：伺い5「話していた電話はお詫びして終え、復旧次第お詫びとともにかけ直します」）
+    "E21": "データベースへの書き込みが戻った（止まりで終えた回線が、決めた長さのうちに書けると確かめた。種類 k＝データベースの止まり）",
 }
 
 COMPOSITE = frozenset({"E4", "E5"})   # E1 でもある出来事（自分の電話のとき。読み方：E1 の行を先に、続けて E4・E5 の行）
@@ -304,7 +306,7 @@ class Event:
     number: str | None = None
     line: str | None = None
     task: str | None = None
-    kind: str | None = None                 # E3・E11：不具合の種類 k
+    kind: str | None = None                 # E3・E11・E21：不具合の種類 k
     rang: bool | None = None                # E3：お客様のところで鳴ったあとか
     answered: bool | None = None            # E3：お客様が出たあとか
     own: bool = True                        # E5：受ける行の電話か（行の表。ほかの行の電話なら False）
@@ -325,7 +327,7 @@ _EVENT_NEEDS: dict[str, tuple[str, ...]] = {
     "E4": ("attempt", "number", "line"), "E5": ("attempt", "number", "started_at"),
     "E6": (), "E7": (), "E8": (), "E9": (), "E10": (), "E11": ("kind",), "E12": ("by", "reason"), "E13": ("by", "reason"),
     "E14": (), "E15": ("line",), "E16": ("attempt", "blame", "call_at"), "E17": ("since",), "E18": ("line",),
-    "E19": (), "E20": ("number",),
+    "E19": (), "E20": ("number",), "E21": ("kind",),
 }
 
 
@@ -689,13 +691,23 @@ def _l33(line: Line, ev: Event, rules: Rules) -> _Step:
     return _Step(line, (_do(DECIDED, attempt=ev.attempt, blame="回線"),))
 
 
+def _resumed(line: Line) -> Line:
+    """休ませた回線を再開したあとの回線の欄（1か所。手で再開＝L-21・テスト番号で再開＝L-24 が同じものを使う）：声の続き・お客様の
+    回線のせいと見た続きは0から。声で止めた回数（j）は残す＝また聞き取れなければ1本で止め直し、次に試すまで並びの次の長さをあける。
+    j を0に戻すのは、声が聞き取れて話し終えた電話（E5＝L-1）だけ（2026-10-29 管理者：「テスト番号が鳴れば再開のあと、また聞き取れなければ
+    止め直し、次に試すまで 15→30→60→120→240分あけます。+管理者か契約者が、直ったことを確かめて手で再開も可能」・2026-10-30 夜：数え直すのは
+    話し終えた電話があったときだけ）。⛔ 見直し28：前は手で再開すると j まで0に戻し、声がまだ悪い回線が違うお客様2人へ聞き取れない電話を
+    かけてから止まり、あける長さも最初の15分に戻った。"""
+    return Line(LineStage.HEALTHY, j=line.j)
+
+
 def _l21(line: Line, ev: Event, rules: Rules) -> _Step:
-    return _Step(Line(LineStage.HEALTHY), (_do(RECORD, about=f"{ev.by}が手で再開した：{ev.reason}"),
-                                           _do(NOTIFY, to=("契約者",), note="resumed", about="この回線を手で再開しました")))
+    return _Step(_resumed(line), (_do(RECORD, about=f"{ev.by}が手で再開した：{ev.reason}"),
+                                  _do(NOTIFY, to=("契約者",), note="resumed", about="この回線を手で再開しました")))
 
 
 def _l24(line: Line, ev: Event, rules: Rules) -> _Step:
-    return _Step(Line(LineStage.HEALTHY, j=line.j),     # 再開した：声の続き・お客様の回線のせいと見た続きは0から
+    return _Step(_resumed(line),
                  (_do(RECORD, about="テスト番号が鳴ったので、声で休ませた回線を再開した"),
                   _do(NOTIFY, to=("契約者",), note="resumed", about="テスト番号が鳴ったので、この回線を再開しました")))
 
@@ -1023,8 +1035,9 @@ TABLE: tuple[TableRow, ...] = (
     _row("R-3", T, TS.AWAIT_DECISION, "E16", _r3, "【決 10-24】", when=lambda s, e, r: e.blame == "回線" and e.attempt == s.attempt),
     _row("R-4", T, TS.AWAIT_DECISION, "E15", _r4, "【今 0144 の (1)】"),
     _row("R-5", T, TS.ON_PLAN, "E3", _r5, "【決 10-25・10-25 夜】", when=lambda s, e, r: s.n == 0),
-    _row("R-6", T, TS.AWAIT_RECOVERY, ("E5", "E11"), _r6, "【決 10-17・10-18 案A・10-25 夜】",
-         when=lambda s, e, r: (e.code == "E5" and not e.own and e.started_at >= s.ended_at) or (e.code == "E11" and e.kind == s.kind)),
+    _row("R-6", T, TS.AWAIT_RECOVERY, ("E5", "E11", "E21"), _r6, "【決 10-17・10-18 案A・10-25 夜・10-31 伺い5】",
+         when=lambda s, e, r: (e.code == "E5" and not e.own and e.started_at >= s.ended_at)
+         or (e.code in ("E11", "E21") and e.kind == s.kind)),
     _row("R-7", T, TS.AWAIT_RECOVERY, "E12", _r7, "【当(7)】・【決 10-15】"),
     _row("R-8", T, TS.ON_PLAN, "E3", _r8, "【決 10-25】・【当(11)】", when=lambda s, e, r: s.n == 1),
     _row("R-9", T, TS.ON_PLAN, ("E1", "E4", "E5"), _r9, "【今 0139】", when=lambda s, e, r: s.n == 1 and e.own, chain=True),
@@ -1042,9 +1055,10 @@ TABLE: tuple[TableRow, ...] = (
          nothing=True),
     _row("R-18", T, TS.AWAIT_RECOVERY, "E5", _nothing, "【当】（R-6 の「終えた電話より後」のとおり）",
          when=lambda s, e, r: not e.own and e.started_at < s.ended_at, nothing=True),
-    _row("R-19", T, (TS.AWAIT_RECOVERY, TS.RESTING), "E11", _nothing, "【当】（待っている種類と違う種類の直した版）",
+    _row("R-19", T, (TS.AWAIT_RECOVERY, TS.RESTING), ("E11", "E21"), _nothing,
+         "【当】（待っている種類と違う種類の直した版・書き込みの戻り）",
          when=lambda s, e, r: (s.stage is TaskStage.AWAIT_RECOVERY and e.kind != s.kind)
-         or (s.stage is TaskStage.RESTING and e.kind not in s.kinds), nothing=True),
+         or (s.stage is TaskStage.RESTING and e.code == "E11" and e.kind not in s.kinds), nothing=True),
     _row("R-20", T, frozenset(TaskStage), "E16", _nothing, "【当】（行は何もしない。番号の表は試行ごとにそのまま引く）",
          when=lambda s, e, r: s.stage is not TaskStage.AWAIT_DECISION or e.attempt != s.attempt, nothing=True),
     _row("R-21", T, (TS.ON_PLAN, TS.AWAIT_DECISION, TS.VOICE_REDIAL), "E12", _record_only, "【当】（戻すものが無い：記録だけ）"),
@@ -1122,6 +1136,9 @@ GAPS: tuple[Gap, ...] = (
          "予定どおりでない行はかけないので、その行の電話の E5 は来ない", when=lambda s, e, r: e.own),
     _gap("G-R13", T, (TS.ON_PLAN, TS.AWAIT_DECISION, TS.AWAIT_RECOVERY, TS.RESTING), "E18", "起きない",
          "声のかけ直し待ちでない行は、声の通る回線を待っていない"),
+    _gap("G-R14", T, (TS.ON_PLAN, TS.AWAIT_DECISION, TS.RESTING, TS.VOICE_REDIAL), "E21", "起きない",
+         "書き込みの戻り（E21）は、復旧待ちの行にしか渡さない（core/health.storage_back。休みの行は、同じ行で2回止まった＝その行の"
+         "問題かもしれないので、直した版か手で戻す＝R-10）"),
     # 試行のせい
     _gap("G-V2", V, Blame.EMPTY, "E16", "起きない", "空の試行に E16（分からない → 番号／回線）は来ない"),
     _gap("G-V3", V, Blame.UNKNOWN, ("E2", "E3"), "起きない", "分からないの試行は電話が終わっているので、E2・E3 は来ない"),

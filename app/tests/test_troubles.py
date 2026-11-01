@@ -286,23 +286,49 @@ class OurTroubles(SupervisorBase):
         self.assertFalse(errors.counts_rows("call_storage_stuck"))
         self.assertTrue(all(errors.counts_rows(k) for r, k in errors.TROUBLES.items() if r != "storage_stuck"))
         b = self.row(s)                                                        # ほかの種類は、これまでどおり3行で止める
-        for task in (b["task"], self.row(s)["task"], self.row(s)["task"]):
+        others = (b["task"], self.row(s)["task"], self.row(s)["task"])
+        for task in others:
             self.trouble(s, "cannot_proceed", task=task, again=False)
         self.assertEqual(self.tenant_stops(s), ["program_trouble"])
+        # 書き込みが戻った（E21＝core/health.storage_back。回線の確かめが通ったとき）：データベースの止まりで復旧を待つ行はかけ直しへ戻り
+        # （R-6。ほかの行の電話を話し終えるのを待たない＝伺い5「復旧次第お詫びとともにかけ直します」）、ほかの種類で待つ行はそのまま（R-19）
+        self.tx(s, health.storage_back)
+        self.assertEqual([self.tx(s, lambda tx: support.task_stage(tx, t)) for t in rows], ["on_plan"] * 4)
+        self.assertEqual({self.tx(s, lambda tx: support.task_stage(tx, t)) for t in others}, {"await_recovery"})
+        self.assertEqual(sorted(m["table_rows"][0] for m in owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT table_rows FROM salescall.state_moves WHERE tenant_id = salescall.cur_tenant() AND event = 'E21'"
+            " AND subject = 'task'"))), ["R-19"] * 3 + ["R-6"] * 4)          # 違う種類で待つ行は「何もしない」（R-19）
+        # 書き込みが戻らない続きの知らせ（回線の処理が、続きのはじめに1回だけ呼ぶ）：保存の誤りとして記録し、CL-2 へ修正依頼
+        line.storage_not_back(self.w.a, s["tenant"], s["line"])
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.error_events WHERE source = 'storage'"
+                                                      " AND attempt_id IS NULL AND line_id = %s", (s["line"],)))["n"], 1)
+        self.assertTrue(self.requests("CL-2", "storage"))
 
     def test_a_line_whose_call_ended_on_a_database_stall_waits_until_writes_come_back(self):
-        """データベースが止まって電話を終えた回線は、いちばん小さな書き込み（attempts.write_probe）が call.frozen_after のうちに終わると
-        確かめてから、次の電話をかける（supervisor/line.storage_back の1か所。戻らないあいだは、かけない）。"""
+        """データベースが止まって電話を終えた回線は、その回線の借用を延ばす実際の書き込み（leases.take_line）が call.frozen_after のうちに
+        終わると確かめてから、次の電話をかける（supervisor/line.storage_back の1か所。戻らないあいだは、かけない。取引の時間切れも同じ長さ
+        ＝データベースが固まっていても回線の流れは止まらない）。戻らない続きは、はじめに1回だけ記録して管理者へ知らせ、CL-2 へ修正依頼を
+        出す（回線が黙って止まらない）。戻ったら、復旧待ちの行へ伝える（core/health.storage_back＝E21）。"""
         s = self.ready()
         d = FakeDriver()
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, StorageStalled())
         self.assertTrue(got.storage)                                           # データベースの止まりで終えた
         self.assertFalse(line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner()).storage)
+        real = line.leases.take_line
         with mock.patch.object(line, "frozen_after", lambda tx: 0.2):
-            slow = lambda tx: tx.execute("SELECT pg_sleep(0.4)")   # noqa: E731 データベースがまだ遅い
-            with mock.patch.object(line.attempts, "write_probe", slow):
-                self.assertFalse(line.storage_back(self.w.a, s["tenant"]))
-            self.assertTrue(line.storage_back(self.w.a, s["tenant"]))         # 戻った
+            def slow(tx, line_id, holder):   # データベースがまだ遅い（取引の時間切れの中で、確定まで長さを超える）
+                tx.execute("SELECT pg_sleep(0.15)")
+                tx.execute("SELECT pg_sleep(0.15)")
+                return real(tx, line_id, holder)
+            with mock.patch.object(line.leases, "take_line", slow):
+                self.assertFalse(line.storage_back(self.w.a, s["tenant"], s["line"], HOLDER))
+            def stuck(tx, line_id, holder):  # データベースが固まった：時間切れで「戻っていない」（待ち続けない）
+                tx.execute("SELECT pg_sleep(5)")
+            began = time.monotonic()
+            with mock.patch.object(line.leases, "take_line", stuck):
+                self.assertFalse(line.storage_back(self.w.a, s["tenant"], s["line"], HOLDER))
+            self.assertLess(time.monotonic() - began, 3)
+            self.assertTrue(line.storage_back(self.w.a, s["tenant"], s["line"], HOLDER))   # 戻った
         rounds, probes = [], iter([False, False, True])
 
         class Stop:
@@ -321,12 +347,16 @@ class OurTroubles(SupervisorBase):
             if len(rounds) == 2:
                 stop.set_ = True
             return line.Round(called=uuid.uuid4(), free=True, storage=len(rounds) == 1)
+        told, back = [], []
         with mock.patch.object(line, "one_round", one_round), \
-                mock.patch.object(line, "storage_back", lambda access, tenant_id: next(probes)), \
+                mock.patch.object(line, "storage_back", lambda access, tenant_id, line_id, holder: next(probes)), \
+                mock.patch.object(line, "storage_not_back", lambda access, tenant_id, line_id: told.append(line_id)), \
+                mock.patch.object(line.health, "storage_back", lambda tx: back.append(1)), \
                 mock.patch.object(line.updates, "current", lambda tx: line.updates.SAME):
             line.loop(self.w.a, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner(), stop)
         self.assertEqual(rounds, [0, 1])                                       # 戻るまで（2回）次の回へ進まず、戻ってから1回
         self.assertEqual(next(probes, "done"), "done")                         # 確かめは3回（戻らない2回・戻った1回）
+        self.assertEqual((told, back), ([s["line"]], [1]))                     # 戻らない続きの知らせは1回だけ・戻ったら復旧待ちの行へ
         # 回線の1回分が落ちた（データベースの誤りかもしれない）：次の回の前にも確かめる
         stop, seen, probes = Stop(), [], iter([False, True])
 
@@ -337,10 +367,11 @@ class OurTroubles(SupervisorBase):
             stop.set_ = True
             return line.Round(called=uuid.uuid4(), free=True)
 
-        def probe(access, tenant_id):
+        def probe(access, tenant_id, line_id, holder):
             seen.append("probe")
             return next(probes)
         with mock.patch.object(line, "one_round", failing), mock.patch.object(line, "storage_back", probe), \
+                mock.patch.object(line, "storage_not_back"), mock.patch.object(line.health, "storage_back"), \
                 mock.patch.object(line, "report"), mock.patch.object(line.updates, "current", lambda tx: line.updates.SAME):
             line.loop(self.w.a, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner(), stop)
         self.assertEqual(seen, ["round", "probe", "probe", "round"])

@@ -212,6 +212,17 @@ def _answered(tx: Tx, attempt_id: UUID, outcome: str) -> frozenset[str]:
                                        (attempt_id, outcome)) for p in r["parts"])
 
 
+def _settled(tx: Tx, attempt_id: UUID) -> frozenset[str]:
+    """その通話の取り消せない決定のうち、もう待たない中身（`decision_wait` の1か所が読む）：契約者が承認した中身と、いちばん新しい保留の
+    版で決まったとみなした中身（checked＝assumed。設定 decision.undecided_as_decided。決まったとみなすのは、答えを求めずに決めたこと
+    なので、承認と同じく決まった扱い）。⛔ 見直し28：前は決まったとみなした中身を待つ中身から外さず、あとの締め直し（ほかの中身の取り
+    消し・前の通話からの締め直し）で同じ中身を2回目に「決まったとみなす」知らせを出したり、設定を戻したあとに、もう発信禁止と行の終わりを
+    書いたお客様について契約者に答えを求め直したりしえた。"""
+    w = tx.one("SELECT parts, checked FROM salescall.decision_waits WHERE attempt_id = %s ORDER BY seq DESC LIMIT 1", (attempt_id,))
+    assumed = frozenset(w["parts"]) if w is not None and w["checked"] == ASSUMED else frozenset()
+    return _answered(tx, attempt_id, "confirmed") | assumed
+
+
 def withdrawn(tx: Tx, attempt_id: UUID) -> frozenset[str]:
     """その通話の報告から外す、取り消せない決定の中身（差し戻し・取り消した。締めの処理が読む1か所）。"""
     return _answered(tx, attempt_id, "withdrawn")
@@ -225,7 +236,7 @@ def decision_wait(tx: Tx, task_id: UUID, attempt_id: UUID, irr: Irreversible | N
       1つでもあれば、その通話の決定は全部、決まるまで行わない（発信禁止・行の終わり。締めの処理）"""
     if irr is None:
         return None
-    confirmed = _answered(tx, attempt_id, "confirmed")
+    confirmed = _settled(tx, attempt_id)
     if in_verification(tx, attempt_id):   # 検証モードでかけた通話（締めるときの業務のモードでなく、かけたときのモード＝0161）
         need, kind = irr.parts - confirmed, "approval"
     else:

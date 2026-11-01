@@ -62,16 +62,19 @@ JUDGE_SERVICES: dict[str, str] = {
     "Claude Sonnet 5.5（考える）": "anthropic:claude-sonnet-5-5",
     "3.5 Flash Lite": "google:gemini-3.5-flash-lite",
 }
+JUDGE_UNKNOWN = "unknown_judge:"   # 知らない判定の名前の利用量の名前の頭（単価は入っていない＝量だけ残し「設定がされていません」）
 # 緊急の道で答えた判定（考える・考えない Sonnet とも同じモデル＝CL-1 の meaning_judge.EMERGENCY）
 JUDGE_EMERGENCY_SERVICE = "openrouter:anthropic/claude-sonnet-5.5"
 
 
 def judge_service(name: str, route: str = errors.DIRECT) -> str:
     """判定1回の利用量を残すときの名前（1か所）。直接の道は判定の名前で（JUDGE_SERVICES）、緊急の道で答えた分は緊急の道の名前で決まる。
-    知らない判定の名前は KeyError（勝手に名前を作らない＝足すときは、ここに足す）。"""
-    if name not in JUDGE_SERVICES:
-        raise KeyError(f"判定の名前 {name!r} の利用量の名前がありません（usage.JUDGE_SERVICES に足す）")
-    return JUDGE_EMERGENCY_SERVICE if errors.is_emergency_route(route) else JUDGE_SERVICES[name]
+    知らない判定の名前（会話の側が判定の顔ぶれ・モデルの版を替え、ここに足し忘れた）は、落とさずに `JUDGE_UNKNOWN` を頭に付けた名前で
+    残す＝単価の無いサービスとして量だけ記録し、単価の無いときの1か所（記録の「設定がされていません」）が知らせる（⛔ 見直し28：前は
+    KeyError で落ち、その判定の利用量が残らなかった＝費用を測れない）。足すときは JUDGE_SERVICES に足す。"""
+    if errors.is_emergency_route(route):
+        return JUDGE_EMERGENCY_SERVICE
+    return JUDGE_SERVICES.get(name, JUDGE_UNKNOWN + name)
 JUDGE_CACHE_READ = ":cache_read"     # まとめて送った前の部分の読み（service の後ろに付ける）
 JUDGE_CACHE_WRITE = ":cache_write"   # まとめて送った前の部分の書き（service の後ろに付ける）
 JUDGE_TIER = "paid"

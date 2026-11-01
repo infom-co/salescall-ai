@@ -195,19 +195,23 @@ RECOVERY_WAIT = ("同じ契約者で、こちらの不具合なしにお客様�
                  "替わったら、すぐにかけ直します。お客様が出たあとに終えた電話は、お詫びとともに")
 
 
-def _trouble(what: str, fixer: str, *, rows: bool = True) -> str:
-    """こちらのプログラムの不具合の処置の説明（どの種類も同じ決まり。rows＝違う行の数で、その契約者の新しい電話を止めるか（`counts_rows`。
-    データベースの一時的な止まりは数えない＝2026-10-31 管理者）。2026-10-25 ユーザー：「同じ行で、こちらのプログラムの不具合が
+def _trouble(what: str, fixer: str, *, rows: bool = True) -> "Action":
+    """こちらのプログラムの不具合で終えた電話の種類の処置（どの種類も同じ決まり。作るのはこの1か所）。rows＝違う行の数で、その契約者の
+    新しい電話を止めるか：止める原因（stop_cause＝program_trouble）と説明の文を、この1つの値から作る（数えるかを読むのは `counts_rows`
+    で、処置の止める原因だけを見る＝説明と動きが食い違わない。データベースの一時的な止まりは数えない＝2026-10-31 管理者）。2026-10-25 ユーザー：「同じ行で、こちらのプログラムの不具合が
     続くとき：その行だけの問題なのか、すべての行にかかわる問題なのかを見極めないといけないでしょ？その行だけなら、契約者(管理者含む)と、
     開発AIの担当、記録にそれを伝え、2回続いたら、次の行へ。3行同じ問題なら、甚大な問題と判断。」）。"""
-    return (f"{what}（こちらのプログラムの不具合。その電話はお詫びして終え、番号・回線・行の回数のどれにも数えない）：電話ごとに、"
+    meaning = (f"{what}（こちらのプログラムの不具合。その電話はお詫びして終え、番号・回線・行の回数のどれにも数えない）：電話ごとに、"
             f"契約者と管理者に知らせ、{fixer} に修正依頼を出し、記録する。お客様へは復旧次第かけ直す（{RECOVERY_WAIT}）。同じ行で2回続いたら、"
             "その行は休ませて次の行へ進む（その不具合を直したと記録され、そのあとプログラムが替わるか、管理者・契約者が戻すまで）。"
             + ("違う行で同じ理由が決めた数（設定 stop.trouble.stop_after_rows。初め3行）続いたら（こちらの不具合なしにお客様と話し終えた"
                "電話があれば数え直す）、すべての行にかかわる甚大な問題として、その契約者の新しい電話を止める（話している電話は切らない。"
                "その不具合を直したと記録され、そのあと版が替わったら解く。管理者・契約者も解ける）" if rows else
                "違う行で続いても、その契約者の新しい電話は止めない（データベースの一時的な止まり＝2026-10-31 管理者。止まりで終えた回線は、"
-               "データベースへの書き込みが call.frozen_after のうちに終わると確かめてから、次の電話をかける＝戻らないあいだは、かけない）"))
+               "データベースへの書き込みが call.frozen_after のうちに終わると確かめてから、次の電話をかける＝戻らないあいだは、かけない。"
+               "戻ったと確かめた時に、この種類で復旧を待つ行は、ほかの電話を待たずにお詫びとともにかけ直す＝状態の表の E21。見直し28）"))
+    return Action("keep", "none", "program_trouble" if rows else None, "tenant" if rows else None,
+                  "stop.trouble.stop_after_rows" if rows else None, True, meaning, fixer=fixer, per_call=True)
 
 
 # 知らせに出す短い名前（注意は短く。詳しい意味は Action.meaning＝画面の「止まった理由」・i マークで。2026-10-17 ユーザー）
@@ -322,14 +326,10 @@ ACTIONS: dict[str, Action] = {
                            "（DESIGN.md 17章。エラーの数では止めない）", fixer=PHONE_FIXER),
     # こちらのプログラムの不具合（0139）。直す担当は理由ごとにこの1か所：会話の部品（通話を進める部品＝CL-1 の CallRunner）の不具合は
     # CL-1、声の受け渡し（電話接続。⏳ 電話接続の担当が決まったら、その担当へ）は CL-2。止める原因は program_trouble（契約者）
-    "call_frozen": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
-                          _trouble("通話を進める部品（会話）が固まった（「動いています」の知らせが call.frozen_after 途切れた）", "CL-1"),
-                          fixer="CL-1", per_call=True),
-    "call_ai_malfunction": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
-                                  _trouble("会話AI・プログラムが意図しない状態になった（英語・関係のない文を話し続ける・声が出ない など）",
-                                           "CL-1"), fixer="CL-1", per_call=True),
-    "call_cannot_proceed": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
-                                  _trouble("決まりどおりの会話を進められなかった", "CL-1"), fixer="CL-1", per_call=True),
+    "call_frozen": _trouble("通話を進める部品（会話）が固まった（「動いています」の知らせが call.frozen_after 途切れた）", "CL-1"),
+    "call_ai_malfunction": _trouble("会話AI・プログラムが意図しない状態になった（英語・関係のない文を話し続ける・声が出ない など）",
+                                    "CL-1"),
+    "call_cannot_proceed": _trouble("決まりどおりの会話を進められなかった", "CL-1"),
     # AIの不具合での一時停止（2026-10-30 深夜 管理者：「基本的にアンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、
     # AI の不具合として回復するまで一時停止してください。」。0155）：通話の中で、使うAIのどれかが止まった（会話の側の1か所＝CL-1 の
     # Flow.on_ai_trouble が「止まった」と決めたもの。時間切れ・上限・つながらない など）。1回で、その契約者の新しい電話を止める
@@ -360,16 +360,13 @@ ACTIONS: dict[str, Action] = {
     "ai_glitch": Action("keep", "none", None, None, None, True,
                         "AIがおかしな動きをした（電話は続けられた＝甚大でない）：止めずに、契約者と管理者に警告を出す。1時間以上続いたら"
                         " CL-1 に修正依頼を出す", lasting_fixer="CL-1"),
-    "call_runner_error": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
-                                _trouble("通話を進める部品（会話）が例外で落ちた・通話を終えないまま戻った", "CL-1"),
-                                fixer="CL-1", per_call=True),
+    "call_runner_error": _trouble("通話を進める部品（会話）が例外で落ちた・通話を終えないまま戻った", "CL-1"),
     # データベースの一時的な止まりは、違う行の数に数えない（2026-10-31 管理者「数えないでOK」＝伺い5 の案1。⛔ 見直し26c の 8：同じ
     # 契約者で3本以上話している最中にデータベースが一瞬止まると、「違う3行で同じ問題」として新しい電話を止め、直したと記録されて
     # プログラムが替わるか、人が解くまで再開しなかった）。戻らないあいだに新しい電話をかけないのは、回線ごとの処理の1か所
     # （supervisor/line.loop が、止まりで終えた回線の次の電話の前に、書き込みが戻ったかを確かめる）
-    "call_storage_stuck": Action("keep", "none", None, None, None, True,
-                                 _trouble("データベースへの書き込みが進まなかった（書き込み1つが call.frozen_after より長く終わらない）",
-                                          "CL-2", rows=False), fixer="CL-2", per_call=True),
+    "call_storage_stuck": _trouble("データベースへの書き込みが進まなかった（書き込み1つが call.frozen_after より長く終わらない）",
+                                   "CL-2", rows=False),
     # 通話を進める部品が、こちらの不具合でおわびして終えたあとも戻らない（0141。見直し20a）：その電話は、もう call_frozen などとして伝えて
     # ある。ここで伝えるのは「その回線の処理が止まっていた」こと（回線ごとの処理を立て直したので、電話は止まらない）。戻らない長さは、
     # おわびを流し終えるまでの長さ（protocol.APOLOGY_WAIT）と call.frozen_after から決める（0143。仮の設定 call.stuck_after は外した）

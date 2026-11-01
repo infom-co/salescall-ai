@@ -54,6 +54,7 @@ END = "END"                                       # 分岐の行き先「終わ�
 # 部分の名前がすべてここに入っているかを確かめる。
 RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
+                          "unavailable_confirm",
                           "voicemail", "message"})
 ANSWER_PART_PREFIX = "answer_"                    # 想定問答の答えの録音の部分の名前の頭（会話の側の flowctl.ANSWER_PREFIX と同じ）
 ANY = "*"                                         # 分岐の受け皿（ほかのどの答えでも）
@@ -63,7 +64,7 @@ ANY_CHOICE = "どちらでも"                          # 決まった選択肢�
 #   ユーザー：「いつでも」と同じ。CL-1 の連絡帳 4-17。会話の中の名前は any）。はい／いいえの質問には足さない
 CHOICE_TYPES = ("yes_no", "choice")               # 選択肢で答える型（意味の言葉・曖昧な言葉の意味を持てる）
 REPLY_WORDS = ("大丈夫", "結構", "いい", "平気")
-#   返事の言葉だけの答え（曖昧な言葉の意味の鍵）。正本は会話の側（CL-1 の flowctl.REPLY_WORDS＝受け入れにも断りにも取れる言葉）。
+#   返事の言葉だけの答え（曖昧な言葉の意味の鍵）。正本は会話の側（CL-1 の flowctl.AMBIGUOUS_WORDS＝受け入れにも断りにも取れる言葉）。
 #   会話の側が変えたら、ここも合わせる（2026-10-18 CL-1 の連絡帳 4-20：「はい」「いいえ」を外した＝頭の言葉の確かめのためだけに
 #   足していたもの。答えを受け取る決まりは会話の側の1か所 Flow._compare）
 VALUE_CHOICE = "答えた"                            # 値を聞く質問の選択肢（値そのものは項目の値に入る）
@@ -638,7 +639,7 @@ def load(tx: Tx, version_id: UUID) -> Settings:
     row = tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (version_id,))
     if row is None:
         raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
-    raw = dict(row["content"], rules=_rules_raw(tx, version_id))
+    raw = dict(_current_shape(row["content"]), rules=_rules_raw(tx, version_id))
     s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み（読み・声の型）
     s = replace(s, rules=business_rules.load(tx, version_id))
     now = {r["name_text"]: r for r in tx.all(
@@ -647,6 +648,19 @@ def load(tx: Tx, version_id: UUID) -> Settings:
         r = now.get(n.text)
         return n if r is None else replace(n, reading=r["reading"], reading_by=r["reading_by"], candidates=(), likely=None)
     return replace(s, names=tuple(heard(n) for n in s.names), company=heard(s.company), person=heard(s.person))
+
+
+def _current_shape(content: dict[str, Any]) -> dict[str, Any]:
+    """置いた版の中身を、いまの業務設定の形にする（1か所。版の中身の表は書き換えられない＝0023 の frozen ので、形に項目が増えたら、
+    読むときにここで前の版を今の形に直す。確かめ `check` は今の形を必ず求めたまま）。
+    - 事実を伺う質問か（asks_fact。2026-11-01 に足した＝CL-1 の連絡帳 2-1 の版 0.6）が無い前の版の質問は、真（事実を伺う質問）として読む
+      （取込で決まらないときと同じ側＝`business_import._decided_facts`。⛔ 見直し28：前は、足す前に置いた版が読めなくなり、その版の
+      実施回はかけることも答えを書くこともできなかった）。"""
+    questions = content.get("questions")
+    if not isinstance(questions, list):
+        return content
+    return dict(content, questions=[dict(q, asks_fact=True) if isinstance(q, dict) and "asks_fact" not in q else q
+                                    for q in questions])
 
 
 def _rules_raw(tx: Tx, version_id: UUID) -> dict[str, Any]:
