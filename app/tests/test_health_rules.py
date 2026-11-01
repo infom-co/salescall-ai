@@ -156,6 +156,10 @@ def task_states():
                    ended_at=T0)
         yield Task(TS.RESTING, plan="予定", n=1, n_kind="frozen", kinds=frozenset({"frozen", "runner_error"}), attempt="a1",
                    answered=answered, since=T0)
+        for retried in (False, True):   # 1つの種類（試験では E21 と同じ名前）だけで休んだ行と、もう書き込みの確かめで戻した行（R-22・R-19）
+            yield Task(TS.RESTING, plan="予定", n=1, n_kind="frozen", kinds=frozenset({"frozen"}), attempt="a1", answered=answered,
+                       since=T0, storage_retried=retried)
+    yield Task(TS.ON_PLAN, plan="予定", n=1, n_kind="frozen", storage_retried=True)
     yield Task(TS.VOICE_REDIAL, plan="予定", line="L1", since=T0, next_at=T0 + GAP[0])
 
 
@@ -291,7 +295,7 @@ class Exhaustive(unittest.TestCase):
 
     def test_the_table_holds_the_rows_of_chapter_17_once_each(self):
         ids = [r.id for r in h.TABLE]
-        expected = ([f"L-{i}" for i in range(1, 35)] + [f"R-{i}" for i in range(1, 22)] +
+        expected = ([f"L-{i}" for i in range(1, 35)] + [f"R-{i}" for i in range(1, 23)] +
                     [f"N-{i}" for i in range(1, 10)] + [f"C-{i}" for i in range(1, 11)] + [f"V-{i}" for i in range(1, 6)])
         self.assertEqual(sorted(ids), sorted(expected))   # 17章の60行と、2026-10-29 に穴を埋めた【当】の行
 
@@ -544,7 +548,7 @@ class Decisions(unittest.TestCase):
     def test_1031_a_database_stall_is_called_back_when_writes_come_back(self):
         """2026-10-31 管理者（伺い5）：「話していた電話はお詫びして終え、復旧次第お詫びとともにかけ直します」（R-6 の E21）。書き込みの
         戻り（E21）で、データベースの止まりで待つ行はお詫びとともにかけ直す（ほかの行の電話を話し終えるのを待たない）。違う種類で待つ行は
-        何もしない（R-19）。休みの行（同じ行で2回）には渡さない（G-R14）＝直した版か手で戻す（R-8・R-10 は変えない）。"""
+        何もしない（R-19）。同じ行で2回止まって休んだ行は、その行の書き込みが通ったら1回だけ戻す（R-22。2026-11-01 管理者：伺い10）。"""
         stall = ev("E3", answered=True, rang=True, kind="call_storage_stuck")
         out = ok(self, h.apply(Task(TS.ON_PLAN, plan="p"), stall, R))
         self.assertEqual((out.state.stage, out.rows), (TS.AWAIT_RECOVERY, ("R-5",)))
@@ -554,8 +558,30 @@ class Decisions(unittest.TestCase):
         self.assertEqual((other.state, other.rows), (out.state, ("R-19",)))
         rest = ok(self, h.apply(back.state, ev("E3", T0 + 2 * MIN, answered=True, rang=True, kind="call_storage_stuck"), R))
         self.assertEqual((rest.state.stage, rest.rows), (TS.RESTING, ("R-8",)))   # 同じ行で2回：休む（変えない）
-        gap = h.apply(rest.state, ev("E21", T0 + 3 * MIN, kind="call_storage_stuck"), R)
-        self.assertEqual((type(gap).__name__, gap.gap), ("Mistake", "G-R14"))
+        again = ok(self, h.apply(rest.state, ev("E21", T0 + 3 * MIN, kind="call_storage_stuck"), R))
+        self.assertEqual((again.state.stage, again.state.n, again.state.storage_retried, whats(again), again.rows),
+                         (TS.ON_PLAN, 1, True, [h.RECORD, h.REDIAL], ("R-22",)))
+
+    def test_1101_ukagai10_a_row_resting_on_database_stalls_returns_once_without_people(self):
+        """2026-11-01 管理者：伺い10「人は甚大な問題以外で介入しない」。データベースの止まりだけで休んだ行は、その行の書き込みが通ったら
+        （E21）1回だけ戻す（R-22。n＝1 のまま）。戻したあとにまた止まれば、すぐ休み直し、もう書き込みの確かめでは戻さない（R-19）＝その
+        行に関わる不具合として直した版を待つ（R-10。戻ったら、また1回戻せる）。こちらの不具合なしにこの行の電話が鳴っても、また戻せる
+        （R-9）。ほかの種類でも休んだ行は、書き込みの確かめでは戻さない。"""
+        k = "call_storage_stuck"
+        rest = Task(TS.RESTING, plan="p", n=1, n_kind=k, kinds=frozenset({k}), attempt="a1", answered=False, since=T0)
+        back = ok(self, h.apply(rest, ev("E21", T0 + MIN, kind=k), R))
+        self.assertEqual((back.state.stage, back.state.storage_retried, whats(back), back.rows),
+                         (TS.ON_PLAN, True, [h.RECORD, h.PLAN], ("R-22",)))
+        again = ok(self, h.apply(back.state, ev("E3", T0 + 2 * MIN, rang=True, kind=k), R))
+        self.assertEqual((again.state.stage, again.state.storage_retried, again.rows), (TS.RESTING, True, ("R-8",)))
+        stays = ok(self, h.apply(again.state, ev("E21", T0 + 3 * MIN, kind=k), R))
+        self.assertEqual((stays.state, stays.rows), (again.state, ("R-19",)))
+        fixed = ok(self, h.apply(again.state, ev("E11", T0 + 4 * MIN, kind=k), R))
+        self.assertEqual((fixed.state.stage, fixed.state.storage_retried, fixed.rows), (TS.ON_PLAN, False, ("R-10",)))
+        talked = ok(self, h.apply(back.state, ev("E1", T0 + 2 * MIN), R))
+        self.assertEqual((talked.state.n, talked.state.storage_retried), (0, False))
+        mixed = replace(rest, kinds=frozenset({k, "call_frozen"}))
+        self.assertEqual(ok(self, h.apply(mixed, ev("E21", T0 + MIN, kind=k), R)).rows, ("R-19",))
 
     def test_1018_plan_a_immediate_apology_calls_twice_in_a_row_then_the_usual_rule(self):
         """2026-10-18 管理者 案A：お詫びのすぐのかけ直しは、同じ行で続けて2回まで。それでも切れたら、ふつうのかけ直しの決まり（R-11）。"""

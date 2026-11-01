@@ -9,7 +9,9 @@
   number_kind_not_allowed（業務の設定でかけない種類：フリーダイヤル・ナビダイヤル）／
   dnc_client（依頼者の発信禁止の番号）／dnc_contractor（契約者の共通の発信禁止。その契約者のすべての依頼者に効く）／
   other_contractor_called（ほかの契約者がかけた番号で、契約者の設定が「かけない」）／
-  dnc_client_ref（断ったお客様の管理番号。依頼者ごとの設定で、管理番号を「お客様を表す変わらない番号」としたとき。DESIGN.md 3-6）
+  dnc_client_ref（断ったお客様の管理番号。依頼者ごとの設定で、管理番号を「お客様を表す変わらない番号」としたとき。DESIGN.md 3-6）／
+  declined_in_business（同じ業務で、用件・最終目的を断られたお客様。業務の設定 business.call_declined_again が「いいえ」（初め）のとき。
+  2026-11-01 管理者：伺い8。DESIGN.md 5-2-1）
 """
 
 from __future__ import annotations
@@ -36,6 +38,9 @@ def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_
                                                 business_id=business_id):
         return ("number_kind_not_allowed", f"{_KIND_NAME[number.kind]}へは、この業務の設定でかけません")
     hit = dnc.lookup(tx, number.e164, client_ref=client_ref)
+    if hit is None and business_id is not None and _declined_in_business(tx, number, client_ref=client_ref, tenant_id=tenant_id,
+                                                                         client_id=client_id, business_id=business_id):
+        return ("declined_in_business", "同じ業務で、用件か最終目的を断られたお客様です（業務の設定で、次の実施回でもかけない）")
     if hit is None:
         # ほかの契約者がかけた番号に「かけない」と、契約者が決めていれば（2026-10-16 ユーザー。間隔のときは門が見る）
         if settings.resolve(tx, "gate.other_contractor_interval", tenant_id=tenant_id, client_id=client_id,
@@ -48,3 +53,16 @@ def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_
         "contractor": ("dnc_contractor", "契約者の共通の発信禁止に登録されている番号です"),
         "client_ref": ("dnc_client_ref", "この管理番号のお客様は、発信禁止です（もうかけないでと言われたお客様）"),
     }[hit["ledger"]]
+
+
+def _declined_in_business(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
+                          business_id: UUID) -> bool:
+    """同じ業務で、用件・最終目的を断られたお客様か（業務の設定 business.call_declined_again が「はい」なら、いつも いいえ）。同じお客様かは
+    データベースの1か所 salescall.declined_in_business（断られて終わった行の番号のどれか・依頼者が管理番号をお客様を表す変わらない番号と
+    したときは管理番号＝発信禁止を広げるときと同じ設定 dnc.client_ref_is_stable_id）。2026-11-01 管理者：伺い8「業務ごとに選択できるように
+    する。デフォルトは案1（同じ業務では、次の実施回でもかけない）。…非推奨で案2も選べるように」。"""
+    scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+    if settings.resolve(tx, "business.call_declined_again", **scope):
+        return False
+    ref = client_ref if client_ref is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", **scope) else None
+    return tx.one("SELECT salescall.declined_in_business(%s, %s, %s) AS d", (business_id, number.e164, ref))["d"]

@@ -28,7 +28,9 @@
   - そのほか：会話AIの報告と2つ目の判定がそろったときだけ、その場で決める。そろわなければ保留（recording）。録音から作り直した報告が
     届いたら、締めの処理が締め直して保留を決め直す。締めは通話後の検証のあとなので、保留にした時点で録音の確かめでは決められなかった：
     契約者に録音とやり取りを確かめてもらう（`chase_recording`。録音が届かなかった・作り直してもそろわない・検証が作り直さなかった＝
-    会話の担当へ修正依頼も）。⏳ フルオートの業務で契約者に求めることは、管理者に伺っている。
+    会話の担当へ修正依頼も）。⇒ **【2026-11-01 管理者：伺い9 案1・「人は甚大な問題以外で介入しない仕組みづくり」】契約者に求めるのは、AI
+    が確かめ直しても決められなかったときだけ**（`AI_RECHECK` の理由＝AI がまだ確かめ直していない保留は、人に求めず、会話の担当の確かめ
+    直しを待つ。`chase_recording`）。
   - 誤って入れた発信禁止を取り消した（core/dnc.revoke・revoke_source＝依頼者からの正式な求めのときだけ）：その発信禁止の中身だけを
     外して締め直す（`withdraw_revoked`。ほかの中身の保留はそのまま）。
   答えは中身ごとに効き（承認した中身はもう待たない・外した中身は報告から外す）、答えたら締め直しが保留の版を決め直す。いまの保留の中身は
@@ -164,16 +166,24 @@ def after_ended(tx: Tx, task_id: UUID) -> list[tuple[UUID, int]]:
 # ── 取り消せない決定の保留と答え（2026-10-30 管理者のご決定 (6)(7)。表の作り 0152〜0154）
 WAIT_KINDS = ("recording", "approval")   # 録音の確かめ待ち（録音で決められなければ契約者に求める）／契約者の承認待ち（検証モード）
 ASSUMED = "assumed"   # 保留の版の印 checked のうち、録音の確かめ（AI）でも決められず、設定で決まったとみなした版（`Wait.assumed`）
-ASK_WHY = {"recording_missing": "録音が届かず、録音で確かめられなかった",
-           "recording_undecided": "録音から確かめ直しても、2つの判定がそろわなかった",
+ASK_WHY = {"recording_missing": "録音が届かず、AI がまだ確かめ直していない",
+           "recording_undecided": "AI が確かめ直しても（録音か、録音が無ければ通話中の別の耳の文字で）、2つの判定がそろわなかった",
            "recording_unchecked": "通話後の検証が録音で確かめないまま済み、会話の担当へ直しを頼んだ"}
 
+# AI がまだ確かめ直していない理由（`_undecidable_why` の答えのうち、AI が決められなかったのではないもの）。人（契約者）には求めず、設定で
+# 決まったとみなしもしない。そのお客様にはかけないまま、会話の担当の確かめ直し（録音か、録音が無ければ通話中の別の耳の文字から作り直した
+# 報告＝call_report.save_rebuilt）を待ち、会話の担当へ頼む（`_ask_conversation_side`）。作り直した報告が届けば、締め直しで決まる（そろえば
+# 決まりどおり・そろわなければ recording_undecided＝設定に従う）。2026-11-01 管理者：伺い9「録音を確かめないまま済んだ通話でも、設定が
+# 『決まったとみなす』というのはどういうこと？…確かめずに、発信禁止に入れる判断を私がするとは思えません」・「人は甚大な問題以外で
+# 介入しない仕組みづくりをするように何度も言っているだろ！」＝案1「OK」。⛔ c369bbf（見直し28 のあと）：私（CL-2）が計画書に書いた自分の文
+# 「この設定は、録音でも決められない取り消せない決定のすべてに同じく効く」をご決定と読み違え、この2つも設定に従わせ、確かめずに発信禁止に
+# 入れうる形にしていた。その前は、2つとも契約者に求めていた（人に頼る形）。
+AI_RECHECK = ("recording_missing", "recording_unchecked")
 
-# 録音の確かめ（AI）でも決められない理由（ASK_WHY の3つ）は、どれも設定 decision.undecided_as_decided に従う（2026-10-30 夜 管理者 (1)：
-# 「録音でも決められない（録音が届かなかった・作り直してもそろわない・会話の担当が録音で確かめなかった）」・2026-10-31 伺い3：この設定は、
-# 録音でも決められない取り消せない決定のすべてに同じく効く）。⛔ 見直し28 のあと：前は、会話の担当が録音で確かめなかった（recording_unchecked）
-# だけを「AI が判断できなかったのではない」として設定から外し、いつも契約者に求めていた（ご決定に無い分け方）。確かめなかったことの修正依頼は、
-# どちらの扱いでも会話の担当へ出す（`_ask_conversation_side`）
+
+# 設定 decision.undecided_as_decided（初め：契約者に委ねる／はい：決まったとみなす）が効くのは、AI が確かめ直しても決められなかったとき
+# （recording_undecided）だけ（2026-10-31 管理者：伺い3「どうしてもAIでは判断できない場合のみ、契約者に判断をゆだねる。AIがどうしても
+# 判断できない場合の設定も選択できるようにしておくこと」）。
 UNDECIDED_SETTING = "decision.undecided_as_decided"
 
 
@@ -257,24 +267,26 @@ def decision_wait(tx: Tx, task_id: UUID, attempt_id: UUID, irr: Irreversible | N
 
 
 def _undecidable_why(tx: Tx, attempt_id: UUID) -> tuple[str, UUID]:
-    """録音の確かめ待ちの保留を、録音の確かめ（AI）で決められない理由（ASK_WHY の鍵。1か所）と、その通話の行。締めの処理は通話後の検証が
-    済んでから締めるので、保留にした報告は、検証が録音で確かめたあとのもの：録音が届かなかった（検証が録音なしで済んだ）＝recording_missing／
-    録音から作り直した報告がある（作り直しても決まらない）＝recording_undecided／録音はあるのに、検証が作り直した報告を返さないまま済んだ
-    ＝recording_unchecked。"""
+    """録音の確かめ待ちの保留が、いまの報告で決められない理由（ASK_WHY の鍵。1か所）と、その通話の行。締めの処理は通話後の検証が済んで
+    から締めるので、保留にした報告は、検証のあとのもの：作り直した報告がある（AI が確かめ直しても決まらない。録音からでも、録音が無ければ
+    通話中の別の耳の文字からでも）＝recording_undecided／作り直した報告が無く、録音が届かなかった＝recording_missing／作り直した報告が無く、
+    録音はあるのに検証が作り直さないまま済んだ＝recording_unchecked（後の2つは `AI_RECHECK`＝AI がまだ確かめ直していない）。"""
     v = tx.one("SELECT a.task_id, coalesce(s.recording_missing, false) AS missing,"
                "       EXISTS (SELECT 1 FROM salescall.call_report_rebuilds b WHERE b.attempt_id = a.attempt_id) AS rebuilt"
                " FROM salescall.attempts a LEFT JOIN salescall.verification_summaries s ON s.attempt_id = a.attempt_id"
                " WHERE a.attempt_id = %s", (attempt_id,))
-    return ("recording_missing" if v["missing"] else "recording_undecided" if v["rebuilt"] else "recording_unchecked"), v["task_id"]
+    return ("recording_undecided" if v["rebuilt"] else "recording_missing" if v["missing"] else "recording_unchecked"), v["task_id"]
 
 
 def assumable(tx: Tx, task_id: UUID, attempt_id: UUID) -> str | None:
     """録音の確かめ待ちの保留を、設定 decision.undecided_as_decided（AI でも決められないとき、決まったとみなす。初めは「いいえ」＝契約者に
     委ねる）で、決まったとみなしてよいか（1か所。締めの処理＝`decision_wait` と、保留を見直す決まった間隔の仕事＝core/settle が読む）。
-    よければ、その理由（ASK_WHY のどれか）、だめなら None。決まったとみなすと、その中身（断り・番号違い・怒っていた）を決まりどおり
+    よければ、その理由（recording_undecided）、だめなら None。AI がまだ確かめ直していない保留（`AI_RECHECK`）は、設定に関係なく待つ。決まったとみなすと、その中身（断り・番号違い・怒っていた）を決まりどおり
     書く（発信禁止・行の終わり＝お客様へはかけない側）。検証モードでかけた通話は、いつも契約者の承認（2026-10-30 (6)「承認を押した場合
     だけ」）なので、ここを通らない（`decision_wait`）。"""
     why, _ = _undecidable_why(tx, attempt_id)
+    if why in AI_RECHECK:
+        return None
     s = tasks.scope(tx, task_id)
     return why if settings.resolve(tx, UNDECIDED_SETTING, tenant_id=s["tenant_id"], client_id=s["client_id"],
                                    business_id=s["business_id"]) else None
@@ -304,8 +316,6 @@ def record_wait(tx: Tx, a: dict[str, Any], wait: Wait | None, version_no: int | 
     if wait is None:
         return
     if assumed:   # 録音の確かめ（AI）でも決められず、設定で決まったとみなした：契約者と管理者に知らせるだけ（答えは求めない）
-        if wait.assumed == "recording_unchecked":
-            _ask_conversation_side(tx, a["attempt_id"], a["task_id"])
         notify.emit(tx, "decision_assumed", key=f"decision_assumed:{a['attempt_id']}:{seq}", admin=True,
                     refs={"attempt_id": a["attempt_id"], "seq": seq, "task_id": a["task_id"], "parts": parts, "why": wait.assumed},
                     summary=f"お客様の断り・番号違い・怒っていたを、{ASK_WHY[wait.assumed]}ので、設定（AI でも決められないときは決まった"
@@ -318,36 +328,58 @@ def record_wait(tx: Tx, a: dict[str, Any], wait: Wait | None, version_no: int | 
 
 
 def chase_recording(tx: Tx, attempt_id: UUID) -> None:
-    """録音の確かめ待ちの保留を、録音の確かめで決められないまま待たせない（1か所。保留の版を足したとき・決まった間隔の仕事が呼ぶ）。
-    締めの処理は通話後の検証が済んでから締めるので、保留にした報告は、検証が録音で確かめたあとのもの。録音で決められない理由を見て、
-    契約者に録音（あれば）とその場のやり取りの文字を確かめてもらう（`_ask_contractor`）：
-    - 録音が届かなかった（通話後の検証が録音なしで済んだ）＝recording_missing
-    - 録音から作り直した報告がある（作り直してもそろわない）＝recording_undecided
-    - 録音はあるのに、通話後の検証が作り直した報告を返さないまま済んだ＝recording_unchecked（あわせて会話の担当へ修正依頼。直して作り直した
-      報告が届けば、締め直しで決まる。CL-2 の連絡帳 4-167 の頼み3・5。同じ不具合は、直したと報告するまで1つ）"""
+    """録音の確かめ待ちの保留を、決められないまま待たせない（1か所。保留の版を足したとき・決まった間隔の仕事が呼ぶ）。理由
+    （`_undecidable_why`）ごとに：
+    - AI がまだ確かめ直していない（`AI_RECHECK`：録音が届かなかった・検証が録音で確かめないまま済んだ）⇒ 人には求めず、会話の担当に
+      確かめ直しを頼む（`_ask_conversation_side`）。そのお客様にはかけないまま待ち、作り直した報告が届けば締め直しで決まる。
+    - AI が確かめ直しても決められなかった（recording_undecided）⇒ 契約者に録音（あれば）とその場のやり取りの文字を確かめてもらう
+      （`_ask_contractor`。設定で決まったとみなすときは、締め直しが先に決める＝`assumable`）。2026-10-31 管理者：伺い3。"""
     why, task_id = _undecidable_why(tx, attempt_id)
-    if why == "recording_unchecked":
-        _ask_conversation_side(tx, attempt_id, task_id)
+    if why in AI_RECHECK:
+        _ask_conversation_side(tx, attempt_id, task_id, why)
+        return
     _ask_contractor(tx, attempt_id, why)
 
 
-def _ask_conversation_side(tx: Tx, attempt_id: UUID, task_id: UUID) -> None:
-    """通話後の検証が録音で確かめないまま済んだ保留（recording_unchecked）を、会話の担当へ直してもらう修正依頼（1か所。契約者に求めるときも、
-    設定で決まったとみなしたときも、ここを呼ぶ。同じ不具合は、直したと報告するまで1つ）。"""
-    fix_requests.request(tx, "CL-1", "irreversible_unchecked", key="irreversible_unchecked",
-                         refs={"attempt_id": attempt_id, "task_id": task_id},
+def awaiting_ai_recheck(tx: Tx) -> list[dict[str, Any]]:
+    """会話の担当が確かめ直す保留（取引の依頼者の分。会話の担当の通話後の検証が読む1か所）：いまの録音の確かめ待ちの保留のうち、AI が
+    まだ確かめ直していないもの（`AI_RECHECK`）。通話・行・理由。会話の担当は、録音があれば録音から、録音が無ければ通話中の別の耳の文字
+    から、報告を作り直して call_report.save_rebuilt で置く（どちらで作ったかは evidence に書く）。置けば、保留を見直す決まった間隔の仕事
+    （core/settle.rejudge_held）が締め直す。"""
+    out = []
+    for w in tx.all("SELECT w.attempt_id, w.task_id FROM salescall.decision_waits w"
+                    " WHERE w.kind = 'recording' AND w.seq = salescall.decision_wait_seq(w.attempt_id)"
+                    "   AND cardinality(salescall.decision_open(w.attempt_id)) > 0 ORDER BY w.waited_at, w.attempt_id"):
+        why, _ = _undecidable_why(tx, w["attempt_id"])
+        if why in AI_RECHECK:
+            out.append({"attempt_id": w["attempt_id"], "task_id": w["task_id"], "why": why})
+    return out
+
+
+_RECHECK_ASKS = {
+    "recording_unchecked": ("irreversible_unchecked", "通話後の検証が録音で確かめないまま済ませました。録音から作り直した報告で返してください"),
+    "recording_missing": ("irreversible_no_recording", "録音が届きませんでした。通話中の別の耳の文字から作り直した報告で返してください"
+                                                       "（録音が届かないこと自体の修正依頼は、別に出ています）"),
+}
+
+
+def _ask_conversation_side(tx: Tx, attempt_id: UUID, task_id: UUID, why: str) -> None:
+    """AI がまだ確かめ直していない保留（`AI_RECHECK`）を、会話の担当に確かめ直してもらう頼み（1か所。同じ理由の頼みは、直したと報告するまで
+    1つ。確かめ直す保留の一覧は `awaiting_ai_recheck`）。"""
+    kind, what = _RECHECK_ASKS[why]
+    fix_requests.request(tx, "CL-1", kind, key=kind, refs={"attempt_id": attempt_id, "task_id": task_id},
                          summary="会話AIの報告と2つ目の判定がそろわなかった（食い違った・判定が無い）お客様の断り・番号違い・怒っていた"
-                                 "（言ってはいけないことを言った通話で、切れ方が分からない断りの候補も）を、通話後の検証が録音で確かめ"
-                                 "ないまま済ませました（録音から作り直した報告で返してください。それまで、設定 decision.undecided_as_decided"
-                                 "のとおり契約者の確かめを待つか決まったとみなし、どちらでもそのお客様にはかけません）")
+                                 f"（言ってはいけないことを言った通話で、切れ方が分からない断りの候補も）について、{what}"
+                                 "（確かめ直す通話の一覧は approval.awaiting_ai_recheck。それまで、契約者には求めず、設定で決まったと"
+                                 "みなしもせず、そのお客様にはかけません）")
 
 
 def _ask_contractor(tx: Tx, attempt_id: UUID, why: str) -> None:
     """いまの録音の確かめ待ちの保留を、契約者に確かめてもらう印（1か所。0153・0154）。印のある保留は、検証モードの承認待ちと同じく、
     契約者が録音（あれば）とその場のやり取りの文字を確かめて、承認か差し戻しを押すまで保留のまま（2026-10-30 管理者のご決定 (6)「人が
     録音やその場のやり取りを確認できる状態にする」）。同じ版に印は1つ。"""
-    if why not in ASK_WHY:
-        raise ValueError(f"確かめてもらう理由は {tuple(ASK_WHY)} のどれかです：{why!r}")
+    if why not in ASK_WHY or why in AI_RECHECK:   # 人に求めるのは、AI が確かめ直しても決められなかったときだけ（伺い9）
+        raise ValueError(f"契約者に確かめてもらう理由は {tuple(w for w in ASK_WHY if w not in AI_RECHECK)} だけです：{why!r}")
     seq = tx.one("SELECT salescall.decision_wait_seq(%s) AS s", (attempt_id,))["s"]
     if tx.one("INSERT INTO salescall.decision_asks (tenant_id, client_id, attempt_id, seq, why)"
               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s) ON CONFLICT (attempt_id, seq) DO NOTHING"

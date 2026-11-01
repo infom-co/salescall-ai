@@ -200,6 +200,13 @@ def storage_recovery(ctx: Context) -> None:
     本当にデータベースが固まって回線の流れが立て直されると（line._Call.abandoned → main._abandon）、印ごと消えて E21 がどこからも出ず、
     一覧の最後の1行のお詫びのかけ直しが来なかった。止まりで電話を終えた記録（E3）と E21 の順が入れ替わっても、次の回で拾う。"""
     line.timed_write(ctx.access, ctx.tenant_id, health.storage_back)
+    # データベースの止まりだけで休んだ行は、行ごとに、その行の書き込みを確かめてから1回だけ戻す（2026-11-01 管理者：伺い10「人は甚大な
+    # 問題以外で介入しない」。どの行を戻してよいかは状態の表の1か所＝health_rules.storage_return）。1つの行の鍵が固まっていても、ほかの行の
+    # 確かめは止まらない（行ごとの取引・行ごとの時間切れ）
+    rows: list[UUID] = []
+    if line.timed_write(ctx.access, ctx.tenant_id, lambda tx: rows.extend(health.storage_rows(tx))):
+        for task_id in rows:
+            line.timed_write(ctx.access, ctx.tenant_id, lambda tx, t=task_id: health.storage_row_back(tx, t))
 
 
 def budget(ctx: Context) -> None:

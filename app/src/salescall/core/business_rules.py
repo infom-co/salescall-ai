@@ -88,6 +88,11 @@ SYSTEM_POLICIES["not_reached_not_transferred"] = Policy("call", 1, ("days", 1))
 # どちらも約束したかけ直しより先に終える（next_action の1か所。SYSTEM_ENDS）。
 SYSTEM_POLICIES["other_means"] = Policy("end", None, None)
 SYSTEM_POLICIES["not_reached_departed"] = Policy("end", None, None)
+# お名前だけではどの方か分からなかった（受付の方に分からないと言われ、部署・フルネームでお呼びし直しても・お伝えすることが無くて、取り次いで
+# いただけなかった＝繋がらなかった理由 who_unclear。CL-1 の連絡帳 4-65 の (e)）：日を改めて同じお名前でかけても同じになるので、かけ直さずに
+# 行を終え、依頼者に「お名前だけではどの方か分からなかった」と返して、フルネームや部署を足していただく（埋めていただく欄は
+# business_settings.who_unclear_blanks の1か所。✅ 2026-11-02 日本時間1時22分 ユーザー：(a)「どちらもなければ、(イ)」・1時54分「OK」）
+SYSTEM_POLICIES["not_reached_who_unclear"] = Policy("end", None, None)
 SYSTEM_ENDS = frozenset(k for k, p in SYSTEM_POLICIES.items() if p.action == "end")
 
 # 業務で決める再発信の方針の初めの値（業務設定に書かれていなければ、この値で入れる。入れたことはプレビューに出す＝契約者が見て

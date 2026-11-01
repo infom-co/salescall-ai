@@ -54,10 +54,11 @@ END = "END"                                       # 分岐の行き先「終わ�
 # 部分の名前がすべてここに入っているかを確かめる。
 # 2026-11-01 CL-1 の連絡帳 4-63 (b) で足した：R1（ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」。
 # 依頼主へ渡す項目には入らない＝ほかのシステムの質問と同じ）。4-64 の (c) で足した：H1（急いでいる方への「それではまた改めてお掛けしても
-# よろしいでしょうか？」）。
+# よろしいでしょうか？」）。4-65 の (d) で足した：target_full・target_successor_full（お名前だけではどの方か分からないと言われたときに、
+# 部署とフルネームでお呼びし直す一言。流すのは名前の録音の台帳から＝target・target_successor と同じ）。
 RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "H1", "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
-                          "unavailable_confirm",
+                          "target_full", "target_successor_full", "unavailable_confirm",
                           "voicemail", "message"})
 ANSWER_PART_PREFIX = "answer_"                    # 想定問答の答えの録音の部分の名前の頭（会話の側の flowctl.ANSWER_PREFIX と同じ）
 ANY = "*"                                         # 分岐の受け皿（ほかのどの答えでも）
@@ -82,7 +83,8 @@ ANYONE = "anyone"                                  # 目的のお客様のいな
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
-QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact"}
+QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
+                 "do_words", "intro"}
 ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問いの名前・答えの文
 # 想定問答の問いの名前に使えない名前（1か所）：AI が流し直しで選ぶ録音の部分の、中の名前と AI に見せる名前の両方（正本は会話の側＝
 # CL-1 の flowctl.RESERVED_PART_NAMES＝PART_LABEL の鍵と値）。会話の側は、同じ名前の問いがあると通話を始めない（ValueError）ので、
@@ -93,9 +95,10 @@ ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問い
 # 抜けていた＝「受け答え」と書いた業務設定が通り、その版の通話が始まりで落ちた）。会話の側の一覧と同じかは、会話の側の試験が
 # この値を読み込まずに読んで突き合わせる（app/ の試験は試作を読まない＝14章 I-30。CL-2.md 4-144 で CL-1 に頼んだ）。そのため、この値は
 # 1つの書き下しの値で持つ（tests/test_business_settings が見張る）
-ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "resume", "own", "no_answer", "talk",
-                             "名乗り", "用件", "最初から", "代わった方へ", "エーアイか聞かれた", "質問に戻る", "自分で答える質問",
-                             "答えを持っていない質問", "受け答え"})
+# ⇒ CL-1 の連絡帳 4-65 の (f)：「お呼びした方」（target。受付の方に「どちらの岡田でしょうか？」と聞かれたときに、AI が流し直しで選ぶ）が増えた。
+ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "target", "resume", "own", "no_answer", "talk",
+                             "名乗り", "用件", "最初から", "代わった方へ", "エーアイか聞かれた", "お呼びした方", "質問に戻る",
+                             "自分で答える質問", "答えを持っていない質問", "受け答え"})
 ANSWER_NAME_MAX = 30                              # 問いの名前の長さの上限（録音のファイル名に入る）
 _FILE_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')    # Windows のファイル名に使えない文字
 
@@ -139,6 +142,17 @@ class Question:
     # 聞き直す）ので、返りうる答え（`possible_answers` の1か所）から外す。決めるのは取込のときの AI（CL-1 の `facts.decide`。人は確かめない）。
     # 決まらなければ真（誤った値の重いほう＝事実を伺う質問を希望の質問と取り違えるのを避ける側。CL-1 の決め方と同じ）
     asks_fact: bool = True
+    # 選択肢の質問の、選択肢ごとの「こちらがすること（お客様がされること）」の言葉（選択肢 → 言葉。CL-1 の連絡帳 4-65 の (a)。例：
+    # 「パンフレットをお送りしてもよろしいでしょうか？」の「はい」→「パンフレットをお送り」・「いいえ」→「パンフレットの送付は控え」）。
+    # 事実を伺う質問ではない質問（希望・申し出）で、言い切っていないが向きの決まった最初の答えを「それでは（言葉）させていただきますね？」で
+    # 確かめる（会話の側の Flow._hedged_after。✅ 2026-11-01 日本時間20時56分・11-02 1時22分 ユーザー）。決めるのは取込のときの AI
+    # （意味の言葉と同じ作り方＝文字の AI 2つ。人は確かめない）。無い選択肢は今までの「念のため（意味の言葉）でよろしかったでしょうか？」。
+    # 事実を伺う質問（asks_fact）には付けない（会話の側が使わない＝「それでは（意味の言葉）ということで…させていただいて大丈夫でしょうか？」）
+    do_words: dict[str, str] = field(default_factory=dict)
+    # この質問に入る一言（依頼者のトークスクリプト。CL-1 の連絡帳 4-65 の (b)。例「それでは予約番号の確認からさせていただきます。」）。前の
+    # 質問のあと、つなぎの言葉（それでは・続きまして）の代わりに、質問の録音の頭に1本で入る（文を作るのは会話の側の1か所
+    # flowctl.spoken_question。録音を作る道具もそこから読む）。最初の質問（名乗りと一緒に流す）には付けない。空なら今のつなぎの言葉
+    intro: str | None = None
 
 
 @dataclass(frozen=True)
@@ -179,6 +193,10 @@ class Settings:
     departed_policy: str = "successor"            # 在籍していない：後任の方をお呼びする／お礼を言って終える
     info: tuple[str, ...] = ()                    # 業務の情報（AI が自分の言葉で答える材料。1つに1文。無くてもよい）
     follow_up: bool = False                       # 担当から改めて連絡すると申し出てよいか（既定はいいえ＝約束しない）
+    # 依頼者がすること（登録・記録・手配など。CL-1 の連絡帳 4-65 の (c)・instruction.Business.client_does）。事実を伺う質問の、言い切って
+    # いない最初の答えの確かめ「それでは（意味の言葉）ということで（依頼者がすること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01
+    # 日本時間6時05分・6時27分 ユーザー）。書かなければ None＝会話の側の既定「記録」（phrases.CLIENT_DOES）
+    client_does: str | None = None
 
     def target_needs(self) -> TargetNeeds:
         """目的のお客様を呼ぶのに、発信対象の一覧から何が要るか（決め方はここだけ。取込・版の割り当て・門が使う）。
@@ -204,6 +222,7 @@ KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voic
 # （CL-1 の連絡帳 4-28）。書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
+OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。4-65 の (c)）
 
 
 def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) -> str | None:
@@ -367,11 +386,11 @@ def valid_answer_words(raw: Any, choices: tuple[str, ...], *, replies: bool) -> 
 
 
 def _answer_words(raw: Any, type_name: str, choices: tuple[str, ...], where: str, problems: list[str], *,
-                  replies: bool) -> dict[str, str]:
-    """質問の意味の言葉・曖昧な言葉の意味を読む（無ければ空）。合わない組があれば問題に出す。"""
+                  replies: bool, what: str | None = None) -> dict[str, str]:
+    """質問の意味の言葉・曖昧な言葉の意味・こちらがすることの言葉（what）を読む（無ければ空）。合わない組があれば問題に出す。"""
     if raw is None or raw == {}:
         return {}
-    what = "曖昧な言葉の意味" if replies else "意味の言葉"
+    what = what or ("曖昧な言葉の意味" if replies else "意味の言葉")
     if type_name not in CHOICE_TYPES:
         problems.append(f"{where}の{what}は、はい／いいえ・決まった選択肢の質問だけが持てます")
         return {}
@@ -388,8 +407,8 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     ai_reading_needs_person：AI の読みの案を、契約者が確かめていなければ通さないか（版を作るときは設定 `ai_reading_needs_person`
     の答え。置いた版を読むときは False＝置いた時に確かめ済み）。合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
     problems: list[str] = []
-    if not isinstance(raw, dict) or not KEYS <= set(raw) <= KEYS | RESPONSE_KEYS:
-        raise SettingsInvalid([f"業務設定は {sorted(KEYS)} の {len(KEYS)} つと、無くてもよい {sorted(RESPONSE_KEYS)} です"])
+    if not isinstance(raw, dict) or not KEYS <= set(raw) <= KEYS | OPTIONAL_KEYS:
+        raise SettingsInvalid([f"業務設定は {sorted(KEYS)} の {len(KEYS)} つと、無くてもよい {sorted(OPTIONAL_KEYS)} です"])
     purpose = _text(raw["purpose"], "業務の目的", problems)
     target_class = raw["target_class"]
     if target_class not in TARGET_CLASSES:
@@ -431,6 +450,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     ai_answer = _text(raw["ai_answer"], "「AIですか」と聞かれたときの答え", problems, optional=True)
     answers = _answers(raw["answers"], problems)
     responses = _responses(raw, problems)
+    client_does = _text(raw.get("client_does"), "依頼者がすること", problems, optional=True)
     voice = _text(raw["voice"], "声の型", problems)
     if voice is not None and voice_types is not None and voice not in voice_types:
         problems.append(f"声の型「{voice}」は、声の型の一覧にありません（{sorted(voice_types)}）")
@@ -477,15 +497,21 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                 problems.append(f"{where}の単位は、数の型（{UNIT_TYPE}）の質問だけが持てます")
             if not isinstance(q["asks_fact"], bool):
                 problems.append(f"{where}の事実を伺う質問か（asks_fact）は true / false です")
+            do_words = _answer_words(q["do_words"], q["type"], choices, where, problems, replies=False, what="こちらがすることの言葉")
+            if do_words and q["asks_fact"] is not False:
+                problems.append(f"{where}は事実を伺う質問なので、こちらがすることの言葉（do_words）は付けません（会話の側が使わない）")
+            intro = _text(q["intro"], f"{where}に入る一言", problems, optional=True)
+            if intro is not None and n == 1:
+                problems.append(f"{where}は最初の質問（名乗りと一緒に流す）なので、入る一言（intro）は付けません")
             questions.append(Question(qid, _text(q["text"], f"{where}の文", problems) or "",
                                       _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
                                       q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies,
-                                      q["asks_fact"] is not False))
+                                      q["asks_fact"] is not False, do_words, intro))
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
-                 **responses)
+                 **responses, client_does=client_does)
     # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
     if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
         problems += _flow_problems(s, raw["rules"])
@@ -658,11 +684,14 @@ def _current_shape(content: dict[str, Any]) -> dict[str, Any]:
     読むときにここで前の版を今の形に直す。確かめ `check` は今の形を必ず求めたまま）。
     - 事実を伺う質問か（asks_fact。2026-11-01 に足した＝CL-1 の連絡帳 2-1 の版 0.6）が無い前の版の質問は、真（事実を伺う質問）として読む
       （取込で決まらないときと同じ側＝`business_import._decided_facts`。⛔ 見直し28：前は、足す前に置いた版が読めなくなり、その版の
-      実施回はかけることも答えを書くこともできなかった）。"""
+      実施回はかけることも答えを書くこともできなかった）。
+    - こちらがすることの言葉（do_words）・入る一言（intro）（2026-11-02 に足した＝CL-1 の連絡帳 4-65 の (a)(b)）が無い前の版の質問は、
+      どちらも無い（空の表・None＝今までの確かめの言い方・つなぎの言葉）として読む。"""
     questions = content.get("questions")
     if not isinstance(questions, list):
         return content
-    return dict(content, questions=[dict(q, asks_fact=True) if isinstance(q, dict) and "asks_fact" not in q else q
+    added = {"asks_fact": True, "do_words": {}, "intro": None}   # 足した項目と、足す前の版で読む値
+    return dict(content, questions=[{**{k: v for k, v in added.items() if k not in q}, **q} if isinstance(q, dict) else q
                                     for q in questions])
 
 
@@ -717,12 +746,39 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     role = (role or t["target_role"]) if uses_role else None
     # 会話の「目的の人」の形（CL-1 の 4-22・phase0 の instruction.Target：区分・名前・読み・部署と役職）。誰でもは None（最初に出た人が
     # 目的の人）。読みが決まらない名前は、まず言ってみる読み（確かめは会話の中で＝candidates・likely）
+    # フルネームと部署（CL-1 の連絡帳 4-65 の (d)・instruction.Target の full_name・full_reading・department）：名前で呼ぶ業務の行で、一覧に
+    # あるときだけ。ふだんはお名字で呼び、受付の方に「お名前だけではどの方か分からない」と言われたときだけ使う（会話の側の Target.full_call）。
+    # フルネームの読みが決まらなければ、まず言ってみる読み（お名字と同じ。それも無ければ、フルネームではお呼びし直さない＝空）。部署は、
+    # 呼ぶ一言の役職に入っていないものだけ（入っていれば同じことを2度言わない＝会話の側も同じ判断をする）
+    full = name("target_full") if uses_name else None
+    full_reading = (full["reading"] or full["likely"] or "") if full else ""
+    department = t["target_department"] if uses_name and t["target_department"] and t["target_department"] not in (role or "") \
+        else None
     target = None if kind == ANYONE else {
         "kind": "法人" if s.target_class == "corporate" else "個人",
         "name": person["text"] if person else "",
         "reading": (person["reading"] or person["likely"] or "") if person else "",
-        "role": role or ""}
+        "role": role or "",
+        "full_name": full["text"] if full and full_reading else "",
+        "full_reading": full_reading if full else "",
+        "department": department or ""}
     return {"kind": kind, "role": role, "person": person, "company": name("source"), "target": target}
+
+
+WHO_UNCLEAR_FIELDS = ("full_name", "department")   # 「お名前だけではどの方か分からなかった」行で、依頼者に埋めていただく欄（4-65 の (g)）
+
+
+def who_unclear_blanks(tx: Tx, task_id: UUID) -> tuple[str, ...]:
+    """「お名前だけではどの方か分からなかった」（繋がらなかった理由 who_unclear）で依頼者に返す行の、埋めていただく欄（1か所。CL-1 の連絡帳
+    4-65 の (g)・✅ 2026-11-02 日本時間1時54分 ユーザー：「どちらも分からないときは、依頼者に「お名前だけではどの方か分からなかった」と返し、
+    フルネームや部署を足していただきます。」「一覧の入れるべき空欄部分が、その行だけ赤背景になると分かりやすいですね。」）：フルネーム・
+    部署のうち、その行の一覧で空いている欄（WHO_UNCLEAR_FIELDS の順）。両方あってもまた分からないと言われた行（お呼びし直した＝recalled）は
+    空（埋める欄は無い。依頼者には同じく「分からなかった」と返す）。見せ方（赤い背景など）は CL-3。"""
+    t = tx.one("SELECT target_full_name, target_department FROM salescall.tasks WHERE task_id = %s", (task_id,))
+    if t is None:
+        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    have = {"full_name": t["target_full_name"], "department": t["target_department"]}
+    return tuple(f for f in WHO_UNCLEAR_FIELDS if not have[f])
 
 
 def anyone_target(tx: Tx, version_id: UUID) -> bool:

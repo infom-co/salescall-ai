@@ -1195,6 +1195,26 @@ class SameDayAndSuccessor(SettleBase):
                 self.assertEqual((got["state"], got["decision"].kind, got["decision"].end_reason),
                                  ("not_reached", "end", "not_reached_departed"))
 
+    def test_who_unclear_ends_the_row_and_returns_the_blanks_to_fill(self):
+        """お名前だけではどの方か分からなかった（繋がらなかった理由 who_unclear。CL-1 の連絡帳 4-65 の (e)(g)。✅ 2026-11-02 日本時間1時22分・
+        1時54分 ユーザー）：日を改めて同じお名前でかけても同じになるので、かけ直さずに行を終え（システムの方針 not_reached_who_unclear）、
+        結果に、依頼者に埋めていただく欄（その行の一覧で空いているフルネーム・部署＝business_settings.who_unclear_blanks の1か所）を残す。
+        お呼びし直しても分からなかった行（recalled）も同じ。"""
+        from salescall.core.call_report import Said, WhoUnclear
+        for recalled in (False, True):
+            with self.subTest(recalled=recalled):
+                s = self.ready()
+                report = replace(rep(("reception",), not_reached="who_unclear"),
+                                 who_unclears=(WhoUnclear(Said(1, "お名前だけではどの者か分かりかねます。"), recalled),))
+                aid = self.call(s, report=report)
+                got = self.settle(s, aid)
+                self.assertEqual((got["state"], got["decision"].kind, got["decision"].end_reason),
+                                 ("not_reached", "end", "not_reached_who_unclear"))
+                r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+                self.assertEqual((r["detail"]["not_reached"], r["detail"]["who_unclear_blanks"]),
+                                 ("who_unclear", ["full_name", "department"]))
+
+
 class StuckVerification(SettleBase):
     def test_a_verification_that_never_finishes_becomes_a_fix_request(self):
         """通話後の検証が、録音を待つ時間＋1時間たっても終わらない：CL-1 へ修正依頼（検証の部品が動かないと、行もお客様も待ち

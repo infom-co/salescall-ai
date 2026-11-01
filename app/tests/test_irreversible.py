@@ -98,8 +98,9 @@ class Irreversible(Helpers):
 
     def test_a_disagreed_refusal_waits_for_the_recording_check_which_confirms_it(self):
         """食い違った断り × 録音から作り直した報告で断りとそろった ⇒ 決まりどおり（発信禁止・行を終える・確定）。締めは通話後の検証の
-        あとなので、検証が作り直さずに済んでいれば、会話の担当へ修正依頼（録音から作り直した報告で返してもらう）と、契約者への確かめを
-        すぐ求める。作り直してもそろわなければ、新しい版で契約者に求め直す。"""
+        あとなので、検証が作り直さずに済んでいれば、会話の担当に確かめ直しを頼む（録音から作り直した報告で返してもらう）。AI がまだ
+        確かめ直していないので、契約者には求めない（2026-11-01 管理者：伺い9 案1）。作り直してもそろわなければ（AI でも決められない）、
+        新しい版で契約者に求める（設定が初めの「いいえ」）。"""
         s = self.ready()
         other = self.other_row(s)
         aid = self.call(s, report=rep(dnc=True, check="disagreed"))
@@ -108,18 +109,21 @@ class Irreversible(Helpers):
         self.held(s, aid, "recording", other)
         asked = self.w.a.in_system(SYSTEM, lambda tx: [r["kind"] for r in fix_requests.open_requests(tx, "CL-1")])
         self.assertIn("irreversible_unchecked", asked)
-        self.assertEqual(self.asks(s), [(True, "recording_unchecked")])
+        self.assertEqual(self.asks(s), [(False, None)])                          # 人には求めない
+        self.assertEqual([(w["attempt_id"], w["why"]) for w in self.tx(s, approval.awaiting_ai_recheck)],
+                         [(aid, "recording_unchecked")])                         # 会話の担当が確かめ直す一覧
         folder = backup.client_folder(self.w.a, s["tenant"], s["client"])          # 決まるまで、その通話の録音を消さない
         self.assertIn(str(aid), backup.prune_rules(self.w.a, s["tenant"])[folder]["held"])
         self.assertEqual(self.tx(s, settle.rejudge_held), [])                   # まだ録音の確かめが無い：待ったまま
-        self.assertEqual(self.notices(s, "decision_approval"), 1)
+        self.assertEqual(self.notices(s, "decision_approval"), 0)
         self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"), evidence="試験：録音から"))
         self.assertEqual([d["state"] for d in self.tx(s, settle.rejudge_held)], ["do_not_call"])   # 締め直した：まだそろわない
         self.assertTrue(self.pending(s, aid)["p"])
-        self.assertEqual(self.asks(s), [(True, "recording_undecided")])          # 新しい版で、契約者に求め直す
-        self.assertEqual(self.notices(s, "decision_approval"), 2)
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])          # AI でも決められない：新しい版で、契約者に求める
+        self.assertEqual(self.tx(s, approval.awaiting_ai_recheck), [])
+        self.assertEqual(self.notices(s, "decision_approval"), 1)
         self.assertEqual(self.tx(s, settle.rejudge_held), [])                   # 新しい作り直しが届くまで、読み直さない
-        self.assertEqual(self.notices(s, "decision_approval"), 2)
+        self.assertEqual(self.notices(s, "decision_approval"), 1)
         self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="agreed"), evidence="試験：録音から"))
         done = self.tx(s, settle.rejudge_held)
         self.assertEqual([d["state"] for d in done], ["do_not_call"])
@@ -182,7 +186,7 @@ class Irreversible(Helpers):
         self.tx(s, settle.rejudge_held)                                          # 作り直してもそろわない：契約者に求め直す
         self.send_back(s, aid)
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.decision_asks WHERE attempt_id = %s",
-                                                      (aid,)))["n"], 2)
+                                                      (aid,)))["n"], 1)   # 求めたのは作り直しのあとだけ（伺い9）
         for sql in ("UPDATE salescall.decision_waits SET kind = 'approval' WHERE attempt_id = %s",
                     "DELETE FROM salescall.decision_waits WHERE attempt_id = %s",
                     "UPDATE salescall.decision_answers SET outcome = 'confirmed' WHERE attempt_id = %s",
@@ -308,19 +312,18 @@ class VerificationMode(Helpers):
 
 
 class RecordingCannotDecide(Helpers):
-    """録音の確かめで決められない保留（録音が届かなかった・作り直してもそろわない・検証が作り直さなかった）は、契約者に録音とやり取りを
-    確かめてもらう（0153・0154。2026-10-30 管理者のご決定 (6)「人が録音やその場のやり取りを確認できる状態にする」）。それまでは保留の
-    まま（かけない）。"""
+    """決められない保留：AI がまだ確かめ直していない（録音が届かなかった・検証が録音で確かめないまま済んだ）なら、人には求めず、会話の
+    担当の確かめ直しを待つ（2026-11-01 管理者：伺い9 案1「人は甚大な問題以外で介入しない」）。AI が確かめ直しても決められなかった
+    ときだけ、契約者に録音とやり取りを確かめてもらう（0153・0154・2026-10-31 伺い3）。どちらも、それまでは保留のまま（かけない）。"""
 
-    def unchecked_requests(self):
-        """会話の担当への修正依頼 irreversible_unchecked のうち、まだ直していないもの（同じ不具合は1つなので、ほかの試験の分は「直した」に
-        してから数える）。"""
-        return self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1")
-                                                      if r["kind"] == "irreversible_unchecked"])
+    def unchecked_requests(self, kind="irreversible_unchecked"):
+        """会話の担当への頼み（kind）のうち、まだ直していないもの（同じ不具合は1つなので、ほかの試験の分は「直した」にしてから数える）。"""
+        return self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1") if r["kind"] == kind])
 
     def close_unchecked(self):
-        for r in self.unchecked_requests():
-            self.w.a.in_system(SYSTEM, lambda tx: fix_requests.report_fixed(tx, r["request_id"], "試験：ほかの試験の分"))
+        for kind in ("irreversible_unchecked", "irreversible_no_recording"):
+            for r in self.unchecked_requests(kind):
+                self.w.a.in_system(SYSTEM, lambda tx: fix_requests.report_fixed(tx, r["request_id"], "試験：ほかの試験の分"))
 
     def missing(self, s):
         """録音が届かないまま通話後の検証が済んだ、食い違った断りの通話（フルオートの業務）を締める。"""
@@ -331,16 +334,23 @@ class RecordingCannotDecide(Helpers):
         self.settle(s, aid)
         return aid
 
-    def test_an_unchecked_wait_asks_both_the_conversation_side_and_the_contractor(self):
-        """録音はあるのに、検証が作り直した報告を返さないまま済んだ：会話の担当へ修正依頼し、契約者にも求める（だれにも知らせずに待たない＝
-        見直し24c の A3）。会話の担当が直して作り直した報告が届けば、締め直しで決まる。"""
+    def test_an_unchecked_wait_asks_only_the_conversation_side(self):
+        """録音はあるのに、検証が作り直した報告を返さないまま済んだ：会話の担当へ修正依頼する（だれにも知らせずに待たない＝見直し24c の
+        A3）。契約者には求めず、設定が「はい」でも決まったとみなさない（AI が確かめていない＝伺い9）。会話の担当が直して作り直した報告が
+        届けば、締め直しで決まる。"""
         s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
         self.close_unchecked()
         aid = self.call(s, report=rep(dnc=True, check="disagreed"))
         self.settle(s, aid)
+        self.held(s, aid, "recording")
         self.assertEqual(len(self.unchecked_requests()), 1)
-        self.assertEqual(self.asks(s), [(True, "recording_unchecked")])
-        self.assertEqual(self.notices(s, "decision_approval"), 1)
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.assertEqual((self.notices(s, "decision_approval"), self.notices(s, "decision_assumed")), (0, 0))
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])                   # 何度見直しても、人に求めず待つ
+        self.assertEqual(self.asks(s), [(False, None)])
+        with self.assertRaises(LookupError):
+            self.approve(s, aid)
         self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="agreed"), evidence="試験：録音から"))
         self.assertEqual([d["state"] for d in self.tx(s, settle.rejudge_held)], ["do_not_call"])
         self.assertFalse(self.pending(s, aid)["p"])
@@ -358,16 +368,26 @@ class RecordingCannotDecide(Helpers):
         self.assertEqual(self.asks(s), [(True, "recording_undecided")])
         self.assertEqual(self.unchecked_requests(), [])
 
-    def test_a_missing_recording_asks_the_contractor_who_confirms(self):
+    def test_a_missing_recording_waits_for_the_ai_to_recheck_from_the_call_text(self):
+        """録音が届かなかった：人には求めず、設定が「はい」でも決まったとみなさない（AI がまだ確かめ直していない＝伺い9）。会話の担当に、
+        通話中の別の耳の文字から作り直した報告を頼み、その一覧に出す。作り直した報告が届いて断りとそろえば、決まりどおり。"""
         s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
         aid = self.missing(s)
-        self.held(s, aid, "recording")                                           # 求めても、答えが出るまで保留のまま
-        self.assertEqual(self.asks(s), [(True, "recording_missing")])
-        self.assertEqual(self.notices(s, "decision_approval"), 1)
+        self.held(s, aid, "recording")
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.assertEqual((self.notices(s, "decision_approval"), self.notices(s, "decision_assumed")), (0, 0))
         self.assertEqual(self.tx(s, settle.rejudge_held), [])
-        self.assertEqual(self.notices(s, "decision_approval"), 1)
-        self.assertEqual(self.unchecked_requests(), [])                         # 録音が無いので、会話の担当には頼まない
-        out = self.approve(s, aid)
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertEqual(self.unchecked_requests(), [])                         # 録音で確かめ直す頼みではない
+        self.assertEqual(len(self.unchecked_requests("irreversible_no_recording")), 1)   # 通話中の文字から確かめ直す頼み
+        self.assertEqual([(w["attempt_id"], w["why"]) for w in self.tx(s, approval.awaiting_ai_recheck)],
+                         [(aid, "recording_missing")])
+        with self.assertRaises(LookupError):
+            self.approve(s, aid)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="agreed"),
+                                                       evidence="試験：通話中の別の耳の文字から"))
+        out = self.tx(s, settle.rejudge_held)[0]
         self.assertEqual(out["state"], "do_not_call")
         self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "do_not_call")
@@ -375,9 +395,29 @@ class RecordingCannotDecide(Helpers):
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.judgement_checks WHERE attempt_id = %s",
                                                       (aid,)))["n"], 0)          # 結果の承認（正解）ではない
 
-    def test_a_missing_recording_sent_back_is_settled_as_usual(self):
+    def test_the_contractor_is_never_asked_while_the_ai_has_not_rechecked(self):
+        """契約者に求める入口（approval._ask_contractor の1か所）は、AI がまだ確かめ直していない理由を断る（呼び手が誤っても、人に求めない＝
+        伺い9）。AI が確かめ直しても決められなかった理由だけを受け付ける。"""
+        s = self.ready()
+        self.close_unchecked()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"))
+        self.settle(s, aid)
+        for why in approval.AI_RECHECK:
+            with self.subTest(why=why), self.assertRaises(ValueError):
+                self.tx(s, lambda tx: approval._ask_contractor(tx, aid, why))
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.tx(s, lambda tx: approval._ask_contractor(tx, aid, "recording_undecided"))
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])
+
+    def test_a_missing_recording_the_ai_cannot_decide_from_the_call_text_asks_the_contractor(self):
+        """録音が届かず、通話中の文字から作り直しても、そろわない（AI でも決められない）：設定（初め「いいえ」）のとおり契約者に求める。
+        差し戻せば、断りではないとしてふつうに締める。"""
         s = self.ready()
         aid = self.missing(s)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"),
+                                                       evidence="試験：通話中の別の耳の文字から"))
+        self.tx(s, settle.rejudge_held)
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])
         out = self.send_back(s, aid)
         self.assertEqual(out["state"], "completed")
         self.assertEqual(self.dnc_reasons(s), [])
@@ -385,11 +425,20 @@ class RecordingCannotDecide(Helpers):
         self.assertEqual(self.released(s, aid), 1)
 
     def test_marks_only_on_the_current_recording_wait(self):
-        """契約者に確かめてもらう印は、答えの無い中身のある、いまの録音の確かめ待ちの版にだけ（データベースが守る）。"""
+        """契約者に確かめてもらう印は、答えの無い中身のある、いまの録音の確かめ待ちの版にだけ（データベースが守る）。理由は、AI が確かめ
+        直しても決められなかった（recording_undecided）だけ（0168。AI がまだ確かめ直していない理由では、人に求めない＝伺い9）。"""
         s = self.ready()
         aid = self.missing(s)
+        for why in approval.AI_RECHECK:                                          # いまの待ちの版でも、AI が確かめ直していない理由は断る
+            with self.subTest(why=why), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute(
+                    "INSERT INTO salescall.decision_asks (tenant_id, client_id, attempt_id, seq, why)"
+                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)", (aid, self.seq(s, aid), why)), SYSTEM)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"),
+                                                       evidence="試験：通話中の別の耳の文字から"))
+        self.tx(s, settle.rejudge_held)                                          # AI でも決められない：契約者に求めた
         put = ("INSERT INTO salescall.decision_asks (tenant_id, client_id, attempt_id, seq, why)"
-               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, 'recording_missing')")
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, 'recording_undecided')")
         self.send_back(s, aid)                                                   # 答えた：もう待たない（中身が空の版）
         for seq in (1, 2, 3):
             with self.subTest(seq=seq), self.assertRaises(Rejected):
@@ -673,64 +722,59 @@ class ForbiddenUnclearCut(Helpers):
         self.settle(s, aid)
         return aid
 
-    def unchecked_requests(self):
-        return self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1")
-                                                      if r["kind"] == "irreversible_unchecked"])
-
-    def close_unchecked(self):
-        for r in self.unchecked_requests():
-            self.w.a.in_system(SYSTEM, lambda tx: fix_requests.report_fixed(tx, r["request_id"], "試験：ほかの試験の分"))
+    unchecked_requests = RecordingCannotDecide.unchecked_requests
+    close_unchecked = RecordingCannotDecide.close_unchecked
 
     def last_wait(self, s, aid):
         return self.tx(s, lambda tx: tx.one("SELECT kind, parts, checked FROM salescall.decision_waits WHERE attempt_id = %s"
                                             " ORDER BY seq DESC LIMIT 1", (aid,)))
 
-    def test_it_is_held_and_not_called_again_and_the_contractor_decides_when_the_ai_did_not_check(self):
+    def test_it_is_held_and_not_called_again_until_the_ai_rechecks_when_the_ai_did_not_check(self):
         """検証が録音で確かめないまま済んだ：断りの候補は保留（発信禁止に入れない・行はかけずに保留・ほかの行も待つ・確かめのかけ直しの
-        電話をかけない）。設定が「いいえ」（初め）なら契約者に求め、会話の担当へ修正依頼。契約者が承認すれば断り（確かめて断りと決めた
-        断り）として登録し、行を終える。設定が「はい」のときは `test_the_setting_also_covers_a_wait_the_recording_check_skipped`。"""
+        電話をかけない）。人には求めず、会話の担当へ確かめ直しを頼む（伺い9）。録音から作り直しても切れ方が決まらなければ（AI でも
+        決められない）、設定が「いいえ」（初め）なので契約者に求め、承認すれば断り（確かめて断りと決めた断り）として登録し、行を終える。"""
         s = self.ready()
         self.close_unchecked()
         other = self.other_row(s)
         aid = self.forbidden_call(s)
         self.held(s, aid, "recording", other)
         self.assertEqual(self.last_wait(s, aid), {"kind": "recording", "parts": ["refusal"], "checked": "none"})
-        self.assertEqual(self.asks(s), [(True, "recording_unchecked")])
+        self.assertEqual(self.asks(s), [(False, None)])
         self.assertEqual(len(self.unchecked_requests()), 1)
         self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT 1 AS x FROM salescall.unclear_checks WHERE task_id = %s",
                                                        (s["task"],))))          # 確かめのかけ直しはしない
-        self.assertEqual(self.tx(s, settle.rejudge_held), [])                    # 設定が「いいえ」：契約者の答えを待つ
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])                    # AI の確かめ直しを待つ
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(cut=self.UNCLEAR, check="none"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])          # AI でも決められない：契約者に求める
         out = self.approve(s, aid)
         self.assertEqual(out["state"], "do_not_call")
         self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
         self.assertFalse(self.pending(s, aid)["p"])
 
-    def test_the_setting_also_covers_a_wait_the_recording_check_skipped(self):
-        """会話の担当が録音で確かめないまま済んだ保留も、設定 decision.undecided_as_decided に従う（2026-10-30 夜 管理者 (1)「録音でも決め
-        られない（…会話の担当が録音で確かめなかった）」・2026-10-31 伺い3「すべてに同じく効く」）：「はい」なら決まったとみなす（断りとして
-        登録・行を終える・契約者と管理者に知らせる。答えは求めない）。確かめなかったことの修正依頼は、決まったとみなしても会話の担当へ出す。
-        ⛔ 前は、この場合だけ設定から外し、いつも契約者に求めていた（ご決定に無い分け方）。"""
+    def test_the_setting_does_not_cover_a_wait_the_ai_did_not_recheck(self):
+        """会話の担当が録音で確かめないまま済んだ保留は、設定 decision.undecided_as_decided が「はい」でも、決まったとみなさない（確かめずに
+        発信禁止に入れない。2026-11-01 管理者：伺い9「確かめずに、発信禁止に入れる判断を私がするとは思えません」・案1「OK」）。人にも
+        求めず、会話の担当の確かめ直しを待つ。⛔ c369bbf：CL-2 が自分の文「すべてに同じく効く」をご決定と読み違え、決まったとみなしていた。"""
         s = self.ready()
         self.put_client(s, "decision.undecided_as_decided", True)
         self.close_unchecked()
         before = self.notices(s, "decision_assumed")
         aid = self.forbidden_call(s)
-        self.assertFalse(self.pending(s, aid)["p"])
-        self.assertEqual(self.asks(s), [])
-        self.assertEqual(self.last_wait(s, aid), {"kind": "recording", "parts": ["refusal"], "checked": "assumed"})
-        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
-        self.assertEqual(self.notices(s, "decision_assumed"), before + 1)
+        self.assertTrue(self.pending(s, aid)["p"])
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.assertEqual(self.last_wait(s, aid), {"kind": "recording", "parts": ["refusal"], "checked": "none"})
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertEqual(self.notices(s, "decision_assumed"), before)
         self.assertEqual(len(self.unchecked_requests()), 1)
-        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
-        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"].get("decision_assumed"),
-                         "recording_unchecked")
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "hold")
 
     def test_sent_back_it_is_not_a_refusal_the_row_ends_and_other_rows_are_free(self):
         s = self.ready()
         self.close_unchecked()
         other = self.other_row(s)
-        aid = self.forbidden_call(s)
+        aid = self.forbidden_call(s, rebuilt=rep(cut=self.UNCLEAR, check="none"))   # AI でも決められず、契約者に求めた
         out = self.send_back(s, aid)
         self.assertNotEqual(out["state"], "do_not_call")
         self.assertEqual(self.dnc_reasons(s), [])
@@ -812,7 +856,7 @@ class ForbiddenUnclearCut(Helpers):
         self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
 
     def test_the_setting_also_covers_a_disagreed_refusal_the_recording_could_not_decide(self):
-        """設定は、録音でも決められない取り消せない決定のすべてに同じく効く（1か所＝approval.assumable）：2つ目の判定とそろわず、録音から
+        """設定は、AI が確かめ直しても決められない取り消せない決定のどれにも効く（1か所＝approval.assumable）：2つ目の判定とそろわず、録音から
         作り直してもそろわない断り。"""
         s = self.ready()
         self.put_client(s, "decision.undecided_as_decided", True)

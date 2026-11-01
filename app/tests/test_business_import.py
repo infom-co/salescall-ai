@@ -522,6 +522,40 @@ class Import(unittest.TestCase):
         self.assertEqual([x for x in p.problems if "Q2" in x], [next(x for x in p.problems if "Q2" in x and "文" in x)])
         self.assertFalse([x for x in p.problems if "事実を伺う質問か" in x])
 
+    def test_do_words_intro_and_client_does_come_in(self):
+        """CL-1 の連絡帳 4-65 の (a)(b)(c)：選択肢ごとの「こちらがすること」の言葉は、事実を伺う質問ではない選択肢の質問だけ、取込のときに
+        AI（CL-1 の決め方）に1回だけ聞いて入れる（事実を伺う質問かが決まってから聞く。使えない組は入れない。登録では聞き直さない）。
+        質問に入る一言は「質問」のシートの無くてもよい列「入る一言」（前のひな形にはこの列が無いので、無ければ空）、依頼者がすることは
+        「基本」の項目。最初の質問の入る一言は通さない（名乗りと一緒に流すので使われない）。"""
+        asked = []
+
+        def do_words(pairs):
+            asked.append(pairs)
+            return [{"する": "ご予約をお取り", "しない": "ご予約は控え", "わからない": "x"} for _ in pairs]
+
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "入る一言"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", None),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None,
+                 "それではご希望の日時の確認からさせていただきます。")]
+        basic = book_rows("基本") + [("依頼者がすること", "手配")]
+        data = book(sheets={"質問": rows, "基本": basic})
+        p = self.preview(data, decide_facts=lambda texts: {t: "ご予約" not in t for t in texts}, decide_do_words=do_words)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"))]])   # 事実を伺う質問ではない選択肢の質問だけ
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual([(q.do_words, q.intro) for q in got.questions],
+                         [({"する": "ご予約をお取り", "しない": "ご予約は控え"}, None),
+                          ({}, "それではご希望の日時の確認からさせていただきます。")])
+        self.assertEqual((got.client_does, len(asked)), ("手配", 1))           # 登録では聞き直さない
+        p = self.preview(data, decide_facts=lambda texts: {t: True for t in texts}, decide_do_words=do_words)   # どれも事実を伺う質問
+        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"], len(asked)), ([], None, 1))   # 聞かない
+        first = [rows[0], rows[1][:-1] + ("それではご予約の確認からさせていただきます。",), rows[2]]
+        p = self.preview(book(sheets={"質問": first}))
+        self.assertTrue(any("最初の質問" in x and "入る一言" in x for x in p.problems), p.problems)
+        p = self.preview(book(), decide_do_words=do_words)                      # 前のひな形（入る一言の列が無い）も読める
+        self.assertEqual((p.problems, [q["intro"] for q in p.raw["questions"]]), ([], [None, None]))
+
     def test_other_entrances_go_the_same_way(self):
         """依頼者の画面から抜き出した中身（同じ形）も、同じ確かめと登録の道を通る。"""
         from tests.test_business_settings import raw

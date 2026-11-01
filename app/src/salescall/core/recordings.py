@@ -320,7 +320,15 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
         reading = target["reading"] or None
         if reading is None:
             return NameNeeds((), (), tails, no_reading=True)
-        return NameNeeds((role,) if corporate and role else (), (NameKey(reading=reading),), tails)
+        # お名前だけではどの方か分からないと言われたときに、部署とフルネームでお呼びし直す一言（会話の側の Target.full_call・後任の方の形
+        # successor_full_call＝名乗りの部分 target_full・target_successor_full。CL-1 の連絡帳 4-65 の (d)）も、同じ3つの部分を組み合わせて
+        # 流す：役職の部分「（部署）（役職）の」・名前の部分「（フルネームの読み）様」・続く言葉（呼ぶ一言・後任の方の一言と同じ）。
+        # お伝えすることが増える行（フルネームがお名字と違う・部署がある＝target_of が役職に入っていない部署だけを渡す）だけ要る
+        full = target["full_reading"] if target["full_name"] and target["full_name"] != target["name"] else reading
+        full_role = (target["department"] + (role or "")) if target["department"] else role
+        roles = tuple(dict.fromkeys(r for r in (role, full_role) if corporate and r))
+        names = tuple(dict.fromkeys((NameKey(reading=reading), NameKey(reading=full))))
+        return NameNeeds(roles, names, tails)
     if role is None:   # 呼ぶ名前も役職も無い（門が target_name_missing・target_role_missing で先に断る）
         return NameNeeds((), (), tails, no_reading=True)
     return NameNeeds((), (NameKey(role=role),), tails)   # 役職のみ：役職の呼び方が名前の部分。呼ぶ一言は法人の形（phrases.target_call）

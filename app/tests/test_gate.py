@@ -245,6 +245,53 @@ class DataReasons(Base):
         navi = self.ready(phone="0570-000-001")
         self.assertEqual(self.reason(navi), "number_kind_not_allowed")
 
+    def test_a_customer_who_declined_is_not_called_again_in_the_same_business(self):
+        """2026-11-01 管理者：伺い8「業務ごとに選択できるようにする。デフォルトは案1。ただし、再度、同じよう圏でかけ直したい業務の場合は、
+        非推奨で案2も選べるように」。用件・最終目的を断られて終わった行のお客様（同じ番号）には、同じ業務の次の実施回でもかけない（行を
+        終える＝待っても変わらない）。決めるのは取込と門が読むかけない理由の1か所（target_policy.block_reason）。ほかの業務からはかかる。
+        断りが外れて行が予定に戻れば、かける。業務の設定 business.call_declined_again を「はい」にすれば、かける。依頼者が管理番号を
+        お客様を表す変わらない番号とした業務では、番号が替わっても、同じ管理番号ならかけない。"""
+        s = self.ready()
+        run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        t2 = self.w.task(s["tenant"], s["client"], run2, s["contact"])
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験：次の実施回の最初の予定"))
+        why = lambda task, business=None, ref=None, phone=None: self.tx(s, lambda tx: target_policy.block_reason(   # noqa: E731
+            tx, normalize(phone or s["phone"]), client_ref=ref, tenant_id=s["tenant"], client_id=s["client"],
+            business_id=business or s["business"]))
+        self.assertIsNone(why(t2))
+        self.tx(s, lambda tx: next_action.end(tx, s["task"], "declined", cause="試験：用件を断られた"))
+        self.assertEqual(why(t2)[0], "declined_in_business")
+        self.assertIsNone(why(t2, business=uuid.uuid4()))                       # ほかの業務からはかかる
+        denied = self.claim(s, task=t2)
+        self.assertEqual(denied.reason, "declined_in_business")
+        self.tx(s, lambda tx: next_action.after_denial(tx, t2, denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))   # 門の答えを受けた所と同じく
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, t2))["end_reason"], "declined_in_business")   # 行を終える
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：断りが外れて予定に戻った"))
+        self.assertIsNone(why(t2))                                               # いちばん新しい予定で決める
+        self.tx(s, lambda tx: next_action.end(tx, s["task"], "declined", cause="試験：また断られた"))
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale, review_when,"
+            " set_by) VALUES ('business.call_declined_again', 'business', %s, %s, %s, 'true', 'decided', '試験', '試験', '試験')",
+            (s["tenant"], s["client"], s["business"])), OPERATOR)
+        self.assertIsNone(why(t2))                                               # 案2（非推奨）を選んだ業務は、かける
+        u = self.ready()                                                          # 管理番号でお客様を表す業務
+        self.put_client(u, "dnc.client_ref_is_stable_id", True)
+        ref_task = uuid.uuid4()                                                   # 管理番号の付いた行（取込と同じく、行を作るときに持つ）
+        ref_run = self.w.run(u["tenant"], u["client"], u["business"], u["version"])
+        ref_contact = self.w.contact(u["tenant"], u["client"], normalize(fictional_jp_fixed()).e164)
+        self.tx(u, lambda tx: tx.execute(
+            "INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id, client_ref) VALUES (%s, %s, %s, %s, %s,"
+            " 'K-001')", (u["tenant"], u["client"], ref_task, ref_run, ref_contact)), OPERATOR)
+        self.tx(u, lambda tx: next_action.end(tx, ref_task, "declined", cause="試験：用件を断られた"))
+        other = normalize(fictional_jp_fixed()).e164
+        got = self.tx(u, lambda tx: target_policy.block_reason(tx, normalize(other), client_ref="K-001", tenant_id=u["tenant"],
+                                                              client_id=u["client"], business_id=u["business"]))
+        self.assertEqual(got[0], "declined_in_business")
+        self.put_client(u, "dnc.client_ref_is_stable_id", False)                 # 管理番号でお客様を表さない業務は、番号だけで決める
+        self.assertIsNone(self.tx(u, lambda tx: target_policy.block_reason(
+            tx, normalize(other), client_ref="K-001", tenant_id=u["tenant"], client_id=u["client"], business_id=u["business"])))
+
     def test_max_attempts_counts_only_dialed(self):
         s = self.ready()
         self.put_client(s, "retry.max_attempts_per_task", 1)
@@ -1590,14 +1637,17 @@ class NameLedger(Content):
     選んだ声で承認した録音でそろうまで、その声ではかけない。どの声でもそろわなければ待たせ、契約者に知らせる（止めない・行ごとに知らせを
     増やさない）。"""
 
-    def named(self, s, name, reading):
-        """同じ実施回に、目的のお客様の名前と読みのある行を1つ足す（版は名前で呼ぶ業務に替えておく）。"""
+    def named(self, s, name, reading, full=None, department=None):
+        """同じ実施回に、目的のお客様の名前と読みのある行を1つ足す（版は名前で呼ぶ業務に替えておく）。full＝(フルネーム, その読み)・
+        department＝部署（どれも一覧にあるときだけ。CL-1 の連絡帳 4-65 の (d)）。"""
         k = self.w.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164)
         tid = uuid.uuid4()
+        fn, fr = full or (None, None)
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id, target_name, target_name_reading,"
-            " target_name_reading_by) VALUES (%s, %s, %s, %s, %s, %s, %s, 'given')",
-            (s["tenant"], s["client"], tid, s["run"], k, name, reading)), OPERATOR)
+            " target_name_reading_by, target_full_name, target_full_name_reading, target_full_name_reading_by, target_department)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, 'given', %s, %s, %s, %s)",
+            (s["tenant"], s["client"], tid, s["run"], k, name, reading, fn, fr, "given" if fr else None, department)), OPERATOR)
         self.tx(s, lambda tx: next_action.schedule_now(tx, tid, cause="試験"))
         return dict(s, task=tid, contact=k)
 
@@ -1646,13 +1696,42 @@ class NameLedger(Content):
         c = self.ready()
         self.switch_to(c, {"kind": "anyone", "role": None})
         self.assertIsNone(self.tx(c, lambda tx: recordings.name_needs(tx, c["task"])))
-        person = {"target": {"kind": "個人", "name": "岡田", "reading": "おかだ", "role": ""}}
+        person = {"target": {"kind": "個人", "name": "岡田", "reading": "おかだ", "role": "", "full_name": "", "full_reading": "",
+                             "department": ""}}
         with mock.patch.object(recordings.business_settings, "target_of", return_value=person):
             got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(reading="おかだ"),)))
         self.assertEqual(got.tails, ("target_individual", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm"))
         with self.assertRaises(ValueError):                                   # 名前の部分の鍵は、読みか役職のどちらか1つ
             K(reading="おかだ", role="社長")
+
+    def test_the_full_name_call_needs_its_parts_only_when_it_adds_something(self):
+        """お名前だけではどの方か分からないと言われたときに、部署とフルネームでお呼びし直す一言（会話の側の Target.full_call・
+        successor_full_call＝名乗りの部分 target_full・target_successor_full。CL-1 の連絡帳 4-65 の (d)）も、同じ3つの部分を組み合わせて
+        流す：役職の部分「（部署）（役職）の」・名前の部分「（フルネームの読み）様」・続く言葉は呼ぶ一言・後任の方の一言と同じ。お伝え
+        することが増える行（フルネームがお名字と違う・役職に入っていない部署がある）だけ要る。会話が読む1か所（target_of）にも渡る。"""
+        s = self.ready()
+        self.switch_to(s, {"kind": "name", "role": None})
+        K = recordings.NameKey
+        plain = self.named(s, "岡田", "おかだ")
+        full = self.named(s, "岡田", "おかだ", full=("岡田太郎", "おかだたろう"), department="営業部")
+        same = self.named(s, "岡田", "おかだ", full=("岡田", "おかだ"))         # フルネームがお名字と同じ：増えない
+        got = [self.tx(s, lambda tx, r=r: recordings.name_needs(tx, r["task"])) for r in (plain, full, same)]
+        self.assertEqual([(g.roles, g.names) for g in got],
+                         [((), (K(reading="おかだ"),)), (("営業部",), (K(reading="おかだ"), K(reading="おかだたろう"))),
+                          ((), (K(reading="おかだ"),))])
+        self.assertEqual(got[1].tails, got[0].tails)   # 続く言葉は呼ぶ一言・後任の方の一言と同じ（増えない）
+        # 「お名前だけではどの方か分からなかった」で依頼者に埋めていただく欄（一覧で空いている欄。4-65 の (g)）
+        blanks = [self.tx(s, lambda tx, r=r: recordings.business_settings.who_unclear_blanks(tx, r["task"])) for r in (plain, full)]
+        self.assertEqual(blanks, [("full_name", "department"), ()])
+        t = self.tx(s, lambda tx: recordings.business_settings.target_of(tx, full["task"]))["target"]
+        self.assertEqual((t["full_name"], t["full_reading"], t["department"]), ("岡田太郎", "おかだたろう", "営業部"))
+        r = self.ready()
+        self.switch_to(r, {"kind": "role_and_name", "role": "営業部部長"})
+        inside = self.named(r, "岡田", "おかだ", department="営業部")   # 部署が役職に入っている：同じことを2度言わない
+        t = self.tx(r, lambda tx: recordings.business_settings.target_of(tx, inside["task"]))["target"]
+        self.assertEqual(t["department"], "")
+        self.assertEqual(self.tx(r, lambda tx: recordings.name_needs(tx, inside["task"])).roles, ("営業部部長",))
 
     def test_a_row_is_called_only_in_a_voice_whose_name_recordings_are_all_approved(self):
         """名前の部分が無い声では話さない・そろった声で話す・承認していない録音は使わない・同じ読みなら漢字が違っても同じ録音。

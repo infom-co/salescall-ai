@@ -70,7 +70,8 @@ from salescall.core.access import Tx
 
 __all__ = ["ORDER", "Tick", "after_call", "after_settle", "blame_of", "by_hand_line", "by_hand_stop", "by_hand_task", "claimed",
            "decode", "encode", "fixed", "line_of", "number_dead", "number_held", "number_of", "number_set", "number_set_everywhere",
-           "number_wait", "removed", "stage_name", "storage_back", "stuck", "task_of", "tested", "tick", "waiting_decision"]
+           "number_wait", "removed", "stage_name", "storage_back", "storage_row_back", "storage_rows", "stuck", "task_of", "tested",
+           "tick", "waiting_decision"]
 
 LINE, TENANT, TASK, NUMBER, ATTEMPT = "line", "tenant", "task", "number", "attempt"
 ORDER = (LINE, TENANT, TASK, NUMBER, ATTEMPT)   # 鍵を取る順（17章：回線→契約者。行・番号・試行のせいはそのあと）
@@ -565,12 +566,33 @@ def storage_back(tx: Tx) -> None:
     （errors.TROUBLES の storage_stuck）の行は、R-6 のとおり、お詫びとともにすぐかけ直す（2026-10-31 管理者：伺い5「話していた電話は
     お詫びして終え、復旧次第お詫びとともにかけ直します」。⛔ 見直し28：前は、ほかの行の電話を不具合なく話し終えるか、直した版に替わる
     まで戻らず、一覧の最後の1行のように、ほかにかける行が無いと、お詫びの電話がかからなかった）。休みの行（同じ行で2回止まった）には
-    渡さない（その行の問題かもしれない＝R-10 のとおり、直した版か手で戻す）。"""
+    渡さない（その行の問題かもしれないので、その行の書き込みを確かめてから＝`storage_row_back`）。"""
     run = _Run(tx, "storage_back")
     (waiting,) = run.take((TASK, Stages(("await_recovery",))))
     ev = hr.Event("E21", run.now, kind=errors.TROUBLES["storage_stuck"])
     for t in waiting:
         run.give(t, ev)
+    run.save()
+
+
+def storage_rows(tx: Tx) -> list[UUID]:
+    """その行の書き込みを確かめて戻す行（取引の契約者の分。決まった間隔の仕事 supervisor/jobs.storage_recovery が、行ごとに
+    `storage_row_back` を時間切れつきで呼ぶ）：休みの行のうち、表の決まり（health_rules.storage_return の1か所）で戻してよいもの。欄の鍵は
+    取らずに読む（固まった行の鍵を待って、ほかの行の確かめまで止めない＝データベースの salescall.resting_task_states。契約者の範囲の取引
+    でも読める）。"""
+    kind = errors.TROUBLES["storage_stuck"]
+    return [r["task_id"] for r in tx.all("SELECT task_id, state FROM salescall.resting_task_states()")
+            if hr.storage_return(decode(r["state"]), kind)]
+
+
+def storage_row_back(tx: Tx, task_id: UUID) -> None:
+    """データベースの止まりだけで休んだ行の書き込みが戻った（E21。決まった間隔の仕事 supervisor/jobs.storage_recovery が、その行だけの
+    取引を書き込みの確かめ supervisor/line.timed_write の中で呼ぶ＝この取引が、その行の欄の鍵を取って書き、決めた長さのうちに確定まで
+    終わったときだけ戻る）：表の R-22 のとおり、1回だけ戻して、お詫びとともにかけ直す（戻してよいかは表の1か所＝health_rules.storage_return。
+    2026-11-01 管理者：伺い10）。"""
+    run = _Run(tx, "storage_row_back")
+    (task,) = run.take((TASK, task_id))
+    run.give(task, hr.Event("E21", run.now, kind=errors.TROUBLES["storage_stuck"]))
     run.save()
 
 

@@ -25,8 +25,8 @@
   (9) その実施回に同じ番号のタスクがある：管理番号も同じなら「もう登録済み」、違えば止める
   (10) その実施回に、同じ管理番号で別の番号のタスクがある ⇒ 止める
   (11) 目的のお客様の名前・役職が要るのに無い ⇒ 止める
-  (12) 名前（会社名・目的のお客様の名前）の読みの列の値が読みとして使えない・検証モードで AI が決めた読みを契約者が確かめていない
-       ⇒ 止める（読みが決まらないだけなら止めない）
+  (12) 名前（会社名・目的のお客様の名前・フルネーム）の読みの列の値が読みとして使えない・検証モードで AI が決めた読みを契約者が
+       確かめていない ⇒ 止める（読みが決まらないだけなら止めない）
   (13) ここまで当たらなければ合格（登録する）
   「かけない」の列で付けた行は、ほかの行と同じ確かめを通して登録し（もう登録済みの行も）、「かけない」の印を付ける（exclusions。
   ダッシュボードで戻せる。2026-10-18 ユーザー決定）。
@@ -50,10 +50,14 @@ from salescall.core.import_columns import ImportRejected
 from salescall.core.import_files import Cell, Sheet
 from salescall.core.phone import PhoneNumber, normalize
 
-FIELDS = ("phone", "client_ref", "name", "name_reading", "person_name", "person_name_reading", "person_role", "exclude")
+FIELDS = ("phone", "client_ref", "name", "name_reading", "person_name", "person_name_reading", "person_role",
+          "person_full_name", "person_full_name_reading", "person_department", "exclude")
 # 対応付けられる欄：番号・依頼者の管理番号・お客様の名前（会社名など）とその読み・目的のお客様の名前とその読み・役職・
-# 「かけない」（2026-10-18 ユーザー決定。読み方は exclusions.read_mark の1か所。付けた行は登録して「かけない」の印を付ける）
-_READING_OF = {"name": "name_reading", "person_name": "person_name_reading"}   # 名前の欄 → 読みの欄
+# 目的のお客様のフルネームとその読み・部署（どれも無くてもよい。ふだんはお名字でお呼びし、受付の方に「お名前だけではどの方か分からない」
+# と言われたときだけ、部署とフルネームの分かるほうでお呼びし直す＝CL-1 の連絡帳 4-65 の (d)。2026-11-01 日本時間23時59分・11-02 1時22分
+# ユーザー）・「かけない」（2026-10-18 ユーザー決定。読み方は exclusions.read_mark の1か所。付けた行は登録して「かけない」の印を付ける）
+_READING_OF = {"name": "name_reading", "person_name": "person_name_reading",
+               "person_full_name": "person_full_name_reading"}   # 名前の欄 → 読みの欄
 
 
 class PlanChanged(Exception):
@@ -75,6 +79,9 @@ class RowPlan:
     person_name: str | None = None
     person_reading: readings.Reading = readings.UNDECIDED
     person_role: str | None = None
+    person_full_name: str | None = None
+    person_full_reading: readings.Reading = readings.UNDECIDED
+    person_department: str | None = None
     exclusion: str = "call"       # 一覧の「かけない」の列の印（exclude・force なら、登録する行・もう登録済みの行にその印を付ける）
 
     def key(self) -> list[Any]:
@@ -82,7 +89,8 @@ class RowPlan:
         n = self.number
         return [self.row_no, self.outcome, self.reason_code, n.e164 if n else None, n.zero_added if n else False,
                 self.client_ref, self.name, self.source_phone, str(self.task_id) if self.task_id else None,
-                self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role, self.exclusion]
+                self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role, self.exclusion,
+                self.person_full_name, self.person_full_reading.as_json(), self.person_department]
 
 
 @dataclass(frozen=True)
@@ -154,14 +162,18 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
                 "                             source_phone, source_row, import_id, source_name_reading, source_name_reading_by,"
                 "                             source_name_reading_candidates, source_name_reading_likely,"
                 "                             target_name, target_name_reading, target_name_reading_by,"
-                "                             target_name_reading_candidates, target_name_reading_likely, target_role)"
+                "                             target_name_reading_candidates, target_name_reading_likely, target_role,"
+                "                             target_full_name, target_full_name_reading, target_full_name_reading_by,"
+                "                             target_full_name_reading_candidates, target_full_name_reading_likely, target_department)"
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-                "         %s, %s, %s, %s)"
+                "         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
                 " RETURNING task_id",
                 (run_id, contact_id, r.client_ref, r.name, r.source_phone, r.row_no, import_id,
                  r.name_reading.reading, r.name_reading.by, list(r.name_reading.candidates), r.name_reading.likely,
                  r.person_name, r.person_reading.reading, r.person_reading.by, list(r.person_reading.candidates),
-                 r.person_reading.likely, r.person_role),
+                 r.person_reading.likely, r.person_role, r.person_full_name, r.person_full_reading.reading,
+                 r.person_full_reading.by, list(r.person_full_reading.candidates), r.person_full_reading.likely,
+                 r.person_department),
             )["task_id"]
             next_action.schedule_now(tx, task_id, cause="取込")
         if r.exclusion != "call" and r.outcome in ("registered", "already"):
@@ -267,8 +279,11 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         person_name, person_role = _text(row, cols, "person_name"), _text(row, cols, "person_role")
         name_reading, bad_name = _read(name, _text(row, cols, "name_reading"), confirmed=confirmed, ai=ai)
         person_reading, bad_person = _read(person_name, _text(row, cols, "person_name_reading"), confirmed=confirmed, ai=ai)
+        full_name, department = _text(row, cols, "person_full_name"), _text(row, cols, "person_department")
+        full_reading, bad_full = _read(full_name, _text(row, cols, "person_full_name_reading"), confirmed=confirmed, ai=ai)
         found = dict(number=number, client_ref=ref, name=name, source_phone=raw_phone.strip(), name_reading=name_reading,
-                     person_name=person_name, person_reading=person_reading, person_role=person_role, exclusion=skip)
+                     person_name=person_name, person_reading=person_reading, person_role=person_role, exclusion=skip,
+                     person_full_name=full_name, person_full_reading=full_reading, person_department=department)
         blocked = target_policy.block_reason(tx, number, client_ref=ref, tenant_id=run["tenant_id"],
                                              client_id=run["client_id"], business_id=run["business_id"])
         if blocked is not None:
@@ -297,11 +312,12 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             if short is not None:
                 rows.append(stop(short[0], short[1], **found))
                 continue
-            named = ((name, name_reading), (person_name, person_reading))
+            named = ((name, name_reading), (person_name, person_reading), (full_name, full_reading))
             for text, got in named:              # 検証モードで契約者が確かめる名前（行の中のすべて。止める理由とは別に出す）
                 if text is not None and got.reading is not None and readings.needs_person(got, verification=verification):
                     to_confirm.setdefault((text, got.reading), []).append(row.row_no)
-            why = ("reading_invalid", bad_name or bad_person) if (bad_name or bad_person) else _reading_problem(named, verification)
+            bad = bad_name or bad_person or bad_full
+            why = ("reading_invalid", bad) if bad else _reading_problem(named, verification)
             if why is not None:
                 rows.append(stop(why[0], why[1], **found))
                 continue

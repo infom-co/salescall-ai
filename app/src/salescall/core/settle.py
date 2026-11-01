@@ -25,8 +25,9 @@
   答え（承認・差し戻し・発信禁止の取り消し）が出たら `resettle` の1か所で締め直す。外すと答えた決定は、その通話の報告
   から外して判定する（`_judge_input` の1か所＝最初の締め・判定し直し・締め直しのどれも）。録音の確かめの答えは、録音から作り直した報告が
   届いたら、決まった間隔の仕事（`rejudge_held`）が締め直し、保留を決め直す（`_recheck_waits`）。保留を書くのは承認の部分の1か所
-  （approval.record_wait。締めの処理が判定するたびに呼ぶ）。録音の確かめで決められないときは、契約者に確かめてもらう
-  （approval.chase_recording の1か所。0153・0154）。
+  （approval.record_wait。締めの処理が判定するたびに呼ぶ）。決められない保留の追いかけは approval.chase_recording の1か所（AI がまだ
+  確かめ直していなければ会話の担当に確かめ直しを頼み、AI が確かめ直しても決められなければ契約者に求めるか設定で決まったとみなす。
+  2026-11-01 管理者：伺い9）。
 """
 
 from __future__ import annotations
@@ -296,7 +297,8 @@ def _recheck_waits(tx: Tx) -> list[dict[str, Any]]:
     """答えを待っている保留を見直す（決まった間隔の仕事＝`rejudge_held`。1か所）：
     - 保留を決めたときの報告より新しい会話の報告（録音から作り直した報告）が届いた ⇒ 締め直す（`resettle`。締め直しが保留を決め直す：
       そろえば待たない＝決まりどおり・決定が報告から消えれば元に戻す・中身が変われば新しい版・判定できなければ判定できない知らせ）
-    - まだ契約者に求めていない録音の確かめ待ち ⇒ 録音の確かめで決められるか（core/approval.chase_recording の1か所）
+    - まだ契約者に求めていない録音の確かめ待ち ⇒ 決められない理由ごとに追いかける（core/approval.chase_recording の1か所：AI がまだ
+      確かめ直していなければ会話の担当に頼み、契約者には求めない）
     - 録音の確かめ待ちで、設定 decision.undecided_as_decided で決まったとみなしてよくなった（あとから設定を「はい」にした。契約者に
       求めている保留も）⇒ 締め直す（締め直しが、決まったとみなした版を書く＝approval.assumable の1か所）"""
     done = []
@@ -426,7 +428,11 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot,
                                 detail={**j.detail, **({"decision_wait": wait.kind} if wait else {}),   # 保留の種類（画面・出力が読む）
-                                        **({"decision_assumed": found.assumed} if found is not None and not found.holds else {})},
+                                        **({"decision_assumed": found.assumed} if found is not None and not found.holds else {}),
+                                        # お名前だけではどの方か分からなかった行：依頼者に埋めていただく欄（フルネーム・部署のうち空いている欄。
+                                        # 1か所＝business_settings.who_unclear_blanks。出力が読む＝CL-3。CL-1 の連絡帳 4-65 の (g)）
+                                        **({"who_unclear_blanks": list(business_settings.who_unclear_blanks(tx, a["task_id"]))}
+                                           if j.detail.get("not_reached") == "who_unclear" else {})},
                                 decided_by="判定")
     # 保留を書く（承認の部分の1か所。報告や答えが変われば版を足し、待たなくなれば閉じる。承認待ちは契約者へ知らせる）
     approval.record_wait(tx, a, found, version_no, report_source)

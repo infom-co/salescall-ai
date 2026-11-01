@@ -462,6 +462,9 @@ SETTING_READERS: dict[str, tuple[str, str, str]] = {
     # AI でも決められない取り消せない決定の決め方（0164。2026-10-31 管理者：伺い3）：決めるのは承認の部分の1か所（approval.assumable）
     "decision.undecided_as_decided": ("src/salescall/core/approval.py", "10-2-2",
                                       "AI でも決められない取り消せない決定の決め方は approval.assumable の1か所で読みます"),
+    # 断られたお客様に同じ業務の次の実施回でかけるか（0168。2026-11-01 管理者：伺い8）：かけない理由の1か所（target_policy.block_reason）
+    "business.call_declined_again": ("src/salescall/core/target_policy.py", "5-2-1",
+                                     "断られたお客様に同じ業務でまたかけるかは target_policy.block_reason の1か所で読みます"),
     # Fly.io に残す日数（0157）：やり取りの文字を消す1か所（conversation_io.purge_utterances）。録音を Fly.io から消す処理を作るときも、
     # 同じ1か所から日数を読む（⛔ 見直し25b の 5：片方だけ変えると、録音とやり取りで消える日がずれる）
     "recording.keep_days_cloud": ("src/salescall/core/conversation_io.py", "11-4",
@@ -530,6 +533,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("health", "stuck"): frozenset({_SUP + "line.py"}),                              # E17：回線が「通話中」のまま
     ("health", "fixed"): frozenset({_SUP + "jobs.py"}),                              # E11：直した版（決まった間隔の仕事）
     ("health", "storage_back"): frozenset({_SUP + "jobs.py"}),                       # E21：データベースの書き込みが戻った（決まった間隔の仕事。見直し29a の 9）
+    ("health", "storage_row_back"): frozenset({_SUP + "jobs.py"}),                   # E21：データベースの止まりだけで休んだ行の書き込みが戻った（伺い10）
     ("health", "by_hand_task"): frozenset({_CORE + "troubles.py"}),                  # E12：休んだ行・復旧待ちの行を手で戻す
     ("health", "by_hand_line"): frozenset({WEB_PLACE}),                              # E12：回線の休みを手で再開（画面だけ）
     ("health", "by_hand_stop"): frozenset({_CORE + "stops.py"}),                     # E12：止めた契約者・前の作りの回線の停止を手で解く

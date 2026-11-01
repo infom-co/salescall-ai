@@ -36,10 +36,10 @@ def raw() -> dict:
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": False},
+             "asks_fact": False, "do_words": None, "intro": None},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True},
+             "asks_fact": True, "do_words": None, "intro": None},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -71,7 +71,9 @@ class Check(unittest.TestCase):
                           ([{"name": "番号:出どころ", "text": "a"}], "ファイル名"), ([{"name": "あ" * 31, "text": "a"}], "ファイル名"),
                           ([{"name": "intro", "text": "a"}], "録音の部分の名前"), ([{"name": "用件", "text": "a"}], "録音の部分の名前"),
                           ([{"name": "自分で答える質問", "text": "a"}], "録音の部分の名前"),
-                          ([{"name": "no_answer", "text": "a"}], "録音の部分の名前"), ([{"name": "関係", "text": " "}], "答えの文"),
+                          ([{"name": "no_answer", "text": "a"}], "録音の部分の名前"),
+                          ([{"name": "お呼びした方", "text": "a"}], "録音の部分の名前"),   # CL-1 の連絡帳 4-65 の (f)
+                          ([{"name": "target", "text": "a"}], "録音の部分の名前"), ([{"name": "関係", "text": " "}], "答えの文"),
                           ([{"name": "関係"}], "問いの名前（name）と答えの文（text）"), ({"関係": "a"}, "並び")):
             with self.subTest(bad=bad):
                 r = raw()
@@ -168,6 +170,30 @@ class Check(unittest.TestCase):
                 r["questions"][0]["asks_fact"] = bad
                 self.assertTrue(any("事実を伺う質問か" in p for p in problems_of(r)), problems_of(r))
 
+    def test_do_words_intro_and_client_does(self):
+        """CL-1 の連絡帳 4-65 の (a)(b)(c)：こちらがすることの言葉（選択肢 → 言葉）は、事実を伺う質問ではない選択肢の質問だけが持てる
+        （宣言した選択肢にだけ・事実を伺う質問には付けない＝会話の側が使わない）。入る一言は最初の質問には付けない（名乗りと一緒に流す）。
+        依頼者がすることは無くてもよい（無ければ会話の側の既定「記録」）。"""
+        r = raw()
+        r["questions"][0]["do_words"] = {"する": "ご予約をお取り", "しない": "ご予約は控え"}
+        r["questions"][1]["intro"] = "それではご希望の日時の確認からさせていただきます。"
+        r["client_does"] = "手配"
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.questions[0].do_words, s.questions[1].intro, s.client_does),
+                         ({"する": "ご予約をお取り", "しない": "ご予約は控え"}, "それではご希望の日時の確認からさせていただきます。", "手配"))
+        self.assertIsNone(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).client_does)
+        for name, change, words in (("事実を伺う質問", lambda r: r["questions"][0].update(asks_fact=True,
+                                                                                       do_words={"する": "ご予約をお取り"}), "事実を伺う質問"),
+                                    ("宣言に無い選択肢", lambda r: r["questions"][0].update(do_words={"わからない": "x"}), "こちらがすることの言葉"),
+                                    ("値を聞く質問", lambda r: r["questions"][1].update(do_words={"答えた": "x"}), "こちらがすることの言葉"),
+                                    ("最初の質問の入る一言", lambda r: r["questions"][0].update(intro="それでは"), "入る一言"),
+                                    ("入る一言が空", lambda r: r["questions"][1].update(intro=" "), "入る一言"),
+                                    ("依頼者がすることが空", lambda r: r.update(client_does=""), "依頼者がすること")):
+            with self.subTest(name):
+                r = raw()
+                change(r)
+                self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
+
     def test_many_optional_follow_ups_check_quickly_and_still_find_skips(self):
         """「はい ⇒ 詳しく聞く、いいえ ⇒ 次へ」が続く業務（40問）でも、確かめはすぐ終わる（前は質問の数に対して何倍にも
         増え、36問で15秒かかった＝2026-10-16 の見直し I2）。必須を飛ばす道は、これまでどおり見つける。"""
@@ -180,10 +206,10 @@ class Check(unittest.TestCase):
             nxt = f"A{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True})
+                       "asks_fact": True, "do_words": None, "intro": None})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True})
+                       "asks_fact": True, "do_words": None, "intro": None})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "A0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -318,18 +344,20 @@ class Versions(unittest.TestCase):
         from unittest import mock
         old_content = bs._content
 
-        def before_asks_fact(s):
+        def before_asks_fact(s):   # 足す前の形（あとで足した do_words・intro＝4-65 も無い）
             c = old_content(s)
-            return dict(c, questions=[{k: v for k, v in q.items() if k != "asks_fact"} for q in c["questions"]])
+            return dict(c, questions=[{k: v for k, v in q.items() if k not in ("asks_fact", "do_words", "intro")}
+                                      for q in c["questions"]])
 
         with mock.patch.object(bs, "_content", before_asks_fact):
             v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
         stored = self.tx(lambda tx: tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (v,)))
         self.assertFalse(any("asks_fact" in q for q in stored["content"]["questions"]))   # 前の形のまま置いてある
         got = self.tx(lambda tx: bs.load(tx, v))
-        self.assertEqual([q.asks_fact for q in got.questions], [True, True])
+        self.assertEqual([(q.asks_fact, q.do_words, q.intro) for q in got.questions], [(True, {}, None), (True, {}, None)])
         back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
-        self.assertEqual([q["asks_fact"] for q in back.raw["questions"]], [True, True])
+        self.assertEqual([(q["asks_fact"], q["do_words"], q["intro"]) for q in back.raw["questions"]],
+                         [(True, {}, None), (True, {}, None)])
 
     def test_responses_are_kept_in_the_version(self):
         """相手の申し出への応じ方・伝言の文・業務の情報は版に残り、読み直しても同じ（前の版へ戻しても同じ）。"""

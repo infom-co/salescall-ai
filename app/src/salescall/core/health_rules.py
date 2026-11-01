@@ -191,6 +191,10 @@ class Task:
     ended_at: datetime | None = None    # こちらの不具合で終えた電話の終わり
     since: datetime | None = None       # 休み始めた・声が聞き取れなかった時刻
     next_at: datetime | None = None     # 声のかけ直し待ちの、同じ回線でかけ直す時刻（2026-10-29 決定 (4) 案A）
+    # データベースの止まりだけで休んだ行を、その行の書き込みの確かめ（E21）で、もう一度戻したか（R-22。戻したあとにまた休めば、その行に
+    # 関わるプログラムの不具合として、直した版を待つ＝`storage_return`。こちらの不具合なしにこの行の電話が鳴ったら（R-9）・直した版で
+    # 戻ったら（R-10）、また戻せる。2026-11-01 管理者：伺い10「人は甚大な問題以外で介入しない」）
+    storage_retried: bool = False
 
 
 class NumberStage(Enum):
@@ -291,7 +295,8 @@ EVENT_NAMES = {
     # 2026-10-30 夜 管理者の決定で足した出来事
     "E20": "声が聞き取れなかったお客様が、ほかの回線でも聞き取れなかった（お客様の回線のせいと分かった。番号 n）",
     # 2026-11-01 の見直し28で足した出来事（2026-10-31 管理者：伺い5「話していた電話はお詫びして終え、復旧次第お詫びとともにかけ直します」）
-    "E21": "データベースへの書き込みが戻った（止まりで終えた回線が、決めた長さのうちに書けると確かめた。種類 k＝データベースの止まり）",
+    "E21": "データベースへの書き込みが戻った（決まった間隔の仕事が、決めた長さのうちに書けると確かめた。復旧待ちの行へはその契約者の"
+           "書き込みで、データベースの止まりだけで休んだ行へはその行の欄の書き込みで。種類 k＝データベースの止まり）",
 }
 
 COMPOSITE = frozenset({"E4", "E5"})   # E1 でもある出来事（自分の電話のとき。読み方：E1 の行を先に、続けて E4・E5 の行）
@@ -736,8 +741,18 @@ def _per_call(ev: Event) -> tuple[Do, ...]:
 
 
 def _back(task: Task, **keep: Any) -> Task:
-    """予定どおりへ戻す（予定・n・その種類は、行が持ったまま）。"""
-    return Task(TaskStage.ON_PLAN, plan=task.plan, n=keep.get("n", task.n), n_kind=keep.get("n_kind", task.n_kind))
+    """予定どおりへ戻す（予定・n・その種類・書き込みの確かめで戻したかは、行が持ったまま）。"""
+    return Task(TaskStage.ON_PLAN, plan=task.plan, n=keep.get("n", task.n), n_kind=keep.get("n_kind", task.n_kind),
+                storage_retried=keep.get("storage_retried", task.storage_retried))
+
+
+def storage_return(task: Task, kind: str | None) -> bool:
+    """休んだ行を、その行の書き込みが時間内に通ったという知らせ（E21。種類 kind＝データベースの止まり）で戻してよいか（1か所。表の R-22・
+    R-19 と、渡す行を選ぶ core/health.storage_rows が読む）：休みで、休んだ種類がデータベースの止まりだけで、まだ一度も書き込みの確かめ
+    で戻していない。2026-11-01 管理者：伺い10「人は甚大な問題以外で介入しない」＝データベースの止まりは、ふつう直したプログラムが出ない
+    ので、直した版（R-10）か手で戻す（E12）だけでは、人が戻すまでお詫びのかけ直しが来なかった。戻したあとにまた休めば（storage_retried）、
+    データベース全体ではなく、その行に関わるプログラムの不具合とみて、直した版を待つ（同じお客様にお詫びの電話がかかり続けない）。"""
+    return task.stage is TaskStage.RESTING and kind is not None and task.kinds == frozenset({kind}) and not task.storage_retried
 
 
 def _r1(task: Task, ev: Event, rules: Rules) -> _Step:
@@ -780,12 +795,19 @@ def _r8(task: Task, ev: Event, rules: Rules) -> _Step:
 
 
 def _r9(task: Task, ev: Event, rules: Rules) -> _Step:
-    return _Step(_back(task, n=0, n_kind=None))
+    return _Step(_back(task, n=0, n_kind=None, storage_retried=False))
 
 
 def _r10(task: Task, ev: Event, rules: Rules) -> _Step:
     acts = (_do(RECORD, about=f"{ev.by}が手で戻した：{ev.reason}"),) if ev.code == "E12" else ()
-    return _Step(_back(task, n=0, n_kind=None), acts + ((_do(REDIAL, line=None),) if task.answered else ()))
+    return _Step(_back(task, n=0, n_kind=None, storage_retried=False), acts + ((_do(REDIAL, line=None),) if task.answered else ()))
+
+
+def _r22(task: Task, ev: Event, rules: Rules) -> _Step:
+    """データベースの止まりだけで休んだ行の書き込みが、時間内に通った（E21）：1回だけ戻す（n＝1 のまま＝また止まれば、すぐ休み直す。
+    storage_retried＝もう書き込みの確かめでは戻さない）。途中で終えた電話なら、お詫びとともにかけ直す。"""
+    acts = (_do(RECORD, about="データベースの止まりだけで休んだ行の書き込みが、決めた長さのうちに通ったので、1回だけ戻した"),)
+    return _Step(_back(task, storage_retried=True), acts + ((_do(REDIAL, line=None),) if task.answered else (_do(PLAN, how="かけた予定のまま"),)))
 
 
 def _r11(task: Task, ev: Event, rules: Rules) -> _Step:
@@ -1058,10 +1080,13 @@ TABLE: tuple[TableRow, ...] = (
     _row("R-19", T, (TS.AWAIT_RECOVERY, TS.RESTING), ("E11", "E21"), _nothing,
          "【当】（待っている種類と違う種類の直した版・書き込みの戻り）",
          when=lambda s, e, r: (s.stage is TaskStage.AWAIT_RECOVERY and e.kind != s.kind)
-         or (s.stage is TaskStage.RESTING and e.code == "E11" and e.kind not in s.kinds), nothing=True),
+         or (s.stage is TaskStage.RESTING and e.code == "E11" and e.kind not in s.kinds)
+         or (s.stage is TaskStage.RESTING and e.code == "E21" and not storage_return(s, e.kind)), nothing=True),
     _row("R-20", T, frozenset(TaskStage), "E16", _nothing, "【当】（行は何もしない。番号の表は試行ごとにそのまま引く）",
          when=lambda s, e, r: s.stage is not TaskStage.AWAIT_DECISION or e.attempt != s.attempt, nothing=True),
     _row("R-21", T, (TS.ON_PLAN, TS.AWAIT_DECISION, TS.VOICE_REDIAL), "E12", _record_only, "【当】（戻すものが無い：記録だけ）"),
+    _row("R-22", T, TS.RESTING, "E21", _r22, "【決 2026-11-01 伺い10「人は甚大な問題以外で介入しない」】",
+         when=lambda s, e, r: storage_return(s, e.kind)),
 
     # ── 17-3-3 番号 ──
     _row("N-1", N, (NS.NONE, NS.RUN), "E16", _n1, "【決 10-22 深夜・10-23】・【今 見直し18c】", when=lambda s, e, r: e.blame == "番号"),
@@ -1136,9 +1161,9 @@ GAPS: tuple[Gap, ...] = (
          "予定どおりでない行はかけないので、その行の電話の E5 は来ない", when=lambda s, e, r: e.own),
     _gap("G-R13", T, (TS.ON_PLAN, TS.AWAIT_DECISION, TS.AWAIT_RECOVERY, TS.RESTING), "E18", "起きない",
          "声のかけ直し待ちでない行は、声の通る回線を待っていない"),
-    _gap("G-R14", T, (TS.ON_PLAN, TS.AWAIT_DECISION, TS.RESTING, TS.VOICE_REDIAL), "E21", "起きない",
-         "書き込みの戻り（E21）は、復旧待ちの行にしか渡さない（core/health.storage_back。休みの行は、同じ行で2回止まった＝その行の"
-         "問題かもしれないので、直した版か手で戻す＝R-10）"),
+    _gap("G-R14", T, (TS.ON_PLAN, TS.AWAIT_DECISION, TS.VOICE_REDIAL), "E21", "起きない",
+         "書き込みの戻り（E21）は、復旧待ちの行と、データベースの止まりだけで休んだ行にしか渡さない（core/health.storage_back・"
+         "storage_row_back。休みの行のうち、ほかの種類でも休んだ行・もう一度戻した行は R-19 で何もしない＝直した版か手で戻す R-10）"),
     # 試行のせい
     _gap("G-V2", V, Blame.EMPTY, "E16", "起きない", "空の試行に E16（分からない → 番号／回線）は来ない"),
     _gap("G-V3", V, Blame.UNKNOWN, ("E2", "E3"), "起きない", "分からないの試行は電話が終わっているので、E2・E3 は来ない"),

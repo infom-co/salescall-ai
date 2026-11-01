@@ -308,9 +308,9 @@ class OurTroubles(SupervisorBase):
     def test_the_recovery_job_reaches_rows_whatever_happened_to_the_line(self):
         """データベースの止まりで電話を終えた行へ「書き込みが戻った」（E21）を渡すのは、決まった間隔の仕事 jobs.storage_recovery の1か所
         （見直し29a の 1）。回線の流れ（line.loop）は一度も動かない＝本当にデータベースが固まって回線の流れが立て直され、手元の印が消えた
-        場合でも届く。E21 の仕事が止まりの記録（E3）より先に動いても、次の回で拾う。同じ行で2回続いて休んだ行（R-8）には渡さない
-        （休みは直した版か手で戻す＝R-10。伺い中＝伺い10）。⛔ 前は、止まりで電話を終えた回線の流れの手元の印から渡したので、流れが
-        立て直されると、一覧の最後の1行のお詫びのかけ直しが来なかった。"""
+        場合でも届く。E21 の仕事が止まりの記録（E3）より先に動いても、次の回で拾う。同じ行で2回続いて休んだ行（R-8）は、その行の書き込みが
+        通ると確かめて1回だけ戻す（R-22。`test_a_row_resting_on_database_stalls_comes_back_once_by_itself`）。⛔ 前は、止まりで電話を
+        終えた回線の流れの手元の印から渡したので、流れが立て直されると、一覧の最後の1行のお詫びのかけ直しが来なかった。"""
         s = self.ready()
         stage = lambda: self.tx(s, lambda tx: support.task_stage(tx, s["task"]))   # noqa: E731
         jobs.storage_recovery(self.ctx(s))                                     # 先に動いても（まだ待つ行は無い）
@@ -318,15 +318,66 @@ class OurTroubles(SupervisorBase):
         self.assertEqual(stage(), "await_recovery")
         jobs.storage_recovery(self.ctx(s))                                     # 次の回で拾う（回線の流れは動いていない）
         self.assertEqual(stage(), "on_plan")
-        self.trouble(s, "storage_stuck", task=s["task"], again=False)          # 戻った直後に、同じ行でまた止まった
-        self.assertTrue(self.resting(s, s["task"]))                            # 同じ行で2回＝休み（R-8）
-        jobs.storage_recovery(self.ctx(s))
-        self.assertTrue(self.resting(s, s["task"]))                            # 休みの行には渡さない
         with mock.patch.object(health, "storage_back", lambda tx: tx.execute("SELECT pg_sleep(5)")), \
                 mock.patch.object(line, "_frozen_seen", [0.3]):
             began = time.monotonic()
             jobs.storage_recovery(self.ctx(s))                                 # データベースが固まっている：時間切れで何もしない
             self.assertLess(time.monotonic() - began, 3)
+
+    def test_a_row_resting_on_database_stalls_comes_back_once_by_itself(self):
+        """データベースの止まりが同じ行で2回続いて休んだ行（R-8）は、人の手を待たずに戻る（2026-11-01 管理者：伺い10「人は甚大な問題以外で
+        介入しない」＝案2 の直し）：決まった間隔の仕事が、その行の欄の書き込みが決めた長さのうちに通ると確かめたら、1回だけ戻し、お詫び
+        とともにかけ直す（R-22）。戻したあとにまた休んだら、データベース全体ではなく、その行に関わる不具合とみて、もう書き込みの確かめでは
+        戻さず、直した版を待つ（R-10＝その種類の修正依頼が直ったあとの入れ替えで、人の手なしに戻る）。ほかの種類でも休んだ行は、書き込みの
+        確かめでは戻さない。その行の書き込みが固まっていれば戻さず、ほかの行の確かめは止まらない。"""
+        s = self.ready()
+        task = s["task"]
+        for _ in range(2):
+            self.trouble(s, "storage_stuck", task=task, again=False)
+            if not self.resting(s, task):
+                jobs.storage_recovery(self.ctx(s))
+        self.assertTrue(self.resting(s, task))                                 # 同じ行で2回＝休み（R-8）
+        jobs.storage_recovery(self.ctx(s))                                     # 行の書き込みが通った：1回だけ戻す（R-22）
+        self.assertEqual(self.tx(s, lambda tx: support.task_stage(tx, task)), "on_plan")
+        self.assertTrue(self.tx(s, lambda tx: health.task_of(tx, task)).storage_retried)
+        self.trouble(s, "storage_stuck", task=task, again=False)                # 戻した行がまた止まった：すぐ休み直す（n＝1 のまま）
+        self.assertTrue(self.resting(s, task))
+        jobs.storage_recovery(self.ctx(s))
+        self.assertTrue(self.resting(s, task))                                 # もう書き込みの確かめでは戻さない（R-19）
+        self.assertTrue(self.requests("CL-2", "call_storage_stuck"))
+        self.report_fixed("CL-2", "call_storage_stuck")                        # 直す担当が直したと記録し、版が替わった（人の手なし）
+        self.new_version()
+        jobs.fixed_stops(self.ctx(s))
+        self.assertEqual(self.tx(s, lambda tx: support.task_stage(tx, task)), "on_plan")
+        self.assertFalse(self.tx(s, lambda tx: health.task_of(tx, task)).storage_retried)   # 直した版のあとは、また1回戻せる
+
+    def test_only_rows_resting_on_database_stalls_alone_come_back_and_a_stuck_row_does_not_stop_the_others(self):
+        """書き込みの確かめで戻すのは、データベースの止まりだけで休んだ行だけ（ほかの不具合も続いて休んだ行は、直した版を待つ）。行ごとに
+        別の取引・別の時間切れで確かめるので、1つの行の書き込みが固まっていても、ほかの行は戻る。"""
+        s = self.ready()
+        rows = []
+        for n, pair in enumerate((("storage_stuck", "storage_stuck"), ("storage_stuck", "storage_stuck"), ("cannot_proceed", "storage_stuck"))):
+            task = s["task"] if n == 0 else self.row(s)["task"]   # 1行ずつ作る（前の行は休んでいるので、門はこの行を選ぶ）
+            for reason in pair:   # 1回目のあとの復旧は trouble の中（話し終えた電話）。書き込みの戻りの仕事は、まだ動かさない（前の行を戻すので）
+                self.trouble(s, reason, task=task, again=False)
+            self.assertTrue(self.resting(s, task))
+            rows.append(task)
+        self.assertEqual(self.tx(s, health.storage_rows), sorted(rows[:2]))     # ほかの種類でも休んだ行は入らない
+        real = health.storage_row_back
+
+        def stuck_first(tx, task_id):
+            if task_id == rows[0]:
+                tx.execute("SELECT pg_sleep(5)")                                # この行の書き込みは固まっている
+            real(tx, task_id)
+        with mock.patch.object(health, "storage_row_back", stuck_first), mock.patch.object(line, "_frozen_seen", [0.5]):
+            began = time.monotonic()
+            jobs.storage_recovery(self.ctx(s))
+            self.assertLess(time.monotonic() - began, 4)
+        self.assertTrue(self.resting(s, rows[0]))                              # 固まった行は戻さない（次の回にまた確かめる）
+        self.assertEqual(self.tx(s, lambda tx: support.task_stage(tx, rows[1])), "on_plan")   # ほかの行は戻る
+        self.assertTrue(self.resting(s, rows[2]))
+        jobs.storage_recovery(self.ctx(s))                                     # 次の回：固まりが解けた行も戻る
+        self.assertEqual(self.tx(s, lambda tx: support.task_stage(tx, rows[0])), "on_plan")
 
     def test_a_line_whose_call_ended_on_a_database_stall_waits_until_writes_come_back(self):
         """データベースが止まって電話を終えた回線は、その回線の借用を延ばす実際の書き込み（leases.take_line）が call.frozen_after のうちに

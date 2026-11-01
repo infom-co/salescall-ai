@@ -519,11 +519,18 @@ class Anyone18b(unittest.TestCase):
         """人の証の表（call_report の HUMAN_ENDS・HUMAN_FACTS）：締めた理由は、人の言葉の締めと機械の締めにちょうど分かれる。
         人の締め・お客様からの質問・受け答えだけの報告も「話した」。留守番電話・自動音声・FAX の締めだけでは話していない。"""
         from salescall.core import call_report as cr
-        self.assertEqual((cr.HUMAN_ENDS | cr.MACHINE_ENDS, cr.HUMAN_ENDS & cr.MACHINE_ENDS), (set(cr.END_REASONS), set()))
+        # 締めに来る理由（その理由のまま締めない NEVER_CLOSES を除く）は、人の締めと機械の締めにちょうど分かれる（CL-1 の 4-65 の (e)）
+        self.assertEqual((cr.HUMAN_ENDS | cr.MACHINE_ENDS, cr.HUMAN_ENDS & cr.MACHINE_ENDS),
+                         (set(cr.END_REASONS) - cr.NEVER_CLOSES, set()))
+        self.assertEqual(cr.NEVER_CLOSES - set(cr.END_REASONS), set())
         base = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None}
         rec = {"turn": 1, "said": "試験の発話"}
         for reason in cr.END_REASONS:
             with self.subTest(reason):
+                if reason in cr.NEVER_CLOSES:   # その理由のまま締めることは無い＝報告の誤り
+                    with self.assertRaises(cr.ReportInvalid):
+                        from_json({**base, "facts": {"end": [{**rec, "reason": reason}]}})
+                    continue
                 r = from_json({**base, "facts": {"end": [{**rec, "reason": reason}]}})
                 self.assertEqual(r.talked, reason in cr.HUMAN_ENDS)
         for kind, record in [("callee_question", {"answered": None, "checked": None}), ("talk", {"answer": "恐れ入ります。",

@@ -335,8 +335,8 @@ class Choice(unittest.TestCase):
         """0166：画面に出る設定の説明4つが、いまの動きとご決定どおり（見直し29b の 1〜4。コードを直したのに説明の文を書き換え忘れていた）。"""
         meaning = lambda key: owner_access().in_system(SYSTEM, lambda tx: tx.one(   # noqa: E731
             "SELECT meaning FROM salescall.setting_definitions WHERE key = %s", (key,)))["meaning"]
-        undecided = meaning("decision.undecided_as_decided")
-        self.assertIn("会話の担当が録音で確かめないまま済んだ、の3つで、どれも同じくこの設定に従います", undecided)
+        undecided = meaning("decision.undecided_as_decided")   # 0168 で伺い9 の形に書き直した（下の試験）
+        self.assertNotIn("どれも同じくこの設定に従います", undecided)
         self.assertNotIn("いつも契約者に委ね", undecided)
         retry = meaning("dial.failed_retry_days")
         self.assertIn("違う番号が続けて鳴らなかっただけでは、回線のせいにしません", retry)
@@ -348,6 +348,20 @@ class Choice(unittest.TestCase):
         frozen = meaning("call.frozen_after")
         self.assertIn("見るのは声ではなく", frozen)
         self.assertNotIn("「はい、」を流すので", frozen)
+
+    def test_meanings_follow_ukagai9_and_10(self):
+        """0168：設定 decision.undecided_as_decided が効くのは、AI が確かめ直しても決められなかったときだけ（2026-11-01 管理者：伺い9 案1）。
+        データベースの止まりだけで休んだ行は、行の書き込みが通ると確かめたら1回だけ自動で戻る（伺い10）。⛔ 0166：「3つの理由のすべてに
+        同じく効く」と書いていた（確かめずに発信禁止へ入りうる形）。"""
+        meaning = lambda key: owner_access().in_system(SYSTEM, lambda tx: tx.one(   # noqa: E731
+            "SELECT meaning FROM salescall.setting_definitions WHERE key = %s", (key,)))["meaning"]
+        undecided = meaning("decision.undecided_as_decided")
+        for words in ("AI の確かめ直し", "AI がまだ確かめ直していない通話", "効きません", "契約者には求めず"):
+            self.assertIn(words, undecided)
+        self.assertNotIn("同じくこの設定に従います", undecided)
+        rows = meaning("stop.trouble.stop_after_rows")
+        for words in ("データベースの止まりだけで休んだ行", "1回だけ戻して", "直した版を待ちます"):
+            self.assertIn(words, rows)
 
     def test_the_test_number_is_set_by_the_admin_first_and_by_the_contractor_after(self):
         """テスト番号（line.test_number）の使い方（2026-10-29 管理者。0144）：管理者がシステムの初めの値として仮の番号を入れ、契約者が自分の

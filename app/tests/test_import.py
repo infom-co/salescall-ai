@@ -332,7 +332,8 @@ class Targets(Base):
                                           "likely": None},
                                "company": {"text": "架空商事", "reading": "てすとがいしゃ", "reading_by": "ai",
                                            "candidates": [], "likely": None},     # 会社名の読みは AI が決めた読み
-                               "target": {"kind": "法人", "name": "岡田", "reading": "おかだ", "role": ""}})  # 会話の「目的の人」の形
+                               "target": {"kind": "法人", "name": "岡田", "reading": "おかだ", "role": "", "full_name": "",
+                                          "full_reading": "", "department": ""}})  # 会話の「目的の人」の形
 
     def test_a_business_that_calls_by_role_needs_the_role_unless_the_business_names_it(self):
         _, run = self.run_with({"kind": "role", "role": None})
@@ -345,7 +346,25 @@ class Targets(Base):
         r = self.register(csv_file([("C", "架空物産", fictional_jp_fixed())]), run=run2)
         self.assertEqual(self.outcomes(r), [(2, "registered", None)])
         got = self.tx(lambda tx: business_settings.target_of(tx, r["rows"][0]["task_id"]))
-        self.assertEqual((got["role"], got["target"]), ("社長", {"kind": "法人", "name": "", "reading": "", "role": "社長"}))
+        self.assertEqual((got["role"], got["target"]), ("社長", {"kind": "法人", "name": "", "reading": "", "role": "社長",
+                                                                 "full_name": "", "full_reading": "", "department": ""}))
+
+    def test_the_full_name_and_department_are_taken_when_the_list_has_them(self):
+        """お呼びする方のフルネーム（表記と読み）と部署は、一覧にあれば取り込む（無くてもよい列。CL-1 の連絡帳 4-65 の (d)。ふだんはお名字で
+        お呼びし、お名前だけでは分からないと言われたときだけ使う）。フルネームの読みもお名字と同じ決め方（読みの列・AI の読み・読みとして
+        使えない値は止める）。会話が読む1か所（target_of）に渡る。"""
+        _, run = self.run_with({"kind": "name", "role": None})
+        header = self.HEADER + ("フルネーム", "フルネームの読み", "部署")
+        mapping = dict(self.MAP, person_full_name="フルネーム", person_full_name_reading="フルネームの読み",
+                       person_department="部署")
+        data = csv_file([("A", "架空商事", fictional_jp_fixed(), "岡田", "おかだ", None, "岡田太郎", "おかだたろう", "営業部"),
+                         ("B", "架空工業", fictional_jp_fixed(), "岡田", "おかだ", None, "岡田次郎", "岡田次郎", None)], header=header)
+        r = self.register(data, mapping=mapping, run=run)
+        self.assertEqual(self.outcomes(r), [(2, "registered", None), (3, "stopped", "reading_invalid")])   # 読みが漢字のまま
+        t = self.tx(lambda tx: business_settings.target_of(tx, r["rows"][0]["task_id"]))["target"]
+        self.assertEqual((t["full_name"], t["full_reading"], t["department"]), ("岡田太郎", "おかだたろう", "営業部"))
+        with self.assertRaises(importer.ImportRejected):                  # 読みの列だけを選ぶことはできない
+            self.preview(data, mapping={k: v for k, v in mapping.items() if k != "person_full_name"}, run=run)
 
     def test_in_verification_mode_the_contractor_confirms_ai_readings(self):
         """検証モード：AI の読みの案は、契約者が確かめるまで登録しない。確かめた（直した）読みで登録する。"""

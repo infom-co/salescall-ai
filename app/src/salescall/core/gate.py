@@ -77,6 +77,9 @@ REASONS: dict[str, Reason] = {
     "other_contractor_called": Reason("ほかの契約者がかけた番号です（契約者の設定で、かけない）", "permanent", "plan"),
     "other_client_promise_never": Reason("同じ番号へ、ほかの約束の電話がかかります（契約者の設定で、この行はかけない）", "permanent", "plan"),
     "dnc_client_ref": Reason("この管理番号のお客様は発信禁止です", "permanent", "plan"),
+    # 同じ業務で、用件・最終目的を断られたお客様（業務の設定で、次の実施回でもかけない＝2026-11-01 管理者：伺い8。決まりは
+    # target_policy.block_reason の1か所。行を終える＝待っても変わらない）
+    "declined_in_business": Reason("同じ業務で、用件か最終目的を断られたお客様です（業務の設定で、かけない）", "permanent", "plan"),
     "max_attempts": Reason("この行に発信してよい回数を使い切りました", "permanent", "plan"),
     "no_version": Reason("実施回に業務設定の版が割り当てられていません", "cannot_judge", "run"),
     "rules_missing": Reason("この版の業務の決まり（断りの答え・理由×扱い・再発信の方針）がありません", "cannot_judge", "run"),
