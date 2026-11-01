@@ -57,7 +57,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-02.1+time-{spoken_time.VERSION}"   # 2026-11-02.1（CL-1 の 4-66）：伺っていない（対象外）の質問は取れていない必須の質問に数えない（not_asked）・断る答えのある質問の「どれも要らない」は用件を断られた・ご納得いただけなかった点を中身に残す。
+JUDGE_VERSION = f"judge-2026-11-02.2+time-{spoken_time.VERSION}"   # 2026-11-02.2（CL-1 の 4-66 のあとの (g)）：締めた理由 not_agreed は結論として終えた（断られたにしない）・ご納得いただけなかった点の回・ご説明できたか・結び。
+# 前の版：   # 2026-11-02.1（CL-1 の 4-66）：伺っていない（対象外）の質問は取れていない必須の質問に数えない（not_asked）・断る答えのある質問の「どれも要らない」は用件を断られた・ご納得いただけなかった点を中身に残す。
 # 2026-11-01.1（CL-1 の 4-64）：判定が届かず会話AIの読みで締めた断り・怒っていた（end_unjudged）は録音の確かめまで保留の候補・最終目的を断られた（goal_refused）は用件を断られた（declined）。
 # 2026-10-31.1（管理者のご判断 伺い3）：言ってはいけないことを言った通話で、切れ方が決められないときは、確かめのかけ直しでなく、断りの候補（unclear_forbidden）を出し、どの AI もそうだと読んでいない取り消せない決定（Irreversible.undecided）として保留で決める。2026-10-30.1（管理者の指摘・決定）：切れ方の「断った」は営業拒否の言葉のときだけ（AI が話していた・だれも話していなかっただけでは断ったにしない）・声が片方に届いていなかった証拠があれば「声が届かず切れた」（audio＝途中で切れた電話と同じ）・決められない切れ方は確かめのかけ直しで決める（鳴ったのに出なければ営業拒否）。2026-10-24.1（見直し18b）：「お客様と話したか」を人の証の表で読む（人の言葉の締め・お客様からの質問・受け答えなど）・「誰でも」の業務は話した＝繋がった（業務設定から判定の入力に）・判定できない結果に、断られたかは分かっているか（refusal_known）を残す。2026-10-22.8：判定できなかった通話にも、会話の報告のかけ直しの申し出（約束）を残す（promise_offer。途中で切れたとき、すぐにかけず約束を守る＝見直し15）・約束の幅に、お客様が言った端とその日を言ったか（said・day_said）を残す・理由の無い「わからない」の確かめ（(6)）は、お客様と話した通話だけ（前の通話の答えで、出なかった電話まで判定できないにしない）。.7：目的のお客様に繋がらなかった結果に again（同じ日にまたかけてよいと言われたか）・在籍していないは業務の応じ方で（終える／後任の方を追う＝successor の印）。.6：CL-1 の 4-28（長期の不在は不在の仲間・ほかの手段と在籍していないは電話でかけ直さず終える）。.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
@@ -462,7 +463,8 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
     agreed = inp.report.not_agreed if inp.report is not None else ()
     return {"cut": raw_cut, "cut_recorded": cut, **({"target_unconfirmed": True} if inp.target_unconfirmed else {}),
             **({"not_asked": sorted(skipped)} if skipped else {}),
-            **({"not_agreed": [{"question": n.question, "said": n.said} for n in agreed]} if agreed else {})}
+            **({"not_agreed": [{"question": n.question, "said": n.said, "round": n.round, "explained": n.explained,
+                                "outcome": n.outcome} for n in agreed]} if agreed else {})}
 
 
 def _business(inp: JudgeInput) -> Judgement:
@@ -486,6 +488,12 @@ def _business(inp: JudgeInput) -> Judgement:
     # (3) 範囲外
     if r and r.out_of_scope:
         return done("out_of_scope", out_of_scope="request")
+    # (3b) 最終目的のご承認で、ご納得いただけなかった点を担当の者に申し伝えることにして締めた（締めた理由 not_agreed。CL-1 の連絡帳 4-66
+    #      のあとの (g)＝2026-11-02 5時56分 ✅ ユーザー：「最終目的のご承認なら、お礼を言って締め、依頼者へ不満点を返します。ただし
+    #      『もうかけない』の印は付けず、改めてご案内するかは依頼者が決めます」）：結論として終えた（用件を断られた＝(4) より先に決める。
+    #      ご承認の質問の「いいえ」が断る答えでも、断られたにはしない＝同じ業務の次の実施回でもかけうる）
+    if r and r.end_reason == "not_agreed":
+        return done("concluded", conclusion="not_agreed")
     # (4) 用件を断られた（断りの答えが「取れた」）。最終目的の申し出を断られ、業務の目的が果たせなくなって締めた（事実 goal_refused。
     #     CL-1 の 4-64 の (f)。2026-11-01 ✅ ユーザー：「その業務だけかけない（依頼者全体ではない）」＝発信禁止にはしない）も、ここの1か所
     if r and r.goal_refusals:

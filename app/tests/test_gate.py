@@ -1686,6 +1686,18 @@ class NameLedger(Content):
         self.assertIn("callback_not_agreed", recordings.CONTRACTOR_PARTS)
         self.assertIn("N1", business_settings.RESERVED_IDS)
 
+    def test_the_parts_cl1_added_after_4_66_are_received(self):
+        """CL-1 の連絡帳 4-66 のあとの (f)(i)(k)（2026-11-02 5時56分・6時33分・7時12分 ✅ ユーザー）：ご納得いただけなかった点を伺う
+        N2「ほかにご納得いただけない点はございますでしょうか？」（callback_other_point・2回目からの言い方 callback_other_point_2）・
+        N3「ご説明した内容でご納得いただけましたでしょうか？」（callback_agreed_now）・資料でご説明できない点の一言（own_fallback_point）・
+        お断りで最終目的が果たせなくなったときの締め（closing_after_decline）・「承知しました。」が続くときの相づち「かしこまりました。」
+        （kashikomari）は契約者の単位の録音（話してよい声が求める＝`CONTRACTOR_PARTS`。無いと、その一言を流せないまま声を「話してよい」
+        にする）。質問の番号 N2・N3 は業務の質問の番号に使えない（使えると、業務の質問の答えとご納得の答えを取り違える）。"""
+        from salescall.core import business_settings
+        self.assertLessEqual({"callback_other_point", "callback_other_point_2", "callback_agreed_now", "own_fallback_point",
+                              "closing_after_decline", "kashikomari"}, set(recordings.CONTRACTOR_PARTS))
+        self.assertLessEqual({"N2", "N3"}, business_settings.RESERVED_IDS)
+
     def test_what_a_row_needs(self):
         """その行で要るもの（name_needs の1か所）：法人の名前の行は、役職の部分（部署・役職があるとき）・名前の部分と、続く言葉の呼ぶ
         一言・確かめる一言・聞き返し・約束の一言・取り次げないの確かめの一言・後任の方の一言。役職のみは役職の呼び方が名前の部分（役職の部分は要らない）。個人は

@@ -57,8 +57,9 @@ END = "END"                                       # 分岐の行き先「終わ�
 # よろしいでしょうか？」）。4-65 の (d) で足した：target_full・target_successor_full（お名前だけではどの方か分からないと言われたときに、
 # 部署とフルネームでお呼びし直す一言。流すのは名前の録音の台帳から＝target・target_successor と同じ）。4-66 の (d) で足した：N1（説明した
 # 内容をご承認いただけなかったときの「ご納得いただけなかった点はどの部分になりますでしょうか？」。答えは通話の事実 not_agreed＝依頼者へ
-# 返すが、項目には入らない＝ほかのシステムの質問と同じ）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "H1", "N1", "greeting", "intro",
+# 返すが、項目には入らない＝ほかのシステムの質問と同じ）。4-66 のあとの (f) で足した：N2（「ほかにご納得いただけない点はございますで
+# しょうか？」）・N3（「ご説明した内容でご納得いただけましたでしょうか？」。どちらもご納得いただけなかった点のご説明のあとに伺う）。
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "H1", "N1", "N2", "N3", "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
                           "voicemail", "message"})

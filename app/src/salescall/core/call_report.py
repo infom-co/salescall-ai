@@ -149,7 +149,7 @@ UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "abs
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
                "callback", "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused",
-               "transfer_unclear", "who_unclear")   # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
+               "transfer_unclear", "who_unclear", "not_agreed")   # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
 # 会話AIが電話を終える理由として報告できるが、その理由のまま締めることは無い名前（会話の側が取り次げなかったときのお礼の締め＝not_transferred か、
 # ご事情を伺う一言・お呼びし直しに替える。CL-1 の連絡帳 4-63・4-65 の (e)）。締めた理由 end に来たら報告の誤り（END_REASONS は CL-1 の
 # 名前の一覧とそろえるので入れておく。判定の入力 end_unjudged の理由には来る＝UNJUDGED_REASONS）
@@ -167,7 +167,11 @@ HUMAN_PARTIES = frozenset({"reception", "target", "substitute", "successor", "wr
 # 在籍していない・ほかの手段・保留で待ちきった＝保留を頼むのは人の言葉。CL-1 の 4-42）。入れないもの（MACHINE_ENDS）：留守番電話・
 # 自動音声・FAX。締めに来る理由（END_REASONS から、その理由のまま締めない NEVER_CLOSES を除いたもの）は、この2つにちょうど分かれる
 HUMAN_ENDS = frozenset({"done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "callback",
-                        "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused"})
+                        "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused", "not_agreed"})
+# not_agreed（締めた理由。CL-1 の連絡帳 4-66 のあとの (g)＝11-02 5時56分 ✅ ユーザー）：最終目的のご承認で、ご納得いただけなかった点を
+#   資料でご説明できず、担当の者に申し伝えることにして、お礼で締めた。もうかけないの印は付けず、改めてご案内するかは依頼者が決める
+#   ＝判定は「結論として終えた」（judge の1か所。goal_refused と違って「用件を断られた」に入れない＝同じ業務の次の実施回でもかけうる）
+NOT_AGREED_OUTCOMES = ("agreed", "declined", "unresolved")   # ご納得いただけなかった点ごとの結び（ご納得いただけた・お断りになった・分からないまま）
 MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # 相手が人でないと起きない事実（CallReport の欄の名前）：繋いだ・かけ直しの申し出・苦情・範囲外の求め・「AIですか」・お客様の質問に
 # 録音で答えた・確かめに戻った・続きへ戻った・取り次げない・代わりの方・在籍していない・お客様からの質問・受け答え・保留を頼まれた。
@@ -388,6 +392,11 @@ class NotAgreed:
     turn: int                    # 相手の発話の番号
     question: str                # ご承認の質問の番号
     said: str | None             # お客様の言葉（ご納得いただけなかった点。お答えいただけなかったときは None）
+    # 11-02 5時56分・6時21分のご判断で増えた項目（CL-1 の連絡帳 4-66 のあとの (g)。点ごとに1件）。前の形の報告には無い＝None・False
+    round: int | None = None     # 何回目のご説明か（1から）
+    explained: bool | None = None   # 知っていること（想定問答・業務の情報）でご説明できたか（False＝担当の者に申し伝えた＝依頼者へ解決策を求める点）
+    outcome: str | None = None   # NOT_AGREED_OUTCOMES のどれか
+    declining: bool = False      # お断りの理由だった
 
 
 @dataclass(frozen=True)
@@ -635,7 +644,8 @@ class CallReport:
             "end_unjudged": [{**said(u.evidence), "reason": u.reason} for u in self.unjudged_ends],
             "goal_refused": [{**said(g.evidence), "goals": list(g.goals), "mode": g.mode} for g in self.goal_refusals],
             "who_unclear": [{**said(w.evidence), "recalled": w.recalled} for w in self.who_unclears],
-            "not_agreed": [{"turn": n.turn, "question": n.question, "said": n.said} for n in self.not_agreed]}
+            "not_agreed": [{"turn": n.turn, "question": n.question, "said": n.said, "round": n.round, "explained": n.explained,
+                            "outcome": n.outcome, "declining": n.declining} for n in self.not_agreed]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last,
@@ -749,15 +759,22 @@ def _not_agreed(facts: dict) -> tuple[NotAgreed, ...]:
     out = []
     for i, r in enumerate(rows):
         where = f"facts.not_agreed[{i}]"
-        r = _keys(r, {"turn", "question", "said"}, where)
+        r = _keys(r, {"turn", "question", "said", "round", "explained", "outcome", "declining"}, where)
         turn, question, said = r.get("turn"), r.get("question"), r.get("said")
+        rnd, explained, outcome = r.get("round"), r.get("explained"), r.get("outcome")
+        if rnd is not None and (not isinstance(rnd, int) or isinstance(rnd, bool) or rnd < 1):
+            raise ReportInvalid(f"{where}.round は何回目のご説明か（1 以上の整数）です")
+        if explained is not None and not isinstance(explained, bool):
+            raise ReportInvalid(f"{where}.explained は真偽です")
+        if outcome is not None and outcome not in NOT_AGREED_OUTCOMES:
+            raise ReportInvalid(f"{where}.outcome は {NOT_AGREED_OUTCOMES} のどれかです")
         if not isinstance(turn, int) or isinstance(turn, bool) or turn < 0:
             raise ReportInvalid(f"{where}.turn は相手の発話の番号（0 以上の整数）です")
         if not isinstance(question, str) or not question.strip():
             raise ReportInvalid(f"{where}.question は、ご承認の質問の番号です")
         if said is not None and not isinstance(said, str):
             raise ReportInvalid(f"{where}.said は、ご納得いただけなかった点（お客様の言葉）か null です")
-        out.append(NotAgreed(turn, question, said))
+        out.append(NotAgreed(turn, question, said, rnd, explained, outcome, _bool_or_false(r, "declining")))
     return tuple(out)
 
 

@@ -684,7 +684,8 @@ class Approval1102(unittest.TestCase):
         raw = self.raw({"turn": 5, "question": "Q2", "said": long}, {"turn": 7, "question": "Q4", "said": None})
         r = from_json(raw)
         self.assertEqual((r.not_agreed[0].said, r.not_agreed[1].said, r.talked, from_json(r.to_json())), (long, None, True, r))
-        self.assertEqual(run(raw).detail["not_agreed"], [{"question": "Q2", "said": long}, {"question": "Q4", "said": None}])
+        none4 = {"round": None, "explained": None, "outcome": None}   # 前の形（11-02 5時56分より前）の報告には無い項目
+        self.assertEqual(run(raw).detail["not_agreed"], [{"question": "Q2", "said": long, **none4}, {"question": "Q4", "said": None, **none4}])
         self.assertTrue(from_json({**raw, "facts": {"not_agreed": raw["facts"]["not_agreed"]}}).talked)
         for bad in ({"turn": -1, "question": "Q2", "said": "x"}, {"turn": 5, "question": "", "said": "x"},
                     {"turn": 5, "question": "Q2", "said": 3}, {"turn": 5, "said": "x"}, {"turn": 5, "question": "Q2", "said": "x", "x": 1},
@@ -693,6 +694,33 @@ class Approval1102(unittest.TestCase):
                 from_json(self.raw(bad))
         with self.assertRaises(ReportInvalid):
             from_json({**raw, "facts": {"not_agreed": {"turn": 5}}})
+
+
+class NotAgreedEnd1102(unittest.TestCase):
+    """CL-1 の連絡帳 4-66 のあとの (f)(g)（2026-11-02 5時56分・6時21分 ✅ ユーザー：「最終目的のご承認なら、お礼を言って締め、依頼者へ不満点を
+    返します。ただし『もうかけない』の印は付けず、改めてご案内するかは依頼者が決めます」）：ご納得いただけなかった点は点ごとに1件（何回目
+    のご説明か・ご説明できたか・結び・お断りの理由か）。締めた理由 not_agreed は「結論として終えた」（用件を断られたにしない＝同じ業務の
+    次の実施回でもかけうる）。"""
+
+    def raw(self, *rows, end="not_agreed"):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "not_agreed": list(rows), "end": [{"turn": 9, "said": "はい。", "reason": end}]}}
+
+    def test_the_points_carry_round_explained_and_outcome_and_the_end_concludes(self):
+        point = {"turn": 5, "question": "Q4", "said": "解約の方法", "round": 1, "explained": False, "outcome": "unresolved"}
+        raw = self.raw(point, {**point, "turn": 7, "said": "料金", "round": 2, "explained": True, "outcome": "declined",
+                                "declining": True})
+        r = from_json(raw)
+        self.assertEqual((r.end_reason, r.talked, r.not_agreed[1].declining, r.not_agreed[0].declining, from_json(r.to_json())),
+                         ("not_agreed", True, True, False, r))
+        j = run(raw)
+        self.assertEqual((j.state, j.detail["conclusion"], j.dnc_reason), ("concluded", "not_agreed", None))
+        self.assertEqual(j.detail["not_agreed"][0], {"question": "Q4", "said": "解約の方法", "round": 1, "explained": False,
+                                                     "outcome": "unresolved"})
+        self.assertNotEqual(run(self.raw(point, end="done")).detail.get("conclusion"), "not_agreed")
+        for bad in ({"round": 0}, {"round": True}, {"explained": "no"}, {"outcome": "maybe"}, {"declining": 1}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({**point, **bad}))
 
 
 class Untimed1101(unittest.TestCase):

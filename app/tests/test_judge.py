@@ -169,7 +169,8 @@ class NotAsked(unittest.TestCase):
         for items in (None, {}):
             with self.subTest(items=items):
                 self.assertEqual(run(rep=r, items=items).detail["not_agreed"],
-                                 [{"question": "Q2", "said": "料金のところ"}, {"question": "Q4", "said": None}])
+                                 [{"question": "Q2", "said": "料金のところ", "round": None, "explained": None, "outcome": None},
+                                  {"question": "Q4", "said": None, "round": None, "explained": None, "outcome": None}])
         self.assertNotIn("not_agreed", run().detail)
 
 
