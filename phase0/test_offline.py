@@ -10151,6 +10151,32 @@ class NoneOfThemTest(unittest.TestCase):
         self.assertEqual((r["result"], r["say"], f.end_reason), ("confirm_required", "念のためどちらもご不要ということでよろしかったでしょうか？", None))
 
 
+class OnelinerGuardTest(unittest.TestCase):
+    """道具を呼ぶ前に、最近の一言が英語なら止める見張り（oneliner_guard。✅ 2026-11-02 日本時間7時12分 ユーザー「(b) OK」）。記録への書き込みが
+    道具の呼び出しより遅れるので、最近の段（直近3回の道具の結果まで・15分以内）を読み、止めた文は二度は止めない。"""
+
+    def run_guard(self, rows, state):
+        import json, os, subprocess, sys, tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
+            f.write("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
+        p = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "oneliner_guard.py")], input=json.dumps({"transcript_path": f.name}),
+                           capture_output=True, text=True, env={**os.environ, "ONELINER_GUARD_STATE": state})
+        os.unlink(f.name)
+        return p.returncode
+
+    def test_stops_an_english_line_once(self):
+        import os, tempfile
+        row = lambda t, c, ts: {"type": t, "timestamp": f"2026-11-01T22:{ts}Z", "message": {"content": c}}   # noqa: E731
+        res, use = (lambda ts: row("user", [{"type": "tool_result"}], ts)), (lambda ts: row("assistant", [{"type": "tool_use"}], ts))
+        txt = lambda s, ts: row("assistant", [{"type": "text", "text": s}], ts)   # noqa: E731
+        en, ja = "Now the flow control side: choosing the variant each time and the closing.", "次に、`Flow._ack` の相づちの決まりを確かめます。"
+        state = os.path.join(tempfile.mkdtemp(), "seen.json")
+        late = [txt(en, "00:05"), use("00:06"), res("00:08")]   # いまの一言がまだ記録に無い・前の段が英語
+        self.assertEqual((self.run_guard(late, state), self.run_guard(late, state)), (2, 0))   # 止める・同じ文で二度は止めない
+        self.assertEqual(self.run_guard([res("00:00"), txt(ja, "00:05"), use("00:06")], state), 0)
+        self.assertEqual(self.run_guard([txt(en, "00:01"), use("00:02"), res("30:00"), txt(ja, "30:05")], state + "2"), 0)   # 15分より古い
+
+
 class ApprovalTest(unittest.TestCase):
     """前の答えで伺う質問（Question.ask_if）と、説明した内容のご承認を伺う質問（Question.approval）。✅ 2026-11-02 日本時間4時16分 ユーザー：「相手が資料を
     見ていなくても業務の進展ができるのであれば、そのまま進めたらいいと思いますし、確認しないと進められないのであれば、こちらから重要な事項を説明して、
