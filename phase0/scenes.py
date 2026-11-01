@@ -296,10 +296,10 @@ SCENES = {
         "人へ知らせる印": bool(c.get("facts", {}).get("complaint")), "締め": closing_of(c) == CLOSE_DECLINED,
         "弁明しない": plain(said(turn_of(c, "complaint"))) in ("", plain(CLOSE_DECLINED)), "約束しない": no_promise(c),
         "取れた答えは残る": got(c, "Q1", "はい")}),
-    # ✅ 2026-11-01 日本時間11時56分 ユーザー (b)：急いでいる方には、締める前に「それでは後ほど改めてお掛けしてもよろしいでしょうか？」を伺い、OK なら
+    # ✅ 2026-11-01 日本時間11時56分 ユーザー (b)：急いでいる方には、締める前に「それではまた改めてお掛けしてもよろしいでしょうか？」を伺い、OK なら
     # 「ご都合のいい日時はいつ頃でしょうか？」で日時を伺って締める・NO なら締めて、もうかけない（⏳ 相手役の新しい台詞 later_* は、まだ録っていない）
     "忙しい": Scene(BUSINESS, [W("busy"), W("later_ok"), W("later_when"), W("affirm")], lambda c: {
-        "後ほど改めて伺った": any(x["reply"].get("question_id") == "H1" for x in ops(c)),
+        "また改めて伺った": any(x["reply"].get("question_id") == "H1" for x in ops(c)),
         "日時を伺った": got(c, "C1", "答えた"), "ふつうの締め": closing_of(c) == CLOSING, "約束しない": no_promise(c)}),
     "忙しい・もうかけない": Scene(BUSINESS, [W("busy"), W("later_no")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED, "約束しない": no_promise(c)}),

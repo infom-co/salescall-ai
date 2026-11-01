@@ -101,6 +101,7 @@ class Business:
     # 相手が「忙しい」と言ったときの一言（Intent.md 9-4）。空なら丁寧に終える（既定＝安全側）。文があれば、1回だけそれで聞く
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
+    goal_mode: str = "any"   # 最終目的の果たし方（flowctl.GOAL_MODES。最終目的は質問の final_goal・断る答えは declines＝業務設定＝CL-2）
     # 留守番電話に残す伝言（Intent.md 9-4「伝言を残すか残さないかを設定で選ぶ。残す場合の文面も設定で持つ」。⏳ 残すかは 18-2 の14 で
     # ユーザーが決める）。空なら残さずに切る（安全側）
     voicemail_message: str | None = None
@@ -238,7 +239,7 @@ class Business:
         DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
         AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
         from flowctl import Flow
-        return Flow(self.questions, busy_ask=self.busy_ask, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
+        return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
                     name_readings=self.name_readings(), judge_names=self.judge_names(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
