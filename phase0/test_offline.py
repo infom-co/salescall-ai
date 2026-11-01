@@ -6718,6 +6718,128 @@ class AIQuestionTest(unittest.TestCase):
         self.assertNotIn("エーアイ", b.opening() + "".join(b.opening_parts()))
 
 
+class EndJudgedTest(unittest.TestCase):
+    """電話を終えるか（終わりの理由・理由を言わずに取り次げないか）は、判定AIだけが決める（Flow._end_judged の1か所）。会話AIの終わりの報告は、
+    判定を待つきっかけだけ。報告が無くても、判定が電話を終える言葉と読めばプログラムが締める。判定でも決まらなければ、判定の寄りで場面を選ぶ。
+    ✅ 2026-11-01 日本時間16時56分 ユーザー：「会話AIは正しい判断ができるの？できないから、別のAIを使ったんじゃないのか？」・17時04分「(a) OK、(b) OK」"""
+
+    @staticmethod
+    def R(cond, end, lean=()):
+        from meaning_judge import Reading
+        r = Reading(cond)
+        r.end, r.end_lean = end, tuple(lean)
+        return r
+
+    def flow(self):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        f.use_checks("judge")
+        self.assertEqual(f.current, "Q1")
+        return f
+
+    def heard(self, f, text, reading):
+        f.on_callee(); f.on_heard(text); f.on_check("judge", reading)
+
+    def test_the_judge_decides_the_reason_not_the_ai(self):
+        from flowctl import END_NONE, END_REFUSED
+        # 判定が「断った」と読めば、会話AIが「急いでいる」と報告しても、発信の拒否で締める（もうかけない＝原則14）
+        f = self.flow()
+        self.heard(f, "結構です。もうかけてこないでください。", self.R("いいえ", END_REFUSED))
+        r = f.apply("request_end", {"reason": "callee_hurry"})
+        self.assertEqual((r["result"], f.end_reason, bool(f.facts.get("do_not_call"))), ("end", "callee_refused_call", True))
+        # 判定が「言っていない」と読めば、会話AIの終わりの報告は受け付けず、会話を続ける（締めない・もうかけないにしない）
+        g = self.flow()
+        self.heard(g, "いいえ、大丈夫です。", self.R("いいえ", END_NONE))
+        r = g.apply("request_end", {"reason": "callee_refused_call"})
+        self.assertEqual((r["result"], g.end_reason, bool(g.facts.get("do_not_call"))), ("rejected", None, False))
+        # 会話AIが「質問が終わった」と報告しても、判定が断ったと読めば、もうかけない（お礼の締めにしない）
+        h = self.flow()
+        self.heard(h, "もうかけてこないでください。", self.R("いいえ", END_REFUSED))
+        r = h.apply("request_end", {"reason": "done"})
+        self.assertEqual((r["result"], h.end_reason, bool(h.facts.get("do_not_call"))), ("end", "callee_refused_call", True))
+
+    def test_other_reports_and_no_report_also_end_when_the_judge_reads_it(self):
+        from flowctl import END_REFUSED
+        # 会話AIが答えの報告をしても、判定が電話を終える言葉と読めば、先にそちらを当てる（答えだけ受け取って次の質問を流さない）
+        f = self.flow()
+        self.heard(f, "結構です。もうかけてこないでください。", self.R("いいえ", END_REFUSED))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+        self.assertEqual((r["result"], f.end_reason), ("end", "callee_refused_call"))
+        # 会話AIが何も報告しないターンのあとも、プログラムが締める（電話接続側が判定を待ってから呼ぶ）
+        g = self.flow()
+        self.heard(g, "もうかけてこないでください。", self.R("いいえ", END_REFUSED))
+        r = g.judged_end()
+        self.assertEqual((r["result"], g.end_reason, g.log[-1]["op"]), ("end", "callee_refused_call", "judged_end"))
+        self.assertIsNone(g.judged_end())   # 締めたあとは何もしない
+        # 前の発話の判定があとから届いて、電話を終える言葉と読んだ：次の報告で締める（届いた時点で同じ決まりで当てる）
+        h = self.flow()
+        h.on_callee(); h.on_heard("もうかけないでって言ってるでしょう。")
+        h.on_callee(); h.on_heard("ちょっと。")
+        h.on_check("judge", self.R("いいえ", END_REFUSED), turn=1)
+        r = h.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+        self.assertEqual((r["result"], h.end_reason), ("end", "callee_refused_call"))
+
+    def test_undecided_end_picks_the_scene_by_the_judges_lean(self):
+        from flowctl import CALLBACK_IDS, END_ANGRY, END_HURRY, END_REFUSED, UNDECIDED
+        from phrases import CALLBACK_ASK
+        R1 = CALLBACK_IDS["refusal"]
+        # 怒っている・苦情に寄る：確かめずに締めて、人に引き継ぐ印（特例）
+        f = self.flow()
+        self.heard(f, "何回かけてくるんですか。", self.R("いいえ", UNDECIDED, (END_ANGRY,)))
+        r = f.apply("request_end", {"reason": "callee_refused_call"})
+        self.assertEqual((r["result"], f.end_reason, bool(f.facts.get("complaint"))), ("end", "callee_complaint", True))
+        # 急いでいるだけに寄る：確かめずに今のとおり丁寧に締める（もうかけないにはしない）
+        g = self.flow()
+        self.heard(g, "今ちょっとバタバタしてて。", self.R("いいえ", UNDECIDED, (END_HURRY,)))
+        r = g.apply("request_end", {"reason": "callee_refused_call"})
+        self.assertEqual((r["result"], g.end_reason, bool(g.facts.get("do_not_call"))), ("end", "callee_hurry", False))
+        # 断ったに寄る：その場で1回だけ「失礼いたしました。」＋「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」を伺う
+        for said, cond, end in (("はい、もうかけないでください。", "はい", "callee_refused_call"), ("いえ、そういうわけでは。", "いいえ", None)):
+            h = self.flow()
+            self.heard(h, "もういいです。", self.R("いいえ", UNDECIDED, (END_REFUSED,)))
+            r = h.apply("request_end", {"reason": "callee_refused_call"})
+            self.assertEqual((r["result"], r["question_id"], r["play"][0]["id"], r["play"][0]["text"]),
+                             ("next", R1, "callback_refusal", CALLBACK_ASK["refusal"]))
+            self.assertEqual(h._ack("request_end", {"reason": "callee_refused_call"}, r), "shitsurei")   # 頭の「失礼いたしました。」は相づちの録音
+            self.assertEqual(h.apply("request_end", {"reason": "callee_refused_call"})["result"], "rejected")   # 同じ発話の報告は1回だけ
+            h.on_callee(); h.on_heard(said); h.on_check("judge", self.R(cond, "言っていない"))
+            r = h.apply("record_answer", {"question_id": R1, "condition_id": cond})
+            if end:   # はい＝もうかけない
+                self.assertEqual((r["result"], h.end_reason, bool(h.facts.get("do_not_call"))), ("end", end, True))
+            else:     # いいえ＝いまの質問へ戻る（もう一度伺う）
+                self.assertEqual((r["result"], r["question_id"], h.end_reason), ("next", "Q1", None))
+        # 伺うのは1回だけ：もう一度決まらなければ、受け付けず会話を続ける
+        k = self.flow()
+        self.heard(k, "もういいです。", self.R("いいえ", UNDECIDED, (END_REFUSED,)))
+        k.apply("request_end", {"reason": "callee_refused_call"})
+        k.on_callee(); k.on_heard("うーん。"); k.on_check("judge", self.R("いいえ", UNDECIDED, (END_REFUSED,)))
+        self.assertEqual(k.apply("request_end", {"reason": "callee_refused_call"})["result"], "rejected")
+
+    def test_calling_stage_reads_refusal_and_unclear_transfer_by_the_judge(self):
+        from flowctl import END_REFUSED, END_UNCLEAR, Flow, TARGET_IS_AWAY, UNDECIDED, WHO_RECEPTION
+        tt = TargetTest()
+        b = tt.business()
+        parts = b.replay_parts()
+        # 判定が「理由を言わずに取り次げない」と読めば、会話AIが受付の方と報告しても、その場で1回だけご事情かを伺う
+        f = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("取り次ぐことはできません。"); f.on_check("judge", self.R(UNDECIDED, END_UNCLEAR))
+        r = f.apply("report_party", {"party": "reception"})
+        self.assertEqual((r["result"], r["play"][0]["part"]), ("confirm_unavailable", "unavailable_confirm"))
+        # 判定が「営業のお断り」と読めば、会話AIの理由に関係なく、もうかけない
+        g = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        g.use_checks("judge")
+        g.on_callee(); g.on_heard("営業のお電話はお繋ぎできない決まりです。"); g.on_check("judge", self.R(UNDECIDED, END_REFUSED))
+        r = g.apply("request_end", {"reason": "not_transferred"})
+        self.assertEqual((r["result"], g.end_reason, bool(g.facts.get("do_not_call"))), ("end", "callee_refused_call", True))
+        # 決まらず、どこにも寄らない（会話AIの報告だけがきっかけ）：受付の方には、ご事情かを伺う一言
+        h = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        h.use_checks("judge")
+        h.on_callee(); h.on_heard("それはちょっと。"); h.on_check("judge", self.R(UNDECIDED, UNDECIDED))
+        self.assertEqual(h.apply("request_end", {"reason": "callee_refused_call"})["result"], "confirm_unavailable")
+
+
 class TargetTest(unittest.TestCase):
     """目的の人に繋がってから必須の質問を始める（DESIGN.md 4-3。✅ 2026-10-13 ユーザー：「決裁権者と話したいのに、関係ない人と話しても意味が
     ない」）。名乗りの終わりは目的の人を呼ぶ一言。繋がったら、その方にまだ届いていない名乗り・用件を流してから最初の質問。"""
@@ -6836,7 +6958,10 @@ class TargetTest(unittest.TestCase):
         b = dataclasses.replace(self.business(), promised=True)
         f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), promised=True)
         f.use_checks("judge")
-        f.on_callee(); f.on_heard("申し訳ございません、担当が分からないのでお繋ぎできかねます。"); f.on_check("judge", "不在")
+        from flowctl import END_REASONED
+        from meaning_judge import Reading
+        read = Reading("不在"); read.end = END_REASONED   # 判定が「事情を言って取り次げない」と読む（終わりの理由を決めるのは判定＝11-01 17時04分）
+        f.on_callee(); f.on_heard("申し訳ございません、担当が分からないのでお繋ぎできかねます。"); f.on_check("judge", read)
         self.assertEqual(f.apply("request_end", {"reason": "not_transferred"})["question_id"], "P1")
         f.on_callee(); f.on_heard("あ、お約束でしたか。それでしたら少々お待ちください。"); f.on_check("judge", HOLD)
         self.assertEqual(f.apply("record_answer", {"question_id": "P1", "condition_id": "はい"})["result"], "hold")

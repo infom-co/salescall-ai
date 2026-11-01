@@ -196,7 +196,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                     info[f"{kind}_tried"] = list(exc.tried)
                     if any("unsure" in t for t in exc.tried):
                         # 確からしさが線より下の読みだけが届いた：どう数えるかは流れの制御が決める
-                        flow.on_unsure(kind, next(t["unsure"] for t in exc.tried if "unsure" in t), turn, said)
+                        flow.on_unsure(kind, next(t["unsure"] for t in exc.tried if "unsure" in t), turn, said,
+                                       end=next((t["end"] for t in exc.tried if "unsure" in t and t.get("end")), None))   # 電話を終える言葉かの寄り
                     for t in exc.tried:
                         if "stop_only" in t:
                             # 止める側だけの判定（お呼びする段の 3.5 Flash Lite＝meaning_judge.STOP_ONLY）の読み：答えにはせず、止める側だけに使う
@@ -755,6 +756,11 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     muted = any(t.get("muted") and t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
                     if (spoke and not ops or waited or muted) and settle is not None:
                         await settle()  # 判定が「答え」と決めたときだけ知らせる（Flow.unreported_note）
+                        if flow.judged_end() is not None:
+                            # 判定が電話を終える言葉と読んだ：会話AIが報告しなくても、プログラムが締める（締めの録音は記録から流す＝deliver_plays。
+                            # ✅ 2026-11-01 日本時間17時04分 ユーザー：(a)「OK」）。締めたので、このあとの台詞は送らない（flow.phase が closing）
+                            i += 1
+                            continue
                     if (spoke and not ops or waited or muted) and (note := flow.unreported_note(muted=muted)):
                         # AIが声は出したのに、報告なしでターンを終えた：報告を促す（流れの制御が決める。1つの相手の発話に1回まで）。
                         # 本番では、この知らせへのAIの声のうち、報告より前のものは相手に流さない（電話接続側）。試験では記録だけする
