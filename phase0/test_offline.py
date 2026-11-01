@@ -6831,6 +6831,38 @@ class EndJudgedTest(unittest.TestCase):
         k.on_callee(); k.on_heard("うーん。"); k.on_check("judge", self.R("いいえ", UNDECIDED, (END_REFUSED,)))
         self.assertEqual(k.apply("request_end", {"reason": "callee_refused_call"})["result"], "rejected")
 
+    def test_split_readings_with_an_end_lean_are_confirmed_without_a_report(self):
+        # ⛔ 2026-11-01 の見直し（ユーザー：「ここまででミスや不具合はないですか？」）：判定が割れて「決められない」になると、会話AIが報告しない限り
+        #    何もせず、組が「断った」と確かに読んだお客様に次の質問を流していた ⇒ 割れた・確かでない読みに電話を終える寄りがあれば、報告が無くても
+        #    決まらないときの場面へ（ご本人にはご遠慮の一言）。寄りが無ければ何もしない
+        from flowctl import CALLBACK_IDS, END_NONE, END_REFUSED, Flow, Question
+        def two():
+            f = Flow([Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                      Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+            f.use_checks("judge", "judge2")
+            f.on_callee(); f.on_heard("もうかけてこないでください。")
+            return f
+        f = two()
+        f.on_check("judge", self.R("いいえ", END_NONE)); f.on_check("judge2", self.R("いいえ", END_REFUSED))
+        r = f.judged_end()   # 報告の無いターンのあと
+        self.assertEqual((r["result"], r["question_id"], f.end_reason), ("next", CALLBACK_IDS["refusal"], None))
+        g = two()
+        g.on_check("judge", self.R("いいえ", END_NONE)); g.on_check("judge2", self.R("いいえ", END_REFUSED))
+        r = g.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})   # 答えの報告より先に当てる
+        self.assertEqual((r["result"], r["question_id"]), ("next", CALLBACK_IDS["refusal"]))
+        h = two()
+        h.on_check("judge", self.R("いいえ", END_NONE)); h.on_check("judge2", self.R("いいえ", END_NONE))
+        self.assertIsNone(h.judged_end())   # そろって「言っていない」：何もしない
+
+    def test_end_item_reads_only_the_current_words(self):
+        # ⛔ 同じ見直し：お呼びする段の「電話を終える言葉か」に「いまの言葉だけで選ぶ」を書いていなかった（前の言葉の断りを、いまの言葉の答えにしうる）。
+        #    答えの段の「言っていない」の説明に、試しと同じ言葉（「結構です」）を例として書いていた ⇒ 意味の言葉に
+        from flowctl import END, END_NONE, end_choices
+        from meaning_judge import NOW_ONLY, NOW_ONLY_FACETS, RULES
+        self.assertIn(END, NOW_ONLY_FACETS)
+        self.assertIn(NOW_ONLY, RULES.split("電話を終える言葉か（end）", 1)[1].split("\n", 1)[0])
+        self.assertNotIn("結構です", end_choices(False)[END_NONE])
+
     def test_calling_stage_reads_refusal_and_unclear_transfer_by_the_judge(self):
         from flowctl import END_REFUSED, END_UNCLEAR, Flow, TARGET_IS_AWAY, UNDECIDED, WHO_RECEPTION
         tt = TargetTest()

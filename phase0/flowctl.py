@@ -863,13 +863,14 @@ END_REASONED, END_UNCLEAR = "事情を言って取り次げない", "理由を�
 END_REASON = {END_REFUSED: "callee_refused_call", END_HURRY: "callee_hurry", END_ANGRY: "callee_complaint",
               END_REASONED: "not_transferred", END_UNCLEAR: "transfer_unclear"}   # 電話を終える読み ⇒ 終わりの理由（END_LABEL の中の名前）
 END_HEADING = "電話を終える言葉か"
+UNSURE_END = "unsure_end"   # 中だけの印：判定が割れた・確かでない読みに電話を終える寄りがある（会話AIが報告していなくても _end_unsure へ）
 
 
 def end_choices(calling: bool) -> dict:
     """電話を終える言葉かの選べるもの（{中の名前: 説明}。唯一の場所＝お呼びする段の項目 target_facets・答えの段の項目 meaning_judge.answer_items）。
     取り次げない2つは、お呼びする段だけ（答えの段は、お呼びした方と話している）。説明は意味で書き、試しの言葉と同じ言い方の例は書かない。"""
     none = ("いまの言葉は、この電話を続けられない・続けたくない、とは言っていない（答えた・尋ねた・あとでかけ直してほしいと頼んだ・"
-            + ("お呼びした方の居場所や様子を伝えた" if calling else "前の質問へ「結構です」「大丈夫です」とだけ返した") + "、だけのときも）")
+            + ("お呼びした方の居場所や様子を伝えた" if calling else "前の質問の申し出を、短い言葉で断った・要らないと言った") + "、だけのときも）")
     out = {END_NONE: none,
            END_REFUSED: "この電話そのもの、または営業の電話を断った（もうかけないでほしい・営業の電話は受けない・そういう電話はお繋ぎしない決まり、と言った）",
            END_HURRY: "急いでいる・忙しいので、この電話をいまは続けられないと言った（何時ならよい・かけ直してほしい、とまでは言っていない）",
@@ -4577,8 +4578,10 @@ class Flow:
                                f"お返事を聞いたら request_end を{ARG_LABEL['reason']}「{END_LABEL['done']}」で呼びます。"}
         if reason == "done" and self.phase == "calling":
             return self._reject("まだ目的の人に繋がっていません（質問を始めていません）。")
-        if reason != "done" and self.judging and not a.get("judged"):
-            decided = self._end_judged()   # 決めるのは判定（会話AIの理由は使わない＝判定を待つきっかけだけ）
+        if reason != "done" and self.judging and (not a.get("judged") or reason == UNSURE_END):
+            # 決めるのは判定（会話AIの理由は使わない＝判定を待つきっかけだけ）。判定が割れた・確かでない読みに電話を終える寄りがあるときは、
+            # 会話AIが報告していなくても、決まらないときの場面へ（_end_unsure）
+            decided = self._end_unsure() if reason == UNSURE_END else self._end_judged()
             if isinstance(decided, dict):
                 return decided
             reason = decided
@@ -4630,7 +4633,9 @@ class Flow:
             return due
         if self.end_used_turn == self.callee_turns or self.midway or not self.words_complete:
             return None
-        if (due := END_REASON.get(self._end_now())) is not None:
+        end = self._end_now()
+        due = END_REASON.get(end) or (UNSURE_END if end == UNDECIDED and self._end_lean() else None)
+        if due is not None:
             self.end_used_turn = self.callee_turns
         return due
 
