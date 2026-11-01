@@ -7116,6 +7116,19 @@ class EndJudgedTest(unittest.TestCase):
         self.assertIn(NOW_ONLY, RULES.split("電話を終える言葉か（end）", 1)[1].split("\n", 1)[0])
         self.assertNotIn("結構です", end_choices(False)[END_NONE])
 
+    def test_end_choices_say_offer_declines_and_matter_urgency_by_meaning(self):
+        # ✅ 2026-11-01 日本時間20時11分の 2.（お電話の申し出への「かけてこないでください」は、最終目的で決まる＝判定は答えと読む）・20時30分
+        #    （用件の急ぎは、ご自分の時間の話ではない）。⛔ 11-02 まで「短い言葉で断った」と形で書き、G-53end で両方を読み違えた。
+        from flowctl import END_HURRY, END_NONE, end_choices
+        ans, call = end_choices(False), end_choices(True)
+        self.assertNotIn("短い言葉", ans[END_NONE])
+        self.assertIn("申し出がお電話なら", ans[END_NONE])
+        self.assertIn("用件のほうを急いでほしい", ans[END_HURRY])
+        self.assertNotIn("用件のほうを急いでほしい", call[END_HURRY])      # お呼びする段の文は変えていない（用件の急ぎを伺う質問は答えの段だけ）
+        for d in (*ans.values(), *call.values()):                           # 試しの言葉と同じ言い方を例にしない
+            for w in ("かけてこない", "急ぎの案件", "急いでます"):
+                self.assertNotIn(w, d)
+
     def test_calling_stage_reads_refusal_and_unclear_transfer_by_the_judge(self):
         from flowctl import END_REFUSED, END_UNCLEAR, Flow, TARGET_IS_AWAY, UNDECIDED, WHO_RECEPTION
         tt = TargetTest()
