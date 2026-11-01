@@ -1,0 +1,52 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-24T08:51:02",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "talk_heard_nod",
+      "text": "そうでしたか！",
+      "heard": {
+        "0.0": "そうでしたか。",
+        "1.0": "そうでしたか。"
+      },
+      "ok": true,
+      "seconds": 0.92,
+      "try": 1,
+      "wav": "S2_talk_heard_nod_1.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "talk_heard_nod",
+      "text": "そうでしたか！",
+      "heard": {
+        "0.0": "そうでしたか。",
+        "1.0": "そうでしたか。"
+      },
+      "ok": true,
+      "seconds": 1.08,
+      "try": 2,
+      "wav": "S2_talk_heard_nod_2.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "talk_heard_nod",
+      "text": "そうでしたか！",
+      "heard": {
+        "0.0": "そうでしたか。",
+        "1.0": "そうでしたか。"
+      },
+      "ok": true,
+      "seconds": 1.1,
+      "try": 3,
+      "wav": "S2_talk_heard_nod_3.wav"
+    }
+  ],
+  "kept": {
+    "S2_talk_heard_nod": 3
+  }
+}

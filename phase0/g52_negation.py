@@ -17,7 +17,6 @@ from collections import Counter
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
 from flowctl import Question
-from g23_names import find_models
 from g48_meanings import QUESTIONS
 from meanings import clean, decide, negated
 
@@ -100,7 +99,7 @@ def tally(answers: dict, means: list[dict]) -> dict:
 
 def run(args) -> dict:
     ring = KeyRing(args)
-    ids, _ = find_models(ring.client())
+    ids = ring.model_ids()
     answers, errors = {}, {}
     for k in MODELS:
         if k not in ids:

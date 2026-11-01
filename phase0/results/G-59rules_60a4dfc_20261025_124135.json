@@ -1,0 +1,5641 @@
+{
+  "item": "G-59rules_60a4dfc",
+  "saved_at": "2026-10-25T12:41:35",
+  "question": "恐れ入りますが後任のご担当者様はいらっしゃいますでしょうか？",
+  "summary": {
+    "judge": "109/147",
+    "judge2": "138/147",
+    "judge（尋ねているか）": "146/147",
+    "judge2（尋ねているか）": "147/147",
+    "judge（何を聞かれたか）": "26/27",
+    "judge2（何を聞かれたか）": "27/27",
+    "名乗り・用件の質問を、どの判定もほかと読んだ（差し戻しうる）": "0/15",
+    "ほかの質問を差し戻せた（ほかの読みがあり、名乗り・用件の読みが無い）": "12/12",
+    "judge（前の言葉つき）": "46/63",
+    "judge2（前の言葉つき）": "60/63",
+    "取り次ぎの言葉に、どれかの読みが取り次ぎ": "15/39",
+    "取り次ぎでない言葉に、尋ねているかが取り次ぎ": "1/216",
+    "judge（答えまでの秒：中央・遅いほうから1割・最長）": [
+      0.321,
+      1.546,
+      3.99
+    ],
+    "judge2（答えまでの秒：中央・遅いほうから1割・最長）": [
+      1.391,
+      3.1,
+      3.534
+    ]
+  },
+  "rows": [
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 1.145,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.631,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.712,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.534,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.784,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.191,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.507,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 2.955,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.736,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.221,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.253,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.003,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.886,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.277,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.521,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.088,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_s": 0.213,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "judge_asks_s": 0.677,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.278,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.397,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.901,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.211,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.42,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 3.115,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_s": 0.183,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "judge2_asks_s": 0.264,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge_asks_s": 0.923,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.382,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_asks_s": 0.177,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 0.203,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "judge_asks_s": 1.026,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.134,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 0.14,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 0.232,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "judge_s": 1.211,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 3.307,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_s": 0.176,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "judge2_asks_s": 0.191,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge_asks_s": 1.07,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.272,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_s": 0.172,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "judge2_asks_s": 0.208,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge_asks_s": 0.965,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.207,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 0.205,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 0.224,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "judge_asks_s": 1.05,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.223,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_asks_s": 0.189,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge_s": 0.967,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 0.976,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_s": 1.389,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_asks_s": 0.224,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge_asks_s": 0.703,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 0.809,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 1.102,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 0.164,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge_asks_s": 0.743,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 0.804,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 1.139,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.694,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 0.792,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.24,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.378,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.943,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_s": 1.172,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.234,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge_s": 1.402,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 1.184,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.4,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge_s": 2.391,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 2.562,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.698,
+      "judge": "取り次ぎを待つ",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 0.716,
+      "judge_asks": "取り次ぎを待つ",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_s": 1.188,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.191,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.729,
+      "judge_asks": "取り次ぎを待つ",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 0.763,
+      "judge": "取り次ぎを待つ",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.142,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.209,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.755,
+      "judge": "取り次ぎを待つ",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 0.947,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.15,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.274,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.634,
+      "judge": "取り次ぎを待つ",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 1.012,
+      "judge_asks": "取り次ぎを待つ",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_s": 1.087,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.243,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.977,
+      "judge_asks": "取り次ぎを待つ",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_s": 1.122,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.284,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge_s": 1.323,
+      "judge": "取り次ぎを待つ",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.724,
+      "judge": "取り次ぎを待つ",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 0.778,
+      "judge_asks": "取り次ぎを待つ",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_s": 1.062,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.167,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_asks_s": 0.177,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 0.256,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "judge_asks_s": 0.748,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 2.094,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 2.093
+        },
+        {
+          "model": "Jev 1.14",
+          "error": "ほかの受け持ちが同じ会社の判定で答えた"
+        }
+      ],
+      "judge": null,
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.574,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.98,
+      "judge2_asks_s": 1.508,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge_asks_s": 1.527,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 1,
+      "judge2_s": 1.615,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.164,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 1,
+      "judge_s": 0.205,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.98,
+      "judge2_asks_s": 1.695,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.755,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.193,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.92,
+          "s": 0.184
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.197,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.37,
+          "s": 0.189
+        }
+      ],
+      "judge": null,
+      "judge2_s": 1.137,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.651,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.168,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.95,
+      "judge_s": 0.222,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.38,
+          "s": 0.211
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.183,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.608,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_s": 1.119,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.561,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.687,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.434
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.37,
+          "s": 0.254
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 1.777,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.512
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.94,
+          "s": 0.263
+        }
+      ],
+      "judge_asks": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.158,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.97,
+      "judge_s": 0.223,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.24,
+          "s": 0.217
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.34,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.483,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_asks_s": 0.209,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 1.114,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge_asks_s": 1.178,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.531,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 0.17,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge_s": 0.594,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.594
+        },
+        {
+          "model": "Jev 1.14",
+          "error": "ほかの受け持ちが同じ会社の判定で答えた"
+        }
+      ],
+      "judge": null,
+      "judge_asks_s": 0.599,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.597
+        },
+        {
+          "model": "Jev 1.14",
+          "error": "ほかの受け持ちが同じ会社の判定で答えた"
+        }
+      ],
+      "judge_asks": null,
+      "judge2_s": 1.395,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.18,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge_s": 0.238,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.59,
+          "s": 0.227
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.103,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.57,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.181,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge_s": 0.232,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.49,
+          "s": 0.223
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.135,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.448,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.192,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge_s": 0.224,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.56,
+          "s": 0.215
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.109,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.555,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.159,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねている",
+          "sure": 0.94,
+          "s": 0.153
+        }
+      ],
+      "judge_asks": "尋ねている",
+      "judge_s": 0.194,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.51,
+          "s": 0.188
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.059,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.508,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.183,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.45,
+          "s": 0.177
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.198,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge2_s": 1.156,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.598,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_s": 1.096,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge_asks_s": 1.343,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.95,
+      "judge_s": 1.38,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.196
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.43,
+          "s": 0.181
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.599,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.178,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge_s": 0.184,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.99,
+      "judge2_asks_s": 1.485,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.63,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.172,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge_s": 0.321,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.98,
+      "judge2_asks_s": 1.498,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.711,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.236,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.98,
+      "judge_asks_s": 0.247,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge2_s": 1.604,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.651,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "accept": [
+        "不在",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.202,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.63,
+          "s": 0.194
+        }
+      ],
+      "judge": "取り次ぎを待つ",
+      "judge_asks_s": 0.261,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.61,
+          "s": 0.253
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.151,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.372,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "accept": [
+        "不在",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.203,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.58,
+          "s": 0.194
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.306,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.64,
+          "s": 0.298
+        }
+      ],
+      "judge": "取り次ぎを待つ",
+      "judge2_s": 1.154,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.167,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "accept": [
+        "不在",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 1.176,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.21,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge_asks_s": 2.12,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.927
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.62,
+          "s": 0.191
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 2.15,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.979
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.63,
+          "s": 0.171
+        }
+      ],
+      "judge": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.199,
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 1,
+      "judge_s": 0.218,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.61,
+          "s": 0.209
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.151,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.631,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.206,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.7,
+          "s": 0.196
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.227,
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge2_s": 1.361,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.505,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.173,
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 1,
+      "judge_s": 0.177,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.67,
+          "s": 0.169
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.11,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.705,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "失礼ですが、御社はどちらにある会社なんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.167,
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.95,
+      "judge_s": 0.201,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.88,
+          "s": 0.194
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.198,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.664,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "失礼ですが、御社はどちらにある会社なんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_asks_s": 0.279,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 1.232,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge_s": 1.741,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.532
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.91,
+          "s": 0.209
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 1.931,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.761
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ほかのことを尋ねている",
+          "sure": 0.94,
+          "s": 0.167
+        }
+      ],
+      "judge_asks": "ほかのことを尋ねている",
+      "ok": true
+    },
+    {
+      "text": "失礼ですが、御社はどちらにある会社なんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.193,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.91,
+          "s": 0.184
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.086,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge_asks_s": 1.455,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ほかのことを尋ねている",
+          "sure": 0.94,
+          "s": 1.446
+        }
+      ],
+      "judge_asks": "ほかのことを尋ねている",
+      "judge2_asks_s": 1.601,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "キャンセル料ってかかるんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.179,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ほかのことを尋ねている",
+          "sure": 0.9,
+          "s": 0.17
+        }
+      ],
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_s": 0.223,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.86,
+          "s": 0.214
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.234,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.549,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "キャンセル料ってかかるんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.147,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ほかのことを尋ねている",
+          "sure": 0.9,
+          "s": 0.137
+        }
+      ],
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_s": 0.196,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.86,
+          "s": 0.186
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.099,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.511,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "キャンセル料ってかかるんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.178,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ほかのことを尋ねている",
+          "sure": 0.87,
+          "s": 0.17
+        }
+      ],
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_s": 0.191,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.87,
+          "s": 0.185
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.157,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.439,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.19,
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge_s": 0.192,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.66,
+          "s": 0.183
+        }
+      ],
+      "judge": null,
+      "judge2_s": 1.016,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.593,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.169,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.73,
+          "s": 0.162
+        }
+      ],
+      "judge": null,
+      "judge_asks_s": 0.181,
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.97,
+      "judge2_s": 1.184,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.498,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.192,
+      "judge_asks": "ほかのことを尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge_s": 0.213,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.67,
+          "s": 0.206
+        }
+      ],
+      "judge": null,
+      "judge2_s": 1.055,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.506,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.169,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.87,
+          "s": 0.16
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.205,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.5,
+          "s": 0.198
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 0.798,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_asks_s": 0.872,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.324,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.069
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.54,
+          "s": 0.255
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 1.337,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.173
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.85,
+          "s": 0.162
+        }
+      ],
+      "judge_asks": null,
+      "judge2_s": 3.116,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.177,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.9,
+          "s": 0.167
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.219,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.51,
+          "s": 0.21
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.005,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.044,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.185,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.48,
+          "s": 0.179
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.215,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.93,
+          "s": 0.209
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 0.986,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.214,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_asks_s": 0.941,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_asks_s": 1.82,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.633
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.91,
+          "s": 0.185
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 1.852,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.695
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.5,
+          "s": 0.157
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 3.05,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.16,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.93,
+          "s": 0.152
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.256,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.63,
+          "s": 0.249
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.047,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.157,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "それでは岡田にお繋ぎします。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_asks_s": 0.88,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_asks_s": 1.108,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.6,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 3.027,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "それでは岡田にお繋ぎします。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.792,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.366,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.433,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.079,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "それでは岡田にお繋ぎします。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.67,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.13,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.282,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 3.246,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_s": 0.18,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "judge_asks_s": 0.88,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.001,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.556,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_s": 0.2,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "judge_asks_s": 0.633,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.029,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.309,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_s": 0.206,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "judge2_asks_s": 0.795,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_asks_s": 0.988,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.206,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.672,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.114,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.15,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.406,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.756,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 0.785,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 0.949,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.471,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.646,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 0.922,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_asks_s": 1.042,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_s": 1.348,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.655,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.03,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.15,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 1.992,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.712,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.035,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.631,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge_s": 2.865,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 1.071,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_asks_s": 1.102,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.253,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 1.369,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.71,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 0.807,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 0.951,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.175,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_asks_s": 0.176,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 0.187,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.96,
+      "judge_asks_s": 0.708,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 0.896,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 0.187,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 0.209,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "judge_asks_s": 0.63,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.079,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_asks_s": 0.162,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 0.233,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "judge_s": 0.707,
+      "judge": "不在",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 1.545,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_s": 0.176,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.96,
+      "judge2_asks_s": 0.19,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge_s": 0.875,
+      "judge": "不在",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 0.977,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge2_asks_s": 0.186,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 0.23,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "judge_s": 0.825,
+      "judge": "不在",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 1.108,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_asks_s": 1.575,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.75,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge_s": 3.594,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 3.119
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.94,
+          "s": 0.475
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 3.648,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 3.166
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.92,
+          "s": 0.479
+        }
+      ],
+      "judge_asks": null,
+      "ok": false
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.167,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.93,
+          "s": 0.159
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.188,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.92,
+          "s": 0.181
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.379,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.687,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.198,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.95,
+      "judge_s": 0.226,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.94,
+          "s": 0.219
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.314,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.716,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.288,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.98,
+      "judge_asks_s": 0.901,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.97,
+      "judge2_asks_s": 1.181,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.595,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.182,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge_s": 0.196,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.96,
+      "judge2_asks_s": 1.422,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.621,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.168,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.97,
+      "judge_s": 0.214,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.98,
+      "judge2_asks_s": 1.422,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.622,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.2,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.95,
+      "judge_asks_s": 0.848,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge2_asks_s": 1.462,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.605,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.155,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.96,
+      "judge_asks_s": 0.163,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge2_asks_s": 1.485,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.595,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.203,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge_s": 0.216,
+      "judge": "不在",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.96,
+      "judge2_asks_s": 1.385,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.744,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.168,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.25,
+          "s": 0.162
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.285,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.57,
+          "s": 0.28
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 0.826,
+      "judge2_asks": "決められない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.154,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.162,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.59,
+          "s": 0.156
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.206,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.35,
+          "s": 0.2
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.009,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.134,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.15,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.6,
+          "s": 0.143
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.177,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.28,
+          "s": 0.169
+        }
+      ],
+      "judge_asks": null,
+      "judge2_s": 1.056,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.069,
+      "judge2_asks": "決められない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.183,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.92,
+          "s": 0.174
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.326,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.9,
+          "s": 0.316
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.063,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.736,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_asks_s": 1.092,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.097,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "judge_asks_s": 1.168,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.165
+        },
+        {
+          "model": "Jev 1.14",
+          "error": "ほかの受け持ちが同じ会社の判定で答えた"
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 1.36,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.36
+        },
+        {
+          "model": "Jev 1.14",
+          "error": "ほかの受け持ちが同じ会社の判定で答えた"
+        }
+      ],
+      "judge": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.175,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.91,
+          "s": 0.168
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.181,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.87,
+          "s": 0.174
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.118,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.582,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.172,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.81,
+          "s": 0.166
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.188,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.7,
+          "s": 0.182
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.328,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.775,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.171,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.78,
+          "s": 0.164
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.227,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.87,
+          "s": 0.221
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.191,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.686,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.186,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.85,
+          "s": 0.18
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.2,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.74,
+          "s": 0.193
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.311,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.712,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山田です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "judge2_asks_s": 0.996,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.096,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 1.238,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_s": 1.353,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山田です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "judge2_s": 0.227,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "judge2_asks_s": 0.997,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_asks_s": 3.961,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 3.492
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.86,
+          "s": 0.467
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 3.99,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 3.548
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.92,
+          "s": 0.442
+        }
+      ],
+      "judge": "決められない",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山田です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.19,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.95,
+      "judge_asks_s": 0.206,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.83,
+          "s": 0.199
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.103,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.299,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.184,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge_asks_s": 0.192,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.91,
+          "s": 0.185
+        }
+      ],
+      "judge_asks": null,
+      "judge2_s": 1.599,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.625,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.178,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge_asks_s": 0.197,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.93,
+          "s": 0.189
+        }
+      ],
+      "judge_asks": null,
+      "judge2_s": 1.528,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.598,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.201,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.94,
+          "s": 0.191
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.235,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge2_asks_s": 1.298,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.589,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.181,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge_asks_s": 0.187,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.94,
+          "s": 0.175
+        }
+      ],
+      "judge_asks": null,
+      "judge2_s": 1.573,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.652,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.181,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge_asks_s": 0.183,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge2_asks_s": 1.369,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.703,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.183,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge_asks_s": 0.183,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge2_asks_s": 1.333,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.379,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.182,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.78,
+          "s": 0.171
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.187,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge2_asks_s": 1.367,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.733,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.178,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge_asks_s": 0.191,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.002
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.81,
+          "s": 0.181
+        }
+      ],
+      "judge_asks": null,
+      "judge2_s": 1.477,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.591,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.164,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.78,
+          "s": 0.153
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.244,
+      "judge": "ご本人",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge2_asks_s": 1.326,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.885,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.152,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.92,
+          "s": 0.145
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.202,
+      "judge": "別の方",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge2_asks_s": 1.278,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.501,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.178,
+      "judge": "別の方",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge_asks_s": 0.18,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.93,
+          "s": 0.17
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.385,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.424,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge2_s": 0.16,
+      "judge2": "別の方",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "judge_asks_s": 1.221,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.218
+        },
+        {
+          "model": "Jev 1.14",
+          "error": "ほかの受け持ちが同じ会社の判定で答えた"
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 1.243,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.243
+        },
+        {
+          "model": "Jev 1.14",
+          "error": "ほかの受け持ちが同じ会社の判定で答えた"
+        }
+      ],
+      "judge": null,
+      "judge2_asks_s": 1.498,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "お電話代わりました。担当の山田です。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.152,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.87,
+          "s": 0.142
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.154,
+      "judge": "別の方",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.97,
+      "judge2_asks_s": 1.081,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.458,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "お電話代わりました。担当の山田です。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.155,
+      "judge": "別の方",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 0.95,
+      "judge_asks_s": 0.166,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.9,
+          "s": 0.158
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.03,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.641,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "お電話代わりました。担当の山田です。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.178,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.83,
+          "s": 0.171
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.21,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.94,
+          "s": 0.204
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 0.995,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.55,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.21,
+      "judge": "別の方",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge_asks_s": 0.234,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.91,
+          "s": 0.225
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 1.443,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.879,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.172,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.89,
+          "s": 0.166
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.187,
+      "judge": "別の方",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "judge2_s": 1.391,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.443,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge2_s": 0.185,
+      "judge2": "別の方",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "judge2_asks_s": 1.372,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_asks_s": 2.193,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 1.989
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.87,
+          "s": 0.201
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 2.248,
+      "judge": "別の方",
+      "judge_by": "Jev 1.14",
+      "judge_sure": 1,
+      "ok": true
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.902,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.689
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.74,
+          "s": 0.213
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.949,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.76
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.49,
+          "s": 0.187
+        }
+      ],
+      "judge_asks": null,
+      "judge2_asks_s": 0.983,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.936,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.173,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.47,
+          "s": 0.165
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.197,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.73,
+          "s": 0.191
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.22,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.701,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge_asks_s": 0.157,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.51,
+          "s": 0.151
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.246,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.76,
+          "s": 0.24
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.033,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.661,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.171,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge_s": 0.174,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.73,
+          "s": 0.168
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.536,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 2.125,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.168,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge_s": 0.178,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.77,
+          "s": 0.172
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.467,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.561,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.162,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.71,
+          "s": 0.153
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.204,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.99,
+      "judge2_asks_s": 1.414,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.703,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_s": 0.182,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.77,
+          "s": 0.176
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.41,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.95,
+      "judge2_asks_s": 1.277,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.528,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_asks_s": 0.16,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge_s": 0.17,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.82,
+          "s": 0.164
+        }
+      ],
+      "judge": "決められない",
+      "judge2_asks_s": 1.257,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.461,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.196,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.82,
+          "s": 0.187
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.211,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.97,
+      "judge2_asks_s": 1.336,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.44,
+      "judge2": "別の方",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない",
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "judge_asks_s": 0.143,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.97,
+      "judge_s": 0.199,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.62,
+          "s": 0.193
+        }
+      ],
+      "judge": "決められない",
+      "judge2_s": 1.168,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.378,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない",
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "judge_s": 0.206,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.002
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.67,
+          "s": 0.197
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.273,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.98,
+      "judge2_s": 1.068,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.463,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない",
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "judge_s": 0.168,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.66,
+          "s": 0.161
+        }
+      ],
+      "judge": "決められない",
+      "judge_asks_s": 0.169,
+      "judge_asks": "尋ねている",
+      "judge_asks_by": "Jev 1.14",
+      "judge_asks_sure": 0.95,
+      "judge2_s": 1.261,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.417,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "judge_asks_s": 0.163,
+      "judge_asks_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.61,
+          "s": 0.155
+        }
+      ],
+      "judge_asks": null,
+      "judge_s": 0.18,
+      "judge_tried": [
+        {
+          "model": "3.5 Flash Lite",
+          "error": "RuntimeError('どのキーでも gemini-3.5-flash-lite を使えません（上限・プロジェクトが止められている）')",
+          "s": 0.0
+        },
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.86,
+          "s": 0.173
+        }
+      ],
+      "judge": null,
+      "judge2_asks_s": 1.12,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "judge_asks_s": 1.077,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.088,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge_s": 1.546,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 3.237,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "judge_asks_s": 0.808,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 0.935,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.16,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 2.916,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "公認は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "judge_asks_s": 0.66,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.178,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.249,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.204,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "公認は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "judge_asks_s": 0.742,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.286,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.306,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.169,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "公認は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "judge_asks_s": 0.658,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.195,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.401,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.27,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "judge_asks_s": 0.965,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.054,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.188,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 3.267,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "judge_asks_s": 0.691,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.133,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.161,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 3.285,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "judge_asks_s": 0.699,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 0.93,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.264,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 3.177,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "judge_asks_s": 0.913,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 0.926,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge_s": 1.158,
+      "judge": "ご本人",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_s": 1.269,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "judge_asks_s": 0.585,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 0.915,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.868,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "judge_s": 2.351,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "judge_asks_s": 0.913,
+      "judge_asks": "代わった人が話し始めた",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 0.958,
+      "judge": "代わった人が話し始めた",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 0.97,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.145,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "田中はただいま席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "judge2_s": 0.169,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "judge_s": 0.81,
+      "judge": "不在",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge_asks_s": 0.966,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge2_asks_s": 1.43,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "田中はただいま席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "judge2_s": 0.21,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "judge_asks_s": 0.681,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 0.75,
+      "judge": "不在",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.452,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true
+    },
+    {
+      "text": "田中はただいま席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "judge_asks_s": 0.755,
+      "judge_asks": "尋ねていない",
+      "judge_asks_by": "3.5 Flash Lite",
+      "judge_asks_sure": null,
+      "judge_s": 1.033,
+      "judge": "不在",
+      "judge_by": "3.5 Flash Lite",
+      "judge_sure": null,
+      "judge2_asks_s": 1.426,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.608,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    }
+  ]
+}

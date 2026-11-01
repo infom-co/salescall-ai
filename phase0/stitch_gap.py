@@ -14,12 +14,12 @@ import numpy as np
 from barge import voice_runs, voiced
 from common import read_wav_pcm16_mono, write_wav
 from convo import AUDIO_DIR, CUT_IN_S
+from phrases import ACK_PAUSE_S
 
 CALLEE_DIR = AUDIO_DIR.parent / "callee"
-# 相づちの録音が終わってから、AIの声を流すまでの間（電話接続側が守る順。DESIGN.md 6-15）。
-# ✅ 2026-10-14 ユーザー（G-36 を聞いて）：「『ありがとうございます。』と『続きまして』の間が短すぎる。0.6秒くらいは欲しい。『承知致しました。』と
-#    『それでは』の間も同様」⇒ 0.05秒から 0.6秒にした
-ACK_TO_AI_S = 0.6
+# 相づちの録音が終わってから、AIの声を流すまでの間（電話接続側が守る順。DESIGN.md 6-15）。決まりは phrases.ACK_PAUSE_S の1か所（「。」で終わる
+# 相づち＝「ありがとうございます。」「承知しました。」のあと）
+ACK_TO_AI_S = ACK_PAUSE_S["。"]
 # 声の終わりのあとに残す、弱い語尾の長さの上限と、その音量の下限（20·log10(実効値)）。
 # ⛔ 2026-10-14 ユーザー（G-36 を聞いて）：「お客役の Sadachbia は会話の途中が何か所か途切れている」⇒ 声の終わりを見つける決まり（voice_runs）が、
 #    そのあと 0.1〜0.2秒続く弱い語尾（「です」の「す」など。40〜49）を声に数えず、つなぐときに切っていた。聞き比べの声と、間をあけた相手の声

@@ -27,7 +27,6 @@ from collections import Counter
 from pathlib import Path
 
 from common import HERE, KeyRing, base_parser, describe_error, is_quota, require_python, save_partial, save_result, say
-from g23_names import find_models
 from g53_meaning import accept, g48_questions, value_questions
 from meaning_judge import ajudge
 
@@ -38,9 +37,8 @@ LATE_S = 2.0  # 報告を待たせる長さ（flowctl.Limits.hold_s）
 
 
 def questions() -> dict:
-    from g14_listen import business
-    qs = g48_questions() + value_questions()
-    return {q.id: q for q in qs} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
+    from g53_meaning import question_map
+    return question_map()
 
 
 async def timed(client, model: str, q, it: dict) -> tuple[float, object, str | None]:
@@ -55,7 +53,7 @@ async def timed(client, model: str, q, it: dict) -> tuple[float, object, str | N
 
 async def run(args) -> dict:
     ring = KeyRing(args)
-    model = find_models(ring.client())[0]["3.5 Flash Lite"]
+    model = ring.model_ids()["3.5 Flash Lite"]
     qmap = questions()
     items = [it for it in json.loads(SOURCE.read_text(encoding="utf-8"))["items"] if it.get("3.5 Flash Lite") is not None]
     # 使えるキー：1本ずつ1回問い合わせて確かめる（止められている・1日の上限のキーを外す。記録の状態は当てにしない＝CL-1.md 0-2）

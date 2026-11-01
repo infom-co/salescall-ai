@@ -17,7 +17,6 @@ import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
 from flowctl import AMBIGUOUS_WORDS
-from g23_names import find_models
 from g48_meanings import QUESTIONS
 from meanings import by_model_replies, decide_replies
 
@@ -76,7 +75,7 @@ def show(rows: dict) -> None:
 
 def run(args) -> dict:
     ring = KeyRing(args)
-    ids, _ = find_models(ring.client())
+    ids = ring.model_ids()
     rows, errors = {}, {}
     for k in MODELS:
         if k not in ids:

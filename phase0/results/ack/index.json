@@ -16,7 +16,7 @@
     "type": "L4",
     "voice": "Leda",
     "id": "shouchi",
-    "text": "承知しました、",
+    "text": "承知しました。",
     "heard": {
       "0.0": "承知しました。",
       "1.0": "承知しました。"
@@ -24,7 +24,8 @@
     "ok": true,
     "seconds": 1.33,
     "tries": 2,
-    "wav": "L4_shouchi.wav"
+    "wav": "L4_shouchi.wav",
+    "read_as": "承知しました、"
   },
   {
     "type": "L4",
@@ -100,7 +101,7 @@
     "type": "L4",
     "voice": "Leda",
     "id": "arigatou",
-    "text": "ありがとうございます、",
+    "text": "ありがとうございます。",
     "heard": {
       "0.0": "ありがとうございます。",
       "1.0": "ありがとうございます。"
@@ -108,7 +109,8 @@
     "ok": true,
     "seconds": 1.12,
     "tries": 1,
-    "wav": "L4_arigatou.wav"
+    "wav": "L4_arigatou.wav",
+    "read_as": "ありがとうございます、"
   },
   {
     "type": "S2",
@@ -268,7 +270,7 @@
     "type": "S2",
     "voice": "Sadachbia",
     "id": "shouchi",
-    "text": "承知しました、",
+    "text": "承知しました。",
     "heard": {
       "0.0": "承知しました。",
       "1.0": "承知しました。"
@@ -278,13 +280,14 @@
     "try": 4,
     "wav": "S2_shouchi.wav",
     "chosen_from": "S2_shouchi_3",
-    "chosen_by": "人"
+    "chosen_by": "人",
+    "read_as": "承知しました、"
   },
   {
     "type": "S4",
     "voice": "Sadachbia",
     "id": "shouchi",
-    "text": "承知しました、",
+    "text": "承知しました。",
     "heard": {
       "0.0": "承知しました。",
       "1.0": "承知しました。"
@@ -295,7 +298,8 @@
     "wav": "S4_shouchi.wav",
     "made_as": "S2",
     "chosen_from": "S2_shouchi_3",
-    "chosen_by": "人"
+    "chosen_by": "人",
+    "read_as": "承知しました、"
   },
   {
     "type": "S2",
@@ -334,7 +338,7 @@
     "type": "S2",
     "voice": "Sadachbia",
     "id": "arigatou",
-    "text": "ありがとうございます、",
+    "text": "ありがとうございます。",
     "heard": {
       "0.0": "ありがとうございます。",
       "1.0": "ありがとうございます。"
@@ -345,13 +349,14 @@
     "wav": "S2_arigatou.wav",
     "made_as": "S4",
     "chosen_from": "S4_arigatou_2",
-    "chosen_by": "人"
+    "chosen_by": "人",
+    "read_as": "ありがとうございます、"
   },
   {
     "type": "S4",
     "voice": "Sadachbia",
     "id": "arigatou",
-    "text": "ありがとうございます、",
+    "text": "ありがとうございます。",
     "heard": {
       "0.0": "ありがとうございます。",
       "1.0": "ありがとうございます。"
@@ -361,7 +366,8 @@
     "try": 2,
     "wav": "S4_arigatou.wav",
     "chosen_from": "S4_arigatou_2",
-    "chosen_by": "人"
+    "chosen_by": "人",
+    "read_as": "ありがとうございます、"
   },
   {
     "type": "S2",
@@ -567,6 +573,1580 @@
     "wav": "S4_wait_heavy.wav",
     "made_as_id": "wait",
     "chosen_from": "S4_wait_3",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "greeting",
+    "text": "お忙しいところ恐れ入ります。",
+    "heard": {
+      "0.0": "お忙しいところ恐れ入ります。",
+      "1.0": "お忙しいところ恐れ入ります。"
+    },
+    "ok": true,
+    "seconds": 1.82,
+    "tries": 3,
+    "wav": "S2_greeting.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "greeting",
+    "text": "お忙しいところ恐れ入ります。",
+    "heard": {
+      "0.0": "お忙しいところ恐れ入ります。",
+      "1.0": "お忙しいところ恐れ入ります。"
+    },
+    "ok": true,
+    "seconds": 1.78,
+    "tries": 3,
+    "wav": "S4_greeting.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "greeting",
+    "text": "お忙しいところ恐れ入ります。",
+    "heard": {
+      "0.0": "お忙しいところ恐れ入ります。",
+      "1.0": "お忙しいところ恐れ入ります。"
+    },
+    "ok": true,
+    "seconds": 1.92,
+    "tries": 2,
+    "wav": "L4_greeting.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_welcome",
+    "text": "とんでもございません。",
+    "heard": {
+      "0.0": "とんでもございません。",
+      "1.0": "とんでもございません。"
+    },
+    "ok": true,
+    "seconds": 0.98,
+    "tries": 1,
+    "wav": "S2_talk_welcome.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_praised",
+    "text": "恐れ入ります。",
+    "heard": {
+      "0.0": "おそれいります。",
+      "1.0": "おそれいります。"
+    },
+    "ok": true,
+    "seconds": 0.94,
+    "tries": 2,
+    "wav": "S2_talk_praised.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_osewa",
+    "text": "こちらこそお世話になっております。",
+    "heard": {
+      "0.0": "こちらこそお世話になっております。",
+      "1.0": "こちらこそお世話になっております。"
+    },
+    "ok": true,
+    "seconds": 1.78,
+    "tries": 3,
+    "wav": "S2_talk_osewa.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_yoroshiku",
+    "text": "こちらこそよろしくお願いいたします。",
+    "heard": {
+      "0.0": "こちらこそよろしくお願いいたします。",
+      "1.0": "こちらこそよろしくお願いいたします。"
+    },
+    "ok": true,
+    "seconds": 1.94,
+    "tries": 2,
+    "wav": "S2_talk_yoroshiku.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_welcome",
+    "text": "とんでもございません。",
+    "heard": {
+      "0.0": "とんでもございません。",
+      "1.0": "とんでもございません。"
+    },
+    "ok": true,
+    "seconds": 1.02,
+    "tries": 1,
+    "wav": "S4_talk_welcome.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_praised",
+    "text": "恐れ入ります。",
+    "heard": {
+      "0.0": "恐れ入ります。",
+      "1.0": "恐れ入ります。"
+    },
+    "ok": true,
+    "seconds": 0.6,
+    "tries": 1,
+    "wav": "S4_talk_praised.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_osewa",
+    "text": "こちらこそお世話になっております。",
+    "heard": {
+      "0.0": "こちらこそお世話になっております。",
+      "1.0": "こちらこそお世話になっております。"
+    },
+    "ok": true,
+    "seconds": 1.86,
+    "tries": 1,
+    "wav": "S4_talk_osewa.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_welcome",
+    "text": "とんでもございません。",
+    "heard": {
+      "0.0": "とんでもございません。",
+      "1.0": "とんでもございません。"
+    },
+    "ok": true,
+    "seconds": 1.16,
+    "tries": 1,
+    "wav": "L4_talk_welcome.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_praised",
+    "text": "恐れ入ります。",
+    "heard": {
+      "0.0": "おそれいります。",
+      "1.0": "おそれいります。"
+    },
+    "ok": true,
+    "seconds": 0.82,
+    "tries": 1,
+    "wav": "L4_talk_praised.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_osewa",
+    "text": "こちらこそお世話になっております。",
+    "heard": {
+      "0.0": "こちらこそお世話になっております。",
+      "1.0": "こちらこそお世話になっております。"
+    },
+    "ok": true,
+    "seconds": 1.8,
+    "tries": 1,
+    "wav": "L4_talk_osewa.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_yoroshiku",
+    "text": "こちらこそよろしくお願いいたします。",
+    "heard": {
+      "0.0": "こちらこそよろしくお願いいたします。",
+      "1.0": "こちらこそよろしくお願いいたします。"
+    },
+    "ok": true,
+    "seconds": 2.14,
+    "tries": 1,
+    "wav": "L4_talk_yoroshiku.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_yoroshiku",
+    "text": "こちらこそよろしくお願いいたします。",
+    "heard": {
+      "0.0": "こちらこそよろしくお願いいたします。",
+      "1.0": "こちらこそよろしくお願いいたします。"
+    },
+    "ok": true,
+    "seconds": 2.0,
+    "tries": 1,
+    "wav": "S4_talk_yoroshiku.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_cared",
+    "text": "お気遣いありがとうございます。",
+    "heard": {
+      "0.0": "お気遣いありがとうございます。",
+      "1.0": "お気遣いありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.92,
+    "tries": 2,
+    "wav": "S2_talk_cared.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_cared",
+    "text": "お気遣いありがとうございます。",
+    "heard": {
+      "0.0": "お気遣いありがとうございます。",
+      "1.0": "お気遣いありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.6,
+    "tries": 5,
+    "wav": "S4_talk_cared.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_cared",
+    "text": "お気遣いありがとうございます。",
+    "heard": {
+      "0.0": "お気遣いありがとうございます。",
+      "1.0": "お気遣いありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.9,
+    "tries": 1,
+    "wav": "L4_talk_cared.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "departed",
+    "text": "そうでしたか。大変失礼いたしました。",
+    "heard": {
+      "0.0": "そうでしたか。大変失礼いたしました。",
+      "1.0": "そうでしたか。大変失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 4.0,
+    "tries": 1,
+    "wav": "S2_departed.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（S2：ほぼ良い）"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "back",
+    "text": "話を戻させていただきますね。",
+    "heard": {
+      "0.0": "話を戻させていただきますね。",
+      "1.0": "話を戻させていただきますね。"
+    },
+    "ok": true,
+    "seconds": 1.86,
+    "tries": 1,
+    "wav": "S2_back.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（S2：ほぼ良い）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "departed",
+    "text": "そうでしたか。大変失礼いたしました。",
+    "heard": {
+      "0.0": "そうでしたか。大変失礼いたしました。",
+      "1.0": "そうでしたか。大変失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 3.36,
+    "tries": 1,
+    "wav": "L4_departed.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "back",
+    "text": "話を戻させていただきますね。",
+    "heard": {
+      "0.0": "話を戻させていただきますね。",
+      "1.0": "話を戻させていただきますね。"
+    },
+    "ok": true,
+    "seconds": 1.92,
+    "tries": 1,
+    "wav": "L4_back.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
+  },
+  {
+    "type": "S2",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
+    "wav": "S2_own_fallback.wav",
+    "ok": true,
+    "seconds": 7.2,
+    "gaps": [
+      [
+        0.62,
+        0.34
+      ],
+      [
+        4.4,
+        0.4
+      ]
+    ],
+    "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
+    "provisional_from": "S2_own_fallback_1.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（S2：ほぼ良い）",
+    "auto_ok": false
+  },
+  {
+    "type": "L4",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
+    "wav": "L4_own_fallback.wav",
+    "ok": true,
+    "seconds": 8.02,
+    "gaps": [
+      [
+        0.9,
+        0.54
+      ],
+      [
+        4.96,
+        0.36
+      ]
+    ],
+    "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
+    "provisional_from": "L4_own_fallback_1.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）",
+    "auto_ok": false
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "departed",
+    "text": "そうでしたか。大変失礼いたしました。",
+    "heard": {
+      "0.0": "そうでしたか。大変失礼いたしました。",
+      "1.0": "そうでしたか。大変失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 4.0,
+    "tries": 1,
+    "wav": "S4_departed.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う",
+    "made_as": "S2"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "back",
+    "text": "話を戻させていただきますね。",
+    "heard": {
+      "0.0": "話を戻させていただきますね。",
+      "1.0": "話を戻させていただきますね。"
+    },
+    "ok": true,
+    "seconds": 1.86,
+    "tries": 1,
+    "wav": "S4_back.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う",
+    "made_as": "S2"
+  },
+  {
+    "type": "S4",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
+    "wav": "S4_own_fallback.wav",
+    "ok": true,
+    "seconds": 7.2,
+    "gaps": [
+      [
+        0.62,
+        0.34
+      ],
+      [
+        4.4,
+        0.4
+      ]
+    ],
+    "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
+    "provisional_from": "S2_own_fallback_1.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う",
+    "auto_ok": false,
+    "made_as": "S2"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree_high",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.36,
+    "tries": 1,
+    "wav": "S2_talk_agree_high.wav",
+    "made_as_id": "talk_agree",
+    "chosen_from": "S2_talk_agree",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「ハイテンション」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree_high",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.36,
+    "tries": 1,
+    "wav": "S4_talk_agree_high.wav",
+    "made_as_id": "talk_agree",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_agree",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「ハイテンション」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree_deep",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.64,
+    "wav": "S2_talk_agree_deep.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_agree",
+    "chosen_from": "S2_talk_agree_ふつう1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「かなり共感」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree_deep",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.64,
+    "wav": "S4_talk_agree_deep.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_agree",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_agree_ふつう1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「かなり共感」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree_light",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.44,
+    "wav": "S2_talk_agree_light.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_agree",
+    "chosen_from": "S2_talk_agree_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「少し共感」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree_light",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.44,
+    "wav": "S4_talk_agree_light.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_agree",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_agree_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「少し共感」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard_sad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.02,
+    "tries": 1,
+    "wav": "S2_talk_heard_sad.wav",
+    "made_as_id": "talk_heard",
+    "chosen_from": "S2_talk_heard",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「しんみり」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard_sad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.02,
+    "tries": 1,
+    "wav": "S4_talk_heard_sad.wav",
+    "made_as_id": "talk_heard",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_heard",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「しんみり」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard_glad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.96,
+    "wav": "S2_talk_heard_glad.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_heard",
+    "chosen_from": "S2_talk_heard_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「少し嬉しそう」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard_glad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.96,
+    "wav": "S4_talk_heard_glad.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_heard",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_heard_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「少し嬉しそう」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_hard_sad",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "S2_talk_hard_sad.wav",
+    "made_as_id": "talk_hard",
+    "chosen_from": "S2_talk_hard",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「しんみり共感」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_hard_sad",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "S4_talk_hard_sad.wav",
+    "made_as_id": "talk_hard",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_hard",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「しんみり共感」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_hard_bright",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.58,
+    "wav": "S2_talk_hard_bright.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_hard",
+    "chosen_from": "S2_talk_hard_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「明るく共感」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_hard_bright",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.58,
+    "wav": "S4_talk_hard_bright.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_hard",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_hard_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「明るく共感」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree_deep",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "L4_talk_agree_deep.wav",
+    "chosen_by": "人",
+    "made_as_id": "talk_agree",
+    "chosen_from": "L4_talk_agree",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「深くうなずいて＝4（承認済みの1本）」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree_high",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.44,
+    "try": 1,
+    "wav": "L4_talk_agree_high.wav",
+    "made_as_id": "talk_agree_light",
+    "chosen_from": "L4_talk_agree_light_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「元気よく＝6」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree_light",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.52,
+    "try": 1,
+    "wav": "L4_talk_agree_light.wav",
+    "made_as_id": "talk_agree_deep",
+    "chosen_from": "L4_talk_agree_deep_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「軽く＝7」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_heard_sad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.14,
+    "try": 2,
+    "wav": "L4_talk_heard_sad.wav",
+    "chosen_from": "L4_talk_heard_sad_2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「しんみりと＝4」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_heard_glad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.92,
+    "try": 1,
+    "wav": "L4_talk_heard_glad.wav",
+    "chosen_from": "L4_talk_heard_glad_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「少し嬉しそうに＝3」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_heard_nod",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.24,
+    "try": 2,
+    "wav": "L4_talk_heard_nod.wav",
+    "made_as_id": "talk_heard_glad",
+    "chosen_from": "L4_talk_heard_glad_2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「納得＝5」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_hard_sad",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.68,
+    "try": 2,
+    "wav": "L4_talk_hard_sad.wav",
+    "chosen_from": "L4_talk_hard_sad_2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「しんみりと＝5」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_hard_bright",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.8,
+    "try": 1,
+    "wav": "L4_talk_hard_bright.wav",
+    "chosen_from": "L4_talk_hard_bright_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「前向きに＝3」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard_nod",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.1,
+    "try": 3,
+    "wav": "S2_talk_heard_nod.wav",
+    "chosen_from": "S2_talk_heard_nod_3",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザー：「S2 の『そうでしたか！（納得して）』：3」"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard_nod",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.1,
+    "try": 3,
+    "wav": "S4_talk_heard_nod.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_heard_nod_3",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザー：「S2 の『そうでしたか！（納得して）』：3」・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "callback_back_today",
+    "text": "本日お戻りのご予定はございますでしょうか？",
+    "heard": {
+      "0.0": "本日お戻りのご予定はございますでしょうか？",
+      "1.0": "本日お戻りのご予定はございますでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.6,
+    "try": 3,
+    "wav": "S2_callback_back_today.wav",
+    "chosen_from": "S2_callback_back_today_2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：2"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "callback_back_today",
+    "text": "本日お戻りのご予定はございますでしょうか？",
+    "heard": {
+      "0.0": "本日お戻りのご予定はございますでしょうか？",
+      "1.0": "本日お戻りのご予定はございますでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.6,
+    "try": 3,
+    "wav": "S4_callback_back_today.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_callback_back_today_2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：2・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "callback_call_again",
+    "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.64,
+    "try": 4,
+    "wav": "S2_callback_call_again.wav",
+    "chosen_from": "S2_callback_call_again_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：1"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "callback_call_again",
+    "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.64,
+    "try": 4,
+    "wav": "S4_callback_call_again.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_callback_call_again_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：1・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "callback_back_today",
+    "text": "本日お戻りのご予定はございますでしょうか？",
+    "heard": {
+      "0.0": "本日お戻りのご予定はございますでしょうか？",
+      "1.0": "本日お戻りのご予定はございますでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.84,
+    "try": 2,
+    "wav": "L4_callback_back_today.wav",
+    "chosen_from": "L4_callback_back_today_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：1"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "line_trouble_ask",
+    "text": "恐れ入ります。こちらの通信に不具合が起きたようですので改めてお電話させていただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか。",
+      "1.0": "恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか。"
+    },
+    "ok": false,
+    "seconds": 7.68,
+    "wav": "L4_line_trouble_ask.wav",
+    "pauses": [
+      0.74,
+      0.58
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_line_trouble_ask_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "line_trouble_bye",
+    "text": "大変申し訳ございません。それではいったんお電話を失礼いたします。",
+    "heard": {
+      "0.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。",
+      "1.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 4.78,
+    "wav": "L4_line_trouble_bye.wav",
+    "pauses": [
+      0.58,
+      0.14
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_line_trouble_bye_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "line_trouble_bye",
+    "text": "大変申し訳ございません。それではいったんお電話を失礼いたします。",
+    "heard": {
+      "0.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。",
+      "1.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 4.0,
+    "wav": "S2_line_trouble_bye.wav",
+    "pauses": [
+      0.36,
+      0.12
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_line_trouble_bye_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "line_trouble_bye",
+    "text": "大変申し訳ございません。それではいったんお電話を失礼いたします。",
+    "heard": {
+      "0.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。",
+      "1.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 4.0,
+    "wav": "S4_line_trouble_bye.wav",
+    "pauses": [
+      0.36,
+      0.12
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_line_trouble_bye_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "line_trouble_ask",
+    "text": "恐れ入ります。こちらの通信に不具合が起きたようですので改めてお電話させていただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか？",
+      "1.0": "恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか。"
+    },
+    "ok": false,
+    "seconds": 7.34,
+    "wav": "S2_line_trouble_ask.wav",
+    "how": "電話で、こちらの都合でお客様にご迷惑をおかけしていることを、心から申し訳なく思いながら、人が話すように自然に、柔らかく、落ち着いてお伺いするように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.74,
+      0.46
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_line_trouble_ask_別2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "line_trouble_ask",
+    "text": "恐れ入ります。こちらの通信に不具合が起きたようですので改めてお電話させていただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか？",
+      "1.0": "恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか。"
+    },
+    "ok": false,
+    "seconds": 7.34,
+    "wav": "S4_line_trouble_ask.wav",
+    "how": "電話で、こちらの都合でお客様にご迷惑をおかけしていることを、心から申し訳なく思いながら、人が話すように自然に、柔らかく、落ち着いてお伺いするように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.74,
+      0.46
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_line_trouble_ask_別2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "callback_ask_who",
+    "text": "恐れ入りますがお分かりになる方はいらっしゃいますでしょうか？",
+    "heard": {
+      "0.0": "おそれいりますが、お分かりになる方はいらっしゃいますでしょうか？",
+      "1.0": "恐れ入りますが、お分かりになる方はいらっしゃいますでしょうか？"
+    },
+    "ok": false,
+    "seconds": 3.76,
+    "wav": "L4_callback_ask_who.wav",
+    "pauses": [
+      0.4
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_callback_ask_who_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "callback_ask_when",
+    "text": "恐れ入りますがいつ頃でしたらお分かりになりますでしょうか？",
+    "heard": {
+      "0.0": "恐れ入りますが、いつ頃でしたらお分かりになりますでしょうか？",
+      "1.0": "恐れ入りますが、いつ頃でしたらお分かりになりますでしょうか？"
+    },
+    "ok": false,
+    "seconds": 3.88,
+    "wav": "L4_callback_ask_when.wav",
+    "pauses": [
+      0.26
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_callback_ask_when_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "number_again_wrong_party",
+    "text": "前回お伺いしたお電話番号にお掛けしたところ別の方のお電話でした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "前回お伺いしたお電話番号におかけしたところ、別の方のお電話でした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？",
+      "1.0": "前回お伺いしたお電話番号におかけしたところ、別の方のお電話でした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？"
+    },
+    "ok": false,
+    "seconds": 10.22,
+    "wav": "L4_number_again_wrong_party.wav",
+    "pauses": [
+      0.34,
+      0.7,
+      0.28
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_number_again_wrong_party_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "callback_ask_when",
+    "text": "恐れ入りますがいつ頃でしたらお分かりになりますでしょうか？",
+    "heard": {
+      "0.0": "恐れ入りますが、いつ頃でしたらお分かりになりますでしょうか？",
+      "1.0": "恐れ入りますが、いつ頃でしたらお分かりになりますでしょうか？"
+    },
+    "ok": false,
+    "seconds": 3.78,
+    "wav": "S2_callback_ask_when.wav",
+    "how": "電話で、お客様に丁寧に、柔らかく、人が話すように自然にお聞きするように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉と言葉の間を空けずに、ひと続きに",
+    "pauses": [
+      0.4
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_callback_ask_when_別2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "callback_ask_when",
+    "text": "恐れ入りますがいつ頃でしたらお分かりになりますでしょうか？",
+    "heard": {
+      "0.0": "恐れ入りますが、いつ頃でしたらお分かりになりますでしょうか？",
+      "1.0": "恐れ入りますが、いつ頃でしたらお分かりになりますでしょうか？"
+    },
+    "ok": false,
+    "seconds": 3.78,
+    "wav": "S4_callback_ask_when.wav",
+    "how": "電話で、お客様に丁寧に、柔らかく、人が話すように自然にお聞きするように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉と言葉の間を空けずに、ひと続きに",
+    "pauses": [
+      0.4
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_callback_ask_when_別2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "number_again_unreachable",
+    "text": "前回お伺いしたお電話番号にお掛けしたのですがつながりませんでした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "前回お伺いしたお電話番号におかけしたのですが、繋がりませんでした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？",
+      "1.0": "前回お伺いしたお電話番号におかけしたのですが、繋がりませんでした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？"
+    },
+    "ok": false,
+    "seconds": 9.52,
+    "wav": "S2_number_again_unreachable.wav",
+    "how": "電話で、前回伺った番号のことを、お客様を責めずに、申し訳なさそうに、人が話すように自然に、柔らかく、丁寧にお伺いするように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.34,
+      0.68,
+      0.32
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_number_again_unreachable_別2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "number_again_unreachable",
+    "text": "前回お伺いしたお電話番号にお掛けしたのですがつながりませんでした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "前回お伺いしたお電話番号におかけしたのですが、繋がりませんでした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？",
+      "1.0": "前回お伺いしたお電話番号におかけしたのですが、繋がりませんでした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？"
+    },
+    "ok": false,
+    "seconds": 9.52,
+    "wav": "S4_number_again_unreachable.wav",
+    "how": "電話で、前回伺った番号のことを、お客様を責めずに、申し訳なさそうに、人が話すように自然に、柔らかく、丁寧にお伺いするように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.34,
+      0.68,
+      0.32
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_number_again_unreachable_別2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "hold_timeout",
+    "text": "お返事がないようですのでまたあらためてかけ直させていただきます。それではいったん失礼いたします。",
+    "heard": {
+      "0.0": "お返事がないようですので、また改めてかけ直させていただきます。それでは一旦失礼いたします。",
+      "1.0": "お返事がないようですので、また改めてかけ直させていただきます。それでは一旦失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 6.02,
+    "wav": "S2_hold_timeout.wav",
+    "pauses": [
+      0.12,
+      0.42,
+      0.12
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_hold_timeout_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "hold_timeout",
+    "text": "お返事がないようですのでまたあらためてかけ直させていただきます。それではいったん失礼いたします。",
+    "heard": {
+      "0.0": "お返事がないようですので、また改めてかけ直させていただきます。それでは一旦失礼いたします。",
+      "1.0": "お返事がないようですので、また改めてかけ直させていただきます。それでは一旦失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 6.02,
+    "wav": "S4_hold_timeout.wav",
+    "pauses": [
+      0.12,
+      0.42,
+      0.12
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_hold_timeout_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "hold_timeout",
+    "text": "お返事がないようですのでまたあらためてかけ直させていただきます。それではいったん失礼いたします。",
+    "heard": {
+      "0.0": "お返事がないようですので、また改めてかけ直させていただきます。それでは一旦失礼いたします。",
+      "1.0": "お返事がないようですので、また改めてかけ直させていただきます。それでは一旦失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 7.38,
+    "wav": "L4_hold_timeout.wav",
+    "pauses": [
+      0.42,
+      0.88,
+      0.16,
+      0.12
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_hold_timeout_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "apology_cut_off",
+    "text": "前回はお電話が途中で切れてしまい大変失礼いたしました。",
+    "heard": {
+      "0.0": "前回はお電話が途中で切れてしまい、大変失礼いたしました。",
+      "1.0": "前回はお電話が途中で切れてしまい、大変失礼いたしました。"
+    },
+    "ok": false,
+    "seconds": 4.54,
+    "wav": "L4_apology_cut_off.wav",
+    "how": "電話で、前回の電話でお客様にご迷惑をおかけしたことを、心から深くお詫びするように、誠実に、丁寧に、落ち着いた調子で。言葉の途中で区切らずに",
+    "pauses": [
+      0.36,
+      0.26
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_apology_cut_off_読2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "apology_missed_promise",
+    "text": "お約束の時間にお電話ができず誠に申し訳ございませんでした。",
+    "heard": {
+      "0.0": "お約束の時間にお電話ができず、誠に申し訳ございませんでした。",
+      "1.0": "お約束の時間にお電話ができず、誠に申し訳ございませんでした。"
+    },
+    "ok": true,
+    "seconds": 4.3,
+    "try": 3,
+    "wav": "L4_apology_missed_promise.wav",
+    "chosen_from": "L4_apology_missed_promise_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "callback_ask_who",
+    "text": "恐れ入りますがお分かりになる方はいらっしゃいますでしょうか？",
+    "heard": {
+      "0.0": "恐れ入りますが、お分かりになる方はいらっしゃいますでしょうか？",
+      "1.0": "恐れ入りますが、お分かりになる方はいらっしゃいますでしょうか？"
+    },
+    "ok": false,
+    "seconds": 3.64,
+    "wav": "S2_callback_ask_who.wav",
+    "how": "電話の向こうにいるお客様お一人に向かって、話しかけるように、柔らかく丁寧にお尋ねするように。ひとりで読み上げたり、案内を流したりする調子にせず、どの言葉も強めずに、言葉と言葉の間を空けずに、ひと続きに",
+    "pauses": [
+      0.52,
+      0.16
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_callback_ask_who_話3",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "callback_ask_who",
+    "text": "恐れ入りますがお分かりになる方はいらっしゃいますでしょうか？",
+    "heard": {
+      "0.0": "恐れ入りますが、お分かりになる方はいらっしゃいますでしょうか？",
+      "1.0": "恐れ入りますが、お分かりになる方はいらっしゃいますでしょうか？"
+    },
+    "ok": false,
+    "seconds": 3.64,
+    "wav": "S4_callback_ask_who.wav",
+    "how": "電話の向こうにいるお客様お一人に向かって、話しかけるように、柔らかく丁寧にお尋ねするように。ひとりで読み上げたり、案内を流したりする調子にせず、どの言葉も強めずに、言葉と言葉の間を空けずに、ひと続きに",
+    "pauses": [
+      0.52,
+      0.16
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_callback_ask_who_話3",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "number_again_wrong_party",
+    "text": "前回お伺いしたお電話番号にお掛けしたところ別の方のお電話でした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "前回お伺いしたお電話番号におかけしたところ、別の方のお電話でした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？",
+      "1.0": "前回お伺いしたお電話番号におかけしたところ、別の方のお電話でした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか。"
+    },
+    "ok": false,
+    "seconds": 9.38,
+    "wav": "S2_number_again_wrong_party.wav",
+    "how": "電話で、前回伺った番号のことを、お客様を責めずに、申し訳なさそうに、落ち着いて、控えめに、柔らかくお伺いするように。勢いをつけず、読み上げるような調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.42,
+      0.78,
+      0.36
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_number_again_wrong_party_控1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "number_again_wrong_party",
+    "text": "前回お伺いしたお電話番号にお掛けしたところ別の方のお電話でした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "前回お伺いしたお電話番号におかけしたところ、別の方のお電話でした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？",
+      "1.0": "前回お伺いしたお電話番号におかけしたところ、別の方のお電話でした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか。"
+    },
+    "ok": false,
+    "seconds": 9.38,
+    "wav": "S4_number_again_wrong_party.wav",
+    "how": "電話で、前回伺った番号のことを、お客様を責めずに、申し訳なさそうに、落ち着いて、控えめに、柔らかくお伺いするように。勢いをつけず、読み上げるような調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.42,
+      0.78,
+      0.36
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_number_again_wrong_party_控1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "number_again_unreachable",
+    "text": "前回お伺いしたお電話番号にお掛けしたのですがつながりませんでした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "前回お伺いしたお電話番号におかけしたのですが、繋がりませんでした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？",
+      "1.0": "前回お伺いしたお電話番号におかけしたのですが、繋がりませんでした。恐れ入りますが、もう一度お電話番号をお伺いしてもよろしいでしょうか？"
+    },
+    "ok": false,
+    "seconds": 9.48,
+    "wav": "L4_number_again_unreachable.wav",
+    "how": "電話で、前回伺った番号のことを、お客様を責めずに、申し訳なさそうに、丁寧に、柔らかくお伺いするように。言葉の途中で区切らずに。録音の案内のような調子にせず、電話の向こうのお客様に話しかけるように",
+    "pauses": [
+      0.76,
+      0.38
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_number_again_unreachable_読2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "apology_cut_off",
+    "text": "前回はお電話が途中で切れてしまい大変失礼いたしました。",
+    "heard": {
+      "0.0": "前回は、お電話が途中で切れてしまい、大変失礼いたしました。",
+      "1.0": "前回はお電話が途中で切れてしまい、大変失礼いたしました。"
+    },
+    "ok": false,
+    "seconds": 4.42,
+    "wav": "S2_apology_cut_off.wav",
+    "how": "電話の向こうのお客様に、前回のお電話が途中で切れてしまったことを、心から申し訳なく思いながら、人が話すように自然に、柔らかく、落ち着いてお詫びするように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.26,
+      0.3
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_apology_cut_off_話3",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "apology_cut_off",
+    "text": "前回はお電話が途中で切れてしまい大変失礼いたしました。",
+    "heard": {
+      "0.0": "前回は、お電話が途中で切れてしまい、大変失礼いたしました。",
+      "1.0": "前回はお電話が途中で切れてしまい、大変失礼いたしました。"
+    },
+    "ok": false,
+    "seconds": 4.42,
+    "wav": "S4_apology_cut_off.wav",
+    "how": "電話の向こうのお客様に、前回のお電話が途中で切れてしまったことを、心から申し訳なく思いながら、人が話すように自然に、柔らかく、落ち着いてお詫びするように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.26,
+      0.3
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_apology_cut_off_話3",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "apology_missed_promise",
+    "text": "お約束の時間にお電話ができず誠に申し訳ございませんでした。",
+    "heard": {
+      "0.0": "お約束の時間にお電話ができず、誠に申し訳ございませんでした。",
+      "1.0": "お約束の時間にお電話ができず、誠に申し訳ございませんでした。"
+    },
+    "ok": false,
+    "seconds": 4.28,
+    "wav": "S2_apology_missed_promise.wav",
+    "how": "電話の向こうのお客様に、お約束の時間にお電話できなかったことを、心から申し訳なく思いながら、人が話すように自然に、柔らかく、落ち着いてお詫びするように。出だしを大きく構えず、話しかけるように静かに始め、最後の「申し訳ございませんでした」まで急がずに、ゆっくり、誠実に言い切るように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.28
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_apology_missed_promise_誠2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "apology_missed_promise",
+    "text": "お約束の時間にお電話ができず誠に申し訳ございませんでした。",
+    "heard": {
+      "0.0": "お約束の時間にお電話ができず、誠に申し訳ございませんでした。",
+      "1.0": "お約束の時間にお電話ができず、誠に申し訳ございませんでした。"
+    },
+    "ok": false,
+    "seconds": 4.28,
+    "wav": "S4_apology_missed_promise.wav",
+    "how": "電話の向こうのお客様に、お約束の時間にお電話できなかったことを、心から申し訳なく思いながら、人が話すように自然に、柔らかく、落ち着いてお詫びするように。出だしを大きく構えず、話しかけるように静かに始め、最後の「申し訳ございませんでした」まで急がずに、ゆっくり、誠実に言い切るように。読み上げるような機械的な調子にせず、どの言葉も強めずに、言葉の途中で区切らずに",
+    "pauses": [
+      0.28
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_apology_missed_promise_誠2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "moshimoshi",
+    "text": "もしもし？",
+    "heard": {
+      "0.0": "もしもし",
+      "1.0": "もしもし。"
+    },
+    "ok": true,
+    "seconds": 0.76,
+    "try": 2,
+    "wav": "L4_moshimoshi.wav",
+    "chosen_from": "L4_moshimoshi_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "callback_call_again",
+    "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "後ほど改めておかけしてもよろしいでしょうか？",
+      "1.0": "後ほど改めておかけしてもよろしいでしょうか。"
+    },
+    "ok": true,
+    "seconds": 3.06,
+    "wav": "L4_callback_call_again.wav",
+    "how": "電話で、お客様に、落ち着いて、自信を持って丁寧にお聞きするように。語尾を沈ませず、弱々しくならないように、自然に問いかける",
+    "chosen_from": "L4_callback_call_again_別2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "moshimoshi",
+    "text": "もしもし？",
+    "heard": {
+      "0.0": "もしもし?",
+      "1.0": "もしもし。"
+    },
+    "ok": true,
+    "seconds": 0.6,
+    "wav": "S2_moshimoshi.wav",
+    "how": "電話で、相手の声が聞こえないときに、繋がっているかを確かめるように。誠実に、謙虚に、ビジネスの電話らしく、丁寧に",
+    "pauses": [],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_moshimoshi_謙ビ4",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "moshimoshi",
+    "text": "もしもし？",
+    "heard": {
+      "0.0": "もしもし?",
+      "1.0": "もしもし。"
+    },
+    "ok": true,
+    "seconds": 0.6,
+    "wav": "S4_moshimoshi.wav",
+    "how": "電話で、相手の声が聞こえないときに、繋がっているかを確かめるように。誠実に、謙虚に、ビジネスの電話らしく、丁寧に",
+    "pauses": [],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_moshimoshi_謙ビ4",
     "chosen_by": "人"
   }
 ]

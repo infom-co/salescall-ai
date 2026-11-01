@@ -118,6 +118,37 @@ def unvoiced_spans(pcm16: bytes, rate: int, min_s: float = 0.03, noise_only: boo
     return spans
 
 
+def pitch_at(pcm16: bytes, rate: int, t: float, max_aperiodic: float = APERIODIC_MAX) -> float | None:
+    """t 秒から始まる1つの区間（FRAME_S と、周期を探す長さ）の声の高さ（Hz）。周期が揃わない（子音・息・無音）なら None。
+    録音を継ぐ所の前後の高さを比べるため（g69_vowel_seam。features は区間5つ以上の中央なので、継ぎ目の1点には使えない）。
+    max_aperiodic：周期のずれの上限（既定は APERIODIC_MAX。かすれた母音の1周期の長さを取るときだけ、緩くする）。"""
+    x = np.frombuffer(pcm16, dtype="<i2").astype(np.float64) / 32768.0
+    lag_lo, lag_hi = int(rate / F0_MAX), int(rate / F0_MIN)
+    w, i = int(rate * FRAME_S), int(t * rate)
+    f = x[max(0, i):max(0, i) + w + lag_hi]
+    if i < 0 or len(f) < w + lag_hi or np.sqrt((f[:w] ** 2).mean()) < 1e-4:
+        return None
+    lag, a = _yin(f, w, lag_lo, lag_hi)
+    return rate / lag if a <= max_aperiodic else None
+
+
+def pitch_near(pcm16: bytes, rate: int, start: int, period: int, periods: int = 2) -> tuple[float | None, float, float]:
+    """start 標本から periods 周期の区間（周期を探す長さ＝period の 1.4倍ぶん長い）の (高さ Hz、周期のずれ、大きさ dB)。
+    録音を継ぐ所の、つなぎ目に接する数周期だけを読む（g69_vowel_seam）。周期は period の 0.7〜1.4倍の中だけで探す（1オクターブの
+    取り違えをしない）。周期のずれが APERIODIC_MAX を超える（波がそろわない）なら、高さは None。
+    ⛔ 2026-10-28：つなぎ目の高さを pitch_at（FRAME_S＋周期を探す長さ＝約44ミリ秒）で読んでいた＝声の高さが動いている所では、つなぎ目の
+       高さにならない（G-69 の3回目の S2 の「の」：名前の部分の声は 44ミリ秒の間に 216Hz から 198Hz へ下がっていて、区間の頭の高さを読み
+       「高さの差 0.0」と数えた。2周期で読むと 1.22半音＝ユーザー ✕「重なって、音量も違和感」）。"""
+    lo, hi = int(period * 0.7), int(period * 1.4)
+    w = periods * period
+    seg = pcm16[max(0, start) * 2:(start + w + hi) * 2]
+    x = np.frombuffer(seg, dtype="<i2").astype(np.float64) / 32768.0
+    if start < 0 or len(x) < w + hi or not x.std():
+        return None, 1.0, -999.0
+    lag, a = _yin(x, w, lo, hi)
+    return (rate / lag if a <= APERIODIC_MAX else None), a, loudness_db(seg)
+
+
 def loudness_db(pcm16: bytes) -> float:
     """声の大きさ（全体の2乗平均の dB。もとの音の数のまま＝比べるのは、同じ録音の仕組みで作った録音どうし）。"""
     x = np.frombuffer(pcm16, dtype="<i2").astype(np.float64)

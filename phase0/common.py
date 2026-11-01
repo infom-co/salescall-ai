@@ -155,14 +155,31 @@ def make_client(key: ApiKey):
 
 
 # ---------------------------------------------------------------- 結果
+# 有料の窓口の料金の帳簿（name・calls・summary() を持つもの。meaning_judge.SPEND が、道具を作るときに自分を入れる）。結果を保存するときに、
+# 使った分を必ず記録に入れて言う（⛔ 2026-10-28：測りが使った料金をどこにも残しておらず、積み上がっても気づけなかった）
+LEDGERS: list = []
+DEV_BUDGET_YEN = 100.0   # 試しで有料の判定に使ってよい円の初めの値（--budget-yen）。大きな測りは、見込みの円を出してから上げる
+
+
+# 料金の帳簿の、見込みの円の項目名（唯一の場所。meaning_judge.KeySpend.summary が入れ、save_result が表示する）
+EST_YEN = "見込みの円（送った回の見込みの和と額の差の大きいほう）"
+
+
 def save_result(item: str, data: dict) -> Path:
-    """結果を results/<項目>_<日時>.json に保存する。中身も必ず伏せる。"""
+    """結果を results/<項目>_<日時>.json に保存する。中身も必ず伏せる。有料の窓口を使っていれば、その料金も入れる。"""
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     path = RESULTS_DIR / f"{item}_{stamp}.json"
-    payload = {"item": item, "saved_at": _dt.datetime.now().isoformat(timespec="seconds"), **data}
+    spent = {ledger.name: ledger.summary() for ledger in LEDGERS if ledger.calls}
+    payload = {"item": item, "saved_at": _dt.datetime.now().isoformat(timespec="seconds"), **data,
+               **({"有料の窓口の料金": spent} if spent else {})}
     path.write_text(redact(json.dumps(payload, ensure_ascii=False, indent=2, default=str)), encoding="utf-8")
     say(f"結果を保存しました：{path}")
+    for name, s in spent.items():
+        # 鍵の使った額の差は遅れて増える（約50秒）ので、帳簿に見込みがあれば並べる（⛔ 2026-10-31 の夜：「約0.0円（83回）」とだけ出て、上限の
+        # 見張りが働いていないように読めた＝見込みは0.5円で、見張りは働いていた）
+        est = f"・見込み約{s[EST_YEN]}円（額は遅れて増える）" if EST_YEN in s else ""
+        say(f"{name}に使った料金：約{s['円']}円{est}（{sum(s['回数'].values())}回）")
     return path
 
 
@@ -188,9 +205,11 @@ def is_unavailable(exc: BaseException) -> bool:
 
 def is_quota(exc: BaseException) -> bool:
     """1日・1分の上限（429 RESOURCE_EXHAUSTED）に当たったか。会話のモデル（つなぎっぱなしの接続）では、閉じる番号 1011 と
-    「You exceeded your current quota」の文面で返る（2026-10-17：6つの声を同じキーで同時に流した G-14 --ear amivoice）。"""
+    「You exceeded your current quota」の文面で返る（2026-10-17：6つの声を同じキーで同時に流した G-14 --ear amivoice）。
+    ⛔ 2026-10-25：地域ごとの1分あたりの問い合わせ数の上限は「Quota exceeded for quota metric … Request limit per minute for a region」の
+       文面で返り、上限と見分けていなかった（回帰と並べて録音を作ったとき。録る道具は8回をすぐ使い切って止まった）"""
     return (str(getattr(exc, "code", "")) == "429" or getattr(exc, "status", "") == "RESOURCE_EXHAUSTED" or "RESOURCE_EXHAUSTED" in str(exc)
-            or "exceeded your current quota" in str(exc))
+            or "exceeded your current quota" in str(exc) or "Quota exceeded" in str(exc))
 
 
 def is_denied(exc: BaseException) -> bool:
@@ -207,6 +226,29 @@ def is_daily(exc: BaseException) -> bool:
     ⛔ 2026-10-17 G-53：待つ秒の書かれていない上限の知らせを1日の上限と決めつけ、同時に流した判定で、使えるキー11本をすべて
        「今日はもう使えない」と記録した（実際は1分の上限＝35秒ほどで戻る。そのあと同じキーで続けて41回通った）。"""
     return "PerDay" in str(exc)
+
+
+def is_zero_limit(exc: BaseException) -> bool:
+    """上限の値そのものが 0 か（429 の知らせの中の quota_limit_value が '0'）。量を使い切ったのではなく、そのプロジェクトには枠が無い
+    ＝待っても戻らない ⇒ 1日の上限と同じく、そのモデルではそのキーを DAILY_REST_S 秒休ませて次のキーで続ける（休み明けに1回だけ確かめ直す）。
+    ⛔ 2026-10-29：17本中15本が、どのモデルでも「地域ごとの1分の上限（…PerMinutePerProjectPerRegion）の値が 0」（地域は us-east4・
+       europe-west1）で返っていた。1分の上限として同じキーで30秒ずつ待ち直し、ほかのキーへ順に問い合わせ直していた（10-28 の G-59 で、
+       その場の判定の答えまでの中央が 10.3秒）。それを見て私は「すべてのキーが1日の上限」と、1本ずつ確かめずに誤って伝えた"""
+    return bool(re.search(r"""quota_limit_value['"]?\s*[:=]\s*['"]0['"]""", str(exc)))
+
+
+def limit_note(exc: BaseException) -> str:
+    """上限の知らせの要点（知らせに書くだけ）：上限の名前と値・待つ秒。どれも無ければ文面の頭。キーの値・プロジェクトの番号は入れない。
+    ⛔ 2026-10-29 G-59：使える2本が「待つ秒も1分の上限の名前も無い上限」で600秒休みになったが、知らせに文面が無く、何の上限か分からなかった"""
+    s = str(exc)
+    m = re.search(r"Quota exceeded for metric: ([\w./]+), limit: (\d+)", s)
+    name = re.search(r"""quota_limit['"]?\s*[:=]\s*['"]([\w\-]+)""", s) or re.search(r"""quotaId['"]?\s*[:=]\s*['"]([\w\-]+)""", s)
+    value = re.search(r"""quota_limit_value['"]?\s*[:=]\s*['"]([^'"]+)""", s)
+    parts = ([f"{m.group(1).split('/')[-1]}（{m.group(2)}）"] if m else []) + ([name.group(1)] if name else []) \
+        + ([f"値 {value.group(1)}"] if value else []) + ([f"あと{retry_after_s(exc):.0f}秒"] if retry_after_s(exc) is not None else [])
+    if parts:
+        return "・".join(parts)
+    return re.sub(r"AIza[\w\-]+|project_number:\d+|projects/\d+", "＊", s)[:160]
 
 
 def retry_after_s(exc: BaseException) -> float | None:
@@ -228,9 +270,10 @@ class KeyRing:
     - 1分の上限（429。あと数十秒で使える）：同じキーで、言われた秒数だけ待ってから続ける。そもそも当たらないように、同じキー・同じモデルの
       問い合わせは min_interval_s 秒あける（無料枠の文字のモデルは1分に5回まで＝ユーザーが管理画面で確かめた表）。
       ⛔ 2026-10-16：3秒おきに聞いて1分の上限に当たり、1日の上限と取り違えて次のキーへ進んでいた
-    - 1日の上限（429。上限の名前に PerDay）：そのモデルでは、そのキーを DAILY_REST_S 秒休ませて、次のキーで続ける（休み明けに1回問い合わせ直す）。
+    - 1日の上限（429。上限の名前に PerDay）：そのモデルでは、そのキーを DAILY_REST_S 秒（知らせの「あと何秒」が短ければその秒）休ませて、次のキーで続ける（休み明けに1回問い合わせ直す）。
       ⛔ 2026-10-19：その日いっぱい使わない形にしたら、16時15分（世界標準時）に「1日の上限」と答えたキーのうち5本が、2時間後には使えたのに、
       使わないままだった（その日の記録で、使えるキー11本がすべて止まり、意味の判定が1つも答えなかった）
+    - 上限の値そのものが0（429。知らせの中の quota_limit_value が '0'＝is_zero_limit）：1日の上限と同じく休ませて、次のキーで続ける
     - プロジェクトが止められている（403）：そのキーを、どのモデルでも飛ばす
     ⚠️ 上限はプロジェクトごとに数えられる。同じプロジェクトのキーなら、次のキーもすぐ上限に当たる。"""
 
@@ -297,17 +340,31 @@ class KeyRing:
         import time
         return self.spent.get(model, {}).get(i, 0.0) > time.time()
 
-    def rest(self, i: int, model: str) -> None:
-        """1日の上限に当たったキーを DAILY_REST_S 秒休ませる（記録して、ほかの実行とも分け合う）。"""
+    def rest(self, i: int, model: str, exc: BaseException | None = None) -> None:
+        """1日の上限に当たったキーを休ませる（記録して、ほかの実行とも分け合う）。休ませるのは DAILY_REST_S 秒、ただし知らせに
+        「あと何秒で使えるか」がそれより短く書いてあれば、その秒だけ（⛔ 2026-10-29：太平洋時間の0時の23分前に1日の上限に当たった2本を
+        30分休ませ、0時に戻ったあとも13分使わなかった）。"""
         import time
-        self.spent.setdefault(model, {})[i] = time.time() + self.DAILY_REST_S
+        after = retry_after_s(exc) if exc is not None else None
+        self.spent.setdefault(model, {})[i] = time.time() + (min(self.DAILY_REST_S, after + 1) if after is not None else self.DAILY_REST_S)
         self._save()
+
+    @staticmethod
+    def limit_name(exc: BaseException) -> str:
+        """休ませる上限の名前（知らせに書くだけ）：上限の値が0（is_zero_limit）か、1日の上限か。"""
+        return "上限の値が0（待っても戻らない）" if is_zero_limit(exc) else "1日の上限"
 
     def client(self, i: int | None = None):
         i = self.start if i is None else i
         if i not in self._clients:
             self._clients[i] = make_client(self.keys[i])
         return self._clients[i]
+
+    def model_ids(self) -> dict[str, str]:
+        """表示名 ⇒ モデルID（g23_names.find_models）を、使えるキーで引く（call と同じく、上限・止められたキーを飛ばす＝キーの回し方の
+        唯一の場所を通す）。⛔ 2026-10-29 G-59：始めのキーで直に引いていて、そのキーが上限の値0のとき、使えるキーが2本あるのに判定を作れずに止まった"""
+        from g23_names import find_models
+        return self.call("models.list", lambda client: find_models(client)[0])[0]
 
     def call(self, model: str, fn, rotate: bool = True):
         """fn(client) を、そのモデルで使えるキーで呼ぶ（混んでいる 503 は call_with_retry が待ってやり直す）。戻り値＝(結果, キーの番号)。
@@ -336,13 +393,14 @@ class KeyRing:
                     if not is_quota(exc):
                         raise
                     after = retry_after_s(exc)
-                    if not is_daily(exc):  # 1日の上限と書かれていなければ、待って同じキーで続ける（秒が無ければ30秒）
+                    # 1日の上限・上限の値が0と書かれていなければ、待って同じキーで続ける（秒が無ければ30秒）
+                    if not (is_daily(exc) or is_zero_limit(exc)):
                         wait = after if after is not None else 30.0
-                        say(f"{self.keys[i].label} は {model} の1分の上限に当たりました ⇒ {wait:.0f}秒待って続けます")
+                        say(f"{self.keys[i].label} は {model} の1分の上限に当たりました（{limit_note(exc)}） ⇒ {wait:.0f}秒待って続けます")
                         time.sleep(min(wait, 90.0) + 1)
                         continue
-                    self.rest(i, model)
-                    say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで続けます")
+                    self.rest(i, model, exc)
+                    say(f"{self.keys[i].label} は {model} の{self.limit_name(exc)}に当たりました（{limit_note(exc)}） ⇒ 休ませて、次のキーで続けます")
                     break
         if not rotate:
             raise KeyUnusable(f"{self.keys[self.start].label} では {model} を使えません")
@@ -382,19 +440,19 @@ class KeyRing:
                     # 通話の試験の153本で判定が1つも間に合わなかった）。書いていなければ、会話のモデルと同じく LIVE_COOL_S
                     # 待つ秒が無くても、1分の上限と書いてあれば（上限の名前に PerMinute）、call と同じく30秒（⛔ 2026-10-18：判定の測り直しと
                     # 同時に流した通話の中の判定が、1分の上限のたびにキーを10分休ませ、判定が通話の中に届かなかった）
-                    if is_daily(exc):
-                        # 1日の上限と書いてある（文字のモデル＝意味の判定）：call と同じく DAILY_REST_S 秒休ませる（記録して、ほかの実行とも
+                    if is_daily(exc) or is_zero_limit(exc):
+                        # 1日の上限・上限の値が0と書いてある（文字のモデル＝意味の判定）：call と同じく DAILY_REST_S 秒休ませる（記録して、ほかの実行とも
                         # 分け合う）。⛔ 2026-10-19：10分休ませるだけで記録もしなかったので、休み明けのたびに、また実行が替わるたびに、上限の
                         # キーへ順に問い合わせ直し、1回の判定に7.9秒かかった。⛔ その次に「その日は使わない」にしたら、戻ったキーまで止めた
-                        self.rest(i, model)
-                        say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで初めからやり直します")
+                        self.rest(i, model, exc)
+                        say(f"{self.keys[i].label} は {model} の{self.limit_name(exc)}に当たりました（{limit_note(exc)}） ⇒ 休ませて、次のキーで初めからやり直します")
                         continue
                     after = retry_after_s(exc)
                     if after is None and "PerMinute" in str(exc):
                         after = 30.0
                     rest = after + 1 if after is not None else self.LIVE_COOL_S
                     cool[(i, model)] = time.monotonic() + rest
-                    say(f"{self.keys[i].label} は {model} の上限に当たりました ⇒ {rest:.0f}秒休ませて、次のキーで初めからやり直します")
+                    say(f"{self.keys[i].label} は {model} の上限に当たりました（{limit_note(exc)}） ⇒ {rest:.0f}秒休ませて、次のキーで初めからやり直します")
             ends = [t for (i, m), t in cool.items() if m == model and i not in self.denied]
             if not ends or waited >= (self.LIVE_MAX_WAIT_S if max_wait_s is None else max_wait_s):
                 raise RuntimeError(f"どのキーでも {model} を使えません（上限・プロジェクトが止められている）")
@@ -460,6 +518,8 @@ def base_parser(description: str) -> argparse.ArgumentParser:
     p.add_argument("--key-index", type=int, default=0, help="何番目のキーを使うか（0 から）")
     p.add_argument("--model", default=DEFAULT_MODEL, help="モデルID（G-1 で公式の値を確かめる）")
     p.add_argument("--dry-run", action="store_true", help="接続せず、設定の組み立てだけ確かめる")
+    p.add_argument("--budget-yen", type=float, default=DEV_BUDGET_YEN,
+                   help="この試しで有料の判定（Anthropic）に使ってよい円。超えたら、それより後は送らない（判定は止まった扱い）")
     p.add_argument(
         "--proxy-key",
         action="store_true",

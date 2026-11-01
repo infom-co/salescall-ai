@@ -233,9 +233,8 @@ def main() -> None:
     p.add_argument("--reuse", help="前の結果（問い合わせずに数え直す）")
     p.add_argument("--gates", action="store_true", help="(C) 振り分けの形だけを聞いて数える（結果は results/G-53-jev3_*.json）")
     args = p.parse_args()
-    qmap = {q.id: q for q in g48_questions() + value_questions()}
-    from g14_listen import business
-    qmap |= {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
+    from g53_meaning import question_map
+    qmap = question_map()
     src = args.reuse or str(HERE / SOURCE)
     items = [it for it in json.loads(open(src, encoding="utf-8").read())["items"] if it["set"] in "ABDE" and it["qid"] in qmap]
     gates = args.gates or any("jev_C" in it for it in items)

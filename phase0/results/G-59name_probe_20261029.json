@@ -1,0 +1,578 @@
+[
+ {
+  "text": "はい、岡田です。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "決められない",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "決められない",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "決められない",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": 0.85,
+  "ok": true
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": 0.83,
+  "ok": true
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": 0.79,
+  "ok": true
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": 0.82,
+  "ok": true
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": 0.79,
+  "ok": true
+ },
+ {
+  "text": "はい、岡田です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "何もない",
+   "target": "言っていない"
+  },
+  "sure": 0.72,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "決められない",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "決められない",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "決められない",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "決められない",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.28,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.3,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.14,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.33,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.27,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.34,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": null,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "取り次ぎを待つ",
+   "target": "不在"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": null,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": 0.83,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": 0.82,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": 0.8,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": null,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": null,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": null,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": 0.85,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": 0.83,
+  "ok": true
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "別の方",
+   "phone": "何もない",
+   "target": "不在"
+  },
+  "sure": 0.86,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "今（おかだ）",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.72,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.67,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "今（おかだ）",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.64,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Claude Haiku 5.5",
+  "facts": {
+   "who": "別の方",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": null,
+  "ok": false
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.64,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.67,
+  "ok": true
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "form": "漢字つき（岡田（おかだ））",
+  "judge": "Jev 1.14",
+  "facts": {
+   "who": "ご本人",
+   "phone": "代わった人が話し始めた",
+   "target": "言っていない"
+  },
+  "sure": 0.56,
+  "ok": true
+ }
+]

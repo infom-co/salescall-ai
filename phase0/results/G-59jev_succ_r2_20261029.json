@@ -1,0 +1,2856 @@
+[
+ {
+  "text": "お電話代わりました。岡田です。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.89
+   ],
+   "successor": [
+    "言っていない",
+    0.88
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.78
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました、営業部の岡田です。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.91
+   ],
+   "successor": [
+    "言っていない",
+    0.82
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.68
+   ]
+  }
+ },
+ {
+  "text": "はい、岡田です。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.97
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.85
+   ],
+   "target": [
+    "言っていない",
+    0.9
+   ]
+  }
+ },
+ {
+  "text": "岡田は私ですが。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.94
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.88
+   ],
+   "target": [
+    "言っていない",
+    0.88
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.91
+   ],
+   "successor": [
+    "言っていない",
+    0.88
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.97
+   ],
+   "target": [
+    "言っていない",
+    0.6
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。山本です。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "代わった人が話し始めた"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.64
+   ],
+   "successor": [
+    "言っていない",
+    0.9
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.96
+   ]
+  }
+ },
+ {
+  "text": "岡田ですね。少々お待ちください。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "取り次ぎを待つ"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "取り次ぎを待つ"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.73
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "取り次ぎを待つ",
+    0.95
+   ],
+   "target": [
+    "言っていない",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "少々お待ちください。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "取り次ぎを待つ"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方",
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "取り次ぎを待つ"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.86
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "取り次ぎを待つ",
+    0.43
+   ],
+   "target": [
+    "言っていない",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "岡田は本日休みをいただいております。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.89
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.97
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "岡田ですね。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "別の方"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.56
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.91
+   ],
+   "target": [
+    "言っていない",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "別の方"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.94
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.91
+   ],
+   "target": [
+    "言っていない",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "どういったご用件でしょうか？",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.54
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.92
+   ],
+   "target": [
+    "言っていない",
+    1
+   ]
+  }
+ },
+ {
+  "text": "どちらの岡田でしょうか？",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "別の方",
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方",
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.88
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.95
+   ],
+   "target": [
+    "言っていない",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.98
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.92
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "取り次ぎを待つ"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "取り次ぎを待つ"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.88
+   ],
+   "successor": [
+    "言っていない",
+    0.9
+   ],
+   "phone": [
+    "取り次ぎを待つ",
+    1
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "この番号はどちらでお知りになりましたか？",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.51
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    1
+   ]
+  }
+ },
+ {
+  "text": "失礼ですが、御社はどちらにある会社なんですか？",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.56
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    1
+   ],
+   "target": [
+    "言っていない",
+    1
+   ]
+  }
+ },
+ {
+  "text": "キャンセル料ってかかるんですか？",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.49
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    1
+   ]
+  }
+ },
+ {
+  "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "別の方"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.64
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.97
+   ],
+   "target": [
+    "言っていない",
+    0.96
+   ]
+  }
+ },
+ {
+  "text": "はい、お電話代わりました。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.22
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    0.92
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.31
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    0.64
+   ]
+  }
+ },
+ {
+  "text": "はい、お電話代わりました。",
+  "before": "それでは岡田にお繋ぎします。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.72
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    0.92
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。岡田です。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.92
+   ],
+   "successor": [
+    "言っていない",
+    0.92
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.78
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。山本です。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "代わった人が話し始めた"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.64
+   ],
+   "successor": [
+    "言っていない",
+    0.86
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    0.82
+   ]
+  }
+ },
+ {
+  "text": "はい、お電話代わりました。",
+  "before": "担当の者に代わりますので、少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人",
+   "代わった人が話し始めた",
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人",
+    "別の方",
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.34
+   ],
+   "successor": [
+    "言っていない",
+    0.52
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.91
+   ],
+   "target": [
+    "言っていない",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。",
+  "before": "岡田は外出しておりますので、別の者に代わります。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在",
+   "代わった人が話し始めた"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.27
+   ],
+   "successor": [
+    "言っていない",
+    0.66
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    0.86
+   ]
+  }
+ },
+ {
+  "text": "岡田は本日休みをいただいております。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.77
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.86
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "岡田は取り込んでおりまして、対応できかねます。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.85
+   ],
+   "successor": [
+    "言っていない",
+    0.96
+   ],
+   "phone": [
+    "何もない",
+    0.73
+   ],
+   "target": [
+    "不在",
+    0.96
+   ]
+  }
+ },
+ {
+  "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.86
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.79
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.8
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.58
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "お待たせいたしました。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.88
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.62
+   ],
+   "target": [
+    "言っていない",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+  "before": "担当の者に代わりますので、少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.91
+   ],
+   "successor": [
+    "言っていない",
+    0.66
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.95
+   ],
+   "target": [
+    "不在",
+    0.96
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.97
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.94
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。山田です。",
+  "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在",
+   "代わった人が話し始めた"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.97
+   ],
+   "successor": [
+    "言っていない",
+    0.28
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "はい、そうです。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.97
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.94
+   ]
+  }
+ },
+ {
+  "text": "はい、私です。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.97
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.92
+   ]
+  }
+ },
+ {
+  "text": "はい、そうです。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.85
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.89
+   ],
+   "target": [
+    "言っていない",
+    0.96
+   ]
+  }
+ },
+ {
+  "text": "いいえ、私は山田と申します。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "別の方"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.91
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.94
+   ],
+   "target": [
+    "言っていない",
+    0.32
+   ]
+  }
+ },
+ {
+  "text": "いいえ、私は山田と申します。",
+  "before": "お電話代わりました。担当の山田です。",
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "別の方"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.91
+   ],
+   "successor": [
+    "言っていない",
+    0.12
+   ],
+   "phone": [
+    "何もない",
+    0.74
+   ],
+   "target": [
+    "言っていない",
+    0.84
+   ]
+  }
+ },
+ {
+  "text": "いえ、違います。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "別の方"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    1
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.7
+   ]
+  }
+ },
+ {
+  "text": "いえ、受付の者です。少々お待ちください。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "取り次ぎを待つ"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "取り次ぎを待つ"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    1
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "取り次ぎを待つ",
+    0.88
+   ],
+   "target": [
+    "言っていない",
+    0.96
+   ]
+  }
+ },
+ {
+  "text": "いえ、岡田は席を外しております。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.97
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.89
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "いいえ、山田と申します。岡田は本日おりません。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    1
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.89
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "えっと、どちら様でしょうか？",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "決められない"
+  ],
+  "facts_accept": {
+   "who": [
+    "決められない"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "決められない",
+    0.97
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    1
+   ]
+  }
+ },
+ {
+  "text": "いいえ、受付の田中です。岡田はただいま外出しております。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    1
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.53
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "違います。岡田は会議中です。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.98
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.88
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    1
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.43
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "受付の田中と申します。あいにく岡田は本日休みをいただいております。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    1
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.89
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "岡田ですね。ただいま外出しておりまして、戻りは3時ごろの予定です。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.95
+   ],
+   "successor": [
+    "言っていない",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.94
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.98
+   ],
+   "successor": [
+    "言っていない",
+    0.94
+   ],
+   "phone": [
+    "何もない",
+    0.33
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "いいえ、山田です。岡田に代わりますので少々お待ちください。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "取り次ぎを待つ"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "取り次ぎを待つ"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    1
+   ],
+   "successor": [
+    "言っていない",
+    0.38
+   ],
+   "phone": [
+    "取り次ぎを待つ",
+    0.97
+   ],
+   "target": [
+    "言っていない",
+    0.86
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました、鈴木です。岡田は本日お休みをいただいております。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.91
+   ],
+   "successor": [
+    "言っていない",
+    0.92
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.98
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。佐藤と申します。岡田は席を外しておりまして。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.89
+   ],
+   "successor": [
+    "言っていない",
+    0.96
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.98
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "はい、そうですが、いまちょっと手が離せないので後でかけ直してもらえますか。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "ご本人",
+    0.92
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.95
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。",
+  "before": "岡田ですね。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "who": [
+    "ご本人"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.41
+   ],
+   "successor": [
+    "言っていない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.58
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "岡田は異動になりまして、今は私が担当しております。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "後任の方"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.95
+   ],
+   "successor": [
+    "後任の方",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.43
+   ],
+   "target": [
+    "不在",
+    0.9
+   ]
+  }
+ },
+ {
+  "text": "岡田は退職いたしまして、後任の田中に代わりますので、少々お待ちください。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "取り次ぎを待つ"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "取り次ぎを待つ"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.86
+   ],
+   "successor": [
+    "言っていない",
+    0.86
+   ],
+   "phone": [
+    "取り次ぎを待つ",
+    0.98
+   ],
+   "target": [
+    "不在",
+    0.68
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "before": "岡田は退職いたしまして、後任の田中に代わりますので、少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "代わった人が話し始めた"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "後任の方"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.97
+   ],
+   "successor": [
+    "後任の方",
+    0.98
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.78
+   ]
+  }
+ },
+ {
+  "text": "はい、お電話代わりました。",
+  "before": "岡田は退職しておりますので、後任の者に代わります。少々お待ちください。",
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "代わった人が話し始めた"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "後任の方"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.28
+   ],
+   "successor": [
+    "後任の方",
+    0.38
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.95
+   ],
+   "target": [
+    "言っていない",
+    0.82
+   ]
+  }
+ },
+ {
+  "text": "いえ、岡田は退職しまして、私が後任の田中です。",
+  "before": null,
+  "asked": true,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "後任の方"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    1
+   ],
+   "successor": [
+    "後任の方",
+    1
+   ],
+   "phone": [
+    "何もない",
+    0.34
+   ],
+   "target": [
+    "不在",
+    0.9
+   ]
+  }
+ },
+ {
+  "text": "岡田は本日休みでして、本日は私が代わりに担当しております。",
+  "before": null,
+  "asked": false,
+  "successor": false,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "who": [
+    "別の方"
+   ],
+   "successor": [
+    "言っていない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "who": [
+    "別の方",
+    0.95
+   ],
+   "successor": [
+    "言っていない",
+    0.82
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.27
+   ],
+   "target": [
+    "不在",
+    1
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "before": "後任は田中になります。少々お待ちください。",
+  "asked": false,
+  "successor": true,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方",
+    0.97
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.8
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。田中です。",
+  "before": "公認は田中になります。少々お待ちください。",
+  "asked": false,
+  "successor": true,
+  "accept": [
+   "ご本人",
+   "決められない"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方",
+    "決められない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方",
+    0.79
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.84
+   ]
+  }
+ },
+ {
+  "text": "はい、お電話代わりました。",
+  "before": "後任の者に代わりますので、少々お待ちください。",
+  "asked": false,
+  "successor": true,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "決められない",
+    0.28
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.97
+   ],
+   "target": [
+    "言っていない",
+    0.94
+   ]
+  }
+ },
+ {
+  "text": "お電話代わりました。山本です。",
+  "before": "後任は田中になります。少々お待ちください。",
+  "asked": false,
+  "successor": true,
+  "accept": [
+   "代わった人が話し始めた"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方ではない"
+   ],
+   "phone": [
+    "代わった人が話し始めた"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方ではない",
+    0.49
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    1
+   ],
+   "target": [
+    "言っていない",
+    0.72
+   ]
+  }
+ },
+ {
+  "text": "田中はただいま席を外しております。",
+  "before": "後任は田中になります。少々お待ちください。",
+  "asked": false,
+  "successor": true,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方ではない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方ではない",
+    0.55
+   ],
+   "phone": [
+    "何もない",
+    0.43
+   ],
+   "target": [
+    "不在",
+    0.98
+   ]
+  }
+ },
+ {
+  "text": "はい、私が後任の田中です。",
+  "before": null,
+  "asked": false,
+  "successor": true,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方",
+    0.95
+   ],
+   "phone": [
+    "代わった人が話し始めた",
+    0.37
+   ],
+   "target": [
+    "言っていない",
+    0.7
+   ]
+  }
+ },
+ {
+  "text": "後任は田中になります。少々お待ちください。",
+  "before": null,
+  "asked": false,
+  "successor": true,
+  "accept": [
+   "取り次ぎを待つ"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方ではない"
+   ],
+   "phone": [
+    "取り次ぎを待つ"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方ではない",
+    0.79
+   ],
+   "phone": [
+    "取り次ぎを待つ",
+    0.98
+   ],
+   "target": [
+    "言っていない",
+    0.74
+   ]
+  }
+ },
+ {
+  "text": "後任はおりません。",
+  "before": null,
+  "asked": false,
+  "successor": true,
+  "accept": [
+   "不在"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方ではない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "不在"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方ではない",
+    0.62
+   ],
+   "phone": [
+    "何もない",
+    0.95
+   ],
+   "target": [
+    "不在",
+    0.66
+   ]
+  }
+ },
+ {
+  "text": "はい、そうです。",
+  "before": null,
+  "asked": true,
+  "successor": true,
+  "accept": [
+   "ご本人"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.58
+   ],
+   "target": [
+    "言っていない",
+    0.76
+   ]
+  }
+ },
+ {
+  "text": "いえ、私は受付の者です。",
+  "before": null,
+  "asked": true,
+  "successor": true,
+  "accept": [
+   "別の方"
+  ],
+  "facts_accept": {
+   "successor": [
+    "後任の方ではない"
+   ],
+   "phone": [
+    "何もない"
+   ],
+   "target": [
+    "言っていない"
+   ]
+  },
+  "jev": {
+   "successor": [
+    "後任の方ではない",
+    0.98
+   ],
+   "phone": [
+    "何もない",
+    0.94
+   ],
+   "target": [
+    "言っていない",
+    0.9
+   ]
+  }
+ }
+]

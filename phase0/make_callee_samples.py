@@ -19,6 +19,7 @@ import time
 from audio import duration_s, phone_quality
 from common import (HERE, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result,
                     say, write_wav)
+from convo import CALLEE_FOR
 from listen import differences, hear
 from live_util import build_config, collect_turn, send_text
 
@@ -27,8 +28,15 @@ from live_util import build_config, collect_turn, send_text
 #    いいんじゃないですか？話し方もお客っぽいものに変更して！」⇒ Leda・Sadachbia をお客の話し方で作る。会話のAIが Sadachbia（S2・S4）の
 #    ときは Leda が、Leda（L4）のときは Sadachbia がお客役になる（convo.callee_voice_for）。同じ声どうしで話させない
 CALLEE_VOICES = ("Puck", "Kore", "Leda", "Sadachbia")
+# 名指しが無いときに作る声＝場面でお客役をする声（convo.CALLEE_FOR の1か所）。⛔ 2026-10-25：既定を4つ全部にしていたので、台詞を1つ足して流すと、
+#    場面で使わない Puck の声まで全部の台詞を作り始めた（作り直さない声＝上の注意）。Puck・Kore は --voice で名指ししたときだけ作る
+SCENE_VOICES = tuple(sorted(set(CALLEE_FOR.values())))
 UTTERANCES = {
     "hello": "はい、もしもし。",
+    # 2026-10-24：電話に出た方の第一声（こちらは第一声を聞いてから名乗る＝flowctl.Flow.on_connect。CL-1.md 4-45）
+    "greet_company": ("お電話ありがとうございます。山田商事でございます。", "会社の電話に出た受付の方のように、明るく丁寧に"),
+    "greet_okada": "はい、岡田です。",
+    "hello_after_voicemail": ("あ、もしもし、すみません、お待たせしました。", "留守番電話の案内が流れたあとに、急いで電話に出た方のように"),
     "yes_reserved": "はい、予約しています。",
     "no_not_yet": "いいえ、まだしていません。",
     "datetime_pm": "15日の午後2時でお願いします。",
@@ -41,6 +49,10 @@ UTTERANCES = {
     "again": "すみません、もう一度お願いできますか？",
     "hai_q": ("はい？", "相手の言葉が聞き取れなかったので、語尾をはっきり上げて、聞き返すように"),
     "busy": "すみません、今ちょっと忙しいんですけど。",
+    # 2026-11-01：急いでいる方への伺い「それではまた改めてお掛けしてもよろしいでしょうか？」への返事（flowctl.Flow._hurry_ask。✅ 20時56分 (b)）
+    "later_ok": "はい、大丈夫です。",
+    "later_when": "明日の午後3時でお願いします。",
+    "later_no": "いいえ、もうかけてこなくていいです。",
     "transfer": "担当の者に代わりますので、少々お待ちください。",
     "taken_over": "お電話代わりました。担当の山田です。",
     "barge_who": "あ、はい、どちら様？",
@@ -106,11 +118,64 @@ UTTERANCES = {
     "hold_target": "岡田ですね。少々お待ちください。",
     "taken_over_okada": "お電話代わりました。岡田です。",
     "taken_over_unnamed": "はい、お電話代わりました。",
+    # 目的の人かを確かめたら、別の方だった（2026-10-21 ユーザー：「二つ以上揃わなかった場合に関しても正しく設計できているんですか？」で足した。
+    # 確かめに「いいえ」と答えた方には、同じ方にもう一度確かめず、目的の人をお呼びし直す＝flowctl.Flow._call_target）
+    "not_okada": "いいえ、私は山田と申します。",
+    # ✅ 2026-10-22 ユーザーのご質問から：名前を確かめたあとに名乗りを聞かれる（話の途中が質問）・違うお名前の方がお呼びした方の不在を伝える
+    "okada_whois": "岡田ですね。失礼ですが、どちら様でしょうか？",
+    "taken_over_absent": "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。",  # ⛔「いえ、」は別の耳に「ええ、」と聞こえた（Sadachbia 3回とも）
     "absent_okada": "あいにく岡田は席を外しておりまして。",
+    # 受付の方が不在を伝えてから、別の方に取り次ぐ（2026-10-22 の見直しで見つけた形：不在の読みは電話口の方ごとに数えていたので、代わった方に
+    # 岡田様をお呼びし直していた）
+    "away_to_other": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+    # 受付の方が、名乗り・用件のほかのことを聞く（✅ 2026-10-22 ユーザー：「想定の質問ならそれでいいけど、録音や想定にない質問だった場合は？」）
+    "relation_ask": "失礼ですが、岡田とはどういったご関係でしょうか？",
+    "number_from": "この番号はどちらでお知りになりましたか？",
+    "taken_over_yamada": "お電話代わりました。山田です。",
     "reception_refuse": "申し訳ございません、営業のお電話はお取り次ぎしておりません。",
     # 取り次いだあとに、受付の方がまた出て、出られないと伝える（⚠️ 2026-10-19 ユーザー：「取り次いだ後に、『岡田は取り込んでおり、対応できません』と
     # もう一度受付が言うこともあるので、取次後は必ずしも、本人とは限らない」）
+    # かけ直しの質問の途中で、お呼びした方が戻る（2026-10-22 の見直しで見つけた形：ご本人に「何時ごろお戻りに…」を流していた＝Flow._target_back）
+    "just_back": "あ、ちょうど戻ってまいりました。少々お待ちください。",
     "busy_after_hold": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+    # 相手の申し出・お呼びした方の事情（✅ 2026-10-22 ユーザー：代わりの方・伝言・折り返し・在籍していない・ほかの手段・長期の不在。
+    # 折り返しと代わりの方の言葉は、ユーザーが挙げた例のまま）
+    # ⛔ Sadachbia の声は4回とも、別の耳に「伝えしましょうか」「伝えましょうか」と聞こえた（「お」が弱い）⇒ 読み方を添えた
+    "callback_offer": ("只今、岡田は会議中ですので、折り返し電話するようにお伝えしましょうか？", "「お伝えしましょうか」の「お」まで、はっきりと"),
+    # ⛔ 1回目「ご伝言を承りましょうか？」：Leda の声は4回とも「伺いましょうか」「お受けいたしましょうか」と読んだ ⇒ 読まれた言い方に合わせた
+    "message_offer": "あいにく岡田は外出しておりまして。よろしければご伝言を伺いましょうか？",
+    "substitute_offer": "お待たせいたしました。岡田はおりませんので代わりにお話をお聞きします。",
+    # ✅ 2026-10-22 ユーザー（4回目）：お立場を伺う一言は、判断いただけるか・お取次ぎのみか、の2つから選んでいただく問い ⇒ 答えも「はい／いいえ」で
+    #    なく中身で答える形にした（⛔ 前の「いいえ、…」は、別の耳に「ええ、」と聞こえた：Leda 4回とも）
+    "authority_yes": "私が営業の責任者ですので、私の方でお伺いします。",
+    "authority_no": "私はお話を伺って岡田に伝えるだけになります。",
+    # 代わりの方がお立場をはっきり言う（✅ 2026-10-22 ユーザー（4回目）：案A＝お立場を言われても、1回伺う）
+    "boss_offer": "お電話代わりました。岡田の上司の山田です。岡田は不在ですので、代わりに私がお話を伺います。",
+    "authority_ok": "はい、問題ございません。",
+    "departed": "申し訳ございません、岡田は先月退職いたしました。",
+    "successor_hold": "後任は田中になります。少々お待ちください。",
+    "taken_over_tanaka": "お電話代わりました。田中です。",
+    "successor_self": "岡田は異動になりまして、今は私が担当しております。",
+    "email_request": "営業のご案内はすべてメールでお願いしております。",
+    # ⛔ 1回目（カタカナで1文字ずつ書いた台本）：声は正しく読み、別の耳も「info@example.co.jp です。」と書いたが、台本の読みと比べられずに落ちた
+    #    ⇒ 台本をアドレスの書き方にした（読み方の指示で、1文字ずつ区切って読ませる）
+    "email_answer": ("info@example.co.jp です。", "メールアドレスを、電話で伝えるように、ゆっくり区切って（アットマーク・ドットも言って）"),
+    # ⛔ 1回目「再来週の月曜日には…」：Leda の声は4回とも「来週の月曜日」と読んだ（別の耳もそう聞いた）⇒ 読まれた言い方に合う日にした
+    "long_absence": "岡田は今週いっぱい出張で不在にしております。",
+    "back_date": "来週の月曜日には出社する予定です。",
+    # お休み（✅ 2026-10-25 ユーザー：出張とは伺う一言を分ける）。答えは上の「来週の月曜日には出社する予定です。」を使う
+    "day_off": "岡田は本日お休みをいただいております。",
+    # 想定外の質問（✅ 2026-10-22 ユーザー：「想定外の時はどうするのかを聞いているんですよ」）：業務の情報にあること＝AIが自分の言葉で答える
+    "where_company": "失礼ですが、御社はどちらにある会社なんですか？",
+    "i_see": "そうなんですね。",
+    # 質問ではない言葉・答えられて当たり前の問い（✅ 2026-10-22 ユーザー（5回目）：「世間話のような対応や設定にない無難な対応はライブAIにしか
+    # できないよ！」・「それは答えられなかったらおかしいだろうと思われる内容や、世間話に近いような…では、別の対処が必要」）
+    # ⛔ 1回目：「いやあ」「ねえ」の伸ばす音・「何時」（なんどき）の読みで、別の耳の確かめに通らなかった ⇒ 聞こえた書き方にした（意味は同じ）
+    "small_talk_heat": "いや、それにしても今日は暑いですね。",
+    "small_talk_agree": "そうですよね。",
+    "thanks_for_call": "わざわざお電話ありがとうございます。",
+    "small_talk_busy": "毎日お電話されてて大変ですね。",
+    "business_hours_q": "そちらの営業時間って、なんじまでですか？",
 }
 # 人の声でない相手の音（作った声ではないので、別の耳の確かめは無い）。ファクスの答える音（CED 2100Hz のあと、V.21 の信号＝1650・1850Hz を
 # 300ボーで切り替える音。ITU-T T.30）。声の名前ごとに同じ音のファイルを置く（台詞の声の読み替え＝convo.callee_wav が使えるように）
@@ -119,7 +184,7 @@ TONES = {"fax_tone": "fax"}
 # 通っていれば、使う前に作る（verified）。⛔ 2026-10-19 G-57：受付の方の「岡田ですね。」「少々お待ちください。」（間0.6秒）の間で、
 # 会話AIが話し終わりと決めてAIが報告し、判定は「岡田ですね。」だけを見た（18本中1本ほど）。間を長くすると、毎回その形になる
 # （G-60：間1.6秒の「ええとですね。」「3人です。」は、5回とも間で話し終わりの知らせが来た）
-PAUSED = {"hold_target_pause": ("hold_target", 1.5)}
+PAUSED = {"hold_target_pause": ("hold_target", 1.5), "okada_whois_pause": ("okada_whois", 1.5)}
 # 別の耳は名前を漢字で書くので、カタカナで書いた名前の読みは比べられない（「中島」＝なかじま と読んでしまう）。名前だけ、その漢字に
 # 直してから比べる（読みそのものは G-44 の書き起こしで確かめた）。名前の一覧ではなく、この試験の材料の名前だけ
 NAME_SPELLINGS = {"ナカシマ": "中島", "カクタ": "角田", "カドタ": "角田"}
@@ -165,6 +230,16 @@ def write_tones() -> list[str]:
     return out
 
 
+def matches_script(m: dict) -> bool:
+    """作ってある声が、いまの台詞の文で作ったものか。文を直したあとの古い声は、作ってある声として数えず、試験にも使わない。
+    読み方（how）は作るときの手がかりで、声が文どおりかは別の耳の確かめが見るので、比べない。
+    ⛔ 2026-10-22：伝言の申し出・お立場への「いいえ」・メールアドレス・帰社日の文を直したのに、作り直しが「作ってある」と飛ばし、
+       古い文の声（「いえ」のまま通っていた声も）が残っていた。"""
+    if m.get("id") not in UTTERANCES:
+        return True  # 一覧から外した台詞：比べる文が無い
+    return m.get("text") == text_and_how(UTTERANCES[m["id"]])[0]
+
+
 def verified(wav: str) -> bool:
     """その声が、確かめ（sample_ok）に通っているか。試験は、通っていない声を使わない。"""
     if any(wav.endswith(f"_{uid}.wav") for uid in TONES):
@@ -179,7 +254,7 @@ def verified(wav: str) -> bool:
             return True
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
-    return any(m.get("wav") == wav and m.get("ok") is True for m in made)
+    return any(m.get("wav") == wav and m.get("ok") is True and matches_script(m) for m in made)
 
 
 # 日本語の言葉の種類として範囲が決まっている一覧（業務や場面ごとの一覧ではない）
@@ -242,12 +317,12 @@ async def run(args) -> dict:
             say(f"{m['voice']} {m['id']}：聞こえた「{m['heard']}」 合格={m['ok']}")
         index.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"model": args.model, "verified": made}
-    have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m}
-    for voice in args.voice or CALLEE_VOICES:
+    have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m and matches_script(m)}
+    for voice in args.voice or SCENE_VOICES:
         for uid, value in UTTERANCES.items():
             text, how = text_and_how(value)
             if uid not in (args.redo or []) and (voice, uid) in have and (OUT / f"{voice}_{uid}.wav").exists():
-                continue  # 作ってある声は作り直さない（ほかの確かめの材料が変わらないように）。作り直すのは --redo で名指ししたものだけ
+                continue  # 作ってある声は作り直さない（ほかの確かめの材料が変わらないように）。作り直すのは --redo で名指ししたものと、文を直したものだけ
             made = [m for m in made if (m.get("voice"), m.get("id")) != (voice, uid)]
             tries = []
             for n in range(args.tries):
@@ -282,7 +357,7 @@ def main() -> None:
     p.add_argument("--redo", action="append", choices=sorted(UTTERANCES), help="作ってある声でも作り直す（名指ししたものだけ）")
     p.add_argument("--verify", action="store_true", help="作り直さずに、まだ確かめていない声を確かめだけする")
     p.add_argument("--recheck", action="store_true", help="保存した別の耳の文字に、いまの確かめの決まりを当て直す（キーを使わない）")
-    p.add_argument("--voice", action="append", choices=CALLEE_VOICES, help="作る声（無ければ全部）")
+    p.add_argument("--voice", action="append", choices=CALLEE_VOICES, help="作る声（無ければ、場面でお客役をする声＝SCENE_VOICES）")
     args = p.parse_args()
     save_result("CALLEE-SAMPLES", asyncio.run(run(args)))
 

@@ -16,7 +16,6 @@ import itertools
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from g23_names import find_models
 from meanings import by_model, check, decide
 
 QUESTIONS = [
@@ -92,7 +91,7 @@ def show(rows: dict) -> None:
 
 def run(args) -> dict:
     ring = KeyRing(args)
-    ids, _ = find_models(ring.client())
+    ids = ring.model_ids()
     rows, errors = {}, {}
     for k in MODELS:
         if k not in ids:

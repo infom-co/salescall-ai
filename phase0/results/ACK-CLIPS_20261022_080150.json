@@ -1,0 +1,620 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-22T08:01:50",
+  "model": "gemini-3.8-live",
+  "made": [
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "hai",
+      "text": "はい、",
+      "heard": {
+        "0.0": "はい。",
+        "1.0": "はい。"
+      },
+      "ok": true,
+      "seconds": 0.6,
+      "wav": "L4_hai.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 1.33,
+      "tries": 2,
+      "wav": "L4_shouchi.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "shitsurei",
+      "text": "失礼いたしました。",
+      "heard": {
+        "0.0": "失礼いたしました。",
+        "1.0": "失礼いたしました。"
+      },
+      "ok": true,
+      "seconds": 1.45,
+      "tries": 1,
+      "wav": "L4_shitsurei.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "moushiwake",
+      "text": "申し訳ございません、",
+      "heard": {
+        "0.0": "申し訳ございません。",
+        "1.0": "申し訳ございません。"
+      },
+      "ok": true,
+      "seconds": 1.28,
+      "tries": 1,
+      "wav": "L4_moushiwake.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "aizuchi",
+      "text": "はい。",
+      "heard": {
+        "0.0": "はい。",
+        "1.0": "はい。"
+      },
+      "ok": true,
+      "seconds": 0.22,
+      "tries": 2,
+      "wav": "S2_aizuchi.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "aizuchi",
+      "text": "はい。",
+      "heard": {
+        "0.0": "はい。",
+        "1.0": "はい。"
+      },
+      "ok": true,
+      "seconds": 0.2,
+      "tries": 1,
+      "wav": "S4_aizuchi.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "aizuchi",
+      "text": "はい。",
+      "heard": {
+        "0.0": "はい。",
+        "1.0": "はい。"
+      },
+      "ok": true,
+      "seconds": 0.22,
+      "tries": 2,
+      "wav": "L4_aizuchi.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "arigatou",
+      "text": "ありがとうございます、",
+      "heard": {
+        "0.0": "ありがとうございます。",
+        "1.0": "ありがとうございます。"
+      },
+      "ok": true,
+      "seconds": 1.12,
+      "tries": 1,
+      "wav": "L4_arigatou.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "lead_soredeha",
+      "text": "それでは、",
+      "heard": {
+        "0.0": "それでは",
+        "1.0": "それでは"
+      },
+      "ok": true,
+      "seconds": 0.66,
+      "tries": 1,
+      "wav": "S2_lead_soredeha.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "lead_tsuzukimashite",
+      "text": "続きまして、",
+      "heard": {
+        "0.0": "続きまして",
+        "1.0": "続きまして"
+      },
+      "ok": true,
+      "seconds": 0.78,
+      "tries": 1,
+      "wav": "S2_lead_tsuzukimashite.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "lead_deha",
+      "text": "では、",
+      "heard": {
+        "0.0": "では",
+        "1.0": "では"
+      },
+      "ok": true,
+      "seconds": 0.32,
+      "tries": 1,
+      "wav": "S2_lead_deha.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "lead_soredeha",
+      "text": "それでは、",
+      "heard": {
+        "0.0": "それでは",
+        "1.0": "それでは"
+      },
+      "ok": true,
+      "seconds": 0.64,
+      "tries": 1,
+      "wav": "S4_lead_soredeha.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "lead_tsuzukimashite",
+      "text": "続きまして、",
+      "heard": {
+        "0.0": "続きまして",
+        "1.0": "続きまして"
+      },
+      "ok": true,
+      "seconds": 0.76,
+      "tries": 1,
+      "wav": "S4_lead_tsuzukimashite.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "lead_deha",
+      "text": "では、",
+      "heard": {
+        "0.0": "では",
+        "1.0": "では"
+      },
+      "ok": true,
+      "seconds": 0.36,
+      "tries": 1,
+      "wav": "S4_lead_deha.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "lead_soredeha",
+      "text": "それでは、",
+      "heard": {
+        "0.0": "それでは",
+        "1.0": "それでは"
+      },
+      "ok": true,
+      "seconds": 0.72,
+      "tries": 1,
+      "wav": "L4_lead_soredeha.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "lead_tsuzukimashite",
+      "text": "続きまして、",
+      "heard": {
+        "0.0": "続きまして",
+        "1.0": "続きまして"
+      },
+      "ok": true,
+      "seconds": 0.72,
+      "tries": 1,
+      "wav": "L4_lead_tsuzukimashite.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "lead_deha",
+      "text": "では、",
+      "heard": {
+        "0.0": "では",
+        "1.0": "では"
+      },
+      "ok": true,
+      "seconds": 0.4,
+      "tries": 1,
+      "wav": "L4_lead_deha.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "wait",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+      },
+      "ok": true,
+      "seconds": 2.66,
+      "tries": 1,
+      "wav": "L4_wait.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "closing",
+      "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。",
+      "heard": {
+        "0.0": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。",
+        "1.0": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+      },
+      "ok": true,
+      "seconds": 5.92,
+      "tries": 1,
+      "wav": "L4_closing.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.88,
+      "try": 4,
+      "wav": "S2_shouchi.wav",
+      "chosen_from": "S2_shouchi_3",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.88,
+      "try": 4,
+      "wav": "S4_shouchi.wav",
+      "made_as": "S2",
+      "chosen_from": "S2_shouchi_3",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "hai",
+      "text": "はい、",
+      "heard": {
+        "0.0": "はい。",
+        "1.0": "はい。"
+      },
+      "ok": true,
+      "seconds": 0.3,
+      "try": 1,
+      "wav": "S2_hai.wav",
+      "chosen_from": "S2_hai_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "hai",
+      "text": "はい、",
+      "heard": {
+        "0.0": "はい。",
+        "1.0": "はい。"
+      },
+      "ok": true,
+      "seconds": 0.3,
+      "try": 1,
+      "wav": "S4_hai.wav",
+      "made_as": "S2",
+      "chosen_from": "S2_hai_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "arigatou",
+      "text": "ありがとうございます、",
+      "heard": {
+        "0.0": "ありがとうございます。",
+        "1.0": "ありがとうございます。"
+      },
+      "ok": true,
+      "seconds": 0.98,
+      "try": 2,
+      "wav": "S2_arigatou.wav",
+      "made_as": "S4",
+      "chosen_from": "S4_arigatou_2",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "arigatou",
+      "text": "ありがとうございます、",
+      "heard": {
+        "0.0": "ありがとうございます。",
+        "1.0": "ありがとうございます。"
+      },
+      "ok": true,
+      "seconds": 0.98,
+      "try": 2,
+      "wav": "S4_arigatou.wav",
+      "chosen_from": "S4_arigatou_2",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "shitsurei",
+      "text": "失礼いたしました。",
+      "heard": {
+        "0.0": "失礼いたしました。",
+        "1.0": "失礼いたしました。"
+      },
+      "ok": true,
+      "seconds": 1.0,
+      "try": 1,
+      "wav": "S2_shitsurei.wav",
+      "chosen_from": "S2_shitsurei_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shitsurei",
+      "text": "失礼いたしました。",
+      "heard": {
+        "0.0": "失礼いたしました。",
+        "1.0": "失礼いたしました。"
+      },
+      "ok": true,
+      "seconds": 1.0,
+      "try": 1,
+      "wav": "S4_shitsurei.wav",
+      "made_as": "S2",
+      "chosen_from": "S2_shitsurei_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "closing",
+      "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。",
+      "heard": {
+        "0.0": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。",
+        "1.0": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+      },
+      "ok": true,
+      "seconds": 4.94,
+      "try": 7,
+      "wav": "S2_closing.wav",
+      "chosen_from": "S2_closing_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "closing",
+      "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。",
+      "heard": {
+        "0.0": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。",
+        "1.0": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+      },
+      "ok": true,
+      "seconds": 4.94,
+      "try": 7,
+      "wav": "S4_closing.wav",
+      "made_as": "S2",
+      "chosen_from": "S2_closing_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "moushiwake",
+      "text": "申し訳ございません、",
+      "heard": {
+        "0.0": "申し訳ございません。",
+        "1.0": "申し訳ございません。"
+      },
+      "ok": true,
+      "seconds": 1.08,
+      "try": 2,
+      "wav": "S2_moushiwake.wav",
+      "made_as": "S4",
+      "chosen_from": "S4_moushiwake_2",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "moushiwake",
+      "text": "申し訳ございません、",
+      "heard": {
+        "0.0": "申し訳ございません。",
+        "1.0": "申し訳ございません。"
+      },
+      "ok": true,
+      "seconds": 1.08,
+      "try": 2,
+      "wav": "S4_moushiwake.wav",
+      "chosen_from": "S4_moushiwake_2",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "moushiwake_heavy",
+      "text": "申し訳ございません、",
+      "heard": {
+        "0.0": "申し訳ございません。",
+        "1.0": "申し訳ございません。"
+      },
+      "ok": true,
+      "seconds": 1.48,
+      "try": 1,
+      "wav": "S2_moushiwake_heavy.wav",
+      "made_as_id": "moushiwake",
+      "chosen_from": "S2_moushiwake_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "moushiwake_heavy",
+      "text": "申し訳ございません、",
+      "heard": {
+        "0.0": "申し訳ございません。",
+        "1.0": "申し訳ございません。"
+      },
+      "ok": true,
+      "seconds": 1.48,
+      "try": 1,
+      "wav": "S4_moushiwake_heavy.wav",
+      "made_as_id": "moushiwake",
+      "made_as": "S2",
+      "chosen_from": "S2_moushiwake_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "wait",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+      },
+      "ok": true,
+      "seconds": 2.16,
+      "context": "かしこまりました。",
+      "try": 1,
+      "wav": "S2_wait.wav",
+      "chosen_from": "S2_wait_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "wait_heavy",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか。",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.42,
+      "context": "かしこまりました。",
+      "try": 3,
+      "wav": "S2_wait_heavy.wav",
+      "made_as_id": "wait",
+      "made_as": "S4",
+      "chosen_from": "S4_wait_3",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "wait",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+      },
+      "ok": true,
+      "seconds": 2.16,
+      "context": "かしこまりました。",
+      "try": 1,
+      "wav": "S4_wait.wav",
+      "made_as": "S2",
+      "chosen_from": "S2_wait_1",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "wait_heavy",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか。",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.42,
+      "context": "かしこまりました。",
+      "try": 3,
+      "wav": "S4_wait_heavy.wav",
+      "made_as_id": "wait",
+      "chosen_from": "S4_wait_3",
+      "chosen_by": "人"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "greeting",
+      "text": "お忙しいところ恐れ入ります。",
+      "heard": {
+        "0.0": "お忙しいところ恐れ入ります。",
+        "1.0": "お忙しいところ恐れ入ります。"
+      },
+      "ok": true,
+      "seconds": 1.82,
+      "tries": 3,
+      "wav": "S2_greeting.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "greeting",
+      "text": "お忙しいところ恐れ入ります。",
+      "heard": {
+        "0.0": "お忙しいところ恐れ入ります。",
+        "1.0": "お忙しいところ恐れ入ります。"
+      },
+      "ok": true,
+      "seconds": 1.78,
+      "tries": 3,
+      "wav": "S4_greeting.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "greeting",
+      "text": "お忙しいところ恐れ入ります。",
+      "heard": {
+        "0.0": "お忙しいところ恐れ入ります。",
+        "1.0": "お忙しいところ恐れ入ります。"
+      },
+      "ok": true,
+      "seconds": 1.92,
+      "tries": 2,
+      "wav": "L4_greeting.wav"
+    }
+  ],
+  "missing": []
+}

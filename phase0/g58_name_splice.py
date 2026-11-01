@@ -35,14 +35,29 @@ def trim(pcm: bytes, rate: int, keep_s: float = 0.03) -> bytes:
     return pcm[a:b]
 
 
-async def good_take(client, args, vt: str, aid: str, text: str) -> tuple[bytes, int, dict]:
+async def good_take(client, args, vt: str, aid: str, text: str, also: tuple[str, ...] = ()) -> tuple[bytes, int, dict]:
     """読みが合う録音（make_ack_clips の確かめのうち、文の途中の間の確かめだけは外す：上の JOIN_S のとおり、文まるごとでも間が入るので、
-    間の自然さは人が聞いて比べる）。"""
+    間の自然さは人が聞いて比べる）。also：この読みに聞こえても通す文（どれに聞こえたかを記録の heard_as に残す。⛔ 2026-10-25：
+    「お間違えない」（✅ ユーザーの言い方）は、どの耳も「お間違いない」と書き、8回とも通らなかった＝声か耳かは人が聞いて決める）。"""
+    from common import KeyRing, is_quota
     from make_ack_clips import ends_in_silence, heard_ok
+    # 上限の答え：そのキーは休ませて、次のキーで録り直す（キーの順番の正本＝KeyRing.acall。client の キーから始める）。⛔ 2026-10-25 G-69 の
+    #    3回目の録り足し：同じ時間に流した判定の測り（3.5 Flash Lite）で、キー10番・11番が「地域ごとの1分あたりの問い合わせ数の上限」に当たり
+    #    続け、同じキーで8回待って試すだけで、5番のキーなら録れたのに止まった（1回目は、待たずに録り直して残りの回数を同じ1分で使い切った）
+    ring = getattr(args, "_take_ring", None)
+    if ring is None:
+        ring = args._take_ring = KeyRing(args)
+
+    async def once(c):
+        row, pcm, rate = await take(c, args, vt, aid, text, "question")
+        if row.get("error") and is_quota(Exception(row["error"].get("message", ""))):
+            raise RuntimeError(row["error"].get("message", ""))
+        return row, pcm, rate
     for _ in range(args.tries):
-        row, pcm, rate = await take(client, args, vt, aid, text, "question")
-        if pcm and heard_ok(text, row.get("heard") or {}) and ends_in_silence(pcm, rate):
-            return pcm, rate, row
+        (row, pcm, rate), _ = await ring.acall(args.model, once)
+        as_ = next((t for t in (text,) + tuple(also) if heard_ok(t, row.get("heard") or {})), None)
+        if pcm and as_ is not None and ends_in_silence(pcm, rate):
+            return pcm, rate, row | {"heard_as": as_}
         await asyncio.sleep(args.pause)
     raise RuntimeError(f"確かめに通る録音が作れなかった：{text}")
 
@@ -219,6 +234,8 @@ async def run3(args) -> dict:
 #   声が低い・04 ○△ 威圧的・声が低い・05 ○△「営業部長」のような言い方・06 ○△ 名前とその後が別の声・07 ○「いら」の辺りで乱れ（無ければ◎）・
 #   08 ○△「岡田様でっ」・後に間。⇒ (1) 組み合わせる形は使える（07）(2) 欠点の多くは材料の録音から引き継いだ（05←03・01←08・06←04）
 #   (3) 継ぎ目「は｜いら」「で｜いら」は母音から母音へ切れ目なく続く所＝別の録音とつなぐと音がつながらない（07 の乱れ・06 の別の声）。
+#   ⚠️ 2026-10-24：3回目は cut_by_words（言葉ごとの時刻の「終わり」＝始まり＋0.06秒）で切って無音を足していた＝01「でっ、」・08「でっ」は声の途中の
+#   断ち切り。(3) の「つながらない」もその分が混ざる（g65_seams で確かめ直す）。
 #   ⇒ 4回目：(a) 切るのは「いらっ｜しゃいます」の「っ」で声が止まる所（無音どうしをつなぐ。音には手を加えない）(b) 続く言葉「しゃいますでしょうか？」は、
 #   ◎をいただいた 3回目の 02 から切り出し、全部の組み合わせで同じものを使う（承認した録音の使い回し）(c) 名前の部分は、02 と声が近い録音だけ
 #   （高さの差が半音2つ以内・澄み具合 0.84 以上＝voice_features。3回目で「威圧的・声が低い」とされた 04 は 0.78）・不自然な間が無いもの。

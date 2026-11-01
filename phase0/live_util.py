@@ -288,9 +288,10 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                 gate.reset(len(r.audio))  # 返事を送った：このあとの声と文字を、新しい言い方で見張る
             await session.send_tool_response(function_responses=[x for x, _ in responses])
             r.events.append({"at_s": at(), "kind": "tool_response_sent", "chunk": chunk})
-            if not all(silent for _, silent in responses):
-                awaiting_reply_speech = True  # 話させない返事だけなら、AIの声を待たない
-                r.expects_speech = True
+            # AIの声を待つかは、最後に送った返事で決める（話させない返事だけなら待たない）。⛔ 2026-10-23 G-57 tc40（範囲外の質問・S2 と L4）：
+            # 書き直しの返事（話させる形）のあと、2つ目の文に受け皿の録音を流した（話させない返事）のに、1つ目の返事で付いた印が残り、
+            # 正しく黙ったAIを「黙った」と見て張り替え、相手の同じ言葉を送り直した
+            awaiting_reply_speech = r.expects_speech = not all(silent for _, silent in responses)
 
         def handle(msg, arrived: float) -> None:
             nonlocal awaiting_reply_speech, audio_after_nudge, audio_in_chunk
