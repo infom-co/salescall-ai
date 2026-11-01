@@ -1453,7 +1453,9 @@ class Question:
 
     @property
     def all_conditions(self) -> tuple:
-        return tuple(self.conditions) + ((ANY, NONE) if self.type == "choice" and not self.asks_fact else ()) + SYSTEM_CONDITIONS
+        # 「どちらでも」「どれも要らない」は、業務の選ぶ質問で事実を伺わない質問だけ（システムの質問＝お立場・ご承認いただけなかったときの手順には足さない。
+        # ⛔ 2026-11-02 に見つけた：お立場の質問 S1 にも「どちらでも」を出していた）
+        return tuple(self.conditions) + ((ANY, NONE) if self.type == "choice" and not self.asks_fact and not self.callback else ()) + SYSTEM_CONDITIONS
 
     @property
     def labels(self) -> tuple:
@@ -1543,7 +1545,7 @@ OPENING_ROLES = ("message", "promise_again")
 SYSTEM_ROLES = set(CALLBACK_ASK) | set(OPENING_ROLES)  # システムが足す質問の役目
 _ROLE_TYPE = {"number": "phone", "fax": "phone", "email": "email", "address": "address", "authority": "choice", "message": "yes_no", "ask_who": "name",
               "back_today": "yes_no", "call_again": "yes_no", "promise_again": "yes_no", "refusal": "yes_no", "hurry_again": "yes_no",
-              "not_agreed": "free_text", "other_point": "yes_no", "agreed_now": "yes_no"}
+              "not_agreed": "choice", "other_point": "choice", "agreed_now": "yes_no"}
 # 代わりの方にお立場を伺った答えのうち、話を進めてよい答え（_substitute_decided の1か所）。✅ 2026-10-22 ユーザー（4回目）：問いは「ご判断いただける
 # お立場の方ということで問題ございませんでしょうか？それともお取次ぎのみいただけるということでしたでしょうか？」の2つから選んでいただく形
 AUTHORITY_YES = "判断できる"
@@ -1556,10 +1558,14 @@ _ROLE_MEANINGS = {
     "hurry_again": {"はい": "また改めてお掛けしてよいということ", "いいえ": "改めてお掛けしないほうがよいということ"},
     "call_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"},
     "promise_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"},
-    "other_point": {"はい": "ほかにもご納得いただけない点があるということ", "いいえ": "ほかにご納得いただけない点は無い（ご説明で分かった）ということ"},
+    # ご承認いただけなかったときの手順（Flow._point_step）：分からない点を聞いているのか、理由を挙げてお断りしようとしているのかを、判定の読みで見分ける
+    # （回数では切らない）。✅ 2026-11-02 日本時間6時21分 ユーザー：「こちらで答えられるときは、1通話で2回まででなく、親身に答えないといけないんじゃないですか？契約を断ろうとしているのか、本当に分からないのかをしっかりと見分けないといけないですよ。本当に分からないだけなら、回数制限をしたら、せっかくとれる契約をみすみす逃すことになりますよ。」
+    "not_agreed": {"点を言った": "分からない点・確かめたい点を言ったということ（ご説明すれば分かりうる）",
+                   "断ろうとしている": "理由を挙げて、お断りしようとしているということ"},
+    "other_point": {"分かった": "ほかにご納得いただけない点は無い・ご説明で分かったということ",
+                    "分からない点がある": "ほかにも分からない点・確かめたい点があるということ（ご説明すれば分かりうる）",
+                    "断ろうとしている": "理由を挙げて、お断りしようとしているということ"},
     "agreed_now": {"はい": "ご説明した内容でご納得いただけたということ", "いいえ": "ご説明した内容ではご納得いただけなかったということ"}}
-# ご納得いただけなかった点をご説明するのは、1通話に何回までか（Flow._point_step。2回目は「ほかに…」に「ある」と言われたとき）
-POINT_ROUNDS = 2
 
 
 def callback_question(role: str, text: str | None = None) -> "Question":
@@ -1573,7 +1579,7 @@ def callback_question(role: str, text: str | None = None) -> "Question":
     if qtype in CHOICE_TYPES:
         return Question(qid, text or CALLBACK_ASK[role], qtype, required=False, conditions=tuple(_ROLE_MEANINGS[role]),
                         meanings=dict(_ROLE_MEANINGS[role]), topic=CALLBACK_TOPIC[role], callback=role,
-                        firm_not_needed=role in ("other_point", "agreed_now"))
+                        firm_not_needed=role in ("not_agreed", "other_point", "agreed_now"))
     return Question(qid, CALLBACK_ASK[role], qtype, required=role not in ("reachable_time", "ask_who", "ask_when", "not_agreed"), conditions=("答えた",),
                     topic=CALLBACK_TOPIC[role], callback=role)
 
@@ -5323,8 +5329,10 @@ class Flow:
     def _point_step(self) -> None:
         """説明した内容のご承認をいただけなかったときの手順（唯一の場所。_follow_ups から）：ご納得いただけなかった点を伺い（N1）、知っていることで
         ご説明し（AIが相手の質問・お話に答える1か所＝_answer・_own_answer。誤解なら正しい中身を。知っていることに無ければ作らずに担当の者に申し伝える）、
-        「ほかにご納得いただけない点はございますでしょうか？」（N2）を伺う。無い・分かった＝ご納得（お礼の相づち「ありがとうございます。」で次へ）／ある＝
-        もう一度ご説明（POINT_ROUNDS 回まで）／どちらとも取れない（「なるほど」）＝「ご説明した内容で、ご納得いただけましたでしょうか？」（N3）。
+        「ほかにご納得いただけない点はございますでしょうか？」（N2）を伺う。無い・分かった＝ご納得（お礼の相づち「ありがとうございます。」で次へ）／分からない
+        点がある＝もう一度ご説明（回数では切らない＝分かるまで親身に）／理由を挙げてお断りしようとしている＝ご納得いただけない（押さない）／どちらとも取れない
+        （「なるほど」）＝「ご説明した内容でご納得いただけましたでしょうか？」（N3）。N1 の答えも同じに見分ける（点を言った＝ご説明・お断りしようとしている＝
+        ご説明で押さない・どちらとも取れない＝N3）。見分けるのは判定の読み（選ぶ質問の答え）＝会話AIの報告だけでは決めない。✅ 6時21分 ユーザー（_ROLE_MEANINGS）。
         ご納得いただければ、ご承認の答えを「はい」にして次のステップへ（面談のお約束・登録・クロージング＝依頼者の業務の質問の順）。ご納得いただけ
         なければ、ご承認は「いいえ」のまま（最終目的なら _goals_lost で締め、その業務はかけない）。ご説明できなかった・はっきりしないときは、最終目的なら
         お礼を言って締め（not_agreed）、もうかけないの印は付けない（改めてご案内するかは依頼者が決める）。伺った点は通話の事実 not_agreed（依頼者へ返す）。
@@ -5341,7 +5349,15 @@ class Flow:
         if p["outcome"] is not None:
             return
         if p["stage"] == "ask" and self.items[nid].state in TAKEN + ("unresolved",):
-            self._point_heard(self.items[nid].value if self.items[nid].state in GOT else self.callee_said)
+            cond = self.items[nid].condition if self.items[nid].state in GOT else None
+            if cond == "点を言った":
+                self._point_heard(self.callee_said)
+            elif cond == "断ろうとしている":
+                self._point_heard(self.callee_said, explain=False)
+                self._point_end("declined")
+            else:
+                p["stage"], p["hai"] = "confirm", self.callee_turns
+                self._ask_point("agreed_now", nid)
         elif p["stage"] == "explained":
             if p["explained"]:
                 p["stage"] = "other"
@@ -5350,12 +5366,13 @@ class Flow:
                 self._point_end("unresolved")
         elif p["stage"] == "other" and self.items[oid].state in TAKEN + ("unresolved",):
             cond = self.items[oid].condition if self.items[oid].state in GOT else None
-            if cond == "いいえ":
+            if cond == "分かった":
                 self._point_end("agreed")
-            elif cond == "はい" and p["round"] < POINT_ROUNDS:
-                p["round"] += 1
+            elif cond == "分からない点がある":
+                p["round"] += 1   # 分かるまでご説明する（回数では切らない）
                 self._point_heard(self.callee_said)
-            elif cond == "はい":
+            elif cond == "断ろうとしている":
+                self._point_heard(self.callee_said, explain=False)
                 self._point_end("declined")
             else:
                 p["stage"], p["hai"] = "confirm", self.callee_turns   # 「なるほど」を「はい、」で受けて伺う（お礼・承りの相づちは合わない）
@@ -5371,11 +5388,12 @@ class Flow:
         self.follow_ups[q.id] = self.point["q"]
         self._insert_after(after, q.id)
 
-    def _point_heard(self, said: str | None) -> None:
-        """ご納得いただけなかった点を伺った：AIがご説明する段へ（_advance が知らせる）。点は通話の事実に残す。"""
+    def _point_heard(self, said: str | None, explain: bool = True) -> None:
+        """ご納得いただけなかった点・お断りの理由を伺った：点は通話の事実に残す（依頼者へ返す）。点なら、AIがご説明する段へ（_advance が知らせる）。"""
         p = self.point
-        p.update(stage="explain", turn=self.callee_turns, explained=None)
-        self._note("not_agreed", question=p["q"], round=p["round"], said=said)
+        if explain:
+            p.update(stage="explain", turn=self.callee_turns, explained=None)
+        self._note("not_agreed", question=p["q"], round=p["round"], said=said, **({} if explain else {"declining": True}))
 
     def _point_said(self, kind: str) -> None:
         """ご説明する段で、AIが応えた（_answer・_own_answer・_own_fallback）：知っていることでご説明できたか（答えを持っていない質問＝ご説明できない）。"""
@@ -5402,8 +5420,8 @@ class Flow:
         """ご説明する段の、AIへの知らせ（_advance）。"""
         said = next((e.get("said") for e in reversed(self.facts.get("not_agreed", []))), None) or ""
         head = (f"お客様がご納得いただけなかった点を伺いました（「{said[:40]}」）。" if self.point["round"] == 1 else
-                "お客様が、ほかにもご納得いただけない点があると言いました。その点を言っていなければ、どの点かを自分の言葉で短く伺ってから、")
-        return (f"{head}次へ進む前に、その点をご説明します：想定問答に答えがあれば、その答えを流します。こちらが知っていること（業務の情報）に"
+                "お客様が、ほかにも分からない点・確かめたい点があると言いました。その点を言っていなければ、どの点かを自分の言葉で短く伺ってから、")
+        return (f"{head}次へ進む前に、その点を、お客様が分かるまで親身にご説明します：想定問答に答えがあれば、その答えを流します。こちらが知っていること（業務の情報）に"
                 f"あれば、その範囲で、自分の言葉で短くご説明します（お客様の誤解なら、正しい中身をご説明します）。知っていることに無ければ、答えを作らずに"
                 f"「{PART_LABEL['no_answer']}」で応えます。どれも replay_opening で呼びます。")
 
