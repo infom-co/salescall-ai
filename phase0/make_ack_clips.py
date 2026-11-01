@@ -118,6 +118,8 @@ HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場か�
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも
 # 流す。どちらも、何か気になる点があったかを心配して聞く一言なので、「AIですか」への言い方と同じ読み方
 HOW_OF.update({"ikaga": "ai", "dou": "ai"})
+# 「どうなさいますか？」（phrases.THINKING_PROMPT の1回目）：悩んで黙った方に、どうなさるかを伺う一言＝質問の読み方（✅ 2026-11-01 日本時間23時04分 ユーザー）
+HOW_OF["dounasaimasu"] = "question"
 HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})
 HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調子ごとの録音は、名前そのものが読み方の鍵
 HOW_OF.update({f"line_trouble_{k}": "line_trouble" for k in LINE_TROUBLE})

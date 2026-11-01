@@ -20,7 +20,7 @@
   こちらの方が自然な間」。基本は「はい、」。違和感のある場面や「はい」が続くときは、別の相づち）。声の型ごとに録音を作り
   （make_ack_clips）、運営者が聞いて承認する。どの場面でどれを流すかは、流れの制御（flowctl.Flow._ack）の1か所が決める。
   ⛔ G-33：AIに受けの言葉を先に言わせる形（返事を待たない報告）は、AIが先に言わなかったので採らない
-- SILENCE_PROMPT：考えている相手に「はい。」と相づちを打ったあと、さらに間があいたときに聞く一言（✅ 2026-10-14 ユーザー）。
+- THINKING_PROMPT：考えている相手に「はい。」と相づちを打ったあと、さらに間があいたときに聞く一言の順（✅ 2026-11-01 ユーザー。前は SILENCE_PROMPT＝2026-10-14）。
   ⏳ 何秒で言うかは、ユーザーに確かめる。電話接続側が録音で流す（AIは時間を数えられない）
 - APOLOGY：相手が聞き取れなかったとき・相手に不快な思いをさせたかもしれないときに、話し始めに付けるお詫びの言葉
   （✅ 2026-10-13 ユーザー：「失礼いたしました」「申し訳ございません、○○」のように、お詫び語を挟んだ方が自然で丁寧）
@@ -263,7 +263,13 @@ def ack_pause_s(ack_id: str) -> float:
 
 
 SILENCE_PROMPT = ("いかがなさいましたか？", "どうなさいましたか？")
-SILENCE_PROMPT_IDS = ("ikaga", "dou")  # 録音の中の名前（契約者の単位。「AIですか」と3回目から聞かれたときにも同じ録音を流す）
+SILENCE_PROMPT_IDS = ("ikaga", "dou")  # 録音の中の名前（契約者の単位。「AIですか」と3回目から聞かれたときに交互に流す＝flowctl.Flow._ai_question）
+# 考えている相手（「えーとですね、」で止まる・「うーん。」と悩んで黙る）に「はい。」と相づちを打ったあと、黙られたときに電話接続側が流す一言の順
+# （黙った秒は call.silence_prompt_after＝初めは5秒・契約者が変えられる。2回目も同じ秒）。✅ 2026-11-01 日本時間23時04分 ユーザー：「いまの質問が
+# 選ぶ質問（送ってよいか・どちらにするか）も、値を伺う質問（日時・人数）も、5秒黙られたあと「どうなさいますか？」に変更。さらに、5秒黙られたら
+# 「いかがなさいましたか？」にしましょう。」（⛔ 前は SILENCE_PROMPT の2つを交互＝10-14）。⏳ そのあとも黙っていたときの扱いは、まだ決めていない
+THINKING_PROMPT = ("どうなさいますか？", "いかがなさいましたか？")
+THINKING_PROMPT_IDS = ("dounasaimasu", "ikaga")   # 録音の中の名前（「いかがなさいましたか？」は上と同じ録音）
 LEAD_IN = {
     "言い直し": ("ありがとうございます。", "かしこまりました。", "承知いたしました。"),
     # お詫びの相づち（「失礼いたしました。」）のあとの言い直しの頭。⛔ 2026-10-14 ユーザー：「失礼いたしました。」のあとの
@@ -421,7 +427,7 @@ TALK_FALLBACK = {"talk_agree_high": ("本当にそうですよね！", "元気�
 # 会話が繋がっていないですよね。同じことを繰り返すな！！」⇒ 話を戻すことを言ってから聞く（⏳ 言い方はユーザーに伺う）
 BACK_TO = "話を戻させていただきますね。"
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
-            "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)),
+            "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},

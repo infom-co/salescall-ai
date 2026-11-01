@@ -6944,7 +6944,7 @@ class EndJudgedTest(unittest.TestCase):
         from flowctl import CALLBACK_IDS, END_HURRY, Flow, Question
         from phrases import CALLBACK_ASK, CLOSE_DECLINED, CLOSING
         def hurried():
-            f = Flow([Question("Q1", "担当者から詳しい案内のお電話を差し上げてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
+            f = Flow([Question("Q1", "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
                      play_recordings=True)
             f.use_checks("judge")
             f.on_callee(); f.on_heard("いま時間がないので結構です。"); f.on_check("judge", self.R("いいえ", END_HURRY))
@@ -6981,6 +6981,12 @@ class EndJudgedTest(unittest.TestCase):
         r = k.apply("request_end", {"reason": "callee_hurry"})
         self.assertEqual((r["result"], k.end_reason), ("end", "callee_hurry"))
 
+    def test_thinking_prompts_in_order(self):
+        # ✅ 2026-11-01 日本時間23時04分 ユーザー：5秒黙られたら「どうなさいますか？」、さらに5秒黙られたら「いかがなさいましたか？」（どの質問でも）
+        from phrases import RECORDED, THINKING_PROMPT, THINKING_PROMPT_IDS
+        self.assertEqual(THINKING_PROMPT, ("どうなさいますか？", "いかがなさいましたか？"))
+        self.assertEqual([RECORDED[k] for k in THINKING_PROMPT_IDS], list(THINKING_PROMPT))   # 録音は契約者の単位（「いかがなさいましたか？」は今の録音）
+
     def test_final_goal_refusal_closes_only_when_the_goal_is_lost(self):
         # ✅ 2026-11-01 日本時間22時31分 ユーザー：「片方だけでも目的が達成できるときは、質問を続け、片方断られたら、目的は達成できない場合は、途中で
         # 締めるという形になるんではないでしょうか。」（11時56分：最終目的は業務ごと・複数ありうる・断られたらその業務だけかけない）
@@ -6989,7 +6995,7 @@ class EndJudgedTest(unittest.TestCase):
         def goals(mode):
             f = Flow([Question("Q1", "会員登録のご案内をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                                final_goal=True, declines=("いいえ",)),
-                      Question("Q2", "担当者から詳しい案内のお電話を差し上げてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                      Question("Q2", "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                                final_goal=True, declines=("いいえ",)),
                       Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], goal_mode=mode)
             f.on_callee(); f.on_heard("いえ、登録は結構です。")
