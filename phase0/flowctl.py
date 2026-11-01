@@ -1457,6 +1457,13 @@ class Question:
         # ⛔ 2026-11-02 に見つけた：お立場の質問 S1 にも「どちらでも」を出していた）
         return tuple(self.conditions) + ((ANY, NONE) if self.type == "choice" and not self.asks_fact and not self.callback else ()) + SYSTEM_CONDITIONS
 
+    def declined(self, condition: str | None) -> bool:
+        """この答えがお断りか（唯一の決まり）：断る答え（取込で決める＝declines。システムの質問は _ROLE_DECLINES）・選ぶ質問の「どれも要らない」・
+        説明した内容のご承認の質問の2つ目（ご承認いただけない）。最終目的が果たせなくなったか（Flow._goals_lost）・ご承認いただけなかったときの
+        手順（Flow._point_step）・相づち（お断りにお礼は返さない＝Flow._ack）が、ここだけで決める。"""
+        return condition is not None and (condition in self.declines or condition == NONE
+                                          or (self.approval and len(self.conditions) > 1 and condition == self.conditions[1]))
+
     @property
     def labels(self) -> tuple:
         """AIに見せる選択肢の名前（業務の選択肢はそのまま、システムが足すものは日本語の名前）。all_conditions と同じ並び。"""
@@ -1566,6 +1573,8 @@ _ROLE_MEANINGS = {
                     "分からない点がある": "ほかにも分からない点・確かめたい点があるということ（ご説明すれば分かりうる）",
                     "断ろうとしている": "理由を挙げて、お断りしようとしているということ"},
     "agreed_now": {"はい": "ご説明した内容でご納得いただけたということ", "いいえ": "ご説明した内容ではご納得いただけなかったということ"}}
+# システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）
+_ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("断ろうとしている",), "agreed_now": ("いいえ",)}
 
 
 def callback_question(role: str, text: str | None = None, nth: int = 0) -> "Question":
@@ -1582,7 +1591,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0) -> "Ques
     recording = f"callback_{role}_{i + 1}" if i else ""
     if qtype in CHOICE_TYPES:
         return Question(qid, text or lines[i], qtype, required=False, conditions=tuple(_ROLE_MEANINGS[role]), recording=recording,
-                        meanings=dict(_ROLE_MEANINGS[role]), topic=CALLBACK_TOPIC[role], callback=role,
+                        meanings=dict(_ROLE_MEANINGS[role]), topic=CALLBACK_TOPIC[role], callback=role, declines=_ROLE_DECLINES.get(role, ()),
                         firm_not_needed=role in ("not_agreed", "other_point", "agreed_now"))
     return Question(qid, CALLBACK_ASK[role], qtype, required=role not in ("reachable_time", "ask_who", "ask_when", "not_agreed"), conditions=("答えた",),
                     topic=CALLBACK_TOPIC[role], callback=role)
@@ -2635,6 +2644,8 @@ class Flow:
                 turn, said, check = (words["turn"], words["said"], words["check"]) if words else (self.callee_turns, self.callee_said, self.check)
                 self.taken[qid] = {"turn": turn, "said": said, "check": dict(check), "confirming": confirming,
                                    "reported": "affirmed" if confirming and q.type not in CHOICE_TYPES else it.condition}
+            if it.state in TAKEN and before[qid] != it.state and it.state in GOT and self.questions[qid].declined(it.condition):
+                reply["declined"] = True    # この報告で、お断りの答えを受け取った（相づちにお礼を返さない＝_ack）
             if it.state in TAKEN and before[qid] != it.state:
                 self.unclear_qids = set()   # 答えを1つ受け取った＝お声は聞き取れている（声が聞き取れないで終えるのは、聞き取れない質問が続いたときだけ）
         if (self.number_again and not self.facts.get("callback") and self.callee_turns > 0 and self.party not in NOT_A_PERSON
@@ -2805,6 +2816,10 @@ class Flow:
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない
         if result == "recheck":
             return "moushiwake_heavy"  # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」
+        if result == "next" and reply.get("declined"):
+            # お断りの答え（Question.declined）を受け取って次へ進む：「承知しました。」（お礼は場面に合わない＝上の「通話を断られた」と同じ。⛔ 2026-11-02
+            # 日本時間6時台の見直しで見つけた：「いえ、登録は結構です。」「どちらも要らないです。」にも、順番で「ありがとうございます。」を返していた）
+            return "shouchi"
         if result == "next":
             self.ack_count += 1
             return ("shouchi", "arigatou")[(self.ack_count - 1) % 2]
@@ -5345,9 +5360,10 @@ class Flow:
         p = self.point
         if p is None:
             q = next((q for q in self.questions.values() if q.approval and self.items[q.id].state in GOT
-                      and self.items[q.id].condition == q.conditions[1]), None)
+                      and q.declined(self.items[q.id].condition)), None)
             if q is not None and nid not in self.items:   # 1通話1回
-                self.point = {"q": q.id, "stage": "ask", "round": 1, "explained": None, "turn": None, "outcome": None}
+                # N1 の前の相づちは、手順のほかの質問と同じ「はい、」（ご承認いただけなかった答えにお礼は合わない）
+                self.point = {"q": q.id, "stage": "ask", "round": 1, "explained": None, "turn": None, "outcome": None, "hai": self.callee_turns}
                 self._ask_point("not_agreed", q.id)
             return
         if p["outcome"] is not None:
@@ -5356,7 +5372,7 @@ class Flow:
             cond = self.items[nid].condition if self.items[nid].state in GOT else None
             if cond == "点を言った":
                 self._point_heard(self.callee_said)
-            elif cond == "断ろうとしている":
+            elif self.questions[nid].declined(cond):
                 self._point_heard(self.callee_said, explain=False)
                 self._point_end("declined")
             else:
@@ -5375,7 +5391,7 @@ class Flow:
             elif cond == "分からない点がある":
                 p["round"] += 1   # 分かるまでご説明する（回数では切らない）
                 self._point_heard(self.callee_said)
-            elif cond == "断ろうとしている":
+            elif self.questions[oid].declined(cond):
                 self._point_heard(self.callee_said, explain=False)
                 self._point_end("declined")
             else:
@@ -5383,7 +5399,7 @@ class Flow:
                 self._ask_point("agreed_now", oid)
         elif p["stage"] == "confirm" and self.items[aid].state in TAKEN + ("unresolved",):
             cond = self.items[aid].condition if self.items[aid].state in GOT else None
-            self._point_end("agreed" if cond == "はい" else "declined" if cond == "いいえ" else "unresolved")
+            self._point_end("agreed" if cond == "はい" else "declined" if self.questions[aid].declined(cond) else "unresolved")
 
     def _ask_point(self, role: str, after: str) -> None:
         """ご承認いただけなかったときの手順のシステムの質問を、前の質問のすぐあとに伺う（2回目からの「ほかに…」は、答えを空にして、言い方を替えて
@@ -5455,8 +5471,7 @@ class Flow:
         # 断る答え：その質問の断る答え（取込で決める）と、選ぶ質問の「どれも要らない」。ご承認の質問は、ご納得いただけなかった点を伺い終えてから
         p = self.point
         asking = {p["q"]} if p is not None and p["outcome"] in (None, "unresolved") else set()   # ご納得いただけなかった点を伺っている・申し伝える
-        refused = [q.id for q in goals if self.items[q.id].state in GOT and self.items[q.id].condition in q.declines + (NONE,)
-                   and q.id not in asking]
+        refused = [q.id for q in goals if self.items[q.id].state in GOT and q.declined(self.items[q.id].condition) and q.id not in asking]
         if not refused or (self.goal_mode == "any" and len(refused) < len(goals)):
             return None
         return refused

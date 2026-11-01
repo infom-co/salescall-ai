@@ -10270,6 +10270,29 @@ class ApprovalTest(unittest.TestCase):
         self.assertEqual((r["result"], r["ack"], r["say"]), ("end", "hai", CLOSING_AFTER_DECLINE))
         self.assertTrue(CLOSING_AFTER_DECLINE.startswith("承知いたしました。お忙しいところ"))
 
+    def test_no_thanks_for_a_decline(self):
+        # お断りの答えにお礼は返さない（「承知しました。」。設計書 6-15 の「お礼は場面に合わない」）。⛔ 2026-11-02 日本時間6時台の見直しで見つけた：
+        # 「いえ、登録は結構です。」「どちらも要らないです。」「いや、それはちょっと。」にも、順番で「ありがとうございます。」を返していた
+        from flowctl import CALLBACK_IDS, NONE, Flow, Question
+        q0 = Question("Q0", "現在、ホームページはお持ちでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True)
+        q3 = Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        goals = [Question(i, t, "yes_no", conditions=("はい", "いいえ"), final_goal=True, declines=("いいえ",)) for i, t in
+                 (("Q1", "会員登録のご案内をお送りしてもよろしいでしょうか？"), ("Q2", "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？"))]
+        f = Flow([q0, *goals, q3], goal_mode="any")
+        r0 = AmbiguousAnswerTest.say(f, "はい、あります。", "record_answer", question_id="Q0", condition_id="はい")
+        r1 = AmbiguousAnswerTest.say(f, "いえ、登録は結構です。", "record_answer", question_id="Q1", condition_id="いいえ")
+        self.assertEqual((r0["ack"], r1["ack"], f.current), ("shouchi", "shouchi", "Q2"))   # 順番なら「ありがとうございます。」だった
+        g = Flow([q0, Question("Q4", "資料はメールと郵送のどちらでお送りしましょうか？", "choice", conditions=("メール", "郵送")), q3])
+        AmbiguousAnswerTest.say(g, "はい、あります。", "record_answer", question_id="Q0", condition_id="はい")
+        self.assertEqual(AmbiguousAnswerTest.say(g, "どちらも要らないです。", "record_answer", question_id="Q4", condition_id=NONE)["ack"], "shouchi")
+        # ご承認の「いいえ」：N1 は手順のほかの質問と同じ「はい、」／最終目的でないご承認で、お断りしようとしている ⇒「承知しました。」で次の質問へ
+        h = self.flow(goal=False)
+        AmbiguousAnswerTest.say(h, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        r = AmbiguousAnswerTest.say(h, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((h.current, r["ack"]), (CALLBACK_IDS["not_agreed"], "hai"))
+        r = AmbiguousAnswerTest.say(h, "そもそもうちには必要ないので。", "record_answer", question_id=CALLBACK_IDS["not_agreed"], condition_id="断ろうとしている")
+        self.assertEqual((h.current, r["ack"], h.export()["Q2"], h.end_reason), ("Q3", "shouchi", "いいえ", None))
+
     def test_other_point_wording_alternates(self):
         # 「ほかに…」を何度か伺うときは、言い方を替える（✅ 2026-11-02 日本時間6時33分 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」
         # が続いて機械ぽいので、「ご不明点などほかにもございますでしょうか？」なども織り交ぜた方がいいんじゃないでしょうか？」）。AIが話す形も、録音で流す形も
