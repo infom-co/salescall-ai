@@ -169,10 +169,11 @@ ASK_WHY = {"recording_missing": "録音が届かず、録音で確かめられ�
            "recording_unchecked": "通話後の検証が録音で確かめないまま済み、会話の担当へ直しを頼んだ"}
 
 
-# 録音の確かめ（AI）でも決められない理由のうち、設定 decision.undecided_as_decided で「決まったとみなす」に回してよいもの（AI が
-# 確かめたうえで決められなかった・確かめる録音が無かった）。録音はあるのに確かめないまま済んだ（recording_unchecked＝会話の担当の不具合）は、
-# AI が判断できなかったのではないので回さない（契約者に求め、会話の担当へ修正依頼）
-ASSUMABLE = ("recording_missing", "recording_undecided")
+# 録音の確かめ（AI）でも決められない理由（ASK_WHY の3つ）は、どれも設定 decision.undecided_as_decided に従う（2026-10-30 夜 管理者 (1)：
+# 「録音でも決められない（録音が届かなかった・作り直してもそろわない・会話の担当が録音で確かめなかった）」・2026-10-31 伺い3：この設定は、
+# 録音でも決められない取り消せない決定のすべてに同じく効く）。⛔ 見直し28 のあと：前は、会話の担当が録音で確かめなかった（recording_unchecked）
+# だけを「AI が判断できなかったのではない」として設定から外し、いつも契約者に求めていた（ご決定に無い分け方）。確かめなかったことの修正依頼は、
+# どちらの扱いでも会話の担当へ出す（`_ask_conversation_side`）
 UNDECIDED_SETTING = "decision.undecided_as_decided"
 
 
@@ -183,7 +184,7 @@ class Wait:
     parts: frozenset[str]
     check: str                   # 会話の報告の、2つ目の判定がそろったか（judge.Irreversible.check。待つ中身が、どの AI もそうだと
     #                              読んでいないもの＝undecided だけなら none）
-    # 録音の確かめ（AI）でも決められず（ASSUMABLE の理由）、設定 decision.undecided_as_decided で決まったとみなした理由。None＝待つ。
+    # 録音の確かめ（AI）でも決められず（ASK_WHY の理由）、設定 decision.undecided_as_decided で決まったとみなした理由。None＝待つ。
     # 決まったとみなした中身も、保留の版に残す（印 checked＝assumed。その版は「まだ決まっていない」に入らない＝データベースの
     # salescall.decision_open の1か所）。2026-10-31 管理者：伺い3「AIがどうしても判断できない場合の設定も選択できるようにしておくこと」
     assumed: str | None = None
@@ -268,12 +269,10 @@ def _undecidable_why(tx: Tx, attempt_id: UUID) -> tuple[str, UUID]:
 def assumable(tx: Tx, task_id: UUID, attempt_id: UUID) -> str | None:
     """録音の確かめ待ちの保留を、設定 decision.undecided_as_decided（AI でも決められないとき、決まったとみなす。初めは「いいえ」＝契約者に
     委ねる）で、決まったとみなしてよいか（1か所。締めの処理＝`decision_wait` と、保留を見直す決まった間隔の仕事＝core/settle が読む）。
-    よければ、その理由（ASSUMABLE のどれか）、だめなら None。決まったとみなすと、その中身（断り・番号違い・怒っていた）を決まりどおり
+    よければ、その理由（ASK_WHY のどれか）、だめなら None。決まったとみなすと、その中身（断り・番号違い・怒っていた）を決まりどおり
     書く（発信禁止・行の終わり＝お客様へはかけない側）。検証モードでかけた通話は、いつも契約者の承認（2026-10-30 (6)「承認を押した場合
     だけ」）なので、ここを通らない（`decision_wait`）。"""
     why, _ = _undecidable_why(tx, attempt_id)
-    if why not in ASSUMABLE:
-        return None
     s = tasks.scope(tx, task_id)
     return why if settings.resolve(tx, UNDECIDED_SETTING, tenant_id=s["tenant_id"], client_id=s["client_id"],
                                    business_id=s["business_id"]) else None
@@ -303,6 +302,8 @@ def record_wait(tx: Tx, a: dict[str, Any], wait: Wait | None, version_no: int | 
     if wait is None:
         return
     if assumed:   # 録音の確かめ（AI）でも決められず、設定で決まったとみなした：契約者と管理者に知らせるだけ（答えは求めない）
+        if wait.assumed == "recording_unchecked":
+            _ask_conversation_side(tx, a["attempt_id"], a["task_id"])
         notify.emit(tx, "decision_assumed", key=f"decision_assumed:{a['attempt_id']}:{seq}", admin=True,
                     refs={"attempt_id": a["attempt_id"], "seq": seq, "task_id": a["task_id"], "parts": parts, "why": wait.assumed},
                     summary=f"お客様の断り・番号違い・怒っていたを、{ASK_WHY[wait.assumed]}ので、設定（AI でも決められないときは決まった"
@@ -324,13 +325,19 @@ def chase_recording(tx: Tx, attempt_id: UUID) -> None:
       報告が届けば、締め直しで決まる。CL-2 の連絡帳 4-167 の頼み3・5。同じ不具合は、直したと報告するまで1つ）"""
     why, task_id = _undecidable_why(tx, attempt_id)
     if why == "recording_unchecked":
-        fix_requests.request(tx, "CL-1", "irreversible_unchecked", key="irreversible_unchecked",
-                             refs={"attempt_id": attempt_id, "task_id": task_id},
-                             summary="会話AIの報告と2つ目の判定がそろわなかった（食い違った・判定が無い）お客様の断り・番号違い・怒っていた"
-                                     "（言ってはいけないことを言った通話で、切れ方が分からない断りの候補も）を、通話後の検証が録音で確かめ"
-                                     "ないまま済ませました（録音から作り直した報告で返してください。それまで、契約者の確かめを待ち、"
-                                     "そのお客様にはかけません）")
+        _ask_conversation_side(tx, attempt_id, task_id)
     _ask_contractor(tx, attempt_id, why)
+
+
+def _ask_conversation_side(tx: Tx, attempt_id: UUID, task_id: UUID) -> None:
+    """通話後の検証が録音で確かめないまま済んだ保留（recording_unchecked）を、会話の担当へ直してもらう修正依頼（1か所。契約者に求めるときも、
+    設定で決まったとみなしたときも、ここを呼ぶ。同じ不具合は、直したと報告するまで1つ）。"""
+    fix_requests.request(tx, "CL-1", "irreversible_unchecked", key="irreversible_unchecked",
+                         refs={"attempt_id": attempt_id, "task_id": task_id},
+                         summary="会話AIの報告と2つ目の判定がそろわなかった（食い違った・判定が無い）お客様の断り・番号違い・怒っていた"
+                                 "（言ってはいけないことを言った通話で、切れ方が分からない断りの候補も）を、通話後の検証が録音で確かめ"
+                                 "ないまま済ませました（録音から作り直した報告で返してください。それまで、設定 decision.undecided_as_decided"
+                                 "のとおり契約者の確かめを待つか決まったとみなし、どちらでもそのお客様にはかけません）")
 
 
 def _ask_contractor(tx: Tx, attempt_id: UUID, why: str) -> None:

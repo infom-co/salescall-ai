@@ -52,7 +52,9 @@ END = "END"                                       # 分岐の行き先「終わ�
 # P1（約束の電話の一言）・C8（分かるお客様）・C9（分かる時）と、部分の名前 promise_again・target_successor（お名前の入る一言。
 # 流すのは名前の録音の台帳からだが、流す部品の中で質問の番号と同じ並びに入る）。CL-1 の試験 test_offline が、会話の側の番号と
 # 部分の名前がすべてここに入っているかを確かめる。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "greeting", "intro",
+# 2026-11-01 CL-1 の連絡帳 4-63 (b) で足した：R1（ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」。
+# 依頼主へ渡す項目には入らない＝ほかのシステムの質問と同じ）。
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "unavailable_confirm",
                           "voicemail", "message"})

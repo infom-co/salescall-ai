@@ -687,10 +687,9 @@ class ForbiddenUnclearCut(Helpers):
 
     def test_it_is_held_and_not_called_again_and_the_contractor_decides_when_the_ai_did_not_check(self):
         """検証が録音で確かめないまま済んだ：断りの候補は保留（発信禁止に入れない・行はかけずに保留・ほかの行も待つ・確かめのかけ直しの
-        電話をかけない）。AI が判断できなかったのではないので、設定が「はい」でも契約者に求め、会話の担当へ修正依頼。契約者が承認すれば
-        断り（確かめて断りと決めた断り）として登録し、行を終える。"""
+        電話をかけない）。設定が「いいえ」（初め）なら契約者に求め、会話の担当へ修正依頼。契約者が承認すれば断り（確かめて断りと決めた
+        断り）として登録し、行を終える。設定が「はい」のときは `test_the_setting_also_covers_a_wait_the_recording_check_skipped`。"""
         s = self.ready()
-        self.put_client(s, "decision.undecided_as_decided", True)
         self.close_unchecked()
         other = self.other_row(s)
         aid = self.forbidden_call(s)
@@ -700,12 +699,32 @@ class ForbiddenUnclearCut(Helpers):
         self.assertEqual(len(self.unchecked_requests()), 1)
         self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT 1 AS x FROM salescall.unclear_checks WHERE task_id = %s",
                                                        (s["task"],))))          # 確かめのかけ直しはしない
-        self.assertEqual(self.tx(s, settle.rejudge_held), [])                    # 確かめていない：設定では決めない
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])                    # 設定が「いいえ」：契約者の答えを待つ
         out = self.approve(s, aid)
         self.assertEqual(out["state"], "do_not_call")
         self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
         self.assertFalse(self.pending(s, aid)["p"])
+
+    def test_the_setting_also_covers_a_wait_the_recording_check_skipped(self):
+        """会話の担当が録音で確かめないまま済んだ保留も、設定 decision.undecided_as_decided に従う（2026-10-30 夜 管理者 (1)「録音でも決め
+        られない（…会話の担当が録音で確かめなかった）」・2026-10-31 伺い3「すべてに同じく効く」）：「はい」なら決まったとみなす（断りとして
+        登録・行を終える・契約者と管理者に知らせる。答えは求めない）。確かめなかったことの修正依頼は、決まったとみなしても会話の担当へ出す。
+        ⛔ 前は、この場合だけ設定から外し、いつも契約者に求めていた（ご決定に無い分け方）。"""
+        s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
+        self.close_unchecked()
+        before = self.notices(s, "decision_assumed")
+        aid = self.forbidden_call(s)
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.asks(s), [])
+        self.assertEqual(self.last_wait(s, aid), {"kind": "recording", "parts": ["refusal"], "checked": "assumed"})
+        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
+        self.assertEqual(self.notices(s, "decision_assumed"), before + 1)
+        self.assertEqual(len(self.unchecked_requests()), 1)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
+        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"].get("decision_assumed"),
+                         "recording_unchecked")
 
     def test_sent_back_it_is_not_a_refusal_the_row_ends_and_other_rows_are_free(self):
         s = self.ready()

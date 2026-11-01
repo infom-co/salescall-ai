@@ -266,7 +266,7 @@ class SaidEdges(unittest.TestCase):
         """日を言わない「夕方なら」「3時なら」「すぐ」も、いま話している今日の回は言った日（見直し16）。次の日からの回は、
         言っていない（next_action の Window.later）。"""
         for text, said in {"夕方なら": True, "3時なら": True, "すぐ": True, "30分後": True, "明日の夕方": True,
-                           "金曜なら": True, "13日なら": True, "平日の夕方": True, "土日祝ならいつでも": True,
+                           "金曜なら": True, "13日なら": True, "平日の夕方": False, "土日祝ならいつでも": True,
                            "明日の15時": True, "今晩": True}.items():
             with self.subTest(text=text):
                 self.assertEqual(read(text, NOW).day_said, said)
@@ -513,13 +513,14 @@ class NamedDay(unittest.TestCase):
 
     def test_named_days_and_today_are_said_ranges_are_not(self):
         said = ("13日なら", "明日なら", "3日後", "金曜なら", "毎週月曜", "週明け", "週末なら", "来週の土日", "土日祝なら",
-                "平日ならいつでも", "3時以降", "夕方なら", "すぐ", "30分後")
+                "休日なら", "来週の土日祝", "3時以降", "夕方なら", "すぐ", "30分後")
         for text in said:
             with self.subTest(text=text):
                 r = read(text, NOW)
                 self.assertIn(r.kind, (AT, WINDOW))
                 self.assertTrue(r.day_said)
-        ranges = ("月末なら", "来月の初め", "来週", "来週中", "週中", "来月", "11月なら", "来年", "2、3日後", "来月の5日以降")
+        ranges = ("月末なら", "来月の初め", "来週", "来週中", "週中", "来月", "11月なら", "来年", "2、3日後", "来月の5日以降",
+                  "平日ならいつでも", "来週の平日なら", "月末の平日", "平日の夕方")   # 「平日」はどの平日でもよい範囲（伺い4。2026-11-01）
         for text in ranges:
             with self.subTest(text=text):
                 r = read(text, NOW)
