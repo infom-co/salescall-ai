@@ -56,6 +56,9 @@ class Target:
     # ユーザー：「名前以外に部署やフルネームを伝えて、取り次いでもらう努力をするべきじゃないでしょうか。」）
     full_name: str = ""
     full_reading: str = ""
+    # 部署（発信対象データにあり、呼ぶ一言の役職 role には入っていないもの＝名前のみの指定の行など。CL-2）。お名前だけではどの方か分からないと言われたときに、
+    # フルネームと同じく足して言う（full_call）。✅ 2026-11-02 日本時間1時22分 ユーザー：(a)「フルネームか部署かどちらかが分かれば、言い直す。」
+    department: str = ""
     # この方の後任のご担当者様をお呼びする（前の電話で、この方が在籍していないと言われた＝門の予約証 Claim.successor）。呼ぶ一言は
     # 「（この方）様の後任のご担当者様はいらっしゃいますでしょうか？」、確かめる一言・聞き返しは後任の方の言い方（✅ 2026-10-24 ユーザー）
     successor: bool = False
@@ -92,12 +95,13 @@ class Target:
         return PROMISE_AGAIN.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
 
     def full_call(self) -> str:
-        """お名前だけではどの方か分からないと言われたときにお呼びし直す一言（部署・役職とフルネーム。呼ぶ一言と同じ言い方＝phrases.target_call）。
-        お伝えすることが増えない（フルネームが無い・お名字と同じ）なら空（flowctl.Flow._who_unclear は締める）。"""
-        if not self.full_name or self.full_name == self.name:
-            return ""
-        full = quote(hira(self.full_reading))
-        return SUCCESSOR_OF.format(who=target_who(self.kind, full, self.role)) if self.successor else target_call(self.kind, full, self.role)
+        """お名前だけではどの方か分からないと言われた・どなたをお呼びかを聞かれたときにお呼びし直す一言（まだお伝えしていない部署とフルネームの、
+        分かるほうを足す。呼ぶ一言と同じ言い方＝phrases.target_call・後任の方は SUCCESSOR_OF）。お伝えすることが増えない（フルネームも部署も無い・
+        いつもの呼ぶ一言と同じになる）なら空（flowctl.Flow._who_unclear は締め、繋がらなかった理由は「お名前だけではどの方か分からなかった」）。"""
+        name = quote(hira(self.full_reading)) if self.full_name and self.full_name != self.name else self._name()
+        role = self.department + self.role if self.department and self.department not in self.role else self.role
+        said = SUCCESSOR_OF.format(who=target_who(self.kind, name, role)) if self.successor else target_call(self.kind, name, role)
+        return "" if said == (self.successor_call() if self.successor else target_call(self.kind, self._name(), self.role)) else said
 
     def successor_full_call(self) -> str:
         """後任の方をお呼びする電話で、お名前だけでは分からないと言われたときの一言（「（前任の方の部署・役職とフルネーム）様の後任のご担当者様は
@@ -671,6 +675,9 @@ def target_rule(business: Business) -> str:
             f"「{PARTY_LABEL['target']}」で呼びます（用件と最初の質問は、プログラムが返事で渡します）。代わった方が名乗らないとき（「お電話"
             "代わりました」だけ）・違うお名前を名乗ったとき・目的の人かを聞いて「いいえ」と言われたときは、replay_opening を"
             f"「{PART_LABEL['handover']}」で呼びます（目的の人かを確かめる言い方・お呼びし直す言い方は、プログラムが流します）。"
+            # ✅ 2026-11-02 日本時間1時22分 ユーザー：(b)「OK」＝どなたをお呼びかを聞かれたら、部署・フルネームの入った呼ぶ一言で答える（flowctl.Flow._asked_target）
+            "どなたをお呼びかを聞かれたとき（「どちらの" + who + "でしょうか？」「どの" + who + "ですか？」など）は、自分では答えずに replay_opening を"
+            f"「{PART_LABEL['target']}」で呼びます（お呼びする言い方は、プログラムが流します）。"
             "お取り次ぎいただくとき（「少々お待ちください」"
             f"「代わります」）は、report_party を「{PARTY_LABEL['reception']}」で呼んで、何も言わずに待ちます。目的の人がいないとき・いまは"
             "出られないとき（「席を外しております」「本日は休みです」「ただいま電話に出られません」）も、次の決まりで request_callback を呼びます。"

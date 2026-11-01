@@ -3051,9 +3051,9 @@ class AmbiguousAnswerTest(unittest.TestCase):
         from flowctl import Flow, Question
         q = Question("Q8", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                      meanings={"はい": "パンフレットをお送りして大丈夫だということ", "いいえ": "パンフレットはお送りしなくて大丈夫だということ"},
-                     do_words={"はい": "パンフレットをお送り", "いいえ": "パンフレットのお送りは控え"})
+                     do_words={"はい": "パンフレットをお送り", "いいえ": "パンフレットの送付は控え"})   # ✅ 11-02 1時22分「送付は控え」
         for heard, cond, want in (("たぶん送ってもらうと思います。", "はい", "それではパンフレットをお送りさせていただきますね？"),
-                                  ("たぶん要らないです。", "いいえ", "それではパンフレットのお送りは控えさせていただきますね？")):
+                                  ("たぶん要らないです。", "いいえ", "それではパンフレットの送付は控えさせていただきますね？")):
             f = Flow([q])
             r = self.say(f, heard, "record_answer", question_id="Q8", condition_id=cond)
             self.assertEqual((r["result"], r["say"], r["ack"]), ("confirm_required", want, "hai"), heard)
@@ -3063,7 +3063,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
         f = Flow([dataclasses.replace(q, do_words={"はい": "パンフレットをお送り"})])
         r = self.say(f, "たぶん要らないです。", "record_answer", question_id="Q8", condition_id="いいえ")
         self.assertEqual(r["say"], "念のためパンフレットはお送りしなくて大丈夫だということでよろしかったでしょうか？")
-        # 希望を伺う選ぶ質問も同じ形（⏳ 当てる範囲は伺う）
+        # 希望を伺う選ぶ質問も同じ形（✅ 11-02 1時22分「お支払いや日時なんかの希望を伺う選択にも…でいいと言ったよね？」＝10-31 6時05分）
         pay = Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"),
                        do_words={"カード": "お支払いはカードと", "振込": "お支払いはお振込みと"})
         r = self.say(Flow([pay]), "たぶんカードです。", "record_answer", question_id="Q2", condition_id="カード")
@@ -3083,9 +3083,20 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual(r["say"], "それではご予約はまだということで登録させていただいて大丈夫でしょうか？")
         # 業務設定の「依頼者がすること」が流れの制御へ渡る（空なら記録）
         self.assertEqual((BUSINESS.flow().client_does, dataclasses.replace(BUSINESS, client_does="手配").flow().client_does), ("記録", "手配"))
-        # 値を伺う型・「どちらでも」は今までの形
-        self.assertEqual([Flow._hedged_after(Question("D", "ご希望の日時は？", "datetime"), None),
-                          Flow._hedged_after(dataclasses.replace(q, asks_fact=False), ANY)], ["hedged", "hedged"])
+        # 「どちらでも」・自由な答えは今までの形
+        self.assertEqual([Flow._hedged_after(dataclasses.replace(q, asks_fact=False), ANY), Flow._hedged_after(Question("F", "ご意見は？", "free_text"), "答えた")],
+                         ["hedged", "hedged"])
+
+    def test_hedged_value_answers_follow_the_same_two_forms(self):
+        # ✅ 2026-11-02 日本時間1時22分 ユーザー：「お支払いや日時なんかの希望を伺う選択にも、「それでは…させていただきますね？」の形でいいと言ったよね？」
+        #    ⇒ 値を伺う型も、事実を伺う質問かで同じ2つの形（希望＝「（値）とさせていただきますね？」・事実＝「（値）ということで（依頼者がすること）…」）
+        from flowctl import Flow, Question
+        when = Question("Q1", "ご希望の日時はいつ頃でしょうか？", "datetime", conditions=("answered",))
+        r = self.say(Flow([when]), "たぶん15日の午後2時がいいと思います。", "record_answer", question_id="Q1", condition_id="answered", value="15日の午後2時")
+        self.assertEqual((r["say"], r["ack"]), ("それでは15日の14時、午後2時とさせていただきますね？", "hai"))
+        staff = Question("Q2", "従業員数は何名でしょうか？", "number", conditions=("answered",), unit="名", asks_fact=True)
+        r = self.say(Flow([staff]), "たぶん10名だと思います。", "record_answer", question_id="Q2", condition_id="answered", value="10名")
+        self.assertEqual(r["say"], "それでは10名ということで記録させていただいて大丈夫でしょうか？")
 
     def test_late_unsure_judge_marks_the_reply(self):
         # 言い直しへの返事を受け取ったあとに、2つ目の判定（遅い）が「言い切っていない」と届いた：値は変えず、お客様の言葉を別の欄に残す
@@ -7145,7 +7156,7 @@ class EndWordsTest(unittest.TestCase):
             ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"),
             ("はい、パンフレットはお送りしない方がいいということでしょうか？", "続ける"), (self.NEXT, "続ける"), ("", "続ける"),
             ("はい、それではパンフレットをお送りさせていただきますね？", "続ける"),
-            ("はい、それではパンフレットのお送りは控えさせていただきますね？", "続ける"),
+            ("はい、それではパンフレットの送付は控えさせていただきますね？", "続ける"),
             ("はい、それではお支払いはカードとさせていただきますね？", "続ける"),
             ("はい、それではご予約はお済みということで記録させていただいて大丈夫でしょうか？", "続ける"),
             (self.R1, "続ける"), (self.R1, "続ける")]
@@ -7208,13 +7219,40 @@ class WhoUnclearTest(unittest.TestCase):
         self.told(f, "申し訳ございません、それでも分かりかねます。")
         self.assertEqual((f.end_reason, f.facts["who_unclear"][0]["recalled"]), ("not_transferred", True))
 
+    def test_department_alone_is_enough(self):
+        # ✅ 2026-11-02 日本時間1時22分 ユーザー：(a)「フルネームか部署かどちらかが分かれば、言い直す。」（名前のみの指定の行で、データに部署がある）
+        import dataclasses
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        from instruction import Target
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", department="営業部"))
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts())
+        f.use_checks("judge")
+        r = self.told(f, self.WORDS)
+        self.assertEqual([p["text"] for p in r["play"]], ["営業部の「おかだ」様はいらっしゃいますでしょうか？"])
+        # 部署がもう呼ぶ一言の役職に入っていれば、増えない
+        self.assertEqual(Target(name="岡田", reading="おかだ", role="営業部部長", department="営業部").full_call(), "")
+
     def test_nothing_more_to_tell_closes(self):
-        # フルネームが無い・お名字と同じ＝お伝えすることが増えない：お呼びし直さずに締め、印を残す（⏳ そのあとをどうするかは伺う）
+        # フルネームも部署も無い（お名字と同じ）＝お伝えすることが増えない：お呼びし直さずにお礼の締め。繋がらなかった理由は「お名前だけではどの方か
+        # 分からなかった」＝かけ直さずに依頼者へ返す（✅ 11-02 1時22分 (a)「どちらもなければ、(イ)」）
         from instruction import Target
         self.assertEqual(Target(name="岡田太郎", reading="おかだたろう", full_name="岡田太郎", full_reading="おかだたろう").full_call(), "")
         f = self.flow()
         self.told(f, self.WORDS)
-        self.assertEqual((f.end_reason, f.facts["who_unclear"][0]["recalled"]), ("not_transferred", False))
+        self.assertEqual((f.end_reason, f.facts["who_unclear"][0]["recalled"], f.not_reached), ("not_transferred", False, "who_unclear"))
+
+    def test_which_one_is_answered_in_full(self):
+        # ✅ 2026-11-02 日本時間1時22分 ユーザー：(b)「OK」＝「どちらの岡田でしょうか？」にも、部署・フルネームの入った呼ぶ一言で答える（1通話1回）
+        from flowctl import ASKS_YES
+        f = self.flow(full_name="岡田太郎", full_reading="おかだたろう")
+        f.on_callee(); f.on_heard("どちらの岡田でしょうか？"); f.on_check("asks", ASKS_YES)
+        r = f.apply("replay_opening", {"part": "target"})
+        self.assertEqual((r["result"], r["ack"], [p["text"] for p in r["play"]]),
+                         ("call_target", "hai", ["営業部部長の「おかだたろう」様はいらっしゃいますでしょうか？"]))
+        # それでもお名前だけでは分からないと言われたら、お伝えすることはもう無い＝お礼の締め（繋がらなかった理由は、お名前だけではどの方か分からなかった）
+        self.told(f, self.WORDS)
+        self.assertEqual((f.end_reason, f.facts["who_unclear"][0]["recalled"], f.not_reached), ("not_transferred", True, "who_unclear"))
 
     def test_successor_call_says_the_predecessor_in_full(self):
         # 後任の方をお呼びする電話：「（前任の方の部署・役職とフルネーム）様の後任のご担当者様は…」（前任の方をフルネームでお呼びしない）
