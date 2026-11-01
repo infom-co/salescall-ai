@@ -29,7 +29,7 @@ from common import HERE, KeyRing, base_parser, describe_error, require_python, s
 from flowctl import (ANY, CHOICE_TYPES, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, NONE, SYSTEM_CONDITIONS, Flow, Question,
                      off_talk, prior_answer)
 from g48_meanings import QUESTIONS as G48
-from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
+from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
 
 JUDGES = JUDGE_MODELS + tuple(OTHER_JUDGES) + tuple(GROUPS)   # 組の名前は、本番と同じ組の流れ（JudgePanel）で1件ずつ判定する（run_group）
 BASE = "3.5 Flash Lite"  # いまの判定（2つ目の判定の候補は、これと同じ答えで比べる）
@@ -489,7 +489,8 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
         return ASK_AGAIN
     # 言い切っていない読みは、選択肢も「どちらでも」「どれも要らない」も確かめる（流れの制御は「わからない」「答えたくない」のほかを確かめる＝
     # Flow._checks。⛔ 2026-11-02 に見つけた：この数えは「どちらでも」を確かめずに受け取ると数えていた＝流れの制御の動きと違う）
-    return f"念のため確かめる：{got}" if (got in q.conditions or got in (ANY, NONE)) and firm is False else f"受け取る：{got}"
+    # 言い切りで動きが変わる読みかは meaning_judge.firm_matters の1か所（判定の組が確かな読みかを決めるのと同じ）
+    return f"念のため確かめる：{got}" if firm_matters(q, got) and firm is False else f"受け取る：{got}"
 
 
 def flow_wants(it: dict, q: Question) -> set[str]:
@@ -855,6 +856,11 @@ def main() -> None:
             say(m, "が作った答え", len(got))
             items += got
     say("答えの数", dict(Counter(it["set"] for it in items)))
+    if args.dry_run:
+        # 組み立てだけ：判定を送る数だけ出して止める（⛔ 2026-11-02 日本時間7時29分：ここで止まらず、2,840回送った）
+        todo = [it for it in items if not args.sets or it["set"] in args.sets]
+        say("組み立てだけ（--dry-run）：判定は送りません。送る数", {j: sum(1 for it in todo if j not in it) for j in args.judge})
+        return
     run_judges(args, items, qmap, ids)
     summary = tally(items, args.judge, qmap)
     summary["記録の通話に当てた見込み"] = {k: predict_calls(items, k) for k in args.judge}

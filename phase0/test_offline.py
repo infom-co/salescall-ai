@@ -10151,6 +10151,22 @@ class NoneOfThemTest(unittest.TestCase):
         self.assertEqual((r["result"], r["say"], f.end_reason), ("confirm_required", "念のためどちらもご不要ということでよろしかったでしょうか？", None))
 
 
+class DryRunTest(unittest.TestCase):
+    """組み立てだけの印（--dry-run）では、判定AI・別の耳の鍵を読まない＝どの道具でも送らない（common.load_secret の1か所）。⛔ 2026-11-02 日本時間
+    7時29分：答えの段の道具（g53_meaning）が印を見ておらず、組み立てだけのつもりで判定を2,840回送った（約22円）。"""
+
+    def test_no_secret_on_dry_run(self):
+        import common
+        try:
+            common.base_parser("x").parse_args(["--dry-run"])
+            with self.assertRaises(SystemExit) as got:
+                common.load_secret("OPENROUTER_JUDGE_KEY")
+            self.assertIn("送りません", str(got.exception))
+        finally:
+            common.DRY_RUN = False   # ほかの試験に持ち越さない
+        self.assertFalse(common.base_parser("x").parse_args([]).dry_run)
+
+
 class OnelinerGuardTest(unittest.TestCase):
     """道具を呼ぶ前に、最近の一言が英語なら止める見張り（oneliner_guard。✅ 2026-11-02 日本時間7時12分 ユーザー「(b) OK」）。記録への書き込みが
     道具の呼び出しより遅れるので、最近の段（直近3回の道具の結果まで・15分以内）を読み、止めた文は二度は止めない。"""
