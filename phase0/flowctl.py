@@ -716,6 +716,10 @@ END_REASONS = (*END_LABEL, *NOT_A_PERSON, "wrong_party", "callback", "other_mean
 # 陥った場合全般や、回線が悪く、声がお互いや片方がほとんど聞き取れない場合など規定通りの会話が進められない状態」。締めた理由（END_REASONS）とは
 # 別（終えるのも記録するのも CL-2 の電話の部品＝会話の報告の締めの理由には入れない）
 TROUBLE_REASONS = ("ai_malfunction", "poor_audio", "cannot_proceed")
+# 止まったAIの出来事（通話の報告の ai_trouble の what＝Flow.on_ai_trouble の1か所。CL-2 の call_report.AI_TROUBLE_WHATS と同じ＝試験で比べる）と、
+# 別の耳の名前の頭（「別の耳（種類）」。CL-2 の errors.EAR_AI と同じ＝別の耳が止まったら緊急の道で再開しない、を名前で見分ける。CL-2 の 4-173 (b)・4-174 (b)）
+AI_TROUBLE_WHATS = ("止まった", "緊急の道で答えた", "おかしな動き")
+EAR_AI = "別の耳"
 # 通話の事実の種類の全部（Flow._note の1か所で確かめる。CL-2 の call_report.FACT_KINDS と同じ＝試験で比べる。中身は CL-1.md 2-2）。
 # out_of_scope（範囲外の求めで終えた）は、まだ書かない（実際にあるかを測ってから作る＝2-2 の「まだ作っていないもの」）
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end", "connect", "answered",
@@ -747,8 +751,13 @@ DONT_KNOW_LABEL = {"not_in_charge": "担当ではない", "undecided": "まだ�
 REFUSED_LABEL = {"policy": "決まりで言えない", "unwilling": "答えたくない理由を言わなかった"}
 UNKNOWN_WHY_LABEL = {**DONT_KNOW_LABEL, **REFUSED_LABEL}
 # 「〇時まで」「〇日まで」（いま電話を続けられない理由で、かけてよい時間・日が決まる言い方。理由を伺い直す・記録に until_why を書く唯一の
-# 見分け。CL-2 の 4-149・4-155：「来月の5日までに」も「〇時まで」と同じ。「〇日以降」「〇日ごろ」は理由なしで読める）
-_UNTIL = re.compile(r"\d{1,2}(?:時(?:半|\d{1,2}分)?|日)(?:まで|より前)")
+# 見分け。CL-2 の 4-149・4-155：「来月の5日までに」も「〇時まで」と同じ。「〇日以降」「〇日ごろ」は理由なしで読める）。
+# 言葉の終わり（UNTIL_TAIL）は、CL-2 の時刻の読み（spoken_time._UNTIL_TAIL）と同じ並び（比べる試験。⏳ フェーズ1で spoken_time を呼ぶ1か所に）。
+# ⛔ 2026-11-02 まで「より前」だけで、「3時前なら」を「〇時まで」と読まず、理由を伺わなかった（CL-2 は「3時まで」と同じ幅に読み、理由が無いので
+#    確かめの要る時刻にした＝CL-2 の連絡帳 4-182 の (3)）。裸の「前」は時・時半のあとだけ：「3時前後」は「3時ごろ」（CL-2 も先に読み分ける）、
+#    「3時10分前」は2時50分とも3時10分より前とも取れる（CL-2 は決めない）、「3日前」は日付ではない
+UNTIL_TAIL = ("までに", "まで", "より前", "前")
+_UNTIL = re.compile(rf"\d{{1,2}}時半?(?:{'|'.join(UNTIL_TAIL[:-1])}|前(?!後))|\d{{1,2}}(?:時\d{{1,2}}分|日)(?:{'|'.join(UNTIL_TAIL[:-1])})")
 # ✅ 2026-10-25 日本時間の夕方 ユーザー：お休みは長期の不在から分ける（「本日は休み・出張 → 「いつごろお戻りのご予定かお分かりでしょうか？」
 # 出張ならいいが、お休みだとおかしい⇒ 「次のご出社はいつかお分かりになりますでしょうか？」」）。違うのは伺う一言だけ（CALLBACK_PLAN）
 CALLBACK_LABEL = {"absent": "不在", "day_off": "お休み", "long_absent": "長期の不在", "other_number": "別の番号へ", "later": "あとで",
@@ -2190,6 +2199,7 @@ class Flow:
            （試作は最大90秒）＝お客様には無言が続いた（Intent.md 9-4「会話AIが通話中に落ちた」の「相手を無言で放置しない」に届いていなかった）。"""
         if self.resent_turn == self.callee_turns:
             return self._trouble("ai_malfunction", f"張り替えて相手の発話を送り直しても、会話AIの声も受け付けた報告も戻らない（{why}）")
+        self.on_ai_trouble({"model": "会話AI", "error": why, "glitch": True})   # 張り替えて続ける＝おかしな動き（止めずに警告。on_ai_trouble の1か所）
         return {"result": "swap", "why": why}
 
     # ── 相手の言葉の文字が届いた（会話AIの聞き取り。値を直されたときの直され方を、プログラムが決めるのに使う）
@@ -4757,8 +4767,11 @@ class Flow:
         """この通話で、使うAIのどれかが止まった・緊急の道で答えた（唯一の場所。通話の報告の ai_trouble＝発信の門が新しい電話を回復まで一時停止する
         ＝CL-2）。✅ 2026-10-30 夜 ユーザー：「基本的にアンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、AI の不具合として
         回復するまで一時停止してください。」。entry：判定の問い合わせの記録（meaning_judge.routed_call の tried の1つ＝model・route・error・
-        outage／used）か、会話AI・別の耳の同じ形。同じAI・同じ道・同じ出来事は1つにまとめて回数を数える（最初の発話の番号を残す）。"""
-        what = "緊急の道で答えた" if entry.get("used") else "止まった"
+        outage／used）か、会話AI・別の耳の同じ形。同じAI・同じ道・同じ出来事は1つにまとめて回数を数える（最初の発話の番号を残す）。
+        glitch＝電話は続けられた不具合（おかしな動き：会話AIが黙った・報告が戻らないので張り替えて続けた＝on_ai_failed）。止めずに警告する
+        （✅ 2026-10-31 管理者のご決定（CL-2 の連絡帳 4-174）：「甚大な問題は止める。甚大でない場合は、ダッシュボードに警告を出す。」）。"""
+        stopped, answered, glitch = AI_TROUBLE_WHATS
+        what = answered if entry.get("used") else glitch if entry.get("glitch") else stopped
         route = entry.get("route") or "直接"
         for t in self.ai_trouble:
             if (t["ai"], t["route"], t["what"]) == (entry["model"], route, what):
@@ -5644,8 +5657,13 @@ class Flow:
         """目的の人のある業務で、目的の人に繋がる前の電話口の方（受付の方など）に、システムの質問を伺っている（かけ直しの申し出・判断いただける
         お立場か・約束の電話で取り次げないと言われたときの一言・急いでいる方への伺い）＝電話口の方は、まだ呼んでいる段の方（唯一の決まり）。取り次がれて別の方が出たら、
         お呼びした方が戻ったのかを確かめる（_target_back）。⛔ 2026-10-24 の見直し（調べ役）：約束の電話の一言を伺っている間が入っていなかった＝
-        受付の方が「それでしたら少々お待ちください」と取り次いでも、代わって出た岡田様に約束の一言を流し、繋がずに終えた。"""
-        return bool(self.callback_why or self.substitute_q or self.hurry_q or self.close_after == "not_transferred")
+        受付の方が「それでしたら少々お待ちください」と取り次いでも、代わって出た岡田様に約束の一言を流し、繋がずに終えた。
+        お呼びした方ご本人（後任の方も）と繋いだあと（通話の事実 connect の who）は、いつも偽：電話口の方は、もうお呼びした方。代わりの方と
+        繋いだあとは、今までどおり（代わりの方と話している途中に、ご本人が電話口に出ることがある＝お呼びした方かを確かめる）。⛔ 2026-11-02
+        （CL-2 の連絡帳 4-182 の (4)）まで、ご本人と繋いだあとの「あとでかけて」（かけ直しの質問）・急いでいる方への伺いでも真になり、ご本人の
+        「少々お待ちください」で取り次ぎの印が付いて、そのあと出た方をお呼びした方かを確かめる道（呼んでいる段へ戻る）に入りえた。"""
+        reached = any(c.get("who") in ("target", "successor") for c in self.facts.get("connect", ()))
+        return not reached and bool(self.callback_why or self.substitute_q or self.hurry_q or self.close_after == "not_transferred")
 
     @property
     def hurried(self) -> bool:

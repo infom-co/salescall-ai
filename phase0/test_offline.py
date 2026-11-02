@@ -4187,6 +4187,9 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual((r["result"], r["reason"], f.trouble["reason"], f.phase), ("end_trouble", "ai_malfunction", "ai_malfunction", "closing"))
         self.assertIn("差し戻され", f.trouble["why"])
         self.assertEqual(f.on_ai_failed("黙った")["result"], "end")   # 1通話1回
+        # 張り替えて続けた分は「おかしな動き」（止めずに警告＝CL-2 の 4-174・2026-10-31 管理者「甚大でない場合は、ダッシュボードに警告を出す。」）、
+        # 終えた分は「止まった」（甚大な問題＝止める）。同じ出来事は1つにまとめて数える
+        self.assertEqual([(t["ai"], t["what"], t["count"]) for t in f.ai_trouble], [("会話AI", "おかしな動き", 2), ("会話AI", "止まった", 1)])
 
     def heard(self, f, said):
         """相手が話した（会話AIの聞き取りの文字が届いた）。"""
@@ -4763,6 +4766,11 @@ class EnglishLineTest(unittest.TestCase):
         self.assertTrue(english("Progress note for the user: 4-151 の材料を作っています。"))
         self.assertFalse(english("試験は416本すべて合格です。`flowctl.Flow.on_line_end` の1か所で決めます。"))
         self.assertFalse(english("作りに入ります。phrases（言い方）・instruction（業務の文）・flowctl（流れ）を一度に直します。"))
+        # 頭の言葉だけ英語（⛔ 2026-11-02 の48回目・49回目）は英語。名前で始まる日本語の一言は数えない
+        for said in ("Next に進む前に、まず試験を足します。", "Next, つまり次に、試験を足します。", "Now the cross-team comparison test — 次に、比べます。"):
+            self.assertTrue(english(said), said)
+        for said in ("CL-2 の連絡帳を読みます。", "I-30 の決まりを確かめます。", "G-59 の外れを見ます。", "OK をいただいた形で進めます。", "`Flow._note` を読みます。"):
+            self.assertFalse(english(said), said)
 
 
 class ConversationLogTest(unittest.TestCase):
@@ -6182,6 +6190,12 @@ class CallbackTest(unittest.TestCase):
         self.assertEqual(r["result"], "confirm_required")                                         # 二度は伺わない
         self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
         self.assertNotIn("until_why", f.facts["callback"][0])                                     # 分からないまま（CL-2 が確かめの要る時刻として扱う）
+        # ⛔ CL-2 の 4-182 の (3)：「3時前なら」も「3時まで」と同じ（CL-2 の時刻の読みと同じ）＝理由を伺い直す。「3時前後」は「3時ごろ」＝伺わない
+        for said, value, asked in (("3時前なら大丈夫です。", "3時前なら", True), ("3時前後なら大丈夫です。", "3時前後", False)):
+            f = self.flow()
+            self.say(f, "今ちょっと手が離せなくて、あとでかけてもらえますか。", "request_callback", why="later")
+            r = self.say(f, said, "record_answer", question_id="C1", condition_id="答えた", value=value)
+            self.assertEqual(r.get("ask_reason") == "until", asked, said)
         # 不在の「〇時まで」は、理由（不在＝それまでは出られない）が決める：伺い直さない
         f = self.flow()
         self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
@@ -7187,6 +7201,16 @@ class EndJudgedTest(unittest.TestCase):
         # 全部が要る業務：1つ断られたら、途中で締める
         g = goals("all")
         self.assertEqual((g.end_reason, g.facts["goal_refused"][0]["goals"]), ("goal_refused", ["Q1"]))
+        # 断りと一緒に質問をされた（先に質問に答える）：締めの言葉を流す前に電話が切れても、目的が果たせなくなった事実は、答えを受け取った
+        # その場で残る（質問に答えたあとの手＝締めを、その場で決めておくため。CL-2 は通話の事実から、その業務をかけないと決める＝4-182 の (e)）
+        k = Flow([Question("Q1", "会員登録のご案内をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                           final_goal=True, declines=("いいえ",)),
+                  Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], goal_mode="all")
+        k.on_callee(); k.on_heard("いえ、登録は結構です。そもそも、どちらでこの番号を知ったんですか？")
+        r = k.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+        k.on_line_end(ai_speaking=False)
+        self.assertEqual((r["result"], k.end_reason, [(x["goals"], x["mode"]) for x in k.facts.get("goal_refused", [])]),
+                         ("callee_asked", "goal_refused", [(["Q1"], "all")]))
         # 断る答えでない答え（わからない）は、断られたとはしない
         h = Flow([Question("Q1", "会員登録のご案内をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                            final_goal=True, declines=("いいえ",)),
@@ -7744,6 +7768,22 @@ class TargetTest(unittest.TestCase):
         f, b = self.flow()
         r = self.say(f, "どちら様ですか？", "replay_opening", part="intro")
         self.assertEqual([p["part"] for p in r["play"]], ["intro", "target"])
+
+    def test_after_connecting_the_callee_is_not_reception(self):
+        # ⛔ CL-2 の 4-182 の (4)：繋いだあとに、ご本人から「あとでかけて」と言われる・急いでいると言われると、受付の方に伺っている扱い
+        #    （asking_reception）になり、ご本人の「少々お待ちください」で取り次ぎの印（callback_held）が付き、そのあと出た方をお呼びした方かを
+        #    確かめる道（_target_back＝呼んでいる段へ戻る）に入りえた ⇒ 受付の方に伺っている扱いは、繋ぐ前だけ
+        from flowctl import HOLD
+        f, b = self.flow()
+        self.say(f, "あいにく岡田は席を外しております。", "request_callback", why="absent")
+        self.assertTrue(f.asking_reception)                                           # 繋ぐ前の受付の方：そのまま
+        g, b = self.flow()
+        self.say(g, "はい、私が岡田です。", "report_party", party="target")
+        self.say(g, "あ、すみません、いま手が離せないので、あとでかけてもらえますか。", "request_callback", why="later")
+        self.assertFalse(g.asking_reception)
+        g.on_callee(); g.on_heard("ちょっと待ってくださいね、予定を見ますので。"); g.on_check("judge", HOLD)
+        g.apply("replay_opening", {"part": "handover"})
+        self.assertEqual((g.callback_held, g.phase, "target_back" in g.facts), (False, "asking", False))
 
     def test_target_again_before_any_answer_is_a_new_person(self):
         # 繋いだあと、何も答えないうちに、また目的の人が出た：代わった方への流し直し（あいさつ・名乗り・用件・いまの質問）
@@ -9132,6 +9172,34 @@ class TargetTest(unittest.TestCase):
         accepted = {x.value for x in ast.walk(call.args[2]) if isinstance(x, ast.Constant) and isinstance(x.value, str)} | names("CALLBACK_MEANS")
         written = set(CALLBACK_FIELD.values()) | {"why", "read", "time", "number", "cycle", "until_why", "connected", "offer", "message_left"}
         self.assertEqual(sorted(written - accepted), [], "かけ直しの記録で、CL-2 が受けない項目")
+
+    def test_ai_trouble_names_match_cl2(self):
+        # 止まったAIの出来事（flowctl.AI_TROUBLE_WHATS）と別の耳の名前の頭（EAR_AI）が、CL-2 の call_report.AI_TROUBLE_WHATS・errors.EAR_AI と
+        # 同じか（出来事の名前が違うと報告が断られる・別の耳の名前が違うと、別の耳が止まったのに緊急の道で再開する＝CL-2 の 4-173 (b)・4-174 (b)）
+        import ast
+        import pathlib
+        from flowctl import AI_TROUBLE_WHATS, EAR_AI
+        core = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core"
+        if not (core / "errors.py").is_file():
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        def const(name, var):
+            node = next(n.value for n in ast.parse((core / name).read_text(encoding="utf-8")).body if isinstance(n, ast.Assign)
+                        and getattr(n.targets[0], "id", None) == var)
+            return ast.literal_eval(node)
+        self.assertEqual((const("call_report.py", "AI_TROUBLE_WHATS"), const("errors.py", "EAR_AI")), (AI_TROUBLE_WHATS, EAR_AI))
+
+    def test_until_tail_matches_cl2_spoken_time(self):
+        # 「〇時まで」の言葉の終わり（flowctl.UNTIL_TAIL）が、CL-2 の時刻の読み（spoken_time._UNTIL_TAIL）と同じ並びか（食い違うと、会話は理由を
+        # 伺わず、CL-2 は理由が無いので確かめの要る時刻にする＝CL-2 の連絡帳 4-182 の (3)「3時前」）。CL-2 の部品（app/）が無い所では飛ばす。ast で読む
+        import ast
+        import pathlib
+        from flowctl import UNTIL_TAIL
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "spoken_time.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の時刻の読み（app/）がまだ無い")
+        node = next(n.value for n in ast.parse(src.read_text(encoding="utf-8")).body if isinstance(n, ast.Assign)
+                    and getattr(n.targets[0], "id", None) == "_UNTIL_TAIL")
+        self.assertEqual(node.args[0].value.split("|"), list(UNTIL_TAIL))
 
     def test_recorded_names_match_cl2_contractor_parts(self):
         # CL-2 の 4-154：契約者の組にそろっているかを確かめる一覧（CL-2 の recordings.CONTRACTOR_PARTS）が、契約者の単位の録音の名前の正本

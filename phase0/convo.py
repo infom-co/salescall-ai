@@ -29,7 +29,7 @@ from contextlib import nullcontext
 from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, write_wav
 from offscript import SpeechGate
-from flowctl import ASKS_CHECKS, CHOICE_TYPES, RETURN_CHECKS, Flow, tool_declarations
+from flowctl import ASKS_CHECKS, CHOICE_TYPES, EAR_AI, RETURN_CHECKS, Flow, tool_declarations
 from phrases import LINE_TROUBLE
 from instruction import Business, barge_in_note, build
 from ears import open_ear
@@ -455,7 +455,7 @@ async def check_ais(*, judges=(), ear_kind: str | None = None, ring=None, model:
         except Exception as exc:
             out.append({"ai": name, "ok": False, "error": redact(repr(exc))[:160], "s": round(time.monotonic() - t0, 3)})
     if ear_kind:
-        await opened(f"別の耳（{ear_kind}）", lambda client, closing: open_ear(ear_kind, client))
+        await opened(f"{EAR_AI}（{ear_kind}）", lambda client, closing: open_ear(ear_kind, client))
     if ring is not None and model:
         await opened("会話AI", lambda client, closing: open_session(client, model, build_config(voice=None, system_instruction="確かめ"),
                                                                     closing))
@@ -827,7 +827,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     for st in route_states:
         st.on_trouble, st.emergency_first = None, False
     for e in (ear.errors if ear is not None else ()):
-        flow.on_ai_trouble({"model": f"別の耳（{ear_kind}）", "error": e, "outage": True})   # 別の耳が止まった（ears.Ear.errors）
+        flow.on_ai_trouble({"model": f"{EAR_AI}（{ear_kind}）", "error": e, "outage": True})   # 別の耳が止まった（ears.Ear.errors）
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log, "trouble": flow.trouble,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "reason": v.reason, "ask_backs": v.ask_backs,
                           "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,

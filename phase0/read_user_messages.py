@@ -124,13 +124,20 @@ def export_weeks(path: Path, out_dir: Path) -> dict:
 _EN_WORDS = re.compile(r"\b(?:the|a|an|to|of|and|for|is|are|now|next|with|so|it|that|this|on|in|then|i'll|i|we|from|by)\b", re.I)
 
 
+# 英語のつなぎの言葉で書き始めた一言（「Next に…」「Now the …」）。名前で始まる一言（「CL-2 の…」「I-30 の…」「G-59 の…」）は数えない＝
+# 1文字の言葉（a・i）は入れず、言葉のあとが空白・区切りのときだけ
+_EN_HEAD = re.compile(r"^\s*(?:the|an|to|of|and|for|is|are|now|next|with|so|it|that|this|on|in|then|i'll|we|from|by)(?=[\s,.:;—–!?])", re.I)
+
+
 def english(text: str) -> bool:
     """英語で書いた一言か：英字が、かな・漢字の半分より多く、英語の文のつなぎの言葉（the・to・now など）が2つ以上ある
-    （コードの名前を並べただけの日本語の文は数えない。` ` の中も数えない）。"""
+    （コードの名前を並べただけの日本語の文は数えない。` ` の中も数えない）。または、英語のつなぎの言葉で書き始めた（_EN_HEAD）。
+    ⛔ 2026-11-02 日本時間21時59分・22時00分（CL-1.md 0-1 の48回目・49回目）：頭の言葉だけ英語の一言（「Next に進む前に、…」）を、
+       英字の割合だけで見ていたので、見張りも数える道具も英語と見なかった。"""
     t = re.sub(r"`[^`]*`", "", text)
     jp = len(re.findall(r"[ぁ-んァ-ヶ一-龥]", t))
     en = len(re.findall(r"[A-Za-z]", t))
-    return en > 15 and en > jp * 0.5 and len(_EN_WORDS.findall(t)) >= 2
+    return bool(_EN_HEAD.match(t)) or (en > 15 and en > jp * 0.5 and len(_EN_WORDS.findall(t)) >= 2)
 
 
 def _minutes(a: str, b: str) -> float:
