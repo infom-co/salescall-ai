@@ -5941,6 +5941,7 @@ class CallFactsTest(unittest.TestCase):
         self.assertEqual(f.facts["end"], [{"turn": 1, "said": f.facts["do_not_call"][0]["said"], "reason": "callee_refused_call"}])
         self.assertTrue(f.hurried)
         self.assertNotIn("complaint", f.facts)
+        self.assertEqual(f.irreversible_check, "none")   # 判定を使わない通話＝2つ目の判定が無い（CL-2 は録音の確かめまで保留）
 
     def test_complaint_is_marked_for_a_person_and_closed_without_promise(self):
         from phrases import CLOSE_DECLINED
@@ -6074,6 +6075,7 @@ class PartyTest(unittest.TestCase):
         f = self.flow()
         r = self.say(f, "え、うちは山田ですけど、番号をお間違えではないですか？", "report_party", party="wrong_party")
         self.assertEqual((r["result"], r["say"], r["ack"], f.end_reason, f.hurried), ("end", CLOSE_DECLINED, None, "wrong_party", False))
+        self.assertEqual(f.irreversible_check, "none")   # 番号違いは会話AIの報告だけで決まる＝録音の確かめまで保留（10-30 (6)）
         self.assertIn("番号をお間違え", f.facts["party"][0]["said"])
 
     def test_people_are_noted_and_the_flow_goes_on(self):
@@ -6907,6 +6909,21 @@ class EndJudgedTest(unittest.TestCase):
         self.heard(h, "もうかけてこないでください。", self.R("いいえ", END_REFUSED))
         r = h.apply("request_end", {"reason": "done"})
         self.assertEqual((r["result"], h.end_reason, bool(h.facts.get("do_not_call"))), ("end", "callee_refused_call", True))
+
+    def test_irreversible_check_says_whether_the_judge_agreed(self):
+        # ✅ 2026-10-30 管理者のご決定 (6)：取り消せない決定は、2つ目の判定とそろったときだけその場で決める（CL-2 の連絡帳 4-182 の (1)：
+        # 報告に irreversible_check が無く、そろった断りも毎回録音の確かめまで保留になっていた）
+        from flowctl import END_NONE, END_REFUSED
+        f = self.flow()
+        self.heard(f, "もうかけてこないでください。", self.R("いいえ", END_REFUSED))
+        f.apply("request_end", {"reason": "callee_hurry"})          # 会話AIの理由ではなく、判定の読みで締めた
+        self.assertEqual((f.end_reason, f.irreversible_check), ("callee_refused_call", "agreed"))
+        self.heard(f, "いえ、そういうわけでは。", self.R("いいえ", END_NONE))
+        f.apply("request_end", {"reason": "callee_refused_call"})   # 締めたあとの会話AIの断りの報告を、判定は「言っていない」と読んだ
+        self.assertEqual((len(f.facts["do_not_call"]), f.irreversible_check), (2, "disagreed"))
+        g = self.flow()
+        self.heard(g, "はい、予約しています。", self.R("はい", END_NONE))
+        self.assertEqual(g.irreversible_check, "agreed")             # 取り消せない事実が無い
 
     def test_other_reports_and_no_report_also_end_when_the_judge_reads_it(self):
         from flowctl import END_REFUSED

@@ -1803,6 +1803,7 @@ class Flow:
         # 番号（on_resend。同じ発話で2回目は張り替えない＝on_ai_failed）
         self.trouble: dict | None = None
         self.ai_trouble: list[dict] = []   # この通話で止まったAI・緊急の道で答えたこと（on_ai_trouble の1か所。通話の報告の ai_trouble）
+        self.irr_checks: list[str] = []    # 取り消せない事実ごとの、2つ目の判定とそろったか（_note_irreversible の1か所。報告の irreversible_check）
         self.unclear_qids: set[str] = set()
         self.resent_turn: int | None = None
         # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
@@ -4057,6 +4058,7 @@ class Flow:
     def _party_known(self, party: str) -> dict:
         """人の相手の種別が分かったときの扱い（_party から。第一声を聞く段のあと）。"""
         if party == "wrong_party":
+            self._note_irreversible("party", "none")   # 番号違いは会話AIの報告だけで決まる（2つ目の判定が読まない）＝録音の確かめまで保留
             return self._close("wrong_party")
         if self.phase == "calling":
             return self._calling_reported(party)
@@ -4834,10 +4836,9 @@ class Flow:
             # もう締めた（保留で待ちきった・断られた など。電話接続側の知らせで締めたあとに、AIが終える報告をした）：二度締めない・締めた理由を
             # 変えない（⛔ 2026-10-24 の見直し（調べ役）：二つ目の締めを流し、締めた理由を「質問が終わった」に上書きしていた）。締めたあとの
             # 発信の拒否・苦情は、記録には残す（原則14：その場で発信禁止に登録）
-            if reason == "callee_refused_call":
-                self._note("do_not_call")
-            elif reason == "callee_complaint":
-                self._note("complaint")
+            if reason in ("callee_refused_call", "callee_complaint"):
+                self._note_irreversible("do_not_call" if reason == "callee_refused_call" else "complaint",
+                                        self._end_check(reason, bool(a.get("judged"))))
             if self.after_answer is not None:
                 reply, self.after_answer = self.after_answer[1], None   # 相手の質問に答えてから流すはずだった締め：いま流す
                 return reply
@@ -4880,10 +4881,9 @@ class Flow:
             # （かけ直しの記録はもうある＝同じ申し出は1通話1回）
             return self._hurry_ask()
         if reason in DECLINED_ENDS:
-            if reason == "callee_refused_call":
-                self._note("do_not_call")
-            elif reason == "callee_complaint":
-                self._note("complaint")
+            if reason in ("callee_refused_call", "callee_complaint"):
+                self._note_irreversible("do_not_call" if reason == "callee_refused_call" else "complaint",
+                                        self._end_check(reason, bool(a.get("judged"))))
             return self._close(reason)
         if self.current is not None:
             # いま聞いている質問がある間は、終えられない（まだ聞いていない・言い直しの返事待ち・念のための確認の最中）
@@ -5033,7 +5033,7 @@ class Flow:
         ✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」＝⛔ はじめは、いまの質問の録音をそのまま流し直していた"""
         qid, self.refusal_q = self.refusal_q, None
         if self._yes_no(qid):
-            self._note("do_not_call")
+            self._note_irreversible("do_not_call", self._answer_check(qid, "はい"))
             return self._close("callee_refused_call", prefix=prefix)
         (self.current, self.awaiting_confirm, self.awaiting_say), self.refusal_back = self.refusal_back, None
         self.answer_held, self.digressed = None, True
@@ -5069,7 +5069,7 @@ class Flow:
             read = {"ai"} | {k for k in JUDGMENTS if self.taken.get(qid, {}).get("check", {}).get(k) == "はい"}
             return self._callback("later", read, prefix=prefix, roles=("hurry_when",))
         if yes is False:
-            self._note("do_not_call")
+            self._note_irreversible("do_not_call", self._answer_check(qid, "いいえ"))
             return self._close("callee_refused_call", prefix=prefix)
         return self._close("callee_hurry", prefix=prefix)
 
@@ -5643,6 +5643,37 @@ class Flow:
         発話の番号に付ける（試作では通話の記録の turns）。"""
         assert kind in FACT_KINDS, kind
         self.facts.setdefault(kind, []).append({"turn": self.callee_turns, "said": (self.callee_said or "").strip()[:80], **extra})
+
+    def _note_irreversible(self, kind: str, check: str) -> None:
+        """取り消せない決定（発信の拒否 do_not_call・怒っていた complaint・番号違い）を残す唯一の場所：事実と、会話AIの読みと2つ目の判定
+        （意味の判定）がそろったか（agreed／disagreed／none＝判定が無い）。✅ 2026-10-30 管理者のご決定 (6)：「お客様の断り・番号違い・
+        怒っていた（会話AIの報告で発信禁止や行の終わりになるもの）は、2つ目の判定とそろったときだけその場で決め、食い違えば、通話後の録音の
+        確かめで決まるまで、そのお客様にかけずに保留する」（Intent.md 18-3）。⛔ 11-02 まで、そろったかを報告に入れておらず（CL-2 の連絡帳
+        4-182 の (1)）、どの通話も「判定が無い」になって、そろった断りも毎回録音の確かめまで保留になっていた。"""
+        if kind != "party":
+            self._note(kind)
+        self.irr_checks.append(check)
+
+    def _end_check(self, reason: str, judged: bool) -> str:
+        """電話を終える言葉（断り・怒り）で残す事実の、判定とそろったか（_note_irreversible へ渡す）：判定で決めた（judged）か、いまの発話の判定の
+        読みが同じ理由なら agreed・別の読みなら disagreed・判定を使わない通話か読みが届いていなければ none。"""
+        if judged:
+            return "agreed"
+        end = self._end_now() if self.judging else None
+        return "agreed" if END_REASON.get(end) == reason else "none" if end is None else "disagreed"
+
+    def _answer_check(self, qid: str, cond: str) -> str:
+        """答えで残す取り消せない事実（ご遠慮の確かめへの「はい」・また改めて伺ってよいかへの「いいえ」）の、判定とそろったか：受け取った答えの
+        判定の読み（taken の check）のどれかが同じなら agreed・読みが届いていて違えば disagreed・届いていなければ none。"""
+        reads = [v for k, v in self.taken.get(qid, {}).get("check", {}).items() if k in JUDGMENTS and v is not None]
+        return "agreed" if cond in reads else "disagreed" if reads else "none"
+
+    @property
+    def irreversible_check(self) -> str:
+        """通話の報告の irreversible_check（CL-2 の call_report.IRREVERSIBLE_CHECKS）：取り消せない事実のどれかが食い違えば disagreed、
+        判定の無いものがあれば none、ほかは agreed（取り消せない事実が無ければ agreed＝CL-2 は見ない）。"""
+        c = self.irr_checks
+        return "disagreed" if "disagreed" in c else "none" if "none" in c else "agreed"
 
     def _close(self, reason: str, prefix: str = "", spoken: bool = False, text: tuple[str, str] | None = None, part: bool = False) -> dict:
         """締め（DESIGN.md 6-14）を作る唯一の場所。毎回同じ文なので、言い方は決まった1つ（ふつう＝CLOSING・急いでいる／断られた／怒っている

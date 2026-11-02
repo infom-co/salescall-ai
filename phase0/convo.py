@@ -837,6 +837,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             "not_reached": flow.not_reached,  # 目的の人に繋がらずに終わった理由（会話の報告の not_reached。Flow.not_reached の1か所）
             "cut": flow.cut,  # 切れ方の材料（会話の報告の cut。Flow.on_line_end の1か所。CL-2 の 4-151）
             "apology_delivered": flow.apology_delivered,  # お詫びの電話で、お詫びを伝えられたか（会話の報告の apology_delivered。お詫びの電話でなければ None）
+            "irreversible_check": flow.irreversible_check,  # 取り消せない事実と2つ目の判定がそろったか（Flow._note_irreversible の1か所。CL-2 の 4-182 の (1)）
             "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
             "unchecked": flow.unchecked(),
