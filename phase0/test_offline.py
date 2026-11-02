@@ -4763,6 +4763,59 @@ class EnglishLineTest(unittest.TestCase):
         self.assertFalse(english("作りに入ります。phrases（言い方）・instruction（業務の文）・flowctl（流れ）を一度に直します。"))
 
 
+class ConversationLogTest(unittest.TestCase):
+    """会話の記録から、管理者のご発言と CL-1 の返事を1つの読み方で拾い、週ごとに書き出す（✅ 2026-11-01 管理者＝CL-2 の連絡帳 4-181）。"""
+
+    @staticmethod
+    def _log(rows):
+        import json, tempfile
+        f = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8")
+        f.write("\n".join(json.dumps(r, ensure_ascii=False) for r in rows))
+        f.close()
+        return Path(f.name)
+
+    def _rows(self):
+        T = "2026-11-02T10:%02d:00.000Z"
+        return [
+            {"type": "user", "timestamp": T % 0, "message": {"content": "1つ目のご発言"}},
+            {"type": "user", "timestamp": T % 1, "isMeta": True, "message": {"content": "# 手引きの本文"}},           # 中の文（外す）
+            {"type": "queue-operation", "operation": "enqueue", "timestamp": T % 2, "content": "作業中のご発言"},
+            {"type": "attachment", "timestamp": T % 2, "attachment": {"type": "queued_command", "prompt": "作業中のご発言",
+                                                                     "origin": {"kind": "human"}}},
+            {"type": "attachment", "timestamp": T % 3, "attachment": {"type": "queued_command", "prompt": "<agent-message …>",
+                                                                     "origin": {"kind": "peer"}}},                     # サブエージェントの報告（外す）
+            {"type": "queue-operation", "operation": "enqueue", "timestamp": T % 4, "content": "あとで届いたご発言"},
+            {"type": "assistant", "timestamp": T % 5, "message": {"content": [{"type": "text", "text": "次に、返事を書きます。"},
+                                                                            {"type": "tool_use", "name": "Bash"}]}},
+            {"type": "user", "timestamp": T % 30, "message": {"content": "あとで届いたご発言"}},                       # 26分遅れて届いた（1回だけ）
+            {"type": "assistant", "timestamp": T % 31, "isSidechain": True, "message": {"content": [{"type": "text", "text": "下請けの文"}]}},
+        ]
+
+    def test_reads_each_utterance_once_from_one_place(self):
+        from read_user_messages import USER, USER_MIDTURN, ME, user_messages
+        got = [(w, s) for _, w, s in user_messages(self._log(self._rows()), with_assistant=True)]
+        self.assertEqual(got, [(USER, "1つ目のご発言"), (USER_MIDTURN, "作業中のご発言"), (ME, "次に、返事を書きます。"),
+                               (USER, "あとで届いたご発言")])   # ⛔ 11-02 まで queue-operation から拾い、遅れて届いたご発言を2回出していた
+
+    def test_export_writes_weeks_with_an_index_and_refuses_key_like_text(self):
+        import tempfile
+        from read_user_messages import export_weeks
+        out = Path(tempfile.mkdtemp())
+        n = export_weeks(self._log(self._rows()), out)
+        self.assertEqual((n["週"], n["ご発言"], n["件"]), (1, 3, 4))
+        text = (out / "2026-11-02_week.md").read_text(encoding="utf-8")   # 11-02 は月曜（日本時間 19時台）
+        self.assertIn("ご発言 3件", text)
+        self.assertIn("**【19:02:00 管理者（CL-1 の作業中に）】**", text)
+        self.assertNotIn("手引きの本文", text)
+        self.assertNotIn("下請けの文", text)
+        bad = self._rows() + [{"type": "user", "timestamp": "2026-11-02T11:00:00.000Z",
+                               "message": {"content": "AIza" + "x" * 30}}]
+        out2 = Path(tempfile.mkdtemp())
+        with self.assertRaises(SystemExit):
+            export_weeks(self._log(bad), out2)
+        self.assertEqual(list(out2.iterdir()), [])                          # 1つも書かない
+
+
 class WordingTest(unittest.TestCase):
     """AIへの指示と録音の読み方に、ユーザーが外すよう言った言葉を入れない。"""
 

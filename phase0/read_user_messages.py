@@ -12,48 +12,113 @@
 - --english：こちらの返事のうち、英語で書いた一言だけを出す（日本語で書く決まり＝CL-1.md 0-2 の書き方。読み直しで数える）。
   ⛔ 2026-10-24 の失敗（7回目）：コンパクトの前後で、作業の途中の一言を56回英語で書いた（読み直したあとのターンにも2回）。
 - キーなどの秘密は会話の記録に書かない決まりなので、読み直しても外へは出ない（出力は作業場所に置き、リポジトリには入れない）。
+  ただし --export（下）は、管理者のご指示でリポジトリに置くもの＝書き出す前にキーらしい文字を探し、あれば何も書かずに止める。
+- --export <フォルダ>：管理者のご発言と CL-1 の返事の全文を、日本時間の週（月曜〜日曜）ごとの Markdown に書き出す（頭に日ごとの目次。
+  何度流しても同じものができる＝上書き）。✅ 2026-11-01 管理者（CL-2 の連絡帳 4-181 のとおり）：「CL-1とCL-3用にもあなたが同様の
+  フォルダを作って、そこに同様に履歴を今後、完全保存していくように私から指示があったことを彼らに伝えてください。」⇒ docs/conversation_log/CL-1/。
+  読み直しと同じ読み方（`_rows` の1か所）で書き出す＝読み直しで読めるご発言と、残したご発言が食い違わない。
+
+どれをご発言とするか（`_rows` の1か所。2026-11-02 に会話の記録の全部で数えて決めた）：
+- ふつうの発言のうち、中の文の印（`isMeta`）の付いたもの（手引きの本文・画面の命令の注意・サブエージェントの報告・分類器の知らせ）は外す。
+- 作業中に届いた発言は、人が送った `queued_command`（`origin.kind`＝human）から拾う。⛔ 2026-11-02 まで `queue-operation` の行から拾っていて、
+  届くのが10分以上遅れたご発言（作業が終わるまで待って届いたもの）を2回出していた（11-02 の 7時22分と 7時44分）。`queue-operation` に
+  しか無いのは `/context`（画面の命令）とサブエージェントの報告だけだった（10-12〜11-02 の全部で19件）。
+- サブエージェント（`isSidechain`）の行は外す。
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SKIP = ("<system-reminder>", "<task-notification>", "This session is being continued", "[SYSTEM NOTIFICATION", "Caveat:",
         "<command-", "<local-command")
+USER, USER_MIDTURN, ME = "ユーザー", "ユーザー（作業中に）", "CL-1"
+JST = timezone(timedelta(hours=9))
+SECRET = re.compile(r"AIza[0-9A-Za-z_\-]{20,}|sk-[A-Za-z0-9_\-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY")   # キーらしい文字（書き出しの前に探す）
+
+
+def _texts(c) -> list[str]:
+    return [c] if isinstance(c, str) else [x.get("text", "") for x in (c or []) if isinstance(x, dict) and x.get("type") == "text"]
+
+
+def _rows(path: Path, since: str = "", until: str = "", with_assistant: bool = False) -> list[tuple[str, str, str]]:
+    """[(時刻（世界標準時・秒まで）, 誰, 発言)]。古い順。誰＝USER・USER_MIDTURN・ME。ご発言の決め方の唯一の場所（上の注）。"""
+    out, last_seen = [], {}
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            ts = d.get("timestamp", "")
+            if not ts or ts < since or (until and ts > until) or d.get("isSidechain"):
+                continue
+            texts, who = [], USER
+            if d.get("type") == "user" and not d.get("isMeta"):
+                texts = _texts(d.get("message", {}).get("content"))
+            elif d.get("type") == "attachment":
+                a = d.get("attachment") or {}
+                if a.get("type") == "queued_command" and (a.get("origin") or {}).get("kind") == "human":   # 作業中に届いた発言
+                    texts, who = _texts(a.get("prompt")), USER_MIDTURN
+            elif with_assistant and d.get("type") == "assistant":
+                texts, who = _texts(d.get("message", {}).get("content") or []), ME
+            for t in texts:
+                s = t.strip()
+                if not s or (who != ME and s.startswith(SKIP)):
+                    continue
+                key = (who == ME, s[:200])
+                if key in last_seen and _minutes(last_seen[key], ts) < 10:  # 同じ発言が続けて2回記録されたもの
+                    continue
+                last_seen[key] = ts
+                out.append((ts, who, s))
+    return sorted(out, key=lambda r: r[0])
 
 
 def user_messages(path: Path, since: str = "", until: str = "", with_assistant: bool = False) -> list[tuple[str, str, str]]:
-    """[(時刻, 誰, 発言)]。古い順。誰＝「ユーザー」か「CL-1」。"""
-    out, last_seen = [], {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            d = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        ts = d.get("timestamp", "")
-        if ts < since or (until and ts > until):
-            continue
-        texts, who = [], "ユーザー"
-        if d.get("type") == "user":
-            c = d.get("message", {}).get("content")
-            texts = [c] if isinstance(c, str) else [x.get("text", "") for x in (c or []) if isinstance(x, dict) and x.get("type") == "text"]
-        elif d.get("type") == "queue-operation" and isinstance(d.get("content"), str):  # 作業中に届いた発言
-            texts = [d["content"]]
-        elif with_assistant and d.get("type") == "assistant":
-            c = d.get("message", {}).get("content") or []
-            texts, who = [x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text"], "CL-1"
-        for t in texts:
-            s = t.strip()
-            if not s or (who == "ユーザー" and s.startswith(SKIP)):
-                continue
-            key = (who, s[:200])
-            if key in last_seen and _minutes(last_seen[key], ts) < 10:  # 同じ発言が続けて2回記録されたもの
-                continue
-            last_seen[key] = ts
-            out.append((ts[:16], who, s))
-    return sorted(out)
+    """[(時刻（世界標準時・分まで）, 誰, 発言)]。古い順。誰＝「ユーザー」「ユーザー（作業中に）」か「CL-1」。"""
+    return [(ts[:16], who, s) for ts, who, s in _rows(path, since, until, with_assistant)]
+
+
+def export_weeks(path: Path, out_dir: Path) -> dict:
+    """管理者のご発言と CL-1 の返事の全文を、日本時間の週ごとの Markdown に書き出す（上書き）。キーらしい文字があれば何も書かずに止める。"""
+    label = {USER: "管理者", USER_MIDTURN: "管理者（CL-1 の作業中に）", ME: "CL-1"}
+    days = defaultdict(list)
+    for ts, who, s in _rows(path, with_assistant=True):
+        t = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(JST)
+        days[t.date()].append((t, label[who], s))
+    weeks = defaultdict(list)
+    for day in sorted(days):
+        weeks[day - timedelta(days=day.weekday())].append(day)
+    wd, files = "月火水木金土日", {}
+    for monday, ds in sorted(weeks.items()):
+        head = [f"# CL-1 SalesCall AI（会話の担当）と管理者のやり取り（{monday:%Y-%m-%d}〜{monday + timedelta(days=6):%m-%d}・日本時間）\n\n",
+                "管理者のご発言（CL-1 の作業中に届いたものも）と CL-1 の返事の全文。作業の記録（命令とその結果）・仕組みの知らせ・要約・"
+                "サブエージェントの報告は入れていない。書き出しは `phase0/read_user_messages.py --export`（README.md）。\n\n",
+                "## 目次（日ごと。ご発言の時刻と書き出し）\n"]
+        body = []
+        for day in ds:
+            items = days[day]
+            did = f"d{day:%Y%m%d}"
+            head.append(f"\n- [{day:%m-%d}（{wd[day.weekday()]}）](#{did})　ご発言 {sum(w != 'CL-1' for _, w, _ in items)}件\n")
+            body.append(f'\n<a id="{did}"></a>\n\n# {day:%Y-%m-%d}（{wd[day.weekday()]}）\n')
+            for n, (t, who, text) in enumerate(items):
+                eid = f"{did}-{n}"
+                if who != "CL-1":
+                    head.append(f"  - [{t:%H:%M} {' '.join(text.split())[:40]}](#{eid})\n")
+                body.append(f'\n---\n\n<a id="{eid}"></a>**【{t:%H:%M:%S} {who}】**\n\n{text}\n')
+        files[f"{monday:%Y-%m-%d}_week.md"] = "".join(head + ["\n"] + body)
+    found = [(name, m.group(0)[:6]) for name, s in files.items() for m in SECRET.finditer(s)]
+    if found:
+        raise SystemExit(f"キーらしい文字があるので書き出しません（ファイルと頭の6字）：{found}")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name, s in files.items():
+        (out_dir / name).write_text(s, encoding="utf-8")
+    return {"週": len(weeks), "日": len(days), "件": sum(map(len, days.values())),
+            "ご発言": sum(w != "CL-1" for v in days.values() for _, w, _ in v)}
 
 
 _EN_WORDS = re.compile(r"\b(?:the|a|an|to|of|and|for|is|are|now|next|with|so|it|that|this|on|in|then|i'll|i|we|from|by)\b", re.I)
@@ -85,7 +150,11 @@ def main() -> None:
     p.add_argument("--with-assistant", action="store_true")
     p.add_argument("--english", action="store_true", help="こちらの返事のうち、英語で書いた一言だけを出す")
     p.add_argument("--out", type=Path)
+    p.add_argument("--export", type=Path, help="管理者のご発言と CL-1 の返事の全文を、週ごとの Markdown でこのフォルダに書き出す")
     args = p.parse_args()
+    if args.export:
+        print(f"{args.export} に書きました：{export_weeks(args.transcript, args.export)}")
+        return
     rows = user_messages(args.transcript, args.since, args.until, args.with_assistant or args.english)
     if args.english:
         rows = [r for r in rows if r[1] == "CL-1" and english(r[2])]
