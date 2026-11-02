@@ -12,11 +12,19 @@
 from __future__ import annotations
 
 import json
+import time
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
 from flowctl import HEAR_LOST, HEAR_OK, UNDECIDED, callback_question, hear_choices
 
 MODELS = ("3.8 Flash", "3.7 Flash")
+BUSY_TRIES, BUSY_WAIT_S = 8, 60   # 混雑・接続の切れのときの問い合わせ直し（回数・待つ秒の刻み）
+
+
+def busy(exc: BaseException) -> bool:
+    """モデルの混雑（503 UNAVAILABLE）・接続の切れ（枠とは別の、一時的な失敗）か。"""
+    t = repr(exc)
+    return "503" in t or "UNAVAILABLE" in t or "disconnected" in t.lower() or "RemoteProtocolError" in t
 PER_KIND = 4   # 種類ごとに作らせる言葉の数
 EXPLAINED = "料金は月額3,000円で、初月は無料となっております。"   # 前の段でご説明した内容（試しの業務。ApprovalTest と同じ）
 UNSURE = "どちらとも取れない"   # 決められない（UNDECIDED）の種類の名前
@@ -141,13 +149,21 @@ def run(args) -> dict:
         for key, fn in (("points", lambda c, m=m: _ask_points(c, ids[m], points)), ("hear", lambda c, m=m: _ask_hear(c, ids[m], hear))):
             if rows[key].get(m):
                 continue
-            try:
-                got, used = ring.call(ids[m], fn)
-                rows[key][m] = got
-                say(key, m, f"{len(got)}個（キー {ring.keys[used].label}）")
-            except Exception as exc:
-                errors[f"{key}・{m}"] = describe_error(exc)
-                say(key, m, "誤りで止まりました：", str(errors[f"{key}・{m}"].get("message", ""))[:200])
+            for attempt in range(BUSY_TRIES):
+                try:
+                    got, used = ring.call(ids[m], fn)
+                    rows[key][m] = got
+                    errors.pop(f"{key}・{m}", None)
+                    say(key, m, f"{len(got)}個（キー {ring.keys[used].label}）")
+                    break
+                except Exception as exc:
+                    errors[f"{key}・{m}"] = describe_error(exc)
+                    say(key, m, "誤りで止まりました：", str(errors[f"{key}・{m}"].get("message", ""))[:200])
+                    if not busy(exc) or attempt == BUSY_TRIES - 1:
+                        break
+                    # 混雑（503）・接続の切れは、枠が尽きたのではなく一時的（⛔ 2026-11-02：これを「明日まで作れない」と伝えた＝keys_now で
+                    # 確かめると、使える2本は混雑だった）＝少し待って問い合わせ直す
+                    time.sleep(BUSY_WAIT_S * (attempt + 1))
             save_partial("G-73", {"rows": rows, "errors": errors})
     words = [w for by in rows.values() for got in by.values() for w in got]
     seen, uniq = set(), []
