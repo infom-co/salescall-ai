@@ -167,10 +167,13 @@ def say(*parts: object) -> None:
     print(redact(" ".join(str(p) for p in parts)), flush=True)
 
 
-def make_client(key: ApiKey):
+def make_client(key: ApiKey, timeout_s: float | None = None):
+    """timeout_s＝1回の問い合わせを待つ長さの上限（秒。None＝区切らない）。⛔ 2026-11-02：キーの確かめ（keys_now）で、混んでいるモデルの
+    問い合わせが答えずに止まり、5分の時間切れで、それまでに分かったキーの状態も出なかった"""
     from google import genai  # 使うときだけ読み込む（dry-run では不要）
+    from google.genai import types
 
-    return genai.Client(api_key=key.value)
+    return genai.Client(api_key=key.value, **({"http_options": types.HttpOptions(timeout=int(timeout_s * 1000))} if timeout_s else {}))
 
 
 # ---------------------------------------------------------------- 結果

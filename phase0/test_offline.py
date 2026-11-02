@@ -11937,5 +11937,42 @@ class G73WordsTest(unittest.TestCase):
         self.assertIn("N1", g.question_map())
 
 
+
+class KeysNowTest(unittest.TestCase):
+    """キーの確かめ（keys_now）：1本ごとにすぐ出す・1回の問い合わせは決めた秒で区切る（⛔ 2026-11-02：混んでいるモデルで1本が答えずに止まり、
+    5分の時間切れで、それまでに分かったキーの状態も出なかった）。"""
+
+    def test_each_key_is_told_at_once_and_waits_are_bounded(self):
+        import io
+        import contextlib
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+        import keys_now
+        made = []
+
+        def fake_client(key, timeout_s=None):
+            made.append(timeout_s)
+            def gen(model, contents):
+                if key.name == "B":
+                    raise TimeoutError("timed out")
+                return "はい"
+            return N(models=N(generate_content=gen))
+        ring = N(keys=[N(name="A"), N(name="B")], state_path=None)
+        out = io.StringIO()
+        with m.patch.object(keys_now, "KeyRing", lambda *a, **k: ring), m.patch.object(keys_now, "make_client", fake_client), \
+                contextlib.redirect_stdout(out):
+            got = keys_now.check("gemini-x")
+        self.assertEqual(made, [keys_now.TIMEOUT_S] * 2)
+        self.assertEqual(got["使える"], ["A"])
+        self.assertTrue(got["ほか"][0].startswith("B："))
+        self.assertEqual(len(out.getvalue().strip().splitlines()), 2)       # 1本ごとに1行
+
+    def test_client_takes_the_wait_limit(self):
+        from types import SimpleNamespace as N
+        from common import make_client
+        c = make_client(N(value="x"), timeout_s=60)
+        self.assertEqual(c._api_client._http_options.timeout, 60000)
+
+
 if __name__ == "__main__":
     unittest.main()

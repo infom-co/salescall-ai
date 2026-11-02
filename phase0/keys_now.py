@@ -10,6 +10,8 @@ import sys
 
 from common import KeyRing, base_parser, describe_error, is_daily, is_denied, is_quota, is_zero_limit, make_client, require_python, say
 
+TIMEOUT_S = 60   # 1回の問い合わせを待つ長さの上限（混んでいるモデルが答えずに止まっても、次のキーへ進む）
+
 
 def check(model: str) -> dict[str, list[str]]:
     ring = KeyRing(base_parser("").parse_args([]), state_path=False)
@@ -17,19 +19,23 @@ def check(model: str) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {"使える": [], "1日の上限": [], "上限の値が0": [], "1分の上限": [], "止められている": [], "ほか": []}
     for k in ring.keys:
         try:
-            client = make_client(k)  # ⚠️ 問い合わせの間は手放さない（手放すと「client has been closed」になる）
+            client = make_client(k, timeout_s=TIMEOUT_S)  # ⚠️ 問い合わせの間は手放さない（手放すと「client has been closed」になる）
             client.models.generate_content(model=model, contents="「はい」とだけ答えてください。")
-            out["使える"].append(k.name)
+            kind, name = "使える", k.name
         except Exception as exc:
             kind = ("止められている" if is_denied(exc) else "1日の上限" if is_daily(exc) else "上限の値が0" if is_zero_limit(exc)
                     else "1分の上限" if is_quota(exc) else "ほか")
-            out[kind].append(k.name if kind != "ほか" else f"{k.name}：{describe_error(exc).get('message', '')[:80]}")
+            name = k.name if kind != "ほか" else f"{k.name}：{describe_error(exc).get('message', '')[:80]}"
+        out[kind].append(name)
+        say(model, kind, name)   # 1本ごとにすぐ出す（途中で止まっても、それまでのキーの状態は残る）
     return out
 
 
 if __name__ == "__main__":
     require_python()
     m = sys.argv[1] if len(sys.argv) > 1 else "gemini-3.5-flash-lite"
+    if m.startswith("-"):   # ⛔ 2026-11-02：「--help」をモデルの名前として全部のキーに問い合わせた
+        raise SystemExit(__doc__)
     for kind, names in check(m).items():
         say(m, kind, len(names), names)
     # ⛔ 2026-10-18 夜：11本とも「使える」と出たのに、流すと44個で全部が1日の上限に当たった（1回の問い合わせが通っただけ）
