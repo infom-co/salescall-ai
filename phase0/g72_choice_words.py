@@ -21,6 +21,7 @@ from flowctl import CHOICE_TYPES
 
 MODELS = ("3.8 Flash", "3.7 Flash")
 KINDS = ("doubt", "do")
+KEEP = "keep"   # 目的につなげて伺う言葉（決め方が違う＝meanings.decide_keep。✅ 2026-11-03 ユーザー (2)「OK」）
 # ⛔ 取り違え・質問に無いことを足した言葉（CL-1 が1つずつ見て書く）：(言葉の種類, 質問の文, 選択肢, 言葉)
 BAD: set[tuple[str, str, str, str]] = {
     # 1回目（作らせる文の決まりが申し出の形だけだった・向きをモデルどうしでしか比べていなかった）
@@ -62,8 +63,9 @@ def run(args) -> dict:
     ring = KeyRing(args)
     ids = ring.model_ids()
     k, new = known(), new_questions()
-    rows: dict = {"meaning": {}, "facts": {}, **{kind: {} for kind in KINDS}}
+    rows: dict = {"meaning": {}, "facts": {}, **{kind: {} for kind in KINDS + (KEEP,)}}
     errors: dict = {}
+    prev: dict = {}   # 前の結果の選択肢ごとの言葉：種類 → モデル → {質問の文: {選択肢: 言葉}}
     if args.resume:
         # 途中で止まった流し（通信が切れた・時間切れ）の続き・前の結果の続き：答えのあった問い合わせは、もう一度は送らない（同じ問い合わせを2回しない）。
         # --redo の種類だけは送り直す（作らせる文の決まりを直したとき）
@@ -72,8 +74,18 @@ def run(args) -> dict:
         part = sorted(glob.glob(str(HERE / "results" / "G-72_partial.json"))) or sorted(glob.glob(str(HERE / "results" / "G-72_2*.json")))
         redo = set(filter(None, (args.redo or "").split(",")))
         if part:
-            for kind, by in json.loads(open(part[-1], encoding="utf-8").read()).get("rows", {}).items():
-                if kind not in redo:
+            old = json.loads(open(part[-1], encoding="utf-8").read())
+            old_targets = [t for t, _ in old.get("targets", [])]
+            for kind, by in old.get("rows", {}).items():
+                if kind in redo:
+                    continue
+                if kind in KINDS + (KEEP,):
+                    # 選択肢ごとの言葉は、前の結果の質問の並び（targets）に合わせた並び ⇒ 質問の文で合わせて持つ（⛔ 2026-11-03：前の結果のあとで質問が
+                    # 足され、番号で合わせて止まった）。今の並びに無い質問・前に無い質問は、足りない分だけ問い合わせる（ask_words）
+                    for m, v in by.items():
+                        if v is not None and len(v) == len(old_targets):
+                            prev.setdefault(kind, {})[m] = dict(zip(old_targets, v))
+                else:
                     rows.setdefault(kind, {}).update({m: v for m, v in by.items() if v is not None})
 
     def ask(label: str, model: str, fn, kind: str):
@@ -102,12 +114,32 @@ def run(args) -> dict:
     questions = [(t, c, f, m) for t, (c, f, m) in k.items()] + [(t, c, fact_of[t], meaning_of[t]) for t, c in new]
     targets = [(t, c) for t, c, f, _ in questions if not f]   # 事実を伺う質問ではない質問だけ
     meaning_by = {t: m for t, _, _, m in questions}           # 向きを比べる意味の言葉（meanings.decide の meanings）
+    def ask_words(kind: str, m: str):
+        """選択肢ごとの言葉（今の質問の並びに合わせた並び）：前の結果にある質問はそのまま、足りない質問だけを1回の問い合わせで聞く。"""
+        have = prev.get(kind, {}).get(m, {})
+        missing = [(t, c) for t, c in targets if t not in have]
+        got = {}
+        if missing:
+            r = ask(kind, m, lambda cl, m=m, kind=kind, missing=missing: by_model(cl, ids[m], missing, kind), kind)
+            if r is None:
+                return None
+            got = dict(zip([t for t, _ in missing], r))
+            say(kind, m, f"足りない質問 {len(missing)} 個を問い合わせた（前の結果の {len(targets) - len(missing)} 個はそのまま）")
+        return [have.get(t, got.get(t, {})) for t, _ in targets]
+
     for kind in KINDS:
         for m in models:
-            rows[kind][m] = ask(kind, m, lambda c, m=m, kind=kind: by_model(c, ids[m], targets, kind), kind)
+            rows[kind][m] = ask_words(kind, m)
             save_partial("G-72", {"rows": rows, "errors": errors, "targets": targets})
     words = {kind: {t: decide(t, c, [(rows[kind].get(m) or [{}] * len(targets))[i] for m in models], kind, meaning_by[t])
                     for i, (t, c) in enumerate(targets)} for kind in KINDS}
+    from meanings import decide_keep
+    for m in models:
+        rows[KEEP][m] = ask_words(KEEP, m)
+        save_partial("G-72", {"rows": rows, "errors": errors, "targets": targets})
+    kept = {t: decide_keep(t, c, [(rows[KEEP].get(m) or [{}] * len(targets))[i] for m in models]) for i, (t, c) in enumerate(targets)}
+    words[KEEP] = {t: k for t, (_, k) in kept.items()}
+    words["away"] = {t: list(a) for t, (a, _) in kept.items()}
     show(targets, rows, words, models)
     summary = tally(targets, words)
     say("数え：", summary)
@@ -120,7 +152,7 @@ def show(targets, rows, words, models) -> None:
     for i, (t, c) in enumerate(targets):
         say(f"{i + 1}：{t}")
         for ch in c:
-            for kind in KINDS:
+            for kind in KINDS + (KEEP,):
                 got = {m: (rows[kind].get(m) or [{}] * len(targets))[i].get(ch, "") for m in models}
                 say(f"   {ch}（{kind}）：", " ／ ".join(f"{m}「{w}」{'' if w and check(w, t, ch, kind) else '✗'}" for m, w in got.items()),
                     "⇒", f"「{words[kind][t].get(ch, '')}」" if ch in words[kind][t] else "決まらない")
@@ -128,7 +160,8 @@ def show(targets, rows, words, models) -> None:
 
 def tally(targets, words) -> dict:
     out = {}
-    for kind in KINDS:
+    out["away"] = sum(len(words.get("away", {}).get(t, [])) for t, _ in targets)
+    for kind in KINDS + (KEEP,):
         n = sum(len(c) for _, c in targets)
         got = sum(len(words[kind][t]) for t, _ in targets)
         out[kind] = {"選択肢": n, "決まった": got, "決まらない": n - got,

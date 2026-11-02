@@ -84,8 +84,32 @@ DO_PROMPT = (
     "「お届けは午前と午後のどちらがご都合よろしいでしょうか？」の「午前」⇒「お届けは午前と」\n"
     "質問（番号：質問の文／選択肢）：\n"
 )
+# 選択肢ごとの、目的につなげて伺う言葉（flowctl.Question.keep_words・away・phrases.CONFIRM の「言い切っていない答えのあと（目的につなげて伺う）」）。事実を
+# 伺う質問ではない質問だけ。✅ 2026-11-03 ユーザー：「そもそも、導入の方向で進んでいるのに、「それでは、今月中のご導入は見送りとさせていただきますね？」だと、
+# わざわざ、獲得できそうなお客様を失いかねない確認ですよね？そんな返答は営業トークとしてありえないんじゃないですか？」・(2)「OK」（目的から遠ざかる向きの
+# 答えは、その向きで「させていただきますね？」とは言わず、目的につながる形で伺う）・(3)の答え「「それでは、来月以降にご導入ということでよろしいでしょうか？」」
+# ⚠️ 例は試しの質問・試しの言葉と重ねない（判定と同じく、作らせるモデルも例の形を探す）
+KEEP_PROMPT = (
+    "電話で、こちらのご案内やお申し込みを進めるために、お客様に聞く選択肢のある質問の一覧です。お客様の答えが少しあいまいで、答えの向きが、こちらの"
+    "目的（お客様にご利用・お申し込みいただく・こちらの申し出を受けていただく）から遠ざかる向きのとき、その向きのまま確かめると、お客様を目的から"
+    "遠ざける一言になります。そこで、目的につながる形で、次の言い方で伺います。\n"
+    "「それでは（　）でよろしいでしょうか？」\n"
+    "質問の選択肢ごとに、お客様がその選択肢を答えたときに（　）に入れる言葉を words に書いてください。\n"
+    "決まり：\n"
+    "- 目的から遠ざかる向きの選択肢だけに書きます。目的に進む向きの選択肢と、目的に関わらない選び（お支払いの方法・時間帯・来られる手段・お席など）は、"
+    "words を空にします。\n"
+    "- お客様の答えの向きは変えません（断りや見送りを、受けたことにしません）。そのうえで、目的への道を閉じない言い方にします。質問が時期や範囲を"
+    "限って聞いているなら、その外で同じことをする形にします。こちらの申し出を受けない答えなら、必要になったときにする形にします。\n"
+    "- 質問に無い約束・日時・金額・別の品物を足しません。\n"
+    "- 「でよろしいでしょうか？」にそのまま続けて読める形で、「ということ」で終えます。\n"
+    "- 丁寧な言い方にします（「ご」「お」を付けるなど）。「、」（読点）を入れません。「？」で終えません。\n"
+    "- 例：「来月のお申し込みをお考えでしょうか？」の「はい」⇒ 空、「いいえ」⇒「再来月以降にお申し込みということ」／"
+    "「カタログをお送りしてもよろしいでしょうか？」の「はい」⇒ 空、「いいえ」⇒「カタログは必要になりましたらお送りするということ」／"
+    "「お届けは午前と午後のどちらがご都合よろしいでしょうか？」の「午前」「午後」⇒ どちらも空\n"
+    "質問（番号：質問の文／選択肢）：\n"
+)
 # 言葉の種類（唯一の場所）：意味の言葉（判定に見せる選択肢の名前・言い直し）・いまの話の向きを伺う言葉・こちらがすることの言葉。作り方・確かめ・決め方は同じ1つ
-PROMPTS = {"meaning": PROMPT, "doubt": DOUBT_PROMPT, "do": DO_PROMPT}
+PROMPTS = {"meaning": PROMPT, "doubt": DOUBT_PROMPT, "do": DO_PROMPT, "keep": KEEP_PROMPT}
 
 
 def _schema():
@@ -140,6 +164,8 @@ def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool
     if kind == "doubt" and ("ということ" in w or w.endswith("こと")):
         return False
     if kind == "do" and (re.search(r"させて|させ$", w) or re.search(r"(?:ます|です|ね|ください)$", w)):
+        return False
+    if kind == "keep" and (not w.endswith("ということ") or re.search(r"させて|させていただ", w)):
         return False
     base = unicodedata.normalize("NFKC", question + choice)
     nouns = [x.surface for x in split(w) if x.feature.pos1 == "名詞" and len(x.surface) >= 2]
@@ -212,6 +238,20 @@ def decide_replies(choices: tuple, model_replies: list[dict]) -> dict:
         if len(got) >= 2 and got[0] in choices and all(g == got[0] for g in got[1:]):
             out[w] = got[0]
     return out
+
+
+def decide_keep(question: str, choices: tuple, model_words: list[dict]) -> tuple[tuple, dict]:
+    """目的から遠ざかる向きの選択肢（away）と、目的につなげて伺う言葉（keep_words）を決める（取込のとき）。遠ざかる向きかは、どちらか1つのモデルでも
+    言葉を書けば入れる（安全側＝その選択肢には「それでは…させていただきますね？」を使わない）。言葉は、2つ以上のモデルがどちらも書き、どちらも確かめに
+    通るときだけ、最初のモデルの言葉（決まらなければ、押しも引きもしない今までの言い直しに戻る）。"""
+    away, out = [], {}
+    for c in choices:
+        got = [m.get(c, "") for m in model_words]
+        if any(got):
+            away.append(c)
+        if len(got) >= 2 and all(g and check(g, question, c, "keep") for g in got):
+            out[c] = got[0]
+    return tuple(away), out
 
 
 def decide(question: str, choices: tuple, model_words: list[dict], kind: str = "meaning", meanings: dict | None = None) -> dict:

@@ -12173,5 +12173,72 @@ class KeysNowTest(unittest.TestCase):
         self.assertEqual(c._api_client._http_options.timeout, 60000)
 
 
+
+class HedgedSalesTest(unittest.TestCase):
+    """言い切っていない最初の答えのあとの一言を、営業の向きで作る（✅ 2026-11-03 ユーザー (1)(2)(3)「OK」・(4)「はい、ただし…自動で置き換える仕組みが必要」）。
+    ⛔ それまでは、進める向きの形「それでは…させていただきますね？」を、目的から遠ざかる向きの選択肢にまで当てていた（「それでは、今月中のご導入は見送りと
+    させていただきますね？」＝ユーザー：「わざわざ、獲得できそうなお客様を失いかねない確認ですよね？そんな返答は営業トークとしてありえないんじゃないですか？」）"""
+
+    G15 = dict(conditions=("はい", "いいえ"), meanings={"はい": "今月中のご導入をお考えということ", "いいえ": "今月中のご導入はお考えではないということ"},
+               do_words={"はい": "今月中のご導入をご検討中と", "いいえ": "今月中のご導入は見送りと"})
+
+    def test_away_answer_is_asked_toward_the_goal(self):
+        from flowctl import Flow, Question
+        q = Question("G15", "今月中のご導入をお考えでしょうか？", "yes_no", keep_words={"いいえ": "来月以降にご導入ということ"}, **self.G15)
+        f = Flow([q])
+        r = AmbiguousAnswerTest.say(f, "たぶん来月以降になります。", "record_answer", question_id="G15", condition_id="いいえ")
+        self.assertEqual((r["result"], r["say"], r["ack"]), ("confirm_required", "それでは来月以降にご導入ということでよろしいでしょうか？", "hai"))
+        AmbiguousAnswerTest.say(f, "はい、そうですね。", "confirm_field", question_id="G15", result="affirmed")
+        self.assertEqual(f.export()["G15"], "いいえ")
+        # 進める向きの選択肢（目的につなげて伺う言葉が無い）は今のまま「それでは…させていただきますね？」
+        r = AmbiguousAnswerTest.say(Flow([q]), "たぶん今月中に入れます。", "record_answer", question_id="G15", condition_id="はい")
+        self.assertEqual(r["say"], "それでは今月中のご導入をご検討中とさせていただきますね？")
+
+    def test_hedged_answer_with_a_follow_up_is_taken_and_asked(self):
+        from flowctl import Flow, Question
+        q = Question("G28", "当日のキャンセルはございませんか？", "yes_no", conditions=("はい", "いいえ"),
+                     do_words={"はい": "当日のキャンセルはなしと", "いいえ": "当日のキャンセルありと"})
+        fq = Question("G28b", "それでは、キャンセルになさいますか？それとも、日時を変更なさいますか？", "choice", conditions=("キャンセル", "日時変更"),
+                      ask_if=("G28", ("いいえ",)), ask_if_hedged=True)
+        f = Flow([q, fq])
+        self.assertEqual(f.order, ["G28"])
+        r = AmbiguousAnswerTest.say(f, "たぶん行けなくなりそうです。", "record_answer", question_id="G28", condition_id="いいえ")
+        self.assertEqual((r["result"], r["question_id"]), ("next", "G28b"))   # 言い直さずに、手立てを並べて伺う
+        self.assertEqual((f.items["G28"].state, f.export()["G28"]), ("accepted", "いいえ"))
+        self.assertTrue(f.items["G28"].hedged)   # 「曖昧」の印（依頼者へ渡す）
+        # 言い切った答え（「キャンセルさせてください」）は伺わない（言い切っていないときだけ）
+        g = Flow([q, fq])
+        AmbiguousAnswerTest.say(g, "キャンセルさせてください。", "record_answer", question_id="G28", condition_id="いいえ")
+        self.assertNotIn("G28b", g.order)
+        # 伺う質問が無い答え（「はい」）は今までの言い直し
+        r = AmbiguousAnswerTest.say(Flow([q, fq]), "たぶん大丈夫です。", "record_answer", question_id="G28", condition_id="はい")
+        self.assertEqual(r["say"], "それでは当日のキャンセルはなしとさせていただきますね？")
+
+    def test_day_words(self):
+        from datetime import date
+        from flowctl import day_words
+        tue = date(2026, 11, 3)
+        for day, want in ((date(2026, 11, 3), "本日以降"), (date(2026, 11, 4), "明日以降"), (date(2026, 11, 5), "明後日以降"),
+                          (date(2026, 11, 6), "今週の金曜日以降"), (date(2026, 11, 9), "来週以降"), (date(2026, 11, 11), "来週の水曜日以降"),
+                          (date(2026, 11, 16), "16日以降"), (date(2026, 12, 1), "12月1日以降")):
+            self.assertEqual(day_words(day, tue), want, day)
+        self.assertEqual(day_words(date(2026, 11, 9), date(2026, 11, 6)), "来週以降")      # 金曜日に「3営業日以降」＝月曜日（3日先でも来週）
+        self.assertEqual(day_words(date(2026, 11, 9), date(2026, 11, 7)), "明後日以降")    # 土曜日から2日先は明後日
+        self.assertEqual(day_words(date(2027, 1, 4), date(2026, 12, 28)), "来週以降")      # 年をまたいでも週で数える
+
+    def test_day_slot_is_filled_from_the_business_day(self):
+        from datetime import date
+        from flowctl import DAY_SLOT, Flow, Question
+        q = Question("G15", "今月中のご導入をお考えでしょうか？", "yes_no", **self.G15)
+        when = Question("G15b", f"{DAY_SLOT}なら対応できますが、いつ頃がよろしいでしょうか？", "datetime", ask_if=("G15", ("はい",)), ask_if_hedged=True)
+        f = Flow([q, when], earliest_day=date(2026, 11, 9), today=date(2026, 11, 3))
+        self.assertEqual(f.questions["G15b"].text, "来週以降なら対応できますが、いつ頃がよろしいでしょうか？")
+        r = AmbiguousAnswerTest.say(f, "なるべく早く入れたいですね、たぶん。", "record_answer", question_id="G15", condition_id="はい")
+        self.assertEqual((r["result"], r["question_id"]), ("next", "G15b"))
+        with self.assertRaises(ValueError):   # 最短の日が無い（業務設定・暦の誤り）
+            Flow([q, when])
+        with self.assertRaises(ValueError):   # 録音で流す電話ではまだ使えない（流し方は伺い中）
+            Flow([q, when], earliest_day=date(2026, 11, 9), today=date(2026, 11, 3), play_recordings=True)
+
 if __name__ == "__main__":
     unittest.main()
