@@ -672,8 +672,9 @@ class Hurry1101(unittest.TestCase):
 
 class Approval1102(unittest.TestCase):
     """CL-1 の連絡帳 4-66 の (c)（2026-11-02 ✅ ユーザー）：説明した内容をご承認いただけず、ご納得いただけなかった点を伺った答え（事実
-    not_agreed）。会話の側の形のまま受け取る（said は根拠の発話ではなく答えの値＝お答えいただけなければ null・長さは決まっていない）。
-    依頼者へ「ご納得いただけなかった点」として返す（判定の中身 not_agreed）。人の言葉でしか起きない＝話した。"""
+    not_agreed）。said＝根拠の発話・point＝ご納得いただけなかった点の値（CL-1 の連絡帳 4-69 の 4-185 の (1)。お答えいただけなければ
+    null）。point の鍵の無い前の形の報告は said が値（null も長い文字もありうる）なので、said を値として読む。依頼者へ「ご納得
+    いただけなかった点」として返す（判定の中身 not_agreed）。人の言葉でしか起きない＝話した。"""
 
     def raw(self, *rows):
         return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
@@ -685,11 +686,19 @@ class Approval1102(unittest.TestCase):
         r = from_json(raw)
         self.assertEqual((r.not_agreed[0].said, r.not_agreed[1].said, r.talked, from_json(r.to_json())), (long, None, True, r))
         none4 = {"round": None, "explained": None, "outcome": None}   # 前の形（11-02 5時56分より前）の報告には無い項目
-        self.assertEqual(run(raw).detail["not_agreed"], [{"question": "Q2", "said": long, **none4}, {"question": "Q4", "said": None, **none4}])
+        self.assertEqual(run(raw).detail["not_agreed"], [{"question": "Q2", "point": long, "said": long, **none4},
+                                                         {"question": "Q4", "point": None, "said": None, **none4}])
+        # 新しい形：根拠の発話と値を分けて受け、読み戻しても同じ（前の形の読み替えは、point の鍵が無いときだけ）
+        new = self.raw({"turn": 5, "question": "Q2", "said": "料金のところがちょっと高いかなと。", "point": "料金"},
+                       {"turn": 7, "question": "Q4", "said": "うーん。", "point": None})
+        n = from_json(new)
+        self.assertEqual([(x.said, x.point) for x in n.not_agreed], [("料金のところがちょっと高いかなと。", "料金"), ("うーん。", None)])
+        self.assertEqual(from_json(n.to_json()), n)
+        self.assertEqual([x["point"] for x in run(new).detail["not_agreed"]], ["料金", None])
         self.assertTrue(from_json({**raw, "facts": {"not_agreed": raw["facts"]["not_agreed"]}}).talked)
         for bad in ({"turn": -1, "question": "Q2", "said": "x"}, {"turn": 5, "question": "", "said": "x"},
                     {"turn": 5, "question": "Q2", "said": 3}, {"turn": 5, "said": "x"}, {"turn": 5, "question": "Q2", "said": "x", "x": 1},
-                    {"turn": True, "question": "Q2", "said": "x"}):
+                    {"turn": True, "question": "Q2", "said": "x"}, {"turn": 5, "question": "Q2", "said": "x", "point": 3}):
             with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
                 from_json(self.raw(bad))
         with self.assertRaises(ReportInvalid):
@@ -715,7 +724,7 @@ class NotAgreedEnd1102(unittest.TestCase):
                          ("not_agreed", True, True, False, r))
         j = run(raw)
         self.assertEqual((j.state, j.detail["conclusion"], j.dnc_reason), ("concluded", "not_agreed", None))
-        self.assertEqual(j.detail["not_agreed"][0], {"question": "Q4", "said": "解約の方法", "round": 1, "explained": False,
+        self.assertEqual(j.detail["not_agreed"][0], {"question": "Q4", "point": "解約の方法", "said": "解約の方法", "round": 1, "explained": False,
                                                      "outcome": "unresolved"})
         self.assertNotEqual(run(self.raw(point, end="done")).detail.get("conclusion"), "not_agreed")
         for bad in ({"round": 0}, {"round": True}, {"explained": "no"}, {"outcome": "maybe"}, {"declining": 1}):
@@ -759,3 +768,13 @@ class Untimed1101(unittest.TestCase):
                          ("not_reached", "not_transferred", "not_reached_not_transferred"))
         self.assertEqual(unreached_today(inp(None, again=True)), ("not_transferred", True))
         self.assertEqual(from_json(inp("3時まで").report.to_json()).callback.until_reason, "unavailable")
+
+
+    def test_departed_and_our_promise_are_not_callback_reasons(self):
+        """CL-1 の連絡帳 4-69 の 4-182 の (5)：在籍していない（departed）はかけ直しの申し出ではなく通話の事実 departed で、こちらが約束した
+        （our_promise）はどこにも書かれない＝かけ直しの理由に来れば報告の誤り（受けると、判定に使われない道が残る）。"""
+        for why in ("departed", "our_promise"):
+            raw = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+                "callback": [{"turn": 1, "said": "岡田は退職いたしました。", "why": why, "read": ["ai"], "time": None, "number": None}]}}
+            with self.subTest(why=why), self.assertRaises(ReportInvalid):
+                from_json(raw)

@@ -23,7 +23,7 @@ SONNET = "Claude Sonnet 5.5（考える）"
 EMERGENCY = "緊急の道（OpenRouter を通して Google が預かる Claude）"
 
 
-def trouble(ai=JEV, route=errors.DIRECT, what="止まった", error="時間切れ", turn=3, count=1) -> AiTrouble:
+def trouble(ai=SONNET, route=errors.DIRECT, what="止まった", error="時間切れ", turn=3, count=1) -> AiTrouble:
     return AiTrouble(ai, route, what, error, turn, count)
 
 
@@ -32,7 +32,15 @@ class Shape(unittest.TestCase):
 
     def test_three_kinds_by_ai_and_route(self):
         c = lambda ai, route: errors.classify(ErrorReport("ai_trouble", None, "x", ai=ai, route=route))   # noqa: E731
-        self.assertEqual(c(JEV, errors.DIRECT), "ai_stopped")
+        self.assertEqual(c(SONNET, errors.DIRECT), "ai_stopped")
+        # 緊急の道が代わりになれない判定（d1-ultra・Jev・3.5 Flash Lite）は別の種類（CL-1 の連絡帳 4-69 の 4-179 の (c)(d)）
+        for ai in (JEV, "d1 Ultra（Liquid）", "3.5 Flash Lite"):
+            with self.subTest(ai=ai):
+                self.assertEqual(c(ai, errors.DIRECT), "judge_stopped")
+        # 緊急の道が代わりになれるAIは、料金の表の Anthropic のモデルとちょうど同じ（名前を2か所に持つので、食い違えば落ちる）
+        from salescall.core import usage
+        self.assertEqual(errors.EMERGENCY_COVERS,
+                         {n for n, svc in usage.JUDGE_SERVICES.items() if svc.startswith("anthropic:")})
         self.assertEqual(c("別の耳（soniox）", errors.DIRECT), "ear_stopped")   # 別の耳は、緊急の道で補えない（2026-10-31 管理者）
         self.assertEqual(c(errors.CONVO_AI, errors.DIRECT), "convo_stopped")
         self.assertEqual(c(SONNET, EMERGENCY), "emergency_stopped")
@@ -42,13 +50,13 @@ class Shape(unittest.TestCase):
         with self.assertRaises(ValueError):
             errors.classify(ErrorReport("ai_trouble", None, "x"))
         self.assertEqual(errors.classify(ErrorReport("ai_glitch", None, "x", ai=JEV, route=errors.DIRECT)), "ai_glitch")
-        for kind in ("ai_stopped", "ear_stopped", "convo_stopped", "emergency_stopped"):
+        for kind in ("ai_stopped", "judge_stopped", "ear_stopped", "convo_stopped", "emergency_stopped"):
             a = errors.ACTIONS[kind]
             with self.subTest(kind):
-                self.assertEqual((a.stop_cause, a.stop_scope, a.stop_after, a.lasting_fixer, errors.EVIDENCE[kind]),
-                                 ("ai_connection", "tenant", None, "CL-1", "none"))
-        # 緊急の道で補えるのは、意味の判定が止まったときだけ（会話AI・別の耳・緊急の道そのもの・会話AIの異常は補えない。2026-10-31
-        # 管理者：別の耳は「『再開できない』でいい」）。補えない種類には、どれも画面に出す理由がある
+                self.assertEqual((a.stop_cause, a.stop_scope, a.fixer, a.lasting_fixer), ("ai_connection", "tenant", None, "CL-1"))
+        # 緊急の道で補えるのは、意味の判定のうち Anthropic の Sonnet が止まったときだけ（会話AI・別の耳・緊急の道そのもの・会話AIの異常・
+        # Sonnet でない判定は補えない。2026-10-31 管理者：別の耳は「『再開できない』でいい」・CL-1 の 4-69 の 4-179 の (c)(d)）。補えない
+        # 種類には、どれも画面に出す理由がある
         self.assertEqual({k for k, a in errors.ACTIONS.items() if a.emergency}, {"ai_stopped"})
         self.assertEqual(set(errors.EMERGENCY_BLOCKERS),
                          set(errors.COUNTED_FOR["ai_connection"]) - {"ai_stopped"})
@@ -201,7 +209,7 @@ class Pause(_Base):
         kinds, _ = self.note(aid, trouble(SONNET, EMERGENCY, "緊急の道で答えた", None))
         self.assertEqual(kinds, [])
         got = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.explain(tx, self.ai_stops()[0]))
-        self.assertEqual({(t["ai"], t["what"]) for t in got["ai_troubles"]}, {(JEV, "止まった"), (SONNET, "緊急の道で答えた")})
+        self.assertEqual({(t["ai"], t["what"]) for t in got["ai_troubles"]}, {(SONNET, "止まった"), (SONNET, "緊急の道で答えた")})
         self.assertEqual(got["cause"]["label"], "AIの不具合")
 
     def test_another_call_reaching_the_customer_does_not_hide_the_stopped_ai(self):
@@ -219,6 +227,23 @@ class Pause(_Base):
         stopped = watch.after_ai_troubles(self.a, SYSTEM, self.s["tenant"])
         self.assertEqual(len(stopped), 1)
         self.assertEqual(watch.after_ai_troubles(self.a, SYSTEM, self.s["tenant"]), [])   # もう止まっている
+
+    def test_a_judge_without_an_emergency_route_cannot_be_reopened_on_it(self):
+        """CL-1 の連絡帳 4-69 の 4-179 の (c)(d)：緊急の道は Anthropic の Sonnet の代わりにしかならない。d1-ultra・Jev・3.5 Flash Lite が
+        止まったときは、緊急の道では再開できない（回復の確かめが通るまで一時停止のまま。なぜ再開できないかを画面に出す）。⛔ 前は、どの
+        判定が止まっても緊急の道で再開でき、止まったAIの「止まった（直接）」が電話ごとに届き続けた。"""
+        for ai in (JEV, "d1 Ultra（Liquid）", "3.5 Flash Lite"):
+            with self.subTest(ai=ai):
+                w = World().setup()
+                aid = self.attempt(w)
+                kinds, _ = self.note(aid, trouble(ai), s=w)
+                self.assertEqual(kinds, ["judge_stopped"])
+                sid = self.ai_stops(w)[0]
+                why = self.a.in_tenant(OPERATOR, w["tenant"], lambda tx: stops.emergency_possible(tx, sid))
+                self.assertEqual(why, errors.EMERGENCY_CANNOT["judge_stopped"])
+                with self.assertRaises(stops.EmergencyNotAllowed):
+                    self.a.in_tenant(OPERATOR, w["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験"))
+                self.assertTrue(self.blocking(w))
 
     def test_the_contractor_can_reopen_on_the_emergency_route_while_a_judge_is_down(self):
         aid = self.attempt()
@@ -241,7 +266,7 @@ class Pause(_Base):
         with self.assertRaises(stops.EmergencyNotAllowed):             # 2回は出さない
             self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験"))
         # 緊急の道で補える種類（判定）がまた止まっても、止め直さない
-        _, stopped = self.note(self.attempt(_with_task(self.w, self.s)), trouble(JEV))
+        _, stopped = self.note(self.attempt(_with_task(self.w, self.s)), trouble(SONNET))
         self.assertEqual(stopped, [])
         self.assertEqual(self.blocking(), [])
         # 補えない種類（緊急の道そのもの）が止まったら、また止める（新しい停止は、緊急の道では再開できない）
@@ -267,13 +292,7 @@ class Pause(_Base):
             self.a.in_tenant(ADMIN, self.s["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験"))
         got = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
         self.assertEqual(got["emergency"]["impossible_because"], why)
-        # 会話AIの異常のエラー（つながらない 3回など）が先にあっても同じ
-        other = World().setup()
-        override(self, "stop.ai.stop_after_failures", 1)
-        watch.after_error(self.a, SYSTEM, ErrorReport("ai", None, None, unreachable=True), tenant_id=other["tenant"],
-                          client_id=other["client"])
-        sid2 = self.ai_stops(other)[0]
-        self.assertIsNotNone(self.a.in_tenant(OPERATOR, other["tenant"], lambda tx: stops.emergency_possible(tx, sid2)))
+
 
     def test_only_the_system_writes_stopped_ais_and_never_rewrites_them(self):
         aid = self.attempt()
@@ -351,7 +370,7 @@ class VerificationEar(_Base):
 
     def test_an_ear_stopping_after_reopening_on_the_emergency_route_stops_again(self):
         # 判定の止まりで緊急の道で再開していても、別の耳が止まれば、また止める（別の耳は補えない）
-        self.note(self.attempt(), trouble(JEV))
+        self.note(self.attempt(), trouble(SONNET))
         sid = self.ai_stops()[0]
         self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験：どうしても今日"))
         self.assertEqual(self.blocking(), [])
@@ -391,7 +410,7 @@ class Review25(_Base):
         self.note(aid, trouble(errors.CONVO_AI))
         first = self.ai_stops()[0]
         self.assertIsNotNone(self.check(first, True)["resumed"])               # 回復の確かめで解ける
-        self.note(aid, trouble(JEV))                                           # 同じ通話で、こんどは判定が止まった
+        self.note(aid, trouble(SONNET))                                           # 同じ通話で、こんどは判定が止まった
         sid = self.ai_stops()[0]
         self.assertIsNone(self.possible(sid))                                  # 解けた会話AIの止まりでは断らない
         self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験：どうしても今日"))
@@ -403,27 +422,28 @@ class Review25(_Base):
         self.assertEqual(len(stopped), 1)                                      # 新しく会話AIが止まれば、また止める
         self.assertTrue(self.blocking())
 
-    def test_a_conversation_ai_error_below_the_stop_count_does_not_block_the_emergency_route(self):
-        # ⛔ 見直し25a の B：前は、緊急の道を出せるかだけが「前の解き以後に1回でも」で決めた（止める基準に届かない一時的なエラー1回で、
-        # ずっと出せなかった）。いまは止め直すかと同じ数え方（watch.ai_blocker）
-        override(self, "stop.ai.stop_after_failures", 3)
-        unreachable = lambda: watch.after_error(self.a, SYSTEM, ErrorReport("ai", None, None, unreachable=True),   # noqa: E731
-                                                tenant_id=self.s["tenant"], client_id=self.s["client"])
-        other = World().setup()                                                # 1回では止めない（どの種類で決め直しても）
-        watch.after_error(self.a, SYSTEM, ErrorReport("ai", None, None, unreachable=True), tenant_id=other["tenant"],
-                          client_id=other["client"])
+    def test_raw_conversation_ai_errors_never_block_the_emergency_route(self):
+        # 会話AIの生の誤り（つながらない・Google の側の誤り・不明・設定の誤り）は、止めもせず、緊急の道も塞がない。塞ぐのは、会話の側が
+        # 「止まった」と決めた会話AIだけ（止め直すかと同じ見方＝watch.ai_blocker。CL-1 の連絡帳 4-69 の 4-179 の (a)。⛔ 見直し25a の B・
+        # 2026-11-02 まで：生の誤りが設定 stop.ai.stop_after_failures の数に届くと、緊急の道を出せなかった）
+        raw = (ErrorReport("ai", None, None, unreachable=True), ErrorReport("ai", 503, "UNAVAILABLE"),
+               ErrorReport("ai", 1007, "thinking_level is not supported for this model"), ErrorReport("ai", 1099, "x"))
+        other = World().setup()                                                # 生の誤りだけでは、どの種類で決め直しても止めない
+        for r in raw:
+            watch.after_error(self.a, SYSTEM, r, tenant_id=other["tenant"], client_id=other["client"])
         self.assertEqual(watch.after_ai_troubles(self.a, SYSTEM, other["tenant"]), [])
-        self.note(self.attempt(), trouble(JEV))                                # 判定が止まった（会話に入った通話のあと）
+        self.note(self.attempt(), trouble(SONNET))                                # 判定が止まった（会話に入った通話のあと）
         sid = self.ai_stops()[0]
-        unreachable()                                                          # 会話AIにつながらない1回（基準に届かない）
+        for r in raw * 3:
+            watch.after_error(self.a, SYSTEM, r, tenant_id=self.s["tenant"], client_id=self.s["client"])
         self.assertIsNone(self.possible(sid))
-        unreachable(), unreachable()                                          # 基準（3回）に届いた
+        self.note(self.attempt(_with_task(self.w, self.s)), trouble(errors.CONVO_AI))   # 会話の側が「会話AI・止まった」と決めた
         self.assertIn("会話AI", self.possible(sid))
 
     def test_a_stopped_ai_written_while_the_check_runs_is_not_lost(self):
         # ⛔ 見直し25a の C：前は、解いた時刻から数え直したので、解くのと同時に書いた止まったAIが数えられずに消えた
         override(self, "stop.ai.resume_after_successes", 1)
-        self.note(self.attempt(), trouble(JEV))
+        self.note(self.attempt(), trouble(SONNET))
         sid = self.ai_stops()[0]
         begun = self.a.in_tenant(SYSTEM, self.s["tenant"], watch.check_begins)
         self.note(self.attempt(_with_task(self.w, self.s)), trouble(SONNET))   # 確かめの間に、また止まった（見える）
@@ -432,7 +452,7 @@ class Review25(_Base):
         # 見えないうちに書いた分（確かめを始めたあとに起き、解いた取引のあとで書けた）：解いたあとで数えて止め直す
         other = World().setup()
         override(self, "stop.ai.resume_after_successes", 1)
-        self.note(self.attempt(other), trouble(JEV), s=other)
+        self.note(self.attempt(other), trouble(SONNET), s=other)
         sid2 = self.ai_stops(other)[0]
         begun = self.a.in_tenant(SYSTEM, other["tenant"], watch.check_begins)
         time.sleep(0.05)                                                       # 確かめを始めてから解くまでの間に起きた（解いた時刻より前）

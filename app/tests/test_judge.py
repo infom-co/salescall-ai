@@ -165,12 +165,15 @@ class NotAsked(unittest.TestCase):
     def test_points_not_agreed_are_returned(self):
         """ご納得いただけなかった点（事実 not_agreed。4-66 の (c)）：どの結果でも、判定の中身で依頼者へ返す（お答えいただけなかったら null）。"""
         from salescall.core.call_report import NotAgreed
-        r = replace(report(), not_agreed=(NotAgreed(4, "Q2", "料金のところ"), NotAgreed(7, "Q4", None)))
+        r = replace(report(), not_agreed=(NotAgreed(4, "Q2", "料金のところがちょっと。", point="料金のところ"),
+                                          NotAgreed(7, "Q4", "うーん。", point=None)))
         for items in (None, {}):
             with self.subTest(items=items):
                 self.assertEqual(run(rep=r, items=items).detail["not_agreed"],
-                                 [{"question": "Q2", "said": "料金のところ", "round": None, "explained": None, "outcome": None},
-                                  {"question": "Q4", "said": None, "round": None, "explained": None, "outcome": None}])
+                                 [{"question": "Q2", "point": "料金のところ", "said": "料金のところがちょっと。", "round": None,
+                                   "explained": None, "outcome": None},
+                                  {"question": "Q4", "point": None, "said": "うーん。", "round": None, "explained": None,
+                                   "outcome": None}])
         self.assertNotIn("not_agreed", run().detail)
 
 

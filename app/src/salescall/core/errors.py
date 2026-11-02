@@ -132,8 +132,10 @@ class Action:
                                    #           問い合わせ直す。1日の上限。キーを選ぶ処理＝CL-1 の Q15 が行う）
     stop_cause: str | None         # 止めるときの原因（DESIGN.md 9-1 の名前）。None＝止めない
     stop_scope: str | None         # 止める範囲：tenant（その契約者。会話AIの枠は契約者ごと＝キー・プロジェクトは契約者のもの。
-                                   #   2026-10-16 ユーザー）。回線の休みはエラーでは決めない（回線の状態の表＝DESIGN.md 17章）
-    stop_after: str | None         # 何回続いたら止めるか（設定の名前。None＝1回で止める）
+                                   #   2026-10-16 ユーザー）。回線の休みはエラーでは決めない（回線の状態の表＝DESIGN.md 17章）。
+                                   #   止める種類（AIの不具合）は、どれも1回で止める（止まったAIは会話の側が決めた1つ）。こちらの不具合は
+                                   #   違う行の数（設定 stop.trouble.stop_after_rows）で状態の表が決める。⛔ 2026-11-02 まで：何回続いたら
+                                   #   止めるかの設定の名前の欄（stop_after）を持ち、会話AIの生の誤りを設定 stop.ai.stop_after_failures の数で止めた
     notify: bool                   # 契約者に知らせる（知らせの台帳に入れるだけ。管理者には、どの種類も知らせる）
     meaning: str                   # 日本語（画面・知らせに出す）
     fixer: str | None = None       # 根源的（設定の誤り・原因の分からない誤り・録音が残らない など、待っても直らない）なら、直す担当
@@ -150,7 +152,7 @@ class Action:
     #                                決めるのはここの1か所（core/stops.emergency_possible と core/watch.decide_stop が読む）
     per_call: bool = False         # こちらのプログラムの不具合で終えた電話（0139）：知らせは電話ごとに、契約者と管理者の両方へ（同じ種類を
     #                                1時間にまとめない＝2026-10-25 ユーザー「契約者(管理者含む)と、開発AIの担当、記録にそれを伝え」）。
-    #                                止めるかは、理由ごとに（ほかの種類と合わせず）、違う行の数で数える（`counted_with`・証拠 program_fixed）
+    #                                止めるかは、理由ごとに（ほかの種類と合わせず）、違う行の数で状態の表が数える（`counts_rows`）
 
     @property
     def fundamental(self) -> bool:
@@ -187,6 +189,12 @@ PHONE_FIXER = "CL-2"
 CONVO_AI = "会話AI"
 EAR_AI = "別の耳"   # 別の耳の名前の頭（CL-1 の名前は「別の耳（種類）」＝convo.check_ais・Flow.on_ai_trouble と同じ）
 DIRECT = "直接"
+# 緊急の道（OpenRouter を通して Google が預かる Claude）が代わりになれる判定のAIの名前（1か所。止まったAIの分け方 `classify` が読む）：
+# Anthropic の2つの Sonnet だけ（CL-1 の連絡帳 4-69 の 4-179 の (c)(d)：「緊急の道で再開できるのは、止まったのが Anthropic（`Claude Sonnet
+# 5.5`・`Claude Sonnet 5.5（考える）`）のときだけにしてください」。✅ 2026-10-30 ユーザー：「OpenRouter を通して Google が預かる Claudeを
+# 使うのは、会話の途中などでアンソロピックが使えなくなった緊急事態の時のみです」）。d1-ultra・Jev・3.5 Flash Lite には緊急の道が無い。
+# 名前は料金の表（usage.JUDGE_SERVICES の Anthropic のモデル）と同じ（試験が見張る。料金の表がこの部品を読むので、ここからは読めない）
+EMERGENCY_COVERS: frozenset[str] = frozenset({"Claude Sonnet 5.5", "Claude Sonnet 5.5（考える）"})
 
 # こちらの不具合で終えた電話の行が、何を待っているか（1か所。門の理由 awaiting_recovery の説明・不具合の知らせの文が読む。0143。
 # 2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」。2026-10-25 夜 管理者の決定：戻すのは、その不具合を
@@ -210,8 +218,8 @@ def _trouble(what: str, fixer: str, *, rows: bool = True) -> "Action":
                "違う行で続いても、その契約者の新しい電話は止めない（データベースの一時的な止まり＝2026-10-31 管理者。止まりで終えた回線は、"
                "データベースへの書き込みが call.frozen_after のうちに終わると確かめてから、次の電話をかける＝戻らないあいだは、かけない。"
                "戻ったと確かめた時に、この種類で復旧を待つ行は、ほかの電話を待たずにお詫びとともにかけ直す＝状態の表の E21。見直し28）"))
-    return Action("keep", "none", "program_trouble" if rows else None, "tenant" if rows else None,
-                  "stop.trouble.stop_after_rows" if rows else None, True, meaning, fixer=fixer, per_call=True)
+    return Action("keep", "none", "program_trouble" if rows else None, "tenant" if rows else None, True, meaning, fixer=fixer,
+                  per_call=True)
 
 
 # 知らせに出す短い名前（注意は短く。詳しい意味は Action.meaning＝画面の「止まった理由」・i マークで。2026-10-17 ユーザー）
@@ -233,95 +241,106 @@ LABELS: dict[str, str] = {
     "call_runner_error": "通話の部品が落ちました（お詫びして終えた）",
     "call_storage_stuck": "記録の書き込みが進みません（お詫びして終えた）",
     "runner_stuck": "通話の部品が戻りません",
-    "ai_stopped": "意味の判定のAIが止まりました", "ear_stopped": "別の耳（お客様の声を文字にするAI）が止まりました",
+    "ai_stopped": "Sonnet（意味の判定のAI）が止まりました",
+    "judge_stopped": "判定のAI（緊急の道で代われない）が止まりました",
+    "ear_stopped": "別の耳（お客様の声を文字にするAI）が止まりました",
     "convo_stopped": "会話AIが止まりました", "ai_glitch": "AIがおかしな動きをしました（電話は続けました）",
     "emergency_stopped": "緊急の道のAIが止まりました",
 }
 
+# 会話AIの生の誤り（一覧の公式と実測の行で分ける種類のうち、会話AIだけのもの。1か所）：どれも、数えて止めない（CL-1 の連絡帳 4-69 の
+# 4-179 の (a)：「あなたの『生の誤りを3回数えて止める』は外してください」。止まったかを決めるのは会話の側の1か所＝止まったAI。電話の前に
+# 会話AIのつながりを開けなければ「会話AI・止まった」を送って電話をかけない・通話の途中なら甚大な問題としてお詫びして終える）。記録・知らせ・
+# 修正依頼（根源的なものはすぐ・一時的なものは1時間以上続いたら）だけ。別の耳の生の誤りは、これを別の耳の種類に言い換える（`classify`）。
+# ⛔ 2026-11-02 まで：会話AIにつながらない・Google の側の誤り・不明を設定 stop.ai.stop_after_failures（仮の値3）の数、設定の誤りを1回で、
+# その契約者の新しい電話を止めていた（止まったかを会話の側と2か所で決めていた）
+CONVO_RAW: tuple[str, ...] = ("config_error", "ai_unreachable", "ai_server_error", "unknown_ai")
+_NO_RAW_STOP = ("止めない（会話AIの生の誤りの数では止めない。止まったかを決めるのは会話の側の1か所＝止まったAIの「会話AI・止まった」（"
+                "convo_stopped）。電話の前につながらなければ、会話の側がそれを送って電話をかけない＝CL-1 の連絡帳 4-69 の 4-179 の (a)）。")
+
 ACTIONS: dict[str, Action] = {
-    "key_specific": Action("mark_key_unusable", "none", None, None, None, False,
+    "key_specific": Action("mark_key_unusable", "none", None, None, False,
                            "キー固有（認証失敗・キーの無効化）：そのキーを使わない印を付け、次のセッションから別のキー"),
-    "project_denied": Action("next_key", "project_backoff", None, None, None, True,
+    "project_denied": Action("next_key", "project_backoff", None, None, True,
                              "プロジェクトの利用拒否（1分あたりの上限）：そのプロジェクトをしばらく休ませ"
                              "（待ちは 10秒→30秒→2分→10分→30分）、次のキーで続ける（2026-10-17 ユーザー：門では待たせない）"),
-    "config_error": Action("keep", "none", "ai_connection", "tenant", None, True,
-                           "設定の誤り：キーを切り替えず、新しい発信を待つ（設定を直すまで、どのキーでも同じ結果＝会話AIにつなげない"
-                           "ので、かけられない）。CL-1 に修正依頼を出す", fixer="CL-1"),
-    "project_quota": Action("next_key", "project_rest", None, None, None, True,
+    "config_error": Action("keep", "none", None, None, True,
+                           "設定の誤り：キーを切り替えない。"
+                           f"{_NO_RAW_STOP}記録し、CL-1 に修正依頼を出す", fixer="CL-1"),
+    "project_quota": Action("next_key", "project_rest", None, None, True,
                             "プロジェクトの枠の超過（1日の上限など）：そのプロジェクトを30分（設定 stop.ai_quota.rest）休ませ、次のキーで"
                             "続ける（同じプロジェクトと分かっているキーは飛ばす）。休みが明けたら、そのキーに問い合わせ直して確かめる（その日"
                             "ずっと使わない、ではない。⛔ 2026-10-19：1日の上限の答えが出たキーが2時間ほどで戻っていた＝CL-1 の連絡帳。"
                             "通話の中の判定は、どのキーも休み中なら待たずに代わりへ回す）。使えるキーが1つも無ければ、キーの選択が"
                             "「会話AIにつながらない」（ai_unreachable）として知らせる"),
-    "ai_unreachable": Action("keep", "backoff", "ai_connection", "tenant", "stop.ai.stop_after_failures", False,
-                             "会話AIにつながらない（一時的。使えるキーが1つも無いときも、これ）：間隔を伸ばしてやり直す。続いたら、"
-                             "つながるまで、その契約者の新しい発信を待ち、直ったら自動で続ける。1時間以上続いたら（止まったまま確かめが"
-                             "通らないときも）CL-1 に修正依頼を出す（Intent.md 10-3。見直し8）", lasting_fixer="CL-1"),
-    "ear_unreachable": Action("keep", "backoff", None, None, None, True,
+    "ai_unreachable": Action("keep", "backoff", None, None, False,
+                             "会話AIにつながらない（一時的。使えるキーが1つも無いときも、これ）：間隔を伸ばしてやり直す。"
+                             f"{_NO_RAW_STOP}1時間以上続いたら CL-1 に修正依頼を出す（Intent.md 10-3。見直し8）",
+                             lasting_fixer="CL-1"),
+    "ear_unreachable": Action("keep", "backoff", None, None, True,
                               "別の耳（通話後の検証）につながらない（一時的。生のエラー）：このエラーの数では止めない。検証は順番待ちの"
                               "まま、キーを併用してやり直す（つながるまで、その行は締めずに待つ＝同じお客様には、断られたかが決まるまで"
                               "かけない）。管理者に知らせる。会話の側の確かめの部品が「止まった」と決めたら、その入口"
                               "（conversation_io.verification_ai_trouble）で、次の電話を回復の確かめまで止める（2026-10-31 管理者のご決定。"
                               "⛔ 2026-10-17 の「発信は止めない」を改めた）。1時間以上続いたら CL-1 に修正依頼を出す",
                               lasting_fixer="CL-1"),
-    "ear_error": Action("keep", "none", None, None, None, True,
+    "ear_error": Action("keep", "none", None, None, True,
                         "別の耳（通話後の検証）の設定の誤り・原因の分からない誤り（生のエラー）：このエラーでは止めない。CL-1 に修正"
                         "依頼を出す。検証は順番待ちのまま、直ったらやり直す。会話の側の確かめの部品が「止まった」と決めたら、"
                         "その入口（conversation_io.verification_ai_trouble）で、次の電話を回復の確かめまで止める（2026-10-31 管理者の"
                         "ご決定）", fixer="CL-1"),
-    "ai_server_error": Action("keep", "backoff", "ai_connection", "tenant", "stop.ai.stop_after_failures", False,
-                              "Google の側の誤り・混雑・時間切れ（公式の一覧の 500・503・504。一時的）：間隔を伸ばしてやり直す。続いたら、直るまで新しい発信を待ち、直ったら自動で続ける。"
-                              "1時間以上続いたら CL-1 に修正依頼を出す（見直し8）", lasting_fixer="CL-1"),
-    "session_drop": Action("keep", "reconnect_once", None, None, None, False,
+    "ai_server_error": Action("keep", "backoff", None, None, False,
+                              "Google の側の誤り・混雑・時間切れ（公式の一覧の 500・503・504。一時的）：間隔を伸ばしてやり直す。"
+                              f"{_NO_RAW_STOP}1時間以上続いたら CL-1 に修正依頼を出す（見直し8）", lasting_fixer="CL-1"),
+    "session_drop": Action("keep", "reconnect_once", None, None, False,
                            "通話中のセッションの切断：会話AIは1回だけつなぎ直し、駄目ならおわびして終える（6-7。その行は、"
                            "あとでかけ直す）。別の耳は1回だけ聞き直し、駄目なら検証は順番待ちのまま（あとでやり直す）。止める判断は、品質の段の"
                            "「技術的な失敗の割合」で見る（切断は会話に入ったあとに起きるので、続けた回数では数えられない）"),
-    "line": Action("keep", "none", None, None, None, False,
+    "line": Action("keep", "none", None, None, False,
                    "回線（発信失敗・回線の上限・端末やアプリの異常。一時的）：記録し、管理者に知らせる。その回線でお客様へかけるのを休むか・"
                    "再開するかは、エラーの数では決めない（回線の状態の表が、お客様のところで電話が鳴ったか・テスト番号の答えで決める＝"
                    "DESIGN.md 17章）。1時間以上続いたら CL-2 に修正依頼を出す（⏳ 電話接続の担当が決まったら、その担当へ。見直し8）",
                    lasting_fixer=PHONE_FIXER),
-    "storage": Action("keep", "none", None, None, None, True,
+    "storage": Action("keep", "none", None, None, True,
                       "保存の失敗：止めない。CL-2 に修正依頼を出し、ほかの行は続ける（2026-10-16 ユーザー：「理由を記載と"
                       "あなたへの修正依頼をして、次の行に進んだらいい」）。保存できなかった通話は締めが済まないまま残るので、門が"
                       "その行と同じお客様にはかけない（断られたかが決まっていない）。直れば、締めの処理が締め直す。"
                       "データベースそのものに届かないときは、門が判断できないので、発信は自然に待つ", fixer="CL-2"),
-    "recording": Action("keep", "none", None, None, None, False,
+    "recording": Action("keep", "none", None, None, False,
                         "通話の録音が残っていない・壊れている（電話接続の録音の不具合）：止めない。CL-2 に修正依頼を出し、ほかの行は"
                         "続ける（2026-10-17 ユーザー：「止めずに CL1 か CL2 に修正依頼を出さないといけないだろ」）。その通話の"
                         "確かめは、録音が届くまで待ち（門が、その行と同じお客様にはかけない）、通話の終わりから10分（設定 "
                         "verification.recording_wait）たったら「録音なし」で済ませ、通話中の報告だけで結果を決める（2026-10-18 "
                         "ユーザー決定。attempts.finish_without_recording）。⏳ 電話接続の担当が決まったら、その担当へ", fixer=PHONE_FIXER),
-    "supervisor": Action("keep", "none", None, None, None, False,
+    "supervisor": Action("keep", "none", None, None, False,
                          "見守り役の処理の誤り（決まった間隔の仕事・回線ごとの発信の繰り返しが落ちた）：止めない。CL-2 に修正依頼を"
                          "出し、ほかの仕事は続ける（落ちた回線の処理は、その回線の進行中の通話を後始末してから立ち上げ直す。DESIGN.md 5-4）",
                          fixer="CL-2"),
-    "judge_outage": Action("keep", "none", None, None, None, False,
+    "judge_outage": Action("keep", "none", None, None, False,
                            "意味の判定が止まっている（時間切れ・つながらない・上限・キーが止められた・混雑。一時的）：発信は止めない"
                            "（代わりの判定 Jev と、通話後の検証がある）。設定 judge.outage_bypass の秒のあいだ、その判定に問い合わせず"
                            "代わりへ回す（毎回の発話で、止まった判定の答えを待たない）。1時間以上続いたら CL-1 に修正依頼を出す"
                            "（CL-1 の連絡帳 4-24）", lasting_fixer="CL-1"),
-    "judge_key": Action("mark_key_unusable", "none", None, None, None, False,
+    "judge_key": Action("mark_key_unusable", "none", None, None, False,
                         "意味の判定のキーが使えない（無効・権限が無い。待っても直らない）：発信は止めない。そのキーを使わない印を付け、"
                         "ほかのキーで続ける（使えるキーが無ければ、その判定は止まっているとみなして代わりの判定へ）。会話AIのキーの誤り"
                         "（key_specific）と同じ決まり。キーを入れ直すのは管理者"),
-    "judge_rejected": Action("keep", "none", None, None, None, False,
+    "judge_rejected": Action("keep", "none", None, None, False,
                              "意味の判定が問い合わせの中身を断った（400 など）：発信は止めない。その発話だけ代わりの判定へ回す"
                              "（判定は止まっていない）。1時間以上続いたら（問い合わせの作り方の誤り）CL-1 に修正依頼を出す"
                              "（CL-1 の連絡帳 4-24）", lasting_fixer="CL-1"),
-    "spend_limit": Action("keep", "none", None, None, None, False,
+    "spend_limit": Action("keep", "none", None, None, False,
                           "API の使用額の上限（管理者が決めた支払いの上限）か残高不足（前払いの口座に入れた額を使い切った）に当たった："
                           "管理者の支払いの件なので、直す担当への修正依頼は出さず、管理者に知らせる（同じ範囲で1時間に1回）。発信は"
                           "止めない（そのAIが止まったと会話の側が決めたら、止まったAIの入口で、回復の確かめまで新しい電話を止める）。"
                           "管理者が上限を上げるか、上限の期間が替わるか、残高を足せば、また使える（見分けるのは返事の文＝"
                           "SPEND_LIMIT_TEXTS か、支払いの件だけの番号 402＝SPEND_LIMIT_CODES。400・429 では見分けない）"),
-    "delivery": Action("keep", "backoff", None, None, None, False,
+    "delivery": Action("keep", "backoff", None, None, False,
                        "連携（書き戻し）の失敗：連携だけ再送する（通話の結果は失わない。4-5）。1時間以上続いたら CL-3 に修正依頼を出す",
                        lasting_fixer="CL-3"),
-    "unknown_ai": Action("keep", "none", "ai_connection", "tenant", "stop.ai.stop_after_failures", True,
-                         "不明（会話AI）：キーを切り替えない。続いたら（会話AIで話せない）新しい発信を待つ。CL-1 に修正依頼を出す",
-                         fixer="CL-1"),
-    "unknown_line": Action("keep", "none", None, None, None, True,
+    "unknown_ai": Action("keep", "none", None, None, True,
+                         f"不明（会話AI）：キーを切り替えない。{_NO_RAW_STOP}記録し、CL-1 に修正依頼を出す", fixer="CL-1"),
+    "unknown_line": Action("keep", "none", None, None, True,
                            "不明（回線）：記録し、CL-2 に修正依頼を出す。その回線でお客様へかけるのを休むかは、回線の状態の表が決める"
                            "（DESIGN.md 17章。エラーの数では止めない）", fixer=PHONE_FIXER),
     # こちらのプログラムの不具合（0139）。直す担当は理由ごとにこの1か所：会話の部品（通話を進める部品＝CL-1 の CallRunner）の不具合は
@@ -335,29 +354,37 @@ ACTIONS: dict[str, Action] = {
     # Flow.on_ai_trouble が「止まった」と決めたもの。時間切れ・上限・つながらない など）。1回で、その契約者の新しい電話を止める
     # （話している電話は切らない）。回復の確かめ（CL-1 の check_ais で通話に使うAIが全部答えた）が続けて通れば解く。止まったまま1時間以上
     # なら CL-1 に修正依頼（lasting_stops）。「緊急の道で答えた」はエラーにしない（事実の表に残すだけ）
-    "ai_stopped": Action("keep", "none", "ai_connection", "tenant", None, True,
-                         "通話の中か通話後の確かめで、意味の判定のAIが止まった（時間切れ・上限・つながらない など）：その契約者の新しい電話を、回復の"
+    "ai_stopped": Action("keep", "none", "ai_connection", "tenant", True,
+                         "通話の中か通話後の確かめで、意味の判定のAIのうち Anthropic の Sonnet（`EMERGENCY_COVERS`）が止まった（時間切れ・上限・"
+                         "つながらない など）：その契約者の新しい電話を、回復の"
                          "確かめが通るまで止める（話している電話は切らない）。どうしても要るときは、契約者か管理者が、緊急の道（OpenRouter を"
                          "通して Google が預かる Claude）で再開できる。止まったまま1時間以上なら CL-1 に修正依頼を出す",
                          lasting_fixer="CL-1", emergency=True),
+    # 意味の判定のAIのうち、緊急の道が代わりになれないもの（d1-ultra・Jev・3.5 Flash Lite）が止まった（CL-1 の連絡帳 4-69 の 4-179 の
+    # (c)(d)。⛔ 前は判定のどれが止まっても緊急の道で再開でき、そのAIの「止まった（直接）」が電話ごとに届き続けた）
+    "judge_stopped": Action("keep", "none", "ai_connection", "tenant", True,
+                            "通話の中か通話後の確かめで、意味の判定のAIのうち緊急の道が代わりになれないもの（d1-ultra・Jev・3.5 Flash Lite など）"
+                            "が止まった：その契約者の新しい電話を、回復の確かめが通るまで止める（話している電話は切らない）。緊急の道は Anthropic"
+                            " の Sonnet の代わりにしかならないので、緊急の道では再開できない。止まったまま1時間以上なら CL-1 に修正依頼を出す",
+                            lasting_fixer="CL-1"),
     # 別の耳は、緊急の道で補えない（2026-10-31 管理者：「『再開できない』でいいが、ダッシュボードになぜ再開できないのかの警告を出す
     # ようにして下さい」。緊急の道は判定の代わりにしかならず、別の耳が無いと聞き違いを確かめられず、通話後の確かめもできない）
-    "ear_stopped": Action("keep", "none", "ai_connection", "tenant", None, True,
+    "ear_stopped": Action("keep", "none", "ai_connection", "tenant", True,
                           "通話の中か通話後の確かめで、別の耳（お客様の声を文字にするAI）が止まった：その契約者の新しい電話を、回復の確かめが"
                           "通るまで止める（話している電話は切らない）。別の耳の代わりは無いので、緊急の道では再開できない。止まったまま"
                           "1時間以上なら CL-1 に修正依頼を出す", lasting_fixer="CL-1"),
-    "convo_stopped": Action("keep", "none", "ai_connection", "tenant", None, True,
+    "convo_stopped": Action("keep", "none", "ai_connection", "tenant", True,
                             "通話の中で、会話AIが止まった：その契約者の新しい電話を、回復の確かめが通るまで止める（話している電話は切らない）。"
                             "会話AIが止まっているので、緊急の道では再開できない。止まったまま1時間以上なら CL-1 に修正依頼を出す",
                             lasting_fixer="CL-1"),
-    "emergency_stopped": Action("keep", "none", "ai_connection", "tenant", None, True,
+    "emergency_stopped": Action("keep", "none", "ai_connection", "tenant", True,
                                 "通話の中で、緊急の道（OpenRouter を通して Google が預かる Claude）そのものが止まった：その契約者の新しい"
                                 "電話を、回復の確かめが通るまで止める（緊急の道で再開していても、また止める）。止まったまま1時間以上なら"
                                 " CL-1 に修正依頼を出す", lasting_fixer="CL-1"),
     # AIのおかしな動き（甚大でない＝電話は続けられた）：止めずに、契約者と管理者のダッシュボードに警告（2026-10-31 管理者：「甚大な
     # 問題は止める。甚大でない場合は、ダッシュボードに警告を出す。」。甚大な問題＝お詫びして電話を終えたものは、会話の側が「止まった」
     # として送る＝上の止める種類）。1時間以上続いたら CL-1 に修正依頼
-    "ai_glitch": Action("keep", "none", None, None, None, True,
+    "ai_glitch": Action("keep", "none", None, None, True,
                         "AIがおかしな動きをした（電話は続けられた＝甚大でない）：止めずに、契約者と管理者に警告を出す。1時間以上続いたら"
                         " CL-1 に修正依頼を出す", lasting_fixer="CL-1"),
     "call_runner_error": _trouble("通話を進める部品（会話）が例外で落ちた・通話を終えないまま戻った", "CL-1"),
@@ -370,7 +397,7 @@ ACTIONS: dict[str, Action] = {
     # 通話を進める部品が、こちらの不具合でおわびして終えたあとも戻らない（0141。見直し20a）：その電話は、もう call_frozen などとして伝えて
     # ある。ここで伝えるのは「その回線の処理が止まっていた」こと（回線ごとの処理を立て直したので、電話は止まらない）。戻らない長さは、
     # おわびを流し終えるまでの長さ（protocol.APOLOGY_WAIT）と call.frozen_after から決める（0143。仮の設定 call.stuck_after は外した）
-    "runner_stuck": Action("keep", "none", None, None, None, True,
+    "runner_stuck": Action("keep", "none", None, None, True,
                            "通話を進める部品（会話）が、終えると決めたあと、おわびを流し終える長さと call.frozen_after を過ぎても戻らなかった："
                            "その回線の処理を立て直して（新しい通話の部品で）次の電話へ進む。契約者と管理者に知らせ、CL-1 に修正依頼を出す"
                            "（回線が黙って止まったままにしない）", fixer="CL-1"),
@@ -388,23 +415,11 @@ COUNTED_FOR: dict[str, tuple[str, ...]] = {
 # こちらの不具合の違う行の数を読むたびに導いた（17-8 の (1)(2)。5段目＝0147 で外した）
 TABLE_CAUSES = frozenset({"program_trouble"})
 
-# エラーの数で止める種類（止める原因が `TABLE_CAUSES` でないもの）ごとに、「直った」とみなす証拠（続いた回数を、この証拠の時刻から
-# 数え直す。1か所。データベースの salescall.consecutive_errors がこの名前で読む）。2026-10-16 見直し：前は会話AIと別の耳を「どこかの
-# 通話が会話に入った」でまとめて数え直していたので、別の耳だけつながらないとき、ほかの通話が会話に入るたびに数え直し、止まらなかった。
-#   in_conversation＝その契約者のどこかの通話が会話に入った（会話AIが動いた）。
-#   none＝解いた時からだけ数える（AIが止まった＝1回で止める種類。どこかの通話が会話に入ったことでは数え直さない：数え直すと、止まった
-#   AIを使う通話と同じ時刻にほかの通話が会話に入っただけで止まらなくなる。0155）。
-#   ⛔ 4段目まで：回線の line_ok・こちらの不具合の program_fixed・どの種類も使わない verified と none も持っていた（0147 で外した）
-EVIDENCE: dict[str, str] = {
-    "config_error": "in_conversation",
-    "ai_unreachable": "in_conversation",
-    "ai_server_error": "in_conversation",
-    "unknown_ai": "in_conversation",
-    "ai_stopped": "none",
-    "ear_stopped": "none",
-    "convo_stopped": "none",
-    "emergency_stopped": "none",
-}
+# AIの不具合の停止（原因 ai_connection）は、どの種類も1回で止める（止まったかを決めるのは会話の側の1か所＝止まったAI）。止めるかの数え
+# 始めは、同じ原因の前の解き（データベースの salescall.errors_counted_since の1か所。どこかの通話が会話に入ったことでは数え直さない：数え直すと、
+# 止まったAIを使う通話と同じ時刻にほかの通話が会話に入っただけで止まらなくなる。0155）。
+# ⛔ 2026-11-02 まで：種類ごとの「直った証拠」の表（EVIDENCE。会話AIの生の誤り＝どこかの通話が会話に入ったら数え直す in_conversation／
+# 止まったAI＝none）を持っていた。会話AIの生の誤りで止めるのを外したので、証拠は1つになり、表を外した（0170）
 
 # AIの不具合の停止のうち、緊急の道で補えない種類（会話AI・緊急の道そのもの。`Action.emergency` の裏返し。1か所から作る）：その契約者で、
 # 同じ原因の前の解き以後に1つでもあれば、緊急の道での再開は出せない（core/stops.emergency_possible）。出したあとに起きれば、また止める
@@ -412,16 +427,15 @@ EVIDENCE: dict[str, str] = {
 EMERGENCY_BLOCKERS: tuple[str, ...] = tuple(k for k, a in ACTIONS.items() if a.stop_cause == "ai_connection" and not a.emergency)
 # 緊急の道で再開できない理由（画面＝ダッシュボードの警告に出す。補えない種類ごとに1つ。2026-10-31 管理者：「ダッシュボードになぜ再開
 # できないのかの警告を出すようにして下さい」）。どれも、回復の確かめが通れば自動で再開する
-_NO_EMERGENCY_CONVO = ("会話AIの不具合が続いています（{label}）。緊急の道は意味の判定の代わりにしかならず、会話AIが不調だと話せないため、"
-                       "緊急の道では再開できません。回復の確かめが通ると、自動で再開します")
 EMERGENCY_CANNOT: dict[str, str] = {
     "convo_stopped": "会話AIが止まっています。緊急の道は意味の判定の代わりにしかならず、会話AIが止まっていると話せないため、緊急の道では"
                      "再開できません。回復の確かめが通ると、自動で再開します",
+    "judge_stopped": "意味の判定のAI（d1-ultra・Jev・3.5 Flash Lite など）が止まっています。緊急の道は Anthropic の Sonnet の代わりにしか"
+                     "ならないため、緊急の道では再開できません。回復の確かめが通ると、自動で再開します",
     "ear_stopped": "別の耳（お客様の声を文字にするAI）が止まっています。緊急の道は意味の判定の代わりにしかならず、別の耳の代わりは無い"
                    "ため（聞き違いを確かめられず、通話後の確かめもできない）、緊急の道では再開できません。回復の確かめが通ると、自動で再開します",
     "emergency_stopped": "緊急の道そのもの（OpenRouter を通して Google が預かる Claude）が止まっているため、緊急の道では再開できません。"
                          "回復の確かめが通ると、自動で再開します",
-    **{k: _NO_EMERGENCY_CONVO.format(label=LABELS[k]) for k in ("config_error", "ai_unreachable", "ai_server_error", "unknown_ai")},
 }
 
 
@@ -430,15 +444,6 @@ def counts_rows(kind: str | None) -> bool:
     状態の表の入口 core/health.after_call が読む）：止める原因が状態の表の原因（`TABLE_CAUSES`）の種類だけ。データベースの一時的な
     止まり（call_storage_stuck）は数えない（2026-10-31 管理者）。同じ行で続けば休ませる（行の欄）・電話ごとに伝えるのは、どの種類も同じ。"""
     return kind is not None and kind in ACTIONS and ACTIONS[kind].per_call and ACTIONS[kind].stop_cause in TABLE_CAUSES
-
-
-def counted_with(kind: str) -> tuple[str, ...]:
-    """その種類で止めるか決めるとき、合わせて数える種類（同じ止める原因で、同じ証拠で数え直す種類。1か所）。こちらのプログラムの
-    不具合（`Action.per_call`）は、理由ごとに数える（違う理由が3行あっても止めない＝2026-10-25 ユーザー「3行同じ問題なら」）。"""
-    a = ACTIONS[kind]
-    if a.per_call:
-        return (kind,)
-    return tuple(k for k in COUNTED_FOR[a.stop_cause] if EVIDENCE[k] == EVIDENCE[kind])
 
 
 def lookup(e: ErrorReport) -> CatalogEntry | None:
@@ -479,7 +484,9 @@ def classify(e: ErrorReport) -> str:
             return "emergency_stopped"
         if e.ai == CONVO_AI:
             return "convo_stopped"
-        return "ear_stopped" if e.ai.startswith(EAR_AI) else "ai_stopped"
+        if e.ai.startswith(EAR_AI):
+            return "ear_stopped"
+        return "ai_stopped" if e.ai in EMERGENCY_COVERS else "judge_stopped"
     if e.source == "ai_glitch":
         return "ai_glitch"
     if spend_limit(e):
@@ -491,8 +498,8 @@ def classify(e: ErrorReport) -> str:
                 and not (entry.kind == "session_drop" and e.unreachable) else None)
         if kind is None:
             kind = "ai_unreachable" if e.unreachable else "unknown_ai"
-        if e.source == "ear" and ACTIONS[kind].stop_cause is not None:
-            # 別の耳の生のエラーの数では止めない。一覧の種類のうち止める種類は、一時的なら「つながらない」、根源的（設定の誤り・不明）
+        if e.source == "ear" and kind in CONVO_RAW:
+            # 別の耳の生のエラーの数では止めない。会話AIの生の誤りの種類（`CONVO_RAW`）は、一時的なら「つながらない」、根源的（設定の誤り・不明）
             # なら「別の耳の誤り」にする（2026-10-17 の計画書との突き合わせ：前は別の耳の 503 が3回・1007 が1回で、その契約者の発信を
             # 止めていた）。止まったかを決めるのは会話の側（通話中の Ear.errors と同じ決め方）で、決めたら止まったAIの入口で、次の電話を
             # 回復の確かめまで止める（2026-10-31 管理者のご決定。⛔ 2026-10-17 の「別の耳では発信を止めない」を改めた。0158）
