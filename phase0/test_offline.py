@@ -3615,14 +3615,48 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertFalse(f.hurried)
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ", "value": "結構です"})
         self.assertEqual(r["say"], "念のためご予約はまだということでよろしいでしょうか？")
-        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")  # 確かめたあとにまた言われた＝断りとして締める
-        self.assertEqual((r["result"], f.hurried), ("end", True))
+        # 言い直しへの「結構です。」＝「それで結構です」とも取れる：断りとして締めず、言い直しへの返事として報告し直させる（Intent.md 9-5 の (3)。
+        # ⛔ CL-2 の 4-167 の頼み4：ここで断りとして締めていた＝確かめていただいたのに、もうかけない電話になった）
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["result"], f.hurried, f.end_reason), ("rejected", False, None))
+        self.assertIn("confirm_field", r["message"])
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual((r["result"], f.items["Q1"].state, f.export()["Q1"]), ("next", "confirmed", "いいえ"))
+        g = self.flow()   # 差し戻すのは言い直しごとに1回（AIが報告し直さずに同じ報告を繰り返しても、流れが止まらないように）
+        self.say(g, "結構です。", "request_end", reason="callee_refused_call")
+        g.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ", "value": "結構です"})
+        self.assertEqual(self.say(g, "結構です。", "request_end", reason="callee_refused_call")["result"], "rejected")
+        self.assertEqual((g.apply("request_end", {"reason": "callee_refused_call"})["result"], g.hurried), ("end", True))
         f = self.pamphlet()  # 前の質問で意味が決まる：その答えで受け取って続ける
         r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
         self.assertEqual((f.items["Q3"].state, f.export()["Q3"], f.hurried), ("accepted", "いいえ", False))
         f = self.flow()  # 断りの言葉が付いていれば、断り
         r = self.say(f, "もう結構です、かけてこないでください。", "request_end", reason="callee_refused_call")
         self.assertEqual(r["result"], "end")
+
+    def test_word_alone_while_calling_or_rechecking(self):
+        # CL-2 の 4-167 の頼み4・Intent.md 9-5 の (3)「その言葉だけで通話の断りとして締めない」を、呼んでいる段・念のための確認の最中にも当てる
+        from flowctl import Flow, Limits
+        # 呼んでいる段の「結構です。」だけ＝理由を言わずに取り次げないと言われたのと同じ（ご事情か営業のお断りか分からない）：その場で1回だけ
+        # ご事情かを伺う一言（✅ 2026-11-01 日本時間5時26分 ユーザー・_transfer_unclear の1か所）。伺ったあとにまた言われたら、断りとして締める
+        b = TargetTest().business()
+        parts = b.replay_parts()
+        f = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["result"], r["play"][0]["part"], f.end_reason), ("confirm_unavailable", "unavailable_confirm", None))
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["result"], f.end_reason), ("end", "callee_refused_call"))
+        # 念のための確認の最中（答えが取れなかった質問を、締めの前にもう1回だけ聞いている）は、答えの段と同じ
+        f = self.flow()
+        for _ in range(Limits().ask_back + 1):
+            r = self.say(f, "えーと……", "report_unclear", question_id="Q1")
+        r = self.say(f, "カードで。", "record_answer", question_id="Q2", condition_id="カード", value="カード")
+        if r["result"] == "confirm_required":
+            r = self.say(f, "はい。", "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], r["question_id"], f.phase), ("recheck", "Q1", "rechecking"))
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["result"], f.end_reason), ("rejected", None))
+        self.assertIn("record_answer", r["message"])
 
     def test_value_questions_follow_the_same_rule(self):
         # ⛔ 2026-10-17 の見直しで見つけた漏れ：(1) 名前・電話番号の質問に「結構です」「はい」だけ ⇒「結構ということでよろしいでしょうか？」と

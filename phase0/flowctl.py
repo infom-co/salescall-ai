@@ -1886,6 +1886,9 @@ class Flow:
         self.phase = "asking"            # asking → rechecking → closing
         self.recheck_queue: list[str] = []
         self.awaiting_confirm: str | None = None
+        # 言い直しの返事待ちで、「結構です」のような言葉だけを断り・聞き取れないと報告され、確かめへの返事として報告し直させた言い直し
+        # （confirm_requested_at の値。_ambiguous_only。言い直しごとに1回）
+        self.ambiguous_confirm_at: int | None = None
         self.callee_turns = 0
         self.confirm_requested_at: int | None = None
         self.unavailable_asked = False  # 理由を言わずに取り次げないと言われ、ご事情かを伺った（_transfer_unclear。1通話1回）
@@ -4959,7 +4962,7 @@ class Flow:
             return self._transfer_unclear()
         if reason == "who_unclear":
             return self._who_unclear()
-        if reason in ("callee_hurry", "callee_refused_call") and (taken := self._ambiguous_only("通話を断られた")):
+        if reason in ("callee_hurry", "callee_refused_call") and (taken := self._ambiguous_only("通話を断られた", ending=True)):
             # 相手の言葉が「結構です」のような言葉だけ：その言葉だけで、通話を断られたとは決めない（_ambiguous_only）
             return taken
         if reason == "callee_hurry" and self.busy_ask and not self.busy_asked:
@@ -5295,7 +5298,7 @@ class Flow:
         return "departed" if self.facts.get("departed") else "not_transferred"
 
     # ── 内部
-    def _ambiguous_only(self, ai_said: str) -> dict | None:
+    def _ambiguous_only(self, ai_said: str, ending: bool = False) -> dict | None:
         """相手の言葉が「結構です」「大丈夫です」のような言葉だけなのに、AIが答えとしてでなく「通話を断られた」「聞き取れない」と報告した
         ときの扱い（唯一の場所）。その言葉だけで決めず、いまの質問の答えとして受け取る。当たらなければ None（AIの報告のまま）。
         - 選択肢の質問：前の質問から意味が決まれば、その選択肢（Question.reply_meanings）。決まらなければ、AIに選択肢を選んで報告し直させ、
@@ -5303,12 +5306,31 @@ class Flow:
         - 値を聞く質問：答えの値ではないので、聞き返す（答えが質問に合わないときと同じ。_bad_form）
         - 自由な意見：その言葉のまま、答えとして報告し直させる
         確かめた・聞き返したあとにまた言われたら（ambiguous_asked）、AIの報告のまま（2度目は、前の会話から断りと分かる）。
-        ✅ 2026-10-17 ユーザー：「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」
-        ⛔ G-14：相手の「結構です。」（「ご予約はされていますでしょうか？」への答え）を、AIは 30本中4本で通話の断りとして締めた"""
+        - 言い直しの返事待ち（「念のため…でよろしいでしょうか？」のあと）：その言い直しへの返事とも取れる（「それで結構です」）＝確かめへの返事として
+          報告し直させる（意味は、言い直しへの返事と同じく判定が読む＝_op_confirm_field）。言い直しごとに1回（ambiguous_confirm_at）
+        - 呼んでいる段（電話を終える報告のとき）：理由を言わずに取り次げないと言われたのと同じ（ご事情か営業のお断りか分からない）＝その場で1回だけ
+          ご事情かを伺う一言（_transfer_unclear の1か所。✅ 2026-11-01 日本時間5時26分 ユーザー）。もう伺ったあとは、AIの報告のまま
+        - 念のための確認の最中（rechecking）：答えが取れなかった質問をもう1回だけ聞いている＝答えの段と同じ
+        ✅ 2026-10-17 ユーザー：「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」（Intent.md 9-5 の (3)「その言葉だけで
+        通話の断りとして締めない」）
+        ⛔ G-14：相手の「結構です。」（「ご予約はされていますでしょうか？」への答え）を、AIは 30本中4本で通話の断りとして締めた
+        ⛔ 2026-11-02（CL-2 の連絡帳 4-167 の頼み4）まで、言い直しの返事待ち・呼んでいる段・念のための確認の最中では当てず、「念のためご予約はまだ
+           ということでよろしいでしょうか？」への「結構です。」も、断りとして締めていた（発信禁止は取り消せない側）"""
         q = self.questions.get(self.current) if self.current else None
         said = (self.heard_said or "").strip()
         word = ambiguous_word(said)
-        if q is None or not word or self.phase != "asking" or self.awaiting_confirm is not None or self.items[q.id].ambiguous_asked:
+        if not word:
+            return None
+        if self.phase == "calling":
+            return self._transfer_unclear() if ending and not self.unavailable_asked else None
+        if self.awaiting_confirm is not None:
+            if self.ambiguous_confirm_at == self.confirm_requested_at:
+                return None
+            self.ambiguous_confirm_at = self.confirm_requested_at
+            return self._reject(f"相手の「{said[:20]}」だけでは、{ai_said}とは決められません（いまの言い直し「{self.awaiting_say}」への返事とも"
+                                "取れる言葉です）。相手にはまだ何も言わずに、その言い直しへの返事として、すぐ報告してください（意味はプログラムが"
+                                "確かめます）。" + self._confirm_how(self.awaiting_confirm))
+        if q is None or self.phase not in ("asking", "rechecking") or self.items[q.id].ambiguous_asked:
             return None
         if q.type in CHOICE_TYPES and q.reply_choice(word):
             return self._op_record_answer({"question_id": q.id, "condition_id": q.reply_choice(word), "value": said})
