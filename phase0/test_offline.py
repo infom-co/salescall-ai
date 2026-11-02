@@ -9345,6 +9345,47 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((sorted(set(RECORDED) - parts), sorted(parts - set(RECORDED))), ([], []),
                          "（こちらだけにある名前, CL-2 の一覧だけにある名前）")
 
+    @staticmethod
+    def cl2_names(path: str, var: str) -> set[str] | None:
+        """CL-2 の部品（app/src/salescall/core/ の path）の var（文字の並び・組）の名前を ast で読む（CL-2 の部品は読み込まない）。無ければ None。"""
+        import ast
+        import pathlib
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / path
+        if not src.is_file():
+            return None
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        node = next((n.value for n in tree.body if isinstance(n, (ast.Assign, ast.AnnAssign))
+                     and any(getattr(t, "id", None) == var for t in (n.targets if isinstance(n, ast.Assign) else [n.target]))), None)
+        return None if node is None else {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)}
+
+    def test_callback_reasons_match_cl2_report(self):
+        # CL-2 の 4-188 の (d)：かけ直しの記録の理由の一覧（こちら CALLBACK_REASONS・CL-2 の call_report.CALLBACK_REASONS）が同じ
+        # （⛔ 2026-11-02 に unavailable が CL-2 の側で抜けていたのを、この比べが無くて見つけられなかった）
+        from flowctl import CALLBACK_REASONS
+        theirs = self.cl2_names("call_report.py", "CALLBACK_REASONS")
+        if theirs is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        self.assertEqual((sorted(set(CALLBACK_REASONS) - theirs), sorted(theirs - set(CALLBACK_REASONS))), ([], []))
+
+    def test_emergency_covers_match_cl2(self):
+        # CL-2 の 4-189 の (c)(d)：緊急の道が代わりになれる判定（こちら＝OTHER_JUDGES の emergency を持つ名前・CL-2 の errors.EMERGENCY_COVERS）が同じ
+        # （食い違うと、Sonnet が止まっても緊急の道を出せない／Jev でも出せる）
+        from meaning_judge import OTHER_JUDGES
+        theirs = self.cl2_names("errors.py", "EMERGENCY_COVERS")
+        if theirs is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        self.assertEqual({n for n, j in OTHER_JUDGES.items() if j.get("emergency")}, theirs)
+
+    def test_final_goal_names_match_cl2(self):
+        # CL-2 の 4-191：業務設定の質問の鍵（final_goal・declines）と最終目的の果たし方の名前（GOAL_MODES）が、会話の側の名前と同じ
+        import dataclasses
+        from flowctl import GOAL_MODES, Question
+        keys, modes = self.cl2_names("business_settings.py", "QUESTION_KEYS"), self.cl2_names("call_report.py", "GOAL_MODES")
+        if keys is None or modes is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        self.assertLessEqual({"final_goal", "declines"}, keys & {f.name for f in dataclasses.fields(Question)})
+        self.assertEqual(set(GOAL_MODES), modes)
+
     def test_names_match_cl2_business_settings(self):
         # CL-2 の 4-144 (a)・4-121：業務設定の確かめ（CL-2 の business_settings の ANSWER_RESERVED・RESERVED_IDS）が、会話の側の名前と
         # そろっているか。ANSWER_RESERVED＝AIが選ぶ録音の部分の名前（RESERVED_PART_NAMES）と同じ／RESERVED_IDS＝システムが足す質問の番号
@@ -9372,8 +9413,10 @@ class TargetTest(unittest.TestCase):
         self.assertFalse(missing, f"CL-2 の RESERVED_IDS に無い名前：{sorted(missing)}")
         # CL-2 の 4-185 の (b)：システムが足す答えの日本語の名前（伺う答え ask_if に来る）が、会話の側の中の名前へ1か所（condition）で置き換わるか
         from flowctl import ANY, NONE, SYSTEM_CONDITIONS, condition, label
+        # 「どれも要らない」の名前の正本は業務設定の部品（CL-2 の 4-191：business_rules から移す）。移す前の版では business_rules から読む
         rules = ast.parse((src.parent / "business_rules.py").read_text(encoding="utf-8"))
-        none_name = next(n.value.value for n in rules.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "NONE_CHOICE")
+        none_name = consts.get("NONE_CHOICE") or next(n.value.value for n in rules.body if isinstance(n, ast.Assign)
+                                                      and getattr(n.targets[0], "id", None) == "NONE_CHOICE")
         theirs = names("SYSTEM_CHOICES") | {consts["ANY_CHOICE"], none_name}
         self.assertEqual(({condition(x) for x in theirs}, {label(condition(x)) for x in theirs}), ({*SYSTEM_CONDITIONS, ANY, NONE}, theirs))
 
@@ -10600,6 +10643,10 @@ class ApprovalTest(unittest.TestCase):
         AmbiguousAnswerTest.say(g, "でもやっぱり、今の業者で十分なので。", "record_answer", question_id=n2, condition_id="断ろうとしている")
         written = {k for e in g.facts["not_agreed"] for k in e}
         self.assertEqual((len(g.facts["not_agreed"]), sorted(written - accepted)), (2, []), "ご納得いただけなかった点の記録で、CL-2 が受けない鍵")
+        # CL-2 の 4-189：point＝ご納得いただけなかった点の値・said＝根拠の発話（書き分ける）
+        self.assertEqual((g.facts["not_agreed"][0]["point"], g.facts["not_agreed"][0]["said"]), ("料金のところ", "料金のところですね。"))
+        # ⛔ 2026-11-03 に見つけた：N1〜N3 の答えを、理由「not_agreed」などのかけ直しの記録にも書いていた（CL-2 は一覧に無い理由の報告を丸ごと断る）
+        self.assertNotIn("callback", g.facts)
 
     @staticmethod
     def explained(f, part):

@@ -791,7 +791,7 @@ MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほ
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
                 "when": "C9", "message": "M1", "promise_again": "P1",
-                "refusal": "R1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3"}
+                "refusal": "D1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3"}
 ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
             "number": "number",
             "email": "email",
@@ -801,6 +801,11 @@ ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "nex
 # 必須の質問の「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules.HANDLINGS と同じ名前。Question.handlings の値）：
 # 分かるお客様を聞く・分かる時を聞く（聞き足しの質問を1通話1回）・日を改める（会話は次の質問へ進む）・結論として終える（丁寧に締める）
 HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")
+# かけ直しの記録（通話の事実 callback）の理由になりうる名前の唯一の一覧（CL-2 の call_report.CALLBACK_REASONS と同じ＝比べる試験。CL-2 の
+# 連絡帳 4-188 の (d)：⛔ 2026-11-02 に unavailable を足したとき、一覧どうしを比べていなかったので CL-2 の側の抜けに気づけなかった）。
+# CALLBACK_LABEL の「在籍していない」（departed）は理由にしない（通話の事実 departed＝Flow._departed。4-69 の 4-182 の (5)）・
+# 伺い直し（分かる方・分かる時）は、伺い直しの記録の理由（質問の callback＝HANDLINGS の ask_who・ask_when）
+CALLBACK_REASONS = (*(k for k in CALLBACK_LABEL if k != "departed"), "ask_who", "ask_when")
 YES_NO_FACT = ("back_today", "again")   # かけ直しの記録に、はい／いいえ（真偽）で入れる答え（CL-2 の call_report.Callback の back_today・again）
 # システムの質問の答えが、かけ直しの記録（通話の事実 callback）のどの項目に入るか（Flow._callback_fields の1か所。CL-2 の call_report が受ける
 # 項目だけ）。約束の電話の一言（P1）は、取り次げなかった記録（not_transferred）の again に入るので、ここには無い。分かる時（C9）は時刻。
@@ -2752,8 +2757,11 @@ class Flow:
         if self.callback_why and self.facts.get("callback"):
             # かけ直しの申し出の答え（Flow._callback_fields の1か所）。操作のたびに書き直す（締めの前に相手が切っても、取れた分は残る）
             self.facts["callback"][-1].update(self._callback_fields(self.callback_ids, self.callback_why))
-        for fid in [f for f in self.follow_ups if f not in self.follow_noted and self.items[f].state in GOT]:
-            # 分かるお客様・分かる時の答え：かけ直しの記録（理由＝扱いの名前。項目は同じ1か所＝分かるお客様は person・分かる時は time）
+        for fid in [f for f in self.follow_ups if f not in self.follow_noted and self.items[f].state in GOT
+                    and self.questions[f].callback in CALLBACK_REASONS]:
+            # 分かるお客様・分かる時の答え：かけ直しの記録（理由＝扱いの名前。項目は同じ1か所＝分かるお客様は person・分かる時は time）。
+            # ⛔ 2026-11-03 に見つけた（CL-2 の 4-188 の (d) の比べと、記録を書く所の確かめ）：ご承認いただけなかったときの質問（N1〜N3。置く場所に
+            #    同じ follow_ups を使う）の答えも、理由「not_agreed」などのかけ直しの記録に書いていた＝CL-2 の読み手は一覧に無い理由の報告を丸ごと断る
             self.follow_noted.add(fid)
             self._note("callback", why=self.questions[fid].callback, read=[], **self._callback_fields([fid], self.questions[fid].callback))
         if (p1 := CALLBACK_IDS["promise_again"]) in self.items and self._asked(p1) and self.facts.get("not_transferred"):
@@ -5535,9 +5543,9 @@ class Flow:
         if p["stage"] == "ask" and self.items[nid].state in TAKEN + ("unresolved",):
             cond = self.items[nid].condition if self.items[nid].state in GOT else None
             if cond == "点を言った":
-                self._point_heard(self.callee_said)
+                self._point_heard(self.items[nid].value)
             elif self.questions[nid].declined(cond):
-                self._point_heard(self.callee_said, explain=False)
+                self._point_heard(self.items[nid].value, explain=False)
                 self._point_end("declined")
             else:
                 p["stage"], p["hai"] = "confirm", self.callee_turns
@@ -5554,9 +5562,9 @@ class Flow:
                 self._point_end("agreed")
             elif cond == "分からない点がある":
                 p["round"] += 1   # 分かるまでご説明する（回数では切らない）
-                self._point_heard(self.callee_said)
+                self._point_heard(self.items[oid].value)
             elif self.questions[oid].declined(cond):
-                self._point_heard(self.callee_said, explain=False)
+                self._point_heard(self.items[oid].value, explain=False)
                 self._point_end("declined")
             else:
                 p["stage"], p["hai"] = "confirm", self.callee_turns   # 「なるほど」を「はい、」で受けて伺う（お礼・承りの相づちは合わない）
@@ -5575,12 +5583,14 @@ class Flow:
         self.follow_ups[q.id] = self.point["q"]
         self._insert_after(after, q.id)
 
-    def _point_heard(self, said: str | None, explain: bool = True) -> None:
+    def _point_heard(self, point: str | None, explain: bool = True) -> None:
         """ご納得いただけなかった点・お断りの理由を伺った：点は通話の事実に残す（依頼者へ返す）。点なら、AIがご説明する段へ（_advance が知らせる）。"""
         p = self.point
         if explain:
             p.update(stage="explain", turn=self.callee_turns, explained=None)
-        self._note("not_agreed", question=p["q"], round=p["round"], said=said, **({} if explain else {"declining": True}))
+        # point＝ご納得いただけなかった点・お断りの理由の値（AIの報告の値。無ければ None）・said＝根拠の発話（_note の1か所）。✅ CL-2 の 4-189：
+        # 「said＝根拠の発話・point＝ご納得いただけなかった点の値です。書き分けてください」（⛔ 11-03 まで、根拠の発話を said に上書きし、値を持たなかった）
+        self._note("not_agreed", question=p["q"], round=p["round"], point=point, **({} if explain else {"declining": True}))
 
     def _point_said(self, kind: str) -> None:
         """ご説明する段で、AIが応えた（_answer・_own_answer・_own_fallback）：知っていることでご説明できたか（答えを持っていない質問＝ご説明できない）。"""
@@ -5785,6 +5795,7 @@ class Flow:
         Intent.md 9-5「各項目には、根拠になった発話（時刻つき）を保存する」・11-1「拒否・同意の記録（根拠の発話）」。時刻は電話接続側が
         発話の番号に付ける（試作では通話の記録の turns）。"""
         assert kind in FACT_KINDS, kind
+        assert kind != "callback" or extra.get("why") in CALLBACK_REASONS, extra.get("why")   # 一覧に無い理由は、CL-2 の読み手が報告ごと断る
         self.facts.setdefault(kind, []).append({"turn": self.callee_turns, "said": (self.callee_said or "").strip()[:80], **extra})
 
     def _note_irreversible(self, kind: str, check: str) -> None:
