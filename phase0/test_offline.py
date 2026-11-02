@@ -4202,6 +4202,21 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual((r["result"], g.trouble["reason"], [(t["ai"], t["what"]) for t in g.ai_trouble]),
                          ("end_trouble", "ai_malfunction", [("会話AI", "止まった")]))
 
+    def test_new_ai_trouble_is_told_at_once(self):
+        # CL-2 の 4-171 の (a)：止まったAIを新しく1つ決めたら、そのつど通話の途中の知らせ先（CL-2 の call.ai_trouble）へすぐ渡す（報告の終わりを
+        # 待たない）。同じAI・同じ道・同じ出来事で回数が増えただけなら渡さない。渡すのは報告の ai_trouble の1つと同じ形の写し
+        told: list[dict] = []
+        f = self.flow()
+        f.tell_ai_trouble = told.append
+        f.on_callee(); f.on_heard("はい。")
+        f.on_ai_trouble({"model": "Jev", "error": "時間切れ", "outage": True})
+        f.on_ai_trouble({"model": "Jev", "error": "時間切れ", "outage": True})                     # 回数だけ
+        f.on_ai_trouble({"model": "Jev", "route": "緊急の道", "used": True})                         # 別の出来事
+        self.assertEqual(told, [{"ai": "Jev", "route": "直接", "what": "止まった", "error": "時間切れ", "turn": 1, "count": 1},
+                                {"ai": "Jev", "route": "緊急の道", "what": "緊急の道で答えた", "error": None, "turn": 1, "count": 1}])
+        self.assertEqual(f.ai_trouble[0]["count"], 2)                                                # 報告の側は回数を数える
+        self.assertIsNot(told[0], f.ai_trouble[0])                                                   # 写しを渡す（あとで回数を変えても、渡した物は変わらない）
+
     def heard(self, f, said):
         """相手が話した（会話AIの聞き取りの文字が届いた）。"""
         f.on_callee()
@@ -6085,7 +6100,10 @@ class PartyTest(unittest.TestCase):
         r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
         self.assertEqual(r["play"], [{"kind": "opening", "part": "voicemail", "text": msg}])
         self.assertEqual(f.end_reason, "voicemail")
-        self.assertEqual(f.facts["voicemail_message"], [{"turn": 1, "said": "ただいま電話に出ることができません。"}])   # 残した事実（CL-2 の 4-106）
+        # 残した事実（CL-2 の 4-106）は、伝言の録音を最後まで流し終えてから（CL-2 の 4-167 の頼み6：途中で切れたら残していない）
+        self.assertIsNone(f.facts.get("voicemail_message"))
+        f.on_played([msg])
+        self.assertEqual(f.facts["voicemail_message"], [{"turn": 1, "said": "ただいま電話に出ることができません。"}])
         # ✅ 2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ」＝この依頼者が、このお客様にもう残していたら、何も言わずに切る
         f = self.flow(voicemail_message=msg, play_recordings=True, opening=b.replay_parts(), voicemail_left=True)
         r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
@@ -9198,6 +9216,54 @@ class TargetTest(unittest.TestCase):
                         and getattr(n.targets[0], "id", None) == var)
             return ast.literal_eval(node)
         self.assertEqual((const("call_report.py", "AI_TROUBLE_WHATS"), const("errors.py", "EAR_AI")), (AI_TROUBLE_WHATS, EAR_AI))
+        # 会話AIの名前・緊急の道でない道の名前（CL-2 の errors.CONVO_AI・errors.DIRECT。CL-2 の 4-173 の (b)）と、止まったAIの1つの鍵
+        # （call_report.AI_TROUBLE_KEYS。報告の ai_trouble も、通話の途中の知らせ call.ai_trouble も、同じ形で確かめられる）
+        from flowctl import CONVO_AI, DIRECT_ROUTE, ear_ai
+        self.assertEqual((const("errors.py", "CONVO_AI"), const("errors.py", "DIRECT")), (CONVO_AI, DIRECT_ROUTE))
+        self.assertTrue(ear_ai("Soniox").startswith(EAR_AI))
+        f = TargetTest().business().flow()
+        f.on_ai_trouble({"model": CONVO_AI, "error": "つながらない", "outage": True})
+        self.assertEqual(set(f.ai_trouble[0]), const("call_report.py", "AI_TROUBLE_KEYS"))
+
+    def test_trouble_reasons_are_cl2_ends(self):
+        # こちらの不具合で電話を途中で終える理由（flowctl.TROUBLE_REASONS＝Flow._trouble の1か所）が、CL-2 の終え方の理由（errors.ENDS＝
+        # call.end_for_trouble が受ける理由）に全部入っているか（入っていないと、甚大な問題で終えようとした電話が、その場で断られる＝CL-2 の 4-163 の頼み2）
+        import ast
+        import pathlib
+        from flowctl import TROUBLE_REASONS
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "errors.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        node = next(n.value for n in ast.parse(src.read_text(encoding="utf-8")).body
+                    if isinstance(n, (ast.Assign, ast.AnnAssign)) and getattr(n.targets[0] if isinstance(n, ast.Assign) else n.target, "id", None) == "ENDS")
+        ends = ast.literal_eval(node)
+        self.assertEqual([r for r in TROUBLE_REASONS if r not in ends], [])
+
+    def test_judge_names_match_cl2_usage(self):
+        # 本番で使う判定の名前（並べて出す4つ・止める側だけの 3.5 Flash Lite・止まった判定の代わり・前の話を読む判定・中身の判定）が、CL-2 の
+        # 利用量の名前の表（usage.JUDGE_SERVICES。判定の名前で引く）に全部あり、モデルと窓口が合っているか（無い名前・違うモデルは、料金を
+        # 測れない・違う単価で数える＝CL-2 の 4-173 の (c)）。緊急の道の名前（usage.JUDGE_EMERGENCY_SERVICE）も、緊急の道のモデルと比べる
+        import ast
+        import pathlib
+        import meaning_judge as m
+        from grounding import GROUNDERS
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "usage.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        def const(var):
+            node = next(n.value for n in ast.parse(src.read_text(encoding="utf-8")).body if isinstance(n, (ast.Assign, ast.AnnAssign))
+                        and getattr(n.targets[0] if isinstance(n, ast.Assign) else n.target, "id", None) == var)
+            return ast.literal_eval(node)
+        services = const("JUDGE_SERVICES")
+        used = {*m.RACE, *m.STOP_ONLY, m.STANDIN, *m.PRIOR_READERS, *GROUNDERS}
+        self.assertEqual(sorted(used - set(services)), [])
+        for name in sorted(used & set(m.OTHER_JUDGES)):
+            c = m.OTHER_JUDGES[name]
+            self.assertEqual(services[name], f"{'openrouter' if c['host'] == 'openrouter.ai' else c['maker']}:{c['model']}", name)
+        for name in sorted(used - set(m.OTHER_JUDGES)):   # Gemini の判定（モデルは表示名から引く＝g23_names.find_models。3.5 Flash Lite は gemini-3.5-flash-lite）
+            self.assertIn(name, m.JUDGE_MODELS)
+            self.assertTrue(services[name].startswith("google:gemini-"), name)
+        self.assertEqual(const("JUDGE_EMERGENCY_SERVICE"), "openrouter:" + m.EMERGENCY["model"])
 
     def test_report_frame_matches_cl2(self):
         # 会話の報告の外枠（Flow.report）の版と鍵が、CL-2 の読み手（call_report.VERSION・from_json の鍵）と同じか（CL-2 の 4-179 の (e)）
@@ -9586,6 +9652,10 @@ class FirstWordsTest(unittest.TestCase):
             if after == "nobody":
                 self.assertEqual((r["result"], r.get("hang_up"), r.get("play")), ("end", True, None))
             else:
+                # 伝言を残したことは、録音を最後まで流し終えてから（CL-2 の 4-167 の頼み6）
+                self.assertEqual([x["part"] for x in r["play"]], ["voicemail"])
+                self.assertIsNone(f.facts.get("voicemail_message"))
+                f.on_played([x["text"] for x in r["play"]])
                 self.assertEqual(f.facts["voicemail_message"][0]["turn"], 1)
             self.assertIsNone(f.on_voicemail_wait_end())
 
@@ -11589,9 +11659,31 @@ class ConvoRunTest(unittest.TestCase):
             raise RuntimeError("つながらない")
             yield
 
+        told: list[dict] = []
         with mock.patch.object(convo, "open_session", unreachable):
-            r = asyncio.run(convo.run_call(None, "m", TargetTest().business(), "S2", ["はい、青葉物産です。"], use_ear=False))
+            r = asyncio.run(convo.run_call(None, "m", TargetTest().business(), "S2", ["はい、青葉物産です。"], use_ear=False,
+                                           tell_ai_trouble=told.append))
         self.assertEqual(([(t["ai"], t["what"]) for t in r["ai_trouble"]], r["turns"], r["trouble"]), ([("会話AI", "止まった")], [], None))
+        self.assertEqual([(t["ai"], t["what"], t["turn"]) for t in told], [("会話AI", "止まった", 0)])   # 電話の前に、すぐ知らせた（CL-2 の 4-171 の (a)）
+
+
+class EarFailureTest(unittest.TestCase):
+    def test_failures_are_redacted_and_sorted(self):
+        # CL-2 の 4-173 の (a)：別の耳の失敗は、キーの値を伏せて残し、止まった側の失敗かを判定と同じ見分け（meaning_judge.outage）で残す
+        import common
+        from ears import Ear
+
+        class Refused(Exception):
+            status = 400
+
+        ear = Ear()
+        common._LOADED_SECRETS.append("ab12-secret-value")
+        try:
+            ear._failed(RuntimeError("ab12-secret-value でつながらない"))
+            ear._failed(Refused("中身が断られた"))
+        finally:
+            common._LOADED_SECRETS.remove("ab12-secret-value")
+        self.assertEqual(([("secret-value" in e) for e in ear.errors], ear.outages), ([False, False], [True, False]))
 
 
 class ImportAITest(unittest.TestCase):

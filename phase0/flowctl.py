@@ -717,10 +717,20 @@ END_REASONS = (*END_LABEL, *NOT_A_PERSON, "wrong_party", "callback", "other_mean
 # 別（終えるのも記録するのも CL-2 の電話の部品＝会話の報告の締めの理由には入れない）
 TROUBLE_REASONS = ("ai_malfunction", "poor_audio", "cannot_proceed")
 # 止まったAIの出来事（通話の報告の ai_trouble の what＝Flow.on_ai_trouble の1か所。CL-2 の call_report.AI_TROUBLE_WHATS と同じ＝試験で比べる）と、
-# 別の耳の名前の頭（「別の耳（種類）」。CL-2 の errors.EAR_AI と同じ＝別の耳が止まったら緊急の道で再開しない、を名前で見分ける。CL-2 の 4-173 (b)・4-174 (b)）
+# 別の耳の名前の頭（「別の耳（種類）」。CL-2 の errors.EAR_AI と同じ＝別の耳が止まったら緊急の道で再開しない、を名前で見分ける。CL-2 の 4-173 (b)・4-174 (b)）。
+# 会話AIの名前と、緊急の道でない道の名前も、CL-2 の errors.CONVO_AI・errors.DIRECT と同じ（名前で、会話AIが止まった・緊急の道を出せない、を見分ける）
 AI_TROUBLE_WHATS = ("止まった", "緊急の道で答えた", "おかしな動き")
 REPORT_VERSION = 3   # 会話の報告の版（Flow.report。CL-2 の call_report.VERSION と同じ＝試験で比べる）
 EAR_AI = "別の耳"
+CONVO_AI = "会話AI"
+DIRECT_ROUTE = "直接"
+
+
+def ear_ai(kind: str) -> str:
+    """別の耳の名前（「別の耳（種類）」）を作る唯一の場所：通話の途中で止まったとき（通話の報告の ai_trouble）と回復の確かめ（convo.check_ais）の
+    両方がこれを使う＝止まった別の耳が答えるようになったかを、名前で突き合わせられる。"""
+    return f"{EAR_AI}（{kind}）"
+
 # 通話の事実の種類の全部（Flow._note の1か所で確かめる。CL-2 の call_report.FACT_KINDS と同じ＝試験で比べる。中身は CL-1.md 2-2）。
 # out_of_scope（範囲外の求めで終えた）は、まだ書かない（実際にあるかを測ってから作る＝2-2 の「まだ作っていないもの」）
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end", "connect", "answered",
@@ -1733,6 +1743,7 @@ class Flow:
         # この依頼者が、このお客様（同じ番号）の留守番電話に、もう伝言を残したか（電話の前に CL-2 の call_report.voicemail_left を読んで渡す。
         # ✅ 2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ…同じ依頼者のすべての一覧で、同じお客様（同じ番号）」＝CL-2 の 4-106）
         self.voicemail_left = voicemail_left
+        self.voicemail_sending: str | None = None   # 流すように頼んだ、留守番電話の伝言（最後まで流れたら通話の事実 voicemail_message＝on_played）
         # 取り次ぎ・保留で待つ長さ（秒。業務設定。✅ 2026-10-24 ユーザー：「業務ごとに選べる：デフォルト、相手から長く待つ必要がある理由がなければ5分、
         # 理由があればそれまで待つ」）。相手が長さを言えば、その長さ（_hold の1か所で決め、返事の hold_wait_s で電話接続側へ渡す）
         self.hold_wait_s = hold_wait_s
@@ -1846,6 +1857,10 @@ class Flow:
         # 番号（on_resend。同じ発話で2回目は張り替えない＝on_ai_failed）
         self.trouble: dict | None = None
         self.ai_trouble: list[dict] = []   # この通話で止まったAI・緊急の道で答えたこと（on_ai_trouble の1か所。通話の報告の ai_trouble）
+        # 新しく1つ足したときの、通話の途中の知らせ先（CL-2 の通話ごとの口 call.ai_trouble。待たずに戻る。会話の側が通話の始めに入れる＝
+        # convo.run_call の tell_ai_trouble）。⛔ 2026-11-02（CL-2 の連絡帳 4-171 の (a)）まで、通話の報告の終わりまで知らせていなかった＝
+        # その間、同じ契約者のほかの回線が、止まったAIで新しい電話をかけていた
+        self.tell_ai_trouble = None
         self.irr_checks: list[str] = []    # 取り消せない事実ごとの、2つ目の判定とそろったか（_note_irreversible の1か所。報告の irreversible_check）
         self.unclear_qids: set[str] = set()
         self.resent_turn: int | None = None
@@ -2041,6 +2056,9 @@ class Flow:
         お詫びの録音を流すように頼んだ瞬間に「伝えられた」としていた＝お詫びの途中で切られても、伝えたと報告した。電話に出た方の第一声と
         名乗りの録音の順は決めていないので、相手が話し始めたことからは推し量らない（どこまで届いたかは、流した電話接続側だけが知っている）。"""
         self.heard_lines.update(done)
+        if self.voicemail_sending and self.voicemail_sending in done:   # 留守番電話の伝言を最後まで流した（_not_a_person）
+            self.voicemail_sending = None
+            self._note("voicemail_message")
 
     # ── 通話の始め：電話に出た方の第一声を聞いてから名乗る（✅ 2026-10-24 ユーザー。CL-1.md 4-45・DESIGN.md 6-13）。電話接続側が呼ぶ4つ
     def on_connect(self) -> dict:
@@ -2203,7 +2221,7 @@ class Flow:
            （試作は最大90秒）＝お客様には無言が続いた（Intent.md 9-4「会話AIが通話中に落ちた」の「相手を無言で放置しない」に届いていなかった）。"""
         if self.resent_turn == self.callee_turns:
             return self._trouble("ai_malfunction", f"張り替えて相手の発話を送り直しても、会話AIの声も受け付けた報告も戻らない（{why}）")
-        self.on_ai_trouble({"model": "会話AI", "error": why, "glitch": True})   # 張り替えて続ける＝おかしな動き（止めずに警告。on_ai_trouble の1か所）
+        self.on_ai_trouble({"model": CONVO_AI, "error": why, "glitch": True})   # 張り替えて続ける＝おかしな動き（止めずに警告。on_ai_trouble の1か所）
         return {"result": "swap", "why": why}
 
     def on_ai_unreachable(self, error: str) -> dict:
@@ -2212,7 +2230,7 @@ class Flow:
         止まったかを決めるのは会話の側の1か所。⛔ 2026-11-02 まで送っておらず、CL-2 が生の誤りを3回数えて止めていた）。通話の途中
         （張り替えのつながりを開けない）なら、甚大な問題として、お詫びして終える（_trouble。止まったAIにも数える）。"""
         if self.callee_turns == 0:
-            self.on_ai_trouble({"model": "会話AI", "error": error, "outage": True})
+            self.on_ai_trouble({"model": CONVO_AI, "error": error, "outage": True})
             return {"result": "not_called", "why": error}
         return self._trouble("ai_malfunction", f"会話AIのつながりを開けない（{error}）")
 
@@ -4112,8 +4130,15 @@ class Flow:
             # ✅ 2026-10-19 ユーザー：「依頼者ごとに設定で選べる形にして、必要なら録音をしましょう」⇒ 伝言は依頼主の単位の録音（名乗りの部分 voicemail）
             #    依頼主の録音が無い（名乗りを録音で流さない通話）ときは、AIが設定の文のまま言う。残したことは通話の事実 voicemail_message
             #    （次の電話からは残さない＝voicemail_left。2回目からは、伝言の設定の無い業務と同じく何も言わずに切る）
-            self._note("voicemail_message")
-            return self._close("voicemail", text=(self.voicemail_message, "voicemail"), part=True, spoken="voicemail" not in self.opening)
+            # 残したことは、伝言の録音を最後まで流し終えたとき（on_played の1か所）に通話の事実へ。⛔ 2026-11-02（CL-2 の連絡帳 4-167 の頼み6）まで、
+            # 流すように頼んだ瞬間に「残した」としていた＝伝言の途中で切れても、次の電話からは残さなかった。AIが言う古い試しの形（録音が無い）
+            # だけは、流し終えた知らせが無いので、言わせた時に残す（本番は録音で流す形だけ＝DESIGN.md 6-13）
+            spoken = "voicemail" not in self.opening
+            if spoken:
+                self._note("voicemail_message")
+            else:
+                self.voicemail_sending = self.voicemail_message
+            return self._close("voicemail", text=(self.voicemail_message, "voicemail"), part=True, spoken=spoken)
         return self._hang_up(party)
 
     def _party_known(self, party: str) -> dict:
@@ -4788,17 +4813,19 @@ class Flow:
         （✅ 2026-10-31 管理者のご決定（CL-2 の連絡帳 4-174）：「甚大な問題は止める。甚大でない場合は、ダッシュボードに警告を出す。」）。"""
         stopped, answered, glitch = AI_TROUBLE_WHATS
         what = answered if entry.get("used") else glitch if entry.get("glitch") else stopped
-        route = entry.get("route") or "直接"
+        route = entry.get("route") or DIRECT_ROUTE
         for t in self.ai_trouble:
             if (t["ai"], t["route"], t["what"]) == (entry["model"], route, what):
                 t["count"] += 1
                 return
         self.ai_trouble.append({"ai": entry["model"], "route": route, "what": what, "error": entry.get("error"),
                                 "turn": self.callee_turns, "count": 1})
+        if self.tell_ai_trouble is not None:   # 新しく足したときだけ、すぐ知らせる（回数が増えただけのときは、報告の終わりの ai_trouble で）
+            self.tell_ai_trouble(dict(self.ai_trouble[-1]))
 
     def _trouble(self, reason: str, why: str) -> dict:
         """こちらの不具合で電話を途中で終える唯一の場所（甚大な問題＝DESIGN.md 6-8。理由は TROUBLE_REASONS）。電話接続側が
-        call.end_for_trouble(reason) を呼び、お詫びの2つの一言（phrases.LINE_TROUBLE）で終える：「恐れ入ります。こちらの通信に不具合が起きた
+        call.end_for_trouble(reason, why) を呼び（why＝根拠の短い文。お客様の言葉・名前は入れない）、お詫びの2つの一言（phrases.LINE_TROUBLE）で終える：「恐れ入ります。こちらの通信に不具合が起きた
         ようですので改めてお電話させていただいてもよろしいでしょうか？」→ お客様のお返事 →「大変申し訳ございません。それではいったんお電話を
         失礼いたします。」→ 切る（流して切り、理由を試行に残し、復旧次第お詫びとともにかけ直すのは CL-2＝CL-2 の連絡帳 4-156・4-158。かけ直しは、
         取れた答えの質問を伺わずに続きから）。会話の側は、このあと何も流さず、AIの報告も受けない（_apply_one）。1通話1回。"""
@@ -4807,7 +4834,7 @@ class Flow:
             return self._ended()
         self.trouble = {"reason": reason, "why": why, "turn": self.callee_turns}
         if reason == "ai_malfunction":   # 会話AIの不具合も、止まったAIとして数える（on_ai_trouble の1か所）
-            self.on_ai_trouble({"model": "会話AI", "error": why, "outage": True})
+            self.on_ai_trouble({"model": CONVO_AI, "error": why, "outage": True})
         self.current, self.phase = None, "closing"
         return {"result": "end_trouble", "reason": reason, "why": why, "silent": True,
                 "message": "こちらの都合で、この電話はいったん終えます。何も言わずにお待ちください（お詫びの言葉は、プログラムが流します）。"}

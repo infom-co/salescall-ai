@@ -29,7 +29,7 @@ from contextlib import AsyncExitStack, nullcontext
 from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, redact, write_wav
 from offscript import SpeechGate
-from flowctl import ASKS_CHECKS, CHOICE_TYPES, EAR_AI, RETURN_CHECKS, Flow, label, tool_declarations
+from flowctl import ASKS_CHECKS, CHOICE_TYPES, CONVO_AI, RETURN_CHECKS, Flow, ear_ai, label, tool_declarations
 from phrases import LINE_TROUBLE
 from instruction import Business, barge_in_note, build
 from ears import open_ear
@@ -455,9 +455,9 @@ async def check_ais(*, judges=(), ear_kind: str | None = None, ring=None, model:
         except Exception as exc:
             out.append({"ai": name, "ok": False, "error": redact(repr(exc))[:160], "s": round(time.monotonic() - t0, 3)})
     if ear_kind:
-        await opened(f"{EAR_AI}（{ear_kind}）", lambda client, closing: open_ear(ear_kind, client))
+        await opened(ear_ai(ear_kind), lambda client, closing: open_ear(ear_kind, client))
     if ring is not None and model:
-        await opened("会話AI", lambda client, closing: open_session(client, model, build_config(voice=None, system_instruction="確かめ"),
+        await opened(CONVO_AI, lambda client, closing: open_session(client, model, build_config(voice=None, system_instruction="確かめ"),
                                                                     closing))
     return out
 
@@ -469,7 +469,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                    audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = True,
                    followup_wait_s: float | None = None, callee_voice: str | None = None, play_recordings: bool = False,
                    ear_kind: str | None = None, judge=None, judge2=None, off_script_at: int | None = None,
-                   off_script_heard: str | None = None, grounder=None, judge_route: str | None = None) -> dict:
+                   off_script_heard: str | None = None, grounder=None, judge_route: str | None = None,
+                   tell_ai_trouble=None) -> dict:
     """followup_wait_s：相手の言葉の途中でAIが話し出していたとき・AIが黙って待ったとき（followup_reason）は、相手の続きの言葉への
     返事を、次の台詞を送る前に、この秒数まで、もう1回ぶん待つ（来なければ、相手が黙って待たされたことになる。
     記録の行は callee={"followup_of": 台詞, "reason": 理由}）。G-31・G-34
@@ -482,7 +483,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     遅れて届いたほうも同じ決まりで当てる。meaning_judge.make_judges＝止まった判定の代わりも入る。DESIGN.md 6-10 の (6)。G-53・G-61）。check_handler
     off_script_at：試験だけ。この番号の台詞へのAIの声を、渡した言い方から外れたものとして止める（外れたあとの言い直しの仕組みを確かめる。
     外れることは、ふつうはめったに起きないので。DESIGN.md 6-7）。off_script_heard：試験だけ。そのとき相手に聞こえていたものを、この種類と
-    みなす（offscript.restate の3つの言い方を、それぞれ確かめる）"""
+    みなす（offscript.restate の3つの言い方を、それぞれ確かめる）
+    tell_ai_trouble：止まったAI・緊急の道で答えたことを、新しく1つ決めるたびに、すぐ渡す先（Flow.tell_ai_trouble。本番は CL-2 の通話ごとの口
+    call.ai_trouble＝待たずに戻る。CL-2 の連絡帳 4-171 の (a)）。渡すのは通話の報告の ai_trouble の1つと同じ形の写し"""
     if callee_voice == "swap":
         callee_voice = callee_voice_for(voice_type)
     callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice), **{k: callee_wav(x[k], callee_voice) for k in ANSWER_AGAIN.values() if k in x}}
@@ -492,6 +495,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     flow = business.flow(recorded=opening_mode == "recorded", play_recordings=play_recordings, lead_ins=lead_ins,
                          **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     flow.use_checks(*[k for k, used in (("ear", ear_kind), ("judge", judge), ("judge2", judge2)) if used])
+    flow.tell_ai_trouble = tell_ai_trouble   # 止まったAIを通話の途中ですぐ知らせる先（本番は CL-2 の call.ai_trouble。会話AIを開く前に入れる）
     # 判定の道の状態（meaning_judge.RouteState。意味の判定と中身の判定で同じもの）に、この通話の知らせ先（止まったAI・緊急の道＝Flow.on_ai_trouble）
     # と、緊急の道から始めるか（judge_route＝RESUME_EMERGENCY：契約者以上の権限で、緊急の道を使って再開した通話。決めるのは発信の門＝CL-2）を入れる。
     # 通話の終わりに外す。⚠️ 1つの状態を同時に2つの通話で使わない（試作の道具は通話を1本ずつ流す。本番は通話ごとに作る）
@@ -836,8 +840,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     await asyncio.gather(*closing, return_exceptions=True)
     for st in route_states:
         st.on_trouble, st.emergency_first = None, False
-    for e in (ear.errors if ear is not None else ()):
-        flow.on_ai_trouble({"model": f"{EAR_AI}（{ear_kind}）", "error": e, "outage": True})   # 別の耳が止まった（ears.Ear.errors）
+    for e, stopped in (zip(ear.errors, ear.outages) if ear is not None else ()):
+        # 別の耳の失敗（ears.Ear._failed の1か所）：止まった側の失敗は「止まった」、ほかは電話を続けられた「おかしな動き」（CL-2 の 4-173 の (a)）
+        flow.on_ai_trouble({"model": ear_ai(ear_kind), "error": e, **({"outage": True} if stopped else {"glitch": True})})
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log, "trouble": flow.trouble,
             "items": {k: {"state": v.state, "value": v.value, "condition": label(v.condition),   # 名前は依頼者へ渡す日本語の名前（flowctl.label の1か所。CL-2 の 4-179 の (b)）
                            "reason": v.reason, "ask_backs": v.ask_backs,

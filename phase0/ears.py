@@ -54,8 +54,18 @@ class Ear:
     name = ""
 
     def __init__(self):
-        self.errors: list[str] = []
+        self.errors: list[str] = []      # 失敗の文（キーらしい文字を隠したもの＝_failed の1か所）
+        self.outages: list[bool] = []    # 失敗ごとに、止まった側の失敗か（errors と同じ並び）
         self.first_at: float | None = None
+
+    def _failed(self, e: BaseException) -> None:
+        """失敗を残す唯一の場所：文はキーらしい文字を隠し（common.redact）、止まった側の失敗か（時間切れ・つながらない・上限など＝判定と同じ
+        見分けの meaning_judge.outage）も残す。⛔ 2026-11-02（CL-2 の連絡帳 4-173 の (a)）まで、文をそのまま残し、種類を見ずに通話の報告で
+        全部「止まった」にしていた。"""
+        from common import redact
+        from meaning_judge import outage
+        self.errors.append(redact(repr(e))[:200])
+        self.outages.append(outage(e))
 
     async def __aenter__(self):
         self._loop = asyncio.get_running_loop()
@@ -71,7 +81,7 @@ class Ear:
         try:
             await self._close()
         except Exception as e:  # 閉じるときの誤りで、通話の記録を失わない
-            self.errors.append(repr(e)[:200])
+            self._failed(e)
 
     async def _guard(self, work) -> None:
         """受け取り・無音の作業が落ちても、通話は止めない（文字が届かないだけ＝待つ側が時間で進む）。作業は、始まってから作る（始まる前に
@@ -82,7 +92,7 @@ class Ear:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            self.errors.append(repr(e)[:200])
+            self._failed(e)
 
     def _final(self, text: str) -> None:
         """いまの発話の確定した文字が届いた（受け取りの処理が呼ぶ）。声を流している間に届いた分（耳が発話の途中の間で区切ったかけら）は
@@ -118,7 +128,7 @@ class Ear:
             self._feeding.clear()       # ここから先に届いた確定した文字で渡す（_final）
             await self._fed()
         except Exception as e:
-            self.errors.append(repr(e)[:200])
+            self._failed(e)
         finally:
             self._feeding.clear()
 
