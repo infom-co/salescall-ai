@@ -215,14 +215,21 @@ def imported() -> dict:
     return _G72
 
 
+def word_key(text: str, conditions) -> str:
+    """取込で作る質問ごとの言葉の鍵（唯一の場所＝作る G-72 と読む with_words）：質問の文と選択肢の組。⛔ 2026-11-03 の見直しで見つけた：文だけを鍵に
+    していたので、同じ文で選択肢の違う質問（G10「変更なし・変更あり」・G11「はい・いいえ」）の G11 に言葉が付かず、遠ざかる向きは G10 の名前だった。"""
+    return f"{text}／{'・'.join(conditions)}"
+
+
 def with_words(q: Question) -> Question:
-    """質問に、取込で作った選択肢ごとの言葉（向きを伺う言葉・こちらがすることの言葉）を付ける（選択肢の型だけ。事実を伺う質問は作らない）。"""
+    """質問に、取込で作った選択肢ごとの言葉（向きを伺う言葉・こちらがすることの言葉）と、目的から遠ざかる向きの選択肢を付ける（選択肢の型だけ。
+    事実を伺う質問は作らない）。"""
     import dataclasses
-    words = imported().get("words", {})
+    words, key = imported().get("words", {}), word_key(q.text, q.conditions)
     if q.type not in CHOICE_TYPES or q.asks_fact:
         return q
-    return dataclasses.replace(q, doubt_words=dict(words.get("doubt", {}).get(q.text, {})), do_words=dict(words.get("do", {}).get(q.text, {})),
-                               keep_words=dict(words.get("keep", {}).get(q.text, {})), away=tuple(words.get("away", {}).get(q.text, ())))
+    return dataclasses.replace(q, doubt_words=dict(words.get("doubt", {}).get(key, {})), do_words=dict(words.get("do", {}).get(key, {})),
+                               away=tuple(words.get("away", {}).get(key, ())))
 
 
 def end_questions(facts: bool = True) -> list[Question]:
@@ -232,7 +239,7 @@ def end_questions(facts: bool = True) -> list[Question]:
     out = []
     for n, (text, conditions) in enumerate(d.get("new_questions", []), 1):
         kind = "choice" if ("どちら" in text or "どれ" in text) else "yes_no"
-        out.append(Question(f"E{n}", text, kind, conditions=tuple(conditions), meanings=dict(d.get("meanings", {}).get(text, {})),
+        out.append(Question(f"E{n}", text, kind, conditions=tuple(conditions), meanings=dict(d.get("meanings", {}).get(word_key(text, conditions), {})),
                             asks_fact=facts and asks_fact(text)))
     return out
 
@@ -285,9 +292,16 @@ def g48_question(n: int, text: str, conditions: tuple, meanings: dict, facts: bo
 
 
 def g48_questions(facts: bool = True) -> list[Question]:
+    """G-48 の質問（G1〜）。文と選択肢は元の一覧（g48_meanings.QUESTIONS）から、意味の言葉は G-52 の材料から（文が同じときだけ）。文を直した質問の
+    意味の言葉は、取込と同じ決め方で作り直したもの（G-72 の meanings）。⚠️ お客様の答えの材料（組 B）と正解は、質問の番号のまま（お客様の言葉）。
+    ✅ 2026-11-03 ユーザー：「「折り返し」だとすぐだと思われ断られる可能性が高いので、「また」に変更するように言ったよね！」（G7）"""
     with open(sorted(glob.glob(str(HERE / "results" / "G-52_*.json")))[-1], encoding="utf-8") as fh:
         d = json.loads(fh.read())
-    return [g48_question(n, q, tuple(c), m, facts) for n, ((q, c), m) in enumerate(zip(d["questions"], d["meanings"]), 1)]
+    redone = imported().get("meanings", {})
+    out = []
+    for n, ((text, c), (was, _), m) in enumerate(zip(G48, d["questions"], d["meanings"]), 1):
+        out.append(g48_question(n, text, tuple(c), m if text == was else dict(redone.get(word_key(text, c), {})), facts))
+    return out
 
 
 def set_b(qs: list[Question]) -> list[dict]:
