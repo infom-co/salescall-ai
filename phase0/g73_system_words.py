@@ -55,6 +55,14 @@ def _hear_kinds(calling: bool) -> dict:
     return kinds
 
 
+# 紛らわしい「そういう様子は無い」だけを作らせる種類（正解は HEAR_OK）。✅ 2026-11-03 日本時間2時台 ユーザー：「紛らわしい分だけSonnetに作らせたらいいんじゃないですか」
+# ＝ Haiku 5.5 は「紛らわしい言い方にしてください」を守らず、お呼びする段の「そういう様子は無い」がふつうの答えだけだった ⇒ その分だけを、はっきり頼む
+# （Sonnet は判定に入っているので作り手にしない＝自分が「届いている」と思う言い方になり、誤って「届いていない」と読まないかの測りが甘くなる）
+CONFUSING = "そういう様子は無い（声や電話の言葉が入る）"
+CONFUSING_NOTE = ("こちらの声は届いていて、ふつうに答えた・話した言葉。ただし、どの言葉にも必ず、声や電話のことば（「もしもし」「はい、聞こえてます」"
+                  "「お電話ありがとうございます」など）を入れる。⚠️ 聞こえない・遠い・途切れた・もう一度、といった、声が届いていない様子の言葉にはしない")
+
+
 def calling_questions() -> dict[bool, str]:
     """お呼びする段の2つの一言（{確かめる一言か: 判定に見せる質問の文}）。お呼びする段の測り（G-59）が判定に見せる質問と同じ1か所（question_of）。"""
     import g59_calling_judge as g
@@ -77,6 +85,9 @@ def _scenes() -> list[dict]:
     out += [{"set": "HEAR", "question": q, "text": f"こちらが「{q}」と伺った", "kinds": _hear_kinds(False)} for q in HEAR_QUESTIONS]
     out += [{"set": "HEAR_CALL", "question": q, "asked": asked, "text": f"{CALLING_SCENES[asked]}こちらが「{q}」と伺った", "kinds": _hear_kinds(True)}
             for asked, q in calling_questions().items()]
+    # お呼びする段の紛らわしい言葉（種類は1つ＝正解は HEAR_OK）
+    out += [{"set": "HEAR_CALL", "question": q, "asked": asked, "text": f"{CALLING_SCENES[asked]}こちらが「{q}」と伺った",
+             "kinds": {CONFUSING: CONFUSING_NOTE}, "truths": {CONFUSING: HEAR_OK}} for asked, q in calling_questions().items()]
     return out
 
 
@@ -136,7 +147,7 @@ def _words(got: dict, scenes: list[dict], model: str) -> list[dict]:
         for k in sc["kinds"]:
             for w in [w.strip() for w in ((got.get(str(i)) or {}).get(k) or []) if isinstance(w, str) and w.strip()]:
                 out.append({"set": sc["set"], "question": sc["question"], "kind": k, "text": w, "maker": model,
-                            "truth": UNDECIDED if k == UNSURE else k, **({"asked": sc["asked"]} if "asked" in sc else {})})
+                            "truth": sc.get("truths", {}).get(k, UNDECIDED if k == UNSURE else k), **({"asked": sc["asked"]} if "asked" in sc else {})})
     return out
 
 

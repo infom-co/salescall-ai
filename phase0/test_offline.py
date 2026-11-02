@@ -11857,7 +11857,10 @@ class G73WordsTest(unittest.TestCase):
         calling = {s["asked"]: s["question"] for s in sc if s["set"] == "HEAR_CALL"}
         self.assertEqual(calling, {a: g59.question_of(f, a).text for a in (False, True)})
         self.assertEqual([s["question"] for s in sc if s["set"] == "HEAR"], list(g.HEAR_QUESTIONS))
-        self.assertTrue(all(set(s["kinds"]) == {HEAR_LOST, HEAR_OK} for s in sc if s["set"].startswith("HEAR")))
+        self.assertTrue(all(set(s["kinds"]) == {HEAR_LOST, HEAR_OK} for s in sc if s["set"].startswith("HEAR") and "truths" not in s))
+        # お呼びする段の紛らわしい言葉だけの場面（2つの一言とも）：正解は「そういう様子は無い」（作らせた種類の名前のままにしない）
+        confusing = [s for s in sc if "truths" in s]
+        self.assertEqual(({s["asked"] for s in confusing}, {t for s in confusing for t in s["truths"].values()}), ({False, True}, {HEAR_OK}))
         # 作らせた答えの言葉に、どちらの一言のあとかが残る（G-59 が確かめる一言のあとの行にする）
         class C:
             class models:
@@ -11867,6 +11870,7 @@ class G73WordsTest(unittest.TestCase):
                                                                 for i, s in enumerate(sc, 1)})})()
         got = g._ask(C, "m", sc)
         self.assertEqual({w["asked"] for w in got if w["set"] == "HEAR_CALL"}, {False, True})
+        self.assertEqual({w["truth"] for w in got if w["kind"] == g.CONFUSING}, {HEAR_OK})
         self.assertEqual(g._kept(got, sc)[1], [])
 
     def test_g59_counts_only_the_hearing_on_the_words(self):
