@@ -3476,7 +3476,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
             self.assertIn(kind, FIRM_NOT)
         for word in ("時間を遅らせて", "空き", "ずっと先"):   # 例の言葉が試しの言葉と重なり、判定がその形を探した（G-53fix1）
             self.assertNotIn(word, FIRM_NOT)
-        self.assertIn("自分の予定や望みを、迷わずに柔らかく言っただけ", FIRM_YES)
+        self.assertIn("自分の望みを、迷わずに柔らかく言っただけ", FIRM_YES)
         # 4回目（同じ問い合わせでも確からしさが揺れる・境目に居たのは両側に当たったため）：自信がないのは確かに知らないこと（人や物・出来事の様子）・
         # 時や範囲の条件は狭めない・困らないと言っただけと任せた答えを分ける
         self.assertIn("ご自分では確かに知らないこと（人や物・出来事の様子）", FIRM_NOT)
@@ -3486,7 +3486,11 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertNotIn("違う時や範囲のことだけを言った）", FIRM_NOT)
         self.assertIn("柔らかい言い方をしただけ", FIRM_YES)
         self.assertIn("選ぶのをこちらに任せること", FIRM_YES)
-        self.assertIn("ご自分の事情だけを言った", FIRM_YES)
+        # ✅ 11-03 ユーザー：事情だけの答え（変更するのか取りやめるのか分からない）・見込みの答え（可能性は0ではない）は確かめる方がよい
+        self.assertNotIn("ご自分の事情だけを言った", FIRM_YES)
+        self.assertNotIn("予定", FIRM_YES)
+        self.assertIn("ご自分の事情を言っただけで、そのうえでどうしたいかを言っていない", FIRM_NOT)
+        self.assertIn("これから先のことを、なりゆきの見込みとして言った（ご自分がこれからすることを、そうすると言ったのは、これに当たらない）", FIRM_NOT)
         self.assertNotIn("言わずに残した", FIRM_NOT)
         self.assertNotIn("推し量った", FIRM_NOT)
         self.assertIn(FIRM_NOT, FIRM_RULE)
