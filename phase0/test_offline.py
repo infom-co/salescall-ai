@@ -3481,6 +3481,8 @@ class AmbiguousAnswerTest(unittest.TestCase):
         # 時や範囲の条件は狭めない・困らないと言っただけと任せた答えを分ける
         self.assertIn("ご自分では確かに知らないこと（人や物・出来事の様子）", FIRM_NOT)
         self.assertIn("選ぶのをこちらに任せた答えは、これに当たらない", FIRM_NOT)
+        # 任せた答えで何を記録するか（✅ 11-03 ユーザー：こちらの質問に問題があるとまず疑う）：任せたことそのもの・こちらが選ぶものは確かめない
+        self.assertIn("選ぶのをこちらに任せた答え（任せたことそのものを記録する。こちらがどれを選ぶかは、お客様に確かめることではない）", FIRM_YES)
         self.assertNotIn("違う時や範囲のことだけを言った）", FIRM_NOT)
         self.assertIn("柔らかい言い方をしただけ", FIRM_YES)
         self.assertIn("選ぶのをこちらに任せること", FIRM_YES)
