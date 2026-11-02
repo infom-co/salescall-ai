@@ -461,6 +461,9 @@ class LostConnection(LinkBase):
         told = []
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link"}
         a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, tell=told.append)
+        # 途切れの始まりも試験が決める（⛔ 2026-11-02：本物の時計の値＝小数のついた大きな数のままだと、「(始まり + 600) − 始まり」が
+        # 小数の丸めで 599.9999… になり、「10分たったか」の比べがその回だけ通らなかった＝流すたびに落ちたり通ったりした）
+        a.offline_since = 1000.0
         return a, told
 
     @staticmethod

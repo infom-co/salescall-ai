@@ -119,12 +119,22 @@ PARTY_KINDS = ("reception", "target", "substitute", "successor", "voicemail", "i
 # 読み、「誰でも」の業務は話した＝繋がった（業務設定から。judge.JudgeInput.reached_target）
 PARTY_SOURCES = ("ai", "signal")                         # 会話AIの報告で分かった／音・回線の信号で分かった（CL-1 の `flowctl._party`
 #   の by と同じ値。⚠️ 前は "report" を受け、CL-1 の "ai" の報告をまるごと断っていた＝CL-2 の 4-101 の約束と食い違い。見直し6）
-CALLBACK_REASONS = ("absent", "long_absent", "day_off", "other_number", "later", "departed", "other_means", "ask_who", "ask_when", "our_promise")
+CALLBACK_REASONS = ("absent", "long_absent", "day_off", "other_number", "later", "departed", "other_means", "ask_who", "ask_when", "our_promise",
+                    "unavailable")
 # long_absent＝長期の不在（出張など、仕事で出ていてその日は戻らない）・day_off＝お休み（本日は休み・休暇・休職など。CL-1 の連絡帳
 # 4-55 の (1)。✅ 2026-10-25 ユーザー：お休みに「お戻り」はおかしい⇒「次のご出社はいつか」を伺う。伺う一言が違うだけで、扱いは
-# 長期の不在と同じ＝下の ABSENT_REASONS・UNTIL_BY_REASON に同じく入れる）・departed＝在籍していない・other_means＝ほかの手段（電話ではない。CL-1 の CALLBACK_LABEL の
-# 版 0.5。2026-10-22 ユーザー決定）
-ABSENT_REASONS = ("absent", "long_absent", "day_off")   # 不在の仲間（戻る時刻が取れなければ「不在」の方針。judge の順7 の1か所が読む）
+# 長期の不在と同じ＝下の UNTIMED_OUTCOMES・UNTIL_BY_REASON に同じく入れる）・departed＝在籍していない・other_means＝ほかの手段（電話ではない。CL-1 の CALLBACK_LABEL の
+# 版 0.5。2026-10-22 ユーザー決定）・unavailable＝今はお電話に出られないご事情（理由を言わずに取り次げないと言われ、確かめると「はい」・
+# ご事情を言われた。CL-1 の連絡帳 4-69＝✅ 2026-10-31 日本時間5時48分 ユーザー：「理由のある取り次げない：かけ直しの申し出+取次ぎ可能な
+# 日時の確認の方がいいんじゃないですか？」。お取り次ぎいただける日時が取れれば、その日時にかける約束＝ほかの申し出と同じ）
+# 時刻が取れなかったかけ直しの申し出の扱い（理由 → (目的のお客様に繋がらなかった理由, 再発信の方針の鍵)。判断はこの1か所＝judge の順7 と
+# 同じ日にまたかけてよいかの材料が読む）：不在の仲間（不在・長期の不在・お休み）＝「不在」の方針（2026-10-13 ユーザー：「『不在』のときは、
+# かけ直しの回数の上限までかけ直す案です。⇒OK」）／今はお電話に出られないご事情＝事情があり取り次げなかった（日を改めて1回＝2026-10-22
+# ユーザー：「『事情があり、取り次げなかった』：日を改めて1回」。お呼びした方はいらっしゃるので不在の方針に入れない＝CL-1 の 4-69 の (2)）。
+# ここに無い理由で時刻が取れなかった申し出は、時刻の決まっていない約束（callback_unspecified_time）。
+UNTIMED_OUTCOMES = {"absent": ("absent", "not_reached_absent"), "long_absent": ("absent", "not_reached_absent"),
+                    "day_off": ("absent", "not_reached_absent"),
+                    "unavailable": ("not_transferred", "not_reached_not_transferred")}
 ENDING_CALLBACKS = ("other_means",)                      # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
 CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")   # お客様の申し出（CL-1 の OFFER_LABEL）：折り返し・伝言・メール・ファクス・郵送
 CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた宛先・伝言の答え（取れた値の文字か null。CL-1 の CALLBACK_FIELD の値の一部）
@@ -145,7 +155,8 @@ UNTIL_WHYS = ("other_party", "unavailable", "preparing")
 # かけ直しの理由（why）だけで決まる「〇時まで」の理由（同じことを2つの項目で表さない＝この理由には until_why を書かせない）：別の番号へ・
 # 分かるお客様（a1）＝別の方へ／不在・長期の不在・お休み＝それまでは出られない／分かる時（a2）＝それまでに確かめておく
 UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "absent": "unavailable", "long_absent": "unavailable",
-                   "day_off": "unavailable", "ask_when": "preparing"}
+                   "day_off": "unavailable", "ask_when": "preparing",
+                   "unavailable": "unavailable"}   # 今はお電話に出られないご事情の「〇時まで」＝それまでは出られない（CL-1 の 4-69 の (3)）
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
                "callback", "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused",
@@ -231,7 +242,7 @@ class Callback:
     means: tuple[tuple[str, str | None], ...] = ()   # 申し出で聞いた宛先・伝言の答え（CALLBACK_MEANS → 取れた値。依頼者へ渡す＝CL-3）
     message_left: bool = False   # 伝言を残す業務で、伝言をお願いした（記録だけ）
     again: bool | None = None    # 不在で戻る時刻が分からなかったとき：今日戻る見込みがあり、後でかけてよいと言われたか（None＝聞いて
-    #                              いない）。同じ日のうちにかけ直すかを決める（may_call_again・judge._untimed_absence の1か所。2026-10-22 ユーザー）
+    #                              いない）。同じ日のうちにかけ直すかを決める（may_call_again・judge._untimed_offer の1か所。2026-10-22 ユーザー）
     back_today: bool | None = None   # 「本日お戻りのご予定は」への答え（記録だけ）
     beyond_limit_ok: bool = False    # お客様指定の歯止め時間の外の時刻（「23時以降なら」）を通話の中で確かめ、「はい」と言われた（2026-10-23
     #                                  ユーザー：「案B＆案A(確かめたうえで案A)」。読むのは時刻の読み spoken_time.read の1か所＝judge._when）
@@ -535,7 +546,7 @@ class CallReport:
 
     def may_call_again(self, untimed: Any) -> bool:
         """目的のお客様に繋がらなかった通話で、同じ日のうちにまたかけてよいと言われたか（1か所）：その通話を締めた「不在」（戻る時刻の
-        取れなかったかけ直しの申し出＝untimed(かけ直しの申し出) が真のもの。決めるのは判定の1か所 judge._untimed_absence＝時刻の言葉を
+        取れなかったかけ直しの申し出＝untimed(かけ直しの申し出) が真のもの。決めるのは判定の1か所 judge._untimed_offer＝時刻の言葉を
         読んで「時刻の決まっていない」になるもの。⛔ 見直し29c の 7：前はここで「時刻の言葉が無い」で決め、判定は「読んで時刻が
         決まらない」で決めていた＝「後ほど」のような言葉のある不在を、判定は不在、ここは数えない、と食い違った）・「取り次げない」の記録の
         うち、いちばん新しいものの again が true のときだけ。

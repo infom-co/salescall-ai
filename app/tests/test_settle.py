@@ -1157,7 +1157,7 @@ class SameDayAndSuccessor(SettleBase):
         """同じ日にかけてよいかは、その通話を締めた「不在」「取り次げない」の記録のうち、いちばん新しいものの答え（1か所）。"""
         from salescall.core.call_report import NotTransferred, Said
         r = self.absent(True)
-        untimed = lambda c: c.time_said is None   # noqa: E731（判定は時刻の言葉を読んで決める＝judge._untimed_absence）
+        untimed = lambda c: c.time_said is None   # noqa: E731（判定は時刻の言葉を読んで決める＝judge._untimed_offer）
         self.assertTrue(r.may_call_again(untimed))
         later = replace(r, not_transferred=(NotTransferred(Said(5, "やはりお繋ぎできかねます。"), None),))
         self.assertFalse(later.may_call_again(untimed))         # あとの「取り次げない」で聞いていない

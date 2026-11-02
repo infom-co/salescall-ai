@@ -725,7 +725,7 @@ class NotAgreedEnd1102(unittest.TestCase):
 
 class Untimed1101(unittest.TestCase):
     def test_an_absence_with_words_but_no_time_may_be_called_again_today(self):
-        """不在で戻る時刻が取れなかったかは判定の1か所（judge._untimed_absence＝時刻の言葉を読んで「時刻の決まっていない」）。「後ほど」の
+        """不在で戻る時刻が取れなかったかは判定の1か所（judge._untimed_offer＝時刻の言葉を読んで「時刻の決まっていない」）。「後ほど」の
         ような言葉のある不在も、同じ日にまたかけてよいと言われていれば、その材料になる（⛔ 見直し29c の 7：前は同じ日の材料だけ「言葉が
         無い」で決め、判定は不在・同じ日の材料には数えない、と食い違った）。"""
         from salescall.core.judge import unreached_today
@@ -736,3 +736,26 @@ class Untimed1101(unittest.TestCase):
                          check_rang=False, forbidden=False, ask_if={})
         self.assertEqual(unreached_today(inp), ("absent", True))
         self.assertEqual(judge(inp).state, "not_reached")
+
+
+    def test_unavailable_with_a_time_is_a_promise_and_without_one_is_one_more_day(self):
+        """CL-1 の連絡帳 4-69（✅ 2026-10-31 日本時間5時48分・2026-10-22 ユーザー）：理由を言わずに取り次げないと言われ、確かめると
+        今はお電話に出られないご事情（かけ直しの理由 unavailable）。(1) お取り次ぎいただける日時が取れれば、その日時にかける約束 (2) 取れ
+        なければ「事情があり取り次げなかった」＝日を改めて1回（不在の方針に入れない＝お呼びした方はいらっしゃる） (3) 「〇時まで」は、
+        それまでは出られない。⛔ 前は理由 unavailable を受けられず、通話の報告が丸ごと断られた。"""
+        from salescall.core.judge import unreached_today
+
+        def inp(time, again=None):
+            raw = {"version": 3, "not_reached": "not_transferred", "cut": None, "apology_delivered": None, "facts": {
+                "callback": [{"turn": 1, "said": "今はお繋ぎできない事情がございまして。", "why": "unavailable",
+                              "read": ["ai", "judge", "judge2"], "time": time, "number": None,
+                              **({} if again is None else {"again": again})}]}}
+            return JudgeInput(TALKED, replace(from_json(raw), cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False,
+                              check_rang=False, forbidden=False, ask_if={})
+        timed = judge(inp("明日の15時"))
+        self.assertEqual((timed.state, timed.detail["callback"]["reason"]), ("callback_scheduled", "unavailable"))
+        untimed = judge(inp(None))
+        self.assertEqual((untimed.state, untimed.detail["not_reached"], untimed.detail["policy_key"]),
+                         ("not_reached", "not_transferred", "not_reached_not_transferred"))
+        self.assertEqual(unreached_today(inp(None, again=True)), ("not_transferred", True))
+        self.assertEqual(from_json(inp("3時まで").report.to_json()).callback.until_reason, "unavailable")

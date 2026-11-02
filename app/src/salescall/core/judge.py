@@ -347,7 +347,8 @@ def unreached_today(inp: JudgeInput) -> tuple[str | None, bool]:
     (7) の不在・(8) と、お詫びの電話の締め＝業務の判定を書かない電話が、同じものを読む。⛔ 見直し16b：前はお詫びの電話の締めだけ
     会話の報告から直に読み、確かめ直しで目的のお客様だと確かめられなかった通話を「また掛けてよい」と読みえた。業務の判定を通すと、
     お詫びの電話は行の答えがもうそろっているので「完了」になり、材料が消えた）。
-    - 不在で戻る時刻が取れなかった（かけ直しの申し出の理由が不在の仲間で、時刻が無い）⇒（不在, 会話の報告の may_call_again）
+    - 時刻の取れなかったかけ直しの申し出（不在の仲間・今はお電話に出られないご事情で、時刻が無い＝call_report.UNTIMED_OUTCOMES）⇒
+      （その理由の繋がらなかった理由＝不在／取り次げなかった, 会話の報告の may_call_again）
     - お客様と話したが目的のお客様に繋がらなかった ⇒ 確かめ直しで目的のお客様だと確かめられなかった通話は（取り次げなかった, いいえ）
       ＝聞いていない。それ以外は（会話の報告の理由, may_call_again）
     - どれでもない ⇒（None, いいえ）"""
@@ -355,22 +356,23 @@ def unreached_today(inp: JudgeInput) -> tuple[str | None, bool]:
     if r is None:
         return None, False
     cb = r.callback
-    if cb is not None and _untimed_absence(inp, cb):
-        return "absent", r.may_call_again(lambda c: _untimed_absence(inp, c))
+    if cb is not None and _untimed_offer(inp, cb):
+        return call_report.UNTIMED_OUTCOMES[cb.reason][0], r.may_call_again(lambda c: _untimed_offer(inp, c))
     if inp.facts.reached_answer and r.talked and not inp.reached_target:
         if inp.target_unconfirmed:
             return "not_transferred", False
-        return r.not_reached, r.may_call_again(lambda c: _untimed_absence(inp, c))
+        return r.not_reached, r.may_call_again(lambda c: _untimed_offer(inp, c))
     return None, False
 
 
 def _untimed(cb: Any, when: spoken_time.Reading) -> bool:
-    """不在で、戻る時刻が取れなかった（1か所）：かけ直しの申し出の理由が不在の仲間で、時刻の言葉を読んで「時刻の決まっていない」
-    （言葉が無い・「後ほど」など）。約束ではなく「不在」の方針・同じ日にまたかけてよいかの材料（見直し29c の 7）。"""
-    return cb.reason in call_report.ABSENT_REASONS and when.kind == spoken_time.UNSPECIFIED
+    """時刻の取れなかったかけ直しの申し出（1か所）：かけ直しの申し出の理由が、時刻が取れなければ約束にしない理由（不在の仲間・今は
+    お電話に出られないご事情＝call_report.UNTIMED_OUTCOMES）で、時刻の言葉を読んで「時刻の決まっていない」（言葉が無い・「後ほど」など）。
+    約束ではなく、その理由の方針（不在＝回数の上限まで／ご事情＝日を改めて1回）・同じ日にまたかけてよいかの材料（見直し29c の 7）。"""
+    return cb.reason in call_report.UNTIMED_OUTCOMES and when.kind == spoken_time.UNSPECIFIED
 
 
-def _untimed_absence(inp: JudgeInput, cb: Any) -> bool:
+def _untimed_offer(inp: JudgeInput, cb: Any) -> bool:
     return _untimed(cb, _when(inp, cb))
 
 
@@ -405,7 +407,7 @@ def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
 def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:
     """会話の報告にある、かけ直しの約束になる申し出（判定できなかった通話に残す＝promise_offer。1か所）。途中で切れて判定できなかった
     通話でも、約束の申し出があれば、すぐにはかけず、約束を守る（次の動き。2026-10-22 ユーザー決定7と同じ扱い。見直し15）。約束に
-    ならない申し出（在籍していない・ほかの手段・不在で戻る時刻が取れなかった）は None。時刻の言葉が読めない・1つに決まらないときは
+    ならない申し出（在籍していない・ほかの手段・時刻の取れなかった不在・ご事情）は None。時刻の言葉が読めない・1つに決まらないときは
     時刻の決まっていない約束（at が None）。"""
     r = inp.report
     cb = None if r is None else r.callback
@@ -548,8 +550,10 @@ def _business(inp: JudgeInput) -> Judgement:
             # 2026-10-13 ユーザー：「戻る時刻が聞けたときは『折り返し予定』…⇒はい」「『不在』のときは、かけ直しの回数の上限までかけ直す
             # 案です。⇒OK」。CL-1 は不在のとき、戻る時刻を聞けなくても、かけ直しの申し出（理由 absent）を残す。⛔ 2026-10-22 の見直し13：
             # 前は時刻の決まっていない約束（callback_unspecified_time）にして、回数の上限の外でかけ続けえた
+            # 今はお電話に出られないご事情で、お取り次ぎいただける日時が取れなかった：事情があり取り次げなかった（日を改めて1回＝
+            # call_report.UNTIMED_OUTCOMES の1か所。CL-1 の連絡帳 4-69 の (2)）
             nr, again = unreached_today(inp)
-            return done("not_reached", not_reached=nr, policy_key="not_reached_absent", again=again)
+            return done("not_reached", not_reached=nr, policy_key=call_report.UNTIMED_OUTCOMES[cb.reason][1], again=again)
         return done("callback_scheduled", callback=_callback(cb, when),
                     policy_key=None if when.start else "callback_unspecified_time")
     # (8) お客様と話したが、目的のお客様に繋がらなかった。確かめ直しで目的のお客様だと確かめられなかった通話（別の方が「はい」と

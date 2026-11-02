@@ -59,7 +59,9 @@ END = "END"                                       # 分岐の行き先「終わ�
 # 内容をご承認いただけなかったときの「ご納得いただけなかった点はどの部分になりますでしょうか？」。答えは通話の事実 not_agreed＝依頼者へ
 # 返すが、項目には入らない＝ほかのシステムの質問と同じ）。4-66 のあとの (f) で足した：N2（「ほかにご納得いただけない点はございますで
 # しょうか？」）・N3（「ご説明した内容でご納得いただけましたでしょうか？」。どちらもご納得いただけなかった点のご説明のあとに伺う）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "H1", "N1", "N2", "N3", "greeting", "intro",
+# D1（CL-1 の連絡帳 4-69：ご遠慮の確かめ「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」の番号を R1 から替える。
+# R1 は待たせた方が戻ったかの問いの番号として残る＝どちらも使えない）。
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "D1", "H1", "N1", "N2", "N3", "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
                           "voicemail", "message"})

@@ -262,15 +262,15 @@ class Check(unittest.TestCase):
         qs = [r["questions"][0]]
         n = 20
         for i in range(n):
-            ask, detail = f"A{i}", f"D{i}"
-            nxt = f"A{i + 1}" if i + 1 < n else "Q2"
+            ask, detail = f"Ask{i}", f"Detail{i}"   # 質問の番号は、システムの質問の番号（D1 など＝RESERVED_IDS）と重ならない名前
+            nxt = f"Ask{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
                        "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
                        "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False})
-        qs[0] = dict(qs[0], next={"しない": "END", "*": "A0"})
+        qs[0] = dict(qs[0], next={"しない": "END", "*": "Ask0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
         started = time.monotonic()
