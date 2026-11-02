@@ -71,7 +71,10 @@ def run(args) -> dict:
         # --redo の種類だけは送り直す（作らせる文の決まりを直したとき）
         import glob
         from common import HERE
-        part = sorted(glob.glob(str(HERE / "results" / "G-72_partial.json"))) or sorted(glob.glob(str(HERE / "results" / "G-72_2*.json")))
+        # 途中の記録は、質問の並び（targets）を持つときだけ使う（⛔ 2026-11-03：言葉を問い合わせる前に止まった途中の記録には、前に決まった言葉も
+        # 並びも無く、それを拾って、ご確認いただいた言葉まで作り直しかけた）。無ければ前の結果
+        part = [p for p in sorted(glob.glob(str(HERE / "results" / "G-72_partial.json")))
+                if json.loads(open(p, encoding="utf-8").read()).get("targets")] or sorted(glob.glob(str(HERE / "results" / "G-72_2*.json")))
         redo = set(filter(None, (args.redo or "").split(",")))
         if part:
             old = json.loads(open(part[-1], encoding="utf-8").read())
