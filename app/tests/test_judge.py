@@ -18,7 +18,7 @@ from salescall.core.next_action import Alternate, AskAgain, Recheck, Target, cho
 from tests.support import CALLEE, NO_OPENING_RECHECK, callback, make_report, rules_raw
 
 V = uuid.uuid4()
-RULES = check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2"), decline={"Q3": ["いりません"]}))
+RULES = check(V, ("Q1", "Q2"), rules_raw(("Q1", "Q2")))
 NOW = datetime(2030, 1, 7, 10, 0, tzinfo=timezone.utc)
 TALKED = Facts("ended", None, True, False, NOW)
 TAKEN = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "はい", None)}
@@ -30,6 +30,12 @@ LATER = NOW + timedelta(hours=1)
 def report(parties=("target",), *, dnc=False, oos=False, complaint=False, not_reached=None, callback=None,
            cut=Cut("ai", True, False)) -> CallReport:
     return make_report(parties, dnc=dnc, oos=oos, complaint=complaint, not_reached=not_reached, callback=callback, cut=cut)
+
+
+def goal_refused(rep=None, goals=("Q3",)) -> CallReport:
+    """会話の側が「最終目的の申し出を断られ、目的が果たせなくなった」と決めた報告（事実 goal_refused。決めるのは会話の側の1か所）。"""
+    from salescall.core.call_report import GoalRefused
+    return replace(rep or report(), goal_refusals=(GoalRefused(Said(3, "いりません。"), goals, "any"),))
 
 
 def run(*, facts=TALKED, rep=report(), items=None, check_rang=False, forbidden=False, ask_if=None):
@@ -45,7 +51,7 @@ class Order(unittest.TestCase):
                                                    check_rang=True), "do_not_call"),
             ("番号違い", dict(rep=report(("reception", "wrong_party"))), "out_of_scope"),
             ("範囲外", dict(rep=report(oos=True)), "out_of_scope"),
-            ("用件を断られた", dict(items={**TAKEN, "Q3": Item("accepted", "いりません", None)}), "declined"),
+            ("用件を断られた", dict(rep=goal_refused()), "declined"),
             ("すべて取れた", dict(), "completed"),
             ("答えない＝結論", dict(items={"Q1": Item("refused", None, "policy"), "Q2": TAKEN["Q2"]}), "concluded"),
             ("かけ直しの約束", dict(items={}, rep=report(callback=callback("later", LATER))), "callback_scheduled"),
@@ -61,10 +67,10 @@ class Order(unittest.TestCase):
                 self.assertEqual(run(**kw).state, expected)
 
     def test_upper_rules_win(self):
-        both = dict(rep=report(dnc=True, oos=True), items={**TAKEN, "Q3": Item("accepted", "いりません", None)})
+        both = dict(rep=goal_refused(report(dnc=True, oos=True)))
         self.assertEqual(run(**both).state, "do_not_call")
         self.assertEqual(run(rep=report(oos=True)).state, "out_of_scope")            # 範囲外は、取れていても範囲外
-        self.assertEqual(run(items={**TAKEN, "Q3": Item("accepted", "いりません", None)}).state, "declined")
+        self.assertEqual(run(rep=goal_refused()).state, "declined")
 
     def test_explicit_refusal_wins_over_missing_cut_material(self):
         """はっきりした拒否（通話中の申告）は、切れ方の材料が無くても拒否（2026-10-16 の見直し J9）。
@@ -81,8 +87,16 @@ class Order(unittest.TestCase):
                          "concluded")
         self.assertEqual(run(items={"Q1": Item("dont_know", None, "undecided")}).state, "incomplete")   # 扱いが「日を改める」
 
-    def test_decline_answer_must_be_taken(self):
-        self.assertEqual(run(items={**TAKEN, "Q3": Item("heard", "いりません", None)}).state, "completed")
+    def test_only_the_goal_refused_fact_is_declined(self):
+        """用件を断られたは、会話の側が決めた事実 goal_refused だけ（判定で断る答えから決め直さない＝CL-1 の連絡帳 4-69 の 4-182 の (e)）。
+        最終目的でない質問の断る答え・「どれも要らない」が取れていても、事実が無ければ断られたにしない（✅ 2026-11-01 日本時間20時11分
+        ユーザー：「登録とかが目的なら、営業を拒否したのではなく、担当者からの折り返しを拒否しただけ」）。⛔ 2026-11-02.3 まで：業務の決まりの
+        断りの答えが取れたら、最終目的かを問わず断られたにしていた。"""
+        for answer in ("いりません", "どれも要らない"):
+            with self.subTest(answer):
+                self.assertEqual(run(items={**TAKEN, "Q3": Item("accepted", answer, None)}).state, "completed")
+        j = run(rep=goal_refused(goals=("Q2", "Q3")))
+        self.assertEqual((j.state, j.detail["declined_by"], j.detail["goals"]), ("declined", "goal", ["Q2", "Q3"]))
 
     def test_input_errors_are_unknown_not_guessed(self):
         for name, kw in [
@@ -156,10 +170,9 @@ class NotAsked(unittest.TestCase):
         j = run(items={"Q1": Item("confirmed", "はい", None)}, ask_if=cond)
         self.assertEqual((j.state, j.detail["not_asked"]), ("completed", ["Q2", "Q3"]))
 
-    def test_none_answer_of_a_question_with_decline_answers_is_declined(self):
-        """「どれも要らない」（4-66 の (a)）：用件を断られたとする答えのある質問では断る答え（`business_rules.decline_answers`）。ほかの
-        質問では取れた答え。"""
-        self.assertEqual(run(items={**TAKEN, "Q3": Item("accepted", "どれも要らない", None)}).state, "declined")
+    def test_none_answer_is_a_taken_answer_for_the_judge(self):
+        """「どれも要らない」（4-66 の (a)）：判定には取れた答え。最終目的の申し出で目的が果たせなくなったかは会話の側が決め、事実
+        goal_refused で渡す（上の試験）。"""
         self.assertEqual(run(items={"Q1": TAKEN["Q1"], "Q2": Item("accepted", "どれも要らない", None)}).state, "completed")
 
     def test_points_not_agreed_are_returned(self):
@@ -328,7 +341,7 @@ class AfterCall(unittest.TestCase):
         declared = rules_raw(("Q1", "Q2"))
         declared["retry"]["not_reached_not_transferred"] = {"action": "end"}
         with self.assertRaises(RulesInvalid):                               # 業務では書けない（システムが決める）
-            check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), declared)
+            check(V, ("Q1", "Q2"), declared)
 
     def test_policy(self):
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}))
@@ -348,7 +361,7 @@ class AfterCall(unittest.TestCase):
         late = NOW + timedelta(days=1)
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}), normal=gate.Pacing(2, late, "daily_attempts", False))
         self.assertEqual(d.at, late)
-        ending = check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2"), retry={
+        ending = check(V, ("Q1", "Q2"), rules_raw(("Q1", "Q2"), retry={
             k: {"action": "end"} for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")}))
         d = decide_after_call(run(items={"Q1": TAKEN["Q1"]}), recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE,
                               rules=ending, times_with_key=1, now=NOW, retry_at=NOW + HOUR, target=Target(MAIN))
@@ -524,16 +537,16 @@ class Shapes(unittest.TestCase):
             x["retry"]["open"] = ({"action": "call", "max_times": 3, "interval_seconds": 60} if iv is None
                                   else {"action": "call", "max_times": 3, "interval": iv})
             bad.append((name, x))
-        x = rules_raw(("Q1",)); x["decline"] = {"Q9": ["いりません"]}; bad.append(("無い質問", x))
+        x = rules_raw(("Q1",)); x["decline"] = {}; bad.append(("前の形の断りの答え（業務設定の質問の declines へ移した）", x))
         for name, raw in bad:
             with self.subTest(name), self.assertRaises(RulesInvalid):
-                check(V, ("Q1",), ("Q1", "Q3"), raw)
+                check(V, ("Q1",), raw)
         with self.assertRaises(RulesInvalid):
-            check(V, (), ("Q1",), rules_raw(()))                         # 必須の質問が無い業務
-        for broken in ({"decline": [], "handling": {}, "retry": {}}, {"decline": {}, "handling": "x", "retry": {}}):
+            check(V, (), rules_raw(()))                         # 必須の質問が無い業務
+        for broken in ({"handling": [], "retry": {}, "forbidden": {}}, {"handling": "x", "retry": {}, "forbidden": {}}):
             with self.assertRaises(RulesInvalid):
-                check(V, ("Q1",), ("Q1",), broken)                       # 表でない値も、確かめの中で断る
-        self.assertEqual(check(V, ("Q1",), ("Q1",), good).required, ("Q1",))
+                check(V, ("Q1",), broken)                       # 表でない値も、確かめの中で断る
+        self.assertEqual(check(V, ("Q1",), good).required, ("Q1",))
 
     def test_report_rejects_wrong_shapes(self):
         good = report(callback=callback("later", LATER), dnc=True, complaint=True).to_json()

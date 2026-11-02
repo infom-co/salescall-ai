@@ -19,8 +19,8 @@ def name(text, reading, source, by="given", candidates=(), likely=None) -> dict:
 
 
 def raw() -> dict:
-    """試験の業務設定（架空）：予約するか（しない＝断り＝終わり）→ 希望の日時。"""
-    r = rules_raw(required=("Q1", "Q2"), decline={"Q1": ["しない"]})
+    """試験の業務設定（架空）：予約するか（最終目的の申し出。しない＝断り＝終わり）→ 希望の日時。"""
+    r = rules_raw(required=("Q1", "Q2"))
     return {
         "purpose": "予約の希望日時を伺う",
         "target_class": "corporate",
@@ -36,10 +36,11 @@ def raw() -> dict:
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": False, "do_words": None, "intro": None, "ask_if": None, "approval": False},
+             "asks_fact": False, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
+             "declines": ["しない"]},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False},
+             "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -156,9 +157,8 @@ class Check(unittest.TestCase):
     def test_none_is_a_system_answer_of_choice_questions(self):
         """CL-1 の連絡帳 4-66 の (a)（✅ 2026-11-02 日本時間4時16分 ユーザー）：事実を伺わない決まった選択肢の質問には、システムが「どれも
         要らない」を足す（はい／いいえ・事実を伺う質問には足さない）。同じ名前の選択肢は書けない。分岐を書くなら、その行き先も要る。
-        用件を断られたとする答えのある質問では断る答え（業務の決まりの decline に入る＝判定と分岐の確かめの1か所
-        `business_rules.decline_answers`）、ほかの質問では答え（その先の必須の質問を飛ばせない）。"""
-        from salescall.core import business_rules
+        どの質問でも申し出を断る答え（`declined_answers` の1か所＝会話の側の Question.declined と同じ）。最終目的の申し出の質問では、断られると
+        会話の側がその場で締めうる（その先の必須の質問を飛ばしてよい）。ほかの質問では、断ったまま分岐のとおり続ける（飛ばせない）。"""
         s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertIn("どれも要らない", bs.possible_answers(s.questions[0]))
         self.assertEqual(s.next_of("Q1", "どれも要らない"), "Q2")                     # 受け皿へ
@@ -171,14 +171,53 @@ class Check(unittest.TestCase):
         r = raw()
         r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "どちらでも": "Q2", "わからない": "Q2", "答えたくない": "Q2"}
         self.assertTrue(any("受け皿がありません" in p and "どれも要らない" in p for p in problems_of(r)), problems_of(r))
-        # 断る答えのある質問：「どれも要らない」で終わりへ行っても、必須の Q2 を飛ばす道ではない（断られた）。断る答えの無い質問では飛ばす道
+        # 最終目的の申し出の質問：「どれも要らない」で終わりへ行っても、必須の Q2 を飛ばす道ではない（断られた）。最終目的でない質問では、
+        # 断る答えを書いていても飛ばす道（断ったまま続ける）
         r = raw()
         r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "どれも要らない": "END", "*": "Q2"}
-        rules = business_rules.check(bs.UUID(int=0), ("Q1", "Q2"), ("Q1", "Q2"), r["rules"])
-        self.assertEqual(rules.decline["Q1"], frozenset({"しない", "どれも要らない"}))
-        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
-        r["rules"]["decline"] = {}
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual(bs.declined_answers(s.questions[0]), frozenset({"しない", "どれも要らない"}))
+        r["questions"][0]["final_goal"] = False
         self.assertTrue(any("必須の質問 Q2 を聞かずに終わる道" in p for p in problems_of(r)), problems_of(r))
+
+    def test_final_goals_their_decline_answers_and_how_the_goal_is_met(self):
+        """最終目的の申し出（final_goal）・断る答え（declines）・最終目的の果たし方（goal_mode）は業務設定の質問と業務に持つ（CL-1 の連絡帳
+        4-69 の 4-182 の (e)。会話の側の Question.final_goal・declines・instruction.Business.goal_mode と同じ中身。⛔ 前は業務の決まりの
+        断りの答え decline に持ち、判定が最終目的かを問わず「用件を断られた」と決め直していた）。断る答えは、その質問の選択肢から。最終目的の
+        申し出には断る答えが要る（ご承認の質問の「いいえ」・「どれも要らない」も断る答え）。果たし方は、最終目的が2つ以上のときだけ書く
+        （必ず書く＝こちらで推し量らない）。"""
+        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual([(q.final_goal, q.declines) for q in s.questions], [(True, ("しない",)), (False, ())])
+        self.assertIsNone(s.goal_mode)
+        approval = bs.Question("Q9", "以上でよろしいでしょうか？", None, "yes_no", True, bs.YES_NO_CHOICES, {}, approval=True)
+        self.assertEqual(bs.declined_answers(approval), frozenset({"いいえ"}))
+        two = raw()
+        two["questions"][1].update(type="yes_no", text="ご案内の資料をお送りしてもよろしいでしょうか？", final_goal=True, declines=["いいえ"])
+        self.assertTrue(any("最終目的の果たし方（goal_mode）を書きます" in p for p in problems_of(two)), problems_of(two))
+        self.assertEqual(bs.check(dict(two, goal_mode="all"), field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode, "all")
+        # any（どれか1つで果たせる）なら、1つ目を断られても目的はまだ果たせる＝会話は締めずに分岐のとおり続ける。「しない」で終わりへ行くと、
+        # 2つ目の最終目的（必須）を伺わずに終わる（判定は一部だけ取れた＝かけ直す）ので通さない。2つ目も断られたら締めてよい（`goal_lost`）
+        self.assertTrue(any("必須の質問 Q2 を聞かずに終わる道" in p for p in problems_of(dict(two, goal_mode="any"))))
+        go_on = dict(two, goal_mode="any", questions=[dict(two["questions"][0], next={"*": "Q2"}), two["questions"][1]])
+        got = bs.check(go_on, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((got.goal_mode, bs.goal_lost(got, frozenset({"Q1"})), bs.goal_lost(got, frozenset({"Q1", "Q2"}))),
+                         ("any", False, True))
+        self.assertTrue(bs.goal_lost(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True), frozenset({"Q1"})))
+        cases = []
+        r = raw(); r["goal_mode"] = "any"; cases.append((r, "最終目的の果たし方（goal_mode）は書きません"))
+        r = dict(two, goal_mode="どれか"); cases.append((r, "最終目的の果たし方（goal_mode）を書きます"))
+        r = raw(); r["questions"][0]["declines"] = ["やめる"]; cases.append((r, "断る答え ['やめる'] は、その質問の選択肢にありません"))
+        r = raw(); r["questions"][0]["declines"] = "しない"; cases.append((r, "断る答え（declines）は、選択肢の名前の並びです"))
+        r = raw(); r["questions"][0]["declines"] = ["しない", "しない"]; cases.append((r, "断る答え（declines）は、選択肢の名前の並びです"))
+        r = raw(); r["questions"][1]["declines"] = ["明日"]; cases.append((r, "選択肢で答える質問ではないので、断る答え（declines）は付けません"))
+        r = raw(); r["questions"][0]["final_goal"] = None; cases.append((r, "最終目的の申し出か（final_goal）は true / false です"))
+        r = raw(); r["questions"][1]["final_goal"] = True; cases.append((r, "最終目的の申し出ですが、断る答えがありません"))
+        r = raw(); r["questions"][0]["asks_fact"] = True; r["questions"][0]["declines"] = []
+        cases.append((r, "最終目的の申し出ですが、断る答えがありません"))   # 事実を伺う質問には「どれも要らない」も無い
+        r = raw(); r["rules"]["decline"] = {"Q1": ["しない"]}; cases.append((r, "断りの答えは、業務設定の質問の断る答え declines に書きます"))
+        for r, words in cases:
+            with self.subTest(words):
+                self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
 
     def test_questions_asked_only_after_an_answer_and_approval_questions(self):
         """CL-1 の連絡帳 4-66 の (b)（✅ 2026-11-02 日本時間4時16分・4時36分 ユーザー）：伺う条件（ask_if）は、前に並ぶ質問の番号と、その
@@ -189,8 +228,8 @@ class Check(unittest.TestCase):
         r["questions"].append({"id": "Q3", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"]}, "approval": True})
-        r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"), decline={"Q1": ["しない"]})
+                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"]}, "approval": True, "final_goal": False, "declines": []})
+        r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"))
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[2].ask_if, s.questions[2].approval, s.questions[0].ask_if, s.questions[0].approval),
                          (bs.AskIf("Q1", ("迷っている", "わからない")), True, None, False))
@@ -266,10 +305,10 @@ class Check(unittest.TestCase):
             nxt = f"Ask{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False})
+                       "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False})
+                       "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "Ask0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -310,7 +349,7 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][0]["next"] = {"しない": "END", "する": "Q2"}; cases.append((r, "受け皿がありません"))
         r = raw(); r["questions"][1]["next"] = {"*": "Q1"}; cases.append((r, "終わらない輪"))
         r = raw(); r["questions"][0]["next"] = {"*": "END"}; cases.append((r, "質問 Q2 へは、どこからも行きません"))
-        r = raw(); r["rules"]["decline"] = {}; cases.append((r, "必須の質問 Q2 を聞かずに終わる道があります"))
+        r = raw(); r["questions"][0]["final_goal"] = False; cases.append((r, "必須の質問 Q2 を聞かずに終わる道があります"))
         r = raw(); r["names"][2]["reading_by"] = "ai"; cases.append((r, "AI が決めた読みです。検証モードでは、契約者が確かめてから"))
         r = raw(); r["names"][2]["reading_by"] = None; cases.append((r, "読みを決めたもの"))
         r = raw(); r["names"][2]["reading"] = "テストブツリュウ"; cases.append((r, "ひらがなで"))      # 持つのはひらがな
@@ -326,7 +365,6 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["unit"] = "人"; cases.append((r, "単位は、数の型（number）の質問だけ"))
         r = raw(); r["questions"][0]["choices"] = ["する", "わからない"]; cases.append((r, "システムが足す答え"))
         r = raw(); r["questions"][0]["choices"] = ["する", "-"]; cases.append((r, "出力の印"))
-        r = raw(); r["rules"]["decline"] = {"Q1": ["やめる"]}; cases.append((r, "断りの答え「やめる」は、その質問の選択肢にありません"))
         r = raw(); r["questions"][1]["type"] = "color"; cases.append((r, "型の一覧にありません"))
         r = raw(); r["questions"][1]["choices"] = ["はい"]; cases.append((r, "決まっています"))
         r = raw(); r["target_person"] = {"kind": "anyone", "role": "社長"}; cases.append((r, "役職を書きません"))
@@ -420,6 +458,51 @@ class Versions(unittest.TestCase):
         back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
         self.assertEqual([(q["asks_fact"], q["do_words"], q["intro"]) for q in back.raw["questions"]],
                          [(True, {}, None), (True, {}, None)])
+
+    def test_a_version_saved_with_decline_rules_reads_them_as_final_goals(self):
+        """業務の決まりに「断りの答え」（decline）を持っていた前の版（2026-11-02 に業務設定の質問の final_goal・declines と業務の goal_mode
+        へ移した＝CL-1 の連絡帳 4-69 の 4-182 の (e)）も読める（版の中身・決まりの表は書き換えられないので、読む側の1か所 `_current_shape`）。
+        断りの答えを書いた質問は最終目的の申し出（断る答えはそのまま）、2つ以上なら果たし方は all（前の判定は、どれか1つが断られたら
+        「用件を断られた」とした＝同じ結果）。前の版へ戻した新しい版は、今の形で置かれる（決まりに decline を持たない）。"""
+        import json
+        from unittest import mock
+        from salescall.core import business_rules
+        old_content = bs._content
+        r = raw()
+        r["questions"][1].update(type="yes_no", text="ご案内の資料をお送りしてもよろしいでしょうか？", final_goal=True, declines=["いいえ"])
+        r["goal_mode"] = "all"
+
+        def before_goals(s):   # 移す前の中身（質問に final_goal・declines が無く、業務に goal_mode が無い）
+            c = old_content(s)
+            return dict({k: v for k, v in c.items() if k != "goal_mode"},
+                        questions=[{k: v for k, v in q.items() if k not in ("final_goal", "declines")} for q in c["questions"]])
+
+        def before_rules(tx, vid, rules):   # 移す前の決まり（断りの答えを持つ）
+            tx.execute("INSERT INTO salescall.business_rules (tenant_id, client_id, version_id, rules, saved_by)"
+                       " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())",
+                       (vid, json.dumps(dict(rules, decline={"Q1": ["しない"], "Q2": ["いいえ"]}), ensure_ascii=False)))
+
+        with mock.patch.object(bs, "_content", before_goals), mock.patch.object(business_rules, "save", before_rules):
+            v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+        stored = self.tx(lambda tx: tx.one("SELECT rules FROM salescall.business_rules WHERE version_id = %s", (v,)))
+        self.assertIn("decline", stored["rules"])                                   # 前の形のまま置いてある
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual(([(q.final_goal, q.declines) for q in got.questions], got.goal_mode),
+                         ([(True, ("しない",)), (True, ("いいえ",))], "all"))
+        self.assertEqual(got.next_of("Q1", "しない"), "END")
+        back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
+        self.assertEqual(([(q.final_goal, q.declines) for q in back.questions], back.goal_mode),
+                         ([(True, ("しない",)), (True, ("いいえ",))], "all"))
+        restored = self.tx(lambda tx: tx.one("SELECT rules FROM salescall.business_rules WHERE version_id = %s",
+                                             (back.rules.version_id,)))
+        self.assertNotIn("decline", restored["rules"])                              # 戻した版は今の形
+        one = raw()                                                                 # 断りの答えが1つなら、果たし方は無い（どちらでも同じ）
+        with mock.patch.object(bs, "_content", before_goals), mock.patch.object(business_rules, "save", lambda tx, vid, rules: tx.execute(
+                "INSERT INTO salescall.business_rules (tenant_id, client_id, version_id, rules, saved_by) VALUES (salescall.cur_tenant(),"
+                " salescall.cur_client(), %s, %s, salescall.cur_actor())", (vid, json.dumps(dict(rules, decline={"Q1": ["しない"]}))))):
+            v1 = self.tx(lambda tx: bs.save_version(tx, self.s["business"], one))
+        got = self.tx(lambda tx: bs.load(tx, v1))
+        self.assertEqual(([(q.final_goal, q.declines) for q in got.questions], got.goal_mode), ([(True, ("しない",)), (False, ())], None))
 
     def test_a_version_saved_before_none_reads_none_as_going_on(self):
         """「どれも要らない」（4-66 の (a)）が返りうる答えに増える前に置いた版で、事実を伺わない選択肢の質問の分岐を答えごとに書き、受け皿の

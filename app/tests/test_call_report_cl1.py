@@ -23,7 +23,7 @@ from salescall.core.next_action import Target, decide_after_call
 from tests.support import CALLEE, NO_OPENING_RECHECK, rules_raw
 
 V = uuid.uuid4()
-RULES = check(V, ("Q1", "Q2"), ("Q1", "Q2"), rules_raw(("Q1", "Q2")))
+RULES = check(V, ("Q1", "Q2"), rules_raw(("Q1", "Q2")))
 NOW = datetime(2030, 1, 7, 10, 0, tzinfo=timezone.utc)      # 日本の 2030-01-07（月）19:00
 TALKED = Facts("ended", None, True, False, NOW)
 CLOSED = Cut("ai", True, False)                             # 締めの言葉に入っていた（ふつうに締めた）

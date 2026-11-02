@@ -108,7 +108,7 @@ class Phone(FakeDriver):
             raise dial_exit.CallNotPlaced("試験：かけられない")
 
 
-class Talk:
+class Talk(support.OpensConvo):
     """会話の処理の代わり：出て、話して、Q1 が取れて、ふつうに終わる。"""
 
     def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
@@ -622,7 +622,7 @@ class Life(SupervisorBase):
         鳴る＝発信はできる）。テスト番号では声が通るかを確かめられないので、1回鳴れば再開し、また聞き取れなければ止め直し、次に再開を
         試すまで 15→30→60→120→240分あける（回線の欄の次のテストの時刻＝DESIGN.md 17章の表の1か所。並びは line.test_ring_gaps）。月曜9時〜18時：止める・再開の
         回数と、お客様へのお詫びの電話の本数が減る。⛔ 0143 まで：止めてはすぐ再開し、停止13回・お詫び40本だった。"""
-        class PoorAudio:
+        class PoorAudio(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 call.beat()
                 access.in_client(actor, tenant_id, client_id, lambda tx: [

@@ -52,7 +52,7 @@ def until_true(test, seconds):
     return None
 
 
-class Runner:
+class Runner(support.OpensConvo):
     """通話を最後まで進める部品の代わり（会話の担当の部品の形）：出て、話して、Q1 が取れて、ふつうに終わる。"""
 
     def __init__(self, fail: BaseException | None = None, unanswered: bool = False) -> None:
@@ -81,7 +81,7 @@ def make_runner(line_id, driver):
     return Runner()
 
 
-class StuckRunner:
+class StuckRunner(support.OpensConvo):
     """通話を進める部品の代わり：1回知らせて呼び出しまで進め、そのまま固まって戻らない（release が立つまで）。"""
     release = threading.Event()
 
@@ -308,7 +308,7 @@ class Rounds(SupervisorBase):
         """通話の長さでは切らない。通話を進める部品の「動いています」の知らせ（call.beat）が call.frozen_after（ユーザー：3秒。試験は
         1秒）途切れたときだけ、こちらのプログラムが固まったとして、おわびの2つの一言で終え、結果不明にして理由 frozen を残す（line._Call
         の1か所。データベースを通さない。2026-10-24 ユーザー：「20秒でも長すぎるでしょ」）。"""
-        class Slow:
+        class Slow(support.OpensConvo):
             """話している間、0.3秒ごとに「動いています」と知らせる（talking＝知らせる回数）。0回なら、1回知らせたあと固まる。"""
             def __init__(self, talking: int) -> None:
                 self.talking, self.release = talking, threading.Event()
@@ -354,12 +354,12 @@ class Rounds(SupervisorBase):
         あいだも「話している」（止める処理がおわびの途中で切らない）。切り終えたら外れる (3) 通話の途中の書き込みは通話ごとの書き手：
         データベースが遅くても（書き込み1つは call.frozen_after より短い＝進んでいる）、通話を進める流れは待たずに知らせを続け、元気な
         通話を切らない。戻ったら書き終えてから締める。"""
-        class AfterEnd:
+        class AfterEnd(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 Runner().run(access, actor, claim, tenant_id=tenant_id, client_id=client_id, call=call)
                 time.sleep(1.6)                                                # 終わったあとの片付けで、知らせが止まる
 
-        class Frozen:
+        class Frozen(support.OpensConvo):
             def __init__(self):
                 self.release = threading.Event()
 
@@ -382,7 +382,7 @@ class Rounds(SupervisorBase):
                 time.sleep(0.5)
                 super().apologize_and_hang_up()
 
-        class SlowWrites:
+        class SlowWrites(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 call.beat()
                 began = time.monotonic()
@@ -424,6 +424,51 @@ class Rounds(SupervisorBase):
                                                (got.called,)))
             self.assertEqual((row["st"], row["trouble"], getattr(d, "apologized", 0)), ("ended", None, 0))
 
+    def test_the_conversation_ai_is_opened_before_dialing_and_an_unopened_one_never_rings_the_customer(self):
+        """かける前に会話AIのつながりを開く（plugins.CallRunner.open。CL-1 の連絡帳 4-69 の 4-179 の (a)：電話の前に開けなければ、
+        止まったAI「会話AI・止まった」を知らせて電話はかけない）。開けなければ：お客様の電話を鳴らさない・予約を戻す（行・番号・回線の
+        どれにも数えない）・その契約者の新しい電話を、止まったAIの1か所で止める・回線は少し休む。開く一歩が落ちたら、予約を戻してから
+        回線ごとの処理の誤りとして外へ出す（会話AIが止まったとはしない）。⛔ 2026-11-02 まで：開く場が、かけたあとにしか無かった。"""
+        from salescall.core import errors
+
+        class Unopened(support.OpensConvo):
+            def open(self, access, actor, claim, *, tenant_id, client_id, call=None):
+                call.ai_trouble({"ai": errors.CONVO_AI, "route": errors.DIRECT, "what": "止まった", "error": "試験：つながりを開けない",
+                                 "turn": None, "count": 1})
+                return False
+
+            def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+                raise AssertionError("開けなかった電話は、かけない")
+
+        s = self.ready()
+        d = FakeDriver()
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Unopened())
+        self.assertEqual((got.called, got.pause, d.calls), (None, line.CONVO_UNOPENED, []))
+        rows = self.tx(s, lambda tx: tx.all("SELECT state::text AS st FROM salescall.attempts WHERE task_id = %s", (s["task"],)))
+        self.assertEqual([r["st"] for r in rows], ["released"])
+        blocking = self.tx(s, lambda tx: [r["cause"] for r in stops.open_stops(tx, tenant_id=s["tenant"], client_id=None, business_id=None)])
+        self.assertEqual(blocking, ["ai_connection"])
+        self.assertIsNone(self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["first_day"])   # 番号の続きに数えない
+
+        class Silent(support.OpensConvo):   # 開けなかったのに、止まったAIを知らせない（止まらない）：それでも予約は戻す（止める処理に頼らない）
+            def open(self, access, actor, claim, *, tenant_id, client_id, call=None):
+                return False
+
+        u = self.ready()
+        got = line.one_round(self.w.a, SYSTEM, u["tenant"], u["line"], HOLDER, d, Silent())
+        rows = self.tx(u, lambda tx: tx.all("SELECT state::text AS st FROM salescall.attempts WHERE task_id = %s", (u["task"],)))
+        self.assertEqual(([r["st"] for r in rows], got.pause, d.calls), (["released"], line.CONVO_UNOPENED, []))
+
+        class Broken(support.OpensConvo):
+            def open(self, access, actor, claim, *, tenant_id, client_id, call=None):
+                raise RuntimeError("試験：開く一歩が落ちた")
+
+        t = self.ready()
+        with self.assertRaises(RuntimeError):
+            line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, d, Broken())
+        rows = self.tx(t, lambda tx: tx.all("SELECT state::text AS st FROM salescall.attempts WHERE task_id = %s", (t["task"],)))
+        self.assertEqual(([r["st"] for r in rows], d.calls), (["released"], []))
+
     def test_a_call_with_a_grave_problem_is_ended_with_the_apology_and_called_back(self):
         """その電話そのものに甚大な問題（2026-10-24 ユーザー決定：意図しない状態・声が聞き取れない・決まりどおり進められない）：
         通話を進める部品が call.end_for_trouble(理由) を呼ぶと、おわびの2つの一言で終え、結果不明にして理由を残す（frozen と同じ道）。
@@ -431,7 +476,7 @@ class Rounds(SupervisorBase):
         2回目は何もしない。決まった理由のほか・frozen（見張りだけが使う）は断る。"""
         seen = {}
 
-        class Troubled:
+        class Troubled(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 call.beat()
                 access.in_client(actor, tenant_id, client_id, lambda tx: [
@@ -486,7 +531,7 @@ class Rounds(SupervisorBase):
         (2) 書き込みが待ち行列に残ったまま、通話の部品が固まった（終わりの移りは頼んでいない）：書き込みを待たず、すぐおわびして終える
         (3) 通話の部品が書き手を待っている（flush）あいだに、書き込み1つが call.frozen_after より長く終わらない（データベースが止まった）：
             記録を待たずに、すぐおわびして終え、出どころ「保存」として知らせ、保存の担当（CL-2）へ修正依頼を出す（storage_stuck）"""
-        class Finishing:
+        class Finishing(support.OpensConvo):
             def __init__(self, slow, finish=True, freeze=1.6, beating=False, flush=False):
                 self.slow, self.finish, self.freeze, self.release = slow, finish, freeze, threading.Event()
                 self.beating = beating   # 知らせを続ける（元気な通話。終えられたら戻る）
@@ -574,7 +619,7 @@ class Rounds(SupervisorBase):
         call.frozen_after より短い＝書き手は進んでいる）、待っているあいだは「動いています」の途切れに数えない（0143。⛔ 見直し21a の
         場面 w11：flush で待つあいだ知らせを出せず、元気な通話を固まったとして切った）。待ち終えたときから数え直す（待ち終えてすぐ
         知らせなくても、待っていた長さを途切れに数えない。見直し22 の 8）。"""
-        class FlushMidCall:
+        class FlushMidCall(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 call.beat()
                 call.write(conversation_io.move_work(claim.attempt_id, "ringing"))
@@ -608,7 +653,7 @@ class Rounds(SupervisorBase):
         call.frozen_after より長いだけで、元気な通話を「データベースが止まった」としておわびで切り（場面 w20）、違う3行で続くと、こちらの
         不具合が3行続いたとして契約者の新しい電話を止めた（場面 w25）。3つの行で、話している途中に書き込み1つが固まりとみなす長さより
         長い：どれもおわびせず、話し終えて結果を残し、こちらの不具合として伝えず、契約者の電話も止めない。"""
-        class Talking:
+        class Talking(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 call.beat()
                 for st in ("ringing", "answered", "in_conversation"):
@@ -649,7 +694,7 @@ class Rounds(SupervisorBase):
         残り、その回線は「使用中」で次の行へかけられなかった（場面 w22b） (2) 移れない移り（話している途中から no_answer）を頼んで固まった
         電話に、おわびを流さなかった（場面 w23）。(3) ending を書けたあとに書き手が止まった（データベースが止まった）：お別れの途中なので
         おわびして切る (4) ended を書けたあとに書き手が止まった：話し終えた電話（おわびを流さない）。"""
-        class Freezes:
+        class Freezes(support.OpensConvo):
             def __init__(self, moves, stuck=False):
                 self.moves, self.stuck = moves, stuck
 
@@ -700,7 +745,7 @@ class Rounds(SupervisorBase):
         """通話を進める部品が終えないまま戻り、そのあと書き手が進まない（書き込み1つが call.frozen_after より長い＝データベースが止まった）：
         記録を待たずに、すぐおわびして終え、データベースが戻ったら終わりの記録を書く（storage_stuck。line._Call.after_runner の1か所。
         見直し22 の 8：外しても落ちる試験が無かった）。"""
-        class Returns:
+        class Returns(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 call.beat()
                 for st in ("ringing", "answered", "in_conversation"):
@@ -718,7 +763,7 @@ class Rounds(SupervisorBase):
     def test_the_reason_why_is_cut_to_its_limit(self):
         """通話を終えた根拠の文（why）は、前後の空白を除いて200字までに切って残す（attempts.end_for_trouble の1か所。データベースの守り
         attempts_trouble_why と同じ長さ。見直し22 の 8：外しても落ちる試験が無かった＝長い文で記録が断られ、通話が進行中のまま残る）。"""
-        class Long:
+        class Long(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 call.beat()
                 access.in_client(actor, tenant_id, client_id, lambda tx: [
@@ -739,7 +784,7 @@ class Rounds(SupervisorBase):
         (3) 受け取らずに戻った分は、回線ごとの処理が記録する。会話の流れ（知らせ）は書き込みを待たない。"""
         seen = {}
 
-        class Writes:
+        class Writes(support.OpensConvo):
             def __init__(self, collect):
                 self.collect = collect
 
@@ -2350,14 +2395,14 @@ class Main(SupervisorBase):
         止まった）：中央の見守り役が気づき（supervisor.stuck_call）、その回線の流れを捨てて立て直し（古い流れには止める印）、出どころ
         「保存」として契約者と管理者に知らせ、保存の担当（CL-2）へ修正依頼を出す（main.Supervisor._abandon の1か所）。⛔ 見直し21a の 5・
         21b の 1（場面 w12）：戻ったあとの書き手の待ちは上限なしで、書き込みがデータベースで止まると、回線が黙って止まった。"""
-        class Returns:
+        class Returns(support.OpensConvo):
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 self.call = call
                 call.beat()
                 call.write(conversation_io.move_work(claim.attempt_id, "ringing"))   # 終えないまま戻る（落ちたのと同じ）
                 call.flush()
 
-        class SlowLastWrite:
+        class SlowLastWrite(support.OpensConvo):
             def __init__(self):
                 self.call = None
 
@@ -2696,7 +2741,7 @@ class _NoEnd(Runner):
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, claim.attempt_id, "ringing"))
 
 
-class _LastWriteFails:
+class _LastWriteFails(support.OpensConvo):
     """話し終えて、最後の書き込み（ended への移り）だけが書けずに戻る（書けなかったと受け取って戻る）。"""
     def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
         call.beat()

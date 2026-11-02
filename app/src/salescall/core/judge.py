@@ -57,7 +57,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-02.3+time-{spoken_time.VERSION}"   # 2026-11-02.3（CL-1 の 4-69 の 4-185 の (1)・4-178）：ご納得いただけなかった点を根拠の発話（said）と値（point）に分けて返す・かけ直しの理由「今はお電話に出られないご事情」で日時が取れなければ日を改めて1回。
+JUDGE_VERSION = f"judge-2026-11-02.4+time-{spoken_time.VERSION}"   # 2026-11-02.4（CL-1 の 4-69 の 4-182 の (e)）：用件を断られたは、会話の報告の通話の事実 goal_refused（最終目的の申し出を断られ、目的が果たせなくなった）だけで決める（業務の決まりの断りの答えで決め直さない。最終目的でない質問の断る答えは、用件を断られたにしない）
+# 前の版：   # 2026-11-02.3（CL-1 の 4-69 の 4-185 の (1)・4-178）：ご納得いただけなかった点を根拠の発話（said）と値（point）に分けて返す・かけ直しの理由「今はお電話に出られないご事情」で日時が取れなければ日を改めて1回。
 # 前の版：   # 2026-11-02.2（CL-1 の 4-66 のあとの (g)）：締めた理由 not_agreed は結論として終えた（断られたにしない）・ご納得いただけなかった点の回・ご説明できたか・結び。
 # 前の版：   # 2026-11-02.1（CL-1 の 4-66）：伺っていない（対象外）の質問は取れていない必須の質問に数えない（not_asked）・断る答えのある質問の「どれも要らない」は用件を断られた・ご納得いただけなかった点を中身に残す。
 # 2026-11-01.1（CL-1 の 4-64）：判定が届かず会話AIの読みで締めた断り・怒っていた（end_unjudged）は録音の確かめまで保留の候補・最終目的を断られた（goal_refused）は用件を断られた（declined）。
@@ -497,14 +498,14 @@ def _business(inp: JudgeInput) -> Judgement:
     #      ご承認の質問の「いいえ」が断る答えでも、断られたにはしない＝同じ業務の次の実施回でもかけうる）
     if r and r.end_reason == "not_agreed":
         return done("concluded", conclusion="not_agreed")
-    # (4) 用件を断られた（断りの答えが「取れた」）。最終目的の申し出を断られ、業務の目的が果たせなくなって締めた（事実 goal_refused。
-    #     CL-1 の 4-64 の (f)。2026-11-01 ✅ ユーザー：「その業務だけかけない（依頼者全体ではない）」＝発信禁止にはしない）も、ここの1か所
+    # (4) 用件を断られた：最終目的の申し出を断られ、業務の目的が果たせなくなった（事実 goal_refused。CL-1 の 4-64 の (f)。2026-11-01 ✅
+    #     ユーザー：「その業務だけかけない（依頼者全体ではない）」＝発信禁止にはしない）。目的が果たせなくなったか（最終目的の質問・断る答え・
+    #     果たし方 any／all）を決めるのは会話の側の1か所（Flow._goals_lost）で、ここは事実を読むだけ（決め直さない＝CL-1 の連絡帳 4-69 の
+    #     4-182 の (e)）。最終目的でない質問の断る答えは、用件を断られたにしない（✅ 2026-11-01 日本時間20時11分 ユーザー：「登録とかが
+    #     目的なら、営業を拒否したのではなく、担当者からの折り返しを拒否しただけ」）。⛔ 2026-11-02.3 まで：業務の決まりの断りの答え
+    #     （business_rules の decline）が取れたら、最終目的かを問わず「用件を断られた」とも決めていた（同じ決まりを2か所に持っていた）
     if r and r.goal_refusals:
         return done("declined", declined_by="goal", goals=sorted({g for x in r.goal_refusals for g in x.goals}))
-    for q, answers in rules.decline.items():
-        it = inp.items.get(q)
-        if it is not None and it.state in TAKEN and it.condition in answers:
-            return done("declined", declined_by=q)
     # (5) 必須の質問がすべて取れた
     skipped = not_asked(inp.ask_if, inp.items)   # 伺っていない（対象外）の質問は、取れていない質問に数えない
     missing = [q for q in rules.required if q not in skipped and (q not in inp.items or inp.items[q].state not in TAKEN)]

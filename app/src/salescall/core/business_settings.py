@@ -74,8 +74,9 @@ ANY_CHOICE = "どちらでも"                          # 決まった選択肢�
 NONE_CHOICE = business_rules.NONE_CHOICE           # 決まった選択肢（choice）の質問にだけシステムが足す答え「どれも要らない」：どの選択肢も要らない・どれもしないで
 #   ほしい（「連絡自体控えてほしいです」「どちらもお断りします」。CL-1 の連絡帳 4-66。会話の中の名前は none）。✅ 2026-11-02 日本時間4時16分
 #   ユーザー：「連絡しないと最終目的を果たせないような流れだったのなら営業拒否になるし、登録など別の手段が目的の営業であれば電話やメールは
-#   控えるという意味合いになるんじゃないですか。」⇒ 用件を断られたとする答えのある質問（業務の決まり decline。会話の側の最終目的の質問と
-#   同じ中身＝CL-2 の連絡帳 4-182 の (e)）では断る答え（`business_rules.decline_answers` の1か所）、ほかの質問では答えとして受ける（取れた）。
+#   控えるという意味合いになるんじゃないですか。」⇒ どの質問でも、その申し出を断る答え（`declined_answers` の1か所。会話の側の Question.declined と
+#   同じ）。用件を断られたことになるのは、最終目的の申し出の質問（`Question.final_goal`）で目的が果たせなくなったときだけ（会話の側が決め、
+#   判定は通話の事実 goal_refused を読む）。ほかの質問では、断ったまま分岐のとおり続ける。
 #   「どちらでも」と同じく、事実を伺う質問（asks_fact）とはい／いいえの質問には足さない（はい／いいえは「いいえ」がこの役）
 CHOICE_TYPES = ("yes_no", "choice")               # 選択肢で答える型（意味の言葉・曖昧な言葉の意味を持てる）
 REPLY_WORDS = ("大丈夫", "結構", "いい", "平気")
@@ -95,7 +96,8 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "intro", "ask_if", "approval"}
+                 "do_words", "intro", "ask_if", "approval", "final_goal", "declines"}
+GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers"}                # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）
 ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問いの名前・答えの文
 # 想定問答の問いの名前に使えない名前（1か所）：AI が流し直しで選ぶ録音の部分の、中の名前と AI に見せる名前の両方（正本は会話の側＝
@@ -176,6 +178,15 @@ class Question:
     # not_agreed（依頼者へ「ご納得いただけなかった点」として返す。CL-1 の連絡帳 4-66 の (b)(c)。4時36分 ユーザー：「(b) いいえ＝「ご納得
     # いただけなかった点はどの部分になりますでしょうか？」のような確認が必要ではないですか？」）
     approval: bool = False
+    # 最終目的の申し出か（依頼者のトークスクリプト。CL-1 の連絡帳 4-64 の (e)・4-69 の 4-182 の (e)。会話の側の Question.final_goal）。最終目的の
+    # 申し出が断られて業務の目的が果たせなくなったら（果たし方＝`Settings.goal_mode`）、会話の側がその場で締め、通話の事実 goal_refused を
+    # 残す。判定はその事実だけを読んで「用件を断られた」とする（決め直さない）。最終目的でない質問の断る答えは、用件を断られたことにしない
+    # （✅ 2026-11-01 日本時間20時11分 ユーザー：「登録とかが目的なら、営業を拒否したのではなく、担当者からの折り返しを拒否しただけ」）
+    final_goal: bool = False
+    # その質問の申し出を断る答え（依頼者の選択肢の名前。会話の側の Question.declines）。「どれも要らない」・ご承認の質問の「いいえ」は書かなくても
+    # 断る答え（`declined_answers` の1か所）。⛔ 2026-11-02 まで：業務の決まりの「断りの答え」（business_rules の decline＝質問 → 答え）に
+    # 持ち、判定がそれを読んで、最終目的かを問わず「用件を断られた」と決め直していた（同じ中身を会話の側と2か所に持っていた）
+    declines: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -229,6 +240,9 @@ class Settings:
     # いない最初の答えの確かめ「それでは（意味の言葉）ということで（依頼者がすること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01
     # 日本時間6時05分・6時27分 ユーザー）。書かなければ None＝会話の側の既定「記録」（phrases.CLIENT_DOES）
     client_does: str | None = None
+    # 最終目的の果たし方（`GOAL_MODES`：any＝最終目的のどれか1つで果たせる／all＝全部が要る。会話の側の instruction.Business.goal_mode）。
+    # 最終目的の質問が2つ以上の業務だけ書く（必ず書く＝こちらで推し量らない）。1つ以下なら None（どちらでも同じ）
+    goal_mode: str | None = None
 
     def target_needs(self) -> TargetNeeds:
         """目的のお客様を呼ぶのに、発信対象の一覧から何が要るか（決め方はここだけ。取込・版の割り当て・門が使う）。
@@ -254,7 +268,8 @@ KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voic
 # （CL-1 の連絡帳 4-28）。書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
-OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。4-65 の (c)）
+OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。4-65 の (c)。
+#                                                                 goal_mode＝最終目的の果たし方。最終目的が2つ以上の業務だけ書く）
 
 
 def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) -> str | None:
@@ -378,6 +393,16 @@ def possible_answers(q: Question) -> tuple[str, ...]:
     """その質問で返りうる答え（依頼者の選択肢＋システムが足す答え。決まった選択肢の質問には「どちらでも」も。ただし、お客様に事実を
     伺う質問には足さない＝`Question.asks_fact`。会話の側の同じ1か所は CL-1 の `flowctl.Question.all_conditions`）。"""
     return q.choices + ((ANY_CHOICE, NONE_CHOICE) if q.type == "choice" and not q.asks_fact else ()) + SYSTEM_CHOICES
+
+
+def declined_answers(q: Question) -> frozenset[str]:
+    """その質問で、申し出を断る答え（1か所。会話の側の同じ決まりは CL-1 の `flowctl.Question.declined`）：書いた断る答え（`Question.declines`）・
+    返りうるときの「どれも要らない」・ご承認の質問の「いいえ」（ご承認いただけない）。分岐の確かめ（最終目的の質問で断られると、会話の側が
+    その場で締めうる＝必須を聞かずに終わってよい道）が読む。⛔ 2026-11-02 まで：業務の決まりの business_rules.decline_answers（断りの答えの
+    ある質問だけ）で、判定もこれを読んで「用件を断られた」と決め直していた"""
+    possible = possible_answers(q)
+    return frozenset(q.declines) | ({NONE_CHOICE} & set(possible)) | (
+        {q.choices[1]} if q.approval and len(q.choices) > 1 else set())
 
 
 
@@ -541,30 +566,76 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             elif q["approval"] and q["type"] != "yes_no":
                 problems.append(f"{where}は、はい／いいえの質問ではないので、ご承認を伺う質問（approval）にできません（ご承認いただけない＝"
                                 "「いいえ」のときに、ご納得いただけなかった点を伺うため）")
-            questions.append(Question(qid, _text(q["text"], f"{where}の文", problems) or "",
-                                      _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
-                                      q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies,
-                                      q["asks_fact"] is not False, do_words, intro,
-                                      _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True))
+            declines = _declines(q["declines"], q["type"], choices, where, problems)
+            if not isinstance(q["final_goal"], bool):
+                problems.append(f"{where}の最終目的の申し出か（final_goal）は true / false です")
+                continue
+            if declines is None:
+                continue
+            question = Question(qid, _text(q["text"], f"{where}の文", problems) or "",
+                                _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
+                                q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies,
+                                q["asks_fact"] is not False, do_words, intro,
+                                _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
+                                q["final_goal"] is True, declines)
+            if question.final_goal and not declined_answers(question):
+                problems.append(f"{where}は最終目的の申し出ですが、断る答えがありません（はい／いいえ・選択肢の質問で、断る答え（declines）を"
+                                "書きます。事実を伺わない選択肢の質問は「どれも要らない」も断る答え）")
+            questions.append(question)
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     elif questions and not any(q.required and q.ask_if is None for q in questions):
         problems.append("いつも伺う必須の質問が1つもありません（必須の質問がすべて前の答えで伺う質問（ask_if）だと、どれも伺わない通話が"
                         "「すべて取れた」になる。Intent.md 6-4）")
+    goal_mode = raw.get("goal_mode")
+    goals = sum(q.final_goal for q in questions)
+    if goals >= 2 and goal_mode not in GOAL_MODES:
+        problems.append(f"最終目的の申し出が {goals} つあるので、最終目的の果たし方（goal_mode）を書きます（{list(GOAL_MODES)}：any＝どれか1つで"
+                        "果たせる・all＝全部が要る）")
+    elif goals < 2 and goal_mode is not None:
+        problems.append("最終目的の申し出が1つ以下なので、最終目的の果たし方（goal_mode）は書きません（どちらでも同じ）")
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
-                 **responses, client_does=client_does)
+                 **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None)
     # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
     if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
-        problems += _flow_problems(s, raw["rules"])
+        problems += _flow_problems(s)
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
-            business_rules.check(UUID(int=0), tuple(q.id for q in questions if q.required), tuple(q.id for q in questions),
-                                 raw["rules"])
+            business_rules.check(UUID(int=0), tuple(q.id for q in questions if q.required), raw["rules"])
         except business_rules.RulesInvalid as e:
             problems.append(f"業務の決まり：{e}")
     if problems:
         raise SettingsInvalid(problems)
     return s
+
+
+def goal_lost(s: Settings, refused: frozenset[str]) -> bool:
+    """断られた最終目的の申し出の組で、業務の目的が果たせなくなったか（1か所。会話の側の同じ決まりは CL-1 の `Flow._goals_lost`）：
+    all（または最終目的が1つ）＝1つでも断られたら、any＝最終目的の申し出が全部断られたら。最終目的でない質問は数えない。"""
+    goals = {q.id for q in s.questions if q.final_goal}
+    lost = refused & goals
+    if not lost:
+        return False
+    return s.goal_mode != "any" or lost == goals
+
+
+def _declines(raw: Any, type_name: str, choices: tuple[str, ...], where: str, problems: list[str]) -> tuple[str, ...] | None:
+    """断る答え（`Question.declines`）を確かめて読む：その質問の選択肢の名前の並び（重ならない）。はい／いいえ・選択肢の質問だけ。
+    読めなければ None（問題を足す。その質問は読めなかったとして、分岐を確かめない＝崩れた断る答えで「必須を聞かずに終わる道」のうその理由を
+    出さない。2026-10-17 の見直しと同じ）。"""
+    if raw is None or raw == []:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(a, str) and a.strip() for a in raw) or len(set(raw)) != len(raw):
+        problems.append(f"{where}の断る答え（declines）は、選択肢の名前の並びです（重ならない）")
+        return None
+    if type_name not in CHOICE_TYPES:
+        problems.append(f"{where}は選択肢で答える質問ではないので、断る答え（declines）は付けません")
+        return None
+    unknown = [a for a in raw if a not in choices]
+    if unknown:
+        problems.append(f"{where}の断る答え {unknown} は、その質問の選択肢にありません（{list(choices)}）")
+        return None
+    return tuple(raw)
 
 
 def _ask_if(raw: Any, where: str, earlier: list[Question], problems: list[str]) -> AskIf | None:
@@ -592,21 +663,10 @@ def _ask_if(raw: Any, where: str, earlier: list[Question], problems: list[str]) 
     return AskIf(after, tuple(answers))
 
 
-def _flow_problems(s: Settings, rules_raw: Any) -> list[str]:
-    """分岐の確かめ（分岐先・受け皿・どこからも行かない質問・終わらない輪・必須を飛ばして終わる道・断りの答え）。"""
+def _flow_problems(s: Settings) -> list[str]:
+    """分岐の確かめ（分岐先・受け皿・どこからも行かない質問・終わらない輪・必須を飛ばして終わる道）。"""
     problems: list[str] = []
     by_id = {q.id: q for q in s.questions}
-    # 断りの答えは、形が正しいときだけ使う（形の誤りは業務の決まりの確かめ business_rules.check が問題に出す。形の崩れた断りの
-    # 答えで分岐を確かめると、落ちるか「必須を聞かずに終わる道」のうその理由が出る＝2026-10-17 の見直し）
-    raw_decline = rules_raw.get("decline") if isinstance(rules_raw, dict) else None
-    decline_ok = isinstance(raw_decline, dict) and all(
-        isinstance(v, list) and all(isinstance(a, str) for a in v) for v in raw_decline.values())
-    decline: dict[str, list[str]] = raw_decline if decline_ok else {}
-    for qid, answers in decline.items():
-        if qid in by_id:
-            for a in answers:
-                if a not in by_id[qid].choices:
-                    problems.append(f"質問 {qid} の断りの答え「{a}」は、その質問の選択肢にありません")
     for q in s.questions:
         if not q.next:
             continue
@@ -640,33 +700,39 @@ def _flow_problems(s: Settings, rules_raw: Any) -> list[str]:
     unreachable = [q.id for q in s.questions if q.id not in state]
     for qid in unreachable:
         problems.append(f"質問 {qid} へは、どこからも行きません" + ("（必須の質問へ行く道がありません）" if by_id[qid].required else ""))
-    if problems or not decline_ok:
+    if problems:
         return problems
-    # 必須の質問を飛ばして終わる道：答えが断り・システムの答えでないのに、必須を聞かずに終わりへ着く道。
-    # 道の途中で一度でも断り・システムの答えを通れば、その先はどこで終わってもよい。なので「飛ばして終わる道」は、
-    # 断り・システムの答えでない辺だけを通って、その必須の質問を通らずに終わりへ着く道。必須の質問ごとに、その質問を除いた
-    # 図で終わりへ届くかを見る（質問の数 × 辺の数。前は通った質問の組ごとに覚えていたので、質問が増えると何秒もかかり、
-    # 門・取込が版を読むたびに遅くなった＝2026-10-16 の見直し I2）
-    plain = {n: {t for a, t in out.items() if a not in SYSTEM_CHOICES and not (n in decline and a in business_rules.decline_answers(decline[n]))}
-             for n, out in edges.items()}
+    # 必須の質問を飛ばして終わる道：その必須の質問を聞かずに、会話が締めずに終わりへ着く道（判定が「一部だけ取れた」にし、かけ直してしまう）。
+    # 締めてよい道は2つ：(1) システムの答え（わからない・答えたくない）を通った（扱いの表が決める）(2) 最終目的の申し出が断られて、業務の
+    # 目的が果たせなくなった（会話の側がその場で締める。果たせなくなったかは `goal_lost` の1か所＝会話の側の Flow._goals_lost と同じ決まり）。
+    # 最終目的でない質問の断る答えや、any でまだ果たせる最終目的の断りは、締めずに分岐のとおり続ける。なので道は「(質問, 断られた最終目的
+    # の組)」でたどる（最終目的の数 × 質問の数 × 辺の数。⛔ 2026-11-02 まで：最終目的の断りなら、どれでも締めてよい道にしていた＝any で
+    # 2つ以上の最終目的のとき、1つ断られて続く道の必須の飛ばしを見逃した。⛔ 2026-10-16 の見直し I2：通った質問の組ごとに覚えると遅い）
     found: set[str] = set()
     for r in (q.id for q in s.questions if q.required):
         if r == first:
             continue                              # 最初の質問は、どの道でも聞く
-        seen, stack, reached_end = {first}, [first], False
+        start = (first, frozenset())
+        seen, stack, reached_end = {start}, [start], False
         while stack and not reached_end:
-            for t in plain[stack.pop()]:
+            node, refused = stack.pop()
+            for a, t in edges[node].items():
+                if a in SYSTEM_CHOICES:
+                    continue                      # (1) 締めてよい道
+                now = refused | {node} if by_id[node].final_goal and a in declined_answers(by_id[node]) else refused
+                if now != refused and goal_lost(s, now):
+                    continue                      # (2) 締めてよい道
                 if t == END:
                     reached_end = True
                     break
-                if t != r and t not in seen:
-                    seen.add(t)
-                    stack.append(t)
+                if t != r and (t, now) not in seen:
+                    seen.add((t, now))
+                    stack.append((t, now))
         if reached_end:
             found.add(r)
     for qid in sorted(found):
-        problems.append(f"必須の質問 {qid} を聞かずに終わる道があります（その道の答えを「断り」にするか、{qid} を必須から外す。"
-                        "そのままだと「一部だけ取れた」になり、かけ直してしまう）")
+        problems.append(f"必須の質問 {qid} を聞かずに終わる道があります（その道の答えを、最終目的の申し出の断る答えにするか、{qid} を"
+                        "必須から外す。そのままだと「一部だけ取れた」になり、かけ直してしまう）")
     return problems
 
 
@@ -732,10 +798,7 @@ def stored_names(tx: Tx, version_id: UUID) -> tuple[Name, ...]:
 def load(tx: Tx, version_id: UUID) -> Settings:
     """その版の業務設定（中身・質問・業務の決まりを、置いたときと同じ確かめで読む）。名前の読みは、その版のいまの読み（見方
     current_name_readings の1か所。版の中身に書いた決まった読みに、契約者が録音を聞いて選んだ読みが重なる。Intent.md 6-2）。"""
-    row = tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (version_id,))
-    if row is None:
-        raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
-    raw = dict(_current_shape(row["content"]), rules=_rules_raw(tx, version_id))
+    raw = _stored(tx, version_id)
     s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み（読み・声の型）
     s = replace(s, rules=business_rules.load(tx, version_id))
     now = {r["name_text"]: r for r in tx.all(
@@ -746,9 +809,18 @@ def load(tx: Tx, version_id: UUID) -> Settings:
     return replace(s, names=tuple(heard(n) for n in s.names), company=heard(s.company), person=heard(s.person))
 
 
-def _current_shape(content: dict[str, Any]) -> dict[str, Any]:
-    """置いた版の中身を、いまの業務設定の形にする（1か所。版の中身の表は書き換えられない＝0023 の frozen ので、形に項目が増えたら、
-    読むときにここで前の版を今の形に直す。確かめ `check` は今の形を必ず求めたまま）。
+def _stored(tx: Tx, version_id: UUID) -> dict[str, Any]:
+    """置いた版の業務設定（中身と業務の決まり）を、いまの形で読む（1か所。`load`・`ask_ifs` が読む）。"""
+    row = tx.one("SELECT c.content, r.rules FROM salescall.business_contents c JOIN salescall.business_rules r USING (version_id)"
+                 " WHERE c.version_id = %s", (version_id,))
+    if row is None:
+        raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
+    return _current_shape(row["content"], row["rules"])
+
+
+def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
+    """置いた版の中身と業務の決まりを、いまの業務設定の形にする（1か所。版の中身・業務の決まりの表は書き換えられない＝0023 の frozen ので、
+    形に項目が増えたら、読むときにここで前の版を今の形に直す。確かめ `check` は今の形を必ず求めたまま）。返す形は業務設定の形（rules つき）。
     - 事実を伺う質問か（asks_fact。2026-11-01 に足した＝CL-1 の連絡帳 2-1 の版 0.6）が無い前の版の質問は、真（事実を伺う質問）として読む
       （取込で決まらないときと同じ側＝`business_import._decided_facts`。⛔ 見直し28：前は、足す前に置いた版が読めなくなり、その版の
       実施回はかけることも答えを書くこともできなかった）。
@@ -757,36 +829,42 @@ def _current_shape(content: dict[str, Any]) -> dict[str, Any]:
     - 伺う条件（ask_if）・ご承認を伺う質問か（approval）（2026-11-02 に足した＝CL-1 の連絡帳 4-66 の (b)）が無い前の版の質問は、いつも
       伺う・ご承認の質問ではない（None・偽）として読む。同じとき「どれも要らない」が返りうる答えに増えた（4-66 の (a)）ので、その前の版で
       分岐（next）を答えごとに書き、受け皿（*）の無い質問は、「どれも要らない」の行き先を並びの次の質問（最後の質問なら終わり）として
-      読む（会話の側は、最終目的の質問でなければ答えとして受け取って続ける＝並びの次。⛔ 足さないと、受け皿の無い分岐の版が読めなくなる）。"""
+      読む（会話の側は、最終目的の質問でなければ答えとして受け取って続ける＝並びの次。⛔ 足さないと、受け皿の無い分岐の版が読めなくなる）。
+    - 最終目的の申し出か（final_goal）・断る答え（declines）（2026-11-02 に業務の決まりの「断りの答え」decline から移した＝CL-1 の連絡帳
+      4-69 の 4-182 の (e)）：前の版は、業務の決まりに断りの答えを書いた質問を、最終目的の申し出（断る答えはそのまま）として読み、
+      ほかの質問は最終目的でない・断る答え無しとして読む。前の判定は、断りの答えのどれか1つが取れたら「用件を断られた」としたので、
+      その質問が2つ以上なら果たし方を all（1つでも断られたら果たせない）として読む（前と同じ結果）。業務の決まりからは decline を外す。"""
+    rules = rules if isinstance(rules, dict) else {}
+    old_decline = rules.get("decline") if isinstance(rules.get("decline"), dict) else {}
+    rules = {k: v for k, v in rules.items() if k != "decline"}
     questions = content.get("questions")
     if not isinstance(questions, list):
-        return content
-    added = {"asks_fact": True, "do_words": {}, "intro": None, "ask_if": None, "approval": False}   # 足した項目と、足す前の版で読む値
+        return dict(content, rules=rules)
+    added = {"asks_fact": True, "do_words": {}, "intro": None, "ask_if": None, "approval": False,   # 足した項目と、足す前の版で読む値
+             "final_goal": False, "declines": []}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:
         if not isinstance(q, dict):
             return q
         out = {**{k: v for k, v in added.items() if k not in q}, **q}
+        if "final_goal" not in q and out.get("id") in old_decline:
+            out["final_goal"], out["declines"] = True, list(old_decline[out["id"]])
         nxt = out.get("next")
         if "ask_if" not in q and isinstance(nxt, dict) and nxt and ANY not in nxt and NONE_CHOICE not in nxt \
                 and out.get("type") == "choice" and out.get("asks_fact") is False:
             out["next"] = {**nxt, NONE_CHOICE: ids[i + 1] if i + 1 < len(ids) else END}
         return out
-    return dict(content, questions=[shaped(i, q) for i, q in enumerate(questions)])
+    out = dict(content, questions=[shaped(i, q) for i, q in enumerate(questions)], rules=rules)
+    if "goal_mode" not in content and len(old_decline) >= 2:
+        out["goal_mode"] = "all"
+    return out
 
 
 def ask_ifs(tx: Tx, version_id: UUID) -> dict[str, AskIf]:
     """その版の、前の答えで伺う質問（質問の番号 → 条件）。判定の入力（judge.JudgeInput.ask_if）が読む1か所。中身は置いた時に確かめ済み。"""
-    row = tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (version_id,))
-    if row is None:
-        raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
     return {q["id"]: AskIf(q["ask_if"]["after"], tuple(q["ask_if"]["answers"]))
-            for q in _current_shape(row["content"])["questions"] if q["ask_if"] is not None}
-
-
-def _rules_raw(tx: Tx, version_id: UUID) -> dict[str, Any]:
-    return tx.one("SELECT rules FROM salescall.business_rules WHERE version_id = %s", (version_id,))["rules"]
+            for q in _stored(tx, version_id)["questions"] if q["ask_if"] is not None}
 
 
 def restore(tx: Tx, version_id: UUID) -> UUID:
