@@ -64,11 +64,8 @@ class Forbidden:
     correct: str | None          # 正しい案内（お詫びの電話で伝える。無ければ None）
 
 
-# 決まった選択肢の質問にシステムが足す答え「どれも要らない」（会話の中の名前 none。CL-1 の連絡帳 4-66 の (a)）。読むのは業務設定の部品
-# （business_settings.NONE_CHOICE はこの値。断る答えの決まりは business_settings.declined_answers）。ここに置いているのは、CL-1 の名前比べの
-# 試験（test_offline の test_names_match_cl2_business_settings）がここを読むため（業務設定の部品へ移すのは、CL-1 がその試験を替えてから＝
-# CL-2 の連絡帳 4-191。⛔ 2026-11-02 まで：判定も読んでいた＝判定は「用件を断られた」を決め直さなくなった）
-NONE_CHOICE = "どれも要らない"
+# ⛔ 2026-11-03 まで：決まった選択肢の質問にシステムが足す答え「どれも要らない」（NONE_CHOICE）をここに置いていた。業務設定の部品
+# （business_settings.NONE_CHOICE）の1か所へ移した（CL-1 の連絡帳 4-70 の 4-191：CL-1 の名前比べの試験は業務設定の部品から読む）
 KEYS = ("handling", "retry", "forbidden")
 
 
