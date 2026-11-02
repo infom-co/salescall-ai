@@ -9345,6 +9345,47 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((sorted(set(RECORDED) - parts), sorted(parts - set(RECORDED))), ([], []),
                          "（こちらだけにある名前, CL-2 の一覧だけにある名前）")
 
+    @staticmethod
+    def cl2_names(path: str, var: str) -> set[str] | None:
+        """CL-2 の部品（app/src/salescall/core/ の path）の var（文字の並び・組）の名前を ast で読む（CL-2 の部品は読み込まない）。無ければ None。"""
+        import ast
+        import pathlib
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / path
+        if not src.is_file():
+            return None
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        node = next((n.value for n in tree.body if isinstance(n, (ast.Assign, ast.AnnAssign))
+                     and any(getattr(t, "id", None) == var for t in (n.targets if isinstance(n, ast.Assign) else [n.target]))), None)
+        return None if node is None else {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)}
+
+    def test_callback_reasons_match_cl2_report(self):
+        # CL-2 の 4-188 の (d)：かけ直しの記録の理由の一覧（こちら CALLBACK_REASONS・CL-2 の call_report.CALLBACK_REASONS）が同じ
+        # （⛔ 2026-11-02 に unavailable が CL-2 の側で抜けていたのを、この比べが無くて見つけられなかった）
+        from flowctl import CALLBACK_REASONS
+        theirs = self.cl2_names("call_report.py", "CALLBACK_REASONS")
+        if theirs is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        self.assertEqual((sorted(set(CALLBACK_REASONS) - theirs), sorted(theirs - set(CALLBACK_REASONS))), ([], []))
+
+    def test_emergency_covers_match_cl2(self):
+        # CL-2 の 4-189 の (c)(d)：緊急の道が代わりになれる判定（こちら＝OTHER_JUDGES の emergency を持つ名前・CL-2 の errors.EMERGENCY_COVERS）が同じ
+        # （食い違うと、Sonnet が止まっても緊急の道を出せない／Jev でも出せる）
+        from meaning_judge import OTHER_JUDGES
+        theirs = self.cl2_names("errors.py", "EMERGENCY_COVERS")
+        if theirs is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        self.assertEqual({n for n, j in OTHER_JUDGES.items() if j.get("emergency")}, theirs)
+
+    def test_final_goal_names_match_cl2(self):
+        # CL-2 の 4-191：業務設定の質問の鍵（final_goal・declines）と最終目的の果たし方の名前（GOAL_MODES）が、会話の側の名前と同じ
+        import dataclasses
+        from flowctl import GOAL_MODES, Question
+        keys, modes = self.cl2_names("business_settings.py", "QUESTION_KEYS"), self.cl2_names("call_report.py", "GOAL_MODES")
+        if keys is None or modes is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        self.assertLessEqual({"final_goal", "declines"}, keys & {f.name for f in dataclasses.fields(Question)})
+        self.assertEqual(set(GOAL_MODES), modes)
+
     def test_names_match_cl2_business_settings(self):
         # CL-2 の 4-144 (a)・4-121：業務設定の確かめ（CL-2 の business_settings の ANSWER_RESERVED・RESERVED_IDS）が、会話の側の名前と
         # そろっているか。ANSWER_RESERVED＝AIが選ぶ録音の部分の名前（RESERVED_PART_NAMES）と同じ／RESERVED_IDS＝システムが足す質問の番号
@@ -9372,8 +9413,10 @@ class TargetTest(unittest.TestCase):
         self.assertFalse(missing, f"CL-2 の RESERVED_IDS に無い名前：{sorted(missing)}")
         # CL-2 の 4-185 の (b)：システムが足す答えの日本語の名前（伺う答え ask_if に来る）が、会話の側の中の名前へ1か所（condition）で置き換わるか
         from flowctl import ANY, NONE, SYSTEM_CONDITIONS, condition, label
+        # 「どれも要らない」の名前の正本は業務設定の部品（CL-2 の 4-191：business_rules から移す）。移す前の版では business_rules から読む
         rules = ast.parse((src.parent / "business_rules.py").read_text(encoding="utf-8"))
-        none_name = next(n.value.value for n in rules.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "NONE_CHOICE")
+        none_name = consts.get("NONE_CHOICE") or next(n.value.value for n in rules.body if isinstance(n, ast.Assign)
+                                                      and getattr(n.targets[0], "id", None) == "NONE_CHOICE")
         theirs = names("SYSTEM_CHOICES") | {consts["ANY_CHOICE"], none_name}
         self.assertEqual(({condition(x) for x in theirs}, {label(condition(x)) for x in theirs}), ({*SYSTEM_CONDITIONS, ANY, NONE}, theirs))
 
@@ -10578,6 +10621,14 @@ class ApprovalTest(unittest.TestCase):
         f = Flow(list(self.flow().questions.values()), earlier={"Q1": {"state": "dont_know", "value": None, "condition": "わからない"}})
         self.assertEqual((f.items["Q1"].condition, f.order, f.current), ("unknown", ["Q1", "Q2", "Q3"], "Q2"))
 
+    def test_firm_does_not_matter_where_the_flow_does_not_check(self):
+        # 言い切っていなくても確かめない質問（N1〜N3）では、言い切りは動きを変えない＝確かな読みの決め方・測りの道具も同じ1か所（firm_matters）
+        from flowctl import CALLBACK_IDS, callback_question
+        from meaning_judge import firm_matters
+        for role in ("not_agreed", "other_point", "agreed_now"):
+            q = callback_question(role)
+            self.assertFalse(any(firm_matters(q, c) for c in q.conditions), role)
+
     def test_not_agreed_keys_match_cl2_report(self):
         # ご納得いただけなかった点の記録（通話の事実 not_agreed）の鍵が、CL-2 の会話の報告の読み手（call_report._not_agreed）の受ける鍵に
         # 全部入っているか（知らない鍵が来ると、報告が丸ごと断られる）。ご説明した記録と、お断りしようとしている記録の両方を作って比べる。
@@ -10600,6 +10651,10 @@ class ApprovalTest(unittest.TestCase):
         AmbiguousAnswerTest.say(g, "でもやっぱり、今の業者で十分なので。", "record_answer", question_id=n2, condition_id="断ろうとしている")
         written = {k for e in g.facts["not_agreed"] for k in e}
         self.assertEqual((len(g.facts["not_agreed"]), sorted(written - accepted)), (2, []), "ご納得いただけなかった点の記録で、CL-2 が受けない鍵")
+        # CL-2 の 4-189：point＝ご納得いただけなかった点の値・said＝根拠の発話（書き分ける）
+        self.assertEqual((g.facts["not_agreed"][0]["point"], g.facts["not_agreed"][0]["said"]), ("料金のところ", "料金のところですね。"))
+        # ⛔ 2026-11-03 に見つけた：N1〜N3 の答えを、理由「not_agreed」などのかけ直しの記録にも書いていた（CL-2 は一覧に無い理由の報告を丸ごと断る）
+        self.assertNotIn("callback", g.facts)
 
     @staticmethod
     def explained(f, part):
@@ -11857,7 +11912,10 @@ class G73WordsTest(unittest.TestCase):
         calling = {s["asked"]: s["question"] for s in sc if s["set"] == "HEAR_CALL"}
         self.assertEqual(calling, {a: g59.question_of(f, a).text for a in (False, True)})
         self.assertEqual([s["question"] for s in sc if s["set"] == "HEAR"], list(g.HEAR_QUESTIONS))
-        self.assertTrue(all(set(s["kinds"]) == {HEAR_LOST, HEAR_OK} for s in sc if s["set"].startswith("HEAR")))
+        self.assertTrue(all(set(s["kinds"]) == {HEAR_LOST, HEAR_OK} for s in sc if s["set"].startswith("HEAR") and "truths" not in s))
+        # お呼びする段の紛らわしい言葉だけの場面（2つの一言とも）：正解は「そういう様子は無い」（作らせた種類の名前のままにしない）
+        confusing = [s for s in sc if "truths" in s]
+        self.assertEqual(({s["asked"] for s in confusing}, {t for s in confusing for t in s["truths"].values()}), ({False, True}, {HEAR_OK}))
         # 作らせた答えの言葉に、どちらの一言のあとかが残る（G-59 が確かめる一言のあとの行にする）
         class C:
             class models:
@@ -11867,6 +11925,7 @@ class G73WordsTest(unittest.TestCase):
                                                                 for i, s in enumerate(sc, 1)})})()
         got = g._ask(C, "m", sc)
         self.assertEqual({w["asked"] for w in got if w["set"] == "HEAR_CALL"}, {False, True})
+        self.assertEqual({w["truth"] for w in got if w["kind"] == g.CONFUSING}, {HEAR_OK})
         self.assertEqual(g._kept(got, sc)[1], [])
 
     def test_g59_counts_only_the_hearing_on_the_words(self):
@@ -11924,28 +11983,126 @@ class G73WordsTest(unittest.TestCase):
         self.assertEqual(call_with_retry(drop_then_ok, waits=(0,)), ("ok", 1))
         calls = []
 
+        from meaning_judge import OTHER_JUDGES
+        haiku = [x for x in g.MODELS if x in OTHER_JUDGES]
+
         class Ring:
             def __init__(self, args, answer):
                 self.keys, self.answer = [N(label="K0")], answer
 
             def model_ids(self):
-                return {m: m for m in g.MODELS}
+                return {x: x for x in g.MODELS if x not in haiku}
 
             def call(self, model, fn):
                 calls.append(model)
                 return self.answer(model), 0
 
+        def others(answer):   # Anthropic の作り手（_anthropic の形）：同じく1回ずつ数える
+            return lambda args: {x: (x, lambda sc, x=x: (calls.append(x), answer(x))[1]) for x in haiku}
+
         def busy(model):
             raise RuntimeError("503 UNAVAILABLE")
-        with m.patch.object(g, "KeyRing", lambda args: Ring(args, busy)), m.patch.object(g, "save_partial", lambda *a: None):
+        with m.patch.object(g, "KeyRing", lambda args: Ring(args, busy)), m.patch.object(g, "_anthropic", others(busy)), \
+                m.patch.object(g, "save_partial", lambda *a: None):
             out = g.run(N(resume=False))
         self.assertEqual(calls, list(g.MODELS))                            # 1つのモデルに1回（中で待ってやり直したあと）
         self.assertEqual(set(out["errors"]), set(g.MODELS))
         calls.clear()
-        with m.patch.object(g, "KeyRing", lambda args: Ring(args, lambda model: [])), m.patch.object(g, "save_partial", lambda *a: None):
+        with m.patch.object(g, "KeyRing", lambda args: Ring(args, lambda model: [])), m.patch.object(g, "_anthropic", others(lambda x: [])), \
+                m.patch.object(g, "save_partial", lambda *a: None):
             out = g.run(N(resume=False))
         self.assertEqual(len(calls), g.SCENE_TRIES * len(g.MODELS))         # 種類のそろわない場面は、決まった回数だけ問い合わせ直す
         self.assertTrue(all("そろわない場面" in str(e) for e in out["errors"].values()))
+
+    def test_skipped_maker_stays_incomplete(self):
+        # 作り手を選んで流しても（--makers）、問い合わせなかった作り手の足りない場面は「そろっていない」として残る（有料の測りの前に止まる）
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+        import g73_system_words as g
+        sc = g._scenes()
+        full = [w for i, s in enumerate(sc, 1) for k in s["kinds"] for w in [{"set": s["set"], "question": s["question"], "kind": k,
+                "text": f"{i}{k}{n}", "maker": "m", "truth": k} for n in range(4)]]
+
+        class Ring:
+            keys = [N(label="K0")]
+
+            def __init__(self, args):
+                pass
+
+            def model_ids(self):
+                return {}
+        others = lambda args: {"Claude Haiku 5.5": ("h", lambda s: full)}   # noqa: E731
+        with m.patch.object(g, "KeyRing", Ring), m.patch.object(g, "_anthropic", others), m.patch.object(g, "save_partial", lambda *a: None):
+            out = g.run(N(resume=False, makers=["Claude Haiku 5.5"]))
+        self.assertEqual(list(out["errors"]), ["3.8 Flash"])
+        self.assertIn("問い合わせていない", out["errors"]["3.8 Flash"])
+
+    def test_stand_in_fills_the_skipped_maker(self):
+        # 3.8 Flash（文字のモデル）が答えられない間は、足りない場面を Haiku 5.5 が代わりに作る（--stand-in。✅ 2026-11-03 日本時間3時台 ユーザー：
+        # 「3.8 Flash の分の一部の場面もHaikuで作らせたらいいんじゃない？何度も言わせるな！」）。言葉の maker は本当に作ったモデル
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+        import g73_system_words as g
+        sc = g._scenes()
+        full = [{"set": s["set"], "question": s["question"], "kind": k, "text": f"{i}{k}{n}", "maker": "claude-haiku-5-5", "truth": k}
+                for i, s in enumerate(sc, 1) for k in s["kinds"] for n in range(4)]
+        asked = []
+
+        class Ring:
+            keys = [N(label="K0")]
+
+            def __init__(self, args):
+                pass
+
+            def model_ids(self):
+                return {}
+        others = lambda args: {"Claude Haiku 5.5": ("h", lambda s: (asked.append(len(s)), full)[1])}   # noqa: E731
+        with m.patch.object(g, "KeyRing", Ring), m.patch.object(g, "_anthropic", others), m.patch.object(g, "save_partial", lambda *a: None):
+            out = g.run(N(resume=False, makers=["Claude Haiku 5.5"], stand_in=True))
+        self.assertEqual(out["errors"], {})
+        self.assertEqual(asked, [len(sc), len(sc)])                         # 3.8 Flash の足りない場面（ここでは全部）と、Haiku 自身の分
+        self.assertTrue(all(w["maker"] == "claude-haiku-5-5" for w in out["words"]))
+
+    def test_makers_are_not_judges(self):
+        # 自分で作った言葉を自分で判定すると正しさが高く出る ⇒ 作り手は判定の顔ぶれ（2つ目の判定の組・その場の判定 3.5 Flash Lite）に入れない
+        # （✅ 2026-11-03 日本時間2時41分10秒 ユーザー「はい」＝2人目の作り手は Claude Haiku 5.5。Sonnet は判定に入っているので作り手にしない）
+        import g73_system_words as g
+        from meaning_judge import GROUPS, members, JUDGE2
+        judges = set(members(JUDGE2)) | {x for v in GROUPS.values() for x in v} | {"3.5 Flash Lite"}
+        self.assertEqual(set(g.MODELS) & judges, set())
+        self.assertIn("Claude Haiku 5.5", g.MODELS)
+
+    def test_anthropic_maker_reads_the_same_request(self):
+        # Anthropic の作り手は、Gemini と同じ文と答えの形（_request の1か所）で、答えの形を指定した道具の呼び出しで返させ、同じ読み取り（_words）を通す。
+        # 料金は判定と同じ帳簿に入り、上限に達していれば送らない
+        from types import SimpleNamespace as N
+        import g73_system_words as g
+        from meaning_judge import SPEND, OtherJudgeError
+        sc = [s for s in g._scenes() if s["set"] == "HEAR_CALL"]
+        sent = {}
+
+        class Client:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    sent.update(kw)
+                    data = {str(i): {k: [f"{i}{k}{n}" for n in range(4)] for k in s["kinds"]} for i, s in enumerate(sc, 1)}
+                    return N(content=[N(type="tool_use", input=data)], usage=N(input_tokens=1000, output_tokens=2000), stop_reason="tool_use")
+        limit, before = SPEND.limit, SPEND.yen
+        try:
+            SPEND.limit = None
+            got = g._ask_anthropic(Client, "claude-haiku-5-5", sc)
+            text, js = g._request(sc)
+            self.assertEqual((sent["messages"][0]["content"], sent["tools"][0]["input_schema"], sent["tool_choice"]["name"]), (text, js, "words"))
+            self.assertNotIn("temperature", sent)                     # Haiku 5.5 は temperature を送ると断る（meaning_judge.other_request）
+            self.assertEqual(g._kept(got, sc)[1], [])
+            self.assertEqual({w["asked"] for w in got}, {False, True})
+            self.assertGreater(SPEND.yen, before)
+            SPEND.limit = SPEND.yen
+            with self.assertRaises(OtherJudgeError):
+                g._ask_anthropic(Client, "claude-haiku-5-5", sc)
+        finally:
+            SPEND.limit = limit
 
     def test_g53_sets(self):
         import unittest.mock as m
