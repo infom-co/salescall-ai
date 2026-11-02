@@ -14,9 +14,13 @@ from __future__ import annotations
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from flowctl import HEAR_LOST, HEAR_OK, UNDECIDED, callback_question, hear_choices
+from flowctl import HEAR_OK, UNDECIDED, callback_question, hear_choices
 
 MODELS = ("3.8 Flash", "3.7 Flash")
+# 種類のそろわない場面を問い合わせ直す回数。混雑（503）・接続の切れの待ちと問い合わせ直しは、キーを回す所の1か所（common.call_with_retry）だけ
+# ⛔ 2026-11-02：ここにも混雑の問い合わせ直し（8回）を足し、中の3回と重ねて1回の作りで最大32回を使いうる形にした＝2本のキーの1日の20回を、
+#    3.7 Flash は1つも答えないまま使い切った（混雑で答えなかった問い合わせも、1日の回数に数えられていた様子）
+SCENE_TRIES = 3
 PER_KIND = 4   # 種類ごとに作らせる言葉の数
 EXPLAINED = "料金は月額3,000円で、初月は無料となっております。"   # 前の段でご説明した内容（試しの業務。ApprovalTest と同じ）
 UNSURE = "どちらとも取れない"   # 決められない（UNDECIDED）の種類の名前
@@ -38,135 +42,154 @@ def _point_sets() -> list[dict]:
 
 # こちらの声が届いていない様子：答えの段のいろいろな質問のあとに、お客様が言う言葉（そういう様子の無い、紛らわしい言葉も作らせる）
 HEAR_QUESTIONS = ("パンフレットをお送りしてもよろしいでしょうか？", "ご予約はされていますでしょうか？", "ご希望の日時をお聞かせいただけますでしょうか？")
+# お呼びする段（判定の項目は両方の段で読む＝flowctl.SIDE_ITEMS）：電話に出た方が、呼ぶ一言・確かめる一言のあとに言う言葉（組 HEAR_CALL＝G-59 で測る）
+CALLING_SCENES = {False: "電話に出た方に、会社名と名前を名乗ってから、", True: "電話に出た方に、お呼びした方ご本人かを確かめるため、"}
 
 
-def _hear_set() -> dict:
-    kinds = {k: v for k, v in hear_choices(False).items() if k != UNDECIDED}
+def _hear_kinds(calling: bool) -> dict:
+    kinds = {k: v for k, v in hear_choices(calling).items() if k != UNDECIDED}
     kinds[HEAR_OK] += "。⚠️ 紛らわしい言い方にしてください（「聞こえてますよ」「もしもし、はいどうぞ」のように、声や電話の話が入っていても、こちらの声は届いている言葉）"
-    return {"set": "HEAR", "questions": HEAR_QUESTIONS, "kinds": kinds}
+    return kinds
+
+
+def calling_questions() -> dict[bool, str]:
+    """お呼びする段の2つの一言（{確かめる一言か: 判定に見せる質問の文}）。お呼びする段の測り（G-59）が判定に見せる質問と同じ1か所（question_of）。"""
+    import g59_calling_judge as g
+    _, f, _ = g.flows()
+    return {asked: g.question_of(f, asked).text for asked in CALLING_SCENES}
 
 
 PROMPT = (
     "電話の営業の会話で、こちらが次の質問をしたあとに、お客様が言う一言を作ってください。種類ごとに、{n}つずつ、違う言い方で書いてください。\n"
     "決まり：電話で実際に言いそうな、短い話し言葉にします。種類の名前そのもの（「点を言った」「分かった」など）は入れません。"
-    "同じ言い方を繰り返しません。\n"
+    "同じ言い方を繰り返しません。答えは、場面の番号の欄の中の、種類の名前の欄に入れます（その種類の言葉だけを入れる）。\n"
 )
 
 
-def _complete(words: list[dict], expected: list[tuple[str, str]]) -> list[dict]:
-    """作らせた言葉がそろっているかを確かめる唯一の場所：場面（質問）ごとに、どの種類もちょうど PER_KIND 個（作るモデルが同じ場面・同じ種類を
-    2回返し、ほかの種類が抜けると、言葉の正解（作らせた種類）が違う＝⛔ 2026-11-02 の1回目：3.8 Flash が「ご予約はされていますでしょうか？」の
-    「届いていない様子」を8個返し、うち4個は「そちらの声聞こえてます」のような、届いている言葉だった）。そろわなければ ValueError（その問い合わせを
-    誤りとして残し、--resume で問い合わせ直す）。正解を手で付け替えない。"""
-    from collections import Counter
-    got = Counter((w["question"], w["kind"]) for w in words)
-    bad = [f"{q[:20]}・{k}：{got.get((q, k), 0)}個" for q, k in expected if got.get((q, k), 0) != PER_KIND]
-    bad += [f"{q[:20]}・{k}：作らせていない種類" for q, k in got if (q, k) not in expected]
-    if bad:
-        raise ValueError("言葉がそろっていない（" + "／".join(bad) + "）")
-    return words
+def _scenes() -> list[dict]:
+    """言葉を作らせる場面の一覧（唯一の場所）：N1〜N3 の質問（場面の文つき）と、こちらの声が届いていない様子を読む答えの段の3つの質問・
+    お呼びする段の2つの一言。"""
+    out = [{"set": s["set"], "question": s["question"], "text": f"{s['scene']}、こちらが「{s['question']}」と伺った", "kinds": s["kinds"]}
+           for s in _point_sets()]
+    out += [{"set": "HEAR", "question": q, "text": f"こちらが「{q}」と伺った", "kinds": _hear_kinds(False)} for q in HEAR_QUESTIONS]
+    out += [{"set": "HEAR_CALL", "question": q, "asked": asked, "text": f"{CALLING_SCENES[asked]}こちらが「{q}」と伺った", "kinds": _hear_kinds(True)}
+            for asked, q in calling_questions().items()]
+    return out
 
 
-def _ask_points(client, model: str, sets: list[dict]) -> list[dict]:
+def _ask(client, model: str, scenes: list[dict]) -> list[dict]:
+    """場面ごと・種類ごとの欄に分けた形で答えさせる（同じ種類を2回返して、ほかの種類が抜ける形を作らない＝⛔ 2026-11-02：項目の並びの形では、
+    3.8 Flash が聞こえ方の場面の1つで「届いていない様子」を8個・「そういう様子は無い」を0個と2回続けて返し、8個のうち4個は届いている言葉だった）。"""
     from google.genai import types
-    body = "\n".join(f"{i}：{s['scene']}、こちらが「{s['question']}」と伺った。種類：" + "／".join(f"{k}＝{v}" for k, v in s["kinds"].items())
-                     for i, s in enumerate(sets, 1))
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "no": types.Schema(type=types.Type.INTEGER), "kind": types.Schema(type=types.Type.STRING),
-        "words": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING))}, required=["no", "kind", "words"])
-    schema = types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)}, required=["items"])
+    words = types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING))
+    props = {str(i): types.Schema(type=types.Type.OBJECT, properties={k: words for k in sc["kinds"]}, required=list(sc["kinds"]))
+             for i, sc in enumerate(scenes, 1)}
+    schema = types.Schema(type=types.Type.OBJECT, properties=props, required=list(props))
+    body = "\n".join(f"{i}：{sc['text']}。種類：" + "／".join(f"{k}＝{v}" for k, v in sc["kinds"].items()) for i, sc in enumerate(scenes, 1))
     r = client.models.generate_content(model=model, contents=PROMPT.format(n=PER_KIND) + "場面（番号：場面と質問・種類＝その意味）：\n" + body,
                                        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema,
                                                                           temperature=0.7))
+    got = json.loads(r.text)
     out = []
-    for x in json.loads(r.text).get("items", []):
-        n, kind = x.get("no"), x.get("kind")
-        if isinstance(n, int) and 1 <= n <= len(sets) and kind in sets[n - 1]["kinds"]:
-            for w in [w.strip() for w in x.get("words", []) if isinstance(w, str) and w.strip()]:
-                out.append({"set": sets[n - 1]["set"], "question": sets[n - 1]["question"], "kind": kind, "text": w, "maker": model,
-                            "truth": UNDECIDED if kind == UNSURE else kind})
-    return _complete(out, _point_pairs(sets))
+    for i, sc in enumerate(scenes, 1):
+        for k in sc["kinds"]:
+            for w in [w.strip() for w in ((got.get(str(i)) or {}).get(k) or []) if isinstance(w, str) and w.strip()]:
+                out.append({"set": sc["set"], "question": sc["question"], "kind": k, "text": w, "maker": model,
+                            "truth": UNDECIDED if k == UNSURE else k, **({"asked": sc["asked"]} if "asked" in sc else {})})
+    return out
 
 
-def _point_pairs(sets: list[dict]) -> list[tuple[str, str]]:
-    return [(s["question"], k) for s in sets for k in s["kinds"]]
-
-
-def _hear_pairs(s: dict) -> list[tuple[str, str]]:
-    return [(q, k) for q in s["questions"] for k in s["kinds"]]
-
-
-def _ask_hear(client, model: str, s: dict) -> list[dict]:
-    from google.genai import types
-    body = "\n".join(f"{i}：こちらが「{q}」と伺った" for i, q in enumerate(s["questions"], 1))
-    kinds = "／".join(f"{k}＝{v}" for k, v in s["kinds"].items())
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "no": types.Schema(type=types.Type.INTEGER), "kind": types.Schema(type=types.Type.STRING, enum=list(s["kinds"])),
-        "words": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING))}, required=["no", "kind", "words"])
-    schema = types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)}, required=["items"])
-    r = client.models.generate_content(model=model, contents=PROMPT.format(n=PER_KIND) + f"種類（どの場面にも）：{kinds}\n場面：\n" + body,
-                                       config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema,
-                                                                          temperature=0.7))
-    out = []
-    for x in json.loads(r.text).get("items", []):
-        n, kind = x.get("no"), x.get("kind")
-        if isinstance(n, int) and 1 <= n <= len(s["questions"]) and kind in s["kinds"]:
-            for w in [w.strip() for w in x.get("words", []) if isinstance(w, str) and w.strip()]:
-                out.append({"set": "HEAR", "question": s["questions"][n - 1], "kind": kind, "text": w, "maker": model, "truth": kind})
-    return _complete(out, _hear_pairs(s))
+def _kept(words: list[dict], scenes: list[dict]) -> tuple[list[dict], list[dict]]:
+    """そろった場面の言葉と、そろわない場面を分ける唯一の場所：場面は、どの種類にも PER_KIND 個以上あるときだけ残し、種類ごとに初めの
+    PER_KIND 個を使う。そろわない場面は言葉を1つも使わない（種類の付け違いが混ざりうる＝正解を手で付け替えない）。作らせていない種類の言葉は捨てる。"""
+    kept, missing = [], []
+    for sc in scenes:
+        by = {k: [w for w in words if w["question"] == sc["question"] and w["kind"] == k] for k in sc["kinds"]}
+        if all(len(v) >= PER_KIND for v in by.values()):
+            kept += [w for v in by.values() for w in v[:PER_KIND]]
+        else:
+            missing.append(sc)
+    return kept, missing
 
 
 def run(args) -> dict:
     ring = KeyRing(args)
     ids = ring.model_ids()
-    points, hear = _point_sets(), _hear_set()
-    rows: dict = {"points": {}, "hear": {}}
+    scenes = _scenes()
+    rows: dict[str, list[dict]] = {}
     errors: dict = {}
-    if args.resume:   # 途中で止まった流しの続き：答えのあった問い合わせは、もう一度は送らない
-        import glob
+    if args.resume:   # 途中で止まった流しの続き：そろった場面は、もう一度は問い合わせない（前の形の rows＝{points|hear: {モデル: 言葉}} も読む）
         from common import HERE
-        part = sorted(glob.glob(str(HERE / "results" / "G-73_partial.json")))
-        if part:
-            pairs = {"points": _point_pairs(points), "hear": _hear_pairs(hear)}
-            for key, by in json.loads(open(part[-1], encoding="utf-8").read()).get("rows", {}).items():
-                for m, v in by.items():
-                    try:   # 残っていた分も同じ確かめを通す（そろっていない分は問い合わせ直す）
-                        rows.setdefault(key, {})[m] = _complete(v, pairs[key])
-                    except ValueError as exc:
-                        say(key, m, "途中の記録を使わず、問い合わせ直します：", str(exc)[:200])
+        part = HERE / "results" / "G-73_partial.json"
+        if part.exists():
+            old = json.loads(part.read_text(encoding="utf-8")).get("rows", {})
+            for key, by in old.items():
+                if isinstance(by, dict):
+                    for m, v in by.items():
+                        rows.setdefault(m, []).extend(v)
+                else:
+                    rows.setdefault(key, []).extend(by)
     for m in MODELS:
         if m not in ids:
             errors[m] = "モデルが見つからない"
             continue
-        for key, fn in (("points", lambda c, m=m: _ask_points(c, ids[m], points)), ("hear", lambda c, m=m: _ask_hear(c, ids[m], hear))):
-            if rows[key].get(m):
-                continue
+        kept, missing = _kept(rows.get(m, []), scenes)
+        rows[m] = kept
+        if not missing:
+            continue
+        for _ in range(SCENE_TRIES):
             try:
-                got, used = ring.call(ids[m], fn)
-                rows[key][m] = got
-                say(key, m, f"{len(got)}個（キー {ring.keys[used].label}）")
-            except Exception as exc:
-                errors[f"{key}・{m}"] = describe_error(exc)
-                say(key, m, "誤りで止まりました：", str(errors[f"{key}・{m}"].get("message", ""))[:200])
-            save_partial("G-73", {"rows": rows, "errors": errors})
-    words = [w for by in rows.values() for got in by.values() for w in got]
+                got, used = ring.call(ids[m], lambda c, sc=missing: _ask(c, ids[m], sc))
+            except Exception as exc:   # 混雑・接続の切れは ring.call の中で待って問い合わせ直したあと（上限は次のキーへ回したあと）
+                errors[m] = describe_error(exc)
+                say(m, "誤りで止まりました：", str(errors[m].get("message", ""))[:200])
+                break
+            more, missing = _kept(got, missing)
+            rows[m] += more
+            errors.pop(m, None)
+            say(m, f"{len(more)}個（キー {ring.keys[used].label}）", *(["そろわない場面：" + "・".join(sc["question"][:12] for sc in missing)] if missing else []))
+            if not missing:
+                break
+            errors[m] = "そろわない場面：" + "・".join(sc["question"] for sc in missing)
+        save_partial("G-73", {"rows": rows, "errors": errors})
     seen, uniq = set(), []
-    for w in words:   # 同じ質問・同じ言葉は1つ（作ったモデルが違っても）
-        if (w["question"], w["text"]) not in seen:
-            seen.add((w["question"], w["text"]))
-            uniq.append(w)
-    return {"model_ids": {m: ids.get(m) for m in MODELS}, "points": points, "hear": hear, "words": uniq, "errors": errors,
-            "count": {s: sum(1 for w in uniq if w["set"] == s) for s in ("N1", "N2", "N3", "HEAR")}}
+    for m in MODELS:
+        for w in rows.get(m, []):   # 同じ質問・同じ言葉は1つ（作ったモデルが違っても）
+            if (w["question"], w["text"]) not in seen:
+                seen.add((w["question"], w["text"]))
+                uniq.append(w)
+    return {"model_ids": {m: ids.get(m) for m in MODELS}, "scenes": scenes, "words": uniq, "errors": errors,
+            "count": {s: sum(1 for w in uniq if w["set"] == s) for s in ("N1", "N2", "N3", "HEAR", "HEAR_CALL")}}
+
+
+def latest() -> dict:
+    """測りの道具（G-53・G-59）が試しの言葉を読む唯一の口：いちばん新しい結果の {"path", "words", "errors"}（無ければ空）。errors があれば、
+    そろっていない（作れなかったモデル・場面がある）＝測りの道具は、ユーザーがその形で測ると選んだときだけ使う（g53/g59 の --g73-partial）。"""
+    from common import HERE
+    files = sorted((HERE / "results").glob("G-73_2*.json"))
+    if not files:
+        return {"path": None, "words": [], "errors": {}}
+    d = json.loads(files[-1].read_text(encoding="utf-8"))
+    return {"path": files[-1].name, "words": d["words"], "errors": d.get("errors") or {}}
+
+
+def require_complete(args, what: str, stop: bool = True) -> None:
+    """有料の測りの前に：試しの言葉がそろっていなければ止める（⛔ 2026-11-02：作れなかった分を残したまま、いちばん新しい結果を黙って使いうる）。
+    stop が偽（組み立てだけ・数えるだけ）なら、そろっているかを出すだけ。"""
+    got = latest()
+    say(f"試しの言葉（G-73）：{got['path']}・{len(got['words'])}個", *([f"そろっていない：{got['errors']}"] if got["errors"] else []))
+    if stop and got["errors"] and not getattr(args, "g73_partial", False):
+        raise SystemExit(f"{what}：試しの言葉がそろっていません（--g73-partial を付けるのは、ユーザーがこの形で測ると選んだときだけ）")
 
 
 def main() -> None:
     require_python()
     p = base_parser(__doc__)
-    p.add_argument("--resume", action="store_true", help="途中で止まった流しの続き（答えのあった問い合わせは送らない）")
+    p.add_argument("--resume", action="store_true", help="途中で止まった流しの続き（そろった場面は問い合わせない）")
     args = p.parse_args()
     out = run(args)
     save_result("G-73", out)
-    if not out["errors"]:   # 止まった問い合わせがあれば、途中の記録を残す（--resume で、止まった分だけ流し直す）
+    if not out["errors"]:   # 止まった問い合わせがあれば、途中の記録を残す（--resume で、そろわない場面だけ流し直す）
         drop_partial("G-73")
 
 

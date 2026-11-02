@@ -217,9 +217,12 @@ def drop_partial(item: str) -> None:
 
 
 def is_unavailable(exc: BaseException) -> bool:
-    """相手の側が一時的に混んでいる（503 UNAVAILABLE）か。⛔ 1日・1分の上限（429 RESOURCE_EXHAUSTED）は含めない（上限は待っても
-    その日のうちは戻らない。上限をやり直しで回り込まない）。"""
-    return str(getattr(exc, "code", "")) == "503" or getattr(exc, "status", "") == "UNAVAILABLE"
+    """相手の側が一時的に答えられない（混んでいる 503 UNAVAILABLE・返事の前に接続が切れた）か。⛔ 1日・1分の上限（429 RESOURCE_EXHAUSTED）は
+    含めない（上限は待ってもその日のうちは戻らない。上限をやり直しで回り込まない）。
+    ⛔ 2026-11-02：接続の切れ（「Server disconnected without sending a response.」）を含めておらず、試しの言葉の道具（G-73）が自分で
+       問い合わせ直しを足して、ここのやり直しと二重にした ⇒ 一時的な失敗の見分けは、この1か所だけ"""
+    return (str(getattr(exc, "code", "")) == "503" or getattr(exc, "status", "") == "UNAVAILABLE"
+            or type(exc).__name__ == "RemoteProtocolError" or "Server disconnected" in str(exc))
 
 
 def is_quota(exc: BaseException) -> bool:
