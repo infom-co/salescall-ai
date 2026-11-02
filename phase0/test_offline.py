@@ -4191,6 +4191,17 @@ class AskLadderTest(unittest.TestCase):
         # 終えた分は「止まった」（甚大な問題＝止める）。同じ出来事は1つにまとめて数える
         self.assertEqual([(t["ai"], t["what"], t["count"]) for t in f.ai_trouble], [("会話AI", "おかしな動き", 2), ("会話AI", "止まった", 1)])
 
+    def test_ai_unreachable_before_and_during_the_call(self):
+        # CL-2 の 4-179 の (a)：会話AIのつながりを開けない。電話の前なら止まったAIとして残すだけ（電話はかけない）、通話の途中ならお詫びして終える
+        f = self.flow()
+        r = f.on_ai_unreachable("つながらない")
+        self.assertEqual((r["result"], f.trouble, [(t["ai"], t["what"]) for t in f.ai_trouble]), ("not_called", None, [("会話AI", "止まった")]))
+        g = self.flow()
+        g.on_callee(); g.on_heard("はい。")
+        r = g.on_ai_unreachable("張り替えのつながりを開けない")
+        self.assertEqual((r["result"], g.trouble["reason"], [(t["ai"], t["what"]) for t in g.ai_trouble]),
+                         ("end_trouble", "ai_malfunction", [("会話AI", "止まった")]))
+
     def heard(self, f, said):
         """相手が話した（会話AIの聞き取りの文字が届いた）。"""
         f.on_callee()
@@ -9188,6 +9199,22 @@ class TargetTest(unittest.TestCase):
             return ast.literal_eval(node)
         self.assertEqual((const("call_report.py", "AI_TROUBLE_WHATS"), const("errors.py", "EAR_AI")), (AI_TROUBLE_WHATS, EAR_AI))
 
+    def test_report_frame_matches_cl2(self):
+        # 会話の報告の外枠（Flow.report）の版と鍵が、CL-2 の読み手（call_report.VERSION・from_json の鍵）と同じか（CL-2 の 4-179 の (e)）
+        import ast
+        import pathlib
+        from flowctl import Flow
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "call_report.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の報告の読み手（app/）がまだ無い")
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        version = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "VERSION")
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "from_json")
+        call = next(n for n in ast.walk(fn) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_keys")
+        keys = ast.literal_eval(call.args[1])
+        r = Flow([]).report()
+        self.assertEqual((r["version"], set(r)), (version, keys))
+
     def test_until_tail_matches_cl2_spoken_time(self):
         # 「〇時まで」の言葉の終わり（flowctl.UNTIL_TAIL）が、CL-2 の時刻の読み（spoken_time._UNTIL_TAIL）と同じ並びか（食い違うと、会話は理由を
         # 伺わず、CL-2 は理由が無いので確かめの要る時刻にする＝CL-2 の連絡帳 4-182 の (3)「3時前」）。CL-2 の部品（app/）が無い所では飛ばす。ast で読む
@@ -10418,6 +10445,13 @@ class ApprovalTest(unittest.TestCase):
         AmbiguousAnswerTest.say(f, "いえ、届いていないです。", "record_answer", question_id="Q1", condition_id="いいえ")
         self.assertEqual(f.order[f.order.index("Q1"):], ["Q1", "Q2", "Q3", "Q4"])
 
+    def test_follow_ups_from_earlier_answers(self):
+        # ⛔ CL-2 の 4-179 の (b)：前の通話で取れた答え（CL-2 の conversation_io.earlier）は日本語の名前で届く＝中の名前へ言い換えて持つ。
+        # ⛔ 続きから聞く電話で、前の通話の答えで伺うはずの質問を、並びに入れていなかった（伺わないまま＝CL-2 は取れていない質問として数える）
+        from flowctl import Flow
+        f = Flow(list(self.flow().questions.values()), earlier={"Q1": {"state": "dont_know", "value": None, "condition": "わからない"}})
+        self.assertEqual((f.items["Q1"].condition, f.order, f.current), ("unknown", ["Q1", "Q2", "Q3"], "Q2"))
+
     def test_not_agreed_keys_match_cl2_report(self):
         # ご納得いただけなかった点の記録（通話の事実 not_agreed）の鍵が、CL-2 の会話の報告の読み手（call_report._not_agreed）の受ける鍵に
         # 全部入っているか（知らない鍵が来ると、報告が丸ごと断られる）。ご説明した記録と、お断りしようとしている記録の両方を作って比べる。
@@ -10706,6 +10740,13 @@ class OfferTest(unittest.TestCase):
         r = f.apply("record_answer", {"question_id": "S1", "condition_id": "取次ぎのみ"})
         self.assertEqual((self.played(r), r["ack"], r["question_id"]), (["offer_thanks", "callback_back_time"], None, "C1"))
         self.assertIsNone(f.facts.get("connect"))
+        # CL-2 の 4-179 の (c)：取れた答えは日本語の名前（「わからない」も）。⛔ 前は状態の名前（dont_know）をそのまま入れていた
+        f, b = self.flow()
+        self.heard(f, "岡田は本日不在にしておりまして、代わりに私がご用件を伺います。", TARGET_IS_AWAY)
+        f.apply("report_party", {"party": "substitute"})
+        self.heard(f, "うーん、私ではちょっと分からないですね。", None)
+        f.apply("record_answer", {"question_id": "S1", "condition_id": "unknown"})
+        self.assertEqual(f.facts["substitute"][0]["answer"], "わからない")
 
     def test_offers_while_asking_but_not_plain_questions(self):
         # 問いの形の申し出は、尋ねている読みがあっても受け取る。申し出も不在の読みも無いかけ直しの申し出は、質問に答える道へ回す
@@ -11530,6 +11571,27 @@ class OwnWordsTest(unittest.TestCase):
         self.assertEqual((r["result"], r.get("say"), [p.get("id") for p in r.get("play") or []], info["grounding"][0].get("late"),
                           info["grounding"][0].get("late_verdict")), ("own_answer", None, ["talk_agree_light"], True, UNGROUNDED))
         self.assertIn(UNCHECKED, r["message"])
+
+
+class ConvoRunTest(unittest.TestCase):
+    """試作の通話の道具（convo.run_call）の始まりと終わりを、会話AIの代わりで流す（⛔ 2026-11-02：2026-10-30 から、どの通話も始まってすぐ
+    型の誤りで止まっていたのに、通話をまるごと流す試験が無く気づかなかった）。"""
+
+    def test_unreachable_conversation_ai_is_reported_without_a_call(self):
+        # CL-2 の 4-179 の (a)：電話の前に会話AIのつながりを開けない ⇒ 止まったAI（会話AI・止まった）として報告に入れ、電話は流さない
+        import asyncio
+        from contextlib import asynccontextmanager
+        from unittest import mock
+        import convo
+
+        @asynccontextmanager
+        async def unreachable(*args, **kwargs):
+            raise RuntimeError("つながらない")
+            yield
+
+        with mock.patch.object(convo, "open_session", unreachable):
+            r = asyncio.run(convo.run_call(None, "m", TargetTest().business(), "S2", ["はい、青葉物産です。"], use_ear=False))
+        self.assertEqual(([(t["ai"], t["what"]) for t in r["ai_trouble"]], r["turns"], r["trouble"]), ([("会話AI", "止まった")], [], None))
 
 
 class ImportAITest(unittest.TestCase):

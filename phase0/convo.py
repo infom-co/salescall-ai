@@ -24,12 +24,12 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from contextlib import nullcontext
+from contextlib import AsyncExitStack, nullcontext
 
 from audio import is_fax_tone
-from common import HERE, read_wav_pcm16_mono, write_wav
+from common import HERE, read_wav_pcm16_mono, redact, write_wav
 from offscript import SpeechGate
-from flowctl import ASKS_CHECKS, CHOICE_TYPES, EAR_AI, RETURN_CHECKS, Flow, tool_declarations
+from flowctl import ASKS_CHECKS, CHOICE_TYPES, EAR_AI, RETURN_CHECKS, Flow, label, tool_declarations
 from phrases import LINE_TROUBLE
 from instruction import Business, barge_in_note, build
 from ears import open_ear
@@ -496,7 +496,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     # と、緊急の道から始めるか（judge_route＝RESUME_EMERGENCY：契約者以上の権限で、緊急の道を使って再開した通話。決めるのは発信の門＝CL-2）を入れる。
     # 通話の終わりに外す。⚠️ 1つの状態を同時に2つの通話で使わない（試作の道具は通話を1本ずつ流す。本番は通話ごとに作る）
     from meaning_judge import RESUME_EMERGENCY
-    route_states = list({id(st): st for st in (getattr(j, "panel", None) for j in (judge, judge2)) + (getattr(grounder, "state", None),)
+    # ⛔ 2026-11-02 まで、並び（生成式）とタプルを足していて、どの通話も始まってすぐ型の誤りで止まっていた（2026-10-30 の 32feb676 から。
+    #    そのあとの測りは判定だけの道具で、通話をまるごと流していなかった＝試験 ConvoRunTest で始まりを流す）
+    route_states = list({id(st): st for st in (*(getattr(j, "panel", None) for j in (judge, judge2)), getattr(grounder, "state", None))
                          if st is not None}.values())
     for st in route_states:
         st.on_trouble, st.emergency_first = flow.on_ai_trouble, judge_route == RESUME_EMERGENCY
@@ -603,9 +605,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         restated = isinstance(line, dict) and "restate" in line
         if audio and (save_audio == "all" or (save_audio == "bad" and (row["check"]["kind"] in BAD_KINDS or restated))):
             AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-            label = f"{audio_label}_" if audio_label else ""
+            tag = f"{audio_label}_" if audio_label else ""
             part = "f" if isinstance(line, dict) and "followup_of" in line else ""
-            path = AUDIO_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_{label}{voice_type}_{i}{part}_{row['check']['kind']}.wav"
+            path = AUDIO_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_{tag}{voice_type}_{i}{part}_{row['check']['kind']}.wav"
             write_wav(path, audio, rate)
             row["audio_file"] = path.name
         turns.append(row)
@@ -620,7 +622,15 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             sessions += 1
             opened_at = time.monotonic()
             voice, cfg = config()
-            async with open_session(client, model, cfg, closing) as s:
+            stack = AsyncExitStack()
+            try:
+                s = await stack.enter_async_context(open_session(client, model, cfg, closing))
+            except Exception as exc:
+                # 会話AIのつながりを開けない（Flow.on_ai_unreachable の1か所：電話の前なら止まったAIとして残して、電話はかけない・通話の途中
+                # ならお詫びして終える。CL-2 の連絡帳 4-179 の (a)）。⛔ 2026-11-02 まで、誤りがそのまま上がり、報告が作られなかった
+                flow.on_ai_unreachable(redact(repr(exc))[:160])
+                break
+            async with stack:
                 # 相手の言葉の文字と、話し始め・話し終わりの知らせは、届いた瞬間に流れの制御へ（words_complete。受け取りを始める前に届いても）
                 inbox_of(s).on_heard, inbox_of(s).on_activity = flow.on_heard, flow.on_activity
                 if restate_next is not None:
@@ -829,7 +839,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     for e in (ear.errors if ear is not None else ()):
         flow.on_ai_trouble({"model": f"{EAR_AI}（{ear_kind}）", "error": e, "outage": True})   # 別の耳が止まった（ears.Ear.errors）
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log, "trouble": flow.trouble,
-            "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "reason": v.reason, "ask_backs": v.ask_backs,
+            "items": {k: {"state": v.state, "value": v.value, "condition": label(v.condition),   # 名前は依頼者へ渡す日本語の名前（flowctl.label の1か所。CL-2 の 4-179 の (b)）
+                           "reason": v.reason, "ask_backs": v.ask_backs,
                           "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,
                           "history": [list(h) for h in v.history]}
                       for k, v in flow.items.items()},
@@ -842,4 +853,5 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
             "unchecked": flow.unchecked(),
-            "ai_trouble": flow.ai_trouble}  # 止まったAI・緊急の道で答えたこと（会話の報告の ai_trouble。Flow.on_ai_trouble の1か所＝CL-2 が新しい電話を一時停止する）
+            "ai_trouble": flow.ai_trouble,  # 止まったAI・緊急の道で答えたこと（会話の報告の ai_trouble。Flow.on_ai_trouble の1か所＝CL-2 が新しい電話を一時停止する）
+            "report": flow.report()}   # 会話の報告の外枠（Flow.report の1か所＝CL-2 の call_report.from_json が読む形。上の同じ名前の項目と同じ中身）

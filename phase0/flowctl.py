@@ -719,6 +719,7 @@ TROUBLE_REASONS = ("ai_malfunction", "poor_audio", "cannot_proceed")
 # 止まったAIの出来事（通話の報告の ai_trouble の what＝Flow.on_ai_trouble の1か所。CL-2 の call_report.AI_TROUBLE_WHATS と同じ＝試験で比べる）と、
 # 別の耳の名前の頭（「別の耳（種類）」。CL-2 の errors.EAR_AI と同じ＝別の耳が止まったら緊急の道で再開しない、を名前で見分ける。CL-2 の 4-173 (b)・4-174 (b)）
 AI_TROUBLE_WHATS = ("止まった", "緊急の道で答えた", "おかしな動き")
+REPORT_VERSION = 3   # 会話の報告の版（Flow.report。CL-2 の call_report.VERSION と同じ＝試験で比べる）
 EAR_AI = "別の耳"
 # 通話の事実の種類の全部（Flow._note の1か所で確かめる。CL-2 の call_report.FACT_KINDS と同じ＝試験で比べる。中身は CL-1.md 2-2）。
 # out_of_scope（範囲外の求めで終えた）は、まだ書かない（実際にあるかを測ってから作る＝2-2 の「まだ作っていないもの」）
@@ -1861,8 +1862,11 @@ class Flow:
         self.earlier = {qid: dict(v) for qid, v in (earlier or {}).items() if qid in self.items and (v or {}).get("state") in TAKEN}
         for qid, v in self.earlier.items():
             it = self.items[qid]
-            it.value, it.condition = v.get("value"), v.get("condition")
+            # 名前は依頼者へ渡す日本語の名前（CL-2 の conversation_io.earlier）＝中の名前へ言い換えて持つ（condition の1か所。⛔ 2026-11-02 まで
+            # そのまま入れていて、伺う条件・断る答えの見分けが「わからない」を unknown と見なかった＝CL-2 の連絡帳 4-179 の (b)）
+            it.value, it.condition = v.get("value"), condition(v["condition"]) if v.get("condition") else None
             it.set(v["state"], "前の通話で取れた答え（続きから聞く）")
+        self._ask_if_follow_ups()   # 前の通話で取れた答えで伺う質問も、並びに入れる
         self.current: str | None = next((qid for qid in self.order if qid not in self.earlier), None)
         self.phase = "asking"            # asking → rechecking → closing
         self.recheck_queue: list[str] = []
@@ -2201,6 +2205,16 @@ class Flow:
             return self._trouble("ai_malfunction", f"張り替えて相手の発話を送り直しても、会話AIの声も受け付けた報告も戻らない（{why}）")
         self.on_ai_trouble({"model": "会話AI", "error": why, "glitch": True})   # 張り替えて続ける＝おかしな動き（止めずに警告。on_ai_trouble の1か所）
         return {"result": "swap", "why": why}
+
+    def on_ai_unreachable(self, error: str) -> dict:
+        """会話AIのつながりを開けない（唯一の場所）。電話の前（お客様の言葉がまだ1つも届いていない）なら、止まったAIとして残すだけ
+        （{"result": "not_called"}＝電話接続側は電話をかけない。発信の門が1回で新しい電話を止める＝CL-2 の連絡帳 4-179 の (a)・2章 Q58：
+        止まったかを決めるのは会話の側の1か所。⛔ 2026-11-02 まで送っておらず、CL-2 が生の誤りを3回数えて止めていた）。通話の途中
+        （張り替えのつながりを開けない）なら、甚大な問題として、お詫びして終える（_trouble。止まったAIにも数える）。"""
+        if self.callee_turns == 0:
+            self.on_ai_trouble({"model": "会話AI", "error": error, "outage": True})
+            return {"result": "not_called", "why": error}
+        return self._trouble("ai_malfunction", f"会話AIのつながりを開けない（{error}）")
 
     # ── 相手の言葉の文字が届いた（会話AIの聞き取り。値を直されたときの直され方を、プログラムが決めるのに使う）
     def on_heard(self, text: str) -> None:
@@ -4609,7 +4623,9 @@ class Flow:
         qid, self.substitute_q = self.substitute_q, None
         it = self.items[qid]
         yes = it.state in GOT and it.condition == AUTHORITY_YES
-        self.facts["substitute"][-1]["answer"] = label(it.condition) if it.state in GOT else it.state
+        # 答え：取れた答え（わからない・答えたくないも）は日本語の名前（label の1か所）、取れなかった（聞き取れない・答える前に切れた）は None。
+        # ⛔ 2026-11-02（CL-2 の連絡帳 4-179 の (c)）まで、取れなかったときに状態の名前（dont_know など）をそのまま入れていた
+        self.facts["substitute"][-1]["answer"] = label(it.condition) if it.state in TAKEN else None
         self.order = list(self.business_ids)
         if yes:
             return self._connect({"ai"} | {k for k in JUDGMENTS if self.taken.get(qid, {}).get("check", {}).get(k) == AUTHORITY_YES},
@@ -5412,21 +5428,27 @@ class Flow:
                     f"相手の答えに合う選択肢の名前（{'、'.join(q.labels)}）を入れます。")
         return f"相手が肯定したら confirm_field を{ARG_LABEL['result']}「{ok}」で、違う値を言ったら「{ng}」と{corr}で報告してください。"
 
+    def _ask_if_follow_ups(self) -> None:
+        """前の質問の答えで伺うかが決まる質問（Question.ask_if）を並びに入れる唯一の場所（通話の途中＝_follow_ups・続きから聞く電話の始め＝前の
+        通話で取れた答え earlier）：その答えを受け取ったら、前の質問のすぐあとに入れる（並びを戻されても、また入る）。同じ前の質問で伺う質問は、
+        トークスクリプトの順に続けて入れる。⛔ 2026-11-02（CL-2 の 4-185 の (2)）まで、どれも前の質問のすぐあとに入れ、2つ以上あると逆の順に
+        なった。⛔ 同じ日まで、続きから聞く電話では呼んでおらず、前の通話で取れた答えで伺うはずの質問を伺わなかった（CL-2 の判定は、伺う条件が
+        当たった質問を対象外にしない＝取れていない質問のまま、かけ直し続けうる）。"""
+        last: dict[str, str] = {}   # 前の質問ごとの、いま入れた質問
+        for q in list(self.questions.values()):
+            if q.ask_if and q.id not in self.order and self.items[q.id].state == "empty":
+                src, conds = q.ask_if
+                got = self.items.get(src)
+                if got is not None and got.state in TAKEN and got.condition in conds:
+                    self._insert_after(last.get(src, src), q.id)
+                    last[src] = q.id
+
     def _follow_ups(self) -> None:
         """答えによって足す、システムの質問（唯一の場所。_advance が次の質問を決める前に呼ぶ）：不在で、戻る時刻を伺っても分からなかった ⇒
         本日のお戻りのご予定を伺い、「いいえ」でなければ、改めてお掛けしてよいかを伺う（✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」。
         CL-2 の連絡帳 4-140 (a)：「不在なら、出られる日時を聞き出す。聞き出せなかったら、その日はかけない」＝答えはかけ直しの記録の
         back_today・again。同じ日にまたかけるかは CL-2 の次の動きが決める）。"""
-        last: dict[str, str] = {}   # 前の質問ごとの、いま入れた質問（同じ前の質問で伺う質問は、トークスクリプトの順に続けて入れる）
-        for q in list(self.questions.values()):   # 回しながら N1 を足すので、写しを回す
-            # 前の質問の答えで伺うかが決まる質問（Question.ask_if）：その答えを受け取ったら、前の質問のすぐあとに入れる（並びを戻されても、また入る）
-            if q.ask_if and q.id not in self.order and self.items[q.id].state == "empty":
-                src, conds = q.ask_if
-                got = self.items.get(src)
-                if got is not None and got.state in TAKEN and got.condition in conds:
-                    # ⛔ 2026-11-02（CL-2 の 4-185 の (2)）まで、どれも前の質問のすぐあとに入れ、2つ以上あるとトークスクリプトの順と逆になった
-                    self._insert_after(last.get(src, src), q.id)
-                    last[src] = q.id
+        self._ask_if_follow_ups()
         self._point_step()
         if self.callback_why != "absent":
             return
@@ -5746,6 +5768,14 @@ class Flow:
         判定の無いものがあれば none、ほかは agreed（取り消せない事実が無ければ agreed＝CL-2 は見ない）。"""
         c = self.irr_checks
         return "disagreed" if "disagreed" in c else "none" if "none" in c else "agreed"
+
+    def report(self) -> dict:
+        """会話の報告（CL-2 の call_report.from_json が読む外枠）を作る唯一の場所：版と、通話の事実・繋がらなかった理由・切れ方・お詫びを
+        伝えられたか・取り消せない事実と判定のそろい・止まったAI。鍵と版は CL-2 の読み手と同じ（試験で比べる。CL-2 の連絡帳 4-179 の (e)：
+        ⛔ 2026-11-02 まで外枠が無く、報告の項目を試作の道具の結果の中に散らして返していた）。答えの項目は報告ではなく、項目の書き込み
+        （CL-2 の conversation_io.write_item。名前は日本語の名前＝label）で渡す。"""
+        return {"version": REPORT_VERSION, "facts": self.facts, "not_reached": self.not_reached, "cut": self.cut,
+                "apology_delivered": self.apology_delivered, "irreversible_check": self.irreversible_check, "ai_trouble": self.ai_trouble}
 
     def _close(self, reason: str, prefix: str = "", spoken: bool = False, text: tuple[str, str] | None = None, part: bool = False) -> dict:
         """締め（DESIGN.md 6-14）を作る唯一の場所。毎回同じ文なので、言い方は決まった1つ（ふつう＝CLOSING・急いでいる／断られた／怒っている
