@@ -389,6 +389,28 @@ def day_words(earliest, today) -> str:
     return f"{earliest.day}日以降" if (earliest.year, earliest.month) == (today.year, today.month) else f"{earliest.month}月{earliest.day}日以降"
 
 
+def _day_variants() -> tuple:
+    """日によって変わる言い方のうち、日付を言わないもの（本日・明日・明後日・今週の〇曜日・来週・来週の〇曜日）の一覧（day_words の1か所から作る＝
+    どの曜日の電話でも、2週間先までに出る言い方）。録音で流す電話は、この言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー：「(ア) お勧め：言い方ごとに
+    文を丸ごと録音します。OK」）。⏳ 日付の言い方（〇日以降・〇月〇日以降）は、名前と同じつなぎ方で組む（まだ作っていない）"""
+    import datetime as dt
+    out = []
+    for t in (dt.date(2026, 11, 2) + dt.timedelta(days=i) for i in range(7)):
+        for d in range(14):
+            w = day_words(t + dt.timedelta(days=d), t)
+            if not re.match(r"\d", w) and w not in out:
+                out.append(w)
+    return tuple(out)
+
+
+DAY_VARIANTS = _day_variants()
+
+
+def day_recording_id(qid: str, words: str) -> str:
+    """日によって変わる言い方の入った質問の、その言い方の録音の名前（つなぎの言葉の前に _d番号。make_ack_clips.script_table と同じ1か所）。"""
+    return f"{qid}_d{DAY_VARIANTS.index(words) + 1}"
+
+
 def merge_ampm(pending: str | None, answer: str | None) -> str | None:
     """午前・午後を聞いたあとの答え（「午後です」⇒「午後」）を、前の値（「15日の10時」）に入れる。答えに時刻があれば、答えのほうを使う。"""
     if not pending or not answer or _HOUR.search(answer) or not (w := AMPM_WORDS.search(answer)):
@@ -406,7 +428,8 @@ def question_play(questions: list["Question"], qid: str) -> dict:
     if q.callback:
         return {"kind": "recorded", "id": q.recording or f"callback_{q.callback}", "text": q.text}
     text, lead = spoken_question(questions, qid)
-    return {"kind": "question", "id": q.id, "text": text, "lead": lead}
+    # 日によって変わる言い方の入った質問は、その言い方の録音（Question.recording＝day_recording_id。名前の組み方は今と同じ「番号＋つなぎの言葉」）
+    return {"kind": "question", "id": q.recording or q.id, "text": text, "lead": lead}
 
 
 def spoken_question(questions: list["Question"], qid: str) -> tuple[str, str]:
@@ -1920,16 +1943,18 @@ class Flow:
         self.last_affirmed: dict | None = None
         # 最短で対応できる日（業務設定の「3営業日以降」などを CL-2 の暦＝営業日と祝日の1か所が日にちにしたもの）と電話の日：質問の文・入る一言の
         # {最短の日} を、電話の日から見た言い方（day_words の1か所）に置き換える。✅ 2026-11-03 ユーザー (4)：「業務設定では「3営業日以降」などの設定に
-        # なるので、それを自動で置き換える仕組みが必要です。」⏳ 録音で流す電話での流し方（日によって変わる言葉を録音にできない）は伺い中＝まだ使えない
+        # なるので、それを自動で置き換える仕組みが必要です。」・録音で流す電話は、言い方ごとに丸ごと録音した文を流す（(ア)「OK」＝Question.recording に
+        # その言い方の録音の名前・day_recording_id）。⏳ 日付の言い方（〇日以降）は、名前と同じつなぎ方で組む（まだ作っていない＝止める）
         filled = []
         for q in questions:
             if DAY_SLOT in q.text or DAY_SLOT in q.intro:
                 if earliest_day is None or today is None:
                     raise ValueError(f"質問 {q.id} の {DAY_SLOT} には、最短で対応できる日と電話の日が要ります（業務設定・CL-2 の暦）")
-                if play_recordings:
-                    raise ValueError(f"質問 {q.id} の {DAY_SLOT}（日によって変わる言葉）は、録音で流す電話ではまだ使えません（流し方は伺い中）")
                 w = day_words(earliest_day, today)
-                q = dataclasses.replace(q, text=q.text.replace(DAY_SLOT, w), intro=q.intro.replace(DAY_SLOT, w))
+                if play_recordings and w not in DAY_VARIANTS:
+                    raise ValueError(f"質問 {q.id} の {DAY_SLOT}「{w}」（日付の言い方）は、録音で流す電話ではまだ使えません（名前と同じつなぎ方は、まだ作っていない）")
+                q = dataclasses.replace(q, text=q.text.replace(DAY_SLOT, w), intro=q.intro.replace(DAY_SLOT, w),
+                                        recording=day_recording_id(q.id, w) if play_recordings else q.recording)
             filled.append(q)
         questions = filled
         self.questions = {q.id: q for q in questions}

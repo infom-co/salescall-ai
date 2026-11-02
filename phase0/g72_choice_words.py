@@ -21,6 +21,9 @@ from flowctl import CHOICE_TYPES
 
 MODELS = ("3.8 Flash", "3.7 Flash")
 KINDS = ("doubt", "do")
+# 作り手が混んでいる間の代わり（--stand-in。G-73 と同じ考え）。✅ 2026-11-03 ユーザー：「3.8 Flash の分の一部の場面もHaikuで作らせたらいいんじゃない？
+# 何度も言わせるな！」・同じ朝（G-72 で Gemini の Flash 2つが時間切れ 504 を続けたのに待ち続けた）「Haikuでもいいと言いましたよね。」
+STAND_INS = {"3.8 Flash": "Claude Haiku 5.5", "3.7 Flash": "Claude Haiku 5.5"}
 KEEP = "keep"   # 目的につなげて伺う言葉（決め方が違う＝meanings.decide_keep。✅ 2026-11-03 ユーザー (2)「OK」）
 # ⛔ 取り違え・質問に無いことを足した言葉（CL-1 が1つずつ見て書く）：(言葉の種類, 質問の文, 選択肢, 言葉)
 BAD: set[tuple[str, str, str, str]] = {
@@ -63,7 +66,8 @@ def run(args) -> dict:
     ring = KeyRing(args)
     # 22の質問をまとめて答えさせる長い問い合わせ（⛔ 2026-11-03：180秒で 504 DEADLINE_EXCEEDED が続いた）＝この道具だけ待つ長さを延ばす
     ring.TIMEOUT_S = 600.0
-    ids = ring.model_ids()
+    stand = _stand_in(args)   # 作り手の欄 ⇒ 代わりに問い合わせる関数（--stand-in のときだけ）
+    ids = {} if stand else ring.model_ids()
     k, new = known(), new_questions()
     rows: dict = {"meaning": {}, "facts": {}, **{kind: {} for kind in KINDS + (KEEP,)}}
     errors: dict = {}
@@ -105,9 +109,9 @@ def run(args) -> dict:
             say(label, model, "誤りで止まりました：", str(errors[f"{label}・{model}"].get("message", ""))[:200])
             return None
 
-    models = [m for m in MODELS if m in ids]
+    models = list(MODELS) if stand else [m for m in MODELS if m in ids]
     for m in MODELS:
-        if m not in ids:
+        if m not in ids and not stand:
             errors[m] = "モデルが見つからない"
     # 表にしか無い質問：事実を伺う質問か・意味の言葉（取込と同じ決め方）
     for m in models:
@@ -125,7 +129,16 @@ def run(args) -> dict:
         missing = [(t, c) for t, c in targets if t not in have]
         got = {}
         if missing:
-            r = ask(kind, m, lambda cl, m=m, kind=kind, missing=missing: by_model(cl, ids[m], missing, kind), kind)
+            if stand:
+                try:
+                    r = stand[m](missing, kind)
+                    say(kind, m, f"の欄を {STAND_INS[m]} が作った")
+                except Exception as exc:
+                    errors[f"{kind}・{m}"] = describe_error(exc)
+                    say(kind, m, f"の代わり（{STAND_INS[m]}）が誤りで止まりました：", str(errors[f"{kind}・{m}"].get("message", ""))[:200])
+                    r = None
+            else:
+                r = ask(kind, m, lambda cl, m=m, kind=kind, missing=missing: by_model(cl, ids[m], missing, kind), kind)
             # 問い合わせが失敗しても、前の結果の言葉は残す（⛔ 2026-11-03：失敗で None を返し、前の言葉ごと消えた結果を保存した）
             got = dict(zip([t for t, _ in missing], r)) if r is not None else {}
             say(kind, m, f"足りない質問 {len(missing)} 個を問い合わせた（前の結果の {len(targets) - len(missing)} 個はそのまま）")
@@ -143,12 +156,33 @@ def run(args) -> dict:
         save_partial("G-72", {"rows": rows, "errors": errors, "targets": targets})
     kept = {t: decide_keep(t, c, [(rows[KEEP].get(m) or [{}] * len(targets))[i] for m in models]) for i, (t, c) in enumerate(targets)}
     words[KEEP] = {t: k for t, (_, k) in kept.items()}
+    # CL-1 が見て誤りとした言葉（BAD）は、流れの制御に渡さない（⛔ 2026-11-03：数えるだけで、決まった言葉として渡していた）
+    for kind in KINDS + (KEEP,):
+        for t, by in words[kind].items():
+            for ch in [ch for ch, w in by.items() if (kind, t, ch, w) in BAD]:
+                del by[ch]
     words["away"] = {t: list(a) for t, (a, _) in kept.items()}
     show(targets, rows, words, models)
     summary = tally(targets, words)
     say("数え：", summary)
     return {"model_ids": ids, "new_questions": new, "facts": fact_of, "meanings": meaning_of, "targets": targets,
             "rows": rows, "words": words, "errors": errors, "summary": summary}
+
+
+def _stand_in(args) -> dict:
+    """--stand-in のとき、作り手の欄ごとの代わりの問い合わせ（同じ文・同じ読み取り＝meanings.by_model_anthropic）。判定と同じ鍵・同じ料金の帳簿
+    （上限は --budget-yen）。"""
+    if not getattr(args, "stand_in", False):
+        return {}
+    import anthropic
+    from common import LEDGERS, load_secret
+    from meaning_judge import OTHER_JUDGES, SPEND
+    from meanings import by_model_anthropic
+    client = anthropic.Anthropic(api_key=load_secret(OTHER_JUDGES["Claude Haiku 5.5"]["key"], args.env), max_retries=2, timeout=300)
+    SPEND.limit = args.budget_yen
+    if SPEND not in LEDGERS:
+        LEDGERS.append(SPEND)
+    return {m: (lambda qs, kind, sub=sub: by_model_anthropic(client, OTHER_JUDGES[sub]["model"], qs, kind)) for m, sub in STAND_INS.items()}
 
 
 def show(targets, rows, words, models) -> None:
@@ -178,6 +212,7 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--resume", action="store_true", help="途中で止まった流し・前の結果の続き（答えのあった問い合わせは送らない）")
     p.add_argument("--redo", help="--resume のとき、送り直す言葉の種類（doubt,do など。作らせる文の決まりを直したとき）")
+    p.add_argument("--stand-in", action="store_true", help="Gemini の Flash 2つの欄を、代わりの作り手（STAND_INS＝Claude Haiku 5.5）が作る（混んでいる間）")
     args = p.parse_args()
     got = run(args)
     if got["errors"]:

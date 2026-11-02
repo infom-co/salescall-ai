@@ -7379,7 +7379,8 @@ class EndWordsTest(unittest.TestCase):
             ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"),
             ("はい、パンフレットはお送りしない方がいいということでしょうか？", "続ける"), (self.NEXT, "続ける"), ("", "続ける"),
             ("はい、それではパンフレットをお送りさせていただきますね？", "続ける"),
-            ("はい、それではパンフレットの送付は控えさせていただきますね？", "続ける"),
+            # ✅ 11-03 ユーザー (2)「OK」＝目的から遠ざかる向きの「いいえ」は、目的につなげて伺う言葉（G-72・Haiku 5.5 が2回そろえて作った。⏳ お見せして伺い中）
+            ("はい、それではパンフレットは必要になりましたらお送りするということでよろしいでしょうか？", "続ける"),
             ("はい、それではお支払いはカードとさせていただきますね？", "続ける"),
             ("はい、それではご予約はされているということで記録させていただいて大丈夫でしょうか？", "続ける"),
             (self.R1, "続ける"), (self.R1, "続ける")]
@@ -12237,8 +12238,43 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual((r["result"], r["question_id"]), ("next", "G15b"))
         with self.assertRaises(ValueError):   # 最短の日が無い（業務設定・暦の誤り）
             Flow([q, when])
-        with self.assertRaises(ValueError):   # 録音で流す電話ではまだ使えない（流し方は伺い中）
-            Flow([q, when], earliest_day=date(2026, 11, 9), today=date(2026, 11, 3), play_recordings=True)
+        # 録音で流す電話：言い方ごとに丸ごと録音した文（✅ 11-03 ユーザー (ア)「OK」）。録音の名前は「質問の番号_d番号」＋つなぎの言葉（流す側の組み方は今のまま）
+        from flowctl import DAY_VARIANTS, question_play
+        g = Flow([q, when], earliest_day=date(2026, 11, 9), today=date(2026, 11, 3), play_recordings=True)
+        play = question_play(list(g.questions.values()), "G15b")
+        self.assertEqual((play["id"], play["text"]), (f"G15b_d{DAY_VARIANTS.index('来週以降') + 1}", "それでは来週以降なら対応できますが、いつ頃がよろしいでしょうか？"))
+        self.assertEqual(len(DAY_VARIANTS), 14)   # 本日・明日・明後日・今週の木〜日曜日・来週・来週の火〜日曜日（どの曜日の電話でも2週間先まで）
+        with self.assertRaises(ValueError):   # 日付の言い方（〇日以降）は、名前と同じつなぎ方をまだ作っていない
+            Flow([q, when], earliest_day=date(2026, 11, 16), today=date(2026, 11, 3), play_recordings=True)
+
+
+class ChoiceWordsStandInTest(unittest.TestCase):
+    def test_haiku_stand_in_reads_the_same_request(self):
+        # ✅ 2026-11-03 ユーザー：「Haikuでもいいと言いましたよね。」＝Gemini の Flash が混んでいる間、選択肢ごとの言葉も Haiku 5.5 が作る。
+        # 同じ文（PROMPTS）・同じ読み取り（_read_items）・temperature を送らない・料金は判定と同じ帳簿
+        from types import SimpleNamespace as N
+        from meaning_judge import SPEND
+        from meanings import KEEP_PROMPT, by_model_anthropic
+        qs = [("今月中のご導入をお考えでしょうか？", ("はい", "いいえ")), ("お部屋は禁煙と喫煙のどちらをご希望でしょうか？", ("禁煙", "喫煙"))]
+        sent = {}
+
+        class Client:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    sent.update(kw)
+                    items = [{"no": 1, "choice": "いいえ", "words": "来月以降にご導入ということ"}, {"no": 1, "choice": "はい", "words": ""},
+                             {"no": 2, "choice": "禁煙", "words": ""}, {"no": 3, "choice": "はい", "words": "番号の外"}, {"no": 2, "choice": "無い", "words": "x"}]
+                    return N(content=[N(type="tool_use", input={"items": items})], usage=N(input_tokens=1000, output_tokens=500), stop_reason="tool_use")
+        limit = SPEND.limit
+        try:
+            SPEND.limit = None
+            got = by_model_anthropic(Client, "claude-haiku-5-5", qs, "keep")
+        finally:
+            SPEND.limit = limit
+        self.assertTrue(sent["messages"][0]["content"].startswith(KEEP_PROMPT))
+        self.assertNotIn("temperature", sent)
+        self.assertEqual(got, [{"いいえ": "来月以降にご導入ということ", "はい": ""}, {"禁煙": ""}])   # 番号の外・選択肢に無いものは捨てる
 
 if __name__ == "__main__":
     unittest.main()
