@@ -979,31 +979,37 @@ class CallerNumberAndVoice(Base):
         return gate.choose_voice(tx, {"task_id": s["task"], "phone_e164": s["phone"], "client_id": s["client"]},
                                  s["version"], business_voice, date.today())
 
-    def test_a_voice_is_used_only_when_its_contractor_set_holds_every_contractor_part(self):
-        """契約者の組に、契約者の単位の部分（recordings.CONTRACTOR_PARTS）がすべてある声だけで話す（⛔ 2026-10-24 CL-1 の連絡帳
-        4-39：前は予約証の印ごとに一部の部分を見て、約束の電話には業務の組に入らない promise_again を求め、約束の電話が1本もかからなかった。
-        契約者の組の部分はどの電話でも流れうる）。どの声にも足りなければ、待たせて契約者に足りない部分の名前を知らせる（止めない）。
-        お名前の入る一言（promise_again など）は業務の組で見ない＝約束の電話も、業務の組が名乗りだけでかかる。"""
-        t = self.w.tenant(voices=())
+    def test_a_voice_is_used_only_when_its_common_set_holds_every_common_part(self):
+        """共通の一言の組（システムの持ち物＝0171）に、その部分（recordings.CONTRACTOR_PARTS）がすべてある声だけで話す（⛔ 2026-10-24
+        CL-1 の連絡帳 4-39：前は予約証の印ごとに一部の部分を見て、約束の電話には業務の組に入らない promise_again を求め、約束の電話が
+        1本もかからなかった。共通の一言はどの電話でも流れうる）。どの声にも足りなければ、待たせて、足りない部分の名前を契約者と管理者に
+        知らせる（止めない。直すのは管理者）。お名前の入る一言（promise_again など）は業務の組で見ない＝約束の電話も、業務の組が名乗り
+        だけでかかる。共通の一言はシステムの組だけで、どの契約者からも同じに読まれ、契約者は作れない。"""
         missing = recordings.CONTRACTOR_PARTS[-1]
-        self.w.approve_voices(t, None, None, ("Sadachbia",),
-                              parts=tuple(p for p in recordings.CONTRACTOR_PARTS if p != missing))   # 1つ足りない
-        self.w.approve_voices(t, None, None, ("Leda",))
-        a = self.ready(tenant=t)
-        self.assertEqual(self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"])), ["Leda"])
-        self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "S2")), "L4")
-        # どの声にも足りない契約者：待たせて、足りない部分の名前を知らせる
-        u = self.w.tenant(voices=())
-        self.w.approve_voices(u, None, None, ("Sadachbia",),
-                              parts=tuple(p for p in recordings.CONTRACTOR_PARTS if p != missing))
+        stray = f"T{uuid.uuid4().hex[:12]}"                                        # 共通の一言の無い声（この契約者の業務の録音も無い）
+        self.w.a.in_system(ADMIN, lambda tx: recordings.add_voice(tx, stray, note="試験で足した声", display_gender=None))
+        a = self.ready()
+        u = self.w.tenant(voices=("Sadachbia",))                                   # 業務の録音は Sadachbia だけ
         b = self.ready(tenant=u)
-        got = self.tx(b, lambda tx: self.voice(tx, b, "S2"))
-        self.assertIsInstance(got, gate.Denied)
-        self.assertEqual((got.reason, gate.REASONS[got.reason].handling), ("voice_not_ready", "run"))
-        told = self.tx(b, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"))
-        self.assertEqual([r["summary"] for r in told], [gate.VOICE_PARTS_MISSING.format(missing)])
-        self.w.approve_voices(u, None, None, ("Sadachbia",))   # 足りない部分を入れた組を承認すれば話す
-        self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")
+        # 契約者を作ると、試験の土台が共通の一言をそろえるので、契約者を作ってから欠けさせる
+        with self.w.common_missing("Sadachbia", missing):                          # 1つ足りない
+            self.assertEqual(self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"])), ["Leda"])
+            self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "S2")), "L4")
+            # 業務の録音のある声のどれにも足りない：待たせて、足りない部分の名前を知らせる（業務の録音の無い声の部分は数えない）
+            got = self.tx(b, lambda tx: self.voice(tx, b, "S2"))
+            self.assertIsInstance(got, gate.Denied)
+            self.assertEqual((got.reason, gate.REASONS[got.reason].handling), ("voice_not_ready", "run"))
+            told = self.tx(b, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"))
+            self.assertEqual([r["summary"] for r in told], [gate.VOICE_PARTS_MISSING.format(missing)])
+            admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+                "SELECT summary FROM salescall.notification_events WHERE for_admin AND origin_tenant = %s", (u,)))
+            self.assertEqual([r["summary"] for r in admin], [gate.VOICE_PARTS_MISSING.format(missing)])   # 直せる管理者へも
+            self.assertEqual(self.tx(b, lambda tx: recordings.missing_parts(tx, b["version"])), [missing])
+            with self.assertRaises(Rejected):                                      # 契約者は共通の一言の組を作れない（0171）
+                self.w.a.in_tenant(OPERATOR, u, lambda tx: recordings.create_set(
+                    tx, unit="contractor", voice_name="Sadachbia",
+                    parts=[recordings.Part(p, "架空の録音。", f"test://Sadachbia/{p}", "0" * 64) for p in recordings.CONTRACTOR_PARTS]))
+        self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")    # 管理者が足りない部分を入れた組を承認すれば話す
 
     def test_a_promised_call_needs_no_name_part_in_the_business_set(self):
         """約束の電話も、お詫びの電話も、業務の組にお名前の入る一言が無くても予約できる（⛔ 2026-10-24 CL-1 の連絡帳 4-39。お名前の入る一言は名前の録音の台帳＝NameLedger）。"""
@@ -1074,9 +1080,9 @@ class CallerNumberAndVoice(Base):
         self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "L4")), first.voice_type)
 
     def test_only_voices_with_approved_recordings_are_spoken(self):
-        """話してよい声は、承認した録音が契約者の単位とその版の両方にある声だけ（2026-10-17 ユーザー：「事前の録音チェック」）。
-        無ければ通さずに待ち、契約者に知らせる（止めない）。"""
-        only_s = self.w.tenant(voices=("Sadachbia",))                              # Leda の契約者の単位の録音が無い
+        """話してよい声は、承認した録音が共通の一言（システム）とその版の業務の録音の両方にある声だけ（2026-10-17 ユーザー：「事前の
+        録音チェック」）。無ければ通さずに待ち、契約者に知らせる（止めない）。"""
+        only_s = self.w.tenant(voices=("Sadachbia",))                              # Leda の業務の録音が無い
         a = self.ready(tenant=only_s)
         self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "L4")), "S2")     # 業務の声の型が使えなければ、使える声で
         none = self.w.tenant(voices=())
@@ -1086,8 +1092,8 @@ class CallerNumberAndVoice(Base):
             "SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"))
         self.assertEqual([r["summary"] for r in told], [gate.VOICE_NOT_READY])
         x = self.ready(tenant=only_s)                                              # 承認していない組は使わない
-        self.tx(x, lambda tx: recordings.create_set(tx, unit="contractor", voice_name="Leda", parts=[
-            recordings.Part("greeting", "お忙しいところ恐れ入ります。", "test://Leda/greeting", "1" * 64)]), OPERATOR)
+        self.tx(x, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=x["version"], parts=[
+            recordings.Part("intro", "お忙しいところ恐れ入ります。", "test://Leda/intro", "1" * 64)]), OPERATOR)
         self.assertEqual(self.tx(x, lambda tx: recordings.ready_voices(tx, x["version"])), ["Sadachbia"])
 
     def test_no_other_voice_waits_instead_of_using_the_same_voice(self):
@@ -1113,11 +1119,9 @@ class CallerNumberAndVoice(Base):
             self.w.a.in_system(ADMIN, lambda tx: tx.execute("UPDATE salescall.voice_types SET note = '書き換え' WHERE code = 'K1'"))
         t = self.w.tenant(voices=("Sadachbia", "Kore"))                            # Leda の録音は無い
         a = self.ready(tenant=t)
-        self.w.approve_voices(t, a["client"], a["version"], ("Kore",))
         self.dialed(a)                                                             # Sadachbia
         time.sleep(1.1)
         b = self.ready(tenant=t, phone=a["phone"])
-        self.w.approve_voices(t, b["client"], b["version"], ("Kore",))
         self.assertEqual(self.claim(b).voice_type, "K1")                           # 足した声で話す
         with self.assertRaises(Rejected):                                          # 声を足せるのは管理者だけ
             self.w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(
@@ -1142,7 +1146,6 @@ class CallerNumberAndVoice(Base):
         self.dialed(a)                                                             # Sadachbia（男性）
         time.sleep(1.1)
         b = self.ready(tenant=t, phone=a["phone"])
-        self.w.approve_voices(t, b["client"], b["version"], ("Orus",))
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "O1")), "L4")    # 業務の声の型（Orus＝男性）より、女性の Leda
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "L4")), "L4")
         with self.assertRaises(Rejected):
@@ -1269,8 +1272,8 @@ class CallerNumberAndVoice(Base):
             with self.subTest(said=said), self.assertRaises(ValueError):
                 make("Leda", recordings.Part("Q3", said, "test://x", "7" * 64))
         make("Leda", part("Leda", "なかじま"))                                     # 読みの重なる「中嶋」の読みは求めない
-        with self.assertRaises(ValueError):                                        # 契約者の単位の録音には付けない
-            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
+        with self.assertRaises(ValueError):                                        # 共通の一言の録音には付けない
+            self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(
                 tx, unit="contractor", voice_name="Leda", parts=[part("Leda", "なかじま")]))
 
     def test_a_chosen_reading_is_carried_to_a_restored_or_copied_version(self):
@@ -1847,7 +1850,7 @@ class NameLedger(Content):
                     " VALUES (salescall.cur_tenant(), 'name', 'Leda', 'おかだ', '社長')",
                     "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, name_role, name_reading)"   # 役職の部分に読み
                     " VALUES (salescall.cur_tenant(), 'name_role', 'Leda', '社長', 'おかだ')",
-                    "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, tail)"                     # 契約者の組に鍵
+                    "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, tail)"                     # 共通の一言の組に鍵
                     " VALUES (salescall.cur_tenant(), 'contractor', 'Leda', 'target')"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
                 run(lambda tx, sql=sql: tx.execute(sql))
@@ -1911,8 +1914,9 @@ class NameLedger(Content):
 
     def test_only_the_admin_writes_the_systems_names(self):
         """システムの単位の組・部分・承認を書けるのは、管理者がシステムの取引でだけ（データベースの守り 0134）。契約者の取引からは
-        書けず（承認もできない）、管理者もシステムの取引の外では書けない。システムの単位は名前の録音の台帳だけ。管理者も、契約者の
-        組に部分を足せない（見えない）。"""
+        書けず（承認もできない）、管理者もシステムの取引の外では書けない。システムの単位は名前の録音の台帳と共通の一言だけ（業務の録音・
+        お詫びの電話の文は、管理者がシステムの取引で書いても、契約者の無い組にできない＝0171）。管理者も、契約者の組に部分を足せない
+        （見えない）。"""
         s = self.ready()
         K, P = recordings.NameKey, recordings.Part
         role = unique_role()   # システムの単位は、試験のデータベースのどの契約者にも見える（ほかの試験と重ならない鍵）
@@ -1939,9 +1943,10 @@ class NameLedger(Content):
         self.w.a.in_system(ADMIN, lambda tx: tx.execute(                     # システムの取引の管理者なら足せる
             "INSERT INTO salescall.recordings (tenant_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
             " VALUES (NULL, %s, 'name', %s, 'test://z', %s)", (bare, f"{role}二様", "0" * 64)))
-        with self.assertRaises(Rejected):                                    # システムの単位は台帳だけ
-            self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(
-                tx, unit="contractor", voice_name="Leda", parts=[P("hai", "はい", "test://x", "0" * 64)]))
+        with self.assertRaises(Rejected):                                    # システムの単位は台帳と共通の一言だけ（業務の録音は契約者の持ち物）
+            self.w.a.in_system(ADMIN, lambda tx: tx.execute(
+                "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, client_id, version_id)"
+                " VALUES (NULL, 'business', 'Leda', %(client)s, %(version)s)", s))
         own = self.w.a.in_tenant(OPERATOR, s["tenant"], add)
         with self.assertRaises(Rejected) as e:                               # 管理者も、契約者の組に部分を足せない
             self.w.a.in_system(ADMIN, lambda tx: tx.execute(

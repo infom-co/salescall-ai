@@ -1,13 +1,18 @@
 """録音の版と承認の記録（定型の音声の台帳。DESIGN.md 6-13）と、話してよい声。持ち主 CL-2。表の作り 0047。
 
-- 録音は2つの単位（2026-10-15 ユーザー）：契約者の単位（契約者と声の名前ごと。相づち・締めなど、どの依頼者にも同じもの）と、
-  依頼者の単位（業務設定の版と声の名前ごと。トークスクリプト）。声の名前ごとに1組（声の型ごとではない）。
+- 録音の持ち主は2つ（DESIGN.md 3-8-3。✅ 2026-11-02 管理者：「システムで共通する名前や対応などは、契約者や依頼者ごとではなくて、
+  システムで共通で録音を持っておくということになります。業務で持つのは明らかにその業務特有のトークスクリプトや問答だけになります。」）：
+  **システム**（契約者の無い行。管理者が作って承認し、すべての契約者が読む）＝共通の一言（単位 contractor＝相づち・締め・つなぎ・
+  システムが足す質問など、どの依頼者にも同じもの。0171）と名前の録音、**依頼者**＝その業務特有の録音（単位 business＝業務設定の版と
+  声の名前ごと。トークスクリプト）とお詫びの電話の文。声の名前ごとに1組（声の型ごとではない）。⛔ 0171 まで：共通の一言を契約者ごとに
+  録音していた（2026-10-15 ユーザーの「契約者単位でシステム的に録音」をもとにした形。契約者が増えるたびに同じ録音を作り直して聞き直す
+  ことになる）。単位の名前 contractor は、CL-1 と合わせて替えるまで、このまま（CL-2 の連絡帳 4-194）。
 - 組は変えられない（作り直しは新しい組）。部分（part）の一覧は会話の側（CL-1）の1か所が決める。ここは、渡された部分をそのまま残す。
 - 承認は組ごとに1回。管理者か契約者が聞いて承認する（事前の録音チェック。データベースが守る）。承認した組には部分を足せない。
-- **話してよい声は `ready_voices` の1か所で決める**：使う声（使わない印の無い声）のうち、承認した録音が、契約者の単位と、その版の
+- **話してよい声は `ready_voices` の1か所で決める**：使う声（使わない印の無い声）のうち、承認した録音が、システムの共通の一言と、その版の
   依頼者の単位の両方にあり、初めの声の型を持つもの（2026-10-17 ユーザー：「事前の録音チェックになる方向性」「新しい声が増える
-  かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。契約者の組には、契約者の単位の
-  部分（`CONTRACTOR_PARTS`。名前の正本は CL-1 の phrases.RECORDED）がすべて要る（CL-1 の連絡帳 4-39）。
+  かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。共通の一言の組には、その部分
+  （`CONTRACTOR_PARTS`。名前の正本は CL-1 の phrases.RECORDED）がすべて要る（CL-1 の連絡帳 4-39）。
 - **名前の録音の台帳**（0132・0134・0137）：お名前の入る一言は、役職の部分（「営業部部長の」）・名前の部分（「「おかだ」様」）・続く言葉
   （「はいらっしゃいますでしょうか？」）を組み合わせて流す（どこで切るか＝助詞・「の」の置き場は未決＝CL-1 の G-65 とユーザーの判断待ち）。どれも組の単位（name_role・name・name_tail）で、承認の仕組みは同じ。持ち主は2つ：管理者が前もって用意した代表的な名前（システムの単位＝すべての契約者が
   読む）と、それに無いものだけ契約者が録音したもの（その契約者の中だけ）。その行で要るものは `name_needs`、その声で足りないものは
@@ -90,7 +95,8 @@ def retire_voice(tx: Tx, voice_name: str, *, reason: str) -> None:
 def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology", "name_role", "name", "name_tail"], voice_name: str,
                parts: list[Part], version_id: UUID | None = None, order_id: int | None = None,
                name_role: str | None = None, name_key: NameKey | None = None, tail: str | None = None) -> UUID:
-    """録音の組を作る（承認の前）。契約者の単位は取引の契約者、依頼者の単位は取引の依頼者の、その版。お詫びの単位（apology）は
+    """録音の組を作る（承認の前）。共通の一言（contractor）はシステムの持ち物（管理者がシステムの取引で作る＝データベースが守る。0171）、
+    依頼者の単位は取引の依頼者の、その版。お詫びの単位（apology）は
     取引の依頼者の、そのお詫びの案（order_id。部分は apology.PARTS の2つで、文は案の文と同じ・声は誤った通話の声＝データベースが
     守る。0131）。名前の録音の台帳（name_role＝役職の部分・name＝名前の部分・name_tail＝続く言葉）は取引の契約者の持ち物（システムの
     取引で管理者が作ればシステムの単位）で、鍵（name_role・name_key・tail）を渡す（`add_name_role`・`add_name_part`・`add_name_tail` が
@@ -103,7 +109,7 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology", "na
             or (unit == "name_role") != (name_role is not None) or (unit == "name") != (name_key is not None) \
             or (unit == "name_tail") != (tail is not None):
         raise ValueError("依頼者の単位の組には業務設定の版を、お詫びの単位の組にはお詫びの案を、名前の録音の台帳には鍵を渡します"
-                         "（契約者の単位の組には、どれも渡しません）")
+                         "（共通の一言の組には、どれも渡しません）")
     chosen = _chosen_readings(tx, parts, version_id)
     role = name_role if unit == "name_role" else name_key.role if name_key is not None else None
     set_id = tx.one(
@@ -193,7 +199,10 @@ def approve(tx: Tx, set_id: UUID) -> None:
 
 
 _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
-            " WHERE s.voice_name = v.voice_name AND s.tenant_id = salescall.cur_tenant() AND {where})")
+            " WHERE s.voice_name = v.voice_name AND {where})")
+# 共通の一言のいまの組（システムの行）と、その版の業務の録音のいまの組（取引の契約者の行）。話してよい声・足りない部分・流す組が読む1か所
+_COMMON = "s.unit = 'contractor' AND s.tenant_id IS NULL"
+_BUSINESS = "s.unit = 'business' AND s.tenant_id = salescall.cur_tenant() AND s.version_id = %s"
 
 
 # 契約者の単位の録音の部分の名前（判断はここだけ。話してよい声＝`ready_voices` が、契約者の組にこれが全部そろっているかを見る）。
@@ -229,30 +238,33 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "talk_hard_bright", "talk_hard_sad", "talk_heard_glad", "talk_heard_nod", "talk_heard_sad", "talk_osewa",
     "talk_praised", "talk_welcome", "talk_yoroshiku", "wait", "wait_heavy")
 
-# その組に、契約者の単位の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
+# その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
               " WHERE r.set_id = s.set_id AND r.part = p.part))")
 
 
 def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
     """その版で話してよい声の名前（名前の順）。決まりはここだけ（上の説明）。使う組は、流す組と同じ見方 current_recording_sets
-    （承認した組のうち、その版のいまの名前の読みと合うもの）。契約者の組には、契約者の単位の部分（`CONTRACTOR_PARTS`）がすべて要る。"""
+    （承認した組のうち、その版のいまの名前の読みと合うもの）。共通の一言の組（システム）には、その部分（`CONTRACTOR_PARTS`）がすべて要る。"""
     return [r["voice_name"] for r in tx.all(
         "SELECT v.voice_name FROM salescall.voices v"
         " WHERE v.retired_at IS NULL"
         "   AND EXISTS (SELECT 1 FROM salescall.voice_types t WHERE t.voice_name = v.voice_name AND t.default_for_voice)"
-        "  AND " + _CURRENT.format(where="s.unit = 'contractor' AND " + _HAS_PARTS) +
-        "  AND " + _CURRENT.format(where="s.unit = 'business' AND s.version_id = %s") +
+        "  AND " + _CURRENT.format(where=_COMMON + " AND " + _HAS_PARTS) +
+        "  AND " + _CURRENT.format(where=_BUSINESS) +
         " ORDER BY v.voice_name", (list(CONTRACTOR_PARTS), version_id))]
 
 
-def missing_parts(tx: Tx) -> list[str]:
-    """承認した契約者の組のある声のうち、契約者の単位の部分が足りない声の、足りない部分の名前（名前の順。知らせに使う）。"""
+def missing_parts(tx: Tx, version_id: UUID) -> list[str]:
+    """その版で業務の録音（承認済み）はあるのに、システムの共通の一言の組に足りない部分がある声の、足りない部分の名前（名前の順。
+    知らせに使う。直すのは管理者＝共通の一言はシステムの持ち物）。共通の一言の組が無い声の部分は、全部が足りない。⛔ 0171 まで：取引の
+    契約者の組の足りない部分を、版を問わず並べた。"""
     return [r["part"] for r in tx.all(
-        "SELECT DISTINCT p.part FROM unnest(%s::text[]) p(part), salescall.current_recording_sets s"
-        " WHERE s.tenant_id = salescall.cur_tenant() AND s.unit = 'contractor'"
-        "   AND NOT EXISTS (SELECT 1 FROM salescall.recordings r WHERE r.set_id = s.set_id AND r.part = p.part)"
-        " ORDER BY p.part", (list(CONTRACTOR_PARTS),))]
+        "SELECT DISTINCT p.part FROM unnest(%s::text[]) p(part), salescall.voices v"
+        " WHERE v.retired_at IS NULL AND " + _CURRENT.format(where=_BUSINESS) +
+        "   AND NOT EXISTS (SELECT 1 FROM salescall.current_recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
+        "                   WHERE s.voice_name = v.voice_name AND " + _COMMON + " AND r.part = p.part)"
+        " ORDER BY p.part", (list(CONTRACTOR_PARTS), version_id))]
 
 
 # ═════════ 名前の録音の台帳（0132・0134。CL-1 の DESIGN.md 4-3 の「台帳の形」・CL-1 の連絡帳 4-34 の 4-122・4-39） ═════════
@@ -435,10 +447,11 @@ def name_coverage(tx: Tx, run_id: UUID, voice_name: str) -> dict:
 
 def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | None]:
     """流すときに使う組（それぞれの単位で、いちばん新しく承認した組＝データベースの見方 current_recording_sets の1か所。承認のときの
-    読みの確かめも同じ見方）。無ければ None。"""
+    読みの確かめも同じ見方）。共通の一言はシステムの組、業務の録音は取引の契約者のその版の組（話してよい声と同じ見方 _COMMON・_BUSINESS）。
+    無ければ None。"""
     rows = {r["unit"]: r["set_id"] for r in tx.all(
-        "SELECT unit, set_id FROM salescall.current_recording_sets WHERE tenant_id = salescall.cur_tenant() AND voice_name = %s"
-        " AND (unit = 'contractor' OR version_id = %s)", (voice_name, version_id))}
+        "SELECT unit, set_id FROM salescall.current_recording_sets s WHERE voice_name = %s"
+        " AND ((" + _COMMON + ") OR (" + _BUSINESS + "))", (voice_name, version_id))}
     return {"contractor": rows.get("contractor"), "business": rows.get("business")}
 
 

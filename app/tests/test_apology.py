@@ -311,11 +311,11 @@ class Apology(Helpers):
         self.order(s, aid)
         voice = self.tx(s, lambda tx: tx.one("SELECT t.voice_name FROM salescall.attempts a JOIN salescall.voice_types t"
                                              " ON t.code = a.voice_type WHERE a.attempt_id = %s", (aid,)))["voice_name"]
-        self.w.approve_voices(s["tenant"], None, None, (voice,), parts=("greeting",))   # その声の契約者の組が欠けた
-        others = self.tx(s, lambda tx: recordings.ready_voices(tx, s["version"]))
-        self.assertTrue(others and voice not in others)                        # ほかの声なら話せる
-        c = self.claim(s)
-        self.assertIsInstance(c, gate.Denied, c)
+        with self.w.common_missing(voice, recordings.CONTRACTOR_PARTS[0]):    # その声の共通の一言（システム）が欠けた
+            others = self.tx(s, lambda tx: recordings.ready_voices(tx, s["version"]))
+            self.assertTrue(others and voice not in others)                    # ほかの声なら話せる
+            c = self.claim(s)
+            self.assertIsInstance(c, gate.Denied, c)
 
     def test_an_apology_call_is_neither_counted_in_the_stage_nor_measured(self):
         """お詫びの電話（決まった文面だけ）は、品質の段の件数にも、誤判定率の抜き取りで測る通話にも入れない（決めるのは

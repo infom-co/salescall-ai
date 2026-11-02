@@ -9,7 +9,7 @@ import uuid
 from salescall.core import apology, attempts, next_action, recordings, registry, stops
 from salescall.core.access import Rejected
 from tests import support
-from tests.support import OPERATOR, SYSTEM, said
+from tests.support import ADMIN, OPERATOR, SYSTEM, said
 from tests.test_approval import TAKEN
 from tests.test_quality import Base
 
@@ -59,14 +59,15 @@ class Guards(Base):
 
     # ── (6) 録音の組の部分・承認は、取引から見える組に、組と同じ依頼者で
     def test_a_recording_set_cannot_be_added_to_or_approved_from_another_client(self):
-        """依頼者Aの取引から、依頼者Bの組に部分を足せない。契約者の単位の組に、依頼者Aの名で部分を足したり承認したりできない
-        （⛔ 2026-10-22 の見直し：ほかの依頼者の組は「見えない」と読まれ、同じ依頼者と判断されて、部分を足して承認できた）。"""
+        """依頼者Aの取引から、依頼者Bの組に部分を足せない。共通の一言の組（システムの持ち物＝0171）に、依頼者Aの名で部分を足したり
+        承認したりできない（⛔ 2026-10-22 の見直し：ほかの依頼者の組は「見えない」と読まれ、同じ依頼者と判断されて、部分を足して承認
+        できた）。"""
         s = self.w.setup()
         other = self.other_client(s)
         _, other_version = self.w.business_with_version(other["tenant"], other["client"])
         theirs = self.tx(other, lambda tx: recordings.create_set(
             tx, unit="business", voice_name="Leda", version_id=other_version, parts=[PART]), OPERATOR)
-        shared = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
+        shared = self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(   # 承認しない（システムの組はほかの試験も読む）
             tx, unit="contractor", voice_name="Leda", parts=[PART]))
         add = ("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q1', 'お世話になっております。',"
@@ -74,11 +75,17 @@ class Guards(Base):
         for sid in (theirs, shared):
             with self.subTest(set=sid), self.assertRaises(Rejected):
                 self.tx(s, lambda tx: tx.execute(add, (sid, "2" * 64)), OPERATOR)
-        with self.assertRaises(Rejected):                                         # 依頼者Aの名で、契約者の組を承認できない
+        with self.assertRaises(Rejected):                                         # 依頼者Aの名で、共通の一言の組を承認できない
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.recording_approvals (tenant_id, client_id, set_id, approved_by)"
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor())", (shared,)), OPERATOR)
-        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.approve(tx, shared))   # 契約者の取引からは承認できる
+        with self.assertRaises(Rejected):                                         # 契約者の取引からも承認できない（管理者だけ）
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.approve(tx, shared))
+        with self.assertRaises(Rejected) as e:                                    # 依頼者Aの取引・Aの名で、依頼者Bの組を承認できない
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.recording_approvals (tenant_id, client_id, set_id, approved_by)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor())", (theirs,)), OPERATOR)
+        self.assertIn("取引から見える組", e.exception.message)                    # 0109 の守りで断る（ほかの決まりでなく）
         self.tx(other, lambda tx: recordings.approve(tx, theirs), OPERATOR)
 
     # ── (7) 「最新が正本」の記録の順番と、承認の時刻は、データベースが決める
@@ -111,13 +118,13 @@ class Guards(Base):
         self.assertEqual(self.tx(s, lambda tx: [r["seq"] for r in tx.all(
             "SELECT seq FROM salescall.client_states WHERE client_id = %s ORDER BY seq", (s["client"],))]), [1, 2])
 
-        shared = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
-            tx, unit="contractor", voice_name="Leda", parts=[PART]))
-        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
+        own = self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=s["version"],
+                                                          parts=[PART]), OPERATOR)
+        self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.recording_approvals (tenant_id, client_id, set_id, approved_by, approved_at)"
-            f" VALUES (salescall.cur_tenant(), NULL, %s, salescall.cur_actor(), {future})", (shared,)))
-        self.assertTrue(self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.one(
-            "SELECT approved_at <= now() AS ok FROM salescall.recording_approvals WHERE set_id = %s", (shared,)))["ok"])
+            f" VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor(), {future})", (own,)), OPERATOR)
+        self.assertTrue(self.tx(s, lambda tx: tx.one(
+            "SELECT approved_at <= now() AS ok FROM salescall.recording_approvals WHERE set_id = %s", (own,)))["ok"])
 
     def test_only_readings_chosen_by_listening_get_an_order_number(self):
         """名前の読みは、録音を聞いて選んだ読みだけが番号（最大＋1）を持つ。版の中身に書いた読みは 0 のまま（2026-10-22 の

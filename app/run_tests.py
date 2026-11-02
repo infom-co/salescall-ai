@@ -136,6 +136,7 @@ def _edited(migration: str, start: str, old: str, new: str, *, end: str = "END $
 # データベースの守りを、わざと1つずつ外す。外したら、その守りを試す試験が本当に落ちることを確かめる（DESIGN.md 14章：
 # 落ちることを確かめていない見張りは、見張っていないのと同じ）。守りを足したら、ここにも足す。
 _M139 = "0139_ring_hours_gaps_and_our_troubles.sql"
+_VOICE_COMMON = "tests.test_gate.CallerNumberAndVoice.test_a_voice_is_used_only_when_its_common_set_holds_every_common_part"
 _T139 = "tests.test_troubles.OurTroubles."
 _M141 = "0141_review20a_hold_runs_and_calls.sql"
 _M145, _TH = "0145_health_states_shadow.sql", "tests.test_health."
@@ -1439,8 +1440,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("通話を終えた理由に、決まった5つのほかを書ける（0134・0136）",
      "ALTER TABLE salescall.attempts DROP CONSTRAINT attempts_trouble_check",
      ("tests.test_supervisor.Rounds.test_a_call_with_a_grave_problem_is_ended_with_the_apology_and_called_back",)),
-    ("システムの単位の名前の録音を、管理者でなくても書ける（0134：システムの処理が、聞いていない録音を全契約者に流しうる）",
-     _edited("0134_test_ring_trouble_system_names.sql", "CREATE FUNCTION salescall.system_recording_check()", "IF NEW.tenant_id IS NULL AND salescall.cur_actor_kind() IS DISTINCT FROM 'admin' THEN", "IF false THEN"),
+    ("システムの録音（名前の録音・共通の一言）を、管理者でなくても書ける（0134・0171：システムの処理が、聞いていない録音を全契約者に流しうる）",
+     _edited("0171_common_recordings_are_system.sql", "CREATE OR REPLACE FUNCTION salescall.system_recording_check()", "IF NEW.tenant_id IS NULL AND salescall.cur_actor_kind() IS DISTINCT FROM 'admin' THEN", "IF false THEN"),
      ("tests.test_gate.NameLedger.test_only_the_admin_writes_the_systems_names",)),
     ("システムの単位の名前の録音を、契約者の取引からも書ける（0134：1つの契約者が、ほかの契約者の流す録音を変えうる）",
      "DROP POLICY system_names_write ON salescall.recording_sets; CREATE POLICY system_names_write ON salescall.recording_sets"
@@ -1454,9 +1455,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP POLICY system_names_write ON salescall.recording_approvals; CREATE POLICY system_names_write"
      " ON salescall.recording_approvals FOR INSERT WITH CHECK (tenant_id IS NULL)",
      ("tests.test_gate.NameLedger.test_only_the_admin_writes_the_systems_names",)),
-    ("システムの単位を、名前の録音の台帳のほかの組にも作れる（0134：契約者の録音の組をすべての契約者に流しうる）",
-     "ALTER TABLE salescall.recording_sets DROP CONSTRAINT recording_sets_system_names",
+    ("システムの単位を、名前の録音の台帳と共通の一言のほかの組（業務の録音）にも作れる（0134・0171：依頼者の録音の組をすべての"
+     "契約者に流しうる）",
+     "ALTER TABLE salescall.recording_sets DROP CONSTRAINT recording_sets_system_units",
      ("tests.test_gate.NameLedger.test_only_the_admin_writes_the_systems_names",)),
+    ("共通の一言の組を、契約者の行にも作れる（0171：契約者ごとに同じ録音を作り直して聞き直す形に戻る）",
+     "ALTER TABLE salescall.recording_sets DROP CONSTRAINT recording_sets_common_is_system",
+     (_VOICE_COMMON,)),
     ("システムの単位の名前の録音を、契約者の取引から読めない（0134 の前：契約者ごとに同じ名字を録り直す）",
      "DROP POLICY system_names_read ON salescall.recording_sets",
      ("tests.test_gate.NameLedger.test_the_systems_names_serve_every_contractor_and_the_contractors_own_come_first",)),
@@ -1930,6 +1935,19 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "(line_id, list(gate.TASK_STAGE_REASONS),",
      "(line_id, [k for k in gate.TASK_STAGE_REASONS if k != \"await_recovery\"],",
      ("tests.test_settle.Settle.test_a_call_our_own_program_ended_is_made_again_as_planned_and_counts_nowhere",)),
+    ("共通の一言の足りない部分を、管理者に知らせない（0171：直せるのは管理者だけなのに、管理者が気づかない）", "src/salescall/core/gate.py",
+     "        admin = True   # 共通の一言を直せるのは管理者だけ（0171）", "        admin = False",
+     (_VOICE_COMMON,)),
+    ("共通の一言の足りない部分を、その版の業務の録音の無い声の分まで並べる（0171 の前の形：声を問わず並べた）",
+     "src/salescall/core/recordings.py",
+     '''        " WHERE v.retired_at IS NULL AND " + _CURRENT.format(where=_BUSINESS) +''',
+     '''        " WHERE v.retired_at IS NULL AND %s IS NOT NULL" +''',
+     (_VOICE_COMMON,)),
+    ("話してよい声の共通の一言を、取引の契約者の組から読む（0171 の前の形：システムの組を読まない）",
+     "src/salescall/core/recordings.py",
+     '''_COMMON = "s.unit = 'contractor' AND s.tenant_id IS NULL"''',
+     '''_COMMON = "s.unit = 'contractor' AND s.tenant_id = salescall.cur_tenant()"''',
+     (_VOICE_COMMON,)),
     ("お詫びの電話を、承認したお詫びの録音と違う声でも話す（録音の文と声がまじる）", "src/salescall/core/gate.py",
      "    if must is not None:\n        ready = [v for v in ready if v == must]", "    if False:\n        ready = [v for v in ready if v == must]",
      ("tests.test_apology.Apology.test_an_apology_call_waits_for_the_voice_the_apology_was_recorded_in",)),

@@ -510,8 +510,8 @@ OWN_LINE_MISSING = "この依頼者に専用の発信番号がありません。
 
 
 VOICE_NOT_READY = "この業務の録音が、まだ承認されていません。録音を聞いて承認してください。"
-VOICE_PARTS_MISSING = ("承認した録音（契約者の単位）に、足りない録音があります（{}）。足りない録音を入れた組を作り、聞いて承認して"
-                       "ください（それまで、その声ではかけません）。")
+VOICE_PARTS_MISSING = ("共通の一言の録音（どの契約者にも同じ、システムの録音）に、足りない録音があります（{}）。管理者が足りない録音を"
+                       "入れた組を作り、聞いて承認するまで、その声ではかけません。")
 NAME_RECORDING_MISSING = ("お名前の録音（名前の録音の台帳）がそろっていない行があります（例：{}）。台帳の録音を作り、聞いて承認して"
                           "ください（それまで、その行はかけません）。")
 OTHER_VOICE_MISSING = "別の声の録音がありません。ほかの依頼者がかけた番号へは、同じ声ではかけません。別の声の録音を承認してください。"
@@ -526,9 +526,10 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
         別の性別の声があれば、その中から（声の一覧の性別の表示名。見直し16）。業務設定の声の型が使えればそれ、使えなければ、話して
         よいほかの声の初めの声の型（声の名前の順。声が増えても同じ決まり）。
     話してよい声が無い・別の声が無いときは、通さずに待つ（発信番号を替えられないときと同じ）。契約者に知らせる（止めない）。
-    契約者の組に、契約者の単位の部分（`recordings.CONTRACTOR_PARTS`）がそろっている声だけで話す（話してよい声の1か所）。承認した
-    契約者の組に足りない部分があれば、知らせに足りない部分の名前を並べる（⛔ 2026-10-24 CL-1 の連絡帳 4-39：前は予約証の印ごとに一部の
-    部分を見て、約束の電話には業務の組に入らない promise_again を求めたので、約束の電話が1本もかからなかった）。
+    共通の一言の組（システムの持ち物。0171）に、その部分（`recordings.CONTRACTOR_PARTS`）がそろっている声だけで話す（話してよい声の
+    1か所）。業務の録音は承認してあるのに共通の一言に足りない部分があれば、足りない部分の名前を並べて、契約者と管理者に知らせる（直すのは
+    管理者。`recordings.missing_parts`）（⛔ 2026-10-24 CL-1 の連絡帳 4-39：前は予約証の印ごとに一部の部分を見て、約束の電話には業務の
+    組に入らない promise_again を求めたので、約束の電話が1本もかからなかった）。
     お名前の入る一言は、名前の録音の台帳の、その行の役職の部分・名前の部分・続く言葉が承認されている声だけで話す
     （`recordings.name_needs`・`name_missing`。0132・0134）。どの声でもそろわなければ name_recording_missing で待つ（行ごとに要るものが違うので、実施回をまとめて
     飛ばさず、その行を候補に出さない）。"""
@@ -567,14 +568,16 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
         return business_voice
     if usable:
         return next(code for code, t in sorted(types.items()) if t["voice_name"] == usable[0] and t["default_for_voice"])
+    admin = False
     if ready:
         reason, summary, key = "voice_used_by_other_client", OTHER_VOICE_MISSING, ""
-    elif missing := recordings.missing_parts(tx):   # 承認した契約者の組はあるが、部分が足りない
+    elif missing := recordings.missing_parts(tx, version_id):   # 業務の録音はあるが、共通の一言（システム）に足りない部分がある
         reason, summary, key = "voice_not_ready", VOICE_PARTS_MISSING.format("・".join(missing)), ":" + ",".join(missing)
+        admin = True   # 共通の一言を直せるのは管理者だけ（0171）
     else:
         reason, summary, key = "voice_not_ready", VOICE_NOT_READY, ""
     notify.emit(tx, "setting_missing", key=f"{reason}:{version_id}{key}:{today}", summary=summary,
-                refs={"client_id": task["client_id"], "version_id": version_id})
+                refs={"client_id": task["client_id"], "version_id": version_id}, admin=admin)
     return _deny(reason)
 
 
