@@ -213,7 +213,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import spoken_question
+    from flowctl import DAY_SLOT, DAY_VARIANTS, day_recording_id, spoken_question
     from instruction import reading_variants
     from phrases import LEAD_RECORDED
 
@@ -229,6 +229,12 @@ def script_table(business) -> tuple[dict, dict]:
         if q.reading_of:
             continue  # 名前の読みの確かめは、まず言ってみる読みが相手ごとに変わるので、AIが言う（録音にしない）
         text, lead = spoken_question(business.questions, q.id)
+        if DAY_SLOT in text:
+            # 日によって変わる言い方（最短の日）の入った質問：言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー (ア)「OK」。名前は flowctl.day_recording_id）
+            for w in DAY_VARIANTS:
+                rid = day_recording_id(q.id, w)
+                items.append((f"{rid}_{LEAD_RECORDED[lead]}" if lead else rid, text.replace(DAY_SLOT, w), "question"))
+            continue
         items.append((f"{q.id}_{LEAD_RECORDED[lead]}" if lead else q.id, text, "question"))
     table, readings = {}, {}
     for base, text, how in items:

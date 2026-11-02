@@ -84,8 +84,37 @@ DO_PROMPT = (
     "「お届けは午前と午後のどちらがご都合よろしいでしょうか？」の「午前」⇒「お届けは午前と」\n"
     "質問（番号：質問の文／選択肢）：\n"
 )
+# 選択肢ごとの、目的につなげて伺う言葉（flowctl.Question.keep_words・away・phrases.CONFIRM の「言い切っていない答えのあと（目的につなげて伺う）」）。事実を
+# 伺う質問ではない質問だけ。✅ 2026-11-03 ユーザー：「そもそも、導入の方向で進んでいるのに、「それでは、今月中のご導入は見送りとさせていただきますね？」だと、
+# わざわざ、獲得できそうなお客様を失いかねない確認ですよね？そんな返答は営業トークとしてありえないんじゃないですか？」・(2)「OK」（目的から遠ざかる向きの
+# 答えは、その向きで「させていただきますね？」とは言わず、目的につながる形で伺う）・(3)の答え「「それでは、来月以降にご導入ということでよろしいでしょうか？」」
+# ⚠️ 例は試しの質問・試しの言葉と重ねない（判定と同じく、作らせるモデルも例の形を探す）
+# ⛔ 2026-11-03（G-72・Haiku 5.5 が作った）：時期の例「来月のお申し込み」⇒「再来月以降に…」を置き、「今月中のご導入」の「いいえ」に2回とも「再来月以降の
+#    ご導入」と写した（正しくは来月以降）・「お折り返し」「お差し上げ」と敬語を重ねた ⇒ 時期の例を外して意味で書き、へりくだる言葉に「お」を付けない決まりを足した
+KEEP_PROMPT = (
+    "電話で、こちらのご案内やお申し込みを進めるために、お客様に聞く選択肢のある質問の一覧です。お客様の答えが少しあいまいで、答えの向きが、こちらの"
+    "目的（お客様にご利用・お申し込みいただく・こちらの申し出を受けていただく）から遠ざかる向きのとき、その向きのまま確かめると、お客様を目的から"
+    "遠ざける一言になります。そこで、目的につながる形で、次の言い方で伺います。\n"
+    "「それでは（　）でよろしいでしょうか？」\n"
+    "質問の選択肢ごとに、お客様がその選択肢を答えたときに（　）に入れる言葉を words に書いてください。\n"
+    "決まり：\n"
+    "- 目的から遠ざかる向きの選択肢だけに書きます。目的に進む向きの選択肢と、目的に関わらない選び（お支払いの方法・時間帯・来られる手段・お席など）は、"
+    "words を空にします。お客様のご様子やご都合を伺うだけの質問（来られる手段・ご人数・ご来店の時間帯など）も、目的に関わらないので空にします。\n"
+    "- 打ち消しの問い（「〜ではございませんか？」「〜はございませんか？」）の「はい」は、打ち消しのほうの意味です"
+    "（「お困りではございませんか？」の「はい」＝お困りではない）。向きは、その意味で決めます。\n"
+    "- お客様の答えの向きは変えません（断りや見送りを、受けたことにしません）。そのうえで、目的への道を閉じない言い方にします。質問が時期を限って"
+    "聞いているなら、その時期のすぐあとに同じことをする形にします（限った時期の名前を、その次の時期の名前に替える）。こちらの申し出を受けない答えなら、"
+    "必要になったときにする形にします。\n"
+    "- 「差し上げる」「伺う」「いただく」など、もともとへりくだる言葉には「お」「ご」を付けません。質問の言葉に無い「お」「ご」を足しません。\n"
+    "- 質問に無い約束・日時・金額・別の品物を足しません。\n"
+    "- 「でよろしいでしょうか？」にそのまま続けて読める形で、「ということ」で終えます。\n"
+    "- 丁寧な言い方にします（「ご」「お」を付けるなど）。「、」（読点）を入れません。「？」で終えません。\n"
+    "- 例：「カタログをお送りしてもよろしいでしょうか？」の「はい」⇒ 空、「いいえ」⇒「カタログは必要になりましたらお送りするということ」／"
+    "「お届けは午前と午後のどちらがご都合よろしいでしょうか？」の「午前」「午後」⇒ どちらも空\n"
+    "質問（番号：質問の文／選択肢）：\n"
+)
 # 言葉の種類（唯一の場所）：意味の言葉（判定に見せる選択肢の名前・言い直し）・いまの話の向きを伺う言葉・こちらがすることの言葉。作り方・確かめ・決め方は同じ1つ
-PROMPTS = {"meaning": PROMPT, "doubt": DOUBT_PROMPT, "do": DO_PROMPT}
+PROMPTS = {"meaning": PROMPT, "doubt": DOUBT_PROMPT, "do": DO_PROMPT, "keep": KEEP_PROMPT}
 
 
 def _schema():
@@ -108,12 +137,38 @@ def by_model(client, model: str, questions: list[tuple[str, tuple]], kind: str =
     r = client.models.generate_content(
         model=model, contents=PROMPTS[kind] + body,
         config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_schema(), temperature=0))
+    return _read_items(json.loads(r.text).get("items", []), questions)
+
+
+def _read_items(items: list, questions: list[tuple[str, tuple]]) -> list[dict]:
+    """答えの items を、質問ごとの {選択肢: 言葉} にそろえる（読み取りの唯一の場所＝Gemini も Anthropic も）。"""
     out = [{} for _ in questions]
-    for x in json.loads(r.text).get("items", []):
-        n = x.get("no")
+    for x in items or []:
+        n = x.get("no") if isinstance(x, dict) else None
         if isinstance(n, int) and 1 <= n <= len(questions) and clean(x.get("choice")) in questions[n - 1][1]:
             out[n - 1][clean(x.get("choice"))] = clean(x.get("words"))
     return out
+
+
+def by_model_anthropic(client, model: str, questions: list[tuple[str, tuple]], kind: str = "meaning") -> list[dict]:
+    """by_model と同じ文（PROMPTS）・同じ読み取りを、Anthropic（Claude Haiku 5.5）に、答えの形を指定した道具の呼び出しで返させる（作り手の
+    代わり＝Gemini の Flash が混んでいる間。✅ 2026-11-03 ユーザー：「3.8 Flash の分の一部の場面もHaikuで作らせたらいいんじゃない？何度も言わせるな！」・
+    「Haikuでもいいと言いましたよね。」）。料金は判定と同じ帳簿（meaning_judge.SPEND）。⚠️ temperature は送らない（Haiku 5.5 は断る）。"""
+    from meaning_judge import SPEND
+
+    body = "\n".join(f"{n}：{q}／{'・'.join(c)}" for n, (q, c) in enumerate(questions, 1))
+    item = {"type": "object", "properties": {"no": {"type": "integer"}, "choice": {"type": "string"}, "words": {"type": "string"}},
+            "required": ["no", "choice", "words"], "additionalProperties": False}
+    schema = {"type": "object", "properties": {"items": {"type": "array", "items": item}}, "required": ["items"], "additionalProperties": False}
+    SPEND.check()
+    msg = client.messages.create(model=model, max_tokens=8000, messages=[{"role": "user", "content": PROMPTS[kind] + body}],
+                                 tools=[{"name": "words", "description": "選択肢ごとの言葉", "input_schema": schema, "strict": True}],
+                                 tool_choice={"type": "tool", "name": "words"})
+    SPEND.add(model, msg.usage)
+    got = next((b.input for b in msg.content if getattr(b, "type", "") == "tool_use"), None)
+    if not isinstance(got, dict):
+        raise ValueError(f"{model} が答えの形で返さなかった（{getattr(msg, 'stop_reason', '')}）")
+    return _read_items(got.get("items", []), questions)
 
 
 def clean(s: str | None) -> str:
@@ -140,6 +195,8 @@ def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool
     if kind == "doubt" and ("ということ" in w or w.endswith("こと")):
         return False
     if kind == "do" and (re.search(r"させて|させ$", w) or re.search(r"(?:ます|です|ね|ください)$", w)):
+        return False
+    if kind == "keep" and (not w.endswith("ということ") or re.search(r"させて|させていただ", w)):
         return False
     base = unicodedata.normalize("NFKC", question + choice)
     nouns = [x.surface for x in split(w) if x.feature.pos1 == "名詞" and len(x.surface) >= 2]
@@ -212,6 +269,20 @@ def decide_replies(choices: tuple, model_replies: list[dict]) -> dict:
         if len(got) >= 2 and got[0] in choices and all(g == got[0] for g in got[1:]):
             out[w] = got[0]
     return out
+
+
+def decide_keep(question: str, choices: tuple, model_words: list[dict]) -> tuple[tuple, dict]:
+    """目的から遠ざかる向きの選択肢（away）と、目的につなげて伺う言葉（keep_words）を決める（取込のとき）。遠ざかる向きかは、どちらか1つのモデルでも
+    言葉を書けば入れる（安全側＝その選択肢には「それでは…させていただきますね？」を使わない）。言葉は、2つ以上のモデルがどちらも書き、どちらも確かめに
+    通るときだけ、最初のモデルの言葉（決まらなければ、押しも引きもしない今までの言い直しに戻る）。"""
+    away, out = [], {}
+    for c in choices:
+        got = [m.get(c, "") for m in model_words]
+        if any(got):
+            away.append(c)
+        if len(got) >= 2 and all(g and check(g, question, c, "keep") for g in got):
+            out[c] = got[0]
+    return tuple(away), out
 
 
 def decide(question: str, choices: tuple, model_words: list[dict], kind: str = "meaning", meanings: dict | None = None) -> dict:

@@ -382,7 +382,9 @@ class KeyRing:
     def client(self, i: int | None = None):
         i = self.start if i is None else i
         if i not in self._clients:
-            self._clients[i] = make_client(self.keys[i])
+            # 1回の問い合わせを待つ長さの上限（⛔ 2026-11-03 G-72：区切らずに作り、混んだモデルの問い合わせが返らないまま流しが止まった＝11-02 の
+            # キーの確かめ（keys_now）と同じ穴。待つ長さは make_client の1か所）
+            self._clients[i] = make_client(self.keys[i], timeout_s=self.TIMEOUT_S)
         return self._clients[i]
 
     def model_ids(self) -> dict[str, str]:
@@ -431,6 +433,7 @@ class KeyRing:
             raise KeyUnusable(f"{self.keys[self.start].label} では {model} を使えません")
         raise RuntimeError(f"どのキーでも {model} を使えません（1日の上限・プロジェクトが止められている・1分の上限が続いた）")
 
+    TIMEOUT_S = 180.0       # 文字のモデルの1回の問い合わせを待つ長さの上限（秒。まとめて答えさせる長い問い合わせでも足りる長さ）
     LIVE_COOL_S = 600.0     # 会話のモデルで上限に当たったキーを休ませる秒（この実行の中だけ）
     LIVE_MAX_WAIT_S = 1800.0
 

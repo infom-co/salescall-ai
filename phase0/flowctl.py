@@ -364,6 +364,53 @@ def _speak_clock(value: str | None) -> str | None:
     return head + span(lambda t, prev: clock(t, t // 60)) + "、" + span(twelve) + rest
 
 
+WEEKDAY_WORDS = "月火水木金土日"
+DAY_SLOT = "{最短の日}"   # 業務設定の質問の文・入る一言に書く、最短で対応できる日の場所（Flow が day_words で置き換える）
+
+
+def day_words(earliest, today) -> str:
+    """最短で対応できる日（業務設定の「3営業日以降」などを、CL-2 の暦＝営業日と祝日の1か所が日にちにしたもの）を、電話の日から見た言い方にする
+    （唯一の場所。言い切っていない時期の答えのあとに伺う質問の「（{最短の日}なら対応できますが、）いつ頃がよろしいでしょうか？」＝Question.ask_if_hedged）。
+    当日＝本日以降・翌日＝明日以降・翌々日＝明後日以降・同じ週＝今週の〇曜日以降・次の週の月曜日＝来週以降・次の週のほかの曜日＝来週の〇曜日以降・
+    それより先は、同じ月なら〇日以降、違う月なら〇月〇日以降（週は月曜日から）。✅ 2026-11-03 ユーザー：「「○○日以降」は、「明日以降」「来週以降」
+    などなどの言い方も考えられます。また、業務設定では「3営業日以降」などの設定になるので、それを自動で置き換える仕組みが必要です。」"""
+    d = (earliest - today).days
+    if d <= 0:
+        return "本日以降"
+    if d == 1:
+        return "明日以降"
+    if d == 2:
+        return "明後日以降"
+    weeks = (earliest - today.fromordinal(today.toordinal() - today.weekday())).days // 7   # 電話の日の週の月曜日から何週目か
+    if weeks == 0:
+        return f"今週の{WEEKDAY_WORDS[earliest.weekday()]}曜日以降"
+    if weeks == 1:
+        return "来週以降" if earliest.weekday() == 0 else f"来週の{WEEKDAY_WORDS[earliest.weekday()]}曜日以降"
+    return f"{earliest.day}日以降" if (earliest.year, earliest.month) == (today.year, today.month) else f"{earliest.month}月{earliest.day}日以降"
+
+
+def _day_variants() -> tuple:
+    """日によって変わる言い方のうち、日付を言わないもの（本日・明日・明後日・今週の〇曜日・来週・来週の〇曜日）の一覧（day_words の1か所から作る＝
+    どの曜日の電話でも、2週間先までに出る言い方）。録音で流す電話は、この言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー：「(ア) お勧め：言い方ごとに
+    文を丸ごと録音します。OK」）。⏳ 日付の言い方（〇日以降・〇月〇日以降）は、名前と同じつなぎ方で組む（まだ作っていない）"""
+    import datetime as dt
+    out = []
+    for t in (dt.date(2026, 11, 2) + dt.timedelta(days=i) for i in range(7)):
+        for d in range(14):
+            w = day_words(t + dt.timedelta(days=d), t)
+            if not re.match(r"\d", w) and w not in out:
+                out.append(w)
+    return tuple(out)
+
+
+DAY_VARIANTS = _day_variants()
+
+
+def day_recording_id(qid: str, words: str) -> str:
+    """日によって変わる言い方の入った質問の、その言い方の録音の名前（つなぎの言葉の前に _d番号。make_ack_clips.script_table と同じ1か所）。"""
+    return f"{qid}_d{DAY_VARIANTS.index(words) + 1}"
+
+
 def merge_ampm(pending: str | None, answer: str | None) -> str | None:
     """午前・午後を聞いたあとの答え（「午後です」⇒「午後」）を、前の値（「15日の10時」）に入れる。答えに時刻があれば、答えのほうを使う。"""
     if not pending or not answer or _HOUR.search(answer) or not (w := AMPM_WORDS.search(answer)):
@@ -381,7 +428,8 @@ def question_play(questions: list["Question"], qid: str) -> dict:
     if q.callback:
         return {"kind": "recorded", "id": q.recording or f"callback_{q.callback}", "text": q.text}
     text, lead = spoken_question(questions, qid)
-    return {"kind": "question", "id": q.id, "text": text, "lead": lead}
+    # 日によって変わる言い方の入った質問は、その言い方の録音（Question.recording＝day_recording_id。名前の組み方は今と同じ「番号＋つなぎの言葉」）
+    return {"kind": "question", "id": q.recording or q.id, "text": text, "lead": lead}
 
 
 def spoken_question(questions: list["Question"], qid: str) -> tuple[str, str]:
@@ -474,6 +522,8 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          #   「登録」することになるのであれば、我々は依頼主の作業代行としてお客様と対峙しているので、それに合わせた方がいいでしょう。」）
          "hedged_do": ("言い切っていない答えのあと（こちらがすること）", None, "hai"),
          "hedged_fact": ("言い切っていない答えのあと（事実を伺う質問）", None, "hai"),
+         # - 目的から遠ざかる向きの選択肢（Question.keep_words）：「はい、」＋「それでは来月以降にご導入ということでよろしいでしょうか？」（✅ 2026-11-03 ユーザー (2)）
+         "hedged_keep": ("言い切っていない答えのあと（目的につなげて伺う）", None, "hai"),
          # 矛盾した答え・言い直しの答えを最終的に確かめる（会話になっていない返事・前の話と逆の返事・いまの言葉だけでは決められず前の話の答えを
          # 確かめる＝Flow._check_again の TALK_WHY・PRIOR_WHY）：「はい、」＋「それでは駐車場はご利用になるということでよろしいでしょうか？」
          # ✅ 2026-10-31 の夜 ユーザー：「『それでは、駐車場を(利用される)(利用されない)ということでよろしいでしょうか？』のような確認を入れる形で
@@ -1454,6 +1504,18 @@ class Question:
     # 無い選択肢は、今までの「念のため（意味の言葉）でよろしかったでしょうか？」。✅ 2026-11-01 日本時間20時56分 ユーザー：「こちら：「念のためパンフレットを
     # お送りして大丈夫だということでよろしかったでしょうか？」よりも、「それではパンフレットをお送りさせていただきますね？」の方がいいんじゃないですか？」
     do_words: dict = field(default_factory=dict)
+    # 選択肢ごとの、目的につなげて伺う言葉（取込で文字のAI2つが作る＝do_words と同じ1か所・CL-1 が全部を見る・作った言葉はユーザーにお見せする）。業務の
+    # 目的から遠ざかる向きの選択肢（見送り・控え・ご欠席など）だけに作り、その選択肢の言い切っていない最初の答えを「それでは（言葉）でよろしいでしょうか？」
+    # で伺う（do_words の「それでは…させていただきますね？」の代わり＝Flow._hedged_after。「今月中のご導入をお考えでしょうか？」の「いいえ」⇒
+    # 「来月以降にご導入ということ」）。無い選択肢（進める向き・目的に関わらない選び）は do_words のまま。✅ 2026-11-03 ユーザー：「そもそも、導入の方向で
+    # 進んでいるのに、「それでは、今月中のご導入は見送りとさせていただきますね？」だと、わざわざ、獲得できそうなお客様を失いかねない確認ですよね？そんな返答は
+    # 営業トークとしてありえないんじゃないですか？」⇒ (2)「目的から遠ざかる向きの答えは、その向きで「させていただきますね？」とは言わず、目的につながる形で
+    # 伺う」OK（⛔ それまでは、11-01 20時56分の例＝進める向きの形を、CL-1 が目的から遠ざかる向きの選択肢にまで当てていた）
+    keep_words: dict = field(default_factory=dict)
+    # 目的から遠ざかる向きの選択肢（取込で文字のAI2つが決める。どちらか1つでもそう読めば入れる＝安全側）。ここに入る選択肢の言い切っていない最初の答えは、
+    # do_words の「それでは…させていただきますね？」を使わない：目的につなげて伺う言葉（keep_words）があればそれ、無ければ押しも引きもしない今までの
+    # 「念のため（意味の言葉）でよろしかったでしょうか？」（Flow._hedged_after）
+    away: tuple = ()
     # この質問に入る一言（業務設定＝依頼者のトークスクリプト。CL-2。「それでは予約番号の確認からさせていただきます。」）。前の質問のあと、つなぎの言葉
     # （それでは・続きまして）の代わりに、質問の録音の頭に1本で入れる（spoken_question の1か所）。空なら今のつなぎの言葉。最初の質問（名乗りと一緒に
     # 流す）には付けない。✅ 2026-11-01 日本時間6時05分 ユーザー：「この確認の後、次のステップとして、「予約番号の確認」や「資料の説明」…がある場合は、
@@ -1495,6 +1557,12 @@ class Question:
     # ✅ 2026-11-02 日本時間4時16分 ユーザー：「相手が資料を見ていなくても業務の進展ができるのであれば、そのまま進めたらいいと思いますし、確認しないと
     # 進められないのであれば、こちらから重要な事項を説明して、それの承認をもらう形になるんじゃないでしょうか。」（形だけ作る＝「今回は形だけ作ります：OK」）
     ask_if: tuple = ()
+    # ask_if の答えが言い切っていないときだけ伺うか（業務設定＝依頼者のトークスクリプト・CL-2）。真なら、前の質問の言い切っていない最初の答えは、
+    # 言い直して確かめずに「曖昧」の印を付けて受け取り、この質問で伺う（Flow._hedged_follow_up の1か所）。✅ 2026-11-03 ユーザー (3)「OK」：お困りごとに
+    # 業務の手立てがある答えは、手立てを並べて伺う（「当日のキャンセルはございませんか？」への「都合が悪くなってしまいました」⇒「それでは、キャンセルに
+    # なさいますか？それとも、日時を変更なさいますか？」。「日時変更ができるなら、それでおねがいしますとなる可能性があるからです」）・(4)「OK」：時期の答えが
+    # 前向きなら「（{最短の日}なら対応できますが、）いつ頃がよろしいでしょうか？」（{最短の日}＝day_words）
+    ask_if_hedged: bool = False
     # 説明した内容のご承認を伺う質問か（はい／いいえの型。説明の文は、この質問に入る一言＝intro か、質問の文そのもの。最初の質問は入る一言を持てない＝CL-2 の 4-185 の (4)）。2つ目の選択肢（ご承認いただけない）のときは、
     # 「ご納得いただけなかった点はどの部分になりますでしょうか？」を1回伺い（システムの質問 N1）、答えは通話の事実 not_agreed に残す（依頼者へ返す）。
     # 業務の最終目的の質問なら、伺ったあとで締める（その業務はかけない＝_goals_lost）。✅ 2026-11-02 日本時間4時36分 ユーザー：「(b) いいえ＝「ご納得いた
@@ -1723,7 +1791,8 @@ class Flow:
                  name_readings: dict[str, str] | None = None, judge_names: dict[str, str] | None = None,
                  promised: bool = False, apology: tuple = (), successor: bool = False,
                  voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300,
-                 apology_call: str | None = None, apology_when: str = "later", client_does: str = ""):
+                 apology_call: str | None = None, apology_when: str = "later", client_does: str = "",
+                 earliest_day=None, today=None):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。
         target：目的の人のある業務の、名乗りの部分の文（instruction.Business.replay_parts。呼ぶ一言 target・確かめる一言 target_confirm を含む）。
@@ -1872,6 +1941,22 @@ class Flow:
         # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
         # 直したとき、その確かめを取り消して戻すため。_reopen）
         self.last_affirmed: dict | None = None
+        # 最短で対応できる日（業務設定の「3営業日以降」などを CL-2 の暦＝営業日と祝日の1か所が日にちにしたもの）と電話の日：質問の文・入る一言の
+        # {最短の日} を、電話の日から見た言い方（day_words の1か所）に置き換える。✅ 2026-11-03 ユーザー (4)：「業務設定では「3営業日以降」などの設定に
+        # なるので、それを自動で置き換える仕組みが必要です。」・録音で流す電話は、言い方ごとに丸ごと録音した文を流す（(ア)「OK」＝Question.recording に
+        # その言い方の録音の名前・day_recording_id）。⏳ 日付の言い方（〇日以降）は、名前と同じつなぎ方で組む（まだ作っていない＝止める）
+        filled = []
+        for q in questions:
+            if DAY_SLOT in q.text or DAY_SLOT in q.intro:
+                if earliest_day is None or today is None:
+                    raise ValueError(f"質問 {q.id} の {DAY_SLOT} には、最短で対応できる日と電話の日が要ります（業務設定・CL-2 の暦）")
+                w = day_words(earliest_day, today)
+                if play_recordings and w not in DAY_VARIANTS:
+                    raise ValueError(f"質問 {q.id} の {DAY_SLOT}「{w}」（日付の言い方）は、録音で流す電話ではまだ使えません（名前と同じつなぎ方は、まだ作っていない）")
+                q = dataclasses.replace(q, text=q.text.replace(DAY_SLOT, w), intro=q.intro.replace(DAY_SLOT, w),
+                                        recording=day_recording_id(q.id, w) if play_recordings else q.recording)
+            filled.append(q)
+        questions = filled
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions if not q.ask_if]   # 前の答えで伺うかが決まる質問は、その答えのあとに入れる（_follow_ups）
         self.business_ids = list(self.order)  # 業務の質問（かけ直しの質問の途中で目的の人が出たら、ここから聞く＝_target_back）
@@ -3293,7 +3378,19 @@ class Flow:
         if why.startswith(END_DOUBT_WHY) and q.type in CHOICE_TYPES and q.doubt_words.get(it.condition):
             return self._ask_confirm(qid, after="end_doubt")   # いまの話の向きを伺う（取込の言葉が無ければ、曖昧な答えと同じ確かめ）
         hedged = why.startswith(HEDGE_WHY) or Flow._hedged(self.heard_said, self.heard_check)
+        if hedged and (fq := self._hedged_follow_up(qid, it.condition)) is not None:
+            # 言い切っていない答えのあとに伺う質問（Question.ask_if_hedged＝業務設定）がある：言い直さずに「曖昧」の印を付けて受け取り、その質問で伺う
+            # （_advance → _follow_ups が前の質問のすぐあとに入れる。✅ 2026-11-03 ユーザー (3)(4)「OK」）
+            it.hedged = (self.heard_said or "").strip()[:40] or label(it.condition)
+            it.set("accepted", f"言い切っていない答え（「{it.hedged}」）：言い直さずに受け取り、{fq.id}「{fq.text[:24]}」で伺う")
+            return self._advance("受け付けました。")
         return self._ask_confirm(qid, after=self._hedged_after(q, it.condition) if hedged else "ambiguous")
+
+    def _hedged_follow_up(self, qid: str, cond: str | None) -> "Question | None":
+        """言い切っていない答え（qid の cond）のあとに伺う質問（Question.ask_if_hedged・まだ伺っていないもの）。唯一の場所（受け取る所と、並びに入れる
+        _ask_if_follow_ups が同じ決まりを使う）。"""
+        return next((x for x in self.questions.values() if x.ask_if_hedged and x.ask_if and x.ask_if[0] == qid and cond in x.ask_if[1]
+                     and x.id not in self.order and self.items[x.id].state == "empty"), None)
 
     @staticmethod
     def _hedged_after(q: "Question", cond: str | None) -> str:
@@ -3305,7 +3402,12 @@ class Flow:
         if q.reading_of or cond in SYSTEM_CONDITIONS or cond in (ANY, NONE):
             return "hedged"
         if q.type in CHOICE_TYPES:
-            return "hedged_fact" if q.asks_fact else "hedged_do" if q.do_words.get(cond) else "hedged"
+            # 目的から遠ざかる向きの選択肢（目的につなげて伺う言葉＝Question.keep_words がある）は hedged_keep（✅ 2026-11-03 ユーザー (2)「OK」）
+            if q.asks_fact:
+                return "hedged_fact"
+            if cond in q.away or q.keep_words.get(cond):
+                return "hedged_keep" if q.keep_words.get(cond) else "hedged"
+            return "hedged_do" if q.do_words.get(cond) else "hedged"
         if q.type in CONFIRM_TYPES:
             return "hedged_fact" if q.asks_fact else "hedged_do"
         return "hedged"
@@ -5432,7 +5534,7 @@ class Flow:
         # 言い直す言葉：いまの話の向きを伺う言葉（end_doubt）・こちらがすることの言葉（hedged_do）は、選択肢ごとの取込の言葉をそのまま。
         # ほかは意味の言葉（choice_words）
         words = ((q.doubt_words[it.condition] + "ということ") if after == "end_doubt" else q.do_words[it.condition] if after == "hedged_do"
-                 else choice_words(q, it.condition)) if choice else None
+                 else q.keep_words[it.condition] if after == "hedged_keep" else choice_words(q, it.condition)) if choice else None
         if choice and words is None:
             # 選択肢の名前が返事の言葉だけ（「はい」「いいえ」）で、意味の言葉が取込で決まらなかった＝言い直せない（止めずに進める）。
             # 曖昧な答えは、言い直さずに聞き返す（聞き返しの回数と言い方は _ask_again の1か所）。それ以外は聞き取れた答えのまま受け付ける
@@ -5450,7 +5552,7 @@ class Flow:
         self.confirm_counts[situation] = n + 1
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
-        shown = (words if after in ("end_doubt", "hedged_do") else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
+        shown = (words if after in ("end_doubt", "hedged_do", "hedged_keep") else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
         said_as = spoken_clock(shown) if q.type in AMPM_TYPES and it.value else shown   # 時刻は「15日の14時、午後2時」の形で言う（値は変えない）
         if q.reading_of:
             shown = quote(it.value)
@@ -5496,7 +5598,7 @@ class Flow:
             if q.ask_if and q.id not in self.order and self.items[q.id].state == "empty":
                 src, conds = q.ask_if
                 got = self.items.get(src)
-                if got is not None and got.state in TAKEN and got.condition in conds:
+                if got is not None and got.state in TAKEN and got.condition in conds and (got.hedged or not q.ask_if_hedged):
                     self._insert_after(last.get(src, src), q.id)
                     last[src] = q.id
 

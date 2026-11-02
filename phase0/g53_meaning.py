@@ -221,7 +221,8 @@ def with_words(q: Question) -> Question:
     words = imported().get("words", {})
     if q.type not in CHOICE_TYPES or q.asks_fact:
         return q
-    return dataclasses.replace(q, doubt_words=dict(words.get("doubt", {}).get(q.text, {})), do_words=dict(words.get("do", {}).get(q.text, {})))
+    return dataclasses.replace(q, doubt_words=dict(words.get("doubt", {}).get(q.text, {})), do_words=dict(words.get("do", {}).get(q.text, {})),
+                               keep_words=dict(words.get("keep", {}).get(q.text, {})), away=tuple(words.get("away", {}).get(q.text, ())))
 
 
 def end_questions(facts: bool = True) -> list[Question]:
