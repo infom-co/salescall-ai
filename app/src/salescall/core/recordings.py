@@ -8,7 +8,7 @@
   録音していた（2026-10-15 ユーザーの「契約者単位でシステム的に録音」をもとにした形。契約者が増えるたびに同じ録音を作り直して聞き直す
   ことになる）。単位の名前 contractor は、CL-1 と合わせて替えるまで、このまま（CL-2 の連絡帳 4-194）。
 - 組は変えられない（作り直しは新しい組）。部分（part）の一覧は会話の側（CL-1）の1か所が決める。ここは、渡された部分をそのまま残す。
-- 承認は組ごとに1回。管理者か契約者が聞いて承認する（事前の録音チェック。データベースが守る）。承認した組には部分を足せない。
+- 承認の操作は組ごとに1回。管理者か契約者が聞いて承認する（事前の録音チェック。データベースが守る）。承認した組には部分を足せない。
 - **話してよい声は `ready_voices` の1か所で決める**：使う声（使わない印の無い声）のうち、承認した録音が、システムの共通の一言と、その版の
   依頼者の単位の両方にあり、初めの声の型を持つもの（2026-10-17 ユーザー：「事前の録音チェックになる方向性」「新しい声が増える
   かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。共通の一言の組には、その部分
@@ -17,8 +17,14 @@
   （「はいらっしゃいますでしょうか？」）を組み合わせて流す（どこで切るか＝助詞・「の」の置き場は未決＝CL-1 の G-65 とユーザーの判断待ち）。どれも組の単位（name_role・name・name_tail）で、承認の仕組みは同じ。持ち主は2つ：管理者が前もって用意した代表的な名前（システムの単位＝すべての契約者が
   読む）と、それに無いものだけ契約者が録音したもの（その契約者の中だけ）。その行で要るものは `name_needs`、その声で足りないものは
   `name_missing` の1か所（門の `choose_voice` が読む）、流す録音は `name_recording`。
-- 流すときに使う組は `current_sets`（それぞれの単位で、いちばん新しく承認した組のうち、名前の読みがその版のいまの読みと合うもの＝
-  見方 current_recording_sets）。
+- **承認は録音の中身に付く**（0172。設計書 3-8-3 の (2)。✅ 2026-11-02 管理者 伺い2「案1でOK」）：承認するという操作は組ごとに
+  記録する（`approve`＝だれが・いつ、その組を聞いて承認したか）。部分が承認済みかは中身で決める＝同じ持ち主（契約者と依頼者。
+  システムは両方とも無い）・同じ声で、文・録音で選んだ名前の読み・音声の指紋がまったく同じ部分が、承認した組のどれかにあれば
+  承認済み（データベースの見方 salescall.part_states の1か所。中身の鍵は content_of の1か所で作り、部分と読みを書いたときに part_contents に残す。部分の名前と置き場は見ない）。組がそろったかも1か所（salescall.set_ready：
+  部分が1つ以上・すべて承認済み・その版のいまの読みと合う）⇒ 全部が承認済みの部分の組は、承認を待たずにそろう。版が変わっても、
+  聞くのは変わった部分だけ（`unapproved_parts`＝画面が聞かせる部分）。
+- 流すときに使う組は `current_sets`（それぞれの単位で、そろった組のうち、いちばん新しく作った組＝見方 current_recording_sets。
+  作った時刻はデータベースが決める）。
 - **測り終わるまで消さない録音**（`hold`・`release`。表の作り 0056。2026-10-17 ユーザー 案A。Intent.md 11-4 第2版）：検証モードの通話
   （締めのときに付ける）と、誤判定率を測るために抜き取った通話（抜き取る処理が付ける）は、測り終わって外すまで、古い録音を消す処理
   （core/backup.py の `prune`）が消さない。外すのは測定を記録する処理（16-3）が、使い終えた通話について1回だけ。
@@ -190,12 +196,21 @@ def _chosen_readings(tx: Tx, parts: list[Part], version_id: UUID | None) -> list
 
 
 def approve(tx: Tx, set_id: UUID) -> None:
-    """録音の組を承認する（管理者か契約者が聞いて。データベースが守る）。"""
+    """録音の組を承認する（管理者か契約者が聞いて。データベースが守る）。承認されるのは、その組の部分の中身（同じ持ち主・同じ声の、
+    同じ中身の部分は、どの組の中でも承認済みになる＝0172）。聞いていただくのは `unapproved_parts` の部分だけでよい。"""
     row = tx.one("INSERT INTO salescall.recording_approvals (tenant_id, client_id, set_id, approved_by)"
                  " SELECT tenant_id, client_id, set_id, salescall.cur_actor() FROM salescall.recording_sets WHERE set_id = %s"
                  " RETURNING set_id", (set_id,))
     if row is None:
         raise LookupError(f"録音の組がありません（または、取引の範囲の外）：{set_id}")
+
+
+def unapproved_parts(tx: Tx, set_id: UUID) -> list[str]:
+    """その組で、まだ承認されていない部分の名前（名前の順）。画面が承認の前に聞かせるのは、これだけ（ほかの部分は、同じ中身をもう
+    聞いて承認している＝データベースの見方 salescall.part_states の1か所。0172）。空なら、その組は承認を待たずにそろう（読みが合えば）。"""
+    return [r["part"] for r in tx.all(
+        "SELECT part FROM salescall.part_states WHERE set_id = %s AND NOT approved ORDER BY part",
+        (set_id,))]
 
 
 _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
@@ -245,7 +260,7 @@ _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EX
 
 def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
     """その版で話してよい声の名前（名前の順）。決まりはここだけ（上の説明）。使う組は、流す組と同じ見方 current_recording_sets
-    （承認した組のうち、その版のいまの名前の読みと合うもの）。共通の一言の組（システム）には、その部分（`CONTRACTOR_PARTS`）がすべて要る。"""
+    （そろった組＝部分がすべて承認済みで、その版のいまの名前の読みと合うもの。0172）。共通の一言の組（システム）には、その部分（`CONTRACTOR_PARTS`）がすべて要る。"""
     return [r["voice_name"] for r in tx.all(
         "SELECT v.voice_name FROM salescall.voices v"
         " WHERE v.retired_at IS NULL"
@@ -446,8 +461,8 @@ def name_coverage(tx: Tx, run_id: UUID, voice_name: str) -> dict:
 
 
 def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | None]:
-    """流すときに使う組（それぞれの単位で、いちばん新しく承認した組＝データベースの見方 current_recording_sets の1か所。承認のときの
-    読みの確かめも同じ見方）。共通の一言はシステムの組、業務の録音は取引の契約者のその版の組（話してよい声と同じ見方 _COMMON・_BUSINESS）。
+    """流すときに使う組（それぞれの単位で、そろった組のうち、いちばん新しく作った組＝データベースの見方 current_recording_sets の1か所。
+    そろったかは salescall.set_ready＝部分がすべて承認済みで、その版のいまの読みと合う。0172）。共通の一言はシステムの組、業務の録音は取引の契約者のその版の組（話してよい声と同じ見方 _COMMON・_BUSINESS）。
     無ければ None。"""
     rows = {r["unit"]: r["set_id"] for r in tx.all(
         "SELECT unit, set_id FROM salescall.current_recording_sets s WHERE voice_name = %s"

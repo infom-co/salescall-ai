@@ -1169,6 +1169,50 @@ class CallerNumberAndVoice(Base):
         cur = self.tx(s, lambda tx: recordings.current_sets(tx, s["version"], "Leda"))
         self.assertEqual(cur["business"], sid)
 
+    def test_an_approval_belongs_to_the_content_of_the_recording(self):
+        """承認は録音の中身に付く（0172。設計書 3-8-3 の (2)。✅ 2026-11-02 管理者 伺い2「案1でOK」）：同じ持ち主（依頼者）・同じ声で、
+        文と音声の指紋がまったく同じ部分は、一度承認されていれば、どの組の中でも承認済み。全部が承認済みの部分の組は、承認を待たずに
+        そろい、いちばん新しく作ったそろった組が流す組になる。聞いていただくのは、まだ承認されていない部分だけ。ほかの声・ほかの依頼者・
+        ほかの音声（指紋）・部分の無い組は、承認済みにならない。作った時刻はデータベースが決める。"""
+        P = recordings.Part
+        t = self.w.tenant(voices=())
+        a, b = self.w.client(t), self.w.client(t)
+        _, va = self.w.business_with_version(t, a)
+        _, vb = self.w.business_with_version(t, b)
+        self.w.approve_voices(t, a, va, ("Leda",))                                 # 依頼者A・Leda の「名乗り」を聞いて承認した
+        # 契約者の持ち物の録音（名前の録音の台帳の続く言葉）を聞いて承認した。依頼者の取引からも見えるが、持ち主（依頼者）が違う
+        self.w.approve_names(t, [], ("Leda",), tails=("target",))
+        tail = P("intro", "架空の続く言葉（target）。", "test://Leda/target", "0" * 64)
+        intro = lambda v, sha="0" * 64: P("intro", "架空の録音（intro）。", f"test://{v}/again", sha)   # noqa: E731
+        q1 = P("Q1", "ご希望の日時をお聞かせください。", "test://Leda/Q1", "5" * 64)
+        make = lambda c, v, voice, *ps: self.w.a.in_client(OPERATOR, t, c, lambda tx: recordings.create_set(   # noqa: E731
+            tx, unit="business", voice_name=voice, version_id=v, parts=list(ps)))
+        current = lambda c, v, voice: self.w.a.in_client(OPERATOR, t, c, lambda tx: recordings.current_sets(   # noqa: E731
+            tx, v, voice))["business"]
+        unheard = lambda c, sid: self.w.a.in_client(OPERATOR, t, c, lambda tx: recordings.unapproved_parts(tx, sid))  # noqa: E731
+        same = make(a, va, "Leda", intro("Leda"))                                  # 同じ中身（置き場は違う）＝承認を待たずにそろう
+        self.assertEqual((unheard(a, same), current(a, va, "Leda")), ([], same))
+        grown = make(a, va, "Leda", intro("Leda"), q1)                             # 足した部分だけ聞く・聞くまでは前の組のまま
+        self.assertEqual((unheard(a, grown), current(a, va, "Leda")), (["Q1"], same))
+        self.w.a.in_client(OPERATOR, t, a, lambda tx: recordings.approve(tx, grown))
+        self.assertEqual(current(a, va, "Leda"), grown)
+        later = make(a, va, "Leda", intro("Leda"), q1)                             # 同じ中身の組を作り直しても、そのまま流せる
+        self.assertEqual((unheard(a, later), current(a, va, "Leda")), ([], later))
+        for c, v, voice, part, why in ((a, va, "Sadachbia", intro("Sadachbia"), "ほかの声"),
+                                       (b, vb, "Leda", intro("Leda"), "ほかの依頼者"),
+                                       (a, va, "Leda", tail, "ほかの持ち主（契約者）"),
+                                       (a, va, "Leda", intro("Leda", "9" * 64), "ほかの音声")):
+            with self.subTest(why=why):
+                sid = make(c, v, voice, part)
+                self.assertEqual(unheard(c, sid), ["intro"])
+                self.assertNotEqual(current(c, v, voice), sid)
+        empty = self.w.a.in_client(OPERATOR, t, a, lambda tx: tx.one(             # 部分の無い組は、そろわない
+            "INSERT INTO salescall.recording_sets (tenant_id, client_id, unit, voice_name, version_id, created_at)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'business', 'Leda', %s, now() + interval '1 year')"
+            " RETURNING set_id, created_at <= now() AS stamped", (va,)))
+        self.assertTrue(empty["stamped"])                                          # 渡した未来の時刻は使わない
+        self.assertEqual(current(a, va, "Leda"), later)
+
     def test_recording_part_names_take_the_same_letters_as_question_ids(self):
         """質問の録音の部品の名前は、質問の番号。番号に使える「-」を、部品の名前も受け付ける（前は、「-」のある番号の質問の録音を
         入れられなかった。0103。見直し9）。番号に使えない文字は、部品の名前にも使えない。"""
@@ -1245,6 +1289,20 @@ class CallerNumberAndVoice(Base):
         new = make("Leda", part("Leda", "なかじま"))
         approve(new)
         self.assertEqual(current("Leda"), new)                                     # その読みで録り直した声から話す
+        # 承認は中身（文・音声・選んだ読み）に付く（0172）：前の読みで聞いて承認した文と音声に、いまの読みの印だけを付けた組は、
+        # 聞かずにはそろわない（部品の確かめを通らない書き方でも＝データベースの鍵が読みまで見る）
+        def relabeled(tx):
+            sid = tx.one("INSERT INTO salescall.recording_sets (tenant_id, client_id, unit, voice_name, version_id)"
+                         " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'business', 'Leda', %s) RETURNING set_id", (vid,))["set_id"]
+            tx.execute("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
+                       " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q1', %s, 'test://Leda/again', %s)",
+                       (sid, part("Leda", "なかしま").spoken_text, "4" * 64))
+            tx.execute("INSERT INTO salescall.recording_readings (tenant_id, client_id, set_id, part, name_text, reading)"
+                       " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q1', '中島', 'なかじま')", (sid,))
+            return sid
+        odd = self.tx(s, relabeled, OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.unapproved_parts(tx, odd)), ["Q1"])
+        self.assertEqual(current("Leda"), new)
         with self.assertRaises(Rejected) as e:                                     # データベースも、選んだ読みと違う読みを断る
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.recording_readings (tenant_id, client_id, set_id, part, name_text, reading)"

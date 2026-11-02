@@ -133,9 +133,17 @@ def _edited(migration: str, start: str, old: str, new: str, *, end: str = "END $
     return edited
 
 
+def _view_edited(migration: str, start: str, old: str, new: str) -> str:
+    """壊し試し用に、表の作りの1つの見方（start から最初の「;」まで）の old を new に替えた形を返す（`_edited` の見方の版。見方を
+    写して持たない）。"""
+    return _edited(migration, start, old, new, end=";").replace("CREATE VIEW", "CREATE OR REPLACE VIEW", 1)
+
+
 # データベースの守りを、わざと1つずつ外す。外したら、その守りを試す試験が本当に落ちることを確かめる（DESIGN.md 14章：
 # 落ちることを確かめていない見張りは、見張っていないのと同じ）。守りを足したら、ここにも足す。
 _M139 = "0139_ring_hours_gaps_and_our_troubles.sql"
+_M172 = "0172_approval_belongs_to_content.sql"
+_CONTENT = "tests.test_gate.CallerNumberAndVoice.test_an_approval_belongs_to_the_content_of_the_recording"
 _VOICE_COMMON = "tests.test_gate.CallerNumberAndVoice.test_a_voice_is_used_only_when_its_common_set_holds_every_common_part"
 _T139 = "tests.test_troubles.OurTroubles."
 _M141 = "0141_review20a_hold_runs_and_calls.sql"
@@ -820,6 +828,35 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("読みを選び直しても、前の読みの録音の組を流す（0100）",
      "CREATE OR REPLACE FUNCTION salescall.recording_set_fits(p_set uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
      ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("組がそろったかで、その版の読みと合うかを見ない（0172：読みを選び直しても、前の読みの録音の組を流す）",
+     _edited(_M172, "CREATE FUNCTION salescall.set_ready(", "\n     AND salescall.recording_set_fits(p_set)", "", end="\n$$"),
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("部分の承認を、その組を承認したかだけで決める（0172 の前の形：版が変わると、同じ中身まで聞き直す）",
+     "CREATE OR REPLACE VIEW salescall.part_states WITH (security_invoker = true) AS SELECT k.set_id, k.part,"
+     " EXISTS (SELECT 1 FROM salescall.recording_approvals p WHERE p.set_id = k.set_id) AS approved FROM salescall.part_contents k",
+     (_CONTENT,)),
+    ("同じ中身の承認を、持ち主の違う部分にも使う（0172：契約者の持ち物の録音の承認で、依頼者の業務の録音を流す）",
+     _view_edited(_M172, "CREATE VIEW salescall.part_states", " AND a.client_id IS NOT DISTINCT FROM s.client_id", ""),
+     (_CONTENT,)),
+    ("同じ中身の承認を、ほかの声の部分にも使う（0172：聞いていない声の録音を流す）",
+     _view_edited(_M172, "CREATE VIEW salescall.part_states", "a.voice_name = s.voice_name AND ", ""),
+     (_CONTENT,)),
+    ("同じ文なら、音声の中身が違っても承認済みにする（0172：聞いていない音声を流す）",
+     _edited(_M172, "CREATE FUNCTION salescall.content_of(", "chr(31) || r.audio_sha256 || ", "", end="\n$$"),
+     (_CONTENT,)),
+    ("部分の無い組もそろったとする（0172：流す録音の無い組が、いまの組になる）",
+     _edited(_M172, "CREATE FUNCTION salescall.set_ready(", "SELECT EXISTS (SELECT 1 FROM salescall.recordings WHERE set_id = p_set)\n     AND ",
+             "SELECT ", end="\n$$"),
+     (_CONTENT,)),
+    ("読みを足しても、部分の中身の鍵を作り直さない（0172：選んだ読みの違う録音を、聞かずにそろったとする）",
+     "DROP TRIGGER part_contents_put ON salescall.recording_readings",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("組を承認しても、承認した中身の台帳に書かない（0172：聞いて承認した録音が、いつまでもそろわない）",
+     "DROP TRIGGER approved_contents_add ON salescall.recording_approvals",
+     (_CONTENT,)),
+    ("録音の組を作った時刻を、書く側が渡せる（0172：未来の時刻の組が、いつまでもいまの組になる）",
+     "DROP TRIGGER stamp_now ON salescall.recording_sets",
+     (_CONTENT,)),
     ("名前の読みを、システムの処理が選べる（0100）",
      "DROP TRIGGER version_name_reading_by_person ON salescall.version_name_readings",
      ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
