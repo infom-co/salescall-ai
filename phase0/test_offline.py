@@ -9175,6 +9175,12 @@ class TargetTest(unittest.TestCase):
         parts = {k for k in b.replay_parts() if not k.startswith(ANSWER_PREFIX)}
         missing = (set(CALLBACK_IDS.values()) | {SUBSTITUTE_ID} | parts) - names("RESERVED_IDS")
         self.assertFalse(missing, f"CL-2 の RESERVED_IDS に無い名前：{sorted(missing)}")
+        # CL-2 の 4-185 の (b)：システムが足す答えの日本語の名前（伺う答え ask_if に来る）が、会話の側の中の名前へ1か所（condition）で置き換わるか
+        from flowctl import ANY, NONE, SYSTEM_CONDITIONS, condition, label
+        rules = ast.parse((src.parent / "business_rules.py").read_text(encoding="utf-8"))
+        none_name = next(n.value.value for n in rules.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "NONE_CHOICE")
+        theirs = names("SYSTEM_CHOICES") | {consts["ANY_CHOICE"], none_name}
+        self.assertEqual(({condition(x) for x in theirs}, {label(condition(x)) for x in theirs}), ({*SYSTEM_CONDITIONS, ANY, NONE}, theirs))
 
     def test_answer_names_must_not_be_part_names(self):
         # 想定問答の問いの名前が、AIが選ぶ部分の名前（中の名前・日本語の名前）と同じなら、会話の始めに断る（AIの報告は日本語の名前を
@@ -10334,6 +10340,39 @@ class ApprovalTest(unittest.TestCase):
         r = AmbiguousAnswerTest.say(h, "確認する時間がないんです。", "record_answer", question_id="Q1", condition_id="unknown")
         self.assertEqual([p.get("text") for p in r["play"]][-1], self.INTRO + "以上の内容でよろしいでしょうか？")   # 録音で流す形（入る一言＋質問の1本）
 
+    def test_follow_ups_keep_the_script_order(self):
+        # ⛔ CL-2 の 4-185 の (2)：同じ前の質問の答えで伺う質問が2つ以上あると、どれも前の質問のすぐあとに入れ、トークスクリプトの順と逆になっていた
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
+                  Question("Q2", "お送りし直してもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), ask_if=("Q1", ("いいえ",))),
+                  Question("Q3", "送り先はお変わりございませんでしょうか？", "yes_no", conditions=("はい", "いいえ"), ask_if=("Q1", ("いいえ",))),
+                  Question("Q4", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        AmbiguousAnswerTest.say(f, "いえ、届いていないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        self.assertEqual(f.order[f.order.index("Q1"):], ["Q1", "Q2", "Q3", "Q4"])
+
+    def test_not_agreed_keys_match_cl2_report(self):
+        # ご納得いただけなかった点の記録（通話の事実 not_agreed）の鍵が、CL-2 の会話の報告の読み手（call_report._not_agreed）の受ける鍵に
+        # 全部入っているか（知らない鍵が来ると、報告が丸ごと断られる）。ご説明した記録と、お断りしようとしている記録の両方を作って比べる。
+        # CL-2 の部品（app/）が無い所では飛ばす。ast で読む（CL-2 の 4-185 の (1) で、鍵を足す順を決めるため＝CL-2 が先に受ける）
+        import ast
+        import pathlib
+        from flowctl import CALLBACK_IDS
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "call_report.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の報告の読み手（app/）がまだ無い")
+        fn = next(n for n in ast.walk(ast.parse(src.read_text(encoding="utf-8"))) if isinstance(n, ast.FunctionDef) and n.name == "_not_agreed")
+        call = next(n for n in ast.walk(fn) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_keys")
+        accepted = {x.value for x in ast.walk(call.args[1]) if isinstance(x, ast.Constant) and isinstance(x.value, str)}
+        n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        g = self.flow(goal=True)
+        AmbiguousAnswerTest.say(g, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        AmbiguousAnswerTest.say(g, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        AmbiguousAnswerTest.say(g, "料金のところですね。", "record_answer", question_id=n1, condition_id="点を言った", value="料金のところ")
+        self.explained(g, "answer_料金")
+        AmbiguousAnswerTest.say(g, "でもやっぱり、今の業者で十分なので。", "record_answer", question_id=n2, condition_id="断ろうとしている")
+        written = {k for e in g.facts["not_agreed"] for k in e}
+        self.assertEqual((len(g.facts["not_agreed"]), sorted(written - accepted)), (2, []), "ご納得いただけなかった点の記録で、CL-2 が受けない鍵")
+
     @staticmethod
     def explained(f, part):
         """想定問答の答えでご説明し、お客様の返事を聞いてから質問に戻る。"""
@@ -11423,6 +11462,69 @@ class OwnWordsTest(unittest.TestCase):
         self.assertEqual((r["result"], r.get("say"), [p.get("id") for p in r.get("play") or []], info["grounding"][0].get("late"),
                           info["grounding"][0].get("late_verdict")), ("own_answer", None, ["talk_agree_light"], True, UNGROUNDED))
         self.assertIn(UNCHECKED, r["message"])
+
+
+class ImportAITest(unittest.TestCase):
+    """取込のとき AI に聞いて決める処理を、CL-2 の取込の受け口の形で作る1か所（import_ai。CL-2 の連絡帳 4-184 の (a)）。"""
+
+    class Fake:
+        """文字のモデルの代わり（generate_content だけ）。answer(問い合わせの文) → JSON の items。fail なら誤り。"""
+
+        def __init__(self, answer=None, fail=False):
+            self.calls, self.answer, self.fail = [], answer, fail
+            self.models = self
+
+        def generate_content(self, model, contents, config):
+            import json
+            import types as t
+            self.calls.append(contents)
+            if self.fail:
+                raise RuntimeError("503 混んでいます")
+            return t.SimpleNamespace(text=json.dumps({"items": self.answer(contents)}, ensure_ascii=False))
+
+    Q = "パンフレットをお送りしてもよろしいでしょうか？"
+    MEANING = {"はい": "パンフレットをお送りしてよいということ", "いいえ": "パンフレットはお送りしないということ"}
+
+    def test_do_words_need_both_models_and_the_meaning_direction(self):
+        import import_ai
+        words = {"はい": "パンフレットをお送り", "いいえ": "パンフレットの送付は控え"}
+        same = lambda _: [{"no": 1, "choice": c, "words": w} for c, w in words.items()]
+        a, b = self.Fake(same), self.Fake(same)
+        d = import_ai.deciders([(a, "m1"), (b, "m2")])["decide_do_words"]
+        self.assertEqual(d([(self.Q, ("はい", "いいえ"), self.MEANING)]), [words])
+        self.assertEqual((len(a.calls), len(b.calls)), (1, 1))   # 1つのモデルに1回だけ
+        # 意味の言葉と向きが逆の選択肢は決めない（G-72：2つのモデルがそろって向きを取り違えた）
+        flipped = {"はい": self.MEANING["いいえ"], "いいえ": self.MEANING["はい"]}
+        self.assertEqual(d([(self.Q, ("はい", "いいえ"), flipped)]), [{}])
+        # 片方のモデルが答えない（誤り）＝決まらない側（止めない）。誤りは on_error に渡す
+        seen = []
+        d = import_ai.deciders([(self.Fake(same), "m1"), (self.Fake(fail=True), "m2")], on_error=lambda e, m: seen.append(m))["decide_do_words"]
+        self.assertEqual((d([(self.Q, ("はい", "いいえ"), self.MEANING)]), seen), ([{}], ["m2"]))
+        self.assertEqual(d([]), [])
+
+    def test_rules_decide_without_asking_the_models(self):
+        # 質問の文の決まりで決まるもの（単位の数える言葉）は、モデルに聞かない
+        import import_ai
+        a, b = self.Fake(lambda _: []), self.Fake(lambda _: [])
+        d = import_ai.deciders([(a, "m1"), (b, "m2")])
+        self.assertEqual(d["decide_units"]([("ご来店のご予約", "何名様でお越しになりますか？")]), {"何名様でお越しになりますか？": "名"})
+        self.assertEqual((a.calls, b.calls), ([], []))
+        with self.assertRaises(TypeError):   # 業務の目的の無い渡し方（文だけ）は止める（2文字の文でも黙って通さない）
+            d["decide_units"](["何名"])
+        with self.assertRaises(AssertionError):   # 1つのモデルでは何も決まらない形を作らない
+            import_ai.deciders([(a, "m1")])
+
+    def test_shapes_match_cl2_import(self):
+        # 引数の名前（preview の決める処理）が CL-2 の取込と同じか。CL-2 の部品（app/）が無い所では飛ばす。ast で読む
+        import ast
+        import pathlib
+        import import_ai
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "business_import.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の取込（app/）がまだ無い")
+        fn = next(n for n in ast.walk(ast.parse(src.read_text(encoding="utf-8"))) if isinstance(n, ast.FunctionDef) and n.name == "preview")
+        theirs = {a.arg for a in fn.args.kwonlyargs + fn.args.args if a.arg.startswith("decide_")}
+        self.assertEqual(sorted(theirs ^ set(import_ai.DECIDERS)), [], "CL-2 の取込とこちらで、決める処理の名前が違う")
 
 
 if __name__ == "__main__":

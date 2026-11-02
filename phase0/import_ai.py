@@ -1,0 +1,118 @@
+"""取込のとき AI に1回だけ聞いて決めることを、CL-2 の取込（app の `business_import.preview`・`ask_ai`）の受け口の形で作る1か所。
+
+✅ CL-2 の連絡帳 4-184 の (a)・4-185 の「4-65 (a) の追記」（2026-11-02）：「こちらがすることの言葉を決める関数がまだありません：意味の言葉の
+   meanings.by_model／decide と同じ形の関数を作っていただけますか」。⛔ 単位・聞くこと・意味の言葉・曖昧な言葉の意味・事実を伺う質問か、
+   も同じく「決め方は CL-1 の1か所」と CL-2 の受け口に書かれているのに、モデル2つに聞いて合わせる所が、どこにも無かった（4-14 では
+   取込の側で by_model と decide を呼ぶように頼んだ＝合わせ方を取込の側に書くことになり、決め方が2か所に分かれる）。⇒ 6つとも、ここで作る。
+- 決め方そのものは、それぞれの1か所（units.decide・topics.decide・meanings.decide・meanings.decide_replies・facts.decide）。ここは
+  「どのモデルに・どの並びで聞き・どう合わせるか」だけ（質問の文の決まりで決まるもの＝units・topics の by_rule は、モデルに聞かない）。
+- askers＝[(client, モデルの名前)]（2つ以上）。測った組は 3.8 Flash・3.7 Flash（G-41・G-43・G-48・G-71・G-72）。
+  ⛔ 本番では無料の枠を使わない（依頼者のトークスクリプトは依頼者のデータ）＝呼ぶ側が有料のキーの client を渡す。
+- 問い合わせが誤りで答えなければ、そのモデルの答えは無いとして決める（決まらない側＝単位・聞くこと・言葉は空、事実を伺う質問か
+  は「伺う質問」。会話は止まらない＝4-14）。誤りは on_error(誤り, モデルの名前) に渡す（本番では CL-2 の watch.after_error へ渡す所＝
+  CL-2 の連絡帳 4-46 の 1。ここで再試行・キーの切り替えはしない）。
+"""
+from __future__ import annotations
+
+from typing import Callable
+
+import facts
+import meanings
+import topics
+import units
+
+Asker = tuple   # (client, モデルの名前)
+
+
+def _each(askers: list[Asker], ask: Callable, empty, on_error: Callable | None) -> list:
+    """モデルごとに1回だけ聞く（誤りなら、そのモデルの答えは empty）。"""
+    out = []
+    for client, model in askers:
+        try:
+            out.append(ask(client, model))
+        except Exception as exc:   # 答えが無い＝決まらない側に倒す（止めない）
+            if on_error is not None:
+                on_error(exc, model)
+            out.append(empty)
+    return out
+
+
+def decide_units(askers: list[Asker], questions: list[tuple[str, str]], on_error: Callable | None = None) -> dict[str, str]:
+    """(業務の目的, 質問の文) の並び → 文ごとの単位（決まらない文は入れない）。⚠️ CL-2 の UnitDecider は文だけを受ける形（目的が無い）。
+    G-41 は目的と一緒に聞いて測った＝目的を渡していただく（CL-2 の連絡帳への頼み・帳面 4-69）。"""
+    if any(not isinstance(x, (tuple, list)) or len(x) != 2 for x in questions):
+        raise TypeError("単位は (業務の目的, 質問の文) の並びで渡す（文だけでは決めない。CL-1 の帳面 4-69）")
+    ask = [(p, q) for p, q in questions if not units.by_rule(q)]
+    rows = _each(askers, lambda c, m: units.by_model(c, m, ask), [{"unit": ""}] * len(ask), on_error) if ask else []
+    at = {q: i for i, (_, q) in enumerate(ask)}
+    out = {}
+    for _, q in questions:
+        u = units.decide(q, [r[at[q]].get("unit", "") for r in rows] if q in at else [])
+        if u:
+            out[q] = u
+    return out
+
+
+def decide_topics(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, str]:
+    """質問の文の並び → 文ごとの聞くこと（決まらない文は入れない）。CL-2 の TopicDecider の形。"""
+    ask = [t for t in texts if not topics.by_rule(t)]
+    rows = _each(askers, lambda c, m: topics.by_model(c, m, ask), [""] * len(ask), on_error) if ask else []
+    at = {t: i for i, t in enumerate(ask)}
+    out = {}
+    for t in texts:
+        got = topics.decide(t, [r[at[t]] for r in rows] if t in at else [])
+        if got:
+            out[t] = got
+    return out
+
+
+def decide_facts(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, bool]:
+    """質問の文の並び → 文ごとの「事実を伺う質問か」（決まらなければ真＝facts.decide）。CL-2 の FactDecider の形。"""
+    if not texts:
+        return {}
+    rows = _each(askers, lambda c, m: facts.by_model(c, m, texts), [None] * len(texts), on_error)
+    return {t: facts.decide([r[i] for r in rows]) for i, t in enumerate(texts)}
+
+
+def _pairs(questions: list[tuple]) -> list[tuple[str, tuple]]:
+    return [(q[0], tuple(q[1])) for q in questions]
+
+
+def decide_meanings(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[dict[str, str]]:
+    """(質問の文, 選択肢の並び) の並び → 同じ並びで {選択肢: 意味の言葉}（決まらない選択肢は入れない）。CL-2 の MeaningDecider の形。"""
+    pairs = _pairs(questions)
+    if not pairs:
+        return []
+    rows = _each(askers, lambda c, m: meanings.by_model(c, m, pairs, "meaning"), [{}] * len(pairs), on_error)
+    return [meanings.decide(t, c, [r[i] for r in rows], "meaning") for i, (t, c) in enumerate(pairs)]
+
+
+def decide_replies(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[dict[str, str]]:
+    """(質問の文, 選択肢の並び) の並び → 同じ並びで {曖昧な言葉: 選択肢}（決まらない言葉は入れない）。CL-2 の ReplyDecider の形。"""
+    pairs = _pairs(questions)
+    if not pairs:
+        return []
+    rows = _each(askers, lambda c, m: meanings.by_model_replies(c, m, pairs), [{}] * len(pairs), on_error)
+    return [meanings.decide_replies(c, [r[i] for r in rows]) for i, (_, c) in enumerate(pairs)]
+
+
+def decide_do_words(askers: list[Asker], questions: list[tuple[str, tuple, dict]], on_error: Callable | None = None) -> list[dict[str, str]]:
+    """(質問の文, 選択肢の並び, その質問の意味の言葉 {選択肢: 意味の言葉}) の並び → 同じ並びで {選択肢: こちらがすることの言葉}
+    （決まらない選択肢は入れない）。CL-2 の DoWordsDecider の形。言葉の向き（打ち消しか）が意味の言葉の向きとそろうときだけ決まる
+    （meanings.decide の meanings。G-72＝2つのモデルがそろって向きを取り違えた）。事実を伺う質問を入れないのは呼ぶ側（CL-2 の取込）。"""
+    pairs = _pairs(questions)
+    if not pairs:
+        return []
+    rows = _each(askers, lambda c, m: meanings.by_model(c, m, pairs, "do"), [{}] * len(pairs), on_error)
+    return [meanings.decide(t, c, [r[i] for r in rows], "do", dict(questions[i][2] or {}) or None) for i, (t, c) in enumerate(pairs)]
+
+
+DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
+            "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words}
+
+
+def deciders(askers: list[Asker], on_error: Callable | None = None) -> dict[str, Callable]:
+    """CL-2 の取込（business_import.preview・ask_ai）に渡す決める処理（引数の名前 → 処理）。askers は2つ以上（2つのモデルが合うときだけ
+    決める＝1つでは何も決まらない）。"""
+    assert len(askers) >= 2, "取込で決めることは、2つ以上のモデルが合うときだけ決める"
+    return {name: (lambda qs, fn=fn: fn(askers, qs, on_error)) for name, fn in DECIDERS.items()}

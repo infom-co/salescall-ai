@@ -1210,6 +1210,13 @@ def unsure_counts(kind: str, value: str, answer: bool = True) -> str | None:
 def label(cond: str | None) -> str | None:
     """選択肢の中の名前 → AIに見せる名前・依頼主へ渡す名前（業務の選択肢はそのまま）。"""
     return ANY_LABEL if cond == ANY else NONE_LABEL if cond == NONE else SYSTEM_LABEL.get(cond) or CONFIRM_LABEL.get(cond, cond)
+
+
+def condition(name: str) -> str:
+    """選択肢の日本語の名前 → 中の名前（label の逆・AIの報告を読む所と同じ表 _FROM_LABEL。業務の選択肢はそのまま）。CL-2 の業務設定の
+    伺う答え（ask_if の答え）は日本語の名前（「わからない」「どれも要らない」など）で来る＝会話へ渡すところ（フェーズ1のつなぎ）で、
+    この1か所で置き換える（CL-2 の連絡帳 4-185 の (b)）。"""
+    return _FROM_LABEL["condition_id"].get(name, name)
 # AIが呼べる操作（6-2）と、その項目（中の名前）：(必ず要る項目, 無くてもよい項目)。操作の宣言（tool_declarations）と、
 # 受け取ったときの確かめ（Flow._check_args）は、この表だけを使う（宣言と確かめが食い違わないように）
 OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value", "until_why", "cycle", "unknown_why")),
@@ -1463,7 +1470,7 @@ class Question:
     # ✅ 2026-11-02 日本時間4時16分 ユーザー：「相手が資料を見ていなくても業務の進展ができるのであれば、そのまま進めたらいいと思いますし、確認しないと
     # 進められないのであれば、こちらから重要な事項を説明して、それの承認をもらう形になるんじゃないでしょうか。」（形だけ作る＝「今回は形だけ作ります：OK」）
     ask_if: tuple = ()
-    # 説明した内容のご承認を伺う質問か（はい／いいえの型。説明の文は、この質問に入る一言＝intro）。2つ目の選択肢（ご承認いただけない）のときは、
+    # 説明した内容のご承認を伺う質問か（はい／いいえの型。説明の文は、この質問に入る一言＝intro か、質問の文そのもの。最初の質問は入る一言を持てない＝CL-2 の 4-185 の (4)）。2つ目の選択肢（ご承認いただけない）のときは、
     # 「ご納得いただけなかった点はどの部分になりますでしょうか？」を1回伺い（システムの質問 N1）、答えは通話の事実 not_agreed に残す（依頼者へ返す）。
     # 業務の最終目的の質問なら、伺ったあとで締める（その業務はかけない＝_goals_lost）。✅ 2026-11-02 日本時間4時36分 ユーザー：「(b) いいえ＝「ご納得いた
     # だけなかった点はどの部分になりますでしょうか？」のような確認が必要ではないですか？」
@@ -5397,13 +5404,16 @@ class Flow:
         本日のお戻りのご予定を伺い、「いいえ」でなければ、改めてお掛けしてよいかを伺う（✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」。
         CL-2 の連絡帳 4-140 (a)：「不在なら、出られる日時を聞き出す。聞き出せなかったら、その日はかけない」＝答えはかけ直しの記録の
         back_today・again。同じ日にまたかけるかは CL-2 の次の動きが決める）。"""
+        last: dict[str, str] = {}   # 前の質問ごとの、いま入れた質問（同じ前の質問で伺う質問は、トークスクリプトの順に続けて入れる）
         for q in list(self.questions.values()):   # 回しながら N1 を足すので、写しを回す
             # 前の質問の答えで伺うかが決まる質問（Question.ask_if）：その答えを受け取ったら、前の質問のすぐあとに入れる（並びを戻されても、また入る）
             if q.ask_if and q.id not in self.order and self.items[q.id].state == "empty":
                 src, conds = q.ask_if
                 got = self.items.get(src)
                 if got is not None and got.state in TAKEN and got.condition in conds:
-                    self._insert_after(src, q.id)
+                    # ⛔ 2026-11-02（CL-2 の 4-185 の (2)）まで、どれも前の質問のすぐあとに入れ、2つ以上あるとトークスクリプトの順と逆になった
+                    self._insert_after(last.get(src, src), q.id)
+                    last[src] = q.id
         self._point_step()
         if self.callback_why != "absent":
             return
