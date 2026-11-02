@@ -198,7 +198,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                     if any("unsure" in t for t in exc.tried):
                         # 確からしさが線より下の読みだけが届いた：どう数えるかは流れの制御が決める
                         flow.on_unsure(kind, next(t["unsure"] for t in exc.tried if "unsure" in t), turn, said,
-                                       end=next((t["end"] for t in exc.tried if "unsure" in t and t.get("end")), None))   # 電話を終える言葉かの寄り
+                                       end=next((t["end"] for t in exc.tried if "unsure" in t and t.get("end")), None),   # 電話を終える言葉かの寄り
+                                       hear=next((t["hear"] for t in exc.tried if "unsure" in t and t.get("hear")), None))   # こちらの声が届いていない様子かの寄り
                     for t in exc.tried:
                         if "stop_only" in t:
                             # 止める側だけの判定（お呼びする段の 3.5 Flash Lite＝meaning_judge.STOP_ONLY）の読み：答えにはせず、止める側だけに使う

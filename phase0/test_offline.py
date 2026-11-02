@@ -2705,7 +2705,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertEqual(target_reading(TARGET_IS_THERE, HANDOVER, A), (TARGET_IS_THERE, False, True))         # 代わったご本人
         self.assertEqual(target_reading(TARGET_IS_THERE, N, TARGET_IS_AWAY), (TARGET_IS_THERE, True, False))   # ご本人がいまは話せない
         self.assertEqual(target_reading(TARGET_IS_NOT, N, A), (TARGET_IS_NOT, False, False))
-        sp, _, ph, ab, _ = target_facets()
+        sp, _, ph, ab = target_facets()[:4]
         self.assertEqual(set(sp.choices), {SPEAKER_SAME, SPEAKER_NEW})   # 第1層はユーザーの形のとおり2つ（10-30）
         self.assertEqual(set(ph.choices), {N, HOLD})       # 電話を代わった方が話し始めたことは、前と同じ方かの物差し（10-30）
         self.assertEqual(set(ab.choices), {A, TARGET_IS_AWAY, ABOUT_DEPARTED})
@@ -2741,11 +2741,11 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
                 self.assertEqual(head.count(f"- {n}：{d}"), 1)
             for note in fc.notes:
                 self.assertEqual(head.count(f"・{note}\n"), 1)   # 見分け方も1回だけ
-        self.assertEqual(_schema(q, None)["required"], [SPEAKER, WHO, PHONE, ABOUT, "end"])   # 電話を終える言葉か（2026-11-01）
+        self.assertEqual(_schema(q, None)["required"], [SPEAKER, WHO, PHONE, ABOUT, "end", "hear"])   # 電話を終える言葉か（11-01）・届いていない様子か（11-02）
         self.assertEqual(_schema(q, None)["properties"][ABOUT]["enum"], list(ab.choices))
         # Jev：項目ごとに1つの問い（言い切っているかは問わない）。確かめの線は、項目のうち一番低い確からしさで当てる
         jq = jev_request("m", q, "いいえ、山田と申します。")["questions"]
-        self.assertEqual((list(jq), jq[ABOUT]["criteria"]), ([SPEAKER, WHO, PHONE, ABOUT, "end"], ab.choices))   # 電話を終える言葉か（2026-11-01）
+        self.assertEqual((list(jq), jq[ABOUT]["criteria"]), ([SPEAKER, WHO, PHONE, ABOUT, "end", "hear"], ab.choices))   # 答えとは別に読む項目（11-01・11-02）
         # Jev にも、見分け方と言葉の決まりを、判定の文と同じ1か所から渡す（言葉の決まりは、その言葉を説明に使う項目だけ）
         who_q = q.facets[1]
         self.assertTrue(all(n in jq[WHO]["instructions"] for n in who_q.notes) and all(t in jq[WHO]["instructions"] for t in q.terms))
@@ -3210,8 +3210,8 @@ class AmbiguousAnswerTest(unittest.TestCase):
         text = prompt(ans, "差し控えさせていただきます。")
         self.assertIn(FIRM_RULE, text)
         self.assertNotIn("会話になっているか", text)
-        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end"])   # 電話を終える言葉か（答えとは別の項目。2026-11-01）
-        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, "end"})
+        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end", "hear"])   # 電話を終える言葉か（答えとは別の項目。2026-11-01）
+        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, "end", "hear"})
 
     def test_end_item_is_asked_apart_from_the_answer(self):
         # ✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」＝電話を終える言葉か（通話・営業を断った・急いでいる・怒っている・取り次げない）を、
@@ -3225,9 +3225,11 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual(set(end_choices(False)), {END_NONE, END_REFUSED, END_HURRY, END_ANGRY, UNDECIDED})
         self.assertEqual(set(end_choices(True)), set(end_choices(False)) | {END_REASONED, END_UNCLEAR, END_WHO})
         self.assertEqual(set(END_REASON), {END_REFUSED, END_HURRY, END_ANGRY, END_REASONED, END_UNCLEAR, END_WHO})
-        self.assertEqual(target_facets()[-1].key, END)                       # お呼びする段は項目の1つ
-        self.assertEqual(set(target_facets()[-1].choices), set(end_choices(True)))
-        self.assertEqual(answer_items(q), {END: end_choices(False)})          # 答えの段は答えとは別の項目
+        from flowctl import HEAR, hear_choices
+        facets = {f.key: f for f in target_facets()}                         # お呼びする段は項目の1つ（答えとは別に読む項目の表 SIDE_ITEMS から）
+        self.assertEqual((set(facets[END].choices), set(facets[HEAR].choices)), (set(end_choices(True)), set(hear_choices(True))))
+        self.assertEqual(answer_items(q), {END: end_choices(False), HEAR: hear_choices(False)})   # 答えの段は答えとは別の項目（同じ表から）
+        self.assertTrue(all(d in prompt(q, "x") for d in hear_choices(False).values()))
         text = prompt(q, "結構です。もうかけてこないでください。")
         self.assertTrue(all(d in text for d in end_choices(False).values()))
         self.assertEqual(_schema(q, None)["properties"][END]["enum"], list(end_choices(False)))
@@ -6892,6 +6894,32 @@ class EndJudgedTest(unittest.TestCase):
     def heard(self, f, text, reading):
         f.on_callee(); f.on_heard(text); f.on_check("judge", reading)
 
+    def test_cut_says_when_our_voice_did_not_reach(self):
+        # ✅ 2026-11-02 日本時間21時16分 ユーザー「(ア) OK、お勧めの形で進めてください」＝お客様にこちらの声が届いていない様子を、言葉の形で
+        # 拾わず判定AIで読み、切れ方の callee_cannot_hear に（CL-2 の 4-166：営業拒否にせず、お詫びとともにかけ直す）
+        from flowctl import END_NONE, HEAR_LOST, HEAR_OK
+        def R(hear):
+            r = self.R("はい", END_NONE)
+            r.hear = hear
+            return r
+        f = self.flow()
+        self.heard(f, "もしもし？聞こえてますか？", R(HEAR_LOST))
+        self.assertTrue(f.on_line_end(ai_speaking=False)["callee_cannot_hear"])
+        g = self.flow()                                                       # 切れる直前の言葉の読みは、切れたあとに届くことが多い
+        g.on_callee(); g.on_heard("もしもし？")
+        self.assertFalse(g.on_line_end(ai_speaking=False)["callee_cannot_hear"])
+        g.on_check("judge", R(HEAR_LOST))
+        self.assertTrue(g.cut["callee_cannot_hear"])                          # 報告を作るとき（cut を読むとき）に決める
+        h = self.flow()                                                       # 確かでない読みでも数える（読み過ぎても取り消せる側）
+        h.on_callee(); h.on_heard("もしもーし")
+        h.on_unsure("judge", "はい", hear=HEAR_LOST)
+        self.assertTrue(h.on_line_end(ai_speaking=False)["callee_cannot_hear"])
+        k = self.flow()                                                       # 前の言葉でそう読んでも、最後の言葉がふつうなら数えない
+        self.heard(k, "もしもし？", R(HEAR_LOST))
+        self.heard(k, "あ、聞こえました。はい、大丈夫です。", R(HEAR_OK))
+        self.assertFalse(k.on_line_end(ai_speaking=False)["callee_cannot_hear"])
+        self.assertIsNone(self.flow().cut)                                    # 切れていなければ None
+
     def test_the_judge_decides_the_reason_not_the_ai(self):
         from flowctl import END_NONE, END_REFUSED
         # 判定が「断った」と読めば、会話AIが「急いでいる」と報告しても、発信の拒否で締める（もうかけない＝原則14）
@@ -9234,12 +9262,12 @@ class TargetTest(unittest.TestCase):
         f, b = self.flow()
         self.say(f, "営業のお電話でしたら結構です。お断りしております。", "request_end", reason="callee_refused_call")
         self.assertEqual(f.on_line_end(ai_speaking=True, callee_speaking=False),
-                         {"speaker": "ai", "in_closing": True, "callee_refused_last": True})        # 断りを受けて締めの言葉の途中
+                         {"speaker": "ai", "in_closing": True, "callee_refused_last": True, "callee_cannot_hear": False})   # 断りを受けて締めの言葉の途中
         self.assertEqual(f.on_line_end(ai_speaking=False, callee_speaking=True)["speaker"], "ai")   # 2回目は最初の瞬間のまま
         f, b = self.flow()
         self.say(f, "少々お待ちください。", "report_party", party="reception")
         self.assertEqual(f.on_line_end(ai_speaking=True, callee_speaking=True),
-                         {"speaker": "callee", "in_closing": False, "callee_refused_last": False})  # 相手の言葉の途中（AIも話していた）
+                         {"speaker": "callee", "in_closing": False, "callee_refused_last": False, "callee_cannot_hear": False})  # 相手の言葉の途中
         for ai, callee, speaker in ((True, False, "ai"), (False, False, "none"), (None, False, None)):
             f, b = self.flow()
             self.say(f, "少々お待ちください。", "report_party", party="reception")

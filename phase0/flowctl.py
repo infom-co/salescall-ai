@@ -933,6 +933,32 @@ def end_choices(calling: bool) -> dict:
     return out | {UNDECIDED: "この言葉からは、この電話を終えたいのかどうか決められない（断りとも、ほかの意味とも取れる など）"}
 
 
+HEAR, HEAR_HEADING = "hear", "こちらの声が届いていない様子か"
+HEAR_LOST, HEAR_OK = "届いていない様子", "そういう様子は無い"
+
+
+def hear_choices(calling: bool) -> dict:
+    """こちらの声が届いていない様子かの選べるもの（{中の名前: 説明}）。✅ 2026-11-02 日本時間21時16分 ユーザー：「(ア) OK、お勧めの形で進めてください」
+    ＝お客様にこちらの声が届いていない様子を、言葉の形で拾わず、判定AIのいまの問い合わせに項目を1つ足して読む（使い道は切れ方の
+    callee_cannot_hear＝Flow.cut の1か所。CL-2 の連絡帳 4-166・10-30 の管理者のご決定：声が片方に届いていなかった証拠があれば営業拒否にしない）。
+    説明は意味で書き、試しの言葉と同じ言い方の例は書かない。どちらの段でも同じ文（calling は SIDE_ITEMS の形をそろえるため）。"""
+    return {HEAR_LOST: "いまの言葉で、こちらの声がお客様に届いていない・聞き取れていない様子を表した（こちらの声が届いているかを確かめるように"
+                       "呼びかけた・声が届かない、聞き取れないと伝えた など）",
+            HEAR_OK: "声が届かない・聞き取れないといった様子は無い（答えた・尋ねた・ほかのことを話した、だけのときも）",
+            UNDECIDED: "この言葉からは、こちらの声が届いているかどうか決められない"}
+
+
+# 答えとは別に、判定がお客様の言葉ごとに読む項目の唯一の表（{項目の名前: (見出し, 選べるものを作る関数)}。並びは問い合わせの文の並び）。
+# 読むのは、お呼びする段の項目（target_facets）・答えの段の項目（meaning_judge.answer_items）・判定の決まりの文・Jev の問い・読み取り（Reading の
+# 同じ名前の値）。⛔ 2026-11-02 まで「電話を終える言葉か」だけを7か所に写して持っていた＝項目を足すと、写し漏れで片方の段だけ読まなくなる
+SIDE_ITEMS = {END: (END_HEADING, end_choices), HEAR: (HEAR_HEADING, hear_choices)}
+
+
+def side_items(calling: bool) -> dict:
+    """答えとは別に読む項目の選べるもの（{項目の名前: {中の名前: 説明}}。SIDE_ITEMS の1か所から）。"""
+    return {k: fn(calling) for k, (_, fn) in SIDE_ITEMS.items()}
+
+
 @dataclass(frozen=True)
 class Facet:
     """目的のお客様の判定の項目の1つ（Question.facets）：返事の項目の名前・見出し・選べるもの（{中の名前: 説明}）・見分け方。
@@ -1073,8 +1099,8 @@ def target_facets(asked: bool = False, seeks_successor: bool = False) -> tuple[F
                          "こちらにしない）" if s else
                          "いまの言葉で、お呼びした方は、退職・異動などで、もうその会社・部署にいない（担当が替わったときも）・そういう方はいない、と伝えた")}, (
         f"その日だけほかの方が代わりに受け持つときは、{ABOUT_DEPARTED}ではなく{TARGET_IS_AWAY}",))
-    end = Facet(END, END_HEADING, end_choices(True))   # 電話を終える言葉か（境目は説明の中に1回ずつ）
-    return speaker, who, phone, about, end
+    side = tuple(Facet(k, h, fn(True)) for k, (h, fn) in SIDE_ITEMS.items())   # 電話を終える言葉か・こちらの声が届いていない様子か（SIDE_ITEMS）
+    return (speaker, who, phone, about, *side)
 
 
 def facts_reading(facts: dict, seeks_successor: bool = False) -> tuple[str, bool, bool, bool]:
@@ -1783,7 +1809,7 @@ class Flow:
         self.callee_end_at: float | None = None
         self.callee_speaking = False
         self.callee_voice_end: float | None = None
-        self.cut: dict | None = None     # 切れ方の材料（電話が切れた瞬間の様子。on_line_end だけが書く。会話の報告の cut）
+        self._cut: dict | None = None    # 切れ方の材料のうち、電話が切れた瞬間の様子（on_line_end だけが書く。読むのは cut の1か所。会話の報告の cut）
         self.midway = False              # いま受けている報告は、相手の言葉が出揃う前に届いた（handle の midway。電話接続側が付ける）
         # いまの相手の発話の確かめ（on_check。CHECKS の名前 → 別の耳の文字／意味の判定の中の名前。届いていないものは入らない）。
         # いまの相手の言葉のものだけ（check_said：その確かめが見た相手の言葉。None＝発話まるごと。言葉が増えたら、前の言葉の判定は外す）
@@ -1829,6 +1855,7 @@ class Flow:
         self.confirm_requested_at: int | None = None
         self.unavailable_asked = False  # 理由を言わずに取り次げないと言われ、ご事情かを伺った（_transfer_unclear。1通話1回）
         self.full_called = False        # お名前だけでは分からないと言われ、部署・フルネームでお呼びし直した（_who_unclear。1通話1回）
+        self.hear_leans: set[int] = set()     # 確かでなかった判定が「こちらの声が届いていない様子」と読んだ発話の番号（on_unsure。Flow.cut）
         self.end_leans: dict[int, set] = {}   # 発話ごとの、確かでなかった判定の「電話を終える言葉か」の読み（on_unsure。決まらないときの場面＝_end_unsure）
         self.end_due: str | None = None       # あとから届いた判定が、電話を終える言葉と読んだ（終わりの理由。次の報告か、報告の無いターンのあとに締める）
         self.refusal_asked = False            # お呼びした方ご本人に、今後このようなお電話をご遠慮したほうがよいかを伺った（_refusal_confirm。1通話1回）
@@ -2313,7 +2340,7 @@ class Flow:
             h["check"][kind] = value  # 覚えておいた言葉の確かめが、次の発話のあとに届いた：その言葉の答えの報告に当てる（_held_words）
 
     def on_unsure(self, kind: str, value: str, turn: int | None = None, said: str | None = None, answer: bool = True,
-                  end: str | None = None) -> None:
+                  end: str | None = None, hear: str | None = None) -> None:
         """判定の受け持ちが、確からしさが線より下の読み（value）しか返さなかった（meaning_judge.NoJudgment の unsure＝代わりの Jev）。
         answer＝答える側にも数えてよい読みか（False＝止める側だけの読み＝裏で出した代わり。決まりは unsure_counts の1か所）。
         目的の人を呼んでいる段（繋ぐのは取り消せない）では、「ご本人」ではない読みだけを「決められない」として数える（弱い読みは、繋ぐのを
@@ -2323,6 +2350,9 @@ class Flow:
         ⛔ 2026-10-21 G-57 tc10（確かめにいいえ・L4）：最初の方の「はい、お電話変わりました。」（前の言葉なし）を、AIは決まりに反して「目的の人」と
            報告し、3.5 Flash Lite も「ご本人」と読んだ。もう1つの受け持ちは Sonnet が止まっていて、代わりの Jev は「代わった人が話し始めた」と
            読んだが確からしさ 0.89 で線より下＝捨てて「答えなし」と同じに数え、読みが2つそろったとして別の方（山田様）に繋いだ"""
+        if hear == HEAR_LOST and kind in JUDGMENTS:
+            # 確かでなかった読みの「こちらの声が届いていない様子か」：切れ方の callee_cannot_hear にだけ使う（読み過ぎても取り消せる側＝Flow.cut）
+            self.hear_leans.add(self.callee_turns if turn is None else turn)
         if end in END_REASON and answer and kind in JUDGMENTS:
             # 確かでなかった読みの「電話を終える言葉か」：どちらの段でも、決まらないときの場面にだけ使う（止める側だけの読みは入れない＝_end_unsure）
             self.end_leans.setdefault(self.callee_turns if turn is None else turn, set()).add(end)
@@ -5157,12 +5187,26 @@ class Flow:
         - callee_refused_last：相手の最後の発話を、通話の断りとして受け取った（発信禁止の申告 do_not_call が、その発話についた）。
           「結構です」だけの言葉は、断りと決めない（_ambiguous_only。✅ 2026-10-17 ユーザー）＝ここでも断りに数えない
         2回目からは何もしない（最初の瞬間の様子を残す）。"""
-        if self.cut is None:
+        if self._cut is None:
             callee = self.callee_speaking if callee_speaking is None else callee_speaking
-            self.cut = {"speaker": "callee" if callee else {True: "ai", False: "none"}.get(ai_speaking),
-                        "in_closing": self.phase == "closing",
-                        "callee_refused_last": any(f["turn"] == self.callee_turns for f in self.facts.get("do_not_call", ()))}
+            self._cut = {"speaker": "callee" if callee else {True: "ai", False: "none"}.get(ai_speaking),
+                         "in_closing": self.phase == "closing",
+                         "callee_refused_last": any(f["turn"] == self.callee_turns for f in self.facts.get("do_not_call", ()))}
         return self.cut
+
+    @property
+    def cut(self) -> dict | None:
+        """会話の報告の cut（切れていなければ None）：切れた瞬間の様子（on_line_end）と、callee_cannot_hear＝お客様の最後の言葉を、どれかの判定が
+        「こちらの声が届いていない様子」（HEAR_LOST）と読んだ（✅ 2026-11-02 日本時間21時16分 ユーザー「(ア) OK」。CL-2 は営業拒否にせず、お詫び
+        とともにかけ直す）。報告を作るときに決める（切れる直前の言葉の判定は、切れたあとに届くことが多い）。どれか1つの読みで足りるのは、
+        読み落とすと、切れ方の分からない通話として確かめのかけ直しに回り、鳴ったのに出なければ営業拒否とみなされる（取り消せない側）のに
+        対し、読み過ぎても、お詫びとともにかけ直すだけ（取り消せる側）だから（確かでない読みは止める側だけに使う＝Intent.md 9-4 と同じ向き）。
+        callee_silent（お客様の声も物音も届いていない）は電話の音の大きさが要るので、電話接続の担当と本番で決める（いまは送らない＝CL-2 は false）。"""
+        if self._cut is None:
+            return None
+        lost = (self.callee_turns in self.hear_leans
+                or any(getattr(v, "hear", None) == HEAR_LOST or HEAR_LOST in getattr(v, "hear_lean", ()) for v in self._judged_now().values()))
+        return {**self._cut, "callee_cannot_hear": lost}
 
     @property
     def not_reached(self) -> str | None:

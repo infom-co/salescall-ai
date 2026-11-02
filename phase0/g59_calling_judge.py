@@ -10,7 +10,7 @@ import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import ABOUT, END, END_NONE, PHONE, SPEAKER, WHO
+from flowctl import ABOUT, END, END_NONE, HEAR, HEAR_OK, PHONE, SPEAKER, WHO
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, make_judges
 
 # ── 正解の表（言葉ごとに、項目ごとの正解＝flowctl.target_facets の項目）。正解は、判定に見せた言葉（質問・はじめにお呼びした言葉・その前に相手が
@@ -217,8 +217,10 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
             + [(t, b, False, False, f) for t, b, f in lines_end()])
     # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉には、断り・取り次げない・急ぎ・怒りの言葉が無い＝どれも「言っていない」。
     #    電話を終える言葉の試しの表の言葉（lines_end）は、表の正解（✅ 2026-11-02 日本時間1時59分 ユーザー：「OK、進めてください」）
+    # こちらの声が届いていない様子か（2026-11-02 日本時間21時16分 ユーザー「(ア) OK」で項目を足した）：今の試しの言葉には、届いていない様子の
+    #    言葉が無い＝どれも「そういう様子は無い」（届いていない様子の言葉は、試しの言葉を作って足す＝PHASE0 の 11-02 夜）
     return [(t, sorted(set(accept_of(f, s)) | set(EXTRA.get((t, b), ()))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
-             f | {END: f.get(END, {END_NONE})})
+             f | {END: f.get(END, {END_NONE}), HEAR: f.get(HEAR, {HEAR_OK})})
             for t, b, c, s, f in rows]
 
 
