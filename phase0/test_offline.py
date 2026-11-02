@@ -11783,5 +11783,159 @@ class ImportAITest(unittest.TestCase):
         self.assertEqual(sorted(theirs ^ set(import_ai.DECIDERS)), [], "CL-2 の取込とこちらで、決める処理の名前が違う")
 
 
+
+class G73WordsTest(unittest.TestCase):
+    """G-73 の試しの言葉（✅ 2026-11-02 日本時間23時15分58秒 ユーザー「特にない」＝正解は作らせた種類のまま）を、測りの道具が読む形。"""
+
+    WORDS = [{"set": "N1", "question": "ご納得いただけなかった点はどの部分になりますでしょうか？", "kind": "点を言った", "text": "料金が気になって。",
+              "maker": "m", "truth": "点を言った"},
+             {"set": "HEAR", "question": "パンフレットをお送りしてもよろしいでしょうか？", "kind": "届いていない様子", "text": "もしもし？",
+              "maker": "m", "truth": "届いていない様子"},
+             {"set": "HEAR_CALL", "question": "q", "asked": False, "kind": "届いていない様子", "text": "もしもし、お電話遠いようですが？",
+              "maker": "m", "truth": "届いていない様子"},
+             {"set": "HEAR_CALL", "question": "q", "asked": True, "kind": "そういう様子は無い", "text": "はい、聞こえてます。私ですが。",
+              "maker": "m", "truth": "そういう様子は無い"}]
+
+    def latest(self, errors=None):
+        return {"path": "G-73_x.json", "words": self.WORDS, "errors": errors or {}}
+
+    def test_latest_reads_the_newest_result(self):
+        import tempfile
+        import unittest.mock as m
+        from pathlib import Path
+        import g73_system_words as g
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "results").mkdir()
+            (Path(d) / "results" / "G-73_20261102_100000.json").write_text(json.dumps({"words": [], "errors": {"a": 1}}), encoding="utf-8")
+            (Path(d) / "results" / "G-73_20261103_100000.json").write_text(json.dumps({"words": self.WORDS}), encoding="utf-8")
+            with m.patch("common.HERE", Path(d)):
+                got = g.latest()
+        self.assertEqual((got["path"], len(got["words"]), got["errors"]), ("G-73_20261103_100000.json", 4, {}))
+
+    def test_paid_runs_stop_when_the_words_are_not_complete(self):
+        # 作れなかったモデル・場面が残っていれば、有料の測りは止める（ユーザーがその形で測ると選んだときだけ --g73-partial）。数えるだけなら止めない
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+        import g73_system_words as g
+        with m.patch.object(g, "latest", lambda: self.latest({"3.7 Flash": "上限"})):
+            with self.assertRaises(SystemExit):
+                g.require_complete(N(g73_partial=False), "測り")
+            g.require_complete(N(g73_partial=True), "測り")
+            g.require_complete(N(g73_partial=False), "数えるだけ", stop=False)
+        with m.patch.object(g, "latest", lambda: self.latest()):
+            g.require_complete(N(g73_partial=False), "測り")
+
+    def test_scenes_cover_both_stages(self):
+        # こちらの声が届いていない様子は両方の段で読む（flowctl.SIDE_ITEMS）＝答えの段の3つの質問と、お呼びする段の2つの一言（G-59 が判定に見せる質問）
+        import g59_calling_judge as g59
+        import g73_system_words as g
+        from flowctl import HEAR_LOST, HEAR_OK
+        sc = g._scenes()
+        _, f, _ = g59.flows()
+        calling = {s["asked"]: s["question"] for s in sc if s["set"] == "HEAR_CALL"}
+        self.assertEqual(calling, {a: g59.question_of(f, a).text for a in (False, True)})
+        self.assertEqual([s["question"] for s in sc if s["set"] == "HEAR"], list(g.HEAR_QUESTIONS))
+        self.assertTrue(all(set(s["kinds"]) == {HEAR_LOST, HEAR_OK} for s in sc if s["set"].startswith("HEAR")))
+        # 作らせた答えの言葉に、どちらの一言のあとかが残る（G-59 が確かめる一言のあとの行にする）
+        class C:
+            class models:
+                @staticmethod
+                def generate_content(model, contents, config):
+                    return type("R", (), {"text": json.dumps({str(i): {k: [f"{i}{k}{n}" for n in range(4)] for k in s["kinds"]}
+                                                                for i, s in enumerate(sc, 1)})})()
+        got = g._ask(C, "m", sc)
+        self.assertEqual({w["asked"] for w in got if w["set"] == "HEAR_CALL"}, {False, True})
+        self.assertEqual(g._kept(got, sc)[1], [])
+
+    def test_g59_counts_only_the_hearing_on_the_words(self):
+        # お呼びする段の測り：試しの言葉の行は、聞こえ方だけを数える（ほかの項目は正解を付けていない）。尋ねているかは問い合わせない
+        import asyncio
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+        import g59_calling_judge as g
+        import g73_system_words as g73
+        from flowctl import HEAR, HEAR_OK, target_facets
+        from meaning_judge import Reading
+        with m.patch.object(g73, "latest", self.latest):
+            rows = {(t, bool(a)): (acc, f) for t, acc, _, a, _, f in g.cases("x")}
+            for w in self.WORDS[2:]:
+                acc, f = rows[(w["text"], w["asked"])]
+                self.assertEqual(f[HEAR], {w["truth"]})
+                self.assertEqual(set(f), {fc.key for fc in target_facets(w["asked"], False)})
+            seen = []
+
+            def fake_batch(name, key, items, budget=None, poll_s=30.0):
+                seen.extend(items)
+                out = {}
+                for cid, q, text, asked, before in items:
+                    r = Reading("ご本人")
+                    r.facts = {fc.key: next(iter(fc.choices)) for fc in q.facets} | {HEAR: HEAR_OK} if q.facets else None
+                    out[cid] = (r, None)
+                return out
+            args = N(batch=True, judge=None, judge2="Claude Sonnet 5.5", only=[w["text"] for w in self.WORDS[2:]] + ["はい、岡田です。"], repeat=1,
+                     pace_s=0.0, budget_yen=10.0, env=None, batch_poll_s=0.0, asks_only=False)
+            with m.patch.object(g, "batch_judge", fake_batch), m.patch("common.load_secret", return_value="x"):
+                out = asyncio.run(g.run(args))
+        self.assertEqual(len(out["rows"]), 3)
+        self.assertEqual(len(seen), 2 + 1 + 1)                                   # 試しの言葉の行は目的のお客様の判定だけ
+        self.assertEqual(out["summary"]["judge2"], "1/1")                        # 読みの数えには入れない
+        self.assertEqual(out["summary"]["judge2（こちらの声が届いていない様子か・正解が届いていない様子）"], "0/1")
+        self.assertEqual(out["summary"]["judge2（こちらの声が届いていない様子か・正解がそういう様子は無い）"], "2/2")
+
+    def test_busy_is_retried_in_one_place_only(self):
+        # 混雑（503）・接続の切れの待ちと問い合わせ直しは common.call_with_retry の1か所だけ（⛔ 2026-11-02：道具の外側にも8回足して重ね、
+        # 1日の20回を答えのないまま使い切った）。道具が自分で問い合わせ直すのは、種類のそろわない場面だけ（SCENE_TRIES 回まで）
+        import httpx
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+        import g73_system_words as g
+        from common import call_with_retry, is_unavailable
+
+        self.assertTrue(is_unavailable(httpx.RemoteProtocolError("Server disconnected without sending a response.")))
+        tries = []
+
+        def drop_then_ok():
+            tries.append(1)
+            if len(tries) == 1:
+                raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+            return "ok"
+        self.assertEqual(call_with_retry(drop_then_ok, waits=(0,)), ("ok", 1))
+        calls = []
+
+        class Ring:
+            def __init__(self, args, answer):
+                self.keys, self.answer = [N(label="K0")], answer
+
+            def model_ids(self):
+                return {m: m for m in g.MODELS}
+
+            def call(self, model, fn):
+                calls.append(model)
+                return self.answer(model), 0
+
+        def busy(model):
+            raise RuntimeError("503 UNAVAILABLE")
+        with m.patch.object(g, "KeyRing", lambda args: Ring(args, busy)), m.patch.object(g, "save_partial", lambda *a: None):
+            out = g.run(N(resume=False))
+        self.assertEqual(calls, list(g.MODELS))                            # 1つのモデルに1回（中で待ってやり直したあと）
+        self.assertEqual(set(out["errors"]), set(g.MODELS))
+        calls.clear()
+        with m.patch.object(g, "KeyRing", lambda args: Ring(args, lambda model: [])), m.patch.object(g, "save_partial", lambda *a: None):
+            out = g.run(N(resume=False))
+        self.assertEqual(len(calls), g.SCENE_TRIES * len(g.MODELS))         # 種類のそろわない場面は、決まった回数だけ問い合わせ直す
+        self.assertTrue(all("そろわない場面" in str(e) for e in out["errors"].values()))
+
+    def test_g53_sets(self):
+        import unittest.mock as m
+        import g53_meaning as g
+        import g73_system_words as g73
+        with m.patch.object(g73, "latest", self.latest):
+            n, h = g.set_n(), g.set_h()
+        self.assertEqual([(x["set"], x["qid"], x["truth"]) for x in n], [("N1", "N1", "点を言った")])
+        self.assertEqual([(x["set"], x["truth"], x["hear_truth"]) for x in h], [("HEAR", None, "届いていない様子")])   # お呼びする段の言葉は入れない
+        self.assertIn(h[0]["qid"], g.question_map())
+        self.assertIn("N1", g.question_map())
+
+
 if __name__ == "__main__":
     unittest.main()

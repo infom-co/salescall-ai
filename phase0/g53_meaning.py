@@ -249,6 +249,32 @@ def set_f() -> list[dict]:
     return out
 
 
+def g73_words() -> list[dict]:
+    """G-73（ご承認いただけなかったときのシステムの質問への答えと、こちらの声が届いていない様子の試しの言葉。✅ 2026-11-02 日本時間23時15分58秒
+    ユーザー「特にない」＝正解は作らせた種類のまま）の言葉（読み口は g73_system_words.latest の1か所）。"""
+    from g73_system_words import latest
+    return latest()["words"]
+
+
+def set_n() -> list[dict]:
+    """組 N1〜N3：システムの質問（N1〜N3）への答えの試しの言葉（G-73）。正解は作らせた種類（どちらとも取れない＝決められない）。"""
+    return [{"set": w["set"], "maker": w["maker"], "qid": w["set"], "question": w["question"], "text": w["text"], "truth": w["truth"]}
+            for w in g73_words() if w["set"] in ("N1", "N2", "N3")]
+
+
+def set_h() -> list[dict]:
+    """組 HEAR：こちらの声が届いていない様子かの試しの言葉（G-73）。数えるのは聞こえ方の読みだけ（答えの正解は付けていない＝hear_truth）。
+    質問は測りの質問の表から（question_by_text）。"""
+    return [{"set": "HEAR", "maker": w["maker"], "qid": question_by_text(w["question"]).id, "question": w["question"], "text": w["text"],
+             "truth": None, "hear_truth": w["truth"]} for w in g73_words() if w["set"] == "HEAR"]
+
+
+def hear_truth(it: dict) -> str:
+    """こちらの声が届いていない様子かの正解：組 HEAR は作らせた種類、ほかの組の言葉はどれも「そういう様子は無い」（ふつうの答え・言葉）。"""
+    from flowctl import HEAR_OK
+    return it.get("hear_truth") or HEAR_OK
+
+
 def g48_question(n: int, text: str, conditions: tuple, meanings: dict, facts: bool = True) -> Question:
     """G-48 の質問を、流れの制御の質問の形に（選択肢から選ぶ質問＝「どちら」「どれ」を聞く文。ほかは、はい／いいえの型）。facts＝事実を伺う質問かを
     取込と同じ決め方で付ける（G-71 を流す道具だけ偽＝決める前の質問の文が要る）。"""
@@ -311,6 +337,9 @@ def question_map(facts: bool = True, words: bool = True) -> dict:
     qs = g48_questions(facts) + value_questions(facts) + biz
     if words:
         qs = [with_words(q) for q in qs + end_questions(facts)]
+    # ご承認いただけなかったときのシステムの質問（N1〜N3＝流れの制御の callback_question の1か所。試しの言葉は G-73＝組 N1〜N3）
+    from flowctl import callback_question
+    qs += [callback_question(r) for r in ("not_agreed", "other_point", "agreed_now")]
     return {q.id: q for q in qs}
 
 
@@ -551,7 +580,7 @@ def versus(items: list[dict], qmap: dict, key: str) -> dict:
     決まり（Flow._meaning_disagrees）で食い違うか（＝確かめに回るか）を数える。"""
     c = Counter()
     for it in items:
-        if BASE not in it or key not in it or it.get("maker") in (BASE, key) or it["qid"] not in qmap:
+        if BASE not in it or key not in it or it.get("maker") in (BASE, key) or it["qid"] not in qmap or it["set"] == "HEAR":
             continue
         q, b = qmap[it["qid"]], it[BASE]
         clash = Flow._meaning_disagrees(q, b, it[key], confirming=it["set"] == "D") is not None
@@ -634,6 +663,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 it[key] = got
                 it[f"{key}言い切り"] = getattr(got, "firm", None)
                 it[f"{key}終わり"] = getattr(got, "end", None)   # 電話を終える言葉か（end_miss で数える）
+                it[f"{key}聞こえ"] = getattr(got, "hear", None)   # こちらの声が届いていない様子か（hear_miss で数える）
                 it[f"{key}秒"] = took.get("s")
             except KeyUnusable:
                 skip.add(key)
@@ -666,6 +696,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"))
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
                     it[f"{key}終わり"] = getattr(it[key], "end", None)
+                    it[f"{key}聞こえ"] = getattr(it[key], "hear", None)
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
                     it[f"{key}言い切りの確からしさ"] = getattr(it[key], "firm_p", None)   # 言い切りの線と、どちらとも言えない幅を決めるため
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
@@ -718,6 +749,7 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
             try:
                 got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"))
                 it[name], it[f"{name}言い切り"], it[f"{name}by"], it[f"{name}終わり"] = str(got), got.firm, got.by, getattr(got, "end", None)
+                it[f"{name}聞こえ"] = getattr(got, "hear", None)
             except NoJudgment as exc:
                 it[f"{name}誤り"] = str(exc)[:200]
             it[f"{name}秒"] = round(time.monotonic() - t, 3)
@@ -738,6 +770,12 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
                 continue
             if it.get("maker") == key:
                 continue  # 自分で作った答え
+            if it.get(f"{key}聞こえ") is not None or it["set"] == "HEAR":   # こちらの声が届いていない様子か（項目を足す前の記録は数えない）
+                h, hw = it.get(f"{key}聞こえ"), hear_truth(it)
+                t["こちらの声が届いていない様子か"][f"{'組 HEAR' if it['set'] == 'HEAR' else 'ほかの組'}・{hw}・"
+                                         f"{'正しい' if h == hw else '⛔' + str(h)}"] += 1
+            if it["set"] == "HEAR":
+                continue  # 組 HEAR は答えの正解を付けていない（聞こえ方だけを数える）
             got, want = it[key], truth(it)
             res = "正しい" if got in accept(it) else ("決められない（確かめる）" if got in (UNDECIDED, "unknown") else "⛔別の答え")
             label = {"B": "選択肢", "D": it.get("kind")}.get(it["set"], want)
@@ -815,6 +853,7 @@ def main() -> None:
     p.add_argument("--sets", help="判定する組だけ（例 E、DE）。ほかの組は判定しない（数えには入る）")
     p.add_argument("--rejudge", action="store_true", help="--reuse の、--judge で渡した判定の読みを捨てて測り直す（判定の文・選べるものを変えたとき）")
     p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
+    p.add_argument("--g73-partial", action="store_true", help="試しの言葉（G-73）がそろっていなくても測る（ユーザーがその形で測ると選んだときだけ）")
     p.add_argument("--sample", type=int, default=0, help="2つ目の判定の候補は、3.5 Flash Lite が誤った答えと、ほかから無作為にこの数だけ（1日の上限が少ない）")
     p.add_argument("--limit", type=int, default=0, help="組の判定（GROUPS）だけ：決め手の答えから、この数だけ判定する（はじめに少しだけ流して1件の円を確かめる）")
     p.add_argument("--interval", type=float, default=4.0, help="同じキー・同じモデルに続けて聞く間（秒）。1分の上限に当たったら、言われた秒だけ待つ")
@@ -838,10 +877,11 @@ def main() -> None:
                 # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
                 for it in pick_sample(items, args.sample):
                     it["見本"] = True
-            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", "終わり"))
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", "終わり", "聞こえ"))
                                                              for j in args.judge)} for it in items]
-        have = {(it["qid"], it["text"]) for it in items if it["set"] == "F"}
-        items += [it for it in set_f() if (it["qid"], it["text"]) not in have]   # 電話を終える言葉の試しの表の言葉（表を直したら、足した行だけ判定する）
+        have = {(it["set"], it["qid"], it["text"]) for it in items}
+        # 電話を終える言葉の試しの表の言葉・G-73 の試しの言葉（表・言葉を足したら、足した行だけ判定する）
+        items += [it for it in set_f() + set_n() + set_h() if (it["set"], it["qid"], it["text"]) not in have]
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}
             for m in MAKERS_DE:
@@ -850,17 +890,20 @@ def main() -> None:
                     say(m, "が作った", make.__name__, len(got))
                     items += got
     else:
-        items = set_a() + set_b(qs) + set_f()
+        items = set_a() + set_b(qs) + set_f() + set_n() + set_h()
         for m in MAKERS:
             got, _ = ring.call(ids[m], lambda c: make_c(c, ids[m], qs))
             say(m, "が作った答え", len(got))
             items += got
     say("答えの数", dict(Counter(it["set"] for it in items)))
+    from g73_system_words import require_complete
     if args.dry_run:
         # 組み立てだけ：判定を送る数だけ出して止める（⛔ 2026-11-02 日本時間7時29分：ここで止まらず、2,840回送った）
         todo = [it for it in items if not args.sets or it["set"] in args.sets]
         say("組み立てだけ（--dry-run）：判定は送りません。送る数", {j: sum(1 for it in todo if j not in it) for j in args.judge})
+        require_complete(args, "組み立てだけ", stop=False)   # 試しの言葉がそろっているかも出す（止めない）
         return
+    require_complete(args, "答えの段の測り（G-53）")
     run_judges(args, items, qmap, ids)
     summary = tally(items, args.judge, qmap)
     summary["記録の通話に当てた見込み"] = {k: predict_calls(items, k) for k in args.judge}

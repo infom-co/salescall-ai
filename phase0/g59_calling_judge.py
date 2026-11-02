@@ -10,7 +10,7 @@ import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import ABOUT, END, END_NONE, HEAR, HEAR_OK, PHONE, SPEAKER, WHO
+from flowctl import ABOUT, END, END_NONE, HEAR, HEAR_LOST, HEAR_OK, PHONE, SPEAKER, WHO
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, make_judges
 
 # ── 正解の表（言葉ごとに、項目ごとの正解＝flowctl.target_facets の項目）。正解は、判定に見せた言葉（質問・はじめにお呼びした言葉・その前に相手が
@@ -194,6 +194,16 @@ def lines_end() -> list[tuple[str, str | None, dict[str, set]]]:
     return [(t, BEFORE_TARGET if who == "ご本人" else None, F(*codes) | {END: set(ends)}) for who, t, ends, _, codes in CALLING]
 
 
+def lines_hear() -> list[tuple[str, bool, dict[str, set]]]:
+    """試しの言葉（G-73 の組 HEAR_CALL・読み口は g73_system_words.latest の1か所）：お呼びする段の2つの一言のあとの、こちらの声が届いていない様子か
+    の言葉 (相手の言葉, 確かめる一言のあとか, 正解)。✅ 2026-11-02 日本時間23時15分58秒 ユーザー「特にない」＝正解は作らせた種類のまま。
+    数えるのは聞こえ方だけ：ほかの項目は正解を付けていない（どれでもよい）＝読み・ほかの項目・尋ねているかの数えには入れない（run の hear_only）。"""
+    from flowctl import target_facets
+    from g73_system_words import latest
+    return [(w["text"], w["asked"], {fc.key: set(fc.choices) for fc in target_facets(w["asked"], False)} | {HEAR: {w["truth"]}})
+            for w in latest()["words"] if w["set"] == "HEAR_CALL"]
+
+
 def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]:
     """正解 ⇒ 受け取ってよい読み（正解の組み合わせを、流れの制御の1か所＝flowctl.facts_reading で読みにしたもの）。"""
     from itertools import product
@@ -205,7 +215,7 @@ def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]
 
 def facts_ok(got: dict | None, facts: dict[str, set]) -> bool:
     """項目ごとの答え（判定の返事＝Reading.facts）が、項目ごとの正解にどれも当たるか。"""
-    return got is not None and all(got.get(k) in f for k, f in facts.items() if not (k == END and got.get(k) is None))   # 項目を足す前の記録は、電話を終える言葉かを数えない
+    return got is not None and all(got.get(k) in f for k, f in facts.items() if not (k in (END, HEAR) and got.get(k) is None))   # 項目を足す前の記録は、足した項目を数えない
 
 
 def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bool, dict]]:
@@ -214,11 +224,11 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
     rows = ([(t, None, False, False, f) for t, f in LINES] + [(t, b, False, False, f) for t, b, f in LINES_AFTER]
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED] + [(t, b, c, True, f) for t, b, c, f in LINES_SUCCESSOR]
-            + [(t, b, False, False, f) for t, b, f in lines_end()])
+            + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, None, a, False, f) for t, a, f in lines_hear()])
     # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉には、断り・取り次げない・急ぎ・怒りの言葉が無い＝どれも「言っていない」。
     #    電話を終える言葉の試しの表の言葉（lines_end）は、表の正解（✅ 2026-11-02 日本時間1時59分 ユーザー：「OK、進めてください」）
-    # こちらの声が届いていない様子か（2026-11-02 日本時間21時16分 ユーザー「(ア) OK」で項目を足した）：今の試しの言葉には、届いていない様子の
-    #    言葉が無い＝どれも「そういう様子は無い」（届いていない様子の言葉は、試しの言葉を作って足す＝PHASE0 の 11-02 夜）
+    # こちらの声が届いていない様子か（2026-11-02 日本時間21時16分 ユーザー「(ア) OK」で項目を足した）：今までの試しの言葉には、届いていない様子の
+    #    言葉が無い＝どれも「そういう様子は無い」。届いていない様子の言葉とそうでない紛らわしい言葉は、試しの言葉（lines_hear）
     return [(t, sorted(set(accept_of(f, s)) | set(EXTRA.get((t, b), ()))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
              f | {END: f.get(END, {END_NONE}), HEAR: f.get(HEAR, {HEAR_OK})})
             for t, b, c, s, f in rows]
@@ -272,6 +282,7 @@ async def run(args) -> dict:
     else:
         judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
     rows, items, where = [], [], {}
+    hear_only = {(t, a) for t, a, _ in lines_hear()}   # 聞こえ方だけを数える行（試しの言葉 G-73）
 
     def fill(row, k, col, got, s, tried=None):
         """1行の判定 col の答えを書く（ふつうに送る測り・まとめて送る測りの1か所）。got が None＝答えにならなかった（Jev の確からしさが線より下・
@@ -308,15 +319,19 @@ async def run(args) -> dict:
         fl = fs if successor else f
         q = question_of(fl, asked)
         for rep in range(args.repeat):
-            want = None if text in ASKS_EITHER else text in ASKING or text in ASKING_OTHER
+            only = (text, bool(asked)) in hear_only
+            want = None if text in ASKS_EITHER or only else text in ASKING or text in ASKING_OTHER
             kind = ASKS_YES if text in ASKING else ASKS_OTHER if text in ASKING_OTHER else None
-            row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": kind, "before": before, "asked": asked, "rep": rep,
+            row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": None if only else kind, "before": before, "asked": asked, "rep": rep,
+                   "hear_only": only,
                    "successor": successor, "facts_accept": {k: sorted(v) for k, v in facts.items()},
                    "both": (text, before, bool(asked)) in {(t, b, c) for t, b, c, _ in LINES_BOTH}}
             rows.append(row)
             # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
             pairs = ((q, ""), (fl.for_judge(fl.asks_questions[q.id]), "_asks"))
-            if args.asks_only:   # ⛔ 2026-10-31：文が変わったのは尋ねているかだけなのに、目的のお客様の判定まで流して、お伝えした額を超えた
+            if only:   # 聞こえ方だけを数える行：数えない尋ねているかは問い合わせない（聞こえ方は目的のお客様の判定の項目＝flowctl.SIDE_ITEMS）
+                pairs = () if args.asks_only else pairs[:1]
+            elif args.asks_only:   # ⛔ 2026-10-31：文が変わったのは尋ねているかだけなのに、目的のお客様の判定まで流して、お伝えした額を超えた
                 pairs = pairs[1:]
             if args.batch:
                 for question, tail in pairs:
@@ -350,6 +365,8 @@ async def run(args) -> dict:
             finish(row)
     # 測った受け持ち＝答えた行がある受け持ち（お呼びする段の質問では、止める側だけの受け持ちは問い合わせない＝本番と同じ。convo.answers）
     measured = [k for k in judges if judges[k] is not None and any(f"{k}_s" in r for r in rows)]
+    # 読み・ほかの項目・尋ねているかは、聞こえ方だけを数える行（試しの言葉 G-73）を入れない。聞こえ方は全部の行（every）で数える
+    every, rows = rows, [r for r in rows if not r.get("hear_only")]
     summary = {k: f"{sum(1 for r in rows if r.get(k) in r['accept'])}/{len(rows)}" for k in measured}
     # 事実ごと（項目ごとに答える形だけ）：項目がみな正解か・項目ごと（その項目を見せた言葉だけ）・2つの事実が重なる言葉（LINES_BOTH）だけ
     def fok(r, k):
@@ -360,6 +377,10 @@ async def run(args) -> dict:
         shown = [r for r in rows if key in r["facts_accept"]]
         summary |= {f"{k}（{name}）": f"{sum(1 for r in shown if (r.get(f'{k}_facts') or {}).get(key) in r['facts_accept'][key])}/{len(shown)}"
                     for k in measured}
+    for want in (HEAR_LOST, HEAR_OK):   # こちらの声が届いていない様子か：正解ごとに（届いていない様子の言葉・そうでない言葉）
+        shown = [r for r in every if r["facts_accept"].get(HEAR) == [want]]
+        summary |= {f"{k}（こちらの声が届いていない様子か・正解が{want}）":
+                    f"{sum(1 for r in shown if (r.get(f'{k}_facts') or {}).get(HEAR) == want)}/{len(shown)}" for k in measured}
     both = [r for r in rows if r["both"]]
     summary |= {f"{k}（2つの事実の言葉：読み・事実ごと）": [f"{sum(1 for r in both if r.get(k) in r['accept'])}/{len(both)}",
                                                     f"{sum(1 for r in both if fok(r, k))}/{len(both)}"] for k in measured}
@@ -389,11 +410,11 @@ async def run(args) -> dict:
                                                f"/{sum(1 for r in rows if HOLD not in r['accept']) * len(measured)}")
     # 判定の速さ（目的の人の判定の問い合わせ。中央・遅いほうから1割・最長の秒）
     for k in measured:
-        s = sorted(r[f"{k}_s"] for r in rows if r.get(f"{k}_s") is not None)   # まとめて送る測りは秒を測らない
+        s = sorted(r[f"{k}_s"] for r in every if r.get(f"{k}_s") is not None)   # まとめて送る測りは秒を測らない
         if s:
             summary[f"{k}（答えまでの秒：中央・遅いほうから1割・最長）"] = [s[len(s) // 2], s[int(len(s) * 0.9)], s[-1]]
     say("数え：", json.dumps(summary, ensure_ascii=False))
-    return {"question": q.text, "summary": summary, "rows": rows}
+    return {"question": q.text, "summary": summary, "rows": every}
 
 
 def main() -> None:
@@ -411,15 +432,21 @@ def main() -> None:
     p.add_argument("--count", action="store_true", help="測らずに、測る行と問い合わせの数だけを出す（有料の測りの料金の見込みは、この数から出す）")
     p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
     p.add_argument("--asks-only", action="store_true", help="尋ねているかだけを問い合わせる（文が変わったのが尋ねているかだけのとき＝指紋で確かめてから）")
+    p.add_argument("--g73-partial", action="store_true", help="試しの言葉（G-73）がそろっていなくても測る（ユーザーがその形で測ると選んだときだけ）")
     args = p.parse_args()
     if args.fingerprint:
         say("判定に送る文：" + "／".join("%s %d 字・指紋 %s" % (name, n, h) for name, (n, h) in prompts_fingerprint().items()))
         return
+    from g73_system_words import require_complete
     if args.count:
-        n = sum(1 for text, *_ in cases("x") if not args.only or text in args.only)
-        say(f"測る行：{n} 行 × {args.repeat} 回り（1つの判定につき、問い合わせは " + (f"{n * args.repeat} 回＝尋ねているかだけ）" if args.asks_only
-            else f"{n * args.repeat * 2} 回＝目的のお客様の判定と、尋ねているか）"))
+        require_complete(args, "数えるだけ", stop=False)   # 試しの言葉がそろっているかも出す（止めない）
+        picked = [(text, bool(asked)) for text, _, _, asked, *_ in cases("x") if not args.only or text in args.only]
+        n, h = len(picked), len({x for x in picked} & {(t, a) for t, a, _ in lines_hear()})   # h＝聞こえ方だけを数える行（尋ねているかは問わない）
+        say(f"測る行：{n} 行（うち聞こえ方だけ {h} 行）× {args.repeat} 回り（1つの判定につき、問い合わせは "
+            + (f"{(n - h) * args.repeat} 回＝尋ねているかだけ）" if args.asks_only
+               else f"{(n * 2 - h) * args.repeat} 回＝目的のお客様の判定と、尋ねているか）"))
         return
+    require_complete(args, "お呼びする段の測り（G-59）")
     save_result(f"G-59{args.tag}", asyncio.run(run(args)))
 
 
