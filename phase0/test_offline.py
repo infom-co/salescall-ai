@@ -10621,6 +10621,14 @@ class ApprovalTest(unittest.TestCase):
         f = Flow(list(self.flow().questions.values()), earlier={"Q1": {"state": "dont_know", "value": None, "condition": "わからない"}})
         self.assertEqual((f.items["Q1"].condition, f.order, f.current), ("unknown", ["Q1", "Q2", "Q3"], "Q2"))
 
+    def test_firm_does_not_matter_where_the_flow_does_not_check(self):
+        # 言い切っていなくても確かめない質問（N1〜N3）では、言い切りは動きを変えない＝確かな読みの決め方・測りの道具も同じ1か所（firm_matters）
+        from flowctl import CALLBACK_IDS, callback_question
+        from meaning_judge import firm_matters
+        for role in ("not_agreed", "other_point", "agreed_now"):
+            q = callback_question(role)
+            self.assertFalse(any(firm_matters(q, c) for c in q.conditions), role)
+
     def test_not_agreed_keys_match_cl2_report(self):
         # ご納得いただけなかった点の記録（通話の事実 not_agreed）の鍵が、CL-2 の会話の報告の読み手（call_report._not_agreed）の受ける鍵に
         # 全部入っているか（知らない鍵が来ると、報告が丸ごと断られる）。ご説明した記録と、お断りしようとしている記録の両方を作って比べる。
