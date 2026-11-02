@@ -1,4 +1,6 @@
-"""道具を呼ぶ前に、こちらが直前に書いた一言が英語かを見て、英語なら止める見張り（Claude Code の PreToolUse の hook）。
+"""道具を呼ぶ前と返事を終える時に、こちらが直前に書いた一言が英語かを見て、英語なら止める見張り（Claude Code の PreToolUse と Stop の hook）。
+⛔ 2026-11-03 日本時間1時22分51秒（56回目）：道具を呼ばずに終える返事を英語で書き、道具を呼ぶ前にしか見ない見張りでは止まらなかった
+   ⇒ 返事を終える時（Stop）も同じ決まりで見る（止めたら、日本語で書き直すまで返事を終えられない。書き直しのあとは二度は止めない）。
 
 ✅ 2026-11-02 日本時間7時12分 ユーザー：「(b) OK」＝英語の一言を仕組みで止める見張りを、この作業場所の設定に入れてよい。
 ⛔ 作業の途中の一言を英語で書いた失敗が43回になった（docs/team/CL-1.md 0-1）。決まりを書き足すだけでは、8分後に同じ所で破った。
@@ -80,31 +82,45 @@ def verdict(hook: dict) -> str | None:
     """止める理由（止めないなら None）。"""
     if hook.get("agent_id"):
         return None   # 手伝いの係の道具（画面に出る文ではない）
+    stop = hook.get("hook_event_name") == "Stop"
+    if stop and hook.get("stop_hook_active"):
+        return None   # 止めたあとの書き直しの返事（同じ所で止め続けない）
     import hashlib
     done = set(json.loads(STATE.read_text(encoding="utf-8"))) if STATE.exists() else set()
-    bad = [t for t in recent_texts(hook["transcript_path"]) if english(t)
-           and hashlib.sha1(t.encode("utf-8")).hexdigest() not in done]
+    texts = recent_texts(hook["transcript_path"]) + [t for t in [hook.get("last_assistant_message")] if isinstance(t, str) and t]
+    bad = [t for t in dict.fromkeys(texts) if english(t) and hashlib.sha1(t.encode("utf-8")).hexdigest() not in done]
     if not bad:
         return None
     done |= {hashlib.sha1(t.encode("utf-8")).hexdigest() for t in bad}
     STATE.write_text(json.dumps(sorted(done)), encoding="utf-8")
     said = "」「".join(t.strip()[:100] for t in bad)
+    if stop:
+        return (f"⛔ 最近の返事が英語です（「{said}」）。日本語で書き直し、帳面（docs/team/CL-1.md 0-1）の英語の失敗に記録してから、"
+                "返事を終えてください。")
     return (f"⛔ 最近の一言が英語です（「{said}」）。この道具は呼んでいません。日本語の一言で書き直し、"
             "帳面（docs/team/CL-1.md 0-1）の英語の失敗に記録してから、もう一度呼んでください。")
 
 
-def install() -> None:
+EVENTS = {"PreToolUse": {"matcher": "*"}, "Stop": {}}   # 見張る時（道具を呼ぶ前・返事を終える時）
+
+
+def install(settings_path: Path | None = None) -> None:
     """ユーザー設定に hook を足す（ほかの設定は残す・同じものがあれば足さない）。"""
+    path = settings_path or SETTINGS
     command = f"{sys.executable} {Path(__file__).resolve()}"
-    settings = json.loads(SETTINGS.read_text(encoding="utf-8")) if SETTINGS.exists() else {}
-    pre = settings.setdefault("hooks", {}).setdefault("PreToolUse", [])
-    if any(h.get("command") == command for group in pre for h in group.get("hooks") or []):
-        print(f"もう入っています：{SETTINGS}")
+    settings = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    added = []
+    for event, extra in EVENTS.items():
+        groups = settings.setdefault("hooks", {}).setdefault(event, [])
+        if not any(h.get("command") == command for group in groups for h in group.get("hooks") or []):
+            groups.append({**extra, "hooks": [{"type": "command", "command": command, "timeout": 10}]})
+            added.append(event)
+    if not added:
+        print(f"もう入っています：{path}")
         return
-    pre.append({"matcher": "*", "hooks": [{"type": "command", "command": command, "timeout": 10}]})
-    SETTINGS.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"入れました：{SETTINGS}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"入れました（{'・'.join(added)}）：{path}")
 
 
 def main() -> None:

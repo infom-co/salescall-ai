@@ -10487,11 +10487,12 @@ class OnelinerGuardTest(unittest.TestCase):
     """道具を呼ぶ前に、最近の一言が英語なら止める見張り（oneliner_guard。✅ 2026-11-02 日本時間7時12分 ユーザー「(b) OK」）。記録への書き込みが
     道具の呼び出しより遅れるので、最近の段（直近3回の道具の結果まで・15分以内）を読み、止めた文は二度は止めない。"""
 
-    def run_guard(self, rows, state):
+    def run_guard(self, rows, state, **hook):
         import json, os, subprocess, sys, tempfile
         with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
             f.write("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
-        p = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "oneliner_guard.py")], input=json.dumps({"transcript_path": f.name}),
+        p = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "oneliner_guard.py")],
+                           input=json.dumps({"transcript_path": f.name, **hook}),
                            capture_output=True, text=True, env={**os.environ, "ONELINER_GUARD_STATE": state})
         os.unlink(f.name)
         return p.returncode
@@ -10507,6 +10508,27 @@ class OnelinerGuardTest(unittest.TestCase):
         self.assertEqual((self.run_guard(late, state), self.run_guard(late, state)), (2, 0))   # 止める・同じ文で二度は止めない
         self.assertEqual(self.run_guard([res("00:00"), txt(ja, "00:05"), use("00:06")], state), 0)
         self.assertEqual(self.run_guard([txt(en, "00:01"), use("00:02"), res("30:00"), txt(ja, "30:05")], state + "2"), 0)   # 15分より古い
+
+    def test_stops_an_english_reply_at_the_end(self):
+        # ⛔ 2026-11-03 日本時間1時22分51秒（56回目）：道具を呼ばずに終える返事を英語で書き、道具を呼ぶ前だけの見張りでは止まらなかった
+        import json, os, tempfile
+        row = lambda c, ts: {"type": "assistant", "timestamp": f"2026-11-03T16:{ts}Z", "message": {"content": c}}   # noqa: E731
+        en = "The first remake is still running. Next, I'll wait for its result."
+        state = os.path.join(tempfile.mkdtemp(), "seen.json")
+        rows = [{"type": "user", "timestamp": "2026-11-03T16:20:00Z", "message": {"content": [{"type": "tool_result"}]}},
+                row([{"type": "text", "text": en}], "22:51")]
+        self.assertEqual(self.run_guard(rows, state, hook_event_name="Stop", stop_hook_active=True), 0)   # 書き直しの返事では止め続けない
+        self.assertEqual(self.run_guard(rows, state, hook_event_name="Stop"), 2)
+        self.assertEqual(self.run_guard(rows, state, hook_event_name="Stop"), 0)                          # 同じ文で二度は止めない
+        # 記録にまだ無い最後の返事（hook が渡す last_assistant_message）も見る
+        self.assertEqual(self.run_guard(rows[:1], state + "2", hook_event_name="Stop", last_assistant_message=en), 2)
+        import oneliner_guard as g
+        p = Path(tempfile.mkdtemp()) / "settings.json"
+        p.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "x"}]}]}}), encoding="utf-8")
+        g.install(p)
+        g.install(p)   # 同じものは足さない
+        got = json.loads(p.read_text(encoding="utf-8"))["hooks"]
+        self.assertEqual((len(got["PreToolUse"]), len(got["Stop"])), (2, 1))
 
 
 class ApprovalTest(unittest.TestCase):
