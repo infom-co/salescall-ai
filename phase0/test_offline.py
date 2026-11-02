@@ -11982,6 +11982,32 @@ class G73WordsTest(unittest.TestCase):
         self.assertEqual(list(out["errors"]), ["3.8 Flash"])
         self.assertIn("問い合わせていない", out["errors"]["3.8 Flash"])
 
+    def test_stand_in_fills_the_skipped_maker(self):
+        # 3.8 Flash（文字のモデル）が答えられない間は、足りない場面を Haiku 5.5 が代わりに作る（--stand-in。✅ 2026-11-03 日本時間3時台 ユーザー：
+        # 「3.8 Flash の分の一部の場面もHaikuで作らせたらいいんじゃない？何度も言わせるな！」）。言葉の maker は本当に作ったモデル
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+        import g73_system_words as g
+        sc = g._scenes()
+        full = [{"set": s["set"], "question": s["question"], "kind": k, "text": f"{i}{k}{n}", "maker": "claude-haiku-5-5", "truth": k}
+                for i, s in enumerate(sc, 1) for k in s["kinds"] for n in range(4)]
+        asked = []
+
+        class Ring:
+            keys = [N(label="K0")]
+
+            def __init__(self, args):
+                pass
+
+            def model_ids(self):
+                return {}
+        others = lambda args: {"Claude Haiku 5.5": ("h", lambda s: (asked.append(len(s)), full)[1])}   # noqa: E731
+        with m.patch.object(g, "KeyRing", Ring), m.patch.object(g, "_anthropic", others), m.patch.object(g, "save_partial", lambda *a: None):
+            out = g.run(N(resume=False, makers=["Claude Haiku 5.5"], stand_in=True))
+        self.assertEqual(out["errors"], {})
+        self.assertEqual(asked, [len(sc), len(sc)])                         # 3.8 Flash の足りない場面（ここでは全部）と、Haiku 自身の分
+        self.assertTrue(all(w["maker"] == "claude-haiku-5-5" for w in out["words"]))
+
     def test_makers_are_not_judges(self):
         # 自分で作った言葉を自分で判定すると正しさが高く出る ⇒ 作り手は判定の顔ぶれ（2つ目の判定の組・その場の判定 3.5 Flash Lite）に入れない
         # （✅ 2026-11-03 日本時間2時41分10秒 ユーザー「はい」＝2人目の作り手は Claude Haiku 5.5。Sonnet は判定に入っているので作り手にしない）

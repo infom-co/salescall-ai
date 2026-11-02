@@ -20,6 +20,10 @@ from flowctl import HEAR_OK, UNDECIDED, callback_question, hear_choices
 # 2人目の作り手を 3.7 Flash（Google の混雑で答えなかった）から Claude Haiku 5.5 に替える（Sonnet は判定に入っているので作り手にしない。
 # 1回 約0.4円・上限1円＝--budget-yen 1）
 MODELS = ("3.8 Flash", "Claude Haiku 5.5")
+# 作り手が答えられない間の代わり（--stand-in）。✅ 2026-11-03 日本時間2時39分39秒 ユーザー：「3.8が回復するまでだけ、Sonnetの無料API枠でいいんじゃないの？」・
+# 3時台「3.8 Flash の分の一部の場面もHaikuで作らせたらいいんじゃない？何度も言わせるな！」＝3.8 Flash（文字のモデル）の足りない場面も、待たずに
+# Haiku 5.5 が代わりに作る（言葉の maker は本当に作ったモデル・stand_in_for に代わった作り手の名前）
+STAND_INS = {"3.8 Flash": "Claude Haiku 5.5"}
 # 種類のそろわない場面を問い合わせ直す回数。混雑（503）・接続の切れの待ちと問い合わせ直しは、キーを回す所の1か所（common.call_with_retry）だけ
 # ⛔ 2026-11-02：ここにも混雑の問い合わせ直し（8回）を足し、中の3回と重ねて1回の作りで最大32回を使いうる形にした＝2本のキーの1日の20回を、
 #    3.7 Flash は1つも答えないまま使い切った（混雑で答えなかった問い合わせも、1日の回数に数えられていた様子）
@@ -168,7 +172,8 @@ def _anthropic(args) -> dict:
     """Anthropic の作り手（OTHER_JUDGES の名前 ⇒ モデルID）と、問い合わせる口。判定と同じ鍵（ANTHROPIC_JUDGE_KEY）・同じ料金の帳簿。"""
     from common import LEDGERS, load_secret
     from meaning_judge import OTHER_JUDGES, SPEND
-    names = [m for m in _makers(args) if OTHER_JUDGES.get(m, {}).get("maker") == "anthropic"]
+    names = [m for m in {*_makers(args), *(STAND_INS.values() if getattr(args, "stand_in", False) else ())}
+             if OTHER_JUDGES.get(m, {}).get("maker") == "anthropic"]
     if not names:
         return {}
     import anthropic
@@ -205,6 +210,17 @@ def run(args) -> dict:
     for m in MODELS:
         if m not in _makers(args):   # この流しで問い合わせない作り手も、足りない場面は「そろっていない」として残す（有料の測りの前の止め＝require_complete）
             rows[m], missing = _kept(rows.get(m, []), scenes)
+            if missing and getattr(args, "stand_in", False) and STAND_INS.get(m) in others:
+                # 代わりの作り手が、足りない場面だけを作る（言葉はこの作り手の欄に入れる＝場面ごとのそろい方は同じ1か所 _kept で見る）
+                sub = STAND_INS[m]
+                try:
+                    more, missing = _kept([{**w, "stand_in_for": m} for w in others[sub][1](missing)], missing)
+                    rows[m] += more
+                    say(m, f"の代わりに {sub} が {len(more)}個")
+                except Exception as exc:
+                    errors[m] = describe_error(exc)
+                    say(m, f"の代わり（{sub}）が誤りで止まりました：", str(errors[m].get("message", ""))[:200])
+                    continue
             if missing:
                 errors[m] = "この流しでは問い合わせていない（--makers）。そろわない場面：" + "・".join(sc["question"] for sc in missing)
             continue
@@ -269,6 +285,7 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--resume", action="store_true", help="途中で止まった流しの続き（そろった場面は問い合わせない）")
     p.add_argument("--makers", nargs="+", choices=MODELS, help="問い合わせる作り手だけ（既定は全部。混んでいる作り手を外して流すとき）")
+    p.add_argument("--stand-in", action="store_true", help="問い合わせない作り手の足りない場面を、代わりの作り手（STAND_INS）が作る")
     p.set_defaults(budget_yen=1.0)   # ✅ 2026-11-03 日本時間2時41分10秒 ユーザー「はい」＝Haiku 5.5 で作る（約0.4円・上限1円）
     args = p.parse_args()
     out = run(args)
