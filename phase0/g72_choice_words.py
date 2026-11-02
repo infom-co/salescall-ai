@@ -61,6 +61,8 @@ def run(args) -> dict:
     from meanings import by_model, decide
 
     ring = KeyRing(args)
+    # 22の質問をまとめて答えさせる長い問い合わせ（⛔ 2026-11-03：180秒で 504 DEADLINE_EXCEEDED が続いた）＝この道具だけ待つ長さを延ばす
+    ring.TIMEOUT_S = 600.0
     ids = ring.model_ids()
     k, new = known(), new_questions()
     rows: dict = {"meaning": {}, "facts": {}, **{kind: {} for kind in KINDS + (KEEP,)}}
@@ -124,9 +126,8 @@ def run(args) -> dict:
         got = {}
         if missing:
             r = ask(kind, m, lambda cl, m=m, kind=kind, missing=missing: by_model(cl, ids[m], missing, kind), kind)
-            if r is None:
-                return None
-            got = dict(zip([t for t, _ in missing], r))
+            # 問い合わせが失敗しても、前の結果の言葉は残す（⛔ 2026-11-03：失敗で None を返し、前の言葉ごと消えた結果を保存した）
+            got = dict(zip([t for t, _ in missing], r)) if r is not None else {}
             say(kind, m, f"足りない質問 {len(missing)} 個を問い合わせた（前の結果の {len(targets) - len(missing)} 個はそのまま）")
         return [have.get(t, got.get(t, {})) for t, _ in targets]
 
@@ -178,7 +179,14 @@ def main() -> None:
     p.add_argument("--resume", action="store_true", help="途中で止まった流し・前の結果の続き（答えのあった問い合わせは送らない）")
     p.add_argument("--redo", help="--resume のとき、送り直す言葉の種類（doubt,do など。作らせる文の決まりを直したとき）")
     args = p.parse_args()
-    save_result("G-72", run(args))
+    got = run(args)
+    if got["errors"]:
+        # 誤りのあった流しは結果として保存しない（測りの道具は、いちばん新しい結果から選択肢ごとの言葉を読む＝g53_meaning.imported。⛔ 2026-11-03：
+        # 全部の問い合わせが時間切れの流しを保存し、ご確認いただいた言葉が無い結果が「新しい結果」になった）。途中の記録に残し、--resume で続ける
+        save_partial("G-72", {k: got[k] for k in ("rows", "errors", "targets")})
+        say("誤りがあったので結果として保存しません（途中の記録に残しました。--resume で続けます）：", list(got["errors"])[:6])
+        raise SystemExit(1)
+    save_result("G-72", got)
     drop_partial("G-72")
 
 
