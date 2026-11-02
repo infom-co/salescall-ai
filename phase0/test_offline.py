@@ -3489,7 +3489,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
         # ✅ 11-03 ユーザー：事情だけの答え（変更するのか取りやめるのか分からない）・見込みの答え（可能性は0ではない）は確かめる方がよい
         self.assertNotIn("ご自分の事情だけを言った", FIRM_YES)
         self.assertNotIn("予定", FIRM_YES)
-        self.assertIn("ご自分の事情を言っただけで、そのうえでどうしたいかを言っていない", FIRM_NOT)
+        self.assertIn("ご自分の事情を言い（答えを添えていても）、そのうえでどうしたいかを言っていない", FIRM_NOT)
         self.assertIn("これから先のことを、なりゆきの見込みとして言った（ご自分がこれからすることを、そうすると言ったのは、これに当たらない）", FIRM_NOT)
         self.assertNotIn("言わずに残した", FIRM_NOT)
         self.assertNotIn("推し量った", FIRM_NOT)
