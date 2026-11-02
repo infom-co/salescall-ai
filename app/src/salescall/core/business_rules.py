@@ -1,4 +1,4 @@
-"""業務の決まり（業務設定の版ごと）：断りの答え・「わからない」「答えない」の理由×扱い・再発信の方針・言ってはいけないこと。
+"""業務の決まり（業務設定の版ごと）：「わからない」「答えない」の理由×扱い・再発信の方針・言ってはいけないこと。
 持ち主 CL-2。
 DESIGN.md 7-1・7-2・15-2-3。必須の質問そのものは、質問の表（questions.required）が正本（ここに写さない）。
 
@@ -9,6 +9,10 @@ DESIGN.md 7-1・7-2・15-2-3。必須の質問そのものは、質問の表（q
   （correct。誤って言ったときに、お詫びの電話で伝える正しい内容。無いもの＝失礼な言葉など は null）。会話の処理（CL-1）は
   これを指示に入れ、通話後の検証は、言ってしまったときに、どの名前に当たったかと実際に言ったことを残す。
   お詫びの電話の文面は、この2つからシステムが作る（契約者は確認と承認だけ。2026-10-16 ユーザー。DESIGN.md 10-1-2）。
+- ⛔ 2026-11-02 まで：「断りの答え」（decline＝質問 → 用件を断られたとする答え）もここに持ち、判定がそれを読んで「用件を断られた」と
+  決め直していた。会話の側の最終目的の質問の断る答えと同じ中身を2か所に持っていたので、業務設定の質問（`final_goal`・`declines`）と
+  業務の `goal_mode` に移した（CL-1 の連絡帳 4-69 の 4-182 の (e)）。前に置いた版の決まりの decline は、読むときに外す（`_current_shape`。
+  中身へ移すのは業務設定の読む1か所 business_settings._current_shape）。
 """
 
 from __future__ import annotations
@@ -60,27 +64,18 @@ class Forbidden:
     correct: str | None          # 正しい案内（お詫びの電話で伝える。無ければ None）
 
 
-# 決まった選択肢の質問にシステムが足す答え「どれも要らない」（会話の中の名前 none。CL-1 の連絡帳 4-66 の (a)。システムが足す答えの名前の
-# 正本は business_settings＝`NONE_CHOICE` はこの値を読む。ここに置くのは、断る答えの決まり `decline_answers` が判定からも読まれるため
-# ＝判定は業務設定の部品を読み込めない）。
+# 決まった選択肢の質問にシステムが足す答え「どれも要らない」（会話の中の名前 none。CL-1 の連絡帳 4-66 の (a)）。読むのは業務設定の部品
+# （business_settings.NONE_CHOICE はこの値。断る答えの決まりは business_settings.declined_answers）。ここに置いているのは、CL-1 の名前比べの
+# 試験（test_offline の test_names_match_cl2_business_settings）がここを読むため（業務設定の部品へ移すのは、CL-1 がその試験を替えてから＝
+# CL-2 の連絡帳 4-191。⛔ 2026-11-02 まで：判定も読んでいた＝判定は「用件を断られた」を決め直さなくなった）
 NONE_CHOICE = "どれも要らない"
-
-
-def decline_answers(written: Any) -> frozenset[str]:
-    """用件を断られたとする答え（1か所＝業務の決まりの読み（判定）と、業務設定の分岐の確かめが読む）：その質問に書いた断る答えと、
-    「どれも要らない」。会話の側は、最終目的の質問の「どれも要らない」を断る答えにする（CL-1 の連絡帳 4-66。断る答えに書かなくても）。
-    CL-2 の断る答えのある質問は、会話の側の最終目的の質問と同じ中身（CL-2 の連絡帳 4-182 の (e)）。✅ 2026-11-02 日本時間4時16分
-    ユーザー：「連絡しないと最終目的を果たせないような流れだったのなら営業拒否になるし、登録など別の手段が目的の営業であれば電話や
-    メールは控えるという意味合いになるんじゃないですか。」。「どれも要らない」の返らない質問（はい／いいえ・事実を伺う質問）では、
-    足しても何も変わらない。"""
-    return frozenset(written) | {NONE_CHOICE}
+KEYS = ("handling", "retry", "forbidden")
 
 
 @dataclass(frozen=True)
 class Rules:
     version_id: UUID
     required: tuple[str, ...]                          # 必須の質問（並び順）。質問の表から
-    decline: dict[str, frozenset[str]]                 # 質問 → 「用件を断られた」とする答え（書いた選択肢＋「どれも要らない」＝decline_answers）
     handling: dict[tuple[str, str, str], Handling]     # (質問, dont_know / refused, 理由) → 扱い
     retry: dict[str, Policy]                           # 再発信の方針の鍵 → 方針
     forbidden: dict[str, "Forbidden"]                  # 言ってはいけないことの名前 → 中身
@@ -140,14 +135,14 @@ def _int(v: Any, where: str) -> int:
     return v
 
 
-def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...], raw: Any) -> Rules:
+def check(version_id: UUID, required: tuple[str, ...], raw: Any) -> Rules:
     """業務の決まりを確かめて読む（ただ1つの確かめ）。"""
     if not required:
         raise RulesInvalid("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
-    if not isinstance(raw, dict) or set(raw) != {"decline", "handling", "retry", "forbidden"}:
-        raise RulesInvalid("決まりは decline・handling・retry・forbidden の4つです")
-    if not all(isinstance(raw[k], dict) for k in ("decline", "handling", "retry", "forbidden")):
-        raise RulesInvalid("decline・handling・retry・forbidden は、どれも表（名前 → 中身）です")
+    if not isinstance(raw, dict) or set(raw) != set(KEYS):
+        raise RulesInvalid(f"決まりは {'・'.join(KEYS)} の{len(KEYS)}つです（断りの答えは、業務設定の質問の断る答え declines に書きます）")
+    if not all(isinstance(raw[k], dict) for k in KEYS):
+        raise RulesInvalid(f"{'・'.join(KEYS)} は、どれも表（名前 → 中身）です")
     forbidden: dict[str, Forbidden] = {}
     for key, f in raw["forbidden"].items():
         if not isinstance(f, dict) or set(f) != {"say_not", "correct"}:
@@ -158,13 +153,6 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
         if correct is not None and (not isinstance(correct, str) or not correct.strip()):
             raise RulesInvalid(f"言ってはいけないこと {key} の correct は、正しい案内の文か null です")
         forbidden[key] = Forbidden(say_not.strip(), None if correct is None else correct.strip())
-    decline: dict[str, frozenset[str]] = {}
-    for q, answers in raw["decline"].items():
-        if q not in questions:
-            raise RulesInvalid(f"断りの答えの質問 {q} がありません")
-        if not isinstance(answers, list) or not answers or not all(isinstance(a, str) and a.strip() for a in answers):
-            raise RulesInvalid(f"質問 {q} の断りの答えは、選択肢の名前の並びです")
-        decline[q] = decline_answers(answers)
     handling: dict[tuple[str, str, str], Handling] = {}
     if set(raw["handling"]) != set(required):
         raise RulesInvalid(f"理由×扱いは、必須の質問ごとに1つずつ要ります（必須：{list(required)}）")
@@ -203,19 +191,17 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
             unit = next(iter(iv))
             retry[key] = Policy("call", _int(p["max_times"], f"{key}.max_times"), (unit, _int(iv[unit], f"{key}.interval.{unit}")))
     retry.update(SYSTEM_POLICIES)
-    return Rules(version_id, required, decline, handling, retry, forbidden)
+    return Rules(version_id, required, handling, retry, forbidden)
 
 
-def _questions(tx: Tx, version_id: UUID) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    rows = tx.all("SELECT question_id, required FROM salescall.questions WHERE version_id = %s ORDER BY position",
-                  (version_id,))
-    return tuple(r["question_id"] for r in rows if r["required"]), tuple(r["question_id"] for r in rows)
+def _required(tx: Tx, version_id: UUID) -> tuple[str, ...]:
+    rows = tx.all("SELECT question_id FROM salescall.questions WHERE version_id = %s AND required ORDER BY position", (version_id,))
+    return tuple(r["question_id"] for r in rows)
 
 
 def save(tx: Tx, version_id: UUID, raw: dict[str, Any]) -> Rules:
     """その版の業務の決まりを置く（1回だけ。変更不可）。確かめに通らなければ RulesInvalid（何も置かない）。"""
-    required, questions = _questions(tx, version_id)
-    rules = check(version_id, required, questions, raw)
+    rules = check(version_id, _required(tx, version_id), raw)
     tx.execute("INSERT INTO salescall.business_rules (tenant_id, client_id, version_id, rules, saved_by)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())",
                (version_id, json.dumps(raw, ensure_ascii=False)))
@@ -226,5 +212,10 @@ def load(tx: Tx, version_id: UUID) -> Rules:
     row = tx.one("SELECT rules FROM salescall.business_rules WHERE version_id = %s", (version_id,))
     if row is None:
         raise RulesMissing(str(version_id))
-    required, questions = _questions(tx, version_id)
-    return check(version_id, required, questions, row["rules"])
+    return check(version_id, _required(tx, version_id), _current_shape(row["rules"]))
+
+
+def _current_shape(raw: Any) -> Any:
+    """置いた版の決まりを、いまの形にする（1か所。業務の決まりの表は書き換えられない）：前の版の断りの答え（decline）を外す（中身は
+    業務設定の質問の断る答えへ移った＝読むのは business_settings._current_shape）。"""
+    return {k: v for k, v in raw.items() if k != "decline"} if isinstance(raw, dict) else raw

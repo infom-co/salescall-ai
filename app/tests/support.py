@@ -99,14 +99,21 @@ def make_report(parties=("target",), *, dnc: bool = False, oos: bool = False, co
                       irreversible_check=check)
 
 
-def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> dict:
+class OpensConvo:
+    """試験の、通話を進める部品の代わりの土台：かける前に会話AIのつながりを開く一歩（`plugins.CallRunner.open`）は、いつも開ける
+    （開けない場合は、その試験の部品が open を書き替える）。"""
+
+    def open(self, access, actor, claim, *, tenant_id, client_id, call=None) -> bool:
+        return True
+
+
+def rules_raw(required=("Q1",), *, retry=None, handling=None) -> dict:
     """試験の業務の決まり（すべての組に宣言がある形）。既定：わからない＝日を改める、答えない＝結論「回答不可」、
     再発信は どれも「かけ直す（3回まで・1時間おき）」。"""
     def per_q():
         return {"dont_know": {r: {"kind": "retry"} for r in ("not_in_charge", "undecided", "unknown_now", "unspecified")},
                 "refused": {r: {"kind": "conclude", "conclusion": "回答不可"} for r in ("policy", "unwilling")}}
-    return {"decline": decline or {},
-            "forbidden": {"F1": {"say_not": "初月は無料です", "correct": "初月は半額です"},
+    return {"forbidden": {"F1": {"say_not": "初月は無料です", "correct": "初月は半額です"},
                           "F2": {"say_not": "失礼な言葉", "correct": None}},
             "handling": handling or {q: per_q() for q in required},
             "retry": retry or {k: {"action": "call", "max_times": 3, "interval": {"hours": 1}}
@@ -355,7 +362,7 @@ def content(target_person: dict | None = None) -> dict:
             "ai_answer": None, "answers": [], "voice": "S2",
             "questions": [{"id": "Q1", "text": "ご希望の日時をお聞かせください。", "ask_about": None, "type": "datetime",
                            "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-                           "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False}],
+                           "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []}],
             "names": [{"text": "株式会社テスト", "reading": "かぶしきがいしゃてすと", "source": "caller", "reading_by": "given",
                        "candidates": [], "likely": None},
                       {"text": "山田", "reading": "やまだ", "source": "caller", "reading_by": "given",

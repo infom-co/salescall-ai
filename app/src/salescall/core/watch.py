@@ -1,14 +1,18 @@
 """見守り：エラーを記録して止めるかを決める・停止を解く確かめを記録して解くかを決める（DESIGN.md 9章・9-1）。持ち主 CL-2。
 
 - エラーの種類と処置は core/errors.py の表だけを読む（ここで2つ目の判断を作らない）。止める・解くの記録は core/stops.py。
-- **止めるか**（`decide_stop`）：処置の表の「止める原因・範囲・何回続いたら」と、「何回続いたか」（データベースの1か所
-  `salescall.consecutive_errors`。種類ごとの「直った証拠」（core/errors.py の EVIDENCE。会話AI＝その契約者のどこかの通話が会話に
-  入った）より後で、同じ原因の停止を前に解いたあと＝管理者か契約者が再開した時刻・確かめで解けたなら、その確かめを始めた時刻から
-  数え直す＝データベースの salescall.errors_counted_since の1か所。0159）。数えて基準と比べるのは `_count` の1か所。
+- **止めるか**（`decide_stop`）：処置の表の「止める原因・範囲」の種類（AIの不具合＝会話の側が「止まった」と決めたAI）が、同じ原因の
+  前の解きのあとに1つでもあれば止める（1回で止める。数え始めはデータベースの salescall.errors_counted_since の1か所＝管理者か契約者が
+  再開した時刻・確かめで解けたなら、その確かめを始めた時刻。0159。その種類があったかを見るのは `_happened` の1か所）。
   同じ原因・同じ範囲で、まだ解かれていない停止があれば、重ねて止めない（ただし、契約者以上が緊急の道で再開した AIの不具合の停止は、
-  緊急の道で補えない種類＝会話AI・緊急の道そのものが止まったときは、止まっていないものとみなして、また止める。0155。数え方は緊急の道を
-  出せるか `ai_blocker` と同じ。その種類そのものが無ければ届かない＝⛔ 見直し25a の A：前は、その種類が無くても補える種類と合わせて
-  数えて届いたことにし、緊急の道で再開したあと、その再開のもとになった判定の止まりで「会話AIが止まった」として止め直した）。
+  緊急の道で補えない種類＝会話AI・別の耳・緊急の道が代われない判定・緊急の道そのものが止まったときは、止まっていないものとみなして、
+  また止める。0155。見方は緊急の道を出せるか `ai_blocker` と同じ。その種類そのものが無ければ止めない＝⛔ 見直し25a の A：前は、その種類
+  が無くても補える種類と合わせて数えて届いたことにし、緊急の道で再開したあと、その再開のもとになった判定の止まりで「会話AIが止まった」
+  として止め直した）。
+  会話AIの生の誤り（つながらない・Google の側の誤り・不明・設定の誤り＝`errors.CONVO_RAW`）では止めない（記録・知らせ・修正依頼だけ。
+  CL-1 の連絡帳 4-69 の 4-179 の (a)）。⛔ 2026-11-02 まで：それらを、どこかの通話が会話に入ったら数え直す数（データベースの
+  salescall.consecutive_errors の証拠 in_conversation）で数え、設定 stop.ai.stop_after_failures の数で止めていた（止まったかを会話の側と
+  2か所で決めていた。0170 で外した）。
 - **止める範囲は、その契約者**（全体は止めない）。会話AIの枠は契約者ごと（契約者が自分のキー・プロジェクトを持つ。
   2026-10-16 ユーザー。Intent.md 1-4）なので、会話AIの異常も、その契約者のエラーだけを数えて、その契約者だけを止める
   （2026-10-17 見直し：前は全体で数えて全体を止め、ある契約者のキーの誤りで、ほかの契約者まで止まった）。
@@ -18,10 +22,11 @@
   ⛔ 4段目まで：回線の異常の数（仮の値 stop.line.stop_after_failures）で回線を止め、止めた回線をテスト番号やアプリの確かめで解き
   （ring_test.checks_stop・checkable の声の止め直し）、こちらの不具合で止めた停止を直した版で解いていた（resume_fixed）。5段目（0147）で外した。
 - **解くか**（`record_check`）：システムが止めた停止のうち、確かめで解ける原因（会話AI）だけ。確かめの結果を記録し、
-  決めた回数続けて成功したら、同じ取引で解く。確かめを始めた時刻よりあとに、止める数に届いたエラーがあれば、成功でも解かない
+  決めた回数続けて成功したら、同じ取引で解く。確かめを始めた時刻よりあとに、止める種類のエラーがあれば、成功でも解かない
   （確かめの間にまた止まった。0159）。解いたあとは、その確かめを始めた時刻から数え直す（それより前の出来事は、通った確かめが
-  「回復した」と示している。⛔ 見直し25a の C：解いた時刻から数えたので、解くのと同時に書いた止まったAIが数えられずに消えた）。**次に確かめてよい時刻より前の確かめは受け付けない**（ばたつきで伸びた待ちを、
-  確かめを早めて越えられない）。待ち＝確かめの間隔 ×（ばたつきの倍率 ^ 期間内に同じ原因・同じ範囲で止まった回数）、上限つき。
+  「回復した」と示している。⛔ 見直し25a の C：解いた時刻から数えたので、解くのと同時に書いた止まったAIが数えられずに消えた）。
+  **次に確かめてよい時刻より前の確かめは受け付けない**（待ち＝確かめの間隔の1つだけ。⛔ 見直し29b の 6 まで：同じ日に止まった回数で
+  倍々に延ばした＝ばたつきの待ち）。
 - 確かめそのもの（試しのセッション）は、持ち主の部品が行い、結果だけをここへ渡す。
 - 管理者か契約者が押した緊急停止（manual）と、確かめでは解けない原因（言ってはいけないこと・品質の基準）は、ここでは解かない
   （品質は新しい版の合格で解く。持ち主の処理が解く）。
@@ -102,57 +107,42 @@ def _lasting(tx: Tx, kind: str) -> bool:
 
 
 def decide_stop(tx: Tx, kind: str) -> dict[str, Any] | None:
-    """処置の表のとおり、止めるなら止める（その契約者の取引で呼ぶ。止めるのは、その契約者の会話AIの異常だけ）。
-    止めた停止の記録を返す（止めなければ None）。根源的なもの（直す担当へ修正依頼を出したもの）は、管理者にも知らせる（確かめ・承認のため）。
-    状態の表が決める原因（`errors.TABLE_CAUSES`）は止めない。"""
+    """処置の表のとおり、止めるなら止める（その契約者の取引で呼ぶ。止めるのは、その契約者のAIの不具合だけ）。
+    止めた停止の記録を返す（止めなければ None）。状態の表が決める原因（`errors.TABLE_CAUSES`）は止めない。止める種類は、どれも1回で止める
+    （`_happened`）。⛔ 2026-11-02 まで：根源的なもの（設定の誤り・不明）は理由に「修正依頼を出しました」を書き、管理者に写しを送った
+    （会話AIの生の誤りで止めるのを外したので、止める種類に根源的なものは無い＝試験が見張る）。"""
     action = errors.ACTIONS[kind]
     if action.stop_cause is None or action.stop_cause in errors.TABLE_CAUSES:
         return None
     tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
-    # もう止まっている（重ねて止めない）。緊急の道で再開した停止は、補える種類（判定・別の耳）なら止まっているとみなし、補えない種類なら
-    # みなさない（また止める。0155）
+    # もう止まっている（重ねて止めない）。緊急の道で再開した停止は、補える種類（Anthropic の Sonnet）なら止まっているとみなし、補えない
+    # 種類ならみなさない（また止める。0155）
     if stops.open_same(tx, scope=action.stop_scope, cause=action.stop_cause, tenant_id=tenant,
                        passed_too=action.emergency) is not None:
         return None
-    n, need = _count(tx, kind)
-    if not _over((n, need)):
+    if not _happened(tx, kind):
         return None
-    how = (f"根源的なもの：{action.fixer} に修正依頼を出しました。直るまで新しい発信を待ちます" if action.fundamental
-           else "一時的なもの：直ったら自動で続けます")
-    return stops.stop(tx, scope=action.stop_scope, cause=action.stop_cause,
-                      reason=f"{action.meaning}（続けて {n} 回。基準 {need} 回。{how}）", evidence=STOPPED_BY + kind,
-                      tenant_id=tenant, admin=action.fundamental)
+    # 止める種類は、どれも回復の確かめが通れば自動で続ける（止まったまま1時間以上なら、処置の表の担当へ修正依頼＝`lasting_stops`）。
+    # 管理者へは、止まったAIのエラーの知らせ（`record_error`）が届いている
+    return stops.stop(tx, scope=action.stop_scope, cause=action.stop_cause, reason=action.meaning, evidence=STOPPED_BY + kind,
+                      tenant_id=tenant)
 
 
-def _count(tx: Tx, kind: str, *, since: Any = None) -> tuple[int, int]:
-    """その種類で止めるか決めるときの（続いた数, 止める基準）（1か所。止めるか＝`decide_stop`・緊急の道を出せるか＝`ai_blocker`・
-    確かめの間にまた止まったか＝`record_check` が読む）。数えるのは、合わせて数える種類（errors.counted_with）を、データベースの
-    salescall.consecutive_errors で（契約者の取引で）。since＝それより前は数えない。
-    その種類そのものが数える間に1つも無ければ 0（合わせて数える種類のほかのエラーで、基準の違うこの種類が届いたことにしない。⛔ 見直し25
-    の試験で見つけた：会話AIにつながらない1回で、基準1回の「設定の誤り」が届いたことになった）。"""
+def _happened(tx: Tx, kind: str, *, since: Any = None) -> bool:
+    """止める種類のエラーが、同じ原因の前の解き（と since）のあとに、その契約者で1つでもあるか（1か所。止めるか＝`decide_stop`・緊急の
+    道を出せるか＝`ai_blocker`・確かめの間にまた止まったか＝`record_check` が読む）。数えるのはデータベースの salescall.errors_since
+    （契約者の取引で）。その種類そのものだけを見る（ほかの種類で、この種類が起きたことにしない。⛔ 見直し25 の試験で見つけた）。"""
     action = errors.ACTIONS[kind]
-    kinds = list(errors.counted_with(kind))
-    row = tx.one("SELECT salescall.consecutive_errors(%s, %s, %s, %s) AS n, salescall.consecutive_errors(%s, %s, %s, %s) AS own,"
-                 " salescall.cur_tenant() AS t",
-                 (kinds, action.stop_cause, errors.EVIDENCE[kind], since, [kind], action.stop_cause, errors.EVIDENCE[kind], since))
-    if row["n"] is None:
+    n = tx.one("SELECT salescall.errors_since(%s, %s, %s) AS n", ([kind], action.stop_cause, since))["n"]
+    if n is None:
         raise PermissionError("この取引では、その範囲のエラーを数えられません（契約者の取引で数える）")
-    need = 1 if action.stop_after is None else int(_tenant_setting(tx, action.stop_after, row["t"]))
-    return (row["n"] if row["own"] > 0 else 0), need
+    return n > 0
 
 
 def ai_blocker(tx: Tx) -> str | None:
-    """緊急の道で補えないAI（errors.EMERGENCY_BLOCKERS＝会話AI・緊急の道そのもの）が、いま止める数に届いているか（届いていれば、その
-    種類。契約者の取引で）。1か所：緊急の道を出せるか（stops.emergency_possible）と、出したあとに止め直すか（`decide_stop`）が、同じ数え方を
-    読む（⛔ 見直し25a の B：前は緊急の道を出せるかだけが「前の解き以後に1回でも」で決め、止める基準に届かない一時的なエラー1回で、
-    緊急の道をずっと出せなかった）。"""
-    return next((k for k in errors.EMERGENCY_BLOCKERS if _over(_count(tx, k))), None)
-
-
-def _over(counted: tuple[int, int]) -> bool:
-    """`_count` の（続いた数, 基準）が、止める数に届いているか。"""
-    n, need = counted
-    return n >= need
+    """緊急の道で補えないAI（errors.EMERGENCY_BLOCKERS）が、前の解きのあとに止まったか（止まっていれば、その種類。契約者の取引で）。
+    1か所：緊急の道を出せるか（stops.emergency_possible）と、出したあとに止め直すか（`decide_stop`）が、同じ見方を読む。"""
+    return next((k for k in errors.EMERGENCY_BLOCKERS if _happened(tx, k)), None)
 
 
 def after_error(access: Access, actor: Actor, report: errors.ErrorReport, *, tenant_id: UUID | None = None,
@@ -233,7 +223,7 @@ def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str, begun_a
     interval = int(_tenant_setting(tx, interval_key, s["tenant_id"]))
     need = int(_tenant_setting(tx, need_key, s["tenant_id"]))
     if ok and s["scope"] == "tenant":
-        late = next((k for k in errors.COUNTED_FOR[s["cause"]] if _over(_count(tx, k, since=begun_at))), None)
+        late = next((k for k in errors.COUNTED_FOR[s["cause"]] if _happened(tx, k, since=begun_at)), None)
         if late is not None:
             ok, evidence = False, f"{evidence}（確かめの間に、また止まった：{errors.LABELS[late]}）"
     streak = ((prev["streak"] if prev is not None else 0) + 1) if ok else 0

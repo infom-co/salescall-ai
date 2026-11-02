@@ -89,13 +89,23 @@ class CallControl(Protocol):
 
 class CallRunner(Protocol):
     """通話を最後まで進める部品（会話＝CL-1。サーバーで動く。作るときに受け取った回線の電話の部品で、通話の声を受け渡す）。
-    発信の出口（dial_exit.dial）がかけたあとに呼ぶ。
+    発信の出口（dial_exit.dial）がかけたあとに呼ぶ（かける前に `open` で会話AIのつながりを開いておく）。
     試行の状態を終わりまで移し（attempts.move）、答え・報告・「もうかけないで」の申告は、書き込む入口（core/conversation_io.py）
     だけを通して書く：答えは決まるたびに `write_item`、報告は `save_report`（版3＝通話の事実の形）、申告はその場で
     `declare_do_not_call`（原則14）。エラーは自分でエラーの入口
     （watch.after_error）へ渡す。外へ出た誤りは、見守り役が「見守り役の誤り」として記録し、その試行を結果不明にする。
     通話ごとの口 `call`（`CallControl`）：通話のあいだ `call.beat()` を1秒より短い間隔で呼び続け、甚大な問題があれば
     `call.end_for_trouble(理由)` を呼んで戻る。**通話の長さでは切らない**（2026-10-24 ユーザー：時間で業務を打ち切らない）。"""
+
+    def open(self, access: Access, actor: Actor, claim: Claim, *, tenant_id: UUID, client_id: UUID, call: CallControl) -> bool:
+        """かける前に、その電話の会話AIのつながりを開く（予約のあと・発信の出口の前に、回線ごとの処理が1回だけ呼ぶ）。開けたら真（そのあと
+        発信の出口がかけ、`run` が同じつながりで会話する）。開けなければ、止まったAI「会話AI・止まった」を `call.ai_trouble` で知らせて偽を
+        返す（CL-1 の連絡帳 4-69 の 4-179 の (a)：電話の前に会話AIのつながりを開けなければ、電話はかけない＝お客様の電話を鳴らしてから
+        切らない）。偽なら、回線ごとの処理は予約を戻し（`attempts.release`。行・番号・回線のどれにも数えない）、かけない。止めるかを決める
+        のは止まったAIの1か所（その契約者の新しい電話を、回復の確かめが通るまで止める）。誤りを外へ出したら、予約を戻してから見守り役の
+        誤りとして記録する（会話AIが止まったとはしない）。⛔ 2026-11-02 まで：会話AIのつながりを開く場が、かけたあと（`run`）にしか
+        無かった（開けなかったと分かるのは、お客様の電話を鳴らしたあと）。"""
+        ...
 
     def run(self, access: Access, actor: Actor, claim: Claim, *, tenant_id: UUID, client_id: UUID, call: CallControl) -> None: ...
 

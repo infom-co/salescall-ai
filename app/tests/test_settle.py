@@ -869,13 +869,20 @@ class UnusableNumber(SettleBase):
         いない）。⇒ 見直し22 の 9：ただし、分からない電話を番号のせいに数えると番号の順で次の日になるあいだは待つ（同じ日に3回目を
         かけない）。"""
         s = self.ready()
-        today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
         run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
         t2 = self.w.task(s["tenant"], s["client"], run2, s["contact"])
         other = dict(s, task=t2)
         self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験"))
-        d = self.settle(s, self.call(s, ["dialing", "call_failed"]))["decision"]   # 1つ目：番号のせい
-        self.assertEqual(self.jst_date(s, d.at), today)                        # 1日目にもう1回（並びの1つ目）
+        first = self.call(s, ["dialing", "call_failed"])                       # 1つ目：番号のせい
+        d = self.settle(s, first)["decision"]
+        # 1日目にもう1回（並びの1つ目）：次の日は失敗した日のまま、時刻は最短の間隔のあと（日付の替わり目をまたいでも同じ決まりで比べる。
+        # ⛔ 2026-11-02：前は試験の始めに読んだ「今日」と比べたので、日本時間の0時をまたいで流れると落ちた）
+        failed_day = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(ended_at)::date AS d FROM salescall.attempts WHERE attempt_id = %s",
+                                                  (first,))["d"])
+        wait = self.tx(s, lambda tx: health.number_wait(tx, s["contact"]))
+        after = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.assertEqual(wait.day, failed_day)
+        self.assertTrue(wait.not_before <= d.at <= max(after, wait.not_before), (d.at, wait, after))
         # 別の行の予定は、番号の続きが伸びる前に書いたもの：番号ごとの決まった順（最後の失敗＋最短の間隔）より前にはかけない（門の
         # number_failed_wait。決まりは番号の欄＝core/health.number_wait の1か所。見直し22 の 9）。次の動きが、その順で予定を書き直す
         got = self.claim(other)
@@ -892,7 +899,9 @@ class UnusableNumber(SettleBase):
         self.assertEqual((run["n"], run["n_sure"]), (2, 1))
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         at = self.tx(s, lambda tx: next_action._failed_retry_at(tx, s["task"], s["contact"], now, now))
-        self.assertEqual(self.jst_date(s, at), today)                          # 分からない電話では、次の日へ送らない
+        again = self.tx(s, lambda tx: health.number_wait(tx, s["contact"]))
+        self.assertEqual(again.day, failed_day)                                # 分からない電話では、次の日へ送らない
+        self.assertEqual(at, max(now, again.not_before))
         # ただし、分からない電話を番号のせいに数えると番号の順で次の日になる（当日の2回を使い切る）あいだは、同じ番号の行は、どの回線
         # でもかけずに待つ（番号の欄の待つ印＝N-4 の1か所。予定は書き直さない。見直し22 の 9）
         self.assertTrue(self.tx(s, lambda tx: health.number_held(tx, s["contact"])))
@@ -1157,7 +1166,7 @@ class SameDayAndSuccessor(SettleBase):
         """同じ日にかけてよいかは、その通話を締めた「不在」「取り次げない」の記録のうち、いちばん新しいものの答え（1か所）。"""
         from salescall.core.call_report import NotTransferred, Said
         r = self.absent(True)
-        untimed = lambda c: c.time_said is None   # noqa: E731（判定は時刻の言葉を読んで決める＝judge._untimed_absence）
+        untimed = lambda c: c.time_said is None   # noqa: E731（判定は時刻の言葉を読んで決める＝judge._untimed_offer）
         self.assertTrue(r.may_call_again(untimed))
         later = replace(r, not_transferred=(NotTransferred(Said(5, "やはりお繋ぎできかねます。"), None),))
         self.assertFalse(later.may_call_again(untimed))         # あとの「取り次げない」で聞いていない
@@ -1226,7 +1235,7 @@ class NotAskedSettle(SettleBase):
         two["questions"].append({"id": "Q2", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                                 "ask_if": {"after": "Q1", "answers": ["わからない"]}, "approval": True})
+                                 "ask_if": {"after": "Q1", "answers": ["わからない"]}, "approval": True, "final_goal": False, "declines": []})
         for q1, state, more in ((("Q1", "confirmed", "答えた"), "completed", {"not_asked": ["Q2"]}),
                                 (("Q1", "accepted", "わからない"), "incomplete", {"missing": ["Q2"]})):
             with self.subTest(q1=q1):

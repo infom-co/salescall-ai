@@ -28,7 +28,7 @@ from tests.test_gate import HOLDER, FakeDriver
 from tests.test_supervisor import Runner, SupervisorBase
 
 
-class Troubled:
+class Troubled(support.OpensConvo):
     """通話を進める部品の代わり：お客様が出る前（answered=False）か、出て話し始めたあと（answered=True）に、こちらの不具合で終える
     （reason＝通話を進める部品が見つけた甚大な問題。runner_error なら、通話を終えないまま落ちる）。"""
 
@@ -45,7 +45,7 @@ class Troubled:
         call.end_for_trouble(self.reason)
 
 
-class StorageStalled:
+class StorageStalled(support.OpensConvo):
     """通話を進める部品の代わり：お客様が出る前に、データベースの誤りで書けず、通話を終えないまま戻る（通話ごとの口が、データベースが
     止まった＝storage_stuck としておわびして終える。supervisor/line._Call.after_runner の1か所）。"""
 

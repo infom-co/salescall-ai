@@ -37,7 +37,9 @@ for line in SRC.open(encoding="utf-8"):
     ts = d.get("timestamp")
     if not ts:
         continue
-    if d.get("type") == "user":
+    # isMeta の付いた行（仕組みの知らせ・手引きの本文・分身の報告）は、ご発言ではない（CL-1 の連絡帳 4-68 の知らせ。⛔ 前は拾い、
+    # 「作業の流れが立ち上げ直された」という仕組みの知らせを管理者のご発言として書いていた）
+    if d.get("type") == "user" and not d.get("isMeta"):
         t = human_text(d.get("message", {}).get("content"))
         if t:
             who = "ほかの担当のセッションから" if t.startswith("Another Claude session sent a message") else "管理者"

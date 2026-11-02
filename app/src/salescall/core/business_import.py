@@ -46,7 +46,7 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "basic": ("基本", {"item": "項目", "value": "値"}, True),
     "questions": ("質問", {"id": "質問ID", "text": "質問の文", "ask_about": "聞くこと", "type": "型", "required": "必須",
                           "choices": "選択肢", "decline": "断りの答え", "intro": "入る一言", "ask_after": "伺う条件の質問ID",
-                          "ask_answers": "伺う条件の答え", "approval": "ご承認を伺う"}, True),
+                          "ask_answers": "伺う条件の答え", "approval": "ご承認を伺う", "final_goal": "最終目的"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -59,7 +59,10 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # 質問に入る一言（依頼者のトークスクリプト。CL-1 の連絡帳 4-65 の (b)。最初の質問には書かない＝業務設定の確かめ）。
 # 前の質問のこの答えのときだけ伺う（伺う条件の質問ID・伺う条件の答え。答えは「／」か改行で区切る）と、説明した内容のご承認を伺う質問か
 # （はい／いいえの質問だけ）（どちらも依頼者のトークスクリプト。CL-1 の連絡帳 4-66 の (b)。空ならいつも伺う・ご承認の質問ではない）
-OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.approval"})
+# 最終目的の申し出か（「はい」の質問が最終目的。断られて目的が果たせなくなったら、会話の側がその場で締め、判定は「用件を断られた」とする。
+# 断りの答えの列は、その質問の申し出を断る答え＝最終目的でない質問では、断られても用件を断られたにしない。CL-1 の連絡帳 4-69 の 4-182 の (e)）
+OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.approval",
+                              "questions.final_goal"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -69,7 +72,9 @@ BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class
                "在籍していないときの応じ方": "departed_policy", "業務の情報": "info",
                "担当から改めて連絡すると申し出てよいか": "follow_up",
                # 依頼者がすること（登録・記録・手配など。書かなければ会話の側の既定「記録」。CL-1 の連絡帳 4-65 の (c)）
-               "依頼者がすること": "client_does"}
+               "依頼者がすること": "client_does",
+               # 最終目的の果たし方（最終目的の質問が2つ以上の業務だけ書く。業務設定の goal_mode）
+               "最終目的の果たし方": "goal_mode"}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
@@ -90,6 +95,8 @@ LABELS: dict[str, dict[str, str]] = {
     "departed_policy": {"後任の方をお呼びする": "successor", "お礼を言って終える": "end"},
     "follow_up": {"はい": True, "いいえ": False},
     "approval": {"はい": True, "○": True, "いいえ": False, "": False},
+    "final_goal": {"はい": True, "○": True, "いいえ": False, "": False},
+    "goal_mode": {"どれか1つで果たせる": "any", "全部が要る": "all"},
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }
 # かけ直しのシートで、システムが決める結果（業務では変えない＝business_rules.SYSTEM_POLICIES）。前のひな形にはこの行があったので、
@@ -232,7 +239,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
     tkind = _label("target_kind", basic.get("target_kind"), "シート「基本」の目的のお客様", problems)
     tclass = _label("target_class", basic.get("target_class"), "シート「基本」のお客様の区分", problems)
 
-    questions, decline = [], {}
+    questions = []
     where_q: list[str] = []
     for row_no, v in _rows(sheets, "questions", problems):
         where = f"シート「質問」の {row_no} 行目"
@@ -245,9 +252,9 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "required": required, "choices": _split(v.get("choices")) if qtype == "choice" else None,
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
                           "do_words": None, "intro": v.get("intro"), "ask_if": ask_if,
-                          "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems)})
-        if v.get("decline"):
-            decline[v.get("id")] = _split(v.get("decline"))
+                          "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
+                          "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
+                          "declines": _split(v.get("decline")) or []})
     by_id = {q["id"]: q for q in questions}
     for row_no, v in _rows(sheets, "branches", problems):
         q = by_id.get(v.get("id"))
@@ -362,8 +369,10 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         "ai_answer": basic.get("ai_answer"), "answers": answers, "voice": basic.get("voice"),
         **_responses(basic, problems, notes),
         **({"client_does": basic["client_does"]} if basic.get("client_does") else {}),
+        **({"goal_mode": _label("goal_mode", basic["goal_mode"], "シート「基本」の最終目的の果たし方", problems)}
+           if basic.get("goal_mode") else {}),
         "questions": questions, "names": names,
-        "rules": {"decline": decline, "handling": handling, "retry": retry, "forbidden": forbidden},
+        "rules": {"handling": handling, "retry": retry, "forbidden": forbidden},
     }
     return raw, problems, {"名前": where_n, "質問": where_q, "想定問答": where_a}
 
@@ -387,9 +396,10 @@ def _field_types(tx: Tx) -> frozenset[str]:
 
 NameFinder = readings.NameFinder                    # 台本から名前と読みを出す処理（正本は core/readings.py。作るのは CL-1）
 
-UnitDecider = Callable[[list[str]], dict[str, str]]
-"""数の質問の単位を決める処理（質問の文の並び → 文ごとの単位。決まらない文は入れないか空）。決め方は CL-1 の1か所
-（CL-1 の連絡帳 4-14。質問の文の数える言葉か、文字のモデル2つが合うときだけ）。管理者も契約者も確かめない。"""
+UnitDecider = Callable[[list[tuple[str, str]]], dict[str, str]]
+"""数の質問の単位を決める処理（(業務の目的, 質問の文) の並び → 文ごとの単位。決まらない文は入れないか空）。決め方は CL-1 の1か所
+（CL-1 の連絡帳 4-14。質問の文の数える言葉か、文字のモデル2つが合うときだけ。CL-1 の import_ai.decide_units）。管理者も契約者も
+確かめない。業務の目的と一緒に聞く（CL-1 の連絡帳 4-69 の 4-184 の (a)：G-41 はこの形で測った。⛔ 2026-11-02 まで：文だけを渡していた）。"""
 
 
 def _is_name(n: Any) -> bool:
@@ -515,11 +525,18 @@ def _meanings_of(q: dict[str, Any], choices: tuple[str, ...], decided: dict[str,
                                                 choices, replies=False)
 
 
-def _decided(texts: list[str], decide: Callable[[list[str]], dict[str, str]] | None) -> dict[str, str]:
-    """文ごとに決める処理に、1回だけ聞く（決まった答えだけ返す）。"""
+def _decided(texts: list[str], decide: Callable[[list[Any]], dict[str, str]] | None, *,
+             asked: Callable[[list[str]], list[Any]] = lambda texts: texts) -> dict[str, str]:
+    """文ごとに決める処理に、1回だけ聞く（決まった答えだけ返す。文 → 答え）。asked＝聞く並びの形（既定は文だけ。単位は業務の目的と組で）。"""
     if not texts or decide is None:
         return {}
-    return {t: u.strip() for t, u in decide(texts).items() if t in texts and isinstance(u, str) and u.strip()}
+    return {t: u.strip() for t, u in decide(asked(texts)).items() if t in texts and isinstance(u, str) and u.strip()}
+
+
+def _decided_units(raw: dict[str, Any], decide: UnitDecider | None) -> dict[str, str]:
+    """数の質問の単位を、業務の目的と一緒に1回だけ聞く（文 → 単位）。"""
+    purpose = raw.get("purpose") if isinstance(raw.get("purpose"), str) else ""
+    return _decided(sorted({q["text"] for q in _unit_questions(raw)}), decide, asked=lambda texts: [(purpose, t) for t in texts])
 
 
 def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
@@ -557,7 +574,7 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
     facts = _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)
     meanings = _decided_pairs(raw, "meanings", decide_meanings)   # こちらがすることの言葉の向きを、意味の言葉の向きとそろえるので先に
     return {"names": readings.to_json(readings.find(_script(raw), find_names)),
-            "units": _decided(sorted({q["text"] for q in _unit_questions(raw)}), decide_units),
+            "units": _decided_units(raw, decide_units),
             "topics": _decided(sorted({q["text"] for q in _topic_questions(raw)}), decide_topics),
             "meanings": meanings,
             "replies": _decided_pairs(raw, "replies", decide_replies),

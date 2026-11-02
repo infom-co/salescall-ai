@@ -208,8 +208,8 @@ def emergency_possible(tx: Tx, stop_event_id: int) -> str | None:
     """その停止で、緊急の道（OpenRouter を通して Google が預かる Claude）での再開を出せるか（1か所。画面がボタンを出すか・出す入口が
     読む）。出せれば None、出せなければ理由の文。出せるのは、緊急の道で再開できる停止（データベースの salescall.emergency_stop の1か所＝
     まだ解かれていない・システムが止めた・その契約者の AIの不具合の停止。守り・判定の道も同じ関数を読む）で、まだ出していないもの、かつ、
-    緊急の道で補えない種類（errors.EMERGENCY_BLOCKERS＝会話AI・緊急の道そのもの）が止める数に届いていないとき（core/watch.ai_blocker の
-    1か所＝止め直すかと同じ数え方。2026-10-30 深夜 管理者のご決定。CL-1 の連絡帳 4-62 の (c)：会話AIが止まっていると、再開しても話せない）。
+    緊急の道で補えない種類（errors.EMERGENCY_BLOCKERS＝Anthropic の Sonnet のほかのAI・緊急の道そのもの）が前の解きのあとに止まって
+    いないとき（core/watch.ai_blocker の1か所＝止め直すかと同じ見方。2026-10-30 深夜 管理者のご決定。CL-1 の連絡帳 4-62 の (c)：会話AIが止まっていると、再開しても話せない）。
     契約者の取引で読む。"""
     from salescall.core import watch   # watch は、ここ（停止の記録）を使う側でもあるので、使うときに読む
     s = tx.one(

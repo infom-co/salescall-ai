@@ -1698,6 +1698,12 @@ class NameLedger(Content):
                               "closing_after_decline", "kashikomari"}, set(recordings.CONTRACTOR_PARTS))
         self.assertLessEqual({"N2", "N3"}, business_settings.RESERVED_IDS)
 
+    def test_the_refusal_confirm_number_d1_is_received(self):
+        """CL-1 の連絡帳 4-69：ご遠慮の確かめの番号を R1 から D1 に替える（R1 は待たせた方が戻ったかの問いの番号として残る）。どちらも
+        業務の質問の番号に使えない（使えると、業務の質問の答えとご遠慮の答え・戻ったかの読みを取り違える）。"""
+        from salescall.core import business_settings
+        self.assertLessEqual({"R1", "D1"}, business_settings.RESERVED_IDS)
+
     def test_what_a_row_needs(self):
         """その行で要るもの（name_needs の1か所）：法人の名前の行は、役職の部分（部署・役職があるとき）・名前の部分と、続く言葉の呼ぶ
         一言・確かめる一言・聞き返し・約束の一言・取り次げないの確かめの一言・後任の方の一言。役職のみは役職の呼び方が名前の部分（役職の部分は要らない）。個人は

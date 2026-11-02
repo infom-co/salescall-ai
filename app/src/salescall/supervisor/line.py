@@ -19,7 +19,9 @@
      ほかの業務の行はかける）。実施回の理由・品質の段の理由も、この回だけ飛ばす。すぐに変わる行の理由（gate.TASK_REASONS：同じ行・
      同じお客様・同じ番号の発信が進行中）は、この回だけその行を飛ばす。
    - 候補に出さない理由（gate.UNOFFERED_REASONS）は、候補を出す処理が初めから出さない（ここへ来るのは、出したあとで変わったとき）。
-3. 予約証で発信の出口（dial_exit.dial）がかけ、通話を進める部品（CL-1）が最後まで進める。外へ出た誤りは、その試行を結果不明に
+3. かける前に、通話を進める部品（CL-1）が会話AIのつながりを開く（plugins.CallRunner.open。開けなければ、止まったAIを知らせてあり、
+   予約を戻してかけない＝行・番号・回線のどれにも数えない。回線は少し休む）。開けたら、予約証で発信の出口（dial_exit.dial）がかけ、
+   通話を進める部品が最後まで進める。外へ出た誤りは、その試行を結果不明に
    して「見守り役の誤り」として記録する（止めない）。**電話が終わったら、その電話の出来事（E1〜E5）を、回線・行・番号・契約者の状態の表を
    引く入口（core/health.after_call。DESIGN.md 17章）へ渡す**（その回線の電話の順のまま。かけられなかった電話も）。だれのせいか・回線を
    休ませるか・行を待たせるか・知らせるかは、表が決めて入口が行う（2026-10-24 管理者：「回線か番号かどちらかわからない場合は、その行に
@@ -86,6 +88,9 @@ WATCHER_TROUBLES = ("frozen", "runner_error", "storage_stuck")   # 通話ごと�
 # 進むあいだ）待ってから、データベースで進行中かを見る（見直し22 の 3。⛔ 0143：頼んだ時点で「終わりに向かっている」とし、書き手が
 # 断った移り・書く前に固まった電話でも、お詫びも終わりの記録もしなかった＝場面 w22b・w23）
 FINISHING = frozenset({"ending", "ended", "busy", "no_answer", "call_failed", "dropped", "technical_error"})
+
+
+CONVO_UNOPENED = "convo_unopened"   # 回線の休みの理由：かける前に会話AIのつながりを開けなかった（`plugins.CallRunner.open`）
 
 
 @dataclass(frozen=True)
@@ -572,8 +577,20 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                 limits = access.in_tenant(actor, tenant_id, call_limits)
                 call = _Call(access, actor, tenant_id, client_id, line_id, got.attempt_id, driver, limits)
                 call.start()   # かける前から「話している」に載せる（かけた直後に、止める・ログインを外す処理が閉じない）
+                done: dial_exit.Outcome | None = None
                 try:
-                    done = dial_exit.dial(access, actor, tenant_id, client_id, got.attempt_id, driver)
+                    # かける前に、会話AIのつながりを開く（plugins.CallRunner.open。開けなければ、止まったAIを通話ごとの口で知らせてある＝
+                    # かけずに予約を戻す。行・番号・回線のどれにも数えない。CL-1 の連絡帳 4-69 の 4-179 の (a)）。落ちたら、予約を戻して
+                    # から外へ出す（回線ごとの処理の誤りの1か所＝`loop`）
+                    try:
+                        opened = runner.open(access, actor, got, tenant_id=tenant_id, client_id=client_id, call=call)
+                    except BaseException:
+                        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.release(tx, [got.attempt_id]))
+                        raise
+                    if not opened:
+                        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.release(tx, [got.attempt_id]))
+                    else:
+                        done = dial_exit.dial(access, actor, tenant_id, client_id, got.attempt_id, driver)
                     if done is dial_exit.Outcome.DIALED:
                         call.watch()
                         error: BaseException | None = None
@@ -591,6 +608,9 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                         watch.after_ai_troubles(access, actor, tenant_id)
                     except Exception as e:  # noqa: BLE001 決められなくても、回線の処理は止めない（見守り役の誤りとして伝える）
                         report(access, tenant_id, "止まったAIで止めるかの判断", e, line_id=line_id)
+                if done is None:
+                    # 会話AIのつながりを開けなかった：この回線は少し休む（そのあいだに止まったAIで契約者が止まれば、次の回で門が断る）
+                    return Round(pause=CONVO_UNOPENED)
                 if done in (dial_exit.Outcome.DIALED, dial_exit.Outcome.NOT_PLACED):
                     # 電話が終わった（かけられなかった＝「発信に失敗」も）：その電話の出来事を、状態の表を引く入口へ（この回線の電話の
                     # 順のまま。回線を休ませるか・行を待たせるかは表が決める＝次の回の頭で、回線の欄を聞く）
