@@ -291,6 +291,15 @@ def g48_question(n: int, text: str, conditions: tuple, meanings: dict, facts: bo
                     asks_fact=facts and asks_fact(text))
 
 
+def renamed() -> list[tuple[str, tuple]]:
+    """文を直した G-48 の質問（元の一覧＝g48_meanings.QUESTIONS の文が、G-52 の材料の文と違う）：(文, 選択肢)。意味の言葉と事実を伺う質問かは、
+    取込と同じ決め方で作り直す（G-72 の new_questions。唯一の決め方）。⛔ 2026-11-03：「前の結果に意味の言葉が無い質問」で決めていたので、作った次の
+    流しでは作り直す質問から外れ、結果に残らず、その次の流しで意味の言葉が消えた（1回おき）。"""
+    with open(sorted(glob.glob(str(HERE / "results" / "G-52_*.json")))[-1], encoding="utf-8") as fh:
+        d = json.loads(fh.read())
+    return [(text, tuple(c)) for (text, c), (was, _) in zip(G48, d["questions"]) if text != was]
+
+
 def g48_questions(facts: bool = True) -> list[Question]:
     """G-48 の質問（G1〜）。文と選択肢は元の一覧（g48_meanings.QUESTIONS）から、意味の言葉は G-52 の材料から（文が同じときだけ）。文を直した質問の
     意味の言葉は、取込と同じ決め方で作り直したもの（G-72 の meanings）。⚠️ お客様の答えの材料（組 B）と正解は、質問の番号のまま（お客様の言葉）。

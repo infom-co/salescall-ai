@@ -65,13 +65,11 @@ def known() -> dict[str, tuple[str, tuple, bool, dict]]:
 
 
 def new_questions() -> list[tuple[str, tuple]]:
-    """意味の言葉と事実を伺う質問かも、ここで作る質問：(文, 選択肢)。表（end_words）にしか無い質問と、測りの質問のうち意味の言葉が無いもの（文を直した
-    質問＝g53_meaning.g48_questions。✅ 2026-11-03 ユーザー：「「折り返し」だとすぐだと思われ断られる可能性が高いので、「また」に変更するように言ったよね！」）。"""
+    """意味の言葉と事実を伺う質問かも、ここで作る質問：(文, 選択肢)。表（end_words）にしか無い質問と、文を直した測りの質問（g53_meaning.renamed。✅ 2026-11-03 ユーザー：「「折り返し」だとすぐだと思われ断られる可能性が高いので、「また」に変更するように言ったよね！」）。"""
     from end_words import CHOICES
-    from g53_meaning import word_key
+    from g53_meaning import renamed, word_key
     k = known()
-    return ([(t, c) for t, c in CHOICES.items() if word_key(t, c) not in k]
-            + [(t, c) for t, c, _, m in k.values() if not m])
+    return [(t, c) for t, c in CHOICES.items() if word_key(t, c) not in k] + renamed()
 
 
 def run(args) -> dict:

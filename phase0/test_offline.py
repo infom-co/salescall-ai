@@ -7423,6 +7423,16 @@ class EndWordsTest(unittest.TestCase):
             else:
                 self.assertEqual((q.doubt_words, q.do_words), ({}, {}), text)
 
+    def test_every_choice_has_meaning_words(self):
+        # 測りの質問の表の選択肢の質問は、どれも選択肢ごとの意味の言葉を持つ（取込の言葉が抜けると、判定に選択肢の名前だけが見え、言い直しもできない）。
+        # ⛔ 2026-11-03：文を直した G7 の意味の言葉が、1回おきの流しで結果から消えていた（g53_meaning.renamed の前）
+        from flowctl import CHOICE_TYPES
+        from g53_meaning import question_map, renamed
+        for q in question_map().values():
+            if q.type in CHOICE_TYPES:
+                self.assertEqual(set(q.meanings), set(q.conditions), (q.id, q.text))
+        self.assertEqual(renamed(), [("担当者からまたお電話を差し上げてもよろしいでしょうか？", ("はい", "いいえ"))])
+
     def test_answer_truths_are_one_per_words(self):
         # 同じ質問・同じ言葉の行（業務の最終目的かだけが違う）は、正解も同じ（答えの段の測り G-53 の組 F は1つにまとめて判定する）
         from end_words import ANSWER, answer_truths
