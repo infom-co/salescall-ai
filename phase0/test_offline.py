@@ -3469,8 +3469,17 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertIn("自分の考えとして言った（こちらに同意を求める言い方でも）", LEAN)
         # 確かめるかは中身の3つで決める（✅ 2026-11-01 ユーザー：(a)「OK」）：こちらの返事や対応・料金などの状況しだいの答えは確かめる・
         # 柔らかく言っただけならそのまま記録。言いかけたまま止めたか・「が」で終わるかでは決めない（文字だけでは見分けられない）
-        self.assertIn("こちらの返事や対応、料金などの状況しだい", FIRM_NOT)
+        # ✅ 2026-11-03 日本時間3時台 ユーザー（「こちらに任せた」と「頼む形」は1つの決まりに・事情だけを言った答え）：3つ目の条件は「こちらに尋ねたことの
+        # 返事を聞いてから決める」に絞り、11-01 朝に抜けた種類（時・範囲が違う・困らないと言っただけ・迷っている）を足した。例は試しの言葉と重ねない
+        self.assertIn("こちらに尋ねたことへの返事を聞いてから決めると言った", FIRM_NOT)
+        for kind in ("質問の聞いている時や範囲についての答えが決まらない", "困らないと言っただけ", "迷っている", "いまの時点だけの答えで、この先は変わるかもしれない"):
+            self.assertIn(kind, FIRM_NOT)
+        for word in ("時間を遅らせて", "空き", "ずっと先"):   # 例の言葉が試しの言葉と重なり、判定がその形を探した（G-53fix1）
+            self.assertNotIn(word, FIRM_NOT)
+        self.assertIn("自分の予定や望みを柔らかく言っただけ", FIRM_YES)
         self.assertIn("柔らかい言い方をしただけ", FIRM_YES)
+        self.assertIn("選ぶのをこちらに任せること", FIRM_YES)
+        self.assertIn("ご自分の事情だけを言った", FIRM_YES)
         self.assertNotIn("言わずに残した", FIRM_NOT)
         self.assertNotIn("推し量った", FIRM_NOT)
         self.assertIn(FIRM_NOT, FIRM_RULE)
