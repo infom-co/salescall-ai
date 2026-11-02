@@ -11924,28 +11924,100 @@ class G73WordsTest(unittest.TestCase):
         self.assertEqual(call_with_retry(drop_then_ok, waits=(0,)), ("ok", 1))
         calls = []
 
+        from meaning_judge import OTHER_JUDGES
+        haiku = [x for x in g.MODELS if x in OTHER_JUDGES]
+
         class Ring:
             def __init__(self, args, answer):
                 self.keys, self.answer = [N(label="K0")], answer
 
             def model_ids(self):
-                return {m: m for m in g.MODELS}
+                return {x: x for x in g.MODELS if x not in haiku}
 
             def call(self, model, fn):
                 calls.append(model)
                 return self.answer(model), 0
 
+        def others(answer):   # Anthropic の作り手（_anthropic の形）：同じく1回ずつ数える
+            return lambda args: {x: (x, lambda sc, x=x: (calls.append(x), answer(x))[1]) for x in haiku}
+
         def busy(model):
             raise RuntimeError("503 UNAVAILABLE")
-        with m.patch.object(g, "KeyRing", lambda args: Ring(args, busy)), m.patch.object(g, "save_partial", lambda *a: None):
+        with m.patch.object(g, "KeyRing", lambda args: Ring(args, busy)), m.patch.object(g, "_anthropic", others(busy)), \
+                m.patch.object(g, "save_partial", lambda *a: None):
             out = g.run(N(resume=False))
         self.assertEqual(calls, list(g.MODELS))                            # 1つのモデルに1回（中で待ってやり直したあと）
         self.assertEqual(set(out["errors"]), set(g.MODELS))
         calls.clear()
-        with m.patch.object(g, "KeyRing", lambda args: Ring(args, lambda model: [])), m.patch.object(g, "save_partial", lambda *a: None):
+        with m.patch.object(g, "KeyRing", lambda args: Ring(args, lambda model: [])), m.patch.object(g, "_anthropic", others(lambda x: [])), \
+                m.patch.object(g, "save_partial", lambda *a: None):
             out = g.run(N(resume=False))
         self.assertEqual(len(calls), g.SCENE_TRIES * len(g.MODELS))         # 種類のそろわない場面は、決まった回数だけ問い合わせ直す
         self.assertTrue(all("そろわない場面" in str(e) for e in out["errors"].values()))
+
+    def test_skipped_maker_stays_incomplete(self):
+        # 作り手を選んで流しても（--makers）、問い合わせなかった作り手の足りない場面は「そろっていない」として残る（有料の測りの前に止まる）
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+        import g73_system_words as g
+        sc = g._scenes()
+        full = [w for i, s in enumerate(sc, 1) for k in s["kinds"] for w in [{"set": s["set"], "question": s["question"], "kind": k,
+                "text": f"{i}{k}{n}", "maker": "m", "truth": k} for n in range(4)]]
+
+        class Ring:
+            keys = [N(label="K0")]
+
+            def __init__(self, args):
+                pass
+
+            def model_ids(self):
+                return {}
+        others = lambda args: {"Claude Haiku 5.5": ("h", lambda s: full)}   # noqa: E731
+        with m.patch.object(g, "KeyRing", Ring), m.patch.object(g, "_anthropic", others), m.patch.object(g, "save_partial", lambda *a: None):
+            out = g.run(N(resume=False, makers=["Claude Haiku 5.5"]))
+        self.assertEqual(list(out["errors"]), ["3.8 Flash"])
+        self.assertIn("問い合わせていない", out["errors"]["3.8 Flash"])
+
+    def test_makers_are_not_judges(self):
+        # 自分で作った言葉を自分で判定すると正しさが高く出る ⇒ 作り手は判定の顔ぶれ（2つ目の判定の組・その場の判定 3.5 Flash Lite）に入れない
+        # （✅ 2026-11-03 日本時間2時41分10秒 ユーザー「はい」＝2人目の作り手は Claude Haiku 5.5。Sonnet は判定に入っているので作り手にしない）
+        import g73_system_words as g
+        from meaning_judge import GROUPS, members, JUDGE2
+        judges = set(members(JUDGE2)) | {x for v in GROUPS.values() for x in v} | {"3.5 Flash Lite"}
+        self.assertEqual(set(g.MODELS) & judges, set())
+        self.assertIn("Claude Haiku 5.5", g.MODELS)
+
+    def test_anthropic_maker_reads_the_same_request(self):
+        # Anthropic の作り手は、Gemini と同じ文と答えの形（_request の1か所）で、答えの形を指定した道具の呼び出しで返させ、同じ読み取り（_words）を通す。
+        # 料金は判定と同じ帳簿に入り、上限に達していれば送らない
+        from types import SimpleNamespace as N
+        import g73_system_words as g
+        from meaning_judge import SPEND, OtherJudgeError
+        sc = [s for s in g._scenes() if s["set"] == "HEAR_CALL"]
+        sent = {}
+
+        class Client:
+            class messages:
+                @staticmethod
+                def create(**kw):
+                    sent.update(kw)
+                    data = {str(i): {k: [f"{i}{k}{n}" for n in range(4)] for k in s["kinds"]} for i, s in enumerate(sc, 1)}
+                    return N(content=[N(type="tool_use", input=data)], usage=N(input_tokens=1000, output_tokens=2000), stop_reason="tool_use")
+        limit, before = SPEND.limit, SPEND.yen
+        try:
+            SPEND.limit = None
+            got = g._ask_anthropic(Client, "claude-haiku-5-5", sc)
+            text, js = g._request(sc)
+            self.assertEqual((sent["messages"][0]["content"], sent["tools"][0]["input_schema"], sent["tool_choice"]["name"]), (text, js, "words"))
+            self.assertNotIn("temperature", sent)                     # Haiku 5.5 は temperature を送ると断る（meaning_judge.other_request）
+            self.assertEqual(g._kept(got, sc)[1], [])
+            self.assertEqual({w["asked"] for w in got}, {False, True})
+            self.assertGreater(SPEND.yen, before)
+            SPEND.limit = SPEND.yen
+            with self.assertRaises(OtherJudgeError):
+                g._ask_anthropic(Client, "claude-haiku-5-5", sc)
+        finally:
+            SPEND.limit = limit
 
     def test_g53_sets(self):
         import unittest.mock as m
