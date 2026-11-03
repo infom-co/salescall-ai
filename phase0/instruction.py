@@ -12,8 +12,8 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 
-from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, TAKEN, Question,
-                     callback_question, check_policies, choices_note, offers_rule, resumed_wish, spoken_question)
+from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
+                     callback_question, check_policies, choices_note, first_open, offers_rule, resumed_wish, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -327,12 +327,14 @@ class Business:
         """この電話で、名乗りのあとに最初に伺う質問（業務の質問か、続きの電話のほかのご希望。番号を伺い直す電話・お詫びの電話・伺う質問が無いときは
         None）。流れの制御 Flow も同じ earlier で、同じ質問から始める：ほかのご希望を伺っている途中で切れた電話の続きは、切れた所からのほかのご希望
         （「前回お伺いした…の件で…」。どの質問かは flowctl.resumed_wish の1か所＝Flow の始めと同じ決まり。✅ 2026-11-03 日本時間23時52分36秒 ユーザー
-        「(ア)」）／前の通話の続きは、前の通話で取れた答えの質問を飛ばした最初の質問／それ以外は最初の質問。"""
+        「(ア)」）／それ以外は flowctl.first_open の1か所（前の通話で取れた答えの質問を飛ばし、伺う条件の質問は前の通話の答えで当たるときだけ・ここで
+        終える答えのあとの質問は伺わない＝Flow の始めと同じ決まり）。⛔ 2026-11-04 まで、ここは伺う条件を見ずに探していた（前の通話の答えで伺わない
+        質問を、名乗りの録音の最後に流しうる＝流れの制御は別の質問を待つ）。"""
         if self.number_again or self.apology_call:
             return None   # 番号を伺い直す電話は伺い直す一言だけ（first_ask）・お詫びの電話は業務の質問をしない
         if (q := resumed_wish(self.questions, self.earlier)) is not None:
             return callback_question("other_wish", of=q, again=True)
-        return next((q for q in self.questions if not q.callback and (self.earlier.get(q.id) or {}).get("state") not in TAKEN), None)
+        return first_open(self.questions, self.earlier)
 
     def first_ask(self) -> tuple[str, str] | None:
         """この電話で、名乗りのあとに最初に伺うこと（質問の番号, 声に出す文。無ければ None）を決める唯一の場所（名乗りの録音・AIへの指示文が読む）：
