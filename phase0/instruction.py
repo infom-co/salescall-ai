@@ -13,7 +13,7 @@ import dataclasses
 from dataclasses import dataclass, field
 
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, TAKEN, Question,
-                     check_policies, choices_note, offers_rule, spoken_question)
+                     callback_question, check_policies, choices_note, offers_rule, resumed_wish, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -323,16 +323,26 @@ class Business:
             parts.append(first[1])   # 番号を伺い直す一言・前の通話の続きなら、まだ取れていない最初の質問（つなぎの言葉ごと）
         return parts
 
+    def first_question(self) -> Question | None:
+        """この電話で、名乗りのあとに最初に伺う質問（業務の質問か、続きの電話のほかのご希望。番号を伺い直す電話・お詫びの電話・伺う質問が無いときは
+        None）。流れの制御 Flow も同じ earlier で、同じ質問から始める：ほかのご希望を伺っている途中で切れた電話の続きは、切れた所からのほかのご希望
+        （「前回お伺いした…の件で…」。どの質問かは flowctl.resumed_wish の1か所＝Flow の始めと同じ決まり。✅ 2026-11-03 日本時間23時52分36秒 ユーザー
+        「(ア)」）／前の通話の続きは、前の通話で取れた答えの質問を飛ばした最初の質問／それ以外は最初の質問。"""
+        if self.number_again or self.apology_call:
+            return None   # 番号を伺い直す電話は伺い直す一言だけ（first_ask）・お詫びの電話は業務の質問をしない
+        if (q := resumed_wish(self.questions, self.earlier)) is not None:
+            return callback_question("other_wish", of=q, again=True)
+        return next((q for q in self.questions if not q.callback and (self.earlier.get(q.id) or {}).get("state") not in TAKEN), None)
+
     def first_ask(self) -> tuple[str, str] | None:
-        """この電話で、名乗りのあとに最初に伺うこと（質問の番号, 声に出す文。無ければ None）を決める唯一の場所（名乗りの録音・AIへの指示文が読む。
-        流れの制御 Flow も同じ number_again・earlier で、同じ質問から始める）：番号を伺い直す電話は伺い直す一言（かけ直しの番号の質問）／前の通話の続きは、
-        前の通話で取れた答えの質問を飛ばした最初の質問／それ以外は最初の質問。"""
+        """この電話で、名乗りのあとに最初に伺うこと（質問の番号, 声に出す文。無ければ None）を決める唯一の場所（名乗りの録音・AIへの指示文が読む）：
+        番号を伺い直す電話は伺い直す一言（かけ直しの番号の質問）／それ以外は first_question の質問の、声に出す文（業務の質問はつなぎの言葉ごと＝
+        spoken_question・システムの質問は文そのまま）。"""
         if self.number_again:
             return CALLBACK_IDS["number"], NUMBER_AGAIN[self.number_again]
-        if self.apology_call:
-            return None   # お詫びの電話は、業務の質問をしない
-        qid = next((q.id for q in self.questions if not q.callback and (self.earlier.get(q.id) or {}).get("state") not in TAKEN), None)
-        return (qid, spoken_question(self.questions, qid)[0]) if qid else None
+        if (q := self.first_question()) is None:
+            return None
+        return q.id, (q.text if q.callback else spoken_question(self.questions, q.id)[0])
 
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
@@ -598,8 +608,8 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     いまの位置は流れの制御が持っているので、AIが前のセッションを覚えていなくても続きから話せる。
     """
     voice, style_text = voice_style(voice_type)
-    ask = business.first_ask()   # 名乗りのあとに最初に伺うこと（番号を伺い直す一言・前の通話の続き＝Business.first_ask の1か所）
-    first = next((q for q in business.questions if ask and q.id == ask[0]), None)
+    ask = business.first_ask()   # 名乗りのあとに最初に伺うこと（番号を伺い直す一言・前の通話の続き＝Business.first_question の1か所）
+    first = business.first_question()   # システムの質問（続きの電話のほかのご希望など）の選択肢も、AIに知らせる
     calls_target = business.target is not None and not business.number_again   # 番号を伺い直す電話は、電話に出た方に伺う
     first_note = (f"最初の質問は {ask[0]} です。" + (choices_note(first) if first else "")) if ask else "伺う質問は、もうありません。"
     parts = [

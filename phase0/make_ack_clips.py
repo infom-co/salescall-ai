@@ -243,8 +243,8 @@ def script_table(business) -> tuple[dict, dict]:
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
         if may_wish(q):
             # 「どれも要らない」・最終目的への言い切っていないお断りのあと、ほかのご希望を伺う一言（文は flowctl._wish_text の1か所＝W1 の質問の文。
-            # 名前は flowctl.other_wish_recording_id）
-            items.append((other_wish_recording_id(q), callback_question("other_wish", of=q).text, "question"))
+            # 名前は flowctl.other_wish_recording_id）。伺っている途中で切れた電話の続きで、切れた所から伺う一言（again＝「前回お伺いした…の件で…」）も
+            items += [(other_wish_recording_id(q, again), callback_question("other_wish", of=q, again=again).text, "question") for again in (False, True)]
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)
