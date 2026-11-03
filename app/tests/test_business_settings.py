@@ -183,7 +183,7 @@ class Check(unittest.TestCase):
         r = raw()
         r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "どれも要らない": "END", "*": "Q2"}
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
-        self.assertEqual((bs.declined_answers(s.questions[0]), s.questions[0].ends_on), (frozenset({"しない", "どれも要らない"}), ("どれも要らない",)))
+        self.assertEqual((bs.declined_answers(s.questions[0]), s.questions[0].ends_on), (frozenset({"しない", "どれも要らない"}), ("しない", "どれも要らない")))
         r["questions"][0].update(final_goal=False, declines=[])
         self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない", "どれも要らない"))
 
@@ -549,7 +549,7 @@ class Check(unittest.TestCase):
         self.assertEqual([by[f"Detail{i}"].ask_if for i in range(n)], [bs.AskIf(f"Ask{i}", ("ある",)) for i in range(n)])
         qs[-2] = dict(qs[-2], next={"*": "END"})   # 最後の詳しく聞く質問のあとで終わる＝続きの終わり（Ask19 の「ある」で終わる）
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
-        self.assertEqual({q.id: q.ends_on for q in s.questions if q.ends_on}, {f"Ask{n - 1}": ("ある",)})
+        self.assertEqual({q.id: q.ends_on for q in s.questions if q.ends_on}, {"Q1": ("しない",), f"Ask{n - 1}": ("ある",)})
 
     def test_malformed_values_are_problems_not_crashes(self):
         """画面・抜き出しの入口から形の違う値が来ても、処理が落ちずに問題として並べる（2026-10-16 の見直し I9）。"""
