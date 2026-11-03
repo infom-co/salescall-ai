@@ -24,11 +24,13 @@ from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, OWN_FALLBACK_POINT, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
+from phrases import OTHER_WISH_ASK, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from units import supply_unit
 
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
-CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address"}
+# line_id＝LINE の ID（✅ 2026-11-03 日本時間20時48分 ユーザー：ほかの方法に LINE を言っていただいたら、その場で伺う＝Flow._wish_step）
+CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address", "line_id"}
 # 選択肢で答える型：依頼主へは、相手の言葉ではなく、宣言された選択肢を渡す（7-1b）
 CHOICE_TYPES = {"yes_no", "choice"}
 # 型の一覧（Q19）の全部。確かめない型は、選択肢の型と、自由な意見（free_text。2026-10-13 CL-2 の依頼で名前を決めた）
@@ -125,7 +127,7 @@ def normalize_value(qtype: str, value: str | None, unit: str = "") -> str | None
         v = _TAIL.sub("", v).strip()
         if qtype in DATE_TIME_TYPES | NUMBER_TYPES:
             v = _REQUEST_TAIL.sub("", v).strip()
-    if qtype == "email":
+    if qtype in ("email", "line_id"):
         v = re.sub(r"\s", "", unicodedata.normalize("NFKC", v))  # 「info @ example.co.jp」「ｉｎｆｏ＠…」⇒ 依頼主へ渡す形（半角・空白なし）
     if qtype in NO_SPACE_TYPES:
         v = _SPACE.sub("", v)
@@ -165,6 +167,7 @@ _NUMBER_WORDS = re.compile(r"ひとり|ひとつ|ふたり|ふたつ|みっつ|�
 
 
 _EMAIL = re.compile(r"[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+")  # メールアドレスの形（宛名@宛先。宛先はドットで区切る）
+_LINE_ID = re.compile(r"[A-Za-z0-9._-]{4,20}")  # LINE の ID の形（form_problem）
 
 
 def form_problem(qtype: str, value: str | None) -> str | None:
@@ -185,6 +188,9 @@ def form_problem(qtype: str, value: str | None) -> str | None:
         # AIも声では言い直したのに、報告の値は「info@example」（宛先が途中まで）で、形の確かめが無かったので通っていた（Intent.md 9-5
         # 「相手の肯定と形式の検査がそろったときだけ確認済み」の形式の検査が、メールには入っていなかった）
         return "メールアドレスの形（英字などの宛名・@・ドットで区切った宛先）ではありません"
+    if qtype == "line_id" and not _LINE_ID.fullmatch(re.sub(r"\s", "", unicodedata.normalize("NFKC", value))):
+        # LINE の ID の形（LINE の決まり：英字の小文字・数字・ピリオド・下線・ハイフンの4〜20字。ID を設定していない方が言う、LINE に登録した電話番号の形も入る）
+        return "LINE の ID の形（英字・数字・ピリオド・下線・ハイフンの4〜20字）ではありません"
     if qtype in CONFIRM_TYPES - DATE_TIME_TYPES:
         # 名前・電話番号・メール・住所：返事の言葉だけの値は、答えの値ではない。⛔ 2026-10-17 の見直しで見つけた漏れ：名前を聞いて
         #    「結構です」「はい」とだけ言われると、「結構ということでよろしいでしょうか？」と言い直していた（日時・数は止めていた）
@@ -425,12 +431,20 @@ def tell_recording_id(q: "Question", cond: str) -> str:
     return f"{q.id}_tell{q.conditions.index(cond) + 1}"
 
 
+def other_wish_recording_id(q: "Question") -> str:
+    """選ぶ質問 q に「どれも要らない」と言われたとき、ほかのご希望を伺う一言（phrases.OTHER_WISH_ASK。q の選択肢が入る）の、依頼主の単位の録音の名前
+    （唯一の場所。録音を作る make_ack_clips.script_table と、流す question_play が同じ名前を使う）。"""
+    return f"{q.id}_other"
+
+
 def question_play(questions: list["Question"], qid: str) -> dict:
     """その質問を録音で流すときの1つ（電話接続側が流すもの）。業務の質問＝依頼主の単位の録音（つなぎの言葉＋質問の文）、かけ直しで足す質問＝
     契約者の単位の録音（phrases.RECORDED の callback_〜。どの業務でも同じ文）。読みの確かめは録音にしない（相手ごとの名前を含む＝AIが言う）。"""
     q = next(x for x in questions if x.id == qid)
     if q.callback in OPENING_ROLES:
         return {"kind": "opening", "part": q.callback, "text": q.text}  # 伝言の文・約束の電話の一言は依頼主の単位の録音
+    if q.callback in BUSINESS_ROLES:
+        return {"kind": "question", "id": q.recording, "text": q.text, "lead": ""}  # ほかのご希望を伺う質問＝業務の質問と同じ依頼主の単位の録音
     if q.callback:
         return {"kind": "recorded", "id": q.recording or f"callback_{q.callback}", "text": q.text}
     text, lead = spoken_question(questions, qid)
@@ -799,9 +813,12 @@ def ear_ai(kind: str) -> str:
 # out_of_scope（範囲外の求めで終えた）は、まだ書かない（実際にあるかを測ってから作る＝2-2 の「まだ作っていないもの」）
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end", "connect", "answered",
               "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question", "talk", "hold_timeout",
-              "end_unjudged", "goal_refused", "who_unclear", "not_agreed")   # end_unjudged：判定の答えが届かず、会話AIの読みで丁寧に締めた（Flow._end_late。通話のあとの確かめが読み直す）
+              "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish")   # end_unjudged：判定の答えが届かず、会話AIの読みで丁寧に締めた（Flow._end_late。通話のあとの確かめが読み直す）
 # goal_refused：最終目的の申し出を断られ、業務の目的が果たせなくなったので途中で締めた（Flow._goals_lost。その業務だけかけない＝CL-2）
 # not_agreed：説明した内容をご承認いただけず、ご納得いただけなかった点を伺った答え（question＝ご承認の質問・said＝お客様の言葉。Flow._follow_ups。依頼者へ返す）
+# other_wish：選ぶ質問に「どれも要らない」と言われ、ほかのご希望を伺った答え（Flow._wish_step。question＝その質問・wish＝ほかのご希望の選択肢の名前
+# ・value＝お客様が言ったご希望・means＝ご連絡の方法（WISH_MEANS の鍵）・contact＝その方法の連絡先・outcome＝option（元の質問の選択肢を選び直した）／
+# means（ご連絡の方法）／other（ほかのご希望）／none（無い）。依頼者へ返す）
 # who_unclear：受付の方に、お名前だけではどの方か分からないと言われ、部署・フルネームでお呼びし直しても（recalled）・お伝えすることが無くて（発信対象データに
 # フルネームが無い）、取り次いでいただけなかった（Flow._who_unclear。日を改めて同じお名前でかけても同じになる＝CL-2 の次の動きが読む）
 PERSON_PARTIES = ("reception", "target")
@@ -855,13 +872,14 @@ MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほ
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
                 "when": "C9", "message": "M1", "promise_again": "P1",
-                "refusal": "D1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3"}
+                "refusal": "D1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3", "line": "C10", "other_wish": "W1"}
 ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
             "number": "number",
             "email": "email",
             "fax": "fax", "address": "address", "message": "message", "back_today": "back_today", "call_again": "again",
             "promise_again": "promise_again", "ask_who": "who", "ask_when": "when", "refusal": "refusal",
-            "hurry_again": "hurry", "hurry_when": "time", "not_agreed": "not_agreed", "other_point": "other_point", "agreed_now": "agreed_now"}
+            "hurry_again": "hurry", "hurry_when": "time", "not_agreed": "not_agreed", "other_point": "other_point", "agreed_now": "agreed_now",
+            "line": "line", "other_wish": "other_wish"}
 # 必須の質問の「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules.HANDLINGS と同じ名前。Question.handlings の値）：
 # 分かるお客様を聞く・分かる時を聞く（聞き足しの質問を1通話1回）・日を改める（会話は次の質問へ進む）・結論として終える（丁寧に締める）
 HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")
@@ -1701,13 +1719,15 @@ CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご
                   "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言", "back_today": "本日のお戻りのご予定",
                   "call_again": "改めてのお電話", "promise_again": "改めてのお電話", "ask_who": "お分かりになる方", "ask_when": "お分かりになる時期",
                   "refusal": "今後のお電話", "hurry_again": "改めてのお電話", "hurry_when": "ご都合のよろしい日時", "not_agreed": "ご納得いただけなかった点",
-                  "other_point": "ほかにご納得いただけない点", "agreed_now": "ご説明した内容へのご納得"}
+                  "other_point": "ほかにご納得いただけない点", "agreed_now": "ご説明した内容へのご納得", "line": "LINEのID", "other_wish": "ほかのご希望"}
 # 文が依頼主の単位の録音のもの（伝言の文＝業務設定 message・約束の電話の一言＝お名前が入る＝instruction.Business.replay_parts の promise_again）
 OPENING_ROLES = ("message", "promise_again")
-SYSTEM_ROLES = set(CALLBACK_ASK) | set(OPENING_ROLES)  # システムが足す質問の役目
+# 文が業務の質問から決まる、依頼主の単位の録音のもの（ほかのご希望を伺う質問＝その質問の選択肢の名前が入る。録音の名前は other_wish_recording_id）
+BUSINESS_ROLES = ("other_wish",)
+SYSTEM_ROLES = set(CALLBACK_ASK) | set(OPENING_ROLES) | set(BUSINESS_ROLES)  # システムが足す質問の役目
 _ROLE_TYPE = {"number": "phone", "fax": "phone", "email": "email", "address": "address", "authority": "choice", "message": "yes_no", "ask_who": "name",
               "back_today": "yes_no", "call_again": "yes_no", "promise_again": "yes_no", "refusal": "yes_no", "hurry_again": "yes_no",
-              "not_agreed": "choice", "other_point": "choice", "agreed_now": "yes_no"}
+              "not_agreed": "choice", "other_point": "choice", "agreed_now": "yes_no", "line": "line_id", "other_wish": "choice"}
 # 代わりの方にお立場を伺った答えのうち、話を進めてよい答え（_substitute_decided の1か所）。✅ 2026-10-22 ユーザー（4回目）：問いは「ご判断いただける
 # お立場の方ということで問題ございませんでしょうか？それともお取次ぎのみいただけるということでしたでしょうか？」の2つから選んでいただく形
 AUTHORITY_YES = "判断できる"
@@ -1730,16 +1750,48 @@ _ROLE_MEANINGS = {
     "agreed_now": {"はい": "ご説明した内容でご納得いただけたということ", "いいえ": "ご説明した内容ではご納得いただけなかったということ"}}
 # システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）
 _ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("断ろうとしている",), "agreed_now": ("いいえ",)}
+# 選ぶ質問の「どれも要らない」のあとに伺うほかのご希望（Flow._wish_step の1か所）：ご連絡の方法を言っていただいたら、その方法の連絡先をその場で伺う。
+# ✅ 2026-11-03 日本時間20時48分 ユーザー：「「LINEならいいです」と回答いただけたら、LINEアドレスを伺うというステップを忘れないように。そうしないと、
+# また、電話をかけて伺わないといけなくなりますよ。そうなると、また、繋がらなかったり、考えが変わったりして、無駄な対応やせっかくの顧客を失う可能性が
+# 高まります。」。鍵 → (呼び名, その質問の選択肢に同じ方法があるかを見る言葉＝大文字にそろえて含むか, 連絡先を伺うシステムの質問の役目＝無ければ伺わない。
+# お電話は、いまかけている番号がある)。申し伝える一言は phrases.WISH_TOLD の同じ鍵
+WISH_MEANS = {"line": ("LINE", ("LINE", "ライン"), "line"), "email": ("メール", ("メール", "MAIL"), "email"),
+              "fax": ("ファクス", ("ファクス", "ファックス", "FAX"), "fax"), "post": ("郵送", ("郵送", "郵便"), "address"),
+              "phone": ("お電話", ("電話", "TEL"), None)}
+WISH_OTHER, WISH_NONE = "ほかの希望を言った", "無い"
 
 
-def callback_question(role: str, text: str | None = None, nth: int = 0) -> "Question":
+def wish_label(means: str) -> str:
+    """ほかのご希望を伺う質問の、ご連絡の方法の選択肢の名前（「LINEでの連絡」）。"""
+    return f"{WISH_MEANS[means][0]}での連絡"
+
+
+def _wish_choices(q: "Question") -> tuple[tuple, dict]:
+    """ほかのご希望を伺う質問（W1）の選択肢と意味の言葉（唯一の場所）：元の質問の選択肢（考え直して、そのどれかを選んだ）・ご連絡の方法（元の質問の
+    選択肢に同じ方法が無いもの。同じ方法が選択肢にあれば、その選択肢を選んだことになる＝元の質問の答え）・ほかのご希望・無い。"""
+    shown = [unicodedata.normalize("NFKC", c).upper() for c in q.conditions]
+    means = [k for k, (_, words, _) in WISH_MEANS.items() if not any(w in c for w in words for c in shown)]
+    conds = (*q.conditions, *(wish_label(k) for k in means), WISH_OTHER, WISH_NONE)
+    meanings = {**{c: q.meanings.get(c) or f"「{c}」を選んだということ" for c in q.conditions},
+                **{wish_label(k): f"{WISH_MEANS[k][0]}での連絡を望んでいるということ" for k in means},
+                WISH_OTHER: "上のどれでもない、ほかのご希望を言ったということ", WISH_NONE: "ほかに希望は無い・やはり要らないということ"}
+    return conds, meanings
+
+
+def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Question | None" = None) -> "Question":
     """システムが足す質問（役目＝SYSTEM_ROLES の1つ）を作る唯一の場所：かけ直し・ほかの手段で聞くこと（時刻＝日時の型＝日にちだけの答えも
     受け取る・番号＝電話番号の型・メール・住所。どれも言い直して確かめる型）と、選んでいただくこと（代わりの方に、判断いただけるお立場か・
     お取次ぎのみか＝✅ 2026-10-22 ユーザー（4回目）の2つから選んでいただく問い／伝言を伝えていただけるか＝はい／いいえ）。
     出られる時間は必須にしない（✅ 2026-10-14 ユーザー：分からないと言われたら、それでよい）。選んでいただく問いも必須にしない（はっきりしなければ、
-    話を進めない側＝お礼を言って戻る時刻を聞く）。text：伝言の文（依頼主の単位。業務設定の message）。"""
+    話を進めない側＝お礼を言って戻る時刻を聞く）。text：伝言の文（依頼主の単位。業務設定の message）。
+    of：ほかのご希望を伺う質問（other_wish）の元の質問（選ぶ質問で「どれも要らない」と答えていただいたもの。文と選択肢はその質問から＝_wish_choices）。"""
     qtype = _ROLE_TYPE.get(role, "datetime")
     qid = SUBSTITUTE_ID if role == "authority" else CALLBACK_IDS[ROLE_KEY[role]]
+    if role == "other_wish":
+        conds, meanings = _wish_choices(of)
+        return Question(qid, OTHER_WISH_ASK.format(c="と".join(of.conditions)), qtype, required=False, conditions=conds, meanings=meanings,
+                        recording=other_wish_recording_id(of), topic=CALLBACK_TOPIC[role], callback=role, declines=(WISH_NONE,),
+                        firm_not_needed=True)
     # nth＝この通話で同じ質問を伺う何回目か（0から）：2回目からの言い方を順に回す（phrases.CALLBACK_ASK_AGAIN。録音は callback_（役目）_2 から）
     lines = (CALLBACK_ASK.get(role, ""), *CALLBACK_ASK_AGAIN.get(role, ()))   # 伝言の文などは言い方の表に無い（text で渡す）
     i = nth % len(lines)
@@ -1905,6 +1957,11 @@ class Flow:
         # （AIがご説明する）／explained（ご説明が終わった）／other（ほかに…を伺っている）／confirm（ご納得いただけたかを伺っている）・round＝ご説明の回・
         # explained＝知っていることでご説明できたか・outcome＝agreed（ご納得）／declined（ご納得いただけない）／unresolved（ご説明できない・はっきりしない）
         self.point: dict | None = None
+        # 選ぶ質問の「どれも要らない」のあとに、ほかのご希望を伺う段の状態（Flow._wish_step の1か所だけが書く）：q＝元の質問・stage＝ask（ほかのご希望を
+        # 伺っている）／detail（ご連絡の方法の連絡先を伺っている）・detail＝連絡先を伺う質問の番号・means＝ご連絡の方法・outcome＝通話の事実 other_wish の
+        # outcome（決まるまで None）・told＝申し伝える一言（phrases.WISH_TOLD の鍵。言ったら None）。wished＝この通話で伺った元の質問（1つの質問に1回）
+        self.wish: dict | None = None
+        self.wished: set[str] = set()
         self.follow_noted: set[str] = set()
         self.follow_asked: set[str] = set()       # この通話で伺った聞き足しの役目（ask_who・ask_when。1通話1回＝_take_system）
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
@@ -2705,6 +2762,12 @@ class Flow:
                 and qid not in self.recheck_queue):
             self.recheck_queue.append(qid)
 
+    def _record_taken(self, qid: str, words: dict | None, confirming: bool, reported: str | None) -> None:
+        """受け取ったときの材料（唯一の書き方）：その発話の番号・言葉・確かめ（words＝前の発話の言葉の答えなら、その発話。無ければいまの発話）と、
+        受け取った答え。遅れて届いた確かめを同じ決まりで当てる（_late）・届かなかった確かめを数える（unchecked）。"""
+        turn, said, check = (words["turn"], words["said"], words["check"]) if words else (self.callee_turns, self.callee_said, self.check)
+        self.taken[qid] = {"turn": turn, "said": said, "check": dict(check), "confirming": confirming, "reported": reported}
+
     def unchecked(self) -> dict[str, list[str]]:
         """受け取った項目のうち、使う確かめ（use_checks）が通話の終わりまで届かなかったもの（項目 → 届かなかった確かめ）。
         通話後の検証（DESIGN.md 6-12）が、録音からやり直す。やり直せなければ「-」に落とす（確かめていない答えを、取れたとして渡さない）。"""
@@ -2846,9 +2909,7 @@ class Flow:
                 # 言い直しへの返事で確かめた項目は、値を聞く型なら「合っている」が受け取った答え（選択肢の型は選択肢）。前の発話の言葉の答えは、
                 # その発話の番号・言葉・確かめ（遅れて届いたその発話の確かめも、同じ決まりで当てる）
                 q, confirming = self.questions[qid], it.state == "confirmed"
-                turn, said, check = (words["turn"], words["said"], words["check"]) if words else (self.callee_turns, self.callee_said, self.check)
-                self.taken[qid] = {"turn": turn, "said": said, "check": dict(check), "confirming": confirming,
-                                   "reported": "affirmed" if confirming and q.type not in CHOICE_TYPES else it.condition}
+                self._record_taken(qid, words, confirming, "affirmed" if confirming and q.type not in CHOICE_TYPES else it.condition)
             if it.state in TAKEN and before[qid] != it.state and it.state in GOT and self.questions[qid].declined(it.condition):
                 reply["declined"] = True    # この報告で、お断りの答えを受け取った（相づちにお礼を返さない＝_ack）
             if it.state in TAKEN and before[qid] != it.state:
@@ -3005,6 +3066,10 @@ class Flow:
             return "shitsurei"  # 確かめに「いいえ」と言われたあと、かけ直しの質問の続きへ戻る（_call_target）
         if result == "next" and reply.get("question_id") == CALLBACK_IDS["refusal"]:
             return "shitsurei"  # ご本人に、今後のお電話をご遠慮したほうがよいかを伺う（「失礼いたしました。」＋ phrases.CALLBACK_ASK["refusal"]＝✅ 11-01 17時04分の (b)）
+        if result == "next" and reply.get("question_id") == CALLBACK_IDS["other_wish"]:
+            return "hai"  # 「どれも要らない」のあと、ほかのご希望を伺う：「はい、」＋「それでは（選択肢）のほかにご希望はございますでしょうか？」（Flow._wish_step）
+        if result == "next" and (w := self.wish) is not None and w["stage"] == "detail" and w["outcome"] is None and reply.get("question_id") == w["detail"]:
+            return "shouchi"  # ほかのご希望のご連絡の方法の連絡先を伺う：「承知しました。」＋「それでは恐れ入りますがLINEのIDを…」（Flow._wish_step）
         if result == "next" and reply.get("question_id") == CALLBACK_IDS["hurry"]:
             # 急いでいる方に伺う：「はい、」＋「それではまた改めてお掛けしてもよろしいでしょうか？」（お礼・承りは合わない。まだ名乗りを聞いていない方へは、
             # 録音のあいさつ・名乗りから始まるので流さない＝_hurry_ask の renamed）
@@ -3035,6 +3100,8 @@ class Flow:
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない
         if result == "recheck":
             return "moushiwake_heavy"  # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」
+        if reply.get("wish_told") and result in ("next", "end"):
+            return "shouchi"  # ほかのご希望を申し伝える一言の頭「承知しました。」（Flow._advance。業務に無いことはお約束しない）
         if reply.get("told") and result in ("next", "end"):
             return "hai"  # 受け取った答えのあとに業務の一言を伝える（「はい、○○駐車場をご利用いただけますので…」＝Flow._advance）
         if result == "next" and reply.get("kept_away"):
@@ -5681,6 +5748,7 @@ class Flow:
         本日のお戻りのご予定を伺い、「いいえ」でなければ、改めてお掛けしてよいかを伺う（✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」。
         CL-2 の連絡帳 4-140 (a)：「不在なら、出られる日時を聞き出す。聞き出せなかったら、その日はかけない」＝答えはかけ直しの記録の
         back_today・again。同じ日にまたかけるかは CL-2 の次の動きが決める）。"""
+        self._wish_step()           # 先に：ほかのご希望で選び直していただいた答えで、業務設定の追って伺う質問が決まる（下）
         self._ask_if_follow_ups()
         self._point_step()
         if self.callback_why != "absent":
@@ -5798,6 +5866,82 @@ class Flow:
                 f"あれば、その範囲で、自分の言葉で短くご説明します（お客様の誤解なら、正しい中身をご説明します）。知っていることに無ければ、答えを作らずに"
                 f"「{PART_LABEL['no_answer']}」で応えます。どれも replay_opening で呼びます。")
 
+    def _wish_step(self) -> None:
+        """選ぶ質問（「どちら」）に「どれも要らない」と答えていただいたときの手順（唯一の場所。_follow_ups から）。その事を受けていただいたうえで伺って
+        いる質問（ご連絡の方法を伺う質問なら、ご連絡そのものはよいと言っていただいている）なので、出した選択肢が合わないということ ⇒ 言い切っていても、
+        いなくても、ほかのご希望を1回だけ伺う（W1：「はい、」＋「それでは（選択肢）のほかにご希望はございますでしょうか？」）：
+        - 元の質問の選択肢を選び直していただいた ⇒ その選択肢を元の質問の答えにする（業務設定の追って伺う質問・伝える一言は、その答えで決まる）
+        - ご連絡の方法を言っていただいた ⇒ その方法の連絡先をその場で伺い（LINE の ID・メールアドレス・ファクス番号・ご住所。この通話で伺い済みなら
+          伺わない。お電話は、いまかけている番号がある）、「（方法）でのご連絡のご希望を担当の者に申し伝えます。」で次へ
+        - ほかのご希望を言っていただいた ⇒「そのご希望を担当の者に申し伝えます。」で次へ（業務に無いことはお約束しない＝依頼者が決める）
+        - 無い・聞き取れない・わからない ⇒ 元の答え（どれも要らない）のまま：最終目的なら、お礼を言って締める（_goals_lost）・そうでなければ、控えると
+          受け取って次へ
+        明らかなお断り・怒っている方は、答えではなく電話を終える言葉の道（「どれも要らない」にならない）。前の通話で取れた答えには伺わない。
+        伺った答えは通話の事実 other_wish（依頼者へ返す）。✅ 2026-11-03 日本時間19時54分・20時48分 ユーザー（お言葉は CL-1.md 0-2）"""
+        wid = CALLBACK_IDS["other_wish"]
+        for e in self.facts.get("other_wish", []):
+            # 伺った連絡先は、いまの答えを書き直す（締めの前の念のための確認で取れた・言い直された連絡先も残る。同じ方法の連絡先は1通話1つ＝CALLBACK_IDS）
+            role = WISH_MEANS[e["means"]][2] if e.get("means") else None
+            if role and (did := CALLBACK_IDS[ROLE_KEY[role]]) in self.items and self.items[did].state in GOT:
+                e["contact"] = self.answer_of(did)
+        w = self.wish
+        if w is None or w["outcome"] is not None:
+            if self.end_reason is not None:
+                return
+            # 業務設定に「どれも要らない」のあとに伺う質問（ask_if）があれば、そちらで伺う（業務の言葉が先＝✅ 2026-11-03 日本時間8時10分のご判断の形）
+            q = next((q for q in self.questions.values() if not q.callback and NONE in q.all_conditions and q.id not in self.wished
+                      and q.id not in self.earlier and self.items[q.id].state in TAKEN and self.items[q.id].condition == NONE
+                      and not any(x.ask_if and x.ask_if[0] == q.id and NONE in x.ask_if[1] for x in self.questions.values())), None)
+            if q is not None:
+                self.wished.add(q.id)
+                self.wish = {"q": q.id, "stage": "ask", "detail": None, "means": None, "outcome": None, "told": None}
+                self.questions[wid], self.items[wid] = callback_question("other_wish", of=q), Item()
+                self.taken.pop(wid, None)   # 前に伺った答えの材料（遅れて届く確かめを、新しく伺う答えに当てない）
+                self._insert_after(q.id, wid)
+            return
+        if w["stage"] == "detail":
+            it = self.items[w["detail"]]
+            if it.state in TAKEN + ("unresolved",):
+                self._wish_end("means", self.answer_of(w["detail"]) if it.state in GOT else None)
+            return
+        it = self.items[wid]
+        if it.state not in TAKEN + ("unresolved",):
+            return
+        q = self.questions[w["q"]]
+        cond = it.condition if it.state in GOT else None
+        means = next((k for k in WISH_MEANS if wish_label(k) == cond), None)
+        self._note("other_wish", question=q.id, wish=cond, value=it.value if cond == WISH_OTHER or means else None, means=means,
+                   contact=None, outcome=None)
+        if cond in q.conditions:
+            # 選択肢を選び直していただいた：元の質問の答えにする。受け取ったときの材料も、この答えの発話にする（遅れて届いた確かめは、この発話で当てる＝_late）
+            orig = self.items[q.id]
+            orig.condition, orig.value, orig.hedged = cond, cond, it.hedged
+            orig.set("accepted", f"ほかのご希望を伺って、選択肢「{cond}」を選び直していただいた")
+            self._record_taken(q.id, self.judged, False, cond)
+            return self._wish_end("option")
+        if means is None:
+            return self._wish_end("other" if cond == WISH_OTHER else "none")
+        w["means"] = means
+        role = WISH_MEANS[means][2]
+        did = CALLBACK_IDS[ROLE_KEY[role]] if role else None
+        if did is not None and (did not in self.items or self.items[did].state not in GOT):
+            # その方法の連絡先を、その場で伺う（「承知しました。」＋「それでは恐れ入りますがLINEのIDをお伺いしてもよろしいでしょうか？」＝_ack）
+            w.update(stage="detail", detail=did)
+            self.questions[did], self.items[did] = callback_question(role), Item()
+            self.taken.pop(did, None)
+            self._insert_after(wid, did)
+            return
+        self._wish_end("means", self.answer_of(did) if did is not None else None)
+
+    def _wish_end(self, outcome: str, contact: str | None = None) -> None:
+        """ほかのご希望を伺う段の終わり（_wish_step）：通話の事実に結果と連絡先を書き、ご連絡の方法・ほかのご希望なら申し伝える一言を次の返事の頭に
+        （_advance）。"""
+        w = self.wish
+        w["outcome"] = outcome
+        self.facts["other_wish"][-1].update(outcome=outcome, contact=contact)
+        if outcome in ("means", "other"):
+            w["told"] = w["means"] if outcome == "means" else "other"
+
     def _insert_after(self, after: str, qid: str) -> None:
         """質問を、前の質問（after）のすぐあとの並びに入れる（_follow_ups）。前の質問が並びに無ければ、終わりに。同じ質問を伺い直すとき
         （after＝その質問）は、同じ位置に（並びに2つ入れない）。"""
@@ -5825,10 +5969,17 @@ class Flow:
         # 見つけた：最終目的の質問への「来月以降になると思います」に追って伺う質問があっても、伺う前に「目的が果たせない」で締めていた）
         asking |= {x.ask_if[0] for x in self.questions.values() if x.ask_if_hedged and x.ask_if and x.id in self.order
                    and self.items[x.id].state == "empty" and self.items[x.ask_if[0]].hedged}
+        # 選ぶ質問の「どれも要らない」に、ほかのご希望を伺っている（_wish_step）：伺い終えるまで締めない。ご連絡の方法・ほかのご希望を言っていただいた
+        # 質問は、断られていない（その方法・ご希望を担当の者に申し伝えて進む）。無いと言われたら、元の答えのまま決める（✅ 2026-11-03 日本時間19時54分・
+        # 20時48分 ユーザー：最終目的なら、お礼を言って締める）
+        if (w := self.wish) is not None and w["outcome"] is None:
+            asking.add(w["q"])
+        asking |= {e["question"] for e in self.facts.get("other_wish", []) if e.get("outcome") in ("means", "other")}
         # 言い切っていないお断りを、確かめずに受け取った（業務の手立ての質問が無い＝_keep_toward_goal）：その答えだけでは締めない（もうかけないとしない。
         # 「曖昧」の印とお客様の言葉を依頼者へ渡す）。業務の手立ての質問があれば、その答えで決まる（上の asking・最終目的の設定＝test_final_goal_setting_…）。
-        # ⏳ 2026-11-03 ユーザーに伺い中（前は確かめてから締めた＝「念のためどちらもご不要ということでよろしかったでしょうか？」＝遠ざかる向きの言葉の確かめ）
-        unsure = {q.id for q in goals if self.items[q.id].state == "accepted" and self.items[q.id].hedged
+        # 選ぶ質問の「どれも要らない」は、ほかのご希望を伺った答えで決まる（上）。⏳ ほかのお断り（はい／いいえの「いいえ」など）は 2026-11-03 日本時間
+        # 19時49分に伺ったまま（前は確かめてから締めた＝「念のためどちらもご不要ということでよろしかったでしょうか？」＝遠ざかる向きの言葉の確かめ）
+        unsure = {q.id for q in goals if self.items[q.id].state == "accepted" and self.items[q.id].hedged and self.items[q.id].condition != NONE
                   and not any(x.ask_if and x.ask_if[0] == q.id and self.items[q.id].condition in x.ask_if[1] for x in self.questions.values())}
         refused = [q.id for q in goals if self.items[q.id].state in GOT and q.declined(self.items[q.id].condition) and q.id not in asking | unsure]
         if not refused or (self.goal_mode == "any" and len(refused) < len(goals)):
@@ -5845,7 +5996,9 @@ class Flow:
         return question_in(self.callee_said)
 
     def _advance(self, prefix: str, handled: bool = False) -> dict:
-        """次へ進む返事（_advance_to）の前に、受け取った答えのあとに伝える一言（Question.tell_words・まだ言っていないもの）を流す（唯一の場所）。"""
+        """次へ進む返事（_advance_to）の前に、受け取った答えのあとに伝える一言を流す（唯一の場所）：業務設定の一言（Question.tell_words・まだ言って
+        いないもの）と、ほかのご希望を申し伝える一言（phrases.WISH_TOLD＝_wish_step。頭の相づちは「承知しました。」＝19時56分にお見せした案のとおり。
+        連絡先は言い直して確かめるときに「はい、ありがとうございます。（連絡先）でよろしいでしょうか？」とお礼を言うので、お礼は重ねない）。"""
         r = self._advance_to(prefix, handled)
         plays = []
         for qid, it in self.items.items():
@@ -5854,7 +6007,13 @@ class Flow:
             if line:
                 it.told = True
                 plays.append({"kind": "recorded", "id": tell_recording_id(q, it.condition), "text": line})
-        return self._led(plays, "", r) | {"told": True} if plays else r
+        wish = (w := self.wish) is not None and bool(w["told"])
+        if wish:
+            plays.append({"kind": "recorded", "id": f"wish_told_{w['told']}", "text": WISH_TOLD[w["told"]]})
+            w["told"] = None
+        if not plays:
+            return r
+        return self._led(plays, "", r) | ({"wish_told": True} if wish else {"told": True})
 
     def _advance_to(self, prefix: str, handled: bool = False) -> dict:
         self.digressed = False  # 次へ進む（もう伺ったことへは戻らない）
@@ -6174,12 +6333,14 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
     def s(enum=None, desc=None):
         return types.Schema(type=types.Type.STRING, enum=enum, description=desc)
 
-    # システムが足す質問（かけ直し・ほかの手段の C1〜C7・伝言 M1・代わりの方のお立場 S1・約束の電話の一言 P1）は、どの業務でも報告できるように、初めから
-    # 宣言に入れる（⛔ 2026-10-24：C6・C7・P1 を足したとき、ここに並べ忘れていた＝AIが答えを報告できない）
-    added = [callback_question(r, {"message": "（伝言の文）", "promise_again": "（約束の電話の一言）"}.get(r))
-             for r in ("back_time", "number", "email", "fax", "address", "message", "back_today", "call_again", "ask_who", "ask_when")
-             + (("authority", "promise_again") if target else ())]
-    qids = [q.id for q in questions] + [q.id for q in added]
+    # システムが足す質問は、どの業務でも報告できるように、初めから宣言に入れる。役目の一覧（SYSTEM_ROLES の元＝言い方の表）から作る（⛔ 2026-10-24：
+    # C6・C7・P1 を足したとき、手で並べた一覧に並べ忘れていた＝AIが答えを報告できない。⛔ 2026-11-03 にも同じ穴を見つけた：ご遠慮の確かめ D1・急いでいる方への
+    # H1・ご承認いただけなかったときの N1〜N3 が並んでおらず、その答えの番号と選択肢を宣言に出していなかった）。代わりの方のお立場 S1・約束の電話の一言 P1 は
+    # 目的の人のある業務だけ。ほかのご希望を伺う W1 は、「どれも要らない」のある選ぶ質問ごと（選択肢が質問で変わる）
+    texts = {"message": "（伝言の文）", "promise_again": "（約束の電話の一言）"}
+    added = [callback_question(r, texts.get(r)) for r in (*CALLBACK_ASK, *OPENING_ROLES) if target or r not in ("authority", "promise_again")]
+    added += [callback_question("other_wish", of=q) for q in questions if not q.callback and NONE in q.all_conditions]
+    qids = list(dict.fromkeys([q.id for q in questions] + [q.id for q in added]))
     conds = sorted({c for q in questions + added for c in q.labels})
     A = ARG_LABEL
 

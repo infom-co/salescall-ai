@@ -173,6 +173,10 @@ CALLBACK_ASK = {
     "email": "それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？",
     "fax": "それでは恐れ入りますがファクス番号をお伺いしてもよろしいでしょうか？",
     "address": "それでは恐れ入りますがご住所をお伺いしてもよろしいでしょうか？",
+    # 選ぶ質問の「どれも要らない」のあとに伺ったほかのご希望が LINE でのご連絡だったとき（flowctl.Flow._wish_step）。✅ 2026-11-03 日本時間20時48分 ユーザー：
+    # 「「LINEならいいです」と回答いただけたら、LINEアドレスを伺うというステップを忘れないように。そうしないと、また、電話をかけて伺わないといけなく
+    # なりますよ。」（言い方はメールアドレス・ファクス番号・ご住所と同じ形。LINE の画面での呼び名は「ID」なので「LINEのID」）
+    "line": "それでは恐れ入りますがLINEのIDをお伺いしてもよろしいでしょうか？",
     # 不在で、戻る時刻を伺っても分からなかったとき（✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」。CL-2 の連絡帳 4-137・4-140 (a)：
     #    「不在なら、出られる日時を聞き出す。聞き出せなかったら、その日はかけない」）。本日のお戻りのご予定を伺い、「いいえ」でなければ、改めてお掛けしてよいかを伺う
     "back_today": "本日お戻りのご予定はございますでしょうか？",
@@ -217,6 +221,18 @@ CALLBACK_ASK = {
 # ✅ 2026-11-02 日本時間6時33分 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」が続いて機械ぽいので、「ご不明点などほかにも
 # ございますでしょうか？」なども織り交ぜた方がいいんじゃないでしょうか？」
 CALLBACK_ASK_AGAIN = {"other_point": ("ご不明点などほかにもございますでしょうか？",)}
+# 選ぶ質問（「どちら」）に「どれも要らない」と言われたとき、ほかのご希望を1回だけ伺う（flowctl.Flow._wish_step。{c}＝その質問の選択肢を「と」でつないだもの。
+# 質問ごとに文が変わるので、依頼主の単位の録音＝flowctl.other_wish_recording_id）。✅ 2026-11-03 日本時間19時54分 ユーザー：「この質問に入ったという
+# ことは、連絡自体はお客様がOKされたということですよね。それなのに、締めたり、次へ進むというのはおかしな設定ではありませんか？このシーンがありえる
+# としたら、「お電話とメール」に不服ということになるんじゃないですか？」・20時48分「はい」（19時56分にお見せした案の2つの言い方のうち、選択肢で
+# 伺う形にそろえた：取込で決まる「聞くこと」は「ご希望のお支払い方法」のように「ご希望の」で始まることがあり、「ほかにご希望のご希望の…」になるため）。
+# 決まった言い方なので、言葉の途中に読点を入れない（✅ 2026-10-15 ユーザー）。頭の「はい、」は相づちの録音（flowctl.Flow._ack）
+OTHER_WISH_ASK = "それでは{c}のほかにご希望はございますでしょうか？"
+# ほかのご希望を伺ったあとに申し伝える一言（flowctl.WISH_MEANS の鍵ごと・ほかの希望＝other。契約者の単位の録音 wish_told_（鍵））。業務に無いことは
+# お約束しない（その業務で使えるかは会話の側には分からない＝依頼者が決める）。19時56分の案の「LINEでのご連絡のご希望を、担当の者に申し伝えます。」の読点は外した
+WISH_TOLD = {"line": "LINEでのご連絡のご希望を担当の者に申し伝えます。", "email": "メールでのご連絡のご希望を担当の者に申し伝えます。",
+             "fax": "ファクスでのご連絡のご希望を担当の者に申し伝えます。", "post": "郵送でのご案内のご希望を担当の者に申し伝えます。",
+             "phone": "お電話でのご連絡のご希望を担当の者に申し伝えます。", "other": "そのご希望を担当の者に申し伝えます。"}
 
 
 def joiner(value: str) -> str:
@@ -479,6 +495,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
             **{f"callback_{k}_{i}": v for k, vs in CALLBACK_ASK_AGAIN.items() for i, v in enumerate(vs, 2)},
+            **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, "own_fallback_point": OWN_FALLBACK_POINT,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
