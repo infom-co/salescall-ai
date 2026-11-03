@@ -3054,7 +3054,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
         from flowctl import Flow, Question
         q = Question("Q8", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                      meanings={"はい": "パンフレットをお送りして大丈夫だということ", "いいえ": "パンフレットはお送りしなくて大丈夫だということ"},
-                     do_words={"はい": "パンフレットをお送り", "いいえ": "パンフレットの送付は控え"})   # ✅ 11-02 1時22分「送付は控え」
+                     do_words={"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"})   # ✅ 11-02 1時22分「送付は控え」
         for heard, cond, want in (("たぶん送ってもらうと思います。", "はい", "それではパンフレットをお送りさせていただきますね？"),
                                   ("たぶん要らないです。", "いいえ", "それではパンフレットの送付は控えさせていただきますね？")):
             f = Flow([q])
@@ -3063,12 +3063,12 @@ class AmbiguousAnswerTest(unittest.TestCase):
             self.say(f, "はい、お願いします。", "confirm_field", question_id="Q8", result="affirmed")
             self.assertEqual(f.export()["Q8"], cond, heard)
         # 選んだ選択肢の言葉が無ければ、今までの「念のため（意味の言葉）でよろしかったでしょうか？」
-        f = Flow([dataclasses.replace(q, do_words={"はい": "パンフレットをお送り"})])
+        f = Flow([dataclasses.replace(q, do_words={"はい": "パンフレットをお送りさせていただきます"})])
         r = self.say(f, "たぶん要らないです。", "record_answer", question_id="Q8", condition_id="いいえ")
         self.assertEqual(r["say"], "念のためパンフレットはお送りしなくて大丈夫だということでよろしかったでしょうか？")
         # 希望を伺う選ぶ質問も同じ形（✅ 11-02 1時22分「お支払いや日時なんかの希望を伺う選択にも…でいいと言ったよね？」＝10-31 6時05分）
         pay = Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"),
-                       do_words={"カード": "お支払いはカードと", "振込": "お支払いはお振込みと"})
+                       do_words={"カード": "お支払いはカードとさせていただきます", "振込": "お支払いはお振込みとさせていただきます"})
         r = self.say(Flow([pay]), "たぶんカードです。", "record_answer", question_id="Q2", condition_id="カード")
         self.assertEqual(r["say"], "それではお支払いはカードとさせていただきますね？")
 
@@ -7270,7 +7270,7 @@ class EndJudgedTest(unittest.TestCase):
                                final_goal=True, declines=("いいえ",)),
                       Question("Q2", "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                                final_goal=True, declines=("いいえ",)),
-                      Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], goal_mode=mode)
+                      Question("Q3", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], goal_mode=mode)
             f.on_callee(); f.on_heard("いえ、登録は結構です。")
             f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
             return f
@@ -7288,7 +7288,7 @@ class EndJudgedTest(unittest.TestCase):
         # その場で残る（質問に答えたあとの手＝締めを、その場で決めておくため。CL-2 は通話の事実から、その業務をかけないと決める＝4-182 の (e)）
         k = Flow([Question("Q1", "会員登録のご案内をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                            final_goal=True, declines=("いいえ",)),
-                  Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], goal_mode="all")
+                  Question("Q3", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], goal_mode="all")
         k.on_callee(); k.on_heard("いえ、登録は結構です。そもそも、どちらでこの番号を知ったんですか？")
         r = k.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
         k.on_line_end(ai_speaking=False)
@@ -7297,7 +7297,7 @@ class EndJudgedTest(unittest.TestCase):
         # 断る答えでない答え（わからない）は、断られたとはしない
         h = Flow([Question("Q1", "会員登録のご案内をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                            final_goal=True, declines=("いいえ",)),
-                  Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], goal_mode="all")
+                  Question("Q3", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], goal_mode="all")
         h.on_callee(); h.on_heard("ちょっと分からないです。")
         h.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
         self.assertEqual((h.current, h.end_reason), ("Q3", None))
@@ -7363,7 +7363,7 @@ class EndWordsTest(unittest.TestCase):
     ✅ 2026-11-01 のご判断（6時05分・20時11分・20時56分・22時31分・23時04分・23時59分）。表を直したら、ここも直す（食い違えば落ちる）。"""
 
     H1 = "はい、それではまた改めてお掛けしてもよろしいでしょうか？"
-    NEXT = "承知しました。それではご連絡に都合のよい曜日はございますでしょうか？"
+    NEXT = "承知しました。それではご不明な点はございますでしょうか？"
     REFUSED = "承知しました。お忙しいところ申し訳ございませんでした。それでは失礼いたします。"
     R1 = "失礼いたしました。今後このようなお電話はご遠慮したほうがよろしいでしょうか？"
 
@@ -10515,7 +10515,7 @@ class NoneOfThemTest(unittest.TestCase):
     def flow(self, goal):
         from flowctl import Flow, Question
         return Flow([Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"), final_goal=goal),
-                     Question("Q2", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+                     Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
 
     def test_only_choice_questions_offer_it(self):
         from flowctl import NONE, Question
@@ -10624,7 +10624,7 @@ class ApprovalTest(unittest.TestCase):
         return Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
                      Question("Q2", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.INTRO,
                               ask_if=("Q1", ("いいえ", "unknown")), final_goal=goal, declines=("いいえ",) if goal else ()),
-                     Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=play,
+                     Question("Q3", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=play,
                     answers={"料金": "料金は月額3,000円で、初月は無料となっております。", "期間": "ご契約の期間の縛りはございません。",
                              "解約": "途中でのご解約もいただけます。", "費用": "ご解約の費用はかかりません。"})
 
@@ -10647,7 +10647,7 @@ class ApprovalTest(unittest.TestCase):
         f = Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
                   Question("Q2", "お送りし直してもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), ask_if=("Q1", ("いいえ",))),
                   Question("Q3", "送り先はお変わりございませんでしょうか？", "yes_no", conditions=("はい", "いいえ"), ask_if=("Q1", ("いいえ",))),
-                  Question("Q4", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+                  Question("Q4", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
         AmbiguousAnswerTest.say(f, "いえ、届いていないです。", "record_answer", question_id="Q1", condition_id="いいえ")
         self.assertEqual(f.order[f.order.index("Q1"):], ["Q1", "Q2", "Q3", "Q4"])
 
@@ -10792,7 +10792,7 @@ class ApprovalTest(unittest.TestCase):
         # 「いえ、登録は結構です。」「どちらも要らないです。」「いや、それはちょっと。」にも、順番で「ありがとうございます。」を返していた
         from flowctl import CALLBACK_IDS, NONE, Flow, Question
         q0 = Question("Q0", "現在、ホームページはお持ちでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True)
-        q3 = Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        q3 = Question("Q3", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
         goals = [Question(i, t, "yes_no", conditions=("はい", "いいえ"), final_goal=True, declines=("いいえ",)) for i, t in
                  (("Q1", "会員登録のご案内をお送りしてもよろしいでしょうか？"), ("Q2", "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？"))]
         f = Flow([q0, *goals, q3], goal_mode="any")
@@ -11857,7 +11857,7 @@ class ImportAITest(unittest.TestCase):
 
     def test_do_words_need_both_models_and_the_meaning_direction(self):
         import import_ai
-        words = {"はい": "パンフレットをお送り", "いいえ": "パンフレットの送付は控え"}
+        words = {"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"}   # 文の終わりまで（phrases.CONFIRM）
         same = lambda _: [{"no": 1, "choice": c, "words": w} for c, w in words.items()]
         a, b = self.Fake(same), self.Fake(same)
         d = import_ai.deciders([(a, "m1"), (b, "m2")])["decide_do_words"]
@@ -12217,25 +12217,25 @@ class HedgedSalesTest(unittest.TestCase):
 
     YN = ("はい", "いいえ")
     G15 = dict(conditions=YN, meanings={"はい": "今月中のご導入をお考えということ", "いいえ": "今月中のご導入はお考えではないということ"},
-               do_words={"はい": "今月中のご導入をご検討中と"}, away=("いいえ",))
+               do_words={"はい": "今月中のご導入の方向で進めさせていただきます"}, away=("いいえ",))
     # 試しのトークスクリプト（業務設定＝CL-2）：(質問, 追って伺う質問の並び)。追って伺う質問の文には、頭のつなぎの言葉を書かない（「それでは」は流れの制御が付ける）
     TALK = {
         # (1)「「折り返し」だとすぐだと思われ断られる可能性が高いので、「また」に変更するように言ったよね！ ⇒「戻る時間が読めなくて」「電話はつながらないと
         # 思います」だと、「それでは、いつでしたら、お話しできそうでしょうか？」のような対応になるんじゃないでしょうか！」
         "G7": (dict(text="担当者からまたお電話を差し上げてもよろしいでしょうか？", type="yes_no", conditions=YN,
                     meanings={"はい": "担当者からまたお電話を差し上げてよろしいということ", "いいえ": "担当者からまたお電話を差し上げなくてよろしいということ"},
-                    do_words={"はい": "担当者からまたお電話を"}, away=("いいえ",)),
+                    do_words={"はい": "担当者からまたお電話をさせていただきます"}, away=("いいえ",)),
                [dict(id="G7b", text="いつでしたら、お話しできそうでしょうか？", type="datetime", ask_if=("G7", ("いいえ",)))]),
         # (4)「「それでは、日時変更なさいますか？それとも、キャンセルなさいますか？」があれば、その質問で伺います。OK」・変更なしは (7) と同じ向き
         "G10": (dict(text="ご予約の日時に変更はございませんでしょうか？", type="choice", conditions=("変更なし", "変更あり"),
                      meanings={"変更なし": "ご予約の日時に変更はないということ", "変更あり": "ご予約の日時に変更があるということ"},
-                     do_words={"変更なし": "予定通りの方向で進め"}, away=("変更あり",)),
+                     do_words={"変更なし": "予定通りの方向で進めさせていただきます"}, away=("変更あり",)),
                 [dict(id="G10b", text="日時変更なさいますか？それとも、キャンセルなさいますか？", type="choice", conditions=("日時変更", "キャンセル"),
                       ask_if=("G10", ("変更あり",)))]),
         # (5) 案1「はい、それでは来月以降のご導入をお考えということでよろしいでしょうか？」OK・(c)「（○○日以降なら対応できますが、）いつ頃がよろしいでしょうか？」
         "G15": (dict(text="今月中のご導入をお考えでしょうか？", type="yes_no", conditions=YN,
                      meanings={"はい": "今月中のご導入をお考えということ", "いいえ": "今月中のご導入はお考えではないということ"},
-                     do_words={"はい": "今月中のご導入をご検討中と"}, away=("いいえ",)),
+                     do_words={"はい": "今月中のご導入の方向で進めさせていただきます"}, away=("いいえ",)),
                 [dict(id="G15b", text="{最短の日}なら対応できますが、いつ頃がよろしいでしょうか？", type="datetime", ask_if=("G15", ("はい",))),
                  dict(id="G15c", text="来月以降のご導入をお考えということでよろしいでしょうか？", type="yes_no", conditions=YN, ask_if=("G15", ("いいえ",)))]),
         # (6)「「○○日以降なら十分対応できますが、いつ頃がよろしいでしょうか？」のように確かめるのがいいでしょう。」（急いでいない＝はい）
@@ -12247,25 +12247,27 @@ class HedgedSalesTest(unittest.TestCase):
         # (7)「「それでは予定通りの方向で進めさせていただきますね？」」（キャンセルはない＝はい）・(a)「それでは、キャンセルになさいますか？（それとも、～）」
         "G28": (dict(text="当日のキャンセルはございませんか？", type="yes_no", conditions=YN,
                      meanings={"はい": "当日のキャンセルはないということ", "いいえ": "当日のキャンセルがあるということ"},
-                     do_words={"はい": "予定通りの方向で進め"}, away=("いいえ",)),
+                     do_words={"はい": "予定通りの方向で進めさせていただきます"}, away=("いいえ",)),
                 [dict(id="G28b", text="キャンセルになさいますか？それとも、日時を変更なさいますか？", type="choice", conditions=("キャンセル", "日時変更"),
                       ask_if=("G28", ("いいえ",)))]),
         # (8)「「はい、それではメールかLINEで詳しいご案内をさせていただく方がよろしいでしょうか？」業務次第」
         "E1": (dict(text="担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？", type="yes_no", conditions=YN,
                     meanings={"はい": "担当者から詳しいご案内のお電話を差し上げてよろしいということ",
                               "いいえ": "担当者から詳しいご案内のお電話を差し上げなくてよろしいということ"},
-                    do_words={"はい": "担当者から詳しいご案内のお電話を"}, away=("いいえ",)),
-               [dict(id="E1b", text="メールかLINEで詳しいご案内をさせていただく方がよろしいでしょうか？", type="yes_no", conditions=YN, ask_if=("E1", ("いいえ",)))]),
+                    do_words={"はい": "担当者から詳しいご案内のお電話をさせていただきます"}, away=("いいえ",)),
+               [dict(id="E1b", text="メールかLINEで詳しいご案内をさせていただく方がよろしいでしょうか？", type="yes_no", conditions=YN, ask_if=("E1", ("いいえ",))),
+                # 「何の目的で連絡するの？それが分からないと警戒されるでしょ。」「「曜日や日時」ならわかるけど！」（✅ 11-03）＝お電話してよいと言っていただいたあと
+                dict(id="E1c", text="詳しいご案内のお電話に、ご都合のよい曜日や日時はございますでしょうか？", type="yes_no", conditions=YN, ask_if=("E1", ("はい",)))]),
         # (9)「「はい、それではオンラインでお話しさせていただくこともできますが！」業務次第」
         "E2": (dict(text="担当者がご訪問させていただいてもよろしいでしょうか？", type="yes_no", conditions=YN,
                     meanings={"はい": "担当者がご訪問させていただいてよろしいということ", "いいえ": "担当者がご訪問させていただかなくてよろしいということ"},
-                    do_words={"はい": "担当者がご訪問"}, away=("いいえ",)),
+                    do_words={"はい": "担当者がご訪問させていただきます"}, away=("いいえ",)),
                [dict(id="E2b", text="オンラインでお話しさせていただくこともできますが！", type="yes_no", conditions=YN, ask_if=("E2", ("いいえ",)))]),
         # (A)「これは以前に言った、重要な部分をその場で説明して、ご同意をいただくのがいいんじゃないですか？業務次第」＝ご説明（入る一言）＋ご承認の質問。
         # ご説明の文は業務の例（依頼者のトークスクリプトに書く）
         "G8": (dict(text="パンフレットをお送りしてもよろしいでしょうか？", type="yes_no", conditions=YN,
                     meanings={"はい": "パンフレットをお送りしてよろしいということ", "いいえ": "パンフレットをお送りしなくてよろしいということ"},
-                    do_words={"はい": "パンフレットをお送り"}, away=("いいえ",)),
+                    do_words={"はい": "パンフレットをお送りさせていただきます"}, away=("いいえ",)),
                [dict(id="G8b", text="この内容でご同意いただけますでしょうか？", type="yes_no", conditions=YN, ask_if=("G8", ("いいえ",)), approval=True,
                      intro="それでは、パンフレットの大事なところだけ、この場で簡単にご説明させていただきます。初期費用はかからず、月々の料金だけでお使いいただけます。")]),
         # (A)「「それではオンラインでお話しさせていただく（説明会の録画画像を送付させていただく）こともできますが！」業務次第」
@@ -12276,7 +12278,7 @@ class HedgedSalesTest(unittest.TestCase):
         # 業務設定の追って伺う質問が無い・パンフレットの送付が最終目的ではない・ご覧いただく必要もご同意も要らない業務（(A)「提案の「承知しました」で次に進むでもOK」）
         "G8n": (dict(text="パンフレットをお送りしてもよろしいでしょうか？", type="yes_no", conditions=YN,
                      meanings={"はい": "パンフレットをお送りしてよろしいということ", "いいえ": "パンフレットをお送りしなくてよろしいということ"},
-                     do_words={"はい": "パンフレットをお送り"}, away=("いいえ",)),
+                     do_words={"はい": "パンフレットをお送りさせていただきます"}, away=("いいえ",)),
                 [dict(id="G16", text="お支払いはカードと振込のどちらがよろしいでしょうか？", type="choice", conditions=("カード", "振込"), ask_if=())]),
     }
 
@@ -12321,6 +12323,7 @@ class HedgedSalesTest(unittest.TestCase):
             ("G28", "はい", "急な予定が入らなければ", "はい、それでは予定通りの方向で進めさせていただきますね？"),
             ("G28", "いいえ", "都合が悪くなってしまいました", "はい、それではキャンセルになさいますか？それとも、日時を変更なさいますか？"),
             ("E1", "いいえ", "電話は出られないことが多くて", "はい、それではメールかLINEで詳しいご案内をさせていただく方がよろしいでしょうか？"),
+            ("E1", "はい", "時間が合えば、たぶん大丈夫です", "はい、それでは詳しいご案内のお電話に、ご都合のよい曜日や日時はございますでしょうか？"),
             ("E2", "いいえ", "来ていただくほどではないかなと", "はい、それではオンラインでお話しさせていただくこともできますが！"),
             ("G8", "はい", "せっかくなので、たぶんお願いします", "はい、それではパンフレットをお送りさせていただきますね？"),
             ("G8", "いいえ", "届いても見るか分からなくて", "はい、それでは、パンフレットの大事なところだけ、この場で簡単にご説明させていただきます。"
@@ -12350,13 +12353,31 @@ class HedgedSalesTest(unittest.TestCase):
         # 遠ざかる向きの言葉で言い直さずに「承知しました。」で次へ（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない」）
         f = self.flow("G8n")
         r = AmbiguousAnswerTest.say(f, "大丈夫です。", "record_answer", question_id="G8n", condition_id="いいえ")
-        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "hai", "念のためパンフレットをお送りして大丈夫だということでよろしいでしょうか？"))
+        # ✅ 11-03 ユーザー：「「はい、それではパンフレットをお送りさせていただきますね」だと前に言ったよね！！なぜ、同じ過ちを繰り返すの？」
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "hai", "それではパンフレットをお送りさせていただきますね？"))
         r = AmbiguousAnswerTest.say(f, "いえ、要らないです。", "confirm_field", question_id="G8n", result="corrected", correction="いいえ")
         self.assertEqual((r["result"], r["ack"], r["question_id"], f.export()["G8n"]), ("next", "shouchi", "G16", "いいえ"))
         # 明らかなお断り・怒っている方は除く＝言い直しを通らず、お断りの締め（✅ 同じ時「明らかに営業拒否されている場合や怒っている場合は除きますよ！」）
         from end_words import ANSWER, answer_flow
         row = next(x for x in ANSWER if x[1] == "結構です。もうかけてこないでください。")
         self.assertEqual(answer_flow(row)[2], "締め（callee_refused_call）・もうかけない")
+
+    def test_hedged_answer_goes_to_the_next_step_of_the_business(self):
+        # その答えのあとに業務の次の段（業務設定の前の答えで伺う質問）があれば、言い切っていない答えは確かめ直さずにその段で伺う（✅ 2026-11-03 ユーザー：
+        # 「車で来ることの確認だけが目的なら、間違いじゃないですが、通常は、車で来るなら駐車場の案内や指定などが目的になるんじゃないですか？」）
+        from flowctl import Flow, Question, spoken_question
+        from phrases import ACK
+        car = Question("G5", "当日はお車でお越しになりますでしょうか？", "yes_no", conditions=self.YN,
+                       meanings={"はい": "当日はお車でお越しになるということ", "いいえ": "当日はお車でお越しにならないということ"})
+        park = Question("G6", "駐車場はご利用になりますでしょうか？", "choice", conditions=("利用する", "利用しない"), ask_if=("G5", ("はい",)))
+        f = Flow([car, park])
+        r = self.hedged(f, "G5", "はい", "たぶん車で行くと思います")
+        self.assertEqual(ACK[r["ack"]] + spoken_question(list(f.questions.values()), r["question_id"])[0], "はい、それでは駐車場はご利用になりますでしょうか？")
+        self.assertTrue(f.items["G5"].hedged)
+        # 言い切った答えでも、前の答えで伺う質問の頭は「それでは」（前の答えを受けて伺う）
+        g = Flow([car, park])
+        r = AmbiguousAnswerTest.say(g, "はい、車で行きます。", "record_answer", question_id="G5", condition_id="はい")
+        self.assertEqual(spoken_question(list(g.questions.values()), r["question_id"])[0], "それでは駐車場はご利用になりますでしょうか？")
 
     def test_final_goal_setting_decides_after_the_follow_up(self):
         # (B) ✅ 2026-11-03 ユーザー：「今月中のご導入だけが最終目的なのか、ご導入が最終目的なのかで設定が違ってくる」＝業務設定の最終目的で決まる

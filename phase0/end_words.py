@@ -137,7 +137,10 @@ def answer_flow(row: tuple):
     qtext, words, ends, answers, goal, _ = row
     q = question(qtext, goal)
     choices = q.conditions
-    nxt = Question("Q2", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=YES_NO)
+    # 次の質問：どの答えのあとに伺っても筋が通るもの（✅ 2026-11-03 ユーザー：「どうして曜日で聞くの？「曜日や日時」ならわかるけど！それに何の目的で連絡するの？
+    # それが分からないと警戒されるでしょ。」＝前は「ご連絡に都合のよい曜日はございますでしょうか？」。ご連絡の曜日や日時は、ご連絡してよいと言っていただいた
+    # あとの業務の質問＝HedgedSalesTest.TALK の E1c）
+    nxt = Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=YES_NO)
     f = Flow([q, nxt], play_recordings=True)
     f.use_checks("judge")
     f.on_callee(); f.on_heard(words); f.on_check("judge", _reading(answers[0], ends[0]))

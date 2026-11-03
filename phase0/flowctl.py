@@ -444,11 +444,12 @@ def spoken_question(questions: list["Question"], qid: str) -> tuple[str, str]:
     i = [x.id for x in questions if not x.reading_of and not x.callback].index(qid)
     if i == 0:
         return q.text, ""
-    # この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりにそれを頭に（録音は1本のまま）。言い切っていない答えのあとに追って
-    # 伺う質問（ask_if_hedged）は、お客様の言葉を受けて伺うので「それでは」（✅ 2026-11-03 ユーザーの言い方：「それでは、日時変更なさいますか？それとも、
+    # この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりにそれを頭に（録音は1本のまま）。前の答えで伺う質問（ask_if。
+    # 言い切っていないときだけ伺う質問も）は、お客様の答えを受けて伺うので「それでは」（「資料はお手元に届いていますでしょうか？」の「いいえ」⇒
+    # 「それではお送りし直してもよろしいでしょうか？」）（✅ 2026-11-03 ユーザーの言い方：「それでは、日時変更なさいますか？それとも、
     # キャンセルなさいますか？」「それでは、いつでしたら、お話しできそうでしょうか？」。⛔ 見直しで見つけた：並びの順番の「続きまして」を付けていた＝
     # 業務設定の文が「それでは」で始まると「続きましてそれでは、…」「それではそれでは、…」。業務設定の文には頭のつなぎの言葉を書かない＝CL-2）
-    lead = q.intro or ("それでは" if q.ask_if_hedged else LEAD_IN["次の質問"][(i - 1) % len(LEAD_IN["次の質問"])])
+    lead = q.intro or ("それでは" if q.ask_if else LEAD_IN["次の質問"][(i - 1) % len(LEAD_IN["次の質問"])])
     return lead + q.text, lead
 
 
@@ -1508,6 +1509,8 @@ class Question:
     # Flow._hedged_after）。判定に見せる意味の言葉（meanings）とは別の欄（意味の言葉を差し替えると判定に送る文が変わる＝10-31 日本時間5時37分にお伝えした形）。
     # 無い選択肢は、今までの「念のため（意味の言葉）でよろしかったでしょうか？」。✅ 2026-11-01 日本時間20時56分 ユーザー：「こちら：「念のためパンフレットを
     # お送りして大丈夫だということでよろしかったでしょうか？」よりも、「それではパンフレットをお送りさせていただきますね？」の方がいいんじゃないですか？」
+    # 言葉は文の終わり（「させていただきます」「承ります」）まで持つ＝「それでは（言葉）ね？」（✅ 2026-11-03 ユーザー：(D) の案＝申し出・お好みの選び・ご意向
+    # （「〜の方向で進めさせていただきます」）・ご様子（「〜ということで承ります」）の4つ）。業務設定の言葉があれば、それ（CL-2）
     do_words: dict = field(default_factory=dict)
     # 目的から遠ざかる向きの選択肢（取込で文字のAI2つが決める。どちらか1つでもそう読めば入れる＝安全側）。ここに入る選択肢の言い切っていない最初の答えは、
     # do_words の「それでは…させていただきますね？」を使わない（✅ 2026-11-03 ユーザー：「そもそも、導入の方向で進んでいるのに、「それでは、今月中のご導入は
@@ -3393,9 +3396,11 @@ class Flow:
         return self._ask_confirm(qid, after=self._hedged_after(q, it.condition) if hedged else "ambiguous")
 
     def _hedged_follow_up(self, qid: str, cond: str | None) -> "Question | None":
-        """言い切っていない答え（qid の cond）のあとに伺う質問（Question.ask_if_hedged・まだ伺っていないもの）。唯一の場所（受け取る所と、並びに入れる
-        _ask_if_follow_ups が同じ決まりを使う）。"""
-        return next((x for x in self.questions.values() if x.ask_if_hedged and x.ask_if and x.ask_if[0] == qid and cond in x.ask_if[1]
+        """言い切っていない答え（qid の cond）のあとに伺う質問（業務設定の前の答えで伺う質問＝Question.ask_if・まだ伺っていないもの。言い切っていない
+        ときだけ伺う質問も、いつも伺う質問も）。唯一の場所（受け取る所と、並びに入れる _ask_if_follow_ups が同じ決まりを使う）。その答えのあとに業務の
+        次の段があれば、言い直して確かめずにその段で伺う（✅ 2026-11-03 ユーザー：「車で来ることの確認だけが目的なら、間違いじゃないですが、通常は、
+        車で来るなら駐車場の案内や指定などが目的になるんじゃないですか？」＝確かめの一言より、その答えで業務が次にすること）。"""
+        return next((x for x in self.questions.values() if x.ask_if and x.ask_if[0] == qid and cond in x.ask_if[1]
                      and x.id not in self.order and self.items[x.id].state == "empty"), None)
 
     @staticmethod
@@ -5544,6 +5549,12 @@ class Flow:
             # 確かめ」。明らかにお断りの方・怒っている方は除く＝その答えは言い直しを通らず、お断り・お詫びの締めの道へ行く）。いまの話の向きを伺う一言
             # （end_doubt。「パンフレットはお送りしない方がいいということでしょうか？」＝11-01 22時31分のご判断）はこのまま
             return self._keep_toward_goal(qid, after)
+        if choice and after == "ambiguous" and Flow._hedged_after(q, it.condition) == "hedged_do":
+            # どちらとも取れる答え（「大丈夫です。」）を、進める向きの選択肢で伺う：こちらがすることの言葉で（「はい、それではパンフレットをお送りさせて
+            # いただきますね？」）。✅ 2026-11-03 ユーザー：「「はい、それではパンフレットをお送りさせていただきますね」だと前に言ったよね！！なぜ、同じ過ちを
+            # 繰り返すの？」（11-01 日本時間20時56分のご判断「「念のためパンフレットをお送りして大丈夫だということでよろしかったでしょうか？」よりも、
+            # 「それではパンフレットをお送りさせていただきますね？」の方がいいんじゃないですか？」を、言い切っていない答えにしか当てていなかった）
+            after = "hedged_do"
         # 言い直す言葉：いまの話の向きを伺う言葉（end_doubt）・こちらがすることの言葉（hedged_do）は、選択肢ごとの取込の言葉をそのまま。
         # ほかは意味の言葉（choice_words）
         words = ((q.doubt_words[it.condition] + "ということ") if after == "end_doubt" else q.do_words[it.condition] if after == "hedged_do"
@@ -5579,7 +5590,7 @@ class Flow:
         elif after in ("hedged_do", "hedged_fact"):
             # 値を伺う型の、言い切っていない最初の答え：「それでは15日の14時、午後2時とさせていただきますね？」・「それでは10名ということで記録させて
             # いただいて大丈夫でしょうか？」（_hedged_after）
-            phrase = confirm_phrase(said_as + ("と" if after == "hedged_do" else "ということ"), situation, n, meaning=True, does=self.client_does)
+            phrase = confirm_phrase(said_as + ("とさせていただきます" if after == "hedged_do" else "ということ"), situation, n, meaning=True, does=self.client_does)
         else:
             phrase = self.confirm(said_as, situation, n)
         say = self.awaiting_say = (self._lead(lead) if lead else "") + phrase
