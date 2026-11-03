@@ -2692,3 +2692,6 @@
 {"at": "2026-11-04T02:30:25+09:00", "who": "CL-2", "text": "Now the docs: design-book rows for the three review fixes, and logbook entries (including the 4-193/4-74 conclusion and requests to CL-1)."}
 {"at": "2026-11-04T02:30:54+09:00", "who": "CL-2", "text": "設計書の 3-7 の本文も、新しい決まりに合わせます。"}
 {"at": "2026-11-04T02:31:01+09:00", "who": "CL-2", "text": "Now commit and push, then restart the full run on the final state."}
+{"at": "2026-11-04T02:31:35+09:00", "who": "CL-2", "text": "全部の試験と壊し試しを、最後の形でいま流しています（およそ70分）。main を取り込んだので、CL-1 の比べる試験も流し直します。"}
+{"at": "2026-11-04T02:31:52+09:00", "who": "CL-2", "text": "CL-1 の比べる試験は、除けを空にすると、`decide_away` の1つ（CL-1 が main に入った日に足すと約束しているもの）のほかは14件とも通りました。\n\n全部の試験と壊し試しの結果を待ちます。結果が出たら、見直しで見つけて直したことと合わせてご報告します。"}
+{"at": "2026-11-04T04:21:58+09:00", "who": "CL-2", "text": "全部通りました。会話の記録を書き出し直して上げます。"}
