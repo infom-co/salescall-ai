@@ -11872,6 +11872,22 @@ class ImportAITest(unittest.TestCase):
         self.assertEqual((d([(self.Q, ("はい", "いいえ"), self.MEANING)]), seen), ([{}], ["m2"]))
         self.assertEqual(d([]), [])
 
+    def test_away_reads_meanings_and_keeps_the_safe_side(self):
+        # 目的から遠ざかる向き：意味の言葉を添えて読ませ、どちらか1つでも「遠ざかる」か読めない選択肢（帳面 4-72）。答えないモデルは読めない＝遠ざかる向き
+        import import_ai
+        q = "当日のキャンセルはございませんか？"
+        m = {"はい": "当日のキャンセルはないということ", "いいえ": "当日のキャンセルがあるということ"}
+        ok = lambda _: [{"no": 1, "choice": "はい", "words": "進む"}, {"no": 1, "choice": "いいえ", "words": "遠ざかる"}]
+        a, b = self.Fake(ok), self.Fake(lambda _: [{"no": 1, "choice": "はい", "words": "遠ざかる"}, {"no": 1, "choice": "いいえ", "words": "遠ざかる"}])
+        self.assertEqual(import_ai.decide_away([(a, "m1"), (self.Fake(ok), "m2")], [(q, ("はい", "いいえ"), m)]), [("いいえ",)])
+        self.assertIn("はい（当日のキャンセルはないということ）・いいえ（当日のキャンセルがあるということ）", a.calls[0])
+        self.assertEqual(import_ai.decide_away([(self.Fake(ok), "m1"), (b, "m2")], [(q, ("はい", "いいえ"), m)]), [("はい", "いいえ")])
+        seen = []
+        got = import_ai.decide_away([(self.Fake(ok), "m1"), (self.Fake(fail=True), "m2")], [(q, ("はい", "いいえ"), m)], lambda e, n: seen.append(n))
+        self.assertEqual((got, seen), ([("はい", "いいえ")], ["m2"]))
+        self.assertEqual(import_ai.decide_away([(self.Fake(fail=True), "m1"), (self.Fake(fail=True), "m2")], [(q, ("はい", "いいえ"), m)]), [("はい", "いいえ")])
+        self.assertEqual(import_ai.decide_away([(a, "m1"), (b, "m2")], []), [])
+
     def test_rules_decide_without_asking_the_models(self):
         # 質問の文の決まりで決まるもの（単位の数える言葉）は、モデルに聞かない
         import import_ai
