@@ -3371,10 +3371,12 @@ class Flow:
             return "shouchi"  # ほかのご希望を申し伝える一言の頭「承知しました。」（Flow._advance。業務に無いことはお約束しない）
         if reply.get("told") and result in ("next", "end", "recheck"):
             return "hai"  # 受け取った答えのあとに業務の一言を伝える（「はい、○○駐車場をご利用いただけますので…」＝Flow._advance）
+        if result == "recheck":
+            # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」。聞き返しを使い切ったすぐあとに入るときも
+            # （最後の質問・先へ進むかを決める質問＝gate_of）。⛔ 2026-11-04 まで、下の「聞き取れないまま先へ進む」の「はい、」が先に当たっていた
+            return "moushiwake_heavy"
         if name == "report_unclear":
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない
-        if result == "recheck":
-            return "moushiwake_heavy"  # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」
         if result == "next" and reply.get("kept_away"):
             return "shouchi"  # 目的から遠ざかる向きの答えを、言い直さずに受け取って次へ（「承知しました。」＝お礼は合わない。Flow._keep_toward_goal）
         if result == "next" and reply.get("hedged_next"):

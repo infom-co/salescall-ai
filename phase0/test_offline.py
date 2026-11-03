@@ -4196,6 +4196,23 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual(self.do(f, "confirm_field", question_id="Q1", result="affirmed")["result"], "end")
         self.assertEqual(f.export()["Q1"], "15日の午後2時")
 
+    def test_last_ask_right_after_the_ask_backs_is_still_an_apology(self):
+        # 聞き返しを使い切ったすぐあとに念のための確認へ入るとき（最後の質問・先へ進むかを決める質問）も、頭は「申し訳ございません、」。⛔ 2026-11-04 まで、
+        # 聞き取れないまま先へ進むときの「はい、」の決まりが先に当たり、「はい、お声が聞き取れませんでしたので…」と言っていた
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
+        self.do(f, "confirm_field", question_id="Q1", result="affirmed")
+        for _ in range(2):
+            self.do(f, "report_unclear", question_id="Q2")
+        r = self.do(f, "report_unclear", question_id="Q2")
+        self.assertEqual((r["result"], r["question_id"], r["ack"]), ("recheck", "Q2", "moushiwake_heavy"))
+        # 聞き取れないまま次の質問へ進むときは、今までどおり「はい、」（聞き取れていないので「承知しました」「ありがとうございます」は合わない）
+        g = self.flow()
+        for _ in range(2):
+            self.do(g, "report_unclear", question_id="Q1")
+        r = self.do(g, "report_unclear", question_id="Q1")
+        self.assertEqual((r["result"], r["question_id"], r["ack"]), ("next", "Q2", "hai"))
+
     def test_last_ask_is_said_once_and_then_dash(self):
         """念のための確認でも聞き取れなければ「-」で締めへ（聞く回数は、最初の質問のほかに3回まで）。"""
         f = self.flow()
@@ -11143,7 +11160,7 @@ class EndsOnTest(unittest.TestCase):
             self.assertEqual((r["result"], r["ask_n"]), ("ask_back", k + 1))
         self.assertEqual(r["say"], "もう一回よろしいでしょうか？")
         r = self.say(f, "……", "report_unclear", question_id="Q1")
-        self.assertEqual((r["result"], r["question_id"], f._asked("Q2")), ("recheck", "Q1", False))
+        self.assertEqual((r["result"], r["question_id"], f._asked("Q2"), r["ack"]), ("recheck", "Q1", False, "moushiwake_heavy"))
         self.assertIn("お声が聞き取れませんでしたので", r["say"])
         # それでも聞き取れない ⇒ 先へ進まずに締める（伺わなかったお名前・資料は「取れていない」＝ここで終えた印は付けない）
         r = self.say(f, "……", "report_unclear", question_id="Q1")
