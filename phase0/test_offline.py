@@ -3100,7 +3100,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual((BUSINESS.flow().client_does, dataclasses.replace(BUSINESS, client_does="手配").flow().client_does), ("記録", "手配"))
         # 「どちらでも」・自由な答えは今までの形
         self.assertEqual([Flow._hedged_after(dataclasses.replace(q, asks_fact=False), ANY), Flow._hedged_after(Question("F", "ご意見は？", "free_text"), "答えた")],
-                         ["hedged", "hedged"])
+                         ["hedged_noted", "hedged"])   # 任せた答えは承る（✅ 11-03「「どちらでも」の答えでも、「念のため…」に戻るのはおかしいでしょ！」）
 
     def test_hedged_value_answers_follow_the_same_two_forms(self):
         # ✅ 2026-11-02 日本時間1時22分 ユーザー：「お支払いや日時なんかの希望を伺う選択にも、「それでは…させていただきますね？」の形でいいと言ったよね？」
@@ -10551,12 +10551,14 @@ class NoneOfThemTest(unittest.TestCase):
         AmbiguousAnswerTest.say(f, "そもそも要りません。", "record_answer", question_id="Q1", condition_id=NONE)
         self.assertEqual((f.current, f.end_reason, f.export()["Q1"]), ("Q2", None, "どれも要らない"))
 
-    def test_hedged_is_confirmed(self):
+    def test_hedged_is_not_closed(self):
         from flowctl import NONE
-        # 言い切っていなければ、締める前にも確かめる（ほかの答えと同じ）
+        # 言い切っていない「どれも要らない」：遠ざかる向きの言葉で確かめず（✅ 11-03「最終目的に繋がるクロージングはマイナスの言葉で締めない」・「「どちらでも」の
+        # 答えでも、「念のため…」に戻るのはおかしいでしょ！」）、その答えだけでは締めない＝「承知しました。」で次へ（⏳ 11-03 ユーザーに伺い中）
         f = self.flow(True)
         r = AmbiguousAnswerTest.say(f, "たぶんどちらも要らないです。", "record_answer", question_id="Q1", condition_id=NONE)
-        self.assertEqual((r["result"], r["say"], f.end_reason), ("confirm_required", "念のためどちらもご不要ということでよろしかったでしょうか？", None))
+        self.assertEqual((r["result"], r["ack"], r["question_id"], f.end_reason), ("next", "shouchi", "Q2", None))
+        self.assertEqual((f.export()["Q1"], bool(f.items["Q1"].hedged), "goal_refused" in f.facts), ("どれも要らない", True, False))
 
 
 class DryRunTest(unittest.TestCase):
@@ -12390,6 +12392,21 @@ class HedgedSalesTest(unittest.TestCase):
         g = Flow([car, park])
         r = AmbiguousAnswerTest.say(g, "はい、車で行きます。", "record_answer", question_id="G5", condition_id="はい")
         self.assertEqual(spoken_question(list(g.questions.values()), r["question_id"])[0], "それでは駐車場はご利用になりますでしょうか？")
+
+    def test_any_and_none_are_not_asked_again_with_nenno_tame(self):
+        # ✅ 2026-11-03 ユーザー：「「どちらでも」の答えでも、「念のため…でよろしかったでしょうか？」に戻るのはおかしいでしょ！」＝任せた答えは承る・
+        # どれも要らない答えは、目的から遠ざかる向きと同じく言い直さずに「承知しました。」で次へ
+        from flowctl import ANY, NONE, Flow, Question
+        from phrases import ACK
+        pay = Question("G16", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        nq = Question("G17", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("電話", "メール"))
+        f = Flow([pay, nq])
+        r = self.hedged(f, "G16", ANY, "どちらでもいいかなと思いますけど")
+        self.assertEqual((r["result"], ACK[r["ack"]] + r["say"]), ("confirm_required", "はい、それではどちらでも構わないということで承りますね？"))
+        f = Flow([pay, nq])
+        r = self.hedged(f, "G16", NONE, "どっちも要らないかなあ")
+        self.assertEqual((r["result"], r["ack"], r["question_id"], f.export()["G16"]), ("next", "shouchi", "G17", "どれも要らない"))
+        self.assertTrue(f.items["G16"].hedged)
 
     def test_business_line_after_the_answer(self):
         # その答えを受け取ったあとに伝える業務の一言（Question.tell_words）：言い切った答えでも、言い切っていない答えでも、受け取ったら1回だけ言ってから

@@ -3429,7 +3429,12 @@ class Flow:
         は「（値）と」）。どれでもない（言葉の無い選択肢・「どちらでも」・自由な答え・名前の読みの確かめ）は今までの hedged（「念のため…でよろしかったでしょうか？」）。
         ✅ 2026-11-02 日本時間1時22分 ユーザー：「お支払いや日時なんかの希望を伺う選択にも、「それでは…させていただきますね？」の形でいいと言ったよね？」
         （10-31 日本時間6時05分の「違うのは、事実を伺う質問だけです」）"""
-        if q.reading_of or cond in SYSTEM_CONDITIONS or cond in (ANY, NONE):
+        if cond == ANY:
+            # 選ぶのをこちらに任せた答え：任せたことを承る（「それでは、どちらでも構わないということで承りますね？」。✅ 2026-11-03 ユーザー：「「どちらでも」の
+            # 答えでも、「念のため…でよろしかったでしょうか？」に戻るのはおかしいでしょ！」・11-02 のご判断「任せたことそのものを記録する。こちらがどれを
+            # 選ぶかは、お客様に確かめることではない」）。どれも要らない（NONE）は、目的から遠ざかる向きと同じく言い直さない（_keep_toward_goal）
+            return "hedged_noted"
+        if q.reading_of or cond in SYSTEM_CONDITIONS or cond == NONE:
             return "hedged"
         if q.type in CHOICE_TYPES:
             # 目的から遠ざかる向きの選択肢（Question.away）は「させていただきますね？」を使わない（✅ 2026-11-03 ユーザー (2)「OK」。目的につなげて
@@ -5564,7 +5569,7 @@ class Flow:
         選択肢の型は、選んだ選択肢の意味の言葉で言い直す（choice_words。「念のためご予約はお済みということでよろしいでしょうか？」）。"""
         it, q = self.items[qid], self.questions[qid]
         choice = q.type in CHOICE_TYPES
-        if choice and it.condition in q.away and after != "end_doubt":
+        if choice and (it.condition in q.away or it.condition == NONE) and after != "end_doubt":
             # 目的から遠ざかる向きの選択肢は、その向きの言葉で言い直さない（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない
             # ように例を出して言っているよね！」＝「それでは、今月中のご導入は見送りとさせていただきますね？」は「わざわざ、獲得できそうなお客様を失いかねない
             # 確かめ」。明らかにお断りの方・怒っている方は除く＝その答えは言い直しを通らず、お断り・お詫びの締めの道へ行く）。いまの話の向きを伺う一言
@@ -5620,14 +5625,14 @@ class Flow:
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。" + (self._confirm_how(qid) if choice else "")}
 
     def _keep_toward_goal(self, qid: str, after: str | None) -> dict:
-        """目的から遠ざかる向きの答えを、その向きの言葉で言い直さずに扱う唯一の場所（_ask_confirm の頭）：
+        """目的から遠ざかる向きの答え（と「どれも要らない」）を、その向きの言葉で言い直さずに扱う唯一の場所（_ask_confirm の頭）：
         - まだどちらとも言っていない答え（曖昧な答え「大丈夫です」・言い直しで食い違った答え＝ambiguous・settle）：目的に進む向きの選択肢が1つなら、
-          その向きで伺う（「念のためパンフレットをお送りしてよろしいということでよろしいでしょうか？」）。1つに決まらなければ、言い直さずに聞き返す
+          その向きで伺う（こちらがすることの言葉で「それではパンフレットをお送りさせていただきますね？」）。1つに決まらなければ、言い直さずに聞き返す
         - 遠ざかる向きに寄っている・言った答え（言い切っていない答え・こちらの言い直しへの「いえ」）：言い直さずに受け取り、「承知しました。」で次へ
           （✅ 2026-11-03 ユーザー：「提案の「承知しました」で次に進むでもOK」。言い切っていなければ「曖昧」の印とお客様の言葉を依頼者へ渡す）"""
         it, q = self.items[qid], self.questions[qid]
         if after in ("ambiguous", "settle"):
-            ahead = [c for c in q.conditions if c not in q.away]
+            ahead = [c for c in q.conditions if c not in q.away and c != NONE]
             if len(ahead) != 1:
                 return self._ask_again(qid, "unclear", "曖昧な答え（目的から遠ざかる向きの言葉では言い直さない・目的に進む向きが1つに決まらない）")
             it.condition = ahead[0]
@@ -5820,7 +5825,12 @@ class Flow:
         # 見つけた：最終目的の質問への「来月以降になると思います」に追って伺う質問があっても、伺う前に「目的が果たせない」で締めていた）
         asking |= {x.ask_if[0] for x in self.questions.values() if x.ask_if_hedged and x.ask_if and x.id in self.order
                    and self.items[x.id].state == "empty" and self.items[x.ask_if[0]].hedged}
-        refused = [q.id for q in goals if self.items[q.id].state in GOT and q.declined(self.items[q.id].condition) and q.id not in asking]
+        # 言い切っていないお断りを、確かめずに受け取った（業務の手立ての質問が無い＝_keep_toward_goal）：その答えだけでは締めない（もうかけないとしない。
+        # 「曖昧」の印とお客様の言葉を依頼者へ渡す）。業務の手立ての質問があれば、その答えで決まる（上の asking・最終目的の設定＝test_final_goal_setting_…）。
+        # ⏳ 2026-11-03 ユーザーに伺い中（前は確かめてから締めた＝「念のためどちらもご不要ということでよろしかったでしょうか？」＝遠ざかる向きの言葉の確かめ）
+        unsure = {q.id for q in goals if self.items[q.id].state == "accepted" and self.items[q.id].hedged
+                  and not any(x.ask_if and x.ask_if[0] == q.id and self.items[q.id].condition in x.ask_if[1] for x in self.questions.values())}
+        refused = [q.id for q in goals if self.items[q.id].state in GOT and q.declined(self.items[q.id].condition) and q.id not in asking | unsure]
         if not refused or (self.goal_mode == "any" and len(refused) < len(goals)):
             return None
         return refused
