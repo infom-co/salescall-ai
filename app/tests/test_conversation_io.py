@@ -137,6 +137,33 @@ class Materials(SettleBase):
         self.assertTrue(got)
         self.assertEqual(self.tx(s, lambda tx: conversation_io.handlings(tx, s["version"], "Q9")), {})
 
+    def test_earlier_answers_carry_the_other_wish_and_the_hedged_words(self):
+        """CL-1 の連絡帳 4-73：前の通話で取れた答えに、言い切っていない答えのお客様の言葉（"hedged"。言い切っていれば無し）と、その質問に伺った
+        ほかのご希望の結果（"wish"＝その行の通話の事実 other_wish のうち、その質問の最後のもの。結びがあればそれ・結びが無くご連絡の方法があれば
+        means・どちらも無ければ無し）を足す。⛔ 渡していなかった＝前の通話でほかのご希望を言っていただいた最終目的の答えが、続きの通話で
+        「どれも要らない」だけになり、「目的が果たせない」で締めた。"""
+        import dataclasses
+        s = self.ready()
+        aid = self.answered(s)
+        self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた", hedged="たぶん大丈夫です"))
+        said = call_report.Said(4, "LINEならいいです。")
+        base = rep()
+
+        def wishes(*w):
+            return dataclasses.replace(base, other_wishes=tuple(call_report.OtherWish(said, "Q1", *x) for x in w)).to_json()
+        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, wishes(("LINEでの連絡", "LINE", "line", None, None))))
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])),
+                         {"Q1": {"state": "accepted", "value": "答えた", "condition": "答えた", "hedged": "たぶん大丈夫です",
+                                 "wish": "means"}})               # 連絡先を伺う途中で切れた＝ご連絡の方法は言っていただいた
+        cases = ((("LINEでの連絡", "LINE", "line", "test_line_id", "means"), "means"), (("無い", None, None, None, "none"), "none"),
+                 ((None, None, None, None, None), None))           # W1 の答えをいただく前に切れた＝入れない
+        for w, want in cases:
+            with self.subTest(want=want):
+                r = self.tx(s, lambda tx: call_report.from_json(wishes(w)))
+                self.assertEqual(r.other_wishes[0].result, want)
+        self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 言い切っていれば hedged は無し
+        self.assertNotIn("hedged", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"])
+
     def test_keys_used_keep_only_names_and_fingerprints(self):
         """使ったキーの識別名（CL-1 の 4-67）：名前と値の指紋の頭8桁だけ。同じものは重ねず、前のものは消さない。キーの値らしいものは
         データベースが断る（0130）。"""

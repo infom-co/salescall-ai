@@ -434,6 +434,13 @@ class OtherWish:
     contact: str | None          # その方法の連絡先（伺えなければ None）
     outcome: str | None          # 結び（OTHER_WISH_OUTCOMES。伺っている途中で切れたら None）
 
+    @property
+    def result(self) -> str | None:
+        """ほかのご希望を伺った結果（次の通話へ渡す前の通話の答えの "wish"＝`conversation_io.earlier`。読み方はここだけ。会話の側の同じ読み方は
+        CL-1 の flowctl.earlier_wish＝CL-1 の連絡帳 4-73）：結びがあればそれ。結びが無くご連絡の方法があれば means（連絡先を伺う途中で切れた）。
+        どちらも無ければ None（W1 の答えをいただく前に切れた）。"""
+        return self.outcome or ("means" if self.means else None)
+
 
 @dataclass(frozen=True)
 class HoldTimeout:

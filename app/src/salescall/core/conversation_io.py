@@ -269,13 +269,32 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     return dnc.register_declared(tx, attempt_id)
 
 
+_EARLIER_IF_ANY = ("hedged", "wish")   # 前の通話で取れた答えの項目のうち、値のあるときだけ渡すもの（`earlier`）
+
+
 def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
-    """その行で、前の通話までに取れた答え（質問の番号 → {"state", "value", "condition"}）。続きから聞く電話（目的 resume）で、取れた
-    答えの質問を伺わないために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の番号の
-    まま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。"""
-    return {r["question_id"]: {"state": r["state"], "value": r["value"], "condition": r["condition"]} for r in tx.all(
-        "SELECT question_id, state::text AS state, value, condition FROM salescall.item_values WHERE task_id = %s"
-        " ORDER BY question_id", (task_id,))}
+    """その行で、前の通話までに取れた答え（質問の番号 → {"state", "value", "condition"} と、あれば "wish"・"hedged"）。続きから聞く電話（目的
+    resume）で、取れた答えの質問を伺わないために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の
+    番号のまま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。項目の名前の正本は会話の側の flowctl.EARLIER_KEYS。
+    - "hedged"：言い切っていない答えのお客様の言葉（項目の値の hedged。言い切っていれば入れない）。はい／いいえの最終目的への言い切っていない
+      お断りは、答えだけでは言い切ったお断りと見分けられないため（CL-1 の連絡帳 4-73 の (2)）。
+    - "wish"：その質問に、前の通話までに伺ったほかのご希望の結果（その行の通話の会話の報告の通話の事実 other_wish のうち、その質問の最後のもの
+      を `call_report.OtherWish.result` で読む。無ければ入れない＝W1 の答えをいただく前に切れた・伺っていない）。⛔ 2026-11-03 まで渡しておらず、
+      前の通話でほかのご希望（LINE など）を言っていただいた最終目的の答えが、続きの通話で「どれも要らない」だけになり、「目的が果たせない」で
+      締めてその業務をもうかけない形だった（✅ 11-03 日本時間20時48分のご承認＝方法を言っていただいたら断られたとは扱わない。CL-1 の連絡帳 4-73 の (1)）。
+      通話の順は予約した時刻の順（同じ質問の最後のものが、いちばんあとの通話のもの）。作り直した報告があれば、それを読む（`call_report.load` の1か所）。"""
+    wishes: dict[str, str | None] = {}
+    for a in tx.all("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s ORDER BY claimed_at, attempt_id", (task_id,)):
+        report = call_report.load(tx, a["attempt_id"])
+        for w in (report.other_wishes if report is not None else ()):
+            wishes[w.question] = w.result
+    out: dict[str, dict[str, Any]] = {}
+    for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged FROM salescall.item_values WHERE task_id = %s"
+                    " ORDER BY question_id", (task_id,)):
+        item = {"state": r["state"], "value": r["value"], "condition": r["condition"], "hedged": r["hedged"],
+                "wish": wishes.get(r["question_id"])}
+        out[r["question_id"]] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
+    return out
 
 
 def handlings(tx: Tx, version_id: UUID, question_id: str) -> dict[tuple[str, str], str]:
