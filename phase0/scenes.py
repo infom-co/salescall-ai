@@ -24,7 +24,7 @@ from instruction import VOICE_TYPES, Target
 from make_callee_samples import verified
 from meaning_judge import STANDIN, add_judge_args, make_judges
 from flowctl import OWN_PARTS, PROMISE, refusal_in
-from phrases import CLOSE_DECLINED, CLOSING
+from phrases import CLOSE_DECLINED, CLOSING, STANDARD_PARTS
 
 # 目的の人のある業務（DESIGN.md 4-3）：営業部部長の岡田様
 TARGET_BUSINESS = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
@@ -308,7 +308,10 @@ SCENES = {
     "AIですか": Scene(BUSINESS, [W("ai_q"), W("ai_fine")] + FULL, lambda c: {
         # ✅ 2026-10-19 ユーザー：決まった言い方「何か問題でもございましたでしょうか？」の録音だけを流して返事を待ち、問題は無いと言われたら
         # 「失礼いたしました。」のあと、いまの質問の録音（⛔ 前の1回目：AIに答えさせると、3本とも答えたあとに質問に戻らなかった）
-        "決まった言い方だけ": any(played_parts(x["reply"]) == ["ai"] for x in ops(c) if x["op"] == "replay_opening"),
+        # 業務が答えの文を書いた業務は業務の録音（部分 ai）、書かなかった業務は標準＝共通の一言の録音（phrases.STANDARD_PARTS。2026-11-04）
+        "決まった言い方だけ": any(played_parts(x["reply"]) in (["ai"], ["recorded"]) and all(
+            p.get("part") == "ai" or p.get("id") == STANDARD_PARTS["ai"] for p in x["reply"]["play"])
+            for x in ops(c) if x["op"] == "replay_opening"),
         "質問に戻った": any(x["args"].get("part") == "resume" and played_parts(x["reply"]) == ["question"] for x in ops(c)
                          if x["op"] == "replay_opening"),
         "自分では答えない": plain(said(turn_of(c, "ai_q"))) == "" and plain(said(turn_of(c, "ai_fine"))) == "",
