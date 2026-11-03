@@ -13,8 +13,10 @@
   ⛔ 2026-10-24 の失敗（7回目）：コンパクトの前後で、作業の途中の一言を56回英語で書いた（読み直したあとのターンにも2回）。
 - キーなどの秘密は会話の記録に書かない決まりなので、読み直しても外へは出ない（出力は作業場所に置き、リポジトリには入れない）。
   ただし --export（下）は、管理者のご指示でリポジトリに置くもの＝書き出す前にキーらしい文字を探し、あれば何も書かずに止める。
-- --export <フォルダ>：管理者のご発言と CL-1 の返事の全文を、日本時間の週（月曜〜日曜）ごとの Markdown に書き出す（頭に日ごとの目次。
-  何度流しても同じものができる＝上書き）。✅ 2026-11-01 管理者（CL-2 の連絡帳 4-181 のとおり）：「CL-1とCL-3用にもあなたが同様の
+- --export <フォルダ>：管理者のご発言と CL-1 の返事の全文を、日本時間の週（月曜〜日曜）ごとの Markdown に書き出す（頭に日ごとの目次）。
+  前に書き出した分は、そのフォルダの控え（rows.jsonl）から読み、いまの会話の記録の分と合わせてから書き出す（何度流しても、前の分は消えない）。
+  いまの会話の記録と同じフォルダにある、ほかの会話の記録（/clear の前の会話など）も読む。⛔ 2026-11-03：週ごとのファイルを、いまの会話の記録
+  だけから上書きしていた＝/clear で会話の記録が新しくなると、前の会話の分が消える形だった（管理者が /clear を伺ったときに見つけた）。✅ 2026-11-01 管理者（CL-2 の連絡帳 4-181 のとおり）：「CL-1とCL-3用にもあなたが同様の
   フォルダを作って、そこに同様に履歴を今後、完全保存していくように私から指示があったことを彼らに伝えてください。」⇒ docs/conversation_log/CL-1/。
   読み直しと同じ読み方（`_rows` の1か所）で書き出す＝読み直しで読めるご発言と、残したご発言が食い違わない。
 
@@ -83,11 +85,19 @@ def user_messages(path: Path, since: str = "", until: str = "", with_assistant: 
     return [(ts[:16], who, s) for ts, who, s in _rows(path, since, until, with_assistant)]
 
 
-def export_weeks(path: Path, out_dir: Path) -> dict:
-    """管理者のご発言と CL-1 の返事の全文を、日本時間の週ごとの Markdown に書き出す（上書き）。キーらしい文字があれば何も書かずに止める。"""
+ARCHIVE = "rows.jsonl"   # 書き出したやり取りの控え（書き出しのフォルダの中。1行に1つ {ts, who, text}）
+
+
+def export_weeks(path: Path, out_dir: Path, siblings: bool = False) -> dict:
+    """管理者のご発言と CL-1 の返事の全文を、日本時間の週ごとの Markdown に書き出す。前に書き出した分（控え ARCHIVE）と、いまの会話の記録 path の分
+    （siblings なら、同じフォルダのほかの会話の記録の分も）を合わせ、同じもの（時刻・誰・発言が同じ）は1つにする。キーらしい文字があれば何も書かずに止める。"""
     label = {USER: "管理者", USER_MIDTURN: "管理者（CL-1 の作業中に）", ME: "CL-1"}
+    arch = out_dir / ARCHIVE
+    kept = [(d["ts"], d["who"], d["text"]) for d in map(json.loads, arch.read_text(encoding="utf-8").splitlines() if arch.is_file() else []) if d]
+    logs = sorted({path, *(path.parent.glob("*.jsonl") if siblings else ())})
+    rows = sorted(set(kept) | {r for p in logs for r in _rows(p, with_assistant=True)}, key=lambda r: (r[0], r[1] != ME))
     days = defaultdict(list)
-    for ts, who, s in _rows(path, with_assistant=True):
+    for ts, who, s in rows:
         t = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(JST)
         days[t.date()].append((t, label[who], s))
     weeks = defaultdict(list)
@@ -117,6 +127,7 @@ def export_weeks(path: Path, out_dir: Path) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, s in files.items():
         (out_dir / name).write_text(s, encoding="utf-8")
+    arch.write_text("".join(json.dumps({"ts": ts, "who": who, "text": s}, ensure_ascii=False) + "\n" for ts, who, s in rows), encoding="utf-8")
     return {"週": len(weeks), "日": len(days), "件": sum(map(len, days.values())),
             "ご発言": sum(w != "CL-1" for v in days.values() for _, w, _ in v)}
 
@@ -160,7 +171,7 @@ def main() -> None:
     p.add_argument("--export", type=Path, help="管理者のご発言と CL-1 の返事の全文を、週ごとの Markdown でこのフォルダに書き出す")
     args = p.parse_args()
     if args.export:
-        print(f"{args.export} に書きました：{export_weeks(args.transcript, args.export)}")
+        print(f"{args.export} に書きました：{export_weeks(args.transcript, args.export, siblings=True)}")
         return
     rows = user_messages(args.transcript, args.since, args.until, args.with_assistant or args.english)
     if args.english:

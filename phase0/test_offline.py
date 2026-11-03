@@ -4931,6 +4931,26 @@ class ConversationLogTest(unittest.TestCase):
             export_weeks(self._log(bad), out2)
         self.assertEqual(list(out2.iterdir()), [])                          # 1つも書かない
 
+    def test_export_keeps_what_was_written_before(self):
+        # /clear で会話の記録が新しくなっても、前に書き出した分は消えない（控え rows.jsonl と合わせる）。同じものは1つ。⛔ 2026-11-03 まで、いまの会話の
+        # 記録だけから上書きしていた。同じフォルダのほかの会話の記録も読める（siblings）
+        import json, tempfile
+        from read_user_messages import ARCHIVE, export_weeks
+        out = Path(tempfile.mkdtemp())
+        export_weeks(self._log(self._rows()), out)
+        later = [{"type": "user", "timestamp": "2026-11-03T12:38:00.000Z", "message": {"content": "/clear のあとのご発言"}}]
+        n = export_weeks(self._log(later), out)
+        self.assertEqual((n["ご発言"], n["件"]), (4, 5))
+        text = (out / "2026-11-02_week.md").read_text(encoding="utf-8")
+        self.assertIn("1つ目のご発言", text)
+        self.assertIn("/clear のあとのご発言", text)
+        self.assertEqual(len((out / ARCHIVE).read_text(encoding="utf-8").splitlines()), 5)
+        self.assertEqual(export_weeks(self._log(later), out)["件"], 5)        # 同じものは1つ
+        d = Path(tempfile.mkdtemp())
+        (d / "a.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in self._rows()), encoding="utf-8")
+        (d / "b.jsonl").write_text(json.dumps(later[0], ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(export_weeks(d / "b.jsonl", Path(tempfile.mkdtemp()), siblings=True)["件"], 5)
+
 
 class WordingTest(unittest.TestCase):
     """AIへの指示と録音の読み方に、ユーザーが外すよう言った言葉を入れない。"""
