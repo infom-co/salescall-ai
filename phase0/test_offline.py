@@ -10533,7 +10533,7 @@ class G53EndTest(unittest.TestCase):
 
 
 class NoneOfThemTest(unittest.TestCase):
-    """選ぶ質問の「どれも要らない」（flowctl.NONE）。✅ 2026-11-02 日本時間4時16分 ユーザー：「連絡しないと最終目的を果たせないような流れだったのなら
+    """選ぶ質問の「どれも要らない」（flowctl.NONE）と、そのあとにほかのご希望を伺う段（flowctl.Flow._wish_step。最終目的の質問への言い切っていないお断りも）。✅ 2026-11-02 日本時間4時16分 ユーザー：「連絡しないと最終目的を果たせないような流れだったのなら
     営業拒否になるし、登録など別の手段が目的の営業であれば電話やメールは控えるという意味合いになるんじゃないですか。」・(a)「OK」"""
 
     CONTACT = "ご連絡はお電話とメールのどちらがよろしいでしょうか？"
@@ -10569,6 +10569,53 @@ class NoneOfThemTest(unittest.TestCase):
                 self.assertEqual((r["result"], r["ack"], r["question_id"], r["question"], f.end_reason),
                                  ("next", "hai", CALLBACK_IDS["other_wish"], "それでは電話とメールのほかにご希望はございますでしょうか？", None), (goal, said))
                 self.assertNotIn("goal_refused", f.facts)
+
+    def test_hedged_decline_of_a_final_goal_asks_other_wish(self):
+        # ✅ 2026-11-03 日本時間21時38分 ユーザー：「はい／いいえで伺う最終目的の質問に、言い切っていないお断りをいただいた場合は、(1) ほかのご希望を1回だけ
+        # 伺う。ということですよね？それならOKですよ」⇒ 業務の手立ての質問が無いとき、その答えだけでは締めず、ほかのご希望を1回伺う（はい／いいえは並べる
+        # 選択肢が無いので「それではほかにご希望などはございますでしょうか？」・選び直しはお断りでない答えだけ）
+        from flowctl import CALLBACK_IDS, WISH_NONE, WISH_OTHER, Flow, Question, wish_label
+        from phrases import ACK, CLOSING_AFTER_DECLINE
+
+        def flow(goal=True):
+            return Flow([Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=goal,
+                                  declines=("いいえ",) if goal else (), away=("いいえ",),
+                                  meanings={"はい": "パンフレットをお送りしてよいということ", "いいえ": "パンフレットはお送りしなくてよいということ"}),
+                         Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        f = flow()
+        r = HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
+        self.assertEqual((r["result"], ACK[r["ack"]] + r["question"], f.end_reason), ("next", "はい、それではほかにご希望などはございますでしょうか？", None))
+        self.assertEqual(f.questions["W1"].conditions, ("はい", *(wish_label(k) for k in ("line", "email", "fax", "post", "phone")), WISH_OTHER, WISH_NONE))
+        r = AmbiguousAnswerTest.say(f, "メールで送ってもらえれば見ます。", "record_answer", question_id="W1", condition_id=wish_label("email"))
+        self.assertEqual((r["question_id"], f.end_reason, "goal_refused" in f.facts), (CALLBACK_IDS["email"], None, False))
+        # ほかのご希望も無い ⇒ 11-02 の扱い（最終目的なので、お礼を言って締める）
+        f = flow()
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
+        r = AmbiguousAnswerTest.say(f, "特にないですね。", "record_answer", question_id="W1", condition_id=WISH_NONE)
+        self.assertEqual((r["result"], r["say"], f.end_reason), ("end", CLOSING_AFTER_DECLINE, "goal_refused"))
+        # 選び直していただいた（「やっぱり送ってください」）⇒ 元の質問の答え「はい」
+        f = flow()
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
+        r = AmbiguousAnswerTest.say(f, "うーん、やっぱり送ってください。", "record_answer", question_id="W1", condition_id="はい")
+        self.assertEqual((r["question_id"], f.export()["Q1"], f.end_reason), ("Q2", "はい", None))
+        # 言い切ったお断りは今までどおり答え（最終目的なので締める）・最終目的でない質問の言い切っていないお断りは「承知しました。」で次へ（17時台のご判断）
+        f = flow()
+        r = AmbiguousAnswerTest.say(f, "いえ、結構です。", "record_answer", question_id="Q1", condition_id="いいえ")
+        self.assertEqual((r["result"], f.end_reason, "W1" in f.items), ("end", "goal_refused", False))
+        f = flow(False)
+        r = HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
+        self.assertEqual((r["result"], r["ack"], r["question_id"]), ("next", "shouchi", "Q2"))
+        # 伺いうる質問の決まり（1か所）：録音の表と会話AIへの宣言にも同じ質問だけが入る
+        import dataclasses
+        from flowctl import may_wish, tool_declarations
+        from g22_opening import BUSINESS
+        from make_ack_clips import script_table
+        goal, other = flow().questions["Q1"], flow(False).questions["Q1"]
+        self.assertEqual((may_wish(goal), may_wish(other)), (True, False))
+        self.assertEqual(script_table(dataclasses.replace(BUSINESS, questions=[goal]))[0]["Q1_other"], ("それではほかにご希望などはございますでしょうか？", "question"))
+        self.assertNotIn("Q1_other", script_table(dataclasses.replace(BUSINESS, questions=[other]))[0])
+        ids = lambda qs: next(d for d in tool_declarations(qs)[0].function_declarations if d.name == "record_answer").parameters.properties["質問"].enum  # noqa: E731
+        self.assertEqual(("W1" in ids([goal]), "W1" in ids([other])), (True, False))
 
     def test_no_other_wish_keeps_the_11_02_handling(self):
         # 無い・やはり要らない ⇒ 11-02 のご判断（✅ 2026-11-02 日本時間4時16分）のまま：最終目的ならお礼を言って締める（その業務はかけない）・そうでなければ
@@ -10703,7 +10750,7 @@ class NoneOfThemTest(unittest.TestCase):
 
     def test_every_system_question_is_declared_to_the_ai(self):
         # 会話AIの道具の宣言に、システムが足す質問の番号が全部ある（⛔ 2026-10-24 に C6・C7・P1、2026-11-03 に D1・H1・N1〜N3 を並べ忘れていた＝AIが答えを
-        # 報告できない）。ほかのご希望を伺う W1 は「どれも要らない」のある選ぶ質問があるときだけ・その選択肢も宣言に入る
+        # 報告できない）。ほかのご希望を伺う W1 は、伺いうる質問（flowctl.may_wish）があるときだけ・その選択肢も宣言に入る
         from flowctl import CALLBACK_IDS, SUBSTITUTE_ID, tool_declarations, wish_label
         f = self.flow(False)
         for target in (False, True):
