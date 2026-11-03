@@ -232,16 +232,18 @@ def script_table(business) -> tuple[dict, dict]:
             continue  # 名前の読みの確かめは、まず言ってみる読みが相手ごとに変わるので、AIが言う（録音にしない）
         text, lead = spoken_question(business.questions, q.id)
         if DAY_SLOT in text:
-            # 日によって変わる言い方（最短の日）の入った質問：言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー (ア)「OK」。名前は flowctl.day_recording_id）
+            # 日によって変わる言い方（最短の日）の入った質問：言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー (ア)「OK」。名前は flowctl.day_recording_id）。
+            # 替わるのは質問の文の録音だけ（下の伝える一言・ほかのご希望を伺う一言は、ほかの質問と同じ。⛔ 見直しで見つけた：ここで次の質問へ進み、作っていなかった）
             for w in DAY_VARIANTS:
                 rid = day_recording_id(q.id, w)
                 items.append((f"{rid}_{LEAD_RECORDED[lead]}" if lead else rid, text.replace(DAY_SLOT, w), "question"))
-            continue
-        items.append((f"{q.id}_{LEAD_RECORDED[lead]}" if lead else q.id, text, "question"))
+        else:
+            items.append((f"{q.id}_{LEAD_RECORDED[lead]}" if lead else q.id, text, "question"))
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
         if may_wish(q):
-            # 「どれも要らない」・最終目的への言い切っていないお断りのあと、ほかのご希望を伺う一言（選ぶ質問は選択肢が入る。名前は flowctl.other_wish_recording_id）
+            # 「どれも要らない」・最終目的への言い切っていないお断りのあと、ほかのご希望を伺う一言（文は flowctl._wish_text の1か所＝W1 の質問の文。
+            # 名前は flowctl.other_wish_recording_id）
             items.append((other_wish_recording_id(q), callback_question("other_wish", of=q).text, "question"))
     table, readings = {}, {}
     for base, text, how in items:
