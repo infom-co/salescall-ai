@@ -34,8 +34,8 @@ from phrases import LINE_TROUBLE
 from instruction import Business, barge_in_note, build
 from ears import open_ear
 from listen import hear
-from live_util import (audio_sent_s, build_config, callee_turn, collect_turn, inbox_of, open_session, send_note, send_text,
-                       silence_while)
+from live_util import (audio_sent_s, build_config, callee_turn, collect_turn, inbox_of, is_session_drop, open_session, send_note,
+                       send_text, silence_while)
 from turn_check import BAD_KINDS, check_ai_turn
 
 AUDIO_DIR = HERE / "results" / "convo_audio"
@@ -534,6 +534,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     turns: list[dict] = []
     sessions = 0
     replay: int | None = None  # 送り直す相手の発話の番号（止まったときの張り替え）
+    delivered: int | None = None  # 流れの制御が受け取った、いちばん新しい相手の発話の番号（つなぎが切れたとき、送り直すか初めて送るかを決める）
     again: dict | None = None  # 聞き返されたので、相手が次に言い直す台詞（台詞の "again"。i は進めない）
     again_n = 0
     swapped: int | None = None  # 黙ったので張り替えた相手の発話の番号（1つの発話に1回まで）
@@ -657,22 +658,39 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                 # ならお詫びして終える。CL-2 の連絡帳 4-179 の (a)）。⛔ 2026-11-02 まで、誤りがそのまま上がり、報告が作られなかった
                 flow.on_ai_unreachable(redact(repr(exc))[:160])
                 break
+            dropped: list[str] = []   # このつなぎが通話の途中で切れた誤り（下の stack の出口が受けて、外へ上げない＝このつなぎの終わりで決める）
+
+            async def on_drop(kind, exc, tb, dropped=dropped):
+                if exc is not None and is_session_drop(exc):
+                    dropped.append(redact(repr(exc))[:160])
+                    return True
+                return False
+            stack.push_async_exit(on_drop)   # つなぎを閉じる処理（open_session）より先に呼ばれる
             async with stack:
                 # 相手の言葉の文字と、話し始め・話し終わりの知らせは、届いた瞬間に流れの制御へ（words_complete。受け取りを始める前に届いても）
                 inbox_of(s).on_heard, inbox_of(s).on_activity = flow.on_heard, flow.on_activity
                 if restate_next is not None:
                     # 外れた言葉を止めたあと（6-7）：電話接続側は、止めた瞬間にお詫びの録音（ack）を流している。新しいつなぎに、言い直しを言わせる
-                    log_start, plan, restate_next = len(flow.log), restate_next, None
+                    # 言い直すことは、言い直せたときだけ消す（黙った・つなぎが切れたときは、次のつなぎでまた言い直させる）。言い直しのターンにも、
+                    # ほかのターンと同じ黙りの見張りを付け、黙ったら同じ1か所（ai_failed）で1回だけ張り替え、それでも黙ればお詫びして終える。
+                    # ⛔ 2026-11-04 まで、言い直すことを言い直す前に消し、見張りも無かった＝言い直しの最中に黙ると30秒待ったあと言い直さずに次へ、
+                    # 切れると言い直さずに次の台詞へ進んだ（相手には「失礼いたしました。」のあと何も無い）
+                    log_start, plan = len(flow.log), restate_next
                     t = time.monotonic()
                     await send_text(s, plan["message"])
-                    turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle_call, timeout_s=30, on_heard=flow.on_heard)
+                    turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle_call, timeout_s=30, on_heard=flow.on_heard,
+                                              silent_after_s=SILENT_SWAP_S)
                     await add_turn(turn, {"restate": plan["say"]}, log_start, i - 1, voice)
+                    if not turn.silent:
+                        restate_next = None
+                    else:
+                        ai_failed("言い直しを頼んでも、声も報告も無いまま黙った", i)
                     # 止めてから言い直しの声が出るまで（つなぎ直しの時間を含む。お詫びの録音「失礼いたしました。」は約1秒）
                     turns[-1]["gap_s"] = (round(t + turn.first_audio_after_s - stopped_at, 2) if turn.first_audio_after_s is not None else None)
                     # 内訳：古いつなぎを閉じる・新しいつなぎを開く・知らせてから声が出る（どこを縮めるかを決めるため）
                     turns[-1]["gap_parts_s"] = {"close": round(opened_at - stopped_at, 2), "open": round(t - opened_at, 2),
                                                 "speak": turn.first_audio_after_s}
-                while i < len(callee_lines) and flow.phase != "closing":
+                while restate_next is None and i < len(callee_lines) and flow.phase != "closing":   # 言い直せていなければ、次のつなぎで
                     if swap_before is not None and i == swap_before and sessions == 1:
                         break  # 張り替え：このセッションを閉じて、いまの位置を渡して開き直す
                     line = again or callee_lines[i]
@@ -698,11 +716,14 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         i += 1
                         continue
                     if stall_at is not None and i == stall_at and sessions == 1:
-                        # AIが止まった：古いセッションへ相手の発話を送り、返事を受け取らずに閉じる
+                        # AIが止まった（試し）：古いセッションへ相手の発話を送り、返事を受け取らずに閉じる。張り替えるかは、黙ったときと同じ1か所
+                        # （ai_failed＝Flow.on_ai_failed）が決める（⛔ 2026-11-04 まで、ここだけ1か所を通らずに張り替えていた）
                         flow.on_callee()
+                        delivered = i
                         await send_text(s, line)
                         await asyncio.sleep(stall_wait_s)
-                        replay = i
+                        if ai_failed("試しで、相手の発話を送ったあと返事を受け取らずに閉じた", i):
+                            replay = i
                         break
                     if i == 1 and barge_in is not None and sessions == 1:
                         # 第一声のあとに流した名乗りの録音の途中で、相手が話し始めた：最後まで流れたとは数えない（deliver_plays に渡さない）
@@ -714,6 +735,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         flow.on_callee()
                     else:
                         flow.on_resend()
+                    delivered = i
                     log_start = len(flow.log)
                     if gap_s and i > 0:  # 相手が話し始めるまでの間（G-26：間の長さで、AIのふるまいが変わるかを見る）
                         await asyncio.sleep(gap_s)
@@ -841,6 +863,12 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if again is not None:
                         continue
                     i += 1
+            if dropped:
+                # 通話の途中で会話AIのつなぎが切れた（live_util.is_session_drop）：黙ったときと同じ1か所（ai_failed＝Flow.on_ai_failed）で、その発話で
+                # 1回だけつなぎ直して同じ発話を送り直し、つなぎ直しても切れたらお詫びして終える（DESIGN.md 6-7）。流れの制御がまだ受け取って
+                # いない発話（delivered が違う）は、送り直しではなく、新しいつなぎで初めて送る
+                if ai_failed(f"会話AIのつなぎが通話の途中で切れた（{dropped[0]}）", i) and delivered == i:
+                    replay = i
     # 電話が切れた瞬間（切れ方の材料＝Flow.on_line_end の1か所）。試作では、AIのターンを話し終えるまで待ってから次へ進むので、切れた瞬間は
     # だれも話していない：締めた（こちらが締めて切った）か、相手の台詞が尽きた（AIが話し終えたあとに、相手が何も言わずに切った）
     if (r := flow.on_voicemail_wait_end()) is not None:

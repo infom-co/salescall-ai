@@ -457,6 +457,16 @@ async def stream_audio(session, pcm16: bytes, rate: int, *, chunk_ms: int = 100,
             await asyncio.sleep(chunk_ms / 1000)
 
 
+def is_session_drop(exc: BaseException) -> bool:
+    """会話AIのつなぎが、通話の途中で切れた誤りか（唯一の見分け）。部品（google-genai）は、受け取りで切れると APIError（切れた番号つき）を、
+    送りで切れると websockets の ConnectionClosed を上げる。見分けたら、黙ったときと同じ1か所（Flow.on_ai_failed）へ渡す＝その発話で1回だけ
+    つなぎ直し、つなぎ直しても切れたらお詫びして終える（DESIGN.md 6-7）。プログラムの誤り（型の誤りなど）は入れない（つなぎの不具合と
+    取り違えない）。⛔ 2026-11-04 まで、切れた誤りは通話の道具の外へそのまま上がり、つなぎ直しも、お詫びも、報告も無かった。"""
+    from google.genai import errors
+    from websockets.exceptions import ConnectionClosed
+    return isinstance(exc, (errors.APIError, ConnectionClosed))
+
+
 @asynccontextmanager
 async def open_session(client, model: str, config, closing: list):
     """通話の中で会話AIのつなぎを開く唯一の場所（つなぎ直し＝DESIGN.md 6-7 も、ここを通る）。閉じるのは待たない：閉じる処理は後ろで走らせ、

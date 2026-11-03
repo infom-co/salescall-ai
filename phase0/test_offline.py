@@ -4291,6 +4291,11 @@ class AskLadderTest(unittest.TestCase):
         # 張り替えて続けた分は「おかしな動き」（止めずに警告＝CL-2 の 4-174・2026-10-31 管理者「甚大でない場合は、ダッシュボードに警告を出す。」）、
         # 終えた分は「止まった」（甚大な問題＝止める）。同じ出来事は1つにまとめて数える
         self.assertEqual([(t["ai"], t["what"], t["count"]) for t in f.ai_trouble], [("会話AI", "おかしな動き", 2), ("会話AI", "止まった", 1)])
+        # 送り直す前（流れの制御がまだ次の発話を受け取る前）に続けて切れたときも、張り替えは1回だけ（張り替えた印は、張り替えると決めた
+        # on_ai_failed が付ける）。⛔ 直す前は送り直し（on_resend）だけが印を付けていたので、切れるたびに張り替え続けえた
+        g = self.flow()
+        self.assertEqual(g.on_ai_failed("会話AIのつなぎが通話の途中で切れた")["result"], "swap")
+        self.assertEqual(g.on_ai_failed("会話AIのつなぎが通話の途中で切れた")["result"], "end_trouble")
 
     def test_ai_unreachable_before_and_during_the_call(self):
         # CL-2 の 4-179 の (a)：会話AIのつながりを開けない。電話の前なら止まったAIとして残すだけ（電話はかけない）、通話の途中ならお詫びして終える
@@ -12730,6 +12735,116 @@ class ConvoRunTest(unittest.TestCase):
         self.assertEqual(([(t["ai"], t["what"]) for t in r["ai_trouble"]], r["turns"], r["trouble"]),
                          ([(ear_ai("soniox"), "止まった")], [], None))
         self.assertEqual([(t["ai"], t["what"], t["turn"]) for t in told], [(ear_ai("soniox"), "止まった", 0)])
+
+    def test_a_conversation_ai_cut_mid_call_is_swapped_once_then_ends_with_an_apology(self):
+        # 通話の途中で会話AIのつながりが切れた（受け取りで切れた＝部品は APIError・送りで切れた＝ConnectionClosed）：黙ったときと同じ1か所
+        # （Flow.on_ai_failed）で、その発話で1回だけつなぎ直して同じ発話を送り直し、つなぎ直しても切れたらお詫びして終える（設計書 6-7・
+        # Intent.md 9-4「会話AIが通話中に落ちた」）。⛔ 直す前は、誤りが通話の道具の外へそのまま上がり、つなぎ直しも、お詫びも、報告も無かった
+        import asyncio
+        import types as T
+        from google.genai import errors
+        from websockets.exceptions import ConnectionClosedError
+        import convo
+        from flowctl import CONVO_AI
+
+        def client_with(cut):
+            opened = []
+
+            class Session:
+                async def send_client_content(self, **kw):
+                    if cut == "send":
+                        raise ConnectionClosedError(None, None)
+
+                async def send_realtime_input(self, **kw):
+                    if cut == "send":
+                        raise ConnectionClosedError(None, None)
+
+                async def send_tool_response(self, **kw):
+                    pass
+
+                async def receive(self):
+                    if cut == "receive":
+                        raise errors.APIError(1006, {"message": "Abnormal closure."})
+                    await asyncio.sleep(3600)
+                    yield None
+
+            class Connect:
+                async def __aenter__(self):
+                    opened.append(1)
+                    return Session()
+
+                async def __aexit__(self, *exc):
+                    return False
+            return T.SimpleNamespace(aio=T.SimpleNamespace(live=T.SimpleNamespace(connect=lambda model, config: Connect()))), opened
+
+        for cut in ("receive", "send"):
+            with self.subTest(cut):
+                client, opened = client_with(cut)
+                r = asyncio.run(asyncio.wait_for(convo.run_call(client, "m", TargetTest().business(), "S2", ["はい、青葉物産です。"],
+                                                                use_ear=False), 30))   # 外側の見張りは、試験が止まらないためだけ
+                self.assertEqual(len(opened), 2)                                  # その発話で1回だけつなぎ直した
+                self.assertEqual(r["trouble"]["reason"], "ai_malfunction")       # つなぎ直しても切れた ⇒ お詫びして終える
+                self.assertIn((CONVO_AI, "おかしな動き"), [(t["ai"], t["what"]) for t in r["ai_trouble"]])
+
+    def test_a_restatement_that_goes_silent_or_is_cut_is_asked_again_in_the_next_connection(self):
+        # 外れた言葉を止めたあとの言い直し（設計書 6-7）の最中に、会話AIが黙った・つなぎが切れた：言い直すことを消さずに、次のつなぎでまた言い直させ
+        # （黙ったときと同じ1か所＝Flow.on_ai_failed で1回だけ）、それでも黙ればお詫びして終える。⛔ 直す前は、言い直すことを言い直す前に消し、
+        # 言い直しのターンに黙りの見張りも無かった＝黙ると30秒待ったあと言い直さずに次へ、切れると言い直さずに次の台詞へ進んだ
+        import asyncio
+        import types as T
+        from unittest import mock
+        from google.genai import errors, types
+        import convo
+        import flowctl
+
+        def client_with(kinds):
+            opened, sent = [], []
+
+            class Session:
+                def __init__(self, n):
+                    self.n = n
+
+                async def send_client_content(self, **kw):
+                    sent.append((self.n, kw["turns"].parts[0].text))
+
+                async def send_realtime_input(self, **kw):
+                    pass
+
+                async def send_tool_response(self, **kw):
+                    pass
+
+                async def receive(self):
+                    kind = kinds[min(self.n, len(kinds) - 1)]
+                    while not [x for x in sent if x[0] == self.n]:
+                        await asyncio.sleep(0.01)
+                    if kind == "talk":     # 渡した言い方と違う言葉を話し始めた（試しで、最初の文字で外れにする）
+                        yield types.LiveServerMessage(server_content=types.LiveServerContent(
+                            output_transcription=types.Transcription(text="関係のない話をいたします。")))
+                    if kind == "drop":
+                        raise errors.APIError(1006, {"message": "Abnormal closure."})
+                    await asyncio.sleep(3600)
+                    yield None
+
+            class Connect:
+                async def __aenter__(self):
+                    opened.append(1)
+                    return Session(len(opened) - 1)
+
+                async def __aexit__(self, *exc):
+                    return False
+            return T.SimpleNamespace(aio=T.SimpleNamespace(live=T.SimpleNamespace(connect=lambda model, config: Connect()))), opened, sent
+
+        for kinds in (["talk", "silent"], ["talk", "drop", "silent"]):
+            with self.subTest(kinds):
+                client, opened, sent = client_with(kinds)
+                with mock.patch.object(convo, "SILENT_SWAP_S", 0.3), \
+                        mock.patch.object(flowctl.Flow, "expected_say", lambda self, start: "株式会社アオバ物流の佐藤と申します。"):
+                    r = asyncio.run(asyncio.wait_for(convo.run_call(client, "m", TargetTest().business(), "S2", ["はい、青葉物産です。", "はい。"],
+                                                                    use_ear=False, off_script_at=0), 8))   # 外側の見張りは、試験が止まらないためだけ
+                restate = [t for n, t in sent if n == 1][0]
+                self.assertTrue(restate.startswith("［プログラムからのお知らせ］"))
+                self.assertEqual([t for n, t in sent if n == 2], [restate])          # 次のつなぎでも、また言い直させた（次の台詞「はい。」へ進まない）
+                self.assertEqual((len(opened), r["trouble"]["reason"]), (3, "ai_malfunction"))   # 1回だけつなぎ直し、それでも黙ればお詫びして終える
 
     def test_opening_an_ai_connection_gives_up_at_the_down_line(self):
         # 会話AI・別の耳のつなぎを開く所（live_util.open_session・ears.Ear の1か所ずつ）は、判定と同じ「止まったとみなす秒」
