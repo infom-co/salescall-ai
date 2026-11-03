@@ -7435,6 +7435,55 @@ class EndJudgedTest(unittest.TestCase):
         h.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
         self.assertEqual((h.current, h.end_reason), ("Q3", None))
 
+    def test_an_answer_that_turns_down_is_received_with_shouchi_and_closed_with_shouchi_itashimashita(self):
+        # お断り・目的から遠ざかる向きの答え（Question.turned_down の1か所）を受け取ったら、次へ進む相づちは「承知しました。」（お礼は返さない。
+        # ✅ 2026-11-03 ユーザー：遠ざかる向きに寄った・言った答えは「承知しました。」で次へ）、そのまま締めるなら「はい、承知いたしました。お忙しい
+        # ところ…」（✅ 2026-11-02 日本時間6時33分 ユーザー：「…「はい、お忙しいところ…」だと唐突なので、こちら「はい、承知いたしました。お忙しい
+        # ところ…」の方がいいんじゃないでしょうか？」）。目的が果たせなくなったか（断りの印）とは別に決まる。⛔ 2026-11-04 日本時間7時台（「最終目的が、
+        # 複数あるときでも…本当に大丈夫ですか？」）に見つけた：言い切った遠ざかる答えに順番で「ありがとうございます。」を返し、最終目的が2つの業務で
+        # 片方を受けていただいたあとの最後のお断りには「はい、お忙しいところ…」で締めていた
+        from flowctl import Flow, Question
+        from phrases import CLOSING, CLOSING_AFTER_DECLINE
+        yn = lambda i, t, **k: Question(i, t, "yes_no", conditions=("はい", "いいえ"), **k)
+        visit = dict(away=("いいえ",), meanings={"はい": "ご来店のご意向があるということ", "いいえ": "ご来店のご意向はないということ"})
+        def answer(f, heard, qid, cond):
+            f.on_callee(); f.on_heard(heard)
+            return f.apply("record_answer", {"question_id": qid, "condition_id": cond})
+        # (a) 言い切った遠ざかる答え（最終目的でない質問）：順番が「ありがとうございます。」の位置でも「承知しました。」（前の相づちも「承知しました。」
+        # なら「かしこまりました。」＝✅ 2026-11-02 日本時間7時12分）。お礼は返さない
+        f = Flow([yn("Q1", "ご予約はされていますでしょうか？", asks_fact=True), yn("Q2", "ご来店のご意向はございますでしょうか？", **visit),
+                  yn("Q3", "ご不明な点はございますでしょうか？")])
+        answer(f, "はい、しています。", "Q1", "はい")
+        r = answer(f, "いえ、来店するつもりはありません。", "Q2", "いいえ")
+        self.assertEqual((r["result"], r["ack"]), ("next", "kashikomari"))
+        # (b) 最終目的が2つ（どれか1つで果たせる）：1つ目を受けていただき、最後の2つ目を断られた＝目的は果たせている（断りの印は付かない）が、
+        # 締めは「はい、承知いたしました。…」。2つ目を受けていただいたときは、今までどおりの締め
+        def goals():
+            return Flow([yn("G1", "会員登録のご案内をお送りしてもよろしいでしょうか？", final_goal=True, declines=("いいえ",)),
+                         yn("G2", "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？", final_goal=True, declines=("いいえ",))],
+                        goal_mode="any")
+        g = goals()
+        answer(g, "はい、お願いします。", "G1", "はい")
+        r = answer(g, "いえ、お電話は結構です。", "G2", "いいえ")
+        self.assertEqual((r["result"], r["ack"], r["say"], g.end_reason, bool(g.facts.get("goal_refused"))),
+                         ("end", "hai", CLOSING_AFTER_DECLINE, "done", False))
+        g = goals()
+        answer(g, "いえ、登録は結構です。", "G1", "いいえ")
+        r = answer(g, "はい、お願いします。", "G2", "はい")
+        self.assertEqual((r["result"], r["say"], g.end_reason), ("end", CLOSING, "done"))
+        # (c) ここで終える答え：遠ざかる向きの答えなら「はい、承知いたしました。…」・事実を伺う質問の答え（ご予約はされていない）は今までどおり
+        e = Flow([yn("Q1", "ご来店のご意向はございますでしょうか？", required=True, ends_on=("いいえ",), **visit), yn("Q2", "ご不明な点はございますでしょうか？")])
+        r = answer(e, "いえ、来店するつもりはありません。", "Q1", "いいえ")
+        self.assertEqual((r["result"], r["say"], e.end_reason), ("end", CLOSING_AFTER_DECLINE, "done"))
+        e = Flow([yn("Q1", "ご予約はされていますでしょうか？", required=True, asks_fact=True, ends_on=("いいえ",)), yn("Q2", "ご不明な点はございますでしょうか？")])
+        r = answer(e, "いえ、していません。", "Q1", "いいえ")
+        self.assertEqual((r["result"], r["say"]), ("end", CLOSING))
+        # (d) 言い切らない遠ざかる答えに業務の手立てがある：今までどおり「はい、」＋「それでは…」（✅ 2026-11-03 日本時間8時10分）
+        h = Flow([yn("Q1", "ご来店のご意向はございますでしょうか？", **visit),
+                  yn("H1", "オンラインでのご案内もできますがいかがでしょうか？", ask_if=("Q1", ("いいえ",)), ask_if_hedged=True)])
+        r = answer(h, "たぶん今回はいいかなと思います。", "Q1", "いいえ")
+        self.assertEqual((r["result"], r["ack"], h.current), ("next", "hai", "H1"))
+
     def test_hurry_during_callback_questions_closes(self):
         # かけ直しの質問の途中（不在で戻る時刻を伺っている）に急いでいると言われたら、伺わずに締める（かけ直しの記録はもうある＝同じ申し出は1通話1回）
         from flowctl import Flow, Question
