@@ -3040,11 +3040,18 @@ class AmbiguousAnswerTest(unittest.TestCase):
             self.assertEqual(said.count("大丈夫"), 1, said)
 
     def test_hedged_first_answer_is_asked_softly(self):
-        # ✅ 2026-10-18 ユーザー：言い切っていない最初の答えは「はい、念のためご予約はお済みということでよろしかったでしょうか？」が自然
+        # ✅ 2026-10-18 ユーザー：言い切っていない最初の答えは「はい、念のためご予約はお済みということでよろしかったでしょうか？」が自然。その後、事実を伺う質問は
+        # 「それでは…ということで記録させていただいて大丈夫でしょうか？」（11-01 6時05分）、そうでない質問は「それでは（こちらがすること）ね？」（11-01 20時56分）、
+        # こちらがすることの言葉が無ければ意味の言葉で承る（✅ 2026-11-03：「…「念のため…でよろしかったでしょうか？」に戻りますはおかしい。」）
+        import dataclasses
         f = self.flow()
+        f.questions["Q1"] = dataclasses.replace(f.questions["Q1"], asks_fact=True)
         r = self.say(f, "たぶんしてます。", "record_answer", question_id="Q1", condition_id="はい", value="たぶんしてます")
         self.assertEqual(r["result"], "confirm_required")
-        self.assertEqual((r["say"], r["ack"]), ("念のためご予約はお済みということでよろしかったでしょうか？", "hai"))
+        self.assertEqual((r["say"], r["ack"]), ("それではご予約はお済みということで記録させていただいて大丈夫でしょうか？", "hai"))
+        g = self.flow()
+        r = self.say(g, "たぶんしてます。", "record_answer", question_id="Q1", condition_id="はい", value="たぶんしてます")
+        self.assertEqual((r["say"], r["ack"]), ("それではご予約はお済みということで承りますね？", "hai"))
 
     def test_hedged_but_decided_answer_is_settled_with_what_we_do(self):
         # ✅ 2026-11-01 日本時間20時56分・23時59分 ユーザー：「少し曖昧だが、方向性は決まった場合は、こちら：「念のためパンフレットをお送りして大丈夫だと
@@ -3062,10 +3069,15 @@ class AmbiguousAnswerTest(unittest.TestCase):
             self.assertEqual((r["result"], r["say"], r["ack"]), ("confirm_required", want, "hai"), heard)
             self.say(f, "はい、お願いします。", "confirm_field", question_id="Q8", result="affirmed")
             self.assertEqual(f.export()["Q8"], cond, heard)
-        # 選んだ選択肢の言葉が無ければ、今までの「念のため（意味の言葉）でよろしかったでしょうか？」
-        f = Flow([dataclasses.replace(q, do_words={"はい": "パンフレットをお送りさせていただきます"})])
+        # 選んだ選択肢の言葉が無ければ、意味の言葉で承る（✅ 2026-11-03：「…「念のため…でよろしかったでしょうか？」に戻りますはおかしい。「当日はお車で
+        # お越しということで承ります」…などでしょ！」）。目的から遠ざかる向きの選択肢は言い直さずに「承知しました。」（Flow._keep_toward_goal）
+        car = Question("Q5", "当日はお車でお越しになりますでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                       meanings={"はい": "当日はお車でお越しになるということ", "いいえ": "当日はお車でお越しにならないということ"})
+        r = self.say(Flow([car]), "たぶん車で行くと思います。", "record_answer", question_id="Q5", condition_id="はい")
+        self.assertEqual((r["say"], r["ack"]), ("それでは当日はお車でお越しになるということで承りますね？", "hai"))
+        f = Flow([dataclasses.replace(q, do_words={"はい": "パンフレットをお送りさせていただきます"}, away=("いいえ",))])
         r = self.say(f, "たぶん要らないです。", "record_answer", question_id="Q8", condition_id="いいえ")
-        self.assertEqual(r["say"], "念のためパンフレットはお送りしなくて大丈夫だということでよろしかったでしょうか？")
+        self.assertEqual((r["result"], f.items["Q8"].state, f.export()["Q8"]), ("end", "accepted", "いいえ"))
         # 希望を伺う選ぶ質問も同じ形（✅ 11-02 1時22分「お支払いや日時なんかの希望を伺う選択にも…でいいと言ったよね？」＝10-31 6時05分）
         pay = Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"),
                        do_words={"カード": "お支払いはカードとさせていただきます", "振込": "お支払いはお振込みとさせていただきます"})
@@ -3122,8 +3134,8 @@ class AmbiguousAnswerTest(unittest.TestCase):
         f.use_checks("judge")
         f.on_callee(); f.on_heard("たぶんしてないと思います。"); f.on_check("judge", Reading("いいえ", firm=False))
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown", "value": "たぶんしてない"})
-        self.assertEqual(r["result"], "confirm_required")
-        self.assertTrue(r["say"].endswith("よろしかったでしょうか？"), r["say"])
+        self.assertEqual((r["result"], r["after"]), ("confirm_required", "hedged_noted"))
+        self.assertEqual(r["say"], "それではご予約はまだということで承りますね？")
 
     def test_off_talk_answer_is_confirmed_or_asked_again(self):
         # ✅ 2026-10-31 ユーザー：「この部分だけの判断ならAIがあっています。前の分との流れの回答として会話になっていないだけです。それを分かる
@@ -12378,6 +12390,34 @@ class HedgedSalesTest(unittest.TestCase):
         g = Flow([car, park])
         r = AmbiguousAnswerTest.say(g, "はい、車で行きます。", "record_answer", question_id="G5", condition_id="はい")
         self.assertEqual(spoken_question(list(g.questions.values()), r["question_id"])[0], "それでは駐車場はご利用になりますでしょうか？")
+
+    def test_business_line_after_the_answer(self):
+        # その答えを受け取ったあとに伝える業務の一言（Question.tell_words）：言い切った答えでも、言い切っていない答えでも、受け取ったら1回だけ言ってから
+        # 次へ（✅ 2026-11-03 ユーザー：「「当日はお車でお越しということで承ります」や「○○駐車場をご利用いただけますのでどうぞご利用ください」などでしょ！」）
+        from flowctl import Flow, Question, question_play, tell_recording_id
+        from phrases import ACK
+        line = "○○駐車場をご利用いただけますのでどうぞご利用ください。"
+        car = Question("G5", "当日はお車でお越しになりますでしょうか？", "yes_no", conditions=self.YN, tell_words={"はい": line},
+                       meanings={"はい": "当日はお車でお越しになるということ", "いいえ": "当日はお車でお越しにならないということ"})
+        nq = Question("G16", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        for said, hedged in (("はい、車で行きます。", False), ("たぶん車で行くと思います", True)):
+            f = Flow([car, nq], play_recordings=True)
+            r = self.hedged(f, "G5", "はい", said) if hedged else AmbiguousAnswerTest.say(f, said, "record_answer", question_id="G5", condition_id="はい")
+            self.assertEqual((r["result"], r["question_id"], r["ack"]), ("next", "G16", "hai"), said)   # 確かめ直さずに、業務の一言を伝えて次へ
+            self.assertEqual([p["text"] for p in r["play"]], [line, question_play([car, nq], "G16")["text"]], said)
+            self.assertEqual(r["play"][0]["id"], tell_recording_id(car, "はい"))
+            self.assertEqual((f.export()["G5"], bool(f.items["G5"].hedged)), ("はい", hedged), said)
+            self.assertEqual(ACK[r["ack"]] + "".join(p["text"] for p in r["play"]),
+                             "はい、○○駐車場をご利用いただけますのでどうぞご利用ください。それではお支払いはカードと振込のどちらがよろしいでしょうか？")
+        # 録音で流さない通話は、AIにその文を先に言わせる・ほかの答え（「いいえ」）には言わない・前の通話で取れた答えには言わない
+        f = Flow([car, nq])
+        r = AmbiguousAnswerTest.say(f, "はい、車で行きます。", "record_answer", question_id="G5", condition_id="はい")
+        self.assertIn(f"まず「{line}」と言ってから", r["message"])
+        r = AmbiguousAnswerTest.say(Flow([car, nq]), "いいえ、電車です。", "record_answer", question_id="G5", condition_id="いいえ")
+        self.assertNotIn(line, r["message"])
+        g = Flow([car, nq], earlier={"G5": {"state": "accepted", "value": None, "condition": "はい"}})
+        r = AmbiguousAnswerTest.say(g, "カードでお願いします。", "record_answer", question_id="G16", condition_id="カード")
+        self.assertNotIn(line, r["message"])
 
     def test_final_goal_setting_decides_after_the_follow_up(self):
         # (B) ✅ 2026-11-03 ユーザー：「今月中のご導入だけが最終目的なのか、ご導入が最終目的なのかで設定が違ってくる」＝業務設定の最終目的で決まる

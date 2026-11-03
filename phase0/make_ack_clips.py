@@ -213,7 +213,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import DAY_SLOT, DAY_VARIANTS, day_recording_id, spoken_question
+    from flowctl import DAY_SLOT, DAY_VARIANTS, day_recording_id, spoken_question, tell_recording_id
     from instruction import reading_variants
     from phrases import LEAD_RECORDED
 
@@ -236,6 +236,8 @@ def script_table(business) -> tuple[dict, dict]:
                 items.append((f"{rid}_{LEAD_RECORDED[lead]}" if lead else rid, text.replace(DAY_SLOT, w), "question"))
             continue
         items.append((f"{q.id}_{LEAD_RECORDED[lead]}" if lead else q.id, text, "question"))
+        # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
+        items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)

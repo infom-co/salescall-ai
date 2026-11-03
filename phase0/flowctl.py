@@ -419,6 +419,12 @@ def merge_ampm(pending: str | None, answer: str | None) -> str | None:
     return pending[:m.start()] + w.group() + pending[m.start():] if m else answer
 
 
+def tell_recording_id(q: "Question", cond: str) -> str:
+    """その答えのあとに伝える一言（Question.tell_words）の録音の名前（唯一の場所＝流れの制御と録音を作る道具 make_ack_clips.script_table）：
+    「質問の番号_tell選択肢の番号（1から）」。"""
+    return f"{q.id}_tell{q.conditions.index(cond) + 1}"
+
+
 def question_play(questions: list["Question"], qid: str) -> dict:
     """その質問を録音で流すときの1つ（電話接続側が流すもの）。業務の質問＝依頼主の単位の録音（つなぎの言葉＋質問の文）、かけ直しで足す質問＝
     契約者の単位の録音（phrases.RECORDED の callback_〜。どの業務でも同じ文）。読みの確かめは録音にしない（相手ごとの名前を含む＝AIが言う）。"""
@@ -526,6 +532,8 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          #   「登録」することになるのであれば、我々は依頼主の作業代行としてお客様と対峙しているので、それに合わせた方がいいでしょう。」）
          "hedged_do": ("言い切っていない答えのあと（こちらがすること）", None, "hai"),
          "hedged_fact": ("言い切っていない答えのあと（事実を伺う質問）", None, "hai"),
+         # - 進める向きで、こちらがすることの言葉が決まらなかった：「はい、」＋「それでは当日はお車でお越しになるということで承りますね？」（意味の言葉で承る）
+         "hedged_noted": ("言い切っていない答えのあと（承る）", None, "hai"),
          # ⛔ 2026-11-03 日本時間8時10分 ユーザー：「今の一言や案は全くダメです。あなたはチェックしたのですか？いい加減な提案をするな！！」＝目的から遠ざかる
          #    向きの選択肢に、取込のAIが作った「それでは（目的につなげる言葉）でよろしいでしょうか？」（hedged_keep）を外した（9つの質問の案のうち、
          #    営業の電話として筋が通ったのは今月中のご導入の「来月以降のご導入をお考えということ」の1つだけ。「パンフレットは必要になりましたらお送りするということ」＝「必要になるかを誰が決めるんですか？お客様から
@@ -1512,6 +1520,11 @@ class Question:
     # 言葉は文の終わり（「させていただきます」「承ります」）まで持つ＝「それでは（言葉）ね？」（✅ 2026-11-03 ユーザー：(D) の案＝申し出・お好みの選び・ご意向
     # （「〜の方向で進めさせていただきます」）・ご様子（「〜ということで承ります」）の4つ）。業務設定の言葉があれば、それ（CL-2）
     do_words: dict = field(default_factory=dict)
+    # 選択肢ごとの、その答えを受け取ったあとに伝える一言（業務設定＝依頼者のトークスクリプト。取込のAIは作らない）。言い切った答えでも言い切っていない答えでも、
+    # 受け取ったら1回だけ言ってから次へ進む（Flow._advance の1か所）。言い切っていない答えは、確かめ直さずにこの一言へ進む（業務の次の段＝前の答えで伺う
+    # 質問と同じ扱い）。✅ 2026-11-03 ユーザー：「「当日はお車でお越しということで承ります」や「○○駐車場をご利用いただけますのでどうぞご利用ください」
+    # などでしょ！」・「車で来るなら駐車場の案内や指定などが目的になるんじゃないですか？」。録音の名前は tell_recording_id
+    tell_words: dict = field(default_factory=dict)
     # 目的から遠ざかる向きの選択肢（取込で文字のAI2つが決める。どちらか1つでもそう読めば入れる＝安全側）。ここに入る選択肢の言い切っていない最初の答えは、
     # do_words の「それでは…させていただきますね？」を使わない（✅ 2026-11-03 ユーザー：「そもそも、導入の方向で進んでいるのに、「それでは、今月中のご導入は
     # 見送りとさせていただきますね？」だと、わざわざ、獲得できそうなお客様を失いかねない確認ですよね？」・(2)「OK」）。目的につなげて伺うのは、業務設定の
@@ -1775,6 +1788,7 @@ class Item:
     until_asked: bool = False         # 理由が分からないので、時刻を伺い直したか（1項目1回まで）
     ambiguous_asked: bool = False     # 曖昧な答えの意味を確かめたか（そのあとの「結構です」は、確かめへの返事として受け取る）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
+    told: bool = False                # その答えのあとに伝える一言（Question.tell_words）を、もう言った
     hedged: str | None = None         # 言い直しへの返事が言い切っていなかった（その返事の言葉）：依頼主へは別の欄にお客様の言葉を渡す（Flow.hedged_words）
 
     def set(self, state: str, why: str) -> None:
@@ -1973,6 +1987,7 @@ class Flow:
             # そのまま入れていて、伺う条件・断る答えの見分けが「わからない」を unknown と見なかった＝CL-2 の連絡帳 4-179 の (b)）
             it.value, it.condition = v.get("value"), condition(v["condition"]) if v.get("condition") else None
             it.set(v["state"], "前の通話で取れた答え（続きから聞く）")
+            it.told = True   # その答えのあとに伝える一言は、前の通話のこと（この通話では言わない）
         self._ask_if_follow_ups()   # 前の通話で取れた答えで伺う質問も、並びに入れる
         self.current: str | None = next((qid for qid in self.order if qid not in self.earlier), None)
         self.phase = "asking"            # asking → rechecking → closing
@@ -3020,6 +3035,8 @@ class Flow:
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない
         if result == "recheck":
             return "moushiwake_heavy"  # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」
+        if reply.get("told") and result in ("next", "end"):
+            return "hai"  # 受け取った答えのあとに業務の一言を伝える（「はい、○○駐車場をご利用いただけますので…」＝Flow._advance）
         if result == "next" and reply.get("kept_away"):
             return "shouchi"  # 目的から遠ざかる向きの答えを、言い直さずに受け取って次へ（「承知しました。」＝お礼は合わない。Flow._keep_toward_goal）
         if result == "next" and reply.get("hedged_next"):
@@ -3384,15 +3401,17 @@ class Flow:
         if why.startswith(END_DOUBT_WHY) and q.type in CHOICE_TYPES and q.doubt_words.get(it.condition):
             return self._ask_confirm(qid, after="end_doubt")   # いまの話の向きを伺う（取込の言葉が無ければ、曖昧な答えと同じ確かめ）
         hedged = why.startswith(HEDGE_WHY) or Flow._hedged(self.heard_said, self.heard_check)
-        if hedged and (fq := self._hedged_follow_up(qid, it.condition)) is not None:
+        fq = self._hedged_follow_up(qid, it.condition) if hedged else None
+        if hedged and (fq is not None or (q.type in CHOICE_TYPES and q.tell_words.get(it.condition))):
             # 言い切っていない答えのあとに伺う質問（Question.ask_if_hedged＝業務設定）がある：言い直さずに「曖昧」の印を付けて受け取り、その質問で伺う
             # （_advance → _follow_ups が前の質問のすぐあとに入れる。✅ 2026-11-03 ユーザー (3)(4)「OK」）
             it.hedged = (self.heard_said or "").strip()[:40] or label(it.condition)
-            it.set("accepted", f"言い切っていない答え（「{it.hedged}」）：言い直さずに受け取り、{fq.id}「{fq.text[:24]}」で伺う")
+            it.set("accepted", f"言い切っていない答え（「{it.hedged}」）：言い直さずに受け取り、"
+                   + (f"{fq.id}「{fq.text[:24]}」で伺う" if fq is not None else f"業務の一言「{q.tell_words[it.condition][:24]}」を伝える"))
             # 相づちは「はい、」（お客様の言葉を受けて「それでは…」と伺う。⛔ 2026-11-03 の見直しで見つけた：順番の「承知しました。」「ありがとうございます。」を
             # 流していた＝「たぶん行けなくなりそうです」に「ありがとうございます。」。ユーザーの言い方はどれも「はい、それでは…」）
             r = self._advance("受け付けました。")
-            return r | {"hedged_next": True} if r.get("question_id") == fq.id else r
+            return r | {"hedged_next": True} if fq is not None and r.get("question_id") == fq.id else r
         return self._ask_confirm(qid, after=self._hedged_after(q, it.condition) if hedged else "ambiguous")
 
     def _hedged_follow_up(self, qid: str, cond: str | None) -> "Question | None":
@@ -3419,7 +3438,9 @@ class Flow:
                 return "hedged_fact"
             if cond in q.away:
                 return "hedged"
-            return "hedged_do" if q.do_words.get(cond) else "hedged"
+            # 進める向きで、こちらがすることの言葉が決まらなかった：意味の言葉で承る（✅ 11-03 ユーザー：「…「念のため…でよろしかったでしょうか？」に戻りますは
+            # おかしい。」）
+            return "hedged_do" if q.do_words.get(cond) else "hedged_noted"
         if q.type in CONFIRM_TYPES:
             return "hedged_fact" if q.asks_fact else "hedged_do"
         return "hedged"
@@ -5554,6 +5575,7 @@ class Flow:
             # いただきますね？」）。✅ 2026-11-03 ユーザー：「「はい、それではパンフレットをお送りさせていただきますね」だと前に言ったよね！！なぜ、同じ過ちを
             # 繰り返すの？」（11-01 日本時間20時56分のご判断「「念のためパンフレットをお送りして大丈夫だということでよろしかったでしょうか？」よりも、
             # 「それではパンフレットをお送りさせていただきますね？」の方がいいんじゃないですか？」を、言い切っていない答えにしか当てていなかった）
+            # （こちらがすることの言葉が無ければ、10-15・10-18 のご判断の「念のため（意味の言葉）でよろしいでしょうか？」のまま＝どちらとも取れる答えの確かめ）
             after = "hedged_do"
         # 言い直す言葉：いまの話の向きを伺う言葉（end_doubt）・こちらがすることの言葉（hedged_do）は、選択肢ごとの取込の言葉をそのまま。
         # ほかは意味の言葉（choice_words）
@@ -5562,7 +5584,7 @@ class Flow:
         if choice and words is None:
             # 選択肢の名前が返事の言葉だけ（「はい」「いいえ」）で、意味の言葉が取込で決まらなかった＝言い直せない（止めずに進める）。
             # 曖昧な答えは、言い直さずに聞き返す（聞き返しの回数と言い方は _ask_again の1か所）。それ以外は聞き取れた答えのまま受け付ける
-            if after in ("ambiguous", "hedged", "hedged_fact", "settle"):
+            if after in ("ambiguous", "hedged", "hedged_fact", "hedged_noted", "settle"):
                 return self._ask_again(qid, "unclear", "曖昧な答え（言い直す言葉が無い）")
             it.set("accepted", "選択肢の型で、言い直す言葉が無い（聞き取れた答えのまま受け付ける）")
             return self._advance("受け付けました。")
@@ -5576,7 +5598,7 @@ class Flow:
         self.confirm_counts[situation] = n + 1
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
-        shown = (words if after in ("end_doubt", "hedged_do") else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
+        shown = (words if after in ("end_doubt", "hedged_do", "hedged_noted") else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
         said_as = spoken_clock(shown) if q.type in AMPM_TYPES and it.value else shown   # 時刻は「15日の14時、午後2時」の形で言う（値は変えない）
         if q.reading_of:
             shown = quote(it.value)
@@ -5813,6 +5835,18 @@ class Flow:
         return question_in(self.callee_said)
 
     def _advance(self, prefix: str, handled: bool = False) -> dict:
+        """次へ進む返事（_advance_to）の前に、受け取った答えのあとに伝える一言（Question.tell_words・まだ言っていないもの）を流す（唯一の場所）。"""
+        r = self._advance_to(prefix, handled)
+        plays = []
+        for qid, it in self.items.items():
+            q = self.questions[qid]
+            line = q.tell_words.get(it.condition) if q.type in CHOICE_TYPES and it.state in TAKEN and not it.told else None
+            if line:
+                it.told = True
+                plays.append({"kind": "recorded", "id": tell_recording_id(q, it.condition), "text": line})
+        return self._led(plays, "", r) | {"told": True} if plays else r
+
+    def _advance_to(self, prefix: str, handled: bool = False) -> dict:
         self.digressed = False  # 次へ進む（もう伺ったことへは戻らない）
         if self.substitute_q and self.items[self.substitute_q].state in TAKEN + ("unresolved",):
             return self._substitute_decided(prefix)  # 代わりの方に、判断いただけるお立場かを聞いた答えが決まった（唯一の入口）
