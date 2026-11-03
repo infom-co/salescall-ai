@@ -462,9 +462,13 @@ async def open_session(client, model: str, config, closing: list):
     """通話の中で会話AIのつなぎを開く唯一の場所（つなぎ直し＝DESIGN.md 6-7 も、ここを通る）。閉じるのは待たない：閉じる処理は後ろで走らせ、
     closing に足す（通話の終わりにまとめて待つ）。⛔ 2026-10-19 G-57 の言い間違えの直し：古いつなぎを閉じるのを待ってから新しいつなぎを
     開いていたので、つなぎ直しのたびに約10秒、相手に何も聞こえない時間ができた（閉じる 10.0秒・開く 0.37秒・知らせてから声 0.49秒）。
-    黙ったときの張り替えも同じだった。"""
+    黙ったときの張り替えも同じだった。
+    開くのは、判定と同じ「止まったとみなす秒」（meaning_judge.DOWN_AFTER_S。呼ぶたびに読む）で打ち切る（打ち切ったら TimeoutError＝開けない＝
+    Flow.on_ai_unreachable）。⛔ 2026-11-04 まで時間切れが無く、開くのが止まると、張り替えでもお客様を黙って待たせ続け、回復の確かめ
+    （convo.check_ais）も戻らなかった（CL-2 の連絡帳 4-175 の (a)）。"""
+    import meaning_judge
     cm = client.aio.live.connect(model=model, config=config)
-    session = await cm.__aenter__()
+    session = await asyncio.wait_for(cm.__aenter__(), meaning_judge.DOWN_AFTER_S)
     try:
         yield session
     finally:

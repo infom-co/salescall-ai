@@ -4302,6 +4302,16 @@ class AskLadderTest(unittest.TestCase):
         r = g.on_ai_unreachable("張り替えのつながりを開けない")
         self.assertEqual((r["result"], g.trouble["reason"], [(t["ai"], t["what"]) for t in g.ai_trouble]),
                          ("end_trouble", "ai_malfunction", [("会話AI", "止まった")]))
+        # 別の耳も同じ1か所：電話の前なら止まったAIとして残して電話はかけない／通話の途中なら止まったAIとして残して電話は続ける
+        # （✅ 2026-10-31 管理者：「通話中は止めません。ただし、次の電話はかけず、確かめが通れば自動で再開します。」）
+        from flowctl import ear_ai
+        h = self.flow()
+        r = h.on_ai_unreachable("つながらない", ai=ear_ai("soniox"))
+        self.assertEqual((r["result"], h.trouble, [(t["ai"], t["what"]) for t in h.ai_trouble]), ("not_called", None, [(ear_ai("soniox"), "止まった")]))
+        k = self.flow()
+        k.on_callee(); k.on_heard("はい。")
+        r = k.on_ai_unreachable("つながらない", ai=ear_ai("soniox"))
+        self.assertEqual((r["result"], k.trouble, [(t["ai"], t["what"]) for t in k.ai_trouble]), ("continue", None, [(ear_ai("soniox"), "止まった")]))
 
     def test_new_ai_trouble_is_told_at_once(self):
         # CL-2 の 4-171 の (a)：止まったAIを新しく1つ決めたら、そのつど通話の途中の知らせ先（CL-2 の call.ai_trouble）へすぐ渡す（報告の終わりを
@@ -5879,6 +5889,20 @@ class JudgePanelTest(unittest.TestCase):
         self.assertTrue(all(outage(e) for e in (OtherJudgeError(429, ""), OtherJudgeError(403, ""), OtherJudgeError(402, "Insufficient credits"),
                                                  OtherJudgeError(None, ""),
                                                  TimeoutError(), RuntimeError("どのキーでも使えません"))))
+        # 使用額の上限（管理者が決めた API の支払いの上限。Anthropic は中身の誤りと同じ番号 400 で返す＝2026-10-28 の実測）も、上限が戻るまで
+        # 続く止まり（番号では見分けない＝返事の文 SPEND_LIMIT_TEXTS。CL-2 の errors.spend_limit と同じ文＝下の比べる試験）。⛔ 2026-11-04 まで
+        # 中身の断りと読み、判定を止まったとみなさず、新しい電話を止める印も付かなかった（毎回の発話でその判定に問い合わせ、断られ続けた）
+        limit = OtherJudgeError(400, "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': "
+                                     "'You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.'}}")
+        self.assertTrue(outage(limit))
+
+    def test_spend_limit_texts_match_cl2(self):
+        # 使用額の上限の返事の文（こちら meaning_judge.SPEND_LIMIT_TEXTS・CL-2 の errors.SPEND_LIMIT_TEXTS）が同じ（食い違うと、片方だけが止まりと読む）
+        from meaning_judge import SPEND_LIMIT_TEXTS
+        theirs = TargetTest.cl2_names("errors.py", "SPEND_LIMIT_TEXTS")
+        if theirs is None:
+            self.skipTest("CL-2 の errors.SPEND_LIMIT_TEXTS が、まだ main に無い")
+        self.assertEqual(set(SPEND_LIMIT_TEXTS), theirs)
 
     def test_slow_judge_is_cut_and_replaced(self):
         # DOWN_AFTER_S 秒で打ち切り、止まっているとみなす（報告を待たせるのは2秒まで＝それより遅い判定は、その場の役に立たない）
@@ -12682,6 +12706,124 @@ class ConvoRunTest(unittest.TestCase):
                                            tell_ai_trouble=told.append))
         self.assertEqual(([(t["ai"], t["what"]) for t in r["ai_trouble"]], r["turns"], r["trouble"]), ([("会話AI", "止まった")], [], None))
         self.assertEqual([(t["ai"], t["what"], t["turn"]) for t in told], [("会話AI", "止まった", 0)])   # 電話の前に、すぐ知らせた（CL-2 の 4-171 の (a)）
+
+    def test_unopenable_ear_is_reported_without_a_call(self):
+        # 別の耳のつなぎを電話の前に開けない ⇒ 会話AIと同じく、止まったAI（別の耳・止まった）として報告に入れ、電話は流さない（通話で使うAIの
+        # どれかが止まったら新しい電話はかけない＝✅ 2026-10-30 夜 ユーザー・Intent.md 10-3）。⛔ 直す前は、開けない誤りが通話の道具の外へ
+        # そのまま上がり、報告が作られなかった（CL-2 が止まったことを知る道が無い）
+        import asyncio
+        from unittest import mock
+        import convo
+        from flowctl import ear_ai
+
+        class Unopenable:
+            async def __aenter__(self):
+                raise RuntimeError("つながらない")
+
+            async def __aexit__(self, *exc):
+                return False
+
+        told: list[dict] = []
+        with mock.patch.object(convo, "open_ear", lambda kind, client: Unopenable()):
+            r = asyncio.run(convo.run_call(None, "m", TargetTest().business(), "S2", ["はい、青葉物産です。"], use_ear=False,
+                                           ear_kind="soniox", tell_ai_trouble=told.append))
+        self.assertEqual(([(t["ai"], t["what"]) for t in r["ai_trouble"]], r["turns"], r["trouble"]),
+                         ([(ear_ai("soniox"), "止まった")], [], None))
+        self.assertEqual([(t["ai"], t["what"], t["turn"]) for t in told], [(ear_ai("soniox"), "止まった", 0)])
+
+    def test_opening_an_ai_connection_gives_up_at_the_down_line(self):
+        # 会話AI・別の耳のつなぎを開く所（live_util.open_session・ears.Ear の1か所ずつ）は、判定と同じ「止まったとみなす秒」
+        # （meaning_judge.DOWN_AFTER_S）で打ち切る（CL-2 の連絡帳 4-175 の (a)：回復の確かめの1回の呼び出しが戻らないと、見守り役の流れの組を
+        # 塞ぐ）。⛔ 直す前は時間切れが無く、開くのが止まると、通話の張り替えでもお客様を黙って待たせ続けた
+        import asyncio
+        from unittest import mock
+        import live_util
+        import meaning_judge
+        from ears import Ear
+
+        class Hang:
+            async def __aenter__(self):
+                await asyncio.sleep(60)
+
+            async def __aexit__(self, *exc):
+                return False
+
+        class Client:
+            class aio:
+                class live:
+                    @staticmethod
+                    def connect(model, config):
+                        return Hang()
+
+        class SlowEar(Ear):
+            async def _open(self):
+                await asyncio.sleep(60)
+
+            async def _close(self):
+                pass
+
+        async def session():
+            async with live_util.open_session(Client, "m", None, []):
+                pass
+
+        async def ear():
+            async with SlowEar():
+                pass
+
+        import time
+        with mock.patch.object(meaning_judge, "DOWN_AFTER_S", 0.05):
+            for opened in (session, ear):
+                with self.subTest(opened.__name__):
+                    t0 = time.monotonic()
+                    with self.assertRaises(TimeoutError):
+                        asyncio.run(asyncio.wait_for(opened(), 3))   # 外側の見張り（3秒）は、試験が止まらないためだけ
+                    self.assertLess(time.monotonic() - t0, 1.0)      # 打ち切ったのは開く所（0.05秒）で、外側の見張りではない
+
+    def test_an_ear_opened_halfway_is_closed_when_it_cannot_open(self):
+        # 別の耳を開く途中で打ち切った・開けなかったときは、開きかけのつながりを閉じる（ears.Ear の開く1か所）。⛔ 直す前は、Soniox・AmiVoice の
+        # 耳が、つながってから最初の返事を待つ途中で打ち切られる（または始められないと返す）と、つながりが閉じられずに残った（Gemini の部品は
+        # 自分で閉じる）。まだ何も開いていないときの閉じる誤りは、開けなかった誤りを隠さない
+        import asyncio
+        from unittest import mock
+        import meaning_judge
+        from ears import Ear
+
+        closed = []
+
+        class HalfOpen(Ear):
+            async def _open(self):
+                self.ws = "つながった"
+                await asyncio.sleep(60)          # 最初の返事を待つ途中で止まる
+
+            async def _close(self):
+                closed.append(self.ws)
+
+        class Refused(Ear):
+            async def _open(self):
+                self.ws = "つながった"
+                raise RuntimeError("始められませんでした")
+
+            async def _close(self):
+                closed.append(self.ws)
+
+        class NotConnected(Ear):
+            async def _open(self):
+                raise OSError("つながらない")
+
+            async def _close(self):
+                raise AttributeError("ws")      # まだ何も開いていない
+
+        async def use(cls):
+            async with cls():
+                pass
+
+        with mock.patch.object(meaning_judge, "DOWN_AFTER_S", 0.05):
+            for cls, err in ((HalfOpen, TimeoutError), (Refused, RuntimeError), (NotConnected, OSError)):
+                with self.subTest(cls.__name__):
+                    closed.clear()
+                    with self.assertRaises(err):
+                        asyncio.run(asyncio.wait_for(use(cls), 3))
+                    self.assertEqual(closed, [] if cls is NotConnected else ["つながった"])
 
 
 class EarFailureTest(unittest.TestCase):

@@ -68,12 +68,31 @@ class Ear:
         self.outages.append(outage(e))
 
     async def __aenter__(self):
+        """つなぐ唯一の場所（どの耳も）。判定と同じ「止まったとみなす秒」（meaning_judge.DOWN_AFTER_S。呼ぶたびに読む）で打ち切る（打ち切ったら
+        TimeoutError＝開けない＝Flow.on_ai_unreachable。⛔ 2026-11-04 まで時間切れが無かった＝CL-2 の連絡帳 4-175 の (a)）。
+        開けなかった（打ち切ったときも）ら、開きかけのつながりを閉じてから誤りを上げる（_close_halfway）。"""
+        import meaning_judge
         self._loop = asyncio.get_running_loop()
         self._got, self._text = self._loop.create_future(), ""
         self._feeding = asyncio.Event()
-        await self._open()
+        try:
+            await asyncio.wait_for(self._open(), meaning_judge.DOWN_AFTER_S)
+        except BaseException:
+            await self._close_halfway()
+            raise
         self._tasks = [asyncio.create_task(self._guard(self._receive)), asyncio.create_task(self._guard(self._silence))]
         return self
+
+    async def _close_halfway(self) -> None:
+        """開けなかったときに、開きかけのつながりを閉じる（__aenter__ の1か所だけが呼ぶ）。閉じるのも「止まったとみなす秒」で打ち切り、閉じるときの
+        誤り（まだ何も開いていない など）は捨てる＝開けなかった誤りを隠さない（開けなかったことは Flow.on_ai_unreachable が止まったAIとして残す）。
+        ⛔ 2026-11-04：Soniox・AmiVoice の耳は、つながってから最初の返事を待つ途中で打ち切られる（または始められないと返す）と、つながりが
+        閉じられずに残った（Gemini の部品は自分で閉じる）。"""
+        import meaning_judge
+        try:
+            await asyncio.wait_for(self._close(), meaning_judge.DOWN_AFTER_S)
+        except Exception:
+            pass
 
     async def __aexit__(self, *exc):
         for t in self._tasks:
