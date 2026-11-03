@@ -2659,9 +2659,13 @@ class Flow:
         （{"result": "swap"}＝電話接続側がつなぎを開き直し、相手の同じ発話を送り直す＝on_resend）。張り替えたあとも戻らなければ、会話AIの異常
         （ai_malfunction）で終える（_trouble）。why＝何が無かったか（記録に残す）。
         ⛔ 2026-10-28 の見直しで見つけた穴：張り替えは1つの発話に1回までで、張り替えたあとにまた黙ると、黙りの見張りを外して待つだけだった
-           （試作は最大90秒）＝お客様には無言が続いた（Intent.md 9-4「会話AIが通話中に落ちた」の「相手を無言で放置しない」に届いていなかった）。"""
+           （試作は最大90秒）＝お客様には無言が続いた（Intent.md 9-4「会話AIが通話中に落ちた」の「相手を無言で放置しない」に届いていなかった）。
+        通話の途中で会話AIのつなぎが切れたとき（live_util.is_session_drop）も、ここで決める。張り替えた印（resent_turn）は、張り替えると決めた
+        ここで付ける（⛔ 2026-11-04 まで送り直し＝on_resend だけが付けていたので、送り直す前（流れの制御がまだその発話を受け取る前）に切れると、
+        切れるたびに張り替え続けえた）。"""
         if self.resent_turn == self.callee_turns:
             return self._trouble("ai_malfunction", f"張り替えて相手の発話を送り直しても、会話AIの声も受け付けた報告も戻らない（{why}）")
+        self.resent_turn = self.callee_turns
         self.on_ai_trouble({"model": CONVO_AI, "error": why, "glitch": True})   # 張り替えて続ける＝おかしな動き（止めずに警告。on_ai_trouble の1か所）
         return {"result": "swap", "why": why}
 
