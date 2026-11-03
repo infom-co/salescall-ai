@@ -393,6 +393,12 @@ class KeyRing:
         from g23_names import find_models
         return self.call("models.list", lambda client: find_models(client)[0])[0]
 
+    def _deny(self, i: int) -> None:
+        """プロジェクトが止められているキーを、もう使わない（記録して知らせる。文字のモデルの call と会話のモデルの acall の唯一の扱い）。"""
+        self.denied.add(i)
+        self._save()
+        say(f"{self.keys[i].label} はプロジェクトが止められています ⇒ このキーは使いません")
+
     def call(self, model: str, fn, rotate: bool = True):
         """fn(client) を、そのモデルで使えるキーで呼ぶ（混んでいる 503 は call_with_retry が待ってやり直す）。戻り値＝(結果, キーの番号)。
         rotate=False：始めのキー（key_index）だけを使う（キーごとに1本の流れで、同じ仕事の山から取って流すとき。そのキーが使えなくなったら
@@ -413,9 +419,7 @@ class KeyRing:
                     return call_with_retry(lambda: fn(self.client(i)))[0], i
                 except Exception as exc:
                     if is_denied(exc):
-                        self.denied.add(i)
-                        self._save()
-                        say(f"{self.keys[i].label} はプロジェクトが止められています ⇒ このキーは使いません")
+                        self._deny(i)
                         break
                     if not is_quota(exc):
                         raise
@@ -458,9 +462,7 @@ class KeyRing:
                     return await fn(self.client(i)), i
                 except Exception as exc:
                     if is_denied(exc):
-                        self.denied.add(i)
-                        self._save()
-                        say(f"{self.keys[i].label} はプロジェクトが止められています ⇒ このキーは使いません")
+                        self._deny(i)
                         continue
                     if not is_quota(exc):
                         raise

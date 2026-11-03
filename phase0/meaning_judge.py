@@ -894,14 +894,24 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
     """Google 以外の判定への問い合わせの中身（会社ごとの形。問い合わせの文と選べるものは Gemini と同じ）。ttl＝Anthropic の、毎回同じ前の部分の
     もつ長さ（まとめて送る測り＝batch_judge だけ。cached_content）。route＝EMERGENCY_ROUTE なら緊急の道（中身は同じで、モデルの名前だけ
     緊急の道の名前＝EMERGENCY。預け先の指定は送る所＝_Routed）。"""
-    j, p = OTHER_JUDGES[name], prompt(q, text, asked, before)
+    j = OTHER_JUDGES[name]
+    if decision_model(name):
+        return jev_request(j["model"], q, text, asked, before)
+    # 毎回同じ前の部分は、2回目から約10分の1の値段（Anthropic だけ）
+    content = cached_content(*prompt_parts(q, text, asked, before), ttl=ttl) if j["maker"] == "anthropic" else None
+    return _judge_body(name, content, prompt(q, text, asked, before), _schema(q, asked), "お客様の言葉に当たるものの名前", route)
+
+
+def _judge_body(name: str, content, text: str, schema: dict, description: str, route: str | None) -> dict:
+    """判断のモデル（decision_model）でない判定への問い合わせの、会社ごとの形の唯一の場所（どの答えかの問い＝other_request と、前の話の答えの
+    問い＝prior_request の両方。⛔ 2026-11-04 に見つけた穴：2つの問いが同じ形を別々に組んでいて、片方だけ直すと同じ判定AIへの問い方が
+    問いによって食い違った）。content＝Anthropic へ渡す問いの中身・text＝ほかの会社へ渡す問いの文・schema＝選べるもの・description＝道具の説明。"""
+    j = OTHER_JUDGES[name]
     if j["maker"] == "anthropic":
-        content = cached_content(*prompt_parts(q, text, asked, before), ttl=ttl)   # 毎回同じ前の部分は、2回目から約10分の1の値段
         # ⚠️ Claude Haiku 5.5 は temperature などを送ると断る（1以外は400＝2026-10-18 に当たった）。名前を指定した道具の呼び出しは、
         #    考える段を飛ばして道具の呼び出しから返す（いちばん速い形）。strict＝選べるもの以外の名前を返させない
         body = {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": content}],
-                "tools": [{"name": "answer", "description": "お客様の言葉に当たるものの名前", "input_schema": _schema(q, asked),
-                           "strict": True}],
+                "tools": [{"name": "answer", "description": description, "input_schema": schema, "strict": True}],
                 "tool_choice": {"type": "tool", "name": "answer"}}
         if j.get("think"):  # 名前を指定した呼び出しは考える段を飛ばすので、道具は任せ、考える量を決め、道具で答えるように言う
             body |= {"max_tokens": 4096, "tool_choice": {"type": "auto"}, "output_config": {"effort": j["think"]},
@@ -910,13 +920,11 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
             # ⚠️ 断られたときに別のモデルへ回す仕組み（fallbacks）は入れない：測っているモデルの答えに、別のモデルの答えが混ざるため
             #    （断られたら読めない返事＝None として数える）
             body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": content}], "thinking": j["thinking"],
-                    "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
+                    "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": schema}}}
         body["model"] = routed_model(name, route)
         return body
-    if decision_model(name):
-        return jev_request(j["model"], q, text, asked, before)
-    return {"model": j["model"], "input": p, "reasoning": {"effort": j.get("effort", OPENAI_EFFORT)}, "max_output_tokens": 2000,
-            "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
+    return {"model": j["model"], "input": text, "reasoning": {"effort": j.get("effort", OPENAI_EFFORT)}, "max_output_tokens": 2000,
+            "text": {"format": {"type": "json_schema", "name": "answer", "schema": schema, "strict": True}}}
 
 
 # ── Jev（判断だけの専用モデル）への問い方。⛔ 2026-10-18 の1回目：チャットのAI向けの長い決まりの文（RULES）を、そのまま問い（instructions）に
@@ -1298,21 +1306,8 @@ def prior_request(name: str, q, before: str, route: str | None = None) -> dict:
     j = OTHER_JUDGES[name]
     if decision_model(name):
         return jev_prior_request(j["model"], q, before)
-    if j["maker"] == "anthropic":
-        content = [{"type": "text", "text": prior_prompt(q, before)}]
-        body = {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": content}],
-                "tools": [{"name": "answer", "description": "前の話の答えの名前", "input_schema": prior_schema(q), "strict": True}],
-                "tool_choice": {"type": "tool", "name": "answer"}}
-        if j.get("think"):
-            body |= {"max_tokens": 4096, "tool_choice": {"type": "auto"}, "output_config": {"effort": j["think"]},
-                     "system": "選んだものは、必ず道具 answer で返してください。"}
-        if j.get("form") == "json":
-            body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": content}], "thinking": j["thinking"],
-                    "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": prior_schema(q)}}}
-        body["model"] = routed_model(name, route)
-        return body
-    return {"model": j["model"], "input": prior_prompt(q, before), "reasoning": {"effort": j.get("effort", OPENAI_EFFORT)}, "max_output_tokens": 2000,
-            "text": {"format": {"type": "json_schema", "name": "answer", "schema": prior_schema(q), "strict": True}}}
+    p = prior_prompt(q, before)
+    return _judge_body(name, [{"type": "text", "text": p}], p, prior_schema(q), "前の話の答えの名前", route)
 
 
 def _send_other(client, name: str, body: dict) -> dict:

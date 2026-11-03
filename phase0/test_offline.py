@@ -4131,6 +4131,19 @@ class ReadingConfirmTest(unittest.TestCase):
                 f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
             self.assertEqual(f.readings(), {"中島": want}, heard)
 
+    def test_a_reading_the_ai_adds_to_an_affirmation_does_not_pick_the_next_reading(self):
+        """名前の読みは、認めたか直されたかをお客様の言葉でプログラムが決め（✅ 2026-10-14 ユーザー決定 (a)）、次に確かめる読みは next_reading の
+        1か所が決める（G-45：AIは濁りの違いを聞き分けられない）。⛔ 2026-11-04 に見つけた穴：AIが「合っている」と報告しながら別の読みを
+        添えると、その読みで確かめ直していた（値を聞く質問の G-36 の道が、読みの質問を外していなかった＝次の読みを決める所が2つ）。"""
+        from flowctl import Flow, reading_question
+        for added in ("なかしま", "なかじま"):
+            f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
+            f.on_callee()
+            f.on_heard("はい、そうです。")
+            r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed", "correction": added})
+            self.assertNotEqual(r["result"], "confirm_required", added)
+            self.assertEqual(f.readings(), {"中島": "なかじま"}, added)
+
     def test_kinds_and_target_call(self):
         """✅ 2026-10-16 ユーザー：法人「（部署、役職）の（相手の名前）様はいらっしゃいますでしょうか？」「お名前の読みの方は…様で
         よろしかったでしょうか？」／個人「（相手の名前）様のお電話でお間違えないでしょうか？」「お名前の方は…様でよろしかったでしょうか？」"""

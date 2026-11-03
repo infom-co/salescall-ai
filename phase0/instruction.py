@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 
+from flowctl import notice  # AIへの知らせの枠の唯一の場所
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
                      callback_question, check_policies, choices_note, first_open, offers_rule, resumed_wish, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
@@ -630,8 +631,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
         parts.append(
             first_words_rule(business) +
             "あなたは言いません。録音が最後まで流れたら、あなたは相手の返事から会話を続けます。もう一度名乗ったり、お呼びする一言を"
-            "繰り返したりしてはいけません。" + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に"
-            "届いたかを知らせます。" + target_rule(business))
+            "繰り返したりしてはいけません。" + replay_rule() + BARGE_TOLD + target_rule(business))
     elif resume is None and calls_target:
         parts.append(f"相手が電話に出たら、まず「{business.opening()}{business.target.call()}」と言い、相手の返事を待ちます（質問は、"
                      "目的の人に繋がってから、プログラムが返事で渡します）。" + target_rule(business))
@@ -639,8 +639,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
         parts.append(
             first_words_rule(business) + "あなたは言いません。"
             "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
-            + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。"
-            + first_note)
+            + replay_rule() + BARGE_TOLD + first_note)
     elif resume is None:
         parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、" +
                      (f"続けて最初の質問 {ask[0]}「{ask[1]}」を聞きます。" + (choices_note(first) if first else "") if ask else "相手の返事を待ちます。"))
@@ -791,12 +790,16 @@ def position_text(business: Business, flow) -> str:
     return "\n".join(lines)
 
 
+# 名乗りの録音の途中で相手が話し始めたときに知らせることを、AIに先に伝える一文（唯一の書き方。目的の人のある業務と、ない業務の名乗りの決まり）
+BARGE_TOLD = "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。"
+
+
 def barge_in_note(business: Business, done: list[str], rest: list[str]) -> str:
     """名乗りの録音の途中で相手が話し始めて止めたとき、AIへ知らせる文（DESIGN.md 6-13 の案。文面はここだけ）。"""
     heard = "".join(done) if done else "（まだ何も届いていません）"
     # 名乗り・用件を伝え直すときは、自分で言わずに replay_opening（録音。頭の「失礼いたしました。」もプログラムが流す）。⛔ G-29：AIが自分で
     # 名乗り直した社名は、6本中、2通りの耳の両方で正しく聞こえたのは0本
-    return (f"［プログラムからのお知らせ］名乗りの録音は「{heard}」まで相手に届いたところで、相手が話し始めたので止めました。"
+    return notice(f"名乗りの録音は「{heard}」まで相手に届いたところで、相手が話し始めたので止めました。"
             f"まだ相手に伝えていないこと：「{''.join(rest)}」。"
             "相手の話に答えるのに名乗りや用件が要るとき（「どちら様？」「何でしょう？」など）は、自分では言わずに replay_opening を呼びます"
             # まだ届いていない名乗り・用件は、流れの制御が足して流す（Flow.on_opening_cut。⛔ G-50：AIは「名乗り」だけを選び、用件が届かなかった）

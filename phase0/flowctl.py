@@ -1418,6 +1418,12 @@ OWN_REWRITES = 2
 UNCHECKED = "中身を確かめられませんでした"  # 答えの文の中身の判定が届かなかった（Flow._own_answer：書き直させずに受け皿へ）
 
 
+def refusal_note(part: str) -> str:
+    """答えの文に断りの言い方が入っていたときに、AIへ書き直しを頼む理由の文（唯一の書き方。言葉の形の決まり refusal_in と、判定AIの REFUSED の
+    どちらで見つけても同じ文）。"""
+    return f"お断りの言い方（「{part}」）が入っています。断らずに、いただいた質問を担当の者に申し伝える形にします"
+
+
 def own_answer_problem(answer: str, names: list[str], may_follow_up: bool, verdict=None,
                        name_readings: dict[str, str] | None = None) -> str | None:
     """AIが自分の言葉で言う文（Flow._own_answer）を、声に出す前に確かめる唯一の場所。問題が無ければ None、あれば理由（日本語）。
@@ -1450,7 +1456,7 @@ def own_answer_problem(answer: str, names: list[str], may_follow_up: bool, verdi
     if hit := next((n for n in sorted(name_readings or {}, key=len, reverse=True) if n in text), None):
         return f"「{hit}」は、知っていることの書き方（「{name_readings[hit]}」）で書きます（漢字のままだと、声で読み違えます）"
     if hit := refusal_in(text):
-        return f"お断りの言い方（「{hit}」）が入っています。断らずに、いただいた質問を担当の者に申し伝える形にします"
+        return refusal_note(hit)
     if not may_follow_up and (m := PROMISE.search(text)):
         # どうするかも添える（⛔ 2026-10-22 の4回目の流し G-57 tc36・範囲外の質問の S2：約束の言葉の名前だけを返したので、書き直すたびに
         # 「改めて折り返し」⇒「折り返し」⇒「後ほど」と、約束の言い方だけを替えた）
@@ -1472,7 +1478,7 @@ def own_answer_problem(answer: str, names: list[str], may_follow_up: bool, verdi
             return (f"こちらについて知らない事実（「{verdict.part or text}」）が入っています。知っていることだけで言うか、そのご質問を担当の者に"
                     "申し伝える文にします")
         if verdict == REFUSED:
-            return f"お断りの言い方（「{verdict.part or text}」）が入っています。断らずに、いただいた質問を担当の者に申し伝える形にします"
+            return refusal_note(verdict.part or text)
     return None
 
 
@@ -2099,6 +2105,25 @@ class Item:
         assert state in STATES, state
         self.history.append((self.state, state, why))
         self.state = state
+
+
+
+# AIへのプログラムからの知らせの枠の唯一の場所（声で返事をさせない知らせは quiet）。⛔ 2026-11-04 に見つけた穴：12か所で枠の言葉を手で書いて
+# いた（片方だけ直すと、AIへの知らせの形が場面で食い違う）。知らせの文そのものは、ここへ移すときに1文字も変えていない
+NOTICE_HEAD = "［プログラムからのお知らせ］"
+NOTICE_QUIET = "このお知らせには、声で返事をしません。"
+NOT_CONNECTED = "まだ目的の人に繋いでいません。"   # 呼んでいる段の知らせに添える一文（2か所の知らせで同じ）
+NOT_INTRODUCED = "電話口の方は、まだこちらの名乗りを聞いていません。"   # 名乗りを流し直すときの知らせの頭（2か所で同じ）
+
+
+def start_with(words: str) -> str:
+    """AIへ、話し始めの言葉を渡す一文（唯一の書き方。質問に入る一言 Question.intro と、つなぎの言葉 _lead_note）。"""
+    return f"「{words}」から話し始めてください。"
+
+
+def notice(body: str, quiet: bool = False) -> str:
+    """AIへのプログラムからの知らせの文（quiet＝声で返事をさせない知らせ）。"""
+    return NOTICE_HEAD + body + (NOTICE_QUIET if quiet else "")
 
 
 class Flow:
@@ -2963,8 +2988,8 @@ class Flow:
             if self.callee_turns == 0 or not self.words_complete or self.nudged_turn == self.callee_turns or reported:
                 return None
             self.nudged_turn = self.callee_turns
-            return (f"［プログラムからのお知らせ］{self._unsent(muted)}相手の言葉（「{self.callee_said.strip()[:40]}」）を聞きました。"
-                    f"{self._party_ask()}このお知らせには、声で返事をしません。")
+            return notice(f"{self._unsent(muted)}相手の言葉（「{self.callee_said.strip()[:40]}」）を聞きました。"
+                          f"{self._party_ask()}", quiet=True)
         if self.phase == "calling":
             # 目的の人を呼んでいる段：AIの報告を、相手の言葉が出揃う前のものとして決めずに待たせた（_wait_for_words）のに、言葉が出揃っても
             # AIが報告し直さない ⇒ 出揃った言葉で報告し直すように知らせる（1つの相手の発話に1回まで）。
@@ -2987,48 +3012,47 @@ class Flow:
                 # L4 が、操作を呼ばずに業務の情報に無い地名で答えた。声を止めるだけでは相手が待ち続けるので、報告し直させる）
                 self.nudged_turn = self.callee_turns
                 if self._asking_now():
-                    return f"［プログラムからのお知らせ］{unsent}{self._asking_note()}このお知らせには、声で返事をしません。"
-                return (f"［プログラムからのお知らせ］{unsent}相手の言葉（「{said}」）への応じ方を、何も言わずに報告してください"
-                        f"（{self._report_hint()}）。まだ目的の人に繋いでいません。このお知らせには、声で返事をしません。")
+                    return notice(f"{unsent}{self._asking_note()}", quiet=True)
+                return notice(f"{unsent}相手の言葉（「{said}」）への応じ方を、何も言わずに報告してください"
+                              f"（{self._report_hint()}）。{NOT_CONNECTED}", quiet=True)
             if quiet and self._asking_now():
                 self.nudged_turn = self.callee_turns
-                return f"［プログラムからのお知らせ］{self._asking_note()}このお知らせには、声で返事をしません。"
+                return notice(self._asking_note(), quiet=True)
             away_told = now and last["reply"].get("away")  # かけ直しへ進むように伝えた（_away）
             if away_told and self._hold_now():
                 # 取り次ぎの読みが、あとから届いた：かけ直しは、代わった方の言葉を聞いてから（⛔ 2026-10-22 G-57 tc22：取り次ぎの読みが4.6秒で届いた）
                 self.nudged_turn = self.callee_turns
-                return (f"［プログラムからのお知らせ］相手の言葉（「{said}」）は、取り次ぎを待つ言葉でもありました（意味の判定）。何も言わずに、"
-                        "代わった方が話し始めるのを待ちます（かけ直しの申し出は、代わった方の言葉を聞いてからです）。このお知らせには、声で返事をしません。")
+                return notice(f"相手の言葉（「{said}」）は、取り次ぎを待つ言葉でもありました（意味の判定）。何も言わずに、"
+                              "代わった方が話し始めるのを待ちます（かけ直しの申し出は、代わった方の言葉を聞いてからです）。", quiet=True)
             if away_told and not any(x["op"] == "request_callback" for x in self.log if x["callee_turns"] == self.callee_turns):
                 # かけ直しへ進むように伝えたのに、AIが進まずにターンを終えた（⛔ 2026-10-22 G-57 tc22：代わった方の番でかけ直しへ進まず、次の言葉で
                 # 進んだので、相手がもう言った戻る時刻を聞き直し、話がずれた）
                 self.nudged_turn = self.callee_turns
-                return f"［プログラムからのお知らせ］{self._away_text()}このお知らせには、声で返事をしません。"
+                return notice(self._away_text(), quiet=True)
             if quiet and self._away_now() and not self._hold_now():  # 取り次ぎの最中は知らせない（代わった方が話したら、その言葉で決める）
                 self.nudged_turn = self.callee_turns
-                return f"［プログラムからのお知らせ］{self._away_text()}何も言わずに報告します。このお知らせには、声で返事をしません。"
+                return notice(f"{self._away_text()}何も言わずに報告します。", quiet=True)
             if not (waited or replied):
                 return None
             self.nudged_turn = self.callee_turns
             what = "は、目的の人かを聞いた返事です" if replied else "は、最後まで届きました"
             again = "" if replied else "もう一度"
-            return (f"［プログラムからのお知らせ］{unsent}相手の言葉（「{said}」）{what}。何も言わずに、この言葉で、{again}報告してください"
-                    f"（{self._report_hint()}）。"
-                    "まだ目的の人に繋いでいません。このお知らせには、声で返事をしません。")
+            return notice(f"{unsent}相手の言葉（「{said}」）{what}。何も言わずに、この言葉で、{again}報告してください"
+                          f"（{self._report_hint()}）。{NOT_CONNECTED}", quiet=True)
         if self.phase == "closing" or self.nudged_turn == self.callee_turns:
             return None
         if unsent := self._unsent(muted):
             # 答えの段で、操作を呼ばずに（または差し戻されたあとに）話した：その声は流していない＝相手には無言 ⇒ いま求めていることで報告し直させる
             self.nudged_turn = self.callee_turns
-            return f"［プログラムからのお知らせ］{unsent}{self._now()}このお知らせには、声で返事をしません。"
+            return notice(f"{unsent}{self._now()}", quiet=True)
         if self.current is None or self.awaiting_confirm is not None:
             return None
         q = self.questions[self.current]
         if self.meaning_said not in q.all_conditions:
             return None
         self.nudged_turn = self.callee_turns
-        return (f"［プログラムからのお知らせ］相手の言葉（「{self.callee_said.strip()[:40]}」）は、{q.id} への答えです。"
-                "何も言わずに、record_answer で報告してください。このお知らせには、声で返事をしません。")
+        return notice(f"相手の言葉（「{self.callee_said.strip()[:40]}」）は、{q.id} への答えです。"
+                      "何も言わずに、record_answer で報告してください。", quiet=True)
 
     def _late(self, qid: str) -> None:
         """受け取ったあとに届いた確かめを、受け取ったときの材料に当てる（決まりは _compare の1か所）。食い違えば、受け取った答えを依頼主へ
@@ -3468,7 +3492,7 @@ class Flow:
             self._note("callback_resume", why=self.callback_why, read=[])
             self.order, self.phase, self.recheck_queue, self.current = list(self.callback_ids), "asking", [], qid
         if qid != self.current:
-            return self._reject(f"{qid} は、いまの質問ではありません。")
+            return self._not_current(qid)
         q, it = self.questions[qid], self.items[qid]
         if (held := self._not_an_answer()):
             return held  # 答えではない言葉への報告は、値の形・曖昧の決まりより先に止める（取り次ぎの間に聞き返さない）
@@ -3547,7 +3571,7 @@ class Flow:
             # 必須でない項目は、聞き返さない決まり（6-11）に合わせて確かめず「-」
             if not q.required:
                 it.set("unresolved", f"{why}（「{said[:20]}」）・必須でないので確かめない")
-                return self._advance("「-」にします。")
+                return self._dash(qid)
             return self._check_again(qid, why, cond, back)
         if decided:
             it.set("heard", f"「{said[:20]}」は、この質問では「{cond}」の意味（取込で質問の文から決めた）")
@@ -3744,7 +3768,7 @@ class Flow:
             it.corrections += 1
             return self._check_again(qid, why, reported, back)
         it.set("unresolved", f"{why}（言い直しへの返事「{(self.callee_said or '')[:20]}」・AIは「{label(reported)}」と受け取った）・確かめがそろわない")
-        return self._advance("「-」にします。")
+        return self._dash(qid)
 
     def _check_again(self, qid: str, why: str, cond: str | None, back: str | None) -> dict:
         """確かめがそろわなかった答えを、そのまま受け取らずに言い直して確かめる（選択肢の型は back の意味で＝判定が選択肢を選んでいれば判定のほう）。"""
@@ -3869,7 +3893,7 @@ class Flow:
         if taken := self._ambiguous_only("聞き取れない"):
             return taken
         if qid != self.current:
-            return self._reject(f"{qid} は、いまの質問ではありません。")
+            return self._not_current(qid)
         q, it = self.questions[qid], self.items[qid]
         return self._ask_again(qid, "unclear", "聞き取れない・曖昧")
 
@@ -3922,7 +3946,7 @@ class Flow:
             if correction is None:
                 self.awaiting_confirm = None
                 it.set("unresolved", "相手が読みを直したが、ほかの読みの候補が無い")
-                return self._advance("「-」にします。" + self._reading_note(qid))
+                return self._dash(qid)
             if correction != heard:
                 it.set(it.state, f"AIの聞いた読み「{heard or '（無し）'}」は使わず、候補の「{correction}」で確かめる（濁りの違いは聞き分けられない）")
         if q.type in CHOICE_TYPES and result == "corrected" and correction:
@@ -3953,8 +3977,11 @@ class Flow:
                 self.awaiting_confirm = None
                 return self._ask_ampm(qid, correction)
         self.awaiting_confirm = None
-        # 選択肢の型は、言い直すのが選択肢の意味の言葉なので、添えられた値で別の値を言い直す形（G-36）には当てない
-        if result == "affirmed" and q.type not in CHOICE_TYPES and (other := other_value(q.type, it.value, correction)):
+        # 選択肢の型は、言い直すのが選択肢の意味の言葉なので、添えられた値で別の値を言い直す形（G-36）には当てない。名前の読みも当てない
+        # （認めたか直されたかは相手の言葉でプログラムが決め＝_reading_denied、次に確かめる読みは next_reading の1か所が決める＝G-45：AIは濁りの
+        # 違いを聞き分けられない。⛔ 2026-11-04 に見つけた穴：AIが「合っている」に添えた読みで確かめ直していた＝次の読みを決める所が2つ）
+        if (result == "affirmed" and q.type not in CHOICE_TYPES and not q.reading_of
+                and (other := other_value(q.type, it.value, correction))):
             # ⛔ 2026-10-14 G-36：相手が値を直したのに、AIが訂正を報告せずに自分で新しい値を言い直し、相手の「はい」を「合っている」と
             #    報告した（訂正された値の欄には新しい値）。制御は、待っていた古い値への返事として受け取り、古い値で確かめを済ませた
             #    （日時＝15日のまま。相手は16日と言っていた）。⇒ 古い値で済ませず、添えられた値を、プログラムの言い方で念のため言い直して
@@ -3965,7 +3992,7 @@ class Flow:
                 it.set("heard", "AIが報告せずに言い直した値に、相手が肯定した（念のため言い直す）")
                 return self._ask_confirm(qid, after="unreported")
             it.set("unresolved", "訂正のあとも合わない")
-            return self._advance("「-」にします。")
+            return self._dash(qid)
         if result == "affirmed" and not q.reading_of:
             # 言い直しへの返事も、最初の答えと同じ確かめに当てる（DESIGN.md 1章）。名前の読みは、相手の言葉でプログラムが決める（_reading_denied）
             reported = it.condition if q.type in CHOICE_TYPES else "affirmed"
@@ -3992,7 +4019,7 @@ class Flow:
             it.set("heard", "相手が訂正した（こちらの聞き違い）" if kind.startswith("misheard") else "相手が訂正した（相手の言い間違い）")
             return self._ask_confirm(qid, after=kind)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
-        return self._advance("「-」にします。" + self._reading_note(qid))
+        return self._dash(qid)
 
     def _reading_denied(self, q: "Question") -> bool:
         """名前の読みの確かめへの相手の返事（会話AIの聞き取りの文字）が、直す返事か：打ち消しの言葉で始まる（「いや、中島です。」）、
@@ -4004,6 +4031,16 @@ class Flow:
             return True
         named = q.reading_of in said or any(r in hira(said) for r in q.readings)
         return named and not AFFIRM.match(said)
+
+    def _not_current(self, qid: str) -> dict:
+        """いまの質問ではない質問の番号で報告されたときの差し戻し（唯一の書き方。record_answer・report_unclear の2つの受け口）。"""
+        return self._reject(f"{qid} は、いまの質問ではありません。")
+
+    def _dash(self, qid: str, shown: str = "") -> dict:
+        """「-」にした項目（呼ぶ前に、記録の理由を付けて unresolved にする）から次へ進む唯一の場所。名前の読みの確かめなら、読みを確かめられ
+        なかったことと、このあとはお名前を使わずにお呼びすることも伝える（_reading_note。⛔ 2026-11-04 に見つけた穴：6か所で別々に書き、
+        読みの知らせを付ける所と付けない所があった）。shown＝頭に添える言葉（受け取った値など）。"""
+        return self._advance(f"{shown}「-」にします。" + self._reading_note(qid))
 
     def _reading_note(self, qid: str) -> str:
         """名前の読みの確かめが済んだ（または確かめられなかった）ときに、AIへ伝えること。それ以外の質問では空。"""
@@ -4606,8 +4643,8 @@ class Flow:
         stopped = {"none": "相手に流す前に止めました（相手には何も聞こえていません）", "opener": "受けの言葉のあとで止めました",
                    "content": "途中で止めました"}[heard]
         reply = {"result": "restate", "ack": None, "say": say,
-                 "message": f"［プログラムからのお知らせ］さきほどの言葉は、渡した言い方と違ったので、プログラムが{stopped}。"
-                            f"「{say}」とだけ言って（言葉を足しません）、相手の返事を待ちます。"}
+                 "message": notice(f"さきほどの言葉は、渡した言い方と違ったので、プログラムが{stopped}。"
+                                   f"「{say}」とだけ言って（言葉を足しません）、相手の返事を待ちます。")}
         return self._log_signal({"off_script": expected, "heard": heard}, reply)
 
     def on_signal(self, party: str) -> dict:
@@ -5247,12 +5284,17 @@ class Flow:
         self.confirm_open = self.target_claimed = False
         self.back_turn = None
 
+    def _plays_recorded(self, plays: list[dict]) -> bool:
+        """決まった言葉 plays（名乗りの部分・申し出に応じる一言など）を、録音で流せる通話か（唯一の場所。⛔ 2026-11-04 に見つけた穴：_led と
+        _speak_lines が同じ式を別々に書いていた）。名乗りの部分は名乗りの録音、ほかは名乗りの録音か質問の録音で流す通話。"""
+        return all(self.opening if p["kind"] == "opening" else (self.opening or self.play_recordings) for p in plays)
+
     def _led(self, plays: list[dict], note: str, r: dict) -> dict:
         """返事 r（_advance・_close・_ask_target などが作ったもの）の前に、決まった言葉 plays（名乗りの部分・申し出に応じる一言の録音）を流す（唯一の
         場所）。録音で流せない通話（名乗りの録音が無い＝AIが話す形）では、AIにその文を先に言わせる。note＝AIへの知らせの頭。"""
         if plays:
             texts = "".join(p["text"] for p in plays)
-            if all(self.opening if p["kind"] == "opening" else (self.opening or self.play_recordings) for p in plays):
+            if self._plays_recorded(plays):
                 note += f"「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、"
                 if "play" not in r:
                     r["speak"] = True  # 続きはAIが言う（録音のあとに話させる）
@@ -5265,7 +5307,7 @@ class Flow:
     def _speak_lines(self, plays: list[dict], result: str, note: str) -> dict:
         """決まった言葉 plays だけを流して、相手の返事を待つ返事（唯一の場所。録音で流せない通話では、AIにその文のとおりに言わせる）。"""
         text = "".join(p["text"] for p in plays)
-        if all(self.opening if p["kind"] == "opening" else (self.opening or self.play_recordings) for p in plays):
+        if self._plays_recorded(plays):
             return {"result": result, "silent": True, "play": plays,
                     "message": f"{note}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._now()}"}
         return {"result": result, "say": text, "message": f"{note}「{text}」とだけ言います（言葉を足しません）。そのあと、{self._now()}"}
@@ -5303,7 +5345,7 @@ class Flow:
         self.awaiting_confirm = self.awaiting_say = None
         thanked = not resume and (thanks or offer == "callback" or (offer == "message" and not leave))
         plays = intro + ([{"kind": "recorded", "id": "offer_thanks", "text": OFFER_THANKS}] if thanked else [])
-        note = prefix + ("電話口の方は、まだこちらの名乗りを聞いていません。" if intro else "")
+        note = prefix + (NOT_INTRODUCED if intro else "")
         r = self._led(plays, note, self._advance("", handled=True))
         return r | ({"renamed": True} if intro else {}) | ({"led": True} if thanked else {}) | ({"thanks": True} if leave else {})
 
@@ -5697,7 +5739,7 @@ class Flow:
         self.hurry_q, self.order, self.recheck_queue = q.id, [q.id], []
         self.phase, self.current, self.callback_held = "asking", None, False
         self.awaiting_confirm = self.awaiting_say = None
-        note = "電話口の方は、まだこちらの名乗りを聞いていません。" if plays else ""
+        note = NOT_INTRODUCED if plays else ""
         return self._led(plays, note, self._advance("", handled=True)) | ({"renamed": True} if plays else {})
 
     def _hurry_decided(self, prefix: str) -> dict:
@@ -5948,7 +5990,7 @@ class Flow:
             if len(self.unclear_qids) >= self.limits.trouble_unclear:
                 return self._trouble("poor_audio", f"聞き返しを使い切っても聞き取れないまま「-」にした質問が、答えを受け取らないまま"
                                                    f"{len(self.unclear_qids)}つ続いた（{'・'.join(sorted(self.unclear_qids))}）")
-        return self._advance(f"{shown}「-」にします。" + self._reading_note(qid))
+        return self._dash(qid, shown)
 
     def _enter_reading(self, qid: str, prefix: str = "") -> dict:
         """名前の読みの確かめを始める（reading_question）。まず言ってみる読みを値にして、言い直しの返事待ちにする。言い方は質問の文。"""
@@ -6496,7 +6538,7 @@ class Flow:
                                    "何も言わずに、相手の答えを待ってください。" + answer_wait() + choices_note(q)}
             return {"result": "next", "question_id": q.id, "question": q.text,
                     "message": f"{prefix}次の質問は {q.id}「{q.text}」です。"
-                               + ("" if q.callback else f"「{q.intro}」から話し始めてください。" if q.intro else self._lead_note("次の質問"))
+                               + ("" if q.callback else start_with(q.intro) if q.intro else self._lead_note("次の質問"))
                                + choices_note(q)}
         if self.phase == "asking":
             # 締めの前に、「-」の必須項目を1回だけ念のため確かめる（6-11）。急いでいる相手・かけ直しを頼んだ相手にはしない
@@ -6659,7 +6701,7 @@ class Flow:
 
     def _lead_note(self, kind: str) -> str:
         lead = self._lead(kind)
-        return f"「{lead}」から話し始めてください。" if lead else ""
+        return start_with(lead) if lead else ""
 
     def _reject(self, why: str) -> dict:
         """差し戻す唯一の場所。理由が何であっても、いま求めていること（_now）を必ず添える。"""
