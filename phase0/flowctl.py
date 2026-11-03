@@ -736,8 +736,7 @@ NOT_REACHED_LABEL = {"absent": "不在", "not_transferred": "取り次いでい�
                      "other_means": "ほかの手段を望まれた", "who_unclear": "お名前だけではどの方か分からなかった"}
 # 最終目的の果たし方（業務設定＝CL-2。Flow の goal_mode）：any＝最終目的のどれか1つが果たせれば業務の目的が果たせる（1つ断られても、ほかが残れば
 # 質問を続ける）／all＝全部が要る（1つ断られたら果たせない）。✅ 2026-11-01 日本時間22時31分 ユーザー：「片方だけでも目的が達成できるときは、
-# 質問を続け、片方断られたら、目的は達成できない場合は、途中で締めるという形になるんではないでしょうか。」。断られたらそれだけで果たせない最終目的
-# （Question.goal_must＝依頼者の分岐の「終わり」）は、果たし方の数に入れない（Flow._goals_lost の1か所）
+# 質問を続け、片方断られたら、目的は達成できない場合は、途中で締めるという形になるんではないでしょうか。」
 GOAL_MODES = ("any", "all")
 # 断られたときの締め（CLOSE_DECLINED）で終える理由。念のための確認はしない（DESIGN.md 6-5）
 DECLINED_ENDS = ("callee_hurry", "callee_refused_call", "callee_complaint")
@@ -1583,13 +1582,6 @@ class Question:
     # 果たせなくなったら、途中で締め、その業務だけかけない（Flow._goals_lost。✅ 2026-11-01 日本時間20時56分・22時31分 ユーザー）
     final_goal: bool = False
     declines: tuple = ()
-    # この最終目的が断られたら、果たし方（Flow の goal_mode）にかかわらず業務の目的が果たせない（業務設定＝CL-2。決まりは Flow._goals_lost の1か所）。取込は、
-    # 依頼者のトークスクリプトの分岐で、目的から遠ざかる向きの答え（取込の away）のあとが「終わり」の質問を、最終目的（断る答え＝その答え）にして、これを
-    # 真にする（依頼者がその答えで電話を終えると書いた＝その断りだけで目的は果たせない。取込で止めて依頼者に伺わない。CL-1.md 4-78。✅ 2026-11-04
-    # 日本時間6時44分 ユーザー：「契約者に決める形じゃなくて、あなたと私が どうするのかもうすでに決めているだろうが。」）。⛔ 見つけた：この印が無いと、
-    # 果たし方が「どれか1つで果たせる」業務では、ご来店を言い切って断られても締めずにパンフレットへ進み、「全部が要る」にすると、パンフレットと
-    # 説明会の両方が要ることになった（業務に果たし方1つでは、依頼者の「終わり」と「どれか1つ」の両方を持てない）
-    goal_must: bool = False
     # 選択肢が、こちらが決めた意味の名前（ご本人・不在・尋ねている など）か。真なら、意味の判定にはその名前のまま見せ、意味の定義は説明に書く
     # （meaning_judge.options）。偽（お客様の選択肢の言葉＝はい・いいえ・している など）は、意味の言葉を名前にして見せる（言葉の頭で選ばせない）。
     # ⛔ 2026-10-29：意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び、「ご本人」と答えるたびに長い文を書き出していた
@@ -1635,8 +1627,6 @@ class Question:
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
         assert not self.ask_if or (len(self.ask_if) == 2 and self.ask_if[1]), f"{self.id}：伺う条件は（前の質問の番号, 答えの並び）です"
         assert not self.approval or (self.type == "yes_no" and len(self.conditions) == 2), f"{self.id}：ご承認を伺う質問は、はい／いいえの型です"
-        assert not self.goal_must or (self.final_goal and self.declines), \
-            f"{self.id}：断られたらそれだけで目的が果たせない印（goal_must）は、断る答えのある最終目的の質問に付けます"
         assert not self.ends_on or (self.type in CHOICE_TYPES and not self.callback and self.required
                                     and set(self.ends_on) <= set(self.all_conditions) - set(SYSTEM_CONDITIONS)), \
             f"{self.id}：ここで終える答え（ends_on）は、必須の業務の選択肢の質問の、宣言した選択肢か「どちらでも」「どれも要らない」です"
@@ -1667,6 +1657,17 @@ class Question:
         手順（Flow._point_step）・相づち（お断りにお礼は返さない＝Flow._ack）が、ここだけで決める。"""
         return condition is not None and (condition in self.declines or condition == NONE
                                           or (self.approval and len(self.conditions) > 1 and condition == self.conditions[1]))
+
+    def turned_down(self, condition: str | None) -> bool:
+        """この答えが、申し出のお断りか、目的から遠ざかる向きか（唯一の決まり）：お断り（declined）と、目的から遠ざかる向きの答え（away_answers）。
+        受け取ったあとの相づち（「承知しました。」＝お礼は返さない＝Flow._ack）と、そのまま締めるときの締めの言葉（「はい、承知いたしました。お忙しい
+        ところ…」＝Flow._close）が、ここだけで決める（Flow._turned_down_now）。✅ 2026-11-03 ユーザー：遠ざかる向きに寄った・言った答えは
+        「承知しました。」で次へ・✅ 2026-11-02 日本時間6時33分 ユーザー：「…「はい、お忙しいところ…」だと唐突なので、こちら「はい、承知いたし
+        ました。お忙しいところ…」の方がいいんじゃないでしょうか？」。⛔ 2026-11-04 日本時間7時台に見つけた：相づちは、言い切らない遠ざかる答えと
+        お断りの答えだけを別々の目印で見て、言い切った遠ざかる答えには順番で「ありがとうございます。」を返し、締めは目的が果たせなくなったとき
+        （goal_refused）だけ「承知いたしました。」にしていた（最終目的が2つの業務で、片方を受けていただいたあとの最後のお断りに「はい、お忙しい
+        ところ…」）。"""
+        return condition is not None and (self.declined(condition) or condition in self.away_answers)
 
     @property
     def away_answers(self) -> tuple:
@@ -2282,6 +2283,7 @@ class Flow:
         # 受け取った項目の、受け取ったときの材料（相手の発話の番号・会話AIの聞き取り・受け取った答え・確かめ）。遅れて届いた確かめを、
         # 同じ決まり（_compare）で当てるため（_late）。受け取るたびに書き換える（その項目を聞き直したら、新しい発話のもの）
         self.taken: dict[str, dict] = {}
+        self.report_before: dict | None = None   # 受けている報告の前の項目の状態（apply の間だけ。_turned_down_now）
         # 相手が取り次いでいる最中か（意味の判定が HOLD と決め、AIに黙って待たせた。次の相手の発話で解く）。電話接続側は、この間、
         # 相手が黙っている秒を数える見張り（6-7・6-15 のつなぎの一言・張り替え）を止める（相手はいま電話口にいない。DESIGN.md 6-8）
         self.holding = False
@@ -3186,10 +3188,21 @@ class Flow:
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
         """中の名前の操作を1つ受ける。"""
-        return self._apply_one(name, args)
+        try:
+            return self._apply_one(name, args)
+        finally:
+            self.report_before = None
+
+    def _turned_down_now(self) -> bool:
+        """受けている報告で、お断り・目的から遠ざかる向きの答え（Question.turned_down）を受け取ったか（唯一の場所＝相づちの目印 _apply_one と、
+        締めの言葉 _close）。報告の外（報告を受けずに締める）は偽。"""
+        b = self.report_before
+        return b is not None and any(it.state in GOT and b.get(qid) != it.state and self.questions[qid].turned_down(it.condition)
+                                     for qid, it in self.items.items())
 
     def _apply_one(self, name: str, args: dict) -> dict:
         before = {qid: it.state for qid, it in self.items.items()}
+        self.report_before = before
         phase_before, answering = self.phase, self.answering
         words = None  # 前の発話の言葉の答えなら、その言葉（下の操作で決まる）
         run, run_args = name, args   # 実際に受ける操作（_wish_reported）。相づちもこの操作で選ぶ
@@ -3234,8 +3247,6 @@ class Flow:
                 # その発話の番号・言葉・確かめ（遅れて届いたその発話の確かめも、同じ決まりで当てる）
                 q, confirming = self.questions[qid], it.state == "confirmed"
                 self._record_taken(qid, words, confirming, "affirmed" if confirming and q.type not in CHOICE_TYPES else it.condition)
-            if it.state in TAKEN and before[qid] != it.state and it.state in GOT and self.questions[qid].declined(it.condition):
-                reply["declined"] = True    # この報告で、お断りの答えを受け取った（相づちにお礼を返さない＝_ack）
             if it.state in TAKEN and before[qid] != it.state:
                 self.unclear_qids = set()   # 答えを1つ受け取った＝お声は聞き取れている（声が聞き取れないで終えるのは、聞き取れない質問が続いたときだけ）
         if (self.number_again and not self.facts.get("callback") and self.callee_turns > 0 and self.party not in NOT_A_PERSON
@@ -3272,6 +3283,8 @@ class Flow:
         if words is not None and reply["result"] != "rejected":
             # 前の言葉の答えを、相手の返事（「そうなんですね」）のあとに受け取った：その返事を「はい、」で受ける（答えへのお礼・承りは、もう遅い）
             reply["talked"] = True
+        if self._turned_down_now():
+            reply["turned_down"] = True   # この報告で、お断り・目的から遠ざかる向きの答えを受け取った（相づちにお礼を返さない＝_ack）
         reply["ack"] = self._ack(run, run_args, reply)
         if reply["ack"]:
             reply["ack_pause_s"] = ack_pause_s(reply["ack"])  # 相づちのあとの間（phrases.ACK_PAUSE_S の1か所。電話接続モジュールが守る）
@@ -3432,13 +3445,12 @@ class Flow:
             return "moushiwake_heavy"
         if name == "report_unclear":
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない
-        if result == "next" and reply.get("kept_away"):
-            return "shouchi"  # 目的から遠ざかる向きの答えを、言い直さずに受け取って次へ（「承知しました。」＝お礼は合わない。Flow._keep_toward_goal）
         if result == "next" and reply.get("hedged_next"):
             return "hai"  # 言い切っていない答えのあとに、業務設定の追って伺う質問で伺う（「はい、」＋「それでは、キャンセルになさいますか？…」＝Flow._check_again）
-        if result == "next" and reply.get("declined"):
-            # お断りの答え（Question.declined）を受け取って次へ進む：「承知しました。」（お礼は場面に合わない＝上の「通話を断られた」と同じ。⛔ 2026-11-02
-            # 日本時間6時台の見直しで見つけた：「いえ、登録は結構です。」「どちらも要らないです。」にも、順番で「ありがとうございます。」を返していた）
+        if result == "next" and reply.get("turned_down"):
+            # お断り・目的から遠ざかる向きの答え（Question.turned_down の1か所）を受け取って次へ進む：「承知しました。」（お礼は場面に合わない＝上の
+            # 「通話を断られた」と同じ。⛔ 2026-11-02 日本時間6時台の見直しで見つけた：「いえ、登録は結構です。」「どちらも要らないです。」にも、順番で
+            # 「ありがとうございます。」を返していた。⛔ 2026-11-04 日本時間7時台：言い切った遠ざかる答えにも、同じく返していた）
             return "shouchi"
         if result == "next":
             self.ack_count += 1
@@ -6095,7 +6107,7 @@ class Flow:
         it.set("accepted", f"目的から遠ざかる向きの答え（「{label(it.condition)}」）：その向きの言葉では言い直さずに受け取る"
                + (f"（言い切っていない：「{it.hedged}」）" if it.hedged else ""))
         r = self._advance("受け付けました。")
-        return r | {"kept_away": True} if r.get("result") == "next" else r
+        return r
 
     def _confirm_how(self, qid: str) -> str:
         """言い直しへの相手の返事の報告の仕方（唯一の場所。言い直しを始めるとき・差し戻すとき＝_now の両方が使う）。質問の種類で、
@@ -6391,8 +6403,7 @@ class Flow:
 
     def _goals_lost(self) -> list[str] | None:
         """最終目的の申し出が断られて、業務の目的が果たせなくなったか（唯一の決まり＝_advance）：断られた最終目的の質問（受け取った答えが、その質問の
-        断る答え）の番号の並び。まだ果たせる・最終目的の無い業務なら None。断られたらそれだけで果たせない最終目的（Question.goal_must）が1つでも
-        断られたら果たせない。ほかの最終目的は、any＝全部断られたら・all＝1つでも断られたら、果たせない。
+        断る答え）の番号の並び。まだ果たせる・最終目的の無い業務なら None。any＝全部断られたら・all＝1つでも断られたら、果たせない。
         断る答えでない答え（わからない・答えたくない・聞き取れない）は、断られたとはしない（まだ果たせる）。"""
         goals = [q for q in self.questions.values() if q.final_goal]
         # 断る答え：その質問の断る答え（取込で決める）と、選ぶ質問の「どれも要らない」。ご承認の質問は、ご納得いただけなかった点を伺い終えてから
@@ -6412,9 +6423,7 @@ class Flow:
         # 前は確かめてから締めた＝「念のためどちらもご不要ということでよろしかったでしょうか？」＝遠ざかる向きの言葉の確かめ・そのあと 19時49分に伺うまで
         # 「承知しました。」で次へ進めていた）。業務の手立ての質問があれば、その答えで決まる（上の asking・最終目的の設定＝test_final_goal_setting_…）
         refused = [q.id for q in goals if self.items[q.id].state in GOT and q.declined(self.items[q.id].condition) and q.id not in asking]
-        # 断られたらそれだけで果たせない最終目的（goal_must）が1つでも断られたら、果たせない。果たし方（any・all）は、それを除いた最終目的で数える
-        others = {q.id for q in goals if not q.goal_must}
-        if not refused or not (any(self.questions[x].goal_must for x in refused) or self.goal_mode == "all" or others <= set(refused)):
+        if not refused or (self.goal_mode == "any" and len(refused) < len(goals)):
             return None
         return refused
 
@@ -6688,10 +6697,12 @@ class Flow:
         if self.end_reason is not None or self.trouble is not None:
             return self._ended()
         polite = ("done", "callback", "not_transferred", "departed", "other_means", "goal_refused", "not_agreed")  # お礼の締め（ほかは断られたときの締め）
-        # お客様がお断りになって業務の最終目的が果たせなくなった（goal_refused）：「承知いたしました。」で受けてからお礼の締め（✅ 2026-11-02 日本時間
-        # 6時33分 ユーザー：「…だと唐突なので、こちら「はい、承知いたしました。お忙しいところ…」の方がいいんじゃないでしょうか？」）
-        text, rid = text or ((CLOSING_AFTER_DECLINE, "closing_after_decline") if reason == "goal_refused" else (CLOSING, "closing") if reason in polite
-                             else (CLOSE_DECLINED, "closing_declined"))
+        # お客様がお断りになって業務の最終目的が果たせなくなった（goal_refused）と、お礼の締めの直前にお断り・目的から遠ざかる向きの答えを受け取った
+        # （_turned_down_now＝最終目的が2つの業務で片方を受けていただいたあとの最後のお断り・ここで終える答え）：「承知いたしました。」で受けてから
+        # お礼の締め（✅ 2026-11-02 日本時間6時33分 ユーザー：「…だと唐突なので、こちら「はい、承知いたしました。お忙しいところ…」の方がいいんじゃない
+        # でしょうか？」）。断りの印（goal_refused）は、目的が果たせなくなったときだけ（_goals_lost）
+        text, rid = text or ((CLOSING_AFTER_DECLINE, "closing_after_decline") if reason == "goal_refused" or (reason in polite and self._turned_down_now())
+                             else (CLOSING, "closing") if reason in polite else (CLOSE_DECLINED, "closing_declined"))
         self._end(reason)
         if self.play_recordings and not spoken:
             item = {"kind": "opening", "part": rid, "text": text} if part else {"kind": "closing", "id": rid, "text": text}

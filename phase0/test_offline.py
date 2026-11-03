@@ -28,9 +28,8 @@ def fc(name, **args):
 # 依頼者のトークスクリプトの「この答えなら、ここで終える」（業務設定の質問の鍵 ends_on・通話の事実 ended_on。CL-1.md 4-74。✅ 2026-11-04 日本時間2時10分54秒のご承認）も
 # 「AIですか？」への標準の答えの共通の一言 ai_answer（phrases.STANDARD_PARTS。業務が書かないときに流す。CL-1.md 4-75。✅ 2026-11-02 管理者＝CL-2 の 4-188）も
 # 引き止めの一言の業務の録音の部分 busy（Business.replay_parts。質問の番号に使えない名前＝CL-2 の RESERVED_IDS に足していただく。CL-1.md 4-75）も
-# 断られたらそれだけで目的が果たせない最終目的の印 goal_must（依頼者の分岐の遠ざかる向きの「終わり」を取込が置き換える。CL-1.md 4-78。✅ 2026-11-04 日本時間6時44分）も
 CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_line", "wish_told_email", "wish_told_fax", "wish_told_post",
-                         "wish_told_phone", "wish_told_other", "wish", "hedged", "ends_on", "ended_on", "ai_answer", "busy", "goal_must"})
+                         "wish_told_phone", "wish_told_other", "wish", "hedged", "ends_on", "ended_on", "ai_answer", "busy"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -7436,40 +7435,54 @@ class EndJudgedTest(unittest.TestCase):
         h.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
         self.assertEqual((h.current, h.end_reason), ("Q3", None))
 
-    def test_a_goal_whose_refusal_ends_the_call_is_lost_whatever_the_mode(self):
-        # 依頼者のトークスクリプトの分岐で、目的から遠ざかる向きの答えのあとが「終わり」の質問は、取込が最終目的（断る答え＝その答え）にし、断られたら
-        # それだけで目的が果たせない印（goal_must）を付ける（CL-1.md 4-78。✅ 2026-11-04 日本時間6時44分 ユーザー：「契約者に決める形じゃなくて、
-        # あなたと私が どうするのかもうすでに決めているだろうが。」）。果たし方が「どれか1つで果たせる」業務でも、その断りで締め（依頼者の「終わり」の
-        # とおり）、ほかの最終目的は果たし方のとおりに数える（⛔ 見つけた：印が無いと、ご来店を言い切って断られてもパンフレットへ進み、「全部が要る」に
-        # すると、パンフレットと説明会の両方が要ることになった）
+    def test_an_answer_that_turns_down_is_received_with_shouchi_and_closed_with_shouchi_itashimashita(self):
+        # お断り・目的から遠ざかる向きの答え（Question.turned_down の1か所）を受け取ったら、次へ進む相づちは「承知しました。」（お礼は返さない。
+        # ✅ 2026-11-03 ユーザー：遠ざかる向きに寄った・言った答えは「承知しました。」で次へ）、そのまま締めるなら「はい、承知いたしました。お忙しい
+        # ところ…」（✅ 2026-11-02 日本時間6時33分 ユーザー：「…「はい、お忙しいところ…」だと唐突なので、こちら「はい、承知いたしました。お忙しい
+        # ところ…」の方がいいんじゃないでしょうか？」）。目的が果たせなくなったか（断りの印）とは別に決まる。⛔ 2026-11-04 日本時間7時台（「最終目的が、
+        # 複数あるときでも…本当に大丈夫ですか？」）に見つけた：言い切った遠ざかる答えに順番で「ありがとうございます。」を返し、最終目的が2つの業務で
+        # 片方を受けていただいたあとの最後のお断りには「はい、お忙しいところ…」で締めていた
         from flowctl import Flow, Question
-        from phrases import CLOSING_AFTER_DECLINE
-        def flow():
-            return Flow([Question("Q1", "ご来店のご意向はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"),
-                                  final_goal=True, declines=("いいえ",), goal_must=True),
-                         Question("G1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
-                                  final_goal=True, declines=("いいえ",)),
-                         Question("G2", "説明会にご参加いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"),
-                                  final_goal=True, declines=("いいえ",))], goal_mode="any")
+        from phrases import CLOSING, CLOSING_AFTER_DECLINE
+        yn = lambda i, t, **k: Question(i, t, "yes_no", conditions=("はい", "いいえ"), **k)
+        visit = dict(away=("いいえ",), meanings={"はい": "ご来店のご意向があるということ", "いいえ": "ご来店のご意向はないということ"})
         def answer(f, heard, qid, cond):
             f.on_callee(); f.on_heard(heard)
             return f.apply("record_answer", {"question_id": qid, "condition_id": cond})
-        # (a) 印のある最終目的を言い切って断られた：ほかの最終目的が残っていても締める
-        f = flow()
-        r = answer(f, "いえ、来店するつもりはありません。", "Q1", "いいえ")
-        self.assertEqual((r["result"], r["say"], f.end_reason, f.facts["goal_refused"][0]["goals"]),
-                         ("end", CLOSING_AFTER_DECLINE, "goal_refused", ["Q1"]))
-        # (b) ほかの最終目的は果たし方のとおり：どれか1つで果たせる＝1つ断られても、残りがあれば続ける
-        f = flow()
-        answer(f, "はい、行くつもりです。", "Q1", "はい")
-        answer(f, "パンフレットは結構です。", "G1", "いいえ")
-        self.assertEqual((f.current, f.end_reason), ("G2", None))
-        # (c) 印の無い最終目的が全部断られた：印のある最終目的を受けていても、果たせない
-        r = answer(f, "説明会も結構です。", "G2", "いいえ")
-        self.assertEqual((r["result"], f.end_reason, f.facts["goal_refused"][0]["goals"]), ("end", "goal_refused", ["G1", "G2"]))
-        # 印は、断る答えのある最終目的の質問にだけ付けられる
-        with self.assertRaises(AssertionError):
-            Question("Q9", "ご来店のご意向はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"), goal_must=True)
+        # (a) 言い切った遠ざかる答え（最終目的でない質問）：順番が「ありがとうございます。」の位置でも「承知しました。」（前の相づちも「承知しました。」
+        # なら「かしこまりました。」＝✅ 2026-11-02 日本時間7時12分）。お礼は返さない
+        f = Flow([yn("Q1", "ご予約はされていますでしょうか？", asks_fact=True), yn("Q2", "ご来店のご意向はございますでしょうか？", **visit),
+                  yn("Q3", "ご不明な点はございますでしょうか？")])
+        answer(f, "はい、しています。", "Q1", "はい")
+        r = answer(f, "いえ、来店するつもりはありません。", "Q2", "いいえ")
+        self.assertEqual((r["result"], r["ack"]), ("next", "kashikomari"))
+        # (b) 最終目的が2つ（どれか1つで果たせる）：1つ目を受けていただき、最後の2つ目を断られた＝目的は果たせている（断りの印は付かない）が、
+        # 締めは「はい、承知いたしました。…」。2つ目を受けていただいたときは、今までどおりの締め
+        def goals():
+            return Flow([yn("G1", "会員登録のご案内をお送りしてもよろしいでしょうか？", final_goal=True, declines=("いいえ",)),
+                         yn("G2", "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？", final_goal=True, declines=("いいえ",))],
+                        goal_mode="any")
+        g = goals()
+        answer(g, "はい、お願いします。", "G1", "はい")
+        r = answer(g, "いえ、お電話は結構です。", "G2", "いいえ")
+        self.assertEqual((r["result"], r["ack"], r["say"], g.end_reason, bool(g.facts.get("goal_refused"))),
+                         ("end", "hai", CLOSING_AFTER_DECLINE, "done", False))
+        g = goals()
+        answer(g, "いえ、登録は結構です。", "G1", "いいえ")
+        r = answer(g, "はい、お願いします。", "G2", "はい")
+        self.assertEqual((r["result"], r["say"], g.end_reason), ("end", CLOSING, "done"))
+        # (c) ここで終える答え：遠ざかる向きの答えなら「はい、承知いたしました。…」・事実を伺う質問の答え（ご予約はされていない）は今までどおり
+        e = Flow([yn("Q1", "ご来店のご意向はございますでしょうか？", required=True, ends_on=("いいえ",), **visit), yn("Q2", "ご不明な点はございますでしょうか？")])
+        r = answer(e, "いえ、来店するつもりはありません。", "Q1", "いいえ")
+        self.assertEqual((r["result"], r["say"], e.end_reason), ("end", CLOSING_AFTER_DECLINE, "done"))
+        e = Flow([yn("Q1", "ご予約はされていますでしょうか？", required=True, asks_fact=True, ends_on=("いいえ",)), yn("Q2", "ご不明な点はございますでしょうか？")])
+        r = answer(e, "いえ、していません。", "Q1", "いいえ")
+        self.assertEqual((r["result"], r["say"]), ("end", CLOSING))
+        # (d) 言い切らない遠ざかる答えに業務の手立てがある：今までどおり「はい、」＋「それでは…」（✅ 2026-11-03 日本時間8時10分）
+        h = Flow([yn("Q1", "ご来店のご意向はございますでしょうか？", **visit),
+                  yn("H1", "オンラインでのご案内もできますがいかがでしょうか？", ask_if=("Q1", ("いいえ",)), ask_if_hedged=True)])
+        r = answer(h, "たぶん今回はいいかなと思います。", "Q1", "いいえ")
+        self.assertEqual((r["result"], r["ack"], h.current), ("next", "hai", "H1"))
 
     def test_hurry_during_callback_questions_closes(self):
         # かけ直しの質問の途中（不在で戻る時刻を伺っている）に急いでいると言われたら、伺わずに締める（かけ直しの記録はもうある＝同じ申し出は1通話1回）
@@ -9622,14 +9635,13 @@ class TargetTest(unittest.TestCase):
 
     def test_final_goal_names_match_cl2(self):
         # CL-2 の 4-191：業務設定の質問の鍵（final_goal・declines・ここで終える答え ends_on＝CL-1.md 4-74）と最終目的の果たし方の名前（GOAL_MODES）が、
-        # 会話の側の名前と同じ（ends_on・断られたらそれだけで果たせない印 goal_must＝CL-1.md 4-78 は、CL-2 に入るまで CL2_PENDING）
+        # 会話の側の名前と同じ（ends_on は CL-2 に入るまで CL2_PENDING）
         import dataclasses
         from flowctl import GOAL_MODES, Question
         keys, modes = self.cl2_names("business_settings.py", "QUESTION_KEYS"), self.cl2_names("call_report.py", "GOAL_MODES")
         if keys is None or modes is None:
             self.skipTest("CL-2 の部品（app/）がまだ無い")
-        self.assertLessEqual(without_cl2_pending(self, {"final_goal", "declines", "ends_on", "goal_must"}, keys),
-                             keys & {f.name for f in dataclasses.fields(Question)})
+        self.assertLessEqual(without_cl2_pending(self, {"final_goal", "declines", "ends_on"}, keys), keys & {f.name for f in dataclasses.fields(Question)})
         self.assertEqual(set(GOAL_MODES), modes)
 
     def test_names_match_cl2_business_settings(self):
