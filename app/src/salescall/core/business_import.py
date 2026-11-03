@@ -321,7 +321,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
-                          "declines": _split(v.get("decline")) or [], "goal_must": False})
+                          "declines": _split(v.get("decline")) or []})
     by_id = {q["id"]: q for q in questions}
     for row_no, v in _rows(sheets, "branches", problems):
         q = by_id.get(v.get("id"))

@@ -1,5 +1,5 @@
-"""分岐のシートの置き換え（business_settings._branch_flow）が、会話の側（CL-1 の flowctl.follow_ups_in・gate_of・held と、断られたら
-それだけで果たせない最終目的の締め）で分岐のシートどおりの質問を伺うかを、ランダムな分岐で全部の答えの並びについて比べる作業の道具（CL-2 の
+"""分岐のシートの置き換え（business_settings._branch_flow）が、会話の側（CL-1 の flowctl.follow_ups_in・gate_of・held ）
+で分岐のシートどおりの質問を伺うかを、ランダムな分岐で全部の答えの並びについて比べる作業の道具（CL-2 の
 連絡帳 4-207。「どれも要らない」は決まり＝ほかのご希望が先、なので比べない）。使い方（app で）：.venv/bin/python tools/branch_equiv.py ../phase0/flowctl.py 20000"""
 import random, sys, importlib.util
 from dataclasses import dataclass
@@ -56,14 +56,10 @@ def run(seed):
     def dfs(answers: dict, gpath: list, gcur, forder):
         # 会話の側：次に伺う質問
         read = lambda x: ("confirmed", answers[x], False) if x in answers else ("empty", None, False)
-        # 最終目的（断られたらそれだけで果たせない）を断られたら締める
-        if any(by[x].goal_must and answers[x] in by[x].declines for x in answers):
-            nxt_flow = None
-        else:
-            order = ns["follow_ups_in"](forder, cqs, read)
-            hold = set(ns["held"](cqs, order, read))
-            rem = [x for x in order if x not in answers and x not in hold]
-            nxt_flow = rem[0] if rem else None
+        order = ns["follow_ups_in"](forder, cqs, read)
+        hold = set(ns["held"](cqs, order, read))
+        rem = [x for x in order if x not in answers and x not in hold]
+        nxt_flow = rem[0] if rem else None
         nxt_graph = None if gcur == "END" else gcur
         if nxt_flow != nxt_graph:
             mismatches.append((dict(answers), nxt_graph, nxt_flow)); return
@@ -72,7 +68,7 @@ def run(seed):
         for a in flow_answers[nxt_flow]:
             dfs({**answers, nxt_flow: a}, gpath + [nxt_flow], to(nxt_flow, a), order)
     dfs({}, [], ids[0], [q.id for q in out if not q.ask_if])
-    return ("ok" if not mismatches else "MISMATCH"), (mismatches[:2], nexts, [(q.id, q.ask_if, q.ends_on, q.final_goal, q.declines, q.goal_must, q.away) for q in out])
+    return ("ok" if not mismatches else "MISMATCH"), (mismatches[:2], nexts, [(q.id, q.ask_if, q.ends_on, q.final_goal, q.declines, q.away) for q in out])
 
 from collections import Counter
 c = Counter(); bad = []

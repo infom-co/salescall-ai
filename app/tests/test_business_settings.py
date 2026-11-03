@@ -40,10 +40,10 @@ def raw() -> dict:
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
              "asks_fact": False, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
-             "declines": ["しない"], "tell_words": {}, "ends_on": [], "goal_must": False},
+             "declines": ["しない"], "tell_words": {}, "ends_on": []},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "goal_must": False},
+             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": []},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -61,10 +61,10 @@ class Check(unittest.TestCase):
     def test_valid_and_flow(self):
         s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual(s.questions[1].choices, ("答えた",))            # 値を聞く質問の選択肢は型で決まる
-        # 分岐のシート（Q1 しない → 終わり）は置き換えて読む：依頼者が最終目的の断る答えに書いた「しない」で終わる＝断られたらそれだけで目的が
-        # 果たせない最終目的（会話の側が締める）。ほかの答えは並びの次（Q2）なので、伺う条件もここで終える答えも付かない
-        self.assertEqual([(q.final_goal, q.declines, q.goal_must, q.ends_on, q.ask_if, q.required) for q in s.questions],
-                         [(True, ("しない",), True, (), None, True), (False, (), False, (), None, True)])
+        # 分岐のシート（Q1 しない → 終わり）は置き換えて読む：「しない」はここで終える答え（依頼者が最終目的の列で決めた最終目的と断る答えは
+        # そのまま＝両方。CL-1 の連絡帳 4-79）。ほかの答えは並びの次（Q2）なので、伺う条件は付かない
+        self.assertEqual([(q.final_goal, q.declines, q.ends_on, q.ask_if, q.required) for q in s.questions],
+                         [(True, ("しない",), ("しない",), None, True), (False, (), (), None, True)])
 
     def test_answers_the_ai_may_give(self):
         """想定問答（お客様に聞かれたら答えてよいこと。CL-1 の連絡帳 4-26）：問いの名前と答えの文の並び。問いの名前は重ならず、
@@ -199,22 +199,12 @@ class Check(unittest.TestCase):
         approval = bs.Question("Q9", "以上でよろしいでしょうか？", None, "yes_no", True, bs.YES_NO_CHOICES, approval=True)
         self.assertEqual(bs.declined_answers(approval), frozenset({"いいえ"}))
         two = raw()
-        two["questions"][0]["next"] = None   # 分岐のシートの「しない → 終わり」が無い＝断られたらそれだけで果たせない印は付かない
         two["questions"][1].update(type="yes_no", text="ご案内の資料をお送りしてもよろしいでしょうか？", final_goal=True, declines=["いいえ"])
         self.assertTrue(any("最終目的の果たし方（goal_mode）を書きます" in p for p in problems_of(two)), problems_of(two))
         self.assertEqual(bs.check(dict(two, goal_mode="all"), field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode, "all")
         self.assertEqual(bs.check(dict(two, goal_mode="any"), field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode, "any")
-        # 果たし方は、断られたらそれだけで果たせない印の無い最終目的で数える（CL-1 の連絡帳 4-78 の (1) の (i)）：Q1 に「しない → 終わり」が
-        # あると、Q1 は印つき＝数える最終目的は Q2 だけ＝果たし方は書かない（依頼者が書いていない果たし方を求めない）
-        marked = dict(two, questions=[dict(two["questions"][0], next={"しない": "END", "*": "Q2"}), two["questions"][1]])
-        got = bs.check(marked, field_types=FIELD_TYPES, ai_reading_needs_person=True)
-        self.assertEqual(([q.goal_must for q in got.questions], got.goal_mode), ([True, False], None))
-        # 数える最終目的が1つ以下なら、書いてあっても使わない（どちらでも同じ。置き換えで数が減るので、依頼者に消させない）
-        self.assertIsNone(bs.check(dict(marked, goal_mode="any"), field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode)
-        self.assertIsNone(bs.check(dict(raw(), goal_mode="any"), field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode)
         cases = []
-        r = raw(); r["questions"][1]["goal_must"] = True; cases.append((r, "最終目的の申し出ではないので、断られたらそれだけで"))
-        r = raw(); r["questions"][0]["goal_must"] = "はい"; cases.append((r, "goal_must）は true / false です"))
+        r = raw(); r["goal_mode"] = "any"; cases.append((r, "最終目的の果たし方（goal_mode）は書きません"))
         r = dict(two, goal_mode="どれか"); cases.append((r, "最終目的の果たし方（goal_mode）を書きます"))
         r = raw(); r["questions"][0]["declines"] = ["やめる"]; cases.append((r, "断る答え ['やめる'] は、その質問の選択肢にありません"))
         r = raw(); r["questions"][0]["declines"] = "しない"; cases.append((r, "断る答え（declines）は、選択肢の名前の並びです"))
@@ -238,7 +228,7 @@ class Check(unittest.TestCase):
         r["questions"].append({"id": "Q3", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "goal_must": False})
+                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": []})
         r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"))
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[2].ask_if, s.questions[2].approval, s.questions[0].ask_if, s.questions[0].approval),
@@ -390,7 +380,7 @@ class Check(unittest.TestCase):
         r = raw()
         r["questions"][0].update(ends_on=["しない", bs.NONE_CHOICE])   # Q1 は事実を伺わない選ぶ質問＝「どれも要らない」が返りうる
         self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない", bs.NONE_CHOICE))
-        self.assertEqual(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ())
+        self.assertEqual(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない",))   # 分岐のシートから
         for name, change, words in (
                 ("わからない", lambda r: r["questions"][0].update(ends_on=["わからない"]), "書けません"),
                 ("答えたくない", lambda r: r["questions"][0].update(ends_on=["答えたくない"]), "書けません"),
@@ -436,7 +426,7 @@ class Check(unittest.TestCase):
                                "required": False, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                "ask_if": {"after": "Q1", "answers": ["しない"], "hedged": True}, "approval": False, "final_goal": False,
-                               "declines": [], "tell_words": {}, "ends_on": [], "goal_must": False})
+                               "declines": [], "tell_words": {}, "ends_on": []})
         r["questions"][0]["next"] = None
         r["questions"][0]["final_goal"], r["questions"][0]["declines"] = False, []
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
@@ -544,10 +534,10 @@ class Check(unittest.TestCase):
             nxt = f"Ask{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "goal_must": False})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": []})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "goal_must": False})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": []})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "Ask0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -669,7 +659,7 @@ class BranchFlow(unittest.TestCase):
                        "choices": list(choices) if kind == "choice" else None, "next": nxt, "unit": None, "meanings": None,
                        "replies": None, "asks_fact": kind != "choice" or not away, "do_words": None, "away": list(away) or None,
                        "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {},
-                       "ends_on": [], "goal_must": False})
+                       "ends_on": []})
         r["questions"] = qs
         r["rules"]["handling"] = {"*": r["rules"]["handling"]["Q1"]}
         return r
@@ -678,19 +668,20 @@ class BranchFlow(unittest.TestCase):
         return {q.id: q for q in bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions}
 
     def test_end_is_a_stop_answer_or_a_goal_refusal(self):
-        """「→ 終わり」：目的から遠ざかる向きでない答え＝ここで終える答え（断りではない）・遠ざかる向きの答え＝最終目的の断る答え・断られたら
-        それだけで果たせない印。どちらも先へ進むかを決める質問なので必須に。「わからない」「答えたくない」の行き先は使わない。"""
+        """「→ 終わり」：どの答えでも（目的から遠ざかる向きでも）ここで終える答え（断りではない）。最終目的は依頼者が列で決めたものだけで、
+        「→ 終わり」から推し量らない（✅ 11-04 日本時間7時台 管理者・CL-1 の連絡帳 4-79）。先へ進むかを決める質問なので必須に。「わからない」
+        「答えたくない」の行き先は使わない。"""
         r = self.book(("Q1", "yes_no", (), {"いいえ": "END", "わからない": "END", "*": "Q2"}, ()),
                       ("Q2", "choice", ("来店する", "来店しない"), {"来店しない": "END", "*": "Q3"}, ("来店しない",)),
                       ("Q3", "free_text", (), None, ()))
         r["questions"][0]["required"] = False
         q = self.flow(r)
         self.assertEqual((q["Q1"].ends_on, q["Q1"].final_goal, q["Q1"].required), (("いいえ",), False, True))
-        self.assertEqual((q["Q2"].ends_on, q["Q2"].final_goal, q["Q2"].declines, q["Q2"].goal_must), ((), True, ("来店しない",), True))
+        self.assertEqual((q["Q2"].ends_on, q["Q2"].final_goal, q["Q2"].declines), (("来店しない",), False, ()))
         self.assertEqual([q[x].ask_if for x in ("Q1", "Q2", "Q3")], [None, None, None])
-        # 「どれも要らない → 終わり」は、遠ざかる向きでも、ここで終える答え（会話の側は、先にほかのご希望を1回伺う）
+        # 「どれも要らない → 終わり」も、ここで終える答え（会話の側は、先にほかのご希望を1回伺う）
         r["questions"][1]["next"] = {"来店しない": "END", bs.NONE_CHOICE: "END", "*": "Q3"}
-        self.assertEqual(self.flow(r)["Q2"].ends_on, (bs.NONE_CHOICE,))
+        self.assertEqual(self.flow(r)["Q2"].ends_on, ("来店しない", bs.NONE_CHOICE))
 
     def test_skips_become_conditions_without_none(self):
         """飛ばし：あいだの質問の伺う条件に、飛ばさない答え（宣言した選択肢と「どちらでも」）を入れる。「どれも要らない」・システムの答えは入れない。
@@ -844,7 +835,7 @@ class Versions(unittest.TestCase):
             return dict(c, questions=[{k: v for k, v in q.items() if k != "ends_on"} for q in c["questions"]])
         with mock.patch.object(bs, "_content", before):
             v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
-        self.assertEqual([q.ends_on for q in self.tx(lambda tx: bs.load(tx, v)).questions], [(), ()])
+        self.assertEqual([q.ends_on for q in self.tx(lambda tx: bs.load(tx, v)).questions], [("しない",), ()])   # 分岐のシートの置き換えだけ
 
     def test_a_version_saved_before_hedged_conditions_reads_them_as_always_asked(self):
         """伺う条件に「言い切っていないときだけ伺うか」（hedged。2026-11-03 に足した＝CL-1 の連絡帳 4-71 の (b)）が無い前の版の質問は、偽（伺う
@@ -923,12 +914,11 @@ class Versions(unittest.TestCase):
         self.assertIn("decline", stored["rules"])                                   # 前の形のまま置いてある
         got = self.tx(lambda tx: bs.load(tx, v))
         self.assertEqual(([(q.final_goal, q.declines) for q in got.questions], got.goal_mode),
-                         ([(True, ("しない",)), (True, ("いいえ",))], None))
-        self.assertEqual([q.goal_must for q in got.questions], [True, False])   # 分岐のシートの「しない → 終わり」は読むたびに置き換える
-        self.assertEqual(got.goal_mode, None)   # 前の版の果たし方 all は、印の無い最終目的が1つだけになるので使わない（どちらでも同じ）
+                         ([(True, ("しない",)), (True, ("いいえ",))], "all"))
+        self.assertEqual([q.ends_on for q in got.questions], [("しない",), ()])   # 分岐のシートの「しない → 終わり」は読むたびに置き換える
         back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
         self.assertEqual(([(q.final_goal, q.declines) for q in back.questions], back.goal_mode),
-                         ([(True, ("しない",)), (True, ("いいえ",))], None))
+                         ([(True, ("しない",)), (True, ("いいえ",))], "all"))
         restored = self.tx(lambda tx: tx.one("SELECT rules FROM salescall.business_rules WHERE version_id = %s",
                                              (back.rules.version_id,)))
         self.assertNotIn("decline", restored["rules"])                              # 戻した版は今の形
@@ -957,7 +947,7 @@ class Versions(unittest.TestCase):
             v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
         got = self.tx(lambda tx: bs.load(tx, v))
         q1 = got.questions[0]
-        self.assertEqual((bs.NONE_CHOICE in q1.ends_on, q1.goal_must, got.questions[1].ask_if), (False, True, None))
+        self.assertEqual((q1.ends_on, got.questions[1].ask_if), (("しない",), None))
 
     def test_questions_asked_after_an_answer_are_read_for_the_judge(self):
         """判定へ渡す、前の答えで伺う質問（`ask_ifs` の1か所。置いた版から、業務設定の並び順で）。"""

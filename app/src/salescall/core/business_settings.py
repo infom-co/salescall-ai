@@ -102,7 +102,7 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "goal_must"}
+                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -258,10 +258,6 @@ class Question:
     # 質問（必須でないと聞き返さない＝先へ進むかを決める答えが1回で「-」になる）。✅ 2026-11-04 日本時間2時10分54秒 管理者「OK」（CL-1 の連絡帳 4-74。
     # ⛔ 前の話し合いの案＝あとの質問すべてに「a 以外なら伺う」を足す形は、聞き取れないまま締める・「どれも要らない」にほかのご希望を伺わない、で取り下げ）
     ends_on: tuple[str, ...] = ()
-    # 断られたら、それだけで業務の目的が果たせない最終目的か（会話の側の Question.goal_must。CL-1 の連絡帳 4-78 の (1)）。分岐のシートで、目的から
-    # 遠ざかる向きの答えに「→ 終わり」と書いた質問に、置き換え（`_branch_flow`）が付ける（依頼者が、その断りだけで電話を終えると書いた）。印のある
-    # 最終目的は、果たし方（`Settings.goal_mode`）で数えない（会話の側の Flow._goals_lost の1か所）。最終目的の質問だけが持てる
-    goal_must: bool = False
 
 
 @dataclass(frozen=True)
@@ -690,11 +686,6 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             if not isinstance(q["final_goal"], bool):
                 problems.append(f"{where}の最終目的の申し出か（final_goal）は true / false です")
                 continue
-            if not isinstance(q["goal_must"], bool):
-                problems.append(f"{where}の断られたらそれだけで目的が果たせないか（goal_must）は true / false です")
-                continue
-            if q["goal_must"] and not q["final_goal"]:
-                problems.append(f"{where}は最終目的の申し出ではないので、断られたらそれだけで目的が果たせない印（goal_must）は付けません")
             if declines is None:
                 continue
             nexts[qid] = dict(nxt)
@@ -703,7 +694,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                                 q["type"], bool(q["required"]), choices, unit, meanings, replies,
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
-                                q["final_goal"] is True, declines, tell_words, ends_on, q["goal_must"] is True)
+                                q["final_goal"] is True, declines, tell_words, ends_on)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -719,22 +710,19 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     elif questions and not any(q.required and q.ask_if is None for q in questions):
         problems.append("いつも伺う必須の質問が1つもありません（必須の質問がすべて前の答えで伺う質問（ask_if）だと、どれも伺わない通話が"
                         "「すべて取れた」になる。Intent.md 6-4）")
-    # 果たし方は、断られたらそれだけで果たせない印（goal_must）の無い最終目的で数える（印のある最終目的は、断られたら果たし方に関係なく果たせない＝
-    # 会話の側の Flow._goals_lost。依頼者が書いていない果たし方を求めない＝CL-1 の連絡帳 4-78 の (1) の (i)）
     goal_mode = raw.get("goal_mode")
-    goals = sum(q.final_goal and not q.goal_must for q in questions)
+    goals = sum(q.final_goal for q in questions)
     if goals >= 2 and goal_mode not in GOAL_MODES:
         problems.append(f"最終目的の申し出が {goals} つあるので、最終目的の果たし方（goal_mode）を書きます（{list(GOAL_MODES)}：any＝どれか1つで"
                         "果たせる・all＝全部が要る）")
-    # 数える最終目的が1つ以下なら、果たし方はどちらでも同じ（書いてあっても使わない＝None。分岐のシートの置き換えで印が付いて数が減ることが
-    # あるので、問題にして依頼者に消させない）
+    elif goals < 2 and goal_mode is not None:
+        problems.append("最終目的の申し出が1つ以下なので、最終目的の果たし方（goal_mode）は書きません（どちらでも同じ）")
     earliest = _earliest(raw.get("earliest"), problems)
     problems += _day_slot_problems(raw, earliest is not None or raw.get("earliest") is not None)
     problems += _derived_part_problems(raw)
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
-                 **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES and goals >= 2 else None,
-                 earliest=earliest)
+                 **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest)
     if flowed:
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
             business_rules.check(UUID(int=0), tuple(q.id for q in questions if q.required), raw["rules"])
@@ -935,11 +923,12 @@ def _branch_flow(questions: list[Question], nexts: dict[str, dict[str, str]], pr
     - 飛ばし（Q の答え a の行き先が、並びの次より後ろの質問）：あいだの質問 Y の伺う条件（`AskIf`）＝Q の、Y を飛ばさず終わりでもない答え
       （宣言した選択肢と「どちらでも」）。「どれも要らない」は入れない（入れると、ほかのご希望を伺わずに次へ進む＝✅ 11-03 20時48分）。
       Y にすでに伺う条件がある（「かつ」）・伺う答えが1つも無いときは、会話の形で表せないので問題にする。
-    - 終わり（並びの最後でない質問の答えの行き先が終わり）：目的から遠ざかる向きの答え（`Question.away`。決めるのは取込の AI＝読めなければ
-      遠ざかる側）と、依頼者が最終目的の断る答えに書いた答えは、その質問を最終目的（`final_goal`）・その答えを断る答え（`declines`）・断られたらそれだけで果たせない印（`goal_must`）に
-      （✅ 11-01 20時56分・22時31分・11-03 21時38分＝はっきりしないお断りにも、ほかの手立てかほかのご希望を伺う）。ほかの答え（「どれも
-      要らない」を含む）は、ここで終える答え（`ends_on`。断りではない終わり＝✅ 11-04 2時10分54秒）。どちらも先へ進むかを決める質問なので必須に
-      する（会話の側の決まり：必須でないと聞き返さず、1回で「-」になる）。
+    - 終わり（並びの最後でない質問の答えの行き先が終わり）：どの答えでも（目的から遠ざかる向きでも・「どれも要らない」でも）、ここで終える答え
+      （`ends_on`。断りではない終わり＝✅ 11-04 2時10分54秒）。最終目的（`final_goal`・`declines`）は、依頼者が「最終目的」の列で決めたものだけで、
+      「→ 終わり」から推し量らない（✅ 11-04 日本時間7時台 管理者：「業務の決め方が「パンフレットか説明会のどちらか1つで目的が果たせる」のに、
+      「ご来店のご意向 いいえ 」だけで、どうして締めるんですか？来店は目的ではないという前提ですよね？」＝CL-1 の連絡帳 4-79。最終目的の断る答えに
+      「→ 終わり」もあれば両方。会話の側は両方を受けて決まりどおり動く）。先へ進むかを決める質問なので必須にする（会話の側の決まり：必須でないと
+      聞き返さず、1回で「-」になる）。
     - 続きの終わり（その質問のどの答えでも終わり）：その質問が伺う条件 (S, B) で伺われる続きの質問なら、S の答え B を終わりとして上のとおりに
       置き換える（続きの質問は、会話の側が伺う条件をたどって伺う＝4-74 の (3)）。B の行き先がどれもその質問でないときは表せない。
     - 「わからない」「答えたくない」の行き先は使わない（答えが決まらないうちは先へ進まない＝✅ 11-04 1時25分39秒）。
@@ -1045,19 +1034,10 @@ def _branch_flow(questions: list[Question], nexts: dict[str, dict[str, str]], pr
     problems += why
     if len(problems) > before:
         return questions
-    # 行き先がそのまま終わりの、目的から遠ざかる向きの答え＝最終目的のお断り。続きの質問のあとで終わる答えは、続き（依頼者が書いた業務の
-    # 次の段）を伺ってから終える＝ここで終える答え（お断りでも、業務の言葉が先＝✅ 11-03 日本時間8時10分）
     out = []
     for q in questions:
-        refuse = [a for a in flow_answers[q.id] if a in direct[q.id] and a != NONE_CHOICE
-                  and (a in q.away or (q.final_goal and a in declined_answers(q)))]
-        stop = [a for a in flow_answers[q.id] if (a in direct[q.id] or a in follow[q.id]) and a not in refuse and a not in q.ends_on]
-        end = refuse + stop
-        out.append(replace(q, ask_if=ask_if[q.id], required=q.required or bool(end),
-                           ends_on=q.ends_on + tuple(stop),
-                           final_goal=q.final_goal or bool(refuse),
-                           declines=q.declines + tuple(a for a in refuse if a not in q.declines),
-                           goal_must=q.goal_must or bool(refuse)))
+        end = [a for a in flow_answers[q.id] if (a in direct[q.id] or a in follow[q.id]) and a not in q.ends_on]
+        out.append(replace(q, ask_if=ask_if[q.id], required=q.required or bool(end), ends_on=q.ends_on + tuple(end)))
     return out
 
 
@@ -1163,8 +1143,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
       連絡帳 4-71・4-72）が無い前の版の質問は、どちらも無い（空・偽＝今までの確かめの言い方・伺う答えならいつも伺う）として読む。最短の日（earliest）は無くてもよい項目なので、前の版はそのまま（無い）。
     - その答えのあとに伝える一言（tell_words。2026-11-03 に足した＝CL-1 の連絡帳 4-72 の (i)）が無い前の版の質問は、無い（空の表）として読む。
     - ここで終える答え（ends_on。2026-11-04 に足した＝CL-1 の連絡帳 4-74）が無い前の版の質問は、無い（空）として読む。
-    - 断られたらそれだけで目的が果たせない印（goal_must。2026-11-04 に足した＝CL-1 の連絡帳 4-78）が無い前の版の質問は、偽として読む（前の版の
-      分岐のシートは、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える＝印もそこで付く）。
+    - 分岐（next）は、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える（前の版も同じ1か所）。
     - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
       無いとして読む（会話の側は「それでは（言葉）ね？」で言うので、そのままでは文にならない。無い選択肢は、会話の側が意味の言葉で
       「それでは（意味の言葉）で承りますね？」と言う）。"""
@@ -1175,7 +1154,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     if not isinstance(questions, list):
         return dict(content, rules=rules)
     added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
-             "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "goal_must": False}
+             "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": []}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:
