@@ -63,7 +63,7 @@ from salescall.core.phone import normalize
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
-              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish")
+              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -109,6 +109,12 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   のどれか・または null）・contact＝その方法の連絡先（伺えなければ null）・outcome＝結び（`OTHER_WISH_OUTCOMES`。伺っている途中で電話が切れたら
 #   null）。依頼者へ返す（判定の中身 other_wish＝judge._detail の1か所）。判定は今の1か所のまま（選び直した答えは元の質問の項目で、最終目的を
 #   断られたかは事実 goal_refused で読む＝会話の側は、ご連絡の方法・ほかのご希望を言っていただいた最終目的の質問を、断られたとしない）。
+# ended_on：この答えなら、ここで電話を終える答え（業務設定の質問の ends_on）で、残りの業務の質問を伺わなかった（CL-1 の連絡帳 4-74。✅ 2026-11-04
+#   日本時間2時10分54秒 管理者「OK」）。1通話に1つまで（会話の側が通話の終わりの答えで決め、報告のときに入れる）。question＝止めた質問・answer＝その答え
+#   （日本語の名前）・skipped＝伺わなかった業務の質問。turn・said＝止めた答えを受け取った発話（前の通話の答えで止めたときは turn が null・said が空）。
+#   判定は skipped を「伺っていない（対象外）」と数える（どの質問を伺わなかったかは、この事実だけで読む＝会話の側の決まり flowctl.gate_of・held を
+#   こちらで持たない。`judge.not_asked` の1か所）。締めた理由は今までどおり（断りではない）。前の通話の答えで止めたときは人の証にならないので、
+#   人の証の表（HUMAN_FACTS）には入れない
 OTHER_WISH_MEANS = ("line", "email", "fax", "post", "phone")   # LINE・メール・ファクス・郵送・お電話（CL-1 の flowctl.WISH_MEANS の鍵）
 OTHER_WISH_OUTCOMES = ("option", "means", "other", "none")   # 元の質問の選択肢を選び直した・ご連絡の方法・ほかのご希望・無い
 UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear", "who_unclear")
@@ -202,7 +208,7 @@ MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # （お客様からの質問・受け答え・録音で答えた質問）で見る
 HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
                "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts",
-               "unjudged_ends", "goal_refusals", "who_unclears", "not_agreed")
+               "unjudged_ends", "goal_refusals", "who_unclears", "not_agreed", "other_wishes")   # other_wishes＝ほかのご希望への答え（人の言葉でしか起きない）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 # 取り消せない決定について、会話AIの報告と2つ目の判定（意味の判定）がそろったか（報告ごとに1つ。データの形 版 1.07）：
 # agreed＝そろった（その場で決める）／disagreed＝食い違った／none＝判定が無い（無い・古い報告もこれ）。そろわなければ録音の確かめまで保留
@@ -443,6 +449,16 @@ class OtherWish:
 
 
 @dataclass(frozen=True)
+class EndedOn:
+    """ここで電話を終える答えで、残りの業務の質問を伺わなかった（事実 ended_on。CL-1 の 4-74）。"""
+    turn: int | None             # 止めた答えを受け取った相手の発話の番号（前の通話の答えで止めたときは None）
+    said: str                    # その発話（前の通話の答えなら空）
+    question: str                # 止めた質問の番号
+    answer: str                  # その答え（日本語の名前）
+    skipped: tuple[str, ...]     # 伺わなかった業務の質問の番号（トークスクリプトの順）
+
+
+@dataclass(frozen=True)
 class HoldTimeout:
     """保留を頼まれ、待ちきった（事実 hold_timeout。CL-1 の 4-42）。記録だけ。"""
     evidence: Said               # 保留を頼まれた発話
@@ -516,6 +532,7 @@ class CallReport:
     who_unclears: tuple[WhoUnclear, ...] = ()     # 事実 who_unclear：お名前だけではどの方か分からず、取り次いでいただけなかった
     not_agreed: tuple[NotAgreed, ...] = ()        # 事実 not_agreed：ご承認いただけず、ご納得いただけなかった点を伺った答え
     other_wishes: tuple[OtherWish, ...] = ()      # 事実 other_wish：ほかのご希望を伺った答え
+    ended_on: EndedOn | None = None               # 事実 ended_on：ここで終える答えで、残りを伺わなかった（1通話に1つまで）
     irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
     ai_troubles: tuple[AiTrouble, ...] = ()   # 止まったAI（データの形 版 1.08。無い・古い報告は空。判定には使わない）
 
@@ -691,7 +708,10 @@ class CallReport:
             "not_agreed": [{"turn": n.turn, "question": n.question, "said": n.said, "point": n.point, "round": n.round,
                             "explained": n.explained, "outcome": n.outcome, "declining": n.declining} for n in self.not_agreed],
             "other_wish": [{**said(w.evidence), "question": w.question, "wish": w.wish, "value": w.value, "means": w.means,
-                            "contact": w.contact, "outcome": w.outcome} for w in self.other_wishes]}
+                            "contact": w.contact, "outcome": w.outcome} for w in self.other_wishes],
+            "ended_on": [] if self.ended_on is None else [
+                {"turn": self.ended_on.turn, "said": self.ended_on.said, "question": self.ended_on.question,
+                 "answer": self.ended_on.answer, "skipped": list(self.ended_on.skipped)}]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last,
@@ -845,6 +865,28 @@ def _other_wish(r: dict, s: Said, i: int) -> OtherWish:
                      _choice(r.get("outcome"), OTHER_WISH_OUTCOMES, f"{where}.outcome", optional=True))
 
 
+def _ended_on(facts: dict) -> EndedOn | None:
+    """事実 ended_on（形は CL-1 の Flow.ended_on が決めるもの。確かめはここだけ）：0か1つの並び。turn は相手の発話の番号か null（前の通話の答え）。"""
+    rows = facts.get("ended_on", [])
+    if not isinstance(rows, list) or len(rows) > 1:
+        raise ReportInvalid("facts.ended_on は、0か1つの記録の並びです（1通話に1つまで）")
+    if not rows:
+        return None
+    r = _keys(rows[0], {"turn", "said", "question", "answer", "skipped"}, "facts.ended_on[0]")
+    turn, said, question, answer, skipped = (r.get(k) for k in ("turn", "said", "question", "answer", "skipped"))
+    if turn is not None and (not isinstance(turn, int) or isinstance(turn, bool) or turn < 0):
+        raise ReportInvalid("facts.ended_on[0].turn は相手の発話の番号（0 以上の整数）か null です")
+    if not isinstance(said, str) or len(said) > SAID_MAX or (turn is None and said):
+        raise ReportInvalid(f"facts.ended_on[0].said は根拠の発話の文字（{SAID_MAX} 字まで。前の通話の答え＝turn が null なら空）です")
+    for key, v in (("question", question), ("answer", answer)):
+        if not isinstance(v, str) or not v.strip():
+            raise ReportInvalid(f"facts.ended_on[0].{key} は文字です")
+    if not isinstance(skipped, list) or not all(isinstance(x, str) and x for x in skipped) or len(set(skipped)) != len(skipped) \
+            or question in skipped:
+        raise ReportInvalid("facts.ended_on[0].skipped は、伺わなかった業務の質問の番号の並び（重ならない・止めた質問は入らない）です")
+    return EndedOn(turn, said, question, answer, tuple(skipped))
+
+
 def from_json(raw: Any) -> CallReport:
     """報告を確かめて読む（ただ1つの確かめ）。"""
     d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered", "irreversible_check", "ai_trouble"}, "報告")
@@ -960,6 +1002,7 @@ def from_json(raw: Any) -> CallReport:
     not_agreed = _not_agreed(facts)
     other_wishes = tuple(_other_wish(r, s, i) for i, (r, s) in enumerate(
         _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome"})))
+    ended_on = _ended_on(facts)
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \
         _choice(d["irreversible_check"], IRREVERSIBLE_CHECKS, "irreversible_check")
@@ -974,7 +1017,7 @@ def from_json(raw: Any) -> CallReport:
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions), talks, tuple(holds), unjudged_ends=unjudged, goal_refusals=tuple(goals),
-                      who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes,
+                      who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes, ended_on=ended_on,
                       irreversible_check=check, ai_troubles=troubles)
 
 

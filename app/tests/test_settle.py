@@ -1234,7 +1234,7 @@ class NotAskedSettle(SettleBase):
         two["questions"].append({"id": "Q2", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}})
+                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": []})
         for q1, state, more in ((("Q1", "confirmed", "答えた"), "completed", {"not_asked": ["Q2"]}),
                                 (("Q1", "accepted", "わからない"), "incomplete", {"missing": ["Q2"]})):
             with self.subTest(q1=q1):
@@ -1271,7 +1271,7 @@ class NotAskedSettle(SettleBase):
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                  "ask_if": {"after": "Q1", "answers": ["いいえ"], "hedged": True}, "approval": False, "final_goal": False,
-                                 "declines": [], "tell_words": {}})
+                                 "declines": [], "tell_words": {}, "ends_on": []})
         for q1, state, more, hedged in ((("Q1", "accepted", "いいえ"), "completed", {"not_asked": ["Q2"]}, False),
                                         (("Q1", "accepted", "いいえ", "都合が悪くなってしまいまして"), "incomplete", {"missing": ["Q2"]}, True),
                                         (("Q1", "accepted", "はい", "たぶん大丈夫かと"), "completed", {"not_asked": ["Q2"]}, True)):

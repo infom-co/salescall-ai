@@ -57,7 +57,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-03.1+time-{spoken_time.VERSION}"   # 2026-11-03.1（CL-1 の 4-72 の (k)）：ほかのご希望を伺った答え（事実 other_wish）を判定の中身で依頼者へ返す（判定の結果は変わらない）
+JUDGE_VERSION = f"judge-2026-11-04.1+time-{spoken_time.VERSION}"   # 2026-11-04.1（CL-1 の 4-74）：ここで終える答えで伺わなかった質問（事実 ended_on の skipped）を「伺っていない（対象外）」に数える
+# 前の版：   # 2026-11-03.1（CL-1 の 4-72 の (k)）：ほかのご希望を伺った答え（事実 other_wish）を判定の中身で依頼者へ返す（判定の結果は変わらない）
 # 前の版：   # 2026-11-02.4（CL-1 の 4-69 の 4-182 の (e)）：用件を断られたは、会話の報告の通話の事実 goal_refused（最終目的の申し出を断られ、目的が果たせなくなった）だけで決める（業務の決まりの断りの答えで決め直さない。最終目的でない質問の断る答えは、用件を断られたにしない）
 # 前の版：   # 2026-11-02.3（CL-1 の 4-69 の 4-185 の (1)・4-178）：ご納得いただけなかった点を根拠の発話（said）と値（point）に分けて返す・かけ直しの理由「今はお電話に出られないご事情」で日時が取れなければ日を改めて1回。
 # 前の版：   # 2026-11-02.2（CL-1 の 4-66 のあとの (g)）：締めた理由 not_agreed は結論として終えた（断られたにしない）・ご納得いただけなかった点の回・ご説明できたか・結び。
@@ -445,12 +446,15 @@ def _unreached_key(r: CallReport) -> str:
     return "not_reached_" + r.not_reached
 
 
-def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item]) -> frozenset[str]:
+def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallReport | None" = None) -> frozenset[str]:
     """伺っていない（対象外）の質問（1か所。CL-1 の連絡帳 4-66 の (e)）：前の答えで伺う質問のうち、伺っていない（答えが無い・空）質問で、
     前の質問の答えを受け取っていて（`ANSWERED`）その答えが伺う答えでないか（言い切っていないときだけ伺う質問＝`AskIf.hedged` は、答えが
     言い切っていた＝「曖昧」の印が無いときも。会話の側の Flow._ask_if_follow_ups と同じ決まり。CL-1 の連絡帳 4-71 の (b)）、前の質問も
     対象外のもの（前の質問のその答えのときだけ伺う質問の、さらに前の答えで伺う質問）。前の質問の答えをまだ受け取っていない（聞けていない・確かめの途中で切れた）質問は、伺うかが
-    決まっていないので対象外にしない（取れていない質問のまま）。前の質問は、業務設定で前に並ぶ質問に決まっている（輪にならない）。"""
+    決まっていないので対象外にしない（取れていない質問のまま）。前の質問は、業務設定で前に並ぶ質問に決まっている（輪にならない）。
+    あわせて、ここで電話を終える答え（業務設定の ends_on）で伺わなかった質問は、会話の報告の事実 ended_on の skipped だけで読む（どの質問を伺わなかったかの
+    決まりは会話の側の1か所＝CL-1 の flowctl.gate_of・held。こちらで同じ決まりを持たない＝CL-1 の連絡帳 4-74。答えが決まらないまま伺わなかった質問は
+    skipped に入らない＝取れていない質問のまま）。"""
     out: set[str] = set()
     for q in ask_if:   # 業務設定の並び順（前の質問が先に決まる）
         it = items.get(q)
@@ -461,13 +465,14 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item]) -> frozenset[str
         if cond.after in out or (src is not None and src.state in ANSWERED
                                  and (src.condition not in cond.answers or (cond.hedged and not src.hedged))):
             out.add(q)
-    return frozenset(out)
+    ended = report.ended_on if report is not None else None
+    return frozenset(out | (set(ended.skipped) if ended is not None else set()))
 
 
 def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, Any]:
     """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか・伺っていない（対象外）の質問・ご納得いただけなかった点・
     ほかのご希望を伺った答え。1か所。どの結果でも依頼者へ返す）。"""
-    skipped = not_asked(inp.ask_if, inp.items)
+    skipped = not_asked(inp.ask_if, inp.items, inp.report)
     agreed = inp.report.not_agreed if inp.report is not None else ()
     wishes = inp.report.other_wishes if inp.report is not None else ()
     return {"cut": raw_cut, "cut_recorded": cut, **({"target_unconfirmed": True} if inp.target_unconfirmed else {}),
@@ -514,7 +519,7 @@ def _business(inp: JudgeInput) -> Judgement:
     if r and r.goal_refusals:
         return done("declined", declined_by="goal", goals=sorted({g for x in r.goal_refusals for g in x.goals}))
     # (5) 必須の質問がすべて取れた
-    skipped = not_asked(inp.ask_if, inp.items)   # 伺っていない（対象外）の質問は、取れていない質問に数えない
+    skipped = not_asked(inp.ask_if, inp.items, inp.report)   # 伺っていない（対象外）の質問は、取れていない質問に数えない
     missing = [q for q in rules.required if q not in skipped and (q not in inp.items or inp.items[q].state not in TAKEN)]
     if not missing:
         return done("completed")

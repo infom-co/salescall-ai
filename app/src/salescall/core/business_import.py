@@ -48,7 +48,7 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
                           "choices": "選択肢", "decline": "断りの答え", "intro": "入る一言", "ask_after": "伺う条件の質問ID",
                           "ask_answers": "伺う条件の答え", "ask_hedged": "言い切っていないときだけ伺う", "approval": "ご承認を伺う",
                           "final_goal": "最終目的", "do_words": "こちらがすることの言葉",
-                          "tell_words": "その答えのあとに伝える一言"}, True),
+                          "tell_words": "その答えのあとに伝える一言", "ends_on": "ここで終える答え"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -70,8 +70,10 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # 4-72 の (d) と、その答えの (2)）
 # その答えのあとに伝える一言（選択肢ごと。同じ「選択肢：一言」の形。例「はい：○○駐車場をご利用いただけますのでどうぞご利用ください。」。
 # 取込の AI は作らない。CL-1 の連絡帳 4-72 の (i)）
+# ここで終える答え（「この答えなら、ここで終える」。答えを「／」か改行で区切る。この列のある質問は必須の質問。CL-1 の連絡帳 4-74。✅ 2026-11-04 管理者「OK」）
 OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.ask_hedged",
-                              "questions.approval", "questions.final_goal", "questions.do_words", "questions.tell_words"})
+                              "questions.approval", "questions.final_goal", "questions.do_words", "questions.tell_words",
+                              "questions.ends_on"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -315,6 +317,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
                           "do_words": _choice_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems),
                           "tell_words": _choice_words(v.get("tell_words"), f"{where}のその答えのあとに伝える一言", problems) or {},
+                          "ends_on": _split(v.get("ends_on")) or [],
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),

@@ -233,7 +233,8 @@ _BUSINESS = "s.unit = 'business' AND s.tenant_id = salescall.cur_tenant() AND s.
 # callback_agreed_now＝N3「ご説明した内容でご納得いただけましたでしょうか？」・own_fallback_point＝資料でご説明できない点の一言・
 # closing_after_decline＝お断りで最終目的が果たせなくなったときの締め、4-66 のあとの (k)（11-02 7時12分のご判断）の kashikomari＝「承知しました。」が続くときの相づち「かしこまりました。」、
 # 4-72 の (k)（11-03 日本時間20時48分のご承認）の callback_line＝「それでは恐れ入りますがLINEのIDをお伺いしてもよろしいでしょうか？」（システムの質問 C10）・
-# wish_told_line・wish_told_email・wish_told_fax・wish_told_post・wish_told_phone・wish_told_other＝ほかのご希望を担当の者に申し伝える一言。CL-1 の試験 test_offline が
+# wish_told_line・wish_told_email・wish_told_fax・wish_told_post・wish_told_phone・wish_told_other＝ほかのご希望を担当の者に申し伝える一言、4-75 の ai_answer＝
+# 「AIですか」への標準の答え「何か問題でもございましたでしょうか？」（業務が答えを書いたときは業務の録音の部分 ai）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -254,7 +255,7 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "successor_confirm", "successor_reconfirm", "successor_unavailable", "talk_agree_deep", "talk_agree_high", "talk_agree_light", "talk_cared",
     "talk_hard_bright", "talk_hard_sad", "talk_heard_glad", "talk_heard_nod", "talk_heard_sad", "talk_osewa",
     "talk_praised", "talk_welcome", "talk_yoroshiku", "wait", "wait_heavy",
-    "callback_line", "wish_told_email", "wish_told_fax", "wish_told_line", "wish_told_other", "wish_told_phone", "wish_told_post")
+    "ai_answer", "callback_line", "wish_told_email", "wish_told_fax", "wish_told_line", "wish_told_other", "wish_told_phone", "wish_told_post")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

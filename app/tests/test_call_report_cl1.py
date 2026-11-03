@@ -725,6 +725,7 @@ class OtherWish1103(unittest.TestCase):
         self.assertEqual(j.detail["other_wish"], [{k: line[k] for k in ("question", "wish", "value", "means", "contact", "outcome", "said")},
                                                   {k: cut[k] for k in ("question", "wish", "value", "means", "contact", "outcome", "said")}])
         self.assertNotIn("other_wish", run(self.raw()).detail)                # 伺っていなければ中身に出さない
+        self.assertTrue(from_json({**self.raw(line), "facts": {"other_wish": [line]}}).talked)   # 人の言葉でしか起きない＝話した
         # 無い鍵は null と同じに読む（報告の読み手の決まりの1か所 `_keys`。会話の側はいつも全部の鍵を書く）
         self.assertIsNone(from_json(self.raw({k: v for k, v in line.items() if k != "outcome"})).other_wishes[0].outcome)
         self.assertEqual(j.state, run(self.raw()).state)                       # 判定の結果は変えない
@@ -732,6 +733,32 @@ class OtherWish1103(unittest.TestCase):
                     {**line, "wish": ["x"]}, {**line, "x": 1}):
             with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
                 from_json(self.raw(bad))
+
+
+class EndedOn1104(unittest.TestCase):
+    """CL-1 の連絡帳 4-74（✅ 2026-11-04 日本時間2時10分54秒 管理者「OK」）：ここで終える答えで、残りの業務の質問を伺わなかった（事実 ended_on。1通話に1つまで）。
+    判定は skipped を「伺っていない（対象外）」と数える（取れていない必須の質問に数えない＝終える答えで「すべて取れた」になる）。前の通話の答えで止めたときは
+    turn が null・said が空。人の証の表には入れない（前の通話の答えで止めたときも出るため）。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "ended_on": list(rows), "end": [{"turn": 6, "said": "はい。", "reason": "done"}]}}
+
+    def test_ended_on_is_received_and_the_skipped_questions_are_not_asked(self):
+        row = {"turn": 4, "said": "いいえ、していません。", "question": "Q1", "answer": "いいえ", "skipped": ["Q2"]}
+        r = from_json(self.raw(row))
+        self.assertEqual((r.ended_on.question, r.ended_on.skipped, from_json(r.to_json())), ("Q1", ("Q2",), r))
+        earlier = from_json(self.raw({**row, "turn": None, "said": ""}))     # 前の通話の答えで止めた
+        self.assertIsNone(earlier.ended_on.turn)
+        self.assertFalse(from_json({**self.raw({**row, "turn": None, "said": ""}), "facts": {
+            "ended_on": [{**row, "turn": None, "said": ""}]}}).talked)       # 人の証にしない
+        for bad in ([row, row], [{**row, "turn": None}], [{**row, "skipped": ["Q2", "Q2"]}], [{**row, "skipped": ["Q1"]}],
+                    [{**row, "question": ""}], [{**row, "turn": -1}], [{**row, "x": 1}], {"turn": 4}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**self.raw(), "facts": {"ended_on": bad}})
+        from salescall.core.judge import not_asked
+        self.assertEqual(not_asked({}, {}, r), frozenset({"Q2"}))
+        self.assertEqual(not_asked({}, {}, from_json(self.raw())), frozenset())
 
 
 class NotAgreedEnd1102(unittest.TestCase):
