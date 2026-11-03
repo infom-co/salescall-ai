@@ -444,8 +444,11 @@ def spoken_question(questions: list["Question"], qid: str) -> tuple[str, str]:
     i = [x.id for x in questions if not x.reading_of and not x.callback].index(qid)
     if i == 0:
         return q.text, ""
-    # この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりにそれを頭に（録音は1本のまま）
-    lead = q.intro or LEAD_IN["次の質問"][(i - 1) % len(LEAD_IN["次の質問"])]
+    # この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりにそれを頭に（録音は1本のまま）。言い切っていない答えのあとに追って
+    # 伺う質問（ask_if_hedged）は、お客様の言葉を受けて伺うので「それでは」（✅ 2026-11-03 ユーザーの言い方：「それでは、日時変更なさいますか？それとも、
+    # キャンセルなさいますか？」「それでは、いつでしたら、お話しできそうでしょうか？」。⛔ 見直しで見つけた：並びの順番の「続きまして」を付けていた＝
+    # 業務設定の文が「それでは」で始まると「続きましてそれでは、…」「それではそれでは、…」。業務設定の文には頭のつなぎの言葉を書かない＝CL-2）
+    lead = q.intro or ("それでは" if q.ask_if_hedged else LEAD_IN["次の質問"][(i - 1) % len(LEAD_IN["次の質問"])])
     return lead + q.text, lead
 
 
@@ -522,8 +525,10 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          #   「登録」することになるのであれば、我々は依頼主の作業代行としてお客様と対峙しているので、それに合わせた方がいいでしょう。」）
          "hedged_do": ("言い切っていない答えのあと（こちらがすること）", None, "hai"),
          "hedged_fact": ("言い切っていない答えのあと（事実を伺う質問）", None, "hai"),
-         # - 目的から遠ざかる向きの選択肢（Question.keep_words）：「はい、」＋「それでは来月以降にご導入ということでよろしいでしょうか？」（✅ 2026-11-03 ユーザー (2)）
-         "hedged_keep": ("言い切っていない答えのあと（目的につなげて伺う）", None, "hai"),
+         # ⛔ 2026-11-03 日本時間8時10分 ユーザー：「今の一言や案は全くダメです。あなたはチェックしたのですか？いい加減な提案をするな！！」＝目的から遠ざかる
+         #    向きの選択肢に、取込のAIが作った「それでは（目的につなげる言葉）でよろしいでしょうか？」（hedged_keep）を外した（9つの質問の案のうち、
+         #    営業の電話として筋が通ったのは今月中のご導入の「来月以降のご導入をお考えということ」の1つだけ。「パンフレットは必要になりましたらお送りするということ」＝「必要になるかを誰が決めるんですか？お客様から
+         #    連絡させるつもりですか？」）。目的につなげて伺うのは、業務設定の追って伺う質問（Question.ask_if_hedged）だけ
          # 矛盾した答え・言い直しの答えを最終的に確かめる（会話になっていない返事・前の話と逆の返事・いまの言葉だけでは決められず前の話の答えを
          # 確かめる＝Flow._check_again の TALK_WHY・PRIOR_WHY）：「はい、」＋「それでは駐車場はご利用になるということでよろしいでしょうか？」
          # ✅ 2026-10-31 の夜 ユーザー：「『それでは、駐車場を(利用される)(利用されない)ということでよろしいでしょうか？』のような確認を入れる形で
@@ -1504,17 +1509,11 @@ class Question:
     # 無い選択肢は、今までの「念のため（意味の言葉）でよろしかったでしょうか？」。✅ 2026-11-01 日本時間20時56分 ユーザー：「こちら：「念のためパンフレットを
     # お送りして大丈夫だということでよろしかったでしょうか？」よりも、「それではパンフレットをお送りさせていただきますね？」の方がいいんじゃないですか？」
     do_words: dict = field(default_factory=dict)
-    # 選択肢ごとの、目的につなげて伺う言葉（取込で文字のAI2つが作る＝do_words と同じ1か所・CL-1 が全部を見る・作った言葉はユーザーにお見せする）。業務の
-    # 目的から遠ざかる向きの選択肢（見送り・控え・ご欠席など）だけに作り、その選択肢の言い切っていない最初の答えを「それでは（言葉）でよろしいでしょうか？」
-    # で伺う（do_words の「それでは…させていただきますね？」の代わり＝Flow._hedged_after。「今月中のご導入をお考えでしょうか？」の「いいえ」⇒
-    # 「来月以降にご導入ということ」）。無い選択肢（進める向き・目的に関わらない選び）は do_words のまま。✅ 2026-11-03 ユーザー：「そもそも、導入の方向で
-    # 進んでいるのに、「それでは、今月中のご導入は見送りとさせていただきますね？」だと、わざわざ、獲得できそうなお客様を失いかねない確認ですよね？そんな返答は
-    # 営業トークとしてありえないんじゃないですか？」⇒ (2)「目的から遠ざかる向きの答えは、その向きで「させていただきますね？」とは言わず、目的につながる形で
-    # 伺う」OK（⛔ それまでは、11-01 20時56分の例＝進める向きの形を、CL-1 が目的から遠ざかる向きの選択肢にまで当てていた）
-    keep_words: dict = field(default_factory=dict)
     # 目的から遠ざかる向きの選択肢（取込で文字のAI2つが決める。どちらか1つでもそう読めば入れる＝安全側）。ここに入る選択肢の言い切っていない最初の答えは、
-    # do_words の「それでは…させていただきますね？」を使わない：目的につなげて伺う言葉（keep_words）があればそれ、無ければ押しも引きもしない今までの
-    # 「念のため（意味の言葉）でよろしかったでしょうか？」（Flow._hedged_after）
+    # do_words の「それでは…させていただきますね？」を使わない（✅ 2026-11-03 ユーザー：「そもそも、導入の方向で進んでいるのに、「それでは、今月中のご導入は
+    # 見送りとさせていただきますね？」だと、わざわざ、獲得できそうなお客様を失いかねない確認ですよね？」・(2)「OK」）。目的につなげて伺うのは、業務設定の
+    # 追って伺う質問（ask_if_hedged＝依頼者のトークスクリプト。「それでは、日時変更なさいますか？それとも、キャンセルなさいますか？」）。⏳ 追って伺う質問が
+    # 無い選択肢は、いまは「念のため（意味の言葉）でよろしかったでしょうか？」（✅ 11-03 8時10分「今の一言や案は全くダメです」＝伺い中。Flow._hedged_after）
     away: tuple = ()
     # この質問に入る一言（業務設定＝依頼者のトークスクリプト。CL-2。「それでは予約番号の確認からさせていただきます。」）。前の質問のあと、つなぎの言葉
     # （それでは・続きまして）の代わりに、質問の録音の頭に1本で入れる（spoken_question の1か所）。空なら今のつなぎの言葉。最初の質問（名乗りと一緒に
@@ -3018,6 +3017,8 @@ class Flow:
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない
         if result == "recheck":
             return "moushiwake_heavy"  # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」
+        if result == "next" and reply.get("hedged_next"):
+            return "hai"  # 言い切っていない答えのあとに、業務設定の追って伺う質問で伺う（「はい、」＋「それでは、キャンセルになさいますか？…」＝Flow._check_again）
         if result == "next" and reply.get("declined"):
             # お断りの答え（Question.declined）を受け取って次へ進む：「承知しました。」（お礼は場面に合わない＝上の「通話を断られた」と同じ。⛔ 2026-11-02
             # 日本時間6時台の見直しで見つけた：「いえ、登録は結構です。」「どちらも要らないです。」にも、順番で「ありがとうございます。」を返していた）
@@ -3383,7 +3384,10 @@ class Flow:
             # （_advance → _follow_ups が前の質問のすぐあとに入れる。✅ 2026-11-03 ユーザー (3)(4)「OK」）
             it.hedged = (self.heard_said or "").strip()[:40] or label(it.condition)
             it.set("accepted", f"言い切っていない答え（「{it.hedged}」）：言い直さずに受け取り、{fq.id}「{fq.text[:24]}」で伺う")
-            return self._advance("受け付けました。")
+            # 相づちは「はい、」（お客様の言葉を受けて「それでは…」と伺う。⛔ 2026-11-03 の見直しで見つけた：順番の「承知しました。」「ありがとうございます。」を
+            # 流していた＝「たぶん行けなくなりそうです」に「ありがとうございます。」。ユーザーの言い方はどれも「はい、それでは…」）
+            r = self._advance("受け付けました。")
+            return r | {"hedged_next": True} if r.get("question_id") == fq.id else r
         return self._ask_confirm(qid, after=self._hedged_after(q, it.condition) if hedged else "ambiguous")
 
     def _hedged_follow_up(self, qid: str, cond: str | None) -> "Question | None":
@@ -3402,11 +3406,12 @@ class Flow:
         if q.reading_of or cond in SYSTEM_CONDITIONS or cond in (ANY, NONE):
             return "hedged"
         if q.type in CHOICE_TYPES:
-            # 目的から遠ざかる向きの選択肢（目的につなげて伺う言葉＝Question.keep_words がある）は hedged_keep（✅ 2026-11-03 ユーザー (2)「OK」）
+            # 目的から遠ざかる向きの選択肢（Question.away）は「させていただきますね？」を使わない（✅ 2026-11-03 ユーザー (2)「OK」。目的につなげて
+            # 伺うのは業務設定の追って伺う質問＝この前に _hedged_follow_up が選ぶ。⏳ 無ければ今までの言い直し＝伺い中）
             if q.asks_fact:
                 return "hedged_fact"
-            if cond in q.away or q.keep_words.get(cond):
-                return "hedged_keep" if q.keep_words.get(cond) else "hedged"
+            if cond in q.away:
+                return "hedged"
             return "hedged_do" if q.do_words.get(cond) else "hedged"
         if q.type in CONFIRM_TYPES:
             return "hedged_fact" if q.asks_fact else "hedged_do"
@@ -5534,7 +5539,7 @@ class Flow:
         # 言い直す言葉：いまの話の向きを伺う言葉（end_doubt）・こちらがすることの言葉（hedged_do）は、選択肢ごとの取込の言葉をそのまま。
         # ほかは意味の言葉（choice_words）
         words = ((q.doubt_words[it.condition] + "ということ") if after == "end_doubt" else q.do_words[it.condition] if after == "hedged_do"
-                 else q.keep_words[it.condition] if after == "hedged_keep" else choice_words(q, it.condition)) if choice else None
+                 else choice_words(q, it.condition)) if choice else None
         if choice and words is None:
             # 選択肢の名前が返事の言葉だけ（「はい」「いいえ」）で、意味の言葉が取込で決まらなかった＝言い直せない（止めずに進める）。
             # 曖昧な答えは、言い直さずに聞き返す（聞き返しの回数と言い方は _ask_again の1か所）。それ以外は聞き取れた答えのまま受け付ける
@@ -5552,7 +5557,7 @@ class Flow:
         self.confirm_counts[situation] = n + 1
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
-        shown = (words if after in ("end_doubt", "hedged_do", "hedged_keep") else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
+        shown = (words if after in ("end_doubt", "hedged_do") else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
         said_as = spoken_clock(shown) if q.type in AMPM_TYPES and it.value else shown   # 時刻は「15日の14時、午後2時」の形で言う（値は変えない）
         if q.reading_of:
             shown = quote(it.value)
@@ -5747,6 +5752,10 @@ class Flow:
         # 断る答え：その質問の断る答え（取込で決める）と、選ぶ質問の「どれも要らない」。ご承認の質問は、ご納得いただけなかった点を伺い終えてから
         p = self.point
         asking = {p["q"]} if p is not None and p["outcome"] in (None, "unresolved") else set()   # ご納得いただけなかった点を伺っている・申し伝える
+        # 言い切っていないお断りのあとに、業務設定の追って伺う質問（ask_if_hedged）をまだ伺い終えていない：伺う前に締めない（⛔ 2026-11-03 の見直しで
+        # 見つけた：最終目的の質問への「来月以降になると思います」に追って伺う質問があっても、伺う前に「目的が果たせない」で締めていた）
+        asking |= {x.ask_if[0] for x in self.questions.values() if x.ask_if_hedged and x.ask_if and x.id in self.order
+                   and self.items[x.id].state == "empty" and self.items[x.ask_if[0]].hedged}
         refused = [q.id for q in goals if self.items[q.id].state in GOT and q.declined(self.items[q.id].condition) and q.id not in asking]
         if not refused or (self.goal_mode == "any" and len(refused) < len(goals)):
             return None

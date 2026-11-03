@@ -49,8 +49,34 @@ def by_model(client, model: str, questions: list[str]) -> list[bool | None]:
     r = client.models.generate_content(
         model=model, contents=PROMPT + body,
         config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_schema(), temperature=0))
-    got = {x.get("no"): x.get("fact") for x in json.loads(r.text).get("items", [])}
+    return _read_items(json.loads(r.text).get("items", []), questions)
+
+
+def _read_items(items: list, questions: list[str]) -> list[bool | None]:
+    """答えの items を、questions と同じ並びの答え（無ければ None）にそろえる（読み取りの唯一の場所＝Gemini も Anthropic も）。"""
+    got = {x.get("no"): x.get("fact") for x in items or [] if isinstance(x, dict)}
     return [got.get(n) if isinstance(got.get(n), bool) else None for n in range(1, len(questions) + 1)]
+
+
+def by_model_anthropic(client, model: str, questions: list[str]) -> list[bool | None]:
+    """by_model と同じ文（PROMPT）・同じ読み取りを、Anthropic（Claude Haiku 5.5）に、答えの形を指定した道具の呼び出しで返させる（作り手の代わり＝
+    Gemini の Flash が混んでいる間。meanings.by_model_anthropic と同じ作り。✅ 2026-11-03 ユーザー：「Haikuでもいいと言いましたよね。」）。
+    料金は判定と同じ帳簿（meaning_judge.SPEND）。⚠️ temperature は送らない（Haiku 5.5 は断る）。"""
+    from meaning_judge import SPEND
+
+    body = "\n".join(f"{n}：{q}" for n, q in enumerate(questions, 1))
+    item = {"type": "object", "properties": {"no": {"type": "integer"}, "fact": {"type": "boolean"}},
+            "required": ["no", "fact"], "additionalProperties": False}
+    schema = {"type": "object", "properties": {"items": {"type": "array", "items": item}}, "required": ["items"], "additionalProperties": False}
+    SPEND.check()
+    msg = client.messages.create(model=model, max_tokens=4000, messages=[{"role": "user", "content": PROMPT + body}],
+                                 tools=[{"name": "facts", "description": "質問ごとの、事実を伺う質問か", "input_schema": schema, "strict": True}],
+                                 tool_choice={"type": "tool", "name": "facts"})
+    SPEND.add(model, msg.usage)
+    got = next((b.input for b in msg.content if getattr(b, "type", "") == "tool_use"), None)
+    if not isinstance(got, dict):
+        raise ValueError(f"{model} が答えの形で返さなかった（{getattr(msg, 'stop_reason', '')}）")
+    return _read_items(got.get("items", []), questions)
 
 
 def decide(model_facts: list[bool | None]) -> bool:
