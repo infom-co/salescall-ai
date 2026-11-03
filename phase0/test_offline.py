@@ -8011,6 +8011,29 @@ class TargetTest(unittest.TestCase):
         r = self.say(f, "あいにく岡田は席を外しております。", "request_callback", why="absent")
         self.assertEqual((r["question_id"], r["question"], f.phase), ("C1", CALLBACK_ASK["back_time"], "asking"))
 
+    def test_every_away_reason_asks_when_they_are_available(self):
+        # ✅ 2026-11-04 日本時間3時15分 ユーザー：「通常は、いない場合、終えるではなく、いつ戻られるのかを確認するのがセオリーですよ！」・同じ夜
+        # 「「いつならいらっしゃるのかを確認する」のがセオリーの方が正しい言い方ですね」⇒ お呼びした方の事情でいまお話しできない理由（AWAY_WHYS）の
+        # どれでも、終えずに、まず「いつなら」を伺う（理由ごとの言い方は CALLBACK_PLAN の1か所：席を外している＝何時ごろお戻り・お休み＝次のご出社・
+        # 出張など＝いつごろお戻りのご予定・ご事情＝いつごろでしたらお取り次ぎ）。戻る時刻が分からなければ「本日お戻りのご予定」→「後ほど改めてお掛け
+        # しても」（10-22・10-24）。理由を足したときに、伺う一言の無い理由が入ると、ここで落ちる
+        from flowctl import AWAY_WHYS, CALLBACK_IDS, CALLBACK_PLAN, ROLE_KEY
+        from phrases import CALLBACK_ASK
+        for why in AWAY_WHYS:
+            self.assertEqual(ROLE_KEY[CALLBACK_PLAN[why][0]], "time", why)
+        for why, said in (("absent", "あいにく岡田は席を外しております。"), ("day_off", "本日、岡田はお休みをいただいております。"),
+                          ("long_absent", "岡田は今週いっぱい出張に出ております。")):
+            f, b = self.flow()
+            r = self.say(f, said, "request_callback", why=why)
+            self.assertEqual((r["result"], r["question_id"], r["question"]), ("next", CALLBACK_IDS["time"], CALLBACK_ASK[CALLBACK_PLAN[why][0]]), why)
+        f, b = self.flow()
+        self.say(f, "あいにく岡田は席を外しております。", "request_callback", why="absent")
+        r = self.say(f, "ちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
+        self.assertEqual((r["question_id"], r["question"]), (CALLBACK_IDS["back_today"], CALLBACK_ASK["back_today"]))
+        r = self.say(f, "はい、本日は戻ります。", "record_answer", question_id="C6", condition_id="はい")
+        self.assertEqual((r["question_id"], r["question"]), (CALLBACK_IDS["again"], CALLBACK_ASK["call_again"]))
+        self.assertNotEqual(r["result"], "end")
+
     def test_reception_refusing_is_a_do_not_call_report(self):
         f, b = self.flow()
         r = self.say(f, "営業のお電話はお断りしております。", "request_end", reason="callee_refused_call")
@@ -11127,34 +11150,41 @@ class NoneOfThemTest(unittest.TestCase):
 class EndsOnTest(unittest.TestCase):
     """依頼者のトークスクリプトの「この答えなら、ここで終える」（flowctl.Question.ends_on。先へ進むかを決めるのは gate_of・held の1か所）。✅ 2026-11-04
     日本時間2時10分54秒 ユーザー「OK」（「お電話がよいと言われたら、ここで終える」を、あとの質問ではなく、その質問に覚えさせる案）・1時25分39秒
-    「（本人or後任or代理がいると聞き取れない）のに次に進むのは問題でしょ？」「…とほかのご希望を伺うように言っていますよね。」"""
+    「（本人or後任or代理がいると聞き取れない）のに次に進むのは問題でしょ？」「…とほかのご希望を伺うように言っていますよね。」
+    ⛔ 試しの業務の例を「ご担当の方はいらっしゃいますでしょうか？（いないと言われたら終える）」にしていた（✅ 11-04 日本時間3時15分 ユーザー：「通常は、
+    いない場合、終えるではなく、いつ戻られるのかを確認するのがセオリーですよ！」・同じ夜「「いつならいらっしゃるのかを確認する」のがセオリーの方が正しい
+    言い方ですね」）＝お呼びする方がいらっしゃるかは業務の質問ではなく、お呼びする段（目的のお客様）。いらっしゃらなければ、終えずに、いつならいらっしゃるかを
+    伺う（TargetTest.test_every_away_reason_asks_when_they_are_available）。⇒ 例は、ご予約の確認の電話と、ご連絡の方法（場面2）にした"""
 
-    STAFF = "ご担当の方はいらっしゃいますでしょうか？"
+    RESERVED = "ご予約はされていますでしょうか？"
     CONTACT = "ご連絡はお電話とメールのどちらがよろしいでしょうか？"
     NEXT = "ご不明な点はございますでしょうか？"
     say = staticmethod(AmbiguousAnswerTest.say)
 
-    def staff_questions(self, follow=False):
+    def reserve_questions(self):
+        # ご予約の確認の電話：ご予約をされていないなら、確かめることが無いので、ここで終える
         from flowctl import Question
-        qs = [Question("Q1", self.STAFF, "yes_no", conditions=("いる", "いない"), ends_on=("いない",), topic="ご担当の方がいらっしゃるか"),
-              Question("Q2", "ご担当の方のお名前をお伺いしてもよろしいでしょうか？", "name", conditions=("答えた",), topic="ご担当の方のお名前"),
-              Question("Q3", "資料をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
-        if follow:   # 「いない」なら後任の方を伺って終える（その答えのトークスクリプトの続き）
-            qs.insert(1, Question("Q1a", "後任のご担当の方はいらっしゃいますでしょうか？", "yes_no", conditions=("はい", "いいえ"), ask_if=("Q1", ("いない",))))
-        return qs
+        return [Question("Q1", self.RESERVED, "yes_no", conditions=("はい", "いいえ"), ends_on=("いいえ",), topic="ご予約をされているか",
+                         meanings={"はい": "ご予約はされている", "いいえ": "ご予約はされていない"}),
+                Question("Q2", "ご予約の日時をお伺いしてもよろしいでしょうか？", "datetime", conditions=("答えた",), topic="ご予約の日時"),
+                Question("Q3", "当日はお車でお越しでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
 
-    def contact(self, ends=("電話",), goal=False, tell=None, play=False):
+    def contact(self, ends=("電話",), goal=False, tell=None, play=False, follow=False):
         from flowctl import Flow, Question
-        return Flow([Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"), ends_on=ends, final_goal=goal, topic="ご連絡の方法",
-                              tell_words=tell or {}),
-                     Question("Q2", self.NEXT, "yes_no", conditions=("はい", "いいえ"))], play_recordings=play)
+        qs = [Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"), ends_on=ends, final_goal=goal, topic="ご連絡の方法",
+                       tell_words=tell or {}),
+              Question("Q2", self.NEXT, "yes_no", conditions=("はい", "いいえ"))]
+        if follow:   # 「お電話」なら、お電話のご都合のよい時間帯を伺ってから終える（その答えのトークスクリプトの続き）
+            qs.insert(1, Question("Q1a", "お電話のご都合のよい時間帯はございますでしょうか？", "datetime", conditions=("答えた",), ask_if=("Q1", ("電話",)),
+                                  topic="お電話のご都合のよい時間帯"))
+        return Flow(qs, play_recordings=play)
 
     def test_unheard_answer_does_not_go_on(self):
-        # 場面1：こちら「ご担当の方はいらっしゃいますでしょうか？」お客様「（電波が悪く、聞き取れない）」⇒ 先へ進まない（お名前・資料を伺わない）。その場で2回
-        # 聞き返し、締めの前の念のための確認（「お声が聞き取れませんでしたので…もう一度だけ」）でもう1回伺う。⛔ 直す前は、聞き返しを使い切るとお名前を伺っていた
+        # 場面1：こちら「ご予約はされていますでしょうか？」お客様「（電波が悪く、聞き取れない）」⇒ 先へ進まない（ご予約の日時・お車を伺わない）。その場で2回
+        # 聞き返し、締めの前の念のための確認（「お声が聞き取れませんでしたので…もう一度だけ」）でもう1回伺う。⛔ 直す前は、聞き返しを使い切ると次の質問を伺っていた
         from flowctl import Flow, Limits
         from phrases import ASK_BACK, CLOSING
-        f = Flow(self.staff_questions())
+        f = Flow(self.reserve_questions())
         for k in range(Limits().ask_back):
             r = self.say(f, "……", "report_unclear", question_id="Q1")
             self.assertEqual((r["result"], r["ask_n"]), ("ask_back", k + 1))
@@ -11169,18 +11199,18 @@ class EndsOnTest(unittest.TestCase):
         self.assertNotEqual(ASK_BACK, r["say"])
 
     def test_answer_heard_at_the_recheck_resumes_as_a_first_ask(self):
-        # 念のための確認で「はい、おります。」⇒ 言い直して確かめてから、お名前へ。そこからは初めて伺う質問（その場の聞き返し・言い直しの決まりも同じ）。
+        # 念のための確認で「はい、しております。」⇒ 言い直して確かめてから、ご予約の日時へ。そこからは初めて伺う質問（その場の聞き返し・言い直しの決まりも同じ）。
         # ⛔ 直す前は、念のための確認の段のまま伺い、聞き取れない答えを聞き返さずに「-」にしていた（伺う条件 ask_if の質問でも同じ）
         from flowctl import Flow
         for ends in (True, False):
-            qs = self.staff_questions()
-            if not ends:   # 伺う条件で書いた同じ業務（いる ⇒ お名前・資料）：念のための確認で取れた答えで伺う質問も、初めて伺う質問
+            qs = self.reserve_questions()
+            if not ends:   # 伺う条件で書いた同じ業務（はい ⇒ ご予約の日時・お車）：念のための確認で取れた答えで伺う質問も、初めて伺う質問
                 import dataclasses
-                qs = [dataclasses.replace(qs[0], ends_on=())] + [dataclasses.replace(q, ask_if=("Q1", ("いる",))) for q in qs[1:]]
+                qs = [dataclasses.replace(qs[0], ends_on=())] + [dataclasses.replace(q, ask_if=("Q1", ("はい",))) for q in qs[1:]]
             f = Flow(qs)
             for _ in range(3):
                 self.say(f, "……", "report_unclear", question_id="Q1")
-            r = self.say(f, "はい、おります。", "record_answer", question_id="Q1", condition_id="いる")
+            r = self.say(f, "はい、しております。", "record_answer", question_id="Q1", condition_id="はい")
             self.assertEqual(r["result"], "confirm_required", ends)
             r = self.say(f, "はい。", "confirm_field", question_id="Q1", result="affirmed")
             self.assertEqual((r["result"], r["question_id"], f.phase), ("next", "Q2", "asking"), ends)
@@ -11188,38 +11218,39 @@ class EndsOnTest(unittest.TestCase):
             self.assertEqual((r["result"], r["question_id"]), ("ask_back", "Q2"), ends)
 
     def test_ending_answer_ends_here(self):
-        # 「いえ、おりません。」⇒ ここで終える（お名前・資料は伺わない・お礼の締め・断りではない）。伺わなかった質問は会話の報告の ended_on（CL-2 の判定は
-        # 「伺っていない（対象外）」と数える）。「はい、おります。」なら続ける
+        # 「いえ、しておりません。」⇒ ここで終える（ご予約の日時・お車は伺わない・お礼の締め・断りではない）。伺わなかった質問は会話の報告の ended_on（CL-2 の
+        # 判定は「伺っていない（対象外）」と数える）。「はい、しております。」なら続ける
         from flowctl import Flow
         from phrases import CLOSING
-        f = Flow(self.staff_questions())
-        r = self.say(f, "いえ、おりません。", "record_answer", question_id="Q1", condition_id="いない")
+        f = Flow(self.reserve_questions())
+        r = self.say(f, "いえ、しておりません。", "record_answer", question_id="Q1", condition_id="いいえ")
         self.assertEqual((r["result"], r["say"], f.end_reason, f._asked("Q2")), ("end", CLOSING, "done", False))
         e = f.report()["facts"]["ended_on"]
         self.assertEqual([{k: x[k] for k in ("turn", "said", "question", "answer", "skipped")} for x in e],
-                         [{"turn": 1, "said": "いえ、おりません。", "question": "Q1", "answer": "いない", "skipped": ["Q2", "Q3"]}])
+                         [{"turn": 1, "said": "いえ、しておりません。", "question": "Q1", "answer": "いいえ", "skipped": ["Q2", "Q3"]}])
         self.assertNotIn("ended_on", f.facts)   # 通話の途中の記録には書かない（通話の終わりの答えで決める）
-        f = Flow(self.staff_questions())
-        r = self.say(f, "はい、おります。", "record_answer", question_id="Q1", condition_id="いる")
+        f = Flow(self.reserve_questions())
+        r = self.say(f, "はい、しております。", "record_answer", question_id="Q1", condition_id="はい")
         self.assertEqual((r["result"], r["question_id"], f.ended_on), ("next", "Q2", None))
 
     def test_dont_know_or_refused_does_not_go_on(self):
-        # 「ちょっと分からないです。」「お答えできません。」⇒ いらっしゃるか分からないので先へ進まない（わからない・答えたくないは聞き直さない決まりのまま締める）。
-        # 伺わなかった質問は「取れていない」（ここで終えた印は付けない）
+        # 「家の者が予約したかもしれなくて、ちょっと分からないです。」「お答えできません。」⇒ ご予約をされているか分からないので先へ進まない（わからない・答えたく
+        # ないは聞き直さない決まりのまま締める）。伺わなかった質問は「取れていない」（ここで終えた印は付けない）
         from flowctl import Flow
-        for said, cond in (("ちょっと分からないです。", "unknown"), ("お答えできません。", "refused")):
-            f = Flow(self.staff_questions())
+        for said, cond in (("家の者が予約したかもしれなくて、ちょっと分からないです。", "unknown"), ("お答えできません。", "refused")):
+            f = Flow(self.reserve_questions())
             r = self.say(f, said, "record_answer", question_id="Q1", condition_id=cond)
             self.assertEqual((r["result"], f.end_reason, f._asked("Q2"), f.ended_on), ("end", "done", False, None), said)
 
     def test_follow_up_of_the_ending_answer_is_asked(self):
-        # 「いない」なら後任の方を伺う、と書いた業務（その答えで伺う質問＝ask_if）：後任の方を伺ってから終える（ほかの質問は伺わない）
-        from flowctl import Flow
-        f = Flow(self.staff_questions(follow=True))
-        r = self.say(f, "いえ、おりません。", "record_answer", question_id="Q1", condition_id="いない")
+        # 「お電話」なら、お電話のご都合のよい時間帯を伺う、と書いた業務（その答えで伺う質問＝ask_if）：それを伺ってから終える（ほかの質問は伺わない）
+        f = self.contact(follow=True)
+        r = self.say(f, "お電話がいいです。", "record_answer", question_id="Q1", condition_id="電話")
         self.assertEqual((r["result"], r["question_id"]), ("next", "Q1a"))
-        r = self.say(f, "いないですね。", "record_answer", question_id="Q1a", condition_id="いいえ")
-        self.assertEqual((r["result"], f.end_reason, f.ended_on["skipped"]), ("end", "done", ["Q2", "Q3"]))
+        r = self.say(f, "夕方なら出られます。", "record_answer", question_id="Q1a", condition_id="答えた", value="夕方")
+        self.assertEqual(r["result"], "confirm_required")
+        r = self.say(f, "はい。", "confirm_field", question_id="Q1a", result="affirmed")
+        self.assertEqual((r["result"], f.end_reason, f.ended_on["skipped"]), ("end", "done", ["Q2"]))
 
     def test_none_asks_other_wish_then_decides_with_the_same_rule(self):
         # 場面2：こちら「ご連絡はお電話とメールのどちらがよろしいでしょうか？」お客様「どちらも要らないです。」⇒ こちら「はい、それでは電話とメールのほかに
@@ -11280,11 +11311,11 @@ class EndsOnTest(unittest.TestCase):
         cases = [(ask_if, {"Q1": {"state": "accepted", "value": None, "condition": "いいえ"}}, "Q3"),
                  (ask_if, {"Q1": {"state": "accepted", "value": None, "condition": "はい"}}, "Q2"),
                  (ask_if, {}, "Q1"),
-                 (self.staff_questions(), {"Q1": {"state": "accepted", "value": None, "condition": "いない"}}, None),
-                 (self.staff_questions(), {"Q1": {"state": "accepted", "value": None, "condition": "いる"}}, "Q2"),
-                 (self.staff_questions(), {"Q1": {"state": "refused", "value": None, "condition": "答えたくない"}}, None),
+                 (self.reserve_questions(), {"Q1": {"state": "accepted", "value": None, "condition": "いいえ"}}, None),
+                 (self.reserve_questions(), {"Q1": {"state": "accepted", "value": None, "condition": "はい"}}, "Q2"),
+                 (self.reserve_questions(), {"Q1": {"state": "refused", "value": None, "condition": "答えたくない"}}, None),
                  # 前の通話で「分からない」：先へ進むかが決まらないので、続きの電話でもう一度伺う（伺わないと、何も伺わずに終える電話になる）
-                 (self.staff_questions(), {"Q1": {"state": "dont_know", "value": None, "condition": "わからない"}}, "Q1"),
+                 (self.reserve_questions(), {"Q1": {"state": "dont_know", "value": None, "condition": "わからない"}}, "Q1"),
                  (ask_if, {"Q1": {"state": "dont_know", "value": None, "condition": "わからない"}}, "Q3")]   # ここで終える答えの無い質問は今までどおり
         for qs, earlier, want in cases:
             b = dataclasses.replace(BUSINESS, questions=qs, earlier=earlier)
