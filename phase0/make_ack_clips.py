@@ -1,5 +1,5 @@
 """AIと同じ声で、プログラムが流す録音を作る（DESIGN.md 6-13・6-15）。
-- 契約者の単位（声の型ごとに1回。どの依頼主にも同じもの）：相づち・つなぎの言葉・締め・待ってもらう一言（phrases.RECORDED）⇒ results/ack/
+- 共通の一言（声の型ごとに1回。どの依頼主にも同じもの）：相づち・つなぎの言葉・締め・待ってもらう一言（phrases.RECORDED）⇒ results/ack/
 - 依頼主の単位（--script。トークスクリプトだけ）：質問の文（業務設定の質問。つなぎの言葉は含めない）⇒ results/script/
   ✅ 2026-10-15 ユーザー：「頻繁に使うワードは、契約者単位でシステム的に録音しておいたらいい。依頼者ごとに録音するのは、トークスクリプトのみ」
 
@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -111,7 +111,7 @@ MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if t
 # ときの一言（46字）も、この見込みに届いていなかった（7.0→8.0）
 CHAR_S = 0.141
 # 録音の中の名前ごとの読み方の鍵（無ければ中の名前のまま）。かけ直しで足す質問は、質問の読み方（⛔ 2026-10-19 の見直しで見つけた漏れ：
-# 足す質問を契約者の単位の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
+# 足す質問を共通の一言の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
 HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}
 HOW_OF.update({f"callback_{k}_{i}": "question" for k, vs in CALLBACK_ASK_AGAIN.items() for i, _ in enumerate(vs, 2)})   # 2回目からの言い方も質問の読み方
 # 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
@@ -122,11 +122,17 @@ HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 HOW["closing_after_decline"] = ("電話の最後に、お客様のお断りを丁寧に受け止めてから、お時間をいただいたことへの感謝を伝えるように、前向きに、心を込めて、"
                                 "落ち着いた調子で。言葉の途中で区切らずに、なめらかに、ひと続きで")
 MAX_S["closing_after_decline"] = 9.0
+# 業務で「引き止める」を選んだときの一言（業務が書く文＝依頼主の単位の busy。script_table）：読み方は質問と同じ。業務の文は質問より長くなりうる
+# （例：phrases.BUSY_ASK は42字＝見込み 6.6秒）ので、長さの上限だけ別にする（業務が書く伝言・留守番電話の伝言と同じ考え）
+HOW["busy"] = HOW["question"]
+MAX_S["busy"] = 9.0
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
 HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場か・お取次ぎのみかを聞く一言は長い（76字）ので、読み方と長さの上限は別  # 後任の方をお呼びする・確かめる一言（phrases.SUCCESSOR）も質問の読み方
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも
 # 流す。どちらも、何か気になる点があったかを心配して聞く一言なので、「AIですか」への言い方と同じ読み方
 HOW_OF.update({"ikaga": "ai", "dou": "ai"})
+# 「AIですか？」への標準の答え（phrases.STANDARD_PARTS。業務が書かないときに流す共通の一言）：業務の答え（依頼主の単位の ai）と同じ読み方
+HOW_OF[STANDARD_PARTS["ai"]] = "ai"
 # 「どうなさいますか？」（phrases.THINKING_PROMPT の1回目）：悩んで黙った方に、どうなさるかを伺う一言＝質問の読み方（✅ 2026-11-01 日本時間23時04分 ユーザー）
 HOW_OF["dounasaimasu"] = "question"
 HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})
@@ -222,10 +228,11 @@ def script_table(business) -> tuple[dict, dict]:
     items = [("intro", business.opening_parts()[1], "intro")]
     if business.purpose_line:
         items.append(("purpose", business.purpose_line, "purpose"))
-    # 相手に聞かれたことへの決まった言い方（「AIですか？」）と留守番電話の伝言（設定があれば）も、依頼主の単位（DESIGN.md 6-13 の3）。
+    # 相手に聞かれたことへの決まった言い方（「AIですか？」）・留守番電話の伝言・伝言・引き止めの一言（業務が書いたときだけ＝replay_parts）も、依頼主の単位
+    # （DESIGN.md 6-13 の3）。業務が書かなかった「AIですか？」の答えは標準＝共通の一言の録音（phrases.STANDARD_PARTS）なので、ここには入らない。
     # 目的の人を呼ぶ一言・確かめる一言は、電話をかける相手ごとに名前が変わるので、ここではなく名前の録音の台帳（DESIGN.md 4-3）
     parts = business.replay_parts()
-    items += [(k, parts[k], k) for k in ("ai", "voicemail", "message") if parts.get(k)]
+    items += [(k, parts[k], k) for k in ("ai", "voicemail", "message", "busy") if parts.get(k)]
     items += [(k, text, "answer") for k, text in parts.items() if k.startswith("answer_")]  # 想定問答の答え（Business.answers）
     for q in business.questions:  # つなぎの言葉と質問を1本で録音する（順番で決まるつなぎの言葉。flowctl.spoken_question）
         if q.reading_of:

@@ -16,7 +16,7 @@ from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LA
                      callback_question, check_policies, choices_note, first_open, offers_rule, resumed_wish, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -150,7 +150,7 @@ class Business:
     message: str | None = None
     # お呼びした方が在籍していない（退職・異動）＝後任の方をお呼びする（successor）／お礼を言って終える（end）
     departed_policy: str = "successor"
-    # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら既定の文（phrases.AI_ANSWER）
+    # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら標準の文（phrases.AI_ANSWER＝共通の一言の録音 ai_answer）
     ai_answer: str | None = None
     # 目的の人（DESIGN.md 4-3）。None＝「誰でも」（最初に出た人が目的の人）。目的の人のある業務では、名乗りの終わりは目的の人を呼ぶ一言で、
     # 目的の人に繋がるまで最初の質問を聞かない（流れの制御 Flow の calling の段）
@@ -356,8 +356,15 @@ class Business:
         分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
         company, caller = self._said()
-        parts = {"greeting": GREETING, "intro": f"{company}の{caller}と申します。", "purpose": self.purpose_line or "",
-                 "ai": self.ai_answer or AI_ANSWER}  # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）
+        parts = {"greeting": GREETING, "intro": f"{company}の{caller}と申します。", "purpose": self.purpose_line or ""}
+        if self.ai_answer:
+            # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）。業務が書いたときだけ業務の録音。書かなければ
+            # 標準（phrases.AI_ANSWER）を共通の一言の録音から流す（phrases.STANDARD_PARTS・flowctl.Flow._part_play。✅ 2026-11-02 管理者＝CL-2 の 4-188）
+            parts["ai"] = self.ai_answer
+        if self.busy_ask:
+            # 「忙しい」と言われたときの引き止めの一言（業務で「引き止める」を選んだ業務だけ。業務の文＝業務の録音。お客様に伺う文はプログラムが流す＝9-3。
+            # ⛔ 前は録音の組に入れず、会話AIに言わせていた＝flowctl.Flow の request_end の callee_hurry）
+            parts["busy"] = self.busy_ask
         if self.target is not None:
             t = dataclasses.replace(self.target, successor=False)
             parts.update(target=t.call(), target_confirm=t.confirm(), target_reconfirm=t.reconfirm(),

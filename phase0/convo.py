@@ -65,7 +65,7 @@ def callee_wav(name: str, callee_voice: str | None) -> str:
 # （Flow.unchecked）。待つのではない（返事は flow.limits.hold_s までしか待たない）
 LATE_CHECK_S = 30.0
 def recording_seconds(voice_type: str, part: str) -> float:
-    """契約者の単位の録音（make_ack_clips の results/ack）の、声の長さ（秒）。判定を待つ間に流す録音（Flow.hold_play）の分だけ、待つ長さを
+    """共通の一言の録音（make_ack_clips の results/ack）の、声の長さ（秒）。判定を待つ間に流す録音（Flow.hold_play）の分だけ、待つ長さを
     延ばすのに使う（本番は、電話接続側が流す録音の長さをそのまま使う）。録音が無ければ止める（長さの見込みで待たない）。使う録音かは
     make_ack_clips.usable の1か所（人が聞いて選んだ録音も使う）。"""
     from make_ack_clips import usable, words
