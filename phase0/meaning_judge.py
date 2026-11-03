@@ -1496,13 +1496,23 @@ def maker(name: str) -> str:
     return OTHER_JUDGES[name]["maker"] if name in OTHER_JUDGES else "google"
 
 
+# 使用額の上限（管理者が決めた API の支払いの上限）に当たったときの返事の文（outage の1か所が読む。CL-2 の errors.SPEND_LIMIT_TEXTS と同じ＝比べる
+# 試験 test_spend_limit_texts_match_cl2。番号は中身の誤りと同じ 400 なので、番号では見分けない＝2026-10-28 の実測）
+SPEND_LIMIT_TEXTS = ("You have reached your specified API usage limits",)
+
+
 def outage(exc: BaseException) -> bool:
     """判定が止まっている側の失敗か（時間切れ・つながらない・上限・キーが止められた・残高不足・混雑）。問い合わせの中身が断られた（400 など）は、
     その発話だけ代わりに回し、止まっているとはみなさない。
     ⛔ 2026-10-31 の夜：残高不足（402＝OpenRouter の口座に入れた額を使い切った）を中身の断りと同じに扱っていた＝足すまで毎回の発話で断られる
     のに止まっているとみなさず、代わり（答えの段の Jev）も入らず、AIの不具合の印（tried の outage）も付かない＝新しい電話を一時停止する発信の
     門（CL-2）に届かなかった（✅ 2026-10-30 夜 ユーザー：「その他に使う AI のどれかが止まったら、AI の不具合として回復するまで一時停止して
-    ください。」）⇒ キーが止められたとき（401・403）と同じ、足すまで続く止まりとした"""
+    ください。」）⇒ キーが止められたとき（401・403）と同じ、足すまで続く止まりとした。
+    ⛔ 2026-11-04：使用額の上限（管理者が決めた API の支払いの上限。Anthropic は中身の誤りと同じ番号 400 で返す＝2026-10-28 の実測）も中身の断りと
+    読んでいた（同じ穴）⇒ 返事の文（SPEND_LIMIT_TEXTS＝CL-2 の errors.spend_limit と同じ文。番号では見分けない）で、上限が戻るまで続く止まりとした。
+    別の耳の失敗も、この1か所で見分ける（ears.Ear._failed）"""
+    if any(t in str(exc) for t in SPEND_LIMIT_TEXTS):
+        return True
     for v in (getattr(exc, "status", None), getattr(exc, "code", None)):
         if isinstance(v, int) and 400 <= v < 500 and v not in (401, 402, 403, 408, 429):
             return False

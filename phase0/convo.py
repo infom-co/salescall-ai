@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from contextlib import AsyncExitStack, nullcontext
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, redact, write_wav
@@ -462,6 +462,29 @@ async def check_ais(*, judges=(), ear_kind: str | None = None, ring=None, model:
     return out
 
 
+@asynccontextmanager
+async def call_ear(ear_kind: str | None, client, flow: Flow):
+    """通話ごとに別の耳を1本開く（唯一の場所。本番の形＝ears.open_ear）。耳を使わない通話は None。開けなければ（開くのが止まったら
+    止まったとみなす秒で打ち切る＝ears.Ear）、会話AIを開けないときと同じ1か所（Flow.on_ai_unreachable）へ渡し、False を返す＝通話の道具は
+    台詞を流さない（電話の前＝止まったAIとして残し、電話はかけない。✅ 2026-10-30 夜 ユーザー：「…その他に使う AI のどれかが止まったら、
+    AI の不具合として回復するまで一時停止してください。」）。⛔ 2026-11-04 まで、開けない誤りが通話の道具の外へそのまま上がり、報告が
+    作られなかった（CL-2 が止まったことを知る道が無い）。"""
+    if not ear_kind:
+        yield None
+        return
+    cm = open_ear(ear_kind, client)
+    try:
+        ear = await cm.__aenter__()
+    except Exception as exc:
+        flow.on_ai_unreachable(redact(repr(exc))[:160], ai=ear_ai(ear_kind))
+        yield False
+        return
+    try:
+        yield ear
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
 async def run_call(client, model: str, business: Business, voice_type: str, callee_lines: list, *,
                    swap_before: int | None = None, stall_at: int | None = None, stall_wait_s: float = 1.0,
                    opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
@@ -620,9 +643,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         # 電話が繋がった：こちらは話さずに、出た方の第一声を聞く（名乗りは、出た方が人と分かり、言葉が終わってから＝Flow.on_connect。
         # ✅ 2026-10-24 ユーザー。CL-1.md 4-45）。台詞の1つ目は、出た方の第一声
         flow.on_connect()
-    async with (open_ear(ear_kind, client) if ear_kind else nullcontext()) as ear:  # 別の耳は通話ごとに1本（本番の形。ears.open_ear）
+    async with call_ear(ear_kind, client, flow) as ear:  # 別の耳は通話ごとに1本（本番の形。開けなければ False＝台詞を流さない）
         i = 0
-        while i < len(callee_lines) and flow.phase != "closing":
+        while ear is not False and i < len(callee_lines) and flow.phase != "closing":
             sessions += 1
             opened_at = time.monotonic()
             voice, cfg = config()
@@ -840,7 +863,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     await asyncio.gather(*closing, return_exceptions=True)
     for st in route_states:
         st.on_trouble, st.emergency_first = None, False
-    for e, stopped in (zip(ear.errors, ear.outages) if ear is not None else ()):
+    for e, stopped in (zip(ear.errors, ear.outages) if ear else ()):
         # 別の耳の失敗（ears.Ear._failed の1か所）：止まった側の失敗は「止まった」、ほかは電話を続けられた「おかしな動き」（CL-2 の 4-173 の (a)）
         flow.on_ai_trouble({"model": ear_ai(ear_kind), "error": e, **({"outage": True} if stopped else {"glitch": True})})
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log, "trouble": flow.trouble,
@@ -856,7 +879,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             "apology_delivered": flow.apology_delivered,  # お詫びの電話で、お詫びを伝えられたか（会話の報告の apology_delivered。お詫びの電話でなければ None）
             "irreversible_check": flow.irreversible_check,  # 取り消せない事実と2つ目の判定がそろったか（Flow._note_irreversible の1か所。CL-2 の 4-182 の (1)）
             "checked_after_call": before_after - len(flow.unchecked()),
-            "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
+            "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear else None,
             "unchecked": flow.unchecked(),
             "ai_trouble": flow.ai_trouble,  # 止まったAI・緊急の道で答えたこと（会話の報告の ai_trouble。Flow.on_ai_trouble の1か所＝CL-2 が新しい電話を一時停止する）
             "report": flow.report()}   # 会話の報告の外枠（Flow.report の1か所＝CL-2 の call_report.from_json が読む形。上の同じ名前の項目と同じ中身）

@@ -2665,14 +2665,22 @@ class Flow:
         self.on_ai_trouble({"model": CONVO_AI, "error": why, "glitch": True})   # 張り替えて続ける＝おかしな動き（止めずに警告。on_ai_trouble の1か所）
         return {"result": "swap", "why": why}
 
-    def on_ai_unreachable(self, error: str) -> dict:
-        """会話AIのつながりを開けない（唯一の場所）。電話の前（お客様の言葉がまだ1つも届いていない）なら、止まったAIとして残すだけ
-        （{"result": "not_called"}＝電話接続側は電話をかけない。発信の門が1回で新しい電話を止める＝CL-2 の連絡帳 4-179 の (a)・2章 Q58：
-        止まったかを決めるのは会話の側の1か所。⛔ 2026-11-02 まで送っておらず、CL-2 が生の誤りを3回数えて止めていた）。通話の途中
-        （張り替えのつながりを開けない）なら、甚大な問題として、お詫びして終える（_trouble。止まったAIにも数える）。"""
+    def on_ai_unreachable(self, error: str, ai: str = CONVO_AI) -> dict:
+        """通話で使うAIのつながり（ai＝会話AI か 別の耳。判定はつながりを持たない）を開けない（唯一の場所。開くのが止まったときも同じ＝開く所が
+        判定と同じ「止まったとみなす秒」で打ち切る：live_util.open_session・ears.Ear）。電話の前（お客様の言葉がまだ1つも届いていない）なら、
+        止まったAIとして残すだけ（{"result": "not_called"}＝電話接続側は電話をかけない。発信の門が1回で新しい電話を止める＝CL-2 の連絡帳
+        4-179 の (a)・2章 Q58：止まったかを決めるのは会話の側の1か所。⛔ 2026-11-02 まで送っておらず、CL-2 が生の誤りを3回数えて止めていた。
+        ✅ 2026-10-30 夜 ユーザー：「…その他に使う AI のどれかが止まったら、AI の
+        不具合として回復するまで一時停止してください。」＝別の耳も同じ。⛔ 2026-11-04 まで別の耳を開けない誤りは、ここを通らずに通話の道具の
+        外へ上がり、報告が作られなかった）。通話の途中：会話AI（張り替えのつながりを開けない）なら、甚大な問題として、お詫びして終える
+        （_trouble。止まったAIにも数える）／別の耳なら、止まったAIとして残して電話は続ける（✅ 2026-10-31 管理者：「通話中は止めません。
+        ただし、次の電話はかけず、確かめが通れば自動で再開します。」。別の耳は通話の始めに1回開くだけなので、いまの通話の道具では通らない）。"""
         if self.callee_turns == 0:
-            self.on_ai_trouble({"model": CONVO_AI, "error": error, "outage": True})
+            self.on_ai_trouble({"model": ai, "error": error, "outage": True})
             return {"result": "not_called", "why": error}
+        if ai != CONVO_AI:
+            self.on_ai_trouble({"model": ai, "error": error, "outage": True})
+            return {"result": "continue", "why": error}
         return self._trouble("ai_malfunction", f"会話AIのつながりを開けない（{error}）")
 
     # ── 相手の言葉の文字が届いた（会話AIの聞き取り。値を直されたときの直され方を、プログラムが決めるのに使う）
