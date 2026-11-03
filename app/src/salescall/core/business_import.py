@@ -47,7 +47,7 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "questions": ("質問", {"id": "質問ID", "text": "質問の文", "ask_about": "聞くこと", "type": "型", "required": "必須",
                           "choices": "選択肢", "decline": "断りの答え", "intro": "入る一言", "ask_after": "伺う条件の質問ID",
                           "ask_answers": "伺う条件の答え", "ask_hedged": "言い切っていないときだけ伺う", "approval": "ご承認を伺う",
-                          "final_goal": "最終目的"}, True),
+                          "final_goal": "最終目的", "do_words": "こちらがすることの言葉"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -64,8 +64,10 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # 断りの答えの列は、その質問の申し出を断る答え＝最終目的でない質問では、断られても用件を断られたにしない。CL-1 の連絡帳 4-69 の 4-182 の (e)）
 # 伺う条件の答えが言い切っていないときだけ伺うか（「はい」なら、前の質問の答えが言い切っていないときだけ伺う。依頼者のトークスクリプト。
 # CL-1 の連絡帳 4-71 の (b)。空なら、伺う答えならいつも伺う）
+# こちらがすることの言葉（選択肢ごと。「選択肢：言葉」を「／」か改行で区切る。例「はい：予定通りの方向で進め」。書いた選択肢は取込の AI の言葉より
+# 先に使う。CL-1 の連絡帳 4-72 の (d)）
 OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.ask_hedged",
-                              "questions.approval", "questions.final_goal"})
+                              "questions.approval", "questions.final_goal", "questions.do_words"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -236,6 +238,22 @@ def _earliest(basic: dict[str, str | None], problems: list[str]) -> dict[str, An
                          "closed_on_holidays": holidays if holidays is not None else True, "closed_dates": dates}}
 
 
+_WORD_PAIR = re.compile(r"^\s*([^：:]+?)\s*[：:]\s*(.+?)\s*$")
+
+
+def _do_words(value: str | None, where: str, problems: list[str]) -> dict[str, str] | None:
+    """「質問」のシートの「こちらがすることの言葉」（「選択肢：言葉」を「／」か改行で区切る）を、選択肢 → 言葉の表にする（空なら None＝AI に
+    聞く）。形の違う区切りは問題。選択肢に無い名前は、業務設定の確かめが問題に出す（1か所）。"""
+    out: dict[str, str] = {}
+    for part in _split(value) or []:
+        m = _WORD_PAIR.match(part)
+        if m is None:
+            problems.append(f"{where}「{part}」は「選択肢：言葉」の形です")
+            continue
+        out[m.group(1)] = m.group(2)
+    return out or None
+
+
 def _basic_name(key: str) -> str:
     return next(k for k, v in BASIC_ITEMS.items() if v == key)
 
@@ -291,7 +309,8 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         questions.append({"id": v.get("id"), "text": v.get("text"), "ask_about": v.get("ask_about"), "type": qtype,
                           "required": required, "choices": _split(v.get("choices")) if qtype == "choice" else None,
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
-                          "do_words": None, "keep_words": None, "away": None, "intro": v.get("intro"), "ask_if": ask_if,
+                          "do_words": _do_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems),
+                          "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
                           "declines": _split(v.get("decline")) or []})
@@ -483,12 +502,13 @@ DoWordsDecider = Callable[[list[tuple[str, tuple[str, ...], dict[str, str]]]], l
 持ってきたものか、同じ取込で先に決めたもの（`ask_ai`）。管理者も契約者も確かめない。"""
 
 
-KeepDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[tuple[tuple[str, ...], dict[str, str]]]]
-"""事実を伺う質問ではない（希望・申し出の）選択肢の質問の、業務の目的から遠ざかる向きの選択肢と、その選択肢の「目的につなげて伺う言葉」を
-決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで (遠ざかる向きの選択肢の並び, {選択肢: 言葉})。言葉の決まらない選択肢は言葉に
-入れない）。決め方は CL-1 の1か所（`meanings.by_model(…, "keep")` を2つのモデルで1回ずつ → `meanings.decide_keep`。遠ざかる向きかは、どちらか
-1つのモデルでもそう読めば入れる＝安全側。CL-1 の連絡帳 4-71 の (a)。作った言葉は CL-1 が全部見て、ユーザーにお見せする）。管理者も契約者も
-確かめない。"""
+AwayDecider = Callable[[list[tuple[str, tuple[str, ...], dict[str, str]]]], list[tuple[str, ...]]]
+"""事実を伺う質問ではない（希望・申し出の）選択肢の質問の、業務の目的から遠ざかる向きの選択肢を決める処理（(質問の文, 選択肢の並び, その質問の
+意味の言葉 {選択肢: 意味の言葉}) の並び → 同じ並びで、遠ざかる向きの選択肢の並び）。決め方は CL-1 の1か所（`import_ai.decide_away`＝
+`meanings.by_model(…, "away")` を2つのモデルで1回ずつ → `meanings.decide_away`。どちらか1つのモデルでも遠ざかる向きと読むか、読めない選択肢は
+入れる＝安全側。意味の言葉を添えて読ませる＝打ち消しの問いの「はい」を取り違えない。CL-1 の連絡帳 4-72 の (a)）。管理者も契約者も確かめない。
+⛔ 2026-11-03 日本時間8時10分 ユーザー：「今の一言や案は全くダメです。…いい加減な提案をするな！！」＝前の形（目的につなげて伺う言葉も AI が作る
+decide_keep_words）は取り下げ。目的につなげて伺う一言は、業務設定の言い切っていないときだけ伺う質問で書く。"""
 
 
 FactDecider = Callable[[list[str]], dict[str, bool]]
@@ -517,45 +537,56 @@ def _asks_fact(q: dict[str, Any], facts: dict[str, bool]) -> bool:
     return q["asks_fact"] if isinstance(q.get("asks_fact"), bool) else facts.get(q.get("text"), True)
 
 
-_WISH_KEYS = ("do_words", "keep_words")   # 事実を伺う質問ではない（希望・申し出の）選択肢の質問にだけ付く言葉
+_WISH_KEYS = ("do_words", "away")   # 事実を伺う質問ではない（希望・申し出の）選択肢の質問にだけ付くもの
 
 
 def _choice_questions(raw: dict[str, Any], key: str,
                       facts: dict[str, bool] | None = None) -> list[tuple[dict[str, Any], tuple[str, ...]]]:
-    """意味の言葉（key＝meanings）・曖昧な言葉の意味（replies）・こちらがすることの言葉（do_words）・目的につなげて伺う言葉と目的から
-    遠ざかる向きの選択肢（keep_words。away も入口から来ていないもの）が、まだ入口から来ていない選択肢の質問と、その選択肢（1か所）。
-    do_words・keep_words は、事実を伺う質問ではない質問だけ（facts＝事実を伺う質問かの AI の答え。`_asks_fact`）。"""
+    """意味の言葉（key＝meanings）・曖昧な言葉の意味（replies）・こちらがすることの言葉（do_words）・目的から遠ざかる向きの選択肢（away）が、
+    まだ入口から来ていない選択肢の質問と、その選択肢（1か所）。こちらがすることの言葉は、入口（業務設定に書いた言葉）がすべての選択肢に
+    書いていなければ聞く（書いた選択肢は入口の言葉を使う＝`review`。CL-1 の連絡帳 4-72 の (d)）。do_words・away は、事実を伺う質問ではない
+    質問だけ（facts＝事実を伺う質問かの AI の答え。`_asks_fact`）。"""
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     out = []
     for q in qs:
         if key in _WISH_KEYS and (not isinstance(q, dict) or _asks_fact(q, facts or {})):
             continue
-        if key == "keep_words" and q.get("away"):
+        if not (isinstance(q, dict) and q.get("type") in business_settings.CHOICE_TYPES
+                and isinstance(q.get("text"), str) and q["text"].strip()):
             continue
-        if isinstance(q, dict) and q.get("type") in business_settings.CHOICE_TYPES and not q.get(key) \
-                and isinstance(q.get("text"), str) and q["text"].strip():
-            choices = business_settings.declared_choices(q["type"], q.get("choices"))
-            if choices:
-                out.append((q, choices))
+        choices = business_settings.declared_choices(q["type"], q.get("choices"))
+        given = q.get(key)
+        missing = not given if key != "do_words" else not (isinstance(given, dict) and set(choices or ()) <= set(given))
+        if choices and missing:
+            out.append((q, choices))
     return out
 
 
-def _decided_keep(raw: dict[str, Any], decide: KeepDecider | None, facts: dict[str, bool]) -> dict[str, dict[str, Any]]:
-    """質問ごとに、目的から遠ざかる向きの選択肢と目的につなげて伺う言葉を、決める処理に1回だけ聞く（使える組だけ返す。答えが無い・形が
-    違うときは空＝会話は今までの確かめの言い方。言葉は遠ざかる向きの選択肢にだけ）。答え＝質問の文と選択肢 → {"away": 並び, "words": 表}。"""
-    pairs = list(dict.fromkeys((q["text"], c) for q, c in _choice_questions(raw, "keep_words", facts)))
+def _with_meanings(found: list[tuple[dict[str, Any], tuple[str, ...]]], meanings: dict[str, dict[str, str]]
+                   ) -> tuple[list[tuple[str, tuple[str, ...]]], list[tuple[str, tuple[str, ...], dict[str, str]]]]:
+    """決める処理に渡す (質問の文, 選択肢, その質問の意味の言葉) の並び（1か所。こちらがすることの言葉と目的から遠ざかる向きは、どちらも意味の
+    言葉を添えて聞く＝向きを取り違えない。CL-1 の G-72）。同じ文と選択肢の質問は1回だけ聞く（意味の言葉は、その最初の質問のもの）。"""
+    first: dict[tuple[str, tuple[str, ...]], dict[str, str]] = {}
+    for q, c in found:
+        first.setdefault((q["text"], c), _meanings_of(q, c, meanings))
+    pairs = list(first)
+    return pairs, [(t, c, first[(t, c)]) for t, c in pairs]
+
+
+def _decided_away(raw: dict[str, Any], decide: AwayDecider | None, facts: dict[str, bool],
+                  meanings: dict[str, dict[str, str]]) -> dict[str, list[str]]:
+    """質問ごとに、目的から遠ざかる向きの選択肢を、決める処理に1回だけ聞く（答え＝質問の文と選択肢 → 遠ざかる向きの選択肢の並び）。答えが
+    無い・形が違う質問は、すべての選択肢を遠ざかる向きとして入れる（読めない＝安全側＝CL-1 の decide_away と同じ側。「させていただきますね？」を
+    使わず、今までの「念のため…」で確かめる）。選択肢に無い名前は落とす。"""
+    pairs, items = _with_meanings(_choice_questions(raw, "away", facts), meanings)
     if not pairs or decide is None:
         return {}
-    got = decide(pairs)
-    if not isinstance(got, list) or len(got) != len(pairs):
-        return {}
+    got = decide(items)
+    got = got if isinstance(got, list) and len(got) == len(pairs) else [None] * len(pairs)
     out = {}
     for (text, choices), d in zip(pairs, got):
-        if not isinstance(d, (tuple, list)) or len(d) != 2 or not isinstance(d[0], (tuple, list)):
-            continue
-        away = [c for c in dict.fromkeys(d[0]) if isinstance(c, str) and c in choices]
-        words = {c: w for c, w in business_settings.valid_answer_words(d[1], choices, replies=False).items() if c in away}
-        out[_pair_key(text, choices)] = {"away": away, "words": words}
+        readable = isinstance(d, (tuple, list)) and all(isinstance(c, str) for c in d)
+        out[_pair_key(text, choices)] = [c for c in choices if c in d] if readable else list(choices)
     return out
 
 
@@ -576,10 +607,7 @@ def _decided_pairs(raw: dict[str, Any], key: str, decide: MeaningDecider | Reply
     if not pairs or decide is None:
         return {}
     if key == "do_words":
-        first = {}
-        for q, c in found:   # 同じ文と選択肢の質問は1回だけ聞く（意味の言葉は、その最初の質問のもの）
-            first.setdefault((q["text"], c), _meanings_of(q, c, meanings or {}))
-        got = decide([(t, c, first[(t, c)]) for t, c in pairs])
+        got = decide(_with_meanings(found, meanings or {})[1])
     else:
         got = decide(pairs)
     if not isinstance(got, list) or len(got) != len(pairs):
@@ -640,13 +668,12 @@ def _script(raw: dict[str, Any]) -> str:
 def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_units: UnitDecider | None = None,
            decide_topics: TopicDecider | None = None, decide_meanings: MeaningDecider | None = None,
            decide_replies: ReplyDecider | None = None, decide_facts: FactDecider | None = None,
-           decide_do_words: DoWordsDecider | None = None, decide_keep_words: KeepDecider | None = None) -> dict[str, Any]:
+           decide_do_words: DoWordsDecider | None = None, decide_away: AwayDecider | None = None) -> dict[str, Any]:
     """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味・事実を伺う質問かを決める処理。
     どれも CL-1 の決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics":
     質問の文 → 聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢},
     "facts": 質問の文 → 事実を伺う質問か, "do_words": 質問の文と選択肢 → {選択肢: こちらがすることの言葉}（事実を伺う質問ではない質問
-    だけ＝事実を伺う質問かが決まってから聞く）, "keep": 質問の文と選択肢 → {"away": 目的から遠ざかる向きの選択肢, "words": {選択肢:
-    目的につなげて伺う言葉}}（do_words と同じ質問）}。
+    だけ＝事実を伺う質問かが決まってから聞く）, "away": 質問の文と選択肢 → 目的から遠ざかる向きの選択肢の並び（do_words と同じ質問）}。
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
     facts = _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)
     meanings = _decided_pairs(raw, "meanings", decide_meanings)   # こちらがすることの言葉の向きを、意味の言葉の向きとそろえるので先に
@@ -657,7 +684,7 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
             "replies": _decided_pairs(raw, "replies", decide_replies),
             "facts": facts,
             "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts, meanings),
-            "keep": _decided_keep(raw, decide_keep_words, facts)}
+            "away": _decided_away(raw, decide_away, facts, meanings)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -738,13 +765,14 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         if isinstance(q, dict) and q.get("asks_fact") is None:
             text = q.get("text") if isinstance(q.get("text"), str) else None
             q["asks_fact"] = (ai.get("facts") or {}).get(text, True)
-    # 目的から遠ざかる向きの選択肢と目的につなげて伺う言葉：どちらも入口が持ってこなければ、AI の答えを入れる（事実を伺う質問ではない選択肢の質問だけ）
-    for q, choices in _choice_questions(raw, "keep_words"):
-        got = (ai.get("keep") or {}).get(_pair_key(q["text"], choices)) or {}
-        q["away"], q["keep_words"] = got.get("away") or None, got.get("words") or None
-    # こちらがすることの言葉：入口が持ってこなければ、AI の答えを入れる（事実を伺う質問ではない選択肢の質問だけ。事実を伺う質問かは上で決まった）
+    # 目的から遠ざかる向きの選択肢：入口が持ってこなければ、AI の答えを入れる（事実を伺う質問ではない選択肢の質問だけ）
+    for q, choices in _choice_questions(raw, "away"):
+        q["away"] = (ai.get("away") or {}).get(_pair_key(q["text"], choices)) or None
+    # こちらがすることの言葉：入口（業務設定に書いた言葉）が書いていない選択肢に、AI の答えを入れる（書いた選択肢は入口の言葉が先＝CL-1 の連絡帳
+    # 4-72 の (d)。事実を伺う質問ではない選択肢の質問だけ。事実を伺う質問かは上で決まった）
     for q, choices in _choice_questions(raw, "do_words"):
-        q["do_words"] = (ai.get("do_words") or {}).get(_pair_key(q["text"], choices)) or None
+        given = q["do_words"] if isinstance(q.get("do_words"), dict) else {}
+        q["do_words"] = {**(ai.get("do_words") or {}).get(_pair_key(q["text"], choices), {}), **given} or None
     for key in ("company", "person"):
         c = caller.get(key)
         if isinstance(c, dict) and c.get("text"):
@@ -773,7 +801,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
             decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None,
             decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None,
             decide_facts: FactDecider | None = None, decide_do_words: DoWordsDecider | None = None,
-            decide_keep_words: KeepDecider | None = None) -> Preview:
+            decide_away: AwayDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
@@ -782,7 +810,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     raw, problems, where = _to_raw(sheets, problems, notes)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
                 decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
-                decide_do_words=decide_do_words, decide_keep_words=decide_keep_words)
+                decide_do_words=decide_do_words, decide_away=decide_away)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     p.notes = notes
     return p

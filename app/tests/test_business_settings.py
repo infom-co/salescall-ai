@@ -36,11 +36,11 @@ def raw() -> dict:
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
+             "asks_fact": False, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
              "declines": ["しない"]},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True, "do_words": None, "keep_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []},
+             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -227,7 +227,7 @@ class Check(unittest.TestCase):
         r["questions"][0]["choices"] = ["する", "しない", "迷っている"]
         r["questions"].append({"id": "Q3", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-                               "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
+                               "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
                                "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": []})
         r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"))
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
@@ -293,45 +293,49 @@ class Check(unittest.TestCase):
                 change(r)
                 self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
 
-    def test_keep_words_and_away(self):
-        """CL-1 の連絡帳 4-71 の (a)（✅ 2026-11-03 ユーザー (2)）：目的から遠ざかる向きの選択肢（away）と目的につなげて伺う言葉（keep_words）は、
-        事実を伺う質問ではない選択肢の質問だけが持てる。遠ざかる向きは、その質問の選択肢の並び（重ならない）。言葉は遠ざかる向きの選択肢に
-        だけ付く（会話の側が使うのは、遠ざかる向きの選択肢の言葉だけ）。"""
+    def test_away_choices(self):
+        """CL-1 の連絡帳 4-71 の (a)・4-72 の (a)：目的から遠ざかる向きの選択肢（away）は、事実を伺う質問ではない選択肢の質問だけが持てる
+        （その質問の選択肢の並び・重ならない）。⛔ 2026-11-03 日本時間8時10分 ユーザー：取込の AI が作る「目的につなげて伺う言葉」（keep_words）は
+        取り下げ＝業務設定の形に無い（書けば形の誤り）。"""
         r = raw()
-        r["questions"][0].update(away=["しない"], keep_words={"しない": "改めてご予約をご検討いただくということ"})
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
-        self.assertEqual((s.questions[0].away, s.questions[0].keep_words),
-                         (("しない",), {"しない": "改めてご予約をご検討いただくということ"}))
-        r = raw()
-        r["questions"][0].update(away=["しない"])                         # 言葉が決まらなくても、遠ざかる向きは持てる（安全側）
-        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].keep_words, {})
+        r["questions"][0].update(away=["しない"])
+        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].away, ("しない",))
         self.assertEqual(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].away, ())
+        self.assertNotIn("keep_words", bs.QUESTION_KEYS)
         for name, change, words in (
                 ("事実を伺う質問", lambda r: r["questions"][0].update(asks_fact=True, away=["しない"]), "事実を伺う質問"),
-                ("事実を伺う質問の言葉", lambda r: r["questions"][0].update(asks_fact=True, away=["しない"], keep_words={"しない": "x"}),
-                 "事実を伺う質問"),
                 ("選択肢に無い", lambda r: r["questions"][0].update(away=["わからない"]), "その質問の選択肢にありません"),
                 ("重なる", lambda r: r["questions"][0].update(away=["しない", "しない"]), "目的から遠ざかる向きの選択肢（away）は"),
                 ("並びでない", lambda r: r["questions"][0].update(away="しない"), "目的から遠ざかる向きの選択肢（away）は"),
-                ("言葉が遠ざかる向きに無い", lambda r: r["questions"][0].update(away=["しない"], keep_words={"する": "x"}),
-                 "目的から遠ざかる向きの選択肢（away）にありません"),
-                ("言葉だけ", lambda r: r["questions"][0].update(keep_words={"しない": "x"}), "目的から遠ざかる向きの選択肢（away）にありません"),
-                ("宣言に無い選択肢の言葉", lambda r: r["questions"][0].update(away=["しない"], keep_words={"わからない": "x"}),
-                 "目的につなげて伺う言葉"),
                 ("値を聞く質問", lambda r: r["questions"][1].update(asks_fact=False, away=["答えた"]), "はい／いいえ・決まった選択肢の質問だけ"),
-                ("値を聞く質問の言葉", lambda r: r["questions"][1].update(asks_fact=False, keep_words={"答えた": "x"}), "目的につなげて伺う言葉")):
+                ("取り下げた言葉", lambda r: r["questions"][0].update(keep_words={"しない": "x"}), "です")):
             with self.subTest(name):
                 r = raw()
                 change(r)
                 self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
 
+    def test_question_text_does_not_start_with_a_lead_word(self):
+        """CL-1 の連絡帳 4-72 の (c)：2つ目からの質問の文は、つなぎの言葉（それでは・続きまして・では・はい・ありがとうございます）で始めない
+        （会話の側が、つなぎの言葉か入る一言を頭に付けて流す＝重なる）。最初の質問（名乗りと一緒に流す・頭に何も付かない）は止めない。"""
+        for lead in bs.QUESTION_LEADS:
+            with self.subTest(lead=lead):
+                r = raw()
+                r["questions"][1]["text"] = f"{lead}、ご希望の日時をお聞かせください。"
+                self.assertTrue(any(f"「{lead}」で始めません" in p for p in problems_of(r)), problems_of(r))
+        r = raw()
+        r["questions"][0]["text"] = "それでは、ご予約はなさいますか。"
+        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        r = raw()
+        r["questions"][1]["text"] = "ご希望の日時をお聞かせください。それでは承ります。"   # 頭でなければよい
+        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+
     def test_a_question_asked_only_after_a_hedged_answer(self):
         """CL-1 の連絡帳 4-71 の (b)（✅ 2026-11-03 ユーザー (3)(4)）：伺う条件の hedged＝前の質問の答えが言い切っていないときだけ伺う。真偽で書き、
         前の質問は、はい／いいえ・決まった選択肢の質問だけ（会話の側が言い直さずに受け取ってこの質問で伺うのは、選択肢の答えだけ）。"""
         r = raw()
-        r["questions"].append({"id": "Q3", "text": "それでは、日時を変更なさいますか？", "ask_about": "日時の変更", "type": "yes_no",
+        r["questions"].append({"id": "Q3", "text": "日時変更なさいますか？それとも、キャンセルなさいますか？", "ask_about": "日時の変更", "type": "yes_no",
                                "required": False, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-                               "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": None,
+                               "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                "ask_if": {"after": "Q1", "answers": ["しない"], "hedged": True}, "approval": False, "final_goal": False,
                                "declines": []})
         r["questions"][0]["next"] = None
@@ -441,10 +445,10 @@ class Check(unittest.TestCase):
             nxt = f"Ask{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "keep_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "keep_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "Ask0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -578,10 +582,10 @@ class Versions(unittest.TestCase):
         from unittest import mock
         old_content = bs._content
 
-        def before_asks_fact(s):   # 足す前の形（あとで足した do_words・intro＝4-65、ask_if・approval＝4-66、keep_words・away＝4-71 も無い）
+        def before_asks_fact(s):   # 足す前の形（あとで足した do_words・intro＝4-65、ask_if・approval＝4-66、away＝4-71 も無い）
             c = old_content(s)
             return dict(c, questions=[{k: v for k, v in q.items()
-                                       if k not in ("asks_fact", "do_words", "keep_words", "away", "intro", "ask_if", "approval")}
+                                       if k not in ("asks_fact", "do_words", "away", "intro", "ask_if", "approval")}
                                       for q in c["questions"]])
 
         with mock.patch.object(bs, "_content", before_asks_fact):
@@ -589,8 +593,8 @@ class Versions(unittest.TestCase):
         stored = self.tx(lambda tx: tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (v,)))
         self.assertFalse(any("asks_fact" in q for q in stored["content"]["questions"]))   # 前の形のまま置いてある
         got = self.tx(lambda tx: bs.load(tx, v))
-        self.assertEqual([(q.asks_fact, q.do_words, q.keep_words, q.away, q.intro, q.ask_if, q.approval) for q in got.questions],
-                         [(True, {}, {}, (), None, None, False), (True, {}, {}, (), None, None, False)])
+        self.assertEqual([(q.asks_fact, q.do_words, q.away, q.intro, q.ask_if, q.approval) for q in got.questions],
+                         [(True, {}, (), None, None, False), (True, {}, (), None, None, False)])
         self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {})
         back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
         self.assertEqual([(q["asks_fact"], q["do_words"], q["intro"]) for q in back.raw["questions"]],

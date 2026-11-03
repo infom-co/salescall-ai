@@ -1233,7 +1233,7 @@ class NotAskedSettle(SettleBase):
         two = support.content()
         two["questions"].append({"id": "Q2", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-                                 "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
+                                 "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
                                  "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": []})
         for q1, state, more in ((("Q1", "confirmed", "答えた"), "completed", {"not_asked": ["Q2"]}),
                                 (("Q1", "accepted", "わからない"), "incomplete", {"missing": ["Q2"]})):
@@ -1267,9 +1267,9 @@ class NotAskedSettle(SettleBase):
         取れていない。印は判定の入力の写しにも残る（判定し直すかの比べ）。"""
         two = support.content()
         two["questions"][0].update(type="yes_no", asks_fact=False)
-        two["questions"].append({"id": "Q2", "text": "それでは、日時を変更なさいますか？", "ask_about": "日時の変更", "type": "yes_no",
+        two["questions"].append({"id": "Q2", "text": "日時変更なさいますか？それとも、キャンセルなさいますか？", "ask_about": "日時の変更", "type": "yes_no",
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-                                 "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": None,
+                                 "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                  "ask_if": {"after": "Q1", "answers": ["いいえ"], "hedged": True}, "approval": False, "final_goal": False,
                                  "declines": []})
         for q1, state, more, hedged in ((("Q1", "accepted", "いいえ"), "completed", {"not_asked": ["Q2"]}, False),

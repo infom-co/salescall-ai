@@ -98,7 +98,7 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "keep_words", "away", "intro", "ask_if", "approval", "final_goal", "declines"}
+                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -106,6 +106,11 @@ ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問�
 # ＝CL-1 の flowctl.day_words の1か所。名前の正本は会話の側の flowctl.DAY_SLOT。CL-1 の連絡帳 4-71 の (c)）。日にちを決めるのは
 # 業務設定の「最短の日」（`Earliest`）の1か所
 DAY_SLOT = "{最短の日}"
+# 質問の文の頭に書かない言葉（1か所）：2つ目からの質問の頭には、会話の側がつなぎの言葉（並びの順番の「それでは」「続きまして」「では」＝CL-1 の
+# phrases.LEAD_IN の「次の質問」・言い切っていないときだけ伺う質問の「はい、」＋「それでは」・相づちの「ありがとうございます。」）か入る一言を付けて
+# 流す（CL-1 の flowctl.spoken_question の1か所）。文にも書くと「続きましてそれでは、…」「それではそれでは、…」と重なる（CL-1 の連絡帳 4-72 の (c)。
+# ⛔ 見直しで見つけた：「たぶん行けなくなりそうです」に「ありがとうございます。続きましてそれでは、キャンセルに…」）。会話の側に言葉が増えたら、ここに足す
+QUESTION_LEADS = ("それでは", "続きまして", "では", "はい", "ありがとうございます")
 EARLIEST_KEYS = {"business_days", "closed_weekdays", "closed_on_holidays", "closed_dates"}   # 業務設定の「最短の日」の項目
 EARLIEST_MAX_DAYS = 60                            # 「N営業日以降」の N の上限（祝日の暦が届く先＝翌年の分まで、に収まる長さ）
 _EARLIEST_SEARCH_DAYS = 366                       # 最短の日を探す先の限り（休みの日が続いても、1年の先までは探さない＝`Earliest.day`）
@@ -171,15 +176,17 @@ class Question:
     # 事実を伺う質問ではない質問（希望・申し出）で、言い切っていないが向きの決まった最初の答えを「それでは（言葉）させていただきますね？」で
     # 確かめる（会話の側の Flow._hedged_after。✅ 2026-11-01 日本時間20時56分・11-02 1時22分 ユーザー）。決めるのは取込のときの AI
     # （意味の言葉と同じ作り方＝文字の AI 2つ。人は確かめない）。無い選択肢は今までの「念のため（意味の言葉）でよろしかったでしょうか？」。
-    # 事実を伺う質問（asks_fact）には付けない（会話の側が使わない＝「それでは（意味の言葉）ということで…させていただいて大丈夫でしょうか？」）
+    # 事実を伺う質問（asks_fact）には付けない（会話の側が使わない＝「それでは（意味の言葉）ということで…させていただいて大丈夫でしょうか？」）。
+    # 業務設定（依頼者のトークスクリプト）に書いた選択肢の言葉は、取込の AI の言葉より先に使う（選択肢ごと。CL-1 の連絡帳 4-72 の (d)：「当日の
+    # キャンセルはございませんか？」の「はい」＝「予定通りの方向で進め」。✅ 2026-11-03 日本時間8時10分 ユーザー＝業務の言葉で伺う）
     do_words: dict[str, str] = field(default_factory=dict)
-    # 選択肢ごとの、目的につなげて伺う言葉（選択肢 → 言葉。CL-1 の連絡帳 4-71 の (a)・会話の側の Question.keep_words）と、業務の目的から遠ざかる
-    # 向きの選択肢（会話の側の Question.away）。遠ざかる向きの選択肢の、言い切っていない最初の答えは「それでは（こちらがすることの言葉）させて
-    # いただきますね？」で確かめず、目的につなげて伺う言葉があれば「それでは（言葉）でよろしいでしょうか？」、無ければ今までの「念のため…」
-    # （会話の側の Flow._hedged_after の1か所）。✅ 2026-11-03 ユーザー (2)：「目的から遠ざかる向きの答えは、その向きで「させていただきますね？」とは
-    # 言わず、目的につながる形で伺う」。決めるのは取込のときの AI（文字の AI 2つ＝CL-1 の meanings.decide_keep。遠ざかる向きかは、どちらか1つの
-    # AI でもそう読めば入れる＝安全側）。事実を伺う質問には付けない（会話の側が使わない＝do_words と同じ）。言葉は遠ざかる向きの選択肢にだけ
-    keep_words: dict[str, str] = field(default_factory=dict)
+    # 業務の目的から遠ざかる向きの選択肢（会話の側の Question.away。CL-1 の連絡帳 4-71 の (a)・4-72 の (a)）。遠ざかる向きの選択肢の、言い切って
+    # いない最初の答えは「それでは（こちらがすることの言葉）させていただきますね？」で確かめない（✅ 2026-11-03 ユーザー (2)：「目的から遠ざかる向きの
+    # 答えは、その向きで「させていただきますね？」とは言わず…」。会話の側の Flow._hedged_after の1か所）。目的につなげて伺う一言は、業務設定の
+    # 言い切っていないときだけ伺う質問で書く（`AskIf.hedged`。⛔ 2026-11-03 日本時間8時10分 ユーザー：「今の一言や案は全くダメです。あなたは
+    # チェックしたのですか？いい加減な提案をするな！！」＝取込の AI が作る「目的につなげて伺う言葉」keep_words は取り下げ）。決めるのは取込の
+    # ときの AI（CL-1 の meanings.decide_away。どちらか1つの AI でも遠ざかる向きと読むか、読めない選択肢は入れる＝安全側）。事実を伺う質問には
+    # 付けない（会話の側が使わない＝do_words と同じ）
     away: tuple[str, ...] = ()
     # この質問に入る一言（依頼者のトークスクリプト。CL-1 の連絡帳 4-65 の (b)。例「それでは予約番号の確認からさせていただきます。」）。前の
     # 質問のあと、つなぎの言葉（それでは・続きまして）の代わりに、質問の録音の頭に1本で入る（文を作るのは会話の側の1か所
@@ -615,10 +622,14 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             do_words = _answer_words(q["do_words"], q["type"], choices, where, problems, replies=False, what="こちらがすることの言葉")
             if do_words and q["asks_fact"] is not False:
                 problems.append(f"{where}は事実を伺う質問なので、こちらがすることの言葉（do_words）は付けません（会話の側が使わない）")
-            keep_words, away = _keep(q["keep_words"], q["away"], q["type"], choices, q["asks_fact"] is not False, where, problems)
+            away = _away(q["away"], q["type"], choices, q["asks_fact"] is not False, where, problems)
             intro = _text(q["intro"], f"{where}に入る一言", problems, optional=True)
             if intro is not None and n == 1:
                 problems.append(f"{where}は最初の質問（名乗りと一緒に流す）なので、入る一言（intro）は付けません")
+            lead = next((w for w in QUESTION_LEADS if isinstance(q["text"], str) and q["text"].lstrip().startswith(w)), None)
+            if lead is not None and n > 1:
+                problems.append(f"{where}の文は「{lead}」で始めません（会話の側が、つなぎの言葉か入る一言を頭に付けて流すので、重なります。"
+                                "頭の言葉を変えたいときは、入る一言（intro）に書きます）")
             if not isinstance(q["approval"], bool):
                 problems.append(f"{where}のご承認を伺う質問か（approval）は true / false です")
             elif q["approval"] and q["type"] != "yes_no":
@@ -633,7 +644,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             question = Question(qid, _text(q["text"], f"{where}の文", problems) or "",
                                 _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
                                 q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies,
-                                q["asks_fact"] is not False, do_words, keep_words, away, intro,
+                                q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
                                 q["final_goal"] is True, declines)
             if question.final_goal and not declined_answers(question):
@@ -698,11 +709,9 @@ def _declines(raw: Any, type_name: str, choices: tuple[str, ...], where: str, pr
     return tuple(raw)
 
 
-def _keep(raw_words: Any, raw_away: Any, type_name: str, choices: tuple[str, ...], asks_fact: bool, where: str,
-          problems: list[str]) -> tuple[dict[str, str], tuple[str, ...]]:
-    """目的につなげて伺う言葉（keep_words）と、目的から遠ざかる向きの選択肢（away）を読む（無ければ空）。遠ざかる向きの選択肢は、その質問の
-    宣言した選択肢の並び（重ならない）。言葉は、遠ざかる向きの選択肢にだけ付く（会話の側は、遠ざかる向きの選択肢の言葉だけを使う＝
-    CL-1 の meanings.decide_keep も、言葉は遠ざかる向きの選択肢にだけ作る）。どちらも、事実を伺う質問ではない選択肢の質問だけ。"""
+def _away(raw_away: Any, type_name: str, choices: tuple[str, ...], asks_fact: bool, where: str, problems: list[str]) -> tuple[str, ...]:
+    """目的から遠ざかる向きの選択肢（away）を読む（無ければ空）：その質問の宣言した選択肢の並び（重ならない）。事実を伺う質問ではない選択肢の
+    質問だけ。"""
     if raw_away is None or raw_away == []:
         away: tuple[str, ...] = ()
     elif not isinstance(raw_away, list) or not all(isinstance(a, str) for a in raw_away) or len(set(raw_away)) != len(raw_away):
@@ -713,16 +722,11 @@ def _keep(raw_words: Any, raw_away: Any, type_name: str, choices: tuple[str, ...
         unknown = [a for a in away if a not in choices]
         if unknown:
             problems.append(f"{where}の目的から遠ざかる向きの選択肢 {unknown} は、その質問の選択肢にありません（{list(choices)}）")
-    words = _answer_words(raw_words, type_name, choices, where, problems, replies=False, what="目的につなげて伺う言葉")
     if away and type_name not in CHOICE_TYPES:
         problems.append(f"{where}の目的から遠ざかる向きの選択肢（away）は、はい／いいえ・決まった選択肢の質問だけが持てます")
-    if (words or away) and asks_fact:
-        problems.append(f"{where}は事実を伺う質問なので、目的につなげて伺う言葉（keep_words）・目的から遠ざかる向きの選択肢（away）は"
-                        "付けません（会話の側が使わない）")
-    stray = [c for c in words if c not in away]
-    if stray:
-        problems.append(f"{where}の目的につなげて伺う言葉の選択肢 {stray} は、目的から遠ざかる向きの選択肢（away）にありません")
-    return words, away
+    if away and asks_fact:
+        problems.append(f"{where}は事実を伺う質問なので、目的から遠ざかる向きの選択肢（away）は付けません（会話の側が使わない）")
+    return away
 
 
 def _earliest(raw: Any, problems: list[str]) -> Earliest | None:
@@ -1008,16 +1012,15 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
       4-69 の 4-182 の (e)）：前の版は、業務の決まりに断りの答えを書いた質問を、最終目的の申し出（断る答えはそのまま）として読み、
       ほかの質問は最終目的でない・断る答え無しとして読む。前の判定は、断りの答えのどれか1つが取れたら「用件を断られた」としたので、
       その質問が2つ以上なら果たし方を all（1つでも断られたら果たせない）として読む（前と同じ結果）。業務の決まりからは decline を外す。
-    - 目的につなげて伺う言葉（keep_words）・目的から遠ざかる向きの選択肢（away）・伺う条件の言い切っていないときだけ伺うか（ask_if の
-      hedged）（2026-11-03 に足した＝CL-1 の連絡帳 4-71 の (a)(b)）が無い前の版の質問は、どれも無い（空・偽＝今までの確かめの言い方・
-      伺う答えならいつも伺う）として読む。最短の日（earliest）は無くてもよい項目なので、前の版はそのまま（無い）。"""
+    - 目的から遠ざかる向きの選択肢（away）・伺う条件の言い切っていないときだけ伺うか（ask_if の hedged）（2026-11-03 に足した＝CL-1 の
+      連絡帳 4-71・4-72）が無い前の版の質問は、どちらも無い（空・偽＝今までの確かめの言い方・伺う答えならいつも伺う）として読む。最短の日（earliest）は無くてもよい項目なので、前の版はそのまま（無い）。"""
     rules = rules if isinstance(rules, dict) else {}
     old_decline = rules.get("decline") if isinstance(rules.get("decline"), dict) else {}
     rules = {k: v for k, v in rules.items() if k != "decline"}
     questions = content.get("questions")
     if not isinstance(questions, list):
         return dict(content, rules=rules)
-    added = {"asks_fact": True, "do_words": {}, "keep_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
+    added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
              "approval": False, "final_goal": False, "declines": []}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
