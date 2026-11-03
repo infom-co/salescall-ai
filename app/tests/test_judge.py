@@ -164,6 +164,24 @@ class NotAsked(unittest.TestCase):
         refused = {"Q1": Item("refused", None, "unwilling")}
         self.assertEqual(run(items=refused, ask_if={"Q2": AskIf("Q1", ("いいえ",))}).detail["not_asked"], ["Q2"])
 
+    def test_a_question_asked_only_after_a_hedged_answer(self):
+        """言い切っていないときだけ伺う質問（`AskIf.hedged`。CL-1 の連絡帳 4-71 の (b)・会話の側の Flow._ask_if_follow_ups と同じ決まり）：前の質問の
+        答えが伺う答えでも、言い切っていた（「曖昧」の印が無い）なら伺っていない（対象外）。言い切っていなければ伺う（伺えていなければ取れて
+        いない）。伺う答えでなければ、印があっても対象外。"""
+        from salescall.core.business_settings import AskIf
+        cond = {"Q2": AskIf("Q1", ("いいえ",), True)}
+        j = run(items={"Q1": Item("accepted", "いいえ", None)}, ask_if=cond)
+        self.assertEqual((j.state, j.detail["not_asked"]), ("completed", ["Q2"]))
+        j = run(items={"Q1": Item("accepted", "いいえ", None, True)}, ask_if=cond)
+        self.assertEqual((j.state, j.detail["missing"], "not_asked" in j.detail), ("incomplete", ["Q2"], False))
+        j = run(items={"Q1": Item("accepted", "はい", None, True)}, ask_if=cond)
+        self.assertEqual(j.detail["not_asked"], ["Q2"])
+        j = run(items={"Q1": Item("accepted", "いいえ", None)}, ask_if={"Q2": AskIf("Q1", ("いいえ",))})   # 印を問わない条件は今までどおり
+        self.assertEqual(j.detail["missing"], ["Q2"])
+        j = run(items={"Q1": Item("accepted", "いいえ", None), "Q3": Item("empty", None, None)},   # 対象外の質問のあとの質問も対象外
+                ask_if={**cond, "Q3": AskIf("Q2", ("はい",))})
+        self.assertEqual(j.detail["not_asked"], ["Q2", "Q3"])
+
     def test_a_question_after_a_question_that_was_not_asked_is_not_asked_either(self):
         from salescall.core.business_settings import AskIf
         cond = {"Q2": AskIf("Q1", ("いいえ",)), "Q3": AskIf("Q2", ("はい",))}

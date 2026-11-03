@@ -32,11 +32,13 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, attempts, business_rules, call_report, quality_stage, readings
+from salescall.core import approval, attempts, business_rules, calendar, call_report, calling_hours, quality_stage, readings
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
@@ -96,9 +98,17 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "intro", "ask_if", "approval", "final_goal", "declines"}
+                 "do_words", "keep_words", "away", "intro", "ask_if", "approval", "final_goal", "declines"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
-ASK_IF_KEYS = {"after", "answers"}                # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）
+ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
+#                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
+# 最短で対応できる日の場所（業務設定の質問の文・入る一言に書く。会話の側が電話の日から見た言い方「明日以降」「来週以降」などに置き換える
+# ＝CL-1 の flowctl.day_words の1か所。名前の正本は会話の側の flowctl.DAY_SLOT。CL-1 の連絡帳 4-71 の (c)）。日にちを決めるのは
+# 業務設定の「最短の日」（`Earliest`）の1か所
+DAY_SLOT = "{最短の日}"
+EARLIEST_KEYS = {"business_days", "closed_weekdays", "closed_on_holidays", "closed_dates"}   # 業務設定の「最短の日」の項目
+EARLIEST_MAX_DAYS = 60                            # 「N営業日以降」の N の上限（祝日の暦が届く先＝翌年の分まで、に収まる長さ）
+_EARLIEST_SEARCH_DAYS = 366                       # 最短の日を探す先の限り（休みの日が続いても、1年の先までは探さない＝`Earliest.day`）
 ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問いの名前・答えの文
 # 想定問答の問いの名前に使えない名前（1か所）：AI が流し直しで選ぶ録音の部分の、中の名前と AI に見せる名前の両方（正本は会話の側＝
 # CL-1 の flowctl.RESERVED_PART_NAMES＝PART_LABEL の鍵と値）。会話の側は、同じ名前の問いがあると通話を始めない（ValueError）ので、
@@ -163,6 +173,14 @@ class Question:
     # （意味の言葉と同じ作り方＝文字の AI 2つ。人は確かめない）。無い選択肢は今までの「念のため（意味の言葉）でよろしかったでしょうか？」。
     # 事実を伺う質問（asks_fact）には付けない（会話の側が使わない＝「それでは（意味の言葉）ということで…させていただいて大丈夫でしょうか？」）
     do_words: dict[str, str] = field(default_factory=dict)
+    # 選択肢ごとの、目的につなげて伺う言葉（選択肢 → 言葉。CL-1 の連絡帳 4-71 の (a)・会話の側の Question.keep_words）と、業務の目的から遠ざかる
+    # 向きの選択肢（会話の側の Question.away）。遠ざかる向きの選択肢の、言い切っていない最初の答えは「それでは（こちらがすることの言葉）させて
+    # いただきますね？」で確かめず、目的につなげて伺う言葉があれば「それでは（言葉）でよろしいでしょうか？」、無ければ今までの「念のため…」
+    # （会話の側の Flow._hedged_after の1か所）。✅ 2026-11-03 ユーザー (2)：「目的から遠ざかる向きの答えは、その向きで「させていただきますね？」とは
+    # 言わず、目的につながる形で伺う」。決めるのは取込のときの AI（文字の AI 2つ＝CL-1 の meanings.decide_keep。遠ざかる向きかは、どちらか1つの
+    # AI でもそう読めば入れる＝安全側）。事実を伺う質問には付けない（会話の側が使わない＝do_words と同じ）。言葉は遠ざかる向きの選択肢にだけ
+    keep_words: dict[str, str] = field(default_factory=dict)
+    away: tuple[str, ...] = ()
     # この質問に入る一言（依頼者のトークスクリプト。CL-1 の連絡帳 4-65 の (b)。例「それでは予約番号の確認からさせていただきます。」）。前の
     # 質問のあと、つなぎの言葉（それでは・続きまして）の代わりに、質問の録音の頭に1本で入る（文を作るのは会話の側の1か所
     # flowctl.spoken_question。録音を作る道具もそこから読む）。最初の質問（名乗りと一緒に流す）には付けない。空なら今のつなぎの言葉
@@ -196,6 +214,42 @@ class AskIf:
     渡すところで置き換える）。"""
     after: str
     answers: tuple[str, ...]
+    # その答えが言い切っていないときだけ伺うか（CL-1 の連絡帳 4-71 の (b)・会話の側の Question.ask_if_hedged）。真なら、前の質問の言い切って
+    # いない最初の答え（「曖昧」の印＝項目の hedged）のときだけ伺い、言い切った答えなら伺わない（判定は「伺っていない（対象外）」＝
+    # `judge.not_asked` の1か所）。✅ 2026-11-03 ユーザー (3)(4)「OK」：お困りごとに業務の手立てがある答えは、手立てを並べて伺う（「それでは、
+    # キャンセルになさいますか？それとも、日時を変更なさいますか？」）・時期の答えが前向きなら「（{最短の日}なら対応できますが、）いつ頃が
+    # よろしいでしょうか？」
+    hedged: bool = False
+
+
+@dataclass(frozen=True)
+class Earliest:
+    """業務設定の「最短の日」（「N営業日以降」。CL-1 の連絡帳 4-71 の (c)）：質問の文・入る一言の `DAY_SLOT` を、電話の日から見た最短で対応
+    できる日にする材料。営業日は、休みの曜日（`calling_hours.DAY_KEYS` の名前）・祝日（休みにするか。祝日は暦＝core/calendar.py）・休業日
+    （日にち）でない日。✅ 2026-11-03 ユーザー：「業務設定では「3営業日以降」などの設定になるので、それを自動で置き換える仕組みが必要です。」"""
+    business_days: int                           # N（0＝当日から。電話の日が休みなら、次の営業日から）
+    closed_weekdays: tuple[str, ...] = ("sat", "sun")
+    closed_on_holidays: bool = True
+    closed_dates: tuple[date, ...] = ()
+
+    def day(self, today: date, is_holiday: Callable[[date], bool]) -> date:
+        """電話の日（日本時間の日付）から見た、最短で対応できる日（営業日を数える1か所）：電話の日の次の日から数えて N 番目の営業日
+        （N＝0 なら、電話の日から数えて最初の営業日）。祝日が分からない日（暦の範囲の外）は `calendar.CalendarOutOfRange`（判断できない）。
+        1年先までに見つからなければ ValueError（業務設定の誤り）。"""
+        count, d = 0, today
+        if self.business_days == 0 and self._open(d, is_holiday):
+            return d
+        for _ in range(_EARLIEST_SEARCH_DAYS):
+            d += timedelta(days=1)
+            if self._open(d, is_holiday):
+                count += 1
+                if count >= self.business_days:
+                    return d
+        raise ValueError(f"最短の日が、{today} から1年のあいだに見つかりません（休みの曜日・休業日を確かめてください）")
+
+    def _open(self, d: date, is_holiday: Callable[[date], bool]) -> bool:
+        return (calling_hours.DAY_KEYS[d.weekday()] not in self.closed_weekdays and d not in self.closed_dates
+                and not (self.closed_on_holidays and is_holiday(d)))
 
 
 @dataclass(frozen=True)
@@ -243,6 +297,8 @@ class Settings:
     # 最終目的の果たし方（`GOAL_MODES`：any＝最終目的のどれか1つで果たせる／all＝全部が要る。会話の側の instruction.Business.goal_mode）。
     # 最終目的の質問が2つ以上の業務だけ書く（必ず書く＝こちらで推し量らない）。1つ以下なら None（どちらでも同じ）
     goal_mode: str | None = None
+    # 最短の日（「N営業日以降」）。質問の文か入る一言に `DAY_SLOT` を書いた業務だけ書く（必ず書く）。ほかは None
+    earliest: Earliest | None = None
 
     def target_needs(self) -> TargetNeeds:
         """目的のお客様を呼ぶのに、発信対象の一覧から何が要るか（決め方はここだけ。取込・版の割り当て・門が使う）。
@@ -268,8 +324,9 @@ KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voic
 # （CL-1 の連絡帳 4-28）。書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
-OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。4-65 の (c)。
-#                                                                 goal_mode＝最終目的の果たし方。最終目的が2つ以上の業務だけ書く）
+OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
+#                                                                 4-65 の (c)。goal_mode＝最終目的の果たし方。最終目的が2つ以上の業務だけ書く。
+#                                                                 earliest＝最短の日。DAY_SLOT を書いた業務だけ書く。4-71 の (c)）
 
 
 def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) -> str | None:
@@ -558,6 +615,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             do_words = _answer_words(q["do_words"], q["type"], choices, where, problems, replies=False, what="こちらがすることの言葉")
             if do_words and q["asks_fact"] is not False:
                 problems.append(f"{where}は事実を伺う質問なので、こちらがすることの言葉（do_words）は付けません（会話の側が使わない）")
+            keep_words, away = _keep(q["keep_words"], q["away"], q["type"], choices, q["asks_fact"] is not False, where, problems)
             intro = _text(q["intro"], f"{where}に入る一言", problems, optional=True)
             if intro is not None and n == 1:
                 problems.append(f"{where}は最初の質問（名乗りと一緒に流す）なので、入る一言（intro）は付けません")
@@ -575,7 +633,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             question = Question(qid, _text(q["text"], f"{where}の文", problems) or "",
                                 _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
                                 q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies,
-                                q["asks_fact"] is not False, do_words, intro,
+                                q["asks_fact"] is not False, do_words, keep_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
                                 q["final_goal"] is True, declines)
             if question.final_goal and not declined_answers(question):
@@ -594,9 +652,11 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                         "果たせる・all＝全部が要る）")
     elif goals < 2 and goal_mode is not None:
         problems.append("最終目的の申し出が1つ以下なので、最終目的の果たし方（goal_mode）は書きません（どちらでも同じ）")
+    earliest = _earliest(raw.get("earliest"), problems)
+    problems += _day_slot_problems(raw, earliest is not None or raw.get("earliest") is not None)
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
-                 **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None)
+                 **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest)
     # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
     if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
         problems += _flow_problems(s)
@@ -638,6 +698,110 @@ def _declines(raw: Any, type_name: str, choices: tuple[str, ...], where: str, pr
     return tuple(raw)
 
 
+def _keep(raw_words: Any, raw_away: Any, type_name: str, choices: tuple[str, ...], asks_fact: bool, where: str,
+          problems: list[str]) -> tuple[dict[str, str], tuple[str, ...]]:
+    """目的につなげて伺う言葉（keep_words）と、目的から遠ざかる向きの選択肢（away）を読む（無ければ空）。遠ざかる向きの選択肢は、その質問の
+    宣言した選択肢の並び（重ならない）。言葉は、遠ざかる向きの選択肢にだけ付く（会話の側は、遠ざかる向きの選択肢の言葉だけを使う＝
+    CL-1 の meanings.decide_keep も、言葉は遠ざかる向きの選択肢にだけ作る）。どちらも、事実を伺う質問ではない選択肢の質問だけ。"""
+    if raw_away is None or raw_away == []:
+        away: tuple[str, ...] = ()
+    elif not isinstance(raw_away, list) or not all(isinstance(a, str) for a in raw_away) or len(set(raw_away)) != len(raw_away):
+        problems.append(f"{where}の目的から遠ざかる向きの選択肢（away）は、選択肢の名前の並びです（重ならない）")
+        away = ()
+    else:
+        away = tuple(raw_away)
+        unknown = [a for a in away if a not in choices]
+        if unknown:
+            problems.append(f"{where}の目的から遠ざかる向きの選択肢 {unknown} は、その質問の選択肢にありません（{list(choices)}）")
+    words = _answer_words(raw_words, type_name, choices, where, problems, replies=False, what="目的につなげて伺う言葉")
+    if away and type_name not in CHOICE_TYPES:
+        problems.append(f"{where}の目的から遠ざかる向きの選択肢（away）は、はい／いいえ・決まった選択肢の質問だけが持てます")
+    if (words or away) and asks_fact:
+        problems.append(f"{where}は事実を伺う質問なので、目的につなげて伺う言葉（keep_words）・目的から遠ざかる向きの選択肢（away）は"
+                        "付けません（会話の側が使わない）")
+    stray = [c for c in words if c not in away]
+    if stray:
+        problems.append(f"{where}の目的につなげて伺う言葉の選択肢 {stray} は、目的から遠ざかる向きの選択肢（away）にありません")
+    return words, away
+
+
+def _earliest(raw: Any, problems: list[str]) -> Earliest | None:
+    """業務設定の「最短の日」を読む（無ければ None）：営業日の数 N（0〜`EARLIEST_MAX_DAYS`）・休みの曜日（曜日の名前の並び。7つ全部は
+    休めない）・祝日を休みにするか・休業日（"YYYY-MM-DD" の並び）。"""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != EARLIEST_KEYS:
+        problems.append(f"最短の日（earliest）は {sorted(EARLIEST_KEYS)} です")
+        return None
+    n, weekdays, holidays, dates = (raw[k] for k in ("business_days", "closed_weekdays", "closed_on_holidays", "closed_dates"))
+    bad = len(problems)
+    if not isinstance(n, int) or isinstance(n, bool) or not 0 <= n <= EARLIEST_MAX_DAYS:
+        problems.append(f"最短の日の営業日の数（business_days）は 0〜{EARLIEST_MAX_DAYS} の数です（0＝当日から）")
+    if not isinstance(weekdays, list) or not all(w in calling_hours.DAY_KEYS for w in weekdays) or len(set(weekdays)) != len(weekdays):
+        problems.append(f"最短の日の休みの曜日（closed_weekdays）は、{list(calling_hours.DAY_KEYS)} の名前の並びです（重ならない）")
+    elif len(weekdays) == len(calling_hours.DAY_KEYS):
+        problems.append("最短の日の休みの曜日（closed_weekdays）が7つ全部です（営業日がありません）")
+    if not isinstance(holidays, bool):
+        problems.append("最短の日の祝日を休みにするか（closed_on_holidays）は true / false です")
+    days: list[date] = []
+    if not isinstance(dates, list):
+        problems.append("最短の日の休業日（closed_dates）は、日にち（YYYY-MM-DD）の並びです")
+    else:
+        for d in dates:
+            try:
+                if not isinstance(d, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+                    raise ValueError(d)
+                days.append(date.fromisoformat(d))
+            except ValueError:
+                problems.append(f"最短の日の休業日 {d!r} は、日にち（YYYY-MM-DD）ではありません")
+        if len(set(days)) != len(days):
+            problems.append("最短の日の休業日に、同じ日が2つあります")
+    if len(problems) > bad:
+        return None
+    return Earliest(n, tuple(weekdays), holidays, tuple(sorted(days)))
+
+
+def _day_slot_problems(raw: dict[str, Any], has_earliest: bool) -> list[str]:
+    """最短の日の場所（`DAY_SLOT`）の確かめ（1か所）：書けるのは質問の文と入る一言だけ（会話の側が置き換えるのはそこだけ＝ほかに書くと、
+    そのまま声になる）。書いた質問があれば最短の日（earliest）が要り（無いと会話の側が通話を始めない＝ValueError）、無ければ最短の日は
+    書かない（使われない値）。録音で流す電話は、言い方ごとの録音の部分「質問の番号_d番号」（CL-1 の flowctl.day_recording_id）を使うので、
+    ほかの質問の番号がその形だと取り違える。"""
+    problems: list[str] = []
+    qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
+    slotted = [q.get("id") for q in qs if isinstance(q, dict)
+               and any(isinstance(q.get(k), str) and DAY_SLOT in q[k] for k in ("text", "intro"))]
+
+    def walk(v: Any, path: str) -> None:
+        if isinstance(v, str) and DAY_SLOT in v:
+            problems.append(f"{path} に {DAY_SLOT} があります（{DAY_SLOT} を書けるのは、質問の文と入る一言だけです）")
+        elif isinstance(v, dict):
+            for k, x in v.items():
+                walk(k, path)
+                walk(x, f"{path} の {k}")
+        elif isinstance(v, list):
+            for x in v:
+                walk(x, path)
+    for k, v in raw.items():
+        if k == "questions" and isinstance(v, list):
+            for n, q in enumerate(v, 1):
+                if isinstance(q, dict):
+                    walk({x: y for x, y in q.items() if x not in ("text", "intro")}, f"質問 {q.get('id') or n}")
+                else:
+                    walk(q, f"質問 {n} 番目")
+        else:
+            walk(v, f"業務設定の {k}")
+    if slotted and not has_earliest:
+        problems.append(f"質問 {', '.join(map(str, slotted))} に {DAY_SLOT} があるので、最短の日（earliest：「N営業日以降」）を書きます")
+    elif has_earliest and not slotted:
+        problems.append(f"{DAY_SLOT} を書いた質問が無いので、最短の日（earliest）は書きません（使われない）")
+    ids = [q.get("id") for q in qs if isinstance(q, dict) and isinstance(q.get("id"), str)]
+    for base in (x for x in slotted if isinstance(x, str)):
+        clash = [x for x in ids if re.fullmatch(re.escape(base) + r"_d\d+", x)]
+        if clash:
+            problems.append(f"質問の番号 {clash} は、質問 {base} の日の言い方ごとの録音の名前（{base}_d番号）と同じ形です")
+    return problems
+
+
 def _ask_if(raw: Any, where: str, earlier: list[Question], problems: list[str]) -> AskIf | None:
     """前の答えで伺う質問の条件を読む（無ければ None）。前の質問は、この質問より前に並ぶ質問（会話の側は、その答えを受け取ったら前の質問の
     すぐあとに伺う。前に並ぶ質問だけにするので、条件が輪になることも、最初の質問が伺わない質問になることもない）。伺う答えは、前の質問の
@@ -645,9 +809,13 @@ def _ask_if(raw: Any, where: str, earlier: list[Question], problems: list[str]) 
     if raw is None:
         return None
     if not isinstance(raw, dict) or set(raw) != ASK_IF_KEYS:
-        problems.append(f"{where}の伺う条件（ask_if）は、前の質問の番号（after）と伺う答えの並び（answers）か null です")
+        problems.append(f"{where}の伺う条件（ask_if）は、前の質問の番号（after）と伺う答えの並び（answers）と言い切っていないときだけ"
+                        "伺うか（hedged）か null です")
         return None
-    after, answers = raw["after"], raw["answers"]
+    after, answers, hedged = raw["after"], raw["answers"], raw["hedged"]
+    if not isinstance(hedged, bool):
+        problems.append(f"{where}の伺う条件の言い切っていないときだけ伺うか（hedged）は true / false です")
+        return None
     src = next((q for q in earlier if isinstance(after, str) and q.id == after), None)
     if src is None:
         problems.append(f"{where}の伺う条件の前の質問 {after!r} は、この質問より前に並ぶ質問ではありません")
@@ -660,7 +828,13 @@ def _ask_if(raw: Any, where: str, earlier: list[Question], problems: list[str]) 
     if unknown:
         problems.append(f"{where}の伺う条件の答え {unknown} は、前の質問 {after} の答えにありません（{list(possible_answers(src))}）")
         return None
-    return AskIf(after, tuple(answers))
+    if hedged and src.type not in CHOICE_TYPES:
+        # 言い切っていない答えを、言い直さずに受け取ってこの質問で伺うのは、選択肢の質問の答えだけ（会話の側の Flow._hedged_follow_up。
+        # 値を伺う型の言い切っていない答えは、値を言い直して確かめる＝この質問が伺われない）
+        problems.append(f"{where}の伺う条件の前の質問 {after} は、はい／いいえ・決まった選択肢の質問ではないので、言い切っていないとき"
+                        "だけ伺う（hedged）にできません")
+        return None
+    return AskIf(after, tuple(answers), hedged)
 
 
 def _flow_problems(s: Settings) -> list[str]:
@@ -833,21 +1007,26 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     - 最終目的の申し出か（final_goal）・断る答え（declines）（2026-11-02 に業務の決まりの「断りの答え」decline から移した＝CL-1 の連絡帳
       4-69 の 4-182 の (e)）：前の版は、業務の決まりに断りの答えを書いた質問を、最終目的の申し出（断る答えはそのまま）として読み、
       ほかの質問は最終目的でない・断る答え無しとして読む。前の判定は、断りの答えのどれか1つが取れたら「用件を断られた」としたので、
-      その質問が2つ以上なら果たし方を all（1つでも断られたら果たせない）として読む（前と同じ結果）。業務の決まりからは decline を外す。"""
+      その質問が2つ以上なら果たし方を all（1つでも断られたら果たせない）として読む（前と同じ結果）。業務の決まりからは decline を外す。
+    - 目的につなげて伺う言葉（keep_words）・目的から遠ざかる向きの選択肢（away）・伺う条件の言い切っていないときだけ伺うか（ask_if の
+      hedged）（2026-11-03 に足した＝CL-1 の連絡帳 4-71 の (a)(b)）が無い前の版の質問は、どれも無い（空・偽＝今までの確かめの言い方・
+      伺う答えならいつも伺う）として読む。最短の日（earliest）は無くてもよい項目なので、前の版はそのまま（無い）。"""
     rules = rules if isinstance(rules, dict) else {}
     old_decline = rules.get("decline") if isinstance(rules.get("decline"), dict) else {}
     rules = {k: v for k, v in rules.items() if k != "decline"}
     questions = content.get("questions")
     if not isinstance(questions, list):
         return dict(content, rules=rules)
-    added = {"asks_fact": True, "do_words": {}, "intro": None, "ask_if": None, "approval": False,   # 足した項目と、足す前の版で読む値
-             "final_goal": False, "declines": []}
+    added = {"asks_fact": True, "do_words": {}, "keep_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
+             "approval": False, "final_goal": False, "declines": []}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:
         if not isinstance(q, dict):
             return q
         out = {**{k: v for k, v in added.items() if k not in q}, **q}
+        if isinstance(out.get("ask_if"), dict) and "hedged" not in out["ask_if"]:
+            out["ask_if"] = {**out["ask_if"], "hedged": False}
         if "final_goal" not in q and out.get("id") in old_decline:
             out["final_goal"], out["declines"] = True, list(old_decline[out["id"]])
         nxt = out.get("next")
@@ -863,8 +1042,18 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
 
 def ask_ifs(tx: Tx, version_id: UUID) -> dict[str, AskIf]:
     """その版の、前の答えで伺う質問（質問の番号 → 条件）。判定の入力（judge.JudgeInput.ask_if）が読む1か所。中身は置いた時に確かめ済み。"""
-    return {q["id"]: AskIf(q["ask_if"]["after"], tuple(q["ask_if"]["answers"]))
+    return {q["id"]: AskIf(q["ask_if"]["after"], tuple(q["ask_if"]["answers"]), q["ask_if"]["hedged"])
             for q in _stored(tx, version_id)["questions"] if q["ask_if"] is not None}
+
+
+def day_of_call(tx: Tx, version_id: UUID, at: datetime) -> dict[str, date | None]:
+    """その版の電話の、最短で対応できる日と電話の日（1か所。会話の側の Flow(earliest_day=…, today=…) にそのまま渡す形＝CL-1 の連絡帳 4-71 の
+    (c)）。電話の日は、電話をかける時刻 at の日本時間の日付（`calling_hours.local` の1か所）。最短の日を書いていない業務は earliest_day が
+    None（その業務の質問には `DAY_SLOT` が無い＝業務設定の確かめ）。営業日の数え方は `Earliest.day` の1か所、祝日は暦（core/calendar.py の
+    `holiday_checker`）。暦の範囲の外の日は `calendar.CalendarOutOfRange`（判断できない＝その電話は始めない）。"""
+    today = calling_hours.local(at).date()
+    e = load(tx, version_id).earliest   # 置いた時と同じ確かめで読む（読み方は1か所）
+    return {"earliest_day": None if e is None else e.day(today, calendar.holiday_checker(tx)), "today": today}
 
 
 def restore(tx: Tx, version_id: UUID) -> UUID:

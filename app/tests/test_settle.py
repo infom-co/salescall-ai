@@ -41,11 +41,11 @@ class SettleBase(Base):
         self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
         for st in path[1:]:
             self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st, hangup_side=side if st == "dropped" else None))
-        for q, state, cond in items:
+        for q, state, cond, *hedged in items:   # 4つ目があれば、言い切っていない返事の言葉（「曖昧」の印）
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition,"
-                " attempt_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (s["tenant"], s["client"], s["task"], s["version"], q, state, cond, c.attempt_id)))
+                " hedged, attempt_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (s["tenant"], s["client"], s["task"], s["version"], q, state, cond, (hedged or [None])[0], c.attempt_id)))
         if "answered" in path:
             self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, report or rep()))
             if verify:
@@ -1230,30 +1230,56 @@ class NotAskedSettle(SettleBase):
         """前の答えで伺う質問（業務設定の ask_if。CL-1 の連絡帳 4-66 の (b)(e)）：締めは、置いた版の条件（business_settings.ask_ifs の
         1か所）を判定に渡す。前の質問の答えが伺う答えでなければ、伺っていない（対象外）＝取れていない必須の質問に数えず（すべて取れた）、
         結果の中身 not_asked で依頼者へ返す。伺う答えなのに伺えていなければ、取れていない（一部だけ取れた）。"""
-        from unittest import mock
         two = support.content()
         two["questions"].append({"id": "Q2", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-                                 "asks_fact": False, "do_words": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                                 "ask_if": {"after": "Q1", "answers": ["わからない"]}, "approval": True, "final_goal": False, "declines": []})
+                                 "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
+                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": []})
         for q1, state, more in ((("Q1", "confirmed", "答えた"), "completed", {"not_asked": ["Q2"]}),
                                 (("Q1", "accepted", "わからない"), "incomplete", {"missing": ["Q2"]})):
             with self.subTest(q1=q1):
-                with mock.patch.object(support, "content", lambda target_person=None: copy.deepcopy(two)):
-                    s = self.w.setup(phone=normalize(fictional_jp_fixed()).e164)
-                self.tx(s, lambda tx: tx.execute(
-                    "INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
-                    " VALUES (%s, %s, %s, 'Q2', 2, 'yes_no', true)", (s["tenant"], s["client"], s["version"])), OPERATOR)
-                self.put_client(s, "calling.hours", ALL_DAY)
-                self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
-                self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, None, evidence="試験"), OPERATOR)
-                self.tx(s, lambda tx: business_rules.save(tx, s["version"], support.rules_raw(required=("Q1", "Q2"))), OPERATOR)
-                self.lease(s)
-                got = self.settle(s, self.call(s, items=(q1,)))
-                self.assertEqual(got["state"], state)
-                r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
-                for k, v in more.items():
-                    self.assertEqual(r["detail"][k], v)
+                self.settled_with(two, q1, state, more)
+
+    def settled_with(self, content, q1, state, more):
+        """その業務設定の中身（質問 Q1・Q2。Q2 は伺う条件つきの必須）で、Q1 の項目だけを置いた通話を締め、結果の状態と中身を確かめる。"""
+        from unittest import mock
+        with mock.patch.object(support, "content", lambda target_person=None: copy.deepcopy(content)):
+            s = self.w.setup(phone=normalize(fictional_jp_fixed()).e164)
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
+            " VALUES (%s, %s, %s, 'Q2', 2, 'yes_no', true)", (s["tenant"], s["client"], s["version"])), OPERATOR)
+        self.put_client(s, "calling.hours", ALL_DAY)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, None, evidence="試験"), OPERATOR)
+        self.tx(s, lambda tx: business_rules.save(tx, s["version"], support.rules_raw(required=("Q1", "Q2"))), OPERATOR)
+        self.lease(s)
+        aid = self.call(s, items=(q1,))
+        got = self.settle(s, aid)
+        self.assertEqual(got["state"], state)
+        r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+        for k, v in more.items():
+            self.assertEqual(r["detail"][k], v)
+        return s, aid
+
+    def test_a_question_asked_only_after_a_hedged_answer_is_not_asked_after_a_definite_one(self):
+        """言い切っていないときだけ伺う質問（伺う条件の hedged。CL-1 の連絡帳 4-71 の (b)）：締めは、行の項目の「曖昧」の印（項目の値の
+        hedged）を判定に渡す。前の質問の答えが伺う答えでも、言い切っていれば伺っていない（対象外）。言い切っていなければ伺う＝伺えていなければ
+        取れていない。印は判定の入力の写しにも残る（判定し直すかの比べ）。"""
+        two = support.content()
+        two["questions"][0].update(type="yes_no", asks_fact=False)
+        two["questions"].append({"id": "Q2", "text": "それでは、日時を変更なさいますか？", "ask_about": "日時の変更", "type": "yes_no",
+                                 "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
+                                 "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": None,
+                                 "ask_if": {"after": "Q1", "answers": ["いいえ"], "hedged": True}, "approval": False, "final_goal": False,
+                                 "declines": []})
+        for q1, state, more, hedged in ((("Q1", "accepted", "いいえ"), "completed", {"not_asked": ["Q2"]}, False),
+                                        (("Q1", "accepted", "いいえ", "都合が悪くなってしまいまして"), "incomplete", {"missing": ["Q2"]}, True),
+                                        (("Q1", "accepted", "はい", "たぶん大丈夫かと"), "completed", {"not_asked": ["Q2"]}, True)):
+            with self.subTest(q1=q1):
+                s, aid = self.settled_with(two, q1, state, more)
+                snap = self.tx(s, lambda tx: tx.one("SELECT snapshot FROM salescall.call_judgements WHERE attempt_id = %s",
+                                                    (aid,)))["snapshot"]
+                self.assertEqual(snap["items"]["Q1"].get("hedged", False), hedged)
 
 
 class StuckVerification(SettleBase):

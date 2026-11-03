@@ -46,7 +46,8 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "basic": ("基本", {"item": "項目", "value": "値"}, True),
     "questions": ("質問", {"id": "質問ID", "text": "質問の文", "ask_about": "聞くこと", "type": "型", "required": "必須",
                           "choices": "選択肢", "decline": "断りの答え", "intro": "入る一言", "ask_after": "伺う条件の質問ID",
-                          "ask_answers": "伺う条件の答え", "approval": "ご承認を伺う", "final_goal": "最終目的"}, True),
+                          "ask_answers": "伺う条件の答え", "ask_hedged": "言い切っていないときだけ伺う", "approval": "ご承認を伺う",
+                          "final_goal": "最終目的"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -61,8 +62,10 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # （はい／いいえの質問だけ）（どちらも依頼者のトークスクリプト。CL-1 の連絡帳 4-66 の (b)。空ならいつも伺う・ご承認の質問ではない）
 # 最終目的の申し出か（「はい」の質問が最終目的。断られて目的が果たせなくなったら、会話の側がその場で締め、判定は「用件を断られた」とする。
 # 断りの答えの列は、その質問の申し出を断る答え＝最終目的でない質問では、断られても用件を断られたにしない。CL-1 の連絡帳 4-69 の 4-182 の (e)）
-OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.approval",
-                              "questions.final_goal"})
+# 伺う条件の答えが言い切っていないときだけ伺うか（「はい」なら、前の質問の答えが言い切っていないときだけ伺う。依頼者のトークスクリプト。
+# CL-1 の連絡帳 4-71 の (b)。空なら、伺う答えならいつも伺う）
+OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.ask_hedged",
+                              "questions.approval", "questions.final_goal"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -74,7 +77,11 @@ BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class
                # 依頼者がすること（登録・記録・手配など。書かなければ会話の側の既定「記録」。CL-1 の連絡帳 4-65 の (c)）
                "依頼者がすること": "client_does",
                # 最終目的の果たし方（最終目的の質問が2つ以上の業務だけ書く。業務設定の goal_mode）
-               "最終目的の果たし方": "goal_mode"}
+               "最終目的の果たし方": "goal_mode",
+               # 最短の日（質問の文・入る一言に {最短の日} を書いた業務だけ書く。業務設定の earliest。CL-1 の連絡帳 4-71 の (c)）：
+               # 「N営業日以降」の N・休みの曜日（書かなければ土と日）・祝日は休みか（書かなければ休み）・休業日（日にちを「／」か改行で区切る）
+               "最短の日（営業日の数）": "earliest_days", "休みの曜日": "closed_weekdays", "祝日は休みか": "closed_on_holidays",
+               "休業日": "closed_dates"}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
@@ -96,6 +103,9 @@ LABELS: dict[str, dict[str, str]] = {
     "follow_up": {"はい": True, "いいえ": False},
     "approval": {"はい": True, "○": True, "いいえ": False, "": False},
     "final_goal": {"はい": True, "○": True, "いいえ": False, "": False},
+    "ask_hedged": {"はい": True, "○": True, "いいえ": False, "": False},
+    "closed_on_holidays": {"はい": True, "いいえ": False},
+    "weekday": {f"{w}{x}": k for w, k in zip("月火水木金土日", ("mon", "tue", "wed", "thu", "fri", "sat", "sun")) for x in ("", "曜日")},
     "goal_mode": {"どれか1つで果たせる": "any", "全部が要る": "all"},
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }
@@ -197,6 +207,35 @@ def _responses(basic: dict[str, str | None], problems: list[str], notes: list[st
     return out
 
 
+NO_CLOSED_WEEKDAYS = "なし"      # 休みの曜日：休みの曜日が無い（毎日が営業日。祝日・休業日は別に書く）
+_DAY_IN_SHEET = re.compile(r"^\s*(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:T00:00:00)?\s*$")   # 日付のセルは「…T00:00:00」で来る（import_files）
+
+
+def _earliest(basic: dict[str, str | None], problems: list[str]) -> dict[str, Any]:
+    """シート「基本」の最短の日（営業日の数・休みの曜日・祝日は休みか・休業日）を、業務設定の最短の日（earliest）にする。営業日の数が
+    無ければ入れない（ほかの項目だけ書いてあれば問題）。休みの曜日を書かなければ土と日、祝日は休みかを書かなければ休み（営業日の
+    ふつうの数え方。業務設定の `business_settings.Earliest` の既定と同じ）。形の確かめは業務設定の確かめ（1か所）。"""
+    keys = ("closed_weekdays", "closed_on_holidays", "closed_dates")
+    if not basic.get("earliest_days"):
+        if any(basic.get(k) for k in keys):
+            problems.append("シート「基本」：休みの曜日・祝日は休みか・休業日は、最短の日（営業日の数）を書いた業務だけ書きます")
+        return {}
+    n = basic["earliest_days"].strip()
+    days = int(n) if n.isdecimal() else n
+    given = (basic.get("closed_weekdays") or "").strip()
+    weekdays = [] if given == NO_CLOSED_WEEKDAYS else \
+        [_label("weekday", w, "シート「基本」の休みの曜日", problems) for w in _split(given) or []] if given \
+        else list(business_settings.Earliest.closed_weekdays)
+    holidays = _label("closed_on_holidays", basic["closed_on_holidays"], "シート「基本」の祝日は休みか", problems) \
+        if basic.get("closed_on_holidays") else True
+    dates = []
+    for d in _split(basic.get("closed_dates")) or []:
+        m = _DAY_IN_SHEET.match(d)
+        dates.append(f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}" if m else d)   # 日にちでなければ確かめが問題に出す
+    return {"earliest": {"business_days": days, "closed_weekdays": [w for w in weekdays if w is not None],
+                         "closed_on_holidays": holidays if holidays is not None else True, "closed_dates": dates}}
+
+
 def _basic_name(key: str) -> str:
     return next(k for k, v in BASIC_ITEMS.items() if v == key)
 
@@ -246,12 +285,13 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         where_q.append(where)
         qtype = _label("type", v.get("type"), f"{where}の型", problems)
         required = _label("required", v.get("required"), f"{where}の必須", problems)
-        ask_if = None if not v.get("ask_after") and not v.get("ask_answers") else \
-            {"after": v.get("ask_after"), "answers": _split(v.get("ask_answers"))}   # 片方だけなら、業務設定の確かめが問題に出す
+        hedged = _label("ask_hedged", v.get("ask_hedged"), f"{where}の言い切っていないときだけ伺う", problems)
+        ask_if = None if not v.get("ask_after") and not v.get("ask_answers") and not hedged else \
+            {"after": v.get("ask_after"), "answers": _split(v.get("ask_answers")), "hedged": hedged is True}   # 欠けていれば、業務設定の確かめが問題に出す
         questions.append({"id": v.get("id"), "text": v.get("text"), "ask_about": v.get("ask_about"), "type": qtype,
                           "required": required, "choices": _split(v.get("choices")) if qtype == "choice" else None,
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
-                          "do_words": None, "intro": v.get("intro"), "ask_if": ask_if,
+                          "do_words": None, "keep_words": None, "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
                           "declines": _split(v.get("decline")) or []})
@@ -371,6 +411,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         **({"client_does": basic["client_does"]} if basic.get("client_does") else {}),
         **({"goal_mode": _label("goal_mode", basic["goal_mode"], "シート「基本」の最終目的の果たし方", problems)}
            if basic.get("goal_mode") else {}),
+        **_earliest(basic, problems),
         "questions": questions, "names": names,
         "rules": {"handling": handling, "retry": retry, "forbidden": forbidden},
     }
@@ -442,6 +483,14 @@ DoWordsDecider = Callable[[list[tuple[str, tuple[str, ...], dict[str, str]]]], l
 持ってきたものか、同じ取込で先に決めたもの（`ask_ai`）。管理者も契約者も確かめない。"""
 
 
+KeepDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[tuple[tuple[str, ...], dict[str, str]]]]
+"""事実を伺う質問ではない（希望・申し出の）選択肢の質問の、業務の目的から遠ざかる向きの選択肢と、その選択肢の「目的につなげて伺う言葉」を
+決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで (遠ざかる向きの選択肢の並び, {選択肢: 言葉})。言葉の決まらない選択肢は言葉に
+入れない）。決め方は CL-1 の1か所（`meanings.by_model(…, "keep")` を2つのモデルで1回ずつ → `meanings.decide_keep`。遠ざかる向きかは、どちらか
+1つのモデルでもそう読めば入れる＝安全側。CL-1 の連絡帳 4-71 の (a)。作った言葉は CL-1 が全部見て、ユーザーにお見せする）。管理者も契約者も
+確かめない。"""
+
+
 FactDecider = Callable[[list[str]], dict[str, bool]]
 """質問ごとに「お客様に事実を伺う質問か」を決める処理（質問の文の並び → 文ごとの真偽。決まらない文は入れない）。決め方は CL-1 の
 1か所（`facts.by_model` を2つのモデルで1回ずつ → `facts.decide`。G-71。CL-1 の連絡帳 2-1 の版 0.6）。管理者も契約者も確かめない。"""
@@ -468,20 +517,45 @@ def _asks_fact(q: dict[str, Any], facts: dict[str, bool]) -> bool:
     return q["asks_fact"] if isinstance(q.get("asks_fact"), bool) else facts.get(q.get("text"), True)
 
 
+_WISH_KEYS = ("do_words", "keep_words")   # 事実を伺う質問ではない（希望・申し出の）選択肢の質問にだけ付く言葉
+
+
 def _choice_questions(raw: dict[str, Any], key: str,
                       facts: dict[str, bool] | None = None) -> list[tuple[dict[str, Any], tuple[str, ...]]]:
-    """意味の言葉（key＝meanings）・曖昧な言葉の意味（replies）・こちらがすることの言葉（do_words）が、まだ入口から来ていない選択肢の
-    質問と、その選択肢。こちらがすることの言葉は、事実を伺う質問ではない質問だけ（facts＝事実を伺う質問かの AI の答え。`_asks_fact`）。"""
+    """意味の言葉（key＝meanings）・曖昧な言葉の意味（replies）・こちらがすることの言葉（do_words）・目的につなげて伺う言葉と目的から
+    遠ざかる向きの選択肢（keep_words。away も入口から来ていないもの）が、まだ入口から来ていない選択肢の質問と、その選択肢（1か所）。
+    do_words・keep_words は、事実を伺う質問ではない質問だけ（facts＝事実を伺う質問かの AI の答え。`_asks_fact`）。"""
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     out = []
     for q in qs:
-        if key == "do_words" and (not isinstance(q, dict) or _asks_fact(q, facts or {})):
+        if key in _WISH_KEYS and (not isinstance(q, dict) or _asks_fact(q, facts or {})):
+            continue
+        if key == "keep_words" and q.get("away"):
             continue
         if isinstance(q, dict) and q.get("type") in business_settings.CHOICE_TYPES and not q.get(key) \
                 and isinstance(q.get("text"), str) and q["text"].strip():
             choices = business_settings.declared_choices(q["type"], q.get("choices"))
             if choices:
                 out.append((q, choices))
+    return out
+
+
+def _decided_keep(raw: dict[str, Any], decide: KeepDecider | None, facts: dict[str, bool]) -> dict[str, dict[str, Any]]:
+    """質問ごとに、目的から遠ざかる向きの選択肢と目的につなげて伺う言葉を、決める処理に1回だけ聞く（使える組だけ返す。答えが無い・形が
+    違うときは空＝会話は今までの確かめの言い方。言葉は遠ざかる向きの選択肢にだけ）。答え＝質問の文と選択肢 → {"away": 並び, "words": 表}。"""
+    pairs = list(dict.fromkeys((q["text"], c) for q, c in _choice_questions(raw, "keep_words", facts)))
+    if not pairs or decide is None:
+        return {}
+    got = decide(pairs)
+    if not isinstance(got, list) or len(got) != len(pairs):
+        return {}
+    out = {}
+    for (text, choices), d in zip(pairs, got):
+        if not isinstance(d, (tuple, list)) or len(d) != 2 or not isinstance(d[0], (tuple, list)):
+            continue
+        away = [c for c in dict.fromkeys(d[0]) if isinstance(c, str) and c in choices]
+        words = {c: w for c, w in business_settings.valid_answer_words(d[1], choices, replies=False).items() if c in away}
+        out[_pair_key(text, choices)] = {"away": away, "words": words}
     return out
 
 
@@ -548,28 +622,31 @@ def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
 def _script(raw: dict[str, Any]) -> str:
     """名前を洗い出す台本（業務設定の文をまとめたもの。名乗り・用件・目的・忙しいときの一言・留守番電話の伝言・「AIですか」への答え・
     想定問答の答え（録音で話すので、名前の読みが要る）・業務の情報（AI が自分の言葉で答える材料。会話の側も名前の読みへ置き換えて
-    渡す＝CL-1 の連絡帳 4-29：「港区」をAIの声で言うと3本中1本しか聞き取れず、ひらがなの読みで渡すと6本中6本）・質問の文・入口の名前）。"""
+    渡す＝CL-1 の連絡帳 4-29：「港区」をAIの声で言うと3本中1本しか聞き取れず、ひらがなの読みで渡すと6本中6本）・質問の文と質問に入る一言
+    （どちらも録音で話す。⛔ 2026-11-03 まで入る一言を入れていなかった＝入る一言の中の名前に読みが付かなかった）・入口の名前）。
+    最短の日の場所（`business_settings.DAY_SLOT`）は外す（声になるのは会話の側が置き換えた言い方＝名前ではない）。"""
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
              caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line"), raw.get("voicemail_message"),
              raw.get("ai_answer"), raw.get("message")]   # 伝言の文も録音で話す（CL-1 の連絡帳 4-28）
-    parts += [q.get("text") for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])
-              if isinstance(q, dict)]
+    parts += [q.get(k) for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])
+              if isinstance(q, dict) for k in ("text", "intro")]
     parts += [a.get("text") for a in (raw.get("answers") if isinstance(raw.get("answers"), list) else []) if isinstance(a, dict)]
     parts += raw.get("info") if isinstance(raw.get("info"), list) else []
     parts += [n["text"] for n in _names(raw) if n.get("source") == "script"]
-    return "\n".join(p for p in parts if isinstance(p, str) and p.strip())
+    return "\n".join(p.replace(business_settings.DAY_SLOT, "") for p in parts if isinstance(p, str) and p.strip())
 
 
 def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_units: UnitDecider | None = None,
            decide_topics: TopicDecider | None = None, decide_meanings: MeaningDecider | None = None,
            decide_replies: ReplyDecider | None = None, decide_facts: FactDecider | None = None,
-           decide_do_words: DoWordsDecider | None = None) -> dict[str, Any]:
+           decide_do_words: DoWordsDecider | None = None, decide_keep_words: KeepDecider | None = None) -> dict[str, Any]:
     """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味・事実を伺う質問かを決める処理。
     どれも CL-1 の決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics":
     質問の文 → 聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢},
     "facts": 質問の文 → 事実を伺う質問か, "do_words": 質問の文と選択肢 → {選択肢: こちらがすることの言葉}（事実を伺う質問ではない質問
-    だけ＝事実を伺う質問かが決まってから聞く）}。
+    だけ＝事実を伺う質問かが決まってから聞く）, "keep": 質問の文と選択肢 → {"away": 目的から遠ざかる向きの選択肢, "words": {選択肢:
+    目的につなげて伺う言葉}}（do_words と同じ質問）}。
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
     facts = _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)
     meanings = _decided_pairs(raw, "meanings", decide_meanings)   # こちらがすることの言葉の向きを、意味の言葉の向きとそろえるので先に
@@ -579,7 +656,8 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
             "meanings": meanings,
             "replies": _decided_pairs(raw, "replies", decide_replies),
             "facts": facts,
-            "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts, meanings)}
+            "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts, meanings),
+            "keep": _decided_keep(raw, decide_keep_words, facts)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -660,6 +738,10 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         if isinstance(q, dict) and q.get("asks_fact") is None:
             text = q.get("text") if isinstance(q.get("text"), str) else None
             q["asks_fact"] = (ai.get("facts") or {}).get(text, True)
+    # 目的から遠ざかる向きの選択肢と目的につなげて伺う言葉：どちらも入口が持ってこなければ、AI の答えを入れる（事実を伺う質問ではない選択肢の質問だけ）
+    for q, choices in _choice_questions(raw, "keep_words"):
+        got = (ai.get("keep") or {}).get(_pair_key(q["text"], choices)) or {}
+        q["away"], q["keep_words"] = got.get("away") or None, got.get("words") or None
     # こちらがすることの言葉：入口が持ってこなければ、AI の答えを入れる（事実を伺う質問ではない選択肢の質問だけ。事実を伺う質問かは上で決まった）
     for q, choices in _choice_questions(raw, "do_words"):
         q["do_words"] = (ai.get("do_words") or {}).get(_pair_key(q["text"], choices)) or None
@@ -690,7 +772,8 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
             confirmed_names: Any = (), find_names: NameFinder | None = None,
             decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None,
             decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None,
-            decide_facts: FactDecider | None = None, decide_do_words: DoWordsDecider | None = None) -> Preview:
+            decide_facts: FactDecider | None = None, decide_do_words: DoWordsDecider | None = None,
+            decide_keep_words: KeepDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
@@ -699,7 +782,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     raw, problems, where = _to_raw(sheets, problems, notes)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
                 decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
-                decide_do_words=decide_do_words)
+                decide_do_words=decide_do_words, decide_keep_words=decide_keep_words)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     p.notes = notes
     return p

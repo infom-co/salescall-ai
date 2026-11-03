@@ -36,11 +36,11 @@ def raw() -> dict:
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": False, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
+             "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
              "declines": ["しない"]},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []},
+             "asks_fact": True, "do_words": None, "keep_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -227,19 +227,19 @@ class Check(unittest.TestCase):
         r["questions"][0]["choices"] = ["する", "しない", "迷っている"]
         r["questions"].append({"id": "Q3", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-                               "asks_fact": False, "do_words": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"]}, "approval": True, "final_goal": False, "declines": []})
+                               "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
+                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": []})
         r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"))
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[2].ask_if, s.questions[2].approval, s.questions[0].ask_if, s.questions[0].approval),
                          (bs.AskIf("Q1", ("迷っている", "わからない")), True, None, False))
         for name, change, words in (
-                ("前の質問が後ろ", lambda r: r["questions"][1].update(ask_if={"after": "Q3", "answers": ["はい"]}), "前に並ぶ質問ではありません"),
-                ("前の質問が自分", lambda r: r["questions"][2].update(ask_if={"after": "Q3", "answers": ["はい"]}), "前に並ぶ質問ではありません"),
-                ("前の質問が無い", lambda r: r["questions"][2].update(ask_if={"after": "Q7", "answers": ["する"]}), "前に並ぶ質問ではありません"),
-                ("答えが空", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": []}), "伺う条件の答え"),
-                ("答えが重なる", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": ["する", "する"]}), "伺う条件の答え"),
-                ("答えが前の質問に無い", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": ["はい"]}), "前の質問 Q1 の答えにありません"),
+                ("前の質問が後ろ", lambda r: r["questions"][1].update(ask_if={"after": "Q3", "answers": ["はい"], "hedged": False}), "前に並ぶ質問ではありません"),
+                ("前の質問が自分", lambda r: r["questions"][2].update(ask_if={"after": "Q3", "answers": ["はい"], "hedged": False}), "前に並ぶ質問ではありません"),
+                ("前の質問が無い", lambda r: r["questions"][2].update(ask_if={"after": "Q7", "answers": ["する"], "hedged": False}), "前に並ぶ質問ではありません"),
+                ("答えが空", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": [], "hedged": False}), "伺う条件の答え"),
+                ("答えが重なる", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": ["する", "する"], "hedged": False}), "伺う条件の答え"),
+                ("答えが前の質問に無い", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": ["はい"], "hedged": False}), "前の質問 Q1 の答えにありません"),
                 ("形が違う", lambda r: r["questions"][2].update(ask_if={"after": "Q1"}), "伺う条件（ask_if）"),
                 ("ご承認がはい／いいえでない", lambda r: r["questions"][0].update(approval=True), "ご承認を伺う質問（approval）にできません"),
                 ("ご承認が真偽でない", lambda r: r["questions"][2].update(approval="はい"), "ご承認を伺う質問か（approval）は true / false"),
@@ -293,6 +293,142 @@ class Check(unittest.TestCase):
                 change(r)
                 self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
 
+    def test_keep_words_and_away(self):
+        """CL-1 の連絡帳 4-71 の (a)（✅ 2026-11-03 ユーザー (2)）：目的から遠ざかる向きの選択肢（away）と目的につなげて伺う言葉（keep_words）は、
+        事実を伺う質問ではない選択肢の質問だけが持てる。遠ざかる向きは、その質問の選択肢の並び（重ならない）。言葉は遠ざかる向きの選択肢に
+        だけ付く（会話の側が使うのは、遠ざかる向きの選択肢の言葉だけ）。"""
+        r = raw()
+        r["questions"][0].update(away=["しない"], keep_words={"しない": "改めてご予約をご検討いただくということ"})
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.questions[0].away, s.questions[0].keep_words),
+                         (("しない",), {"しない": "改めてご予約をご検討いただくということ"}))
+        r = raw()
+        r["questions"][0].update(away=["しない"])                         # 言葉が決まらなくても、遠ざかる向きは持てる（安全側）
+        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].keep_words, {})
+        self.assertEqual(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].away, ())
+        for name, change, words in (
+                ("事実を伺う質問", lambda r: r["questions"][0].update(asks_fact=True, away=["しない"]), "事実を伺う質問"),
+                ("事実を伺う質問の言葉", lambda r: r["questions"][0].update(asks_fact=True, away=["しない"], keep_words={"しない": "x"}),
+                 "事実を伺う質問"),
+                ("選択肢に無い", lambda r: r["questions"][0].update(away=["わからない"]), "その質問の選択肢にありません"),
+                ("重なる", lambda r: r["questions"][0].update(away=["しない", "しない"]), "目的から遠ざかる向きの選択肢（away）は"),
+                ("並びでない", lambda r: r["questions"][0].update(away="しない"), "目的から遠ざかる向きの選択肢（away）は"),
+                ("言葉が遠ざかる向きに無い", lambda r: r["questions"][0].update(away=["しない"], keep_words={"する": "x"}),
+                 "目的から遠ざかる向きの選択肢（away）にありません"),
+                ("言葉だけ", lambda r: r["questions"][0].update(keep_words={"しない": "x"}), "目的から遠ざかる向きの選択肢（away）にありません"),
+                ("宣言に無い選択肢の言葉", lambda r: r["questions"][0].update(away=["しない"], keep_words={"わからない": "x"}),
+                 "目的につなげて伺う言葉"),
+                ("値を聞く質問", lambda r: r["questions"][1].update(asks_fact=False, away=["答えた"]), "はい／いいえ・決まった選択肢の質問だけ"),
+                ("値を聞く質問の言葉", lambda r: r["questions"][1].update(asks_fact=False, keep_words={"答えた": "x"}), "目的につなげて伺う言葉")):
+            with self.subTest(name):
+                r = raw()
+                change(r)
+                self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
+
+    def test_a_question_asked_only_after_a_hedged_answer(self):
+        """CL-1 の連絡帳 4-71 の (b)（✅ 2026-11-03 ユーザー (3)(4)）：伺う条件の hedged＝前の質問の答えが言い切っていないときだけ伺う。真偽で書き、
+        前の質問は、はい／いいえ・決まった選択肢の質問だけ（会話の側が言い直さずに受け取ってこの質問で伺うのは、選択肢の答えだけ）。"""
+        r = raw()
+        r["questions"].append({"id": "Q3", "text": "それでは、日時を変更なさいますか？", "ask_about": "日時の変更", "type": "yes_no",
+                               "required": False, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
+                               "asks_fact": False, "do_words": None, "keep_words": None, "away": None, "intro": None,
+                               "ask_if": {"after": "Q1", "answers": ["しない"], "hedged": True}, "approval": False, "final_goal": False,
+                               "declines": []})
+        r["questions"][0]["next"] = None
+        r["questions"][0]["final_goal"], r["questions"][0]["declines"] = False, []
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual(s.questions[2].ask_if, bs.AskIf("Q1", ("しない",), True))
+        for name, change, words in (
+                ("真偽でない", lambda r: r["questions"][2]["ask_if"].update(hedged="はい"), "hedged）は true / false"),
+                ("無い", lambda r: r["questions"][2]["ask_if"].pop("hedged"), "伺う条件（ask_if）"),
+                ("値を伺う前の質問", lambda r: r["questions"][2]["ask_if"].update(after="Q2", answers=["答えた"]),
+                 "言い切っていないときだけ伺う（hedged）にできません")):
+            with self.subTest(name):
+                bad = copy.deepcopy(r)
+                change(bad)
+                self.assertTrue(any(words in p for p in problems_of(bad)), problems_of(bad))
+        ok = copy.deepcopy(r)
+        ok["questions"][2]["ask_if"].update(after="Q2", answers=["答えた"], hedged=False)   # 言い切っていないときだけ、でなければ値の質問の後でもよい
+        bs.check(ok, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+
+    def test_earliest_day_setting(self):
+        """CL-1 の連絡帳 4-71 の (c)（✅ 2026-11-03 ユーザー：「業務設定では「3営業日以降」などの設定になるので、それを自動で置き換える仕組みが
+        必要です。」）：最短の日（「N営業日以降」）は、質問の文か入る一言に {最短の日} を書いた業務だけが書き、書いた業務は必ず書く。{最短の日} を
+        書けるのは質問の文と入る一言だけ（会話の側が置き換えるのはそこだけ）。言い方ごとの録音の名前（質問の番号_d番号）と同じ形の質問の番号は
+        使えない。"""
+        from datetime import date
+
+        def slotted() -> dict:
+            r = raw()
+            r["questions"][1]["text"] = f"（{bs.DAY_SLOT}なら対応できますが、）いつ頃がよろしいでしょうか？"
+            r["earliest"] = {"business_days": 3, "closed_weekdays": ["sat", "sun"], "closed_on_holidays": True,
+                             "closed_dates": ["2026-12-30", "2026-12-29"]}
+            return r
+        s = bs.check(slotted(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual(s.earliest, bs.Earliest(3, ("sat", "sun"), True, (date(2026, 12, 29), date(2026, 12, 30))))
+        self.assertIsNone(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).earliest)
+        r = slotted()
+        r["questions"][1]["text"] = "ご希望の日時をお聞かせください。"
+        r["questions"][1]["intro"] = f"{bs.DAY_SLOT}からのご案内になります。"   # 入る一言に書いてもよい
+        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).earliest.business_days, 3)
+
+        def extra_question(qid):
+            def change(r):
+                q = copy.deepcopy(r["questions"][1])
+                q.update(id=qid, text="ほかにご希望はございますか？", required=False)
+                r["questions"].append(q)
+            return change
+        for name, change, words in (
+                ("最短の日が無い", lambda r: r.pop("earliest"), "最短の日（earliest：「N営業日以降」）を書きます"),
+                ("使わない最短の日", lambda r: r["questions"][1].update(text="ご希望の日時をお聞かせください。"), "使われない"),
+                ("聞くことに書いた", lambda r: r["questions"][1].update(ask_about=f"{bs.DAY_SLOT}の日時"), "質問 Q2 の ask_about に {最短の日}"),
+                ("用件の一文に書いた", lambda r: r["caller"].update(purpose_line=f"{bs.DAY_SLOT}のご案内です。"), "業務設定の caller"),
+                ("想定問答に書いた", lambda r: r.update(answers=[{"name": "最短", "text": f"{bs.DAY_SLOT}です。"}]), "業務設定の answers"),
+                ("鍵が足りない", lambda r: r["earliest"].pop("closed_dates"), "最短の日（earliest）は"),
+                ("数が負", lambda r: r["earliest"].update(business_days=-1), "営業日の数"),
+                ("数が大きすぎる", lambda r: r["earliest"].update(business_days=bs.EARLIEST_MAX_DAYS + 1), "営業日の数"),
+                ("数が真偽", lambda r: r["earliest"].update(business_days=True), "営業日の数"),
+                ("数が文字", lambda r: r["earliest"].update(business_days="3"), "営業日の数"),
+                ("曜日の名前でない", lambda r: r["earliest"].update(closed_weekdays=["土"]), "休みの曜日"),
+                ("曜日が重なる", lambda r: r["earliest"].update(closed_weekdays=["sat", "sat"]), "休みの曜日"),
+                ("毎日休み", lambda r: r["earliest"].update(closed_weekdays=["mon", "tue", "wed", "thu", "fri", "sat", "sun"]),
+                 "営業日がありません"),
+                ("祝日が真偽でない", lambda r: r["earliest"].update(closed_on_holidays="はい"), "祝日を休みにするか"),
+                ("休業日の形", lambda r: r["earliest"].update(closed_dates=["2026/12/30"]), "日にち（YYYY-MM-DD）ではありません"),
+                ("休業日が無い日", lambda r: r["earliest"].update(closed_dates=["2026-02-30"]), "日にち（YYYY-MM-DD）ではありません"),
+                ("休業日が詰めた形", lambda r: r["earliest"].update(closed_dates=["20261230"]), "日にち（YYYY-MM-DD）ではありません"),
+                ("休業日が重なる", lambda r: r["earliest"].update(closed_dates=["2026-12-30", "2026-12-30"]), "同じ日が2つ"),
+                ("休業日が並びでない", lambda r: r["earliest"].update(closed_dates="2026-12-30"), "休業日（closed_dates）は"),
+                ("録音の名前と同じ形の番号", extra_question("Q2_d1"), "日の言い方ごとの録音の名前")):
+            with self.subTest(name):
+                r = slotted()
+                change(r)
+                self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
+        r = slotted()
+        extra_question("Q2_dx")(r)                                         # 番号の形でなければ取り違えない
+        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+
+    def test_earliest_day_counts_business_days(self):
+        """最短の日の数え方（`Earliest.day` の1か所）：電話の日の次の日から数えて N 番目の営業日（0 なら、電話の日から数えて最初の営業日）。
+        営業日は、休みの曜日・休業日・（休みにするなら）祝日でない日。1年先までに無ければ ValueError。"""
+        from datetime import date, timedelta
+        mon, holiday = date(2026, 11, 2), date(2026, 11, 3)                 # 月曜日・その次の日を祝日に
+        is_holiday = lambda d: d == holiday                                 # noqa: E731
+        e = bs.Earliest(3)
+        self.assertEqual(e.day(mon, is_holiday), date(2026, 11, 6))         # 火（祝日）を飛ばして 水・木・金
+        self.assertEqual(e.day(mon, lambda d: False), date(2026, 11, 5))
+        self.assertEqual(bs.Earliest(3, closed_on_holidays=False).day(mon, is_holiday), date(2026, 11, 5))   # 祝日も営業日
+        self.assertEqual(bs.Earliest(1).day(date(2026, 11, 6), is_holiday), date(2026, 11, 9))   # 金曜日の電話 ⇒ 土日を飛ばして月曜日
+        self.assertEqual(bs.Earliest(0).day(mon, is_holiday), mon)          # 当日から（電話の日が営業日）
+        self.assertEqual(bs.Earliest(0).day(date(2026, 11, 7), is_holiday), date(2026, 11, 9))   # 土曜日の電話 ⇒ 月曜日
+        self.assertEqual(bs.Earliest(0).day(holiday, is_holiday), date(2026, 11, 4))   # 祝日の電話 ⇒ 次の営業日
+        self.assertEqual(bs.Earliest(1, ("sun",)).day(date(2026, 11, 6), is_holiday), date(2026, 11, 7))   # 土曜日も営業日
+        self.assertEqual(bs.Earliest(1, closed_dates=(date(2026, 11, 4),)).day(holiday, is_holiday), date(2026, 11, 5))   # 休業日
+        self.assertEqual(bs.Earliest(2, ()).day(date(2026, 11, 6), lambda d: False), date(2026, 11, 8))   # 休みの曜日が無い
+        with self.assertRaises(ValueError):                                 # 1年先まで営業日が無い
+            bs.Earliest(1, ()).day(mon, lambda d: True)
+        self.assertEqual(bs.Earliest(1, ()).day(mon, lambda d: d < mon + timedelta(days=366)), mon + timedelta(days=366))
+
     def test_many_optional_follow_ups_check_quickly_and_still_find_skips(self):
         """「はい ⇒ 詳しく聞く、いいえ ⇒ 次へ」が続く業務（40問）でも、確かめはすぐ終わる（前は質問の数に対して何倍にも
         増え、36問で15秒かかった＝2026-10-16 の見直し I2）。必須を飛ばす道は、これまでどおり見つける。"""
@@ -305,10 +441,10 @@ class Check(unittest.TestCase):
             nxt = f"Ask{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
+                       "asks_fact": True, "do_words": None, "keep_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
+                       "asks_fact": True, "do_words": None, "keep_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "Ask0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -442,9 +578,10 @@ class Versions(unittest.TestCase):
         from unittest import mock
         old_content = bs._content
 
-        def before_asks_fact(s):   # 足す前の形（あとで足した do_words・intro＝4-65、ask_if・approval＝4-66 も無い）
+        def before_asks_fact(s):   # 足す前の形（あとで足した do_words・intro＝4-65、ask_if・approval＝4-66、keep_words・away＝4-71 も無い）
             c = old_content(s)
-            return dict(c, questions=[{k: v for k, v in q.items() if k not in ("asks_fact", "do_words", "intro", "ask_if", "approval")}
+            return dict(c, questions=[{k: v for k, v in q.items()
+                                       if k not in ("asks_fact", "do_words", "keep_words", "away", "intro", "ask_if", "approval")}
                                       for q in c["questions"]])
 
         with mock.patch.object(bs, "_content", before_asks_fact):
@@ -452,12 +589,60 @@ class Versions(unittest.TestCase):
         stored = self.tx(lambda tx: tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (v,)))
         self.assertFalse(any("asks_fact" in q for q in stored["content"]["questions"]))   # 前の形のまま置いてある
         got = self.tx(lambda tx: bs.load(tx, v))
-        self.assertEqual([(q.asks_fact, q.do_words, q.intro, q.ask_if, q.approval) for q in got.questions],
-                         [(True, {}, None, None, False), (True, {}, None, None, False)])
+        self.assertEqual([(q.asks_fact, q.do_words, q.keep_words, q.away, q.intro, q.ask_if, q.approval) for q in got.questions],
+                         [(True, {}, {}, (), None, None, False), (True, {}, {}, (), None, None, False)])
         self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {})
         back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
         self.assertEqual([(q["asks_fact"], q["do_words"], q["intro"]) for q in back.raw["questions"]],
                          [(True, {}, None), (True, {}, None)])
+
+    def test_a_version_saved_before_hedged_conditions_reads_them_as_always_asked(self):
+        """伺う条件に「言い切っていないときだけ伺うか」（hedged。2026-11-03 に足した＝CL-1 の連絡帳 4-71 の (b)）が無い前の版の質問は、偽（伺う
+        答えならいつも伺う＝足す前と同じ）として読む（読む側の1か所 `_current_shape`）。前の版へ戻した新しい版は、今の形で置かれる。"""
+        from unittest import mock
+        old_content = bs._content
+        r = raw()
+        r["questions"][0].update(next=None, final_goal=False, declines=[])
+        r["questions"][1].update(required=False, ask_if={"after": "Q1", "answers": ["する"], "hedged": False})
+        r["rules"] = rules_raw(required=("Q1",))
+
+        def before_hedged(s):
+            c = old_content(s)
+            return dict(c, questions=[dict(q, ask_if={k: v for k, v in q["ask_if"].items() if k != "hedged"}) if q["ask_if"] else q
+                                      for q in c["questions"]])
+        with mock.patch.object(bs, "_content", before_hedged):
+            v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+        stored = self.tx(lambda tx: tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (v,)))
+        self.assertEqual(stored["content"]["questions"][1]["ask_if"], {"after": "Q1", "answers": ["する"]})   # 前の形のまま置いてある
+        self.assertEqual(self.tx(lambda tx: bs.load(tx, v)).questions[1].ask_if, bs.AskIf("Q1", ("する",), False))
+        self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {"Q2": bs.AskIf("Q1", ("する",), False)})
+        back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
+        self.assertEqual(back.raw["questions"][1]["ask_if"], {"after": "Q1", "answers": ["する"], "hedged": False})
+        r["questions"][1]["ask_if"]["hedged"] = True                        # 今の形の真は、そのまま読む
+        r["questions"][0]["asks_fact"] = False
+        v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+        self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {"Q2": bs.AskIf("Q1", ("する",), True)})
+
+    def test_day_of_call_gives_the_earliest_day_from_the_calendar(self):
+        """会話の側へ渡す最短の日と電話の日（`day_of_call` の1か所。CL-1 の連絡帳 4-71 の (c)）：電話の日は、かける時刻の日本時間の日付。
+        最短の日は、その版の「N営業日以降」を、祝日の暦（core/calendar.py）で数えたもの。最短の日を書いていない業務は None。暦の範囲の外は
+        判断できない（CalendarOutOfRange）。"""
+        from datetime import date, datetime, timezone
+        from salescall.core import calendar
+        from tests.test_gate import calendar_csv
+        owner_access().in_system(OPERATOR, lambda tx: calendar.load_official_csv(
+            tx, calendar_csv([2098, 2099], holidays=[date(2098, 11, 4)])))
+        r = raw()
+        r["questions"][1]["text"] = f"{bs.DAY_SLOT}であれば承れますが、ご希望の日時をお聞かせください。"
+        r["earliest"] = {"business_days": 2, "closed_weekdays": ["sat", "sun"], "closed_on_holidays": True, "closed_dates": ["2098-11-05"]}
+        v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+        at = datetime(2098, 11, 2, 15, 30, tzinfo=timezone.utc)            # 日本時間では 11月3日（月曜日）の0時30分
+        self.assertEqual(self.tx(lambda tx: bs.day_of_call(tx, v, at)),
+                         {"earliest_day": date(2098, 11, 7), "today": date(2098, 11, 3)})   # 4日 祝日・5日 休業日 ⇒ 6日・7日
+        plain = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
+        self.assertEqual(self.tx(lambda tx: bs.day_of_call(tx, plain, at)), {"earliest_day": None, "today": date(2098, 11, 3)})
+        with self.assertRaises(calendar.CalendarOutOfRange):
+            self.tx(lambda tx: bs.day_of_call(tx, v, datetime(2099, 12, 30, 3, 0, tzinfo=timezone.utc)))   # 2100年の暦が無い
 
     def test_a_version_saved_with_decline_rules_reads_them_as_final_goals(self):
         """業務の決まりに「断りの答え」（decline）を持っていた前の版（2026-11-02 に業務設定の質問の final_goal・declines と業務の goal_mode
@@ -525,7 +710,7 @@ class Versions(unittest.TestCase):
     def test_questions_asked_after_an_answer_are_read_for_the_judge(self):
         """判定へ渡す、前の答えで伺う質問（`ask_ifs` の1か所。置いた版から、業務設定の並び順で）。"""
         r = raw()
-        r["questions"][1]["ask_if"] = {"after": "Q1", "answers": ["する", "どちらでも"]}
+        r["questions"][1]["ask_if"] = {"after": "Q1", "answers": ["する", "どちらでも"], "hedged": False}
         r["questions"][0]["required"] = True
         v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
         self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {"Q2": bs.AskIf("Q1", ("する", "どちらでも"))})

@@ -102,6 +102,7 @@ class Item:
     state: str
     condition: str | None        # 選んだ選択肢
     reason: str | None           # 「わからない」「答えない」の理由（15-2-3）
+    hedged: bool = False         # 言い切っていない答えだった（「曖昧」の印＝項目の値の hedged がある。伺う条件の hedged が読む＝`not_asked`）
 
 
 @dataclass(frozen=True)
@@ -445,8 +446,9 @@ def _unreached_key(r: CallReport) -> str:
 
 def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item]) -> frozenset[str]:
     """伺っていない（対象外）の質問（1か所。CL-1 の連絡帳 4-66 の (e)）：前の答えで伺う質問のうち、伺っていない（答えが無い・空）質問で、
-    前の質問の答えを受け取っていて（`ANSWERED`）その答えが伺う答えでないか、前の質問も対象外のもの（前の質問のその答えのときだけ伺う
-    質問の、さらに前の答えで伺う質問）。前の質問の答えをまだ受け取っていない（聞けていない・確かめの途中で切れた）質問は、伺うかが
+    前の質問の答えを受け取っていて（`ANSWERED`）その答えが伺う答えでないか（言い切っていないときだけ伺う質問＝`AskIf.hedged` は、答えが
+    言い切っていた＝「曖昧」の印が無いときも。会話の側の Flow._ask_if_follow_ups と同じ決まり。CL-1 の連絡帳 4-71 の (b)）、前の質問も
+    対象外のもの（前の質問のその答えのときだけ伺う質問の、さらに前の答えで伺う質問）。前の質問の答えをまだ受け取っていない（聞けていない・確かめの途中で切れた）質問は、伺うかが
     決まっていないので対象外にしない（取れていない質問のまま）。前の質問は、業務設定で前に並ぶ質問に決まっている（輪にならない）。"""
     out: set[str] = set()
     for q in ask_if:   # 業務設定の並び順（前の質問が先に決まる）
@@ -455,7 +457,8 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item]) -> frozenset[str
             continue
         cond = ask_if[q]
         src = items.get(cond.after)
-        if cond.after in out or (src is not None and src.state in ANSWERED and src.condition not in cond.answers):
+        if cond.after in out or (src is not None and src.state in ANSWERED
+                                 and (src.condition not in cond.answers or (cond.hedged and not src.hedged))):
             out.add(q)
     return frozenset(out)
 

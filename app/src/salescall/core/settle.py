@@ -216,13 +216,16 @@ def _after(tx: Tx, a: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
 
 def _items(tx: Tx, task_id: UUID) -> dict[str, Item]:
     """行の項目（判定の入力。読むのはここだけ）。"""
-    return {r["question_id"]: Item(r["state"], r["condition"], r["reason"]) for r in tx.all(
-        "SELECT question_id, state::text AS state, condition, reason FROM salescall.item_values WHERE task_id = %s",
-        (task_id,))}
+    return {r["question_id"]: Item(r["state"], r["condition"], r["reason"], r["hedged"]) for r in tx.all(
+        "SELECT question_id, state::text AS state, condition, reason, hedged IS NOT NULL AS hedged"
+        " FROM salescall.item_values WHERE task_id = %s", (task_id,))}
 
 
 def _items_snapshot(items: dict[str, Item]) -> dict[str, dict[str, Any]]:
-    return {q: {"state": i.state, "condition": i.condition, "reason": i.reason} for q, i in sorted(items.items())}
+    """判定の入力の行の項目の写し（判定し直すかを比べる）。「曖昧」の印は、あるときだけ入れる（伺う条件の hedged で判定が変わる。印の無い
+    項目の写しは、印を読む前の写しと同じ形のまま＝印の無い通話を判定し直さない）。"""
+    return {q: {"state": i.state, "condition": i.condition, "reason": i.reason, **({"hedged": True} if i.hedged else {})}
+            for q, i in sorted(items.items())}
 
 
 def _callee(tx: Tx, a: dict[str, Any]) -> calling_hours.CalleeSettings:

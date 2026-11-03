@@ -544,6 +544,7 @@ class Import(unittest.TestCase):
         p = self.preview(data, decide_facts=lambda texts: {t: "ご予約" not in t for t in texts}, decide_do_words=do_words)
         self.assertEqual(p.problems, [])
         self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"), {})]])   # 事実を伺う質問ではない選択肢の質問だけ
+        self.assertIn("それではご希望の日時の確認からさせていただきます。", bi._script(p.raw))   # 入る一言も録音で話す＝名前を洗い出す台本に入る
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
         got = self.tx(lambda tx: bs.load(tx, v))
         self.assertEqual([(q.do_words, q.intro) for q in got.questions],
@@ -584,6 +585,92 @@ class Import(unittest.TestCase):
         bi.ask_ai(r, decide_meanings=meanings, decide_do_words=do_words)
         self.assertEqual(asked, [[("ご予約はなさいますか。", ("する", "しない"), {"する": "ご予約をなさるということ"})]])
 
+    def test_keep_words_are_decided_by_the_ai(self):
+        """CL-1 の連絡帳 4-71 の (a)：目的から遠ざかる向きの選択肢と目的につなげて伺う言葉は、事実を伺う質問ではない選択肢の質問だけ、取込の
+        ときに AI（CL-1 の meanings.decide_keep）に1回だけ聞いて入れる（使えない組は入れない・言葉は遠ざかる向きの選択肢にだけ・登録では
+        聞き直さない）。入口が遠ざかる向きの選択肢を持ってきた質問は聞かない。"""
+        asked = []
+
+        def keep(pairs):
+            asked.append(pairs)
+            return [(("しない", "x", "しない"), {"しない": "改めてご予約をご検討いただくということ", "する": "y", "x": "z"}) for _ in pairs]
+
+        data = book()
+        p = self.preview(data, decide_facts=lambda texts: {t: "ご予約" not in t for t in texts}, decide_keep_words=keep)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"))]])   # 事実を伺う質問ではない選択肢の質問だけ
+        self.assertEqual((p.raw["questions"][0]["away"], p.raw["questions"][0]["keep_words"]),
+                         (["しない"], {"しない": "改めてご予約をご検討いただくということ"}))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v)).questions[0]
+        self.assertEqual((got.away, got.keep_words, len(asked)), (("しない",), {"しない": "改めてご予約をご検討いただくということ"}, 1))
+        p = self.preview(data, decide_facts=lambda texts: {t: True for t in texts}, decide_keep_words=keep)   # どれも事実を伺う質問
+        self.assertEqual((p.problems, p.raw["questions"][0]["away"], len(asked)), ([], None, 1))   # 聞かない
+        p = self.preview(data, decide_facts=lambda texts: {t: False for t in texts},
+                         decide_keep_words=lambda pairs: [((), {"しない": "x"}) for _ in pairs])   # 遠ざかる向きが無ければ言葉も入れない
+        self.assertEqual((p.problems, p.raw["questions"][0]["away"], p.raw["questions"][0]["keep_words"]), ([], None, None))
+        for bad in ([], None, [("しない", {})], [(("しない",),)]):          # 形の違う答えは使わない（会話は今までの確かめの言い方）
+            with self.subTest(bad=bad):
+                p = self.preview(data, decide_facts=lambda texts: {t: False for t in texts}, decide_keep_words=lambda pairs: bad)
+                self.assertEqual((p.problems, p.raw["questions"][0]["away"]), ([], None))
+        from tests.test_business_settings import raw            # 入口が持ってきた遠ざかる向きの選択肢は、AI に聞かない
+        r = raw()
+        r["questions"][0].update(away=["しない"])
+        asked.clear()
+        bi.ask_ai(r, decide_keep_words=keep)
+        self.assertEqual(asked, [])
+        r["questions"][0].update(away=None, do_words={"する": "ご予約をお取り"})   # こちらがすることの言葉があっても聞く（別の言葉）
+        bi.ask_ai(r, decide_keep_words=keep)
+        self.assertEqual(asked, [[("ご予約はなさいますか。", ("する", "しない"))]])
+
+    def test_hedged_condition_and_earliest_day_come_in(self):
+        """CL-1 の連絡帳 4-71 の (b)(c)：前の答えが言い切っていないときだけ伺う（「質問」のシートの無くてもよい列「言い切っていないときだけ
+        伺う」。前のひな形には無いので、無ければ偽）。最短の日は「基本」の項目（営業日の数・休みの曜日・祝日は休みか・休業日。休みの曜日を
+        書かなければ土と日、祝日は書かなければ休み、休みの曜日「なし」は休みの曜日が無い）。"""
+        from datetime import date
+        head = ("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "入る一言", "伺う条件の質問ID", "伺う条件の答え",
+                "言い切っていないときだけ伺う")
+        q1 = ("Q1", "当日のキャンセルはございませんか？", "キャンセル", "はい／いいえ", "はい", None, None, None, None, None, None)
+        q2 = ("Q2", f"（{bs.DAY_SLOT}なら対応できますが、）いつ頃がよろしいでしょうか？", "ご希望の時期", "日時", "いいえ", None, None, None,
+              "Q1", "いいえ", "はい")
+        no_branch = [("質問ID", "回答条件", "次の質問ID")]
+        basic = book_rows("基本") + [("最短の日（営業日の数）", "3"), ("休業日", "2026/12/30／2026-12-31")]
+        data = book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": basic})
+        p = self.preview(data)
+        self.assertEqual(p.problems, [])
+        self.assertNotIn(bs.DAY_SLOT, bi._script(p.raw))                   # 名前を洗い出す台本に、最短の日の場所は入れない（名前ではない）
+        self.assertIn("なら対応できますが、）いつ頃がよろしいでしょうか？", bi._script(p.raw))
+        self.assertEqual((p.raw["questions"][1]["ask_if"], p.raw["earliest"]),
+                         ({"after": "Q1", "answers": ["いいえ"], "hedged": True},
+                          {"business_days": 3, "closed_weekdays": ["sat", "sun"], "closed_on_holidays": True,
+                           "closed_dates": ["2026-12-30", "2026-12-31"]}))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual((got.questions[1].ask_if, got.earliest),
+                         (bs.AskIf("Q1", ("いいえ",), True), bs.Earliest(3, ("sat", "sun"), True, (date(2026, 12, 30), date(2026, 12, 31)))))
+        more = book_rows("基本") + [("最短の日（営業日の数）", "0"), ("休みの曜日", "日曜日／水"), ("祝日は休みか", "いいえ")]
+        p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": more}))
+        self.assertEqual((p.problems, p.raw["earliest"]),
+                         ([], {"business_days": 0, "closed_weekdays": ["sun", "wed"], "closed_on_holidays": False, "closed_dates": []}))
+        cell = book_rows("基本") + [("最短の日（営業日の数）", 2), ("休業日", date(2026, 12, 30))]   # 数と日付のセル
+        p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": cell}))
+        self.assertEqual((p.problems, p.raw["earliest"]["business_days"], p.raw["earliest"]["closed_dates"]), ([], 2, ["2026-12-30"]))
+        none = book_rows("基本") + [("最短の日（営業日の数）", "2"), ("休みの曜日", "なし")]
+        p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": none}))
+        self.assertEqual((p.problems, p.raw["earliest"]["closed_weekdays"]), ([], []))
+        for name, qrow, extra, words in (
+                ("言い切っていないが読めない", q2[:10] + ("たぶん",), [("最短の日（営業日の数）", "3")], "言い切っていないときだけ伺う"),
+                ("伺う条件が無い", q2[:8] + (None, None, "はい"), [("最短の日（営業日の数）", "3")], "伺う条件"),
+                ("最短の日が無い", q2, [], "最短の日"),
+                ("営業日の数が読めない", q2, [("最短の日（営業日の数）", "三")], "営業日の数"),
+                ("曜日が読めない", q2, [("最短の日（営業日の数）", "3"), ("休みの曜日", "土日")], "休みの曜日"),
+                ("祝日が読めない", q2, [("最短の日（営業日の数）", "3"), ("祝日は休みか", "たぶん")], "祝日は休みか"),
+                ("休業日が読めない", q2, [("最短の日（営業日の数）", "3"), ("休業日", "12月30日")], "日にち（YYYY-MM-DD）ではありません"),
+                ("数が無いのに休み", q2[:1] + ("いつ頃がよろしいでしょうか？",) + q2[2:], [("休みの曜日", "土")], "最短の日（営業日の数）を書いた業務だけ")):
+            with self.subTest(name):
+                p = self.preview(book(sheets={"質問": [head, q1, qrow], "分岐": no_branch, "基本": book_rows("基本") + extra}))
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
     def test_ask_if_and_approval_come_in_from_the_question_sheet(self):
         """CL-1 の連絡帳 4-66 の (b)：前の質問のこの答えのときだけ伺う（「伺う条件の質問ID」「伺う条件の答え」。答えは「／」で区切る）と、
         説明した内容のご承認を伺う質問か（「ご承認を伺う」）は、「質問」のシートの無くてもよい列（前のひな形には無いので、無ければいつも
@@ -597,7 +684,7 @@ class Import(unittest.TestCase):
         p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch}))
         self.assertEqual(p.problems, [])
         self.assertEqual([(q["ask_if"], q["approval"]) for q in p.raw["questions"]],
-                         [(None, False), ({"after": "Q1", "answers": ["いいえ", "わからない"]}, True)])
+                         [(None, False), ({"after": "Q1", "answers": ["いいえ", "わからない"], "hedged": False}, True)])
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", book(sheets={"質問": [head, q1, q2], "分岐": no_branch}),
                                            expected_digest=p.digest, ai=p.ai))
         self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {"Q2": bs.AskIf("Q1", ("いいえ", "わからない"))})
