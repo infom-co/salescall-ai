@@ -7379,9 +7379,9 @@ class EndWordsTest(unittest.TestCase):
             ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"),
             ("はい、パンフレットはお送りしない方がいいということでしょうか？", "続ける"), (self.NEXT, "続ける"), ("", "続ける"),
             ("はい、それではパンフレットをお送りさせていただきますね？", "続ける"),
-            # ⛔ 11-03 ユーザー：AIの「パンフレットは必要になりましたらお送りする」は「誰が決めるのか・お客様から連絡はこない」＝使わない（G-72 の BAD）。
-            # 目的から遠ざかる向きなので「させていただきますね？」も使わず、今は念のための言い直し（⏳ この答えのあとの一言は伺い中）
-            ("はい、念のためパンフレットはお送りしなくて大丈夫だということでよろしかったでしょうか？", "続ける"),
+            # 目的から遠ざかる向きの言い切っていない答えで、業務設定の追って伺う質問が無い：その向きの言葉で言い直さずに「承知しました。」で次へ（✅ 2026-11-03
+            # ユーザー：「提案の「承知しました」で次に進むでもOK」・「最終目的に繋がるクロージングはマイナスの言葉で締めない」）
+            (self.NEXT, "続ける"),
             ("はい、それではお支払いはカードとさせていただきますね？", "続ける"),
             ("はい、それではご予約はされているということで記録させていただいて大丈夫でしょうか？", "続ける"),
             (self.R1, "続ける"), (self.R1, "続ける")]
@@ -12261,10 +12261,23 @@ class HedgedSalesTest(unittest.TestCase):
                     meanings={"はい": "担当者がご訪問させていただいてよろしいということ", "いいえ": "担当者がご訪問させていただかなくてよろしいということ"},
                     do_words={"はい": "担当者がご訪問"}, away=("いいえ",)),
                [dict(id="E2b", text="オンラインでお話しさせていただくこともできますが！", type="yes_no", conditions=YN, ask_if=("E2", ("いいえ",)))]),
-        # (2)(3)：追って伺う質問が無い（⏳ この答えのあとの一言は伺い中＝いまは念のための言い直し）
+        # (A)「これは以前に言った、重要な部分をその場で説明して、ご同意をいただくのがいいんじゃないですか？業務次第」＝ご説明（入る一言）＋ご承認の質問。
+        # ご説明の文は業務の例（依頼者のトークスクリプトに書く）
         "G8": (dict(text="パンフレットをお送りしてもよろしいでしょうか？", type="yes_no", conditions=YN,
                     meanings={"はい": "パンフレットをお送りしてよろしいということ", "いいえ": "パンフレットをお送りしなくてよろしいということ"},
-                    do_words={"はい": "パンフレットをお送り"}, away=("いいえ",)), []),
+                    do_words={"はい": "パンフレットをお送り"}, away=("いいえ",)),
+               [dict(id="G8b", text="この内容でご同意いただけますでしょうか？", type="yes_no", conditions=YN, ask_if=("G8", ("いいえ",)), approval=True,
+                     intro="それでは、パンフレットの大事なところだけ、この場で簡単にご説明させていただきます。初期費用はかからず、月々の料金だけでお使いいただけます。")]),
+        # (A)「「それではオンラインでお話しさせていただく（説明会の録画画像を送付させていただく）こともできますが！」業務次第」
+        "G9": (dict(text="説明会にはご参加いただけますでしょうか？", type="choice", conditions=("参加する", "参加しない"),
+                    meanings={"参加する": "説明会にご参加いただけるということ", "参加しない": "説明会にはご参加いただけないということ"},
+                    away=("参加しない",)),
+               [dict(id="G9b", text="説明会の録画画像を送付させていただくこともできますが！", type="yes_no", conditions=YN, ask_if=("G9", ("参加しない",)))]),
+        # 業務設定の追って伺う質問が無い・パンフレットの送付が最終目的ではない・ご覧いただく必要もご同意も要らない業務（(A)「提案の「承知しました」で次に進むでもOK」）
+        "G8n": (dict(text="パンフレットをお送りしてもよろしいでしょうか？", type="yes_no", conditions=YN,
+                     meanings={"はい": "パンフレットをお送りしてよろしいということ", "いいえ": "パンフレットをお送りしなくてよろしいということ"},
+                     do_words={"はい": "パンフレットをお送り"}, away=("いいえ",)),
+                [dict(id="G16", text="お支払いはカードと振込のどちらがよろしいでしょうか？", type="choice", conditions=("カード", "振込"), ask_if=())]),
     }
 
     @classmethod
@@ -12272,7 +12285,8 @@ class HedgedSalesTest(unittest.TestCase):
         from datetime import date
         from flowctl import Flow, Question
         q, follow = cls.TALK[qid]
-        return Flow([Question(qid, **q)] + [Question(f.pop("id"), ask_if_hedged=True, **f) for f in (dict(x) for x in follow)],
+        # 追って伺う質問（ask_if のあるもの）は、言い切っていないときだけ伺う。ask_if の無いものは、ふつうの次の質問
+        return Flow([Question(qid, **q)] + [Question(f.pop("id"), ask_if_hedged=bool(f.get("ask_if")), **f) for f in (dict(x) for x in follow)],
                     earliest_day=date(2026, 11, 9), today=date(2026, 11, 3), **kw)
 
     @staticmethod
@@ -12309,8 +12323,11 @@ class HedgedSalesTest(unittest.TestCase):
             ("E1", "いいえ", "電話は出られないことが多くて", "はい、それではメールかLINEで詳しいご案内をさせていただく方がよろしいでしょうか？"),
             ("E2", "いいえ", "来ていただくほどではないかなと", "はい、それではオンラインでお話しさせていただくこともできますが！"),
             ("G8", "はい", "せっかくなので、たぶんお願いします", "はい、それではパンフレットをお送りさせていただきますね？"),
-            # ⏳ 追って伺う質問の無い、目的から遠ざかる向きの答え（伺い中）：「させていただきますね？」は使わず、今は念のための言い直し
-            ("G8", "いいえ", "届いても見るか分からなくて", "はい、念のためパンフレットをお送りしなくて大丈夫だということでよろしかったでしょうか？"),
+            ("G8", "いいえ", "届いても見るか分からなくて", "はい、それでは、パンフレットの大事なところだけ、この場で簡単にご説明させていただきます。"
+             "初期費用はかからず、月々の料金だけでお使いいただけます。この内容でご同意いただけますでしょうか？"),
+            ("G9", "参加しない", "可否については控えさせていただきます", "はい、それでは説明会の録画画像を送付させていただくこともできますが！"),
+            # 追って伺う質問の無い、目的から遠ざかる向きの答え：その向きの言葉で言い直さずに「承知しました。」で次の質問へ
+            ("G8n", "いいえ", "届いても見るか分からなくて", "承知しました。それではお支払いはカードと振込のどちらがよろしいでしょうか？"),
         ]
         for qid, cond, words, line in want:
             f, r, heard = self.said(qid, cond, words)
@@ -12327,6 +12344,39 @@ class HedgedSalesTest(unittest.TestCase):
         f, r, _ = self.said("G15", "いいえ", "来月以降になると思います")
         AmbiguousAnswerTest.say(f, "いえ、来月以降も考えていないです。", "record_answer", question_id="G15c", condition_id="いいえ")
         self.assertEqual((f.export()["G15"], f.export()["G15c"]), ("いいえ", "いいえ"))
+
+    def test_unclear_answer_is_asked_toward_the_goal(self):
+        # どちらとも取れる答え（「大丈夫です。」・AIは目的から遠ざかる「いいえ」と受け取った）は、目的に進む向きで伺う。それに「いえ」と言われたら、
+        # 遠ざかる向きの言葉で言い直さずに「承知しました。」で次へ（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない」）
+        f = self.flow("G8n")
+        r = AmbiguousAnswerTest.say(f, "大丈夫です。", "record_answer", question_id="G8n", condition_id="いいえ")
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "hai", "念のためパンフレットをお送りして大丈夫だということでよろしいでしょうか？"))
+        r = AmbiguousAnswerTest.say(f, "いえ、要らないです。", "confirm_field", question_id="G8n", result="corrected", correction="いいえ")
+        self.assertEqual((r["result"], r["ack"], r["question_id"], f.export()["G8n"]), ("next", "shouchi", "G16", "いいえ"))
+        # 明らかなお断り・怒っている方は除く＝言い直しを通らず、お断りの締め（✅ 同じ時「明らかに営業拒否されている場合や怒っている場合は除きますよ！」）
+        from end_words import ANSWER, answer_flow
+        row = next(x for x in ANSWER if x[1] == "結構です。もうかけてこないでください。")
+        self.assertEqual(answer_flow(row)[2], "締め（callee_refused_call）・もうかけない")
+
+    def test_final_goal_setting_decides_after_the_follow_up(self):
+        # (B) ✅ 2026-11-03 ユーザー：「今月中のご導入だけが最終目的なのか、ご導入が最終目的なのかで設定が違ってくる」＝業務設定の最終目的で決まる
+        import dataclasses
+
+        def run(goals, answer):
+            f = self.flow("G15")
+            for qid in goals:
+                f.questions[qid] = dataclasses.replace(f.questions[qid], final_goal=True, declines=("いいえ",))
+            f.goal_mode = "any"
+            self.hedged(f, "G15", "いいえ", "来月以降になると思います")
+            return AmbiguousAnswerTest.say(f, answer, "record_answer", question_id="G15c", condition_id="はい" if answer.startswith("はい") else "いいえ"), f
+        # 今月中のご導入だけが最終目的：来月以降をお考えでも、今月中は果たせない＝締める（この業務はかけない）
+        r, f = run(("G15",), "はい、来月以降で考えています。")
+        self.assertEqual(f.end_reason, "goal_refused")
+        # ご導入が最終目的（今月中と来月以降の2つのどちらかで果たせる＝any）：来月以降をお考えなら続ける・どちらも断られたら締める
+        r, f = run(("G15", "G15c"), "はい、来月以降で考えています。")
+        self.assertEqual(f.end_reason, "done")   # 目的は果たせる＝残りの質問を伺い終えて、ふつうに締める（試しの質問はここまで）
+        r, f = run(("G15", "G15c"), "いえ、来月以降も考えていないです。")
+        self.assertEqual(f.end_reason, "goal_refused")
 
     def test_recorded_follow_up_has_the_same_lead(self):
         # 録音で流す電話も、同じ文（spoken_question の1か所）：頭は「それでは」（並びの順番のつなぎの言葉ではない）

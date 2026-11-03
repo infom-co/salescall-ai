@@ -1512,8 +1512,8 @@ class Question:
     # 目的から遠ざかる向きの選択肢（取込で文字のAI2つが決める。どちらか1つでもそう読めば入れる＝安全側）。ここに入る選択肢の言い切っていない最初の答えは、
     # do_words の「それでは…させていただきますね？」を使わない（✅ 2026-11-03 ユーザー：「そもそも、導入の方向で進んでいるのに、「それでは、今月中のご導入は
     # 見送りとさせていただきますね？」だと、わざわざ、獲得できそうなお客様を失いかねない確認ですよね？」・(2)「OK」）。目的につなげて伺うのは、業務設定の
-    # 追って伺う質問（ask_if_hedged＝依頼者のトークスクリプト。「それでは、日時変更なさいますか？それとも、キャンセルなさいますか？」）。⏳ 追って伺う質問が
-    # 無い選択肢は、いまは「念のため（意味の言葉）でよろしかったでしょうか？」（✅ 11-03 8時10分「今の一言や案は全くダメです」＝伺い中。Flow._hedged_after）
+    # 追って伺う質問（ask_if_hedged＝依頼者のトークスクリプト。「それでは、日時変更なさいますか？それとも、キャンセルなさいますか？」）。追って伺う質問が
+    # 無ければ、その向きの言葉で言い直さずに「承知しました。」で次へ（✅ 11-03 9時台「提案の「承知しました」で次に進むでもOK」。Flow._keep_toward_goal）
     away: tuple = ()
     # この質問に入る一言（業務設定＝依頼者のトークスクリプト。CL-2。「それでは予約番号の確認からさせていただきます。」）。前の質問のあと、つなぎの言葉
     # （それでは・続きまして）の代わりに、質問の録音の頭に1本で入れる（spoken_question の1か所）。空なら今のつなぎの言葉。最初の質問（名乗りと一緒に
@@ -3017,6 +3017,8 @@ class Flow:
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない
         if result == "recheck":
             return "moushiwake_heavy"  # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」
+        if result == "next" and reply.get("kept_away"):
+            return "shouchi"  # 目的から遠ざかる向きの答えを、言い直さずに受け取って次へ（「承知しました。」＝お礼は合わない。Flow._keep_toward_goal）
         if result == "next" and reply.get("hedged_next"):
             return "hai"  # 言い切っていない答えのあとに、業務設定の追って伺う質問で伺う（「はい、」＋「それでは、キャンセルになさいますか？…」＝Flow._check_again）
         if result == "next" and reply.get("declined"):
@@ -3407,7 +3409,7 @@ class Flow:
             return "hedged"
         if q.type in CHOICE_TYPES:
             # 目的から遠ざかる向きの選択肢（Question.away）は「させていただきますね？」を使わない（✅ 2026-11-03 ユーザー (2)「OK」。目的につなげて
-            # 伺うのは業務設定の追って伺う質問＝この前に _hedged_follow_up が選ぶ。⏳ 無ければ今までの言い直し＝伺い中）
+            # 伺うのは業務設定の追って伺う質問＝この前に _hedged_follow_up が選ぶ。無ければ言い直さずに受け取る＝_ask_confirm の頭の _keep_toward_goal）
             if q.asks_fact:
                 return "hedged_fact"
             if cond in q.away:
@@ -5536,6 +5538,12 @@ class Flow:
         選択肢の型は、選んだ選択肢の意味の言葉で言い直す（choice_words。「念のためご予約はお済みということでよろしいでしょうか？」）。"""
         it, q = self.items[qid], self.questions[qid]
         choice = q.type in CHOICE_TYPES
+        if choice and it.condition in q.away and after != "end_doubt":
+            # 目的から遠ざかる向きの選択肢は、その向きの言葉で言い直さない（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない
+            # ように例を出して言っているよね！」＝「それでは、今月中のご導入は見送りとさせていただきますね？」は「わざわざ、獲得できそうなお客様を失いかねない
+            # 確かめ」。明らかにお断りの方・怒っている方は除く＝その答えは言い直しを通らず、お断り・お詫びの締めの道へ行く）。いまの話の向きを伺う一言
+            # （end_doubt。「パンフレットはお送りしない方がいいということでしょうか？」＝11-01 22時31分のご判断）はこのまま
+            return self._keep_toward_goal(qid, after)
         # 言い直す言葉：いまの話の向きを伺う言葉（end_doubt）・こちらがすることの言葉（hedged_do）は、選択肢ごとの取込の言葉をそのまま。
         # ほかは意味の言葉（choice_words）
         words = ((q.doubt_words[it.condition] + "ということ") if after == "end_doubt" else q.do_words[it.condition] if after == "hedged_do"
@@ -5577,6 +5585,29 @@ class Flow:
         say = self.awaiting_say = (self._lead(lead) if lead else "") + phrase
         return {"result": "confirm_required", "value": shown, "say": say, "after": after,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。" + (self._confirm_how(qid) if choice else "")}
+
+    def _keep_toward_goal(self, qid: str, after: str | None) -> dict:
+        """目的から遠ざかる向きの答えを、その向きの言葉で言い直さずに扱う唯一の場所（_ask_confirm の頭）：
+        - まだどちらとも言っていない答え（曖昧な答え「大丈夫です」・言い直しで食い違った答え＝ambiguous・settle）：目的に進む向きの選択肢が1つなら、
+          その向きで伺う（「念のためパンフレットをお送りしてよろしいということでよろしいでしょうか？」）。1つに決まらなければ、言い直さずに聞き返す
+        - 遠ざかる向きに寄っている・言った答え（言い切っていない答え・こちらの言い直しへの「いえ」）：言い直さずに受け取り、「承知しました。」で次へ
+          （✅ 2026-11-03 ユーザー：「提案の「承知しました」で次に進むでもOK」。言い切っていなければ「曖昧」の印とお客様の言葉を依頼者へ渡す）"""
+        it, q = self.items[qid], self.questions[qid]
+        if after in ("ambiguous", "settle"):
+            ahead = [c for c in q.conditions if c not in q.away]
+            if len(ahead) != 1:
+                return self._ask_again(qid, "unclear", "曖昧な答え（目的から遠ざかる向きの言葉では言い直さない・目的に進む向きが1つに決まらない）")
+            it.condition = ahead[0]
+            if it.value in q.away:
+                it.value = ahead[0]
+            return self._ask_confirm(qid, after=after)
+        if after == "hedged":
+            it.hedged = (self.heard_said or "").strip()[:40] or label(it.condition)
+        self.awaiting_confirm = None
+        it.set("accepted", f"目的から遠ざかる向きの答え（「{label(it.condition)}」）：その向きの言葉では言い直さずに受け取る"
+               + (f"（言い切っていない：「{it.hedged}」）" if it.hedged else ""))
+        r = self._advance("受け付けました。")
+        return r | {"kept_away": True} if r.get("result") == "next" else r
 
     def _confirm_how(self, qid: str) -> str:
         """言い直しへの相手の返事の報告の仕方（唯一の場所。言い直しを始めるとき・差し戻すとき＝_now の両方が使う）。質問の種類で、
