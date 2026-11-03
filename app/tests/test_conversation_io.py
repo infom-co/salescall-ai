@@ -151,7 +151,8 @@ class Materials(SettleBase):
 
         def wishes(*w):
             return dataclasses.replace(base, other_wishes=tuple(call_report.OtherWish(said, "Q1", *x) for x in w)).to_json()
-        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, wishes(("LINEでの連絡", "LINE", "line", None, None))))
+        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, wishes(("無い", None, None, None, "none"),   # 同じ質問は最後のもの
+                                                                          ("LINEでの連絡", "LINE", "line", None, None))))
         self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])),
                          {"Q1": {"state": "accepted", "value": "答えた", "condition": "答えた", "hedged": "たぶん大丈夫です",
                                  "wish": "means"}})               # 連絡先を伺う途中で切れた＝ご連絡の方法は言っていただいた
@@ -163,6 +164,16 @@ class Materials(SettleBase):
                 self.assertEqual(r.other_wishes[0].result, want)
         self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 言い切っていれば hedged は無し
         self.assertNotIn("hedged", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"])
+        # 答えを取った通話とは別の通話の報告にあるほかのご希望は付けない（答えを取った通話の報告からだけ読む。⛔ 2026-11-03 夜の見直し：行のすべての
+        # 通話から拾っていた＝別の方と話していた通話の結果を、取り直した答えに付けうる形だった）
+        self.w.move(s, aid, "ending")
+        self.w.move(s, aid, "ended")
+        later = self.w.insert_claim(s)
+        for st in ("dialing", "answered", "in_conversation"):
+            self.w.move(s, later, st)
+        self.tx(s, lambda tx: call_report.save(tx, later, rep()))           # あとの通話では、ほかのご希望を伺っていない
+        self.write(s, later, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 答えを、あとの通話で取り直した
+        self.assertNotIn("wish", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"])
 
     def test_keys_used_keep_only_names_and_fingerprints(self):
         """使ったキーの識別名（CL-1 の 4-67）：名前と値の指紋の頭8桁だけ。同じものは重ねず、前のものは消さない。キーの値らしいものは

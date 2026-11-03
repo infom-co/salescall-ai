@@ -619,6 +619,8 @@ class Import(unittest.TestCase):
             with self.subTest(bad=bad):
                 p = self.preview(data, decide_facts=lambda texts: {t: False for t in texts}, decide_away=lambda items: bad)
                 self.assertEqual((p.problems, p.raw["questions"][0]["away"]), ([], ["する", "しない"]))
+        p = self.preview(data, decide_facts=lambda texts: {t: False for t in texts})   # 決める処理が渡されない＝答えが無いのと同じ（安全側）
+        self.assertEqual((p.problems, p.raw["questions"][0]["away"]), ([], ["する", "しない"]))
         from tests.test_business_settings import raw            # 入口が持ってきた遠ざかる向きは、AI に聞かない
         r = raw()
         r["questions"][0].update(away=["しない"])
@@ -663,7 +665,7 @@ class Import(unittest.TestCase):
         rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "こちらがすることの言葉",
                  "その答えのあとに伝える一言"),
                 ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい",
-                 "する：「青葉ホール」でのご予約を承ります", "する：「緑川駐車場」をご利用いただけますのでどうぞご利用ください。"),
+                 "する：青葉ホールでのご予約を承ります", "する：「緑川駐車場」をご利用いただけますのでどうぞご利用ください。"),
                 ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None, None)]
         facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
         p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)

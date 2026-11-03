@@ -582,11 +582,13 @@ def _decided_away(raw: dict[str, Any], decide: AwayDecider | None, facts: dict[s
                   meanings: dict[str, dict[str, str]]) -> dict[str, list[str]]:
     """質問ごとに、目的から遠ざかる向きの選択肢を、決める処理に1回だけ聞く（答え＝質問の文と選択肢 → 遠ざかる向きの選択肢の並び）。答えが
     無い・形が違う質問は、すべての選択肢を遠ざかる向きとして入れる（読めない＝安全側＝CL-1 の decide_away と同じ側。「させていただきますね？」を
-    使わず、今までの「念のため…」で確かめる）。選択肢に無い名前は落とす。"""
+    使わず、今までの「念のため…」で確かめる）。決める処理が渡されないときも「答えが無い」と同じ（⛔ 2026-11-03 夜の見直し：決める処理が無いときだけ
+    遠ざかる向きの無いこと＝反対の側に倒れ、会話の側が `decide_away` を渡す前に main に入ると、管理者が取り下げさせた「それでは…させていただきますね？」の
+    言い方に戻る形だった）。選択肢に無い名前は落とす。"""
     pairs, items = _with_meanings(_choice_questions(raw, "away", facts), meanings)
-    if not pairs or decide is None:
+    if not pairs:
         return {}
-    got = decide(items)
+    got = decide(items) if decide is not None else None
     got = got if isinstance(got, list) and len(got) == len(pairs) else [None] * len(pairs)
     out = {}
     for (text, choices), d in zip(pairs, got):

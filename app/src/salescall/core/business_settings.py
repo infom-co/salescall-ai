@@ -121,21 +121,27 @@ QUESTION_LEADS = ("それでは", "続きまして", "では", "はい", "あり
 # 受け、取込の列の例も「はい：予定通りの方向で進め」だった＝「それでは予定通りの方向で進めね？」になる形。業務設定の確かめ（依頼者が書いた言葉＝止める）と、
 # 取込の AI の答えの受け取り（合わない言葉は落とす＝会話の側は意味の言葉で「それでは（意味の言葉）で承りますね？」）と、前に置いた版の読み方（合わない
 # 言葉は無いとして読む）が、どれもここを通る（`valid_answer_words`・`_current_shape`）
+# あわせて、区切りや問いかけの記号（会話の側の meanings.check と同じ並び）と、頭のつなぎの言葉（`QUESTION_LEADS`。会話の側が「それでは」を頭に付けて
+# 言うので「それではそれでは…」と重なる）も使わない（⛔ 2026-11-03 夜の見直し：終わりの形だけを見ていて、依頼者が「それでは…」「…、…」と書いた言葉を
+# 通していた。取込の AI の言葉は会話の側で先にふるいにかけられるが、依頼者が書いた言葉はこの1か所しか通らない）
 DO_WORDS_END = re.compile(r"(?:させていただきます|承ります)$")
 DO_WORDS_DOUBLED = re.compile(r"(?:差し上げ|お伺い|伺わ)させ")
+DO_WORDS_MARKS = re.compile(r"[、。，．？?！!「」『』]")
 
 
 def do_words_ok(words: str) -> bool:
     """こちらがすることの言葉として使える形か（決まりは上の1か所）。"""
     w = words.strip()
-    return bool(DO_WORDS_END.search(w)) and not DO_WORDS_DOUBLED.search(w)
+    return (bool(DO_WORDS_END.search(w)) and not DO_WORDS_DOUBLED.search(w) and not DO_WORDS_MARKS.search(w)
+            and not w.startswith(QUESTION_LEADS))
 
 
-# 業務の録音で、質問の番号から作る部分の名前の形（1か所。会話の側の名前を作る所：日によって変わる言い方＝CL-1 の flowctl.day_recording_id
-# 「質問の番号_d番号」・その答えのあとに伝える一言＝tell_recording_id「質問の番号_tell番号」・ほかのご希望を伺う一言＝other_wish_recording_id
-# 「質問の番号_other」）。ほかの質問の番号がこの形だと、録音の部分を取り違える（CL-1 の連絡帳 4-71 の (d)・4-72 の (i)(k) の (4)）。
-# 質問がその言い方を持つかに関わらず止める（版を直して言い方を足したときに、前からある番号が急に使えなくなる形にしない）
-DERIVED_PART = re.compile(r"_(?:d\d+|tell\d+|other)")
+# 業務の録音の部分の名前は、会話の側が、質問の番号やシステムの名前の後ろに「_」と何かを続けて作る（CL-1 の make_ack_clips.script_table：日によって
+# 変わる言い方「_d番号」・つなぎの言葉付き「_lead_…」・その答えのあとに伝える一言「_tell番号」・ほかのご希望を伺う一言「_other」・読みの違いごと「_v番号」と、
+# その組み合わせ）。⇒ 質問の番号は、ほかの質問の番号やシステムの名前（`RESERVED_IDS`）に「_」を続けた形にはできない（`_derived_part_problems` の1か所。
+# 取り違えるため。CL-1 の連絡帳 4-71 の (d)・4-72 の (i)(k) の (4)）。⛔ 2026-11-03 夜の見直し：はじめは「_d番号」「_tell番号」「_other」の3つの形だけを
+# 写して見ていた＝会話の側の作り方の全部ではなく、形が増えるたびに漏れる。作り方を写さず「_」の続きで決める
+DERIVED_JOIN = "_"
 EARLIEST_KEYS = {"business_days", "closed_weekdays", "closed_on_holidays", "closed_dates"}   # 業務設定の「最短の日」の項目
 EARLIEST_MAX_DAYS = 60                            # 「N営業日以降」の N の上限（祝日の暦が届く先＝翌年の分まで、に収まる長さ）
 _EARLIEST_SEARCH_DAYS = 366                       # 最短の日を探す先の限り（休みの日が続いても、1年の先までは探さない＝`Earliest.day`）
@@ -554,8 +560,8 @@ def _answer_words(raw: Any, type_name: str, choices: tuple[str, ...], where: str
     if not isinstance(raw, dict) or len(good) != len(raw):
         problems.append(f"{where}の{what}は、" + (f"言葉（{list(REPLY_WORDS)}）→ 宣言した選択肢" if replies
                                                   else "宣言した選択肢 → 言葉（文字）") + " の表です"
-                        + ("（言葉は文の終わりまで書き、終わりは「させていただきます」か「承ります」。「。」は付けず、"
-                           "「差し上げさせ」「お伺いさせ」のようにへりくだりを重ねない）" if do else ""))
+                        + ("（言葉は文の終わりまで書き、終わりは「させていただきます」か「承ります」。「、」「。」などの記号を使わず、"
+                           f"頭に「{'」「'.join(QUESTION_LEADS)}」を付けず、「差し上げさせ」「お伺いさせ」のようにへりくだりを重ねない）" if do else ""))
     return good
 
 
@@ -841,15 +847,15 @@ def _day_slot_problems(raw: dict[str, Any], has_earliest: bool) -> list[str]:
 
 
 def _derived_part_problems(raw: dict[str, Any]) -> list[str]:
-    """質問の番号が、ほかの質問の番号から作る録音の部分の名前（`DERIVED_PART`）と同じ形でないか（1か所）。"""
+    """質問の番号が、ほかの質問の番号やシステムの名前に「_」を続けた形でないか（1か所。上の `DERIVED_JOIN`）。"""
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     ids = [q.get("id") for q in qs if isinstance(q, dict) and isinstance(q.get("id"), str)]
     problems = []
-    for base in dict.fromkeys(ids):
-        clash = [x for x in ids if x != base and x.startswith(base) and DERIVED_PART.fullmatch(x[len(base):])]
+    for base in sorted(set(ids) | RESERVED_IDS):
+        clash = [x for x in ids if x.startswith(base + DERIVED_JOIN)]
         if clash:
-            problems.append(f"質問の番号 {clash} は、質問 {base} から作る録音の部分の名前（{base}_d番号・{base}_tell番号・{base}_other）と"
-                            "同じ形です（取り違えるので使えません）")
+            problems.append(f"質問の番号 {clash} は、{'質問' if base in ids else 'システムの名前'} {base} に「{DERIVED_JOIN}」を続けた形です（会話の側は、"
+                            f"録音の部分の名前を {base}_d番号・{base}_tell番号・{base}_other・{base}_v番号 などの形で作るので、取り違えます）")
     return problems
 
 

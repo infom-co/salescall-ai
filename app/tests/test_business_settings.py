@@ -341,7 +341,8 @@ class Check(unittest.TestCase):
                 r["questions"][0]["do_words"] = {"する": words}
                 self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].do_words, {"する": words})
         for words in ("予定通りの方向で進め", "ご予約をお取りさせていただきます。", "承ります。", "担当者からお電話を差し上げさせていただきます",
-                      "ご訪問をお伺いさせていただきます", "させていただきますか"):
+                      "ご訪問をお伺いさせていただきます", "させていただきますか", "それではパンフレットをお送りさせていただきます",
+                      "当日は、お車でお越しということで承ります", "「青葉ホール」でのご予約を承ります"):
             with self.subTest(ng=words):
                 r = raw()
                 r["questions"][0]["do_words"] = {"する": words}
@@ -370,8 +371,9 @@ class Check(unittest.TestCase):
                 self.assertTrue(any("その答えのあとに伝える一言" in p for p in problems_of(r)), problems_of(r))
 
     def test_question_ids_must_not_look_like_derived_recording_parts(self):
-        """業務の録音で質問の番号から作る部分の名前（日の言い方「_d番号」・その答えのあとに伝える一言「_tell番号」・ほかのご希望を伺う一言「_other」＝
-        CL-1 の 4-71 の (d)・4-72 の (i)(k) の (4)）と同じ形の質問の番号は止める（`DERIVED_PART` の1か所。その言い方を持つかに関わらず）。
+        """業務の録音の部分の名前は、会話の側が質問の番号やシステムの名前に「_」と何かを続けて作る（日の言い方「_d番号」・つなぎの言葉「_lead_…」・
+        その答えのあとに伝える一言「_tell番号」・ほかのご希望を伺う一言「_other」・読みの違い「_v番号」と、その組み合わせ＝CL-1 の 4-71 の (d)・4-72 の
+        (i)(k) の (4)）。ほかの質問の番号やシステムの名前に「_」を続けた質問の番号は止める（`_derived_part_problems` の1か所。作り方を写さない）。
         会話の側のシステムの質問 W1・C10 も質問の番号に使えない（4-72 の (k) の (1)）。"""
         def extra(qid):
             r = raw()
@@ -379,10 +381,11 @@ class Check(unittest.TestCase):
             q.update(id=qid, text="ほかにご希望はございますか？", required=False)
             r["questions"].append(q)
             return r
-        for qid in ("Q1_d2", "Q1_tell1", "Q1_other", "Q2_tell12"):
+        for qid in ("Q1_d2", "Q1_tell1", "Q1_other", "Q2_tell12", "Q1_lead_deha", "Q1_v1", "Q1_d2_lead_soredeha_v2", "Q1_x",
+                    "greeting_v1", "intro_lead_deha"):                # 会話の側が作る形とその組み合わせ・システムの名前の続き（作り方を写さず「_」の続きで決める）
             with self.subTest(qid):
                 self.assertTrue(any("録音の部分の名前" in p for p in problems_of(extra(qid))), problems_of(extra(qid)))
-        for qid in ("Q1_others", "Q1_tellx", "Q3_other", "Q1_d"):               # 形の違う番号・無い質問の番号からの形は取り違えない
+        for qid in ("Q3_other", "Q1x", "Q1-2", "Q10"):                         # 無い質問の番号からの形・「_」で続かない番号は取り違えない
             with self.subTest(ok=qid):
                 bs.check(extra(qid), field_types=FIELD_TYPES, ai_reading_needs_person=True)
         for qid in ("W1", "C10"):
@@ -469,7 +472,7 @@ class Check(unittest.TestCase):
                 change(r)
                 self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
         r = slotted()
-        extra_question("Q2_dx")(r)                                         # 番号の形でなければ取り違えない
+        extra_question("Q2x")(r)                                           # 「_」で続かなければ取り違えない
         bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_earliest_day_counts_business_days(self):

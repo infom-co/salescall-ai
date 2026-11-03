@@ -278,21 +278,22 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
     番号のまま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。項目の名前の正本は会話の側の flowctl.EARLIER_KEYS。
     - "hedged"：言い切っていない答えのお客様の言葉（項目の値の hedged。言い切っていれば入れない）。はい／いいえの最終目的への言い切っていない
       お断りは、答えだけでは言い切ったお断りと見分けられないため（CL-1 の連絡帳 4-73 の (2)）。
-    - "wish"：その質問に、前の通話までに伺ったほかのご希望の結果（その行の通話の会話の報告の通話の事実 other_wish のうち、その質問の最後のもの
-      を `call_report.OtherWish.result` で読む。無ければ入れない＝W1 の答えをいただく前に切れた・伺っていない）。⛔ 2026-11-03 まで渡しておらず、
+    - "wish"：その答えを取った通話（項目の値の attempt_id）で、その質問に伺ったほかのご希望の結果（その通話の会話の報告の通話の事実 other_wish の
+      うち、その質問の最後のものを `call_report.OtherWish.result` で読む。無ければ入れない＝W1 の答えをいただく前に切れた・伺っていない）。会話の側は、
+      ほかのご希望を答えを取った通話でしか伺わない（前の通話の答えには伺い直さない＝CL-1 の Flow._wish_due）。⛔ 2026-11-03 まで渡しておらず、
       前の通話でほかのご希望（LINE など）を言っていただいた最終目的の答えが、続きの通話で「どれも要らない」だけになり、「目的が果たせない」で
       締めてその業務をもうかけない形だった（✅ 11-03 日本時間20時48分のご承認＝方法を言っていただいたら断られたとは扱わない。CL-1 の連絡帳 4-73 の (1)）。
-      通話の順は予約した時刻の順（同じ質問の最後のものが、いちばんあとの通話のもの）。作り直した報告があれば、それを読む（`call_report.load` の1か所）。"""
-    wishes: dict[str, str | None] = {}
-    for a in tx.all("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s ORDER BY claimed_at, attempt_id", (task_id,)):
-        report = call_report.load(tx, a["attempt_id"])
-        for w in (report.other_wishes if report is not None else ()):
-            wishes[w.question] = w.result
+      ⛔ 同じ夜の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
+      答えに、前の通話（別の方と話していた通話）の結果を付けうる形だった。作り直した報告があれば、それを読む（`call_report.load`）。"""
+    reports: dict[UUID, call_report.CallReport | None] = {}
     out: dict[str, dict[str, Any]] = {}
-    for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged FROM salescall.item_values WHERE task_id = %s"
-                    " ORDER BY question_id", (task_id,)):
-        item = {"state": r["state"], "value": r["value"], "condition": r["condition"], "hedged": r["hedged"],
-                "wish": wishes.get(r["question_id"])}
+    for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged, attempt_id FROM salescall.item_values"
+                    " WHERE task_id = %s ORDER BY question_id", (task_id,)):
+        if r["attempt_id"] not in reports:
+            reports[r["attempt_id"]] = call_report.load(tx, r["attempt_id"])
+        report = reports[r["attempt_id"]]
+        wish = next((w.result for w in reversed(report.other_wishes) if w.question == r["question_id"]), None) if report else None
+        item = {"state": r["state"], "value": r["value"], "condition": r["condition"], "hedged": r["hedged"], "wish": wish}
         out[r["question_id"]] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
     return out
 
