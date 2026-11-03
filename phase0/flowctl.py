@@ -736,8 +736,7 @@ NOT_REACHED_LABEL = {"absent": "不在", "not_transferred": "取り次いでい�
                      "other_means": "ほかの手段を望まれた", "who_unclear": "お名前だけではどの方か分からなかった"}
 # 最終目的の果たし方（業務設定＝CL-2。Flow の goal_mode）：any＝最終目的のどれか1つが果たせれば業務の目的が果たせる（1つ断られても、ほかが残れば
 # 質問を続ける）／all＝全部が要る（1つ断られたら果たせない）。✅ 2026-11-01 日本時間22時31分 ユーザー：「片方だけでも目的が達成できるときは、
-# 質問を続け、片方断られたら、目的は達成できない場合は、途中で締めるという形になるんではないでしょうか。」。断られたらそれだけで果たせない最終目的
-# （Question.goal_must＝依頼者の分岐の「終わり」）は、果たし方の数に入れない（Flow._goals_lost の1か所）
+# 質問を続け、片方断られたら、目的は達成できない場合は、途中で締めるという形になるんではないでしょうか。」
 GOAL_MODES = ("any", "all")
 # 断られたときの締め（CLOSE_DECLINED）で終える理由。念のための確認はしない（DESIGN.md 6-5）
 DECLINED_ENDS = ("callee_hurry", "callee_refused_call", "callee_complaint")
@@ -1583,13 +1582,6 @@ class Question:
     # 果たせなくなったら、途中で締め、その業務だけかけない（Flow._goals_lost。✅ 2026-11-01 日本時間20時56分・22時31分 ユーザー）
     final_goal: bool = False
     declines: tuple = ()
-    # この最終目的が断られたら、果たし方（Flow の goal_mode）にかかわらず業務の目的が果たせない（業務設定＝CL-2。決まりは Flow._goals_lost の1か所）。取込は、
-    # 依頼者のトークスクリプトの分岐で、目的から遠ざかる向きの答え（取込の away）のあとが「終わり」の質問を、最終目的（断る答え＝その答え）にして、これを
-    # 真にする（依頼者がその答えで電話を終えると書いた＝その断りだけで目的は果たせない。取込で止めて依頼者に伺わない。CL-1.md 4-78。✅ 2026-11-04
-    # 日本時間6時44分 ユーザー：「契約者に決める形じゃなくて、あなたと私が どうするのかもうすでに決めているだろうが。」）。⛔ 見つけた：この印が無いと、
-    # 果たし方が「どれか1つで果たせる」業務では、ご来店を言い切って断られても締めずにパンフレットへ進み、「全部が要る」にすると、パンフレットと
-    # 説明会の両方が要ることになった（業務に果たし方1つでは、依頼者の「終わり」と「どれか1つ」の両方を持てない）
-    goal_must: bool = False
     # 選択肢が、こちらが決めた意味の名前（ご本人・不在・尋ねている など）か。真なら、意味の判定にはその名前のまま見せ、意味の定義は説明に書く
     # （meaning_judge.options）。偽（お客様の選択肢の言葉＝はい・いいえ・している など）は、意味の言葉を名前にして見せる（言葉の頭で選ばせない）。
     # ⛔ 2026-10-29：意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び、「ご本人」と答えるたびに長い文を書き出していた
@@ -1635,8 +1627,6 @@ class Question:
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
         assert not self.ask_if or (len(self.ask_if) == 2 and self.ask_if[1]), f"{self.id}：伺う条件は（前の質問の番号, 答えの並び）です"
         assert not self.approval or (self.type == "yes_no" and len(self.conditions) == 2), f"{self.id}：ご承認を伺う質問は、はい／いいえの型です"
-        assert not self.goal_must or (self.final_goal and self.declines), \
-            f"{self.id}：断られたらそれだけで目的が果たせない印（goal_must）は、断る答えのある最終目的の質問に付けます"
         assert not self.ends_on or (self.type in CHOICE_TYPES and not self.callback and self.required
                                     and set(self.ends_on) <= set(self.all_conditions) - set(SYSTEM_CONDITIONS)), \
             f"{self.id}：ここで終える答え（ends_on）は、必須の業務の選択肢の質問の、宣言した選択肢か「どちらでも」「どれも要らない」です"
@@ -6391,8 +6381,7 @@ class Flow:
 
     def _goals_lost(self) -> list[str] | None:
         """最終目的の申し出が断られて、業務の目的が果たせなくなったか（唯一の決まり＝_advance）：断られた最終目的の質問（受け取った答えが、その質問の
-        断る答え）の番号の並び。まだ果たせる・最終目的の無い業務なら None。断られたらそれだけで果たせない最終目的（Question.goal_must）が1つでも
-        断られたら果たせない。ほかの最終目的は、any＝全部断られたら・all＝1つでも断られたら、果たせない。
+        断る答え）の番号の並び。まだ果たせる・最終目的の無い業務なら None。any＝全部断られたら・all＝1つでも断られたら、果たせない。
         断る答えでない答え（わからない・答えたくない・聞き取れない）は、断られたとはしない（まだ果たせる）。"""
         goals = [q for q in self.questions.values() if q.final_goal]
         # 断る答え：その質問の断る答え（取込で決める）と、選ぶ質問の「どれも要らない」。ご承認の質問は、ご納得いただけなかった点を伺い終えてから
@@ -6412,9 +6401,7 @@ class Flow:
         # 前は確かめてから締めた＝「念のためどちらもご不要ということでよろしかったでしょうか？」＝遠ざかる向きの言葉の確かめ・そのあと 19時49分に伺うまで
         # 「承知しました。」で次へ進めていた）。業務の手立ての質問があれば、その答えで決まる（上の asking・最終目的の設定＝test_final_goal_setting_…）
         refused = [q.id for q in goals if self.items[q.id].state in GOT and q.declined(self.items[q.id].condition) and q.id not in asking]
-        # 断られたらそれだけで果たせない最終目的（goal_must）が1つでも断られたら、果たせない。果たし方（any・all）は、それを除いた最終目的で数える
-        others = {q.id for q in goals if not q.goal_must}
-        if not refused or not (any(self.questions[x].goal_must for x in refused) or self.goal_mode == "all" or others <= set(refused)):
+        if not refused or (self.goal_mode == "any" and len(refused) < len(goals)):
             return None
         return refused
 
