@@ -37,10 +37,10 @@ def raw() -> dict:
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
              "asks_fact": False, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
-             "declines": ["しない"]},
+             "declines": ["しない"], "tell_words": {}},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []},
+             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -228,7 +228,7 @@ class Check(unittest.TestCase):
         r["questions"].append({"id": "Q3", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": []})
+                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}})
         r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"))
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[2].ask_if, s.questions[2].approval, s.questions[0].ask_if, s.questions[0].approval),
@@ -274,15 +274,17 @@ class Check(unittest.TestCase):
         （宣言した選択肢にだけ・事実を伺う質問には付けない＝会話の側が使わない）。入る一言は最初の質問には付けない（名乗りと一緒に流す）。
         依頼者がすることは無くてもよい（無ければ会話の側の既定「記録」）。"""
         r = raw()
-        r["questions"][0]["do_words"] = {"する": "ご予約をお取り", "しない": "ご予約は控え"}
+        r["questions"][0]["do_words"] = {"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"}
         r["questions"][1]["intro"] = "それではご希望の日時の確認からさせていただきます。"
         r["client_does"] = "手配"
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[0].do_words, s.questions[1].intro, s.client_does),
-                         ({"する": "ご予約をお取り", "しない": "ご予約は控え"}, "それではご希望の日時の確認からさせていただきます。", "手配"))
+                         ({"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"},
+                          "それではご希望の日時の確認からさせていただきます。", "手配"))
         self.assertIsNone(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).client_does)
         for name, change, words in (("事実を伺う質問", lambda r: r["questions"][0].update(asks_fact=True,
-                                                                                       do_words={"する": "ご予約をお取り"}), "事実を伺う質問"),
+                                                                                       do_words={"する": "ご予約をお取りさせていただきます"}),
+                                     "事実を伺う質問"),
                                     ("宣言に無い選択肢", lambda r: r["questions"][0].update(do_words={"わからない": "x"}), "こちらがすることの言葉"),
                                     ("値を聞く質問", lambda r: r["questions"][1].update(do_words={"答えた": "x"}), "こちらがすることの言葉"),
                                     ("最初の質問の入る一言", lambda r: r["questions"][0].update(intro="それでは"), "入る一言"),
@@ -329,6 +331,64 @@ class Check(unittest.TestCase):
         r["questions"][1]["text"] = "ご希望の日時をお聞かせください。それでは承ります。"   # 頭でなければよい
         bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
+    def test_do_words_run_to_the_end_of_the_sentence(self):
+        """CL-1 の連絡帳 4-72 の答えの (2)・(g)（✅ 2026-11-03 ユーザー (D) の案への答え）：こちらがすることの言葉は文の終わりまで持ち、終わりは
+        「させていただきます」か「承ります」だけ（会話の側は「それでは（言葉）ね？」で言う）。「。」で終える・途中で止める・へりくだりを重ねるは止める
+        （決まりは `do_words_ok` の1か所。会話の側の meanings.check の kind "do" と同じ）。"""
+        for words in ("予定通りの方向で進めさせていただきます", "当日はお車でお越しということで承ります", "お支払いはカードとさせていただきます"):
+            with self.subTest(ok=words):
+                r = raw()
+                r["questions"][0]["do_words"] = {"する": words}
+                self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].do_words, {"する": words})
+        for words in ("予定通りの方向で進め", "ご予約をお取りさせていただきます。", "承ります。", "担当者からお電話を差し上げさせていただきます",
+                      "ご訪問をお伺いさせていただきます", "させていただきますか"):
+            with self.subTest(ng=words):
+                r = raw()
+                r["questions"][0]["do_words"] = {"する": words}
+                self.assertTrue(any("「させていただきます」か「承ります」" in p for p in problems_of(r)), problems_of(r))
+        self.assertEqual(bs.valid_answer_words({"する": "ご予約をお取り", "しない": "ご予約は控えさせていただきます"}, ("する", "しない"),
+                                               replies=False, do=True), {"しない": "ご予約は控えさせていただきます"})   # 取込の AI の答えは合う言葉だけ受ける
+
+    def test_tell_words_after_the_answer(self):
+        """CL-1 の連絡帳 4-72 の (i)（✅ 2026-11-03 日本時間19時台 ユーザー）：その答えのあとに伝える一言（選択肢 → 一言）は、はい／いいえ・決まった
+        選択肢の質問の、宣言した選択肢にだけ付く（事実を伺う質問にも付く）。依頼者が書く（無ければ空）。"""
+        r = raw()
+        r["questions"][0]["tell_words"] = {"する": "○○駐車場をご利用いただけますのでどうぞご利用ください。"}
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual(s.questions[0].tell_words, {"する": "○○駐車場をご利用いただけますのでどうぞご利用ください。"})
+        self.assertEqual(s.questions[1].tell_words, {})
+        r = raw()
+        r["questions"][0].update(asks_fact=True, next=None, final_goal=False, declines=[], tell_words={"する": "当日はお車でお越しください。"})
+        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)   # 事実を伺う質問にも付く
+        for name, change in (("宣言に無い選択肢", lambda r: r["questions"][0].update(tell_words={"どちらでも": "x"})),
+                             ("値を聞く質問", lambda r: r["questions"][1].update(tell_words={"答えた": "x"})),
+                             ("空の一言", lambda r: r["questions"][0].update(tell_words={"する": " "})),
+                             ("表でない", lambda r: r["questions"][0].update(tell_words=["x"]))):
+            with self.subTest(name):
+                r = raw()
+                change(r)
+                self.assertTrue(any("その答えのあとに伝える一言" in p for p in problems_of(r)), problems_of(r))
+
+    def test_question_ids_must_not_look_like_derived_recording_parts(self):
+        """業務の録音で質問の番号から作る部分の名前（日の言い方「_d番号」・その答えのあとに伝える一言「_tell番号」・ほかのご希望を伺う一言「_other」＝
+        CL-1 の 4-71 の (d)・4-72 の (i)(k) の (4)）と同じ形の質問の番号は止める（`DERIVED_PART` の1か所。その言い方を持つかに関わらず）。
+        会話の側のシステムの質問 W1・C10 も質問の番号に使えない（4-72 の (k) の (1)）。"""
+        def extra(qid):
+            r = raw()
+            q = copy.deepcopy(r["questions"][1])
+            q.update(id=qid, text="ほかにご希望はございますか？", required=False)
+            r["questions"].append(q)
+            return r
+        for qid in ("Q1_d2", "Q1_tell1", "Q1_other", "Q2_tell12"):
+            with self.subTest(qid):
+                self.assertTrue(any("録音の部分の名前" in p for p in problems_of(extra(qid))), problems_of(extra(qid)))
+        for qid in ("Q1_others", "Q1_tellx", "Q3_other", "Q1_d"):               # 形の違う番号・無い質問の番号からの形は取り違えない
+            with self.subTest(ok=qid):
+                bs.check(extra(qid), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        for qid in ("W1", "C10"):
+            with self.subTest(reserved=qid):
+                self.assertTrue(any("会話の側で使う" in p for p in problems_of(extra(qid))), problems_of(extra(qid)))
+
     def test_a_question_asked_only_after_a_hedged_answer(self):
         """CL-1 の連絡帳 4-71 の (b)（✅ 2026-11-03 ユーザー (3)(4)）：伺う条件の hedged＝前の質問の答えが言い切っていないときだけ伺う。真偽で書き、
         前の質問は、はい／いいえ・決まった選択肢の質問だけ（会話の側が言い直さずに受け取ってこの質問で伺うのは、選択肢の答えだけ）。"""
@@ -337,7 +397,7 @@ class Check(unittest.TestCase):
                                "required": False, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                "ask_if": {"after": "Q1", "answers": ["しない"], "hedged": True}, "approval": False, "final_goal": False,
-                               "declines": []})
+                               "declines": [], "tell_words": {}})
         r["questions"][0]["next"] = None
         r["questions"][0]["final_goal"], r["questions"][0]["declines"] = False, []
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
@@ -403,7 +463,7 @@ class Check(unittest.TestCase):
                 ("休業日が詰めた形", lambda r: r["earliest"].update(closed_dates=["20261230"]), "日にち（YYYY-MM-DD）ではありません"),
                 ("休業日が重なる", lambda r: r["earliest"].update(closed_dates=["2026-12-30", "2026-12-30"]), "同じ日が2つ"),
                 ("休業日が並びでない", lambda r: r["earliest"].update(closed_dates="2026-12-30"), "休業日（closed_dates）は"),
-                ("録音の名前と同じ形の番号", extra_question("Q2_d1"), "日の言い方ごとの録音の名前")):
+                ("録音の名前と同じ形の番号", extra_question("Q2_d1"), "録音の部分の名前")):
             with self.subTest(name):
                 r = slotted()
                 change(r)
@@ -445,10 +505,10 @@ class Check(unittest.TestCase):
             nxt = f"Ask{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "Ask0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -599,6 +659,33 @@ class Versions(unittest.TestCase):
         back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
         self.assertEqual([(q["asks_fact"], q["do_words"], q["intro"]) for q in back.raw["questions"]],
                          [(True, {}, None), (True, {}, None)])
+
+    def test_a_version_saved_before_tell_words_and_full_do_words(self):
+        """その答えのあとに伝える一言（tell_words。2026-11-03 に足した）の無い前の版は、無い（空）として読む。文の終わりまで持たない前の形の
+        こちらがすることの言葉（「ご予約をお取り」＝`do_words_ok` に合わない）は、無いとして読む（会話の側は「それでは（言葉）ね？」で言うので、
+        そのままでは文にならない＝意味の言葉の言い方になる）。合う言葉はそのまま。前の版へ戻した新しい版は、今の形で置かれる（読む側の1か所
+        `_current_shape`）。"""
+        from unittest import mock
+        old_content = bs._content
+        r = raw()
+        r["questions"][0]["do_words"] = {"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"}
+
+        def before(s):
+            c = old_content(s)
+            qs = [{k: v for k, v in q.items() if k != "tell_words"} for q in c["questions"]]
+            qs[0]["do_words"] = {"する": "ご予約をお取り", "しない": "ご予約は控えさせていただきます"}
+            return dict(c, questions=qs)
+        with mock.patch.object(bs, "_content", before):
+            v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+        stored = self.tx(lambda tx: tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (v,)))
+        self.assertEqual((stored["content"]["questions"][0]["do_words"]["する"], "tell_words" in stored["content"]["questions"][0]),
+                         ("ご予約をお取り", False))                          # 前の形のまま置いてある
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual([(q.do_words, q.tell_words) for q in got.questions],
+                         [({"しない": "ご予約は控えさせていただきます"}, {}), ({}, {})])
+        back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
+        self.assertEqual([(q["do_words"], q["tell_words"]) for q in back.raw["questions"]],
+                         [({"しない": "ご予約は控えさせていただきます"}, {}), (None, {})])   # 書いていない質問は書いたまま（None）
 
     def test_a_version_saved_before_hedged_conditions_reads_them_as_always_asked(self):
         """伺う条件に「言い切っていないときだけ伺うか」（hedged。2026-11-03 に足した＝CL-1 の連絡帳 4-71 の (b)）が無い前の版の質問は、偽（伺う

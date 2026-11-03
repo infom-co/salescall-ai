@@ -705,6 +705,35 @@ class Approval1102(unittest.TestCase):
             from_json({**raw, "facts": {"not_agreed": {"turn": 5}}})
 
 
+class OtherWish1103(unittest.TestCase):
+    """CL-1 の連絡帳 4-72 の (k)（✅ 2026-11-03 日本時間19時54分・20時48分・21時38分 ユーザー）：選ぶ質問の「どれも要らない」・最終目的の質問への
+    言い切っていないお断りのあとに、ほかのご希望を1回伺った答え（事実 other_wish）。依頼者へ返す（判定の中身 other_wish）。判定の結果は変えない
+    （選び直した答えは元の質問の項目・最終目的を断られたかは事実 goal_refused で読む）。伺っている途中で切れたら結びは null。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "other_wish": list(rows), "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+
+    def test_other_wishes_are_received_and_returned(self):
+        line = {"turn": 5, "said": "LINEならいいです。", "question": "Q3", "wish": "LINEでの連絡", "value": "LINE", "means": "line",
+                "contact": "test_line_id", "outcome": "means"}
+        cut = {"turn": 7, "said": "うーん。", "question": "Q4", "wish": None, "value": None, "means": None, "contact": None, "outcome": None}
+        r = from_json(self.raw(line, cut))
+        self.assertEqual(([(w.question, w.means, w.contact, w.outcome) for w in r.other_wishes], from_json(r.to_json())),
+                         ([("Q3", "line", "test_line_id", "means"), ("Q4", None, None, None)], r))
+        j = run(self.raw(line, cut))
+        self.assertEqual(j.detail["other_wish"], [{k: line[k] for k in ("question", "wish", "value", "means", "contact", "outcome", "said")},
+                                                  {k: cut[k] for k in ("question", "wish", "value", "means", "contact", "outcome", "said")}])
+        self.assertNotIn("other_wish", run(self.raw()).detail)                # 伺っていなければ中身に出さない
+        # 無い鍵は null と同じに読む（報告の読み手の決まりの1か所 `_keys`。会話の側はいつも全部の鍵を書く）
+        self.assertIsNone(from_json(self.raw({k: v for k, v in line.items() if k != "outcome"})).other_wishes[0].outcome)
+        self.assertEqual(j.state, run(self.raw()).state)                       # 判定の結果は変えない
+        for bad in ({**line, "means": "sms"}, {**line, "outcome": "maybe"}, {**line, "question": ""}, {**line, "contact": 3},
+                    {**line, "wish": ["x"]}, {**line, "x": 1}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(bad))
+
+
 class NotAgreedEnd1102(unittest.TestCase):
     """CL-1 の連絡帳 4-66 のあとの (f)(g)（2026-11-02 5時56分・6時21分 ✅ ユーザー：「最終目的のご承認なら、お礼を言って締め、依頼者へ不満点を
     返します。ただし『もうかけない』の印は付けず、改めてご案内するかは依頼者が決めます」）：ご納得いただけなかった点は点ごとに1件（何回目

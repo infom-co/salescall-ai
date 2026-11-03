@@ -63,7 +63,11 @@ END = "END"                                       # 分岐の行き先「終わ�
 # しょうか？」）・N3（「ご説明した内容でご納得いただけましたでしょうか？」。どちらもご納得いただけなかった点のご説明のあとに伺う）。
 # D1（CL-1 の連絡帳 4-69：ご遠慮の確かめ「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」の番号を R1 から替える。
 # R1 は待たせた方が戻ったかの問いの番号として残る＝どちらも使えない）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "D1", "H1", "N1", "N2", "N3", "greeting", "intro",
+# CL-1 の連絡帳 4-72 の (k) で足した：W1（選ぶ質問の「どれも要らない」・最終目的の質問への言い切っていないお断りのあとに、ほかのご希望を伺う
+# 「それでは（選択肢）のほかにご希望はございますでしょうか？」）・C10（ご連絡の方法に LINE を言っていただいたときの「LINEのID」。✅ 2026-11-03
+# 日本時間20時48分 ユーザー：「「LINEならいいです」と回答いただけたら、LINEアドレスを伺うというステップを忘れないように。」）。
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "M1", "S1", "P1", "R1", "D1", "H1", "N1", "N2", "N3", "W1",
+                          "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
                           "voicemail", "message"})
@@ -98,7 +102,7 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines"}
+                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -111,6 +115,27 @@ DAY_SLOT = "{最短の日}"
 # 流す（CL-1 の flowctl.spoken_question の1か所）。文にも書くと「続きましてそれでは、…」「それではそれでは、…」と重なる（CL-1 の連絡帳 4-72 の (c)。
 # ⛔ 見直しで見つけた：「たぶん行けなくなりそうです」に「ありがとうございます。続きましてそれでは、キャンセルに…」）。会話の側に言葉が増えたら、ここに足す
 QUESTION_LEADS = ("それでは", "続きまして", "では", "はい", "ありがとうございます")
+# こちらがすることの言葉の形（1か所。会話の側の同じ決まりは CL-1 の meanings.check の kind "do"）：会話の側は「それでは（言葉）ね？」で言うので、
+# 言葉は文の終わりまで持ち、終わりは「させていただきます」か「承ります」だけ（「。」は付けない）。へりくだりを重ねない（「差し上げさせ」「お伺いさせ」）。
+# ✅ 2026-11-03 ユーザー（(D) の案への答え）＝CL-1 の連絡帳 4-72 の答えの (2)・(g)。⛔ 2026-11-03 まで：言葉の途中で止める前の形（「パンフレットをお送り」）を
+# 受け、取込の列の例も「はい：予定通りの方向で進め」だった＝「それでは予定通りの方向で進めね？」になる形。業務設定の確かめ（依頼者が書いた言葉＝止める）と、
+# 取込の AI の答えの受け取り（合わない言葉は落とす＝会話の側は意味の言葉で「それでは（意味の言葉）で承りますね？」）と、前に置いた版の読み方（合わない
+# 言葉は無いとして読む）が、どれもここを通る（`valid_answer_words`・`_current_shape`）
+DO_WORDS_END = re.compile(r"(?:させていただきます|承ります)$")
+DO_WORDS_DOUBLED = re.compile(r"(?:差し上げ|お伺い|伺わ)させ")
+
+
+def do_words_ok(words: str) -> bool:
+    """こちらがすることの言葉として使える形か（決まりは上の1か所）。"""
+    w = words.strip()
+    return bool(DO_WORDS_END.search(w)) and not DO_WORDS_DOUBLED.search(w)
+
+
+# 業務の録音で、質問の番号から作る部分の名前の形（1か所。会話の側の名前を作る所：日によって変わる言い方＝CL-1 の flowctl.day_recording_id
+# 「質問の番号_d番号」・その答えのあとに伝える一言＝tell_recording_id「質問の番号_tell番号」・ほかのご希望を伺う一言＝other_wish_recording_id
+# 「質問の番号_other」）。ほかの質問の番号がこの形だと、録音の部分を取り違える（CL-1 の連絡帳 4-71 の (d)・4-72 の (i)(k) の (4)）。
+# 質問がその言い方を持つかに関わらず止める（版を直して言い方を足したときに、前からある番号が急に使えなくなる形にしない）
+DERIVED_PART = re.compile(r"_(?:d\d+|tell\d+|other)")
 EARLIEST_KEYS = {"business_days", "closed_weekdays", "closed_on_holidays", "closed_dates"}   # 業務設定の「最短の日」の項目
 EARLIEST_MAX_DAYS = 60                            # 「N営業日以降」の N の上限（祝日の暦が届く先＝翌年の分まで、に収まる長さ）
 _EARLIEST_SEARCH_DAYS = 366                       # 最短の日を探す先の限り（休みの日が続いても、1年の先までは探さない＝`Earliest.day`）
@@ -212,6 +237,12 @@ class Question:
     # 断る答え（`declined_answers` の1か所）。⛔ 2026-11-02 まで：業務の決まりの「断りの答え」（business_rules の decline＝質問 → 答え）に
     # 持ち、判定がそれを読んで、最終目的かを問わず「用件を断られた」と決め直していた（同じ中身を会話の側と2か所に持っていた）
     declines: tuple[str, ...] = ()
+    # その選択肢の答えを受け取ったあとに伝える一言（選択肢 → 一言。依頼者のトークスクリプト。取込の AI は作らない。会話の側の Question.tell_words）。
+    # 言い切っていても、いなくても、受け取ったら1回だけ言ってから次へ進む（会話の側の Flow._advance の1か所。録音の名前は「質問の番号_tell選択肢の番号」）。
+    # はい／いいえ・決まった選択肢の質問の、宣言した選択肢にだけ付く（事実を伺う質問にも付く：「当日はお車でお越しでしょうか？」の「はい」→
+    # 「○○駐車場をご利用いただけますのでどうぞご利用ください。」）。✅ 2026-11-03 日本時間19時台 ユーザー：「「当日はお車でお越しということで
+    # 承ります」や「○○駐車場をご利用いただけますのでどうぞご利用ください」などでしょ！」（CL-1 の連絡帳 4-72 の (i)）
+    tell_words: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -497,29 +528,34 @@ def _choices(raw: Any, type_name: str, where: str, problems: list[str]) -> tuple
     return got
 
 
-def valid_answer_words(raw: Any, choices: tuple[str, ...], *, replies: bool) -> dict[str, str]:
-    """意味の言葉（選択肢 → 言葉）か、曖昧な言葉の意味（言葉 → 選択肢）のうち、使える組だけ（決め方はここだけ。確かめと、取込の
-    AI の答えの受け取りが使う）。宣言した選択肢にだけ付く（システムの「わからない」「答えたくない」「どちらでも」には付けない）。"""
+def valid_answer_words(raw: Any, choices: tuple[str, ...], *, replies: bool, do: bool = False) -> dict[str, str]:
+    """意味の言葉・こちらがすることの言葉・その答えのあとに伝える一言（選択肢 → 言葉）か、曖昧な言葉の意味（言葉 → 選択肢）のうち、使える組だけ
+    （決め方はここだけ。確かめと、取込の AI の答えの受け取りが使う）。宣言した選択肢にだけ付く（システムの「わからない」「答えたくない」
+    「どちらでも」には付けない）。do＝こちらがすることの言葉（形の決まり `do_words_ok` も当てる）。"""
     if not isinstance(raw, dict):
         return {}
     if replies:
         return {k: v for k, v in raw.items() if k in REPLY_WORDS and isinstance(v, str) and v in choices}
-    return {k: v.strip() for k, v in raw.items() if k in choices and isinstance(v, str) and v.strip()}
+    return {k: v.strip() for k, v in raw.items() if k in choices and isinstance(v, str) and v.strip()
+            and (not do or do_words_ok(v))}
 
 
 def _answer_words(raw: Any, type_name: str, choices: tuple[str, ...], where: str, problems: list[str], *,
-                  replies: bool, what: str | None = None) -> dict[str, str]:
-    """質問の意味の言葉・曖昧な言葉の意味・こちらがすることの言葉（what）を読む（無ければ空）。合わない組があれば問題に出す。"""
+                  replies: bool, what: str | None = None, do: bool = False) -> dict[str, str]:
+    """質問の意味の言葉・曖昧な言葉の意味・こちらがすることの言葉（do）・その答えのあとに伝える一言（what）を読む（無ければ空）。合わない組が
+    あれば問題に出す。"""
     if raw is None or raw == {}:
         return {}
     what = what or ("曖昧な言葉の意味" if replies else "意味の言葉")
     if type_name not in CHOICE_TYPES:
         problems.append(f"{where}の{what}は、はい／いいえ・決まった選択肢の質問だけが持てます")
         return {}
-    good = valid_answer_words(raw, choices, replies=replies)
+    good = valid_answer_words(raw, choices, replies=replies, do=do)
     if not isinstance(raw, dict) or len(good) != len(raw):
         problems.append(f"{where}の{what}は、" + (f"言葉（{list(REPLY_WORDS)}）→ 宣言した選択肢" if replies
-                                                  else "宣言した選択肢 → 言葉（文字）") + " の表です")
+                                                  else "宣言した選択肢 → 言葉（文字）") + " の表です"
+                        + ("（言葉は文の終わりまで書き、終わりは「させていただきます」か「承ります」。「。」は付けず、"
+                           "「差し上げさせ」「お伺いさせ」のようにへりくだりを重ねない）" if do else ""))
     return good
 
 
@@ -619,7 +655,10 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                 problems.append(f"{where}の単位は、数の型（{UNIT_TYPE}）の質問だけが持てます")
             if not isinstance(q["asks_fact"], bool):
                 problems.append(f"{where}の事実を伺う質問か（asks_fact）は true / false です")
-            do_words = _answer_words(q["do_words"], q["type"], choices, where, problems, replies=False, what="こちらがすることの言葉")
+            do_words = _answer_words(q["do_words"], q["type"], choices, where, problems, replies=False, what="こちらがすることの言葉",
+                                     do=True)
+            tell_words = _answer_words(q["tell_words"], q["type"], choices, where, problems, replies=False,
+                                       what="その答えのあとに伝える一言")
             if do_words and q["asks_fact"] is not False:
                 problems.append(f"{where}は事実を伺う質問なので、こちらがすることの言葉（do_words）は付けません（会話の側が使わない）")
             away = _away(q["away"], q["type"], choices, q["asks_fact"] is not False, where, problems)
@@ -646,7 +685,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                                 q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies,
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
-                                q["final_goal"] is True, declines)
+                                q["final_goal"] is True, declines, tell_words)
             if question.final_goal and not declined_answers(question):
                 problems.append(f"{where}は最終目的の申し出ですが、断る答えがありません（はい／いいえ・選択肢の質問で、断る答え（declines）を"
                                 "書きます。事実を伺わない選択肢の質問は「どれも要らない」も断る答え）")
@@ -665,6 +704,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
         problems.append("最終目的の申し出が1つ以下なので、最終目的の果たし方（goal_mode）は書きません（どちらでも同じ）")
     earliest = _earliest(raw.get("earliest"), problems)
     problems += _day_slot_problems(raw, earliest is not None or raw.get("earliest") is not None)
+    problems += _derived_part_problems(raw)
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
                  **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest)
@@ -768,8 +808,7 @@ def _earliest(raw: Any, problems: list[str]) -> Earliest | None:
 def _day_slot_problems(raw: dict[str, Any], has_earliest: bool) -> list[str]:
     """最短の日の場所（`DAY_SLOT`）の確かめ（1か所）：書けるのは質問の文と入る一言だけ（会話の側が置き換えるのはそこだけ＝ほかに書くと、
     そのまま声になる）。書いた質問があれば最短の日（earliest）が要り（無いと会話の側が通話を始めない＝ValueError）、無ければ最短の日は
-    書かない（使われない値）。録音で流す電話は、言い方ごとの録音の部分「質問の番号_d番号」（CL-1 の flowctl.day_recording_id）を使うので、
-    ほかの質問の番号がその形だと取り違える。"""
+    書かない（使われない値）。言い方ごとの録音の部分「質問の番号_d番号」との取り違えは `_derived_part_problems` の1か所。"""
     problems: list[str] = []
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     slotted = [q.get("id") for q in qs if isinstance(q, dict)
@@ -798,11 +837,19 @@ def _day_slot_problems(raw: dict[str, Any], has_earliest: bool) -> list[str]:
         problems.append(f"質問 {', '.join(map(str, slotted))} に {DAY_SLOT} があるので、最短の日（earliest：「N営業日以降」）を書きます")
     elif has_earliest and not slotted:
         problems.append(f"{DAY_SLOT} を書いた質問が無いので、最短の日（earliest）は書きません（使われない）")
+    return problems
+
+
+def _derived_part_problems(raw: dict[str, Any]) -> list[str]:
+    """質問の番号が、ほかの質問の番号から作る録音の部分の名前（`DERIVED_PART`）と同じ形でないか（1か所）。"""
+    qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     ids = [q.get("id") for q in qs if isinstance(q, dict) and isinstance(q.get("id"), str)]
-    for base in (x for x in slotted if isinstance(x, str)):
-        clash = [x for x in ids if re.fullmatch(re.escape(base) + r"_d\d+", x)]
+    problems = []
+    for base in dict.fromkeys(ids):
+        clash = [x for x in ids if x != base and x.startswith(base) and DERIVED_PART.fullmatch(x[len(base):])]
         if clash:
-            problems.append(f"質問の番号 {clash} は、質問 {base} の日の言い方ごとの録音の名前（{base}_d番号）と同じ形です")
+            problems.append(f"質問の番号 {clash} は、質問 {base} から作る録音の部分の名前（{base}_d番号・{base}_tell番号・{base}_other）と"
+                            "同じ形です（取り違えるので使えません）")
     return problems
 
 
@@ -1013,7 +1060,11 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
       ほかの質問は最終目的でない・断る答え無しとして読む。前の判定は、断りの答えのどれか1つが取れたら「用件を断られた」としたので、
       その質問が2つ以上なら果たし方を all（1つでも断られたら果たせない）として読む（前と同じ結果）。業務の決まりからは decline を外す。
     - 目的から遠ざかる向きの選択肢（away）・伺う条件の言い切っていないときだけ伺うか（ask_if の hedged）（2026-11-03 に足した＝CL-1 の
-      連絡帳 4-71・4-72）が無い前の版の質問は、どちらも無い（空・偽＝今までの確かめの言い方・伺う答えならいつも伺う）として読む。最短の日（earliest）は無くてもよい項目なので、前の版はそのまま（無い）。"""
+      連絡帳 4-71・4-72）が無い前の版の質問は、どちらも無い（空・偽＝今までの確かめの言い方・伺う答えならいつも伺う）として読む。最短の日（earliest）は無くてもよい項目なので、前の版はそのまま（無い）。
+    - その答えのあとに伝える一言（tell_words。2026-11-03 に足した＝CL-1 の連絡帳 4-72 の (i)）が無い前の版の質問は、無い（空の表）として読む。
+    - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
+      無いとして読む（会話の側は「それでは（言葉）ね？」で言うので、そのままでは文にならない。無い選択肢は、会話の側が意味の言葉で
+      「それでは（意味の言葉）で承りますね？」と言う）。"""
     rules = rules if isinstance(rules, dict) else {}
     old_decline = rules.get("decline") if isinstance(rules.get("decline"), dict) else {}
     rules = {k: v for k, v in rules.items() if k != "decline"}
@@ -1021,13 +1072,15 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     if not isinstance(questions, list):
         return dict(content, rules=rules)
     added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
-             "approval": False, "final_goal": False, "declines": []}
+             "approval": False, "final_goal": False, "declines": [], "tell_words": {}}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:
         if not isinstance(q, dict):
             return q
         out = {**{k: v for k, v in added.items() if k not in q}, **q}
+        if isinstance(out.get("do_words"), dict):   # 文の終わりまで持たない前の形の言葉は無いとして読む（`do_words_ok` の1か所）
+            out["do_words"] = {k: v for k, v in out["do_words"].items() if not isinstance(v, str) or do_words_ok(v)}
         if isinstance(out.get("ask_if"), dict) and "hedged" not in out["ask_if"]:
             out["ask_if"] = {**out["ask_if"], "hedged": False}
         if "final_goal" not in q and out.get("id") in old_decline:

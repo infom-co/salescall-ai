@@ -57,7 +57,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-02.4+time-{spoken_time.VERSION}"   # 2026-11-02.4（CL-1 の 4-69 の 4-182 の (e)）：用件を断られたは、会話の報告の通話の事実 goal_refused（最終目的の申し出を断られ、目的が果たせなくなった）だけで決める（業務の決まりの断りの答えで決め直さない。最終目的でない質問の断る答えは、用件を断られたにしない）
+JUDGE_VERSION = f"judge-2026-11-03.1+time-{spoken_time.VERSION}"   # 2026-11-03.1（CL-1 の 4-72 の (k)）：ほかのご希望を伺った答え（事実 other_wish）を判定の中身で依頼者へ返す（判定の結果は変わらない）
+# 前の版：   # 2026-11-02.4（CL-1 の 4-69 の 4-182 の (e)）：用件を断られたは、会話の報告の通話の事実 goal_refused（最終目的の申し出を断られ、目的が果たせなくなった）だけで決める（業務の決まりの断りの答えで決め直さない。最終目的でない質問の断る答えは、用件を断られたにしない）
 # 前の版：   # 2026-11-02.3（CL-1 の 4-69 の 4-185 の (1)・4-178）：ご納得いただけなかった点を根拠の発話（said）と値（point）に分けて返す・かけ直しの理由「今はお電話に出られないご事情」で日時が取れなければ日を改めて1回。
 # 前の版：   # 2026-11-02.2（CL-1 の 4-66 のあとの (g)）：締めた理由 not_agreed は結論として終えた（断られたにしない）・ご納得いただけなかった点の回・ご説明できたか・結び。
 # 前の版：   # 2026-11-02.1（CL-1 の 4-66）：伺っていない（対象外）の質問は取れていない必須の質問に数えない（not_asked）・断る答えのある質問の「どれも要らない」は用件を断られた・ご納得いただけなかった点を中身に残す。
@@ -464,14 +465,17 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item]) -> frozenset[str
 
 
 def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, Any]:
-    """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか・伺っていない（対象外）の質問・ご納得いただけなかった点。
-    1か所。どの結果でも依頼者へ返す）。"""
+    """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか・伺っていない（対象外）の質問・ご納得いただけなかった点・
+    ほかのご希望を伺った答え。1か所。どの結果でも依頼者へ返す）。"""
     skipped = not_asked(inp.ask_if, inp.items)
     agreed = inp.report.not_agreed if inp.report is not None else ()
+    wishes = inp.report.other_wishes if inp.report is not None else ()
     return {"cut": raw_cut, "cut_recorded": cut, **({"target_unconfirmed": True} if inp.target_unconfirmed else {}),
             **({"not_asked": sorted(skipped)} if skipped else {}),
             **({"not_agreed": [{"question": n.question, "point": n.point, "said": n.said, "round": n.round,
-                                "explained": n.explained, "outcome": n.outcome} for n in agreed]} if agreed else {})}
+                                "explained": n.explained, "outcome": n.outcome} for n in agreed]} if agreed else {}),
+            **({"other_wish": [{"question": w.question, "wish": w.wish, "value": w.value, "means": w.means, "contact": w.contact,
+                                "outcome": w.outcome, "said": w.evidence.said} for w in wishes]} if wishes else {})}
 
 
 def _business(inp: JudgeInput) -> Judgement:

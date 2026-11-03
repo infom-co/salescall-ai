@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import unittest
 
@@ -533,7 +534,10 @@ class Import(unittest.TestCase):
 
         def do_words(pairs):
             asked.append(pairs)
-            return [{"する": "ご予約をお取り", "しない": "ご予約は控え", "わからない": "x"} for _ in pairs]
+            return [{"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます", "わからない": "x"} for _ in pairs]
+
+        def cut_short(pairs):   # 文の終わりまで持たない言葉（「…お取り」）は受けない（`business_settings.do_words_ok`。会話の側の決まりと同じ）
+            return [{"する": "ご予約をお取り", "しない": "ご予約は控えさせていただきます"} for _ in pairs]
 
         rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "入る一言", "最終目的"),
                 ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", None, "はい"),
@@ -548,9 +552,11 @@ class Import(unittest.TestCase):
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
         got = self.tx(lambda tx: bs.load(tx, v))
         self.assertEqual([(q.do_words, q.intro) for q in got.questions],
-                         [({"する": "ご予約をお取り", "しない": "ご予約は控え"}, None),
+                         [({"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"}, None),
                           ({}, "それではご希望の日時の確認からさせていただきます。")])
         self.assertEqual((got.client_does, len(asked)), ("手配", 1))           # 登録では聞き直さない
+        p = self.preview(data, decide_facts=lambda texts: {t: "ご予約" not in t for t in texts}, decide_do_words=cut_short)
+        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"]), ([], {"しない": "ご予約は控えさせていただきます"}))
         p = self.preview(data, decide_facts=lambda texts: {t: True for t in texts}, decide_do_words=do_words)   # どれも事実を伺う質問
         self.assertEqual((p.problems, p.raw["questions"][0]["do_words"], len(asked)), ([], None, 1))   # 聞かない
         first = [rows[0], rows[1][:-2] + ("それではご予約の確認からさせていただきます。", "はい"), rows[2]]
@@ -619,7 +625,7 @@ class Import(unittest.TestCase):
         asked.clear()
         bi.ask_ai(r, decide_away=away)
         self.assertEqual(asked, [])
-        r["questions"][0].update(away=None, do_words={"する": "ご予約をお取り", "しない": "ご予約は控え"})   # こちらがすることの言葉があっても聞く
+        r["questions"][0].update(away=None, do_words={"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"})   # こちらがすることの言葉があっても聞く
         bi.ask_ai(r, decide_away=away)
         self.assertEqual(asked, [[("ご予約はなさいますか。", ("する", "しない"), {})]])
 
@@ -631,22 +637,51 @@ class Import(unittest.TestCase):
 
         def do_words(items):
             asked.append(items)
-            return [{"する": "ご予約をお取り", "しない": "ご予約は控え"} for _ in items]
+            return [{"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"} for _ in items]
 
         rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "こちらがすることの言葉"),
-                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", "する：ご予約を承り"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", "する：ご予約を承ります"),
                 ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None)]
         facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
         p = self.preview(book(sheets={"質問": rows}), decide_facts=facts, decide_do_words=do_words)
-        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"]), ([], {"する": "ご予約を承り", "しない": "ご予約は控え"}))
-        both = [rows[0], rows[1][:-1] + ("する：ご予約を承り\nしない：ご予約は見送り",), rows[2]]
+        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"]), ([], {"する": "ご予約を承ります", "しない": "ご予約は控えさせていただきます"}))
+        both = [rows[0], rows[1][:-1] + ("する：ご予約を承ります\nしない：ご予約は見送りとさせていただきます",), rows[2]]
         asked.clear()
         p = self.preview(book(sheets={"質問": both}), decide_facts=facts, decide_do_words=do_words)
-        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"], asked), ([], {"する": "ご予約を承り", "しない": "ご予約は見送り"}, []))
-        for name, cell, words in (("区切りが無い", "ご予約を承り", "「選択肢：言葉」の形"),
-                                  ("選択肢に無い", "検討中：ご検討", "こちらがすることの言葉")):
+        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"], asked), ([], {"する": "ご予約を承ります", "しない": "ご予約は見送りとさせていただきます"}, []))
+        for name, cell, words in (("区切りが無い", "ご予約を承ります", "「選択肢：言葉」の形"),
+                                  ("選択肢に無い", "検討中：ご検討させていただきます", "こちらがすることの言葉"),
+                                  ("文の終わりまで書いていない", "する：ご予約を承り", "「させていただきます」か「承ります」")):
             with self.subTest(name):
                 p = self.preview(book(sheets={"質問": [rows[0], rows[1][:-1] + (cell,), rows[2]]}), decide_facts=facts, decide_do_words=do_words)
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
+    def test_tell_words_come_in_and_spoken_words_are_in_the_script(self):
+        """CL-1 の連絡帳 4-72 の (i)：その答えのあとに伝える一言は「質問」のシートの無くてもよい列「その答えのあとに伝える一言」（「選択肢：一言」を
+        「／」か改行で区切る。取込の AI は作らない。前のひな形には無いので、無ければ空）。依頼者が書いた選択肢ごとの言葉（意味の言葉・こちらが
+        することの言葉・その答えのあとに伝える一言）は声になるので、名前を洗い出す台本に入る（⛔ 2026-11-03 まで入っていなかった）。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "こちらがすることの言葉",
+                 "その答えのあとに伝える一言"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい",
+                 "する：「青葉ホール」でのご予約を承ります", "する：「緑川駐車場」をご利用いただけますのでどうぞご利用ください。"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None, None)]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [q["tell_words"] for q in p.raw["questions"]]),
+                         ([], [{"する": "「緑川駐車場」をご利用いただけますのでどうぞご利用ください。"}, {}]))
+        script = bi._script(p.raw)
+        self.assertIn("緑川駐車場", script)
+        self.assertIn("青葉ホール", script)
+        r = copy.deepcopy(p.raw)
+        r["questions"][0]["meanings"] = {"する": "「白川会館」でご予約をなさるということ"}
+        self.assertIn("白川会館", bi._script(r))
+        p = self.preview(book(), decide_facts=facts)                        # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["tell_words"] for q in p.raw["questions"]]), ([], [{}, {}]))
+        for name, cell, words in (("区切りが無い", "駐車場をご利用ください。", "「選択肢：言葉」の形"),
+                                  ("選択肢に無い", "検討中：x", "その答えのあとに伝える一言")):
+            with self.subTest(name):
+                bad = [rows[0], rows[1][:-1] + (cell,), rows[2]]
+                p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
                 self.assertTrue(any(words in x for x in p.problems), p.problems)
 
     def test_hedged_condition_and_earliest_day_come_in(self):

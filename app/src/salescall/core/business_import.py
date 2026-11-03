@@ -47,7 +47,8 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "questions": ("質問", {"id": "質問ID", "text": "質問の文", "ask_about": "聞くこと", "type": "型", "required": "必須",
                           "choices": "選択肢", "decline": "断りの答え", "intro": "入る一言", "ask_after": "伺う条件の質問ID",
                           "ask_answers": "伺う条件の答え", "ask_hedged": "言い切っていないときだけ伺う", "approval": "ご承認を伺う",
-                          "final_goal": "最終目的", "do_words": "こちらがすることの言葉"}, True),
+                          "final_goal": "最終目的", "do_words": "こちらがすることの言葉",
+                          "tell_words": "その答えのあとに伝える一言"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -64,10 +65,13 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # 断りの答えの列は、その質問の申し出を断る答え＝最終目的でない質問では、断られても用件を断られたにしない。CL-1 の連絡帳 4-69 の 4-182 の (e)）
 # 伺う条件の答えが言い切っていないときだけ伺うか（「はい」なら、前の質問の答えが言い切っていないときだけ伺う。依頼者のトークスクリプト。
 # CL-1 の連絡帳 4-71 の (b)。空なら、伺う答えならいつも伺う）
-# こちらがすることの言葉（選択肢ごと。「選択肢：言葉」を「／」か改行で区切る。例「はい：予定通りの方向で進め」。書いた選択肢は取込の AI の言葉より
-# 先に使う。CL-1 の連絡帳 4-72 の (d)）
+# こちらがすることの言葉（選択肢ごと。「選択肢：言葉」を「／」か改行で区切る。例「はい：予定通りの方向で進めさせていただきます」＝言葉は文の終わり
+# まで（終わりは「させていただきます」か「承ります」＝`business_settings.do_words_ok`）。書いた選択肢は取込の AI の言葉より先に使う。CL-1 の連絡帳
+# 4-72 の (d) と、その答えの (2)）
+# その答えのあとに伝える一言（選択肢ごと。同じ「選択肢：一言」の形。例「はい：○○駐車場をご利用いただけますのでどうぞご利用ください。」。
+# 取込の AI は作らない。CL-1 の連絡帳 4-72 の (i)）
 OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.ask_hedged",
-                              "questions.approval", "questions.final_goal", "questions.do_words"})
+                              "questions.approval", "questions.final_goal", "questions.do_words", "questions.tell_words"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -241,9 +245,9 @@ def _earliest(basic: dict[str, str | None], problems: list[str]) -> dict[str, An
 _WORD_PAIR = re.compile(r"^\s*([^：:]+?)\s*[：:]\s*(.+?)\s*$")
 
 
-def _do_words(value: str | None, where: str, problems: list[str]) -> dict[str, str] | None:
-    """「質問」のシートの「こちらがすることの言葉」（「選択肢：言葉」を「／」か改行で区切る）を、選択肢 → 言葉の表にする（空なら None＝AI に
-    聞く）。形の違う区切りは問題。選択肢に無い名前は、業務設定の確かめが問題に出す（1か所）。"""
+def _choice_words(value: str | None, where: str, problems: list[str]) -> dict[str, str] | None:
+    """「質問」のシートの選択肢ごとの言葉の列（こちらがすることの言葉・その答えのあとに伝える一言。「選択肢：言葉」を「／」か改行で区切る）を、
+    選択肢 → 言葉の表にする（空なら None）。形の違う区切りは問題。選択肢に無い名前・言葉の形は、業務設定の確かめが問題に出す（1か所）。"""
     out: dict[str, str] = {}
     for part in _split(value) or []:
         m = _WORD_PAIR.match(part)
@@ -309,7 +313,8 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         questions.append({"id": v.get("id"), "text": v.get("text"), "ask_about": v.get("ask_about"), "type": qtype,
                           "required": required, "choices": _split(v.get("choices")) if qtype == "choice" else None,
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
-                          "do_words": _do_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems),
+                          "do_words": _choice_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems),
+                          "tell_words": _choice_words(v.get("tell_words"), f"{where}のその答えのあとに伝える一言", problems) or {},
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
@@ -614,7 +619,7 @@ def _decided_pairs(raw: dict[str, Any], key: str, decide: MeaningDecider | Reply
         return {}
     out = {}
     for (text, choices), d in zip(pairs, got):
-        good = business_settings.valid_answer_words(d, choices, replies=key == "replies")
+        good = business_settings.valid_answer_words(d, choices, replies=key == "replies", do=key == "do_words")
         if good:
             out[_pair_key(text, choices)] = good
     return out
@@ -647,18 +652,25 @@ def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
             and not q.get("unit") and isinstance(q.get("text"), str) and q["text"].strip()]
 
 
+SPOKEN_WORDS = ("meanings", "do_words", "tell_words")   # 質問の、選択肢ごとの声になる言葉（`_script` が台本に入れる）
+
+
 def _script(raw: dict[str, Any]) -> str:
     """名前を洗い出す台本（業務設定の文をまとめたもの。名乗り・用件・目的・忙しいときの一言・留守番電話の伝言・「AIですか」への答え・
     想定問答の答え（録音で話すので、名前の読みが要る）・業務の情報（AI が自分の言葉で答える材料。会話の側も名前の読みへ置き換えて
     渡す＝CL-1 の連絡帳 4-29：「港区」をAIの声で言うと3本中1本しか聞き取れず、ひらがなの読みで渡すと6本中6本）・質問の文と質問に入る一言
-    （どちらも録音で話す。⛔ 2026-11-03 まで入る一言を入れていなかった＝入る一言の中の名前に読みが付かなかった）・入口の名前）。
+    （どちらも録音で話す。⛔ 2026-11-03 まで入る一言を入れていなかった＝入る一言の中の名前に読みが付かなかった）・入口が持ってきた選択肢ごとの
+    言葉（意味の言葉・こちらがすることの言葉・その答えのあとに伝える一言＝`SPOKEN_WORDS`。どれも「それでは（言葉）…」などで声になる。⛔ 2026-11-03 まで
+    入れていなかった＝依頼者が書いた「○○駐車場をご利用いただけます…」の名前に読みが付かなかった。取込の AI が決める言葉は質問の文と選択肢から
+    作るので、台本の名前の中にある）・入口の名前）。
     最短の日の場所（`business_settings.DAY_SLOT`）は外す（声になるのは会話の側が置き換えた言い方＝名前ではない）。"""
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
              caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line"), raw.get("voicemail_message"),
              raw.get("ai_answer"), raw.get("message")]   # 伝言の文も録音で話す（CL-1 の連絡帳 4-28）
-    parts += [q.get(k) for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])
-              if isinstance(q, dict) for k in ("text", "intro")]
+    questions = [q for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else []) if isinstance(q, dict)]
+    parts += [q.get(k) for q in questions for k in ("text", "intro")]
+    parts += [w for q in questions for k in SPOKEN_WORDS if isinstance(q.get(k), dict) for w in q[k].values()]
     parts += [a.get("text") for a in (raw.get("answers") if isinstance(raw.get("answers"), list) else []) if isinstance(a, dict)]
     parts += raw.get("info") if isinstance(raw.get("info"), list) else []
     parts += [n["text"] for n in _names(raw) if n.get("source") == "script"]

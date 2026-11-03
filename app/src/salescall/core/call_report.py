@@ -63,7 +63,7 @@ from salescall.core.phone import normalize
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
-              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed")
+              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -101,6 +101,16 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   根拠の発話の said を答えの値で上書きする形。長さは決まっていない＝自由な意見の答えと同じ。CL-2 の連絡帳 4-185 で伺い中）。
 #   依頼者へ「ご納得いただけなかった点」として返す（判定の中身 not_agreed＝judge._detail の1か所）。判定は今の1か所のまま（ご承認の
 #   質問の答えは項目で読む）。
+# other_wish：選ぶ質問に「どれも要らない」と言われた・最終目的の質問に言い切っていないお断りをいただいたあとに、ほかのご希望を1回伺った答え
+#   （CL-1 の連絡帳 4-72 の (k)。システムの質問 W1。✅ 2026-11-03 日本時間19時54分・20時48分・21時38分 ユーザー：「この質問に入ったということは、
+#   連絡自体はお客様がOKされたということですよね。…「お電話とメール」に不服ということになるんじゃないですか？」・「「LINEならいいです」と回答
+#   いただけたら、LINEアドレスを伺うというステップを忘れないように。」）。question＝元の質問の番号・wish＝W1 の選択肢の名前（聞き取れない・分からない
+#   ときは null）・value＝お客様が言ったご希望の値（ご連絡の方法・ほかのご希望のときだけ。無ければ null）・means＝ご連絡の方法（`OTHER_WISH_MEANS`
+#   のどれか・または null）・contact＝その方法の連絡先（伺えなければ null）・outcome＝結び（`OTHER_WISH_OUTCOMES`。伺っている途中で電話が切れたら
+#   null）。依頼者へ返す（判定の中身 other_wish＝judge._detail の1か所）。判定は今の1か所のまま（選び直した答えは元の質問の項目で、最終目的を
+#   断られたかは事実 goal_refused で読む＝会話の側は、ご連絡の方法・ほかのご希望を言っていただいた最終目的の質問を、断られたとしない）。
+OTHER_WISH_MEANS = ("line", "email", "fax", "post", "phone")   # LINE・メール・ファクス・郵送・お電話（CL-1 の flowctl.WISH_MEANS の鍵）
+OTHER_WISH_OUTCOMES = ("option", "means", "other", "none")   # 元の質問の選択肢を選び直した・ご連絡の方法・ほかのご希望・無い
 UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear", "who_unclear")
 GOAL_MODES = ("any", "all")                              # どれか1つで目的が果たせる／全部が要る（CL-1 の instruction.Business.goal_mode）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
@@ -414,6 +424,18 @@ class NotAgreed:
 
 
 @dataclass(frozen=True)
+class OtherWish:
+    """ほかのご希望を伺った答え（事実 other_wish。CL-1 の 4-72 の (k)）。依頼者へ返す。"""
+    evidence: Said               # 根拠の発話（W1 への答え）
+    question: str                # 元の質問の番号
+    wish: str | None             # W1 の選択肢の名前（聞き取れない・分からないときは None）
+    value: str | None            # お客様が言ったご希望の値（ご連絡の方法・ほかのご希望のときだけ）
+    means: str | None            # ご連絡の方法（OTHER_WISH_MEANS）
+    contact: str | None          # その方法の連絡先（伺えなければ None）
+    outcome: str | None          # 結び（OTHER_WISH_OUTCOMES。伺っている途中で切れたら None）
+
+
+@dataclass(frozen=True)
 class HoldTimeout:
     """保留を頼まれ、待ちきった（事実 hold_timeout。CL-1 の 4-42）。記録だけ。"""
     evidence: Said               # 保留を頼まれた発話
@@ -486,6 +508,7 @@ class CallReport:
     goal_refusals: tuple[GoalRefused, ...] = ()   # 事実 goal_refused：最終目的を断られ、目的が果たせなくなった
     who_unclears: tuple[WhoUnclear, ...] = ()     # 事実 who_unclear：お名前だけではどの方か分からず、取り次いでいただけなかった
     not_agreed: tuple[NotAgreed, ...] = ()        # 事実 not_agreed：ご承認いただけず、ご納得いただけなかった点を伺った答え
+    other_wishes: tuple[OtherWish, ...] = ()      # 事実 other_wish：ほかのご希望を伺った答え
     irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
     ai_troubles: tuple[AiTrouble, ...] = ()   # 止まったAI（データの形 版 1.08。無い・古い報告は空。判定には使わない）
 
@@ -659,7 +682,9 @@ class CallReport:
             "goal_refused": [{**said(g.evidence), "goals": list(g.goals), "mode": g.mode} for g in self.goal_refusals],
             "who_unclear": [{**said(w.evidence), "recalled": w.recalled} for w in self.who_unclears],
             "not_agreed": [{"turn": n.turn, "question": n.question, "said": n.said, "point": n.point, "round": n.round,
-                            "explained": n.explained, "outcome": n.outcome, "declining": n.declining} for n in self.not_agreed]}
+                            "explained": n.explained, "outcome": n.outcome, "declining": n.declining} for n in self.not_agreed],
+            "other_wish": [{**said(w.evidence), "question": w.question, "wish": w.wish, "value": w.value, "means": w.means,
+                            "contact": w.contact, "outcome": w.outcome} for w in self.other_wishes]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last,
@@ -796,6 +821,23 @@ def _not_agreed(facts: dict) -> tuple[NotAgreed, ...]:
     return tuple(out)
 
 
+def _other_wish(r: dict, s: Said, i: int) -> OtherWish:
+    """事実 other_wish の1件（形は CL-1 の Flow._wish_step が書くもの。確かめはここだけ）。"""
+    where = f"facts.other_wish[{i}]"
+    question = r.get("question")
+    if not isinstance(question, str) or not question.strip():
+        raise ReportInvalid(f"{where}.question は、元の質問の番号です")
+    texts = {}
+    for key in ("wish", "value", "contact"):
+        v = r.get(key)
+        if v is not None and not isinstance(v, str):
+            raise ReportInvalid(f"{where}.{key} は文字か null です")
+        texts[key] = v
+    return OtherWish(s, question, texts["wish"], texts["value"],
+                     _choice(r.get("means"), OTHER_WISH_MEANS, f"{where}.means", optional=True), texts["contact"],
+                     _choice(r.get("outcome"), OTHER_WISH_OUTCOMES, f"{where}.outcome", optional=True))
+
+
 def from_json(raw: Any) -> CallReport:
     """報告を確かめて読む（ただ1つの確かめ）。"""
     d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered", "irreversible_check", "ai_trouble"}, "報告")
@@ -909,6 +951,8 @@ def from_json(raw: Any) -> CallReport:
         goals.append(GoalRefused(s, tuple(g), _choice(r.get("mode"), GOAL_MODES, "facts.goal_refused.mode")))
     who_unclears = tuple(WhoUnclear(s, _bool(r, "recalled")) for r, s in _records(facts, "who_unclear", {"recalled"}))
     not_agreed = _not_agreed(facts)
+    other_wishes = tuple(_other_wish(r, s, i) for i, (r, s) in enumerate(
+        _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome"})))
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \
         _choice(d["irreversible_check"], IRREVERSIBLE_CHECKS, "irreversible_check")
@@ -923,7 +967,7 @@ def from_json(raw: Any) -> CallReport:
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions), talks, tuple(holds), unjudged_ends=unjudged, goal_refusals=tuple(goals),
-                      who_unclears=who_unclears, not_agreed=not_agreed,
+                      who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes,
                       irreversible_check=check, ai_troubles=troubles)
 
 
