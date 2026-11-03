@@ -67,6 +67,7 @@ class Forbidden:
 # ⛔ 2026-11-03 まで：決まった選択肢の質問にシステムが足す答え「どれも要らない」（NONE_CHOICE）をここに置いていた。業務設定の部品
 # （business_settings.NONE_CHOICE）の1か所へ移した（CL-1 の連絡帳 4-70 の 4-191：CL-1 の名前比べの試験は業務設定の部品から読む）
 KEYS = ("handling", "retry", "forbidden")
+ALL_REQUIRED = "*"                       # 理由×扱いの、必須の質問すべてに当てる扱いの鍵（質問の番号には使えない＝業務設定の RESERVED の外の記号）
 
 
 @dataclass(frozen=True)
@@ -151,15 +152,27 @@ def check(version_id: UUID, required: tuple[str, ...], raw: Any) -> Rules:
             raise RulesInvalid(f"言ってはいけないこと {key} の correct は、正しい案内の文か null です")
         forbidden[key] = Forbidden(say_not.strip(), None if correct is None else correct.strip())
     handling: dict[tuple[str, str, str], Handling] = {}
-    if set(raw["handling"]) != set(required):
-        raise RulesInvalid(f"理由×扱いは、必須の質問ごとに1つずつ要ります（必須：{list(required)}）")
-    for q, per_state in raw["handling"].items():
-        if not isinstance(per_state, dict) or set(per_state) != {"dont_know", "refused"}:
+    # 必須の質問すべてに当てる扱い（`ALL_REQUIRED` の鍵。質問ごとの行は、答え・理由ごとにそれより勝つ）。どの質問が必須かは業務設定の確かめが
+    # 決める（分岐のシートの置き換えで、先へ進むかを決める質問が必須になる＝business_settings._branch_flow）ので、全部に当てる行は、ここで
+    # 必須の質問へ広げる（取込で広げると、置き換えのあとに必須になった質問に当たらない）。⚠️ 2026-11-04 より前の版は、取込で広げた質問ごとの形
+    keys = set(raw["handling"])
+    if not keys <= set(required) | {ALL_REQUIRED} or not (ALL_REQUIRED in keys or set(required) <= keys):
+        raise RulesInvalid(f"理由×扱いは、必須の質問ごとに1つずつ要ります（必須：{list(required)}。「{ALL_REQUIRED}」で必須の質問すべてに当てる扱いを書けます）")
+    common = raw["handling"].get(ALL_REQUIRED)
+    if common is not None and (not isinstance(common, dict) or set(common) != {"dont_know", "refused"}
+                               or not all(isinstance(common[s], dict) for s in common)):
+        raise RulesInvalid(f"必須の質問すべてに当てる理由×扱い（{ALL_REQUIRED}）は dont_know と refused の両方です")
+    for q in required:
+        own = raw["handling"].get(q)
+        if own is not None and (not isinstance(own, dict) or not set(own) <= {"dont_know", "refused"}
+                                or not all(isinstance(own[s], dict) for s in own)
+                                or (common is None and set(own) != {"dont_know", "refused"})):
             raise RulesInvalid(f"質問 {q} の理由×扱いは dont_know と refused の両方です")
+        per_state = {s: {**(common or {}).get(s, {}), **(own or {}).get(s, {})} for s in ("dont_know", "refused")}
         for state, reasons, allowed in (("dont_know", DONT_KNOW_REASONS, HANDLINGS),
                                         ("refused", REFUSED_REASONS, REFUSED_HANDLINGS)):
             given = per_state[state]
-            if not isinstance(given, dict) or set(given) != set(reasons):
+            if set(given) != set(reasons):
                 raise RulesInvalid(f"質問 {q} の {state} は、理由 {list(reasons)} のすべてに扱いが要ります")
             for reason, h in given.items():
                 if not isinstance(h, dict) or set(h) - {"kind", "conclusion"} or h.get("kind") not in allowed:

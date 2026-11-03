@@ -91,8 +91,8 @@ class Import(unittest.TestCase):
         self.assertEqual((p.problems, p.names_to_confirm), ([], []))
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest))
         got = self.tx(lambda tx: bs.load(tx, v))
-        self.assertEqual((got.next_of("Q1", "しない"), got.questions[0].declines, got.rules.retry["callback_unspecified_time"].interval),
-                         ("END", ("しない",), ("days", 1)))
+        self.assertEqual((got.questions[0].goal_must, got.questions[0].declines, got.rules.retry["callback_unspecified_time"].interval),
+                         (True, ("しない",), ("days", 1)))
         self.assertEqual(got.rules.handling[("Q2", "refused", "policy")].conclusion, "回答不可")   # 「全部」の行が効く
         self.assertIn(bs.Name("テスト便", "てすとびん", "script", "given"), got.names)
         self.assertEqual(got.answers, (("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。"),))   # 想定問答

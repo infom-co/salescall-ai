@@ -321,7 +321,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
-                          "declines": _split(v.get("decline")) or []})
+                          "declines": _split(v.get("decline")) or [], "goal_must": False})
     by_id = {q["id"]: q for q in questions}
     for row_no, v in _rows(sheets, "branches", problems):
         q = by_id.get(v.get("id"))
@@ -340,9 +340,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
             problems.append(f"シート「分岐」の {row_no} 行目：質問 {v.get('id')} の回答条件「{v.get('answer')}」が2つあります")
         q["next"][answer] = nxt
 
-    required_ids = [q["id"] for q in questions if q["required"]]
     handling: dict[str, dict[str, dict[str, Any]]] = {}
-    specific: set[tuple[str, str, str]] = set()
     seen_handling: dict[tuple[Any, str, str], int] = {}
     for row_no, v in _rows(sheets, "handling", problems):
         where = f"シート「わからない・答えたくない」の {row_no} 行目"
@@ -358,13 +356,10 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                             f"（{seen_handling[row_key]} 行目と）")
             continue
         seen_handling[row_key] = row_no
-        targets = required_ids if v.get("id") == ALL_QUESTIONS else [v.get("id")]
-        for qid in targets:
-            if qid != ALL_QUESTIONS and (v.get("id") == ALL_QUESTIONS and (qid, state, reason) in specific):
-                continue                                   # 質問ごとの行が勝つ
-            handling.setdefault(qid, {"dont_know": {}, "refused": {}})[state][reason] = h
-            if v.get("id") != ALL_QUESTIONS:
-                specific.add((qid, state, reason))
+        # 「全部」は、業務の決まりの「必須の質問すべて」の鍵のまま渡す（どの質問が必須かは、分岐のシートの置き換えのあとに業務設定の確かめが
+        # 決める＝business_rules.check が広げる。質問ごとの行は、答え・理由ごとにそれより勝つ）
+        qid = business_rules.ALL_REQUIRED if v.get("id") == ALL_QUESTIONS else v.get("id")
+        handling.setdefault(qid, {"dont_know": {}, "refused": {}})[state][reason] = h
 
     retry: dict[str, Any] = {}
     seen_retry: dict[str, int] = {}
