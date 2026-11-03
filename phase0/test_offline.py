@@ -23,9 +23,10 @@ def fc(name, **args):
 # CL-2 に頼んで、まだ main の CL-2 の部品（app/）に入っていない名前（唯一の一覧。CL-1.md 4-72 の (k)：選ぶ質問の「どれも要らない」のあとに、ほかのご希望を
 # 伺う W1・LINE の ID を伺う C10・通話の事実 other_wish・その録音の名前。✅ 2026-11-03 日本時間20時48分のご承認）。CL-2 の部品と名前を比べる試験は、この
 # 名前を除いて比べ、CL-2 の部品に入った名前がここに残っていれば落ちる（＝ここから外す合図。⚠️ 外れるまでは、main の CL-2 の読み手が、この名前の入った報告を
-# 受けない＝TEAM_PLAN：CL-2 のブランチを main に入れるのはユーザーが確かめてから）
+# 受けない＝TEAM_PLAN：CL-2 のブランチを main に入れるのはユーザーが確かめてから）。前の通話で取れた答えの "wish"（前の通話のほかのご希望の結果＝
+# flowctl.earlier_wish）・"hedged"（言い切っていない答えのお客様の言葉＝Flow.hedged_words と同じ）も（flowctl.EARLIER_KEYS。CL-1 の 11-03 のご判断の (1)）
 CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_line", "wish_told_email", "wish_told_fax", "wish_told_post",
-                         "wish_told_phone", "wish_told_other"})
+                         "wish_told_phone", "wish_told_other", "wish", "hedged"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -4950,6 +4951,25 @@ class ConversationLogTest(unittest.TestCase):
         (d / "a.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in self._rows()), encoding="utf-8")
         (d / "b.jsonl").write_text(json.dumps(later[0], ensure_ascii=False), encoding="utf-8")
         self.assertEqual(export_weeks(d / "b.jsonl", Path(tempfile.mkdtemp()), siblings=True)["件"], 5)
+
+    def test_export_is_never_cut_half_way(self):
+        # 書き出しが途中で止まっても（書いている最中に止められた・ディスクの不具合）、控え rows.jsonl と週ごとのファイルは前のまま（同じフォルダの仮のファイルに
+        # 書いてから置き換える）。⛔ 見直しで見つけた：控えを直接書き直していた＝途中で止まると控えが途中までになり、次の書き出しで、もう会話の記録に無い行が消える
+        import tempfile
+        from read_user_messages import ARCHIVE, export_weeks
+        out = Path(tempfile.mkdtemp())
+        export_weeks(self._log(self._rows()), out)
+        before = {p.name: p.read_text(encoding="utf-8") for p in out.iterdir()}
+        real = Path.write_text
+
+        def cut(self_, text, *a, **kw):   # 半分まで書いたところで止まる
+            real(self_, text[:len(text) // 2], *a, **kw)
+            raise OSError("途中で止まった")
+        later = [{"type": "user", "timestamp": "2026-11-03T12:38:00.000Z", "message": {"content": "あとのご発言"}}]
+        with unittest.mock.patch.object(Path, "write_text", cut), self.assertRaises(OSError):
+            export_weeks(self._log(later), out)
+        self.assertEqual({p.name: p.read_text(encoding="utf-8") for p in out.iterdir()}, before)   # 前のまま（仮のファイルも残さない）
+        self.assertEqual(len((out / ARCHIVE).read_text(encoding="utf-8").splitlines()), 4)
 
 
 class WordingTest(unittest.TestCase):
@@ -10605,7 +10625,9 @@ class NoneOfThemTest(unittest.TestCase):
         f = flow()
         r = HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
         self.assertEqual((r["result"], ACK[r["ack"]] + r["question"], f.end_reason), ("next", "はい、それではほかにご希望などはございますでしょうか？", None))
-        self.assertEqual(f.questions["W1"].conditions, ("はい", *(wish_label(k) for k in ("line", "email", "fax", "post", "phone")), WISH_OTHER, WISH_NONE))
+        # 選び直しの選択肢は「やはり（意味の言葉）」（W1 そのものが「はい」で答えられる問い＝はい／いいえの名前にしない）
+        self.assertEqual(f.questions["W1"].conditions, ("やはりパンフレットをお送りしてよいということ", *(wish_label(k) for k in ("line", "email", "fax", "post", "phone")),
+                                                        WISH_OTHER, WISH_NONE))
         r = AmbiguousAnswerTest.say(f, "メールで送ってもらえれば見ます。", "record_answer", question_id="W1", condition_id=wish_label("email"))
         self.assertEqual((r["question_id"], f.end_reason, "goal_refused" in f.facts), (CALLBACK_IDS["email"], None, False))
         # ほかのご希望も無い ⇒ 11-02 の扱い（最終目的なので、お礼を言って締める）
@@ -10616,7 +10638,7 @@ class NoneOfThemTest(unittest.TestCase):
         # 選び直していただいた（「やっぱり送ってください」）⇒ 元の質問の答え「はい」
         f = flow()
         HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
-        r = AmbiguousAnswerTest.say(f, "うーん、やっぱり送ってください。", "record_answer", question_id="W1", condition_id="はい")
+        r = AmbiguousAnswerTest.say(f, "うーん、やっぱり送ってください。", "record_answer", question_id="W1", condition_id="やはりパンフレットをお送りしてよいということ")
         self.assertEqual((r["question_id"], f.export()["Q1"], f.end_reason), ("Q2", "はい", None))
         # 言い切ったお断りは今までどおり答え（最終目的なので締める）・最終目的でない質問の言い切っていないお断りは「承知しました。」で次へ（17時台のご判断）
         f = flow()
@@ -10763,10 +10785,156 @@ class NoneOfThemTest(unittest.TestCase):
         self.assertEqual((r["question_id"], "W1" in f.items), ("Q3", False))
 
     def test_earlier_call_answer_is_not_asked_again(self):
-        # 前の通話で取れた「どれも要らない」には伺わない（前の通話で伺っている）
+        # 前の通話でほかのご希望まで伺った「どれも要らない」（前の通話の答えに "wish" がある）には、もう伺わない。"wish" が無い（W1 の途中で切れた）答えも、
+        # この通話の途中では伺わない（ほかの質問の答えのすぐあとに伺うと話がつながらない。⏳ 続きの通話で伺う形はユーザーに伺っている＝Flow._wish_due）
         from flowctl import Flow
-        f = Flow(list(self.flow(False).questions.values()), earlier={"Q1": {"state": "accepted", "value": None, "condition": "どれも要らない"}})
-        self.assertEqual((f.current, "W1" in f.order), ("Q2", False))
+        taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
+        for earlier in ({**taken, "wish": "none"}, taken):
+            f = Flow(list(self.flow(False).questions.values()), earlier={"Q1": earlier})
+            self.assertEqual((f.current, "W1" in f.order), ("Q2", False))
+            r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
+            self.assertEqual((r["result"], "W1" in f.items), ("end", False), earlier)
+
+    def test_earlier_call_wish_decides_the_goal(self):
+        # 最終目的の「どれも要らない」に、前の通話でご連絡の方法・ほかのご希望を言っていただいた ⇒ 断られていない（続きの通話でも締めない）。無いと言われた
+        # ⇒ 前の通話の答えのまま（最終目的なので締める）。⛔ 見直しで見つけた：前の通話の答えにほかのご希望の結果が無く、続きの通話の最初の答えのあとに
+        # 「業務の目的が果たせなくなった」で締めていた（LINE の ID まで伺った方に、もうかけない）
+        from flowctl import WISH_NONE, Flow, Question, earlier_wish
+        def qs(goal=("電話", "メール")):
+            q1 = (Question("Q1", self.CONTACT, "choice", conditions=goal, final_goal=True) if goal else
+                  Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True, declines=("いいえ",)))
+            return [q1, Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                    Question("Q3", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
+        for wish, want in (("means", ("next", "Q3", None)), ("other", ("next", "Q3", None)), ("none", ("end", None, "goal_refused"))):
+            f = Flow(qs(), earlier={"Q1": {**taken, "wish": wish}})
+            r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
+            self.assertEqual((r["result"], r.get("question_id"), f.end_reason), want, wish)
+            self.assertNotIn("W1", f.items, wish)
+        # 前の通話で W1 の答えをいただいていない（W1 の途中で切れた）：お客様はまだ、ほかのご希望を言っていない＝断られたとはせず、この通話でも締めない。
+        # この通話の途中では伺わない（⏳ 続きの通話で伺う形はユーザーに伺っている＝Flow._wish_due・_wish_unasked）
+        f = Flow(qs(), earlier={"Q1": taken})
+        r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((r["result"], r["question_id"], f.end_reason, "W1" in f.items), ("next", "Q3", None, False))
+        self.assertIsNone(f._goals_lost())
+        # はい／いいえの最終目的への言い切っていないお断り：前の通話の答えの "hedged"（依頼者へ渡したお客様の言葉＝Flow.hedged_words と同じ）で決まる
+        no = {"state": "accepted", "value": None, "condition": "いいえ"}
+        f = Flow(qs(None), earlier={"Q1": {**no, "hedged": "届いても見るか分からなくて"}})
+        r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((r["result"], r["question_id"], f.end_reason, f.hedged_words()), ("next", "Q3", None, {}))
+        f = Flow(qs(None), earlier={"Q1": {**no, "hedged": "届いても見るか分からなくて", "wish": "other"}})
+        r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((r["result"], r["question_id"]), ("next", "Q3"))
+        f = Flow(qs(None), earlier={"Q1": no})   # 言い切ったお断り＝今までどおり答え（伺わない）
+        r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((r["result"], f.end_reason), ("end", "goal_refused"))
+        # 通話の事実 other_wish の1つから、次の通話の "wish" を決める1か所（連絡先を伺っている途中で切れた＝ご連絡の方法を言っていただいた）
+        self.assertEqual([earlier_wish(e) for e in ({"outcome": "none", "means": None}, {"outcome": None, "means": "line"},
+                                                     {"outcome": None, "means": None}, {"outcome": "option", "means": None})],
+                         ["none", "means", None, "option"])
+
+    def test_earlier_keys_match_cl2(self):
+        # 前の通話で取れた答えの項目（flowctl.EARLIER_KEYS）が、CL-2 の渡す項目（conversation_io.earlier）と同じ（CL-2 に頼んでまだ入っていない名前＝
+        # CL2_PENDING を除く）。CL-2 の部品（app/）が無い所では飛ばす。ast で読む
+        import ast
+        import pathlib
+        from flowctl import EARLIER_KEYS
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "conversation_io.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        fn = next(n for n in ast.parse(src.read_text(encoding="utf-8")).body if isinstance(n, ast.FunctionDef) and n.name == "earlier")
+        theirs = {k.value for d in ast.walk(fn) if isinstance(d, ast.Dict) for k in d.keys if isinstance(k, ast.Constant)}
+        self.assertEqual((sorted(without_cl2_pending(self, set(EARLIER_KEYS), theirs) - theirs), sorted(theirs - set(EARLIER_KEYS))), ([], []))
+
+    def test_yes_no_repick_is_not_labelled_yes(self):
+        # はい／いいえの質問の W1 では、選び直しの選択肢を「はい」「いいえ」の名前にしない（W1 そのものが「はい、あります。」で答えられる問い）。意味の言葉が
+        # あれば「やはり（意味の言葉）」、無ければ「やはり「はい」」。選ぶ質問の選択肢（電話・メール）はそのままの名前。⛔ 見直しで見つけた：「はい、あります。」を
+        # 「はい」と報告すると、お断りが「パンフレットを送ってよい」に変わった（判定が「ほかの希望」と読むと「-」になり、伺わないまま締めた）
+        from flowctl import WISH_OTHER, Flow, Question, callback_question
+        def flow():
+            return Flow([Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True,
+                                  declines=("いいえ",), away=("いいえ",),
+                                  meanings={"はい": "パンフレットをお送りしてよいということ", "いいえ": "パンフレットはお送りしなくてよいということ"}),
+                         Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        f = flow()
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
+        w = f.questions["W1"]
+        self.assertNotIn("はい", w.conditions)
+        self.assertEqual(w.conditions[0], "やはりパンフレットをお送りしてよいということ")
+        self.assertIn("考え直して", w.meanings[w.conditions[0]])   # 会話AIへの意味の言葉と判定の選べるものは、同じ並びから（一緒に変わる）
+        self.assertEqual(AmbiguousAnswerTest.say(f, "はい、あります。", "record_answer", question_id="W1", condition_id="はい")["result"], "rejected")
+        r = AmbiguousAnswerTest.say(f, "はい、あります。", "record_answer", question_id="W1", condition_id=WISH_OTHER, value="あります")
+        self.assertEqual((r["result"], f.export()["Q1"], f.facts["other_wish"][-1]["outcome"], f.end_reason), ("next", "いいえ", "other", None))
+        f = flow()
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
+        r = AmbiguousAnswerTest.say(f, "やっぱり送ってください。", "record_answer", question_id="W1", condition_id="やはりパンフレットをお送りしてよいということ")
+        self.assertEqual((r["question_id"], f.export()["Q1"], f.facts["other_wish"][-1]["outcome"]), ("Q2", "はい", "option"))
+        bare = Question("Q9", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True, declines=("いいえ",))
+        self.assertEqual(callback_question("other_wish", of=bare).conditions[0], "やはり「はい」")
+        self.assertEqual(callback_question("other_wish", of=Question("Q8", self.CONTACT, "choice", conditions=("電話", "メール"))).conditions[:2], ("電話", "メール"))
+
+    def test_other_means_while_asking_wish_is_the_wish_answer(self):
+        # W1 を伺っているときの「メールで送ってもらえますか」は、AIが request_callback（ほかの手段）で報告しても、W1 の答え（その方法）と同じ1か所で受ける
+        # （連絡先を伺い、申し伝えて続ける・ほかのご希望の事実に残す・ほかの手段で締めない）。⛔ 見直しで見つけた：ほかの手段のかけ直しとして受け、
+        # メールアドレスを伺って締めていた（残りの質問を伺わない・other_wish が残らない）
+        from flowctl import NONE, Flow, Question, wish_label
+        def run(options, op, **args):
+            f = Flow([Question("Q1", f"ご連絡は{options[0]}と{options[1]}のどちらがよろしいでしょうか？", "choice", conditions=options, final_goal=True),
+                      Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+            AmbiguousAnswerTest.say(f, "どちらも要りません。", "record_answer", question_id="Q1", condition_id=NONE)
+            return f, AmbiguousAnswerTest.say(f, "じゃあメールで送ってもらえますか。", op, **args)
+        keys = ("result", "question_id", "ack", "message")
+        f1, r1 = run(("お電話", "ファクス"), "record_answer", question_id="W1", condition_id=wish_label("email"))
+        f2, r2 = run(("お電話", "ファクス"), "request_callback", why="other_means", offer="email")
+        self.assertEqual({k: r2.get(k) for k in keys}, {k: r1.get(k) for k in keys})
+        for f in (f1, f2):
+            AmbiguousAnswerTest.say(f, "info@example.co.jp です。", "record_answer", question_id="C3", condition_id="答えた", value="info@example.co.jp")
+            r = AmbiguousAnswerTest.say(f, "はい。", "confirm_field", question_id="C3", result="affirmed")
+            self.assertEqual((r["question_id"], f.end_reason, f.callback_why), ("Q2", None, None))
+            self.assertEqual({k: f.facts["other_wish"][-1][k] for k in ("means", "contact", "outcome")},
+                             {"means": "email", "contact": "info@example.co.jp", "outcome": "means"})
+            self.assertFalse(f.facts.get("callback"))
+        # 元の質問の選択肢に同じ方法がある（お電話とメール）：その選択肢を選び直した答え（どちらの報告でも同じ）
+        f1, r1 = run(("お電話", "メール"), "record_answer", question_id="W1", condition_id="メール")
+        f2, r2 = run(("お電話", "メール"), "request_callback", why="other_means", offer="email")
+        self.assertEqual(({k: r2.get(k) for k in keys}, f2.export()["Q1"]), ({k: r1.get(k) for k in keys}, "メール"))
+
+    def test_wish_answer_in_recheck_is_not_restated(self):
+        # 締めの前の念のための確認で「どれも要らない」を伺い、W1 を伺っても、W1 の答えは言い直して確かめない（言い切っていなくても確かめない質問＝
+        # Question.firm_not_needed）。⛔ 見直しで見つけた：「はい、ありがとうございます。ほかに希望は無い・やはり要らないということでよろしかったでしょうか？」
+        from flowctl import NONE, WISH_NONE, Flow, Question
+        f = Flow([Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール")),
+                  Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        for _ in range(3):
+            AmbiguousAnswerTest.say(f, "（聞き取れない）", "report_unclear", question_id="Q1")
+        r = AmbiguousAnswerTest.say(f, "いいえ。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((r["result"], r["question_id"]), ("recheck", "Q1"))
+        r = AmbiguousAnswerTest.say(f, "どちらも要らないです。", "record_answer", question_id="Q1", condition_id=NONE)
+        self.assertEqual(r["question_id"], "W1")
+        r = AmbiguousAnswerTest.say(f, "特にないです。", "record_answer", question_id="W1", condition_id=WISH_NONE)
+        self.assertEqual((r["result"], f.items["W1"].state), ("end", "accepted"))
+
+    def test_wish_sentence_lists_only_noun_options(self):
+        # 「それでは（選択肢）のほかにご希望は…」は、並べる選択肢がどれも名詞の言葉のときだけ（単語分けの辞書で決める）。目的から遠ざかる向き・最終目的の
+        # お断りの答えは並べない。並べられなければ「それではほかにご希望などはございますでしょうか？」（はい／いいえと同じ）。録音の表も同じ文。
+        # ⛔ 見直しで見つけた：「それでは参加するのほかに…」「それでは参加すると参加しないのほかに…」「それでは変更なしと変更ありのほかに…」
+        import dataclasses
+        from flowctl import Question, callback_question
+        from g22_opening import BUSINESS
+        from make_ack_clips import script_table
+        from phrases import OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN
+        cases = [(dict(conditions=("電話", "メール")), OTHER_WISH_ASK.format(c="電話とメール")),
+                 (dict(conditions=("お電話", "Eメール", "ファクス")), OTHER_WISH_ASK.format(c="お電話とEメールとファクス")),
+                 (dict(conditions=("カード", "振込"), final_goal=True, declines=("振込",)), OTHER_WISH_ASK.format(c="カード")),
+                 (dict(conditions=("参加する", "参加しない"), final_goal=True, declines=("参加しない",), away=("参加しない",)), OTHER_WISH_ASK_PLAIN),
+                 (dict(conditions=("参加する", "参加しない"), away=("参加しない",)), OTHER_WISH_ASK_PLAIN),
+                 (dict(conditions=("変更なし", "変更あり"), away=("変更あり",)), OTHER_WISH_ASK_PLAIN),
+                 (dict(conditions=("同席あり", "同席なし")), OTHER_WISH_ASK_PLAIN),
+                 (dict(conditions=("対面", "オンライン"), away=("オンライン",)), OTHER_WISH_ASK.format(c="対面"))]
+        for kw, want in cases:
+            q = Question("Q1", "（質問）", "choice", **kw)
+            self.assertEqual(callback_question("other_wish", of=q).text, want, kw)
+            self.assertEqual(script_table(dataclasses.replace(BUSINESS, questions=[q]))[0]["Q1_other"], (want, "question"), kw)
 
     def test_every_system_question_is_declared_to_the_ai(self):
         # 会話AIの道具の宣言に、システムが足す質問の番号が全部ある（⛔ 2026-10-24 に C6・C7・P1、2026-11-03 に D1・H1・N1〜N3 を並べ忘れていた＝AIが答えを
@@ -10781,6 +10949,87 @@ class NoneOfThemTest(unittest.TestCase):
             self.assertLessEqual({wish_label("line"), "無い", "ほかの希望を言った", "点を言った", "断ろうとしている"}, set(p["答えの種類"].enum))
         d = {x.name: x for x in tool_declarations([f.questions["Q2"]])[0].function_declarations}
         self.assertNotIn("W1", d["record_answer"].parameters.properties["質問"].enum)
+
+    def test_acks_before_the_told_lines_follow_the_wording(self):
+        # 申し伝える一言の頭は「承知しました。」、業務の一言の頭は「はい、」（_ack の決まり）。聞き取れないまま先へ進むときも、締めの前の念のための確認の
+        # 前でも同じ。⛔ 見直しで見つけた：「はい、LINEでのご連絡のご希望を…」・「申し訳ございません、そのご希望を…」・「申し訳ございません、○○駐車場を…」
+        from flowctl import CALLBACK_IDS, NONE, WISH_OTHER, Flow, Question, wish_label
+        from phrases import WISH_TOLD
+        f, _ = self.wished(False)
+        AmbiguousAnswerTest.say(f, "LINEならいいです。", "record_answer", question_id="W1", condition_id=wish_label("line"))
+        for _ in range(3):
+            r = AmbiguousAnswerTest.say(f, "（聞き取れない）", "report_unclear", question_id=CALLBACK_IDS["line"])
+        self.assertEqual((r["question_id"], r["ack"], WISH_TOLD["line"] in r["message"]), ("Q2", "shouchi", True))
+        q0 = Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        f = Flow([q0, Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"))], play_recordings=True)
+        for _ in range(3):
+            AmbiguousAnswerTest.say(f, "（聞き取れない）", "report_unclear", question_id="Q0")
+        AmbiguousAnswerTest.say(f, "どちらも要らないです。", "record_answer", question_id="Q1", condition_id=NONE)
+        r = AmbiguousAnswerTest.say(f, "直接来てもらえるなら。", "record_answer", question_id="W1", condition_id=WISH_OTHER, value="訪問")
+        self.assertEqual((r["result"], r["ack"], r["play"][0]["text"]), ("recheck", "shouchi", WISH_TOLD["other"]))
+        # 念のための確認の頭のお詫びは、一言のあとに流す（「…申し伝えます。」＋「申し訳ございません、」＋「お声が聞き取れませんでしたので…」）
+        self.assertEqual([p["id"] for p in r["play"]][-1], "moushiwake_heavy")
+        line = "○○駐車場をご利用いただけますのでどうぞご利用ください。"
+        car = Question("G5", "当日はお車でお越しになりますでしょうか？", "yes_no", conditions=("はい", "いいえ"), tell_words={"はい": line})
+        f = Flow([q0, car], play_recordings=True)
+        for _ in range(3):
+            AmbiguousAnswerTest.say(f, "（聞き取れない）", "report_unclear", question_id="Q0")
+        r = AmbiguousAnswerTest.say(f, "はい、車で行きます。", "record_answer", question_id="G5", condition_id="はい")
+        self.assertEqual((r["result"], r["ack"], r["play"][0]["text"], [p["id"] for p in r["play"]][-1]), ("recheck", "hai", line, "moushiwake_heavy"))
+
+    def test_day_slot_question_keeps_its_wish_and_tell_clips(self):
+        # {最短の日} の入った質問も、ほかのご希望を伺う一言（（番号）_other）・その答えのあとに伝える一言の録音を作る（日ごとの録音に替わるのは、質問の文の
+        # 録音だけ）。⛔ 見直しで見つけた：日ごとの録音を作ったところで次の質問へ進み、どちらも作っていなかった（伺いうる質問の決まり may_wish と食い違う）
+        import dataclasses
+        from flowctl import DAY_SLOT, DAY_VARIANTS, Question, callback_question, day_recording_id, may_wish, other_wish_recording_id, tell_recording_id
+        from g22_opening import BUSINESS
+        from make_ack_clips import script_table
+        q = Question("Q1", DAY_SLOT + "以降のご訪問でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True, declines=("いいえ",),
+                     away=("いいえ",), tell_words={"はい": "当日は担当の山田がお伺いいたします。"})
+        t = script_table(dataclasses.replace(BUSINESS, questions=[q]))[0]
+        self.assertTrue(may_wish(q))
+        self.assertEqual(t[other_wish_recording_id(q)], (callback_question("other_wish", of=q).text, "question"))
+        self.assertEqual(t[tell_recording_id(q, "はい")], ("当日は担当の山田がお伺いいたします。", "question"))
+        self.assertEqual({k for k in t if k.startswith("Q1")}, {day_recording_id("Q1", w) for w in DAY_VARIANTS} | {"Q1_other", "Q1_tell1"})
+
+    def test_none_is_never_restated(self):
+        # 「どれも要らない」は、どの道でも言い直さない（言い切っていても、いなくても・聞き返したあと・念のための確認でも＝_ask_confirm の頭の
+        # _keep_toward_goal）＝言い直す言葉（choice_words）は「どれも要らない」で呼ばれない（前の「念のためどちらもご不要ということで…」の行は外した）
+        import flowctl
+        from flowctl import NONE, Flow, Question
+        seen = []
+        real = flowctl.choice_words
+        def spy(q, cond):
+            seen.append(cond)
+            return real(q, cond)
+        with unittest.mock.patch.object(flowctl, "choice_words", spy):
+            for goal in (True, False):
+                for said in ("どちらも要らないです。", "たぶんどちらも要らないです。"):
+                    self.assertEqual(self.wished(goal, said)[1]["question_id"], "W1")
+            f = Flow([Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール")),
+                      Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+            AmbiguousAnswerTest.say(f, "（聞き取れない）", "report_unclear", question_id="Q1")
+            r = AmbiguousAnswerTest.say(f, "どちらも要らないです。", "record_answer", question_id="Q1", condition_id=NONE)
+            self.assertEqual(r["question_id"], "W1")
+        self.assertNotIn(NONE, seen)
+        self.assertNotIn("ご不要", real(Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール")), NONE) or "")
+
+    def test_follow_up_rule_is_one_place(self):
+        # 「業務設定の前の答えで伺う質問（Question.ask_if）が、この答えに当たるか」は1か所（Flow._business_next）：並びに入れる・言い切っていない答えの
+        # あとに伺う・ほかのご希望より業務の言葉が先・伺い終えるまで締めない、の4つがそこを使う（⛔ 見直しで見つけた：4か所に少しずつ違う写しがあった）
+        from flowctl import NONE, Flow, Question
+        def flow():
+            return Flow([Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"), final_goal=True),
+                         Question("Q3", "資料だけお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), ask_if=("Q1", (NONE,)),
+                                  ask_if_hedged=True),
+                         Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        f = flow()
+        r = HedgedSalesTest.hedged(f, "Q1", NONE, "たぶんどちらも要らないです")
+        self.assertEqual((r["question_id"], "W1" in f.items), ("Q3", False))
+        with unittest.mock.patch.object(Flow, "_business_next", lambda self, qid, cond=None, hedged=None: []):
+            f = flow()
+            r = HedgedSalesTest.hedged(f, "Q1", NONE, "たぶんどちらも要らないです")
+            self.assertEqual((r["question_id"], "Q3" in f.order), ("W1", False))   # 1か所を替えると、4つとも替わる
 
 
 class DryRunTest(unittest.TestCase):
@@ -12664,6 +12913,63 @@ class HedgedSalesTest(unittest.TestCase):
         g = Flow([car, nq], earlier={"G5": {"state": "accepted", "value": None, "condition": "はい"}})
         r = AmbiguousAnswerTest.say(g, "カードでお願いします。", "record_answer", question_id="G16", condition_id="カード")
         self.assertNotIn(line, r["message"])
+
+    def test_business_line_is_a_client_recording(self):
+        # 業務の一言の録音は依頼主の単位（録音を作る表 make_ack_clips.script_table の名前）＝ほかの業務の質問・ほかのご希望を伺う一言と同じ種類（question）で
+        # 返す。⛔ 見直しで見つけた：契約者の単位の決まった録音（phrases.RECORDED）の種類 recorded で返していた（電話接続側が契約者の組から探す）
+        import dataclasses
+        from flowctl import Flow, Question, question_play, tell_recording_id
+        from g22_opening import BUSINESS
+        from make_ack_clips import script_table
+        line = "○○駐車場をご利用いただけますのでどうぞご利用ください。"
+        car = Question("G5", "当日はお車でお越しになりますでしょうか？", "yes_no", conditions=self.YN, tell_words={"はい": line})
+        nq = Question("G16", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        f = Flow([car, nq], play_recordings=True)
+        r = AmbiguousAnswerTest.say(f, "はい、車で行きます。", "record_answer", question_id="G5", condition_id="はい")
+        kind = question_play([car, nq], "G16")["kind"]
+        self.assertEqual(r["play"][0], {"kind": kind, "id": tell_recording_id(car, "はい"), "text": line, "lead": ""})
+        self.assertEqual(script_table(dataclasses.replace(BUSINESS, questions=[car, nq]))[0][r["play"][0]["id"]], (line, "question"))
+
+    def test_business_line_waits_for_the_other_wish(self):
+        # ほかのご希望を伺う答え（最終目的への言い切っていないお断り）の業務の一言は、W1 の前に流さない（答えがまだ決まっていない）。W1 のあとに、決まった
+        # 答えの一言を1回：選び直したらその答えの一言・ご連絡の方法やほかのご希望で続けるなら元の答えの一言（申し伝える一言のあと）・無いと言われて締めるなら
+        # 流さない（CL-1 の 11-03 のご判断の (6)）。⛔ 見直しで見つけた：「はい、お気軽にご相談ください。それではほかにご希望などは…」と流し、選び直した
+        # 「はい」の一言は流さなかった（言った印のまま）
+        from flowctl import WISH_NONE, WISH_OTHER, Flow, Question, question_play
+        from phrases import WISH_TOLD
+        yes, no = "当日は担当の山田がお伺いいたします。", "お気軽にご相談ください。"
+        visit = Question("E2", "担当者がご訪問させていただいてもよろしいでしょうか？", "yes_no", conditions=self.YN, final_goal=True, declines=("いいえ",),
+                         away=("いいえ",), tell_words={"はい": yes, "いいえ": no},
+                         meanings={"はい": "担当者がご訪問させていただいてよろしいということ", "いいえ": "担当者がご訪問させていただかなくてよろしいということ"})
+        nq = Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=self.YN)
+        def asked():
+            f = Flow([visit, nq], play_recordings=True)
+            r = self.hedged(f, "E2", "いいえ", "来てもらっても時間取れるか分からなくて")
+            self.assertEqual((r["question_id"], [p["text"] for p in r["play"]]), ("W1", [question_play(list(f.questions.values()), "W1")["text"]]))
+            return f
+        q2 = question_play([visit, nq], "Q2")["text"]
+        f = asked()
+        r = AmbiguousAnswerTest.say(f, "やっぱり来てもらっていいです。", "record_answer", question_id="W1", condition_id=f.questions["W1"].conditions[0])
+        self.assertEqual((r["question_id"], f.export()["E2"], [p["text"] for p in r["play"]]), ("Q2", "はい", [yes, q2]))
+        f = asked()
+        r = AmbiguousAnswerTest.say(f, "オンラインなら。", "record_answer", question_id="W1", condition_id=WISH_OTHER, value="オンライン")
+        self.assertEqual((r["question_id"], r["ack"], [p["text"] for p in r["play"]]), ("Q2", "shouchi", [WISH_TOLD["other"], no, q2]))
+        f = asked()
+        r = AmbiguousAnswerTest.say(f, "特にないです。", "record_answer", question_id="W1", condition_id=WISH_NONE)
+        self.assertEqual((r["result"], f.end_reason), ("end", "goal_refused"))
+        self.assertNotIn(no, "".join(p["text"] for p in r.get("play") or []) + r.get("say", "") + r["message"])
+
+    def test_final_goal_declines_are_away_from_the_goal(self):
+        # 最終目的の質問のお断りの答え（declines）は、決まりとして目的から遠ざかる向き（Question.away_answers の1か所。取込の away に無くても）：その言葉で
+        # 言い直さず、ほかのご希望を伺う。⛔ 見直しで見つけた：away が空だと「それではパンフレットはお送りしなくてよいということで承りますね？」と言い、
+        # 認められると W1 を伺わずに締めた
+        from flowctl import Flow, Question
+        q = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=self.YN, final_goal=True, declines=("いいえ",),
+                     meanings={"はい": "パンフレットをお送りしてよいということ", "いいえ": "パンフレットはお送りしなくてよいということ"})
+        self.assertEqual((q.away_answers, Question("Q2", "（質問）", "yes_no", conditions=self.YN, declines=("いいえ",)).away_answers), (("いいえ",), ()))
+        f = Flow([q, Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=self.YN)])
+        r = self.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
+        self.assertEqual((r["result"], r["question_id"]), ("next", "W1"))
 
     def test_final_goal_setting_decides_after_the_follow_up(self):
         # (B) ✅ 2026-11-03 ユーザー：「今月中のご導入だけが最終目的なのか、ご導入が最終目的なのかで設定が違ってくる」＝業務設定の最終目的で決まる

@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -88,6 +90,21 @@ def user_messages(path: Path, since: str = "", until: str = "", with_assistant: 
 ARCHIVE = "rows.jsonl"   # 書き出したやり取りの控え（書き出しのフォルダの中。1行に1つ {ts, who, text}）
 
 
+def _write_whole(path: Path, text: str) -> None:
+    """ファイルを丸ごと書き直す唯一の書き方（export_weeks の控えと週ごとのファイル）：同じフォルダの仮のファイルに書いてから置き換える（os.replace）。
+    途中で止まっても、前のファイルは前のまま（仮のファイルは残さない）。⛔ 2026-11-03 の見直しで見つけた：控え rows.jsonl を直接書き直していた＝
+    書いている途中で止まると控えが途中までになり、次の書き出しで、もう会話の記録に無い行（/clear の前の会話の分）が消える形だった"""
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    os.close(fd)
+    tmp = Path(name)
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 def export_weeks(path: Path, out_dir: Path, siblings: bool = False) -> dict:
     """管理者のご発言と CL-1 の返事の全文を、日本時間の週ごとの Markdown に書き出す。前に書き出した分（控え ARCHIVE）と、いまの会話の記録 path の分
     （siblings なら、同じフォルダのほかの会話の記録の分も）を合わせ、同じもの（時刻・誰・発言が同じ）は1つにする。キーらしい文字があれば何も書かずに止める。"""
@@ -125,9 +142,10 @@ def export_weeks(path: Path, out_dir: Path, siblings: bool = False) -> dict:
     if found:
         raise SystemExit(f"キーらしい文字があるので書き出しません（ファイルと頭の6字）：{found}")
     out_dir.mkdir(parents=True, exist_ok=True)
+    # 控え（正本）を先に、そのあと週ごとのファイル（控えから作り直せる）。どれも置き換える形（_write_whole）
+    _write_whole(arch, "".join(json.dumps({"ts": ts, "who": who, "text": s}, ensure_ascii=False) + "\n" for ts, who, s in rows))
     for name, s in files.items():
-        (out_dir / name).write_text(s, encoding="utf-8")
-    arch.write_text("".join(json.dumps({"ts": ts, "who": who, "text": s}, ensure_ascii=False) + "\n" for ts, who, s in rows), encoding="utf-8")
+        _write_whole(out_dir / name, s)
     return {"週": len(weeks), "日": len(days), "件": sum(map(len, days.values())),
             "ご発言": sum(w != "CL-1" for v in days.values() for _, w, _ in v)}
 

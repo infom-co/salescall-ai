@@ -195,7 +195,8 @@ def answered_before_next(call: dict, then: str = "Q2") -> bool:
     if i is None or any("question" in played_parts(x["reply"]) for x in log[:i]):
         return False
     nxt = next((x for x in log[i:] if "question" in played_parts(x["reply"])), None)
-    return nxt is not None and [p.get("id") for p in nxt["reply"]["play"] if p.get("kind") == "question"][0] == then
+    # 質問の録音は返事の終わり（前に流す業務の一言＝依頼主の単位の録音も種類は question＝Flow._advance）
+    return nxt is not None and [p.get("id") for p in nxt["reply"]["play"] if p.get("kind") == "question"][-1] == then
 
 
 def no_promise(call: dict) -> bool:
