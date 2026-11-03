@@ -10899,6 +10899,11 @@ class NoneOfThemTest(unittest.TestCase):
         # 聞くことの無い質問：「前回お伺いした件で…」
         self.assertEqual(Flow([dataclasses.replace(qs(True)[0], topic="")], earlier={"Q1": taken}).questions[wid].text,
                          "前回お伺いした件で電話とメールのほかにご希望はございますでしょうか？")
+        # 聞くことが「ご希望の」で始まる質問（取込で決まる聞くこと＝「ご希望のお支払い方法」「ご希望の日時」など）：1つの文に「ご希望」を2回言わない
+        # （20時48分のご承認の言い方を選択肢で伺う形にそろえたのと同じ理由＝「ほかにご希望のご希望の…」。⛔ 11-04 の見直しで見つけた：続きの電話の一言は
+        # 「前回お伺いしたご希望のお支払い方法の件で…ほかにご希望は…」になっていた）
+        pay = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"), topic="ご希望のお支払い方法")
+        self.assertEqual(Flow([pay], earlier={"Q1": taken}).questions[wid].text, "前回お伺いしたお支払い方法の件でカードと振込のほかにご希望はございますでしょうか？")
 
     def test_earlier_keys_match_cl2(self):
         # 前の通話で取れた答えの項目（flowctl.EARLIER_KEYS）が、CL-2 の渡す項目（conversation_io.earlier）と同じ（CL-2 に頼んでまだ入っていない名前＝

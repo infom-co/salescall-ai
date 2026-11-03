@@ -1908,7 +1908,10 @@ def _wish_text(q: "Question", again: bool = False) -> str:
     listed = [c for c in _wish_picks(q) if c not in q.away_answers] if q.type == "choice" else []
     listable = bool(listed) and all(map(_listable, listed))
     if again:
-        t = f"{q.topic}の" if q.topic else ""
+        # 聞くことの頭の「ご希望の」は言わない（「前回お伺いしたご希望のお支払い方法の件で…ほかにご希望は…」と、1つの文に「ご希望」を2回言わないため。
+        # 20時48分のご承認の言い方を選択肢で伺う形にそろえたのと同じ理由＝phrases.OTHER_WISH_ASK の注）
+        topic = q.topic.removeprefix("ご希望の")
+        t = f"{topic}の" if topic else ""
         return OTHER_WISH_AGAIN.format(t=t, c="と".join(listed)) if listable else OTHER_WISH_AGAIN_PLAIN.format(t=t)
     return OTHER_WISH_ASK.format(c="と".join(listed)) if listable else OTHER_WISH_ASK_PLAIN
 
