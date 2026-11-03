@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -116,6 +116,8 @@ HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}
 HOW_OF.update({f"callback_{k}_{i}": "question" for k, vs in CALLBACK_ASK_AGAIN.items() for i, _ in enumerate(vs, 2)})   # 2回目からの言い方も質問の読み方
 # 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
 HOW_OF.update({"own_fallback_point": "own_fallback"})
+# ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
+HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
 HOW["closing_after_decline"] = ("電話の最後に、お客様のお断りを丁寧に受け止めてから、お時間をいただいたことへの感謝を伝えるように、前向きに、心を込めて、"
                                 "落ち着いた調子で。言葉の途中で区切らずに、なめらかに、ひと続きで")
@@ -213,7 +215,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import DAY_SLOT, DAY_VARIANTS, day_recording_id, spoken_question
+    from flowctl import DAY_SLOT, DAY_VARIANTS, callback_question, day_recording_id, may_wish, other_wish_recording_id, spoken_question, tell_recording_id
     from instruction import reading_variants
     from phrases import LEAD_RECORDED
 
@@ -236,6 +238,11 @@ def script_table(business) -> tuple[dict, dict]:
                 items.append((f"{rid}_{LEAD_RECORDED[lead]}" if lead else rid, text.replace(DAY_SLOT, w), "question"))
             continue
         items.append((f"{q.id}_{LEAD_RECORDED[lead]}" if lead else q.id, text, "question"))
+        # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
+        items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
+        if may_wish(q):
+            # 「どれも要らない」・最終目的への言い切っていないお断りのあと、ほかのご希望を伺う一言（選ぶ質問は選択肢が入る。名前は flowctl.other_wish_recording_id）
+            items.append((other_wish_recording_id(q), callback_question("other_wish", of=q).text, "question"))
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)
@@ -382,7 +389,8 @@ def cut_after_context(pcm: bytes, rate: int) -> bytes | None:
 # 言葉そのものを、読みのかなに置き換えて渡す（どの録音でも同じ1か所＝take。録音の文と耳の確かめは元の文のまま）。⛔ 2026-10-24 の1回目：
 # 指示に「『前回』は『ぜんかい』と読みます」と添えただけでは、作り直しの半分ほどが、まだ「せんかい」と読んだ（ユーザーが聞いて見つけた）。
 # ⚠️ 耳の確かめでは見分けられない（聞き取りは、どちらの読みでも「前回」と書いた）ので、人が聞いて選ぶ
-READ_AS = {"前回": "ぜんかい"}
+# 「LINE」「ID」（LINE の ID を伺う一言・LINE でのご連絡を申し伝える一言＝2026-11-03）：英字のまま渡すと、読みが決まらない
+READ_AS = {"前回": "ぜんかい", "LINE": "ライン", "ID": "アイディー"}
 
 
 def spoken_input(text: str) -> str:
