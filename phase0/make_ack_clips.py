@@ -30,7 +30,8 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
+from phrases import POINT_FALLBACK
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -102,13 +103,14 @@ DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "kashikomari": 1.6, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
-         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 8.5, "back": 3.0,
+         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 9.0, "back": 3.0,
          "talk": 3.5, "apology_first": 6.5, "line_trouble": 9.5, "number_again": 12.0}
 MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if tone})
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
 # ✅ 2026-10-22 ユーザー（4回目）の言い方で、ほかの手段の質問（「それでは恐れ入りますが…」）・お立場を伺う一言（2つから選んでいただく形）・
 # 申し出へのお礼・断らない一言が長くなった ⇒ 質問 5.0→6.0・お立場 7.0→13.0・お礼 6.0→7.5・一言 4.0→5.5（10-23 のユーザーの言い方で 5.5→8.5）。「AIですか」と重ねて聞かれた
-# ときの一言（46字）も、この見込みに届いていなかった（7.0→8.0）
+# ときの一言（46字）も、この見込みに届いていなかった（7.0→8.0）。✅ 2026-11-05 日本時間3時33分11秒 ユーザーのご修正の言い方（続きの電話のご説明できないときの
+# 一言・54字）で、断らない一言 8.5→9.0
 CHAR_S = 0.141
 # 録音の中の名前ごとの読み方の鍵（無ければ中の名前のまま）。かけ直しで足す質問は、質問の読み方（⛔ 2026-10-19 の見直しで見つけた漏れ：
 # 足す質問を共通の一言の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
@@ -118,9 +120,12 @@ HOW_OF.update({f"callback_{k}_again": "question" for k in CALLBACK_ASK_RESUMED})
 HOW_OF.update({f"callback_{k}_chosen": "question" for k in CALLBACK_ASK_CHOSEN})   # LINE の伺い方を選んでいただいたあとの一言も質問の読み方（2026-11-04 20時27分）
 # LINE の伺い方で選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言と、その伺い直しも質問の読み方（2026-11-05 0時48分。phrases.CALLBACK_ASK_OTHER_WAYS）。
 # ほかの方法を伺う一言は、LINE の伺い方の一言（callback_line_how）と同じく長い質問の上限（1時19分47秒のメールの一言は40字＝見込み 6.5秒）
-HOW_OF.update({f"callback_line_how_without_{k}{n}": "question" for k in CALLBACK_ASK_OTHER_WAYS for n in ("", "_2")})
+HOW_OF.update({f"callback_line_how_without_{k}": "question" for k in CALLBACK_ASK_OTHER_WAYS})
+# 伺い直しの一言の名前は、伺い直しの言い方の表（CALLBACK_ASK_OTHER_WAYS_AGAIN）から作る＝phrases.RECORDED と同じ元（⛔ 2026-11-05 の読み直しで見つけた：ほかの方法を伺う
+# 一言の表の鍵から作っていて、2つの表の鍵がずれても気づけなかった）
+HOW_OF.update({f"callback_line_how_without_{k}_2": "question" for k in CALLBACK_ASK_OTHER_WAYS_AGAIN})
 # 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
-HOW_OF.update({"own_fallback_point": "own_fallback"})
+HOW_OF.update({**{n: "own_fallback" for n in POINT_FALLBACK}, "resumed_fallback_lead": "own_fallback"})
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
@@ -157,6 +162,14 @@ HOW_OF.update({f"apology_purpose_{k}": "purpose" for k in APOLOGY_PURPOSE})  # �
 #    問いかけるように柔らかく」＝○「少し怪しむような」・○△「ちょっとイラついた感じ」／「心配して気づかうように」＝3本とも「威圧的」／
 #    「誠実に、丁寧に、落ち着いた声で」＝6本とも合格に届かない（L4 の ◎ は前の読み方で録ったもの＝そのまま使う）
 HOW["moshimoshi"] = "電話で、相手の声が聞こえないときに、繋がっているかを確かめるように。誠実に、謙虚に、ビジネスの電話らしく、丁寧に"
+# 続きの電話の始めに「覚えていない」と言われたときの頭の一言（phrases.ACK の gomottomo）と、振り返りの一言（phrases.recap_line＝依頼主の単位の録音 （番号）_recap。
+# script_table）。✅ 2026-11-05 日本時間4時16分52秒 ユーザー：「こちら「ごもっともです。前回は、『（前回、説明した内容）』。とお話したところでお電話が切れて
+# しまいました。」などと伝える方が自然な流れですよね。」。振り返りの一言はご承認いただく内容の説明の文が入るので、長い質問と同じ上限
+HOW["gomottomo"] = "電話で、お客様のお話をもっともだと受け止めるように、穏やかに、丁寧に、短く"
+MAX_S["gomottomo"] = 1.6
+HOW["recap"] = ("電話で、前回のお電話でお話しした内容を、お客様に思い出していただけるように、穏やかに、丁寧に、落ち着いた調子で。"
+                "言葉の途中で区切らずに、なめらかに、ひと続きで")
+MAX_S["recap"] = MAX_S["question_long"]
 MAX_S["moshimoshi"] = 1.5
 
 
@@ -232,9 +245,10 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import DAY_SLOT, DAY_VARIANTS, callback_question, day_recording_id, may_wish, other_wish_recording_id, spoken_question, tell_recording_id
+    from flowctl import (DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, may_wish, other_wish_recording_id, recap_recording_id,
+                         spoken_question, tell_recording_id)
     from instruction import reading_variants
-    from phrases import LEAD_RECORDED
+    from phrases import question_clip
 
     items = [("intro", business.opening_parts()[1], "intro")]
     if business.purpose_line:
@@ -254,15 +268,19 @@ def script_table(business) -> tuple[dict, dict]:
             # 替わるのは質問の文の録音だけ（下の伝える一言・ほかのご希望を伺う一言は、ほかの質問と同じ。⛔ 見直しで見つけた：ここで次の質問へ進み、作っていなかった）
             for w in DAY_VARIANTS:
                 rid = day_recording_id(q.id, w)
-                items.append((f"{rid}_{LEAD_RECORDED[lead]}" if lead else rid, text.replace(DAY_SLOT, w), "question"))
+                items.append((question_clip(rid, lead), text.replace(DAY_SLOT, w), "question"))
         else:
-            items.append((f"{q.id}_{LEAD_RECORDED[lead]}" if lead else q.id, text, "question"))
+            items.append((question_clip(q.id, lead), text, "question"))
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
         if may_wish(q):
             # 「どれも要らない」・最終目的への言い切っていないお断りのあと、ほかのご希望を伺う一言（文は flowctl._wish_text の1か所＝W1 の質問の文。
             # 名前は flowctl.other_wish_recording_id）。伺っている途中で切れた電話の続きで、切れた所から伺う一言（again＝「前回お伺いした…の件で…」）も
             items += [(other_wish_recording_id(q, again), callback_question("other_wish", of=q, again=again).text, "question") for again in (False, True)]
+        if approval_explanation(q):
+            # 続きの電話の始めに、ご納得いただけなかった点を言っていただけなかったときの振り返りの一言（文は callback_question の recap＝phrases.recap_line の1か所。
+            # 名前は flowctl.recap_recording_id）。説明の文の無いご承認の質問には作らない（振り返らずにご納得を伺う＝Flow._point_step）
+            items.append((recap_recording_id(q), callback_question("other_point", recap=q).text, "recap"))
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)
