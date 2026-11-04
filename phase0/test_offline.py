@@ -11501,7 +11501,7 @@ class NoneOfThemTest(unittest.TestCase):
     def test_no_contact_for_the_chosen_line_way_offers_the_other_ways(self):
         # ✅ 2026-11-05 日本時間0時48分 ユーザー「(ア)(イ)ともお勧めの形でOK」：SMS でご招待する携帯電話の番号に固定電話の番号を言われたら、1回目に理由を添えて
         # 「恐れ入りますがSMSは携帯電話の番号にお送りいたしますので携帯電話の番号をお伺いしてもよろしいでしょうか？」・携帯電話が無いと言われたら「それではLINEの
-        # IDかメールからご招待する方法でもよろしいでしょうか？」。⛔ それまで、理由を言わずに2回伺い、番号の無いまま申し伝えて次へ進み、締めの前に「お声が
+        # IDかメールからご招待する方法でもよろしいでしょうか？」（⇒ 1時29分06秒に「LINEのIDから登録か…」へ＝下）。⛔ それまで、理由を言わずに2回伺い、番号の無いまま申し伝えて次へ進み、締めの前に「お声が
         # 聞き取れませんでしたので携帯電話の番号を…」とまた伺った（固定電話の番号は聞き取れている）
         from flowctl import CALLBACK_IDS, question_play, wish_label
         from phrases import CALLBACK_ASK_CHOSEN, CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, RECORDED, WISH_TOLD
@@ -11509,11 +11509,16 @@ class NoneOfThemTest(unittest.TestCase):
         how, cid, mob, mail = (CALLBACK_IDS[r] for r in ("line_how", "line", "mobile", "email"))
         # ✅ 2026-11-05 日本時間1時19分47秒 ユーザー：ID が分からないとき「それではSMSかメールからご招待する方法でもよろしいでしょうか？」OK・メールアドレスを
         # 伺えないとき「それではLINEのIDから登録かSMSからご招待する方法でもよろしいでしょうか？」
+        # ✅ 1時29分06秒 ユーザー：「「それではLINEのIDから登録かメールからご招待する方法でもよろしいでしょうか？」にそろえるに決まっているだろ。招待はメールと
+        # SMSだけだよ。それ以外はOK」（それ以外＝方法を言わずに「はい」とだけ答えていただいたときの伺い直し3つ）
         self.assertEqual((CALLBACK_ASK_FORM["mobile"], CALLBACK_ASK_OTHER_WAYS["sms"], CALLBACK_ASK_OTHER_WAYS["id"], CALLBACK_ASK_OTHER_WAYS["email"]),
                          ("恐れ入りますがSMSは携帯電話の番号にお送りいたしますので携帯電話の番号をお伺いしてもよろしいでしょうか？",
-                          "それではLINEのIDかメールからご招待する方法でもよろしいでしょうか？",
+                          "それではLINEのIDから登録かメールからご招待する方法でもよろしいでしょうか？",
                           "それではSMSかメールからご招待する方法でもよろしいでしょうか？",
                           "それではLINEのIDから登録かSMSからご招待する方法でもよろしいでしょうか？"))
+        self.assertEqual((CALLBACK_ASK_OTHER_WAYS_AGAIN["sms"], CALLBACK_ASK_OTHER_WAYS_AGAIN["id"], CALLBACK_ASK_OTHER_WAYS_AGAIN["email"]),
+                         ("それではLINEのIDとメールのどちらがよろしいでしょうか？", "それではSMSとメールのどちらがよろしいでしょうか？",
+                          "それではLINEのIDとSMSのどちらがよろしいでしょうか？"))
 
         def chose(way):
             f, _ = self.wished(True)
@@ -11566,6 +11571,29 @@ class NoneOfThemTest(unittest.TestCase):
         for via in ("id", "sms", "email"):
             self.assertEqual((RECORDED[f"callback_line_how_without_{via}"], RECORDED[f"callback_line_how_without_{via}_2"]),
                              (CALLBACK_ASK_OTHER_WAYS[via], CALLBACK_ASK_OTHER_WAYS_AGAIN[via]))
+
+    def test_only_sms_and_email_invite_to_line(self):
+        # ✅ 2026-11-05 日本時間1時29分06秒 ユーザー：「招待はメールとSMSだけだよ。」＝LINE の ID は、こちらがご招待する方法ではない（ID は伺って登録する）。
+        # お客様に聞こえる言い方の表のどの文でも、「ご招待」と一緒に、LINE の ID を招待の方法として並べない（「IDか」「IDと」「IDや」で SMS・メールと並べる形）。
+        # 「LINEのIDから登録か…」「LINEのIDをお伺いするか…」は、ID を招待の方法にしていない。⛔ 0時48分の SMS の場面の一言「それではLINEのIDかメールからご招待
+        # する方法でもよろしいでしょうか？」が、この形だった（1時19分47秒にメールの場面だけ直していただき、同じ理由の SMS の場面に当てていなかった）
+        import re
+        import phrases
+
+        def texts(v):
+            if isinstance(v, str):
+                yield v
+            elif isinstance(v, dict):
+                for x in v.values():
+                    yield from texts(x)
+            elif isinstance(v, (list, tuple, set, frozenset)):
+                for x in v:
+                    yield from texts(x)
+
+        said = [t for name, v in vars(phrases).items() if not name.startswith("_") for t in texts(v) if "ご招待" in t]
+        self.assertTrue(said)
+        bad = [t for t in said if re.search(r"ID(?:か(?!ら)|と|や)", t)]
+        self.assertEqual(bad, [])
 
     def test_words_said_ahead_are_used_without_asking_again(self):
         # ✅ 2026-11-04 日本時間20時27分 ユーザー：「(3) 方法と一緒に連絡先まで言われたとき（例：「LINEなら、IDは abc_123 です」）案：前の答えの中にその連絡先が
