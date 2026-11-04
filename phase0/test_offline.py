@@ -36,7 +36,10 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          # LINE の連絡先の伺い方（C11）・SMS でご招待する携帯電話の番号（C12）・連絡先を伺う前に切れた電話の続き（wish_means・callback_（役目）_again）・
                          # その録音（✅ 2026-11-04 日本時間19時26分 ユーザー「(B)…修正」。CL-1.md 4-81）
                          "C11", "C12", "wish_means", "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
-                         "callback_email_again", "callback_fax_again", "callback_address_again"})
+                         "callback_email_again", "callback_fax_again", "callback_address_again",
+                         # 伺い方を選んでいただいたあとのメールアドレスの一言の録音・ほかに分からない点が無いかを伺う質問の「無い」にあたる答え（業務設定の質問の鍵）
+                         # （✅ 2026-11-04 日本時間20時27分 ユーザー (1)(2)。CL-1.md 4-82）
+                         "callback_email_chosen", "unclear_none"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -11204,7 +11207,7 @@ class NoneOfThemTest(unittest.TestCase):
 
     def test_line_asks_the_id_on_the_spot(self):
         # ✅ 2026-11-03 日本時間20時48分 ユーザー：「「LINEならいいです」と回答いただけたら、LINEアドレスを伺うというステップを忘れないように。そうしないと、
-        # また、電話をかけて伺わないといけなくなりますよ。」⇒「承知しました。」＋「それでは恐れ入りますがLINEのIDを…」→ 言い直して確かめる →
+        # また、電話をかけて伺わないといけなくなりますよ。」⇒ 伺い方（C11）のあと「かしこまりました。」＋「それではLINEのIDを…」（11-04 20時27分）→ 言い直して確かめる →
         # 「承知しました。」＋「LINEでのご連絡のご希望を担当の者に申し伝えます。」＋次の質問（言い直しで「はい、ありがとうございます。…」とお礼を言っているので、
         # お礼は重ねない）。最終目的は断られていない（締めない・もうかけないとしない）
         from flowctl import CALLBACK_IDS, wish_label
@@ -11245,6 +11248,12 @@ class NoneOfThemTest(unittest.TestCase):
         how, cid, mob, mail = (CALLBACK_IDS[r] for r in ("line_how", "line", "mobile", "email"))
         self.assertEqual(CALLBACK_ASK["line_how"],
                          "それでは恐れ入りますがLINEのIDをお伺いするかSMSかメールからご招待する方法で対応させていただいてもよろしいでしょうか？")
+        # ✅ 2026-11-04 日本時間20時台 ユーザー：「「かしこまりました。それではLINEのIDをお伺いしてもよろしいでしょうか？」OK」＝伺い方の一言の「それでは恐れ入りますが」を
+        # 重ねない。同じ理由で、SMS・メールを選んでいただいたあとの一言も「それでは」から（10-19 の決まり＝理由が当たる場面すべてに）
+        from phrases import CALLBACK_ASK_CHOSEN
+        self.assertEqual((CALLBACK_ASK["line"], CALLBACK_ASK["mobile"], CALLBACK_ASK_CHOSEN["email"]),
+                         ("それではLINEのIDをお伺いしてもよろしいでしょうか？", "それでは携帯電話の番号をお伺いしてもよろしいでしょうか？",
+                          "それではメールアドレスをお伺いしてもよろしいでしょうか？"))
 
         def line(goal=True):
             f, _ = self.wished(goal)
@@ -11277,7 +11286,8 @@ class NoneOfThemTest(unittest.TestCase):
         # (3) メール：メールアドレスを伺っていなければ伺う
         f, r = line()
         r = say(f, "メールでお願いします。", "record_answer", question_id=how, condition_id="メール")
-        self.assertEqual((r["question_id"], r["question"]), (mail, CALLBACK_ASK["email"]))
+        self.assertEqual((r["question_id"], r["question"], question_play(list(f.questions.values()), mail)["id"]),
+                         (mail, CALLBACK_ASK_CHOSEN["email"], "callback_email_chosen"))
         say(f, "info@example.co.jp です。", "record_answer", question_id=mail, condition_id="答えた", value="info@example.co.jp")
         r = say(f, "はい。", "confirm_field", question_id=mail, result="affirmed")
         self.assertEqual(([(e["via"], e["contact"]) for e in f.facts["other_wish"]], r["question_id"]), ([("email", "info@example.co.jp")], "Q2"))
@@ -11309,6 +11319,73 @@ class NoneOfThemTest(unittest.TestCase):
         say(f, "はい、それで大丈夫です。", "record_answer", question_id=how, condition_id="方法は言っていない")
         r = say(f, "じゃあSMSで。", "record_answer", question_id=how, condition_id="SMS")
         self.assertEqual(r["question_id"], mob)
+
+    def test_contact_said_with_the_way_is_read_back_without_asking(self):
+        # ✅ 2026-11-04 日本時間20時台 ユーザー：「(3) 方法と一緒に連絡先まで言われたとき（例：「LINEなら、IDは abc_123 です」）案：前の答えの中にその連絡先が
+        # あれば、伺わずに「abc_123でよろしいでしょうか？」と言い直して確かめます。OK」⇒ 連絡先を伺う1か所（_wish_contact）で、前の答え（W1・LINE の伺い方 C11）の
+        # 値が連絡先の形（form_problem）なら、伺わずに言い直して確かめる（言い直しの返事を待つ所は、ふつうの答えと同じ）。方法の名前・形の合わない値は今までどおり伺う。
+        # ⛔ それまで、一緒に言われた連絡先をもう一度伺っていた
+        from flowctl import CALLBACK_IDS, NONE, Flow, Question, choices_note, wish_label
+        from phrases import ACK, CALLBACK_ASK, WISH_TOLD
+        say = AmbiguousAnswerTest.say
+        how, cid, mob, mail = (CALLBACK_IDS[r] for r in ("line_how", "line", "mobile", "email"))
+
+        def line():
+            f, _ = self.wished(True)
+            say(f, "LINEなら。", "record_answer", question_id="W1", condition_id=wish_label("line"), value="LINE")
+            return f
+        # (1) LINE の伺い方と一緒に ID：「はい、ありがとうございます。abc_123でよろしいでしょうか？」→「はい」→ 申し伝える
+        f = line()
+        r = say(f, "IDで、abc_123 です。", "record_answer", question_id=how, condition_id="ID", value="abc_123")
+        self.assertEqual((r["result"], f.awaiting_confirm, r["value"]), ("confirm_required", cid, "abc_123"))
+        self.assertEqual(ACK[r["ack"]] + r["say"], "はい、ありがとうございます。abc_123でよろしいでしょうか？")
+        r = say(f, "はい、そうです。", "confirm_field", question_id=cid, result="affirmed")
+        self.assertEqual((r["question_id"], WISH_TOLD["line"] in r["message"]), ("Q2", True))
+        self.assertEqual([(e["via"], e["contact"]) for e in f.facts["other_wish"]], [("id", "abc_123")])
+        # 直されたら、ふつうの答えの直しと同じ
+        f = line()
+        say(f, "IDで、abc_123 です。", "record_answer", question_id=how, condition_id="ID", value="abc_123")
+        r = say(f, "いいえ、abc_124 です。", "confirm_field", question_id=cid, result="corrected", correction="abc_124")
+        self.assertEqual((r["result"], r["value"]), ("confirm_required", "abc_124"))
+        # (2) SMS と一緒に携帯電話の番号・W1 と一緒にメールアドレス
+        f = line()
+        r = say(f, "SMSで、090-1234-5678 にお願いします。", "record_answer", question_id=how, condition_id="SMS", value="090-1234-5678")
+        self.assertEqual((r["result"], f.awaiting_confirm, r["value"]), ("confirm_required", mob, "090-1234-5678"))
+        # W1 と一緒にファクス番号・ご住所（試しの業務の元の質問は「お電話とメール」なので、メールは元の選択肢の選び直し＝W1 の方法ではない）
+        for means, said, value, role in (("fax", "ファクスで、03-1234-5678 にお願いします。", "03-1234-5678", "fax"),
+                                         ("post", "郵送で、東京都港区1-2-3 にお願いします。", "東京都港区1-2-3", "address")):
+            f, _ = self.wished(True)
+            r = say(f, said, "record_answer", question_id="W1", condition_id=wish_label(means), value=value)
+            self.assertEqual((r["result"], f.awaiting_confirm, r["value"]), ("confirm_required", CALLBACK_IDS[role], value), means)
+        # 方法の名前だけの値（「郵送でお願いします」）は、連絡先にしない（今までどおり伺う）
+        f, _ = self.wished(True)
+        r = say(f, "郵送でお願いします。", "record_answer", question_id="W1", condition_id=wish_label("post"), value="郵送でお願いします")
+        self.assertEqual((r["result"], r["question_id"]), ("next", CALLBACK_IDS["address"]))
+        # お言葉の例（W1 で「LINEなら、IDは abc_123 です」）：伺い方（C11）を伺わずに、ID を言い直して確かめる（伺い方は ID）
+        f, _ = self.wished(True)
+        r = say(f, "LINEなら、IDは abc_123 です。", "record_answer", question_id="W1", condition_id=wish_label("line"), value="abc_123")
+        self.assertEqual((r["result"], f.awaiting_confirm, ACK[r["ack"]] + r["say"]),
+                         ("confirm_required", cid, "はい、ありがとうございます。abc_123でよろしいでしょうか？"))
+        self.assertNotIn(how, f.questions)
+        say(f, "はい、そうです。", "confirm_field", question_id=cid, result="affirmed")
+        self.assertEqual([(e["via"], e["contact"]) for e in f.facts["other_wish"]], [("id", "abc_123")])
+        # W1 で電話番号だけ（ID の検索の番号か、SMS でご招待する番号か決まらない）：伺い方を伺い、選んでいただいた方の連絡先として言い直す
+        for pick, want in (("ID", cid), ("SMS", mob)):
+            f, _ = self.wished(True)
+            r = say(f, "LINEなら、090-1234-5678 です。", "record_answer", question_id="W1", condition_id=wish_label("line"), value="090-1234-5678")
+            self.assertEqual((r["result"], r["question_id"]), ("next", how), pick)
+            r = say(f, "それで。", "record_answer", question_id=how, condition_id=pick)
+            self.assertEqual((r["result"], f.awaiting_confirm, r["value"]), ("confirm_required", want, "090-1234-5678"), pick)
+        # (3) 方法の名前だけ・連絡先の形でない値（固定電話の番号で SMS）は、今までどおり伺う
+        for value, cond, want in (("LINE", "ID", cid), ("ID", "ID", cid), ("03-1234-5678", "SMS", mob), ("メールで", "メール", mail)):
+            f = line()
+            r = say(f, "それで。", "record_answer", question_id=how, condition_id=cond, value=value)
+            self.assertEqual((r["result"], r["question_id"]), ("next", want), value)
+        # (4) 会話AIへ：方法と一緒に言われた連絡先は、値にその連絡先だけを書く（W1・C11 の選択肢の説明の1か所）
+        f = line()
+        self.assertIn("連絡先だけを", choices_note(f.questions[how]))
+        self.assertIn("連絡先だけを", choices_note(f.questions["W1"]))
+        self.assertNotIn("連絡先だけを", choices_note(Question("Q8", self.CONTACT, "choice", conditions=("電話", "メール"), meanings={"電話": "電話", "メール": "メール"})))
 
     def test_cut_before_the_contact_resumes_with_the_contact_ask(self):
         # ✅ 2026-11-04 日本時間19時26分 ユーザー（(B) のご修正）：ほかのご希望で「LINEなら」までは伺えて、連絡先を伺う前に切れた電話の続きは、お詫び（＋用件の
@@ -12175,6 +12252,79 @@ class ApprovalTest(unittest.TestCase):
         f.apply("replay_opening", {"part": part})
         f.on_callee(); f.on_heard("そうなんですね。")
         return f.apply("replay_opening", {"part": "resume"})
+
+    def test_no_more_doubts_answers_the_same_business_question(self):
+        # ✅ 2026-11-04 日本時間20時台 ユーザー：「(1) トークスクリプトの「ご不明な点は…」の重ね聞き：「この質問は、ほかに分からない点が無いかを伺う質問か」を
+        # 決めます。（ご不明な点は無い）として扱い、重ねて伺いません。OK」（19時26分のご質問「お客様「だいたい分かりました。」の後に、こちら「ありがとうございます。
+        # それではご不明な点はございますでしょうか？」となぜ、再度、不明点を確認するんですか？」）⇒ ご承認の手順の「ほかにご納得いただけない点は…」（N2）に
+        # 「分かった」と答えていただいたら、あとで同じことを伺う業務の質問（取込で印を付けた＝Question.unclear_none＝「無い」にあたる選択肢）は伺わず、その答えに
+        # する（この電話で答えを決め直す1か所 _retake。決め手は N2 の答え）。⛔ それまで、同じことを重ねて伺っていた（9-3「取得済みのことを重ねて聞かない」）
+        from flowctl import CALLBACK_IDS, Flow, Question
+        n1, n2, n3 = (CALLBACK_IDS[r] for r in ("not_agreed", "other_point", "agreed_now"))
+        say = AmbiguousAnswerTest.say
+
+        def flow(none="いいえ", text="ご不明な点はございますでしょうか？"):
+            return Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
+                         Question("Q2", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, ask_if=("Q1", ("いいえ", "unknown"))),
+                         Question("Q3", text, "yes_no", conditions=("はい", "いいえ"), unclear_none=none),
+                         Question("Q4", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))],
+                        answers={"料金": "料金は月額3,000円で、初月は無料となっております。"})
+
+        def explained(f):
+            say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+            say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+            say(f, "料金のところですね。", "record_answer", question_id=n1, condition_id="点を言った")
+            self.explained(f, "answer_料金")
+        # (1)「だいたい分かりました。」⇒「ありがとうございます。それでは（その次の質問）」・「ご不明な点は…」の答えは「いいえ」（根拠は N2 の発話）
+        f = flow()
+        explained(f)
+        r = say(f, "だいたい分かりました。", "record_answer", question_id=n2, condition_id="分かった")
+        self.assertEqual((r["question_id"], r["ack"], f.export()["Q2"], f.export()["Q3"]), ("Q4", "arigatou", "はい", "いいえ"))
+        self.assertEqual((f.items["Q3"].state, f.rests_on["Q3"][0], f._evidence("Q3")["said"]), ("accepted", n2, "だいたい分かりました。"))
+        # (2) 打ち消しの問い（「ご不明な点はございませんでしょうか？」）は「はい」が「無い」（取込で決まる選択肢をそのまま）
+        f = flow(none="はい", text="ご不明な点はございませんでしょうか？")
+        explained(f)
+        say(f, "だいたい分かりました。", "record_answer", question_id=n2, condition_id="分かった")
+        self.assertEqual(f.export()["Q3"], "はい")
+        # (3) 印の無い質問は、今までどおり伺う
+        f = flow(none="")
+        explained(f)
+        r = say(f, "だいたい分かりました。", "record_answer", question_id=n2, condition_id="分かった")
+        self.assertEqual(r["question_id"], "Q3")
+        # (4) 「なるほど」→ ご納得を伺った「はい」は、ご説明した内容へのご納得で、ほかに分からない点が無いとは言っていない ⇒ 伺う
+        f = flow()
+        explained(f)
+        say(f, "なるほど。", "record_answer", question_id=n2, condition_id="unknown")
+        r = say(f, "そうですね、大丈夫です。", "record_answer", question_id=n3, condition_id="はい")
+        self.assertEqual(r["question_id"], "Q3")
+        # (5) 「無い」にあたる選択肢は、その質問の選択肢から（無い名前は作れない）
+        with self.assertRaises(AssertionError):
+            Question("Q9", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"), unclear_none="無い")
+
+    def test_unclear_question_is_decided_by_two_models(self):
+        # 取込で、質問ごとに「ほかに分からない点が無いかを伺う質問か」と「無い」にあたる選択肢を、文字のAI2つに決めさせる（facts.decide と同じ形。人は確かめない）。
+        # 2つがそろったときだけ印を付ける（そろわなければ伺う側＝重ねて伺うほうが、伺うべき質問を飛ばすより害が軽い）
+        import unclear
+        conds = ("はい", "いいえ")
+        yes = {"asks": True, "none": "いいえ"}
+        self.assertEqual([unclear.decide(conds, rows) for rows in ([yes, yes], [yes, {"asks": True, "none": "はい"}], [yes, {"asks": False, "none": ""}],
+                                                                   [yes, None], [yes], [{"asks": True, "none": "無い"}] * 2)],
+                         ["いいえ", "", "", "", "", ""])
+        self.assertEqual(unclear._read_items([{"no": 2, "asks": True, "none": "はい"}, {"no": 1, "asks": False, "none": ""}, "x"], 3),
+                         [{"asks": False, "none": ""}, {"asks": True, "none": "はい"}, None])
+        # 取込の呼び口（import_ai.decide_unclear）：モデルごとに1回聞き、質問ごとに decide で合わせる（答えないモデルは決まらない側）
+        import import_ai
+        from unittest import mock
+        answers = {"m1": [yes, {"asks": False, "none": ""}], "m2": [yes, {"asks": False, "none": ""}]}
+        with mock.patch.object(unclear, "by_model", side_effect=lambda c, m, items: answers[m]):
+            self.assertEqual(import_ai.decide_unclear([(None, "m1"), (None, "m2")], [("ご不明な点はございますでしょうか？", conds),
+                                                                                     ("資料は届いていますでしょうか？", conds)]), ["いいえ", ""])
+        def broken(c, m, items):
+            if m == "m2":
+                raise RuntimeError("時間切れ")
+            return answers[m]
+        with mock.patch.object(unclear, "by_model", side_effect=broken):
+            self.assertEqual(import_ai.decide_unclear([(None, "m1"), (None, "m2")], [("ご不明な点はございますでしょうか？", conds)], on_error=lambda e, m: None), [""])
 
     def test_not_agreed_is_explained_and_agreed(self):
         # ✅ 2026-11-02 日本時間5時37分・5時56分 ユーザー：ご納得いただけなかった点を、こちらの資料でご説明し（誤解なら正しい中身を）、「ほかにご納得

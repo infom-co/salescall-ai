@@ -19,6 +19,7 @@ from typing import Callable
 import facts
 import meanings
 import topics
+import unclear
 import units
 
 Asker = tuple   # (client, モデルの名前)
@@ -121,7 +122,18 @@ def decide_away(askers: list[Asker], questions: list[tuple[str, tuple, dict]], o
     return [meanings.decide_away(c, [r[i] for r in rows]) for i, (_, c, _) in enumerate(items)]
 
 
-# ⚠️ decide_away は、CL-2 の取込の受け口（business_import.preview）が受けるようになったら、ここに足す（比べる試験 test_shapes_match_cl2_import が
+def decide_unclear(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[str]:
+    """(質問の文, 選択肢の並び) の並び → 同じ並びで、ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢の名前（伺う質問でない・決まらないなら空＝
+    unclear.decide）。業務の選ぶ質問（はい／いいえ・選択肢）だけを渡すのは呼ぶ側（CL-2 の取込。値を伺う質問は入れない）。答えは Question.unclear_none。
+    ✅ 2026-11-04 日本時間20時27分 ユーザー（お言葉は unclear.py の頭）"""
+    items = [(q[0], tuple(q[1])) for q in questions]
+    if not items:
+        return []
+    rows = _each(askers, lambda c, m: unclear.by_model(c, m, items), [None] * len(items), on_error)
+    return [unclear.decide(c, [r[i] for r in rows]) for i, (_, c) in enumerate(items)]
+
+
+# ⚠️ decide_away・decide_unclear は、CL-2 の取込の受け口（business_import.preview）が受けるようになったら、ここに足す（比べる試験 test_shapes_match_cl2_import が
 # 名前のずれを見る。いまの CL-2 の受け口は取り下げた decide_keep_words＝帳面 4-72 で替えていただくよう頼んだ）
 DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
             "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words}
