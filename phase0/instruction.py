@@ -327,13 +327,22 @@ class Business:
     def first_question(self) -> Question | None:
         """この電話で、名乗りのあとに最初に伺う質問（業務の質問か、続きの電話のほかのご希望。番号を伺い直す電話・お詫びの電話・伺う質問が無いときは
         None）。流れの制御 Flow も同じ earlier で、同じ質問から始める（順は flowctl.opening_question の1か所：名前の読みの確かめが先）：ほかのご希望を伺っている途中で切れた電話の続きは、切れた所からのほかのご希望
-        （「前回お伺いした…の件で…」。どの質問かは flowctl.resumed_wish の1か所＝Flow の始めと同じ決まり。✅ 2026-11-03 日本時間23時52分36秒 ユーザー
+        （「前回お伺いした…の件で…」。どの質問かは flowctl.resumed_step の1か所＝Flow の始めと同じ決まり。ご承認いただけなかったときの手順の途中で切れた電話の続きの「前回お伺いした件でご納得いただけなかった点は…」も同じ1か所。✅ 2026-11-03 日本時間23時52分36秒 ユーザー
         「(ア)」）／それ以外は flowctl.first_open の1か所（前の通話で取れた答えの質問を飛ばし、伺う条件の質問は前の通話の答えで当たるときだけ・ここで
         終える答えのあとの質問は伺わない＝Flow の始めと同じ決まり）。⛔ 2026-11-04 まで、ここは伺う条件を見ずに探していた（前の通話の答えで伺わない
         質問を、名乗りの録音の最後に流しうる＝流れの制御は別の質問を待つ）。"""
         if self.number_again or self.apology_call:
             return None   # 番号を伺い直す電話は伺い直す一言だけ（first_ask）・お詫びの電話は業務の質問をしない
         return opening_question(self.questions, self.earlier)   # 名前の読みの確かめが先・続きのほかのご希望はそのあと（流れの制御の始めと同じ1か所）
+
+    def explains_first(self) -> bool:
+        """この電話で、名乗りのあとに、前の電話で伺ったご納得いただけなかった点を、AIがご説明から始めるか（伺う質問は無い）。決まりは flowctl.resumed_step の
+        1か所（前の通話の答えの "point" が heard＝ご説明の途中で切れた。✅ 2026-11-04 日本時間19時26分 ユーザー「(A)…OK」）。AIへの指示文が読む。"""
+        from flowctl import resumed_step
+        if self.number_again or self.apology_call or self.first_question() is not None:
+            return False
+        step = resumed_step(self.questions, self.earlier)
+        return step is not None and step[0] == "explain"
 
     def first_ask(self) -> tuple[str, str] | None:
         """この電話で、名乗りのあとに最初に伺うこと（質問の番号, 声に出す文。無ければ None）を決める唯一の場所（名乗りの録音・AIへの指示文が読む）：
@@ -619,7 +628,10 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     ask = business.first_ask()   # 名乗りのあとに最初に伺うこと（番号を伺い直す一言・前の通話の続き＝Business.first_question の1か所）
     first = business.first_question()   # システムの質問（続きの電話のほかのご希望など）の選択肢も、AIに知らせる
     calls_target = business.target is not None and not business.number_again   # 番号を伺い直す電話は、電話に出た方に伺う
-    first_note = (f"最初の質問は {ask[0]} です。" + (choices_note(first) if first else "")) if ask else "伺う質問は、もうありません。"
+    explains = business.explains_first()   # 名乗りのあと、前の電話で伺ったご納得いただけなかった点のご説明から始める（流れの制御の返事が知らせる）
+    first_note = ((f"最初の質問は {ask[0]} です。" + (choices_note(first) if first else "")) if ask else
+                  "名乗りの録音のあと、前回お伺いしたご納得いただけなかった点のご説明から始めます（何をどう言うかは、プログラムの返事に書いてあります）。"
+                  if explains else "伺う質問は、もうありません。")
     parts = [
         "あなたは{}の{}として、電話をかけています。日本語で、丁寧に短く話します。".format(*business._said()),
         f"目的：{business.purpose}",
@@ -636,7 +648,9 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     elif resume is None and opening_mode == "recorded":
         parts.append(
             first_words_rule(business) + "あなたは言いません。"
-            "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
+            + ("録音が最後まで流れたら、プログラムの返事のとおりに、あなたが続けて話します。" if explains else
+               "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。")
+            + "もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
             + replay_rule() + BARGE_TOLD + first_note)
     elif resume is None:
         parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、" +

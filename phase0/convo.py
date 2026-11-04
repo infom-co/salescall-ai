@@ -29,7 +29,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, redact, write_wav
 from offscript import SpeechGate
-from flowctl import ASKS_CHECKS, CHOICE_TYPES, CONVO_AI, RETURN_CHECKS, Flow, ear_ai, label, tool_declarations
+from flowctl import AHEAD_CHECKS, AHEAD_SUFFIX, ASKS_CHECKS, CHOICE_TYPES, CONVO_AI, RETURN_CHECKS, Flow, ear_ai, label, tool_declarations
 from phrases import LINE_TROUBLE
 from instruction import Business, barge_in_note, build
 from ears import open_ear
@@ -234,9 +234,10 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
 
     def judged() -> bool:
         # いまの言葉の判定が、1つでも届いた（Flow.check はいまの言葉のものだけ）。尋ねているかの問い合わせ（asks）を出していれば、それも届いた
+        # 先に言われた答えを読み直す判定（AHEAD_CHECKS）を出していれば、それも1つ届いた（Flow.ahead_pending）
         asks = [k for k in ASKS_CHECKS if k in runs]
-        return (any(k in flow.check for k in runs if k not in ASKS_CHECKS + RETURN_CHECKS)
-                and (not asks or any(k in flow.check for k in asks)))
+        return (any(k in flow.check for k in runs if k not in ASKS_CHECKS + RETURN_CHECKS + AHEAD_CHECKS)
+                and (not asks or any(k in flow.check for k in asks)) and not flow.ahead_pending())
 
     async def judgments(every: bool) -> None:
         """いまの言葉の判定を待つ：1つ届くまで（every＝全部が終わるまで）。答えずに終わった判定は待たない（もう1つを待つ）。"""
@@ -271,6 +272,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         elif not complete():
             info["incomplete"] = True   # 会話AIが、まだ声の終わりまで聞き取っていない：途中の言葉では判定しない（流れの制御も使わない）
         for kind in runs:
+            if kind in AHEAD_CHECKS:
+                continue   # 先に言われた答えの読み直しは、その言葉のまま（いまの言葉で判定し直さない）
             # いまの言葉の判定が無く、走っている判定も無いか古い言葉のもの ⇒ いまの言葉で判定し直す
             stale = jobs[kind].done() or judging_text.get(kind) not in (None, flow.callee_said)
             if rejudge and complete() and flow.callee_said and kind not in flow.check and stale:
@@ -350,7 +353,16 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 await hold(ear_too=False, ack=False, every=True, rejudge=False)
         if grounding is not None:
             await ground(job[2], *grounding)
-        return flow.handle_call(fc, midway)
+        reply = flow.handle_call(fc, midway)
+        if (ac := flow.ahead_context()) is not None:
+            # 次に伺う選ぶ質問の答えを、先に言われたことから報告してもらう（Flow._offer_ahead）：その言葉を、その質問について読み直す判定を出す
+            # （報告を受け取る前に待つ＝judged・Flow.ahead_pending。読みは確かめにだけ当てる＝Flow._ahead_check）
+            for base, j in (("judge", judge), ("judge2", judge2)):
+                if j is not None and answers(j, ac[0]):
+                    kind = base + AHEAD_SUFFIX
+                    runs[kind], questions[kind] = j, (ac[0], None, ac[1])
+                    jobs[kind] = started(judging(kind, ac[2], None))
+        return reply
 
     async def settle() -> None:
         await hold(ear_too=False, ack=False)
