@@ -3283,7 +3283,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("断る答えの無い最終目的の申し出を通す（断られても目的が果たせなくならず、会話の側が締められない）", "src/salescall/core/business_settings.py",
      "        if question.final_goal and not declined_answers(question):", "        if False:",
      ("tests.test_business_settings.Check.test_final_goals_their_decline_answers_and_how_the_goal_is_met",)),
-    ("崩れた断る答えの質問も読めたとして、分岐を確かめる（必須を聞かずに終わる道のうその理由を出す）", "src/salescall/core/business_settings.py",
+    ("崩れた断る答えの質問も読めたとして、分岐を置き換え・最終目的を確かめる（断る答えが無い・分岐の理由のうそを出す）", "src/salescall/core/business_settings.py",
      "            if declines is None:\n                continue\n", "            if declines is None:\n                declines = ()\n",
      ("tests.test_business_import.Import.test_malformed_input_is_a_problem_not_a_crash",)),
     ("前の版の業務の決まりの断りの答えを、最終目的の申し出として読まない（前の版で、用件を断られたお客様にかけ直す）",

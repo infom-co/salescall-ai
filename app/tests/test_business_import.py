@@ -238,9 +238,11 @@ class Import(unittest.TestCase):
             with self.subTest(decline=decline):
                 r = raw()
                 r["questions"][0]["declines"] = decline
+                r["questions"][0]["asks_fact"] = True   # 「どれも要らない」が返らない質問＝断る答えは書いたものだけ（読めないと、断る答えが無いと見える）
                 p = self.tx(lambda tx: bi.review(tx, self.s["business"], r))
                 self.assertTrue(any("断る答え" in x for x in p.problems), p.problems)
-                self.assertFalse(any("聞かずに終わる" in x for x in p.problems), p.problems)   # うその理由を足さない
+                # うその理由を足さない（読めなかった質問を、断る答えの無い最終目的や、分岐の置き換えの理由に数えない）
+                self.assertFalse(any(w in x for x in p.problems for w in ("断る答えがありません", "どこからも", "表せません", "前へ戻る")), p.problems)
         r = raw()
         r["names"].append({"text": 123, "reading": "いち", "source": "script"})
         p = self.tx(lambda tx: bi.review(tx, self.s["business"], r))
