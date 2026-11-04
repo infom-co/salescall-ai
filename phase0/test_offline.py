@@ -12812,6 +12812,30 @@ class CompactGuardTest(unittest.TestCase):
         import json
         self.log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
 
+    def add(self, *rows):
+        import json
+        with self.log.open("a", encoding="utf-8") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def read(self, path, error=False, **args):
+        """読む道具を呼んで答えが返ったことを、会話の記録に書く（本物の記録と同じ形：呼び出しの行と答えの行）。"""
+        import uuid
+        uid = "toolu_" + uuid.uuid4().hex[:12]
+        self.add({"type": "assistant", "timestamp": "2026-11-04T21:40:00.000Z",
+                  "message": {"content": [{"type": "tool_use", "id": uid, "name": "Read", "input": {"file_path": str(path), **args}}]}},
+                 {"type": "user", "timestamp": "2026-11-04T21:40:01.000Z",
+                  "message": {"content": [{"type": "tool_result", "tool_use_id": uid, "is_error": error, "content": "1\t..."}]}})
+
+    def pad(self, size=2_100_000):
+        """記録を伸ばす（読み進めると記録は数MB伸びる＝区切りが記録の末尾から外れる）。"""
+        line = "あ" * 1000
+        self.add(*({"type": "assistant", "timestamp": "2026-11-04T21:39:00.000Z", "message": {"content": [{"type": "text", "text": line}]}}
+                   for _ in range(size // 3000 + 1)))
+
+    def guard_cmd(self, flag, *rest):
+        return " ".join(["python3.13", str(Path(__file__).resolve().parent / "oneliner_guard.py"), flag, *map(str, rest)])
+
     def hook(self, **hook):
         import json, subprocess, sys
         p = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "oneliner_guard.py")],
@@ -12835,30 +12859,71 @@ class CompactGuardTest(unittest.TestCase):
         self.assertEqual(self.hook(hook_event_name="Stop")[0], 2)             # 道具を呼ばずに返事を終えることも止める
         self.assertEqual(self.hook(hook_event_name="Stop", stop_hook_active=True)[0], 0)   # 止めたあとの書き直しでは止め続けない
         self.assertEqual(self.hook(tool_name="Read", agent_id="a1")[0], 0)    # 手伝いの係の道具は見ない
-        # 区切りの時刻を出す命令だけは通す
-        cmd = f"python3.13 {Path(__file__).resolve().parent / 'oneliner_guard.py'} --after-compact {self.dir / 'out'}"
+        # 区切りの時刻を出す命令だけは通す（⛔ 11-05 7時台：命令の名前が入っていれば、ほかの命令をつなげても通っていた＝形まで見る）
+        cmd = self.guard_cmd("--after-compact", self.dir / "out")
         self.assertEqual(self.hook(tool_name="Bash", tool_input={"command": cmd})[0], 0)
+        for bad in (cmd + "; rm -rf x", cmd + " && sed -i s/a/b/ y", f"echo {cmd}", cmd + " | tee z", f"cat oneliner_guard.py --after-compact"):
+            self.assertEqual(self.hook(tool_name="Bash", tool_input={"command": bad})[0], 2, bad)
         p = self.after()
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("日本時間11-05 6時36分06秒", p.stdout)   # 区切りの時刻
         self.assertIn("5時46分55秒", p.stdout)                 # 前の区切り
         out = self.dir / "out"
-        seg = (out / "seg.txt").read_text(encoding="utf-8")
-        self.assertIn("OK、残りの一本化も進めてください", seg)          # 前の区切りからのご発言
-        self.assertIn("次に、知らせの文を読みます。", seg)               # 私の返事
-        self.assertIn("Now I'll write the failing tests first.", (out / "english.txt").read_text(encoding="utf-8"))
-        parts = sorted((out / "intent").glob("p*.txt"))
-        self.assertGreater(len(parts), 1)
+        text = lambda d: "\n".join(x.read_text(encoding="utf-8") for x in sorted((out / d).glob("p*.txt")))   # noqa: E731
+        self.assertIn("OK、残りの一本化も進めてください", text("seg"))          # 前の区切りからのご発言
+        self.assertIn("次に、知らせの文を読みます。", text("seg"))               # 私の返事
+        self.assertIn("OK、残りの一本化も進めてください", text("users"))        # ご発言の全部（0-1 の最初の決まり）
+        self.assertIn("Now I'll write the failing tests first.", text("english"))
+        parts = sorted(out.rglob("p*.txt"))
         self.assertTrue(all(len(x.read_text(encoding="utf-8")) <= 17000 for x in parts))   # 読む道具で切れない大きさ
-        whole = "\n".join(x.read_text(encoding="utf-8") for x in parts)
         lines = (Path(__file__).resolve().parent.parent / "Intent.md").read_text(encoding="utf-8").split("\n")
-        self.assertIn(f"{len(lines)}: ", whole)   # 最後の行まで（行を落とさない）
-        # 済んだら止めない（区切りより前の英語の一言は、英語の見張りでは止めない＝--after-compact の数えの1か所で出す）
-        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": "x"})[0], 0)
+        self.assertGreater(len(list((out / "intent").glob("p*.txt"))), 1)
+        self.assertIn(f"{len(lines)}: ", text("intent"))   # 最後の行まで（行を落とさない）
+        self.assertIn(str(parts[0]), p.stdout)              # 読むファイルを名指しする
+        # ⛔ 7時台のご質問「intent.mdをしっかり読み込んで、そこまでのやりとりをしっかりと理解できるようになっていますか？」：命令を呼んだだけで
+        # 止めるのをやめると、探して読んだ所だけで書き換えうる（17回目）＝出したファイルを全部、切らずに読み終えるまで、読む道具のほかは止める
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": "x"})[0], 0)    # 読む道具は通す
+        self.assertEqual(self.hook(tool_name="Grep", tool_input={"pattern": "x"})[0], 0)
+        code, why = self.hook(tool_name="Edit", tool_input={})
+        self.assertEqual(code, 2)
+        self.assertIn(f"残り {len(parts)}", why)
+        self.assertEqual(self.hook(tool_name="Bash", tool_input={"command": "git status"})[0], 2)
+        self.assertEqual(self.hook(hook_event_name="Stop")[0], 2)
+        status = self.guard_cmd("--status")
+        self.assertEqual(self.hook(tool_name="Bash", tool_input={"command": status})[0], 0)   # 残りを出す命令は通す
+        self.assertEqual(self.hook(tool_name="Bash", tool_input={"command": status + "; git commit -am x"})[0], 2)
+        # 読んだかは、会話の記録の1か所（読む道具の呼び出しと、その答え）で数える（⛔ 呼ぶ時の知らせで数えると、記録の末尾から区切りが外れたあと数えなかった）
+        self.read(parts[0], offset=3, limit=5)   # 一部だけ読んだのは数えない
+        self.read(parts[0], error=True)          # 止められた・読めなかった呼び出しは数えない
+        self.assertIn(f"残り {len(parts)}", self.hook(tool_name="Edit", tool_input={})[1])
+        for x in parts[:-1]:
+            self.read(x)
+        self.assertIn("残り 1", self.hook(tool_name="Edit", tool_input={})[1])
+        self.read(parts[-1])
+        # 全部読み終えたら止めない（区切りより前の英語の一言は、英語の見張りでは止めない＝--after-compact の数えの1か所で出す）
+        self.assertEqual(self.hook(tool_name="Edit", tool_input={})[0], 0)
         self.assertEqual(self.hook(hook_event_name="Stop")[0], 0)
         # 次の要約の区切りが入ったら、また止める
         self.write(self.rows({"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-04T22:40:00.000Z"}))
         self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": "x"})[0], 2)
+
+    def test_keeps_blocking_after_the_boundary_leaves_the_tail(self):
+        # ⛔ 2026-11-05 日本時間7時台：区切りを毎回、記録の末尾（2MB）から探していたので、本書を読み進めて記録が伸びると区切りが見えなくなり、
+        # 読んだと数えるのも、止めるのもやめていた（29本のうち後半12本を数えず、書き換えも止めなかった）＝区切りは覚えた所から見る
+        self.write(self.rows())
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": "x"})[0], 2)
+        self.pad()
+        self.assertEqual(self.hook(tool_name="Edit", tool_input={})[0], 2)   # 命令を呼ぶ前（区切りが末尾に無くても止める）
+        self.assertEqual(self.after().returncode, 0)
+        parts = sorted((self.dir / "out").rglob("p*.txt"))
+        for x in parts[:-1]:
+            self.read(x)
+        self.pad()
+        self.assertIn("残り 1", self.hook(tool_name="Edit", tool_input={})[1])   # 読むあいだ（区切りが末尾に無くても数え、止める）
+        self.read(parts[-1])
+        self.pad()
+        self.assertEqual(self.hook(tool_name="Edit", tool_input={})[0], 0)
+        self.assertEqual(self.hook(hook_event_name="Stop")[0], 0)
 
     def test_no_boundary_no_block(self):
         self.write([{"type": "user", "timestamp": "2026-11-04T21:17:33.000Z", "message": {"content": "OK"}}])
