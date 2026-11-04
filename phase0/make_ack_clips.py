@@ -126,9 +126,10 @@ HOW_OF.update({f"callback_line_how_without_{k}": "question" for k in CALLBACK_AS
 HOW_OF.update({f"callback_line_how_without_{k}_2": "question" for k in CALLBACK_ASK_OTHER_WAYS_AGAIN})
 # 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
 HOW_OF.update({**{n: "own_fallback" for n in POINT_FALLBACK}, "resumed_fallback_lead": "own_fallback"})
-# 点を言っていただけないまま手順を終えるときに挟む一言（phrases.POINT_ANYTIME。✅ 2026-11-05 日本時間5時20分56秒 ユーザー）：お客様のお申し出をいつでもお受けすることを
+# 点を言っていただけないまま手順を終えるときに挟む一言（phrases.POINT_ANYTIME・その後半だけの POINT_ANYTIME_PLAIN。✅ 2026-11-05 日本時間5時20分56秒・5時45分 ユーザー）：
+# お客様のお申し出をいつでもお受けすることを
 # 伝える一言＝断らない一言と同じ読み方（34字＝見込み 4.8秒）
-HOW_OF["point_anytime"] = "own_fallback"
+HOW_OF["point_anytime"] = HOW_OF["point_anytime_plain"] = "own_fallback"
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）

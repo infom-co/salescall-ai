@@ -51,8 +51,8 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          "own_fallback_point_again_opinion",
                          # 続きの電話の始めに、ご納得いただけなかった点を「覚えていない」と言われたときの頭の一言の録音（✅ 11-05 日本時間4時16分52秒 ユーザー。CL-1.md 4-86）
                          "gomottomo",
-                         # 点を言っていただけないまま手順を終えるときに挟む一言の録音（✅ 11-05 日本時間5時20分56秒 ユーザー。CL-1.md 4-87）
-                         "point_anytime",
+                         # 点を言っていただけないまま手順を終えるときに挟む一言の録音（✅ 11-05 日本時間5時20分56秒・5時45分 ユーザー。CL-1.md 4-87・4-89）
+                         "point_anytime", "point_anytime_plain",
                          # 手順を伺い終えていない業務の質問（報告の外枠の鍵）・前の通話の答えの、その質問の最後の事実（wish_fact・point_fact＝案2）・取込の決める処理
                          # （decide_away・decide_unclear）（CL-2 の連絡帳 4-212・4-213。CL-1.md 4-88）
                          "unfinished", "wish_fact", "point_fact", "decide_away", "decide_unclear"})
@@ -8003,7 +8003,8 @@ class EndJudgedTest(unittest.TestCase):
         # なかったときと同じ＝test_a_point_not_said_ends_the_step_without_asking_agreement）
         f = flow()
         r = self._say(f, "それはちょっと言いたくないですね。", "record_answer", question_id=n1, condition_id="refused")
-        self.assertEqual((r["question_id"], r.get("ack"), n3 in f.order, f.items["Q2"].condition), ("Q3", "shouchi", False, "いいえ"))
+        self.assertEqual((r["question_id"], r.get("ack"), r["play"][0]["id"], n3 in f.order, f.items["Q2"].condition),
+                         ("Q3", "shouchi", "point_anytime_plain", False, "いいえ"))
         self.assertEqual([(x["point"], x["outcome"]) for x in f.facts["not_agreed"]], [(None, "unresolved")])
         # (7) 説明の文が無い（振り返る中身が無い）：ご納得は伺わず（4時48分13秒）、(3) と同じ一言を挟んで次へ（✅ 5時20分56秒 ユーザー：「(b)…同上」）。
         # 頭は、覚えていないと言われたら「ごもっともです。」（4時16分52秒の振り返りと同じ）・聞き取れないなら「はい、」
@@ -8041,9 +8042,13 @@ class EndJudgedTest(unittest.TestCase):
         # 点も言っていただけない（言いたくない・どの部分か分からない・聞き取れない）お客様に、ご納得を伺わない。11-02 日本時間4時36分のご決定（「ご納得いただけ
         # なかった点を1回伺って依頼者へ返す・ご承認が最終目的なら伺ってから締める」）のとおり、点を1回伺ったら、押さずに手順を終える（ご承認は「いいえ」のまま・
         # 依頼者へは点を伺えなかったと返す。もうかけないの印は付けない）。⛔ 点を言っていただけないときにご納得を伺う形は、ご決定に無く、CL-1 が足していた。
-        # 点を伺ってご説明したあとの「なるほど」（11-02 5時56分）は今までどおりご納得を伺う
+        # 点を伺ってご説明したあとの「なるほど」（11-02 5時56分）は今までどおりご納得を伺う。
+        # ✅ 5時20分56秒の (a)(b) と同じ理由で、次へ進む前に一言を挟む（✅ 2026-11-05 日本時間5時4x分 ユーザー：「（「承知しました。ご不満な点がございましたら
+        # いつでもお申し出ください。続きまして…」のような形）その形でOK、進めてください」）。「思い出されたり」は、前の電話のことを伺う続きの電話（言いたくない以外）だけ
         from flowctl import CALLBACK_IDS, Flow, Question
+        from phrases import CLOSING, POINT_ANYTIME_PLAIN, RECORDED
         n1, n3 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["agreed_now"]
+        self.assertEqual((POINT_ANYTIME_PLAIN, RECORDED["point_anytime_plain"]), ("ご不満な点がございましたらいつでもお申し出ください。",) * 2)
         explain = "こちらのプランは月額3,000円で初月は無料となっております。"
 
         def flow(goal=False):
@@ -8060,12 +8065,14 @@ class EndJudgedTest(unittest.TestCase):
                                      ("（雑音）", "report_unclear", {}, "hai")):
             f = flow()
             r = self._say(f, heard, op, question_id=n1, **args)
-            self.assertEqual((r["question_id"], r.get("ack"), n3 in f.order, f.items["Q2"].condition), ("Q3", ack, False, "いいえ"), heard)
+            self.assertEqual((r["question_id"], r.get("ack"), r["play"][0]["id"], n3 in f.order, f.items["Q2"].condition),
+                             ("Q3", ack, "point_anytime_plain", False, "いいえ"), heard)
             self.assertEqual([(x["point"], x["outcome"]) for x in f.facts["not_agreed"]], [(None, "unresolved")], heard)
-            # 最終目的のご承認：お礼を言って締める（目的が果たせなくなったとはしない＝その業務をかけない印は付けない）
+            # 最終目的のご承認：一言を挟んでから、お礼を言って締める（目的が果たせなくなったとはしない＝その業務をかけない印は付けない）
             f = flow(goal=True)
             r = self._say(f, heard, op, question_id=n1, **args)
-            self.assertEqual((r["result"], n3 in f.order, "goal_refused" in f.facts), ("end", False, False), heard)
+            self.assertEqual((r["result"], r.get("ack"), [p["text"] for p in r["play"]], n3 in f.order, "goal_refused" in f.facts),
+                             ("end", ack, [POINT_ANYTIME_PLAIN, CLOSING], False, False), heard)
 
     def test_the_opening_and_the_flow_start_with_the_same_question(self):
         # 名乗りのあとに最初に伺う質問（名乗りの録音の最後・AIへの指示文＝instruction.Business.first_ask）と、流れの制御の始めは、同じ1か所
