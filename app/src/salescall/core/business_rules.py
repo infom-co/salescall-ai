@@ -157,7 +157,8 @@ def check(version_id: UUID, required: tuple[str, ...], raw: Any) -> Rules:
     # 必須の質問へ広げる（取込で広げると、置き換えのあとに必須になった質問に当たらない）。⚠️ 2026-11-04 より前の版は、取込で広げた質問ごとの形
     keys = set(raw["handling"])
     if not keys <= set(required) | {ALL_REQUIRED} or not (ALL_REQUIRED in keys or set(required) <= keys):
-        raise RulesInvalid(f"理由×扱いは、必須の質問ごとに1つずつ要ります（必須：{list(required)}。「{ALL_REQUIRED}」で必須の質問すべてに当てる扱いを書けます）")
+        raise RulesInvalid(f"理由×扱いは、必須の質問ごとに1つずつ要ります（必須：{list(required)}。分岐のシートで「→ 終わり」のある質問は、"
+                           f"先へ進むかを決める質問なので必須になります。「{ALL_REQUIRED}」＝取込の質問ID「全部」で、必須の質問すべてに当てる扱いを書けます）")
     common = raw["handling"].get(ALL_REQUIRED)
     if common is not None and (not isinstance(common, dict) or set(common) != {"dont_know", "refused"}
                                or not all(isinstance(common[s], dict) for s in common)):

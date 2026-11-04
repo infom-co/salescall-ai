@@ -782,6 +782,10 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         q["away"] = (ai.get("away") or {}).get(_pair_key(q["text"], choices)) or None
     # こちらがすることの言葉：入口（業務設定に書いた言葉）が書いていない選択肢に、AI の答えを入れる（書いた選択肢は入口の言葉が先＝CL-1 の連絡帳
     # 4-72 の (d)。事実を伺う質問ではない選択肢の質問だけ。事実を伺う質問かは上で決まった）
+    written: dict[Any, dict[str, str]] = {}   # 依頼者が書いたこちらがすることの言葉（使わない言葉の知らせ＝下）
+    for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else []):
+        if isinstance(q, dict) and isinstance(q.get("do_words"), dict):
+            written[q.get("id")] = dict(q["do_words"])
     for q, choices in _choice_questions(raw, "do_words"):
         given = q["do_words"] if isinstance(q.get("do_words"), dict) else {}
         q["do_words"] = {**(ai.get("do_words") or {}).get(_pair_key(q["text"], choices), {}), **given} or None
@@ -791,14 +795,19 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
             same = next((n for n in names if _is_name(n) and n.get("text") == c["text"]), None)
             if same is not None:
                 c["reading"] = same["reading"]
+    notes: list[str] = []
     try:
-        business_settings.check(raw, field_types=_field_types(tx), ai_reading_needs_person=verification,   # 確かめは1か所
-                                voice_types=business_settings.voice_types(tx))
+        s = business_settings.check(raw, field_types=_field_types(tx), ai_reading_needs_person=verification,   # 確かめは1か所
+                                    voice_types=business_settings.voice_types(tx))
+        notes = business_settings.notices(raw) + [
+            f"質問 {q.id} の選択肢「{a}」は目的から遠ざかる向きなので、書いてあるこちらがすることの言葉「{written[q.id][a]}」は使いません"
+            "（その向きの言葉では言い直しません。目的につなげて伺いたいときは「言い切っていないときに伺う質問」に書きます）"
+            for q in s.questions for a in business_settings.unused_do_words(q, written.get(q.id) or {})]
     except business_settings.SettingsInvalid as e:
         problems += [p for p in e.problems if p not in problems]
     if where is not None:                                             # ファイルの入口：問題の位置をシートと行にする
         problems = _placed(problems, where)
-    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems), ai)
+    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems), ai, notes=notes)
 
 
 def _digest(business_id: UUID, raw: dict[str, Any] | None, problems: list[str]) -> str:
@@ -824,7 +833,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
                 decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
                 decide_do_words=decide_do_words, decide_away=decide_away)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
-    p.notes = notes
+    p.notes = notes + p.notes
     return p
 
 

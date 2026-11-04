@@ -660,6 +660,29 @@ class Import(unittest.TestCase):
                 p = self.preview(book(sheets={"質問": [rows[0], rows[1][:-1] + (cell,), rows[2]]}), decide_facts=facts, decide_do_words=do_words)
                 self.assertTrue(any(words in x for x in p.problems), p.problems)
 
+    def test_written_words_the_conversation_will_not_use_are_noted(self):
+        """書いてあるが決まりで使わないものは、登録は止めずに知らせる（`business_settings.notices`・`unused_do_words`）：分岐のシートの「わからない」
+        「答えたくない」の行き先（答えが決まらないうちは先へ進まない）と、依頼者が目的から遠ざかる向きの選択肢に書いた、こちらがすることの言葉
+        （その向きの言葉では言い直さない＝CL-1 の連絡帳 4-78 の 4-199 の (2) 案B）。取込の AI が作った言葉は知らせない。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "こちらがすることの言葉"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい",
+                 "する：ご予約を承ります\nしない：ご予約は見送りとさせていただきます"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None)]
+        branches = [("質問ID", "回答条件", "次の質問ID"), ("Q1", "しない", "終わり"), ("Q1", "わからない", "Q2"), ("Q1", "その他", "Q2")]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows, "分岐": branches}), decide_facts=facts,
+                         decide_away=lambda items: [("しない",) for _ in items],
+                         decide_do_words=lambda items: [{"しない": "ご予約は控えさせていただきます"} for _ in items])
+        self.assertEqual(p.problems, [])
+        self.assertTrue(any("分岐の「わからない」の行き先は使いません" in n for n in p.notes), p.notes)
+        self.assertTrue(any("選択肢「しない」は目的から遠ざかる向きなので" in n and "見送り" in n for n in p.notes), p.notes)
+        self.assertFalse(any("「する」" in n for n in p.notes), p.notes)   # 進める向きの言葉は使う
+        # 依頼者が書いていない（取込の AI が作った）遠ざかる向きの言葉は知らせない
+        p = self.preview(book(sheets={"質問": [rows[0][:-1], rows[1][:-1], rows[2][:-1]]}), decide_facts=facts,
+                         decide_away=lambda items: [("しない",) for _ in items],
+                         decide_do_words=lambda items: [{"しない": "ご予約は控えさせていただきます"} for _ in items])
+        self.assertEqual((p.problems, [n for n in p.notes if "遠ざかる" in n]), ([], []))
+
     def test_tell_words_come_in_and_spoken_words_are_in_the_script(self):
         """CL-1 の連絡帳 4-72 の (i)：その答えのあとに伝える一言は「質問」のシートの無くてもよい列「その答えのあとに伝える一言」（「選択肢：一言」を
         「／」か改行で区切る。取込の AI は作らない。前のひな形には無いので、無ければ空）。依頼者が書いた選択肢ごとの言葉（意味の言葉・こちらが

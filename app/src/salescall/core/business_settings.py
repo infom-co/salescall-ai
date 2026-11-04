@@ -915,6 +915,28 @@ def _ask_if(raw: Any, where: str, earlier: list[Question], problems: list[str]) 
     return AskIf(after, tuple(answers), hedged)
 
 
+def notices(raw: dict[str, Any]) -> list[str]:
+    """確かめに通った業務設定について、登録は止めない知らせ（取込のプレビュー・画面が出す。1か所）：書いてあるが、決まりで使わないもの。
+    - 分岐のシートの「わからない」「答えたくない」の行き先（答えが決まらないうちは先へ進まない＝✅ 2026-11-04 日本時間1時25分39秒。
+      先へ進むかを決める質問として、聞き返しと締めの前の念のための確認で伺い、それでも決まらなければ締める＝`_branch_flow`）。
+    - 目的から遠ざかる向きの選択肢に書いた、こちらがすることの言葉（その向きの言葉では言い直さない＝✅ 2026-11-03「最終目的に繋がるクロージングは
+      マイナスの言葉で締めないように」・CL-1 の連絡帳 4-78 の 4-199 の (2) 案B。目的につなげて伺いたいときは「言い切っていないときに伺う質問」に
+      書く）は、依頼者が書いた言葉だけを知らせるので、書いた言葉を知っている入口が `unused_do_words` で出す（取込の AI の言葉は知らせない）。"""
+    out: list[str] = []
+    for q in raw.get("questions") or []:
+        nxt = q.get("next") if isinstance(q, dict) else None
+        for a in (a for a in SYSTEM_CHOICES if isinstance(nxt, dict) and a in nxt):
+            out.append(f"質問 {q['id']} の分岐の「{a}」の行き先は使いません（答えが決まらないうちは先へ進まず、聞き返しと締めの前の念のための"
+                       "確認で伺い、それでも決まらなければ締めます。そのときの扱いは「わからない・答えたくない」のシートで決まります）")
+    return out
+
+
+def unused_do_words(q: Question, words: dict[str, str] | None = None) -> list[str]:
+    """こちらがすることの言葉のうち、会話が使わない選択肢（目的から遠ざかる向きの選択肢＝その向きの言葉では言い直さない。CL-1 の連絡帳 4-78 の
+    4-199 の (2) 案B。会話の側の `Flow._ask_confirm` の頭の `_keep_toward_goal`）。words を渡せば、その言葉の選択肢だけを見る。"""
+    return [a for a in (words if words is not None else q.do_words) if a in q.away]
+
+
 def _branch_flow(questions: list[Question], nexts: dict[str, dict[str, str]], problems: list[str]) -> list[Question]:
     """分岐のシート（質問ごとの「答え → 次の質問の番号か終わり」）を、会話が読む形に置き換える（ただ1つの置き換え。どの入口の業務設定も、
     置いた版を読むときも、`check` がここを通す＝分岐の表しを2つ持たない。会話の側は分岐の表を読まない＝CL-1 の連絡帳 4-78 の 4-203 の (3)）。
