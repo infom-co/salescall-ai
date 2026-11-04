@@ -7484,6 +7484,157 @@ class EndJudgedTest(unittest.TestCase):
         r = answer(h, "たぶん今回はいいかなと思います。", "Q1", "いいえ")
         self.assertEqual((r["result"], r["ack"], h.current), ("next", "hai", "H1"))
 
+    # ── 11-04 日本時間7時台の4回目のご質問（「他にも、ここまでの実装で、想定との食い違いや不備、1本化漏れはないですか？」）で、別の担当の読み直しが
+    #    見つけ、CL-1 が流れの制御に通して確かめた漏れ。どれも「同じ答えなのに、届いた報告の名前・入った道で、聞こえ方や印が変わる」型
+    @staticmethod
+    def _say(f, heard, op, **args):
+        f.on_callee(); f.on_heard(heard)
+        return f.apply(op, args)
+
+    def test_the_ack_is_chosen_by_what_was_received_not_by_the_report_name(self):
+        # 相づちは、この報告で受け取った答えで選ぶ（唯一の場所＝Flow._received_now）。⛔ 報告の名前で選んでいたので、(a) 言い直しへの返事で届いた
+        # 「わからない」に順番の「ありがとうございます。」、(b) 「結構です。」が聞き取れないの報告で届くと、遠ざかる向きの答えと決まっても「はい、」、
+        # (c) 「わからない」のすぐあとの締めの前の念のための確認から、重いお詫びが抜けていた、(d) 言い直しへの言い切っていない返事から、業務設定の
+        # 追って伺う質問へ入ると「承知しました。」（最初の答えから入ると「はい、」＝✅ 2026-11-03 ユーザーの言い方「はい、それでは…」）
+        from flowctl import Flow, Question
+        say = self._say
+        yn = lambda i, t, **k: Question(i, t, "yes_no", conditions=("はい", "いいえ"), **k)
+        pay = lambda: Question("Q2", "お支払いはカードと現金のどちらになさいますか？", "choice", conditions=("カード", "現金"),
+                               meanings={"カード": "お支払いはカード", "現金": "お支払いは現金"})
+        # (a)
+        f = Flow([yn("Q1", "ご予約はされていますでしょうか？"), pay(), yn("Q3", "ご不明な点はございますでしょうか？")], play_recordings=True)
+        say(f, "はい、しています。", "record_answer", question_id="Q1", condition_id="はい")
+        by_answer = say(f, "ちょっとわからないです。", "record_answer", question_id="Q2", condition_id="unknown")
+        f = Flow([yn("Q1", "ご予約はされていますでしょうか？"), pay(), yn("Q3", "ご不明な点はございますでしょうか？")], play_recordings=True)
+        say(f, "はい、しています。", "record_answer", question_id="Q1", condition_id="はい")
+        say(f, "たぶんカードだと思います。", "record_answer", question_id="Q2", condition_id="カード")
+        by_reply = say(f, "いや、ちょっとわからないです。", "confirm_field", question_id="Q2", result="corrected", correction="わからない")
+        # どちらも「承知しました。」（答えの報告の道は、直前の相づちも「承知しました。」なので「かしこまりました。」に替わる＝✅ 2026-11-02 日本時間7時12分。
+        # 言い直しへの返事の道は、直前が言い直しの「はい、」）
+        self.assertEqual([(r["result"], r["ack"]) for r in (by_answer, by_reply)], [("next", "kashikomari"), ("next", "shouchi")])
+        # (b)
+        def pamphlet():
+            return Flow([yn("Q1", "パンフレットをお送りしてもよろしいでしょうか？", away=("いいえ",), reply_meanings={"結構": "いいえ"}),
+                         yn("Q2", "ご不明な点はございますでしょうか？")], play_recordings=True)
+        f = pamphlet()
+        by_answer = say(f, "結構です。", "record_answer", question_id="Q1", condition_id="いいえ")
+        g = pamphlet()
+        by_unclear = say(g, "結構です。", "report_unclear", question_id="Q1")
+        self.assertEqual((g.items["Q1"].state, g.items["Q1"].condition), ("accepted", "いいえ"))
+        self.assertEqual([(r["result"], r["ack"]) for r in (by_answer, by_unclear)], [("next", "shouchi"), ("next", "shouchi")])
+        # (c)
+        for heard, cond in (("カードで。", "カード"), ("ちょっとわからないです。", "unknown")):
+            f = Flow([yn("Q1", "ご予約はされていますでしょうか？", topic="ご予約"), pay()], play_recordings=True)
+            for _ in range(3):
+                say(f, "……", "report_unclear", question_id="Q1")
+            r = say(f, heard, "record_answer", question_id="Q2", condition_id=cond)
+            self.assertEqual((r["result"], r["ack"]), ("recheck", "moushiwake_heavy"), heard)
+        # (d)
+        f = Flow([Question("Q1", "ご来店のご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",)),
+                  yn("Q2", "ほかの日時もご検討いただけますでしょうか？", ask_if=("Q1", ("答えた",)), ask_if_hedged=True),
+                  yn("Q3", "ご不明な点はございますでしょうか？")], play_recordings=True)
+        say(f, "たぶん15日の午後2時がいいと思います。", "record_answer", question_id="Q1", condition_id="答えた", value="15日の14時")
+        r = say(f, "たぶんそれで大丈夫だと思います。", "confirm_field", question_id="Q1", result="affirmed")
+        self.assertEqual((r["result"], r["ack"], r.get("question_id")), ("next", "hai", "Q2"))
+
+    def test_a_turned_down_answer_is_never_restated_in_its_own_direction(self):
+        # 目的から遠ざかる向きの言葉で言い直さない（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない」）の「遠ざかる向き」は、
+        # 相づち・締めと同じ1か所（Question.turned_down）。⛔ 言い直さずに受け取るかを、遠ざかる向きの選択肢（away_answers）と「どれも要らない」だけで
+        # 決めていたので、説明した内容のご承認への言い切っていない「いいえ」を「それではご説明した内容ではご承認いただけないということで承りますね？」と
+        # 言い直していた。いまは言い直さずに受け取り（「曖昧」の印とお客様の言葉）、ご納得いただけなかった点を伺う（言い切ったときと同じ）
+        from flowctl import CALLBACK_IDS, Flow, Question
+        say = self._say
+        def approval():
+            return Flow([Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                                  meanings={"はい": "ご説明した内容でご承認いただける", "いいえ": "ご説明した内容ではご承認いただけない"}),
+                         Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+        f = approval()
+        hedged = say(f, "うーん、たぶん難しいかもしれません。", "record_answer", question_id="Q1", condition_id="いいえ")
+        g = approval()
+        firm = say(g, "いいえ、承認できません。", "record_answer", question_id="Q1", condition_id="いいえ")
+        self.assertEqual([(r["result"], r["ack"], r.get("question_id")) for r in (hedged, firm)],
+                         [("next", "hai", CALLBACK_IDS["not_agreed"])] * 2)
+        self.assertEqual((f.items["Q1"].state, f.items["Q1"].hedged, g.items["Q1"].hedged),
+                         ("accepted", "うーん、たぶん難しいかもしれません。", None))
+
+    def test_the_hedged_mark_comes_from_the_customers_words_on_every_path(self):
+        # 言い切っていないかの印（依頼者へ渡すお客様の言葉 hedged_words・最終目的の言い切っていないお断りにほかのご希望を伺うか wish_trigger）は、
+        # お客様の言葉で決める（Flow._hedged の1か所）。⛔ 言い直さずに受け取る所（_keep_toward_goal）が、確かめ方の種類が hedged のときだけ印を付けて
+        # いたので、(a) 言い直しへの訂正の「いや、たぶん要らないかもしれません。」(b) 事実を伺う質問への言い切っていない答え、では印が付かず、最終目的は
+        # ほかのご希望を伺わずに締め（✅ 2026-11-03 日本時間21時38分「はい／いいえで伺う最終目的の質問に、言い切っていないお断りをいただいた場合は、
+        # (1) ほかのご希望を1回だけ伺う」）、依頼者へお客様の言葉が渡らなかった（✅ 2026-10-18 ユーザー：案C）
+        from flowctl import CALLBACK_IDS, Flow, Question
+        say = self._say
+        def goal(**kw):
+            return Flow([Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True,
+                                  declines=("いいえ",), meanings={"はい": "パンフレットをお送りしてよい", "いいえ": "パンフレットはお送りしない"},
+                                  do_words={"はい": "パンフレットをお送りさせていただきます"}, **kw),
+                         Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+        first = goal()
+        say(first, "たぶん要らないかもしれません。", "record_answer", question_id="Q1", condition_id="いいえ")
+        corrected = goal()
+        say(corrected, "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい")
+        say(corrected, "いや、たぶん要らないかもしれません。", "confirm_field", question_id="Q1", result="corrected", correction="いいえ")
+        fact = goal(asks_fact=True)
+        say(fact, "たぶん要らないかもしれません。", "record_answer", question_id="Q1", condition_id="いいえ")
+        self.assertEqual([(f.current, f.end_reason) for f in (first, corrected, fact)], [(CALLBACK_IDS["other_wish"], None)] * 3)
+        # 最終目的でない遠ざかる向きの答え：事実を伺う質問かどうかで、依頼者へ渡すお客様の言葉が変わらない
+        for asks_fact in (False, True):
+            f = Flow([Question("Q1", "今月中のご導入はご検討されていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), away=("いいえ",),
+                               asks_fact=asks_fact),
+                      Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+            say(f, "たぶん今月は難しいかもしれません。", "record_answer", question_id="Q1", condition_id="いいえ")
+            self.assertEqual(f.hedged_words(), {"Q1": "たぶん今月は難しいかもしれません。"}, asks_fact)
+
+    def test_the_ai_is_told_the_same_lead_in_as_the_recording(self):
+        # 次の質問の頭のつなぎの言葉は、録音の形とAIが話す形で同じ1か所（spoken_question）：質問の順番で「それでは」「続きまして」「では」、前の答えで
+        # 伺う質問は「それでは」、入る一言があればそれ。⛔ AIが話す形は、つなぎの言葉を流した回数で回していて、前の答えで伺う質問にも「続きまして」、
+        # 伺わなかった質問を挟むと順番の言葉がずれた（「はい、届いています。」のあとの Q4 に「それでは」＝録音は「続きまして」）
+        from flowctl import Flow, Question
+        say = self._say
+        yn = lambda i, t, **k: Question(i, t, "yes_no", conditions=("はい", "いいえ"), **k)
+        qs = lambda: [yn("Q1", "ご予約はされていますでしょうか？"), yn("Q2", "資料はお手元に届いていますでしょうか？"),
+                      yn("Q3", "お送りし直してもよろしいでしょうか？", ask_if=("Q2", ("いいえ",))),
+                      yn("Q4", "ご不明な点はございますでしょうか？")]
+        for heard, cond, nxt in (("いえ、届いていません。", "いいえ", "Q3"), ("はい、届いています。", "はい", "Q4")):
+            told, played = Flow(qs()), Flow(qs(), play_recordings=True)
+            replies = []
+            for f in (told, played):
+                say(f, "はい、しています。", "record_answer", question_id="Q1", condition_id="はい")
+                replies.append(say(f, heard, "record_answer", question_id="Q2", condition_id=cond))
+            self.assertEqual([r["question_id"] for r in replies], [nxt, nxt])
+            lead = replies[1]["play"][0]["lead"]
+            self.assertTrue(lead)
+            self.assertIn(f"「{lead}」から話し始めてください", replies[0]["message"], nxt)
+
+    def test_the_point_step_does_not_start_from_an_earlier_answer_mid_call(self):
+        # 前の通話の答えから、続きの電話の途中で、ほかの答えのすぐあとに追う手順を始めない（ほかのご希望＝_wish_due と同じ決まり。続きの電話の途中で
+        # 「ご納得いただけなかった点はどの部分になりますでしょうか？」と伺うと、話がつながらない）。⛔ ご承認いただけなかったときの手順（_point_step）は
+        # 前の通話の答えを除いていなかった
+        from flowctl import Flow, Question
+        say = self._say
+        f = Flow([Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True),
+                  Question("Q2", "ご来店の人数をお伺いしてもよろしいでしょうか？", "number", conditions=("答えた",), unit="人"),
+                  Question("Q3", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
+                 play_recordings=True, earlier={"Q1": {"state": "accepted", "condition": "いいえ"}})
+        self.assertEqual(f.current, "Q2")
+        say(f, "3人です。", "record_answer", question_id="Q2", condition_id="答えた", value="3人")
+        r = say(f, "はい、3人です。", "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], r.get("question_id")), ("next", "Q3"))
+
+    def test_the_opening_and_the_flow_start_with_the_same_question(self):
+        # 名乗りのあとに最初に伺う質問（名乗りの録音の最後・AIへの指示文＝instruction.Business.first_ask）と、流れの制御の始めは、同じ1か所
+        # （flowctl.opening_question）：名前の読みの確かめが先、続きの電話のほかのご希望はそのあと。⛔ 名乗りの組み立てだけ、読みの確かめを見ずに
+        # ほかのご希望から始めていた（名乗りの録音の最後に W1 を流し、流れの制御は R1 の答えを待つ）
+        from flowctl import reading_question, Question
+        from instruction import Business
+        qs = [reading_question("R1", "中島", "なかじま", ["なかじま", "なかしま"]),
+              Question("Q1", "パンフレットとカタログのどちらをお送りしましょうか？", "choice", conditions=("パンフレット", "カタログ"))]
+        b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=qs,
+                     earlier={"Q1": {"state": "accepted", "condition": "どれも要らない"}})
+        f = b.flow(play_recordings=True)
+        self.assertEqual((b.first_ask()[0], f.current), ("R1", "R1"))
+
     def test_hurry_during_callback_questions_closes(self):
         # かけ直しの質問の途中（不在で戻る時刻を伺っている）に急いでいると言われたら、伺わずに締める（かけ直しの記録はもうある＝同じ申し出は1通話1回）
         from flowctl import Flow, Question
