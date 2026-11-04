@@ -1199,7 +1199,12 @@ class CallerNumberAndVoice(Base):
         self.assertEqual(current(a, va, "Leda"), grown)
         later = make(a, va, "Leda", intro("Leda"), q1)                             # 同じ中身の組を作り直しても、そのまま流せる
         self.assertEqual((unheard(a, later), current(a, va, "Leda")), ([], later))
+        # 前の形（0173 より前）の、依頼者のタブの無い契約者の行が承認した中身（いまは作れないので、表の持ち主の役で台帳に置く）
+        owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+            "INSERT INTO salescall.approved_contents (tenant_id, client_id, voice_name, content, set_id)"
+            " VALUES (%s, NULL, 'Leda', md5('架空の録音（intro）。' || chr(31) || %s || chr(31) || ''), %s)", (t, "8" * 64, same)))
         for c, v, voice, part, why in ((a, va, "Sadachbia", intro("Sadachbia"), "ほかの声"),
+                                       (a, va, "Leda", intro("Leda", "8" * 64), "ほかの持ち主（タブの無い前の形の契約者の行）"),
                                        (b, vb, "Leda", intro("Leda"), "ほかの依頼者"),
                                        (a, va, "Leda", tail, "ほかの持ち主（システム）"),
                                        (a, va, "Leda", intro("Leda", "9" * 64), "ほかの音声")):
