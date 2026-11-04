@@ -1180,8 +1180,8 @@ class CallerNumberAndVoice(Base):
         _, va = self.w.business_with_version(t, a)
         _, vb = self.w.business_with_version(t, b)
         self.w.approve_voices(t, a, va, ("Leda",))                                 # 依頼者A・Leda の「名乗り」を聞いて承認した
-        # 契約者の持ち物の録音（名前の録音の台帳の続く言葉）を聞いて承認した。依頼者の取引からも見えるが、持ち主（依頼者）が違う
-        self.w.approve_names(t, [], ("Leda",), tails=("target",))
+        # システムの共通の録音（名前の録音の台帳の続く言葉）を管理者が聞いて承認した。依頼者のタブの取引からも見えるが、持ち主（システム）が違う
+        self.w.approve_names(None, [], ("Leda",), tails=("target",))
         tail = P("intro", "架空の続く言葉（target）。", "test://Leda/target", "0" * 64)
         intro = lambda v, sha="0" * 64: P("intro", "架空の録音（intro）。", f"test://{v}/again", sha)   # noqa: E731
         q1 = P("Q1", "ご希望の日時をお聞かせください。", "test://Leda/Q1", "5" * 64)
@@ -1200,7 +1200,7 @@ class CallerNumberAndVoice(Base):
         self.assertEqual((unheard(a, later), current(a, va, "Leda")), ([], later))
         for c, v, voice, part, why in ((a, va, "Sadachbia", intro("Sadachbia"), "ほかの声"),
                                        (b, vb, "Leda", intro("Leda"), "ほかの依頼者"),
-                                       (a, va, "Leda", tail, "ほかの持ち主（契約者）"),
+                                       (a, va, "Leda", tail, "ほかの持ち主（システム）"),
                                        (a, va, "Leda", intro("Leda", "9" * 64), "ほかの音声")):
             with self.subTest(why=why):
                 sid = make(c, v, voice, part)
@@ -1676,7 +1676,7 @@ class Content(Base):
         self.assertEqual(self.reason(s2), "target_role_missing")
         s3 = self.ready()
         self.switch_to(s3, {"kind": "role", "role": "社長"})                # 業務で役職を書いていれば、行の役職は要らない
-        self.w.approve_names(s3["tenant"], [recordings.NameKey(role="社長")], tails=())
+        self.w.approve_names(s3, [recordings.NameKey(role="社長")], tails=())
         offered = lambda x: self.tx(x, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])   # noqa: E731
         self.assertEqual((offered(s), offered(s2), offered(s3)), ([], [], [s3["task"]]))   # 足りない行は候補に出さない（17a）
         self.assertIsInstance(self.claim(s3), gate.Claim)
@@ -1827,8 +1827,9 @@ class NameLedger(Content):
         self.switch_to(s, {"kind": "name", "role": None})
         a, b = self.named(s, "岡田", "おかだ"), self.named(s, "丘田", "おかだ")
         K = recordings.NameKey
-        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.add_name_part(   # 承認していない録音：作っただけでは使わない
-            tx, voice_name="Leda", key=K(reading="おかだ"), part=recordings.Part("name", "「おかだ」様", "test://x", "0" * 64)))
+        self.tx(s, lambda tx: recordings.add_name_part(   # 承認していない録音：作っただけでは使わない
+            tx, voice_name="Leda", key=K(reading="おかだ"), part=recordings.Part("name", "「おかだ」様", "test://x", "0" * 64),
+            business_id=s["business"]), OPERATOR)
         got = self.claim(a)
         self.assertIsInstance(got, gate.Denied)
         self.assertEqual((got.reason, gate.REASONS[got.reason].handling), ("name_recording_missing", "unoffered"))
@@ -1839,7 +1840,7 @@ class NameLedger(Content):
                                            " AND event_key LIKE 'name_recording_missing:%%'"))
         self.assertEqual(len(told), 1)                 # 2つの行・何度断っても、依頼者ごとに1日1つ
         self.assertIn("「おかだ」様", told[0]["summary"])
-        self.w.approve_names(s["tenant"], [K(reading="おかだ")], ("Leda",), tails=())   # 続く言葉は初めからそろっている
+        self.w.approve_names(s, [K(reading="おかだ")], ("Leda",), tails=())   # 続く言葉は初めからそろっている（システムの共通の録音）
         got = self.claim(a)                            # Leda はそろった：業務の声（Sadachbia）ではなく Leda で話す
         self.assertIsInstance(got, gate.Claim, got)
         self.assertEqual(got.voice_type, "L4")
@@ -1849,34 +1850,42 @@ class NameLedger(Content):
 
     def test_the_same_name_serves_every_role_and_the_role_is_recorded_once(self):
         """名前と役職は別の部分（2026-10-24 ユーザー：「総務課長の同じ名前の人が必要な時に、また録音し直さねばならず、永遠に録音が
-        必要ですよ。」）：「営業部部長の」「「おかだ」様」をそろえた声は、総務課長の「おかだ」様の行では「総務課長の」だけが足りない。
-        足りる行の数は、役職の部分と名前の部分を別々に数える。"""
+        必要ですよ。」）：「営業部部長の」「「おかだ」様」をそろえた声は、総務課長の「おかだ」様の行では「総務課長の」だけが足りない
+        （名前の部分はシステムの共通の録音＝どの業務も使う・役職の部分は業務の録音）。足りる行の数は、役職の部分と名前の部分を別々に
+        数える。"""
         s = self.ready()
         self.switch_to(s, {"kind": "role_and_name", "role": "営業部部長"})
-        a = self.named(s, "岡田", "おかだ")
+        reading = unique_kana()   # システムの共通の録音は、試験のデータベースのどの契約者にも見える（ほかの試験と重ならない鍵）
+        a = self.named(s, "岡田", reading)
         K = recordings.NameKey
-        self.w.approve_names(s["tenant"], [K(reading="おかだ")], ("Leda",), roles=("営業部部長",), tails=())
+        self.w.approve_names(None, [K(reading=reading)], ("Leda",), tails=())
+        self.w.approve_names(s, [], ("Leda",), roles=("営業部部長",), tails=())
         self.assertIsInstance(self.claim(a), gate.Claim)
         t = self.ready(tenant=s["tenant"])
         self.switch_to(t, {"kind": "role_and_name", "role": "総務課長"})
-        c = self.named(t, "丘田", "おかだ")
+        c = self.named(t, "丘田", reading)
         needs = self.tx(c, lambda tx: recordings.name_needs(tx, c["task"]))
         self.assertEqual(self.tx(c, lambda tx: recordings.name_missing(tx, needs, "Leda")), ["総務課長の（役職の部分）"])
         got = self.tx(t, lambda tx: recordings.name_coverage(tx, t["run"], "Leda"))
         self.assertEqual((got["roles"], got["names"]), ({"総務課長の（役職の部分）": 1}, {"総務課長（役職の呼び方）": 1}))   # 名前の無い初めの行は役職の呼び方
-        self.w.approve_names(s["tenant"], [], ("Leda",), roles=("総務課長",), tails=())
+        self.w.approve_names(t, [], ("Leda",), roles=("総務課長",), tails=())
         self.assertEqual(self.tx(c, lambda tx: recordings.name_missing(tx, needs, "Leda")), [])
 
-    def test_another_contractors_ledger_is_not_used(self):
-        """契約者の単位は契約者の持ち物：ほかの契約者が承認した録音では呼ばない（見えもしない）。"""
+    def test_another_business_ledger_is_not_used(self):
+        """業務の録音はその業務の持ち物（0173。✅ 2026-11-04 管理者：「契約者が作った段階では、業務ごとの録音設定と同じ扱いです。」）：
+        ほかの業務（ほかの契約者の業務・同じ契約者のほかの依頼者のタブの業務・同じタブのほかの業務）が承認した録音では呼ばない。
+        ほかの契約者・ほかのタブの録音は見えもしない。"""
         s = self.ready()
-        self.switch_to(s, {"kind": "role", "role": "店長"})
-        other = self.w.tenant()
-        self.w.approve_names(other, [recordings.NameKey(role="店長")])
+        role = unique_role()
+        self.switch_to(s, {"kind": "role", "role": role})
+        key = [recordings.NameKey(role=role)]
+        same_tab, _ = self.w.business_with_version(s["tenant"], s["client"])
+        for owner in (self.ready(), self.ready(tenant=s["tenant"]), dict(s, business=same_tab)):
+            self.w.approve_names(owner, key, ("Leda",), tails=())
         self.assertEqual(self.reason(s), "name_recording_missing")
         self.assertEqual(self.tx(s, lambda tx: tx.one(
-            "SELECT count(*) AS n FROM salescall.recording_sets WHERE name_role = '店長'"))["n"], 0)
-        self.w.approve_names(s["tenant"], [recordings.NameKey(role="店長")], tails=())
+            "SELECT count(*) AS n FROM salescall.recording_sets WHERE name_role = %s", (role,)))["n"], 1)   # 同じタブの業務の分だけ見える
+        self.w.approve_names(s, key, ("Leda",), tails=())
         self.assertIsInstance(self.claim(s), gate.Claim)
 
     def test_the_database_keeps_the_ledger_in_shape(self):
@@ -1884,13 +1893,14 @@ class NameLedger(Content):
         文は鍵の言葉を含む（役職の部分＝その部署と役職・名前の部分＝「「読み」」か役職・続く言葉＝空でない）・鍵は単位に合うものだけ。"""
         s = self.ready()
         K, P = recordings.NameKey, recordings.Part
-        run = lambda work: self.w.a.in_tenant(OPERATOR, s["tenant"], work)  # noqa: E731
+        run = lambda work: self.tx(s, work, OPERATOR)  # noqa: E731
+        b = s["business"]
         name = lambda key, text, part="name": run(lambda tx: recordings.create_set(  # noqa: E731
-            tx, unit="name", voice_name="Leda", name_key=key, parts=[P(part, text, "test://x", "0" * 64)]))
+            tx, unit="name", voice_name="Leda", name_key=key, parts=[P(part, text, "test://x", "0" * 64)], business_id=b))
         role = lambda r, text, part="role": run(lambda tx: recordings.create_set(  # noqa: E731
-            tx, unit="name_role", voice_name="Leda", name_role=r, parts=[P(part, text, "test://x", "0" * 64)]))
+            tx, unit="name_role", voice_name="Leda", name_role=r, parts=[P(part, text, "test://x", "0" * 64)], business_id=b))
         tail = lambda t, text, part=None: run(lambda tx: recordings.create_set(  # noqa: E731
-            tx, unit="name_tail", voice_name="Leda", tail=t, parts=[P(part or t, text, "test://x", "0" * 64)]))
+            tx, unit="name_tail", voice_name="Leda", tail=t, parts=[P(part or t, text, "test://x", "0" * 64)], business_id=b))
         name(K(reading="おかだ"), "「おかだ」様")
         name(K(role="社長"), "社長様")
         role("営業部部長", "営業部部長の")
@@ -1904,14 +1914,16 @@ class NameLedger(Content):
                     lambda: tail("target", "はいらっしゃいますでしょうか？", "promise_again")):   # 部分の名前が続く言葉と違う
             with self.assertRaises(Rejected):
                 bad()
-        for sql in ("INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, name_reading, name_role)"   # 読みと役職の両方
-                    " VALUES (salescall.cur_tenant(), 'name', 'Leda', 'おかだ', '社長')",
-                    "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, name_role, name_reading)"   # 役職の部分に読み
-                    " VALUES (salescall.cur_tenant(), 'name_role', 'Leda', '社長', 'おかだ')",
+        for sql in ("INSERT INTO salescall.recording_sets (tenant_id, client_id, business_id, unit, voice_name, name_reading,"
+                    " name_role) VALUES (salescall.cur_tenant(), salescall.cur_client(), %(business)s, 'name', 'Leda', 'おかだ', '社長')",
+                    # ↑ 読みと役職の両方・↓ 役職の部分に読み
+                    "INSERT INTO salescall.recording_sets (tenant_id, client_id, business_id, unit, voice_name, name_role,"
+                    " name_reading) VALUES (salescall.cur_tenant(), salescall.cur_client(), %(business)s, 'name_role', 'Leda', '社長',"
+                    " 'おかだ')",
                     "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, tail)"                     # 共通の一言の組に鍵
                     " VALUES (salescall.cur_tenant(), 'contractor', 'Leda', 'target')"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
-                run(lambda tx, sql=sql: tx.execute(sql))
+                run(lambda tx, sql=sql: tx.execute(sql, s))
 
     def test_the_ledger_does_not_fix_where_the_cuts_are(self):
         """名前の録音の台帳の切れ目は、データベースでは決め打ちしない（0137）：「の」を名前の側に付けた形・助詞の無い続く言葉・助詞を
@@ -1920,12 +1932,13 @@ class NameLedger(Content):
         G-69 が決める途中なので、守りは戻さない（設計書 3-8-2）。"""
         s = self.ready()
         K, P = recordings.NameKey, recordings.Part
-        run = lambda work: self.w.a.in_tenant(OPERATOR, s["tenant"], work)  # noqa: E731
-        run(lambda tx: recordings.create_set(tx, unit="name_role", voice_name="Leda", name_role="営業部部長",
+        run = lambda work: self.tx(s, work, OPERATOR)  # noqa: E731
+        b = s["business"]
+        run(lambda tx: recordings.create_set(tx, unit="name_role", voice_name="Leda", name_role="営業部部長", business_id=b,
                                              parts=[P("role", "営業部部長", "test://x", "0" * 64)]))          # 「の」は名前の側
-        run(lambda tx: recordings.create_set(tx, unit="name", voice_name="Leda", name_key=K(reading="おかだ"),
+        run(lambda tx: recordings.create_set(tx, unit="name", voice_name="Leda", name_key=K(reading="おかだ"), business_id=b,
                                              parts=[P("name", "の「おかだ」様は", "test://x", "0" * 64)]))     # 助詞を名前の側に
-        run(lambda tx: recordings.create_set(tx, unit="name_tail", voice_name="Leda", tail="target",
+        run(lambda tx: recordings.create_set(tx, unit="name_tail", voice_name="Leda", tail="target", business_id=b,
                                              parts=[P("target", "いらっしゃいますでしょうか？", "test://x", "0" * 64)]))   # 助詞の無い続く言葉
 
     def test_coverage_counts_rows_the_ledger_already_covers(self):
@@ -1935,15 +1948,15 @@ class NameLedger(Content):
         self.named(s, "岡田", "おかだ")
         self.named(s, "丘田", "おかだ")
         self.named(s, "中島", "なかじま")
-        self.w.approve_names(s["tenant"], [recordings.NameKey(reading="おかだ")], ("Leda",))
+        self.w.approve_names(s, [recordings.NameKey(reading="おかだ")], ("Leda",))
         got = self.tx(s, lambda tx: recordings.name_coverage(tx, s["run"], "Leda"))
         self.assertEqual((got["rows"], got["covered"]), (4, 2))   # 初めの行（名前が無い）と なかじま が足りない
         self.assertEqual((got["names"]["「なかじま」様"], got["roles"], got["tails"]), (1, {}, {}))
 
-    def test_the_systems_names_serve_every_contractor_and_the_contractors_own_come_first(self):
-        """代表的な名前はシステムの単位（0134。2026-10-19 ユーザー：「代表的な名前を事前にシステム単位で用意しておき、それにない物だけ、
-        録音すればいいんじゃないですか？」）：管理者がシステムの取引で作って承認したものは、どの契約者の行も呼べる。契約者が承認した
-        同じ鍵のものがあれば、その契約者ではそちらを流す（見方 current_name_recordings の1か所）。ほかの契約者には見えない。"""
+    def test_the_systems_names_serve_every_contractor_and_the_businesss_own_come_first(self):
+        """システムの共通の録音（管理者がシステムの取引で作って承認したもの）は、どの契約者の行も呼べる。その業務の録音（契約者が
+        その業務のために承認した同じ鍵のもの）があれば、その業務ではそちらを流す（流す録音を選ぶ1か所 salescall.current_name_set。0173）。
+        ほかの契約者の業務には流れず、見えもしない。"""
         s, u = self.ready(), self.ready()
         role, title = unique_role(), unique_role()   # システムの単位は試験のデータベースのどの契約者にも見えるので、ほかの試験と重ならない鍵
         for x in (s, u):
@@ -1956,30 +1969,30 @@ class NameLedger(Content):
             got = self.claim(x)
             self.assertIsInstance(got, gate.Claim, got)
             self.tx(x, lambda tx: attempts.release(tx, [got.attempt_id]))
-        self.w.approve_names(s["tenant"], keys[:1], tails=("target",), audio="own")   # s だけが「店長様」と続く言葉を録り直した
-        played = lambda x, **kw: self.tx(x, lambda tx: recordings.name_recording(tx, "Leda", **kw).audio_ref)  # noqa: E731
-        self.assertEqual(played(s, key=keys[0]), "own://Leda/name")          # 契約者のものを先に
+        self.w.approve_names(s, keys[:1], tails=("target",), audio="own")   # s の業務だけが「店長様」と続く言葉を録り直した
+        played = lambda x, **kw: self.tx(x, lambda tx: recordings.name_recording(tx, x["business"], "Leda", **kw).audio_ref)  # noqa: E731
+        self.assertEqual(played(s, key=keys[0]), "own://Leda/name")          # その業務の録音を先に
         self.assertEqual(played(s, tail="target"), "own://Leda/target")
         self.assertEqual(played(s, key=keys[1]), "system://Leda/name")       # 無いものはシステムのもの
         self.assertEqual(played(s, role=title), f"system://Leda/role/{title}")
-        self.assertEqual(played(u, key=keys[0]), "system://Leda/name")       # ほかの契約者には見えない
+        self.assertEqual(played(u, key=keys[0]), "system://Leda/name")       # ほかの契約者の業務には流れない
         self.assertEqual(self.tx(u, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.recording_sets WHERE tenant_id = %s",
                                                       (s["tenant"],)))["n"], 0)
-        self.assertEqual(self.w.a.in_system(ADMIN, lambda tx: recordings.name_recording(tx, "Leda", key=keys[0])).audio_ref,
+        self.assertEqual(self.w.a.in_system(ADMIN, lambda tx: recordings.name_recording(tx, None, "Leda", key=keys[0])).audio_ref,
                          "system://Leda/name")                               # システムの取引は、システムのものだけ
         got = self.tx(u, lambda tx: recordings.name_coverage(tx, u["run"], "Leda"))
         self.assertEqual((got["rows"], got["covered"]), (1, 1))             # 足りる行の数にも、システムのものを数える
 
     def test_only_the_admin_writes_the_systems_names(self):
-        """システムの単位の組・部分・承認を書けるのは、管理者がシステムの取引でだけ（データベースの守り 0134）。契約者の取引からは
+        """システムの組・部分・承認を書けるのは、管理者がシステムの取引でだけ（データベースの守り 0134）。契約者の取引からは
         書けず（承認もできない）、管理者もシステムの取引の外では書けない。システムの単位は名前の録音の台帳と共通の一言だけ（業務の録音・
-        お詫びの電話の文は、管理者がシステムの取引で書いても、契約者の無い組にできない＝0171）。管理者も、契約者の組に部分を足せない
-        （見えない）。"""
+        お詫びの電話の文は、管理者がシステムの取引で書いても、契約者の無い組にできない＝0171）。契約者が作る名前の録音は、業務の録音
+        （契約者・依頼者のタブ・業務のそろった組だけ＝0173 の recording_sets_name_owner）。管理者も、業務の組に部分を足せない（見えない）。"""
         s = self.ready()
         K, P = recordings.NameKey, recordings.Part
         role = unique_role()   # システムの単位は、試験のデータベースのどの契約者にも見える（ほかの試験と重ならない鍵）
-        add = lambda tx: recordings.add_name_part(  # noqa: E731
-            tx, voice_name="Leda", key=K(role=role), part=P("name", f"{role}様", "test://x", "0" * 64))
+        add = lambda tx, business_id=None: recordings.add_name_part(  # noqa: E731
+            tx, voice_name="Leda", key=K(role=role), part=P("name", f"{role}様", "test://x", "0" * 64), business_id=business_id)
         unapproved = self.w.a.in_system(ADMIN, add)
         with self.assertRaises(Rejected) as e:                               # システムの取引でも、管理者でなければ書けない
             self.w.a.in_system(SYSTEM, add)
@@ -2005,16 +2018,83 @@ class NameLedger(Content):
             self.w.a.in_system(ADMIN, lambda tx: tx.execute(
                 "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, client_id, version_id)"
                 " VALUES (NULL, 'business', 'Leda', %(client)s, %(version)s)", s))
-        own = self.w.a.in_tenant(OPERATOR, s["tenant"], add)
-        with self.assertRaises(Rejected) as e:                               # 管理者も、契約者の組に部分を足せない
+        for why, run in (("業務の無い契約者の組（0134 の形）", lambda: self.tx(s, add, OPERATOR)),
+                         ("依頼者のタブの無い取引の業務の組", lambda: self.w.a.in_tenant(
+                             OPERATOR, s["tenant"], lambda tx: add(tx, s["business"])))):
+            with self.subTest(why=why), self.assertRaises(Rejected) as e:   # 契約者の名前の録音は、業務の録音だけ
+                run()
+            self.assertEqual(e.exception.constraint, "recording_sets_name_owner")
+        own = self.tx(s, lambda tx: add(tx, s["business"]), OPERATOR)
+        with self.assertRaises(Rejected) as e:                               # 管理者も、業務の組に部分を足せない
             self.w.a.in_system(ADMIN, lambda tx: tx.execute(
                 "INSERT INTO salescall.recordings (tenant_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                 " VALUES (NULL, %s, 'name', %s, 'test://y', %s)", (own, f"{role}様", "0" * 64)))
         self.assertIn("取引から見える組", e.exception.message)                # 0109 の守りのまま
         self.w.a.in_system(ADMIN, lambda tx: recordings.approve(tx, unapproved))
-        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.current_name_recordings"
-                                                      " WHERE tenant_id IS NULL AND name_role = %s", (role,)))["n"], 1)
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.current_name_set(%s, 'Leda', 'name', %s, NULL, NULL) AS c",
+                                                      (s["business"], role)))["c"], unapproved)   # 業務の組はまだ承認していない
 
+    def test_the_admin_listens_to_a_business_name_recording_before_it_serves_every_contractor(self):
+        """契約者が作った名前の録音は、その業務の録音（承認すれば、管理者が決める前からその業務の電話で使う）。管理者が聞いて認めた
+        ものだけが、システムの共通の録音になる（聞いた中身をそのまま写したシステムの組と、管理者の承認）。除外したものも、その業務では
+        使い続ける。決めるのは管理者だけ（システムの取引で）・1回だけ・契約者が承認した組だけ。決めた記録は、その契約者だけが読める。
+        ✅ 2026-11-04 管理者：「…管理者がチェックしないとシステムに入れられない」「契約者が作った段階では、業務ごとの録音設定と同じ
+        扱いです。管理者が認めて初めてシステムの共通録音に登録されます。」・伺い「その契約者だけ使う」「その契約者は使い続ける」（0173）。"""
+        s, u = self.ready(), self.ready()
+        admitted_role, excluded_role = unique_role(), unique_role()
+        K, P = recordings.NameKey, recordings.Part
+        label = f"own{uuid.uuid4().hex[:8]}"   # 管理者がまだ決めていない組は、試験のデータベースのどの契約者の分も並ぶ（ほかの試験と重ならない置き場）
+        pending = lambda: [r for r in self.w.a.in_system(ADMIN, recordings.name_reviews)  # noqa: E731
+                           if r.part.audio_ref.startswith(label)]
+        s2 = self.ready(tenant=s["tenant"])
+        for x, r in ((s, admitted_role), (s2, excluded_role)):
+            self.switch_to(x, {"kind": "role", "role": r})
+            self.w.approve_names(x, [K(role=r)], ("Leda",), tails=(), audio=label)
+        fresh = unique_role()
+        self.tx(s, lambda tx: recordings.add_name_part(                      # 承認していない組は、まだ聞かない
+            tx, voice_name="Leda", key=K(role=fresh), part=P("name", f"{fresh}様", f"{label}://Leda/x", "0" * 64),
+            business_id=s["business"]), OPERATOR)
+        for x in (s, s2):                                                    # 管理者が決める前から、その業務の電話で使う
+            got = self.claim(x)
+            self.assertIsInstance(got, gate.Claim, got)
+            self.tx(x, lambda tx: attempts.release(tx, [got.attempt_id]))
+        self.switch_to(u, {"kind": "role", "role": admitted_role})
+        self.assertEqual(self.reason(u), "name_recording_missing")          # ほかの契約者は、管理者が決めるまで使わない
+        waiting = {r.key: r for r in pending()}
+        self.assertEqual(set(waiting), {f"{admitted_role}（役職の呼び方）", f"{excluded_role}（役職の呼び方）"})
+        self.assertEqual(waiting[f"{admitted_role}（役職の呼び方）"].part.spoken_text, f"{admitted_role}様")
+        for why, run in (("契約者", lambda w: self.tx(s, w, OPERATOR)), ("システムの取引の外の管理者", lambda w: self.w.a.in_tenant(
+                ADMIN, s["tenant"], w)), ("システムの処理", lambda w: self.w.a.in_system(SYSTEM, w))):
+            for work in (recordings.name_reviews,
+                         lambda tx: recordings.review_name(tx, waiting[f"{admitted_role}（役職の呼び方）"].set_id, admit=True)):
+                with self.subTest(why=why), self.assertRaises(Rejected) as e:   # 聞いて決めるのは管理者だけ
+                    run(work)
+                self.assertEqual(e.exception.constraint, "name_review_by_admin")
+        copied = self.w.a.in_system(ADMIN, lambda tx: recordings.review_name(
+            tx, waiting[f"{admitted_role}（役職の呼び方）"].set_id, admit=True))
+        self.assertIsNone(self.w.a.in_system(ADMIN, lambda tx: recordings.review_name(
+            tx, waiting[f"{excluded_role}（役職の呼び方）"].set_id, admit=False)))
+        self.assertEqual(pending(), [])                                      # 決めた組は、もう並ばない
+        got = self.claim(u)                                                  # 認めたものは、ほかの契約者の電話でも使う
+        self.assertIsInstance(got, gate.Claim, got)
+        self.tx(u, lambda tx: attempts.release(tx, [got.attempt_id]))
+        self.assertEqual(self.tx(u, lambda tx: recordings.name_recording(
+            tx, u["business"], "Leda", key=K(role=admitted_role))).audio_ref, f"{label}://Leda/name")   # 聞いた中身のまま
+        self.assertEqual(self.tx(u, lambda tx: tx.one(
+            "SELECT tenant_id, business_id FROM salescall.recording_sets WHERE set_id = %s", (copied,))),
+            {"tenant_id": None, "business_id": None})                        # システムの組は、どの業務から写したかを持たない
+        self.switch_to(u, {"kind": "role", "role": excluded_role})
+        self.assertEqual(self.reason(u), "name_recording_missing")          # 除外したものは、ほかの契約者に流れない
+        got = self.claim(s2)                                                 # 除外しても、その業務では使い続ける
+        self.assertIsInstance(got, gate.Claim, got)
+        self.tx(s2, lambda tx: attempts.release(tx, [got.attempt_id]))
+        decided = lambda x: self.w.a.in_tenant(OPERATOR, x["tenant"], lambda tx: tx.all(  # noqa: E731
+            "SELECT decision FROM salescall.name_recording_reviews ORDER BY decision"))
+        self.assertEqual([r["decision"] for r in decided(s)], ["admitted", "excluded"])   # その契約者は、決めた記録を読める
+        self.assertEqual(decided(u), [])                                     # ほかの契約者は読めない
+        for target, why in ((waiting[f"{admitted_role}（役職の呼び方）"].set_id, "もう決めた組"), (copied, "システムの組")):
+            with self.subTest(why=why), self.assertRaises(Rejected):        # 決めるのは1回だけ・業務の組だけ
+                self.w.a.in_system(ADMIN, lambda tx, t=target: recordings.review_name(tx, t, admit=True))
 
 if __name__ == "__main__":
     unittest.main()

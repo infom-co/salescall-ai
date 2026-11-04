@@ -165,8 +165,9 @@ class World:
             "INSERT INTO salescall.tenants (tenant_id, name) VALUES (%s, %s)", (tid, "架空の契約者")))
         _TENANT_VOICES[tid] = voices
         self.approve_common(voices)
-        # 名前の録音の台帳も、試験の業務の初めの目的のお客様（役職のみ「総務部長」）の分と続く言葉をそろえる
-        self.approve_names(tid, [recordings.NameKey(role=DEFAULT_ROLE)], voices)
+        # 名前の録音の台帳も、試験の業務の初めの目的のお客様（役職のみ「総務部長」）の分と続く言葉を、システムの共通の録音でそろえる
+        # （まだ無い声の分だけ。システムの組は、すべての契約者と試験が読む）
+        self.approve_names(None, [recordings.NameKey(role=DEFAULT_ROLE)], voices, only_missing=True)
         return tid
 
     def approve_common(self, voices: tuple[str, ...], *, parts: tuple[str, ...] | None = None) -> None:
@@ -209,29 +210,39 @@ class World:
                 recordings.approve(tx, sid)
         self.a.in_client(OPERATOR, tenant, client, work)
 
-    def approve_names(self, tenant: UUID | None, keys: list, voices: tuple[str, ...] = VOICES, *, roles: tuple[str, ...] = (),
-                      tails: tuple[str, ...] | None = None, audio: str = "test") -> None:
+    def approve_names(self, owner: dict | None, keys: list, voices: tuple[str, ...] = VOICES, *, roles: tuple[str, ...] = (),
+                      tails: tuple[str, ...] | None = None, audio: str = "test", only_missing: bool = False) -> None:
         """名前の録音の台帳に、名前の部分（keys＝recordings.NameKey の並び）・役職の部分（roles）・続く言葉（無ければ全部）を作って承認する
-        （架空の録音。切れ目＝助詞の置き場は決め打ちしない＝0137。CL-1 の G-65 とユーザーの判断待ち）。tenant が None なら、管理者がシステムの取引で
-        作るシステムの単位（すべての契約者が読む。0134）。"""
+        （架空の録音。切れ目＝助詞の置き場は決め打ちしない＝0137）。owner が None なら、管理者がシステムの取引で作るシステムの共通の録音
+        （すべての契約者が読む）。owner＝setup の行（tenant・client・business）なら、契約者がその業務の録音として作って承認する（その業務の
+        電話で使う。0173）。only_missing＝その声のいまのシステムの録音が無い鍵だけ作る（システムの組は、すべての試験が読む）。"""
         P = recordings.Part
+        biz = None if owner is None else owner["business"]
+
+        def wanted(tx, v, unit, role=None, reading=None, tail=None):
+            return not only_missing or tx.one("SELECT salescall.current_name_set(NULL, %s, %s, %s, %s, %s) AS s",
+                                              (v, unit, role, reading, tail))["s"] is None
 
         def work(tx):
             for v in voices:
                 for r in roles:
-                    recordings.approve(tx, recordings.add_name_role(
-                        tx, voice_name=v, role=r, part=P("role", f"{r}の", f"{audio}://{v}/role/{r}", "0" * 64)))
+                    if wanted(tx, v, "name_role", role=r):
+                        recordings.approve(tx, recordings.add_name_role(
+                            tx, voice_name=v, role=r, part=P("role", f"{r}の", f"{audio}://{v}/role/{r}", "0" * 64), business_id=biz))
                 for k in keys:
                     text = f"{k.role}様" if k.reading is None else f"「{k.reading}」様"
-                    recordings.approve(tx, recordings.add_name_part(
-                        tx, voice_name=v, key=k, part=P("name", text, f"{audio}://{v}/name", "0" * 64)))
+                    if wanted(tx, v, "name", role=k.role, reading=k.reading):
+                        recordings.approve(tx, recordings.add_name_part(
+                            tx, voice_name=v, key=k, part=P("name", text, f"{audio}://{v}/name", "0" * 64), business_id=biz))
                 for t in (recordings.NAME_TAILS if tails is None else tails):
-                    recordings.approve(tx, recordings.add_name_tail(
-                        tx, voice_name=v, tail=t, part=P(t, f"架空の続く言葉（{t}）。", f"{audio}://{v}/{t}", "0" * 64)))
-        if tenant is None:
+                    if wanted(tx, v, "name_tail", tail=t):
+                        recordings.approve(tx, recordings.add_name_tail(
+                            tx, voice_name=v, tail=t, part=P(t, f"架空の続く言葉（{t}）。", f"{audio}://{v}/{t}", "0" * 64),
+                            business_id=biz))
+        if owner is None:
             self.a.in_system(ADMIN, work)
         else:
-            self.a.in_tenant(OPERATOR, tenant, work)
+            self.a.in_client(OPERATOR, owner["tenant"], owner["client"], work)
 
     def client(self, tenant: UUID) -> UUID:
         cid = uuid.uuid4()
