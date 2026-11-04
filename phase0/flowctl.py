@@ -6423,11 +6423,26 @@ class Flow:
         # 携帯電話の番号なら、ほかの方法を伺う＝_line_other_ways）。✅ 2026-11-05 日本時間0時48分 ユーザー「(ア)(イ)ともお勧めの形でOK」。⛔ それまで、理由を言わずに
         # 「恐れ入ります。携帯電話の番号をもう一度…」「もう一回…」と伺い、締めの前に「お声が聞き取れませんでしたので…」とまた伺った（番号は聞き取れている）
         form_reason = CALLBACK_ASK_FORM.get(q.callback or "") if reason == "form" else None
-        if form_reason and it.form_asked:
+        # 理由を添える一言は、その形の答えを初めて言われたときに添える（0時48分「1回目に理由を添えて」）。聞き取れない聞き返しをその場の回数だけ使い切った
+        # あとなら、締めの前の念のための確認の1回をここで使う（最初の質問のほかに最大3回のまま＝10-14。締めの前にはもう伺わない）。⛔ 11-05 1時40分の
+        # ご質問のあと流れの制御に通して見つけた：使い切ったあとの固定電話の番号に理由を添えず「承知しました。」で次へ進み、締めの前に「お声が聞き取れません
+        # でしたので…」と伺っていた（番号は聞き取れている）
+        here = self.phase == "asking" and q.required and it.ask_backs < self.limits.ask_back
+        spare = bool(form_reason) and not it.form_asked and not here and self.phase == "asking" and q.required and it.rechecks < self.limits.recheck
+        if form_reason and (it.form_asked or not (here or spare)):
+            # 理由を添えて伺っても形が合わない・もう伺えない（締めの前の念のための確認でも固定電話の番号だった）：その形の答えは無い（聞き取れている＝
+            # 聞き取れないとは扱わない。次の段＝ほかの方法を伺う _line_other_ways が決める）
             it.form_failed = True
-            it.set("unresolved", f"{why}・理由を添えて伺い直しても形が合わない（その形の答えは無い）")
+            it.set("unresolved", f"{why}・理由を添えて伺い直しても形が合わない（その形の答えは無い）" if it.form_asked
+                   else f"{why}・形が合わない答えで、もう伺えない（その形の答えは無い）")
             return self._dash(qid, shown)
-        if self.phase == "asking" and q.required and it.ask_backs < self.limits.ask_back:
+        if spare:
+            it.rechecks += 1
+            it.form_asked = True
+            it.set("unclear", f"{why}・理由を添えて伺う（締めの前の念のための確認の1回を使う）")
+            return {"result": "ask_back", "question_id": q.id, "say": form_reason, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": False,
+                    "form_reason": True, "message": f"{shown}「{form_reason}」と聞き返して、相手の答えを待ってください。" + answer_wait()}
+        if here:
             it.ask_backs += 1
             it.set("unclear", f"{why}・聞き返す（{it.ask_backs}回目）")
             # 最後の1回か：その場の回数を使い切り、締めの前の念のための確認も無いとき（依頼主の設定で確認を0回にしたとき）
@@ -6493,9 +6508,11 @@ class Flow:
         it.set("checking", "言い直して確かめる")
         self.awaiting_confirm = qid
         self.confirm_requested_at = self.callee_turns
-        # 場面：聞き返した・念のための確認・訂正のあとは「聞き取りにくかったあと」、それ以外は「ふつう」（phrases.CONFIRM）
+        # 場面：その項目を聞き返した・念のため確かめた・訂正されたあとは「聞き取りにくかったあと」、それ以外は「ふつう」（phrases.CONFIRM・設計書 6-11 の表）。
+        # 念のための確認の段の中で初めて伺った質問（ほかの方法・その連絡先・聞き足し）は「ふつう」（⛔ 11-05 1時40分のご質問のあとに見つけた：段の中なら
+        # 全部「…とおっしゃいましたでしょうか？」にしていた）
         situation = AFTER[after][0] if after else (
-            "聞き取りにくかったあと" if (it.ask_backs or it.corrections or self.phase == "rechecking") else "ふつう")
+            "聞き取りにくかったあと" if (it.ask_backs or it.corrections or it.rechecks) else "ふつう")
         n = self.confirm_counts.get(situation, 0)
         self.confirm_counts[situation] = n + 1
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
@@ -6818,6 +6835,14 @@ class Flow:
         wid = CALLBACK_IDS["other_wish"]
         self._wish_facts_now()
         w = self.wish
+        if w is not None and w["outcome"] == "means" and w["stage"] == "detail" and w["detail"] in self.items \
+                and self._line_other_ways(self.items[w["detail"]]):
+            # 連絡先は無いまま終えた段（聞き取れないまま「-」にした）で、あとから（締めの前の念のための確認で）連絡先が無いと分かった：ほかの方法を伺う1か所
+            # （_line_other_ways。1回だけ）を、ここでも通す＝段を開き直す（0時48分の決まりは、連絡先が無いと分かったときすべてに当たる＝10-19。⛔ 11-05
+            # 1時40分のご質問のあと流れの制御に通して見つけた：締めの前の確認の「携帯は持っていないんです」に、ほかの方法を伺わずに締めていた）
+            w["outcome"], w["told"] = None, None
+            self.facts["other_wish"][-1].update(outcome=None, contact=None)
+            return
         if w is None or w["outcome"] is not None:
             if self.end_reason is not None:
                 return
@@ -7045,7 +7070,8 @@ class Flow:
         w = self.wish
         w["outcome"] = outcome
         self.facts["other_wish"][-1].update(outcome=outcome, contact=contact)
-        if outcome in ("means", "other"):
+        if outcome in ("means", "other") and not w.get("told_said"):
+            # 申し伝える一言は1回だけ（段を開き直して＝_wish_step、もう一度終えたときは言わない）
             w["told"] = w["means"] if outcome == "means" else "other"
 
     def _drop_unasked(self, qid: str) -> None:
@@ -7145,7 +7171,7 @@ class Flow:
         wish = (w := self.wish) is not None and bool(w["told"])
         if wish:
             plays.append({"kind": "recorded", "id": f"wish_told_{w['told']}", "text": WISH_TOLD[w["told"]]})
-            w["told"] = None
+            w["told"], w["told_said"] = None, True
         told = False
         for qid, it in self.items.items():
             if (line := self._tell_due(qid, ending=r.get("result") == "end")) is not None:

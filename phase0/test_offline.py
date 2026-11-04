@@ -11595,6 +11595,71 @@ class NoneOfThemTest(unittest.TestCase):
         bad = [t for t in said if re.search(r"ID(?:か(?!ら)|と|や)", t)]
         self.assertEqual(bad, [])
 
+    def test_no_contact_found_late_still_gets_the_reason_and_the_other_ways(self):
+        # 0時48分のご承認（(イ)：SMS の携帯電話の番号に固定電話の番号＝1回目に理由を添えて伺い、それでも携帯電話でなければ、ほかの方法を1回伺う・同じ理由は、
+        # 選んでいただいた方法の連絡先が無いときすべて）は、聞き返しを使い切ったあと・締めの前の念のための確認でも当たる（10-19 の決まり）。⛔ 11-05 1時40分の
+        # ご質問（「想定との食い違いや不備、1本化漏れはないですか？」）のあと、流れの制御に通して見つけた：(1) 聞き取れない聞き返しを2回使い切ったあとに固定電話の
+        # 番号を言われると、理由を添えずに「承知しました。」で次へ進み、締めの前に「お声が聞き取れませんでしたので携帯電話の番号を…」と伺い（番号は聞き取れて
+        # いる）、また固定電話の番号なら、ほかの方法を伺わずに締めた (2) 締めの前の念のための確認で「携帯は持っていないんです」と言われても、ほかの方法を伺わずに
+        # 締めた（依頼者には SMS でご招待の、番号の無い記録が渡る）
+        from flowctl import CALLBACK_IDS, wish_label
+        from phrases import CALLBACK_ASK_CHOSEN, CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, WISH_TOLD
+        say = AmbiguousAnswerTest.say
+        how, mob, mail = (CALLBACK_IDS[r] for r in ("line_how", "mobile", "email"))
+        told = []
+
+        def said(f, words, op, **a):
+            r = say(f, words, op, **a)
+            told.append(sum(p.get("id") == "wish_told_line" for p in r.get("play", ())) + (WISH_TOLD["line"] in r.get("message", "")))
+            return r
+
+        def chose():
+            told.clear()
+            f, _ = self.wished(True)
+            said(f, "LINEならいいです。", "record_answer", question_id="W1", condition_id=wish_label("line"), value="LINE")
+            said(f, "SMSで。", "record_answer", question_id=how, condition_id="SMS")
+            said(f, "（雑音）", "report_unclear", question_id=mob)
+            said(f, "（雑音）", "report_unclear", question_id=mob)
+            return f
+        # (1) 聞き返しを使い切ったあとの固定電話の番号：理由を添えて伺う（締めの前の念のための確認の1回をここで使う＝最初の質問のほかに最大3回のまま）
+        f = chose()
+        r = said(f, "03-1234-5678 です。", "record_answer", question_id=mob, condition_id="答えた", value="03-1234-5678")
+        self.assertEqual((r["result"], r.get("say"), r.get("ack")), ("ask_back", CALLBACK_ASK_FORM["mobile"], "hai"))
+        r = said(f, "うちは 03-1234-5678 しかないんです。", "record_answer", question_id=mob, condition_id="答えた", value="03-1234-5678")
+        self.assertEqual((r["question_id"], r["question"]), (how, CALLBACK_ASK_OTHER_WAYS["sms"]))
+        r = said(f, "じゃあメールで。", "record_answer", question_id=how, condition_id="メール")
+        self.assertEqual((r["question_id"], r["question"]), (mail, CALLBACK_ASK_CHOSEN["email"]))
+        said(f, "info@example.co.jp です。", "record_answer", question_id=mail, condition_id="答えた", value="info@example.co.jp")
+        said(f, "はい。", "confirm_field", question_id=mail, result="affirmed")
+        r = said(f, "いいえ、大丈夫です。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual(r["result"], "end", r)
+        self.assertEqual([(e["via"], e["contact"]) for e in f.facts["other_wish"]], [("email", "info@example.co.jp")])
+        self.assertEqual(sum(told), 1)
+        # (1') 理由を添えて伺ったあとも聞き取れない：締めの前にもう伺わない（その1回を使った）
+        f = chose()
+        said(f, "03-1234-5678 です。", "record_answer", question_id=mob, condition_id="答えた", value="03-1234-5678")
+        said(f, "（雑音）", "report_unclear", question_id=mob)
+        r = said(f, "いいえ、大丈夫です。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual(r["result"], "end", r)
+        # (2) 締めの前の念のための確認で、携帯電話が無い・固定電話の番号しか無いと分かった：ほかの方法を1回伺う（「申し伝えます」は1回だけ）
+        for words, kw in (("携帯は持っていないんです。", {"condition_id": "unknown"}),
+                          ("03-1234-5678 です。", {"condition_id": "答えた", "value": "03-1234-5678"})):
+            f = chose()
+            said(f, "（雑音）", "report_unclear", question_id=mob)
+            r = said(f, "いいえ、大丈夫です。", "record_answer", question_id="Q2", condition_id="いいえ")
+            self.assertEqual((r["result"], r["question_id"]), ("recheck", mob))
+            r = said(f, words, "record_answer", question_id=mob, **kw)
+            self.assertEqual((r["question_id"], r["question"]), (how, CALLBACK_ASK_OTHER_WAYS["sms"]), words)
+            said(f, "じゃあメールで。", "record_answer", question_id=how, condition_id="メール")
+            r = said(f, "info@example.co.jp です。", "record_answer", question_id=mail, condition_id="答えた", value="info@example.co.jp")
+            # 締めの前の念のための確認の段で初めて伺った質問は、聞き取りにくかったあとの言い方にしない（設計書 6-11 の表：聞き返した・念のための確認・
+            # 訂正の「あと」＝その項目のこと。⛔ 段の中なら全部「…とおっしゃいましたでしょうか？」にしていた）
+            self.assertEqual(r.get("say"), "ありがとうございます。info@example.co.jpでよろしいでしょうか？", words)
+            r = said(f, "はい。", "confirm_field", question_id=mail, result="affirmed")
+            self.assertEqual(r["result"], "end", (words, r))
+            self.assertEqual([(e["via"], e["contact"], e["outcome"]) for e in f.facts["other_wish"]], [("email", "info@example.co.jp", "means")], words)
+            self.assertEqual(sum(told), 1, words)
+
     def test_words_said_ahead_are_used_without_asking_again(self):
         # ✅ 2026-11-04 日本時間20時27分 ユーザー：「(3) 方法と一緒に連絡先まで言われたとき（例：「LINEなら、IDは abc_123 です」）案：前の答えの中にその連絡先が
         # あれば、伺わずに「abc_123でよろしいでしょうか？」と言い直して確かめます。OK」＝9-3「取得済みのことを重ねて聞かない」と同じ理由は、どの質問にも当たる
