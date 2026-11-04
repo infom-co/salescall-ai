@@ -97,6 +97,37 @@ class Import(unittest.TestCase):
         self.assertIn(bs.Name("テスト便", "てすとびん", "script", "given"), got.names)
         self.assertEqual(got.answers, (("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。"),))   # 想定問答
 
+    def test_the_sheet_overrides_or_turns_off_the_standard_answers_and_registers_the_standard_it_showed(self):
+        """シート「想定問答」で、システムの標準の想定問答を上書きできる（同じ名前に答えを書く＝その業務の録音）・使わないにできる
+        （列「標準を使わない」が「はい」の行。答えは書かない）。書かない問いは標準の答えのまま（設計書 3-8-3 の作る順の (4)・0174。
+        ✅ 2026-11-02 管理者 伺い2「上書きが必要な業務は、トークスクリプト設定画面か、エクセルなどのシートで上書きし、その分の録音を
+        実施する。」）。登録は、プレビューで重ねた標準の版で作る：プレビューのあとで管理者が標準を新しくしたら、もう一度プレビューを
+        確かめる（契約者が見ていない標準で版を作らない）。"""
+        rows = [("問いの名前", "答え", "標準を使わない"), ("会社の場所", "大阪府にございます。", None), ("番号の出どころ", None, "はい")]
+        data = book(sheets={"想定問答": rows})
+        std = (("番号の出どころ", "以前お問い合わせいただいた際のお電話番号にお掛けしております。"),
+               ("会社の場所", "東京都港区にございます。"), ("営業時間", "平日の9時から18時まででございます。"))
+        with self.w.standard(std) as sid:
+            p = self.preview(data)
+            self.assertEqual((p.problems, p.standard_id, p.raw["answers_off"]), ([], sid, ["番号の出どころ"]))
+            v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest))
+            got = self.tx(lambda tx: bs.load(tx, v))
+            self.assertEqual((got.standard_id, got.answers), (sid, (("会社の場所", "大阪府にございます。"), std[2])))
+            p = self.preview(data)
+            with self.w.standard(std[1:]):
+                with self.assertRaises(bi.PreviewChanged):   # ファイルから登録し直す入口：いまの標準で確かめ直すので、指紋が違う
+                    self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest))
+                forged = bi.Preview(p.raw, p.problems, p.names_to_confirm, p.digest, p.ai, standard_id=None)
+                with self.assertRaises(bi.PreviewChanged):   # 重ねた標準の版を書き換えたプレビューも通さない（指紋に入る）
+                    self.tx(lambda tx: bi.register_reviewed(tx, self.s["business"], forged, expected_digest=p.digest))
+                # 画面がプレビューを持って登録する入口：契約者が見た標準の版で作る（いまの標準ではない）
+                kept = self.tx(lambda tx: bs.load(tx, bi.register_reviewed(tx, self.s["business"], p, expected_digest=p.digest)))
+                self.assertEqual(kept.standard_id, sid)
+            bad = book(sheets={"想定問答": rows + [("営業時間", "土日もやっております。", "はい"), ("無い問い", None, "はい")]})
+            problems = self.preview(bad).problems
+            self.assertTrue(any("シート「想定問答」の 4 行目" in x and "上書き" in x for x in problems), problems)
+            self.assertTrue(any("「無い問い」は、標準の想定問答にありません" in x for x in problems), problems)
+
     def test_register_refuses_a_changed_preview(self):
         p = self.preview(book())
         other = book(sheets={"基本": [("項目", "値"), ("業務の目的", "目的を書き換えた"), ("お客様の区分", "法人"), ("自社名", "株式会社テスト物流"),

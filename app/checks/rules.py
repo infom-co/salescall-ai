@@ -167,6 +167,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "business_versions": {"INSERT": frozenset({_CORE + "business_settings.py"})},   # 業務設定の版（(10)。版を作るのは1か所）
     "questions": {"INSERT": frozenset({_CORE + "business_settings.py"})},
     "business_contents": {"INSERT": frozenset({_CORE + "business_settings.py"})},
+    "standard_versions": {"INSERT": frozenset({_CORE + "business_settings.py"})},   # システムの標準の想定問答の版（0174。形と重ね方は1か所）
     "run_versions": {"INSERT": frozenset({_CORE + "business_settings.py"})},        # 実施回への版の割り当て（記録つき）
     "version_stages": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段（Q22）
     "calendar_loads": {"INSERT": frozenset({_CORE + "calendar.py"})},        # 祝日の暦（Q12 の材料）

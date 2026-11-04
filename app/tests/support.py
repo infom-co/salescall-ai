@@ -198,6 +198,27 @@ class World:
         finally:
             self.approve_common((voice,), parts=recordings.CONTRACTOR_PARTS)
 
+    @contextlib.contextmanager
+    def standard(self, answers: tuple[tuple[str, str], ...], *, voices: tuple[str, ...] = ()):
+        """管理者が、システムの標準の想定問答の新しい版（answers＝(問いの名前, 答え) の並び）を作り、その中でいまの標準にして試す。
+        voices の声には、その版の標準の録音の組を作って承認する（架空の録音）。終わったら、想定問答の無い標準の版を作って、いまの標準を
+        空に戻す（標準の版はシステムの持ち物で、変えられない＝ほかの試験も、いまの標準を重ねる）。"""
+        from salescall.core import business_settings
+
+        def make(tx):
+            sid = business_settings.save_standard(tx, {"answers": [{"name": a, "text": t} for a, t in answers]})
+            for v in voices:
+                recordings.approve(tx, recordings.create_set(
+                    tx, unit="standard", voice_name=v, standard_id=sid,
+                    parts=[recordings.Part(business_settings.ANSWER_PART_PREFIX + a, t, f"test://{v}/standard/{a}", "0" * 64)
+                           for a, t in answers]))
+            return sid
+        sid = self.a.in_system(ADMIN, make)
+        try:
+            yield sid
+        finally:
+            self.a.in_system(ADMIN, lambda tx: business_settings.save_standard(tx, {"answers": []}))
+
     def approve_voices(self, tenant: UUID, client: UUID, version: UUID,
                        voices: tuple[str, ...] | None = None, *, parts: tuple[str, ...] = ("intro",)) -> None:
         """声ごとに、その版の業務の録音の組（依頼者の単位）を作って承認する（架空の録音）。voices が無ければ、その契約者の声

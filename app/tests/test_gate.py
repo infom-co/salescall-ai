@@ -1170,6 +1170,56 @@ class CallerNumberAndVoice(Base):
         cur = self.tx(s, lambda tx: recordings.current_sets(tx, s["version"], "Leda"))
         self.assertEqual(cur["business"], sid)
 
+    def test_a_version_on_the_standard_speaks_only_with_the_standards_recordings_of_that_standard(self):
+        """標準の想定問答を使う業務の版は、その版が指す標準の版の、標準の録音の組（システムの持ち物）に、その版が標準から流す部分
+        （上書きも「使わない」もしていない標準の問いの答え）がすべてそろった声だけで話す（0174。足りなければ、足りない部分の名前を
+        知らせる。直すのは管理者）。業務が上書きした問いは業務の録音（標準の録音は要らない）。ほかの標準の版の録音は使わない。
+        標準の録音を作れるのは管理者だけで、部分は、その標準の版の答え（名前も文も）と同じものだけ。"""
+        from salescall.core import business_settings as bs
+        from tests.test_business_settings import raw as settings_raw
+        P = recordings.Part
+        std = (("番号の出どころ", "以前お問い合わせいただいた際のお電話番号にお掛けしております。"),
+               ("会社の場所", "東京都港区にございます。"))
+        s = self.ready()
+        r = settings_raw()
+        r["answers"] = [{"name": "会社の場所", "text": "大阪府にございます。"}]       # 会社の場所は業務の答え（業務の録音）
+        with self.w.standard(std, voices=("Sadachbia",)) as sid:
+            v = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r), OPERATOR)
+            self.w.approve_voices(s["tenant"], s["client"], v, ("Leda", "Sadachbia"), parts=("intro", "answer_会社の場所"))
+            self.assertEqual(self.tx(s, lambda tx: bs.standard_parts_of(tx, v)), ("answer_番号の出どころ",))
+            self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v)), ["Sadachbia"])   # Leda は標準の録音が無い
+            self.assertEqual(self.tx(s, lambda tx: recordings.missing_parts(tx, v)), ["answer_番号の出どころ"])
+            cur = self.tx(s, lambda tx: recordings.current_sets(tx, v, "Sadachbia"))
+            std_set = cur["standard"]
+            self.assertEqual(self.tx(s, lambda tx: sorted(recordings.parts(tx, std_set))),
+                             ["answer_会社の場所", "answer_番号の出どころ"])
+            self.assertEqual(self.tx(s, lambda tx: recordings.current_sets(tx, v, "Leda"))["standard"], None)
+            with self.w.standard(std[:1], voices=("Leda", "Sadachbia")):            # ほかの標準の版の録音は使わない（あとで作っても）
+                self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v)), ["Sadachbia"])
+                self.assertEqual(self.tx(s, lambda tx: recordings.current_sets(tx, v, "Sadachbia"))["standard"], std_set)
+            off = dict(r, answers_off=["番号の出どころ"])                            # 標準の問いを使わない版は、標準の録音が要らない
+            w = self.tx(s, lambda tx: bs.save_version(tx, s["business"], off, standard_id=sid), OPERATOR)
+            self.w.approve_voices(s["tenant"], s["client"], w, ("Leda",), parts=("intro", "answer_会社の場所"))
+            self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, w)), ["Leda"])
+            self.assertEqual(self.tx(s, lambda tx: recordings.missing_parts(tx, w)), [])
+            parts = [P("answer_" + a, t, f"test://Leda/{a}", "0" * 64) for a, t in std]
+            with self.assertRaises(Rejected):                                        # 契約者は標準の録音を作れない
+                self.tx(s, lambda tx: recordings.create_set(tx, unit="standard", voice_name="Leda", standard_id=sid, parts=parts),
+                        OPERATOR)
+            for wrong in (parts[:1], parts + [P("answer_営業時間", "x", "test://x", "0" * 64)],
+                          [parts[0], P(parts[1].part, "違う文。", "test://x", "0" * 64)]):
+                with self.assertRaises(ValueError):                                  # 部分は、その標準の版の答えと同じものだけ
+                    self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(
+                        tx, unit="standard", voice_name="Leda", standard_id=sid, parts=wrong))
+            fresh = self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(      # まだ承認していない組（部分を足せる）
+                tx, unit="standard", voice_name="Leda", standard_id=sid, parts=parts))
+            for part, text in (("answer_会社の場所", "違う文。"), ("answer_営業時間", std[1][1])):
+                with self.assertRaises(Rejected) as e:                               # データベースも守る（名前も文も）
+                    self.w.a.in_system(ADMIN, lambda tx: tx.execute(
+                        "INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
+                        " VALUES (NULL, NULL, %s, %s, %s, 'test://x', %s)", (fresh, part, text, "4" * 64)))
+                self.assertEqual(e.exception.constraint, "standard_recording_matches")
+
     def test_an_approval_belongs_to_the_content_of_the_recording(self):
         """承認は録音の中身に付く（0172。設計書 3-8-3 の (2)。✅ 2026-11-02 管理者 伺い2「案1でOK」）：同じ持ち主（依頼者）・同じ声で、
         文と音声の指紋がまったく同じ部分は、一度承認されていれば、どの組の中でも承認済み。全部が承認済みの部分の組は、承認を待たずに

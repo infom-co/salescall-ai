@@ -510,8 +510,8 @@ OWN_LINE_MISSING = "この依頼者に専用の発信番号がありません。
 
 
 VOICE_NOT_READY = "この業務の録音が、まだ承認されていません。録音を聞いて承認してください。"
-VOICE_PARTS_MISSING = ("共通の一言の録音（どの契約者にも同じ、システムの録音）に、足りない録音があります（{}）。管理者が足りない録音を"
-                       "入れた組を作り、聞いて承認するまで、その声ではかけません。")
+VOICE_PARTS_MISSING = ("システムの録音（どの契約者にも同じ、共通の一言・標準の想定問答の答え）に、足りない録音があります（{}）。管理者が足りない"
+                       "録音を入れた組を作り、聞いて承認するまで、その声ではかけません。")
 NAME_RECORDING_MISSING = ("お名前の録音（名前の録音の台帳）がそろっていない行があります（例：{}）。台帳の録音を作り、聞いて承認して"
                           "ください（それまで、その行はかけません）。")
 OTHER_VOICE_MISSING = "別の声の録音がありません。ほかの依頼者がかけた番号へは、同じ声ではかけません。別の声の録音を承認してください。"
@@ -571,9 +571,9 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     admin = False
     if ready:
         reason, summary, key = "voice_used_by_other_client", OTHER_VOICE_MISSING, ""
-    elif missing := recordings.missing_parts(tx, version_id):   # 業務の録音はあるが、共通の一言（システム）に足りない部分がある
+    elif missing := recordings.missing_parts(tx, version_id):   # 業務の録音はあるが、システムの録音（共通の一言・標準の想定問答）に足りない部分がある
         reason, summary, key = "voice_not_ready", VOICE_PARTS_MISSING.format("・".join(missing)), ":" + ",".join(missing)
-        admin = True   # 共通の一言を直せるのは管理者だけ（0171）
+        admin = True   # システムの録音を直せるのは管理者だけ（0171・0174）
     else:
         reason, summary, key = "voice_not_ready", VOICE_NOT_READY, ""
     notify.emit(tx, "setting_missing", key=f"{reason}:{version_id}{key}:{today}", summary=summary,

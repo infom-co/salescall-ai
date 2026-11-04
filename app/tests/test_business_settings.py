@@ -53,13 +53,13 @@ def raw() -> dict:
 
 def problems_of(r: dict) -> list[str]:
     with unittest.TestCase().assertRaises(bs.SettingsInvalid) as e:
-        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
     return e.exception.problems
 
 
 class Check(unittest.TestCase):
     def test_valid_and_flow(self):
-        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual(s.questions[1].choices, ("答えた",))            # 値を聞く質問の選択肢は型で決まる
         # 分岐のシート（Q1 しない → 終わり）は置き換えて読む：「しない」はここで終える答え（依頼者が最終目的の列で決めた最終目的と断る答えは
         # そのまま＝両方。CL-1 の連絡帳 4-79）。ほかの答えは並びの次（Q2）なので、伺う条件は付かない
@@ -71,7 +71,7 @@ class Check(unittest.TestCase):
         録音のファイル名に使え、AI が選ぶ録音の部分の名前と同じでない。"""
         r = raw()
         r["answers"] = [{"name": "番号の出どころ", "text": "以前ご予約の際にいただいたお電話番号にお掛けしております。"}]
-        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).answers,
+        self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).answers,
                          (("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。"),))
         for bad, word in (([{"name": "番号の出どころ", "text": "a"}, {"name": "番号の出どころ", "text": "b"}], "同じ問いの名前"),
                           ([{"name": "番号:出どころ", "text": "a"}], "ファイル名"), ([{"name": "あ" * 31, "text": "a"}], "ファイル名"),
@@ -102,19 +102,19 @@ class Check(unittest.TestCase):
         self.assertEqual(ast.literal_eval(assigned["ANSWER_PART_PREFIX"]), bs.ANSWER_PART_PREFIX)
         r = raw()
         r["answers"] = [{"name": "答えられない質問", "text": "a"}]
-        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).answers, (("答えられない質問", "a"),))
+        self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).answers, (("答えられない質問", "a"),))
 
     def test_responses_to_callee_offers(self):
         """相手の申し出への応じ方・伝言の文・業務の情報・改めて連絡すると申し出てよいか（CL-1 の連絡帳 4-28・2026-10-22 ユーザー決定）：
         書かなければ既定（判断いただけるお立場の方なら話す・断って戻る時刻を聞く・後任の方をお呼びする・情報なし・いいえ）。選べない
         値・伝言を残すのに文が無い・情報の形の誤りは止める（CL-1 の flowctl.check_policies と同じ決まり）。"""
-        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.substitute_policy, s.message_policy, s.message, s.departed_policy, s.info, s.follow_up),
                          ("decision_maker", "decline", None, "successor", (), False))
         r = raw()
         r.update(substitute_policy="anyone", message_policy="leave", message="お伝えいただけますでしょうか？",
                  departed_policy="end", info=["営業時間は9時から18時です"], follow_up=True)
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.substitute_policy, s.message_policy, s.message, s.departed_policy, s.info, s.follow_up),
                          ("anyone", "leave", "お伝えいただけますでしょうか？", "end", ("営業時間は9時から18時です",), True))
         for bad, word in (({"substitute_policy": "boss"}, "選べません"), ({"departed_policy": "x"}, "選べません"),
@@ -131,7 +131,7 @@ class Check(unittest.TestCase):
         r = raw()
         r["questions"][0]["meanings"] = {"する": "ご予約なさるということ", "しない": "ご予約はなさらないということ"}
         r["questions"][0]["replies"] = {"結構": "しない"}
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[0].meanings["する"], s.questions[0].replies), ("ご予約なさるということ", {"結構": "しない"}))
         self.assertEqual((s.questions[1].meanings, s.questions[1].replies), ({}, {}))
         for key, bad in (("meanings", {"わからない": "わからないということ"}), ("meanings", {"する": " "}),
@@ -147,7 +147,7 @@ class Check(unittest.TestCase):
     def test_any_is_a_system_answer_of_choice_questions(self):
         """決まった選択肢の質問には、システムが「どちらでも」を足す（お客様がこちらに任せた＝取れた答え。2026-10-17 ユーザー。
         CL-1 の連絡帳 4-17）。同じ名前の選択肢は書けない。分岐を書くなら、その行き先も要る（受け皿でよい）。はい／いいえには足さない。"""
-        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual(bs.possible_answers(s.questions[0]), ("する", "しない", "どちらでも", "どれも要らない", "わからない", "答えたくない"))
         self.assertNotIn("どちらでも", s.questions[0].ends_on)             # 受け皿（Q2＝並びの次）へ
         self.assertIsNone(s.questions[1].ask_if)
@@ -165,7 +165,7 @@ class Check(unittest.TestCase):
         要らない」を足す（はい／いいえ・事実を伺う質問には足さない）。同じ名前の選択肢は書けない。分岐を書くなら、その行き先も要る。
         どの質問でも申し出を断る答え（`declined_answers` の1か所＝会話の側の Question.declined と同じ）。最終目的の申し出の質問では、断られると
         会話の側がその場で締めうる（その先の必須の質問を飛ばしてよい）。ほかの質問では、断ったまま分岐のとおり続ける（飛ばせない）。"""
-        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertIn("どれも要らない", bs.possible_answers(s.questions[0]))
         self.assertNotIn("どれも要らない", s.questions[0].ends_on)          # 受け皿（Q2＝並びの次）へ
         yes_no = bs.Question("Q9", "ご予約はお済みですか。", None, "yes_no", True, bs.YES_NO_CHOICES)
@@ -182,10 +182,10 @@ class Check(unittest.TestCase):
         # （対象外）」と数える）
         r = raw()
         r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "どれも要らない": "END", "*": "Q2"}
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((bs.declined_answers(s.questions[0]), s.questions[0].ends_on), (frozenset({"しない", "どれも要らない"}), ("しない", "どれも要らない")))
         r["questions"][0].update(final_goal=False, declines=[])
-        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない", "どれも要らない"))
+        self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない", "どれも要らない"))
 
     def test_final_goals_their_decline_answers_and_how_the_goal_is_met(self):
         """最終目的の申し出（final_goal）・断る答え（declines）・最終目的の果たし方（goal_mode）は業務設定の質問と業務に持つ（CL-1 の連絡帳
@@ -193,7 +193,7 @@ class Check(unittest.TestCase):
         断りの答え decline に持ち、判定が最終目的かを問わず「用件を断られた」と決め直していた）。断る答えは、その質問の選択肢から。最終目的の
         申し出には断る答えが要る（ご承認の質問の「いいえ」・「どれも要らない」も断る答え）。果たし方は、最終目的が2つ以上のときだけ書く
         （必ず書く＝こちらで推し量らない）。"""
-        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual([(q.final_goal, q.declines) for q in s.questions], [(True, ("しない",)), (False, ())])
         self.assertIsNone(s.goal_mode)
         approval = bs.Question("Q9", "以上でよろしいでしょうか？", None, "yes_no", True, bs.YES_NO_CHOICES, approval=True)
@@ -201,8 +201,8 @@ class Check(unittest.TestCase):
         two = raw()
         two["questions"][1].update(type="yes_no", text="ご案内の資料をお送りしてもよろしいでしょうか？", final_goal=True, declines=["いいえ"])
         self.assertTrue(any("最終目的の果たし方（goal_mode）を書きます" in p for p in problems_of(two)), problems_of(two))
-        self.assertEqual(bs.check(dict(two, goal_mode="all"), field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode, "all")
-        self.assertEqual(bs.check(dict(two, goal_mode="any"), field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode, "any")
+        self.assertEqual(bs.check(dict(two, goal_mode="all"), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode, "all")
+        self.assertEqual(bs.check(dict(two, goal_mode="any"), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).goal_mode, "any")
         cases = []
         r = raw(); r["goal_mode"] = "any"; cases.append((r, "最終目的の果たし方（goal_mode）は書きません"))
         r = dict(two, goal_mode="どれか"); cases.append((r, "最終目的の果たし方（goal_mode）を書きます"))
@@ -230,7 +230,7 @@ class Check(unittest.TestCase):
                                "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
                                "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": []})
         r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"))
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[2].ask_if, s.questions[2].approval, s.questions[0].ask_if, s.questions[0].approval),
                          (bs.AskIf("Q1", ("迷っている", "わからない")), True, None, False))
         for name, change, words in (
@@ -259,10 +259,10 @@ class Check(unittest.TestCase):
         r = raw()
         r["questions"][0]["asks_fact"] = True
         r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "わからない": "Q2", "答えたくない": "Q2"}   # 受け皿なし
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertTrue(s.questions[0].asks_fact)
         self.assertEqual(bs.possible_answers(s.questions[0]), ("する", "しない", "わからない", "答えたくない"))
-        self.assertFalse(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].asks_fact)
+        self.assertFalse(bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].asks_fact)
         for bad in (None, "はい", 1):
             with self.subTest(bad=bad):
                 r = raw()
@@ -277,11 +277,11 @@ class Check(unittest.TestCase):
         r["questions"][0]["do_words"] = {"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"}
         r["questions"][1]["intro"] = "それではご希望の日時の確認からさせていただきます。"
         r["client_does"] = "手配"
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[0].do_words, s.questions[1].intro, s.client_does),
                          ({"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"},
                           "それではご希望の日時の確認からさせていただきます。", "手配"))
-        self.assertIsNone(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).client_does)
+        self.assertIsNone(bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).client_does)
         for name, change, words in (("事実を伺う質問", lambda r: r["questions"][0].update(asks_fact=True,
                                                                                        do_words={"する": "ご予約をお取りさせていただきます"}),
                                      "事実を伺う質問"),
@@ -301,8 +301,8 @@ class Check(unittest.TestCase):
         取り下げ＝業務設定の形に無い（書けば形の誤り）。"""
         r = raw()
         r["questions"][0].update(away=["しない"])
-        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].away, ("しない",))
-        self.assertEqual(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].away, ())
+        self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].away, ("しない",))
+        self.assertEqual(bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].away, ())
         self.assertNotIn("keep_words", bs.QUESTION_KEYS)
         for name, change, words in (
                 ("事実を伺う質問", lambda r: r["questions"][0].update(asks_fact=True, away=["しない"]), "事実を伺う質問"),
@@ -330,10 +330,10 @@ class Check(unittest.TestCase):
                 self.assertTrue(any(f"「{lead}」で始めません" in p for p in problems_of(r)), problems_of(r))
         r = raw()
         r["questions"][0]["text"] = "それでは、ご予約はなさいますか。"
-        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         r = raw()
         r["questions"][1]["text"] = "ご希望の日時をお聞かせください。それでは承ります。"   # 頭でなければよい
-        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_do_words_run_to_the_end_of_the_sentence(self):
         """CL-1 の連絡帳 4-72 の答えの (2)・(g)（✅ 2026-11-03 ユーザー (D) の案への答え）：こちらがすることの言葉は文の終わりまで持ち、終わりは
@@ -343,7 +343,7 @@ class Check(unittest.TestCase):
             with self.subTest(ok=words):
                 r = raw()
                 r["questions"][0]["do_words"] = {"する": words}
-                self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].do_words, {"する": words})
+                self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].do_words, {"する": words})
         for words in ("予定通りの方向で進め", "ご予約をお取りさせていただきます。", "承ります。", "担当者からお電話を差し上げさせていただきます",
                       "ご訪問をお伺いさせていただきます", "させていただきますか", "それではパンフレットをお送りさせていただきます",
                       "当日は、お車でお越しということで承ります", "「青葉ホール」でのご予約を承ります"):
@@ -359,12 +359,12 @@ class Check(unittest.TestCase):
         選択肢の質問の、宣言した選択肢にだけ付く（事実を伺う質問にも付く）。依頼者が書く（無ければ空）。"""
         r = raw()
         r["questions"][0]["tell_words"] = {"する": "○○駐車場をご利用いただけますのでどうぞご利用ください。"}
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual(s.questions[0].tell_words, {"する": "○○駐車場をご利用いただけますのでどうぞご利用ください。"})
         self.assertEqual(s.questions[1].tell_words, {})
         r = raw()
         r["questions"][0].update(asks_fact=True, next=None, final_goal=False, declines=[], tell_words={"する": "当日はお車でお越しください。"})
-        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)   # 事実を伺う質問にも付く
+        bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)   # 事実を伺う質問にも付く
         for name, change in (("宣言に無い選択肢", lambda r: r["questions"][0].update(tell_words={"どちらでも": "x"})),
                              ("値を聞く質問", lambda r: r["questions"][1].update(tell_words={"答えた": "x"})),
                              ("空の一言", lambda r: r["questions"][0].update(tell_words={"する": " "})),
@@ -379,8 +379,8 @@ class Check(unittest.TestCase):
         宣言した選択肢と「どちらでも」「どれも要らない」（返りうるとき）だけ。「わからない」「答えたくない」は書けない（先へ進むかが決まらない答え）。"""
         r = raw()
         r["questions"][0].update(ends_on=["しない", bs.NONE_CHOICE])   # Q1 は事実を伺わない選ぶ質問＝「どれも要らない」が返りうる
-        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない", bs.NONE_CHOICE))
-        self.assertEqual(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない",))   # 分岐のシートから
+        self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない", bs.NONE_CHOICE))
+        self.assertEqual(bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].ends_on, ("しない",))   # 分岐のシートから
         for name, change, words in (
                 ("わからない", lambda r: r["questions"][0].update(ends_on=["わからない"]), "書けません"),
                 ("答えたくない", lambda r: r["questions"][0].update(ends_on=["答えたくない"]), "書けません"),
@@ -413,7 +413,7 @@ class Check(unittest.TestCase):
                 self.assertTrue(any("録音の部分の名前" in p for p in problems_of(extra(qid))), problems_of(extra(qid)))
         for qid in ("Q3_other", "Q1x", "Q1-2", "Q10"):                         # 無い質問の番号からの形・「_」で続かない番号は取り違えない
             with self.subTest(ok=qid):
-                bs.check(extra(qid), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+                bs.check(extra(qid), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         for qid in ("W1", "C10", "busy"):
             with self.subTest(reserved=qid):
                 self.assertTrue(any("会話の側で使う" in p for p in problems_of(extra(qid))), problems_of(extra(qid)))
@@ -429,7 +429,7 @@ class Check(unittest.TestCase):
                                "declines": [], "tell_words": {}, "ends_on": []})
         r["questions"][0]["next"] = None
         r["questions"][0]["final_goal"], r["questions"][0]["declines"] = False, []
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual(s.questions[2].ask_if, bs.AskIf("Q1", ("しない",), True))
         for name, change, words in (
                 ("真偽でない", lambda r: r["questions"][2]["ask_if"].update(hedged="はい"), "hedged）は true / false"),
@@ -442,7 +442,7 @@ class Check(unittest.TestCase):
                 self.assertTrue(any(words in p for p in problems_of(bad)), problems_of(bad))
         ok = copy.deepcopy(r)
         ok["questions"][2]["ask_if"].update(after="Q2", answers=["答えた"], hedged=False)   # 言い切っていないときだけ、でなければ値の質問の後でもよい
-        bs.check(ok, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        bs.check(ok, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_earliest_day_setting(self):
         """CL-1 の連絡帳 4-71 の (c)（✅ 2026-11-03 ユーザー：「業務設定では「3営業日以降」などの設定になるので、それを自動で置き換える仕組みが
@@ -457,13 +457,13 @@ class Check(unittest.TestCase):
             r["earliest"] = {"business_days": 3, "closed_weekdays": ["sat", "sun"], "closed_on_holidays": True,
                              "closed_dates": ["2026-12-30", "2026-12-29"]}
             return r
-        s = bs.check(slotted(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(slotted(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual(s.earliest, bs.Earliest(3, ("sat", "sun"), True, (date(2026, 12, 29), date(2026, 12, 30))))
-        self.assertIsNone(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).earliest)
+        self.assertIsNone(bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).earliest)
         r = slotted()
         r["questions"][1]["text"] = "ご希望の日時をお聞かせください。"
         r["questions"][1]["intro"] = f"{bs.DAY_SLOT}からのご案内になります。"   # 入る一言に書いてもよい
-        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).earliest.business_days, 3)
+        self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).earliest.business_days, 3)
 
         def extra_question(qid):
             def change(r):
@@ -499,7 +499,7 @@ class Check(unittest.TestCase):
                 self.assertTrue(any(words in p for p in problems_of(r)), problems_of(r))
         r = slotted()
         extra_question("Q2x")(r)                                           # 「_」で続かなければ取り違えない
-        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_earliest_day_counts_business_days(self):
         """最短の日の数え方（`Earliest.day` の1か所）：電話の日の次の日から数えて N 番目の営業日（0 なら、電話の日から数えて最初の営業日）。
@@ -543,12 +543,12 @@ class Check(unittest.TestCase):
         r["questions"] = qs
         r["rules"]["handling"] = {"*": r["rules"]["handling"]["Q1"]}   # 必須の質問すべてに当てる扱い（置き換えで必須になる質問にも当たる）
         started = time.monotonic()
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertLess(time.monotonic() - started, 2.0)
         by = {q.id: q for q in s.questions}
         self.assertEqual([by[f"Detail{i}"].ask_if for i in range(n)], [bs.AskIf(f"Ask{i}", ("ある",)) for i in range(n)])
         qs[-2] = dict(qs[-2], next={"*": "END"})   # 最後の詳しく聞く質問のあとで終わる＝続きの終わり（Ask19 の「ある」で終わる）
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual({q.id: q.ends_on for q in s.questions if q.ends_on}, {"Q1": ("しない",), f"Ask{n - 1}": ("ある",)})
 
     def test_malformed_values_are_problems_not_crashes(self):
@@ -627,21 +627,21 @@ class Check(unittest.TestCase):
         """「わからない」「答えたくない」で次へ進むのは、理由×扱いで決まる（飛ばしでは止めない）。"""
         r = raw()
         r["questions"][0]["next"] = {"しない": "END", "わからない": "END", "*": "Q2"}
-        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_ai_reading_and_unit(self):
         """AI が決めた読みは、フルオートでは契約者が確かめずに通る。読みが決まらない名前も、検証モードでも通る（会話の中で確かめる。
         2026-10-16 ユーザー）。自社名の読みは決まらなくてもよい。数の質問は単位を持てる。"""
         r = raw(); r["names"][2]["reading_by"] = "ai"
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=False)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=False)
         self.assertEqual(s.names[2].reading_by, "ai")
         r = raw(); r["names"][2].update(reading=None, reading_by=None, candidates=["てすとぶつりゅう", "てすともつりゅう"],
                                         likely="てすとぶつりゅう")
         r["names"][0].update(reading=None, reading_by=None); r["caller"]["company"]["reading"] = None
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.names[2].reading, s.names[2].likely, s.company.reading), (None, "てすとぶつりゅう", None))
         r = raw(); r["questions"][1].update(type="number", unit="名")
-        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[1].unit, "名")
+        self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[1].unit, "名")
 
 
 class BranchFlow(unittest.TestCase):
@@ -665,7 +665,7 @@ class BranchFlow(unittest.TestCase):
         return r
 
     def flow(self, r):
-        return {q.id: q for q in bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions}
+        return {q.id: q for q in bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions}
 
     def test_end_is_a_stop_answer_or_a_goal_refusal(self):
         """「→ 終わり」：どの答えでも（目的から遠ざかる向きでも）ここで終える答え（断りではない）。最終目的は依頼者が列で決めたものだけで、
@@ -741,7 +741,7 @@ class BranchFlow(unittest.TestCase):
         r = self.book(("Q1", "yes_no", (), {"いいえ": "END", "*": "Q2"}, ()), ("Q2", "free_text", (), None, ()))
         r["questions"][0]["required"] = False
         r["rules"]["handling"]["Q2"] = {"dont_know": {"undecided": {"kind": "ask_when"}}}
-        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         rules = business_rules.check(UUID(int=0), tuple(q.id for q in s.questions if q.required), r["rules"])
         self.assertEqual((rules.handling[("Q1", "dont_know", "undecided")].kind, rules.handling[("Q2", "dont_know", "undecided")].kind,
                           rules.handling[("Q2", "dont_know", "not_in_charge")].kind), ("retry", "ask_when", "retry"))
@@ -997,3 +997,118 @@ class Versions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+STD = (("番号の出どころ", "以前お問い合わせいただいた際のお電話番号にお掛けしております。"),
+       ("会社の場所", "東京都港区にございます。"))
+
+
+class StandardScripts(unittest.TestCase):
+    """システムの標準の想定問答と、業務の上書き（設計書 3-8-3 の作る順の (4)・0174。✅ 2026-11-02 管理者 伺い2「システムの想定問答や
+    トークスクリプトにデフォルトの想定を…表示しておき、基本はそれを使う。上書きが必要な業務は…上書きし、その分の録音を実施する。」）。"""
+
+    def setUp(self):
+        self.w = World()
+        self.s = self.w.setup()
+
+    def tx(self, work, actor=OPERATOR):
+        return self.w.a.in_client(actor, self.s["tenant"], self.s["client"], work)
+
+    @staticmethod
+    def std(*answers):
+        return bs.Standard(UUID(int=7), tuple(answers))
+
+    def test_the_standard_answers_come_in_and_the_businesss_own_answer_overrides_by_name(self):
+        """業務の版の想定問答＝業務の答え（業務の録音）＋業務が書いていない名前の標準の答え（標準の録音）。同じ名前は業務の答えが勝つ。
+        どれが標準から来たか（standard_answers）と、標準の録音から流す部分の名前（standard_parts）は、重ね方の1か所が決める。"""
+        r = raw()
+        r["answers"] = [{"name": "会社の場所", "text": "大阪府にございます。"}, {"name": "駐車場", "text": "ございます。"}]
+        s = bs.check(r, standard=self.std(*STD), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual(s.answers, (("会社の場所", "大阪府にございます。"), ("駐車場", "ございます。"), STD[0]))
+        self.assertEqual((s.standard_id, s.standard_answers), (UUID(int=7), frozenset({"番号の出どころ"})))
+        self.assertEqual(bs.standard_parts(s), ("answer_番号の出どころ",))
+        self.assertEqual(bs.own_answers(s), (("会社の場所", "大阪府にございます。"), ("駐車場", "ございます。")))
+        self.assertEqual([(x["name"], x["source"]) for x in bs.answer_rows(s, self.std(*STD))],
+                         [("番号の出どころ", "standard"), ("会社の場所", "overridden"), ("駐車場", "business")])
+        plain = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((plain.answers, plain.standard_id, plain.standard_answers), ((), None, frozenset()))
+
+    def test_a_business_turns_off_a_standard_answer_only_by_its_name(self):
+        """業務は、標準の想定問答を名前で「使わない」にできる（answers_off）。標準に無い名前・業務の答えで上書きした名前は「使わない」に
+        できない（どちらか1つ）。並びでない・同じ名前が2回も問題。"""
+        r = raw()
+        r["answers_off"] = ["会社の場所"]
+        s = bs.check(r, standard=self.std(*STD), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.answers, s.standard_answers), ((STD[0],), frozenset({"番号の出どころ"})))
+        self.assertEqual([(x["name"], x["source"]) for x in bs.answer_rows(s, self.std(*STD))],
+                         [("番号の出どころ", "standard"), ("会社の場所", "off")])
+        for off, answers, want in ((["無い問い"], [], "標準の想定問答にありません"),
+                                   (["会社の場所"], [{"name": "会社の場所", "text": "大阪府にございます。"}], "どちらか1つ"),
+                                   ("会社の場所", [], "問いの名前の並び"),
+                                   (["会社の場所", "会社の場所"], [], "問いの名前の並び")):
+            r = raw()
+            r["answers_off"], r["answers"] = off, answers
+            with self.assertRaises(bs.SettingsInvalid) as e:
+                bs.check(r, standard=self.std(*STD), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+            self.assertTrue(any(want in p for p in e.exception.problems), (off, e.exception.problems))
+        r = raw()
+        r["answers_off"] = ["会社の場所"]
+        self.assertTrue(any("標準の想定問答にありません" in p for p in problems_of(r)))   # 標準を使わない版には、使わない問いも無い
+
+    def test_the_standard_has_the_same_shape_as_the_businesss_answers(self):
+        """標準の版の中身の確かめは、業務の想定問答と同じ1か所（名前の重なり・使えない名前・ファイル名に入らない文字）。"""
+        self.assertEqual(bs.check_standard({"answers": [{"name": "a", "text": " 答え "}]}).answers, (("a", "答え"),))
+        for bad in ({"answers": [{"name": "a", "text": "x"}, {"name": "a", "text": "y"}]},
+                    {"answers": [{"name": "a/b", "text": "x"}]},
+                    {"answers": [{"name": "a"}]},
+                    {"answers": [], "busy_line": "x"},
+                    []):
+            with self.assertRaises(bs.SettingsInvalid):
+                bs.check_standard(bad)
+
+    def test_only_the_admin_makes_a_standard_version_and_it_never_changes(self):
+        """標準の版を作れるのは管理者だけ（システムの取引で。データベースが守る）。作った版は変えられない（直すのは新しい版）。
+        すべての契約者が読める。"""
+        from tests.support import ADMIN
+        body = {"answers": [{"name": "会社の場所", "text": "東京都港区にございます。"}]}
+        for who in (lambda: self.tx(lambda tx: bs.save_standard(tx, body)),
+                    lambda: self.w.a.in_system(OPERATOR, lambda tx: bs.save_standard(tx, body))):
+            with self.assertRaises(Rejected) as e:
+                who()
+            self.assertEqual(e.exception.constraint, "standard_by_admin")
+        with self.w.standard(STD[1:]) as sid:
+            self.assertEqual(self.tx(lambda tx: bs.current_standard(tx)), bs.Standard(sid, STD[1:]))
+            stored = self.w.a.in_system(ADMIN, lambda tx: tx.one(
+                "SELECT created_by FROM salescall.standard_versions WHERE standard_id = %s", (sid,)))
+            self.assertEqual(stored["created_by"], ADMIN.name)
+            for change in ("UPDATE salescall.standard_versions SET content = '{\"answers\": []}' WHERE standard_id = %s",
+                           "DELETE FROM salescall.standard_versions WHERE standard_id = %s"):
+                with self.assertRaises(Rejected):
+                    owner_access().in_system(ADMIN, lambda tx: tx.execute(change, (sid,)))
+        with self.assertRaises(bs.SettingsInvalid):   # 確かめに通らない中身は置かない
+            self.w.a.in_system(ADMIN, lambda tx: bs.save_standard(tx, {"answers": [{"name": "a", "text": ""}]}))
+        trimmed = self.w.a.in_system(ADMIN, lambda tx: tx.one(   # 置くのは確かめた形（標準の録音の文と比べる守りと同じ文）
+            "SELECT content FROM salescall.standard_versions WHERE standard_id = %s",
+            (bs.save_standard(tx, {"answers": [{"name": "a", "text": " 答え "}]}),)))
+        self.w.a.in_system(ADMIN, lambda tx: bs.save_standard(tx, {"answers": []}))   # いまの標準を空に戻す
+        self.assertEqual(trimmed["content"], {"answers": [{"name": "a", "text": "答え"}]})
+
+    def test_a_version_keeps_the_standard_it_was_made_with(self):
+        """業務の版は、作ったときのいまの標準の版を指し、読むときもその版を重ねる（管理者が標準を新しくしても、その業務の版の文は
+        変わらない＝どの通話がどの文で話したかを追える）。前の版へ戻す・複製も、元の版の標準のまま。新しい版は、そのときのいまの標準。"""
+        with self.w.standard(STD) as first:
+            v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
+            with self.w.standard(STD[:1]) as second:
+                got = self.tx(lambda tx: bs.load(tx, v))
+                self.assertEqual((got.standard_id, got.answers), (first, STD))
+                back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
+                self.assertEqual((back.standard_id, back.answers), (first, STD))
+                new = self.tx(lambda tx: bs.load(tx, bs.save_version(tx, self.s["business"], raw())))
+                self.assertEqual((new.standard_id, new.answers), (second, STD[:1]))
+                self.assertEqual(self.tx(lambda tx: bs.standard_parts_of(tx, v)), ("answer_会社の場所", "answer_番号の出どころ"))
+                none = self.tx(lambda tx: bs.load(tx, bs.save_version(tx, self.s["business"], raw(), standard_id=None)))
+                self.assertEqual((none.standard_id, none.answers), (None, ()))
+        old = self.s["version"]                                         # 標準の前の版（標準を指さない）
+        self.assertEqual(self.tx(lambda tx: bs.standard_parts_of(tx, old)), ())
+        with self.assertRaises(Rejected):                               # 版が指す標準の版は変えられない（版と同じ）
+            self.tx(lambda tx: tx.execute("UPDATE salescall.business_versions SET standard_id = NULL WHERE version_id = %s", (v,)))

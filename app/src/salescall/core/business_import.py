@@ -55,7 +55,7 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "retry": ("かけ直し", {"key": "結果", "action": "かけ直すか", "max_times": "回数", "interval": "間隔"}, True),
     "forbidden": ("言ってはいけないこと", {"key": "名前", "say_not": "言ってはいけないこと", "correct": "正しい案内"}, False),
     "names": ("名前", {"text": "表記", "reading": "読み"}, False),
-    "answers": ("想定問答", {"name": "問いの名前", "text": "答え"}, False),   # お客様に聞かれたら答えてよいこと（CL-1 の 4-26）
+    "answers": ("想定問答", {"name": "問いの名前", "text": "答え", "off": "標準を使わない"}, False),   # お客様に聞かれたら答えてよいこと（CL-1 の 4-26）
 }
 # 無くてもよい列（役目.列の役目）：見出しが無ければ空として読む（前のひな形にこの列が無いため）。対応付けで見出しを指定したのに無ければ問題。
 # 質問に入る一言（依頼者のトークスクリプト。CL-1 の連絡帳 4-65 の (b)。最初の質問には書かない＝業務設定の確かめ）。
@@ -71,9 +71,12 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # その答えのあとに伝える一言（選択肢ごと。同じ「選択肢：一言」の形。例「はい：○○駐車場をご利用いただけますのでどうぞご利用ください。」。
 # 取込の AI は作らない。CL-1 の連絡帳 4-72 の (i)）
 # ここで終える答え（「この答えなら、ここで終える」。答えを「／」か改行で区切る。この列のある質問は必須の質問。CL-1 の連絡帳 4-74。✅ 2026-11-04 管理者「OK」）
+# 想定問答の「標準を使わない」（「はい」の行は、その名前のシステムの標準の想定問答を、この業務では使わない＝答えは書かない。答えを書いた行は、
+# 同じ名前の標準の想定問答を、この業務の答えで上書きする＝その業務の録音。設計書 3-8-3 の作る順の (4)・0174。✅ 2026-11-02 管理者 伺い2
+# 「上書きが必要な業務は、トークスクリプト設定画面か、エクセルなどのシートで上書きし、その分の録音を実施する。」）
 OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.ask_hedged",
                               "questions.approval", "questions.final_goal", "questions.do_words", "questions.tell_words",
-                              "questions.ends_on"})
+                              "questions.ends_on", "answers.off"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -112,6 +115,7 @@ LABELS: dict[str, dict[str, str]] = {
     "approval": {"はい": True, "○": True, "いいえ": False, "": False},
     "final_goal": {"はい": True, "○": True, "いいえ": False, "": False},
     "ask_hedged": {"はい": True, "○": True, "いいえ": False, "": False},
+    "answer_off": {"はい": True, "○": True, "いいえ": False, "": False},
     "closed_on_holidays": {"はい": True, "いいえ": False},
     "weekday": {f"{w}{x}": k for w, k in zip("月火水木金土日", ("mon", "tue", "wed", "thu", "fri", "sat", "sun")) for x in ("", "曜日")},
     "goal_mode": {"どれか1つで果たせる": "any", "全部が要る": "all"},
@@ -136,6 +140,7 @@ class Preview:
     digest: str = ""                              # 登録のときに同じ中身かを確かめる指紋
     ai: dict[str, Any] = field(default_factory=dict)   # AI の答え（登録にそのまま渡す。聞き直さない）
     notes: list[str] = field(default_factory=list)     # 知らせ（登録は止めない。例：無くてもよいシートが無かった）
+    standard_id: UUID | None = None               # 重ねた標準の版（プレビューのときのいまの標準。登録はこの版で作る＝指紋に入る。0174）
 
 
 def _sheets(file_name: str, data: bytes, mapping: dict[str, Any]
@@ -406,10 +411,17 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         seen_forbidden[key] = row_no
         forbidden[key] = {"say_not": v.get("say_not"), "correct": v.get("correct")}
 
-    answers, where_a = [], []
-    for row_no, v in _rows(sheets, "answers", problems):   # 形と重なりの確かめは業務設定の1か所（business_settings._answers）
+    answers, where_a, answers_off = [], [], []
+    for row_no, v in _rows(sheets, "answers", problems):   # 形と重なりの確かめは業務設定の1か所（business_settings._answers・_with_standard）
+        where = f"シート「想定問答」の {row_no} 行目"
+        if _label("answer_off", v.get("off"), f"{where}の標準を使わない", problems):
+            if v.get("text"):
+                problems.append(f"{where}：答えを書いた問いは「標準を使わない」にできません（答えを書けば、標準の答えをこの業務の答えで"
+                                "上書きします。使わないなら答えを消します）")
+            answers_off.append(v.get("name"))
+            continue
         answers.append({"name": v.get("name"), "text": v.get("text")})
-        where_a.append(f"シート「想定問答」の {row_no} 行目")
+        where_a.append(where)
 
     names, where_n = [], []
     pairs = [(basic.get("company"), basic.get("company_reading"), "caller", "シート「基本」の自社名"),
@@ -429,6 +441,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         "target_person": {"kind": tkind, "role": basic.get("target_role")},
         "busy_line": basic.get("busy_line"), "voicemail_message": basic.get("voicemail_message"),
         "ai_answer": basic.get("ai_answer"), "answers": answers, "voice": basic.get("voice"),
+        **({"answers_off": answers_off} if answers_off else {}),
         **_responses(basic, problems, notes),
         **({"client_does": basic["client_does"]} if basic.get("client_does") else {}),
         **({"goal_mode": _label("goal_mode", basic["goal_mode"], "シート「基本」の最終目的の果たし方", problems)}
@@ -712,6 +725,7 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     ai = ai or {}
     raw = json.loads(json.dumps(raw, ensure_ascii=False))           # 受けたものを変えない
     verification = business_settings.ai_reading_needs_person(tx, business_id)
+    standard = business_settings.current_standard(tx)   # 重ねるのは、いまの標準（業務設定の1か所。登録も同じ版で作る＝Preview.standard_id）
     confirmed = {t: r for t, r in confirmed_names}
     found = readings.from_json(ai.get("names"))
     # 名前の一覧は、読めない形の行も順番どおり残す（落とすと、確かめが問題に出せず、問題の位置もずれる。2026-10-17 の見直し）。
@@ -797,8 +811,8 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
                 c["reading"] = same["reading"]
     notes: list[str] = []
     try:
-        s = business_settings.check(raw, field_types=_field_types(tx), ai_reading_needs_person=verification,   # 確かめは1か所
-                                    voice_types=business_settings.voice_types(tx))
+        s = business_settings.check(raw, standard=standard, field_types=_field_types(tx),   # 確かめは1か所
+                                    ai_reading_needs_person=verification, voice_types=business_settings.voice_types(tx))
         notes = business_settings.notices(raw) + [
             f"質問 {q.id} の選択肢「{a}」は目的から遠ざかる向きなので、書いてあるこちらがすることの言葉「{written[q.id][a]}」は使いません"
             "（その向きの言葉では言い直しません。目的につなげて伺いたいときは「言い切っていないときに伺う質問」に書きます）"
@@ -807,13 +821,16 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         problems += [p for p in e.problems if p not in problems]
     if where is not None:                                             # ファイルの入口：問題の位置をシートと行にする
         problems = _placed(problems, where)
-    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems), ai, notes=notes)
+    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems, standard.standard_id), ai, notes=notes,
+                   standard_id=standard.standard_id)
 
 
-def _digest(business_id: UUID, raw: dict[str, Any] | None, problems: list[str]) -> str:
-    """プレビューと登録が同じ中身かを確かめる指紋（業務と中身と問題。1か所）。問題も入れる：確かめ（check）の外で見つかった問題
-    （ファイルの読めない行・重なった行など。中身 raw には残らない）を、プレビューから消して登録できないように（2026-10-17 の見直し）。"""
-    return hashlib.sha256(json.dumps({"business_id": str(business_id), "raw": raw, "problems": problems},
+def _digest(business_id: UUID, raw: dict[str, Any] | None, problems: list[str], standard_id: UUID | None) -> str:
+    """プレビューと登録が同じ中身かを確かめる指紋（業務と中身と問題と重ねた標準の版。1か所）。問題も入れる：確かめ（check）の外で
+    見つかった問題（ファイルの読めない行・重なった行など。中身 raw には残らない）を、プレビューから消して登録できないように（2026-10-17
+    の見直し）。標準の版も入れる：プレビューのあとで管理者が標準を新しくしたら、契約者が見ていない標準で版を作らない（0174）。"""
+    return hashlib.sha256(json.dumps({"business_id": str(business_id), "raw": raw, "problems": problems,
+                                      "standard_id": None if standard_id is None else str(standard_id)},
                                      ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
@@ -844,11 +861,11 @@ class PreviewChanged(Exception):
 def register_reviewed(tx: Tx, business_id: UUID, p: Preview, *, expected_digest: str) -> UUID:
     """契約者が確かめたプレビューと同じ中身なら、新しい版を作る（どの入口も、ここを通る。1つの取引。問題が1つでもあれば何も書かない）。"""
     # 指紋は、渡されたものを信じず、中身から出し直す（プレビューは書き換えられる。業務も指紋に入れる。2026-10-16 の見直し I8）
-    if _digest(business_id, p.raw, p.problems) != expected_digest:
+    if _digest(business_id, p.raw, p.problems, p.standard_id) != expected_digest:
         raise PreviewChanged("プレビューのあとで中身が変わりました。もう一度プレビューを確かめてください")
     if p.problems or p.raw is None:
         raise business_settings.SettingsInvalid(p.problems)
-    return business_settings.save_version(tx, business_id, p.raw)
+    return business_settings.save_version(tx, business_id, p.raw, standard_id=p.standard_id)
 
 
 def register(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, expected_digest: str,

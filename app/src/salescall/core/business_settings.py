@@ -352,6 +352,10 @@ class Settings:
     goal_mode: str | None = None
     # 最短の日（「N営業日以降」）。質問の文か入る一言に `DAY_SLOT` を書いた業務だけ書く（必ず書く）。ほかは None
     earliest: Earliest | None = None
+    # 重ねた標準の版（0174。無ければ None＝標準を使わない前の版）と、answers のうち標準から来た問いの名前（業務が上書きしていない・
+    # 「使わない」にしていないもの。録音は標準の録音＝`standard_parts`。業務の録音には入れない＝`own_answers`）
+    standard_id: UUID | None = None
+    standard_answers: frozenset[str] = frozenset()
 
     def target_needs(self) -> TargetNeeds:
         """目的のお客様を呼ぶのに、発信対象の一覧から何が要るか（決め方はここだけ。取込・版の割り当て・門が使う）。
@@ -368,9 +372,130 @@ KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voic
 # （CL-1 の連絡帳 4-28）。書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
-OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
+OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest", "answers_off"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
 #                                                                 4-65 の (c)。goal_mode＝最終目的の果たし方。最終目的が2つ以上の業務だけ書く。
-#                                                                 earliest＝最短の日。DAY_SLOT を書いた業務だけ書く。4-71 の (c)）
+#                                                                 earliest＝最短の日。DAY_SLOT を書いた業務だけ書く。4-71 の (c)。answers_off＝使わない
+#                                                                 標準の想定問答の問いの名前＝業務の上書き。0174）
+
+
+# ═════════ システムの標準（設計書 3-8-3 の作る順の (4)・0174） ═════════
+# ✅ 2026-11-02 管理者 伺い2「案1でOKだが、システムの想定問答やトークスクリプトにデフォルトの想定をダッシュボードのトークスクリプト設定
+# 画面に表示しておき、基本はそれを使う。上書きが必要な業務は、トークスクリプト設定画面か、エクセルなどのシートで上書きし、その分の録音を
+# 実施する。」
+# 標準を持てる項目と、業務への重ね方（1か所）。answers＝想定問答：問いの名前ごとに、業務が同じ名前で書いた答えが勝つ（業務の録音）・業務が
+# 「使わない」（answers_off）にした問いは使わない・残りは標準の答え（標準の録音）。⏳ ほかの項目（トークスクリプトの標準の一文など）は
+# CL-1 と決めてから足す（足すときは、この表に重ね方を書き、`check_standard`・`_with_standard` の1か所に足す）。
+# 標準を持たない項目：「AIですか」の答え（標準は共通の一言 ai_answer＝CL-1 の連絡帳 4-75）・引き止めの一言（標準を置かない＝9-4）・
+# 名乗り・用件・質問・業務の情報（その業務のもの）。
+STANDARD_ITEMS: dict[str, str] = {"answers": "by_name"}
+
+
+@dataclass(frozen=True)
+class Standard:
+    """標準の版の中身（`check_standard` の答え）。standard_id＝標準の版（無い＝標準を使わない）。"""
+    standard_id: UUID | None
+    answers: tuple[tuple[str, str], ...] = ()
+
+
+NO_STANDARD = Standard(None)
+LATEST = "latest"   # save_version の standard_id：いまの標準（いちばん新しい標準の版。無ければ標準を使わない）
+
+
+def check_standard(raw: Any, standard_id: UUID | None = None) -> Standard:
+    """標準の版の中身を確かめて読む（ただ1つの確かめ。想定問答の形は業務の想定問答と同じ1か所＝`_answers`）。"""
+    problems: list[str] = []
+    if not isinstance(raw, dict) or not set(raw) <= set(STANDARD_ITEMS):
+        raise SettingsInvalid([f"標準の版は {sorted(STANDARD_ITEMS)} です"])
+    answers = _answers(raw.get("answers", []), problems)
+    if problems:
+        raise SettingsInvalid(problems)
+    return Standard(standard_id, answers)
+
+
+def standard(tx: Tx, standard_id: UUID | None) -> Standard:
+    """その標準の版（None＝標準を使わない）。中身は置いた時に確かめ済み。"""
+    if standard_id is None:
+        return NO_STANDARD
+    row = tx.one("SELECT content FROM salescall.standard_versions WHERE standard_id = %s", (standard_id,))
+    if row is None:
+        raise LookupError(f"その標準の版はありません：{standard_id}")
+    return check_standard(row["content"], standard_id)
+
+
+def current_standard(tx: Tx) -> Standard:
+    """いまの標準（いちばん新しい標準の版。無ければ標準を使わない）。新しい業務の版が重ねるのはこれ（1か所）。"""
+    row = tx.one("SELECT standard_id FROM salescall.standard_versions ORDER BY standard_no DESC LIMIT 1")
+    return standard(tx, None if row is None else row["standard_id"])
+
+
+def save_standard(tx: Tx, raw: dict[str, Any]) -> UUID:
+    """標準の新しい版を作る（確かめに通らなければ何も置かない）。作れるのは管理者だけ（システムの取引で）＝データベースが守る。
+    いまの業務の版は、作ったときの標準の版のまま（新しい標準に替えるのは、作る順の (5) の1か所）。"""
+    std = check_standard(raw)   # 置くのは確かめた形（前後の空白を除いた文。標準の録音の文と比べる守り＝0174 と同じ文）
+    return tx.one("INSERT INTO salescall.standard_versions (content) VALUES (%s) RETURNING standard_id",
+                  (json.dumps({"answers": [{"name": a, "text": t} for a, t in std.answers]}, ensure_ascii=False),))["standard_id"]
+
+
+def _with_standard(answers: tuple[tuple[str, str], ...], off: Any, std: Standard,
+                   problems: list[str]) -> tuple[tuple[tuple[str, str], ...], frozenset[str]]:
+    """業務の想定問答に標準を重ねる（1か所＝`STANDARD_ITEMS` の answers の重ね方）。返すのは、重ねた想定問答（業務の答えが先、標準の
+    答えはそのあと）と、そのうち標準から来た問いの名前。"""
+    names = {a for a, _ in std.answers}
+    if not isinstance(off, list) or not all(isinstance(x, str) for x in off) or len(set(off)) != len(off):
+        problems.append("使わない標準の想定問答（answers_off）は、問いの名前の並び（同じ名前は1回）です")
+        off = []
+    own = {a for a, _ in answers}
+    for x in off:
+        if x not in names:
+            problems.append(f"使わない標準の想定問答「{x}」は、標準の想定問答にありません（{sorted(names)}）")
+        elif x in own:
+            problems.append(f"想定問答「{x}」は、業務の答えで上書きしているので、「使わない」にはできません（どちらか1つ）")
+    used = tuple((a, t) for a, t in std.answers if a not in own and a not in off)
+    return answers + used, frozenset(a for a, _ in used)
+
+
+def own_answers(s: Settings) -> tuple[tuple[str, str], ...]:
+    """その業務の版が、業務の録音で話す想定問答（業務だけの問答と、標準を上書きした問答。標準から来た問答は標準の録音＝`standard_parts`）。
+    業務の録音の組の部分（answer_＋問いの名前）は、これだけから作る（1か所）。"""
+    return tuple(a for a in s.answers if a[0] not in s.standard_answers)
+
+
+def standard_parts(s: Settings) -> tuple[str, ...]:
+    """その業務設定が、標準の録音から流す部分の名前（名前の順。1か所）。"""
+    return tuple(sorted(ANSWER_PART_PREFIX + a for a in s.standard_answers))
+
+
+def standard_parts_of(tx: Tx, version_id: UUID) -> tuple[str, ...]:
+    """置いた版が、標準の録音から流す部分の名前（名前の順。話してよい声・足りない部分が読む＝core/recordings）。版の中身の想定問答・
+    使わない標準の問いと、版が指す標準の版を、`check` と同じ1か所（`_answers`・`_with_standard`）で重ねて決める（業務の決まり・読みは
+    要らないので、版の全部は読まない）。標準を指さない版・中身の無い版は空。"""
+    row = tx.one("SELECT v.standard_id, c.content FROM salescall.business_versions v"
+                 " LEFT JOIN salescall.business_contents c ON c.version_id = v.version_id WHERE v.version_id = %s", (version_id,))
+    if row is None or row["standard_id"] is None or row["content"] is None:
+        return ()
+    problems: list[str] = []
+    _, used = _with_standard(_answers(row["content"].get("answers", []), problems), row["content"].get("answers_off", []),
+                             standard(tx, row["standard_id"]), problems)
+    if problems:   # 置いた時に確かめ済み。ここで落ちるのは、表の中身を直に書き換えたとき
+        raise SettingsInvalid(problems)
+    return tuple(sorted(ANSWER_PART_PREFIX + a for a in used))
+
+
+def answer_rows(s: Settings, std: Standard) -> list[dict[str, Any]]:
+    """画面（トークスクリプト設定画面）に出す想定問答の行（1か所）：標準の問答・業務が上書きした問答・業務だけの問答・業務が使わない
+    標準の問答を、どこから来たか（source＝standard／overridden／business／off）つきで並べる（標準の順、そのあと業務だけの問答）。"""
+    own = dict(own_answers(s))
+    rows = []
+    for a, t in std.answers:
+        if a in s.standard_answers:
+            rows.append({"name": a, "text": t, "source": "standard"})
+        elif a in own:
+            rows.append({"name": a, "text": own[a], "standard_text": t, "source": "overridden"})
+        else:
+            rows.append({"name": a, "text": t, "source": "off"})
+    std_names = {a for a, _ in std.answers}
+    rows += [{"name": a, "text": t, "source": "business"} for a, t in own.items() if a not in std_names]
+    return rows
 
 
 def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) -> str | None:
@@ -565,11 +690,12 @@ def _answer_words(raw: Any, type_name: str, choices: tuple[str, ...], where: str
     return good
 
 
-def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: bool,
+def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_reading_needs_person: bool,
           voice_types: frozenset[str] | None = None) -> Settings:
     """業務設定を確かめて読む（ただ1つの確かめ。業務の決まりは版を作るときに business_rules が確かめる）。
     ai_reading_needs_person：AI の読みの案を、契約者が確かめていなければ通さないか（版を作るときは設定 `ai_reading_needs_person`
-    の答え。置いた版を読むときは False＝置いた時に確かめ済み）。合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
+    の答え。置いた版を読むときは False＝置いた時に確かめ済み）。standard＝重ねる標準の版（新しい版はいまの標準＝`current_standard`、
+    置いた版は、その版が指す標準の版。重ね方は `_with_standard` の1か所）。合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
     problems: list[str] = []
     if not isinstance(raw, dict) or not KEYS <= set(raw) <= KEYS | OPTIONAL_KEYS:
         raise SettingsInvalid([f"業務設定は {sorted(KEYS)} の {len(KEYS)} つと、無くてもよい {sorted(OPTIONAL_KEYS)} です"])
@@ -612,7 +738,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     busy_line = _text(raw["busy_line"], "忙しいと言われたときの一言", problems, optional=True)
     voicemail_message = _text(raw["voicemail_message"], "留守番電話に残す伝言", problems, optional=True)
     ai_answer = _text(raw["ai_answer"], "「AIですか」と聞かれたときの答え", problems, optional=True)
-    answers = _answers(raw["answers"], problems)
+    answers, from_standard = _with_standard(_answers(raw["answers"], problems), raw.get("answers_off", []), standard, problems)
     responses = _responses(raw, problems)
     client_does = _text(raw.get("client_does"), "依頼者がすること", problems, optional=True)
     voice = _text(raw["voice"], "声の型", problems)
@@ -722,7 +848,8 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     problems += _derived_part_problems(raw)
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
-                 **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest)
+                 **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest,
+                 standard_id=standard.standard_id, standard_answers=from_standard)
     if flowed:
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
             business_rules.check(UUID(int=0), tuple(q.id for q in questions if q.required), raw["rules"])
@@ -1084,14 +1211,17 @@ def _content(s: Settings) -> dict[str, Any]:
     return dict(content, names=[dict(x, text=x["text"].strip()) for x in content.get("names", [])])
 
 
-def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> UUID:
-    """業務設定を確かめて、新しい版を作る（1つの取引。確かめに通らなければ何も置かない）。版の番号を返す。"""
-    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=ai_reading_needs_person(tx, business_id),
+def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any], *, standard_id: UUID | str | None = LATEST) -> UUID:
+    """業務設定を確かめて、新しい版を作る（1つの取引。確かめに通らなければ何も置かない）。版の番号を返す。standard_id＝重ねる標準の版
+    （LATEST＝いまの標準。取込は契約者がプレビューで見た標準の版を渡す・前の版から作るときは、その版の標準の版を渡す。None＝標準を
+    使わない）。版は、その標準の版を指す（0174）。"""
+    std = current_standard(tx) if standard_id == LATEST else standard(tx, standard_id)
+    s = check(raw, standard=std, field_types=_field_types(tx), ai_reading_needs_person=ai_reading_needs_person(tx, business_id),
               voice_types=voice_types(tx))
     version = tx.one(
-        "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, created_by)"   # 版の番号はデータベースが決める（next_seq。0123）
-        " SELECT b.tenant_id, b.client_id, b.business_id, salescall.cur_actor()"
-        " FROM salescall.businesses b WHERE b.business_id = %s RETURNING version_id", (business_id,))
+        "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, created_by, standard_id)"   # 版の番号はデータベースが決める（next_seq。0123）
+        " SELECT b.tenant_id, b.client_id, b.business_id, salescall.cur_actor(), %s"
+        " FROM salescall.businesses b WHERE b.business_id = %s RETURNING version_id", (std.standard_id, business_id))
     if version is None:
         raise LookupError(f"その業務は無い（または、取引の範囲の外）：{business_id}")
     vid = version["version_id"]
@@ -1126,7 +1256,9 @@ def load(tx: Tx, version_id: UUID) -> Settings:
     """その版の業務設定（中身・質問・業務の決まりを、置いたときと同じ確かめで読む）。名前の読みは、その版のいまの読み（見方
     current_name_readings の1か所。版の中身に書いた決まった読みに、契約者が録音を聞いて選んだ読みが重なる。Intent.md 6-2）。"""
     raw = _stored(tx, version_id)
-    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み（読み・声の型）
+    pinned = tx.one("SELECT standard_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["standard_id"]
+    s = check(raw, standard=standard(tx, pinned), field_types=_field_types(tx),   # 置いた時に確かめ済み（読み・声の型）。標準はその版が指す版
+              ai_reading_needs_person=False)
     s = replace(s, rules=business_rules.load(tx, version_id))
     now = {r["name_text"]: r for r in tx.all(
         "SELECT name_text, reading, reading_by FROM salescall.current_name_readings WHERE version_id = %s", (version_id,))}
@@ -1228,7 +1360,8 @@ def save_from(tx: Tx, business_id: UUID, version_id: UUID) -> UUID:
     """いまある版から、その業務の新しい版を作る（以前の版へ戻す・業務を複製する、の1か所）。中身は置いたときと同じ確かめで読み直し、
     契約者が録音を聞いて選んだ名前の読みも引き継ぐ（読みは版ごとの表にあり、版の中身には入っていない。⚠️ 前は中身だけを写したので、
     戻した版・複製した版では読みが決まらない名前に戻り、契約者が選び直すまで、その名前を話す録音が使えなかった＝見直し8）。"""
-    new = save_version(tx, business_id, load(tx, version_id).raw)
+    old = load(tx, version_id)
+    new = save_version(tx, business_id, old.raw, standard_id=old.standard_id)   # 標準も、その版が指す標準の版のまま（替えるのは (5) の1か所）
     from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
     recordings.carry_readings(tx, version_id, new)
     return new
