@@ -11507,9 +11507,13 @@ class NoneOfThemTest(unittest.TestCase):
         from phrases import CALLBACK_ASK_CHOSEN, CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, RECORDED, WISH_TOLD
         say = AmbiguousAnswerTest.say
         how, cid, mob, mail = (CALLBACK_IDS[r] for r in ("line_how", "line", "mobile", "email"))
-        self.assertEqual((CALLBACK_ASK_FORM["mobile"], CALLBACK_ASK_OTHER_WAYS["sms"]),
+        # ✅ 2026-11-05 日本時間1時19分47秒 ユーザー：ID が分からないとき「それではSMSかメールからご招待する方法でもよろしいでしょうか？」OK・メールアドレスを
+        # 伺えないとき「それではLINEのIDから登録かSMSからご招待する方法でもよろしいでしょうか？」
+        self.assertEqual((CALLBACK_ASK_FORM["mobile"], CALLBACK_ASK_OTHER_WAYS["sms"], CALLBACK_ASK_OTHER_WAYS["id"], CALLBACK_ASK_OTHER_WAYS["email"]),
                          ("恐れ入りますがSMSは携帯電話の番号にお送りいたしますので携帯電話の番号をお伺いしてもよろしいでしょうか？",
-                          "それではLINEのIDかメールからご招待する方法でもよろしいでしょうか？"))
+                          "それではLINEのIDかメールからご招待する方法でもよろしいでしょうか？",
+                          "それではSMSかメールからご招待する方法でもよろしいでしょうか？",
+                          "それではLINEのIDから登録かSMSからご招待する方法でもよろしいでしょうか？"))
 
         def chose(way):
             f, _ = self.wished(True)
