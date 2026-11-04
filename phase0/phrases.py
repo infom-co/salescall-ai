@@ -523,13 +523,32 @@ NUMBER_AGAIN = {"wrong_party": "前回お伺いしたお電話番号にお掛け
 #    理由として言う「お答えできません」は断りではない（flowctl.refusal_in）。録音なので、言葉の途中の読点は外す（✅ 2026-10-15 ユーザー：「句読点のような
 #    間が入ると、少し違和感がある」＝SpokenTextTest）
 OWN_FALLBACK = "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。"
-# ご納得いただけなかった点が、知っていること（業務の情報・想定問答）に無く、ご説明できないとき（flowctl.Flow._point_step・お客様の言葉は質問ではない）。
-# ✅ 2026-11-02 日本時間5時56分 ユーザー：「「恐れ入ります。その点は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。」OK」
-OWN_FALLBACK_POINT = "恐れ入ります。その点は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。"
-# 続きの電話でのご説明（前の電話で伺った点＝19時26分の (A)・点を伺えずにご承認いただく内容を改めてご説明＝0時48分の (ア)）を、知っていることに無くご説明
-# できないとき（flowctl.Flow._own_fallback）：この電話では点を伺っていないので「その点」は何も指さない ⇒「前回お伺いした点」。⏳ 2026-11-05 日本時間2時45分39秒の
-# 「残りの9つを直してください」の (2) で作った言い方＝ユーザーに伺う（この電話で点を伺ったときは上の OWN_FALLBACK_POINT のまま）
-OWN_FALLBACK_POINT_AGAIN = "恐れ入ります。前回お伺いした点は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。"
+# ご納得いただけなかった点が、知っていること（業務の情報・想定問答）に無く、ご説明できないときの一言（決まった言い方の1か所。flowctl.Flow._own_fallback）。
+# ✅ 2026-11-05 日本時間3時33分11秒 ユーザー（続きの電話の言い方へのご修正）：「恐れ入ります。前回お伺いしたご質問(場合によっては「ご要望」「ご意見」)は私では
+# 正確にご説明(お返事・ご回答)できませんので担当の者に申し伝えさせていただきますね。」＝お客様の言ったことの種類（ご質問・ご要望・ご意見）で、名前と返し方を
+# そろえる（「点」は言わない）。どの種類かは、お客様の言葉を聞いた会話AIが、答えの文と一緒に選ぶ（受け答えの一言 TALK_FALLBACK と同じ形）。同じ理由は、この電話で
+# 点を伺ったときの一言（✅ 11-02 5時56分「その点は…ご説明できません…OK」）にも当たる（10-19 の決まり）＝「その」＋種類。⏳ 種類と返し方の組（ご要望＝お返事・
+# ご意見＝ご回答）は、ご修正の括弧の並びで組んだ＝ユーザーに伺う
+POINT_KINDS = {"question": ("ご質問", "ご説明"), "request": ("ご要望", "お返事"), "opinion": ("ご意見", "ご回答")}
+
+
+def point_fallback(kind: str, again: bool) -> str:
+    """ご説明できないときの一言（kind＝POINT_KINDS の名前・again＝続きの電話＝前の電話で伺った点）。"""
+    noun, verb = POINT_KINDS[kind]
+    return f"恐れ入ります。{'前回お伺いした' if again else 'その'}{noun}は私では正確に{verb}できませんので担当の者に申し伝えさせていただきますね。"
+
+
+def point_fallback_id(kind: str, again: bool) -> str:
+    """その一言の録音の名前（共通の一言。ご質問は前からの名前のまま）。"""
+    return "own_fallback_point" + ("_again" if again else "") + ("" if kind == "question" else f"_{kind}")
+
+
+POINT_FALLBACK = {point_fallback_id(k, a): point_fallback(k, a) for k in POINT_KINDS for a in (False, True)}
+OWN_FALLBACK_POINT = POINT_FALLBACK["own_fallback_point"]
+OWN_FALLBACK_POINT_AGAIN = POINT_FALLBACK["own_fallback_point_again"]
+# 続きの電話の始めに点を伺えず、ご承認いただく内容を改めてご説明する段（0時48分の (ア)）で、ご説明できないとき：お客様は点を言っていない（ご質問・ご要望・
+# ご意見のどれでもない）ので「前回お伺いした件」。⏳ 3時33分11秒のご修正の場面（点を伺えた続きの電話）とは別の場面＝ユーザーに伺う
+OWN_FALLBACK_EXPLAIN_AGAIN = "恐れ入ります。前回お伺いした件は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。"
 # 続きの電話の始めのご説明（19時26分の (A)＝「前回お伺いした（その点）の件ですが、」から）が、自分で答える受け皿（知っていることの文そのまま＝その点の短い
 # 言葉は会話AIが作るので受け皿では言えない）になったときの話し始め（録音。続けて会話AIが知っていることの文を言う）。⏳ 同じく伺う
 RESUMED_FALLBACK_LEAD = "前回お伺いした件ですが、"
@@ -583,8 +602,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "closing_after_decline": CLOSING_AFTER_DECLINE, "own_fallback_point": OWN_FALLBACK_POINT,
-            "own_fallback_point_again": OWN_FALLBACK_POINT_AGAIN, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD,
+            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "own_fallback_explain_again": OWN_FALLBACK_EXPLAIN_AGAIN, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},

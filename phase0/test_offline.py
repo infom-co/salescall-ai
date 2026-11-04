@@ -44,7 +44,10 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          # ユーザー (イ)。CL-1.md 4-84）
                          *(f"callback_line_how_without_{k}{n}" for k in ("id", "sms", "email") for n in ("", "_2")),
                          # 続きの電話の始めのご説明が受け皿で流れたときの一言（前回の件と分かる形）の録音（11-05 2時45分39秒のご指示で直した (2)。CL-1.md 4-85）
-                         "own_fallback_point_again", "resumed_fallback_lead"})
+                         "own_fallback_point_again", "resumed_fallback_lead",
+                         # ご説明できないときの一言を、お客様の言ったことの種類で（✅ 11-05 日本時間3時33分11秒 ユーザーのご修正。CL-1.md 4-85）
+                         "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request",
+                         "own_fallback_point_again_opinion", "own_fallback_explain_again"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -13856,7 +13859,8 @@ class OwnWordsTest(unittest.TestCase):
                                        "fallback": "営業時間は平日の9時から18時です。"})   # 判定が届かなかった
         self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "営業時間は平日の9時から18時です。", "hai"))
         decl = {d.name: d for d in tool_declarations(b.questions, known=tuple(f.known_lines()))[0].function_declarations}["replay_opening"]
-        self.assertEqual(decl.parameters.properties[ARG_LABEL["fallback"]].enum, list(TALK_LABEL.values()) + f.known_lines())
+        from flowctl import POINT_KIND_LABEL   # ご説明できない点の種類（✅ 11-05 日本時間3時33分11秒 ユーザーのご修正）も同じ項目で選ぶ
+        self.assertEqual(decl.parameters.properties[ARG_LABEL["fallback"]].enum, list(TALK_LABEL.values()) + list(POINT_KIND_LABEL.values()) + f.known_lines())
 
     def test_unchecked_words_are_not_spoken(self):
         # 中身の判定の読みが届かなかった（待つ長さを過ぎた・止まっている）文は、声に出さない。書き直させても判定は速くならないので、1回目で
@@ -15145,7 +15149,7 @@ class RemainingNineTest(unittest.TestCase):
         # ⛔ 名乗りとお詫びのすぐあとに話し始めの言葉の無い文が流れ、何も指さない「その点は私では…」が流れた。この電話で点を伺ったときは今までどおり
         from flowctl import CALLBACK_IDS
         from grounding import UNGROUNDED
-        from phrases import OWN_FALLBACK_POINT, OWN_FALLBACK_POINT_AGAIN, RESUMED_FALLBACK_LEAD
+        from phrases import OWN_FALLBACK_EXPLAIN_AGAIN, OWN_FALLBACK_POINT, OWN_FALLBACK_POINT_AGAIN, RESUMED_FALLBACK_LEAD
         f = self.resumed()
         bad = "前回お伺いした料金の件ですが、料金は月額2,000円です。"
         for _ in range(3):
@@ -15162,11 +15166,33 @@ class RemainingNineTest(unittest.TestCase):
         f = self.approval({"state": "accepted", "condition": "いいえ"})
         self.say(f, "うーん、何だったか覚えてないですね。", "record_answer", question_id=n1, condition_id="unknown")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらは担当の者に申し伝えさせていただきますね。"})
-        self.assertEqual([p["text"] for p in r.get("play", ())], [OWN_FALLBACK_POINT_AGAIN])
+        self.assertEqual([p["text"] for p in r.get("play", ())], [OWN_FALLBACK_EXPLAIN_AGAIN])   # 点を言っていない（ご質問・ご要望・ご意見のどれでもない）
         f = self.approval({"state": "accepted", "condition": "いいえ"})
         self.say(f, "料金のところがよく分からなかったんです。", "record_answer", question_id=n1, condition_id="点を言った", value="料金のところ")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらは担当の者に申し伝えさせていただきますね。"})
         self.assertEqual([p["text"] for p in r.get("play", ())], [OWN_FALLBACK_POINT])
+
+    def test_2b_cannot_explain_names_what_the_customer_said(self):
+        # ✅ 2026-11-05 日本時間3時33分11秒 ユーザー：「恐れ入ります。前回お伺いしたご質問(場合によっては「ご要望」「ご意見」)は私では正確にご説明(お返事・ご回答)
+        # できませんので担当の者に申し伝えさせていただきますね。」＝ご説明できないときの一言は、お客様の言ったことの種類で名前と返し方をそろえる（どれかは会話AIが
+        # 答えの文と一緒に選ぶ・選ばなければご質問）。同じ理由は、この電話で点を伺ったときの一言にも当たる（10-19 の決まり＝「その」＋種類）。⛔ 前は「点」とだけ言い、
+        # ご要望・ご意見にも「ご説明できません」と言った
+        from flowctl import CALLBACK_IDS
+        from phrases import RECORDED, point_fallback
+        n1 = CALLBACK_IDS["not_agreed"]
+        no = "前回お伺いした料金の件ですが、担当の者に申し伝えさせていただきますね。"
+        for pick, kind in ((None, "question"), ("question", "question"), ("request", "request"), ("opinion", "opinion")):   # （試験は中の名前で渡す）
+            f = self.resumed()
+            r = f.apply("replay_opening", {"part": "no_answer", "answer": no, **({"fallback": pick} if pick else {})})
+            self.assertEqual([(p["id"], p["text"]) for p in r.get("play", ())], [(next(k for k, v in RECORDED.items() if v == point_fallback(kind, True)),
+                                                                                  point_fallback(kind, True))], pick)
+            f = self.approval({"state": "accepted", "condition": "いいえ"})
+            self.say(f, "もっと安くしてほしいんです。", "record_answer", question_id=n1, condition_id="点を言った", value="もっと安くしてほしい")
+            r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらは担当の者に申し伝えさせていただきますね。", **({"fallback": pick} if pick else {})})
+            self.assertEqual([p["text"] for p in r.get("play", ())], [point_fallback(kind, False)], pick)
+        self.assertEqual(point_fallback("question", True), "恐れ入ります。前回お伺いしたご質問は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。")
+        self.assertEqual(point_fallback("request", False), "恐れ入ります。そのご要望は私では正確にお返事できませんので担当の者に申し伝えさせていただきますね。")
+        self.assertNotIn("点は", "".join(point_fallback(k, a) for k in ("question", "request", "opinion") for a in (False, True)))
 
     def test_3_talk_is_not_an_explanation(self):
         # (3) ご説明の段で、会話AIが受け答え（「さようでございますか。」）だけを返したら、ご説明したとは数えない＝受け取らずにご説明を頼む。⛔ ご説明したと数え、

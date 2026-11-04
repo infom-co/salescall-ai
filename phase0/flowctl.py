@@ -22,8 +22,8 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
-from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, OWN_FALLBACK_POINT_AGAIN, RESUMED_FALLBACK_LEAD
-from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, OWN_FALLBACK_POINT, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, OWN_FALLBACK_EXPLAIN_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, WISH_TOLD
@@ -930,6 +930,10 @@ OFFER_LABEL = {"callback": "折り返し", "message": "伝言", "email": "メー
 # 受け答えの文が使えないときに流す一言（phrases.TALK_FALLBACK の録音。AIは言い方そのものを選ぶ。同じ言葉の別の調子は、名前に調子を添えて分ける）
 TALK_LABEL = {k: f"{w}（{tone}）" if tone else w for k, (w, tone, _) in TALK_FALLBACK.items()}
 TALK_CHOICES = "、".join(f"{TALK_LABEL[k]}＝{scene}" for k, (_, _, scene) in TALK_FALLBACK.items())  # AIに見せる、選び方の説明（1か所）
+# ご説明できない点の種類（phrases.POINT_KINDS。答えを持っていない応え方で、ご説明する段のときだけ。AIが答えの文と一緒に選ぶ＝受け答えの一言と同じ形）
+POINT_KIND_LABEL = {k: noun for k, (noun, _) in POINT_KINDS.items()}
+POINT_KIND_CHOICES = ("「ご質問」＝分からない点・確かめたいことを言った、「ご要望」＝こうしてほしいという望みを言った、"
+                      "「ご意見」＝お考え・感想を言った")
 MEANS = ("email", "fax", "post")
 CALLBACK_PLAN = {"absent": ("back_time",), "day_off": ("next_workday",), "long_absent": ("back_date",),
                  "other_number": ("number", "reachable_time"), "later": ("later_time",), "other_means": (), "unavailable": ("transfer_time",)}
@@ -1349,7 +1353,7 @@ _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LA
 _FROM_LABEL = {"condition_id": {**{v: k for k, v in SYSTEM_LABEL.items()}, ANY_LABEL: ANY, NONE_LABEL: NONE}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
                "reason": {v: k for k, v in END_LABEL.items()}, "part": {v: k for k, v in PART_LABEL.items()},
                "party": {v: k for k, v in PARTY_LABEL.items()}, "why": {v: k for k, v in CALLBACK_LABEL.items()},
-               "offer": {v: k for k, v in OFFER_LABEL.items()}, "fallback": {v: k for k, v in TALK_LABEL.items()},
+               "offer": {v: k for k, v in OFFER_LABEL.items()}, "fallback": {v: k for k, v in {**TALK_LABEL, **POINT_KIND_LABEL}.items()},
                "until_why": {v: k for k, v in UNTIL_LABEL.items()}, "cycle": {v: k for k, v in CYCLE_LABEL.items()},
                "unknown_why": {v: k for k, v in UNKNOWN_WHY_LABEL.items()}}
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
@@ -1410,7 +1414,7 @@ REST_KEEP_DESC = ("ほかに言われたことを伺うよう頼まれて、次�
                   "なりそうなこと（電話番号など）を、相手が言ったとおりに書きます。無ければ書きません")
 # 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
 _ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL, "part": PART_LABEL, "party": PARTY_LABEL, "why": CALLBACK_LABEL, "offer": OFFER_LABEL,
-              "fallback": TALK_LABEL, "until_why": UNTIL_LABEL, "cycle": CYCLE_LABEL, "unknown_why": UNKNOWN_WHY_LABEL}
+              "fallback": {**TALK_LABEL, **POINT_KIND_LABEL}, "until_why": UNTIL_LABEL, "cycle": CYCLE_LABEL, "unknown_why": UNKNOWN_WHY_LABEL}
 
 
 def check_policies(policies: dict, message: str | None = None) -> None:
@@ -4870,9 +4874,8 @@ class Flow:
         質問＝断らない一言の録音（phrases.OWN_FALLBACK）。どれも確かめなくてよい。そのあと相手の返事を待つ（own_pending）。
         problem＝答えの文が使えなかった理由（None＝AIが一言だけを選んだ）。"""
         p = self.point
-        # 続きの電話でのご説明（この電話では点を伺っていない＝前の電話の点からご説明・点を伺えずにご承認いただく内容を改めてご説明）か、その始めのご説明か
-        # （_point_said で記録を作ると、始めのご説明かは読めなくなるので先に読む）
-        unnamed = self._explaining() and ("resumed" in p or bool(p.get("whole")))
+        # ご説明する段の、ご説明できないときの一言（_point_fallback の1か所）と、続きの電話の始めのご説明か（_point_said で記録を作ると読めなくなるので先に読む）
+        point_fb = self._point_fallback(pick) if self._explaining() else None
         lead = self._resumed_explaining()
         self.own_pending = kind
         self._point_said(kind)
@@ -4886,8 +4889,7 @@ class Flow:
             # では点を伺っていない）は「前回お伺いした点は…」（「その点」が何も指さない）。続きの電話の始めの自分で答える受け皿（知っていることの文そのまま）は、
             # 録音「前回お伺いした件ですが、」のあとに言う（話し始めの言葉は、その点の短い言葉を会話AIが作るので受け皿では言えない）。⛔ 2026-11-05 日本時間
             # 2時05分37秒のご質問のあとの読み直しで見つけた：名乗りとお詫びのすぐあとに話し始めの言葉の無い文・何も指さない「その点は私では…」が流れた
-            fb, fid = ((OWN_FALLBACK_POINT_AGAIN, "own_fallback_point_again") if unnamed else (OWN_FALLBACK_POINT, "own_fallback_point")) \
-                if self._explaining() else (OWN_FALLBACK, "own_fallback")
+            fb, fid = point_fb or (OWN_FALLBACK, "own_fallback")
             said, play = (pick, None) if kind == "own" else (fb, {"kind": "recorded", "id": fid, "text": fb})
             self._question_note({"answered": kind == "own", "answer": (RESUMED_FALLBACK_LEAD if lead and kind == "own" else "") + said, **drafts, **checked})
             if lead and kind == "own":
@@ -4902,6 +4904,17 @@ class Flow:
                     "message": f"{why}「{said}」を、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._own_then()}"}
         return {"result": "own_answer", "fallback": True, "say": said,
                 "message": f"{why}「{said}」とだけ言います（言葉を足しません）。{self._own_then()}"}
+
+    def _point_fallback(self, pick: str | None) -> tuple[str, str]:
+        """ご説明する段で、ご説明できないときの一言（文, 録音の名前）の唯一の決まり（_own_fallback）：お客様の言ったことの種類（ご質問・ご要望・ご意見＝
+        pick。会話AIが答えの文と一緒に選ぶ。選んでいなければご質問）で名前と返し方をそろえる（✅ 2026-11-05 日本時間3時33分11秒 ユーザーのご修正）。
+        続きの電話の始めのご説明（この電話では点を伺っていない）は「前回お伺いした…」、この電話で伺った点は「その…」。続きの電話で点を伺えず、ご承認
+        いただく内容を改めてご説明した（0時48分の (ア)。お客様は点を言っていない）ときは「前回お伺いした件は…」（⏳ 伺っている）。"""
+        p = self.point
+        if "resumed" not in p and p.get("whole"):
+            return OWN_FALLBACK_EXPLAIN_AGAIN, "own_fallback_explain_again"
+        kind, again = pick if pick in POINT_KINDS else "question", "resumed" in p
+        return point_fallback(kind, again), point_fallback_id(kind, again)
 
     def _may_follow_up(self, part: str | None) -> bool:
         """答えの文に「担当から改めてご連絡」を入れてよいか（業務設定で許された、答えを持っていない質問だけ。_own_answer・grounding_job の1か所）。"""
@@ -6912,7 +6925,8 @@ class Flow:
                     f"いまからご説明します：「{RESUMED_LEAD}（その点を短く言った言葉）の件ですが、」と話し始めて、続けてその点のご説明を、1つの文にして"
                     f"replay_opening を「{PART_LABEL['own']}」で呼びます（{ARG_LABEL['answer']}に、話し始めの言葉から全部を書きます。想定問答の答え・業務の"
                     f"情報にある中身は、その文の中にそのまま使います。お客様の誤解なら、正しい中身をご説明します）。こちらが知っていることに無ければ、答えを作らずに、"
-                    f"話し始めの言葉に続けて担当の者に申し伝えることを伝える文を書き、「{PART_LABEL['no_answer']}」で呼びます。")
+                    f"話し始めの言葉に続けて担当の者に申し伝えることを伝える文を書き、「{PART_LABEL['no_answer']}」で呼びます（{ARG_LABEL['fallback']}に、"
+                    f"その点の種類＝{POINT_KIND_CHOICES}、を選びます）。")
         if p.get("whole"):
             # 続きの電話の始めに点を伺えなかった（_point_step の whole）：ご承認いただく内容を改めてご説明する（✅ 2026-11-05 日本時間0時48分 ユーザー (ア)）
             q = self.questions[p["q"]]
@@ -6925,7 +6939,7 @@ class Flow:
                 "お客様が、ほかにも分からない点・確かめたい点があると言いました。その点を言っていなければ、どの点かを自分の言葉で短く伺ってから、")
         return (f"{head}次へ進む前に、その点を、お客様が分かるまで親身にご説明します：想定問答に答えがあれば、その答えを流します。こちらが知っていること（業務の情報）に"
                 f"あれば、その範囲で、自分の言葉で短くご説明します（お客様の誤解なら、正しい中身をご説明します）。知っていることに無ければ、答えを作らずに"
-                f"「{PART_LABEL['no_answer']}」で応えます。どれも replay_opening で呼びます。")
+                f"「{PART_LABEL['no_answer']}」で応えます（{ARG_LABEL['fallback']}に、その点の種類＝{POINT_KIND_CHOICES}、を選びます）。どれも replay_opening で呼びます。")
 
     def _wish_step(self) -> None:
         """選ぶ質問（「どちら」）に「どれも要らない」と答えていただいたときの手順（唯一の場所。_follow_ups から）。その事を受けていただいたうえで伺って
@@ -7774,9 +7788,10 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            {A["part"]: s([v for k, v in PART_LABEL.items() if replay or k in ("ai", "resume") + OWN_PARTS or (target and k == "handover")]
                          + list(answers)),
             A["answer"]: s(desc="自分の言葉で言う文（短く1〜2文。こちらについての事実は業務の情報にあることだけ。名前・約束・お客様への問いかけを入れない）"),
-            A["fallback"]: s(list(TALK_LABEL.values()) + list(known),
+            A["fallback"]: s(list(TALK_LABEL.values()) + list(POINT_KIND_LABEL.values()) + list(known),
                              desc=f"「{PART_LABEL['talk']}」「{PART_LABEL['own']}」のときだけ：返す文が使えないときの一言（受け答えは決まった一言・"
-                                  "自分で答える質問は、答えのもとにした業務の情報の文）"),
+                                  "自分で答える質問は、答えのもとにした業務の情報の文）。ご納得いただけなかった点のご説明を頼まれていて"
+                                  f"「{PART_LABEL['no_answer']}」で呼ぶときは、お客様の言ったことの種類（{POINT_KIND_CHOICES}）"),
             A["rest"]: s(desc=f"「{PART_LABEL['resume']}」のときだけ：" + REST_KEEP_DESC)},
            [A["part"]]),
         fd("report_party", f"電話に出た方の最初の言葉を聞いたら、出た方が人か（「{PARTY_LABEL['person']}」"

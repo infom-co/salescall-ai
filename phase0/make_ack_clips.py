@@ -30,6 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
+from phrases import POINT_FALLBACK
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
 from voice_features import read_wav
 
@@ -102,13 +103,14 @@ DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "kashikomari": 1.6, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
-         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 8.5, "back": 3.0,
+         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 9.0, "back": 3.0,
          "talk": 3.5, "apology_first": 6.5, "line_trouble": 9.5, "number_again": 12.0}
 MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if tone})
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
 # ✅ 2026-10-22 ユーザー（4回目）の言い方で、ほかの手段の質問（「それでは恐れ入りますが…」）・お立場を伺う一言（2つから選んでいただく形）・
 # 申し出へのお礼・断らない一言が長くなった ⇒ 質問 5.0→6.0・お立場 7.0→13.0・お礼 6.0→7.5・一言 4.0→5.5（10-23 のユーザーの言い方で 5.5→8.5）。「AIですか」と重ねて聞かれた
-# ときの一言（46字）も、この見込みに届いていなかった（7.0→8.0）
+# ときの一言（46字）も、この見込みに届いていなかった（7.0→8.0）。✅ 2026-11-05 日本時間3時33分11秒 ユーザーのご修正の言い方（続きの電話のご説明できないときの
+# 一言・54字）で、断らない一言 8.5→9.0
 CHAR_S = 0.141
 # 録音の中の名前ごとの読み方の鍵（無ければ中の名前のまま）。かけ直しで足す質問は、質問の読み方（⛔ 2026-10-19 の見直しで見つけた漏れ：
 # 足す質問を共通の一言の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
@@ -123,7 +125,7 @@ HOW_OF.update({f"callback_line_how_without_{k}": "question" for k in CALLBACK_AS
 # 一言の表の鍵から作っていて、2つの表の鍵がずれても気づけなかった）
 HOW_OF.update({f"callback_line_how_without_{k}_2": "question" for k in CALLBACK_ASK_OTHER_WAYS_AGAIN})
 # 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
-HOW_OF.update({"own_fallback_point": "own_fallback", "own_fallback_point_again": "own_fallback", "resumed_fallback_lead": "own_fallback"})
+HOW_OF.update({**{n: "own_fallback" for n in POINT_FALLBACK}, "own_fallback_explain_again": "own_fallback", "resumed_fallback_lead": "own_fallback"})
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
