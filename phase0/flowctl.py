@@ -6962,7 +6962,7 @@ class Flow:
                     e["contact"] = None
 
     def _wish_via(self, via: str | None) -> None:
-        """LINE の連絡先の伺い方（LINE_HOW の via）を、通話の事実 other_wish に残す（依頼者へ返す：ID・SMS・メールのどれでご招待するか。None＝選んでいただいた
+        """LINE の連絡先の伺い方（LINE_HOW の via）を、通話の事実 other_wish に残す（依頼者へ返す：ID を伺って登録するか、SMS・メールのどちらでご招待するか＝ご招待はメールとSMSだけ・✅ 11-05 1時29分06秒。None＝選んでいただいた
         方法の連絡先が無く、ほかの方法を伺い直している＝_line_other_ways）。"""
         self.wish["via"] = via
         self.facts["other_wish"][-1]["via"] = via

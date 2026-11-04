@@ -12382,7 +12382,7 @@ class EndsOnTest(unittest.TestCase):
         f = self.contact()
         r = self.say(f, "どちらも要らないです。", "record_answer", question_id="Q1", condition_id=NONE)
         self.assertEqual((r["result"], ACK[r["ack"]] + r["question"]), ("next", "はい、それでは電話とメールのほかにご希望はございますでしょうか？"))
-        # 「LINEならいいです。」⇒ LINE の連絡先の伺い方（ID・SMS・メールのご招待＝11-04 19時26分）・ID を伺ってから、次の「ご不明な点は…」へ
+        # 「LINEならいいです。」⇒ LINE の連絡先の伺い方（ID を伺うか・SMS かメールからご招待するか＝11-04 19時26分）・ID を伺ってから、次の「ご不明な点は…」へ
         r = self.say(f, "LINEならいいです。", "record_answer", question_id=wid, condition_id=wish_label("line"), value="LINE")
         self.assertEqual(r["question_id"], CALLBACK_IDS["line_how"])
         r = self.say(f, "IDでお願いします。", "record_answer", question_id=CALLBACK_IDS["line_how"], condition_id="ID")
