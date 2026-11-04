@@ -19,6 +19,7 @@ from salescall.core import (approval, attempts, business_rules, calendar, call_r
                             gate, health,
                             next_action, quality_stage, recordings, scheduler, settings, settle, stops, target_policy, tasks)
 from salescall.core.call_report import Cut
+from salescall.supervisor import jobs
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
 from salescall.core.phone import normalize
@@ -2036,65 +2037,129 @@ class NameLedger(Content):
 
     def test_the_admin_listens_to_a_business_name_recording_before_it_serves_every_contractor(self):
         """契約者が作った名前の録音は、その業務の録音（承認すれば、管理者が決める前からその業務の電話で使う）。管理者が聞いて認めた
-        ものだけが、システムの共通の録音になる（聞いた中身をそのまま写したシステムの組と、管理者の承認）。除外したものも、その業務では
-        使い続ける。決めるのは管理者だけ（システムの取引で）・1回だけ・契約者が承認した組だけ。決めた記録は、その契約者だけが読める。
+        ものだけが、システムの共通の録音になる（聞いた中身をそのまま写したシステムの組）。除外したものも、その業務では使い続ける。
+        管理者が聞く一覧には、どの契約者・どの依頼者のタブ・どの業務のものかが出る。まとめて流して、レ点を入れたものだけ入れる／
+        レ点を入れたものだけ除外する、の1回の操作で全部を決める。決めるのは管理者だけ（システムの取引で）・1回だけ・契約者が承認した
+        組だけ。決めた記録は、その契約者だけが読める。
         ✅ 2026-11-04 管理者：「…管理者がチェックしないとシステムに入れられない」「契約者が作った段階では、業務ごとの録音設定と同じ
-        扱いです。管理者が認めて初めてシステムの共通録音に登録されます。」・伺い「その契約者だけ使う」「その契約者は使い続ける」（0173）。"""
+        扱いです。」「どの契約者・どの業務のものかは出ません。⇒これは出るようにしとかないとダメですよ。」「まとめて流して、私がレ点を
+        入れたものをのみ登録、もしくは除外を入れたもののみ、登録されないという登録方法にしてください。」（0173）。"""
         s, u = self.ready(), self.ready()
-        admitted_role, excluded_role = unique_role(), unique_role()
+        roles = [unique_role() for _ in range(4)]   # 0・1＝レ点で入れる回、2・3＝レ点で除外する回（入れるのは 0 と 3）
         K, P = recordings.NameKey, recordings.Part
         label = f"own{uuid.uuid4().hex[:8]}"   # 管理者がまだ決めていない組は、試験のデータベースのどの契約者の分も並ぶ（ほかの試験と重ならない置き場）
         pending = lambda: [r for r in self.w.a.in_system(ADMIN, recordings.name_reviews)  # noqa: E731
                            if r.part.audio_ref.startswith(label)]
-        s2 = self.ready(tenant=s["tenant"])
-        for x, r in ((s, admitted_role), (s2, excluded_role)):
-            self.switch_to(x, {"kind": "role", "role": r})
-            self.w.approve_names(x, [K(role=r)], ("Leda",), tails=(), audio=label)
+        owners = [s, self.ready(tenant=s["tenant"]), s, s]
+        for x, r in zip(owners, roles):
+            self.w.approve_names(x, [K(role=r)], ("Leda",), tails=(), audio=f"{label}{r}")
         fresh = unique_role()
         self.tx(s, lambda tx: recordings.add_name_part(                      # 承認していない組は、まだ聞かない
             tx, voice_name="Leda", key=K(role=fresh), part=P("name", f"{fresh}様", f"{label}://Leda/x", "0" * 64),
             business_id=s["business"]), OPERATOR)
-        for x in (s, s2):                                                    # 管理者が決める前から、その業務の電話で使う
-            got = self.claim(x)
-            self.assertIsInstance(got, gate.Claim, got)
-            self.tx(x, lambda tx: attempts.release(tx, [got.attempt_id]))
-        self.switch_to(u, {"kind": "role", "role": admitted_role})
+        x = owners[1]
+        self.switch_to(x, {"kind": "role", "role": roles[1]})
+        got = self.claim(x)                                                  # 管理者が決める前から、その業務の電話で使う
+        self.assertIsInstance(got, gate.Claim, got)
+        self.tx(x, lambda tx: attempts.release(tx, [got.attempt_id]))
+        self.switch_to(u, {"kind": "role", "role": roles[0]})
         self.assertEqual(self.reason(u), "name_recording_missing")          # ほかの契約者は、管理者が決めるまで使わない
         waiting = {r.key: r for r in pending()}
-        self.assertEqual(set(waiting), {f"{admitted_role}（役職の呼び方）", f"{excluded_role}（役職の呼び方）"})
-        self.assertEqual(waiting[f"{admitted_role}（役職の呼び方）"].part.spoken_text, f"{admitted_role}様")
+        by_role = [waiting[f"{r}（役職の呼び方）"] for r in roles]
+        self.assertEqual(len(waiting), 4)
+        names = self.tx(s, lambda tx: tx.one(
+            "SELECT t.name AS tenant, c.name AS client, b.name AS business FROM salescall.businesses b"
+            " JOIN salescall.clients c ON c.client_id = b.client_id JOIN salescall.tenants t ON t.tenant_id = c.tenant_id"
+            " WHERE b.business_id = %s", (s["business"],)), OPERATOR)
+        first = by_role[0]                                                   # どの契約者・どのタブ・どの業務のものかが出る
+        self.assertEqual((first.tenant_id, first.tenant_name, first.client_name, first.business_name, first.skipped),
+                         (s["tenant"], names["tenant"], names["client"], names["business"], False))
+        self.assertEqual(first.part.spoken_text, f"{roles[0]}様")
         for why, run in (("契約者", lambda w: self.tx(s, w, OPERATOR)), ("システムの取引の外の管理者", lambda w: self.w.a.in_tenant(
                 ADMIN, s["tenant"], w)), ("システムの処理", lambda w: self.w.a.in_system(SYSTEM, w))):
             for work in (recordings.name_reviews,
-                         lambda tx: recordings.review_name(tx, waiting[f"{admitted_role}（役職の呼び方）"].set_id, admit=True)):
+                         lambda tx: recordings.review_names(tx, [first.set_id], [first.set_id], marks="admit"),
+                         lambda tx: recordings.set_name_review_skip(tx, s["tenant"], True)):
                 with self.subTest(why=why), self.assertRaises(Rejected) as e:   # 聞いて決めるのは管理者だけ
                     run(work)
                 self.assertEqual(e.exception.constraint, "name_review_by_admin")
-        copied = self.w.a.in_system(ADMIN, lambda tx: recordings.review_name(
-            tx, waiting[f"{admitted_role}（役職の呼び方）"].set_id, admit=True))
-        self.assertIsNone(self.w.a.in_system(ADMIN, lambda tx: recordings.review_name(
-            tx, waiting[f"{excluded_role}（役職の呼び方）"].set_id, admit=False)))
+        done = self.w.a.in_system(ADMIN, lambda tx: recordings.review_names(   # レ点を入れたものだけ入れる
+            tx, [r.set_id for r in by_role[:2]], [by_role[0].set_id], marks="admit"))
+        self.assertIsNotNone(done[by_role[0].set_id])
+        self.assertIsNone(done[by_role[1].set_id])
+        done2 = self.w.a.in_system(ADMIN, lambda tx: recordings.review_names(  # レ点を入れたものだけ除外する
+            tx, [r.set_id for r in by_role[2:]], [by_role[2].set_id], marks="exclude"))
+        self.assertEqual((done2[by_role[2].set_id] is None, done2[by_role[3].set_id] is None), (True, False))
         self.assertEqual(pending(), [])                                      # 決めた組は、もう並ばない
-        got = self.claim(u)                                                  # 認めたものは、ほかの契約者の電話でも使う
+        for r, admitted in zip(roles, (True, False, False, True)):
+            with self.subTest(role=r):
+                self.switch_to(u, {"kind": "role", "role": r})
+                if admitted:                                                 # 認めたものは、ほかの契約者の電話でも使う（聞いた中身のまま）
+                    got = self.claim(u)
+                    self.assertIsInstance(got, gate.Claim, got)
+                    self.tx(u, lambda tx: attempts.release(tx, [got.attempt_id]))
+                    self.assertEqual(self.tx(u, lambda tx: recordings.name_recording(
+                        tx, u["business"], "Leda", key=K(role=r))).audio_ref, f"{label}{r}://Leda/name")
+                else:                                                        # 除外したものは、ほかの契約者に流れない
+                    self.assertEqual(self.reason(u), "name_recording_missing")
+        got = self.claim(x)                                                  # 除外しても、その業務では使い続ける
         self.assertIsInstance(got, gate.Claim, got)
-        self.tx(u, lambda tx: attempts.release(tx, [got.attempt_id]))
-        self.assertEqual(self.tx(u, lambda tx: recordings.name_recording(
-            tx, u["business"], "Leda", key=K(role=admitted_role))).audio_ref, f"{label}://Leda/name")   # 聞いた中身のまま
+        self.tx(x, lambda tx: attempts.release(tx, [got.attempt_id]))
+        copied = done[by_role[0].set_id]
         self.assertEqual(self.tx(u, lambda tx: tx.one(
             "SELECT tenant_id, business_id FROM salescall.recording_sets WHERE set_id = %s", (copied,))),
             {"tenant_id": None, "business_id": None})                        # システムの組は、どの業務から写したかを持たない
-        self.switch_to(u, {"kind": "role", "role": excluded_role})
-        self.assertEqual(self.reason(u), "name_recording_missing")          # 除外したものは、ほかの契約者に流れない
-        got = self.claim(s2)                                                 # 除外しても、その業務では使い続ける
-        self.assertIsInstance(got, gate.Claim, got)
-        self.tx(s2, lambda tx: attempts.release(tx, [got.attempt_id]))
-        decided = lambda x: self.w.a.in_tenant(OPERATOR, x["tenant"], lambda tx: tx.all(  # noqa: E731
+        decided = lambda t: self.w.a.in_tenant(OPERATOR, t, lambda tx: tx.all(  # noqa: E731
             "SELECT decision FROM salescall.name_recording_reviews ORDER BY decision"))
-        self.assertEqual([r["decision"] for r in decided(s)], ["admitted", "excluded"])   # その契約者は、決めた記録を読める
-        self.assertEqual(decided(u), [])                                     # ほかの契約者は読めない
-        for target, why in ((waiting[f"{admitted_role}（役職の呼び方）"].set_id, "もう決めた組"), (copied, "システムの組")):
-            with self.subTest(why=why), self.assertRaises(Rejected):        # 決めるのは1回だけ・業務の組だけ
-                self.w.a.in_system(ADMIN, lambda tx, t=target: recordings.review_name(tx, t, admit=True))
+        self.assertEqual([r["decision"] for r in decided(s["tenant"])], ["admitted", "admitted", "excluded", "excluded"])
+        self.assertEqual(decided(u["tenant"]), [])                           # ほかの契約者は、決めた記録を読めない
+        for shown, marked, why in (([by_role[0].set_id], [], "もう決めた組"), ([copied], [], "システムの組"),
+                                   ([first.set_id, first.set_id], [], "同じ組を2つ")):
+            with self.subTest(why=why), self.assertRaises(Rejected):         # 決めるのは1回だけ・業務の組だけ（どれも決めない）
+                self.w.a.in_system(ADMIN, lambda tx, a=shown, m=marked: recordings.review_names(tx, a, m, marks="exclude"))
+        with self.assertRaises(ValueError):                                   # レ点は聞いた組にだけ
+            self.w.a.in_system(ADMIN, lambda tx: recordings.review_names(tx, [], [first.set_id], marks="admit"))
+
+    def test_a_trusted_contractors_name_recordings_enter_the_system_without_the_admins_check(self):
+        """管理者が「チェック不要」とした契約者の業務の名前の録音は、契約者が承認すれば、決まった間隔の仕事がシステムの共通の録音に入れる
+        （入れ方は管理者が入れるときと同じ1か所）。決めるのは管理者だけ・戻せる（変えた記録は残る）。チェックが要る契約者の録音は、
+        仕事が入れない（管理者の一覧に残る）。✅ 2026-11-04 管理者：「この契約者のチェックは、管理者がチェックしなくてもシステムに入れて
+        OK という設定も設置するようにしてください。信頼や熟練した契約者やスタッフが契約者の場合は、私がチェック不要にするという
+        意味合いです。」（0173）。"""
+        trusted, other, u = self.ready(), self.ready(), self.ready()
+        K = recordings.NameKey
+        label = f"own{uuid.uuid4().hex[:8]}"
+        r1, r2, r3 = unique_role(), unique_role(), unique_role()
+        self.w.a.in_system(ADMIN, lambda tx: recordings.set_name_review_skip(tx, trusted["tenant"], True))
+        self.w.approve_names(trusted, [K(role=r1)], ("Leda",), tails=(), audio=label)
+        self.w.approve_names(other, [K(role=r2)], ("Leda",), tails=(), audio=label)
+        waiting = {r.key: r for r in self.w.a.in_system(ADMIN, recordings.name_reviews) if r.part.audio_ref.startswith(label)}
+        self.assertTrue(waiting[f"{r1}（役職の呼び方）"].skipped)
+        self.assertFalse(waiting[f"{r2}（役職の呼び方）"].skipped)
+        with self.assertRaises(Rejected):                                    # 入れる仕事は、システムの取引の仕事だけ
+            self.tx(trusted, recordings.admit_unreviewed_names, OPERATOR)
+        job = next(j for j in jobs.JOBS if j.name == "trusted_names")
+        self.assertEqual((job.scope, job.every), ("system", 300))
+        n = self.w.a.in_system(SYSTEM, recordings.admit_unreviewed_names)
+        self.assertGreaterEqual(n, 1)
+        left = {r.key for r in self.w.a.in_system(ADMIN, recordings.name_reviews) if r.part.audio_ref.startswith(label)}
+        self.assertEqual(left, {f"{r2}（役職の呼び方）"})                    # チェックが要る契約者の録音は残る
+        self.switch_to(u, {"kind": "role", "role": r1})
+        got = self.claim(u)                                                  # チェック不要の契約者の録音は、ほかの契約者の電話でも使う
+        self.assertIsInstance(got, gate.Claim, got)
+        self.tx(u, lambda tx: attempts.release(tx, [got.attempt_id]))
+        self.assertEqual(self.w.a.in_tenant(OPERATOR, trusted["tenant"], lambda tx: tx.one(
+            "SELECT decided_by FROM salescall.name_recording_reviews"))["decided_by"], "管理者のチェック不要の契約者（システム）")
+        self.w.a.in_system(ADMIN, lambda tx: recordings.set_name_review_skip(tx, trusted["tenant"], False))   # 戻せる
+        self.w.approve_names(trusted, [K(role=r3)], ("Leda",), tails=(), audio=label)
+        self.w.a.in_system(SYSTEM, recordings.admit_unreviewed_names)
+        left = {r.key for r in self.w.a.in_system(ADMIN, recordings.name_reviews) if r.part.audio_ref.startswith(label)}
+        self.assertEqual(left, {f"{r2}（役職の呼び方）", f"{r3}（役職の呼び方）"})
+        self.assertEqual([r["skip"] for r in self.w.a.in_tenant(OPERATOR, trusted["tenant"], lambda tx: tx.all(
+            "SELECT skip FROM salescall.name_review_skips ORDER BY seq"))], [True, False])   # 変えた記録は残り、その契約者は読める
+        self.assertEqual(self.w.a.in_tenant(OPERATOR, u["tenant"], lambda tx: tx.one(            # ほかの契約者は読めない
+            "SELECT count(*) AS n FROM salescall.name_review_skips WHERE tenant_id = %s", (trusted["tenant"],)))["n"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

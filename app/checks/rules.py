@@ -288,7 +288,9 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "health_take": frozenset({_CORE + "health.py"}),   # 状態の欄の鍵を取って読む（0145。表を引く入口の1か所）
     "health_save": frozenset({_CORE + "health.py"}),   # 状態の欄の次の状態と移った記録（0145。表を引く入口の1か所）
     "purge_utterances": frozenset({_CORE + "conversation_io.py"}),   # やり取りの文字を、録音と同じ日数で消す（0157。計画書 11-4）
-    "review_name_recording": frozenset({_CORE + "recordings.py"}),   # 管理者が業務の名前の録音をシステムの共通の録音に入れるか決める（0173）
+    "review_name_recordings": frozenset({_CORE + "recordings.py"}),   # 管理者が業務の名前の録音をシステムの共通の録音に入れるか決める（0173）
+    "admit_unreviewed_name_recordings": frozenset({_CORE + "recordings.py"}),   # 管理者のチェック不要の契約者の録音を入れる（0173）
+    "set_name_review_skip": frozenset({_CORE + "recordings.py"}),     # 管理者のチェックを要らないとするか（0173）
 }
 _CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
 

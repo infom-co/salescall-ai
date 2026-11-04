@@ -19,7 +19,8 @@
   録音設定と同じ扱いです。管理者が認めて初めてシステムの共通録音に登録されます。」）：**業務の録音**（契約者がその業務のために作って
   承認したもの。その業務の電話で使う）と、**システムの共通の録音**（管理者が作って承認したもの・管理者が業務の録音を聞いて認めて
   写したもの。すべての契約者が読む）。その行で要るものは `name_needs`、その声で足りないものは `name_missing` の1か所（門の
-  `choose_voice` が読む）、流す録音は `name_recording`。管理者が聞いて決めるのは `name_reviews`・`review_name`。
+  `choose_voice` が読む）、流す録音は `name_recording`。管理者が聞いて決めるのは `name_reviews`・`review_names`（まとめて）。管理者の
+  チェックを要らないとした契約者（`set_name_review_skip`）の録音は、決まった間隔の仕事が入れる（`admit_unreviewed_names`）。
 - **承認は録音の中身に付く**（0172。設計書 3-8-3 の (2)。✅ 2026-11-02 管理者 伺い2「案1でOK」）：承認するという操作は組ごとに
   記録する（`approve`＝だれが・いつ、その組を聞いて承認したか）。部分が承認済みかは中身で決める＝同じ持ち主（契約者と依頼者。
   システムは両方とも無い）・同じ声で、文・録音で選んだ名前の読み・音声の指紋がまったく同じ部分が、承認した組のどれかにあれば
@@ -311,7 +312,9 @@ def missing_parts(tx: Tx, version_id: UUID) -> list[str]:
 #     電話で使う（承認してすぐ・管理者が決める前から・管理者が除外したあとも＝2026-11-04 管理者「その契約者だけ使う」「その契約者は
 #     使い続ける」）。
 #   - システムの共通の録音：管理者がシステムの取引で作って承認したもの（代表的な名前）と、管理者が業務の録音を聞いて認めたもの
-#     （`review_name`＝データベースの仕掛けが、聞いた中身をそのまま写したシステムの組を作り、管理者の承認を付ける）。すべての契約者が読む。
+#     （`review_names`＝まとめて決める。管理者のチェックを要らないとした契約者の録音は、決まった間隔の仕事が `admit_unreviewed_names` で
+#     入れる。どちらもデータベースの仕掛けが、聞いた中身をそのまま写したシステムの組を作り、その中身を承認した中身の台帳に入れる）。
+#     すべての契約者が読む。
 #     書けて承認できるのは管理者だけ（データベースが守る）。
 #   流す録音は1か所（データベースの関数 salescall.current_name_set）：その業務の録音を先に（契約者が聞いて選んだもの）、無ければシステムの
 #   共通の録音。同じ持ち主の中では、いちばん新しく作ったそろった組。
@@ -452,8 +455,16 @@ def add_name_tail(tx: Tx, *, voice_name: str, tail: str, part: Part, business_id
 
 @dataclass(frozen=True)
 class NameReview:
-    """管理者がまだ聞いて決めていない、業務の名前の録音（`name_reviews` の答え。どの契約者・どの業務のものかは持たない）。"""
+    """管理者がまだ聞いて決めていない、業務の名前の録音（`name_reviews` の答え）。どの契約者（tenant_id・tenant_name）・どの依頼者の
+    タブ（client_name）・どの業務（business_name）のものかと、その契約者が管理者のチェックを要らないとされているか（skipped）を持つ
+    （✅ 2026-11-04 管理者：「信頼度の高い契約者のものはそのまま通す可能性がありますし、信頼度の低い契約者はじっくりとチェックをして、
+    確認する必要があるからです。」）。"""
     set_id: UUID
+    tenant_id: UUID
+    tenant_name: str
+    client_name: str
+    business_name: str
+    skipped: bool
     unit: str
     voice_name: str
     key: str          # 知らせに出す形（役職の部分・名前の部分・続く言葉）
@@ -462,24 +473,50 @@ class NameReview:
 
 
 def name_reviews(tx: Tx) -> list[NameReview]:
-    """管理者がまだ聞いて決めていない、業務の名前の録音（契約者が承認して、その業務の電話で使えるようになったもの。作った順。
-    ✅ 2026-11-04 管理者「管理者がすべてを聞き流した上で…」）。読めるのは管理者だけ（システムの取引で）＝データベースの1か所
-    salescall.name_recordings_to_review が守る。"""
+    """管理者がまだ聞いて決めていない、業務の名前の録音（契約者が承認して、その業務の電話で使えるようになったもの。契約者ごとに、作った
+    順）。読めるのは管理者だけ（システムの取引で）＝データベースの1か所 salescall.name_recordings_to_review が守る。"""
     out = []
     for r in tx.all("SELECT * FROM salescall.name_recordings_to_review()"):
         key = (f"{r['name_role']}の（役職の部分）" if r["unit"] == "name_role"
                else NameKey(reading=r["name_reading"], role=r["name_role"] if r["name_reading"] is None else None).label()
                if r["unit"] == "name" else f"続く言葉 {r['tail']}")
-        out.append(NameReview(r["set_id"], r["unit"], r["voice_name"], key,
+        out.append(NameReview(r["set_id"], r["tenant_id"], r["tenant_name"], r["client_name"], r["business_name"], r["skipped"],
+                              r["unit"], r["voice_name"], key,
                               Part(r["part"], r["spoken_text"], r["audio_ref"], r["audio_sha256"]), r["created_at"]))
     return out
 
 
-def review_name(tx: Tx, set_id: UUID, *, admit: bool) -> UUID | None:
-    """管理者が、業務の名前の録音を聞いて決める（1回だけ）。admit＝システムの共通の録音に入れる（聞いた中身をそのまま写したシステムの
-    組を作り、管理者の承認を付けて、その組を返す）／入れない＝除外する（None。その業務では使い続ける）。決められるのは管理者だけ
-    （システムの取引で）＝データベースの1か所 salescall.review_name_recording が守る。"""
-    return tx.one("SELECT salescall.review_name_recording(%s, %s) AS s", (set_id, admit))["s"]
+REVIEW_MARKS = ("admit", "exclude")   # 管理者のレ点の意味：入れるものに付けた／除外するものに付けた
+
+
+def review_names(tx: Tx, shown: list[UUID], marked: list[UUID], *, marks: str) -> dict[UUID, UUID | None]:
+    """管理者が、まとめて流して聞いた業務の名前の録音を、まとめて決める（1回の操作・1つの取引で全部。✅ 2026-11-04 管理者：「まとめて
+    流して、私がレ点を入れたものをのみ登録、もしくは除外を入れたもののみ、登録されないという登録方法にしてください。」）。
+    shown＝聞いていただいた組（一覧に出したもの。あとから増えた組は決めない）・marked＝レ点を入れた組・marks＝レ点の意味（admit＝
+    レ点を入れたものだけ入れる／exclude＝レ点を入れたものだけ除外し、残りを入れる）。入れる＝聞いた中身をそのまま写したシステムの
+    共通の録音にする／除外する＝システムに入れない（その業務では使い続ける）。答え＝組ごとの、入れたシステムの組（除外は None）。
+    決められるのは管理者だけ（システムの取引で）・1つの組は1回だけ＝データベースの1か所 salescall.review_name_recordings が守る。"""
+    if marks not in REVIEW_MARKS:
+        raise ValueError(f"レ点の意味は {REVIEW_MARKS} のどちらかです（{marks!r}）")
+    if not set(marked) <= set(shown):
+        raise ValueError("レ点は、聞いていただいた組にだけ付けます")
+    admit = [x for x in shown if (x in marked) == (marks == "admit")]
+    return {r["set_id"]: r["system_set_id"] for r in tx.all(
+        "SELECT * FROM salescall.review_name_recordings(%s::uuid[], %s::uuid[])", (list(shown), admit))}
+
+
+def set_name_review_skip(tx: Tx, tenant_id: UUID, skip: bool) -> None:
+    """その契約者の名前の録音を、管理者のチェックなしでシステムの共通の録音に入れるか（✅ 2026-11-04 管理者：「信頼や熟練した契約者や
+    スタッフが契約者の場合は、私がチェック不要にするという意味合いです。」）。決めるのは管理者だけ（システムの取引で）＝データベースが
+    守る。変えた記録は残る（いまの値は、いちばん新しい行）。"""
+    tx.execute("SELECT salescall.set_name_review_skip(%s, %s)", (tenant_id, skip))
+
+
+def admit_unreviewed_names(tx: Tx) -> int:
+    """管理者のチェックを要らないとした契約者の、まだ決めていない業務の名前の録音を、システムの共通の録音に入れる（決まった間隔の仕事
+    が、システムの取引で呼ぶ＝supervisor.jobs の trusted_names）。入れ方は管理者が入れるときと同じ1か所（データベースの
+    name_review_decide）。入れた組の数を返す。"""
+    return tx.one("SELECT salescall.admit_unreviewed_name_recordings() AS n")["n"]
 
 
 def name_coverage(tx: Tx, run_id: UUID, voice_name: str) -> dict:

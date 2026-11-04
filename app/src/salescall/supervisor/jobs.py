@@ -17,7 +17,7 @@ from typing import Any, Callable
 from uuid import UUID
 
 from salescall.core import (agents, answer_rate, attempts, backup, calendar, conversation_io, health, leases, measure, next_action,
-                            settle, usage, watch)
+                            recordings, settle, usage, watch)
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, line, plugins, report
 from salescall.supervisor.links import Links
@@ -215,6 +215,12 @@ def budget(ctx: Context) -> None:
     usage.tick(ctx.access, ACTOR, ctx.tenant_id)
 
 
+def trusted_names(ctx: Context) -> None:
+    """管理者のチェックを要らないとした契約者の、まだ決めていない業務の名前の録音を、システムの共通の録音に入れる（すべての契約者に
+    共通の仕事・システムの取引。入れ方は管理者が入れるときと同じ1か所＝core/recordings.admit_unreviewed_names。0173）。"""
+    ctx.access.in_system(ACTOR, recordings.admit_unreviewed_names)
+
+
 def holidays(ctx: Context) -> None:
     """祝日の暦（要るときだけ公式の一覧を取りに行く。取りに行くかは calendar の1か所が決める）。"""
     calendar.sync_official(ctx.access, ACTOR)
@@ -272,6 +278,8 @@ def pc_watch(ctx: Context) -> None:
 # - lasting_stops・system_lasting_stops：止まったまま1時間続いた停止の修正依頼（確かめの部品が無くても動く。依頼は同じ不具合で1つ）
 # - backup_watch・whole_backup_watch：控えが1日以上取れていないことに気づく（取る仕事は設定が無いと動かないので、別の仕事にする）。
 #   1時間に1回で足りる（知らせは1日1回）
+# - trusted_names：管理者のチェックを要らないとした契約者の名前の録音を、システムの共通の録音に入れるまでの遅れ（5分。その業務では、
+#   契約者が承認したときから使っている＝遅れるのは、ほかの契約者の電話で使えるまでだけ）
 JOBS: tuple[Job, ...] = (
     Job("recover", 60, "tenant", 300, recover_expired),
     Job("settle", 15, "tenant", 600, settle_ready),
@@ -285,6 +293,7 @@ JOBS: tuple[Job, ...] = (
     Job("answer_rates", 1800, "tenant", 600, answer_rates),
     Job("budget", 60, "tenant", 600, budget),
     Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None, parts=True),
+    Job("trusted_names", 300, "system", 600, trusted_names),   # 管理者のチェック不要の契約者の名前の録音（0173）
     Job("holidays", 86400, "system", 600, holidays),   # 1日1回（⛔ 2026-10-22 の見直し：1時間ごとで、翌年の分が載るまで毎時間取りに行った）
     Job("backups", 300, "tenant", 4 * 3600, backups, heavy=True),
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),
