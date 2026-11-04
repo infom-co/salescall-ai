@@ -7961,6 +7961,51 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual((r["question_id"], n3 in f.order), ("Q2", False))
         self.assertEqual([(x["point"], x.get("explained"), x["outcome"]) for x in f.facts["not_agreed"]], [(None, False, "unresolved")])
 
+    def test_clear_agreement_after_explaining_again_is_not_asked_again(self):
+        # ✅ 2026-11-05 日本時間2時25分10秒 ユーザー：「(a) お勧め：はっきり納得と言われたら、伺わずに「ありがとうございます。」で次へ進みます。「なるほど」
+        # 「そうなんですね」のように、どちらとも取れないときは今までどおり伺います。OK」（続きの電話で、ご承認いただく内容をもう一度ご説明したあと＝0時48分の (ア)）。
+        # ⛔ それまで、お客様「なるほど、よく分かりました。それなら納得です。」に「はい、」「ご説明した内容でご納得いただけましたでしょうか？」と重ねて伺った
+        # （9-3「取得済みのことを重ねて聞かない」・19時26分のご指摘と同じ型）。ご説明のあとの返事は、次に伺うご納得の質問への先に言われた答えとして、先に
+        # 言われた答えの1か所（_offer_ahead）で読む＝質問は流さず「はい、」だけ、答えが入っていれば報告していただく・無ければ質問を流す
+        from flowctl import CALLBACK_IDS, Question
+        from grounding import GROUNDED
+        from instruction import Business
+        from phrases import CALLBACK_ASK
+        n1, n3 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["agreed_now"]
+        explain = "ご説明いたしますね。料金は月額3,000円で、初月は無料となっております。"
+
+        def flow():
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付",
+                         questions=[Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True),
+                                    Question("Q2", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))],
+                         purpose_line="資料送付の件でお電話いたしました。", earlier={"Q1": {"state": "accepted", "condition": "いいえ"}},
+                         apology=("cut_off",), info=["料金は月額3,000円で、初月は無料となっております。"])
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            r if r.get("result") == "opening" else f.on_first_words_end()
+            self._say(f, "うーん、何だったか覚えてないですね。", "record_answer", question_id=n1, condition_id="unknown")
+            grounded(f, explain, GROUNDED)
+            f.apply("replay_opening", {"part": "own", "answer": explain})
+            return f
+        # (1) はっきり納得：ご納得の質問は流さずに「はい、」だけ、報告していただいた答えで「ありがとうございます。」と次へ
+        f = flow()
+        f.on_callee(); f.on_heard("なるほど、よく分かりました。それなら納得です。")
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((r["question_id"], r.get("ahead_offer"), r.get("ack"), r.get("play")), (n3, True, "hai", None))
+        r = f.apply("record_answer", {"question_id": n3, "condition_id": "はい"})
+        self.assertEqual((f.items["Q1"].condition, r["question_id"], r.get("ack")), ("はい", "Q2", "arigatou"))
+        self.assertEqual([(x["point"], x.get("explained"), x["outcome"]) for x in f.facts["not_agreed"]], [(None, True, "agreed")])
+        # (2) どちらとも取れない（「そうなんですね。」）：今までどおり「はい、」＋「ご説明した内容でご納得いただけましたでしょうか？」（相づちは重ねない）
+        f = flow()
+        f.on_callee(); f.on_heard("そうなんですね。")
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((r["question_id"], r.get("ahead_offer"), r.get("ack")), (n3, True, "hai"))
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(([p["text"] for p in r.get("play", ())], r.get("ack")), ([CALLBACK_ASK["agreed_now"]], None))
+        r = self._say(f, "はい、分かりました。", "record_answer", question_id=n3, condition_id="はい")
+        self.assertEqual((f.items["Q1"].condition, r["question_id"]), ("はい", "Q2"))
+
     def test_the_opening_and_the_flow_start_with_the_same_question(self):
         # 名乗りのあとに最初に伺う質問（名乗りの録音の最後・AIへの指示文＝instruction.Business.first_ask）と、流れの制御の始めは、同じ1か所
         # （flowctl.opening_question）：名前の読みの確かめが先、続きの電話のほかのご希望はそのあと。⛔ 名乗りの組み立てだけ、読みの確かめを見ずに
@@ -11597,7 +11642,7 @@ class NoneOfThemTest(unittest.TestCase):
 
     def test_no_contact_found_late_still_gets_the_reason_and_the_other_ways(self):
         # 0時48分のご承認（(イ)：SMS の携帯電話の番号に固定電話の番号＝1回目に理由を添えて伺い、それでも携帯電話でなければ、ほかの方法を1回伺う・同じ理由は、
-        # 選んでいただいた方法の連絡先が無いときすべて）は、聞き返しを使い切ったあと・締めの前の念のための確認でも当たる（10-19 の決まり）。⛔ 11-05 1時40分の
+        # 選んでいただいた方法の連絡先が無いときすべて）は、聞き返しを使い切ったあと・締めの前の念のための確認でも当たる（10-19 の決まり）。⛔ 11-05 2時05分37秒の
         # ご質問（「想定との食い違いや不備、1本化漏れはないですか？」）のあと、流れの制御に通して見つけた：(1) 聞き取れない聞き返しを2回使い切ったあとに固定電話の
         # 番号を言われると、理由を添えずに「承知しました。」で次へ進み、締めの前に「お声が聞き取れませんでしたので携帯電話の番号を…」と伺い（番号は聞き取れて
         # いる）、また固定電話の番号なら、ほかの方法を伺わずに締めた (2) 締めの前の念のための確認で「携帯は持っていないんです」と言われても、ほかの方法を伺わずに

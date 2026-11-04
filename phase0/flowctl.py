@@ -3606,7 +3606,12 @@ class Flow:
         # ✅ 2026-11-04 日本時間20時27分 ユーザー：「…伺わずに「abc_123でよろしいでしょうか？」と言い直して確かめます。OK」＝ご承認の文は
         # 「はい、ありがとうございます。abc_123でよろしいでしょうか？」（ふつうの言い直しと同じ「はい、」）。⛔ 21時台に流して見つけた：伺った報告の
         # 相づち（「承知しました。」「かしこまりました。」）を流してから言い直していた
-        reply["ack"] = None if same_turn else "hai" if reply.get("ahead_offer") else self._ack(run, run_args, reply)
+        # ただし、ご承認の手順の終わりのお礼（「ありがとうございます。それでは、～」＝11-02 5時56分。_point_end の thank）は、伺ったのと同じ発話のうちでも流す
+        # （✅ 2026-11-05 日本時間2時25分10秒 ユーザー：「(a) お勧め：はっきり納得と言われたら、伺わずに「ありがとうございます。」で次へ進みます。…OK」＝ご説明の
+        # あとの「それなら納得です。」を、ご納得の質問への先に言われた答えとして受け取ったとき。伺った報告の「はい、」のあとに「ありがとうございます。」＝20時27分の
+        # ご承認の文「はい、ありがとうございます。abc_123でよろしいでしょうか？」と同じ並び）。相づちを選ぶのは _ack の1か所のまま
+        thank = self.point is not None and self.point.get("thank") == self.callee_turns and reply["result"] != "end"
+        reply["ack"] = None if same_turn and not thank else self._ack(run, run_args, reply)
         if reply["ack"]:
             reply["ack_pause_s"] = ack_pause_s(reply["ack"])  # 相づちのあとの間（phrases.ACK_PAUSE_S の1か所。電話接続モジュールが守る）
         self.log.append({"op": name, "args": args, "reply": reply, "callee_turns": self.callee_turns, "phase_before": phase_before,
@@ -3690,6 +3695,11 @@ class Flow:
             return "arigatou"
         if self.point is not None and self.point.get("hai") == self.callee_turns and result != "end":
             self.point["hai"] = None
+            return "hai"
+        if reply.get("ahead_offer"):
+            # 先に言われたことを伺う（_offer_ahead）間は「はい、」だけ（ご承認の手順の「はい、」＝上の hai も、ここで流したもの＝伺い直すときに重ねない。
+            # ⛔ 2026-11-05 日本時間2時台、(a) を入れる途中で流して見つけた：ご説明のあとの「そうなんですね。」に、伺った報告の「はい、」と、ご納得の質問の前の
+            # 「はい、」を2回流した）
             return "hai"
         if result in ("rejected", "hold", "wait", "confirm_target", "callee_asked", "end_trouble", "explain_point"):
             # 差し戻し・取り次ぎを待つ（相手はいま聞いていない）・相手の言葉の途中・目的の人かを確かめる（どの報告から来ても同じ＝確かめる
@@ -6424,7 +6434,7 @@ class Flow:
         # 「恐れ入ります。携帯電話の番号をもう一度…」「もう一回…」と伺い、締めの前に「お声が聞き取れませんでしたので…」とまた伺った（番号は聞き取れている）
         form_reason = CALLBACK_ASK_FORM.get(q.callback or "") if reason == "form" else None
         # 理由を添える一言は、その形の答えを初めて言われたときに添える（0時48分「1回目に理由を添えて」）。聞き取れない聞き返しをその場の回数だけ使い切った
-        # あとなら、締めの前の念のための確認の1回をここで使う（最初の質問のほかに最大3回のまま＝10-14。締めの前にはもう伺わない）。⛔ 11-05 1時40分の
+        # あとなら、締めの前の念のための確認の1回をここで使う（最初の質問のほかに最大3回のまま＝10-14。締めの前にはもう伺わない）。⛔ 11-05 2時05分37秒の
         # ご質問のあと流れの制御に通して見つけた：使い切ったあとの固定電話の番号に理由を添えず「承知しました。」で次へ進み、締めの前に「お声が聞き取れません
         # でしたので…」と伺っていた（番号は聞き取れている）
         here = self.phase == "asking" and q.required and it.ask_backs < self.limits.ask_back
@@ -6509,7 +6519,7 @@ class Flow:
         self.awaiting_confirm = qid
         self.confirm_requested_at = self.callee_turns
         # 場面：その項目を聞き返した・念のため確かめた・訂正されたあとは「聞き取りにくかったあと」、それ以外は「ふつう」（phrases.CONFIRM・設計書 6-11 の表）。
-        # 念のための確認の段の中で初めて伺った質問（ほかの方法・その連絡先・聞き足し）は「ふつう」（⛔ 11-05 1時40分のご質問のあとに見つけた：段の中なら
+        # 念のための確認の段の中で初めて伺った質問（ほかの方法・その連絡先・聞き足し）は「ふつう」（⛔ 11-05 2時05分37秒のご質問のあとに見つけた：段の中なら
         # 全部「…とおっしゃいましたでしょうか？」にしていた）
         situation = AFTER[after][0] if after else (
             "聞き取りにくかったあと" if (it.ask_backs or it.corrections or it.rechecks) else "ふつう")
@@ -6653,8 +6663,15 @@ class Flow:
                 self._ask_point("agreed_now", nid)
         elif p["stage"] == "explained":
             if p["explained"] and p.get("whole"):
-                # ご承認いただく内容を改めてご説明した：「はい、」＋「ご説明した内容でご納得いただけましたでしょうか？」（「ほかに…」ではない＝点を伺っていない）
+                # ご承認いただく内容を改めてご説明した：「はい、」＋「ご説明した内容でご納得いただけましたでしょうか？」（「ほかに…」ではない＝点を伺っていない）。
+                # ご説明のあとのお客様の返事は、このご納得の質問への先に言われた答えとして読む（先に言われた答えの1か所＝_offer_ahead：質問は流さず「はい、」
+                # だけ、答えが入っていれば報告していただき「ありがとうございます。」で次へ・無ければ質問を流す）。✅ 2026-11-05 日本時間2時25分10秒 ユーザー：
+                # 「(a) お勧め：はっきり納得と言われたら、伺わずに「ありがとうございます。」で次へ進みます。「なるほど」「そうなんですね」のように、どちらとも
+                # 取れないときは今までどおり伺います。OK」。点を伺ってご説明したあとの「ほかに…」（下の elif＝11-02 5時56分）は、返事を読まずに伺う（返事は
+                # その点への返事で、ほかの点があるかの答えではない）
                 p["stage"], p["hai"] = "confirm", self.callee_turns
+                if p["turn"] < self.callee_turns and self.callee_said:
+                    self.ahead = {"turn": self.callee_turns, "said": self.callee_said, "rest": self.callee_said, "qid": None, "check": {}, "asked": False}
                 self._ask_point("agreed_now", self.current or nid)
             elif p["explained"]:
                 p["stage"] = "other"
@@ -6839,7 +6856,7 @@ class Flow:
                 and self._line_other_ways(self.items[w["detail"]]):
             # 連絡先は無いまま終えた段（聞き取れないまま「-」にした）で、あとから（締めの前の念のための確認で）連絡先が無いと分かった：ほかの方法を伺う1か所
             # （_line_other_ways。1回だけ）を、ここでも通す＝段を開き直す（0時48分の決まりは、連絡先が無いと分かったときすべてに当たる＝10-19。⛔ 11-05
-            # 1時40分のご質問のあと流れの制御に通して見つけた：締めの前の確認の「携帯は持っていないんです」に、ほかの方法を伺わずに締めていた）
+            # 2時05分37秒のご質問のあと流れの制御に通して見つけた：締めの前の確認の「携帯は持っていないんです」に、ほかの方法を伺わずに締めていた）
             w["outcome"], w["told"] = None, None
             self.facts["other_wish"][-1].update(outcome=None, contact=None)
             return
