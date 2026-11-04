@@ -135,8 +135,11 @@ def decide_unclear(askers: list[Asker], questions: list[tuple[str, tuple]], on_e
 
 # ⚠️ decide_away・decide_unclear は、CL-2 の取込の受け口（business_import.preview）が受けるようになったら、ここに足す（比べる試験 test_shapes_match_cl2_import が
 # 名前のずれを見る。いまの CL-2 の受け口は取り下げた decide_keep_words＝帳面 4-72 で替えていただくよう頼んだ）
+# 決める処理の唯一の一覧（CL-2 の取込 business_import.preview の decide_* の受け口と同じ名前＝試験で比べる）。decide_away・decide_unclear は、CL-2 の受け口が
+# できた（CL-2 の連絡帳 4-212 の (A)。⛔ それまで、この一覧に無く、取込から呼ばれなかった）
 DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
-            "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words}
+            "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words,
+            "decide_away": decide_away, "decide_unclear": decide_unclear}
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None) -> dict[str, Callable]:

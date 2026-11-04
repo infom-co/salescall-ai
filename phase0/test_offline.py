@@ -29,13 +29,14 @@ def fc(name, **args):
 # 「AIですか？」への標準の答えの共通の一言 ai_answer（phrases.STANDARD_PARTS。業務が書かないときに流す。CL-1.md 4-75。✅ 2026-11-02 管理者＝CL-2 の 4-188）も
 # 引き止めの一言の業務の録音の部分 busy（Business.replay_parts。質問の番号に使えない名前＝CL-2 の RESERVED_IDS に足していただく。CL-1.md 4-75）も
 # 前の通話で取れた答えの "point"（ご承認いただけなかったときの手順の進み＝flowctl.earlier_point）と、その続きの電話の一言の共通の一言の録音
-# callback_not_agreed_again（✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」。CL-1.md 4-80）も
+# callback_not_agreed_again（✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」。CL-1.md 4-80）も。⇒ 前の通話で取れた答えの "wish"・"point"・"point_said"・"wish_means"
+# は、2026-11-05 にその質問の最後の事実そのもの（"wish_fact"・"point_fact"）に替えた（CL-2 の 4-212 の案2。CL-1.md 4-88）ので、ここから外した
 CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_line", "wish_told_email", "wish_told_fax", "wish_told_post",
-                         "wish_told_phone", "wish_told_other", "wish", "hedged", "ends_on", "ended_on", "ai_answer", "busy",
-                         "point", "callback_not_agreed_again", "point_said",
+                         "wish_told_phone", "wish_told_other", "hedged", "ends_on", "ended_on", "ai_answer", "busy",
+                         "callback_not_agreed_again",
                          # LINE の連絡先の伺い方（C11）・SMS でご招待する携帯電話の番号（C12）・連絡先を伺う前に切れた電話の続き（wish_means・callback_（役目）_again）・
                          # その録音（✅ 2026-11-04 日本時間19時26分 ユーザー「(B)…修正」。CL-1.md 4-81）
-                         "C11", "C12", "wish_means", "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
+                         "C11", "C12", "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
                          "callback_email_again", "callback_fax_again", "callback_address_again",
                          # 伺い方を選んでいただいたあとのメールアドレスの一言の録音・ほかに分からない点が無いかを伺う質問の「無い」にあたる答え（業務設定の質問の鍵）
                          # （✅ 2026-11-04 日本時間20時27分 ユーザー (1)(2)。CL-1.md 4-82）
@@ -51,7 +52,10 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          # 続きの電話の始めに、ご納得いただけなかった点を「覚えていない」と言われたときの頭の一言の録音（✅ 11-05 日本時間4時16分52秒 ユーザー。CL-1.md 4-86）
                          "gomottomo",
                          # 点を言っていただけないまま手順を終えるときに挟む一言の録音（✅ 11-05 日本時間5時20分56秒 ユーザー。CL-1.md 4-87）
-                         "point_anytime"})
+                         "point_anytime",
+                         # 手順を伺い終えていない業務の質問（報告の外枠の鍵）・前の通話の答えの、その質問の最後の事実（wish_fact・point_fact＝案2）・取込の決める処理
+                         # （decide_away・decide_unclear）（CL-2 の連絡帳 4-212・4-213。CL-1.md 4-88）
+                         "unfinished", "wish_fact", "point_fact", "decide_away", "decide_unclear"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -7644,7 +7648,7 @@ class EndJudgedTest(unittest.TestCase):
         f = Flow([Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True),
                   Question("Q2", "ご来店の人数をお伺いしてもよろしいでしょうか？", "number", conditions=("答えた",), unit="人"),
                   Question("Q3", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
-                 play_recordings=True, earlier={"Q1": {"state": "accepted", "condition": "いいえ", "point": "unresolved"}})
+                 play_recordings=True, earlier={"Q1": {"state": "accepted", "condition": "いいえ", "point_fact": {"question": "Q1", "point": None, "outcome": "unresolved"}}})
         self.assertEqual(f.current, "Q2")
         say(f, "3人です。", "record_answer", question_id="Q2", condition_id="答えた", value="3人")
         r = say(f, "はい、3人です。", "confirm_field", question_id="Q2", result="affirmed")
@@ -7695,7 +7699,7 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual((r["question_id"], r["play"][-1]["text"]), (CALLBACK_IDS["not_agreed"], resumed))
         # 前の通話で手順を終えた答え（"point" が手順の終わりの結果）には伺わない（点まで伺えた heard は、ご説明から始める＝test_a_point_heard_then_cut_resumes_with_the_explanation）
         for done in ("agreed", "declined", "unresolved"):
-            b = business({"Q1": {"state": "accepted", "condition": "いいえ", "point": done}})
+            b = business({"Q1": {"state": "accepted", "condition": "いいえ", "point_fact": {"question": "Q1", "point": None, "outcome": done}}})
             self.assertEqual((b.first_ask()[0], b.flow(play_recordings=True).current), ("Q2", "Q2"), done)
         # 最終目的のご承認：手順を伺い終えるまで「目的が果たせない」で締めない
         b = business({"Q1": {"state": "accepted", "condition": "いいえ"}}, final_goal=True)
@@ -7793,7 +7797,7 @@ class EndJudgedTest(unittest.TestCase):
             return Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=[*before, approval(**k), *rest],
                             purpose_line="資料送付の件でお電話いたしました。", earlier=earlier, apology=("cut_off",),
                             info=["料金は月額3,000円で、初月は無料となっております。"])
-        heard = {"Q1": {"state": "accepted", "condition": "いいえ", "point": "heard", "point_said": point}}
+        heard = {"Q1": {"state": "accepted", "condition": "いいえ", "point_fact": {"question": "Q1", "point": "料金のところ", "said": point, "outcome": None}}}
         # 前の通話の答えの読み方（CL-2 が通話の事実 not_agreed の最後のものから入れる）：点を伺ったときのお客様の言葉（無ければ点の値）。手順を終えていれば無し
         self.assertEqual((earlier_point_said({"point": "料金のところ", "said": point}), earlier_point_said({"point": "料金のところ", "said": ""}),
                           earlier_point_said({"point": "料金のところ", "said": point, "outcome": "agreed"})), (point, "料金のところ", None))
@@ -7849,11 +7853,11 @@ class EndJudgedTest(unittest.TestCase):
         r = say(f, "でもやっぱり、今の業者で十分なので。", "record_answer", question_id=n2, condition_id="断ろうとしている")
         self.assertEqual((f.end_reason, f.facts["goal_refused"][0]["goals"]), ("goal_refused", ["Q1"]), r)
         # 手順を終えていた（ご納得いただけなかった＝declined）なら、続きの電話の始めには伺わず、今までどおり断られた答え
-        b = business({"Q1": {"state": "accepted", "condition": "いいえ", "point": "declined"}}, final_goal=True, declines=("いいえ",))
+        b = business({"Q1": {"state": "accepted", "condition": "いいえ", "point_fact": {"question": "Q1", "point": None, "outcome": "declined"}}}, final_goal=True, declines=("いいえ",))
         self.assertEqual((b.first_ask()[0], b.flow(play_recordings=True)._goals_lost()), ("Q2", ["Q1"]))
         # 点まで伺えたが、点の言葉（"point_said"）が渡っていない（CL-2 がまだ渡さない間も）：ご説明できる点が無いので、ご説明から始めずに点を伺い直す
         # （前回お伺いした件でご納得いただけなかった点は…＝点を伺う前に切れたときと同じ1か所）
-        b = business({"Q1": {"state": "accepted", "condition": "いいえ", "point": "heard"}})
+        b = business({"Q1": {"state": "accepted", "condition": "いいえ", "point_fact": {"question": "Q1", "point": None, "said": "", "outcome": None}}})
         self.assertEqual((resumed_step(b.questions, b.earlier)[0], b.first_ask()[0], b.flow(play_recordings=True).current),
                          ("not_agreed", CALLBACK_IDS["not_agreed"], CALLBACK_IDS["not_agreed"]))
 
@@ -7874,7 +7878,7 @@ class EndJudgedTest(unittest.TestCase):
             b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付",
                          questions=[Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True),
                                     Question("Q2", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))],
-                         purpose_line="資料送付の件でお電話いたしました。", earlier={"Q1": {"state": "accepted", "condition": "いいえ", "point": "heard", "point_said": point}},
+                         purpose_line="資料送付の件でお電話いたしました。", earlier={"Q1": {"state": "accepted", "condition": "いいえ", "point_fact": {"question": "Q1", "point": "料金のところ", "said": point, "outcome": None}}},
                          apology=("cut_off",), info=[bare], **k)
             f = b.flow(play_recordings=True)
             f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
@@ -10147,7 +10151,7 @@ class TargetTest(unittest.TestCase):
         call = next(n for n in ast.walk(fn) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_keys")
         keys = ast.literal_eval(call.args[1])
         r = Flow([]).report()
-        self.assertEqual((r["version"], set(r)), (version, keys))
+        self.assertEqual((r["version"], without_cl2_pending(self, set(r), keys)), (version, keys))
 
     def test_until_tail_matches_cl2_spoken_time(self):
         # 「〇時まで」の言葉の終わり（flowctl.UNTIL_TAIL）が、CL-2 の時刻の読み（spoken_time._UNTIL_TAIL）と同じ並びか（食い違うと、会話は理由を
@@ -11469,7 +11473,7 @@ class NoneOfThemTest(unittest.TestCase):
         taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
         g = Flow([Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"), final_goal=True),
                   Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
-                 earlier={"Q1": {**taken, "wish": "means", "wish_means": "line"}}, apology=("cut_off",))
+                 earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "line", "contact": None, "outcome": None, "via": None}}}, apology=("cut_off",))
         self.assertEqual(g.current, how)
         r = say(g, "（雑音）", "report_unclear", question_id=how)
         self.assertEqual((r["result"], g.current), ("ask_back", how))
@@ -11491,7 +11495,7 @@ class NoneOfThemTest(unittest.TestCase):
                     Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         # (1) 続きの電話：メールの答えがもうあれば、名乗りの組み立ても流れの制御も伺わない（どちらも同じ1か所で決める）
         earlier = {"Q0": {"state": "confirmed", "value": "a@example.co.jp", "condition": "答えた"},
-                   "Q1": {**taken, "wish": "means", "wish_means": "email"}}
+                   "Q1": {**taken, "wish_fact": {"question": "Q1", "means": "email", "contact": None, "outcome": None, "via": None}}}
         self.assertIsNone(resumed_step(qs(mail_q), earlier))
         self.assertEqual(opening_question(qs(mail_q), earlier).id, "Q2")
         f = Flow(qs(mail_q), earlier=earlier, apology=("cut_off",))
@@ -11504,8 +11508,8 @@ class NoneOfThemTest(unittest.TestCase):
         r = say(f, "郵送でお願いします。", "record_answer", question_id="W1", condition_id=wish_label("post"), value="郵送")
         self.assertEqual((r["question_id"], f.facts["other_wish"][-1]["contact"]), ("Q2", "東京都港区芝公園1-2-3"))
         # (3) 前の通話のほかのご希望で伺った LINE の連絡先（SMS でご招待する携帯電話の番号）も、伺わない（前の通話の答えの wish_contact・wish_via＝CL-2）
-        earlier = {"Q5": {"state": "accepted", "value": None, "condition": "どれも要らない", "wish": "means", "wish_means": "line",
-                          "wish_via": "sms", "wish_contact": "090-1234-5678"}}
+        earlier = {"Q5": {"state": "accepted", "value": None, "condition": "どれも要らない",
+                          "wish_fact": {"question": "Q5", "means": "line", "via": "sms", "contact": "090-1234-5678", "outcome": "means"}}}
         g = Flow([Question("Q5", "前のご連絡の方法を…", "choice", conditions=("電話", "メール")), *qs(mail_q, ("電話", "メール"))[1:]], earlier=earlier)
         say(g, "どちらも要りません。", "record_answer", question_id="Q1", condition_id=NONE)
         r = say(g, "LINEならいいです。", "record_answer", question_id="W1", condition_id=wish_label("line"), value="LINE")
@@ -11988,7 +11992,7 @@ class NoneOfThemTest(unittest.TestCase):
                     Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         from flowctl import Question
         taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
-        cut = {"Q1": {**taken, "wish": "means", "wish_means": "line"}}
+        cut = {"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "line", "contact": None, "outcome": None, "via": None}}}
         # (1) 名乗り・お詫び・用件のあとに、切れた所から（名乗りの録音の最後・AIへの指示文・流れの制御の始めは同じ1か所）
         b = dataclasses.replace(BUSINESS, questions=qs(), earlier=cut, apology=("cut_off",))
         self.assertEqual(resumed_step(b.questions, b.earlier)[0], "line_how")
@@ -12013,7 +12017,7 @@ class NoneOfThemTest(unittest.TestCase):
                          (["apology_cut_off", "purpose", "callback_line_how_again"], how))
         # (4) メール・ファクス・郵送も同じ形（「前回選択いただいたメールでのご連絡の件でメールアドレスを伺う前に…」）
         for means, role in (("email", "email"), ("fax", "fax"), ("post", "address")):
-            f = Flow(qs(), earlier={"Q1": {**taken, "wish": "means", "wish_means": means}})
+            f = Flow(qs(), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": means, "contact": None, "outcome": None, "via": None}}})
             did = CALLBACK_IDS[role]
             self.assertEqual((f.current, f.questions[did].text, f.questions[did].recording), (did, CALLBACK_ASK_RESUMED[role], f"callback_{role}_again"))
         self.assertEqual(CALLBACK_ASK_RESUMED["email"], "前回選択いただいたメールでのご連絡の件でメールアドレスを伺う前に切れてしまいましたので恐れ入りますが"
@@ -12022,7 +12026,7 @@ class NoneOfThemTest(unittest.TestCase):
         # ときだけ方法。⛔ "wish_means" が渡っていなければ（CL-2 がまだ渡さない間）、今までどおり伺わない
         self.assertEqual([earlier_wish_means(e) for e in ({"outcome": None, "means": "line"}, {"outcome": "means", "means": "line", "contact": "abc_123"},
                                                           {"outcome": None, "means": "phone"}, {"outcome": None, "means": None})], ["line", None, None, None])
-        f = Flow(qs(), earlier={"Q1": {**taken, "wish": "means"}})
+        f = Flow(qs(), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": None, "contact": None, "outcome": "means", "via": None}}})
         self.assertEqual((f.current, how in f.items), ("Q2", False))
 
     def test_contact_heard_at_the_recheck_is_kept(self):
@@ -12120,7 +12124,7 @@ class NoneOfThemTest(unittest.TestCase):
         # ユーザー「(ア)」＝test_cut_during_wish_resumes_after_apology）
         from flowctl import WISH_NONE, Flow
         taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
-        f = Flow(list(self.flow(False).questions.values()), earlier={"Q1": {**taken, "wish": "none"}})
+        f = Flow(list(self.flow(False).questions.values()), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": None, "contact": None, "outcome": "none", "via": None}}})
         self.assertEqual((f.current, "W1" in f.order), ("Q2", False))
         r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
         self.assertEqual((r["result"], "W1" in f.items), ("end", False))
@@ -12143,7 +12147,7 @@ class NoneOfThemTest(unittest.TestCase):
                     Question("Q3", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
         for wish, want in (("means", ("next", "Q3", None)), ("other", ("next", "Q3", None)), ("none", ("end", None, "goal_refused"))):
-            f = Flow(qs(), earlier={"Q1": {**taken, "wish": wish}})
+            f = Flow(qs(), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": None, "contact": None, "outcome": wish, "via": None}}})
             r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
             self.assertEqual((r["result"], r.get("question_id"), f.end_reason), want, wish)
             self.assertNotIn("W1", f.items, wish)
@@ -12155,7 +12159,7 @@ class NoneOfThemTest(unittest.TestCase):
         no = {"state": "accepted", "value": None, "condition": "いいえ"}
         f = Flow(qs(None), earlier={"Q1": {**no, "hedged": "届いても見るか分からなくて"}})
         self.assertEqual((f.current, f.questions["W1"].text, f.hedged_words()), ("W1", "前回お伺いした件でほかにご希望などはございますでしょうか？", {}))
-        f = Flow(qs(None), earlier={"Q1": {**no, "hedged": "届いても見るか分からなくて", "wish": "other"}})
+        f = Flow(qs(None), earlier={"Q1": {**no, "hedged": "届いても見るか分からなくて", "wish_fact": {"question": "Q1", "means": None, "contact": None, "outcome": "other", "via": None}}})
         r = AmbiguousAnswerTest.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
         self.assertEqual((r["result"], r["question_id"]), ("next", "Q3"))
         f = Flow(qs(None), earlier={"Q1": no})   # 言い切ったお断り＝今までどおり答え（伺わない）
@@ -12224,7 +12228,7 @@ class NoneOfThemTest(unittest.TestCase):
         self.assertEqual([p.get("part") or p.get("id") or p["kind"] for p in r["play"]], ["apology_cut_off", "purpose", "Q1_other_again"])
         self.assertEqual((r["question_id"], r["play"][-1]["text"]), (wid, text))
         # 前の通話でほかのご希望まで伺った答え・この通話で伺い始める答えは、今までどおり（続きの伺いは無い・この通話の言い方）
-        f = Flow(qs(True), earlier={"Q1": {**taken, "wish": "none"}})
+        f = Flow(qs(True), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": None, "contact": None, "outcome": "none", "via": None}}})
         self.assertNotIn(wid, f.items)
         f, _ = self.wished(False)
         self.assertEqual(f.questions[wid].recording, "Q1_other")
@@ -14418,7 +14422,7 @@ class ImportAITest(unittest.TestCase):
             self.skipTest("CL-2 の取込（app/）がまだ無い")
         fn = next(n for n in ast.walk(ast.parse(src.read_text(encoding="utf-8"))) if isinstance(n, ast.FunctionDef) and n.name == "preview")
         theirs = {a.arg for a in fn.args.kwonlyargs + fn.args.args if a.arg.startswith("decide_")}
-        self.assertEqual(sorted(theirs ^ set(import_ai.DECIDERS)), [], "CL-2 の取込とこちらで、決める処理の名前が違う")
+        self.assertEqual(sorted(theirs ^ without_cl2_pending(self, set(import_ai.DECIDERS), theirs)), [], "CL-2 の取込とこちらで、決める処理の名前が違う")
 
 
 
@@ -15159,7 +15163,7 @@ class RemainingNineTest(unittest.TestCase):
 
     def resumed(self):
         # 前の電話で点（「料金のところ」）まで伺い、ご説明の途中で切れた（19時26分の (A)＝ご説明から始める）
-        return self.approval({"state": "accepted", "condition": "いいえ", "point": "heard", "point_said": self.POINT})
+        return self.approval({"state": "accepted", "condition": "いいえ", "point_fact": {"question": "Q1", "point": self.POINT, "said": self.POINT, "outcome": None}})
 
     def wish_flow(self, goal=True, judging=True, q0=None):
         # 選ぶ質問への「どれも要らない」のあと（ほかのご希望を伺う W1 が次）。q0＝その前に伺う質問
@@ -15445,6 +15449,96 @@ class RemainingNineTest(unittest.TestCase):
         self.assertNotIn('for k in CALLBACK_ASK_OTHER_WAYS for n in ("", "_2")', inspect.getsource(make_ack_clips))
         names = {n for n in make_ack_clips.HOW_OF if n.startswith("callback_line_how_without_") and n.endswith("_2")}
         self.assertEqual(names, {f"callback_line_how_without_{k}_2" for k in CALLBACK_ASK_OTHER_WAYS_AGAIN})
+
+
+class Cl2Round211Test(unittest.TestCase):
+    """CL-2 の連絡帳 4-211〜4-214 を受けた直し（CL-1.md 4-88）：手順を伺い終えていない業務の質問を報告に書く（unfinished）・前の通話の答えには
+    その質問の最後の事実そのものを渡していただき、読み方は会話の側の1か所（earlier_*）だけ・標準の想定問答の答えは業務の録音の表に入れない。"""
+    CONTACT = "ご連絡はお電話とメールのどちらがよろしいでしょうか？"
+
+    @staticmethod
+    def say(f, heard, op, **args):
+        f.on_callee(); f.on_heard(heard)
+        return f.apply(op, args)
+
+    def contact_qs(self, goal=False):
+        from flowctl import Question
+        return [Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"), final_goal=goal, topic="ご連絡の方法"),
+                Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+
+    def approval_qs(self):
+        from flowctl import Question
+        return [Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True),
+                Question("Q2", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))]
+
+    def test_unfinished_lists_questions_whose_procedure_is_not_finished(self):
+        # 4-213：「どれも要らない」のあとの W1・その連絡先・ご承認の手順を伺い終えないまま通話が終わったら、その業務の質問の番号を報告の unfinished に書く
+        # （決まりは _goals_lost の伺い終えるまで締めない決まりと同じ1か所）。伺い終えたら空。前の通話から続く手順を、この通話でも伺い終えなかったときも
+        from flowctl import CALLBACK_IDS, NONE, WISH_NONE, Flow, wish_label
+        wid, how, n1 = CALLBACK_IDS["other_wish"], CALLBACK_IDS["line_how"], CALLBACK_IDS["not_agreed"]
+        f = Flow(self.contact_qs())
+        self.assertEqual(f.report()["unfinished"], [])
+        self.say(f, "どちらも要らないです。", "record_answer", question_id="Q1", condition_id=NONE)
+        self.assertEqual((f.current, f.report()["unfinished"]), (wid, ["Q1"]))          # W1 の答えをいただく前に切れた
+        self.say(f, "LINEならいいです。", "record_answer", question_id=wid, condition_id=wish_label("line"), value="LINE")
+        self.assertEqual((f.current, f.report()["unfinished"]), (how, ["Q1"]))          # 連絡先を伺う前に切れた
+        g = Flow(self.contact_qs())
+        self.say(g, "どちらも要らないです。", "record_answer", question_id="Q1", condition_id=NONE)
+        self.say(g, "特にないです。", "record_answer", question_id=wid, condition_id=WISH_NONE)
+        self.assertEqual(g.report()["unfinished"], [])                                  # 伺い終えた
+        # ご承認の手順：点を伺う前・ご説明の途中で切れた＝unfinished。点を言っていただけないまま終えた（unresolved）＝伺い終えた
+        h = Flow(self.approval_qs())
+        self.say(h, "いいえ、承認できません。", "record_answer", question_id="Q1", condition_id="いいえ")
+        self.assertEqual((h.current, h.report()["unfinished"]), (n1, ["Q1"]))
+        self.say(h, "それはちょっと言いたくないですね。", "record_answer", question_id=n1, condition_id="refused")
+        self.assertEqual((h.point["outcome"], h.report()["unfinished"]), ("unresolved", []))
+        # 前の通話から続く手順：続きの電話で、切れた所から伺う前にまた切れた
+        taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
+        self.assertEqual(Flow(self.contact_qs(), earlier={"Q1": taken}).report()["unfinished"], ["Q1"])
+        cut = {"Q1": {**taken, "wish_fact": {"question": "Q1", "wish": wish_label("line"), "means": "line", "contact": None, "outcome": None, "via": None}}}
+        self.assertEqual(Flow(self.contact_qs(), earlier=cut).report()["unfinished"], ["Q1"])
+        done = {"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "line", "contact": "abc_123", "outcome": "means", "via": "id"}}}
+        self.assertEqual(Flow(self.contact_qs(), earlier=done).report()["unfinished"], [])
+        no = {"state": "accepted", "value": None, "condition": "いいえ"}
+        heard = {"Q1": {**no, "point_fact": {"question": "Q1", "point": "料金のところ", "said": "料金のところがよく分からなかったんです。", "outcome": None}}}
+        self.assertEqual(Flow(self.approval_qs(), earlier=heard).report()["unfinished"], ["Q1"])
+        ended = {"Q1": {**no, "point_fact": {"question": "Q1", "point": None, "outcome": "unresolved"}}}
+        self.assertEqual(Flow(self.approval_qs(), earlier=ended).report()["unfinished"], [])
+
+    def test_earlier_answers_carry_the_last_fact_and_known_contacts_are_read_from_it(self):
+        # 4-212 (B)：前の通話で伺えた連絡先を「伺い済み」にできなかった（連絡先の方法を、連絡先を伺う前に切れた方法 wish_means から読んでいた＝連絡先のある
+        # 答えではいつも空）。前の通話の答えには、その質問の最後の事実そのもの（wish_fact＝other_wish・point_fact＝not_agreed）を渡していただき、読み方は
+        # 会話の側の earlier_* の1か所だけにする（CL-2 の案2）
+        from flowctl import CALLBACK_IDS, EARLIER_KEYS, Flow, earlier_records, known_contact
+        self.assertEqual(set(EARLIER_KEYS), {"state", "value", "condition", "hedged", "wish_fact", "point_fact"})
+        taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
+        line = {"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "line", "via": "id", "contact": "abc_123", "outcome": "means"}}}
+        mail = {"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "email", "via": None, "contact": "a@example.com", "outcome": "means"}}}
+        self.assertEqual(known_contact("line_how", [], earlier_records(line)), ("abc_123", "id"))
+        self.assertEqual(known_contact("email", [], earlier_records(mail)), ("a@example.com", None))
+        # 続きの電話で、ほかの質問がメールアドレスを伺っても、もう伺ったアドレスは伺い直さない（9-3）
+        from flowctl import Question
+        qs = [*self.contact_qs(), Question("Q3", "ご担当者様のメールアドレスをお伺いしてもよろしいでしょうか？", "email", conditions=("答えた",))]
+        f = Flow(qs, earlier=mail)
+        self.assertEqual((f._known_contact("email"), f._wish_outcome("Q1")), (("a@example.com", None), "means"))
+
+    def test_import_deciders_include_away_and_unclear(self):
+        # 4-212 (A)：CL-2 の取込に受け口ができた決める処理（遠ざかる向きの選択肢・ほかに分からない点が無いかの「無い」）を、唯一の一覧に入れる
+        import import_ai
+        self.assertLessEqual({"decide_away", "decide_unclear"}, set(import_ai.DECIDERS))
+
+    def test_standard_answers_are_not_in_the_business_recordings(self):
+        # 4-211：業務設定の想定問答のうち、標準（Settings.standard_answers）から来た答えは標準の録音の組から流す（CL-2 の current_sets の "standard"）＝業務の
+        # 録音の表（make_ack_clips.script_table）に入れない。流す部分の名前（answer_問いの名前）と文は今のまま（流れの制御は答えを選べる）。標準の組の表は
+        # make_ack_clips.standard_table
+        import dataclasses
+        from g22_opening import BUSINESS
+        from make_ack_clips import script_table, standard_table
+        b = dataclasses.replace(BUSINESS, answers=[("料金", "月額3,000円です。"), ("場所", "東京都港区です。")], standard_answers=frozenset({"場所"}))
+        table = script_table(b)[0]
+        self.assertEqual(("answer_料金" in table, "answer_場所" in table), (True, False))
+        self.assertEqual(b.replay_parts()["answer_場所"], "東京都港区です。")
+        self.assertEqual(standard_table([("場所", "東京都港区です。")]), {"answer_場所": ("東京都港区です。", "answer")})
 
 if __name__ == "__main__":
     unittest.main()
