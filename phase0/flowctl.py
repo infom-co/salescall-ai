@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
-from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
+from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_ANYTIME, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
@@ -3835,6 +3835,9 @@ class Flow:
             return None if args.get("part") in ("handover", "ai") else "shitsurei"
         # 返事の頭に流す決まった一言（Flow._advance）の相づちは、その一言の決まり：聞き取れないまま先へ進むとき・締めの前の念のための確認の前でも同じ
         # （CL-1 の 11-03 のご判断の (7)。⛔ 見直しで見つけた：下の2つが先にあり、「はい、LINEでのご連絡のご希望を…」・「申し訳ございません、そのご希望を…」）
+        if reply.get("point_open") and result in ("next", "end", "recheck"):
+            # 点を言っていただけないまま手順を終えたあとに挟む一言（Flow._advance）の頭：「はい、」・覚えていないと言われたら「ごもっともです。」（_point_step）
+            return reply["point_open"]
         if reply.get("wish_told") and result in ("next", "end", "recheck"):
             return "shouchi"  # ほかのご希望を申し伝える一言の頭「承知しました。」（Flow._advance。業務に無いことはお約束しない）
         if reply.get("told") and result in ("next", "end", "recheck"):
@@ -6787,10 +6790,11 @@ class Flow:
                 p["gomottomo" if self.items[nid].state == "dont_know" else "hai"] = self.callee_turns
                 self._ask_point("other_point", nid, recap=True)
             elif p["again"] and self.items[nid].state != "refused":
-                # ⏳ 続きの電話で、振り返る説明の文が無い（説明が質問の文の中にある＝最初の質問がご承認の質問）：ユーザーに伺っている（CL-1.md 1）。それまでは
-                # ご納得を伺う（4時16分52秒の前の形）
-                p["stage"], p["hai"] = "confirm", self.callee_turns
-                self._ask_point("agreed_now", nid)
+                # 続きの電話で、振り返る説明の文が無い（説明が質問の文の中にある＝最初の質問がご承認の質問）：ご納得は伺わず（4時48分13秒）、点は1回伺ったので
+                # 手順を終え、次へ進む前に「何か思い出されたりご不満な点がございましたらいつでもお申し出ください。」を挟む（leave_open。頭は、覚えていないと言われ
+                # たら「ごもっともです。」・ほかは「はい、」）。✅ 2026-11-05 日本時間5時20分56秒 ユーザー：「(b)…同上」（下の振り返りのあとと同じ）
+                p["open"] = "gomottomo" if self.items[nid].state == "dont_know" else "hai"
+                self._point_end("unresolved")
             else:
                 # 点を言っていただけなかった（この電話＝言いたくない・どの部分か分からない・聞き取れない／続きの電話＝言いたくない）：ご納得は伺わず、押さずに
                 # 手順を終える（ご承認は「いいえ」のまま・点は無し＝依頼者へ返す。最終目的ならお礼を言って締め、もうかけないの印は付けない＝_point_end の
@@ -6820,8 +6824,12 @@ class Flow:
                 self._point_end("declined")
             elif self.questions[oid].of:
                 # 振り返りの一言（続きの電話の始め＝recap）への返事も、点を言っていただけない（「そうでしたっけ。」・覚えていないまま・聞き取れない）：上と同じく、
-                # ご納得は伺わずに手順を終える（点は1回伺った＝4時36分。✅ 4時48分13秒のお言葉）。頭は「はい、」（「承知しました。」は合わない）
-                p["hai"] = self.callee_turns
+                # ご納得は伺わずに手順を終える（点は1回伺った＝4時36分。✅ 4時48分13秒のお言葉）。次へ進む前に、伺い直さずに一言を挟む（leave_open。頭は「はい、」
+                # ＝振り返りの頭で「ごもっともです。」をもう言った）。✅ 2026-11-05 日本時間5時20分56秒 ユーザー：「お客様「そうでしたっけ。」と言われて、こちら
+                # 「はい、続きましてご訪問の日時のご希望はございますでしょうか？」は流れとしておかしくないですか？：「はい、何か思い出されたり、ご不満な点が
+                # ございましたらいつでもお申し出ください」のような言葉を挟んだ方がいいんじゃないでしょうか？「そうでしたっけ。」とはっきりしない状態で、
+                # 「はい、改めましてただいまご説明した内容でご承認いただけますでしょうか？」伺い、承認しますとお客様がいうわけないですよね。」
+                p["open"] = "hai"
                 self._point_end("unresolved")
             else:
                 p["stage"], p["hai"] = "confirm", self.callee_turns   # 「なるほど」を「はい、」で受けて伺う（お礼・承りの相づちは合わない）
@@ -7386,6 +7394,12 @@ class Flow:
         伺う一言と同じ種類 question）。"""
         r = self._advance_to(prefix, handled)
         plays = []
+        # ご承認いただけなかったときの手順を、点を言っていただけないまま終えた（_point_step の leave_open）：次へ進む前（締めるときも）に、伺い直さずに挟む一言
+        # （phrases.POINT_ANYTIME。頭の相づちは p["open"]＝_ack_choice）。1回だけ。✅ 2026-11-05 日本時間5時20分56秒 ユーザー
+        opened = (p := self.point) is not None and p.get("open")
+        if opened:
+            plays.append({"kind": "recorded", "id": "point_anytime", "text": POINT_ANYTIME})
+            p["open"] = None
         wish = (w := self.wish) is not None and bool(w["told"])
         if wish:
             plays.append({"kind": "recorded", "id": f"wish_told_{w['told']}", "text": WISH_TOLD[w["told"]]})
@@ -7402,7 +7416,7 @@ class Flow:
             # 担当の者に申し伝えます。」＋「申し訳ございません、」＋「お声が聞き取れませんでしたので…」。⛔ 11-03 の /clear のあとの見直しで見つけた：
             # 相づちの直しで、確かめの前のお詫びが抜けていた＝「…申し伝えます。お声が聞き取れませんでしたので…」）
             plays.append({"kind": "recorded", "id": "moushiwake_heavy", "text": ACK["moushiwake_heavy"]})
-        return self._led(plays, "", r) | ({"wish_told": True} if wish else {"told": True} if told else {})
+        return self._led(plays, "", r) | ({"point_open": opened} if opened else {"wish_told": True} if wish else {"told": True} if told else {})
 
     def _tell_due(self, qid: str, ending: bool) -> str | None:
         """いま流す、その答えのあとに伝える業務の一言（Question.tell_words。無ければ None）を決める唯一の場所（流すものは「言った」の印を付ける＝1回だけ）：

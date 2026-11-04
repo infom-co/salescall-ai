@@ -49,7 +49,9 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request",
                          "own_fallback_point_again_opinion",
                          # 続きの電話の始めに、ご納得いただけなかった点を「覚えていない」と言われたときの頭の一言の録音（✅ 11-05 日本時間4時16分52秒 ユーザー。CL-1.md 4-86）
-                         "gomottomo"})
+                         "gomottomo",
+                         # 点を言っていただけないまま手順を終えるときに挟む一言の録音（✅ 11-05 日本時間5時20分56秒 ユーザー。CL-1.md 4-87）
+                         "point_anytime"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -7923,16 +7925,17 @@ class EndJudgedTest(unittest.TestCase):
         from flowctl import CALLBACK_IDS, Question
         from grounding import GROUNDED
         from instruction import Business
-        from phrases import ACK, CALLBACK_ASK, RECORDED, recap_line
+        from phrases import ACK, CALLBACK_ASK, CLOSING, POINT_ANYTIME, RECORDED, recap_line
         n1, n2, n3 = (CALLBACK_IDS[r] for r in ("not_agreed", "other_point", "agreed_now"))
         explain = "こちらのプランは月額3,000円で初月は無料となっております。"
         recap = "前回は『こちらのプランは月額3,000円で初月は無料となっております』とお話ししたところでお電話が切れてしまいました。"
         self.assertEqual((recap_line(explain), RECORDED["gomottomo"], ACK["gomottomo"]), (recap, "ごもっともです。", "ごもっともです。"))
 
-        def flow(intro=explain):
+        def flow(intro=explain, **goal):
             b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付",
                          questions=[Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
-                                    Question("Q2", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro=intro),
+                                    Question("Q2", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro=intro,
+                                             **goal),
                                     Question("Q3", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))],
                          purpose_line="資料送付の件でお電話いたしました。",
                          earlier={"Q1": {"state": "accepted", "condition": "はい"}, "Q2": {"state": "accepted", "condition": "いいえ"}},
@@ -7972,10 +7975,18 @@ class EndJudgedTest(unittest.TestCase):
         # (3) どちらとも取れない（「そうでしたっけ。」）：納得していないお客様にご納得は伺わない＝点は1回伺ったので手順を終え、「はい、」で次へ（11-02 4時36分の
         # 「1回伺って依頼者へ返す」。✅ 4時48分13秒 ユーザー：「…納得していない状況で→ こちら「はい、ご説明した内容でご納得いただけましたでしょうか？」は
         # 対尾王としてありえないんじゃないですか？」）
+        # ✅ 5時20分56秒 ユーザー：「お客様「そうでしたっけ。」と言われて、こちら「はい、続きましてご訪問の日時のご希望はございますでしょうか？」は流れとして
+        # おかしくないですか？：「はい、何か思い出されたり、ご不満な点がございましたらいつでもお申し出ください」のような言葉を挟んだ方がいいんじゃないでしょうか？」
+        # ＝伺い直さずに、その一言（共通の一言の録音 point_anytime）を挟んでから次へ
         f = recapped()
         r = self._say(f, "そうでしたっけ。", "record_answer", question_id=n2, condition_id="unknown")
         self.assertEqual((r["question_id"], r.get("ack"), n3 in f.order, f.items["Q2"].condition), ("Q3", "hai", False, "いいえ"))
+        self.assertEqual((r["play"][0]["id"], r["play"][0]["text"], RECORDED["point_anytime"]), ("point_anytime", POINT_ANYTIME, POINT_ANYTIME))
+        self.assertEqual(POINT_ANYTIME, "何か思い出されたりご不満な点がございましたらいつでもお申し出ください。")
         self.assertEqual([(x["point"], x["outcome"]) for x in f.facts["not_agreed"]], [(None, "unresolved")])
+        # 次の返事では、もう挟まない（1回だけ）
+        r = self._say(f, "15日の午後2時でお願いします。", "record_answer", question_id="Q3", condition_id="答えた", value="15日の午後2時")
+        self.assertNotIn("point_anytime", [p.get("id") for p in r.get("play", [])])
         # (4) お断り：ご承認は「いいえ」のまま
         f = recapped()
         self._say(f, "やっぱり今回はやめておきます。高いので。", "record_answer", question_id=n2, condition_id="断ろうとしている")
@@ -7990,10 +8001,20 @@ class EndJudgedTest(unittest.TestCase):
         r = self._say(f, "それはちょっと言いたくないですね。", "record_answer", question_id=n1, condition_id="refused")
         self.assertEqual((r["question_id"], r.get("ack"), n3 in f.order, f.items["Q2"].condition), ("Q3", "shouchi", False, "いいえ"))
         self.assertEqual([(x["point"], x["outcome"]) for x in f.facts["not_agreed"]], [(None, "unresolved")])
-        # (7) 説明の文が無い（振り返る中身が無い）：黙って次の質問へは進まず、ご納得を伺う
-        f = flow(intro="")
-        r = self._say(f, "うーん、何だったか覚えてないですね。", "record_answer", question_id=n1, condition_id="unknown")
-        self.assertEqual((r["question_id"], [p["text"] for p in r["play"]], r.get("ack")), (n3, [CALLBACK_ASK["agreed_now"]], "hai"))
+        # (7) 説明の文が無い（振り返る中身が無い）：ご納得は伺わず（4時48分13秒）、(3) と同じ一言を挟んで次へ（✅ 5時20分56秒 ユーザー：「(b)…同上」）。
+        # 頭は、覚えていないと言われたら「ごもっともです。」（4時16分52秒の振り返りと同じ）・聞き取れないなら「はい、」
+        for said, how, ack in (("うーん、何だったか覚えてないですね。", "record_answer", "gomottomo"), ("（雑音）", "report_unclear", "hai")):
+            f = flow(intro="")
+            r = self._say(f, said, how, question_id=n1, **({"condition_id": "unknown"} if how == "record_answer" else {}))
+            self.assertEqual((r["question_id"], r.get("ack"), r["play"][0]["id"], n3 in f.order, f.items["Q2"].condition),
+                             ("Q3", ack, "point_anytime", False, "いいえ"), said)
+            self.assertEqual([(x["point"], x["outcome"]) for x in f.facts["not_agreed"]], [(None, "unresolved")], said)
+        # (8) ご承認が最終目的：一言を挟んでから、お礼を言って締める（もうかけないの印は付けない＝4時36分のご決定）
+        f = flow(final_goal=True, declines=("いいえ",))
+        self._say(f, "うーん、何だったか覚えてないですね。", "record_answer", question_id=n1, condition_id="unknown")
+        r = self._say(f, "そうでしたっけ。", "record_answer", question_id=n2, condition_id="unknown")
+        self.assertEqual((r["result"], r.get("ack"), [p["text"] for p in r["play"]], "goal_refused" in f.facts),
+                         ("end", "hai", [POINT_ANYTIME, CLOSING], False))
         # 振り返りの一言は、説明の文のあるご承認の質問だけ、依頼主の単位で録音する（作る表 make_ack_clips.script_table・流す question_play が同じ名前）
         import dataclasses
         from g22_opening import BUSINESS

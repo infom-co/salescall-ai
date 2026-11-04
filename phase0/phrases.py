@@ -570,6 +570,14 @@ def recap_line(explained: str) -> str:
     return f"前回は『{explained.strip().rstrip('。．.！!')}』とお話ししたところでお電話が切れてしまいました。"
 
 
+# ご承認いただけなかったときの手順で、ご納得いただけなかった点を言っていただけないまま手順を終えるとき（続きの電話で振り返りのあとも「そうでしたっけ。」・
+# 振り返る説明の文が無いご承認の質問で覚えていないと言われた＝flowctl.Flow._point_step の leave_open）に、次へ進む前に挟む一言（共通の一言の録音
+# point_anytime。頭の相づちは「はい、」・覚えていないと言われたら「ごもっともです。」）。✅ 2026-11-05 日本時間5時20分56秒 ユーザー：「お客様「そうでしたっけ。」と
+# 言われて、こちら「はい、続きましてご訪問の日時のご希望はございますでしょうか？」は流れとしておかしくないですか？：「はい、何か思い出されたり、ご不満な点が
+# ございましたらいつでもお申し出ください」のような言葉を挟んだ方がいいんじゃないでしょうか？「そうでしたっけ。」とはっきりしない状態で、「はい、改めまして
+# ただいまご説明した内容でご承認いただけますでしょうか？」伺い、承認しますとお客様がいうわけないですよね。(b)…同上」（決まった言い方なので言葉の途中の
+# 読点は入れない＝10-15）
+POINT_ANYTIME = "何か思い出されたりご不満な点がございましたらいつでもお申し出ください。"
 # 続きの電話の始めのご説明（19時26分の (A)＝「前回お伺いした（その点）の件ですが、」から）が、自分で答える受け皿（知っていることの文そのまま＝その点の短い
 # 言葉は会話AIが作るので受け皿では言えない）になったときの話し始め（録音。続けて会話AIが知っていることの文を言う）。⏳ 同じく伺う
 RESUMED_FALLBACK_LEAD = "前回お伺いした件ですが、"
@@ -623,7 +631,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD,
+            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
