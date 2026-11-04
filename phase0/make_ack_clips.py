@@ -125,7 +125,7 @@ HOW_OF.update({f"callback_line_how_without_{k}": "question" for k in CALLBACK_AS
 # 一言の表の鍵から作っていて、2つの表の鍵がずれても気づけなかった）
 HOW_OF.update({f"callback_line_how_without_{k}_2": "question" for k in CALLBACK_ASK_OTHER_WAYS_AGAIN})
 # 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
-HOW_OF.update({**{n: "own_fallback" for n in POINT_FALLBACK}, "own_fallback_explain_again": "own_fallback", "resumed_fallback_lead": "own_fallback"})
+HOW_OF.update({**{n: "own_fallback" for n in POINT_FALLBACK}, "resumed_fallback_lead": "own_fallback"})
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）

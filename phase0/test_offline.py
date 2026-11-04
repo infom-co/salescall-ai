@@ -47,7 +47,7 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          "own_fallback_point_again", "resumed_fallback_lead",
                          # ご説明できないときの一言を、お客様の言ったことの種類で（✅ 11-05 日本時間3時33分11秒 ユーザーのご修正。CL-1.md 4-85）
                          "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request",
-                         "own_fallback_point_again_opinion", "own_fallback_explain_again"})
+                         "own_fallback_point_again_opinion"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -7954,16 +7954,15 @@ class EndJudgedTest(unittest.TestCase):
             self.assertEqual((f.items["Q1"].condition, r["question_id"]), ("はい", "Q2"), said)
             self.assertEqual([(x["point"], x.get("explained"), x["outcome"], earlier_point(x), earlier_point_said(x)) for x in f.facts["not_agreed"]],
                              [(None, True, "agreed", "agreed", None)], said)
-        # ご説明できない（知っていることに無い）：今までどおり、ご納得は伺わずに手順を終える（記録はご説明できなかった）
+        # ご説明できない（知っていることに無い）：今までどおり、ご納得は伺わずに手順を終える（記録はご説明できなかった）。お客様は点を言っていないので、申し伝える
+        # 一言も、会話AIの「そちらは担当の者に申し伝え…」も言わずに次へ（✅ 2026-11-05 日本時間3時49分00秒 ユーザー：「納得いただけなかった点を言っていただけなかった
+        # のに、前回お伺いした件は私では正確にご説明できませんというのはおかしくないですか？」。⛔ それまで、その一言か会話AIの文を流していた）
         f = flow()
         self._say(f, "うーん、何だったか覚えてないですね。", "record_answer", question_id=n1, condition_id="unknown")
         no = "恐れ入ります。そちらは担当の者に申し伝えさせていただきますね。"
         grounded(f, no, GROUNDED, part="no_answer")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": no})
-        self.assertNotEqual(r["result"], "rejected", r)
-        f.on_callee(); f.on_heard("分かりました。")
-        r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual((r["question_id"], n3 in f.order), ("Q2", False))
+        self.assertEqual((r["result"], r.get("question_id"), r.get("say"), n3 in f.order), ("next", "Q2", None, False))
         self.assertEqual([(x["point"], x.get("explained"), x["outcome"]) for x in f.facts["not_agreed"]], [(None, False, "unresolved")])
 
     def test_clear_agreement_after_explaining_again_is_not_asked_again(self):
@@ -15088,12 +15087,15 @@ class RemainingNineTest(unittest.TestCase):
         f.on_callee(); f.on_heard(heard)
         return f.apply(op, args)
 
-    def approval(self, earlier):
-        # ご承認の質問に前の電話で「いいえ」をいただいた続きの電話（目的のお客様の無い業務・お詫びの理由は途中で切れた）
+    EXPLAIN = "こちらのプランは月額3,000円で初月は無料となっております。"
+
+    def approval(self, earlier, intro=""):
+        # ご承認の質問に前の電話で「いいえ」をいただいた続きの電話（目的のお客様の無い業務・お詫びの理由は途中で切れた）。intro＝ご承認いただく内容の説明の文
         from flowctl import Question
         from instruction import Business
         b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付",
-                     questions=[Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True),
+                     questions=[Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                                         intro=intro),
                                 Question("Q2", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))],
                      purpose_line="資料送付の件でお電話いたしました。", earlier={"Q1": earlier}, apology=("cut_off",), info=[self.INFO])
         f = b.flow(play_recordings=True)
@@ -15149,7 +15151,7 @@ class RemainingNineTest(unittest.TestCase):
         # ⛔ 名乗りとお詫びのすぐあとに話し始めの言葉の無い文が流れ、何も指さない「その点は私では…」が流れた。この電話で点を伺ったときは今までどおり
         from flowctl import CALLBACK_IDS
         from grounding import UNGROUNDED
-        from phrases import OWN_FALLBACK_EXPLAIN_AGAIN, OWN_FALLBACK_POINT, OWN_FALLBACK_POINT_AGAIN, RESUMED_FALLBACK_LEAD
+        from phrases import OWN_FALLBACK_POINT, OWN_FALLBACK_POINT_AGAIN, RESUMED_FALLBACK_LEAD
         f = self.resumed()
         bad = "前回お伺いした料金の件ですが、料金は月額2,000円です。"
         for _ in range(3):
@@ -15163,10 +15165,27 @@ class RemainingNineTest(unittest.TestCase):
         r = f.apply("replay_opening", {"part": "no_answer", "answer": no})   # 中身の判定が届かない＝受け皿
         self.assertEqual([p["text"] for p in r.get("play", ())], [OWN_FALLBACK_POINT_AGAIN])
         n1 = CALLBACK_IDS["not_agreed"]
+        # 続きの電話で点を言っていただけなかった（0時48分の (ア)）：お客様は点を言っていないので、申し伝える一言（「前回お伺いした件は私では正確にご説明できません…」）
+        # は言わない。✅ 2026-11-05 日本時間3時49分00秒 ユーザー：「納得いただけなかった点を言っていただけなかったのに、前回お伺いした件は私では正確にご説明できません
+        # というのはおかしくないですか？」⇒ ご承認いただく内容の説明の文（ご承認の質問に入る一言）があれば、それでご説明する（答えを持っていないことにしない・
+        # 受け皿はその文そのまま）。無ければ、何も言わずに手順を終える（0時48分「ご説明できなければ…ご納得は伺わずに手順を終える」）
         f = self.approval({"state": "accepted", "condition": "いいえ"})
         self.say(f, "うーん、何だったか覚えてないですね。", "record_answer", question_id=n1, condition_id="unknown")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらは担当の者に申し伝えさせていただきますね。"})
-        self.assertEqual([p["text"] for p in r.get("play", ())], [OWN_FALLBACK_EXPLAIN_AGAIN])   # 点を言っていない（ご質問・ご要望・ご意見のどれでもない）
+        self.assertEqual((r["result"], r.get("ack"), [p["text"] for p in r.get("play", ())], r.get("say"), f.point["outcome"], f.point["explained"]),
+                         ("next", "hai", ["それではご訪問の日時のご希望はございますでしょうか？"], None, "unresolved", False))   # 「はい、」＋次の質問だけ
+        f = self.approval({"state": "accepted", "condition": "いいえ"}, intro=self.EXPLAIN)
+        self.say(f, "うーん、何だったか覚えてないですね。", "record_answer", question_id=n1, condition_id="unknown")
+        self.assertIn(self.EXPLAIN, f.known_lines())
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらは担当の者に申し伝えさせていただきますね。"})
+        self.assertEqual(r["result"], "rejected")
+        bad = "こちらのプランは月額2,000円です。"
+        for _ in range(3):
+            grounded(f, bad, UNGROUNDED)
+            r = f.apply("replay_opening", {"part": "own", "answer": bad, "fallback": self.EXPLAIN})
+            if r["result"] != "rejected":
+                break
+        self.assertEqual((r["result"], r.get("say"), f.point["explained"]), ("own_answer", self.EXPLAIN, True))
         f = self.approval({"state": "accepted", "condition": "いいえ"})
         self.say(f, "料金のところがよく分からなかったんです。", "record_answer", question_id=n1, condition_id="点を言った", value="料金のところ")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらは担当の者に申し伝えさせていただきますね。"})

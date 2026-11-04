@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
-from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, OWN_FALLBACK_EXPLAIN_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD
+from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
@@ -4500,6 +4500,15 @@ class Flow:
         part = a.get("part")
         if (why := self._explain_problem(a)) is not None:
             return self._reject(why)
+        if part == "no_answer" and self._explaining() and self.point.get("whole") and self.point["explained"] is None:
+            # 続きの電話で点を言っていただけず、ご承認いただく内容を改めてご説明する段で、ご説明できない（説明の文が無く、質問の文からもご説明できない）：
+            # お客様は点を言っていないので、申し伝える一言（「前回お伺いした件は私では正確にご説明できません…」）は言わない＝何も言わずに手順を終える
+            # （0時48分の (ア)「ご説明できなければ、今までどおりご納得は伺わずに手順を終える」）。✅ 2026-11-05 日本時間3時49分00秒 ユーザー：「納得いただけなかった点を
+            # 言っていただけなかったのに、前回お伺いした件は私では正確にご説明できませんというのはおかしくないですか？」
+            self.own_turn = self.callee_turns
+            self._point_said("no_answer")
+            self.point["stage"] = "explained"
+            return self._advance("", handled=True)
         if part not in ("resume", "handover"):
             self._keep_answer_reading()
         if part in OWN_PARTS or part.startswith(ANSWER_PREFIX):
@@ -4905,14 +4914,19 @@ class Flow:
         return {"result": "own_answer", "fallback": True, "say": said,
                 "message": f"{why}「{said}」とだけ言います（言葉を足しません）。{self._own_then()}"}
 
+    def _approval_explanation(self) -> str | None:
+        """ご承認いただく内容の説明の文（ご承認を伺う質問に入る一言 Question.intro＝トークスクリプトの説明。知っていることの1行＝instruction.Business.knowledge・
+        受け皿に選べる文＝known_lines）。無ければ None（説明は質問の文そのもの）。"""
+        q = self.questions.get(self.point["q"]) if self.point else None
+        return q.intro.strip() or None if q is not None and q.approval else None
+
     def _point_fallback(self, pick: str | None) -> tuple[str, str]:
         """ご説明する段で、ご説明できないときの一言（文, 録音の名前）の唯一の決まり（_own_fallback）：お客様の言ったことの種類（ご質問・ご要望・ご意見＝
         pick。会話AIが答えの文と一緒に選ぶ。選んでいなければご質問）で名前と返し方をそろえる（✅ 2026-11-05 日本時間3時33分11秒 ユーザーのご修正）。
         続きの電話の始めのご説明（この電話では点を伺っていない）は「前回お伺いした…」、この電話で伺った点は「その…」。続きの電話で点を伺えず、ご承認
-        いただく内容を改めてご説明した（0時48分の (ア)。お客様は点を言っていない）ときは「前回お伺いした件は…」（⏳ 伺っている）。"""
+        いただく内容を改めてご説明する段（0時48分の (ア)。お客様は点を言っていない）では、この一言は言わない（答えを持っていない応え方は、何も言わずに
+        手順を終える＝_op_replay_opening。✅ 2026-11-05 日本時間3時49分00秒 ユーザー「…おかしくないですか？」）。"""
         p = self.point
-        if "resumed" not in p and p.get("whole"):
-            return OWN_FALLBACK_EXPLAIN_AGAIN, "own_fallback_explain_again"
         kind, again = pick if pick in POINT_KINDS else "question", "resumed" in p
         return point_fallback(kind, again), point_fallback_id(kind, again)
 
@@ -4962,7 +4976,7 @@ class Flow:
     def known_lines(self) -> list[str]:
         """自分で答える質問の受け皿に使える、知っていることの文（業務の情報・想定問答の答え。名前の読みに置き換えた、声に出す形）。AIは、答えのもとに
         した文を、答えの文と一緒に「使えないときの一言」で選ぶ（操作の宣言＝tool_declarations の known）。"""
-        return [k.split("：", 1)[1] for k in self.knowledge if k.startswith(("業務の情報：", "想定問答の答え"))]
+        return [k.split("：", 1)[1] for k in self.knowledge if k.startswith(("業務の情報：", "想定問答の答え", "ご承認いただく内容の説明"))]
 
     def _opening_answer(self, part: str | None) -> bool:
         """呼んでいる段で、相手の言葉に名乗り・用件の録音で答える報告か（replay_opening の名乗り・用件・最初から）：何を聞かれたかの読みで当てる
@@ -6861,6 +6875,9 @@ class Flow:
             return None
         if part in ("talk", "resume"):
             return "いまは、ご説明する番です（受け答えや、質問に戻るだけでは、ご説明になりません）。" + self._point_note()
+        if part == "no_answer" and self.point.get("whole") and self._approval_explanation():
+            # ご承認いただく内容は、こちらの説明の文（トークスクリプト）にある＝ご説明できる（答えを持っていないことにしない）
+            return "ご承認いただく内容は、こちらが知っていることです（説明の文があります）。" + self._point_note()
         if self._resumed_explaining() and (part.startswith(ANSWER_PREFIX) or (part in ("own", "no_answer")
                                                                               and not (a.get("answer") or "").strip().startswith(RESUMED_LEAD))):
             return "続きの電話の始めのご説明は、録音を選ばずに、話し始めの言葉から自分の言葉で言います。" + self._point_note()
@@ -6929,11 +6946,14 @@ class Flow:
                     f"その点の種類＝{POINT_KIND_CHOICES}、を選びます）。")
         if p.get("whole"):
             # 続きの電話の始めに点を伺えなかった（_point_step の whole）：ご承認いただく内容を改めてご説明する（✅ 2026-11-05 日本時間0時48分 ユーザー (ア)）
-            q = self.questions[p["q"]]
-            return (f"お客様は、ご納得いただけなかった点を言いませんでした（「{(self.callee_said or '').strip()[:40]}」）。この電話ではまだご説明して"
-                    f"いないので、次へ進む前に、ご承認いただく内容（{q.id}「{q.intro}{q.text}」）をもう一度ご説明します：想定問答に答えがあれば、その答えを"
-                    f"流します。こちらが知っていること（業務の情報）にあれば、その範囲で、自分の言葉で短くご説明します。知っていることに無ければ、答えを作らずに"
-                    f"「{PART_LABEL['no_answer']}」で応えます。どれも replay_opening で呼びます。")
+            q, line = self.questions[p["q"]], self._approval_explanation()
+            head = (f"お客様は、ご納得いただけなかった点を言いませんでした（「{(self.callee_said or '').strip()[:40]}」）。この電話ではまだご説明して"
+                    f"いないので、次へ進む前に、ご承認いただく内容（{q.id}「{q.intro}{q.text}」）をもう一度ご説明します：")
+            if line:
+                return head + (f"説明の文（「{line}」）の中身を、自分の言葉で短くご説明し、replay_opening を「{PART_LABEL['own']}」で呼びます"
+                               f"（{ARG_LABEL['fallback']}には、その説明の文を選びます。想定問答に答えがあれば、その答えを流してもかまいません）。")
+            return head + (f"質問の文の中身を、自分の言葉で短くご説明し、replay_opening を「{PART_LABEL['own']}」で呼びます。質問の文にご説明できる中身が無ければ、"
+                           f"何も書かずに「{PART_LABEL['no_answer']}」で呼びます（プログラムが、ご説明せずに次へ進みます）。")
         said = next((e.get("said") for e in reversed(self.facts.get("not_agreed", []))), None) or ""
         head = (f"お客様がご納得いただけなかった点を伺いました（「{said[:40]}」）。" if p["round"] == 1 else
                 "お客様が、ほかにも分からない点・確かめたい点があると言いました。その点を言っていなければ、どの点かを自分の言葉で短く伺ってから、")

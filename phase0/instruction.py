@@ -236,6 +236,9 @@ class Business:
                 + ([f"お呼びする方：{t.who()}"] if t is not None else [])
                 + [f"お客様に伺うこと（{len(self.questions)}つ）：" + "／".join(q.text for q in self.questions)]
                 + [f"業務の情報：{x}" for x in self.info] + [f"想定問答の答え（{n}）：{a}" for n, a in self.answers]
+                # ご承認いただく内容の説明（ご承認を伺う質問に入る一言＝トークスクリプトの説明。続きの電話で点を伺えず改めてご説明するときの材料と受け皿＝
+                # flowctl.Flow._approval_explanation。✅ 2026-11-05 日本時間3時49分00秒 ユーザーのご指摘で足した）
+                + [f"ご承認いただく内容の説明（{q.id}）：{q.intro}" for q in self.questions if q.approval and q.intro.strip()]
                 # 業務設定で許された申し出（flowctl.own_answer_problem の may_follow_up）も、こちらがしてよいことの事実（無いと、判定が止める）
                 + (["こちらがしてよいこと：業務の情報に無いご質問には、確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってよい"]
                    if self.follow_up else [])]
