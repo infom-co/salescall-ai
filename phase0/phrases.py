@@ -526,6 +526,13 @@ OWN_FALLBACK = "恐れ入ります。そのご質問は私では正確にお答�
 # ご納得いただけなかった点が、知っていること（業務の情報・想定問答）に無く、ご説明できないとき（flowctl.Flow._point_step・お客様の言葉は質問ではない）。
 # ✅ 2026-11-02 日本時間5時56分 ユーザー：「「恐れ入ります。その点は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。」OK」
 OWN_FALLBACK_POINT = "恐れ入ります。その点は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。"
+# 続きの電話でのご説明（前の電話で伺った点＝19時26分の (A)・点を伺えずにご承認いただく内容を改めてご説明＝0時48分の (ア)）を、知っていることに無くご説明
+# できないとき（flowctl.Flow._own_fallback）：この電話では点を伺っていないので「その点」は何も指さない ⇒「前回お伺いした点」。⏳ 2026-11-05 日本時間2時45分39秒の
+# 「残りの9つを直してください」の (2) で作った言い方＝ユーザーに伺う（この電話で点を伺ったときは上の OWN_FALLBACK_POINT のまま）
+OWN_FALLBACK_POINT_AGAIN = "恐れ入ります。前回お伺いした点は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。"
+# 続きの電話の始めのご説明（19時26分の (A)＝「前回お伺いした（その点）の件ですが、」から）が、自分で答える受け皿（知っていることの文そのまま＝その点の短い
+# 言葉は会話AIが作るので受け皿では言えない）になったときの話し始め（録音。続けて会話AIが知っていることの文を言う）。⏳ 同じく伺う
+RESUMED_FALLBACK_LEAD = "前回お伺いした件ですが、"
 # 受け答え（世間話・お礼・気遣い・お客様のお話。flowctl.Flow._own_answer の talk）で、AIの返す文が確かめに通らなかった・中身を確かめられなかった
 # ときに流す一言（共通の一言の録音。こちらについての事実を言わないので、確かめなくてよい）。どれを流すかは、お客様の言葉を聞いた会話AIが、
 # 返す文と一緒に選ぶ（言い回し・相づちはAIの受け持ち＝Intent.md 9-3）。⏳ 言い方はユーザーに伺う
@@ -577,6 +584,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, "own_fallback_point": OWN_FALLBACK_POINT,
+            "own_fallback_point_again": OWN_FALLBACK_POINT_AGAIN, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
