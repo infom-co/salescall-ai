@@ -221,6 +221,11 @@ CALLBACK_ASK = {
 # ✅ 2026-11-02 日本時間6時33分 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」が続いて機械ぽいので、「ご不明点などほかにも
 # ございますでしょうか？」なども織り交ぜた方がいいんじゃないでしょうか？」
 CALLBACK_ASK_AGAIN = {"other_point": ("ご不明点などほかにもございますでしょうか？",)}
+# 前の電話で伺っている途中で切れたシステムの質問を、続きの電話で、お詫び（「前回はお電話が途中で切れてしまい大変失礼いたしました。」）と用件の一文の
+# すぐあとに切れた所から伺う一言（flowctl.callback_question の again。録音は共通の一言 callback_（役目）_again）。✅ 2026-11-04 日本時間18時16分 ユーザー
+# 「はい、OK」：ご納得いただけなかった点を伺う途中で切れた電話の続きは、ほかのご希望（11-03 日本時間23時52分36秒の (ア)）と同じく、お詫びのすぐあとに
+# 「前回お伺いした件でご納得いただけなかった点はどの部分になりますでしょうか？」。決まった言い方なので読点を入れない（10-15）
+CALLBACK_ASK_RESUMED = {"not_agreed": "前回お伺いした件で" + CALLBACK_ASK["not_agreed"]}
 # 選ぶ質問（「どちら」）に「どれも要らない」と言われたとき、ほかのご希望を1回だけ伺う（flowctl.Flow._wish_step。{c}＝その質問の選択肢を「と」でつないだもの。
 # 質問ごとに文が変わるので、依頼主の単位の録音＝flowctl.other_wish_recording_id）。✅ 2026-11-03 日本時間19時54分 ユーザー：「この質問に入ったという
 # ことは、連絡自体はお客様がOKされたということですよね。それなのに、締めたり、次へ進むというのはおかしな設定ではありませんか？このシーンがありえる
@@ -519,6 +524,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             STANDARD_PARTS["ai"]: AI_ANSWER, "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
             **{f"callback_{k}_{i}": v for k, vs in CALLBACK_ASK_AGAIN.items() for i, v in enumerate(vs, 2)},
+            **{f"callback_{k}_again": v for k, v in CALLBACK_ASK_RESUMED.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, "own_fallback_point": OWN_FALLBACK_POINT,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},

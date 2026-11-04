@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, OWN_FALLBACK_POINT, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
@@ -1808,11 +1808,16 @@ WISH_OTHER, WISH_NONE = "ほかの希望を言った", "無い"
 # ほかのご希望を伺った結果（通話の事実 other_wish の outcome と、前の通話で取れた答えの "wish" の値）：none＝無い・聞き取れない・わからない／option＝元の
 # 質問の選択肢を選び直した／means＝ご連絡の方法（連絡先を伺う途中で切れたものも）／other＝ほかのご希望
 WISH_OUTCOMES = ("none", "option", "means", "other")
+# ご承認いただけなかったときの手順（ご納得いただけなかった点を伺う＝Flow._point_step）を、前の通話でどこまで伺えたか（前の通話で取れた答えの "point" の値＝
+# earlier_point）：heard＝ご納得いただけなかった点を伺った（ご説明の途中で切れたものも）／agreed・declined・unresolved＝手順の終わり（Flow._point_end）。
+# 無ければ、ご納得いただけなかった点の答えをいただく前に切れた＝続きの電話の始めに、切れた所から伺う（resumed_step。✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」）
+POINT_OUTCOMES = ("heard", "agreed", "declined", "unresolved")
 # 前の通話で取れた答え（Flow の earlier・instruction.Business.earlier。質問の番号 → この項目）の項目（唯一の一覧。CL-2 の conversation_io.earlier が渡す）：
-# state・value・condition に加え、wish＝その答えに前の通話で伺ったほかのご希望の結果（earlier_wish。伺っていない・W1 の途中で切れたら無し）・hedged＝
+# state・value・condition に加え、wish＝その答えに前の通話で伺ったほかのご希望の結果（earlier_wish。伺っていない・W1 の途中で切れたら無し）・point＝ご承認の
+# 質問のお断りに前の通話で伺ったご納得いただけなかった点の進み（earlier_point。伺っていない・N1 の答えをいただく前に切れたら無し）・hedged＝
 # 言い切っていない答えのお客様の言葉（依頼者へ渡した Flow.hedged_words と同じ。言い切っていれば無し）。CL-1 の 11-03 のご判断の (1)：⛔ 見直しで見つけた＝
 # 前の通話でご連絡の方法を言っていただいた最終目的の「どれも要らない」を、続きの通話で「目的が果たせない」として締めていた
-EARLIER_KEYS = ("state", "value", "condition", "wish", "hedged")
+EARLIER_KEYS = ("state", "value", "condition", "wish", "point", "hedged")
 
 
 def earlier_wish(entry: dict) -> str | None:
@@ -1820,6 +1825,14 @@ def earlier_wish(entry: dict) -> str | None:
     W1 の答えをいただく前に切れたら None＝次の通話で伺う）を決める唯一の読み方：結果があればそれ・連絡先を伺う途中で切れた（ご連絡の方法を言って
     いただいた）なら means。流れの制御もこの読み方で決める（Flow._wish_outcome）。"""
     return entry.get("outcome") or ("means" if entry.get("means") else None)
+
+
+def earlier_point(entry: dict) -> str:
+    """通話の事実 not_agreed の1つ（その質問の最後のもの）から、ご承認いただけなかったときの手順の進み（POINT_OUTCOMES の1つ。前の通話で取れた答えの "point" に
+    入れる値＝CL-2 の conversation_io.earlier）を決める唯一の読み方：手順の終わりの結果があればそれ・無ければ heard（ご納得いただけなかった点は伺った）。
+    not_agreed の事実が1つも無い質問には "point" を入れない（ご納得いただけなかった点の答えをいただく前に切れた＝次の通話で伺う）。手順を終えたときは、点を
+    伺っていなくても事実が残る（Flow._point_end）。"""
+    return entry.get("outcome") or "heard"
 
 
 def wish_label(means: str) -> str:
@@ -1912,7 +1925,7 @@ def held(questions, order, read) -> list[str]:
 
 
 def earlier_kept(questions, earlier: dict | None) -> dict:
-    """前の通話の答え（CL-2 の conversation_io.earlier）のうち、この通話でもう伺わない答え（唯一の決まり＝Flow の earlier・first_open・resumed_wish）：
+    """前の通話の答え（CL-2 の conversation_io.earlier）のうち、この通話でもう伺わない答え（唯一の決まり＝Flow の earlier・first_open・resumed_step）：
     取れた答え（TAKEN）。ただし、ここで終える答えのある質問（Question.ends_on）の「わからない」は、もう一度伺う（その答えが決まらないと、そのあとの業務の
     質問を1つも伺えない＝続きの電話が何も伺わずに終わる＝お客様に要らない電話になる。CL-1 が 2026-11-04 に見つけた）。「答えたくない」は二度と伺わない
     （10-13 の決まりのまま）。"""
@@ -1934,7 +1947,7 @@ def earlier_read(earlier: dict | None, qid: str) -> tuple:
 def first_open(questions, earlier: dict | None) -> "Question | None":
     """電話の始めに伺う業務の質問（前の通話で取れた答えの質問は飛ばす。無ければ None）。唯一の決まり＝流れの制御の始め Flow.__init__・名乗りのあとに
     最初に伺うこと instruction.Business.first_question：伺う条件の質問は、前の通話の答えで当たるときだけ（follow_ups_in）・先へ進むのを止める答えの
-    あとの質問は伺わない（held）。続きの電話のほかのご希望（resumed_wish）は、この前に決まる（システムの質問）。"""
+    あとの質問は伺わない（held）。続きの電話で切れた所から伺う手順（resumed_step）は、この前に決まる（システムの質問）。"""
     qs = [q for q in questions if not q.callback]
     read = functools.partial(earlier_read, earlier_kept(qs, earlier))
     order = follow_ups_in([q.id for q in qs if not q.ask_if], qs, read)
@@ -1944,38 +1957,46 @@ def first_open(questions, earlier: dict | None) -> "Question | None":
 
 def wish_trigger(q: "Question", state: str, cond: str | None, hedged: bool, questions) -> bool:
     """この答え（状態 state・答え cond・言い切っていないか hedged）が、ほかのご希望を伺う答えか（伺ったか・いつ伺うかは見ない。唯一の決まり＝
-    Flow._wish_trigger・続きの電話の始め resumed_wish）：選ぶ質問の「どれも要らない」・最終目的の質問への言い切っていないお断り（業務設定に
+    Flow._wish_trigger・続きの電話の始め resumed_step）：選ぶ質問の「どれも要らない」・最終目的の質問への言い切っていないお断り（業務設定に
     その答えのあとに伺う質問があれば、業務の言葉が先＝伺う答えではない）。"""
     if not may_wish(q) or state not in TAKEN or business_next(questions, q.id, cond, hedged):
         return False
     return cond == NONE or (q.final_goal and state == "accepted" and hedged and q.declined(cond))
 
 
-def resumed_wish(questions, earlier: dict | None) -> "Question | None":
-    """ほかのご希望を伺っている途中で切れた電話の続きで、始めに切れた所から伺う質問（前の通話の答えに "wish" が無い、ほかのご希望を伺う答えの
-    質問。トークスクリプトの順で最初の1つ。無ければ None）。唯一の決まり＝流れの制御の始め Flow.__init__・名乗りのあとに最初に伺うこと
-    instruction.Business.first_question（✅ 2026-11-03 日本時間23時52分36秒 ユーザー「(ア)」：お詫びのすぐあとに、切れた所から伺う）。
-    前の通話の答えの読み方は Flow の earlier と同じ（earlier_read の1か所）。"""
+def resumed_step(questions, earlier: dict | None) -> "tuple[str, Question] | None":
+    """続きの電話の始めに、切れた所から伺う手順（(システムの質問の役目, 元の質問)。無ければ None）を決める唯一の場所（流れの制御の始め Flow.__init__・
+    名乗りのあとに最初に伺う質問 opening_question）：前の通話で取れた答えのうち、そのあとに伺う手順を伺い終えていない答え（トークスクリプトの順で最初の1つ）。
+    - ほかのご希望（other_wish）：前の通話の答えに "wish" が無い、ほかのご希望を伺う答え（wish_trigger）。✅ 2026-11-03 日本時間23時52分36秒 ユーザー「(ア)」
+    - ご納得いただけなかった点（not_agreed）：前の通話の答えに "point" が無い、ご承認の質問のお断り（Flow._point_step と同じ決まり＝Question.declined）。
+      ✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」（ほかのご希望と同じく、お詫びのすぐあとに「前回お伺いした件でご納得いただけなかった点は…」）
+    前の通話の答えの読み方は Flow の earlier と同じ（earlier_read の1か所）。続きの電話の途中では、どちらの手順も前の通話の答えから始めない（_wish_due・_point_step）。"""
     questions = list(questions)
-    earlier = earlier_kept(questions, earlier)
+    kept = earlier_kept(questions, earlier)
     for q in questions:
-        state, cond, hedged = earlier_read(earlier, q.id)
-        if state in TAKEN and ((earlier or {}).get(q.id) or {}).get("wish") not in WISH_OUTCOMES and wish_trigger(q, state, cond, hedged, questions):
-            return q
+        state, cond, hedged = earlier_read(kept, q.id)
+        if state not in TAKEN:
+            continue
+        entry = (earlier or {}).get(q.id) or {}
+        if entry.get("wish") not in WISH_OUTCOMES and wish_trigger(q, state, cond, hedged, questions):
+            return "other_wish", q
+        if q.approval and state in GOT and q.declined(cond) and entry.get("point") not in POINT_OUTCOMES:
+            return "not_agreed", q
     return None
 
 
 def opening_question(questions, earlier: dict | None) -> "Question | None":
     """名乗りのあとに最初に伺う質問（唯一の決まり＝流れの制御の始め Flow.__init__・名乗りの録音の最後とAIへの指示文 instruction.Business.first_question）：
-    名前の読みの確かめ（前の通話で確かめていなければ＝first_open）が先・続きの電話のほかのご希望（resumed_wish。システムの質問 W1 の again の形）は
-    そのあと・それ以外は first_open。⛔ 2026-11-04 日本時間7時台の4回目のご質問の見直しで見つけた：名乗りの組み立てだけ読みの確かめを見ずにほかの
+    名前の読みの確かめ（前の通話で確かめていなければ＝first_open）が先・続きの電話で切れた所から伺う手順（resumed_step。ほかのご希望 W1・ご納得いただけ
+    なかった点 N1 の again の形）はそのあと・それ以外は first_open。⛔ 2026-11-04 日本時間7時台の4回目のご質問の見直しで見つけた：名乗りの組み立てだけ読みの確かめを見ずにほかの
     ご希望から始め、名乗りの録音の最後に W1 を流しうった（流れの制御は R1 の答えを待つ）。"""
     questions = list(questions)
     first = first_open(questions, earlier)
     if first is not None and first.reading_of:
         return first
-    if (q := resumed_wish(questions, earlier)) is not None:
-        return callback_question("other_wish", of=q, again=True)
+    if (step := resumed_step(questions, earlier)) is not None:
+        role, q = step
+        return callback_question(role, of=q if role == "other_wish" else None, again=True)
     return first
 
 
@@ -2085,6 +2106,9 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
     lines = (CALLBACK_ASK.get(role, ""), *CALLBACK_ASK_AGAIN.get(role, ()))   # 伝言の文などは言い方の表に無い（text で渡す）
     i = nth % len(lines)
     recording = f"callback_{role}_{i + 1}" if i else ""
+    if again:
+        # 伺っている途中で切れた電話の続きで、切れた所から伺う一言（phrases.CALLBACK_ASK_RESUMED。共通の一言の録音 callback_（役目）_again。選択肢と答えの受け方は同じ）
+        lines, i, recording = (CALLBACK_ASK_RESUMED[role],), 0, f"callback_{role}_again"
     if qtype in CHOICE_TYPES:
         return Question(qid, text or lines[i], qtype, required=False, conditions=tuple(_ROLE_MEANINGS[role]), recording=recording,
                         meanings=dict(_ROLE_MEANINGS[role]), topic=CALLBACK_TOPIC[role], callback=role, declines=_ROLE_DECLINES.get(role, ()),
@@ -2303,6 +2327,10 @@ class Flow:
         # 受け取った項目の、受け取ったときの材料（相手の発話の番号・会話AIの聞き取り・受け取った答え・確かめ）。遅れて届いた確かめを、
         # 同じ決まり（_compare）で当てるため（_late）。受け取るたびに書き換える（その項目を聞き直したら、新しい発話のもの）
         self.taken: dict[str, dict] = {}
+        # この通話で決め直した答え（_retake）の決め手：質問 → (決め手の答えの質問, その答えの項目)。決め直した答えは自分の材料を持たず、決め手の答えの
+        # 材料と確かめで決まる（食い違えば一緒に渡さない＝_unaccept・根拠の発話＝_evidence）。項目そのもので結ぶ＝同じ番号のシステムの質問を作り直した
+        # （W1 をほかの質問に伺う・N2 を2回目に伺う）あとの答えには当たらない（決め直したときは、決め手の答えの材料はまだ書かれていない＝_record_taken はあと）
+        self.rests_on: dict[str, tuple[str, "Item"]] = {}
         self.report_before: dict | None = None   # 受けている報告の前の項目の状態（apply の間だけ。_turned_down_now）
         # 相手が取り次いでいる最中か（意味の判定が HOLD と決め、AIに黙って待たせた。次の相手の発話で解く）。電話接続側は、この間、
         # 相手が黙っている秒を数える見張り（6-7・6-15 のつなぎの一言・張り替え）を止める（相手はいま電話口にいない。DESIGN.md 6-8）
@@ -2497,18 +2525,20 @@ class Flow:
                 self.questions[q.id], self.items[q.id] = q, Item()
             self.order = self.callback_ids = [q.id for q in qs]
             self.current = qs[0].id
-        # ほかのご希望を伺っている途中で切れた電話の続き（前の通話の答えに "wish" が無い＝resumed_wish）：お詫び（apology_due の「前回はお電話が途中で
+        # ほかのご希望を伺っている途中で切れた電話の続き（前の通話の答えに "wish" が無い＝resumed_step）：お詫び（apology_due の「前回はお電話が途中で
         # 切れてしまい大変失礼いたしました。」）のすぐあとに、切れた所から「前回お伺いした（聞くこと）の件で（選択肢）のほかにご希望はございますでしょうか？」
         # と伺う（✅ 2026-11-03 日本時間23時52分36秒 ユーザー「(ア)」。伺い始めるのは _wish_begin の1か所）。目的のお客様のいる業務は、繋がってから
         # （いまの質問は繋がるまで無い＝_connect が並びの先頭から）。名乗りのあとに最初に伺うこと（instruction.Business.first_question）も、同じ
-        # resumed_wish で決まる（名乗りの録音・AIへの指示文と、流れの制御が同じ質問から始める）
+        # resumed_step で決まる（名乗りの録音・AIへの指示文と、流れの制御が同じ質問から始める）。ご承認いただけなかったときの手順の途中で切れた電話の続きも
+        # 同じ1か所（前の通話の答えに "point" が無い＝_point_begin の again。✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」）
         if not (apology_call or number_again):
             business = [self.questions[qid] for qid in self.order]
-            if (q := resumed_wish(business, self.earlier)) is not None:
-                self._wish_begin(q, again=True)
+            if (step := resumed_step(business, self.earlier)) is not None:
+                role, q = step
+                (self._wish_begin if role == "other_wish" else self._point_begin)(q, again=True)
                 # 最初に伺う質問の順は opening_question の1か所（名前の読みの確かめの途中なら、そのあと）
-                if not target and getattr(opening_question(business, self.earlier), "callback", None) == "other_wish":
-                    self.current = CALLBACK_IDS["other_wish"]
+                if not target and getattr(opening_question(business, self.earlier), "callback", None) == role:
+                    self.current = CALLBACK_IDS[ROLE_KEY[role]]
 
     def _calling_questions(self) -> None:
         """呼んでいる段の判定の質問（judge_context）を作る唯一の場所（始めと、後任の方へ切り替えたとき＝_to_successor）：呼ぶ一言と、確かめる一言
@@ -3100,11 +3130,49 @@ class Flow:
                 it.hedged = (t["said"] or "").strip()[:40]
                 it.set(it.state, f"言い切っていない返事だった（「{it.hedged}」・受け取ったあとに届いた確かめ）")
             return
-        it.set("unresolved", f"{why}（受け取ったあとに届いた確かめ）・受け取った答え（「{label(t['reported'])}」）を渡さない")
-        self.taken.pop(qid)
+        self._unaccept(qid, f"{why}（受け取ったあとに届いた確かめ）・受け取った答え（「{label(t['reported'])}」）を渡さない")
+
+    def _unaccept(self, qid: str, why: str) -> None:
+        """受け取った答えを依頼者へ渡さない（「-」にして、締めの前の念のための確認でもう一度聞く＝まだ聞けるとき）唯一の場所（受け取ったあとに届いた確かめで
+        食い違った＝_late）。その答えを決め手にしてこの通話で決め直した答え（rests_on。決め手の答えの項目が同じときだけ）も、同じく渡さない（どの道でも、依頼者へ渡るのは
+        確かめた値か「-」だけ＝DESIGN.md 1-1）。"""
+        it, q = self.items[qid], self.questions[qid]
+        self.taken.pop(qid, None)
+        it.set("unresolved", why)
         if (self.phase == "rechecking" and q.required and it.rechecks < self.limits.recheck and qid != self.current
                 and qid not in self.recheck_queue):
             self.recheck_queue.append(qid)
+        for d, (by, item) in list(self.rests_on.items()):
+            if by == qid and item is it:
+                del self.rests_on[d]
+                if self.items[d].state in TAKEN:
+                    self._unaccept(d, f"決め手の答え（{qid}）が、受け取ったあとに届いた確かめで食い違った・決め直した答え（「{label(self.items[d].condition)}」）も渡さない")
+
+    def _retake(self, qid: str, cond: str, by: str, why: str, hedged: str | None = None) -> None:
+        """この通話で、質問 qid の答えを cond に決め直す唯一の場所（ほかのご希望を伺って元の質問の選択肢を選び直していただいた＝_wish_step・ご承認いただけ
+        なかったときの手順でご納得いただいた＝_point_end）。by＝決め手の答えの質問（W1・N2・N3）。
+        - 前の通話で取れた答えでも、この通話の答え（依頼者へ渡す＝export・hedged_words）にする。言い切っていない言葉は、決め手の答えのもの（hedged）。
+        - その答えのあとに伝える一言は、まだ言っていない（_tell_due）。
+        - 前の答えの発話の材料は外す（遅れて届いた確かめを、もう当てない）。決め直した答えは、決め手の答えの材料と確かめで決まる（rests_on。食い違えば
+          一緒に渡さない＝_unaccept・根拠の発話＝_evidence）。決め手の答えの選択肢の名前（「分かった」・「やはり（意味の言葉）」）は元の質問の名前と違うので、
+          決め手の発話の確かめを元の質問の答えに直接当てない。
+        ⛔ 2026-11-04 日本時間18時台（18時16分のご承認を入れたあとの見直し）に見つけた：ご納得いただいた答えは「はい」にするだけで、続きの電話では依頼者へ
+        渡らず、この通話でも前の「いいえ」の発話の判定が遅れて別の読みで届くと「-」に戻った。はい／いいえの質問の選び直しは、選び直した発話の材料を元の
+        質問の答えに写していたので、同じ向きの確かめが遅れて届いても「-」になった。"""
+        it = self.items[qid]
+        it.condition, it.value, it.hedged, it.told = cond, cond, hedged, False
+        it.set("accepted", why)
+        self.earlier.pop(qid, None)
+        self.taken.pop(qid, None)
+        self.rests_on[qid] = (by, self.items[by])
+
+    def _evidence(self, qid: str) -> dict | None:
+        """質問 qid の答えを受け取ったときの材料（taken の形。無ければ None）を読む唯一の場所（ここで終える答えの根拠の発話＝ended_on）：この通話で決め直した
+        答え（_retake）は、決め手の答えの材料（決め手の答えの項目が同じときだけ）。"""
+        if (t := self.taken.get(qid)) is not None:
+            return t
+        by, item = self.rests_on.get(qid, (None, None))
+        return self.taken.get(by) if by is not None and self.items.get(by) is item else None
 
     def _record_taken(self, qid: str, words: dict | None, confirming: bool, reported: str | None) -> None:
         """受け取ったときの材料（唯一の書き方）：その発話の番号・言葉・確かめ（words＝前の発話の言葉の答えなら、その発話。無ければいまの発話）と、
@@ -6216,9 +6284,7 @@ class Flow:
             q = next((q for q in self.questions.values() if q.approval and q.id not in self.earlier and self.items[q.id].state in GOT
                       and q.declined(self.items[q.id].condition)), None)
             if q is not None and nid not in self.items:   # 1通話1回
-                # N1 の前の相づちは、手順のほかの質問と同じ「はい、」（ご承認いただけなかった答えにお礼は合わない）
-                self.point = {"q": q.id, "stage": "ask", "round": 1, "explained": None, "turn": None, "outcome": None, "hai": self.callee_turns}
-                self._ask_point("not_agreed", q.id)
+                self._point_begin(q)
             return
         if p["outcome"] is not None:
             return
@@ -6241,7 +6307,7 @@ class Flow:
         elif p["stage"] == "other" and self.items[oid].state in TAKEN + ("unresolved",):
             cond = self.items[oid].condition if self.items[oid].state in GOT else None
             if cond == "分かった":
-                self._point_end("agreed")
+                self._point_end("agreed", by=oid)
             elif cond == "分からない点がある":
                 p["round"] += 1   # 分かるまでご説明する（回数では切らない）
                 self._point_heard(self.items[oid].value)
@@ -6253,7 +6319,24 @@ class Flow:
                 self._ask_point("agreed_now", oid)
         elif p["stage"] == "confirm" and self.items[aid].state in TAKEN + ("unresolved",):
             cond = self.items[aid].condition if self.items[aid].state in GOT else None
-            self._point_end("agreed" if cond == "はい" else "declined" if self.questions[aid].declined(cond) else "unresolved")
+            self._point_end("agreed" if cond == "はい" else "declined" if self.questions[aid].declined(cond) else "unresolved", by=aid)
+
+    def _point_begin(self, q: "Question", again: bool = False) -> None:
+        """ご承認いただけなかったときの手順を始める唯一の場所（この通話のご承認のお断りのあと＝_point_step・続きの電話の始め＝Flow.__init__）：ご納得いただけ
+        なかった点（N1）を伺う。N1 の前の相づちは、手順のほかの質問と同じ「はい、」（ご承認いただけなかった答えにお礼は合わない）。again＝伺っている途中で
+        切れた電話の続き（前の通話の答えに "point" が無い＝resumed_step）：お詫びと用件の一文のすぐあとに、切れた所から「前回お伺いした件でご納得いただけ
+        なかった点は…」と伺う（✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」）＝並びの先頭に入れる（目的のお客様のいる業務は、繋がってから同じ順）。
+        名乗りの録音に続けて流れるので、頭の相づちは付けない。"""
+        self.point = {"q": q.id, "stage": "ask", "round": 1, "explained": None, "turn": None, "outcome": None,
+                      "hai": None if again else self.callee_turns}
+        if not again:
+            self._ask_point("not_agreed", q.id)
+            return
+        fq = callback_question("not_agreed", again=True)
+        self.point["asked"] = {"not_agreed": 1}
+        self.questions[fq.id], self.items[fq.id] = fq, Item()
+        self.follow_ups[fq.id] = q.id
+        self.order = [fq.id, *(x for x in self.order if x != fq.id)]
 
     def _ask_point(self, role: str, after: str) -> None:
         """ご承認いただけなかったときの手順のシステムの質問を、前の質問のすぐあとに伺う（2回目からの「ほかに…」は、答えを空にして、言い方を替えて
@@ -6283,16 +6366,21 @@ class Flow:
                 if e.get("question") == p["q"] and e.get("round") == p["round"]:
                     e["explained"] = p["explained"]
 
-    def _point_end(self, outcome: str) -> None:
-        """ご承認いただけなかったときの手順の終わり（ご納得＝ご承認の答えを「はい」にする・次の返事はお礼の相づち）。"""
+    def _point_end(self, outcome: str, by: str | None = None) -> None:
+        """ご承認いただけなかったときの手順の終わり（ご納得＝ご承認の答えを「はい」にする＝この通話で決め直す1か所 _retake。by＝決め手の答えの質問
+        （N2・N3）・次の返事はお礼の相づち）。"""
         p = self.point
         p["outcome"] = outcome
+        if not any(e.get("question") == p["q"] for e in self.facts.get("not_agreed", [])):
+            # ご納得いただけなかった点を伺わないまま終えた（N1 の答えがどちらとも取れず、ご納得を伺った N3 で決まった）：手順を終えたことを事実に残す（点は無し）。
+            # 次の通話の前の通話の答えの "point"（earlier_point）が、これを読む（⛔ 残さないと、続きの電話の始めに、終えた手順をまた伺った）
+            self._note("not_agreed", question=p["q"], round=p["round"], point=None)
         for e in self.facts.get("not_agreed", []):
             if e.get("question") == p["q"]:
                 e["outcome"] = outcome
         if outcome == "agreed":
             q = self.questions[p["q"]]
-            self.items[p["q"]].condition = q.conditions[0]
+            self._retake(q.id, q.conditions[0], by, "ご承認いただけなかった点をご説明して、ご納得いただいた")
             p["thank"] = self.callee_turns
 
     def _point_note(self) -> str:
@@ -6350,13 +6438,9 @@ class Flow:
         self._note("other_wish", question=q.id, wish=cond, value=it.value if cond == WISH_OTHER or means else None, means=means,
                    contact=None, outcome=None)
         if (picked := wish_repick(q, cond)) is not None:
-            # 選択肢を選び直していただいた：元の質問の答えにする。受け取ったときの材料も、この答えの発話にする（遅れて届いた確かめは、この発話で当てる＝_late）。
-            # その答えのあとに伝える一言は、まだ言っていない（_tell_due）。前の通話で取れた答えだったら、この通話の答え（依頼主へ渡す＝export）
-            orig = self.items[q.id]
-            orig.condition, orig.value, orig.hedged, orig.told = picked, picked, it.hedged, False
-            orig.set("accepted", f"ほかのご希望を伺って、選択肢「{picked}」を選び直していただいた")
-            self.earlier.pop(q.id, None)
-            self._record_taken(q.id, self.judged, False, picked)
+            # 選択肢を選び直していただいた：元の質問の答えにする（この通話で決め直す1か所＝_retake。決め手は W1 の答え＝遅れて届いた確かめは W1 の
+            # 答えに当て、食い違えば元の質問の答えも渡さない）
+            self._retake(q.id, picked, wid, f"ほかのご希望を伺って、選択肢「{picked}」を選び直していただいた", hedged=it.hedged)
             return self._wish_end("option")
         if means is None:
             return self._wish_end("other" if cond == WISH_OTHER else "none")
@@ -6405,7 +6489,7 @@ class Flow:
 
     def _wish_trigger(self, q: "Question") -> bool:
         """この質問の答えが、ほかのご希望を伺う答えか（伺ったか・いつ伺うかは見ない。唯一の決まり＝_wish_due・_wish_unasked）：選ぶ質問の「どれも要らない」・
-        最終目的の質問への言い切っていないお断り（決まりは wish_trigger の1か所。続きの電話の始めの resumed_wish も同じ決まり）。"""
+        最終目的の質問への言い切っていないお断り（決まりは wish_trigger の1か所。続きの電話の始めの resumed_step も同じ決まり）。"""
         it = self.items[q.id]
         return wish_trigger(q, it.state, it.condition, bool(it.hedged), self.questions.values())
 
@@ -6414,6 +6498,12 @@ class Flow:
         その答えは、断られたとはしない（_goals_lost。お客様はまだ、ほかのご希望を言っていない）。続きの通話の始めに、切れた所から伺う（Flow.__init__ の
         _wish_begin の again）。伺い終えれば、その結果（_wish_outcome）で決まる。"""
         return qid in self.earlier and self._wish_outcome(qid) is None and self._wish_trigger(self.questions[qid])
+
+    def _point_unfinished(self, qid: str) -> bool:
+        """前の通話で取れたご承認のお断りで、前の通話ではご承認いただけなかったときの手順を伺い終えていない（ご納得いただけなかった点は伺ったが、ご説明の
+        途中で切れた＝前の通話の答えの "point" が heard＝earlier_point）か。その答えは、断られたとはしない（_goals_lost）。点を伺う前に切れた答え（"point" が
+        無い）は、続きの電話の始めに切れた所から伺う（resumed_step）。⏳ 点まで伺えた答えの続きの電話の始めにどこから伺うかは、ユーザーに伺っている（CL-1.md 1）。"""
+        return qid in self.earlier and (self.earlier.get(qid) or {}).get("point") == "heard"
 
     def _wish_outcome(self, qid: str) -> str | None:
         """質問 qid に伺ったほかのご希望の結果（WISH_OUTCOMES の1つ。伺っていなければ None）：この通話で伺った最後のもの（通話の事実 other_wish）、無ければ
@@ -6454,6 +6544,10 @@ class Flow:
         # 断る答え：その質問の断る答え（取込で決める）と、選ぶ質問の「どれも要らない」。ご承認の質問は、ご納得いただけなかった点を伺い終えてから
         p = self.point
         asking = {p["q"]} if p is not None and p["outcome"] in (None, "unresolved") else set()   # ご納得いただけなかった点を伺っている・申し伝える
+        # 前の通話でご納得いただけなかった点は伺ったが、ご説明の途中で切れた（手順を伺い終えていない＝_point_unfinished）：お客様はまだご説明を聞き終えて
+        # いないので、断られたとはしない（この通話の手順・前の通話の W1 の途中で切れた答え＝_wish_unasked と同じ決まり。⛔ 2026-11-04 日本時間18時台に見つけた：
+        # 続きの電話でほかの質問を伺ったあと、目的が果たせないとして締めていた）
+        asking |= {q.id for q in goals if self._point_unfinished(q.id)}
         # 言い切っていないお断りのあとに、業務設定の追って伺う質問（ask_if_hedged）をまだ伺い終えていない：伺う前に締めない（⛔ 2026-11-03 の見直しで
         # 見つけた：最終目的の質問への「来月以降になると思います」に追って伺う質問があっても、伺う前に「目的が果たせない」で締めていた）。当たるかは _business_next
         asking |= {q.id for q in goals if any(x.ask_if_hedged and x.id in self.order and self.items[x.id].state == "empty" for x in self._business_next(q.id))}
@@ -6493,7 +6587,7 @@ class Flow:
         for q in self.questions.values():   # その答えで伺うはずだった質問（伺う条件の前の質問を伺わなかった）も、トークスクリプトの順で続けて
             if q.ask_if and q.id not in order and q.ask_if[0] in skipped:
                 skipped.add(q.id)
-        qid, t = g[0], self.taken.get(g[0]) or {}
+        qid, t = g[0], self._evidence(g[0]) or {}
         return {"turn": t.get("turn"), "said": (t.get("said") or "").strip()[:80], "question": qid, "answer": label(self.items[qid].condition),
                 "skipped": [x for x in self.questions if x in skipped and self.items[x].state == "empty"]}
 

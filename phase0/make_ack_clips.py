@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -114,6 +114,7 @@ CHAR_S = 0.141
 # 足す質問を共通の一言の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
 HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}
 HOW_OF.update({f"callback_{k}_{i}": "question" for k, vs in CALLBACK_ASK_AGAIN.items() for i, _ in enumerate(vs, 2)})   # 2回目からの言い方も質問の読み方
+HOW_OF.update({f"callback_{k}_again": "question" for k in CALLBACK_ASK_RESUMED})   # 続きの電話で切れた所から伺う一言も質問の読み方（2026-11-04）
 # 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
 HOW_OF.update({"own_fallback_point": "own_fallback"})
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
