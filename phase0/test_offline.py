@@ -12872,13 +12872,26 @@ class CompactGuardTest(unittest.TestCase):
         text = lambda d: "\n".join(x.read_text(encoding="utf-8") for x in sorted((out / d).glob("p*.txt")))   # noqa: E731
         self.assertIn("OK、残りの一本化も進めてください", text("seg"))          # 前の区切りからのご発言
         self.assertIn("次に、知らせの文を読みます。", text("seg"))               # 私の返事
-        self.assertIn("OK、残りの一本化も進めてください", text("users"))        # ご発言の全部（0-1 の最初の決まり）
+        # 区分け（✅ 11-05 日本時間7時31分29秒「(1)(2)ともその形でOK」）：(A) だけを出す。ご発言の生の全文・本書 19章は毎回は読まない（C）
+        self.assertFalse(list((out / "users").glob("p*.txt")))
+        self.assertIn("(B) その作業の前に必ず読む", p.stdout)
+        self.assertIn("本書 6章", p.stdout)
+        self.assertIn("本書 19章", p.stdout)   # (C) の名指し
         self.assertIn("Now I'll write the failing tests first.", text("english"))
         parts = sorted(out.rglob("p*.txt"))
         self.assertTrue(all(len(x.read_text(encoding="utf-8")) <= 17000 for x in parts))   # 読む道具で切れない大きさ
-        lines = (Path(__file__).resolve().parent.parent / "Intent.md").read_text(encoding="utf-8").split("\n")
-        self.assertGreater(len(list((out / "intent").glob("p*.txt"))), 1)
-        self.assertIn(f"{len(lines)}: ", text("intent"))   # 最後の行まで（行を落とさない）
+        root = Path(__file__).resolve().parent.parent
+        lines = (root / "Intent.md").read_text(encoding="utf-8").split("\n")
+        at = lambda head: next(i for i, l in enumerate(lines, 1) if l.startswith(head))   # noqa: E731
+        for head in ("## 1.", "## 2.", "## 9."):
+            self.assertIn(f"{at(head)}: {head}", text("intent"))   # 行の番号はもとの番号
+        self.assertIn(f"{at('## 10.') - 1}: ", text("intent"))     # 9章の最後の行まで（行を落とさない）
+        self.assertNotIn("## 10.", text("intent"))
+        self.assertNotIn("## 19.", text("intent"))
+        book = (root / "docs" / "team" / "CL-1.md").read_text(encoding="utf-8").split("\n")
+        for head in ("### 0-1.", "### 0-2.", "## 1."):
+            self.assertIn(next(f"{i}: {l}" for i, l in enumerate(book, 1) if l.startswith(head)), text("book"))
+        self.assertNotIn("## 2.", text("book"))
         self.assertIn(str(parts[0]), p.stdout)              # 読むファイルを名指しする
         # ⛔ 7時台のご質問「intent.mdをしっかり読み込んで、そこまでのやりとりをしっかりと理解できるようになっていますか？」：命令を呼んだだけで
         # 止めるのをやめると、探して読んだ所だけで書き換えうる（17回目）＝出したファイルを全部、切らずに読み終えるまで、読む道具のほかは止める

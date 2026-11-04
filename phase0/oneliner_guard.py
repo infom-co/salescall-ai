@@ -23,9 +23,10 @@
    止める見張り）。⛔ 要約のあとに帳面 0-1 を通さずに作業へ戻った失敗が18回（docs/team/CL-1.md 0-1）＝決まりを書くだけでは止まらなかった。
 - 会話の記録の末尾に、まだ済んでいない要約の区切り（compact_boundary）があれば、`--after-compact` の命令のほかは、どの道具も返事の終わりも止める
   （止めたあとの書き直しの返事・手伝いの係の道具は止めない）。
-- python3.13 oneliner_guard.py --after-compact [作業場所のフォルダ]：0-1 で読むものを、読む道具で切れない大きさのファイルに出す（0-1 の頭の手順を
-  機械でする1か所）＝区切りの時刻（日本時間）・seg（前の区切りから今の区切りまでのご発言と返事）・users（ご発言の全部＝会話の記録にあるもの）・after（区切りの
-  あとのご発言）・english（前の区切りからの英語の一言）・intent（本書の全部）。どの記録の区切りかは、止めたときに見張りが覚えておく（COMPACT_STATE）。
+- python3.13 oneliner_guard.py --after-compact [作業場所のフォルダ]：0-1 で読むもの（区分けの (A)＝ALWAYS）を、読む道具で切れない大きさのファイルに出す
+  （0-1 の頭の手順を機械でする1か所）＝区切りの時刻（日本時間）・seg（前の区切りから今の区切りまでのご発言と返事）・after（区切りのあとのご発言）・
+  english（前の区切りからの英語の一言）・book（帳面の 0-1・0-2・1）・intent（本書の 1章・2章・9章）。(B)＝BEFORE（その作業の前に読む）の表と、
+  (C)（毎回は読まない）も出す。どの記録の区切りかは、止めたときに見張りが覚えておく（COMPACT_STATE）。
 - ✅ 7時台のご質問「intent.mdをしっかり読み込んで、そこまでのやりとりをしっかりと理解できるようになっていますか？」⇒ 命令を呼んだだけでは止めるのを
   やめない：出したファイルを全部、読む道具で切らずに（offset・limit を付けずに）読み終えるまで、読む道具（READ_TOOLS）と `--status`（残りを出す）の
   ほかは止める（⛔ 帳面 0-1 の17回目＝探して読んだ所だけで書き換えた、を作りで止める）。読み終えたかは、会話の記録の1か所（読む道具の呼び出しと、
@@ -58,8 +59,26 @@ COMPACT_STATE = Path(os.environ.get("COMPACT_GUARD_STATE") or Path.home() / ".cl
 AFTER = "--after-compact"
 STATUS = "--status"
 READ_TOOLS = ("Read", "Grep", "Glob", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet")   # 読むあいだも通す道具（何も書き換えない）
-USERS_SINCE = "2026-10-12T14:00"   # ご発言の全部の始まり（0-1 の最初の決まり）
 INTENT = HERE.parent / "Intent.md"
+BOOK = HERE.parent / "docs" / "team" / "CL-1.md"
+# 要約のあとに読むものの区分けの正本（✅ 2026-11-05 日本時間7時31分29秒 ユーザー「(1)(2)ともその形でOK、進めてください」。7時25分09秒のお言葉：
+# 「毎回、絶対に読むべき部分、このような作業の前は絶対に読むべき部分、すでに終わったなどで読まなくて良い部分などに区分けしておくと、無駄なコンテキストの浪費を
+# 抑えられませんか？」。⛔ それまでは本書の全部とご発言の全部を毎回読み、読むだけでコンテキストの半分以上を使っていた）
+ALWAYS = (   # (A) 要約のあと毎回必ず読む（見張りが出し、読み終えるまで書き換えを止める）：(出す名前, ファイル, 見出しの頭)
+    ("book", BOOK, ("### 0-1.", "### 0-2.", "## 1.")),       # 帳面：手順・ご決定の台帳・いまの状態
+    ("intent", INTENT, ("## 1.", "## 2.", "## 9.")),        # 本書：目的と人の呼び方・原則・会話（CL-1 の持ち場）
+)
+BEFORE = (   # (B) その作業の前に必ず読む（見張りは表を出すだけ。読むのは CL-1 が守る）：(いつ, 何を)
+    ("取込・名前の読みの作業の前", "本書 6章"),
+    ("電話の部品・止め方・かけ直しに触る前", "本書 8章・10章"),
+    ("判定AIの顔ぶれ・料金・キー・お客様の言葉の送り先・測りの前", "本書 12章・13章と、測りの記録（docs/PHASE0_VERIFICATION.md）のその番号の所"),
+    ("判定への説明・試しの言葉の正解を直す前", "測りの記録の G-59・G-53（試しの言葉の正解へのご判断の正本）"),
+    ("ご判断を伺う前（決まっていることを伺い直さない）", "本書 18章と、帳面 0-2・本書をその言葉で探した所"),
+    ("CL-2 の頼みに答える前", "帳面 4章のその番号の所と、CL-2 の連絡帳"),
+    ("ほかの担当の決まりに触る前", "本書 3〜5・7・11・14〜17章"),
+)
+NOT_ROUTINE = ("(C) 毎回は読まない（要るときに探して読む）：本書 19章（直した記録）・ご発言の生の全文（ご決定は帳面 0-2 の台帳）・"
+               "経過の記録（docs/team/CL-1_HISTORY.md・docs/INTENT_HISTORY.md）")
 READ_SIZE, READ_FOLD = 16000, 1500   # 本書を読むファイルの大きさ（読む道具で切れない）・長い行を折り返す字数
 
 
@@ -252,7 +271,22 @@ def _reading_verdict(hook: dict, st: dict, reading: dict, stop: bool) -> str | N
             f"（残りの一覧は `{sys.executable} {Path(__file__).resolve()} {STATUS}`）。")
 
 
-def _split_lines(lines: list[str], out: Path, size: int = READ_SIZE, fold: int = READ_FOLD) -> list[Path]:
+def _sections(path: Path, heads: tuple[str, ...]) -> list[tuple[int, str]]:
+    """ファイルの、見出しの頭が heads の節（次の同じか上の段の見出しまで）を、もとの行の番号つきで（本書・帳面を直すときに、行の番号で探せる）。
+    見出しが見つからなければ止める（黙って読まずに済ませない）。"""
+    lines = path.read_text(encoding="utf-8").split("\n")
+    level = lambda l: len(l) - len(l.lstrip("#")) if l.startswith("#") and l.lstrip("#").startswith(" ") else 0   # noqa: E731
+    picked = []
+    for head in heads:
+        start = next((i for i, l in enumerate(lines) if l.startswith(head)), None)
+        if start is None:
+            raise ValueError(f"{path.name} に見出し「{head}」がありません（区分けの表 ALWAYS を直す）")
+        end = next((j for j in range(start + 1, len(lines)) if 0 < level(lines[j]) <= level(lines[start])), len(lines))
+        picked += [(i + 1, lines[i]) for i in range(start, end)]
+    return picked
+
+
+def _split_lines(lines: list, out: Path, size: int = READ_SIZE, fold: int = READ_FOLD) -> list[Path]:
     """行の並びを、読む道具で切れない大きさのファイル（out/p01.txt…）に分ける唯一の分け方（行の頭に行の番号。長い行は fold 字ずつ折り返し、
     折り返しの行は「番号+:」。⛔ 2026-11-05：行ごとに分けていたので、3万字を超える1行が1つのファイルに入り、読む道具が途中で切った＝折り返した
     切れごとに分ける）。"""
@@ -260,7 +294,7 @@ def _split_lines(lines: list[str], out: Path, size: int = READ_SIZE, fold: int =
     for old in out.glob("p*.txt"):
         old.unlink()
     files, cur, used = [], [], 0
-    for i, line in enumerate(lines, 1):
+    for i, line in (x if isinstance(x, tuple) else (n, x) for n, x in enumerate(lines, 1)):
         for k in range(0, max(len(line), 1), fold):
             piece = f"{i}{'+' if k else ''}: {line[k:k + fold]}"
             if cur and used + len(piece) + 1 > size:
@@ -311,12 +345,13 @@ def after_compact(out_dir: Path | None = None) -> str:
         lines = "\n\n------\n".join(f"[日本時間{jst(ts)}] {who}\n{text}" for ts, who, text in rows).split("\n") if rows else ["（無し）"]
         return _split_lines(lines, out / name), len(rows)
     seg = write("seg", _rows(path, prev, b, with_assistant=True))
-    said = [r for r in _rows(path, USERS_SINCE, "") if r[1] != ME]
-    users = write("users", said)
     after = write("after", _rows(path, b, ""))
     eng = write("english", [r for r in _rows(path, prev, "", with_assistant=True) if r[1] == ME and is_english(r[2])])
-    parts, total = split_for_reading(INTENT, out / "intent")
-    files = [str(x.resolve()) for x in seg[0] + users[0] + after[0] + eng[0] + parts]
+    books = {name: _split_lines(_sections(src, heads), out / name) for name, src, heads in ALWAYS}
+    for old in out.glob("users"):   # 前の形の出し物（ご発言の全部）は残さない
+        for x in old.glob("p*.txt"):
+            x.unlink()
+    files = [str(x.resolve()) for x in seg[0] + after[0] + eng[0] + [p for ps in books.values() for p in ps]]
     with _locked():
         st = _load_compact()
         st["reading"] = {"transcript": str(path), "boundary": b, "files": files, "read": [], "uses": {}, "scanned": scanned}
@@ -326,14 +361,15 @@ def after_compact(out_dir: Path | None = None) -> str:
         return f"{ps[0].parent}/p01.txt〜p{len(ps):02d}.txt（{len(ps)}本）"
     return "\n".join([
         f"要約の区切り：日本時間{jst(b)}（前の区切り：{('日本時間' + jst(prev)) if prev else '無し'}）。",
-        f"見張りは、下の {len(files)} 本を全部、読む道具で切らずに（offset・limit を付けずに）読み終えるまで、読む道具のほかを止めます。帳面 0-1 を上から順に：",
-        f"(1) 前の区切りから今の区切りまでのご発言と私の返事（{seg[1]}件）：{names(seg[0])}",
-        f"(2) ご発言の全部（会話の記録にある{('日本時間' + jst(said[0][0]) + ' から') if said else ''} {users[1]}件。それより前は、この作業環境の記録に"
-        f"残っていない＝帳面 1）：{names(users[0])}。帳面 0-2 と食い違いがないかを確かめる",
-        f"(3) 今の区切りのあとのご発言（{after[1]}件）：{names(after[0])}",
-        f"(4) 前の区切りからの英語の一言（{eng[1]}件）：{names(eng[0])} ＝帳面 0-1 に記録が無いものを記録する（読み終えてから）",
-        f"(5) 本書 Intent.md の1〜{total}行（長い行は{READ_FOLD}字ずつ折り返し）：{names(parts)}。読み終えるまで、作り・帳面・本書を書き換えない",
-        "(6) 読んだら、要約の前後のご決定が本書・設計書・帳面に入っているかを1つずつ突き合わせる（ここは見張りでは見られない＝CL-1 が守る）",
+        f"見張りは、下の (A) の {len(files)} 本を全部、読む道具で切らずに（offset・limit を付けずに）読み終えるまで、読む道具のほかを止めます。帳面 0-1 の手順：",
+        f"(A1) 前の区切りから今の区切りまでのご発言と私の返事（{seg[1]}件）：{names(seg[0])}",
+        f"(A2) 今の区切りのあとのご発言（{after[1]}件）：{names(after[0])}",
+        f"(A3) 前の区切りからの英語の一言（{eng[1]}件）：{names(eng[0])} ＝帳面に記録が無いものを記録する（読み終えてから）",
+        *(f"(A{n}) {src.relative_to(HERE.parent)} の {'・'.join(h.split(' ')[1].rstrip('.') for h in heads)}（行の番号はもとの番号）：{names(books[name])}"
+          for n, (name, src, heads) in enumerate(ALWAYS, 4)),
+        "読み終えたら、要約の前後のご決定・約束・待っていることが本書・設計書・帳面に入っているかを1つずつ突き合わせる（見張りでは見られない＝CL-1 が守る）",
+        "(B) その作業の前に必ず読む：" + "／".join(f"{when}＝{what}" for when, what in BEFORE),
+        NOT_ROUTINE,
         f"読むファイル：{files[0]} ほか（全部の一覧は {STATUS}）",
     ])
 
