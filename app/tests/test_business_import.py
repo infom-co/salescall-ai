@@ -624,6 +624,27 @@ class Import(unittest.TestCase):
         bi.ask_ai(r, decide_meanings=meanings, decide_do_words=do_words)
         self.assertEqual(asked, [[("ご予約はなさいますか。", ("する", "しない"), {"する": "ご予約をなさるということ"})]])
 
+    def test_unclear_none_is_decided_by_the_ai_for_choice_questions(self):
+        """CL-1 の連絡帳 4-82（✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」）：ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢は、
+        業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う質問も）だけ、取込のときに AI（CL-1 の import_ai.decide_unclear）に1回だけ聞いて入れる。
+        選択肢に無い名前・形の違う答え・決める処理が渡されないときは空（伺う＝重ねて伺うだけで答えは正しい側）。登録では聞き直さない。"""
+        asked = []
+
+        def unclear(items):
+            asked.append(items)
+            return ["しない" for _ in items]
+
+        data = book()
+        p = self.preview(data, decide_unclear=unclear)
+        self.assertEqual((p.problems, asked), ([], [[("「テスト便」のご予約はなさいますか。", ("する", "しない"))]]))   # 日時の質問は聞かない
+        self.assertEqual([q["unclear_none"] for q in p.raw["questions"]], ["しない", None])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual(([q.unclear_none for q in self.tx(lambda tx: bs.load(tx, v)).questions], len(asked)), (["しない", ""], 1))
+        for bad in (["x"], [], None, [1], ["しない", "しない"]):          # 選択肢に無い名前・形の違う答え＝空
+            with self.subTest(bad=bad):
+                self.assertEqual(self.preview(data, decide_unclear=lambda items: bad).raw["questions"][0]["unclear_none"], "")
+        self.assertEqual(self.preview(data).raw["questions"][0]["unclear_none"], "")   # 決める処理が渡されない＝空
+
     def test_away_choices_are_decided_by_the_ai_with_the_meanings(self):
         """CL-1 の連絡帳 4-72 の (a)：目的から遠ざかる向きの選択肢は、事実を伺う質問ではない選択肢の質問だけ、取込のときに AI（CL-1 の
         import_ai.decide_away）に1回だけ聞いて入れる。質問ごとに意味の言葉を添えて聞く（打ち消しの問いの「はい」を取り違えない）。選択肢に無い

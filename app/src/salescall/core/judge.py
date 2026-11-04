@@ -57,7 +57,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-04.1+time-{spoken_time.VERSION}"   # 2026-11-04.1（CL-1 の 4-74）：ここで終える答えで伺わなかった質問（事実 ended_on の skipped）を「伺っていない（対象外）」に数える
+JUDGE_VERSION = f"judge-2026-11-05.1+time-{spoken_time.VERSION}"   # 2026-11-05.1（CL-1 の 4-81 の (3)）：ほかのご希望の LINE の連絡先をどの形でいただいたか（事実 other_wish の via）も判定の中身で依頼者へ返す（判定の結果は変わらない）
+# 前の版：   # 2026-11-04.1（CL-1 の 4-74）：ここで終える答えで伺わなかった質問（事実 ended_on の skipped）を「伺っていない（対象外）」に数える
 # 前の版：   # 2026-11-03.1（CL-1 の 4-72 の (k)）：ほかのご希望を伺った答え（事実 other_wish）を判定の中身で依頼者へ返す（判定の結果は変わらない）
 # 前の版：   # 2026-11-02.4（CL-1 の 4-69 の 4-182 の (e)）：用件を断られたは、会話の報告の通話の事実 goal_refused（最終目的の申し出を断られ、目的が果たせなくなった）だけで決める（業務の決まりの断りの答えで決め直さない。最終目的でない質問の断る答えは、用件を断られたにしない）
 # 前の版：   # 2026-11-02.3（CL-1 の 4-69 の 4-185 の (1)・4-178）：ご納得いただけなかった点を根拠の発話（said）と値（point）に分けて返す・かけ直しの理由「今はお電話に出られないご事情」で日時が取れなければ日を改めて1回。
@@ -480,7 +481,7 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
             **({"not_agreed": [{"question": n.question, "point": n.point, "said": n.said, "round": n.round,
                                 "explained": n.explained, "outcome": n.outcome} for n in agreed]} if agreed else {}),
             **({"other_wish": [{"question": w.question, "wish": w.wish, "value": w.value, "means": w.means, "contact": w.contact,
-                                "outcome": w.outcome, "said": w.evidence.said} for w in wishes]} if wishes else {})}
+                                "via": w.via, "outcome": w.outcome, "said": w.evidence.said} for w in wishes]} if wishes else {})}
 
 
 def _business(inp: JudgeInput) -> Judgement:

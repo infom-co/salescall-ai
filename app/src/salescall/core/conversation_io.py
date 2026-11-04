@@ -269,7 +269,8 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     return dnc.register_declared(tx, attempt_id)
 
 
-_EARLIER_IF_ANY = ("hedged", "wish")   # 前の通話で取れた答えの項目のうち、値のあるときだけ渡すもの（`earlier`）
+# 前の通話で取れた答えの項目のうち、値のあるときだけ渡すもの（`earlier`。state・value・condition は無くても渡す）
+_EARLIER_IF_ANY = ("hedged", "wish", "wish_means", "wish_contact", "wish_via", "point", "point_said")
 
 
 def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
@@ -284,7 +285,14 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
       前の通話でほかのご希望（LINE など）を言っていただいた最終目的の答えが、続きの通話で「どれも要らない」だけになり、「目的が果たせない」で
       締めてその業務をもうかけない形だった（✅ 11-03 日本時間20時48分のご承認＝方法を言っていただいたら断られたとは扱わない。CL-1 の連絡帳 4-73 の (1)）。
       ⛔ 同じ夜の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
-      答えに、前の通話（別の方と話していた通話）の結果を付けうる形だった。作り直した報告があれば、それを読む（`call_report.load`）。"""
+      答えに、前の通話（別の方と話していた通話）の結果を付けうる形だった。作り直した報告があれば、それを読む（`call_report.load`）。
+    - "wish_means"・"wish_contact"・"wish_via"：同じ other_wish の、連絡先を伺う前に切れたご連絡の方法（`OtherWish.pending_means`）・伺えた連絡先・
+      LINE の伺い方（連絡先があるときだけ）。続きの電話の始めに切れた所から連絡先を伺う・もう伺った連絡先を伺い直さない（CL-1 の連絡帳 4-81 の (2)・
+      4-83 の (1)。✅ 2026-11-04 日本時間19時26分 ユーザー）。
+    - "point"・"point_said"：その答えを取った通話で、その質問（ご承認の質問）に伺った、ご納得いただけなかった点の事実 not_agreed の最後のものの
+      手順の進み（`NotAgreed.progress`）と、続きの電話でご説明する点（`NotAgreed.said_point`）。事実が無ければ入れない＝点の答えをいただく前に切れた
+      （続きの電話の始めに伺う。CL-1 の連絡帳 4-80 の (1)・4-81 の (1)。✅ 2026-11-04 日本時間18時16分・19時26分 ユーザー）。
+    読み方はどれも報告の形の1か所（`call_report.OtherWish`・`NotAgreed` の読み方。会話の側の同じ読み方は CL-1 の flowctl.earlier_*）。"""
     reports: dict[UUID, call_report.CallReport | None] = {}
     out: dict[str, dict[str, Any]] = {}
     for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged, attempt_id FROM salescall.item_values"
@@ -292,8 +300,13 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
         if r["attempt_id"] not in reports:
             reports[r["attempt_id"]] = call_report.load(tx, r["attempt_id"])
         report = reports[r["attempt_id"]]
-        wish = next((w.result for w in reversed(report.other_wishes) if w.question == r["question_id"]), None) if report else None
-        item = {"state": r["state"], "value": r["value"], "condition": r["condition"], "hedged": r["hedged"], "wish": wish}
+        w = next((w for w in reversed(report.other_wishes) if w.question == r["question_id"]), None) if report else None
+        n = next((n for n in reversed(report.not_agreed) if n.question == r["question_id"]), None) if report else None
+        contact = (w.contact or "").strip() or None if w is not None else None
+        item = {"state": r["state"], "value": r["value"], "condition": r["condition"], "hedged": r["hedged"],
+                "wish": w.result if w is not None else None, "wish_means": w.pending_means if w is not None else None,
+                "wish_contact": contact, "wish_via": w.via if contact is not None else None,
+                "point": n.progress if n is not None else None, "point_said": n.said_point if n is not None else None}
         out[r["question_id"]] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
     return out
 

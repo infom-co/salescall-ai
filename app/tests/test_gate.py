@@ -1779,6 +1779,18 @@ class NameLedger(Content):
         self.assertIn("unavailable_confirm", recordings.NAME_TAILS)
         self.assertIn("unavailable_confirm", business_settings.RESERVED_IDS)
 
+    def test_the_parts_cl1_added_on_11_04_and_11_05_are_received(self):
+        """CL-1 の連絡帳 4-80〜4-84（✅ 2026-11-04 日本時間18時16分・19時26分・20時27分・11-05 0時48分 ユーザー）：ご承認の手順の続きの一言・
+        LINE の連絡先の伺い方（C11）とその伺い直し・続きの電話の一言・SMS でご招待する携帯電話の番号（C12）・連絡先を伺う前に切れた電話の続き・
+        伺い方のあとのメールアドレス・ほかの方法を伺う一言は、どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。C11・C12 は
+        業務の質問の番号に使えない（`business_settings.RESERVED_IDS`。使えると、業務の質問の答えとシステムの質問の答えを取り違える）。"""
+        from salescall.core import business_settings
+        added = {"callback_not_agreed_again", "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
+                 "callback_email_again", "callback_fax_again", "callback_address_again", "callback_email_chosen",
+                 *(f"callback_line_how_without_{k}{n}" for k in ("id", "sms", "email") for n in ("", "_2"))}
+        self.assertLessEqual(added, set(recordings.CONTRACTOR_PARTS))
+        self.assertLessEqual({"C11", "C12"}, business_settings.RESERVED_IDS)
+
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
         よろしいでしょうか？」は契約者の単位の録音 callback_refusal（話してよい声が求める＝`CONTRACTOR_PARTS`）で、その質問の番号 R1 は

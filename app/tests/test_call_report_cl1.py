@@ -716,21 +716,22 @@ class OtherWish1103(unittest.TestCase):
 
     def test_other_wishes_are_received_and_returned(self):
         line = {"turn": 5, "said": "LINEならいいです。", "question": "Q3", "wish": "LINEでの連絡", "value": "LINE", "means": "line",
-                "contact": "test_line_id", "outcome": "means"}
+                "contact": "test_line_id", "via": "id", "outcome": "means"}   # via＝LINE の伺い方（CL-1 の 4-81 の (3)）
         cut = {"turn": 7, "said": "うーん。", "question": "Q4", "wish": None, "value": None, "means": None, "contact": None, "outcome": None}
         r = from_json(self.raw(line, cut))
         self.assertEqual(([(w.question, w.means, w.contact, w.outcome) for w in r.other_wishes], from_json(r.to_json())),
                          ([("Q3", "line", "test_line_id", "means"), ("Q4", None, None, None)], r))
         j = run(self.raw(line, cut))
-        self.assertEqual(j.detail["other_wish"], [{k: line[k] for k in ("question", "wish", "value", "means", "contact", "outcome", "said")},
-                                                  {k: cut[k] for k in ("question", "wish", "value", "means", "contact", "outcome", "said")}])
+        keys = ("question", "wish", "value", "means", "contact", "via", "outcome", "said")
+        self.assertEqual(j.detail["other_wish"], [{k: line[k] for k in keys}, {k: cut.get(k) for k in keys}])
+        self.assertIsNone(r.other_wishes[1].via)                             # 無い鍵は null と同じ
         self.assertNotIn("other_wish", run(self.raw()).detail)                # 伺っていなければ中身に出さない
         self.assertTrue(from_json({**self.raw(line), "facts": {"other_wish": [line]}}).talked)   # 人の言葉でしか起きない＝話した
         # 無い鍵は null と同じに読む（報告の読み手の決まりの1か所 `_keys`。会話の側はいつも全部の鍵を書く）
         self.assertIsNone(from_json(self.raw({k: v for k, v in line.items() if k != "outcome"})).other_wishes[0].outcome)
         self.assertEqual(j.state, run(self.raw()).state)                       # 判定の結果は変えない
         for bad in ({**line, "means": "sms"}, {**line, "outcome": "maybe"}, {**line, "question": ""}, {**line, "contact": 3},
-                    {**line, "wish": ["x"]}, {**line, "x": 1}):
+                    {**line, "wish": ["x"]}, {**line, "x": 1}, {**line, "via": "fax"}, {**line, "means": "email"}):   # via は LINE のときだけ
             with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
                 from_json(self.raw(bad))
 

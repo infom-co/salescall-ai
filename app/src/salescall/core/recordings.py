@@ -264,7 +264,12 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 # closing_after_decline＝お断りで最終目的が果たせなくなったときの締め、4-66 のあとの (k)（11-02 7時12分のご判断）の kashikomari＝「承知しました。」が続くときの相づち「かしこまりました。」、
 # 4-72 の (k)（11-03 日本時間20時48分のご承認）の callback_line＝「それでは恐れ入りますがLINEのIDをお伺いしてもよろしいでしょうか？」（システムの質問 C10）・
 # wish_told_line・wish_told_email・wish_told_fax・wish_told_post・wish_told_phone・wish_told_other＝ほかのご希望を担当の者に申し伝える一言、4-75 の ai_answer＝
-# 「AIですか」への標準の答え「何か問題でもございましたでしょうか？」（業務が答えを書いたときは業務の録音の部分 ai）。CL-1 の試験 test_offline が
+# 「AIですか」への標準の答え「何か問題でもございましたでしょうか？」（業務が答えを書いたときは業務の録音の部分 ai）。4-80 の
+# callback_not_agreed_again＝ご承認の手順の途中で切れた電話の続きの「前回お伺いした件でご納得いただけなかった点はどの部分になりますでしょうか？」（✅ 11-04
+# 日本時間18時16分）、4-81 の callback_line_how（LINE の連絡先の伺い方＝C11）・_2（伺い直し）・_again（続きの電話）・callback_mobile（SMS でご招待する携帯電話の
+# 番号＝C12）・callback_email_again・callback_fax_again・callback_address_again（連絡先を伺う前に切れた電話の続き）（✅ 11-04 日本時間19時26分）、4-82 の
+# callback_email_chosen（伺い方でメールを選んでいただいたあとのメールアドレスの一言。✅ 11-04 日本時間20時27分）、4-84 の callback_line_how_without_（id・sms・
+# email）とその _2（選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言とその伺い直し。✅ 11-05 日本時間0時48分・1時19分47秒・1時29分06秒）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -285,7 +290,12 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "successor_confirm", "successor_reconfirm", "successor_unavailable", "talk_agree_deep", "talk_agree_high", "talk_agree_light", "talk_cared",
     "talk_hard_bright", "talk_hard_sad", "talk_heard_glad", "talk_heard_nod", "talk_heard_sad", "talk_osewa",
     "talk_praised", "talk_welcome", "talk_yoroshiku", "wait", "wait_heavy",
-    "ai_answer", "callback_line", "wish_told_email", "wish_told_fax", "wish_told_line", "wish_told_other", "wish_told_phone", "wish_told_post")
+    "ai_answer", "callback_line", "wish_told_email", "wish_told_fax", "wish_told_line", "wish_told_other", "wish_told_phone", "wish_told_post",
+    "callback_not_agreed_again",
+    "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
+    "callback_email_again", "callback_fax_again", "callback_address_again", "callback_email_chosen",
+    "callback_line_how_without_id", "callback_line_how_without_id_2", "callback_line_how_without_sms",
+    "callback_line_how_without_sms_2", "callback_line_how_without_email", "callback_line_how_without_email_2")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

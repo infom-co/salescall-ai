@@ -106,7 +106,8 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   連絡自体はお客様がOKされたということですよね。…「お電話とメール」に不服ということになるんじゃないですか？」・「「LINEならいいです」と回答
 #   いただけたら、LINEアドレスを伺うというステップを忘れないように。」）。question＝元の質問の番号・wish＝W1 の選択肢の名前（聞き取れない・分からない
 #   ときは null）・value＝お客様が言ったご希望の値（ご連絡の方法・ほかのご希望のときだけ。無ければ null）・means＝ご連絡の方法（`OTHER_WISH_MEANS`
-#   のどれか・または null）・contact＝その方法の連絡先（伺えなければ null）・outcome＝結び（`OTHER_WISH_OUTCOMES`。伺っている途中で電話が切れたら
+#   のどれか・または null）・contact＝その方法の連絡先（伺えなければ null）・via＝LINE の連絡先をどの形でいただいたか（`OTHER_WISH_VIA`。LINE でない・
+#   決まらなかったら null。CL-1 の連絡帳 4-81 の (3)。⛔ 足すまで、via の鍵のある報告は丸ごと受け付けなかった＝読み手は知らない鍵を断る）・outcome＝結び（`OTHER_WISH_OUTCOMES`。伺っている途中で電話が切れたら
 #   null）。依頼者へ返す（判定の中身 other_wish＝judge._detail の1か所）。判定は今の1か所のまま（選び直した答えは元の質問の項目で、最終目的を
 #   断られたかは事実 goal_refused で読む＝会話の側は、ご連絡の方法・ほかのご希望を言っていただいた最終目的の質問を、断られたとしない）。
 # ended_on：この答えなら、ここで電話を終える答え（業務設定の質問の ends_on）で、残りの業務の質問を伺わなかった（CL-1 の連絡帳 4-74。✅ 2026-11-04
@@ -117,6 +118,11 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   人の証の表（HUMAN_FACTS）には入れない
 OTHER_WISH_MEANS = ("line", "email", "fax", "post", "phone")   # LINE・メール・ファクス・郵送・お電話（CL-1 の flowctl.WISH_MEANS の鍵）
 OTHER_WISH_OUTCOMES = ("option", "means", "other", "none")   # 元の質問の選択肢を選び直した・ご連絡の方法・ほかのご希望・無い
+# LINE の連絡先をどの形でいただいたか（事実 other_wish の via。ID・SMS でご招待・メールでご招待。LINE でないか決まらなかったら null。CL-1 の flowctl.LINE_HOW の値。
+# ✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。」・11-05 1時29分06秒「招待はメールとSMSだけだよ。」。CL-1 の連絡帳 4-81 の (3)）
+OTHER_WISH_VIA = ("id", "sms", "email")
+# 連絡先を伺うご連絡の方法（お電話は今のお電話なので伺わない。CL-1 の flowctl.WISH_MEANS の3つ目＝伺う連絡先の役目のあるもの）
+OTHER_WISH_CONTACTS = ("line", "email", "fax", "post")
 UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear", "who_unclear")
 GOAL_MODES = ("any", "all")                              # どれか1つで目的が果たせる／全部が要る（CL-1 の instruction.Business.goal_mode）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
@@ -428,6 +434,22 @@ class NotAgreed:
     # 値を上書きしていて、根拠の発話と値が1つの鍵に混ざっていた）。point の鍵の無い前の形の報告は said が値なので、それを読む（`_not_agreed`）
     point: str | None = None
 
+    @property
+    def progress(self) -> str:
+        """ご承認いただけなかったときの手順を、この通話でどこまで伺えたか（次の通話へ渡す前の通話の答えの "point"＝`conversation_io.earlier`。読み方は
+        ここだけ。会話の側の同じ読み方は CL-1 の flowctl.earlier_point＝CL-1 の連絡帳 4-80 の (1)）：結びがあればそれ（NOT_AGREED_OUTCOMES）・無ければ
+        heard（ご納得いただけなかった点は伺った。ご説明の途中で切れたものも）。"""
+        return self.outcome or "heard"
+
+    @property
+    def said_point(self) -> str | None:
+        """続きの電話の始めにご説明する点（前の通話の答えの "point_said"。読み方はここだけ。会話の側の同じ読み方は CL-1 の flowctl.earlier_point_said＝
+        CL-1 の連絡帳 4-81 の (1)）：手順を伺い終えていない（progress が heard）とき、点を伺ったお客様の言葉、無ければ点の値。終えていれば None
+        （続きの電話でご説明しない）。"""
+        if self.progress != "heard":
+            return None
+        return (self.said or "").strip() or self.point or None
+
 
 @dataclass(frozen=True)
 class OtherWish:
@@ -439,6 +461,7 @@ class OtherWish:
     means: str | None            # ご連絡の方法（OTHER_WISH_MEANS）
     contact: str | None          # その方法の連絡先（伺えなければ None）
     outcome: str | None          # 結び（OTHER_WISH_OUTCOMES。伺っている途中で切れたら None）
+    via: str | None = None       # LINE の連絡先をどの形でいただいたか（OTHER_WISH_VIA。LINE でない・決まらなかったら None。CL-1 の連絡帳 4-81 の (3)）
 
     @property
     def result(self) -> str | None:
@@ -446,6 +469,15 @@ class OtherWish:
         CL-1 の flowctl.earlier_wish＝CL-1 の連絡帳 4-73）：結びがあればそれ。結びが無くご連絡の方法があれば means（連絡先を伺う途中で切れた）。
         どちらも無ければ None（W1 の答えをいただく前に切れた）。"""
         return self.outcome or ("means" if self.means else None)
+
+    @property
+    def pending_means(self) -> str | None:
+        """ご連絡の方法までは伺えて、その連絡先を伺う前に切れた方法（次の通話へ渡す前の通話の答えの "wish_means"＝`conversation_io.earlier`。読み方は
+        ここだけ。会話の側の同じ読み方は CL-1 の flowctl.earlier_wish_means＝CL-1 の連絡帳 4-81 の (2)）：結びが無く（伺い終えていない）、連絡先を伺う
+        方法（`OTHER_WISH_CONTACTS`）で、連絡先が無いとき。ほかは None。続きの電話の始めに、その連絡先を伺う。"""
+        if self.outcome is not None or self.means not in OTHER_WISH_CONTACTS or (self.contact or "").strip():
+            return None
+        return self.means
 
 
 @dataclass(frozen=True)
@@ -708,7 +740,7 @@ class CallReport:
             "not_agreed": [{"turn": n.turn, "question": n.question, "said": n.said, "point": n.point, "round": n.round,
                             "explained": n.explained, "outcome": n.outcome, "declining": n.declining} for n in self.not_agreed],
             "other_wish": [{**said(w.evidence), "question": w.question, "wish": w.wish, "value": w.value, "means": w.means,
-                            "contact": w.contact, "outcome": w.outcome} for w in self.other_wishes],
+                            "contact": w.contact, "via": w.via, "outcome": w.outcome} for w in self.other_wishes],
             "ended_on": [] if self.ended_on is None else [
                 {"turn": self.ended_on.turn, "said": self.ended_on.said, "question": self.ended_on.question,
                  "answer": self.ended_on.answer, "skipped": list(self.ended_on.skipped)}]}
@@ -860,9 +892,12 @@ def _other_wish(r: dict, s: Said, i: int) -> OtherWish:
         if v is not None and not isinstance(v, str):
             raise ReportInvalid(f"{where}.{key} は文字か null です")
         texts[key] = v
-    return OtherWish(s, question, texts["wish"], texts["value"],
-                     _choice(r.get("means"), OTHER_WISH_MEANS, f"{where}.means", optional=True), texts["contact"],
-                     _choice(r.get("outcome"), OTHER_WISH_OUTCOMES, f"{where}.outcome", optional=True))
+    means = _choice(r.get("means"), OTHER_WISH_MEANS, f"{where}.means", optional=True)
+    via = _choice(r.get("via"), OTHER_WISH_VIA, f"{where}.via", optional=True)
+    if via is not None and means != "line":
+        raise ReportInvalid(f"{where}.via は、ご連絡の方法が LINE のときだけです（{means!r}）")
+    return OtherWish(s, question, texts["wish"], texts["value"], means, texts["contact"],
+                     _choice(r.get("outcome"), OTHER_WISH_OUTCOMES, f"{where}.outcome", optional=True), via)
 
 
 def _ended_on(facts: dict) -> EndedOn | None:
@@ -1001,7 +1036,7 @@ def from_json(raw: Any) -> CallReport:
     who_unclears = tuple(WhoUnclear(s, _bool(r, "recalled")) for r, s in _records(facts, "who_unclear", {"recalled"}))
     not_agreed = _not_agreed(facts)
     other_wishes = tuple(_other_wish(r, s, i) for i, (r, s) in enumerate(
-        _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome"})))
+        _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome", "via"})))
     ended_on = _ended_on(facts)
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \

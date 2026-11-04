@@ -66,7 +66,10 @@ END = "END"                                       # 分岐の行き先「終わ�
 # CL-1 の連絡帳 4-72 の (k) で足した：W1（選ぶ質問の「どれも要らない」・最終目的の質問への言い切っていないお断りのあとに、ほかのご希望を伺う
 # 「それでは（選択肢）のほかにご希望はございますでしょうか？」）・C10（ご連絡の方法に LINE を言っていただいたときの「LINEのID」。✅ 2026-11-03
 # 日本時間20時48分 ユーザー：「「LINEならいいです」と回答いただけたら、LINEアドレスを伺うというステップを忘れないように。」）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "M1", "S1", "P1", "R1", "D1", "H1", "N1", "N2", "N3", "W1",
+# CL-1 の連絡帳 4-81 の (4) で足した：C11（LINE の連絡先の伺い方＝ID を伺うか SMS かメールからご招待するか）・C12（SMS でご招待する携帯電話の番号）
+# （✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。SMSかメールを選ばれたら、もし、携帯電話番号やメールを伺っていなければ
+# ここで確認。」）。
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "M1", "S1", "P1", "R1", "D1", "H1", "N1", "N2", "N3", "W1",
                           "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
@@ -102,7 +105,7 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on"}
+                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -258,6 +261,11 @@ class Question:
     # 質問（必須でないと聞き返さない＝先へ進むかを決める答えが1回で「-」になる）。✅ 2026-11-04 日本時間2時10分54秒 管理者「OK」（CL-1 の連絡帳 4-74。
     # ⛔ 前の話し合いの案＝あとの質問すべてに「a 以外なら伺う」を足す形は、聞き取れないまま締める・「どれも要らない」にほかのご希望を伺わない、で取り下げ）
     ends_on: tuple[str, ...] = ()
+    # ほかに分からない点が無いかを伺う質問（「ご不明な点はございますでしょうか？」）の、「無い」にあたる選択肢の名前（伺う質問でなければ空）。
+    # 取込で文字の AI 2つが質問の文と選択肢から決める（そろわなければ空＝伺う。人は確かめない＝CL-1 の import_ai.decide_unclear）。会話の側の
+    # Question.unclear_none：ご承認いただけなかったときの手順で「ほかにご納得いただけない点は…」に「分かった」と答えていただいたら、この質問は
+    # 伺わずにこの答えにする（重ねて伺わない＝9-3）。✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」（CL-1 の連絡帳 4-82）
+    unclear_none: str = ""
 
 
 @dataclass(frozen=True)
@@ -809,6 +817,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 "「いいえ」のときに、ご納得いただけなかった点を伺うため）")
             declines = _declines(q["declines"], q["type"], choices, where, problems)
             ends_on = _ends_on(q, choices, where, problems)
+            unclear_none = _unclear_none(q["unclear_none"], q["type"], choices, where, problems)
             if not isinstance(q["final_goal"], bool):
                 problems.append(f"{where}の最終目的の申し出か（final_goal）は true / false です")
                 continue
@@ -820,7 +829,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 q["type"], bool(q["required"]), choices, unit, meanings, replies,
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
-                                q["final_goal"] is True, declines, tell_words, ends_on)
+                                q["final_goal"] is True, declines, tell_words, ends_on, unclear_none)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -901,6 +910,18 @@ def _ends_on(q: dict[str, Any], choices: tuple[str, ...], where: str, problems: 
                         "答えなので書きません）")
         return ()
     return tuple(raw)
+
+
+def _unclear_none(raw: Any, type_name: str, choices: tuple[str, ...] | None, where: str, problems: list[str]) -> str:
+    """ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢（`Question.unclear_none`）を読む（無ければ空）：はい／いいえ・決まった選択肢の
+    質問の、宣言した選択肢の1つ（確かめはここだけ。会話の側の Question.__post_init__ と同じ決まり）。"""
+    if raw is None or raw == "":
+        return ""
+    if not isinstance(raw, str) or type_name not in CHOICE_TYPES or raw not in (choices or ()):
+        problems.append(f"{where}のほかに分からない点は無いにあたる答え（unclear_none）は、はい／いいえ・決まった選択肢の質問の、"
+                        f"宣言した選択肢の1つです（{list(choices or ())}）")
+        return ""
+    return raw
 
 
 def _away(raw_away: Any, type_name: str, choices: tuple[str, ...], asks_fact: bool, where: str, problems: list[str]) -> tuple[str, ...]:
@@ -1297,6 +1318,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
       連絡帳 4-71・4-72）が無い前の版の質問は、どちらも無い（空・偽＝今までの確かめの言い方・伺う答えならいつも伺う）として読む。最短の日（earliest）は無くてもよい項目なので、前の版はそのまま（無い）。
     - その答えのあとに伝える一言（tell_words。2026-11-03 に足した＝CL-1 の連絡帳 4-72 の (i)）が無い前の版の質問は、無い（空の表）として読む。
     - ここで終える答え（ends_on。2026-11-04 に足した＝CL-1 の連絡帳 4-74）が無い前の版の質問は、無い（空）として読む。
+    - ほかに分からない点は無いにあたる答え（unclear_none。2026-11-05 に足した＝CL-1 の連絡帳 4-82）が無い前の版の質問は、無い（空＝伺う）として読む。
     - 分岐（next）は、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える（前の版も同じ1か所）。
     - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
       無いとして読む（会話の側は「それでは（言葉）ね？」で言うので、そのままでは文にならない。無い選択肢は、会話の側が意味の言葉で
@@ -1308,7 +1330,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     if not isinstance(questions, list):
         return dict(content, rules=rules)
     added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
-             "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": []}
+             "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": ""}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:

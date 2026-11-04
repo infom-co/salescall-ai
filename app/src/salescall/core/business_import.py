@@ -322,7 +322,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
                           "do_words": _choice_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems),
                           "tell_words": _choice_words(v.get("tell_words"), f"{where}のその答えのあとに伝える一言", problems) or {},
-                          "ends_on": _split(v.get("ends_on")) or [],
+                          "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None,
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
@@ -527,6 +527,13 @@ AwayDecider = Callable[[list[tuple[str, tuple[str, ...], dict[str, str]]]], list
 decide_keep_words）は取り下げ。目的につなげて伺う一言は、業務設定の言い切っていないときだけ伺う質問で書く。"""
 
 
+UnclearDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[str]]
+"""ほかに分からない点が無いかを伺う質問（「ご不明な点はございますでしょうか？」）の、「無い」にあたる選択肢を決める処理（(質問の文, 選択肢の並び) の並び →
+同じ並びで選択肢の名前。伺う質問でない・決まらないなら空）。決め方は CL-1 の1か所（`import_ai.decide_unclear`＝`unclear.by_model` を2つのモデルで1回ずつ →
+`unclear.decide`。2つがそろったときだけ決まる＝伺うべき答えを伺わずに決める誤りを避ける側）。業務の選ぶ質問（はい／いいえ・選択肢）だけを渡す。
+管理者も契約者も確かめない。✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」（CL-1 の連絡帳 4-82）"""
+
+
 FactDecider = Callable[[list[str]], dict[str, bool]]
 """質問ごとに「お客様に事実を伺う質問か」を決める処理（質問の文の並び → 文ごとの真偽。決まらない文は入れない）。決め方は CL-1 の
 1か所（`facts.by_model` を2つのモデルで1回ずつ → `facts.decide`。G-71。CL-1 の連絡帳 2-1 の版 0.6）。管理者も契約者も確かめない。"""
@@ -606,6 +613,19 @@ def _decided_away(raw: dict[str, Any], decide: AwayDecider | None, facts: dict[s
         readable = isinstance(d, (tuple, list)) and all(isinstance(c, str) for c in d)
         out[_pair_key(text, choices)] = [c for c in choices if c in d] if readable else list(choices)
     return out
+
+
+def _decided_unclear(raw: dict[str, Any], decide: UnclearDecider | None) -> dict[str, str]:
+    """選ぶ質問ごとに、ほかに分からない点は無いにあたる選択肢を、決める処理に1回だけ聞く（答え＝質問の文と選択肢 → 選択肢の名前か空）。答えが
+    無い・形が違う・選択肢に無い名前・決める処理が渡されないときは空（伺う質問として扱わない＝重ねて伺うだけで、答えは正しい側。CL-1 の unclear.decide と
+    同じ側）。"""
+    pairs = list(dict.fromkeys((q["text"], c) for q, c in _choice_questions(raw, "unclear_none")))
+    if not pairs or decide is None:
+        return {}
+    got = decide(pairs)
+    if not isinstance(got, list) or len(got) != len(pairs):
+        return {}
+    return {_pair_key(text, choices): (d if isinstance(d, str) and d in choices else "") for (text, choices), d in zip(pairs, got)}
 
 
 def _pair_key(text: str, choices: tuple[str, ...]) -> str:
@@ -693,12 +713,14 @@ def _script(raw: dict[str, Any]) -> str:
 def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_units: UnitDecider | None = None,
            decide_topics: TopicDecider | None = None, decide_meanings: MeaningDecider | None = None,
            decide_replies: ReplyDecider | None = None, decide_facts: FactDecider | None = None,
-           decide_do_words: DoWordsDecider | None = None, decide_away: AwayDecider | None = None) -> dict[str, Any]:
+           decide_do_words: DoWordsDecider | None = None, decide_away: AwayDecider | None = None,
+           decide_unclear: UnclearDecider | None = None) -> dict[str, Any]:
     """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味・事実を伺う質問かを決める処理。
     どれも CL-1 の決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics":
     質問の文 → 聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢},
     "facts": 質問の文 → 事実を伺う質問か, "do_words": 質問の文と選択肢 → {選択肢: こちらがすることの言葉}（事実を伺う質問ではない質問
-    だけ＝事実を伺う質問かが決まってから聞く）, "away": 質問の文と選択肢 → 目的から遠ざかる向きの選択肢の並び（do_words と同じ質問）}。
+    だけ＝事実を伺う質問かが決まってから聞く）, "away": 質問の文と選択肢 → 目的から遠ざかる向きの選択肢の並び（do_words と同じ質問）,
+    "unclear": 質問の文と選択肢 → ほかに分からない点は無いにあたる選択肢か空（選ぶ質問すべて）}。
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
     facts = _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)
     meanings = _decided_pairs(raw, "meanings", decide_meanings)   # こちらがすることの言葉の向きを、意味の言葉の向きとそろえるので先に
@@ -709,7 +731,8 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
             "replies": _decided_pairs(raw, "replies", decide_replies),
             "facts": facts,
             "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts, meanings),
-            "away": _decided_away(raw, decide_away, facts, meanings)}
+            "away": _decided_away(raw, decide_away, facts, meanings),
+            "unclear": _decided_unclear(raw, decide_unclear)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -794,6 +817,9 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     # 目的から遠ざかる向きの選択肢：入口が持ってこなければ、AI の答えを入れる（事実を伺う質問ではない選択肢の質問だけ）
     for q, choices in _choice_questions(raw, "away"):
         q["away"] = (ai.get("away") or {}).get(_pair_key(q["text"], choices)) or None
+    # ほかに分からない点は無いにあたる選択肢：入口が持ってこなければ、AI の答えを入れる（決まらなければ空＝伺う。選ぶ質問すべて）
+    for q, choices in _choice_questions(raw, "unclear_none"):
+        q["unclear_none"] = (ai.get("unclear") or {}).get(_pair_key(q["text"], choices)) or ""
     # こちらがすることの言葉：入口（業務設定に書いた言葉）が書いていない選択肢に、AI の答えを入れる（書いた選択肢は入口の言葉が先＝CL-1 の連絡帳
     # 4-72 の (d)。事実を伺う質問ではない選択肢の質問だけ。事実を伺う質問かは上で決まった）
     written: dict[Any, dict[str, str]] = {}   # 依頼者が書いたこちらがすることの言葉（使わない言葉の知らせ＝下）
@@ -839,7 +865,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
             decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None,
             decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None,
             decide_facts: FactDecider | None = None, decide_do_words: DoWordsDecider | None = None,
-            decide_away: AwayDecider | None = None) -> Preview:
+            decide_away: AwayDecider | None = None, decide_unclear: UnclearDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
@@ -848,7 +874,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     raw, problems, where = _to_raw(sheets, problems, notes)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
                 decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
-                decide_do_words=decide_do_words, decide_away=decide_away)
+                decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     p.notes = notes + p.notes
     return p

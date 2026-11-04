@@ -155,7 +155,7 @@ class Materials(SettleBase):
                                                                           ("LINEでの連絡", "LINE", "line", None, None))))
         self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])),
                          {"Q1": {"state": "accepted", "value": "答えた", "condition": "答えた", "hedged": "たぶん大丈夫です",
-                                 "wish": "means"}})               # 連絡先を伺う途中で切れた＝ご連絡の方法は言っていただいた
+                                 "wish": "means", "wish_means": "line"}})   # 連絡先を伺う途中で切れた＝ご連絡の方法は言っていただいた（続きの電話で連絡先を伺う）
         cases = ((("LINEでの連絡", "LINE", "line", "test_line_id", "means"), "means"), (("無い", None, None, None, "none"), "none"),
                  ((None, None, None, None, None), None))           # W1 の答えをいただく前に切れた＝入れない
         for w, want in cases:
@@ -174,6 +174,47 @@ class Materials(SettleBase):
         self.tx(s, lambda tx: call_report.save(tx, later, rep()))           # あとの通話では、ほかのご希望を伺っていない
         self.write(s, later, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 答えを、あとの通話で取り直した
         self.assertNotIn("wish", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"])
+
+    def test_earlier_answers_carry_how_far_the_steps_went_and_the_contacts_already_asked(self):
+        """CL-1 の連絡帳 4-80〜4-83（✅ 2026-11-04 日本時間18時16分・19時26分 ユーザー）：前の通話で取れた答えに、その答えを取った通話の報告から
+        (1) ご承認いただけなかったときの手順の進み "point"（事実 not_agreed の最後のものの結び、無ければ heard＝点は伺った）と、手順を伺い終えて
+        いないときのご説明する点 "point_said"（点を伺ったお客様の言葉、無ければ点の値）(2) 連絡先を伺う前に切れたご連絡の方法 "wish_means"（お電話・
+        連絡先を伺えた方法には無い）(3) 伺えた連絡先 "wish_contact" と LINE の伺い方 "wish_via"（連絡先のあるときだけ）を足す。事実が無ければ入れない
+        （点の答えをいただく前に切れた＝続きの電話の始めに伺う）。読み方は報告の形の1か所（会話の側の flowctl.earlier_* と同じ決まり）。"""
+        import dataclasses
+        base = rep()
+
+        def facts(agreed=(), wishes=()):
+            return dataclasses.replace(base, not_agreed=tuple(agreed), other_wishes=tuple(wishes)).to_json()
+
+        def earlier(report):   # 報告は通話ごとに1つ（書き換えられない）ので、場合ごとに通話を作る
+            s = self.ready()
+            aid = self.answered(s)
+            self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 試験の業務の Q1（どの型の質問でも同じ読み方）
+            self.tx(s, lambda tx: conversation_io.save_report(tx, aid, report))
+            return self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]
+        said = call_report.Said(4, "料金のところです。")
+        heard = call_report.NotAgreed(4, "Q1", "料金のところです。", 1, True, None, False, "料金")
+        got = earlier(facts([heard]))
+        self.assertEqual((got["point"], got["point_said"]), ("heard", "料金のところです。"))   # ご説明の途中で切れた
+        cases = (((dataclasses.replace(heard, said=None),), ("heard", "料金")),             # お客様の言葉が無ければ点の値
+                 ((heard, dataclasses.replace(heard, outcome="agreed")), ("agreed", None)),   # 最後のもの・手順を終えていればご説明しない
+                 ((dataclasses.replace(heard, question="Q9"),), (None, None)))              # ほかの質問の事実は入れない
+        for agreed, want in cases:
+            with self.subTest(want=want):
+                got = earlier(facts(agreed))
+                self.assertEqual((got.get("point"), got.get("point_said")), want)
+        line = call_report.OtherWish(said, "Q1", "LINEでの連絡", "LINE", "line", "abc_123", "means", "id")
+        cases = ((line, {"wish": "means", "wish_contact": "abc_123", "wish_via": "id"}),
+                 (dataclasses.replace(line, contact=None, outcome=None, via=None), {"wish": "means", "wish_means": "line"}),
+                 (dataclasses.replace(line, means="phone", value="お電話", contact=None, via=None, outcome=None), {"wish": "means"}),  # お電話は伺わない
+                 (dataclasses.replace(line, means="email", contact="a@example.jp", via=None), {"wish": "means", "wish_contact": "a@example.jp"}),
+                 (dataclasses.replace(line, outcome=None), {"wish": "means", "wish_contact": "abc_123", "wish_via": "id"}),   # 連絡先は伺えた
+                 (dataclasses.replace(line, contact=None, via=None), {"wish": "means"}))   # 伺い終えた（連絡先は無いまま申し伝えた）
+        for w, want in cases:
+            with self.subTest(want=want):
+                got = earlier(facts(wishes=(w,)))
+                self.assertEqual({k: got[k] for k in got if k.startswith("wish")}, want)
 
     def test_keys_used_keep_only_names_and_fingerprints(self):
         """使ったキーの識別名（CL-1 の 4-67）：名前と値の指紋の頭8桁だけ。同じものは重ねず、前のものは消さない。キーの値らしいものは
