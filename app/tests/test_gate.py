@@ -1797,6 +1797,17 @@ class NameLedger(Content):
         どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。"""
         self.assertLessEqual({"resumed_fallback_lead", "own_fallback_point_again"}, set(recordings.CONTRACTOR_PARTS))
 
+    def test_the_part_cl1_added_on_11_05_4am_is_received(self):
+        """CL-1 の連絡帳 4-86 の (1)（✅ 2026-11-05 日本時間4時16分52秒 ユーザー）：続きの電話の始めに、ご納得いただけなかった点を「覚えていない」と
+        言われたときの頭の相づち「ごもっともです。」（gomottomo）は、どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。"""
+        self.assertIn("gomottomo", recordings.CONTRACTOR_PARTS)
+
+    def test_the_point_fallbacks_by_kind_cl1_added_on_11_05_are_received(self):
+        """ご説明できないときの一言を、お客様の言ったことの種類（ご質問・ご要望・ご意見）でそろえた名前（✅ 2026-11-05 日本時間3時33分11秒 ユーザーの
+        ご修正。CL-1 の phrases.point_fallback_id＝ご質問は前からの名前、ほかは _request・_opinion を続ける）も、この電話と続きの電話の両方で共通の一言。"""
+        names = {f"own_fallback_point{again}{kind}" for again in ("", "_again") for kind in ("", "_request", "_opinion")}
+        self.assertLessEqual(names, set(recordings.CONTRACTOR_PARTS))
+
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
         よろしいでしょうか？」は契約者の単位の録音 callback_refusal（話してよい声が求める＝`CONTRACTOR_PARTS`）で、その質問の番号 R1 は

@@ -271,7 +271,12 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 # callback_email_chosen（伺い方でメールを選んでいただいたあとのメールアドレスの一言。✅ 11-04 日本時間20時27分）、4-84 の callback_line_how_without_（id・sms・
 # email）とその _2（選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言とその伺い直し。✅ 11-05 日本時間0時48分・1時19分47秒・1時29分06秒）、4-85 の
 # resumed_fallback_lead（続きの電話の始めのご説明が受け皿の文で流れるときに、その前に流す「前回お伺いした件ですが、」）・own_fallback_point_again（同じく答えを
-# 持っていない受け皿の「恐れ入ります。前回お伺いした点は私では…」。⏳ どちらも言い方は管理者に伺い中＝文が変わっても名前は変わらない）。CL-1 の試験 test_offline が
+# 持っていない受け皿の「恐れ入ります。前回お伺いした点は私では…」。⏳ どちらも言い方は管理者に伺い中＝文が変わっても名前は変わらない）、4-86 の
+# gomottomo（「ごもっともです。」＝続きの電話の始めに、ご納得いただけなかった点を「覚えていない」と言われたときの頭の相づち。✅ 11-05 日本時間4時16分52秒
+# ユーザー）、ご説明できないときの一言のお客様の言ったことの種類ごとの名前（own_fallback_point・own_fallback_point_again のあとに _request＝ご要望・
+# _opinion＝ご意見。ご質問は前からの名前のまま。✅ 11-05 日本時間3時33分11秒 ユーザー：「恐れ入ります。前回お伺いしたご質問(場合によっては「ご要望」「ご意見」)は
+# 私では正確にご説明(お返事・ご回答)できませんので…」。CL-1 の phrases.point_fallback_id。CL-1 の連絡帳には書かれていないが、録音の名前の正本 phrases.RECORDED に
+# あり、CL-1 の比べる試験で見つけた）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -298,7 +303,8 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "callback_email_again", "callback_fax_again", "callback_address_again", "callback_email_chosen",
     "callback_line_how_without_id", "callback_line_how_without_id_2", "callback_line_how_without_sms",
     "callback_line_how_without_sms_2", "callback_line_how_without_email", "callback_line_how_without_email_2",
-    "resumed_fallback_lead", "own_fallback_point_again")
+    "resumed_fallback_lead", "own_fallback_point_again", "gomottomo",
+    "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request", "own_fallback_point_again_opinion")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
