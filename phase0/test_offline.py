@@ -4959,6 +4959,9 @@ class EnglishLineTest(unittest.TestCase):
             self.assertTrue(english(said), said)
         for said in ("CL-2 の連絡帳を読みます。", "I-30 の決まりを確かめます。", "G-59 の外れを見ます。", "OK をいただいた形で進めます。", "`Flow._note` を読みます。"):
             self.assertFalse(english(said), said)
+        # 英語の一言を「」で引用した日本語の一言は数えない（` ` の中と同じ。⛔ 2026-11-05 日本時間6時57分：103回目を記録する一言を見張りが止めた）
+        self.assertFalse(english("「Now the guard itself.」と英語の一言を書いてしまいました（103回目）。時刻を出して帳面に記録します。"))
+        self.assertTrue(english("Now I'll record 「次に、」 as the head."))   # 引用の外が英語なら英語
 
 
 class ConversationLogTest(unittest.TestCase):
@@ -12780,6 +12783,88 @@ class OnelinerGuardTest(unittest.TestCase):
         g.install(p)   # 同じものは足さない
         got = json.loads(p.read_text(encoding="utf-8"))["hooks"]
         self.assertEqual((len(got["PreToolUse"]), len(got["Stop"])), (2, 1))
+
+
+
+class CompactGuardTest(unittest.TestCase):
+    """要約の区切りが入ったら、区切りの時刻を出す命令（oneliner_guard.py --after-compact）を呼ぶまで、ほかの道具も返事の終わりも止める見張り
+    （✅ 2026-11-05 日本時間6時51分20秒 ユーザー「OK、見張りを入れて進めてください」。⛔ 要約のあとに 0-1 を通さずに作業へ戻った失敗が18回＝帳面 0-1）。
+    命令は、区切りの時刻・前の区切りからのご発言と返事・英語の一言・本書を切らずに読むファイルを出し、その区切りを済みにする。"""
+
+    B1, B2 = "2026-11-04T20:46:55.000Z", "2026-11-04T21:36:06.257Z"
+
+    def rows(self, *extra):
+        row = lambda t, ts, c: {"type": t, "timestamp": ts, "message": {"content": c}}   # noqa: E731
+        return [{"type": "system", "subtype": "compact_boundary", "timestamp": self.B1},
+                row("user", "2026-11-04T21:17:33.000Z", "OK、残りの一本化も進めてください"),
+                row("assistant", "2026-11-04T21:18:00.000Z", [{"type": "text", "text": "次に、知らせの文を読みます。"}]),
+                row("assistant", "2026-11-04T21:30:00.000Z", [{"type": "text", "text": "Now I'll write the failing tests first."}]),
+                {"type": "system", "subtype": "compact_boundary", "timestamp": self.B2},
+                row("user", "2026-11-04T21:36:07.000Z", "This session is being continued from a previous conversation"), *extra]
+
+    def setUp(self):
+        import os, tempfile
+        self.dir = Path(tempfile.mkdtemp())
+        self.env = {**os.environ, "COMPACT_GUARD_STATE": str(self.dir / "compact.json"), "ONELINER_GUARD_STATE": str(self.dir / "seen.json")}
+        self.log = self.dir / "t.jsonl"
+
+    def write(self, rows):
+        import json
+        self.log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+
+    def hook(self, **hook):
+        import json, subprocess, sys
+        p = subprocess.run([sys.executable, str(Path(__file__).resolve().parent / "oneliner_guard.py")],
+                           input=json.dumps({"transcript_path": str(self.log), "hook_event_name": "PreToolUse", **hook}),
+                           capture_output=True, text=True, env=self.env)
+        return p.returncode, p.stderr
+
+    def after(self):
+        import subprocess, sys
+        guard = Path(__file__).resolve().parent / "oneliner_guard.py"
+        return subprocess.run([sys.executable, str(guard), "--after-compact", str(self.dir / "out")], capture_output=True, text=True, env=self.env,
+                              input="", timeout=60)
+
+    def test_blocks_until_the_boundary_time_is_put_out(self):
+        self.write(self.rows())
+        code, why = self.hook(tool_name="Read", tool_input={"file_path": "x"})
+        self.assertEqual(code, 2)
+        self.assertIn("日本時間11-05 6時36分06秒", why)
+        self.assertIn("--after-compact", why)
+        self.assertEqual(self.hook(tool_name="Edit", tool_input={})[0], 2)   # 何度でも止める（済むまで）
+        self.assertEqual(self.hook(hook_event_name="Stop")[0], 2)             # 道具を呼ばずに返事を終えることも止める
+        self.assertEqual(self.hook(hook_event_name="Stop", stop_hook_active=True)[0], 0)   # 止めたあとの書き直しでは止め続けない
+        self.assertEqual(self.hook(tool_name="Read", agent_id="a1")[0], 0)    # 手伝いの係の道具は見ない
+        # 区切りの時刻を出す命令だけは通す
+        cmd = f"python3.13 {Path(__file__).resolve().parent / 'oneliner_guard.py'} --after-compact {self.dir / 'out'}"
+        self.assertEqual(self.hook(tool_name="Bash", tool_input={"command": cmd})[0], 0)
+        p = self.after()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("日本時間11-05 6時36分06秒", p.stdout)   # 区切りの時刻
+        self.assertIn("5時46分55秒", p.stdout)                 # 前の区切り
+        out = self.dir / "out"
+        seg = (out / "seg.txt").read_text(encoding="utf-8")
+        self.assertIn("OK、残りの一本化も進めてください", seg)          # 前の区切りからのご発言
+        self.assertIn("次に、知らせの文を読みます。", seg)               # 私の返事
+        self.assertIn("Now I'll write the failing tests first.", (out / "english.txt").read_text(encoding="utf-8"))
+        parts = sorted((out / "intent").glob("p*.txt"))
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(all(len(x.read_text(encoding="utf-8")) <= 17000 for x in parts))   # 読む道具で切れない大きさ
+        whole = "\n".join(x.read_text(encoding="utf-8") for x in parts)
+        lines = (Path(__file__).resolve().parent.parent / "Intent.md").read_text(encoding="utf-8").split("\n")
+        self.assertIn(f"{len(lines)}: ", whole)   # 最後の行まで（行を落とさない）
+        # 済んだら止めない（区切りより前の英語の一言は、英語の見張りでは止めない＝--after-compact の数えの1か所で出す）
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": "x"})[0], 0)
+        self.assertEqual(self.hook(hook_event_name="Stop")[0], 0)
+        # 次の要約の区切りが入ったら、また止める
+        self.write(self.rows({"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-04T22:40:00.000Z"}))
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": "x"})[0], 2)
+
+    def test_no_boundary_no_block(self):
+        self.write([{"type": "user", "timestamp": "2026-11-04T21:17:33.000Z", "message": {"content": "OK"}}])
+        self.assertEqual(self.hook(tool_name="Read", tool_input={"file_path": "x"})[0], 0)
+        p = self.after()   # 止められていないときに呼んでも、何も壊さない
+        self.assertEqual(p.returncode, 0, p.stderr)
 
 
 class ApprovalTest(unittest.TestCase):
