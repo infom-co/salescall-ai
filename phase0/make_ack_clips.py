@@ -127,6 +127,11 @@ MAX_S["closing_after_decline"] = 9.0
 # （例：phrases.BUSY_ASK は42字＝見込み 6.6秒）ので、長さの上限だけ別にする（業務が書く伝言・留守番電話の伝言と同じ考え）
 HOW["busy"] = HOW["question"]
 MAX_S["busy"] = 9.0
+# LINE の連絡先の伺い方（phrases.CALLBACK_ASK の line_how）と、連絡先を伺う前に切れた電話の続きの一言（CALLBACK_ASK_RESUMED の連絡先の役目）：読み方は質問と
+# 同じ。✅ 2026-11-04 日本時間19時26分のお言葉の一言は104字（見込み 16.9秒）と長いので、長さの上限だけ別にする（busy・お立場の一言と同じ考え）
+HOW["question_long"] = HOW["question"]
+MAX_S["question_long"] = 17.0
+HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in ("line_how", "email", "fax", "address")))})
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
 HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場か・お取次ぎのみかを聞く一言は長い（76字）ので、読み方と長さの上限は別  # 後任の方をお呼びする・確かめる一言（phrases.SUCCESSOR）も質問の読み方
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも
