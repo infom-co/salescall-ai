@@ -237,6 +237,24 @@ CALLBACK_ASK_AGAIN = {"other_point": ("ご不明点などほかにもござい�
 # 伺い方の一言に「恐れ入りますが」があるので重ねない（ID・携帯電話の番号の一言と同じ理由＝✅ 2026-11-04 日本時間20時27分 ユーザー：「「かしこまりました。
 # それではLINEのIDをお伺いしてもよろしいでしょうか？」OK」）。メールアドレスは、ほかの手段・ほかのご希望のメールのあとにも伺う（その時は CALLBACK_ASK のまま）
 CALLBACK_ASK_CHOSEN = {"email": "それではメールアドレスをお伺いしてもよろしいでしょうか？"}
+# システムの質問に、形の合わない答え（SMS でご招待する携帯電話の番号に固定電話の番号）をいただいたときの1回目の伺い直しに、理由を添える一言（役目ごと。
+# flowctl.Flow._ask_again の1か所。頭は「はい、」の相づち。ほかの聞き返しと同じく会話AIが言う）。理由を添えて伺っても合わなければ、聞き返さずに、その形の
+# 答えは無いとして次の段へ（ほかの方法を伺う＝CALLBACK_ASK_OTHER_WAYS）。✅ 2026-11-05 日本時間0時48分 ユーザー「(ア)(イ)ともお勧めの形でOK」（お勧めの形：
+# 「1回目に理由を添えます：「恐れ入りますがSMSは携帯電話の番号にお送りいたしますので携帯電話の番号をお伺いしてもよろしいでしょうか？」」）
+CALLBACK_ASK_FORM = {"mobile": "恐れ入りますがSMSは携帯電話の番号にお送りいたしますので携帯電話の番号をお伺いしてもよろしいでしょうか？"}
+# LINE の連絡先の伺い方（line_how）で選んでいただいた方法の連絡先が無いとき（携帯電話が無い・ID が分からない・メールアドレスを伺えない）に、ほかの方法を1回
+# だけ伺う一言（flowctl.Flow._line_other_ways の1か所。鍵＝取れなかった方法＝flowctl.LINE_HOW の via。録音は共通の一言 callback_line_how_without_（鍵））。
+# ✅ 2026-11-05 日本時間0時48分 ユーザー「(ア)(イ)ともお勧めの形でOK」（お勧めの形：「携帯電話が無いと言われたら、ほかの2つの方法を伺います：「それではLINEの
+# IDかメールからご招待する方法でもよろしいでしょうか？」」）。ID・メールの連絡先が無いときも同じ理由（ほかの方法ならご招待できる）が当たるので同じ形で
+# （10-19 の決まり。⏳ この2つの言い方はお見せして伺う）
+CALLBACK_ASK_OTHER_WAYS = {"sms": "それではLINEのIDかメールからご招待する方法でもよろしいでしょうか？",
+                           "id": "それではSMSかメールからご招待する方法でもよろしいでしょうか？",
+                           "email": "それではLINEのIDかSMSからご招待する方法でもよろしいでしょうか？"}
+# その一言に方法を言わずに「はい」とだけ答えていただいたときの、1回だけの伺い直し（CALLBACK_ASK_AGAIN の line_how から、取れなかった方法を外した形。
+# 録音は callback_line_how_without_（鍵）_2。⏳ お見せして伺う）
+CALLBACK_ASK_OTHER_WAYS_AGAIN = {"sms": "それではLINEのIDとメールのどちらがよろしいでしょうか？",
+                                 "id": "それではSMSとメールのどちらがよろしいでしょうか？",
+                                 "email": "それではLINEのIDとSMSのどちらがよろしいでしょうか？"}
 # 前の電話で伺っている途中で切れたシステムの質問を、続きの電話で、お詫び（「前回はお電話が途中で切れてしまい大変失礼いたしました。」）と用件の一文の
 # すぐあとに切れた所から伺う一言（flowctl.callback_question の again。録音は共通の一言 callback_（役目）_again）。✅ 2026-11-04 日本時間18時16分 ユーザー
 # 「はい、OK」：ご納得いただけなかった点を伺う途中で切れた電話の続きは、ほかのご希望（11-03 日本時間23時52分36秒の (ア)）と同じく、お詫びのすぐあとに
@@ -551,6 +569,8 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_{k}_{i}": v for k, vs in CALLBACK_ASK_AGAIN.items() for i, v in enumerate(vs, 2)},
             **{f"callback_{k}_again": v for k, v in CALLBACK_ASK_RESUMED.items()},
             **{f"callback_{k}_chosen": v for k, v in CALLBACK_ASK_CHOSEN.items()},
+            **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
+            **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, "own_fallback_point": OWN_FALLBACK_POINT,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
