@@ -140,12 +140,12 @@ def ack_wav(voice_type: str, ack: str) -> Path:
 def played_wav(voice_type: str, item: dict) -> Path:
     """電話接続側が流す録音のファイル（流れの制御の返事の play の1つ）。締めは契約者の単位（results/ack）、質問（つなぎの言葉と1本）は
     依頼主の単位（results/script）。DESIGN.md 6-13。kind "lead"（つなぎの言葉だけの録音）は、G-37 の1回目・2回目の記録を聞き直すときだけ"""
-    from phrases import LEAD_RECORDED
+    from phrases import LEAD_RECORDED, question_clip
     if item["kind"] == "lead":
         return ack_wav(voice_type, LEAD_RECORDED[item["text"]])
     if item["kind"] == "closing":
         return ack_wav(voice_type, item.get("id", "closing"))  # ふつうの締め・断られたときの締め（flowctl.Flow._close）
-    name = f"{item['id']}_{LEAD_RECORDED[item['lead']]}" if item.get("lead") else item["id"]
+    name = question_clip(item["id"], item.get("lead") or "")
     return AUDIO_DIR.parent / "script" / f"{voice_type}_{name}.wav"
 
 
