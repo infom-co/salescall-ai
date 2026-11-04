@@ -783,6 +783,22 @@ def answer_wait(how: str = "相手が答えたら record_answer で報告しま�
     return how + NOT_WAITED[phase] + "はじめの指示のとおりに、それに合う操作を呼びます。"
 
 
+def played_note(text: str, head: str = "") -> str:
+    """プログラムが録音で流した言葉を会話AIに知らせる文の唯一の書き方（会話AIへの指示 instruction.system_rules が目印にする「プログラムが録音で
+    流しました」の言葉）。head＝その言葉の役目・相手（「締めの言葉」「次の質問 Q1」「電話に出た方への」）。続けて会話AIがすること（何も言わずに待つ・
+    続けて言う）は、知らせる所が書く。⛔ 2026-11-05 まで約20か所で手で書き、「は、」と「を、」が混ざり、電話に出た方・受付の方への確かめの一言は
+    「と聞く録音を、プログラムが流しました」＝指示が目印にする言葉が入っていなかった（Intent.md 19-0ax の ⏳ の一本化）"""
+    return f"{head}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
+
+
+def say_note(text: str, head: str = "") -> str:
+    """決まった言い方（返事の say）を会話AIに言わせる知らせの唯一の書き方。head＝その言葉の役目・相手（「電話に出た方に」「もう一度、言い直し」）。
+    足しも削りもしない（G-22・G-51：締めでAIが約束の言葉を足した＝この決まりは、どの決まった言い方にも当たる）。続けて会話AIがすること
+    （相手の返事を待つ など）は、知らせる所が書く。⛔ 2026-11-05 まで約20か所で「とだけ言います」「とだけ聞きます」「とだけ伺います」「と言って」
+    「と聞き返して」「ともう一度だけ伺って」「と1回だけ聞いてください」「と言ってから」と、言い方が混ざっていた"""
+    return f"{head}「{text}」とだけ言います（言葉を足しも削りもしません）。"
+
+
 def choice_words(q: "Question", cond: str | None) -> str | None:
     """選択肢の答えを言い直すときの言葉（「（言葉）でよろしいでしょうか？」の（言葉）。phrases.confirm の meaning）。取込で決めた意味の言葉
     （Question.meanings。「ご予約はお済みということ」）、無ければ選択肢の名前（「カード」）。名前が返事の言葉だけなら、言い直せないので None。
@@ -2923,7 +2939,7 @@ class Flow:
         item = {"kind": "recorded", "id": "moshimoshi", "text": MOSHIMOSHI}
         return self._log_signal({"start_silence": True}, {
             "result": "wait", "silence_s": FIRST_WORDS_SILENCE_S, "play": [item], "silent": True,
-            "message": f"相手の声が聞こえません。「{MOSHIMOSHI}」は、プログラムが録音で流しました。何も言わずに、相手の言葉を聞きます。"})
+            "message": f"相手の声が聞こえません。{played_note(MOSHIMOSHI)}何も言わずに、相手の言葉を聞きます。"})
 
     def on_voicemail_wait_end(self) -> dict | None:
         """留守番電話の案内のあと、聞き続けても人が出なかった（電話接続側が voicemail_wait_s 秒のあとに呼ぶ）：留守番電話の扱い（伝言は業務設定で
@@ -2971,13 +2987,13 @@ class Flow:
         if not self.target and self.current is None and self._explain_due():
             # 続きの電話の始めに、前の電話で伺ったご納得いただけなかった点をご説明する（伺う質問は無い＝opening_question）：録音のあとにAIが話す
             return {"result": "opening", "play": lines, "speak": True,
-                    "message": f"「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、{self._point_note()}"}
+                    "message": f"{played_note(texts)}続けて、{self._point_note()}"}
         if say:
             # 確かめる一言の録音が無い（質問を録音で流さない通話）：名乗りの録音のあとに、AIが言う（_connect の最初の質問と同じ形）
             return {"result": "opening", "play": lines, "say": say, "speak": True,
-                    "message": f"「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて「{say}」とだけ聞きます（言葉を足しません）。そのあと、{then}"}
+                    "message": f"{played_note(texts)}続けて、{say_note(say)}そのあと、{then}"}
         return {"result": "opening", "play": lines, "silent": True,
-                "message": f"「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{then}"}
+                "message": f"{played_note(texts)}何も言わずに、{then}"}
 
     def _first_words_named_target(self) -> bool:
         """出た方の第一声で、お呼びする方ご本人が名乗ったか（「はい、岡田です」）：AIが「目的の人」と報告した・判定のどれかが「ご本人」と読んだ。
@@ -4850,13 +4866,13 @@ class Flow:
             self.own_pending = "own"
             if self.opening and self.opening.get(part):
                 return {"result": "replayed", "silent": True, "play": [{"kind": "opening", "part": part, "text": text}],
-                        "message": f"「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._own_then()}"}
-            return {"result": "replayed", "say": text, "speak": True, "message": f"「{text}」とだけ言います（言葉を足しません）。{self._own_then()}"}
+                        "message": f"{played_note(text)}何も言わずに、{self._own_then()}"}
+            return {"result": "replayed", "say": text, "speak": True, "message": f"{say_note(text)}{self._own_then()}"}
         if (self.opening and self.opening.get(part)) or self.after_answer is not None:
             # 録音が無い通話で、答えに添えられた質問なら、AIがその文を先に言ってから次へ（_continue → _led）
             return self._continue([{"kind": "opening", "part": part, "text": text}], text)
         return {"result": "replayed", "say": text, "speak": True,
-                "message": f"「{text}」とだけ言います（言葉を足しません）。そのあと、{self._now()}"}
+                "message": f"{say_note(text)}そのあと、{self._now()}"}
 
     def _own_answer(self, part: str, answer: str | None, fallback: str | None = None) -> dict:
         """AIが自分の言葉で言う（唯一の場所。呼んでいる段でも、答えの段でも、答えに添えられた質問でも）：相手の質問に録音の答えが無い（名乗り・
@@ -4926,7 +4942,7 @@ class Flow:
             self._note("talk", answer=answer, **drafts, **checked)
         else:
             self._question_note({"answered": kind == "own", "answer": answer, **drafts, **checked})
-        return {"result": "own_answer", "say": answer, "message": f"「{answer}」とだけ言います（言葉を足しません）。{self._own_then()}"}
+        return {"result": "own_answer", "say": answer, "message": f"{say_note(answer)}{self._own_then()}"}
 
     def _question_note(self, entry: dict) -> None:
         """相手の質問の記録（callee_question）に、答えを書く（答えに添えられた質問は、もう記録してある＝_advance。同じ発話の記録に書き足す）。"""
@@ -4964,14 +4980,13 @@ class Flow:
                 pre = {"kind": "recorded", "id": "resumed_fallback_lead", "text": RESUMED_FALLBACK_LEAD}
                 if self.play_recordings:
                     return {"result": "own_answer", "fallback": True, "play": [pre], "say": said, "speak": True,
-                            "message": f"{why}「{RESUMED_FALLBACK_LEAD}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて「{said}」とだけ"
-                                       f"言います（言葉を足しません）。{self._own_then()}"}
+                            "message": f"{why}{played_note(RESUMED_FALLBACK_LEAD)}続けて、{say_note(said)}{self._own_then()}"}
                 said = RESUMED_FALLBACK_LEAD + said
         if play is not None and self.play_recordings:
             return {"result": "own_answer", "fallback": True, "play": [play],
-                    "message": f"{why}「{said}」を、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._own_then()}"}
+                    "message": f"{why}{played_note(said)}何も言わずに、{self._own_then()}"}
         return {"result": "own_answer", "fallback": True, "say": said,
-                "message": f"{why}「{said}」とだけ言います（言葉を足しません）。{self._own_then()}"}
+                "message": f"{why}{say_note(said)}{self._own_then()}"}
 
     def _approval_explanation(self) -> str | None:
         """いまのご承認の手順の、ご承認いただく内容の説明の文（approval_explanation の1か所）。"""
@@ -5116,19 +5131,19 @@ class Flow:
             # ご納得いただけなかった点をご説明した：次は手順の1か所が決める（ほかに…・ご説明できなければ申し伝えて続ける／締める）
             self.point["stage"] = "explained"
             return self._led(play, "", self._advance("", handled=True))
-        done = f"「{shown}」は、プログラムが録音で流しました（相手にもう聞こえています）。" if shown else ""
+        done = played_note(shown) if shown else ""
         back, self.digressed = self._back_play(), False  # もう伺ったことへ戻る前の一言（相手のお話・ご質問に応えたあとだけ）
         if self.phase == "calling":
             # 目的の人に繋がる前：名乗り・用件のあとに、もう一度だけ呼ぶ一言（DESIGN.md 4-3）。同じ方に3回目は呼ばない（同じお願いを繰り返さない）
             if self._calls_to_speaker() < 2:
                 self.target_called.append(self.callee_turns)
                 play += back + [self._part_play("target")]
-                done = f"「{shown}{''.join(p['text'] for p in back)}{self.target['target']}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
+                done = played_note(shown + "".join(p["text"] for p in back) + self.target["target"])
             return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._now()}"} | ({"bridged": True} if back and play else {})
         if self.awaiting_confirm is not None:
             # 言い方（say）も渡す：AIの声が外れたかを見張る（offscript。渡した言い方のあるターンだけを見張る）
             return {"result": "replayed", "play": play, "speak": True, "say": self.awaiting_say,
-                    "message": f"{done}続けて、言い直し「{self.awaiting_say}」をもう一度言って、相手の返事を待ってください（前に言葉を足しません）。"}
+                    "message": f"{done}続けて、{say_note(self.awaiting_say, 'もう一度、言い直し')}相手の返事を待ってください。"}
         q = self.questions.get(self.current) if self.current else None
         if self._held_now() is not None:
             # 応える前の相手の言葉を、判定のどれかがいまの質問の答えと読んだ（_keep_answer_reading）：質問を流す前に、その言葉の答えの報告か、
@@ -5140,10 +5155,10 @@ class Flow:
         if q is not None and self.play_recordings and not q.reading_of:
             play += back + [question_play(list(self.questions.values()), q.id)]
             return {"result": "replayed", "play": play,
-                    "message": f"「{shown}{''.join(p['text'] for p in back)}{play[-1]['text']}」は、プログラムが録音で流しました（相手にもう聞こえて"
-                               "います）。何も言わずに、相手の答えを待ってください。" + answer_wait()} | bridged
+                    "message": played_note(shown + "".join(p["text"] for p in back) + play[-1]["text"]) + "何も言わずに、相手の答えを待ってください。"
+                               + answer_wait()} | bridged
         if q is not None:
-            then = f"「{BACK_TO}」と言ってから、" if back else ""
+            then = f"{say_note(BACK_TO)}続けて、" if back else ""
             return {"result": "replayed", "play": play, "speak": True,
                     "message": f"{done}続けて、{then}いまの質問 {q.id}「{q.text}」を聞いてください（名乗りは繰り返しません）。"} | bridged
         # 聞いている質問が無い（質問が全部済んで締めの最中など）。⛔ 2026-10-17 の見直しで見つけた漏れ：前は、どの場面でも
@@ -5174,7 +5189,7 @@ class Flow:
                 return {**r, "message": f"{r['message']}{again}"}
             r = self._continue([], "")
             return {**r, "say": AI_ASKED_AGAIN, "speak": True,
-                    "message": f"「{AI_ASKED_AGAIN}」とだけ言い（言葉を足しません）、続けて、{r['message']}{again}"}
+                    "message": f"{say_note(AI_ASKED_AGAIN)}続けて、{r['message']}{again}"}
         self.ai_pending = True
         if self.ai_asks == 1:
             # 業務の答え（業務の録音）か、標準の答え（共通の一言の録音）か＝_part_play の1か所（⛔ 前は、ここだけ業務の録音に決め打ちしていた）
@@ -5188,8 +5203,8 @@ class Flow:
         then = self._now()
         if self.play_recordings:
             return {"result": "ai_question", "play": [play],
-                    "message": f"「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。{then}"}
-        return {"result": "ai_question", "say": text, "message": f"「{text}」とだけ言います（言葉を足しません）。そのあと、{then}"}
+                    "message": f"{played_note(text)}{then}"}
+        return {"result": "ai_question", "say": text, "message": f"{say_note(text)}そのあと、{then}"}
 
     def _explaining(self) -> bool:
         """ご納得いただけなかった点をご説明する段か（_point_step の stage）。"""
@@ -5260,7 +5275,7 @@ class Flow:
                    "content": "途中で止めました"}[heard]
         reply = {"result": "restate", "ack": None, "say": say,
                  "message": notice(f"さきほどの言葉は、渡した言い方と違ったので、プログラムが{stopped}。"
-                                   f"「{say}」とだけ言って（言葉を足しません）、相手の返事を待ちます。")}
+                                   f"{say_note(say)}相手の返事を待ちます。")}
         return self._log_signal({"off_script": expected, "heard": heard}, reply)
 
     def on_signal(self, party: str) -> dict:
@@ -5737,15 +5752,15 @@ class Flow:
             self.current, self.order, self.substitute_q = None, [], None
             return {"result": "next", "silent": True, "play": [x if x["kind"] != "opening" or not self.opening else {**x, "text": self.opening[x["part"]]}
                                                                for x in lines],
-                    "message": f"{prefix}{whom}に繋がりました。「{''.join(x['text'] for x in lines)}」は、プログラムが録音で流しました（相手にもう"
-                               f"聞こえています）。何も言わずに、相手のお返事を待ってください。お返事を聞いたら request_end を{ARG_LABEL['reason']}"
+                    "message": f"{prefix}{whom}に繋がりました。{played_note(''.join(x['text'] for x in lines))}何も言わずに、相手のお返事を待ってください。"
+                               f"お返事を聞いたら request_end を{ARG_LABEL['reason']}"
                                f"「{END_LABEL['done']}」で呼びます。"}
         texts = "".join(x["text"] for x in lines)
         if not lines:
             return self._advance(f"{prefix}{whom}に繋がりました。", handled=True)
         if not self.opening:
-            return self._advance(f"{prefix}{whom}に繋がりました。まず「{texts}」と言ってから、", handled=True)
-        r = self._advance(f"{prefix}{whom}に繋がりました。「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、", handled=True)
+            return self._advance(f"{prefix}{whom}に繋がりました。まず、{say_note(texts)}続けて、", handled=True)
+        r = self._advance(f"{prefix}{whom}に繋がりました。{played_note(texts)}続けて、", handled=True)
         if "play" not in r:
             r["speak"] = True  # 最初の質問は AIが言う（読みの確かめ・相手の質問に答えてから聞くとき）：録音のあとに話させる
         r["play"] = [x if x["kind"] == "recorded" else {**x, "text": self.opening[x["part"]]} for x in lines] + r.get("play", [])
@@ -5911,12 +5926,12 @@ class Flow:
         if plays:
             texts = "".join(p["text"] for p in plays)
             if self._plays_recorded(plays):
-                note += f"「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、"
+                note += f"{played_note(texts)}続けて、"
                 if "play" not in r:
                     r["speak"] = True  # 続きはAIが言う（録音のあとに話させる）
                 r["play"] = plays + r.get("play", [])
             else:
-                note += f"まず「{texts}」と言ってから、"
+                note += f"まず、{say_note(texts)}続けて、"
         r["message"] = note + r["message"]
         return r
 
@@ -5925,8 +5940,8 @@ class Flow:
         text = "".join(p["text"] for p in plays)
         if self._plays_recorded(plays):
             return {"result": result, "silent": True, "play": plays,
-                    "message": f"{note}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._now()}"}
-        return {"result": result, "say": text, "message": f"{note}「{text}」とだけ言います（言葉を足しません）。そのあと、{self._now()}"}
+                    "message": f"{note}{played_note(text)}何も言わずに、{self._now()}"}
+        return {"result": result, "say": text, "message": f"{note}{say_note(text)}そのあと、{self._now()}"}
 
     def _callback(self, why: str, read: set[str], prefix: str = "", offer: str | None = None, thanks: bool = False,
                   roles: tuple | None = None) -> dict:
@@ -6069,8 +6084,8 @@ class Flow:
         head = {"result": "confirm_target", "again": again}  # again：はっきりしない返事への聞き返し
         if self.play_recordings and self.opening.get(self.confirm_part):
             return head | {"play": [self._part_play(self.confirm_part)],
-                           "message": f"電話に出た方に「{text}」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、{then}"}
-        return head | {"say": text, "message": f"電話に出た方に「{text}」とだけ聞きます（言葉を足しません）。そのあと、{then}"}
+                           "message": f"{played_note(text, "電話に出た方への")}何も言わずに、{then}"}
+        return head | {"say": text, "message": f"{say_note(text, '電話に出た方に')}そのあと、{then}"}
 
     def _call_target(self, sorry: bool, maybe_new: bool = False, part: str = "target") -> dict:
         """電話口の方は目的の人ではない（確かめに「いいえ」と答えた・違うお名前を名乗った・確かめへの返事が「はい」とそろわなかった）：
@@ -6108,8 +6123,8 @@ class Flow:
             return head | {"silent": True, "message": f"{what}お詫びの相づちだけを流しました。何も言わずに、{self._now()}"}
         if self.opening:
             return head | {"silent": True, "play": [self._part_play(k) for k in keys],
-                           "message": f"{what}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._now()}"}
-        return head | {"say": text, "message": f"{what}「{text}」とだけ言います（言葉を足しません）。そのあと、{self._now()}"}
+                           "message": f"{what}{played_note(text)}何も言わずに、{self._now()}"}
+        return head | {"say": text, "message": f"{what}{say_note(text)}そのあと、{self._now()}"}
 
     @property
     def apology_delivered(self) -> bool | None:
@@ -6145,7 +6160,7 @@ class Flow:
             # お詫びが届く前に止まっていた（相手が話し始めた）：締める前に、もう一度だけ流す（ほかの理由＝断り・苦情などは、今までどおり記録して締める）
             self.apology_replayed = self.apology_played = True
             return {"result": "next", "silent": True, "play": [self._apology_play()],
-                    "message": "お詫びを、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手のお返事を待ってください。"
+                    "message": played_note(self.apology_call) + "何も言わずに、相手のお返事を待ってください。"
                                f"お返事を聞いたら request_end を{ARG_LABEL['reason']}「{END_LABEL['done']}」で呼びます。"}
         if reason == "done" and self.phase == "calling":
             return self._reject("まだ目的の人に繋がっていません（質問を始めていません）。")
@@ -6173,8 +6188,8 @@ class Flow:
                     f"「{END_LABEL['callee_hurry']}」で呼んでください。")
             if self.play_recordings:
                 return {"result": "busy_ask", "play": [self._part_play("busy")],
-                        "message": f"「{self.busy_ask}」は、プログラムが録音で流しました（相手にもう聞こえています）。{then}"}
-            return {"result": "busy_ask", "say": self.busy_ask, "message": f"「{self.busy_ask}」と1回だけ聞いてください。{then}"}
+                        "message": f"{played_note(self.busy_ask)}{then}"}
+            return {"result": "busy_ask", "say": self.busy_ask, "message": f"{say_note(self.busy_ask)}{then}"}
         if reason == "callee_hurry" and not self.hurry_asked and not self.callback_why and not self.close_after:
             # 急いでいる：締める前に1回だけ、また改めてお掛けしてよいかを伺う（_hurry_ask。✅ 2026-11-01 日本時間20時56分 ユーザー (b)）。
             # かけ直しの質問の途中（不在・あとで など＝もうかけ直しの申し出を受けている）・約束の電話の一言のあとは、伺わずに締める
@@ -6401,8 +6416,8 @@ class Flow:
         head = {"result": "confirm_unavailable"}
         if self.play_recordings and (self.opening.get("unavailable_confirm") or "unavailable_confirm" in self.system_parts):
             return head | {"play": [self._part_play("unavailable_confirm")],
-                           "message": f"受付の方に「{text}」と伺う録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、{then}"}
-        return head | {"say": text, "message": f"受付の方に「{text}」とだけ伺います（言葉を足しません）。そのあと、{then}"}
+                           "message": f"{played_note(text, "受付の方への")}何も言わずに、{then}"}
+        return head | {"say": text, "message": f"{say_note(text, '受付の方に')}そのあと、{then}"}
 
     def _who_unclear(self) -> dict:
         """受付の方が、こちらが伝えたお名前などではどの方か分からないので取り次げないと言った（「お名前だけではどの者か分かりかねますので、お繋ぎ
@@ -6567,7 +6582,7 @@ class Flow:
         it.set("unclear", f"午前か午後かが分からない（{value}。営業時間 {self.business_hours[0]}〜{self.business_hours[1]}・"
                           f"歯止め時間 {self.designated_limit[0]}〜{self.designated_limit[1]}）")
         return {"result": "ask_back", "question_id": qid, "say": AMPM_ASK, "ask_n": 0, "ask_reason": "ampm",
-                "message": f"「{value}」の午前・午後が分かりません。「{AMPM_ASK}」と聞いて、相手の答えを待ってください。"
+                "message": f"「{value}」の午前・午後が分かりません。{say_note(AMPM_ASK)}相手の答えを待ってください。"
                            + answer_wait("相手が答えたら、聞いたとおりの値で record_answer で報告します。")}
 
     def _ask_until(self, qid: str, value: str) -> dict:
@@ -6581,9 +6596,9 @@ class Flow:
                 "聞いたとおりの値で record_answer で報告します。")
         if self.play_recordings:
             return {"result": "ask_back", "question_id": qid, "ask_n": 0, "ask_reason": "until", "play": [{"kind": "recorded", "id": "callback_later_time", "text": say}],
-                    "message": f"「{say}」を、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。{answer_wait(hint)}"}
+                    "message": f"{played_note(say)}何も言わずに、相手の答えを待ってください。{answer_wait(hint)}"}
         return {"result": "ask_back", "question_id": qid, "say": say, "ask_n": 0, "ask_reason": "until",
-                "message": f"「{value}」の、いま電話を続けられない理由が分かりません。「{say}」ともう一度だけ伺って、相手の答えを待ってください。{answer_wait(hint)}"}
+                "message": f"「{value}」の、いま電話を続けられない理由が分かりません。{say_note(say)}相手の答えを待ってください。{answer_wait(hint)}"}
 
     def _ask_again(self, qid: str, reason: str, why: str, shown: str = "", kind: bool = False) -> dict:
         """聞き返しの唯一の場所（DESIGN.md 6-11。聞き取れない・曖昧＝"unclear"／答えが質問に合わない＝"form"）。AIに選ばせず、ここで
@@ -6614,7 +6629,7 @@ class Flow:
             it.form_asked = True
             it.set("unclear", f"{why}・理由を添えて伺う（締めの前の念のための確認の1回を使う）")
             return {"result": "ask_back", "question_id": q.id, "say": form_reason, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": False,
-                    "form_reason": True, "message": f"{shown}「{form_reason}」と聞き返して、相手の答えを待ってください。" + answer_wait()}
+                    "form_reason": True, "message": f"{shown}{say_note(form_reason)}相手の答えを待ってください。" + answer_wait()}
         if here:
             it.ask_backs += 1
             it.set("unclear", f"{why}・聞き返す（{it.ask_backs}回目）")
@@ -6623,7 +6638,7 @@ class Flow:
             say = form_reason or ask_again_phrase(it.ask_backs, reason, q.topic, last=last)
             it.form_asked = it.form_asked or bool(form_reason)
             return ({"result": "ask_back", "question_id": q.id, "say": say, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": last and not form_reason,
-                     "message": f"{shown}「{say}」と聞き返して、相手の答えを待ってください。" + answer_wait()}
+                     "message": f"{shown}{say_note(say)}相手の答えを待ってください。" + answer_wait()}
                     | ({"form_reason": True} if form_reason else {}))
         it.set("unresolved", f"{why}・聞き返しを使い切った" if self.phase == "asking" else f"{why}・念のための確認でも聞けなかった")
         if reason == "unclear" and q.required:
@@ -6645,7 +6660,7 @@ class Flow:
         it.set("checking", f"読みが決まらない名前「{q.reading_of}」を、まず言ってみる読みで確かめる")
         self.awaiting_confirm, self.confirm_requested_at, self.awaiting_say = qid, self.callee_turns, q.text
         return {"result": "confirm_required", "question_id": qid, "value": q.prefill, "say": q.text, "after": None,
-                "message": f"{prefix}次は、お名前の読みの確認です。「{q.text}」と言って、相手の返事を待ってください。{self._confirm_how(qid)}"}
+                "message": f"{prefix}次は、お名前の読みの確認です。{say_note(q.text)}相手の返事を待ってください。{self._confirm_how(qid)}"}
 
     def _ask_confirm(self, qid: str, after: str | None = None) -> dict:
         """言い直して確かめる。after＝値を直されたあとか（AFTER の鍵。場面の言い方・頭の言葉・流す相づちを、その表の1か所から選ぶ）。
@@ -6709,7 +6724,7 @@ class Flow:
             phrase = self.confirm(said_as, situation, n)
         say = self.awaiting_say = (self._lead(lead) if lead else "") + phrase
         return {"result": "confirm_required", "value": shown, "say": say, "after": after,
-                "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。" + (self._confirm_how(qid) if choice else "")}
+                "message": f"言い直して確かめます。{say_note(say)}相手の返事を待ってください。" + (self._confirm_how(qid) if choice else "")}
 
     def _keep_toward_goal(self, qid: str, after: str | None) -> dict:
         """目的から遠ざかる向きの答え（と「どれも要らない」）を、その向きの言葉で言い直さずに扱う唯一の場所（_ask_confirm の頭）：
@@ -7550,8 +7565,8 @@ class Flow:
                 play = question_play(list(self.questions.values()), q.id)
                 text = play["text"]
                 return {"result": "next", "question_id": q.id, "question": q.text, "play": [play],
-                        "message": f"{prefix}次の質問 {q.id}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
-                                   "何も言わずに、相手の答えを待ってください。" + answer_wait() + choices_note(q)}
+                        "message": prefix + played_note(text, f"次の質問 {q.id}") + "何も言わずに、相手の答えを待ってください。" + answer_wait()
+                                   + choices_note(q)}
             # つなぎの言葉は、録音の形と同じ1か所（spoken_question：入る一言・前の答えで伺う質問は「それでは」・それ以外は質問の順番）。⛔ 2026-11-04 まで、
             # AIが話す形だけ、つなぎの言葉を流した回数で回していて、前の答えで伺う質問にも「続きまして」、伺わなかった質問を挟むと順番の言葉がずれた
             lead = spoken_question(list(self.questions.values()), q.id)[1]
@@ -7571,7 +7586,7 @@ class Flow:
             # 言い方は聞き返しと同じ表（phrases.ask_again）の、最後の1回の言い方。相づちは「申し訳ございません、」（_ack）
             say = ask_again_phrase(self.items[self.current].ask_backs + 1, "unclear", q.topic, last=True)
             return {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,
-                    "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ「{say}」と聞いて、相手の答えを待ってください。" + answer_wait()}
+                    "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ伺います。{say_note(say)}相手の答えを待ってください。" + answer_wait()}
         reason = self.close_after or (("other_means" if self.callback_why == "other_means" else "callback") if self.callback_why else "done")
         return self._close(reason, prefix=f"{prefix}質問は終わりです。")
 
@@ -7715,13 +7730,12 @@ class Flow:
         if self.play_recordings and not spoken:
             item = {"kind": "opening", "part": rid, "text": text} if part else {"kind": "closing", "id": rid, "text": text}
             return {"result": "end", "play": [item],
-                    "message": f"{prefix}締めの言葉「{text}」は、プログラムが録音で流しました。何も言わずに終えます。"}
+                    "message": f"{prefix}{played_note(text, '締めの言葉')}何も言わずに終えます。"}
         # 言い方のとおりに言わせる（足しも削りもしない。約束の言葉も足さない＝G-22：断られたときの締めに、AIが6本中5本で「また改めてご連絡
         # いたします」と約束を足した）。⛔ 2026-10-24 の見直し（調べ役）：前は「約束もしません」と書いていた＝保留で待ちきったときの言い方の
         # 「あらためてかけ直させていただきます」と食い違い、AIがその部分を削るおそれがあった
         return {"result": "end", "say": text,
-                "message": f"{prefix}「{text}」と言って終えてください。この言い方のとおりに言い、言葉を足しも削りもしません"
-                           "（「またお電話します」のような約束の言葉も足しません）。"}
+                "message": f"{prefix}{say_note(text)}言い終えたら、電話を終えます（「またお電話します」のような約束の言葉も足しません）。"}
 
     def _lead(self, kind: str) -> str:
         """受けの言葉（lead_ins が無効なら空）。種類ごとに順番に回す。"""
@@ -7780,7 +7794,7 @@ class Flow:
             # ⛔ 2026-10-21 G-57（目的の人_本人・取り次ぎ）：AIが先に「目的の人」と報告し、判定がそろわずに確かめたとき、AIは繋がったと思い込み、
             #    「はい、そうです。」のあと最初の質問へ進んだ（4本。名乗らない方＝AIが先に報告していないときは8本とも正しく報告した）
             held = f"（さきほどの「{PARTY_LABEL['target']}」の報告は、まだ受け付けていません）" if self.target_claimed else ""
-            return (f"いまは、まだ目的の人に繋いでいません{held}。電話に出た方に「{self.asked_target}」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を"
+            return (f"いまは、まだ目的の人に繋いでいません{held}。電話に出た方への「{self.asked_target}」のお返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を"
                     f"「{PARTY_LABEL['target']}」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、"
                     "用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（「いいえ」・違うお名前を名乗ったなど）、replay_opening を"
                     f"「{PART_LABEL['handover']}」で呼びます（お呼びし直す言い方は、プログラムが流します。番号違いではありません）。席を外している・"

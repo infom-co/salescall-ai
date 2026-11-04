@@ -16,7 +16,6 @@
 """
 from __future__ import annotations
 
-import json
 import re
 
 # 数える言葉（助数詞）。長いものから当てる（「何年目」を「年」にしない）。業務ごとに足す一覧ではない（日本語の数え方の言葉）
@@ -74,29 +73,20 @@ PROMPT = (
 )
 
 
-def _schema():
-    from google.genai import types
-
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "no": types.Schema(type=types.Type.INTEGER, description="質問の番号"),
-        "counted": types.Schema(type=types.Type.STRING, description="何の数を確かめたいのか"),
-        "unit": types.Schema(type=types.Type.STRING, description="数字のすぐあとに付ける数える言葉。決まらなければ空"),
-        "reason": types.Schema(type=types.Type.STRING, description="unit を空にしたわけ"),
-    }, required=["no", "counted", "unit"])
-    return types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)},
-                        required=["items"])
+# 答えの欄（問い合わせは askitems.ask の1か所。reason は無くてもよい）
+FIELDS = {"no": ("integer", "質問の番号"), "counted": ("string", "何の数を確かめたいのか"),
+          "unit": ("string", "数字のすぐあとに付ける数える言葉。決まらなければ空"), "reason": ("string", "unit を空にしたわけ")}
+REQUIRED = ["no", "counted", "unit"]
 
 
 def by_model(client, model: str, questions: list[tuple[str, str]]) -> list[dict]:
     """questions＝[(業務の目的, 質問の文)]。1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。
     戻り値は questions と同じ並びの [{"counted", "unit"(そろえたもの), "raw_unit", "reason"}]。答えの無い質問は unit を空にする。"""
-    from google.genai import types
+    from askitems import ask
 
     body = "\n".join(f"{n}：{purpose}／{q}" for n, (purpose, q) in enumerate(questions, 1))
-    r = client.models.generate_content(
-        model=model, contents=PROMPT + body,
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_schema(), temperature=0))
-    got = {x.get("no"): x for x in json.loads(r.text).get("items", [])}
+    got = {x.get("no"): x for x in ask(client, model, PROMPT + body, FIELDS, required=REQUIRED, tool=("units", "質問ごとの、数える言葉"))
+           if isinstance(x, dict)}
     out = []
     for n in range(1, len(questions) + 1):
         x = got.get(n, {})

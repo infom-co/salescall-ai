@@ -39,32 +39,21 @@ QUOTE_PROMPT = (
 KINDS = ["会社名", "団体名", "人名", "商品名", "サービス名", "地名", "建物名", "店名", "その他"]
 
 
-def _schema():
-    from google.genai import types
-
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "script": types.Schema(type=types.Type.INTEGER, description="台本の番号"),
-        "surface": types.Schema(type=types.Type.STRING, description="文の中の書き方（名前の部分だけ）"),
-        "reading": types.Schema(type=types.Type.STRING, description="読み（ひらがな）"),
-        "kind": types.Schema(type=types.Type.STRING, enum=KINDS),
-        "uncertain": types.Schema(type=types.Type.BOOLEAN, description="読みが1つに決まらない"),
-        "candidates": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING), description="考えられる読み"),
-    }, required=["script", "surface", "reading", "kind", "uncertain"])
-    return types.Schema(type=types.Type.OBJECT, properties={"names": types.Schema(type=types.Type.ARRAY, items=item)},
-                        required=["names"])
+# 答えの欄（問い合わせは askitems.ask の1か所。candidates は無くてもよい）
+FIELDS = {"script": ("integer", "台本の番号"), "surface": ("string", "文の中の書き方（名前の部分だけ）"), "reading": ("string", "読み（ひらがな）"),
+          "kind": (("enum", KINDS), None), "uncertain": ("boolean", "読みが1つに決まらない"),
+          "candidates": (("array", "string"), "考えられる読み")}
+REQUIRED = ["script", "surface", "reading", "kind", "uncertain"]
 
 
 def by_model_scripts(client, model: str, scripts: list[str]) -> list[list[dict]]:
     """台本（文をつないだもの）をまとめて1回で答えさせる。scripts と同じ並びの、名前の一覧を返す。"""
-    from google.genai import types
+    from askitems import ask
 
     body = "\n".join(f"台本{n}：{t}" for n, t in enumerate(scripts, 1))
-    r = client.models.generate_content(
-        model=model, contents=PROMPT + "台本：\n" + body,
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_schema(), temperature=0))
     out = [[] for _ in scripts]
-    for x in json.loads(r.text).get("names", []):
-        n = x.get("script")
+    for x in ask(client, model, PROMPT + "台本：\n" + body, FIELDS, required=REQUIRED, key="names", tool=("names", "台本ごとの名前")):
+        n = x.get("script") if isinstance(x, dict) else None
         if isinstance(n, int) and 1 <= n <= len(scripts):
             out[n - 1].append(x)
     return out

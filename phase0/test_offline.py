@@ -55,7 +55,10 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          "point_anytime", "point_anytime_plain",
                          # 手順を伺い終えていない業務の質問（報告の外枠の鍵）・前の通話の答えの、その質問の最後の事実（wish_fact・point_fact＝案2）・取込の決める処理
                          # （decide_away・decide_unclear）（CL-2 の連絡帳 4-212・4-213。CL-1.md 4-88）
-                         "unfinished", "wish_fact", "point_fact", "decide_away", "decide_unclear"})
+                         "unfinished", "wish_fact", "point_fact", "decide_away", "decide_unclear",
+                         # 取込の決める処理：いまの話の向きを伺う言葉（Question.doubt_words）・お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-199 の (1)・
+                         # 4-203 の (1)。CL-1.md 4-90）
+                         "decide_doubt_words", "decide_target_asks"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -8700,7 +8703,7 @@ class TargetTest(unittest.TestCase):
         # ⛔ 2026-10-19 G-57（目的の人_本人）：差し戻しが「お取り次ぎいただくのを待っています」のままで、AIは答えの報告を続けた
         r = self.say(f, "はい、そうです。", "record_answer", question_id="Q1", condition_id="はい", value="はい")
         self.assertEqual(r["result"], "rejected")
-        self.assertIn("「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています", r["message"])
+        self.assertIn("電話に出た方への「「おかだ」様でいらっしゃいますでしょうか？」のお返事を待っています", r["message"])
         self.assertIn("record_answer で報告したりしません", r["message"])
         self.assertNotIn("まだ受け付けていません", r["message"])   # AIは「目的の人」と報告していない（代わった方として流し直しを頼んだ）
         r = f.apply("report_party", {"party": "target"})
@@ -9327,7 +9330,8 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "この番号はどちらでお知りになりましたか？", None); f.on_check("asks", ASKS_YES)
         r = f.apply("replay_opening", {"part": "番号の出どころ"})
         self.assertEqual((r["result"], r["say"]), ("replayed", "以前ご予約の際にいただいたお電話番号にお掛けしております。"))
-        self.assertIn("言葉を足しません", r["message"])
+        from flowctl import say_note
+        self.assertIn(say_note(r["say"]), r["message"])
 
     def test_unsent_ai_voice_while_calling(self):
         # 目的の人を呼んでいる段で、名乗りを録音で流す通話は、録音・返事で渡した言い方（say）・話させる返事（speak）のほかのAIの声を、
@@ -10227,6 +10231,29 @@ class TargetTest(unittest.TestCase):
         if theirs is None:
             self.skipTest("CL-2 の business_settings.QUESTION_LEADS が、まだ main に無い")
         self.assertEqual((sorted(set(QUESTION_HEADS) - theirs), sorted(theirs - set(QUESTION_HEADS))), ([], []), "（こちらだけ, CL-2 だけ）")
+
+    def test_do_words_rules_match_cl2(self):
+        # CL-2 の 4-202 の (a)：こちらがすることの言葉の形の決まり（こちら＝meanings の DO_END・DO_DOUBLED・MARKS と頭の言葉 QUESTION_HEADS・CL-2 の
+        # business_settings の DO_WORDS_END・DO_WORDS_DOUBLED・DO_WORDS_MARKS と QUESTION_LEADS）が同じ。依頼者が書いた言葉は CL-2 の1か所だけを通り、
+        # 取込の AI の言葉は先にこちらの meanings.check を通る＝決まりが食い違うと、同じ言葉が片方でだけ通る
+        import meanings
+        for mine, var in ((meanings.DO_END, "DO_WORDS_END"), (meanings.DO_DOUBLED, "DO_WORDS_DOUBLED"), (meanings.MARKS, "DO_WORDS_MARKS")):
+            theirs = self.cl2_names("business_settings.py", var)
+            if theirs is None:
+                self.skipTest(f"CL-2 の business_settings.{var} が、まだ main に無い")
+            self.assertEqual(theirs, {mine.pattern}, var)
+
+    def test_choice_words_do_not_start_with_question_heads(self):
+        # 会話の側が言葉の前に付けうる言葉（phrases.QUESTION_HEADS＝「それでは」「はい」「承知しました」など）で始まる選択肢ごとの言葉は使わない
+        # （「それではそれでは…ね？」「はい、はい…」と重なる）。CL-2 の do_words_ok と同じ決まりを、こちらがすることの言葉だけでなく、意味の言葉・いまの話の
+        # 向きを伺う言葉にも当てる（同じ理由＝どの言葉も、会話の側が相づち・つなぎの言葉のあとに言う）
+        from meanings import check
+        q = "パンフレットをお送りしてもよろしいでしょうか？"
+        for kind, w in (("do", "パンフレットをお送りさせていただきます"), ("meaning", "パンフレットをお送りしてよいということ"),
+                        ("doubt", "パンフレットをお送りした方がいい")):
+            self.assertTrue(check(w, q, "はい", kind), kind)
+            for head in ("それでは", "はい", "承知しました"):
+                self.assertFalse(check(head + w, q, "はい", kind), (kind, head))
 
     def test_day_slot_matches_cl2(self):
         # CL-2 の 4-197 の (c)：質問の文・入る一言に書く「最短の日」の文字（こちら flowctl.DAY_SLOT・CL-2 の business_settings.DAY_SLOT）が同じ
@@ -14391,6 +14418,63 @@ class ImportAITest(unittest.TestCase):
         self.assertEqual((d([(self.Q, ("はい", "いいえ"), self.MEANING)]), seen), ([{}], ["m2"]))
         self.assertEqual(d([]), [])
 
+    def test_doubt_words_need_both_models_and_the_meaning_direction(self):
+        # いまの話の向きを伺う言葉（Question.doubt_words。11-01 日本時間22時31分のご判断）も、こちらがすることの言葉と同じ1か所の決め方（CL-2 の連絡帳 4-199 の (1)。
+        # 帳面 4-80）：問いの文は DOUBT_PROMPT・2つのモデルがそろい・意味の言葉と向きがそろうときだけ
+        import import_ai
+        from meanings import DOUBT_PROMPT
+        words = {"はい": "パンフレットをお送りした方がいい", "いいえ": "パンフレットはお送りしない方がいい"}
+        same = lambda _: [{"no": 1, "choice": c, "words": w} for c, w in words.items()]
+        a = self.Fake(same)
+        d = import_ai.deciders([(a, "m1"), (self.Fake(same), "m2")])["decide_doubt_words"]
+        self.assertEqual(d([(self.Q, ("はい", "いいえ"), self.MEANING)]), [words])
+        self.assertTrue(a.calls[0].startswith(DOUBT_PROMPT))
+        flipped = {"はい": self.MEANING["いいえ"], "いいえ": self.MEANING["はい"]}
+        self.assertEqual(d([(self.Q, ("はい", "いいえ"), flipped)]), [{}])
+        # 「ということ」まで書いた言葉は決めない（「（言葉）ということでしょうか？」に続かない）
+        long = lambda _: [{"no": 1, "choice": "はい", "words": "パンフレットをお送りした方がいいということ"}]
+        self.assertEqual(import_ai.decide_doubt_words([(self.Fake(long), "m1"), (self.Fake(long), "m2")], [(self.Q, ("はい", "いいえ"), self.MEANING)]), [{}])
+        seen = []
+        got = import_ai.decide_doubt_words([(self.Fake(same), "m1"), (self.Fake(fail=True), "m2")], [(self.Q, ("はい", "いいえ"), self.MEANING)],
+                                           lambda e, m: seen.append(m))
+        self.assertEqual((got, seen), ([{}], ["m2"]))
+        self.assertEqual(d([]), [])
+
+    def test_target_asks_need_both_models(self):
+        # お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-203 の (1)）：2つのモデルがそろって真のときだけ真。そろわない・答えないときは偽＝依頼者が書いたとおり
+        # 業務の質問のまま（取込で止めて伺わない・推し量って置き換えない＝11-04 日本時間6時44分のご判断と同じ理由。帳面 4-90）
+        import import_ai
+        from target_asks import PROMPT
+        qs = ["ご担当の方はいらっしゃいますでしょうか？", "従業員の方は何名いらっしゃいますか？"]
+        yes_no = lambda _: [{"no": 1, "calls": True}, {"no": 2, "calls": False}]
+        a = self.Fake(yes_no)
+        d = import_ai.deciders([(a, "m1"), (self.Fake(yes_no), "m2")])["decide_target_asks"]
+        self.assertEqual(d(qs), {qs[0]: True, qs[1]: False})
+        self.assertTrue(a.calls[0].startswith(PROMPT))
+        self.assertIn(f"1：{qs[0]}\n2：{qs[1]}", a.calls[0])
+        self.assertEqual(len(a.calls), 1)   # 1つのモデルに1回だけ
+        split = lambda _: [{"no": 1, "calls": False}, {"no": 2, "calls": True}]
+        self.assertEqual(import_ai.decide_target_asks([(self.Fake(yes_no), "m1"), (self.Fake(split), "m2")], qs), {qs[0]: False, qs[1]: False})
+        broken = lambda _: [{"no": 1, "calls": "はい"}, {"no": 9, "calls": True}]   # 形の違う答え・番号の外は、答えが無い
+        self.assertEqual(import_ai.decide_target_asks([(self.Fake(yes_no), "m1"), (self.Fake(broken), "m2")], qs), {qs[0]: False, qs[1]: False})
+        seen = []
+        got = import_ai.decide_target_asks([(self.Fake(yes_no), "m1"), (self.Fake(fail=True), "m2")], qs, lambda e, m: seen.append(m))
+        self.assertEqual((got, seen), ({qs[0]: False, qs[1]: False}, ["m2"]))
+        self.assertEqual(d([]), {})
+
+    def test_import_asks_go_through_one_place(self):
+        # 取込で文字のAIに質問ごとの答えを聞く問い合わせ（答えの形の指定・送り方・取り出し）は askitems.ask の1か所（⛔ 11-05 まで決め方ごとに写しがあった）。
+        # names.quote_by_model は台本1つの言い直しを比べる道具（g23。取込では使わない）なので外す
+        import ast
+        import pathlib
+        here = pathlib.Path(__file__).resolve().parent
+        for name in ("facts", "unclear", "meanings", "topics", "units", "names", "target_asks", "import_ai"):
+            tree = ast.parse((here / f"{name}.py").read_text(encoding="utf-8"))
+            for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and (name, n.name) != ("names", "quote_by_model")):
+                direct = [c.func.attr for c in ast.walk(fn) if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                          and c.func.attr in ("generate_content", "create", "Schema", "GenerateContentConfig")]
+                self.assertEqual(direct, [], f"{name}.{fn.name} が askitems.ask を通らずに問い合わせている")
+
     def test_away_reads_meanings_and_keeps_the_safe_side(self):
         # 目的から遠ざかる向き：意味の言葉を添えて読ませ、どちらか1つでも「遠ざかる」か読めない選択肢（帳面 4-72）。答えないモデルは読めない＝遠ざかる向き
         import import_ai
@@ -14936,7 +15020,8 @@ class HedgedSalesTest(unittest.TestCase):
         # 録音で流さない通話は、AIにその文を先に言わせる・ほかの答え（「いいえ」）には言わない・前の通話で取れた答えには言わない
         f = Flow([car, nq])
         r = AmbiguousAnswerTest.say(f, "はい、車で行きます。", "record_answer", question_id="G5", condition_id="はい")
-        self.assertIn(f"まず「{line}」と言ってから", r["message"])
+        from flowctl import say_note
+        self.assertIn(f"まず、{say_note(line)}続けて、", r["message"])
         r = AmbiguousAnswerTest.say(Flow([car, nq]), "いいえ、電車です。", "record_answer", question_id="G5", condition_id="いいえ")
         self.assertNotIn(line, r["message"])
         g = Flow([car, nq], earlier={"G5": {"state": "accepted", "value": None, "condition": "はい"}})
@@ -15546,6 +15631,65 @@ class Cl2Round211Test(unittest.TestCase):
         self.assertEqual(("answer_料金" in table, "answer_場所" in table), (True, False))
         self.assertEqual(b.replay_parts()["answer_場所"], "東京都港区です。")
         self.assertEqual(standard_table([("場所", "東京都港区です。")]), {"answer_場所": ("東京都港区です。", "answer")})
+
+
+class NoticeOnePlaceTest(unittest.TestCase):
+    """録音で流したことと、決まった言い方を言わせることを会話AIに知らせる文は、それぞれ1か所（flowctl.played_note・say_note）から作る（一本化の残り＝
+    Intent.md 19-0ax の ⏳・CL-1.md 1）。⛔ それまで約40か所で手で書き、「は、」と「を、」・「とだけ言います」「とだけ聞きます」「とだけ伺います」「と言って」
+    「と聞き返して」「ともう一度だけ伺って」「と1回だけ聞いてください」「と言ってから」が混ざり、電話に出た方・受付の方への確かめの一言は「と聞く録音を、
+    プログラムが流しました」＝会話AIへの指示（instruction.system_rules）が目印にする「プログラムが録音で流しました」の言葉が入っていなかった"""
+
+    @staticmethod
+    def code_strings():
+        # flowctl のコードの文字（説明の文＝docstring とコメントは除く。f の文字は、{} のあいだの文字ごと）
+        import ast
+        import flowctl
+        with open(flowctl.__file__, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        docs = {id(n.body[0].value) for n in ast.walk(tree) if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef))
+                and n.body and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+        return [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docs]
+
+    def test_the_two_notices_are_written_in_one_place_each(self):
+        words = self.code_strings()
+        self.assertEqual([w for w in words if "録音で流しました" in w or "プログラムが流しました" in w], ["」は、プログラムが録音で流しました（相手にもう聞こえています）。"])
+        self.assertEqual([w for w in words if "とだけ言います" in w], ["」とだけ言います（言葉を足しも削りもしません）。"])
+        for word in ("とだけ聞きます", "とだけ伺います", "とだけ言い（", "とだけ言って（", "」と言って、", "」と聞いて、", "」と聞き返して", "」ともう一度だけ伺って",
+                     "と1回だけ聞いて", "」と言ってから", "」と言って終えて", "」をもう一度言って"):
+            self.assertEqual([w[:80] for w in words if word in w], [], word)
+
+    def test_the_ai_rule_names_the_played_notice(self):
+        # 会話AIへの指示が目印にする言葉は、知らせの文の中にある（同じ言葉を2か所で書かない＝指示は知らせの1か所の言葉を使う）
+        from flowctl import played_note, say_note
+        from instruction import system_rules
+        self.assertIn("プログラムが録音で流しました", played_note("はい、"))
+        self.assertIn("「プログラムが録音で流しました」", system_rules(play_recordings=True))
+        self.assertEqual((played_note("お待たせいたしました。", "締めの言葉"), say_note("15日でよろしいでしょうか？", "電話に出た方に")),
+                         ("締めの言葉「お待たせいたしました。」は、プログラムが録音で流しました（相手にもう聞こえています）。",
+                          "電話に出た方に「15日でよろしいでしょうか？」とだけ言います（言葉を足しも削りもしません）。"))
+
+    def test_fixed_wordings_said_by_the_ai_use_the_one_notice(self):
+        # 会話AIが言う決まった言い方（言い直し・聞き返し・締め）の知らせは、どれも say_note の文を含む（AIが話す形の試し＝録音の無い通話）
+        from flowctl import Flow, Question, say_note
+
+        def say(f, heard, op, **args):
+            f.on_callee(); f.on_heard(heard)
+            return f.apply(op, args)
+        f = Flow([Question("Q1", "ご来場の人数は何名様でしょうか？", "number", conditions=("答えた",)),
+                  Question("Q2", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        r = say(f, "3人です。", "record_answer", question_id="Q1", condition_id="答えた", value="3")
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertIn(say_note(r["say"]), r["message"])
+        r = say(f, "はい、3人です。", "confirm_field", question_id="Q1", result="affirmed")
+        r = say(f, "（雑音）", "report_unclear", question_id="Q2")
+        self.assertEqual(r["result"], "ask_back")
+        self.assertIn(say_note(r["say"]), r["message"])
+        for _ in range(3):
+            r = say(f, "（雑音）", "report_unclear", question_id="Q2")
+            if r["result"] == "end":
+                break
+        self.assertEqual(r["result"], "end")
+        self.assertIn(say_note(r["say"]), r["message"])
 
 if __name__ == "__main__":
     unittest.main()

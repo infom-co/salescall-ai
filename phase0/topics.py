@@ -13,7 +13,6 @@
 """
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 
@@ -97,26 +96,17 @@ PROMPT = (
 )
 
 
-def _schema():
-    from google.genai import types
-
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "no": types.Schema(type=types.Type.INTEGER, description="質問の番号"),
-        "topic": types.Schema(type=types.Type.STRING, description="聞いていることの名前。自然な名前にならなければ空"),
-    }, required=["no", "topic"])
-    return types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)},
-                        required=["items"])
+# 答えの欄（問い合わせは askitems.ask の1か所）
+FIELDS = {"no": ("integer", "質問の番号"), "topic": ("string", "聞いていることの名前。自然な名前にならなければ空")}
 
 
 def by_model(client, model: str, questions: list[str]) -> list[str]:
     """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの topic（そろえたもの）を返す。"""
-    from google.genai import types
+    from askitems import ask
 
     body = "\n".join(f"{n}：{q}" for n, q in enumerate(questions, 1))
-    r = client.models.generate_content(
-        model=model, contents=PROMPT + body,
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_schema(), temperature=0))
-    got = {x.get("no"): x.get("topic", "") for x in json.loads(r.text).get("items", [])}
+    got = {x.get("no"): x.get("topic", "") for x in ask(client, model, PROMPT + body, FIELDS, tool=("topics", "質問ごとの、聞いていること"))
+           if isinstance(x, dict)}
     return [clean(got.get(n, "")) for n in range(1, len(questions) + 1)]
 
 

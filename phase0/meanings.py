@@ -14,7 +14,6 @@
 """
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 
@@ -119,27 +118,17 @@ AWAY_PROMPT = (
 PROMPTS = {"meaning": PROMPT, "doubt": DOUBT_PROMPT, "do": DO_PROMPT, "away": AWAY_PROMPT}
 
 
-def _schema():
-    from google.genai import types
-
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "no": types.Schema(type=types.Type.INTEGER, description="質問の番号"),
-        "choice": types.Schema(type=types.Type.STRING, description="選択肢（書いてあるとおり）"),
-        "words": types.Schema(type=types.Type.STRING, description="（　）に入れる言葉"),
-    }, required=["no", "choice", "words"])
-    return types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)},
-                        required=["items"])
+# 答えの欄（問い合わせは askitems.ask の1か所。Gemini には説明つき・Anthropic には型だけ）
+FIELDS = {"no": ("integer", "質問の番号"), "choice": ("string", "選択肢（書いてあるとおり）"), "words": ("string", "（　）に入れる言葉")}
+TOOL = ("words", "選択肢ごとの言葉")
 
 
 def by_model(client, model: str, questions: list[tuple[str, tuple]], kind: str = "meaning") -> list[dict]:
-    """questions＝[(質問の文, 選択肢の並び)]。1回の問い合わせでまとめて答えさせ、質問ごとに {選択肢: 言葉}（そろえたもの）を返す。kind＝言葉の種類（PROMPTS）。"""
-    from google.genai import types
+    """questions＝[(質問の文, 選択肢の並び)]。1回の問い合わせでまとめて答えさせ、質問ごとに {選択肢: 言葉}（そろえたもの）を返す。kind＝言葉の種類（PROMPTS）。
+    送り先は部品の作りで決まる（Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask）。"""
+    from askitems import ask
 
-    body = _body(questions)
-    r = client.models.generate_content(
-        model=model, contents=PROMPTS[kind] + body,
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_schema(), temperature=0))
-    return _read_items(json.loads(r.text).get("items", []), questions)
+    return _read_items(ask(client, model, PROMPTS[kind] + _body(questions), FIELDS, tool=TOOL), questions)
 
 
 def _body(questions: list[tuple]) -> str:
@@ -160,25 +149,9 @@ def _read_items(items: list, questions: list[tuple[str, tuple]]) -> list[dict]:
     return out
 
 
-def by_model_anthropic(client, model: str, questions: list[tuple[str, tuple]], kind: str = "meaning") -> list[dict]:
-    """by_model と同じ文（PROMPTS）・同じ読み取りを、Anthropic（Claude Haiku 5.5）に、答えの形を指定した道具の呼び出しで返させる（作り手の
-    代わり＝Gemini の Flash が混んでいる間。✅ 2026-11-03 ユーザー：「3.8 Flash の分の一部の場面もHaikuで作らせたらいいんじゃない？何度も言わせるな！」・
-    「Haikuでもいいと言いましたよね。」）。料金は判定と同じ帳簿（meaning_judge.SPEND）。⚠️ temperature は送らない（Haiku 5.5 は断る）。"""
-    from meaning_judge import SPEND
-
-    body = _body(questions)
-    item = {"type": "object", "properties": {"no": {"type": "integer"}, "choice": {"type": "string"}, "words": {"type": "string"}},
-            "required": ["no", "choice", "words"], "additionalProperties": False}
-    schema = {"type": "object", "properties": {"items": {"type": "array", "items": item}}, "required": ["items"], "additionalProperties": False}
-    SPEND.check()
-    msg = client.messages.create(model=model, max_tokens=8000, messages=[{"role": "user", "content": PROMPTS[kind] + body}],
-                                 tools=[{"name": "words", "description": "選択肢ごとの言葉", "input_schema": schema, "strict": True}],
-                                 tool_choice={"type": "tool", "name": "words"})
-    SPEND.add(model, msg.usage)
-    got = next((b.input for b in msg.content if getattr(b, "type", "") == "tool_use"), None)
-    if not isinstance(got, dict):
-        raise ValueError(f"{model} が答えの形で返さなかった（{getattr(msg, 'stop_reason', '')}）")
-    return _read_items(got.get("items", []), questions)
+# Anthropic（Claude Haiku 5.5）に同じ文（PROMPTS）・同じ読み取りで答えさせる（作り手の代わり＝Gemini の Flash が混んでいる間。✅ 2026-11-03 ユーザー：
+# 「3.8 Flash の分の一部の場面もHaikuで作らせたらいいんじゃない？何度も言わせるな！」・「Haikuでもいいと言いましたよね。」）。送り方は askitems.ask の1か所
+by_model_anthropic = by_model
 
 
 def clean(s: str | None) -> str:
@@ -186,6 +159,13 @@ def clean(s: str | None) -> str:
 
 
 _BARE = re.compile(r"(?:はい|いいえ|いえ|ええ|うん|いや)")
+# 言葉の形の決まり（唯一の場所。CL-2 の business_settings の DO_WORDS_MARKS・DO_WORDS_END・DO_WORDS_DOUBLED が同じ＝test_do_words_rules_match_cl2。
+# 依頼者が書いたこちらがすることの言葉は CL-2 の do_words_ok だけを通る）：区切りや問いかけの記号を含まない（どの種類も）／こちらがすることの言葉の文の終わりは
+# 「させていただきます」か「承ります」だけ（「それでは（言葉）ね？」に続けて読める形。⛔ 2026-11-03 G-72：「ご予約の日時に変更はございません」を通し、
+# 「…変更はございませんさせていただきますね？」になる形だった）・へりくだりを重ねない（「差し上げさせ」「お伺いさせ」）
+MARKS = re.compile(r"[、。，．？?！!「」『』]")
+DO_END = re.compile(r"(?:させていただきます|承ります)$")
+DO_DOUBLED = re.compile(r"(?:差し上げ|お伺い|伺わ)させ")
 
 
 def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool:
@@ -203,15 +183,19 @@ def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool
         return True   # 決まった言い方（ご予約・ご予定のとおりにする向き）
     # 長さの上限は質問の長さに合わせる（⛔ 2026-11-02 G-72：30字までの決まりで、長い質問「担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？」の
     # 意味の言葉が、2つのモデルとも向きは正しいのに決まらなかった）。質問より10字を超えて長い言葉は、質問に無いことを足した目安
-    if not w or len(w) > max(30, len(question) + 10) or re.search(r"[、。，．？?！!「」『』]", w) or _BARE.fullmatch(w):
+    if not w or len(w) > max(30, len(question) + 10) or MARKS.search(w) or _BARE.fullmatch(w):
+        return False
+    # 会話の側が言葉の前に付けうる言葉（「それでは」「はい」「承知しました」など＝phrases.QUESTION_HEADS）で始まらない（「それではそれでは…ね？」「はい、はい…」と
+    # 重なる。CL-2 の do_words_ok と同じ決まりを、どの種類の言葉にも当てる＝どれも相づち・つなぎの言葉のあとに言う。⛔ 2026-11-05 まで、こちらは頭を見ていなかった）
+    from phrases import QUESTION_HEADS
+    if w.startswith(QUESTION_HEADS):
         return False
     if re.search(r"(?:でしょうか|ですか|ますか|よろしい)$", w):
         return False
     if kind == "doubt" and ("ということ" in w or w.endswith("こと")):
         return False
-    # 文の終わりは「させていただきます」か「承ります」だけ（「それでは（言葉）ね？」に続けて読める形。⛔ 2026-11-03 G-72：「ご予約の日時に変更はございません」を
-    # 通し、「…変更はございませんさせていただきますね？」になる形だった）・へりくだりを重ねない
-    if kind == "do" and (not re.search(r"(?:させていただきます|承ります)$", w) or re.search(r"(?:差し上げ|お伺い|伺わ)させ", w)):
+    # こちらがすることの言葉の文の終わり・へりくだりの重ね（決まりは上の DO_END・DO_DOUBLED の1か所）
+    if kind == "do" and (not DO_END.search(w) or DO_DOUBLED.search(w)):
         return False
     base = unicodedata.normalize("NFKC", question + choice)
     nouns = [x.surface for x in split(w) if x.feature.pos1 == "名詞" and len(x.surface) >= 2]
@@ -240,32 +224,23 @@ REPLY_PROMPT = (
 )
 
 
-def _reply_schema():
-    from google.genai import types
-
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "no": types.Schema(type=types.Type.INTEGER, description="質問の番号"),
-        "word": types.Schema(type=types.Type.STRING, description="お客様の言葉（書いてあるとおり）"),
-        "choice": types.Schema(type=types.Type.STRING, description="選択肢（書いてあるとおり）。決まらなければ空"),
-    }, required=["no", "word", "choice"])
-    return types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)},
-                        required=["items"])
+# 曖昧な言葉の意味の答えの欄（問い合わせは askitems.ask の1か所）
+REPLY_FIELDS = {"no": ("integer", "質問の番号"), "word": ("string", "お客様の言葉（書いてあるとおり）"),
+                "choice": ("string", "選択肢（書いてあるとおり）。決まらなければ空")}
 
 
 def by_model_replies(client, model: str, questions: list[tuple[str, tuple]]) -> list[dict]:
     """受け入れにも断りにも取れる言葉（flowctl.AMBIGUOUS_WORDS）だけの答えが、質問ごとにどの選択肢の意味になるか。
     1回の問い合わせでまとめて答えさせ、質問ごとに {言葉: 選択肢}（決まらない言葉は入れない）を返す。"""
-    from google.genai import types
-
+    from askitems import ask
     from flowctl import AMBIGUOUS_WORDS
 
     said = {w: f"{w}です" for w in AMBIGUOUS_WORDS}  # お客様の言葉の形（「結構です」）
     body = "\n".join(f"{n}：{q}／{'・'.join(c)}" for n, (q, c) in enumerate(questions, 1))
-    r = client.models.generate_content(
-        model=model, contents=REPLY_PROMPT.format(words="」「".join(said.values())) + body,
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_reply_schema(), temperature=0))
     out = [{} for _ in questions]
-    for x in json.loads(r.text).get("items", []):
+    for x in ask(client, model, REPLY_PROMPT.format(words="」「".join(said.values())) + body, REPLY_FIELDS, tool=("replies", "曖昧な言葉ごとの選択肢")):
+        if not isinstance(x, dict):
+            continue
         n, word, choice = x.get("no"), clean(x.get("word")), clean(x.get("choice"))
         key = next((w for w in AMBIGUOUS_WORDS if word in (w, said[w])), None)
         if isinstance(n, int) and 1 <= n <= len(questions) and key and choice in questions[n - 1][1]:

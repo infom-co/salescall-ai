@@ -14,7 +14,6 @@
 """
 from __future__ import annotations
 
-import json
 
 PROMPT = (
     "電話でお客様に聞く質問の一覧です。質問ごとに、次の2つを答えてください。\n"
@@ -32,26 +31,18 @@ def _body(questions: list[tuple[str, tuple]]) -> str:
     return "\n".join(f"{n}：{text}／選択肢：{'・'.join(conds)}" for n, (text, conds) in enumerate(questions, 1))
 
 
-def _schema():
-    from google.genai import types
-
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "no": types.Schema(type=types.Type.INTEGER, description="質問の番号"),
-        "asks": types.Schema(type=types.Type.BOOLEAN, description="ほかに分からない点が無いかを伺う質問か"),
-        "none": types.Schema(type=types.Type.STRING, description="「分からない点は無い」にあたる選択肢の名前（無ければ空）"),
-    }, required=["no", "asks", "none"])
-    return types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)},
-                        required=["items"])
+# 答えの欄（問い合わせは askitems.ask の1か所。Gemini には説明つき・Anthropic には型だけ）
+FIELDS = {"no": ("integer", "質問の番号"), "asks": ("boolean", "ほかに分からない点が無いかを伺う質問か"),
+          "none": ("string", "「分からない点は無い」にあたる選択肢の名前（無ければ空）")}
+TOOL = ("unclear", "質問ごとの、ほかに分からない点が無いかを伺う質問か")
 
 
 def by_model(client, model: str, questions: list[tuple[str, tuple]]) -> list[dict | None]:
-    """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions（(質問の文, 選択肢の並び)）と同じ並びの答え（無ければ None）を返す。"""
-    from google.genai import types
+    """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions（(質問の文, 選択肢の並び)）と同じ並びの答え（無ければ None）を返す。
+    送り先は部品の作りで決まる（Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask）。"""
+    from askitems import ask
 
-    r = client.models.generate_content(
-        model=model, contents=PROMPT + _body(questions),
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_schema(), temperature=0))
-    return _read_items(json.loads(r.text).get("items", []), len(questions))
+    return _read_items(ask(client, model, PROMPT + _body(questions), FIELDS, tool=TOOL), len(questions))
 
 
 def _read_items(items: list, n: int) -> list[dict | None]:
@@ -65,24 +56,8 @@ def _read_items(items: list, n: int) -> list[dict | None]:
     return out
 
 
-def by_model_anthropic(client, model: str, questions: list[tuple[str, tuple]]) -> list[dict | None]:
-    """by_model と同じ文（PROMPT）・同じ読み取りを、Anthropic（Claude Haiku 5.5）に、答えの形を指定した道具の呼び出しで返させる（facts.by_model_anthropic と
-    同じ作り）。料金は判定と同じ帳簿（meaning_judge.SPEND）。⚠️ temperature は送らない（Haiku 5.5 は断る）。"""
-    from meaning_judge import SPEND
-
-    item = {"type": "object", "properties": {"no": {"type": "integer"}, "asks": {"type": "boolean"}, "none": {"type": "string"}},
-            "required": ["no", "asks", "none"], "additionalProperties": False}
-    schema = {"type": "object", "properties": {"items": {"type": "array", "items": item}}, "required": ["items"], "additionalProperties": False}
-    SPEND.check()
-    msg = client.messages.create(model=model, max_tokens=4000, messages=[{"role": "user", "content": PROMPT + _body(questions)}],
-                                 tools=[{"name": "unclear", "description": "質問ごとの、ほかに分からない点が無いかを伺う質問か",
-                                         "input_schema": schema, "strict": True}],
-                                 tool_choice={"type": "tool", "name": "unclear"})
-    SPEND.add(model, msg.usage)
-    got = next((b.input for b in msg.content if getattr(b, "type", "") == "tool_use"), None)
-    if not isinstance(got, dict):
-        raise ValueError(f"{model} が答えの形で返さなかった（{getattr(msg, 'stop_reason', '')}）")
-    return _read_items(got.get("items", []), len(questions))
+# Anthropic（Claude Haiku 5.5）に同じ文・同じ読み取りで答えさせる（facts.by_model_anthropic と同じ）。送り方は askitems.ask の1か所
+by_model_anthropic = by_model
 
 
 def decide(conditions: tuple, model_rows: list[dict | None]) -> str:
