@@ -567,6 +567,11 @@ class CallReport:
     ended_on: EndedOn | None = None               # 事実 ended_on：ここで終える答えで、残りを伺わなかった（1通話に1つまで）
     irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
     ai_troubles: tuple[AiTrouble, ...] = ()   # 止まったAI（データの形 版 1.08。無い・古い報告は空。判定には使わない）
+    # 手順を伺い終えていない業務の質問（データの形 版 1.18。CL-2 の連絡帳 4-213）：答えは受け取ったが、その答えのあとに伺う会話の側の手順
+    # （ほかのご希望 W1・その連絡先と伺い方・ご納得いただけなかった点を伺う手順）の途中で通話が終わった質問の番号。前の通話から続く手順も入る。
+    # どれが伺い終えていないかを決めるのは会話の側の1か所（CL-1 の Flow。伺い終えるまで「目的が果たせない」で締めない＝_goals_lost と同じ
+    # 決まり）で、ここは読むだけ。判定は、その答えをまだ受け取っていない答えとして読む（judge.settled_items の1か所）。無い・古い報告は空
+    unfinished: tuple[str, ...] = ()
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -750,7 +755,7 @@ class CallReport:
                                                       "callee_cannot_hear": self.cut.callee_cannot_hear,
                                                       "callee_silent": self.cut.callee_silent},
                 "apology_delivered": self.apology_delivered, "irreversible_check": self.irreversible_check,
-                "ai_trouble": [t.to_json() for t in self.ai_troubles]}
+                "ai_trouble": [t.to_json() for t in self.ai_troubles], "unfinished": list(self.unfinished)}
 
 
 def _bool(d: dict, key: str) -> bool:
@@ -924,7 +929,7 @@ def _ended_on(facts: dict) -> EndedOn | None:
 
 def from_json(raw: Any) -> CallReport:
     """報告を確かめて読む（ただ1つの確かめ）。"""
-    d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered", "irreversible_check", "ai_trouble"}, "報告")
+    d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered", "irreversible_check", "ai_trouble", "unfinished"}, "報告")
     if d.get("version") != VERSION:
         raise ReportInvalid(f"報告の版が違います（{d.get('version')!r}。この部品は {VERSION}）")
     facts = _keys(d.get("facts"), set(FACT_KINDS), "facts")
@@ -1049,11 +1054,17 @@ def from_json(raw: Any) -> CallReport:
     troubles = tuple(ai_trouble(t, f"ai_trouble[{i}]") for i, t in enumerate(raw_troubles or ()))
     if len({(t.ai, t.route, t.what) for t in troubles}) != len(troubles):
         raise ReportInvalid("ai_trouble に、同じAI・同じ道・同じ出来事が2つあります（1つにまとめて回数を数えます）")
+    unfinished = d.get("unfinished")
+    if unfinished is None:
+        unfinished = []
+    if not isinstance(unfinished, list) or not all(isinstance(q, str) and q.strip() == q and q for q in unfinished) \
+            or len(set(unfinished)) != len(unfinished):
+        raise ReportInvalid("unfinished は、手順を伺い終えていない業務の質問の番号の並び（重ならない）です")
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions), talks, tuple(holds), unjudged_ends=unjudged, goal_refusals=tuple(goals),
                       who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes, ended_on=ended_on,
-                      irreversible_check=check, ai_troubles=troubles)
+                      irreversible_check=check, ai_troubles=troubles, unfinished=tuple(sorted(unfinished)))
 
 
 OWN_WORDS_KEYS = {"answer", "drafts", "checked"}

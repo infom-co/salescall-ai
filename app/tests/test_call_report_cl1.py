@@ -20,7 +20,7 @@ from salescall.core.business_rules import check
 from salescall.core.call_report import Cut, ReportInvalid, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, judge
 from salescall.core.next_action import Target, decide_after_call
-from tests.support import CALLEE, NO_OPENING_RECHECK, rules_raw
+from tests.support import CALLEE, NO_OPENING_RECHECK, make_report, rules_raw
 
 V = uuid.uuid4()
 RULES = check(V, ("Q1", "Q2"), rules_raw(("Q1", "Q2")))
@@ -730,10 +730,63 @@ class OtherWish1103(unittest.TestCase):
         # 無い鍵は null と同じに読む（報告の読み手の決まりの1か所 `_keys`。会話の側はいつも全部の鍵を書く）
         self.assertIsNone(from_json(self.raw({k: v for k, v in line.items() if k != "outcome"})).other_wishes[0].outcome)
         self.assertEqual(j.state, run(self.raw()).state)                       # 判定の結果は変えない
-        for bad in ({**line, "means": "sms"}, {**line, "outcome": "maybe"}, {**line, "question": ""}, {**line, "contact": 3},
+        for bad in ({**line, "means": "sms"}, {**line, "means": "sms", "via": None}, {**line, "outcome": "maybe"}, {**line, "question": ""}, {**line, "contact": 3},
                     {**line, "wish": ["x"]}, {**line, "x": 1}, {**line, "via": "fax"}, {**line, "means": "email"}):   # via は LINE のときだけ
             with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
                 from_json(self.raw(bad))
+
+
+class Unfinished1105(unittest.TestCase):
+    """CL-2 の連絡帳 4-213（データの形 版 1.18）：手順を伺い終えていない業務の質問（報告の unfinished）。ほかのご希望 W1・その連絡先と伺い方・
+    ご納得いただけなかった点の手順の途中で切れた答えは、判定ではまだ受け取っていない答え（`JudgeInput.answers` の1か所）＝必須なら「完了」に
+    しない（CL-1 の続きの電話がかかる。✅ 2026-11-03 日本時間23時52分36秒・11-04 18時16分・19時26分 ユーザー）。その答えのときだけ伺う質問も
+    「伺っていない」にしない（W1 で元の質問の選択肢を選び直していただけば、伺う質問になる）。⛔ 前は、最後の必須の質問の「どれも要らない」の
+    あとの W1 の途中で切れても「完了」にし、続きの電話が1本もかからなかった。"""
+
+    def raw(self, *unfinished, key=True):
+        d = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {}}
+        return {**d, "unfinished": list(unfinished)} if key else d
+
+    def test_unfinished_is_received_and_the_answer_is_not_yet_taken(self):
+        r = from_json(self.raw("Q2", "Q1"))
+        self.assertEqual((r.unfinished, from_json(r.to_json())), (("Q1", "Q2"), r))
+        for old in (self.raw(key=False), {**self.raw(key=False), "unfinished": None}):   # 無い・null（古い報告）は空
+            with self.subTest(old=old):
+                self.assertEqual(from_json(old).unfinished, ())
+        for bad in ("Q1", [""], [" Q1"], ["Q1", "Q1"], [1], {"Q1": 1}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**self.raw(), "unfinished": bad})
+        taken = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "どれも要らない", None)}
+
+        def talked(*unfinished):   # 目的のお客様と話した通話（試験の共通の報告）に、手順を伺い終えていない質問を足して、置いて読み直したもの
+            rep = from_json(replace(make_report(("target",), cut=CLOSED), unfinished=unfinished).to_json())
+            return judge(JudgeInput(TALKED, rep, taken, RULES, callee=CALLEE, anyone_target=False, check_rang=False,
+                                    forbidden=False, ask_if={}))
+        done, cut = talked(), talked("Q2")
+        self.assertEqual((done.state, "unfinished" in done.detail), ("completed", False))
+        self.assertEqual((cut.state, cut.detail["unfinished"]), ("incomplete", ["Q2"]))   # 依頼者へも返す（答えはまだ途中）
+        self.assertEqual(talked("Q9").state, "completed")                                 # 行の項目に無い質問は、何も変えない
+
+    def test_a_question_asked_after_an_unfinished_answer_is_not_counted_as_not_asked(self):
+        from salescall.core.business_settings import AskIf
+        rules = check(V, ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2", "Q3")))
+        items = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "どれも要らない", None)}
+
+        def judged3(*unfinished):
+            inp = JudgeInput(TALKED, replace(make_report(("target",), cut=CLOSED), unfinished=unfinished), items, rules,
+                             callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False,
+                             ask_if={"Q3": AskIf("Q2", ("はい",))})
+            return inp, judge(inp)
+        _, settled = judged3()
+        self.assertEqual((settled.state, settled.detail["not_asked"]), ("completed", ["Q3"]))
+        inp, pending = judged3("Q2")
+        self.assertEqual((pending.state, "not_asked" in pending.detail), ("incomplete", False))
+        self.assertIn("Q2", inp.items)   # 行の項目そのものは変えない（判定の入力の控えには元の答えが残る）
+        # 手順の途中の質問（Q2）が必須でなくても、その答えのときだけ伺う必須の質問（Q3）は、伺うかがまだ決まっていない＝取れていない（完了にしない）
+        rules = check(V, ("Q1", "Q3"), rules_raw(("Q1", "Q3")))
+        _, settled = judged3()
+        _, pending = judged3("Q2")
+        self.assertEqual((settled.state, pending.state), ("completed", "incomplete"))
 
 
 class EndedOn1104(unittest.TestCase):

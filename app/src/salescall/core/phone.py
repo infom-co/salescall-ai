@@ -26,6 +26,9 @@ import unicodedata
 from dataclasses import dataclass
 
 # 種類の決まり（上から順に、最初に当たったもの）。(頭の数字, 桁数, 種類)
+# ⚠️ 会話の側（CL-1 の phase0/flowctl.NUMBER_RULES）が、この表をそのまま写して、電話番号の形の確かめ・携帯電話の番号の見分け（SMS の届く
+# 種類は mobile と fmc）に使う（会話の側は CL-2 の部品を読み込まない。CL-1 の連絡帳 4-85 の (5)）。写しが同じかは CL-1 の試験
+# test_offline.RemainingNineTest.test_number_rules_match_cl2 が見張る。この表を直したら、CL-2 の連絡帳で CL-1 に知らせる
 _RULES: tuple[tuple[str, int, str], ...] = (
     ("0120", 10, "toll_free"),   # フリーダイヤル
     ("0800", 11, "toll_free"),   # フリーダイヤル（「080-0…」と書かれていても、数字の並びはこれ）

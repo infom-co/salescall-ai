@@ -1791,6 +1791,12 @@ class NameLedger(Content):
         self.assertLessEqual(added, set(recordings.CONTRACTOR_PARTS))
         self.assertLessEqual({"C11", "C12"}, business_settings.RESERVED_IDS)
 
+    def test_the_parts_cl1_added_on_11_05_3am_are_received(self):
+        """CL-1 の連絡帳 4-85（2026-11-05 日本時間2時45分39秒 ユーザー「残りの9つを直してください」）：続きの電話の始めのご説明が受け皿の文で
+        流れるときの「前回お伺いした件ですが、」（resumed_fallback_lead）と、答えを持っていない受け皿の一言（own_fallback_point_again）は、
+        どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。"""
+        self.assertLessEqual({"resumed_fallback_lead", "own_fallback_point_again"}, set(recordings.CONTRACTOR_PARTS))
+
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
         よろしいでしょうか？」は契約者の単位の録音 callback_refusal（話してよい声が求める＝`CONTRACTOR_PARTS`）で、その質問の番号 R1 は

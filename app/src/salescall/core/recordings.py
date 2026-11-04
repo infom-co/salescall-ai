@@ -269,7 +269,9 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 # 日本時間18時16分）、4-81 の callback_line_how（LINE の連絡先の伺い方＝C11）・_2（伺い直し）・_again（続きの電話）・callback_mobile（SMS でご招待する携帯電話の
 # 番号＝C12）・callback_email_again・callback_fax_again・callback_address_again（連絡先を伺う前に切れた電話の続き）（✅ 11-04 日本時間19時26分）、4-82 の
 # callback_email_chosen（伺い方でメールを選んでいただいたあとのメールアドレスの一言。✅ 11-04 日本時間20時27分）、4-84 の callback_line_how_without_（id・sms・
-# email）とその _2（選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言とその伺い直し。✅ 11-05 日本時間0時48分・1時19分47秒・1時29分06秒）。CL-1 の試験 test_offline が
+# email）とその _2（選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言とその伺い直し。✅ 11-05 日本時間0時48分・1時19分47秒・1時29分06秒）、4-85 の
+# resumed_fallback_lead（続きの電話の始めのご説明が受け皿の文で流れるときに、その前に流す「前回お伺いした件ですが、」）・own_fallback_point_again（同じく答えを
+# 持っていない受け皿の「恐れ入ります。前回お伺いした点は私では…」。⏳ どちらも言い方は管理者に伺い中＝文が変わっても名前は変わらない）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -295,7 +297,8 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
     "callback_email_again", "callback_fax_again", "callback_address_again", "callback_email_chosen",
     "callback_line_how_without_id", "callback_line_how_without_id_2", "callback_line_how_without_sms",
-    "callback_line_how_without_sms_2", "callback_line_how_without_email", "callback_line_how_without_email_2")
+    "callback_line_how_without_sms_2", "callback_line_how_without_email", "callback_line_how_without_email_2",
+    "resumed_fallback_lead", "own_fallback_point_again")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
