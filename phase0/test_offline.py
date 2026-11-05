@@ -15641,6 +15641,32 @@ class HedgedSalesTest(unittest.TestCase):
         AmbiguousAnswerTest.say(f, "いえ、来月以降も考えていないです。", "record_answer", question_id="G15c", condition_id="いいえ")
         self.assertEqual((f.export()["G15"], f.export()["G15c"]), ("いいえ", "いいえ"))
 
+    def test_second_check_does_not_repeat_the_same_sentence(self):
+        # 言い直しへの返事の確かめがそろわず、もう1回だけ言い直す（2回目の確かめ）ときは、1回目と同じ文を言わず、最終的に確かめる言い方で伺う。
+        # ✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」・2026-10-31 の夜 ユーザー：「『それでは…ということで
+        # よろしいでしょうか？』は矛盾や言い直しの答えを最終的に確認する場合です。」。⛔ 2026-11-06 日本時間3時台に、例を流れの制御に通して見つけた：
+        # 2回目の言い方を1回目と同じ決め方（お客様の返事が言い切っているか）で選び、申し出の質問では「はい、それではパンフレットをお送りさせて
+        # いただきますね？」を続けて2回言っていた（言い切っていない答えのあとの言い方は1つずつしかない＝事実を伺う質問でも同じことが起きる）
+        from flowctl import Flow, Question, UNDECIDED
+        from meaning_judge import Reading
+        f = self.flow("G8n")
+        r1 = self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+        self.assertEqual(r1["say"], "それではパンフレットをお送りさせていただきますね？")
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね"); f.on_check("judge", Reading(UNDECIDED))
+        r2 = f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})
+        self.assertEqual((r2["result"], r2["after"]), ("confirm_required", "settle"))
+        self.assertNotEqual(r2["say"], r1["say"])
+        self.assertEqual(r2["say"], "それではパンフレットをお送りして大丈夫だということでよろしいでしょうか？")
+        # 事実を伺う質問：お客様の返事が言い切っていなくても（「〜かな」）、1回目の「それでは…記録させていただいて大丈夫でしょうか？」を繰り返さない
+        g = Flow([Question("G13", "複合機は現在リースでご利用でしょうか？", "yes_no", conditions=self.YN, asks_fact=True,
+                           meanings={"はい": "複合機は現在リースでご利用ということ", "いいえ": "複合機は現在リースでご利用ではないということ"})])
+        r1 = self.hedged(g, "G13", "はい", "リースだったと思います。")
+        self.assertEqual(r1["say"], "それでは複合機は現在リースでご利用ということで記録させていただいて大丈夫でしょうか？")
+        g.on_callee(); g.on_heard("リースだったかな。"); g.on_check("judge", Reading(UNDECIDED))
+        r2 = g.apply("confirm_field", {"question_id": "G13", "result": "affirmed"})
+        self.assertEqual((r2["result"], r2["after"]), ("confirm_required", "settle"))
+        self.assertEqual(r2["say"], "それでは複合機は現在リースでご利用ということでよろしいでしょうか？")
+
     def test_unclear_answer_is_asked_toward_the_goal(self):
         # どちらとも取れる答え（「大丈夫です。」・AIは目的から遠ざかる「いいえ」と受け取った）は、目的に進む向きで伺う。それに「いえ」と言われたら、
         # 遠ざかる向きの言葉で言い直さずに「承知しました。」で次へ（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない」）

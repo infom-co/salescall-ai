@@ -4412,12 +4412,18 @@ class Flow:
             return self._check_again(qid, why, reported, back)
         if q.required and it.corrections < self.limits.after_correction and (q.type not in CHOICE_TYPES or back in q.conditions + (ANY, NONE)):
             it.corrections += 1
-            return self._check_again(qid, why, reported, back)
+            return self._check_again(qid, why, reported, back, final=True)
         it.set("unresolved", f"{why}（言い直しへの返事「{(self.callee_said or '')[:20]}」・AIは「{label(reported)}」と受け取った）・確かめがそろわない")
         return self._dash(qid)
 
-    def _check_again(self, qid: str, why: str, cond: str | None, back: str | None) -> dict:
-        """確かめがそろわなかった答えを、そのまま受け取らずに言い直して確かめる（選択肢の型は back の意味で＝判定が選択肢を選んでいれば判定のほう）。"""
+    def _check_again(self, qid: str, why: str, cond: str | None, back: str | None, final: bool = False) -> dict:
+        """確かめがそろわなかった答えを、そのまま受け取らずに言い直して確かめる（選択肢の型は back の意味で＝判定が選択肢を選んでいれば判定のほう）。
+        final＝言い直しへの返事がそろわず、もう1回だけ言い直す（2回目の確かめ＝_confirm_again）：最終的に確かめる言い方（AFTER の settle）。
+        ✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」・2026-10-31 の夜 ユーザー：「『それでは…ということで
+        よろしいでしょうか？』は矛盾や言い直しの答えを最終的に確認する場合です。」。⛔ 2026-11-06 日本時間3時台に、例を流れの制御に通して見つけた：
+        2回目の言い方を1回目と同じ決め方（お客様の返事が言い切っているか）で選んでいた＝言い切っていない答えのあとの言い方は1つずつしかないので、
+        申し出の質問では「はい、それではパンフレットをお送りさせていただきますね？」を続けて2回言っていた（事実を伺う質問でも、返事が言い切って
+        いなければ同じ）"""
         it, q = self.items[qid], self.questions[qid]
         if not restates(q):
             # 言い直さない質問（ほかのご希望 W1・伺い方 C11・ご承認いただけなかったときの N1〜N3）は、確かめがそろわなくても言い直さない（どの段でも＝CL-1 の
@@ -4455,7 +4461,7 @@ class Flow:
         #    食い違いがきっかけなので、言い切っていない答えの言い方にならなかった）
         # 会話になっていない返事に意味の答えがあるとき・前の話の答えで補うときは「それでは…ということでよろしいでしょうか？」（矛盾や言い直しの答えを
         # 最終的に確かめる＝✅ 2026-10-31 の夜 ユーザー。その前の「(イ)」の「念のため…でよろしかったでしょうか？」は、確かめるまでもない復唱の言い方）
-        if why.startswith((TALK_WHY, PRIOR_WHY)):   # 矛盾した答え・前の話で補う答えを最終的に確かめる（AFTER の settle）
+        if final or why.startswith((TALK_WHY, PRIOR_WHY)):   # 2回目の確かめ・矛盾した答え・前の話で補う答えを最終的に確かめる（AFTER の settle）
             return self._ask_confirm(qid, after="settle")
         if why.startswith(END_DOUBT_WHY) and q.type in CHOICE_TYPES and q.doubt_words.get(it.condition):
             return self._ask_confirm(qid, after="end_doubt")   # いまの話の向きを伺う（取込の言葉が無ければ、曖昧な答えと同じ確かめ）
