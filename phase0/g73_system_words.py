@@ -15,7 +15,7 @@ import functools
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from flowctl import HEAR_OK, UNDECIDED, WISH_OTHER, callback_question, hear_choices
+from flowctl import HEAR_OK, UNDECIDED, WAIT_KINDS, WISH_OTHER, callback_question, hear_choices
 
 # 作り手（判定の顔ぶれ＝meaning_judge.members(JUDGE2) と 3.5 Flash Lite に入れない）。✅ 2026-11-03 日本時間2時41分10秒 ユーザー「はい」＝
 # 2人目の作り手を 3.7 Flash（Google の混雑で答えなかった）から Claude Haiku 5.5 に替える（Sonnet は判定に入っているので作り手にしない。
@@ -82,11 +82,14 @@ def wish_scenes(qmap: dict) -> dict:
 def _wish_sets() -> list[dict]:
     """W1：元の質問へのきっかけの答えのあとに伺う、ほかのご希望の質問の文・選択肢ごとの意味（流れの制御の _wish_choices）と、決められない一言・前の言葉。"""
     from g53_meaning import question_map
+    from meaning_judge import ANSWER_KINDS
     out = []
     for key, (of, w, said) in wish_scenes(question_map()).items():
         kinds = {c: w.meanings.get(c, c) for c in w.conditions}
         kinds[WISH_OTHER] += WISH_OTHER_NOTE
         kinds[UNSURE] = WISH_UNSURE
+        # 会話2（✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒 ユーザー）：待つ・かけ直すの言葉も作る。説明は判定に見せる文と同じ1か所（meaning_judge.ANSWER_KINDS）
+        kinds |= {k: ANSWER_KINDS[k] for k in WAIT_KINDS}
         out.append({"set": w.id, "qid": key, "question": w.text, "scene": f"こちらが「{of.text}」と伺ったところ、お客様が「{said}」と答えたので",
                     "kinds": kinds, "before": (said,)})
     return out
@@ -160,6 +163,23 @@ def _request(scenes: list[dict]) -> tuple[str, dict]:
             {"type": "object", "properties": props, "required": list(props), "additionalProperties": False})
 
 
+# 1回の問い合わせに入れる種類の数の上限（場面の区切り＝_in_batches の1か所）。⛔ 2026-11-06 日本時間2時台：W1 の2つの場面（13種類ずつ）を1回で頼むと、
+# Claude Haiku 5.5 が「The compiled grammar is too large」（答えの形の指定が大きすぎる）で断った。1つの場面は分けない（場面ごとにそろえる＝_kept）
+MAX_KINDS_PER_CALL = 16
+
+
+def _in_batches(ask, scenes: list[dict]) -> list[dict]:
+    """作り手への問い合わせ ask を、種類の数が MAX_KINDS_PER_CALL を超えないように場面を区切って順に出し、言葉をつなぐ（唯一の場所＝両方の作り手）。"""
+    out, batch, n = [], [], 0
+    for sc in scenes:
+        if batch and n + len(sc["kinds"]) > MAX_KINDS_PER_CALL:
+            out += ask(batch)
+            batch, n = [], 0
+        batch.append(sc)
+        n += len(sc["kinds"])
+    return out + (ask(batch) if batch else [])
+
+
 def _gemini_schema(js: dict):
     """答えの形（JSON の形）を Gemini の形に（_request の1か所から作る）。"""
     from google.genai import types
@@ -169,7 +189,11 @@ def _gemini_schema(js: dict):
 
 
 def _ask(client, model: str, scenes: list[dict]) -> list[dict]:
-    """Gemini（3.8 Flash）に作らせる。"""
+    """Gemini（3.8 Flash）に作らせる（場面の区切りは _in_batches）。"""
+    return _in_batches(functools.partial(_ask_once, client, model), scenes)
+
+
+def _ask_once(client, model: str, scenes: list[dict]) -> list[dict]:
     from google.genai import types
     text, js = _request(scenes)
     r = client.models.generate_content(model=model, contents=text,
@@ -180,7 +204,11 @@ def _ask(client, model: str, scenes: list[dict]) -> list[dict]:
 
 def _ask_anthropic(client, model: str, scenes: list[dict]) -> list[dict]:
     """Anthropic（Claude Haiku 5.5）に作らせる：同じ文と答えの形（_request）を、答えの形を指定した道具の呼び出しで返させる。料金は判定と同じ
-    帳簿（meaning_judge.SPEND・上限は --budget-yen）。"""
+    帳簿（meaning_judge.SPEND・上限は --budget-yen）。場面の区切りは _in_batches。"""
+    return _in_batches(functools.partial(_ask_anthropic_once, client, model), scenes)
+
+
+def _ask_anthropic_once(client, model: str, scenes: list[dict]) -> list[dict]:
     from meaning_judge import SPEND
     text, js = _request(scenes)
     SPEND.check()

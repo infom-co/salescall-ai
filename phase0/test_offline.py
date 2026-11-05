@@ -12481,6 +12481,12 @@ class NoneOfThemTest(unittest.TestCase):
         f, _ = self.wished(False)
         r = said(f, "妻に相談してからにしたいので、また後で電話してもらえますか。", LATER)
         self.assertEqual(heard(r), "承知しました。いつ頃おかけ直しさせていただきましょうか？")
+        # お客様のほうから連絡するという折り返しの申し出（判定は「あとでかけ直す」・会話AIは申し出つきで報告）：申し出を捨てずに、今の折り返しの応じ方
+        # （お礼の一言のあと、こちらからかけ直す形で伺う＝✅ 2026-10-22 ユーザー）。⛔ 11-06 2時台に見つけた：待つ・かけ直すを決める1か所が申し出を捨てていた
+        from phrases import OFFER_THANKS
+        f, _ = self.wished(False)
+        r = said(f, "あとでこちらからかけ直しますね。", LATER, "request_callback", why="later", offer="callback")
+        self.assertIn(OFFER_THANKS, json.dumps(r, ensure_ascii=False))
         # (3) 待つのか、かけ直すのか、言葉から決まらない：1回だけ伺う
         f, _ = self.wished(False)
         r = said(f, WORDS, WAIT_OR_LATER, "request_callback", why="later")
@@ -15067,6 +15073,21 @@ class ImportAITest(unittest.TestCase):
 
 
 class G73WordsTest(unittest.TestCase):
+    def test_requests_are_split_by_kinds_without_splitting_a_scene(self):
+        # ⛔ 2026-11-06 日本時間2時台：W1 の2つの場面（13種類ずつ）を1回で頼むと、Haiku 5.5 が答えの形の指定が大きすぎると断った ⇒ 1回の問い合わせの種類の数に
+        # 上限を置き、場面は分けずに区切る（_in_batches の1か所。両方の作り手が通る）
+        import g73_system_words as g
+        calls = []
+        scenes = g._scenes()
+        got = g._in_batches(lambda b: calls.append([sc["question"] for sc in b]) or [len(b)], scenes)
+        self.assertEqual(sum(got), len(scenes))
+        self.assertEqual([q for c in calls for q in c], [sc["question"] for sc in scenes])   # 全部の場面を1回ずつ・順のまま
+        by_q = {sc["question"] + str(sc.get("asked")) + str(list(sc["kinds"])): len(sc["kinds"]) for sc in scenes}
+        n = {sc["question"]: len(sc["kinds"]) for sc in scenes}
+        for c in calls:
+            self.assertTrue(len(c) == 1 or sum(n[q] for q in c) <= g.MAX_KINDS_PER_CALL, c)
+        self.assertGreater(len(calls), 1)
+
     """G-73 の試しの言葉（✅ 2026-11-02 日本時間23時15分58秒 ユーザー「特にない」＝正解は作らせた種類のまま）を、測りの道具が読む形。"""
 
     WORDS = [{"set": "N1", "question": "ご納得いただけなかった点はどの部分になりますでしょうか？", "kind": "点を言った", "text": "料金が気になって。",
@@ -15126,8 +15147,10 @@ class G73WordsTest(unittest.TestCase):
             class models:
                 @staticmethod
                 def generate_content(model, contents, config):
-                    return type("R", (), {"text": json.dumps({str(i): {k: [f"{i}{k}{n}" for n in range(4)] for k in s["kinds"]}
-                                                                for i, s in enumerate(sc, 1)})})()
+                    # 受け取った答えの形の指定（場面の番号 ⇒ 種類）のとおりに返す（問い合わせは場面を区切って出す＝g73_system_words._in_batches）
+                    props = config.response_schema.properties
+                    return type("R", (), {"text": json.dumps({i: {k: [f"{contents[:8]}{i}{k}{n}" for n in range(4)] for k in p.properties}
+                                                                for i, p in props.items()})})()
         got = g._ask(C, "m", sc)
         self.assertEqual({w["asked"] for w in got if w["set"] == "HEAR_CALL"}, {False, True})
         self.assertEqual({w["truth"] for w in got if w["kind"] == g.CONFUSING}, {HEAR_OK})

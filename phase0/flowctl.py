@@ -5976,7 +5976,7 @@ class Flow:
             return self._calling_reported("away", why=why, offer=offer)
         if why == "departed":
             return self._reject(f"いまお話ししている方とは、もう繋がっています（{CALLBACK_LABEL['departed']}、ではありません）。")
-        if (w := self._wait_now()) is not None and (routed := self._wait_route(w, {"ai"} | self._wait_read())) is not None:
+        if (w := self._wait_now()) is not None and (routed := self._wait_route(w, {"ai"} | self._wait_read(), why=why, offer=offer)) is not None:
             return routed   # 決めるのは判定（会話AIの申し出は判定を待つきっかけだけ＝待つ読みなら待つ・決まらなければ1回伺う）
         if self.callback_why and not (why == "other_means" and self.callback_why != "other_means"):
             # 同じ申し出は1通話1回（ほかの手段の申し出だけは、かけ直しの質問の途中でも受け取る＝「戻りは分からないので、メールで」）
@@ -6569,15 +6569,17 @@ class Flow:
         """待つ・かけ直すと読んだ判定の名前（かけ直しの記録の read＝通話後の検証が、何で決めたかを見る）。"""
         return {k for k in JUDGMENTS if self.heard_check.get(k) in WAIT_KINDS}
 
-    def _wait_route(self, w: str, read: set[str]) -> dict | None:
+    def _wait_route(self, w: str, read: set[str], why: str = "later", offer: str | None = None) -> dict | None:
         """待つ・かけ直すの読み w（wait_reading）に応じる唯一の場所（答えの報告・言い直しへの返事・かけ直しの申し出のどれから来ても同じ＝会話AIの報告は
         判定を待つきっかけだけ）：取り次ぐ・代わる・理由を言わずに待つ（HOLD）＝黙って待つ／この電話の間に確かめて戻る（HOLD_BACK）＝「はい、それではこのまま
         お返事を待っております。」のあと待つ／あとでかけ直す（LATER）＝かけ直しの申し出（答えの段の一言「承知しました。いつ頃おかけ直しさせていただき
         ましょうか？」）／決まらない（WAIT_OR_LATER）＝1回だけ伺う（_wait_or_later）。待つか・かけ直すかを伺っている途中なら、その答えとして決める。
         かけ直しの質問の途中（もう申し出を受けている）の「あとで」・決まらない読みは、ここでは当てない（None＝ふつうの答えの決まりへ）。
+        かけ直す側は、会話AIがかけ直しの申し出で報告した理由・申し出（why・offer）のまま、かけ直しの1か所 _callback へ（折り返しの申し出のお礼など）。
+        ⛔ 11-06 2時台に見つけた：申し出を渡さず、お客様からの折り返しの申し出にお礼の一言を流さない作りだった。
         ✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒 ユーザー（会話2）「(2) …OK」「待つか、かけ直すかが言葉から決まらないとき：(ア)」"""
         if self.wait_q is not None:
-            return self._wait_or_later_decided("", CALL_LATER if w == LATER else WAIT_NOW)
+            return self._wait_or_later_decided("", CALL_LATER if w == LATER else WAIT_NOW, why=why, offer=offer)
         if w == HOLD:
             return self._hold()
         if w == HOLD_BACK:
@@ -6585,7 +6587,7 @@ class Flow:
         if self.callback_why or self.phase == "calling":
             return None
         if w == LATER:
-            return self._callback("later", read)
+            return self._callback(why, read, offer=offer)
         return self._wait_or_later()
 
     def _wait_or_later(self) -> dict:
@@ -6603,7 +6605,7 @@ class Flow:
         self._put_first(q.id)
         return self._advance("", handled=True)
 
-    def _wait_or_later_decided(self, prefix: str, chosen: str | None = None) -> dict:
+    def _wait_or_later_decided(self, prefix: str, chosen: str | None = None, why: str = "later", offer: str | None = None) -> dict:
         """待つか、かけ直すかを伺った答えが決まった（唯一の入口＝_advance・_wait_route）：かけ直す＝かけ直しの申し出（あとで）として、答えの段の一言で伺う／
         このまま待つ・はっきりしない（わからない・答えたくない・聞き取れない）＝伺う前の質問へ戻り、「はい、それではこのままお返事を待っております。」のあと
         待つ（お言葉は「待って」なので、言葉どおり待つ＝2回は伺わない。戻られたお言葉は、伺う前の質問の答えとして受け取る）。"""
@@ -6614,7 +6616,7 @@ class Flow:
         (self.current, self.awaiting_confirm, self.awaiting_say), self.wait_back = self.wait_back, None
         if chosen == CALL_LATER:
             read = {"ai"} | {k for k in JUDGMENTS if self.taken.get(qid, {}).get("check", {}).get(k) == CALL_LATER}
-            return self._callback("later", read, prefix=prefix)
+            return self._callback(why, read, prefix=prefix, offer=offer)
         r = self._hold(back=True)
         return r | {"message": prefix + r["message"]}
 
