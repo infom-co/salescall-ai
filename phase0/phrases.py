@@ -268,6 +268,23 @@ CALLBACK_ASK_OTHER_WAYS_AGAIN = {"sms": "それではLINEのIDとメールのど
 # callback_（役目）_answering。頭の「承知しました。」は相づちの録音）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「…妻に確認するから、また、後からや
 # 別日程でかけ直してという意味であれば、「（はい、）承知しました。いつ頃おかけ直しさせていただきましょうか？」のように一旦終えると良いでしょう。」・
 # 11-06 0時44分31秒「「いつ頃おかけ直しさせていただきましょうか？」：この例なら、(イ) 答えの段のかけ直しすべてで大丈夫」（お呼びする段は CALLBACK_ASK のまま）
+# 言い直さない質問（ほかのご希望・LINE の伺い方・ご承認の手順）に、会話がつながらない答え（判定とそろわない答え）をいただいたとき、判定がいちばん近いと
+# 読んだ選択肢で意味合いを尋ねる一言（flowctl.Flow._ask_confirm の sense。{said}＝お客様の言葉・{words}＝候補の言葉＝flowctl.sense_words）。お客様の言葉が
+# 長いとき（SENSE_SAID_MAX 字より長い）はそのまま引かずに「今おっしゃったのは」。✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「電話とメールのほかにご希望は？と
+# 聞いているのに、それで結構ですとは、日本語として会話が繋がっておらず、聞き取れていないのか、こちらが聞き取り間違いをしていると考えるべきでしょう。「結構です
+# とおっしゃったのは、電話で結構です(大丈夫です)という意味合いでしょうか？」のような尋ねの一言がいるんじゃないでしょうか？」・23時56分48秒「ア」
+SENSE_ASK = "{said}とおっしゃったのは、{words}という意味合いでしょうか？"
+SENSE_ASK_NOW = "今おっしゃったのは、{words}という意味合いでしょうか？"
+SENSE_SAID_MAX = 15
+SENSE_NONE = "ほかにご希望は特に無い"
+
+
+def sense_ask(said: str | None, words: str) -> str:
+    """意味合いを尋ねる一言（唯一の場所）：お客様の言葉（文の終わりの記号は外す）が短ければ引き、長ければ「今おっしゃったのは」。"""
+    s = (said or "").strip().rstrip("。．.！!？?、 　")
+    return SENSE_ASK.format(said=s, words=words) if s and len(s) <= SENSE_SAID_MAX else SENSE_ASK_NOW.format(words=words)
+
+
 CALLBACK_ASK_ANSWERING = {"later_time": "いつ頃おかけ直しさせていただきましょうか？"}
 CALLBACK_ASK_RESUMED = {"not_agreed": "前回お伺いした件で" + CALLBACK_ASK["not_agreed"]}
 # ほかのご希望でご連絡の方法までは伺えて、その連絡先を伺う前に切れた電話の続き（前の通話の答えの "wish_means"＝flowctl.resumed_step）。✅ 2026-11-04 日本時間19時26分

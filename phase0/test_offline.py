@@ -3496,7 +3496,11 @@ class AmbiguousAnswerTest(unittest.TestCase):
         off.prior = "無い"
         f.on_callee(); f.on_heard("LINEならいいです。"); f.on_check("judge", off)
         r = f.apply("record_answer", {"question_id": "W1", "condition_id": "LINEでの連絡", "value": "LINE"})
-        self.assertEqual((r["result"], r["question_id"], r["ask_reason"]), ("ask_back", "W1", "form"), r)
+        # ⇒ ✅ 2026-11-05 日本時間23時56分48秒「(1) 会話1：…候補の選び方：ア」：判定の読みに選択肢（「LINEでの連絡」）があれば、聞き直さずに意味合いを尋ねる
+        # （flowctl.asks_sense の1か所。測りの数え flow_act も同じ）。判定の読みが決められないなら、今までどおり質問から聞き直す（上の N2）
+        self.assertEqual((r["result"], r["say"]), ("confirm_required", "LINEならいいですとおっしゃったのは、LINEで大丈夫という意味合いでしょうか？"), r)
+        from g53_meaning import SENSE
+        self.assertEqual(flow_act({"set": "N1"}, f.questions["W1"], "LINEでの連絡", True, "無い"), SENSE + "LINEでの連絡")
 
     def test_prior_without_any_judge_reading_is_compared_with_the_ai_report(self):
         # 組の判定がどれも答えられなかったときも、前の話の答えは確かめ（flowctl.PRIOR_CHECK）として届き、会話AIの報告と比べる（Flow._prior の
@@ -12412,6 +12416,43 @@ class NoneOfThemTest(unittest.TestCase):
         self.assertEqual([askitems.agreed(x, False) for x in ([True, True], [True, False], [True, None], [True])], [True, False, False, False])
         self.assertEqual([askitems.agreed(x, True) for x in ([False, False], [True, False], [None, None])], [False, True, True])
 
+    def test_unclear_answer_to_a_question_not_restated_asks_what_it_meant(self):
+        # 会話1：✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「電話とメールのほかにご希望は？と聞いているのに、それで結構ですとは、日本語として会話が
+        # 繋がっておらず、聞き取れていないのか、こちらが聞き取り間違いをしていると考えるべきでしょう。「結構ですとおっしゃったのは、電話で結構です(大丈夫です)
+        # という意味合いでしょうか？」のような尋ねの一言がいるんじゃないでしょうか？」・23時56分48秒「(1) 会話1：意味合いを尋ねる一言の、候補の選び方：ア」
+        # ⇒ 言い直さない質問の答えが判定とそろわないとき、判定がいちばん近いと読んだ選択肢で意味合いを尋ねる（候補の言葉は sense_words の1か所）。
+        # 近い選択肢が読めなければ（決められない）今の「恐れ入ります。（聞くこと）をもう一度…」
+        from flowctl import UNDECIDED, WISH_NONE
+        from meaning_judge import Reading
+        from phrases import ACK
+
+        def said(f, words, judged, reported, op="record_answer", **kw):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(judged))
+            return f.apply(op, {"question_id": "W1", **({"condition_id": reported} if reported is not None else {}), **kw})
+        f, _ = self.wished(False)
+        r = said(f, "それで結構です。", "電話", WISH_NONE)
+        self.assertEqual((r["result"], ACK[r["ack"]] + r["say"]),
+                         ("confirm_required", "はい、それで結構ですとおっしゃったのは、電話で大丈夫という意味合いでしょうか？"))
+        # 「いえ、～という意味です。」と返していただいたら、その答えで受け取る（判定とそろえば）
+        r = said(f, "いえ、もう要らないという意味です。", WISH_NONE, None, op="confirm_field", result="corrected", correction=WISH_NONE)
+        self.assertEqual((r["question_id"], f.items["W1"].condition, f.end_reason), ("Q2", WISH_NONE, None))
+        # 近い選択肢が読めない（決められない）：今の聞き直し
+        f, _ = self.wished(False)
+        r = said(f, "それで結構です。", UNDECIDED, WISH_NONE)
+        self.assertEqual((r["result"], ACK[r["ack"]] + r["say"]), ("ask_back", "はい、恐れ入ります。ほかのご希望をもう一度お聞かせいただいてもよろしいでしょうか？"))
+        # 長いお言葉はそのまま引かず「今おっしゃったのは」。ご連絡の方法は「（方法）で大丈夫」・はい／いいえの選び直しは意味の言葉
+        f, _ = self.wished(False)
+        r = said(f, "まあ、そうですね、それでもう結構だと思っているんですけどね。", "LINEでの連絡", WISH_NONE)
+        self.assertEqual(r["say"], "今おっしゃったのは、LINEで大丈夫という意味合いでしょうか？")
+        f = self.way_flow()
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+        r = said(f, "それでいいです。", "やはり" + self.CALL_MEANINGS["はい"], WISH_NONE)
+        self.assertEqual(r["say"], "それでいいですとおっしゃったのは、担当者から詳しいご案内のお電話を差し上げてよろしいという意味合いでしょうか？")
+
+    def way_flow(self):
+        from flowctl import Flow, Question
+        return Flow([self.way_question(asks_way=False), Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+
     def test_callback_in_the_answer_stage_asks_when_to_call_again(self):
         # ✅ 2026-11-06 日本時間0時44分31秒 ユーザー：「「いつ頃おかけ直しさせていただきましょうか？」：この例なら、(イ) 答えの段のかけ直しすべてで大丈夫」
         # ⇒ 答えの段でかけ直しを申し出られたら、理由にかかわらず「承知しました。」＋「いつ頃おかけ直しさせていただきましょうか？」（共通の一言の録音
@@ -15106,8 +15147,10 @@ class G73WordsTest(unittest.TestCase):
                 m.patch("common.load_secret", lambda *a, **k: "k"):
             n = g.read_priors(N(sets=None, env=None, budget_yen=1, tag="x"), [it, {"set": "B", "qid": "G1", "text": "はい"}], qm)
         self.assertEqual((n, got, it[g.PRIOR_KEY]), (1, [(w.text, before)], "無い"))
-        self.assertEqual(g.flow_miss(it, w, "j") is not None, True)   # 前の話（無い）と食い違う ⇒ 質問から聞き直す（正解は受け取る）
-        self.assertEqual(g.step_act(it, w, "j"), g.ASK_AGAIN)
+        # 前の話（無い）と食い違う ⇒ 判定の読みの選択肢で意味合いを尋ねる（✅ 11-05 23時56分48秒「ア」。それまでは質問から聞き直す）。正解は受け取る＝要らない
+        # 尋ねとして外れに数える
+        self.assertEqual(g.flow_miss(it, w, "j") is not None, True)
+        self.assertEqual(g.step_act(it, w, "j"), g.SENSE + "LINEでの連絡")
         # 使い回す前の記録（前の言葉の無い N1 の言葉）にも、同じ1か所（g73_scene）で前の言葉を当てる
         from flowctl import callback_question
         n1 = callback_question("not_agreed")
@@ -15911,6 +15954,8 @@ class RemainingNineTest(unittest.TestCase):
         self.none_of_them(f)
         f.on_callee(); f.on_heard("LINEなら。"); f.on_check("judge", wish_label("email"))
         r = f.apply("record_answer", {"question_id": "W1", "condition_id": wish_label("line"), "value": "LINE"})
+        # 判定の読み（「メールでの連絡」）は、この W1 の選択肢に無い（元の質問の選択肢に「メール」があるので、W1 では選び直し「メール」）＝判定のいちばん近い
+        # 選択肢が読めない＝今までどおり質問から聞き直す（✅ 11-05 23時56分48秒「ア」の「近い選択肢が読めなければ」）
         self.assertEqual((r["result"], f.end_reason), ("ask_back", None))
         f = self.wish_flow(judging=False)
         self.none_of_them(f)
@@ -15935,7 +15980,9 @@ class RemainingNineTest(unittest.TestCase):
         f.apply("record_answer", {"question_id": "W1", "condition_id": wish_label("line"), "value": "LINE"})
         f.on_callee(); f.on_heard("IDで。"); f.on_check("judge", "メール")
         r = f.apply("record_answer", {"question_id": how, "condition_id": "ID"})
-        self.assertEqual((r["result"], "ということ" in (r.get("say") or "")), ("ask_back", False))
+        # 意味の言葉（判定に見せる説明）は言わず、お客様に言う候補の言葉で意味合いを尋ねる（✅ 11-05 23時56分48秒「ア」）
+        self.assertEqual((r["result"], r.get("say"), "ということ" in (r.get("say") or "")),
+                         ("confirm_required", "IDでとおっしゃったのは、メールからご招待で大丈夫という意味合いでしょうか？", False))
 
     def test_5_withdrawn_other_wish_takes_back_what_was_built_on_it(self):
         # (5) 受け取った W1（「LINEなら。」）が、遅れて届いた判定で食い違って渡さなくなったら、その答えの上に積んだ段（伺い方 C11・その連絡先）も渡さない：

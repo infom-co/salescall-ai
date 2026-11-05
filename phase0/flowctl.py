@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
@@ -606,6 +606,9 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          # 同じ項目を2度聞き違えた（名前の読みの3つ目の確かめ）：「申し訳ございません、」（重いほう）＋「改めまして…」
          "misheard_again": ("聞き違いのあと", "お詫びのあとの言い直し", "moushiwake_heavy"),
          "restated": ("言い直しのあと", "言い直しを受けて", "shouchi"),
+         # 言い直さない質問への、会話がつながらない答えの意味合いを尋ねる（Flow._check_again。phrases.SENSE_ASK）：「はい、」＋「それで結構ですとおっしゃったのは、
+         # 電話で大丈夫という意味合いでしょうか？」（✅ 2026-11-05 日本時間23時56分48秒 ユーザー「ア」）
+         "sense": ("会話がつながらない答えのあと", None, "hai"),
          "unreported": ("聞き取りにくかったあと", "念のための言い直し", "hai"),
          # 受け入れにも断りにも取れる答え（「大丈夫です」）の意味を、AIが受け取ったほうで確かめる：
          # 「はい、」＋「念のためご予約はお済みということでよろしいでしょうか？」（DESIGN.md 6-10 の (3)）
@@ -1698,6 +1701,9 @@ class Question:
     # でしょうか？」だと連絡手段を答える人はほぼいないと思うので、連絡ができないままで終わることになりますよ。」・23時19分06秒「案でOK　(2)ア」
     asks_way: bool = False
     offer_ways: tuple = ()
+    # 意味合いを尋ねる一言の候補の言葉（選択肢 → お客様に言う言葉。言い直さない質問のうち、作る callback_question が入れるもの＝W1 は元の質問から
+    # _wish_senses・LINE の伺い方 C11 は LINE_HOW_SENSES。入っていない選択肢・質問は尋ねずに聞き直す）
+    senses: dict = field(default_factory=dict)
     # 依頼者の最終目的の申し出か（業務設定＝CL-2。業務ごとに複数ありうる）と、その申し出を断る答え（選択肢の名前。取込で決める）。断られて目的が
     # 果たせなくなったら、途中で締め、その業務だけかけない（Flow._goals_lost。✅ 2026-11-01 日本時間20時56分・22時31分 ユーザー）
     final_goal: bool = False
@@ -1950,6 +1956,9 @@ WISH_OTHER, WISH_NONE = "ほかの希望を言った", "無い"
 # 選ばれたら、もし、携帯電話番号やメールを伺っていなければここで確認。」
 LINE_HOW = {"ID": ("id", "line"), "SMS": ("sms", "mobile"), "メール": ("email", "email")}
 LINE_HOW_UNSAID = "方法は言っていない"
+# LINE の伺い方（C11）の、意味合いを尋ねる一言の候補の言葉（Question.senses。言い方はご承認の「LINEのIDから登録かメールからご招待する方法」にそろえた＝
+# 11-05 日本時間1時19分47秒・1時29分06秒）
+LINE_HOW_SENSES = {"ID": "LINEのIDから登録で大丈夫", "SMS": "SMSからご招待で大丈夫", "メール": "メールからご招待で大丈夫"}
 # 続きの電話の始めのご説明の話し始めの言葉（「前回お伺いした（その点）の件ですが、」の頭。✅ 2026-11-04 日本時間19時26分 ユーザー「(A)…OK」＝Flow._point_note・
 # 受け取る所 _explain_problem の1か所）
 RESUMED_LEAD = "前回お伺いした"
@@ -2321,6 +2330,34 @@ def _wish_same_means(q: "Question", means: str) -> str | None:
     return next((c for c in _wish_picks(q) if means in means_in(_wish_pick_label(q, c))), None)
 
 
+def _wish_senses(of: "Question") -> dict:
+    """ほかのご希望（W1）の選択肢ごとの、意味合いを尋ねる一言の候補の言葉（お客様に言う言葉。W1 を作る callback_question が Question.senses に入れる唯一の
+    場所）：元の質問 of の選び直し（選ぶ質問の名詞の選択肢は「（選択肢）で大丈夫」、ほかは元の質問の意味の言葉）・ご連絡の方法（「（方法）で大丈夫」）・
+    無い（「ほかにご希望は特に無い」）。ほかの希望は中身が要るので入れない（尋ねずに質問から聞き直す）。"""
+    out = {}
+    for c in _wish_picks(of):
+        m = of.meanings.get(c)
+        words = f"{c}で大丈夫" if of.type == "choice" and _listable(c) else (m.removesuffix("ということ") if m else None)
+        if words:
+            out[_wish_pick_label(of, c)] = words
+    out.update({wish_label(k): f"{WISH_MEANS[k][0]}で大丈夫" for k in WISH_MEANS if _wish_same_means(of, k) is None})
+    out[WISH_NONE] = SENSE_NONE
+    return out
+
+
+def sense_words(q: "Question", c: str) -> str | None:
+    """意味合いを尋ねる一言（phrases.sense_ask）の候補の言葉＝お客様に言う言葉（唯一の読み口。無ければ None＝尋ねずに質問から聞き直す）。言い直さない質問の
+    意味の言葉は判定に見せる説明で、お客様に言う言葉ではない（CL-1 の 11-03 のご判断の (4)）ので使わず、作るときに入れたお客様に言う言葉（Question.senses）
+    だけを引く：ほかのご希望 W1（_wish_senses）・LINE の伺い方 C11（LINE_HOW_SENSES）。ご承認の手順（N1〜N3）は言葉がまだ無い＝今までどおり聞き直す。"""
+    return q.senses.get(c)
+
+
+def asks_sense(q: "Question", c: str | None) -> bool:
+    """言い直さない質問 q に、判定が選択肢 c と読んだ会話がつながらない答えをいただいたとき、聞き直さずに c で意味合いを尋ねるか（唯一の決まり＝流れの
+    制御 Flow._check_again・測りの数え g53_meaning.flow_act）。✅ 2026-11-05 日本時間23時56分48秒 ユーザー「(1) 会話1：…候補の選び方：ア」"""
+    return not restates(q) and c in q.conditions and sense_words(q, c) is not None
+
+
 def wish_option(q: "Question", means: str) -> str:
     """元の質問 q の W1 で、ご連絡の方法 means のご希望にあたる選択肢の名前（元の質問に同じ方法の選択肢があれば、それを選び直した名前・無ければ
     「（方法）での連絡」）。W1 を伺っているときのほかの手段の申し出（request_callback）を、W1 の答えとして受ける所（Flow._wish_reported）が使う。"""
@@ -2422,7 +2459,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # ⛔ 2026-11-05 日本時間2時05分37秒のご質問のあとの読み直しで見つけた：必須にしておらず、「LINEなら。」に判定が食い違っただけで、その場で締めていた
         return Question(qid, _wish_text(of, again), qtype, required=True, conditions=conds, meanings=meanings,
                         recording=other_wish_recording_id(of, again), topic=CALLBACK_TOPIC[role], callback=role, declines=(WISH_NONE,),
-                        firm_not_needed=True, of=of.id)
+                        firm_not_needed=True, of=of.id, senses=_wish_senses(of))
     # nth＝この通話で同じ質問を伺う何回目か（0から）：2回目からの言い方を順に回す（phrases.CALLBACK_ASK_AGAIN。録音は callback_（役目）_2 から）
     lines = (CALLBACK_ASK.get(role, ""), *CALLBACK_ASK_AGAIN.get(role, ()))   # 伝言の文などは言い方の表に無い（text で渡す）
     i = nth % len(lines)
@@ -2461,6 +2498,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # （11-03 20時48分「LINEアドレスを伺うというステップを忘れないように」）
         return Question(qid, text or lines[i], qtype, required=role == "line_how", conditions=tuple(meanings), recording=recording,
                         meanings=meanings, topic=CALLBACK_TOPIC[role], callback=role, declines=_ROLE_DECLINES.get(role, ()),
+                        senses={c: w for c, w in LINE_HOW_SENSES.items() if c in meanings} if role == "line_how" else {},
                         firm_not_needed=role in ("not_agreed", "other_point", "agreed_now", "line_how"), of=recap.id if recap is not None else "")
     return Question(qid, lines[i], qtype, required=role not in ("reachable_time", "ask_who", "ask_when", "not_agreed"), conditions=("答えた",),
                     topic=CALLBACK_TOPIC[role], callback=role, recording=recording)
@@ -4338,6 +4376,15 @@ class Flow:
                 it.set("empty", f"{why}・先に言われた答えなので受け取らず、質問を流す")
                 self.answer_held = None
                 return self._continue([], "")
+            # 判定がいちばん近いと読んだ選択肢（back＝宣言した選択肢）があれば、聞き直さずに、その選択肢で意味合いを尋ねる（1つの答えに1回。候補の言葉が
+            # 作れなければ聞き直す）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー（会話1）・23時56分48秒「ア」（お言葉は phrases.SENSE_ASK）
+            # 候補は判定自身が選んだ選択肢だけ（判定が決められない・待つと読んだときの back は会話AIの報告＝判定の読みではない。⛔ 入れる途中、流れの制御に
+            # 通して見つけた：決められないと読んだ「それで結構です。」に、会話AIの「無い」で尋ねていた）
+            judged = {str(v) for k in JUDGMENTS if (v := self.heard_check.get(k)) is not None}
+            if back in judged and not it.ambiguous_asked and asks_sense(q, back):
+                it.set("heard", f"{why}（「{(self.heard_said or '')[:20]}」）・判定のいちばん近い読み「{label(back)}」で意味合いを尋ねる")
+                it.condition, it.ambiguous_asked = back, True
+                return self._ask_confirm(qid, after="sense")
             return self._ask_again(qid, "form", why)
         # 会話になっていない返事（TALK_WHY）は、いつも確かめる答え（前の話と食い違う選択肢）があり、聞き違い・言い違いも確かめへの返事で分かる
         # （✅ 2026-10-30 ユーザー：「本当にお客様が『差し控えさせていただきます』なら会話になっていない。文字起こしが間違っている可能性も考えるべき」。判定に会話になっているかを答えさせていた
@@ -4524,6 +4571,13 @@ class Flow:
             if chosen is None:
                 return self._reject(f"{qid} は選択肢の質問です。{ARG_LABEL['correction']}には、相手の答えに合う選択肢の名前"
                                     f"（{'、'.join(q.labels)}）を入れて、もう一度報告してください。")
+            if not restates(q):
+                # 言い直さない質問（意味合いを尋ねた答え＝_check_again の sense）：直していただいた答えは、言い直して確かめずに、ふつうの答えを受け取る1か所
+                # （_op_record_answer）で受け取る（判定とそろえば受け取る・そろわなければ質問から聞き直す）。その質問の意味の言葉は判定に見せる説明で、お客様に
+                # 言う言葉ではない（⛔ 入れる途中、流れの制御に通して見つけた：「改めましてほかに希望は無い・やはり要らないということで大丈夫でしょうか？」と
+                # 言い直していた）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「そうすると、お客様が「いえ、～という意味です。」のように返してくれるのが一般的」
+                self.awaiting_confirm = None
+                return self._op_record_answer({"question_id": qid, "condition_id": chosen})
             if chosen in SYSTEM_CONDITIONS:
                 why, back = self._checks(q, chosen, policy=False, confirming=True)
                 if why:
@@ -6737,7 +6791,7 @@ class Flow:
         選択肢の型は、選んだ選択肢の意味の言葉で言い直す（choice_words。「念のためご予約はお済みということでよろしいでしょうか？」）。"""
         it, q = self.items[qid], self.questions[qid]
         choice = q.type in CHOICE_TYPES
-        if choice and (it.condition in q.away_answers or it.condition == NONE) and after != "end_doubt":
+        if choice and (it.condition in q.away_answers or it.condition == NONE) and after not in ("end_doubt", "sense"):
             # 目的から遠ざかる向きの選択肢は、その向きの言葉で言い直さない（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない
             # ように例を出して言っているよね！」＝「それでは、今月中のご導入は見送りとさせていただきますね？」は「わざわざ、獲得できそうなお客様を失いかねない
             # 確かめ」。明らかにお断りの方・怒っている方は除く＝その答えは言い直しを通らず、お断り・お詫びの締めの道へ行く）。いまの話の向きを伺う一言
@@ -6753,6 +6807,7 @@ class Flow:
         # 言い直す言葉：いまの話の向きを伺う言葉（end_doubt）・こちらがすることの言葉（hedged_do）は、選択肢ごとの取込の言葉をそのまま。
         # ほかは意味の言葉（choice_words）
         words = ((q.doubt_words[it.condition] + "ということ") if after == "end_doubt" else q.do_words[it.condition] if after == "hedged_do"
+                 else sense_words(q, it.condition) if after == "sense"
                  else choice_words(q, it.condition)) if choice else None
         if choice and words is None:
             # 選択肢の名前が返事の言葉だけ（「はい」「いいえ」）で、意味の言葉が取込で決まらなかった＝言い直せない（止めずに進める）。
@@ -6773,7 +6828,7 @@ class Flow:
         self.confirm_counts[situation] = n + 1
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
-        shown = (words if after in ("end_doubt", "hedged_do", "hedged_noted") else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
+        shown = (words if after in ("end_doubt", "hedged_do", "hedged_noted", "sense") else restate_words(words, self.heard_said)) if choice else (it.value or label(it.condition))
         said_as = spoken_clock(shown) if q.type in AMPM_TYPES and it.value else shown   # 時刻は「15日の14時、午後2時」の形で言う（値は変えない）
         if q.reading_of:
             shown = quote(it.value)
@@ -6782,6 +6837,8 @@ class Flow:
         # 名前の読みは、質問と同じ言い方で、直していただいた読みを言う（「改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？」）
         if q.reading_of:
             phrase = NAME_READING_ASK[q.reading_kind].format(v=shown)
+        elif after == "sense":
+            phrase = sense_ask(self.heard_said, shown)   # 「（お客様の言葉）とおっしゃったのは、（候補の言葉）という意味合いでしょうか？」
         elif choice:
             phrase = confirm_phrase(shown, situation, n, meaning=True, does=self.client_does)
         elif after in ("hedged_do", "hedged_fact"):

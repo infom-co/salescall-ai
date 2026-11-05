@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, CHOICE_TYPES, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, NONE, SYSTEM_CONDITIONS, Flow, Question,
+from flowctl import (ANY, CHOICE_TYPES, asks_sense, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, NONE, SYSTEM_CONDITIONS, Flow, Question,
                      off_talk, prior_answer, restates)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
@@ -557,6 +557,9 @@ def dangerous(it: dict, q: Question, key: str) -> bool:
 ASK_AGAIN, AFFIRMED, AFFIRMED_HEDGED, DENIED = "聞き直す", "認めた（受け取る）", "認めた（受け取る・曖昧の印）", "打ち消した（確かめ直す）"
 # 言い直しへの返事が会話になっていず、判定の読みに選択肢がある：その選択肢で、念のため確かめ直す（Flow._confirm_again ⇒ _check_again）
 RECHECK = "会話になっていない（念のため確かめ直す）"
+# 言い直さない質問への会話がつながらない答えで、判定の読みの選択肢で意味合いを尋ねる（flowctl.asks_sense の1か所＝Flow._check_again。✅ 2026-11-05 日本時間
+# 23時56分48秒 ユーザー「ア」）
+SENSE = "意味合いを尋ねる："
 
 
 def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
@@ -567,7 +570,9 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
     if got is None:
         return None
     if off_talk(q, got, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり。読みはいつも宣言した選択肢）
-        return ASK_AGAIN if not restates(q) else RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"
+        if not restates(q):
+            return SENSE + got if asks_sense(q, got) else ASK_AGAIN
+        return RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"
     if (pa := prior_answer(q, got, prior)) is not None:   # いまの言葉だけでは決められず、前の話の答えを確かめる（Flow._compare と同じ）
         return ASK_AGAIN if not restates(q) else f"念のため確かめる：{pa}"
     if it["set"] == "D":
@@ -586,7 +591,8 @@ def flow_wants(it: dict, q: Question) -> set[str]:
     """正解の表から決まる、流れの制御がすべきこと（どれをしても正しい）。会話になっていない返事（talk が False）は、言葉の意味の答えを念のため
     確かめる（言い直しへの返事なら確かめ直す）か、聞き直す。"""
     if talk(it) is False:
-        return {ASK_AGAIN} | {RECHECK if it["set"] == "D" else f"念のため確かめる：{a}" for a in accept(it) if a in q.conditions}
+        return {ASK_AGAIN} | {SENSE + a if asks_sense(q, a) else RECHECK if it["set"] == "D" else f"念のため確かめる：{a}"
+                              for a in accept(it) if a in q.conditions}
     h, e, ok = hedged(it), either(it), set()
     for a in accept(it):
         if it["set"] == "D":
