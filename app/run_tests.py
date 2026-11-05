@@ -2060,6 +2060,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " AND NEW.contact_id IS DISTINCT FROM salescall.task_dial_contact(NEW.task_id) THEN"
      " RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation', CONSTRAINT = 'dial_only_dialable_numbers'; END IF; RETURN NEW; END $$",
      ("tests.test_import.DialFixes.test_a_number_that_was_once_dialed_can_still_be_called_after_another_fix",)),
+    ("1つの版の後の版を2つにできる（0183 のつながりを1本にする約束を外す）",
+     "ALTER TABLE salescall.version_successions DROP CONSTRAINT version_successions_from_version_key",
+     ("tests.test_versions.Versions.test_derivations_form_one_line_and_the_newest_ready_one_is_adopted",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4610,6 +4613,37 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "    if not any(p.strip() for p in pages):\n", "    if False:\n", ("tests.test_source_check.ReadDocument.test_unreadable_files_are_refused_with_the_reason",)),
     ("PDF の文字の無いページを、文字にできなかった所に残さない", "src/salescall/core/import_files.py",
      "    problems = tuple(f\"{i} ページ目", "    problems = () and tuple(f\"{i} ページ目", ("tests.test_source_check.ReadDocument.test_each_kind_becomes_text",)),
+    # ── 版を足して、そろったら自動で替える（0183。2026-11-02 管理者 (h) の流れ「承認されたら…自動で新しい版に替えます。電話は止めません」）
+    ("後の版で話してよい声が減っても、自動で替える", "src/salescall/core/business_settings.py",
+     "            if not voices or not voices >= now_voices:\n", "            if not voices:\n",
+     ("tests.test_versions.Versions.test_a_later_version_with_fewer_voices_or_unfit_rows_is_not_adopted",)),
+    ("模擬通話の合格待ちになる後の版にも、自動で替える（電話が止まりうる）", "src/salescall/core/business_settings.py",
+     '            if quality_stage.start_kind(tx, c["v"]) not in ("already", "open") or assign_problems(tx, r["run_id"], c["v"]):\n',
+     '            if assign_problems(tx, r["run_id"], c["v"]):\n',
+     ("tests.test_versions.Versions.test_a_derived_version_is_adopted_only_when_it_can_speak_without_stopping_calls",)),
+    ("行を呼べない後の版も、自動で替えようとする", "src/salescall/core/business_settings.py",
+     '            if quality_stage.start_kind(tx, c["v"]) not in ("already", "open") or assign_problems(tx, r["run_id"], c["v"]):\n',
+     '            if quality_stage.start_kind(tx, c["v"]) not in ("already", "open"):\n',
+     ("tests.test_versions.Versions.test_a_later_version_with_fewer_voices_or_unfit_rows_is_not_adopted",)),
+    ("後の版がいくつもあるとき、いちばん前の版から替える", "src/salescall/core/business_settings.py",
+     '            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["version_id"],))\n',
+     '            " SELECT v, cause, note FROM chain ORDER BY depth", (r["version_id"],))\n',
+     ("tests.test_versions.Versions.test_when_several_later_versions_are_ready_the_newest_is_adopted",)),
+    ("版を足すとき、つながりの先でなく渡された版から作る（後の版の変更を失う）", "src/salescall/core/business_settings.py",
+     "    base = successor_tip(tx, version_id)\n", "    base = version_id\n",
+     ("tests.test_versions.Versions.test_derivations_form_one_line_and_the_newest_ready_one_is_adopted",)),
+    ("標準を使わない版にも、新しい標準の版を作る", "src/salescall/core/business_settings.py",
+     "        if used is None or used == std.standard_id:\n", "        if used == std.standard_id:\n",
+     ("tests.test_versions.Versions.test_a_new_standard_makes_a_new_version_for_the_businesses_that_use_it",)),
+    ("いまの標準の版がもうあっても、また新しい版を作る", "src/salescall/core/business_settings.py",
+     "        if used is None or used == std.standard_id:\n", "        if used is None:\n",
+     ("tests.test_versions.Versions.test_a_new_standard_makes_a_new_version_for_the_businesses_that_use_it",)),
+    ("新しい標準に合わず版を作れないとき、契約者に知らせない", "src/salescall/core/business_settings.py",
+     '            notify.emit(tx, "version_not_derived",', '            (lambda *a, **k: None)(tx, "version_not_derived",',
+     ("tests.test_versions.Versions.test_a_standard_that_does_not_fit_the_business_is_told_and_calls_go_on",)),
+    ("品質の段の始め方を、版を始めるときと別に決める（start_kind を見ずに最初の段を開く）", "src/salescall/core/quality_stage.py",
+     '    kind = start_kind(tx, version_id)\n    if kind != "open":\n        return kind\n', "",
+     ("tests.test_quality.Mock.test_first_business_of_a_client_waits_for_the_mock",)),
 )
 
 

@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import unicodedata
@@ -39,7 +40,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, attempts, business_rules, calendar, call_report, calling_hours, quality_stage, readings
+from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, notify, quality_stage,
+                            readings)
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
@@ -1557,18 +1559,129 @@ def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:
     return sum(1 for r in rows if needs.missing(name=r["target_name"], role=r["target_role"]) is not None)
 
 
+def assign_problems(tx: Tx, run_id: UUID, version_id: UUID) -> list[str]:
+    """その実施回にその版を割り当てられない理由（割り当てられれば空。決めるのはここだけ＝`assign` と、版を自動で替える `adopt_ready`）。
+    中身・業務の決まりが確かめに通らない版は、読むとき（`load`）に SettingsInvalid。"""
+    s = load(tx, version_id)                         # 中身・業務の決まりが確かめに通る版だけ
+    missing = _open_tasks_missing(tx, run_id, s.target_needs())
+    if not missing:
+        return []
+    return [f"この版は、目的のお客様を{'名前' if s.target_needs().name else '役職'}で呼びますが、"
+            f"この実施回のまだ終えていない行のうち {missing} 行に、その列がありません。"
+            "この版は、その列のある一覧を取り込んだ新しい実施回に割り当ててください（取り込んだ行は変えないため、"
+            "同じ実施回に取り込み直しても足せません）"]
+
+
+# ── 版を足して、そろったら自動で替える（1か所。DESIGN.md 3-8-3 の (5)・0183）
+#    ✅ 2026-11-02 管理者：(h) の流れ「新しい版の録音が承認されるまでは、今の版のまま電話を続けます。承認されたら、その業務の実施回を
+#    自動で新しい版に替えます。電話は止めません。」
+SUCCESSION_CAUSES = {"standard": "標準の想定問答が新しくなった", "solution": "依頼者の解決策を想定問答に足した",
+                     "override": "契約者が上書きを変えた"}   # 0183 の CHECK と同じ
+KEEP = "keep"   # derive の standard：元の版が指す標準の版のまま
+
+
+def successor_tip(tx: Tx, version_id: UUID) -> UUID:
+    """その版から、版のつながり（version_successions）をたどった、いちばん後の版（後の版が無ければ、その版）。"""
+    row = tx.one(
+        "WITH RECURSIVE chain(v, depth) AS (SELECT %s::uuid, 0"
+        "  UNION ALL SELECT s.to_version, c.depth + 1 FROM salescall.version_successions s JOIN chain c ON s.from_version = c.v)"
+        " SELECT v FROM chain ORDER BY depth DESC LIMIT 1", (version_id,))
+    return row["v"]
+
+
+def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str, Any]], *, cause: str, note: str,
+           standard_id: UUID | str | None = KEEP) -> UUID:
+    """今の版から、変えたところだけ違う新しい版を作る（1か所。きっかけは SUCCESSION_CAUSES）。元にするのは、その版のつながりの
+    いちばん後の版（`successor_tip`。まだ割り当てていない後の版の変更を失わない＝つながりは1本の列。データベースも、1つの版の後の版を
+    1つにする）。change＝元の版の中身（写し）を受けて、新しい版の中身を返す。standard_id＝重ねる標準の版（KEEP＝元の版のまま・LATEST＝
+    いまの標準）。確かめは新しい版を作るのと同じ `save_version`（通らなければ SettingsInvalid。何も書かない）。名前の読みは引き継ぐ。
+    新しい版を返す。実施回に割り当てるのは `adopt_ready`（そろってから）。"""
+    if cause not in SUCCESSION_CAUSES:
+        raise ValueError(f"版を足すきっかけは {list(SUCCESSION_CAUSES)} のどれかです（{cause!r}）")
+    if not note.strip():
+        raise ValueError("何を変えたかを書いてください")
+    base = successor_tip(tx, version_id)
+    old = load(tx, base)
+    business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (base,))["business_id"]
+    new = save_version(tx, business, change(copy.deepcopy(old.raw)),
+                       standard_id=old.standard_id if standard_id == KEEP else standard_id)
+    from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
+    recordings.carry_readings(tx, base, new)
+    tx.execute("INSERT INTO salescall.version_successions (tenant_id, client_id, business_id, from_version, to_version, cause, note,"
+               "                                         recorded_by)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, salescall.cur_actor())",
+               (business, base, new, cause, note.strip()))
+    return new
+
+
+def _versions_in_use(tx: Tx) -> list[dict[str, Any]]:
+    """まだ終えていない行のある実施回と、その今の版（取引の依頼者の範囲）。"""
+    return tx.all(
+        "SELECT r.run_id, salescall.run_current_version(r.run_id) AS version_id FROM salescall.runs r"
+        " WHERE salescall.run_current_version(r.run_id) IS NOT NULL"
+        "   AND EXISTS (SELECT 1 FROM salescall.tasks t LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id"
+        "               WHERE t.run_id = r.run_id AND (n.kind IS NULL OR n.kind <> 'end'))"
+        " ORDER BY r.run_id")
+
+
+def derive_for_standard(tx: Tx) -> list[UUID]:
+    """管理者が標準の想定問答を新しくしたら、使っている業務の版（まだ終えていない行のある実施回の今の版。標準を使う版だけ）の
+    つながりの先に、いまの標準に合わせた版を作る（きっかけ standard。1か所＝決まった間隔の仕事）。もう、いまの標準の版がつながりの先に
+    あれば何もしない。業務の設定と合わずに作れなければ、契約者に知らせて（同じ版と標準で1回）、今の版のまま電話を続ける。作った版を返す。"""
+    std = current_standard(tx)
+    if std.standard_id is None:
+        return []
+    made = []
+    for v in sorted({r["version_id"] for r in _versions_in_use(tx)}):
+        tip = successor_tip(tx, v)
+        used = tx.one("SELECT standard_id FROM salescall.business_versions WHERE version_id = %s", (tip,))["standard_id"]
+        if used is None or used == std.standard_id:
+            continue
+        try:
+            made.append(derive(tx, tip, lambda raw: raw, cause="standard", note="標準の想定問答の新しい版に合わせた",
+                               standard_id=std.standard_id))
+        except SettingsInvalid as e:
+            notify.emit(tx, "version_not_derived", key=f"version_not_derived:{tip}:{std.standard_id}",
+                        summary="標準の想定問答が新しくなりましたが、業務設定の新しい版を作れませんでした（今の版のまま電話は続けます）："
+                                + "／".join(e.problems), refs={"version_id": str(tip), "standard_id": str(std.standard_id)})
+    return made
+
+
+def adopt_ready(tx: Tx) -> list[tuple[UUID, UUID]]:
+    """まだ終えていない行のある実施回の今の版に、話せる後の版があれば、自動で割り当てる（1か所。決まった間隔の仕事）。話せる＝
+    (1) 今の版で話してよい声が、後の版でもすべて話してよい（声が減らない。今の版に声が無ければ1つ以上） (2) 品質の段で止まらずに
+    始められる（quality_stage.start_kind が already か open） (3) 割り当てられない理由が無い（`assign_problems`）。後の版がいくつも
+    続けば、話せるものの中でいちばん後の版。割り当ての記録は `assign`（理由に「自動」）。割り当てた (実施回, 版) を返す。"""
+    from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
+    done = []
+    for r in _versions_in_use(tx):
+        now_voices = set(recordings.ready_voices(tx, r["version_id"]))
+        chain = tx.all(
+            "WITH RECURSIVE chain(v, cause, note, depth) AS ("
+            "  SELECT to_version, cause, note, 1 FROM salescall.version_successions WHERE from_version = %s"
+            "  UNION ALL SELECT s.to_version, s.cause, s.note, c.depth + 1"
+            "  FROM salescall.version_successions s JOIN chain c ON s.from_version = c.v)"
+            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["version_id"],))
+        for c in chain:
+            voices = set(recordings.ready_voices(tx, c["v"]))
+            if not voices or not voices >= now_voices:
+                continue
+            if quality_stage.start_kind(tx, c["v"]) not in ("already", "open") or assign_problems(tx, r["run_id"], c["v"]):
+                continue
+            assign(tx, r["run_id"], c["v"], reason=f"自動：後の版の録音がそろった（{SUCCESSION_CAUSES[c['cause']]}：{c['note']}）")
+            done.append((r["run_id"], c["v"]))
+            break
+    return done
+
+
 def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str) -> str:
     """実施回に版を割り当てる（記録つき。DESIGN.md 3-2）。割り当てた版の、品質の段の始め方の答えを返す
     （quality_stage.prepare：opened／mock_needed／already／stopped_version）。中身の無い版は割り当てない。"""
     if not reason.strip():
         raise ValueError("版を割り当てる理由を書いてください")
-    s = load(tx, version_id)                         # 中身・業務の決まりが確かめに通る版だけ
-    missing = _open_tasks_missing(tx, run_id, s.target_needs())
-    if missing:                                      # 目的のお客様を呼べない行を残したまま、版を替えない（全部か、何も無いか）
-        raise SettingsInvalid([f"この版は、目的のお客様を{'名前' if s.target_needs().name else '役職'}で呼びますが、"
-                               f"この実施回のまだ終えていない行のうち {missing} 行に、その列がありません。"
-                               "この版は、その列のある一覧を取り込んだ新しい実施回に割り当ててください（取り込んだ行は変えないため、"
-                               "同じ実施回に取り込み直しても足せません）"])
+    problems = assign_problems(tx, run_id, version_id)
+    if problems:                                     # 目的のお客様を呼べない行を残したまま、版を替えない（全部か、何も無いか）
+        raise SettingsInvalid(problems)
     row = tx.one(
         "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason)"   # 番号は
         " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"                                                     # next_seq（0109）

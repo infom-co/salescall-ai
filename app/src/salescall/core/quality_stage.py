@@ -137,9 +137,10 @@ def _quality_stop(tx: Tx, business_id: UUID) -> dict[str, Any] | None:
         " ORDER BY s.event_id LIMIT 1", (business_id, list(STOP_CAUSES)))
 
 
-def prepare(tx: Tx, version_id: UUID) -> str:
-    """版を始める（実施回に版を割り当てたときに呼ぶ）。答え：already（もう段がある）／stopped_version（品質で止まった版そのもの。
-    再開しない）／mock_needed（模擬通話の合格を待つ）／opened（最初の段を開いた）。"""
+def start_kind(tx: Tx, version_id: UUID) -> str:
+    """その版を始めるとどうなるか（何も書かない。決めるのはここだけ＝`prepare` と、版を自動で替える business_settings.adopt_ready が読む）：
+    already（もう段がある）／stopped_version（品質で止まった版そのもの。再開しない）／mock_needed（模擬通話の合格を待つ）／open（最初の段を
+    開ける）。"""
     if current(tx, version_id) is not None:
         return "already"
     v = _version(tx, version_id)
@@ -149,6 +150,16 @@ def prepare(tx: Tx, version_id: UUID) -> str:
     passed_before = tx.one("SELECT 1 FROM salescall.mock_runs WHERE passed LIMIT 1") is not None   # この依頼者（取引の範囲）
     if stop is not None or not passed_before:
         return "mock_needed"
+    return "open"
+
+
+def prepare(tx: Tx, version_id: UUID) -> str:
+    """版を始める（実施回に版を割り当てたときに呼ぶ）。答え：already（もう段がある）／stopped_version（品質で止まった版そのもの。
+    再開しない）／mock_needed（模擬通話の合格を待つ）／opened（最初の段を開いた）。どれになるかは `start_kind` の1か所。"""
+    kind = start_kind(tx, version_id)
+    if kind != "open":
+        return kind
+    v = _version(tx, version_id)
     sizes = list(_get(tx, v, "quality.stage.sizes"))
     open_stage(tx, version_id, 1, sizes[0], evidence="この依頼者は模擬通話に合格済み（依頼者ごとに最初のみ）")
     return "opened"

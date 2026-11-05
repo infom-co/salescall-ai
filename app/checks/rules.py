@@ -536,6 +536,9 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("approval", "sent_back_on_spot"): frozenset({_CORE + "measure.py"}),     # 差し戻しを誤判定率へ：正解を入れる1か所だけ
     ("settle", "resettle"): frozenset({_CORE + "approval.py"}),              # 締め直し：答えの1か所だけ（締めの処理の中は、いつでもよい）
     ("next_action", "reopen_revoked"): frozenset({_CORE + "dnc.py", _SUP + "jobs.py"}),   # 取り消しで行を戻す：取り消しと決まった間隔の仕事
+    # 版を足して自動で替える（0183）：決まった間隔の仕事だけ（そろった後の版を割り当てる・標準に合わせた版を作る）
+    ("business_settings", "adopt_ready"): frozenset({_SUP + "jobs.py"}),
+    ("business_settings", "derive_for_standard"): frozenset({_SUP + "jobs.py"}),
     # AIの不具合での一時停止（2026-10-30 深夜 管理者のご決定。0155）：止まったAIを受け取るのは、会話の書き込み口だけ。止めるかを決める入口は、
     # 通話ごとの口と回線ごとの処理だけ。緊急の道での再開は、画面だけ（契約者・管理者）
     ("ai_troubles", "note"): frozenset({_CORE + "conversation_io.py"}),

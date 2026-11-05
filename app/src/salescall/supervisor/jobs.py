@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import (agents, answer_rate, attempts, backup, calendar, conversation_io, health, leases, measure, next_action,
-                            recordings, settle, usage, watch)
+from salescall.core import (agents, answer_rate, attempts, backup, business_settings, calendar, conversation_io, health, leases,
+                            measure, next_action, recordings, settle, usage, watch)
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, line, plugins, report
 from salescall.supervisor.links import Links
@@ -111,6 +111,16 @@ def reopen_revoked(ctx: Context) -> None:
     _each(ctx, "発信禁止の取り消しで行を戻す", _clients(ctx),
           lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, lambda tx: next_action.reopen_revoked(
               tx, cause="発信禁止の取り消し：終える前の予定に戻す")))
+
+
+def versions(ctx: Context) -> None:
+    """版を足して、そろったら自動で替える（依頼者ごと。DESIGN.md 3-8-3 の (5)・0183）：標準の想定問答が新しくなっていれば、使っている
+    業務の版のつながりの先に新しい版を作り（business_settings.derive_for_standard）、話せる後の版があれば実施回に割り当てる
+    （business_settings.adopt_ready。電話は止めない＝そろうまでは今の版のまま）。"""
+    def work(tx: Any) -> None:
+        business_settings.derive_for_standard(tx)
+        business_settings.adopt_ready(tx)
+    _each(ctx, "版を足して自動で替える", _clients(ctx), lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, work))
 
 
 def purge_utterances(ctx: Context) -> None:
@@ -264,6 +274,7 @@ def pc_watch(ctx: Context) -> None:
 # - stop_checks：確かめてよい時刻は停止の記録が決める（ここは、その時刻を見に行く間隔）
 # - rejudge：判定できない原因が直るのは、修正が入ったとき（数分の遅れは問題にならない）
 # - reopen_revoked：契約者の共通の発信禁止を取り消したあと、その登録で終えた行を予定に戻すまでの遅れ（5分。依頼者の台帳の取り消しは、その場で戻す）
+# - versions：後の版の録音がそろってから実施回を替えるまでの遅れ（5分。そろうまでは今の版で電話を続けているので、遅れても止まらない）
 # - budget：赤字の警告の期限（1時間）を見る。数分の遅れは問題にならない
 # - holidays：取りに行くかは calendar が決める（1日1回で足りる）
 # - samples：週に1回でよい（週の終わりから1日あけて選ぶ。するかは measure が決める）
@@ -288,6 +299,7 @@ JOBS: tuple[Job, ...] = (
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None, parts=True),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
     Job("reopen_revoked", 300, "tenant", 600, reopen_revoked),
+    Job("versions", 300, "tenant", 600, versions),   # 版を足して、そろったら自動で替える（0183）
     Job("utterances", 86400, "tenant", 600, purge_utterances),   # やり取りの文字を、録音と同じ日数で消す（1日1回。0157）
     Job("samples", 3600, "tenant", 1800, draw_samples),
     Job("answer_rates", 1800, "tenant", 600, answer_rates),
