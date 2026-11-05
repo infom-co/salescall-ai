@@ -687,3 +687,67 @@ class RowFixes(Targets):
         self.assertEqual((g["attempts"], g["last_state"]), (1, "claimed"))
         self.w.move({**self.s, "task": task}, aid, "released")
         self.assertEqual(self.tx(lambda tx: customer_rows.progress(tx, run))[0]["attempts"], 0)   # 取り消した予約は数えない
+
+
+class DialFixes(CustomerContacts):
+    """かける番号の直し（ダッシュボード。0179・row_fixes.fix_dial_number。2026-11-06 ユーザー：「取り込んだ電話番号は残したまま、新しい電話番号が
+    旧番号のすぐ下に入力できるようにします。新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます。」）。"""
+
+    def row(self, mobile=None):
+        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), None, mobile, None, None, None, None, None, None)],
+                                   header=self.HEADER), mapping=self.MAP)
+        return r["rows"][0]["task_id"]
+
+    def plan(self, task):
+        return self.tx(lambda tx: next_action.current(tx, task))
+
+    def test_the_new_number_is_dialed_and_the_imported_one_is_kept(self):
+        """直した番号がいまかける番号（行の最初の予定は付け替わる・時刻はそのまま）。取り込んだ番号は残り、いまかける番号ではない（画面で灰色に
+        する印 dialing）。電話のあとの番号の選び（usable）・門の予定の無い行の番号も、いまかける番号を選ぶ。"""
+        from salescall.core import gate
+        task = self.row()
+        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        before = self.plan(task)
+        new_phone = fictional_jp_fixed()
+        got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, new_phone))
+        self.assertEqual(got["phone_e164"], normalize(new_phone).e164)
+        after = self.plan(task)
+        self.assertEqual((after["contact_id"], after["call_at"], after["kind"]), (got["contact_id"], before["call_at"], "call"))
+        nums = {n["phone"]: n["dialing"] for n in self.tx(lambda tx: customer_contacts.now(tx, task))["numbers"]}
+        self.assertEqual(nums, {old["phone_e164"]: False, got["phone_e164"]: True})
+        from salescall.core import customer_rows
+        run = self.tx(lambda tx: tx.one("SELECT run_id FROM salescall.tasks WHERE task_id = %s", (task,)))["run_id"]
+        self.assertEqual(self.tx(lambda tx: customer_rows.progress(tx, run))[0]["dial_phone"], got["phone_e164"])
+        n = self.tx(lambda tx: next_action.numbers_of(tx, task))
+        self.assertEqual(next_action.usable(next_action.Target(old["contact_id"]), n).contact_id, got["contact_id"])
+        self.assertEqual(next_action.usable(next_action.Target(old["contact_id"], None, "ask_number_again"), n).contact_id,
+                         old["contact_id"])                                       # 番号の聞き直しは替えない
+        self.assertEqual(next_action.usable(next_action.Target(old["contact_id"], None, "apology"), n).contact_id,
+                         old["contact_id"])                                       # お詫び（その番号で受けたお客様へ）も替えない
+        self.assertEqual(self.tx(lambda tx: gate._task(tx, task))["phone_e164"], got["phone_e164"])
+        # 取り込んだ番号に戻すこともできる（直しは足していくだけ）
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, old["phone_e164"]))
+        self.assertEqual(self.plan(task)["contact_id"], old["contact_id"])
+
+    def test_a_recorded_mobile_can_become_the_number_to_dial(self):
+        """お客様リストで記録だけにした携帯電話番号も、ダッシュボードでかける番号に直せる（データベースの守りは、いまかける番号だけ通す）。"""
+        task = self.row(mobile="090-0000-0171")
+        got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0171"))
+        self.assertEqual(self.plan(task)["contact_id"], got["contact_id"])
+        # 予定の無い行（止めている行）の門も、いまかける番号を読む
+        from salescall.core import gate
+        self.tx(lambda tx: next_action.hold(tx, task, cause="試験"))
+        self.assertEqual(self.tx(lambda tx: gate._task(tx, task))["phone_e164"], got["phone_e164"])
+
+    def test_the_new_number_passes_the_same_checks_and_only_a_person_fixes_it(self):
+        """直した番号も取込と同じ確かめ（読めない・発信禁止は断る）。直せるのは管理者か契約者だけ（データベースが守る）。"""
+        task = self.row()
+        bad = fictional_jp_fixed()
+        self.tx(lambda tx: dnc.register(tx, bad, "manual"))
+        for phone in ("abc", bad):
+            with self.subTest(phone=phone), self.assertRaises(row_fixes.FixInvalid):
+                self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, phone))
+        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        with self.assertRaises(Rejected) as cm:
+            self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, old["phone_e164"]), actor=SYSTEM)
+        self.assertEqual(cm.exception.constraint, "task_dial_fix_by_person")

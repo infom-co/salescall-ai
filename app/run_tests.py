@@ -2021,6 +2021,20 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お客様リストの行の直しを、システムの処理も書ける（0178 の守りを外す）",
      "DROP TRIGGER task_fix_guard ON salescall.task_fixes",
      ("tests.test_import.RowFixes.test_fixes_are_by_a_person_with_the_same_reading_rules",)),
+    # ── かける番号の直し（0179。2026-11-06 ユーザー「新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます」）
+    ("かける番号の直しを、システムの処理も書ける（0179 の守りを外す）",
+     "DROP TRIGGER task_dial_fix_guard ON salescall.task_dial_fixes",
+     ("tests.test_import.DialFixes.test_the_new_number_passes_the_same_checks_and_only_a_person_fixes_it",)),
+    ("いまかける番号を、直しを見ずに一覧の番号のままにする",
+     "CREATE OR REPLACE FUNCTION salescall.task_dial_contact(p_task uuid) RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT t.contact_id FROM salescall.tasks t WHERE t.task_id = p_task $$",
+     ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
+    ("記録だけの番号は、かける番号に直しても、かけられない（0175 の守りのまま）",
+     "CREATE OR REPLACE FUNCTION salescall.dial_number_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ BEGIN IF NEW.contact_id IS NOT NULL AND EXISTS (SELECT 1 FROM salescall.task_numbers n"
+     " WHERE n.task_id = NEW.task_id AND n.contact_id = NEW.contact_id AND n.source = 'record') THEN"
+     " RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation', CONSTRAINT = 'dial_only_dialable_numbers'; END IF; RETURN NEW; END $$",
+     ("tests.test_import.DialFixes.test_a_recorded_mobile_can_become_the_number_to_dial",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4456,6 +4470,29 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "\"       (SELECT count(*) FROM salescall.attempts a WHERE a.task_id = t.task_id AND a.state <> 'released') AS attempts,\"",
      "\"       (SELECT count(*) FROM salescall.attempts a WHERE a.task_id = t.task_id) AS attempts,\"",
      ("tests.test_import.RowFixes.test_the_dashboard_progress_reads_each_value_from_its_one_place",)),
+    # ── かける番号の直し（0179）
+    ("電話のあとの番号の選びが、前にかける番号だった番号へかけ続ける", _NEXT,
+     "    t = current_dial(t, numbers)\n", "",
+     ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
+    ("番号の聞き直し・お詫びも、いまかける番号へ替える", _NEXT,
+     '            and t.purpose in ("normal", "resume"):\n', "            and True:\n",
+     ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
+    ("かける番号を直しても、いまの予定を付け替えない", "src/salescall/core/row_fixes.py",
+     '    next_action.retarget_dial(tx, task_id, cause="ダッシュボードで、かける番号を直した")\n', "",
+     ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
+    ("予定を付け替えるとき、時刻を「いますぐ」にする", _NEXT,
+     '    return _append(tx, task_id, call_at=cur["call_at"], end_reason=None, cause=cause, promised=bool(cur["promised"]), target=t,\n',
+     '    return _append(tx, task_id, call_at=None, call_now=True, end_reason=None, cause=cause, promised=bool(cur["promised"]), target=t,\n',
+     ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
+    ("直した番号を、発信禁止などの確かめをせずに受ける", "src/salescall/core/row_fixes.py",
+     "    if blocked is not None:\n", "    if False:\n",
+     ("tests.test_import.DialFixes.test_the_new_number_passes_the_same_checks_and_only_a_person_fixes_it",)),
+    ("予定の無い行の門が、取り込んだ番号を読む", "src/salescall/core/gate.py",
+     '        "   salescall.task_dial_contact(t.task_id))"', '        "   t.contact_id)"',
+     ("tests.test_import.DialFixes.test_a_recorded_mobile_can_become_the_number_to_dial",)),
+    ("ダッシュボードの進み具合が、取り込んだ番号をかける番号として見せる", "src/salescall/core/customer_rows.py",
+     "k.contact_id = salescall.task_dial_contact(t.task_id)", "k.contact_id = t.contact_id",
+     ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
 )
 
 

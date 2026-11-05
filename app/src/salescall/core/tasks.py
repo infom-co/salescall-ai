@@ -12,7 +12,8 @@
 
 行の番号（DESIGN.md 3-5）：依頼者の一覧の1行は1つのまま、番号を表（task_numbers）に持つ。一覧の番号の行はデータベースが
 タスクを作ったときに自分で足す。お客様が言った別の番号を足すのは `add_callee_number` だけ。記録だけの番号（かけない番号。0175）を
-足すのは `add_record_number` だけ。行の番号を読むのは `numbers` だけ。
+足すのは `add_record_number` だけ。行の番号を読むのは `numbers` だけ。いまかける番号は `dial_number`（ダッシュボードの直しは
+`fix_dial_number`。0179）。
 """
 
 from __future__ import annotations
@@ -69,6 +70,29 @@ def list_number(tx: Tx, task_id: UUID) -> dict[str, Any]:
     if row is None:
         raise TaskNotFound(str(task_id))
     return row
+
+
+def dial_number(tx: Tx, task_id: UUID) -> dict[str, Any]:
+    """いまかける番号（contact_id・phone_e164）。ダッシュボードで直していれば、いちばん新しい直しの番号、無ければ一覧の番号（決めるのは
+    データベースの関数 salescall.task_dial_contact の1か所。0179）。行の最初の予定・予定の無い行の門は、この番号へかける。"""
+    row = tx.one("SELECT n.contact_id, n.phone_e164 FROM salescall.task_numbers n"
+                 " WHERE n.task_id = %s AND n.contact_id = salescall.task_dial_contact(%s)", (task_id, task_id))
+    if row is None:
+        raise TaskNotFound(str(task_id))
+    return row
+
+
+def fix_dial_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str) -> UUID:
+    """いまかける番号を、ダッシュボードで直した番号にする（書くのはここだけ。かけてよいかの確かめと予定の付け替えは core/row_fixes.py）。
+    取り込んだ番号は残す（一覧の番号のまま。かけなくなる）。行に無い番号は記録だけの番号として足してから付け替える（名札 label）。
+    直した番号の連絡先を返す。"""
+    contact_id = contacts.get_or_create(tx, number)
+    if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
+        add_record_number(tx, task_id, number, label, origin="dashboard")
+    tx.execute("INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by)"
+               " SELECT t.tenant_id, t.client_id, t.task_id, %s, salescall.cur_actor() FROM salescall.tasks t WHERE t.task_id = %s",
+               (contact_id, task_id))
+    return contact_id
 
 
 def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_attempt_id: UUID) -> UUID:

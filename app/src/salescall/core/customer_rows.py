@@ -3,7 +3,7 @@
 ✅ 2026-11-05 ユーザー：「それらはダッシュボードに取込、ダッシュボードでも進捗確認や修正ができるようにすること。」
 
 読むだけ。どの値も、それを決める1か所の見方・部品から読む（ここで決め直さない）：行のいまの名前・役職・部署＝見方 tasks_now（直しを
-当てたもの）／かける番号＝tasks.list_number／業務の状態＝見方 latest_task_results（無ければ open）／次の予定＝見方 current_next_actions／
+当てたもの）／かける番号＝salescall.task_dial_contact（ダッシュボードで直していれば直した番号）／業務の状態＝見方 latest_task_results（無ければ open）／次の予定＝見方 current_next_actions／
 「かけない」の印＝salescall.task_excluded／連絡先と番号＝customer_contacts.now。
 """
 
@@ -27,7 +27,7 @@ def progress(tx: Tx, run_id: UUID) -> list[dict[str, Any]]:
         "       (SELECT count(*) FROM salescall.attempts a WHERE a.task_id = t.task_id AND a.state <> 'released') AS attempts,"
         "       l.state::text AS last_state, l.claimed_at AS last_at"
         " FROM salescall.tasks_now t"
-        " JOIN salescall.task_numbers k ON k.task_id = t.task_id AND k.source = 'list'"
+        " JOIN salescall.task_numbers k ON k.task_id = t.task_id AND k.contact_id = salescall.task_dial_contact(t.task_id)"
         " LEFT JOIN salescall.latest_task_results r ON r.task_id = t.task_id"
         " LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id"
         " LEFT JOIN LATERAL (SELECT a.state, a.claimed_at FROM salescall.attempts a WHERE a.task_id = t.task_id AND a.state <> 'released'"

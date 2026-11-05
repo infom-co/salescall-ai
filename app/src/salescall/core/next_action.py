@@ -236,7 +236,23 @@ def schedule_now(tx: Tx, task_id: UUID, *, cause: str) -> int:
     """いまから、一覧の番号へかけてよい（日時はデータベースの時刻。取込で登録したタスクの最初の予定）。
     実際にかけるか・いつかけるかは門が決める（時間帯・間隔・停止など）。"""
     return _append(tx, task_id, call_at=None, end_reason=None, cause=cause, call_now=True, promised=False,
-                   target=Target(tasks.list_number(tx, task_id)["contact_id"]))
+                   target=Target(tasks.dial_number(tx, task_id)["contact_id"]))
+
+
+def retarget_dial(tx: Tx, task_id: UUID, *, cause: str) -> int | None:
+    """かける番号を直したとき、いまの「かけ直す」の予定が前にかける番号だった番号へかけるものなら、時刻・約束の印・幅・お詫びの印は
+    そのままに、いまかける番号へ付け替える（`current_dial` の1か所で決める）。付け替えたら、その予定の番号（seq）を返す。"""
+    lock(tx, task_id)
+    cur = current(tx, task_id)
+    if cur is None or cur["kind"] != "call":
+        return None
+    t = current_dial(Target(cur["contact_id"], None, cur["purpose"], cur["wrong_contact_id"], bool(cur["successor"]),
+                            cur["number_again"]), numbers_of(tx, task_id))
+    if t.contact_id == cur["contact_id"]:
+        return None
+    return _append(tx, task_id, call_at=cur["call_at"], end_reason=None, cause=cause, promised=bool(cur["promised"]), target=t,
+                   callee_at=cur["callee_at"] if cur["promised"] else None, window=window_of(cur),
+                   apology=tuple(cur["apology_reasons"]))
 
 
 def hold(tx: Tx, task_id: UUID, *, cause: str, apology: Apology = None) -> int:
@@ -288,7 +304,8 @@ def reopen_revoked(tx: Tx, *, cause: str) -> list[UUID]:
                                              **tasks.scope(tx, r["task_id"]))
         if blocked is not None and blocked[0] in DNC_ENDS:
             continue                           # まだ発信禁止で止まっている（ほかの登録）：戻さない
-        target = Target(row["contact_id"], None, row["purpose"], row["wrong_contact_id"], bool(row["successor"]), row["number_again"])
+        target = current_dial(Target(row["contact_id"], None, row["purpose"], row["wrong_contact_id"], bool(row["successor"]),
+                                     row["number_again"]), numbers_of(tx, r["task_id"]))
         _append(tx, r["task_id"], call_at=None, call_now=True, end_reason=None, cause=cause, promised=bool(row["promised"]),
                 target=target, callee_at=row["callee_at"] if row["promised"] else None, window=window_of(row),
                 apology=tuple(row["apology_reasons"]))   # お詫びの印も、終える前の予定のまま
@@ -380,6 +397,8 @@ class Numbers:
     said: tuple[UUID, ...] = ()                # お客様が言った別の番号のうち、かけない理由の無いもの（新しい順）
     sources: tuple[tuple[UUID, UUID], ...] = ()   # お客様が言った番号 → その番号を言われた通話でかけた番号（伺い直す先）
     asked_again: bool = False                  # この行で、前にも番号を伺い直すと決めた（number_recheck.asked_again_before の1か所）
+    dial: UUID | None = None                   # いまかける番号（ダッシュボードで直していれば直した番号＝tasks.dial_number の1か所。0179）
+    superseded: frozenset[UUID] = frozenset()  # 前にかける番号だった番号（取り込んだ番号・前に直した番号。いまかける番号に替える）
 
 
 def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, recheck: Recheck | None,
@@ -400,6 +419,7 @@ def usable(t: Target, numbers: Numbers) -> Target:
     数えないので、前は行が終わらず、同じ番号へかけ続けた）：お客様が言った別の番号（かけない理由の無いもの）があれば、そちらへ（ふつうの電話・続きの電話だけ。
     番号の聞き直し・お詫びは、その番号のお客様へかける電話なので替えない）。無ければ行を終える（number_unusable。番号は記録に
     残り、依頼者へ渡す）。"""
+    t = current_dial(t, numbers)
     if t.contact_id is None or t.contact_id not in numbers.unusable:
         return t
     if t.purpose in ("normal", "resume"):
@@ -412,6 +432,17 @@ def usable(t: Target, numbers: Numbers) -> Target:
         if source is not None and source not in numbers.unusable and not numbers.asked_again:
             return Target(source, None, "ask_number_again", t.contact_id, number_again="unreachable")
     return Target(None, "number_unusable")
+
+
+def current_dial(t: Target, numbers: Numbers) -> Target:
+    """かける先が、前にかける番号だった番号（取り込んだ番号・前に直した番号）なら、いまかける番号へ替える（1か所。2026-11-06 ユーザー：
+    「新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます」＝直したあとは旧番号へかけない）。替えるのは
+    ふつうの電話・続きの電話だけ（`usable` と同じ）。番号の聞き直し（その番号を言われた通話の番号へかける）とお詫び（その番号で電話を
+    受けたお客様へかける）は、その番号のお客様へかける電話なので替えない。"""
+    if t.contact_id is not None and t.contact_id in numbers.superseded and numbers.dial is not None \
+            and t.purpose in ("normal", "resume"):
+        return replace(t, contact_id=numbers.dial)
+    return t
 
 
 def _choose(j: Judgement, *, dialed: Target, alternate: Alternate | None, recheck: Recheck | None,
@@ -883,7 +914,11 @@ def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
                  and target_policy.block_reason(tx, normalize(r["phone_e164"]), client_ref=r["client_ref"], **scope) is None)
     sources = tuple((r["contact_id"], r["source_contact"]) for r in rows
                     if r["source_contact"] is not None and r["source_contact"] != r["contact_id"])
-    return Numbers(unusable, said, sources, number_recheck.asked_again_before(tx, task_id))
+    dial = tasks.dial_number(tx, task_id)["contact_id"]
+    superseded = frozenset(r["contact_id"] for r in tx.all(
+        "SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND source = 'list'"
+        " UNION SELECT contact_id FROM salescall.task_dial_fixes WHERE task_id = %s", (task_id, task_id))) - {dial}
+    return Numbers(unusable, said, sources, number_recheck.asked_again_before(tx, task_id), dial, superseded)
 
 
 def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: datetime, dialed_at: datetime) -> datetime | None:

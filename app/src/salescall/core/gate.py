@@ -218,7 +218,7 @@ def _task(tx: Tx, task_id: UUID, contact_id: UUID | None = None) -> dict[str, An
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
         " JOIN salescall.task_numbers n ON n.task_id = t.task_id AND n.contact_id = coalesce(%s,"
         "   (SELECT x.contact_id FROM salescall.current_next_actions x WHERE x.task_id = t.task_id),"
-        "   t.contact_id)"
+        "   salescall.task_dial_contact(t.task_id))"   # 予定の無い行は、いまかける番号（ダッシュボードの直しを当てたもの。0179）
         " WHERE t.task_id = %s", (contact_id, task_id))
     if row is None:
         raise TaskNotFound(str(task_id))

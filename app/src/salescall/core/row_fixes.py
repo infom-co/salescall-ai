@@ -17,8 +17,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, readings
+from salescall.core import approval, next_action, readings, target_policy, tasks
 from salescall.core.access import Tx
+from salescall.core.phone import normalize
 
 FIELDS = ("source_name", "target_name", "target_full_name", "target_role", "target_department")   # 0178 の CHECK と同じ
 NAME_FIELDS = ("source_name", "target_name", "target_full_name")                                  # 読みを持つ欄
@@ -63,3 +64,23 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
     if row is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
     return {"field": field, "value": row["value"], "reading": r.reading if text is not None else None}
+
+
+def fix_dial_number(tx: Tx, task_id: UUID, phone: str) -> dict[str, Any]:
+    """いまかける番号を直す（ダッシュボード。2026-11-06 ユーザー：「取り込んだ電話番号は残したまま、新しい電話番号が旧番号のすぐ下に入力
+    できるようにします。新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます。」）。直した番号は、取込と同じ確かめ
+    （番号の形・かけない種類・発信禁止・同じ業務で断られたお客様＝target_policy.block_reason の1か所）を通す。通らなければ `FixInvalid`
+    （何も書かない）。取り込んだ番号は残る（かけなくなる＝表示は前の番号）。いまの「かけ直す」の予定が前の番号へかけるものなら、時刻や約束は
+    そのままに直した番号へ付け替える（next_action.retarget_dial）。直したあとの、いまかける番号を返す。"""
+    number = normalize(phone or "")
+    if number.e164 is None:
+        raise FixInvalid(f"電話番号として読めません（{number.reason or '番号が不明です'}）")
+    t = tx.one("SELECT client_ref FROM salescall.tasks WHERE task_id = %s", (task_id,))
+    if t is None:
+        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    blocked = target_policy.block_reason(tx, number, client_ref=t["client_ref"], **tasks.scope(tx, task_id))
+    if blocked is not None:
+        raise FixInvalid(f"この番号にはかけられません：{blocked[1]}")
+    tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company")
+    next_action.retarget_dial(tx, task_id, cause="ダッシュボードで、かける番号を直した")
+    return tasks.dial_number(tx, task_id)
