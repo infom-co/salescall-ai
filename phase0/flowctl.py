@@ -3680,7 +3680,9 @@ class Flow:
         if name == "replay_opening":
             # 代わった方への流し直し（繋ぐ）・相手の質問への答え方（いまの質問の答えも入っているかもしれない間＝_keep_answer_reading）・
             # 呼んでいる段で名乗り・用件の録音で答える（何を聞かれたかの読みで当てる＝_asked_other。読みが届く前に決めると当てられない）
-            return (a.get("part") == "handover" or (a.get("part") not in ("resume", "handover") and self._answer_may_come_first())
+            # 答えの段で「？」の言葉に答える：尋ねられたか（_asked_now）で、答えの文が使えないときの道が変わるので、判定が届いてから当てる
+            return (a.get("part") == "handover"
+                    or (a.get("part") not in ("resume", "handover") and (self._answer_may_come_first() or self._may_ask_back()))
                     or self._opening_answer(a.get("part")))
         if name == "report_party":
             # 呼んでいる段の「目的の人」「受付の方」の報告は、判定に当ててから決める（_calling_reported。⛔ 2026-10-21 の見直し：受付の方の報告は
@@ -5797,12 +5799,19 @@ class Flow:
         1か所（いまの発話の言葉と、その意味の判定）。尋ねられたら、報告より先に答える（呼んでいる段の「尋ねている」＝_asking_now と同じく、入口 _apply_one の
         1か所で報告を止める）。この発話の問いにもう答えた（question_answered_turn）・答えの文が使えず、尋ねられる前の流れのとおりに進めると決めた
         （asked_skip＝_asked_skip）ときは None。✅ 2026-11-06 日本時間4時23分33秒 ユーザー（asks_us に引いたお言葉）"""
-        if (self.phase not in ("asking", "rechecking") or (self.current is None and self.awaiting_confirm is None)
-                or self.callee_turns in (self.question_answered_turn, self.asked_skip)):
+        if not self._may_ask_back() or self.callee_turns in (self.question_answered_turn, self.asked_skip):
             return None
         if not asks_us(self.callee_said, [self.check.get(k) for k in JUDGMENTS]):
             return None
         return question_in(self.callee_said, written=True)
+
+    def _may_ask_back(self) -> bool:
+        """答えの段（いまの質問か言い直しへの返事を待っている）で、いまのお客様の言葉が「？」で終わる文を含む＝判定の読みしだいで、こちらへ尋ねた言葉に
+        なりうるか（_asked_now の前提・判定を待つかの決まり wants_checks の1か所。会話AIが先に自分の言葉で答えても、判定が届いてから当てる＝判定の届く速さで、
+        同じ言葉への動きが変わらない）。この言葉の答えをもう受け取って、添えられた質問に答える番（after_answer＝_advance の callee_asked）なら当たらない
+        （その質問は答えに添えられた質問の道が受け持つ）"""
+        return (self.phase in ("asking", "rechecking") and (self.current is not None or self.awaiting_confirm is not None)
+                and self.after_answer is None and question_in(self.callee_said, written=True) is not None)
 
     def _asked_note(self, asked: str) -> str:
         """答えの段で尋ねられた（_asked_now）ときに、いま求めていること（AIへの知らせの文。_now の1か所）：報告はせずに、聞かれたことに合う答え方

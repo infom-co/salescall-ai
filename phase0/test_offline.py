@@ -15777,6 +15777,18 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertIn("尋ね", note)
         self.assertIn("replay_opening", note)
 
+    def test_an_answer_to_a_question_back_waits_for_the_judges(self):
+        # 会話AIが、言い直しの返事待ちの間に「？」の言葉へ先に自分の言葉で答えた：判定が届いてから当てる（尋ねられたかで、答えの文が使えないときの道が
+        # 変わる＝判定の届く速さで、同じ言葉への動きが変わらないように。答えの報告・言い直しへの返事の報告と同じく待つ）。「。」の言葉は待たない
+        f = self.flow("G8n")
+        self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+        args = {"part": "own", "answer": self.ASKED_BACK}
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？")
+        self.assertTrue(f.wants_checks("replay_opening", args))
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね。")
+        self.assertFalse(f.wants_checks("replay_opening", args))
+        self.assertFalse(f.wants_checks("replay_opening", {"part": "resume"}))
+
     def test_unclear_answer_is_asked_toward_the_goal(self):
         # どちらとも取れる答え（「大丈夫です。」・AIは目的から遠ざかる「いいえ」と受け取った）は、目的に進む向きで伺う。それに「いえ」と言われたら、
         # 遠ざかる向きの言葉で言い直さずに「承知しました。」で次へ（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない」）
