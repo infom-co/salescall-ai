@@ -15672,6 +15672,111 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual((r2["result"], r2["after"]), ("confirm_required", "settle"))
         self.assertEqual(r2["say"], "それでは複合機は現在リースでご利用ということでよろしいでしょうか？")
 
+    ASKED_BACK = "そうですね、お読みになられるとより理解が深まるかと思います。"
+
+    def asked_back(self, f, words: str, op: str, args: dict) -> dict:
+        """お客様が、答えの代わりにこちらの考えを尋ねた（判定は「決められない」）：会話AIがいまの質問・言い直しへの返事として報告しても受け取らずに、
+        先に尋ねられたことに答えさせる。会話AIが自分の言葉で答える（中身の判定は「事実を言っていない」）までを流し、答えの返事を返す。"""
+        from flowctl import UNDECIDED
+        from meaning_judge import Reading
+        f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(UNDECIDED))
+        r = f.apply(op, args)
+        self.assertEqual(r["result"], "rejected")
+        self.assertNotIn("say", r)                       # 言い直し・質問は繰り返さない
+        self.assertIn("尋ね", r["message"])
+        self.assertIn(f"「{words}」", r["message"])
+        grounded(f, self.ASKED_BACK)
+        return f.apply("replay_opening", {"part": "own", "answer": self.ASKED_BACK})
+
+    def test_a_question_back_is_answered_before_confirming(self):
+        # お客様が、答えの代わりにこちらの考えを尋ねたら（「〜ですかね？」）、言い直して確かめる前に、尋ねられたことに自分の言葉で答える。
+        # ✅ 2026-11-06 日本時間4時23分33秒 ユーザー：「お客様：送ってもらったほうがいいですかね？や、送ってもらったほうがいいですかねー？だった場合は、こちらは
+        #    「そうですね、お読みになられるとより理解が深まるかと思います。」のような返答が自然です。」
+        # 尋ねたかは、判定の読み（「決められない」＝どの答えがよいかをこちらの考えとして尋ねた、を含む）と、言葉が問いかけで終わるか（question_in）の1か所
+        # （asks_us）。「。」で終わる言葉は自分への言い聞かせ（4時11分28秒）＝今までどおり確かめる
+        from flowctl import UNDECIDED, asks_us
+        from meaning_judge import Reading
+        for words in ("送ってもらったほうがいいですかね？", "送ってもらったほうがいいですかねー？"):
+            self.assertTrue(asks_us(words, [Reading(UNDECIDED)]))
+            # (1) 言い直しへの返事で尋ねられた：答えたあと、お客様が認めたら受け取る
+            f = self.flow("G8n")
+            self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+            r = self.asked_back(f, words, "confirm_field", {"question_id": "G8n", "result": "affirmed"})
+            self.assertEqual((r["result"], r["say"]), ("own_answer", self.ASKED_BACK))
+            f.on_callee(); f.on_heard("じゃあ、お願いします。"); f.on_check("judge", Reading("はい"))
+            r = f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})
+            self.assertEqual((r["result"], r["question_id"], f.export()["G8n"]), ("next", "G16", "はい"))
+            # (2) 答えたあと、お客様が相づちだけなら（「そうなんですね。」）、言い直しへ戻る（話はそれていない＝「話を戻させていただきますね。」は付けない）
+            f = self.flow("G8n")
+            self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+            self.asked_back(f, words, "confirm_field", {"question_id": "G8n", "result": "affirmed"})
+            f.on_callee(); f.on_heard("そうなんですね。")
+            r = f.apply("replay_opening", {"part": "resume"})
+            self.assertEqual((r["result"], r["ack"], r["say"]), ("replayed", "hai", "それではパンフレットをお送りさせていただきますね？"))
+            self.assertFalse(r.get("play"))
+            # (3) 最初の答えで尋ねられた：答えたあと、お客様が答えたら受け取る・相づちだけなら質問へ戻る
+            f = self.flow("G8n")
+            r = self.asked_back(f, words, "record_answer", {"question_id": "G8n", "condition_id": "はい"})
+            self.assertEqual((r["result"], r["say"]), ("own_answer", self.ASKED_BACK))
+            f.on_callee(); f.on_heard("じゃあ、お願いします。"); f.on_check("judge", Reading("はい"))
+            r = f.apply("record_answer", {"question_id": "G8n", "condition_id": "はい"})
+            self.assertEqual((r["result"], r["question_id"], f.export()["G8n"]), ("next", "G16", "はい"))
+            f = self.flow("G8n", play_recordings=True)
+            self.asked_back(f, words, "record_answer", {"question_id": "G8n", "condition_id": "はい"})
+            f.on_callee(); f.on_heard("そうなんですね。")
+            r = f.apply("replay_opening", {"part": "resume"})
+            self.assertEqual((r["result"], r["ack"], [p["text"] for p in r["play"]]),
+                             ("replayed", "hai", ["パンフレットをお送りしてもよろしいでしょうか？"]))   # 「話を戻させていただきますね。」は付けない
+        # 「。」で終わる言葉（自分への言い聞かせ）・句読点の無い言葉は、尋ねたとは決めない（今までどおり、言い直しと同じ一言で受ける）
+        for words in ("送ってもらったほうがいいですかね。", "送ってもらったほうがいいですかね"):
+            self.assertFalse(asks_us(words, [Reading(UNDECIDED)]))
+            f = self.flow("G8n")
+            self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+            f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(UNDECIDED))
+            r = f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})
+            self.assertEqual((r["result"], r["say"]), ("confirm_required", "それではパンフレットをお送りさせていただきますね？"))
+        # 判定が答えに寄っていると読んだ問いの形（「〜でもいいですか？」の頼み）は、尋ねたとは決めない（今までどおり「それでは…させていただきますね？」）
+        self.assertFalse(asks_us("送ってもらってもいいですか？", [Reading("はい", firm=False)]))
+        self.assertFalse(asks_us("送ってもらったほうがいいですかね？", [Reading(UNDECIDED), Reading("はい", firm=False)]))
+        self.assertFalse(asks_us("送ってもらったほうがいいですかね？", []))
+        # 測りの数え（g53_meaning.flow_act・flow_wants）も同じ1か所（asks_us）で数える
+        from g53_meaning import ANSWER_FIRST, ASK_AGAIN, flow_act, flow_wants
+        q = self.flow("G8n").questions["G8n"]
+        for st in ("D", "C"):
+            asked = {"set": st, "text": "送ってもらったほうがいいですかね？", "label": {"accept": [UNDECIDED, "unknown"]}}
+            plain = {"set": st, "text": "送ってもらったほうがいいですかね", "label": {"accept": [UNDECIDED, "unknown"]}}
+            self.assertEqual((flow_act(asked, q, UNDECIDED, True), flow_act(plain, q, UNDECIDED, True)), (ANSWER_FIRST, ASK_AGAIN))
+            self.assertEqual((flow_wants(asked, q), flow_wants(plain, q)), ({ANSWER_FIRST, ASK_AGAIN}, {ASK_AGAIN}))
+
+    def test_a_question_back_that_cannot_be_answered_goes_on_with_the_confirmation(self):
+        # 尋ねられたことへの答えの文が使えない（中身を確かめられなかった・書き直しを使い切った）：断らない一言や知っていることの文で応えず（尋ねられたのは、
+        # いまの質問についてのこちらの考え＝「それは答えられなかったらおかしい」問い＝✅ 2026-10-22 ユーザー（5回目）「別の対処が必要」）、尋ねられる前の流れの
+        # とおり、言い直しと同じ一言で受ける（会話AIに、お客様の言葉を言い直しへの返事として報告し直させる）
+        from flowctl import UNDECIDED
+        from meaning_judge import Reading
+        f = self.flow("G8n")
+        self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        self.assertEqual(f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})["result"], "rejected")
+        r = f.apply("replay_opening", {"part": "own", "answer": self.ASKED_BACK})   # 中身の判定が届かなかった
+        self.assertEqual(r["result"], "rejected")
+        self.assertNotIn("say", r)
+        self.assertIn("confirm_field", r["message"])
+        r = f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "hai", "それではパンフレットをお送りさせていただきますね？"))
+
+    def test_a_question_back_without_a_report_is_told_to_the_ai(self):
+        # 会話AIが何も報告しなかった（声だけで答えようとして流さなかった・黙った）：尋ねられたことに答えるように知らせる（相手に無言を続けない）
+        from flowctl import UNDECIDED
+        from meaning_judge import Reading
+        f = self.flow("G8n")
+        self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        note = f.unreported_note()
+        self.assertIsNotNone(note)
+        self.assertIn("尋ね", note)
+        self.assertIn("replay_opening", note)
+
     def test_unclear_answer_is_asked_toward_the_goal(self):
         # どちらとも取れる答え（「大丈夫です。」・AIは目的から遠ざかる「いいえ」と受け取った）は、目的に進む向きで伺う。それに「いえ」と言われたら、
         # 遠ざかる向きの言葉で言い直さずに「承知しました。」で次へ（✅ 2026-11-03 ユーザー：「最終目的に繋がるクロージングはマイナスの言葉で締めない」）

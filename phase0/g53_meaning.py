@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, CHOICE_TYPES, asks_sense, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, SYSTEM_CONDITIONS, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
+from flowctl import (ANY, CHOICE_TYPES, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, SYSTEM_CONDITIONS, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
                      off_talk, prior_answer, restates)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
@@ -563,6 +563,9 @@ SENSE = "意味合いを尋ねる："
 # 待つ・かけ直すの読み（答えの段だけ＝flowctl.WAIT_KINDS）で流れの制御がすること（Flow._wait_route の1か所と同じ。✅ 2026-11-05 日本時間23時19分06秒・
 # 23時56分48秒 ユーザー（会話2）。取り次ぎを待つも「はい、」のあと待つ＝✅ 2026-11-06 日本時間2時28分41秒 ユーザー「「はい、」のような相づちがないと失礼です。」）
 WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言のあと待つ", LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う"}
+# 答えの代わりにこちらへ尋ねた（「〜ですかね？」＝flowctl.asks_us の1か所・流れの制御は入口 Flow._apply_one で報告より先に答えさせる）：尋ねられたことに先に答え、
+# お客様の返事を待つ（✅ 2026-11-06 日本時間4時23分33秒 ユーザー：「…こちらは「そうですね、お読みになられるとより理解が深まるかと思います。」のような返答が自然です。」）
+ANSWER_FIRST = "尋ねられたことに先に答える"
 
 
 def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
@@ -574,6 +577,8 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
         return None
     if got in WAIT_KINDS:
         return WAIT_ACT[got]
+    if asks_us(it.get("text"), [got]):   # 答えの代わりにこちらへ尋ねた（流れの制御は、ほかの決まりより先に、入口で答えさせる）
+        return ANSWER_FIRST
     if off_talk(q, got, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり。読みはいつも宣言した選択肢）
         if not restates(q):
             return SENSE + got if asks_sense(q, got) else ASK_AGAIN
@@ -600,7 +605,9 @@ def flow_wants(it: dict, q: Question) -> set[str]:
                               for a in accept(it) if a in q.conditions}
     h, e, ok = hedged(it), either(it), set()
     for a in accept(it):
-        if it["set"] == "D":
+        if asks_us(it.get("text"), [a]):
+            ok.add(ANSWER_FIRST)   # 正解が「決められない」の、問いかけの言葉（流れの制御は、尋ねられたことに先に答える）
+        elif it["set"] == "D":
             if a == "affirmed" or a == it.get("asked_choice"):
                 ok |= {AFFIRMED, AFFIRMED_HEDGED} if e else {AFFIRMED_HEDGED if h else AFFIRMED}
             else:
@@ -639,6 +646,10 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     if not want:   # 正解は電話を終える読みの動きだけ（答えの読みで続けた）
         return "⛔電話を終える言葉なのに締めない" if closes else "⛔伺わずに続ける"
     pure = set(accept(it)) <= {UNDECIDED, "unknown"}   # どの答えにも寄っていない言葉
+    if act == ANSWER_FIRST:
+        return "答えなのに、尋ねられたとして先に答える"
+    if ANSWER_FIRST in want and pure:
+        return "尋ねられたことに答えずに、推し量って進める・確かめる"
     if act in (AFFIRMED, AFFIRMED_HEDGED) or act.startswith("受け取る"):
         if act == AFFIRMED_HEDGED and AFFIRMED in want:
             return "要らない曖昧の印（値は正しい）"
