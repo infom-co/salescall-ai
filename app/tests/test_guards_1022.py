@@ -13,7 +13,7 @@ from tests.support import ADMIN, OPERATOR, SYSTEM, said
 from tests.test_approval import TAKEN
 from tests.test_quality import Base
 
-PART = recordings.Part("closing", "失礼いたします。", "test://Leda/closing", "1" * 64)
+PART = recordings.Part("intro", "ご予約の確認でお電話いたしました。", "test://Leda/intro", "1" * 64)   # 業務の組の部分（共通の一言の名前は業務の組に入れない）
 
 
 class Guards(Base):

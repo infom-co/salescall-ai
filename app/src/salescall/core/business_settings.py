@@ -105,7 +105,7 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none"}
+                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none", "doubt_words"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -139,6 +139,23 @@ def do_words_ok(words: str) -> bool:
     w = words.strip()
     return (bool(DO_WORDS_END.search(w)) and not DO_WORDS_DOUBLED.search(w) and not DO_WORDS_MARKS.search(w)
             and not w.startswith(QUESTION_LEADS))
+
+
+# いまの話の向きを伺う言葉（Question.doubt_words）の形の決まり（会話の側の取込の確かめ meanings.check の doubt と同じ。CL-1 の連絡帳 4-90）：
+# 会話の側が「はい、」＋「（言葉）ということでしょうか？」で言うので、問いかけの終わり・「ということ」「…こと」の言葉は重なる。記号・頭のつなぎの
+# 言葉の決まりは、こちらがすることの言葉と同じ
+DOUBT_WORDS_BAD_END = re.compile(r"(?:でしょうか|ですか|ますか|よろしい)$")
+
+
+def doubt_words_ok(words: str) -> bool:
+    """いまの話の向きを伺う言葉として使える形か（決まりは上の1か所）。"""
+    w = words.strip()
+    return (bool(w) and not DO_WORDS_MARKS.search(w) and not w.startswith(QUESTION_LEADS) and not DOUBT_WORDS_BAD_END.search(w)
+            and "ということ" not in w and not w.endswith("こと"))
+
+
+# 選択肢ごとの言葉の種類ごとの形の決まり（1か所。業務設定の確かめ `_answer_words` と、取込の AI の答えの受け取り `valid_answer_words` が使う）
+WORD_FORMS = {"do": do_words_ok, "doubt": doubt_words_ok}
 
 
 # 業務の録音の部分の名前は、会話の側が、質問の番号やシステムの名前の後ろに「_」と何かを続けて作る（CL-1 の make_ack_clips.script_table：日によって
@@ -266,6 +283,11 @@ class Question:
     # Question.unclear_none：ご承認いただけなかったときの手順で「ほかにご納得いただけない点は…」に「分かった」と答えていただいたら、この質問は
     # 伺わずにこの答えにする（重ねて伺わない＝9-3）。✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」（CL-1 の連絡帳 4-82）
     unclear_none: str = ""
+    # いまの話の向きを伺う言葉（選択肢 → 言葉。会話の側の Question.doubt_words）。判定でも答えが決まらないときに、答えの向きが1つに読めれば
+    # 「はい、」＋「（言葉）ということでしょうか？」で確かめる（✅ 2026-11-01 日本時間20時56分・22時31分 ユーザー：「…「パンフレットはお送りしない方が
+    # いいということでしょうか？」のような流れが普通じゃないですか？」）。無い選択肢は「念のため（意味の言葉）でよろしいでしょうか？」。決めるのは取込の
+    # ときの文字の AI 2つ（CL-1 の import_ai.decide_doubt_words。人は確かめない）。事実を伺う質問には付けない（do_words と同じ。CL-1 の連絡帳 4-90）
+    doubt_words: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -667,20 +689,20 @@ def _choices(raw: Any, type_name: str, where: str, problems: list[str]) -> tuple
     return got
 
 
-def valid_answer_words(raw: Any, choices: tuple[str, ...], *, replies: bool, do: bool = False) -> dict[str, str]:
+def valid_answer_words(raw: Any, choices: tuple[str, ...], *, replies: bool, form: str | None = None) -> dict[str, str]:
     """意味の言葉・こちらがすることの言葉・その答えのあとに伝える一言（選択肢 → 言葉）か、曖昧な言葉の意味（言葉 → 選択肢）のうち、使える組だけ
     （決め方はここだけ。確かめと、取込の AI の答えの受け取りが使う）。宣言した選択肢にだけ付く（システムの「わからない」「答えたくない」
-    「どちらでも」には付けない）。do＝こちらがすることの言葉（形の決まり `do_words_ok` も当てる）。"""
+    「どちらでも」には付けない）。form＝言葉の種類（`WORD_FORMS` の鍵。こちらがすることの言葉・いまの話の向きを伺う言葉は、その形の決まりも当てる）。"""
     if not isinstance(raw, dict):
         return {}
     if replies:
         return {k: v for k, v in raw.items() if k in REPLY_WORDS and isinstance(v, str) and v in choices}
     return {k: v.strip() for k, v in raw.items() if k in choices and isinstance(v, str) and v.strip()
-            and (not do or do_words_ok(v))}
+            and (form is None or WORD_FORMS[form](v))}
 
 
 def _answer_words(raw: Any, type_name: str, choices: tuple[str, ...], where: str, problems: list[str], *,
-                  replies: bool, what: str | None = None, do: bool = False) -> dict[str, str]:
+                  replies: bool, what: str | None = None, form: str | None = None) -> dict[str, str]:
     """質問の意味の言葉・曖昧な言葉の意味・こちらがすることの言葉（do）・その答えのあとに伝える一言（what）を読む（無ければ空）。合わない組が
     あれば問題に出す。"""
     if raw is None or raw == {}:
@@ -689,12 +711,14 @@ def _answer_words(raw: Any, type_name: str, choices: tuple[str, ...], where: str
     if type_name not in CHOICE_TYPES:
         problems.append(f"{where}の{what}は、はい／いいえ・決まった選択肢の質問だけが持てます")
         return {}
-    good = valid_answer_words(raw, choices, replies=replies, do=do)
+    good = valid_answer_words(raw, choices, replies=replies, form=form)
     if not isinstance(raw, dict) or len(good) != len(raw):
         problems.append(f"{where}の{what}は、" + (f"言葉（{list(REPLY_WORDS)}）→ 宣言した選択肢" if replies
                                                   else "宣言した選択肢 → 言葉（文字）") + " の表です"
                         + ("（言葉は文の終わりまで書き、終わりは「させていただきます」か「承ります」。「、」「。」などの記号を使わず、"
-                           f"頭に「{'」「'.join(QUESTION_LEADS)}」を付けず、「差し上げさせ」「お伺いさせ」のようにへりくだりを重ねない）" if do else ""))
+                           f"頭に「{'」「'.join(QUESTION_LEADS)}」を付けず、「差し上げさせ」「お伺いさせ」のようにへりくだりを重ねない）" if form == "do"
+                           else "（「（言葉）ということでしょうか？」の中に入る言葉。「でしょうか」「ですか」などで終えず、「ということ」を使わず、"
+                           f"記号を使わず、頭に「{'」「'.join(QUESTION_LEADS)}」を付けない）" if form == "doubt" else ""))
     return good
 
 
@@ -797,7 +821,11 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
             if not isinstance(q["asks_fact"], bool):
                 problems.append(f"{where}の事実を伺う質問か（asks_fact）は true / false です")
             do_words = _answer_words(q["do_words"], q["type"], choices, where, problems, replies=False, what="こちらがすることの言葉",
-                                     do=True)
+                                     form="do")
+            doubt_words = _answer_words(q["doubt_words"], q["type"], choices, where, problems, replies=False,
+                                        what="いまの話の向きを伺う言葉", form="doubt")
+            if doubt_words and q["asks_fact"] is not False:
+                problems.append(f"{where}は事実を伺う質問なので、いまの話の向きを伺う言葉（doubt_words）は付けません（会話の側が使わない）")
             tell_words = _answer_words(q["tell_words"], q["type"], choices, where, problems, replies=False,
                                        what="その答えのあとに伝える一言")
             if do_words and q["asks_fact"] is not False:
@@ -829,7 +857,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 q["type"], bool(q["required"]), choices, unit, meanings, replies,
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
-                                q["final_goal"] is True, declines, tell_words, ends_on, unclear_none)
+                                q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -1330,7 +1358,8 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     if not isinstance(questions, list):
         return dict(content, rules=rules)
     added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
-             "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": ""}
+             "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "",
+             "doubt_words": {}}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:

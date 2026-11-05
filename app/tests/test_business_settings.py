@@ -40,10 +40,10 @@ def raw() -> dict:
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
              "asks_fact": False, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
-             "declines": ["しない"], "tell_words": {}, "ends_on": [], "unclear_none": "", "unclear_none": ""},
+             "declines": ["しない"], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "unclear_none": "", "doubt_words": {}},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "unclear_none": ""},
+             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "unclear_none": "", "doubt_words": {}},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -228,7 +228,7 @@ class Check(unittest.TestCase):
         r["questions"].append({"id": "Q3", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "unclear_none": ""})
+                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "unclear_none": "", "doubt_words": {}})
         r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"))
         s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[2].ask_if, s.questions[2].approval, s.questions[0].ask_if, s.questions[0].approval),
@@ -352,7 +352,32 @@ class Check(unittest.TestCase):
                 r["questions"][0]["do_words"] = {"する": words}
                 self.assertTrue(any("「させていただきます」か「承ります」" in p for p in problems_of(r)), problems_of(r))
         self.assertEqual(bs.valid_answer_words({"する": "ご予約をお取り", "しない": "ご予約は控えさせていただきます"}, ("する", "しない"),
-                                               replies=False, do=True), {"しない": "ご予約は控えさせていただきます"})   # 取込の AI の答えは合う言葉だけ受ける
+                                               replies=False, form="do"), {"しない": "ご予約は控えさせていただきます"})   # 取込の AI の答えは合う言葉だけ受ける
+
+    def test_doubt_words_are_asking_words_on_wish_questions(self):
+        """CL-1 の連絡帳 4-90（✅ 2026-11-01 日本時間20時56分・22時31分 ユーザー）：いまの話の向きを伺う言葉（選択肢 → 言葉。会話の側は「はい、」＋
+        「（言葉）ということでしょうか？」で言う）は、事実を伺う質問ではない選ぶ質問の、宣言した選択肢にだけ付く。形の決まりは `doubt_words_ok` の1か所
+        （会話の側の meanings.check の doubt と同じ：問いかけの終わり・「ということ」「…こと」・記号・頭のつなぎの言葉を使わない）。"""
+        for words in ("ご予約はされない方がいい", "パンフレットはお送りしない方がいい"):
+            with self.subTest(ok=words):
+                r = raw()
+                r["questions"][0]["doubt_words"] = {"しない": words}
+                s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+                self.assertEqual((s.questions[0].doubt_words, s.questions[1].doubt_words), ({"しない": words}, {}))
+        for words in ("ご予約はされないということ", "ご予約はされないということの方がいい", "ご予約はされないこと", "ご予約はされないでしょうか", "ご予約はされない方がよろしい",
+                      "それではご予約はされない方がいい", "ご予約は、されない方がいい", " "):
+            with self.subTest(ng=words):
+                r = raw()
+                r["questions"][0]["doubt_words"] = {"しない": words}
+                self.assertTrue(any("いまの話の向きを伺う言葉" in p for p in problems_of(r)), problems_of(r))
+        r = raw()
+        r["questions"][0]["doubt_words"] = {"どちらでも": "どちらでもいい方がいい"}   # 宣言した選択肢だけ
+        self.assertTrue(any("いまの話の向きを伺う言葉" in p for p in problems_of(r)), problems_of(r))
+        r = raw()
+        r["questions"][0].update(asks_fact=True, next=None, final_goal=False, declines=[], doubt_words={"しない": "ご予約はされない方がいい"})
+        self.assertTrue(any("事実を伺う質問なので、いまの話の向きを伺う言葉" in p for p in problems_of(r)), problems_of(r))
+        self.assertEqual(bs.valid_answer_words({"する": "ご予約をなさるということ", "しない": "ご予約はされない方がいい"}, ("する", "しない"),
+                                               replies=False, form="doubt"), {"しない": "ご予約はされない方がいい"})   # 取込の AI の答えは合う言葉だけ
 
     def test_tell_words_after_the_answer(self):
         """CL-1 の連絡帳 4-72 の (i)（✅ 2026-11-03 日本時間19時台 ユーザー）：その答えのあとに伝える一言（選択肢 → 一言）は、はい／いいえ・決まった
@@ -439,7 +464,7 @@ class Check(unittest.TestCase):
                                "required": False, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                "ask_if": {"after": "Q1", "answers": ["しない"], "hedged": True}, "approval": False, "final_goal": False,
-                               "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "unclear_none": ""})
+                               "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "unclear_none": "", "doubt_words": {}})
         r["questions"][0]["next"] = None
         r["questions"][0]["final_goal"], r["questions"][0]["declines"] = False, []
         s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
@@ -547,10 +572,10 @@ class Check(unittest.TestCase):
             nxt = f"Ask{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "unclear_none": ""})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "unclear_none": "", "doubt_words": {}})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "unclear_none": ""})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "unclear_none": "", "doubt_words": {}})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "Ask0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -672,7 +697,7 @@ class BranchFlow(unittest.TestCase):
                        "choices": list(choices) if kind == "choice" else None, "next": nxt, "unit": None, "meanings": None,
                        "replies": None, "asks_fact": kind != "choice" or not away, "do_words": None, "away": list(away) or None,
                        "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {},
-                       "ends_on": [], "unclear_none": "", "unclear_none": ""})
+                       "ends_on": [], "unclear_none": "", "doubt_words": {}, "unclear_none": "", "doubt_words": {}})
         r["questions"] = qs
         r["rules"]["handling"] = {"*": r["rules"]["handling"]["Q1"]}
         return r
@@ -861,6 +886,18 @@ class Versions(unittest.TestCase):
         with mock.patch.object(bs, "_content", before):
             v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
         self.assertEqual([q.unclear_none for q in self.tx(lambda tx: bs.load(tx, v)).questions], ["", ""])
+
+    def test_a_version_saved_before_doubt_words_reads_them_as_empty(self):
+        """いまの話の向きを伺う言葉（doubt_words。2026-11-05 に足した）の無い前の版は、無い（空＝念のための確かめ）として読む（`_current_shape`）。"""
+        from unittest import mock
+        old_content = bs._content
+
+        def before(s):
+            c = old_content(s)
+            return dict(c, questions=[{k: v for k, v in q.items() if k != "doubt_words"} for q in c["questions"]])
+        with mock.patch.object(bs, "_content", before):
+            v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
+        self.assertEqual([q.doubt_words for q in self.tx(lambda tx: bs.load(tx, v)).questions], [{}, {}])
 
     def test_a_version_saved_before_hedged_conditions_reads_them_as_always_asked(self):
         """伺う条件に「言い切っていないときだけ伺うか」（hedged。2026-11-03 に足した＝CL-1 の連絡帳 4-71 の (b)）が無い前の版の質問は、偽（伺う

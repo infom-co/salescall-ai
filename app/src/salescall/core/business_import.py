@@ -320,7 +320,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         questions.append({"id": v.get("id"), "text": v.get("text"), "ask_about": v.get("ask_about"), "type": qtype,
                           "required": required, "choices": _split(v.get("choices")) if qtype == "choice" else None,
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
-                          "do_words": _choice_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems),
+                          "do_words": _choice_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems), "doubt_words": None,
                           "tell_words": _choice_words(v.get("tell_words"), f"{where}のその答えのあとに伝える一言", problems) or {},
                           "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None,
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
@@ -560,7 +560,8 @@ def _asks_fact(q: dict[str, Any], facts: dict[str, bool]) -> bool:
     return q["asks_fact"] if isinstance(q.get("asks_fact"), bool) else facts.get(q.get("text"), True)
 
 
-_WISH_KEYS = ("do_words", "away")   # 事実を伺う質問ではない（希望・申し出の）選択肢の質問にだけ付くもの
+_WISH_KEYS = ("do_words", "doubt_words", "away")   # 事実を伺う質問ではない（希望・申し出の）選択肢の質問にだけ付くもの
+_WORD_FORM = {"do_words": "do", "doubt_words": "doubt"}   # 選択肢ごとの言葉の種類（形の決まりは business_settings.WORD_FORMS の1か所）
 
 
 def _choice_questions(raw: dict[str, Any], key: str,
@@ -579,7 +580,7 @@ def _choice_questions(raw: dict[str, Any], key: str,
             continue
         choices = business_settings.declared_choices(q["type"], q.get("choices"))
         given = q.get(key)
-        missing = not given if key != "do_words" else not (isinstance(given, dict) and set(choices or ()) <= set(given))
+        missing = not given if key not in _WORD_FORM else not (isinstance(given, dict) and set(choices or ()) <= set(given))
         if choices and missing:
             out.append((q, choices))
     return out
@@ -644,7 +645,7 @@ def _decided_pairs(raw: dict[str, Any], key: str, decide: MeaningDecider | Reply
     pairs = list(dict.fromkeys((q["text"], c) for q, c in found))
     if not pairs or decide is None:
         return {}
-    if key == "do_words":
+    if key in _WORD_FORM:
         got = decide(_with_meanings(found, meanings or {})[1])
     else:
         got = decide(pairs)
@@ -652,7 +653,7 @@ def _decided_pairs(raw: dict[str, Any], key: str, decide: MeaningDecider | Reply
         return {}
     out = {}
     for (text, choices), d in zip(pairs, got):
-        good = business_settings.valid_answer_words(d, choices, replies=key == "replies", do=key == "do_words")
+        good = business_settings.valid_answer_words(d, choices, replies=key == "replies", form=_WORD_FORM.get(key))
         if good:
             out[_pair_key(text, choices)] = good
     return out
@@ -714,7 +715,7 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
            decide_topics: TopicDecider | None = None, decide_meanings: MeaningDecider | None = None,
            decide_replies: ReplyDecider | None = None, decide_facts: FactDecider | None = None,
            decide_do_words: DoWordsDecider | None = None, decide_away: AwayDecider | None = None,
-           decide_unclear: UnclearDecider | None = None) -> dict[str, Any]:
+           decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None) -> dict[str, Any]:
     """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味・事実を伺う質問かを決める処理。
     どれも CL-1 の決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics":
     質問の文 → 聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢},
@@ -731,6 +732,7 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
             "replies": _decided_pairs(raw, "replies", decide_replies),
             "facts": facts,
             "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts, meanings),
+            "doubt_words": _decided_pairs(raw, "doubt_words", decide_doubt_words, facts, meanings),
             "away": _decided_away(raw, decide_away, facts, meanings),
             "unclear": _decided_unclear(raw, decide_unclear)}
 
@@ -826,9 +828,10 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else []):
         if isinstance(q, dict) and isinstance(q.get("do_words"), dict):
             written[q.get("id")] = dict(q["do_words"])
-    for q, choices in _choice_questions(raw, "do_words"):
-        given = q["do_words"] if isinstance(q.get("do_words"), dict) else {}
-        q["do_words"] = {**(ai.get("do_words") or {}).get(_pair_key(q["text"], choices), {}), **given} or None
+    for key in _WORD_FORM:   # いまの話の向きを伺う言葉も同じ（入口の言葉が先・事実を伺う質問ではない質問だけ。CL-1 の連絡帳 4-90）
+        for q, choices in _choice_questions(raw, key):   # 事実を伺う質問かは、上で質問に入れた（asks_fact）
+            given = q[key] if isinstance(q.get(key), dict) else {}
+            q[key] = {**(ai.get(key) or {}).get(_pair_key(q["text"], choices), {}), **given} or None
     for key in ("company", "person"):
         c = caller.get(key)
         if isinstance(c, dict) and c.get("text"):
@@ -865,7 +868,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
             decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None,
             decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None,
             decide_facts: FactDecider | None = None, decide_do_words: DoWordsDecider | None = None,
-            decide_away: AwayDecider | None = None, decide_unclear: UnclearDecider | None = None) -> Preview:
+            decide_away: AwayDecider | None = None, decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
@@ -874,7 +877,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     raw, problems, where = _to_raw(sheets, problems, notes)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
                 decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
-                decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear)
+                decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear, decide_doubt_words=decide_doubt_words)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     p.notes = notes + p.notes
     return p

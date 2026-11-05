@@ -624,6 +624,36 @@ class Import(unittest.TestCase):
         bi.ask_ai(r, decide_meanings=meanings, decide_do_words=do_words)
         self.assertEqual(asked, [[("ご予約はなさいますか。", ("する", "しない"), {"する": "ご予約をなさるということ"})]])
 
+    def test_doubt_words_are_decided_with_the_meanings_for_wish_questions(self):
+        """CL-1 の連絡帳 4-90：いまの話の向きを伺う言葉は、こちらがすることの言葉と同じ1本の道で決める（事実を伺う質問ではない選ぶ質問だけ・その質問の
+        意味の言葉を添えて AI に1回だけ聞く・形の合う言葉だけ受ける・入口が書いた選択肢は入口の言葉が先）。"""
+        asked = []
+
+        def doubt(items):
+            asked.append(items)
+            return [{"する": "ご予約をなさるということ", "しない": "ご予約はされない方がいい"} for _ in items]   # 1つ目は形が合わない
+
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None)]
+        meanings = lambda pairs: [{"する": "ご予約をされるということ", "しない": "ご予約はされないということ"} for _ in pairs]   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=lambda texts: {t: "ご予約" not in t for t in texts},
+                         decide_meanings=meanings, decide_doubt_words=doubt)
+        self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"),
+                                   {"する": "ご予約をされるということ", "しない": "ご予約はされないということ"})]])
+        self.assertEqual(([q["doubt_words"] for q in p.raw["questions"]], p.problems), ([{"しない": "ご予約はされない方がいい"}, None], []))
+        asked.clear()                                              # 事実を伺う質問には聞かない
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=lambda texts: {t: True for t in texts},
+                         decide_meanings=meanings, decide_doubt_words=doubt)
+        self.assertEqual((asked, [q["doubt_words"] for q in p.raw["questions"]]), ([], [None, None]))
+        from tests.test_business_settings import raw            # 入口が書いた選択肢は入口の言葉が先・書いていない選択肢は AI の言葉
+        r = raw()
+        r["questions"][0]["doubt_words"] = {"しない": "ご予約は控えた方がいい"}
+        ai = bi.ask_ai(r, decide_meanings=meanings, decide_doubt_words=lambda items: [{"する": "ご予約をなさる方がいい",
+                                                                                      "しない": "ご予約はされない方がいい"} for _ in items])
+        self.assertEqual(self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai)).raw["questions"][0]["doubt_words"],
+                         {"する": "ご予約をなさる方がいい", "しない": "ご予約は控えた方がいい"})
+
     def test_unclear_none_is_decided_by_the_ai_for_choice_questions(self):
         """CL-1 の連絡帳 4-82（✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」）：ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢は、
         業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う質問も）だけ、取込のときに AI（CL-1 の import_ai.decide_unclear）に1回だけ聞いて入れる。
