@@ -4365,6 +4365,14 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("電話で伺えた形の合わない連絡先も足す", "src/salescall/core/customer_contacts.py",
      "        if kind is not None and problem(kind, w.contact) is None:", "        if kind is not None:",
      ("tests.test_conversation_io.Materials.test_contacts_heard_in_the_call_are_added_to_the_row",)),
+    # ── 契約プラン（0176。2026-11-05 ユーザー「判定は企業秘密なのでこちらのみ。会話は選べるように。」）
+    ("判定の AI も、契約者のプランで呼ぶ（契約者のキーで判定を呼びうる）", "src/salescall/core/ai_plans.py",
+     '    if ai == "judge":\n        return "included"\n', '',
+     ("tests.test_ai_plans.Plans.test_conversation_and_import_are_chosen_per_contractor_and_judge_is_always_ours",)),
+    ("業務を組む AI のプランを、会話 AI の設定で決める", "src/salescall/core/ai_plans.py",
+     '_SETTING = {"conversation": "ai.plan_conversation", "import": "ai.plan_import"}',
+     '_SETTING = {"conversation": "ai.plan_conversation", "import": "ai.plan_conversation"}',
+     ("tests.test_ai_plans.Plans.test_conversation_and_import_are_chosen_per_contractor_and_judge_is_always_ours",)),
 )
 
 
