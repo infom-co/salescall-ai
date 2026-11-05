@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 
 from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, HOLD, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     UNDECIDED, WHO, called_words, facts_reading, label, side_items)
+                     UNDECIDED, WHO, called_words, facts_reading, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -773,10 +773,10 @@ def firm_matters(q, got) -> bool:
     付くか）と、値の言い直しを認めた読み。⛔ 2026-11-02 日本時間7時40分ごろ（G-53end）に見つけた：流れの制御（Flow._checks）と測りの道具（flow_act）は、
     言い切っていない「どちらでも」「どれも要らない」も確かめるのに、ここは選択肢だけを数えていた（同じ決まりを2か所に書き、片方だけ直していた）＝
     d1-ultra の「どちらでも」の読みは、言い切りが迷う値でも確かな読みとして採られ、言い切った「お任せします」を確かめていた（33件）。"""
-    # 言い切っていなくても確かめない質問（Question.firm_not_needed＝ご承認いただけなかったときの N1〜N3。流れの制御 Flow._checks と同じ決まり）では、
+    # 言い直して確かめない質問（flowctl.restates の1か所＝ほかのご希望 W1・伺い方 C11・ご承認いただけなかったときの N1〜N3。流れの制御と同じ決まり）では、
     # 言い切りは動きを変えない。⛔ 2026-11-03 に見つけた（d1-ultra の外れの原因を追った）：ここに無く、N2・N3 の言い切りの読みが迷うと考える Sonnet へ
     # 回し、測りの道具も要らない確かめを外れと数えていた（同じ決まりを流れの制御にだけ書いていた）
-    if getattr(q, "firm_not_needed", False):
+    if not restates(q):
         return False
     return got in (getattr(q, "conditions", ()) or ()) or got in (ANY, NONE) or got == "affirmed"
 

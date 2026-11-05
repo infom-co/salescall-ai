@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ANY, CHOICE_TYPES, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, NONE, SYSTEM_CONDITIONS, Flow, Question,
-                     off_talk, prior_answer)
+                     off_talk, prior_answer, restates)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
 
@@ -138,7 +138,16 @@ def step_act(it: dict, q: Question, key: str) -> str | None:
     end = it.get(f"{key}終わり")
     if end is not None and end != END_NONE:
         return end_act(q, it.get(key), end)
-    return flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), it.get(f"{key}前の話"))
+    return flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), prior_of(it, key))
+
+
+# 前の話の答えを、組の1か所で1回読んで入れる欄（read_priors。本番の判定の組 JudgePanel.ask と同じく、どの判定の読みにも同じものを添える）
+PRIOR_KEY = "前の話"
+
+
+def prior_of(it: dict, key: str) -> str | None:
+    """判定 key の読みに添える前の話の答え（唯一の読み口）：判定ごとに読んだもの（G-70 の行）が無ければ、組の1か所で読んだもの（read_priors）。"""
+    return it[f"{key}前の話"] if f"{key}前の話" in it else it.get(PRIOR_KEY)
 
 
 def step_wants(it: dict, q: Question, has_end: bool) -> set[str]:
@@ -275,9 +284,21 @@ def g73_words() -> list[dict]:
 
 
 def set_n() -> list[dict]:
-    """組 N1〜N3：システムの質問（N1〜N3）への答えの試しの言葉（G-73）。正解は作らせた種類（どちらとも取れない＝決められない）。"""
-    return [{"set": w["set"], "maker": w["maker"], "qid": w["set"], "question": w["question"], "text": w["text"], "truth": w["truth"]}
-            for w in g73_words() if w["set"] in ("N1", "N2", "N3")]
+    """組 N1〜N3・W1：システムの質問（ご承認いただけなかったときの N1〜N3・ほかのご希望 W1）への答えの試しの言葉（G-73）。正解は作らせた種類
+    （どちらとも取れない＝決められない）。質問の鍵と、本番で判定に渡る前の言葉は、場面の1か所（g73_scene）から。"""
+    from g73_system_words import answer_scenes
+    scenes = answer_scenes()
+    return [g73_scene({"set": w["set"], "maker": w["maker"], "question": w["question"], "text": w["text"], "truth": w["truth"]})
+            for w in g73_words() if w["question"] in scenes]
+
+
+def g73_scene(it: dict) -> dict:
+    """試しの言葉（G-73）の答えの段の答えに、場面の1か所（g73_system_words.answer_scenes）の質問の鍵と、本番で判定に渡る前の言葉を当てたもの
+    （新しく読む組 set_n も、--reuse の前の記録も、ここを通す。場面の無い答えはそのまま）。⛔ 2026-11-05 日本時間20時台に見つけた：前の記録の
+    N1〜N3 の言葉には前の言葉が無く、使い回すと本番と違う形で測ることになった"""
+    from g73_system_words import answer_scenes
+    sc = answer_scenes().get(it.get("question"))
+    return {**it, "qid": sc["qid"], "before": sc["before"]} if sc else it
 
 
 def set_h() -> list[dict]:
@@ -374,7 +395,11 @@ def question_map(facts: bool = True, words: bool = True) -> dict:
     # ご承認いただけなかったときのシステムの質問（N1〜N3＝流れの制御の callback_question の1か所。試しの言葉は G-73＝組 N1〜N3）
     from flowctl import callback_question
     qs += [callback_question(r) for r in ("not_agreed", "other_point", "agreed_now")]
-    return {q.id: q for q in qs}
+    out = {q.id: q for q in qs}
+    if words:   # ほかのご希望を伺う W1（試しの言葉は G-73＝組 W1。元の質問の意味の言葉が要る＝words のときだけ）
+        from g73_system_words import wish_scenes
+        out.update({key: w for key, (_, w, _) in wish_scenes(out).items()})
+    return out
 
 
 def question_by_text(text: str) -> Question:
@@ -537,13 +562,14 @@ RECHECK = "会話になっていない（念のため確かめ直す）"
 def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
     """判定の読み got（firm＝言い切っているか・prior＝前の話の答え）から、流れの制御がすること（数えるのはここ）。会話になっていない
     返事（前の話の答えと食い違う選択肢の読み）は、その読みで念のため確かめる（言い直しへの返事なら確かめ直す。flowctl.TALK_WHY・
-    Flow._check_again。✅ 2026-10-31 ユーザー：前に言ったことと逆の返事は「(イ)」＝言い直して確かめる）。"""
+    Flow._check_again。✅ 2026-10-31 ユーザー：前に言ったことと逆の返事は「(イ)」＝言い直して確かめる）。言い直さない質問（W1・C11・N1〜N3＝
+    flowctl.restates の1か所）は、どちらも質問から聞き直す。"""
     if got is None:
         return None
     if off_talk(q, got, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり。読みはいつも宣言した選択肢）
-        return RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"
+        return ASK_AGAIN if not restates(q) else RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"
     if (pa := prior_answer(q, got, prior)) is not None:   # いまの言葉だけでは決められず、前の話の答えを確かめる（Flow._compare と同じ）
-        return f"念のため確かめる：{pa}"
+        return ASK_AGAIN if not restates(q) else f"念のため確かめる：{pa}"
     if it["set"] == "D":
         if got == "affirmed" or got == it.get("asked_choice"):
             return AFFIRMED_HEDGED if firm is False else AFFIRMED
@@ -703,7 +729,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
 
             def call(client):
                 t = time.monotonic()
-                got = judge(client, ids[key], q, it["text"], it.get("asked"))
+                got = judge(client, ids[key], q, it["text"], it.get("asked"), it.get("before"))
                 took["s"] = round(time.monotonic() - t, 3)
                 return got
             try:
@@ -741,7 +767,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
             for attempt in range(5):
                 try:
                     t = time.monotonic()
-                    it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"))
+                    it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"), it.get("before"))
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
                     it[f"{key}終わり"] = getattr(it[key], "end", None)
                     it[f"{key}聞こえ"] = getattr(it[key], "hear", None)
@@ -795,7 +821,7 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
             panel = JudgePanel({"judge2": fns})   # 答えごとに新しい受け持ち（前の答えの時間切れ・会社の印を持ち越さない）
             t = time.monotonic()
             try:
-                got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"))
+                got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"), it.get("before"))
                 it[name], it[f"{name}言い切り"], it[f"{name}by"], it[f"{name}終わり"] = str(got), got.firm, got.by, getattr(got, "end", None)
                 it[f"{name}聞こえ"] = getattr(got, "hear", None)
             except NoJudgment as exc:
@@ -806,6 +832,34 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
                 say(name, "判定", done["済"], "/", len(todo))
                 save_partial(f"G-53{args.tag}", {"items": items})
     await asyncio.gather(*(one(it) for it in todo))
+
+
+def prior_todo(args, items: list[dict], qmap: dict) -> list[dict]:
+    """前の話の答えを読む答え（read_priors が読む・組み立てだけ＝--dry-run が数える）：前の言葉があり、本番でも前の話を問う（meaning_judge.prior_asked の
+    1か所）、まだ読んでいない答え。"""
+    from meaning_judge import prior_asked
+    return [it for it in items if it.get("before") and PRIOR_KEY not in it and it["qid"] in qmap and (not args.sets or it["set"] in args.sets)
+            and prior_asked(qmap[it["qid"]], it.get("asked"), it["before"])]
+
+
+def read_priors(args, items: list[dict], qmap: dict) -> int:
+    """前の言葉のある答え（試しの言葉の N1〜N3・W1）の前の話の答えを、本番と同じ読み手（meaning_judge.read_prior_first＝PRIOR_READERS の順。本番の
+    判定の組 JudgePanel の prior と同じ）で1件ずつ読み、PRIOR_KEY の欄に入れる（どの判定の読みにも同じものを添える＝prior_of）。本番は発話ごとに読む
+    ので、同じ前の言葉でも1件ずつ読む（読みの揺れも数える）。読めなければ None（本番も、前の話の答えが無ければ比べない）。返り値は読んだ数。
+    ⛔ 2026-11-05 日本時間20時台に見つけた：測りは前の言葉を渡さず、前の話の答えも読んでいなかった（本番で走る、前の話と食い違えば聞き直す動きを
+    数えていなかった）"""
+    from common import load_secret
+    from meaning_judge import PRIOR_READERS, other_client, read_prior_first
+    todo = prior_todo(args, items, qmap)
+    if not todo:
+        return 0
+    clients = {n: other_client(n, load_secret(OTHER_JUDGES[n]["key"], args.env), budget=args.budget_yen) for n in PRIOR_READERS}
+    for n, it in enumerate(todo, 1):
+        it[PRIOR_KEY], it[f"{PRIOR_KEY}の確からしさ"], _ = read_prior_first(clients, qmap[it["qid"]], it["before"])
+        if n % 50 == 0:
+            say("前の話の答え", n, "/", len(todo))
+            save_partial(f"G-53{args.tag}", {"items": items})
+    return len(todo)
 
 
 def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
@@ -927,6 +981,7 @@ def main() -> None:
                     it["見本"] = True
             items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", "終わり", "聞こえ"))
                                                              for j in args.judge)} for it in items]
+        items = [g73_scene(it) for it in items]   # 前の記録の試しの言葉にも、本番で判定に渡る前の言葉を当てる
         have = {(it["set"], it["qid"], it["text"]) for it in items}
         # 電話を終える言葉の試しの表の言葉・G-73 の試しの言葉（表・言葉を足したら、足した行だけ判定する）
         items += [it for it in set_f() + set_n() + set_h() if (it["set"], it["qid"], it["text"]) not in have]
@@ -948,12 +1003,15 @@ def main() -> None:
     if args.dry_run:
         # 組み立てだけ：判定を送る数だけ出して止める（⛔ 2026-11-02 日本時間7時29分：ここで止まらず、2,840回送った）
         todo = [it for it in items if not args.sets or it["set"] in args.sets]
-        say("組み立てだけ（--dry-run）：判定は送りません。送る数", {j: sum(1 for it in todo if j not in it) for j in args.judge})
+        say("組み立てだけ（--dry-run）：判定は送りません。送る数", {j: sum(1 for it in todo if j not in it) for j in args.judge},
+            "前の話の答え", len(prior_todo(args, items, qmap)))
         require_complete(args, "組み立てだけ", stop=False)   # 試しの言葉がそろっているかも出す（止めない）
         return
     require_complete(args, "答えの段の測り（G-53）")
+    say("前の話の答えを読んだ数", read_priors(args, items, qmap))
     run_judges(args, items, qmap, ids)
     summary = tally(items, args.judge, qmap)
+    summary["前の話の答え（組の1か所）"] = dict(Counter(f"{it['set']}・{it['qid']}・{it[PRIOR_KEY]}" for it in items if PRIOR_KEY in it))
     summary["記録の通話に当てた見込み"] = {k: predict_calls(items, k) for k in args.judge}
     summary[f"{BASE} と同じ答えで比べた"] = {k: versus(items, qmap, k) for k in args.judge if k != BASE}
     for k, v in summary.items():

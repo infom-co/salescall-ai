@@ -11,10 +11,11 @@
 """
 from __future__ import annotations
 
+import functools
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from flowctl import HEAR_OK, UNDECIDED, callback_question, hear_choices
+from flowctl import HEAR_OK, UNDECIDED, WISH_OTHER, callback_question, hear_choices
 
 # 作り手（判定の顔ぶれ＝meaning_judge.members(JUDGE2) と 3.5 Flash Lite に入れない）。✅ 2026-11-03 日本時間2時41分10秒 ユーザー「はい」＝
 # 2人目の作り手を 3.7 Flash（Google の混雑で答えなかった）から Claude Haiku 5.5 に替える（Sonnet は判定に入っているので作り手にしない。
@@ -31,10 +32,24 @@ SCENE_TRIES = 3
 PER_KIND = 4   # 種類ごとに作らせる言葉の数
 EXPLAINED = "料金は月額3,000円で、初月は無料となっております。"   # 前の段でご説明した内容（試しの業務。ApprovalTest と同じ）
 UNSURE = "どちらとも取れない"   # 決められない（UNDECIDED）の種類の名前
+# 答えの段の試しの場面の、その質問の前にお客様が言ったこと（本番で判定に渡る「その前に相手が言ったこと」＝流れの制御 Flow.judge_context の、答えの段の
+# 言葉の直前の3つまでを BEFORE_SEP でつないだもの。前の話の答え meaning_judge.PRIOR も、これで読まれる）。どれも、本番の流れの制御を同じ言葉で進めて
+# 出した前の言葉と同じ（試験 G73WordsTest）。⛔ 2026-11-05 日本時間20時台に見つけた：測り（G-53）は前の言葉を渡しておらず、本番で走る前の話の読み
+# （前の話と食い違えば聞き直す）を数えていなかった
+BEFORE_SEP = "／"
+APPROVAL_SAID = ("届いてないです。", "いや、それはちょっと。", "料金のところですね。", "そうなんですね。", "なるほど。")   # ご承認の手順の試し（ApprovalTest と同じ）
+POINT_BEFORE = {"not_agreed": APPROVAL_SAID[:2], "other_point": APPROVAL_SAID[1:4], "agreed_now": APPROVAL_SAID[2:5]}
+# ほかのご希望（W1）の場面：(元の質問＝測りの質問の表 g53_meaning.question_map の番号, 最終目的にするか, W1 を伺うきっかけのお客様の答え)。選ぶ質問の
+# 「どれも要らない」（✅ 2026-11-03 日本時間19時54分）と、はい／いいえで伺う最終目的の言い切っていないお断り（✅ 同じ日の21時38分）
+WISH_SCENES = (("G17", False, "どちらも要らないです。"), ("E1", True, "うーん、お電話はちょっと…。"))
+WISH_UNSURE = "どれとも決められない一言（「うーん」「そうですねえ」など、考えている言葉や相づち）"
+# 「ほかの希望を言った」を作らせるときだけ添える注意（判定・会話AIに見せる意味の言葉は変えない＝聞こえ方の紛らわしい言葉 _hear_kinds と同じ形）。
+# ⛔ 2026-11-05 日本時間20時台：添えずに作らせると、「担当の方の名前を教えてもらえますか。」のような、こちらへの質問が混ざった（正解が決まらない）
+WISH_OTHER_NOTE = "。⚠️ こちらへの質問ではなく、「こうしてほしい」という希望の言い方にしてください（ご連絡の方法・元の質問の選択肢以外の希望）"
 
 
 def _point_sets() -> list[dict]:
-    """N1〜N3：質問の文・選択肢ごとの意味（流れの制御の _ROLE_MEANINGS）と、決められない一言。"""
+    """N1〜N3：質問の文・選択肢ごとの意味（流れの制御の _ROLE_MEANINGS）と、決められない一言・前の言葉。"""
     from flowctl import _ROLE_MEANINGS
     out = []
     for role, scene in (("not_agreed", "こちらがご説明した内容のご承認を伺ったところ、お客様が「いいえ」と答えたので"),
@@ -43,8 +58,45 @@ def _point_sets() -> list[dict]:
         q = callback_question(role)
         kinds = dict(_ROLE_MEANINGS[role])
         kinds[UNSURE] = "受け入れにも断りにも取れて、その言葉だけでは、どれか決められない一言（「なるほど」「うーん」など、相づちや考えている言葉）"
-        out.append({"set": q.id, "question": q.text, "scene": scene, "kinds": kinds})
+        out.append({"set": q.id, "qid": q.id, "question": q.text, "scene": scene, "kinds": kinds, "before": POINT_BEFORE[role]})
     return out
+
+
+def wish_scenes(qmap: dict) -> dict:
+    """ほかのご希望（W1）の試しの場面の質問（唯一の場所＝測りの質問の表 g53_meaning.question_map と、言葉を作る場面 _wish_sets が使う）：
+    {測りの質問の表の鍵: (元の質問, W1, きっかけの答え)}。W1 は流れの制御の callback_question の1か所から作る（元の質問ごとに文と選択肢が違うので、
+    鍵は「W1@元の質問の番号」）。最終目的にする元の質問は、お断りの答え（いいえ）を断り・目的から遠ざかる向きにする（取込が決める形）。"""
+    import dataclasses
+
+    out = {}
+    for qid, goal, said in WISH_SCENES:
+        of = qmap[qid]
+        if goal:
+            no = tuple(c for c in of.conditions if c == "いいえ")
+            of = dataclasses.replace(of, final_goal=True, declines=no, away=no)
+        w = callback_question("other_wish", of=of)
+        out[f"{w.id}@{of.id}"] = (of, w, said)
+    return out
+
+
+def _wish_sets() -> list[dict]:
+    """W1：元の質問へのきっかけの答えのあとに伺う、ほかのご希望の質問の文・選択肢ごとの意味（流れの制御の _wish_choices）と、決められない一言・前の言葉。"""
+    from g53_meaning import question_map
+    out = []
+    for key, (of, w, said) in wish_scenes(question_map()).items():
+        kinds = {c: w.meanings.get(c, c) for c in w.conditions}
+        kinds[WISH_OTHER] += WISH_OTHER_NOTE
+        kinds[UNSURE] = WISH_UNSURE
+        out.append({"set": w.id, "qid": key, "question": w.text, "scene": f"こちらが「{of.text}」と伺ったところ、お客様が「{said}」と答えたので",
+                    "kinds": kinds, "before": (said,)})
+    return out
+
+
+@functools.lru_cache(maxsize=1)
+def answer_scenes() -> dict[str, dict]:
+    """答えの段の試しの場面（N1〜N3・W1）の、質問の文 ⇒ {"qid": 測りの質問の表の鍵, "before": 判定に渡す前の言葉}（唯一の読み口＝測りの道具
+    g53_meaning.set_n）。"""
+    return {s["question"]: {"qid": s["qid"], "before": BEFORE_SEP.join(s["before"])} for s in _point_sets() + _wish_sets()}
 
 
 # こちらの声が届いていない様子：答えの段のいろいろな質問のあとに、お客様が言う言葉（そういう様子の無い、紛らわしい言葉も作らせる）
@@ -82,10 +134,10 @@ PROMPT = (
 
 
 def _scenes() -> list[dict]:
-    """言葉を作らせる場面の一覧（唯一の場所）：N1〜N3 の質問（場面の文つき）と、こちらの声が届いていない様子を読む答えの段の3つの質問・
+    """言葉を作らせる場面の一覧（唯一の場所）：N1〜N3・W1 の質問（場面の文つき）と、こちらの声が届いていない様子を読む答えの段の3つの質問・
     お呼びする段の2つの一言。"""
     out = [{"set": s["set"], "question": s["question"], "text": f"{s['scene']}、こちらが「{s['question']}」と伺った", "kinds": s["kinds"]}
-           for s in _point_sets()]
+           for s in _point_sets() + _wish_sets()]
     out += [{"set": "HEAR", "question": q, "text": f"こちらが「{q}」と伺った", "kinds": _hear_kinds(False)} for q in HEAR_QUESTIONS]
     out += [{"set": "HEAR_CALL", "question": q, "asked": asked, "text": f"{CALLING_SCENES[asked]}こちらが「{q}」と伺った", "kinds": _hear_kinds(True)}
             for asked, q in calling_questions().items()]
@@ -207,6 +259,16 @@ def run(args) -> dict:
                         rows.setdefault(m, []).extend(v)
                 else:
                     rows.setdefault(key, []).extend(by)
+        # いちばん新しい結果の言葉も、その作り手の欄に戻す（場面を足したときは、足した場面だけを作る＝お見せしてご確認いただいた言葉を作り直さない。
+        # ⛔ 2026-11-05 日本時間20時台に見つけた：途中の記録は流し終えると消えるので、場面を足すと、そろった場面まで作り直していた）。欄は、代わりに作った
+        # 言葉は代わった作り手（stand_in_for）・ほかは作ったモデルの名前（maker＝モデルID）から
+        by_id = {mid: m for m, mid in ids.items()}
+        have = {(m, w["question"], w["kind"], w["text"]) for m, ws in rows.items() for w in ws}
+        for w in latest()["words"]:
+            m = w.get("stand_in_for") or by_id.get(w["maker"])
+            if m in MODELS and (m, w["question"], w["kind"], w["text"]) not in have:
+                have.add((m, w["question"], w["kind"], w["text"]))
+                rows.setdefault(m, []).append(w)
     for m in MODELS:
         if m not in _makers(args):   # この流しで問い合わせない作り手も、足りない場面は「そろっていない」として残す（有料の測りの前の止め＝require_complete）
             rows[m], missing = _kept(rows.get(m, []), scenes)
@@ -257,7 +319,7 @@ def run(args) -> dict:
                 seen.add((w["question"], w["text"]))
                 uniq.append(w)
     return {"model_ids": {m: ids.get(m) for m in MODELS}, "scenes": scenes, "words": uniq, "errors": errors,
-            "count": {s: sum(1 for w in uniq if w["set"] == s) for s in ("N1", "N2", "N3", "HEAR", "HEAR_CALL")}}
+            "count": {s: sum(1 for w in uniq if w["set"] == s) for s in ("N1", "N2", "N3", "W1", "HEAR", "HEAR_CALL")}}
 
 
 def latest() -> dict:

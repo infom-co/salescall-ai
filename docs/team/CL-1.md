@@ -38,7 +38,7 @@
 - **道具**
   - 見張り（要約の区切りと英語の一言）＝`phase0/oneliner_guard.py`。新しい作業場所（コンテナ）では、最初に1回 `python3.13 phase0/oneliner_guard.py --install`。英語の一言は、道具を呼ぶ前と返事を終える時に見る（記録に残らない一言は見えない＝数えは下限）。要約の区切りは、命令を呼ぶまでと、(A) を読み終えるまで止める。残りは `--status`。
   - 読み直しの道具 `phase0/read_user_messages.py <会話の記録 .jsonl>`：`--since/--until`（時刻）・`--with-assistant`（私の返事も）・`--english`（英語の一言を数える）・`--export docs/conversation_log/CL-1`（全文の書き出し）。作業中に届いたご発言も拾う。会話の記録は `/root/.claude/projects/-home-user-sales-crowd-auto/` の中のいちばん新しい `.jsonl`。/clear のあとは新しいファイルになり、前の会話は `docs/conversation_log/CL-1/` の週ごとのファイルと `rows.jsonl` で読む（/clear のあとの最初のターンも、この手順を通す）。
-- **送る前の確かめ（毎回）**：リポジトリは `/home/user/salescall-ai`（ブランチ main。命令のたびに `cd /home/user/salescall-ai` から）。(1) `python3.13 phase0/check_keys.py`＝見つかった 0 (2) `git add -N .` のあと `python3.13 phase0/check_removed.py`＝出た文がどれも意図した直しか (3) 英語の一言の数＝`python3.13 phase0/read_user_messages.py <会話の記録> --since 2026-11-03T19:04 --english --out <作業場所>/eng.txt`（11-05 18時台に30件＝どれも記録済み・107回目まで） (4) `python3.13 phase0/read_user_messages.py <会話の記録> --export docs/conversation_log/CL-1` (5) 判定に送る文の指紋（上の2つの道具）と試験＝`cd phase0 && timeout 900 python3.13 -m unittest test_offline` (6) `timeout 110 git push -q origin main` のあと `git ls-remote origin refs/heads/main` で届いたかを見る。
+- **送る前の確かめ（毎回）**：リポジトリは `/home/user/salescall-ai`（ブランチ main。命令のたびに `cd /home/user/salescall-ai` から）。(1) `python3.13 phase0/check_keys.py`＝見つかった 0 (2) `git add -N .` のあと `python3.13 phase0/check_removed.py`＝出た文がどれも意図した直しか (3) 英語の一言の数＝`python3.13 phase0/read_user_messages.py <会話の記録> --since 2026-11-03T19:04 --english --out <作業場所>/eng.txt`（11-05 21時台に32件＝どれも記録済み・109回目まで） (4) `python3.13 phase0/read_user_messages.py <会話の記録> --export docs/conversation_log/CL-1` (5) 判定に送る文の指紋（上の2つの道具）と試験＝`cd phase0 && timeout 900 python3.13 -m unittest test_offline` (6) `timeout 110 git push -q origin main` のあと `git ls-remote origin refs/heads/main` で届いたかを見る。
 - **/clear・新しい会話の最初の1通（管理者が貼るもの）**：「あなたは SalesCall AI の CL-1（会話の担当）です。リポジトリは /home/user/salescall-ai（ブランチ main）。最初に /home/user/salescall-ai/CLAUDE.md と docs/team/CL-1.md の 0-1・0-2・1 の「2026-11-03 のいま」を読み、0-1 の手順（前の会話は docs/conversation_log/CL-1/ の最後の日の分）を通してから、残りの仕事を進めてください。」（作業の場所の決まり CLAUDE.md は、この会話の初めの場所＝sales_crowd_auto のものが自動で読まれ、salescall-ai のものは読まれないため）
 
 ### 0-2. ユーザーの変わらない決まり（ここに書いたことは、聞き直さない・破らない）
@@ -349,7 +349,7 @@
   - 判定への説明の文を直したあとの、答えの意味（G-53）・尋ねているか（G-59）・待たせた方が戻ったか（G-68）。あわせて、線の根拠（お呼びする段の d1-ultra 0.6・Jev 0.8、戻ったかの Jev 0.6）が今の文で成り立つか・Sonnet に回る言葉の秒・「お任せします」系を具体の答えに読まないか（本書 9-5 の (6)）
   - 答えの段の外れ（作業の表の BM）・前の話の答え（G-70。d1-ultra の D2・Jev の F2）・中身の判定の d1-ultra の線（約1円。決まるまで中身の判定は Jev → 考える Sonnet）
   - 電話を終える言葉の試しの表（`phase0/end_words.py`。✅ 11-01 23時59分「(a) OK」＝表の正解・11-02 1時59分「OK、進めてください」＝測りの道具に入れて、料金の見込みを出して伺う）。ふつうの言葉を判定が「決められない」と読む要らない確かめも数える
-  - 試しの言葉 G-73 の残り（考える Sonnet の分・お呼びする段の読めなかった6行）・ほかのご希望 W1 の答えを判定が読めるか（G-73 に W1 の組を足す）
+  - 試しの言葉 G-73 の残り（考える Sonnet の分・お呼びする段の読めなかった6行）・ほかのご希望 W1 の答えを判定が読めるか（W1 の言葉123個は 11-05 21時台に作った＝お見せし、正解が言葉だけで決まりにくい3つを伺ってから測る。N1〜N3・W1 は本番と同じ前の言葉つきで、前の話の答え203件も読む＝前の答えをきっかけに伺う質問で、前の話の読みが要らない聞き直しを生まないかも数える。PHASE0 G-73 の 11-05 20〜21時台）
   - お呼びする方の名前を判定へ送るか：名前を伏せる形と今の形の比べ（4-165・本書18-3 の 10-30 の (5)。それまでは今の形）
   - お呼びする方がいらっしゃるかの一文（`decide_target_asks`）を2つのモデルが同じに決めるか・取り違えないか（G-71 の形）
   - 会話AIの道具の宣言・AIに見せる文が変わった分の通話の試験（G-57）

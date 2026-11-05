@@ -657,6 +657,14 @@ def off_talk(q: "Question", got: str | None, prior: str | None = None) -> bool:
     return prior in q.conditions and got in q.conditions and prior != got
 
 
+def restates(q: "Question") -> bool:
+    """確かめがそろわない答え（前の話と食い違う・前の話で補う・言い切っていない・判定と食い違う）を、意味の言葉で言い直して確かめるか（唯一の決まり＝
+    流れの制御 Flow._check_again・測りの数え g53_meaning.flow_act）。言い直さない質問（Question.firm_not_needed＝ほかのご希望 W1・伺い方 C11・ご承認
+    いただけなかったときの N1〜N3。CL-1 の 11-03 のご判断の (4)）は、質問から聞き直す（「はい、」＋「恐れ入ります。（聞くこと）をもう一度…」）。
+    ⛔ 2026-11-05 日本時間20時台に見つけた：測りの数えは、言い直さない質問の前の話との食い違いも「念のため確かめる」と数えていた（本番の動きと違う）"""
+    return not getattr(q, "firm_not_needed", False)
+
+
 # いまの言葉だけでは決められず、前の話の答えで念のため確かめる（確かめる理由の名前＝Flow._check_again。言い切っていない答えと同じ言い方）
 PRIOR_WHY = "前の話の答え"
 END_DOUBT_WHY = "電話を終える言葉か決まらなかった答え"   # 確かめる理由の名前（いまの話を先に伺う＝Flow._topic_first。向きを確かめる）
@@ -2278,9 +2286,12 @@ def wish_repick(q: "Question", cond: str | None) -> str | None:
 
 def _wish_same_means(q: "Question", means: str) -> str | None:
     """元の質問の選び直せる選択肢のうち、ご連絡の方法 means（WISH_MEANS の鍵）と同じもの（無ければ None。唯一の場所）。同じ方法が選択肢にあれば、
-    その方法のご希望は、その選択肢を選び直した答え（W1 の選択肢にその方法を出さない＝_wish_choices・その方法の答えの名前＝wish_option）。"""
+    その方法のご希望は、その選択肢を選び直した答え（W1 の選択肢にその方法を出さない＝_wish_choices・その方法の答えの名前＝wish_option）。
+    見るのは、W1 に出す選び直しの選択肢の名前（_wish_pick_label）：選ぶ質問は選択肢の名前（電話・メール）、はい／いいえは「やはり（意味の言葉）」。
+    ⛔ 2026-11-05 日本時間20時台に見つけた：選択肢の名前（「はい」）だけを見ていたので、「担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？」の
+    W1 に「やはり…お電話を差し上げてよろしいということ」と「お電話での連絡」が並び、「やっぱり電話でいいです」の読みが2つに割れえた"""
     words = WISH_MEANS[means][1]
-    return next((c for c in _wish_picks(q) if any(w in unicodedata.normalize("NFKC", c).upper() for w in words)), None)
+    return next((c for c in _wish_picks(q) if any(w in unicodedata.normalize("NFKC", _wish_pick_label(q, c)).upper() for w in words)), None)
 
 
 def wish_option(q: "Question", means: str) -> str:
@@ -2297,10 +2308,12 @@ def _wish_choices(q: "Question") -> tuple[tuple, dict]:
     picks = _wish_picks(q)
     means = [k for k in WISH_MEANS if _wish_same_means(q, k) is None]
 
-    def picked(c: str) -> str:   # 選び直した答えの意味の言葉（「やはり…」の名前は、元の質問を考え直したことを言う）
-        if _wish_pick_label(q, c) == c:
-            return q.meanings.get(c) or f"「{c}」を選んだということ"
-        return f"元の質問を考え直して、{q.meanings.get(c) or f'「{c}」と答え直したということ'}"
+    def picked(c: str) -> str:
+        # 選び直した答えの意味の言葉：選ぶ質問の選択肢も、はい／いいえ（名前は「やはり…」）も、元の質問を考え直したことを言う（W1 は「どれも要らない」・
+        # お断りのあとに伺う問い）。⛔ 2026-11-05 日本時間20時台に、W1 の試しの言葉を作って見つけた：選ぶ質問の選択肢には意味の言葉（「ご連絡はお電話」）
+        # だけを見せていたので、作り手が「電話はもう勘弁してほしい」のような電話を断る言葉を「電話」として作った（判定・会話AIが読む説明も同じ文）
+        m = q.meanings.get(c) or (f"「{c}」を選んだということ" if _wish_pick_label(q, c) == c else f"「{c}」と答え直したということ")
+        return f"元の質問を考え直して、{m if m.endswith('ということ') else m + 'ということ'}"
     conds = (*(_wish_pick_label(q, c) for c in picks), *(wish_label(k) for k in means), WISH_OTHER, WISH_NONE)
     meanings = {**{_wish_pick_label(q, c): picked(c) for c in picks},
                 **{wish_label(k): f"{WISH_MEANS[k][0]}での連絡を望んでいるということ" for k in means},
@@ -4068,7 +4081,7 @@ class Flow:
         # 聞き返したあと・締めの前の念のための確認の答えは、選択肢の型も言い直して確かめる（6-11）。言い切っていなくても確かめずに受け取る質問
         # （Question.firm_not_needed＝ほかのご希望を伺う W1・ご承認いただけなかったときの N1〜N3）は、どの段でも言い直さない（CL-1 の 11-03 のご判断の (4)。
         # ⛔ 見直しで見つけた：念のための確認の段で W1 を伺うと「はい、ありがとうございます。ほかに希望は無い・やはり要らないということで…」と言い直した）
-        restate = (it.ask_backs or self.phase == "rechecking") and not q.firm_not_needed
+        restate = (it.ask_backs or self.phase == "rechecking") and restates(q)
         if q.confirm or restate or after:
             return self._ask_confirm(qid, after=after)
         it.set("accepted", "曖昧な言葉だが、前の質問から意味が決まる" if decided else "確かめない型で、はっきり聞き取れた")
@@ -4098,7 +4111,7 @@ class Flow:
         text = (words or said or "").strip()
         if policy and AMBIGUOUS.fullmatch(text):
             return "曖昧な答え", reported
-        if reported not in SYSTEM_CONDITIONS and not confirming and not q.firm_not_needed and UNCERTAIN.search(text):
+        if reported not in SYSTEM_CONDITIONS and not confirming and restates(q) and UNCERTAIN.search(text):
             # 言い切っていない答えは、その言葉だけで決めない（✅ ユーザー確定）。最初の答えだけに当てる（言い直しへの返事は、言い直した
             # 意味に寄っていれば、その答えに「曖昧」の印を付けて受け取る＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）。
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
@@ -4114,7 +4127,7 @@ class Flow:
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
             if back:
                 return f"意味の判定（「{label(check[kind])}」）と食い違う", back
-        if reported not in SYSTEM_CONDITIONS and not confirming and not q.firm_not_needed and Flow._judged_unsure(check):
+        if reported not in SYSTEM_CONDITIONS and not confirming and restates(q) and Flow._judged_unsure(check):
             return f"{HEDGE_WHY}（意味の判定が、言い切っていないと読んだ）", reported
         return None, None
 
@@ -4256,7 +4269,7 @@ class Flow:
     def _check_again(self, qid: str, why: str, cond: str | None, back: str | None) -> dict:
         """確かめがそろわなかった答えを、そのまま受け取らずに言い直して確かめる（選択肢の型は back の意味で＝判定が選択肢を選んでいれば判定のほう）。"""
         it, q = self.items[qid], self.questions[qid]
-        if q.firm_not_needed:
+        if not restates(q):
             # 言い直さない質問（ほかのご希望 W1・伺い方 C11・ご承認いただけなかったときの N1〜N3）は、確かめがそろわなくても言い直さない（どの段でも＝CL-1 の
             # 11-03 のご判断の (4)。その意味の言葉は判定に見せる説明で、お客様に言う言葉ではない）＝答えが質問に合わないときと同じく、質問から聞き直す（6-11 の
             # 回数の中で。使い切れば締めの前の念のための確認でもう1回）。聞き取れてはいるので、お電話のせいにする聞き返しにせず、声が聞き取れない数にも入れない
