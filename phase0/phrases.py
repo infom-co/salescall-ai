@@ -218,6 +218,10 @@ CALLBACK_ASK = {
     # ⏳ 録音は声の型ごとに作って聞いていただく
     "hurry_again": "それではまた改めてお掛けしてもよろしいでしょうか？",
     "hurry_when": "ご都合のいい日時はいつ頃でしょうか？",
+    # 答えの段で、電話をつないだまま待つのか、あとでかけ直すのか、お言葉から決まらないとき（flowctl.Flow._wait_or_later）：1回だけ伺う。頭の「かしこまりました。」は
+    # 相づちの録音（ACK の kashikomari）。✅ 2026-11-05 日本時間23時56分48秒 ユーザー：「待つか、かけ直すかが言葉から決まらないとき：(ア)」（23時台のご報告の (ア)
+    # ＝「かしこまりました。このままお待ちしていた方がよろしいでしょうか？それとも改めておかけ直しさせていただいた方がよろしいでしょうか？」）。⏳ 録音は声の型ごとに
+    "wait_or_later": "このままお待ちしていた方がよろしいでしょうか？それとも改めておかけ直しさせていただいた方がよろしいでしょうか？",
     # 説明した内容をご承認いただけなかったときに伺う（flowctl.Question.approval）。✅ 2026-11-02 日本時間4時36分 ユーザー：「(b) いいえ＝「ご納得いただけ
     # なかった点はどの部分になりますでしょうか？」のような確認が必要ではないですか？」。⏳ 録音は声の型ごとに作って聞いていただく
     "not_agreed": "ご納得いただけなかった点はどの部分になりますでしょうか？",
@@ -553,6 +557,10 @@ LINE_TROUBLE = {"ask": "恐れ入ります。こちらの通信に不具合が�
 # 「お返事がないようですので、また、あらためて、かけ直させていただきます。それでは、いったん失礼いたします。」（言葉の途中の読点は外す＝10-15。
 # 同じ日の1回目の言い方の「のちほど」を、ユーザーが「あらためて」に替えた＝同じ日のうちとはお約束しない）
 HOLD_TIMEOUT = "お返事がないようですのでまたあらためてかけ直させていただきます。それではいったん失礼いたします。"
+# 答えの段で、お客様がこの電話の間に確かめて・相談して戻るので待つように言ったとき（flowctl.HOLD_BACK・Flow._hold）に流してから、上の待つ長さで待つ（共通の一言の
+# 録音 wait_reply。頭の「はい、」は相づちの録音）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「電話がつながったまま、妻に確認を待ってと言っていらっしゃる
+# なら、「はい、それではこのままお返事を待っております。」で待ち」・23時56分48秒「(2) …OK」。⏳ 録音は声の型ごとに作って聞いていただく
+WAIT_REPLY = "それではこのままお返事を待っております。"
 # 電話が繋がっても、出た方が黙ったまま（第一声が無い）とき、回線が繋がっているか・途切れていないか・留守番電話ではないかを確かめる一言（共通の一言の
 # 録音。✅ 2026-10-24 ユーザー：「2秒ほど待っても『はい、』もなく黙っているなら、『もしもし』などで、回線がつながっているのか、不安定でないのか？
 # 留守電ではないのか？を確認した方がいいんじゃないですか？」＝CL-1.md 4-45。⏳ 言い方と録音はユーザーに伺う）
@@ -680,7 +688,8 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
-            **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "moshimoshi": MOSHIMOSHI}
+            **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
+            "moshimoshi": MOSHIMOSHI}
 
 
 def lead_in(kind: str, n: int) -> str:

@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, HOLD, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     UNDECIDED, WHO, called_words, facts_reading, label, restates, side_items)
+from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, HOLD, HOLD_BACK, LATER, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+                     UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -378,6 +378,27 @@ PROMPT = RULES + (   # 並びの見本（文を作るのは prompt_parts の1か
 #    ユーザー：「『メールのほうが助かりますが、電話でも大丈夫です』なら、メールは優先でOK…決まらないではないですよね」＝望みが言えていれば答え。
 #    案は逆の向きだった（測った「直った」は、作らせたモデルの誤った正解に合わせただけのものを含む。PHASE0 G-53 の3回目）。
 
+# 答えの段の答えでない言葉（電話のやり取りを読む問い合わせ＝お呼びする段の尋ねているか・戻ったかは KIND_DESC のまま＝文を変えない）。待つ・かけ直すの読みを分ける
+# （flowctl.WAIT_KINDS・組み合わせは flowctl.wait_reading の1か所）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー（会話2）：「電話がつながったまま、妻に確認を
+# 待ってと言っていらっしゃるなら、「はい、それではこのままお返事を待っております。」で待ち、妻に確認するから、また、後からや別日程でかけ直してという意味であれば、
+# 「（はい、）承知しました。いつ頃おかけ直しさせていただきましょうか？」のように一旦終えると良いでしょう。」・23時56分48秒「待つか、かけ直すかが言葉から
+# 決まらないとき：(ア)」。分かれ目は意味で書く（10-31 の分かれ目＝この電話の間に確かめてくるので待つ／あとで確かめる、はそのまま：あとで確かめると言った
+# だけで、かけ直しを頼んでいなければ、ここのどれでもなく「わからない」）
+ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電話を代わるあいだ、こちらに待つように言った（どうして待つのかを言わずに、待つようにとだけ"
+                      "言ったときも。答えではない）",
+                HOLD_BACK: "この電話の間に、ご自分で確かめてくる・周りの方に聞いてくる・相談してくるあいだ、電話をつないだまま待つように言った（待って"
+                           "とは言わなくても、いま確かめてくる、と言ったのも。そのあと、ご自分で返事をする。答えではない）",
+                LATER: "いまは答えずに、あとで（別の時・別の日に）こちらからかけ直してほしいと言った（答えではない）",
+                WAIT_OR_LATER: "待ってほしいと言ったが、電話をつないだまま待ってほしいのか、あとでかけ直してほしいのかが、この言葉からは決められない"
+                               "（答えではない）",
+                # 残り（代わった人が話し始めた・決められない）は KIND_DESC のまま（1か所。⛔ 11-06 1時台に、ここを手で並べて「決められない」を落とした）
+                **{k: d for k, d in KIND_DESC.items() if k != HOLD}}
+
+
+def answer_kinds(q) -> dict:
+    """答えでない言葉の選べるもの（唯一の場所）：電話のやり取りを読む問い合わせは KIND_DESC＋決められない・答えの段の問い合わせは ANSWER_KINDS。"""
+    return KIND_DESC | {UNDECIDED: TALK_UNDECIDED} if talk_question(q) else ANSWER_KINDS
+
 
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     """選べるもの（判定に見せる名前、説明、中の名前）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び
@@ -393,7 +414,7 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     ⛔ 2026-10-29：印のある質問も意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び（目的のお客様の判定で送る量の55%）、
        「ご本人」と答えるたびに長い文（約400トークン＝入力の5倍の値段）を書き出していた"""
     if q.type in CHOICE_TYPES or asked is None:
-        taken = {label(c) for c in q.all_conditions if c not in q.conditions} | set(KIND_DESC)
+        taken = {label(c) for c in q.all_conditions if c not in q.conditions} | set(answer_kinds(q))
         head = []
         for c in q.all_conditions:
             if c in q.conditions and getattr(q, "named", False):
@@ -408,7 +429,7 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
                 head.append((label(c), system_desc(q, c), c))
     else:
         head = [(CONFIRM_LABEL[k], d, k) for k, d in CONFIRM_DESC.items()]
-    kinds = KIND_DESC | ({UNDECIDED: TALK_UNDECIDED} if talk_question(q) else {})
+    kinds = answer_kinds(q)
     return head + [(k, d, k) for k, d in kinds.items()]
 
 

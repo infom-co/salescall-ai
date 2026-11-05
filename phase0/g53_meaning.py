@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, CHOICE_TYPES, asks_sense, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, NONE, SYSTEM_CONDITIONS, Flow, Question,
+from flowctl import (ANY, CHOICE_TYPES, asks_sense, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, SYSTEM_CONDITIONS, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
                      off_talk, prior_answer, restates)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
@@ -560,6 +560,9 @@ RECHECK = "会話になっていない（念のため確かめ直す）"
 # 言い直さない質問への会話がつながらない答えで、判定の読みの選択肢で意味合いを尋ねる（flowctl.asks_sense の1か所＝Flow._check_again。✅ 2026-11-05 日本時間
 # 23時56分48秒 ユーザー「ア」）
 SENSE = "意味合いを尋ねる："
+# 待つ・かけ直すの読み（答えの段だけ＝flowctl.WAIT_KINDS）で流れの制御がすること（Flow._wait_route の1か所と同じ。✅ 2026-11-05 日本時間23時19分06秒・
+# 23時56分48秒 ユーザー（会話2））
+WAIT_ACT = {HOLD: "黙って待つ", HOLD_BACK: "待つ一言のあと待つ", LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う"}
 
 
 def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
@@ -569,6 +572,8 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
     flowctl.restates の1か所）は、どちらも質問から聞き直す。"""
     if got is None:
         return None
+    if got in WAIT_KINDS:
+        return WAIT_ACT[got]
     if off_talk(q, got, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり。読みはいつも宣言した選択肢）
         if not restates(q):
             return SENSE + got if asks_sense(q, got) else ASK_AGAIN
@@ -602,6 +607,8 @@ def flow_wants(it: dict, q: Question) -> set[str]:
                 ok.add(ASK_AGAIN if a in (UNDECIDED, "unknown") else DENIED)
         elif a in (UNDECIDED, "unknown"):
             ok.add(ASK_AGAIN)
+        elif a in WAIT_KINDS:
+            ok.add(WAIT_ACT[a])
         elif a in q.conditions or a in (ANY, NONE):
             ok |= {f"受け取る：{a}", f"念のため確かめる：{a}"} if e else {f"念のため確かめる：{a}" if h else f"受け取る：{a}"}
         else:

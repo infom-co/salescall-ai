@@ -63,7 +63,9 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          # （✅ 11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」。CL-1.md 4-91）
                          "decide_ways", "wish_told_online", "callback_email_online_again",
                          # 答えの段のかけ直しの一言の録音（✅ 11-06 日本時間0時44分31秒 ユーザー。CL-1.md 4-93）
-                         "callback_later_time_answering"})
+                         "callback_later_time_answering",
+                         # 答えの段の待つ・かけ直す（会話2・11-06 1時台＝CL-1.md 4-94）：待つ一言の録音・1回伺う一言の録音・その質問の番号 H2
+                         "wait_reply", "callback_wait_or_later", "H2"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -12448,6 +12450,63 @@ class NoneOfThemTest(unittest.TestCase):
         HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
         r = said(f, "それでいいです。", "やはり" + self.CALL_MEANINGS["はい"], WISH_NONE)
         self.assertEqual(r["say"], "それでいいですとおっしゃったのは、担当者から詳しいご案内のお電話を差し上げてよろしいという意味合いでしょうか？")
+
+    def test_wait_words_in_the_answer_stage_wait_with_a_word_or_ask_once(self):
+        # 会話2：✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「電話がつながったまま、妻に確認を待ってと言っていらっしゃるなら、「はい、それではこのまま
+        # お返事を待っております。」で待ち、妻に確認するから、また、後からや別日程でかけ直してという意味であれば、「（はい、）承知しました。いつ頃おかけ直し
+        # させていただきましょうか？」のように一旦終えると良いでしょう。」・23時56分48秒「(2) …OK」「待つか、かけ直すかが言葉から決まらないとき：(ア)」
+        # ⇒ 待つ・かけ直すは判定が読み（答えの段の読みの1か所＝wait_reading）、会話AIの報告（答え・かけ直しの申し出）は判定を待つきっかけだけ
+        from flowctl import CALLBACK_IDS, HOLD, HOLD_BACK, LATER, WAIT_OR_LATER, WISH_NONE, wait_reading
+        from meaning_judge import Reading
+        from phrases import ACK
+        WORDS = "妻に話してからにしたいので、少し待ってください。"
+
+        def said(f, words, judged, op="record_answer", **kw):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(judged))
+            return f.apply(op, kw or {"question_id": "W1", "condition_id": WISH_NONE})
+
+        def heard(r):   # お客様に聞こえる一言（相づち＋言わせる文・質問の文）
+            return (ACK[r["ack"]] if r.get("ack") else "") + r.get("say", "") + r.get("question", "")
+        # (1) この電話の間に確かめて戻る（判定）：「はい、それではこのままお返事を待っております。」のあと、今の待つ長さで待つ（会話AIの報告がどちらでも）
+        for op, kw in (("record_answer", {}), ("request_callback", {"why": "later"})):
+            f, _ = self.wished(False)
+            r = said(f, "ちょっと妻に聞いてきますので、少々お待ちください。", HOLD_BACK, op, **kw)
+            self.assertEqual((r["result"], heard(r), r["hold_wait_s"], f.holding), ("hold", "はい、それではこのままお返事を待っております。", 300, True), op)
+            self.assertEqual(f.current, "W1")   # 戻られたお言葉は、ほかのご希望への答えとして受け取る
+        # 取り次ぐ・代わる・理由を言わずに待つように言った：今までどおり黙って待つ（会話AIがかけ直しと報告しても）
+        f, _ = self.wished(False)
+        r = said(f, "担当に代わりますので、少々お待ちください。", HOLD, "request_callback", why="later")
+        self.assertEqual((r["result"], r.get("say"), r.get("play"), r["hold_wait_s"]), ("hold", None, None, 300))
+        # (2) あとでかけ直してほしい（判定）：答えの段のかけ直しの一言（会話AIが答えと報告しても）
+        f, _ = self.wished(False)
+        r = said(f, "妻に相談してからにしたいので、また後で電話してもらえますか。", LATER)
+        self.assertEqual(heard(r), "承知しました。いつ頃おかけ直しさせていただきましょうか？")
+        # (3) 待つのか、かけ直すのか、言葉から決まらない：1回だけ伺う
+        f, _ = self.wished(False)
+        r = said(f, WORDS, WAIT_OR_LATER, "request_callback", why="later")
+        ask = "かしこまりました。このままお待ちしていた方がよろしいでしょうか？それとも改めておかけ直しさせていただいた方がよろしいでしょうか？"
+        self.assertEqual((r["question_id"], heard(r)), (CALLBACK_IDS["wait_or_later"], ask))
+        wl = CALLBACK_IDS["wait_or_later"]
+        # 答えで分ける：このまま待つ＝待つ一言のあと、ほかのご希望へ戻って待つ／かけ直す＝かけ直しの一言／はっきりしない＝言葉どおり待つ（2回は伺わない）
+        for answer, cond, expected in (("このまま待っていてください。", "このまま待つ", "はい、それではこのままお返事を待っております。"),
+                                       ("また後でかけてください。", "かけ直す", "承知しました。いつ頃おかけ直しさせていただきましょうか？"),
+                                       ("うーん、どうしようかな。", "unknown", "はい、それではこのままお返事を待っております。")):
+            f, _ = self.wished(False)
+            said(f, WORDS, WAIT_OR_LATER, "request_callback", why="later")
+            r = said(f, answer, cond, question_id=wl, condition_id=cond)
+            self.assertEqual(heard(r), expected, answer)
+            if cond != "かけ直す":
+                self.assertEqual((r["result"], f.current, f.holding), ("hold", "W1", True), answer)
+        # 判定の読みの組み合わせ（唯一の1か所）：そろえばその読み・待つ2つが食い違えば黙って待つ・待つとかけ直すが食い違えば決まらない・答えと食い違えば当てない
+        J = ("judge", "judge2")
+        for got, want in (((HOLD_BACK, HOLD_BACK), HOLD_BACK), ((HOLD, HOLD_BACK), HOLD), ((LATER, LATER), LATER), ((HOLD_BACK, LATER), WAIT_OR_LATER),
+                          ((WAIT_OR_LATER, HOLD), WAIT_OR_LATER), ((HOLD_BACK, "メール"), None), ((HOLD_BACK,), HOLD_BACK), ((), None)):
+            self.assertEqual(wait_reading(dict(zip(J, got))), want, got)
+        # 答えの段の判定の選べるものに、待つ・かけ直すの4つと、もとの答えでない言葉（代わった人が話し始めた・決められない）が全部ある
+        from flowctl import Question
+        from meaning_judge import KIND_DESC, options
+        names = {n for n, _, _ in options(Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ")))}
+        self.assertLessEqual(set(KIND_DESC) | {HOLD_BACK, LATER, WAIT_OR_LATER}, names)
 
     def way_flow(self):
         from flowctl import Flow, Question
