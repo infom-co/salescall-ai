@@ -19,7 +19,7 @@ import time
 from common import base_parser, load_secret, require_python, save_result, say
 from flowctl import END_NONE, Question
 from g53_meaning import flow_miss, g48_questions, step_act
-from meaning_judge import OTHER_JUDGES, PRIOR_READERS, OtherJudgeError, judge_other, other_client, prior_asked, read_prior_first, sure_line
+from meaning_judge import OTHER_JUDGES, PRIOR_READERS, OtherJudgeError, judge_other, other_client, prior_asked, read_prior_first, sure_reading
 
 # (印, その前にお客様が言ったこと, 質問の番号, 返事, 受け取ってよい読み, 言い切りはどちらでもよいか, 会話になっているか, ご確認)
 CASES = [
@@ -122,7 +122,9 @@ def main() -> None:
                 row[f"{n}動き"], row[f"{n}正しい"] = judged((mark, before, qid, text, accept, either, talk, checked), q, got)
                 # 答えの確からしさが判定の線より下の読みは、本番では使わず次の判定へ回す（確かでない）＝外れとは分けて数える（✅ 同じ日の夜
                 # ユーザー（D2 について）：「そもそも、会話が成り立っていないですよね。そりゃ、判断できないんじゃないですか。」）
-                row[f"{n}確かでない"] = got.sure is not None and got.sure < sure_line(n, q)
+                # 確かな読みかは本番の1か所（sure_reading＝線と、言い切りの確からしさの幅）で決める（⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し
+                # EN-C の指摘7）：線だけを見て、本番では次の判定へ回す「言い切りがどちらとも言えない読み」を確かな読みとして数えていた）
+                row[f"{n}確かでない"] = not sure_reading(n, q, got)
             rows.append(row)
             say(mark, text, {n: (row.get(n), row.get(f"{n}確からしさ"), row.get(f"{n}前の話"), row.get(f"{n}正しい")) for n in names})
     summary = {}

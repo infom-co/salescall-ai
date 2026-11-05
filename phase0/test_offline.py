@@ -5628,6 +5628,48 @@ class JudgePanelTest(unittest.TestCase):
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.5}, down=[D1], asks=2)
         self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([JEV, THINK])))
 
+    def test_prior_reader_falls_to_jev_on_any_failure(self):
+        # ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘5・6）：前の話の答えは、d1-ultra が断ったときだけ Jev へ回り、つながらない
+        #    （httpx.ConnectError）・時間切れでは Jev に問い合わせずに誤りを上げた（通話の中では前の話の答えが無いまま進み、測りの道具は止まった）。打ち切りは通信の
+        #    60秒だけだった。同期と非同期の2本が同じ形の写しだった ⇒ 順と取り出しは _prior_walk の1か所・どの失敗でも次の判定へ・1回は DOWN_AFTER_S で打ち切る
+        import asyncio
+        import unittest.mock as m
+
+        import httpx
+
+        import meaning_judge as mj
+        D1, JEV = mj.PRIOR_READERS
+
+        def boom(kind):
+            if kind == "connect":
+                raise httpx.ConnectError("つながらない")
+            if kind == "refused":
+                raise mj.OtherJudgeError(503, "混雑")
+            raise asyncio.TimeoutError()
+
+        for kind in ("connect", "refused", "timeout"):
+            def send(client, name, req, kind=kind):
+                if name == D1:
+                    boom(kind)
+                return "RAW"
+
+            async def asend(client, name, req, kind=kind):
+                return send(client, name, req)
+            with m.patch.object(mj, "_send_other", send), m.patch.object(mj, "_asend_other", asend), \
+                    m.patch.object(mj, "prior_request", lambda name, q, before: "REQ"), m.patch.object(mj, "other_text", lambda name, t: t), \
+                    m.patch.object(mj, "read_prior", lambda q, t: ("利用する", 0.95, "利用する") if t == "RAW" else (None, None, None)):
+                clients = {D1: object(), JEV: object()}
+                self.assertEqual(mj.read_prior_first(clients, None, "前の話"), ("利用する", 0.95, "利用する"), kind)
+                self.assertEqual(asyncio.run(mj.aread_prior_first(clients, None, "前の話")), ("利用する", 0.95, "利用する"), kind)
+
+        async def slow(client, name, req):
+            await asyncio.sleep(1.0 if name == D1 else 0.0)
+            return "RAW"
+        with m.patch.object(mj, "_asend_other", slow), m.patch.object(mj, "DOWN_AFTER_S", 0.1), \
+                m.patch.object(mj, "prior_request", lambda name, q, before: "REQ"), m.patch.object(mj, "other_text", lambda name, t: t), \
+                m.patch.object(mj, "read_prior", lambda q, t: ("利用する", 0.95, "利用する")):
+            self.assertEqual(asyncio.run(mj.aread_prior_first({D1: object(), JEV: object()}, None, "前の話")), ("利用する", 0.95, "利用する"))
+
     def test_standin_holder_is_per_utterance(self):
         # ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘4）：代わり（Jev）が一度ある受け持ちに入ると、その印が組に残り、そのあとの
         #    別の発話・別の質問でも、お呼びする段の組から Jev を「ほかの受け持ちが同じ会社で答えた」として外した（d1-ultra が確かでない言葉が、Jev ではなく

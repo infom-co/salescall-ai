@@ -1389,32 +1389,55 @@ async def ajudge_other(client, name: str, q, text: str, asked: str | None = None
 PRIOR_READERS = ("d1 Ultra（Liquid）", "Jev 1.14")
 
 
-def read_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
-    """前の話の答えを、PRIOR_READERS の順に読む（clients＝判定の名前 ⇒ other_client。読めた最初の判定の答え）。どれも読めなければ (None, None, None)。"""
+def _prior_walk(clients: dict, q, before: str):
+    """前の話の答えを読む順と取り出しの唯一の場所（同期の read_prior_first・通話の中の aread_prior_first は、送り方だけ）：PRIOR_READERS の順に
+    （判定の名前, 送るもの）を渡し、返ってきた文（つながらない・時間切れ・断られた・止まった＝None）を受け取る。読めた最初の判定の答え。どれも読めなければ
+    (None, None, None)。⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘5）：断られた（OtherJudgeError）ときだけ次の判定へ回し、
+    d1-ultra につながらない・時間切れのときは Jev に問い合わせずに誤りを上げていた（本書 9-5 の (6)「d1-ultra が読み（答えられなければ Jev）」）。
+    同期と非同期の2本が同じ形の写しだった"""
     for name in PRIOR_READERS:
         if name not in clients:
             continue
-        try:
-            got = read_prior(q, other_text(name, _send_other(clients[name], name, prior_request(name, q, before))))
-        except OtherJudgeError:
+        text = yield name, prior_request(name, q, before)
+        if text is None:
             continue
+        got = read_prior(q, other_text(name, text))
         if got[2] is not None:
             return got
     return None, None, None
+
+
+def read_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
+    """前の話の答えを、PRIOR_READERS の順に読む（clients＝判定の名前 ⇒ other_client。順と取り出しは _prior_walk の1か所）。"""
+    walk = _prior_walk(clients, q, before)
+    try:
+        name, req = next(walk)
+        while True:
+            try:
+                text = _send_other(clients[name], name, req)
+            except Exception:   # つながらない・時間切れ・断られた・止まった：次の判定へ
+                text = None
+            name, req = walk.send(text)
+    except StopIteration as done:
+        return done.value
 
 
 async def aread_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
-    """read_prior_first と同じ（通話の中の形。clients は other_client(…, aio=True)）。"""
-    for name in PRIOR_READERS:
-        if name not in clients:
-            continue
-        try:
-            got = read_prior(q, other_text(name, await _asend_other(clients[name], name, prior_request(name, q, before))))
-        except OtherJudgeError:
-            continue
-        if got[2] is not None:
-            return got
-    return None, None, None
+    """read_prior_first と同じ（通話の中の形。clients は other_client(…, aio=True)）。1回の問い合わせは、判定と同じ止まったとみなす秒（DOWN_AFTER_S）で打ち切る
+    （⛔ 2026-11-06 日本時間8時台（EN-C の指摘6）：打ち切りは通信の60秒だけだった）。"""
+    import asyncio
+
+    walk = _prior_walk(clients, q, before)
+    try:
+        name, req = next(walk)
+        while True:
+            try:
+                text = await asyncio.wait_for(_asend_other(clients[name], name, req), DOWN_AFTER_S)
+            except Exception:   # つながらない・時間切れ・断られた・止まった：次の判定へ
+                text = None
+            name, req = walk.send(text)
+    except StopIteration as done:
+        return done.value
 
 
 BATCH_FACTOR = 0.5  # まとめて送る測り（Message Batches）の料金の掛け目：送った量すべて（前の部分の書き込み・読み出しも）が半分
