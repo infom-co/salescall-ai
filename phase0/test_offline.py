@@ -2000,11 +2000,12 @@ class AskingMuteTest(unittest.TestCase):
         self.assertIn("record_answer", f.apply("replay_opening", {"part": "ai"})["message"])
         f.on_callee(); f.on_heard("いえ、別にいいんですけど。")
         self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "next")
-        # どの判定も答えと読まない：覚えない（そのまま答え、相手の返事のあとは質問に戻る）
+        # どの判定も答えと読まない：覚えない（そのまま答え、相手の返事のあとは質問に戻る）。判定がどれも「決められない」と読んだ「？」の言葉は、こちらへ
+        # 尋ねた言葉（asks_us）＝答えたあとの返事が答えなら報告する知らせは付く（_answer_in_reply）が、前の言葉の答えの知らせ（_return_note）は付かない
         for readings in ((UNDECIDED, UNDECIDED), (None, None)):
             f = flow()
             r = replied(f, "当日はどなたが担当されるんですか？", readings=readings)
-            self.assertNotIn("record_answer", r["message"], readings)
+            self.assertNotIn("さきほどの言葉", r["message"], readings)
             self.assertIsNone(f.answer_held, readings)
         # 値を聞く質問（日時）：答えを報告すれば、ふつうの答えと同じく言い直して確かめる
         f = flow()
@@ -2050,11 +2051,12 @@ class AskingMuteTest(unittest.TestCase):
         self.assertEqual(r["result"], "rejected")
         self.assertIn("先に相手の質問に答えます", r["message"])
         # 答え方の操作も、いまの質問がまだ答えをもらっていない間は判定を待つ（⛔ G-57 tc37：判定の届く前に呼ばれ、差し戻せなかった）。
-        # 答えを受け取ったあと・呼んでいる段・質問に戻るは待たない
+        # 答えを受け取ったあと・呼んでいる段・質問に戻るは待たない。ただし「？」の言葉では、質問に戻るも待つ（尋ねられたか＝asks_us は判定の読みで決まり、
+        # 尋ねられたら質問に戻るは受け付けない＝_asked_blocks。「？」の無い言葉で待たないことは HedgedSalesTest が確かめる）
         k = self.flow()
         k.on_callee(); k.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
         self.assertTrue(k.wants_checks("replay_opening", {"part": "no_answer"}))
-        self.assertFalse(k.wants_checks("replay_opening", {"part": "resume"}))
+        self.assertTrue(k.wants_checks("replay_opening", {"part": "resume"}))
         k.on_check("judge", "はい")
         k.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
         self.assertFalse(k.wants_checks("replay_opening", {"part": "no_answer"}))
@@ -15793,13 +15795,15 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "hai", "それではパンフレットをお送りさせていただきますね？"))
 
     def test_a_question_back_without_a_report_is_told_to_the_ai(self):
-        # 会話AIが何も報告しなかった（声だけで答えようとして流さなかった・黙った）：尋ねられたことに答えるように知らせる（相手に無言を続けない）
+        # 会話AIが何も報告しなかった（声だけで答えようとして、その声を流さなかった＝録音で流す通話）：尋ねられたことに答えるように知らせる（相手に無言を
+        # 続けない）。⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの読み直しで直した：前は録音で流さない通話（声はお客様に流れた）で確かめていた
+        # ＝もう答えた声に、もう一度答えさせる知らせを正しいとしていた（声が流れたときは、下の test_an_answer_already_spoken_is_not_asked_again）
         from flowctl import UNDECIDED
         from meaning_judge import Reading
-        f = self.flow("G8n")
+        f = self.flow("G8n", play_recordings=True)
         self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
         f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
-        note = f.unreported_note()
+        note = f.unreported_note(muted=True)
         self.assertIsNotNone(note)
         self.assertIn("尋ね", note)
         self.assertIn("replay_opening", note)
@@ -15815,6 +15819,119 @@ class HedgedSalesTest(unittest.TestCase):
         f.on_callee(); f.on_heard("送ってもらったほうがいいですかね。")
         self.assertFalse(f.wants_checks("replay_opening", args))
         self.assertFalse(f.wants_checks("replay_opening", {"part": "resume"}))
+
+    # ⛔ 2026-11-06 日本時間5時56分55秒 ユーザー：「測る前に、ここまでの実装で、想定との食い違いや不備、1本化漏れはないですか？」＝別の担当の読み直しで見つけた、
+    #    尋ねられたときの道の穴（11-06 4時台に入れた作りの不具合）。下の試験は、どれも直す前の作りで落ちる
+    PAMPHLET = {"パンフレットの中身": "パンフレットには料金表と導入事例を載せております。"}
+
+    def test_small_talk_does_not_answer_a_question_back(self):
+        # 尋ねられた問いに、受け答え（talk）では答えたことにならない。前の発話で自分の言葉で答えた印（own_pending）が残っていても同じ（⛔ 印が前の発話から
+        # 残り、受け答えが通って、使えないときの一言の無い受け答えが例外 KeyError で止まった・受け答えだけで問いに答えたことになった）
+        from flowctl import UNDECIDED
+        from meaning_judge import Reading
+        f = self.flow("G8n", play_recordings=True)
+        self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+        self.asked_back(f, "送ってもらったほうがいいですかね？", "confirm_field", {"question_id": "G8n", "result": "affirmed"})
+        f.on_callee(); f.on_heard("あ、そうなんですか？"); f.on_check("judge", Reading(UNDECIDED))
+        r = f.apply("replay_opening", {"part": "talk", "answer": "はい、そうなんです。"})   # 中身の判定は届かない・使えないときの一言も選んでいない
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("先に相手の質問に答えます", r["message"])
+        # 前の発話に受け答えしたあとに尋ねられた：受け答えでは答えたことにならない（中身の判定が通っても）
+        f = self.flow("G8n", play_recordings=True)
+        f.on_callee(); f.on_heard("いやー、今日は暑いですね。")
+        grounded(f, "本当に暑いですね。")
+        self.assertEqual(f.apply("replay_opening", {"part": "talk", "answer": "本当に暑いですね。"})["result"], "own_answer")
+        f.on_callee(); f.on_heard("で、パンフレットって送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        grounded(f, "そうですよね！")
+        r = f.apply("replay_opening", {"part": "talk", "answer": "そうですよね！"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("先に相手の質問に答えます", r["message"])
+
+    def test_after_answering_a_question_back_the_ai_is_told_to_wait(self):
+        # 尋ねられた問いに答えたら、その返事の中の会話AIへの知らせは「返事を待つ」（⛔ 答えた印を操作のあとで付けていたので、操作の中で作る知らせが
+        # まだ「答える番」と言い、そのとおりに動くと同じ発話に2回答えた）。想定問答の録音で答えたときも、自分の言葉で答えたときと同じく、お客様の返事を
+        # 待ってから戻る（⛔ 録音で答えると、待たずに質問を流し直していた）。「AIですか」に応える一言のあとも、答える番とは言わない
+        from flowctl import UNDECIDED
+        from meaning_judge import Reading
+        for play in (False, True):
+            f = self.flow("G8n", answers=dict(self.PAMPHLET), play_recordings=play)
+            f.on_callee(); f.on_heard("パンフレットって、読んだほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+            self.assertEqual(f.apply("record_answer", {"question_id": "G8n", "condition_id": "はい"})["result"], "rejected")
+            r = f.apply("replay_opening", {"part": "パンフレットの中身"})
+            heard = [p["text"] for p in r.get("play") or []] + ([r["say"]] if r.get("say") else [])
+            self.assertEqual(heard, [self.PAMPHLET["パンフレットの中身"]], play)   # 答えだけ（質問は流し直さない）
+            self.assertNotIn("答える番", r["message"])
+            self.assertNotIn("replay_opening で答えます", r["message"])
+            f.on_callee(); f.on_heard("そうなんですね。")
+            r = f.apply("replay_opening", {"part": "resume"})
+            self.assertEqual(r["result"], "replayed", r.get("message"))
+            heard = [p["text"] for p in r.get("play") or []] + ([r["say"]] if r.get("say") else [])
+            if play:
+                self.assertEqual(heard, ["パンフレットをお送りしてもよろしいでしょうか？"])
+            else:   # 録音で流さない通話：会話AIが、いまの質問を自分で聞く（自分の言葉で答えたあとに戻るときと同じ返事）
+                self.assertEqual(heard, [])
+                self.assertTrue(r["speak"])
+                self.assertIn("「パンフレットをお送りしてもよろしいでしょうか？」を聞いてください", r["message"])
+            self.assertNotIn("話を戻", str(r))
+        f = self.flow("G8n")
+        f.on_callee(); f.on_heard("これってAIですか？"); f.on_check("judge", Reading(UNDECIDED))
+        r = f.apply("replay_opening", {"part": "ai"})
+        self.assertNotEqual(r["result"], "rejected")
+        self.assertNotIn("答える番", r["message"])
+
+    def test_every_report_waits_for_the_judges_on_a_question_mark(self):
+        # 「？」の言葉で、尋ねられたときに止める操作は、どれも判定が届いてから当てる（止める操作の一覧と待つ操作の一覧を1か所に。⛔ 「質問に戻る」・
+        # 聞き取れない・値の質問の答えの報告は待たなかったので、判定が遅れれば通り、先に届けば止まった＝届く速さで、同じ言葉への動きが変わった）
+        from flowctl import Flow, Question
+        f = self.flow("G8n")
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？")
+        for name, args in (("record_answer", {"question_id": "G8n", "condition_id": "はい"}), ("report_unclear", {"question_id": "G8n"}),
+                           ("replay_opening", {"part": "own", "answer": self.ASKED_BACK})):
+            self.assertTrue(f.wants_checks(name, args), name)
+        self.assertFalse(f.wants_checks("request_end", {"reason": "declined"}))
+        v = Flow([Question("Q1", "ご都合のよろしい日時はいつ頃でしょうか？", type="datetime")])
+        v.apply("start", {}) if hasattr(v, "start") else None
+        v.on_callee(); v.on_heard("15日の午後とかのほうがいいですかね？")
+        self.assertTrue(v.wants_checks("record_answer", {"question_id": "Q1", "value": "15日の午後"}))
+        # 答えたあとの「質問に戻る」も、判定を待つ（返事が答えなら、戻らずに答えとして報告し直させる＝下の試験）
+        f = self.flow("G8n")
+        self.asked_back(f, "送ってもらったほうがいいですかね？", "record_answer", {"question_id": "G8n", "condition_id": "はい"})
+        f.on_callee(); f.on_heard("じゃあ、お願いします。")
+        self.assertTrue(f.wants_checks("replay_opening", {"part": "resume"}))
+
+    def test_a_reply_that_answers_after_a_question_back_is_taken_as_the_answer(self):
+        # 尋ねられて答えたあと、お客様が答えたら（「じゃあ、お願いします。」）、ふつうに受け取る：会話AIへの知らせは「答えなら、いつもの報告で」。
+        # 会話AIが「質問に戻る」を選んでも、判定が答えと読めば戻らずに、答えとして報告し直させる（⛔ 知らせが「返事があったら質問に戻る」だけで、
+        # そのとおりに動くと、答えたお客様に質問を流し直した）
+        from meaning_judge import Reading
+        for st in ("record_answer", "confirm_field"):
+            f = self.flow("G8n")
+            args = {"question_id": "G8n", "condition_id": "はい"} if st == "record_answer" else {"question_id": "G8n", "result": "affirmed"}
+            if st == "confirm_field":
+                self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+            r = self.asked_back(f, "送ってもらったほうがいいですかね？", st, args)
+            self.assertIn(st, r["message"])   # 返事が答えなら、いつもの報告
+            f.on_callee(); f.on_heard("じゃあ、お願いします。"); f.on_check("judge", Reading("はい"))
+            r = f.apply("replay_opening", {"part": "resume"})
+            self.assertEqual(r["result"], "rejected", st)
+            self.assertNotIn("say", r)
+            self.assertIn(st, r["message"])
+            r = f.apply(st, args)
+            self.assertEqual((r["result"], f.export()["G8n"]), ("next", "はい"), st)
+
+    def test_an_answer_already_spoken_is_not_asked_again(self):
+        # 録音で流さない通話（会話AIの声がそのまま相手に流れる）で、会話AIが操作を呼ばずに声で答えた：もう答えた（声は流れた）ので、もう一度答えさせる
+        # 知らせは出さない（⛔ 知らせが「答える番」と言い、同じ答えを2回言わせうる）。録音で流す通話で声を流さなかったときは、今までどおり知らせる
+        from flowctl import UNDECIDED
+        from meaning_judge import Reading
+        f = self.flow("G8n")
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        self.assertIsNone(f.unreported_note(muted=False))
+        f.on_callee(); f.on_heard("そうなんですね。")
+        self.assertEqual(f.apply("replay_opening", {"part": "resume"})["result"], "replayed")
+        f = self.flow("G8n", play_recordings=True)
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        self.assertIn("尋ね", f.unreported_note(muted=True))
 
     def test_unclear_answer_is_asked_toward_the_goal(self):
         # どちらとも取れる答え（「大丈夫です。」・AIは目的から遠ざかる「いいえ」と受け取った）は、目的に進む向きで伺う。それに「いえ」と言われたら、
