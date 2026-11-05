@@ -2901,6 +2901,35 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
             self.assertIn("後任の方はいない", succ[asked])
         self.assertIn("後任のご担当者様かを確かめた", succ[True])
 
+    def test_g59_tally_counts_the_end_reading_as_a_flow_change(self):
+        # お呼びする段でも、判定の「電話を終える言葉か」の読みは、流れの制御の動きを変える（Flow._end_due_now：読めば会話AIの報告が無くても
+        # 締める・急いでいる方への伺い／「言っていない」なら続ける／決まらなければ _end_unsure）。数える1か所（g59_tally.flow_flags）が、
+        # この項目を数えに入れる（⛔ 2026-11-05 に見つけた：11-01 に項目を足したとき、答えの段の数え（g53_meaning.end_miss）には入れたが、
+        # お呼びする段の数えには入れず、d1-ultra が「…いま会議中で手が離せないのですが。」を急いでいると読んだ外れを「項目だけ」と数えていた）
+        import g59_tally as t
+        from flowctl import (ABOUT, END, END_HURRY, END_NONE, END_REFUSED, PHONE, SPEAKER, SPEAKER_NEW, TARGET_IS_AWAY, TARGET_IS_THERE,
+                             UNDECIDED, WHO)
+        r = {"text": "はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。", "before": "岡田ですね。少々お待ちください。",
+             "asked": None, "successor": False}
+        facts = {SPEAKER: {SPEAKER_NEW}, WHO: {TARGET_IS_THERE}, PHONE: {"何もない"}, ABOUT: {TARGET_IS_AWAY}, END: {END_NONE}}
+        acc = [TARGET_IS_THERE]
+        right = {SPEAKER: SPEAKER_NEW, WHO: TARGET_IS_THERE, PHONE: "何もない", ABOUT: TARGET_IS_AWAY, END: END_NONE}
+        self.assertTrue(t.flow_ok(right, facts, acc, r))
+        self.assertFalse(t.flow_ok(right | {END: END_HURRY}, facts, acc, r))        # 続けるべきところで、急いでいる方への伺い
+        self.assertFalse(t.flow_ok(right | {END: UNDECIDED}, facts, acc, r))        # 決まらないときの確かめ
+        self.assertFalse(t.flow_ok(right, facts | {END: {END_REFUSED}}, acc, r))   # 断られたのに締めない
+        self.assertNotEqual(t.flow_flags(right, r), t.flow_flags(right | {END: END_HURRY}, r))   # 判定どうしのそろい（agree）も同じ1か所
+        # 電話を終える読み（決められないも）は、会話AIのどの報告より先に次の動きを決める（Flow._end_due_now）＝その発話の目的のお客様の読みが
+        # 違っても、電話を終える読みが同じなら動きは同じ（「申し訳ございません、今ちょっとバタバタしておりまして。」を不在＋急いでいると読んだ行）
+        hurry = facts | {ABOUT: {"言っていない"}, END: {END_HURRY}}
+        self.assertTrue(t.flow_ok(right | {END: END_HURRY}, hurry, acc, r))
+        self.assertTrue(t.flow_ok(right | {WHO: UNDECIDED, END: END_HURRY}, hurry, acc, r))
+        self.assertFalse(t.flow_ok(right | {END: END_REFUSED}, hurry, acc, r))        # 違う理由で締める
+        self.assertFalse(t.flow_ok(right | {END: UNDECIDED}, hurry, acc, r))
+        # 項目を足す前の記録（読みに END が無い）は、この項目を数えない（g59_calling_judge.facts_ok と同じ決まり）
+        old = {k: v for k, v in right.items() if k != END}
+        self.assertTrue(t.flow_ok(old, facts | {END: {END_REFUSED}}, acc, r))
+
     def test_g59_tally_never_misses_a_change_the_flow_check_finds(self):
         # 数える道具（g59_tally.flow_ok＝流れの制御の決まりを写したもの）は、会話の試し（g59_flow_check＝流れの制御そのもの）で動きが変わる外れを、
         # 「同じ」と数えない（✅ 2026-10-30 ユーザー：「流れの制御の動きが変わる外れの原因と理由が何かを…しっかりと分析した方がいいんじゃないですか？」

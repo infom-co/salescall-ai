@@ -10,7 +10,7 @@ import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import ABOUT, END, END_NONE, HEAR, HEAR_LOST, HEAR_OK, PHONE, SPEAKER, WHO
+from flowctl import ABOUT, END, END_HURRY, END_NONE, HEAR, HEAR_LOST, HEAR_OK, PHONE, SPEAKER, WHO
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, make_judges
 
 # ── 正解の表（言葉ごとに、項目ごとの正解＝flowctl.target_facets の項目）。正解は、判定に見せた言葉（質問・はじめにお呼びした言葉・その前に相手が
@@ -138,9 +138,13 @@ LINES_BOTH = [
     # 電話を代わった違う方が、お呼びした方は出られないと伝えた
     ("お電話代わりました、鈴木です。岡田は本日お休みをいただいております。", TO_TARGET, False, F("違", "別", "無", "在")),
     ("お電話代わりました。佐藤と申します。岡田は席を外しておりまして。", TO_TARGET, False, F("違", "別", "無", "在")),
-    # ご本人が、いまは話せないと言った（お呼びし直さず・繋がずに、あとでかけ直す）
+    # ご本人が、いまは話せないと言った（お呼びし直さず・繋がずに）：かけ直してほしいと頼んだ＝かけ直しの申し出（電話を終える言葉ではない＝あとで
+    # かけ直す）／忙しいとだけ言った＝電話を終える言葉の「急いでいる」（急いでいる方への伺い。✅ 11-01 23時59分「(a) OK」の電話を終える言葉の表の
+    # ご本人「すみません、いま手が離せないので失礼します。」＝「10-13『忙しい』とだけ＝急いでいる」と同じ理由。判定への説明 end_choices も同じ境目＝
+    # 「何時ならよい・かけ直してほしい、とまでは言っていない」）。⛔ 2026-11-05 に直した：11-01 に項目を足したとき、この言葉も読まずに「言っていない」
+    # にしていた（11-02・11-03 の測りで、d1-ultra と考えない Sonnet が3回とも「急いでいる」と読んだのを外れと数えていた＝判定のほうが正しかった）
     ("はい、そうですが、いまちょっと手が離せないので後でかけ直してもらえますか。", ASKED_AFTER, True, F("同", "本", "無", "在")),
-    ("はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。", TO_TARGET, False, F("違", "本", "無", "在")),
+    ("はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。", TO_TARGET, False, F("違", "本", "無", "在") | {END: {END_HURRY}}),
 ]
 # 後任の方の話が出る言葉（はじめの場面。✅ 2026-10-29 ユーザー：「『別の方』の中に『後任』『上司』『同僚』などがいることになるでしょ！」）：
 # (相手の言葉, その前に相手が言ったこと, 確かめたあとか, 正解)
@@ -225,7 +229,9 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED] + [(t, b, c, True, f) for t, b, c, f in LINES_SUCCESSOR]
             + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, None, a, False, f) for t, a, f in lines_hear()])
-    # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉には、断り・取り次げない・急ぎ・怒りの言葉が無い＝どれも「言っていない」。
+    # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉の正解は、行に END を書いたもの（ご本人の「…会議中で手が離せないのですが。」＝
+    #    急いでいる）のほかは「言っていない」（断り・取り次げない・急ぎ・怒りの言葉は無い。⛔ 11-01 は1つずつ読まずに全部を「言っていない」にしていた＝
+    #    2026-11-05 に71の言葉を1つずつ読み直した）。
     #    電話を終える言葉の試しの表の言葉（lines_end）は、表の正解（✅ 2026-11-02 日本時間1時59分 ユーザー：「OK、進めてください」）
     # こちらの声が届いていない様子か（2026-11-02 日本時間21時16分 ユーザー「(ア) OK」で項目を足した）：今までの試しの言葉には、届いていない様子の
     #    言葉が無い＝どれも「そういう様子は無い」。届いていない様子の言葉とそうでない紛らわしい言葉は、試しの言葉（lines_hear）

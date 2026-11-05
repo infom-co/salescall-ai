@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 import g59_calling_judge as g
-from flowctl import HANDOVER, TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, facts_reading
+from flowctl import END, END_REASON, HANDOVER, TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, facts_reading
 
 RESULTS = Path(__file__).parent / "results"
 HARD = {"取り次ぎのあと", "後任の方"}
@@ -38,9 +38,18 @@ def current() -> dict:
 
 
 def flow_flags(f: dict, r: dict) -> tuple:
-    """項目ごとの答え f で、行 r の場面の流れの制御がどう動くか（読み・不在・電話を代わった方・後任の方の印）。2つの答えの印が同じなら、流れの制御の
-    動きも同じ（flow_ok と、判定どうしのそろいを数える agree の両方が使う1か所）。電話を代わった方の印は、流れの制御が使うときだけ持つ
-    （Flow._new_speaker：確かめる一言を聞いた方の返事・取り次ぎの言葉のあとの言葉では使わない＝g.HELD_BEFORE）。"""
+    """項目ごとの答え f で、行 r の場面の流れの制御がどう動くか（読み・不在・電話を代わった方・後任の方の印・電話を終える言葉か）。2つの答えの印が
+    同じなら、流れの制御の動きも同じ（flow_ok と、判定どうしのそろいを数える agree の両方が使う1か所）。電話を代わった方の印は、流れの制御が
+    使うときだけ持つ（Flow._new_speaker：確かめる一言を聞いた方の返事・取り次ぎの言葉のあとの言葉では使わない＝g.HELD_BEFORE）。
+    電話を終える言葉か（END）：判定が電話を終える言葉（締める・急いでいる方への伺い・お礼の締め・確かめの一言・お呼びし直し）か「決められない」と
+    読めば、流れの制御は会話AIのどの報告より先に、その読みで次の動きを決める（Flow._end_due_now。お呼びする段では _topic_first は働かない）
+    ＝(END, その読み) だけを返す（その発話の目的のお客様の読みは、その一手に効かない）。「言っていない」・項目を足す前の記録（None）は、目的の
+    お客様の読みで決まる。⛔ 2026-11-05 に足した：11-01 に項目を足したとき、答えの段の数え（g53_meaning.end_miss）には入れたが、ここには入れず、
+    この項目の外れを「項目だけ」と数えていた。
+    こちらの声が届いていない様子か（HEAR）は、電話が切れたときの記録（Flow.cut）だけを変える＝ここでは数えない（g59_calling_judge が別に数える）。"""
+    end = f.get(END)
+    if end in END_REASON or end == UNDECIDED:
+        return END, end
     used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
     value, away, new, succ = facts_reading(f, r["successor"])
     if not used and value == HANDOVER:   # 印を使わない所では「代わった人が話し始めた」＝「別の方」と同じ動き（2026-10-30 に会話の試しで確かめた）
@@ -51,12 +60,18 @@ def flow_flags(f: dict, r: dict) -> tuple:
 
 def flow_ok(got: dict, facts: dict, acc: list, r: dict) -> bool:
     """流れの制御の動きが正解と同じか：組み合わせた読み（flowctl.facts_reading）が受け取ってよい読みに入り、印（不在・電話を代わった方・後任の方）も
-    正解の組み合わせのどれかと同じ（flow_flags）。項目だけの外れ（読みも印も変わらない）は、流れの制御の動きを変えない。"""
+    正解の組み合わせのどれかと同じ（flow_flags）。項目だけの外れ（読みも印も変わらない）は、流れの制御の動きを変えない。電話を終える言葉か（END）が
+    読みに無い記録（項目を足す前）は、その項目を数えない（g59_calling_judge.facts_ok と同じ決まり）。"""
     from itertools import product
+    facts = {k: v for k, v in facts.items() if k != END or END in got}
     used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
     keys = list(facts)
-    want = {flow_flags(dict(zip(keys, c)), r)[1:] for c in product(*(facts[k] for k in keys))}
-    value, *rest = flow_flags(got, r)
+    flags = [flow_flags(dict(zip(keys, c)), r) for c in product(*(facts[k] for k in keys))]
+    mine = flow_flags(got, r)
+    if mine[0] == END:   # 電話を終える読み（決められないも）が次の動きを決める：正解の組み合わせのどれかと同じ読みか
+        return mine in flags
+    want = {f[1:] for f in flags if f[0] != END}
+    value, *rest = mine
     accepted = {TARGET_IS_NOT if not used and a == HANDOVER else a for a in acc}
     return value in accepted and tuple(rest) in want
 
