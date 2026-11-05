@@ -123,23 +123,29 @@ def end_act(q: Question, got, end) -> str | None:
     return END_TOPIC if q.type in CHOICE_TYPES and got in q.conditions else END_ASK
 
 
-def end_miss(it: dict, q: Question, key: str) -> str | None:
-    """判定 key の電話を終える言葉かの読みで、流れの制御の動きが正解と違えば、その違いの種類（正しければ None・読みが無ければ「読み無し」）。
-    正解の動き＝正解の電話を終える言葉かと、正解の答えのどれかの組み合わせ。"""
-    act = end_act(q, it.get(key), it.get(f"{key}終わり"))
-    if act is None:
-        return "読み無し"
-    want = {end_act(q, a, e) for e in end_accept(it) for a in accept(it)}
-    if act in want:
-        return None
-    closes = {w for w in want if w not in (END_GO, END_TOPIC, END_ASK)}
-    if act not in (END_GO, END_TOPIC, END_ASK):
-        return "⛔違う理由で締める・伺う" if closes else "⛔電話を終える言葉ではないのに締める・急ぎを伺う"
-    if closes:
-        return "⛔電話を終える言葉なのに締めない"
-    if act == END_GO:
-        return "⛔伺わずに続ける"
-    return "要らない伺い" if want == {END_GO} else "違う伺い"
+def end_step(act: str) -> bool:
+    """流れの制御がすること act が、電話を終える読みによる動き（締める・急いでいる方への伺い・いまの話の向きを伺う・ご遠慮を伺う）か。"""
+    return act in (END_TOPIC, END_ASK) or act in END_ACTS.values() or act.startswith("締める（")
+
+
+def step_act(it: dict, q: Question, key: str) -> str | None:
+    """1つの発話で、判定 key の読みから流れの制御がすること（数えるのはここ）：電話を終える言葉か「決められない」と読めば、会話AIの報告より
+    先にその読みで動く（Flow._end_due_now）＝end_act。「言っていない」・項目を足す前の記録（読みに無い）は、答えの読みで動く＝flow_act。"""
+    end = it.get(f"{key}終わり")
+    if end is not None and end != END_NONE:
+        return end_act(q, it.get(key), end)
+    return flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), it.get(f"{key}前の話"))
+
+
+def step_wants(it: dict, q: Question, has_end: bool) -> set[str]:
+    """正解から決まる、1つの発話で流れの制御がすべきこと（どれをしても正しい）＝step_act と同じ組み立て：電話を終える言葉かの正解ごとに、
+    「言っていない」なら答えの動き（flow_wants）、ほかは end_act。has_end＝判定の読みに電話を終える言葉かがある（無い記録は答えの動きだけ）。"""
+    if not has_end:
+        return flow_wants(it, q)
+    out: set[str] = set()
+    for e in end_accept(it):
+        out |= flow_wants(it, q) if e == END_NONE else {end_act(q, a, e) for a in accept(it)}
+    return out
 
 
 def hedged(it: dict) -> bool:
@@ -568,13 +574,27 @@ def flow_wants(it: dict, q: Question) -> set[str]:
 
 
 def flow_miss(it: dict, q: Question, key: str) -> str | None:
-    """判定 key の読みで、流れの制御の動きが正解と違えば、その違いの種類（正しければ None・読みが無ければ「読み無し」）。"""
-    act = flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), it.get(f"{key}前の話"))
+    """判定 key の読みで、1つの発話の流れの制御の動き（step_act）が正解（step_wants）と違えば、その違いの種類（正しければ None・読みが無ければ
+    「読み無し」）。答えの動きと電話を終える読みの動きを1か所で数える（唯一の数え）。⛔ 2026-11-05 に1つにした：前は答えの動き（ここ）と電話を
+    終える言葉の動き（end_miss）を別々に数え、正しく急ぎを伺う発話でも答えの読みが違えば外れと数え、電話を終える言葉ではないのに急ぎを伺う
+    読みを、答えが正しければ「正しい動き」と数えていた。"""
+    act = step_act(it, q, key)
     if act is None:
         return "読み無し"
-    want = flow_wants(it, q)
+    want = step_wants(it, q, it.get(f"{key}終わり") is not None)
     if act in want:
         return None
+    ends = {w for w in want if end_step(w)}
+    closes = {w for w in ends if w not in (END_TOPIC, END_ASK)}
+    if end_step(act):
+        if act not in (END_TOPIC, END_ASK):
+            return "⛔違う理由で締める・伺う" if closes else "⛔電話を終える言葉ではないのに締める・急ぎを伺う"
+        if closes:
+            return "⛔電話を終える言葉なのに締めない"
+        return "違う伺い" if ends else "要らない伺い"
+    want -= ends
+    if not want:   # 正解は電話を終える読みの動きだけ（答えの読みで続けた）
+        return "⛔電話を終える言葉なのに締めない" if closes else "⛔伺わずに続ける"
     pure = set(accept(it)) <= {UNDECIDED, "unknown"}   # どの答えにも寄っていない言葉
     if act in (AFFIRMED, AFFIRMED_HEDGED) or act.startswith("受け取る"):
         if act == AFFIRMED_HEDGED and AFFIRMED in want:
@@ -686,7 +706,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 got, _ = ring.call(ids[key], call, rotate=False)
                 it[key] = got
                 it[f"{key}言い切り"] = getattr(got, "firm", None)
-                it[f"{key}終わり"] = getattr(got, "end", None)   # 電話を終える言葉か（end_miss で数える）
+                it[f"{key}終わり"] = getattr(got, "end", None)   # 電話を終える言葉か（flow_miss で数える）
                 it[f"{key}聞こえ"] = getattr(got, "hear", None)   # こちらの声が届いていない様子か（hear_miss で数える）
                 it[f"{key}秒"] = took.get("s")
             except KeyUnusable:
@@ -806,10 +826,9 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
             t[f"{it['set']}・{label}"][res] += 1
             t["全体"][res] += 1
             if qmap and it["qid"] in qmap:
-                t["流れの制御の動き"][flow_miss(it, qmap[it["qid"]], key) or "正しい動き"] += 1
-                if it.get(f"{key}終わり") is not None:   # 電話を終える言葉か（項目を足す前の記録は数えない）
+                t["流れの制御の動き"][flow_miss(it, qmap[it["qid"]], key) or "正しい動き"] += 1   # 答えと電話を終える読みの1つの動き
+                if it.get(f"{key}終わり") is not None:   # 電話を終える言葉か（項目だけ。項目を足す前の記録は数えない）
                     t["電話を終える言葉か"]["正しい" if it[f"{key}終わり"] in end_accept(it) else "⛔別の読み"] += 1
-                    t["電話を終える言葉かの動き"][end_miss(it, qmap[it["qid"]], key) or "正しい動き"] += 1
             if (m := mark(it, key)):
                 t["全体"][f"曖昧の印・{m}"] += 1
             if misread_as_affirmed(it, key):
@@ -819,9 +838,10 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
                     "かかった秒（中央・遅いほうから1割・最大）": [secs[len(secs) // 2], secs[int(len(secs) * 0.9)], secs[-1]] if secs else None,
                     "⛔別の答えの例": [f"{it['qid']}「{it['text']}」正解={accept(it)} 判定={it[key]}" for it in items
                                    if key in it and it[key] not in accept(it) + [UNDECIDED, "unknown"]][:80],
-                    "⛔電話を終える言葉かの動きの外れ": [f"{it['set']}・{it['qid']}「{it['text']}」正解={end_accept(it)} 判定={it.get(f'{key}終わり')}・{it[key]}"
-                                             f"＝{end_miss(it, qmap[it['qid']], key)}" for it in items if qmap and key in it and it["qid"] in qmap
-                                             and it.get(f"{key}終わり") is not None and end_miss(it, qmap[it["qid"]], key)][:80]}
+                    "⛔流れの制御の動きの外れの例": [f"{it['set']}・{it['qid']}「{it['text']}」正解={accept(it)}・{end_accept(it)} 判定={it[key]}・"
+                                            f"{it.get(f'{key}終わり')}＝{flow_miss(it, qmap[it['qid']], key)}" for it in items
+                                            if qmap and key in it and it["qid"] in qmap and it["set"] != "HEAR"
+                                            and flow_miss(it, qmap[it["qid"]], key) not in (None, "読み無し")][:80]}
     return out
 
 

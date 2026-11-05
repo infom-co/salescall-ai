@@ -2904,7 +2904,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
     def test_g59_tally_counts_the_end_reading_as_a_flow_change(self):
         # お呼びする段でも、判定の「電話を終える言葉か」の読みは、流れの制御の動きを変える（Flow._end_due_now：読めば会話AIの報告が無くても
         # 締める・急いでいる方への伺い／「言っていない」なら続ける／決まらなければ _end_unsure）。数える1か所（g59_tally.flow_flags）が、
-        # この項目を数えに入れる（⛔ 2026-11-05 に見つけた：11-01 に項目を足したとき、答えの段の数え（g53_meaning.end_miss）には入れたが、
+        # この項目を数えに入れる（⛔ 2026-11-05 に見つけた：11-01 に項目を足したとき、答えの段の数え（いまの g53_meaning.flow_miss の中）には入れたが、
         # お呼びする段の数えには入れず、d1-ultra が「…いま会議中で手が離せないのですが。」を急いでいると読んだ外れを「項目だけ」と数えていた）
         import g59_tally as t
         from flowctl import (ABOUT, END, END_HURRY, END_NONE, END_REFUSED, PHONE, SPEAKER, SPEAKER_NEW, TARGET_IS_AWAY, TARGET_IS_THERE,
@@ -11402,13 +11402,13 @@ class G53EndTest(unittest.TestCase):
 
     def test_end_miss_kinds(self):
         from flowctl import END_HURRY, END_NONE, END_REFUSED, UNDECIDED
-        from g53_meaning import end_miss, question_map, set_f
+        from g53_meaning import flow_miss, question_map, set_f
         qm = question_map()
         F = {it["text"]: it for it in set_f()}
 
         def miss(it, ans, end):
             it = dict(it, j=ans, j終わり=end, j言い切り=True)
-            return end_miss(it, qm[it["qid"]], "j")
+            return flow_miss(it, qm[it["qid"]], "j")
         it = F["いま時間がないので結構です。"]
         self.assertIsNone(miss(it, "いいえ", END_HURRY))
         self.assertEqual(miss(it, "いいえ", END_NONE), "⛔電話を終える言葉なのに締めない")
@@ -11420,7 +11420,30 @@ class G53EndTest(unittest.TestCase):
         self.assertIsNone(miss(plain, "はい", END_NONE))
         self.assertEqual(miss(plain, "はい", END_HURRY), "⛔電話を終える言葉ではないのに締める・急ぎを伺う")
         self.assertEqual(miss(plain, "はい", UNDECIDED), "要らない伺い")
-        self.assertEqual(miss(plain, "はい", None), "読み無し")
+        self.assertIsNone(miss(plain, "はい", None))   # 項目を足す前の記録（読みに無い）は答えの読みだけで数える
+
+    def test_one_count_for_what_the_flow_does_with_one_utterance(self):
+        # 1つの発話で流れの制御がすることは1か所で数える（g53_meaning.flow_miss）：判定が電話を終える言葉（決められないも）と読めば、会話AIの
+        # 報告より先にその読みで動く（Flow._end_due_now）＝その発話の答えの読みは、その一手に効かない。「言っていない」なら答えの読みで動く。
+        # ⛔ 2026-11-05 に見つけた：答えの動き（flow_miss）と電話を終える言葉の動き（end_miss）を別々に数え、正しく急ぎを伺う発話でも答えの読みが
+        # 違えば外れと数え、電話を終える言葉ではないのに急ぎを伺う読みを、答えが正しければ「正しい動き」と数えていた（お呼びする段と同じ穴）
+        from flowctl import END_HURRY, END_NONE, UNDECIDED
+        from g53_meaning import flow_miss, question_map, set_f
+        qm = question_map()
+        F = {it["text"]: it for it in set_f()}
+
+        def miss(it, ans, end):
+            it = dict(it, j=ans, j終わり=end, j言い切り=True)
+            return flow_miss(it, qm[it["qid"]], "j")
+        hurry = F["いま時間がないので結構です。"]
+        self.assertIsNone(miss(hurry, "はい", END_HURRY))                  # 答えの読みが違っても、急ぎを伺う動きは正しい
+        self.assertEqual(miss(hurry, "いいえ", END_NONE), "⛔電話を終える言葉なのに締めない")
+        plain = {"set": "B", "maker": "3.8 Flash", "qid": "G8", "text": "（付け直していない答え）", "truth": "はい"}
+        self.assertIsNone(miss(plain, "はい", END_NONE))
+        self.assertEqual(miss(plain, "はい", END_HURRY), "⛔電話を終える言葉ではないのに締める・急ぎを伺う")
+        self.assertEqual(miss(plain, "はい", UNDECIDED), "要らない伺い")
+        self.assertEqual(miss(plain, "いいえ", END_NONE), miss(dict(plain), "いいえ", None))   # 項目を足す前の記録（None）は答えの読みだけ
+        self.assertIsNotNone(miss(plain, "いいえ", END_NONE))
 
     def test_other_sets_default_to_not_ending(self):
         # ほかの組の正解は「言っていない」。当たりうる言葉だけ、付け直した正解の帳面に end を付けた（20時11分の「いま時間がないので結構です」＝急いでいる）
