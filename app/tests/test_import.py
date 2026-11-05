@@ -339,7 +339,7 @@ class CustomerContacts(Base):
         self.assertEqual(self.numbers(b), sorted([(e(rows[1][2]).e164, "list", "company"), (e(mobile2).e164, "record", "mobile")],
                                                  key=lambda x: (x[1], x[0])))
         self.assertEqual(self.numbers(c), [(e("090-0000-0103").e164, "list", "designated")])
-        self.assertEqual(self.tx(lambda tx: tasks.list_number(tx, a))["phone_e164"], e(mobile).e164)   # かけるのは指定の番号
+        self.assertEqual(self.tx(lambda tx: tasks.dial_number(tx, a))["phone_e164"], e(mobile).e164)   # かけるのは指定の番号
         got = self.tx(lambda tx: customer_contacts.now(tx, a))["contacts"]
         self.assertEqual({(x["kind"], x["value"], x["service"], x["origin"]) for x in got},
                          {("email", "a@example.com", None, "list"), ("fax", fax, None, "list"),
@@ -560,8 +560,8 @@ class Targets(Base):
         self.assertEqual(got, {"text": "中島", "reading": None, "reading_by": None, "candidates": ["なかじま", "なかしま"],
                                "likely": "なかじま"})
         aid = self.w.insert_claim({**self.s, "task": task,
-                                   "contact": self.tx(lambda tx: tasks.list_number(tx, task))["contact_id"],
-                                   "phone": self.tx(lambda tx: tasks.list_number(tx, task))["phone_e164"]}, version=vid)
+                                   "contact": self.tx(lambda tx: tasks.dial_number(tx, task))["contact_id"],
+                                   "phone": self.tx(lambda tx: tasks.dial_number(tx, task))["phone_e164"]}, version=vid)
         self.tx(lambda tx: tasks.record_confirmed_reading(tx, task, "target", "ナカシマ", attempt_id=aid))
         got = self.tx(lambda tx: business_settings.target_of(tx, task))["person"]
         self.assertEqual((got["reading"], got["reading_by"]), ("なかしま", "conversation"))
@@ -609,7 +609,7 @@ class RowFixes(Targets):
         return vid, r["rows"][0]["task_id"]
 
     def claim(self, vid, task):
-        n = self.tx(lambda tx: tasks.list_number(tx, task))
+        n = self.tx(lambda tx: tasks.dial_number(tx, task))
         return self.w.insert_claim({**self.s, "task": task, "contact": n["contact_id"], "phone": n["phone_e164"]}, version=vid)
 
     def test_a_fixed_name_is_what_the_call_reads_and_old_confirmed_readings_do_not_carry_over(self):
@@ -680,7 +680,7 @@ class RowFixes(Targets):
                          (task, 2, "A", "架空商事", "岡田", "取締役"))
         self.assertEqual((g["business_state"], g["next_kind"], g["excluded"], g["attempts"], g["last_state"]),
                          ("open", "call", False, 0, None))
-        self.assertEqual(g["dial_phone"], self.tx(lambda tx: tasks.list_number(tx, task))["phone_e164"])
+        self.assertEqual(g["dial_phone"], self.tx(lambda tx: tasks.dial_number(tx, task))["phone_e164"])
         self.assertEqual([c["value"] for c in g["contacts"]["contacts"]], ["okada@example.com"])
         aid = self.claim(vid, task)
         g = self.tx(lambda tx: customer_rows.progress(tx, run))[0]

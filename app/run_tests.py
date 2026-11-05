@@ -4629,8 +4629,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '            if quality_stage.start_kind(tx, c["v"]) not in ("already", "open"):\n',
      ("tests.test_versions.Versions.test_a_later_version_with_fewer_voices_or_unfit_rows_is_not_adopted",)),
     ("後の版がいくつもあるとき、いちばん前の版から替える", "src/salescall/core/business_settings.py",
-     '            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["version_id"],))\n',
-     '            " SELECT v, cause, note FROM chain ORDER BY depth", (r["version_id"],))\n',
+     '            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["run_id"], r["version_id"]))\n',
+     '            " SELECT v, cause, note FROM chain ORDER BY depth", (r["run_id"], r["version_id"]))\n',
      ("tests.test_versions.Versions.test_when_several_later_versions_are_ready_the_newest_is_adopted",)),
     ("版を足すとき、つながりの先でなく渡された版から作る（後の版の変更を失う）", "src/salescall/core/business_settings.py",
      "    base = successor_tip(tx, version_id)\n", "    base = version_id\n",
@@ -4663,6 +4663,12 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("足せなかった解決策を、契約者に知らせない", "src/salescall/core/client_solutions.py",
      '        notify.emit(tx, "solution_held",', '        (lambda *a, **k: None)(tx, "solution_held",',
      ("tests.test_client_solutions.Solutions.test_a_solution_that_needs_the_contractor_to_confirm_a_reading_is_held",)),
+    ("自動で替えた割り当ても、手の割り当てに数える（自動で替えたあと、その前に作った後の版へ進めない）", "src/salescall/core/business_settings.py",
+     "                   auto=True)\n", "                   auto=False)\n",
+     ("tests.test_versions.Versions.test_derivations_form_one_line_and_the_newest_ready_one_is_adopted",)),
+    ("手で前の版に戻しても、戻す前に作った後の版へ自動で替える", "src/salescall/core/business_settings.py",
+     '            "  WHERE s.from_version = %s AND s.recorded_at >= hand.at"\n', '            "  WHERE s.from_version = %s"\n',
+     ("tests.test_versions.Versions.test_a_version_put_back_by_hand_is_not_moved_on_again",)),
 )
 
 

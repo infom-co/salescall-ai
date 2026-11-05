@@ -12,8 +12,8 @@
 
 行の番号（DESIGN.md 3-5）：依頼者の一覧の1行は1つのまま、番号を表（task_numbers）に持つ。一覧の番号の行はデータベースが
 タスクを作ったときに自分で足す。お客様が言った別の番号を足すのは `add_callee_number` だけ。記録だけの番号（かけない番号。0175）を
-足すのは `add_record_number` だけ。行の番号を読むのは `numbers` だけ。いまかける番号は `dial_number`（ダッシュボードの直しは
-`fix_dial_number`。0179）。
+足すのは `add_record_number` だけ。行の番号を読むのは `numbers` だけ。いまかける番号は `dial_number` だけ（ダッシュボードの直しは
+`fix_dial_number`。0179。⛔ 前は取り込んだ番号を返す list_number もあり、かける番号を読む所が2つあった）。
 """
 
 from __future__ import annotations
@@ -61,15 +61,6 @@ def numbers(tx: Tx, task_id: UUID) -> list[str]:
     if not rows:
         raise TaskNotFound(str(task_id))
     return [r["phone_e164"] for r in rows]
-
-
-def list_number(tx: Tx, task_id: UUID) -> dict[str, Any]:
-    """一覧の番号（取込のときの番号。行の最初の予定は、この番号へかける）。contact_id と phone_e164。"""
-    row = tx.one("SELECT contact_id, phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND source = 'list'",
-                 (task_id,))
-    if row is None:
-        raise TaskNotFound(str(task_id))
-    return row
 
 
 def dial_number(tx: Tx, task_id: UUID) -> dict[str, Any]:

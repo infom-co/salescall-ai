@@ -1651,30 +1651,38 @@ def adopt_ready(tx: Tx) -> list[tuple[UUID, UUID]]:
     """まだ終えていない行のある実施回の今の版に、話せる後の版があれば、自動で割り当てる（1か所。決まった間隔の仕事）。話せる＝
     (1) 今の版で話してよい声が、後の版でもすべて話してよい（声が減らない。今の版に声が無ければ1つ以上） (2) 品質の段で止まらずに
     始められる（quality_stage.start_kind が already か open） (3) 割り当てられない理由が無い（`assign_problems`）。後の版がいくつも
-    続けば、話せるものの中でいちばん後の版。割り当ての記録は `assign`（理由に「自動」）。割り当てた (実施回, 版) を返す。"""
+    続けば、話せるものの中でいちばん後の版。ただし、その実施回に手で（管理者か契約者が）版を割り当てたときより前に作った後の版へは
+    替えない（手で前の版に戻した判断を上書きしない＝0185）。割り当ての記録は `assign`（自動の印 auto と、理由に「自動」）。割り当てた
+    (実施回, 版) を返す。"""
     from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
     done = []
     for r in _versions_in_use(tx):
         now_voices = set(recordings.ready_voices(tx, r["version_id"]))
+        # 手で割り当てたときより後に作った段だけをたどる（最初の段が前なら、その先へは進まない＝前の段の変更を含む版へ替えない。段は
+        # 作った順に並ぶ＝後の段ほど新しいので、最初の段だけを見れば足りる）
         chain = tx.all(
-            "WITH RECURSIVE chain(v, cause, note, depth) AS ("
-            "  SELECT to_version, cause, note, 1 FROM salescall.version_successions WHERE from_version = %s"
+            "WITH RECURSIVE hand(at) AS (SELECT coalesce((SELECT max(x.assigned_at) FROM salescall.run_versions x"
+            "                                            WHERE x.run_id = %s AND NOT x.auto), '-infinity'::timestamptz)),"
+            " chain(v, cause, note, depth) AS ("
+            "  SELECT s.to_version, s.cause, s.note, 1 FROM salescall.version_successions s, hand"
+            "  WHERE s.from_version = %s AND s.recorded_at >= hand.at"
             "  UNION ALL SELECT s.to_version, s.cause, s.note, c.depth + 1"
             "  FROM salescall.version_successions s JOIN chain c ON s.from_version = c.v)"
-            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["version_id"],))
+            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["run_id"], r["version_id"]))
         for c in chain:
             voices = set(recordings.ready_voices(tx, c["v"]))
             if not voices or not voices >= now_voices:
                 continue
             if quality_stage.start_kind(tx, c["v"]) not in ("already", "open") or assign_problems(tx, r["run_id"], c["v"]):
                 continue
-            assign(tx, r["run_id"], c["v"], reason=f"自動：後の版の録音がそろった（{SUCCESSION_CAUSES[c['cause']]}：{c['note']}）")
+            assign(tx, r["run_id"], c["v"], reason=f"自動：後の版の録音がそろった（{SUCCESSION_CAUSES[c['cause']]}：{c['note']}）",
+                   auto=True)
             done.append((r["run_id"], c["v"]))
             break
     return done
 
 
-def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str) -> str:
+def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = False) -> str:
     """実施回に版を割り当てる（記録つき。DESIGN.md 3-2）。割り当てた版の、品質の段の始め方の答えを返す
     （quality_stage.prepare：opened／mock_needed／already／stopped_version）。中身の無い版は割り当てない。"""
     if not reason.strip():
@@ -1683,10 +1691,10 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str) -> str:
     if problems:                                     # 目的のお客様を呼べない行を残したまま、版を替えない（全部か、何も無いか）
         raise SettingsInvalid(problems)
     row = tx.one(
-        "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason)"   # 番号は
-        " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"                                                     # next_seq（0109）
-        "        %s, salescall.cur_actor(), %s FROM salescall.runs r WHERE r.run_id = %s RETURNING seq",
-        (version_id, reason, run_id))
+        "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason, auto)"   # 番号は
+        " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"                                                           # next_seq（0109）
+        "        %s, salescall.cur_actor(), %s, %s FROM salescall.runs r WHERE r.run_id = %s RETURNING seq",
+        (version_id, reason, auto, run_id))
     if row is None:
         raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
     # 前の版で取った、まだ発信していない予約を取り消す（門の前提が変わったときの決まり＝DESIGN.md 5-2-1 の2。

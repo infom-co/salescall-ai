@@ -137,3 +137,24 @@ class Versions(Base):
         self.w.approve_voices(s["tenant"], s["client"], v1)
         self.w.approve_voices(s["tenant"], s["client"], v2)
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v2)])
+
+    def test_a_version_put_back_by_hand_is_not_moved_on_again(self):
+        """契約者が手で前の版に戻したら、戻す前に作った後の版へは自動で替えない（そのあと、その後の版から作った版へも替えない＝戻す前の
+        変更が入っている）。自動で替えた版から先は、続けて自動で替える（自動の割り当ては手の割り当てに数えない＝0185）。"""
+        s = self.ready()
+        v0 = s["version"]
+        self.w.approve_voices(s["tenant"], s["client"], v0)
+        self.tx(s, lambda tx: quality_stage.record_mock(tx, v0, GOOD), OPERATOR)
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        self.w.approve_voices(s["tenant"], s["client"], v1)
+        self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v1)])        # 自動で v1 へ
+        v2 = self.tx(s, lambda tx: bs.derive(tx, v1, lambda r: r, cause="override", note="そのまま"), OPERATOR)
+        self.w.approve_voices(s["tenant"], s["client"], v2)
+        self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v2)])        # 自動の版から先は続けて自動で
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], v0, reason="試験：手で前の版に戻す"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [])                      # 戻した判断を上書きしない
+        v3 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: r, cause="override", note="戻したあとに作った"), OPERATOR)
+        self.w.approve_voices(s["tenant"], s["client"], v3)
+        self.assertEqual(self.tx(s, lambda tx: bs.successor_tip(tx, v0)), v3)               # v3 は v2 の先（戻す前の変更を含む）
+        self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [])
+        self.assertEqual(self.current(s), v0)
