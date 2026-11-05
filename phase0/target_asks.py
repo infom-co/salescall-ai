@@ -24,27 +24,22 @@ PROMPT = (
     "- 質問の文の意味だけで決めます。\n"
     "質問（番号：質問の文）：\n"
 )
-# 答えの欄（問い合わせは askitems.ask の1か所）
-FIELDS = {"no": ("integer", "質問の番号"), "calls": ("boolean", "話したい方がいらっしゃるかを伺う一文か")}
+# 答えの欄（問い合わせと読み取りは askitems.ask_flags の1か所）
+FIELD, DESC = "calls", "話したい方がいらっしゃるかを伺う一文か"
 TOOL = ("target_asks", "質問ごとの、話したい方がいらっしゃるかを伺う一文か")
 
 
 def by_model(client, model: str, questions: list[str]) -> list[bool | None]:
     """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの答え（無ければ None）を返す。送り先は部品の作りで決まる
-    （Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask）。"""
-    from askitems import ask
+    （Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask_flags）。"""
+    from askitems import ask_flags
 
-    body = "\n".join(f"{n}：{q}" for n, q in enumerate(questions, 1))
-    return _read_items(ask(client, model, PROMPT + body, FIELDS, tool=TOOL), len(questions))
-
-
-def _read_items(items: list, n: int) -> list[bool | None]:
-    """答えの items を、質問と同じ並び（1〜n 番）の真偽（無い・形の違うものは None）にそろえる（読み取りの唯一の場所）。"""
-    got = {x.get("no"): x.get("calls") for x in items or [] if isinstance(x, dict)}
-    return [got.get(i) if isinstance(got.get(i), bool) else None for i in range(1, n + 1)]
+    return ask_flags(client, model, PROMPT, questions, FIELD, DESC, TOOL)
 
 
 def decide(model_calls: list[bool | None]) -> bool:
     """お呼びする方がいらっしゃるかを伺う一文かを1つに決める（取込のとき。人は確かめない）：2つ以上のモデルの答えがそろって真のときだけ真。それ以外は偽
-    （依頼者が書いたとおり業務の質問のまま＝推し量って置き換えない）。"""
-    return len(model_calls) >= 2 and all(c is True for c in model_calls)
+    （依頼者が書いたとおり業務の質問のまま＝推し量って置き換えない。askitems.agreed）。"""
+    from askitems import agreed
+
+    return agreed(model_calls, False)

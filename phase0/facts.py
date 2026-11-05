@@ -29,24 +29,17 @@ PROMPT = (
 )
 
 
-# 答えの欄（問い合わせは askitems.ask の1か所。Gemini には説明つき・Anthropic には型だけ）
-FIELDS = {"no": ("integer", "質問の番号"), "fact": ("boolean", "お客様に事実を伺う質問か")}
+# 答えの欄（問い合わせと読み取りは askitems.ask_flags の1か所。Gemini には説明つき・Anthropic には型だけ）
+FIELD, DESC = "fact", "お客様に事実を伺う質問か"
 TOOL = ("facts", "質問ごとの、事実を伺う質問か")
 
 
 def by_model(client, model: str, questions: list[str]) -> list[bool | None]:
     """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの答え（無ければ None）を返す。送り先は部品の作りで決まる
-    （Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask）。"""
-    from askitems import ask
+    （Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask_flags）。"""
+    from askitems import ask_flags
 
-    body = "\n".join(f"{n}：{q}" for n, q in enumerate(questions, 1))
-    return _read_items(ask(client, model, PROMPT + body, FIELDS, tool=TOOL), questions)
-
-
-def _read_items(items: list, questions: list[str]) -> list[bool | None]:
-    """答えの items を、questions と同じ並びの答え（無ければ None）にそろえる（読み取りの唯一の場所＝Gemini も Anthropic も）。"""
-    got = {x.get("no"): x.get("fact") for x in items or [] if isinstance(x, dict)}
-    return [got.get(n) if isinstance(got.get(n), bool) else None for n in range(1, len(questions) + 1)]
+    return ask_flags(client, model, PROMPT, questions, FIELD, DESC, TOOL)
 
 
 # Anthropic（Claude Haiku 5.5）に同じ文・同じ読み取りで答えさせる（作り手の代わり＝Gemini の Flash が混んでいる間。meanings.by_model_anthropic と同じ。
@@ -55,7 +48,7 @@ by_model_anthropic = by_model
 
 
 def decide(model_facts: list[bool | None]) -> bool:
-    """事実を伺う質問かを1つに決める（取込のとき。人は確かめない）。2つ以上のモデルの答えがそろえばそれ、そろわなければ事実を伺う質問。"""
-    if len(model_facts) >= 2 and all(f is not None for f in model_facts) and len(set(model_facts)) == 1:
-        return model_facts[0]
-    return True
+    """事実を伺う質問かを1つに決める（取込のとき。人は確かめない）。2つ以上のモデルの答えがそろえばそれ、そろわなければ事実を伺う質問（askitems.agreed）。"""
+    from askitems import agreed
+
+    return agreed(model_facts, True)

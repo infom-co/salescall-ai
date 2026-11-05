@@ -58,7 +58,10 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          "unfinished", "wish_fact", "point_fact", "decide_away", "decide_unclear",
                          # 取込の決める処理：いまの話の向きを伺う言葉（Question.doubt_words）・お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-199 の (1)・
                          # 4-203 の (1)。CL-1.md 4-90）
-                         "decide_doubt_words", "decide_target_asks"})
+                         "decide_doubt_words", "decide_target_asks",
+                         # ご案内の方法を伺う質問か（取込の決める処理）・オンラインのご希望を申し伝える一言とその連絡先を伺う前に切れた電話の続きの一言の録音
+                         # （✅ 11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」。CL-1.md 4-91）
+                         "decide_ways", "wish_told_online", "callback_email_online_again"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -11566,7 +11569,7 @@ class NoneOfThemTest(unittest.TestCase):
         r = HedgedSalesTest.hedged(f, "Q1", "いいえ", "届いても見るか分からなくて")
         self.assertEqual((r["result"], ACK[r["ack"]] + r["question"], f.end_reason), ("next", "はい、それではほかにご希望などはございますでしょうか？", None))
         # 選び直しの選択肢は「やはり（意味の言葉）」（W1 そのものが「はい」で答えられる問い＝はい／いいえの名前にしない）
-        self.assertEqual(f.questions["W1"].conditions, ("やはりパンフレットをお送りしてよいということ", *(wish_label(k) for k in ("line", "email", "fax", "post", "phone")),
+        self.assertEqual(f.questions["W1"].conditions, ("やはりパンフレットをお送りしてよいということ", *(wish_label(k) for k in ("line", "email", "fax", "post", "phone", "online")),
                                                         WISH_OTHER, WISH_NONE))
         r = AmbiguousAnswerTest.say(f, "メールで送ってもらえれば見ます。", "record_answer", question_id="W1", condition_id=wish_label("email"))
         self.assertEqual((r["question_id"], f.end_reason, "goal_refused" in f.facts), (CALLBACK_IDS["email"], None, False))
@@ -12281,9 +12284,9 @@ class NoneOfThemTest(unittest.TestCase):
         # 元の質問の選択肢と同じご連絡の方法は、ご連絡の方法の選択肢に出さない（選び直し＝元の質問の答え）
         from flowctl import Question, WISH_NONE, WISH_OTHER, callback_question, wish_label
         w = callback_question("other_wish", of=Question("Q1", self.CONTACT, "choice", conditions=("お電話", "Eメール")))
-        self.assertEqual(w.conditions, ("お電話", "Eメール", wish_label("line"), wish_label("fax"), wish_label("post"), WISH_OTHER, WISH_NONE))
+        self.assertEqual(w.conditions, ("お電話", "Eメール", wish_label("line"), wish_label("fax"), wish_label("post"), wish_label("online"), WISH_OTHER, WISH_NONE))
         w = callback_question("other_wish", of=Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込")))
-        self.assertEqual(len(w.conditions), 2 + 5 + 2)
+        self.assertEqual(len(w.conditions), 2 + 6 + 2)
         self.assertEqual((w.recording, w.firm_not_needed, w.declined(WISH_NONE)), ("Q2_other", True, True))
         # 録音で流す電話：業務の質問と同じ依頼主の単位の録音（名前は other_wish_recording_id・作る表は make_ack_clips.script_table）
         import dataclasses
@@ -12308,12 +12311,103 @@ class NoneOfThemTest(unittest.TestCase):
                                                        "いいえ": "担当者から詳しいご案内のお電話は差し上げなくてよいということ"})
         repick = "やはり担当者から詳しいご案内のお電話を差し上げてよろしいということ"
         w = callback_question("other_wish", of=call)
-        self.assertEqual(w.conditions, (repick, *(wish_label(k) for k in ("line", "email", "fax", "post")), WISH_OTHER, WISH_NONE))
+        self.assertEqual(w.conditions, (repick, *(wish_label(k) for k in ("line", "email", "fax", "post", "online")), WISH_OTHER, WISH_NONE))
         self.assertEqual((wish_option(call, "phone"), wish_option(call, "email")), (repick, wish_label("email")))
         # 答えの意味に方法の言葉の無い質問（パンフレット）は今までどおり、どの方法も選択肢に出す
         leaflet = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True,
                            declines=("いいえ",), meanings={"はい": "パンフレットをお送りしてよいということ", "いいえ": "パンフレットはお送りしなくてよいということ"})
-        self.assertEqual(callback_question("other_wish", of=leaflet).conditions[1:-2], tuple(wish_label(k) for k in ("line", "email", "fax", "post", "phone")))
+        self.assertEqual(callback_question("other_wish", of=leaflet).conditions[1:-2], tuple(wish_label(k) for k in ("line", "email", "fax", "post", "phone", "online")))
+
+    CALL = "担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？"
+    CALL_MEANINGS = {"はい": "担当者から詳しいご案内のお電話を差し上げてよろしいということ", "いいえ": "担当者から詳しいご案内のお電話は差し上げなくてよいということ"}
+
+    def way_question(self, **kw):
+        from flowctl import Question
+        return Question("Q1", self.CALL, "yes_no", conditions=("はい", "いいえ"), final_goal=True, declines=("いいえ",), away=("いいえ",),
+                        meanings=self.CALL_MEANINGS, **{"asks_way": True, "offer_ways": ("お電話", "メール", "LINE", "ZOOM"), **kw})
+
+    def test_way_question_offers_the_business_ways(self):
+        # 会話3：✅ 2026-11-05 日本時間22時28分36秒 ユーザー：「「担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？」→「うーん、お電話はちょっと…。」と
+        # 言っているのに、「はい、それではほかにご希望などはございますでしょうか？」だと、連絡手段以外の希望があるのかどうかを聞いているみたいなので、連絡手段として、
+        # 「メールや（LINE）、（ZOOM）などでお話しさせていただくこともできますが！」のように、連絡手段の方法を確認した方がよくないですか？」・23時19分06秒「案でOK　(2)ア」
+        # ⇒ ご案内の方法を伺う質問（Question.asks_way＝取込で文字のAI2つが決める）の W1 は、業務でご案内できる方法（Question.offer_ways＝業務設定）を申し出る。
+        # 断られた方法（元の質問の選び直しと同じ方法＝_wish_same_means の1か所）は言わない。業務で対応できない方法は言わない（許されていない約束＝本書1-3）
+        from flowctl import WISH_NONE, WISH_OTHER, callback_question, wish_label
+        text = lambda **kw: callback_question("other_wish", of=self.way_question(**kw)).text
+        self.assertEqual(text(), "それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！")
+        self.assertEqual(text(offer_ways=("メール", "ZOOM")), "それではメールやZOOMなどでご案内させていただくこともできますが！")
+        self.assertEqual(text(offer_ways=("メール",)), "それではメールでご案内させていただくこともできますが！")
+        # 業務設定に方法が無い・断られた方法だけ：方法は言わずに、連絡の方法だと分かる形で伺う
+        for ways in ((), ("電話",)):
+            self.assertEqual(text(offer_ways=ways), "それではほかにご連絡のしやすい方法などはございますでしょうか？", ways)
+        # ご案内の方法を伺う質問でない（取込で決めた asks_way が偽）：今までどおり（業務設定に方法があっても言わない）
+        self.assertEqual(text(asks_way=False), "それではほかにご希望などはございますでしょうか？")
+        # 伺っている途中で切れた電話の続き：同じ伺いの頭を「前回お伺いした（聞くこと）の件で」にする（23時52分36秒「(ア)」の形）
+        again = lambda **kw: callback_question("other_wish", of=self.way_question(**kw), again=True).text
+        self.assertEqual(again(), "前回お伺いした件でメールやLINE、ZOOMなどでご案内させていただくこともできますが！")
+        self.assertEqual(again(offer_ways=()), "前回お伺いした件でほかにご連絡のしやすい方法などはございますでしょうか？")
+        # 選択肢：オンライン（ZOOM など）もご連絡の方法の1つ。断られたお電話は選び直し（「やはり…」）
+        self.assertEqual(callback_question("other_wish", of=self.way_question()).conditions,
+                         ("やはり" + self.CALL_MEANINGS["はい"], *(wish_label(k) for k in ("line", "email", "fax", "post", "online")), WISH_OTHER, WISH_NONE))
+
+    def test_way_offer_then_online_asks_the_email_for_the_url(self):
+        # 会話3のそのあと（✅ 23時19分06秒「案でOK」＝選んでいただいたら、その方法の連絡先を伺う。オンライン（ZOOM など）は、ご案内の URL をお送りする
+        # メールアドレス＝今のメールアドレスの伺い方の一言）。申し伝える一言は「オンラインでのご案内のご希望を担当の者に申し伝えます。」
+        from flowctl import CALLBACK_IDS, Flow, Question, wish_label
+        from phrases import ACK, CALLBACK_ASK, CALLBACK_ASK_RESUMED, WISH_TOLD
+        say, mail = AmbiguousAnswerTest.say, CALLBACK_IDS["email"]
+        qs = lambda: [self.way_question(offer_ways=("メール", "LINE", "ZOOM")), Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        f = Flow(qs())
+        r = HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+        self.assertEqual((r["result"], ACK[r["ack"]] + r["question"], f.end_reason), ("next", "はい、それではメールやLINE、ZOOMなどでご案内させていただくこともできますが！", None))
+        r = say(f, "じゃあZOOMでお願いします。", "record_answer", question_id="W1", condition_id=wish_label("online"), value="ZOOM")
+        self.assertEqual((r["question_id"], r["question"]), (mail, CALLBACK_ASK["email"]))
+        say(f, "yamada@example.jp です。", "record_answer", question_id=mail, condition_id="答えた", value="yamada@example.jp")
+        r = say(f, "はい、そうです。", "confirm_field", question_id=mail, result="affirmed")
+        self.assertEqual((r["question_id"], WISH_TOLD["online"] in r["message"], f.end_reason, "goal_refused" in f.facts), ("Q2", True, None, False))
+        self.assertEqual([{k: e[k] for k in ("means", "contact", "outcome")} for e in f.facts["other_wish"]],
+                         [{"means": "online", "contact": "yamada@example.jp", "outcome": "means"}])
+        self.assertEqual(WISH_TOLD["online"], "オンラインでのご案内のご希望を担当の者に申し伝えます。")
+        # 続きの電話：オンラインを選んでいただき、メールアドレスを伺う前に切れた ⇒ 方法の名前で「前回選択いただいたオンラインでのご案内の件で…」（⛔ 役目の
+        # 一言のままだと「前回選択いただいたメールでのご連絡の件で…」になる）。録音は方法ごと（callback_email_online_again）
+        taken = {"state": "accepted", "value": None, "condition": "いいえ"}
+        f = Flow(qs(), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "online", "contact": None, "outcome": None, "via": None}}})
+        self.assertEqual((f.current, f.questions[mail].text, f.questions[mail].recording),
+                         (mail, CALLBACK_ASK_RESUMED["email_online"], "callback_email_online_again"))
+        self.assertEqual(CALLBACK_ASK_RESUMED["email_online"], "前回選択いただいたオンラインでのご案内の件でメールアドレスを伺う前に切れてしまいましたので"
+                                                               "恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？")
+        # メールを選んでいただいた方は今までどおり（役目の一言・録音の名前は変わらない）
+        f = Flow(qs(), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "email", "contact": None, "outcome": None, "via": None}}})
+        self.assertEqual((f.questions[mail].text, f.questions[mail].recording), (CALLBACK_ASK_RESUMED["email"], "callback_email_again"))
+
+    def test_way_question_is_decided_at_import_by_two_text_ais(self):
+        # ご案内の方法を伺う質問か（Question.asks_way）は、取込で文字のAI2つが質問の文から決める（そろって「伺う質問」のときだけ真＝そろわなければ今までどおり
+        # 「ほかにご希望などは…」）。文ごとに真偽を決める問い合わせと読み取りは、事実を伺う質問か・お呼びする方の一文かと同じ1か所（askitems.ask_flags・agreed）
+        import json
+        from types import SimpleNamespace
+
+        import askitems
+        import import_ai
+        import ways
+
+        def asker(got):
+            # Gemini の部品の形（models.generate_content）で、決まった答えを返す偽の問い合わせ先（送った文を残す）
+            prompts = []
+
+            class Models:
+                def generate_content(self, model, contents, config):
+                    prompts.append(contents)
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models(), prompts=prompts)
+        texts = [self.CALL, "今月中のご導入をお考えでしょうか？"]
+        a = asker([{"no": 1, "way": True}, {"no": 2, "way": False}])
+        b = asker([{"no": 1, "way": True}, {"no": 2, "way": True}])
+        self.assertEqual(import_ai.decide_ways([(a, "m1"), (b, "m2")], texts), {self.CALL: True, "今月中のご導入をお考えでしょうか？": False})
+        self.assertIn("decide_ways", import_ai.DECIDERS)
+        self.assertTrue(a.prompts[0].startswith(ways.PROMPT) and a.prompts[0].endswith("1：" + texts[0] + "\n2：" + texts[1]))
+        # 決め方の1か所：そろえばその答え・そろわない・答えが無ければ倒す側
+        self.assertEqual([askitems.agreed(x, False) for x in ([True, True], [True, False], [True, None], [True])], [True, False, False, False])
+        self.assertEqual([askitems.agreed(x, True) for x in ([False, False], [True, False], [None, None])], [False, True, True])
 
     def test_business_question_after_none_comes_first(self):
         # 業務設定に「どれも要らない」のあとに伺う質問があれば、ほかのご希望は伺わずに、その質問で伺う（業務の言葉が先）

@@ -26,7 +26,7 @@ from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTH
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
-from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, WISH_TOLD
+from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from units import supply_unit
 
@@ -1691,6 +1691,13 @@ class Question:
     # ✅ 2026-11-01 ユーザー：(a)「OK」。⛔ 2026-10-31 の夜（G-53nofits）：判定の説明では「事実を聞く質問には無い」としながら、事実を伺う質問にも
     # 「どちらでも」を出していた（説明と選べるものの食い違い＝facts.py）
     asks_fact: bool = False
+    # ご案内の方法（お電話・ご訪問・説明会・オンラインの面談 など）でご案内してよいかを伺う質問か（取込で文字のモデル2つが質問の文から決める＝ways.decide。
+    # そろって「伺う質問」のときだけ真）と、業務でご案内できる方法（業務設定の「ご案内できる方法」を取込が入れる。お客様に言う名前のまま＝「メール」「LINE」
+    # 「ZOOM」。どれもご連絡の方法の1つ＝means_in で WISH_MEANS に当たるもの）。はい／いいえの質問で真なら、言い切っていないお断りのあとのほかのご希望（W1）で、
+    # 断られた方法を除いた方法を申し出る（_wish_text の1か所）。✅ 2026-11-05 日本時間22時28分36秒 ユーザー：「「はい、それではほかにご希望などはございます
+    # でしょうか？」だと連絡手段を答える人はほぼいないと思うので、連絡ができないままで終わることになりますよ。」・23時19分06秒「案でOK　(2)ア」
+    asks_way: bool = False
+    offer_ways: tuple = ()
     # 依頼者の最終目的の申し出か（業務設定＝CL-2。業務ごとに複数ありうる）と、その申し出を断る答え（選択肢の名前。取込で決める）。断られて目的が
     # 果たせなくなったら、途中で締め、その業務だけかけない（Flow._goals_lost。✅ 2026-11-01 日本時間20時56分・22時31分 ユーザー）
     final_goal: bool = False
@@ -1928,10 +1935,14 @@ _ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("
 # ✅ 2026-11-03 日本時間20時48分 ユーザー：「「LINEならいいです」と回答いただけたら、LINEアドレスを伺うというステップを忘れないように。そうしないと、
 # また、電話をかけて伺わないといけなくなりますよ。そうなると、また、繋がらなかったり、考えが変わったりして、無駄な対応やせっかくの顧客を失う可能性が
 # 高まります。」。鍵 → (呼び名, その質問の選択肢に同じ方法があるかを見る言葉＝大文字にそろえて含むか, 連絡先を伺うシステムの質問の役目＝無ければ伺わない。
-# お電話は、いまかけている番号がある)。申し伝える一言は phrases.WISH_TOLD の同じ鍵
+# お電話は、いまかけている番号がある)。申し伝える一言は phrases.WISH_TOLD の同じ鍵。方法の言葉を見分けるのは means_in の1か所。
+# オンライン（ZOOM など）は、ご案内の URL をお送りするメールアドレスを伺う（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK」＝22時49分58秒の案
+# 「オンライン（ZOOMなど）は今の方法の一覧に無いので足し、ご案内の URL をお送りするメールアドレスを伺います」）。同じ連絡先を伺うほかの方法より後ろに置く
+# （続きの電話の一言は、連絡先の役目を先に持つ方法が役目の一言を使い、後ろの方法は方法の名前の入った一言＝contact_again_key）
 WISH_MEANS = {"line": ("LINE", ("LINE", "ライン"), "line_how"), "email": ("メール", ("メール", "MAIL"), "email"),
               "fax": ("ファクス", ("ファクス", "ファックス", "FAX"), "fax"), "post": ("郵送", ("郵送", "郵便"), "address"),
-              "phone": ("お電話", ("電話", "TEL"), None)}
+              "phone": ("お電話", ("電話", "TEL"), None),
+              "online": ("オンライン", ("オンライン", "ZOOM", "ズーム", "TEAMS", "チームズ", "GOOGLE MEET", "WEB会議", "ウェブ会議", "ビデオ通話"), "email")}
 WISH_OTHER, WISH_NONE = "ほかの希望を言った", "無い"
 # LINE でのご連絡の連絡先の伺い方（システムの質問 line_how＝C11 の選択肢 → (通話の事実 other_wish の via, 伺う連絡先の役目)。唯一の場所＝Flow._line_how）：
 # ID を伺う・SMS でご招待（携帯電話の番号）・メールでご招待（メールアドレス）。伺い済みの連絡先は伺わない（Flow._known_contact）。方法を言っていない
@@ -1943,7 +1954,7 @@ LINE_HOW_UNSAID = "方法は言っていない"
 # 受け取る所 _explain_problem の1か所）
 RESUMED_LEAD = "前回お伺いした"
 # 続きの電話の始めに、連絡先を伺う前に切れたご連絡の方法の連絡先を伺い直す役目（resumed_step。WISH_MEANS の連絡先の役目）
-CONTACT_ROLES = tuple(r for _, _, r in WISH_MEANS.values() if r)
+CONTACT_ROLES = tuple(dict.fromkeys(r for _, _, r in WISH_MEANS.values() if r))
 # ほかのご希望を伺った結果（通話の事実 other_wish の outcome と、前の通話で取れた答えの "wish" の値）：none＝無い・聞き取れない・わからない／option＝元の
 # 質問の選択肢を選び直した／means＝ご連絡の方法（連絡先を伺う途中で切れたものも）／other＝ほかのご希望
 WISH_OUTCOMES = ("none", "option", "means", "other")
@@ -2029,6 +2040,22 @@ def earlier_point_said(entry: dict) -> str | None:
     if earlier_point(entry) != "heard":
         return None
     return (entry.get("said") or "").strip() or entry.get("point") or None
+
+
+def means_in(text: str) -> list[str]:
+    """文（選択肢の名前・業務設定のご案内できる方法の名前）に言葉の入っているご連絡の方法（WISH_MEANS の鍵。並びのまま）を見分ける唯一の場所（同じ方法か＝
+    _wish_same_means・申し出る方法＝_offered_ways）。大文字にそろえて、方法の言葉が入っているかで見る。"""
+    t = unicodedata.normalize("NFKC", text).upper()
+    return [k for k, (_, words, _) in WISH_MEANS.items() if any(w in t for w in words)]
+
+
+def contact_again_key(means: str) -> str:
+    """ご連絡の方法 means の連絡先を伺う前に切れた電話の続きで、切れた所から伺う一言の鍵（phrases.CALLBACK_ASK_RESUMED・録音 callback_（鍵）_again の唯一の
+    決め方）：その連絡先の役目を先に持つ方法は役目の名前（今までの一言「前回選択いただいたメールでのご連絡の件で…」）、同じ役目を後ろの方法も使うときは
+    「役目_方法」（「前回選択いただいたオンラインでのご案内の件で…」。⛔ 役目の一言のままだと、オンラインを選んだ方に「メールでのご連絡の件で」と言う）。"""
+    role = WISH_MEANS[means][2]
+    owner = next(k for k, v in WISH_MEANS.items() if v[2] == role)
+    return role if owner == means else f"{role}_{means}"
 
 
 def wish_label(means: str) -> str:
@@ -2259,7 +2286,8 @@ def opening_question(questions, earlier: dict | None) -> "Question | None":
     if (step := resumed_step(questions, earlier)) is not None:
         role, q = step
         # ご説明から始める（explain）：伺う質問は無い（AIが名乗りの録音のあとにご説明する＝Flow._opening_reply・_connect の _advance）
-        return None if role == "explain" else callback_question(role, of=q if role == "other_wish" else None, again=True)
+        return None if role == "explain" else callback_question(role, of=q if role == "other_wish" else None, again=True,
+                                                                means=earlier_means_of((earlier or {}).get(q.id)) if role in CONTACT_ROLES else None)
     return first
 
 
@@ -2290,8 +2318,7 @@ def _wish_same_means(q: "Question", means: str) -> str | None:
     見るのは、W1 に出す選び直しの選択肢の名前（_wish_pick_label）：選ぶ質問は選択肢の名前（電話・メール）、はい／いいえは「やはり（意味の言葉）」。
     ⛔ 2026-11-05 日本時間20時台に見つけた：選択肢の名前（「はい」）だけを見ていたので、「担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？」の
     W1 に「やはり…お電話を差し上げてよろしいということ」と「お電話での連絡」が並び、「やっぱり電話でいいです」の読みが2つに割れえた"""
-    words = WISH_MEANS[means][1]
-    return next((c for c in _wish_picks(q) if any(w in unicodedata.normalize("NFKC", _wish_pick_label(q, c)).upper() for w in words)), None)
+    return next((c for c in _wish_picks(q) if means in means_in(_wish_pick_label(q, c))), None)
 
 
 def wish_option(q: "Question", means: str) -> str:
@@ -2338,25 +2365,46 @@ def _listable(text: str) -> bool:
     return (f.pos1 == "名詞" or (f.pos1 == "接尾辞" and f.pos2 == "名詞的")) and getattr(f, "lemma", "") not in _STATE_LEMMAS
 
 
+def _offered_ways(q: "Question") -> list[str]:
+    """ご案内の方法を伺う質問 q の W1 で申し出る方法の名前（業務設定の名前のまま・並びのまま。唯一の場所＝_wish_text）：ご連絡の方法に当たる名前（means_in が
+    1つに決まるもの）のうち、断られた方法（元の質問の選び直しと同じ方法＝_wish_same_means）でないもの。同じ方法の名前が2つあれば初めのものだけ。
+    方法に当たらない名前は言わない（その方法の連絡先を伺えない＝取込で確かめる＝CL-2）。"""
+    out, seen = [], set()
+    for name in q.offer_ways:
+        ms = means_in(name)
+        if len(ms) == 1 and ms[0] not in seen and _wish_same_means(q, ms[0]) is None:
+            seen.add(ms[0])
+            out.append(name)
+    return out
+
+
 def _wish_text(q: "Question", again: bool = False) -> str:
     """ほかのご希望を伺う文（唯一の場所＝W1 の質問 callback_question と、録音の表 make_ack_clips.script_table が同じ文を使う）：選ぶ質問で、選び直して
     いただける選択肢（目的から遠ざかる向き・最終目的のお断りの答えは並べない＝Question.away_answers）がどれも名詞の言葉（_listable）なら、並べる
     （「それではお電話とメールのほかにご希望はございますでしょうか？」）。並べられなければ「それではほかにご希望などはございますでしょうか？」（はい／いいえ
     と同じ。✅ 2026-11-03 日本時間21時38分の言い方）。again＝伺っている途中で切れた電話の続き（お詫びのすぐあと）で、切れた所から伺う一言（「前回お伺いした
     （聞くこと）の件で（選択肢）のほかに…」。並べるかは同じ決まり。✅ 2026-11-03 日本時間23時52分36秒 ユーザー「(ア)」）。"""
+    # 聞くことの頭の「ご希望の」は言わない（「前回お伺いしたご希望のお支払い方法の件で…ほかにご希望は…」と、1つの文に「ご希望」を2回言わないため。
+    # 20時48分のご承認の言い方を選択肢で伺う形にそろえたのと同じ理由＝phrases.OTHER_WISH_ASK の注）
+    topic = q.topic.removeprefix("ご希望の")
+    t = f"{topic}の" if topic else ""
+    if q.asks_way and q.type != "choice":
+        # はい／いいえで伺う、ご案内の方法を伺う質問（Question.asks_way）：業務でご案内できる方法を申し出る（1つなら「メールで」・2つから「メールやLINE、ZOOMなどで」）。
+        # 申し出る方法が無ければ、連絡の方法だと分かる形で伺う（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」）。選ぶ質問は今までどおり選択肢を並べる
+        ways = _offered_ways(q)
+        w = ways[0] if len(ways) == 1 else f"{ways[0]}や{'、'.join(ways[1:])}など" if ways else ""
+        if again:
+            return OTHER_WAYS_OFFER_AGAIN.format(t=t, w=w) if w else OTHER_WAYS_ASK_AGAIN.format(t=t)
+        return OTHER_WAYS_OFFER.format(w=w) if w else OTHER_WAYS_ASK
     listed = [c for c in _wish_picks(q) if c not in q.away_answers] if q.type == "choice" else []
     listable = bool(listed) and all(map(_listable, listed))
     if again:
-        # 聞くことの頭の「ご希望の」は言わない（「前回お伺いしたご希望のお支払い方法の件で…ほかにご希望は…」と、1つの文に「ご希望」を2回言わないため。
-        # 20時48分のご承認の言い方を選択肢で伺う形にそろえたのと同じ理由＝phrases.OTHER_WISH_ASK の注）
-        topic = q.topic.removeprefix("ご希望の")
-        t = f"{topic}の" if topic else ""
         return OTHER_WISH_AGAIN.format(t=t, c="と".join(listed)) if listable else OTHER_WISH_AGAIN_PLAIN.format(t=t)
     return OTHER_WISH_ASK.format(c="と".join(listed)) if listable else OTHER_WISH_ASK_PLAIN
 
 
 def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Question | None" = None, again: bool = False,
-                      chosen: bool = False, without: str | None = None, recap: "Question | None" = None) -> "Question":
+                      chosen: bool = False, without: str | None = None, recap: "Question | None" = None, means: str | None = None) -> "Question":
     """システムが足す質問（役目＝SYSTEM_ROLES の1つ）を作る唯一の場所：かけ直し・ほかの手段で聞くこと（時刻＝日時の型＝日にちだけの答えも
     受け取る・番号＝電話番号の型・メール・住所。どれも言い直して確かめる型）と、選んでいただくこと（代わりの方に、判断いただけるお立場か・
     お取次ぎのみか＝✅ 2026-10-22 ユーザー（4回目）の2つから選んでいただく問い／伝言を伝えていただけるか＝はい／いいえ）。
@@ -2379,8 +2427,10 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
     i = nth % len(lines)
     recording = f"callback_{role}_{i + 1}" if i else ""
     if again:
-        # 伺っている途中で切れた電話の続きで、切れた所から伺う一言（phrases.CALLBACK_ASK_RESUMED。共通の一言の録音 callback_（役目）_again。選択肢と答えの受け方は同じ）
-        lines, i, recording = (CALLBACK_ASK_RESUMED[role],), 0, f"callback_{role}_again"
+        # 伺っている途中で切れた電話の続きで、切れた所から伺う一言（phrases.CALLBACK_ASK_RESUMED。共通の一言の録音 callback_（鍵）_again。選択肢と答えの受け方は同じ）。
+        # ご連絡の方法の連絡先は、選んでいただいた方法 means で一言を選ぶ（contact_again_key。同じメールアドレスを伺うオンラインは「オンラインでのご案内の件で…」）
+        key = contact_again_key(means) if means is not None and WISH_MEANS.get(means, (None, None, None))[2] == role else role
+        lines, i, recording = (CALLBACK_ASK_RESUMED[key],), 0, f"callback_{key}_again"
     elif recap is not None:
         # 続きの電話の始めに、ご納得いただけなかった点を言っていただけなかったとき、「ほかに…」（other_point）の代わりに流す振り返りの一言（phrases.recap_line。
         # ご承認の質問 recap の説明の文が入る＝依頼主の単位の録音 recap_recording_id）。選択肢と答えの受け方は「ほかに…」と同じ（Flow._point_step の1か所）。
@@ -7148,7 +7198,7 @@ class Flow:
         w.update(stage="detail", detail=did, known=known)
         w.setdefault("asked", []).append(did)   # この手順で伺う段（段を進めた答えが取り消されたら外す＝_wish_taken_back）
         # 伺い方（C11）を選んでいただいたあとの一言は、伺い方の一言の「恐れ入りますが」を重ねない（callback_question の chosen＝phrases.CALLBACK_ASK_CHOSEN）
-        self.questions[did], self.items[did] = callback_question(role, again=again, chosen=after == CALLBACK_IDS["line_how"]), Item()
+        self.questions[did], self.items[did] = callback_question(role, again=again, chosen=after == CALLBACK_IDS["line_how"], means=w.get("means")), Item()
         self.taken.pop(did, None)
         if again:
             self._put_first(did)
