@@ -13,7 +13,7 @@ import dataclasses
 from dataclasses import dataclass, field
 
 from flowctl import notice  # AIへの知らせの枠の唯一の場所
-from flowctl import approval_explanation
+from flowctl import approval_explanation, KNOWN_HEADS
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
                      check_policies, choices_note, offers_rule, opening_question, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
@@ -245,10 +245,10 @@ class Business:
                 + ([f"電話の用件の一文：{self.purpose_line}"] if self.purpose_line else [])
                 + ([f"お呼びする方：{t.who()}"] if t is not None else [])
                 + [f"お客様に伺うこと（{len(self.questions)}つ）：" + "／".join(q.text for q in self.questions)]
-                + [f"業務の情報：{x}" for x in self.info] + [f"想定問答の答え（{n}）：{a}" for n, a in self.answers]
+                + [f"{KNOWN_HEADS['info']}：{x}" for x in self.info] + [f"{KNOWN_HEADS['answer']}（{n}）：{a}" for n, a in self.answers]
                 # ご承認いただく内容の説明（ご承認を伺う質問に入る一言＝トークスクリプトの説明。点をご説明するときの材料と受け皿＝flowctl.approval_explanation
                 # の1か所。✅ 2026-11-05 日本時間3時49分00秒 ユーザーのご指摘で足した）
-                + [f"ご承認いただく内容の説明（{q.id}）：{approval_explanation(q)}" for q in self.questions if approval_explanation(q)]
+                + [f"{KNOWN_HEADS['approval']}（{q.id}）：{approval_explanation(q)}" for q in self.questions if approval_explanation(q)]
                 # 業務設定で許された申し出（flowctl.own_answer_problem の may_follow_up）も、こちらがしてよいことの事実（無いと、判定が止める）
                 + (["こちらがしてよいこと：業務の情報に無いご質問には、確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってよい"]
                    if self.follow_up else [])]

@@ -494,6 +494,11 @@ def other_wish_recording_id(q: "Question", again: bool = False) -> str:
     return f"{q.id}_other_again" if again else f"{q.id}_other"
 
 
+# 自分で答える質問の受け皿に使える、知っていることの文の見出し（唯一の表：作る所 instruction.Business.knowledge と、読む所 Flow.known_lines の両方が使う。
+# ⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの読み直しで見つけた：見出しの言葉を2か所に直接書いていた＝片方だけ変えると、受け皿に使える文が黙って減る）
+KNOWN_HEADS = {"info": "業務の情報", "answer": "想定問答の答え", "approval": "ご承認いただく内容の説明"}
+
+
 def approval_explanation(q: "Question | None") -> str | None:
     """ご承認いただく内容の説明の文（唯一の場所）：ご承認を伺う質問に入る一言（Question.intro＝トークスクリプトの説明）。無ければ None（説明は質問の文
     そのもの＝最初の質問は入る一言を持てない＝CL-2 の 4-185 の (4)）。使う所：知っていることの1行（instruction.Business.knowledge）・受け皿に選べる文
@@ -4083,6 +4088,12 @@ class Flow:
             return "shitsurei" if reply.get("sorry") else "hai" if reply.get("answering") and not reply.get("renamed") else None
         if name == "report_party":
             return None  # 留守番電話・番号違い・受付に「承知しました」などは合わない（番号違いの締めの頭に「失礼いたしました。」を流すと、締めの「失礼」と重なる）
+        if reply.get("point_open") and result in ("next", "end", "recheck"):
+            # 点を言っていただけないまま手順を終えたあとに挟む一言（Flow._advance）の頭：「はい、」・覚えていないと言われたら「ごもっともです。」・この電話の
+            # 言いたくない・どの部分か分からない＝「承知しました。」（決めるのは _point_step の leave_open の1か所）
+        # （答えに添えられた質問に答えて次へ進むときも、この一言の頭が先＝答え方の頭「はい、」より先に読む。⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの
+        # 読み直しで見つけた：「それは言いたくないです。ところで料金は…？」に「はい、料金は…。ご不満な点が…」と、答えの決まりの「承知しました。」が抜けた）
+            return reply["point_open"]
         if name == "replay_opening" and args.get("part") in OWN_PARTS:
             # 相手の質問に、AIが自分の言葉で答える頭は「はい、」（AIの言葉は「そちらにつきましては」などの受けの言葉から。受け皿の、知っている
             # ことの文をAIが言うときも）。答えの文を使わず、録音の一言（「かしこまりました。…」）を流すときは、重ねない（⛔ 4回目の前は
@@ -4097,10 +4108,6 @@ class Flow:
             return None if args.get("part") in ("handover", "ai") else "shitsurei"
         # 返事の頭に流す決まった一言（Flow._advance）の相づちは、その一言の決まり：聞き取れないまま先へ進むとき・締めの前の念のための確認の前でも同じ
         # （CL-1 の 11-03 のご判断の (7)。⛔ 見直しで見つけた：下の2つが先にあり、「はい、LINEでのご連絡のご希望を…」・「申し訳ございません、そのご希望を…」）
-        if reply.get("point_open") and result in ("next", "end", "recheck"):
-            # 点を言っていただけないまま手順を終えたあとに挟む一言（Flow._advance）の頭：「はい、」・覚えていないと言われたら「ごもっともです。」・この電話の
-            # 言いたくない・どの部分か分からない＝「承知しました。」（決めるのは _point_step の leave_open の1か所）
-            return reply["point_open"]
         if reply.get("wish_told") and result in ("next", "end", "recheck"):
             return "shouchi"  # ほかのご希望を申し伝える一言の頭「承知しました。」（Flow._advance。業務に無いことはお約束しない）
         if reply.get("told") and result in ("next", "end", "recheck"):
@@ -5331,7 +5338,7 @@ class Flow:
     def known_lines(self) -> list[str]:
         """自分で答える質問の受け皿に使える、知っていることの文（業務の情報・想定問答の答え。名前の読みに置き換えた、声に出す形）。AIは、答えのもとに
         した文を、答えの文と一緒に「使えないときの一言」で選ぶ（操作の宣言＝tool_declarations の known）。"""
-        return [k.split("：", 1)[1] for k in self.knowledge if k.startswith(("業務の情報：", "想定問答の答え", "ご承認いただく内容の説明"))]
+        return [k.split("：", 1)[1] for k in self.knowledge if k.startswith(tuple(KNOWN_HEADS.values()))]
 
     def _opening_answer(self, part: str | None) -> bool:
         """呼んでいる段で、相手の言葉に名乗り・用件の録音で答える報告か（replay_opening の名乗り・用件・最初から）：何を聞かれたかの読みで当てる
@@ -7251,15 +7258,16 @@ class Flow:
         ✅ 2026-11-02 日本時間5時37分・5時56分 ユーザー（お言葉は CL-1.md 0-2）"""
         nid, oid, aid = (CALLBACK_IDS[r] for r in ("not_agreed", "other_point", "agreed_now"))
         p = self.point
-        if p is None:
+        if p is None or p["outcome"] is not None:
             # 前の通話の答えからは、続きの電話の途中で始めない（ほかの質問の答えのすぐあとに「ご納得いただけなかった点は…」と伺うと話がつながらない＝
-            # ほかのご希望の _wish_due と同じ決まり。⛔ 2026-11-04 日本時間7時台の4回目のご質問の見直しで見つけた）
-            q = next((q for q in self.questions.values() if q.approval and q.id not in self.earlier and self.items[q.id].state in GOT
-                      and q.declined(self.items[q.id].condition)), None)
-            if q is not None and nid not in self.items:   # 1通話1回
+            # ほかのご希望の _wish_due と同じ決まり。⛔ 2026-11-04 日本時間7時台の4回目のご質問の見直しで見つけた）。ご承認の質問ごとに1回（1つ目の手順を
+            # 終えたあと、2つ目のご承認の質問にもご承認いただけなければ、その質問の手順を始める。⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの読み直しで
+            # 見つけた：1通話1回にしていたので、2つ目のお断りでは点を伺わず、報告は「伺い終えていない」になった）
+            done = {e.get("question") for e in self.facts.get("not_agreed", [])} | ({p["q"]} if p is not None else set())
+            q = next((q for q in self.questions.values() if q.approval and q.id not in self.earlier and q.id not in done
+                      and self.items[q.id].state in GOT and q.declined(self.items[q.id].condition)), None)
+            if q is not None:
                 self._point_begin(q)
-            return
-        if p["outcome"] is not None:
             return
         if p["stage"] == "ask" and self.items[nid].state in TAKEN + ("unresolved",):
             cond = self.items[nid].condition if self.items[nid].state in GOT else None

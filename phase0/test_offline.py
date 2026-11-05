@@ -16315,6 +16315,40 @@ class ApprovalReviewTest(unittest.TestCase):
             # 申し伝える一言（決まった言い方）の頭には、録音で流す形でも AIが話す形でも「はい、」を付けない（指摘11）
             self.assertIsNone(f._ack("replay_opening", {"part": "no_answer", "fallback": "question"}, r), play)
 
+    def test_second_approval_has_its_own_procedure(self):
+        # 指摘3：ご承認の質問が2つある業務で、2つ目にもご承認いただけなければ、その質問の手順（点を1回伺う）を始める（本書 9-5：「ご承認いただけなければ
+        # 「ご納得いただけなかった点はどの部分になりますでしょうか？」と1回伺う」＝ご承認の質問ごと）。⛔ 1通話1回にしていたので、1つ目で手順を使うと
+        # 2つ目は伺わずに次へ進み、報告は「伺い終えていない」になった（次の電話でまた伺う）
+        from flowctl import CALLBACK_IDS, Flow, Question
+        N1 = CALLBACK_IDS["not_agreed"]
+        f = Flow([Question("Q1", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.EXPLAIN),
+                  Question("Q2", "以上の契約の条件でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                           intro="契約期間は1年です。"),
+                  Question("Q3", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        f.use_checks("judge")
+        self.say(f, "いや、ちょっと。", "いいえ", "record_answer", question_id="Q1", condition_id="いいえ")
+        r = self.say(f, "それは言いたくないですね。", "refused", "record_answer", question_id=N1, condition_id="refused")
+        self.assertEqual(r["question_id"], "Q2")
+        r = self.say(f, "いや、それも無理ですね。", "いいえ", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual(r["question_id"], N1)
+        self.assertIn("ご納得いただけなかった点", "".join(p["text"] for p in r.get("play") or []))
+        self.assertEqual(f.point["q"], "Q2")
+        self.assertNotIn("Q2", f.export().get("unfinished", []) if isinstance(f.export(), dict) else [])
+
+    def test_refused_point_with_a_question_keeps_the_head(self):
+        # 指摘8：点を言いたくないと言いながら質問された（「それは言いたくないです。ところで料金はおいくらなんですか？」）：答えたあと次へ進む前の一言の頭は、
+        # 答えの決まりどおり「承知しました。」（本書 9-5：「承知しました。」＋「ご不満な点がございましたらいつでもお申し出ください。」＝5時45分06秒「その形でOK」）。
+        # ⛔ 想定問答の答えの頭の「はい、」が先に当たり、「はい、料金は…。ご不満な点が…」になっていた
+        from flowctl import CALLBACK_IDS
+        N1 = CALLBACK_IDS["not_agreed"]
+        f = self.flow()
+        r = self.say(f, "それは言いたくないです。ところで料金はおいくらなんですか？", "refused", "record_answer", question_id=N1, condition_id="refused")
+        self.assertEqual(r["result"], "callee_asked")
+        r = f.apply("replay_opening", {"part": "料金"})
+        heard = "".join(p["text"] for p in r.get("play") or [])
+        self.assertIn("ご不満な点がございましたらいつでもお申し出ください。", heard)
+        self.assertEqual(r["ack"], "shouchi")
+
     def test_resumed_unclear_point_is_received_with_hai(self):
         # 指摘1の場面e：続きの電話で点を伺い、「そうでしたっけ。」（どちらとも取れない＝判定「決められない」）なら、振り返りの頭は「はい、」。「ごもっともです。」は、
         # 覚えていない・分からない（判定も「わからない」）ときだけ（本書 9-5：「ごもっともです。」（覚えていない・分からないとき。ほかは「はい、」））
