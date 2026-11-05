@@ -1582,10 +1582,12 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
     leads＝先に出すもの（starts の番号。安くて速い判断のモデル＝leads_of）：それだけを同時に先に出し、使える答えが届けばそれで決める（ほかは
     出さない）。先に出したものが全部、使えない答え・失敗を返したとき、または wait_s 秒たっても使える答えが1つも無いときに、ほかを同時に出す
     （まだ答えていない先のものは、そのまま待つ）。leads が無いか、全部が先のものなら、全部を同時に出す。ほかのもの（leads の外）は届いた順。
-    leads の並びは優先の順：後ろの先のものの使える答えは、それより前の先のものが使えない答え・失敗を返すまで持っておき、前のものの使える答えが
-    届けばそちらで決める（届いた順では決めない＝同じ言葉の読みが、どちらが速く届いたかで変わらない）。持っている間は、ほかを出さない。持って
-    おくのは、問い合わせを始めてから prefer_s 秒（会話の側が判定を待つ長さ Limits.hold_s の1か所）まで、または、ほかのものの答えが届くまで
-    （それより遅い前のものは、間に合わない＝持っていた答えで決める）。✅ 2026-11-05 日本時間18時台 ユーザー：「d1-ultra と Jev を同時に出すが、
+    優先の順は1つ：leads の並びの順、そのあとにほかのもの（ほかのもの同士は届いた順）。使える答えは、それより前の順のものが、まだ答えていない間は持っておき、
+    前のものが使えない答え・失敗を返したら、持っている中でいちばん前の順の答えで決める（届いた順では決めない＝同じ言葉の読みが、どちらが速く届いたかで
+    変わらない）。先に出すものの答えを持っている間は、ほかを出さない。持っておくのは、問い合わせを始めてから prefer_s 秒（会話の側が判定を待つ長さ
+    Limits.hold_s の1か所）まで（それより遅い前の順のものは間に合わない＝持っている中でいちばん前の順の答えで決める）。⛔ 2026-11-06 日本時間8時台
+    （5時56分55秒のご質問の読み直し EN-C の指摘1）：ほかのもの（Sonnet）を出したあとは届いた順で決め、Sonnet の答えが届くと前の順の答えを待たなかった＝
+    d1-ultra の確かな読みが待つ長さの中で届いても、先に届いた Sonnet・Jev で決まっていた。✅ 2026-11-05 日本時間18時台 ユーザー：「d1-ultra と Jev を同時に出すが、
     d1-ultra の判定が優先じゃないんですか？」（⛔ それまでは先に届いた使える答えで決めていて、お呼びする段の d1-ultra と Jev が2つとも確かな
     とき、速い Jev の読みで決めていた＝同じ言葉の読みが、どちらが速く届いたかで変わりうる形だった。d1-ultra を前にするのは、答えの段で 10-31 に
     Jev を代わりだけにしたのと同じく、d1-ultra のほうが正しく読むため（お呼びする段の 10-31 の同じ文でも、確かな読みの項目の外れは
@@ -1609,19 +1611,21 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
         for i in idxs:
             running[i] = asyncio.ensure_future(starts[i]())
 
-    def pick():
-        """いま決めてよい答え（無ければ None）。"""
-        mine = sorted((i for i in held if i in rank), key=rank.get)
-        if mine:
-            i = mine[0]
-            ahead = [j for j in running if j in rank and rank[j] < rank[i] and j not in finished]
-            if not ahead or loop.time() >= prefer_until or any(k not in rank for k in held):
-                return held[i]                            # 前のものが答え終えた・間に合わない・ほかのものの答えが届いた
-            return None                                   # 前のもの（優先）の答えを待つ
-        rest = [i for i in held if i not in rank]
-        return held[rest[0]] if rest else None
-
     rest_idx = [i for i in range(len(starts)) if i not in rank]
+
+    def pick():
+        """いま決めてよい答え（無ければ None）：持っている中でいちばん前の順の答え（先に出すものは並びの順・ほかのものは、どれも先に出すものの後ろで、
+        ほかのもの同士は届いた順＝先に出すものが無い組は今までどおり同時に出して早いほう）。それより前の順のものがまだ答えていなければ、待つ長さまで待つ。"""
+        if not held:
+            return None
+        mine = [i for i in held if i in rank]
+        i = min(mine, key=rank.get) if mine else next(iter(held))
+        top = rank.get(i, len(lead_order))
+        ahead = [j for j in running if j in rank and rank[j] < top and j not in finished]
+        if not ahead or loop.time() >= prefer_until:
+            return held[i]                                # 前の順のものが答え終えた・間に合わない
+        return None                                       # 前の順（優先）の答えを待つ
+
     staged = bool(lead_order) and bool(rest_idx)
     if staged:
         start(lead_order)

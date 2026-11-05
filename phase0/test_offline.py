@@ -5555,8 +5555,10 @@ class JudgePanelTest(unittest.TestCase):
         by, calls = run(fail=True)
         self.assertEqual(by, THINK)                                                    # 失敗も同じ
         by, calls = run(jev_s=1.0)
-        self.assertEqual(by, THINK)
-        self.assertTrue(all(abs(t - LEAD_WAIT_S) < 0.1 for n, t in calls if n != self.JEV))   # 届かなければ LEAD_WAIT_S 秒で出す
+        # 届かなければ LEAD_WAIT_S 秒で出す。先に出したものの確かな読みが待つ長さの中で届けば、先に届いた Sonnet よりそちらを優先（優先の順は組の並びの1つ＝
+        # first_of。⛔ 2026-11-06 日本時間8時台（EN-C の指摘1）までは、先に届いた Sonnet で決めていた）
+        self.assertEqual(by, self.JEV)
+        self.assertTrue(all(abs(t - LEAD_WAIT_S) < 0.1 for n, t in calls if n != self.JEV))
         # 先に出すものが無い組（契約者が Jev を使わない＝2つの Sonnet）は、今までどおり同時
         async def two():
             order = []
@@ -5656,7 +5658,14 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual(run((0.05, RuntimeError), (0.01, "J")), ("J", ["d1", "jev"]))        # d1-ultra が失敗：同じ
         self.assertEqual(run((0.02, "弱い"), (0.01, "弱い")), ("S", ["d1", "jev", "sonnet"]))  # どちらも使えない：Sonnet
         self.assertEqual(run((LEAD_WAIT_S + 0.1, "弱い"), (0.01, "弱い"))[1], ["d1", "jev", "sonnet"])   # 待つ長さで Sonnet も出す（今までどおり）
-        self.assertEqual(run((LEAD_WAIT_S + 0.2, "D"), (0.01, "弱い")), ("S", ["d1", "jev", "sonnet"]))  # 待つ長さで出した Sonnet は届いた順（今までどおり）
+        # ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘1）：先に出すもの（d1-ultra・Jev）がどちらも 0.3秒までに確かな読みを返さず、
+        # Sonnet を出したあとは、届いた順で決めていた＝d1-ultra の確かな読みが待つ長さ（2秒）の中で届いても、先に届いた Sonnet・Jev で決まった（Jev が 0.3秒の前か
+        # 後かだけで、同じ言葉の答えが d1-ultra と Jev に分かれた）。優先の順は1つ：d1-ultra ＞ Jev ＞ Sonnet（✅ 本書 9-5 の (6)「d1-ultra の確かな読みを優先
+        # （d1-ultra が確かでない・失敗・待つ長さに間に合わないときだけ Jev）、どちらも確かでなければ考えない Sonnet」）
+        self.assertEqual(run((LEAD_WAIT_S + 0.2, "D"), (0.01, "弱い")), ("D", ["d1", "jev", "sonnet"]))  # Sonnet が先に届いても d1-ultra
+        self.assertEqual(run((LEAD_WAIT_S + 0.2, "D"), (LEAD_WAIT_S + 0.1, "J")), ("D", ["d1", "jev", "sonnet"]))  # Sonnet・Jev が先でも d1-ultra
+        self.assertEqual(run((LEAD_WAIT_S + 0.2, "弱い"), (LEAD_WAIT_S + 0.1, "J")), ("J", ["d1", "jev", "sonnet"]))  # d1-ultra が確かでない：Sonnet より Jev
+        self.assertEqual(run((LEAD_WAIT_S + 0.2, "弱い"), (LEAD_WAIT_S + 0.1, "弱い")), ("S", ["d1", "jev", "sonnet"]))  # どちらも確かでない：Sonnet
 
         async def late_d1():   # d1-ultra が会話の側の待つ長さ（prefer_s）に間に合わない：持っていた Jev の読みで決める（Sonnet は出さない）
             started = []
