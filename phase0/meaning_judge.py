@@ -833,7 +833,7 @@ def stop_only(name: str, kind: str) -> bool:
     return kind in STOP_ONLY.get(name, ())
 
 
-# 同時に出して、先に届いた確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
+# 同時に出して、優先の順（並びの前ほど優先＝first_of）の確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
 #    ✅ 2026-10-23 ユーザー（中身の判定）：「W sonnetで暫定としてOK」・2回目「OK」（Jev と2つの Sonnet を同時に出し、早く届いた確かな読みで決める）
 #    ✅ 2026-10-25 ユーザー：「以前、JevやSonnet 5.5 の「考えない」形を使うと決めましたよね。同じことを聞くな！」＝意味の2つ目の判定も同じ組
 #    ⛔ 2026-10-25 の失敗：意味の2つ目の判定だけ Sonnet 5.5（考える）1つのまま（Jev は止まったときの代わりだけ）にして、答えまで中央 1.69秒・
@@ -843,6 +843,8 @@ def stop_only(name: str, kind: str) -> bool:
 #       中身の判定＝Jev → 考える・考えない Sonnet で今のまま）。先に出すのは組の中の判断のモデル全部（first_of の leads）
 #    ✅ 2026-10-31 の夜 ユーザー：(b)「OK」＝答えの意味は d1-ultra → 考える Sonnet（Jev は d1-ultra が止まったときの代わりだけ＝stands_in）。
 #       待たせた方が戻ったか・中身の判定は今のまま（Jev → 考える Sonnet。d1-ultra は中身の判定を測っていない）
+# 並びが優先の順（first_of：先に出す判断のモデルは d1-ultra が Jev より優先。✅ 2026-11-05 ユーザー：「d1-ultra と Jev を同時に出すが、
+#    d1-ultra の判定が優先じゃないんですか？」）
 RACE = ("d1 Ultra（Liquid）", "Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
 RACE_NAME = "d1 Ultra＋Jev 1.14＋Claude Sonnet 5.5（考える・考えない）"
 # 契約者が Jev を使わないと選んだとき（✅ 2026-10-18 ユーザー：「契約者設定で、Jev も使うか、Sonnetだけにするかも選択できるようにした方がいいね」。
@@ -1534,7 +1536,10 @@ class NoJudgment(RuntimeError):
 #    払っていた（送った問い合わせは、止めても料金がかかる）。記録の読みと秒で数えると、正しさは1件も変わらず、Sonnet は意味の判定で 58%・
 #    中身の判定で 70% 減る（PHASE0 G-59 の 10-29・phase0/judge_cost.py）。Jev の答えまでは中央 0.16秒
 #    ✅ 2026-10-30：先に出すのは組の中の判断のモデル全部（decision_model＝Jev・d1-ultra。同時に出す。d1-ultra の答えまでは中央 0.19秒）。
-#    G-59 の6回りで、2つがどちらも確かなときに読みが食い違った回は0（目的のお客様の判定21回・尋ねているか243回）＝先に届いた確かな読みで決める
+#    ⛔ 2026-11-05：「G-59 の6回りで、2つがどちらも確かなときに読みが食い違った回は0（目的のお客様の判定21回・尋ねているか243回）＝先に届いた
+#    確かな読みで決める」としていたのは、主な読みだけを数えたもの。流れの制御は事実ごとの読み（facts_reading）を使い、10-31 の同じ文の測りで
+#    2つとも確かな157行のうち72行で事実ごとの読みが食い違い、外れていたのは Jev の側 ⇒ 並びの前の d1-ultra を優先する（first_of の leads の順。
+#    ✅ 2026-11-05 ユーザー：「d1-ultra と Jev を同時に出すが、d1-ultra の判定が優先じゃないんですか？」）
 LEAD_WAIT_S = 0.3
 
 
@@ -1543,55 +1548,94 @@ def leads_of(names) -> tuple[int, ...]:
     return tuple(i for i, n in enumerate(names) if decision_model(n))
 
 
-async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S, on_rest=None):
-    """先に届いた使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める関数の並び
-    （引数なし・答えを返す）。usable(答え) が真の、最初に届いた答えを返し、残りの問い合わせは止める。どれも無ければ None。
+async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S, on_rest=None, prefer_s: float | None = None):
+    """使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める関数の並び
+    （引数なし・答えを返す）。usable(答え) が真の答えを返し、残りの問い合わせは止める。どれも無ければ None。
     失敗した問い合わせ・None の答えは待たない（ほかの答えを待つ）。
-    leads＝先に出すもの（starts の番号。安くて速い判断のモデル＝leads_of）：それだけを同時に先に出し、使える答えが1つ届けばそれで決める（ほかは
-    出さない）。先に出したものが全部、使えない答え・失敗を返したとき、または wait_s 秒たっても使える答えが無いときに、ほかを同時に出す（まだ
-    答えていない先のものは、そのまま待つ）。leads が無いか、全部が先のものなら、全部を同時に出す。
+    leads＝先に出すもの（starts の番号。安くて速い判断のモデル＝leads_of）：それだけを同時に先に出し、使える答えが届けばそれで決める（ほかは
+    出さない）。先に出したものが全部、使えない答え・失敗を返したとき、または wait_s 秒たっても使える答えが1つも無いときに、ほかを同時に出す
+    （まだ答えていない先のものは、そのまま待つ）。leads が無いか、全部が先のものなら、全部を同時に出す。ほかのもの（leads の外）は届いた順。
+    leads の並びは優先の順：後ろの先のものの使える答えは、それより前の先のものが使えない答え・失敗を返すまで持っておき、前のものの使える答えが
+    届けばそちらで決める（届いた順では決めない＝同じ言葉の読みが、どちらが速く届いたかで変わらない）。持っている間は、ほかを出さない。持って
+    おくのは、問い合わせを始めてから prefer_s 秒（会話の側が判定を待つ長さ Limits.hold_s の1か所）まで、または、ほかのものの答えが届くまで
+    （それより遅い前のものは、間に合わない＝持っていた答えで決める）。✅ 2026-11-05 日本時間18時台 ユーザー：「d1-ultra と Jev を同時に出すが、
+    d1-ultra の判定が優先じゃないんですか？」（⛔ それまでは先に届いた使える答えで決めていて、お呼びする段の d1-ultra と Jev が2つとも確かな
+    とき、速い Jev の読みで決めていた＝10-31 の同じ文の測りで、2つとも確かな157行のうち72行で事実ごとの読みが食い違い、外れていたのは Jev の側。
+    答えの段で 10-31 に Jev を代わりだけにした理由＝「利用は結構です」を Jev が確からしさ 1.0 で「利用する」と読んだ、と同じ理由）。
     on_rest＝先に出したもの以外（確からしさを返さない判定）を出す時点で呼ぶ（引数なし。先に出すものが無ければ初めに。全部が先のものなら呼ばない＝
     JudgePanel が、組が確かな読みを返せないと分かった時点で、代わりも裏で出しておく）。"""
     import asyncio
 
-    jobs, rest = [], True
-    if leads and len(leads) < len(starts):
-        pending = {asyncio.ensure_future(starts[i]()) for i in leads}
-        deadline = asyncio.get_running_loop().time() + wait_s
-        while pending:
-            done, pending = await asyncio.wait(pending, timeout=max(0.0, deadline - asyncio.get_running_loop().time()),
-                                               return_when=asyncio.FIRST_COMPLETED)
-            if not done:
-                break
-            for d in done:
-                try:
-                    got = d.result()
-                except Exception:
-                    got = None
-                if got is not None and usable(got):
-                    for p in pending:
-                        p.cancel()
-                    return got
-        jobs += list(pending)
-        starts = [s for i, s in enumerate(starts) if i not in leads]
-    elif leads:
-        rest = False   # 全部が先のもの（判断のモデルだけの組）：ほかを出す時点は無い
-    if rest and on_rest is not None and starts:
-        on_rest()
-    jobs += [asyncio.ensure_future(start()) for start in starts]
+    from flowctl import Limits
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    prefer_until = t0 + (Limits.hold_s if prefer_s is None else prefer_s)
+    lead_order = [i for i in leads if 0 <= i < len(starts)]
+    rank = {i: r for r, i in enumerate(lead_order)}           # 先に出すものの優先の順（小さいほど優先）
+    running: dict = {}                                        # 出した問い合わせ（番号 ⇒ 仕事）
+    finished: set = set()                                     # 答え終えた（使えない答え・失敗を含む）番号
+    held: dict = {}                                           # 使える答え（番号 ⇒ 答え。届いた順）
+
+    def start(idxs):
+        for i in idxs:
+            running[i] = asyncio.ensure_future(starts[i]())
+
+    def pick():
+        """いま決めてよい答え（無ければ None）。"""
+        mine = sorted((i for i in held if i in rank), key=rank.get)
+        if mine:
+            i = mine[0]
+            ahead = [j for j in running if j in rank and rank[j] < rank[i] and j not in finished]
+            if not ahead or loop.time() >= prefer_until or any(k not in rank for k in held):
+                return held[i]                            # 前のものが答え終えた・間に合わない・ほかのものの答えが届いた
+            return None                                   # 前のもの（優先）の答えを待つ
+        rest = [i for i in held if i not in rank]
+        return held[rest[0]] if rest else None
+
+    rest_idx = [i for i in range(len(starts)) if i not in rank]
+    staged = bool(lead_order) and bool(rest_idx)
+    if staged:
+        start(lead_order)
+        deadline = t0 + wait_s
+    else:
+        if not lead_order and on_rest is not None and starts:
+            on_rest()
+        start(range(len(starts)))
     try:
-        for done in asyncio.as_completed(jobs):
-            try:
-                got = await done
-            except Exception:
+        while True:
+            won = pick()
+            if won is not None:
+                return won
+            pending = {f for i, f in running.items() if i not in finished}
+            if staged and not held and (not pending or loop.time() >= deadline):
+                staged = False                                # 先のものから使える答えが無い：ほかを同時に出す
+                if on_rest is not None:
+                    on_rest()
+                start(rest_idx)
                 continue
-            if got is not None and usable(got):
-                return got
-        return None
+            if not pending:
+                return None
+            if staged and not held:
+                timeout = max(0.0, deadline - loop.time())
+            elif held:
+                timeout = max(0.0, prefer_until - loop.time())
+            else:
+                timeout = None
+            done, _ = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            for i, f in running.items():
+                if f in done and i not in finished:
+                    finished.add(i)
+                    try:
+                        got = f.result()
+                    except Exception:
+                        continue
+                    if got is not None and usable(got):
+                        held[i] = got
     finally:
-        for j in jobs:
-            if not j.done():
-                j.cancel()
+        for f in running.values():
+            if not f.done():
+                f.cancel()
 
 
 SAME_MAKER = "ほかの受け持ちが同じ会社の判定で答えた"
@@ -1667,7 +1711,7 @@ async def routed_call(state: RouteState, name: str, direct, urgent, tried: list[
 
 class JudgePanel(RouteState):
     """通話の中の意味の判定の受け持ち（唯一の場所。DESIGN.md 6-10 の (6)）：受け持ち（judge・judge2）ごとに、決めた判定の組へ同時に問い合わせ、
-    先に届いた確かな読みで決める（組＝members。1つだけの組もある）。受け持ちの組のどれも答えなかった（止まっている・上限・時間切れ・読めない返事・
+    優先の順（組の並びの前ほど優先＝first_of）の確かな読みで決める（組＝members。1つだけの組もある）。受け持ちの組のどれも答えなかった（止まっている・上限・時間切れ・読めない返事・
     確からしさが線より下）ときは、代わり（STANDIN）に問い合わせる。
     - 1つの発話で、2つの受け持ちの答えは違う会社から（同じ会社だと、独立した2つの確かめにならない・止まるのも遅れるのも一緒）：
       ほかの受け持ちが答えた会社の読みは使わない。代わりが入っている間は、ほかの受け持ちの組から代わりと同じ会社を外す

@@ -5502,7 +5502,7 @@ class JudgePanelTest(unittest.TestCase):
 
     def test_calling_questions_ask_both_decision_models_first_then_the_fast_sonnet(self):
         # ✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない Sonnet を出す形。OK」
-        # お呼びする段の2つの質問（目的のお客様の判定・尋ねているか）：d1-ultra と Jev を同時に先に出し、どちらかの確かな読みで決める。どちらも
+        # お呼びする段の2つの質問（目的のお客様の判定・尋ねているか）：d1-ultra と Jev を同時に先に出し、d1-ultra の確かな読みを優先して決める（d1-ultra が確かでない・失敗なら Jev の確かな読み）。どちらも
         # 確かでなければ考えない Sonnet だけ（考える形は出さない）。答えの意味は d1-ultra → 考える Sonnet で、Jev は d1-ultra が止まったときの
         # 代わりだけ（✅ 2026-10-31 の夜 ユーザー：(b)「OK」）。
         # 組の中でどれが答えるかは takes_part・線は sure_line の1か所
@@ -5543,6 +5543,8 @@ class JudgePanelTest(unittest.TestCase):
             self.assertEqual((by, sorted(n for n, _ in calls)), (JEV, sorted([D1, JEV])))      # Jev の確かな読み
             by, calls = run(q, {D1: 0.5, JEV: 0.3})
             self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([D1, JEV, FAST])))   # どちらも確かでない：考えない Sonnet だけ
+            by, calls = run(q, {D1: 0.7, JEV: 0.9})
+            self.assertEqual((by, sorted(n for n, _ in calls)), (D1, sorted([D1, JEV])))       # 2つとも確か：先に届いた Jev ではなく d1-ultra の読み
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.99})
         self.assertEqual((by, [n for n, _ in calls]), (D1, [D1]))                              # 答えの意味：d1-ultra の確かな読み（Jev は出さない）
         by, calls = run(answer_q, {D1: sure_line(D1, answer_q) - 0.01, JEV: 0.99})   # 線より下（線の値に寄りかからない）
@@ -5553,6 +5555,52 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual((by, [n for n, _ in calls]), (JEV, [JEV]))                            # 止まっている間：Jev が d1-ultra の代わりに先に出る
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.5}, down=[D1], asks=2)
         self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([JEV, THINK])))
+
+    def test_leads_answer_in_their_order(self):
+        # ✅ 2026-11-05 日本時間18時台 ユーザー：「d1-ultra と Jev を同時に出すが、d1-ultra の判定が優先じゃないんですか？いい加減な記憶で決めるな！」
+        # 先に出すもの（leads）は、並びの前のものが優先（先に届いた順では決めない＝同じ言葉の読みが、どちらが速く届いたかで変わらない）：
+        # 後ろのものの使える答えは、前のものが使えない答え・失敗を返すまで持っておく。持っている間は、ほかの判定（Sonnet）を出さない。
+        import asyncio
+
+        from meaning_judge import LEAD_WAIT_S, first_of
+
+        def run(d1, jev):
+            started = []
+
+            def s(name, d, val):
+                async def go():
+                    started.append(name)
+                    await asyncio.sleep(d)
+                    if val is RuntimeError:
+                        raise RuntimeError(name)
+                    return val
+                return go
+
+            async def main():
+                won = await first_of([s("d1", *d1), s("jev", *jev), s("sonnet", 0.01, "S")], lambda g: g != "弱い", leads=(0, 1))
+                return won, started
+            return asyncio.run(main())
+        self.assertEqual(run((LEAD_WAIT_S + 0.1, "D"), (0.01, "J")), ("D", ["d1", "jev"]))    # Jev が先でも d1-ultra（遅くても Sonnet は出さない）
+        self.assertEqual(run((0.01, "D"), (0.3, "J")), ("D", ["d1", "jev"]))                  # d1-ultra が先なら Jev を待たない
+        self.assertEqual(run((0.05, "弱い"), (0.01, "J")), ("J", ["d1", "jev"]))              # d1-ultra が確かでない：持っていた Jev の読み
+        self.assertEqual(run((0.05, RuntimeError), (0.01, "J")), ("J", ["d1", "jev"]))        # d1-ultra が失敗：同じ
+        self.assertEqual(run((0.02, "弱い"), (0.01, "弱い")), ("S", ["d1", "jev", "sonnet"]))  # どちらも使えない：Sonnet
+        self.assertEqual(run((LEAD_WAIT_S + 0.1, "弱い"), (0.01, "弱い"))[1], ["d1", "jev", "sonnet"])   # 待つ長さで Sonnet も出す（今までどおり）
+        self.assertEqual(run((LEAD_WAIT_S + 0.2, "D"), (0.01, "弱い")), ("S", ["d1", "jev", "sonnet"]))  # 待つ長さで出した Sonnet は届いた順（今までどおり）
+
+        async def late_d1():   # d1-ultra が会話の側の待つ長さ（prefer_s）に間に合わない：持っていた Jev の読みで決める（Sonnet は出さない）
+            started = []
+
+            def s(name, d, val):
+                async def go():
+                    started.append(name)
+                    await asyncio.sleep(d)
+                    return val
+                return go
+            t = asyncio.get_running_loop().time()
+            won = await first_of([s("d1", 1.0, "D"), s("jev", 0.01, "J"), s("sonnet", 0.01, "S")], lambda g: True, leads=(0, 1), prefer_s=0.4)
+            return won, started, round(asyncio.get_running_loop().time() - t, 1)
+        self.assertEqual(asyncio.run(late_d1()), ("J", ["d1", "jev"], 0.4))
 
     def calling(self):
         """お呼びする段の2つの質問と、答えの意味の質問（営業部部長の岡田様をお呼びする試しの業務）。"""
@@ -6034,7 +6082,7 @@ class JudgePanelTest(unittest.TestCase):
         return panel, calls, now
 
     def test_group_slot_takes_the_first_sure_reading(self):
-        # 組の受け持ち：先に届いた確かな読みで決め、ほかの問い合わせは止める。Jev が線（0.95）より下なら、Sonnet の読みを待つ
+        # 組の受け持ち：確かな読みで決め（先に出すものの中では並びの前が優先＝first_of）、ほかの問い合わせは止める。Jev が線（0.95）より下なら、Sonnet の読みを待つ
         took = {self.JEV: 0.0, self.SONNET: 0.05, "Claude Sonnet 5.5": 0.02}
         panel, calls, _ = self.race(took)
         self.assertEqual(self.ask(panel, "judge2").by, self.JEV)
