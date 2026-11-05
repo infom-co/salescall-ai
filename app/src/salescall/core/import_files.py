@@ -1,6 +1,7 @@
-"""依頼者のファイル（CSV・xlsx）を、行と欄に読む。持ち主 CL-2。DESIGN.md 3-4。
+"""依頼者のファイル（CSV・xlsx）を、行と欄に読む。業務の資料（文章・CSV・xlsx・Word）を文字に読む（`read_document`）。持ち主 CL-2。
+DESIGN.md 3-4・6-5。
 
-ファイルを読むのは、この部品だけ（発信対象の取込も、これから作る発信禁止の一覧の取込も、ここを通す）。
+ファイルを読むのは、この部品だけ（発信対象の取込も、発信禁止の一覧の取込も、業務の資料の取込も、ここを通す）。
 読むだけで、値の意味（番号か・管理番号か）は判断しない（番号の判断は Q1、行の合否は取込の1か所）。
 
 決まり（推測で読まない。読めないものは、理由をつけて断る）：
@@ -32,6 +33,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 
 import openpyxl
+from defusedxml import ElementTree
 from openpyxl.utils.exceptions import InvalidFileException
 
 
@@ -109,6 +111,76 @@ def read(file_name: str, data: bytes, *, sheet_name: str | None = None, encoding
     raise FileRejected("読めるのは CSV（.csv）と Excel（.xlsx）だけです（古い .xls は .xlsx で保存し直してください）")
 
 
+@dataclass(frozen=True)
+class Document:
+    """業務の資料1つを文字にしたもの（組む AI に渡す文字と、出典の確かめ＝core/source_check.py が照らす文字は、同じこれ）。"""
+    file_name: str
+    file_kind: str                # text / csv / xlsx / docx
+    file_sha256: str
+    text: str
+    problems: tuple[str, ...] = ()   # 文字にできなかった所（xlsx の結果の無い式など。その所の文字は text に入っていない）
+
+
+DOCUMENT_KINDS = {".txt": "text", ".md": "text", ".csv": "csv", ".xlsx": "xlsx", ".docx": "docx"}
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"   # Word の文書の名前空間
+
+
+def read_document(file_name: str, data: bytes, *, encoding: str | None = None) -> Document:
+    """業務の資料（依頼者の資料一式の1つ）を、文字に読む（1か所）。種類は名前の拡張子で決める（DOCUMENT_KINDS）。読めなければ
+    FileRejected（文章・CSV の文字の決まりが決められなければ EncodingAmbiguous。決まりは発信対象の CSV と同じ `_decode`）。
+    xlsx はすべてのシートを「【シート名】」のあとに、行ごと（欄はタブで区切る）に並べる。Word（.docx）は段落ごと（表の欄の段落も、
+    文書の中の順に）。推し量らない：読めない所（結果の無い式・エラーの値）は文字にせず、problems に理由を残す。"""
+    kind = DOCUMENT_KINDS.get("." + file_name.lower().rsplit(".", 1)[-1]) if "." in file_name else None
+    if kind is None:
+        raise FileRejected(f"業務の資料として読めるのは {'・'.join(DOCUMENT_KINDS)} です（{file_name}）")
+    if encoding is not None and kind not in ("text", "csv"):
+        raise FileRejected("文字の決まりの指定が要るのは、文章（.txt・.md）と CSV だけです")
+    digest = hashlib.sha256(data).hexdigest()
+    if kind in ("text", "csv"):
+        text, _ = _decode(data, encoding)
+        return Document(file_name, kind, digest, text)
+    if kind == "xlsx":
+        parts, problems = [], []
+        for name in _xlsx_sheet_names(data):
+            parts.append(f"【{name}】")                    # 空のシートも名前だけ並べる（見出しの行を決めない＝行は全部同じに読む）
+            for row_no, cells in enumerate(_xlsx_cells(data, name), start=1):
+                parts.append("\t".join(c.text or "" for c in cells))
+                problems += [f"{name} の {row_no} 行目：{c.problem}" for c in cells if c.problem is not None and c.flag is None]
+        return Document(file_name, kind, digest, "\n".join(parts), tuple(problems))
+    return Document(file_name, kind, digest, _docx_text(data))
+
+
+def _docx_text(data: bytes) -> str:
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            root = ElementTree.fromstring(z.read("word/document.xml"))
+    except (zipfile.BadZipFile, KeyError, OSError, ValueError, ElementTree.ParseError) as e:
+        raise FileRejected(f"Word のファイル（.docx）として読めません（{type(e).__name__}）") from None
+    lines = []
+    for p in root.iter(f"{_W}p"):
+        pieces = []
+        for el in p.iter():
+            if el.tag == f"{_W}t":
+                pieces.append(el.text or "")
+            elif el.tag == f"{_W}tab":
+                pieces.append("\t")
+            elif el.tag in (f"{_W}br", f"{_W}cr"):
+                pieces.append("\n")
+        lines.append("".join(pieces))
+    return "\n".join(lines)
+
+
+def _xlsx_sheet_names(data: bytes) -> list[str]:
+    try:
+        book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except (InvalidFileException, zipfile.BadZipFile, KeyError, OSError, ValueError) as e:
+        raise FileRejected(f"Excel のファイルとして読めません（{type(e).__name__}）") from None
+    try:
+        return [ws.title for ws in book.worksheets if hasattr(ws, "iter_rows")]
+    finally:
+        book.close()
+
+
 def _text(value: str | None) -> str | None:
     return value if value is not None and value.strip() != "" else None
 
@@ -164,6 +236,21 @@ def _csv_rows(text: str) -> tuple[tuple[str | None, ...], tuple[Row, ...]]:
 
 # ── xlsx ──
 def _xlsx_rows(data: bytes, sheet_name: str | None) -> tuple[str, tuple[str | None, ...], tuple[Row, ...]]:
+    if sheet_name is None:
+        names = _xlsx_sheet_names(data)
+        if len(names) != 1:
+            raise FileRejected(f"シートが {len(names)} 枚あります。どのシートを読むかを選んでください")
+        sheet_name = names[0]
+    all_rows = _xlsx_cells(data, sheet_name)
+    if not all_rows:
+        raise FileRejected("シートが空です")
+    header = tuple(_text(c.text.strip()) if c.text is not None else None for c in all_rows[0])
+    rows = [Row(i, cells) for i, cells in enumerate(all_rows[1:], start=2)]
+    return sheet_name, header, _trim(rows)
+
+
+def _xlsx_cells(data: bytes, sheet_name: str) -> list[tuple[Cell, ...]]:
+    """そのシートの行ごとの欄（1行目から。読むのはここだけ＝発信対象の表と業務の資料の両方）。"""
     try:
         values = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
         formulas = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=False)
@@ -171,11 +258,7 @@ def _xlsx_rows(data: bytes, sheet_name: str | None) -> tuple[str, tuple[str | No
         raise FileRejected(f"Excel のファイルとして読めません（{type(e).__name__}）") from None
     try:
         names = [ws.title for ws in values.worksheets if hasattr(ws, "iter_rows")]
-        if sheet_name is None:
-            if len(names) != 1:
-                raise FileRejected(f"シートが {len(names)} 枚あります。どのシートを読むかを選んでください")
-            sheet_name = names[0]
-        elif sheet_name not in names:
+        if sheet_name not in names:
             raise FileRejected("指定のシートがありません")
         ws_v, ws_f = values[sheet_name], formulas[sheet_name]
         ws_v.reset_dimensions()   # ファイルに書かれた範囲を信じない（範囲が誤っているファイルで、行を読み落とさない）
@@ -188,11 +271,7 @@ def _xlsx_rows(data: bytes, sheet_name: str | None) -> tuple[str, tuple[str | No
     finally:
         values.close()
         formulas.close()
-    if not all_rows:
-        raise FileRejected("シートが空です")
-    header = tuple(_text(c.text.strip()) if c.text is not None else None for c in all_rows[0])
-    rows = [Row(i, cells) for i, cells in enumerate(all_rows[1:], start=2)]
-    return sheet_name, header, _trim(rows)
+    return all_rows
 
 
 def _xlsx_cell(v, f) -> Cell:

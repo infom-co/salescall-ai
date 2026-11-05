@@ -4591,6 +4591,21 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("連絡先の番号に、サブの印を出さない", "src/salescall/core/customer_contacts.py",
      '"dialing": r["dialing"], "sub": r["sub"]}', '"dialing": r["dialing"], "sub": False}',
      ("tests.test_settle.CountedCalls.test_the_old_number_becomes_the_sub_when_we_talk_on_it",)),
+    # ── 業務の資料を文字に読む1か所と、組む AI の出典の確かめ（CL-1 4-92 の (b)。2026-11-05 ユーザー「案A」）
+    ("出典を照らすとき、文字の形（全角・半角）をそろえない", "src/salescall/core/source_check.py",
+     '    return _SPACE.sub("", unicodedata.normalize("NFKC", text))\n', '    return _SPACE.sub("", text)\n', ("tests.test_source_check.SourceCheck.test_a_quote_is_found_only_when_it_is_in_the_documents_as_it_is",)),
+    ("出典を照らすとき、空白・改行を除かない", "src/salescall/core/source_check.py",
+     '    return _SPACE.sub("", unicodedata.normalize("NFKC", text))\n', '    return unicodedata.normalize("NFKC", text)\n', ("tests.test_source_check.SourceCheck.test_a_quote_is_found_only_when_it_is_in_the_documents_as_it_is",)),
+    ("出典の文が資料に無くても、見つかったことにする", "src/salescall/core/source_check.py",
+     "        if q in normalize(d.text):\n", "        if True:\n", ("tests.test_source_check.SourceCheck.test_a_quote_is_found_only_when_it_is_in_the_documents_as_it_is",)),
+    ("空の出典の文でも、見つかったことにする", "src/salescall/core/source_check.py",
+     "    if not q:\n        return None\n", "", ("tests.test_source_check.SourceCheck.test_a_quote_is_found_only_when_it_is_in_the_documents_as_it_is",)),
+    ("Word の段落の中の改行を読まない", "src/salescall/core/import_files.py",
+     '            elif el.tag in (f"{_W}br", f"{_W}cr"):\n                pieces.append("\\n")\n', "", ("tests.test_source_check.ReadDocument.test_each_kind_becomes_text",)),
+    ("Excel の資料の2枚目からのシートを読まない", "src/salescall/core/import_files.py",
+     "        for name in _xlsx_sheet_names(data):\n", "        for name in _xlsx_sheet_names(data)[:1]:\n", ("tests.test_source_check.ReadDocument.test_each_kind_becomes_text",)),
+    ("Excel の資料で、文字にできなかった所を残さない", "src/salescall/core/import_files.py",
+     "                problems += [", "                problems += [] and [", ("tests.test_source_check.ReadDocument.test_each_kind_becomes_text",)),
 )
 
 
