@@ -5628,6 +5628,34 @@ class JudgePanelTest(unittest.TestCase):
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.5}, down=[D1], asks=2)
         self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([JEV, THINK])))
 
+    def test_standin_holder_is_per_utterance(self):
+        # ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘4）：代わり（Jev）が一度ある受け持ちに入ると、その印が組に残り、そのあとの
+        #    別の発話・別の質問でも、お呼びする段の組から Jev を「ほかの受け持ちが同じ会社で答えた」として外した（d1-ultra が確かでない言葉が、Jev ではなく
+        #    考えない Sonnet で決まった）。会社を分ける決まりは「1つの発話の同じ質問で」（✅ 2026-10-19「同じ会社のモデルだけだと、通信の問題が影響するでしょ」・
+        #    本書 9-5 の (6)「お呼びする段は Jev を外さない」）⇒ 代わりの印は発話（質問と言葉）ごと
+        import asyncio
+
+        from meaning_judge import RACE, JudgePanel, OtherJudgeError, Reading
+        D1, JEV = RACE[0], RACE[1]
+        LITE = "3.5 Flash Lite"
+
+        def judge(name, sure, fail=False):
+            async def go(q, text, asked=None, before=None):
+                if fail:
+                    raise OtherJudgeError(400, "断られた")
+                return Reading("ご本人" if q is not None else "はい", sure=sure)
+            return go
+        panel = JudgePanel({"judge": ((LITE, judge(LITE, None, fail=True)),), "judge2": tuple((n, judge(n, 0.3 if n == D1 else 0.9)) for n in RACE)},
+                           standin=(JEV, judge(JEV, 0.99)))
+        f, *_ = self.calling()
+        q, asked, before = f.judge_context()
+
+        async def main():
+            first = await panel.ask("judge", None, "はい。")                    # 答えの段：その場の判定が答えず、代わりの Jev が入る
+            second = await panel.ask("judge2", q, "お電話代わりました。", asked, before)   # 別の発話のお呼びする段
+            return first.by, second.by
+        self.assertEqual(asyncio.run(main()), (JEV, JEV))
+
     def test_held_reading_reaches_the_conversation_before_it_stops_waiting(self):
         # ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘2・3）：組は Jev の確かな読みを「問い合わせを始めてから Limits.hold_s」まで
         #    持ち、会話の側は「言葉が出揃ってから flow.limits.hold_s」で待つのをやめた＝起点も値も2か所。d1-ultra が待つ長さに間に合わないと、Jev の読みは会話の
@@ -6098,7 +6126,7 @@ class JudgePanelTest(unittest.TestCase):
         # 判定の読みを言葉ごとに測る試験（G-59）は、言葉ごとに印を消す（受け持ちの仕組みは、試験の判定からたどれる）
         self.assertIs(panel.slot("judge").panel, panel)
         panel.reset()
-        self.assertEqual((panel.down_until, panel.holder), ({}, None))
+        self.assertEqual((panel.down_until, panel.holders), ({}, {}))
         import inspect
         import g59_calling_judge
         self.assertIn(".reset()", inspect.getsource(g59_calling_judge.run))
@@ -6146,11 +6174,11 @@ class JudgePanelTest(unittest.TestCase):
         panel, calls, now = self.panel(fail={self.LITE: down, self.SONNET: down})
         self.assertEqual(self.ask(panel, "judge").by, self.JEV)
         self.assertIsInstance(self.ask(panel, "judge2"), NoJudgment)
-        self.assertEqual(panel.holder, "judge")
+        self.assertEqual(set(panel.holders.values()), {"judge"})   # 代わりの印は発話ごと（同じ発話の judge2 には入らない）
         panel.judges["judge"] = ((self.LITE, panel.standin[1]),)  # 3.5 Flash Lite が戻った（答えを返す判定に差し替え）
         now[0] = 1000
         self.ask(panel, "judge")
-        self.assertIsNone(panel.holder)
+        self.assertEqual(panel.holders, {})
         self.assertEqual(self.ask(panel, "judge2").by, self.JEV)
 
     def test_unsure_standin_is_not_an_answer(self):
@@ -6231,7 +6259,7 @@ class JudgePanelTest(unittest.TestCase):
         down = OtherJudgeError(503, "混雑")
         took = {self.JEV: 0.0, self.SONNET: 0.03, "Claude Sonnet 5.5": 0.02}
         panel, calls, _ = self.race(took, fail={self.LITE: down})
-        self.assertEqual((self.ask(panel, "judge").by, panel.holder), (self.JEV, "judge"))
+        self.assertEqual((self.ask(panel, "judge").by, set(panel.holders.values())), (self.JEV, {"judge"}))
         got = self.ask(panel, "judge2")
         self.assertEqual(got.by, self.SONNET)          # 答えの意味の質問は考える Sonnet だけ（group_kinds）
         self.assertEqual(got.tried[0], {"model": self.JEV, "error": SAME_MAKER})

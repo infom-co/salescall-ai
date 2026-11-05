@@ -1790,7 +1790,9 @@ class JudgePanel(RouteState):
                            and all(any(maker(n) != s for n, _ in other) for k2, other in self.judges.items() if k2 != k)}
             if not self.serves:
                 self.standin = None
-        self.holder: str | None = None  # 代わりが入っている受け持ち
+        # 代わりが入っている受け持ち（発話の印＝質問と言葉 ⇒ 受け持ち）。会社を分ける決まりは「1つの発話の同じ質問で」なので、発話ごとに持つ（⛔ 2026-11-06
+        # 日本時間8時台（EN-C の指摘4）：組に1つだけ持っていて、一度代わりが入ると、そのあとの別の発話でもお呼びする段の Jev を外していた）
+        self.holders: dict = {}
         self.answered: OrderedDict = OrderedDict()  # 発話 ⇒ {受け持ち: (答えた会社, 時刻)}（同じ発話で、2つの受け持ちを同じ会社にしない）
         self.backup = backup
         # emergency_first（RouteState）＝契約者以上の権限で、緊急の道を使って再開した通話（✅ 2026-10-30 夜 ユーザー：「どうしても使わなければいけない
@@ -1838,7 +1840,7 @@ class JudgePanel(RouteState):
         """止まっているとみなした印と、代わりが入っている受け持ちを消す（判定の読みを言葉ごとに測る試験だけ：1つの言葉の時間切れで、
         次の言葉からの問い合わせを飛ばさない。⛔ 2026-10-22 G-59：3.5 Flash Lite の時間切れ1回のあと、残りの言葉を全部飛ばして数えた）。"""
         self.down_until.clear()
-        self.holder = None
+        self.holders.clear()
         self.answered.clear()
 
     async def probe(self) -> list[dict]:
@@ -1889,7 +1891,7 @@ class JudgePanel(RouteState):
         """この発話で、ほかの受け持ちが答えに使った会社と、代わりがほかの受け持ちに入っているならその会社（kind の答えに使わない）。"""
         fresh = self.clock() - DOWN_AFTER_S - 1.0  # 1つの発話の2つの受け持ちは、この秒のうちに答える（同じ言葉の前の発話の答えは見ない）
         taken = {m for k, (m, t) in self.answered.get(key, {}).items() if k != kind and t >= fresh}
-        if self.standin and self.holder not in (None, kind):
+        if self.standin and self.holders.get(key) not in (None, kind):
             taken.add(maker(self.standin[0]))
         return taken
 
@@ -1994,8 +1996,8 @@ class JudgePanel(RouteState):
         if won is not None:
             if ahead is not None:
                 ahead[1].cancel()  # 組が答えた：裏の代わりは使わない
-            if self.holder == kind:
-                self.holder = None
+            if self.holders.get(key) == kind:
+                del self.holders[key]
             self._keep(kind, key, won[0])
             return self._mark(won[1], won[0], tried)
         # 受け持ちの判定がどれも答えなかった：確かでない読み（流れの制御が数える＝Reading.weak・NoJudgment の unsure）と、止める側だけの判定の読み
@@ -2015,13 +2017,15 @@ class JudgePanel(RouteState):
             elif (got := await self._try(bname, bfn, q, text, asked, before, tried)) is not None:
                 tried.append({"model": bname, "stop_only": str(got)})
                 break
-        if self.standin is None or kind not in self.serves or self.holder not in (None, kind):
+        if self.standin is None or kind not in self.serves or self.holders.get(key) not in (None, kind):
             raise NoJudgment(tried)
         sname, sfn = self.standin
         if maker(sname) in self._taken(kind, key):
             tried.append({"model": sname, "error": SAME_MAKER})
             raise NoJudgment(tried)
-        self.holder = kind
+        self.holders[key] = kind
+        while len(self.holders) > 64:   # 古い発話の分は捨てる（answered と同じ数）
+            del self.holders[next(iter(self.holders))]
         got = await self._try(sname, sfn, q, text, asked, before, tried)
         if got is None:
             raise NoJudgment(tried)
