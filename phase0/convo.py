@@ -64,6 +64,7 @@ def callee_wav(name: str, callee_voice: str | None) -> str:
 # 確かめ（別の耳の文字・意味の判定）を、遅れても受け取る長さ（相手の話し終わりから）。これより遅いものは届かなかったとして、通話後の検証へ回す
 # （Flow.unchecked）。待つのではない（返事は flow.limits.hold_s までしか待たない）
 LATE_CHECK_S = 30.0
+RELEASE_GRACE_S = 0.05   # 待つのをやめる合図のあと、組が持っている読みを返すのを待つ長さ（返すのは手元の読みだけ＝問い合わせはしない）
 def recording_seconds(voice_type: str, part: str) -> float:
     """共通の一言の録音（make_ack_clips の results/ack）の、声の長さ（秒）。判定を待つ間に流す録音（Flow.hold_play）の分だけ、待つ長さを
     延ばすのに使う（本番は、電話接続側が流す録音の長さをそのまま使う）。録音が無ければ止める（長さの見込みで待たない）。使う録音かは
@@ -140,6 +141,9 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
 
     judging_text: dict[str, str | None] = {}  # 判定ごとに、いま判定している言葉（None＝出揃うのを待っている＝出揃った言葉で判定する）
     ahead: dict[str, tuple] = {}  # 判定ごとに、組より先に届いた、裏で出した代わりの読み（言葉, 見た言葉の印, 読み）＝hold が止める側だけに使う
+    # 会話の側が判定を待つのをやめる合図（待つ長さは会話の側の1か所＝hold）：組（JudgePanel）は、立ったら持っている中でいちばん前の順の確かな読みを返す
+    # （meaning_judge.first_of の release）。立てたら新しい合図に替える（そのあと出す判定は、次に待つのをやめる時まで待てる）
+    release_box: list = [asyncio.Event()]
 
     def complete() -> bool:
         return flow.words_complete
@@ -185,7 +189,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             try:
                 kq, kasked, kbefore = questions[kind]
                 # 受け持ちの仕組み（JudgePanel）の判定には、裏で出した代わりの読みを知らせてもらう（early。meaning_judge.JudgePanel.ask）
-                kw = ({"early": lambda r, k=kind, t=text, s=said: ahead.__setitem__(k, (t, s, r))}
+                kw = ({"early": lambda r, k=kind, t=text, s=said: ahead.__setitem__(k, (t, s, r)), "release": release_box[0]}
                       if getattr(runs[kind], "panel", None) is not None else {})
                 got = await asyncio.wait_for(runs[kind](kq, text, kasked, before=kbefore, **kw), LATE_CHECK_S)
             except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
@@ -295,6 +299,12 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 info["held_ack"] = "hai"
         if waits and not info.get("incomplete"):  # 出揃っていなければ、判定を待っても使わない（流れの制御は決めずに待つ）
             await asyncio.wait(waits, timeout=max(0.0, max(ready, quiet) + flow.limits.hold_s + extra - loop.time()))
+            if first is not None and not first.done():
+                # 待つ長さが切れた：組が持っている後ろの順の確かな読み（d1-ultra が間に合わないときの Jev）を、いま返してもらう（⛔ 2026-11-06 日本時間8時台
+                # （5時56分55秒のご質問の読み直し EN-C の指摘2・3）：組は自分の起点・自分の値で持ち続け、会話の側が待つのをやめた直後に渡っていた）
+                release_box[0].set()
+                release_box[0] = asyncio.Event()
+                await asyncio.wait([first], timeout=RELEASE_GRACE_S)
         if first is not None and not first.done():
             first.cancel()
         # 組の答えが待つ長さに間に合わなかった判定：組より先に、裏で出した代わり（お呼びする段の 3.5 Flash Lite）の読みが届いていれば、止める側

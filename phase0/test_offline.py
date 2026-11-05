@@ -5628,6 +5628,51 @@ class JudgePanelTest(unittest.TestCase):
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.5}, down=[D1], asks=2)
         self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([JEV, THINK])))
 
+    def test_held_reading_reaches_the_conversation_before_it_stops_waiting(self):
+        # ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘2・3）：組は Jev の確かな読みを「問い合わせを始めてから Limits.hold_s」まで
+        #    持ち、会話の側は「言葉が出揃ってから flow.limits.hold_s」で待つのをやめた＝起点も値も2か所。d1-ultra が待つ長さに間に合わないと、Jev の読みは会話の
+        #    側が待つのをやめた直後に渡り、目的の人かを1回確かめた（✅ 本書 9-5 の (6)「d1-ultra が…会話の側の待つ長さ（2秒）に間に合わないときだけ Jev」・
+        #    10-29「『確かめが1回増える』のは安全でなく、相手からの不信ですよ！」）⇒ 待つ長さは会話の側の1か所：切れる時に組へ合図し、組は持っている読みを返す
+        import asyncio
+        import dataclasses
+        import unittest.mock as m
+        from types import SimpleNamespace
+
+        from convo import check_handler
+        from meaning_judge import RACE, JudgePanel, Reading
+        D1, JEV = RACE[0], RACE[1]
+
+        def drive(took, hold_s=None):
+            f, *_ = self.calling()
+            if hold_s is not None:
+                f.limits = dataclasses.replace(f.limits, hold_s=hold_s)
+            f.use_checks("judge", "judge2")
+
+            def judge(name):
+                async def go(q, text, asked=None, before=None):
+                    await asyncio.sleep(took.get(name, 0.01))
+                    return Reading("ご本人", sure=0.9)
+                return go
+            panel = JudgePanel({"judge": ("3.5 Flash Lite", judge("3.5 Flash Lite")), "judge2": tuple((n, judge(n)) for n in RACE)},
+                               standin=(JEV, judge(JEV)))
+
+            async def main():
+                pending = []
+                f.on_callee()
+                handle, _, info, _ = check_handler(f, judge=panel.slot("judge"), judge2=panel.slot("judge2"), pcm=b"\x00\x00", rate=16000,
+                                                   wav="x.wav", tasks=pending, audio_at=1.0)
+                f.on_heard("お電話代わりました。"); f.on_activity(False, 2.0)
+                out = await handle(SimpleNamespace(name="report_party", args={"相手": "目的の人"}))
+                await asyncio.wait(pending, timeout=4)
+                return info, out
+            with m.patch("stitch_gap.callee_speech", return_value=(b"", 16000, 0.0)):
+                info, out = asyncio.run(main())
+            return f, info, out
+        for took, hold_s in (({D1: 2.5, JEV: 0.05}, None), ({D1: 1.0, JEV: 0.05}, 0.3)):
+            f, info, out = drive(took, hold_s)
+            self.assertEqual(info.get("judge2_by"), JEV, (took, hold_s))
+            self.assertNotEqual(out[0].get("result"), "confirm_target", (took, hold_s))   # 確かめを1回増やさない
+
     def test_leads_answer_in_their_order(self):
         # ✅ 2026-11-05 日本時間18時台 ユーザー：「d1-ultra と Jev を同時に出すが、d1-ultra の判定が優先じゃないんですか？いい加減な記憶で決めるな！」
         # 先に出すもの（leads）は、並びの前のものが優先（先に届いた順では決めない＝同じ言葉の読みが、どちらが速く届いたかで変わらない）：

@@ -1575,7 +1575,8 @@ def leads_of(names) -> tuple[int, ...]:
     return tuple(i for i, n in enumerate(names) if decision_model(n))
 
 
-async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S, on_rest=None, prefer_s: float | None = None):
+async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S, on_rest=None, prefer_s: float | None = None,
+                   release=None):
     """使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める関数の並び
     （引数なし・答えを返す）。usable(答え) が真の答えを返し、残りの問い合わせは止める。どれも無ければ None。
     失敗した問い合わせ・None の答えは待たない（ほかの答えを待つ）。
@@ -1592,6 +1593,10 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
     とき、速い Jev の読みで決めていた＝同じ言葉の読みが、どちらが速く届いたかで変わりうる形だった。d1-ultra を前にするのは、答えの段で 10-31 に
     Jev を代わりだけにしたのと同じく、d1-ultra のほうが正しく読むため（お呼びする段の 10-31 の同じ文でも、確かな読みの項目の外れは
     d1-ultra 0/95・Jev 12/25＝LEAD_WAIT_S の説明））。
+    release＝会話の側が待つのをやめる合図（asyncio.Event。待つ長さは会話の側の1か所＝convo.check_handler の hold が、切れる時に立てる）：立ったら、
+    前の順のものを待たずに、持っている中でいちばん前の順の答えで決める（⛔ 2026-11-06 日本時間8時台（EN-C の指摘2・3）：組は問い合わせを始めてから
+    Limits.hold_s まで持ち、会話の側は言葉が出揃ってから flow.limits.hold_s で待つのをやめた＝持っていた Jev の読みが、会話の側が待つのをやめた直後に
+    渡り、目的の人かを1回確かめた）。
     on_rest＝先に出したもの以外（確からしさを返さない判定）を出す時点で呼ぶ（引数なし。先に出すものが無ければ初めに。全部が先のものなら呼ばない＝
     JudgePanel が、組が確かな読みを返せないと分かった時点で、代わりも裏で出しておく）。"""
     import asyncio
@@ -1600,7 +1605,9 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
 
     loop = asyncio.get_running_loop()
     t0 = loop.time()
-    prefer_until = t0 + (Limits.hold_s if prefer_s is None else prefer_s)
+    # 持っておく長さ：会話の側の合図（release）があれば、合図まで（待つ長さは会話の側の1か所＝自分の既定値では切らない）。合図の無い呼び出し（測りの道具・
+    # 中身の判定）は、会話の側と同じ既定値 Limits.hold_s
+    prefer_until = t0 + (prefer_s if prefer_s is not None else float("inf") if release is not None else Limits.hold_s)
     lead_order = [i for i in leads if 0 <= i < len(starts)]
     rank = {i: r for r, i in enumerate(lead_order)}           # 先に出すものの優先の順（小さいほど優先）
     running: dict = {}                                        # 出した問い合わせ（番号 ⇒ 仕事）
@@ -1622,10 +1629,11 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
         i = min(mine, key=rank.get) if mine else next(iter(held))
         top = rank.get(i, len(lead_order))
         ahead = [j for j in running if j in rank and rank[j] < top and j not in finished]
-        if not ahead or loop.time() >= prefer_until:
+        if not ahead or loop.time() >= prefer_until or (release is not None and release.is_set()):
             return held[i]                                # 前の順のものが答え終えた・間に合わない
         return None                                       # 前の順（優先）の答えを待つ
 
+    rel = asyncio.ensure_future(release.wait()) if release is not None else None
     staged = bool(lead_order) and bool(rest_idx)
     if staged:
         start(lead_order)
@@ -1654,7 +1662,8 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
                 timeout = max(0.0, prefer_until - loop.time())
             else:
                 timeout = None
-            done, _ = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(pending | ({rel} if held and rel is not None else set()), timeout=timeout,
+                                         return_when=asyncio.FIRST_COMPLETED)
             for i, f in running.items():
                 if f in done and i not in finished:
                     finished.add(i)
@@ -1668,6 +1677,8 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
         for f in running.values():
             if not f.done():
                 f.cancel()
+        if rel is not None and not rel.done():
+            rel.cancel()
 
 
 SAME_MAKER = "ほかの受け持ちが同じ会社の判定で答えた"
@@ -1789,8 +1800,8 @@ class JudgePanel(RouteState):
 
     def slot(self, kind: str):
         """受け持ち kind の判定（convo.check_handler に渡す形。panel＝この受け持ちの仕組み・answers＝その質問に自分で答えるか）。"""
-        async def run(q, text, asked=None, before=None, early=None):
-            return await self.ask(kind, q, text, asked, before, early)
+        async def run(q, text, asked=None, before=None, early=None, release=None):
+            return await self.ask(kind, q, text, asked, before, early, release)
         run.panel = self
         run.answers = lambda q: self.answers(kind, q)
         return run
@@ -1888,14 +1899,14 @@ class JudgePanel(RouteState):
         while len(self.answered) > 64:
             self.answered.popitem(last=False)
 
-    async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
+    async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None, release=None) -> Reading:
         """受け持ち kind の判定で、言葉 text を読む（_ask）。前の話の答えを問うとき（prior_asked）は、組の1か所（ここ）で、いまの言葉の問い合わせと
         同時に前の話の答えを問い合わせ（self.prior＝PRIOR_READERS の順）、返す読みに添える（読めなくても、いまの言葉の答えは使う＝食い違いを
         比べないだけ）。前の話の答えの問い合わせは短い（d1-ultra で約0.5秒）ので、待つ長さは延びない。"""
         import asyncio
 
         if self.prior is None or not prior_asked(q, asked, before):
-            return await self._ask(kind, q, text, asked, before, early)
+            return await self._ask(kind, q, text, asked, before, early, release)
         pkey = (getattr(q, "id", None), tuple(getattr(q, "conditions", ()) or ()), before)
         job = self.prior_jobs.get(pkey)
         if job is None:
@@ -1904,12 +1915,21 @@ class JudgePanel(RouteState):
                 self.prior_jobs.popitem(last=False)
 
         async def prior_of():
+            # 会話の側が待つのをやめる合図（release）が立ったら、前の話の答えは待たない（いまの言葉の答えを遅らせない＝待つ長さは会話の側の1か所。
+            # ⛔ 2026-11-06 日本時間8時台（EN-C の指摘6）：前の話の答えが遅れると、いまの言葉の読みも同じだけ遅れた）
             try:
-                return await asyncio.shield(job)
+                if release is None:
+                    return await asyncio.shield(job)
+                rel = asyncio.ensure_future(release.wait())
+                try:
+                    done, _ = await asyncio.wait({job, rel}, return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    rel.cancel()
+                return job.result() if job in done else (None, None, None)
             except Exception:   # 読めなくても、いまの言葉の答えは使う（食い違いを比べないだけ）
                 return None, None, None
         try:
-            got = await self._ask(kind, q, text, asked, before, early)
+            got = await self._ask(kind, q, text, asked, before, early, release)
         except NoJudgment as exc:
             # 組が答えられなかった：前の話の答えは、会話の側が確かめ（flowctl.PRIOR_CHECK）として流れの制御へ渡す（会話AIの報告と比べる）
             exc.prior = (await prior_of())[0]
@@ -1917,7 +1937,7 @@ class JudgePanel(RouteState):
         got.prior, got.prior_p, got.prior_raw = await prior_of()
         return got
 
-    async def _ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
+    async def _ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None, release=None) -> Reading:
         """受け持ち kind の判定で、言葉 text を読む。early＝組が確かな読みを返せないと分かった時点で裏で出した止める側だけの判定（STOP_ONLY）
         の読みが、組の答えより先に届いたら知らせる先（引数は読み。会話の側が、組の答えが待つ長さに間に合わなかったときだけ、止める側だけに
         使う＝convo.check_handler。✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」）。"""
@@ -1970,7 +1990,7 @@ class JudgePanel(RouteState):
                 return got
             ahead = (bname, asyncio.ensure_future(go()))
         won = await first_of([start(n, f) for n, f in live], usable, leads=leads_of([n for n, _ in live]),
-                             on_rest=start_ahead if backups else None)
+                             on_rest=start_ahead if backups else None, release=release)
         if won is not None:
             if ahead is not None:
                 ahead[1].cancel()  # 組が答えた：裏の代わりは使わない
