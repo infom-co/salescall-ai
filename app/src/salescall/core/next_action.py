@@ -477,6 +477,14 @@ def usable(t: Target, numbers: Numbers) -> Target:
     return Target(None, "number_unusable")
 
 
+def recount_on_switch(window: Window | None, dialed: Target, target: Target, numbers: Numbers) -> Window | None:
+    """約束の電話が、前にかける番号だった番号から、いまかける番号へ移るとき、約束の回（日数・回数）を0から数え直す（1か所。2026-11-06
+    ユーザー：「数え直す（お客様との約束は変更しない）」＝幅・時刻・回の理由はそのまま、何回目か・かけられなかった回の数だけ0に）。"""
+    if window is None or dialed.contact_id not in numbers.superseded or target.contact_id != numbers.dial:
+        return window
+    return replace(window, round=0, missed=0)
+
+
 def current_dial(t: Target, numbers: Numbers) -> Target:
     """かける先が、前にかける番号だった番号（取り込んだ番号・前に直した番号）なら、いまかける番号へ替える（1か所。2026-11-06 ユーザー：
     「新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます」＝直したあとは旧番号へかけない）。替えるのは
@@ -845,8 +853,9 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     dialed_exact = dialed_window is not None and dialed_row["callee_at"] is not None   # 時刻ちょうどの約束の回
     dialed = _dialed_marks(dialed, dialed_row)
     key = j.detail.get("policy_key")
-    target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off,
-                           numbers=numbers_of(tx, task_id))
+    numbers = numbers_of(tx, task_id)
+    target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off, numbers=numbers)
+    dialed_window = recount_on_switch(dialed_window, dialed, target, numbers)   # 新しい番号へ移る約束は0から数え直す
     count_at = target.contact_id or dialed.contact_id     # 終えるときは数え方を使わない（いまの番号で数えておく）
     promised = gate.pacing(tx, task_id, contact_id=count_at, promised=True)
     normal = gate.pacing(tx, task_id, contact_id=count_at, promised=False)
@@ -958,9 +967,9 @@ def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
     sources = tuple((r["contact_id"], r["source_contact"]) for r in rows
                     if r["source_contact"] is not None and r["source_contact"] != r["contact_id"])
     dial = tasks.dial_number(tx, task_id)["contact_id"]
-    superseded = frozenset(r["contact_id"] for r in tx.all(
-        "SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND source = 'list'"
-        " UNION SELECT contact_id FROM salescall.task_dial_fixes WHERE task_id = %s", (task_id, task_id))) - {dial}
+    superseded = frozenset(r["contact_id"] for r in tx.all(   # 前にかける番号だった番号（データベースの1か所＝0181）
+        "SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND salescall.task_number_replaced(task_id, contact_id)",
+        (task_id,)))
     return Numbers(unusable, said, sources, number_recheck.asked_again_before(tx, task_id), dial, superseded)
 
 
@@ -1009,6 +1018,7 @@ def _round_calls(tx: Tx, task_id: UUID, window: Window, fallback: int) -> int:
     if window.since is None:
         return fallback
     return tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {attempts.reached()}"
+                  f" AND {attempts.in_row_count()}"   # 番号を直したら、新しい番号で数え直す（0180・0181）
                   " AND claimed_at >= %s AND (%s::timestamptz IS NULL OR claimed_at < %s)",
                   (task_id, window.since, window.until, window.until))["n"]
 
@@ -1305,7 +1315,8 @@ def _exact_next_try(tx: Tx, task_id: UUID, window: Window, now: datetime) -> dat
     gaps = _exact_gaps(tx, task_id)
     final = start + timedelta(seconds=gate.callee_settings(tx, **tasks.scope(tx, task_id)).exact_slot)   # 1回分の終わり
     plan = _exact_plan(start, final, gaps, window.round)
-    dialed = tx.all(f"SELECT claimed_at, {attempts.reached()} AS rang FROM salescall.attempts WHERE task_id = %s AND"
+    dialed = tx.all(f"SELECT claimed_at, ({attempts.reached()}) AND ({attempts.in_row_count()}) AS rang"   # 新しい番号で数え直す
+                    f" FROM salescall.attempts WHERE task_id = %s AND"
                     f" {attempts.DIALED} AND claimed_at >= %s AND claimed_at < %s ORDER BY claimed_at",
                     (task_id, start, end))
     rang = sum(1 for d in dialed if d["rang"])
@@ -1453,7 +1464,9 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
     if denied.reason == "number_unusable" and now_target is not None:
         # その番号は、鳴らない電話が決まった数だけ続いた（番号の欄が「使えない」。門と同じ）：お客様が言った別の番号へ替えるか、行を
         # 終える（通話のあとと同じ `usable` の1か所）
-        t = usable(now_target, numbers_of(tx, task_id))
+        numbers = numbers_of(tx, task_id)
+        t = usable(now_target, numbers)
+        window = recount_on_switch(window, now_target, t, numbers)   # 新しい番号へ移る約束は0から数え直す
         if t.contact_id is None:
             d = _end(t.end_reason, "門：その番号は、鳴らない電話が続いた（もうかけない）")
         elif t.purpose == "ask_number_again":   # お客様が言った番号に繋がらない：言われた通話の番号へ、番号を伺い直す（すぐ。

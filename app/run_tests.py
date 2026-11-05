@@ -2039,6 +2039,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.task_count_from(p_task uuid) RETURNS timestamptz LANGUAGE sql STABLE"
      " SET search_path = salescall, pg_temp AS $$ SELECT '-infinity'::timestamptz $$",
      ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
+    ("前にかける番号だった番号を、どれも無いことにする（0181 の1か所を外す）",
+     "CREATE OR REPLACE FUNCTION salescall.task_number_replaced(p_task uuid, p_contact uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT false $$",
+     ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4529,6 +4533,25 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("時刻の決まっていない約束の電話の数を、番号を直したあとも数え直さない", _NEXT,
      "        f\" AND {attempts.in_row_count('a')}\"\n", "",
      ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
+    # ── 約束の電話が新しい番号へ移るときの数え直し（0181。2026-11-06 ユーザー「数え直す（お客様との約束は変更しない）」）
+    ("約束の電話が新しい番号へ移っても、約束の回を数え直さない", _NEXT,
+     "    return replace(window, round=0, missed=0)\n", "    return window\n",
+     ("tests.test_settle.CountedCalls.test_a_promise_moved_to_the_new_number_counts_its_rounds_again",)),
+    ("通話のあと、新しい番号へ移る約束の回を数え直さない", _NEXT,
+     "    dialed_window = recount_on_switch(dialed_window, dialed, target, numbers)   # 新しい番号へ移る約束は0から数え直す\n", "",
+     ("tests.test_settle.CountedCalls.test_a_promise_moving_to_the_new_number_counts_its_rounds_again_after_a_call_or_the_gate",)),
+    ("門が番号で断ったあと、新しい番号へ移る約束の回を数え直さない", _NEXT,
+     "        window = recount_on_switch(window, now_target, t, numbers)   # 新しい番号へ移る約束は0から数え直す\n", "",
+     ("tests.test_settle.CountedCalls.test_a_promise_moving_to_the_new_number_counts_its_rounds_again_after_a_call_or_the_gate",)),
+    ("番号を直したあと前の番号へかけた1本も、新しい番号の回数に数える", "src/salescall/core/attempts.py",
+     '            f" AND NOT salescall.task_number_replaced({t}task_id, {t}contact_id)")', '            "")',
+     ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
+    ("約束の回の中の本数に、前の番号へかけた1本も数える", _NEXT,
+     '                  f" AND {attempts.in_row_count()}"   # 番号を直したら、新しい番号で数え直す（0180・0181）\n', "",
+     ("tests.test_settle.CountedCalls.test_a_promise_moving_to_the_new_number_counts_its_rounds_again_after_a_call_or_the_gate",)),
+    ("時刻ちょうどの約束の回の本数に、前の番号へかけた1本も数える", _NEXT,
+     "({attempts.reached()}) AND ({attempts.in_row_count()}) AS rang", "({attempts.reached()}) AS rang",
+     ("tests.test_settle.CountedCalls.test_a_promise_moving_to_the_new_number_counts_its_rounds_again_after_a_call_or_the_gate",)),
 )
 
 

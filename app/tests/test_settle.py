@@ -747,9 +747,58 @@ class CountedCalls(SettleBase):
             next_action._times(tx, s["task"], key), next_action._said(tx, s["task"], key),
             next_action._unspecified_calls(tx, s["task"]), gate.pacing(tx, s["task"], promised=False).remaining))
         self.assertEqual(counts(), (1, 1, 1, 2))
-        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)
+        self.assertEqual(counts(), (0, 0, 0, 3))
+        # まだかけていない約束の電話は、まず前の番号で（2026-11-06 ユーザー）。出なければ、次は新しい番号で、約束のまま。前の番号へ
+        # かけたその1本は、新しい番号の回数に数えない（salescall.task_number_replaced＝0181）
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：いまかける",
+                                                       promised=True))
+        d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
+        self.assertEqual((d.kind, d.promised, d.target.contact_id), ("call", True, new["contact_id"]))
         self.assertEqual(counts(), (0, 0, 0, 3))
 
+
+    def test_a_promise_moved_to_the_new_number_counts_its_rounds_again(self):
+        """約束の電話が、前にかける番号だった番号から、いまかける番号へ移るときだけ、約束の回（何回目か・かけられなかった回）を0から
+        数え直す（幅・時刻・理由は変えない。2026-11-06 ユーザー：「数え直す（お客様との約束は変更しない）」）。"""
+        old, new, other = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        w = next_action.Window(None, (9 * 3600, 12 * 3600), repeat="day", round=2, missed=1)
+        n = next_action.Numbers(dial=new, superseded=frozenset({old}))
+        T = next_action.Target
+        self.assertEqual(next_action.recount_on_switch(w, T(old), T(new), n), replace(w, round=0, missed=0))
+        self.assertEqual(next_action.recount_on_switch(w, T(new), T(new), n), w)       # 移らない
+        self.assertEqual(next_action.recount_on_switch(w, T(old), T(other), n), w)     # お客様が言った別の番号へ
+        self.assertIsNone(next_action.recount_on_switch(None, T(old), T(new), n))
+
+    def test_a_promise_moving_to_the_new_number_counts_its_rounds_again_after_a_call_or_the_gate(self):
+        """番号を直したあとも、まだかけていない約束の電話は前の番号で。出なかった（通話のあと）・その番号へもうかけられない（門の
+        number_unusable）ときは、新しい番号へ約束のまま移り、約束の回は0から数え直す（幅・理由は変えない。2026-11-06 ユーザー）。"""
+        from salescall.core import row_fixes
+        for via in ("call", "gate"):
+            with self.subTest(via=via):
+                s = self.ready()
+                new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)
+                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+                w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=2)
+                self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：約束",
+                                                               promised=True, window=w))
+                if via == "call":
+                    d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
+                    # 前の番号へかけたその1本は、約束の回の中の本数にも数えない（幅の約束・時刻ちょうどの約束の、その回の本数）
+                    later = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+                    self.assertEqual(self.tx(s, lambda tx: next_action._round_calls(tx, s["task"], w, 9)), 0)
+                    day = next_action.Window(None, (0, 86400), None, later, None, round=1)   # その日の約束の回（1本だけの回）
+                    end = self.tx(s, lambda tx: next_action._slot_of(day))[1]
+                    if end - later > timedelta(minutes=10):                      # 日の終わりの間際は、その日の回の外になる
+                        self.assertLess(self.tx(s, lambda tx: next_action._exact_next_try(tx, s["task"], replace(day, until=end),
+                                                                                          later)), end)   # 前の番号の1本で使い切らない
+                else:
+                    scope = dict(tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"])
+                    d = self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], gate.denied("number_unusable"), **scope))
+                self.assertEqual((d.kind, d.promised, d.target.contact_id), ("call", True, new["contact_id"]))
+                self.assertLessEqual(d.window.round, 1)                      # 前の番号の2回目のままなら2以上
+                self.assertEqual((d.window.repeat, d.window.daily), (w.repeat, w.daily))   # 約束は変えない
 
 class UnusableNumber(SettleBase):
     """回線の部品が番号を受け付けない（発信に失敗＝お客様の電話は鳴っていない）電話は行の回数に数えず、決まった順（設定

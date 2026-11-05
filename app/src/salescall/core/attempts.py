@@ -94,11 +94,13 @@ def counts_as_try(table: str = "") -> str:
 
 
 def in_row_count(table: str = "") -> str:
-    """行の回数を数える範囲（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信だけ（直していなければ、すべて）。
-    行の回数の上限・再発信の方針の回数・時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で
-    数え直す」。数え始めの時刻はデータベースの salescall.task_count_from の1か所。0180）。"""
+    """行の回数を数える範囲（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信のうち、前にかける番号だった番号へ
+    かけたもの（直したあと、まず前の番号でかけた約束の電話）でないもの（直していなければ、すべて）。行の回数の上限・再発信の方針の回数・
+    「あとで」と言われた回数・時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で数え直す」。
+    数え始めの時刻は salescall.task_count_from＝0180、前にかける番号だった番号は salescall.task_number_replaced＝0181 の1か所）。"""
     t = table + "." if table else ""
-    return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
+    return (f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
+            f" AND NOT salescall.task_number_replaced({t}task_id, {t}contact_id)")
 
 
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
