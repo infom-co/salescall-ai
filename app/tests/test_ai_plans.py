@@ -26,14 +26,15 @@ class Plans(unittest.TestCase):
     def test_conversation_and_import_are_chosen_per_contractor_and_judge_is_always_ours(self):
         """会話 AI と業務を組む AI は契約者ごとに選べる（AI料金込み／自分で API を契約）。判定はいつもシステムのキー（「判定は企業秘密なので
         こちらのみ」）。ほかの契約者の選びは効かない。"""
-        self.assertEqual([self.plan(a) for a in ("conversation", "import", "judge")], ["included", "included", "included"])
-        self.choose("ai.plan_conversation", "own")                       # 片方ずつ（取り違えない）
-        self.assertEqual([self.plan(a) for a in ("conversation", "import", "judge")], ["own", "included", "included"])
-        self.choose("ai.plan_import", "own")
-        self.choose("ai.plan_conversation", "included")
+        # 契約者が選ぶ前は「AI 料金別」＝own（2026-11-06 ユーザー）。判定はいつも included
+        self.assertEqual([self.plan(a) for a in ("conversation", "import", "judge")], ["own", "own", "included"])
+        self.choose("ai.plan_conversation", "included")                  # 片方ずつ（取り違えない）
         self.assertEqual([self.plan(a) for a in ("conversation", "import", "judge")], ["included", "own", "included"])
+        self.choose("ai.plan_import", "included")
+        self.choose("ai.plan_conversation", "own")
+        self.assertEqual([self.plan(a) for a in ("conversation", "import", "judge")], ["own", "included", "included"])
         other = self.w.setup()
-        self.assertEqual(self.plan("conversation", other), "included")
+        self.assertEqual(self.plan("conversation", other), "own")
         with self.assertRaises(ValueError):
             self.plan("ear")
 
