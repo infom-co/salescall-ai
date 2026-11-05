@@ -61,7 +61,9 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          "decide_doubt_words", "decide_target_asks",
                          # ご案内の方法を伺う質問か（取込の決める処理）・オンラインのご希望を申し伝える一言とその連絡先を伺う前に切れた電話の続きの一言の録音
                          # （✅ 11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」。CL-1.md 4-91）
-                         "decide_ways", "wish_told_online", "callback_email_online_again"})
+                         "decide_ways", "wish_told_online", "callback_email_online_again",
+                         # 答えの段のかけ直しの一言の録音（✅ 11-06 日本時間0時44分31秒 ユーザー。CL-1.md 4-93）
+                         "callback_later_time_answering"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -8272,7 +8274,8 @@ class EndWordsTest(unittest.TestCase):
             (self.NEXT, "続ける"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.NEXT, "続ける"), (self.H1, "続ける"),
             (self.NEXT, "続ける"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"),
             (self.H1, "続ける"), (self.H1, "続ける"), ("", "続ける"),
-            ("承知しました。恐れ入りますが何時ごろでしたらご都合よろしいでしょうか？", "続ける"),
+            # 答えの段のかけ直しの一言（✅ 2026-11-06 日本時間0時44分31秒「(イ) 答えの段のかけ直しすべてで大丈夫」）
+            ("承知しました。いつ頃おかけ直しさせていただきましょうか？", "続ける"),
             ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"),
             ("はい、パンフレットはお送りしない方がいいということでしょうか？", "続ける"), (self.NEXT, "続ける"), ("", "続ける"),
             ("はい、それではパンフレットをお送りさせていただきますね？", "続ける"),
@@ -12408,6 +12411,18 @@ class NoneOfThemTest(unittest.TestCase):
         # 決め方の1か所：そろえばその答え・そろわない・答えが無ければ倒す側
         self.assertEqual([askitems.agreed(x, False) for x in ([True, True], [True, False], [True, None], [True])], [True, False, False, False])
         self.assertEqual([askitems.agreed(x, True) for x in ([False, False], [True, False], [None, None])], [False, True, True])
+
+    def test_callback_in_the_answer_stage_asks_when_to_call_again(self):
+        # ✅ 2026-11-06 日本時間0時44分31秒 ユーザー：「「いつ頃おかけ直しさせていただきましょうか？」：この例なら、(イ) 答えの段のかけ直しすべてで大丈夫」
+        # ⇒ 答えの段でかけ直しを申し出られたら、理由にかかわらず「承知しました。」＋「いつ頃おかけ直しさせていただきましょうか？」（共通の一言の録音
+        # callback_later_time_answering）。お呼びする段（受付の方に「いまは手が離せません」）は 10-19 の「恐れ入りますが何時ごろでしたら…」のまま
+        from phrases import ACK, CALLBACK_ASK
+        for words in ("妻に相談してからにしたいので、また後で電話してもらえますか。", "いま運転中なので、また後で電話してもらえますか。"):
+            f, _ = self.wished(False)
+            r = AmbiguousAnswerTest.say(f, words, "request_callback", why="later")
+            self.assertEqual((ACK[r["ack"]] + r["question"], f.questions[r["question_id"]].recording),
+                             ("承知しました。いつ頃おかけ直しさせていただきましょうか？", "callback_later_time_answering"), words)
+        self.assertEqual(CALLBACK_ASK["later_time"], "恐れ入りますが何時ごろでしたらご都合よろしいでしょうか？")
 
     def test_business_question_after_none_comes_first(self):
         # 業務設定に「どれも要らない」のあとに伺う質問があれば、ほかのご希望は伺わずに、その質問で伺う（業務の言葉が先）

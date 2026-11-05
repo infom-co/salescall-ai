@@ -264,6 +264,11 @@ CALLBACK_ASK_OTHER_WAYS_AGAIN = {"sms": "それではLINEのIDとメールのど
 # すぐあとに切れた所から伺う一言（flowctl.callback_question の again。録音は共通の一言 callback_（役目）_again）。✅ 2026-11-04 日本時間18時16分 ユーザー
 # 「はい、OK」：ご納得いただけなかった点を伺う途中で切れた電話の続きは、ほかのご希望（11-03 日本時間23時52分36秒の (ア)）と同じく、お詫びのすぐあとに
 # 「前回お伺いした件でご納得いただけなかった点はどの部分になりますでしょうか？」。決まった言い方なので読点を入れない（10-15）
+# 答えの段（お呼びした方・電話口の方とお話ししている段）でかけ直しを申し出られたときの一言（flowctl.callback_question の answering。共通の一言の録音
+# callback_（役目）_answering。頭の「承知しました。」は相づちの録音）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「…妻に確認するから、また、後からや
+# 別日程でかけ直してという意味であれば、「（はい、）承知しました。いつ頃おかけ直しさせていただきましょうか？」のように一旦終えると良いでしょう。」・
+# 11-06 0時44分31秒「「いつ頃おかけ直しさせていただきましょうか？」：この例なら、(イ) 答えの段のかけ直しすべてで大丈夫」（お呼びする段は CALLBACK_ASK のまま）
+CALLBACK_ASK_ANSWERING = {"later_time": "いつ頃おかけ直しさせていただきましょうか？"}
 CALLBACK_ASK_RESUMED = {"not_agreed": "前回お伺いした件で" + CALLBACK_ASK["not_agreed"]}
 # ほかのご希望でご連絡の方法までは伺えて、その連絡先を伺う前に切れた電話の続き（前の通話の答えの "wish_means"＝flowctl.resumed_step）。✅ 2026-11-04 日本時間19時26分
 # ユーザー：「前回、選択いただいたLINEでのご連絡の件でLINEの連絡先を伺う前に切れてしまいましたので、恐れ入りますがLINEのIDをお伺いするか、SMSかメールからご招待する
@@ -649,6 +654,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_{k}_{i}": v for k, vs in CALLBACK_ASK_AGAIN.items() for i, v in enumerate(vs, 2)},
             **{f"callback_{k}_again": v for k, v in CALLBACK_ASK_RESUMED.items()},
             **{f"callback_{k}_chosen": v for k, v in CALLBACK_ASK_CHOSEN.items()},
+            **{f"callback_{k}_answering": v for k, v in CALLBACK_ASK_ANSWERING.items()},
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},

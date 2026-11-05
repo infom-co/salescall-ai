@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
@@ -2404,7 +2404,8 @@ def _wish_text(q: "Question", again: bool = False) -> str:
 
 
 def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Question | None" = None, again: bool = False,
-                      chosen: bool = False, without: str | None = None, recap: "Question | None" = None, means: str | None = None) -> "Question":
+                      chosen: bool = False, without: str | None = None, recap: "Question | None" = None, means: str | None = None,
+                      answering: bool = False) -> "Question":
     """システムが足す質問（役目＝SYSTEM_ROLES の1つ）を作る唯一の場所：かけ直し・ほかの手段で聞くこと（時刻＝日時の型＝日にちだけの答えも
     受け取る・番号＝電話番号の型・メール・住所。どれも言い直して確かめる型）と、選んでいただくこと（代わりの方に、判断いただけるお立場か・
     お取次ぎのみか＝✅ 2026-10-22 ユーザー（4回目）の2つから選んでいただく問い／伝言を伝えていただけるか＝はい／いいえ）。
@@ -2437,6 +2438,10 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # ✅ 2026-11-05 日本時間4時16分52秒 ユーザー（お言葉は phrases.recap_line）
         assert role == "other_point" and approval_explanation(recap), (role, recap.id)
         lines, i, recording = (recap_line(approval_explanation(recap)),), 0, recap_recording_id(recap)
+    elif answering and role in CALLBACK_ASK_ANSWERING:
+        # 答えの段（お呼びする段でない）でかけ直しを申し出られたときの一言（phrases.CALLBACK_ASK_ANSWERING。共通の一言の録音 callback_（役目）_answering。
+        # 理由にかかわらず＝✅ 2026-11-06 日本時間0時44分31秒 ユーザー「(イ) 答えの段のかけ直しすべてで大丈夫」）
+        lines, i, recording = (CALLBACK_ASK_ANSWERING[role],), 0, f"callback_{role}_answering"
     elif chosen and role in CALLBACK_ASK_CHOSEN:
         # LINE の連絡先の伺い方（line_how）で選んでいただいたあとに伺う一言（phrases.CALLBACK_ASK_CHOSEN。共通の一言の録音 callback_（役目）_chosen）
         lines, i, recording = (CALLBACK_ASK_CHOSEN[role],), 0, f"callback_{role}_chosen"
@@ -6031,7 +6036,7 @@ class Flow:
             self.callback_why = why
             self._note("callback", why=why, read=sorted(read), **({"offer": offer} if offer else {}), **({"message_left": True} if leave else {}))
             roles = ("message",) * leave + (MEANS_PLAN.get(offer, ()) if why == "other_means" else roles or CALLBACK_PLAN[why])
-            qs = [callback_question(r, self.message_text if r == "message" else None) for r in roles]
+            qs = [callback_question(r, self.message_text if r == "message" else None, answering=self.in_answer_stage) for r in roles]
             for q in qs:
                 self.questions[q.id], self.items[q.id] = q, Item()
             self.order = self.callback_ids = [q.id for q in qs]
@@ -7448,9 +7453,14 @@ class Flow:
         （after＝その質問）は、同じ位置に（並びに2つ入れない）。書き方は inserted の1か所。"""
         self.order = inserted(self.order, after, qid)
 
+    @property
+    def in_answer_stage(self) -> bool:
+        """答えの段か（お呼びする段＝calling でない）＝かけ直しの質問の一言を答えの段の一言にするかの唯一の決まり（callback_question の answering）。"""
+        return self.phase != "calling"
+
     def _add_callback_question(self, role: str, text: str | None = None) -> None:
         """システムの質問を、いま聞いている並びの終わりに足す（_follow_ups・_not_transferred）。"""
-        q = callback_question(role, text)
+        q = callback_question(role, text, answering=self.in_answer_stage)
         self.questions[q.id], self.items[q.id] = q, Item()
         self.order = [*self.order, q.id]
         if self.callback_why:
