@@ -11372,6 +11372,30 @@ class G53LabelsTest(unittest.TestCase):
         self.assertEqual(set(accept(plain)), {"決められない", "unknown"})
 
 
+class G70CountTest(unittest.TestCase):
+    """前の話の答えの測り（G-70）は、答えの段の数える1か所（g53_meaning.flow_miss）で数える。⛔ 2026-11-05 に見つけた：正解の動きの決め方
+    （g70_talk.wants＝g53_meaning.flow_wants の写し）を持ち、判定の動きは答えの読み（flow_act）だけで数え、電話を終える読みを数えていなかった。"""
+
+    def test_g70_uses_the_answer_stage_count(self):
+        import g70_talk as g70
+        from flowctl import END_NONE, END_REFUSED
+        from g53_meaning import g48_questions
+        from meaning_judge import Reading
+        qmap = {q.id: q for q in g48_questions()}
+
+        def reading(value, prior=None, end=END_NONE):
+            r = Reading(value, True)
+            r.prior, r.end = prior, end
+            return r
+        a1 = next(c for c in g70.CASES if c[0] == "A1")
+        self.assertEqual(g70.judged(a1, qmap[a1[2]], reading("利用しない")), ("受け取る：利用しない", True))
+        self.assertFalse(g70.judged(a1, qmap[a1[2]], reading("利用しない", end=END_REFUSED))[1])   # 電話を終える言葉ではないのに締める
+        a2 = next(c for c in g70.CASES if c[0] == "A2")   # 会話になっていない組：言葉の意味の答えを念のため確かめる（前の話と逆の読み）
+        self.assertEqual(g70.judged(a2, qmap[a2[2]], reading("利用しない", prior="利用する")), ("念のため確かめる：利用しない", True))
+        self.assertFalse(g70.judged(a2, qmap[a2[2]], reading("利用しない"))[1])   # 前の話を拾えず、そのまま受け取る
+        self.assertFalse(hasattr(g70, "wants"))   # 正解の動きの決め方を写して持たない
+
+
 class G53EndTest(unittest.TestCase):
     """答えの段の測り（G-53）とお呼びする段の測り（G-59）の、電話を終える言葉か（2026-11-02）：組 F（電話を終える言葉の試しの表）の正解・ほかの組の
     正解（「言っていない」）・読みから流れの制御がすること（g53_meaning.end_act）。end_act の向きは、流れの制御そのもの（表の行を流れの制御に当てて

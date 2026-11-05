@@ -17,8 +17,8 @@ import json
 import time
 
 from common import base_parser, load_secret, require_python, save_result, say
-from flowctl import Question
-from g53_meaning import ASK_AGAIN, flow_act, g48_questions
+from flowctl import END_NONE, Question
+from g53_meaning import flow_miss, g48_questions, step_act
 from meaning_judge import OTHER_JUDGES, PRIOR_READERS, OtherJudgeError, judge_other, other_client, prior_asked, read_prior_first, sure_line
 
 # (印, その前にお客様が言ったこと, 質問の番号, 返事, 受け取ってよい読み, 言い切りはどちらでもよいか, 会話になっているか, ご確認)
@@ -43,12 +43,14 @@ CASES = [
 ]
 
 
-def wants(q: Question, accept: tuple, either: bool, talk: bool) -> set[str]:
-    """流れの制御がすべきこと（g53_meaning.flow_wants と同じ決め方）：会話になっていなければ、言葉の意味の答え（選択肢）を念のため確かめるか、
-    聞き直す（答えが選択肢でなければ、聞き直すだけ）。"""
-    if not talk:
-        return {ASK_AGAIN} | {f"念のため確かめる：{a}" for a in accept if a in q.conditions}
-    return set().union(*({f"受け取る：{a}", f"念のため確かめる：{a}"} if either else {f"受け取る：{a}"} for a in accept))
+def judged(case: tuple, q: Question, got) -> tuple[str | None, bool]:
+    """1つの行の判定の読み got で、流れの制御がすること（g53_meaning.step_act）と、それが正しいか（答えの段の数える1か所 g53_meaning.flow_miss）。
+    正解は行に書いたもの（label＝受け取ってよい読み・言い切りはどちらでもよいか・会話になっているか。電話を終える言葉ではない）。⛔ 2026-11-05 に
+    直した：前は正解の動きの決め方（wants）を g53_meaning.flow_wants から写して持ち、電話を終える読みを数えていなかった。"""
+    _, _, qid, text, accept, either, talk, _ = case
+    it = {"set": "C", "qid": qid, "text": text, "r": str(got), "r言い切り": got.firm, "r前の話": got.prior, "r終わり": getattr(got, "end", None),
+          "label": {"accept": list(accept), "either": either, "talk": talk, "hedged": False, "end": [END_NONE]}}
+    return step_act(it, q, "r"), flow_miss(it, q, "r") is None
 
 
 def prior_only(args, names, qmap, clients) -> None:
@@ -116,8 +118,8 @@ def main() -> None:
                 row |= {f"{n}{k}": getattr(got, a, None) for k, a in (("確からしさ", "sure"), ("言い切り", "firm"), ("言い切りの確からしさ", "firm_p"),
                                                                      ("前の話", "prior"), ("前の話の確からしさ", "prior_p"),
                                                                      ("前の話の選び（線より下も）", "prior_raw"))}
-                act = flow_act({"set": "C"}, q, str(got), got.firm, got.prior)
-                row[f"{n}動き"], row[f"{n}正しい"] = act, act in wants(q, accept, either, talk)
+                row[f"{n}終わり"] = getattr(got, "end", None)
+                row[f"{n}動き"], row[f"{n}正しい"] = judged((mark, before, qid, text, accept, either, talk, checked), q, got)
                 # 答えの確からしさが判定の線より下の読みは、本番では使わず次の判定へ回す（確かでない）＝外れとは分けて数える（✅ 同じ日の夜
                 # ユーザー（D2 について）：「そもそも、会話が成り立っていないですよね。そりゃ、判断できないんじゃないですか。」）
                 row[f"{n}確かでない"] = got.sure is not None and got.sure < sure_line(n, q)

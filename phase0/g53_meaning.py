@@ -88,7 +88,11 @@ def accept(it: dict) -> list[str]:
 
 
 def _label(it: dict) -> dict | None:
-    """付け直した正解（組 F は電話を終える言葉の試しの表の正解＝end_words.answer_truths・ほかは帳面 g53_labels.json）。"""
+    """付け直した正解（組 F は電話を終える言葉の試しの表の正解＝end_words.answer_truths・ほかは帳面 g53_labels.json）。正解を測る言葉と一緒に
+    書いて持つ道具（前の話の答えの G-70 など）は、行の label（accept・either・talk・hedged・end）をそのまま正解にする＝数えはどの道具も
+    flow_miss の1か所（正解の動きの決め方を写さない）。"""
+    if "label" in it:
+        return it["label"]
     if it["set"] == "F":
         from end_words import answer_truths
         return answer_truths().get((it["question"], it["text"]))
