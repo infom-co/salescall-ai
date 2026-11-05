@@ -239,20 +239,63 @@ def schedule_now(tx: Tx, task_id: UUID, *, cause: str) -> int:
                    target=Target(tasks.dial_number(tx, task_id)["contact_id"]))
 
 
-def retarget_dial(tx: Tx, task_id: UUID, *, cause: str) -> int | None:
-    """かける番号を直したとき、いまの「かけ直す」の予定が前にかける番号だった番号へかけるものなら、時刻・約束の印・幅・お詫びの印は
-    そのままに、いまかける番号へ付け替える（`current_dial` の1か所で決める）。付け替えたら、その予定の番号（seq）を返す。"""
+# かける番号を直したときに戻す、終えた行の終わりの理由（決めるのは `reopens_on_dial_fix` の1か所。2026-11-06 ユーザー：「番号のせいで
+# 終えた行、決めた回数までかけて終えた行は、新しい番号へすぐかけてよい予定に戻します。お客様が断った行・業務を終えた行は戻しません。」・
+# 「お客様と約束したかけ直しで終えた行は、「決めた回数（日数）までかけて終えた行」であれば、新しい番号で再度0回からかけ直します。」）
+NUMBER_ENDS = frozenset({
+    "number_unusable",               # 鳴らない電話が続いた番号
+    "alternate_wrong_again",         # お客様が言った番号を伺い直しても、また番号違い
+    "alternate_not_called",          # お客様が言った番号へは、業務の設定でかけない（かける番号が無い）
+    "ask_number_again_unanswered",   # 番号の伺い直しの電話に出なかった（正しい番号が分からない）
+    "number_unknown", "number_kind_forbidden", "number_kind_not_allowed",     # 門：番号が読めない・かけない種類の番号
+    "other_contractor_called", "other_client_promise_never",                 # 門：その番号への契約者の設定
+})
+NUMBER_END_PREFIXES = ("alternate_blocked:",)                 # お客様が言った番号が、かけない種類・発信禁止など（記録だけ）
+NUMBER_OUT_OF_SCOPE = ("wrong_party", "fax_line")            # 対象外のうち、番号違い・FAX の回線（その番号だけ止めた）
+COUNT_ENDS = frozenset({"max_attempts", "callback_exact_unreached", "callback_unspecified_time"})   # 決めた回数（日数）まで
+COUNT_END_PREFIXES = ("policy_max:",)                        # 再発信の方針の回数まで
+
+
+def reopens_on_dial_fix(tx: Tx, task_id: UUID, end_reason: str) -> bool:
+    """その終わりの理由で終えた行を、かける番号を直したときに戻すか（1か所）。番号のせい（`NUMBER_ENDS`・番号違いと FAX の回線の対象外）と、
+    決めた回数（日数）までかけて終えた（`COUNT_ENDS`）なら戻す。ただし、時刻の決まっていない約束を、回数でなく契約者の再発信の方針が
+    「終える」ので終えた行は戻さない（いまの版の方針で見る）。お客様が断った・業務を終えた・苦情・言ってはいけないことなどは戻さない。"""
+    if end_reason in NUMBER_ENDS or end_reason.startswith(NUMBER_END_PREFIXES):
+        return True
+    if end_reason == "out_of_scope":
+        r = tx.one("SELECT detail ->> 'out_of_scope' AS why FROM salescall.latest_task_results WHERE task_id = %s", (task_id,))
+        return r is not None and r["why"] in NUMBER_OUT_OF_SCOPE
+    if end_reason == "callback_unspecified_time":
+        return _unspecified_policy(tx, task_id).action != "end"
+    return end_reason in COUNT_ENDS or end_reason.startswith(COUNT_END_PREFIXES)
+
+
+def after_dial_fix(tx: Tx, task_id: UUID, *, cause: str) -> int | None:
+    """かける番号を直したあとの、行の予定（1か所。core/row_fixes.fix_dial_number だけが呼ぶ）。
+    - お客様と約束していない「かけ直す」の予定が、前にかける番号だった番号へかけるもの ⇒ 時刻・幅・お詫びの印はそのままに、いまかける
+      番号へ付け替える（`current_dial`）。
+    - お客様と約束した電話の予定 ⇒ そのまま（2026-11-06 ユーザー：「まだ約束の電話をかけていない場合は、旧番号でかからなければ、新番号で
+      かけます」。約束の電話のあとの番号の選び＝`usable` の先頭の `current_dial` が、次から新しい番号にする）。
+    - 終えた行で、終わりの理由が `reopens_on_dial_fix` に当たる ⇒ いまかける番号へ、すぐかけてよい予定に戻す（ふつうの電話。回数は
+      直したときから数え直す＝0180）。
+    書いたら、その予定の番号（seq）を返す。"""
     lock(tx, task_id)
     cur = current(tx, task_id)
-    if cur is None or cur["kind"] != "call":
+    if cur is None:
+        return None
+    if cur["kind"] == "end":
+        if not reopens_on_dial_fix(tx, task_id, cur["end_reason"]):
+            return None
+        return _append(tx, task_id, call_at=None, call_now=True, end_reason=None, cause=cause, promised=False,
+                       target=Target(tasks.dial_number(tx, task_id)["contact_id"]))
+    if cur["kind"] != "call" or cur["promised"]:
         return None
     t = current_dial(Target(cur["contact_id"], None, cur["purpose"], cur["wrong_contact_id"], bool(cur["successor"]),
                             cur["number_again"]), numbers_of(tx, task_id))
     if t.contact_id == cur["contact_id"]:
         return None
-    return _append(tx, task_id, call_at=cur["call_at"], end_reason=None, cause=cause, promised=bool(cur["promised"]), target=t,
-                   callee_at=cur["callee_at"] if cur["promised"] else None, window=window_of(cur),
-                   apology=tuple(cur["apology_reasons"]))
+    return _append(tx, task_id, call_at=cur["call_at"], end_reason=None, cause=cause, promised=False, target=t,
+                   window=window_of(cur), apology=tuple(cur["apology_reasons"]))
 
 
 def hold(tx: Tx, task_id: UUID, *, cause: str, apology: Apology = None) -> int:
@@ -990,14 +1033,15 @@ def _times(tx: Tx, task_id: UUID, key: str) -> int:
     通話をすべて数え、回線の側の失敗・切れた通話・約束の電話で、お客様に一度も繋がらないまま行が終わった。"""
     return tx.one(
         "SELECT count(*) AS n FROM salescall.call_judgements j JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
-        f" WHERE j.task_id = %s AND j.detail ->> 'policy_key' = %s AND {attempts.counts_as_try('a')}",
+        f" WHERE j.task_id = %s AND j.detail ->> 'policy_key' = %s AND {attempts.counts_as_try('a')} AND {attempts.in_row_count('a')}",
         (task_id, key))["n"]
 
 
 def _said(tx: Tx, task_id: UUID, key: str) -> int:
     """この行で、その再発信の方針の鍵の結果が出た通話の数（お客様が言った回数。数える発信かに関係なく。1か所）。"""
     return tx.one(
-        "SELECT count(*) AS n FROM salescall.call_judgements WHERE task_id = %s AND detail ->> 'policy_key' = %s",
+        "SELECT count(*) AS n FROM salescall.call_judgements j JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
+        f" WHERE j.task_id = %s AND j.detail ->> 'policy_key' = %s AND {attempts.in_row_count('a')}",
         (task_id, key))["n"]
 
 
@@ -1541,6 +1585,7 @@ def _unspecified_calls(tx: Tx, task_id: UUID) -> int:
     日が過ぎて時刻の決まっていない約束に移ったとたん、1回もかけずに終えた。"""
     rows = tx.all(
         f"SELECT a.claimed_at, a.purpose FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.reached('a')}"
+        f" AND {attempts.in_row_count('a')}"
         " AND a.claimed_at > coalesce((SELECT max(c.claimed_at) FROM salescall.attempts c"
         "   JOIN salescall.call_judgements r ON r.attempt_id = c.attempt_id"
         "   WHERE c.task_id = %s AND r.business_state = 'callback_scheduled'), '-infinity')",

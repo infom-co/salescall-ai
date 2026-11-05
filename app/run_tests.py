@@ -2026,7 +2026,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP TRIGGER task_dial_fix_guard ON salescall.task_dial_fixes",
      ("tests.test_import.DialFixes.test_the_new_number_passes_the_same_checks_and_only_a_person_fixes_it",)),
     ("いまかける番号を、直しを見ずに一覧の番号のままにする",
-     "CREATE OR REPLACE FUNCTION salescall.task_dial_contact(p_task uuid) RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER"
+     "CREATE OR REPLACE FUNCTION salescall.task_dial_contact(p_task uuid) RETURNS uuid LANGUAGE sql STABLE"
      " SET search_path = salescall, pg_temp AS $$ SELECT t.contact_id FROM salescall.tasks t WHERE t.task_id = p_task $$",
      ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
     ("記録だけの番号は、かける番号に直しても、かけられない（0175 の守りのまま）",
@@ -2035,6 +2035,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WHERE n.task_id = NEW.task_id AND n.contact_id = NEW.contact_id AND n.source = 'record') THEN"
      " RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation', CONSTRAINT = 'dial_only_dialable_numbers'; END IF; RETURN NEW; END $$",
      ("tests.test_import.DialFixes.test_a_recorded_mobile_can_become_the_number_to_dial",)),
+    ("行の回数を、かける番号を直したときから数え直さない（0180 の数え始めを、いつもはじめからにする）",
+     "CREATE OR REPLACE FUNCTION salescall.task_count_from(p_task uuid) RETURNS timestamptz LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT '-infinity'::timestamptz $$",
+     ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4478,11 +4482,11 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '            and t.purpose in ("normal", "resume"):\n', "            and True:\n",
      ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
     ("かける番号を直しても、いまの予定を付け替えない", "src/salescall/core/row_fixes.py",
-     '    next_action.retarget_dial(tx, task_id, cause="ダッシュボードで、かける番号を直した")\n', "",
+     '    next_action.after_dial_fix(tx, task_id, cause="ダッシュボードで、かける番号を直した")\n', "",
      ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
     ("予定を付け替えるとき、時刻を「いますぐ」にする", _NEXT,
-     '    return _append(tx, task_id, call_at=cur["call_at"], end_reason=None, cause=cause, promised=bool(cur["promised"]), target=t,\n',
-     '    return _append(tx, task_id, call_at=None, call_now=True, end_reason=None, cause=cause, promised=bool(cur["promised"]), target=t,\n',
+     '    return _append(tx, task_id, call_at=cur["call_at"], end_reason=None, cause=cause, promised=False, target=t,\n',
+     '    return _append(tx, task_id, call_at=None, call_now=True, end_reason=None, cause=cause, promised=False, target=t,\n',
      ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
     ("直した番号を、発信禁止などの確かめをせずに受ける", "src/salescall/core/row_fixes.py",
      "    if blocked is not None:\n", "    if False:\n",
@@ -4493,6 +4497,38 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("ダッシュボードの進み具合が、取り込んだ番号をかける番号として見せる", "src/salescall/core/customer_rows.py",
      "k.contact_id = salescall.task_dial_contact(t.task_id)", "k.contact_id = t.contact_id",
      ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
+    # ── 番号を直した行の予定と、回数の数え直し（0180。2026-11-06 ユーザー）
+    ("番号のせいで終えた行を、番号を直しても戻さない", _NEXT,
+     "    if end_reason in NUMBER_ENDS or end_reason.startswith(NUMBER_END_PREFIXES):\n        return True\n", "",
+     ("tests.test_import.DialFixes.test_rows_ended_by_the_number_or_by_the_counts_come_back_and_others_do_not",)),
+    ("決めた回数までかけて終えた行を、番号を直しても戻さない", _NEXT,
+     "    return end_reason in COUNT_ENDS or end_reason.startswith(COUNT_END_PREFIXES)\n", "    return False\n",
+     ("tests.test_import.DialFixes.test_rows_ended_by_the_number_or_by_the_counts_come_back_and_others_do_not",)),
+    ("対象外で終えた行を、番号違い・FAX でなくても戻す", _NEXT,
+     '        return r is not None and r["why"] in NUMBER_OUT_OF_SCOPE\n', "        return r is not None\n",
+     ("tests.test_import.DialFixes.test_which_ends_come_back_is_decided_in_one_place",)),
+    ("時刻の決まっていない約束を方針で終えた行も戻す", _NEXT,
+     '        return _unspecified_policy(tx, task_id).action != "end"\n', "        return True\n",
+     ("tests.test_import.DialFixes.test_which_ends_come_back_is_decided_in_one_place",)),
+    ("まだかけていない約束の電話も、番号を直したとたん新しい番号へ移す", _NEXT,
+     '    if cur["kind"] != "call" or cur["promised"]:\n', '    if cur["kind"] != "call":\n',
+     ("tests.test_import.DialFixes.test_a_promised_call_goes_to_the_old_number_first",)),
+    ("いまかける番号と同じ番号への直しも記録する", "src/salescall/core/row_fixes.py",
+     '    if now["phone_e164"] == number.e164:\n        return now\n', "",
+     ("tests.test_import.DialFixes.test_fixing_to_the_number_already_dialed_writes_nothing",)),
+    ("門の行の回数を、番号を直したあとも数え直さない", "src/salescall/core/gate.py",
+     '                     f" AND {attempts.in_row_count()}",', '                     "",',
+     ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
+    ("再発信の方針の回数を、番号を直したあとも数え直さない", _NEXT,
+     "{attempts.counts_as_try('a')} AND {attempts.in_row_count('a')}\",", "{attempts.counts_as_try('a')}\",",
+     ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
+    ("「あとで」と言われた回数を、番号を直したあとも数え直さない", _NEXT,
+     "        f\" WHERE j.task_id = %s AND j.detail ->> 'policy_key' = %s AND {attempts.in_row_count('a')}\",\n",
+     "        f\" WHERE j.task_id = %s AND j.detail ->> 'policy_key' = %s\",\n",
+     ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
+    ("時刻の決まっていない約束の電話の数を、番号を直したあとも数え直さない", _NEXT,
+     "        f\" AND {attempts.in_row_count('a')}\"\n", "",
+     ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
 )
 
 

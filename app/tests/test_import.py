@@ -693,8 +693,8 @@ class DialFixes(CustomerContacts):
     """かける番号の直し（ダッシュボード。0179・row_fixes.fix_dial_number。2026-11-06 ユーザー：「取り込んだ電話番号は残したまま、新しい電話番号が
     旧番号のすぐ下に入力できるようにします。新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます。」）。"""
 
-    def row(self, mobile=None):
-        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), None, mobile, None, None, None, None, None, None)],
+    def row(self, mobile=None, ref="A"):
+        r = self.register(csv_file([(ref, "架空商事", fictional_jp_fixed(), None, mobile, None, None, None, None, None, None)],
                                    header=self.HEADER), mapping=self.MAP)
         return r["rows"][0]["task_id"]
 
@@ -739,6 +739,63 @@ class DialFixes(CustomerContacts):
         self.tx(lambda tx: next_action.hold(tx, task, cause="試験"))
         self.assertEqual(self.tx(lambda tx: gate._task(tx, task))["phone_e164"], got["phone_e164"])
 
+    def test_a_promised_call_goes_to_the_old_number_first(self):
+        """まだかけていない約束の電話は、まず前の番号でかける（2026-11-06 ユーザー：「まだ約束の電話をかけていない場合は、旧番号で
+        かからなければ、新番号でかけます」）。約束の電話のあとの番号の選び（usable）は、新しい番号を選ぶ（上の試験）。"""
+        from tests import support
+        task = self.row()
+        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=old["contact_id"], cause="試験：約束", promised=True))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.assertEqual((self.plan(task)["contact_id"], self.plan(task)["promised"]), (old["contact_id"], True))
+
+    def test_rows_ended_by_the_number_or_by_the_counts_come_back_and_others_do_not(self):
+        """終えた行で番号を直したとき（2026-11-06 ユーザー）：番号のせい・決めた回数（日数）までかけて終えた行は、新しい番号へすぐかけて
+        よい予定に戻る（ふつうの電話）。お客様が断った・業務を終えた行などは戻らない（next_action.reopens_on_dial_fix の1か所）。"""
+        back = ("number_unusable", "alternate_wrong_again", "alternate_not_called", "alternate_blocked:dnc_client",
+                "ask_number_again_unanswered", "number_kind_forbidden", "other_contractor_called", "max_attempts", "policy_max:open",
+                "callback_exact_unreached", "callback_unspecified_time")
+        stay = ("completed", "declined", "do_not_call", "concluded", "out_of_scope", "complaint", "forbidden_speech", "other_means",
+                "not_reached_departed", "not_reached_who_unclear", "open", "declined_in_business", "dnc_client", "apology_done")
+        for n, reason in enumerate(back + stay):
+            with self.subTest(reason=reason):
+                task = self.row(ref=f"R{n}")
+                self.tx(lambda tx: next_action.end(tx, task, reason, cause="試験"))
+                got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+                p = self.plan(task)
+                if reason in back:
+                    self.assertEqual((p["kind"], p["contact_id"], p["promised"], p["purpose"]),
+                                     ("call", got["contact_id"], False, "normal"))
+                else:
+                    self.assertEqual((p["kind"], p["end_reason"]), ("end", reason))
+
+    def test_which_ends_come_back_is_decided_in_one_place(self):
+        """番号違い・FAX の回線で対象外にした行は戻る（ほかの対象外は戻らない）。時刻の決まっていない約束を、回数でなく契約者の方針が
+        「終える」ので終えた行は戻らない。"""
+        from salescall.core import business_rules
+
+        class Tx:
+            def __init__(self, why):
+                self.why = why
+
+            def one(self, sql, params=()):
+                return {"why": self.why}
+        for why, want in (("wrong_party", True), ("fax_line", True), ("request", False)):
+            with self.subTest(why=why):
+                self.assertEqual(next_action.reopens_on_dial_fix(Tx(why), None, "out_of_scope"), want)
+        for action, want in (("end", False), ("call", True)):
+            with self.subTest(action=action), mock.patch.object(next_action, "_unspecified_policy",
+                                                                return_value=business_rules.Policy(action, 1, None)):
+                self.assertEqual(next_action.reopens_on_dial_fix(Tx(None), None, "callback_unspecified_time"), want)
+
+    def test_fixing_to_the_number_already_dialed_writes_nothing(self):
+        task = self.row()
+        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, old["phone_e164"]))
+        self.assertEqual(self.tx(lambda tx: tx.one("SELECT count(*) AS n FROM salescall.task_dial_fixes WHERE task_id = %s",
+                                                   (task,)))["n"], 0)
+
     def test_the_new_number_passes_the_same_checks_and_only_a_person_fixes_it(self):
         """直した番号も取込と同じ確かめ（読めない・発信禁止は断る）。直せるのは管理者か契約者だけ（データベースが守る）。"""
         task = self.row()
@@ -747,7 +804,7 @@ class DialFixes(CustomerContacts):
         for phone in ("abc", bad):
             with self.subTest(phone=phone), self.assertRaises(row_fixes.FixInvalid):
                 self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, phone))
-        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        task = self.row(mobile="090-0000-0172", ref="B")      # 行にある番号へ直す（記録だけの番号を足す守りより先に、直しの守りに当たる）
         with self.assertRaises(Rejected) as cm:
-            self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, old["phone_e164"]), actor=SYSTEM)
+            self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0172"), actor=SYSTEM)
         self.assertEqual(cm.exception.constraint, "task_dial_fix_by_person")

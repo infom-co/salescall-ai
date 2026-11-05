@@ -728,6 +728,29 @@ class CountedCalls(SettleBase):
         self.assertNotEqual(d.target.purpose, "resume")
 
 
+    def test_every_row_count_starts_again_when_the_number_is_fixed(self):
+        """かける番号をダッシュボードで直したら、行の回数（行の回数の上限・再発信の方針の回数・「あとで」と言われた回数・時刻の決まって
+        いない約束の電話の数）は、どれも直したときから数え直す（2026-11-06 ユーザー：「新しい番号で数え直す」。数え始めは
+        salescall.task_count_from の1か所＝0180、数える範囲は attempts.in_row_count の1か所）。"""
+        from salescall.core import row_fixes
+        keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
+        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 3, "interval": {"hours": 1}} for k in keys}))
+        self.put_client(s, "retry.max_attempts_per_task", 3)
+        aid = self.call(s, report=rep(callback=callback("later", time="あとで")))
+        self.assertEqual(self.settle(s, aid)["state"], "callback_scheduled")
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：いまかける",
+                                                       promised=True))
+        self.settle(s, self.call(s, ["dialing", "no_answer"]))
+        key = "callback_unspecified_time"
+        counts = lambda: self.tx(s, lambda tx: (   # noqa: E731
+            next_action._times(tx, s["task"], key), next_action._said(tx, s["task"], key),
+            next_action._unspecified_calls(tx, s["task"]), gate.pacing(tx, s["task"], promised=False).remaining))
+        self.assertEqual(counts(), (1, 1, 1, 2))
+        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)
+        self.assertEqual(counts(), (0, 0, 0, 3))
+
+
 class UnusableNumber(SettleBase):
     """回線の部品が番号を受け付けない（発信に失敗＝お客様の電話は鳴っていない）電話は行の回数に数えず、決まった順（設定
     dial.failed_retry_days。初めは [1, 1, 2, 4]＝その日にもう1回・次の日に1回・そのさらに2日後に1回）で同じ番号へかけ直し、計4回続けて

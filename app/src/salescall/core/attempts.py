@@ -93,6 +93,14 @@ def counts_as_try(table: str = "") -> str:
     return f"salescall.counts_as_try({t}state, {t}cut_off, {t}promised, {t}attempt_id)"
 
 
+def in_row_count(table: str = "") -> str:
+    """行の回数を数える範囲（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信だけ（直していなければ、すべて）。
+    行の回数の上限・再発信の方針の回数・時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で
+    数え直す」。数え始めの時刻はデータベースの salescall.task_count_from の1か所。0180）。"""
+    t = table + "." if table else ""
+    return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
+
+
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
 LineState = Literal["ringing", "answered", "in_conversation", "ending", "ended",
                     "busy", "no_answer", "call_failed", "dropped", "technical_error"]
