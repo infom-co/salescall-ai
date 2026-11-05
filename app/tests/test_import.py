@@ -13,7 +13,7 @@ import threading
 import unittest
 from unittest import mock
 
-from salescall.core import business_settings, conversation_io, customer_contacts, dnc, importer, next_action, settings, tasks
+from salescall.core import business_settings, conversation_io, customer_contacts, dnc, importer, next_action, row_fixes, settings, tasks
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
@@ -593,3 +593,97 @@ class Targets(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RowFixes(Targets):
+    """お客様リストの行の直し（ダッシュボード。0178・core/row_fixes.py。2026-11-05 ユーザー：「ダッシュボードでも進捗確認や修正ができるように
+    すること」）。直しは記録を足すだけで、行のいまの値は見方 tasks_now の1か所（会話・門・材料の数えが読む）。"""
+
+    def one_row(self, kind="name", name=("中島", None), role=None):
+        vid, run = self.run_with({"kind": kind, "role": None})
+        data = csv_file([("A", "架空商事", fictional_jp_fixed(), name[0], name[1], role)], header=self.HEADER)
+        sheet = read("一覧.csv", data)
+        plan = self.tx(lambda tx: importer.preview(tx, run, sheet, self.MAP, suggest_readings=undecided))
+        r = self.tx(lambda tx: importer.register(tx, run, sheet, self.MAP, expected_digest=plan.digest,
+                                                 ai_readings=plan.ai_readings))
+        return vid, r["rows"][0]["task_id"]
+
+    def claim(self, vid, task):
+        n = self.tx(lambda tx: tasks.list_number(tx, task))
+        return self.w.insert_claim({**self.s, "task": task, "contact": n["contact_id"], "phone": n["phone_e164"]}, version=vid)
+
+    def test_a_fixed_name_is_what_the_call_reads_and_old_confirmed_readings_do_not_carry_over(self):
+        """名前を直すと、会話が読む1か所（target_of）が直した名前と読みを返す。直す前に会話で確かめた読みは、直した名前には付けない
+        （直したあとに確かめた読みだけが効く）。"""
+        vid, task = self.one_row()
+        aid = self.claim(vid, task)
+        self.tx(lambda tx: tasks.record_confirmed_reading(tx, task, "target", "ナカシマ", attempt_id=aid))
+        self.assertEqual(self.tx(lambda tx: business_settings.target_of(tx, task))["person"]["reading"], "なかしま")
+        got = self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "中嶋", reading="ナカジマ"))
+        self.assertEqual(got, {"field": "target_name", "value": "中嶋", "reading": "なかじま"})
+        p = self.tx(lambda tx: business_settings.target_of(tx, task))["person"]
+        self.assertEqual((p["text"], p["reading"], p["reading_by"]), ("中嶋", "なかじま", "person"))   # 前の確かめは付けない
+        self.tx(lambda tx: tasks.record_confirmed_reading(tx, task, "target", "なかしま", attempt_id=aid))
+        p = self.tx(lambda tx: business_settings.target_of(tx, task))["person"]
+        self.assertEqual((p["reading"], p["reading_by"]), ("なかしま", "conversation"))      # 直したあとに確かめた読みは効く
+        # 読みを入れなければ AI の読み（取込と同じ決め方）
+        self.tx(lambda tx: row_fixes.fix(tx, task, "source_name", "架空商事ホールディングス", suggest=ai))
+        c = self.tx(lambda tx: business_settings.target_of(tx, task))["company"]
+        self.assertEqual((c["text"], c["reading"], c["reading_by"]), ("架空商事ホールディングス", "てすとがいしゃ", "ai"))
+
+    def test_full_name_department_and_role_fixes_and_clears(self):
+        """フルネーム・部署・役職も直せる。空にすると、その欄を消す（取込の値に戻さない）。直した値を、依頼者に埋めていただく欄の決め方
+        （who_unclear_blanks）・門の材料の確かめ（gate._task）も読む。"""
+        vid, task = self.one_row(kind="role_and_name", name=("岡田", "おかだ"), role="部長")
+        self.tx(lambda tx: row_fixes.fix(tx, task, "target_full_name", "岡田太郎", reading="おかだたろう"))
+        self.tx(lambda tx: row_fixes.fix(tx, task, "target_department", "営業部"))
+        self.assertEqual(self.tx(lambda tx: business_settings.who_unclear_blanks(tx, task)), ())
+        self.tx(lambda tx: row_fixes.fix(tx, task, "target_department", "  "))           # 空＝消す
+        self.assertEqual(self.tx(lambda tx: business_settings.who_unclear_blanks(tx, task)), ("department",))
+        self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", None))
+        from salescall.core import gate
+        self.assertIsNone(self.tx(lambda tx: gate._task(tx, task))["target_role"])          # 門も直した値を読む
+        t = self.tx(lambda tx: business_settings.target_of(tx, task))["target"]
+        self.assertEqual((t["full_name"], t["full_reading"], t["role"]), ("岡田太郎", "おかだたろう", ""))
+
+    def test_fixes_are_by_a_person_with_the_same_reading_rules(self):
+        """直せるのは管理者か契約者だけ（データベースが守る）。読みはひらがなかカタカナ・読みを持つのは名前の欄だけ・直せる欄は決まった5つ。
+        検証モードの業務では、AI の読みを契約者が確かめる決まりなので、名前を直すときは読みも入れる。"""
+        vid, task = self.one_row()
+        with self.assertRaises(Rejected) as cm:
+            self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", "部長"), actor=SYSTEM)
+        self.assertEqual(cm.exception.constraint, "task_fix_by_person")
+        for field, value, reading in (("target_name", "中嶋", "中嶋"), ("target_role", "部長", "ぶちょう"), ("phone", "x", None)):
+            with self.subTest(field=field), self.assertRaises(row_fixes.FixInvalid):
+                self.tx(lambda tx: row_fixes.fix(tx, task, field, value, reading=reading, suggest=ai))
+        self.tx(lambda tx: settings.set_value(tx, "approval.human", True, scope="business", status="decided",
+                                              rationale="試験：検証モード", review_when="試験", tenant_id=self.s["tenant"],
+                                              client_id=self.s["client"], business_id=self.s["business"]))
+        with self.assertRaises(row_fixes.FixInvalid):
+            self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "中嶋", suggest=ai))
+        self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "中嶋", reading="なかじま"))
+        rows = self.tx(lambda tx: tx.all("SELECT field, recorded_by FROM salescall.task_fixes WHERE task_id = %s", (task,)))
+        self.assertEqual([(r["field"], r["recorded_by"]) for r in rows], [("target_name", OPERATOR.name)])
+
+    def test_the_dashboard_progress_reads_each_value_from_its_one_place(self):
+        """行ごとの進み具合（customer_rows.progress。読むだけ）：直したあとの名前・役職・かける番号・業務の状態（結果が無ければ open）・
+        次の予定・「かけない」の印・かけた回数・連絡先。どれも、それを決める1か所から読む。"""
+        from salescall.core import customer_rows
+        vid, task = self.one_row(kind="role_and_name", name=("岡田", "おかだ"), role="部長")
+        self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", "取締役"))
+        self.tx(lambda tx: customer_contacts.add(tx, task, "email", "okada@example.com", origin="dashboard"))
+        run = self.tx(lambda tx: tx.one("SELECT run_id FROM salescall.tasks WHERE task_id = %s", (task,)))["run_id"]
+        got = self.tx(lambda tx: customer_rows.progress(tx, run))
+        self.assertEqual(len(got), 1)
+        g = got[0]
+        self.assertEqual((g["task_id"], g["source_row"], g["client_ref"], g["source_name"], g["target_name"], g["target_role"]),
+                         (task, 2, "A", "架空商事", "岡田", "取締役"))
+        self.assertEqual((g["business_state"], g["next_kind"], g["excluded"], g["attempts"], g["last_state"]),
+                         ("open", "call", False, 0, None))
+        self.assertEqual(g["dial_phone"], self.tx(lambda tx: tasks.list_number(tx, task))["phone_e164"])
+        self.assertEqual([c["value"] for c in g["contacts"]["contacts"]], ["okada@example.com"])
+        aid = self.claim(vid, task)
+        g = self.tx(lambda tx: customer_rows.progress(tx, run))[0]
+        self.assertEqual((g["attempts"], g["last_state"]), (1, "claimed"))
+        self.w.move({**self.s, "task": task}, aid, "released")
+        self.assertEqual(self.tx(lambda tx: customer_rows.progress(tx, run))[0]["attempts"], 0)   # 取り消した予約は数えない

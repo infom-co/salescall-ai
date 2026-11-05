@@ -2018,6 +2018,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " SELECT NEW.tenant_id, NEW.client_id, NEW.task_id, NEW.contact_id, c.phone_e164, 'list', 'company'"
      " FROM salescall.contacts c WHERE c.client_id = NEW.client_id AND c.contact_id = NEW.contact_id; RETURN NULL; END $$",
      ("tests.test_import.CustomerContacts.test_the_designated_number_is_dialed_and_the_others_are_only_recorded",)),
+    ("お客様リストの行の直しを、システムの処理も書ける（0178 の守りを外す）",
+     "DROP TRIGGER task_fix_guard ON salescall.task_fixes",
+     ("tests.test_import.RowFixes.test_fixes_are_by_a_person_with_the_same_reading_rules",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4420,6 +4423,39 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("オンラインのご希望・答えの段のかけ直しの一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
      '    "wish_told_online", "callback_email_online_again", "callback_later_time_answering",\n', '',
      ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
+    # ── お客様リストの行の直し（0178。2026-11-05 ユーザー「ダッシュボードでも進捗確認や修正ができるようにすること」）
+    ("会話が読む行の名前に、ダッシュボードの直しを当てない", "src/salescall/core/business_settings.py",
+     '"SELECT t.*, salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks_now t WHERE t.task_id = %s"',
+     '"SELECT t.*, NULL AS source_name_fixed_at, NULL AS target_name_fixed_at, salescall.run_current_version(t.run_id) AS version_id"'
+     ' " FROM salescall.tasks t WHERE t.task_id = %s"',
+     ("tests.test_import.RowFixes.test_a_fixed_name_is_what_the_call_reads_and_old_confirmed_readings_do_not_carry_over",)),
+    ("名前を直す前に会話で確かめた読みを、直した名前にも付ける", "src/salescall/core/business_settings.py",
+     '        "   AND c.confirmed_at > coalesce(CASE c.which WHEN \'source\' THEN %s::timestamptz ELSE %s::timestamptz END, \'-infinity\')"\n',
+     '        "   AND (%s::timestamptz IS NULL OR %s::timestamptz IS NULL OR true)"\n',
+     ("tests.test_import.RowFixes.test_a_fixed_name_is_what_the_call_reads_and_old_confirmed_readings_do_not_carry_over",)),
+    ("依頼者に埋めていただく欄を、直す前の値で決める", "src/salescall/core/business_settings.py",
+     '"SELECT target_full_name, target_department FROM salescall.tasks_now WHERE task_id = %s"',
+     '"SELECT target_full_name, target_department FROM salescall.tasks WHERE task_id = %s"',
+     ("tests.test_import.RowFixes.test_full_name_department_and_role_fixes_and_clears",)),
+    ("門が、直す前の行の名前・役職を読む", "src/salescall/core/gate.py",
+     '        " FROM salescall.tasks_now t"', '        " FROM salescall.tasks t"',
+     ("tests.test_import.RowFixes.test_full_name_department_and_role_fixes_and_clears",)),
+    ("検証モードの業務で、読みを入れない名前の直しを AI の読みのまま受ける", "src/salescall/core/row_fixes.py",
+     "            if approval.human_for_business(tx, business[\"business_id\"]):\n", "            if False:\n",
+     ("tests.test_import.RowFixes.test_fixes_are_by_a_person_with_the_same_reading_rules",)),
+    ("読みとして使えない読みでも直しを受ける", "src/salescall/core/row_fixes.py",
+     "            if readings.normalize(given) is None:\n", "            if False:\n",
+     ("tests.test_import.RowFixes.test_fixes_are_by_a_person_with_the_same_reading_rules",)),
+    ("名前でない欄にも読みを付けて受ける", "src/salescall/core/row_fixes.py",
+     "    elif reading is not None and str(reading).strip():\n", "    elif False:\n",
+     ("tests.test_import.RowFixes.test_fixes_are_by_a_person_with_the_same_reading_rules",)),
+    ("ダッシュボードの進み具合が、直す前の名前・役職を見せる", "src/salescall/core/customer_rows.py",
+     '        " FROM salescall.tasks_now t"', '        " FROM salescall.tasks t"',
+     ("tests.test_import.RowFixes.test_the_dashboard_progress_reads_each_value_from_its_one_place",)),
+    ("ダッシュボードの進み具合で、取り消した予約もかけた回数に数える", "src/salescall/core/customer_rows.py",
+     "\"       (SELECT count(*) FROM salescall.attempts a WHERE a.task_id = t.task_id AND a.state <> 'released') AS attempts,\"",
+     "\"       (SELECT count(*) FROM salescall.attempts a WHERE a.task_id = t.task_id) AS attempts,\"",
+     ("tests.test_import.RowFixes.test_the_dashboard_progress_reads_each_value_from_its_one_place",)),
 )
 
 

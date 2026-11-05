@@ -214,7 +214,7 @@ def _task(tx: Tx, task_id: UUID, contact_id: UUID | None = None) -> dict[str, An
     row = tx.one(
         "SELECT t.task_id, t.tenant_id, t.client_id, t.run_id, t.client_ref, t.target_name, t.target_role, r.business_id,"
         "       n.contact_id, n.phone_e164"
-        " FROM salescall.tasks t"
+        " FROM salescall.tasks_now t"   # 行のいまの値（ダッシュボードの直しを当てたもの。0178）
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
         " JOIN salescall.task_numbers n ON n.task_id = t.task_id AND n.contact_id = coalesce(%s,"
         "   (SELECT x.contact_id FROM salescall.current_next_actions x WHERE x.task_id = t.task_id),"

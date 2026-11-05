@@ -1478,13 +1478,16 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     （target：{kind＝法人／個人, name, reading, role}。誰でもは None）。いまの版の業務設定で決まる。
     名前の読みは、会話の中でお客様に確かめた読みがあれば、それを使う（readings.with_confirmed）。読みが決まらなければ reading は
     空で、candidates・likely を持つ（会話の中で確かめる。CL-1 の flowctl.reading_question）。"""
-    t = tx.one("SELECT t.*, salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks t WHERE t.task_id = %s",
+    # 行のいまの値（ダッシュボードの直しを当てたもの＝見方 tasks_now の1か所。0178）
+    t = tx.one("SELECT t.*, salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks_now t WHERE t.task_id = %s",
                (task_id,))
     if t is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    # 会話の中で確かめた読みは、その名前を直したより後に確かめたものだけ（直す前の名前の読みを、直したあとの名前に付けない）
     said = {r["which"]: r["reading"] for r in tx.all(
-        "SELECT DISTINCT ON (which) which, reading FROM salescall.task_confirmed_readings WHERE task_id = %s"
-        " ORDER BY which, confirm_id DESC", (task_id,))}
+        "SELECT DISTINCT ON (which) which, reading FROM salescall.task_confirmed_readings c WHERE task_id = %s"
+        "   AND c.confirmed_at > coalesce(CASE c.which WHEN 'source' THEN %s::timestamptz ELSE %s::timestamptz END, '-infinity')"
+        " ORDER BY which, confirm_id DESC", (task_id, t["source_name_fixed_at"], t["target_name_fixed_at"]))}
 
     def name(which: str) -> dict[str, Any] | None:
         p = f"{which}_name"
@@ -1529,7 +1532,7 @@ def who_unclear_blanks(tx: Tx, task_id: UUID) -> tuple[str, ...]:
     フルネームや部署を足していただきます。」「一覧の入れるべき空欄部分が、その行だけ赤背景になると分かりやすいですね。」）：フルネーム・
     部署のうち、その行の一覧で空いている欄（WHO_UNCLEAR_FIELDS の順）。両方あってもまた分からないと言われた行（お呼びし直した＝recalled）は
     空（埋める欄は無い。依頼者には同じく「分からなかった」と返す）。見せ方（赤い背景など）は CL-3。"""
-    t = tx.one("SELECT target_full_name, target_department FROM salescall.tasks WHERE task_id = %s", (task_id,))
+    t = tx.one("SELECT target_full_name, target_department FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
     if t is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
     have = {"full_name": t["target_full_name"], "department": t["target_department"]}
@@ -1548,7 +1551,7 @@ def anyone_target(tx: Tx, version_id: UUID) -> bool:
 
 def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:
     """その実施回の、まだ終えていない行のうち、目的のお客様を呼ぶ材料が足りない行の数。"""
-    rows = tx.all("SELECT t.target_name, t.target_role FROM salescall.tasks t WHERE t.run_id = %s"
+    rows = tx.all("SELECT t.target_name, t.target_role FROM salescall.tasks_now t WHERE t.run_id = %s"
                   " AND coalesce((SELECT n.kind FROM salescall.current_next_actions n WHERE n.task_id = t.task_id) <> 'end', true)",
                   (run_id,))
     return sum(1 for r in rows if needs.missing(name=r["target_name"], role=r["target_role"]) is not None)
