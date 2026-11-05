@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from flowctl import END_ANGRY, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_WHO, UNDECIDED
+from flowctl import END_ANGRY, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_WHO, LATER, UNDECIDED
 
 YES_NO = ("はい", "いいえ")
 HEDGED = "（言い切っていない）"   # 答えの正解の印：その答えに寄っているが言い切っていない（判定の firm＝偽）
@@ -65,7 +65,13 @@ ANSWER = [
     (RESERVED, "ごめんなさい、今から出かけるので切りますね。", (END_HURRY,), (UNDECIDED,), False, "急いでいる"),
     (RESERVED, "忙しいんで。", (END_HURRY,), (UNDECIDED,), False, "10-13「忙しい」とだけ＝急いでいる"),
     (CONTACT, "今ちょっと立て込んでるので、手短にお願いできますか。", (END_NONE,), (UNDECIDED,), False, "続けてよい（急ぎの印にしない）"),
-    (CONTACT, "あとでかけ直してもらえますか。", (END_NONE,), (UNDECIDED,), False, "かけ直しの申し出（電話を終える言葉ではない）"),
+    # ⛔ 11-06 3時台に直した：正解を「決められない」だけで持っていた（答えの段に「あとでかけ直す」が無かった頃の正解。表を当てる道具が、言葉に「あとで」が
+    #    あればかけ直しの報告で当てる言葉の形の特別扱いで補っていた）＝答えの段の選べるもの（meaning_judge.ANSWER_KINDS）の「あとでかけ直す」
+    (CONTACT, "あとでかけ直してもらえますか。", (END_NONE,), (LATER,), False, "あとでかけ直してほしい＝あとでかけ直す（答えではない・電話を終える言葉でもない）"),
+    # 急いでいるの説明「何時ならよい・かけ直してほしい、とまでは言っていない」の境目。急いでいると読むと、頼まれたことを「それではまた改めてお掛けしても
+    # よろしいでしょうか？」と重ねて伺う（本書 9-3「取得済みのことを重ねて聞かない」）＝急いでいるは正解に入れない（11-06 3時台に足した）
+    (CONTACT, "今ちょっと忙しいので、あとでかけ直してもらえますか。", (END_NONE,), (LATER,), False,
+     "急いでいる理由を言っても、かけ直しを頼んだ＝あとでかけ直す（急いでいる、ではない）"),
     (PAY, "さっきから何なんですか、失礼じゃないですか。", (END_ANGRY,), (UNDECIDED,), False, "怒っている"),
     (PAMPHLET, "もういいです。", (UNDECIDED,), ("いいえ",), False, "20時56分・22時31分＝いまの話の向きを先に伺う"),
     (PAMPHLET, "んーん。", (END_NONE,), ("いいえ",), False, "22時31分＝「んーん」は「いいえ」"),
@@ -144,11 +150,11 @@ def answer_flow(row: tuple):
     f = Flow([q, nxt], play_recordings=True)
     f.use_checks("judge")
     f.on_callee(); f.on_heard(words); f.on_check("judge", _reading(answers[0], ends[0]))
+    # 判定の読みだけで動く1か所（電話を終える言葉・待つ／かけ直す）が返さなければ、正解の答えの報告で当てる（⛔ 11-06 3時台に外した：言葉に「あとで」が
+    # あれば、かけ直しの報告で当てる言葉の形の特別扱い＝正解を「あとでかけ直す」にして、judged_turn が判定の読みで応じる形にした）
     r = f.judged_turn()
     if r is None and answers[0].removesuffix(HEDGED) in choices + ("unknown", "refused"):
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": answers[0].removesuffix(HEDGED)})
-    elif r is None and "あとで" in words:
-        r = f.apply("request_callback", {"why": "later"})
     return f, _spoken(r), _marks(f)
 
 
