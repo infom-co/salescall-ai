@@ -121,8 +121,6 @@ OTHER_WISH_OUTCOMES = ("option", "means", "other", "none")   # 元の質問の�
 # LINE の連絡先をどの形でいただいたか（事実 other_wish の via。ID・SMS でご招待・メールでご招待。LINE でないか決まらなかったら null。CL-1 の flowctl.LINE_HOW の値。
 # ✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。」・11-05 1時29分06秒「招待はメールとSMSだけだよ。」。CL-1 の連絡帳 4-81 の (3)）
 OTHER_WISH_VIA = ("id", "sms", "email")
-# 連絡先を伺うご連絡の方法（お電話は今のお電話なので伺わない。CL-1 の flowctl.WISH_MEANS の3つ目＝伺う連絡先の役目のあるもの）
-OTHER_WISH_CONTACTS = ("line", "email", "fax", "post")
 UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear", "who_unclear")
 GOAL_MODES = ("any", "all")                              # どれか1つで目的が果たせる／全部が要る（CL-1 の instruction.Business.goal_mode）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
@@ -434,21 +432,11 @@ class NotAgreed:
     # 値を上書きしていて、根拠の発話と値が1つの鍵に混ざっていた）。point の鍵の無い前の形の報告は said が値なので、それを読む（`_not_agreed`）
     point: str | None = None
 
-    @property
-    def progress(self) -> str:
-        """ご承認いただけなかったときの手順を、この通話でどこまで伺えたか（次の通話へ渡す前の通話の答えの "point"＝`conversation_io.earlier`。読み方は
-        ここだけ。会話の側の同じ読み方は CL-1 の flowctl.earlier_point＝CL-1 の連絡帳 4-80 の (1)）：結びがあればそれ（NOT_AGREED_OUTCOMES）・無ければ
-        heard（ご納得いただけなかった点は伺った。ご説明の途中で切れたものも）。"""
-        return self.outcome or "heard"
-
-    @property
-    def said_point(self) -> str | None:
-        """続きの電話の始めにご説明する点（前の通話の答えの "point_said"。読み方はここだけ。会話の側の同じ読み方は CL-1 の flowctl.earlier_point_said＝
-        CL-1 の連絡帳 4-81 の (1)）：手順を伺い終えていない（progress が heard）とき、点を伺ったお客様の言葉、無ければ点の値。終えていれば None
-        （続きの電話でご説明しない）。"""
-        if self.progress != "heard":
-            return None
-        return (self.said or "").strip() or self.point or None
+    def to_json(self) -> dict[str, Any]:
+        """報告に書く形（唯一の場所。報告の書き出し `CallReport.to_json` と、次の通話へ渡す前の通話の答えの "point_fact"＝`conversation_io.earlier`
+        の両方がこれを使う。読み方は会話の側の flowctl.earlier_point_of・earlier_said_of の1か所＝CL-1 の連絡帳 4-88 の案2）。"""
+        return {"turn": self.turn, "question": self.question, "said": self.said, "point": self.point, "round": self.round,
+                "explained": self.explained, "outcome": self.outcome, "declining": self.declining}
 
 
 @dataclass(frozen=True)
@@ -463,21 +451,11 @@ class OtherWish:
     outcome: str | None          # 結び（OTHER_WISH_OUTCOMES。伺っている途中で切れたら None）
     via: str | None = None       # LINE の連絡先をどの形でいただいたか（OTHER_WISH_VIA。LINE でない・決まらなかったら None。CL-1 の連絡帳 4-81 の (3)）
 
-    @property
-    def result(self) -> str | None:
-        """ほかのご希望を伺った結果（次の通話へ渡す前の通話の答えの "wish"＝`conversation_io.earlier`。読み方はここだけ。会話の側の同じ読み方は
-        CL-1 の flowctl.earlier_wish＝CL-1 の連絡帳 4-73）：結びがあればそれ。結びが無くご連絡の方法があれば means（連絡先を伺う途中で切れた）。
-        どちらも無ければ None（W1 の答えをいただく前に切れた）。"""
-        return self.outcome or ("means" if self.means else None)
-
-    @property
-    def pending_means(self) -> str | None:
-        """ご連絡の方法までは伺えて、その連絡先を伺う前に切れた方法（次の通話へ渡す前の通話の答えの "wish_means"＝`conversation_io.earlier`。読み方は
-        ここだけ。会話の側の同じ読み方は CL-1 の flowctl.earlier_wish_means＝CL-1 の連絡帳 4-81 の (2)）：結びが無く（伺い終えていない）、連絡先を伺う
-        方法（`OTHER_WISH_CONTACTS`）で、連絡先が無いとき。ほかは None。続きの電話の始めに、その連絡先を伺う。"""
-        if self.outcome is not None or self.means not in OTHER_WISH_CONTACTS or (self.contact or "").strip():
-            return None
-        return self.means
+    def to_json(self) -> dict[str, Any]:
+        """報告に書く形（唯一の場所。報告の書き出し `CallReport.to_json` と、次の通話へ渡す前の通話の答えの "wish_fact"＝`conversation_io.earlier`
+        の両方がこれを使う。読み方は会話の側の flowctl.earlier_wish_of・earlier_means_of・earlier_records の1か所＝CL-1 の連絡帳 4-88 の案2）。"""
+        return {"turn": self.evidence.turn, "said": self.evidence.said, "question": self.question, "wish": self.wish, "value": self.value,
+                "means": self.means, "contact": self.contact, "via": self.via, "outcome": self.outcome}
 
 
 @dataclass(frozen=True)
@@ -742,10 +720,8 @@ class CallReport:
             "end_unjudged": [{**said(u.evidence), "reason": u.reason} for u in self.unjudged_ends],
             "goal_refused": [{**said(g.evidence), "goals": list(g.goals), "mode": g.mode} for g in self.goal_refusals],
             "who_unclear": [{**said(w.evidence), "recalled": w.recalled} for w in self.who_unclears],
-            "not_agreed": [{"turn": n.turn, "question": n.question, "said": n.said, "point": n.point, "round": n.round,
-                            "explained": n.explained, "outcome": n.outcome, "declining": n.declining} for n in self.not_agreed],
-            "other_wish": [{**said(w.evidence), "question": w.question, "wish": w.wish, "value": w.value, "means": w.means,
-                            "contact": w.contact, "via": w.via, "outcome": w.outcome} for w in self.other_wishes],
+            "not_agreed": [n.to_json() for n in self.not_agreed],
+            "other_wish": [w.to_json() for w in self.other_wishes],
             "ended_on": [] if self.ended_on is None else [
                 {"turn": self.ended_on.turn, "said": self.ended_on.said, "question": self.ended_on.question,
                  "answer": self.ended_on.answer, "skipped": list(self.ended_on.skipped)}]}

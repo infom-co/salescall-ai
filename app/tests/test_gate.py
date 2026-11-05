@@ -1155,6 +1155,9 @@ class CallerNumberAndVoice(Base):
 
     def test_only_a_person_approves_recordings_and_an_approved_set_is_fixed(self):
         s = self.ready()
+        with self.assertRaises(ValueError):   # 業務の組に共通の一言の名前は入れない（共通の一言の組から流すので、入れても流れない）
+            self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=s["version"],
+                                                        parts=[recordings.Part("hai", "はい、", "test://Leda/hai", "2" * 64)]))
         sid = self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=s["version"],
                                                           parts=[recordings.Part("Q1", "ご希望の日時をお聞かせください。",
                                                                                  "test://Leda/Q1", "2" * 64)]))
@@ -1194,6 +1197,17 @@ class CallerNumberAndVoice(Base):
             self.assertEqual(self.tx(s, lambda tx: sorted(recordings.parts(tx, std_set))),
                              ["answer_会社の場所", "answer_番号の出どころ"])
             self.assertEqual(self.tx(s, lambda tx: recordings.current_sets(tx, v, "Leda"))["standard"], None)
+            # 流す部分（どの部分をどの組から流すかの1か所 play_parts）：業務が上書きした答えは、同じ名前が標準の組にもあるが業務の組から・標準から
+            # 流す答えは標準の組から・共通の一言は共通の組から。そろっていない声は None
+            play = self.tx(s, lambda tx: recordings.play_parts(tx, v, "Sadachbia"))
+            own = self.tx(s, lambda tx: recordings.parts(tx, cur["business"]))
+            from_std = self.tx(s, lambda tx: recordings.parts(tx, std_set))
+            common = self.tx(s, lambda tx: recordings.parts(tx, recordings.current_sets(tx, v, "Sadachbia")["contractor"]))
+            self.assertEqual((play["answer_会社の場所"], play["answer_番号の出どころ"], play["intro"], play["hai"]),
+                             (own["answer_会社の場所"], from_std["answer_番号の出どころ"], own["intro"], common["hai"]))
+            self.assertNotEqual(play["answer_会社の場所"], from_std["answer_会社の場所"])   # 標準の文（東京都港区）は流さない
+            self.assertEqual(set(play), set(recordings.CONTRACTOR_PARTS) | {"intro", "answer_会社の場所", "answer_番号の出どころ"})
+            self.assertIsNone(self.tx(s, lambda tx: recordings.play_parts(tx, v, "Leda")))   # 標準の録音が無い声
             with self.w.standard(std[:1], voices=("Leda", "Sadachbia")):            # ほかの標準の版の録音は使わない（あとで作っても）
                 self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v)), ["Sadachbia"])
                 self.assertEqual(self.tx(s, lambda tx: recordings.current_sets(tx, v, "Sadachbia"))["standard"], std_set)
@@ -1807,6 +1821,12 @@ class NameLedger(Content):
         ご修正。CL-1 の phrases.point_fallback_id＝ご質問は前からの名前、ほかは _request・_opinion を続ける）も、この電話と続きの電話の両方で共通の一言。"""
         names = {f"own_fallback_point{again}{kind}" for again in ("", "_again") for kind in ("", "_request", "_opinion")}
         self.assertLessEqual(names, set(recordings.CONTRACTOR_PARTS))
+
+    def test_the_point_anytime_parts_cl1_added_on_11_05_5am_are_received(self):
+        """CL-1 の連絡帳 4-87・4-89（✅ 2026-11-05 日本時間5時20分56秒・5時45分06秒 ユーザー）：ご納得いただけなかった点を言っていただけないまま手順を
+        終えるときに挟む「何か思い出されたりご不満な点がございましたらいつでもお申し出ください。」（point_anytime）と、その短い形（point_anytime_plain）は、
+        どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。"""
+        self.assertLessEqual({"point_anytime", "point_anytime_plain"}, set(recordings.CONTRACTOR_PARTS))
 
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが

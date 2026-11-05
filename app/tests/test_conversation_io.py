@@ -137,84 +137,43 @@ class Materials(SettleBase):
         self.assertTrue(got)
         self.assertEqual(self.tx(s, lambda tx: conversation_io.handlings(tx, s["version"], "Q9")), {})
 
-    def test_earlier_answers_carry_the_other_wish_and_the_hedged_words(self):
-        """CL-1 の連絡帳 4-73：前の通話で取れた答えに、言い切っていない答えのお客様の言葉（"hedged"。言い切っていれば無し）と、その質問に伺った
-        ほかのご希望の結果（"wish"＝その行の通話の事実 other_wish のうち、その質問の最後のもの。結びがあればそれ・結びが無くご連絡の方法があれば
-        means・どちらも無ければ無し）を足す。⛔ 渡していなかった＝前の通話でほかのご希望を言っていただいた最終目的の答えが、続きの通話で
-        「どれも要らない」だけになり、「目的が果たせない」で締めた。"""
+    def test_earlier_answers_carry_the_last_facts_as_written_and_the_hedged_words(self):
+        """前の通話で取れた答え（CL-1 の flowctl.EARLIER_KEYS＝state・value・condition・hedged・wish_fact・point_fact）。"hedged"＝言い切っていない答えの
+        お客様の言葉（言い切っていれば無し。CL-1 の連絡帳 4-73 の (2)）。"wish_fact"・"point_fact"＝その答えを取った通話の報告の通話の事実 other_wish・
+        not_agreed のうち、その質問の最後の1つを、報告に置いた形のまま（無ければ無し）。読み方は会話の側の1か所だけ（✅ CL-2 の連絡帳 4-212 の案2・
+        CL-1 の連絡帳 4-88。⛔ 前は、ここで6つの項目に読み分けて渡し、会話の側の読み方と2か所になっていた＝もう伺った連絡先を伺い直す不具合）。"""
         import dataclasses
         s = self.ready()
         aid = self.answered(s)
         self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた", hedged="たぶん大丈夫です"))
         said = call_report.Said(4, "LINEならいいです。")
-        base = rep()
-
-        def wishes(*w):
-            return dataclasses.replace(base, other_wishes=tuple(call_report.OtherWish(said, "Q1", *x) for x in w)).to_json()
-        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, wishes(("無い", None, None, None, "none"),   # 同じ質問は最後のもの
-                                                                          ("LINEでの連絡", "LINE", "line", None, None))))
-        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])),
-                         {"Q1": {"state": "accepted", "value": "答えた", "condition": "答えた", "hedged": "たぶん大丈夫です",
-                                 "wish": "means", "wish_means": "line"}})   # 連絡先を伺う途中で切れた＝ご連絡の方法は言っていただいた（続きの電話で連絡先を伺う）
-        cases = ((("LINEでの連絡", "LINE", "line", "test_line_id", "means"), "means"), (("無い", None, None, None, "none"), "none"),
-                 ((None, None, None, None, None), None))           # W1 の答えをいただく前に切れた＝入れない
-        for w, want in cases:
-            with self.subTest(want=want):
-                r = self.tx(s, lambda tx: call_report.from_json(wishes(w)))
-                self.assertEqual(r.other_wishes[0].result, want)
+        none = call_report.OtherWish(said, "Q1", "無い", None, None, None, "none")
+        line = call_report.OtherWish(call_report.Said(6, "LINEなら。"), "Q1", "LINEでの連絡", "LINE", "line", "abc_123", "means", "id")
+        heard = call_report.NotAgreed(5, "Q1", "料金のところです。", 1, True, None, False, "料金")
+        other_q = call_report.NotAgreed(7, "Q9", "うーん。", 1, None, None, False, None)
+        first = dataclasses.replace(heard, turn=3, said="うーん。", point=None)
+        other_w = dataclasses.replace(none, question="Q9")
+        # 同じ質問は最後のもの・ほかの質問の事実（最後に並んでいても）は入れない
+        report = dataclasses.replace(rep(), other_wishes=(none, line, other_w), not_agreed=(first, heard, other_q))
+        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, report.to_json()))
+        placed = self.tx(s, lambda tx: tx.one("SELECT report FROM salescall.call_reports WHERE attempt_id = %s", (aid,)))["report"]["facts"]
+        got = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))
+        self.assertEqual(got, {"Q1": {"state": "accepted", "value": "答えた", "condition": "答えた", "hedged": "たぶん大丈夫です",
+                                      "wish_fact": placed["other_wish"][1], "point_fact": placed["not_agreed"][1]}})   # 置いた報告の形のまま
+        self.assertEqual((got["Q1"]["wish_fact"]["contact"], got["Q1"]["wish_fact"]["via"], got["Q1"]["point_fact"]["said"]),
+                         ("abc_123", "id", "料金のところです。"))
         self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 言い切っていれば hedged は無し
         self.assertNotIn("hedged", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"])
-        # 答えを取った通話とは別の通話の報告にあるほかのご希望は付けない（答えを取った通話の報告からだけ読む。⛔ 2026-11-03 夜の見直し：行のすべての
-        # 通話から拾っていた＝別の方と話していた通話の結果を、取り直した答えに付けうる形だった）
+        # 答えを取った通話とは別の通話の報告にある事実は付けない（答えを取った通話の報告からだけ読む。⛔ 2026-11-03 夜の見直し：行のすべての
+        # 通話から拾っていた＝別の方と話していた通話の結果を、取り直した答えに付けうる形だった）。その質問の事実が無ければ鍵ごと入れない
         self.w.move(s, aid, "ending")
         self.w.move(s, aid, "ended")
         later = self.w.insert_claim(s)
         for st in ("dialing", "answered", "in_conversation"):
             self.w.move(s, later, st)
-        self.tx(s, lambda tx: call_report.save(tx, later, rep()))           # あとの通話では、ほかのご希望を伺っていない
+        self.tx(s, lambda tx: call_report.save(tx, later, rep()))           # あとの通話では、ほかのご希望もご承認の手順も伺っていない
         self.write(s, later, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 答えを、あとの通話で取り直した
-        self.assertNotIn("wish", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"])
-
-    def test_earlier_answers_carry_how_far_the_steps_went_and_the_contacts_already_asked(self):
-        """CL-1 の連絡帳 4-80〜4-83（✅ 2026-11-04 日本時間18時16分・19時26分 ユーザー）：前の通話で取れた答えに、その答えを取った通話の報告から
-        (1) ご承認いただけなかったときの手順の進み "point"（事実 not_agreed の最後のものの結び、無ければ heard＝点は伺った）と、手順を伺い終えて
-        いないときのご説明する点 "point_said"（点を伺ったお客様の言葉、無ければ点の値）(2) 連絡先を伺う前に切れたご連絡の方法 "wish_means"（お電話・
-        連絡先を伺えた方法には無い）(3) 伺えた連絡先 "wish_contact" と LINE の伺い方 "wish_via"（連絡先のあるときだけ）を足す。事実が無ければ入れない
-        （点の答えをいただく前に切れた＝続きの電話の始めに伺う）。読み方は報告の形の1か所（会話の側の flowctl.earlier_* と同じ決まり）。"""
-        import dataclasses
-        base = rep()
-
-        def facts(agreed=(), wishes=()):
-            return dataclasses.replace(base, not_agreed=tuple(agreed), other_wishes=tuple(wishes)).to_json()
-
-        def earlier(report):   # 報告は通話ごとに1つ（書き換えられない）ので、場合ごとに通話を作る
-            s = self.ready()
-            aid = self.answered(s)
-            self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 試験の業務の Q1（どの型の質問でも同じ読み方）
-            self.tx(s, lambda tx: conversation_io.save_report(tx, aid, report))
-            return self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]
-        said = call_report.Said(4, "料金のところです。")
-        heard = call_report.NotAgreed(4, "Q1", "料金のところです。", 1, True, None, False, "料金")
-        got = earlier(facts([heard]))
-        self.assertEqual((got["point"], got["point_said"]), ("heard", "料金のところです。"))   # ご説明の途中で切れた
-        cases = (((dataclasses.replace(heard, said=None),), ("heard", "料金")),             # お客様の言葉が無ければ点の値
-                 ((heard, dataclasses.replace(heard, outcome="agreed")), ("agreed", None)),   # 最後のもの・手順を終えていればご説明しない
-                 ((dataclasses.replace(heard, question="Q9"),), (None, None)))              # ほかの質問の事実は入れない
-        for agreed, want in cases:
-            with self.subTest(want=want):
-                got = earlier(facts(agreed))
-                self.assertEqual((got.get("point"), got.get("point_said")), want)
-        line = call_report.OtherWish(said, "Q1", "LINEでの連絡", "LINE", "line", "abc_123", "means", "id")
-        cases = ((line, {"wish": "means", "wish_contact": "abc_123", "wish_via": "id"}),
-                 (dataclasses.replace(line, contact=None, outcome=None, via=None), {"wish": "means", "wish_means": "line"}),
-                 (dataclasses.replace(line, means="phone", value="お電話", contact=None, via=None, outcome=None), {"wish": "means"}),  # お電話は伺わない
-                 (dataclasses.replace(line, means="email", contact="a@example.jp", via=None), {"wish": "means", "wish_contact": "a@example.jp"}),
-                 (dataclasses.replace(line, outcome=None), {"wish": "means", "wish_contact": "abc_123", "wish_via": "id"}),   # 連絡先は伺えた
-                 (dataclasses.replace(line, contact=None, via=None), {"wish": "means"}))   # 伺い終えた（連絡先は無いまま申し伝えた）
-        for w, want in cases:
-            with self.subTest(want=want):
-                got = earlier(facts(wishes=(w,)))
-                self.assertEqual({k: got[k] for k in got if k.startswith("wish")}, want)
+        self.assertEqual(set(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]), {"state", "value", "condition"})
 
     def test_keys_used_keep_only_names_and_fingerprints(self):
         """使ったキーの識別名（CL-1 の 4-67）：名前と値の指紋の頭8桁だけ。同じものは重ねず、前のものは消さない。キーの値らしいものは

@@ -126,6 +126,10 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology", "na
                          "標準の録音の組には標準の版を渡します（共通の一言の組には、どれも渡しません）")
     if unit == "standard":
         _standard_parts(tx, standard_id, parts)
+    if unit == "business" and (common := sorted({p.part for p in parts} & set(CONTRACTOR_PARTS))):
+        # 業務の組に共通の一言の名前を入れない（流す部分を決める `play_parts` が、その名前を共通の一言の組から流すので、入れても流れない＝
+        # 承認した業務の録音が黙って使われない。2026-11-05）
+        raise ValueError(f"業務の録音の組に、共通の一言の名前は入れません（共通の一言の組から流します）：{common}")
     chosen = _chosen_readings(tx, parts, version_id)
     role = name_role if unit == "name_role" else name_key.role if name_key is not None else None
     set_id = tx.one(
@@ -276,7 +280,9 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 # ユーザー）、ご説明できないときの一言のお客様の言ったことの種類ごとの名前（own_fallback_point・own_fallback_point_again のあとに _request＝ご要望・
 # _opinion＝ご意見。ご質問は前からの名前のまま。✅ 11-05 日本時間3時33分11秒 ユーザー：「恐れ入ります。前回お伺いしたご質問(場合によっては「ご要望」「ご意見」)は
 # 私では正確にご説明(お返事・ご回答)できませんので…」。CL-1 の phrases.point_fallback_id。CL-1 の連絡帳には書かれていないが、録音の名前の正本 phrases.RECORDED に
-# あり、CL-1 の比べる試験で見つけた）。CL-1 の試験 test_offline が
+# あり、CL-1 の比べる試験で見つけた）、4-87 の point_anytime（「何か思い出されたりご不満な点がございましたらいつでもお申し出ください。」✅ 11-05 日本時間
+# 5時20分56秒）・4-89 の point_anytime_plain（「ご不満な点がございましたらいつでもお申し出ください。」✅ 5時45分06秒）＝ご納得いただけなかった点を
+# 言っていただけないまま手順を終えるときに挟む一言。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -304,7 +310,8 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "callback_line_how_without_id", "callback_line_how_without_id_2", "callback_line_how_without_sms",
     "callback_line_how_without_sms_2", "callback_line_how_without_email", "callback_line_how_without_email_2",
     "resumed_fallback_lead", "own_fallback_point_again", "gomottomo",
-    "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request", "own_fallback_point_again_opinion")
+    "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request", "own_fallback_point_again_opinion",
+    "point_anytime", "point_anytime_plain")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
@@ -602,6 +609,25 @@ def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | 
         "SELECT unit, set_id FROM salescall.current_recording_sets s WHERE voice_name = %s"
         " AND ((" + _COMMON + ") OR (" + _BUSINESS + ") OR (" + _STANDARD + "))", (voice_name, version_id, version_id))}
     return {"contractor": rows.get("contractor"), "business": rows.get("business"), "standard": rows.get("standard")}
+
+
+def play_parts(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, Part] | None:
+    """その版をその声で話すときに流す部分（名前 → 部分。どの部分をどの組から流すかを決める唯一の場所。流すのは会話の側＝CL-1 の連絡帳 4-88 の
+    4-211）：共通の一言（`CONTRACTOR_PARTS`）はシステムの組、その版が標準から流す答え（`business_settings.standard_parts_of`）は標準の組、ほかの
+    部分は業務の組から（組は `current_sets`）。業務が上書きした標準の問いの答えは、同じ名前が標準の組にもあるが、業務の組から流す（標準の文を
+    流さない）。標準の組にある、その版が使わない答え・上書きした答えは入れない。業務の組に共通の一言の名前は入らない（`create_set` が断る）。
+    話してよい声（`ready_voices`）でない声は None（そろっているかを2か所で決めない。⛔ 2026-11-05 まで、この決まりの1か所が無く、単位ごとの組だけを返していた＝名前で組を選ぶと、上書きした答えに
+    標準の文を流しうる形だった）。"""
+    if voice_name not in ready_voices(tx, version_id):   # そろっているかは話してよい声の1か所（組・部分・承認・読み）
+        return None
+    sets = current_sets(tx, version_id, voice_name)
+    standard = set(business_settings.standard_parts_of(tx, version_id))
+    common, own = parts(tx, sets["contractor"]), parts(tx, sets["business"])
+    from_std = parts(tx, sets["standard"]) if standard else {}
+    out = {k: common[k] for k in CONTRACTOR_PARTS}
+    out.update({k: v for k, v in own.items() if k not in standard})
+    out.update({k: from_std[k] for k in standard})
+    return out
 
 
 def apology_voice(tx: Tx, task_id: UUID) -> str | None:

@@ -270,29 +270,26 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
 
 
 # 前の通話で取れた答えの項目のうち、値のあるときだけ渡すもの（`earlier`。state・value・condition は無くても渡す）
-_EARLIER_IF_ANY = ("hedged", "wish", "wish_means", "wish_contact", "wish_via", "point", "point_said")
+# 前の通話の答えで、値が無ければ入れない項目（入れないこと自体が意味を持つ＝言い切っていた・その質問の事実が無い。会話の側の flowctl.earlier_fact は
+# 無い鍵と null を同じに読むが、渡す形をそろえる）
+_EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact")
 
 
 def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
-    """その行で、前の通話までに取れた答え（質問の番号 → {"state", "value", "condition"} と、あれば "wish"・"hedged"）。続きから聞く電話（目的
-    resume）で、取れた答えの質問を伺わないために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の
-    番号のまま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。項目の名前の正本は会話の側の flowctl.EARLIER_KEYS。
-    - "hedged"：言い切っていない答えのお客様の言葉（項目の値の hedged。言い切っていれば入れない）。はい／いいえの最終目的への言い切っていない
-      お断りは、答えだけでは言い切ったお断りと見分けられないため（CL-1 の連絡帳 4-73 の (2)）。
-    - "wish"：その答えを取った通話（項目の値の attempt_id）で、その質問に伺ったほかのご希望の結果（その通話の会話の報告の通話の事実 other_wish の
-      うち、その質問の最後のものを `call_report.OtherWish.result` で読む。無ければ入れない＝W1 の答えをいただく前に切れた・伺っていない）。会話の側は、
-      ほかのご希望を答えを取った通話でしか伺わない（前の通話の答えには伺い直さない＝CL-1 の Flow._wish_due）。⛔ 2026-11-03 まで渡しておらず、
-      前の通話でほかのご希望（LINE など）を言っていただいた最終目的の答えが、続きの通話で「どれも要らない」だけになり、「目的が果たせない」で
-      締めてその業務をもうかけない形だった（✅ 11-03 日本時間20時48分のご承認＝方法を言っていただいたら断られたとは扱わない。CL-1 の連絡帳 4-73 の (1)）。
-      ⛔ 同じ夜の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
-      答えに、前の通話（別の方と話していた通話）の結果を付けうる形だった。作り直した報告があれば、それを読む（`call_report.load`）。
-    - "wish_means"・"wish_contact"・"wish_via"：同じ other_wish の、連絡先を伺う前に切れたご連絡の方法（`OtherWish.pending_means`）・伺えた連絡先・
-      LINE の伺い方（連絡先があるときだけ）。続きの電話の始めに切れた所から連絡先を伺う・もう伺った連絡先を伺い直さない（CL-1 の連絡帳 4-81 の (2)・
-      4-83 の (1)。✅ 2026-11-04 日本時間19時26分 ユーザー）。
-    - "point"・"point_said"：その答えを取った通話で、その質問（ご承認の質問）に伺った、ご納得いただけなかった点の事実 not_agreed の最後のものの
-      手順の進み（`NotAgreed.progress`）と、続きの電話でご説明する点（`NotAgreed.said_point`）。事実が無ければ入れない＝点の答えをいただく前に切れた
-      （続きの電話の始めに伺う。CL-1 の連絡帳 4-80 の (1)・4-81 の (1)。✅ 2026-11-04 日本時間18時16分・19時26分 ユーザー）。
-    読み方はどれも報告の形の1か所（`call_report.OtherWish`・`NotAgreed` の読み方。会話の側の同じ読み方は CL-1 の flowctl.earlier_*）。"""
+    """その行で、前の通話までに取れた答え（質問の番号 → 会話の側の flowctl.EARLIER_KEYS の形）。続きから聞く電話（目的 resume）で、取れた答えの
+    質問を伺わないため・切れた所から伺うために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の
+    番号のまま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。
+    - "state"・"value"・"condition"：項目の値のまま。
+    - "hedged"：言い切っていない答えのお客様の言葉（項目の値の hedged。言い切っていれば入れない。CL-1 の連絡帳 4-73 の (2)）。
+    - "wish_fact"・"point_fact"：その答えを取った通話（項目の値の attempt_id。作り直した報告があればそれ＝`call_report.load`）の会話の報告の通話の
+      事実 other_wish・not_agreed のうち、その質問の最後の1つを、報告に書く形のまま（`OtherWish.to_json`・`NotAgreed.to_json`＝報告の書き出しと
+      同じ1か所）。無ければ入れない（W1・ご納得いただけなかった点の答えをいただく前に切れた・伺っていない）。どこまで伺えたか・伺えた連絡先・
+      ご説明する点の読み方は、会話の側の1か所だけ（flowctl.earlier_wish_of・earlier_means_of・earlier_point_of・earlier_said_of・
+      earlier_records）で、ここでは読まない（✅ 2026-11-05 CL-2 の連絡帳 4-212 の案2・CL-1 の連絡帳 4-88。⛔ 前は、ここで結果・方法・連絡先・
+      手順の進み・点を読み分けて6つの項目で渡し、会話の側にも同じ読み方があった＝2か所。会話の側が連絡先の方法を別の項目から読み、もう伺った
+      連絡先を伺い直す不具合が出た）。
+    ⛔ 2026-11-03 の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
+    答えに、前の通話（別の方と話していた通話）の事実を付けうる形だった。その答えを取った通話の報告だけを読む。"""
     reports: dict[UUID, call_report.CallReport | None] = {}
     out: dict[str, dict[str, Any]] = {}
     for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged, attempt_id FROM salescall.item_values"
@@ -300,14 +297,12 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
         if r["attempt_id"] not in reports:
             reports[r["attempt_id"]] = call_report.load(tx, r["attempt_id"])
         report = reports[r["attempt_id"]]
-        w = next((w for w in reversed(report.other_wishes) if w.question == r["question_id"]), None) if report else None
-        n = next((n for n in reversed(report.not_agreed) if n.question == r["question_id"]), None) if report else None
-        contact = (w.contact or "").strip() or None if w is not None else None
+        q = r["question_id"]
+        w = next((w for w in reversed(report.other_wishes) if w.question == q), None) if report else None
+        n = next((n for n in reversed(report.not_agreed) if n.question == q), None) if report else None
         item = {"state": r["state"], "value": r["value"], "condition": r["condition"], "hedged": r["hedged"],
-                "wish": w.result if w is not None else None, "wish_means": w.pending_means if w is not None else None,
-                "wish_contact": contact, "wish_via": w.via if contact is not None else None,
-                "point": n.progress if n is not None else None, "point_said": n.said_point if n is not None else None}
-        out[r["question_id"]] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
+                "wish_fact": w.to_json() if w is not None else None, "point_fact": n.to_json() if n is not None else None}
+        out[q] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
     return out
 
 
