@@ -1805,6 +1805,15 @@ class NameLedger(Content):
         self.assertLessEqual(added, set(recordings.CONTRACTOR_PARTS))
         self.assertLessEqual({"C11", "C12"}, business_settings.RESERVED_IDS)
 
+    def test_the_parts_cl1_added_on_11_06_are_received(self):
+        """CL-1 の連絡帳 4-91・4-93・4-94（✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒・11-06 0時44分31秒 ユーザー）：オンラインのご希望を
+        申し伝える一言とその続きの電話の一言・答えの段のかけ直しの一言・返事を待つ一言・待つかかけ直すかを伺う一言は、どの業務でも同じ文の共通の
+        一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。待つかかけ直すかを伺うシステムの質問 H2 は、業務の質問の番号に使えない。"""
+        from salescall.core import business_settings
+        self.assertLessEqual({"wish_told_online", "callback_email_online_again", "callback_later_time_answering", "wait_reply",
+                              "callback_wait_or_later"}, set(recordings.CONTRACTOR_PARTS))
+        self.assertIn("H2", business_settings.RESERVED_IDS)
+
     def test_the_parts_cl1_added_on_11_05_3am_are_received(self):
         """CL-1 の連絡帳 4-85（2026-11-05 日本時間2時45分39秒 ユーザー「残りの9つを直してください」）：続きの電話の始めのご説明が受け皿の文で
         流れるときの「前回お伺いした件ですが、」（resumed_fallback_lead）と、答えを持っていない受け皿の一言（own_fallback_point_again）は、

@@ -285,7 +285,8 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 # 言っていただけないまま手順を終えるときに挟む一言、4-91 の wish_told_online（「オンラインでのご案内のご希望を担当の者に申し伝えます。」）・
 # callback_email_online_again（オンラインでのご案内の件でメールアドレスを伺う前に切れた電話の続きの一言。✅ 11-05 日本時間23時19分06秒 ユーザー
 # 「案でOK」）、4-93 の callback_later_time_answering（答えの段でかけ直しを申し出られたときの「いつ頃おかけ直しさせていただきましょうか？」。
-# ✅ 11-06 日本時間0時44分31秒 ユーザー「(イ) 答えの段のかけ直しすべてで大丈夫」）。CL-1 の試験 test_offline が
+# ✅ 11-06 日本時間0時44分31秒 ユーザー「(イ) 答えの段のかけ直しすべてで大丈夫」）、4-94 の wait_reply（「それではこのままお返事を待って
+# おります。」）・callback_wait_or_later（待つかかけ直すかを1回だけ伺う一言。✅ 11-05 23時19分06秒・23時56分48秒 ユーザー）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -315,7 +316,8 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "resumed_fallback_lead", "own_fallback_point_again", "gomottomo",
     "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request", "own_fallback_point_again_opinion",
     "point_anytime", "point_anytime_plain",
-    "wish_told_online", "callback_email_online_again", "callback_later_time_answering")
+    "wish_told_online", "callback_email_online_again", "callback_later_time_answering",
+    "wait_reply", "callback_wait_or_later")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

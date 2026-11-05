@@ -70,7 +70,7 @@ END = "END"                                       # 分岐の行き先「終わ�
 # CL-1 の連絡帳 4-81 の (4) で足した：C11（LINE の連絡先の伺い方＝ID を伺うか SMS かメールからご招待するか）・C12（SMS でご招待する携帯電話の番号）
 # （✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。SMSかメールを選ばれたら、もし、携帯電話番号やメールを伺っていなければ
 # ここで確認。」）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "M1", "S1", "P1", "R1", "D1", "H1", "N1", "N2", "N3", "W1",
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "M1", "S1", "P1", "R1", "D1", "H1", "H2", "N1", "N2", "N3", "W1",
                           "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",

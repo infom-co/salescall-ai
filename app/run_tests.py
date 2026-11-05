@@ -3224,7 +3224,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '"callback_email", "callback_hurry_again", "callback_hurry_when",', '"callback_email", "callback_hurry_when",',
      ("tests.test_gate.NameLedger.test_the_hurry_ask_and_the_thinking_prompt_cl1_added_on_11_01_are_received",)),
     ("質問の番号に、急いでいる方への伺いの番号 H1 を使える（CL-1 の 4-64 (c)）", _BS,
-     '"D1", "H1", "N1", "N2"', '"D1", "N1", "N2"',
+     '"D1", "H1", "H2", "N1", "N2"', '"D1", "H2", "N1", "N2"',
      ("tests.test_gate.NameLedger.test_the_hurry_ask_and_the_thinking_prompt_cl1_added_on_11_01_are_received",)),
     ("判定が届かず会話AIの読みで締めた断りを、取り消せない決定の候補にしない（もうかけない印の無いお客様にまたかける）",
      "src/salescall/core/call_report.py",
@@ -3457,7 +3457,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '"callback_later_time", "callback_not_agreed", "callback_number",', '"callback_later_time", "callback_number",',
      ("tests.test_gate.NameLedger.test_the_not_agreed_ask_cl1_added_on_11_02_is_received",)),
     ("質問の番号に、ご納得いただけなかった点を伺う番号 N1 を使える（CL-1 の 4-66 (d)）", _BS,
-     '"H1", "N1", "N2"', '"H1", "N2"',
+     '"H2", "N1", "N2"', '"H2", "N2"',
      ("tests.test_gate.NameLedger.test_the_not_agreed_ask_cl1_added_on_11_02_is_received",)),
     ("契約者の単位の録音に、callback_agreed_now が無くても話す（CL-1 の 4-66 のあとの (f)(i)）", "src/salescall/core/recordings.py",
      '"callback_agreed_now", "callback_other_point", "callback_other_point_2", "closing_after_decline", "own_fallback_point",',
@@ -4410,6 +4410,16 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("会話の側へ、お客様が指定していない携帯電話の番号を渡さない", "src/salescall/core/customer_contacts.py",
      '_MOBILE_LABELS = ("mobile", "line")', '_MOBILE_LABELS = ("line",)',
      ("tests.test_import.CustomerContacts.test_the_designated_number_is_dialed_and_the_others_are_only_recorded",)),
+    # ── CL-1 の連絡帳 4-91・4-93・4-94 の共通の一言とシステムの質問 H2
+    ("返事を待つ一言・待つかかけ直すかを伺う一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
+     '    "wait_reply", "callback_wait_or_later")', '    )',
+     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
+    ("待つかかけ直すかを伺うシステムの質問 H2 の番号を、業務の質問の番号に使える", "src/salescall/core/business_settings.py",
+     '"R1", "D1", "H1", "H2", "N1"', '"R1", "D1", "H1", "N1"',
+     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
+    ("オンラインのご希望・答えの段のかけ直しの一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
+     '    "wish_told_online", "callback_email_online_again", "callback_later_time_answering",\n', '',
+     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
 )
 
 
