@@ -5452,7 +5452,7 @@ class BatchJudgeTest(unittest.TestCase):
             return {cid: (Reading("尋ねていない") if "尋ねているか" in q.text or q.facets == () else Reading("ご本人"), None)
                     for cid, q, text, asked, before in items}
         args = N(batch=True, judge=None, judge2="Claude Sonnet 5.5", only=["はい、岡田です。"], repeat=1, pace_s=0.0, budget_yen=10.0, env=None,
-                 batch_poll_s=0.0, asks_only=False)
+                 batch_poll_s=0.0, asks_only=False, hide_names=False)
         with m.patch.object(g, "batch_judge", fake_batch), m.patch("common.load_secret", return_value="x"):
             out = asyncio.run(g.run(args))
         self.assertEqual(len(seen), 2 * len(out["rows"]))                 # 目的のお客様の判定と、尋ねているか
@@ -6990,6 +6990,33 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertEqual(b.replay_parts()["target"], "営業部部長の「おかだ」様はいらっしゃいますでしょうか？")   # 声は読みのまま
         self.assertEqual(f.calling_question.text, b.replay_parts()["target"])   # 流れの制御の持つ質問そのものは変えない
         self.assertEqual(dataclasses.replace(b, target=Target(role="社長")).judge_names(), {})   # お名前の無い呼び方は、そのまま
+
+    def test_judges_can_be_shown_the_target_without_the_name(self):
+        # 本書 18-3 の 10-30 の (5)「案A（ただし、送らなくても正確な判定ができるなら送らない）」：お呼びする方の名前と読みを伏せた形も、判定に見せる
+        # 名前の1か所（instruction.Business.judge_names）で作る＝名前を伏せる形と今の形の比べ（CL-1.md 4-165）を、測りでも本番でも同じ1か所で切り替える
+        import dataclasses
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        from instruction import HIDDEN_TARGET, JUDGE_SEES_TARGET_NAME, Target
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長", full_name="岡田太郎", full_reading="おかだたろう"))
+        self.assertTrue(JUDGE_SEES_TARGET_NAME)   # 決まるまでは今の形（測って、送らなくても正確なら伏せる形にする）
+        self.assertEqual(b.judge_names(), b.judge_names(sees_target=True))
+        hidden = b.judge_names(sees_target=False)
+        f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=hidden)
+        bs = dataclasses.replace(b, target=dataclasses.replace(b.target, successor=True))   # 前の電話で在籍していないと言われた方の後任をお呼びする
+        fs = Flow(bs.questions, opening=bs.replay_parts(), target=bs.replay_parts(), play_recordings=True, judge_names=bs.judge_names(sees_target=False))
+        shown = [f.judge_context()[0].text, f.asks_context()[0].text, f.for_judge(f.confirm_questions["target_confirm"]).text, fs.judge_context()[0].text]
+        self.assertEqual(shown[0], f"営業部部長の{HIDDEN_TARGET}様はいらっしゃいますでしょうか？")
+        for text in shown:   # 呼ぶ一言・尋ねているか・確かめる一言・前任の方の後任をお呼びする一言のどれにも、お名前も読みも残らない
+            self.assertIn(HIDDEN_TARGET, text)
+            self.assertFalse([w for w in ("岡田", "おかだ") if w in text], text)
+        f._to_successor()   # 通話の中で後任の方をお呼びし直す一言（「恐れ入りますが後任のご担当者様は…」）には、もともとお名前が無い
+        self.assertFalse([w for w in ("岡田", "おかだ") if w in f.judge_context()[0].text], f.judge_context()[0].text)
+        self.assertEqual(b.replay_parts()["target"], "営業部部長の「おかだ」様はいらっしゃいますでしょうか？")   # 声は読みのまま
+        kana = dataclasses.replace(b, target=Target(name="おかだ", reading="おかだ", role="営業部部長"))
+        self.assertEqual(kana.judge_names(), {})   # ひらがなのお名前は、今の形ではそのまま
+        self.assertEqual(kana.judge_names(sees_target=False), {"「おかだ」": HIDDEN_TARGET})   # 伏せる形では、ひらがなのお名前も伏せる
+        self.assertEqual(dataclasses.replace(b, target=Target(role="社長")).judge_names(sees_target=False), {})   # お名前の無い呼び方は、伏せるものが無い
 
     def test_seam_cut_continues_the_wave_across_zero(self):
         # G-69 のつなぎ目（g69_vowel_seam.align）：続く言葉は、名前の部分と同じ向きに波が0をまたぐ所で切る＝つなぎ目の1標本の跳びが、0をまたぐ所の
@@ -15300,7 +15327,7 @@ class G73WordsTest(unittest.TestCase):
                     out[cid] = (r, None)
                 return out
             args = N(batch=True, judge=None, judge2="Claude Sonnet 5.5", only=[w["text"] for w in self.WORDS[2:]] + ["はい、岡田です。"], repeat=1,
-                     pace_s=0.0, budget_yen=10.0, env=None, batch_poll_s=0.0, asks_only=False)
+                     pace_s=0.0, budget_yen=10.0, env=None, batch_poll_s=0.0, asks_only=False, hide_names=False)
             with m.patch.object(g, "batch_judge", fake_batch), m.patch("common.load_secret", return_value="x"):
                 out = asyncio.run(g.run(args))
         self.assertEqual(len(out["rows"]), 3)

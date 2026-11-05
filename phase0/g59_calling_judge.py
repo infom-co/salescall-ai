@@ -240,14 +240,15 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
             for t, b, c, s, f in rows]
 
 
-def flows():
-    """測る業務と、2つの流れの制御（ふつうの場面・後任の方をお呼びしたあと）。測る所（run）と送る文の指紋（prompts_fingerprint）の1か所。"""
+def flows(sees_target: bool | None = None):
+    """測る業務と、2つの流れの制御（ふつうの場面・後任の方をお呼びしたあと）。測る所（run）と送る文の指紋（prompts_fingerprint）の1か所。
+    sees_target＝お呼びする方の名前と読みを判定に見せるか（既定は本番の形。False＝名前を伏せる形＝--hide-names・CL-1.md 4-165）。"""
     from flowctl import Flow
     from instruction import Target
     from g22_opening import BUSINESS
     import dataclasses
     b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
-    mk = lambda: Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
+    mk = lambda: Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names(sees_target=sees_target))
     f, fs = mk(), mk()
     fs._to_successor()  # 後任の方をお呼びしたあとの問い（本番と同じ1か所で作り直す）
     return b, f, fs
@@ -258,7 +259,7 @@ def question_of(fl, asked) -> "Question":
     return fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
 
 
-def prompts_fingerprint() -> dict[str, tuple[int, str]]:
+def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int, str]]:
     """判定に送る文（71件の、目的のお客様の判定と尋ねているかの問い合わせの文の全部）の長さと指紋を、問い合わせごとに（0円）。測った文に
     1文字も違わず戻したか・文を変えていないかを確かめる（⛔ 2026-10-30：文をいくつも直して測りが悪くなり、測った中でいちばん良い形に戻すとき、
     その形の写しが作業の場所の外にしか無かった）。
@@ -266,7 +267,7 @@ def prompts_fingerprint() -> dict[str, tuple[int, str]]:
        「お呼びする段の文は変わらない」と記録した ⇒ 尋ねているかの文も出す"""
     import hashlib
     from meaning_judge import prompt_parts
-    b, f, fs = flows()
+    b, f, fs = flows(sees_target)
     target = asks = ""
     for text, _, before, asked, succ, _ in cases(b.target.confirm()):
         fl = fs if succ else f
@@ -278,7 +279,7 @@ def prompts_fingerprint() -> dict[str, tuple[int, str]]:
 
 async def run(args) -> dict:
     from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label, unsure_counts
-    b, f, fs = flows()
+    b, f, fs = flows(False if args.hide_names else None)
     if args.batch:
         # 正しさだけを見る測り：1つの Anthropic の判定を、まとめて送る（meaning_judge.batch_judge。料金は半分・答えまでの秒は測らない）
         name = args.judge2
@@ -439,9 +440,11 @@ def main() -> None:
     p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
     p.add_argument("--asks-only", action="store_true", help="尋ねているかだけを問い合わせる（文が変わったのが尋ねているかだけのとき＝指紋で確かめてから）")
     p.add_argument("--g73-partial", action="store_true", help="試しの言葉（G-73）がそろっていなくても測る（ユーザーがその形で測ると選んだときだけ）")
+    p.add_argument("--hide-names", action="store_true", help="お呼びする方の名前と読みを伏せた形で判定に見せる（名前を伏せる形と今の形の比べ＝CL-1.md 4-165・"
+                                                            "本書 18-3 の 10-30 の (5)。伏せ方は instruction.Business.judge_names の1か所）")
     args = p.parse_args()
     if args.fingerprint:
-        say("判定に送る文：" + "／".join("%s %d 字・指紋 %s" % (name, n, h) for name, (n, h) in prompts_fingerprint().items()))
+        say("判定に送る文：" + "／".join("%s %d 字・指紋 %s" % (name, n, h) for name, (n, h) in prompts_fingerprint(False if args.hide_names else None).items()))
         return
     from g73_system_words import require_complete
     if args.count:

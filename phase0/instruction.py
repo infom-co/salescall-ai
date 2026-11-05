@@ -27,6 +27,11 @@ CUES = {
     "restate": "直前のあなたの発言は、途中で途切れて、相手に届いていません。「失礼いたしました。」と言ってから、同じ内容を最初から、もう一度だけ言ってください。",
 }
 VOICE_TYPES = {"S2": ("Sadachbia", "warm_business"), "S4": ("Sadachbia", "smile"), "L4": ("Leda", "humble_business")}
+# お呼びする方の名前と読みを判定AIへ送るか（判定に見せる名前の1か所 Business.judge_names が読む）。本書 18-3 の 10-30 の (5)「案A（ただし、送らなくても
+# 正確な判定ができるなら送らない）」：送らない形（HIDDEN_TARGET に置き換える）と今の形を測りで比べ、送らなくても正確なら False にする（CL-1.md 4-165）。
+# 決まるまでは今の形（True）。お客様の言葉は聞き取りの文字のまま送る（お客様が名前を言えば、その文字は届く）
+JUDGE_SEES_TARGET_NAME = True
+HIDDEN_TARGET = "（お呼びしている方のお名前）"
 # 見本の試験（台本の読み上げ）のための一文。会話では「言い回しは自然に」と矛盾するので、声の型には入れない
 _READING_ONLY = "言葉は1文字も変えないでください。"
 
@@ -255,17 +260,23 @@ class Business:
         return {unicodedata.normalize("NFKC", n["surface"]): n["reading"] for n in self.names  # 置き換えと同じ読み（quote_in_text）
                 if isinstance(n, dict) and n.get("surface") and n.get("reading")}
 
-    def judge_names(self) -> dict[str, str]:
+    def judge_names(self, sees_target: bool | None = None) -> dict[str, str]:
         """判定（意味の判定・目的のお客様の判定）に見せる名前の形を決める唯一の場所：声で読ませる形（「」でくくった読み＝quote_in_text・
         Target._name）⇒ 書いてあるとおり＋読み（「岡田（おかだ）」）。お客様の言葉は聞き取りの文字（漢字）で届くので、判定には名前を書いて
         あるとおりに見せる（読みも添える）。当てるのは、流れの制御が判定へ質問を渡す1か所（flowctl.Flow.for_judge）。声で流す文は変えない。
         ⛔ 2026-10-29 G-59：判定に見せる質問の文が声の形のまま（「営業部部長の「おかだ」様はいらっしゃいますでしょうか？」）で、Claude Haiku 5.5
            （考えない）は「はい、岡田です。」を3回とも「決められない」、取り次ぎのあとの「お電話代わりました。」を3回とも「決められない」と読んだ
-           （質問の文を「岡田（おかだ）」にすると、どちらも「ご本人」）"""
+           （質問の文を「岡田（おかだ）」にすると、どちらも「ご本人」）
+        sees_target：お呼びする方の名前と読みを見せるか（既定は JUDGE_SEES_TARGET_NAME）。見せない形は、お呼びする方の声の形（ひらがなのお名前も）を
+        HIDDEN_TARGET に置き換える（呼ぶ一言・確かめる一言・後任の方の一言のどれも、for_judge のこの表で置き換わる）＝名前を伏せる形と今の形の比べ
+        （CL-1.md 4-165）も、この1か所で切り替える"""
         from names import hira, quote
+        sees_target = JUDGE_SEES_TARGET_NAME if sees_target is None else sees_target
         out = {quote(r): f"{s}（{r}）" for s, r in self.name_readings().items() if s != r}
         t = self.target
-        if t is not None and t.name and t.name != hira(t.reading):
+        if t is not None and t.name and not sees_target:
+            out[quote(hira(t.reading))] = HIDDEN_TARGET
+        elif t is not None and t.name and t.name != hira(t.reading):
             out[quote(hira(t.reading))] = f"{t.name}（{hira(t.reading)}）"
         return out
 
