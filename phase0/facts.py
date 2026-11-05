@@ -17,7 +17,6 @@
 """
 from __future__ import annotations
 
-import json
 
 PROMPT = (
     "電話でお客様に聞く質問の一覧です。質問ごとに、お客様に事実を伺う質問かを fact に答えてください。\n"
@@ -30,26 +29,18 @@ PROMPT = (
 )
 
 
-def _schema():
-    from google.genai import types
-
-    item = types.Schema(type=types.Type.OBJECT, properties={
-        "no": types.Schema(type=types.Type.INTEGER, description="質問の番号"),
-        "fact": types.Schema(type=types.Type.BOOLEAN, description="お客様に事実を伺う質問か"),
-    }, required=["no", "fact"])
-    return types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)},
-                        required=["items"])
+# 答えの欄（問い合わせは askitems.ask の1か所。Gemini には説明つき・Anthropic には型だけ）
+FIELDS = {"no": ("integer", "質問の番号"), "fact": ("boolean", "お客様に事実を伺う質問か")}
+TOOL = ("facts", "質問ごとの、事実を伺う質問か")
 
 
 def by_model(client, model: str, questions: list[str]) -> list[bool | None]:
-    """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの答え（無ければ None）を返す。"""
-    from google.genai import types
+    """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの答え（無ければ None）を返す。送り先は部品の作りで決まる
+    （Gemini・Anthropic とも同じ文・同じ読み取り＝askitems.ask）。"""
+    from askitems import ask
 
     body = "\n".join(f"{n}：{q}" for n, q in enumerate(questions, 1))
-    r = client.models.generate_content(
-        model=model, contents=PROMPT + body,
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_schema(), temperature=0))
-    return _read_items(json.loads(r.text).get("items", []), questions)
+    return _read_items(ask(client, model, PROMPT + body, FIELDS, tool=TOOL), questions)
 
 
 def _read_items(items: list, questions: list[str]) -> list[bool | None]:
@@ -58,25 +49,9 @@ def _read_items(items: list, questions: list[str]) -> list[bool | None]:
     return [got.get(n) if isinstance(got.get(n), bool) else None for n in range(1, len(questions) + 1)]
 
 
-def by_model_anthropic(client, model: str, questions: list[str]) -> list[bool | None]:
-    """by_model と同じ文（PROMPT）・同じ読み取りを、Anthropic（Claude Haiku 5.5）に、答えの形を指定した道具の呼び出しで返させる（作り手の代わり＝
-    Gemini の Flash が混んでいる間。meanings.by_model_anthropic と同じ作り。✅ 2026-11-03 ユーザー：「Haikuでもいいと言いましたよね。」）。
-    料金は判定と同じ帳簿（meaning_judge.SPEND）。⚠️ temperature は送らない（Haiku 5.5 は断る）。"""
-    from meaning_judge import SPEND
-
-    body = "\n".join(f"{n}：{q}" for n, q in enumerate(questions, 1))
-    item = {"type": "object", "properties": {"no": {"type": "integer"}, "fact": {"type": "boolean"}},
-            "required": ["no", "fact"], "additionalProperties": False}
-    schema = {"type": "object", "properties": {"items": {"type": "array", "items": item}}, "required": ["items"], "additionalProperties": False}
-    SPEND.check()
-    msg = client.messages.create(model=model, max_tokens=4000, messages=[{"role": "user", "content": PROMPT + body}],
-                                 tools=[{"name": "facts", "description": "質問ごとの、事実を伺う質問か", "input_schema": schema, "strict": True}],
-                                 tool_choice={"type": "tool", "name": "facts"})
-    SPEND.add(model, msg.usage)
-    got = next((b.input for b in msg.content if getattr(b, "type", "") == "tool_use"), None)
-    if not isinstance(got, dict):
-        raise ValueError(f"{model} が答えの形で返さなかった（{getattr(msg, 'stop_reason', '')}）")
-    return _read_items(got.get("items", []), questions)
+# Anthropic（Claude Haiku 5.5）に同じ文・同じ読み取りで答えさせる（作り手の代わり＝Gemini の Flash が混んでいる間。meanings.by_model_anthropic と同じ。
+# ✅ 2026-11-03 ユーザー：「Haikuでもいいと言いましたよね。」）。送り方は askitems.ask の1か所（部品の作りで分ける）
+by_model_anthropic = by_model
 
 
 def decide(model_facts: list[bool | None]) -> bool:

@@ -126,6 +126,10 @@ HOW_OF.update({f"callback_line_how_without_{k}": "question" for k in CALLBACK_AS
 HOW_OF.update({f"callback_line_how_without_{k}_2": "question" for k in CALLBACK_ASK_OTHER_WAYS_AGAIN})
 # 資料でご説明できない点の一言は、断らない一言と同じ読み方（2026-11-02）
 HOW_OF.update({**{n: "own_fallback" for n in POINT_FALLBACK}, "resumed_fallback_lead": "own_fallback"})
+# 点を言っていただけないまま手順を終えるときに挟む一言（phrases.POINT_ANYTIME・その後半だけの POINT_ANYTIME_PLAIN。✅ 2026-11-05 日本時間5時20分56秒・5時45分 ユーザー）：
+# お客様のお申し出をいつでもお受けすることを
+# 伝える一言＝断らない一言と同じ読み方（34字＝見込み 4.8秒）
+HOW_OF["point_anytime"] = HOW_OF["point_anytime_plain"] = "own_fallback"
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
@@ -240,12 +244,20 @@ def heard_ok(text: str, heard: dict) -> bool:
     return bool(heard) and all(v is not None and re.fullmatch(pattern, compare_reading(v)) for v in heard.values())
 
 
+def standard_table(answers) -> dict:
+    """システムの標準の想定問答の答えの録音の表 {部分の名前: (言葉, 読み方の鍵)}（answers＝(問いの名前, 答えの文) の並び＝CL-2 の save_standard の answers）。
+    部分の名前は業務の録音と同じ answer_問いの名前（flowctl.ANSWER_PREFIX）・読み方も同じ（answer）。標準の組（CL-2 の create_set の unit="standard"）は、
+    管理者がこの表で作る。業務の録音の表（script_table）は、標準から来た答えを入れない（CL-2 の連絡帳 4-211）。"""
+    from flowctl import ANSWER_PREFIX
+    return {f"{ANSWER_PREFIX}{name}": (text, "answer") for name, text in answers}
+
+
 def script_table(business) -> tuple[dict, dict]:
     """依頼主の単位の録音の表 {中の名前: (言葉, 読み方と長さの上限の鍵)} と、{中の名前: その録音で読んだ名前の読み}。
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, may_wish, other_wish_recording_id, recap_recording_id,
+    from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, may_wish, other_wish_recording_id, recap_recording_id,
                          spoken_question, tell_recording_id)
     from instruction import reading_variants
     from phrases import question_clip
@@ -258,7 +270,10 @@ def script_table(business) -> tuple[dict, dict]:
     # 目的の人を呼ぶ一言・確かめる一言は、電話をかける相手ごとに名前が変わるので、ここではなく名前の録音の台帳（DESIGN.md 4-3）
     parts = business.replay_parts()
     items += [(k, parts[k], k) for k in ("ai", "voicemail", "message", "busy") if parts.get(k)]
-    items += [(k, text, "answer") for k, text in parts.items() if k.startswith("answer_")]  # 想定問答の答え（Business.answers）
+    # 想定問答の答え（Business.answers）。システムの標準から来た答え（Business.standard_answers）は標準の録音の組（standard_table）から流すので、業務の録音には
+    # 入れない（CL-2 の連絡帳 4-211。⛔ それまで、標準の答えまで業務の録音に入れていた）
+    items += [(k, text, "answer") for k, text in parts.items()
+              if k.startswith(ANSWER_PREFIX) and k[len(ANSWER_PREFIX):] not in business.standard_answers]
     for q in business.questions:  # つなぎの言葉と質問を1本で録音する（順番で決まるつなぎの言葉。flowctl.spoken_question）
         if q.reading_of:
             continue  # 名前の読みの確かめは、まず言ってみる読みが相手ごとに変わるので、AIが言う（録音にしない）

@@ -18,6 +18,7 @@ from typing import Callable
 
 import facts
 import meanings
+import target_asks
 import topics
 import unclear
 import units
@@ -97,15 +98,27 @@ def decide_replies(askers: list[Asker], questions: list[tuple[str, tuple]], on_e
     return [meanings.decide_replies(c, [r[i] for r in rows]) for i, (_, c) in enumerate(pairs)]
 
 
-def decide_do_words(askers: list[Asker], questions: list[tuple[str, tuple, dict]], on_error: Callable | None = None) -> list[dict[str, str]]:
-    """(質問の文, 選択肢の並び, その質問の意味の言葉 {選択肢: 意味の言葉}) の並び → 同じ並びで {選択肢: こちらがすることの言葉}
-    （決まらない選択肢は入れない）。CL-2 の DoWordsDecider の形。言葉の向き（打ち消しか）が意味の言葉の向きとそろうときだけ決まる
-    （meanings.decide の meanings。G-72＝2つのモデルがそろって向きを取り違えた）。事実を伺う質問を入れないのは呼ぶ側（CL-2 の取込）。"""
+def _words_with_meaning(askers: list[Asker], questions: list[tuple[str, tuple, dict]], kind: str, on_error: Callable | None) -> list[dict[str, str]]:
+    """選択肢ごとの言葉のうち、意味の言葉と向きをそろえて決める種類（こちらがすること・いまの話の向き）の唯一の決め方：(質問の文, 選択肢の並び,
+    その質問の意味の言葉 {選択肢: 意味の言葉}) の並び → 同じ並びで {選択肢: 言葉}（決まらない選択肢は入れない）。言葉の向き（打ち消しか）が意味の言葉の向きと
+    そろうときだけ決まる（meanings.decide の meanings。G-72＝2つのモデルがそろって向きを取り違えた）。事実を伺う質問を入れないのは呼ぶ側（CL-2 の取込）。"""
     pairs = _pairs(questions)
     if not pairs:
         return []
-    rows = _each(askers, lambda c, m: meanings.by_model(c, m, pairs, "do"), [{}] * len(pairs), on_error)
-    return [meanings.decide(t, c, [r[i] for r in rows], "do", dict(questions[i][2] or {}) or None) for i, (t, c) in enumerate(pairs)]
+    rows = _each(askers, lambda c, m: meanings.by_model(c, m, pairs, kind), [{}] * len(pairs), on_error)
+    return [meanings.decide(t, c, [r[i] for r in rows], kind, dict(questions[i][2] or {}) or None) for i, (t, c) in enumerate(pairs)]
+
+
+def decide_do_words(askers: list[Asker], questions: list[tuple[str, tuple, dict]], on_error: Callable | None = None) -> list[dict[str, str]]:
+    """(質問の文, 選択肢の並び, その質問の意味の言葉) の並び → 同じ並びで {選択肢: こちらがすることの言葉}（Question.do_words）。CL-2 の DoWordsDecider の形。"""
+    return _words_with_meaning(askers, questions, "do", on_error)
+
+
+def decide_doubt_words(askers: list[Asker], questions: list[tuple[str, tuple, dict]], on_error: Callable | None = None) -> list[dict[str, str]]:
+    """(質問の文, 選択肢の並び, その質問の意味の言葉) の並び → 同じ並びで {選択肢: いまの話の向きを伺う言葉}（Question.doubt_words。「（言葉）ということでしょうか？」。
+    ✅ 2026-11-01 日本時間22時31分のご判断＝meanings.DOUBT_PROMPT）。decide_do_words と同じ形（CL-2 の連絡帳 4-199 の (1)。帳面 4-80・4-90）。
+    決まらない選択肢は、会話の側が意味の言葉で「念のため（意味の言葉）でよろしかったでしょうか？」と確かめる（今までの形＝安全側）。"""
+    return _words_with_meaning(askers, questions, "doubt", on_error)
 
 
 def decide_away(askers: list[Asker], questions: list[tuple[str, tuple, dict]], on_error: Callable | None = None) -> list[tuple]:
@@ -122,6 +135,16 @@ def decide_away(askers: list[Asker], questions: list[tuple[str, tuple, dict]], o
     return [meanings.decide_away(c, [r[i] for r in rows]) for i, (_, c, _) in enumerate(items)]
 
 
+def decide_target_asks(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, bool]:
+    """業務の質問の文の並び → 文ごとの「お呼びする方がいらっしゃるかを伺う一文か」（target_asks.decide＝2つのモデルがそろって真のときだけ真。そろわない・答えが
+    無いときは偽＝依頼者が書いたとおり業務の質問のまま。取込で止めない）。真の文は、取込が業務の質問にせず目的のお客様にする（CL-2 の連絡帳 4-203 の (1)）。
+    facts.decide と同じ形（文の並び → 真偽）。"""
+    if not texts:
+        return {}
+    rows = _each(askers, lambda c, m: target_asks.by_model(c, m, texts), [None] * len(texts), on_error)
+    return {t: target_asks.decide([r[i] for r in rows]) for i, t in enumerate(texts)}
+
+
 def decide_unclear(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[str]:
     """(質問の文, 選択肢の並び) の並び → 同じ並びで、ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢の名前（伺う質問でない・決まらないなら空＝
     unclear.decide）。業務の選ぶ質問（はい／いいえ・選択肢）だけを渡すのは呼ぶ側（CL-2 の取込。値を伺う質問は入れない）。答えは Question.unclear_none。
@@ -135,8 +158,13 @@ def decide_unclear(askers: list[Asker], questions: list[tuple[str, tuple]], on_e
 
 # ⚠️ decide_away・decide_unclear は、CL-2 の取込の受け口（business_import.preview）が受けるようになったら、ここに足す（比べる試験 test_shapes_match_cl2_import が
 # 名前のずれを見る。いまの CL-2 の受け口は取り下げた decide_keep_words＝帳面 4-72 で替えていただくよう頼んだ）
+# 決める処理の唯一の一覧（CL-2 の取込 business_import.preview の decide_* の受け口と同じ名前＝試験で比べる）。decide_away・decide_unclear は、CL-2 の受け口が
+# できた（CL-2 の連絡帳 4-212 の (A)。⛔ それまで、この一覧に無く、取込から呼ばれなかった）
 DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
-            "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words}
+            "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words,
+            "decide_away": decide_away, "decide_unclear": decide_unclear,
+            # いまの話の向きを伺う言葉・お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-199 の (1)・4-203 の (1)。⏳ CL-2 の受け口ができるまで CL2_PENDING）
+            "decide_doubt_words": decide_doubt_words, "decide_target_asks": decide_target_asks}
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None) -> dict[str, Callable]:

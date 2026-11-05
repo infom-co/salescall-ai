@@ -137,6 +137,10 @@ class Business:
     # 「answer_問いの名前」）。AIは問いの名前を選ぶだけ（flowctl.Flow._op_replay_opening）。想定問答に無い問いは、下の業務の情報の範囲で、
     # AIが自分の言葉で答える（flowctl.Flow._own_answer）
     answers: list = field(default_factory=list)
+    # 想定問答のうち、システムの標準から来た答えの問いの名前（CL-2 の business_settings.load の Settings.standard_answers。業務が上書きした・業務だけの問答は
+    # 入らない）。標準の答えは標準の録音の組から流す（CL-2 の recordings.current_sets の "standard"＝流す部分の名前 answer_問いの名前は同じ）ので、業務の録音の
+    # 表（make_ack_clips.script_table）には入れない。標準の組の表は make_ack_clips.standard_table。✅ 2026-11-02 管理者 伺い2（CL-2 の連絡帳 4-211）
+    standard_answers: frozenset = frozenset()
     # 業務の情報（Intent.md 5-3 (2) の事業内容・所在地・営業時間・AIが答えてよいこと）：想定問答に無い問いに、AIが自分の言葉で答えるときの
     # 材料（1行に1つ）。ここに無いことは、AIは答えを作らない（「答えを持っていない質問」）。✅ 2026-10-22 ユーザー：「想定外の時はどうするのかを
     # 聞いているんですよ。…人以上の仕組みを作ることが私たちの目的ではないのですか？」
