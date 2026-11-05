@@ -266,16 +266,14 @@ def verbatim(draft: str, knowledge: list[str]) -> bool:
 
 def make_grounder(args, names: tuple[str, ...], state=None):
     """通話の中で使う形：async (知っていること, お客様の言葉, 返す文) -> Verdict | None。names の判定（ふだんは GROUNDERS）に出し、
-    先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。組の中で中身の判定に答えるのは takes_part（ground）の判定だけ
+    先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。組の中で中身の判定に答えるのは members_for（ground）の判定だけ
     （d1-ultra は測っていないので入らない）。判断のモデル（Jev）があれば先に出し、確かな読みが無いときだけほかを出す（意味の判定と同じ1か所＝
     first_of・leads_of）。どれも届かなければ None（呼ぶ側が待つ長さで打ち切り、文は声に出さない）。
     1回ずつの問い合わせは意味の判定と同じ1か所（meaning_judge.routed_call）：道の選び方（直接が止まっていれば緊急の道）・止まった印・知らせは
     state（meaning_judge.RouteState。通話の中では意味の判定の受け持ちと同じもの＝make_judges）。
     ⚠️ 遅れて届いた読みは使わない（声はもう出ている）＝呼ぶ側が通話の事実に残し、通話後の検証が見る。"""
-    from meaning_judge import EMERGENCY_ROUTE, FAILED, OTHER_JUDGES, RouteState, first_of, leads_of, routed_call, takes_part
-    names = [n for n in names if n]
-    if len(names) > 1:
-        names = [n for n in names if takes_part(n, "ground")]
+    from meaning_judge import EMERGENCY_ROUTE, FAILED, OTHER_JUDGES, RouteState, first_of, leads_of, members_for, routed_call
+    names = members_for([n for n in names if n], "ground")   # 組の中で中身の判定に答える判定（意味の判定の組と同じ1か所）
     state = state if state is not None else RouteState()
 
     def urgent_reader(n):
@@ -294,9 +292,11 @@ def make_grounder(args, names: tuple[str, ...], state=None):
             return None if got is FAILED else got
         return go
 
-    async def ground(knowledge, said, draft):
+    async def ground(knowledge, said, draft, release=None):
+        """release＝会話の側が待つのをやめる合図（convo の ground が立てる）：立ったら、持っている読みのうち、いちばん前の順の読みを返す（意味の判定と
+        同じ1か所＝first_of。合図の無い呼び出し＝測りの道具 g63_grounding は、組の既定値 Limits.hold_s まで持つ）。"""
         tried: list[dict] = []
         return await first_of([start(n, d, u, knowledge, said, draft, tried) for n, d, u in readers], lambda v: trusted(v.by, v.sure),
-                              leads=leads_of(names))
+                              leads=leads_of(names), release=release)
     ground.state = state
     return ground

@@ -2941,6 +2941,62 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         old = {k: v for k, v in right.items() if k != END}
         self.assertTrue(t.flow_ok(old, facts | {END: {END_REFUSED}}, acc, r))
 
+    def test_g59_tally_cascade_decides_with_the_production_race(self):
+        # 測りの数え（g59_tally.cascade）は、どの判定で決めるかを本番の組の1か所で決める：顔ぶれ（members_for）・確かな読み（sure_reading）・
+        # 先に出すもの（leads_of）・決め方（Race）。判定ごとの記録（1つの判定で測った結果）の秒で、本番と同じに決め、記録の無い判定（測っていない
+        # Sonnet・まだ流していない Jev）で決まりうる行は、その判定の名前を添えて分けて数える（記録の無い判定の読みを推し量らない）。
+        # ⛔ 2026-11-06 日本時間8時台（EN-C の指摘8）：線を手で渡し、並べた順で線から上かだけを見ていた（届いた秒を見ない）
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        import g59_calling_judge as g
+        import g59_tally as t
+        text, _, before, asked, succ, facts = next(c for c in g.cases("確かめる一言") if not c[2] and c[3] is None and not c[4])
+        right = {k: sorted(v)[0] for k, v in facts.items()}
+        D1, JEV = "d1 Ultra（Liquid）", "Jev 1.14"
+
+        def row(name, s, sure):
+            r = {"text": text, "before": before, "asked": asked, "successor": succ, "rep": 0, "asks_accept": None, "judge2_s": s}
+            if sure is None:   # 確かでない読み（測りの道具は答えに残さない）
+                return r | {"judge2_tried": [{"model": name, "unsure": "決められない", "sure": 0.3, "s": s}]}
+            return r | {"judge2_by": name, "judge2_sure": sure, "judge2_facts": right}
+
+        def count(*files):
+            with tempfile.TemporaryDirectory() as d:
+                names = []
+                for i, rows in enumerate(files):
+                    (Path(d) / f"{i}.json").write_text(json.dumps({"rows": rows}, ensure_ascii=False), encoding="utf-8")
+                    names.append(f"{i}.json")
+                with mock.patch.object(t, "RESULTS", Path(d)):
+                    return t.cascade(names)
+        part = "目的のお客様の判定"
+        got = count([row(D1, 2.5, 0.99)], [row(JEV, 0.1, 0.99)])
+        self.assertEqual(dict(got["決めた判定"]), {(part, JEV): 1})       # d1-ultra は待つ長さに間に合わない＝Jev（指摘8の行）
+        self.assertEqual(dict(got["動きが変わる外れ"]), {})
+        self.assertEqual(dict(count([row(D1, 1.5, 0.99)], [row(JEV, 0.1, 0.99)])["決めた判定"]), {(part, D1): 1})
+        self.assertEqual(dict(count([row(D1, 0.5, 0.99)])["決めた判定"]), {(part, D1): 1})   # Jev の記録が無くても d1-ultra で決まる
+        late = count([row(D1, 2.5, 0.99)])                                    # Jev の記録が無いと決まらない
+        self.assertEqual(dict(late["決めた判定"]), {})
+        self.assertIn(JEV, late["記録が足りない"][0][-1])
+        unsure = count([row(D1, 0.2, None)], [row(JEV, 0.1, None)])          # どちらも確かでない：測っていない Sonnet に回る
+        self.assertEqual(dict(unsure["決めた判定"]), {})
+        self.assertEqual(sum(unsure["記録の無い判定に回る"].values()), 1)
+        self.assertIn("Claude Sonnet 5.5", next(iter(unsure["記録の無い判定に回る"]))[1])
+        with self.assertRaises(SystemExit):                                   # 組の記録（2つ以上の判定）は、判定ごとの記録にならない
+            count([row(D1, 0.5, 0.99), row(JEV, 0.1, 0.99) | {"rep": 1}])
+        # 項目を足す前の記録（電話を終える言葉か・声が届いていない様子かが無い読み）は、足した項目を数えない（g59_calling_judge.facts_ok と同じ
+        # 1か所＝facts_whole）。⛔ 2026-11-06 日本時間8時台に見つけた：数えは「項目の数が正解の表と同じか」を手で見ていて、10-31 の記録の Jev の読みを
+        # 流れの制御の動きが同じなのに外れと数えた（確かめへの返事で13行）
+        from flowctl import END, HEAR
+        old_row = row(D1, 0.5, 0.99)
+        old_row["judge2_facts"] = {k: v for k, v in right.items() if k not in (END, HEAR)}
+        got = count([old_row])
+        self.assertEqual((dict(got["決めた判定"]), dict(got["動きが変わる外れ"])), ({(part, D1): 1}, {}))
+        self.assertTrue(g.facts_whole(old_row["judge2_facts"], facts))
+        self.assertFalse(g.facts_whole({k: v for k, v in right.items() if k != "who"}, facts))   # 流れの制御が使う項目が無い読みは、そろっていない
+
     def test_g59_tally_never_misses_a_change_the_flow_check_finds(self):
         # 数える道具（g59_tally.flow_ok＝流れの制御の決まりを写したもの）は、会話の試し（g59_flow_check＝流れの制御そのもの）で動きが変わる外れを、
         # 「同じ」と数えない（✅ 2026-10-30 ユーザー：「流れの制御の動きが変わる外れの原因と理由が何かを…しっかりと分析した方がいいんじゃないですか？」
@@ -5795,6 +5851,43 @@ class JudgePanelTest(unittest.TestCase):
             won = await first_of([s("d1", 1.0, "D"), s("jev", 0.01, "J"), s("sonnet", 0.01, "S")], lambda g: True, leads=(0, 1), prefer_s=0.4)
             return won, started, round(asyncio.get_running_loop().time() - t, 1)
         self.assertEqual(asyncio.run(late_d1()), ("J", ["d1", "jev"], 0.4))
+
+    def test_recorded_seconds_decide_like_the_running_group(self):
+        # 測りの数えは、記録の秒（判定ごとの答え・失敗が届くまでの秒と、使える答えか）を、本番の組と同じ1か所（meaning_judge.Race）に通して決める
+        # （meaning_judge.race_recorded）。⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘8）：測りの数え（g59_tally.cascade）は、
+        # 並べた順で線から上かだけを見て、届いた秒を見ずに決めていた＝d1-ultra が確か（2.5秒）・Jev が確か（0.1秒）の行を「d1-ultra で決めた」と
+        # 数えた（本番の組は、d1-ultra が会話の側の待つ長さに間に合わないので Jev で決める）
+        from flowctl import Limits
+        from meaning_judge import LEAD_WAIT_S, race_recorded
+        inf = float("inf")
+
+        def won(d1, jev, sonnet=(0.01, True)):
+            got, at, started = race_recorded([d1, jev, sonnet], leads=(0, 1))
+            return got, round(at, 3), started
+        self.assertEqual(won((LEAD_WAIT_S + 0.1, True), (0.01, True)), (0, LEAD_WAIT_S + 0.1, (0, 1)))   # Jev が先でも d1-ultra（Sonnet は出さない）
+        self.assertEqual(won((0.01, True), (0.3, True))[:2], (0, 0.01))                    # d1-ultra が先なら Jev を待たない
+        self.assertEqual(won((0.05, False), (0.01, True))[:2], (1, 0.05))                  # d1-ultra が確かでない・失敗：持っていた Jev
+        self.assertEqual(won((0.02, False), (0.01, False), (0.5, True)), (2, 0.52, (0, 1, 2)))   # どちらも使えない：その時に Sonnet を出す
+        self.assertEqual(won((Limits.hold_s + 0.5, True), (0.1, True))[:2], (1, Limits.hold_s))   # d1-ultra が待つ長さに間に合わない：Jev（指摘8の行）
+        self.assertEqual(won((Limits.hold_s - 0.5, True), (0.1, True))[:2], (0, Limits.hold_s - 0.5))   # 間に合えば d1-ultra
+        self.assertEqual(won((0.5, True), (0.01, False), (0.01, True))[:2], (0, 0.5))      # Sonnet が先に届いても d1-ultra
+        self.assertEqual(won((inf, False), (inf, False), (0.5, True))[:2], (2, Limits.hold_s))   # 先のものが答えない：Sonnet の読みを待つ長さまで持つ
+        self.assertEqual(won((0.1, False), (0.1, False), (inf, False))[0], None)          # どれも答えない
+        # 本番の組（first_of）と同じ1か所を通る：同じ並び・同じ秒なら、同じ番号で決める（届く秒は、実際の時計の揺れより十分に離す）
+        import asyncio
+
+        from meaning_judge import first_of
+
+        def live(runs):
+            def s(i, d, ok):
+                async def go():
+                    await asyncio.sleep(d)
+                    return (i, ok)
+                return go
+            return asyncio.run(first_of([s(i, d, ok) for i, (d, ok) in enumerate(runs)], lambda g: g[1], leads=(0, 1), prefer_s=0.6))[0]
+        for runs in (((0.45, True), (0.05, True), (0.05, True)), ((0.8, True), (0.05, True), (0.05, True)),
+                     ((0.1, False), (0.05, False), (0.1, True)), ((0.35, False), (0.5, True), (0.05, True))):
+            self.assertEqual(live(runs), race_recorded(list(runs), leads=(0, 1), prefer_s=0.6)[0], runs)
 
     def calling(self):
         """お呼びする段の2つの質問と、答えの意味の質問（営業部部長の岡田様をお呼びする試しの業務）。"""
@@ -14926,7 +15019,7 @@ class OwnWordsTest(unittest.TestCase):
             f.limits = dataclasses.replace(f.limits, hold_s=0.1)
             self.heard(f, "今日は暑いですねえ。")
 
-            async def grounder(knowledge, said, draft):
+            async def grounder(knowledge, said, draft, release=None):
                 await asyncio.sleep(delay)
                 return self.verdict(choice)
 
@@ -14948,6 +15041,49 @@ class OwnWordsTest(unittest.TestCase):
         self.assertEqual((r["result"], r.get("say"), [p.get("id") for p in r.get("play") or []], info["grounding"][0].get("late"),
                           info["grounding"][0].get("late_verdict")), ("own_answer", None, ["talk_agree_light"], True, UNGROUNDED))
         self.assertIn(UNCHECKED, r["message"])
+
+    def test_the_call_takes_the_held_reading_when_it_stops_waiting(self):
+        # 待つ長さは会話の側の1か所（flow.limits.hold_s）：会話の側が待つのをやめる時に組へ合図し（meaning_judge.first_of の release）、組が持っている
+        # 読みを受ける（意味の判定と同じ1か所＝convo.RELEASE_GRACE_S）。⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し・EN-C の指摘2・3を
+        # 中身の判定に当てて見つけた）：中身の判定の組は、先に出す Jev がまだ答えていない間、届いた考える Sonnet の読みを組の既定値（Limits.hold_s）まで
+        # 持ち、会話の側は業務の待つ長さで待つのをやめた＝届いていた読みを使わずに「確かめられなかった文」として受け皿へ回した
+        import asyncio
+        import dataclasses
+        import unittest.mock as m
+        from types import SimpleNamespace
+
+        import grounding
+        from convo import check_handler
+        from flowctl import ARG_LABEL, PART_LABEL, TALK_LABEL
+        from grounding import NO_FACT, UNGROUNDED
+        from meaning_judge import RACE
+        args = {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: "本当に暑い日が続いておりますね。",
+                ARG_LABEL["fallback"]: TALK_LABEL["talk_agree_light"]}
+        LEAD = "Jev 1.14"
+
+        def named(name):
+            async def call(knowledge, said, draft):
+                await asyncio.sleep(0.8 if name == LEAD else 0.05)   # Jev は待つ長さに間に合わない・考える Sonnet は間に合う
+                v = self.verdict(UNGROUNDED if name == LEAD else NO_FACT, by=name)
+                v.sure = 0.96 if name == LEAD else None
+                return v
+            return call
+        with m.patch.object(grounding, "make_reader", lambda args, name: named(name)):
+            grounder = grounding.make_grounder(None, RACE)
+        f, b = self.flow()
+        f.limits = dataclasses.replace(f.limits, hold_s=0.5)
+        self.heard(f, "今日は暑いですねえ。")
+
+        async def main():
+            pending = []
+            handle, _, info, _ = check_handler(f, tasks=pending, grounder=grounder)
+            await handle(SimpleNamespace(name="replay_opening", args=dict(args)))
+            if pending:
+                await asyncio.wait(pending, timeout=2)
+            return f.log[-1]["reply"], info
+        r, info = asyncio.run(main())
+        self.assertEqual((r["result"], info["grounding"][0].get("verdict"), info["grounding"][0].get("by"), info["grounding"][0].get("late")),
+                         ("own_answer", NO_FACT, "Claude Sonnet 5.5（考える）", None))
 
 
 class ConvoRunTest(unittest.TestCase):

@@ -217,9 +217,19 @@ def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]
     return sorted({facts_reading(dict(zip(keys, c)), seeks_successor)[0] for c in product(*(facts[k] for k in keys))})
 
 
+ADDED = (END, HEAR)   # あとから足した項目（足す前の記録は、この項目を数えない＝facts_ok・facts_whole の1か所）
+
+
 def facts_ok(got: dict | None, facts: dict[str, set]) -> bool:
     """項目ごとの答え（判定の返事＝Reading.facts）が、項目ごとの正解にどれも当たるか。"""
-    return got is not None and all(got.get(k) in f for k, f in facts.items() if not (k in (END, HEAR) and got.get(k) is None))   # 項目を足す前の記録は、足した項目を数えない
+    return got is not None and all(got.get(k) in f for k, f in facts.items() if not (k in ADDED and got.get(k) is None))   # 項目を足す前の記録は、足した項目を数えない
+
+
+def facts_whole(got: dict | None, facts: dict) -> bool:
+    """項目ごとの答えが、正解の表の項目をそろえて持っているか（足す前の記録は、足した項目 ADDED が無くてもそろっている＝facts_ok と同じ決まり。
+    測りの数え g59_tally が、読みを流れの制御に当てる前に見る1か所）。⛔ 2026-11-06 日本時間8時台に見つけた：数えは「項目の数が正解の表と同じか」を
+    手で見ていて、足す前の記録（10-31 の Jev・d1-ultra）の読みを、流れの制御の動きが同じなのに外れと数えた"""
+    return bool(got) and all(k in got for k in facts if k not in ADDED)
 
 
 def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bool, dict]]:

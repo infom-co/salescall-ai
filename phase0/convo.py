@@ -326,11 +326,17 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             info.setdefault("waited_s", info["waits"][-1]["waited_s"])
             info.setdefault("late", info["waits"][-1]["late"])
 
-    async def ground(draft: str, task, t0: float) -> None:
+    async def ground(draft: str, task, t0: float, release) -> None:
         """答えの文の中身の判定（t0 に出した task）を、出してから待つ長さまで待つ（Flow.grounding_job・on_grounded）。⛔ 2026-10-22 の5回目：
-        言葉で見る確かめは、世間話・お礼まで止め、作り話を通していた（G-63）⇒ 中身で読む。待つ間は「はい、」（報告を待たせるときと同じ相づち）。"""
+        言葉で見る確かめは、世間話・お礼まで止め、作り話を通していた（G-63）⇒ 中身で読む。待つ間は「はい、」（報告を待たせるときと同じ相づち）。
+        待つ長さは会話の側の1か所（flow.limits.hold_s）：切れる時に組へ合図（release）し、組が持っている読みを受ける（意味の判定と同じ＝RELEASE_GRACE_S。
+        ⛔ 2026-11-06 日本時間8時台：中身の判定の組は、先に出す Jev がまだ答えていない間、届いた考える Sonnet の読みを組の既定値まで持ち、会話の側が
+        待つのをやめると、届いていた読みを使わずに受け皿へ回していた）。"""
         info.setdefault("held_ack", "hai")
         done, _ = await asyncio.wait([task], timeout=max(0.0, t0 + flow.limits.hold_s - loop.time()))
+        if task not in done:
+            release.set()
+            done, _ = await asyncio.wait([task], timeout=RELEASE_GRACE_S)
         row = {"draft": draft, "waited_s": round(loop.time() - t0, 3)}
         if task in done and task.exception() is None and task.result() is not None:
             v = task.result()
@@ -352,7 +358,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         midway = not complete()  # AIが、相手の言葉が出揃う前に報告した（Flow.handle の midway）
         # 答えの文の中身の判定は、相手の言葉の確かめ（hold）と同時に出す（順に待つと、待たせる長さが足し算になる）
         job = flow.grounding_job(fc.name, fc.args) if grounder is not None else None
-        grounding = (asyncio.create_task(grounder(*job)), loop.time()) if job is not None else None
+        rel = asyncio.Event()   # 中身の判定の組へ、待つのをやめる合図（ground）
+        grounding = (asyncio.create_task(grounder(*job, release=rel)), loop.time(), rel) if job is not None else None
         if flow.wants_checks(fc.name, fc.args):
             binding = flow.binding(fc.name, fc.args)
             await hold(ear_too=True, every=flow.waits_every(fc.name, fc.args),

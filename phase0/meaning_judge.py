@@ -833,6 +833,13 @@ def takes_part(name: str, kind: str, missing=None) -> bool:
     return stood is not None and missing is not None and bool(missing(stood))
 
 
+def members_for(names, qkind: str, down=lambda name: False) -> list[str]:
+    """組 names のうち、qkind の質問に答える判定（唯一の場所。JudgePanel._parts と測りの数え g59_tally.cascade）：1つだけの組は、その判定。
+    ほかは takes_part（代わりだけの判定 stands_in は、代わる判定が組に無いか、止まっている down(その判定) ときだけ）。"""
+    names = list(names)
+    return [n for n in names if len(names) == 1 or takes_part(n, qkind, lambda s: s not in names or down(s))]
+
+
 # 質問の種類ごとに、止める側だけに使う判定（唯一の場所。JudgePanel）：その質問には自分で答えず、ほかの受け持ち（組）が確かな読みを返さないと
 #    分かった時点で裏で出し、その読みは、組の答えが待つ長さに間に合わない・組が答えられないときに、止める側（黙って待つ・繋ぐのを止める）だけに使う
 #    （NoJudgment の tried の stop_only ⇒ convo が Flow.on_unsure(…, answer=False)）。答えにはしない。
@@ -1598,9 +1605,105 @@ def leads_of(names) -> tuple[int, ...]:
     return tuple(i for i, n in enumerate(names) if decision_model(n))
 
 
+class Race:
+    """組の決め方の唯一の場所（時計を持たない）：本物の時計で動かすのが first_of（本番の組）、記録の秒で動かすのが race_recorded（測りの数え
+    g59_tally）。秒は問い合わせを始めた時からの秒。leads・wait_s・prefer_s（持っておく長さ。上限なしは inf）の意味は first_of と同じ。
+    ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘8）：測りの数え（g59_tally.cascade）は、決め方を手で写し（並べた順で
+    線から上か）、届いた秒を見なかった＝本番の組と違う判定で決めたと数えうる ⇒ 決め方をここへ移し、本番と測りが同じものを動かす。"""
+
+    def __init__(self, n: int, leads=(), wait_s: float = LEAD_WAIT_S, prefer_s: float = float("inf")):
+        self.n = n
+        self.lead_order = [i for i in leads if 0 <= i < n]
+        self.rank = {i: r for r, i in enumerate(self.lead_order)}   # 先に出すものの優先の順（小さいほど優先）
+        self.rest = [i for i in range(n) if i not in self.rank]
+        self.staged = bool(self.lead_order) and bool(self.rest)
+        self.wait_s, self.prefer_s = wait_s, prefer_s
+        self.started: list[int] = []                                # 出した番号（出した順）
+        self.finished: set[int] = set()                             # 答え終えた（使えない答え・失敗を含む）番号
+        self.held: dict = {}                                        # 使える答え（番号 ⇒ 答え。届いた順）
+        self.released = False                                       # 会話の側が待つのをやめた（first_of の release）
+
+    def begin(self) -> tuple[list[int], bool]:
+        """初めに出す番号の並びと、そのときに on_rest を呼ぶか（先に出すものが無い組は初めに呼ぶ・全部が先のものなら呼ばない）。"""
+        first = list(self.lead_order) if self.staged else list(range(self.n))
+        self.started += first
+        return first, not self.lead_order and self.n > 0
+
+    def done(self, i: int, got=None) -> None:
+        """番号 i が答え終えた（got＝使える答え。使えない答え・失敗は None）。"""
+        self.finished.add(i)
+        if got is not None:
+            self.held[i] = got
+
+    def pick(self, now: float):
+        """いま決めてよい番号（無ければ None）：持っている中でいちばん前の順の答え（先に出すものは並びの順・ほかのものは、どれも先に出すものの後ろで、
+        ほかのもの同士は届いた順＝先に出すものが無い組は今までどおり同時に出して早いほう）。それより前の順のものがまだ答えていなければ、待つ長さまで待つ。"""
+        if not self.held:
+            return None
+        mine = [i for i in self.held if i in self.rank]
+        i = min(mine, key=self.rank.get) if mine else next(iter(self.held))
+        top = self.rank.get(i, len(self.lead_order))
+        ahead = [j for j in self.started if j in self.rank and self.rank[j] < top and j not in self.finished]
+        if not ahead or now >= self.prefer_s or self.released:
+            return i                                          # 前の順のものが答え終えた・間に合わない・会話の側が待つのをやめた
+        return None                                           # 前の順（優先）の答えを待つ
+
+    def next(self, now: float) -> tuple[str, object]:
+        """いますること：("won", 番号)・("rest", 出す番号の並び＝on_rest を呼んで出す)・("none", None)＝使える答えが無い・
+        ("wait", 待つ秒の上限（None＝届くまで）)。"""
+        won = self.pick(now)
+        if won is not None:
+            return "won", won
+        pending = [i for i in self.started if i not in self.finished]
+        if self.staged and not self.held and (not pending or now >= self.wait_s):
+            self.staged = False                               # 先のものから使える答えが無い：ほかを同時に出す
+            self.started += self.rest
+            return "rest", list(self.rest)
+        if not pending:
+            return "none", None
+        if self.staged and not self.held:
+            return "wait", max(0.0, self.wait_s - now)
+        if self.held:
+            return "wait", max(0.0, self.prefer_s - now)
+        return "wait", None
+
+
+def race_recorded(runs, leads=(), wait_s: float = LEAD_WAIT_S, prefer_s: float | None = None) -> tuple[int | None, float, tuple[int, ...]]:
+    """記録の秒で組を決める（測りの数え g59_tally の入口。決め方は Race の1か所＝本番の first_of と同じ）：runs＝番号ごとの
+    (答え・失敗が届くまでの秒（その判定を出してから。届かなければ inf）, 使える答えか)。prefer_s の既定は会話の側の待つ長さ Limits.hold_s
+    （測りには会話の側の合図が無い＝合図の無い first_of と同じ。本番の待つ長さは言葉が出揃った時からなので、測りの秒は本番より厳しい側）。
+    同じ秒に届いたものは出した順に受ける（first_of が1回の待ちで受けたときと同じ）。返すのは (決めた番号（無ければ None）, 決めた秒, 出した番号)。"""
+    from flowctl import Limits
+
+    race = Race(len(runs), leads, wait_s, Limits.hold_s if prefer_s is None else prefer_s)
+    now = 0.0
+    first, _ = race.begin()
+    begun = {i: now for i in first}
+    while True:
+        act, arg = race.next(now)
+        if act == "won":
+            return arg, now, tuple(race.started)
+        if act == "rest":
+            begun.update({i: now for i in arg})
+            continue
+        if act == "none":
+            return None, now, tuple(race.started)
+        due = {i: begun[i] + runs[i][0] for i in race.started if i not in race.finished}
+        nxt = min(due.values())
+        limit = float("inf") if arg is None else now + arg
+        if nxt > limit:
+            now = limit
+            continue
+        now = nxt
+        for i in race.started:
+            if i not in race.finished and due[i] == now:
+                race.done(i, True if runs[i][1] else None)
+
+
 async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S, on_rest=None, prefer_s: float | None = None,
                    release=None):
-    """使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める関数の並び
+    """使える答えで決める（本番の組の入口。JudgePanel の受け持ち・grounding.make_grounder。決め方は Race の1か所を本物の時計で動かす＝測りの数えは
+    同じ Race を記録の秒で動かす race_recorded）：starts＝問い合わせを始める関数の並び
     （引数なし・答えを返す）。usable(答え) が真の答えを返し、残りの問い合わせは止める。どれも無ければ None。
     失敗した問い合わせ・None の答えは待たない（ほかの答えを待つ）。
     leads＝先に出すもの（starts の番号。安くて速い判断のモデル＝leads_of）：それだけを同時に先に出し、使える答えが届けばそれで決める（ほかは
@@ -1630,72 +1733,41 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
     t0 = loop.time()
     # 持っておく長さ：会話の側の合図（release）があれば、合図まで（待つ長さは会話の側の1か所＝自分の既定値では切らない）。合図の無い呼び出し（測りの道具・
     # 中身の判定）は、会話の側と同じ既定値 Limits.hold_s
-    prefer_until = t0 + (prefer_s if prefer_s is not None else float("inf") if release is not None else Limits.hold_s)
-    lead_order = [i for i in leads if 0 <= i < len(starts)]
-    rank = {i: r for r, i in enumerate(lead_order)}           # 先に出すものの優先の順（小さいほど優先）
+    race = Race(len(starts), leads, wait_s, prefer_s if prefer_s is not None else float("inf") if release is not None else Limits.hold_s)
     running: dict = {}                                        # 出した問い合わせ（番号 ⇒ 仕事）
-    finished: set = set()                                     # 答え終えた（使えない答え・失敗を含む）番号
-    held: dict = {}                                           # 使える答え（番号 ⇒ 答え。届いた順）
 
     def start(idxs):
         for i in idxs:
             running[i] = asyncio.ensure_future(starts[i]())
 
-    rest_idx = [i for i in range(len(starts)) if i not in rank]
-
-    def pick():
-        """いま決めてよい答え（無ければ None）：持っている中でいちばん前の順の答え（先に出すものは並びの順・ほかのものは、どれも先に出すものの後ろで、
-        ほかのもの同士は届いた順＝先に出すものが無い組は今までどおり同時に出して早いほう）。それより前の順のものがまだ答えていなければ、待つ長さまで待つ。"""
-        if not held:
-            return None
-        mine = [i for i in held if i in rank]
-        i = min(mine, key=rank.get) if mine else next(iter(held))
-        top = rank.get(i, len(lead_order))
-        ahead = [j for j in running if j in rank and rank[j] < top and j not in finished]
-        if not ahead or loop.time() >= prefer_until or (release is not None and release.is_set()):
-            return held[i]                                # 前の順のものが答え終えた・間に合わない
-        return None                                       # 前の順（優先）の答えを待つ
-
     rel = asyncio.ensure_future(release.wait()) if release is not None else None
-    staged = bool(lead_order) and bool(rest_idx)
-    if staged:
-        start(lead_order)
-        deadline = t0 + wait_s
-    else:
-        if not lead_order and on_rest is not None and starts:
-            on_rest()
-        start(range(len(starts)))
+    first, rest_now = race.begin()
+    if rest_now and on_rest is not None:
+        on_rest()
+    start(first)
     try:
         while True:
-            won = pick()
-            if won is not None:
-                return won
-            pending = {f for i, f in running.items() if i not in finished}
-            if staged and not held and (not pending or loop.time() >= deadline):
-                staged = False                                # 先のものから使える答えが無い：ほかを同時に出す
+            race.released = release is not None and release.is_set()
+            act, arg = race.next(loop.time() - t0)
+            if act == "won":
+                return race.held[arg]
+            if act == "rest":                                 # 先のものから使える答えが無い：ほかを同時に出す
                 if on_rest is not None:
                     on_rest()
-                start(rest_idx)
+                start(arg)
                 continue
-            if not pending:
+            if act == "none":
                 return None
-            if staged and not held:
-                timeout = max(0.0, deadline - loop.time())
-            elif held:
-                timeout = max(0.0, prefer_until - loop.time())
-            else:
-                timeout = None
-            done, _ = await asyncio.wait(pending | ({rel} if held and rel is not None else set()), timeout=timeout,
+            pending = {f for i, f in running.items() if i not in race.finished}
+            done, _ = await asyncio.wait(pending | ({rel} if race.held and rel is not None else set()), timeout=arg,
                                          return_when=asyncio.FIRST_COMPLETED)
             for i, f in running.items():
-                if f in done and i not in finished:
-                    finished.add(i)
+                if f in done and i not in race.finished:
                     try:
                         got = f.result()
                     except Exception:
-                        continue
-                    if got is not None and usable(got):
-                        held[i] = got
+                        got = None
+                    race.done(i, got if got is not None and usable(got) else None)
     finally:
         for f in running.values():
             if not f.done():
@@ -1835,8 +1907,8 @@ class JudgePanel(RouteState):
         """受け持ち kind の判定のうち、組の中の分け（takes_part）で qkind の質問に答えるもの（1つだけの受け持ちは、その判定）。代わりだけの
         判定（stands_in）は、代わる判定が組に無いか、止まっている（DOWN_S のあいだ）ときだけ入る。"""
         ms = self.judges[kind]
-        names = {n for n, _ in ms}
-        return [(n, f) for n, f in ms if len(ms) == 1 or takes_part(n, qkind, lambda s: s not in names or self._down(s))]
+        keep = set(members_for([n for n, _ in ms], qkind, self._down))
+        return [(n, f) for n, f in ms if n in keep]
 
     def _own(self, kind: str, qkind: str) -> list:
         """受け持ち kind が qkind の質問に自分で出す判定：組の中の分けのうち、ほかの受け持ちに自分で答える判定があれば、止める側だけの判定
