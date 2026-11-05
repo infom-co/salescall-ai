@@ -52,8 +52,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, attempts, business_rules, calling_hours, gate, health, number_recheck, settings,
-                            spoken_time, target_policy, tasks)
+from salescall.core import (approval, attempts, business_rules, call_report, calling_hours, gate, health, number_recheck,
+                            settings, spoken_time, target_policy, tasks)
 from salescall.core.access import Tx
 from salescall.core.business_rules import Rules
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
@@ -441,32 +441,33 @@ class Numbers:
     sources: tuple[tuple[UUID, UUID], ...] = ()   # お客様が言った番号 → その番号を言われた通話でかけた番号（伺い直す先）
     asked_again: bool = False                  # この行で、前にも番号を伺い直すと決めた（number_recheck.asked_again_before の1か所）
     dial: UUID | None = None                   # いまかける番号（ダッシュボードで直していれば直した番号＝tasks.dial_number の1か所。0179）
+    sub: UUID | None = None                    # サブの番号（直したあと前の番号で話せた番号＝salescall.task_sub_contact の1か所。0182）
     superseded: frozenset[UUID] = frozenset()  # 前にかける番号だった番号（取り込んだ番号・前に直した番号。いまかける番号に替える）
 
 
 def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, recheck: Recheck | None,
-                  cut_off: bool = False, numbers: Numbers = Numbers()) -> Target:
+                  cut_off: bool = False, numbers: Numbers = Numbers(), connected: bool = True) -> Target:
     """次にかける先（番号と発信の目的。1か所。下の _choose）。後任の方を追う印（successor）は、この通話で目的のお客様が後任の方に
     替わった（判定の印）か、かけた電話が後任の方を追う電話だったら、行が終わるまで引き継ぐ（後任の方に繋がったあとも、これからの
     電話は後任のご担当者様をお呼びする。2026-10-22 ユーザー：「基本は後任へつないでもらう」）。決めた番号が、回線の部品に続けて受け付け
-    られなかった番号なら `usable` で替える。"""
-    t = usable(_choose(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off), numbers)
+    られなかった番号なら `usable` で替える。connected＝いまの通話でお客様と話せたか（call_report.talked_in。メインとサブの選び＝`current_dial`）。"""
+    t = usable(_choose(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off), numbers, connected=connected)
     if t.contact_id is not None and (j.detail.get("successor") or dialed.successor):
         return replace(t, successor=True)
     return t
 
 
-def usable(t: Target, numbers: Numbers) -> Target:
+def usable(t: Target, numbers: Numbers, *, connected: bool = True) -> Target:
     """かける番号が、お客様のところで鳴らない電話が続いた番号（番号の欄が「使えない」＝core/health.number_dead：設定
     dial.failed_retry_days の並びの数だけ続いた）なら、その番号へはかけない（1か所。計画書 10-3「無限に再試行しない」。⛔ 見直し15：発信に失敗した電話は行の回数に
     数えないので、前は行が終わらず、同じ番号へかけ続けた）：お客様が言った別の番号（かけない理由の無いもの）があれば、そちらへ（ふつうの電話・続きの電話だけ。
     番号の聞き直し・お詫びは、その番号のお客様へかける電話なので替えない）。無ければ行を終える（number_unusable。番号は記録に
-    残り、依頼者へ渡す）。"""
-    t = current_dial(t, numbers)
+    残り、依頼者へ渡す）。メインの番号が使えなければ、まずサブの番号へ（0182）。"""
+    t = current_dial(t, numbers, connected=connected)
     if t.contact_id is None or t.contact_id not in numbers.unusable:
         return t
     if t.purpose in ("normal", "resume"):
-        for c in numbers.said:
+        for c in ((numbers.sub,) if numbers.sub is not None else ()) + numbers.said:
             if c not in numbers.unusable and c != t.contact_id:
                 return replace(t, contact_id=c)
         # お客様が言った番号に繋がらなかった：その番号を言われた通話の番号へ、番号を伺い直す（同じ行で1回だけ。番号違いの聞き直しと
@@ -485,14 +486,20 @@ def recount_on_switch(window: Window | None, dialed: Target, target: Target, num
     return replace(window, round=0, missed=0)
 
 
-def current_dial(t: Target, numbers: Numbers) -> Target:
+def current_dial(t: Target, numbers: Numbers, *, connected: bool = True) -> Target:
     """かける先が、前にかける番号だった番号（取り込んだ番号・前に直した番号）なら、いまかける番号へ替える（1か所。2026-11-06 ユーザー：
     「新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます」＝直したあとは旧番号へかけない）。替えるのは
     ふつうの電話・続きの電話だけ（`usable` と同じ）。番号の聞き直し（その番号を言われた通話の番号へかける）とお詫び（その番号で電話を
-    受けたお客様へかける）は、その番号のお客様へかける電話なので替えない。"""
-    if t.contact_id is not None and t.contact_id in numbers.superseded and numbers.dial is not None \
-            and t.purpose in ("normal", "resume"):
+    受けたお客様へかける）は、その番号のお客様へかける電話なので替えない。
+    **メインとサブ**（0182。2026-11-06 ユーザー：「話せたら、新番号がメイン、旧番号はサブ」・「かけ直しの約束をしていて、旧番号でつながった
+    場合、新しい番号がつながらないときに元の番号へもかける」）：サブの番号＝直したあと前の番号でお客様と話せた番号。メイン（いまかける
+    番号）にかけて話せなかった（connected が偽）ら、次はサブへ。サブへかけたあとは、話せても話せなくても、次はメインへ。"""
+    if t.contact_id is None or numbers.dial is None or t.purpose not in ("normal", "resume"):
+        return t
+    if t.contact_id in numbers.superseded or t.contact_id == numbers.sub:
         return replace(t, contact_id=numbers.dial)
+    if not connected and numbers.sub is not None and t.contact_id == numbers.dial:
+        return replace(t, contact_id=numbers.sub)
     return t
 
 
@@ -853,8 +860,12 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     dialed_exact = dialed_window is not None and dialed_row["callee_at"] is not None   # 時刻ちょうどの約束の回
     dialed = _dialed_marks(dialed, dialed_row)
     key = j.detail.get("policy_key")
+    connected = attempt_id is None or call_report.talked_in(tx, attempt_id)   # お客様と話せたか（会話の報告の1か所）
+    if attempt_id is not None and connected:
+        tasks.record_sub_number(tx, task_id, attempt_id)   # 直したあと前の番号で話せた ⇒ その番号はサブ（0182）
     numbers = numbers_of(tx, task_id)
-    target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off, numbers=numbers)
+    target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off, numbers=numbers,
+                           connected=connected)
     dialed_window = recount_on_switch(dialed_window, dialed, target, numbers)   # 新しい番号へ移る約束は0から数え直す
     count_at = target.contact_id or dialed.contact_id     # 終えるときは数え方を使わない（いまの番号で数えておく）
     promised = gate.pacing(tx, task_id, contact_id=count_at, promised=True)
@@ -970,7 +981,8 @@ def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
     superseded = frozenset(r["contact_id"] for r in tx.all(   # 前にかける番号だった番号（データベースの1か所＝0181）
         "SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND salescall.task_number_replaced(task_id, contact_id)",
         (task_id,)))
-    return Numbers(unusable, said, sources, number_recheck.asked_again_before(tx, task_id), dial, superseded)
+    sub = tx.one("SELECT salescall.task_sub_contact(%s) AS c", (task_id,))["c"]
+    return Numbers(unusable, said, sources, number_recheck.asked_again_before(tx, task_id), dial=dial, sub=sub, superseded=superseded)
 
 
 def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: datetime, dialed_at: datetime) -> datetime | None:

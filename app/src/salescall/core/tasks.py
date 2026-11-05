@@ -128,6 +128,17 @@ def add_record_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *,
     return contact_id
 
 
+def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
+    """その通話でかけた番号が、前にかける番号だった番号（salescall.task_number_replaced）で、番号を直したあとにかけた通話なら、その番号を
+    サブの番号に記録する（書くのはここだけ。お客様と話せたか＝call_report.talked_in は呼ぶ側＝next_action.after_call が確かめる。0182）。
+    2026-11-06 ユーザー：「話せたら、新番号がメイン、旧番号はサブ」。"""
+    tx.execute(
+        "INSERT INTO salescall.task_sub_numbers (tenant_id, client_id, task_id, contact_id, attempt_id)"
+        " SELECT a.tenant_id, a.client_id, a.task_id, a.contact_id, a.attempt_id FROM salescall.attempts a"
+        " WHERE a.attempt_id = %s AND a.task_id = %s AND a.claimed_at >= salescall.task_count_from(a.task_id)"
+        "   AND salescall.task_number_replaced(a.task_id, a.contact_id)", (attempt_id, task_id))
+
+
 def record_confirmed_reading(tx: Tx, task_id: UUID, which: str, reading: str, *, attempt_id: UUID) -> None:
     """会話の中でお客様に確かめた名前の読みを記録する（which：source＝お客様の会社名／target＝目的のお客様の名前）。
     読みはひらがなに直して持つ（readings.normalize）。読みとして使えなければ ValueError。確かめた通話は、その行の通話だけ

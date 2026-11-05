@@ -2043,6 +2043,23 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.task_number_replaced(p_task uuid, p_contact uuid) RETURNS boolean LANGUAGE sql STABLE"
      " SET search_path = salescall, pg_temp AS $$ SELECT false $$",
      ("tests.test_settle.CountedCalls.test_every_row_count_starts_again_when_the_number_is_fixed",)),
+    ("サブの番号を、前にかける番号だった番号から外さない（0182 の task_number_replaced を 0181 に戻す）",
+     "CREATE OR REPLACE FUNCTION salescall.task_number_replaced(p_task uuid, p_contact uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT p_contact IS DISTINCT FROM salescall.task_dial_contact(p_task)"
+     " AND (p_contact = (SELECT t.contact_id FROM salescall.tasks t WHERE t.task_id = p_task)"
+     " OR EXISTS (SELECT 1 FROM salescall.task_dial_fixes f WHERE f.task_id = p_task AND f.contact_id = p_contact)) $$",
+     ("tests.test_settle.CountedCalls.test_the_old_number_becomes_the_sub_when_we_talk_on_it",)),
+    ("サブの番号を、いつも無いことにする",
+     "CREATE OR REPLACE FUNCTION salescall.task_sub_contact(p_task uuid) RETURNS uuid LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT NULL::uuid $$",
+     ("tests.test_settle.CountedCalls.test_the_old_number_becomes_the_sub_when_we_talk_on_it",)),
+    ("一度かける番号だった記録だけの番号でも、いまかける番号でなければ断る（0179 の守りに戻す）",
+     "CREATE OR REPLACE FUNCTION salescall.dial_number_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ BEGIN IF NEW.contact_id IS NOT NULL AND EXISTS (SELECT 1 FROM salescall.task_numbers n"
+     " WHERE n.task_id = NEW.task_id AND n.contact_id = NEW.contact_id AND n.source = 'record')"
+     " AND NEW.contact_id IS DISTINCT FROM salescall.task_dial_contact(NEW.task_id) THEN"
+     " RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation', CONSTRAINT = 'dial_only_dialable_numbers'; END IF; RETURN NEW; END $$",
+     ("tests.test_import.DialFixes.test_a_number_that_was_once_dialed_can_still_be_called_after_another_fix",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4480,10 +4497,11 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      ("tests.test_import.RowFixes.test_the_dashboard_progress_reads_each_value_from_its_one_place",)),
     # ── かける番号の直し（0179）
     ("電話のあとの番号の選びが、前にかける番号だった番号へかけ続ける", _NEXT,
-     "    t = current_dial(t, numbers)\n", "",
+     "    t = current_dial(t, numbers, connected=connected)\n", "",
      ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
     ("番号の聞き直し・お詫びも、いまかける番号へ替える", _NEXT,
-     '            and t.purpose in ("normal", "resume"):\n', "            and True:\n",
+     '    if t.contact_id is None or numbers.dial is None or t.purpose not in ("normal", "resume"):\n',
+     "    if t.contact_id is None or numbers.dial is None:\n",
      ("tests.test_import.DialFixes.test_the_new_number_is_dialed_and_the_imported_one_is_kept",)),
     ("かける番号を直しても、いまの予定を付け替えない", "src/salescall/core/row_fixes.py",
      '    next_action.after_dial_fix(tx, task_id, cause="ダッシュボードで、かける番号を直した")\n', "",
@@ -4552,6 +4570,27 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("時刻ちょうどの約束の回の本数に、前の番号へかけた1本も数える", _NEXT,
      "({attempts.reached()}) AND ({attempts.in_row_count()}) AS rang", "({attempts.reached()}) AS rang",
      ("tests.test_settle.CountedCalls.test_a_promise_moving_to_the_new_number_counts_its_rounds_again_after_a_call_or_the_gate",)),
+    # ── 元の番号をサブにする（0182。2026-11-06 ユーザー「話せたら、新番号がメイン、旧番号はサブ」）
+    ("メインで話せなくても、サブへかけない", _NEXT,
+     "    if not connected and numbers.sub is not None and t.contact_id == numbers.dial:\n", "    if False:\n",
+     ("tests.test_settle.CountedCalls.test_the_old_number_becomes_the_sub_when_we_talk_on_it",)),
+    ("サブへかけたあとも、メインへ戻らない", _NEXT,
+     "    if t.contact_id in numbers.superseded or t.contact_id == numbers.sub:\n", "    if t.contact_id in numbers.superseded:\n",
+     ("tests.test_settle.CountedCalls.test_the_old_number_becomes_the_sub_when_we_talk_on_it",)),
+    ("前の番号で話せても、サブに記録しない", _NEXT,
+     "        tasks.record_sub_number(tx, task_id, attempt_id)   # 直したあと前の番号で話せた ⇒ その番号はサブ（0182）\n",
+     "        pass\n",
+     ("tests.test_settle.CountedCalls.test_the_old_number_becomes_the_sub_when_we_talk_on_it",)),
+    ("話せたかを見ずに、いつも話せたことにする", _NEXT,
+     "    connected = attempt_id is None or call_report.talked_in(tx, attempt_id)   # お客様と話せたか（会話の報告の1か所）\n",
+     "    connected = True\n",
+     ("tests.test_settle.CountedCalls.test_the_old_number_becomes_the_sub_when_we_talk_on_it",)),
+    ("メインの番号が使えないとき、サブより先にお客様が言った番号へ", _NEXT,
+     "        for c in ((numbers.sub,) if numbers.sub is not None else ()) + numbers.said:\n", "        for c in numbers.said:\n",
+     ("tests.test_settle.CountedCalls.test_a_dead_main_number_goes_to_the_sub_first",)),
+    ("連絡先の番号に、サブの印を出さない", "src/salescall/core/customer_contacts.py",
+     '"dialing": r["dialing"], "sub": r["sub"]}', '"dialing": r["dialing"], "sub": False}',
+     ("tests.test_settle.CountedCalls.test_the_old_number_becomes_the_sub_when_we_talk_on_it",)),
 )
 
 

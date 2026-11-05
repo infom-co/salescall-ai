@@ -796,6 +796,17 @@ class DialFixes(CustomerContacts):
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT count(*) AS n FROM salescall.task_dial_fixes WHERE task_id = %s",
                                                    (task,)))["n"], 0)
 
+    def test_a_number_that_was_once_dialed_can_still_be_called_after_another_fix(self):
+        """番号を2回直しても、前にかける番号だった記録だけの番号（ここでは携帯電話番号）へ、まだかけていない約束の電話をかけられる
+        （データベースの守りは、いままでに一度でもかける番号だった番号を通す＝0182。⛔ 0179 では断った）。"""
+        from tests import support
+        task = self.row(mobile="090-0000-0173", ref="C")
+        mobile = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0173"))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=mobile["contact_id"], cause="試験：約束", promised=True))
+        self.assertEqual(self.plan(task)["contact_id"], mobile["contact_id"])
+
     def test_the_new_number_passes_the_same_checks_and_only_a_person_fixes_it(self):
         """直した番号も取込と同じ確かめ（読めない・発信禁止は断る）。直せるのは管理者か契約者だけ（データベースが守る）。"""
         task = self.row()

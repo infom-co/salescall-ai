@@ -98,10 +98,13 @@ def add_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, origin
 
 
 def now(tx: Tx, task_id: UUID) -> dict[str, Any]:
-    """その行のいまの連絡先：{"numbers": [{phone, label, source, dialing}], "contacts": [{kind, value, service, origin}]}（読むのはここだけ）。
-    dialing＝いまかける番号か（ダッシュボードで直したら、取り込んだ番号は偽＝画面で灰色にする番号。0179）。"""
-    numbers = [{"phone": r["phone_e164"], "label": r["label"], "source": r["source"], "dialing": r["dialing"]} for r in tx.all(
-        "SELECT phone_e164, label, source, contact_id = salescall.task_dial_contact(task_id) AS dialing"
+    """その行のいまの連絡先：{"numbers": [{phone, label, source, dialing, sub}], "contacts": [{kind, value, service, origin}]}（読むのは
+    ここだけ）。dialing＝いまかける番号か（ダッシュボードで直したら、取り込んだ番号は偽＝画面で灰色にする番号。0179）。sub＝サブの番号か
+    （直したあと前の番号でお客様と話せた番号。メインの番号で話せなかったときにかける＝0182）。"""
+    numbers = [{"phone": r["phone_e164"], "label": r["label"], "source": r["source"], "dialing": r["dialing"], "sub": r["sub"]}
+               for r in tx.all(
+        "SELECT phone_e164, label, source, contact_id = salescall.task_dial_contact(task_id) AS dialing,"
+        "       contact_id IS NOT DISTINCT FROM salescall.task_sub_contact(task_id) AS sub"
         " FROM salescall.task_numbers WHERE task_id = %s"
         " ORDER BY source = 'list' DESC, added_at, phone_e164", (task_id,))]
     rows = tx.all("SELECT kind, value, service, origin FROM salescall.task_contacts_now WHERE task_id = %s"

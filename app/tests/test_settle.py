@@ -800,6 +800,39 @@ class CountedCalls(SettleBase):
                 self.assertLessEqual(d.window.round, 1)                      # 前の番号の2回目のままなら2以上
                 self.assertEqual((d.window.repeat, d.window.daily), (w.repeat, w.daily))   # 約束は変えない
 
+    def test_the_old_number_becomes_the_sub_when_we_talk_on_it(self):
+        """番号を直したあと、まず前の番号でかけた約束の電話でお客様と話せたら、前の番号はサブになる（0182）。次はメイン（新しい番号）へ。
+        メインで話せなければサブへ、サブのあとはメインへ（2026-11-06 ユーザー：「話せたら、新番号がメイン、旧番号はサブ」・「かけ直しの
+        約束をしていて、旧番号でつながった場合、新しい番号がつながらないときに元の番号へもかける」）。"""
+        from salescall.core import customer_contacts, row_fixes
+        s = self.ready()
+        old = s["contact"]
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)["contact_id"]
+        now = lambda: self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # noqa: E731
+        at = lambda c: self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now(), contact_id=c, cause="試験：いまかける",   # noqa: E731
+                                                                     promised=True))
+        at(old)                                                                 # まだかけていない約束の電話（前の番号）
+        d = self.settle(s, self.call(s, report=rep(callback=callback("later", time="あとで"))))["decision"]
+        self.assertEqual((d.kind, d.promised, d.target.contact_id), ("call", True, new))       # 話せた ⇒ 次はメイン
+        self.assertEqual(self.tx(s, lambda tx: next_action.numbers_of(tx, s["task"])).sub, old)
+        nums = {n["phone"]: (n["dialing"], n["sub"]) for n in self.tx(s, lambda tx: customer_contacts.now(tx, s["task"]))["numbers"]}
+        self.assertEqual(nums[s["phone"]], (False, True))
+        at(new)
+        d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
+        self.assertEqual((d.kind, d.promised, d.target.contact_id), ("call", True, old))       # メインで話せない ⇒ サブ
+        at(old)
+        d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
+        self.assertEqual((d.kind, d.promised, d.target.contact_id), ("call", True, new))       # サブのあとはメイン
+        # サブへの電話は、新しい番号の回数に数える（前にかける番号だった番号ではない＝0182 で task_number_replaced から外した）
+        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.task_number_replaced(%s, %s) AS r", (s["task"], old))["r"]))
+
+    def test_a_dead_main_number_goes_to_the_sub_first(self):
+        """メインの番号が使えない（鳴らない電話が続いた）ときは、まずサブの番号へ（お客様が言った別の番号より先）。"""
+        main, subn, said = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        n = next_action.Numbers(unusable=frozenset({main}), said=(said,), dial=main, sub=subn)
+        self.assertEqual(next_action.usable(next_action.Target(main), n).contact_id, subn)
+        self.assertEqual(next_action.usable(next_action.Target(main), replace(n, sub=None)).contact_id, said)
+
 class UnusableNumber(SettleBase):
     """回線の部品が番号を受け付けない（発信に失敗＝お客様の電話は鳴っていない）電話は行の回数に数えず、決まった順（設定
     dial.failed_retry_days。初めは [1, 1, 2, 4]＝その日にもう1回・次の日に1回・そのさらに2日後に1回）で同じ番号へかけ直し、計4回続けて
