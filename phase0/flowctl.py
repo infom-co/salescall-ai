@@ -3963,10 +3963,15 @@ class Flow:
             # ⛔ 2026-11-05 日本時間2時台、(a) を入れる途中で流して見つけた：ご説明のあとの「そうなんですね。」に、伺った報告の「はい、」と、ご納得の質問の前の
             # 「はい、」を2回流した）
             return "hai"
-        if result == "hold" and reply.get("back"):
-            return "hai"  # 確かめて戻る方を待つ：「はい、」＋「それではこのままお返事を待っております。」（Flow._hold の back）
-        if result in ("rejected", "hold", "wait", "confirm_target", "callee_asked", "end_trouble", "explain_point"):
-            # 差し戻し・取り次ぎを待つ（相手はいま聞いていない）・相手の言葉の途中・目的の人かを確かめる（どの報告から来ても同じ＝確かめる
+        if result == "hold":
+            # 待つように言われた（取り次ぐ・代わる・理由を言わずに待つ・確かめて戻る。どの段・どの報告から来ても同じ＝Flow._hold の1か所）：「はい、」を
+            # 返してから待つ（確かめて戻る方には、続けて「それではこのままお返事を待っております。」＝_hold の back）。✅ 2026-11-06 日本時間2時28分41秒
+            # ユーザー：「お客様：ちょっと待ってもらえますか。も、黙って待つはおかしいと思いますよ。「はい、」のような相づちがないと失礼です。」
+            # ⛔ それまでは「相手はいま聞いていない」として流さなかった（待つように言ったその時、お客様はまだ電話口でこちらの返事を聞いている）。
+            # 同じ発話にもう待つと返していたら（報告の無いターンの入口 judged_turn のあとに届いた報告など＝_hold の again）、重ねない
+            return None if reply.get("again") else "hai"
+        if result in ("rejected", "wait", "confirm_target", "callee_asked", "end_trouble", "explain_point"):
+            # 差し戻し・相手の言葉の途中・目的の人かを確かめる（どの報告から来ても同じ＝確かめる
             # 一言だけ。聞き返しにもお詫びは重ねない＝✅ 2026-10-22 ユーザーの言い方「おかだ様でお間違えなかったでしょうか？」）・
             # 答えに相手の質問が添えられていた（先に質問に答える。その答えの頭の相づちは、答える操作のほう）・こちらの不具合で終える（お詫びの
             # 一言「恐れ入ります。…」から始まる＝相づちを重ねない）
@@ -4328,7 +4333,7 @@ class Flow:
     def _not_an_answer(self) -> dict | None:
         """意味の判定が、相手の言葉は答えではないと決めた（DESIGN.md 6-8）：答え・言い直しへの返事としては受け取らない（唯一の場所。
         答えの報告・言い直しへの返事の報告・代わった方への名乗りの流し直しが使う）。当たらなければ None。
-        - 取り次ぎを待つように言われた（HOLD）：相手はいま聞いていないので、AIは黙って待つ（差し戻しではない＝張り替えない。相づちも流さない）。
+        - 取り次ぎを待つように言われた（HOLD）：「はい、」の相づちのあと、AIは黙って待つ（差し戻しではない＝張り替えない。相づちは _ack）。
           代わった方が話し始めたら、名乗りを流し直す（その時機は、判定が HANDOVER と決めた発話で、プログラムが受け付ける）
         - 代わった別の人が話し始めた（HANDOVER）：答えではないので差し戻し、名乗りを流し直してもらう
         ⛔ 2026-10-17 G-50：取り次ぎの場面で、代わった方への名乗りの録音を、相手の「少々お待ちください」の直後に流した通話が約4割
@@ -4347,8 +4352,10 @@ class Flow:
         return None
 
     def _hold(self, back: bool = False) -> dict:
-        """取り次ぎを待つように言われた：相手はいま聞いていないので、AIは黙って待つ（唯一の返事。差し戻しではない＝張り替えない。相づちも
-        流さない）。代わった方が話し始めたら、名乗りを流し直す（その時機は、判定が HANDOVER と決めた発話で、プログラムが受け付ける）。"""
+        """待つように言われた：「はい、」の相づち（_ack の1か所）のあと、AIは黙って待つ（唯一の返事。差し戻しではない＝張り替えない）。代わった方が
+        話し始めたら、名乗りを流し直す（その時機は、判定が HANDOVER と決めた発話で、プログラムが受け付ける）。同じ発話にもう待つと返していたら
+        （報告の無いターンの入口 judged_turn のあとに、同じ言葉への報告が届いた など）、相づちも一言も重ねない（again）。"""
+        again = self.holding   # 待つ印は、お客様が新しく話すたびに下ろす（on_callee）＝立っていれば、この発話にもう待つと返した
         said = (self.callee_said or "").strip()[:30]
         # 相手が電話口を離れた理由は決めつけない：呼んでいる段はお取り次ぎ、繋がったあと・目的の人のいない業務は、確かめに行った・ほかの方に代わる
         # のどちらもある（⛔ 2026-10-24 の見直しで見つけた穴：どの場面でも「ほかの人に取り次いでいます」「代わった方が話し始めたら名乗りを流し直す」と
@@ -4368,7 +4375,9 @@ class Flow:
         wait = self.hold_wait = max(wait_seconds(self.callee_said) or 0, self.hold_wait_s)
         reply = {"result": "hold", "silent": True, "hold_wait_s": wait,
                  "message": f"{away}（「{said}」）。答えではありません。何も言わずに、相手がまた話し始めるのを待ってください。{then}"}
-        if back:
+        if again:
+            reply["again"] = True
+        elif back:
             # この電話の間に確かめて・相談して戻る方（HOLD_BACK）：「はい、」＋「それではこのままお返事を待っております。」（共通の一言の録音 wait_reply）を流してから
             # 待つ（待つ長さ・待ちきったときの一言は同じ。✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒 ユーザー（会話2）「(2) …OK」）
             line = [{"kind": "recorded", "id": "wait_reply", "text": WAIT_REPLY}]
@@ -6415,19 +6424,35 @@ class Flow:
             self.end_used_turn = self.callee_turns   # いまの話への答えとも読めた（_topic_first）：会話AIの答えの報告で進む（この発話では当てない）
         return due
 
-    def judged_end(self) -> dict | None:
-        """会話AIが報告しないターンのあと（電話接続側が、判定を待ってから呼ぶ＝convo.check_handler の settle のあと）：判定が電話を終える言葉と読んで
-        いれば、プログラムが締める（✅ 2026-11-01 日本時間17時04分 ユーザー：(a)「OK」＝報告が無くても判定が読めば締める）。決まらない読みに電話を
-        終える寄りがあれば、決まらないときの場面（_end_unsure）。返事は記録に残し、電話接続側は、録音（play）を流し、相づち（ack）を流し、締めて
-        いなければ（ご遠慮の一言・急いでいる方への伺い・受付の方への確かめ・引き止めの一言）返事の知らせ（message）を会話AIへ渡す。"""
+    def judged_turn(self) -> dict | None:
+        """会話AIが報告しないターンのあと（会話AIが声だけで操作を呼ばなかった・待たせたまま終わった・声を止めた・黙った。電話接続側が、判定を待って
+        から呼ぶ＝convo.check_handler の settle のあと）に、判定の読みで動く唯一の入口（会話AIの報告は判定を待つきっかけだけ）。動かないなら None。
+        (1) 電話を終える言葉：判定がそう読んでいれば、プログラムが締める（✅ 2026-11-01 日本時間17時04分 ユーザー：(a)「OK」＝報告が無くても判定が読めば
+            締める）。決まらない読みに電話を終える寄りがあれば、決まらないときの場面（_end_unsure）
+        (2) 待つ・かけ直すの読み（wait_reading）：報告が来たときと同じ1か所（_wait_route）で応じる＝待つように言われたら「はい、」のあと待つ・確かめて
+            戻る方には「はい、それではこのままお返事を待っております。」・あとでかけ直す・決まらなければ1回伺う。この発話にもう返事をしていれば
+            （差し戻し・判定を待たせた返事のほか）当てない。⛔ 2026-11-06 日本時間2時台（2時28分41秒のご指摘「「はい、」のような相づちがないと失礼です」を
+            入れる途中）に見つけた：待つ・かけ直すは報告が来たときしか当てず、会話AIが報告しないと、お客様には無言が続いていた（答えの段では報告を促す
+            知らせも出ない＝unreported_note は答えの読みだけ）。答えの読みは当てない（受け取るのは報告と判定がそろったとき＝unreported_note で促す）
+        返事は記録に残し、電話接続側は、録音（play）を流し、相づち（ack）を流し、締めていなければ（ご遠慮の一言・急いでいる方への伺い・受付の方への
+        確かめ・引き止めの一言・待つ・かけ直し）返事の知らせ（message）を会話AIへ渡す。待つ返事（result hold）なら、待つ長さ（hold_wait_s）のあいだ
+        黙って待つ（報告で受けた待つ返事と同じ）。"""
         due = self._end_due_now()
-        if due is None:
-            return None
-        reply = self._op_request_end({"reason": due, "judged": True})
-        reply["ack"] = self._ack("request_end", {"reason": due}, reply)
+        if due is not None:
+            name, args = "request_end", {"reason": due}
+            reply = self._op_request_end({"reason": due, "judged": True})
+        else:
+            replied = any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait")
+                          for x in self.log)
+            w = None if replied else self._wait_now()
+            reply = self._wait_route(w, self._wait_read()) if w is not None else None
+            if reply is None:
+                return None
+            name, args = "request_callback", {"why": "later", "wait": w}
+        reply["ack"] = self._ack(name, args, reply)
         if reply["ack"]:
             reply["ack_pause_s"] = ack_pause_s(reply["ack"])
-        self.log.append({"op": "judged_end", "args": {"reason": due}, "reply": reply, "callee_turns": self.callee_turns, "phase": self.phase})
+        self.log.append({"op": "judged_turn", "args": args, "reply": reply, "callee_turns": self.callee_turns, "phase": self.phase})
         return reply
 
     def _end_judged(self, reason: str) -> "str | dict":

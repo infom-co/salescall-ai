@@ -144,7 +144,7 @@ def answer_flow(row: tuple):
     f = Flow([q, nxt], play_recordings=True)
     f.use_checks("judge")
     f.on_callee(); f.on_heard(words); f.on_check("judge", _reading(answers[0], ends[0]))
-    r = f.judged_end()
+    r = f.judged_turn()
     if r is None and answers[0].removesuffix(HEDGED) in choices + ("unknown", "refused"):
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": answers[0].removesuffix(HEDGED)})
     elif r is None and "あとで" in words:

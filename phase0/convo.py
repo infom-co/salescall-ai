@@ -702,6 +702,29 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     # 内訳：古いつなぎを閉じる・新しいつなぎを開く・知らせてから声が出る（どこを縮めるかを決めるため）
                     turns[-1]["gap_parts_s"] = {"close": round(opened_at - stopped_at, 2), "open": round(t - opened_at, 2),
                                                 "speak": turn.first_audio_after_s}
+                async def judged(line, i: int, on_tool, settle) -> bool:
+                    """会話AIが報告しないターンのあと（声だけで操作を呼ばなかった・待たせたまま終わった・声を止めた・黙った）：判定を待ってから、判定の読みで
+                    動く1か所（Flow.judged_turn＝電話を終える言葉・待つ／かけ直す）を呼ぶ。返事があれば True（締めの録音・待つ一言は記録から流す＝
+                    deliver_plays）。締めていなければ（ご遠慮の一言・急いでいる方への伺い・受付の方への確かめ・待つ・かけ直し＝録音はプログラムが流した／
+                    引き止めの一言・AIが言う形の一言＝会話AIが言う）、次にすることを会話AIへ知らせる。✅ 2026-11-01 日本時間17時04分 ユーザー：(a)「OK」。
+                    ⛔ 2026-11-01 夜の見直しで見つけた穴：前は、締めたものとして次の台詞へ進み、録音で伺ったことを会話AIに知らせていなかった（会話AIは、
+                    相手の返事が何への返事か分からない）。⛔ 2026-11-06 日本時間2時台：待つ・かけ直すの読みは当てず、黙ったときは呼んでもいなかった"""
+                    if settle is None:
+                        return False
+                    await settle()  # 判定が「答え」と決めたときだけ知らせる（Flow.unreported_note）
+                    if (r := flow.judged_turn()) is None:
+                        return False
+                    if flow.end_reason is None:
+                        if r.get("say"):
+                            start = len(flow.log)
+                            await send_text(s, r["message"])
+                            told = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool,
+                                                      timeout_s=followup_wait_s or 8.0, on_heard=None)
+                            await add_turn(told, {"judged_turn_of": line, "note": r["message"]}, start, i, voice)
+                        else:
+                            await send_note(s, r["message"])
+                    return True
+
                 while restate_next is None and i < len(callee_lines) and flow.phase != "closing":   # 言い直せていなければ、次のつなぎで
                     if swap_before is not None and i == swap_before and sessions == 1:
                         break  # 張り替え：このセッションを閉じて、いまの位置を渡して開き直す
@@ -787,10 +810,15 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         ear_info.pop("_end", None)
                     await add_turn(turn, line, log_start, i, voice)
                     if turn.silent:
-                        # AIが黙った（6-7）：このつなぎを閉じ、いまの位置を渡して開き直し、相手の同じ発話を送り直す（相手は1回しか話していない）。
-                        # 張り替えたあとも黙ったら、こちらの不具合で終える（決めるのは Flow.on_ai_failed の1か所）
                         if ear_info is not None:
                             turns[-1]["ear_check"] = ear_info  # 張り替えたターンの確かめも残す（中身の判定の待ち・遅れを数えるため）
+                        # 判定の読みで返事ができれば（待つように言われた・電話を終える言葉）、AIが黙っていても、その返事で続ける（報告の無いターンの1か所。
+                        # 本番は、電話接続側の黙る間の見張りが、つなぎの一言を流す前に同じ入口を呼ぶ＝CL-1.md 4-95）
+                        if await judged(line, i, on_tool, settle):
+                            i += 1
+                            continue
+                        # AIが黙った（6-7）：このつなぎを閉じ、いまの位置を渡して開き直し、相手の同じ発話を送り直す（相手は1回しか話していない）。
+                        # 張り替えたあとも黙ったら、こちらの不具合で終える（決めるのは Flow.on_ai_failed の1か所）
                         if ai_failed("声も報告も無いまま黙った", i):
                             replay = i
                         break
@@ -837,25 +865,10 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     waited = bool(ops) and ops[-1]["reply"].get("result") in ("wait", "noted", "hold")
                     # 流さなかったAIの声（Flow.speech_allowed）：受け付けた報告が無ければ、報告し直すように知らせる（決めるのは Flow.unreported_note）
                     muted = any(t.get("muted") and t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
-                    if (spoke and not ops or waited or muted) and settle is not None:
-                        await settle()  # 判定が「答え」と決めたときだけ知らせる（Flow.unreported_note）
-                        if (r := flow.judged_end()) is not None:
-                            # 判定が電話を終える言葉と読んだ：会話AIが報告しなくても、プログラムが締める（締めの録音は記録から流す＝deliver_plays。
-                            # ✅ 2026-11-01 日本時間17時04分 ユーザー：(a)「OK」）。締めたら、このあとの台詞は送らない（flow.phase が closing）。
-                            # 締めていなければ（ご遠慮の一言・急いでいる方への伺い・受付の方への確かめ＝録音はプログラムが流した／引き止めの一言＝
-                            # 会話AIが言う）、次にすることを会話AIへ知らせる。⛔ 2026-11-01 夜の見直しで見つけた穴：前は、締めたものとして次の
-                            # 台詞へ進み、録音で伺ったことを会話AIに知らせていなかった（会話AIは、相手の返事が何への返事か分からない）
-                            if flow.end_reason is None:
-                                if r.get("say"):
-                                    log_start = len(flow.log)
-                                    await send_text(s, r["message"])
-                                    told = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool,
-                                                              timeout_s=followup_wait_s or 8.0, on_heard=None)
-                                    await add_turn(told, {"judged_end_of": line, "note": r["message"]}, log_start, i, voice)
-                                else:
-                                    await send_note(s, r["message"])
-                            i += 1
-                            continue
+                    if (spoke and not ops or waited or muted) and await judged(line, i, on_tool, settle):
+                        # 判定の読みで返事をした（電話を終える言葉・待つ／かけ直す）：締めたら、このあとの台詞は送らない（flow.phase が closing）
+                        i += 1
+                        continue
                     if (spoke and not ops or waited or muted) and (note := flow.unreported_note(muted=muted)):
                         # AIが声は出したのに、報告なしでターンを終えた：報告を促す（流れの制御が決める。1つの相手の発話に1回まで）。
                         # 本番では、この知らせへのAIの声のうち、報告より前のものは相手に流さない（電話接続側）。試験では記録だけする
