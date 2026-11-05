@@ -267,6 +267,13 @@ def _contacts_heard(tx: Tx, attempt_id: UUID, report: call_report.CallReport) ->
         customer_contacts.from_report(tx, task["task_id"], attempt_id, report)
 
 
+def known_contacts(tx: Tx, task_id: UUID) -> dict[str, str]:
+    """その行（お客様リストの1行）で、もう分かっている連絡先（会話の側の連絡先の役目 → 値。customer_contacts.by_role の1か所）。お客様リストに
+    書かれていた・ダッシュボードで直した・前の通話で伺えた連絡先。会話の側は、これを重ねて伺わない（取得済みのことを重ねて聞かない＝計画書 9-3。
+    CL-1 の連絡帳 4-92 の (5)）。"""
+    return customer_contacts.by_role(tx, task_id)
+
+
 def save_rebuilt_report(tx: Tx, attempt_id: UUID, raw: Any, *, evidence: str) -> int:
     """通話の録音から作り直した報告を置く（通話後の検証が呼ぶ。「判定できない」の通話を判定し直すため）。作り直しの番号を返す。"""
     report = call_report.from_json(raw)

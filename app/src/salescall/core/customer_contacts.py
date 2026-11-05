@@ -107,9 +107,27 @@ def now(tx: Tx, task_id: UUID) -> dict[str, Any]:
     return {"numbers": numbers, "contacts": [dict(r) for r in rows]}
 
 
+# 連絡先の種類 → 会話の側の連絡先の役目（flowctl.CONTACT_ROLES・LINE_HOW の役目。重ねて伺わない＝flowctl.known_contact。CL-1 の連絡帳 4-92 の (5)）
+_ROLE_OF_KIND = {"email": "email", "fax": "fax", "address": "address", "line_id": "line"}
+_MOBILE_LABELS = ("mobile", "line")   # 携帯電話の番号の役目（SMS でご招待する番号）に当たる記録だけの番号の名札
+
+
+def by_role(tx: Tx, task_id: UUID) -> dict[str, str]:
+    """その行のいまの連絡先を、会話の側の連絡先の役目の名前で（line＝LINE の ID・mobile＝携帯電話の番号・email・fax・address）。会話の側が、
+    分かっている連絡先を重ねて伺わないために読む（読み方は `now` の1か所。携帯電話の番号は、かけない番号のうち携帯電話・LINE のご招待の番号の
+    いちばん新しいもの、無ければ、お客様が指定した番号が携帯電話の番号のとき、その番号）。オンライン面談用の ID は、会話で伺う連絡先ではない。"""
+    got = now(tx, task_id)
+    out = {_ROLE_OF_KIND[c["kind"]]: c["value"] for c in got["contacts"] if c["kind"] in _ROLE_OF_KIND}
+    phones = [n for n in got["numbers"] if n["label"] in _MOBILE_LABELS] or \
+             [n for n in got["numbers"] if n["label"] == "designated" and normalize(n["phone"]).kind == "mobile"]
+    if phones:
+        out["mobile"] = phones[-1]["phone"]
+    return out
+
+
 # 通話で伺えた連絡先（会話の報告の事実）→ 連絡先の種類。ほかのご希望のご連絡の方法（other_wish の means・LINE は via）と、
 # かけ直しの申し出で伺えた宛先（callback の means）。郵送＝住所。伝言（message）は連絡先ではない
-_WISH_KIND = {"email": "email", "fax": "fax", "post": "address"}
+_WISH_KIND = {"email": "email", "fax": "fax", "post": "address", "online": "email"}   # オンライン＝ご案内の URL をお送りするメールアドレス（4-91）
 _LINE_VIA_KIND = {"id": "line_id", "email": "email"}
 _CALLBACK_KIND = {"email": "email", "fax": "fax", "address": "address"}
 

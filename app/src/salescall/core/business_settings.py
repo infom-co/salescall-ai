@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
@@ -105,7 +106,8 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none", "doubt_words"}
+                 "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none", "doubt_words",
+                 "asks_way"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -156,6 +158,19 @@ def doubt_words_ok(words: str) -> bool:
 
 # 選択肢ごとの言葉の種類ごとの形の決まり（1か所。業務設定の確かめ `_answer_words` と、取込の AI の答えの受け取り `valid_answer_words` が使う）
 WORD_FORMS = {"do": do_words_ok, "doubt": doubt_words_ok}
+
+# ご連絡の方法の言葉（会話の側の flowctl.WISH_MEANS の、方法 → その方法の言葉＝大文字にそろえて含むかを見る。CL-1 の連絡帳 4-91。⚠️ 会話の側と同じ
+# 写し＝CL-1 の比べる試験が文字まで比べる）。業務の「ご案内できる方法」の名前は、どれも方法がちょうど1つに当たるものだけ（`means_in` の1か所。
+# 当たらない名前は会話で言わない＝その方法の連絡先を伺えない）
+MEANS_WORDS = {"line": ("LINE", "ライン"), "email": ("メール", "MAIL"), "fax": ("ファクス", "ファックス", "FAX"), "post": ("郵送", "郵便"),
+               "phone": ("電話", "TEL"),
+               "online": ("オンライン", "ZOOM", "ズーム", "TEAMS", "チームズ", "GOOGLE MEET", "WEB会議", "ウェブ会議", "ビデオ通話")}
+
+
+def means_in(text: str) -> list[str]:
+    """名前に言葉の入っているご連絡の方法（MEANS_WORDS の鍵。並びのまま）。会話の側の flowctl.means_in と同じ決まり（NFKC で大文字にそろえて含むか）。"""
+    t = unicodedata.normalize("NFKC", text).upper()
+    return [k for k, words in MEANS_WORDS.items() if any(w in t for w in words)]
 
 
 # 業務の録音の部分の名前は、会話の側が、質問の番号やシステムの名前の後ろに「_」と何かを続けて作る（CL-1 の make_ack_clips.script_table：日によって
@@ -288,6 +303,10 @@ class Question:
     # いいということでしょうか？」のような流れが普通じゃないですか？」）。無い選択肢は「念のため（意味の言葉）でよろしいでしょうか？」。決めるのは取込の
     # ときの文字の AI 2つ（CL-1 の import_ai.decide_doubt_words。人は確かめない）。事実を伺う質問には付けない（do_words と同じ。CL-1 の連絡帳 4-90）
     doubt_words: dict[str, str] = field(default_factory=dict)
+    # ご案内の方法（お電話・ご訪問・説明会・オンラインの面談 など）でご案内してよいかを伺う質問か（会話の側の Question.asks_way。CL-1 の連絡帳 4-91）。
+    # 決めるのは取込のときの文字の AI 2つ（CL-1 の import_ai.decide_ways。そろって真のときだけ真＝人は確かめない）。真の、はい／いいえの質問では、
+    # 言い切っていないお断りのあとのほかのご希望（W1）で、業務の「ご案内できる方法」を申し出る（`Settings.offer_ways_of` の1か所で渡す）
+    asks_way: bool = False
 
 
 @dataclass(frozen=True)
@@ -382,6 +401,9 @@ class Settings:
     goal_mode: str | None = None
     # 最短の日（「N営業日以降」）。質問の文か入る一言に `DAY_SLOT` を書いた業務だけ書く（必ず書く）。ほかは None
     earliest: Earliest | None = None
+    # ご案内できる方法（お客様に言う名前のまま。例 ("メール", "LINE", "ZOOM")。業務で1つ。無くてもよい。CL-1 の連絡帳 4-91 の (1)＝✅ 2026-11-05
+    # 日本時間23時19分06秒 ユーザー「案でOK」）。どの名前も、ご連絡の方法がちょうど1つに当たる（`means_in`）。質問ごとに渡すのは `offer_ways_of`
+    offer_ways: tuple[str, ...] = ()
     # 重ねた標準の版（0174。無ければ None＝標準を使わない前の版）と、answers のうち標準から来た問いの名前（業務が上書きしていない・
     # 「使わない」にしていないもの。録音は標準の録音＝`standard_parts`。業務の録音には入れない＝`own_answers`）
     standard_id: UUID | None = None
@@ -395,6 +417,11 @@ class Settings:
         return TargetNeeds(name=kind in ("name", "role_and_name"),
                            role=kind in ("role", "role_and_name") and role is None)
 
+    def offer_ways_of(self, question: Question) -> tuple[str, ...]:
+        """その質問で申し出るご案内の方法（会話の側の Question.offer_ways に渡すもの。決めるのはここだけ）：ご案内の方法を伺う質問なら業務の
+        「ご案内できる方法」、ほかの質問は無し（業務の欄は業務で1つ＝質問ごとに写して持たない）。"""
+        return self.offer_ways if question.asks_way else ()
+
 
 KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voicemail_message", "ai_answer", "answers", "voice",
         "questions", "names", "rules"}
@@ -402,7 +429,7 @@ KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voic
 # （CL-1 の連絡帳 4-28）。書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
-OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest", "answers_off"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
+OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest", "answers_off", "offer_ways"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
 #                                                                 4-65 の (c)。goal_mode＝最終目的の果たし方。最終目的が2つ以上の業務だけ書く。
 #                                                                 earliest＝最短の日。DAY_SLOT を書いた業務だけ書く。4-71 の (c)。answers_off＝使わない
 #                                                                 標準の想定問答の問いの名前＝業務の上書き。0174）
@@ -820,6 +847,8 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                 problems.append(f"{where}の単位は、数の型（{UNIT_TYPE}）の質問だけが持てます")
             if not isinstance(q["asks_fact"], bool):
                 problems.append(f"{where}の事実を伺う質問か（asks_fact）は true / false です")
+            if not isinstance(q["asks_way"], bool):
+                problems.append(f"{where}のご案内の方法を伺う質問か（asks_way）は true / false です")
             do_words = _answer_words(q["do_words"], q["type"], choices, where, problems, replies=False, what="こちらがすることの言葉",
                                      form="do")
             doubt_words = _answer_words(q["doubt_words"], q["type"], choices, where, problems, replies=False,
@@ -857,7 +886,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 q["type"], bool(q["required"]), choices, unit, meanings, replies,
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
-                                q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words)
+                                q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words, q["asks_way"] is True)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -881,11 +910,13 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
     elif goals < 2 and goal_mode is not None:
         problems.append("最終目的の申し出が1つ以下なので、最終目的の果たし方（goal_mode）は書きません（どちらでも同じ）")
     earliest = _earliest(raw.get("earliest"), problems)
+    offer_ways = _offer_ways(raw.get("offer_ways"), problems)
     problems += _day_slot_problems(raw, earliest is not None or raw.get("earliest") is not None)
     problems += _derived_part_problems(raw)
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
                  **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest,
+                 offer_ways=offer_ways,
                  standard_id=standard.standard_id, standard_answers=from_standard)
     if flowed:
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
@@ -895,6 +926,27 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
     if problems:
         raise SettingsInvalid(problems)
     return s
+
+
+def _offer_ways(raw: Any, problems: list[str]) -> tuple[str, ...]:
+    """業務の「ご案内できる方法」（無ければ空）。どの名前も、ご連絡の方法がちょうど1つに当たり（`means_in`）、同じ方法を2つ書かない
+    （会話の側は当たらない名前・同じ方法の2つ目を言わない＝伺えない方法を書いたままにしない。CL-1 の連絡帳 4-91 の (1)）。"""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not all(isinstance(x, str) and x.strip() for x in raw):
+        problems.append("ご案内できる方法（offer_ways）は、名前の並びです")
+        return ()
+    seen: dict[str, str] = {}
+    for name in raw:
+        found = means_in(name)
+        if len(found) != 1:
+            problems.append(f"ご案内できる方法「{name}」は、ご連絡の方法（メール・LINE・ファクス・郵送・お電話・オンライン（ZOOM など））の"
+                            f"どれか1つが分かる名前にします{'（' + '・'.join(found) + ' の2つ以上に当たります）' if found else ''}")
+        elif found[0] in seen:
+            problems.append(f"ご案内できる方法「{name}」は「{seen[found[0]]}」と同じ方法です（1つの方法は1つだけ書きます）")
+        else:
+            seen[found[0]] = name
+    return tuple(x.strip() for x in raw)
 
 
 def _declines(raw: Any, type_name: str, choices: tuple[str, ...], where: str, problems: list[str]) -> tuple[str, ...] | None:
@@ -1347,6 +1399,8 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     - その答えのあとに伝える一言（tell_words。2026-11-03 に足した＝CL-1 の連絡帳 4-72 の (i)）が無い前の版の質問は、無い（空の表）として読む。
     - ここで終える答え（ends_on。2026-11-04 に足した＝CL-1 の連絡帳 4-74）が無い前の版の質問は、無い（空）として読む。
     - ほかに分からない点は無いにあたる答え（unclear_none。2026-11-05 に足した＝CL-1 の連絡帳 4-82）が無い前の版の質問は、無い（空＝伺う）として読む。
+    - いまの話の向きを伺う言葉（doubt_words。2026-11-05＝4-90）・ご案内の方法を伺う質問か（asks_way。2026-11-06＝4-91）が無い前の版の質問は、無い（空・偽）として
+      読む。ご案内できる方法（offer_ways）は無くてもよい項目なので、前の版はそのまま（無い）。
     - 分岐（next）は、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える（前の版も同じ1か所）。
     - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
       無いとして読む（会話の側は「それでは（言葉）ね？」で言うので、そのままでは文にならない。無い選択肢は、会話の側が意味の言葉で
@@ -1359,7 +1413,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
         return dict(content, rules=rules)
     added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
              "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "",
-             "doubt_words": {}}
+             "doubt_words": {}, "asks_way": False}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:

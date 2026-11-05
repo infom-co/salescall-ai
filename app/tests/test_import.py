@@ -13,7 +13,7 @@ import threading
 import unittest
 from unittest import mock
 
-from salescall.core import business_settings, customer_contacts, dnc, importer, next_action, settings, tasks
+from salescall.core import business_settings, conversation_io, customer_contacts, dnc, importer, next_action, settings, tasks
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
@@ -346,6 +346,11 @@ class CustomerContacts(Base):
                           ("address", "東京都千代田区", None, "list"), ("line_id", "abc_123", None, "list"),
                           ("meeting", "123 456", "Zoom", "list")})
         self.assertEqual(self.tx(lambda tx: customer_contacts.now(tx, b))["contacts"], [])
+        # 会話の側が重ねて伺わないために読む形（役目の名前。CL-1 の連絡帳 4-92 の (5)）：指定の番号が携帯電話なら、それが携帯電話の番号
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, a)),
+                         {"email": "a@example.com", "fax": fax, "address": "東京都千代田区", "line": "abc_123", "mobile": e(mobile).e164})
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, b)), {"mobile": e(mobile2).e164})
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, c)), {"mobile": e("090-0000-0103").e164})
 
     def test_the_same_number_twice_is_one_number(self):
         """指定の番号と携帯が同じなら、番号は1つ（かける番号として）。"""

@@ -654,6 +654,26 @@ class Import(unittest.TestCase):
         self.assertEqual(self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai)).raw["questions"][0]["doubt_words"],
                          {"する": "ご予約をなさる方がいい", "しない": "ご予約は控えた方がいい"})
 
+    def test_ways_questions_are_decided_by_the_ai_and_the_ways_come_from_the_basic_sheet(self):
+        """CL-1 の連絡帳 4-91（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK」）：ご案内の方法を伺う質問か（asks_way）は、取込のときに AI
+        （CL-1 の import_ai.decide_ways）に質問の文の並びで1回だけ聞き、真と答えた文だけ真（形の違う答え・答えの無い文・決める処理が渡されない
+        ときは偽）。業務の「ご案内できる方法」は「基本」のシートの1行（「／」で区切る）で、質問ごとに渡すのは Settings.offer_ways_of の1か所。"""
+        asked = []
+
+        def ways(texts):
+            asked.append(texts)
+            return {texts[0]: True, texts[1]: "はい"}            # 2つ目は形が違う＝偽
+
+        basic = book_rows("基本") + [("ご案内できる方法", "メール／LINE／ZOOM")]
+        p = self.preview(book(sheets={"基本": basic}), decide_ways=ways)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [sorted(["「テスト便」のご予約はなさいますか。", "ご希望の日時をお聞かせください。"])])
+        got = {q["id"]: q["asks_way"] for q in p.raw["questions"]}
+        self.assertEqual((got, p.raw["offer_ways"]), ({"Q1": True, "Q2": False}, ["メール", "LINE", "ZOOM"]))   # 並べ替えた1つ目＝Q1 の文
+        self.assertEqual(self.preview(book()).raw["questions"][0]["asks_way"], False)           # 決める処理が無ければ偽
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("ご案内できる方法", "メール／パンフレット")]}))
+        self.assertTrue(any("パンフレット" in x for x in p.problems), p.problems)   # 方法に当たらない名前は止める（会話が言えない）
+
     def test_unclear_none_is_decided_by_the_ai_for_choice_questions(self):
         """CL-1 の連絡帳 4-82（✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」）：ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢は、
         業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う質問も）だけ、取込のときに AI（CL-1 の import_ai.decide_unclear）に1回だけ聞いて入れる。

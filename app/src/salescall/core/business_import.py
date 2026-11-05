@@ -92,7 +92,9 @@ BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class
                # 最短の日（質問の文・入る一言に {最短の日} を書いた業務だけ書く。業務設定の earliest。CL-1 の連絡帳 4-71 の (c)）：
                # 「N営業日以降」の N・休みの曜日（書かなければ土と日）・祝日は休みか（書かなければ休み）・休業日（日にちを「／」か改行で区切る）
                "最短の日（営業日の数）": "earliest_days", "休みの曜日": "closed_weekdays", "祝日は休みか": "closed_on_holidays",
-               "休業日": "closed_dates"}
+               "休業日": "closed_dates",
+               # ご案内できる方法（業務で1つ。名前を「／」か改行で区切る。例「メール／LINE／ZOOM」。業務設定の offer_ways。CL-1 の連絡帳 4-91）
+               "ご案内できる方法": "offer_ways"}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
@@ -322,7 +324,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
                           "do_words": _choice_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems), "doubt_words": None,
                           "tell_words": _choice_words(v.get("tell_words"), f"{where}のその答えのあとに伝える一言", problems) or {},
-                          "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None,
+                          "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None, "asks_way": None,
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
@@ -447,6 +449,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         **({"goal_mode": _label("goal_mode", basic["goal_mode"], "シート「基本」の最終目的の果たし方", problems)}
            if basic.get("goal_mode") else {}),
         **_earliest(basic, problems),
+        **({"offer_ways": _split(basic["offer_ways"])} if basic.get("offer_ways") else {}),
         "questions": questions, "names": names,
         "rules": {"handling": handling, "retry": retry, "forbidden": forbidden},
     }
@@ -539,11 +542,15 @@ FactDecider = Callable[[list[str]], dict[str, bool]]
 1か所（`facts.by_model` を2つのモデルで1回ずつ → `facts.decide`。G-71。CL-1 の連絡帳 2-1 の版 0.6）。管理者も契約者も確かめない。"""
 
 
+def _undecided(raw: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """その真偽の欄（事実を伺う質問か asks_fact・ご案内の方法を伺う質問か asks_way）が、まだ入口から来ていない質問（文のあるもの）。"""
+    qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
+    return [q for q in qs if isinstance(q, dict) and q.get(key) is None and isinstance(q.get("text"), str) and q["text"].strip()]
+
+
 def _fact_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
     """事実を伺う質問か（asks_fact）が、まだ入口から来ていない質問。"""
-    qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
-    return [q for q in qs if isinstance(q, dict) and q.get("asks_fact") is None and isinstance(q.get("text"), str)
-            and q["text"].strip()]
+    return _undecided(raw, "asks_fact")
 
 
 def _decided_facts(texts: list[str], decide: FactDecider | None) -> dict[str, bool]:
@@ -553,6 +560,21 @@ def _decided_facts(texts: list[str], decide: FactDecider | None) -> dict[str, bo
         return {}
     got = decide(texts)
     return {t: v is not False for t, v in got.items() if t in texts} if isinstance(got, dict) else {}
+
+
+WaysDecider = Callable[[list[str]], dict[str, bool]]
+"""質問ごとに「ご案内の方法（お電話・ご訪問・説明会・オンラインの面談 など）でご案内してよいかを伺う質問か」を決める処理（質問の文の並び →
+文ごとの真偽。形は FactDecider と同じ）。決め方は CL-1 の1か所（`import_ai.decide_ways`＝2つのモデルがそろって真のときだけ真。CL-1 の連絡帳
+4-91）。管理者も契約者も確かめない。"""
+
+
+def _decided_ways(texts: list[str], decide: WaysDecider | None) -> dict[str, bool]:
+    """文ごとに「ご案内の方法を伺う質問か」を決める処理に、1回だけ聞く。真と答えた文だけが真（形の違う答え・答えの無い文は偽＝`review` が偽で
+    入れる。そろわなければ偽＝CL-1 の決め方と同じ側：申し出る方法を言わないだけで、伺うことは変わらない）。答えの読み方の1か所。"""
+    if not texts or decide is None:
+        return {}
+    got = decide(texts)
+    return {t: v is True for t, v in got.items() if t in texts} if isinstance(got, dict) else {}
 
 
 def _asks_fact(q: dict[str, Any], facts: dict[str, bool]) -> bool:
@@ -715,7 +737,8 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
            decide_topics: TopicDecider | None = None, decide_meanings: MeaningDecider | None = None,
            decide_replies: ReplyDecider | None = None, decide_facts: FactDecider | None = None,
            decide_do_words: DoWordsDecider | None = None, decide_away: AwayDecider | None = None,
-           decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None) -> dict[str, Any]:
+           decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None,
+           decide_ways: WaysDecider | None = None) -> dict[str, Any]:
     """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味・事実を伺う質問かを決める処理。
     どれも CL-1 の決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics":
     質問の文 → 聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢},
@@ -734,7 +757,8 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
             "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts, meanings),
             "doubt_words": _decided_pairs(raw, "doubt_words", decide_doubt_words, facts, meanings),
             "away": _decided_away(raw, decide_away, facts, meanings),
-            "unclear": _decided_unclear(raw, decide_unclear)}
+            "unclear": _decided_unclear(raw, decide_unclear),
+            "ways": _decided_ways(sorted({q["text"] for q in _undecided(raw, "asks_way")}), decide_ways)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -816,6 +840,9 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         if isinstance(q, dict) and q.get("asks_fact") is None:
             text = q.get("text") if isinstance(q.get("text"), str) else None
             q["asks_fact"] = (ai.get("facts") or {}).get(text, True)
+        # ご案内の方法を伺う質問か：入口に無ければ AI の答え、決まらなければ偽（`_decided_ways`・CL-1 の決め方と同じ側）
+        if isinstance(q, dict) and q.get("asks_way") is None:
+            q["asks_way"] = (ai.get("ways") or {}).get(q.get("text") if isinstance(q.get("text"), str) else None, False)
     # 目的から遠ざかる向きの選択肢：入口が持ってこなければ、AI の答えを入れる（事実を伺う質問ではない選択肢の質問だけ）
     for q, choices in _choice_questions(raw, "away"):
         q["away"] = (ai.get("away") or {}).get(_pair_key(q["text"], choices)) or None
@@ -868,7 +895,8 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
             decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None,
             decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None,
             decide_facts: FactDecider | None = None, decide_do_words: DoWordsDecider | None = None,
-            decide_away: AwayDecider | None = None, decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None) -> Preview:
+            decide_away: AwayDecider | None = None, decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None,
+            decide_ways: WaysDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
@@ -877,7 +905,8 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     raw, problems, where = _to_raw(sheets, problems, notes)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
                 decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
-                decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear, decide_doubt_words=decide_doubt_words)
+                decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear, decide_doubt_words=decide_doubt_words,
+                decide_ways=decide_ways)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     p.notes = notes + p.notes
     return p

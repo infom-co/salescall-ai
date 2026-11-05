@@ -116,7 +116,8 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   判定は skipped を「伺っていない（対象外）」と数える（どの質問を伺わなかったかは、この事実だけで読む＝会話の側の決まり flowctl.gate_of・held を
 #   こちらで持たない。`judge.not_asked` の1か所）。締めた理由は今までどおり（断りではない）。前の通話の答えで止めたときは人の証にならないので、
 #   人の証の表（HUMAN_FACTS）には入れない
-OTHER_WISH_MEANS = ("line", "email", "fax", "post", "phone")   # LINE・メール・ファクス・郵送・お電話（CL-1 の flowctl.WISH_MEANS の鍵）
+OTHER_WISH_MEANS = ("line", "email", "fax", "post", "phone", "online")   # LINE・メール・ファクス・郵送・お電話・オンライン（ZOOM など。連絡先は
+#                                                                        ご案内の URL をお送りするメールアドレス＝CL-1 の連絡帳 4-91 の (2)）（CL-1 の flowctl.WISH_MEANS の鍵）
 OTHER_WISH_OUTCOMES = ("option", "means", "other", "none")   # 元の質問の選択肢を選び直した・ご連絡の方法・ほかのご希望・無い
 # LINE の連絡先をどの形でいただいたか（事実 other_wish の via。ID・SMS でご招待・メールでご招待。LINE でないか決まらなかったら null。CL-1 の flowctl.LINE_HOW の値。
 # ✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。」・11-05 1時29分06秒「招待はメールとSMSだけだよ。」。CL-1 の連絡帳 4-81 の (3)）
