@@ -30,6 +30,30 @@ def docx(paragraphs: list[str], table: list[list[str]] = ()) -> bytes:
     return buf.getvalue()
 
 
+def pdf(text: str | None, *, blank_after: bool = False) -> bytes:
+    """試験用の PDF（英数字の文字の1ページ。text が None なら文字の無いページ。blank_after なら、うしろに文字の無いページを足す）。"""
+    import pypdf
+    content = b"" if text is None else f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode("latin-1")
+    objs = [b"<< /Type /Catalog /Pages 2 0 R >>", b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for i, o in enumerate(objs, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objs) + 1) + b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
+    if not blank_after:
+        return bytes(out)
+    w = pypdf.PdfWriter(clone_from=pypdf.PdfReader(io.BytesIO(bytes(out))))
+    w.add_blank_page(612, 792)
+    buf = io.BytesIO()
+    w.write(buf)
+    return buf.getvalue()
+
+
 class ReadDocument(unittest.TestCase):
     def test_each_kind_becomes_text(self):
         """文章・CSV・xlsx（すべてのシート）・Word（段落と表）を、資料の文字にする。"""
@@ -39,12 +63,15 @@ class ReadDocument(unittest.TestCase):
         self.assertEqual((x.file_kind, x.text), ("xlsx", "【台本】\n質問\t答え\nご予約の日は？\n【概要】"))
         f = read_document("計算.xlsx", xlsx([("料金", "=1+1")]))
         self.assertEqual((f.text, f.problems), ("【一覧】\n料金\t", ("一覧 の 1 行目：式の結果が保存されていません（表計算ソフトで開いて保存し直してください）",)))
+        p = read_document("概要.pdf", pdf("Opening hours 9 to 18", blank_after=True))
+        self.assertEqual((p.file_kind, p.text.strip(), p.problems), ("pdf", "Opening hours 9 to 18", ("2 ページ目に文字がありません（画像だけのページ）",)))
         d = read_document("会社概要.docx", docx(["会社概要", "創業 2001年\n本社 東京"], [["業務", "架空の点検"]]))
         self.assertEqual((d.file_kind, d.text), ("docx", "会社概要\n創業 2001年\n本社 東京\n業務\n架空の点検"))
 
     def test_unreadable_files_are_refused_with_the_reason(self):
         """読めない種類・壊れたファイルは断る（推し量らない）。文字の決まりが決められない文章は、発信対象の CSV と同じく選んでいただく。"""
-        for name, data in (("資料.pdf", b"%PDF-1.4"), ("資料.doc", b"x"), ("資料.docx", b"not a zip"), ("資料", b"x")):
+        for name, data in (("資料.pdf", b"%PDF-1.4"), ("資料.pdf", pdf(None)), ("資料.doc", b"x"), ("資料.docx", b"not a zip"),
+                           ("資料", b"x")):
             with self.subTest(name=name), self.assertRaises(FileRejected):
                 read_document(name, data)
         with self.assertRaises(EncodingAmbiguous):

@@ -456,6 +456,25 @@ def pc_side_stays_off_the_server(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── ファイルを読むのは1か所だけ（core/import_files.py。発信対象の表・発信禁止の一覧・業務の資料。DESIGN.md 3-4・3-7-1）：ファイルの
+#    中身を読む部品（Excel＝openpyxl・XML＝defusedxml・PDF＝pypdf）を使ってよいのは、その1か所だけ（読み方の決まり＝推し量らない・読めない所は
+#    理由をつけて断る、を1か所で守る。2026-11-06 ユーザー：PDF の部品を足す）
+FILE_READER_MODULES = ("openpyxl", "defusedxml", "pypdf")
+FILE_READER_HOME = "src/salescall/core/import_files.py"
+
+
+def file_readers_in_one_place(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py" or rel == FILE_READER_HOME:
+            continue
+        for module, line in _imported_modules(_parse(path)):
+            if any(module == m or module.startswith(m + ".") for m in FILE_READER_MODULES):
+                out.append(Violation("一本化", rel, line, f"ファイルの中身を読む部品（{module}）を使うのは {FILE_READER_HOME} だけです"))
+    return out
+
+
 # ── 決まった設定を読んでよいのは1か所だけ（設定の名前 → 読んでよいファイル・決まりの番号・理由）
 #    - 時間帯（かけてよい時間帯・かけない時間）：実際に使う時間帯を出す gate の1か所（NG時間を引き忘れない。5-2-2）
 #    - 契約者の承認のモード：承認の部分だけ（I-13。判定などがモードを読むと、両モードで動きが変わる）
@@ -622,6 +641,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     key_values_only_in_key_selection,
     dial_only_through_exit,
     pc_side_stays_off_the_server,
+    file_readers_in_one_place,
     settings_read_in_one_place,
     web_parts_only_in_web,
     entries_called_from_their_places,

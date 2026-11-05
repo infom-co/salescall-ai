@@ -1,4 +1,4 @@
-"""依頼者のファイル（CSV・xlsx）を、行と欄に読む。業務の資料（文章・CSV・xlsx・Word）を文字に読む（`read_document`）。持ち主 CL-2。
+"""依頼者のファイル（CSV・xlsx）を、行と欄に読む。業務の資料（文章・CSV・xlsx・Word・PDF）を文字に読む（`read_document`）。持ち主 CL-2。
 DESIGN.md 3-4・6-5。
 
 ファイルを読むのは、この部品だけ（発信対象の取込も、発信禁止の一覧の取込も、業務の資料の取込も、ここを通す）。
@@ -33,8 +33,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 
 import openpyxl
+import pypdf
 from defusedxml import ElementTree
 from openpyxl.utils.exceptions import InvalidFileException
+from pypdf.errors import PyPdfError
 
 
 class FileRejected(Exception):
@@ -115,13 +117,13 @@ def read(file_name: str, data: bytes, *, sheet_name: str | None = None, encoding
 class Document:
     """業務の資料1つを文字にしたもの（組む AI に渡す文字と、出典の確かめ＝core/source_check.py が照らす文字は、同じこれ）。"""
     file_name: str
-    file_kind: str                # text / csv / xlsx / docx
+    file_kind: str                # text / csv / xlsx / docx / pdf
     file_sha256: str
     text: str
-    problems: tuple[str, ...] = ()   # 文字にできなかった所（xlsx の結果の無い式など。その所の文字は text に入っていない）
+    problems: tuple[str, ...] = ()   # 文字にできなかった所（xlsx の結果の無い式・PDF の文字の無いページ。その所の文字は text に入っていない）
 
 
-DOCUMENT_KINDS = {".txt": "text", ".md": "text", ".csv": "csv", ".xlsx": "xlsx", ".docx": "docx"}
+DOCUMENT_KINDS = {".txt": "text", ".md": "text", ".csv": "csv", ".xlsx": "xlsx", ".docx": "docx", ".pdf": "pdf"}
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"   # Word の文書の名前空間
 
 
@@ -129,7 +131,9 @@ def read_document(file_name: str, data: bytes, *, encoding: str | None = None) -
     """業務の資料（依頼者の資料一式の1つ）を、文字に読む（1か所）。種類は名前の拡張子で決める（DOCUMENT_KINDS）。読めなければ
     FileRejected（文章・CSV の文字の決まりが決められなければ EncodingAmbiguous。決まりは発信対象の CSV と同じ `_decode`）。
     xlsx はすべてのシートを「【シート名】」のあとに、行ごと（欄はタブで区切る）に並べる。Word（.docx）は段落ごと（表の欄の段落も、
-    文書の中の順に）。推し量らない：読めない所（結果の無い式・エラーの値）は文字にせず、problems に理由を残す。"""
+    文書の中の順に）。PDF はページごと（文字の入った PDF だけ。2026-11-06 ユーザー：「文字の PDF を読む部品を足す」）。推し量らない：
+    読めない所（結果の無い式・エラーの値・文字の無いページ）は文字にせず、problems に理由を残す。どのページにも文字が無い PDF（紙を
+    スキャンした画像だけの PDF など）・鍵のかかった PDF は断る。"""
     kind = DOCUMENT_KINDS.get("." + file_name.lower().rsplit(".", 1)[-1]) if "." in file_name else None
     if kind is None:
         raise FileRejected(f"業務の資料として読めるのは {'・'.join(DOCUMENT_KINDS)} です（{file_name}）")
@@ -147,7 +151,25 @@ def read_document(file_name: str, data: bytes, *, encoding: str | None = None) -
                 parts.append("\t".join(c.text or "" for c in cells))
                 problems += [f"{name} の {row_no} 行目：{c.problem}" for c in cells if c.problem is not None and c.flag is None]
         return Document(file_name, kind, digest, "\n".join(parts), tuple(problems))
+    if kind == "pdf":
+        text, problems = _pdf_text(data)
+        return Document(file_name, kind, digest, text, problems)
     return Document(file_name, kind, digest, _docx_text(data))
+
+
+def _pdf_text(data: bytes) -> tuple[str, tuple[str, ...]]:
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(data))
+        if reader.is_encrypted:
+            raise FileRejected("鍵のかかった PDF は読めません（鍵を外して保存し直してください）")
+        pages = [page.extract_text() or "" for page in reader.pages]
+    except (PyPdfError, OSError, ValueError, KeyError, TypeError) as e:
+        raise FileRejected(f"PDF のファイルとして読めません（{type(e).__name__}）") from None
+    if not any(p.strip() for p in pages):
+        raise FileRejected("この PDF には文字が入っていません（紙をスキャンした画像だけの PDF など）。文字の入った資料"
+                           "（Word・テキスト・文字の入った PDF）を付けてください")
+    problems = tuple(f"{i} ページ目に文字がありません（画像だけのページ）" for i, p in enumerate(pages, start=1) if not p.strip())
+    return "\n".join(pages), problems
 
 
 def _docx_text(data: bytes) -> str:

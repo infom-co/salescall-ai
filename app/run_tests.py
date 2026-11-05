@@ -4606,6 +4606,10 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "        for name in _xlsx_sheet_names(data):\n", "        for name in _xlsx_sheet_names(data)[:1]:\n", ("tests.test_source_check.ReadDocument.test_each_kind_becomes_text",)),
     ("Excel の資料で、文字にできなかった所を残さない", "src/salescall/core/import_files.py",
      "                problems += [", "                problems += [] and [", ("tests.test_source_check.ReadDocument.test_each_kind_becomes_text",)),
+    ("文字の無い PDF（画像だけ）も、空の資料として受ける", "src/salescall/core/import_files.py",
+     "    if not any(p.strip() for p in pages):\n", "    if False:\n", ("tests.test_source_check.ReadDocument.test_unreadable_files_are_refused_with_the_reason",)),
+    ("PDF の文字の無いページを、文字にできなかった所に残さない", "src/salescall/core/import_files.py",
+     "    problems = tuple(f\"{i} ページ目", "    problems = () and tuple(f\"{i} ページ目", ("tests.test_source_check.ReadDocument.test_each_kind_becomes_text",)),
 )
 
 

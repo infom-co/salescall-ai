@@ -297,6 +297,19 @@ class PcSideStaysOffTheServer(Planted):
                           ("src/salescall/link/d.py", 2)])
 
 
+class FileReadersInOnePlace(Planted):
+    def test_only_the_file_reader_reads_files(self):
+        """ファイルの中身を読む部品（Excel・XML・PDF）を使ってよいのは core/import_files.py だけ（ファイルを読むのは1か所）。"""
+        root = self._app({"src/salescall/core/import_files.py": "import openpyxl\nfrom defusedxml import ElementTree\nimport pypdf\n",
+                          "src/salescall/core/a.py": "import openpyxl\n",
+                          "src/salescall/web/b.py": "\nfrom pypdf import PdfReader\n",
+                          "src/salescall/core/c.py": "import defusedxml.ElementTree\n",
+                          "tests/test_x.py": "import openpyxl\n"})
+        found = rules.file_readers_in_one_place(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/core/a.py", 1), ("src/salescall/core/c.py", 1), ("src/salescall/web/b.py", 2)])
+
+
 class SettingsReadInOnePlace(Planted):
     """決まった設定は1か所からしか読まない：時間帯は gate（NG時間を引く。5-2-2）、契約者の承認のモードは承認の部分（I-13）。"""
 

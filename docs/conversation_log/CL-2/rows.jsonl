@@ -2987,3 +2987,6 @@
 {"at": "2026-11-06T06:48:16+09:00", "who": "CL-2", "text": "次に、出典の確かめの1か所を書きます。"}
 {"at": "2026-11-06T06:48:32+09:00", "who": "CL-2", "text": "Now tests for read_document and source_check."}
 {"at": "2026-11-06T06:50:15+09:00", "who": "CL-2", "text": "壊し試し7件すべてで、試験が気づきました。設計書と CL-1 への連絡帳を書きます。"}
+{"at": "2026-11-06T06:58:35+09:00", "who": "CL-2", "text": "PDF を読む部品（pypdf）を足します。"}
+{"at": "2026-11-06T06:59:13+09:00", "who": "CL-2", "text": "Now the PDF reader in import_files."}
+{"at": "2026-11-06T07:00:16+09:00", "who": "CL-2", "text": "Docs update and commit."}
