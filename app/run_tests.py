@@ -2063,6 +2063,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("1つの版の後の版を2つにできる（0183 のつながりを1本にする約束を外す）",
      "ALTER TABLE salescall.version_successions DROP CONSTRAINT version_successions_from_version_key",
      ("tests.test_versions.Versions.test_derivations_form_one_line_and_the_newest_ready_one_is_adopted",)),
+    ("依頼者の解決策を、システムの処理も足せる（0184 の守りを外す）",
+     "DROP TRIGGER client_solution_guard ON salescall.client_solutions",
+     ("tests.test_client_solutions.Solutions.test_only_unexplained_points_take_a_solution_and_only_a_person_adds_it",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4644,6 +4647,22 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("品質の段の始め方を、版を始めるときと別に決める（start_kind を見ずに最初の段を開く）", "src/salescall/core/quality_stage.py",
      '    kind = start_kind(tx, version_id)\n    if kind != "open":\n        return kind\n', "",
      ("tests.test_quality.Mock.test_first_business_of_a_client_waits_for_the_mock",)),
+    # ── 依頼者からの解決策を想定問答に足す（(h)。0184。2026-11-02 ユーザー「解決策の連絡がフィードバックされたら、こちらのトークスクリプトに追加する」）
+    ("ご説明できた点にも、解決策を受ける", "src/salescall/core/client_solutions.py",
+     "            if n.explained is False and (n.point or n.said or \"\").strip()]", "            if (n.point or n.said or \"\").strip()]",
+     ("tests.test_client_solutions.Solutions.test_only_unexplained_points_take_a_solution_and_only_a_person_adds_it",)),
+    ("同じ問いの答えを、置き換えずに残す", "src/salescall/core/client_solutions.py",
+     '            a["text"] = text\n            break\n', "            break\n",
+     ("tests.test_client_solutions.Solutions.test_a_solution_to_an_unexplained_point_becomes_an_answer_in_a_new_version",)),
+    ("同じ問いを置き換えたかを、今の版でなく前の版で見る", "src/salescall/core/client_solutions.py",
+     '    tip = business_settings.successor_tip(tx, row["version_id"])\n', '    tip = row["version_id"]\n',
+     ("tests.test_client_solutions.Solutions.test_a_solution_to_an_unexplained_point_becomes_an_answer_in_a_new_version",)),
+    ("取込と同じ確かめに通らなくても、版を作る", "src/salescall/core/client_solutions.py",
+     "    if not p.problems and p.raw is not None:\n", "    if p.raw is not None:\n",
+     ("tests.test_client_solutions.Solutions.test_a_solution_that_needs_the_contractor_to_confirm_a_reading_is_held",)),
+    ("足せなかった解決策を、契約者に知らせない", "src/salescall/core/client_solutions.py",
+     '        notify.emit(tx, "solution_held",', '        (lambda *a, **k: None)(tx, "solution_held",',
+     ("tests.test_client_solutions.Solutions.test_a_solution_that_needs_the_contractor_to_confirm_a_reading_is_held",)),
 )
 
 

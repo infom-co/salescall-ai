@@ -538,6 +538,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("next_action", "reopen_revoked"): frozenset({_CORE + "dnc.py", _SUP + "jobs.py"}),   # 取り消しで行を戻す：取り消しと決まった間隔の仕事
     # 版を足して自動で替える（0183）：決まった間隔の仕事だけ（そろった後の版を割り当てる・標準に合わせた版を作る）
     ("business_settings", "adopt_ready"): frozenset({_SUP + "jobs.py"}),
+    ("client_solutions", "add"): frozenset({WEB_PLACE}),   # 依頼者の解決策を足す：画面だけ（契約者が書く・返った報告を取り込む。0184）
     ("business_settings", "derive_for_standard"): frozenset({_SUP + "jobs.py"}),
     # AIの不具合での一時停止（2026-10-30 深夜 管理者のご決定。0155）：止まったAIを受け取るのは、会話の書き込み口だけ。止めるかを決める入口は、
     # 通話ごとの口と回線ごとの処理だけ。緊急の道での再開は、画面だけ（契約者・管理者）
