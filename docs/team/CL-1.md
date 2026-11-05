@@ -21,7 +21,8 @@
   - (4) 要約の前後のご決定・約束・待っていることが、本書・設計書・帳面に入っているかを1つずつ突き合わせ、無ければその場で入れて送る（見張りでは見られない＝CL-1 が守る）。
   - (5) 作業に戻ったら、その作業の前の (B) を読む。
 - **作業中の決まり**（0-1 の失敗から決めたもの。失敗の一つずつは経過の記録）
-  - 作りの細部を伺う前・ご報告で伺う項目を書く前：その言葉で本書・0-2・試しの正解の表を探し、決まっていれば伺わずに入れる（12回目・13回目・11-02 0時台）。
+  - 作りの細部を伺う前・ご報告で伺う項目を書く前：本書18章を読み、その言葉で本書・0-2・試しの正解の表を探し、決まっていれば伺わずに入れる（12回目・13回目・11-02 0時台・11-05 8時台）。
+  - 記録を経過の記録へ移すときは、前の文の「⏳」「⚠️」を1つずつ出し、新しい文か帳面1章にあるかを確かめる（コードの名前とお言葉の文だけで照らさない。11-05 18時台）。
   - 作りを変えたら、触れる本書の決まりを `grep` で全部出し、根拠の測りが変えたあとも成り立つかを確かめてから伺い・報告する（8回目）。既存の1か所を通すときは、その1か所の決まりの根拠の測りを書き出し、新しく通すものの記録で同じ数を数える（9回目）。
   - 1か所の文を直したら、その文を使う問い合わせを全部出し、測りの道具ごとに直す前と後の指紋を比べる（`g59_calling_judge.py --fingerprint`・`g68_returned.py --fingerprint`）。「変わらない」と書くのは指紋で確かめたものだけ（10回目）。
   - いただいたご判断は、その回の作りに入れる。すぐ入れられないときは理由をご報告に書く。ご報告の前に、ご判断の済んだ「⏳」が残っていないかを数える。
@@ -36,7 +37,7 @@
 - **道具**
   - 見張り（要約の区切りと英語の一言）＝`phase0/oneliner_guard.py`。新しい作業場所（コンテナ）では、最初に1回 `python3.13 phase0/oneliner_guard.py --install`。英語の一言は、道具を呼ぶ前と返事を終える時に見る（記録に残らない一言は見えない＝数えは下限）。要約の区切りは、命令を呼ぶまでと、(A) を読み終えるまで止める。残りは `--status`。
   - 読み直しの道具 `phase0/read_user_messages.py <会話の記録 .jsonl>`：`--since/--until`（時刻）・`--with-assistant`（私の返事も）・`--english`（英語の一言を数える）・`--export docs/conversation_log/CL-1`（全文の書き出し）。作業中に届いたご発言も拾う。会話の記録は `/root/.claude/projects/-home-user-sales-crowd-auto/` の中のいちばん新しい `.jsonl`。/clear のあとは新しいファイルになり、前の会話は `docs/conversation_log/CL-1/` の週ごとのファイルと `rows.jsonl` で読む（/clear のあとの最初のターンも、この手順を通す）。
-- **送る前の確かめ（毎回）**：リポジトリは `/home/user/salescall-ai`（ブランチ main。命令のたびに `cd /home/user/salescall-ai` から）。(1) `python3.13 phase0/check_keys.py`＝見つかった 0 (2) `git add -N .` のあと `python3.13 phase0/check_removed.py`＝出た文がどれも意図した直しか (3) 英語の一言の数＝`python3.13 phase0/read_user_messages.py <会話の記録> --since 2026-11-03T19:04 --english --out <作業場所>/eng.txt`（11-05 7時台に28件＝どれも記録済み） (4) `python3.13 phase0/read_user_messages.py <会話の記録> --export docs/conversation_log/CL-1` (5) 判定に送る文の指紋（上の2つの道具）と試験＝`cd phase0 && timeout 900 python3.13 -m unittest test_offline` (6) `timeout 110 git push -q origin main` のあと `git ls-remote origin refs/heads/main` で届いたかを見る。
+- **送る前の確かめ（毎回）**：リポジトリは `/home/user/salescall-ai`（ブランチ main。命令のたびに `cd /home/user/salescall-ai` から）。(1) `python3.13 phase0/check_keys.py`＝見つかった 0 (2) `git add -N .` のあと `python3.13 phase0/check_removed.py`＝出た文がどれも意図した直しか (3) 英語の一言の数＝`python3.13 phase0/read_user_messages.py <会話の記録> --since 2026-11-03T19:04 --english --out <作業場所>/eng.txt`（11-05 18時台に29件＝どれも記録済み・106回目まで） (4) `python3.13 phase0/read_user_messages.py <会話の記録> --export docs/conversation_log/CL-1` (5) 判定に送る文の指紋（上の2つの道具）と試験＝`cd phase0 && timeout 900 python3.13 -m unittest test_offline` (6) `timeout 110 git push -q origin main` のあと `git ls-remote origin refs/heads/main` で届いたかを見る。
 - **/clear・新しい会話の最初の1通（管理者が貼るもの）**：「あなたは SalesCall AI の CL-1（会話の担当）です。リポジトリは /home/user/salescall-ai（ブランチ main）。最初に /home/user/salescall-ai/CLAUDE.md と docs/team/CL-1.md の 0-1・0-2・1 の「2026-11-03 のいま」を読み、0-1 の手順（前の会話は docs/conversation_log/CL-1/ の最後の日の分）を通してから、残りの仕事を進めてください。」（作業の場所の決まり CLAUDE.md は、この会話の初めの場所＝sales_crowd_auto のものが自動で読まれ、salescall-ai のものは読まれないため）
 
 ### 0-2. ユーザーの変わらない決まり（ここに書いたことは、聞き直さない・破らない）
