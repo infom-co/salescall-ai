@@ -1429,19 +1429,22 @@ def read_prior_first(clients: dict, q, before: str) -> tuple[str | None, float |
         return done.value
 
 
-async def aread_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
-    """read_prior_first と同じ（通話の中の形。clients は other_client(…, aio=True)）。1回の問い合わせは、判定と同じ止まったとみなす秒（DOWN_AFTER_S）で打ち切る
-    （⛔ 2026-11-06 日本時間8時台（EN-C の指摘6）：打ち切りは通信の60秒だけだった）。"""
-    import asyncio
-
+async def aread_prior_first(clients: dict, q, before: str, state=None) -> tuple[str | None, float | None, str | None]:
+    """read_prior_first と同じ（通話の中の形。clients は other_client(…, aio=True)）。1回ずつの問い合わせは、ほかの判定と同じ1か所（routed_call＝
+    DOWN_AFTER_S で打ち切る・止まった印・知らせ）を、組と同じ道の状態 state（JudgePanel。無ければこの読みだけの RouteState）で通し、止まっている判定には
+    送らない（⛔ 2026-11-06 日本時間8時台（EN-C の指摘6）：打ち切りは通信の60秒だけだった。同じ日、EN-C の残り「前の話の答えの止まりの記録」を確かめて
+    見つけた：routed_call を通らず、止まった d1-ultra にも送り、止まっても印も知らせ（通話の報告の ai_trouble）も残らなかった）。"""
     walk = _prior_walk(clients, q, before)
+    state = state if state is not None else RouteState()
+    tried: list[dict] = []
     try:
         name, req = next(walk)
         while True:
-            try:
-                text = await asyncio.wait_for(_asend_other(clients[name], name, req), DOWN_AFTER_S)
-            except Exception:   # つながらない・時間切れ・断られた・止まった：次の判定へ
+            if not state.usable(name):   # 止まっている（DOWN_S のあいだ）：次の判定へ
                 text = None
+            else:
+                got = await routed_call(state, name, lambda: _asend_other(clients[name], name, req), None, tried)
+                text = None if got is FAILED else got
             name, req = walk.send(text)
     except StopIteration as done:
         return done.value
@@ -1871,7 +1874,7 @@ class JudgePanel(RouteState):
         from collections import OrderedDict
 
         super().__init__(down, clock)
-        # 前の話の答えを読む道具（async (質問, 前の話) -> (中の名前, 確からしさ, 線より下も含めた選び)＝aread_prior_first。無ければ問わない）。
+        # 前の話の答えを読む道具（async (質問, 前の話, state=この組) -> (中の名前, 確からしさ, 線より下も含めた選び)＝aread_prior_first。道の状態は組と同じ＝止まった印・知らせ。無ければ問わない）。
         # 同じ質問と前の話には1回だけ問い合わせる（2つの受け持ちが同じ発話を読んでも、前の話の答えは同じ＝prior_jobs）
         self.prior, self.prior_jobs = prior, OrderedDict()
 
@@ -2007,7 +2010,7 @@ class JudgePanel(RouteState):
         pkey = (getattr(q, "id", None), tuple(getattr(q, "conditions", ()) or ()), before)
         job = self.prior_jobs.get(pkey)
         if job is None:
-            job = self.prior_jobs[pkey] = asyncio.ensure_future(self.prior(q, before))
+            job = self.prior_jobs[pkey] = asyncio.ensure_future(self.prior(q, before, state=self))   # 道の状態は組と同じ（止まった印・知らせ）
             while len(self.prior_jobs) > 32:   # 古い発話の分は捨てる（同じ質問・同じ前の話は、その発話のあいだだけ使う）
                 self.prior_jobs.popitem(last=False)
 
@@ -2172,8 +2175,8 @@ def make_prior(args):
     if not clients:
         return None
 
-    async def prior(q, before):
-        return await aread_prior_first(clients, q, before)
+    async def prior(q, before, state=None):
+        return await aread_prior_first(clients, q, before, state)
     return prior
 
 

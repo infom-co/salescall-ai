@@ -3505,7 +3505,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
         async def judge2(q_, text_, asked=None, before=None):
             return Reading("利用しない", sure=0.99)
 
-        async def prior(q_, before_):
+        async def prior(q_, before_, state=None):
             asked_prior.append(before_)
             return ("利用する", 0.97, "利用する")
         panel = JudgePanel({"judge2": ((jev, judge2),)}, prior=prior)
@@ -3585,7 +3585,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
         q = {q.id: q for q in g48_questions()}["G6"]
         calls = []
 
-        async def prior(q_, before_):
+        async def prior(q_, before_, state=None):
             calls.append(before_)
             return ("利用する", 0.95, "利用する")
 
@@ -5725,6 +5725,27 @@ class JudgePanelTest(unittest.TestCase):
                 m.patch.object(mj, "prior_request", lambda name, q, before: "REQ"), m.patch.object(mj, "other_text", lambda name, t: t), \
                 m.patch.object(mj, "read_prior", lambda q, t: ("利用する", 0.95, "利用する")):
             self.assertEqual(asyncio.run(mj.aread_prior_first({D1: object(), JEV: object()}, None, "前の話")), ("利用する", 0.95, "利用する"))
+        # 1回ずつの問い合わせは、ほかの判定と同じ1か所（routed_call）：組の道の状態（RouteState＝JudgePanel）で、止まっている判定には送らず、止まったら
+        # 印を付けて知らせる（本書 9-5 の (6)「どのAIが止まっても、新しい電話は回復するまで一時停止」・止まったことは通話の報告の ai_trouble に残す）。
+        # ⛔ 2026-11-06 日本時間8時台（EN-C の残り「前の話の答えの止まりの記録」を確かめて見つけた）：前の話の答えだけ routed_call を通らず、止まった d1-ultra
+        # にも送り、止まっても印も知らせも残らなかった
+        sent, told = [], []
+
+        async def flaky(client, name, req):
+            sent.append(name)
+            if name == D1:
+                raise mj.OtherJudgeError(503, "混雑")
+            return "RAW"
+        st = mj.RouteState()
+        st.on_trouble = told.append
+        with m.patch.object(mj, "_asend_other", flaky), m.patch.object(mj, "prior_request", lambda name, q, before: "REQ"), \
+                m.patch.object(mj, "other_text", lambda name, t: t), m.patch.object(mj, "read_prior", lambda q, t: ("利用する", 0.95, "利用する")):
+            clients = {D1: object(), JEV: object()}
+            self.assertEqual(asyncio.run(mj.aread_prior_first(clients, None, "前の話", state=st)), ("利用する", 0.95, "利用する"))
+            self.assertEqual((sent, st._down(D1), [t["model"] for t in told if t.get("outage")]), ([D1, JEV], True, [D1]))
+            sent.clear()
+            self.assertEqual(asyncio.run(mj.aread_prior_first(clients, None, "前の話", state=st)), ("利用する", 0.95, "利用する"))
+            self.assertEqual(sent, [JEV])   # 止まっている d1-ultra には送らない（組のほかの問い合わせと同じ印）
 
     def test_standin_holder_is_per_utterance(self):
         # ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘4）：代わり（Jev）が一度ある受け持ちに入ると、その印が組に残り、そのあとの
