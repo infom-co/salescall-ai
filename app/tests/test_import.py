@@ -13,11 +13,11 @@ import threading
 import unittest
 from unittest import mock
 
-from salescall.core import business_settings, dnc, importer, next_action, settings, tasks
+from salescall.core import business_settings, customer_contacts, dnc, importer, next_action, settings, tasks
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
-from tests.support import OPERATOR, World, ensure_rules, fictional_jp_fixed, owner_access
+from tests.support import OPERATOR, SYSTEM, World, ensure_rules, fictional_jp_fixed, owner_access
 from tests.test_import_files import xlsx
 
 MAP = {"phone": "電話番号", "client_ref": "管理番号", "name": "会社名"}
@@ -301,6 +301,122 @@ class DatabaseGuards(Base):
                                       " + (SELECT count(*) FROM salescall.import_rows) AS n"), s=other)["n"]
         self.assertEqual(n, 0)
 
+
+
+class CustomerContacts(Base):
+    """お客様リストの番号と連絡先（2026-11-05 ユーザー。0175・core/customer_contacts.py）。かける番号は、お客様が指定した電話番号が
+    あればその番号、無ければ会社の番号。ほかの番号は記録だけ（そのお客様が断ったら止める範囲には入る）。番号ではない連絡先は
+    記録を足していく。"""
+    HEADER = ("管理番号", "会社名", "電話番号", "指定の番号", "携帯", "メール", "ファクス", "住所", "LINE", "面談ID", "面談サービス")
+    MAP = {"phone": "電話番号", "client_ref": "管理番号", "name": "会社名", "designated_phone": "指定の番号", "mobile": "携帯",
+           "email": "メール", "fax": "ファクス", "address": "住所", "line_id": "LINE", "meeting_id": "面談ID",
+           "meeting_service": "面談サービス"}
+
+    def numbers(self, task_id):
+        return self.tx(lambda tx: [(r["phone_e164"], r["source"], r["label"]) for r in tx.all(
+            "SELECT phone_e164, source, label FROM salescall.task_numbers WHERE task_id = %s ORDER BY source, phone_e164",
+            (task_id,))])
+
+    def test_the_designated_number_is_dialed_and_the_others_are_only_recorded(self):
+        company, mobile, mobile2, fax = fictional_jp_fixed(), "090-0000-0101", "090-0000-0102", fictional_jp_fixed()
+        rows = [("A", "架空商事", company, mobile, None, "a@example.com", fax, "東京都千代田区", "abc_123", "123 456", "Zoom"),
+                ("B", "架空工業", fictional_jp_fixed(), None, mobile2, None, None, None, None, None, None),
+                ("C", "架空物産", None, "090-0000-0103", None, None, None, None, None, None, None),
+                ("D", "架空銀行", None, None, "090-0000-0104", None, None, None, None, None, None),
+                ("E", "架空電機", fictional_jp_fixed(), None, None, "a@b", None, None, None, None, None),
+                ("F", "架空建設", fictional_jp_fixed(), None, "090-0000", None, None, None, None, None, None),
+                ("G", "架空運輸", fictional_jp_fixed(), None, None, None, None, None, None, None, "Zoom"),
+                ("H", "架空食品", fictional_jp_fixed(), None, None, None, None, None, None, "999", None)]
+        r = self.register(csv_file(rows, header=self.HEADER), mapping=self.MAP)
+        self.assertEqual(self.outcomes(r), [(2, "registered", None), (3, "registered", None), (4, "registered", None),
+                                            (5, "stopped", "phone_missing"), (6, "stopped", "contact_invalid"),
+                                            (7, "stopped", "mobile_unknown"), (8, "stopped", "contact_invalid"),
+                                            (9, "stopped", "contact_invalid")])
+        a, b, c = (r["rows"][i]["task_id"] for i in range(3))
+        e = normalize
+        self.assertEqual(self.numbers(a), sorted([(e(mobile).e164, "list", "designated"), (e(company).e164, "record", "company")],
+                                                 key=lambda x: (x[1], x[0])))
+        self.assertEqual(self.numbers(b), sorted([(e(rows[1][2]).e164, "list", "company"), (e(mobile2).e164, "record", "mobile")],
+                                                 key=lambda x: (x[1], x[0])))
+        self.assertEqual(self.numbers(c), [(e("090-0000-0103").e164, "list", "designated")])
+        self.assertEqual(self.tx(lambda tx: tasks.list_number(tx, a))["phone_e164"], e(mobile).e164)   # かけるのは指定の番号
+        got = self.tx(lambda tx: customer_contacts.now(tx, a))["contacts"]
+        self.assertEqual({(x["kind"], x["value"], x["service"], x["origin"]) for x in got},
+                         {("email", "a@example.com", None, "list"), ("fax", fax, None, "list"),
+                          ("address", "東京都千代田区", None, "list"), ("line_id", "abc_123", None, "list"),
+                          ("meeting", "123 456", "Zoom", "list")})
+        self.assertEqual(self.tx(lambda tx: customer_contacts.now(tx, b))["contacts"], [])
+
+    def test_the_same_number_twice_is_one_number(self):
+        """指定の番号と携帯が同じなら、番号は1つ（かける番号として）。"""
+        mobile = "090-0000-0111"
+        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), mobile, mobile, None, None, None, None, None, None)],
+                                   header=self.HEADER), mapping=self.MAP)
+        self.assertEqual([x[1:] for x in self.numbers(r["rows"][0]["task_id"])], [("list", "designated"), ("record", "company")])
+
+    def test_a_customer_who_refused_on_a_recorded_number_is_not_registered(self):
+        """記録だけの番号でも、そのお客様が断っていれば（発信禁止）、その行は登録しない（どの番号でかけても同じお客様＝原則14）。"""
+        mobile = "090-0000-0121"
+        self.tx(lambda tx: dnc.register(tx, mobile, "manual"))
+        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), None, mobile, None, None, None, None, None, None)],
+                                   header=self.HEADER), mapping=self.MAP)
+        self.assertEqual(self.outcomes(r), [(2, "stopped", "dnc_client")])
+        self.assertIn("「携帯」の番号", r["rows"][0]["reason"])
+
+    def test_a_recorded_number_is_never_dialed(self):
+        """記録だけの番号は、次の予定にも試行にもならない（処理に誤りがあってもデータベースが断る）。"""
+        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), None, "090-0000-0131", None, None, None, None, None,
+                                     None)], header=self.HEADER), mapping=self.MAP)
+        task = r["rows"][0]["task_id"]
+        record = self.tx(lambda tx: tx.one("SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND source = 'record'",
+                                           (task,)))["contact_id"]
+        with self.assertRaises(Rejected) as cm:
+            self.tx(lambda tx: next_action._append(tx, task, call_at=None, end_reason=None, cause="試験", call_now=True,
+                                                   promised=False, target=next_action.Target(record)))
+        self.assertEqual(cm.exception.constraint, "dial_only_dialable_numbers")
+
+    def test_a_recorded_number_cannot_be_claimed_for_a_call(self):
+        """記録だけの番号へは、試行（予約）も作れない（データベースの守り。門に誤りがあっても）。"""
+        n = normalize("090-0000-0151")
+        cid = self.tx(lambda tx: customer_contacts.add_number(tx, self.s["task"], n, "mobile", origin="list"))
+        sql = ("INSERT INTO salescall.attempts (tenant_id, client_id, attempt_id, task_id, contact_id, phone_e164, line_id,"
+               " version_id, state, claimed_at, claim_expires_at, purpose)"
+               " VALUES (%s, %s, gen_random_uuid(), %s, %s, %s, %s, %s, 'claimed', now(), now() + interval '1 minute', 'normal')")
+        with self.assertRaises(Rejected) as cm:
+            self.tx(lambda tx: tx.execute(sql, (self.s["tenant"], self.s["client"], self.s["task"], cid, n.e164, self.s["line"],
+                                                self.s["version"])), actor=SYSTEM)
+        self.assertEqual(cm.exception.constraint, "dial_only_dialable_numbers")
+
+    def test_the_dashboard_fixes_are_recorded_with_the_person(self):
+        """ダッシュボードで直せるのは管理者か契約者だけで、記録した方が残る（直しは記録を足すだけ＝いまの連絡先は最新）。
+        システムの処理はダッシュボードの直しを書けない（データベースが守る）。"""
+        task = self.s["task"]
+        self.tx(lambda tx: customer_contacts.add(tx, task, "email", "new@example.com", origin="dashboard"))
+        self.tx(lambda tx: customer_contacts.add_number(tx, task, normalize("090-0000-0161"), "mobile", origin="dashboard"))
+        rows = self.tx(lambda tx: tx.all("SELECT value, recorded_by FROM salescall.task_contacts WHERE task_id = %s", (task,)))
+        self.assertEqual([(r["value"], r["recorded_by"]) for r in rows], [("new@example.com", OPERATOR.name)])
+        self.assertEqual(self.tx(lambda tx: tx.one("SELECT recorded_by FROM salescall.task_numbers WHERE task_id = %s"
+                                                   " AND source = 'record'", (task,)))["recorded_by"], OPERATOR.name)
+        for work in (lambda tx: customer_contacts.add(tx, task, "email", "x@example.com", origin="dashboard"),
+                     lambda tx: customer_contacts.add_number(tx, task, normalize("090-0000-0162"), "mobile", origin="dashboard")):
+            with self.subTest(work=work), self.assertRaises(Rejected) as cm:
+                self.tx(work, actor=SYSTEM)
+            self.assertEqual(cm.exception.constraint, "customer_contact_by_person")
+        with self.assertRaises(customer_contacts.ContactInvalid):         # 形の決まりは取込と同じ1か所
+            self.tx(lambda tx: customer_contacts.add(tx, task, "email", "x@", origin="dashboard"))
+
+    def test_the_contacts_in_the_list_are_checked_by_one_rule(self):
+        """連絡先の形の決まりは1か所（customer_contacts.problem）。サービス名だけの列は選べない。"""
+        with self.assertRaises(importer.ImportRejected):
+            self.preview(csv_file([("A", "架空商事", fictional_jp_fixed())]),
+                         mapping={"phone": "電話番号", "meeting_service": "会社名"})
+        with self.assertRaises(importer.ImportRejected):                  # 番号の列が1つも無い
+            self.preview(csv_file([("A", "架空商事", fictional_jp_fixed())]), mapping={"name": "会社名"})
+        self.assertIsNone(customer_contacts.problem("email", "taro.yamada@example.co.jp"))
+        for kind, value, service in (("email", "taro@", None), ("fax", "ファクス", None), ("line_id", "a b", None),
+                                     ("meeting", "1", None), ("address", "東京", "Zoom"), ("phone", "x", None)):
+            with self.subTest(kind=kind, value=value):
+                self.assertIsNotNone(customer_contacts.problem(kind, value, service))
 
 
 class Targets(Base):

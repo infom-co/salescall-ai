@@ -57,7 +57,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, dnc, settings, tasks
+from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, customer_contacts, dnc, settings, tasks
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.attempts import AttemptNotFound
 
@@ -256,12 +256,23 @@ def save_report(tx: Tx, attempt_id: UUID, raw: Any) -> call_report.CallReport:
     report = call_report.from_json(raw)
     call_report.save(tx, attempt_id, report)
     ai_troubles.note(tx, attempt_id, report.ai_troubles)   # 止まったAI（通話の途中に書いた分は重ねない。0155）
+    _contacts_heard(tx, attempt_id, report)
     return report
+
+
+def _contacts_heard(tx: Tx, attempt_id: UUID, report: call_report.CallReport) -> None:
+    """通話で伺えた連絡先を、その行（お客様リストの1行）に足す（customer_contacts.from_report の1か所。元の報告も作り直しも）。"""
+    task = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+    if task is not None:
+        customer_contacts.from_report(tx, task["task_id"], attempt_id, report)
 
 
 def save_rebuilt_report(tx: Tx, attempt_id: UUID, raw: Any, *, evidence: str) -> int:
     """通話の録音から作り直した報告を置く（通話後の検証が呼ぶ。「判定できない」の通話を判定し直すため）。作り直しの番号を返す。"""
-    return call_report.save_rebuilt(tx, attempt_id, call_report.from_json(raw), evidence=evidence)
+    report = call_report.from_json(raw)
+    rebuild_id = call_report.save_rebuilt(tx, attempt_id, report, evidence=evidence)
+    _contacts_heard(tx, attempt_id, report)
+    return rebuild_id
 
 
 def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:

@@ -37,22 +37,34 @@ def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_
     if key is not None and not settings.resolve(tx, key, tenant_id=tenant_id, client_id=client_id,
                                                 business_id=business_id):
         return ("number_kind_not_allowed", f"{_KIND_NAME[number.kind]}へは、この業務の設定でかけません")
+    customer = customer_block_reason(tx, number, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
+                                     business_id=business_id)
+    if customer is not None:
+        return customer
+    # ほかの契約者がかけた番号に「かけない」と、契約者が決めていれば（2026-10-16 ユーザー。間隔のときは門が見る）
+    if settings.resolve(tx, "gate.other_contractor_interval", tenant_id=tenant_id, client_id=client_id,
+                        business_id=business_id) == "never" \
+            and tx.one("SELECT salescall.number_dialed_by_other_tenant(%s) AS d", (number.e164,))["d"]:
+        return ("other_contractor_called", "ほかの契約者がかけた番号です（契約者の設定で、かけないことにしています）")
+    return None
+
+
+def customer_block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
+                          business_id: UUID | None) -> tuple[str, str] | None:
+    """お客様の側の「かけない理由」（発信禁止の番号・管理番号・同じ業務で断られたお客様）。かけてよければ None。`block_reason` の
+    一部で、かけない番号（記録だけの番号＝お客様が指定していない携帯電話番号など。0175）にも当てる（取込が、その行のほかの番号を
+    確かめるとき。そのお客様が断っていれば、どの番号でかけても同じお客様＝原則14）。番号の種類の決まりは当てない（かけない番号なので）。"""
     hit = dnc.lookup(tx, number.e164, client_ref=client_ref)
-    if hit is None and business_id is not None and _declined_in_business(tx, number, client_ref=client_ref, tenant_id=tenant_id,
-                                                                         client_id=client_id, business_id=business_id):
+    if hit is not None:
+        return {
+            "client": ("dnc_client", "発信禁止に登録されている番号です"),
+            "contractor": ("dnc_contractor", "契約者の共通の発信禁止に登録されている番号です"),
+            "client_ref": ("dnc_client_ref", "この管理番号のお客様は、発信禁止です（もうかけないでと言われたお客様）"),
+        }[hit["ledger"]]
+    if business_id is not None and _declined_in_business(tx, number, client_ref=client_ref, tenant_id=tenant_id,
+                                                         client_id=client_id, business_id=business_id):
         return ("declined_in_business", "同じ業務で、用件か最終目的を断られたお客様です（業務の設定で、次の実施回でもかけない）")
-    if hit is None:
-        # ほかの契約者がかけた番号に「かけない」と、契約者が決めていれば（2026-10-16 ユーザー。間隔のときは門が見る）
-        if settings.resolve(tx, "gate.other_contractor_interval", tenant_id=tenant_id, client_id=client_id,
-                            business_id=business_id) == "never" \
-                and tx.one("SELECT salescall.number_dialed_by_other_tenant(%s) AS d", (number.e164,))["d"]:
-            return ("other_contractor_called", "ほかの契約者がかけた番号です（契約者の設定で、かけないことにしています）")
-        return None
-    return {
-        "client": ("dnc_client", "発信禁止に登録されている番号です"),
-        "contractor": ("dnc_contractor", "契約者の共通の発信禁止に登録されている番号です"),
-        "client_ref": ("dnc_client_ref", "この管理番号のお客様は、発信禁止です（もうかけないでと言われたお客様）"),
-    }[hit["ledger"]]
+    return None
 
 
 def _declined_in_business(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,

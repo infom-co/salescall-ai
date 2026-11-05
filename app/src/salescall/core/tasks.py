@@ -11,7 +11,8 @@
 次にかけるときは、この読みを決まった読みとして使う（読むのは business_settings.target_of の1か所）。
 
 行の番号（DESIGN.md 3-5）：依頼者の一覧の1行は1つのまま、番号を表（task_numbers）に持つ。一覧の番号の行はデータベースが
-タスクを作ったときに自分で足す。お客様が言った別の番号を足すのは `add_callee_number` だけ。行の番号を読むのは `numbers` だけ。
+タスクを作ったときに自分で足す。お客様が言った別の番号を足すのは `add_callee_number` だけ。記録だけの番号（かけない番号。0175）を
+足すのは `add_record_number` だけ。行の番号を読むのは `numbers` だけ。
 """
 
 from __future__ import annotations
@@ -83,6 +84,23 @@ def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_atte
         (contact_id, number.e164, source_attempt_id, task_id))
     if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
         raise TaskNotFound(str(task_id))
+    return contact_id
+
+
+def add_record_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, origin: str,
+                      attempt_id: UUID | None = None) -> UUID:
+    """記録だけの番号（かけない番号。0175）を、その行の番号に足す（足すのはここだけ。決め方・呼ぶ所は core/customer_contacts.py）。
+    同じ番号がもう行にあれば何もしない（かける番号と同じ番号を書いた・伺った場合も）。その番号の連絡先を返す。そのお客様が断ったら、
+    この番号も止める（発信禁止は `numbers` の1か所を読む）。試行・次の予定にはならない（データベースが断る）。"""
+    contact_id = contacts.get_or_create(tx, number)
+    tx.execute(
+        "INSERT INTO salescall.task_numbers (tenant_id, client_id, task_id, contact_id, phone_e164, source, label, record_origin,"
+        "                                    source_attempt_id, recorded_by)"
+        " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, 'record', %s, %s, %s,"
+        "        CASE WHEN %s = 'dashboard' THEN salescall.cur_actor() END"
+        " FROM salescall.tasks t WHERE t.task_id = %s"
+        " ON CONFLICT (task_id, contact_id) DO NOTHING",
+        (contact_id, number.e164, label, origin, attempt_id if origin == "call" else None, origin, task_id))
     return contact_id
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from salescall.core import attempts, business_rules, call_report, conversation_io, dnc, gate, settings
+from salescall.core import attempts, business_rules, call_report, conversation_io, customer_contacts, dnc, gate, settings
 from salescall.core.access import Rejected
 from salescall.core.conversation_io import ItemInvalid, ItemValue
 from tests.support import CLEAN, OPERATOR, SYSTEM
@@ -174,6 +174,38 @@ class Materials(SettleBase):
         self.tx(s, lambda tx: call_report.save(tx, later, rep()))           # あとの通話では、ほかのご希望もご承認の手順も伺っていない
         self.write(s, later, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 答えを、あとの通話で取り直した
         self.assertEqual(set(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]), {"state", "value", "condition"})
+
+    def test_contacts_heard_in_the_call_are_added_to_the_row(self):
+        """電話でお客様が答えた連絡先は、その行（お客様リストの1行）に足す（2026-11-05 ユーザー：「お客様が電話で答えてくれた場合は、
+        このシートを元にしたデータベースに加える必要があるでしょ？」。customer_contacts.from_report の1か所。報告を置いた取引の中）。
+        LINE の ID・メール・郵送の住所・申し出で伺ったメールは連絡先に、LINE のご招待を送る番号・お電話の番号は記録だけの番号に
+        （かけない）。形の合わない値は足さない（報告には残る）。"""
+        import dataclasses
+        s = self.ready()
+        aid = self.answered(s)
+        w = call_report.OtherWish
+        wishes = (w(call_report.Said(4, "LINEなら。"), "Q1", "LINEでの連絡", "LINE", "line", "abc_123", "means", "id"),
+                  w(call_report.Said(5, "LINEで。"), "Q1", "LINEでの連絡", "LINE", "line", "090-0000-0141", "means", "sms"),
+                  w(call_report.Said(6, "メールで。"), "Q1", "メールでの連絡", "メール", "email", "taro@example.com", "means"),
+                  w(call_report.Said(7, "電話で。"), "Q1", "お電話での連絡", "お電話", "phone", "090-0000-0142", "means"),
+                  w(call_report.Said(8, "郵送で。"), "Q1", "郵送での連絡", "郵送", "post", "東京都千代田区1-1", "means"),
+                  w(call_report.Said(9, "メールで。"), "Q1", "メールでの連絡", "メール", "email", "taro@", "means"))
+        cb = call_report.Callback("other_means", None, None, None, call_report.Said(10, "資料はメールで送って。"),
+                                  means=(("email", "hanako@example.com"),))
+        report = dataclasses.replace(rep(), other_wishes=wishes, callbacks=(cb,))
+        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, report.to_json()))
+        got = self.tx(s, lambda tx: tx.all(
+            "SELECT kind, value, origin, attempt_id, turn FROM salescall.task_contacts WHERE task_id = %s ORDER BY seq", (s["task"],)))
+        self.assertEqual([(r["kind"], r["value"], r["origin"], r["attempt_id"], r["turn"]) for r in got],
+                         [("line_id", "abc_123", "call", aid, 4), ("email", "taro@example.com", "call", aid, 6),
+                          ("address", "東京都千代田区1-1", "call", aid, 8), ("email", "hanako@example.com", "call", aid, 10)])
+        nums = self.tx(s, lambda tx: tx.all("SELECT phone_e164, label, record_origin, source_attempt_id FROM salescall.task_numbers"
+                                            " WHERE task_id = %s AND source = 'record' ORDER BY phone_e164", (s["task"],)))
+        self.assertEqual([(r["phone_e164"], r["label"], r["record_origin"], r["source_attempt_id"]) for r in nums],
+                         [("+819000000141", "line", "call", aid), ("+819000000142", "said", "call", aid)])
+        now = self.tx(s, lambda tx: customer_contacts.now(tx, s["task"]))["contacts"]
+        self.assertEqual({(x["kind"], x["value"]) for x in now},                       # いまの連絡先は種類ごとに最新
+                         {("line_id", "abc_123"), ("email", "hanako@example.com"), ("address", "東京都千代田区1-1")})
 
     def test_keys_used_keep_only_names_and_fingerprints(self):
         """使ったキーの識別名（CL-1 の 4-67）：名前と値の指紋の頭8桁だけ。同じものは重ねず、前のものは消さない。キーの値らしいものは
