@@ -17723,6 +17723,17 @@ class ApprovalReviewTest(unittest.TestCase):
         self.assertNotIn(CALLBACK_ASK_WHICH["other_point"], heard(r))
         self.assertIn("ご不満な点がございましたらいつでもお申し出ください。", heard(r))
 
+    def test_recap_re_ask_does_not_say_other(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（ご承認の持ち場の B6）：続きの電話の振り返りの一言と、そのあとの「どの点か」の聞き直しの聞くことが「ほかにご納得
+        #    いただけない点」のままだった＝まだ点を1つも伺っていないのに「ほかに」（✅ 2026-11-06 日本時間10時12分44秒 ユーザー「(イ)「ほかに」を外して…OK」と
+        #    同じ理由）
+        from flowctl import Question, callback_question
+        q = Question("Q2", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.EXPLAIN)
+        self.assertEqual(callback_question("other_point").topic, "ほかにご納得いただけない点")
+        self.assertEqual(callback_question("other_point", recap=q).topic, "ご納得いただけない点")
+        self.assertEqual(callback_question("other_point", which=True, after_recap=True).topic, "ご納得いただけない点")
+        self.assertEqual(callback_question("other_point", which=True).topic, "ほかにご納得いただけない点")
+
     def test_point_anytime_is_said_once_after_a_take_back(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（ご承認の持ち場の B2）：N1 の「言いたくない」で「ご不満な点がございましたらいつでもお申し出ください。」を挟んだあと、
         #    遅れた判定で取り消されて点を伺う段へ戻ると、次の答えのあと（締めの前）にもう一度挟んだ（挟む印を戻すだけで、言った印が無い）＝同じ一言を2回言わない

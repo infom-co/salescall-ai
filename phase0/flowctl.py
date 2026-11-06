@@ -2798,8 +2798,11 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # 選んでいただく問いは必須にしない（上の説明）。ただし LINE の連絡先の伺い方（line_how）は、連絡先を伺う手順の一段＝連絡先の質問（必須）と同じく
         # 必須（聞き取れなければ聞き返す）。⛔ 2026-11-04 日本時間21時台に見つけた：必須にしておらず、1回聞き取れないだけで連絡先を伺わずに次へ進んだ
         # （11-03 20時48分「LINEアドレスを伺うというステップを忘れないように」）
+        # 聞き直しの聞くこと：続きの電話の振り返りの一言（recap）と、その返事のあとの「どの点か」（after_recap）は、まだ点を1つも伺っていないので「ほかに」を外す
+        # （✅ 2026-11-06 日本時間10時12分44秒 ユーザー「(イ)「ほかに」を外して…OK」と同じ理由。⛔ 15時台まで、聞き直しで「ほかにご納得いただけない点を…」と言った）
+        topic = CALLBACK_TOPIC[role].removeprefix("ほかに") if recap is not None or after_recap else CALLBACK_TOPIC[role]
         return Question(qid, text or lines[i], qtype, required=role == "line_how", conditions=tuple(meanings), recording=recording,
-                        meanings=meanings, topic=CALLBACK_TOPIC[role], callback=role, declines=_ROLE_DECLINES.get(role, ()),
+                        meanings=meanings, topic=topic, callback=role, declines=_ROLE_DECLINES.get(role, ()),
                         senses={c: w for c, w in LINE_HOW_SENSES.items() if c in meanings} if role == "line_how" else {},
                         firm_not_needed=role in ("not_agreed", "other_point", "agreed_now", "line_how", "wait_or_later"),
                         asks_once=role in ("not_agreed", "other_point", "agreed_now"),
