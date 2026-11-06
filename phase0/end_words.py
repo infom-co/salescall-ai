@@ -152,7 +152,7 @@ def answer_flow(row: tuple):
     f.on_callee(); f.on_heard(words); f.on_check("judge", _reading(answers[0], ends[0]))
     # 判定の読みだけで動く1か所（電話を終える言葉・待つ／かけ直す）が返さなければ、正解の答えの報告で当てる（⛔ 11-06 3時台に外した：言葉に「あとで」が
     # あれば、かけ直しの報告で当てる言葉の形の特別扱い＝正解を「あとでかけ直す」にして、judged_turn が判定の読みで応じる形にした）
-    r = f.judged_turn()
+    r = f.judged_turn(voiced=False)   # 会話AIは声を出していない（判定の読みだけで動く報告の無いターン）
     if r is None and answers[0].removesuffix(HEDGED) in choices + ("unknown", "refused"):
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": answers[0].removesuffix(HEDGED)})
     return f, _spoken(r), _marks(f)

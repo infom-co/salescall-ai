@@ -226,9 +226,32 @@ def agree(a_specs: list[str], b_specs: list[str], jev: list[str], group: str, li
 
 PARTS = (("目的のお客様の判定", ""), ("尋ねているか", "_asks"))   # 判定の問い合わせ（行の欄の後ろに付く名前）
 EPS = 1e-6
-# 記録の無い判定（測っていない・まだ流していない）の届き方：すぐに使える答え・すぐに使えない答え・届かない・待つ長さの前後の使える答え。
-# どの届き方でも同じ判定で決まる行だけを「決めた」と数える（記録の無い判定の読みを推し量らない）
-MISSING_TRIES = ((EPS, True), (EPS, False), (float("inf"), False), (Limits.hold_s - EPS, True), (Limits.hold_s + EPS, True))
+
+
+def new_person(r: dict) -> bool:
+    """行の場面の電話口の方が、まだあいさつを聞いていないかもしれない新しい方か（本番は、その方の報告が繋ぐ報告なら、判定を待つ間にあいさつを流す＝
+    Flow.hold_play）：取り次ぎの言葉など前の言葉のあとの方で、確かめる一言（その方に伺う一言）への返事ではない。名乗りの頭であいさつを聞いた方
+    （呼ぶ一言への返事）・確かめる一言への返事は、もうあいさつを聞いた方。"""
+    return bool(r["before"]) and not r["asked"]
+
+
+def waits(new: bool) -> tuple[float, ...]:
+    """本番の会話の側が判定を待つ長さのありうる値（待つ長さの1か所 Limits.judge_wait_s）：待つ間に録音を流さない回と、新しい方（new＝new_person）なら
+    あいさつ（Flow.hold_play の greeting）を流す回（声の型ごとの録音の長さ＝本番の電話接続側と同じ convo.recording_seconds）。あいさつを流すかは、その
+    方への会話AIの報告（繋ぐ報告か）でも決まり、測りは持たない＝記録の無い判定の届き方と同じく、どの待つ長さでも同じ判定で決まる行だけを決めたと数える。
+    ⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の A4）：Limits.hold_s だけで数えていた"""
+    lim = Limits()
+    if not new:
+        return (lim.judge_wait_s(),)
+    from convo import recording_seconds
+    from instruction import VOICE_TYPES
+    return tuple(sorted({lim.judge_wait_s()} | {lim.judge_wait_s(recording_seconds(v, "greeting")) for v in VOICE_TYPES}))
+
+
+# 記録の無い判定（測っていない・まだ流していない）の届き方：すぐに使える答え・すぐに使えない答え・届かない・待つ長さ（その行の waits のどれも）の前後の
+# 使える答え。どの届き方でも同じ判定で決まる行だけを「決めた」と数える（記録の無い判定の読みを推し量らない）
+def missing_tries(ws: tuple[float, ...]) -> tuple:
+    return ((EPS, True), (EPS, False), (float("inf"), False), *((w + d, True) for w in ws for d in (-EPS, EPS)))
 
 
 def judge_of(rows: list[dict], col: str) -> str:
@@ -263,19 +286,23 @@ def record(r: dict, col: str, sfx: str, name: str, q):
     return s, sure_reading(name, q, SimpleNamespace(sure=r.get(f"{col}{sfx}_sure"), firm_p=None)), got
 
 
-def outcomes(runs: list, leads) -> set:
-    """記録の秒で、本番の組が決める (番号, 秒) の全部（記録の無い判定 None は、MISSING_TRIES のどの届き方でも動かす）。"""
+def outcomes(runs: list, leads, new: bool = False) -> set:
+    """記録の秒で、本番の組が決める (番号, 秒, 待つ長さ) の全部：会話の側の待つ長さ（waits(new) のどれも。new＝行の電話口の方が新しい方か＝new_person）と、
+    記録の無い判定 None の届き方（missing_tries のどれも）のすべての組み合わせで動かす（待つ長さが切れる時に組へ合図＝本番の release と同じく、組が
+    後ろの順の確かな読みを持つ長さ prefer_s）。"""
     from itertools import product
 
     from meaning_judge import race_recorded
     missing = [i for i, x in enumerate(runs) if x is None]
     outs = set()
-    for tries in product(MISSING_TRIES, repeat=len(missing)):
-        rs = list(runs)
-        for i, x in zip(missing, tries):
-            rs[i] = x
-        won, at, _ = race_recorded([x[:2] for x in rs], leads)
-        outs.add((won, at))
+    ws = waits(new)
+    for wait in ws:
+        for tries in product(missing_tries(ws), repeat=len(missing)):
+            rs = list(runs)
+            for i, x in zip(missing, tries):
+                rs[i] = x
+            won, at, _ = race_recorded([x[:2] for x in rs], leads, prefer_s=wait)
+            outs.add((won, at, wait))
     return outs
 
 
@@ -286,7 +313,8 @@ def cascade(stages: list[str]) -> dict:
     （race_recorded）。記録の無い判定で決まりうる行は、決めたとは数えない：どの届き方でも記録の無い判定（測っていない Sonnet など）か「どれも答えない」
     になる行は「記録の無い判定に回る」、記録のある判定とない判定のどちらでも決まりうる行は「記録が足りない」（流す判定の名前つき＝次の測りの
     --only の言葉）。決めた行の外れは、流れの制御の動きが変わるもの（目的のお客様の判定＝flow_ok・尋ねているか＝「尋ねている」かが正解と違う）と、
-    項目だけのものに分ける。2秒超＝決めた秒が会話の側の待つ長さ（Limits.hold_s）を超える（記録の無い判定の届き方によっては超える行も数える）。
+    項目だけのものに分ける。2秒超＝決めた秒が会話の側の待つ長さ（その回の待つ長さ＝waits）を超える（記録の無い判定の届き方によっては超える行も数える）。
+    待つ長さ（あいさつの録音を流す回か＝waits）で決める判定が変わる行は「待つ長さで変わる」（どちらの判定の読みも外れを数える＝外れを隠さない）。
     ⛔ 2026-11-06 日本時間8時台（EN-C の指摘8）：線を手で渡し、並べた順で線から上かだけを見ていた（届いた秒を見ない＝本番の組と違う判定で決めたと
     数えうる）・どれも線より下なら、組で測った記録（今の組）の答えを使っていた"""
     from flowctl import ASKED
@@ -302,7 +330,7 @@ def cascade(stages: list[str]) -> dict:
             raise SystemExit(f"組（meaning_judge.RACE）に入っていない判定の記録です：{who}")
         have.setdefault(who, {}).update({(key(r), r.get("rep", 0)): (r, c) for r in rows})
     by, moved, only, late, rest = (collections.Counter() for _ in range(5))
-    short, out = [], []
+    short, out, split = [], [], []
     for k, rep in sorted({kr for h in have.values() for kr in h}, key=str):
         acc, facts = table[k]
         sc_row = next(h[(k, rep)][0] for h in have.values() if (k, rep) in h)
@@ -318,15 +346,14 @@ def cascade(stages: list[str]) -> dict:
                 runs.append(record(*rc, sfx, n, q) if rc else None)
             if all(x is None for x in runs):
                 continue                               # この問い合わせは、どの判定でも測っていない
-            outs = outcomes(runs, leads_of(names))
-            winners = {w for w, _ in outs}
+            outs = outcomes(runs, leads_of(names), new_person(sc_row))
+            winners = {w for w, _, _ in outs}
             known = {i for i, x in enumerate(runs) if x is not None}
             label = lambda ws: "・".join("どれも答えない" if w is None else names[w] for w in sorted(ws, key=lambda w: (w is None, w)))
-            if len(winners) == 1 and (w := next(iter(winners))) in known:
+
+            def miss(w) -> None:
+                """記録のある判定 w で決めたときの外れ（流れの制御の動きが変わるもの・項目だけのもの）を数える。"""
                 who, got = names[w], runs[w][2]
-                by[(part, who)] += 1
-                if max(at for _, at in outs) > Limits.hold_s:
-                    late[(part, "ご本人の回" if TARGET_IS_THERE in acc else "ほかの回")] += 1
                 if sfx == "":
                     if not g.facts_whole(got, facts) or not flow_ok(got, facts, acc, sc_row):
                         moved[(part, who, sc)] += 1
@@ -336,13 +363,22 @@ def cascade(stages: list[str]) -> dict:
                 elif sc_row.get("asks_accept") is not None and (got in ASKED) != sc_row["asks_accept"]:
                     moved[(part, who, sc)] += 1
                     out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got))
+            if winners <= known:
+                if any(at > wait for _, at, wait in outs):
+                    late[(part, "ご本人の回" if TARGET_IS_THERE in acc else "ほかの回")] += 1
+                if len(winners) == 1:
+                    by[(part, names[next(iter(winners))])] += 1
+                else:
+                    split.append((part, sc, sc_row["text"], sc_row["before"] or "", label(winners)))
+                for w in sorted(winners):
+                    miss(w)
             elif not winners & known:
                 rest[(part, label(winners), sc)] += 1
             else:
                 need = [names[w] for w in winners if w is not None and w not in known]
                 short.append((part, sc, sc_row["text"], sc_row["before"] or "", rep, need))
     return {"決めた判定": by, "動きが変わる外れ": moved, "項目だけの外れ": only, "2秒超": late, "記録の無い判定に回る": rest,
-            "記録が足りない": short, "外れの行": out}
+            "記録が足りない": short, "待つ長さで変わる": split, "外れの行": out}
 
 
 def show_cascade(got: dict) -> None:
@@ -357,6 +393,9 @@ def show_cascade(got: dict) -> None:
     texts = sorted({x[2] for x in got["記録が足りない"]})
     if texts:
         print("記録が足りない言葉（次の測りの --only）：", json.dumps(texts, ensure_ascii=False))
+    print("待つ長さ（あいさつの録音を流す回か）で決める判定が変わる行：", len(got["待つ長さで変わる"]))
+    for x in got["待つ長さで変わる"]:
+        print("  ", x)
     for x in got["外れの行"]:
         print("  外れ：", x)
 

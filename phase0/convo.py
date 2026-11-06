@@ -316,7 +316,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 info["held_play"], extra = held["part"], clip_s(held["part"]) if clip_s is not None else 0.0
             else:
                 info["held_ack"] = "hai"
-        deadline = max(ready, quiet) + flow.limits.hold_s + extra   # 会話の側の待つ長さが切れる時
+        deadline = max(ready, quiet) + flow.limits.judge_wait_s(extra)   # 会話の側の待つ長さが切れる時（待つ間に流す録音の分を延ばす＝1か所）
         if waits and not info.get("incomplete"):  # 出揃っていなければ、判定を待っても使わない（流れの制御は決めずに待つ）
             await asyncio.wait(waits, timeout=max(0.0, deadline - loop.time()))
             if first is not None and not first.done():
@@ -741,7 +741,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     # 内訳：古いつなぎを閉じる・新しいつなぎを開く・知らせてから声が出る（どこを縮めるかを決めるため）
                     turns[-1]["gap_parts_s"] = {"close": round(opened_at - stopped_at, 2), "open": round(t - opened_at, 2),
                                                 "speak": turn.first_audio_after_s}
-                async def judged(line, i: int, on_tool, settle) -> bool:
+                async def judged(line, i: int, on_tool, settle, voiced: bool) -> bool:
                     """会話AIが報告しないターンのあと（声だけで操作を呼ばなかった・待たせたまま終わった・声を止めた・黙った）：判定を待ってから、判定の読みで
                     動く1か所（Flow.judged_turn＝電話を終える言葉・待つ／かけ直す）を呼ぶ。返事があれば True（締めの録音・待つ一言は記録から流す＝
                     deliver_plays）。締めていなければ（ご遠慮の一言・急いでいる方への伺い・受付の方への確かめ・待つ・かけ直し＝録音はプログラムが流した／
@@ -751,7 +751,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if settle is None:
                         return False
                     await settle()  # 判定が「答え」と決めたときだけ知らせる（Flow.unreported_note）
-                    if (r := flow.judged_turn()) is None:
+                    # voiced＝このターンに会話AIの声を相手に流したか（流さなかった声＝muted は数えない。決めるのは声を流すこちら＝電話接続側）
+                    if (r := flow.judged_turn(voiced=voiced)) is None:
                         return False
                     if flow.end_reason is None:
                         if r.get("say"):
@@ -853,7 +854,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                             turns[-1]["ear_check"] = ear_info  # 張り替えたターンの確かめも残す（中身の判定の待ち・遅れを数えるため）
                         # 判定の読みで返事ができれば（待つように言われた・電話を終える言葉）、AIが黙っていても、その返事で続ける（報告の無いターンの1か所。
                         # 本番は、電話接続側の黙る間の見張りが、つなぎの一言を流す前に同じ入口を呼ぶ＝CL-1.md 4-95）
-                        if await judged(line, i, on_tool, settle):
+                        if await judged(line, i, on_tool, settle, voiced=False):
                             i += 1
                             continue
                         # AIが黙った（6-7）：このつなぎを閉じ、いまの位置を渡して開き直し、相手の同じ発話を送り直す（相手は1回しか話していない）。
@@ -904,7 +905,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     waited = bool(ops) and ops[-1]["reply"].get("result") in ("wait", "noted", "hold")
                     # 流さなかったAIの声（Flow.speech_allowed）：受け付けた報告が無ければ、報告し直すように知らせる（決めるのは Flow.unreported_note）
                     muted = any(t.get("muted") and t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
-                    if (spoke and not ops or waited or muted) and await judged(line, i, on_tool, settle):
+                    voiced = any(t.get("audio_seconds") and not t.get("muted") for t in turns if t["index"] == i and t["session"] == sessions)
+                    if (spoke and not ops or waited or muted) and await judged(line, i, on_tool, settle, voiced=voiced):
                         # 判定の読みで返事をした（電話を終える言葉・待つ／かけ直す）：締めたら、このあとの台詞は送らない（flow.phase が closing）
                         i += 1
                         continue

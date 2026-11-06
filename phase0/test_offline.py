@@ -2960,6 +2960,32 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         old = {k: v for k, v in right.items() if k != END}
         self.assertTrue(t.flow_ok(old, facts | {END: {END_REFUSED}}, acc, r))
 
+    def test_g59_tally_waits_like_the_running_call(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の A4）：本番の会話の側は、判定を待つ間に新しい方へのあいさつの録音（Flow.hold_play）を流すと、
+        #    その長さだけ待つ長さを延ばす（✅ 2026-10-22 ユーザー：「…その間に判定を待てばいいんじゃないですか？」）が、測りの数え（g59_tally.outcomes）は
+        #    2秒（Limits.hold_s）だけで組を動かしていた＝d1-ultra が2秒を過ぎてあいさつの間に届く行を、Jev で決めたと数えうる
+        # ⇒ 待つ長さは1か所（Limits.judge_wait_s）。あいさつを流す回かは会話AIの報告と電話口の方で決まり、測りは持たないので、両方の待つ長さで動かす
+        import convo
+        import g59_tally
+        from flowctl import Limits
+        from instruction import VOICE_TYPES
+        held = {round(convo.recording_seconds(v, "greeting"), 3) for v in VOICE_TYPES}
+        self.assertEqual(Limits().judge_wait_s(), Limits.hold_s)
+        self.assertEqual({round(Limits().judge_wait_s(h) - Limits.hold_s, 3) for h in held}, held)
+        # あいさつを流しうるのは、まだあいさつを聞いていないかもしれない新しい方（取り次ぎの言葉のあとの方）の行だけ（名乗りの頭であいさつを聞いた方・
+        # 確かめる一言への返事は延ばさない＝本番の Flow.hold_play）
+        self.assertEqual(set(g59_tally.waits(True)), {Limits.hold_s} | {Limits().judge_wait_s(h) for h in held})
+        self.assertEqual(g59_tally.waits(False), (Limits.hold_s,))
+        self.assertEqual([g59_tally.new_person({"before": b, "asked": a}) for b, a in (("", None), ("少々お待ちください。", None), ("少々お待ちください。", True))],
+                         [False, True, False])
+        # d1-ultra の確かな読みが 2.5秒（2秒より遅く、あいさつの間には間に合う）・Jev の確かな読みが 0.5秒：新しい方の行は、あいさつを流さない回は Jev、
+        # 流す回は d1-ultra（どちらにもなる）・あいさつを聞いた方の行は Jev だけ
+        runs = [(2.5, True, "d1"), (0.5, True, "jev")]
+        self.assertEqual({w for w, *_ in g59_tally.outcomes(runs, (0, 1), new=True)}, {0, 1})
+        self.assertEqual({w for w, *_ in g59_tally.outcomes(runs, (0, 1))}, {1})
+        # どちらの回でも決まる判定が同じ行は、今までどおり1つ（d1-ultra が2秒の前に届く）
+        self.assertEqual({w for w, *_ in g59_tally.outcomes([(1.0, True, "d1"), (0.5, True, "jev")], (0, 1), new=True)}, {0})
+
     def test_g59_tally_cascade_decides_with_the_production_race(self):
         # 測りの数え（g59_tally.cascade）は、どの判定で決めるかを本番の組の1か所で決める：顔ぶれ（members_for）・確かな読み（sure_reading）・
         # 先に出すもの（leads_of）・決め方（Race）。判定ごとの記録（1つの判定で測った結果）の秒で、本番と同じに決め、記録の無い判定（測っていない
@@ -3015,6 +3041,12 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertEqual((dict(got["決めた判定"]), dict(got["動きが変わる外れ"])), ({(part, D1): 1}, {}))
         self.assertTrue(g.facts_whole(old_row["judge2_facts"], facts))
         self.assertFalse(g.facts_whole({k: v for k, v in right.items() if k != "who"}, facts))   # 流れの制御が使う項目が無い読みは、そろっていない
+        # 取り次ぎの言葉のあとの新しい方の行：本番は、繋ぐ報告なら判定を待つ間にあいさつを流して待つ長さを延ばす（Limits.judge_wait_s・Flow.hold_play）＝
+        # 2秒より遅い d1-ultra でも決まりうる＝決めた判定に数えず「待つ長さで変わる」（どちらの読みも外れを数える）。⛔ 13時台の見直しの A4
+        text, _, before, asked, succ, facts = next(c for c in g.cases("確かめる一言") if c[2] and c[3] is None and not c[4])
+        right = {k: sorted(v)[0] for k, v in facts.items()}
+        got = count([row(D1, 2.5, 0.99)], [row(JEV, 0.1, 0.99)])
+        self.assertEqual((dict(got["決めた判定"]), len(got["待つ長さで変わる"])), ({}, 1))
 
     def test_g59_tally_never_misses_a_change_the_flow_check_finds(self):
         # 数える道具（g59_tally.flow_ok＝流れの制御の決まりを写したもの）は、会話の試し（g59_flow_check＝流れの制御そのもの）で動きが変わる外れを、
@@ -3566,7 +3598,10 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual((restates(n2), restates(callback_question("other_wish", of=Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？",
                                                                                                 "choice", conditions=("電話", "メール"))))), (False, False))
         self.assertTrue(restates(Question("Q1", "駐車場はご利用になりますでしょうか？", "choice", conditions=("利用する", "利用しない"))))
-        self.assertEqual(flow_act({"set": "N2"}, n2, "分かった", True, "分からない点がある"), ASK_AGAIN)
+        # 判定の読みが「分かった」（ご納得の向き）なら、候補の言葉で意味合いを尋ねる（16時台に言葉を足した＝ApprovalReviewTest.test_point_answers_are_asked_in_sense_toward_agreement）。
+        # 判定が決められないなら、今までどおり聞き直す
+        from g53_meaning import SENSE as SENSE_ACT
+        self.assertEqual(flow_act({"set": "N2"}, n2, "分かった", True, "分からない点がある"), SENSE_ACT + "分かった")
         self.assertEqual(flow_act({"set": "N2"}, n2, UNDECIDED, True, "分からない点がある"), ASK_AGAIN)
         # 流れの制御：ほかのご希望（W1）への「LINEならいいです」を判定が「LINEでの連絡」と読み、前の話の答えが「無い」なら、言い直さずに質問から聞き直す
         f = Flow([Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("電話", "メール")),
@@ -5792,6 +5827,20 @@ class JudgePanelTest(unittest.TestCase):
                 m.patch.object(mj, "prior_request", lambda name, q, before: "REQ"), m.patch.object(mj, "other_text", lambda name, t: t), \
                 m.patch.object(mj, "read_prior", lambda q, t: ("利用する", 0.95, "利用する")):
             self.assertEqual(asyncio.run(mj.aread_prior_first({D1: object(), JEV: object()}, None, "前の話")), ("利用する", 0.95, "利用する"))
+        # 測りの道具が使う同期の形（read_prior_first）も、打ち切りの秒（DOWN_AFTER_S）は本番と同じ1か所：d1-ultra が遅れれば Jev の答え（本番の組と同じ読み）。
+        # ⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の A5）：同期の形は打ち切りを持たず、遅れた d1-ultra の答えを待って使った＝測りが本番と違う
+        #    判定の答えを数えうる
+        import time as _time
+
+        def slow_sync(client, name, req):
+            if name == D1:
+                _time.sleep(0.5)
+                return "RAW_D1"
+            return "RAW"
+        with m.patch.object(mj, "_send_other", slow_sync), m.patch.object(mj, "DOWN_AFTER_S", 0.1), \
+                m.patch.object(mj, "prior_request", lambda name, q, before: "REQ"), m.patch.object(mj, "other_text", lambda name, t: t), \
+                m.patch.object(mj, "read_prior", lambda q, t: ("利用しない", 0.9, "利用しない") if t == "RAW_D1" else ("利用する", 0.95, "利用する")):
+            self.assertEqual(mj.read_prior_first({D1: object(), JEV: object()}, None, "前の話"), ("利用する", 0.95, "利用する"))
         # 1回ずつの問い合わせは、ほかの判定と同じ1か所（routed_call）：組の道の状態（RouteState＝JudgePanel）で、止まっている判定には送らず、止まったら
         # 印を付けて知らせる（本書 9-5 の (6)「どのAIが止まっても、新しい電話は回復するまで一時停止」・止まったことは通話の報告の ai_trouble に残す）。
         # ⛔ 2026-11-06 日本時間8時台（EN-C の残り「前の話の答えの止まりの記録」を確かめて見つけた）：前の話の答えだけ routed_call を通らず、止まった d1-ultra
@@ -7897,9 +7946,9 @@ class EndJudgedTest(unittest.TestCase):
         # 会話AIが何も報告しないターンのあとも、プログラムが締める（電話接続側が判定を待ってから呼ぶ）
         g = self.flow()
         self.heard(g, "もうかけてこないでください。", self.R("いいえ", END_REFUSED))
-        r = g.judged_turn()
+        r = g.judged_turn(voiced=False)
         self.assertEqual((r["result"], g.end_reason, g.log[-1]["op"]), ("end", "callee_refused_call", "judged_turn"))
-        self.assertIsNone(g.judged_turn())   # 締めたあとは何もしない
+        self.assertIsNone(g.judged_turn(voiced=False))   # 締めたあとは何もしない
         # 前の発話の判定があとから届いて、電話を終える言葉と読んだ：次の報告で締める（届いた時点で同じ決まりで当てる）
         h = self.flow()
         h.on_callee(); h.on_heard("もうかけないでって言ってるでしょう。")
@@ -8002,26 +8051,26 @@ class EndJudgedTest(unittest.TestCase):
         # いまの質問への答えとは読めない：報告の無いターンのあとでも、ご遠慮の一言（相づち「失礼いたしました。」も返事に付ける）
         f = two("いい加減にしてもらえますか。")
         f.on_check("judge", self.R(UNDECIDED, END_NONE)); f.on_check("judge2", self.R(UNDECIDED, END_REFUSED))
-        r = f.judged_turn()
+        r = f.judged_turn(voiced=False)
         self.assertEqual((r["result"], r["question_id"], r["ack"], f.end_reason), ("next", CALLBACK_IDS["refusal"], "shitsurei", None))
         # 確かでない読みだけが断ったに寄る（確かな読みが1つも無い）：同じく、ご遠慮の一言（⛔ 前は、割れたときだけで、ここでは何もしなかった）
         u = two("いい加減にしてもらえますか。")
         u.on_unsure("judge", UNDECIDED, end=END_REFUSED); u.on_unsure("judge2", UNDECIDED)
-        self.assertEqual(u.judged_turn()["question_id"], CALLBACK_IDS["refusal"])
+        self.assertEqual(u.judged_turn(voiced=False)["question_id"], CALLBACK_IDS["refusal"])
         # いまの質問への答え（いいえ＝送らない）とも読める：報告の無いターンのあとは何もしない（会話AIに答えの報告を促す＝unreported_note）。
         # 答えの報告は、判定より先に締めず、受け取る前に向きを確かめる（✅ 20時56分のご判断）
         g = two()
         g.on_check("judge", self.R("いいえ", END_NONE)); g.on_check("judge2", self.R("いいえ", END_REFUSED))
-        self.assertIsNone(g.judged_turn())
+        self.assertIsNone(g.judged_turn(voiced=False))
         r = g.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
         self.assertEqual((r["result"], g.current, g.end_reason), ("confirm_required", "Q1", None))
         # 確かでない答えの読みだけでも同じ（いまの話への返事とも取れる）
         v = two("もういいです。")
         v.on_unsure("judge", "いいえ", end=END_REFUSED); v.on_unsure("judge2", "いいえ")
-        self.assertIsNone(v.judged_turn())
+        self.assertIsNone(v.judged_turn(voiced=False))
         h = two()
         h.on_check("judge", self.R("いいえ", END_NONE)); h.on_check("judge2", self.R("いいえ", END_NONE))
-        self.assertIsNone(h.judged_turn())   # そろって「言っていない」：何もしない
+        self.assertIsNone(h.judged_turn(voiced=False))   # そろって「言っていない」：何もしない
         r = h.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
         self.assertEqual(r["result"], "next")   # 向きの確かめは、電話を終える言葉か決まらなかった言葉だけ
 
@@ -13240,7 +13289,7 @@ class NoneOfThemTest(unittest.TestCase):
             f.use_checks("judge", "judge2")
             f.on_callee(); f.on_heard("妻に話してからにしたいので、少し待ってください。")
             f.on_check("judge", Reading(HOLD_BACK)); f.on_check("judge2", Reading(UNDECIDED))
-            r = f.judged_turn() if op is None else f.apply(op, kw)
+            r = f.judged_turn(voiced=False) if op is None else f.apply(op, kw)
             self.assertIsNotNone(r, op)
             self.assertEqual((ACK[r["ack"]] if r.get("ack") else "") + r.get("say", "") + r.get("question", ""), ask, op)
 
@@ -13256,7 +13305,7 @@ class NoneOfThemTest(unittest.TestCase):
             f.use_checks("judge", "judge2")
             f.on_callee(); f.on_heard("家族にも聞いてから、また考えたいです。")
             f.on_check("judge", Reading(WAIT_OR_LATER)); f.on_check("judge2", Reading(WAIT_OR_LATER))
-            r = f.judged_turn()
+            r = f.judged_turn(voiced=False)
             h2 = f.wait_q
             self.assertIsNotNone(h2, op)
             self.assertEqual(r["ack"], "kashikomari", op)
@@ -13294,7 +13343,7 @@ class NoneOfThemTest(unittest.TestCase):
             f.on_callee(); f.on_heard("え、すみません、もう一度お願いできますか？")
             f.on_check("judge", Reading(REPEAT))
             f.on_check("judge2", Reading(REPEAT))
-            r = f.judged_turn() if op is None else f.apply(op, args)
+            r = f.judged_turn(voiced=False) if op is None else f.apply(op, args)
             return f, r
         for op, args in ((None, None), ("record_answer", {"question_id": "Q1", "condition_id": "カード"}),
                          ("report_unclear", {"question_id": "Q1"}), ("replay_opening", {"part": "own", "answer": "はい、もう一度申し上げます。"})):
@@ -13322,7 +13371,7 @@ class NoneOfThemTest(unittest.TestCase):
         f.on_callee(); f.on_heard("え、ごめんなさい、もう一回お願いできますか？")
         f.on_check("judge", Reading(REPEAT))
         f.on_check("judge2", Reading(REPEAT))
-        r = f.judged_turn()
+        r = f.judged_turn(voiced=False)
         self.assertEqual((ACK[r["ack"]], r.get("speak"), r.get("say")), ("失礼いたしました。", True, c["say"]))
         self.assertEqual((f.awaiting_confirm, f.items["Q1"].state), ("Q1", "checking"))
         # こちらがお話に応えた直後（「AIですか」への一言など）は当てない：もう一度言ってほしいのは、こちらの答えのほう（会話AIが言い直す）
@@ -13333,7 +13382,7 @@ class NoneOfThemTest(unittest.TestCase):
         f.on_check("judge", Reading(REPEAT))
         f.on_check("judge2", Reading(REPEAT))
         turn = f.repeat_turn
-        self.assertIsNone(f.judged_turn())
+        self.assertIsNone(f.judged_turn(voiced=False))
         self.assertEqual(f.repeat_turn, turn)
 
     def test_late_wait_reading_after_thinking_is_applied(self):
@@ -13349,10 +13398,10 @@ class NoneOfThemTest(unittest.TestCase):
             f, _ = self.wished(False)
             f.on_callee(); f.on_heard("うーん、どうしようかな…。")
             f.on_check("judge", Reading(THINKING))
-            r = f.judged_turn()
+            r = f.judged_turn(voiced=False)
             self.assertEqual(r["result"], "thinking")
             f.on_check("judge2", Reading(late))
-            return f, f.judged_turn()
+            return f, f.judged_turn(voiced=False)
         heard = lambda r: (ACK[r["ack"]] if r.get("ack") else "") + (r.get("question") or "")
         f, r = thought(LATER)
         self.assertEqual(heard(r), "承知しました。いつ頃おかけ直しさせていただきましょうか？")
@@ -13391,7 +13440,7 @@ class NoneOfThemTest(unittest.TestCase):
             r = f.apply("record_answer", {"question_id": "W1", "condition_id": WISH_NONE})
             self.assertEqual(r["result"], "hold", words)
             f.on_check("judge2", Reading(LATER))     # 遅れて届いたもう1つの判定（かけ直してほしい）
-            return f, f.judged_turn()
+            return f, f.judged_turn(voiced=False)
         heard = lambda r: (ACK[r["ack"]] if r.get("ack") else "") + r.get("question", "")
         # (ア) はっきり「待って」と言われた：もうお伝えした動き（このまま待つ）を変えない
         f, r = waited("妻に話してからにしたいので、少し待ってください。")
@@ -13405,7 +13454,7 @@ class NoneOfThemTest(unittest.TestCase):
         # (イ) 待つ言葉が無い：その場で1回伺う
         f, r = waited("ちょっと妻に聞いてみますね。")
         self.assertEqual((heard(r), f.current), (H2, "H2"))
-        self.assertIsNone(f.judged_turn())   # 1回だけ（同じ発話で伺い直さない）
+        self.assertIsNone(f.judged_turn(voiced=False))   # 1回だけ（同じ発話で伺い直さない）
         # (イ) 聞き取りにくい（別の耳の文字が会話AIの聞き取りと食い違う）：「待って」と聞こえていても1回伺う
         f, r = waited("妻に話してからにしたいので、少し待ってください。", ear="妻に話してからにしたいので、また電話ください。")
         self.assertEqual(heard(r), H2)
@@ -13459,7 +13508,7 @@ class NoneOfThemTest(unittest.TestCase):
                                      (WORDS, WAIT_OR_LATER, "かしこまりました。このままお待ちしていた方がよろしいでしょうか？それとも改めておかけ直しさせていただいた方がよろしいでしょうか？")):
             f, _ = self.wished(False)
             f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(reading))
-            r = f.judged_turn()
+            r = f.judged_turn(voiced=False)
             self.assertEqual(heard(r), want, reading)
             if reading == HOLD:
                 # あとから同じ言葉への報告が届いても、「はい、」を重ねない（同じ発話にもう待つと返した）
@@ -13468,16 +13517,18 @@ class NoneOfThemTest(unittest.TestCase):
         # 待つ・かけ直すでない答えの読みは、報告が無ければ当てない（受け取るのは報告と判定がそろったとき＝報告を促す知らせの1か所 unreported_note）
         f, _ = self.wished(False)
         f.on_callee(); f.on_heard("特にないです。"); f.on_check("judge", Reading(WISH_NONE))
-        self.assertIsNone(f.judged_turn())
+        self.assertIsNone(f.judged_turn(voiced=False))
         # (2) あとでかけ直してほしい（判定）：答えの段のかけ直しの一言（会話AIが答えと報告しても）
         f, _ = self.wished(False)
         r = said(f, "妻に相談してからにしたいので、また後で電話してもらえますか。", LATER)
         self.assertEqual(heard(r), "承知しました。いつ頃おかけ直しさせていただきましょうか？")
-        # お客様のほうから連絡するという折り返しの申し出（判定は「あとでかけ直す」・会話AIは申し出つきで報告）：申し出を捨てずに、今の折り返しの応じ方
-        # （お礼の一言のあと、こちらからかけ直す形で伺う＝✅ 2026-10-22 ユーザー）。⛔ 11-06 2時台に見つけた：待つ・かけ直すを決める1か所が申し出を捨てていた
+        # お客様のほうから連絡するという折り返しの申し出（判定は「お客様から折り返す」・会話AIは申し出つきで報告）：申し出を捨てずに、今の折り返しの応じ方
+        # （お礼の一言のあと、こちらからかけ直す形で伺う＝✅ 2026-10-22 ユーザー）。⛔ 11-06 2時台に見つけた：待つ・かけ直すを決める1か所が申し出を捨てていた。
+        # 誰からかけ直すかは判定が読む（11-06 13時台の見直しの C9＝test_callback_offer_is_read_by_the_judges）
+        from flowctl import LATER_THEIRS
         from phrases import OFFER_THANKS
         f, _ = self.wished(False)
-        r = said(f, "あとでこちらからかけ直しますね。", LATER, "request_callback", why="later", offer="callback")
+        r = said(f, "あとでこちらからかけ直しますね。", LATER_THEIRS, "request_callback", why="later", offer="callback")
         self.assertIn(OFFER_THANKS, json.dumps(r, ensure_ascii=False))
         # (3) 待つのか、かけ直すのか、言葉から決まらない：1回だけ伺う
         f, _ = self.wished(False)
@@ -13512,6 +13563,127 @@ class NoneOfThemTest(unittest.TestCase):
     def way_flow(self):
         from flowctl import Flow, Question
         return Flow([self.way_question(asks_way=False), Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+
+
+    def test_handover_report_in_the_answer_stage_uses_the_wait_reading(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直すの持ち場の C6）：答えの段で会話AIが「代わった方へ」（名乗りの流し直し）を報告すると、判定の読みが
+        #    取り次ぎを待つときだけ待ち、返事を待つ・あとでかけ直す・待つかかけ直すか決められない・考えている途中の読みは当てずに、名乗りから流し直した（前から）
+        #    ＝待つ・かけ直すは判定が読み、会話AIの報告は判定を待つきっかけだけ（応じるのは待つ読みの1か所 _wait_route）
+        from flowctl import HOLD, HOLD_BACK, LATER, THINKING, WAIT_OR_LATER
+        from meaning_judge import Reading
+        from phrases import ACK
+        heard = lambda r: (ACK[r["ack"]] if r.get("ack") else "") + r.get("say", "") + r.get("question", "")
+        for words, reading, want in (("ちょっと待ってもらえますか。", HOLD, "はい、"),
+                                     ("ちょっと妻に聞いてきますので、少々お待ちください。", HOLD_BACK, "はい、それではこのままお返事を待っております。"),
+                                     ("妻に相談してからにしたいので、また後で電話してもらえますか。", LATER, "承知しました。いつ頃おかけ直しさせていただきましょうか？"),
+                                     ("妻に話してからにしたいので、少し待ってください。", WAIT_OR_LATER,
+                                      "かしこまりました。このままお待ちしていた方がよろしいでしょうか？それとも改めておかけ直しさせていただいた方がよろしいでしょうか？"),
+                                     ("うーん、どうしようかな…。", THINKING, ACK["aizuchi"])):
+            f, _ = self.wished(False)
+            f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(reading))
+            r = f.apply("replay_opening", {"part": "handover"})
+            self.assertEqual(heard(r), want, reading)
+        # あとでかけ直すと読んだかけ直しの頭は、会話AIの報告が答えでも、次へ進む返事の順番（「承知しました。」「ありがとうございます。」を交互）によらず
+        # 「承知しました。」（「あとでかけて」に「ありがとうございます、」は合わない）。⛔ 直す途中で見つけた：順番しだいで「ありがとうございます。」になった
+        from flowctl import WISH_NONE
+        for count in (0, 1):
+            f, _ = self.wished(False)
+            f.ack_count = count
+            f.on_callee(); f.on_heard("妻に相談してからにしたいので、また後で電話してもらえますか。"); f.on_check("judge", Reading(LATER))
+            r = f.apply("record_answer", {"question_id": "W1", "condition_id": WISH_NONE})
+            self.assertEqual(heard(r), "承知しました。いつ頃おかけ直しさせていただきましょうか？", count)
+
+    def test_party_report_in_the_answer_stage_uses_the_wait_reading(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直すの持ち場の C7）：答えの段で会話AIが電話口の方の報告（受付の方・目的の人）をすると、判定の読みを
+        #    当てずに「受け付けました」とだけ返し、お客様には無言だった（前から）＝会話AIがどの操作で報告しても、先に判定の読みで応じる1か所（_judged_first）
+        from flowctl import HOLD, LATER, THINKING
+        from meaning_judge import Reading
+        from phrases import ACK
+        heard = lambda r: (ACK[r["ack"]] if r.get("ack") else "") + r.get("say", "") + r.get("question", "") + "".join(p.get("text", "") for p in r.get("play") or [])
+        for party in ("reception", "target"):
+            for words, reading, want in (("ちょっと待ってもらえますか。", HOLD, "はい、"),
+                                         ("妻に相談してからにしたいので、また後で電話してもらえますか。", LATER, "承知しました。いつ頃おかけ直しさせていただきましょうか？"),
+                                         ("うーん、どうしようかな…。", THINKING, ACK["aizuchi"])):
+                f, _ = self.wished(False)
+                f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(reading))
+                r = f.apply("report_party", {"party": party})
+                self.assertEqual(heard(r), want, (party, reading))
+    def test_judged_turn_takes_whether_the_ai_voice_flowed(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直すの持ち場の C10）：報告の無いターンに会話AIの声がお客様に流れたかを、流れの制御が「流してよいか」
+        #    （speech_allowed）で代わりに決めていた＝会話AIが話す通話では、会話AIが黙っていても流れたとみなし、考えている方への「はい。」（✅ 2026-11-06 日本時間
+        #    11時19分55秒「(1) ア」）も、もう一度言ってほしい方への流し直しも出さなかった（お客様には無言）。流れたかは、声を流す電話接続側だけが知っている事実
+        #    ⇒ 報告の無いターンの入口 judged_turn は、電話接続側からその事実（voiced）を必ず受け取る
+        from flowctl import REPEAT, THINKING
+        from meaning_judge import Reading
+        from phrases import ACK
+        for voiced, want in ((False, ACK["aizuchi"]), (True, None)):
+            f, _ = self.wished(False)   # 会話AIが話す通話（質問の録音が無い）
+            f.on_callee(); f.on_heard("うーん、どうしようかな…。"); f.on_check("judge", Reading(THINKING))
+            r = f.judged_turn(voiced=voiced)
+            self.assertEqual((r["result"], ACK.get(r["ack"])), ("thinking", want), voiced)
+        f, _ = self.wished(False)
+        f.on_callee(); f.on_heard("え、すみません、もう一度お願いできますか？"); f.on_check("judge", Reading(REPEAT))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((r.get("repeat"), ACK.get(r["ack"])), (True, "失礼いたしました。"))
+        f, _ = self.wished(False)
+        f.on_callee(); f.on_heard("え、すみません、もう一度お願いできますか？"); f.on_check("judge", Reading(REPEAT))
+        self.assertIsNone(f.judged_turn(voiced=True))   # 会話AIが自分の声で言い直した（流れた）：重ねない
+
+    def test_callback_offer_is_read_by_the_judges(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直すの持ち場の C9）：お客様のほうから折り返すという申し出（「あとでこちらから連絡しますね。」）は、会話AIの
+        #    報告（申し出 offer）からしか取れず、判定は「あとでかけ直す」の1つで読んでいた＝会話AIの報告が無い（報告の無いターンに判定で動く1か所 judged_turn）・
+        #    遅れると、お礼の一言「お気遣いありがとうございます。…」が抜け、申し出も記録に残らなかった（前から）
+        # ⇒ 誰からかけ直すかも判定が読む（答えの段の選べるもの「お客様から折り返す」）。会話AIの申し出は、判定の1つがそう読んだときだけ数える（設計書 1-1＝
+        #    会話AIの報告は、独立した確かめとそろったときだけ受け取る・✅ 2026-11-01 日本時間17時04分「(a) OK」＝会話AIの報告は判定を待つきっかけだけ）
+        import flowctl
+        from flowctl import HOLD_BACK, LATER, WAIT_OR_LATER, WISH_NONE, wait_reading
+        from meaning_judge import Reading
+        from phrases import ACK, OFFER_THANKS
+        THEIRS = "お客様から折り返す"
+        # お客様に聞こえる一言：お礼の一言（会話AIが話す通話では会話AIに言わせる文・録音で流す通話では録音）があれば先に、そのあと相づち＋質問
+        heard = lambda r: ((OFFER_THANKS if OFFER_THANKS in json.dumps(r, ensure_ascii=False) else "")
+                           + (ACK[r["ack"]] if r.get("ack") else "") + r.get("question", ""))
+        offered = lambda f: [c.get("offer") for c in f.facts.get("callback", [])]
+        ASK = "いつ頃おかけ直しさせていただきましょうか？"
+        WORDS = "あとでこちらから連絡しますね。"
+
+        def flow(*readings):
+            f, _ = self.wished(False)
+            f.on_callee(); f.on_heard(WORDS)
+            for k, v in zip(("judge", "judge2"), readings):
+                f.on_check(k, Reading(v))
+            return f
+        # (1) 会話AIが報告しなくても（報告の無いターン）、判定がお客様から折り返すと読めば、お礼の一言のあと、こちらからかけ直す形で伺う
+        f = flow(THEIRS)
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((heard(r), offered(f)), (OFFER_THANKS + ASK, ["callback"]))
+        # (2) 会話AIの報告がどの操作でも同じ（答えの報告・申し出の無いかけ直し・申し出つきのかけ直し）
+        for op, kw in (("record_answer", {"question_id": "W1", "condition_id": WISH_NONE}), ("request_callback", {"why": "later"}),
+                       ("request_callback", {"why": "later", "offer": "callback"})):
+            f = flow(THEIRS, THEIRS)
+            r = f.apply(op, kw)
+            self.assertEqual((heard(r), offered(f)), (OFFER_THANKS + ASK, ["callback"]), (op, kw))
+        # (3) 判定が割れた（お客様から・こちらから）ときは、会話AIの申し出が判定の1つとそろえばお礼を言う（申し出が無ければ言わない）
+        for offer, want in (("callback", (OFFER_THANKS + ASK, ["callback"])), (None, ("承知しました。" + ASK, [None]))):
+            f = flow(THEIRS, LATER)
+            r = f.apply("request_callback", {"why": "later", **({"offer": offer} if offer else {})})
+            self.assertEqual((heard(r), offered(f)), want, offer)
+        # (4) 判定がそろってこちらからかけ直すと読めば、会話AIが申し出と報告しても、お礼は言わない（判定が決める）
+        f = flow(LATER, LATER)
+        r = f.apply("request_callback", {"why": "later", "offer": "callback"})
+        self.assertEqual((heard(r), offered(f)), ("承知しました。" + ASK, [None]))
+        # (5) 待つかかけ直すかを伺った（H2）あとのお返事が、お客様から折り返すなら、同じくお礼の一言のあと伺う
+        f, _ = self.wished(False)
+        f.on_callee(); f.on_heard("妻に話してからにしたいので、少し待ってください。"); f.on_check("judge", Reading(WAIT_OR_LATER))
+        f.judged_turn(voiced=False)
+        f.on_callee(); f.on_heard("じゃあ、あとでこちらから連絡します。"); f.on_check("judge", Reading(THEIRS))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((heard(r), offered(f)), (OFFER_THANKS + ASK, ["callback"]))
+        # (6) 読みの組み合わせ（唯一の1か所 wait_reading）では、お客様から折り返すも、あとでかけ直すの1つ（応じ方は同じかけ直し）
+        J = ("judge", "judge2")
+        for got, want in (((THEIRS,), LATER), ((THEIRS, THEIRS), LATER), ((THEIRS, LATER), LATER), ((THEIRS, HOLD_BACK), WAIT_OR_LATER)):
+            self.assertEqual(wait_reading(dict(zip(J, got))), want, got)
+        self.assertEqual(flowctl.LATER_THEIRS, THEIRS)
 
     def test_callback_in_the_answer_stage_asks_when_to_call_again(self):
         # ✅ 2026-11-06 日本時間0時44分31秒 ユーザー：「「いつ頃おかけ直しさせていただきましょうか？」：この例なら、(イ) 答えの段のかけ直しすべてで大丈夫」
@@ -16890,7 +17062,7 @@ class HedgedSalesTest(unittest.TestCase):
                     f.on_check("judge2", j2)
                 else:
                     f.on_check("judge2", j1)
-                r = f.judged_turn() if op is None else f.apply(op, {"question_id": "G8n", "condition_id": "はい"})
+                r = f.judged_turn(voiced=False) if op is None else f.apply(op, {"question_id": "G8n", "condition_id": "はい"})
                 heard = ACK.get(r.get("ack") or "", "") + "".join(p["text"] for p in r.get("play", []))
                 self.assertNotIn(CALLBACK_ASK["refusal"], heard, (words, op))
                 self.assertNotIn(CALLBACK_IDS["refusal"], f.questions, (words, op))
@@ -16901,7 +17073,7 @@ class HedgedSalesTest(unittest.TestCase):
         f = self.flow("G8n", play_recordings=True)
         f.use_checks("judge", "judge2")
         f.on_callee(); f.on_heard("もうかけてこないでください。"); f.on_check("judge", R(UNDECIDED, END_REFUSED)); f.on_check("judge2", R(UNDECIDED, END_REFUSED))
-        self.assertEqual(f.judged_turn()["result"], "end")
+        self.assertEqual(f.judged_turn(voiced=False)["result"], "end")
 
     def test_a_question_back_before_the_answer_closes_with_the_final_check(self):
         # 質問の返事待ちに、答えの代わりにこちらの考えを尋ねられて答えたあと、お客様が相づちだけ：同じ質問の2回目にせず、こちらが勧めた向き（目的に進む向き＝
@@ -17099,7 +17271,7 @@ class HedgedSalesTest(unittest.TestCase):
             f = self.flow("G8n", play_recordings=play)
             self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
             f.on_callee(); f.on_heard("うーん、どうしようかな…。"); f.on_check("judge", Reading(THINKING))
-            r = f.judged_turn()
+            r = f.judged_turn(voiced=not play)   # 会話AIが話す通話は、会話AIが自分で「はい。」と言い、その声が流れた（電話接続側の知らせ）
             self.assertEqual((r["result"], r.get("ack"), r.get("play"), r.get("say")),
                              ("thinking", "aizuchi" if play else None, None, None), play)   # 会話AIが話す通話は、会話AIが自分で「はい。」と言った
             self.assertIsNone(f.unreported_note(muted=play))   # 報告し直させない（同じ確かめの一言をくり返さない）
@@ -17946,6 +18118,37 @@ class ApprovalReviewTest(unittest.TestCase):
         g.on_check("judge2", Reading("分かった"))
         self.assertNotIn("お話ししたところでお電話が切れてしまいました。", heard(r))
         self.assertEqual(g.point["outcome"], "agreed", heard(r))
+
+
+    def test_point_answers_are_asked_in_sense_toward_agreement(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（ご承認の持ち場）：「ほかにご納得いただけない点はございますでしょうか？」への「大丈夫です。」（曖昧な答え＝10-17）に、
+        #    「はい、恐れ入ります。ほかにご納得いただけない点をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き直していた＝ご承認の手順には、意味合いを
+        #    尋ねる一言の候補の言葉が無かった（✅ 2026-11-05 日本時間23時56分48秒「(1)…候補の選び方：ア」＝当てるのは W1・LINE の伺い方・ご承認の手順）。
+        #    候補の言葉は目的に進む向き（ご納得）の選択肢だけ（遠ざかる向きの言葉では言い直さない＝11-03 のご判断。お断りの読みは今までどおり聞き直す）
+        from flowctl import CALLBACK_IDS, Question, callback_question
+        N1, N2, N3 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"], CALLBACK_IDS["agreed_now"]
+        f = self.flow()
+        self.say(f, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        f.apply("replay_opening", {"part": "料金"})
+        f.on_callee(); f.on_heard("そうなんですね。"); f.apply("replay_opening", {"part": "resume"})
+        r = self.say(f, "大丈夫です。", "分かった", "record_answer", question_id=N2, condition_id="分かった")
+        self.assertEqual((r["result"], r["say"]), ("confirm_required", "大丈夫ですとおっしゃったのは、ほかにご納得いただけない点は特に無いという意味合いでしょうか？"), r)
+        r = self.say(f, "はい、そうです。", None, "confirm_field", question_id=N2, result="affirmed")
+        self.assertEqual((f.point["outcome"], f.export()["Q2"]), ("agreed", "はい"))
+        # お断りの読み（遠ざかる向き）には言葉を作らない：今までどおり聞き直す
+        g = self.flow()
+        self.say(g, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        g.apply("replay_opening", {"part": "料金"})
+        g.on_callee(); g.on_heard("そうなんですね。"); g.apply("replay_opening", {"part": "resume"})
+        r = self.say(g, "結構です。", "断ろうとしている", "record_answer", question_id=N2, condition_id="分かった")
+        self.assertNotIn("意味合い", r.get("say", ""))
+        # ご説明した内容のご納得（N3）・続きの電話の振り返りの一言（「ほかに」を外す）
+        q = Question("Q2", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.EXPLAIN)
+        self.assertEqual(callback_question("agreed_now").senses, {"はい": "ご説明した内容でご納得いただけた"})
+        self.assertEqual(callback_question("other_point", recap=q).senses, {"分かった": "ご納得いただけない点は特に無い"})
+        self.assertEqual(callback_question("other_point", which=True, after_recap=True).senses, {"分かった": "ご納得いただけない点は特に無い"})
+        self.assertEqual(callback_question("other_point", which=True).senses, {"分かった": "ほかにご納得いただけない点は特に無い"})
+        self.assertEqual(callback_question("not_agreed").senses, {})
 
 
 class RemainingNineTest(unittest.TestCase):

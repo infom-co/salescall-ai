@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, HOLD, HOLD_BACK, LATER, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
@@ -390,8 +390,11 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
                            "とは言わなくても、いま確かめてくる、と言ったのも。そのあと、ご自分で返事をする。答えではない）",
                 # ⛔ 11-06 2時台（W1 の試しの言葉を作って読んだ）：「こちらからかけ直してほしい」だけを書いていたので、お客様のほうから連絡するという
                 #    折り返しの申し出（「あとでこちらからかけ直しますね。」）の置き場が無かった＝この電話は終えて、あとで続きを話す、という意味で書いた
-                LATER: "いまは答えずに、この電話は終えて、あとで（別の時・別の日に）続きを話したいと言った（こちらからかけ直してほしい・お客様のほうから"
-                       "あとで連絡する、のどちらも。答えではない）",
+                # ⛔ 2026-11-06 日本時間13時台の見直し（C9）：お客様のほうから連絡するという申し出も同じ1つで読んでいたので、誰からかけ直すかを判定が読まず、
+                #    お礼の一言を会話AIの報告だけで決めていた＝お客様のほうから連絡する（LATER_THEIRS）を分けた（組み合わせでは同じ1つ＝flowctl.wait_reading）
+                LATER: "いまは答えずに、この電話は終えて、あとで（別の時・別の日に）こちらからかけ直してほしいと言った（どちらから連絡するかを言わずに、"
+                       "あとで続きを話したいと言ったのも。答えではない）",
+                LATER_THEIRS: "いまは答えずに、この電話は終えて、あとで（別の時・別の日に）お客様のほうからこちらへ連絡すると言った（答えではない）",
                 # ⛔ 11-06 2時台：分かれ目を書いていなかったので、作り手は「ちょっと待ってもらえますか。」（理由を言わずに待つようにとだけ言った＝電話を
                 #    つないだまま待つ）まで、こちらとして作った＝決められないのは、考えたい・相談したいという事情を添えたときだけ、と意味で書いた
                 WAIT_OR_LATER: "考えたい・ほかの方と相談したいので待ってほしい、と言ったが、そのあいだ電話をつないだまま待ってほしいのか、この電話は終えて"
@@ -1433,25 +1436,23 @@ def _prior_walk(clients: dict, q, before: str):
 
 
 def read_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
-    """前の話の答えを、PRIOR_READERS の順に読む（clients＝判定の名前 ⇒ other_client。順と取り出しは _prior_walk の1か所）。"""
-    walk = _prior_walk(clients, q, before)
-    try:
-        name, req = next(walk)
-        while True:
-            try:
-                text = _send_other(clients[name], name, req)
-            except Exception:   # つながらない・時間切れ・断られた・止まった：次の判定へ
-                text = None
-            name, req = walk.send(text)
-    except StopIteration as done:
-        return done.value
+    """前の話の答えを、PRIOR_READERS の順に読む（測りの道具の同期の形。clients＝判定の名前 ⇒ other_client）。読み方は通話の中の形と同じ1か所
+    （aread_prior_first＝順と取り出し _prior_walk・1回ずつの問い合わせ routed_call＝DOWN_AFTER_S で打ち切る）で、送り方だけ同期の client を別の
+    スレッドで送る。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の A5）：同期の形は自分で送り、打ち切りを持たなかった＝遅れた d1-ultra の
+    答えを待って使い、本番（打ち切って Jev）と違う判定の答えを数えうる形だった"""
+    import asyncio
+
+    async def send(client, name: str, body: dict) -> dict:
+        return await asyncio.to_thread(_send_other, client, name, body)
+    return asyncio.run(aread_prior_first(clients, q, before, send=send))
 
 
-async def aread_prior_first(clients: dict, q, before: str, state=None) -> tuple[str | None, float | None, str | None]:
+async def aread_prior_first(clients: dict, q, before: str, state=None, send=None) -> tuple[str | None, float | None, str | None]:
     """read_prior_first と同じ（通話の中の形。clients は other_client(…, aio=True)）。1回ずつの問い合わせは、ほかの判定と同じ1か所（routed_call＝
     DOWN_AFTER_S で打ち切る・止まった印・知らせ）を、組と同じ道の状態 state（JudgePanel。無ければこの読みだけの RouteState）で通し、止まっている判定には
     送らない（⛔ 2026-11-06 日本時間8時台（EN-C の指摘6）：打ち切りは通信の60秒だけだった。同じ日、EN-C の残り「前の話の答えの止まりの記録」を確かめて
-    見つけた：routed_call を通らず、止まった d1-ultra にも送り、止まっても印も知らせ（通話の報告の ai_trouble）も残らなかった）。"""
+    見つけた：routed_call を通らず、止まった d1-ultra にも送り、止まっても印も知らせ（通話の報告の ai_trouble）も残らなかった）。
+    send＝1回送る関数（client, 判定の名前, 送るもの）。無ければ通話の中の _asend_other（測りの道具の同期の形 read_prior_first は、同期の client を送る形）。"""
     walk = _prior_walk(clients, q, before)
     state = state if state is not None else RouteState()
     tried: list[dict] = []
@@ -1461,7 +1462,7 @@ async def aread_prior_first(clients: dict, q, before: str, state=None) -> tuple[
             if not state.usable(name):   # 止まっている（DOWN_S のあいだ）：次の判定へ
                 text = None
             else:
-                got = await routed_call(state, name, lambda: _asend_other(clients[name], name, req), None, tried)
+                got = await routed_call(state, name, lambda: (send or _asend_other)(clients[name], name, req), None, tried)
                 text = None if got is FAILED else got
             name, req = walk.send(text)
     except StopIteration as done:
