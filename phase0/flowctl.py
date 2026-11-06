@@ -555,8 +555,12 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
     return {"kind": "question", "id": rid, "text": text, "lead": lead}
 
 
-# 尋ねられて答えたあとに、最終の確かめの向きが決まらない質問（final_toward が無い）を伺い直すときの頭（✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(2) イ」
-# ＝11時台のご報告の (イ)「進む向きが1つに決まらない選ぶ質問は (ウ) の形」＝「はい、それではパンフレットをお送りしてもよろしいでしょうか？」）
+# 次の項目の質問に入るときの頭（✅ 2026-11-06 日本時間12時54分30秒 ユーザー：「次の項目の質問に入る前は、すべて「続きまして」でいいんじゃないですか。」。
+# ⛔ それまでは質問の順番で「それでは」「続きまして」「では」を回していた＝2026-10-13 の「短い受けの言葉を順番に回して置く」（G-27 の W1）から）
+NEXT_LEAD = "続きまして"
+# もう伺った質問を伺い直すときの頭（戻る一言・「失礼いたしました。」のあと・尋ねられて答えたあとに最終の確かめの向きが決まらない質問＝Flow._continue）。
+# ✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(2) イ」＝11時台のご報告の (イ)「進む向きが1つに決まらない選ぶ質問は (ウ) の形」＝「はい、それでは
+# パンフレットをお送りしてもよろしいでしょうか？」。同じ理由（次の項目ではない＝「続きまして」は合わない）で、もう伺った質問へ戻るとき全部に当てる
 AGAIN_LEAD = "それでは"
 # その回に直前に流す一言の文の頭のつなぎの言葉と、次の質問の頭のつなぎの言葉が重なったときに替える言葉の順（✅ 同じ時「(1) ウ」＝11時台のご報告の
 # 「(ウ) 次の質問の頭を「続きまして」にする」。「続きまして」と重なるときは、残りのつなぎの言葉から）
@@ -610,18 +614,20 @@ def before_heads(questions: list["Question"]) -> set[str]:
 
 
 def question_forms(questions: list["Question"], qid: str) -> list[dict]:
-    """業務の質問を録音で流しうる形（唯一の一覧＝録音を作る make_ack_clips.script_table。流す形は question_play の1か所が作る）：いつもの形・直前に流しうる
-    一言の頭と重なってつなぎの言葉を替えた形（before_heads）・尋ねられて答えたあとに伺い直す形（final_toward の無い質問）。同じ録音の名前は1つ。"""
+    """業務の質問を録音で流しうる形（唯一の一覧＝録音を作る make_ack_clips.script_table。流す形は question_play の1か所が作る）：次の項目として初めて伺う形・
+    直前に流しうる一言の頭と重なってつなぎの言葉を替えた形（before_heads）・もう伺った質問を伺い直す形（頭は AGAIN_LEAD＝Flow._continue。戻る一言のあと・
+    「失礼いたしました。」のあと・尋ねられて答えたあと）。同じ録音の名前は1つ。"""
     q = next(x for x in questions if x.id == qid)
     forms = [question_play(questions, qid)] + [question_play(questions, qid, before=w) for w in sorted(before_heads(questions))]
-    if not (q.reading_of or q.callback or q.of) and final_toward(q) is None:
+    if not (q.reading_of or q.callback or q.of):
         forms.append(question_play(questions, qid, again=True))
     return list({(p["id"], p.get("lead") or ""): p for p in forms}.values())
 
 
 def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False) -> tuple[str, str]:
-    """録音で流す質問の文（つなぎの言葉＋質問の文）と、そのつなぎの言葉。つなぎの言葉は質問の順番で決める（2問目「それでは」・3問目
-    「続きまして」・4問目「では」…）。最初の質問は名乗りと一緒に流すので、つなぎの言葉は付けない。
+    """録音で流す質問の文（つなぎの言葉＋質問の文）と、そのつなぎの言葉（唯一の場所）。次の項目の質問に入るときは「続きまして」（NEXT_LEAD。
+    ✅ 2026-11-06 日本時間12時54分30秒 ユーザー。⛔ それまでは質問の順番で「それでは」「続きまして」「では」を回していた）。最初の質問は名乗りと一緒に
+    流すので、つなぎの言葉は付けない。
     ✅ 2026-10-15 ユーザー（聞き比べ）：つなぎの言葉と質問を1本で録音したほうが「しいて言えば自然」⇒ 1本の録音にする。順番で決めておけば、
     依頼主ごとの録音は質問1つにつき1本のまま（流れの制御・録音を作る道具の両方が、ここを使う）
     before＝その回に、この質問の直前に流す一言：その文の頭のつなぎの言葉と重なれば替える（relead。✅ 2026-11-06 日本時間11時55分13秒「(1) ウ」）。
@@ -635,12 +641,13 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
         return AGAIN_LEAD + q.text, AGAIN_LEAD
     if i == 0:
         return q.text, ""
-    # この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりにそれを頭に（録音は1本のまま）。前の答えで伺う質問（ask_if。
+    # この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりにそれを頭に。前の答えで伺う質問（ask_if。
     # 言い切っていないときだけ伺う質問も）は、お客様の答えを受けて伺うので「それでは」（「資料はお手元に届いていますでしょうか？」の「いいえ」⇒
     # 「それではお送りし直してもよろしいでしょうか？」）（✅ 2026-11-03 ユーザーの言い方：「それでは、日時変更なさいますか？それとも、
     # キャンセルなさいますか？」「それでは、いつでしたら、お話しできそうでしょうか？」。⛔ 見直しで見つけた：並びの順番の「続きまして」を付けていた＝
-    # 業務設定の文が「それでは」で始まると「続きましてそれでは、…」「それではそれでは、…」。業務設定の文には頭のつなぎの言葉を書かない＝CL-2）
-    lead = relead(q.intro or ("それでは" if q.ask_if else LEAD_IN["次の質問"][(i - 1) % len(LEAD_IN["次の質問"])]), before)
+    # 業務設定の文が「それでは」で始まると「続きましてそれでは、…」「それではそれでは、…」。業務設定の文には頭のつなぎの言葉を書かない＝CL-2）。
+    # 前の答えで伺う質問は、前の項目の続き（次の項目ではない）なので「続きまして」にしない（12時54分30秒の「次の項目の質問に入る前」）
+    lead = relead(q.intro or ("それでは" if q.ask_if else NEXT_LEAD), before)
     return lead + q.text, lead
 
 
@@ -2786,6 +2793,8 @@ class Item:
     ambiguous_asked: bool = False     # 曖昧な答えの意味を確かめたか（そのあとの「結構です」は、確かめへの返事として受け取る）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
     told: bool = False                # その答えのあとに伝える一言（Question.tell_words）を、もう言った
+    played: bool = False              # この電話でこの質問をもう流した（伺った）：流し直すときの頭は「それでは」（AGAIN_LEAD）・初めては「続きまして」
+                                      # （NEXT_LEAD）＝Flow._continue。立てるのは質問を流す所（_next_question・_opening_reply・_continue）
     final: bool = False               # 最終の確かめを伺った（Flow._final_check）：同じ確かめはもう言い直さない（Flow._confirm_again の1か所。直された答え・
                                       # お断りは今までどおり受け取る＝確かめの回数 corrections は使い切らせない）
     hedged: str | None = None         # 言い直しへの返事が言い切っていなかった（その返事の言葉）：依頼主へは別の欄にお客様の言葉を渡す（Flow.hedged_words）
@@ -3359,6 +3368,7 @@ class Flow:
                     lines.append({"kind": "opening", "part": "purpose", "text": self.opening["purpose"]})
             if self.current is not None:
                 lines.append(question_play(list(self.questions.values()), self.current, "".join(x["text"] for x in lines)))
+                self.items[self.current].played = True
             say, then = None, "相手の答えを待ってください。" + answer_wait() if self.current else "相手のお返事を待ちます。"
         texts = "".join(x["text"] for x in lines)
         if not self.target and self.current is None and self._explain_due():
@@ -5277,6 +5287,8 @@ class Flow:
         """代わった方に、名乗りの録音を流せない（録音の無い通話・流し直しを使い切った）：AIが短く名乗って用件を伝え、いまの質問を聞く。"""
         q = self.questions.get(self.current) if self.current else None
         ask = f"いまの質問 {q.id}「{q.text}」を聞いてください。" if q is not None else "相手の返事を待ってください。"
+        if q is not None:
+            self.items[q.id].played = True   # 会話AIが、この方にいまの質問を聞く（流した印＝Item.played）
         intro = (self.opening or self.target or {}).get("intro")
         name = f"「{intro}」と" if intro else ""
         return {"result": "replayed", "play": [], "speak": True,
@@ -5776,9 +5788,14 @@ class Flow:
             # 応える返事で渡してある＝_own_then）。まだ戻らないので、戻る一言は戻るときまで持つ
             self.digressed = bool(back)
             return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._return_note()}"}
-        again = final and q is not None and not q.reading_of
-        if again and (toward := final_toward(q)) is not None:
+        if final and q is not None and not q.reading_of and (toward := final_toward(q)) is not None:
             return self._final_check(q.id, toward)   # 質問について尋ねられて答えた：同じ質問には戻らず、こちらが勧めた向きで最終の確かめ
+        # もう流した質問へ戻る（戻る一言・「失礼いたしました。」のあと・尋ねられて答えたあと）＝頭は「それでは」（AGAIN_LEAD）。まだ流していない質問（先に
+        # 言われた答えを受け取らずに、初めて流す＝_offer_ahead のあと）は、次の項目として「続きまして」（✅ 2026-11-06 日本時間12時54分30秒 ユーザー：「次の
+        # 項目の質問に入る前は、すべて「続きまして」でいいんじゃないですか。」＝戻るときは次の項目ではない）
+        again = q is not None and not q.reading_of and (final or self.items[q.id].played)
+        if q is not None and not q.reading_of:
+            self.items[q.id].played = True
         bridged = {"bridged": True} if back and q is not None else {}
         if q is not None and self.play_recordings and not q.reading_of:
             play += back + [question_play(list(self.questions.values()), q.id, again=again)]
@@ -5787,9 +5804,10 @@ class Flow:
                                + answer_wait()} | bridged
         if q is not None:
             then = f"{say_note(BACK_TO)}続けて、" if back else ""
+            lead = spoken_question(list(self.questions.values()), q.id, again=again)[1]
             return {"result": "replayed", "play": play, "speak": True,
                     "message": f"{done}続けて、{then}いまの質問 {q.id}「{q.text}」を聞いてください（名乗りは繰り返しません）。"
-                               + (start_with(AGAIN_LEAD) if again else "")} | bridged
+                               + (start_with(lead) if lead and (again or q.intro or self.lead_ins) else "")} | bridged
         # 聞いている質問が無い（質問が全部済んで締めの最中など）。⛔ 2026-10-17 の見直しで見つけた漏れ：前は、どの場面でも
         #    「相手の答えを待って record_answer で報告」と返していた＝答える質問が無いのに、報告を求めていた
         return {"result": "replayed", "play": play, "silent": True,
@@ -8457,13 +8475,14 @@ class Flow:
                  "message": prefix + played_note(text, f"次の質問 {q.id}") + "何も言わずに、相手の答えを待ってください。" + answer_wait()
                             + choices_note(q)}
         else:
-            # つなぎの言葉は、録音の形と同じ1か所（spoken_question：入る一言・前の答えで伺う質問は「それでは」・それ以外は質問の順番）。⛔ 2026-11-04 まで、
+            # つなぎの言葉は、録音の形と同じ1か所（spoken_question：入る一言・前の答えで伺う質問は「それでは」・それ以外は「続きまして」＝NEXT_LEAD）。⛔ 2026-11-04 まで、
             # AIが話す形だけ、つなぎの言葉を流した回数で回していて、前の答えで伺う質問にも「続きまして」、伺わなかった質問を挟むと順番の言葉がずれた
             play, lead = None, spoken_question(list(self.questions.values()), q.id)[1]
             r = {"result": "next", "question_id": q.id, "question": q.text,
                  "message": f"{prefix}次の質問は {q.id}「{q.text}」です。"
                             + (start_with(lead) if lead and (q.intro or self.lead_ins) else "")
                             + choices_note(q)}
+        self.items[q.id].played = True
         self._asked_next = (r, play)
         return r
 
