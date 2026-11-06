@@ -18147,6 +18147,32 @@ class ApprovalReviewTest(unittest.TestCase):
         r = self.say(f, "結構です。", "断ろうとしている", "record_answer", question_id=N2, condition_id="分かった")
         self.assertNotEqual(r["result"], "next")
 
+    def test_agreed_now_in_ambiguous_words_is_taken_unless_it_may_be_a_refusal(self):
+        # ✅ 2026-11-06 日本時間20時03分09秒 ユーザー：「「結構です。」だけは今のまま尋ねるか、お知らせください。OK」（19時台のご報告の伺い：「ご説明した内容で
+        # ご納得いただけましたでしょうか？」（N3）への「大丈夫です。」「結構です。」を、N2 と同じく尋ねずに受け取るか。「ご納得の問いへの「結構です。」は、
+        # 「もう結構です」というお断りに聞こえることもあります」）
+        # ⇒ N3 への「大丈夫です」（「平気です」も）は尋ねずに「ご納得いただけた」で受け取り、お礼と次の質問。「結構です」は今のまま意味合いを尋ねる。同じ理由
+        #    （「もういいです」というお断りに聞こえる）の「いいです」も尋ねる側（意味の表 ROLE_REPLIES に入れない）
+        from flowctl import CALLBACK_IDS
+        from phrases import ACK
+        N1, N2, N3 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"], CALLBACK_IDS["agreed_now"]
+        heard = lambda r: ((ACK[r["ack"]] if r.get("ack") else "") + "".join(p.get("text", "") for p in r.get("play") or [])
+                           + (r.get("say") or ""))
+        NEXT = "ありがとうございます。続きましてご訪問の日時のご希望はございますでしょうか？"
+        for words, want in (("大丈夫です。", ("next", NEXT)), ("平気です。", ("next", NEXT)),
+                            ("結構です。", ("confirm_required", "はい、結構ですとおっしゃったのは、ご説明した内容でご納得いただけたという意味合いでしょうか？")),
+                            ("いいです。", ("confirm_required", "はい、いいですとおっしゃったのは、ご説明した内容でご納得いただけたという意味合いでしょうか？"))):
+            f = self.flow()
+            self.say(f, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+            f.apply("replay_opening", {"part": "料金"})
+            f.on_callee(); f.on_heard("そうなんですね。"); f.apply("replay_opening", {"part": "resume"})
+            r = self.say(f, "なるほど。", "unknown", "record_answer", question_id=N2, condition_id="unknown")
+            self.assertEqual(f.current, N3)
+            r = self.say(f, words, "はい", "record_answer", question_id=N3, condition_id="はい")
+            self.assertEqual((r["result"], heard(r)), want, words)
+            if want[0] == "next":
+                self.assertEqual((f.point["outcome"], f.export()["Q2"]), ("agreed", "はい"), words)
+
     def test_point_answers_are_asked_in_sense_toward_agreement(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（ご承認の持ち場）：「ほかにご納得いただけない点はございますでしょうか？」への「大丈夫です。」（曖昧な答え＝10-17）に、
         #    「はい、恐れ入ります。ほかにご納得いただけない点をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き直していた＝ご承認の手順には、意味合いを
