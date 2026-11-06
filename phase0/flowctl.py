@@ -2207,6 +2207,11 @@ _ROLE_MEANINGS = {
 POINT_UNSAID = "点は言っていない"   # 「ほかに…」（N2）への、分からない点があるとだけ言った答え（_ROLE_MEANINGS の other_point・Flow._point_step）
 # システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）
 _ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("断ろうとしている",), "agreed_now": ("いいえ",)}
+# ご承認いただけなかったときの手順の段と、その段で伺うシステムの質問の役目（唯一の表＝Flow._point_step・_point_taken_back・_point_back_to・_point_waiting・_point_dropped）。
+# ご説明する段（explain・explained）と申し伝え直す段（told）は、伺う質問が無い
+POINT_STAGES = {"ask": "not_agreed", "other": "other_point", "confirm": "agreed_now"}
+# 手順の質問の、ご納得いただけた答え（唯一の表＝Flow._point_step が手順を「ご納得」で終える・_point_disagreed がご納得いただけていない向きの答えから外す）
+POINT_AGREED = {"other_point": "分かった", "agreed_now": "はい"}
 # 選ぶ質問の「どれも要らない」のあとに伺うほかのご希望（Flow._wish_step の1か所）：ご連絡の方法を言っていただいたら、その方法の連絡先をその場で伺う。
 # ✅ 2026-11-03 日本時間20時48分 ユーザー：「「LINEならいいです」と回答いただけたら、LINEアドレスを伺うというステップを忘れないように。そうしないと、
 # また、電話をかけて伺わないといけなくなりますよ。そうなると、また、繋がらなかったり、考えが変わったりして、無駄な対応やせっかくの顧客を失う可能性が
@@ -3916,7 +3921,8 @@ class Flow:
         self._wish_taken_back()  # ほかのご希望の手順を進めた答え（W1・伺い方）なら、その段へ戻す（上に積んだ段・事実も渡さない）
         self._point_taken_back(qid)   # ご承認の手順を進めた答え（ご承認のお断り・N1〜N3）なら、その段へ戻す（上に積んだ段・記録も渡さない）
         self._wish_facts_now()   # その答えから書いた通話の事実（ほかのご希望の方法・伺い方・連絡先）も渡さない
-        if (self.phase == "rechecking" and q.required and it.rechecks < self.limits.recheck and qid != self.current
+        # 念のための確認に入れるのは、まだ「-」のものだけ（手順のお返事で決め直した答え＝_point_taken_back の _retake は、もう確かめた）
+        if (it.state == "unresolved" and self.phase == "rechecking" and q.required and it.rechecks < self.limits.recheck and qid != self.current
                 and qid not in self.recheck_queue):
             self.recheck_queue.append(qid)
         for d, (by, item) in list(self.rests_on.items()):
@@ -3951,23 +3957,51 @@ class Flow:
         伺えなかった＝押さずに手順を終える・N2＝どちらとも取れない＝ご説明した内容のご納得を伺う・N3＝はっきりしない）。ご承認のお断りそのものが取り消されたら、
         手順を始める前へ戻す（ご承認は「-」＝締めの前の念のための確認で伺う）。手順が後の段の答えで決まっていたら、戻さない（その答えは確かめとそろっている）。
         ✅ 本書 9-5（ご承認の手順）「手順の段を進めた答えが遅れて届いた判定で取り消されたら、その段へ戻し、上に積んだ段も事実も渡さない」。⛔ 2026-11-06
-        日本時間7時台（5時56分55秒のご質問の読み直し EN-D の指摘2）：段を戻す所が無く、断ろうとしているお客様にご説明を続け・「ほかに…」で押し、ご納得の記録も残った"""
+        日本時間7時台（5時56分55秒のご質問の読み直し EN-D の指摘2）：段を戻す所が無く、断ろうとしているお客様にご説明を続け・「ほかに…」で押し、ご納得の記録も残った。
+        ただし、もうお客様に伺った一言は、取り消しでもう一度伺わない（9-3「取得済みのことを重ねて聞かない」・11-01「全く同じ質問を2度したら、機械だと思われて
+        しまいませんか？」）。⛔ 2026-11-06 日本時間13時台の見直し（ご承認の持ち場の B3・B1 の振り返りの一言）で見つけた：
+        - ご承認のお断りそのもの：手順の質問（N1 は「ご納得いただけなかった」ことを前に置いた問い）に、お客様がご納得いただけていない向きで答えていれば
+          （_point_disagreed）、ご承認いただけなかったことをお客様ご自身の言葉で確かめた（9-5「完了の証拠はお客様本人の確認」）＝ご承認は「いいえ」に決め直して
+          （決め手はその答え＝_retake）手順を続ける。手順の一言のお返事を待っている（_point_waiting）なら、そのお返事で決める（_point_step の unsure）。
+          ⛔ それまでは手順をやめたので、お客様が答えた点を「ありがとうございます。」で受けて捨て、締めの前にご承認を伺い直し、また点を伺っていた
+        - 段を進めた答え：その答えのあとに伺った一言（続きの電話の振り返りの一言）のお返事を待っているなら、その一言は外さず、そのお返事で手順を進める（取り消した
+          答えは「-」＝渡さない）。⛔ それまでは段を戻して、お客様が振り返りの一言に答えたあと、同じ振り返りの一言をもう一度流した"""
         p = self.point
         if p is None:
             return
-        nid, oid, aid = (CALLBACK_IDS[r] for r in ("not_agreed", "other_point", "agreed_now"))
+        nid, oid, aid = (CALLBACK_IDS[r] for r in POINT_STAGES.values())
         if qid == p["q"]:
             if p["outcome"] == "agreed":
                 return   # ご納得で決め直した答え（_retake）は、決め手（N2・N3）の取り消しで戻る（_restore_retaken）
-            for x in (nid, oid, aid):
-                if self.follow_ups.get(x) == p["q"]:
-                    self._out_of_order(x, keep_current=True)
-            self._point_facts_dropped()
-            self.point = None
+            if (by := self._point_disagreed()) is not None:
+                self._retake(qid, self.items[qid].condition, by=by,
+                             why=f"ご承認いただけなかったことを、手順の質問（{by}）へのお客様のお返事で確かめた（受け取ったあとに届いた確かめで食い違った答えを決め直した）")
+                return
+            if self._point_waiting() is not None:
+                p["unsure"] = True   # 手順の一言のお返事で決める（_point_step）
+                return
+            self._point_dropped()
             return
-        stage = {nid: "ask", oid: "other", aid: "confirm"}.get(qid)
+        stage = {CALLBACK_IDS[r]: s for s, r in POINT_STAGES.items()}.get(qid)
         if stage is None or self.follow_ups.get(qid) != p["q"] or (p["outcome"] is not None and p.get("by") != qid):
             return
+        if (w := self._point_waiting()) is not None and w != qid:
+            return   # 取り消した答えのあとに伺った一言のお返事を待っている：その一言は外さず、そのお返事で進む（取り消した答えは _unaccept が「-」にした）
+        if p["stage"] == "explain":
+            # ご説明の最中（会話AIはもうご説明を始めているかもしれない）：ご説明は止められないので、ご説明を終えてから段を戻す（_point_step の back）。それまでは
+            # ご説明の段のまま＝会話AIのご説明はご説明として受け、お客様のお返事を聞いてから、戻した段の答え「-」の決まりで進む。⛔ 2026-11-06 日本時間13時台の
+            # 見直し（ご承認の持ち場の B1）：すぐ段を戻したので、会話AIのご説明を答えの録音として流し、ご説明のあとに戻した段の質問（N1・どの点か・「ほかに…」）を
+            # 「話を戻させていただきますね。」から流し直し、取り消した言葉を「いまの質問の答えかもしれない言葉」として会話AIにもう一度報告させた（判定はまた割れて、
+            # 同じ質問をもう一度伺う）
+            p["back"] = (stage, qid)
+            return
+        self._point_back_to(stage, qid)
+
+    def _point_back_to(self, stage: str, qid: str) -> None:
+        """ご承認の手順を、段を進めた答え（qid）の段 stage へ戻す唯一の場所（_point_taken_back・ご説明を終えた _point_step の back）：その答えの上に積んだ段は
+        伺わず、その答えから書いた記録も渡さない。戻した段の答えは「-」（_unaccept）。"""
+        p = self.point
+        nid, oid, aid = (CALLBACK_IDS[r] for r in POINT_STAGES.values())
         for x in {"ask": (oid, aid), "other": (aid,), "confirm": ()}[stage]:
             self._out_of_order(x, keep_current=True)
         if stage == "ask":
@@ -3983,6 +4017,38 @@ class Flow:
         p.pop("open", None)
         if self.no_doubts == qid:
             self.no_doubts = None
+
+    def _point_dropped(self) -> None:
+        """いまのご承認の手順をやめて、手順を始める前へ戻す唯一の場所（ご承認のお断りそのものが取り消され、手順へのお返事でも確かめられない＝_point_taken_back・
+        _point_step の unsure）：手順の質問は並びから外し（いまの質問はお客様の答えを受けるので残す）、記録も渡さない。ご承認は「-」（締めの前の念のための確認で伺う）。"""
+        p = self.point
+        for r in POINT_STAGES.values():
+            if self.follow_ups.get(x := CALLBACK_IDS[r]) == p["q"]:
+                self._out_of_order(x, keep_current=True)
+        self._point_facts_dropped()
+        self.point = None
+
+    def _point_disagreed(self) -> str | None:
+        """ご承認いただけなかったときの手順の質問に、お客様がご納得いただけていない向きで答えた、その質問の番号（無ければ None。唯一の決まり＝_point_taken_back・
+        _point_step）：その質問自身の選択肢の答えで、ご納得の答え（POINT_AGREED）でないもの（N1＝点を言った・断ろうとしている／「ほかに…」＝分からない点がある・
+        点は言っていない・断ろうとしている／N3＝いいえ）。わからない・答えたくない・決められない・聞き取れないは数えない（その問いへの答えになっていないこともある＝
+        「いや、だから大丈夫ですよ。」も会話AIは「わからない」と報告しうる）。"""
+        p = self.point
+        for r in ("agreed_now", "other_point", "not_agreed"):
+            x = CALLBACK_IDS[r]
+            it, q = self.items.get(x), self.questions.get(x)
+            if (q is not None and self.follow_ups.get(x) == p["q"] and it.state in GOT and it.condition in q.conditions
+                    and it.condition != POINT_AGREED.get(r)):
+                return x
+        return None
+
+    def _point_waiting(self) -> str | None:
+        """いま、ご承認いただけなかったときの手順の一言（N1・振り返りの一言・「ほかに…」・どの点か・N3）を伺って、お客様のお返事を待っているなら、その質問の
+        番号（無ければ None。唯一の決まり＝_point_taken_back）。"""
+        p, cur = self.point, self.current
+        if p is None or cur is None or self.follow_ups.get(cur) != p["q"] or cur not in {CALLBACK_IDS[r] for r in POINT_STAGES.values()}:
+            return None
+        return cur if self.items[cur].state not in TAKEN + ("unresolved",) else None
 
     def _leave_open(self, head: str, rid: str) -> None:
         """点を言っていただけないまま手順を終えたときに、次へ進む前に挟む一言（「ご不満な点がございましたらいつでもお申し出ください。」など）の印を立てる唯一の
@@ -4001,7 +4067,8 @@ class Flow:
 
     def _retake(self, qid: str, cond: str, by: str, why: str) -> None:
         """この通話で、質問 qid の答えを cond に決め直す唯一の場所（ほかのご希望を伺って元の質問の選択肢を選び直していただいた＝_wish_step・ご承認いただけ
-        なかったときの手順でご納得いただいた＝_point_end・ほかに分からない点は無いと伺った＝_no_doubts_step）。by＝決め手の答えの質問（W1・N2・N3）。
+        なかったときの手順でご納得いただいた＝_point_end・ほかに分からない点は無いと伺った＝_no_doubts_step・遅れて届いた判定で取り消したご承認のお断りを、手順の
+        質問へのお返事で確かめた＝_point_taken_back・_point_step）。by＝決め手の答えの質問（W1・N1〜N3）。
         - 前の通話で取れた答えでも、この通話の答え（依頼者へ渡す＝export・hedged_words）にする。言い切っていないかは、決め手の答えのお客様の言葉で決める
           （Flow._hedged の1か所。決め手の答えの材料＝まだ書いていなければ、いまの報告の言葉）。⛔ 2026-11-04 日本時間21時台に見つけた：決め手の質問（W1・
           N2・N3）は確かめずに受け取る質問なので印が付かず、「たぶん分かったと思います。」「たぶん送ってもらってもいいかもしれないです。」でも、言い切った
@@ -4018,7 +4085,9 @@ class Flow:
         said, check = (t["said"], t["check"]) if t is not None else (self.heard_said, self.heard_check)
         hedged = (said or "").strip()[:40] or label(cond) if Flow._hedged(said, check) else None
         self.retaken[qid] = (dataclasses.replace(it), self.earlier.get(qid), self.taken.get(qid))
-        it.condition, it.value, it.hedged, it.told = cond, cond, hedged, False
+        # その答えのあとに伝える一言は、違う答えに決め直したときだけ「まだ言っていない」（同じ答えに決め直した＝取り消した答えを手順のお返事で確かめた
+        # ＝_point_taken_back は、もう言ったかをそのまま）
+        it.condition, it.value, it.hedged, it.told = cond, cond, hedged, it.told and it.condition == cond
         it.set("accepted", why)
         self.earlier.pop(qid, None)
         self.taken.pop(qid, None)
@@ -4407,6 +4476,14 @@ class Flow:
             # 答えに相手の質問が添えられていた（先に質問に答える。その答えの頭の相づちは、答える操作のほう）・こちらの不具合で終える（お詫びの
             # 一言「恐れ入ります。…」から始まる＝相づちを重ねない）
             return None
+        if reply.get("point_open") and result in ("next", "end", "recheck"):
+            # 点を言っていただけないまま手順を終えたあとに挟む一言（Flow._advance）の頭：「はい、」・覚えていないと言われたら「ごもっともです。」・この電話の
+            # 言いたくない・どの部分か分からない＝「承知しました。」（決めるのは _point_step の leave_open の1か所）
+            # （この一言は返事のいちばん先に流すので、返事の中身の頭の決まり（締めの led・録音の続きの quiet・受け答えのあとの talked・答え方の頭「はい、」）より
+            # 先に読む。⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの読み直しで見つけた：「それは言いたくないです。ところで料金は…？」に「はい、料金は…。
+            # ご不満な点が…」と、答えの決まりの「承知しました。」が抜けた。⛔ 13時台の見直し（B1）で見つけた：ご説明のあとの締めで、締めの led が先に読まれ、
+            # 「ご不満な点が…」の頭の「はい、」が抜けた）
+            return reply["point_open"]
         if reply.get("led"):
             return None  # 返事の録音が、お礼・お詫びの一言から始まる（申し出へのお礼・在籍していないときのお詫び＝_led）。重ねない
         if reply.get("quiet"):
@@ -4454,12 +4531,6 @@ class Flow:
             return "shitsurei" if reply.get("sorry") else "hai" if reply.get("answering") and not reply.get("renamed") else None
         if name == "report_party":
             return None  # 留守番電話・番号違い・受付に「承知しました」などは合わない（番号違いの締めの頭に「失礼いたしました。」を流すと、締めの「失礼」と重なる）
-        if reply.get("point_open") and result in ("next", "end", "recheck"):
-            # 点を言っていただけないまま手順を終えたあとに挟む一言（Flow._advance）の頭：「はい、」・覚えていないと言われたら「ごもっともです。」・この電話の
-            # 言いたくない・どの部分か分からない＝「承知しました。」（決めるのは _point_step の leave_open の1か所）
-        # （答えに添えられた質問に答えて次へ進むときも、この一言の頭が先＝答え方の頭「はい、」より先に読む。⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの
-        # 読み直しで見つけた：「それは言いたくないです。ところで料金は…？」に「はい、料金は…。ご不満な点が…」と、答えの決まりの「承知しました。」が抜けた）
-            return reply["point_open"]
         if name == "replay_opening" and args.get("part") in OWN_PARTS:
             # 相手の質問に、AIが自分の言葉で答える頭は「はい、」（AIの言葉は「そちらにつきましては」などの受けの言葉から。受け皿の、知っている
             # ことの文をAIが言うときも）。答えの文を使わず、録音の一言（「かしこまりました。…」）を流すときは、重ねない（⛔ 4回目の前は
@@ -5431,8 +5502,10 @@ class Flow:
         """いまの相手の言葉に、まだ答えをもらっていないいまの質問の答えが入っているかもしれない（_keep_answer_reading が判定を見る場面）。答え方の操作も、
         この間は判定を待つ（wants_checks。⛔ 2026-10-22 の4回目の流し G-57 tc37：AIが判定の届く前に答え方の操作を呼び、差し戻せなかった）。"""
         q = self.questions.get(self.current) if self.current else None
+        # ご納得いただけなかった点のご説明の最中（_explaining）は、いまの質問（N1・「ほかに…」）の答えはもう伺ったあと（ご説明はその答えへの応え。そのもとの
+        # 答えが遅れて届いた判定で取り消されても、段を戻すのはご説明のあと＝_point_taken_back）
         return (self.phase in ("asking", "rechecking") and q is not None and not q.reading_of and self.awaiting_confirm is None
-                and self.after_answer is None and self.items[q.id].state not in GOT)
+                and self.after_answer is None and self.items[q.id].state not in GOT and not self._explaining())
 
     def _keep_answer_reading(self) -> None:
         """相手の言葉に、いまの質問への答えが入っているかもしれないのに、AIが答えの報告ではなく答え方（replay_opening）を呼んだ（答えと質問を一緒に
@@ -5886,7 +5959,8 @@ class Flow:
             r, self.after_answer = self.after_answer[1], None
             return self._led(play, "", r)
         if self._explaining() and self.point["explained"] is not None:
-            # ご納得いただけなかった点をご説明した：次は手順の1か所が決める（ほかに…・ご説明できなければ申し伝えて続ける／締める）
+            # ご納得いただけなかった点をご説明した：次は手順の1か所が決める（ほかに…・ご説明できなければ申し伝えて続ける／締める。ご説明の最中に、ご説明の
+            # もとの答えが遅れて届いた判定で取り消されていたら、段を戻して「-」の決まりで進む＝_point_step の back）
             self.point["stage"] = "explained"
             return self._led(play, "", self._advance("", handled=True))
         done = played_note(shown) if shown else ""
@@ -7855,6 +7929,27 @@ class Flow:
             if q is not None:
                 self._point_begin(q)
             return
+        if p.get("unsure"):
+            # ご承認の「いいえ」を、手順の一言（N1）を伺ったあとに遅れて届いた判定で取り消した（_point_taken_back）：その一言へのお返事でご承認を決める。ご納得いただけて
+            # いない向き＝お客様ご自身の言葉で確かめた（ご承認は「いいえ」に決め直して手順を続ける）・ご納得＝今までどおり（_point_end の agreed が「はい」に決め直す）・
+            # どちらでもない＝確かめられない（手順を始める前へ戻す＝ご承認は「-」）
+            sid = CALLBACK_IDS[POINT_STAGES[p["stage"]]]
+            it = self.items[sid]
+            if it.state not in TAKEN + ("unresolved",):
+                return   # まだお返事が無い
+            if (by := self._point_disagreed()) is not None:
+                self._retake(p["q"], self.items[p["q"]].condition, by=by,
+                             why=f"ご承認いただけなかったことを、手順の質問（{by}）へのお客様のお返事で確かめた（受け取ったあとに届いた確かめで食い違った答えを決め直した）")
+            elif not (it.state in GOT and it.condition == POINT_AGREED.get(POINT_STAGES[p["stage"]])):
+                self._point_dropped()
+                return
+            p.pop("unsure")
+        if (b := p.get("back")) is not None and (p["stage"] == "explained" or self.items[CALLBACK_IDS[POINT_STAGES[b[0]]]].state in TAKEN):
+            # ご説明の最中に、ご説明のもとの答えが遅れて届いた判定で取り消された（_point_taken_back）：ご説明を終えた・その段の質問にお客様がまた答えた（ご説明への
+            # お返事を会話AIがその質問の答えとして報告した＝「いや、だからやめておきます。」）ので、いま段を戻し、その段の答えの決まりで進む（また答えた＝その答え・
+            # 答えが「-」のまま＝N1 は点を伺えなかった・「ほかに…」はどちらとも取れない・どの点かは伺うのは1回）
+            del p["back"]
+            self._point_back_to(*b)
         if p["stage"] == "ask" and self.items[nid].state in TAKEN + ("unresolved",):
             cond = self.items[nid].condition if self.items[nid].state in GOT else None
             if cond == "点を言った":
@@ -7871,7 +7966,7 @@ class Flow:
                 # ✅ 2026-11-05 日本時間4時16分52秒 ユーザー（お言葉は phrases.recap_line）。⛔ それまでの形＝0時48分の (ア)（会話AIが改めてご説明）・3時49分
                 # （説明の文が無ければ黙って手順を終える）は、お客様に聞かれていないことを答える・話題を変える形だった。答えたくない（点を言いたくない）ときは、
                 # この電話で点を言っていただけなかったときと同じく手順を終える（下の else）。説明の文が無い（振り返る中身が無い）ときは ⏳（次の elif）
-                p.update(stage="other", recap=True)
+                p["stage"] = "other"
                 p["gomottomo" if self._unknown_agreed(nid) else "hai"] = self.callee_turns
                 self._ask_point("other_point", nid, recap=True)
             elif p["again"] and self.items[nid].state != "refused":
@@ -7904,7 +7999,7 @@ class Flow:
         elif p["stage"] == "other" and self.items[oid].state in TAKEN + ("unresolved",):
             cond = self.items[oid].condition if self.items[oid].state in GOT else None
             which = p.get("which", False)   # いまの「ほかに…」は、どの点かを1回伺う一言か（立てるのは伺う所 _ask_point の1か所）
-            if cond == "分かった":
+            if cond == POINT_AGREED["other_point"]:
                 self._point_end("agreed", by=oid)
             elif cond == POINT_UNSAID and not which:
                 # 分からない点があるとだけ言って、どの点かを言っていない：プログラムが1回「ほかにご不明な点はどのようなことになりますでしょうか？」と伺う（会話AIに
@@ -7914,8 +8009,9 @@ class Flow:
                 p["hai"] = self.callee_turns   # 「はい、」で受けて伺う（お礼の相づちは合わない＝「なるほど」のあとの N3 と同じ）
                 self._ask_point("other_point", oid, which=True)
             elif cond == "分からない点がある":
-                # 分かるまでご説明する（回数では切らない）。振り返りの一言への返事で点を言っていただいた（recap）は、1つ目の点（「ほかにも」ではない）
-                if not p.pop("recap", False):
+                # 分かるまでご説明する（回数では切らない）。振り返りの一言への返事で点を言っていただいた（recap＝伺う所 _ask_point が決める印）は、1つ目の点（「ほかにも」
+                # ではない）
+                if not p.get("recap"):
                     p["round"] += 1
                 self._point_heard(self.items[oid].value)
             elif self.questions[oid].declined(cond):
@@ -7948,7 +8044,7 @@ class Flow:
                 self._ask_point("agreed_now", oid)
         elif p["stage"] == "confirm" and self.items[aid].state in TAKEN + ("unresolved",):
             cond = self.items[aid].condition if self.items[aid].state in GOT else None
-            self._point_end("agreed" if cond == "はい" else "declined" if self.questions[aid].declined(cond) else "unresolved", by=aid)
+            self._point_end("agreed" if cond == POINT_AGREED["agreed_now"] else "declined" if self.questions[aid].declined(cond) else "unresolved", by=aid)
 
     def _unsaid_head(self, qid: str) -> str:
         """点を言っていただけずに手順を終えるとき、挟む一言（「ご不満な点が…」）の頭の相づちを決める唯一の場所：聞き取れた言葉で点を言っていただけなかった
@@ -8028,9 +8124,11 @@ class Flow:
         空にして、言い方を替えて伺い直す＝callback_question の nth。again＝続きの電話の始めに、切れた所から伺う一言＝_point_begin。recap＝続きの電話の始めに
         点を言っていただけなかったときの振り返りの一言＝「ほかに…」の言い方の数には入れない＝そのあとの「ほかに…」は1つ目の言い方から）。"""
         if role == "other_point":
-            # いまの「ほかに…」が、どの点かを1回伺う一言か（_point_step の which）。伺い直すたびにここで決める＝答えを遅れた判定で取り消して同じ質問へ戻っても
-            # 印は伺った質問のまま（⛔ 答えを受けた時に消していたので、取り消したあと同じ一言をもう一度伺った）
+            # いまの「ほかに…」が、どの点かを1回伺う一言か（_point_step の which）・続きの電話の振り返りの一言（とそのあとのどの点か）＝まだ点を1つも伺っていない
+            # 「ほかに…」か（recap）。伺い直すたびにここで決める＝答えを遅れた判定で取り消して同じ質問へ戻っても、印は伺った質問のまま（⛔ 答えを受けた時に消して
+            # いたので、取り消したあと同じ一言をもう一度伺った（which）・挟む一言が「何か思い出されたり…」から「ご不満な点が…」に変わった（recap＝13時台の見直しの B7））
             self.point["which"] = which
+            self.point["recap"] = recap or (which and bool(self.point.get("recap")))
         if recap:
             q = callback_question(role, recap=self.questions[self.point["q"]])
         elif which:   # どの点かを1回伺う一言（言い方の数には入れない）
