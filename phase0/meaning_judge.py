@@ -1594,11 +1594,23 @@ def outage(exc: BaseException) -> bool:
     return True
 
 
+def unsure_order(tried: list[dict], order) -> list[dict]:
+    """確かでない読み（tried の unsure のある記録）を、優先の順（組の並び order＝前の判定が先。並びに無い判定は後ろ・同じ判定は届いた順）に並べたもの
+    （唯一の決まり＝組の弱い読み Reading.weak・答えが無かった知らせ NoJudgment.unsure・会話の側が数える Flow.on_unsure とその寄り）。
+    ⛔ 2026-11-06 日本時間13時台の見直し（判定の持ち場の A7）で見つけた：届いた順の最初を使っていた＝同じ言葉の弱い読みが、どの判定が速く届いたかで
+    変わった。確かな読みを優先の順で決める（11-05 18時42分05秒 ユーザー「d1-ultra と Jev を同時に出すが、d1-ultra の判定が優先じゃないんですか？」＝
+    first_of）のと同じ理由なので、伺わずに同じ順にした"""
+    rank = {n: i for i, n in enumerate(order)}
+    return sorted((t for t in tried if "unsure" in t), key=lambda t: rank.get(t["model"], len(rank)))
+
+
 class NoJudgment(RuntimeError):
-    """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由・prior＝前の話の答え＝JudgePanel.ask）。"""
+    """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由・prior＝前の話の答え＝JudgePanel.ask・
+    unsure＝確かでない読みの記録を優先の順に並べたもの＝unsure_order）。"""
     prior: str | None = None
 
-    def __init__(self, tried: list[dict]):
+    def __init__(self, tried: list[dict], unsure: list[dict] | None = None):
+        self.unsure = unsure or []
         def why(t: dict) -> str:
             if t.get("error"):
                 return t["error"]
@@ -2127,7 +2139,7 @@ class JudgePanel(RouteState):
             return self._mark(won[1], won[0], tried)
         # 受け持ちの判定がどれも答えなかった：確かでない読み（流れの制御が数える＝Reading.weak・NoJudgment の unsure）と、止める側だけの判定の読み
         # （答えにはしない＝NoJudgment の tried の stop_only。会話の側が止める側だけに使う）・止まった判定の代わり STANDIN の順
-        weak = next((t["unsure"] for t in tried if "unsure" in t), None)
+        weak = (unsure := unsure_order(tried, [n for n, _ in own])) and unsure[0]["unsure"] or None
         if ahead is not None:  # 裏で出しておいた止める側だけの判定：その読みを待つ（同じ判定に2回は問い合わせない）
             bname, job = ahead
             got = await job
@@ -2143,17 +2155,17 @@ class JudgePanel(RouteState):
                 tried.append({"model": bname, "stop_only": str(got)})
                 break
         if self.standin is None or kind not in self.serves or self.holders.get(key) not in (None, kind):
-            raise NoJudgment(tried)
+            raise NoJudgment(tried, unsure_order(tried, [n for n, _ in own]))
         sname, sfn = self.standin
         if maker(sname) in self._taken(kind, key):
             tried.append({"model": sname, "error": SAME_MAKER})
-            raise NoJudgment(tried)
+            raise NoJudgment(tried, unsure_order(tried, [n for n, _ in own]))
         self.holders[key] = kind
         while len(self.holders) > 64:   # 古い発話の分は捨てる（answered と同じ数）
             del self.holders[next(iter(self.holders))]
         got = await self._try(sname, sfn, q, text, asked, before, tried)
         if got is None:
-            raise NoJudgment(tried)
+            raise NoJudgment(tried, unsure_order(tried, [n for n, _ in own]))
         self._keep(kind, key, sname)
         return self._mark(got, sname, tried, weak)
 

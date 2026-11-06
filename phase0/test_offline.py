@@ -6115,6 +6115,23 @@ class JudgePanelTest(unittest.TestCase):
                            standin=(self.JEV, judge(self.JEV)), backup=backup)
         return panel, calls
 
+    def test_unsure_readings_are_used_in_the_priority_order(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（判定の持ち場の A7）：確かでない読みは、届いた順の最初を使っていた（組の Reading.weak・会話の側の on_unsure）＝
+        # 同じ言葉の弱い読みが、どの判定が速く届いたかで変わった。確かな読みを優先の順で決める（✅ 2026-11-05 18時42分05秒 ユーザー「d1-ultra と Jev を同時に
+        # 出すが、d1-ultra の判定が優先じゃないんですか？」）のと同じ理由で、優先の順（組の並び）に並べる1か所（meaning_judge.unsure_order）
+        import asyncio
+
+        from meaning_judge import RACE, NoJudgment, unsure_order
+        D1, JEV, THINK, FAST = RACE
+        _, target_q, _, _ = self.calling()
+        panel, _ = self.lite_and_race({D1: 0.3, JEV: 0.3}, fail=(THINK, FAST), took={D1: 0.05, JEV: 0.01})
+        with self.assertRaises(NoJudgment) as e:
+            asyncio.run(panel.ask("judge2", target_q, "はい。"))
+        arrived = [t["model"] for t in e.exception.tried if "unsure" in t]
+        self.assertEqual(arrived[:2], [JEV, D1])                                         # 届いたのは Jev が先
+        self.assertEqual([t["model"] for t in e.exception.unsure][:2], [D1, JEV])       # 使う順は d1-ultra が先
+        self.assertEqual(unsure_order(e.exception.tried, RACE), e.exception.unsure)
+
     def test_lite_is_stop_only_for_the_calling_questions(self):
         # ✅ 2026-10-30 ユーザー：「Flash Lite は代わりだけにする形でOKです」・同じ夜「(1)(2)ともお勧めの形でOKです」＝お呼びする段の2つの質問では、
         # その場の判定（3.5 Flash Lite）は自分で答えず、組が答えられない（止まった・時間切れ・確かな読みが無い）ときも答えにしない＝止める側だけ
@@ -10316,7 +10333,7 @@ class TargetTest(unittest.TestCase):
         g.on_callee(); g.on_heard("はい、予約しています。")
         g.on_unsure("judge2", "決められない")
         self.assertNotIn("judge2", g.check)
-        self.assertIn("flow.on_unsure(kind, next(", inspect.getsource(convo.check_handler))
+        self.assertIn('flow.on_unsure(kind, unsure[0]["unsure"]', inspect.getsource(convo.check_handler))   # 確かでない読みは優先の順の1か所（meaning_judge.unsure_order）
         # 尋ねているかの問い合わせの弱い「尋ねている」は数える（目的の人かを決めずに、聞かれたことに答える＝止める側）。弱い「尋ねていない」は数えない
         # ⛔ 2026-10-22 G-59：Jev は質問の言葉の「尋ねている」を、確からしさ 0.79〜0.92 で15回中9回返した
         from flowctl import ASKS_NO, ASKS_YES
