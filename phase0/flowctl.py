@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, TOLD_AGAIN, TOLD_FOLLOW_UP
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
@@ -2556,7 +2556,7 @@ def _wish_text(q: "Question", again: bool = False, which: bool = False) -> str:
 
 def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Question | None" = None, again: bool = False,
                       chosen: bool = False, without: str | None = None, recap: "Question | None" = None, means: str | None = None,
-                      answering: bool = False, which: bool = False) -> "Question":
+                      answering: bool = False, which: bool = False, after_recap: bool = False) -> "Question":
     """システムが足す質問（役目＝SYSTEM_ROLES の1つ）を作る唯一の場所：かけ直し・ほかの手段で聞くこと（時刻＝日時の型＝日にちだけの答えも
     受け取る・番号＝電話番号の型・メール・住所。どれも言い直して確かめる型）と、選んでいただくこと（代わりの方に、判断いただけるお立場か・
     お取次ぎのみか＝✅ 2026-10-22 ユーザー（4回目）の2つから選んでいただく問い／伝言を伝えていただけるか＝はい／いいえ）。
@@ -2599,8 +2599,10 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         lines, i, recording = (CALLBACK_ASK_ANSWERING[role],), 0, f"callback_{role}_answering"
     elif which and role in CALLBACK_ASK_WHICH:
         # どの点かを言っていただけなかったときに1回伺う一言（phrases.CALLBACK_ASK_WHICH。共通の一言の録音 callback_（役目）_which。選択肢と答えの受け方は同じ＝
-        # Flow._point_step）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー
-        lines, i, recording = (CALLBACK_ASK_WHICH[role],), 0, f"callback_{role}_which"
+        # Flow._point_step）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー。after_recap＝続きの電話の振り返りの一言への返事（まだ点を1つも伺っていない）：
+        # 「ほかに」を外した一言（phrases.CALLBACK_ASK_WHICH_RECAP・録音 callback_（役目）_which_recap。✅ 10時12分44秒 ユーザー「(イ)…OK」）
+        lines, i, recording = ((CALLBACK_ASK_WHICH_RECAP[role],), 0, f"callback_{role}_which_recap") if after_recap else \
+            ((CALLBACK_ASK_WHICH[role],), 0, f"callback_{role}_which")
     elif chosen and role in CALLBACK_ASK_CHOSEN:
         # LINE の連絡先の伺い方（line_how）で選んでいただいたあとに伺う一言（phrases.CALLBACK_ASK_CHOSEN。共通の一言の録音 callback_（役目）_chosen）
         lines, i, recording = (CALLBACK_ASK_CHOSEN[role],), 0, f"callback_{role}_chosen"
@@ -7626,7 +7628,7 @@ class Flow:
         if recap:
             q = callback_question(role, recap=self.questions[self.point["q"]])
         elif which:   # どの点かを1回伺う一言（言い方の数には入れない）
-            q = callback_question(role, which=True)
+            q = callback_question(role, which=True, after_recap=bool(self.point.get("recap")))   # 振り返りの一言への返事なら「ほかに」を外す
         else:
             nth = self.point.setdefault("asked", {}).get(role, 0)
             self.point["asked"][role] = nth + 1

@@ -242,6 +242,10 @@ CALLBACK_ASK_AGAIN = {"other_point": ("ご不明点などほかにもござい�
 # Flow._point_step。共通の一言の録音 callback_other_point_which）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(a) ほかに分からない点が「ある」とだけ言われたとき：
 # 「ほかにご不明な点はどのようなことになりますでしょうか？」」
 CALLBACK_ASK_WHICH = {"other_point": "ほかにご不明な点はどのようなことになりますでしょうか？"}
+# 続きの電話の振り返りの一言（「前回は『…』とお話ししたところで…」）への返事で、どの点かを言っていただけなかったとき：まだ点を1つも伺っていないので「ほかに」を
+# 外す（共通の一言の録音 callback_other_point_which_recap）。✅ 2026-11-06 日本時間10時12分44秒 ユーザー：「(イ) 「ほかに」を外して「ご不明な点はどのようなことに
+# なりますでしょうか？」OK」
+CALLBACK_ASK_WHICH_RECAP = {"other_point": "ご不明な点はどのようなことになりますでしょうか？"}
 # LINE の連絡先の伺い方（line_how）で選んでいただいたあとに伺う一言（flowctl.callback_question の chosen。録音は共通の一言 callback_（役目）_chosen）：
 # 伺い方の一言に「恐れ入りますが」があるので重ねない（ID・携帯電話の番号の一言と同じ理由＝✅ 2026-11-04 日本時間20時27分 ユーザー：「「かしこまりました。
 # それではLINEのIDをお伺いしてもよろしいでしょうか？」OK」）。メールアドレスは、ほかの手段・ほかのご希望のメールのあとにも伺う（その時は CALLBACK_ASK のまま）
@@ -697,6 +701,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
             **{f"callback_{k}_{i}": v for k, vs in CALLBACK_ASK_AGAIN.items() for i, v in enumerate(vs, 2)},
             **{f"callback_{k}_which": v for k, v in CALLBACK_ASK_WHICH.items()},
+            **{f"callback_{k}_which_recap": v for k, v in CALLBACK_ASK_WHICH_RECAP.items()},
             **{f"callback_{k}_again": v for k, v in CALLBACK_ASK_RESUMED.items()},
             **{f"callback_{k}_chosen": v for k, v in CALLBACK_ASK_CHOSEN.items()},
             **{f"callback_{k}_answering": v for k, v in CALLBACK_ASK_ANSWERING.items()},

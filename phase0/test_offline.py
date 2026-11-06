@@ -67,7 +67,7 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          # 答えの段の待つ・かけ直す（会話2・11-06 1時台＝CL-1.md 4-94）：待つ一言の録音・1回伺う一言の録音・その質問の番号 H2
                          "wait_reply", "callback_wait_or_later", "H2",
                          # 「ほかに…」（N2）にほかに分からない点が「ある」とだけ言われたときの一言の録音（✅ 11-06 日本時間9時05分17秒 ユーザー。CL-1.md 4-97）
-                         "callback_other_point_which",
+                         "callback_other_point_which", "callback_other_point_which_recap",
                          # 申し伝える一言まで言って切れた続きの電話のお詫びと申し伝える一言の録音（✅ 11-06 日本時間9時05分17秒 ユーザーの (b)。CL-1.md 4-99）
                          "apology_cut_end_same_day", "apology_cut_end_later", "told_again_question", "told_again_request", "told_again_opinion",
                          "told_follow_up"})
@@ -8464,7 +8464,10 @@ class EndJudgedTest(unittest.TestCase):
         from flowctl import POINT_UNSAID
         f = recapped()
         r = self._say(f, "うーん、ちょっと分からないところがあって。", "record_answer", question_id=n2, condition_id=POINT_UNSAID)
-        self.assertEqual((r["question_id"], r.get("ack"), [p["id"] for p in r["play"]]), (n2, "hai", ["callback_other_point_which"]))
+        # まだ点を1つも伺っていないので「ほかに」は付けない（✅ 2026-11-06 日本時間10時12分44秒 ユーザー：「(イ) 「ほかに」を外して「ご不明な点はどのようなことに
+        # なりますでしょうか？」OK」）。⛔ それまでは、この電話の「ほかに…」と同じ「ほかにご不明な点は…」を流していた
+        self.assertEqual((r["question_id"], r.get("ack"), [(p["id"], p["text"]) for p in r["play"]]),
+                         (n2, "hai", [("callback_other_point_which_recap", "ご不明な点はどのようなことになりますでしょうか？")]))
         r = self._say(f, "いや、いろいろとですね。", "record_answer", question_id=n2, condition_id=POINT_UNSAID)
         self.assertEqual((r["question_id"], r.get("ack"), r["play"][0]["id"], f.items["Q2"].condition), ("Q3", "shouchi", "point_anytime", "いいえ"))
         # (5) 聞き取れない（覚えていないとは言われていない）：振り返るが、頭は「はい、」（「ごもっともです。」は、覚えていない・分からないと言われたときだけ）
