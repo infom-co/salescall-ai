@@ -67,7 +67,7 @@ def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     return tx.one(
         "SELECT task_id, seq, kind, call_at, end_reason, cause, promised, contact_id, purpose, wrong_contact_id, callee_at,"
         "       window_until, window_daily, window_days, window_from, window_repeat, window_round, window_missed, window_said,"
-        "       window_day_said, apology_owed, apology_reasons, successor, number_again, decided_at"
+        "       window_day_said, apology_owed, apology_reasons, cut_call, successor, number_again, decided_at"
         " FROM salescall.current_next_actions WHERE task_id = %s",   # いまの予定を選ぶのはデータベースの見方の1か所（0094）
         (task_id,),
     )
@@ -180,7 +180,9 @@ def _apology_reasons(prev: tuple[str, ...], apology: Apology) -> tuple[str, ...]
 def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str | None, cause: str,
             call_now: bool = False, promised: bool | None = None, target: Target | None = None,
             callee_at: datetime | None = None, hold: bool = False, window: Window | None = None,
-            apology: Apology = None) -> int:
+            apology: Apology = None, cut_call: UUID | None = None) -> int:
+    """次の予定を1つ足す（1か所）。cut_call＝この予定でお詫びの理由 cut_off を付けた元の電話（試行。付けた所だけが渡す＝
+    `decide_after_call`・`_check_unrung`）。渡さなければ、理由 cut_off を引き継ぐときに元の電話も前の予定から引き継ぐ（0187）。"""
     calls = call_at is not None or call_now
     if hold and (calls or end_reason is not None):
         raise ValueError("判定待ちは、日時も終える理由も持ちません")
@@ -206,6 +208,10 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     prev = current(tx, task_id)
     reasons = _apology_reasons(tuple(prev["apology_reasons"]) if prev else (), apology)
+    # お詫びの理由「途中で切れた」の元の電話（どの電話についてのお詫びか。予約証の apology_when＝同じ日か、を決める。0187）
+    cut = (cut_call if cut_call is not None else prev and prev["cut_call"]) if "cut_off" in reasons else None
+    if "cut_off" in reasons and cut is None:
+        raise ValueError("お詫びの理由「途中で切れた」には、どの電話が切れたか（cut_call）が要ります")
     # 順番の番号（seq）はデータベースが付ける（next_seq の仕掛け＝0109。ここで「最大＋1」を数えない）。お詫びの印があるか
     # （apology_owed）は、データベースが理由（apology_reasons）から作る（0116）
     row = tx.one(
@@ -213,10 +219,10 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
         "                                         promised, contact_id, purpose, wrong_contact_id, callee_at, window_until,"
         "                                         window_daily, window_days, window_from, window_repeat, window_round,"
         "                                         window_missed, window_said, window_day_said, apology_reasons, successor,"
-        "                                         number_again)"
+        "                                         number_again, cut_call)"
         " SELECT t.tenant_id, t.client_id, t.task_id,"
         "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        "        %s, %s, %s, %s, %s"
+        "        %s, %s, %s, %s, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING seq",
         ("hold" if hold else "call" if calls else "end", call_now, call_at, end_reason, cause, promised,
          target and target.contact_id, target and target.purpose, target and target.wrong_contact_id, callee_at,
@@ -225,7 +231,7 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
          window and window.repeat, 0 if window is None else window.round, 0 if window is None else window.missed,
          None if window is None or window.said is None else list(window.said), bool(window and window.day_said),
          list(reasons), bool(target and target.contact_id and target.successor),
-         target.number_again if target is not None and target.purpose == "ask_number_again" else None, task_id),
+         target.number_again if target is not None and target.purpose == "ask_number_again" else None, cut, task_id),
     )
     if row is None:
         raise TaskNotFound(str(task_id))
@@ -298,18 +304,18 @@ def after_dial_fix(tx: Tx, task_id: UUID, *, cause: str) -> int | None:
                    window=window_of(cur), apology=tuple(cur["apology_reasons"]))
 
 
-def hold(tx: Tx, task_id: UUID, *, cause: str, apology: Apology = None) -> int:
+def hold(tx: Tx, task_id: UUID, *, cause: str, apology: Apology = None, cut_call: UUID | None = None) -> int:
     """判定待ちにする（かけない・終えない）。同じ取引で、その行のまだ発信していない予約を取り消す。"""
-    seq = _append(tx, task_id, call_at=None, end_reason=None, cause=cause, hold=True, apology=apology)
+    seq = _append(tx, task_id, call_at=None, end_reason=None, cause=cause, hold=True, apology=apology, cut_call=cut_call)
     attempts.release(tx, [r["attempt_id"] for r in tx.all(
         "SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND state = 'claimed'", (task_id,))])
     return seq
 
 
-def end(tx: Tx, task_id: UUID, reason: str, *, cause: str, apology: Apology = None) -> int:
+def end(tx: Tx, task_id: UUID, reason: str, *, cause: str, apology: Apology = None, cut_call: UUID | None = None) -> int:
     """終える（理由）を記録する。同じ取引で、その行のまだ発信していない予約を取り消す（門の判定に効く変更。5-2-1 の2）。終えたら、確定の
     印の無い結果の版を、承認の部分が確かめ直す（core/approval.after_ended の1か所。前の作業担当の残した問い (8)）。"""
-    seq = _append(tx, task_id, call_at=None, end_reason=reason, cause=cause, apology=apology)
+    seq = _append(tx, task_id, call_at=None, end_reason=reason, cause=cause, apology=apology, cut_call=cut_call)
     attempts.release(tx, [r["attempt_id"] for r in tx.all(
         "SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND state = 'claimed'", (task_id,))])
     approval.after_ended(tx, task_id)
@@ -338,7 +344,7 @@ def reopen_revoked(tx: Tx, *, cause: str) -> list[UUID]:
             " ORDER BY c.task_id", (list(DNC_ENDS),)):
         row = tx.one("SELECT n.contact_id, n.kind, n.call_at, n.promised, n.purpose, n.wrong_contact_id, n.callee_at, n.window_until,"
                      "       n.window_daily, n.window_days, n.window_from, n.window_repeat, n.window_round, n.window_missed,"
-                     "       n.window_said, n.window_day_said, n.apology_reasons, n.successor, n.number_again, k.phone_e164"
+                     "       n.window_said, n.window_day_said, n.apology_reasons, n.cut_call, n.successor, n.number_again, k.phone_e164"
                      " FROM salescall.task_next_actions n JOIN salescall.task_numbers k ON k.contact_id = n.contact_id"
                      " WHERE n.task_id = %s AND n.kind = 'call' AND n.seq < %s ORDER BY n.seq DESC LIMIT 1", (r["task_id"], r["seq"]))
         if row is None:
@@ -351,7 +357,7 @@ def reopen_revoked(tx: Tx, *, cause: str) -> list[UUID]:
                                      row["number_again"]), numbers_of(tx, r["task_id"]))
         _append(tx, r["task_id"], call_at=None, call_now=True, end_reason=None, cause=cause, promised=bool(row["promised"]),
                 target=target, callee_at=row["callee_at"] if row["promised"] else None, window=window_of(row),
-                apology=tuple(row["apology_reasons"]))   # お詫びの印も、終える前の予定のまま
+                apology=tuple(row["apology_reasons"]), cut_call=row["cut_call"])   # お詫びの印も（その元の電話も）、終える前の予定のまま
         back.append(r["task_id"])
     return back
 
@@ -372,6 +378,7 @@ class Decision:
     window: Window | None = None         # call のとき：お客様が言ったかけ直しの時間の幅（門が守る）
     apology: Apology = None              # お詫びの印（`Apology`。None＝前の予定から引き継ぐ）
     check_of: UUID | None = None         # call のとき：切れ方の分からなかった通話（試行）の、確かめのかけ直し（`after_call` が記録する）
+    cut_call: UUID | None = None         # この決定でお詫びの理由 cut_off を付けた元の電話（試行。0187。None＝前の予定から引き継ぐ）
 
     @property
     def contact_id(self) -> UUID | None:
@@ -379,8 +386,8 @@ class Decision:
 
 
 def _call(at: datetime, promised: bool, rule: str, target: Target, callee_at: datetime | None = None,
-          window: Window | None = None, apology: Apology = None) -> Decision:
-    return Decision("call", at, promised, None, rule, target, callee_at, window, apology)
+          window: Window | None = None, apology: Apology = None, cut_call: UUID | None = None) -> Decision:
+    return Decision("call", at, promised, None, rule, target, callee_at, window, apology, cut_call=cut_call)
 
 
 def _end(reason: str, rule: str) -> Decision:
@@ -546,7 +553,7 @@ def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacin
                       ask: AskAgain | None = None, forbidden: bool = False, kept: Decision | None = None,
                       resume_window: Window | None = None, resume_callee_at: datetime | None = None,
                       resume: bool | None = None, failed_at: datetime | None = None, recheck: int,
-                      check_of: UUID | None = None, waiting: str | None = None) -> Decision:
+                      check_of: UUID | None = None, waiting: str | None = None, call: UUID | None = None) -> Decision:
     """通話のあとの次の動き（下の `_decide`）。recheck＝かけてよい時間帯が見つからないとき、もう一度確かめるまでの秒
     （`no_opening_recheck`。呼ぶ側が必ず渡す）。途中で切れた通話（cut_off）のあとは、かけ直す・判定待ちのどれでも、次にお客様に
     つながったときにお詫びから始める（印 cut_off を付けるのは、ここの1か所。すぐにかけ直すか＝resume とは別に決める。⛔ 見直し15：
@@ -555,12 +562,15 @@ def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacin
     failed_at＝かける番号へ、鳴らない電話が続いているときの次の時刻（`_failed_retry_at`。続いていなければ None）。
     check_of＝この通話の切れ方が決められず、確かめのかけ直しをするとき、その通話（試行。するかは `after_call` が決める。しないときは
     None）。確かめのかけ直しも、お客様が出たらお詫びから始める（印 cut_off）。
-    waiting＝この通話の取り消せない決定が、まだ決まらない保留の種類（core/approval.decision_wait。決まっていれば None）。"""
+    waiting＝この通話の取り消せない決定が、まだ決まらない保留の種類（core/approval.decision_wait。決まっていれば None）。
+    call＝この通話（試行）。印 cut_off を付けるとき、どの電話についてのお詫びか（`Decision.cut_call`。0187）として残す。"""
     d = _decide(j, cut_off=cut_off, normal=normal, promised=promised, rules=rules, times_with_key=times_with_key, now=now,
                 target=target, retry_at=retry_at, ask=ask, forbidden=forbidden, kept=kept, resume_window=resume_window,
                 resume_callee_at=resume_callee_at, resume=cut_off if resume is None else resume, failed_at=failed_at,
                 recheck=recheck, check_of=check_of, waiting=waiting)
-    return replace(d, apology=_plus(d.apology, "cut_off")) if (cut_off or d.check_of) and d.kind in ("call", "hold") else d
+    if (cut_off or d.check_of) and d.kind in ("call", "hold"):
+        return replace(d, apology=_plus(d.apology, "cut_off"), cut_call=call)
+    return d
 
 
 def _decide(j: Judgement, *, cut_off: bool, normal: gate.Pacing, promised: gate.Pacing, rules: Rules,
@@ -722,11 +732,11 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s) ON CONFLICT (task_id) DO NOTHING",
                    (task_id, d.check_of))
     if d.kind == "end":
-        return end(tx, task_id, d.end_reason, cause=d.rule, apology=d.apology)
+        return end(tx, task_id, d.end_reason, cause=d.rule, apology=d.apology, cut_call=d.cut_call)
     if d.kind == "hold":
-        return hold(tx, task_id, cause=d.rule, apology=d.apology)
+        return hold(tx, task_id, cause=d.rule, apology=d.apology, cut_call=d.cut_call)
     return _append(tx, task_id, call_at=d.at, end_reason=None, cause=d.rule, promised=d.promised, target=d.target,
-                   callee_at=d.callee_at, window=d.window, apology=d.apology)
+                   callee_at=d.callee_at, window=d.window, apology=d.apology, cut_call=d.cut_call)
 
 
 # 目的のお客様に繋がらなかった理由のうち、同じ日にまたかけてよいかを聞く（判定の again）もの（1か所）：不在・取り次げない・在籍して
@@ -827,6 +837,7 @@ def _check_unrung(tx: Tx, task_id: UUID, dialed: Target, dialed_at: datetime, ch
     at = max(now, check.ended_at + health.first_gap(tx))
     return _call(at, True, "確かめのかけ直しが鳴らなかった：回線のせいとして、決めた長さ（テスト番号をあける長さの1つ目）のあと、"
                  "お詫びからかけ直す", target, row["callee_at"] if row["promised"] else None, window_of(row), apology="cut_off")
+    # お詫びの元の電話（cut_call）は、切れ方の分からなかった通話のまま（その通話の締めが付けた予定から引き継ぐ＝_append）
 
 
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Target,
@@ -942,7 +953,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
                           retry_at=retry_at, ask=ask, forbidden=forbidden, kept=kept, resume_window=dialed_window,
                           resume_callee_at=dialed_row["callee_at"] if dialed_row else None, resume=resume,
                           failed_at=failed_at, recheck=no_opening_recheck(tx, task_id),
-                          check_of=_unclear_check_of(tx, task_id, attempt_id, j, dialed, target), waiting=waiting)
+                          check_of=_unclear_check_of(tx, task_id, attempt_id, j, dialed, target), waiting=waiting,
+                          call=attempt_id)
     d = _apologised(d, reached_target)
     _write(tx, task_id, d)
     return d

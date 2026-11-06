@@ -2069,7 +2069,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("前の電話が今日かを、いつも「前の日」にする（0186 の1か所を外す）",
      "CREATE OR REPLACE FUNCTION salescall.same_jst_day(p_at timestamptz) RETURNS boolean LANGUAGE sql STABLE"
      " SET search_path = salescall, pg_temp AS $$ SELECT false $$",
-     ("tests.test_gate.ApologyWhen.test_a_claim_tells_whether_the_call_to_apologise_for_was_today", "tests.test_apology.Apology.test_the_claim_tells_whether_the_wrong_call_was_today_by_the_same_rule_as_the_text")),
+     ("tests.test_settle.CutOffCalls.test_the_claim_tells_whether_the_cut_call_was_today", "tests.test_apology.Apology.test_the_claim_tells_whether_the_wrong_call_was_today_by_the_same_rule_as_the_text")),
+    ("お詫びの理由「途中で切れた」に、元の電話が無くてもよい（0187 の守りを外す）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_cut_call",
+     ("tests.test_settle.CutOffCalls.test_the_cut_off_reason_always_names_the_call_that_was_cut",)),
+    ("お詫びの理由の元の電話に、ほかの行の試行を書ける（0187 の守りを外す）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_cut_call_of_task",
+     ("tests.test_settle.CutOffCalls.test_the_cut_off_reason_always_names_the_call_that_was_cut",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4678,12 +4684,20 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "        if told is not None and told not in TOLD_KINDS:\n", "        if False:\n",
      ("tests.test_call_report_cl1.Approval1102.test_the_kind_of_told_words_is_received",)),
     ("予約証の apology_when を、お詫びの電話だけに入れる（切れた電話の続きに入れない）", "src/salescall/core/gate.py",
-     '    when = apology.when(tx, task["task_id"], nxt["purpose"]) if nxt["purpose"] == "apology" or "cut_off" in reasons else None\n',
-     '    when = apology.when(tx, task["task_id"], nxt["purpose"]) if nxt["purpose"] == "apology" else None\n',
-     ("tests.test_gate.ApologyWhen.test_a_claim_tells_whether_the_call_to_apologise_for_was_today",)),
-    ("お詫びの電話の apology_when を、誤った通話でなく、いちばん新しい発信まで進んだ電話で決める", "src/salescall/core/apology.py",
+     '        if nxt["purpose"] == "apology" or "cut_off" in reasons else None\n',
+     '        if nxt["purpose"] == "apology" else None\n',
+     ("tests.test_settle.CutOffCalls.test_the_claim_tells_whether_the_cut_call_was_today",)),
+    ("お詫びの電話の apology_when を、誤った通話でなく、切れた電話で決める", "src/salescall/core/apology.py",
      '    if purpose == "apology":\n', '    if False:\n',
      ("tests.test_apology.Apology.test_the_claim_tells_whether_the_wrong_call_was_today_by_the_same_rule_as_the_text",)),
+    ("お詫びの理由「途中で切れた」の元の電話を、その通話にしない（前の予定から引き継ぐ）", "src/salescall/core/next_action.py",
+     '        return replace(d, apology=_plus(d.apology, "cut_off"), cut_call=call)\n',
+     '        return replace(d, apology=_plus(d.apology, "cut_off"))\n',
+     ("tests.test_settle.CutOffCalls.test_the_claim_tells_whether_the_cut_call_was_today",)),
+    ("理由 cut_off を引き継ぐとき、元の電話を引き継がない", "src/salescall/core/next_action.py",
+     '    cut = (cut_call if cut_call is not None else prev and prev["cut_call"]) if "cut_off" in reasons else None\n',
+     '    cut = cut_call if "cut_off" in reasons else None\n',
+     ("tests.test_settle.CutOffCalls.test_the_claim_tells_whether_the_cut_call_was_today",)),
 )
 
 

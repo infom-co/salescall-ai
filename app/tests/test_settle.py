@@ -1649,6 +1649,60 @@ class CutOffCalls(SettleBase):
                 self.assertEqual((d.kind, d.promised, d.target.purpose), ("call", True, "normal"))
                 self.assertIn("時刻の決まっていない約束", d.rule)
 
+    def test_the_claim_tells_whether_the_cut_call_was_today(self):
+        """途中で切れた電話の続きの予約証に、切れた電話が今日か（apology_when＝same_day／later。CL-1 の連絡帳 4-99：「先ほどは
+        （前回は）、お話の最後に通信が悪く…」）。決めるのは、お詫びの理由 cut_off を付けた元の電話（次の予定の cut_call＝0187）で、
+        そのあとの出なかった電話ではない（⛔ 0186 の思い違い：いちばん新しい発信で決めていて、昨日切れたあと今日出なかった電話が
+        あると「先ほどは」と言った）。お詫びの理由の無い電話には入れない。"""
+        s = self.ready()
+        c = self.claim(s)
+        self.assertIsNone(c.apology_when)                                     # ふつうの電話
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        cut = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="line",
+                        report=rep(cut=Cut("callee", False, False)))
+        self.settle(s, cut)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["cut_call"], cut)
+        c = self.claim(s)
+        self.assertEqual((c.purpose, c.apology, c.apology_when), ("resume", ("cut_off",), "same_day"))
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+
+        def back(tx):   # 試験：切れた電話を前の日にする（時刻はデータベースが決めるので、持ち主の取引の中だけ仕掛けを外す）
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER")
+            tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - interval '1 day',"
+                       " ended_at = ended_at - interval '1 day' WHERE attempt_id = %s", (cut,))
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
+        owner_access().in_system(SYSTEM, back)
+        self.settle(s, self.call(s, ["dialing", "no_answer"]))                 # 今日、続きの電話に出なかった
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["cut_call"], cut)   # 元の電話は引き継ぐ
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"],
+                                                       cause="試験：その時刻が来たことにする", promised=True))
+        c = self.claim(s)
+        self.assertEqual((c.apology, c.apology_when), (("cut_off",), "later"))   # 切れたのは昨日＝「前回は」
+
+    def test_the_cut_off_reason_always_names_the_call_that_was_cut(self):
+        """お詫びの理由 cut_off と、その元の電話（cut_call）は、いつも一緒（データベースの守り 0187。元の電話はその行の試行だけ）。
+        予定を書く1か所（next_action._append）も、元の電話の分からない理由 cut_off を書かない。"""
+        s = self.ready()
+        sql = ("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, kind, call_at, cause, promised,"
+               " contact_id, purpose, apology_reasons, cut_call)"
+               " SELECT tenant_id, client_id, task_id, kind, call_at, cause, promised, contact_id, purpose, %s, %s"
+               " FROM salescall.current_next_actions WHERE task_id = %s")
+        c = self.claim(s)
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        other = self.ready()
+        oc = self.claim(other)
+        for reasons, call, constraint in ((["cut_off"], None, "task_next_actions_cut_call"),
+                                          ([], c.attempt_id, "task_next_actions_cut_call"),
+                                          (["cut_off"], oc.attempt_id, "task_next_actions_cut_call_of_task")):
+            with self.subTest(reasons=reasons), self.assertRaises(Rejected) as e:
+                self.tx(s, lambda tx: tx.execute(sql, (reasons, call, s["task"])))
+            self.assertEqual(e.exception.constraint, constraint)
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=None, call_now=True, end_reason=None, cause="試験",
+                                                       promised=True, target=next_action.Target(s["contact"], None, "resume"),
+                                                       apology=("cut_off",)))
+
     def test_the_apology_for_a_cut_is_kept_until_the_callee_is_reached(self):
         """途中で切れた：次の予定にお詫びの印（cut_off）。予約証が会話の処理へ渡し、すぐのかけ直しに出なかったあとも引き継ぐ。
         外れるのは、目的のお客様と話せた締めだけ（⛔ 2026-10-22 の見直し14：前は続きの電話に出ないと、お詫びが消えた）。"""
@@ -1814,7 +1868,8 @@ class UnclearCutChecks(SettleBase):
         ended = self.tx(s, lambda tx: tx.one("SELECT ended_at FROM salescall.attempts WHERE attempt_id = %s", (check,)))["ended_at"]
         self.assertEqual((d.kind, d.promised, d.target.purpose, d.check_of), ("call", True, "resume", None))
         self.assertGreaterEqual(d.at, ended + timedelta(minutes=15))
-        self.assertIn("cut_off", self.tx(s, lambda tx: next_action.current(tx, s["task"]))["apology_reasons"])
+        cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((cur["apology_reasons"], cur["cut_call"]), (["cut_off"], aid))   # お詫びは、切れ方の分からなかった通話について
         self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.refusal_undecided(%s) AS u", (aid,)))["u"])
         self.come(s)
         later = self.call(s, ("dialing", "ringing", "no_answer"))
@@ -2944,10 +2999,10 @@ class DatabaseGuards(Base):
             with self.subTest(reasons=reasons, missed=missed), self.assertRaises(Rejected) as e:
                 self.tx(s, lambda tx: tx.execute(sql, (missed, reasons, s["task"])))
             self.assertEqual(e.exception.constraint, constraint)
-        self.tx(s, lambda tx: tx.execute(sql, (0, ["missed_promise", "cut_off"], s["task"])))
+        self.tx(s, lambda tx: tx.execute(sql, (0, ["missed_promise"], s["task"])))
         self.assertTrue(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["apology_owed"])
         c = self.claim(s)
-        self.assertEqual(c.apology, ("missed_promise", "cut_off"))
+        self.assertEqual((c.apology, c.apology_when), (("missed_promise",), None))   # 同じ日かは、途中で切れた電話のときだけ
 
     def test_fixed_purposes_always_carry_the_promise_mark(self):
         """お詫びの電話・すぐのかけ直し（続き）・番号の聞き直しの予定は、必ず約束の印を持つ（先に出す・取り置く電話＝Q38。0126：

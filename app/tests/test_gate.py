@@ -304,26 +304,6 @@ class DataReasons(Base):
         self.assertEqual(self.reason(s2), "max_attempts")
 
 
-class ApologyWhen(Base):
-    def test_a_claim_tells_whether_the_call_to_apologise_for_was_today(self):
-        """途中で切れた電話の続き（お詫びの理由 cut_off）の予約証に、前の電話が今日か（apology_when＝same_day／later）を入れる（CL-1 の
-        連絡帳 4-99。決めるのは apology.when の1か所＝日の境は salescall.same_jst_day）。お詫びの理由の無い電話には入れない。"""
-        s = self.ready()
-        self.assertIsNone(self.claim(s).apology_when)                       # ふつうの電話
-        self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET state = 'released' WHERE task_id = %s AND state = 'claimed'",
-                                         (s["task"],)))
-        resume = lambda: self.tx(s, lambda tx: next_action._append(   # noqa: E731
-            tx, s["task"], call_at=None, call_now=True, end_reason=None, cause="試験：切れた電話の続き", promised=True,
-            target=next_action.Target(s["contact"], None, "resume"), apology=("cut_off",)))
-        resume()
-        c = self.claim(s)
-        self.assertEqual(c.apology_when, "later")                           # 前に発信まで進んだ電話が無い＝「前回は」
-        self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET state = 'released' WHERE attempt_id = %s", (c.attempt_id,)))
-        self.past_attempt(s, ["dialing", "no_answer"])                      # 今日、発信まで進んだ電話
-        resume()
-        self.assertEqual(self.claim(s).apology_when, "same_day")            # 今日、発信まで進んだ電話がある＝「先ほどは」
-
-
 class VersionAndStage(Base):
     def test_no_version(self):
         s = self.ready()

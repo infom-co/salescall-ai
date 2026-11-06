@@ -28,7 +28,7 @@ import json
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, business_rules, next_action, recordings
+from salescall.core import business_rules, next_action, recordings
 from salescall.core.access import Tx
 
 # 2026-10-16 ユーザー決定の文面（「○○」に、誤って案内したことと正しい内容が入る）。誤りが2つ以上なら「また、…」で続ける。
@@ -130,17 +130,18 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
 WHEN = {True: "same_day", False: "later"}   # 予約証の apology_when（会話の側の flowctl の APOLOGY_PURPOSE・APOLOGY_CUT_END の鍵と同じ）
 
 
-def when(tx: Tx, task_id: UUID, purpose: str) -> str:
+def when(tx: Tx, task_id: UUID, purpose: str, cut_call: UUID | None) -> str:
     """お詫びする前の電話が今日（日本時間）か（same_day／later。1か所＝予約証の apology_when）。お詫びの電話（purpose apology）は、
-    いちばん新しいお詫びの案のもとの通話（`for_task` と同じ）、ほかは、その行でいちばん新しい、発信まで進んだ電話（途中で切れた
-    電話の続き＝お詫びの理由 cut_off の、切れた電話。CL-1 の連絡帳 4-99）。前の電話が無ければ later（「前回は」）。"""
+    いちばん新しいお詫びの案のもとの通話（`for_task` と同じ）、ほかは、お詫びの理由「途中で切れた」の元の電話（次の予定の cut_call＝
+    理由を付けた所が書き、理由と一緒に引き継ぐ。0187。⛔ 0186 の思い違い：前は、その行でいちばん新しい発信まで進んだ電話で決めて
+    いて、昨日切れたあと今日かけて出なかった電話があると「先ほどは」と言った）。前の電話が無ければ later（「前回は」）。"""
     if purpose == "apology":
         row = tx.one("SELECT salescall.same_jst_day(a.claimed_at) AS today FROM salescall.apology_orders o"
                      " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id WHERE o.task_id = %s"
                      " ORDER BY o.order_id DESC LIMIT 1", (task_id,))
     else:
-        row = tx.one(f"SELECT salescall.same_jst_day(a.claimed_at) AS today FROM salescall.attempts a"
-                     f" WHERE a.task_id = %s AND {attempts.DIALED} ORDER BY a.claimed_at DESC LIMIT 1", (task_id,))
+        row = tx.one("SELECT salescall.same_jst_day(claimed_at) AS today FROM salescall.attempts WHERE attempt_id = %s",
+                     (cut_call,))
     return WHEN[bool(row and row["today"])]
 
 
