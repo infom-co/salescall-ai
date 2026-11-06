@@ -642,6 +642,27 @@ def call_errors_only_through_troubles(app_root: Path) -> list[Violation]:
     return out
 
 
+def no_shadowed_definitions(app_root: Path) -> list[Violation]:
+    """同じ場所（部品のいちばん上・1つのクラスの中）に、同じ名前の関数・クラスを2つ書かない（あとの定義が前の定義を黙って上書きし、
+    前の試験が流れない・前の処理が使われない＝⛔ 2026-11-06：test_gate.py の同じ名前の試験2つで、前の試験が流れず、壊し試し3件が
+    見張れていなかった）。"""
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        tree = _parse(path)
+        for body in [tree.body] + [n.body for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+            seen: dict[str, int] = {}
+            for node in body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    if any(isinstance(d, ast.Attribute) and d.attr in ("setter", "deleter", "getter") for d in node.decorator_list) \
+                            or any(isinstance(d, ast.Name) and d.id == "overload" for d in node.decorator_list):
+                        continue
+                    if node.name in seen:
+                        out.append(Violation("定義の上書き", _rel(app_root, path), node.lineno,
+                                             f"{node.name} を {seen[node.name]} 行目と同じ場所にもう一度定義しています（前の定義が消えます）"))
+                    seen[node.name] = node.lineno
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     value_types_stays_pure,
     phone_formatting_only_in_q1,
@@ -657,6 +678,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     web_parts_only_in_web,
     entries_called_from_their_places,
     call_errors_only_through_troubles,
+    no_shadowed_definitions,
 )
 
 

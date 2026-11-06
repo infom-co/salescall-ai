@@ -1805,7 +1805,7 @@ class NameLedger(Content):
         self.assertLessEqual(added, set(recordings.COMMON_PARTS))
         self.assertLessEqual({"C11", "C12"}, business_settings.RESERVED_IDS)
 
-    def test_the_parts_cl1_added_on_11_06_are_received(self):
+    def test_the_parts_cl1_added_on_11_05_night_are_received(self):
         """CL-1 の連絡帳 4-91・4-93・4-94（✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒・11-06 0時44分31秒 ユーザー）：オンラインのご希望を
         申し伝える一言とその続きの電話の一言・答えの段のかけ直しの一言・返事を待つ一言・待つかかけ直すかを伺う一言は、どの業務でも同じ文の共通の
         一言（話してよい声が求める＝`COMMON_PARTS`）。待つかかけ直すかを伺うシステムの質問 H2 は、業務の質問の番号に使えない。"""

@@ -275,6 +275,22 @@ class CallErrorsOnlyThroughTroubles(Planted):
         self.assertEqual([(v.path, v.rule) for v in found], [("src/salescall/supervisor/jobs.py", "一本化")])
 
 
+
+class NoShadowedDefinitions(Planted):
+    """同じ場所に同じ名前の関数・クラスを2つ書かない（⛔ 2026-11-06：test_gate.py の同じ名前の試験2つで、前の試験が流れていなかった）。
+    クラスの中と部品のいちばん上を見る。属性の setter など、上書きが決まりの形はよい。別のクラスの同じ名前はよい。"""
+
+    def test_a_second_definition_with_the_same_name_is_caught(self):
+        root = self._app({
+            "tests/test_x.py": ("class A:\n    def test_a(self):\n        pass\n\n    def test_a(self):\n        pass\n\n\n"
+                                "class B:\n    def test_a(self):\n        pass\n"),
+            "src/salescall/core/x.py": ("def f():\n    pass\n\n\ndef f():\n    pass\n\n\nclass C:\n    @property\n    def v(self):\n"
+                                        "        return 1\n\n    @v.setter\n    def v(self, x):\n        pass\n"),
+        })
+        found = rules.no_shadowed_definitions(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found), [("src/salescall/core/x.py", 5), ("tests/test_x.py", 5)])
+
+
 class PcSideStaysOffTheServer(Planted):
     """5-5：PC の部品（agent・link）は、データベースにも、サーバーの部品にも触れない。PC とのつなぎを使うのは、つなぎ口と PC の部品だけ。"""
 

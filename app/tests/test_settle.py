@@ -757,6 +757,13 @@ class CountedCalls(SettleBase):
         d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
         self.assertEqual((d.kind, d.promised, d.target.contact_id), ("call", True, new["contact_id"]))
         self.assertEqual(counts(), (0, 0, 0, 3))
+        # 取り込んだ番号へ直し戻しても、数え始めは、いちばん新しい直しのとき（salescall.task_count_from の1か所）。直す前に取り込んだ
+        # 番号へかけた電話は、その番号がまたいまかける番号になっても数えない（前にかける番号だった番号かは、いまの立場で読むため、
+        # 数え始めが無いと数えてしまう）
+        first = self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s", (s["contact"],))["phone_e164"])
+        back = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], first), OPERATOR)
+        self.assertEqual(back["contact_id"], s["contact"])
+        self.assertEqual(counts(), (0, 0, 0, 3))
 
 
     def test_a_promise_moved_to_the_new_number_counts_its_rounds_again(self):

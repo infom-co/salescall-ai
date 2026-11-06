@@ -4525,15 +4525,26 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("会話の側へ、お客様が指定していない携帯電話の番号を渡さない", "src/salescall/core/customer_contacts.py",
      '_MOBILE_LABELS = ("mobile", "line")', '_MOBILE_LABELS = ("line",)',
      ("tests.test_import.CustomerContacts.test_the_designated_number_is_dialed_and_the_others_are_only_recorded",)),
+    # ── 同じ名前の定義の上書き（⛔ 2026-11-06：同じ名前の試験2つで、前の試験が流れていなかった）
+    ("同じ場所の同じ名前の定義を、見張りで見つけない", "checks/rules.py",
+     "                    if node.name in seen:\n", "                    if False:\n",
+     ("tests.test_checks.NoShadowedDefinitions",)),
     # ── CL-1 の連絡帳 4-91・4-93・4-94 の共通の一言とシステムの質問 H2
     ("返事を待つ一言・待つかかけ直すかを伺う一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
      '    "wait_reply", "callback_wait_or_later",\n', '',
-     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
+     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_05_night_are_received",)),
     ("待つかかけ直すかを伺うシステムの質問 H2 の番号を、業務の質問の番号に使える", "src/salescall/core/business_settings.py",
      '"R1", "D1", "H1", "H2", "N1"', '"R1", "D1", "H1", "N1"',
-     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
+     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_05_night_are_received",)),
     ("オンラインのご希望・答えの段のかけ直しの一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
      '    "wish_told_online", "callback_email_online_again", "callback_later_time_answering",\n', '',
+     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_05_night_are_received",)),
+    # ── CL-1 の連絡帳 4-97・4-99 とその追記の共通の一言（⛔ 2026-11-06：上の試験と同じ名前で足し、上の試験を上書きしていた＝見張りの穴）
+    ("申し伝える一言まで言って切れた電話の続きのお詫び・申し伝え直す一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
+     '    "told_again_question", "told_again_request", "told_again_opinion", "told_follow_up",\n', '',
+     ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
+    ("振り返りへの返事で点を言っていただけないときの一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
+     '    "callback_other_point_which_recap")', '    )',
      ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
     # ── お客様リストの行の直し（0178。2026-11-05 ユーザー「ダッシュボードでも進捗確認や修正ができるようにすること」）
     ("会話が読む行の名前に、ダッシュボードの直しを当てない", "src/salescall/core/business_settings.py",
