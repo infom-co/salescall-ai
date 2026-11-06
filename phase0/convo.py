@@ -353,7 +353,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         ⛔ 2026-11-06 日本時間8時台：中身の判定の組は、先に出す Jev がまだ答えていない間、届いた考える Sonnet の読みを組の既定値まで持ち、会話の側が
         待つのをやめると、届いていた読みを使わずに受け皿へ回していた）。"""
         info.setdefault("held_ack", "hai")
-        done, _ = await asyncio.wait([task], timeout=max(0.0, t0 + flow.limits.hold_s - loop.time()))
+        done, _ = await asyncio.wait([task], timeout=max(0.0, t0 + flow.limits.judge_wait_s() - loop.time()))
         if task not in done:
             release.set()
             done, _ = await asyncio.wait([task], timeout=RELEASE_GRACE_S)
@@ -389,7 +389,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 info["end_waited_again"] = True
                 await hold(ear_too=False, ack=False, every=True, rejudge=False)
         else:
-            release_at(loop.time() + flow.limits.hold_s)   # 判定を待たない報告：組には、ここから待つ長さで合図する（打ち切りまで待たせない）
+            release_at(loop.time() + flow.limits.judge_wait_s())   # 判定を待たない報告：組には、ここから待つ長さで合図する（打ち切りまで待たせない）
         if grounding is not None:
             await ground(job[2], *grounding)
         reply = flow.handle_call(fc, midway)

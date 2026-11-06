@@ -198,6 +198,17 @@ def lines_end() -> list[tuple[str, str | None, dict[str, set]]]:
     return [(t, BEFORE_TARGET if who == "ご本人" else None, F(*codes) | {END: set(ends)}) for who, t, ends, _, codes in CALLING]
 
 
+def unsure_of(target: bool, exc: NoJudgment) -> str | None:
+    """答えが無かった行（組も代わりも答えなかった＝NoJudgment）で、本番と同じに数える確かでない読み（唯一の場所）：本番の組が優先の順に並べた確かでない読み
+    （exc.unsure＝meaning_judge.unsure_order）の最初を、本番と同じ決まり（flowctl.unsure_counts＝Flow.on_unsure）で数えた名前。target＝目的のお客様の判定か
+    （でなければ尋ねているか）。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（J2）：問い合わせた記録 tried の届いた順の最初を使っていた（本番は 15時台に
+    優先の順へ直した＝写し漏れ）"""
+    from flowctl import label, unsure_counts
+    first = next(iter(exc.unsure), None)
+    counted = unsure_counts("judge" if target else "asks", first["unsure"]) if first else None
+    return label(counted) if counted else None
+
+
 def lines_hear() -> list[tuple[str, bool, dict[str, set]]]:
     """試しの言葉（G-73 の組 HEAR_CALL・読み口は g73_system_words.latest の1か所）：お呼びする段の2つの一言のあとの、こちらの声が届いていない様子か
     の言葉 (相手の言葉, 確かめる一言のあとか, 正解)。✅ 2026-11-02 日本時間23時15分58秒 ユーザー「特にない」＝正解は作らせた種類のまま。
@@ -288,7 +299,7 @@ def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int,
 
 
 async def run(args) -> dict:
-    from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label, unsure_counts
+    from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label
     b, f, fs = flows(False if args.hide_names else None)
     if args.batch:
         # 正しさだけを見る測り：1つの Anthropic の判定を、まとめて送る（meaning_judge.batch_judge。料金は半分・答えまでの秒は測らない）
@@ -307,10 +318,8 @@ async def run(args) -> dict:
         と同じ決まり）。s＝答えが届くまでの秒（まとめて送る測りは None）。"""
         row[f"{col}_s"] = s
         if got is None:
-            row[f"{col}_tried"] = tried or []
-            unsure = next((t["unsure"] for t in tried or [] if "unsure" in t), None)
-            counted = unsure_counts("judge" if col == k else "asks", unsure) if unsure is not None else None
-            row[col] = label(counted) if counted else None
+            row[f"{col}_tried"] = (tried.tried if isinstance(tried, NoJudgment) else tried) or []
+            row[col] = unsure_of(col == k, tried) if isinstance(tried, NoJudgment) else None   # 確かでない読みは本番と同じ優先の順（unsure_of の1か所）
             return
         row[col] = label(got) if got else None
         if getattr(got, "facts", None) is not None:   # 項目ごとの答え（目的のお客様の判定）
@@ -363,7 +372,7 @@ async def run(args) -> dict:
                 try:
                     got = await j(question, text, None, before=before)
                 except NoJudgment as exc:
-                    fill(row, k, col, None, round(time.monotonic() - t0, 3), exc.tried)
+                    fill(row, k, col, None, round(time.monotonic() - t0, 3), exc)
                     return
                 fill(row, k, col, got, round(time.monotonic() - t0, 3))   # 答えが届くまでの秒（判定の速さ。2026-10-25：2つ目の判定の替えを比べる）
             # 止める側だけの受け持ち（お呼びする段の 3.5 Flash Lite）には問い合わせない（convo.answers）

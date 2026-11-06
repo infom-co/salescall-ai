@@ -1713,7 +1713,7 @@ def race_recorded(runs, leads=(), wait_s: float = LEAD_WAIT_S, prefer_s: float |
     同じ秒に届いたものは出した順に受ける（first_of が1回の待ちで受けたときと同じ）。返すのは (決めた番号（無ければ None）, 決めた秒, 出した番号)。"""
     from flowctl import Limits
 
-    race = Race(len(runs), leads, wait_s, Limits.hold_s if prefer_s is None else prefer_s)
+    race = Race(len(runs), leads, wait_s, Limits().judge_wait_s() if prefer_s is None else prefer_s)
     now = 0.0
     first, _ = race.begin()
     begun = {i: now for i in first}
@@ -1771,7 +1771,7 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
     t0 = loop.time()
     # 持っておく長さ：会話の側の合図（release）があれば、合図まで（待つ長さは会話の側の1か所＝自分の既定値では切らない）。合図の無い呼び出し（測りの道具・
     # 中身の判定）は、会話の側と同じ既定値 Limits.hold_s
-    race = Race(len(starts), leads, wait_s, prefer_s if prefer_s is not None else float("inf") if release is not None else Limits.hold_s)
+    race = Race(len(starts), leads, wait_s, prefer_s if prefer_s is not None else float("inf") if release is not None else Limits().judge_wait_s())
     running: dict = {}                                        # 出した問い合わせ（番号 ⇒ 仕事）
 
     def start(idxs):

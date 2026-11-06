@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ANY, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
-                     off_talk, prior_answer, restates)
+                     JUDGMENTS, later_offer, off_talk, prior_answer, restates, wait_reading)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
 
@@ -202,9 +202,15 @@ def side_record(it: dict, key: str, got) -> None:
 
 
 def why_accept(it: dict) -> list[str] | None:
-    """わからない・答えたくない理由の正解（付け直した正解の why。無ければ None＝数えない）。"""
+    """わからない・答えたくない理由の正解（唯一の読み口。付け直した正解の reason のうち、選べる理由の名前＝flowctl.why_choices。無ければ None＝数えない）。
+    ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（J1）：正解の表の why（正解を付けた理由のメモの文）を理由の正解として読み、文の一部が一致するかで
+    「正しい」と数えていた＝理由の正解は別の鍵 reason（正解の表にはまだ付いていない＝整理が済んでからの1回の測りの前に付ける）"""
+    from flowctl import why_choices
+
     got = _label(it)
-    return got.get("why") if got else None
+    names = set(why_choices(False))
+    want = [w for w in (got or {}).get("reason") or [] if w in names]
+    return want or None
 
 
 def talk(it: dict) -> bool | None:
@@ -583,6 +589,17 @@ SENSE = "意味合いを尋ねる："
 # まだ考えている途中（✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」＝Flow._thinking）：「はい。」のあと待つ
 WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言のあと待つ", LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う",
             THINKING: "「はい。」のあと待つ"}
+# お客様のほうから折り返すと申し出られた（お礼の一言を言うかは flowctl.later_offer の1か所）：「お気遣いありがとうございます。…」のあとかけ直しを伺う
+THANKED = "お礼の一言のあと"
+
+
+def wait_act(got: str) -> str:
+    """2つの判定がそろって待つ・かけ直すの読み got と読んだときに流れの制御がすること（唯一の数え）。組み合わせ（flowctl.wait_reading）とお礼の一言
+    （flowctl.later_offer）は本番の1か所を通す。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直しで見つけた：16時台に判定の選べるものへ「お客様から
+    折り返す」（LATER_THEIRS）を足したとき、この表に入れず（数えが止まった）、入れてもお礼の一言の有無を見ない形だった"""
+    check = dict.fromkeys(JUDGMENTS, got)
+    act = WAIT_ACT[wait_reading(check)]
+    return THANKED + act if later_offer(check, None) == "callback" else act
 # 答えの代わりにこちらへ尋ねた（「〜ですかね？」＝flowctl.asks_us の1か所・流れの制御は入口 Flow._apply_one で報告より先に答えさせる）：尋ねられたことに先に答え、
 # お客様の返事を待つ（✅ 2026-11-06 日本時間4時23分33秒 ユーザー：「…こちらは「そうですね、お読みになられるとより理解が深まるかと思います。」のような返答が自然です。」）
 ANSWER_FIRST = "尋ねられたことに先に答える"
@@ -599,7 +616,7 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
     if got is None:
         return None
     if got in WAIT_KINDS:
-        return WAIT_ACT[got]
+        return wait_act(got)
     if got == REPEAT:
         return REPEAT_ACT
     if asks_us(it.get("text"), [got]):   # 答えの代わりにこちらへ尋ねた（流れの制御は、ほかの決まりより先に、入口で答えさせる）
@@ -640,7 +657,7 @@ def flow_wants(it: dict, q: Question) -> set[str]:
         elif a in (UNDECIDED, "unknown"):
             ok.add(ASK_AGAIN)
         elif a in WAIT_KINDS:
-            ok.add(WAIT_ACT[a])
+            ok.add(wait_act(a))
         elif a == REPEAT:
             ok.add(REPEAT_ACT)
         elif a in q.conditions or a in (ANY, NONE):
@@ -673,6 +690,9 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     if not want:   # 正解は電話を終える読みの動きだけ（答えの読みで続けた）
         return "⛔電話を終える言葉なのに締めない" if closes else "⛔伺わずに続ける"
     pure = set(accept(it)) <= {UNDECIDED, "unknown"}   # どの答えにも寄っていない言葉
+    waits = {wait_act(k) for k in WAIT_KINDS}   # 待つ・かけ直すの読みの動き（お礼の一言の有無も分ける＝wait_act の1か所）
+    if act in waits:
+        return "違う待ち方・かけ直しの伺い方" if want & waits else "待つ・かけ直すの言葉ではないのに、待つ・かけ直しを伺う"
     if act == ANSWER_FIRST:
         return "答えなのに、尋ねられたとして先に答える"
     if ANSWER_FIRST in want and pure:

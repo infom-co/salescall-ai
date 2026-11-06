@@ -725,6 +725,16 @@ REPEAT = "もう一度言ってほしい"
 # 取り次ぎを待つ・代わった人のままだった
 NOT_ANSWERS = (*WAIT_KINDS, REPEAT, HANDOVER)
 WAIT_NOW, CALL_LATER = "このまま待つ", "かけ直す"   # 決まらないときに1回伺う質問 H2 の選択肢（callback_question("wait_or_later")）
+# H2 の答えの名前を、同じ意味の待つ・かけ直すの読みに読み替える表（唯一の表＝as_wait）。H2 を伺っている間、判定は H2 の答えの名前でも待つ読みの名前でも
+# 読めるので、2つの名前を同じ意味に数える。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（W2）：判定の1つが「かけ直す」・もう1つが「お客様から
+# 折り返す」と読むと、同じ意味なのに割れたとみて「このまま待つ」に決め、「はい、それではこのままお返事を待っております。」と逆の動きをした
+WAIT_ANSWERS = {WAIT_NOW: HOLD_BACK, CALL_LATER: LATER}
+
+
+def as_wait(reading, asking_wait: bool):
+    """判定の読み reading を、待つ・かけ直すの読みの名前にそろえる（唯一の場所＝流れの制御 Flow._wait_check）：H2 を伺っている間（asking_wait）だけ、H2 の答えの
+    名前を WAIT_ANSWERS で読み替える（ほかの質問の選択肢の名前は、たまたま同じ字でも読み替えない）。"""
+    return WAIT_ANSWERS.get(str(reading), reading) if asking_wait and reading is not None else reading
 # 確かめの名前（Flow.on_check）：別の耳の文字（聞き取り。6-10 の (5)）・意味の判定（6-10 の (6)。judge2＝後ろで走らせる2つ目の判定）
 CHECKS = ("ear", "judge", "judge2", "asks", "asks2", "returned", "returned2", "prior", "judge@ahead", "judge2@ahead")  # asks・asks2＝呼んでいる段の、こちらに尋ねているかの問い合わせ
 # （Flow.asks_context）・returned・returned2＝取り次ぎで待ったあとに話した方が、待たせた方か（Flow.returned_context）
@@ -789,10 +799,13 @@ def says_wait(said: str | None) -> bool:
 
     def asks(i: int) -> bool:
         nxt = lemma(i + 1)
-        if nxt in ("せる", "させる", "ない", "ず", "ぬ", "ん", "てる"):
-            return False   # 待たせる・打ち消し（待たなくていい・待たないで・待てない）・お客様が待っている（待ってます）
-        if nxt == "て" and lemma(i + 2) in ("居る", "いる", "おる"):
-            return False   # 待っている・待っております
+        if nxt in ("せる", "させる", "ない", "ず", "ぬ", "ん"):
+            return False   # 待たせる・打ち消し（待たなくていい・待たないで・待てない）
+        # 待っている・待ってる（お客様が待っている＝待ってます・待っております・待っていたんですが）は、そのあとに「て」が続く頼み（待っていてください・
+        # 待っててもらえますか・待ってて）だけ、待つように言う言葉。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（W3）：頼みの形まで外していた
+        busy = i + 1 if nxt == "てる" else i + 2 if nxt == "て" and lemma(i + 2) in ("居る", "いる", "おる") else None
+        if busy is not None:
+            return lemma(busy + 1) == "て"
         if lemma(i - 1) == "御" and nxt in ("為る", "致す", "いたす"):
             return False   # お待ちしてます・お待ちしております＝お客様の側が待つ
         return True
@@ -4512,8 +4525,8 @@ class Flow:
             # 返してから待つ（確かめて戻る方には、続けて「それではこのままお返事を待っております。」＝_hold の back）。✅ 2026-11-06 日本時間2時28分41秒
             # ユーザー：「お客様：ちょっと待ってもらえますか。も、黙って待つはおかしいと思いますよ。「はい、」のような相づちがないと失礼です。」
             # ⛔ それまでは「相手はいま聞いていない」として流さなかった（待つように言ったその時、お客様はまだ電話口でこちらの返事を聞いている）。
-            # 同じ発話にもう待つと返していたら（_hold の again）、上で重ねない
-            return "hai"
+            # 同じ発話にもう待つと返していたら（_hold の again）、上で重ねない。考えている途中の「はい。」をもう流していたら（_hold の acked）、重ねない
+            return None if reply.get("acked") else "hai"
         if result == "thinking":
             # まだ考えている途中（Flow._thinking）：「はい。」の相づち（落ち着いた声で、語尾を上げずに短く＝phrases.ACK の aizuchi）のあと待つ。会話AIが話す通話で、
             # 報告の無いターンに会話AIが自分で「はい。」と言い、その声が流れた（voiced＝judged_turn）なら重ねない。✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」
@@ -4912,14 +4925,28 @@ class Flow:
             return self._reject(f"相手の言葉（「{said}」）は、代わった方が話し始めた言葉で、答えではありません。" + then.replace("代わった方が話し始めたら、", ""))
         return None
 
-    def _judged_first(self) -> dict | None:
-        """会話AIがどの操作で報告しても（答え・言い直しへの返事・聞き取れない・代わった方へ・電話口の方）、先に判定の読みで応じる唯一の場所（当たらなければ
-        None）：待つ・かけ直す・考えている途中（wait_reading → 待つ読みの1か所 _wait_route）・もう一度言ってほしい（_repeat_now）。会話AIの報告は判定を待つ
-        きっかけだけ（✅ 2026-11-01 日本時間17時04分 ユーザー (a)「OK」）。⛔ 2026-11-06 日本時間13時台の見直し（C6・C7）で見つけた：答えの報告から入る所
-        （_not_an_answer）だけが判定の読みで応じ、代わった方への報告は取り次ぎを待つ読みだけ、電話口の方の報告は何も当てずに「受け付けました」だった（前から）"""
+    def _judged_first(self, voiced: bool = False) -> dict | None:
+        """会話AIがどの操作で報告しても（答え・言い直しへの返事・聞き取れない・名乗りの流し直しのどの部分・電話口の方・電話を終える報告）・報告しなくても（報告の無い
+        ターン judged_turn）、先に判定の読みで応じる唯一の場所（当たらなければ None）：待つ・かけ直す・考えている途中（wait_reading → 待つ読みの1か所 _wait_route）・
+        もう一度言ってほしい（_repeat_now）。会話AIの報告は判定を待つきっかけだけ（✅ 2026-11-01 日本時間17時04分 ユーザー (a)「OK」）。voiced＝報告の無いターンに
+        会話AIの声がお客様に流れたか（judged_turn）。応じるかだけを知る所は _judged_due（同じ決まり）。
+        ⛔ 2026-11-06 日本時間13時台の見直し（C6・C7）で見つけた：答えの報告から入る所（_not_an_answer）だけが判定の読みで応じ、代わった方への報告は取り次ぎを待つ
+        読みだけ、電話口の方の報告は何も当てずに「受け付けました」だった（前から）。⛔ 23時22分41秒のご質問の見直し（W1・W4・W8）で見つけた：名乗りの流し直しは
+        「代わった方へ」の部分だけ・電話を終える報告は待つ読みだけ・報告の無いターンは自前の写しでここを通り、ほかの部分（質問に戻る・受け答え）で待つように言われても
+        「話を戻させていただきますね。」を流し、もう一度言ってほしいと頼まれてもご遠慮の一言を伺っていた"""
         if (w := self._wait_now()) is not None and (routed := self._wait_route(w, self._wait_read())) is not None:
             return routed
-        return self._repeat_now()   # もう一度言ってほしいと頼まれた：「失礼いたしました。」のあと、伺ったことを流し直す
+        return self._repeat_now(voiced)   # もう一度言ってほしいと頼まれた：「失礼いたしました。」のあと、伺ったことを流し直す
+
+    def _judged_due(self) -> bool:
+        """先に判定の読みで応じる1か所（_judged_first）が、いまの言葉に応じるか（唯一の決まり＝電話を終える言葉か判定で決まらないときに、決まらないときの場面
+        （ご遠慮の一言・急いでいる方への伺い＝_end_unsure）にしないか＝報告の無いターン _end_due_now）：待つ・かけ直す・考えている途中（_wait_handles）・
+        もう一度言ってほしい（_repeat_due）。はっきり電話を終える言葉と読んだとき（END_REASON）は、この決まりの外（今までどおり締める）。
+        ✅ 本書 9-4「お客様が考えている」：悩んでいる最中の言葉（「うーん。」）は、電話を終える言葉か決まらないときのご遠慮の一言の場面ではない（11-01 22時31分）・
+        待つように言われたら「はい、」のあと待つ（11-06 2時28分41秒「どの段・どの場面でも同じ」）・聞き返されたら流し直す（11-06 15時20分30秒）。⛔ 2026-11-06
+        日本時間13時台の見直しで見つけた：電話を終える言葉かの項目が「決められない」だと、待つ・考えている途中の読みより先にご遠慮の一言を伺っていた（「はい」と
+        言われると発信禁止）。⛔ 23時22分41秒のご質問の見直し（W4）：もう一度言ってほしいの読みが、この決まりに入っていなかった（前の名前 _waits_not_end）"""
+        return self._wait_handles(self._wait_now()) or self._repeat_due()
 
     def _thinking(self) -> dict:
         """お客様がまだ答えを考えている途中（判定の読み THINKING＝wait_reading）：「はい。」の相づち（_ack の1か所＝phrases.ACK の aizuchi。落ち着いた声で、
@@ -4937,7 +4964,7 @@ class Flow:
             reply["again"] = True
         return reply
 
-    def _repeat_now(self) -> dict | None:
+    def _repeat_now(self, voiced: bool = False) -> dict | None:
         """お客様に、直前にこちらが伺ったこと（いまの質問・言い直しの確かめ）をもう一度言ってほしいと頼まれた（判定の読みがそろって REPEAT＝_meaning_of）：
         「失礼いたしました。」（_ack_choice の repeat）のあと、伺ったことを戻る1か所（_continue）から流し直す返事（唯一の場所。答えの報告・言い直しへの返事の
         報告・聞き取れないの報告・名乗りの流し直し・報告の無いターン judged_turn の、どこから来ても同じ）。当たらなければ None。
@@ -4946,23 +4973,34 @@ class Flow:
         直前にこちらが言ったのが伺ったことではないとき（お客様のご質問・お話に応えた＝own_pending・ai_pending・digressed・答えに添えられた質問の続き
         after_answer・応える前の言葉の答えを持っている _held_now・ご納得いただけなかった点のご説明 _explaining）は当てない（もう一度言ってほしいのは、
         その答え・ご説明＝会話AIが言い直す）。同じ発話にもう流し直していたら（報告の無いターンの入口のあとに、同じ言葉への報告が届いた）、重ねない（again）。
+        voiced＝報告の無いターンに会話AIの声がもう流れた（会話AIが話す通話で、会話AIが自分で言い直した）：流し直しは重ねず、流し直した印だけ立てる（同じ言葉への
+        遅れた報告でも流し直さない。⛔ 23時22分41秒のご質問の見直し（W8）：印を立てず、あとの報告で2回目を流した）。
         ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…プログラムが「失礼いたしました。」＋「それでは（質問）」を流します。OK」"""
-        if self.phase == "calling" or Flow._meaning_of(self.heard_check) != REPEAT:
+        if not self._repeat_due():
             return None
-        if (self.awaiting_confirm is None and self.current is None) or self.after_answer is not None or self.own_pending or self.ai_pending \
-                or self.digressed or self._held_now() is not None or self._explaining():
-            return None
-        if self.repeat_turn == self.callee_turns:
+        if self.repeat_turn == self.callee_turns or voiced:
+            self.repeat_turn = self.callee_turns
             return {"result": "replayed", "silent": True, "again": True,
-                    "message": f"この言葉には、もう伺ったことを流し直しました。何も言わずに、相手の答えを待ってください。{self._now()}"}
+                    "message": f"この言葉には、もう伺ったことを言い直しました。何も言わずに、相手の答えを待ってください。{self._now()}"}
         self.repeat_turn = self.callee_turns
         return self._continue([], "") | {"repeat": True}
+
+    def _repeat_due(self) -> bool:
+        """もう一度言ってほしいと頼まれ、伺ったことを流し直す場面か（唯一の決まり＝_repeat_now・_judged_due）。"""
+        if self.phase == "calling" or Flow._meaning_of(self.heard_check) != REPEAT:
+            return False
+        return not ((self.awaiting_confirm is None and self.current is None) or self.after_answer is not None or self.own_pending
+                    or self.ai_pending or self.digressed or self._held_now() is not None or self._explaining())
 
     def _hold(self, back: bool = False) -> dict:
         """待つように言われた：「はい、」の相づち（_ack の1か所）のあと、AIは黙って待つ（唯一の返事。差し戻しではない＝張り替えない）。代わった方が
         話し始めたら、名乗りを流し直す（その時機は、判定が HANDOVER と決めた発話で、プログラムが受け付ける）。同じ発話にもう待つと返していたら
-        （報告の無いターンの入口 judged_turn のあとに、同じ言葉への報告が届いた など）、相づちも一言も重ねない（again）。"""
-        again = self.holding   # 待つ印は、お客様が新しく話すたびに下ろす（on_callee）＝立っていれば、この発話にもう待つと返した
+        （報告の無いターンの入口 judged_turn のあとに、同じ言葉への報告が届いた など）、相づちも一言も重ねない（again）。同じ発話に、考えている途中の「はい。」を
+        もう流していたら（_thinking のあとに待つ読みが遅れて届いた）、相づちは重ねない（黙って待つなら何も流さない・確かめて戻る方には一言だけ＝acked）。
+        ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（W7）：この決まりが報告の無いターンの道（_wait_rethought）にだけあり、報告から来ると「はい。」のあとに
+        「はい、」を重ねた"""
+        thought = self.thinking_turn == self.callee_turns   # この発話に、考えている途中の「はい。」をもう流した
+        again = self.holding or (thought and not back)   # 待つ印は、お客様が新しく話すたびに下ろす（on_callee）＝立っていれば、この発話にもう待つと返した
         said = (self.callee_said or "").strip()[:30]
         # 相手が電話口を離れた理由は決めつけない：呼んでいる段はお取り次ぎ、繋がったあと・目的の人のいない業務は、確かめに行った・ほかの方に代わる
         # のどちらもある（⛔ 2026-10-24 の見直しで見つけた穴：どの場面でも「ほかの人に取り次いでいます」「代わった方が話し始めたら名乗りを流し直す」と
@@ -4993,6 +5031,8 @@ class Flow:
             else:
                 reply |= {"say": WAIT_REPLY, "silent": False, "message": say_note(WAIT_REPLY) + reply["message"]}
             reply["back"] = True
+            if thought:
+                reply["acked"] = True   # 「はい。」はもう流した：「それではこのままお返事を待っております。」だけ（_ack_choice）
         return reply
 
     # ── 取り次ぎ・保留のあと、待つ長さ（_hold の返事の hold_wait_s）のあいだ誰も話さなかった（電話接続側が呼ぶ）
@@ -5424,8 +5464,12 @@ class Flow:
         part = a.get("part")
         if (why := self._explain_problem(a)) is not None:
             return self._reject(why)
-        if (again := self._repeat_now()) is not None:
-            return again   # もう一度言ってほしいと頼まれた（判定の読み）：会話AIが選んだ部分ではなく、伺ったことを流し直す
+        if self.phase != "calling" and (routed := self._judged_first()) is not None:
+            # 答えの段：会話AIがどの部分を選んでも（質問に戻る・受け答え・自分の言葉で答える・代わった方へ…）、判定が待つ・かけ直す・考えている途中・もう一度
+            # 言ってほしいと読んだ言葉なら、判定の読みで応じる1か所で応じる（お呼びする段は、電話口の方が誰かを決める1か所 _calling_reported が受け持つ）。
+            # ⛔ 2026-11-06 日本時間13時台の見直し（C6）：「代わった方へ」だけに当てた。⛔ 23時22分41秒のご質問の見直し（W1）：ほかの部分では、待つように言われても
+            # 「話を戻させていただきますね。」・受け答えを流していた
+            return routed
         if part not in ("resume", "handover"):
             self._keep_answer_reading()
         asked = self._asked_now()   # 答えの段で、いまの質問・言い直しに答える代わりにこちらへ尋ねた（答えたあと、話はそれていない）
@@ -5464,11 +5508,6 @@ class Flow:
             # 取り次ぎが無ければ、電話口の方は同じ方（かけ直しの質問を聞いた方）：確かめずに、下の流し直し。⛔ G-57 tc28（不在で別の方に
             # 代わる・S4）：かけ直しの質問を聞いた山田様の言葉の続きに、AIがまた「代わった方」と報告し、山田様に岡田様かを確かめた
             return self._hold() if self._hold_read() else self._target_back()
-        if part == "handover" and (routed := self._judged_first()) is not None:
-            # 答えの段で、代わった方への名乗りの流し直しを頼まれても、判定が待つ・かけ直すと読んだ言葉なら、判定の読みで応じる1か所で応じる（取り次ぎを待つ・確かめて
-            # 戻る・あとでかけ直す・決まらない・考えている途中）。⛔ 2026-11-06 日本時間13時台の見直し（C6）で見つけた：取り次ぎを待つ読みだけを当て、ほかの
-            # 待つ読みでは名乗りから流し直していた（前から）
-            return routed
         if part == "handover":
             # 相手が替わった：分かる方に代わったなら、元の質問へ（流れの決まり＝名乗りの録音の有る無し・流し直しの回数より先に。⛔ 2026-10-24 の
             # 見直し：録音が無い・流し直しを使い切った通話では、ここまで来ずに差し戻し、代わった方の答えも「いまの質問ではない」で差し戻した）
@@ -6809,6 +6848,13 @@ class Flow:
             return self._reject(f"いまお話ししている方とは、もう繋がっています（{CALLBACK_LABEL['departed']}、ではありません）。")
         if (w := self._wait_now()) is not None and (routed := self._wait_route(w, {"ai"} | self._wait_read(), why=why, offer=offer)) is not None:
             return routed   # 決めるのは判定（会話AIの申し出は判定を待つきっかけだけ＝待つ読みなら待つ・決まらなければ1回伺う）
+        if why == "later" and w is None and self.judging and any(k in self.heard_check for k in JUDGMENTS):
+            # 答えの段の「あとで」（お客様からの折り返しの申し出も）は、判定が読める（選べるもの「あとでかけ直す」「お客様から折り返す」）：判定の読みが届いていて、
+            # 待つ・かけ直すと読まなければ、会話AIの申し出だけでは受け取らない（会話AIの報告は判定を待つきっかけだけ＝✅ 2026-11-01 日本時間17時04分 (a)「OK」）。
+            # ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（W6）：受け取ってお礼の一言も言っていた（判定の1つがかけ直すと読めば1回伺う＝判定が会話AIに
+            # 同意するほど慎重になる逆向きだった）
+            return self._reject("判定は、いまの言葉を、あとでかけ直してほしい・お客様から折り返すとは読んでいません。かけ直しは受け付けません。"
+                                "何も言わずに、聞いた答えのとおりに record_answer で報告します（「わからない」「答えたくない」も答えです）。")
         if self.callback_why and not (why == "other_means" and self.callback_why != "other_means"):
             # 同じ申し出は1通話1回（ほかの手段の申し出だけは、かけ直しの質問の途中でも受け取る＝「戻りは分からないので、メールで」）
             return self._reject(f"かけ直しの申し出（{CALLBACK_LABEL[self.callback_why]}）は、もう受け付けています。")
@@ -7241,8 +7287,8 @@ class Flow:
         # 何もしなかった。⛔ 同じ夜、正解の表を作りから出して見つけた穴：判定の「決められない」も、寄りが無いと何もせず、「もういいです。」の答えを
         # 向きを確かめずに受け取って次の質問を流していた
         unsure = end == UNDECIDED or (end is None and not self._end_pending() and bool(self._end_lean()))
-        if unsure and self._waits_not_end():
-            return None   # 待つ・考えている途中の読み：電話を終える言葉か決まらないときの場面にしない（報告の無いターンは _wait_route が応じる）
+        if unsure and self._judged_due():
+            return None   # 待つ・考えている途中・もう一度言ってほしいの読み：電話を終える言葉か決まらないときの場面にしない（報告の無いターンは _judged_first が応じる）
         topic = unsure and self._topic_first()
         if topic:
             self.end_doubt = self.callee_turns   # いまの話への返事として受け取る（答えは向きを確かめる＝_checks）
@@ -7280,13 +7326,12 @@ class Flow:
                 # この発話にもう返事をした：待つと応えたあとに届いた遅れた読みだけを当てる（_wait_rethought）
                 reply, w = self._wait_rethought(w), WAIT_OR_LATER
             else:
-                reply = self._wait_route(w, self._wait_read()) if w is not None else None
-                if reply is None and not voiced:
-                    # もう一度言ってほしいと頼まれた（報告で受けたときと同じ1か所 _repeat_now）。会話AIが話す通話で、会話AIの声がもう流れたなら重ねない
-                    reply = self._repeat_now()
+                # 報告で受けたときと同じ1か所（_judged_first）：待つ・かけ直す・考えている途中・もう一度言ってほしい。会話AIが話す通話で、会話AIの声がもう流れたなら、
+                # 流し直しは重ねない（印だけ立てる＝_repeat_now の voiced）
+                reply = self._judged_first(voiced=voiced)
             if reply is None:
                 return None
-            name, args = ("judged_turn", {}) if reply.get("repeat") else ("request_callback", {"why": "later", "wait": w})
+            name, args = ("judged_turn", {}) if reply.get("result") == "replayed" else ("request_callback", {"why": "later", "wait": w})
             if reply.get("result") == "thinking" and voiced:
                 reply["voiced"] = True   # 会話AIが自分で言った「はい。」（instruction.THINKING_RULE）が流れた：相づちを重ねない（_ack_choice）
         reply["ack"] = self._ack(name, args, reply)
@@ -7306,22 +7351,15 @@ class Flow:
         end = self._end_now()
         if end in END_REASON:
             return END_REASON[end]
+        if (r := self._judged_first()) is not None:
+            # 待つ・かけ直す・考えている途中・もう一度言ってほしいの読み：会話AIがどの操作で報告しても先に応じる1か所（電話を終える言葉と言い切った読みのほか。
+            # ご遠慮の一言の場面にしない・電話を終える言葉ではないと差し戻して黙らせない＝⛔ 23時22分41秒のご質問の見直し W4）
+            return r
         if end == END_NONE:
             return self._reject("判定は、いまの言葉を電話を終える言葉とは読んでいません。電話は終えずに、会話を続けます。")
         if end is None and not self._end_lean() and self._end_pending():
             return self._end_late(reason)
-        if self._waits_not_end() and (r := self._wait_route(self._wait_now(), self._wait_read())) is not None:
-            return r   # 待つ・考えている途中の読み：その読みで応じる（ご遠慮の一言の場面にしない＝_waits_not_end）
         return self._end_unsure()
-
-    def _waits_not_end(self) -> bool:
-        """電話を終える言葉か判定で決まらない（「決められない」・確かでない読みの寄り）とき、答えの判定が待つ・考えている途中と読んでいるので、決まらないときの
-        場面（ご遠慮の一言・急いでいる方への伺い＝_end_unsure）にしないか（唯一の決まり＝報告の無いターン _end_due_now と会話AIの終わりの報告 _end_judged）。
-        そのときは待つ・かけ直すの1か所（_wait_route）で応じる。はっきり電話を終える言葉と読んだとき（END_REASON）は、この決まりの外（今までどおり締める）。
-        ✅ 本書 9-4「お客様が考えている」：悩んでいる最中の言葉（「うーん。」）は、電話を終える言葉か決まらないときのご遠慮の一言の場面ではない（11-01 22時31分）・
-        待つように言われたら「はい、」のあと待つ（11-06 2時28分41秒「どの段・どの場面でも同じ」）。⛔ 2026-11-06 日本時間13時台の見直しで見つけた：電話を終える
-        言葉かの項目が「決められない」（2つの判定の割れも）だと、待つ・考えている途中の読みより先にご遠慮の一言を伺っていた（「はい」と言われると発信禁止）"""
-        return self._wait_handles(self._wait_now())
 
     def _end_late(self, reason: str) -> "str | dict":
         """会話AIが電話を終える言葉と報告したのに、判定の答えが2回の待ち（最大で約4秒）でも1つも届かない（混んでいる・止まりかけている）：判定が
@@ -7437,13 +7475,20 @@ class Flow:
             return self._close("callee_refused_call", prefix=prefix)
         return self._close("callee_hurry", prefix=prefix)
 
+    def _wait_check(self) -> dict:
+        """待つ・かけ直すの読みに当てる確かめ（唯一の読み口＝_wait_now・_wait_read・お礼の一言 later_offer）：答えの報告を当てる言葉の確かめ heard_check の判定の読みを、
+        待つ読みの名前にそろえたもの（H2 を伺っている間は、H2 の答えの名前を同じ意味の待つ読みに＝as_wait）。"""
+        asking = self.wait_q is not None
+        return {k: as_wait(v, asking) if k in JUDGMENTS else v for k, v in self.heard_check.items()}
+
     def _wait_now(self) -> str | None:
-        """いまのお客様の言葉の、待つ・かけ直すの読み（唯一の決まり wait_reading を、答えの報告を当てる言葉の確かめ heard_check に当てる）。"""
-        return wait_reading(self.heard_check)
+        """いまのお客様の言葉の、待つ・かけ直すの読み（唯一の決まり wait_reading を、_wait_check に当てる）。"""
+        return wait_reading(self._wait_check())
 
     def _wait_read(self) -> set[str]:
         """待つ・かけ直すと読んだ判定の名前（かけ直しの記録の read＝通話後の検証が、何で決めたかを見る）。"""
-        return {k for k in JUDGMENTS if self.heard_check.get(k) in WAIT_KINDS}
+        check = self._wait_check()
+        return {k for k in JUDGMENTS if check.get(k) in WAIT_KINDS}
 
     def _wait_route(self, w: str, read: set[str], why: str = "later", offer: str | None = None) -> dict | None:
         """待つ・かけ直すの読み w（wait_reading）に応じる唯一の場所（答えの報告・言い直しへの返事・かけ直しの申し出のどれから来ても同じ＝会話AIの報告は
@@ -7466,9 +7511,9 @@ class Flow:
             return {"result": "noted", "silent": True, "again": True,
                     "message": f"待つか、かけ直すかは、この言葉（「{said}」）を聞いてもう伺いました。何も言わずに、お客様のお返事を待ってください。{self._now()}"}
         if w == LATER:
-            offer = later_offer(self.heard_check, offer)   # お客様のほうから折り返すという申し出か（判定が読む＝later_offer の1か所）
+            offer = later_offer(self._wait_check(), offer)   # お客様のほうから折り返すという申し出か（判定が読む＝later_offer の1か所）
         if self.wait_q is not None:
-            return self._wait_or_later_decided("", CALL_LATER if w == LATER else WAIT_NOW, why=why, offer=offer)
+            return self._wait_or_later_decided("", CALL_LATER if w == LATER else WAIT_NOW, why=why, offer=offer, read=read)
         if w == HOLD:
             return self._hold()
         if w == HOLD_BACK:
@@ -7481,15 +7526,19 @@ class Flow:
             # 日本時間13時台の見直し（待つ持ち場の指摘4）：報告から入るここは、割れた読みで H2 を伺っていた
             return self._wait_rethought(w) or self._hold()
         if w == LATER:
-            # お客様があとでかけ直すように言った（判定の読み）：頭の相づちは、会話AIがどの操作で報告しても、かけ直しの申し出と同じ「承知しました。」（印 later_asked
-            # ＝_ack_choice。⛔ 2026-11-06 日本時間16時台、13時台の見直しの C6 を直す途中で見つけた：操作の名前で決めていたので、答えの報告からは次へ進む返事の
-            # 順番で「ありがとうございます。」にもなり、代わった方への報告からは頭が無かった）
-            return self._callback(why, read, offer=offer) | {"later_asked": True}
+            return self._call_later(why, read, offer=offer)
         return self._wait_or_later()
+
+    def _call_later(self, why: str, read: set[str], prefix: str = "", offer: str | None = None) -> dict:
+        """答えの段で、お客様があとでかけ直すように言った（判定の読み・待つかかけ直すかを伺った答え）かけ直しを始める唯一の場所：頭の相づちは、会話AIがどの操作で
+        報告しても・報告しなくても、かけ直しの申し出と同じ「承知しました。」（印 later_asked＝_ack_choice。✅ 2026-11-06 日本時間0時44分31秒「(イ) 答えの段の
+        かけ直しすべてで大丈夫」）。⛔ 2026-11-06 日本時間16時台（C6）：操作の名前で決めていたので、答えの報告からは「ありがとうございます。」にもなり、代わった方への
+        報告からは頭が無かった。⛔ 23時22分41秒のご質問の見直し（W5）：待つかかけ直すかを伺った答えのかけ直しは、この印を付けずに同じ違いが残っていた"""
+        return self._callback(why, read, prefix=prefix, offer=offer) | {"later_asked": True}
 
     def _wait_handles(self, w: str | None) -> bool:
         """待つ・かけ直すの読み w に、_wait_route が応じるか（唯一の決まり＝_wait_route と、電話を終える言葉か決まらないときにその場面にしないか
-        _waits_not_end）：考えている途中・待つ（HOLD・HOLD_BACK）・待つかかけ直すかを伺っている途中は、どの段でも応じる。あとでかけ直す・決まらないは、
+        _judged_due）：考えている途中・待つ（HOLD・HOLD_BACK）・待つかかけ直すかを伺っている途中は、どの段でも応じる。あとでかけ直す・決まらないは、
         かけ直しの質問の途中（もう申し出を受けている）とお呼びする段では応じない（ふつうの答え・不在の決まりへ）。"""
         return w is not None and (w in (THINKING, HOLD, HOLD_BACK) or self.wait_q is not None
                                   or not (self.callback_why or self.phase == "calling"))
@@ -7506,12 +7555,9 @@ class Flow:
         if (self.thinking_turn == self.callee_turns and not self.holding and w not in (None, THINKING) and self.wait_q is None
                 and self._wait_handles(w)):
             # 考えている途中と読んで「はい。」と応えたあと（まだ待つとは応えていない）：遅れて届いた読みも、同時に届いたときと同じ組み合わせ（wait_reading）で
-            # 応じる1か所（_wait_route）へ。黙って待つ（取り次ぎを待つ）なら、もう「はい。」と応えたので相づちは重ねない。⛔ 2026-11-06 日本時間13時台の見直し
-            # （待つ持ち場の指摘3）：待つと応えたあと（holding）だけを当て直し、考えている途中のあとに遅れた「あとでかけ直す」を当てなかった
-            reply = self._wait_route(w, self._wait_read())
-            if reply is not None and w == HOLD:
-                reply["again"] = True
-            return reply
+            # 応じる1か所（_wait_route）へ（相づちを重ねないのは _hold の1か所）。⛔ 2026-11-06 日本時間13時台の見直し（待つ持ち場の指摘3）：待つと応えたあと
+            # （holding）だけを当て直し、考えている途中のあとに遅れた「あとでかけ直す」を当てなかった
+            return self._wait_route(w, self._wait_read())
         if (not self.holding or not self.in_answer_stage or self.callback_why or self.wait_asked
                 or w not in (LATER, WAIT_OR_LATER) or self._wait_clear()):
             return None
@@ -7540,18 +7586,21 @@ class Flow:
         self._put_first(q.id)
         return self._advance("", handled=True)
 
-    def _wait_or_later_decided(self, prefix: str, chosen: str | None = None, why: str = "later", offer: str | None = None) -> dict:
+    def _wait_or_later_decided(self, prefix: str, chosen: str | None = None, why: str = "later", offer: str | None = None,
+                               read: set[str] | None = None) -> dict:
         """待つか、かけ直すかを伺った答えが決まった（唯一の入口＝_advance・_wait_route）：かけ直す＝かけ直しの申し出（あとで）として、答えの段の一言で伺う／
         このまま待つ・はっきりしない（わからない・答えたくない・聞き取れない）＝伺う前の質問へ戻り、「はい、それではこのままお返事を待っております。」のあと
-        待つ（お言葉は「待って」なので、言葉どおり待つ＝2回は伺わない。戻られたお言葉は、伺う前の質問の答えとして受け取る）。"""
+        待つ（お言葉は「待って」なので、言葉どおり待つ＝2回は伺わない。戻られたお言葉は、伺う前の質問の答えとして受け取る）。read＝判定の読みで決めたとき
+        （_wait_route）の、待つ・かけ直すと読んだ判定の名前（無ければ、受け取った答えの確かめから＝会話AIの答えの報告で決めたとき）。"""
         qid, self.wait_q = self.wait_q, None
         it = self.items[qid]
         if chosen is None:
             chosen = it.condition if it.state in TAKEN else None
         (self.current, self.awaiting_confirm, self.awaiting_say), self.wait_back = self.wait_back, None
         if chosen == CALL_LATER:
-            read = {"ai"} | {k for k in JUDGMENTS if self.taken.get(qid, {}).get("check", {}).get(k) == CALL_LATER}
-            return self._callback(why, read, prefix=prefix, offer=offer)
+            if read is None:
+                read = {"ai"} | {k for k in JUDGMENTS if as_wait(self.taken.get(qid, {}).get("check", {}).get(k), True) == LATER}
+            return self._call_later(why, read, prefix=prefix, offer=offer)
         r = self._hold(back=True)
         return r | {"message": prefix + r["message"]}
 
