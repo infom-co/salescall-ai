@@ -379,6 +379,19 @@ def _promise_tried(tx: Tx, task_id: UUID) -> bool:
                                         f" AND a.claimed_at >= %s AND {attempts.rang('a')}) AS e", (task_id, since))["e"]
 
 
+def _apology_moves(tx: Tx, task_id: UUID, t: Target | None, at: datetime) -> bool:
+    """前にかける番号だった番号へのお詫びの電話を、いまかける番号へ移すか（1か所。✅ 2026-11-06 ユーザー：伺い「直したあとのお詫び」に
+    「約束の電話と同じ」＝計画書 7-1 (4)「まだ約束の電話をかけていない場合は、旧番号でかからなければ、新番号でかけます」・(17)）：
+    お詫びの電話（目的 apology）の番号が、その時刻（at）に前にかける番号だった番号（`replaced_at`）で、その番号へのお詫びの電話が、
+    もうお客様のところで鳴った（`attempts.rang`＝約束の電話の `_promise_tried` と同じ物差し）。まだ鳴っていなければ、前の番号で1回かける。
+    移し方（同じ相手ならお詫び・違う相手ならお詫びなしで営業を続ける）は `_restart` の1か所。呼ぶのは、番号を直したとき
+    （`after_dial_fix`）と、お詫びの電話のあと（`_moved_on_fix`）。"""
+    return (t is not None and t.purpose == "apology" and t.contact_id is not None
+            and replaced_at(tx, task_id, t.contact_id, at)
+            and tx.one(f"SELECT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND a.contact_id = %s"
+                       f" AND a.purpose = 'apology' AND {attempts.rang('a')}) AS e", (task_id, t.contact_id))["e"])
+
+
 def _point(tx: Tx, task_id: UUID, row: dict[str, Any], numbers: Numbers) -> tuple[Target, Window | None]:
     """かけ直すの予定を、いまの番号へ向ける（1か所。番号を直したとき・止めた行を戻すとき・回線のせいでかけた予定のままかけ直すとき）。
     約束していない予定は `current_dial`。お客様と約束した電話は、まだかけていなければ前の番号のまま（2026-11-06 ユーザー：「まだ約束の
@@ -476,11 +489,15 @@ def _moved_on_fix(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None
     終えずに、いまかける番号で（`_restart`。2026-11-06 ユーザー：「旧番号でかからなければ、新番号でかけます」。⛔ 見直し (A) の1：前は
     行が終わり、新しい番号へ移らなかった）。どの終わりを番号のせいとするかは `reopens_on_dial_fix` の1か所（直したあとに終えた行を戻す
     のと同じ決まり）。
+    直したあと前の番号へかけたお詫びの電話が届かず、また前の番号へお詫びをかける決定になったときも、いまかける番号で（前の番号への
+    お詫びは1回まで＝`_apology_moves`。✅ 2026-11-06 ユーザー「約束の電話と同じ」＝計画書 7-1 (17)）。
     戻す形（業務を終えたあとのお詫びの電話は戻さない＝終える決定のまま）は `_restart` の1か所。行を終えていないので、お詫びの印は、
     この決定の印のまま（None＝いまの予定から引き継ぐ）。"""
-    if d.kind != "end" or not was_replaced or not reopens_on_dial_fix(tx, task_id, d.end_reason):
+    moves = d.kind == "call" and _apology_moves(tx, task_id, d.target, now)   # 前の番号へのお詫びは1回まで（計画書 7-1 (17)）
+    if not moves and (d.kind != "end" or not was_replaced or not reopens_on_dial_fix(tx, task_id, d.end_reason)):
         return d
-    again = _restart(tx, task_id, row, now=now, rule=f"直したあと前の番号でかからなかった（{d.end_reason}）：いまかける番号で")
+    again = _restart(tx, task_id, row, now=now,
+                     rule=f"直したあと前の番号でかからなかった（{d.end_reason or 'お詫びの電話'}）：いまかける番号で")
     return d if again is None else replace(again, apology=d.apology, cut_call=d.cut_call)
 
 
@@ -504,6 +521,11 @@ def after_dial_fix(tx: Tx, task_id: UUID, *, cause: str) -> int | None:
         return None if again is None else _write(tx, task_id, again)   # 戻せないお詫びの電話は戻さない（`_restart`）
     if cur["kind"] != "call":
         return None
+    if _apology_moves(tx, task_id, _plan_target(cur), now):
+        # 前の番号へのお詫びの電話が、もう鳴っていた ⇒ いまかける番号で（約束の電話の `_point` と同じ。計画書 7-1 (17)）
+        again = _restart(tx, task_id, cur, now=now, rule=f"{cause}（前の番号へのお詫びの電話は、もうかけた：いまかける番号で）")
+        if again is not None:
+            return _write(tx, task_id, again)
     t, window = _point(tx, task_id, cur, numbers_of(tx, task_id))
     if t.contact_id == cur["contact_id"]:
         return None

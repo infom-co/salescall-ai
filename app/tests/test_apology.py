@@ -599,27 +599,51 @@ class ApologyAfterDialFix(ApologyBase):
         d = self.apology_call(s, apology_delivered=False)["decision"]
         self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))         # 新しい番号で1回目
 
-    def test_an_apology_left_on_the_old_number_counts_there_from_the_fix_and_then_moves_on(self):
-        """番号を直したとき、まだ続いているお詫びの電話は前の番号のまま（その番号のお客様へかける電話＝next_action.current_dial）。その
-        回数も、直したときから数え直し（行の回数と同じ数え始め＝attempts.count_start）、前の番号で決めた回数かけて届かなければ、行を
-        終えずに新しい番号へお詫び（`_moved_on_fix`→`_restart_apology`。計画書 7-1 (14)）。新しい番号の回数は0から（前の番号への
-        回数を足さない＝番号で分けて数える。計画書 7-1 (15)）。⚠️ 行の回数の範囲（attempts.in_row_count）は直したあと前の番号へ
-        かけた電話を除くので、それで数えると前の番号への回数が増えず、決めた回数で終わらないまま前の番号へかけ続ける。"""
+    def test_an_apology_on_the_old_number_rings_there_once_and_then_moves_to_the_new_number(self):
+        """✅ 2026-11-06 ユーザー（伺い「直したあとのお詫び」に「約束の電話と同じ」＝計画書 7-1 (17)）：番号を直したとき、前の番号への
+        お詫びの電話がまだ鳴っていなければ、前の番号で1回かけ、届かなければ新しい番号へお詫び（同じ相手）。もう鳴っていれば、直した
+        ときに新しい番号へ移す（`_apology_moves` の1か所＝約束の電話の `_point` と同じ物差し）。新しい番号の回数は0から（計画書 7-1 (15)）。
+        ⛔ 0195 の初めの作りは、前の番号で直したときから数え直して、もう決めた回数かけていた。"""
+        with self.subTest("まだ鳴っていない"):
+            s = self.fresh(stage_cap=20)
+            self.put_client(s, "retry.apology_max", 2)
+            old = s["contact"]
+            self.order(s, self.incident(s))
+            new = self.fixed(s)
+            self.assertEqual((self.plan(s)["purpose"], self.plan(s)["contact_id"]), ("apology", old))   # 前の番号で1回
+            self.now_on(s, old)
+            d = self.apology_call(s, apology_delivered=False)["decision"]      # 届かなかった ⇒ 新しい番号へ（前の番号へは1回まで）
+            self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))
+            d = self.apology_call(s, apology_delivered=False)["decision"]      # 新しい番号で1回目：まだ終えない（0から数える）
+            self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))
+        with self.subTest("もう鳴っていた"):
+            s = self.fresh(stage_cap=20)
+            self.put_client(s, "retry.apology_max", 2)
+            old = s["contact"]
+            self.order(s, self.incident(s))
+            self.apology_call(s, apology_delivered=False)                     # 直す前に前の番号で1回鳴った
+            self.assertEqual((self.plan(s)["purpose"], self.plan(s)["contact_id"]), ("apology", old))
+            new = self.fixed(s)
+            self.assertEqual((self.plan(s)["purpose"], self.plan(s)["contact_id"]), ("apology", new))   # 直したときに新しい番号へ
+            d = self.apology_call(s, apology_delivered=False)["decision"]      # 新しい番号で1回目：まだ終えない（前の番号の1回を足さない）
+            self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))
+
+    def test_calls_to_a_number_are_counted_per_number_from_the_latest_fix(self):
+        """別の時間帯にかけ直す電話（お詫び・番号の聞き直し）の回数は、その番号へ、かける番号を直したあとにかけた電話だけ（1か所＝
+        gate.purpose_dials の counted。計画書 7-1 (3)・(15)「新しい番号で数え直す」）。直したあと前の番号へかけた電話も、その番号の
+        回数には入る（⚠️ 行の回数の範囲 attempts.in_row_count は、それを除くので使わない：番号の聞き直しは直したあとも前の番号へかけ続ける
+        ＝next_action.current_dial。除くと回数が増えず、決めた回数で終わらない）。"""
         s = self.fresh(stage_cap=20)
-        self.put_client(s, "retry.apology_max", 2)
+        self.put_client(s, "retry.apology_max", 5)
         old = s["contact"]
         self.order(s, self.incident(s))
-        self.apology_call(s, apology_delivered=False)                         # 直す前に前の番号で1回
+        self.apology_call(s, apology_delivered=False)                         # 直す前に前の番号で1回（数えない）
         new = self.fixed(s)
-        self.assertEqual((self.plan(s)["purpose"], self.plan(s)["contact_id"]), ("apology", old))
         self.now_on(s, old)
-        d = self.apology_call(s, apology_delivered=False)["decision"]          # 直したあと前の番号で1回目（直す前の1回は数えない）
-        self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", old))
-        self.now_on(s, old)
-        d = self.apology_call(s, apology_delivered=False)["decision"]          # 2回目：届かずに終える ⇒ 新しい番号へお詫び
-        self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))
-        d = self.apology_call(s, apology_delivered=False)["decision"]          # 新しい番号で1回目：まだ終えない
-        self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))
+        self.apology_call(s, apology_delivered=False)                         # 直したあと前の番号で1回（前の番号の回数に入る）
+        count = lambda number: self.tx(s, lambda tx: next_action._new_band_retry(   # noqa: E731
+            tx, s["task"], tx.one("SELECT now() AS t")["t"], purpose="apology", number=number).tries)
+        self.assertEqual((count(old), count(new)), (1, 0))
 
     def test_an_apology_on_the_old_number_after_a_fix_moves_on_by_the_same_rule(self):
         """番号を直したあと、お詫びの電話（前の番号のまま＝その番号のお客様へかける電話）が番号違いだった（番号のせい）⇒ 終えずに、
