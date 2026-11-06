@@ -321,7 +321,10 @@ COMMON_PARTS: tuple[str, ...] = (
     # CL-1 の連絡帳 4-97・4-99（✅ 2026-11-06 9時05分17秒 ユーザー）：「ほかに…」で点を言っていただけないときの一言・申し伝える一言まで言って
     # 切れた電話の続きの、お詫び（同じ日か）と申し伝え直す一言（種類ごと）と、担当から連絡すると申し出てよい業務の一言
     "callback_other_point_which", "apology_cut_end_same_day", "apology_cut_end_later",
-    "told_again_question", "told_again_request", "told_again_opinion", "told_follow_up")
+    "told_again_question", "told_again_request", "told_again_opinion", "told_follow_up",
+    # CL-1 の連絡帳 4-97 の追記（✅ 2026-11-06 10時12分44秒 ユーザー「(イ)…OK」）：続きの電話の振り返りの一言への返事で点を言って
+    # いただけないときの一言（まだ点を伺っていないので「ほかに」を外す）
+    "callback_other_point_which_recap")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

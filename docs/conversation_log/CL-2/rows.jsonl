@@ -3037,3 +3037,7 @@
 {"at": "2026-11-06T11:11:30+09:00", "who": "CL-2", "text": "Full test run on this commit in the background, meanwhile I continue the review."}
 {"at": "2026-11-06T11:11:38+09:00", "who": "CL-2", "text": "並行して、残りの作業（CL-1 の連絡帳 4-74・4-75 の受け取りの残り）を確かめます。"}
 {"at": "2026-11-06T11:12:16+09:00", "who": "CL-2", "text": "次に、CL-1 の名前を比べる試験（main の会話の側）を、こちらの作りに当てて流します。"}
+{"at": "2026-11-06T11:15:42+09:00", "who": "CL-2", "text": "main に新しい会話の側の変更が2つ入っていたので、こちらに関わる名前（共通の一言など）が増えていないかを確かめます。"}
+{"at": "2026-11-06T11:15:53+09:00", "who": "CL-2", "text": "main に、新しい共通の一言の録音（`callback_other_point_which_recap`）が1つ増えていました。CL-1 の連絡帳を確かめます。"}
+{"at": "2026-11-06T11:15:57+09:00", "who": "CL-2", "text": "ユーザーの 11-06 10時12分44秒のお答え「(イ)…OK」で足された一言です。共通の一言の一覧に足します。"}
+{"at": "2026-11-06T11:16:11+09:00", "who": "CL-2", "text": "Only the one new name. Update the contact book entry and DESIGN row, then run the gate test."}

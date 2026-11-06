@@ -1837,6 +1837,15 @@ class NameLedger(Content):
         どの業務でも同じ文の共通の一言（話してよい声が求める＝`COMMON_PARTS`）。"""
         self.assertLessEqual({"point_anytime", "point_anytime_plain"}, set(recordings.COMMON_PARTS))
 
+    def test_the_parts_cl1_added_on_11_06_are_received(self):
+        """CL-1 の連絡帳 4-97・4-99 と 4-97 の追記（✅ 2026-11-06 9時05分17秒・10時12分44秒 ユーザー）：「ほかに…」で点を言っていただけない
+        ときの一言（続きの電話の振り返りへの返事なら「ほかに」を外した形）・申し伝える一言まで言って切れた電話の続きのお詫び（同じ日か）と
+        申し伝え直す一言（種類ごと）・担当から連絡すると申し出てよい業務の一言は、どの業務でも同じ文の共通の一言（話してよい声が求める＝
+        `COMMON_PARTS`）。"""
+        self.assertLessEqual({"callback_other_point_which", "callback_other_point_which_recap", "apology_cut_end_same_day",
+                              "apology_cut_end_later", "told_again_question", "told_again_request", "told_again_opinion",
+                              "told_follow_up"}, set(recordings.COMMON_PARTS))
+
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
         よろしいでしょうか？」は契約者の単位の録音 callback_refusal（話してよい声が求める＝`COMMON_PARTS`）で、その質問の番号 R1 は
