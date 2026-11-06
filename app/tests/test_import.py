@@ -786,6 +786,18 @@ class DialFixes(CustomerContacts):
         for why, want in (("wrong_party", True), ("fax_line", True), ("request", False)):
             with self.subTest(why=why):
                 self.assertEqual(next_action.reopens_on_dial_fix(Tx(why), None, "out_of_scope"), want)
+        # 番号のせいの終わりの理由（門が番号や番号への契約者の設定で終えた行も入る＝2026-11-06 CL-2 の案への「(1)…OK (2)…OK (3)…OK」）と、
+        # 決めた回数で終えた理由は、どれも戻る。お客様が断った・業務を終えたなどは戻らない（一覧は計画書 3-4-1 の (7) から書き写した。
+        # NUMBER_ENDS そのものを読むと、一覧から抜けても見張れない＝⛔ 2026-11-06 の見直し (A) の9）
+        for end in ("number_unusable", "alternate_wrong_again", "alternate_not_called", "ask_number_again_unanswered",
+                    "number_unknown", "number_kind_forbidden", "number_kind_not_allowed", "other_contractor_called",
+                    "other_client_promise_never", "alternate_blocked:dnc", "max_attempts", "callback_exact_unreached",
+                    "policy_max:open"):
+            with self.subTest(end=end):
+                self.assertTrue(next_action.reopens_on_dial_fix(Tx(None), None, end))
+        for end in ("do_not_call", "complaint", "forbidden_speech", "apology_done", "completed"):
+            with self.subTest(end=end):
+                self.assertFalse(next_action.reopens_on_dial_fix(Tx(None), None, end))
         for action, want in (("end", False), ("call", True)):
             with self.subTest(action=action), mock.patch.object(next_action, "_unspecified_policy",
                                                                 return_value=business_rules.Policy(action, 1, None)):

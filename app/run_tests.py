@@ -4525,6 +4525,13 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("会話の側へ、お客様が指定していない携帯電話の番号を渡さない", "src/salescall/core/customer_contacts.py",
      '_MOBILE_LABELS = ("mobile", "line")', '_MOBILE_LABELS = ("line",)',
      ("tests.test_import.CustomerContacts.test_the_designated_number_is_dialed_and_the_others_are_only_recorded",)),
+    # ── 番号を直したときに戻す、番号のせいの終わりの理由（⛔ 2026-11-06 の見直し (A) の9：一覧から抜けても見張れなかった）
+    ("門が番号を読めない・かけない種類の番号で終えた行を、番号を直しても戻さない", "src/salescall/core/next_action.py",
+     '    "number_unknown", "number_kind_forbidden", "number_kind_not_allowed",     # 門：番号が読めない・かけない種類の番号\n', '',
+     ("tests.test_import.DialFixes.test_which_ends_come_back_is_decided_in_one_place",)),
+    ("門が番号への契約者の設定で終えた行を、番号を直しても戻さない", "src/salescall/core/next_action.py",
+     '    "other_contractor_called", "other_client_promise_never",                 # 門：その番号への契約者の設定\n', '',
+     ("tests.test_import.DialFixes.test_which_ends_come_back_is_decided_in_one_place",)),
     # ── 同じ名前の定義の上書き（⛔ 2026-11-06：同じ名前の試験2つで、前の試験が流れていなかった）
     ("同じ場所の同じ名前の定義を、見張りで見つけない", "checks/rules.py",
      "                    if node.name in seen:\n", "                    if False:\n",
