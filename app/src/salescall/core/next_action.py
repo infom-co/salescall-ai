@@ -262,7 +262,11 @@ NUMBER_ENDS = frozenset({
     "apology_wrong_party", "apology_fax_line",   # お詫びの電話の番号が番号違い・FAX の回線だった（その番号だけ止めた＝番号のせい。0194）
 })
 NUMBER_END_PREFIXES = ("alternate_blocked:",)                 # お客様が言った番号が、かけない種類・発信禁止など（記録だけ）
-COUNT_ENDS = frozenset({"max_attempts", "callback_exact_unreached", "callback_unspecified_time"})   # 決めた回数（日数）まで
+COUNT_ENDS = frozenset({"max_attempts", "callback_exact_unreached", "callback_unspecified_time",   # 決めた回数（日数）まで
+                        # 言ってはいけないことのあとのお詫びの電話を、決めた回数（retry.apology_max）かけても、お客様に届かなかった
+                        # （✅ 2026-11-06 ユーザー＝計画書 7-1 (14)：番号を直したら「戻す」。戻し方は番号のせいで終えたお詫びの電話と
+                        # 同じ＝`_restart_apology`。お詫びの電話の「届かなかった」終わりは、これだけ＝`decide_after_apology`。0195）
+                        "apology_unreached"})
 # お客様が「あとで」を、時刻の決まっていない約束の方針の回数より多く言って終えた（0194。前は callback_unspecified_time に入れていたが、
 # 決めた回数かけて話せずに終えた行と、番号を直して戻すかの決まりが違う＝計画書 7-1 (13)。終える所は `_unspecified_next` の1か所）
 LATER_OVER = "callback_later_over"
@@ -276,8 +280,10 @@ def reopens_on_dial_fix(tx: Tx, task_id: UUID, end_reason: str, *, as_of: dateti
     その「あとで」がどれも約束の一環だったときだけ戻す（営業拒否か、まだ分からない「あとで」があれば戻さない＝`_later_refused`。
     計画書 7-1 (13)）。お客様が断った・業務を終えた・苦情・言ってはいけないことなどは戻さない。as_of＝その行が終わった時刻（終えた行を
     戻すとき。見る「あとで」は、そのときの行の回数の数え始めから。None＝いま＝終える決定を書く前）。
-    ここが見るのは終わりの理由だけ。お詫びの電話が番号のせいで終わった行を、どう戻すか（同じ相手へお詫び・違う相手へ営業を続ける・
-    業務を終えていれば戻さない）は、戻す形を決める `_restart` の1か所。"""
+    ここが見るのは終わりの理由だけ。お詫びの電話が番号のせい・決めた回数で終わった行を、どう戻すか（同じ相手へお詫び・違う相手へ営業を
+    続ける・業務を終えていれば戻さない）は、戻す形を決める `_restart` の1か所。
+    「あとで」を営業拒否と読んだ通話は、判定が断り（do_not_call。計画書 7-1 (16)・0195）にするので、その行は do_not_call で終わり、ここで
+    戻さない（お客様が断った行）。"""
     from salescall.core import dnc   # 発信禁止の部品が次の動きを読むので、ここで読む（読み合いにしない）
     if end_reason in NUMBER_ENDS or end_reason.startswith(NUMBER_END_PREFIXES):
         return True
@@ -306,7 +312,10 @@ def _later_refused(tx: Tx, task_id: UUID, as_of: datetime | None) -> bool:
     の1か所）から終えたときまでに、お客様が「あとで」（時刻の決まっていない約束）と言った通話すべて（番号を直したあと前の番号で言った
     「あとで」も、同じお客様の言葉なので入れる）。約束の一環かは、会話の報告のかけ直しの申し出の intent を判定が残したもの（判定の中身
     callback.intent）。intent の無い「あとで」は、まだ分からないので戻さない（安全側。原則6・14。会話の側が intent を報告するまで＝
-    CL-2 の連絡帳 4-236）。"""
+    CL-2 の連絡帳 4-236）。
+    営業拒否と読んだ「あとで」（intent＝refusal）は、判定の版 2026-11-06.2 から、その通話の判定が断り（do_not_call）にする（計画書 7-1
+    (16)・0195）ので、その行は「あとで」の回数で終わらない（ここに来ない）。ここで refusal を見るのは、それより前の版の判定で終えた行と、
+    まだ分からない「あとで」のため（約束の一環でないものは、どれも戻さない＝1つの比べ方）。"""
     at = "now()" if as_of is None else "%s"
     rows = tx.all(
         "SELECT j.detail -> 'callback' ->> 'intent' AS intent FROM salescall.call_judgements j"
@@ -418,8 +427,10 @@ def _restart(tx: Tx, task_id: UUID, row: dict[str, Any] | None, *, now: datetime
 
 
 def _restart_apology(tx: Tx, task_id: UUID, *, now: datetime, rule: str) -> Decision | None:
-    """番号のせいでかけられずに終える、言ってはいけないことのあとのお詫びの電話を、いまかける番号で、もう一度かけ始める予定（`_restart`
-    だけが呼ぶ。✅ 2026-11-06 ユーザー＝計画書 7-1 (12)）。同じ相手か違う相手かは、言ってはいけないことを言った通話（承認されたいちばん
+    """番号のせいでかけられずに終える、または決めた回数かけてもお客様に届かずに終える（apology_unreached）、言ってはいけないことのあとの
+    お詫びの電話を、いまかける番号で、もう一度かけ始める予定（`_restart` だけが呼ぶ。✅ 2026-11-06 ユーザー＝計画書 7-1 (12)・(14)：
+    届かずに終えた行も「戻す」＝戻し方は (12) と同じ）。戻したお詫びの電話の回数は、新しい番号で0回から（計画書 7-1 (15)＝
+    gate.purpose_dials の counted の1か所）。同じ相手か違う相手かは、言ってはいけないことを言った通話（承認されたいちばん
     新しいお詫びの案のもとの通話＝core/apology.source_call。お詫びの文・承認・録音はそのまま）のあとに、お呼びする方（名前・フルネーム・
     役職・部署）を直したか（`_target_changed_since` の1か所＝約束のあとに相手が替わったかと同じ）。
     - 同じ相手 ⇒ 新しい番号へ、お詫びの電話（目的 apology のまま。お詫びの電話は約束の印を持つ＝`schedule_apology` と同じ）。
@@ -750,7 +761,8 @@ def _choose(j: Judgement, *, dialed: Target, alternate: Alternate | None, rechec
 class AskAgain:
     """別の時間帯にかけ直す電話（番号の聞き直し・お詫び）に出なかったときの材料（2026-10-15 ユーザー：「3回までなどの制限を
     かけ、別の時間帯にかけ直す」）。"""
-    tries: int                   # この行で、その目的でかけた回数（お客様に届いた発信＝gate.purpose_dials。今回を含む）
+    tries: int                   # この行で、その目的でその番号へかけた回数（お客様に届いた発信＝gate.purpose_dials の counted。今回を含む。
+    #                              かける番号を直したら、新しい番号で0回から＝計画書 7-1 (15)）
     limit: int                   # 設定 retry.ask_number_again_max／retry.apology_max
     at: datetime | None          # まだ試していない時間帯の、次にかけられる時刻（無ければ None）
 
@@ -1101,7 +1113,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     ask = None
     if target.purpose == "ask_number_again" and not cut_off:
         ask = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="ask_number_again",
-                              not_today=no_today, now=now)
+                              number=target.contact_id, not_today=no_today, now=now)
     failed_at = _failed_retry_at(tx, task_id, target.contact_id, now, dialed_at)
     policy = rules.retry.get(key) if key is not None else None
     retry_at = None if policy is None or policy.action != "call" else \
@@ -1608,15 +1620,16 @@ def _unspecified_policy(tx: Tx, task_id: UUID) -> business_rules.Policy:
 _BAND_RETRY_LIMITS = {"ask_number_again": "retry.ask_number_again_max", "apology": "retry.apology_max"}
 
 
-def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str, not_today: bool = False,
+def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str, number: UUID | None, not_today: bool = False,
                     now: datetime | None = None) -> AskAgain:
-    """別の時間帯にかけ直す電話（番号の聞き直し・お詫び）で出なかったときの材料：その目的でかけた回数と試した時間帯
-    （門の数え方）・まだ試していない時間帯の次にかけられる時刻。not_today＝同じ日にはかけ直さない（`not_today` の1か所。
-    次の日から探す）。"""
+    """別の時間帯にかけ直す電話（番号の聞き直し・お詫び）で出なかったときの材料：その目的でその番号（number＝これからかける番号）へ
+    かけた回数と試した時間帯（門の数え方。かける番号を直したら、新しい番号で0回から＝gate.purpose_dials の counted。計画書 7-1 (15)）・
+    まだ試していない時間帯の次にかけられる時刻。not_today＝同じ日にはかけ直さない（`not_today` の1か所。次の日から探す）。"""
     scope = tasks.scope(tx, task_id)
     get = lambda key: settings.resolve(tx, key, **scope)   # noqa: E731
     boundaries = list(get("retry.time_band_boundaries"))
-    dials = gate.purpose_dials(tx, task_id, purpose=purpose)
+    dials = gate.purpose_dials(tx, task_id, purpose=purpose, number=number)
+    counted = [d for d in dials if d.counted]   # 回数・試した時間帯（最小の間隔は、どの発信からも＝同じお客様なので数え直さない）
     # 回数・試した時間帯：お客様に届いた発信だけ（gate.purpose_dials＝ふつうの電話の回数と同じ決まり salescall.dial_kind の1か所。
     # 回線の都合で繋がらなかった時間帯は、まだ試していない）。鳴らない電話が続く番号は、ここで数えず、番号ごとの歯止めで止める
     # （`usable`。⛔ 見直し15：前は発信まで進んだもの全部を数え、ふつうの電話と決まりが違った）。
@@ -1630,13 +1643,13 @@ def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str, not
     hours, length = gate.calling_hours_for(tx, **scope), timedelta(seconds=int(get("gate.claim_lifetime")))
     try:
         found = calling_hours.next_opening_in_new_band(hours, holiday_checker(tx), local, length, boundaries,
-                                                       {calling_hours.band_of(d.at, boundaries) for d in dials})
+                                                       {calling_hours.band_of(d.at, boundaries) for d in counted})
         if found is None:   # 試していない時間帯が無い（夜だけ開くお店など）：直後にかけ直さず、翌日以降の同じ頃から
             found = calling_hours.next_opening(hours, holiday_checker(tx), local + timedelta(days=1), length)
         at = None if found is None else calling_hours.from_local(found)
     except CalendarOutOfRange:   # 暦の無い日に当たる：決めつけず、待ってから門にもう一度確かめさせる
         at = after + timedelta(seconds=int(get("gate.denied_retry_wait")))
-    return AskAgain(len(dials), int(get(_BAND_RETRY_LIMITS[purpose])), at)
+    return AskAgain(len(counted), int(get(_BAND_RETRY_LIMITS[purpose])), at)
 
 
 def schedule_apology(tx: Tx, task_id: UUID, contact_id: UUID, *, cause: str) -> int:
@@ -1689,7 +1702,7 @@ def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dial
         _write(tx, task_id, redo)
         return redo
     promised = gate.pacing(tx, task_id, contact_id=dialed.contact_id, promised=True)
-    retry = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="apology",
+    retry = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="apology", number=dialed.contact_id,
                             not_today=not_today(None if reached_target else not_reached, again), now=now)
     target = usable(dialed, numbers_of(tx, task_id))
     d = decide_after_apology(delivered=delivered, refused=refused, retry=retry,

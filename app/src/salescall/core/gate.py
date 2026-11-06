@@ -499,17 +499,25 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
 class PurposeDial:
     at: datetime        # かけた時刻（日本時間。時間帯はこれで決める）
     ended: datetime     # 終わった時刻（日本時間。最小の間隔はここから数える＝門の数え方と同じ）
-    counted: bool = True   # 数える発信か（`purpose_dials` は数える発信だけを返すので、いつも真）
+    counted: bool = True   # その番号の回数に数える発信か（`purpose_dials` の number の番号へ、回数の数え始めのあとにかけた。0195）
 
 
-def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str) -> list[PurposeDial]:
+def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str, number: UUID | None = None) -> list[PurposeDial]:
     """その行で、その目的（番号の聞き直し・お詫び）でかけた発信のうち、数えるもの（お客様に届いた1回。ふつうの電話の回数と同じ
     決まり＝salescall.dial_kind の1か所。発信に失敗・お客様が出る前の回線の失敗・お客様の意思と関係なく切れた通話は数えない＝
     ⛔ 見直し15：前は発信まで進んだもの全部を回数に数え、ふつうの電話と決まりが違った）の、かけた時刻と終わった時刻。
-    別の時間帯にかけ直す電話の、回数・試した時間帯・最小の間隔を決めるのに使う（next_action._new_band_retry の1か所。DESIGN.md 3-5）。"""
-    return [PurposeDial(r["t"], r["e"]) for r in tx.all(
-        "SELECT salescall.jst(claimed_at) AS t, salescall.jst(coalesce(ended_at, claimed_at)) AS e FROM salescall.attempts"
-        f" WHERE task_id = %s AND purpose = %s AND {_COUNTED} ORDER BY claimed_at", (task_id, purpose))]
+    別の時間帯にかけ直す電話の、回数・試した時間帯・最小の間隔を決めるのに使う（next_action._new_band_retry の1か所。DESIGN.md 3-5）。
+    counted＝回数と試した時間帯に数えるか：これからかける番号（number。None＝どの番号も）へ、回数の数え始め（かける番号を直した
+    とき＝attempts.count_start の1か所。行の回数と同じ）のあとにかけたもの（✅ 2026-11-06 ユーザー＝計画書 7-1 (15)：番号を直して
+    戻したお詫びの電話の回数は「数え直す」＝新しい番号で0回から）。最小の間隔は、同じお客様なので数え直さない（どの発信も見る。
+    計画書 7-1 (4) の「1日の回数と最短の間隔は数え直さない」と同じ）。
+    行の回数の範囲（attempts.in_row_count）は、直したあと前の番号へかけた電話を除くが、ここでは除かない：番号の聞き直し・お詫びは、
+    その番号のお客様へかける電話なので、直したあとも前の番号へかけ続ける（next_action.current_dial）。除くと前の番号への回数が増えず、
+    決めた回数で終わらない（終われば、いまかける番号へ移る＝next_action._moved_on_fix）。⇒ 番号で分けて数える。"""
+    return [PurposeDial(r["t"], r["e"], r["counted"]) for r in tx.all(
+        "SELECT salescall.jst(claimed_at) AS t, salescall.jst(coalesce(ended_at, claimed_at)) AS e,"
+        f"      ({attempts.count_start()} AND (%s::uuid IS NULL OR contact_id = %s)) AS counted FROM salescall.attempts"
+        f" WHERE task_id = %s AND purpose = %s AND {_COUNTED} ORDER BY claimed_at", (number, number, task_id, purpose))]
 
 
 # 依頼者専用の発信番号が無いときの注意（2026-10-17 ユーザー決定の文。設定する場所は、画面の依頼者タブの「回線（発信番号）」＝CL-3）。

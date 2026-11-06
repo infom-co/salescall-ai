@@ -1050,7 +1050,9 @@ class DialFixAfterCalls(SettleBase):
         あくまで後でというのは約束の一環なのか営業拒否なのかというのを判断する必要があります。」⇒ 番号を直したとき、終えたときに数えた
         「あとで」が、どれも約束の一環（会話の報告のかけ直しの申し出の intent＝promise）なら戻す。営業拒否・まだ分からない（intent が無い）
         「あとで」があれば戻さない（安全側。next_action._later_refused の1か所）。約束の電話を方針の回数かけて話せずに終えた行は、
-        「あとで」の意味に関係なく戻す（決めた回数で終えた行）。"""
+        「あとで」の意味に関係なく戻す（決めた回数で終えた行）。
+        ✅ 2026-11-06 ユーザー＝計画書 7-1 (16)：営業拒否と読んだ「あとで」は、その通話の判定で断り（発信の拒否＝もうかけない・発信禁止に
+        登録。0195）なので、行はお客様が断った行（do_not_call）として終わり、番号を直しても戻らない（next_action.reopens_on_dial_fix）。"""
         keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
         for intents, back in (((None, None), False), (("promise", "refusal"), False), (("promise", "promise"), True),
                               (("unanswered",), True)):
@@ -1066,8 +1068,13 @@ class DialFixAfterCalls(SettleBase):
                     else:
                         cb = replace(callback("later", time="あとで"), intent=intent)
                         d = self.settle(s, self.call(s, report=rep(callback=cb)))["decision"]
-                why = "callback_unspecified_time" if intents == ("unanswered",) else next_action.LATER_OVER
+                why = "callback_unspecified_time" if intents == ("unanswered",) else \
+                    "do_not_call" if "refusal" in intents else next_action.LATER_OVER
                 self.assertEqual((d.kind, d.end_reason), ("end", why))
+                if why == "do_not_call":   # 受付で営業拒否を言われたときと同じ：その番号は発信禁止（お客様が断った）
+                    self.assertEqual(self.tx(s, lambda tx: tx.all(
+                        "SELECT e.reason FROM salescall.dnc_entries e JOIN salescall.task_numbers n ON n.phone_e164 = e.phone_e164"
+                        " WHERE n.task_id = %s AND e.revoked_at IS NULL", (s["task"],))), [{"reason": "refused_in_call"}])
                 new = self.fixed(s)
                 p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
                 self.assertEqual((p["kind"], p["contact_id"] if back else p["end_reason"]), ("call", new) if back else ("end", why))

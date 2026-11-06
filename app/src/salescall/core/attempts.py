@@ -101,8 +101,16 @@ def in_row_count(table: str = "") -> str:
     番号の立場は、かけたときの立場で見る＝⛔ 2026-11-06 の見直し (A) の2：前は「いま」の立場で見て、前の番号で話せてサブになった電話を、
     あとから新しい番号の回数に数えた）。"""
     t = table + "." if table else ""
-    return (f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
+    return (f"{count_start(table)}"
             f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)")
+
+
+def count_start(table: str = "") -> str:
+    """回数を数え始めてからの発信の条件（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信（直していなければ、すべて）。
+    数え始めの時刻はデータベースの salescall.task_count_from（0180）。行の回数（`in_row_count`）と、その番号へかける電話の回数（番号の
+    聞き直し・お詫び＝gate.purpose_dials）の両方が読む（✅ 2026-11-06 ユーザー＝計画書 7-1 (3)・(15)：「新しい番号で数え直す」。0195）。"""
+    t = table + "." if table else ""
+    return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
 
 
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）

@@ -129,6 +129,36 @@ class Order(unittest.TestCase):
         self.assertEqual((j.state, j.dnc_reason, j.detail["out_of_scope"]), ("out_of_scope", "fax_line", "fax_line"))
         self.assertNotEqual(run(rep=report(("reception", "fax")), items={}).dnc_reason, "fax_line")
 
+    def test_a_later_read_as_a_refusal_is_a_refusal(self):
+        """✅ 2026-11-06 ユーザー＝計画書 7-1 (16)：会話の担当がお客様の「あとで」を営業拒否と読んだ（かけ直しの申し出の intent＝refusal）
+        通話は、判定でも断り（もうかけない・発信禁止に登録＝原則14）。受付で営業拒否を言われたときと同じ道（call_report.CallReport.do_not_call
+        の1か所 → 判定の (2)。発信禁止の理由も同じ refused_in_call）。約束の一環（promise）・読んでいない（無い）ときの判定は変えない。
+        取り消せない決定として、申告と同じく2つ目の判定がそろったかで決める（judge.irreversible）。断りを外した報告（差し戻し・発信禁止の
+        取り消し）では、営業拒否と読んだ印も外れ、約束の一環かは分からない（無い）に戻る。"""
+        from salescall.core.judge import irreversible
+        later = lambda intent: replace(callback("later", time="あとで"), intent=intent)   # noqa: E731
+        for intent in (None, "promise"):
+            with self.subTest(intent=intent):
+                j = run(items={}, rep=report(callback=later(intent)))
+                self.assertEqual((j.state, j.dnc_reason, j.detail["policy_key"], j.detail["callback"]["intent"]),
+                                 ("callback_scheduled", None, "callback_unspecified_time", intent))
+        r = report(callback=later("refusal"))
+        inp = JudgeInput(TALKED, r, {}, RULES, callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={})
+        j = judge(inp)
+        self.assertEqual((j.state, j.dnc_reason, j.detail["refusal"]), ("do_not_call", "refused_in_call", "later"))
+        self.assertEqual(j.state, run(items={}, rep=report(dnc=True)).state)
+        self.assertEqual(irreversible(inp, j).unsure, frozenset({"refusal"}))
+        for check in ("agreed", "disagreed"):
+            with self.subTest(check=check):
+                self.assertEqual(irreversible(replace(inp, report=replace(r, irreversible_check=check)), j).check, check)
+        # 前の申し出が営業拒否なら、あとの申し出が約束でも断り（申告と同じく、通話の中のどれか1つで断り）
+        both = replace(r, callbacks=(later("refusal"), later("promise")))
+        self.assertEqual(run(items={}, rep=both).state, "do_not_call")
+        undone = r.without({"refusal"})
+        self.assertEqual((undone.do_not_call, undone.callbacks[0].intent), (False, None))
+        self.assertEqual(run(items={}, rep=undone).state, "callback_scheduled")
+        self.assertIs(r.without({"complaint"}).callbacks[0].intent, "refusal")
+
     def test_policy_keys(self):
         self.assertEqual(run(items={"Q1": TAKEN["Q1"]}).detail["policy_key"], "incomplete")
         self.assertEqual(run(items={}, rep=report(("reception",), not_reached="not_transferred")).detail["policy_key"],

@@ -757,7 +757,7 @@ class DialFixes(CustomerContacts):
         back = ("number_unusable", "alternate_wrong_again", "alternate_not_called", "alternate_blocked:dnc_client",
                 "ask_number_again_unanswered", "number_kind_forbidden", "number_kind_not_allowed", "number_unknown",
                 "other_contractor_called", "other_client_promise_never", "max_attempts", "policy_max:open",
-                "callback_exact_unreached", "callback_unspecified_time", "apology_wrong_party", "apology_fax_line")
+                "callback_exact_unreached", "callback_unspecified_time", "apology_wrong_party", "apology_fax_line", "apology_unreached")
         stay = ("completed", "declined", "do_not_call", "concluded", "out_of_scope", "complaint", "forbidden_speech", "other_means",
                 "not_reached_departed", "not_reached_who_unclear", "open", "declined_in_business", "dnc_client", "apology_done")
         for n, reason in enumerate(back + stay):
@@ -792,7 +792,8 @@ class DialFixes(CustomerContacts):
         for end in ("number_unusable", "alternate_wrong_again", "alternate_not_called", "ask_number_again_unanswered",
                     "number_unknown", "number_kind_forbidden", "number_kind_not_allowed", "other_contractor_called",
                     "other_client_promise_never", "alternate_blocked:dnc", "max_attempts", "callback_exact_unreached",
-                    "policy_max:open", "apology_wrong_party", "apology_fax_line"):
+                    "policy_max:open", "apology_wrong_party", "apology_fax_line",
+                    "apology_unreached"):   # お詫びの電話を決めた回数かけても届かなかった（計画書 7-1 (14)。0195）
             with self.subTest(end=end):
                 self.assertTrue(next_action.reopens_on_dial_fix(Tx(None), None, end))
         for end in ("do_not_call", "complaint", "forbidden_speech", "apology_done", "completed"):

@@ -18,7 +18,8 @@
       番号違いの電話口が断った・何も言わずに切ったときも、ここ（止めるのは、その番号だけ。行のお客様が断ったのではない
       ので、行の番号すべて・管理番号へ広げない。DESIGN.md 3-6。2026-10-16 見直し：前は断りを先に見て、番号違いの相手の
       断りで、行のお客様ごと止めていた）
-  (2) 発信の拒否（通話中の申告・切れ方の判定が「断った」＝営業拒否の言葉のあとに切れた・
+  (2) 発信の拒否（通話中の申告・かけ直しの申し出「あとで」を会話の側が営業拒否と読んだ＝計画書 7-1 (16)・
+      切れ方の判定が「断った」＝営業拒否の言葉のあとに切れた・
       切れ方の分からない通話のあとの確かめのかけ直しが鳴ったのに、お客様が出て話さなかった＝2026-10-30 管理者の決定）  ⇒ do_not_call
       (1)(2) は `refusal` の1か所（お詫びの電話の締めも使う）。はっきりした拒否は、切れ方の材料が無くても拒否
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
@@ -57,7 +58,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-06.1+time-{spoken_time.VERSION}"   # 2026-11-06.1（計画書 7-1 (13)・0194）：時刻の無いかけ直しの申し出が約束の一環か営業拒否か（会話の報告の Callback.intent）を、判定の中身 callback.intent に残す（判定の結果は変わらない。番号を直したとき「あとで」を方針の回数より多く言って終えた行を戻すかが読む）
+JUDGE_VERSION = f"judge-2026-11-06.2+time-{spoken_time.VERSION}"   # 2026-11-06.2（計画書 7-1 (16)・0195）：かけ直しの申し出「あとで」を会話の側が営業拒否と読んだ（会話の報告の Callback.intent＝refusal）通話は、断り（発信の拒否＝もうかけない・発信禁止に登録。受付で営業拒否を言われたときと同じ (2) の道＝call_report.CallReport.do_not_call の1か所。判定の中身 refusal＝later）。約束の一環・読んでいないときは変わらない
+# 前の版：   # 2026-11-06.1（計画書 7-1 (13)・0194）：時刻の無いかけ直しの申し出が約束の一環か営業拒否か（会話の報告の Callback.intent）を、判定の中身 callback.intent に残す（判定の結果は変わらない。番号を直したとき「あとで」を方針の回数より多く言って終えた行を戻すかが読む）
 # 前の版：   # 2026-11-05.2（CL-2 の連絡帳 4-213）：手順を伺い終えていない答え（会話の報告の unfinished）は、まだ受け取っていない答えとして読む（JudgeInput.answers。続きの電話がかかる）・判定の中身で依頼者へ返す
 # 前の版：   # 2026-11-05.1（CL-1 の 4-81 の (3)）：ほかのご希望の LINE の連絡先をどの形でいただいたか（事実 other_wish の via）も判定の中身で依頼者へ返す（判定の結果は変わらない）
 # 前の版：   # 2026-11-04.1（CL-1 の 4-74）：ここで終える答えで伺わなかった質問（事実 ended_on の skipped）を「伺っていない（対象外）」に数える
@@ -340,9 +342,11 @@ def refusal(inp: JudgeInput) -> Judgement | None:
         return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party", **refused)
     # (2) 発信の拒否（原則14）：はっきりした拒否が先、切れ方はそのあと
     if (r and r.do_not_call) or inp.declared_in_call:   # 申告の台帳も見る（報告が無い・報告から抜けた＝結果不明の通話も）
-        # 判定が届かず会話AIの読みで「通話を断られた」と締めただけ（申告が無い）は、録音の確かめまで保留の候補（judge.irreversible）
-        unjudged = r is not None and not r.refusals and not inp.declared_in_call
-        return done("do_not_call", dnc="refused_in_call", refusal="unjudged" if unjudged else "in_call")
+        # 判定が届かず会話AIの読みで「通話を断られた」と締めただけ（申告が無い）は、録音の確かめまで保留の候補（judge.irreversible）。
+        # 申告は無く、「あとで」を営業拒否と読んだ（call_report.CallReport.later_refusal。計画書 7-1 (16)・0195）は、申告と同じく2つ目の
+        # 判定がそろったかで決める（中身の名前だけ later。発信禁止の理由・広げ方は申告と同じ refused_in_call）
+        how = ("in_call" if r is None or r.refusals or inp.declared_in_call else "unjudged" if r.unjudged_refusal else "later")
+        return done("do_not_call", dnc="refused_in_call", refusal=how)
     # 切れ方の分からない通話のあとの確かめのかけ直しが、お客様の電話まで鳴ったのに、お客様が出て話さなかった（出なかった・留守電）：
     # 両方の回線は元気なので、前の通話はお客様が切った＝営業拒否とみなす（2026-10-30 管理者の決定。発信禁止の登録は、ほかの営業拒否と
     # 同じこの1か所・広げ方も同じ＝dnc.CUSTOMER_WIDE。台帳には、はっきり断られた refused_in_call と別の理由 refused_unclear_checked で残す）。お客様が出て話を続けたら、その話の結果どおり（下へ進む）
