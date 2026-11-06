@@ -88,8 +88,9 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str) -> dict[str, Any]:
     try:
         tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company")
     except Rejected as e:
-        if e.constraint != "task_dial_fix_one_row_per_number":   # 同じ実施回のほかの行がかけている番号（データベースの1か所＝0188）
+        if e.constraint != "task_dial_fix_one_row_per_number":   # 同じ実施回のほかの行がかけうる番号（データベースの1か所＝0193 の task_dialable）
             raise
-        raise FixInvalid("その番号は、同じ実施回のほかの行がかけている番号です（1つの実施回で、同じお客様は1行）") from e
+        raise FixInvalid("その番号は、同じ実施回のほかの行がかけうる番号です（取り込んだ番号・いまかける番号・サブ・まだかけていない予定の番号・"
+                         "お客様が指定した番号。1つの実施回で、同じお客様は1行）") from e
     next_action.after_dial_fix(tx, task_id, cause="ダッシュボードで、かける番号を直した")
     return tasks.dial_number(tx, task_id)
