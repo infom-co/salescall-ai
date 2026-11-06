@@ -12859,6 +12859,17 @@ class NoneOfThemTest(unittest.TestCase):
         f = Flow(qs(), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "email", "contact": None, "outcome": None, "via": None}}})
         self.assertEqual((f.questions[mail].text, f.questions[mail].recording), (CALLBACK_ASK_RESUMED["email"], "callback_email_again"))
 
+    def test_closing_after_unknown_does_not_repeat_shouchi(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直す・W1 の持ち場の指摘11）で見つけた：最終目的の W1 に「わからない」「答えたくない」と言われて
+        # 締めるとき、相づち「承知しました。」のあとに締めの「承知いたしました。お忙しいところ…」が続いた。締めの頭がお断りのあとの一言（「承知いたしました。」）
+        # なら、相づちは「はい、」（✅ 11-02 6時33分「はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。…」）
+        from phrases import ACK
+        for cond, words in (("unknown", "ちょっと分からないです。"), ("refused", "それは言いたくないです。")):
+            f, _ = self.wished(True)
+            r = AmbiguousAnswerTest.say(f, words, "record_answer", question_id="W1", condition_id=cond)
+            self.assertEqual((r["result"], r["ack"]), ("end", "hai"), cond)
+            self.assertEqual(ACK[r["ack"]] + r["say"], "はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。")
+
     def test_way_offer_accepted_without_saying_which_asks_once(self):
         # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(3) ご案内の方法の申し出に「はい、お願いします。」とだけ言われる：「それではメールとLINEとZOOMの
         # どちらがよろしいでしょうか？」と伺うOK」＝申し出を受けていただいたが、どの方法かは言っていない（判定の読み「方法は言っていない」）：申し出た方法を
@@ -12886,6 +12897,22 @@ class NoneOfThemTest(unittest.TestCase):
         say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
         r = say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
         self.assertEqual((r["question_id"], [e["outcome"] for e in f.facts["other_wish"]], f.end_reason), ("Q2", ["other"], None))
+        # 並べて伺ったあとの「わからない」「答えたくない」「聞き取れない」も、方法を言っていただけないのは同じ＝申し伝えて続ける（受けていただいた申し出を
+        # お断りにしない）。⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直す・W1 の持ち場の指摘1）で見つけた：方法は言っていない、のときだけ申し伝え、
+        # ほかは「どれも要らない」と同じに受け、「承知しました。承知いたしました。お忙しいところ…」と締めて、その業務をかけない印を付けていた
+        for words, op, args in (("うーん、ちょっと分からないです。", "record_answer", {"question_id": "W1", "condition_id": "unknown"}),
+                                ("それはちょっと言えないです。", "record_answer", {"question_id": "W1", "condition_id": "refused"})):
+            f = offered()
+            say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+            r = say(f, words, op, **args)
+            self.assertEqual((r["question_id"], [e["outcome"] for e in f.facts["other_wish"]], f.end_reason, f.facts.get("goal_refused")),
+                             ("Q2", ["other"], None, None), words)
+        f = offered()
+        say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+        for _ in range(3):
+            r = say(f, "……", "report_unclear", question_id="W1")
+        self.assertNotEqual(r.get("result"), "end", r)
+        self.assertIsNone(f.facts.get("goal_refused"))
         # 選べるものに入れるのは、申し出る方法が2つから（1つなら「はい」で方法が決まる・申し出る方法が無ければ申し出ではない）
         self.assertIn(WAY_UNSAID, callback_question("other_wish", of=qs()[0]).conditions)
         self.assertNotIn(WAY_UNSAID, callback_question("other_wish", of=qs(("お電話", "メール"))[0]).conditions)

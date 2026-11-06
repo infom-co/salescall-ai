@@ -4403,6 +4403,12 @@ class Flow:
             # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」。聞き返しを使い切ったすぐあとに入るときも
             # （最後の質問・先へ進むかを決める質問＝gate_of）。⛔ 2026-11-04 まで、下の「聞き取れないまま先へ進む」の「はい、」が先に当たっていた
             return "moushiwake_heavy"
+        follow = "".join(x.get("text", "") for x in reply.get("play") or []) + (reply.get("say") or "")
+        if result == "end" and follow.startswith(CLOSING_AFTER_DECLINE[:len("承知いたしました。")]):
+            # お断りのあとの締め（「承知いたしました。お忙しいところ…」）の頭は「はい、」（✅ 11-02 6時33分「はい、承知いたしました。お忙しいところお時間を
+            # いただきまして…」）。下の「わからない」「答えたくない」の「承知しました。」を重ねない（⛔ 2026-11-06 日本時間13時台の見直しで見つけた：
+            # 最終目的の W1 の「わからない」「答えたくない」で「承知しました。承知いたしました。お忙しいところ…」）
+            return "hai"
         received = self._received_now()
         if any(it.state in ("dont_know", "refused") for _, it in received):
             # 相手が「わからない」「答えたくない」と答えた：「承知しました。」（お礼は場面に合わない）。答えの報告でも、言い直しへの返事でも、締めるときも同じ
@@ -8053,7 +8059,13 @@ class Flow:
             return   # 聞き取れない・判定が食い違った：締めの前の念のための確認でもう一度伺う（伺い終えるまで元の答えでは決めない＝_goals_lost の asking）
         q = self.questions[w["q"]]
         cond = it.condition if it.state in GOT else None
-        if cond == WAY_UNSAID:
+        if w.get("which") and (cond == WAY_UNSAID or it.state in ("dont_know", "refused", "unresolved")):
+            # 申し出を受けていただき、方法を並べて伺ったが、それでも方法を言っていただけない（方法は言っていない・わからない・答えたくない・聞き取れない）：
+            # LINE の伺い方と同じく、そのご希望を担当の者に申し伝えて続ける（2回は伺わない。受けていただいた申し出をお断りにしない）。⛔ 2026-11-06 日本時間
+            # 13時台の見直しで見つけた：方法は言っていない、のときだけ申し伝え、わからない・答えたくない・聞き取れないは「どれも要らない」と同じに受け、
+            # 最終目的なら「承知しました。承知いたしました。お忙しいところ…」と締めて、その業務をかけない印を付けていた
+            cond = WISH_OTHER
+        elif cond == WAY_UNSAID:   # 初めての「方法は言っていない」（並べて伺ったあとは上の1か所）
             if not w.get("which"):
                 # ご案内の方法の申し出を受けていただいたが、どの方法かは言っていない（「はい、お願いします。」）：申し出た方法を並べて1回だけ伺う（LINE の伺い方の
                 # 「はい」だけ＝_line_how と同じ形）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(3) ご案内の方法の申し出に「はい、お願いします。」とだけ
@@ -8063,9 +8075,6 @@ class Flow:
                 self.taken.pop(wid, None)
                 self._insert_after(wid, wid)
                 return
-            # それでも方法を言っていただけない：LINE の伺い方と同じく（それでも決まらなければ申し伝えて続ける＝11-04 19時26分の形）、そのご希望を担当の者に
-            # 申し伝えて続ける（ほかのご希望を言っていただいたときと同じ。2回は伺わない）
-            cond = WISH_OTHER
         means = next((k for k in WISH_MEANS if wish_label(k) == cond), None)
         wish = self.facts.get("other_wish", [])
         if w.pop("again", False) and wish and wish[-1].get("question") == q.id:
