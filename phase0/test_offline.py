@@ -73,7 +73,10 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          # 申し伝える一言は、いつの電話か（同じ日＝先ほど・あとの日＝前回）でも分けた（23時22分41秒のご質問の見直し H10。CL-1.md 4-105）
                          "apology_cut_end_same_day", "apology_cut_end_later",
                          *(f"told_again_{k}_{w}" for k in ("question", "request", "opinion") for w in ("same_day", "later")),
-                         "told_follow_up"})
+                         "told_follow_up",
+                         # 並べて伺ったご案内の方法を言っていただけないときの申し伝える一言・「どれでも」のあと、こちらでお伝えした方法の連絡先を伺う一言（頭の
+                         # 「それでは」を重ねない）の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」。CL-1.md 4-106）
+                         "wish_told_way", *(f"callback_{k}_announced" for k in ("line_how", "email", "fax", "address"))})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -13346,6 +13349,58 @@ class NoneOfThemTest(unittest.TestCase):
             self.assertEqual((r["result"], r["ack"]), ("end", "hai"), cond)
             self.assertEqual(ACK[r["ack"]] + r["say"], "はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。")
 
+    def test_any_way_after_listing_takes_the_first_offered_way(self):
+        # ✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」：申し出た方法を並べて伺ったあとの「どれでも」は答え（どちらでも＝10-17 の案A）＝業務設定で
+        # 最初に並ぶ方法でご案内して連絡先を伺う（「承知しました。それではメールでご案内させていただきますね。恐れ入りますがメールアドレスをお伺いしても
+        # よろしいでしょうか？」）・「分からない」は「承知しました。ご案内の方法の件は担当の者に申し伝えさせていただきますね。」。⛔ それまでは、どちらも
+        # 「承知しました。そのご希望を担当の者に申し伝えます。」（お客様の言っていない希望を指していた）
+        from flowctl import ANY, CALLBACK_IDS, NONE, WAY_UNSAID, Flow, Question, callback_question
+        from phrases import ACK
+        say = AmbiguousAnswerTest.say
+        qs = [self.way_question(offer_ways=("お電話", "メール", "LINE", "ZOOM")),
+              Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+
+        def listed():
+            f = Flow([*qs], play_recordings=True)   # 本番の形（決まった言葉は録音で流す）
+            HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+            say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+            return f
+        # 並べて伺う形だけ、システムの「どちらでも」（ANY）を選べる（選べるものの1か所 all_conditions。「どれも要らない」は W1 の断る答えがあるので足さない）
+        listing, offering = callback_question("other_wish", of=qs[0], which=True), callback_question("other_wish", of=qs[0])
+        self.assertEqual((ANY in listing.all_conditions, NONE in listing.all_conditions, ANY in offering.all_conditions), (True, False, False))
+        f = listed()
+        r = say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=ANY)
+        heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+        if r.get("question") and r["question"] not in heard:
+            heard += r["question"]
+        self.assertEqual((r["question_id"], heard),
+                         (CALLBACK_IDS["email"], "承知しました。それではメールでご案内させていただきますね。恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"))
+        self.assertEqual([(e["means"], e["outcome"]) for e in f.facts["other_wish"]], [("email", None)])
+        # こちらでお伝えした一言を、申し伝える一言の1回として数える：連絡先を伺い終えたあとに「メールでのご連絡のご希望を担当の者に申し伝えます。」を重ねない
+        # （お客様はメールを望んだとは言っていない＝「そのご希望」を直したのと同じ理由）
+        say(f, "abc@example.com です。", "record_answer", question_id=CALLBACK_IDS["email"], condition_id="答えた", value="abc@example.com")
+        r = say(f, "はい。", "confirm_field", question_id=CALLBACK_IDS["email"], result="affirmed")
+        self.assertEqual((r["question_id"], ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [] if p.get("kind") != "question")),
+                         ("Q2", "承知しました。"))
+        self.assertEqual([(e["means"], e["contact"], e["outcome"]) for e in f.facts["other_wish"]], [("email", "abc@example.com", "means")])
+        # 最初に並ぶ方法が、連絡先を伺わない方法（お電話）なら、お伝えする一言のあと次の質問へ
+        visit = Question("Q1", "担当者がご訪問させていただいてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True,
+                         declines=("いいえ",), away=("いいえ",), meanings={"はい": "担当者がご訪問してよいということ", "いいえ": "担当者のご訪問はしなくてよいということ"},
+                         asks_way=True, offer_ways=("お電話", "メール", "LINE"))
+        f = Flow([visit, qs[1]], play_recordings=True)
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、訪問はちょっと…。")
+        say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+        r = say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=ANY)
+        self.assertEqual((r["question_id"], ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [] if p.get("kind") != "question")),
+                         ("Q2", "承知しました。それではお電話でご案内させていただきますね。"))
+        self.assertEqual([(e["means"], e["outcome"]) for e in f.facts["other_wish"]], [("phone", "means")])
+        for words, args in (("うーん、ちょっと分からないです。", {"condition_id": "unknown"}), ("それもちょっと…。", {"condition_id": WAY_UNSAID})):
+            f = listed()
+            r = say(f, words, "record_answer", question_id="W1", **args)
+            self.assertEqual((r["question_id"], ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [] if p.get("kind") != "question")
+                              + (r.get("say") or "")),
+                             ("Q2", "承知しました。ご案内の方法の件は担当の者に申し伝えさせていただきますね。"), words)
+
     def test_way_offer_accepted_without_saying_which_asks_once(self):
         # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(3) ご案内の方法の申し出に「はい、お願いします。」とだけ言われる：「それではメールとLINEとZOOMの
         # どちらがよろしいでしょうか？」と伺うOK」＝申し出を受けていただいたが、どの方法かは言っていない（判定の読み「方法は言っていない」）：申し出た方法を
@@ -13371,7 +13426,8 @@ class NoneOfThemTest(unittest.TestCase):
         # それでも方法を言っていただけない：申し伝えて続ける（2回は伺わない）
         f = offered()
         say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
-        r = say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+        # （「どれでも大丈夫ですよ。」は答え＝最初に並ぶ方法でご案内する＝test_any_way_after_listing_takes_the_first_offered_way。11-07 3時14分01秒 H3 イ）
+        r = say(f, "はい、それでお願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
         self.assertEqual((r["question_id"], [e["outcome"] for e in f.facts["other_wish"]], f.end_reason), ("Q2", ["other"], None))
         # 並べて伺ったあとの「わからない」「答えたくない」「聞き取れない」も、方法を言っていただけないのは同じ＝申し伝えて続ける（受けていただいた申し出を
         # お断りにしない）。⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直す・W1 の持ち場の指摘1）で見つけた：方法は言っていない、のときだけ申し伝え、
