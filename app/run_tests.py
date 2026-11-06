@@ -2144,6 +2144,28 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " UPDATE salescall.setting_definitions SET admin_writes = false;"
      " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER setting_definitions_frozen",
      ("tests.test_ai_plans.Plans.test_only_the_administrator_switches_a_contractors_plan",)),
+    # ── 0192（2026-11-06 の2回目の見直し (3)）
+    ("終えた行だけの実施回も、まだ終えていない行のある実施回に数える（0192 の task_open を外す）",
+     "CREATE OR REPLACE FUNCTION salescall.task_open(p_task uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT true $$",
+     ("tests.test_client_solutions.Solutions.test_a_run_with_every_row_ended_takes_no_solution",)),
+    ("解決策の流れの版を、ほかの業務の版・つながりの外の版でも書ける",
+     "CREATE OR REPLACE FUNCTION salescall.client_solution_line_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF NOT EXISTS (SELECT 1 FROM salescall.client_solutions c WHERE c.solution_id = NEW.solution_id"
+     " AND c.recorded_by = salescall.cur_actor()) THEN RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation',"
+     " CONSTRAINT = 'client_solution_line_by_recorder'; END IF; RETURN NEW; END $$",
+     ("tests.test_client_solutions.Solutions.test_the_database_keeps_the_line_results_whole",)),
+    ("解決策の記録の時刻を、渡した値のままにする",
+     "DROP TRIGGER stamp_now ON salescall.client_solutions",
+     ("tests.test_client_solutions.Solutions.test_the_database_keeps_the_line_results_whole",)),
+    ("標準の想定問答の版のつながりを契約者も書ける・解決策の版をシステムの処理も書ける",
+     "CREATE OR REPLACE FUNCTION salescall.version_succession_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " NEW.recorded_at := now(); IF NEW.recorded_by IS DISTINCT FROM salescall.cur_actor() THEN RAISE EXCEPTION 'x'"
+     " USING ERRCODE = 'check_violation', CONSTRAINT = 'version_succession_recorded_by'; END IF;"
+     " IF (SELECT version_no FROM salescall.business_versions WHERE version_id = NEW.to_version)"
+     " <= (SELECT version_no FROM salescall.business_versions WHERE version_id = NEW.from_version) THEN RAISE EXCEPTION 'x'"
+     " USING ERRCODE = 'check_violation', CONSTRAINT = 'version_succession_forward'; END IF; RETURN NEW; END $$",
+     ("tests.test_versions.Versions.test_the_database_keeps_successions_forward_and_auto_assignments_to_the_system",)),
     ("前にかける番号だった番号から、お客様が指定した番号を外さない",
      "CREATE OR REPLACE FUNCTION salescall.task_number_replaced_at(p_task uuid, p_contact uuid, p_at timestamptz) RETURNS boolean"
      " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$"
@@ -4825,6 +4847,27 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '        raw, kept = client_solutions.keep_in(tx, business_id, raw)\n',
      '        kept = []\n',
      ('tests.test_client_solutions.Solutions.test_solution_answers_are_kept_when_the_settings_are_imported_again',)),
+    # ── 2026-11-06 の2回目の見直し (3)（0192）
+    ('取り込み直したとき、ファイルが「使わない」にした問いにも解決策の答えを戻す', 'src/salescall/core/client_solutions.py',
+     '        if name in own or name in off:\n', '        if name in own:\n',
+     ('tests.test_client_solutions.Solutions.test_solution_answers_are_kept_when_the_settings_are_imported_again',)),
+    ('足せなかった解決策も、取り込み直しで残す', 'src/salescall/core/client_solutions.py',
+     '        " WHERE r.business_id = %s AND EXISTS (SELECT 1 FROM salescall.client_solution_lines l"\n'
+     '        "                                      WHERE l.solution_id = c.solution_id AND l.version_id IS NOT NULL)"\n',
+     '        " WHERE r.business_id = %s"\n',
+     ('tests.test_client_solutions.Solutions.test_a_solution_that_needs_the_contractor_to_confirm_a_reading_is_held',)),
+    ('同じ問いの解決策が2つあるとき、古い方を残す', 'src/salescall/core/client_solutions.py',
+     '" ORDER BY c.answer_name, c.seq DESC"', '" ORDER BY c.answer_name, c.seq ASC"',
+     ('tests.test_client_solutions.Solutions.test_solution_answers_are_kept_when_the_settings_are_imported_again',)),
+    ('解決策の問いの名前を、電話のあった実施回でなく最後の流れの答えと比べて決める', 'src/salescall/core/client_solutions.py',
+     'business_settings.load(tx, tips[0]).answers', 'business_settings.load(tx, tips[-1]).answers',
+     ('tests.test_client_solutions.Solutions.test_a_solution_reaches_every_running_line_of_the_business',)),
+    ('「ご担当者」だけの役職も使える', 'src/salescall/core/business_settings.py',
+     '    if _BARE_TANTOU.match(text):\n', '    if False:\n',
+     ('tests.test_business_settings.RoleProblem', 'tests.test_business_settings.Check')),
+    ('お客様リストの行の役職が「ご担当者」だけでも、足りるとする', 'src/salescall/core/business_settings.py',
+     '        if self.role and role_problem(role) is not None:\n', '        if False:\n',
+     ('tests.test_business_settings.RoleProblem',)),
     ('取り込み直したとき、取り込んだ中身に同じ問いがあっても、解決策の答えで置き換える', 'src/salescall/core/client_solutions.py',
      '        if name in own or name in off:\n            continue\n',
      '',

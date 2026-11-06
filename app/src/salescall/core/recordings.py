@@ -596,7 +596,7 @@ def name_coverage(tx: Tx, run_id: UUID, voice_name: str) -> dict:
     名字・役職の数を決めるため。DESIGN.md 4-3「台帳で足りる行が何割か」）。rows＝目的のお客様を呼ぶ行の数・covered＝そろう行の数・
     roles・names・tails＝足りない役職の部分・名前の部分・続く言葉ごとの {知らせの形: 行の数}（多い順。役職と名前は別々に数える）。"""
     tasks = tx.all("SELECT t.task_id FROM salescall.tasks t WHERE t.run_id = %s"
-                   " AND coalesce((SELECT n.kind FROM salescall.current_next_actions n WHERE n.task_id = t.task_id) <> 'end', true)"
+                   " AND salescall.task_open(t.task_id)"   # まだ終えていない行（0192 の1か所）
                    " ORDER BY t.task_id", (run_id,))
     rows = covered = 0
     missing: dict[str, dict[str, int]] = {"role": {}, "name": {}, "tail": {}}

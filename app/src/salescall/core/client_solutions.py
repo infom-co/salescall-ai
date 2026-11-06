@@ -156,13 +156,13 @@ def add(tx: Tx, attempt_id: UUID, point_index: int, solution: str, *, origin: st
 
 def kept_answers(tx: Tx, business_id: UUID) -> list[tuple[str, str]]:
     """その業務に、依頼者の解決策で足した問答（問いの名前ごとに、いちばん新しく足せたもの）。取り込み直した版にも残す（1か所。
-    ✅ 2026-11-06 ユーザー「残す」＝見直し(B) の3。読むのは business_import.review だけ）。"""
+    ✅ 2026-11-06 ユーザー「残す」＝見直し(B) の3。読むのは business_import._from_file＝ファイルの入口だけ）。"""
     return [(r["answer_name"], r["solution_text"]) for r in tx.all(
         "SELECT DISTINCT ON (c.answer_name) c.answer_name, c.solution_text FROM salescall.client_solutions c"
         " JOIN salescall.tasks t ON t.task_id = c.task_id JOIN salescall.runs r ON r.run_id = t.run_id"
         " WHERE r.business_id = %s AND EXISTS (SELECT 1 FROM salescall.client_solution_lines l"
         "                                      WHERE l.solution_id = c.solution_id AND l.version_id IS NOT NULL)"
-        " ORDER BY c.answer_name, c.recorded_at DESC", (business_id,))]
+        " ORDER BY c.answer_name, c.seq DESC", (business_id,))]   # 足した順（データベースが振る＝0192。時刻は同じ取引で並ぶ）
 
 
 def keep_in(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:

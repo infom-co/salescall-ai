@@ -123,6 +123,10 @@ class SameNames(unittest.TestCase):
         self.assertEqual(self.checks("number_rechecks", "outcome"), set(number_recheck.OUTCOMES))
         from salescall.core import recordings
         self.assertEqual(self.checks("recording_holds", "reason"), set(recordings.HOLD_REASONS))
+        # 版のつながりのきっかけ・依頼者の解決策の入口（⛔ 2026-11-06 の2回目の見直し (3) の C：コメントで「同じ」と書くだけだった）
+        from salescall.core import business_settings, client_solutions
+        self.assertEqual(self.checks("version_successions", "cause"), set(business_settings.SUCCESSION_CAUSES))
+        self.assertEqual(self.checks("client_solutions", "origin"), set(client_solutions.ORIGINS))
         db = set(owner_access().in_system(SYSTEM, lambda tx: tx.one(
             "SELECT enum_range(NULL::salescall.dnc_reason)::text[] AS r"))["r"])
         # データベースだけにある refused_found_after は、外した理由（書く入口が無かった＝core/dnc の Reason の説明）。新しい台帳には書けない

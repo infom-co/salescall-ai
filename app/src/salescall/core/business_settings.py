@@ -362,12 +362,31 @@ class TargetNeeds:
     role: bool                                    # 一覧に、目的のお客様の役職が要る
 
     def missing(self, *, name: str | None, role: str | None) -> tuple[str, str] | None:
-        """その行に足りないもの（理由の名前と日本語）。足りていれば None（判断はここだけ）。"""
+        """その行に足りないもの（理由の名前と日本語）。足りていれば None（判断はここだけ）。役職が「ご担当者」だけ（何の担当か無い）の行も
+        足りない（`role_problem`）。"""
         if self.name and not name:
             return ("target_name_missing", "目的のお客様の名前がありません（この業務は、目的のお客様を名前で呼びます）")
         if self.role and not role:
             return ("target_role_missing", "目的のお客様の役職がありません（この業務は、目的のお客様を役職で呼びます）")
+        if self.role and role_problem(role) is not None:
+            return ("target_role_missing", role_problem(role))
         return None
+
+
+# 何の担当かを持たない「担当」だけの役職（敬語の頭・後ろを外した形）。✅ 2026-11-05 日本時間20時29分50秒 ユーザー：「「ご担当の方は
+# いらっしゃいますでしょうか？」って、何のご担当者かわからない質問をしても相手はこたえられないでしょ！」・20時42分50秒：役職の欄には
+# 役割も書ける（「～のご担当者様」「～をされているご担当者様」「～を受け持ちのご担当者様」）。CL-2 の連絡帳 4-216・Intent.md 7-1
+_BARE_TANTOU = re.compile(r"^(?:ご|御)?担当(?:者)?(?:の)?(?:方|者|様|さま|殿)*$")
+
+
+def role_problem(role: str) -> str | None:
+    """目的のお客様の役職として使えない理由（使えれば None。判断はここだけ＝業務設定の役職と、お客様リストの行の役職の両方）。
+    「ご担当者」「ご担当の方」「担当者様」など、何の担当かが無いものは使えない。"""
+    text = re.sub(r"\s+", "", unicodedata.normalize("NFKC", role))
+    if _BARE_TANTOU.match(text):
+        return (f"役職「{role}」は、何のご担当か分からないので使えません（お客様が答えられないため）。"
+                "「〇〇のご担当者様」のように、何の担当かを書いてください")
+    return None
 
 
 @dataclass(frozen=True)
@@ -809,7 +828,8 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
     elif tp["kind"] in ("name", "anyone") and tp["role"] is not None:
         problems.append("目的のお客様が「名前のみ」「誰でも」のときは、役職を書きません")
     elif tp["role"] is not None:
-        _text(tp["role"], "目的のお客様の役職", problems)
+        if _text(tp["role"], "目的のお客様の役職", problems) is not None and role_problem(tp["role"]) is not None:
+            problems.append(role_problem(tp["role"]))
     busy_line = _text(raw["busy_line"], "忙しいと言われたときの一言", problems, optional=True)
     voicemail_message = _text(raw["voicemail_message"], "留守番電話に残す伝言", problems, optional=True)
     ai_answer = _text(raw["ai_answer"], "「AIですか」と聞かれたときの答え", problems, optional=True)
@@ -1568,7 +1588,7 @@ def anyone_target(tx: Tx, version_id: UUID) -> bool:
 def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:
     """その実施回の、まだ終えていない行のうち、目的のお客様を呼ぶ材料が足りない行の数。"""
     rows = tx.all("SELECT t.target_name, t.target_role FROM salescall.tasks_now t WHERE t.run_id = %s"
-                  " AND coalesce((SELECT n.kind FROM salescall.current_next_actions n WHERE n.task_id = t.task_id) <> 'end', true)",
+                  " AND salescall.task_open(t.task_id)",   # まだ終えていない行（0192 の1か所）
                   (run_id,))
     return sum(1 for r in rows if needs.missing(name=r["target_name"], role=r["target_role"]) is not None)
 
@@ -1634,8 +1654,7 @@ def _versions_in_use(tx: Tx, business_id: UUID | None = None) -> list[dict[str, 
     return tx.all(
         "SELECT r.run_id, salescall.run_current_version(r.run_id) AS version_id FROM salescall.runs r"
         " WHERE salescall.run_current_version(r.run_id) IS NOT NULL AND (%s::uuid IS NULL OR r.business_id = %s)"
-        "   AND EXISTS (SELECT 1 FROM salescall.tasks t LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id"
-        "               WHERE t.run_id = r.run_id AND (n.kind IS NULL OR n.kind <> 'end'))"
+        "   AND EXISTS (SELECT 1 FROM salescall.tasks t WHERE t.run_id = r.run_id AND salescall.task_open(t.task_id))"
         " ORDER BY r.run_id", (business_id, business_id))
 
 

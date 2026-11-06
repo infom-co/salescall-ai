@@ -9,7 +9,7 @@ from __future__ import annotations
 from salescall.core import business_settings as bs
 from salescall.core import quality_stage
 from salescall.core.access import Rejected
-from tests.support import OPERATOR
+from tests.support import OPERATOR, SYSTEM
 from tests.test_business_settings import raw as settings_raw
 from tests.test_gate import Base
 from tests.test_quality import GOOD
@@ -199,6 +199,13 @@ class Versions(Base):
                 self.assertEqual(e.exception.constraint, constraint)
             else:                                                                           # 同じ業務の版だけ（0183 の外部キー）
                 self.assertIn("fkey", e.exception.constraint or "")
+        # きっかけと記録した方の種類：標準の想定問答の版はシステムの処理だけ・解決策の版は管理者か契約者だけ（0192）
+        std_sql = sql.replace("'solution'", "'standard'")
+        for q, who in ((std_sql, OPERATOR), (sql, SYSTEM)):
+            with self.subTest(who=who.name), self.assertRaises(Rejected) as e:
+                self.tx(s, lambda tx, q=q: tx.execute(q, (s["business"], v0, v1, tx.one("SELECT salescall.cur_actor() AS a")["a"],
+                                                         "2000-01-01")), who)
+            self.assertEqual(e.exception.constraint, "version_succession_cause_actor")
         self.tx(s, lambda tx: tx.execute(sql, (s["business"], v0, v1, tx.one("SELECT salescall.cur_actor() AS a")["a"], "2000-01-01")),
                 OPERATOR)
         at = self.tx(s, lambda tx: tx.one("SELECT recorded_at > now() - interval '1 hour' AS fresh FROM salescall.version_successions"

@@ -658,6 +658,9 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["type"] = "color"; cases.append((r, "型の一覧にありません"))
         r = raw(); r["questions"][1]["choices"] = ["はい"]; cases.append((r, "決まっています"))
         r = raw(); r["target_person"] = {"kind": "anyone", "role": "社長"}; cases.append((r, "役職を書きません"))
+        # 「ご担当者」だけ（何の担当か無い）の役職は使えない（✅ 2026-11-05 20時29分50秒 ユーザー。business_settings.role_problem の1か所）
+        for bare in ("ご担当者", "ご担当者様", "ご担当の方", "担当者", "担当"):
+            r = raw(); r["target_person"] = {"kind": "role", "role": bare}; cases.append((r, "何のご担当か分からない"))
         r = raw(); r["target_class"] = "individual"; cases.append((r, "お客様が個人の業務は、まだ選べません"))
         r = raw(); r["target_class"] = None; cases.append((r, "お客様の区分（target_class）は"))
         r = raw(); r["questions"][0]["next"] = {"しない": "END", "*": "Q2", "やめる": "END"}
@@ -1206,3 +1209,17 @@ class StandardScripts(unittest.TestCase):
         self.assertEqual(self.tx(lambda tx: bs.standard_parts_of(tx, old)), ())
         with self.assertRaises(Rejected):                               # 版が指す標準の版は変えられない（版と同じ）
             self.tx(lambda tx: tx.execute("UPDATE salescall.business_versions SET standard_id = NULL WHERE version_id = %s", (v,)))
+
+
+class RoleProblem(unittest.TestCase):
+    def test_a_bare_tantou_role_is_refused_but_a_role_with_its_charge_is_used(self):
+        """「ご担当者」だけ（何の担当か無い）の役職は、業務設定でも、お客様リストの行の役職でも使えない。何の担当かがあればよい
+        （✅ 2026-11-05 ユーザー：「～のご担当者様」「～をされているご担当者様」「～を受け持ちのご担当者様」は書ける）。"""
+        for bare in ("ご担当者", "ご担当者様", "ご担当の方", "担当者", "担当", "ご担当者 様", "御担当者"):
+            with self.subTest(bare=bare):
+                self.assertIsNotNone(bs.role_problem(bare))
+                self.assertEqual(bs.TargetNeeds(name=False, role=True).missing(name=None, role=bare)[0], "target_role_missing")
+        for ok in ("経理のご担当者様", "採用をされているご担当者様", "店長", "人事部長"):
+            with self.subTest(ok=ok):
+                self.assertIsNone(bs.role_problem(ok))
+                self.assertIsNone(bs.TargetNeeds(name=False, role=True).missing(name=None, role=ok))

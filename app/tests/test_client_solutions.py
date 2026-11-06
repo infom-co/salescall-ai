@@ -105,6 +105,8 @@ class Solutions(Base):
         self.assertTrue(held.problems)
         notes = self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'solution_held'"))
         self.assertEqual(len(notes), 1)
+        # 足せなかった解決策は、取り込み直しても残さない（client_solutions.kept_answers＝足せた流れがあるものだけ）
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.kept_answers(tx, s["business"])), [])
         ok = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "架空工業の製品と同じ料金です。", origin="dashboard",
                                                         name_answer=self.namer("料金"), find_names=finder,
                                                         confirmed_names=[("架空工業", "かくうこうぎょう")]), OPERATOR)
@@ -116,15 +118,20 @@ class Solutions(Base):
         from salescall.core import registry
         s = self.ready()
         aid = self.called(s)
-        other = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)
+        r2 = settings_raw()
+        r2["answers"] = list(r2.get("answers") or []) + [{"name": "別の実施回だけの問い", "text": "別の実施回だけの答えです。"}]
+        other = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r2), OPERATOR)
         run = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "取り込み直した版の実施回", other, reason="試験"), OPERATOR)
         self.w.task(s["tenant"], s["client"], run, s["contact"])
         # 同じ依頼者のほかの業務の実施回には足さない（使っている版を決めるのは business_settings.in_use_versions の1か所）
         b2, v2 = self.w.business_with_version(s["tenant"], s["client"])
         self.w.task(s["tenant"], s["client"], self.w.run(s["tenant"], s["client"], b2, v2), s["contact"])
+        namer = self.namer("料金")
         got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
-                                                         name_answer=self.namer("料金")), OPERATOR)
+                                                         name_answer=namer), OPERATOR)
         self.assertEqual([line.base for line in got.lines], [s["version"], other])   # 先頭は電話のあった実施回の流れ
+        # 問いの名前は、電話のあった実施回の流れのいまの答えと比べて決める（ほかの流れの答えではない）
+        self.assertEqual(namer.seen[0][2], [a for a, _ in self.tx(s, lambda tx: bs.load(tx, s["version"])).answers])
         self.assertEqual(self.tx(s, lambda tx: bs.successor_tip(tx, v2)), v2)
         for line in got.lines:
             self.assertEqual(line.problems, ())
@@ -167,20 +174,31 @@ class Solutions(Base):
             self.assertNotIn("会社の場所", made.raw.get("answers_off") or [])
 
     def test_solution_answers_are_kept_when_the_settings_are_imported_again(self):
-        """✅ 2026-11-06 ユーザー「残す」：取り込み直した中身に、解決策で足した問いが無ければ残す（知らせつき）。同じ問いがあれば取り込んだ
-        中身が先（決めるのは client_solutions.keep_in の1か所。取込の確かめ business_import.review が通す）。"""
+        """✅ 2026-11-06 ユーザー「残す」：取り込み直したファイルに、解決策で足した問いが無ければ残す（知らせつき）。同じ問いがあれば
+        取り込んだ中身が先・ファイルが「使わない」にした問いは戻さない・足せなかった解決策は残さない・同じ問いの解決策が2つなら新しい方
+        （決めるのは client_solutions.keep_in の1か所。足すのはファイルの入口 business_import._from_file で、AI に名前を探させる前＝
+        残した文の名前も洗い出す。⛔ 2026-11-06 の2回目の見直し (3) の A-1）。"""
         from salescall.core import business_import
+        from tests.test_business_import import book, finder
+        from tests.test_versions import STD
         s = self.ready()
         aid = self.called(s)
-        self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
-                                                   name_answer=self.namer("料金")), OPERATOR)
-        p = self.tx(s, lambda tx: business_import.review(tx, s["business"], settings_raw()), OPERATOR)
-        self.assertIn({"name": "料金", "text": "月額1万円です。"}, p.raw["answers"])
-        self.assertTrue(any("料金" in n for n in p.notes), p.notes)
-        r = settings_raw()
-        r["answers"] = list(r.get("answers") or []) + [{"name": "料金", "text": "料金は担当よりご案内します。"}]
-        p = self.tx(s, lambda tx: business_import.review(tx, s["business"], r), OPERATOR)
-        self.assertEqual([a["text"] for a in p.raw["answers"] if a["name"] == "料金"], ["料金は担当よりご案内します。"])
+        add = lambda text, name: self.tx(s, lambda tx: client_solutions.add(   # noqa: E731
+            tx, aid, 0, text, origin="dashboard", name_answer=self.namer(name)), OPERATOR)
+        with self.w.standard(STD):
+            add("月額1万円です。", "料金")
+            add("架空工業の製品と同じ料金です。", "料金")                       # 同じ問いの2つ目（同じ取引でも、足した順で新しい方）
+            add("東京都港区の本社でご説明します。", "会社の場所")
+            find = finder()
+            p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", book(), find_names=find), OPERATOR)
+            self.assertIn({"name": "料金", "text": "架空工業の製品と同じ料金です。"}, p.raw["answers"])
+            self.assertTrue(any("料金" in n for n in p.notes), p.notes)
+            self.assertTrue(any("架空工業の製品と同じ料金です。" in t for t in find.asked))   # 残した文も名前を探す
+            rows = [("問いの名前", "答え", "標準を使わない"), ("料金", "料金は担当よりご案内します。", None), ("会社の場所", None, "はい")]
+            p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", book(sheets={"想定問答": rows}),
+                                                               find_names=finder()), OPERATOR)
+            self.assertEqual([a["text"] for a in p.raw["answers"] if a["name"] == "料金"], ["料金は担当よりご案内します。"])
+            self.assertNotIn("会社の場所", {a["name"] for a in p.raw["answers"]})    # ファイルが「使わない」にした問いは戻さない
 
     def test_the_database_keeps_the_line_results_whole(self):
         """流れごとの結果は、足した版があるときだけ理由が空（0189 の CHECK）。記録した方は、いま操作している方（0184）。"""
@@ -205,3 +223,37 @@ class Solutions(Base):
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, false)",
                 (got.solution_id, got.version_id, got.version_id)), ADMIN)
         self.assertEqual(e.exception.constraint, "client_solution_line_by_recorder")
+        # 流れの版は、その解決策の業務の版で、足した版は足す元の版かそのつながりの先だけ（0192）。記録の時刻と並びはデータベースが決める
+        b2, v2 = self.w.business_with_version(s["tenant"], s["client"])
+        for base, made in ((v2, v2), (got.version_id, s["version"])):
+            with self.subTest(base=base, made=made), self.assertRaises(Rejected) as e:
+                self.tx(s, lambda tx: tx.execute(
+                    "INSERT INTO salescall.client_solution_lines (tenant_id, client_id, solution_id, base_version, version_id, replaced)"
+                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, false)",
+                    (got.solution_id, base, made)), OPERATOR)
+            self.assertEqual(e.exception.constraint, "client_solution_line_versions")
+        sid = self.tx(s, lambda tx: tx.one(
+            "INSERT INTO salescall.client_solutions (tenant_id, client_id, attempt_id, task_id, point_index, point_text,"
+            " solution_text, answer_name, origin, recorded_by, recorded_at) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s,"
+            " %s, 0, '料金', 'x', '料金', 'dashboard', salescall.cur_actor(), '2999-01-01') RETURNING recorded_at, seq",
+            (aid, s["task"])), OPERATOR)
+        self.assertLess(sid["recorded_at"].year, 2999)
+        self.assertGreater(sid["seq"], self.tx(s, lambda tx: tx.one("SELECT seq FROM salescall.client_solutions WHERE solution_id = %s",
+                                                                    (got.solution_id,)))["seq"])
+
+    def test_a_run_with_every_row_ended_takes_no_solution(self):
+        """行をすべて終えた実施回は「使っている版」に入らない（解決策も足さない。まだ終えていない行か＝salescall.task_open の1か所＝0192）。"""
+        from salescall.core import next_action, registry
+        s = self.ready()
+        aid = self.called(s)
+        r2 = settings_raw()
+        r2["answers"] = list(r2.get("answers") or []) + [{"name": "別の実施回だけの問い", "text": "別の実施回だけの答えです。"}]
+        other = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r2), OPERATOR)
+        run = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "終えた実施回", other, reason="試験"), OPERATOR)
+        t2 = self.w.task(s["tenant"], s["client"], run, s["contact"])
+        self.tx(s, lambda tx: next_action.end(tx, t2, "completed", cause="試験：終えた"))
+        got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                         name_answer=self.namer("料金")), OPERATOR)
+        self.assertEqual([line.base for line in got.lines], [s["version"]])
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT salescall.task_open(%s) AS o", (s["task"],))["o"]))
+        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.task_open(%s) AS o", (t2,))["o"]))

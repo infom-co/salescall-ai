@@ -770,16 +770,12 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
       ＞契約者が確かめた読み＞AI が決めた読み＞決まらない＝候補つき）。検証モードの業務では、AI が決めた読みを契約者が確かめる
       （確かめていなければ問題に出る）。名乗りの自社名・担当者名の読みは、名前の一覧の読みの写し。
     - 数の質問の単位：入口が持ってこなければ、AI の答えの単位を入れる（無ければ空）。
-    - 依頼者の解決策で足した想定問答は、取り込み直しても残す（中身に同じ問いがあれば中身が先。決めるのは client_solutions.keep_in の1か所）。
+    - 依頼者の解決策で足した想定問答を、取り込み直しても残すのは、ファイルの入口の `_from_file`（AI に名前を探させる前に足す）。ここではしない。
     standard_id＝重ねる標準の版（LATEST＝いまの標準＝入口の取込。解決策のように前の版から作るときは、その版の標準の版を渡す＝標準を
     替えるのは business_settings.derive_for_standard の1か所。見直し(B) の2）。"""
     problems = list(problems or [])
     ai = ai or {}
     raw = json.loads(json.dumps(raw, ensure_ascii=False))           # 受けたものを変えない
-    from salescall.core import client_solutions   # 解決策の部品が取込を読むので、ここで読む（読み合いにしない）
-    kept: list[str] = []
-    if isinstance(raw, dict) and (raw.get("answers") is None or isinstance(raw.get("answers"), list)):
-        raw, kept = client_solutions.keep_in(tx, business_id, raw)
     verification = business_settings.ai_reading_needs_person(tx, business_id)
     # 重ねる標準（入口の取込は、いまの標準。登録も同じ版で作る＝Preview.standard_id）
     standard = business_settings.current_standard(tx) if standard_id == business_settings.LATEST \
@@ -886,7 +882,7 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         problems += [p for p in e.problems if p not in problems]
     if where is not None:                                             # ファイルの入口：問題の位置をシートと行にする
         problems = _placed(problems, where)
-    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems, standard.standard_id), ai, notes=kept + notes,
+    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems, standard.standard_id), ai, notes=notes,
                    standard_id=standard.standard_id)
 
 
@@ -897,6 +893,19 @@ def _digest(business_id: UUID, raw: dict[str, Any] | None, problems: list[str], 
     return hashlib.sha256(json.dumps({"business_id": str(business_id), "raw": raw, "problems": problems,
                                       "standard_id": None if standard_id is None else str(standard_id)},
                                      ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def _from_file(tx: Tx, business_id: UUID, sheets: Any, problems: list[str], notes: list[str] | None = None):
+    """ファイルの入口の中身（取り込み直し）：シートを業務設定の形にし、依頼者の解決策で足した想定問答を残す（✅ 2026-11-06 ユーザー
+    「残す」。中身に同じ問いがあれば中身が先＝client_solutions.keep_in の1か所）。残すのは、AI に名前を探させる前（⛔ 2026-11-06 の
+    2回目の見直し (3) の A-1：前は確かめ `review` の中で足していて、残した文の名前が洗い出されず、検証モードの読みの確かめも抜けた）。
+    プレビューと登録の両方がここを通る（同じ中身＝指紋が合う）。(中身, 問題, 位置, 残した知らせ) を返す。"""
+    from salescall.core import client_solutions   # 解決策の部品が取込を読むので、ここで読む（読み合いにしない）
+    raw, problems, where = _to_raw(sheets, problems, notes)
+    kept: list[str] = []
+    if isinstance(raw, dict) and (raw.get("answers") is None or isinstance(raw.get("answers"), list)):
+        raw, kept = client_solutions.keep_in(tx, business_id, raw)
+    return raw, problems, where, kept
 
 
 def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
@@ -911,13 +920,13 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
         return Preview(None, problems, [], notes=notes)
-    raw, problems, where = _to_raw(sheets, problems, notes)
+    raw, problems, where, kept = _from_file(tx, business_id, sheets, problems, notes)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
                 decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
                 decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear, decide_doubt_words=decide_doubt_words,
                 decide_ways=decide_ways)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
-    p.notes = notes + p.notes
+    p.notes = notes + kept + p.notes
     return p
 
 
@@ -942,6 +951,6 @@ def register(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, expected
     sheets, problems, _ = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
         raise business_settings.SettingsInvalid(problems)
-    raw, problems, where = _to_raw(sheets, problems)
+    raw, problems, where, _ = _from_file(tx, business_id, sheets, problems)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     return register_reviewed(tx, business_id, p, expected_digest=expected_digest)
