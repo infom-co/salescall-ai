@@ -5279,7 +5279,9 @@ class Flow:
             back = [self.current] if self.current not in (None, fid, orig) and self.items[self.current].state not in GOT else []
             self.order = [*back, *[q for q in self.order if q not in (fid, orig, *back)]]
             del self.questions[fid], self.items[fid]
-            self.items[orig] = Item()
+            # 元の質問は、この電話でもう流した＝代わった方への伺い直しも頭は「それでは」（Item.played を残す。⛔ 2026-11-06 日本時間13時台の見直しで見つけた：
+            # 印を作り直すときに流した印も消し、代わった方に「…お電話いたしました。続きましてご予算は…」と次の項目の頭で伺っていた）
+            self.items[orig] = Item(played=self.items[orig].played)
             self.current = orig
         return bool(took)
 
@@ -6973,6 +6975,8 @@ class Flow:
         # 何もしなかった。⛔ 同じ夜、正解の表を作りから出して見つけた穴：判定の「決められない」も、寄りが無いと何もせず、「もういいです。」の答えを
         # 向きを確かめずに受け取って次の質問を流していた
         unsure = end == UNDECIDED or (end is None and not self._end_pending() and bool(self._end_lean()))
+        if unsure and self._waits_not_end():
+            return None   # 待つ・考えている途中の読み：電話を終える言葉か決まらないときの場面にしない（報告の無いターンは _wait_route が応じる）
         topic = unsure and self._topic_first()
         if topic:
             self.end_doubt = self.callee_turns   # いまの話への返事として受け取る（答えは向きを確かめる＝_checks）
@@ -7034,7 +7038,18 @@ class Flow:
             return self._reject("判定は、いまの言葉を電話を終える言葉とは読んでいません。電話は終えずに、会話を続けます。")
         if end is None and not self._end_lean() and self._end_pending():
             return self._end_late(reason)
+        if self._waits_not_end() and (r := self._wait_route(self._wait_now(), self._wait_read())) is not None:
+            return r   # 待つ・考えている途中の読み：その読みで応じる（ご遠慮の一言の場面にしない＝_waits_not_end）
         return self._end_unsure()
+
+    def _waits_not_end(self) -> bool:
+        """電話を終える言葉か判定で決まらない（「決められない」・確かでない読みの寄り）とき、答えの判定が待つ・考えている途中と読んでいるので、決まらないときの
+        場面（ご遠慮の一言・急いでいる方への伺い＝_end_unsure）にしないか（唯一の決まり＝報告の無いターン _end_due_now と会話AIの終わりの報告 _end_judged）。
+        そのときは待つ・かけ直すの1か所（_wait_route）で応じる。はっきり電話を終える言葉と読んだとき（END_REASON）は、この決まりの外（今までどおり締める）。
+        ✅ 本書 9-4「お客様が考えている」：悩んでいる最中の言葉（「うーん。」）は、電話を終える言葉か決まらないときのご遠慮の一言の場面ではない（11-01 22時31分）・
+        待つように言われたら「はい、」のあと待つ（11-06 2時28分41秒「どの段・どの場面でも同じ」）。⛔ 2026-11-06 日本時間13時台の見直しで見つけた：電話を終える
+        言葉かの項目が「決められない」（2つの判定の割れも）だと、待つ・考えている途中の読みより先にご遠慮の一言を伺っていた（「はい」と言われると発信禁止）"""
+        return self._wait_handles(self._wait_now())
 
     def _end_late(self, reason: str) -> "str | dict":
         """会話AIが電話を終える言葉と報告したのに、判定の答えが2回の待ち（最大で約4秒）でも1つも届かない（混んでいる・止まりかけている）：判定が
@@ -7183,11 +7198,18 @@ class Flow:
             return self._hold()
         if w == HOLD_BACK:
             return self._hold(back=True)
-        if self.callback_why or self.phase == "calling":
+        if not self._wait_handles(w):
             return None
         if w == LATER:
             return self._callback(why, read, offer=offer)
         return self._wait_or_later()
+
+    def _wait_handles(self, w: str | None) -> bool:
+        """待つ・かけ直すの読み w に、_wait_route が応じるか（唯一の決まり＝_wait_route と、電話を終える言葉か決まらないときにその場面にしないか
+        _waits_not_end）：考えている途中・待つ（HOLD・HOLD_BACK）・待つかかけ直すかを伺っている途中は、どの段でも応じる。あとでかけ直す・決まらないは、
+        かけ直しの質問の途中（もう申し出を受けている）とお呼びする段では応じない（ふつうの答え・不在の決まりへ）。"""
+        return w is not None and (w in (THINKING, HOLD, HOLD_BACK) or self.wait_q is not None
+                                  or not (self.callback_why or self.phase == "calling"))
 
     def _wait_rethought(self, w: str | None) -> dict | None:
         """待つと応えたあと（「はい、」のあと黙って待つ・「はい、それではこのままお返事を待っております。」＝holding。お客様がまだ話していない）に、同じ発話の
@@ -8449,9 +8471,12 @@ class Flow:
         一言）。W1 のあとに締める（ending＝無いと言われて目的が果たせない）なら流さない（CL-1 の 11-03 のご判断の (6)。⛔ 見直しで見つけた：「はい、お気軽に
         ご相談ください。それではほかにご希望などは…」と W1 の前に流し、選び直した答えの一言は「言った」の印のまま流さなかった）。"""
         q, it = self.questions[qid], self.items[qid]
-        if it.state == "dont_know" and not it.told and holds_pending(q):
-            # 決められないのがお客様の最終の決定（わからない）：「それでは（聞くこと）は保留とさせていただきますね。」でその質問を締める（holds_pending。録音は依頼主の
-            # 単位＝pending_recording_id）
+        if (it.state == "dont_know" and it.reason != "not_in_charge" and qid not in self.follow_ups.values() and not it.told
+                and holds_pending(q)):
+            # 決められないのがお客様の最終の決定（わからない）：「それでは（聞くこと）は保留とさせていただきますね。」でその質問を締める（holds_pending。録音は
+            # 依頼主の単位＝pending_recording_id）。締めないのは、最終の決定ではないとき＝担当ではない（その方の決定ではない）・業務の決まりで分かる方・分かる時を
+            # 続けて伺う（聞き足しの質問 follow_ups がこの質問を指す＝_take_system）。⛔ 2026-11-06 日本時間13時台の見直しで見つけた：理由と聞き足しを見ずに、
+            # 「私の担当ではないので。」にも「…保留とさせていただきますね。恐れ入りますがお分かりになる方は…」と言っていた
             it.told = True
             return pending_line(q), pending_recording_id(q)
         line = q.tell_words.get(it.condition) if q.type in CHOICE_TYPES and it.state in TAKEN and not it.told else None

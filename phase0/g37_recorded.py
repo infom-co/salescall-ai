@@ -97,12 +97,15 @@ def summarize(rows: list[dict]) -> dict:
 def needed(p: dict) -> list[str]:
     """試験に要る録音（お客役の声・契約者の単位の録音・依頼主の単位の録音）で、まだ無いもの。"""
     from make_callee_samples import verified
-    from flowctl import spoken_question
+    from flowctl import question_forms
     miss = sorted({f"{v}_{utt(x[k])}.wav" for v in CALLEE_FOR.values() for xs in p.values() for x in xs for k in ("wav", "again")
                    if k in x and "pause" not in x[k] and not verified(f"{v}_{utt(x[k])}.wav")})
     for vt in VOICE_TYPES:
-        items = [{"kind": "closing", "text": ""}] + [{"kind": "question", "id": q.id, "text": t, "lead": lead}
-                                                      for q in BUSINESS.questions[1:] for t, lead in [spoken_question(BUSINESS.questions, q.id)]]
+        # 質問の録音は、流れの制御が流しうる形の一覧（flowctl.question_forms の1か所）から数える（最初の質問のいつもの形は名乗りの録音と一緒）。⛔ 2026-11-06
+        # 日本時間13時台の見直しで見つけた：いつもの形だけを自分で組み立てて数え、伺い直す形（「それでは…」）の録音が無くても気づけなかった
+        first = BUSINESS.questions[0].id
+        items = [{"kind": "closing", "text": ""}] + [p for q in BUSINESS.questions if not q.reading_of for p in question_forms(BUSINESS.questions, q.id)
+                                                      if not (q.id == first and not p.get("lead"))]
         miss += [str(played_wav(vt, i).name) for i in items if not played_wav(vt, i).exists()]
         # 相づち・お詫び・待ってもらう一言（契約者の単位）も数える（⛔ 2026-10-16：数えていなかった＝重いお詫びを足したとき、
         #    L4 の録音が無いことに気づけなかった）

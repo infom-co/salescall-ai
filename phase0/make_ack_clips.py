@@ -290,11 +290,12 @@ def script_table(business) -> tuple[dict, dict]:
     # 入れない（CL-2 の連絡帳 4-211。⛔ それまで、標準の答えまで業務の録音に入れていた）
     items += [(k, text, "answer") for k, text in parts.items()
               if k.startswith(ANSWER_PREFIX) and k[len(ANSWER_PREFIX):] not in business.standard_answers]
-    for q in business.questions:  # つなぎの言葉と質問を1本で録音する（順番で決まるつなぎの言葉。flowctl.spoken_question）
+    for q in business.questions:  # つなぎの言葉と質問を1本で録音する（つなぎの言葉を決めるのは flowctl.spoken_question の1か所）
         if q.reading_of:
             continue  # 名前の読みの確かめは、まず言ってみる読みが相手ごとに変わるので、AIが言う（録音にしない）
-        # 流れの制御が流しうる形ごとに1本（flowctl.question_forms の1か所：いつもの形・直前の一言の頭と重なってつなぎの言葉を替えた形・尋ねられて答えた
-        # あとに伺い直す「それでは」付きの形。✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(1) ウ、(2) イ」）
+        # 流れの制御が流しうる形ごとに1本（flowctl.question_forms の1か所：次の項目として初めて伺う「続きまして」の形・直前の一言の頭と重なってつなぎの言葉を
+        # 替えた形・もう伺った質問を伺い直す「それでは」の形。✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(1) ウ、(2) イ」・12時54分30秒「次の項目の質問に
+        # 入る前は、すべて「続きまして」でいいんじゃないですか。」）
         for p in question_forms(business.questions, q.id):
             text, lead, tail = p["text"], p["lead"], p["id"][len(q.id):]
             if DAY_SLOT in text:
