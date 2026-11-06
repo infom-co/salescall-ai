@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, QUESTION_RESUME_LEAD, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE
-from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
@@ -549,6 +549,11 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
     text, lead = spoken_question(questions, qid, before, again, resumed)
     # 日によって変わる言い方の入った質問は、その言い方の録音（Question.recording＝day_recording_id。名前の組み方は今と同じ「番号＋つなぎの言葉」）
     rid = q.recording or q.id
+    if again and not lead:
+        # 戻る一言（頭が「それでは」）のあとに伺い直す、頭の無い形：初めて伺う形と同じ文なら、その録音（はじめの質問）。違う文（つなぎの言葉・説明の文つき）なら
+        # 別の録音（番号_again）。⛔ 2026-11-07 H7 を入れて見つけた：番号だけの名前にすると、説明の文つきのご承認の質問の録音（番号だけ）を上書きした
+        base = question_play(questions, qid)
+        return base if base["text"] == text else {"kind": "question", "id": f"{rid}_again", "text": text, "lead": ""}
     if q.intro and lead and not again and lead != q.intro:
         # 入る一言（業務設定）の頭のつなぎの言葉を替えた形（relead）：入る一言の録音とは別の録音
         return {"kind": "question", "id": f"{rid}_intro", "text": text, "lead": head_word(lead)}
@@ -624,6 +629,8 @@ def question_forms(questions: list["Question"], qid: str) -> list[dict]:
     forms = [question_play(questions, qid)] + [question_play(questions, qid, before=w) for w in sorted(before_heads(questions))]
     if not (q.reading_of or q.callback or q.of):
         forms += [question_play(questions, qid, again=True), question_play(questions, qid, resumed=True)]
+        # 戻る一言のあとに伺い直す形（頭が戻る一言の頭と重なれば外す＝spoken_question の again）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」
+        forms += [question_play(questions, qid, again=True, before=text) for _, text in BACK_LINES]
     return list({(p["id"], p.get("lead") or ""): p for p in forms}.values())
 
 
@@ -649,7 +656,9 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     # ⛔ 見直しで見つけた漏れ：読みの確かめを挟むと、そのあとの質問のつなぎの言葉（＝録音の名前）が1つずれた（「それでは」⇒「続きまして」）
     i = [x.id for x in questions if not x.reading_of and not x.callback].index(qid)
     if again:
-        return AGAIN_LEAD + q.text, AGAIN_LEAD
+        # 直前に流す一言（2回目に戻るときの「それではもう一度確認させていただきますね。」＝phrases.BACK_LINES）の頭が同じ「それでは」なら重ねない（頭を付けない）
+        lead = "" if AGAIN_LEAD in heads_said(before) else AGAIN_LEAD
+        return lead + q.text, lead
     if i == 0:
         return q.text, ""
     # この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりにそれを頭に。前の答えで伺う質問（ask_if。
@@ -3040,8 +3049,10 @@ class Flow:
         self.own_pending: str | bool = False
         self.reply_started = False  # いまの操作で、相手の返事を待ち始めたか（_await_reply。操作のあとに待つ印を消すかを決める＝_apply_one）
         # 相手のお話・ご質問（世間話・お礼・気遣い・質問）に応えている：もう伺った質問（呼んでいる段なら、お呼びするお願い）へ戻る
-        # ときは、話を戻す一言（phrases.BACK_TO）から（_continue の1か所）。次の質問へ進めば、戻らないので消える（_advance）
+        # ときは、話を戻す一言（phrases.BACK_LINES）から（_continue の1か所）。次の質問へ進めば、戻らないので消える（_advance）
         self.digressed = False
+        # 同じ所（質問・言い直しの番号／お呼びするお願い＝"calling"）へ戻る一言を流した回数（_back_play の1か所。2回目・その次からは一言を替える＝H7）
+        self.back_counts: dict[str, int] = {}
         self.own_turn = -1
         self.own_tried: tuple[int, list] = (-1, [])  # 確かめに通らなかった答えの文（相手の発話の番号, [(文, 理由)]）。書き直させた回数を数える
         # 答えに添えられた相手の質問（_advance）：次へ進む返事は先に作っておき、AIがその質問に答えてから流す（_continue）。(相手の質問, 返事)
@@ -6116,12 +6127,19 @@ class Flow:
                 # ✅ 2026-10-22 ユーザー（5回目）：「世間話のような対応や設定にない無難な対応はライブAIにしかできないよ！」
                 f"・質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）に、ひとこと返すとき＝「{PART_LABEL['talk']}」（自分の言葉で）")
 
-    def _back_play(self) -> list[dict]:
+    def _back_play(self, digressed: bool) -> list[dict]:
         """もう伺った質問（呼んでいる段なら、お呼びするお願い）へ戻る前に流す一言（相手のお話・ご質問に応えたあと＝digressed のときだけ。無ければ空）。
         ✅ 2026-10-23 ユーザー：「お客様『そうですよね。』の会話の後に、『はい、ご予約はされていますでしょうか？』だと会話が繋がっていないですよね。
         同じことを繰り返すな！！」⛔ 前は、お話に応えたあと、話を戻すことを言わずに、もう伺った質問をそのまま流していた。録音で流せない通話では、
-        AIが同じ一言を言う（_continue）"""
-        return [{"kind": "recorded", "id": "back", "text": BACK_TO}] if self.digressed else []
+        AIが同じ一言を言う（_continue）。同じ所（質問・言い直しの番号／お呼びするお願い）へ2回目に戻るときは「それではもう一度確認させていただきますね。」、
+        その次からは「たびたび失礼いたしました。」（phrases.BACK_LINES の並び。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」。⛔ それまでは何回戻っても
+        1回目と同じ文）。戻る所で呼び、流した回数を数える（_continue）"""
+        if not digressed:
+            return []
+        key = "calling" if self.phase == "calling" else self.awaiting_confirm or self.current or ""
+        n = self.back_counts[key] = self.back_counts.get(key, 0) + 1
+        rid, text = BACK_LINES[min(n, len(BACK_LINES)) - 1]
+        return [{"kind": "recorded", "id": rid, "text": text}]
 
     def _continue(self, play: list, shown: str, final: bool = False) -> dict:
         """録音（名乗りの流し直し・お詫びの相づち）を流したあと、いまの位置へ戻る返事（唯一の場所。_op_replay_opening・_resume）。
@@ -6140,11 +6158,13 @@ class Flow:
             self.point["stage"] = "explained"
             return self._led(play, "", self._advance("", handled=True))
         done = played_note(shown) if shown else ""
-        back, self.digressed = self._back_play(), False  # もう伺ったことへ戻る前の一言（相手のお話・ご質問に応えたあとだけ）
+        # もう伺ったことへ戻る前の一言（相手のお話・ご質問に応えたあとだけ）：流す所で選んで数える（_back_play）
+        digressed, self.digressed, back = self.digressed, False, []
         if self.phase == "calling":
             # 目的の人に繋がる前：名乗り・用件のあとに、もう一度だけ呼ぶ一言（DESIGN.md 4-3）。同じ方に3回目は呼ばない（同じお願いを繰り返さない）
             if self._calls_to_speaker() < 2:
                 self.target_called.append(self.callee_turns)
+                back = self._back_play(digressed)
                 play += back + [self._part_play("target")]
                 done = played_note(shown + "".join(p["text"] for p in back) + self.target["target"])
             return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._now()}"} | ({"bridged": True} if back and play else {})
@@ -6156,11 +6176,13 @@ class Flow:
             # ⛔ 2026-11-06 日本時間10時台に見つけた：この枝だけ、戻る一言を作って捨てていた（ご遠慮の一言の「いいえ」・お客様のご質問に答えたあとに、
             # 言い直しをそのまま言い直した＝本書 9-4 の「範囲外の質問」の「もう伺った質問へ戻るときは話を戻す一言の録音から」に届いていなかった）
             say, then = self.awaiting_say, ""
+            back = self._back_play(digressed)
+            btext = "".join(p["text"] for p in back)
             if back and self.play_recordings:
                 play += back
-                done = played_note(shown + BACK_TO)
+                done = played_note(shown + btext)
             elif back:
-                say, then = BACK_TO + say, say_note(BACK_TO) + "続けて、"
+                say, then = btext + say, say_note(btext) + "続けて、"
             return {"result": "replayed", "play": play, "speak": True, "say": say,
                     "message": f"{done}続けて、{then}{say_note(self.awaiting_say, 'もう一度、言い直し')}相手の返事を待ってください。"} | (
                 {"bridged": True} if back else {})
@@ -6168,8 +6190,8 @@ class Flow:
         if self._held_now() is not None:
             # 応える前の相手の言葉を、判定のどれかがいまの質問の答えと読んだ（_keep_answer_reading）：質問を流す前に、その言葉の答えの報告か、
             # 質問に戻るかを、AIが音声から選ぶ（録音で応えた＝相手の返事を待たずに、ここへ来た。AIが自分の言葉で応えたときは、同じ知らせを
-            # 応える返事で渡してある＝_own_then）。まだ戻らないので、戻る一言は戻るときまで持つ
-            self.digressed = bool(back)
+            # 応える返事で渡してある＝_own_then）。まだ戻らないので、戻る一言は戻るときまで持つ（流していないので数えない）
+            self.digressed = digressed
             return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._return_note()}"}
         if final and q is not None and not q.reading_of and (toward := final_toward(q)) is not None:
             return self._final_check(q.id, toward)   # 質問について尋ねられて答えた：同じ質問には戻らず、こちらが勧めた向きで最終の確かめ
@@ -6179,15 +6201,17 @@ class Flow:
         again = q is not None and not q.reading_of and (final or self.items[q.id].played)
         if q is not None and not q.reading_of:
             self.items[q.id].played = True
+        back = self._back_play(digressed)
+        btext = "".join(p["text"] for p in back)   # 戻る一言の頭のつなぎの言葉と、質問の頭を重ねない（spoken_question の before）
         bridged = {"bridged": True} if back and q is not None else {}
         if q is not None and self.play_recordings and not q.reading_of:
-            play += back + [question_play(list(self.questions.values()), q.id, again=again)]
+            play += back + [question_play(list(self.questions.values()), q.id, again=again, before=btext)]
             return {"result": "replayed", "play": play,
                     "message": played_note(shown + "".join(p["text"] for p in back) + play[-1]["text"]) + "何も言わずに、相手の答えを待ってください。"
                                + answer_wait()} | bridged
         if q is not None:
-            then = f"{say_note(BACK_TO)}続けて、" if back else ""
-            lead = spoken_question(list(self.questions.values()), q.id, again=again)[1]
+            then = f"{say_note(btext)}続けて、" if back else ""
+            lead = spoken_question(list(self.questions.values()), q.id, again=again, before=btext)[1]
             return {"result": "replayed", "play": play, "speak": True,
                     "message": f"{done}続けて、{then}いまの質問 {q.id}「{q.text}」を聞いてください（名乗りは繰り返しません）。"
                                + (start_with(lead) if lead and (again or q.intro or self.lead_ins) else "")} | bridged

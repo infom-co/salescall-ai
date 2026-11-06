@@ -727,6 +727,13 @@ TALK_FALLBACK = {"talk_agree_high": ("本当にそうですよね！", "元気�
 # flowctl.Flow._continue の1か所）。✅ 2026-10-23 ユーザー：「お客様『そうですよね。』の会話の後に、『はい、ご予約はされていますでしょうか？』だと
 # 会話が繋がっていないですよね。同じことを繰り返すな！！」⇒ 話を戻すことを言ってから聞く（⏳ 言い方はユーザーに伺う）
 BACK_TO = "話を戻させていただきますね。"
+# 同じ所（同じ質問・同じ言い直し・お呼びするお願い）へ2回目に戻るときと、その次からの一言（流れの制御の _back_play が回数で選ぶ＝BACK_LINES の並び。録音の名前も同じ
+# 並び）。2回目の一言は頭が「それでは」なので、続く質問の頭の「それでは」は重ねない（flowctl.spoken_question の before）。✅ 2026-11-07 日本時間3時14分01秒
+# ユーザー「(4) H7：…それでは、もう一度確認させていただきますね。やその次に、たびたび、の方がいいんじゃないでしょうか」（11-01「全く同じ質問を2度したら、
+# 機械だと思われてしまいませんか？」）。決まった言い方なので読点は外す（10-15）
+BACK_TO_AGAIN = "それではもう一度確認させていただきますね。"
+BACK_TO_OFTEN = "たびたび失礼いたしました。"
+BACK_LINES = (("back", BACK_TO), ("back_again", BACK_TO_AGAIN), ("back_often", BACK_TO_OFTEN))
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             STANDARD_PARTS["ai"]: AI_ANSWER, "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
@@ -741,7 +748,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
-            "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
+            "own_fallback": OWN_FALLBACK, **dict(BACK_LINES), **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
             "told_follow_up": TOLD_FOLLOW_UP,

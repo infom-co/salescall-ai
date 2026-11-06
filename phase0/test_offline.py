@@ -76,7 +76,9 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          "told_follow_up",
                          # 並べて伺ったご案内の方法を言っていただけないときの申し伝える一言・「どれでも」のあと、こちらでお伝えした方法の連絡先を伺う一言（頭の
                          # 「それでは」を重ねない）の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」。CL-1.md 4-106）
-                         "wish_told_way", *(f"callback_{k}_announced" for k in ("line_how", "email", "fax", "address"))})
+                         "wish_told_way", *(f"callback_{k}_announced" for k in ("line_how", "email", "fax", "address")),
+                         # 同じ所へ2回目に戻るときと、その次からの戻る一言の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(4) H7」。CL-1.md 4-106）
+                         "back_again", "back_often"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -1850,13 +1852,16 @@ class ScriptRecordingTest(unittest.TestCase):
                              "Q2_lead_tsuzukimashite_v2": "続きまして当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？",
                              # 続きの電話で最初に伺う形（✅ 2026-11-06 日本時間15時20分30秒 ユーザー「確認させていただきたい内容なのですが…」＝flowctl.question_forms）
                              "Q2_lead_resume_v1": "確認させていただきたい内容なのですが当日は講師の「あらがき」がご案内いたしますがよろしいでしょうか？",
-                             "Q2_lead_resume_v2": "確認させていただきたい内容なのですが当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？"})
+                             "Q2_lead_resume_v2": "確認させていただきたい内容なのですが当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？",
+                             # 同じ質問へ2回目に戻る一言（頭が「それでは」）のあとの、頭の無い形（✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」＝flowctl.question_forms）
+                             "Q2_again_v1": "当日は講師の「あらがき」がご案内いたしますがよろしいでしょうか？",
+                             "Q2_again_v2": "当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？"})
         # はじめの質問（つなぎの言葉の無い録音）は、尋ねられて答えたあとに伺い直す「それでは」付きの形も録音する（進む向きが1つに決まらない＝
         # ✅ 11時55分13秒「(2) イ」＝flowctl.final_toward）
         self.assertEqual({k: t[0] for k, t in table.items() if k.startswith("Q1") and k != "Q1_pending"},
                          {"Q1": "ご予約はされていますでしょうか？", "Q1_lead_soredeha": "それではご予約はされていますでしょうか？"})
         self.assertEqual(table["Q2_pending"][0], "それではこの件は保留とさせていただきますね。")
-        self.assertEqual(sorted(readings[k]["新垣"] for k in v), ["あらがき"] * 3 + ["しんがき"] * 3)
+        self.assertEqual(sorted(readings[k]["新垣"] for k in v), ["あらがき"] * 4 + ["しんがき"] * 4)   # 形は4つ（それでは・続きまして・続きの電話・戻る一言のあとの頭の無い形）
 
     def test_chosen_reading_is_kept_and_conflicts_stop(self):
         import tempfile
@@ -16000,6 +16005,30 @@ class OwnWordsTest(unittest.TestCase):
         # もう伺った質問へ戻る前に、話を戻す一言（相づちは重ねない＝一言が相手の返事を受ける。✅ 2026-10-23 ユーザー：「そうですよね。」のあとの
         # 「はい、ご予約は…」は会話が繋がっていない）
         self.assertEqual((r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), (None, [("recorded", "back"), ("question", "Q1")]))
+
+    def test_going_back_to_the_same_question_again_changes_the_back_line(self):
+        # 同じ質問へ2回目に戻るときは「それではもう一度確認させていただきますね。」（質問の頭の「それでは」は重ねない）、その次からは「たびたび失礼いたしました。」
+        # （✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7：…それでは、もう一度確認させていただきますね。やその次に、たびたび、の方がいいんじゃないでしょうか」・
+        # 11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）。⛔ それまでは何回戻っても1回目とまったく同じ文だった
+        from flowctl import ARG_LABEL, PART_LABEL, TALK_LABEL
+        from grounding import NO_FACT
+        f, b = self.flow()
+        f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")   # 名乗りと最初の質問を流してから（流した印＝Item.played）
+        r = f.apply("report_party", {"party": "person"})
+        r if r.get("result") == "opening" else f.on_first_words_end()
+        heard = []
+        for said, line in (("いやあ、今日は本当に暑いですねえ。", "本当に暑い日が続いておりますね。"), ("雨も多いですし。", "本当に雨の日が多いですね。"),
+                           ("夜も寝苦しくて。", "寝苦しい夜が続いておりますね。")):
+            self.heard(f, said)
+            args = {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: line, ARG_LABEL["fallback"]: TALK_LABEL["talk_agree_light"]}
+            f.grounding_job("replay_opening", args)
+            f.on_grounded(line, self.verdict(NO_FACT))
+            self.assertEqual(f.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_agree_light"})["result"], "own_answer", said)
+            self.heard(f, "ええ。")
+            r = f.apply("replay_opening", {"part": "resume"})
+            heard.append("".join(p["text"] for p in r["play"]))
+        q = f.questions["Q1"].text
+        self.assertEqual(heard, [f"話を戻させていただきますね。それでは{q}", f"それではもう一度確認させていただきますね。{q}", f"たびたび失礼いたしました。それでは{q}"])
 
     def test_a_question_the_knowledge_answers_is_not_deferred(self):
         # 知っていることで答えられる問いを「答えを持っていない質問」にして預けた（⛔ 2026-10-25 J9a・会社の所在地を聞かれる L4：「恐れ入りますが、
