@@ -513,6 +513,20 @@ def _with_standard(answers: tuple[tuple[str, str], ...], off: Any, std: Standard
     return answers + used, frozenset(a for a, _ in used)
 
 
+def with_answer(raw: dict[str, Any], name: str, text: str) -> dict[str, Any]:
+    """業務設定の中身に、想定問答を1つ置く（1か所。依頼者の解決策・取り込み直したときに残す解決策が使う）：同じ名前の業務の答えが
+    あれば置き換え、無ければ足す。業務が「使わない」にした標準の問いの名前なら、使わないを外して業務の答えにする（その問いに答える）。"""
+    answers = [dict(a) for a in (raw.get("answers") or [])]
+    for a in answers:
+        if a.get("name") == name:
+            a["text"] = text
+            break
+    else:
+        answers.append({"name": name, "text": text})
+    off = [n for n in (raw.get("answers_off") or []) if n != name]
+    return dict(raw, answers=answers, **({"answers_off": off} if "answers_off" in raw else {}))
+
+
 def own_answers(s: Settings) -> tuple[tuple[str, str], ...]:
     """その業務の版が、業務の録音で話す想定問答（業務だけの問答と、標準を上書きした問答。標準から来た問答は標準の録音＝`standard_parts`）。
     業務の録音の組の部分（answer_＋問いの名前）は、これだけから作る（1か所）。"""
@@ -1614,32 +1628,47 @@ def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str
     return new
 
 
-def _versions_in_use(tx: Tx) -> list[dict[str, Any]]:
-    """まだ終えていない行のある実施回と、その今の版（取引の依頼者の範囲）。"""
+def _versions_in_use(tx: Tx, business_id: UUID | None = None) -> list[dict[str, Any]]:
+    """まだ終えていない行のある実施回と、その今の版（取引の依頼者の範囲。business_id＝その業務の実施回だけ）。「使っている版」を
+    決めるのはここだけ（版を足して自動で替える仕事・依頼者の解決策を足す流れ＝client_solutions._lines）。"""
     return tx.all(
         "SELECT r.run_id, salescall.run_current_version(r.run_id) AS version_id FROM salescall.runs r"
-        " WHERE salescall.run_current_version(r.run_id) IS NOT NULL"
+        " WHERE salescall.run_current_version(r.run_id) IS NOT NULL AND (%s::uuid IS NULL OR r.business_id = %s)"
         "   AND EXISTS (SELECT 1 FROM salescall.tasks t LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id"
         "               WHERE t.run_id = r.run_id AND (n.kind IS NULL OR n.kind <> 'end'))"
-        " ORDER BY r.run_id")
+        " ORDER BY r.run_id", (business_id, business_id))
 
 
-def derive_for_standard(tx: Tx) -> list[UUID]:
+def in_use_versions(tx: Tx, business_id: UUID | None = None) -> list[UUID]:
+    """まだ終えていない行のある実施回の今の版（取引の依頼者の範囲。同じ版は1つ。business_id＝その業務だけ）。版を足して自動で替える
+    仕事が、1つずつ別の取引で `derive_for_standard`・`adopt_ready` を呼ぶための並び（1つの失敗が、ほかの版・実施回を止めない＝
+    見直し(B) の5）。依頼者の解決策を足す流れ（client_solutions._lines）も、これを読む。"""
+    return sorted({r["version_id"] for r in _versions_in_use(tx, business_id)})
+
+
+def in_use_runs(tx: Tx) -> list[UUID]:
+    """まだ終えていない行のある、版のある実施回（取引の依頼者の範囲）。"""
+    return [r["run_id"] for r in _versions_in_use(tx)]
+
+
+def derive_for_standard(tx: Tx, version_id: UUID | None = None) -> list[UUID]:
     """管理者が標準の想定問答を新しくしたら、使っている業務の版（まだ終えていない行のある実施回の今の版。標準を使う版だけ）の
     つながりの先に、いまの標準に合わせた版を作る（きっかけ standard。1か所＝決まった間隔の仕事）。もう、いまの標準の版がつながりの先に
-    あれば何もしない。業務の設定と合わずに作れなければ、契約者に知らせて（同じ版と標準で1回）、今の版のまま電話を続ける。作った版を返す。"""
+    あれば何もしない。業務の設定と合わずに作れなければ、契約者に知らせて（同じ版と標準で1回）、今の版のまま電話を続ける（書きかけを
+    残さない＝戻す地点の中で作る）。version_id＝その版だけ（決まった間隔の仕事は、版ごとに別の取引で呼ぶ）。作った版を返す。"""
     std = current_standard(tx)
     if std.standard_id is None:
         return []
     made = []
-    for v in sorted({r["version_id"] for r in _versions_in_use(tx)}):
+    for v in in_use_versions(tx) if version_id is None else [version_id]:
         tip = successor_tip(tx, v)
         used = tx.one("SELECT standard_id FROM salescall.business_versions WHERE version_id = %s", (tip,))["standard_id"]
         if used is None or used == std.standard_id:
             continue
         try:
-            made.append(derive(tx, tip, lambda raw: raw, cause="standard", note="標準の想定問答の新しい版に合わせた",
-                               standard_id=std.standard_id))
+            with tx.savepoint():
+                made.append(derive(tx, tip, lambda raw: raw, cause="standard", note="標準の想定問答の新しい版に合わせた",
+                                   standard_id=std.standard_id))
         except SettingsInvalid as e:
             notify.emit(tx, "version_not_derived", key=f"version_not_derived:{tip}:{std.standard_id}",
                         summary="標準の想定問答が新しくなりましたが、業務設定の新しい版を作れませんでした（今の版のまま電話は続けます）："
@@ -1647,28 +1676,26 @@ def derive_for_standard(tx: Tx) -> list[UUID]:
     return made
 
 
-def adopt_ready(tx: Tx) -> list[tuple[UUID, UUID]]:
+def adopt_ready(tx: Tx, run_id: UUID | None = None) -> list[tuple[UUID, UUID]]:
     """まだ終えていない行のある実施回の今の版に、話せる後の版があれば、自動で割り当てる（1か所。決まった間隔の仕事）。話せる＝
     (1) 今の版で話してよい声が、後の版でもすべて話してよい（声が減らない。今の版に声が無ければ1つ以上） (2) 品質の段で止まらずに
     始められる（quality_stage.start_kind が already か open） (3) 割り当てられない理由が無い（`assign_problems`）。後の版がいくつも
-    続けば、話せるものの中でいちばん後の版。ただし、その実施回に手で（管理者か契約者が）版を割り当てたときより前に作った後の版へは
-    替えない（手で前の版に戻した判断を上書きしない＝0185）。割り当ての記録は `assign`（自動の印 auto と、理由に「自動」）。割り当てた
-    (実施回, 版) を返す。"""
+    続けば、話せるものの中でいちばん後の版。手で前の版に戻した実施回は、戻した版の写し（つながりの先の無い版＝`assign`）から先だけを
+    たどるので、戻す前の変更を含む版へは替わらない（⛔ 0185 は、手の割り当てより前に作った後の版を時刻で外していたが、そのあとに足した
+    解決策・新しい標準の版まで届かなかった＝見直し(B) の1）。割り当ての記録は `assign`（自動の印 auto と、理由に「自動」）。
+    run_id＝その実施回だけ（決まった間隔の仕事は、実施回ごとに別の取引で呼ぶ）。割り当てた (実施回, 版) を返す。"""
     from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
     done = []
     for r in _versions_in_use(tx):
+        if run_id is not None and r["run_id"] != run_id:
+            continue
         now_voices = set(recordings.ready_voices(tx, r["version_id"]))
-        # 手で割り当てたときより後に作った段だけをたどる（最初の段が前なら、その先へは進まない＝前の段の変更を含む版へ替えない。段は
-        # 作った順に並ぶ＝後の段ほど新しいので、最初の段だけを見れば足りる）
         chain = tx.all(
-            "WITH RECURSIVE hand(at) AS (SELECT coalesce((SELECT max(x.assigned_at) FROM salescall.run_versions x"
-            "                                            WHERE x.run_id = %s AND NOT x.auto), '-infinity'::timestamptz)),"
-            " chain(v, cause, note, depth) AS ("
-            "  SELECT s.to_version, s.cause, s.note, 1 FROM salescall.version_successions s, hand"
-            "  WHERE s.from_version = %s AND s.recorded_at >= hand.at"
+            "WITH RECURSIVE chain(v, cause, note, depth) AS ("
+            "  SELECT s.to_version, s.cause, s.note, 1 FROM salescall.version_successions s WHERE s.from_version = %s"
             "  UNION ALL SELECT s.to_version, s.cause, s.note, c.depth + 1"
             "  FROM salescall.version_successions s JOIN chain c ON s.from_version = c.v)"
-            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["run_id"], r["version_id"]))
+            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["version_id"],))
         for c in chain:
             voices = set(recordings.ready_voices(tx, c["v"]))
             if not voices or not voices >= now_voices:
@@ -1684,12 +1711,19 @@ def adopt_ready(tx: Tx) -> list[tuple[UUID, UUID]]:
 
 def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = False) -> str:
     """実施回に版を割り当てる（記録つき。DESIGN.md 3-2）。割り当てた版の、品質の段の始め方の答えを返す
-    （quality_stage.prepare：opened／mock_needed／already／stopped_version）。中身の無い版は割り当てない。"""
+    （quality_stage.prepare：opened／mock_needed／already／stopped_version）。中身の無い版は割り当てない。
+    手で（auto でなく）割り当てる版に後の版がある（つながりの途中の版＝前の版へ戻す・前の版で実施回を作る）なら、その版の写しを
+    以前の版へ戻す1か所（`save_from`）で作り、写しを割り当てる。つながりは1本の列なので、途中の版をそのまま割り当てると、そのあとに足す
+    版（解決策・新しい標準）が戻す前の変更を含む列の先にしか作れず、この実施回へ届かなかった（見直し(B) の1）。写しはつながりの先が
+    無いので、そこから足した版だけが、この実施回へ自動で替わる。自動の割り当て（auto）は、つながりの中の版をそのまま割り当てる。"""
     if not reason.strip():
         raise ValueError("版を割り当てる理由を書いてください")
     problems = assign_problems(tx, run_id, version_id)
     if problems:                                     # 目的のお客様を呼べない行を残したまま、版を替えない（全部か、何も無いか）
         raise SettingsInvalid(problems)
+    if not auto and tx.one("SELECT 1 FROM salescall.version_successions WHERE from_version = %s", (version_id,)):
+        business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["business_id"]
+        version_id = save_from(tx, business, version_id)   # 写しの中身は同じ（割り当てられない理由も同じ）
     row = tx.one(
         "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason, auto)"   # 番号は
         " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"                                                           # next_seq（0109）

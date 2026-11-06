@@ -79,6 +79,85 @@ class ReadDocument(unittest.TestCase):
         self.assertEqual(read_document("台本.txt", "あい".encode("utf-8"), encoding="utf-8").text, "あい")
 
 
+def docx_parts(body: str, **parts: str) -> bytes:
+    """試験用の Word の文書（本文の XML と、ほかの部品＝名前→中身の XML。部品の名前の「_」は「/」に戻す）。"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("word/document.xml", f'<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="{_W}" xmlns:mc="{_MC}">'
+                                        f"<w:body>{body}</w:body></w:document>")
+        for name, xml in parts.items():
+            z.writestr(name.replace("_", "/") + ".xml", f'<?xml version="1.0" encoding="UTF-8"?><w:root xmlns:w="{_W}">{xml}</w:root>')
+    return buf.getvalue()
+
+
+_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
+
+def locked_pdf(*, user: str) -> bytes:
+    """試験用の鍵のかかった PDF（user＝開く鍵。空なら権限の鍵だけ＝どのソフトでも鍵なしで開ける）。"""
+    import pypdf
+    w = pypdf.PdfWriter(clone_from=pypdf.PdfReader(io.BytesIO(pdf("Opening hours 9 to 18"))))
+    w.encrypt(user_password=user, owner_password="owner-only", algorithm="AES-128")
+    buf = io.BytesIO()
+    w.write(buf)
+    return buf.getvalue()
+
+
+class ReadDocumentParts(unittest.TestCase):
+    """見直し(B) の7：読めない所は黙って抜け落ちない・壊れたファイルは処理を落とさず理由つきで断る。"""
+
+    def test_true_false_cells_keep_their_words(self):
+        """Excel の TRUE・FALSE の欄は、その文字のまま資料の文字にする（前は空になり、値だけが消えた）。"""
+        x = read_document("業務.xlsx", xlsx([("土日の対応", True), ("祝日の対応", False)]))
+        self.assertEqual(x.text, "【一覧】\n土日の対応\tTRUE\n祝日の対応\tFALSE")
+
+    def test_headers_footers_notes_and_comments_are_read_and_text_boxes_once(self):
+        """Word のヘッダー・フッター・脚注・文末脚注・コメントも読む（見出しつき）。テキストボックスの段落は、外の段落に混ぜず、その段落の
+        あとに1回だけ（互換の写し mc:Fallback は読まない）。部品が壊れていれば、ほかは読んで理由を残す。"""
+        box = ("<w:p><w:r><w:t>前の文</w:t></w:r><mc:AlternateContent><mc:Choice><w:r><w:txbxContent><w:p><w:r><w:t>枠の中の文"
+               "</w:t></w:r></w:p></w:txbxContent></w:r></mc:Choice><mc:Fallback><w:r><w:txbxContent><w:p><w:r><w:t>枠の中の文"
+               "</w:t></w:r></w:p></w:txbxContent></w:r></mc:Fallback></mc:AlternateContent><w:r><w:t>後の文</w:t></w:r></w:p>")
+        d = read_document("台本.docx", docx_parts(
+            box, word_header1="<w:p><w:r><w:t>株式会社架空</w:t></w:r></w:p>", word_footer1="<w:p><w:r><w:t>社外秘</w:t></w:r></w:p>",
+            word_footnotes="<w:footnote><w:p><w:r><w:t>料金は税込み</w:t></w:r></w:p></w:footnote>",
+            word_comments="<w:comment><w:p><w:r><w:t>要確認</w:t></w:r></w:p></w:comment>", word_endnotes="<w:p>壊れた"))
+        self.assertEqual(d.text, "前の文後の文\n枠の中の文\n【ヘッダー】\n株式会社架空\n【フッター】\n社外秘\n【脚注】\n料金は税込み"
+                                 "\n【コメント】\n要確認")
+        self.assertEqual(len(d.problems), 1)
+        self.assertIn("文末脚注", d.problems[0])
+
+    def test_a_pdf_locked_only_for_changes_is_read_and_one_locked_to_open_is_refused(self):
+        """権限の鍵だけの PDF（鍵なしで開ける）は読む。開く鍵の要る PDF は断る。"""
+        self.assertEqual(read_document("概要.pdf", locked_pdf(user="")).text.strip(), "Opening hours 9 to 18")
+        with self.assertRaises(FileRejected) as e:
+            read_document("概要.pdf", locked_pdf(user="secret"))
+        self.assertIn("鍵のかかった PDF", str(e.exception))
+
+    def test_broken_files_are_refused_with_a_reason_instead_of_failing(self):
+        """壊れたファイル（中身の途中が壊れた PDF・Word・Excel）は、処理を落とさずに理由をつけて断る（お客様リストの表の取込も同じ）。"""
+        from salescall.core.import_files import read
+        good = {"概要.pdf": pdf("Opening hours 9 to 18"), "台本.docx": docx(["会社概要"]), "業務.xlsx": xlsx([("a", "b")])}
+        for name, data in good.items():
+            for cut in range(40, len(data), max(1, len(data) // 25)):
+                broken = data[:cut] + bytes(b ^ 0x5A for b in data[cut:cut + 8]) + data[cut + 8:]
+                with self.subTest(name=name, cut=cut):
+                    try:
+                        read_document(name, broken)
+                    except FileRejected:
+                        pass
+                    if name.endswith(".xlsx"):
+                        try:
+                            read(name, broken)
+                        except FileRejected:
+                            pass
+
+    def test_a_character_set_is_chosen_only_for_text_and_csv(self):
+        """文字の決まりを選べるのは文章と CSV だけ（ほかの種類に渡せば断る）。"""
+        with self.assertRaises(FileRejected):
+            read_document("業務.xlsx", xlsx([("a", "b")]), encoding="utf-8")
+        self.assertEqual(read_document("台本.csv", "あい".encode("utf-8"), encoding="utf-8").text, "あい")
+
+
 class SourceCheck(unittest.TestCase):
     DOCS = (Document("台本.docx", "docx", "x", "お電話ありがとうございます。\n株式会社架空の　山田と申します。\nご予約の日は\nいつがよろしいでしょうか？"),
             Document("概要.txt", "text", "y", "受付時間：９時～１８時"))
@@ -96,6 +175,15 @@ class SourceCheck(unittest.TestCase):
                                  "受付時間:9時~18時": "概要.txt", "株式会社架空の田中と申します。": None,
                                  "ご予約の日はいつがよろしいですか？": None, "": None, "　\n": None, None: None})
 
+    def test_marks_that_look_the_same_are_matched(self):
+        """見た目の同じ記号（波ダッシュ・全角チルダ・チルダ／ハイフン・ダッシュ・マイナス）は同じ文字として照らす。長音「ー」はそろえない
+        （見直し(B) の6：資料の「9:00〜18:00」を AI が「～」で写すと見つからなかった）。"""
+        docs = (Document("概要.txt", "text", "z", "営業時間 9:00〜18:00\n電話 03−1234—5678\nメール"),)
+        for quote in ("9:00～18:00", "9:00~18:00", "03-1234-5678"):
+            with self.subTest(quote=quote):
+                self.assertEqual(source_check.locate(docs, quote), "概要.txt")
+        self.assertIsNone(source_check.locate(docs, "メ-ル"))
+
     def test_items_without_a_found_quote_are_not_confirmed(self):
         """項目ごとに照らす：出典の文が無い・見つからない項目は確かめられない（理由つき。呼ぶ側は値を入れずに決まらなかった所にする）。"""
         got = source_check.check(self.DOCS, [("名乗り", "山田", "株式会社架空の 山田と申します。"),
@@ -105,4 +193,6 @@ class SourceCheck(unittest.TestCase):
                          [("名乗り", True, "台本.docx"), ("受付時間", False, None), ("最終目的", False, None)])
         self.assertIsNone(got[0].why)
         self.assertIn("見つかりません", got[1].why)
+        self.assertNotIn("出典の文がありません", got[1].why)
         self.assertIn("出典の文がありません", got[2].why)
+        self.assertNotIn("見つかりません", got[2].why)

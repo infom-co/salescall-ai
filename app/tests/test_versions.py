@@ -60,11 +60,12 @@ class Versions(Base):
         names = [a[0] for a in self.tx(s, lambda tx: bs.load(tx, v2)).answers]
         self.assertTrue({"駐車場", "営業時間"} <= set(names), names)                            # v1 の変更も入っている
         other = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)   # つながりの無い版
-        with self.assertRaises(Rejected):                                                      # 1つの版の後の版は1つだけ
+        with self.assertRaises(Rejected) as e:                                                 # 1つの版の後の版は1つだけ
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.version_successions (tenant_id, client_id, business_id, from_version, to_version, cause, note,"
-                " recorded_by) VALUES (%s, %s, %s, %s, %s, 'solution', 'x', 'x')",
+                " recorded_by) VALUES (%s, %s, %s, %s, %s, 'solution', 'x', salescall.cur_actor())",   # ほかの守りには当たらない形
                 (s["tenant"], s["client"], s["business"], v0, other)), OPERATOR)
+        self.assertEqual(e.exception.constraint, "version_successions_from_version_key")
         self.w.approve_voices(s["tenant"], s["client"], v1)
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v1)])         # v2 はまだ録音が無い：v1 まで
         self.w.approve_voices(s["tenant"], s["client"], v2)
@@ -138,9 +139,11 @@ class Versions(Base):
         self.w.approve_voices(s["tenant"], s["client"], v2)
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v2)])
 
-    def test_a_version_put_back_by_hand_is_not_moved_on_again(self):
-        """契約者が手で前の版に戻したら、戻す前に作った後の版へは自動で替えない（そのあと、その後の版から作った版へも替えない＝戻す前の
-        変更が入っている）。自動で替えた版から先は、続けて自動で替える（自動の割り当ては手の割り当てに数えない＝0185）。"""
+    def test_a_version_put_back_by_hand_is_a_copy_and_later_changes_reach_it(self):
+        """手で前の版に戻すと（後の版がある版を割り当てる）、その版の写しを割り当てる（以前の版へ戻す1か所＝save_from）。戻す前に作った
+        後の版へは替わらない（写しにはつながりの先が無い）。戻したあとに足した版は、写しのつながりの先にでき（戻す前の変更を含まない）、
+        録音がそろえば自動で替わる（⛔ 0185：時刻で外していたので、戻したあとに足した版まで届かなかった＝見直し(B) の1）。後の版がある
+        版で実施回を作っても同じ（写しを割り当てる）。"""
         s = self.ready()
         v0 = s["version"]
         self.w.approve_voices(s["tenant"], s["client"], v0)
@@ -148,13 +151,112 @@ class Versions(Base):
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
         self.w.approve_voices(s["tenant"], s["client"], v1)
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v1)])        # 自動で v1 へ
-        v2 = self.tx(s, lambda tx: bs.derive(tx, v1, lambda r: r, cause="override", note="そのまま"), OPERATOR)
-        self.w.approve_voices(s["tenant"], s["client"], v2)
-        self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v2)])        # 自動の版から先は続けて自動で
         self.tx(s, lambda tx: bs.assign(tx, s["run"], v0, reason="試験：手で前の版に戻す"), OPERATOR)
+        back = self.current(s)
+        self.assertNotIn(back, (v0, v1))                                                    # 写し
+        self.assertEqual(self.tx(s, lambda tx: bs.load(tx, back).raw), self.tx(s, lambda tx: bs.load(tx, v0).raw))
+        self.assertEqual(self.tx(s, lambda tx: bs.successor_tip(tx, back)), back)
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [])                      # 戻した判断を上書きしない
-        v3 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: r, cause="override", note="戻したあとに作った"), OPERATOR)
+        v3 = self.tx(s, lambda tx: bs.derive(tx, back, lambda r: dict(r, answers=list(r.get("answers") or []) + [
+            {"name": "営業時間", "text": "平日の9時から18時でございます。"}]), cause="solution", note="戻したあとに足した"), OPERATOR)
+        names = {a for a, _ in self.tx(s, lambda tx: bs.load(tx, v3)).answers}
+        self.assertTrue("営業時間" in names and "駐車場" not in names, names)                  # 戻す前の変更は入らない
         self.w.approve_voices(s["tenant"], s["client"], v3)
-        self.assertEqual(self.tx(s, lambda tx: bs.successor_tip(tx, v0)), v3)               # v3 は v2 の先（戻す前の変更を含む）
+        self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v3)])        # そろえば自動で替わる
+        from salescall.core import registry
+        run = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "前の版の実施回", v0, reason="試験"), OPERATOR)
+        made = self.tx(s, lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v", (run,))["v"])
+        self.assertNotIn(made, (v0, v1, back, v3))
+        self.assertEqual(self.tx(s, lambda tx: bs.successor_tip(tx, made)), made)
+
+    def test_a_later_version_needs_a_voice_even_when_the_current_one_has_none(self):
+        """今の版に話してよい声が無くても、後の版には声が1つ以上要る（声の無い版へ替えても電話はかけられない）。"""
+        s = self.ready()
+        v0 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)   # 録音の無い版
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], v0, reason="試験：録音の無い版"), OPERATOR)
+        self.tx(s, lambda tx: quality_stage.record_mock(tx, v0, GOOD), OPERATOR)
+        self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [])
-        self.assertEqual(self.current(s), v0)
+
+    def test_the_database_keeps_successions_forward_and_auto_assignments_to_the_system(self):
+        """版のつながりは、前の版より後に作った版へだけ（逆向き・輪は作れない）・同じ業務の版だけ・記録した方は操作している方・時刻は
+        データベースが決める。自動の割り当て（auto）はシステムの処理だけで、時刻はデータベースが決める（見直し(B) の4・0189）。"""
+        s = self.ready()
+        v0 = s["version"]
+        v1 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)
+        other, _ = self.w.business_with_version(s["tenant"], s["client"])
+        self.w.add_version(s["tenant"], s["client"], other)
+        far = self.w.add_version(s["tenant"], s["client"], other)   # ほかの業務の版（番号は v1 より大きい＝向きでは断られない）
+        sql = ("INSERT INTO salescall.version_successions (tenant_id, client_id, business_id, from_version, to_version, cause, note,"
+               " recorded_by, recorded_at) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, 'solution', 'x', %s, %s)")
+        for business, frm, to, by, constraint in ((s["business"], v1, v0, "操作", "version_succession_forward"),
+                                                  (s["business"], v0, v1, "ほかの方", "version_succession_recorded_by"),
+                                                  (s["business"], v0, far, "操作", None)):
+            with self.subTest(constraint=constraint), self.assertRaises(Rejected) as e:
+                self.tx(s, lambda tx: tx.execute(sql, (business, frm, to, tx.one("SELECT salescall.cur_actor() AS a")["a"]
+                                                       if by == "操作" else by, "2000-01-01")), OPERATOR)
+            if constraint is not None:
+                self.assertEqual(e.exception.constraint, constraint)
+            else:                                                                           # 同じ業務の版だけ（0183 の外部キー）
+                self.assertIn("fkey", e.exception.constraint or "")
+        self.tx(s, lambda tx: tx.execute(sql, (s["business"], v0, v1, tx.one("SELECT salescall.cur_actor() AS a")["a"], "2000-01-01")),
+                OPERATOR)
+        at = self.tx(s, lambda tx: tx.one("SELECT recorded_at > now() - interval '1 hour' AS fresh FROM salescall.version_successions"
+                                          " WHERE from_version = %s", (v0,))["fresh"])
+        self.assertTrue(at)
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: bs.assign(tx, s["run"], v1, reason="試験：自動に見せかける", auto=True), OPERATOR)
+        self.assertEqual(e.exception.constraint, "run_version_auto_by_system")
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason, assigned_at)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), '試験', '2000-01-01')",
+            (s["run"], s["business"], v1)), OPERATOR)
+        fresh = self.tx(s, lambda tx: tx.one("SELECT assigned_at > now() - interval '1 hour' AS f FROM salescall.run_versions"
+                                             " WHERE run_id = %s ORDER BY seq DESC LIMIT 1", (s["run"],))["f"])
+        self.assertTrue(fresh)
+
+    def test_one_failing_version_does_not_stop_the_others_in_the_job(self):
+        """版を自動で替える仕事は、版ごと・実施回ごとに別の取引（1つが落ちても、ほかの実施回は替わる＝見直し(B) の5）。"""
+        from salescall.supervisor import jobs
+        from salescall.core import registry
+        s = self.ready()
+        v0 = s["version"]
+        broken = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "2つ目の実施回", v0, reason="試験"), OPERATOR)
+        self.w.task(s["tenant"], s["client"], broken, s["contact"])   # まだ終えていない行のある2つ目の実施回（同じ版）
+        self.w.approve_voices(s["tenant"], s["client"], v0)
+        self.tx(s, lambda tx: quality_stage.record_mock(tx, v0, GOOD), OPERATOR)
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        self.w.approve_voices(s["tenant"], s["client"], v1)
+        calls = []
+        real = bs.adopt_ready
+
+        def adopt(tx, run_id=None):
+            calls.append(run_id)
+            if len(calls) == 1:
+                raise RuntimeError("試験：1つ目の実施回で落ちる")
+            return real(tx, run_id)
+        reported = []
+        from types import SimpleNamespace
+        from unittest import mock
+        with mock.patch.object(bs, "adopt_ready", adopt), mock.patch.object(jobs, "report", lambda *a: reported.append(a)), \
+                mock.patch.object(jobs, "_clients", lambda ctx: [s["client"]]):
+            jobs.versions(SimpleNamespace(access=self.w.a, tenant_id=s["tenant"]))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(reported), 1)
+        moved = [r for r in (s["run"], broken)
+                 if self.tx(s, lambda tx, r=r: tx.one("SELECT salescall.run_current_version(%s) AS v", (r,))["v"]) == v1]
+        self.assertEqual(len(moved), 1)                                                     # 落ちなかった方は替わった
+
+
+    def test_a_derived_version_keeps_the_readings_chosen_by_ear(self):
+        """版を足しても、契約者が録音を聞いて選んだ名前の読みは引き継ぐ（以前の版へ戻すのと同じ recordings.carry_readings）。"""
+        from salescall.core import recordings
+        s = self.ready()
+        r = settings_raw()
+        r["names"] = list(r.get("names") or []) + [{"text": "中島", "reading": None, "source": "script", "reading_by": None,
+                                                    "candidates": ["なかじま", "なかしま"], "likely": "なかじま"}]
+        v = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r), OPERATOR)
+        self.tx(s, lambda tx: recordings.choose_reading(tx, v, "中島", "なかしま"), OPERATOR)
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        name = next(n for n in self.tx(s, lambda tx: bs.load(tx, v1)).names if n.text == "中島")
+        self.assertEqual((name.reading, name.reading_by), ("なかしま", "recording"))

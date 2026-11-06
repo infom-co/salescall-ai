@@ -459,7 +459,7 @@ def pc_side_stays_off_the_server(app_root: Path) -> list[Violation]:
 # ── ファイルを読むのは1か所だけ（core/import_files.py。発信対象の表・発信禁止の一覧・業務の資料。DESIGN.md 3-4・3-7-1）：ファイルの
 #    中身を読む部品（Excel＝openpyxl・XML＝defusedxml・PDF＝pypdf）を使ってよいのは、その1か所だけ（読み方の決まり＝推し量らない・読めない所は
 #    理由をつけて断る、を1か所で守る。2026-11-06 ユーザー：PDF の部品を足す）
-FILE_READER_MODULES = ("openpyxl", "defusedxml", "pypdf")
+FILE_READER_MODULES = ("openpyxl", "defusedxml", "pypdf", "zipfile", "xml.etree")   # 見直し(B) の9：zip と xml を直に読む部品も
 FILE_READER_HOME = "src/salescall/core/import_files.py"
 
 
@@ -485,6 +485,9 @@ SETTING_READERS: dict[str, tuple[str, str, str]] = {
     # AI でも決められない取り消せない決定の決め方（0164。2026-10-31 管理者：伺い3）：決めるのは承認の部分の1か所（approval.assumable）
     "decision.undecided_as_decided": ("src/salescall/core/approval.py", "10-2-2",
                                       "AI でも決められない取り消せない決定の決め方は approval.assumable の1か所で読みます"),
+    # 契約プラン（0176・0177。見直し(B) の9）：どの AI をどのキーで呼ぶかを決めるのは ai_plans.plan の1か所
+    "ai.plan_conversation": ("src/salescall/core/ai_plans.py", "8章", "契約プランは ai_plans.plan の1か所で読みます"),
+    "ai.plan_import": ("src/salescall/core/ai_plans.py", "8章", "契約プランは ai_plans.plan の1か所で読みます"),
     # 断られたお客様に同じ業務の次の実施回でかけるか（0168。2026-11-01 管理者：伺い8）：かけない理由の1か所（target_policy.block_reason）
     "business.call_declined_again": ("src/salescall/core/target_policy.py", "5-2-1",
                                      "断られたお客様に同じ業務でまたかけるかは target_policy.block_reason の1か所で読みます"),
@@ -540,6 +543,10 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("business_settings", "adopt_ready"): frozenset({_SUP + "jobs.py"}),
     ("client_solutions", "add"): frozenset({WEB_PLACE}),   # 依頼者の解決策を足す：画面だけ（契約者が書く・返った報告を取り込む。0184）
     ("business_settings", "derive_for_standard"): frozenset({_SUP + "jobs.py"}),
+    # 版を足す・割り当てる（見直し(B) の4）：版を足すのは解決策の1か所（ほかは business_settings の中＝標準・自動の替え）。手の割り当ては
+    # 実施回を作る所と画面だけ（自動の印 auto はデータベースがシステムの処理だけに守る＝0189）
+    ("business_settings", "derive"): frozenset({_CORE + "client_solutions.py"}),
+    ("business_settings", "assign"): frozenset({_CORE + "registry.py", WEB_PLACE}),
     # AIの不具合での一時停止（2026-10-30 深夜 管理者のご決定。0155）：止まったAIを受け取るのは、会話の書き込み口だけ。止めるかを決める入口は、
     # 通話ごとの口と回線ごとの処理だけ。緊急の道での再開は、画面だけ（契約者・管理者）
     ("ai_troubles", "note"): frozenset({_CORE + "conversation_io.py"}),

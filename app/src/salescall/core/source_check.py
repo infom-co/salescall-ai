@@ -24,11 +24,16 @@ from typing import Any
 from salescall.core.import_files import Document
 
 _SPACE = re.compile(r"\s+")
+# NFKC でもそろわない、見た目の同じ記号（見直し(B) の6：資料の「9:00〜18:00」（波ダッシュ）を AI が「～」「~」で写すと、照らして
+# 「無い」になった）。波の記号はチルダに、ハイフン・ダッシュ・マイナスの類はハイフンにそろえる。長音「ー」はそろえない（言葉の一部）
+_SAME_MARKS = str.maketrans({"\u301c": "~", "\uff5e": "~", "\u2053": "~", "\u223c": "~",
+                             "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-",
+                             "\u2212": "-", "\ufe63": "-", "\uff0d": "-"})
 
 
 def normalize(text: str) -> str:
-    """照らすための文字の形（1か所）：NFKC で形をそろえ、空白・改行・タブを除く。"""
-    return _SPACE.sub("", unicodedata.normalize("NFKC", text))
+    """照らすための文字の形（1か所）：NFKC で形をそろえ、見た目の同じ記号をそろえ（`_SAME_MARKS`）、空白・改行・タブを除く。"""
+    return _SPACE.sub("", unicodedata.normalize("NFKC", text).translate(_SAME_MARKS))
 
 
 @dataclass(frozen=True)
