@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, CHOICE_TYPES, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
+from flowctl import (ANY, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
                      off_talk, prior_answer, restates)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
@@ -187,6 +187,24 @@ def either(it: dict) -> bool:
     「決まってないわけではないです」「メールが埋もれてしまって」のように、答えは決まるが、言い切りかは人でも分かれるもの"""
     got = _label(it)
     return bool(got and got.get("either"))
+
+
+# 答えとは別に読む項目（flowctl.SIDE_ITEMS）の読みを記録する見出し（{項目の名前: 判定の名前のあとに付ける語}。唯一の表＝記録 side_record・使い回すときに
+# 外す語）。⛔ 2026-11-06 日本時間15時台まで、記録する3か所と外す語の並びが2つの項目を名前で手書きしていた（項目を足すと、記録の漏れで数えなくなる）
+SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由"}
+assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
+
+
+def side_record(it: dict, key: str, got) -> None:
+    """判定 key の読み got の、答えとは別に読む項目を、行 it に記録する（唯一の場所）。"""
+    for k, suffix in SIDE_SUFFIX.items():
+        it[f"{key}{suffix}"] = getattr(got, k, None)
+
+
+def why_accept(it: dict) -> list[str] | None:
+    """わからない・答えたくない理由の正解（付け直した正解の why。無ければ None＝数えない）。"""
+    got = _label(it)
+    return got.get("why") if got else None
 
 
 def talk(it: dict) -> bool | None:
@@ -769,8 +787,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 got, _ = ring.call(ids[key], call, rotate=False)
                 it[key] = got
                 it[f"{key}言い切り"] = getattr(got, "firm", None)
-                it[f"{key}終わり"] = getattr(got, "end", None)   # 電話を終える言葉か（flow_miss で数える）
-                it[f"{key}聞こえ"] = getattr(got, "hear", None)   # こちらの声が届いていない様子か（hear_miss で数える）
+                side_record(it, key, got)   # 答えとは別に読む項目（電話を終える言葉か＝flow_miss・聞こえ方・わからない理由で数える）
                 it[f"{key}秒"] = took.get("s")
             except KeyUnusable:
                 skip.add(key)
@@ -802,8 +819,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     t = time.monotonic()
                     it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"), it.get("before"))
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
-                    it[f"{key}終わり"] = getattr(it[key], "end", None)
-                    it[f"{key}聞こえ"] = getattr(it[key], "hear", None)
+                    side_record(it, key, it[key])
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
                     it[f"{key}言い切りの確からしさ"] = getattr(it[key], "firm_p", None)   # 言い切りの線と、どちらとも言えない幅を決めるため
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
@@ -855,8 +871,8 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
             t = time.monotonic()
             try:
                 got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"), it.get("before"))
-                it[name], it[f"{name}言い切り"], it[f"{name}by"], it[f"{name}終わり"] = str(got), got.firm, got.by, getattr(got, "end", None)
-                it[f"{name}聞こえ"] = getattr(got, "hear", None)
+                it[name], it[f"{name}言い切り"], it[f"{name}by"] = str(got), got.firm, got.by
+                side_record(it, name, got)
             except NoJudgment as exc:
                 it[f"{name}誤り"] = str(exc)[:200]
             it[f"{name}秒"] = round(time.monotonic() - t, 3)
@@ -920,6 +936,8 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
                 t["流れの制御の動き"][flow_miss(it, qmap[it["qid"]], key) or "正しい動き"] += 1   # 答えと電話を終える読みの1つの動き
                 if it.get(f"{key}終わり") is not None:   # 電話を終える言葉か（項目だけ。項目を足す前の記録は数えない）
                     t["電話を終える言葉か"]["正しい" if it[f"{key}終わり"] in end_accept(it) else "⛔別の読み"] += 1
+            if it.get(f"{key}理由") is not None and (w := why_accept(it)) is not None:   # わからない・答えたくない理由（正解を付けた行だけ）
+                t["わからない・答えたくない理由"]["正しい" if it[f"{key}理由"] in w else "⛔別の読み"] += 1
             if (m := mark(it, key)):
                 t["全体"][f"曖昧の印・{m}"] += 1
             if misread_as_affirmed(it, key):
@@ -1012,7 +1030,7 @@ def main() -> None:
                 # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
                 for it in pick_sample(items, args.sample):
                     it["見本"] = True
-            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", "終わり", "聞こえ"))
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", *SIDE_SUFFIX.values()))
                                                              for j in args.judge)} for it in items]
         items = [g73_scene(it) for it in items]   # 前の記録の試しの言葉にも、本番で判定に渡る前の言葉を当てる
         have = {(it["set"], it["qid"], it["text"]) for it in items}

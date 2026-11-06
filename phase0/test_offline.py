@@ -3388,8 +3388,8 @@ class AmbiguousAnswerTest(unittest.TestCase):
         text = prompt(ans, "差し控えさせていただきます。")
         self.assertIn(FIRM_RULE, text)
         self.assertNotIn("会話になっているか", text)
-        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end", "hear"])   # 電話を終える言葉か（答えとは別の項目。2026-11-01）
-        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, "end", "hear"})
+        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end", "hear", "why"])   # わからない・答えたくない理由（答えの段だけの項目。2026-11-06）   # 電話を終える言葉か（答えとは別の項目。2026-11-01）
+        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, "end", "hear", "why"})
 
     def test_end_item_is_asked_apart_from_the_answer(self):
         # ✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」＝電話を終える言葉か（通話・営業を断った・急いでいる・怒っている・取り次げない）を、
@@ -3406,7 +3406,8 @@ class AmbiguousAnswerTest(unittest.TestCase):
         from flowctl import HEAR, hear_choices
         facets = {f.key: f for f in target_facets()}                         # お呼びする段は項目の1つ（答えとは別に読む項目の表 SIDE_ITEMS から）
         self.assertEqual((set(facets[END].choices), set(facets[HEAR].choices)), (set(end_choices(True)), set(hear_choices(True))))
-        self.assertEqual(answer_items(q), {END: end_choices(False), HEAR: hear_choices(False)})   # 答えの段は答えとは別の項目（同じ表から）
+        from flowctl import WHY, why_choices
+        self.assertEqual(answer_items(q), {END: end_choices(False), HEAR: hear_choices(False), WHY: why_choices(False)})   # 答えの段は答えとは別の項目（同じ表から）
         self.assertTrue(all(d in prompt(q, "x") for d in hear_choices(False).values()))
         text = prompt(q, "結構です。もうかけてこないでください。")
         self.assertTrue(all(d in text for d in end_choices(False).values()))
@@ -7030,6 +7031,34 @@ class CallbackTest(unittest.TestCase):
         self.assertEqual((r["result"], f.current), ("replayed", "Q1"))
         self.assertIn("まだ名乗っていません", r["message"])
 
+    def test_unknown_reason_is_read_by_the_judges(self):
+        # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(3)「わからない」の理由（担当ではない・まだ決まっていない）を、いまは会話AIの報告だけで決めています。
+        # 業務によっては、この理由で残りの質問を伺わずに締めます。お勧め：判定に理由も読ませます。OK」⇒ 理由は判定の読み（項目 WHY）がそろったときだけ。
+        # 会話AIの理由では決めない（割れたら受け皿＝結論にしない）
+        from flowctl import WHY, Flow, Question
+        from meaning_judge import Reading
+        h = {("dont_know", "not_in_charge"): "conclude"}
+
+        def told(ai_why, whys):
+            f = Flow([Question("Q1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), handlings=h),
+                      Question("Q2", "ご導入の時期はお決まりでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+            f.use_checks("judge", "judge2")
+            f.on_callee(); f.on_heard("ちょっと分からないですね。")
+            for k, w in zip(("judge", "judge2"), whys):
+                r = Reading("unknown")
+                setattr(r, WHY, w)
+                f.on_check(k, r)
+            return f, f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown"} | ({"unknown_why": ai_why} if ai_why else {}))
+        # 会話AIが「担当ではない」と報告しても、判定がそろって「まだ決まっていない」と読めば、結論として締めない
+        f, r = told("not_in_charge", ("まだ決まっていない", "まだ決まっていない"))
+        self.assertEqual((f.items["Q1"].reason, f.end_reason, r.get("question_id")), ("undecided", None, "Q2"))
+        # 判定がそろって「担当ではない」と読めば、会話AIが理由を言わなくても、業務の決まりどおり結論として締める
+        f, r = told(None, ("担当ではない", "担当ではない"))
+        self.assertEqual((f.items["Q1"].reason, r["result"]), ("not_in_charge", "end"))
+        # 判定が割れたら受け皿（結論にしない）
+        f, r = told("not_in_charge", ("担当ではない", "わからない理由を言わなかった"))
+        self.assertEqual((f.items["Q1"].reason, f.end_reason, r.get("question_id")), ("unspecified", None, "Q2"))
+
     def test_follow_up_is_asked_in_rechecks_and_after_a_restatement(self):
         # ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴2つ：(1) 締めの前の念のための確認への「担当ではないので分からない」で分かる方を足しても、
         # 伺わずに締めた (2) 言い直しへの返事で「わからない」に直されたときは理由を受け取れず、業務の決まり（分かるお客様を聞く）が当たらなかった
@@ -7046,6 +7075,12 @@ class CallbackTest(unittest.TestCase):
         f.on_callee(); f.on_heard("うーん、あるんじゃないかなと思いますけど。"); f.on_check("judge", "いいえ")
         self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "confirm_required")
         f.on_callee(); f.on_heard("あ、いや、私は担当じゃないので分からないです。")
+        # 理由は判定が読む（✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(3)…判定に理由も読ませます。OK」＝Flow._why_of。会話AIの理由だけでは決めない）
+        from flowctl import WHY
+        from meaning_judge import Reading
+        why = Reading("unknown")
+        setattr(why, WHY, "担当ではない")
+        f.on_check("judge", why)
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "わからない", "unknown_why": "not_in_charge"})
         self.assertEqual((r["result"], r["question_id"], f.items["Q1"].reason), ("next", "C8", "not_in_charge"))
 

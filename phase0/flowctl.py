@@ -1390,15 +1390,39 @@ def hear_choices(calling: bool) -> dict:
             UNDECIDED: "この言葉からは、こちらの声が届いているかどうか決められない"}
 
 
+WHY, WHY_HEADING = "why", "わからない・答えたくない理由"
+WHY_NOT_SAID = "わからない・答えたくないとは言っていない"
+
+
+def why_choices(calling: bool) -> dict:
+    """「わからない」「答えたくない」と言ったときの理由の選べるもの（{中の名前: 説明}。中の名前は理由の名前＝DONT_KNOW_LABEL・REFUSED_LABEL の値）。
+    答えの段だけ（お呼びする段は {}＝side_items が飛ばす＝お呼びする段の文は変わらない）。読みを組み合わせるのは Flow._why_of の1か所。
+    ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(3)…お勧め：判定に理由も読ませます。OK」（⛔ それまでは会話AIの報告の理由だけで決めていた＝業務によっては
+    この理由で残りの質問を伺わずに締める＝11-01「会話AIは正しい判断ができるの？」と食い違い。13時27分07秒のご質問の見直しで見つけた）。
+    説明は意味で書き、試しの言葉と同じ言い方の例は書かない。"""
+    if calling:
+        return {}
+    d, r = DONT_KNOW_LABEL, REFUSED_LABEL
+    return {d["not_in_charge"]: "分からないのは、ご自分の担当ではない・ご自分が決める立場ではないからだと言った（分かる方がほかにいる）",
+            d["undecided"]: "まだ決まっていない・まだ決めていないので分からない、と言った",
+            d["unknown_now"]: "いまは分からない（手元に無い・すぐには思い出せない など。あとなら分かる）、と言った",
+            d["unspecified"]: "分からない、とだけ言い、どうして分からないのかを言っていない",
+            r["policy"]: "会社などの決まりで、言えない・教えられない、と言った",
+            r["unwilling"]: "答えたくない・言いたくない、とだけ言い、決まりで言えないとは言っていない",
+            WHY_NOT_SAID: "分からない・答えたくない、とは言っていない（答えた・ほかのことを話した、だけのときも）",
+            UNDECIDED: "この言葉からは、どの理由か決められない"}
+
+
 # 答えとは別に、判定がお客様の言葉ごとに読む項目の唯一の表（{項目の名前: (見出し, 選べるものを作る関数)}。並びは問い合わせの文の並び）。
 # 読むのは、お呼びする段の項目（target_facets）・答えの段の項目（meaning_judge.answer_items）・判定の決まりの文・Jev の問い・読み取り（Reading の
 # 同じ名前の値）。⛔ 2026-11-02 まで「電話を終える言葉か」だけを7か所に写して持っていた＝項目を足すと、写し漏れで片方の段だけ読まなくなる
-SIDE_ITEMS = {END: (END_HEADING, end_choices), HEAR: (HEAR_HEADING, hear_choices)}
+# 項目は、その段で読むものだけ選べるものを返す（その段で読まない項目は {}＝わからない・答えたくない理由は答えの段だけ）
+SIDE_ITEMS = {END: (END_HEADING, end_choices), HEAR: (HEAR_HEADING, hear_choices), WHY: (WHY_HEADING, why_choices)}
 
 
 def side_items(calling: bool) -> dict:
-    """答えとは別に読む項目の選べるもの（{項目の名前: {中の名前: 説明}}。SIDE_ITEMS の1か所から）。"""
-    return {k: fn(calling) for k, (_, fn) in SIDE_ITEMS.items()}
+    """その段で答えとは別に読む項目の選べるもの（{項目の名前: {中の名前: 説明}}。SIDE_ITEMS の1か所から。その段で読まない項目は入れない）。"""
+    return {k: c for k, (_, fn) in SIDE_ITEMS.items() if (c := fn(calling))}
 
 
 @dataclass(frozen=True)
@@ -1541,7 +1565,7 @@ def target_facets(asked: bool = False, seeks_successor: bool = False) -> tuple[F
                          "こちらにしない）" if s else
                          "いまの言葉で、お呼びした方は、退職・異動などで、もうその会社・部署にいない（担当が替わったときも）・そういう方はいない、と伝えた")}, (
         f"その日だけほかの方が代わりに受け持つときは、{ABOUT_DEPARTED}ではなく{TARGET_IS_AWAY}",))
-    side = tuple(Facet(k, h, fn(True)) for k, (h, fn) in SIDE_ITEMS.items())   # 電話を終える言葉か・こちらの声が届いていない様子か（SIDE_ITEMS）
+    side = tuple(Facet(k, SIDE_ITEMS[k][0], c) for k, c in side_items(True).items())   # 電話を終える言葉か・こちらの声が届いていない様子か（お呼びする段で読む SIDE_ITEMS）
     return (speaker, who, phone, about, *side)
 
 
@@ -5005,12 +5029,11 @@ class Flow:
         return "hedged"
 
     def _take_system(self, qid: str, cond: str, reason: str | None = None) -> dict:
-        """相手が「わからない」「答えたくない」と答えた（答えの報告と、言い直しへの返事の、どちらからも来る）。reason＝AIが選んだ理由
-        （その答えの理由の表に無ければ・選ばなければ受け皿＝理由を言わなかった）。"""
+        """相手が「わからない」「答えたくない」と答えた（答えの報告と、言い直しへの返事の、どちらからも来る）。reason＝会話AIが選んだ理由（判定を使う
+        通話では使わない＝理由は判定が読む _why_of の1か所）。"""
         it = self.items[qid]
         it.condition = cond
-        table = REFUSED_LABEL if cond == "refused" else DONT_KNOW_LABEL
-        it.reason = reason if reason in table else list(table)[-1]
+        it.reason = self._why_of(cond, reason)
         kind = self.questions[qid].handlings.get(("refused" if cond == "refused" else "dont_know", it.reason))
         if kind == "conclude":
             # 業務の決まりで、この答えが結論（「回答不可」など）：ほかの質問は伺わずに、丁寧に締める（CL-2 の 15-2-3 の (d)。結論の名前は CL-2 の判定が決める）
@@ -5032,6 +5055,21 @@ class Flow:
             return self._advance("受け付けました（答えたくない）。この質問は二度としません。")
         it.set("dont_know", "相手が「わからない」と答えた")
         return self._advance("受け付けました（わからない）。")
+
+    def _why_of(self, cond: str, reason: str | None = None) -> str:
+        """「わからない」「答えたくない」の理由（DONT_KNOW_LABEL・REFUSED_LABEL の鍵。唯一の決まり＝_take_system）：答えを当てる言葉（heard_check）への
+        判定の読み（項目 WHY＝flowctl.why_choices）が、届いたものがそろって同じ理由で、その答えの理由の表にあれば、その理由。そろわない・届いていない・
+        表に無い（わからないの答えに「決まりで言えない」など）・理由を言っていないと読んだなら、受け皿（理由を言わなかった＝業務の決まりで次の動きを
+        変えない側。結論として締める・分かる方を伺う、を1つの読みでしない）。判定を使わない通話だけ、会話AIの選んだ理由。
+        ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(3)…お勧め：判定に理由も読ませます。OK」（11-01 16時56分「会話AIは正しい判断ができるの？
+        できないから、別のAIを使ったんじゃないのか？」と同じ理由）"""
+        table = REFUSED_LABEL if cond == "refused" else DONT_KNOW_LABEL
+        if not self.judging:
+            return reason if reason in table else list(table)[-1]
+        got = [getattr(self.heard_check.get(k), WHY, None) for k in JUDGMENTS]
+        got = [g for g in got if g is not None]
+        key = {v: k for k, v in table.items()}.get(got[0]) if got and all(g == got[0] for g in got) else None
+        return key or list(table)[-1]
 
     def _op_report_unclear(self, a: dict) -> dict:
         qid = a.get("question_id")

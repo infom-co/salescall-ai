@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, HOLD, HOLD_BACK, LATER, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, HOLD, HOLD_BACK, LATER, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
@@ -289,7 +289,7 @@ MAYBE_RULE = "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 RULES = (
     ASK_HEAD +
     "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）も答えてください。さらに、答えとは別に、お客様の言葉が"
-    + "・".join(f"{h}（{k}）" for k, (h, _) in SIDE_ITEMS.items()) + "を、それぞれの選べるものから1つずつ選んでください（答えを言っていても、"
+    + "・".join(f"{SIDE_ITEMS[k][0]}（{k}）" for k in side_items(False)) + "を、それぞれの選べるものから1つずつ選んでください（答えを言っていても、"
     "電話を終える言葉が入っていれば、それを選びます。どれも" + NOW_ONLY + "）。\n"
     "決まり：\n" +
     MEANING_RULE + "（「いいえ、もう済ませてあります」は、済ませた側）。\n"
@@ -339,13 +339,13 @@ def facet_rules(q) -> str:
             + "決まり：\n"
             "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません。\n"
             "- 話している方は誰かは、言葉から言える段まで選び、2つの答えの境目は、その項目の見分け方で決めます。\n"
-            f"- 電話のやり取りと、{P}の事情と、" + "と、".join(h for h, _ in SIDE_ITEMS.values()) + f"は、{NOW_ONLY}（その前に相手が言った取り次ぎ・不在・断りなどの事実は、いまの言葉の答えにしません）。\n"
+            f"- 電話のやり取りと、{P}の事情と、" + "と、".join(SIDE_ITEMS[k][0] for k in side_items(True)) + f"は、{NOW_ONLY}（その前に相手が言った取り次ぎ・不在・断りなどの事実は、いまの言葉の答えにしません）。\n"
             "- 前と同じ方かと、話している方は誰かは、その前に相手が言ったことも合わせて決めます（説明と見分け方の中の「その前の言葉で」「取り次ぐと"
             "言われたあとに」などは、その前に相手が言ったことに当てます。いまの言葉の中の人が誰かも、その前の言葉で結びます）。\n")
 
 
 # いまの言葉だけで読む項目（facet_rules の4行目と、Jev の問い＝jev_request が同じ文を使う。Jev には決まりの文を渡さないため）
-NOW_ONLY_FACETS = (PHONE, ABOUT, *SIDE_ITEMS)   # 答えとは別に読む項目（SIDE_ITEMS）も。 電話を終える言葉かも、いまの言葉だけ（前の断りは、その発話で当てた＝流れの制御）
+NOW_ONLY_FACETS = (PHONE, ABOUT, *side_items(True))   # 答えとは別に読む項目（SIDE_ITEMS）も。 電話を終える言葉かも、いまの言葉だけ（前の断りは、その発話で当てた＝流れの制御）
 TERM_FACETS = (SPEAKER, WHO)   # 説明に言葉の決まり（flowctl.facet_terms）の言葉を使う項目（Jev の問いの指示に、言葉の決まりを入れる）
 
 
@@ -533,7 +533,8 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
         value, away, new, successor = facts_reading(facts, getattr(q, "seeks_successor", False))
         r = Reading(value, True, sure)
         r.away, r.new, r.successor, r.facts = away, new, successor, facts
-        r.end, r.hear = facts.get(END), facts.get(HEAR)
+        for k in SIDE_ITEMS:
+            setattr(r, k, facts.get(k))   # 答えとは別に読む項目の読み（項目の名前の値＝flowctl.SIDE_ITEMS の1か所。⛔ 2026-11-06 日本時間15時台まで、ここと下と確かでない読みの記録の3か所が2つの項目を名前で手書きしていた）
         return r
     cond = next((c for n, _, c in options(q, asked) if n == name), None)
     if cond is None:
@@ -542,7 +543,9 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
         return None   # 答えとは別の項目に、選べるものに無い名前（読めない返事）。項目が無い返事（足す前の記録）は、読んでいない＝None
     r = Reading(cond, firm is not False, sure)
     r.firm_p = got.get("firm_p") if isinstance(got.get("firm_p"), (int, float)) else None
-    r.end, r.hear = (got.get(END), got.get(HEAR)) if answer_items(q) else (None, None)
+    items = answer_items(q)
+    for k in SIDE_ITEMS:
+        setattr(r, k, got.get(k) if k in items else None)
     return r
 
 
@@ -987,7 +990,10 @@ JEV_FIRM = {"true": FIRM_YES, "false": FIRM_NOT}
 JEV_MARKS = {FIRM: ("お客様の返事を、確かめずにそのまま記録しますか？", JEV_FIRM)}
 JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当たりますか？（答えとは別に読みます。答えを言っていても、電話を終える言葉が入っていれば、それ。"
                   + NOW_ONLY + "）",
-             HEAR: "お客様の言葉は、こちらの声がお客様に届いていない様子を表していますか？（答えとは別に読みます。" + NOW_ONLY + "）"}
+             HEAR: "お客様の言葉は、こちらの声がお客様に届いていない様子を表していますか？（答えとは別に読みます。" + NOW_ONLY + "）",
+             # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(3)…判定に理由も読ませます。OK」（flowctl.why_choices・Flow._why_of）
+             WHY: "お客様が、分からない・答えたくないと言ったなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）"}
+assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 
 def jev_criteria(q, asked: str | None = None) -> dict:
@@ -2002,7 +2008,7 @@ class JudgePanel(RouteState):
             return None
         if not sure_reading(name, q, got):  # 確からしさを返す判定（Jev・d1）は、確かな読み（線から上・言い切りが幅の外）だけを答えにする
             tried.append({"model": name, "unsure": str(got), "sure": got.sure, "s": round(self.clock() - t0, 3)}
-                         | ({"end": got.end} if getattr(got, "end", None) else {}) | ({"hear": got.hear} if getattr(got, "hear", None) else {}))
+                         | {k: getattr(got, k) for k in SIDE_ITEMS if getattr(got, k, None)})
             return None
         return got
 
