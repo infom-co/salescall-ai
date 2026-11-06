@@ -625,6 +625,18 @@ def wait_reading(check: dict) -> str | None:
     return HOLD if HOLD in waits and not waits & {LATER, WAIT_OR_LATER} else WAIT_OR_LATER
 
 
+def says_wait(said: str | None) -> bool:
+    """お客様の言葉に、待つように言う言葉（「待って」「お待ちください」「待ちます」＝単語分けの辞書 jtext.words の見出し語「待つ」）があるか（唯一の決まり＝
+    はっきり待つように言われたか Flow._wait_clear）。待たせる（「お待たせしました」「待たせてごめん」＝見出し語は「待つ」に助動詞「せる」「させる」が続く）は、
+    待つように言う言葉ではない。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「はっきりと「少し待って」と言われれば、アでいいけど、「待って」という言葉が
+    ないか、聞き取りにくければ、イ」"""
+    from jtext import words
+    ws = [w for w in words(said or "") if w.feature.pos1 not in ("補助記号", "空白")]
+    return any(getattr(w.feature, "lemma", "") == "待つ" and w.feature.pos1 == "動詞"
+               and not (i + 1 < len(ws) and getattr(ws[i + 1].feature, "lemma", "") in ("せる", "させる"))
+               for i, w in enumerate(ws))
+
+
 def asks_us(said: str | None, readings) -> bool:
     """答えの段で、お客様が、いまの質問・言い直しに答える代わりに、こちらに尋ねたか（唯一の決まり＝流れの制御 Flow._asked_now・測りの数え
     g53_meaning.flow_act）：届いた意味の判定の読みがどれも「決められない」（説明に「どの答えがよいかを、こちらの考えとして尋ねた」を含む＝
@@ -6749,8 +6761,12 @@ class Flow:
         else:
             replied = any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait")
                           for x in self.log)
-            w = None if replied else self._wait_now()
-            reply = self._wait_route(w, self._wait_read()) if w is not None else None
+            w = self._wait_now()
+            if replied:
+                # この発話にもう返事をした：待つと応えたあとに届いた遅れた読みだけを当てる（_wait_rethought）
+                reply, w = self._wait_rethought(w), WAIT_OR_LATER
+            else:
+                reply = self._wait_route(w, self._wait_read()) if w is not None else None
             if reply is None:
                 return None
             name, args = "request_callback", {"why": "later", "wait": w}
@@ -6926,6 +6942,26 @@ class Flow:
         if w == LATER:
             return self._callback(why, read, offer=offer)
         return self._wait_or_later()
+
+    def _wait_rethought(self, w: str | None) -> dict | None:
+        """待つと応えたあと（「はい、」のあと黙って待つ・「はい、それではこのままお返事を待っております。」＝holding。お客様がまだ話していない）に、同じ発話の
+        判定が遅れて届いた（電話接続側は、待っている間に判定が届いたら報告の無いターンの入口 judged_turn を呼ぶ）：遅れた読みも同じ決まり（wait_reading＝
+        設計書 1-1 の (c)「遅れて届いたほうも同じ決まりで当てる」）で当て、待つかかけ直すかが割れた（LATER・WAIT_OR_LATER）ら、はっきり待つように言われて
+        いない（待つ言葉が無い・聞き取りにくい＝_wait_clear）ときだけ、その場で1回伺う（H2＝_wait_or_later。伺うのは1回＝wait_asked）。はっきり待つように
+        言われていれば、もうお伝えした動き（このまま待つ）を変えない。答えの段だけ（お呼びする段の取り次ぎの待ちは、不在・取り次ぎの決まり＝9-4）。
+        ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(2) 「待つ」と言ったあとに、遅れて「かけ直してほしい」の読みが届く：例のように、はっきりと「少し待って」と
+        言われれば、アでいいけど、「待って」という言葉がないか、聞き取りにくければ、イ」。⛔ それまでは、遅れた読みを覚えるだけで何もしなかった"""
+        if (not self.holding or not self.in_answer_stage or self.callback_why or self.wait_asked
+                or w not in (LATER, WAIT_OR_LATER) or self._wait_clear()):
+            return None
+        self.holding = False   # 黙って待つのをやめて伺う
+        return self._wait_or_later()
+
+    def _wait_clear(self) -> bool:
+        """お客様が、はっきり待つように言ったか（唯一の決まり＝_wait_rethought）：言葉に待つように言う言葉があり（says_wait）、聞き取りにくくない（別の耳の
+        文字が届いていれば、会話AIの聞き取りと食い違わない＝確かめの (1) と同じ heard_alike。届いていない確かめは比べない＝_compare と同じ）。"""
+        said, ear = self.callee_said or "", self.check.get("ear")
+        return says_wait(said) and (ear is None or heard_alike(said, ear))
 
     def _wait_or_later(self) -> dict:
         """待つのか、かけ直すのか、お言葉から決まらない（判定が WAIT_OR_LATER・待つ読みとかけ直す読みが食い違った＝wait_reading）：1回だけ「かしこまりました。」＋

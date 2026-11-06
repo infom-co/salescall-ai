@@ -12868,6 +12868,43 @@ class NoneOfThemTest(unittest.TestCase):
             r = f.apply("record_answer", {"question_id": h2, "condition_id": WAIT_NOW})
             self.assertEqual((r["result"], f.holding, f.wait_q), ("hold", True, None), op)
 
+    def test_late_callback_reading_after_waiting_asks_once_unless_waiting_was_clear(self):
+        # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(2) 「待つ」と言ったあとに、遅れて「かけ直してほしい」の読みが届く：例のように、はっきりと「少し待って」と
+        # 言われれば、アでいいけど、「待って」という言葉がないか、聞き取りにくければ、イ」（ア＝もうお伝えした動きを変えない・イ＝その場で「このままお待ちして
+        # いた方が…それとも改めて…」を1回伺う）
+        # ⇒ 待つと応えたあと（お客様がまだ話していない間）に、同じ発話の判定が遅れて届いた（電話接続側は、待っている間に判定が届いたら judged_turn を呼ぶ）：
+        # 遅れた読みも同じ決まりで当て（設計書 1-1 の (c)・wait_reading）、待つかかけ直すかが割れたら、待つ言葉が無いか、聞き取りにくい（別の耳の文字と
+        # 食い違う）ときだけ、その場で1回伺う（H2）。⛔ それまでは、遅れた読みを覚えるだけで何もしなかった
+        from flowctl import HOLD_BACK, LATER, WISH_NONE, says_wait
+        from meaning_judge import Reading
+        from phrases import ACK
+        H2 = "かしこまりました。このままお待ちしていた方がよろしいでしょうか？それとも改めておかけ直しさせていただいた方がよろしいでしょうか？"
+
+        def waited(words, ear=None):
+            f, _ = self.wished(False)
+            f.on_callee(); f.on_heard(words)
+            if ear:
+                f.on_check("ear", ear)
+            f.on_check("judge", Reading(HOLD_BACK))
+            r = f.apply("record_answer", {"question_id": "W1", "condition_id": WISH_NONE})
+            self.assertEqual(r["result"], "hold", words)
+            f.on_check("judge2", Reading(LATER))     # 遅れて届いたもう1つの判定（かけ直してほしい）
+            return f, f.judged_turn()
+        heard = lambda r: (ACK[r["ack"]] if r.get("ack") else "") + r.get("question", "")
+        # (ア) はっきり「待って」と言われた：もうお伝えした動き（このまま待つ）を変えない
+        f, r = waited("妻に話してからにしたいので、少し待ってください。")
+        self.assertEqual((r, f.holding), (None, True))
+        # (イ) 待つ言葉が無い：その場で1回伺う
+        f, r = waited("ちょっと妻に聞いてみますね。")
+        self.assertEqual((heard(r), f.current), (H2, "H2"))
+        self.assertIsNone(f.judged_turn())   # 1回だけ（同じ発話で伺い直さない）
+        # (イ) 聞き取りにくい（別の耳の文字が会話AIの聞き取りと食い違う）：「待って」と聞こえていても1回伺う
+        f, r = waited("妻に話してからにしたいので、少し待ってください。", ear="妻に話してからにしたいので、また電話ください。")
+        self.assertEqual(heard(r), H2)
+        # 待つように言う言葉の見分け（単語分けの辞書の見出し語「待つ」。待たせる＝「お待たせしました」は待つように言う言葉ではない）
+        self.assertEqual([says_wait(t) for t in ("少し待ってください。", "少々お待ちください。", "待ちますね", "お待たせしました", "また電話ください。")],
+                         [True, True, True, False, False])
+
     def test_wait_words_in_the_answer_stage_wait_with_a_word_or_ask_once(self):
         # 会話2：✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「電話がつながったまま、妻に確認を待ってと言っていらっしゃるなら、「はい、それではこのまま
         # お返事を待っております。」で待ち、妻に確認するから、また、後からや別日程でかけ直してという意味であれば、「（はい、）承知しました。いつ頃おかけ直し
