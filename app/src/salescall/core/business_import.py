@@ -763,18 +763,27 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
            ai: dict[str, Any] | None = None, problems: list[str] | None = None,
-           where: dict[str, list[str]] | None = None) -> Preview:
+           where: dict[str, list[str]] | None = None, standard_id: UUID | str | None = business_settings.LATEST) -> Preview:
     """業務設定の形を確かめる（どの入口も、ここを通る：ファイル・依頼者の画面から抜き出したもの・画面の入力）。何も書かない。
     AI には聞かない（AI の答えは `ask_ai` で1回だけ聞いて、ai に渡す）。
     - 名前と読み：入口の名前に、AI が洗い出した名前を足す（同じ表記は1つ）。読みの決め方は core/readings.py の1か所（入口の読み
       ＞契約者が確かめた読み＞AI が決めた読み＞決まらない＝候補つき）。検証モードの業務では、AI が決めた読みを契約者が確かめる
       （確かめていなければ問題に出る）。名乗りの自社名・担当者名の読みは、名前の一覧の読みの写し。
-    - 数の質問の単位：入口が持ってこなければ、AI の答えの単位を入れる（無ければ空）。"""
+    - 数の質問の単位：入口が持ってこなければ、AI の答えの単位を入れる（無ければ空）。
+    - 依頼者の解決策で足した想定問答は、取り込み直しても残す（中身に同じ問いがあれば中身が先。決めるのは client_solutions.keep_in の1か所）。
+    standard_id＝重ねる標準の版（LATEST＝いまの標準＝入口の取込。解決策のように前の版から作るときは、その版の標準の版を渡す＝標準を
+    替えるのは business_settings.derive_for_standard の1か所。見直し(B) の2）。"""
     problems = list(problems or [])
     ai = ai or {}
     raw = json.loads(json.dumps(raw, ensure_ascii=False))           # 受けたものを変えない
+    from salescall.core import client_solutions   # 解決策の部品が取込を読むので、ここで読む（読み合いにしない）
+    kept: list[str] = []
+    if isinstance(raw, dict) and (raw.get("answers") is None or isinstance(raw.get("answers"), list)):
+        raw, kept = client_solutions.keep_in(tx, business_id, raw)
     verification = business_settings.ai_reading_needs_person(tx, business_id)
-    standard = business_settings.current_standard(tx)   # 重ねるのは、いまの標準（業務設定の1か所。登録も同じ版で作る＝Preview.standard_id）
+    # 重ねる標準（入口の取込は、いまの標準。登録も同じ版で作る＝Preview.standard_id）
+    standard = business_settings.current_standard(tx) if standard_id == business_settings.LATEST \
+        else business_settings.standard(tx, standard_id)
     confirmed = {t: r for t, r in confirmed_names}
     found = readings.from_json(ai.get("names"))
     # 名前の一覧は、読めない形の行も順番どおり残す（落とすと、確かめが問題に出せず、問題の位置もずれる。2026-10-17 の見直し）。
@@ -877,7 +886,7 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         problems += [p for p in e.problems if p not in problems]
     if where is not None:                                             # ファイルの入口：問題の位置をシートと行にする
         problems = _placed(problems, where)
-    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems, standard.standard_id), ai, notes=notes,
+    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems, standard.standard_id), ai, notes=kept + notes,
                    standard_id=standard.standard_id)
 
 

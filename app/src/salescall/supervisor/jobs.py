@@ -116,11 +116,15 @@ def reopen_revoked(ctx: Context) -> None:
 def versions(ctx: Context) -> None:
     """版を足して、そろったら自動で替える（依頼者ごと。DESIGN.md 3-8-3 の (5)・0183）：標準の想定問答が新しくなっていれば、使っている
     業務の版のつながりの先に新しい版を作り（business_settings.derive_for_standard）、話せる後の版があれば実施回に割り当てる
-    （business_settings.adopt_ready。電話は止めない＝そろうまでは今の版のまま）。"""
-    def work(tx: Any) -> None:
-        business_settings.derive_for_standard(tx)
-        business_settings.adopt_ready(tx)
-    _each(ctx, "版を足して自動で替える", _clients(ctx), lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, work))
+    （business_settings.adopt_ready。電話は止めない＝そろうまでは今の版のまま）。版ごと・実施回ごとに別の取引（1つが落ちても記録して
+    残りを続ける＝⛔ 見直し(B) の5：前は依頼者ごとに1つの取引で、1つの版の失敗が、その依頼者のすべての実施回の自動の替えを止めた）。"""
+    def per_client(client_id: UUID) -> None:
+        in_client = lambda work: ctx.access.in_client(ACTOR, ctx.tenant_id, client_id, work)   # noqa: E731
+        _each(ctx, "版を足す（標準）", in_client(business_settings.in_use_versions),
+              lambda v: in_client(lambda tx: business_settings.derive_for_standard(tx, v)))
+        _each(ctx, "版を自動で替える", in_client(business_settings.in_use_runs),
+              lambda r: in_client(lambda tx: business_settings.adopt_ready(tx, r)))
+    _each(ctx, "版を足して自動で替える（依頼者）", _clients(ctx), per_client)
 
 
 def purge_utterances(ctx: Context) -> None:
