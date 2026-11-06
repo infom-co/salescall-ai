@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
-from phrases import APOLOGY_CUT_END, TOLD_AGAIN, TOLD_FOLLOW_UP
+from phrases import APOLOGY_CUT_END, QUESTION_RESUME_LEAD, TOLD_AGAIN, TOLD_FOLLOW_UP
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
@@ -533,10 +533,10 @@ def recap_recording_id(q: "Question") -> str:
     return f"{q.id}_recap"
 
 
-def question_play(questions: list["Question"], qid: str, before: str = "", again: bool = False) -> dict:
+def question_play(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False) -> dict:
     """その質問を録音で流すときの1つ（電話接続側が流すもの）。業務の質問＝依頼主の単位の録音（つなぎの言葉＋質問の文）、かけ直しで足す質問＝
     共通の一言の録音（phrases.RECORDED の callback_〜。どの業務でも同じ文）。読みの確かめは録音にしない（相手ごとの名前を含む＝AIが言う）。
-    before・again は、つなぎの言葉を決める1か所（spoken_question）へ渡す。入る一言の頭のつなぎの言葉を替えた形は、入る一言の録音（番号だけ）とは別の録音
+    before・again・resumed は、つなぎの言葉を決める1か所（spoken_question）へ渡す。入る一言の頭のつなぎの言葉を替えた形は、入る一言の録音（番号だけ）とは別の録音
     （名前は「番号_intro」＋つなぎの言葉＝phrases.question_clip）。"""
     q = next(x for x in questions if x.id == qid)
     if q.callback in OPENING_ROLES:
@@ -546,7 +546,7 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
         return {"kind": "question", "id": q.recording, "text": q.text, "lead": ""}
     if q.callback:
         return {"kind": "recorded", "id": q.recording or f"callback_{q.callback}", "text": q.text}
-    text, lead = spoken_question(questions, qid, before, again)
+    text, lead = spoken_question(questions, qid, before, again, resumed)
     # 日によって変わる言い方の入った質問は、その言い方の録音（Question.recording＝day_recording_id。名前の組み方は今と同じ「番号＋つなぎの言葉」）
     rid = q.recording or q.id
     if q.intro and lead and not again and lead != q.intro:
@@ -616,22 +616,30 @@ def before_heads(questions: list["Question"]) -> set[str]:
 def question_forms(questions: list["Question"], qid: str) -> list[dict]:
     """業務の質問を録音で流しうる形（唯一の一覧＝録音を作る make_ack_clips.script_table。流す形は question_play の1か所が作る）：次の項目として初めて伺う形・
     直前に流しうる一言の頭と重なってつなぎの言葉を替えた形（before_heads）・もう伺った質問を伺い直す形（頭は AGAIN_LEAD＝Flow._continue。戻る一言のあと・
-    「失礼いたしました。」のあと・尋ねられて答えたあと）。同じ録音の名前は1つ。"""
+    「失礼いたしました。」のあと・尋ねられて答えたあと）・続きの電話で最初に伺う形（頭は QUESTION_RESUME_LEAD）。同じ録音の名前は1つ。"""
     q = next(x for x in questions if x.id == qid)
     forms = [question_play(questions, qid)] + [question_play(questions, qid, before=w) for w in sorted(before_heads(questions))]
     if not (q.reading_of or q.callback or q.of):
-        forms.append(question_play(questions, qid, again=True))
+        forms += [question_play(questions, qid, again=True), question_play(questions, qid, resumed=True)]
     return list({(p["id"], p.get("lead") or ""): p for p in forms}.values())
 
 
-def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False) -> tuple[str, str]:
+def resumed_call(earlier: dict | None, apology_call=None, number_again=None) -> bool:
+    """続きの電話か（唯一の決まり＝流れの制御 Flow._resumed_call・名乗りの録音と AIへの指示文 instruction.Business.first_ask）：前の通話で取れた答えがある。
+    お詫びの電話・番号を伺い直す電話は業務の質問を伺わないので除く。名乗り・お詫び・用件のすぐあとに伺う業務の質問の頭（spoken_question の resumed）を決める。"""
+    return bool(earlier) and not apology_call and not number_again
+
+
+def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False) -> tuple[str, str]:
     """録音で流す質問の文（つなぎの言葉＋質問の文）と、そのつなぎの言葉（唯一の場所）。次の項目の質問に入るときは「続きまして」（NEXT_LEAD。
     ✅ 2026-11-06 日本時間12時54分30秒 ユーザー。⛔ それまでは質問の順番で「それでは」「続きまして」「では」を回していた）。最初の質問は名乗りと一緒に
     流すので、つなぎの言葉は付けない。
     ✅ 2026-10-15 ユーザー（聞き比べ）：つなぎの言葉と質問を1本で録音したほうが「しいて言えば自然」⇒ 1本の録音にする。順番で決めておけば、
     依頼主ごとの録音は質問1つにつき1本のまま（流れの制御・録音を作る道具の両方が、ここを使う）
     before＝その回に、この質問の直前に流す一言：その文の頭のつなぎの言葉と重なれば替える（relead。✅ 2026-11-06 日本時間11時55分13秒「(1) ウ」）。
-    again＝尋ねられて答えたあとに伺い直す形（頭は AGAIN_LEAD。入る一言はもう流したので付けない。✅ 同じ時「(2) イ」）。"""
+    again＝尋ねられて答えたあとに伺い直す形（頭は AGAIN_LEAD。入る一言はもう流したので付けない。✅ 同じ時「(2) イ」）。
+    resumed＝続きの電話で、お詫び（＋用件の一文）のすぐあとに最初に伺う（次の項目のつなぎの言葉の代わりに QUESTION_RESUME_LEAD。✅ 2026-11-06 日本時間
+    15時20分30秒 ユーザー「続きまして、も、それではも繋がりがおかしい」。入る一言・前の答えで伺う質問は業務の言葉のまま）。"""
     q = next(x for x in questions if x.id == qid)
     if q.reading_of or q.callback:  # プログラムが足す質問（読みの確かめ・かけ直し）：つなぎの言葉は付けない
         return q.text, ""
@@ -647,6 +655,8 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     # キャンセルなさいますか？」「それでは、いつでしたら、お話しできそうでしょうか？」。⛔ 見直しで見つけた：並びの順番の「続きまして」を付けていた＝
     # 業務設定の文が「それでは」で始まると「続きましてそれでは、…」「それではそれでは、…」。業務設定の文には頭のつなぎの言葉を書かない＝CL-2）。
     # 前の答えで伺う質問は、前の項目の続き（次の項目ではない）なので「続きまして」にしない（12時54分30秒の「次の項目の質問に入る前」）
+    if resumed and not q.intro and not q.ask_if:
+        return QUESTION_RESUME_LEAD + q.text, QUESTION_RESUME_LEAD
     lead = relead(q.intro or ("それでは" if q.ask_if else NEXT_LEAD), before)
     return lead + q.text, lead
 
@@ -3387,7 +3397,8 @@ class Flow:
                 if self.opening.get("purpose"):
                     lines.append({"kind": "opening", "part": "purpose", "text": self.opening["purpose"]})
             if self.current is not None:
-                lines.append(question_play(list(self.questions.values()), self.current, "".join(x["text"] for x in lines)))
+                lines.append(question_play(list(self.questions.values()), self.current, "".join(x["text"] for x in lines),
+                                           resumed=self._resumed_call()))
                 self.items[self.current].played = True
             say, then = None, "相手の答えを待ってください。" + answer_wait() if self.current else "相手のお返事を待ちます。"
         texts = "".join(x["text"] for x in lines)
@@ -6528,7 +6539,8 @@ class Flow:
             return self._advance(f"{prefix}{whom}に繋がりました。まず、{say_note(texts)}続けて、", handled=True)
         r = self._advance(f"{prefix}{whom}に繋がりました。{played_note(texts)}続けて、", handled=True)
         r = self._prepend_played(r, [x if x["kind"] == "recorded" else {**x, "text": self.opening[x["part"]]} for x in lines])
-        return self._relead_next(r, [])   # 前に足した用件などの文の頭と、質問のつなぎの言葉を重ねない（_relead_next の1か所）
+        # 前に足した用件などの文の頭と、質問のつなぎの言葉を重ねない・続きの電話なら最初の質問の頭は QUESTION_RESUME_LEAD（_relead_next の1か所）
+        return self._relead_next(r, [], resumed=self._resumed_call())
 
     def _wish_reported(self, name: str, args: dict) -> tuple[str, dict]:
         """ほかのご希望を伺っている（W1 がいまの質問）ときの、ほかの手段の申し出（request_callback の「ほかの手段」・メール・ファクス・郵送）を、W1 の答え
@@ -8572,7 +8584,11 @@ class Flow:
         self._asked_next = (r, play)
         return r
 
-    def _relead_next(self, r: dict, before: list[dict]) -> dict:
+    def _resumed_call(self) -> bool:
+        """続きの電話か（決まりは resumed_call の1か所。名乗りの返事 _opening_reply・繋がったとき _connect が読む）。"""
+        return resumed_call(self.earlier, self.apology_call, self.number_again)
+
+    def _relead_next(self, r: dict, before: list[dict], resumed: bool = False) -> dict:
         """次の質問を伺う返事 r（_next_question が作ったそのもの。中の録音の前に、名乗り・用件などを足されていてもよい）の質問の頭のつなぎの言葉を、
         その前に同じ回に流す言葉（before＝前に足す決まった言葉と、r の中で質問より前に並んだ録音）の文の頭と重ねない形に替える（唯一の場所＝前に言葉を
         足す _led・名乗りを足す _connect。決めるのは spoken_question の relead）。替えるのは質問の1つと、AIへの知らせの中のその文だけ（重ならなければ何も
@@ -8588,14 +8604,14 @@ class Flow:
             at = next((i for i, p in enumerate(plays) if p is m[1]), None)
             if at is None:
                 return r
-            new = question_play(qs, qid, "".join(p["text"] for p in [*before, *plays[:at]]))
+            new = question_play(qs, qid, "".join(p["text"] for p in [*before, *plays[:at]]), resumed=resumed)
             if new != plays[at]:
                 r["message"] = r["message"].replace(plays[at]["text"], new["text"], 1)
                 plays[at] = new
                 self._asked_next = (r, new)
             return r
         old = spoken_question(qs, qid)[1]   # AIが話す通話：AIに渡す話し始めの言葉を替える
-        new = spoken_question(qs, qid, "".join(p["text"] for p in before))[1]
+        new = spoken_question(qs, qid, "".join(p["text"] for p in before), resumed=resumed)[1]
         if old and new != old:
             r["message"] = r["message"].replace(start_with(old), start_with(new), 1)
         return r

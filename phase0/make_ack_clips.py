@@ -149,6 +149,13 @@ MAX_S["busy"] = 9.0
 # 同じ。✅ 2026-11-04 日本時間19時26分のお言葉の一言は104字（見込み 16.9秒）と長いので、長さの上限だけ別にする（busy・お立場の一言と同じ考え）
 HOW["question_long"] = HOW["question"]
 MAX_S["question_long"] = 17.0
+
+
+def question_how(text: str) -> str:
+    """業務の質問の録音の読み方（唯一の決まり＝script_table）：質問の読み方で、文の長さの見込み（CHAR_S）が質問の上限に収まらない文は、同じ読み方で上限の
+    大きい question_long（⛔ 2026-11-06 日本時間15時台：続きの電話で最初に伺う形＝頭が「確認させていただきたい内容なのですが」で18字長い形を足して見つけた。
+    文の長さにかかわらず question＝6秒だった）。"""
+    return "question" if len(text) * CHAR_S * 1.15 <= MAX_S["question"] else "question_long"
 # 連絡先の一言の鍵は言い方の表の1か所（phrases._CONTACT_RESUMED＝flowctl.contact_again_key。⛔ 2026-11-05 まで役目を手で並べていた＝オンラインの一言を足すと漏れる）
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
@@ -294,7 +301,7 @@ def script_table(business) -> tuple[dict, dict]:
         if q.reading_of:
             continue  # 名前の読みの確かめは、まず言ってみる読みが相手ごとに変わるので、AIが言う（録音にしない）
         # 流れの制御が流しうる形ごとに1本（flowctl.question_forms の1か所：次の項目として初めて伺う「続きまして」の形・直前の一言の頭と重なってつなぎの言葉を
-        # 替えた形・もう伺った質問を伺い直す「それでは」の形。✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(1) ウ、(2) イ」・12時54分30秒「次の項目の質問に
+        # 替えた形・もう伺った質問を伺い直す「それでは」の形・続きの電話で最初に伺う「確認させていただきたい内容なのですが」の形（✅ 11-06 15時20分30秒）。✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(1) ウ、(2) イ」・12時54分30秒「次の項目の質問に
         # 入る前は、すべて「続きまして」でいいんじゃないですか。」）
         for p in question_forms(business.questions, q.id):
             text, lead, tail = p["text"], p["lead"], p["id"][len(q.id):]
@@ -302,9 +309,9 @@ def script_table(business) -> tuple[dict, dict]:
                 # 日によって変わる言い方（最短の日）の入った質問：言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー (ア)「OK」。名前は flowctl.day_recording_id）。
                 # 替わるのは質問の文の録音だけ（下の伝える一言・ほかのご希望を伺う一言は、ほかの質問と同じ。⛔ 見直しで見つけた：ここで次の質問へ進み、作っていなかった）
                 for w in DAY_VARIANTS:
-                    items.append((question_clip(day_recording_id(q.id, w) + tail, lead), text.replace(DAY_SLOT, w), "question"))
+                    items.append((question_clip(day_recording_id(q.id, w) + tail, lead), text.replace(DAY_SLOT, w), question_how(text.replace(DAY_SLOT, w))))
             else:
-                items.append((question_clip(p["id"], lead), text, "question"))
+                items.append((question_clip(p["id"], lead), text, question_how(text)))
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
         if holds_pending(q):

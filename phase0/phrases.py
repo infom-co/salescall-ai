@@ -498,13 +498,19 @@ CLOSING_AFTER_DECLINE = "承知いたしました。" + CLOSING
 # 声の中の間にはならない）
 LEAD_RECORDED = {"それでは": "lead_soredeha", "続きまして": "lead_tsuzukimashite", "では": "lead_deha"}
 assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
+# 続きの電話で、お詫び（＋用件の一文）のすぐあとに最初に伺う業務の質問の頭（✅ 2026-11-06 日本時間15時20分30秒 ユーザー：「⇒「確認させていただきたい
+# 内容なのですが（内容の1つ目ですが）、お支払いはカードと振込のどちらがよろしいでしょうか？」：続きまして、も、それではも繋がりがおかしい。」。決まった
+# 言い方なので読点は外す＝10-15）。⚠️ flowctl.RESUMED_LEAD（「前回お伺いした」＝会話AIのご説明の話し始め）とは別の言葉
+QUESTION_RESUME_LEAD = "確認させていただきたい内容なのですが"
+# 質問の録音の名前の後ろ（つなぎの言葉ごと）：順番のつなぎの言葉と、続きの電話の始めの頭
+QUESTION_LEAD_CLIPS = {**LEAD_RECORDED, QUESTION_RESUME_LEAD: "lead_resume"}
 
 
 def question_clip(qid: str, lead: str) -> str:
     """質問の録音（つなぎの言葉＋質問の文の1本＝flowctl.spoken_question）の名前（唯一の場所＝作る make_ack_clips.script_table・流す stitch_gap.played_wav）：
     順番で決まるつなぎの言葉なら番号＋その名前。質問に入る一言（Question.intro＝業務設定）は質問ごとに1つなので番号だけ。⛔ 2026-11-05 日本時間4時台
     （4時16分52秒のご指摘を入れる途中）に見つけた：2か所が別々に「番号＋つなぎの言葉の名前」と組み、入る一言のある質問で、録音を作る道具も流す道具も止まった"""
-    return f"{qid}_{LEAD_RECORDED[lead]}" if lead in LEAD_RECORDED else qid
+    return f"{qid}_{QUESTION_LEAD_CLIPS[lead]}" if lead in QUESTION_LEAD_CLIPS else qid
 # 業務の質問の文の頭に、会話の側が付けうる言葉（1か所）：つなぎの言葉（LEAD_IN の「次の質問」。前の答えで伺う質問の頭の「それでは」も入る＝
 # flowctl.spoken_question）と、質問の文のすぐ前に流しうる相づち（flowctl.Flow._ack_choice が返す相づちのうち、お詫びの「申し訳ございません、」は
 # 聞き返しの文の頭にだけ流す＝質問の文の前には流さない。「失礼いたしました。」は「AIですか？」のあと・確かめに「いいえ」と言われたあとに、いまの

@@ -1834,13 +1834,16 @@ class ScriptRecordingTest(unittest.TestCase):
         self.assertEqual(v, {"Q2_lead_soredeha_v1": "それでは当日は講師の「あらがき」がご案内いたしますがよろしいでしょうか？",   # まず言ってみる読みが先
                              "Q2_lead_soredeha_v2": "それでは当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？",
                              "Q2_lead_tsuzukimashite_v1": "続きまして当日は講師の「あらがき」がご案内いたしますがよろしいでしょうか？",
-                             "Q2_lead_tsuzukimashite_v2": "続きまして当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？"})
+                             "Q2_lead_tsuzukimashite_v2": "続きまして当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？",
+                             # 続きの電話で最初に伺う形（✅ 2026-11-06 日本時間15時20分30秒 ユーザー「確認させていただきたい内容なのですが…」＝flowctl.question_forms）
+                             "Q2_lead_resume_v1": "確認させていただきたい内容なのですが当日は講師の「あらがき」がご案内いたしますがよろしいでしょうか？",
+                             "Q2_lead_resume_v2": "確認させていただきたい内容なのですが当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？"})
         # はじめの質問（つなぎの言葉の無い録音）は、尋ねられて答えたあとに伺い直す「それでは」付きの形も録音する（進む向きが1つに決まらない＝
         # ✅ 11時55分13秒「(2) イ」＝flowctl.final_toward）
         self.assertEqual({k: t[0] for k, t in table.items() if k.startswith("Q1") and k != "Q1_pending"},
                          {"Q1": "ご予約はされていますでしょうか？", "Q1_lead_soredeha": "それではご予約はされていますでしょうか？"})
         self.assertEqual(table["Q2_pending"][0], "それではこの件は保留とさせていただきますね。")
-        self.assertEqual(sorted(readings[k]["新垣"] for k in v), ["あらがき", "あらがき", "しんがき", "しんがき"])
+        self.assertEqual(sorted(readings[k]["新垣"] for k in v), ["あらがき"] * 3 + ["しんがき"] * 3)
 
     def test_chosen_reading_is_kept_and_conflicts_stop(self):
         import tempfile
@@ -4795,6 +4798,40 @@ class PlayRecordingsTest(unittest.TestCase):
         self.assertEqual([spoken_question(qs, q.id)[1] for q in qs], ["", "続きまして", "続きまして", "続きまして", "続きまして"])
         self.assertEqual(spoken_question(qs, "Q3")[0], "続きまして質問3ですか？")
         self.assertEqual([spoken_question(qs, q.id, again=True) for q in qs[:2]], [("それでは質問1ですか？", AGAIN_LEAD), ("それでは質問2ですか？", AGAIN_LEAD)])
+
+    def test_first_question_of_a_resumed_call_starts_with_the_resume_words(self):
+        # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー：「⇒「確認させていただきたい内容なのですが（内容の1つ目ですが）、お支払いはカードと振込のどちらが
+        # よろしいでしょうか？」：続きまして、も、それではも繋がりがおかしい。」（⛔ それまでは「…ご予約の確認でお電話いたしました。続きましてお支払いは…」）
+        # ⇒ 続きの電話で、お詫び（＋用件の一文）のすぐあとに最初に伺う業務の質問の頭は「確認させていただきたい内容なのですが」（決まった言い方なので読点は
+        # 外す＝10-15。頭を決めるのは spoken_question の1か所。業務の1つ目の質問・入る一言・前の答えで伺う質問は今までどおり）
+        from flowctl import Question, QUESTION_RESUME_LEAD as RESUME_LEAD, question_forms, spoken_question
+        from instruction import Business, Target
+        from meaning_judge import Reading
+        from phrases import question_clip
+        self.assertEqual(RESUME_LEAD, "確認させていただきたい内容なのですが")
+        q1 = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        q2 = Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        qs = [q1, q2]
+        self.assertEqual(spoken_question(qs, "Q2", resumed=True), (RESUME_LEAD + q2.text, RESUME_LEAD))
+        self.assertEqual(spoken_question(qs, "Q1", resumed=True), (q1.text, ""))   # 業務の1つ目の質問は今までどおり（つなぎの言葉が無い）
+        forms = {(p["id"], p.get("lead")) for p in question_forms(qs, "Q2")}
+        self.assertIn(("Q2", RESUME_LEAD), forms)
+        self.assertEqual(question_clip("Q2", RESUME_LEAD), "Q2_lead_resume")
+        earlier = {"Q1": {"state": "accepted", "condition": "はい"}}
+        for target in (None, Target(name="岡田", reading="おかだ", role="営業部部長")):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=qs,
+                         purpose_line="ご予約の確認でお電話いたしました。", earlier=earlier, apology=("cut_off",), target=target)
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+            if target is not None:
+                f.on_callee(); f.on_heard("はい、岡田です。")
+                f.on_check("judge", Reading("ご本人"))
+                r = f.apply("report_party", {"party": "target"})
+            said = [p["text"] for p in r.get("play") or []]
+            self.assertEqual(said[-1], RESUME_LEAD + q2.text, (target, said))
+            self.assertEqual(said[-2], "ご予約の確認でお電話いたしました。", (target, said))
 
     def test_intro_replaces_the_lead(self):
         """この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりに質問の録音の頭へ（録音は1本のまま）。最初の質問には付けない。
@@ -8732,7 +8769,9 @@ class EndJudgedTest(unittest.TestCase):
         from flowctl import question_play
         from stitch_gap import played_wav
         t = script_table(dataclasses.replace(BUSINESS, questions=[*BUSINESS.questions, q]))[0]
-        self.assertEqual(t["Q9"], (explain + q.text, "question"))
+        # 53字の文は質問の上限（6秒）に収まらないので、同じ読み方で上限の大きい question_long（make_ack_clips.question_how の1か所。⛔ 2026-11-06 日本時間
+        # 15時台に見つけた：それまで文の長さにかかわらず question で、作っても長さで落ちる文だった）
+        self.assertEqual(t["Q9"], (explain + q.text, "question_long"))
         self.assertEqual(played_wav("S2", question_play([*BUSINESS.questions, q], "Q9")).name, "S2_Q9.wav")
 
     def test_a_point_not_said_ends_the_step_without_asking_agreement(self):
@@ -9247,7 +9286,8 @@ class TargetTest(unittest.TestCase):
         from phrases import APOLOGY_FIRST
         earlier = {"Q1": {"state": "accepted", "value": "予約しています", "condition": "はい"}, "Q2": {"state": "unresolved"}}
         b = dataclasses.replace(BUSINESS, earlier=earlier, apology=("cut_off",))
-        self.assertEqual(b.opening_parts()[-2:], [APOLOGY_FIRST["cut_off"], BUSINESS.purpose_line][-1:] + [spoken_question(b.questions, "Q2")[0]])
+        # 続きの電話で最初に伺う質問の頭は「確認させていただきたい内容なのですが」（✅ 2026-11-06 日本時間15時20分30秒 ユーザー＝spoken_question の resumed）
+        self.assertEqual(b.opening_parts()[-2:], [APOLOGY_FIRST["cut_off"], BUSINESS.purpose_line][-1:] + [spoken_question(b.questions, "Q2", resumed=True)[0]])
         f = Flow(b.questions, earlier=b.earlier)
         self.assertEqual((f.current, f.items["Q1"].state, f.items["Q2"].state), ("Q2", "accepted", "empty"))   # 取れなかった答えは伺い直す
         self.assertNotIn("Q1", f.export())

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from flowctl import notice  # AIへの知らせの枠の唯一の場所
 from flowctl import approval_explanation, KNOWN_HEADS
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
-                     check_policies, choices_note, offers_rule, opening_question, spoken_question)
+                     check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -366,12 +366,12 @@ class Business:
     def first_ask(self) -> tuple[str, str] | None:
         """この電話で、名乗りのあとに最初に伺うこと（質問の番号, 声に出す文。無ければ None）を決める唯一の場所（名乗りの録音・AIへの指示文が読む）：
         番号を伺い直す電話は伺い直す一言（かけ直しの番号の質問）／それ以外は first_question の質問の、声に出す文（業務の質問はつなぎの言葉ごと＝
-        spoken_question・システムの質問は文そのまま）。"""
+        spoken_question・システムの質問は文そのまま。続きの電話の業務の質問の頭は「確認させていただきたい内容なのですが」＝resumed_call・✅ 11-06 15時20分30秒）。"""
         if self.number_again:
             return CALLBACK_IDS["number"], NUMBER_AGAIN[self.number_again]
         if (q := self.first_question()) is None:
             return None
-        return q.id, (q.text if q.callback else spoken_question(self.questions, q.id)[0])
+        return q.id, (q.text if q.callback else spoken_question(self.questions, q.id, resumed=resumed_call(self.earlier, self.apology_call, self.number_again))[0])
 
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
