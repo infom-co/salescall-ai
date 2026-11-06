@@ -830,6 +830,88 @@ class DialFixes(CustomerContacts):
                           mapping=self.MAP)
         self.assertEqual(r["rows"][0]["reason_code"], "number_in_run_other_ref")
 
+    def test_the_database_stamps_the_time_of_every_fix(self):
+        """直しの時刻はデータベースが決める（0193 の stamp_now）。⛔ 2026-11-06 の見直し：前は契約者の取引が、かける番号の直しの時刻を
+        先の時刻にでき（行の回数を数え始める時刻が先になり、行の回数が0のまま・サブも効かない）、お呼びする方の直しの時刻を前にできた
+        （約束のあとに相手が替わったかを取り違える）。"""
+        task = self.row()
+        k = self.tx(lambda tx: tasks.dial_number(tx, task))["contact_id"]
+        for table, columns, values, shift in (
+                ("task_dial_fixes", "contact_id", "%s", "10 years"),
+                ("task_fixes", "field, value", "'target_role', %s", "-1 year")):
+            with self.subTest(table=table):
+                got = self.tx(lambda tx: tx.one(
+                    f"INSERT INTO salescall.{table} (tenant_id, client_id, task_id, {columns}, recorded_by, recorded_at)"
+                    f" SELECT t.tenant_id, t.client_id, t.task_id, {values}, salescall.cur_actor(), now() + interval '{shift}'"
+                    " FROM salescall.tasks t WHERE t.task_id = %s RETURNING recorded_at = now() AS stamped",
+                    (k if table == "task_dial_fixes" else "部長", task)))
+                self.assertTrue(got["stamped"])
+        self.assertLessEqual(self.tx(lambda tx: tx.one("SELECT salescall.task_count_from(%s) <= now() AS ok", (task,)))["ok"], True)
+
+    def test_the_latest_fix_is_one_place_for_the_number_and_the_count(self):
+        """いまかける番号（task_dial_contact）と、行の回数を数え始める時刻（task_count_from）は、同じ「いちばん新しい直し」（0193 の
+        task_latest_dial_fix＝順番の番号のいちばん大きいもの）を読む。⛔ 2026-11-06 の見直し：前は片方が順番の番号、片方が時刻の最大で決めていた。"""
+        task = self.row()
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        got = self.tx(lambda tx: tx.one(
+            "SELECT (salescall.task_latest_dial_fix(%s)).contact_id = salescall.task_dial_contact(%s) AS same_number,"
+            "       (salescall.task_latest_dial_fix(%s)).recorded_at = salescall.task_count_from(%s) AS same_time,"
+            "       (salescall.task_latest_dial_fix(%s)).seq = (SELECT max(seq) FROM salescall.task_dial_fixes WHERE task_id = %s) AS latest",
+            (task,) * 6))
+        self.assertEqual(got, {"same_number": True, "same_time": True, "latest": True})
+
+    def test_an_added_import_sees_every_number_a_row_may_dial(self):
+        """追加の取込も、同じ実施回の行がかけうる番号（salescall.task_dialable の1か所＝直しの守りと同じ）を見る：行B を y・w と直し、
+        まだかけていない約束の電話が y のままなら、y の行は取り込まない（⛔ 2026-11-06 の見直し：前は取り込んだ番号といまかける番号だけ）。"""
+        from tests import support
+        task = self.row(ref="B")
+        y = fictional_jp_fixed()
+        ky = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, y))["contact_id"]
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=ky, cause="試験：約束", promised=True))
+        r = self.register(csv_file([("Z", "架空商事", y, None, None, None, None, None, None, None, None)], header=self.HEADER),
+                          mapping=self.MAP)
+        self.assertEqual(r["rows"][0]["reason_code"], "number_in_run_other_ref")
+
+    def test_two_fixes_to_the_same_number_at_once_take_it_once(self):
+        """同時に2つの行を同じ番号へ直しても、片方だけ（書く取引は直列化できる形＝SERIALIZABLE で動き、あとから確定するほうはやり直しで
+        先の直しを見て、データベースの守りに断られる）。"""
+        from salescall.core import contacts
+        first, second = self.row(ref="A"), self.row(ref="B")
+        phone = fictional_jp_fixed()
+        self.tx(lambda tx: contacts.get_or_create(tx, normalize(phone)))   # 番号の連絡先は先に（連絡先を作る所で待ち合わせない）
+        start = threading.Barrier(2)
+        got, refused = [], []
+
+        def go(task):
+            waited = []
+
+            def work(tx):
+                out = row_fixes.fix_dial_number(tx, task, phone)
+                if not waited:   # 1回目だけ、2つの取引がどちらも書いてから確定する（やり直しでは待たない）
+                    waited.append(True)
+                    try:
+                        start.wait(timeout=20)
+                    except threading.BrokenBarrierError:
+                        pass
+                return out
+            try:
+                got.append(self.tx(work))
+            except row_fixes.FixInvalid:
+                refused.append(task)
+
+        threads = [threading.Thread(target=go, args=(t,)) for t in (first, second)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual((len(got), len(refused)), (1, 1))
+        self.assertEqual(self.tx(lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.tasks t WHERE t.task_id = ANY(%s)"
+            " AND salescall.task_dial_contact(t.task_id) = %s", ([first, second], got[0]["contact_id"])))["n"], 1)
+
     def test_a_second_fix_counts_again_and_drops_the_sub(self):
         """2回直したとき：行の回数は、いちばん新しい直しから数え直す（salescall.task_count_from）。前の直しのあとに記録したサブが効かない
         ことは、通話のある試験（test_settle.DialFixAfterCalls）で見る。記録した方は、いま操作している方（データベースの守り）。"""
