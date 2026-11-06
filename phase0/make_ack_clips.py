@@ -273,8 +273,8 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, holds_pending, may_wish, other_wish_recording_id, pending_line, pending_recording_id, recap_recording_id, way_offer,
-                         spoken_question, tell_recording_id)
+    from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, holds_pending, may_wish, other_wish_recording_id, pending_line, pending_recording_id, question_forms, recap_recording_id, way_offer,
+                         tell_recording_id)
     from instruction import reading_variants
     from phrases import question_clip
 
@@ -293,15 +293,17 @@ def script_table(business) -> tuple[dict, dict]:
     for q in business.questions:  # つなぎの言葉と質問を1本で録音する（順番で決まるつなぎの言葉。flowctl.spoken_question）
         if q.reading_of:
             continue  # 名前の読みの確かめは、まず言ってみる読みが相手ごとに変わるので、AIが言う（録音にしない）
-        text, lead = spoken_question(business.questions, q.id)
-        if DAY_SLOT in text:
-            # 日によって変わる言い方（最短の日）の入った質問：言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー (ア)「OK」。名前は flowctl.day_recording_id）。
-            # 替わるのは質問の文の録音だけ（下の伝える一言・ほかのご希望を伺う一言は、ほかの質問と同じ。⛔ 見直しで見つけた：ここで次の質問へ進み、作っていなかった）
-            for w in DAY_VARIANTS:
-                rid = day_recording_id(q.id, w)
-                items.append((question_clip(rid, lead), text.replace(DAY_SLOT, w), "question"))
-        else:
-            items.append((question_clip(q.id, lead), text, "question"))
+        # 流れの制御が流しうる形ごとに1本（flowctl.question_forms の1か所：いつもの形・直前の一言の頭と重なってつなぎの言葉を替えた形・尋ねられて答えた
+        # あとに伺い直す「それでは」付きの形。✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(1) ウ、(2) イ」）
+        for p in question_forms(business.questions, q.id):
+            text, lead, tail = p["text"], p["lead"], p["id"][len(q.id):]
+            if DAY_SLOT in text:
+                # 日によって変わる言い方（最短の日）の入った質問：言い方ごとに文を丸ごと録音する（✅ 2026-11-03 ユーザー (ア)「OK」。名前は flowctl.day_recording_id）。
+                # 替わるのは質問の文の録音だけ（下の伝える一言・ほかのご希望を伺う一言は、ほかの質問と同じ。⛔ 見直しで見つけた：ここで次の質問へ進み、作っていなかった）
+                for w in DAY_VARIANTS:
+                    items.append((question_clip(day_recording_id(q.id, w) + tail, lead), text.replace(DAY_SLOT, w), "question"))
+            else:
+                items.append((question_clip(p["id"], lead), text, "question"))
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
         if holds_pending(q):
