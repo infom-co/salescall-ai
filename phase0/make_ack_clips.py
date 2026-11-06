@@ -166,6 +166,10 @@ HOW_OF[STANDARD_PARTS["ai"]] = "ai"
 HOW_OF["dounasaimasu"] = "question"
 HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})
 HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調子ごとの録音は、名前そのものが読み方の鍵
+# 申し伝える一言まで言って切れた続きの電話のお詫びと申し伝える一言（phrases.APOLOGY_CUT_END・TOLD_AGAIN・TOLD_FOLLOW_UP）：お詫びは前の電話のお詫びと同じ
+# 読み方・申し伝える一言はご説明できないときの一言と同じ読み方
+HOW_OF.update({**{f"apology_cut_end_{k}": "apology_first" for k in ("same_day", "later")},
+               **{f"told_again_{k}": "own_fallback" for k in ("question", "request", "opinion")}, "told_follow_up": "own_fallback"})
 HOW_OF.update({f"line_trouble_{k}": "line_trouble" for k in LINE_TROUBLE})
 HOW_OF.update({f"number_again_{k}": "number_again" for k in NUMBER_AGAIN})
 HOW_OF["hold_timeout"] = "closing"   # 保留で待ちきったときの締め：締めの読み方

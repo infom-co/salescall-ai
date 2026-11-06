@@ -67,7 +67,10 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          # 答えの段の待つ・かけ直す（会話2・11-06 1時台＝CL-1.md 4-94）：待つ一言の録音・1回伺う一言の録音・その質問の番号 H2
                          "wait_reply", "callback_wait_or_later", "H2",
                          # 「ほかに…」（N2）にほかに分からない点が「ある」とだけ言われたときの一言の録音（✅ 11-06 日本時間9時05分17秒 ユーザー。CL-1.md 4-97）
-                         "callback_other_point_which"})
+                         "callback_other_point_which",
+                         # 申し伝える一言まで言って切れた続きの電話のお詫びと申し伝える一言の録音（✅ 11-06 日本時間9時05分17秒 ユーザーの (b)。CL-1.md 4-99）
+                         "apology_cut_end_same_day", "apology_cut_end_later", "told_again_question", "told_again_request", "told_again_opinion",
+                         "told_follow_up"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -8185,6 +8188,57 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual((h.export()["Q1"], "Q1" in h.hedged_words()), ("はい", False))
         # 決め手の発話（選び直した発話）は、決め直した答えの根拠として読める（ここで終える答えの根拠など＝Flow._evidence の1か所）
         self.assertEqual(h._evidence("Q1")["said"], "うーん、やっぱり送ってください。")
+
+    def test_told_then_cut_says_it_again_after_the_apology_and_closes(self):
+        # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(b) 前の電話で「…担当の者に申し伝えさせていただきますね。」まで言ったあとに切れた場合：「先ほどは（前回は）、
+        # お話の最後に通信が悪く、お電話が切れてしまい申し訳ございませんでした。」「～の件は、担当の者に申し伝えさせていただきますね。」もしくは「折り返し、担当の者より
+        # ご連絡させていただきますね。」と言って、最後の挨拶で締めくくる。」
+        # ⇒ 前の電話で、ご説明できない点の一言（申し伝える一言）を流したあと、お客様の返事の前に切れた（記録はご説明できなかった＝explained False・手順の終わりは無い）：
+        # 前の通話の答えの読み方は「申し伝えた（told）」（⛔ それまでは「点は伺った（heard）」と読み、次の電話で同じ申し伝える一言をくり返した＝5時56分55秒の
+        # ご質問の読み直し EN-D の指摘7）。次の電話は、名乗りのあとにお詫び（お話の最後に切れた＝同じ日は「先ほどは」・あとの日は「前回は」）と、申し伝える一言
+        # （前の電話の種類＝ご質問・ご要望・ご意見の件。担当から連絡すると申し出てよい業務は「折り返し…」）を流し、残りの質問が無ければ最後のあいさつで締める
+        from flowctl import POINT_OUTCOMES, earlier_point, resumed_step
+        from instruction import Business
+        from phrases import APOLOGY_CUT_END, CLOSING, TOLD_AGAIN, TOLD_FOLLOW_UP
+        from flowctl import Question
+        q1 = Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                      final_goal=True, declines=("いいえ",))
+        told = {"Q1": {"state": "accepted", "condition": "いいえ",
+                       "point_fact": {"question": "Q1", "point": "料金のところ", "said": "料金のところがよく分からなかったんです。", "explained": False,
+                                      "told": "request", "outcome": None}}}
+        self.assertEqual(("told" in POINT_OUTCOMES, earlier_point(told["Q1"]["point_fact"])), (True, "told"))
+
+        def business(when="later", follow_up=False, rest=()):
+            return Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=[q1, *rest],
+                            purpose_line="資料送付の件でお電話いたしました。", earlier=told, apology=("cut_off",), apology_when=when, follow_up=follow_up)
+        self.assertEqual(resumed_step(business().questions, told)[0], "told")
+        for when, follow_up in (("later", False), ("same_day", False), ("later", True)):
+            b = business(when, follow_up)
+            self.assertEqual((b.first_ask(), b.first_question()), (None, None))
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()   # 残りの質問が無ければ、名乗りの返事で締める
+            said = [p["text"] for p in r["play"]]
+            line = TOLD_FOLLOW_UP if follow_up else TOLD_AGAIN["request"]
+            self.assertEqual(said[-3:], [APOLOGY_CUT_END[when], line, CLOSING], (when, follow_up))
+            self.assertEqual((f.end_reason is not None, "goal_refused" in f.facts), (True, False), (when, follow_up))
+        self.assertEqual((APOLOGY_CUT_END["same_day"], APOLOGY_CUT_END["later"], TOLD_AGAIN["request"], TOLD_FOLLOW_UP),
+                         ("先ほどはお話の最後に通信が悪くお電話が切れてしまい申し訳ございませんでした。",
+                          "前回はお話の最後に通信が悪くお電話が切れてしまい申し訳ございませんでした。",
+                          "前回お伺いしたご要望の件は担当の者に申し伝えさせていただきますね。", "折り返し担当の者よりご連絡させていただきますね。"))
+        # 残りの質問があれば、申し伝える一言のあと、その質問を伺う（締めない）。お詫びはお話の途中で切れた一言（今までどおり）
+        # （ご承認が最終目的なら、申し伝え直したあとは締める＝最終目的でないご承認で作る）
+        rest = (Question("Q2", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",)),)
+        q1b = Question("Q1", q1.text, "yes_no", conditions=("はい", "いいえ"), approval=True, declines=("いいえ",))
+        b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=[q1b, *rest],
+                     purpose_line="資料送付の件でお電話いたしました。", earlier=told, apology=("cut_off",))
+        f = b.flow(play_recordings=True)
+        f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        r = f.apply("report_party", {"party": "person"})
+        r = r if r.get("result") == "opening" else f.on_first_words_end()
+        ids = [p.get("id") or p.get("part") for p in r["play"]]
+        self.assertEqual((ids[-3:], f.current, f.end_reason), (["apology_cut_off", "told_again_request", "Q2"], "Q2", None))
 
     def test_a_point_heard_then_cut_resumes_with_the_explanation(self):
         # ✅ 2026-11-04 日本時間19時26分 ユーザー：「(A) 前の電話で点（「料金のところ」）までは伺えて、ご説明の途中で切れたとき。…お勧めは、点を伺い直さずに、

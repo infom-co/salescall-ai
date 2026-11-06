@@ -551,6 +551,15 @@ APOLOGY_FIRST = {"missed_promise": "お約束の時間にお電話ができず�
 # （共通の一言の録音。お詫びそのものは、お詫びを伝える方にだけ流す）。いつの電話のことかは、お詫びの文と同じ2つ（CL-2 の apology の
 # text_same_day「先ほど」・text_later「先日」）。✅ 2026-10-24 ユーザー「OK」（言葉の途中の読点は外す＝2026-10-15）
 APOLOGY_PURPOSE = {"same_day": "先ほどのお電話の件でご連絡いたしました。", "later": "先日のお電話の件でご連絡いたしました。"}
+# 前の電話で、ご説明できない点の一言（申し伝える一言＝point_fallback）まで言ったあと、お客様のお返事の前に切れたときの続きの電話（flowctl.Flow._sorry_lines）：
+# お詫び（同じ日＝先ほど・あとの日＝前回。いつの電話かは apology_when＝CL-2）と、申し伝える一言（前の電話の種類の件＝ご質問・ご要望・ご意見。担当から
+# 連絡すると申し出てよい業務は「折り返し…」）。どれも共通の一言の録音（apology_cut_end_（いつ）・told_again_（種類）・told_follow_up）。決まった言い方
+# なので言葉の途中の読点は外した（2026-10-15）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(b) …「先ほどは（前回は）、お話の最後に通信が悪く、
+# お電話が切れてしまい申し訳ございませんでした。」「～の件は、担当の者に申し伝えさせていただきますね。」もしくは「折り返し、担当の者よりご連絡させて
+# いただきますね。」と言って、最後の挨拶で締めくくる。」
+APOLOGY_CUT_END = {"same_day": "先ほどはお話の最後に通信が悪くお電話が切れてしまい申し訳ございませんでした。",
+                   "later": "前回はお話の最後に通信が悪くお電話が切れてしまい申し訳ございませんでした。"}
+TOLD_FOLLOW_UP = "折り返し担当の者よりご連絡させていただきますね。"
 # こちらの仕組みの都合で、通話をどうしても途中で切るときに流す2つ（共通の一言の録音）。✅ 2026-10-22 夜 ユーザー決定（CL-2 の 4-137）：
 # 「恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか？」→ お客様の返事を待つ（AIはいないので
 # 中身は聞き分けない）→「大変申し訳ございません。それではいったんお電話を失礼いたします。」→ 切る。流すのは電話の部品（CL-2 の
@@ -609,6 +618,8 @@ def point_fallback_id(kind: str, again: bool) -> str:
 
 
 POINT_FALLBACK = {point_fallback_id(k, a): point_fallback(k, a) for k in POINT_KINDS for a in (False, True)}
+# 申し伝える一言まで言って切れた続きの電話の、申し伝える一言（種類ごと。上の APOLOGY_CUT_END の注）
+TOLD_AGAIN = {k: f"前回お伺いした{noun}の件は担当の者に申し伝えさせていただきますね。" for k, (noun, _) in POINT_KINDS.items()}
 OWN_FALLBACK_POINT = POINT_FALLBACK["own_fallback_point"]
 OWN_FALLBACK_POINT_AGAIN = POINT_FALLBACK["own_fallback_point_again"]
 
@@ -696,6 +707,8 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
+            **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
+            "told_follow_up": TOLD_FOLLOW_UP,
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
             "moshimoshi": MOSHIMOSHI}
