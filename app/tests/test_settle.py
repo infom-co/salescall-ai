@@ -954,6 +954,37 @@ class DialFixAfterCalls(SettleBase):
         self.fixed(s)
         self.assertIsNone(self.tx(s, lambda tx: next_action.numbers_of(tx, s["task"])).sub)
 
+    def test_only_a_promised_call_on_the_old_number_makes_the_sub(self):
+        """前の番号で話せてもサブにするのは、お客様と約束したかけ直しの電話だけ（✅ 2026-11-06 ユーザー：伺い「サブの範囲」に「約束の
+        電話だけ」。計画書 7-1 の (5)「かけ直しの約束をしていて、旧番号でつながった場合」）。約束でない電話で話せても、前の番号は
+        灰色のまま（決めるのは salescall.call_makes_sub の1か所＝0190）。"""
+        s = self.ready()
+        self.fixed(s)
+        self.at(s, s["contact"], promised=False)
+        aid = self.call(s, report=rep(("reception",), not_reached="absent"))
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT contact_id, promised FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (aid,))), {"contact_id": s["contact"], "promised": False})
+        self.settle(s, aid)
+        self.assertIsNone(self.tx(s, lambda tx: next_action.numbers_of(tx, s["task"])).sub)
+        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.call_makes_sub(%s) AS m", (aid,))["m"]))
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.task_sub_numbers (tenant_id, client_id, task_id, contact_id, attempt_id)"
+                " VALUES (%s, %s, %s, %s, %s)", (s["tenant"], s["client"], s["task"], s["contact"], aid)), SYSTEM)
+        self.assertEqual(e.exception.constraint, "task_sub_number_of_call")
+
+    def test_a_resumed_call_on_the_old_number_does_not_make_the_sub(self):
+        """途中で切れた電話の続き（目的 resume。約束の印は付く）を前の番号でかけて話せても、サブにしない（サブはお客様と約束したかけ直しの
+        電話だけ＝目的 normal の約束。0190）。"""
+        s = self.ready()
+        self.fixed(s)
+        self.at(s, s["contact"], purpose="resume")
+        aid = self.call(s, report=rep(("reception",), not_reached="absent"))
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT contact_id, purpose, promised FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (aid,))), {"contact_id": s["contact"], "purpose": "resume", "promised": True})
+        self.settle(s, aid)
+        self.assertIsNone(self.tx(s, lambda tx: next_action.numbers_of(tx, s["task"])).sub)
+
     def test_the_database_keeps_the_sub_number_to_the_old_number_of_the_call(self):
         """サブに書けるのは、その通話でかけた番号で、直したあとの通話で、かけたときに前にかける番号だった番号だけ（データベースの守り。
         ⛔ 見直し (A) の4：前は Python の1か所だけが守り、その通話でかけていない番号も書けた）。"""

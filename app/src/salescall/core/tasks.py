@@ -125,14 +125,14 @@ def add_record_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *,
 
 
 def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
-    """その通話でかけた番号が、前にかける番号だった番号（salescall.task_number_replaced）で、番号を直したあとにかけた通話なら、その番号を
-    サブの番号に記録する（書くのはここだけ。お客様と話せたか＝call_report.talked_in は呼ぶ側＝next_action.after_call が確かめる。0182）。
-    2026-11-06 ユーザー：「話せたら、新番号がメイン、旧番号はサブ」。"""
+    """その通話がサブを作る通話（お客様と約束したかけ直しの電話で、番号を直したあと、かけたときに前にかける番号だった番号へかけた＝
+    決めるのはデータベースの salescall.call_makes_sub の1か所。0190）なら、その番号をサブの番号に記録する（書くのはここだけ。お客様と
+    話せたか＝call_report.talked_in は呼ぶ側＝next_action.after_call が確かめる。0182）。2026-11-06 ユーザー：「話せたら、新番号が
+    メイン、旧番号はサブ」・「かけ直しの約束をしていて、旧番号でつながった場合」・伺い「サブの範囲」に「約束の電話だけ」。"""
     tx.execute(
         "INSERT INTO salescall.task_sub_numbers (tenant_id, client_id, task_id, contact_id, attempt_id)"
         " SELECT a.tenant_id, a.client_id, a.task_id, a.contact_id, a.attempt_id FROM salescall.attempts a"
-        " WHERE a.attempt_id = %s AND a.task_id = %s AND a.claimed_at >= salescall.task_count_from(a.task_id)"
-        "   AND salescall.task_number_replaced_at(a.task_id, a.contact_id, a.claimed_at)"   # かけたときの立場（0188。データベースも守る）
+        " WHERE a.attempt_id = %s AND a.task_id = %s AND salescall.call_makes_sub(a.attempt_id)"   # データベースの守りも同じ関数
         " ON CONFLICT (attempt_id) DO NOTHING", (attempt_id, task_id))   # 判定し直しで同じ通話をまた締めても1つ
 
 

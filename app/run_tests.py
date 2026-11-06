@@ -2125,6 +2125,25 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " SET search_path = salescall, pg_temp AS $$ SELECT s.contact_id FROM salescall.task_sub_numbers s WHERE s.task_id = p_task"
      " AND s.recorded_at <= p_at AND s.contact_id IS DISTINCT FROM salescall.task_dial_contact(p_task) ORDER BY s.seq DESC LIMIT 1 $$",
      ("tests.test_settle.DialFixAfterCalls.test_a_sub_from_before_the_latest_fix_does_not_count",)),
+    # ── 0190（✅ 2026-11-06 ユーザー：サブは「約束の電話だけ」・契約プランの切り替えは「管理者だけ」）
+    ("約束でない電話で前の番号で話せても、サブにする（0190 の前の形）",
+     "CREATE OR REPLACE FUNCTION salescall.call_makes_sub(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT coalesce((SELECT a.claimed_at >= salescall.task_count_from(a.task_id)"
+     " AND salescall.task_number_replaced_at(a.task_id, a.contact_id, a.claimed_at)"
+     " FROM salescall.attempts a WHERE a.attempt_id = p_attempt), false) $$",
+     ("tests.test_settle.DialFixAfterCalls.test_only_a_promised_call_on_the_old_number_makes_the_sub",)),
+    ("約束の続きの電話（resume）でも、サブにする",
+     "CREATE OR REPLACE FUNCTION salescall.call_makes_sub(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT coalesce((SELECT a.promised"
+     " AND a.claimed_at >= salescall.task_count_from(a.task_id)"
+     " AND salescall.task_number_replaced_at(a.task_id, a.contact_id, a.claimed_at)"
+     " FROM salescall.attempts a WHERE a.attempt_id = p_attempt), false) $$",
+     ("tests.test_settle.DialFixAfterCalls.test_a_resumed_call_on_the_old_number_does_not_make_the_sub",)),
+    ("契約プランを、契約者も書ける（管理者だけの印を見ない）",
+     "ALTER TABLE salescall.setting_definitions DISABLE TRIGGER setting_definitions_frozen;"
+     " UPDATE salescall.setting_definitions SET admin_writes = false;"
+     " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER setting_definitions_frozen",
+     ("tests.test_ai_plans.Plans.test_only_the_administrator_switches_a_contractors_plan",)),
     ("前にかける番号だった番号から、お客様が指定した番号を外さない",
      "CREATE OR REPLACE FUNCTION salescall.task_number_replaced_at(p_task uuid, p_contact uuid, p_at timestamptz) RETURNS boolean"
      " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$"
