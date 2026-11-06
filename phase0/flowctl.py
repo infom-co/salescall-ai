@@ -4992,11 +4992,13 @@ class Flow:
             return self._reject(why)
         if part not in ("resume", "handover"):
             self._keep_answer_reading()
-        asked = self._asked_now()   # 答えの段で、いまの質問・言い直しに答える代わりにこちらへ尋ねた（答えたあと、話はそれていない）
-        if (part in OWN_PARTS or part.startswith(ANSWER_PREFIX)) and asked is None:
+        asked = self._asked_now()   # 答えの段で、いまの質問・言い直しに答える代わりにこちらへ尋ねた
+        if part in OWN_PARTS or part.startswith(ANSWER_PREFIX):
             # 相手のお話・ご質問に応える。名乗り・用件の流し直しは、お話の流れのうち＝戻る一言は要らない。「AIですか」のあとは、決まった言い方の
             # お詫び（「失礼いたしました。」）・お約束（「最後まで…正確にご案内させていただきます。」）が戻る一言を兼ねる（✅ 2026-10-19 ユーザーの流れ）。
-            # いまの質問・言い直しについて尋ねられた答えのあとも要らない（話はいまの質問のまま＝戻るのではない）
+            # いまの質問・言い直しについて尋ねられた問いに答えたあとも、もう伺った質問・確かめへ戻るので戻る一言から（本書 9-4 の「範囲外の質問」＝10-23）。
+            # ⛔ 2026-11-06 日本時間4時台に「話はいまの質問のまま＝戻るのではない」として外していた＝お言葉の無い例外（8時台のご報告で伺い、決まりで
+            # 決まっていたと分かった＝帳面 1 の (8)）。答えの文で応えなかったとき（_asked_skip）は、話はそれていないので印を消す
             self.digressed = True
         if part.startswith(ANSWER_PREFIX):
             return self._answer(part)
@@ -5580,9 +5582,19 @@ class Flow:
                 done = played_note(shown + "".join(p["text"] for p in back) + self.target["target"])
             return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._now()}"} | ({"bridged": True} if back and play else {})
         if self.awaiting_confirm is not None:
-            # 言い方（say）も渡す：AIの声が外れたかを見張る（offscript。渡した言い方のあるターンだけを見張る）
-            return {"result": "replayed", "play": play, "speak": True, "say": self.awaiting_say,
-                    "message": f"{done}続けて、{say_note(self.awaiting_say, 'もう一度、言い直し')}相手の返事を待ってください。"}
+            # 言い方（say）も渡す：AIの声が外れたかを見張る（offscript。渡した言い方のあるターンだけを見張る＝頭から比べるので、会話AIが戻る一言から
+            # 言うときは、その一言を頭に付けて渡す）。戻る一言は、録音で流す通話は録音・会話AIが話す通話は会話AIが言う（質問へ戻るときと同じ）。
+            # ⛔ 2026-11-06 日本時間10時台に見つけた：この枝だけ、戻る一言を作って捨てていた（ご遠慮の一言の「いいえ」・お客様のご質問に答えたあとに、
+            # 言い直しをそのまま言い直した＝本書 9-4 の「範囲外の質問」の「もう伺った質問へ戻るときは話を戻す一言の録音から」に届いていなかった）
+            say, then = self.awaiting_say, ""
+            if back and self.play_recordings:
+                play += back
+                done = played_note(shown + BACK_TO)
+            elif back:
+                say, then = BACK_TO + say, say_note(BACK_TO) + "続けて、"
+            return {"result": "replayed", "play": play, "speak": True, "say": say,
+                    "message": f"{done}続けて、{then}{say_note(self.awaiting_say, 'もう一度、言い直し')}相手の返事を待ってください。"} | (
+                {"bridged": True} if back else {})
         q = self.questions.get(self.current) if self.current else None
         if self._held_now() is not None:
             # 応える前の相手の言葉を、判定のどれかがいまの質問の答えと読んだ（_keep_answer_reading）：質問を流す前に、その言葉の答えの報告か、
@@ -6074,6 +6086,7 @@ class Flow:
         （✅ 2026-10-22 ユーザー（5回目）：「お客様から見ても、それは答えられないだろうなと思うような質問ならそれでよいが、それは答えられなかったらおかしい
         だろうと思われる内容…では、別の対処が必要」）。お客様の問いは、答えられなかった問いとして依頼者へ渡す記録に残す（callee_question）。"""
         self.asked_skip = self.own_turn = self.callee_turns
+        self.digressed = False   # 答えの文では応えない＝話はそれていない（あとで戻るときに「話を戻させていただきますね。」を付けない）
         self._question_note({"answered": False, **drafts, **checked})
         return self._reject(f"この文は声に出しません（{problem}）。この問いには答えの文では応えずに、相手の言葉を、いつもの報告で報告し直します"
                             "（尋ねられたことには、プログラムの次の一言が応えます）。")
