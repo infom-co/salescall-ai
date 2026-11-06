@@ -284,6 +284,29 @@ class Apology(Helpers):
         c = self.claim(s)                                                # すぐ（別の時間帯を待たない）
         self.assertEqual((type(c).__name__, getattr(c, "purpose", None)), ("Claim", "apology"))
 
+    def test_the_claim_tells_whether_the_wrong_call_was_today_by_the_same_rule_as_the_text(self):
+        """お詫びの電話の予約証の apology_when（同じ日か）は、お詫びの文（先ほど／先日＝for_task）と同じく、誤った通話（案のもとの通話）の
+        日で決める（core/apology.when の1か所。CL-1 の連絡帳 4-99）。今日、お詫びの電話が途中で切れていても、誤った通話が前の日なら later。"""
+        s = self.fresh(stage_cap=20)
+        aid = self.incident(s)
+        self.order(s, aid)
+        c = self.claim(s)
+        self.assertEqual((c.purpose, c.apology_when), ("apology", "same_day"))
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+
+        def back(tx):   # 試験：誤った通話を前の日にする（持ち主の取引の中だけ仕掛けを外す）
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER")
+            tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - interval '1 day',"
+                       " ended_at = ended_at - interval '1 day' WHERE attempt_id = %s", (aid,))
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
+        owner_access().in_system(SYSTEM, back)
+        cut = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "technical_error"),
+                        report=replace(rep(cut=None), apology_delivered=False))   # 今日のお詫びの電話が途中で切れた
+        self.settle(s, cut)
+        c = self.claim(s)
+        text = self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"]
+        self.assertEqual((c.purpose, c.apology_when, text[:2]), ("apology", "later", "先日"))
+
     def test_an_apology_call_that_did_not_ring_through_no_fault_of_the_number_is_made_again_as_planned(self):
         """お詫びの電話が、番号のせいでなく鳴らなかった（こちらのせい＝こちらのプログラムの不具合で終えた。0136）：ふつうの電話と同じ
         1か所（next_action._line_fault_again）で、かけた予定のまま（お詫びの印も）、復旧次第かけ直す（それまでは門が待たせる＝

@@ -204,6 +204,9 @@ HUMAN_ENDS = frozenset({"done", "callee_hurry", "callee_refused_call", "callee_c
 #   資料でご説明できず、担当の者に申し伝えることにして、お礼で締めた。もうかけないの印は付けず、改めてご案内するかは依頼者が決める
 #   ＝判定は「結論として終えた」（judge の1か所。goal_refused と違って「用件を断られた」に入れない＝同じ業務の次の実施回でもかけうる）
 NOT_AGREED_OUTCOMES = ("agreed", "declined", "unresolved")   # ご納得いただけなかった点ごとの結び（ご納得いただけた・お断りになった・分からないまま）
+# 申し伝える一言の種類（not_agreed の told。会話の側の phrases.POINT_KINDS の鍵の写し＝名前を比べる試験が見張る。CL-1 の連絡帳 4-99：
+# ✅ 2026-11-06 9時05分17秒 ユーザー「～の件は、担当の者に申し伝えさせていただきますね。」）
+TOLD_KINDS = ("question", "request", "opinion")
 MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # 相手が人でないと起きない事実（CallReport の欄の名前）：繋いだ・かけ直しの申し出・苦情・範囲外の求め・「AIですか」・お客様の質問に
 # 録音で答えた・確かめに戻った・続きへ戻った・取り次げない・代わりの方・在籍していない・お客様からの質問・受け答え・保留を頼まれた。
@@ -432,12 +435,15 @@ class NotAgreed:
     # ご納得いただけなかった点（会話AIが報告した値。お答えいただけなかったときは None。CL-1 の連絡帳 4-69 の 4-185 の (1)：前は said に
     # 値を上書きしていて、根拠の発話と値が1つの鍵に混ざっていた）。point の鍵の無い前の形の報告は said が値なので、それを読む（`_not_agreed`）
     point: str | None = None
+    # 申し伝える一言を流したときの、その一言の種類（TOLD_KINDS。CL-1 の連絡帳 4-99。前の形の報告には無い＝None）。申し伝える一言まで
+    # 言ってお返事の前に切れたら、その点は outcome が無く explained が偽で told がある（続きの電話では、お詫びのあとに申し伝え直して締める）
+    told: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         """報告に書く形（唯一の場所。報告の書き出し `CallReport.to_json` と、次の通話へ渡す前の通話の答えの "point_fact"＝`conversation_io.earlier`
         の両方がこれを使う。読み方は会話の側の flowctl.earlier_point_of・earlier_said_of の1か所＝CL-1 の連絡帳 4-88 の案2）。"""
         return {"turn": self.turn, "question": self.question, "said": self.said, "point": self.point, "round": self.round,
-                "explained": self.explained, "outcome": self.outcome, "declining": self.declining}
+                "explained": self.explained, "outcome": self.outcome, "declining": self.declining, "told": self.told}
 
 
 @dataclass(frozen=True)
@@ -840,7 +846,7 @@ def _not_agreed(facts: dict) -> tuple[NotAgreed, ...]:
     out = []
     for i, r in enumerate(rows):
         where = f"facts.not_agreed[{i}]"
-        r = _keys(r, {"turn", "question", "said", "point", "round", "explained", "outcome", "declining"}, where)
+        r = _keys(r, {"turn", "question", "said", "point", "round", "explained", "outcome", "declining", "told"}, where)
         turn, question, said = r.get("turn"), r.get("question"), r.get("said")
         rnd, explained, outcome = r.get("round"), r.get("explained"), r.get("outcome")
         if rnd is not None and (not isinstance(rnd, int) or isinstance(rnd, bool) or rnd < 1):
@@ -858,7 +864,10 @@ def _not_agreed(facts: dict) -> tuple[NotAgreed, ...]:
         point = r["point"] if "point" in r else said      # point の無い前の形は said が値
         if point is not None and not isinstance(point, str):
             raise ReportInvalid(f"{where}.point は、ご納得いただけなかった点（値）か null です")
-        out.append(NotAgreed(turn, question, said, rnd, explained, outcome, _bool_or_false(r, "declining"), point))
+        told = r.get("told")
+        if told is not None and told not in TOLD_KINDS:
+            raise ReportInvalid(f"{where}.told は {TOLD_KINDS} のどれかです（申し伝える一言の種類）")
+        out.append(NotAgreed(turn, question, said, rnd, explained, outcome, _bool_or_false(r, "declining"), point, told))
     return tuple(out)
 
 

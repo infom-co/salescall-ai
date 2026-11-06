@@ -317,7 +317,11 @@ CONTRACTOR_PARTS: tuple[str, ...] = (
     "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request", "own_fallback_point_again_opinion",
     "point_anytime", "point_anytime_plain",
     "wish_told_online", "callback_email_online_again", "callback_later_time_answering",
-    "wait_reply", "callback_wait_or_later")
+    "wait_reply", "callback_wait_or_later",
+    # CL-1 の連絡帳 4-97・4-99（✅ 2026-11-06 9時05分17秒 ユーザー）：「ほかに…」で点を言っていただけないときの一言・申し伝える一言まで言って
+    # 切れた電話の続きの、お詫び（同じ日か）と申し伝え直す一言（種類ごと）と、担当から連絡すると申し出てよい業務の一言
+    "callback_other_point_which", "apology_cut_end_same_day", "apology_cut_end_later",
+    "told_again_question", "told_again_request", "told_again_opinion", "told_follow_up")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

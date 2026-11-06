@@ -2066,6 +2066,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("依頼者の解決策を、システムの処理も足せる（0184 の守りを外す）",
      "DROP TRIGGER client_solution_guard ON salescall.client_solutions",
      ("tests.test_client_solutions.Solutions.test_only_unexplained_points_take_a_solution_and_only_a_person_adds_it",)),
+    ("前の電話が今日かを、いつも「前の日」にする（0186 の1か所を外す）",
+     "CREATE OR REPLACE FUNCTION salescall.same_jst_day(p_at timestamptz) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT false $$",
+     ("tests.test_gate.ApologyWhen.test_a_claim_tells_whether_the_call_to_apologise_for_was_today", "tests.test_apology.Apology.test_the_claim_tells_whether_the_wrong_call_was_today_by_the_same_rule_as_the_text")),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4669,6 +4673,17 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("手で前の版に戻しても、戻す前に作った後の版へ自動で替える", "src/salescall/core/business_settings.py",
      '            "  WHERE s.from_version = %s AND s.recorded_at >= hand.at"\n', '            "  WHERE s.from_version = %s"\n',
      ("tests.test_versions.Versions.test_a_version_put_back_by_hand_is_not_moved_on_again",)),
+    # ── CL-1 の連絡帳 4-99（✅ 2026-11-06 9時05分17秒 ユーザー）：申し伝える一言の種類・切れた電話の続きの「先ほどは（前回は）」
+    ("申し伝える一言の種類を確かめずに受ける", "src/salescall/core/call_report.py",
+     "        if told is not None and told not in TOLD_KINDS:\n", "        if False:\n",
+     ("tests.test_call_report_cl1.Approval1102.test_the_kind_of_told_words_is_received",)),
+    ("予約証の apology_when を、お詫びの電話だけに入れる（切れた電話の続きに入れない）", "src/salescall/core/gate.py",
+     '    when = apology.when(tx, task["task_id"], nxt["purpose"]) if nxt["purpose"] == "apology" or "cut_off" in reasons else None\n',
+     '    when = apology.when(tx, task["task_id"], nxt["purpose"]) if nxt["purpose"] == "apology" else None\n',
+     ("tests.test_gate.ApologyWhen.test_a_claim_tells_whether_the_call_to_apologise_for_was_today",)),
+    ("お詫びの電話の apology_when を、誤った通話でなく、いちばん新しい発信まで進んだ電話で決める", "src/salescall/core/apology.py",
+     '    if purpose == "apology":\n', '    if False:\n',
+     ("tests.test_apology.Apology.test_the_claim_tells_whether_the_wrong_call_was_today_by_the_same_rule_as_the_text",)),
 )
 
 

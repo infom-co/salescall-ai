@@ -680,6 +680,21 @@ class Approval1102(unittest.TestCase):
         return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
             "not_agreed": list(rows), "end": [{"turn": 6, "said": "はい。", "reason": "done"}]}}
 
+    def test_the_kind_of_told_words_is_received(self):
+        """申し伝える一言の種類（told。CL-1 の連絡帳 4-99・✅ 2026-11-06 9時05分17秒 ユーザー）を受けて、読み戻しても同じ。種類は
+        question・request・opinion のどれか（ほかは断る）。前の形の報告には無い（None）。"""
+        from salescall.core.call_report import TOLD_KINDS
+        self.assertEqual(TOLD_KINDS, ("question", "request", "opinion"))
+        for kind in TOLD_KINDS:
+            with self.subTest(kind=kind):
+                r = from_json(self.raw({"turn": 5, "question": "Q2", "said": "料金は？", "point": "料金", "explained": False,
+                                        "told": kind}))
+                self.assertEqual((r.not_agreed[0].told, from_json(r.to_json())), (kind, r))
+        self.assertIsNone(from_json(self.raw({"turn": 5, "question": "Q2", "said": "x"})).not_agreed[0].told)
+        for bad in ("other", "", 1):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"turn": 5, "question": "Q2", "said": "x", "told": bad}))
+
     def test_points_not_agreed_are_received_and_returned(self):
         long = "料金のところと、" * 20   # 根拠の発話の上限（80字）より長い答えも受ける
         raw = self.raw({"turn": 5, "question": "Q2", "said": long}, {"turn": 7, "question": "Q4", "said": None})

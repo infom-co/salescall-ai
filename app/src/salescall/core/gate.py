@@ -176,6 +176,9 @@ class Claim:
     number_again: str | None = None  # 番号の聞き直しのとき：なぜ伺い直すか（wrong_party＝お客様が言った番号が別の方のお電話だった／
     #                                unreachable＝繋がらなかった。次の予定の印 number_again を写す。0130。CL-1 の連絡帳 4-41 の (3)）。
     #                                会話の処理は、理由ごとの一言（number_again_wrong_party・number_again_unreachable）で番号を伺う
+    apology_when: str | None = None  # お詫びする前の電話が今日か（same_day／later。お詫びの電話＝purpose apology と、途中で切れた電話の
+    #                                続き＝apology に cut_off のときだけ。決めるのは core/apology.when の1か所。CL-1 の連絡帳 4-99：
+    #                                「先ほどは（前回は）、お話の最後に通信が悪く…」の言い分け）
     judge_route: str | None = None   # 判定の道（'emergency'＝AIの不具合で止めているあいだに、契約者か管理者が緊急の道で再開した。予約の
     #                                とき、データベースの1か所 salescall.emergency_route が決める＝門は選べない。0155）。会話の処理は、これを
     #                                convo.run_call の judge_route へ渡す（判定を初めから緊急の道へ送る＝CL-1 の連絡帳 4-62）。None＝ふつうの道
@@ -894,6 +897,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # モードで付ける（締めるときのモードで決めると、検証の終わり際の通話に印が付かなかった＝2026-10-18 の見直し）
     if approval.human_for_business(tx, task["business_id"]):
         recordings.hold(tx, row["attempt_id"], "verification")
+    from salescall.core import apology   # お詫びの部品が次の動き（門を読む）を読むので、ここで読む（読み合いにしない）
+    reasons = tuple(nxt["apology_reasons"])
+    when = apology.when(tx, task["task_id"], nxt["purpose"]) if nxt["purpose"] == "apology" or "cut_off" in reasons else None
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
-                 nxt["purpose"], row["wrong_phone"], voice, tuple(nxt["apology_reasons"]), bool(nxt["promised"]),
-                 bool(nxt["successor"]), nxt["number_again"], row["judge_route"])
+                 nxt["purpose"], row["wrong_phone"], voice, reasons, bool(nxt["promised"]),
+                 bool(nxt["successor"]), nxt["number_again"], apology_when=when, judge_route=row["judge_route"])
