@@ -334,7 +334,7 @@ class Apology(Helpers):
         self.order(s, aid)
         voice = self.tx(s, lambda tx: tx.one("SELECT t.voice_name FROM salescall.attempts a JOIN salescall.voice_types t"
                                              " ON t.code = a.voice_type WHERE a.attempt_id = %s", (aid,)))["voice_name"]
-        with self.w.common_missing(voice, recordings.CONTRACTOR_PARTS[0]):    # その声の共通の一言（システム）が欠けた
+        with self.w.common_missing(voice, recordings.COMMON_PARTS[0]):    # その声の共通の一言（システム）が欠けた
             others = self.tx(s, lambda tx: recordings.ready_voices(tx, s["version"]))
             self.assertTrue(others and voice not in others)                    # ほかの声なら話せる
             c = self.claim(s)

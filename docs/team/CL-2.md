@@ -185,10 +185,14 @@ CL-2 の中の作業の決まり：**作業担当に、前回とほとんど関�
 ### 4-229. 【CL-1 へ】あなたの 4-96〜4-99 を受けました（2026-11-06。データの形 版 1.30。設計書 3-8-3・10-1-2・0186）
 - **4-99 のお願い（同じ日かの印）を入れました**：予約証 `gate.Claim` に `apology_when`（`same_day`／`later`）。入るのは、お詫びの電話（目的 `apology`）と、途中で切れた電話の続き（`apology` に `cut_off`）のときだけで、ほかは None です。決めるのは `apology.when` の1か所：お詫びの電話は誤った通話（お詫びの文の「先ほど」「先日」と同じ通話）、切れた電話の続きは、その行でいちばん新しい、発信まで進んだ電話。前の電話が無ければ later。日の境（日本時間）はデータベースの関数 `salescall.same_jst_day`（0186）の1か所で、お詫びの文もこれで決めます。
 - **4-99 の `told`**：通話の事実 `not_agreed` の `told`（`question`・`request`・`opinion`）を受け取ります（`call_report.NotAgreed.told`・種類の一覧 `call_report.TOLD_KINDS`＝あなたの `POINT_KINDS` の鍵の写し。ほかの値は報告ごと断ります）。前の通話の答え `point_fact` は報告に書いた事実そのもの（`NotAgreed.to_json`）なので、`told` もそのまま渡ります。こちらに点の読み方の写しは無いので、そろえるものはありません。⇒ **お願い**：`TOLD_KINDS` を、あなたの名前を比べる試験の突き合わせに足してください（写しを見張るため）。
-- **4-97・4-99 の共通の一言の録音7つ**：`callback_other_point_which`・`apology_cut_end_same_day`・`apology_cut_end_later`・`told_again_question`・`told_again_request`・`told_again_opinion`・`told_follow_up` を `recordings.CONTRACTOR_PARTS` に足しました。main に入ったら `CL2_PENDING` から外してください。
+- **4-97・4-99 の共通の一言の録音7つ**：`callback_other_point_which`・`apology_cut_end_same_day`・`apology_cut_end_later`・`told_again_question`・`told_again_request`・`told_again_opinion`・`told_follow_up` を共通の一言の一覧（`recordings.COMMON_PARTS`＝下の 4-230 で名前を改めた）に足しました。main に入ったら `CL2_PENDING` から外してください。
 - **4-98 の `（番号）_other_which`**：依頼主の単位の録音の名前は、あなたの作る表（`make_ack_clips.script_table`）から取込の録音の組に入ります。取込の確かめは質問の番号に「_」を続けた形で取り違えを見ているだけ（`business_settings.DERIVED_JOIN`）なので、こちらの変更はありません。W1 の「方法は言っていない」・N2 の「点は言っていない」は通話の事実の形を変えないので、こちらの変更はありません。
 - **4-96**：受けました（こちらの変更はありません）。
 - **【同日の直し・0187・データの形 版 1.31】** 上の「切れた電話の続きは、その行でいちばん新しい、発信まで進んだ電話」は思い違いでした（昨日切れたあと今日出なかった電話があると same_day になった）。**切れた電話そのもの**で決めます：次の予定に、お詫びの理由 `cut_off` の元の電話 `cut_call` を持たせ（理由を付ける所が書き、理由と一緒に引き継ぐ）、`apology.when` がその電話の日を見ます。予約証の形は変わりません。
+
+### 4-230. 【CL-1 へ】共通の一言の一覧の名前を `COMMON_PARTS` に改めました（2026-11-06。あなたの 4-75 の 4-194 の (2)）
+- `recordings.CONTRACTOR_PARTS` を `recordings.COMMON_PARTS` に改めました（中身は同じ。共通の一言はシステムの持ち物＝0171 なので、契約者の名前は誤解を招くため）。前の名前は残していません。
+- あなたの名前を比べる試験（main の `phase0/test_offline.py` の名前に cl2 を含む19）を、このブランチの `app/` に当てて流しました：落ちたのは「main に入ったら `CL2_PENDING` から外す」の知らせだけで、`CL2_PENDING` を空にして流すと、食い違いは `decide_target_asks` の1つだけ（4-226 のとおり、組む AI の形が決まるまで作らないもの）でした。2つ（`ai_trouble`・業務設定の名前）は、こちらに `fugashi` が無く流せていません。
 
 ## 5. 作りの地図（(B)。どの部品が何をするか。前の1章の行を1文字も変えずに移した）
 - 引き継ぎの (1)〜(10) を終えた（(10) は一部残り）。技術の選び方は Intent.md 14-1、コードの置き場は `docs/TEAM_PLAN.md` 1-4（2026-10-13 ユーザー決定）。

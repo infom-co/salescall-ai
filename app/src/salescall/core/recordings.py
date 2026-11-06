@@ -12,7 +12,7 @@
 - **話してよい声は `ready_voices` の1か所で決める**：使う声（使わない印の無い声）のうち、承認した録音が、システムの共通の一言と、その版の
   依頼者の単位の両方にあり、初めの声の型を持つもの（2026-10-17 ユーザー：「事前の録音チェックになる方向性」「新しい声が増える
   かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。共通の一言の組には、その部分
-  （`CONTRACTOR_PARTS`。名前の正本は CL-1 の phrases.RECORDED）がすべて要る（CL-1 の連絡帳 4-39）。
+  （`COMMON_PARTS`。名前の正本は CL-1 の phrases.RECORDED）がすべて要る（CL-1 の連絡帳 4-39）。
 - **名前の録音の台帳**（0132・0134・0137）：お名前の入る一言は、役職の部分（「営業部部長の」）・名前の部分（「「おかだ」様」）・続く言葉
   （「はいらっしゃいますでしょうか？」）を組み合わせて流す（切れ目は 2026-10-25 夕のご決定＝CL-1 の連絡帳 4-55 の (2)）。どれも組の単位
   （name_role・name・name_tail）で、承認の仕組みは同じ。持ち主は2つ（0173。✅ 2026-11-04 管理者：「契約者が作った段階では、業務ごとの
@@ -126,7 +126,7 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology", "na
                          "標準の録音の組には標準の版を渡します（共通の一言の組には、どれも渡しません）")
     if unit == "standard":
         _standard_parts(tx, standard_id, parts)
-    if unit == "business" and (common := sorted({p.part for p in parts} & set(CONTRACTOR_PARTS))):
+    if unit == "business" and (common := sorted({p.part for p in parts} & set(COMMON_PARTS))):
         # 業務の組に共通の一言の名前を入れない（流す部分を決める `play_parts` が、その名前を共通の一言の組から流すので、入れても流れない＝
         # 承認した業務の録音が黙って使われない。2026-11-05）
         raise ValueError(f"業務の録音の組に、共通の一言の名前は入れません（共通の一言の組から流します）：{common}")
@@ -296,7 +296,7 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 # お名前の入る一言の確かめ（その行の名前の部分と、その声の続く言葉が承認されているか）は、名前の録音の台帳の1か所（`name_needs`・
 # `name_missing`。0132）。
 # 業務の組の部分（名乗り・質問など）は、組を作るときに CL-1 の一覧（make_ack_clips.script_table）から作られるので、ここでは見ない。
-CONTRACTOR_PARTS: tuple[str, ...] = (
+COMMON_PARTS: tuple[str, ...] = (
     "ai_again", "apology_cut_off", "apology_missed_promise", "apology_purpose_later", "apology_purpose_same_day", "arigatou", "back", "callback_address", "callback_ask_when",
     "callback_ask_who", "callback_authority", "callback_back_date", "callback_back_time", "callback_back_today",
     "callback_call_again", "callback_email", "callback_hurry_again", "callback_hurry_when", "callback_next_workday", "callback_fax", "callback_later_time", "callback_not_agreed", "callback_number",
@@ -330,7 +330,7 @@ _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EX
 
 def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
     """その版で話してよい声の名前（名前の順）。決まりはここだけ（上の説明）。使う組は、流す組と同じ見方 current_recording_sets
-    （そろった組＝部分がすべて承認済みで、その版のいまの名前の読みと合うもの。0172）。共通の一言の組（システム）には、その部分（`CONTRACTOR_PARTS`）がすべて要る。
+    （そろった組＝部分がすべて承認済みで、その版のいまの名前の読みと合うもの。0172）。共通の一言の組（システム）には、その部分（`COMMON_PARTS`）がすべて要る。
     その版が標準から流す部分（標準の想定問答の答え。0174）があれば、その版が指す標準の版の、標準の録音の組（システム）に、その部分がすべて要る。"""
     needs = list(business_settings.standard_parts_of(tx, version_id))
     return [r["voice_name"] for r in tx.all(
@@ -340,7 +340,7 @@ def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
         "  AND " + _CURRENT.format(where=_COMMON + " AND " + _HAS_PARTS) +
         "  AND " + _CURRENT.format(where=_BUSINESS) +
         "  AND (cardinality(%s::text[]) = 0 OR " + _CURRENT.format(where=_STANDARD + " AND " + _HAS_PARTS) + ")"
-        " ORDER BY v.voice_name", (list(CONTRACTOR_PARTS), version_id, needs, version_id, needs))]
+        " ORDER BY v.voice_name", (list(COMMON_PARTS), version_id, needs, version_id, needs))]
 
 
 def missing_parts(tx: Tx, version_id: UUID) -> list[str]:
@@ -357,7 +357,7 @@ def missing_parts(tx: Tx, version_id: UUID) -> list[str]:
         " WHERE v.retired_at IS NULL AND " + _CURRENT.format(where=_BUSINESS) +
         "   AND NOT EXISTS (SELECT 1 FROM salescall.current_recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
         "                   WHERE s.voice_name = v.voice_name AND " + _STANDARD + " AND r.part = p.part)"
-        " ORDER BY part", (list(CONTRACTOR_PARTS), version_id, list(business_settings.standard_parts_of(tx, version_id)),
+        " ORDER BY part", (list(COMMON_PARTS), version_id, list(business_settings.standard_parts_of(tx, version_id)),
                            version_id, version_id))]
 
 
@@ -623,7 +623,7 @@ def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | 
 
 def play_parts(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, Part] | None:
     """その版をその声で話すときに流す部分（名前 → 部分。どの部分をどの組から流すかを決める唯一の場所。流すのは会話の側＝CL-1 の連絡帳 4-88 の
-    4-211）：共通の一言（`CONTRACTOR_PARTS`）はシステムの組、その版が標準から流す答え（`business_settings.standard_parts_of`）は標準の組、ほかの
+    4-211）：共通の一言（`COMMON_PARTS`）はシステムの組、その版が標準から流す答え（`business_settings.standard_parts_of`）は標準の組、ほかの
     部分は業務の組から（組は `current_sets`）。業務が上書きした標準の問いの答えは、同じ名前が標準の組にもあるが、業務の組から流す（標準の文を
     流さない）。標準の組にある、その版が使わない答え・上書きした答えは入れない。業務の組に共通の一言の名前は入らない（`create_set` が断る）。
     話してよい声（`ready_voices`）でない声は None（そろっているかを2か所で決めない。⛔ 2026-11-05 まで、この決まりの1か所が無く、単位ごとの組だけを返していた＝名前で組を選ぶと、上書きした答えに
@@ -634,7 +634,7 @@ def play_parts(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, Part] | N
     standard = set(business_settings.standard_parts_of(tx, version_id))
     common, own = parts(tx, sets["contractor"]), parts(tx, sets["business"])
     from_std = parts(tx, sets["standard"]) if standard else {}
-    out = {k: common[k] for k in CONTRACTOR_PARTS}
+    out = {k: common[k] for k in COMMON_PARTS}
     out.update({k: v for k, v in own.items() if k not in standard})
     out.update({k: from_std[k] for k in standard})
     return out

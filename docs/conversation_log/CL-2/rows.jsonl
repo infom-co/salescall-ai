@@ -3034,3 +3034,6 @@
 {"at": "2026-11-06T11:08:04+09:00", "who": "CL-2", "text": "Progress note: 直しを入れて、関係する試験を流しています。"}
 {"at": "2026-11-06T11:08:06+09:00", "who": "CL-2", "text": "The gate line changed; update that mutation's source/replacement text."}
 {"at": "2026-11-06T11:11:01+09:00", "who": "CL-2", "text": "壊し試しもすべて見張れました。記録を直します。"}
+{"at": "2026-11-06T11:11:30+09:00", "who": "CL-2", "text": "Full test run on this commit in the background, meanwhile I continue the review."}
+{"at": "2026-11-06T11:11:38+09:00", "who": "CL-2", "text": "並行して、残りの作業（CL-1 の連絡帳 4-74・4-75 の受け取りの残り）を確かめます。"}
+{"at": "2026-11-06T11:12:16+09:00", "who": "CL-2", "text": "次に、CL-1 の名前を比べる試験（main の会話の側）を、こちらの作りに当てて流します。"}

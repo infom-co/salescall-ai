@@ -172,9 +172,9 @@ class World:
 
     def approve_common(self, voices: tuple[str, ...], *, parts: tuple[str, ...] | None = None) -> None:
         """声ごとに、共通の一言の組（システムの持ち物＝管理者がシステムの取引で作って承認する。0171）を承認する（架空の録音）。
-        parts が無ければ、部分のすべて（recordings.CONTRACTOR_PARTS）がそろった組が、いまの組でない声にだけ作る（システムの組は、すべての
+        parts が無ければ、部分のすべて（recordings.COMMON_PARTS）がそろった組が、いまの組でない声にだけ作る（システムの組は、すべての
         契約者と試験が読む）。parts を渡すと、その部分だけの組を、いまの組として作る（足りない部分を試す。`common_missing` で戻す）。"""
-        names = parts if parts is not None else recordings.CONTRACTOR_PARTS
+        names = parts if parts is not None else recordings.COMMON_PARTS
 
         def work(tx):
             for v in voices:
@@ -192,11 +192,11 @@ class World:
     def common_missing(self, voice: str, missing: str):
         """その声の共通の一言（システムの組）を、部分 missing だけ足りない組にして試し、終わったら、そろった組に戻す（システムの組は
         ほかの試験も読むので、必ず戻す）。⚠️ この中で契約者を作らない（World.tenant が共通の一言をそろえ直す）。"""
-        self.approve_common((voice,), parts=tuple(p for p in recordings.CONTRACTOR_PARTS if p != missing))
+        self.approve_common((voice,), parts=tuple(p for p in recordings.COMMON_PARTS if p != missing))
         try:
             yield
         finally:
-            self.approve_common((voice,), parts=recordings.CONTRACTOR_PARTS)
+            self.approve_common((voice,), parts=recordings.COMMON_PARTS)
 
     @contextlib.contextmanager
     def standard(self, answers: tuple[tuple[str, str], ...], *, voices: tuple[str, ...] = ()):

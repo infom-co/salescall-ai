@@ -981,12 +981,12 @@ class CallerNumberAndVoice(Base):
                                  s["version"], business_voice, date.today())
 
     def test_a_voice_is_used_only_when_its_common_set_holds_every_common_part(self):
-        """共通の一言の組（システムの持ち物＝0171）に、その部分（recordings.CONTRACTOR_PARTS）がすべてある声だけで話す（⛔ 2026-10-24
+        """共通の一言の組（システムの持ち物＝0171）に、その部分（recordings.COMMON_PARTS）がすべてある声だけで話す（⛔ 2026-10-24
         CL-1 の連絡帳 4-39：前は予約証の印ごとに一部の部分を見て、約束の電話には業務の組に入らない promise_again を求め、約束の電話が
         1本もかからなかった。共通の一言はどの電話でも流れうる）。どの声にも足りなければ、待たせて、足りない部分の名前を契約者と管理者に
         知らせる（止めない。直すのは管理者）。お名前の入る一言（promise_again など）は業務の組で見ない＝約束の電話も、業務の組が名乗り
         だけでかかる。共通の一言はシステムの組だけで、どの契約者からも同じに読まれ、契約者は作れない。"""
-        missing = recordings.CONTRACTOR_PARTS[-1]
+        missing = recordings.COMMON_PARTS[-1]
         stray = f"T{uuid.uuid4().hex[:12]}"                                        # 共通の一言の無い声（この契約者の業務の録音も無い）
         self.w.a.in_system(ADMIN, lambda tx: recordings.add_voice(tx, stray, note="試験で足した声", display_gender=None))
         a = self.ready()
@@ -1009,7 +1009,7 @@ class CallerNumberAndVoice(Base):
             with self.assertRaises(Rejected):                                      # 契約者は共通の一言の組を作れない（0171）
                 self.w.a.in_tenant(OPERATOR, u, lambda tx: recordings.create_set(
                     tx, unit="contractor", voice_name="Sadachbia",
-                    parts=[recordings.Part(p, "架空の録音。", f"test://Sadachbia/{p}", "0" * 64) for p in recordings.CONTRACTOR_PARTS]))
+                    parts=[recordings.Part(p, "架空の録音。", f"test://Sadachbia/{p}", "0" * 64) for p in recordings.COMMON_PARTS]))
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")    # 管理者が足りない部分を入れた組を承認すれば話す
 
     def test_a_promised_call_needs_no_name_part_in_the_business_set(self):
@@ -1206,7 +1206,7 @@ class CallerNumberAndVoice(Base):
             self.assertEqual((play["answer_会社の場所"], play["answer_番号の出どころ"], play["intro"], play["hai"]),
                              (own["answer_会社の場所"], from_std["answer_番号の出どころ"], own["intro"], common["hai"]))
             self.assertNotEqual(play["answer_会社の場所"], from_std["answer_会社の場所"])   # 標準の文（東京都港区）は流さない
-            self.assertEqual(set(play), set(recordings.CONTRACTOR_PARTS) | {"intro", "answer_会社の場所", "answer_番号の出どころ"})
+            self.assertEqual(set(play), set(recordings.COMMON_PARTS) | {"intro", "answer_会社の場所", "answer_番号の出どころ"})
             self.assertIsNone(self.tx(s, lambda tx: recordings.play_parts(tx, v, "Leda")))   # 標準の録音が無い声
             with self.w.standard(std[:1], voices=("Leda", "Sadachbia")):            # ほかの標準の版の録音は使わない（あとで作っても）
                 self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v)), ["Sadachbia"])
@@ -1785,64 +1785,64 @@ class NameLedger(Content):
     def test_the_parts_cl1_added_on_11_01_are_received(self):
         """CL-1 が main（c4c8ffe・fe0e765）で足した、理由を言わずに取り次げないと言われたときの録音の部分（2026-11-01 ユーザーのご指示）：
         お取り次ぎいただける日時を伺う一言 callback_transfer_time・後任の方への確かめ successor_unavailable は契約者の単位の録音（話して
-        よい声が求める＝`CONTRACTOR_PARTS`）、お名前の入る確かめの一言 unavailable_confirm は名前の録音の台帳の続く言葉（`NAME_TAILS`・
+        よい声が求める＝`COMMON_PARTS`）、お名前の入る確かめの一言 unavailable_confirm は名前の録音の台帳の続く言葉（`NAME_TAILS`・
         データベースの守り 0165）で、質問の番号に使えない名前（`business_settings.RESERVED_IDS`）。⛔ 見直し28：前はどれも無く、その一言を
         流せないまま声を「話してよい」にしていた。"""
         from salescall.core import business_settings
-        self.assertLessEqual({"callback_transfer_time", "successor_unavailable"}, set(recordings.CONTRACTOR_PARTS))
+        self.assertLessEqual({"callback_transfer_time", "successor_unavailable"}, set(recordings.COMMON_PARTS))
         self.assertIn("unavailable_confirm", recordings.NAME_TAILS)
         self.assertIn("unavailable_confirm", business_settings.RESERVED_IDS)
 
     def test_the_parts_cl1_added_on_11_04_and_11_05_are_received(self):
         """CL-1 の連絡帳 4-80〜4-84（✅ 2026-11-04 日本時間18時16分・19時26分・20時27分・11-05 0時48分 ユーザー）：ご承認の手順の続きの一言・
         LINE の連絡先の伺い方（C11）とその伺い直し・続きの電話の一言・SMS でご招待する携帯電話の番号（C12）・連絡先を伺う前に切れた電話の続き・
-        伺い方のあとのメールアドレス・ほかの方法を伺う一言は、どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。C11・C12 は
+        伺い方のあとのメールアドレス・ほかの方法を伺う一言は、どの業務でも同じ文の共通の一言（話してよい声が求める＝`COMMON_PARTS`）。C11・C12 は
         業務の質問の番号に使えない（`business_settings.RESERVED_IDS`。使えると、業務の質問の答えとシステムの質問の答えを取り違える）。"""
         from salescall.core import business_settings
         added = {"callback_not_agreed_again", "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
                  "callback_email_again", "callback_fax_again", "callback_address_again", "callback_email_chosen",
                  *(f"callback_line_how_without_{k}{n}" for k in ("id", "sms", "email") for n in ("", "_2"))}
-        self.assertLessEqual(added, set(recordings.CONTRACTOR_PARTS))
+        self.assertLessEqual(added, set(recordings.COMMON_PARTS))
         self.assertLessEqual({"C11", "C12"}, business_settings.RESERVED_IDS)
 
     def test_the_parts_cl1_added_on_11_06_are_received(self):
         """CL-1 の連絡帳 4-91・4-93・4-94（✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒・11-06 0時44分31秒 ユーザー）：オンラインのご希望を
         申し伝える一言とその続きの電話の一言・答えの段のかけ直しの一言・返事を待つ一言・待つかかけ直すかを伺う一言は、どの業務でも同じ文の共通の
-        一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。待つかかけ直すかを伺うシステムの質問 H2 は、業務の質問の番号に使えない。"""
+        一言（話してよい声が求める＝`COMMON_PARTS`）。待つかかけ直すかを伺うシステムの質問 H2 は、業務の質問の番号に使えない。"""
         from salescall.core import business_settings
         self.assertLessEqual({"wish_told_online", "callback_email_online_again", "callback_later_time_answering", "wait_reply",
-                              "callback_wait_or_later"}, set(recordings.CONTRACTOR_PARTS))
+                              "callback_wait_or_later"}, set(recordings.COMMON_PARTS))
         self.assertIn("H2", business_settings.RESERVED_IDS)
 
     def test_the_parts_cl1_added_on_11_05_3am_are_received(self):
         """CL-1 の連絡帳 4-85（2026-11-05 日本時間2時45分39秒 ユーザー「残りの9つを直してください」）：続きの電話の始めのご説明が受け皿の文で
         流れるときの「前回お伺いした件ですが、」（resumed_fallback_lead）と、答えを持っていない受け皿の一言（own_fallback_point_again）は、
-        どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。"""
-        self.assertLessEqual({"resumed_fallback_lead", "own_fallback_point_again"}, set(recordings.CONTRACTOR_PARTS))
+        どの業務でも同じ文の共通の一言（話してよい声が求める＝`COMMON_PARTS`）。"""
+        self.assertLessEqual({"resumed_fallback_lead", "own_fallback_point_again"}, set(recordings.COMMON_PARTS))
 
     def test_the_part_cl1_added_on_11_05_4am_is_received(self):
         """CL-1 の連絡帳 4-86 の (1)（✅ 2026-11-05 日本時間4時16分52秒 ユーザー）：続きの電話の始めに、ご納得いただけなかった点を「覚えていない」と
-        言われたときの頭の相づち「ごもっともです。」（gomottomo）は、どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。"""
-        self.assertIn("gomottomo", recordings.CONTRACTOR_PARTS)
+        言われたときの頭の相づち「ごもっともです。」（gomottomo）は、どの業務でも同じ文の共通の一言（話してよい声が求める＝`COMMON_PARTS`）。"""
+        self.assertIn("gomottomo", recordings.COMMON_PARTS)
 
     def test_the_point_fallbacks_by_kind_cl1_added_on_11_05_are_received(self):
         """ご説明できないときの一言を、お客様の言ったことの種類（ご質問・ご要望・ご意見）でそろえた名前（✅ 2026-11-05 日本時間3時33分11秒 ユーザーの
         ご修正。CL-1 の phrases.point_fallback_id＝ご質問は前からの名前、ほかは _request・_opinion を続ける）も、この電話と続きの電話の両方で共通の一言。"""
         names = {f"own_fallback_point{again}{kind}" for again in ("", "_again") for kind in ("", "_request", "_opinion")}
-        self.assertLessEqual(names, set(recordings.CONTRACTOR_PARTS))
+        self.assertLessEqual(names, set(recordings.COMMON_PARTS))
 
     def test_the_point_anytime_parts_cl1_added_on_11_05_5am_are_received(self):
         """CL-1 の連絡帳 4-87・4-89（✅ 2026-11-05 日本時間5時20分56秒・5時45分06秒 ユーザー）：ご納得いただけなかった点を言っていただけないまま手順を
         終えるときに挟む「何か思い出されたりご不満な点がございましたらいつでもお申し出ください。」（point_anytime）と、その短い形（point_anytime_plain）は、
-        どの業務でも同じ文の共通の一言（話してよい声が求める＝`CONTRACTOR_PARTS`）。"""
-        self.assertLessEqual({"point_anytime", "point_anytime_plain"}, set(recordings.CONTRACTOR_PARTS))
+        どの業務でも同じ文の共通の一言（話してよい声が求める＝`COMMON_PARTS`）。"""
+        self.assertLessEqual({"point_anytime", "point_anytime_plain"}, set(recordings.COMMON_PARTS))
 
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
-        よろしいでしょうか？」は契約者の単位の録音 callback_refusal（話してよい声が求める＝`CONTRACTOR_PARTS`）で、その質問の番号 R1 は
+        よろしいでしょうか？」は契約者の単位の録音 callback_refusal（話してよい声が求める＝`COMMON_PARTS`）で、その質問の番号 R1 は
         業務の質問の番号に使えない（`business_settings.RESERVED_IDS`。使えると、業務の質問の答えとご遠慮の答えを取り違える）。"""
         from salescall.core import business_settings
-        self.assertIn("callback_refusal", recordings.CONTRACTOR_PARTS)
+        self.assertIn("callback_refusal", recordings.COMMON_PARTS)
         self.assertIn("R1", business_settings.RESERVED_IDS)
 
     def test_the_hurry_ask_and_the_thinking_prompt_cl1_added_on_11_01_are_received(self):
@@ -1850,15 +1850,15 @@ class NameLedger(Content):
         （callback_hurry_again）・「ご都合のいい日時はいつ頃でしょうか？」（callback_hurry_when）・考えている方に黙られたときの「どう
         なさいますか？」（dounasaimasu）は契約者の単位の録音（話してよい声が求める）。その質問の番号 H1 は業務の質問の番号に使えない。"""
         from salescall.core import business_settings
-        self.assertLessEqual({"callback_hurry_again", "callback_hurry_when", "dounasaimasu"}, set(recordings.CONTRACTOR_PARTS))
+        self.assertLessEqual({"callback_hurry_again", "callback_hurry_when", "dounasaimasu"}, set(recordings.COMMON_PARTS))
         self.assertIn("H1", business_settings.RESERVED_IDS)
 
     def test_the_not_agreed_ask_cl1_added_on_11_02_is_received(self):
         """CL-1 の連絡帳 4-66 の (d)（2026-11-02 ✅ ユーザー）：説明した内容をご承認いただけなかったときの「ご納得いただけなかった点は
-        どの部分になりますでしょうか？」（callback_not_agreed）は契約者の単位の録音（話してよい声が求める＝`CONTRACTOR_PARTS`）で、
+        どの部分になりますでしょうか？」（callback_not_agreed）は契約者の単位の録音（話してよい声が求める＝`COMMON_PARTS`）で、
         その質問の番号 N1 は業務の質問の番号に使えない（使えると、業務の質問の答えとご納得いただけなかった点を取り違える）。"""
         from salescall.core import business_settings
-        self.assertIn("callback_not_agreed", recordings.CONTRACTOR_PARTS)
+        self.assertIn("callback_not_agreed", recordings.COMMON_PARTS)
         self.assertIn("N1", business_settings.RESERVED_IDS)
 
     def test_the_parts_cl1_added_after_4_66_are_received(self):
@@ -1866,11 +1866,11 @@ class NameLedger(Content):
         N2「ほかにご納得いただけない点はございますでしょうか？」（callback_other_point・2回目からの言い方 callback_other_point_2）・
         N3「ご説明した内容でご納得いただけましたでしょうか？」（callback_agreed_now）・資料でご説明できない点の一言（own_fallback_point）・
         お断りで最終目的が果たせなくなったときの締め（closing_after_decline）・「承知しました。」が続くときの相づち「かしこまりました。」
-        （kashikomari）は契約者の単位の録音（話してよい声が求める＝`CONTRACTOR_PARTS`。無いと、その一言を流せないまま声を「話してよい」
+        （kashikomari）は契約者の単位の録音（話してよい声が求める＝`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」
         にする）。質問の番号 N2・N3 は業務の質問の番号に使えない（使えると、業務の質問の答えとご納得の答えを取り違える）。"""
         from salescall.core import business_settings
         self.assertLessEqual({"callback_other_point", "callback_other_point_2", "callback_agreed_now", "own_fallback_point",
-                              "closing_after_decline", "kashikomari"}, set(recordings.CONTRACTOR_PARTS))
+                              "closing_after_decline", "kashikomari"}, set(recordings.COMMON_PARTS))
         self.assertLessEqual({"N2", "N3"}, business_settings.RESERVED_IDS)
 
     def test_the_refusal_confirm_number_d1_is_received(self):

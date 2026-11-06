@@ -4274,8 +4274,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    if False:   # そろっているかは',
      ('tests.test_gate.CallerNumberAndVoice.test_a_version_on_the_standard_speaks_only_with_the_standards_recordings_of_that_standard',)),
     ('業務の録音の組に、共通の一言の名前を入れられる（流れない録音を承認させる）', 'src/salescall/core/recordings.py',
-     '    if unit == "business" and (common := sorted({p.part for p in parts} & set(CONTRACTOR_PARTS))):',
-     '    if False and (common := sorted({p.part for p in parts} & set(CONTRACTOR_PARTS))):',
+     '    if unit == "business" and (common := sorted({p.part for p in parts} & set(COMMON_PARTS))):',
+     '    if False and (common := sorted({p.part for p in parts} & set(COMMON_PARTS))):',
      ('tests.test_gate.CallerNumberAndVoice.test_only_a_person_approves_recordings_and_an_approved_set_is_fixed',)),
     # 2026-11-05 CL-1 の連絡帳 4-88（前の通話の答えは、その質問の最後の事実を報告の形のまま＝案2）。前の6つの項目を見張る21件は外した
     ('前の通話の答えに、ほかのご希望の事実を渡さない（続きの電話で伺い終えたことをまた伺う・もう伺った連絡先を伺い直す）', 'src/salescall/core/conversation_io.py',
