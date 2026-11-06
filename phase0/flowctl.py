@@ -21,7 +21,7 @@ import functools
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
+from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
@@ -2000,13 +2000,17 @@ _ROLE_MEANINGS = {
     "not_agreed": {"点を言った": "分からない点・確かめたい点を言ったということ（ご説明すれば分かりうる）",
                    "断ろうとしている": "理由を挙げて、お断りしようとしているということ"},
     # 「ほかに…」（N2）と、続きの電話の振り返りの一言（同じ選択肢＝callback_question の recap）の両方で読むので、「ほかに」は質問の文に任せる（意味の言葉には入れない）
+    # 「点は言っていない」（POINT_UNSAID）＝分からない点があるとだけ言った：プログラムが1回「ほかにご不明な点はどのようなことになりますでしょうか？」と伺う
+    # （Flow._point_step。✅ 2026-11-06 日本時間9時05分17秒 ユーザー）
     "other_point": {"分かった": "ご納得いただけない点は無い・内容が分かったということ",
-                    "分からない点がある": "分からない点・確かめたい点があるということ（ご説明すれば分かりうる）",
+                    "分からない点がある": "分からない点・確かめたい点を言ったということ（ご説明すれば分かりうる）",
+                    "点は言っていない": "分からない点・確かめたい点があると言ったが、どの点かは言っていないということ",
                     "断ろうとしている": "理由を挙げて、お断りしようとしているということ"},
     "agreed_now": {"はい": "ご説明した内容でご納得いただけたということ", "いいえ": "ご説明した内容ではご納得いただけなかったということ"},
     # LINE でのご連絡の連絡先の伺い方（Flow._line_how の1か所。選択肢の名前 → 伺う連絡先＝LINE_HOW）。✅ 2026-11-04 日本時間19時26分 ユーザー
     "line_how": {"ID": "LINEのIDを伝えるということ", "SMS": "SMSでLINEに招待してほしいということ", "メール": "メールでLINEに招待してほしいということ",
                  "方法は言っていない": "どの方法かは言わずに、その形で対応してよいということ"}}
+POINT_UNSAID = "点は言っていない"   # 「ほかに…」（N2）への、分からない点があるとだけ言った答え（_ROLE_MEANINGS の other_point・Flow._point_step）
 # システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）
 _ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("断ろうとしている",), "agreed_now": ("いいえ",)}
 # 選ぶ質問の「どれも要らない」のあとに伺うほかのご希望（Flow._wish_step の1か所）：ご連絡の方法を言っていただいたら、その方法の連絡先をその場で伺う。
@@ -2514,7 +2518,7 @@ def _wish_text(q: "Question", again: bool = False) -> str:
 
 def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Question | None" = None, again: bool = False,
                       chosen: bool = False, without: str | None = None, recap: "Question | None" = None, means: str | None = None,
-                      answering: bool = False) -> "Question":
+                      answering: bool = False, which: bool = False) -> "Question":
     """システムが足す質問（役目＝SYSTEM_ROLES の1つ）を作る唯一の場所：かけ直し・ほかの手段で聞くこと（時刻＝日時の型＝日にちだけの答えも
     受け取る・番号＝電話番号の型・メール・住所。どれも言い直して確かめる型）と、選んでいただくこと（代わりの方に、判断いただけるお立場か・
     お取次ぎのみか＝✅ 2026-10-22 ユーザー（4回目）の2つから選んでいただく問い／伝言を伝えていただけるか＝はい／いいえ）。
@@ -2551,6 +2555,10 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # 答えの段（お呼びする段でない）でかけ直しを申し出られたときの一言（phrases.CALLBACK_ASK_ANSWERING。共通の一言の録音 callback_（役目）_answering。
         # 理由にかかわらず＝✅ 2026-11-06 日本時間0時44分31秒 ユーザー「(イ) 答えの段のかけ直しすべてで大丈夫」）
         lines, i, recording = (CALLBACK_ASK_ANSWERING[role],), 0, f"callback_{role}_answering"
+    elif which and role in CALLBACK_ASK_WHICH:
+        # どの点かを言っていただけなかったときに1回伺う一言（phrases.CALLBACK_ASK_WHICH。共通の一言の録音 callback_（役目）_which。選択肢と答えの受け方は同じ＝
+        # Flow._point_step）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー
+        lines, i, recording = (CALLBACK_ASK_WHICH[role],), 0, f"callback_{role}_which"
     elif chosen and role in CALLBACK_ASK_CHOSEN:
         # LINE の連絡先の伺い方（line_how）で選んでいただいたあとに伺う一言（phrases.CALLBACK_ASK_CHOSEN。共通の一言の録音 callback_（役目）_chosen）
         lines, i, recording = (CALLBACK_ASK_CHOSEN[role],), 0, f"callback_{role}_chosen"
@@ -7409,7 +7417,7 @@ class Flow:
                 # ＝「承知しました。」・聞き返しを使い切って先へ進む＝「はい、」）と同じ。この一言の頭なので、続く念のための確認のお詫びにはしない）。
                 # ✅ 2026-11-05 日本時間5時45分 ユーザー：「（例えば「承知しました。ご不満な点がございましたらいつでもお申し出ください。続きまして…」のような形は
                 # いかがでしょうか。）その形でOK、進めてください」
-                p["open"] = ("shouchi" if self.items[nid].state in ("dont_know", "refused") else "hai", "point_anytime_plain")
+                p["open"] = (self._unsaid_head(nid), "point_anytime_plain")
                 self._point_end("unresolved", by=nid)
         elif p["stage"] == "explained":
             if p["explained"]:
@@ -7420,8 +7428,16 @@ class Flow:
                 self._point_end("unresolved")
         elif p["stage"] == "other" and self.items[oid].state in TAKEN + ("unresolved",):
             cond = self.items[oid].condition if self.items[oid].state in GOT else None
+            which = p.get("which", False)   # いまの「ほかに…」は、どの点かを1回伺う一言か（立てるのは伺う所 _ask_point の1か所）
             if cond == "分かった":
                 self._point_end("agreed", by=oid)
+            elif cond == POINT_UNSAID and not which:
+                # 分からない点があるとだけ言って、どの点かを言っていない：プログラムが1回「ほかにご不明な点はどのようなことになりますでしょうか？」と伺う（会話AIに
+                # 伺わせない＝お客様に伺うことはプログラムが流す＝9-3。⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-D の指摘6）：会話AIに「どの点か
+                # 伺ってから」と頼み、問いかけは止められて無言が続き、言っていない点を「そのご質問は…申し伝え」た）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：
+                # 「(a) ほかに分からない点が「ある」とだけ言われたとき：「ほかにご不明な点はどのようなことになりますでしょうか？」」
+                p["hai"] = self.callee_turns   # 「はい、」で受けて伺う（お礼の相づちは合わない＝「なるほど」のあとの N3 と同じ）
+                self._ask_point("other_point", oid, which=True)
             elif cond == "分からない点がある":
                 # 分かるまでご説明する（回数では切らない）。振り返りの一言への返事で点を言っていただいた（recap）は、1つ目の点（「ほかにも」ではない）
                 if not p.pop("recap", False):
@@ -7430,6 +7446,14 @@ class Flow:
             elif self.questions[oid].declined(cond):
                 self._point_heard(self.items[oid].value, explain=False)
                 self._point_end("declined", by=oid)
+            elif which:
+                # どの点かを伺っても点を言っていただけない（また点は言っていない・どちらとも取れない・言いたくない・聞き取れない）：「ほかに分からない点がある」と
+                # 言ったお客様にご納得は伺わず（下の else の N3 にしない）、点を言っていただけないときと同じく押さずに手順を終え、一言を挟む（4時48分13秒・5時45分の
+                # ご決定＝上の stage ask の else）。挟む一言は、続きの電話の振り返りの一言（recap）への返事なら、前の電話のことを伺う場面なので「何か思い出されたり…」
+                # （下の of の枝と同じ＝5時20分56秒の (a)）、ほかは「ご不満な点が…」。⛔ 伺う一言を足したとき、伺ったあとの聞き取れない・言いたくないが N3 へ
+                # 流れていた（振り返りの印 of でしか止めていなかった）
+                p["open"] = (self._unsaid_head(oid), "point_anytime" if p.get("recap") else "point_anytime_plain")
+                self._point_end("unresolved", by=oid)
             elif self.questions[oid].of:
                 # 振り返りの一言（続きの電話の始め＝recap）への返事も、点を言っていただけない（「そうでしたっけ。」・覚えていないまま・聞き取れない）：上と同じく、
                 # ご納得は伺わずに手順を終える（点は1回伺った＝4時36分。✅ 4時48分13秒のお言葉）。次へ進む前に、伺い直さずに一言を挟む（leave_open。頭は「はい、」
@@ -7445,6 +7469,14 @@ class Flow:
         elif p["stage"] == "confirm" and self.items[aid].state in TAKEN + ("unresolved",):
             cond = self.items[aid].condition if self.items[aid].state in GOT else None
             self._point_end("agreed" if cond == "はい" else "declined" if self.questions[aid].declined(cond) else "unresolved", by=aid)
+
+    def _unsaid_head(self, qid: str) -> str:
+        """点を言っていただけずに手順を終えるとき、挟む一言（「ご不満な点が…」）の頭の相づちを決める唯一の場所：聞き取れた言葉で点を言っていただけなかった
+        （わからない・答えたくない・どの点かは言っていない）＝「承知しました。」（答えの決まり＝_ack_choice の「わからない」「答えたくない」と同じ）、
+        聞き取れない・どちらとも取れない＝「はい、」（聞き返しを使い切って先へ進むときと同じ）。✅ 2026-11-05 日本時間5時45分 ユーザー：「（「承知しました。
+        ご不満な点がございましたらいつでもお申し出ください。続きまして…」のような形）その形でOK、進めてください」"""
+        it = self.items[qid]
+        return "shouchi" if it.state in ("dont_know", "refused") or (it.state in GOT and it.condition == POINT_UNSAID) else "hai"
 
     def _unknown_agreed(self, qid: str) -> bool:
         """受け取った「わからない」（dont_know）を、判定も「決められない」と読んでいないか＝覚えていない・分からないと言った（「ごもっともです。」で受ける）の唯一の
@@ -7471,12 +7503,18 @@ class Flow:
             return
         self._ask_point("not_agreed", None if again else q.id, again=again)
 
-    def _ask_point(self, role: str, after: str | None, again: bool = False, recap: bool = False) -> None:
+    def _ask_point(self, role: str, after: str | None, again: bool = False, recap: bool = False, which: bool = False) -> None:
         """ご承認いただけなかったときの手順のシステムの質問を、前の質問のすぐあとに伺う唯一の場所（after＝None：並びの先頭。2回目からの「ほかに…」は、答えを
         空にして、言い方を替えて伺い直す＝callback_question の nth。again＝続きの電話の始めに、切れた所から伺う一言＝_point_begin。recap＝続きの電話の始めに
         点を言っていただけなかったときの振り返りの一言＝「ほかに…」の言い方の数には入れない＝そのあとの「ほかに…」は1つ目の言い方から）。"""
+        if role == "other_point":
+            # いまの「ほかに…」が、どの点かを1回伺う一言か（_point_step の which）。伺い直すたびにここで決める＝答えを遅れた判定で取り消して同じ質問へ戻っても
+            # 印は伺った質問のまま（⛔ 答えを受けた時に消していたので、取り消したあと同じ一言をもう一度伺った）
+            self.point["which"] = which
         if recap:
             q = callback_question(role, recap=self.questions[self.point["q"]])
+        elif which:   # どの点かを1回伺う一言（言い方の数には入れない）
+            q = callback_question(role, which=True)
         else:
             nth = self.point.setdefault("asked", {}).get(role, 0)
             self.point["asked"][role] = nth + 1

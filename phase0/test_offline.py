@@ -65,7 +65,9 @@ CL2_PENDING = frozenset({"W1", "C10", "other_wish", "callback_line", "wish_told_
                          # 答えの段のかけ直しの一言の録音（✅ 11-06 日本時間0時44分31秒 ユーザー。CL-1.md 4-93）
                          "callback_later_time_answering",
                          # 答えの段の待つ・かけ直す（会話2・11-06 1時台＝CL-1.md 4-94）：待つ一言の録音・1回伺う一言の録音・その質問の番号 H2
-                         "wait_reply", "callback_wait_or_later", "H2"})
+                         "wait_reply", "callback_wait_or_later", "H2",
+                         # 「ほかに…」（N2）にほかに分からない点が「ある」とだけ言われたときの一言の録音（✅ 11-06 日本時間9時05分17秒 ユーザー。CL-1.md 4-97）
+                         "callback_other_point_which"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -8402,6 +8404,15 @@ class EndJudgedTest(unittest.TestCase):
         f = recapped()
         self._say(f, "やっぱり今回はやめておきます。高いので。", "record_answer", question_id=n2, condition_id="断ろうとしている")
         self.assertEqual((f.items["Q2"].condition, f.point["outcome"]), ("いいえ", "declined"))
+        # (4b) 振り返りのあと、分からない点があるとだけ言った（どの点かは言っていない）：プログラムが1回どの点かを伺い（✅ 11-06 日本時間9時05分17秒の一言）、
+        # それでも点を言っていただけなければ手順を終える。挟む一言は、前の電話のことを伺う場面なので「何か思い出されたり…」（(3) と同じ＝5時20分56秒の (a)）、
+        # 頭は聞き取れた言葉で点を言っていただけなかったときの「承知しました。」
+        from flowctl import POINT_UNSAID
+        f = recapped()
+        r = self._say(f, "うーん、ちょっと分からないところがあって。", "record_answer", question_id=n2, condition_id=POINT_UNSAID)
+        self.assertEqual((r["question_id"], r.get("ack"), [p["id"] for p in r["play"]]), (n2, "hai", ["callback_other_point_which"]))
+        r = self._say(f, "いや、いろいろとですね。", "record_answer", question_id=n2, condition_id=POINT_UNSAID)
+        self.assertEqual((r["question_id"], r.get("ack"), r["play"][0]["id"], f.items["Q2"].condition), ("Q3", "shouchi", "point_anytime", "いいえ"))
         # (5) 聞き取れない（覚えていないとは言われていない）：振り返るが、頭は「はい、」（「ごもっともです。」は、覚えていない・分からないと言われたときだけ）
         f = flow()
         r = self._say(f, "（雑音）", "report_unclear", question_id=n1)
@@ -14029,6 +14040,47 @@ class ApprovalTest(unittest.TestCase):
         AmbiguousAnswerTest.say(f, "よく分かりました。", "record_answer", question_id=n2, condition_id="分かった")
         self.assertEqual((f.current, f.export()["Q2"], f.facts["not_agreed"][-1]["outcome"]), ("Q3", "はい", "agreed"))
 
+    def test_a_further_point_without_saying_which_is_asked_once(self):
+        # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(a) ほかに分からない点が「ある」とだけ言われたとき：「ほかにご不明な点はどのようなことになりますでしょうか？」」
+        # ＝どの点かを言っていない（判定の読み「点は言っていない」）なら、プログラムがこの一言で1回伺う（会話AIに伺わせない＝問いかけは止められて無言が続いた）。
+        # 伺っても点を言っていただけなければ、押さずに手順を終える（4時48分13秒・5時45分のご決定＝「ご不満な点がございましたらいつでもお申し出ください。」）
+        from flowctl import CALLBACK_IDS, POINT_UNSAID
+        from phrases import ACK
+        n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+
+        def start():
+            f = self.flow(goal=False)
+            AmbiguousAnswerTest.say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+            AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+            AmbiguousAnswerTest.say(f, "料金のところですね。", "record_answer", question_id=n1, condition_id="点を言った")
+            self.explained(f, "answer_料金")
+            return f
+        f = start()
+        r = AmbiguousAnswerTest.say(f, "うーん、ほかにもちょっと分からないところがあって。", "record_answer", question_id=n2, condition_id=POINT_UNSAID)
+        self.assertEqual((ACK.get(r.get("ack"), ""), r.get("question"), f.current), ("はい、", "ほかにご不明な点はどのようなことになりますでしょうか？", n2))
+        r = AmbiguousAnswerTest.say(f, "保守の体制のところです。", "record_answer", question_id=n2, condition_id="分からない点がある", value="保守の体制")
+        self.assertEqual((r["result"], f.facts["not_agreed"][-1]["round"]), ("explain_point", 2))
+        self.explained(f, "answer_費用")
+        r = AmbiguousAnswerTest.say(f, "よく分かりました。", "record_answer", question_id=n2, condition_id="分かった")
+        self.assertEqual(f.facts["not_agreed"][-1]["outcome"], "agreed")
+        # 伺っても点を言っていただけない：押さずに手順を終える（一言を挟んで次へ）
+        g = start()
+        AmbiguousAnswerTest.say(g, "うーん、ほかにもちょっと分からないところがあって。", "record_answer", question_id=n2, condition_id=POINT_UNSAID)
+        r = AmbiguousAnswerTest.say(g, "いや、いろいろとですね。", "record_answer", question_id=n2, condition_id=POINT_UNSAID)
+        self.assertEqual((g.facts["not_agreed"][-1]["outcome"], g.current, ACK.get(r.get("ack"), "")), ("unresolved", "Q3", "承知しました。"))
+        self.assertIn("「ご不満な点がございましたらいつでもお申し出ください。」とだけ言います", r["message"])   # AIが話す形の組＝言わせる一言（say_note）
+        # どの点かを伺ったあとの、聞き取れない・言いたくない：「ほかに分からない点がある」と言ったお客様に、ご納得（N3「ご説明した内容でご納得いただけました
+        # でしょうか？」）は伺わない＝点を言っていただけないときと同じく手順を終える（4時48分13秒）。頭は答えの決まりどおり（言いたくない＝「承知しました。」・
+        # 聞き取れない＝「はい、」）。⛔ 伺う一言を足したとき、伺ったあとのこの2つが N3 へ流れていた（振り返りの印 of でしか止めていなかった）
+        for said, how, kw, ack in (("（雑音）", "report_unclear", {}, "はい、"),
+                                   ("それはちょっと言いたくないです。", "record_answer", {"condition_id": "refused"}, "承知しました。")):
+            g = start()
+            AmbiguousAnswerTest.say(g, "うーん、ほかにもちょっと分からないところがあって。", "record_answer", question_id=n2, condition_id=POINT_UNSAID)
+            r = AmbiguousAnswerTest.say(g, said, how, question_id=n2, **kw)
+            self.assertEqual((g.facts["not_agreed"][-1]["outcome"], g.current, CALLBACK_IDS["agreed_now"] in g.order, ACK.get(r.get("ack"), "")),
+                             ("unresolved", "Q3", False, ack), said)
+            self.assertIn("「ご不満な点がございましたらいつでもお申し出ください。」とだけ言います", r["message"], said)
+
     def test_declining_is_not_pushed(self):
         # 理由を挙げてお断りしようとしている（分からないのではない）：ご説明で押さない＝ご承認は「いいえ」のまま（最終目的なら締めて、その業務はかけない）
         from flowctl import CALLBACK_IDS
@@ -16753,6 +16805,35 @@ class ApprovalReviewTest(unittest.TestCase):
         f.on_check("judge2", Reading("はい"))
         self.say(f, "うーん、まあいいと思いますよ。", approval_judge, "record_answer", question_id="Q2", condition_id="いいえ")
         return f
+
+    def test_taken_back_answer_to_the_which_question_is_still_asked_once(self):
+        # どの点かを伺った（✅ 2026-11-06 日本時間9時05分17秒の一言「ほかにご不明な点はどのようなことになりますでしょうか？」）あとの答え「点を言った」を、遅れて
+        # 届いた判定で取り消した：その段へ戻す（本書 9-5 のご承認の手順）＝どの点かを伺う質問がいまの質問に戻り、お客様の次の返事を待つ。次の返事も点を言って
+        # いただけなければ、伺い直さずに手順を終える（伺うのは1回＝9時05分17秒・4時48分13秒）。⛔ 伺ったという印を答えを受けた時に消していたので、取り消した
+        # あと同じ一言をもう一度伺った（どちらとも取れない・聞き取れないなら、ご納得（N3）を伺った）
+        from flowctl import CALLBACK_IDS, POINT_UNSAID
+        from meaning_judge import Reading
+        from phrases import CALLBACK_ASK_WHICH
+        N1, N2, N3 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"], CALLBACK_IDS["agreed_now"]
+        heard = lambda r: "".join(p.get("text", "") for p in r.get("play") or []) + r.get("say", "") + r.get("question", "") + r.get("message", "")
+        g = self.late_flow()
+        g.on_check("judge2", Reading("いいえ"))
+        self.say(g, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金のところ")
+        g.on_check("judge2", Reading("点を言った"))
+        g.apply("replay_opening", {"part": "料金"})
+        g.on_callee(); g.on_heard("そうなんですね。"); g.apply("replay_opening", {"part": "resume"})
+        self.say(g, "うーん、ほかにもちょっと分からないところがあって。", POINT_UNSAID, "record_answer", question_id=N2, condition_id=POINT_UNSAID)
+        words = "保守の体制のところです。"
+        r = self.say(g, words, "分からない点がある", "record_answer", question_id=N2, condition_id="分からない点がある", value="保守の体制")
+        self.assertEqual((r["result"], g.point["round"]), ("explain_point", 2))
+        g.on_check("judge2", Reading(POINT_UNSAID), turn=g.callee_turns, said=words)
+        self.assertEqual((g.point["stage"], g.current, [e.get("point") for e in g.facts["not_agreed"]]), ("other", N2, ["料金のところ"]))   # 2つ目の点は渡さない
+        g.apply("replay_opening", {"part": "料金"})                          # 会話AIはもうご説明を始めていた
+        g.on_callee(); g.on_heard("いえ、いろいろとですね。")
+        r = self.say(g, "いえ、いろいろとですね。", POINT_UNSAID, "record_answer", question_id=N2, condition_id=POINT_UNSAID)
+        self.assertEqual((g.point["outcome"], N3 in g.order), ("unresolved", False), heard(r))
+        self.assertNotIn(CALLBACK_ASK_WHICH["other_point"], heard(r))
+        self.assertIn("ご不満な点がございましたらいつでもお申し出ください。", heard(r))
 
     def test_taken_back_answers_roll_the_procedure_back(self):
         # ⛔ 2026-11-06 日本時間5時56分55秒のご質問の読み直し（EN-D の指摘2）：ご承認の手順を進めた答え（ご承認の「いいえ」・N1・N2）を、遅れて届いた判定で
