@@ -3516,7 +3516,9 @@ class Flow:
                     r = self._prepend_played(self._advance(f"{played_note(texts)}続けて、", handled=True), lines)
                     if r.get("result") != "end":
                         r["result"] = "opening"
-                    return self._relead_next(r, [])
+                    # 残りの質問の頭も、続きの電話の最初の質問の頭（繋がったとき _connect と同じ1か所。⛔ 2026-11-06 日本時間23時22分41秒のご質問の
+                    # 見直しの A5・H2：ここだけ続きの電話の印を渡さず「続きまして」だった）
+                    return self._relead_next(r, [], resumed=self._resumed_call())
                 if self.opening.get("purpose"):
                     lines.append({"kind": "opening", "part": "purpose", "text": self.opening["purpose"]})
             if self.current is not None:

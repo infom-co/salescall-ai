@@ -4929,6 +4929,34 @@ class PlayRecordingsTest(unittest.TestCase):
             self.assertEqual(said[-1], RESUME_LEAD + q2.text, (target, said))
             self.assertEqual(said[-2], "ご予約の確認でお電話いたしました。", (target, said))
 
+    def test_resumed_first_question_after_the_told_line_starts_with_the_resume_words(self):
+        # ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（A5・H2）：前の電話で申し伝える一言まで言って切れた続きの電話で、目的のお客様のいない業務は、
+        #    お詫び・申し伝える一言のあとの最初の質問の頭が「続きまして」だった（目的のお客様のいる業務＝繋がったときは「確認させていただきたい内容なのですが」）。
+        #    続きの電話の最初の質問の頭（✅ 2026-11-06 日本時間15時20分30秒「続きまして、も、それではも繋がりがおかしい」）の同じ場面＝質問の頭の1か所
+        #    （_relead_next）へ、続きの電話の印を名乗りの返事の枝からも渡す
+        from flowctl import Question
+        from instruction import Business, Target
+        from phrases import QUESTION_RESUME_LEAD
+        told = {"Q1": {"state": "accepted", "condition": "いいえ",
+                       "point_fact": {"question": "Q1", "point": "料金のところ", "said": "料金のところがよく分からなかったんです。", "explained": False,
+                                      "told": "request", "outcome": None}}}
+        q1 = Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, declines=("いいえ",))
+        q2 = Question("Q2", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))
+        heads = []
+        for target in (None, Target(name="岡田", reading="おかだ", role="営業部部長")):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=[q1, q2],
+                         purpose_line="資料送付の件でお電話いたしました。", earlier=told, apology=("cut_off",), target=target)
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。" if target is None else "はい、岡田です。")
+            r = f.apply("report_party", {"party": "person" if target is None else "target"})
+            r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+            if target is not None and f.current != "Q2":
+                f.on_callee(); f.on_heard("はい、そうです。")
+                r = f.apply("report_party", {"party": "target"})
+            q = next(p for p in r["play"] if p.get("kind") == "question")
+            heads.append((q["id"], q["text"].startswith(QUESTION_RESUME_LEAD)))
+        self.assertEqual(heads, [("Q2", True), ("Q2", True)])
+
     def test_resumed_first_question_in_the_ai_opening_form_too(self):
         # ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（ご承認の手順の持ち場 A8）：名乗りの録音の無い形（会話AIが名乗る＝Business.flow(recorded=False)・試しの
         #    比べの形）で目的のお客様に繋がると、質問の頭を決める1か所（_relead_next）を通らず、続きの電話の最初の質問の頭が「続きまして」のままだった
