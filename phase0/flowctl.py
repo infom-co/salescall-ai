@@ -3333,6 +3333,17 @@ class Flow:
                 f"{own}そのほかの人は「{PARTY_LABEL['person']}」）・{PARTY_LABEL['voicemail']}の案内・{PARTY_LABEL['ivr']}かを知らせてください。"
                 + ("留守番電話の案内のあとに人が出たら、人と知らせます。" if self.voicemail_waiting else ""))
 
+    @staticmethod
+    def _prepend_played(r: dict, lines: list[dict]) -> dict:
+        """次へ進む返事 r（_advance）の前に、流した録音 lines（名乗り・用件・お詫び・申し伝える一言など）を足す唯一の場所（繋がったとき _connect・
+        続きの電話の始めの申し伝え直し _opening_reply）：r に録音が無い（AIが言う＝質問の録音の無い通話・読みの確かめ・相手の質問に答えてから聞く）なら、
+        録音のあとに会話AIに話させる（speak）。⛔ 2026-11-06 日本時間13時台の見直しで見つけた：続きの電話の申し伝え直しの枝だけ話させる印が無く、
+        録音のあと無言になった"""
+        if "play" not in r:
+            r["speak"] = True
+        r["play"] = lines + r.get("play", [])
+        return r
+
     def _opening_reply(self) -> dict:
         """第一声のあとに流す名乗り（唯一の場所。並びは instruction.Business.opening_parts と同じ＝試験で比べる）：あいさつ・名乗りのあと、
         目的の人のある業務は呼ぶ一言（第一声でお呼びする方ご本人が名乗ったなら確かめる一言＝✅ 2026-10-24 ユーザー「OK」）、ない業務は
@@ -3359,11 +3370,10 @@ class Flow:
                 if told is not None:
                     # 申し伝える一言まで言って切れた続きの電話：お詫び・申し伝える一言のあとは、残りの質問か最後のあいさつ（次へ進む1か所 _advance）
                     texts = "".join(x["text"] for x in lines)
-                    r = self._advance(f"{played_note(texts)}続けて、", handled=True)
-                    r["play"] = lines + r.get("play", [])
-                    if r.get("result") != "end" and "play" in r:
+                    r = self._prepend_played(self._advance(f"{played_note(texts)}続けて、", handled=True), lines)
+                    if r.get("result") != "end":
                         r["result"] = "opening"
-                    return r
+                    return self._relead_next(r, [])
                 if self.opening.get("purpose"):
                     lines.append({"kind": "opening", "part": "purpose", "text": self.opening["purpose"]})
             if self.current is not None:
@@ -6502,9 +6512,7 @@ class Flow:
         if not self.opening:
             return self._advance(f"{prefix}{whom}に繋がりました。まず、{say_note(texts)}続けて、", handled=True)
         r = self._advance(f"{prefix}{whom}に繋がりました。{played_note(texts)}続けて、", handled=True)
-        if "play" not in r:
-            r["speak"] = True  # 最初の質問は AIが言う（読みの確かめ・相手の質問に答えてから聞くとき）：録音のあとに話させる
-        r["play"] = [x if x["kind"] == "recorded" else {**x, "text": self.opening[x["part"]]} for x in lines] + r.get("play", [])
+        r = self._prepend_played(r, [x if x["kind"] == "recorded" else {**x, "text": self.opening[x["part"]]} for x in lines])
         return self._relead_next(r, [])   # 前に足した用件などの文の頭と、質問のつなぎの言葉を重ねない（_relead_next の1か所）
 
     def _wish_reported(self, name: str, args: dict) -> tuple[str, dict]:
@@ -7844,19 +7852,25 @@ class Flow:
         if told is not None:
             lines.append({"kind": "recorded", "id": "told_follow_up", "text": TOLD_FOLLOW_UP} if self.policies["follow_up"]
                          else {"kind": "recorded", "id": f"told_again_{told}", "text": TOLD_AGAIN[told]})
+            # 申し伝え直した：手順の終わり（unresolved）と記録（このあとまた切れても、3回目は言い直さない＝_point_told）
+            self.point["outcome"] = "unresolved"
+            self._point_record(**self.point.pop("told_record"))
         return lines
 
     def _point_told(self, q: "Question") -> None:
         """前の電話で、ご説明できない点の一言（申し伝える一言）まで言って、お返事の前に切れた（resumed_step の told）：この電話では、お詫びのあとに申し伝える
         一言を言い直すだけで、手順は終えたものとする（ご納得は伺わない＝ご説明できなかったときと同じ。最終目的ならお礼を言って締める＝_advance の not_agreed）。
-        記録は手順の終わり（unresolved）と、申し伝え直したこと（told）を残す（このあとまた切れても、3回目は言い直さない）。✅ 2026-11-06 日本時間9時05分17秒
-        ユーザーの (b)"""
+        記録は手順の終わり（unresolved）と、申し伝え直したこと（told）を、申し伝える一言を流す時に残す（_sorry_lines。このあとまた切れても、3回目は言い直さない）。
+        ✅ 2026-11-06 日本時間9時05分17秒 ユーザーの (b)"""
         f = earlier_fact(self.earlier.get(q.id) or {}, "point_fact") or {}
         kind = f.get("told") if f.get("told") in POINT_KINDS else "question"
         self.told_again = kind
-        self.point = {"q": q.id, "stage": "told", "round": 1, "explained": False, "turn": None, "outcome": "unresolved", "by": None,
-                      "hai": None, "again": True}
-        self._point_record(point=f.get("point"), said=(f.get("said") or "")[:80] or None, explained=False, told=kind, outcome="unresolved")
+        # 手順の終わり（unresolved）と記録は、申し伝える一言を流す時（_sorry_lines）に。それまでに切れたら、手順は終えていない（報告の unfinished＝次の電話で
+        # また申し伝え直す）。⛔ 2026-11-06 日本時間13時台の見直し（13時27分07秒のご質問・ご承認の手順の持ち場の指摘8）で見つけた：ここ（電話の始め）で書いて
+        # いたので、目的のお客様に繋がる前・名乗りの前に切れた電話でも「申し伝え直した・手順の終わり」と残り、一言はお客様に届かないまま次の電話でも言わなかった
+        self.point = {"q": q.id, "stage": "told", "round": 1, "explained": False, "turn": None, "outcome": None, "by": None,
+                      "hai": None, "again": True,
+                      "told_record": dict(point=f.get("point"), said=(f.get("said") or "")[:80] or None, explained=False, told=kind, outcome="unresolved")}
 
     def _point_begin(self, q: "Question", again: bool = False, said: str | None = None) -> None:
         """ご承認いただけなかったときの手順を始める唯一の場所（この通話のご承認のお断りのあと＝_point_step・続きの電話の始め＝Flow.__init__）：ご納得いただけ

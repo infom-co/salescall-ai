@@ -5111,6 +5111,12 @@ class EnglishLineTest(unittest.TestCase):
         # 英語の一言を「」で引用した日本語の一言は数えない（` ` の中と同じ。⛔ 2026-11-05 日本時間6時57分：103回目を記録する一言を見張りが止めた）
         self.assertFalse(english("「Now the guard itself.」と英語の一言を書いてしまいました（103回目）。時刻を出して帳面に記録します。"))
         self.assertTrue(english("Now I'll record 「次に、」 as the head."))   # 引用の外が英語なら英語
+        # かな・漢字が1つも無く英語の言葉の並ぶ一言は英語（⛔ 2026-11-06 日本時間13時55分・13時58分の143回目〜145回目：つなぎの言葉が1つ以下・英字15字以下で、
+        # 見張りも数える道具も英語と見なかった）。英字の名前だけの一言（「B8.」「OK」）は数えない
+        for said in ("Write the B10 + B4 failing tests.", "Implement B10 and B4.", "Implement `_prepend_played` used by both."):
+            self.assertTrue(english(said), said)
+        for said in ("B8.", "OK", "`Flow._note`"):
+            self.assertFalse(english(said), said)
 
 
 class ConversationLogTest(unittest.TestCase):
@@ -8318,6 +8324,35 @@ class EndJudgedTest(unittest.TestCase):
         r = r if r.get("result") == "opening" else f.on_first_words_end()
         ids = [p.get("id") or p.get("part") for p in r["play"]]
         self.assertEqual((ids[-3:], f.current, f.end_reason), (["apology_cut_off", "told_again_request", "Q2"], "Q2", None))
+        # 会話AIが話す通話（質問の録音が無い）：録音（お詫び・申し伝える一言）のあとに、会話AIに残りの質問を話させる（繋がったとき＝_connect と同じ1か所
+        # _prepend_played）。⛔ 2026-11-06 日本時間13時台の見直し（ご承認の手順の持ち場の指摘9）で見つけた：話させる印が無く、録音のあと無言になった
+        f = b.flow(play_recordings=False)
+        f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        r = f.apply("report_party", {"party": "person"})
+        r = r if r.get("result") == "opening" else f.on_first_words_end()
+        self.assertEqual(([p.get("id") or p.get("part") for p in r["play"]][-2:], f.current, r.get("speak")), (["apology_cut_off", "told_again_request"], "Q2", True), r)
+        # 申し伝え直す一言を流す前に電話が終わった（繋がっただけで第一声の前に切れた）：申し伝え直した記録は残さず、手順は終えていない（unfinished）＝次の電話で
+        # また申し伝え直す。⛔ 2026-11-06 日本時間13時台の見直し（ご承認の手順の持ち場の指摘8）で見つけた：電話の始め（Flow.__init__）で「申し伝え直した・手順の
+        # 終わり」と記録し、一言がお客様に届かないまま、次の電話の読みも「伺い終えた」になった
+        from flowctl import earlier_point
+        f = b.flow(play_recordings=True)
+        f.on_connect()
+        rep = f.report()
+        self.assertEqual((rep["unfinished"], rep["facts"].get("not_agreed")), (["Q1"], None))
+        self.assertEqual(f.told_again, "request")
+        # 目的のお客様のいる業務で、ご本人に繋がる前に受付の方に「本日は休み」と言われて終えた：お詫び・申し伝える一言はご本人に流すので、まだ流れていない＝同じ
+        from instruction import Target
+        bt = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=[q1],
+                      purpose_line="資料送付の件でお電話いたしました。", earlier=told, apology=("cut_off",), apology_when="later",
+                      target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        f = bt.flow(play_recordings=True)
+        f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        r = f.apply("report_party", {"party": "person"})
+        r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+        f.on_callee(); f.on_heard("岡田は本日休みです。")
+        f.apply("request_callback", {"why": "day_off"})
+        rep = f.report()
+        self.assertEqual((rep["unfinished"], rep["facts"].get("not_agreed"), f.told_again), (["Q1"], None, "request"))
 
     def test_a_point_heard_then_cut_resumes_with_the_explanation(self):
         # ✅ 2026-11-04 日本時間19時26分 ユーザー：「(A) 前の電話で点（「料金のところ」）までは伺えて、ご説明の途中で切れたとき。…お勧めは、点を伺い直さずに、

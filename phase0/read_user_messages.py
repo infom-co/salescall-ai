@@ -68,7 +68,7 @@ def _rows(path: Path, since: str = "", until: str = "", with_assistant: bool = F
                 a = d.get("attachment") or {}
                 if a.get("type") == "queued_command" and (a.get("origin") or {}).get("kind") == "human":   # 作業中に届いた発言
                     texts, who = _texts(a.get("prompt")), USER_MIDTURN
-            elif with_assistant and d.get("type") == "assistant":
+            elif with_assistant and d.get("type") == "assistant" and not d.get("isApiErrorMessage"):   # 仕組みの知らせ（週の上限など）は CL-1 の返事ではない
                 texts, who = _texts(d.get("message", {}).get("content") or []), ME
             for t in texts:
                 s = t.strip()
@@ -159,7 +159,7 @@ _EN_HEAD = re.compile(r"^\s*(?:the|an|to|of|and|for|is|are|now|next|with|so|it|t
 
 
 def english(text: str) -> bool:
-    """英語で書いた一言か：英字が、かな・漢字の半分より多く、英語の文のつなぎの言葉（the・to・now など）が2つ以上ある
+    """英語で書いた一言か：英字が、かな・漢字の半分より多く、英語の文のつなぎの言葉（the・to・now など）が2つ以上ある・かな・漢字が無く英語の言葉が並ぶ
     （コードの名前を並べただけの日本語の文は数えない。` ` の中と「」の中も数えない）。または、英語のつなぎの言葉で書き始めた（_EN_HEAD）。
     ⛔ 2026-11-02 日本時間21時59分・22時00分（CL-1.md 0-1 の48回目・49回目）：頭の言葉だけ英語の一言（「Next に進む前に、…」）を、
        英字の割合だけで見ていたので、見張りも数える道具も英語と見なかった。"""
@@ -167,7 +167,10 @@ def english(text: str) -> bool:
     t = re.sub(r"`[^`]*`|「[^「」]*」", "", text)
     jp = len(re.findall(r"[ぁ-んァ-ヶ一-龥]", t))
     en = len(re.findall(r"[A-Za-z]", t))
-    return bool(_EN_HEAD.match(t)) or (en > 15 and en > jp * 0.5 and len(_EN_WORDS.findall(t)) >= 2)
+    # かな・漢字が1つも無く、英語の言葉（3字以上）のあとに続く言葉がある一言も英語（⛔ 2026-11-06 日本時間13時55分・13時58分の143回目〜145回目：
+    # 「Implement B10 and B4.」は英字15字以下・つなぎの言葉1つで、見張りも数える道具も英語と見なかった）。英字の名前だけ（「B8.」「OK」）は数えない
+    return (bool(_EN_HEAD.match(t)) or (en > 15 and en > jp * 0.5 and len(_EN_WORDS.findall(t)) >= 2)
+            or (jp == 0 and bool(re.search(r"[A-Za-z]{3,}\s+\S*[A-Za-z]", t))))
 
 
 def _minutes(a: str, b: str) -> float:
