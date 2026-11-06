@@ -76,9 +76,10 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          "told_follow_up",
                          # 並べて伺ったご案内の方法を言っていただけないときの申し伝える一言・「どれでも」のあと、こちらでお伝えした方法の連絡先を伺う一言（頭の
                          # 「それでは」を重ねない）の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」。CL-1.md 4-106）
-                         "wish_told_way", *(f"callback_{k}_announced" for k in ("line_how", "email", "fax", "address")),
-                         # 同じ所へ2回目に戻るときと、その次からの戻る一言の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(4) H7」。CL-1.md 4-106）
-                         "back_again", "back_often"})
+                         "wish_told_way",
+                         # 同じ所へ2回目に戻るときの戻る一言の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(4) H7」。CL-1.md 4-106）と、システムの質問を2回目・
+                         # 3回目からの戻る一言・方法をお伝えした一言に続けて流す形（phrases.BACK_FIT＝back_fit の1か所。4時40分35秒。CL-1.md 4-107）
+                         "back_again", *__import__("phrases").BACK_FIT})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -1855,13 +1856,17 @@ class ScriptRecordingTest(unittest.TestCase):
                              "Q2_lead_resume_v2": "確認させていただきたい内容なのですが当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？",
                              # 同じ質問へ2回目に戻る一言（頭が「それでは」）のあとの、頭の無い形（✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」＝flowctl.question_forms）
                              "Q2_again_v1": "当日は講師の「あらがき」がご案内いたしますがよろしいでしょうか？",
-                             "Q2_again_v2": "当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？"})
+                             "Q2_again_v2": "当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？",
+                             # 同じ質問へ3回目から戻るときの、戻る一言と質問の1本の形（✅ 2026-11-07 日本時間4時40分35秒 ユーザー＝phrases.BACK_TO_MIDWAY）
+                             "Q2_lead_midway_v1": "確認の途中でしたのでもう一度お伺いさせていただきますが当日は講師の「あらがき」がご案内いたしますがよろしいでしょうか？",
+                             "Q2_lead_midway_v2": "確認の途中でしたのでもう一度お伺いさせていただきますが当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？"})
         # はじめの質問（つなぎの言葉の無い録音）は、尋ねられて答えたあとに伺い直す「それでは」付きの形も録音する（進む向きが1つに決まらない＝
         # ✅ 11時55分13秒「(2) イ」＝flowctl.final_toward）
         self.assertEqual({k: t[0] for k, t in table.items() if k.startswith("Q1") and k != "Q1_pending"},
-                         {"Q1": "ご予約はされていますでしょうか？", "Q1_lead_soredeha": "それではご予約はされていますでしょうか？"})
+                         {"Q1": "ご予約はされていますでしょうか？", "Q1_lead_soredeha": "それではご予約はされていますでしょうか？",
+                          "Q1_lead_midway": "確認の途中でしたのでもう一度お伺いさせていただきますがご予約はされていますでしょうか？"})
         self.assertEqual(table["Q2_pending"][0], "それではこの件は保留とさせていただきますね。")
-        self.assertEqual(sorted(readings[k]["新垣"] for k in v), ["あらがき"] * 4 + ["しんがき"] * 4)   # 形は4つ（それでは・続きまして・続きの電話・戻る一言のあとの頭の無い形）
+        self.assertEqual(sorted(readings[k]["新垣"] for k in v), ["あらがき"] * 5 + ["しんがき"] * 5)   # 形は5つ（それでは・続きまして・続きの電話・戻る一言のあとの頭の無い形・3回目から）
 
     def test_chosen_reading_is_kept_and_conflicts_stop(self):
         import tempfile
@@ -13442,6 +13447,69 @@ class NoneOfThemTest(unittest.TestCase):
                               + (r.get("say") or "")),
                              ("Q2", "承知しました。ご案内の方法の件は担当の者に申し伝えさせていただきますね。"), words)
 
+    def test_the_question_for_other_doubts_starts_with_hokani(self):
+        # ほかに分からない点が無いかを伺う質問（取込で決める Question.unclear_none）を次の項目として伺う頭は「ほかに」（✅ 2026-11-07 日本時間4時40分35秒
+        # ユーザー：「（アドレスを確かめたあと）こちら「承知しました。続きましてご不明な点はございますでしょうか？」；ここで「続きまして」はおかしいでしょ。
+        # 「ほかに」とかでしょ。」）。伺い直す形（それでは・2回目・3回目からの戻る一言のあと）にも「ほかに」を付ける。はじめの質問（ほかの話をまだしていない）・
+        # 続きの電話の始めの頭（15時20分30秒のご決定の形）・もう「ほかに」と書いた質問には足さない。⛔ それまでは、ほかの質問と同じ「続きまして」だった
+        from flowctl import ANY, CALLBACK_IDS, WAY_UNSAID, Flow, Question, question_forms, spoken_question
+        from phrases import ACK, BACK_TO_AGAIN, BACK_TO_MIDWAY, QUESTION_RESUME_LEAD, question_clip
+        say = AmbiguousAnswerTest.say
+        doubts = Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"), unclear_none="いいえ")
+        qs = [self.way_question(offer_ways=("メール", "LINE")), doubts]
+        f = Flow([*qs], play_recordings=True)   # 本番の形（決まった言葉は録音で流す）
+        HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+        say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+        say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=ANY)
+        say(f, "abc@example.com です。", "record_answer", question_id=CALLBACK_IDS["email"], condition_id="答えた", value="abc@example.com")
+        r = say(f, "はい。", "confirm_field", question_id=CALLBACK_IDS["email"], result="affirmed")
+        self.assertEqual((r["question_id"], ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])),
+                         ("Q2", "承知しました。ほかにご不明な点はございますでしょうか？"))
+        body = doubts.text
+        forms = {k: spoken_question(qs, "Q2", before=b, again=a)[0] for k, (a, b) in
+                 {"next": (False, ""), "again": (True, ""), "back2": (True, BACK_TO_AGAIN), "back3": (True, BACK_TO_MIDWAY)}.items()}
+        self.assertEqual(forms, {"next": "ほかに" + body, "again": "それではほかに" + body, "back2": "ほかに" + body, "back3": BACK_TO_MIDWAY + "ほかに" + body})
+        self.assertEqual(spoken_question(qs, "Q2", resumed=True)[0], QUESTION_RESUME_LEAD + body)
+        self.assertEqual(spoken_question([doubts, qs[0]], "Q2")[0], body)
+        written = Question("Q2", "ほかにご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"), unclear_none="いいえ")
+        self.assertEqual(spoken_question([qs[0], written], "Q2")[0], written.text)
+        # 録音の名前は、形ごとに1つの文（同じ名前に違う文を当てない）
+        names: dict[str, set] = {}
+        for p in question_forms(qs, "Q2"):
+            names.setdefault(question_clip(p["id"], p["lead"] or ""), set()).add(p["text"])
+        self.assertEqual({n: len(t) for n, t in names.items() if len(t) > 1}, {})
+        self.assertIn(BACK_TO_MIDWAY + "ほかに" + body, {t for ts in names.values() for t in ts})
+
+    def test_fixed_questions_after_the_second_and_third_back_lines(self):
+        # 決まった文の質問（システムの質問・ほかのご希望を伺う一言）へ2回目・3回目から戻るとき（✅ 2026-11-07 日本時間3時14分01秒「(4) H7」・4時40分35秒）：
+        # 2回目の戻る一言「それではもう一度確認させていただきますね。」のあとは、質問の頭の「それでは」を重ねない（⛔ 3時台に入れた形は、システムの質問の録音を
+        # そのまま流し「それでは…ね。それでは恐れ入りますがメールアドレスを…」と重ねていた）。3回目からは「確認の途中でしたので…が」と質問を1本でつなぎ、
+        # 質問の頭の「それでは」「恐れ入りますが」は重ねない。質問ではない一言（ご案内の申し出）へは3回目の形でつながないので、2回目の形のまま
+        from flowctl import CALLBACK_IDS, callback_question, question_play
+        from make_ack_clips import script_table
+        from phrases import BACK_TO, BACK_TO_AGAIN, BACK_TO_MIDWAY, RECORDED
+        email = callback_question("email")
+        qs = [email]
+        got = [question_play(qs, email.id, again=True, before=b) for b in (BACK_TO, BACK_TO_AGAIN, BACK_TO_MIDWAY)]
+        self.assertEqual([(p["id"], p["text"]) for p in got],
+                         [("callback_email", "それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"),
+                          ("callback_email_bare", "恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"),
+                          ("callback_email_midway", BACK_TO_MIDWAY + "メールアドレスをお伺いしてもよろしいでしょうか？")])
+        self.assertEqual({k: RECORDED.get(k) for k in ("callback_email_bare", "callback_email_midway")}, {p["id"]: p["text"] for p in got[1:]})
+        # システムの質問の録音はどれも、2回目・3回目の形の録音を持つ（決まりは1か所＝phrases.back_fit）
+        for rid, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and not k.endswith(("_bare", "_midway"))]:
+            self.assertIn(f"{rid}_midway", RECORDED, rid)
+            self.assertEqual(f"{rid}_bare" in RECORDED, text.startswith("それでは"), rid)
+        # ほかのご希望を伺う一言（依頼主の単位の録音）も同じ形を録音の表に持つ：方法を並べて伺う一言（問い）は2回目・3回目の形、ご案内の申し出（問いでない一言）は
+        # 2回目の形だけ（3回目の一言をつながない）
+        import dataclasses
+        from g22_opening import BUSINESS
+        offer = self.way_question(offer_ways=("メール", "LINE"))
+        table = script_table(dataclasses.replace(BUSINESS, questions=[offer]))[0]
+        self.assertEqual({k: k in table for k in ("Q1_other_bare", "Q1_other_midway", "Q1_other_which_bare", "Q1_other_which_midway")},
+                         {"Q1_other_bare": True, "Q1_other_midway": False, "Q1_other_which_bare": True, "Q1_other_which_midway": True})
+        self.assertEqual(table["Q1_other_which_midway"][0], BACK_TO_MIDWAY + "メールとLINEのどちらがよろしいでしょうか？")
+
     def test_way_offer_accepted_without_saying_which_asks_once(self):
         # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(3) ご案内の方法の申し出に「はい、お願いします。」とだけ言われる：「それではメールとLINEとZOOMの
         # どちらがよろしいでしょうか？」と伺うOK」＝申し出を受けていただいたが、どの方法かは言っていない（判定の読み「方法は言っていない」）：申し出た方法を
@@ -14233,7 +14301,9 @@ class NoneOfThemTest(unittest.TestCase):
         f = Flow(b.questions, earlier=b.earlier, apology=("cut_off",))
         self.assertEqual((f.current, f.order[0], f.questions[wid].text), (wid, wid, text))
         self.assertEqual(question_play(list(f.questions.values()), wid), {"kind": "question", "id": "Q1_other_again", "text": text, "lead": ""})
-        self.assertEqual(script_table(b)[0]["Q1_other_again"], (text, "question"))
+        # 読み方は文の長さで選ぶ1か所（make_ack_clips.question_how。⛔ 2026-11-07 日本時間4時台まで、ほかのご希望を伺う一言だけ「question」（6秒）に決め打ちで、
+        # 41字の文（見込み 6.6秒）の録音を長さの上限で落とす形だった）
+        self.assertEqual(script_table(b)[0]["Q1_other_again"], (text, "question_long"))
         # 無いと言われた：元の答え（どれも要らない）のまま＝最終目的なので、お礼を言って締める
         r = AmbiguousAnswerTest.say(f, "特にないです。", "record_answer", question_id=wid, condition_id=WISH_NONE)
         self.assertEqual((r["result"], f.end_reason), ("end", "goal_refused"))
@@ -14448,10 +14518,12 @@ class NoneOfThemTest(unittest.TestCase):
         # 日ごとの言い方ごとに、伺い直しの形（頭は「それでは」＝AGAIN_LEAD。次の項目の質問の頭を「続きまして」にした 2026-11-06 日本時間12時54分30秒の
         # ご指示で、もう伺った質問へ戻る形を分けた）も作る
         from flowctl import AGAIN_LEAD
-        from phrases import question_clip
+        from phrases import BACK_TO_MIDWAY, question_clip
         self.assertEqual({k for k in t if k.startswith("Q1")},
                          {day_recording_id("Q1", w) for w in DAY_VARIANTS} | {question_clip(day_recording_id("Q1", w), AGAIN_LEAD) for w in DAY_VARIANTS}
-                         | {"Q1_other", "Q1_other_again", "Q1_tell1", "Q1_pending"})   # 保留で締める一言（2026-11-06）
+                         # 3回目から戻るときの形（日ごと）と、ほかのご希望を伺う一言の2回目・3回目からの形（✅ 2026-11-07 日本時間4時40分35秒＝phrases.back_fit）
+                         | {question_clip(day_recording_id("Q1", w), BACK_TO_MIDWAY) for w in DAY_VARIANTS}
+                         | {"Q1_other", "Q1_other_again", "Q1_tell1", "Q1_pending", "Q1_other_bare", "Q1_other_midway", "Q1_other_again_midway"})   # 保留で締める一言（2026-11-06）
         self.assertTrue(t[question_clip(day_recording_id("Q1", DAY_VARIANTS[0]), AGAIN_LEAD)][0].startswith(AGAIN_LEAD))
 
     def test_none_is_never_restated(self):
@@ -16052,9 +16124,12 @@ class OwnWordsTest(unittest.TestCase):
         f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")   # 名乗りと最初の質問を流してから（流した印＝Item.played）
         r = f.apply("report_party", {"party": "person"})
         r if r.get("result") == "opening" else f.on_first_words_end()
-        heard = []
+        # ✅ 2026-11-07 日本時間4時40分35秒 ユーザー「たびたび失礼いたしました。はおかしいですね：「確認の途中でしたのでもう一度お伺いさせていただきますが、
+        # ご予約は～」」＝3回目からは質問の頭（決まった言い方なので読点は入れない＝10-15）。質問と1本で録音する（つなぎの言葉と同じ＝10-15 の聞き比べ）
+        from phrases import BACK_TO_MIDWAY
+        heard, pieces = [], []
         for said, line in (("いやあ、今日は本当に暑いですねえ。", "本当に暑い日が続いておりますね。"), ("雨も多いですし。", "本当に雨の日が多いですね。"),
-                           ("夜も寝苦しくて。", "寝苦しい夜が続いておりますね。")):
+                           ("夜も寝苦しくて。", "寝苦しい夜が続いておりますね。"), ("風も強くて。", "風の強い日が続いておりますね。")):
             self.heard(f, said)
             args = {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: line, ARG_LABEL["fallback"]: TALK_LABEL["talk_agree_light"]}
             f.grounding_job("replay_opening", args)
@@ -16063,8 +16138,11 @@ class OwnWordsTest(unittest.TestCase):
             self.heard(f, "ええ。")
             r = f.apply("replay_opening", {"part": "resume"})
             heard.append("".join(p["text"] for p in r["play"]))
+            pieces.append(len(r["play"]))
         q = f.questions["Q1"].text
-        self.assertEqual(heard, [f"話を戻させていただきますね。それでは{q}", f"それではもう一度確認させていただきますね。{q}", f"たびたび失礼いたしました。それでは{q}"])
+        self.assertEqual(heard, [f"話を戻させていただきますね。それでは{q}", f"それではもう一度確認させていただきますね。{q}", f"{BACK_TO_MIDWAY}{q}",
+                                 f"{BACK_TO_MIDWAY}{q}"])
+        self.assertEqual(pieces, [2, 2, 1, 1])
 
     def test_a_question_the_knowledge_answers_is_not_deferred(self):
         # 知っていることで答えられる問いを「答えを持っていない質問」にして預けた（⛔ 2026-10-25 J9a・会社の所在地を聞かれる L4：「恐れ入りますが、

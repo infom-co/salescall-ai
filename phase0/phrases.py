@@ -31,6 +31,8 @@
 """
 from __future__ import annotations
 
+import re
+
 # ✅ 2026-10-15 ユーザー承認（言い方の決まり＝同意をいただく柔らかい言い方。前は「聞き取りにくかったので、もう一度、おっしゃっていただいて
 #    よろしいでしょうか。」＝お客様の声のせいに聞こえる）⇒ 電話のせいにする言い方にした。前に録音「申し訳ございません、」が流れる
 # ✅ 2026-10-15 ユーザー（G-37 を聞いて）：「『ご希望の日時を、お聞かせいただけますでしょうか？』に、句読点のような間が入ると、少し違和感が
@@ -510,15 +512,34 @@ assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
 # 内容なのですが（内容の1つ目ですが）、お支払いはカードと振込のどちらがよろしいでしょうか？」：続きまして、も、それではも繋がりがおかしい。」。決まった
 # 言い方なので読点は外す＝10-15）。⚠️ flowctl.RESUMED_LEAD（「前回お伺いした」＝会話AIのご説明の話し始め）とは別の言葉
 QUESTION_RESUME_LEAD = "確認させていただきたい内容なのですが"
+# 同じ所（同じ質問・同じ言い直し）へ3回目から戻るときの一言＝続く質問の頭（✅ 2026-11-07 日本時間4時40分35秒 ユーザー：「たびたび失礼いたしました。はおかしい
+# ですね：「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」。決まった言い方なので読点は入れない＝10-15。文を終えないので、続く質問と1本で
+# 録音する＝つなぎの言葉と同じ 10-15 の聞き比べ。並びは BACK_LINES）
+BACK_TO_MIDWAY = "確認の途中でしたのでもう一度お伺いさせていただきますが"
+# ほかに分からない点が無いかを伺う質問（flowctl.Question.unclear_none）を、次の項目として伺うときの頭（「続きまして」の代わり）と、伺い直すときに質問の文の前に
+# 付ける言葉（✅ 2026-11-07 日本時間4時40分35秒 ユーザー：「（アドレスを確かめたあと）こちら「承知しました。続きましてご不明な点はございますでしょうか？」；ここで
+# 「続きまして」はおかしいでしょ。「ほかに」とかでしょ。」。決めるのは flowctl.spoken_question の1か所）
+OTHERS_HEAD = "ほかに"
 # 質問の録音の名前の後ろ（つなぎの言葉ごと）：順番のつなぎの言葉と、続きの電話の始めの頭
 QUESTION_LEAD_CLIPS = {**LEAD_RECORDED, QUESTION_RESUME_LEAD: "lead_resume"}
+# 質問の頭（spoken_question が返す、質問の文の前の言葉全部）を組む部分の名前：頭はこの部分の並び（「それではほかに」＝soredeha＋hokani）
+LEAD_PIECES = {**{w: n.removeprefix("lead_") for w, n in QUESTION_LEAD_CLIPS.items()}, BACK_TO_MIDWAY: "midway", OTHERS_HEAD: "hokani"}
 
 
 def question_clip(qid: str, lead: str) -> str:
     """質問の録音（つなぎの言葉＋質問の文の1本＝flowctl.spoken_question）の名前（唯一の場所＝作る make_ack_clips.script_table・流す stitch_gap.played_wav）：
-    順番で決まるつなぎの言葉なら番号＋その名前。質問に入る一言（Question.intro＝業務設定）は質問ごとに1つなので番号だけ。⛔ 2026-11-05 日本時間4時台
-    （4時16分52秒のご指摘を入れる途中）に見つけた：2か所が別々に「番号＋つなぎの言葉の名前」と組み、入る一言のある質問で、録音を作る道具も流す道具も止まった"""
-    return f"{qid}_{QUESTION_LEAD_CLIPS[lead]}" if lead in QUESTION_LEAD_CLIPS else qid
+    頭が LEAD_PIECES の部分の並びなら番号＋「lead_」＋部分の名前の並び（「それでは」＝番号_lead_soredeha・「それではほかに」＝番号_lead_soredeha_hokani）。
+    質問に入る一言（Question.intro＝業務設定）は質問ごとに1つなので番号だけ。⛔ 2026-11-05 日本時間4時台（4時16分52秒のご指摘を入れる途中）に見つけた：2か所が
+    別々に「番号＋つなぎの言葉の名前」と組み、入る一言のある質問で、録音を作る道具も流す道具も止まった。⛔ 2026-11-07 日本時間4時台（4時40分35秒のご指摘を
+    入れる途中）：頭を1つの言葉の表だけで引いていたので、表に無い頭（「ほかに」など）は番号だけ＝別の文の録音と名前がぶつかる形だった"""
+    names, rest = [], lead
+    while rest:
+        w = next((w for w in sorted(LEAD_PIECES, key=len, reverse=True) if rest.startswith(w)), None)
+        if w is None:
+            return qid
+        names.append(LEAD_PIECES[w])
+        rest = rest[len(w):]
+    return f"{qid}_lead_{'_'.join(names)}" if names else qid
 # 業務の質問の文の頭に、会話の側が付けうる言葉（1か所）：つなぎの言葉（LEAD_IN の「次の質問」。前の答えで伺う質問の頭の「それでは」も入る＝
 # flowctl.spoken_question）と、質問の文のすぐ前に流しうる相づち（flowctl.Flow._ack_choice が返す相づちのうち、お詫びの「申し訳ございません、」は
 # 聞き返しの文の頭にだけ流す＝質問の文の前には流さない。「失礼いたしました。」は「AIですか？」のあと・確かめに「いいえ」と言われたあとに、いまの
@@ -732,8 +753,43 @@ BACK_TO = "話を戻させていただきますね。"
 # ユーザー「(4) H7：…それでは、もう一度確認させていただきますね。やその次に、たびたび、の方がいいんじゃないでしょうか」（11-01「全く同じ質問を2度したら、
 # 機械だと思われてしまいませんか？」）。決まった言い方なので読点は外す（10-15）
 BACK_TO_AGAIN = "それではもう一度確認させていただきますね。"
-BACK_TO_OFTEN = "たびたび失礼いたしました。"
-BACK_LINES = (("back", BACK_TO), ("back_again", BACK_TO_AGAIN), ("back_often", BACK_TO_OFTEN))
+# 3回目からは BACK_TO_MIDWAY（「確認の途中でしたので…が」＝続く質問の頭。✅ 4時40分35秒。⛔ 3時台に入れた「たびたび失礼いたしました。」は取り下げた）
+BACK_LINES = (("back", BACK_TO), ("back_again", BACK_TO_AGAIN), ("back_midway", BACK_TO_MIDWAY))
+
+
+def closes(text: str) -> bool:
+    """文を終えている一言か（「。」「？」「！」で終わる）。終えていない一言（BACK_TO_MIDWAY）は、続く質問と1本で流す（ひとつの録音・会話AIのひとつの文）。"""
+    return text.endswith(("。", "？", "！", "?", "!"))
+
+
+def head_word(text: str) -> str | None:
+    """文の頭のつなぎの言葉（LEAD_IN の「次の質問」の言葉。長いものから見る＝「それでは」を「では」と読まない）。無ければ None。"""
+    return next((w for w in sorted(LEAD_IN["次の質問"], key=len, reverse=True) if text.startswith(w)), None)
+
+
+def heads_said(before: str) -> set[str]:
+    """その回に流す一言 before の、文ごとの頭のつなぎの言葉（「それではこの件は保留とさせていただきますね。」＝{"それでは"}）。"""
+    return {w for s in re.split(r"(?<=[。？！?!])", before) if (w := head_word(s.strip()))}
+
+
+# 3回目からの戻る一言（「…お伺いさせていただきますが」）のあとに重ねない、質問の頭のていねいの言葉（「…いただきますが恐れ入りますが…」と「が」が続く）
+POLITE_HEAD = "恐れ入りますが"
+
+
+def back_fit(rid: str, text: str, before: str) -> tuple[str, str]:
+    """決まった文の質問（システムの質問・ほかのご希望を伺う一言など＝業務の質問の頭は flowctl.spoken_question）を、直前に流す一言 before に続けて流すときの
+    録音の名前と文（唯一の決まり＝流す flowctl.question_play と、録音の表 RECORDED・make_ack_clips.script_table）：
+    - before が文を終えない一言（3回目からの戻る一言）で、文が問い（「？」で終わる）なら、before＋頭のつなぎの言葉と「恐れ入りますが」を外した文（1本の録音
+      {rid}_midway）。問いでない一言（ご案内の申し出・振り返りの一言）にはつながない（flowctl.Flow._back_play がその一言を選ばない）
+    - before の文の頭のつなぎの言葉（2回目の「それではもう一度…ね。」・方法をお伝えした「それでは（方法）で…ね。」）と、文の頭のつなぎの言葉が重なれば、その
+      言葉を外した文（録音 {rid}_bare。11-06「それでは」を重ねない＝flowctl.relead と同じ理由）
+    - どちらでもなければ、そのまま"""
+    w = head_word(text) or ""
+    if before and not closes(before):
+        return (f"{rid}_midway", before + text[len(w):].removeprefix(POLITE_HEAD)) if text.endswith(("？", "?")) else (rid, text)
+    if w and any(a.endswith(w) or w.endswith(a) for a in heads_said(before)):
+        return f"{rid}_bare", text[len(w):]
+    return rid, text
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             STANDARD_PARTS["ai"]: AI_ANSWER, "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
@@ -748,13 +804,19 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
-            "own_fallback": OWN_FALLBACK, **dict(BACK_LINES), **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
+            "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
             "told_follow_up": TOLD_FOLLOW_UP,
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
             "moshimoshi": MOSHIMOSHI}
+# システムの質問（callback_〜）を、2回目・3回目からの戻る一言のあとに流す形（決まりは back_fit の1か所。方法をお伝えした一言のあとの連絡先の一言も、2回目と同じ
+# 「それでは」を外した形＝flowctl.callback_question の announced）。⛔ 2026-11-07 日本時間4時台に見つけた：3時台に足した方法をお伺いしたあとの形（_announced）は
+# 読み方の表にだけあり、この表に無かった＝録音が作られない形だった
+BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_")] for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)
+            for rid, t in [back_fit(base, text, b)] if rid != base}
+RECORDED.update(BACK_FIT)
 
 
 def lead_in(kind: str, n: int) -> str:

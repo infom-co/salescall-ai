@@ -99,9 +99,9 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "talk_hard_bright": "電話で、大変だったけれど今は落ち着いたというお客様のお話に、前向きに、ねぎらうように共感して応えるように",
        # もう伺った質問へ戻る前の一言（phrases.BACK_TO）：お客様のお話を受けたあと、柔らかく本題へ戻る
        "back": "電話で、お客様のお話を受けたあとに、柔らかく自然に本題へ戻るように、丁寧に、落ち着いた調子で",
-       # 同じ所へ2回目に戻るときと、その次からの一言（phrases.BACK_LINES。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」）：同じ読み方
+       # 同じ所へ2回目に戻るときの一言（phrases.BACK_LINES。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」）：同じ読み方。3回目からの一言（BACK_TO_MIDWAY）は
+       # 続く質問と1本の録音（質問の読み方＝script_table・BACK_FIT）
        "back_again": "電話で、お客様のお話を受けたあとに、柔らかく自然に本題へ戻るように、丁寧に、落ち着いた調子で",
-       "back_often": "電話で、お客様のお話を何度か受けたあとに、恐縮しながら柔らかく本題へ戻るように、丁寧に、落ち着いた調子で",
        # まだ答えを考えている途中のお客様への相づち（phrases.ACK の aizuchi）：答えを期待するような言い方にしない（✅ 2026-10-14 ユーザー：S2・S4 の「はい」が物欲しそう・
        # 期待しているように聞こえる＝instruction.THINKING_RULE と同じ読み方）。✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」
        "aizuchi": "電話で、考えているお客様に、落ち着いた声で、語尾を上げずに短く相づちを打つように（相手の答えを期待するような言い方にしない）"}
@@ -109,7 +109,7 @@ DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "kashikomari": 1.6, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
-         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 9.0, "back": 3.0, "back_again": 4.0, "back_often": 3.0, "aizuchi": 1.0,
+         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 9.0, "back": 3.0, "back_again": 4.0, "aizuchi": 1.0,
          "talk": 3.5, "apology_first": 6.5, "line_trouble": 9.5, "number_again": 12.0}
 MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if tone})
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
@@ -125,8 +125,6 @@ HOW_OF.update({f"callback_{k}_{i}": "question" for k, vs in CALLBACK_ASK_AGAIN.i
 HOW_OF.update({f"callback_{k}_which{t}": "question" for k in CALLBACK_ASK_WHICH for t in ("", "_recap")})   # どの点かを伺う一言も質問の読み方（2026-11-06）
 HOW_OF.update({f"callback_{k}_again": "question" for k in CALLBACK_ASK_RESUMED})   # 続きの電話で切れた所から伺う一言も質問の読み方（2026-11-04）
 HOW_OF.update({f"callback_{k}_chosen": "question" for k in CALLBACK_ASK_CHOSEN})
-from flowctl import ANNOUNCED_ROLES  # noqa: E402（flowctl は make_ack_clips を読み込まない）
-HOW_OF.update({f"callback_{k}_announced": "question" for k in ANNOUNCED_ROLES})   # こちらで方法をお伝えしたあとの連絡先の一言（2026-11-07 3時14分01秒 H3 イ）
 HOW_OF.update({f"callback_{k}_answering": "question" for k in CALLBACK_ASK_ANSWERING})   # 答えの段のかけ直しの一言も質問の読み方（2026-11-06）   # LINE の伺い方を選んでいただいたあとの一言も質問の読み方（2026-11-04 20時27分）
 # LINE の伺い方で選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言と、その伺い直しも質問の読み方（2026-11-05 0時48分。phrases.CALLBACK_ASK_OTHER_WAYS）。
 # ほかの方法を伺う一言は、LINE の伺い方の一言（callback_line_how）と同じく長い質問の上限（1時19分47秒のメールの一言は40字＝見込み 6.5秒）
@@ -154,13 +152,21 @@ MAX_S["busy"] = 9.0
 # 同じ。✅ 2026-11-04 日本時間19時26分のお言葉の一言は104字（見込み 16.9秒）と長いので、長さの上限だけ別にする（busy・お立場の一言と同じ考え）
 HOW["question_long"] = HOW["question"]
 MAX_S["question_long"] = 17.0
+# 3回目から戻るときの一言（phrases.BACK_TO_MIDWAY・27字）を、上の104字の一言と1本にした形（131字＝見込み 21.2秒）の上限（2026-11-07 日本時間4時40分35秒のご指摘）
+HOW["question_xl"] = HOW["question"]
+MAX_S["question_xl"] = 24.0
 
 
 def question_how(text: str) -> str:
-    """業務の質問の録音の読み方（唯一の決まり＝script_table）：質問の読み方で、文の長さの見込み（CHAR_S）が質問の上限に収まらない文は、同じ読み方で上限の
-    大きい question_long（⛔ 2026-11-06 日本時間15時台：続きの電話で最初に伺う形＝頭が「確認させていただきたい内容なのですが」で18字長い形を足して見つけた。
-    文の長さにかかわらず question＝6秒だった）。"""
-    return "question" if len(text) * CHAR_S * 1.15 <= MAX_S["question"] else "question_long"
+    """業務の質問の録音の読み方（唯一の決まり＝script_table・phrases.BACK_FIT）：質問の読み方で、文の長さの見込み（CHAR_S）が収まるいちばん小さい上限の鍵
+    （question・question_long・question_xl）。⛔ 2026-11-06 日本時間15時台：続きの電話で最初に伺う形＝頭が「確認させていただきたい内容なのですが」で18字長い形を
+    足して見つけた。文の長さにかかわらず question＝6秒だった）。"""
+    need = len(text) * CHAR_S * 1.15
+    return next((k for k in ("question", "question_long") if need <= MAX_S[k]), "question_xl")
+# システムの質問を2回目・3回目からの戻る一言に続けて流す形（phrases.BACK_FIT＝back_fit の1か所。方法をお伝えしたあとの連絡先の一言も同じ形）：質問の読み方で、
+# 長さの上限は文の長さで選ぶ（3回目からの形は頭が27字長い）
+from phrases import BACK_FIT  # noqa: E402
+HOW_OF.update({k: question_how(t) for k, t in BACK_FIT.items()})
 # 連絡先の一言の鍵は言い方の表の1か所（phrases._CONTACT_RESUMED＝flowctl.contact_again_key。⛔ 2026-11-05 まで役目を手で並べていた＝オンラインの一言を足すと漏れる）
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
@@ -289,7 +295,7 @@ def script_table(business) -> tuple[dict, dict]:
     from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, holds_pending, may_wish, other_wish_recording_id, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
                          tell_recording_id)
     from instruction import reading_variants
-    from phrases import question_clip
+    from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, back_fit, question_clip
 
     items = [("intro", business.opening_parts()[1], "intro")]
     if business.purpose_line:
@@ -327,10 +333,14 @@ def script_table(business) -> tuple[dict, dict]:
         if may_wish(q):
             # 「どれも要らない」・最終目的への言い切っていないお断りのあと、ほかのご希望を伺う一言（文は flowctl._wish_text の1か所＝W1 の質問の文。
             # 名前は flowctl.other_wish_recording_id）。伺っている途中で切れた電話の続きで、切れた所から伺う一言（again＝「前回お伺いした…の件で…」）も
-            items += [(other_wish_recording_id(q, again), callback_question("other_wish", of=q, again=again).text, "question") for again in (False, True)]
+            wishes = [(other_wish_recording_id(q, again), callback_question("other_wish", of=q, again=again).text) for again in (False, True)]
             if len(way_offer(q) or ()) > 1:
                 # ご案内の方法の申し出に、どの方法かは言わずに受けていただいたときの1回の伺い直し（「それではメールとLINEとZOOMのどちらが…」＝flowctl の Flow._wish_step）
-                items.append((other_wish_recording_id(q, which=True), callback_question("other_wish", of=q, which=True).text, "question"))
+                wishes.append((other_wish_recording_id(q, which=True), callback_question("other_wish", of=q, which=True).text))
+            # 2回目・3回目からの戻る一言に続けて流す形（phrases.back_fit の1か所＝流す flowctl.question_play と同じ。システムの質問は phrases.BACK_FIT）
+            fitted = [back_fit(rid, text, b) for rid, text in wishes for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)]
+            items += [(rid, text, question_how(text)) for rid, text in dict(wishes + fitted).items()]
+            if len(way_offer(q) or ()) > 1:
                 # 並べて伺ったあとの「どれでも」に、こちらで方法をお伝えする一言（flowctl.way_any_line の1か所。2026-11-07 3時14分01秒 H3 イ）
                 items.append((*way_any_line(q), "own_fallback"))
         if approval_explanation(q):
