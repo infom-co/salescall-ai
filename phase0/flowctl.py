@@ -26,7 +26,7 @@ from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTH
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
-from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, WISH_TOLD
+from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from units import supply_unit
 
@@ -487,11 +487,11 @@ def tell_recording_id(q: "Question", cond: str) -> str:
     return f"{q.id}_tell{q.conditions.index(cond) + 1}"
 
 
-def other_wish_recording_id(q: "Question", again: bool = False) -> str:
+def other_wish_recording_id(q: "Question", again: bool = False, which: bool = False) -> str:
     """選ぶ質問 q に「どれも要らない」と言われたとき、ほかのご希望を伺う一言（phrases.OTHER_WISH_ASK。q の選択肢が入る）の、依頼主の単位の録音の名前
     （唯一の場所。録音を作る make_ack_clips.script_table と、流す question_play が同じ名前を使う）。again＝伺っている途中で切れた電話の続きで、切れた所から
-    伺う一言（phrases.OTHER_WISH_AGAIN）。"""
-    return f"{q.id}_other_again" if again else f"{q.id}_other"
+    伺う一言（phrases.OTHER_WISH_AGAIN）。which＝ご案内の方法の申し出に、どの方法かは言わずに受けていただいたときの1回の伺い直し（phrases.OTHER_WAYS_WHICH）。"""
+    return f"{q.id}_other_which" if which else f"{q.id}_other_again" if again else f"{q.id}_other"
 
 
 # 自分で答える質問の受け皿に使える、知っていることの文の見出し（唯一の表：作る所 instruction.Business.knowledge と、読む所 Flow.known_lines の両方が使う。
@@ -1984,6 +1984,9 @@ _ROLE_TYPE = {"number": "phone", "fax": "phone", "email": "email", "address": "a
 # 代わりの方にお立場を伺った答えのうち、話を進めてよい答え（_substitute_decided の1か所）。✅ 2026-10-22 ユーザー（4回目）：問いは「ご判断いただける
 # お立場の方ということで問題ございませんでしょうか？それともお取次ぎのみいただけるということでしたでしょうか？」の2つから選んでいただく形
 AUTHORITY_YES = "判断できる"
+# 方法を並べた伺い・申し出に、どの方法かは言わずに受けていただいた答えの選択肢の名前（唯一の名前）：LINE の伺い方（C11＝Flow._line_how）と、ご案内の方法の
+# 申し出（W1＝_wish_choices・Flow._wish_step。✅ 2026-11-06 日本時間9時05分17秒）の両方。どちらも1回だけ、方法を並べて伺い直す
+WAY_UNSAID = "方法は言っていない"
 _ROLE_MEANINGS = {
     # 意味の言葉は、言い直しの言い方にもそのまま入る（choice_words：「念のため（意味の言葉）でよろしいでしょうか？」）ので、短く言い切る形にする
     "authority": {AUTHORITY_YES: "この件についてご判断いただけるお立場の方ということ", "取次ぎのみ": "お取次ぎのみいただけるということ"},
@@ -2009,7 +2012,7 @@ _ROLE_MEANINGS = {
     "agreed_now": {"はい": "ご説明した内容でご納得いただけたということ", "いいえ": "ご説明した内容ではご納得いただけなかったということ"},
     # LINE でのご連絡の連絡先の伺い方（Flow._line_how の1か所。選択肢の名前 → 伺う連絡先＝LINE_HOW）。✅ 2026-11-04 日本時間19時26分 ユーザー
     "line_how": {"ID": "LINEのIDを伝えるということ", "SMS": "SMSでLINEに招待してほしいということ", "メール": "メールでLINEに招待してほしいということ",
-                 "方法は言っていない": "どの方法かは言わずに、その形で対応してよいということ"}}
+                 WAY_UNSAID: "どの方法かは言わずに、その形で対応してよいということ"}}
 POINT_UNSAID = "点は言っていない"   # 「ほかに…」（N2）への、分からない点があるとだけ言った答え（_ROLE_MEANINGS の other_point・Flow._point_step）
 # システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）
 _ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("断ろうとしている",), "agreed_now": ("いいえ",)}
@@ -2028,10 +2031,9 @@ WISH_MEANS = {"line": ("LINE", ("LINE", "ライン"), "line_how"), "email": ("�
 WISH_OTHER, WISH_NONE = "ほかの希望を言った", "無い"
 # LINE でのご連絡の連絡先の伺い方（システムの質問 line_how＝C11 の選択肢 → (通話の事実 other_wish の via, 伺う連絡先の役目)。唯一の場所＝Flow._line_how）：
 # ID を伺う・SMS でご招待（携帯電話の番号）・メールでご招待（メールアドレス）。伺い済みの連絡先は伺わない（Flow._known_contact）。方法を言っていない
-# （「はい」だけ）は1回だけ伺い直す（LINE_HOW_UNSAID）。✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。SMSかメールを
+# （「はい」だけ）は1回だけ伺い直す（WAY_UNSAID）。✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。SMSかメールを
 # 選ばれたら、もし、携帯電話番号やメールを伺っていなければここで確認。」
 LINE_HOW = {"ID": ("id", "line"), "SMS": ("sms", "mobile"), "メール": ("email", "email")}
-LINE_HOW_UNSAID = "方法は言っていない"
 # LINE の伺い方（C11）の、意味合いを尋ねる一言の候補の言葉（Question.senses。言い方はご承認の「LINEのIDから登録かメールからご招待する方法」にそろえた＝
 # 11-05 日本時間1時19分47秒・1時29分06秒）
 LINE_HOW_SENSES = {"ID": "LINEのIDから登録で大丈夫", "SMS": "SMSからご招待で大丈夫", "メール": "メールからご招待で大丈夫"}
@@ -2458,6 +2460,11 @@ def _wish_choices(q: "Question") -> tuple[tuple, dict]:
     meanings = {**{_wish_pick_label(q, c): picked(c) for c in picks},
                 **{wish_label(k): f"{WISH_MEANS[k][0]}での連絡を望んでいるということ" for k in means},
                 WISH_OTHER: "上のどれでもない、ほかのご希望を言ったということ", WISH_NONE: "ほかに希望は無い・やはり要らないということ"}
+    if len(way_offer(q) or ()) > 1:
+        # ご案内の方法を2つから申し出たとき：受けていただいたが、どの方法かは言っていない（「はい、お願いします。」）＝1回だけ方法を並べて伺う（Flow._wish_step）。
+        # 1つなら「はい」でその方法に決まる・申し出る方法が無ければ申し出ではない（並べて伺えない）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー
+        conds += (WAY_UNSAID,)
+        meanings[WAY_UNSAID] = "申し出た方法でのご案内を受けると言ったが、どの方法かは言っていないということ"
     return conds, meanings
 
 
@@ -2491,7 +2498,14 @@ def _offered_ways(q: "Question") -> list[str]:
     return out
 
 
-def _wish_text(q: "Question", again: bool = False) -> str:
+def way_offer(q: "Question") -> "list[str] | None":
+    """元の質問 q の W1 が、ご案内の方法を申し出る形か（唯一の決まり＝文 _wish_text・選択肢 _wish_choices・伺い直しの質問 callback_question・録音の表
+    make_ack_clips.script_table）：はい／いいえで伺うご案内の方法の質問（Question.asks_way）なら、申し出る方法の名前（_offered_ways。無ければ []＝連絡の方法
+    だと分かる形で伺う）。申し出の形でなければ None（選ぶ質問は今までどおり選択肢を並べる）。"""
+    return _offered_ways(q) if q.asks_way and q.type != "choice" else None
+
+
+def _wish_text(q: "Question", again: bool = False, which: bool = False) -> str:
     """ほかのご希望を伺う文（唯一の場所＝W1 の質問 callback_question と、録音の表 make_ack_clips.script_table が同じ文を使う）：選ぶ質問で、選び直して
     いただける選択肢（目的から遠ざかる向き・最終目的のお断りの答えは並べない＝Question.away_answers）がどれも名詞の言葉（_listable）なら、並べる
     （「それではお電話とメールのほかにご希望はございますでしょうか？」）。並べられなければ「それではほかにご希望などはございますでしょうか？」（はい／いいえ
@@ -2501,10 +2515,12 @@ def _wish_text(q: "Question", again: bool = False) -> str:
     # 20時48分のご承認の言い方を選択肢で伺う形にそろえたのと同じ理由＝phrases.OTHER_WISH_ASK の注）
     topic = q.topic.removeprefix("ご希望の")
     t = f"{topic}の" if topic else ""
-    if q.asks_way and q.type != "choice":
+    if (ways := way_offer(q)) is not None:
         # はい／いいえで伺う、ご案内の方法を伺う質問（Question.asks_way）：業務でご案内できる方法を申し出る（1つなら「メールで」・2つから「メールやLINE、ZOOMなどで」）。
-        # 申し出る方法が無ければ、連絡の方法だと分かる形で伺う（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」）。選ぶ質問は今までどおり選択肢を並べる
-        ways = _offered_ways(q)
+        # 申し出る方法が無ければ、連絡の方法だと分かる形で伺う（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」）。選ぶ質問は今までどおり選択肢を並べる。
+        # which＝申し出に、どの方法かは言わずに受けていただいたときの1回の伺い直し（「それではメールとLINEとZOOMのどちらがよろしいでしょうか？」＝Flow._wish_step）
+        if which:
+            return OTHER_WAYS_WHICH.format(w="と".join(ways))
         w = ways[0] if len(ways) == 1 else f"{ways[0]}や{'、'.join(ways[1:])}など" if ways else ""
         if again:
             return OTHER_WAYS_OFFER_AGAIN.format(t=t, w=w) if w else OTHER_WAYS_ASK_AGAIN.format(t=t)
@@ -2533,8 +2549,12 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # 必須（聞き取れない・判定が食い違うと聞き返し、締めの前の念のための確認でもう1回）：取れないまま先へ進むと、ご連絡の方法を伺わずに終わり、最終目的
         # なら元の答え（どれも要らない）で締めて、その業務をかけない印が付く（取り消せない）＝伺い方（line_how）を必須にしたのと同じ理由（10-19 の決まり）。
         # ⛔ 2026-11-05 日本時間2時05分37秒のご質問のあとの読み直しで見つけた：必須にしておらず、「LINEなら。」に判定が食い違っただけで、その場で締めていた
-        return Question(qid, _wish_text(of, again), qtype, required=True, conditions=conds, meanings=meanings,
-                        recording=other_wish_recording_id(of, again), topic=CALLBACK_TOPIC[role], callback=role, declines=(WISH_NONE,),
+        # which＝ご案内の方法の申し出に、どの方法かは言わずに受けていただいたときの1回の伺い直し（文と録音だけが違う）。申し出の W1 の聞き直しの聞くことは
+        # 「ご案内の方法」（✅ 2026-11-06 日本時間9時05分17秒 ユーザー「(3)…OK」＝8時台のご報告のお勧めの形「聞き直しのときの言葉も、「ほかのご希望」ではなく
+        # 「ご案内の方法」にします」）
+        return Question(qid, _wish_text(of, again, which), qtype, required=True, conditions=conds, meanings=meanings,
+                        recording=other_wish_recording_id(of, again, which), topic="ご案内の方法" if way_offer(of) else CALLBACK_TOPIC[role],
+                        callback=role, declines=(WISH_NONE,),
                         firm_not_needed=True, of=of.id, senses=_wish_senses(of))
     # nth＝この通話で同じ質問を伺う何回目か（0から）：2回目からの言い方を順に回す（phrases.CALLBACK_ASK_AGAIN。録音は callback_（役目）_2 から）
     lines = (CALLBACK_ASK.get(role, ""), *CALLBACK_ASK_AGAIN.get(role, ()))   # 伝言の文などは言い方の表に無い（text で渡す）
@@ -7695,6 +7715,19 @@ class Flow:
             return   # 聞き取れない・判定が食い違った：締めの前の念のための確認でもう一度伺う（伺い終えるまで元の答えでは決めない＝_goals_lost の asking）
         q = self.questions[w["q"]]
         cond = it.condition if it.state in GOT else None
+        if cond == WAY_UNSAID:
+            if not w.get("which"):
+                # ご案内の方法の申し出を受けていただいたが、どの方法かは言っていない（「はい、お願いします。」）：申し出た方法を並べて1回だけ伺う（LINE の伺い方の
+                # 「はい」だけ＝_line_how と同じ形）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(3) ご案内の方法の申し出に「はい、お願いします。」とだけ
+                # 言われる：「それではメールとLINEとZOOMのどちらがよろしいでしょうか？」と伺うOK」。⛔ それまでは「恐れ入ります。ほかのご希望をもう一度…」と聞き直した
+                w["which"] = True
+                self.questions[wid], self.items[wid] = callback_question("other_wish", of=q, which=True), Item()
+                self.taken.pop(wid, None)
+                self._insert_after(wid, wid)
+                return
+            # それでも方法を言っていただけない：LINE の伺い方と同じく（それでも決まらなければ申し伝えて続ける＝11-04 19時26分の形）、そのご希望を担当の者に
+            # 申し伝えて続ける（ほかのご希望を言っていただいたときと同じ。2回は伺わない）
+            cond = WISH_OTHER
         means = next((k for k in WISH_MEANS if wish_label(k) == cond), None)
         wish = self.facts.get("other_wish", [])
         if w.pop("again", False) and wish and wish[-1].get("question") == q.id:
@@ -7764,7 +7797,7 @@ class Flow:
             w.setdefault("path", []).append(hid)
             self._wish_via(via)
             return self._wish_contact(role, after=hid)
-        if cond == LINE_HOW_UNSAID and not w.get("how_again"):
+        if cond == WAY_UNSAID and not w.get("how_again"):
             w["how_again"] = True
             # ほかの方法を伺ったあと（_line_other_ways）なら、取れなかった方法を外した言い方で（「それではLINEのIDとメールのどちらが…」）
             self.questions[hid], self.items[hid] = callback_question("line_how", nth=1, without=w.get("without")), Item()

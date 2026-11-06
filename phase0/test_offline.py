@@ -12687,8 +12687,10 @@ class NoneOfThemTest(unittest.TestCase):
         self.assertEqual(again(), "前回お伺いした件でメールやLINE、ZOOMなどでご案内させていただくこともできますが！")
         self.assertEqual(again(offer_ways=()), "前回お伺いした件でほかにご連絡のしやすい方法などはございますでしょうか？")
         # 選択肢：オンライン（ZOOM など）もご連絡の方法の1つ。断られたお電話は選び直し（「やはり…」）
+        # 申し出る方法が2つからなら、どの方法かは言わずに受けていただいた答え（WAY_UNSAID＝1回だけ方法を並べて伺う。✅ 11-06 日本時間9時05分17秒の (3)）
+        from flowctl import WAY_UNSAID
         self.assertEqual(callback_question("other_wish", of=self.way_question()).conditions,
-                         ("やはり" + self.CALL_MEANINGS["はい"], *(wish_label(k) for k in ("line", "email", "fax", "post", "online")), WISH_OTHER, WISH_NONE))
+                         ("やはり" + self.CALL_MEANINGS["はい"], *(wish_label(k) for k in ("line", "email", "fax", "post", "online")), WISH_OTHER, WISH_NONE, WAY_UNSAID))
 
     def test_way_offer_then_online_asks_the_email_for_the_url(self):
         # 会話3のそのあと（✅ 23時19分06秒「案でOK」＝選んでいただいたら、その方法の連絡先を伺う。オンライン（ZOOM など）は、ご案内の URL をお送りする
@@ -12719,6 +12721,38 @@ class NoneOfThemTest(unittest.TestCase):
         # メールを選んでいただいた方は今までどおり（役目の一言・録音の名前は変わらない）
         f = Flow(qs(), earlier={"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "email", "contact": None, "outcome": None, "via": None}}})
         self.assertEqual((f.questions[mail].text, f.questions[mail].recording), (CALLBACK_ASK_RESUMED["email"], "callback_email_again"))
+
+    def test_way_offer_accepted_without_saying_which_asks_once(self):
+        # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(3) ご案内の方法の申し出に「はい、お願いします。」とだけ言われる：「それではメールとLINEとZOOMの
+        # どちらがよろしいでしょうか？」と伺うOK」＝申し出を受けていただいたが、どの方法かは言っていない（判定の読み「方法は言っていない」）：申し出た方法を
+        # 並べて1回だけ伺う（LINE の伺い方の「はい」だけと同じ形＝11-04 19時26分）。聞き直しの聞くことは「ご案内の方法」（同じお答えの (3) のお勧めの形）。
+        # それでも方法を言っていただけなければ、LINE の伺い方と同じく、そのご希望を担当の者に申し伝えて続ける（2回は伺わない）。⛔ それまでは「はい、恐れ入ります。
+        # ほかのご希望をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き直していた
+        from flowctl import CALLBACK_IDS, WAY_UNSAID, Flow, Question, callback_question, wish_label
+        from phrases import ACK
+        say = AmbiguousAnswerTest.say
+        qs = lambda ways=("お電話", "メール", "LINE", "ZOOM"): [self.way_question(offer_ways=ways),
+                                                             Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+
+        def offered():
+            f = Flow(qs())
+            HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+            return f
+        f = offered()
+        r = say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+        self.assertEqual((r["question_id"], ACK.get(r.get("ack"), "") + r["question"]), ("W1", "はい、それではメールとLINEとZOOMのどちらがよろしいでしょうか？"))
+        self.assertEqual((f.questions["W1"].topic, f.questions["W1"].recording), ("ご案内の方法", "Q1_other_which"))
+        r = say(f, "じゃあLINEで。", "record_answer", question_id="W1", condition_id=wish_label("line"), value="LINE")
+        self.assertEqual(r["question_id"], CALLBACK_IDS["line_how"])
+        # それでも方法を言っていただけない：申し伝えて続ける（2回は伺わない）
+        f = offered()
+        say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+        r = say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
+        self.assertEqual((r["question_id"], [e["outcome"] for e in f.facts["other_wish"]], f.end_reason), ("Q2", ["other"], None))
+        # 選べるものに入れるのは、申し出る方法が2つから（1つなら「はい」で方法が決まる・申し出る方法が無ければ申し出ではない）
+        self.assertIn(WAY_UNSAID, callback_question("other_wish", of=qs()[0]).conditions)
+        self.assertNotIn(WAY_UNSAID, callback_question("other_wish", of=qs(("お電話", "メール"))[0]).conditions)
+        self.assertNotIn(WAY_UNSAID, callback_question("other_wish", of=qs(())[0]).conditions)
 
     def test_way_question_is_decided_at_import_by_two_text_ais(self):
         # ご案内の方法を伺う質問か（Question.asks_way）は、取込で文字のAI2つが質問の文から決める（そろって「伺う質問」のときだけ真＝そろわなければ今までどおり
