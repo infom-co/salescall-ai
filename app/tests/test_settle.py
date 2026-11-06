@@ -1045,6 +1045,33 @@ class DialFixAfterCalls(SettleBase):
                         self.assertEqual((d.kind, d.end_reason), ("end", "number_kind_forbidden"))
                     self.assertNotIn("normal", [r["purpose"] for r in self.plans_after(s, seq)])
 
+    def test_a_row_that_heard_later_too_often_comes_back_only_if_every_later_was_part_of_a_promise(self):
+        """✅ 2026-11-06 ユーザー＝計画書 7-1 (13)：お客様が「あとで」を方針の回数より多く言って終えた行は「営業拒否でなければ戻せます。
+        あくまで後でというのは約束の一環なのか営業拒否なのかというのを判断する必要があります。」⇒ 番号を直したとき、終えたときに数えた
+        「あとで」が、どれも約束の一環（会話の報告のかけ直しの申し出の intent＝promise）なら戻す。営業拒否・まだ分からない（intent が無い）
+        「あとで」があれば戻さない（安全側。next_action._later_refused の1か所）。約束の電話を方針の回数かけて話せずに終えた行は、
+        「あとで」の意味に関係なく戻す（決めた回数で終えた行）。"""
+        keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
+        for intents, back in (((None, None), False), (("promise", "refusal"), False), (("promise", "promise"), True),
+                              (("unanswered",), True)):
+            with self.subTest(intents=intents):
+                s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}} for k in keys}))
+                for n, intent in enumerate(intents):
+                    if n:
+                        self.at(s, s["contact"])
+                    if intent == "unanswered":   # 「あとで」は1回（方針の回数の中）。約束の電話に出ないまま方針の回数で終える
+                        self.settle(s, self.call(s, report=rep(callback=callback("later", time="あとで"))))
+                        self.at(s, s["contact"])
+                        d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
+                    else:
+                        cb = replace(callback("later", time="あとで"), intent=intent)
+                        d = self.settle(s, self.call(s, report=rep(callback=cb)))["decision"]
+                why = "callback_unspecified_time" if intents == ("unanswered",) else next_action.LATER_OVER
+                self.assertEqual((d.kind, d.end_reason), ("end", why))
+                new = self.fixed(s)
+                p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+                self.assertEqual((p["kind"], p["contact_id"] if back else p["end_reason"]), ("call", new) if back else ("end", why))
+
     def test_a_row_put_back_by_a_fix_carries_no_apology_for_a_cut(self):
         """途中で切れたあと決めた回数までかけて終えた行を、番号を直して戻した電話には、途中で切れたお詫びの印を付けない（計画書 7-1 (11)。
         ⛔ 2026-11-06 の見直し：前は終えた予定の印と元の電話を引き継いだ）。続きの電話の予定は、切れた電話が守っていた予定に読み替える
@@ -2894,7 +2921,7 @@ class CallbackWindow(SettleBase):
         self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：いまかける",
                                                        promised=True))
         d = later()["decision"]
-        self.assertEqual((d.kind, d.end_reason), ("end", "callback_unspecified_time"))   # 2回目は方針の回数を超える
+        self.assertEqual((d.kind, d.end_reason), ("end", next_action.LATER_OVER))   # 2回目は方針の回数を超える（0194 で終わりの理由を分けた）
 
     def test_an_untimed_promise_stays_a_promise_when_not_answered(self):
         """時刻の決まっていない約束（「あとで」）の電話に出なかった：約束したかけ直しのまま（行の回数の上限で終えない）、契約者の

@@ -57,7 +57,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-05.2+time-{spoken_time.VERSION}"   # 2026-11-05.2（CL-2 の連絡帳 4-213）：手順を伺い終えていない答え（会話の報告の unfinished）は、まだ受け取っていない答えとして読む（JudgeInput.answers。続きの電話がかかる）・判定の中身で依頼者へ返す
+JUDGE_VERSION = f"judge-2026-11-06.1+time-{spoken_time.VERSION}"   # 2026-11-06.1（計画書 7-1 (13)・0194）：時刻の無いかけ直しの申し出が約束の一環か営業拒否か（会話の報告の Callback.intent）を、判定の中身 callback.intent に残す（判定の結果は変わらない。番号を直したとき「あとで」を方針の回数より多く言って終えた行を戻すかが読む）
+# 前の版：   # 2026-11-05.2（CL-2 の連絡帳 4-213）：手順を伺い終えていない答え（会話の報告の unfinished）は、まだ受け取っていない答えとして読む（JudgeInput.answers。続きの電話がかかる）・判定の中身で依頼者へ返す
 # 前の版：   # 2026-11-05.1（CL-1 の 4-81 の (3)）：ほかのご希望の LINE の連絡先をどの形でいただいたか（事実 other_wish の via）も判定の中身で依頼者へ返す（判定の結果は変わらない）
 # 前の版：   # 2026-11-04.1（CL-1 の 4-74）：ここで終える答えで伺わなかった質問（事実 ended_on の skipped）を「伺っていない（対象外）」に数える
 # 前の版：   # 2026-11-03.1（CL-1 の 4-72 の (k)）：ほかのご希望を伺った答え（事実 other_wish）を判定の中身で依頼者へ返す（判定の結果は変わらない）
@@ -419,7 +420,7 @@ def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
             "days": None if when.days is None else list(when.days), "exact": when.exact, "said": list(when.said),
             "day_said": when.day_said, "time_said": cb.time_said, "number_said": cb.number_said,
             "number_e164": cb.number_e164, "person": cb.person, "until_why": cb.until_reason,
-            "beyond_ok": cb.beyond_limit_ok}
+            "beyond_ok": cb.beyond_limit_ok, "intent": cb.intent}
 
 
 def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:

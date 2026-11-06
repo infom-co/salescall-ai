@@ -182,6 +182,10 @@ class Claim:
     judge_route: str | None = None   # 判定の道（'emergency'＝AIの不具合で止めているあいだに、契約者か管理者が緊急の道で再開した。予約の
     #                                とき、データベースの1か所 salescall.emergency_route が決める＝門は選べない。0155）。会話の処理は、これを
     #                                convo.run_call の judge_route へ渡す（判定を初めから緊急の道へ送る＝CL-1 の連絡帳 4-62）。None＝ふつうの道
+    handover: bool = False         # 前の電話でお話しした方と、お呼びする方が替わった（契約者がお客様リストのお呼びする方を直した）：
+    #                                お詫びはせず、どこまで引き継がれているかを確かめつつ、続きから（または途中から）営業を続ける（✅ 2026-11-06
+    #                                ユーザー＝計画書 7-1 (12)。次の予定の印 handover を写す。0194）。会話の処理（CL-1）は、これを読んで確かめる
+    #                                （前の通話で取れた答えは conversation_io.earlier。CL-2 の連絡帳 4-236）
 
 
 @dataclass(frozen=True)
@@ -668,7 +672,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (1) 次の予定（Q4 の記録を読むだけ）
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
-                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor,"
+                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor, handover,"
                  "       salescall.number_again_of(purpose, number_again) AS number_again,"   # 前の予定の読み替えは1か所（0136）
                  "       salescall.jst(window_from) AS window_from, window_said, window_day_said,"
                  "       salescall.keeping_kind(purpose, promised) AS keeping"
@@ -903,4 +907,5 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         if nxt["purpose"] == "apology" or "cut_off" in reasons else None
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
                  nxt["purpose"], row["wrong_phone"], voice, reasons, bool(nxt["promised"]),
-                 bool(nxt["successor"]), nxt["number_again"], apology_when=when, judge_route=row["judge_route"])
+                 bool(nxt["successor"]), nxt["number_again"], apology_when=when, judge_route=row["judge_route"],
+                 handover=bool(nxt["handover"]))

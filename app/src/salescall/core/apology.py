@@ -140,6 +140,18 @@ def _order(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
                   " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
 
 
+def source_call(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
+    """その行の、承認されたいちばん新しいお詫びの案のもとの通話（言ってはいけないことを言った通話。`_order` と同じ案）の、かけた時刻
+    （claimed_at）と判定の業務の状態（state。判定が無ければ None）。番号のせいでかけられずに終えたお詫びの電話を、番号を直して戻すとき、
+    同じ相手か・営業を続けてよいかを決める材料（core/next_action._restart_apology だけが読む。計画書 7-1 (12)）。案が無ければ None。"""
+    o = _order(tx, task_id)
+    if o is None:
+        return None
+    return tx.one("SELECT a.attempt_id, a.claimed_at, j.business_state::text AS state FROM salescall.attempts a"
+                  " LEFT JOIN salescall.call_judgements j ON j.attempt_id = a.attempt_id WHERE a.attempt_id = %s",
+                  (o["source_attempt_id"],))
+
+
 def when(tx: Tx, task_id: UUID, purpose: str, cut_call: UUID | None) -> str:
     """お詫びする前の電話が今日（日本時間）か（same_day／later。1か所＝予約証の apology_when）。お詫びの電話（purpose apology）は、
     承認されたいちばん新しいお詫びの案のもとの通話（`_order`＝お詫びの文と同じ）、ほかは、お詫びの理由「途中で切れた」の元の電話（次の

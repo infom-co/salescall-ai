@@ -126,43 +126,102 @@ def add(tx: Tx, attempt_id: UUID, point_index: int, solution: str, *, origin: st
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, salescall.cur_actor())"
         " RETURNING solution_id",
         (attempt_id, row["task_id"], point_index, point["point"], text, name, origin))["solution_id"]
-    lines = []
-    for tip in tips:
-        now = business_settings.load(tx, tip)
-        replaced = name in {a for a, _ in now.answers}
-        raw = business_settings.with_answer(now.raw, name, text)
-        version, problems = tip, ()
-        if raw != now.raw:
-            p = business_import.review(tx, row["business_id"], raw, confirmed_names=confirmed_names,
-                                       ai=business_import.ask_ai(raw, find_names=find_names), standard_id=now.standard_id)
-            problems = tuple(p.problems)
-            version = None if problems or p.raw is None else business_settings.derive(
-                tx, tip, lambda _old, r=p.raw: r, cause="solution",
-                note=f"ご納得いただけなかった点「{point['point']}」への解決策（問い「{name}」）", standard_id=p.standard_id)
-            if version is None:
-                problems = problems or ("確かめに通りませんでした",)
-        tx.execute("INSERT INTO salescall.client_solution_lines (tenant_id, client_id, solution_id, base_version, version_id, replaced,"
-                   "                                             problems)"
-                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s)",
-                   (sid, tip, version, replaced, list(problems)))
-        if version is None:
-            notify.emit(tx, "solution_held", key=f"solution_held:{sid}:{tip}",
-                        summary=f"依頼者の解決策（問い「{name}」）を、確かめに通らなかったので想定問答に足していません："
-                                + "／".join(problems), refs={"solution_id": str(sid), "attempt_id": str(attempt_id),
-                                                            "version_id": str(tip)})
-        lines.append(Line(tip, version, replaced, problems))
+    note = f"ご納得いただけなかった点「{point['point']}」への解決策（問い「{name}」）"
+    lines = [_add_line(tx, sid, attempt_id, row["business_id"], tip, name, text, note, find_names=find_names,
+                       confirmed_names=confirmed_names) for tip in tips]
+    for line in lines:
+        # 戻す前に足した解決策が入っていない流れ（手で前の版に戻した流れ など）：自動では入れず、契約者にダッシュボードで確かめていただく
+        # （✅ 2026-11-06 ユーザー＝計画書 6-1 (3)：「契約者にそれをダッシュボードで確認します。」。一覧は `not_in_line`・足す入口は `add_earlier`）
+        earlier = not_in_line(tx, line.version_id or line.base)
+        if earlier:
+            notify.emit(tx, "solution_earlier", key=f"solution_earlier:{sid}:{line.base}",
+                        summary=f"依頼者の解決策（問い「{name}」）を足した業務の版の流れに、入っていない前の解決策が {len(earlier)} 件あります"
+                                "（前の版に戻す前に足したもの など）。入れるものをダッシュボードで選んでください（自動では入れません）。",
+                        refs={"solution_id": str(sid), "version_id": str(line.version_id or line.base),
+                              "earlier": [str(e["solution_id"]) for e in earlier]})
     return Added(sid, name, tuple(lines))
+
+
+def _add_line(tx: Tx, sid: UUID, attempt_id: UUID, business_id: UUID, tip: UUID, name: str, text: str, note: str, *,
+              find_names: NameFinder | None, confirmed_names: Any, chosen: bool = False) -> Line:
+    """業務の版の流れ1つ（tip＝その流れのいちばん後の版）に、解決策の問答を足す（1か所。`add` と、契約者が前の解決策を選んで足す
+    `add_earlier` の両方が通る）：取込と同じ確かめ（business_import.ask_ai＋review。重ねる標準は、その版の標準のまま）を通し、通れば
+    業務設定の版を足す（business_settings.derive。きっかけ solution）。中身が変わらなければ版を作らない。流れの結果を記録し（chosen＝契約者が
+    選んで足した＝選んだ方を残す。0194）、通らなければ契約者に知らせる。"""
+    now = business_settings.load(tx, tip)
+    replaced = name in {a for a, _ in now.answers}
+    raw = business_settings.with_answer(now.raw, name, text)
+    version, problems = tip, ()
+    if raw != now.raw:
+        p = business_import.review(tx, business_id, raw, confirmed_names=confirmed_names,
+                                   ai=business_import.ask_ai(raw, find_names=find_names), standard_id=now.standard_id)
+        problems = tuple(p.problems)
+        version = None if problems or p.raw is None else business_settings.derive(
+            tx, tip, lambda _old, r=p.raw: r, cause="solution", note=note, standard_id=p.standard_id)
+        if version is None:
+            problems = problems or ("確かめに通りませんでした",)
+    tx.execute("INSERT INTO salescall.client_solution_lines (tenant_id, client_id, solution_id, base_version, version_id, replaced,"
+               "                                             problems, chosen_by)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, CASE WHEN %s THEN salescall.cur_actor() END)",
+               (sid, tip, version, replaced, list(problems), chosen))
+    if version is None:
+        notify.emit(tx, "solution_held", key=f"solution_held:{sid}:{tip}",
+                    summary=f"依頼者の解決策（問い「{name}」）を、確かめに通らなかったので想定問答に足していません："
+                            + "／".join(problems), refs={"solution_id": str(sid), "attempt_id": str(attempt_id),
+                                                        "version_id": str(tip)})
+    return Line(tip, version, replaced, problems)
+
+
+def _latest(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
+    """その業務に、依頼者の解決策で足せた問答（問いの名前ごとに、いちばん新しく足せたもの。1か所＝取り込み直したときに残す `kept_answers` と、
+    流れに入っていない前の解決策の一覧 `not_in_line` が読む）。"""
+    return tx.all(
+        "SELECT DISTINCT ON (c.answer_name) c.solution_id, c.attempt_id, c.answer_name, c.solution_text, c.point_text, c.recorded_at"
+        " FROM salescall.client_solutions c"
+        " JOIN salescall.tasks t ON t.task_id = c.task_id JOIN salescall.runs r ON r.run_id = t.run_id"
+        " WHERE r.business_id = %s AND EXISTS (SELECT 1 FROM salescall.client_solution_lines l"
+        "                                      WHERE l.solution_id = c.solution_id AND l.version_id IS NOT NULL)"
+        " ORDER BY c.answer_name, c.seq DESC", (business_id,))   # 足した順（データベースが振る＝0192。時刻は同じ取引で並ぶ）
+
+
+def not_in_line(tx: Tx, version_id: UUID) -> list[dict[str, Any]]:
+    """その版の流れに入っていない、その業務の前の解決策（問いの名前ごとにいちばん新しく足せたもの＝`_latest`）の一覧（1か所。画面が
+    契約者に見せて選んでいただく＝計画書 6-1 (3)。足すのは `add_earlier`）：[{solution_id, attempt_id, answer_name, solution_text,
+    point_text, recorded_at}]。入っていない＝その流れのいちばん後の版（`successor_tip`）の、その問いの答えが、その解決策の文と違う（無い）。
+    取り込み直しで残した問答・同じ答えを書いた問答・選んで足した問答は、入っているとみなす。
+    （attempt_id＝解決策を求めた通話も入る。）
+    ✅ 2026-11-06 ユーザー「契約者にそれをダッシュボードで確認します」＝自動では入れない。"""
+    tip = business_settings.successor_tip(tx, version_id)
+    business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (tip,))["business_id"]
+    now = dict(business_settings.load(tx, tip).answers)
+    return [dict(r) for r in _latest(tx, business) if now.get(r["answer_name"]) != r["solution_text"]]
+
+
+def add_earlier(tx: Tx, version_id: UUID, solution_ids: list[UUID], *, find_names: NameFinder | None = None,
+                confirmed_names: Any = ()) -> list[Line]:
+    """契約者が `not_in_line` の一覧から選んだ前の解決策を、その版の流れに足す（1か所の入口。呼ぶのは画面だけ＝CL-3。管理者か契約者
+    だけ＝データベースの守り client_solution_line_chosen_by_person）。足し方は新しい解決策と同じ `_add_line`（取込と同じ確かめ・版を足す道）。
+    一覧に無い解決策は受けない（何も書かない）。足した流れの結果（版・通らなかった理由）を、選んだ順に返す。"""
+    if not solution_ids:
+        raise SolutionInvalid("足す解決策が選ばれていません")
+    offered = {r["solution_id"]: r for r in not_in_line(tx, version_id)}
+    if len(set(solution_ids)) != len(solution_ids) or any(sid not in offered for sid in solution_ids):
+        raise SolutionInvalid("その流れに入っていない前の解決策の一覧に無いものが選ばれています")
+    business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["business_id"]
+    lines = []
+    for sid in solution_ids:
+        r = offered[sid]
+        lines.append(_add_line(tx, sid, r["attempt_id"], business, business_settings.successor_tip(tx, version_id), r["answer_name"],
+                               r["solution_text"],
+                               f"契約者が選んで足した前の解決策（点「{r['point_text']}」・問い「{r['answer_name']}」）",
+                               find_names=find_names, confirmed_names=confirmed_names, chosen=True))
+    return lines
 
 
 def kept_answers(tx: Tx, business_id: UUID) -> list[tuple[str, str]]:
     """その業務に、依頼者の解決策で足した問答（問いの名前ごとに、いちばん新しく足せたもの）。取り込み直した版にも残す（1か所。
     ✅ 2026-11-06 ユーザー「残す」＝見直し(B) の3。読むのは business_import._from_file＝ファイルの入口だけ）。"""
-    return [(r["answer_name"], r["solution_text"]) for r in tx.all(
-        "SELECT DISTINCT ON (c.answer_name) c.answer_name, c.solution_text FROM salescall.client_solutions c"
-        " JOIN salescall.tasks t ON t.task_id = c.task_id JOIN salescall.runs r ON r.run_id = t.run_id"
-        " WHERE r.business_id = %s AND EXISTS (SELECT 1 FROM salescall.client_solution_lines l"
-        "                                      WHERE l.solution_id = c.solution_id AND l.version_id IS NOT NULL)"
-        " ORDER BY c.answer_name, c.seq DESC", (business_id,))]   # 足した順（データベースが振る＝0192。時刻は同じ取引で並ぶ）
+    return [(r["answer_name"], r["solution_text"]) for r in _latest(tx, business_id)]
 
 
 def keep_in(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:

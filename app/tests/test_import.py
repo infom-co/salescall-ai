@@ -757,7 +757,7 @@ class DialFixes(CustomerContacts):
         back = ("number_unusable", "alternate_wrong_again", "alternate_not_called", "alternate_blocked:dnc_client",
                 "ask_number_again_unanswered", "number_kind_forbidden", "number_kind_not_allowed", "number_unknown",
                 "other_contractor_called", "other_client_promise_never", "max_attempts", "policy_max:open",
-                "callback_exact_unreached", "callback_unspecified_time")
+                "callback_exact_unreached", "callback_unspecified_time", "apology_wrong_party", "apology_fax_line")
         stay = ("completed", "declined", "do_not_call", "concluded", "out_of_scope", "complaint", "forbidden_speech", "other_means",
                 "not_reached_departed", "not_reached_who_unclear", "open", "declined_in_business", "dnc_client", "apology_done")
         for n, reason in enumerate(back + stay):
@@ -792,16 +792,22 @@ class DialFixes(CustomerContacts):
         for end in ("number_unusable", "alternate_wrong_again", "alternate_not_called", "ask_number_again_unanswered",
                     "number_unknown", "number_kind_forbidden", "number_kind_not_allowed", "other_contractor_called",
                     "other_client_promise_never", "alternate_blocked:dnc", "max_attempts", "callback_exact_unreached",
-                    "policy_max:open"):
+                    "policy_max:open", "apology_wrong_party", "apology_fax_line"):
             with self.subTest(end=end):
                 self.assertTrue(next_action.reopens_on_dial_fix(Tx(None), None, end))
         for end in ("do_not_call", "complaint", "forbidden_speech", "apology_done", "completed"):
             with self.subTest(end=end):
                 self.assertFalse(next_action.reopens_on_dial_fix(Tx(None), None, end))
-        for action, want in (("end", False), ("call", True)):
-            with self.subTest(action=action), mock.patch.object(next_action, "_unspecified_policy",
-                                                                return_value=business_rules.Policy(action, 1, None)):
-                self.assertEqual(next_action.reopens_on_dial_fix(Tx(None), None, "callback_unspecified_time"), want)
+        # 「あとで」を方針の回数より多く言って終えた行は、どれも約束の一環だったときだけ戻る（営業拒否か、まだ分からないものがあれば
+        # 戻らない＝`_later_refused`。計画書 7-1 (13)。場面の試験は tests.test_settle.DialFixAfterCalls）
+        for end, action, refused, want in (("callback_unspecified_time", "end", False, False),
+                                           ("callback_unspecified_time", "call", True, True),
+                                           (next_action.LATER_OVER, "end", False, False), (next_action.LATER_OVER, "call", False, True),
+                                           (next_action.LATER_OVER, "call", True, False)):
+            with self.subTest(end=end, action=action, refused=refused), \
+                    mock.patch.object(next_action, "_unspecified_policy", return_value=business_rules.Policy(action, 1, None)), \
+                    mock.patch.object(next_action, "_later_refused", return_value=refused):
+                self.assertEqual(next_action.reopens_on_dial_fix(Tx(None), None, end), want)
 
     def test_a_row_ended_by_a_number_only_dnc_comes_back(self):
         """門が発信禁止で終えた行は、その番号の登録が番号違い・FAX の回線（その番号だけ）なら番号のせいなので、番号を直すと戻る。

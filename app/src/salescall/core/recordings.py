@@ -656,6 +656,101 @@ def apology_voice(tx: Tx, task_id: UUID) -> str | None:
     return None if row is None else row["voice_name"]
 
 
+# ═════════ 版が変わったとき、変わっていない部分は元の版の録音を引き継ぐ（1か所。0194。✅ 2026-11-06 ユーザー＝計画書 6-1 (4)：「録音が
+# 必要な部分がある場合のみ必要な部分だけ録音を実施します。それはダッシュボードにも警告として出し、それができれば新しい版でも電話が
+# かけられるようになります。」） ═════════
+# 業務の録音の組は版ごと（版の部分の一覧は会話の側＝CL-1 の録音の道具が決める）。承認は中身に付く（0172）ので、同じ文・同じ読み・同じ
+# 音声の部分は、新しい版の組の中でも承認済み。版を作る道（以前の版へ戻す・業務を複製する・手で前の版に戻した写し＝business_settings.
+# save_from、版を足す＝business_settings.derive）は、どれも作ったあとに `carry` を呼ぶ：元の版のいまの組（声ごと）から、変わった部分を
+# 除いた部分を引き継ぐ。変わった部分が無ければ、その場で新しい版の組を作る（承認済みの中身だけ＝すぐそろう＝電話を止めない）。変わった
+# 部分があれば、その部分だけを録音していただく（契約者への知らせ recording_needed・画面が読む `needed_parts`。録音の道具は、その部分だけを
+# 録って `complete` を呼ぶ＝引き継ぐ部分と合わせて組を作る。CL-2 の連絡帳 4-236）。
+# どの部分が変わったかを CL-2 が言えるのは、版の違いが想定問答（業務の録音の answer_＋問いの名前）だけのとき（解決策・標準の版）。ほかの
+# 項目が違う版（⏳ 契約者の上書きの変更）は、部分と文の対応が会話の側にあるので引き継がない（None。録音の道具が組を作る）。
+
+def _changes(tx: Tx, from_version: UUID, to_version: UUID) -> tuple[frozenset[str], dict[str, str]] | None:
+    """元の版から新しい版で変わった業務の録音の部分（1か所）：(引き継げない部分の名前, 録音が要る部分の名前 → 文)。想定問答のほかに
+    違う項目があれば None（どの部分が変わったかを、ここでは決められない）。"""
+    old, new = business_settings.load(tx, from_version), business_settings.load(tx, to_version)
+    rest = lambda raw: {k: v for k, v in raw.items() if k not in ("answers", "answers_off")}   # noqa: E731
+    if rest(old.raw) != rest(new.raw):
+        return None
+    before, after = dict(business_settings.own_answers(old)), dict(business_settings.own_answers(new))
+    p = business_settings.ANSWER_PART_PREFIX
+    return (frozenset(p + n for n, t in before.items() if after.get(n) != t),
+            {p + n: t for n, t in after.items() if before.get(n) != t})
+
+
+def _kept_parts(tx: Tx, from_version: UUID, dropped: frozenset[str]) -> dict[str, list[Part]]:
+    """元の版のいまの業務の録音の組（声ごと。流す組と同じ見方 current_recording_sets）から、引き継ぐ部分（読みも＝承認の中身の鍵に入る）。"""
+    out: dict[str, list[Part]] = {}
+    for r in tx.all("SELECT s.voice_name, r.part, r.spoken_text, r.audio_ref, r.audio_sha256,"
+                    "       (SELECT coalesce(jsonb_object_agg(x.name_text, x.reading), '{}'::jsonb) FROM salescall.recording_readings x"
+                    "         WHERE x.set_id = r.set_id AND x.part = r.part) AS readings"
+                    " FROM salescall.current_recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
+                    " WHERE " + _BUSINESS + " ORDER BY s.voice_name, r.part", (from_version,)):
+        if r["part"] not in dropped:
+            out.setdefault(r["voice_name"], []).append(
+                Part(r["part"], r["spoken_text"], r["audio_ref"], r["audio_sha256"], dict(r["readings"])))
+    return out
+
+
+def carry(tx: Tx, from_version: UUID, to_version: UUID) -> dict[str, str] | None:
+    """新しい版（to_version）へ、元の版（from_version）の録音の、変わっていない部分を引き継ぐ（1か所。上の説明）。変わった部分が無ければ、
+    元の版のいまの組がある声ごとに、新しい版の組をその場で作る。変わった部分があれば組は作らず、契約者に録音が要る部分を知らせる。
+    答え：録音が要る部分（名前 → 文。空＝要らない）。None＝想定問答のほかにも違う項目があり、引き継げない。"""
+    ch = _changes(tx, from_version, to_version)
+    if ch is None:
+        return None
+    dropped, needed = ch
+    kept = _kept_parts(tx, from_version, dropped)
+    if needed:
+        if kept:
+            from salescall.core import notify   # 知らせの部品（読み合いにしない）
+            notify.emit(tx, "recording_needed", key=f"recording_needed:{to_version}",
+                        summary=f"業務設定の新しい版で話すには、録音が要る部分が {len(needed)} つあります（{'・'.join(sorted(needed))}）。"
+                                "変わっていない部分は元の版の録音を使います。録音して承認すると、新しい版でもかけられます。",
+                        refs={"version_id": str(to_version), "parts": sorted(needed), "voices": sorted(kept)})
+        return needed
+    for voice, ps in kept.items():
+        if ps:
+            create_set(tx, unit="business", voice_name=voice, parts=ps, version_id=to_version)
+    return {}
+
+
+def _predecessor(tx: Tx, version_id: UUID) -> UUID | None:
+    row = tx.one("SELECT from_version FROM salescall.version_successions WHERE to_version = %s", (version_id,))
+    return None if row is None else row["from_version"]
+
+
+def needed_parts(tx: Tx, version_id: UUID) -> dict[str, dict[str, str]]:
+    """その版で、まだ録音が要る部分（声 → 部分の名前 → 文。画面が警告として出す1か所）：版を足した版（つながりの前の版がある）で、前の版の
+    いまの組がある声のうち、この版のいまの組がまだ無い声の、変わった部分。要らなければ空。"""
+    before = _predecessor(tx, version_id)
+    ch = None if before is None else _changes(tx, before, version_id)
+    if ch is None or not ch[1]:
+        return {}
+    have = {r["voice_name"] for r in tx.all("SELECT s.voice_name FROM salescall.current_recording_sets s WHERE " + _BUSINESS,
+                                            (version_id,))}
+    return {voice: dict(ch[1]) for voice in _kept_parts(tx, before, ch[0]) if voice not in have}
+
+
+def complete(tx: Tx, version_id: UUID, voice_name: str, recorded: list[Part]) -> UUID:
+    """録音が要る部分だけを録った録音（recorded）と、前の版から引き継ぐ部分を合わせて、その版のその声の業務の録音の組を作る（録音の道具＝
+    CL-1 が呼ぶ。1か所）。recorded は `needed_parts` の、その声の部分と、名前も文も同じであること（足りない・余る・文が違うは作らない）。
+    承認は中身に付くので、聞いていただくのは録った部分だけ（`unapproved_parts`）。"""
+    want = needed_parts(tx, version_id).get(voice_name)
+    if not want:
+        raise ValueError(f"その版の声「{voice_name}」に、録音が要る部分はありません")
+    got = {p.part: p.spoken_text for p in recorded}
+    if got != want:
+        raise ValueError(f"録音が要る部分は {sorted(want)} で、文もその版の文と同じものです（足りない：{sorted(set(want) - set(got))}・"
+                         f"余る：{sorted(set(got) - set(want))}・文が違う：{sorted(k for k in set(got) & set(want) if got[k] != want[k])}）")
+    before = _predecessor(tx, version_id)
+    kept = _kept_parts(tx, before, _changes(tx, before, version_id)[0]).get(voice_name, [])
+    return create_set(tx, unit="business", voice_name=voice_name, parts=kept + list(recorded), version_id=version_id)
+
+
 def parts(tx: Tx, set_id: UUID) -> dict[str, Part]:
     """組の部分（名前 → 部分）。"""
     return {r["part"]: Part(r["part"], r["spoken_text"], r["audio_ref"], r["audio_sha256"]) for r in tx.all(

@@ -1512,6 +1512,7 @@ def save_from(tx: Tx, business_id: UUID, version_id: UUID) -> UUID:
     new = save_version(tx, business_id, old.raw, standard_id=old.standard_id)   # 標準も、その版が指す標準の版のまま（替えるのは (5) の1か所）
     from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
     recordings.carry_readings(tx, version_id, new)
+    recordings.carry(tx, version_id, new)   # 中身が同じなので、元の版の録音をそのまま引き継ぐ（電話を止めない。0194・計画書 6-1 (4)）
     return new
 
 
@@ -1652,6 +1653,8 @@ def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str
                "                                         recorded_by)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, salescall.cur_actor())",
                (business, base, new, cause, note.strip()))
+    # 変わっていない部分は元の版の録音を引き継ぐ（写しと同じ1か所。変わった部分だけ録音していただく＝契約者に知らせる。0194・計画書 6-1 (4)）
+    recordings.carry(tx, base, new)
     return new
 
 

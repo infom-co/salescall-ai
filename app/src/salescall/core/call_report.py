@@ -157,6 +157,12 @@ CALLBACK_REASONS = ("absent", "long_absent", "day_off", "other_number", "later",
 UNTIMED_OUTCOMES = {"absent": ("absent", "not_reached_absent"), "long_absent": ("absent", "not_reached_absent"),
                     "day_off": ("absent", "not_reached_absent"),
                     "unavailable": ("not_transferred", "not_reached_not_transferred")}
+# 時刻の無いかけ直しの申し出（「あとで」など）が、約束の一環か営業拒否か（会話の側の読み。✅ 2026-11-06 ユーザー＝計画書 7-1 (13)：
+# 「営業拒否でなければ戻せます。あくまで後でというのは約束の一環なのか営業拒否なのかというのを判断する必要があります。」）。判定は
+# 判定の中身の callback.intent に残すだけ（判定の結果は変えない）。読むのは、番号を直したときに「あとで」を方針の回数より多く言って
+# 終えた行を戻すかの1か所（next_action._later_refused。無い＝まだ分からない＝戻さない）。CL-2 の連絡帳 4-236 で CL-1 に頼んだ
+LATER_PROMISE, LATER_REFUSAL = "promise", "refusal"
+LATER_INTENTS = (LATER_PROMISE, LATER_REFUSAL)
 ENDING_CALLBACKS = ("other_means",)                      # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
 # お客様の申し出（CL-1 の OFFER_LABEL の鍵）：折り返し・伝言・メール・ファクス・郵送。折り返し（callback）は、CL-1 の連絡帳 4-104 から、答えの段の判定
 # 「お客様から折り返す」（会話の側の flowctl.LATER_THEIRS・later_offer の1か所）でも付く（記録だけ。判定はこちらからかけ直す約束と同じ）
@@ -274,6 +280,8 @@ class Callback:
     #                                  ユーザー：「案B＆案A(確かめたうえで案A)」。読むのは時刻の読み spoken_time.read の1か所＝judge._when）
     until_why: str | None = None     # 「〇時まで」の言い方のときの、いま電話を続けられなかった理由（UNTIL_WHYS）。かけ直しの理由（reason）
     #                                  だけで決まらないとき（あとで など）だけ書く（UNTIL_BY_REASON の理由に書けば報告の形の誤り）
+    intent: str | None = None        # 時刻の決まらない申し出（「あとで」など）が、約束の一環（promise）か営業拒否（refusal）か（LATER_INTENTS。
+    #                                  無い＝読んでいない。判定は記録だけ＝判定の中身 callback.intent。0194・計画書 7-1 (13)）
 
     @property
     def until_reason(self) -> str | None:
@@ -705,7 +713,8 @@ class CallReport:
                           **({} if c.again is None else {"again": c.again}),
                           **({} if c.back_today is None else {"back_today": c.back_today}),
                           **({"beyond_limit_ok": True} if c.beyond_limit_ok else {}),
-                          **({} if c.until_why is None else {"until_why": c.until_why})} for c in self.callbacks],
+                          **({} if c.until_why is None else {"until_why": c.until_why}),
+                          **({} if c.intent is None else {"intent": c.intent})} for c in self.callbacks],
             "ai_question": [said(q) for q in self.ai_questions],
             "voicemail_message": [said(v) for v in self.voicemail_messages],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends],
@@ -932,11 +941,12 @@ def from_json(raw: Any) -> CallReport:
     callbacks = []
     for r, s in _records(facts, "callback", {"why", "time", "number", "person", "cycle", "read", "connected", "offer",
                                              "message_left", "again", "back_today", "beyond_limit_ok", "until_why",
-                                             *CALLBACK_MEANS}):
+                                             "intent", *CALLBACK_MEANS}):
         reason = _choice(r.get("why"), CALLBACK_REASONS, "facts.callback.why")
         number = _text(r.get("number"), "facts.callback.number")
         if number is not None and reason != "other_number":
             raise ReportInvalid("番号を持つのは、別の番号のかけ直しだけです")
+        intent = _choice(r.get("intent"), LATER_INTENTS, "facts.callback.intent", optional=True)
         callbacks.append(Callback(reason, _text(r.get("time"), "facts.callback.time"), number,
                                   _text(r.get("person"), "facts.callback.person"), s,
                                   _choice(r.get("cycle"), CALLBACK_CYCLES, "facts.callback.cycle", optional=True),
@@ -948,7 +958,7 @@ def from_json(raw: Any) -> CallReport:
                                   _bool(r, "again") if "again" in r else None,
                                   _bool(r, "back_today") if "back_today" in r else None,
                                   "beyond_limit_ok" in r and _bool(r, "beyond_limit_ok"),
-                                  _until_why(r, reason)))
+                                  _until_why(r, reason), intent))
     ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
                  for r, s in _records(facts, "end", {"reason"}))
     if any(e.reason in NEVER_CLOSES for e in ends):
