@@ -13177,6 +13177,40 @@ class NoneOfThemTest(unittest.TestCase):
             r = f.apply("record_answer", {"question_id": h2, "condition_id": WAIT_NOW})
             self.assertEqual((r["result"], f.holding, f.wait_q), ("hold", True, None), op)
 
+    def test_late_wait_reading_after_thinking_is_applied(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（待つ持ち場の指摘3）：考えている途中と読んで「はい。」と応えたあとに、同じ発話のもう1つの判定が遅れて「あとで
+        #    かけ直す」「待つかかけ直すか決められない」「取り次ぎを待つ」と届いても当てなかった（遅れた読みを当て直すのは、待つと応えたあと＝holding だけ）
+        #    ⇒ 遅れて届いた読みも同じ決まり（設計書 1-1 の (c)・wait_reading＝同時に届いたときと同じ組み合わせ）で当てる。もう「はい。」と応えたので、
+        #    黙って待つ（取り次ぎを待つ）なら相づちは重ねない
+        from flowctl import HOLD, LATER, THINKING, WAIT_OR_LATER
+        from meaning_judge import Reading
+        from phrases import ACK
+
+        def thought(late):
+            f, _ = self.wished(False)
+            f.on_callee(); f.on_heard("うーん、どうしようかな…。")
+            f.on_check("judge", Reading(THINKING))
+            r = f.judged_turn()
+            self.assertEqual(r["result"], "thinking")
+            f.on_check("judge2", Reading(late))
+            return f, f.judged_turn()
+        heard = lambda r: (ACK[r["ack"]] if r.get("ack") else "") + (r.get("question") or "")
+        f, r = thought(LATER)
+        self.assertEqual(heard(r), "承知しました。いつ頃おかけ直しさせていただきましょうか？")
+        f, r = thought(WAIT_OR_LATER)
+        self.assertEqual(f.current, "H2")
+        f, r = thought(HOLD)
+        self.assertEqual((r["result"], r.get("ack"), f.holding), ("hold", None, True))
+        # 会話AIが「聞き取れない」と報告しても同じ（会話AIの報告は判定を待つきっかけだけ。⛔ 同じ見直しの指摘8：report_unclear だけは待つ・考えている途中の
+        # 読みを見ずに「申し訳ございません、お電話が少し遠いようで…」と聞き返した）
+        for reading, words, want in ((THINKING, "うーん、どうしようかな…。", "thinking"), (WAIT_OR_LATER, "妻に話してからにしたいので、少し待ってください。", "H2"),
+                                     (HOLD, "ちょっと待ってくださいね。", "hold")):
+            f, _ = self.wished(False)
+            f.on_callee(); f.on_heard(words)
+            f.on_check("judge", Reading(reading))
+            r = f.apply("report_unclear", {"question_id": "W1"})
+            self.assertEqual(f.current if want == "H2" else r["result"], want, words)
+
     def test_late_callback_reading_after_waiting_asks_once_unless_waiting_was_clear(self):
         # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(2) 「待つ」と言ったあとに、遅れて「かけ直してほしい」の読みが届く：例のように、はっきりと「少し待って」と
         # 言われれば、アでいいけど、「待って」という言葉がないか、聞き取りにくければ、イ」（ア＝もうお伝えした動きを変えない・イ＝その場で「このままお待ちして
@@ -13203,6 +13237,12 @@ class NoneOfThemTest(unittest.TestCase):
         # (ア) はっきり「待って」と言われた：もうお伝えした動き（このまま待つ）を変えない
         f, r = waited("妻に話してからにしたいので、少し待ってください。")
         self.assertEqual((r, f.holding), (None, True))
+        # そのあと同じ言葉への会話AIの報告が遅れて届いても同じ（⛔ 2026-11-06 日本時間13時台の見直し（待つ持ち場の指摘4）：報告から入る待つ読みの1か所
+        # （_wait_route）は、割れた読みで H2 を伺っていた）
+        for op, args in (("request_callback", {"why": "later"}), ("record_answer", {"question_id": "W1", "condition_id": WISH_NONE})):
+            f, r = waited("妻に話してからにしたいので、少し待ってください。")
+            r = f.apply(op, args)
+            self.assertEqual((r.get("question"), r.get("silent"), f.current), (None, True, "W1"), op)
         # (イ) 待つ言葉が無い：その場で1回伺う
         f, r = waited("ちょっと妻に聞いてみますね。")
         self.assertEqual((heard(r), f.current), (H2, "H2"))
@@ -13213,6 +13253,13 @@ class NoneOfThemTest(unittest.TestCase):
         # 待つように言う言葉の見分け（単語分けの辞書の見出し語「待つ」。待たせる＝「お待たせしました」は待つように言う言葉ではない）
         self.assertEqual([says_wait(t) for t in ("少し待ってください。", "少々お待ちください。", "待ちますね", "お待たせしました", "また電話ください。")],
                          [True, True, True, False, False])
+        # 打ち消し（待たなくていい・待たないで・待てない）・お客様が待っている（待ってます）・お客様の側が待つ（お待ちしてます）は、待つように言う言葉ではない
+        # （⛔ 2026-11-06 日本時間13時台の見直し（待つ持ち場の指摘5）：見出し語「待つ」があるだけで、はっきり待つように言われたと読み、遅れて届いた
+        # かけ直しの読みを当てなかった＝「待たなくていいので、また後で電話してください。」でも黙って待ち続けた）
+        self.assertEqual([says_wait(t) for t in ("待たなくていいので、また後で電話してください。", "待たないで切ってください。", "待てないです。",
+                                                 "いま待ってます。", "じゃあ妻に聞いておくので、またお電話お待ちしてます。", "ちょっと待って。",
+                                                 "少々お待ちいただけますか。")],
+                         [False, False, False, False, False, True, True])
 
     def test_wait_words_in_the_answer_stage_wait_with_a_word_or_ask_once(self):
         # 会話2：✅ 2026-11-05 日本時間23時19分06秒 ユーザー：「電話がつながったまま、妻に確認を待ってと言っていらっしゃるなら、「はい、それではこのまま

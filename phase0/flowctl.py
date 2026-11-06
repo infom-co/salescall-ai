@@ -741,13 +741,23 @@ def wait_reading(check: dict) -> str | None:
 def says_wait(said: str | None) -> bool:
     """お客様の言葉に、待つように言う言葉（「待って」「お待ちください」「待ちます」＝単語分けの辞書 jtext.words の見出し語「待つ」）があるか（唯一の決まり＝
     はっきり待つように言われたか Flow._wait_clear）。待たせる（「お待たせしました」「待たせてごめん」＝見出し語は「待つ」に助動詞「せる」「させる」が続く）は、
-    待つように言う言葉ではない。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「はっきりと「少し待って」と言われれば、アでいいけど、「待って」という言葉が
+    待つように言う言葉ではない。打ち消し（「待たなくていい」「待たないで」「待てない」）・お客様が待っている（「待ってます」）・お客様の側が待つ（「お待ちして
+    ます」）も同じ（⛔ 2026-11-06 日本時間13時台の見直しで見つけた）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「はっきりと「少し待って」と言われれば、アでいいけど、「待って」という言葉が
     ないか、聞き取りにくければ、イ」"""
     from jtext import words
     ws = [w for w in words(said or "") if w.feature.pos1 not in ("補助記号", "空白")]
-    return any(getattr(w.feature, "lemma", "") == "待つ" and w.feature.pos1 == "動詞"
-               and not (i + 1 < len(ws) and getattr(ws[i + 1].feature, "lemma", "") in ("せる", "させる"))
-               for i, w in enumerate(ws))
+    lemma = lambda i: getattr(ws[i].feature, "lemma", "") if 0 <= i < len(ws) else ""   # noqa: E731
+
+    def asks(i: int) -> bool:
+        nxt = lemma(i + 1)
+        if nxt in ("せる", "させる", "ない", "ず", "ぬ", "ん", "てる"):
+            return False   # 待たせる・打ち消し（待たなくていい・待たないで・待てない）・お客様が待っている（待ってます）
+        if nxt == "て" and lemma(i + 2) in ("居る", "いる", "おる"):
+            return False   # 待っている・待っております
+        if lemma(i - 1) == "御" and nxt in ("為る", "致す", "いたす"):
+            return False   # お待ちしてます・お待ちしております＝お客様の側が待つ
+        return True
+    return any(getattr(w.feature, "lemma", "") == "待つ" and w.feature.pos1 == "動詞" and asks(i) for i, w in enumerate(ws))
 
 
 def asks_us(said: str | None, readings) -> bool:
@@ -4976,6 +4986,11 @@ class Flow:
 
     def _op_report_unclear(self, a: dict) -> dict:
         qid = a.get("question_id")
+        # 判定が、答えではない（待つ・かけ直す・考えている途中・代わった方）と読んでいれば、聞き返さずに答えの報告と同じ1か所で応じる（会話AIの報告は判定を
+        # 待つきっかけだけ）。⛔ 2026-11-06 日本時間13時台の見直し（待つ持ち場の指摘8）：ここだけ読みを見ずに「申し訳ございません、お電話が少し遠いようで…」と
+        # 聞き返した（「うーん、どうしようかな…。」「少し待ってください。」にも）
+        if (held := self._not_an_answer()) is not None:
+            return held
         if self.awaiting_confirm is not None and self.awaiting_confirm == qid and self.questions[qid].reading_of:
             # 名前の読みの確かめは、相手の答えの言い直しではなく、こちらから聞く質問（相手はまだ何も答えていない）。その返事が聞き取れない
             # ときは、ほかの質問と同じく聞き取れないとして扱う（必須でないので聞き返さず、名前を使わずにお呼びする）。⛔ 試験で見つけた漏れ：
@@ -7214,6 +7229,11 @@ class Flow:
             return self._hold(back=True)
         if not self._wait_handles(w):
             return None
+        if self.holding and w in (LATER, WAIT_OR_LATER):
+            # この発話にもう待つと応えた（報告の無いターンで判定に応じた・先の報告）あとに、同じ言葉への報告・読みが遅れて届いて割れた：待ったあとに遅れて
+            # 届いた読みと同じ1か所（_wait_rethought）で当てる＝はっきり待つように言われていれば、そのまま黙って待つ（✅ 9時05分17秒の (2)）。⛔ 2026-11-06
+            # 日本時間13時台の見直し（待つ持ち場の指摘4）：報告から入るここは、割れた読みで H2 を伺っていた
+            return self._wait_rethought(w) or self._hold()
         if w == LATER:
             return self._callback(why, read, offer=offer)
         return self._wait_or_later()
@@ -7232,7 +7252,17 @@ class Flow:
         いない（待つ言葉が無い・聞き取りにくい＝_wait_clear）ときだけ、その場で1回伺う（H2＝_wait_or_later。伺うのは1回＝wait_asked）。はっきり待つように
         言われていれば、もうお伝えした動き（このまま待つ）を変えない。答えの段だけ（お呼びする段の取り次ぎの待ちは、不在・取り次ぎの決まり＝9-4）。
         ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(2) 「待つ」と言ったあとに、遅れて「かけ直してほしい」の読みが届く：例のように、はっきりと「少し待って」と
-        言われれば、アでいいけど、「待って」という言葉がないか、聞き取りにくければ、イ」。⛔ それまでは、遅れた読みを覚えるだけで何もしなかった"""
+        言われれば、アでいいけど、「待って」という言葉がないか、聞き取りにくければ、イ」。⛔ それまでは、遅れた読みを覚えるだけで何もしなかった。
+        考えている途中と読んで「はい。」と応えたあとに届いた遅れた読みも、ここで当てる（同時に届いたときと同じ組み合わせ）。"""
+        if (self.thinking_turn == self.callee_turns and not self.holding and w not in (None, THINKING) and self.wait_q is None
+                and self._wait_handles(w)):
+            # 考えている途中と読んで「はい。」と応えたあと（まだ待つとは応えていない）：遅れて届いた読みも、同時に届いたときと同じ組み合わせ（wait_reading）で
+            # 応じる1か所（_wait_route）へ。黙って待つ（取り次ぎを待つ）なら、もう「はい。」と応えたので相づちは重ねない。⛔ 2026-11-06 日本時間13時台の見直し
+            # （待つ持ち場の指摘3）：待つと応えたあと（holding）だけを当て直し、考えている途中のあとに遅れた「あとでかけ直す」を当てなかった
+            reply = self._wait_route(w, self._wait_read())
+            if reply is not None and w == HOLD:
+                reply["again"] = True
+            return reply
         if (not self.holding or not self.in_answer_stage or self.callback_why or self.wait_asked
                 or w not in (LATER, WAIT_OR_LATER) or self._wait_clear()):
             return None
