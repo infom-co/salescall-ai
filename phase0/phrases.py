@@ -576,7 +576,7 @@ APOLOGY_FIRST = {"missed_promise": "お約束の時間にお電話ができず�
 APOLOGY_PURPOSE = {"same_day": "先ほどのお電話の件でご連絡いたしました。", "later": "先日のお電話の件でご連絡いたしました。"}
 # 前の電話で、ご説明できない点の一言（申し伝える一言＝point_fallback）まで言ったあと、お客様のお返事の前に切れたときの続きの電話（flowctl.Flow._sorry_lines）：
 # お詫び（同じ日＝先ほど・あとの日＝前回。いつの電話かは apology_when＝CL-2）と、申し伝える一言（前の電話の種類の件＝ご質問・ご要望・ご意見。担当から
-# 連絡すると申し出てよい業務は「折り返し…」）。どれも共通の一言の録音（apology_cut_end_（いつ）・told_again_（種類）・told_follow_up）。決まった言い方
+# 連絡すると申し出てよい業務は「折り返し…」）。どれも共通の一言の録音（apology_cut_end_（いつ）・told_again_（種類）_（いつ）・told_follow_up）。決まった言い方
 # なので言葉の途中の読点は外した（2026-10-15）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(b) …「先ほどは（前回は）、お話の最後に通信が悪く、
 # お電話が切れてしまい申し訳ございませんでした。」「～の件は、担当の者に申し伝えさせていただきますね。」もしくは「折り返し、担当の者よりご連絡させて
 # いただきますね。」と言って、最後の挨拶で締めくくる。」
@@ -641,8 +641,12 @@ def point_fallback_id(kind: str, again: bool) -> str:
 
 
 POINT_FALLBACK = {point_fallback_id(k, a): point_fallback(k, a) for k in POINT_KINDS for a in (False, True)}
-# 申し伝える一言まで言って切れた続きの電話の、申し伝える一言（種類ごと。上の APOLOGY_CUT_END の注）
-TOLD_AGAIN = {k: f"前回お伺いした{noun}の件は担当の者に申し伝えさせていただきますね。" for k, (noun, _) in POINT_KINDS.items()}
+# 申し伝える一言まで言って切れた続きの電話の、申し伝える一言（種類ごと・いつの電話かごと＝鍵は「（種類）_（いつ）」。上の APOLOGY_CUT_END の注）。
+# 「先ほど」「前回」はお詫び（APOLOGY_CUT_END）と同じ＝同じ日は先ほど・あとの日は前回（同じ返事の中で混ぜない。⛔ 2026-11-06 日本時間23時22分41秒の
+# ご質問の見直し H10：いつも「前回お伺いした…」で、同じ日は「先ほどは…切れてしまい…」のすぐあとに「前回お伺いした…」と混ざった）
+EARLIER_CALL_WORD = {"same_day": "先ほど", "later": "前回"}
+TOLD_AGAIN = {f"{k}_{when}": f"{at}お伺いした{noun}の件は担当の者に申し伝えさせていただきますね。"
+              for when, at in EARLIER_CALL_WORD.items() for k, (noun, _) in POINT_KINDS.items()}
 OWN_FALLBACK_POINT = POINT_FALLBACK["own_fallback_point"]
 OWN_FALLBACK_POINT_AGAIN = POINT_FALLBACK["own_fallback_point_again"]
 

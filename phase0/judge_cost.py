@@ -16,13 +16,12 @@ import os
 import statistics as st
 
 from common import HERE
-from meaning_judge import OTHER_JUDGES
 
 J, T, N = "Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5"
 PAID = (T, N, "Claude Haiku 5.5（考える）", "Claude Haiku 5.5")
 MEANING = HERE / "results" / "G-53race_b4e8fa3_20261025_122959.json"
 GROUND = HERE / "results" / "G-63G67each_20261024_213207.json"
-WAITS = (0.0, 0.3, 0.5)   # Jev を先に出して、確かな読みを待つ秒（0＝今の、3つ同時）
+WAITS = (0.0, 0.3, 0.5)   # Jev を先に出して、確かな読みが無ければほかを出すまでの秒（0＝同時に出す。決め方は本番の1か所＝decide）
 
 
 def paid_calls() -> dict:
@@ -51,38 +50,38 @@ def paid_calls() -> dict:
     return {day: dict(c) for day, c in sorted(out.items())}
 
 
-def first(readings: dict, wait: float, sonnets: tuple, usable) -> tuple:
-    """Jev を先に出し、wait 秒たっても確かな読みが無ければ sonnets を出す（Jev の確かでない読み・失敗が先に届けば、その時に）。wait=0＝同時。
-    返す：(使う読み, 届いた秒, 出した Sonnet の数)。readings＝{判定の名前: (読み, 秒, 確からしさ)}。"""
-    j = readings.get(J)
-    js = j[1] if j else None
-    sure = j is not None and js is not None and usable(J, j)
-    if sure and js <= wait:
-        return j, js, 0
-    start = wait if (sure or js is None) else min(wait, js)
-    cand = [(js, j)] if sure else []
-    cand += [(start + readings[k][1], readings[k]) for k in sonnets if readings.get(k) and readings[k][1] is not None and usable(k, readings[k])]
-    if not cand:
-        return None, None, len(sonnets)
-    s, r = min(cand, key=lambda c: c[0])
-    return r, s, len(sonnets)
+def decide(readings: dict, names: tuple, wait: float, q) -> tuple:
+    """記録の読みと秒から、組 names（先に出すのは並びの最初＝Jev。ほかは wait 秒たっても確かな読みが無い・先のものが確かでないと分かった時に出す）が
+    決める読み。決め方と確かな読みは本番の1か所（meaning_judge.race_recorded＝Race・sure_reading。q＝質問か質問の種類）：先に出すものの確かな読みは
+    待つ長さの中で優先（✅ 2026-11-05「d1-ultra と Jev を同時に出すが、d1-ultra の判定が優先じゃないんですか？」）・確からしさの無い読みは確かでない。
+    wait=0＝同時に出す。返す：(使う読み, 決めた秒, 出した Sonnet の数)。readings＝{判定の名前: (読み, 秒, 確からしさ, 名前)}。
+    ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（判定の組の持ち場の J6）：決め方（first＝先に届いた確かな読み）と確かな読みの決まり（usable＝
+    中身の判定は確からしさの無い読みも確か）を手で写していた"""
+    from types import SimpleNamespace
+
+    from meaning_judge import race_recorded, sure_reading
+    runs = []
+    for n in names:
+        r = readings.get(n)
+        at = r[1] if r and r[1] is not None else float("inf")
+        # この記録の判定（Jev・Sonnet）は言い切りの幅を持たない（firm_band は d1-ultra だけ）＝言い切りの確からしさは読まない
+        runs.append((at, bool(r) and r[0] is not None and sure_reading(n, q, SimpleNamespace(sure=r[2], firm_p=None))))
+    won, at, started = race_recorded(runs, (0,), wait)
+    sent = sum(1 for i in started if i)
+    return (readings[names[won]], at, sent) if won is not None else (None, None, sent)
 
 
 def compare_meaning() -> list[dict]:
     import g53_meaning as g
     qmap = g.question_map()
     items = json.load(open(MEANING, encoding="utf-8"))["items"]
-    line = OTHER_JUDGES[J]["sure_min"]
-
-    def usable(name, r):
-        return r[0] is not None and (name != J or (r[2] or 0) >= line)
     rows = []
     for sonnets in ((T, N), (N,)):
         for wait in WAITS if len(sonnets) == 2 else (0.0,):
             calls, secs = 0, []
             for it in items:
                 rd = {k: (it.get(k), it.get(k + "秒"), it.get(k + "確からしさ"), k) for k in (J, T, N)}
-                r, s, n = first(rd, wait, sonnets, usable)
+                r, s, n = decide(rd, (J, *sonnets), wait, qmap.get(it["qid"]))
                 calls += n
                 it["組"], it["組言い切り"] = (it.get(r[3]), it.get(r[3] + "言い切り")) if r else (None, None)
                 if s is not None:
@@ -98,20 +97,16 @@ def compare_meaning() -> list[dict]:
 
 def compare_grounding() -> list[dict]:
     raw = json.load(open(GROUND, encoding="utf-8"))["rows"]
-    line = OTHER_JUDGES[J]["ground_sure_min"]
     groups = collections.defaultdict(dict)
     for r in raw:
-        groups[(r["set"], r["said"], r["draft"], r["rep"])][r["judge"]] = (r["got"], r["seconds"], r.get("sure"), r["want"])
-
-    def usable(name, r):
-        return r[0] is not None and (name != J or r[2] is None or r[2] >= line)
+        groups[(r["set"], r["said"], r["draft"], r["rep"])][r["judge"]] = (r["got"], r["seconds"], r.get("sure"), r["judge"], r["want"])
     rows = []
     for sonnets in ((T, N), (N,)):
         for wait in WAITS if len(sonnets) == 2 else (0.0,):
             calls, ok, bad, secs = 0, 0, 0, []
             for m in groups.values():
-                want = next(iter(m.values()))[3]
-                r, s, n = first(m, wait, sonnets, usable)
+                want = next(iter(m.values()))[4]
+                r, s, n = decide(m, (J, *sonnets), wait, "ground")
                 calls += n
                 if r is not None:
                     ok += r[0] == want

@@ -200,11 +200,10 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 if getattr(exc, "tried", None):  # 受け持ちの判定・代わりの、答えが無かった理由（meaning_judge.NoJudgment）
                     info[f"{kind}_tried"] = list(exc.tried)
                     if (unsure := getattr(exc, "unsure", None)):
-                        # 確からしさが線より下の読みだけが届いた：どう数えるかは流れの制御が決める。読みと寄りは優先の順（組の並び＝meaning_judge.unsure_order の1か所。
-                        # ⛔ 2026-11-06 日本時間15時台まで、ここで届いた順の最初を取り出していた）
-                        flow.on_unsure(kind, unsure[0]["unsure"], turn, said,
-                                       end=next((t["end"] for t in unsure if t.get("end")), None),   # 電話を終える言葉かの寄り
-                                       hear=next((t["hear"] for t in unsure if t.get("hear")), None))   # こちらの声が届いていない様子かの寄り
+                        # 確からしさが線より下の読みだけが届いた：どう数えるかは流れの制御が決める。読みは優先の順の最初（組の並び＝meaning_judge.unsure_order の1か所。
+                        # ⛔ 2026-11-06 日本時間15時台まで、ここで届いた順の最初を取り出していた）・寄りは全部（組が答えたときと同じ1か所＝meaning_judge.leans。
+                        # ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し J4 まで、ここだけ優先の1つを渡していた）
+                        flow.on_unsure(kind, unsure[0]["unsure"], turn, said, end=exc.end_lean, hear=exc.hear_lean)
                     for t in exc.tried:
                         if "stop_only" in t:
                             # 止める側だけの判定（お呼びする段の 3.5 Flash Lite＝meaning_judge.STOP_ONLY）の読み：答えにはせず、止める側だけに使う

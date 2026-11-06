@@ -1439,12 +1439,23 @@ def read_prior_first(clients: dict, q, before: str) -> tuple[str | None, float |
     """前の話の答えを、PRIOR_READERS の順に読む（測りの道具の同期の形。clients＝判定の名前 ⇒ other_client）。読み方は通話の中の形と同じ1か所
     （aread_prior_first＝順と取り出し _prior_walk・1回ずつの問い合わせ routed_call＝DOWN_AFTER_S で打ち切る）で、送り方だけ同期の client を別の
     スレッドで送る。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の A5）：同期の形は自分で送り、打ち切りを持たなかった＝遅れた d1-ultra の
-    答えを待って使い、本番（打ち切って Jev）と違う判定の答えを数えうる形だった"""
+    答えを待って使い、本番（打ち切って Jev）と違う判定の答えを数えうる形だった。
+    全体は、会話の側の待つ長さの1か所（flowctl.Limits.judge_wait_s）で打ち切る＝本番の組の入口（JudgePanel.ask）は、会話の側が待つのをやめる合図
+    （convo の release_at＝言葉が出揃ってから judge_wait_s）のあと前の話の答えを待たない（読めなかった＝食い違いを比べない）。⛔ 2026-11-06 日本時間
+    23時22分41秒のご質問の見直し（判定の組の持ち場の J3）：同期の形は1回ずつの打ち切り（DOWN_AFTER_S＝10秒）だけで、本番なら間に合わない遅れた
+    d1-ultra・Jev の答えを使って数えていた"""
     import asyncio
+    from flowctl import Limits
 
     async def send(client, name: str, body: dict) -> dict:
         return await asyncio.to_thread(_send_other, client, name, body)
-    return asyncio.run(aread_prior_first(clients, q, before, send=send))
+
+    async def read():
+        try:
+            return await asyncio.wait_for(aread_prior_first(clients, q, before, send=send), Limits().judge_wait_s())
+        except asyncio.TimeoutError:
+            return None, None, None
+    return asyncio.run(read())
 
 
 async def aread_prior_first(clients: dict, q, before: str, state=None, send=None) -> tuple[str | None, float | None, str | None]:
@@ -1605,6 +1616,17 @@ def unsure_order(tried: list[dict], order) -> list[dict]:
     return sorted((t for t in tried if "unsure" in t), key=lambda t: rank.get(t["model"], len(rank)))
 
 
+def leans(tried) -> tuple[tuple, tuple]:
+    """確かでない読みの寄り（電話を終える言葉か end・こちらの声が届いていない様子か hear）の唯一の決まり＝(end の寄り, hear の寄り)：tried の確かで
+    なかった読み（unsure のある記録。止める側だけの読みは入れない）の全部。組が答えたとき（JudgePanel._mark＝Reading.end_lean・hear_lean）と答えが
+    無かったとき（NoJudgment.end_lean・hear_lean＝通話の側 convo が Flow.on_unsure へそのまま渡す）の両方が通る。流れの制御は寄りを集まりとして使う
+    （Flow._end_lean＝食い違った確かな読みも全部・怒っている・苦情に寄れば丁寧に締める側）ので、全部を渡す（確かでない答えそのもの＝1つ要る＝は
+    unsure_order の最初）。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（判定の組の持ち場の J4）：答えが無かったとき、通話の側が優先の1つ
+    だけを渡していた＝同じ読みの組でも、組が答えたかで決まらないときの場面が変わった"""
+    unsure = [t for t in tried if "unsure" in t]
+    return tuple(t["end"] for t in unsure if t.get("end")), tuple(t["hear"] for t in unsure if t.get("hear"))
+
+
 class NoJudgment(RuntimeError):
     """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由・prior＝前の話の答え＝JudgePanel.ask・
     unsure＝確かでない読みの記録を優先の順に並べたもの＝unsure_order）。"""
@@ -1612,6 +1634,7 @@ class NoJudgment(RuntimeError):
 
     def __init__(self, tried: list[dict], unsure: list[dict] | None = None):
         self.unsure = unsure or []
+        self.end_lean, self.hear_lean = leans(self.unsure)   # 確かでない読みの寄り（組が答えたときの Reading と同じ1か所）
         def why(t: dict) -> str:
             if t.get("error"):
                 return t["error"]
@@ -2173,8 +2196,7 @@ class JudgePanel(RouteState):
     @staticmethod
     def _mark(got: Reading, name: str, tried: list[dict], weak: str | None = None) -> Reading:
         got.by, got.tried, got.weak = name, tuple(tried), weak
-        got.hear_lean = tuple(t["hear"] for t in tried if "unsure" in t and t.get("hear"))   # 確かでなかった読みの、こちらの声が届いていない様子か
-        got.end_lean = tuple(t["end"] for t in tried if "unsure" in t and t.get("end"))   # 確かでなかった読みの、電話を終える言葉か（止める側だけの読みは入れない）
+        got.end_lean, got.hear_lean = leans(tried)   # 確かでなかった読みの寄り（電話を終える言葉か・こちらの声が届いていない様子か。答えが無かった知らせと同じ1か所）
         return got
 
 
