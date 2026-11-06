@@ -867,6 +867,8 @@ def _not_agreed(facts: dict) -> tuple[NotAgreed, ...]:
         told = r.get("told")
         if told is not None and told not in TOLD_KINDS:
             raise ReportInvalid(f"{where}.told は {TOLD_KINDS} のどれかです（申し伝える一言の種類）")
+        if told is not None and explained is not False:   # 申し伝える一言は、ご説明できなかった点にだけ流す（CL-1 の連絡帳 4-99）
+            raise ReportInvalid(f"{where}.told（申し伝える一言の種類）は、ご説明できなかった点（explained が false）にだけ書けます")
         out.append(NotAgreed(turn, question, said, rnd, explained, outcome, _bool_or_false(r, "declining"), point, told))
     return tuple(out)
 

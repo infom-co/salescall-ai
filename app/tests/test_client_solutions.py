@@ -60,6 +60,20 @@ class Solutions(Base):
         self.assertEqual([(r["point_text"], r["origin"], r["version_id"]) for r in rows],
                          [("料金", "dashboard", got.version_id), ("料金", "report_file", again.version_id)])
 
+    def test_a_point_told_again_in_a_later_call_is_not_asked_for_twice(self):
+        """続きの電話で申し伝え直した点（同じ質問・同じ点）は、前の通話でもう解決策を求めているので、あとの通話では求めない（1つの行で
+        1回。⛔ 2026-11-06 の見直し (C) の2）。別の点は求める。"""
+        s = self.ready()
+        first = self.called(s)
+        later = self.w.insert_claim(s)
+        for st in ("dialing", "ringing", "answered", "in_conversation", "ending", "ended"):
+            self.w.move(s, later, st)
+        again = replace(POINTS[0], turn=2, outcome="unresolved", told="request")
+        new = call_report.NotAgreed(5, "Q1", "解約のときは？", 1, False, None, False, "解約")
+        self.tx(s, lambda tx: call_report.save(tx, later, replace(make_report(), not_agreed=(again, new))))
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.points(tx, first)), [{"index": 0, "point": "料金"}])
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.points(tx, later)), [{"index": 1, "point": "解約"}])
+
     def test_only_unexplained_points_take_a_solution_and_only_a_person_adds_it(self):
         """解決策を受けるのは、ご説明できなかった点だけ（ご説明できた点・無い点・空の文は受けない）。足せるのは管理者か契約者だけ。"""
         s = self.ready()

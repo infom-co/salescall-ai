@@ -13,6 +13,7 @@ CL-1 の連絡帳 4-66 のあとの (h)）。確かめに通らない（検証�
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -41,14 +42,27 @@ class Added:
     problems: tuple[str, ...]
 
 
+def _point_text(n: call_report.NotAgreed) -> str:
+    return (n.point or n.said or "").strip()
+
+
 def points(tx: Tx, attempt_id: UUID) -> list[dict[str, Any]]:
     """その通話の、解決策を求める点（ご説明できなかった「ご納得いただけなかった点」）：[{index, point}]（index＝報告の not_agreed の
-    何番目か）。読むのはここだけ（画面が点を並べる・`add` が点を確かめる）。"""
+    何番目か）。読むのはここだけ（画面が点を並べる・`add` が点を確かめる）。同じ行の前の通話で、同じ質問の同じ点をもう求めていれば
+    入れない（⛔ 2026-11-06 の見直し (C) の2：申し伝える一言まで言って切れた電話の続きで申し伝え直した点＝CL-1 の連絡帳 4-99 の
+    outcome unresolved・told が、前の通話と2回、解決策を求める点になった。点は文字の形をそろえて比べる＝readings の NFKC と同じ）。"""
     report = call_report.load(tx, attempt_id)
     if report is None:
         return []
-    return [{"index": i, "point": (n.point or n.said or "").strip()} for i, n in enumerate(report.not_agreed)
-            if n.explained is False and (n.point or n.said or "").strip()]
+    asked = set()
+    for e in tx.all("SELECT e.attempt_id FROM salescall.attempts a JOIN salescall.attempts e ON e.task_id = a.task_id"
+                    " WHERE a.attempt_id = %s AND (e.claimed_at, e.attempt_id) < (a.claimed_at, a.attempt_id)", (attempt_id,)):
+        before = call_report.load(tx, e["attempt_id"])
+        asked |= {(n.question, unicodedata.normalize("NFKC", _point_text(n))) for n in (before.not_agreed if before else ())
+                  if n.explained is False and _point_text(n)}
+    return [{"index": i, "point": _point_text(n)} for i, n in enumerate(report.not_agreed)
+            if n.explained is False and _point_text(n)
+            and (n.question, unicodedata.normalize("NFKC", _point_text(n))) not in asked]
 
 
 def _with_answer(raw: dict[str, Any], name: str, text: str) -> dict[str, Any]:

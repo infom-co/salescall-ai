@@ -2076,6 +2076,16 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お詫びの理由の元の電話に、ほかの行の試行を書ける（0187 の守りを外す）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_cut_call_of_task",
      ("tests.test_settle.CutOffCalls.test_the_cut_off_reason_always_names_the_call_that_was_cut",)),
+    # ── 2026-11-06 の見直し (C)（0188）：前の電話が今日か＝電話が終わった時刻の日本時間の日付
+    ("前の電話が今日かを、かけ始めた時刻で決める（0188 の call_today を外す）",
+     "CREATE OR REPLACE FUNCTION salescall.call_today(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT salescall.same_jst_day(a.claimed_at) FROM salescall.attempts a"
+     " WHERE a.attempt_id = p_attempt $$",
+     ("tests.test_settle.CutOffCalls.test_whether_a_call_was_today_is_the_japanese_date_of_its_end",)),
+    ("前の電話が今日かを、日本時間でなく UTC の日付で比べる",
+     "CREATE OR REPLACE FUNCTION salescall.same_jst_day(p_at timestamptz) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT (p_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date $$",
+     ("tests.test_settle.CutOffCalls.test_whether_a_call_was_today_is_the_japanese_date_of_its_end",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4698,6 +4708,25 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    cut = (cut_call if cut_call is not None else prev and prev["cut_call"]) if "cut_off" in reasons else None\n',
      '    cut = cut_call if "cut_off" in reasons else None\n',
      ("tests.test_settle.CutOffCalls.test_the_claim_tells_whether_the_cut_call_was_today",)),
+    # ── 2026-11-06 の見直し (C)
+    ("お詫びの元の電話を、目的のお客様と話せずに切れた電話でも、いつもその電話にする", "src/salescall/core/next_action.py",
+     "    cut_call = attempt_id if reached_target or prev_cut is None else prev_cut\n", "    cut_call = attempt_id\n",
+     ("tests.test_settle.CutOffCalls.test_the_apology_is_for_the_last_cut_call_in_which_the_callee_was_talking",)),
+    ("お詫びの元の電話を、新しく切れた電話より前の予定のものを先にする", "src/salescall/core/next_action.py",
+     '    cut = (cut_call if cut_call is not None else prev and prev["cut_call"]) if "cut_off" in reasons else None\n',
+     '    cut = ((prev and prev["cut_call"]) or cut_call) if "cut_off" in reasons else None\n',
+     ("tests.test_settle.CutOffCalls.test_the_apology_is_for_the_last_cut_call_in_which_the_callee_was_talking",)),
+    ("前の通話の答えの事実を、その答えを取った通話の報告だけから読む", "src/salescall/core/conversation_io.py",
+     '        for a in calls[since[r["attempt_id"]]:] if r["attempt_id"] in since else ():',
+     '        for a in calls[since[r["attempt_id"]]:since[r["attempt_id"]] + 1] if r["attempt_id"] in since else ():',
+     ("tests.test_conversation_io.Materials.test_earlier_facts_include_what_later_calls_said_about_the_same_answer",)),
+    ("前の通話でもう解決策を求めた点を、あとの通話でもう一度求める", "src/salescall/core/client_solutions.py",
+     '            and (n.question, unicodedata.normalize("NFKC", _point_text(n))) not in asked]',
+     "            ]",
+     ("tests.test_client_solutions.Solutions.test_a_point_told_again_in_a_later_call_is_not_asked_for_twice",)),
+    ("申し伝える一言の種類を、ご説明できた点にも受ける", "src/salescall/core/call_report.py",
+     "        if told is not None and explained is not False:", "        if False:",
+     ("tests.test_call_report_cl1.Approval1102.test_the_kind_of_told_words_is_received",)),
 )
 
 

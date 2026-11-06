@@ -175,6 +175,27 @@ class Materials(SettleBase):
         self.write(s, later, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 答えを、あとの通話で取り直した
         self.assertEqual(set(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]), {"state", "value", "condition"})
 
+    def test_earlier_facts_include_what_later_calls_said_about_the_same_answer(self):
+        """答えを取り直さない続きの電話で、同じ答えについて話した事実（申し伝え直した点＝not_agreed の outcome unresolved・told）も、
+        次の電話へ渡す（その答えを取った通話と、そのあとの通話の報告から、最後のもの。⛔ 2026-11-06 の見直し (C) の1：答えを取った
+        通話の報告だけを読んでいたので、また切れると3回目を申し伝えた＝CL-1 の連絡帳 4-99「また切れても3回目は言いません」）。"""
+        import dataclasses
+        s = self.ready()
+        aid = self.answered(s)
+        self.write(s, aid, ItemValue("Q1", "accepted", "いいえ", "答えた"))
+        told = call_report.NotAgreed(5, "Q1", "料金のところです。", 1, False, None, False, "料金", "request")   # 申し伝える一言まで言って切れた
+        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, dataclasses.replace(rep(), not_agreed=(told,)).to_json()))
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["point_fact"]["outcome"], None)
+        self.w.move(s, aid, "ending")
+        self.w.move(s, aid, "ended")
+        later = self.w.insert_claim(s)
+        for st in ("dialing", "answered", "in_conversation"):
+            self.w.move(s, later, st)
+        again = dataclasses.replace(told, turn=2, outcome="unresolved")          # 続きの電話で申し伝え直した（答えは取り直さない）
+        self.tx(s, lambda tx: conversation_io.save_report(tx, later, dataclasses.replace(rep(), not_agreed=(again,)).to_json()))
+        fact = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["point_fact"]
+        self.assertEqual((fact["turn"], fact["outcome"], fact["told"]), (2, "unresolved", "request"))
+
     def test_contacts_heard_in_the_call_are_added_to_the_row(self):
         """電話でお客様が答えた連絡先は、その行（お客様リストの1行）に足す（2026-11-05 ユーザー：「お客様が電話で答えてくれた場合は、
         このシートを元にしたデータベースに加える必要があるでしょ？」。customer_contacts.from_report の1か所。報告を置いた取引の中）。

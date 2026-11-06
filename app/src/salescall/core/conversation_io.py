@@ -307,17 +307,26 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
       手順の進み・点を読み分けて6つの項目で渡し、会話の側にも同じ読み方があった＝2か所。会話の側が連絡先の方法を別の項目から読み、もう伺った
       連絡先を伺い直す不具合が出た）。
     ⛔ 2026-11-03 の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
-    答えに、前の通話（別の方と話していた通話）の事実を付けうる形だった。その答えを取った通話の報告だけを読む。"""
+    答えに、前の通話（別の方と話していた通話）の事実を付けうる形だった。⇒ その答えを取った通話と、そのあとの通話の報告から読む（その答えを
+    取った通話より前の通話は読まない）。⛔ 2026-11-06 の見直し (C) の1：その答えを取った通話の報告だけを読んでいたので、続きの電話で
+    申し伝え直した事実（not_agreed の outcome unresolved・told＝答えは取り直さない）が次の電話に伝わらず、また切れると3回目を言った
+    （CL-1 の連絡帳 4-99「また切れても3回目は言いません」）。続きの電話で伺い直したほかのご希望も同じ。"""
+    calls = [c["attempt_id"] for c in tx.all("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s"
+                                             " ORDER BY claimed_at, attempt_id", (task_id,))]
+    since = {a: i for i, a in enumerate(calls)}
     reports: dict[UUID, call_report.CallReport | None] = {}
     out: dict[str, dict[str, Any]] = {}
     for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged, attempt_id FROM salescall.item_values"
                     " WHERE task_id = %s ORDER BY question_id", (task_id,)):
-        if r["attempt_id"] not in reports:
-            reports[r["attempt_id"]] = call_report.load(tx, r["attempt_id"])
-        report = reports[r["attempt_id"]]
-        q = r["question_id"]
-        w = next((w for w in reversed(report.other_wishes) if w.question == q), None) if report else None
-        n = next((n for n in reversed(report.not_agreed) if n.question == q), None) if report else None
+        q, w, n = r["question_id"], None, None
+        for a in calls[since[r["attempt_id"]]:] if r["attempt_id"] in since else ():   # その答えを取った通話と、そのあとの通話（古い順）
+            if a not in reports:
+                reports[a] = call_report.load(tx, a)
+            report = reports[a]
+            if report is None:
+                continue
+            w = next((x for x in reversed(report.other_wishes) if x.question == q), w)
+            n = next((x for x in reversed(report.not_agreed) if x.question == q), n)
         item = {"state": r["state"], "value": r["value"], "condition": r["condition"], "hedged": r["hedged"],
                 "wish_fact": w.to_json() if w is not None else None, "point_fact": n.to_json() if n is not None else None}
         out[q] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}

@@ -1680,6 +1680,62 @@ class CutOffCalls(SettleBase):
         c = self.claim(s)
         self.assertEqual((c.apology, c.apology_when), (("cut_off",), "later"))   # 切れたのは昨日＝「前回は」
 
+    def test_the_apology_is_for_the_last_cut_call_in_which_the_callee_was_talking(self):
+        """お詫びの元の電話（cut_call）は、目的のお客様と話していた電話が切れたらその電話。受付の方と話している途中で切れた電話では
+        替えない（お詫びを聞くのは目的のお客様＝2026-11-06 の見直し (C) の3）。目的のお客様とまた話して切れたら、その新しい電話。"""
+        s = self.ready()
+        c = self.claim(s)
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        cut = ("dialing", "ringing", "answered", "in_conversation", "dropped")
+        first = self.call(s, cut, side="line", report=rep(cut=Cut("callee", False, False)))
+        self.settle(s, first)
+
+        def back(tx):   # 試験：目的のお客様と話していて切れた電話を前の日にする（持ち主の取引の中だけ仕掛けを外す）
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER")
+            tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - interval '1 day',"
+                       " ended_at = ended_at - interval '1 day' WHERE attempt_id = %s", (first,))
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
+        owner_access().in_system(SYSTEM, back)
+        cur = lambda: self.tx(s, lambda tx: next_action.current(tx, s["task"]))   # noqa: E731
+        now = lambda: self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # noqa: E731
+        come = lambda: self.tx(s, lambda tx: support.schedule_call(   # noqa: E731
+            tx, s["task"], now(), contact_id=s["contact"], cause="試験：その時刻が来たことにする", promised=True))
+        reception = self.call(s, cut, side="line", report=rep(("reception",), cut=Cut("callee", False, False)))
+        self.settle(s, reception)                                             # 今日、受付の方と話している途中で切れた
+        self.assertEqual((cur()["apology_reasons"], cur()["cut_call"]), (["cut_off"], first))
+        come()
+        c = self.claim(s)
+        self.assertEqual(c.apology_when, "later")                             # お詫びは、昨日の目的のお客様との電話について
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        again = self.call(s, cut, side="line", report=rep(cut=Cut("callee", False, False)))
+        self.settle(s, again)                                                 # 今日、目的のお客様とまた話して切れた
+        self.assertEqual(cur()["cut_call"], again)
+        come()
+        self.assertEqual(self.claim(s).apology_when, "same_day")
+
+    def test_whether_a_call_was_today_is_the_japanese_date_of_its_end(self):
+        """前の電話が今日かは、電話が終わった時刻の日本時間の日付（salescall.call_today の1か所。0188）。日本時間の0時の前後で分かれ、
+        かけ始めが前の日でも、0時を過ぎて終わった電話は今日（2026-11-06 の見直し (C) の4・6）。"""
+        s = self.ready()
+        aid = self.call(s, ["dialing", "no_answer"])
+        today = lambda: self.tx(s, lambda tx: tx.one("SELECT salescall.call_today(%s) AS t", (aid,))["t"])   # noqa: E731
+        midnight = self.tx(s, lambda tx: tx.one(
+            "SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo') AS m, now() AS n"))
+        if midnight["n"] - midnight["m"] < timedelta(minutes=2):
+            self.skipTest("日本時間の0時の直後は、0時を過ぎた終わりの時刻を作れない")
+
+        def at(claimed, ended):
+            def work(tx):   # 試験：時刻はデータベースが決めるので、持ち主の取引の中だけ仕掛けを外す
+                tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER")
+                tx.execute("UPDATE salescall.attempts SET claimed_at = %s, ended_at = %s WHERE attempt_id = %s", (claimed, ended, aid))
+                tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
+            owner_access().in_system(SYSTEM, work)
+        m = midnight["m"]
+        at(m - timedelta(minutes=2), m + timedelta(minutes=1))
+        self.assertTrue(today())                       # 前の日の 23時58分にかけ始め、0時01分に終わった＝今日
+        at(m - timedelta(minutes=3), m - timedelta(minutes=1))
+        self.assertFalse(today())                      # 前の日の 23時59分に終わった＝前の日（日本時間の0時が境）
+
     def test_the_cut_off_reason_always_names_the_call_that_was_cut(self):
         """お詫びの理由 cut_off と、その元の電話（cut_call）は、いつも一緒（データベースの守り 0187。元の電話はその行の試行だけ）。
         予定を書く1か所（next_action._append）も、元の電話の分からない理由 cut_off を書かない。"""

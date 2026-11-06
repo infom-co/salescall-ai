@@ -693,7 +693,10 @@ class Approval1102(unittest.TestCase):
         self.assertIsNone(from_json(self.raw({"turn": 5, "question": "Q2", "said": "x"})).not_agreed[0].told)
         for bad in ("other", "", 1):
             with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
-                from_json(self.raw({"turn": 5, "question": "Q2", "said": "x", "told": bad}))
+                from_json(self.raw({"turn": 5, "question": "Q2", "said": "x", "explained": False, "told": bad}))
+        for explained in (True, None):   # 申し伝える一言は、ご説明できなかった点にだけ流す（2026-11-06 の見直し (C) の7）
+            with self.subTest(explained=explained), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"turn": 5, "question": "Q2", "said": "x", "explained": explained, "told": "request"}))
 
     def test_points_not_agreed_are_received_and_returned(self):
         long = "料金のところと、" * 20   # 根拠の発話の上限（80字）より長い答えも受ける

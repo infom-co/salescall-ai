@@ -130,30 +130,34 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
 WHEN = {True: "same_day", False: "later"}   # 予約証の apology_when（会話の側の flowctl の APOLOGY_PURPOSE・APOLOGY_CUT_END の鍵と同じ）
 
 
+def _order(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
+    """その行の、承認されたいちばん新しいお詫びの案と、誤った通話が今日か（same_day。1か所＝`when` と `for_task` が読む。⛔ 2026-11-06 の
+    見直し：前は `when` だけ承認を見ずに案を選び、承認の無い新しい案があると、用件の一言とお詫びの文の「先ほど／先日」が別の通話で
+    決まりえた）。今日かはデータベースの1か所 salescall.call_today（電話が終わった時刻の日本時間の日付。0188）。"""
+    return tx.one("SELECT o.order_id, o.source_attempt_id, o.pairs, o.improper, o.text_same_day, o.text_later, p.set_id,"
+                  "       salescall.call_today(o.source_attempt_id) AS same_day"
+                  " FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
+                  " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
+
+
 def when(tx: Tx, task_id: UUID, purpose: str, cut_call: UUID | None) -> str:
     """お詫びする前の電話が今日（日本時間）か（same_day／later。1か所＝予約証の apology_when）。お詫びの電話（purpose apology）は、
-    いちばん新しいお詫びの案のもとの通話（`for_task` と同じ）、ほかは、お詫びの理由「途中で切れた」の元の電話（次の予定の cut_call＝
-    理由を付けた所が書き、理由と一緒に引き継ぐ。0187。⛔ 0186 の思い違い：前は、その行でいちばん新しい発信まで進んだ電話で決めて
-    いて、昨日切れたあと今日かけて出なかった電話があると「先ほどは」と言った）。前の電話が無ければ later（「前回は」）。"""
+    承認されたいちばん新しいお詫びの案のもとの通話（`_order`＝お詫びの文と同じ）、ほかは、お詫びの理由「途中で切れた」の元の電話（次の
+    予定の cut_call＝理由を付けた所が書き、理由と一緒に引き継ぐ。0187。⛔ 0186 の思い違い：前は、その行でいちばん新しい発信まで進んだ
+    電話で決めていて、昨日切れたあと今日かけて出なかった電話があると「先ほどは」と言った）。今日かは、どちらも salescall.call_today の
+    1か所。前の電話が無ければ later（「前回は」）。"""
     if purpose == "apology":
-        row = tx.one("SELECT salescall.same_jst_day(a.claimed_at) AS today FROM salescall.apology_orders o"
-                     " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id WHERE o.task_id = %s"
-                     " ORDER BY o.order_id DESC LIMIT 1", (task_id,))
-    else:
-        row = tx.one("SELECT salescall.same_jst_day(claimed_at) AS today FROM salescall.attempts WHERE attempt_id = %s",
-                     (cut_call,))
+        o = _order(tx, task_id)
+        return WHEN[bool(o and o["same_day"])]
+    row = tx.one("SELECT salescall.call_today(%s) AS today", (cut_call,))
     return WHEN[bool(row and row["today"])]
 
 
 def for_task(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     """その行の、承認されたいちばん新しいお詫びの案と、いま伝える文面・その録音（無ければ None。誤った通話と今日の日付で「先ほど」か
-    「先日」かが決まる＝`PARTS`）。録音は、承認が結んだ組の、その日の文の部分（part・audio_ref・audio_sha256・voice_name）。
+    「先日」かが決まる＝`PARTS`・`_order`）。録音は、承認が結んだ組の、その日の文の部分（part・audio_ref・audio_sha256・voice_name）。
     どの案にも文が2つ・どの承認にも2つの部分のそろった録音の組がある（データベースの守り 0131・0137）ので、文も録音も空にならない。"""
-    row = tx.one("SELECT o.order_id, o.source_attempt_id, o.pairs, o.improper, o.text_same_day, o.text_later, p.set_id,"
-                 "       salescall.same_jst_day(a.claimed_at) AS same_day"   # 前の電話が今日か（1か所＝0186）
-                 " FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
-                 " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id"
-                 " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
+    row = _order(tx, task_id)
     if row is None:
         return None
     said = row["text_same_day"] if row["same_day"] else row["text_later"]

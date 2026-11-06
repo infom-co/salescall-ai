@@ -1784,7 +1784,7 @@ class NameLedger(Content):
 
     def test_the_parts_cl1_added_on_11_01_are_received(self):
         """CL-1 が main（c4c8ffe・fe0e765）で足した、理由を言わずに取り次げないと言われたときの録音の部分（2026-11-01 ユーザーのご指示）：
-        お取り次ぎいただける日時を伺う一言 callback_transfer_time・後任の方への確かめ successor_unavailable は契約者の単位の録音（話して
+        お取り次ぎいただける日時を伺う一言 callback_transfer_time・後任の方への確かめ successor_unavailable は共通の一言の録音（話して
         よい声が求める＝`COMMON_PARTS`）、お名前の入る確かめの一言 unavailable_confirm は名前の録音の台帳の続く言葉（`NAME_TAILS`・
         データベースの守り 0165）で、質問の番号に使えない名前（`business_settings.RESERVED_IDS`）。⛔ 見直し28：前はどれも無く、その一言を
         流せないまま声を「話してよい」にしていた。"""
@@ -1848,7 +1848,7 @@ class NameLedger(Content):
 
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
-        よろしいでしょうか？」は契約者の単位の録音 callback_refusal（話してよい声が求める＝`COMMON_PARTS`）で、その質問の番号 R1 は
+        よろしいでしょうか？」は共通の一言の録音 callback_refusal（話してよい声が求める＝`COMMON_PARTS`）で、その質問の番号 R1 は
         業務の質問の番号に使えない（`business_settings.RESERVED_IDS`。使えると、業務の質問の答えとご遠慮の答えを取り違える）。"""
         from salescall.core import business_settings
         self.assertIn("callback_refusal", recordings.COMMON_PARTS)
@@ -1857,14 +1857,14 @@ class NameLedger(Content):
     def test_the_hurry_ask_and_the_thinking_prompt_cl1_added_on_11_01_are_received(self):
         """CL-1 の連絡帳 4-64（2026-11-01 ✅ ユーザー）：急いでいる方への「それではまた改めてお掛けしてもよろしいでしょうか？」
         （callback_hurry_again）・「ご都合のいい日時はいつ頃でしょうか？」（callback_hurry_when）・考えている方に黙られたときの「どう
-        なさいますか？」（dounasaimasu）は契約者の単位の録音（話してよい声が求める）。その質問の番号 H1 は業務の質問の番号に使えない。"""
+        なさいますか？」（dounasaimasu）は共通の一言の録音（話してよい声が求める）。その質問の番号 H1 は業務の質問の番号に使えない。"""
         from salescall.core import business_settings
         self.assertLessEqual({"callback_hurry_again", "callback_hurry_when", "dounasaimasu"}, set(recordings.COMMON_PARTS))
         self.assertIn("H1", business_settings.RESERVED_IDS)
 
     def test_the_not_agreed_ask_cl1_added_on_11_02_is_received(self):
         """CL-1 の連絡帳 4-66 の (d)（2026-11-02 ✅ ユーザー）：説明した内容をご承認いただけなかったときの「ご納得いただけなかった点は
-        どの部分になりますでしょうか？」（callback_not_agreed）は契約者の単位の録音（話してよい声が求める＝`COMMON_PARTS`）で、
+        どの部分になりますでしょうか？」（callback_not_agreed）は共通の一言の録音（話してよい声が求める＝`COMMON_PARTS`）で、
         その質問の番号 N1 は業務の質問の番号に使えない（使えると、業務の質問の答えとご納得いただけなかった点を取り違える）。"""
         from salescall.core import business_settings
         self.assertIn("callback_not_agreed", recordings.COMMON_PARTS)
@@ -1875,7 +1875,7 @@ class NameLedger(Content):
         N2「ほかにご納得いただけない点はございますでしょうか？」（callback_other_point・2回目からの言い方 callback_other_point_2）・
         N3「ご説明した内容でご納得いただけましたでしょうか？」（callback_agreed_now）・資料でご説明できない点の一言（own_fallback_point）・
         お断りで最終目的が果たせなくなったときの締め（closing_after_decline）・「承知しました。」が続くときの相づち「かしこまりました。」
-        （kashikomari）は契約者の単位の録音（話してよい声が求める＝`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」
+        （kashikomari）は共通の一言の録音（話してよい声が求める＝`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」
         にする）。質問の番号 N2・N3 は業務の質問の番号に使えない（使えると、業務の質問の答えとご納得の答えを取り違える）。"""
         from salescall.core import business_settings
         self.assertLessEqual({"callback_other_point", "callback_other_point_2", "callback_agreed_now", "own_fallback_point",

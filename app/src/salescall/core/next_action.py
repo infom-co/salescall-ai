@@ -563,7 +563,7 @@ def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacin
     check_of＝この通話の切れ方が決められず、確かめのかけ直しをするとき、その通話（試行。するかは `after_call` が決める。しないときは
     None）。確かめのかけ直しも、お客様が出たらお詫びから始める（印 cut_off）。
     waiting＝この通話の取り消せない決定が、まだ決まらない保留の種類（core/approval.decision_wait。決まっていれば None）。
-    call＝この通話（試行）。印 cut_off を付けるとき、どの電話についてのお詫びか（`Decision.cut_call`。0187）として残す。"""
+    call＝印 cut_off を付けるときの、どの電話についてのお詫びか（`Decision.cut_call`。0187。どの電話にするかは `after_call` の1か所が決める）。"""
     d = _decide(j, cut_off=cut_off, normal=normal, promised=promised, rules=rules, times_with_key=times_with_key, now=now,
                 target=target, retry_at=retry_at, ask=ask, forbidden=forbidden, kept=kept, resume_window=resume_window,
                 resume_callee_at=resume_callee_at, resume=cut_off if resume is None else resume, failed_at=failed_at,
@@ -948,13 +948,19 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     # 決まりはデータベースの1か所 salescall.resume_allowed＝その発信が切れたかも、そこで見る。それを超えて切れた通話は、ふつうの電話の
     # 回数に数える＝dial_kind）。お詫びの印は、それと関係なく付ける＝decide_after_call
     resume = attempts.resume_allowed(tx, task_id)
+    # お詫びの理由「途中で切れた」の元の電話（どの電話についてのお詫びか＝予約証の apology_when。0187）：お詫びを聞くのは目的のお客様
+    # なので、目的のお客様と話していた電話が切れたら、その電話。話せずに（受付の方などと）切れた電話は、前に切れた電話があれば、
+    # その電話のまま（⛔ 2026-11-06 の見直し (C) の3：前は、昨日目的のお客様に申し伝えたあと切れ、今日受付の方と話している途中で
+    # 切れると、今日の電話で「先ほどは、お話の最後に…」と言った）。決めるのは、ここの1か所
+    prev_cut = (current(tx, task_id) or {}).get("cut_call")
+    cut_call = attempt_id if reached_target or prev_cut is None else prev_cut
     d = decide_after_call(j, cut_off=cut_off, normal=normal,
                           promised=promised, rules=rules, times_with_key=times, now=now, target=target,
                           retry_at=retry_at, ask=ask, forbidden=forbidden, kept=kept, resume_window=dialed_window,
                           resume_callee_at=dialed_row["callee_at"] if dialed_row else None, resume=resume,
                           failed_at=failed_at, recheck=no_opening_recheck(tx, task_id),
                           check_of=_unclear_check_of(tx, task_id, attempt_id, j, dialed, target), waiting=waiting,
-                          call=attempt_id)
+                          call=cut_call)
     d = _apologised(d, reached_target)
     _write(tx, task_id, d)
     return d
