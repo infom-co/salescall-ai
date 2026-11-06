@@ -7779,13 +7779,18 @@ class Flow:
             elif self.questions[oid].declined(cond):
                 self._point_heard(self.items[oid].value, explain=False)
                 self._point_end("declined", by=oid)
-            elif which:
+            elif which or self.items[oid].state == "refused" or (self.items[oid].state == "unresolved" and self.items[oid].condition is None):
                 # どの点かを伺っても点を言っていただけない（また点は言っていない・どちらとも取れない・言いたくない・聞き取れない）：「ほかに分からない点がある」と
                 # 言ったお客様にご納得は伺わず（下の else の N3 にしない）、点を言っていただけないときと同じく押さずに手順を終え、一言を挟む（4時48分13秒・5時45分の
                 # ご決定＝上の stage ask の else）。挟む一言は、続きの電話の振り返りの一言（recap）への返事なら、前の電話のことを伺う場面なので「何か思い出されたり…」
                 # （下の of の枝と同じ＝5時20分56秒の (a)）、ほかは「ご不満な点が…」。⛔ 伺う一言を足したとき、伺ったあとの聞き取れない・言いたくないが N3 へ
                 # 流れていた（振り返りの印 of でしか止めていなかった）
-                p["open"] = (self._unsaid_head(oid), "point_anytime" if p.get("recap") else "point_anytime_plain")
+                # ご説明のあとの「ほかに…」への言いたくない・聞き取れない（答えが無いまま「-」）も同じ（点を言っていただけない＝ご納得は伺わない。N3 は「なるほど」
+                # のようなどちらとも取れない返事と、遅れた判定で答えを取り消して戻した段＝本書 9-5「戻した段の答えは「-」…どちらとも取れない」だけ。⛔ 2026-11-06
+                # 日本時間13時台の見直しで見つけた：下の else で N3 を伺っていた）
+                # 振り返りへの返事でも、言いたくない（覚えてはいる）は「何か思い出されたり」が合わない＝「ご不満な点が…」（本書 9-5 の続きの電話の答えたくない）
+                recap = p.get("recap") and self.items[oid].state != "refused"
+                p["open"] = (self._unsaid_head(oid), "point_anytime" if recap else "point_anytime_plain")
                 self._point_end("unresolved", by=oid)
             elif self.questions[oid].of:
                 # 振り返りの一言（続きの電話の始め＝recap）への返事も、点を言っていただけない（「そうでしたっけ。」・覚えていないまま・聞き取れない）：上と同じく、
@@ -7809,7 +7814,10 @@ class Flow:
         聞き取れない・どちらとも取れない＝「はい、」（聞き返しを使い切って先へ進むときと同じ）。✅ 2026-11-05 日本時間5時45分 ユーザー：「（「承知しました。
         ご不満な点がございましたらいつでもお申し出ください。続きまして…」のような形）その形でOK、進めてください」"""
         it = self.items[qid]
-        return "shouchi" if it.state in ("dont_know", "refused") or (it.state in GOT and it.condition == POINT_UNSAID) else "hai"
+        # わからない（dont_know）は、判定も「決められない」と読んでいなければ（_unknown_agreed＝わからないかどちらとも取れないかを決める1か所）「承知しました。」。
+        # ⛔ 2026-11-06 日本時間13時台の見直しで見つけた：項目の状態だけで決め、どちらとも取れない言葉にも「承知しました。」だった
+        return ("shouchi" if it.state == "refused" or (it.state == "dont_know" and self._unknown_agreed(qid))
+                or (it.state in GOT and it.condition == POINT_UNSAID) else "hai")
 
     def _unknown_agreed(self, qid: str) -> bool:
         """受け取った「わからない」（dont_know）を、判定も「決められない」と読んでいないか＝覚えていない・分からないと言った（「ごもっともです。」で受ける）の唯一の

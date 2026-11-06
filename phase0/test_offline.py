@@ -8528,6 +8528,11 @@ class EndJudgedTest(unittest.TestCase):
         r = self._say(f, "そうでしたっけ。", "record_answer", question_id=n2, condition_id="unknown")
         self.assertEqual((r["question_id"], r.get("ack"), n3 in f.order, f.items["Q2"].condition), ("Q3", "hai", False, "いいえ"))
         self.assertEqual((r["play"][0]["id"], r["play"][0]["text"], RECORDED["point_anytime"]), ("point_anytime", POINT_ANYTIME, POINT_ANYTIME))
+        # (3b) 振り返りへの「言いたくない」（覚えてはいる）は「承知しました。」＋「ご不満な点が…」（「何か思い出されたり」は合わない＝本書 9-5 の続きの電話の
+        #      答えたくない）。⛔ 2026-11-06 日本時間13時台の見直し（ご承認の手順の持ち場の指摘5）で見つけた：「はい、何か思い出されたり…」だった
+        f = recapped()
+        r = self._say(f, "それは言いたくないです。", "record_answer", question_id=n2, condition_id="refused")
+        self.assertEqual((r.get("ack"), r["play"][0]["id"]), ("shouchi", "point_anytime_plain"))
         self.assertEqual(POINT_ANYTIME, "何か思い出されたりご不満な点がございましたらいつでもお申し出ください。")
         self.assertEqual([(x["point"], x["outcome"]) for x in f.facts["not_agreed"]], [(None, "unresolved")])
         # 次の返事では、もう挟まない（1回だけ）
@@ -14262,6 +14267,45 @@ class ApprovalTest(unittest.TestCase):
         AmbiguousAnswerTest.say(g, "なるほど。", "record_answer", question_id=n2, condition_id="unknown")
         AmbiguousAnswerTest.say(g, "いえ、やっぱり難しいです。", "record_answer", question_id=n3, condition_id="いいえ")
         self.assertEqual((g.end_reason, g.facts["goal_refused"][0]["goals"]), ("goal_refused", ["Q2"]))
+
+    def test_after_explaining_only_neutral_words_ask_whether_agreed(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（ご承認の手順の持ち場の指摘10・4）で見つけた：
+        # (1) 点をご説明したあとの「ほかに…」への「言いたくない」「聞き取れない」にも「ご説明した内容でご納得いただけましたでしょうか？」（N3）を伺っていた。
+        #     本書 9-5「ご納得を伺うのは、点を伺ってご説明したあとのこのとき（どちらとも取れない）だけ」・点を言っていただけないとき（言いたくない・聞き取れない）
+        #     はご納得を伺わずに手順を終え、「ご不満な点がございましたらいつでもお申し出ください。」を挟む
+        # (2) どちらとも取れない（会話AIは「わからない」・判定は「決められない」）のに、挟む一言の頭が「承知しました。」だった（本書 9-5「聞き取れない・どちらとも
+        #     取れないは「はい、」」）。「わからない」か「どちらとも取れない」かは、判定で決める1か所（_unknown_agreed）を通す
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        from meaning_judge import Reading
+        from phrases import ACK, POINT_ANYTIME_PLAIN
+        n1, n2, n3 = (CALLBACK_IDS[r] for r in ("not_agreed", "other_point", "agreed_now"))
+
+        def to_other():
+            f = self.flow(goal=True)
+            AmbiguousAnswerTest.say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+            AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+            AmbiguousAnswerTest.say(f, "料金のところですね。", "record_answer", question_id=n1, condition_id="点を言った")
+            self.explained(f, "answer_料金")
+            return f
+        f = to_other()
+        r = AmbiguousAnswerTest.say(f, "それはちょっと言いたくないです。", "record_answer", question_id=n2, condition_id="refused")
+        self.assertNotIn(n3, f.questions)
+        self.assertIn(POINT_ANYTIME_PLAIN, str(r))
+        self.assertEqual(r["ack"], "shouchi")
+        f = to_other()
+        for _ in range(4):
+            r = AmbiguousAnswerTest.say(f, "……", "report_unclear", question_id=n2)
+            if f.items[n2].state == "unresolved":
+                break
+        self.assertNotIn(n3, f.questions, r)
+        # どちらとも取れない（判定「決められない」）の頭は「はい、」（N1 でどの部分かを言っていただけない場面）
+        g = self.flow(goal=True)
+        g.use_checks("judge")
+        AmbiguousAnswerTest.say(g, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        AmbiguousAnswerTest.say(g, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        g.on_callee(); g.on_heard("うーん、全体的にというか。"); g.on_check("judge", Reading(UNDECIDED))
+        r = g.apply("record_answer", {"question_id": n1, "condition_id": "unknown"})
+        self.assertEqual((r["ack"], POINT_ANYTIME_PLAIN in str(r)), ("hai", True), r)
 
     def test_explained_until_understood(self):
         # ✅ 2026-11-02 日本時間6時21分 ユーザー：「こちらで答えられるときは、1通話で2回まででなく、親身に答えないといけないんじゃないですか？…本当に分から
