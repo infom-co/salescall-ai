@@ -15,7 +15,7 @@ import functools
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from flowctl import HEAR_OK, UNDECIDED, WAIT_KINDS, WISH_OTHER, callback_question, hear_choices
+from flowctl import HEAR_OK, REPEAT, UNDECIDED, WAIT_KINDS, WISH_OTHER, callback_question, hear_choices
 
 # 作り手（判定の顔ぶれ＝meaning_judge.members(JUDGE2) と 3.5 Flash Lite に入れない）。✅ 2026-11-03 日本時間2時41分10秒 ユーザー「はい」＝
 # 2人目の作り手を 3.7 Flash（Google の混雑で答えなかった）から Claude Haiku 5.5 に替える（Sonnet は判定に入っているので作り手にしない。
@@ -88,8 +88,9 @@ def _wish_sets() -> list[dict]:
         kinds = {c: w.meanings.get(c, c) for c in w.conditions}
         kinds[WISH_OTHER] += WISH_OTHER_NOTE
         kinds[UNSURE] = WISH_UNSURE
-        # 会話2（✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒 ユーザー）：待つ・かけ直すの言葉も作る。説明は判定に見せる文と同じ1か所（meaning_judge.ANSWER_KINDS）
-        kinds |= {k: ANSWER_KINDS[k] for k in WAIT_KINDS}
+        # 会話2（✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒 ユーザー）：待つ・かけ直すの言葉も作る。説明は判定に見せる文と同じ1か所（meaning_judge.ANSWER_KINDS）。
+        # もう一度言ってほしい（✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…OK」＝flowctl.REPEAT）の言葉も同じく作る
+        kinds |= {k: ANSWER_KINDS[k] for k in (*WAIT_KINDS, REPEAT)}
         out.append({"set": w.id, "qid": key, "question": w.text, "scene": f"こちらが「{of.text}」と伺ったところ、お客様が「{said}」と答えたので",
                     "kinds": kinds, "before": (said,)})
     return out

@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, CHOICE_TYPES, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
+from flowctl import (ANY, CHOICE_TYPES, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
                      off_talk, prior_answer, restates)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
@@ -198,7 +198,7 @@ def talk(it: dict) -> bool | None:
 
 def mark(it: dict, key: str) -> str | None:
     """「曖昧」の印の数え：寄っている答えを正しく選んだときだけ（値が誤っていれば、印の前に誤り）。"""
-    if it.get(key) not in accept(it) or it[key] in (UNDECIDED, "unknown", HOLD, HANDOVER) or either(it):
+    if it.get(key) not in accept(it) or it[key] in (UNDECIDED, "unknown", *NOT_ANSWERS) or either(it):   # 答えではない読みの並びは flowctl.NOT_ANSWERS の1か所
         return None
     unsure = it.get(f"{key}言い切り") is False
     if hedged(it):
@@ -568,6 +568,9 @@ WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言の�
 # 答えの代わりにこちらへ尋ねた（「〜ですかね？」＝flowctl.asks_us の1か所・流れの制御は入口 Flow._apply_one で報告より先に答えさせる）：尋ねられたことに先に答え、
 # お客様の返事を待つ（✅ 2026-11-06 日本時間4時23分33秒 ユーザー：「…こちらは「そうですね、お読みになられるとより理解が深まるかと思います。」のような返答が自然です。」）
 ANSWER_FIRST = "尋ねられたことに先に答える"
+# もう一度言ってほしいと頼まれた（flowctl.REPEAT・流れの制御は Flow._repeat_now の1か所）：「失礼いたしました。」のあと、伺ったことを流し直す（✅ 2026-11-06 日本時間
+# 15時20分30秒 ユーザー「(1)…OK」）
+REPEAT_ACT = "「失礼いたしました。」のあと伺ったことを流し直す"
 
 
 def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
@@ -579,6 +582,8 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
         return None
     if got in WAIT_KINDS:
         return WAIT_ACT[got]
+    if got == REPEAT:
+        return REPEAT_ACT
     if asks_us(it.get("text"), [got]):   # 答えの代わりにこちらへ尋ねた（流れの制御は、ほかの決まりより先に、入口で答えさせる）
         return ANSWER_FIRST
     if off_talk(q, got, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり。読みはいつも宣言した選択肢）
@@ -618,6 +623,8 @@ def flow_wants(it: dict, q: Question) -> set[str]:
             ok.add(ASK_AGAIN)
         elif a in WAIT_KINDS:
             ok.add(WAIT_ACT[a])
+        elif a == REPEAT:
+            ok.add(REPEAT_ACT)
         elif a in q.conditions or a in (ANY, NONE):
             ok |= {f"受け取る：{a}", f"念のため確かめる：{a}"} if e else {f"念のため確かめる：{a}" if h else f"受け取る：{a}"}
         else:
@@ -902,8 +909,8 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
                 h, hw = it.get(f"{key}聞こえ"), hear_truth(it)
                 t["こちらの声が届いていない様子か"][f"{'組 HEAR' if it['set'] == 'HEAR' else 'ほかの組'}・{hw}・"
                                          f"{'正しい' if h == hw else '⛔' + str(h)}"] += 1
-            if it["set"] == "HEAR":
-                continue  # 組 HEAR は答えの正解を付けていない（聞こえ方だけを数える）
+            if it["set"] == "HEAR" and not _label(it):
+                continue  # 組 HEAR は、答えの正解を帳面（g53_labels.json）で付けた行のほかは、聞こえ方だけを数える（答えの段の聞き返しの言葉＝もう一度言ってほしい、には付けた）
             got, want = it[key], truth(it)
             res = "正しい" if got in accept(it) else ("決められない（確かめる）" if got in (UNDECIDED, "unknown") else "⛔別の答え")
             label = {"B": "選択肢", "D": it.get("kind")}.get(it["set"], want)
@@ -924,7 +931,7 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
                                    if key in it and it[key] not in accept(it) + [UNDECIDED, "unknown"]][:80],
                     "⛔流れの制御の動きの外れの例": [f"{it['set']}・{it['qid']}「{it['text']}」正解={accept(it)}・{end_accept(it)} 判定={it[key]}・"
                                             f"{it.get(f'{key}終わり')}＝{flow_miss(it, qmap[it['qid']], key)}" for it in items
-                                            if qmap and key in it and it["qid"] in qmap and it["set"] != "HEAR"
+                                            if qmap and key in it and it["qid"] in qmap and (it["set"] != "HEAR" or _label(it))
                                             and flow_miss(it, qmap[it["qid"]], key) not in (None, "読み無し")][:80]}
     return out
 

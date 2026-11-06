@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 
 from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, HOLD, HOLD_BACK, LATER, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     THINKING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, label, restates, side_items)
+                     REPEAT, THINKING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -401,6 +401,11 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
                 # （続けて話しそう）かで分ける
                 THINKING: "まだ答えを考えている途中で、答えを言い終えていない（迷っている・言いよどんでいる最中で、このあと続けて答えそう。答えではない）。"
                           "決められない・まだ決めていない、と言い終えたときは、こちらではない",
+                # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…判定の選べるものに「もう一度言ってほしい」を足します。…OK」（flowctl.REPEAT・
+                # Flow._repeat_now）。分かれ目は意味で書く：こちらに別のこと（名前・会社名・意味）を尋ねたのではなく、伺ったことをもう一度言ってほしい
+                REPEAT: "直前にこちらが伺ったこと（質問・確かめの一言）が聞こえなかった・聞き取れなかったので、もう一度言ってほしいと頼んだ（もう一度とは"
+                        "言わなくても、聞こえなかった・聞き取れなかったと言ったのも。こちらの名前・会社名や、伺ったことの意味など、ほかのことを尋ねたの"
+                        "ではない。答えではない）",
                 # 残り（代わった人が話し始めた・決められない）は KIND_DESC のまま（1か所。⛔ 11-06 1時台に、ここを手で並べて「決められない」を落とした）
                 **{k: d for k, d in KIND_DESC.items() if k != HOLD}}
 

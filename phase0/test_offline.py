@@ -13217,6 +13217,73 @@ class NoneOfThemTest(unittest.TestCase):
             r = f.apply("record_answer", {"question_id": h2, "condition_id": WAIT_NOW})
             self.assertEqual((r["result"], f.holding, f.wait_q), ("hold", True, None), op)
 
+    def test_asked_to_say_the_question_again(self):
+        # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…お勧め：判定の選べるものに「もう一度言ってほしい」を足します。プログラムが「失礼いたしました。」＋
+        # 「それでは（質問）」を流します。OK」（⛔ それまでは「え、すみません、もう一度お願いできますか？」が「？」の文なので、こちらに尋ねられた扱いになり、
+        # 質問を流し直せなかった）⇒ 判定がそう読んだら、会話AIの報告の種類にかかわらず（報告が無くても）同じ返事
+        from flowctl import REPEAT
+        from meaning_judge import ANSWER_KINDS, Reading
+        from phrases import ACK
+        self.assertIn(REPEAT, ANSWER_KINDS)
+        q = "お支払いはカードと振込のどちらがよろしいでしょうか？"
+
+        from flowctl import Question
+        from instruction import Business
+
+        def asked(op, args):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付",
+                         questions=[Question("Q1", q, "choice", conditions=("カード", "振込"))], purpose_line="資料送付の件でお電話いたしました。")
+            f = b.flow(play_recordings=True)
+            f.use_checks("judge", "judge2")
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            if r.get("result") not in ("opening", "end"):
+                f.on_first_words_end()
+            f.on_callee(); f.on_heard("え、すみません、もう一度お願いできますか？")
+            f.on_check("judge", Reading(REPEAT))
+            f.on_check("judge2", Reading(REPEAT))
+            r = f.judged_turn() if op is None else f.apply(op, args)
+            return f, r
+        for op, args in ((None, None), ("record_answer", {"question_id": "Q1", "condition_id": "カード"}),
+                         ("report_unclear", {"question_id": "Q1"}), ("replay_opening", {"part": "own", "answer": "はい、もう一度申し上げます。"})):
+            f, r = asked(op, args)
+            said = (ACK[r["ack"]] if r.get("ack") else "") + "".join(p["text"] for p in r.get("play") or [])
+            self.assertEqual(said, "失礼いたしました。それでは" + q, op)
+            self.assertEqual((f.current, f.items["Q1"].state), ("Q1", "empty"), op)
+        # 同じ発話に2回流し直さない：報告の無いターンで流し直したあとに、同じ言葉への会話AIの報告が届いても重ねない
+        f, r = asked(None, None)
+        r2 = f.apply("record_answer", {"question_id": "Q1", "condition_id": "カード"})
+        self.assertEqual((r2.get("ack"), r2.get("play"), r2.get("again")), (None, None, True))
+        self.assertEqual(f.items["Q1"].state, "empty")
+        # 言い直しの返事待ち：「失礼いたしました。」のあと、言い直しをもう一度（言い方は値で変わるので会話AIが言う）
+        b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付",
+                     questions=[Question("Q1", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))],
+                     purpose_line="資料送付の件でお電話いたしました。")
+        f = b.flow(play_recordings=True)
+        f.use_checks("judge", "judge2")
+        f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        if f.apply("report_party", {"party": "person"}).get("result") not in ("opening", "end"):
+            f.on_first_words_end()
+        f.on_callee(); f.on_heard("15日の午後2時でお願いします。")
+        c = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の午後2時"})
+        self.assertEqual(c["result"], "confirm_required")
+        f.on_callee(); f.on_heard("え、ごめんなさい、もう一回お願いできますか？")
+        f.on_check("judge", Reading(REPEAT))
+        f.on_check("judge2", Reading(REPEAT))
+        r = f.judged_turn()
+        self.assertEqual((ACK[r["ack"]], r.get("speak"), r.get("say")), ("失礼いたしました。", True, c["say"]))
+        self.assertEqual((f.awaiting_confirm, f.items["Q1"].state), ("Q1", "checking"))
+        # こちらがお話に応えた直後（「AIですか」への一言など）は当てない：もう一度言ってほしいのは、こちらの答えのほう（会話AIが言い直す）
+        f, _ = asked(None, None)
+        f.on_callee(); f.on_heard("これって機械の声ですか？")
+        f.apply("replay_opening", {"part": "ai"})
+        f.on_callee(); f.on_heard("え、すみません、もう一度お願いできますか？")
+        f.on_check("judge", Reading(REPEAT))
+        f.on_check("judge2", Reading(REPEAT))
+        turn = f.repeat_turn
+        self.assertIsNone(f.judged_turn())
+        self.assertEqual(f.repeat_turn, turn)
+
     def test_late_wait_reading_after_thinking_is_applied(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（待つ持ち場の指摘3）：考えている途中と読んで「はい。」と応えたあとに、同じ発話のもう1つの判定が遅れて「あとで
         #    かけ直す」「待つかかけ直すか決められない」「取り次ぎを待つ」と届いても当てなかった（遅れた読みを当て直すのは、待つと応えたあと＝holding だけ）
