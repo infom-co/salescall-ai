@@ -30,7 +30,7 @@ import time
 #    危ない文を通した 0・2秒を超えたのは168回中3回。1つだけのときは 164回中22回）。⚠️ 2つとも同じ会社（Anthropic）＝止まるのも混むのも一緒
 #    （そのときは全部が受け皿＝安全側）。違う会社の判定は、2秒に入って危ない文を通さないものが見つかったら入れ替える（Jev 1.14 は線 0.8 で候補）
 # ✅ 2026-10-23 の2回目・ユーザー「OK」：Jev 1.14 と2つの Sonnet を同時に出し、早く届いた確かな読みで決める（Jev は確からしさの線 0.8 より下なら
-#    届かなかったのと同じ＝Sonnet を待つ。`grounding.trusted`）。同じ時間帯に並べて測った（G-63 `race3`・`race2b`）：危ない文はどちらも0・
+#    届かなかったのと同じ＝Sonnet を待つ。`grounding.trusted`＝`meaning_judge.sure_reading`）。同じ時間帯に並べて測った（G-63 `race3`・`race2b`）：危ない文はどちらも0・
 #    答えまで中央 0.2秒（2つの Sonnet は 1.4秒）・2秒を超えたのは168回中1回（同4回）。Jev だけでは、線より下で決められないのが約4回に1回
 #    （そのたびに AI の文が使えず決まった一言になる）。毎回 TypeSafe・OpenRouter（米国）へも送る＝Intent.md 13章に書き足した（ユーザー承認）
 from meaning_judge import RACE  # noqa: E402（組は1か所＝meaning_judge.RACE。意味の2つ目の判定と同じ組）
@@ -134,12 +134,15 @@ async def ask_gemini(client, model: str, knowledge: list[str], said: str, draft:
 
 
 def trusted(by: str | None, sure: float | None) -> bool:
-    """確からしさを返す判定（Jev）の読みを、読みとして使うか：線（OTHER_JUDGES の ground_min）から上だけ（下は届かなかったのと同じ＝
-    同時に出したほかの判定を待つ。どれも無ければ文は声に出さない）。線の無い判定・確からしさの無い読みは使う。"""
-    from meaning_judge import OTHER_JUDGES
+    """確からしさを返す判定（Jev）の読みを、読みとして使うか：確かな読みの決まりの1か所（meaning_judge.sure_reading。質問の種類 ground の線＝
+    OTHER_JUDGES の ground_sure_min）から上だけ（下と確からしさの無い読みは届かなかったのと同じ＝同時に出したほかの判定を待つ。どれも無ければ文は
+    声に出さない）。線の無い判定は使う。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘3）：ここに別の決まりを書き、確からしさの無い
+    読みを確かとしていた（意味の判定は確かでないとする）"""
+    from types import SimpleNamespace
 
-    line = OTHER_JUDGES.get(by or "", {}).get("ground_min")
-    return line is None or sure is None or sure >= line
+    from meaning_judge import sure_reading
+
+    return sure_reading(by or "", "ground", SimpleNamespace(sure=sure, firm_p=None))
 
 
 # Jev（選ぶ・分けるだけの専用モデル）への問い方：公式の型（場面・短い問い1つ・選択肢の意味は定義に書く）。決まりの中身は PROMPT と同じ

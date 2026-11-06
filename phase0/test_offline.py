@@ -5849,6 +5849,111 @@ class JudgePanelTest(unittest.TestCase):
             self.assertEqual(info.get("judge2_by"), JEV, (took, hold_s))
             self.assertNotEqual(out[0].get("result"), "confirm_target", (took, hold_s))   # 確かめを1回増やさない
 
+    def test_no_call_to_a_judge_marked_down_and_one_sure_rule(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘2・3）：(1) 止まっているとみなした判定（DOWN_S のあいだ）に送らない決まりが、意味の判定の
+        #    組（JudgePanel._ask）にだけあり、中身の判定の組（grounding.make_grounder）と止まった判定の代わり（standin）は、止まった Jev にも送っていた
+        #    ⇒ 1回ずつの問い合わせの1か所（routed_call）で見る。(2) 確かな読みの決め方が2か所（grounding.trusted＝確からしさの無い読みも確か・
+        #    meaning_judge.sure_reading＝確からしさの無い読みは確かでない）⇒ sure_reading の1か所（中身の判定は質問の種類 ground の線）
+        import asyncio
+        from types import SimpleNamespace
+
+        from grounding import trusted
+        from meaning_judge import FAILED, OTHER_JUDGES, RouteState, routed_call, sure_line, sure_reading
+        jev = next(n for n in OTHER_JUDGES if n.startswith("Jev"))
+        state = RouteState(clock=lambda: 100.0)
+        state.down_until[jev] = 150.0
+        called, tried = [], []
+
+        async def direct():
+            called.append(jev)
+            return "読み"
+        got = asyncio.run(routed_call(state, jev, direct, None, tried))
+        self.assertEqual((got is FAILED, called), (True, []))
+        self.assertEqual(sure_line(jev, "ground"), OTHER_JUDGES[jev]["ground_sure_min"])
+        for sure in (None, 0.5, 0.9):
+            self.assertEqual(trusted(jev, sure), sure_reading(jev, "ground", SimpleNamespace(sure=sure, firm_p=None)), sure)
+        self.assertEqual((trusted(jev, None), trusted(jev, 0.9)), (False, True))
+
+    def test_stop_only_backup_starts_when_the_leads_fail_even_without_the_rest(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘6）：お呼びする段で考えない Sonnet が止まっている（組が d1-ultra と Jev だけ＝全部が先に
+        #    出すもの）と、どちらも確かでないと分かっても on_rest が呼ばれず、止める側だけの 3.5 Flash Lite が裏で出なかった（✅ 本書 9-5 の (6)「d1-ultra と Jev が
+        #    どちらも確かでないと分かった時点で裏で出し」）⇒ 先に出すものから使える答えが無いと分かった時点で、ほかのものが無くても on_rest を呼ぶ
+        import asyncio
+
+        from meaning_judge import LEAD_WAIT_S, Race, first_of
+        r = Race(2, leads=(0, 1))
+        self.assertEqual(r.begin(), ([0, 1], False))
+        self.assertEqual(r.next(0.0), ("wait", LEAD_WAIT_S))
+        self.assertEqual(r.next(LEAD_WAIT_S), ("rest", []))
+        r = Race(2, leads=(0, 1)); r.begin(); r.done(0); r.done(1)
+        self.assertEqual([r.next(0.1), r.next(0.1)], [("rest", []), ("none", None)])
+        r = Race(2, leads=(0, 1)); r.begin(); r.done(1, "はい")
+        self.assertEqual(r.next(LEAD_WAIT_S)[0], "wait")   # 使える答えがあれば呼ばない（前の順の d1-ultra の答えを待つ）
+        calls = []
+
+        def slow(answer, took):
+            async def go():
+                await asyncio.sleep(took)
+                return answer
+            return go
+        got = asyncio.run(first_of([slow(None, 0.01), slow(None, 0.02)], lambda v: True, leads=(0, 1), on_rest=lambda: calls.append(1)))
+        self.assertEqual((got, calls), (None, [1]))
+
+    def test_group_answer_does_not_depend_on_when_the_conversation_stopped_waiting(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（13時27分07秒のご質問・判定の組の持ち場の指摘1）：会話の側が組へ「待つのをやめた」合図を出すのは、待つ長さが
+        #    切れたときだけだった。答えの段で、その場の判定（3.5 Flash Lite）が先に届いて会話の側が先に決めると、合図が出ず、組（d1-ultra → 考える Sonnet）は
+        #    d1-ultra を打ち切り（DOWN_AFTER_S＝本番10秒）まで待った＝組の読みが10秒遅れて届き、しかも組の答えが、もう1つの受け持ち（その場の判定）の速さで
+        #    変わった（d1-ultra が待つ長さに遅れても、その場の判定が速いと d1-ultra の読み・遅いと Sonnet の読み）。⇒ 組へ合図するのは、会話の側の待つ長さが
+        #    切れる時（言葉が出揃ってから flow.limits.hold_s）の1か所：先に決めても、その時に合図する・待たない報告も同じ（✅ 本書 9-5 の (6)「d1-ultra が…
+        #    会話の側の待つ長さ（2秒）に間に合わないときだけ」）
+        import asyncio
+        import dataclasses
+        import unittest.mock as m
+        from types import SimpleNamespace
+
+        import meaning_judge as mj
+        from convo import check_handler
+        from flowctl import Flow, Question
+        from meaning_judge import RACE, JudgePanel, Reading
+        D1, JEV, THINK, FAST = RACE
+
+        def drive(lite_s, d1_s, wants=True):
+            f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+            f.limits = dataclasses.replace(f.limits, hold_s=0.4)
+            f.use_checks("judge", "judge2")
+            f.on_callee()
+
+            def judge(answer, took, sure=None):
+                async def go(q, text, asked=None, before=None):
+                    await asyncio.sleep(took)
+                    return Reading(answer, sure=sure)
+                return go
+            panel = JudgePanel({"judge": ("3.5 Flash Lite", judge("はい", lite_s)),
+                                "judge2": ((D1, judge("はい", d1_s, 0.99)), (JEV, judge("はい", 0.01, 0.99)),
+                                           (THINK, judge("いいえ", 0.1)), (FAST, judge("はい", 0.01)))},
+                               standin=(JEV, judge("はい", 0.01, 0.99)))
+
+            async def main():
+                pending = []
+                handle, _, info, _ = check_handler(f, judge=panel.slot("judge"), judge2=panel.slot("judge2"), pcm=b"\x00\x00", rate=16000,
+                                                   wav="x.wav", tasks=pending, audio_at=1.0)
+                f.on_heard("ええ、しています。"); f.on_activity(False, 2.0)
+                f.wants_checks = lambda name, args=None: wants
+                f.binding = lambda name, args=None: False
+                await handle(SimpleNamespace(name="record_answer", args={"質問": "Q1", "答えの種類": "はい"}))
+                await asyncio.wait(pending, timeout=6)
+                return info
+            with m.patch("stitch_gap.callee_speech", return_value=(b"", 16000, 0.0)), m.patch.object(mj, "DOWN_AFTER_S", 3.0):
+                return asyncio.run(main())
+        # d1-ultra は待つ長さ（0.4秒）に遅れる（1.2秒）：組の答えは、その場の判定が速くても遅くても、待つ長さで決まる考える Sonnet の読み
+        got = {lite_s: drive(lite_s, 1.2) for lite_s in (0.05, 0.8)}
+        self.assertEqual({k: (str(v.get("judge2")), v.get("judge2_by")) for k, v in got.items()},
+                         {k: ("いいえ", THINK) for k in got})
+        # d1-ultra が答えない：組の読みは打ち切り（3秒）まで待たず、待つ長さのあとすぐ届く（待たない報告も同じ）
+        for wants in (True, False):
+            info = drive(0.05, 30.0, wants)
+            self.assertLess(info.get("judge2_s") or 99, 1.0, wants)
+
     def test_leads_answer_in_their_order(self):
         # ✅ 2026-11-05 日本時間18時台 ユーザー：「d1-ultra と Jev を同時に出すが、d1-ultra の判定が優先じゃないんですか？いい加減な記憶で決めるな！」
         # 先に出すもの（leads）は、並びの前のものが優先（先に届いた順では決めない＝同じ言葉の読みが、どちらが速く届いたかで変わらない）：
@@ -15372,7 +15477,7 @@ class OwnWordsTest(unittest.TestCase):
             with m.patch.object(grounding, "make_reader", lambda args, name: next(it)):
                 ground = grounding.make_grounder(None, tuple(f"j{i}" for i in range(len(readers))))
             self.assertEqual(asyncio.run(ground(["業務の情報：x"], "相手", "文")), want)
-        # 組に Jev があれば Jev を先に出し、確かな読み（線 ground_min から上）が届けば Sonnet は出さない。線より下ならその時に出す
+        # 組に Jev があれば Jev を先に出し、確かな読み（線 ground_sure_min から上）が届けば Sonnet は出さない。線より下ならその時に出す
         # （✅ 2026-10-29 ユーザー：「Jev が『確かでない』と返したら、その時点で Sonnet を出します。OK」）
         # 中身の判定には、組の中で中身の判定に答える判定だけが出る（takes_part。d1-ultra は測っていないので出ない）
         from meaning_judge import RACE, takes_part

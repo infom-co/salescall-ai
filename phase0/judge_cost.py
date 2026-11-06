@@ -98,7 +98,7 @@ def compare_meaning() -> list[dict]:
 
 def compare_grounding() -> list[dict]:
     raw = json.load(open(GROUND, encoding="utf-8"))["rows"]
-    line = OTHER_JUDGES[J]["ground_min"]
+    line = OTHER_JUDGES[J]["ground_sure_min"]
     groups = collections.defaultdict(dict)
     for r in raw:
         groups[(r["set"], r["said"], r["draft"], r["rep"])][r["judge"]] = (r["got"], r["seconds"], r.get("sure"), r["want"])

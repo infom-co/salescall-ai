@@ -695,7 +695,7 @@ OTHER_JUDGES = {
     # 線（2026-10-18 G-53 の「曖昧の印と Jev」。線は正解の付いた答えの半分で決め、残りの半分で数えた）：
     # sure_min＝答えにする確からしさ（Jev が受け持って誤った数が 0.95 から0。下は答えにしない＝もう1つの判定で決める）・
     # firm_min＝言い切っているとする確からしさ（0.5 では要らない「曖昧」の印が53個、0.2 では5個）
-    # ground_min＝中身の判定（grounding）で読みにする確からしさ（2026-10-23 G-63：Jev が外したのは5回とも 0.48 以下・正しく通したのは 0.51 以上
+    # ground_sure_min＝中身の判定（grounding＝質問の種類 ground）で読みにする確からしさ（2026-10-23 G-63：Jev が外したのは5回とも 0.48 以下・正しく通したのは 0.51 以上
     # ＝線 0.8 で危ない文 0・Jev が決めるのは 76%。✅ 2026-10-23 の2回目・ユーザー承認で、中身の判定にも毎回入れた＝grounding.GROUNDERS）
     # facets_sure_min＝目的のお客様の判定（項目ごとに答える質問）で答えにする確からしさ（3つの項目の一番低いもの）。✅ 線の決め方は G-53 と同じ
     # （2026-10-18 ユーザーの案：正解の付いた答えの半分で決め、残りの半分で数える）。G-59 の60行×3回り：Jev が外れた回の確からしさは、1回り目で
@@ -711,7 +711,7 @@ OTHER_JUDGES = {
     #    答えの段の顔ぶれは d1-ultra → 考える Sonnet・Jev は d1-ultra の代わりだけ）。⛔ 同じ夜の G-53final：Jev は「利用は結構です」を確からしさ 1.0 で
     #    「利用する」と読んだ（線では防げない）＝d1-ultra と同時に出すと、Jev が先に答えた発話ではこの読みを受け取る（d1-ultra は正しく読んだ）
     "Jev 1.14": {"maker": "typesafe", "api": "decision", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
-                 "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_min": 0.8, "returned_sure_min": 0.6,
+                 "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_sure_min": 0.8, "returned_sure_min": 0.6,
                  "yen_per_char": 7.6e-6, "group_kinds": CALLING_KINDS + ("returned", "ground"), "stands_in": {"other": "d1 Ultra（Liquid）"}},
     # 前の話の答えの線（prior_min。2026-10-31 の夜・G-70 の前の話のある13組×3回）：d1-ultra が前の話と逆の返事を拾うのに要る前の話の答えは
     #    どれも 0.85 から上・「その日は空いています。」から説明会に参加するか（決まらないはず）の「参加する」は 0.45〜0.55 ⇒ 0.6（⏳ 組の数が少ない）
@@ -773,6 +773,8 @@ def question_kind(q) -> str:
     q.facets）は facets・尋ねているか（選ぶものが flowctl.ASKS_MEANINGS の質問）は asks・待たせた方が戻ったか（flowctl.RETURN_MEANINGS）は
     returned・ほか（答えの意味の判定）は other。中身の判定（grounding）は質問を持たないので、呼ぶ側が ground と書く。
     ⛔ 2026-10-31：待たせた方が戻ったかを other（答えの意味と同じ種類）にしていた＝答えの段の線（測っていない）と答え用の文が入っていた"""
+    if q == "ground":
+        return "ground"
     if getattr(q, "facets", ()):
         return "facets"
     conds = set(getattr(q, "conditions", ()) or ())
@@ -875,7 +877,7 @@ def stop_only(name: str, kind: str) -> bool:
 #    ✅ 2026-10-23 ユーザー（中身の判定）：「W sonnetで暫定としてOK」・2回目「OK」（Jev と2つの Sonnet を同時に出し、早く届いた確かな読みで決める）
 #    ✅ 2026-10-25 ユーザー：「以前、JevやSonnet 5.5 の「考えない」形を使うと決めましたよね。同じことを聞くな！」＝意味の2つ目の判定も同じ組
 #    ⛔ 2026-10-25 の失敗：意味の2つ目の判定だけ Sonnet 5.5（考える）1つのまま（Jev は止まったときの代わりだけ）にして、答えまで中央 1.69秒・
-#       4割が2秒超のまま、「判定の顔ぶれと待つ長さ」を伺い続けた。確かな読み＝Jev は線（OTHER_JUDGES の sure_min・ground_min）から上だけ
+#       4割が2秒超のまま、「判定の顔ぶれと待つ長さ」を伺い続けた。確かな読み＝Jev は線（OTHER_JUDGES の sure_min・ground_sure_min）から上だけ
 #    ✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない Sonnet を出す形。OK」＝組の前に
 #       d1-ultra を足した。どの判定がどの質問に答えるかは takes_part の1か所（お呼びする段の2つ＝d1-ultra・Jev → 考えない Sonnet／答えの意味・
 #       中身の判定＝Jev → 考える・考えない Sonnet で今のまま）。先に出すのは組の中の判断のモデル全部（first_of の leads）
@@ -1550,6 +1552,7 @@ STANDIN = "Jev 1.14"
 NO_GROUNDER = "なし"
 DOWN_AFTER_S = 10.0  # 1回の判定をこの秒で打ち切り、その判定は止まっているとみなす（報告を待たせるのは2秒まで。G-61：Sonnet 5.5 の最長 9.4秒）
 DOWN_S = 60.0        # 止まっているとみなした判定に、問い合わせずに代わりへ回す秒（毎回の発話で、止まった判定の答えを待たない）
+DOWN_NOTE = "止まっている（前の問い合わせ）"   # 止まっているとみなした判定に送らなかったときの記録（tried の error）
 
 
 def maker(name: str) -> str:
@@ -1625,6 +1628,9 @@ class Race:
         self.rank = {i: r for r, i in enumerate(self.lead_order)}   # 先に出すものの優先の順（小さいほど優先）
         self.rest = [i for i in range(n) if i not in self.rank]
         self.staged = bool(self.lead_order) and bool(self.rest)
+        # 全部が先に出すもの（お呼びする段で考えない Sonnet が止まっている＝d1-ultra と Jev だけ）でも、先のものから使える答えが無いと分かった時点で
+        # on_rest を1回呼ぶ（止める側だけの判定を裏で出す＝JudgePanel。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘6）：呼ばなかった）
+        self.backup_due = bool(self.lead_order) and not self.rest
         self.wait_s, self.prefer_s = wait_s, prefer_s
         self.started: list[int] = []                                # 出した番号（出した順）
         self.finished: set[int] = set()                             # 答え終えた（使えない答え・失敗を含む）番号
@@ -1663,13 +1669,13 @@ class Race:
         if won is not None:
             return "won", won
         pending = [i for i in self.started if i not in self.finished]
-        if self.staged and not self.held and (not pending or now >= self.wait_s):
-            self.staged = False                               # 先のものから使える答えが無い：ほかを同時に出す
+        if (self.staged or self.backup_due) and not self.held and (not pending or now >= self.wait_s):
+            self.staged = self.backup_due = False             # 先のものから使える答えが無い：ほかを同時に出す（ほかが無くても on_rest は呼ぶ）
             self.started += self.rest
             return "rest", list(self.rest)
         if not pending:
             return "none", None
-        if self.staged and not self.held:
+        if (self.staged or self.backup_due) and not self.held:
             return "wait", max(0.0, self.wait_s - now)
         if self.held:
             return "wait", max(0.0, self.prefer_s - now)
@@ -1731,8 +1737,8 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
     前の順のものを待たずに、持っている中でいちばん前の順の答えで決める（⛔ 2026-11-06 日本時間8時台（EN-C の指摘2・3）：組は問い合わせを始めてから
     Limits.hold_s まで持ち、会話の側は言葉が出揃ってから flow.limits.hold_s で待つのをやめた＝持っていた Jev の読みが、会話の側が待つのをやめた直後に
     渡り、目的の人かを1回確かめた）。
-    on_rest＝先に出したもの以外（確からしさを返さない判定）を出す時点で呼ぶ（引数なし。先に出すものが無ければ初めに。全部が先のものなら呼ばない＝
-    JudgePanel が、組が確かな読みを返せないと分かった時点で、代わりも裏で出しておく）。"""
+    on_rest＝先に出したもの以外（確からしさを返さない判定）を出す時点で呼ぶ（引数なし。先に出すものが無ければ初めに。全部が先のものなら、先のものから
+    使える答えが無いと分かった時点で＝JudgePanel が、組が確かな読みを返せないと分かった時点で、代わりも裏で出しておく）。"""
     import asyncio
 
     from flowctl import Limits
@@ -1823,6 +1829,11 @@ async def routed_call(state: RouteState, name: str, direct, urgent, tried: list[
     from common import redact
 
     timeout = DOWN_AFTER_S if timeout is None else timeout
+    if not state.usable(name, urgent):
+        # 止まっているとみなした判定（DOWN_S のあいだ。緊急の道も無い・止まっている）には送らない（意味の判定の組・中身の判定の組・止まった判定の代わり・
+        # 前の話の答えの、どの入口からも同じ＝この1か所。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘2）：意味の判定の組にだけあった）
+        tried.append({"model": name, "error": DOWN_NOTE})
+        return FAILED
     def note(entry: dict) -> None:
         tried.append(entry)
         if (entry.get("outage") or entry.get("used")) and state.on_trouble is not None:
@@ -2058,7 +2069,7 @@ class JudgePanel(RouteState):
             raise NoJudgment([{"model": n, "error": "この質問では止める側だけ"} for n, _ in self.judges[kind]])
         for name, fn in own:
             if not self.usable(name, getattr(fn, "emergency", None)):
-                tried.append({"model": name, "error": "止まっている（前の問い合わせ）"})
+                tried.append({"model": name, "error": DOWN_NOTE})
             elif maker(name) in self._taken(kind, key):
                 tried.append({"model": name, "error": SAME_MAKER})
             else:
@@ -2114,7 +2125,7 @@ class JudgePanel(RouteState):
             backups = []
         for bname, bfn in backups:
             if self._down(bname):
-                tried.append({"model": bname, "error": "止まっている（前の問い合わせ）"})
+                tried.append({"model": bname, "error": DOWN_NOTE})
             elif maker(bname) in self._taken(kind, key):
                 tried.append({"model": bname, "error": SAME_MAKER})
             elif (got := await self._try(bname, bfn, q, text, asked, before, tried)) is not None:

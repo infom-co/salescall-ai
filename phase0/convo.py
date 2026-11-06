@@ -243,6 +243,24 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         return (any(k in flow.check for k in runs if k not in ASKS_CHECKS + RETURN_CHECKS + AHEAD_CHECKS)
                 and (not asks or any(k in flow.check for k in asks)) and not flow.ahead_pending())
 
+    def release_at(when: float) -> None:
+        """組へ「待つのをやめた」合図（meaning_judge.first_of の release）を、会話の側の待つ長さが切れる時（when）に出す唯一の場所（hold の終わり・
+        待たない報告＝handle）：会話の側が先に決めても（その場の判定が先に届いた・判定を待たない報告）、組は待つ長さが切れるまで前の順（d1-ultra）を待ち、
+        切れたら持っている読みを返す＝組の答えは、もう1つの受け持ちの速さで変わらない・打ち切り（DOWN_AFTER_S）まで遅れない。合図を出したら新しい合図に
+        替える（そのあと出す判定は、次に待つのをやめる時まで待てる）。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘1）：待つ長さが切れたとき
+        だけ合図していた"""
+        if all(t.done() for t in jobs.values()):
+            return
+
+        def fire() -> None:
+            # その時の合図を立てる（それまでに問い合わせを始めた判定は、みな受け取る＝待たない報告のあとに言葉が出揃って始めた判定も）
+            release_box[0].set()
+            release_box[0] = asyncio.Event()
+        if when <= loop.time():
+            fire()
+        else:
+            loop.call_at(when, fire)
+
     async def judgments(every: bool) -> None:
         """いまの言葉の判定を待つ：1つ届くまで（every＝全部が終わるまで）。答えずに終わった判定は待たない（もう1つを待つ）。"""
         while every or not judged():
@@ -297,14 +315,15 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 info["held_play"], extra = held["part"], clip_s(held["part"]) if clip_s is not None else 0.0
             else:
                 info["held_ack"] = "hai"
+        deadline = max(ready, quiet) + flow.limits.hold_s + extra   # 会話の側の待つ長さが切れる時
         if waits and not info.get("incomplete"):  # 出揃っていなければ、判定を待っても使わない（流れの制御は決めずに待つ）
-            await asyncio.wait(waits, timeout=max(0.0, max(ready, quiet) + flow.limits.hold_s + extra - loop.time()))
+            await asyncio.wait(waits, timeout=max(0.0, deadline - loop.time()))
             if first is not None and not first.done():
                 # 待つ長さが切れた：組が持っている後ろの順の確かな読み（d1-ultra が間に合わないときの Jev）を、いま返してもらう（⛔ 2026-11-06 日本時間8時台
                 # （5時56分55秒のご質問の読み直し EN-C の指摘2・3）：組は自分の起点・自分の値で持ち続け、会話の側が待つのをやめた直後に渡っていた）
-                release_box[0].set()
-                release_box[0] = asyncio.Event()
+                release_at(loop.time())
                 await asyncio.wait([first], timeout=RELEASE_GRACE_S)
+        release_at(deadline)   # 先に決めた（1つ届いた・出揃っていない）：まだ走っている組には、待つ長さが切れる時に合図する
         if first is not None and not first.done():
             first.cancel()
         # 組の答えが待つ長さに間に合わなかった判定：組より先に、裏で出した代わり（お呼びする段の 3.5 Flash Lite）の読みが届いていれば、止める側
@@ -368,6 +387,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 # 電話を終えるかを決める所で、まだ答えの返っていない判定がある：もう一度だけ、黙って全部待つ（Flow.waits_again。最大 hold_s）
                 info["end_waited_again"] = True
                 await hold(ear_too=False, ack=False, every=True, rejudge=False)
+        else:
+            release_at(loop.time() + flow.limits.hold_s)   # 判定を待たない報告：組には、ここから待つ長さで合図する（打ち切りまで待たせない）
         if grounding is not None:
             await ground(job[2], *grounding)
         reply = flow.handle_call(fc, midway)
