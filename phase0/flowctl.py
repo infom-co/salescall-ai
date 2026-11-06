@@ -6880,6 +6880,8 @@ class Flow:
         keys = [k for k in OPENING_ORDER if self.target.get(k) and (self.passed_on or k in self.opening_unheard)
                 and not (k == "greeting" and self._greeted())]  # 判定を待つ間に流したあいさつは、もう流さない（hold_play）
         self.phase, self.opening_unheard, self.passed_on = "asking", [], False
+        if who == "substitute" and self._resumed_call():
+            self._start_over()   # 続きの電話の代わりの方：前の通話の答え（ご本人の答え）で決めていたことを外し、営業の最初から伺う
         # まずお詫び（前の電話の事情。予約証の apology）：お呼びした方ご本人にだけ。名乗りが要るなら名乗りのあと、用件・質問の前（共通の一言の録音）
         told = self.told_again if who != "substitute" else None
         if told is not None:
@@ -8839,6 +8841,22 @@ class Flow:
         if outcome in ("means", "other") and not w.get("told_said"):
             # 申し伝える一言は1回だけ（段を開き直して＝_wish_step、もう一度終えたときは言わない）
             w["told"] = w["means"] if outcome == "means" else w.get("told_as") or "other"
+
+    def _start_over(self) -> None:
+        """続きの電話で、判断いただける代わりの方に繋がった（_connect の1か所）：前の通話の答えは、お呼びした方ご本人の答え（代わりの方の答えではない＝本書 9-4 の
+        「代わりの方の申し出」の「依頼者へ渡す答えは代わりの方の答えと印を付ける」）なので、前の通話の答えで決めていたこと（伺わずに済ませる質問・続きの電話の
+        始めの段＝申し伝え直し・ほかのご希望・連絡先・ご承認の手順）を外し、営業の最初の質問から伺う（お詫び・申し伝える一言は流さない＝_connect）。
+        ✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(3) H6：…電話が途中で切れることは代わりの方には関係ない話ですよね。しっかりと営業の最初からもしくは引き継がれて
+        いる部分から確認していかないといけないんじゃないですか。」。⛔ それまでは、申し伝え直す電話（ご承認が最終目的）で「お忙しいところ…」と締め、前の答えの
+        ある続きの電話では残りの質問だけを伺った"""
+        for qid in self.earlier:
+            self.items[qid] = Item()
+            self.taken.pop(qid, None)
+        self.earlier, self.earlier_all, self.told_again, self.wish, self.point = {}, {}, None, None, None
+        for qid in [qid for qid, q in self.questions.items() if q.callback and qid != self.substitute_q and qid != SUBSTITUTE_ID
+                    and self.items[qid].state == "empty"]:
+            self._drop_unasked(qid)   # 続きの電話の始めに足したシステムの質問（まだ伺っていない）
+        self.order = list(self.business_ids)
 
     def _drop_unasked(self, qid: str) -> None:
         """まだ伺っていないシステムの質問を、伺わずに外す（並び・質問・答えから。伺い済みの連絡先だった＝_resume）。"""

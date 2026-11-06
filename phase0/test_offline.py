@@ -8709,6 +8709,42 @@ class EndJudgedTest(unittest.TestCase):
         # 決め手の発話（選び直した発話）は、決め直した答えの根拠として読める（ここで終える答えの根拠など＝Flow._evidence の1か所）
         self.assertEqual(h._evidence("Q1")["said"], "うーん、やっぱり送ってください。")
 
+    def test_a_substitute_on_a_continued_call_starts_the_sales_from_the_beginning(self):
+        # ✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(3) H6：なぜ判断いただける方に対して電話を切ろうとするんですか？しかも電話が途中で切れることは代わりの方には
+        # 関係ない話ですよね。しっかりと営業の最初からもしくは引き継がれている部分から確認していかないといけないんじゃないですか。」＝本書 9-4 の「代わりの方の申し出」
+        # （判断いただけるなら代わりの方として話す・依頼者へ渡す答えは代わりの方の答えと印を付ける）：前の通話の答えはお呼びした方ご本人の答えなので、続きの電話で
+        # 判断いただける代わりの方に繋がったら、前の通話の答えで伺わずに済ませていた質問・続きの電話の始めの段（申し伝え直し・ほかのご希望・ご承認の手順）を外し、
+        # 営業の最初の質問から伺う（お詫び・申し伝える一言は流さない）。⛔ それまでは申し伝え直す電話（ご承認が最終目的）で「お忙しいところ…」と締め、
+        # 前の答えのある続きの電話では残りの質問だけを伺った
+        from flowctl import TARGET_IS_AWAY, Question
+        from instruction import Business, Target
+        from phrases import APOLOGY_CUT_END, TOLD_AGAIN
+        told = {"Q1": {"state": "accepted", "condition": "いいえ",
+                       "point_fact": {"question": "Q1", "point": "料金のところ", "said": "料金のところがよく分からなかったんです。", "explained": False,
+                                      "told": "request", "outcome": None}}}
+        q1 = Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, final_goal=True,
+                      declines=("いいえ",))
+        q1b = Question("Q1", q1.text, "yes_no", conditions=("はい", "いいえ"), approval=True, declines=("いいえ",))
+        q2 = Question("Q2", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))
+        for name, qs, earlier in (("told/final", [q1], told), ("told/rest", [q1b, q2], told),
+                                  ("plain resumed", [q1b, q2], {"Q1": {"state": "accepted", "condition": "はい"}})):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=qs,
+                         purpose_line="資料送付の件でお電話いたしました。", earlier=earlier, apology=("cut_off",), apology_when="later",
+                         target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+            f = b.flow(play_recordings=True)
+            f.use_checks("judge")
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+            f.on_callee(); f.on_heard("岡田は本日不在にしておりまして、代わりに私がご用件を伺います。"); f.on_check("judge", TARGET_IS_AWAY)
+            f.apply("report_party", {"party": "substitute"})
+            f.on_callee(); f.on_heard("はい、私が責任者ですので大丈夫です。"); f.on_check("judge", "判断できる")
+            r = f.apply("record_answer", {"question_id": "S1", "condition_id": "判断できる"})
+            said = "".join(p["text"] for p in r.get("play") or [])
+            self.assertEqual((r.get("result"), r.get("question_id"), f.end_reason), ("next", "Q1", None), name)
+            self.assertFalse(any(t in said for t in (*APOLOGY_CUT_END.values(), *TOLD_AGAIN.values(), "途中で切れて")), (name, said))
+            self.assertTrue(said.endswith(q1.text), (name, said))
+
     def test_told_then_cut_says_it_again_after_the_apology_and_closes(self):
         # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(b) 前の電話で「…担当の者に申し伝えさせていただきますね。」まで言ったあとに切れた場合：「先ほどは（前回は）、
         # お話の最後に通信が悪く、お電話が切れてしまい申し訳ございませんでした。」「～の件は、担当の者に申し伝えさせていただきますね。」もしくは「折り返し、担当の者より
