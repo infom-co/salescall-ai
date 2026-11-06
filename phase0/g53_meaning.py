@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, CHOICE_TYPES, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, SYSTEM_CONDITIONS, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
+from flowctl import (ANY, CHOICE_TYPES, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
                      off_talk, prior_answer, restates)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
@@ -562,7 +562,9 @@ RECHECK = "会話になっていない（念のため確かめ直す）"
 SENSE = "意味合いを尋ねる："
 # 待つ・かけ直すの読み（答えの段だけ＝flowctl.WAIT_KINDS）で流れの制御がすること（Flow._wait_route の1か所と同じ。✅ 2026-11-05 日本時間23時19分06秒・
 # 23時56分48秒 ユーザー（会話2）。取り次ぎを待つも「はい、」のあと待つ＝✅ 2026-11-06 日本時間2時28分41秒 ユーザー「「はい、」のような相づちがないと失礼です。」）
-WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言のあと待つ", LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う"}
+# まだ考えている途中（✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」＝Flow._thinking）：「はい。」のあと待つ
+WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言のあと待つ", LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う",
+            THINKING: "「はい。」のあと待つ"}
 # 答えの代わりにこちらへ尋ねた（「〜ですかね？」＝flowctl.asks_us の1か所・流れの制御は入口 Flow._apply_one で報告より先に答えさせる）：尋ねられたことに先に答え、
 # お客様の返事を待つ（✅ 2026-11-06 日本時間4時23分33秒 ユーザー：「…こちらは「そうですね、お読みになられるとより理解が深まるかと思います。」のような返答が自然です。」）
 ANSWER_FIRST = "尋ねられたことに先に答える"

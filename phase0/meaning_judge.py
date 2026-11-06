@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 
 from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, HOLD, HOLD_BACK, LATER, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, label, restates, side_items)
+                     THINKING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -396,6 +396,11 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
                 #    つないだまま待つ）まで、こちらとして作った＝決められないのは、考えたい・相談したいという事情を添えたときだけ、と意味で書いた
                 WAIT_OR_LATER: "考えたい・ほかの方と相談したいので待ってほしい、と言ったが、そのあいだ電話をつないだまま待ってほしいのか、この電話は終えて"
                                "あとでかけ直してほしいのかが、この言葉からは決められない（待つようにとだけ言ったのは、こちらではない。答えではない）",
+                # ✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」：考えている方への「はい。」は、判定が「まだ考えている途中」と読んだらプログラムが流す
+                # （flowctl.THINKING・Flow._thinking）。分かれ目は意味で書く（言葉の形の例は足さない）：言い終えた「決められない」とは、まだ答えを言い終えていない
+                # （続けて話しそう）かで分ける
+                THINKING: "まだ答えを考えている途中で、答えを言い終えていない（迷っている・言いよどんでいる最中で、このあと続けて答えそう。答えではない）。"
+                          "決められない・まだ決めていない、と言い終えたときは、こちらではない",
                 # 残り（代わった人が話し始めた・決められない）は KIND_DESC のまま（1か所。⛔ 11-06 1時台に、ここを手で並べて「決められない」を落とした）
                 **{k: d for k, d in KIND_DESC.items() if k != HOLD}}
 

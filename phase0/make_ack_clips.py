@@ -98,12 +98,15 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "talk_hard_sad": "電話で、お客様のつらいお話を伺って、しんみりと、心から気づかうように、静かに、丁寧に",
        "talk_hard_bright": "電話で、大変だったけれど今は落ち着いたというお客様のお話に、前向きに、ねぎらうように共感して応えるように",
        # もう伺った質問へ戻る前の一言（phrases.BACK_TO）：お客様のお話を受けたあと、柔らかく本題へ戻る
-       "back": "電話で、お客様のお話を受けたあとに、柔らかく自然に本題へ戻るように、丁寧に、落ち着いた調子で"}
+       "back": "電話で、お客様のお話を受けたあとに、柔らかく自然に本題へ戻るように、丁寧に、落ち着いた調子で",
+       # まだ答えを考えている途中のお客様への相づち（phrases.ACK の aizuchi）：答えを期待するような言い方にしない（✅ 2026-10-14 ユーザー：S2・S4 の「はい」が物欲しそう・
+       # 期待しているように聞こえる＝instruction.THINKING_RULE と同じ読み方）。✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」
+       "aizuchi": "電話で、考えているお客様に、落ち着いた声で、語尾を上げずに短く相づちを打つように（相手の答えを期待するような言い方にしない）"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "kashikomari": 1.6, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
-         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 9.0, "back": 3.0,
+         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 9.0, "back": 3.0, "aizuchi": 1.0,
          "talk": 3.5, "apology_first": 6.5, "line_trouble": 9.5, "number_again": 12.0}
 MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if tone})
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
@@ -270,7 +273,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, may_wish, other_wish_recording_id, recap_recording_id, way_offer,
+    from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, holds_pending, may_wish, other_wish_recording_id, pending_line, pending_recording_id, recap_recording_id, way_offer,
                          spoken_question, tell_recording_id)
     from instruction import reading_variants
     from phrases import question_clip
@@ -301,6 +304,10 @@ def script_table(business) -> tuple[dict, dict]:
             items.append((question_clip(q.id, lead), text, "question"))
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
+        if holds_pending(q):
+            # 決められないのがお客様の最終の決定のとき、その質問を締める一言（文は flowctl.pending_line・名前は flowctl.pending_recording_id。✅ 2026-11-06
+            # 日本時間11時19分55秒 ユーザー「(2) …「承知しました。それではパンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」）
+            items.append((pending_recording_id(q), pending_line(q), "question"))
         if may_wish(q):
             # 「どれも要らない」・最終目的への言い切っていないお断りのあと、ほかのご希望を伺う一言（文は flowctl._wish_text の1か所＝W1 の質問の文。
             # 名前は flowctl.other_wish_recording_id）。伺っている途中で切れた電話の続きで、切れた所から伺う一言（again＝「前回お伺いした…の件で…」）も
