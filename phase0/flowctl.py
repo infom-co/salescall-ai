@@ -3981,6 +3981,14 @@ class Flow:
         if self.no_doubts == qid:
             self.no_doubts = None
 
+    def _leave_open(self, head: str, rid: str) -> None:
+        """点を言っていただけないまま手順を終えたときに、次へ進む前に挟む一言（「ご不満な点がございましたらいつでもお申し出ください。」など）の印を立てる唯一の
+        場所（head＝頭の相づち・rid＝一言の録音の名前。流すのは _advance の1か所）。この手順でもう言っていれば立てない（同じ一言を2回言わない）。
+        ⛔ 2026-11-06 日本時間13時台の見直し（B2）：遅れた判定で取り消して段を戻す（_point_taken_back）と印だけ外し、言った印が無かったので、段が戻ったあとの
+        答えでもう一度挟んだ"""
+        if not self.point.get("anytime_said"):
+            self.point["open"] = (head, rid)
+
     def _point_facts_dropped(self, round_: int | None = None) -> None:
         """いまのご承認の手順の、この通話の記録 not_agreed を渡さない（_point_taken_back の1か所。round_＝その回だけ）。"""
         q = self.point["q"]
@@ -7867,7 +7875,7 @@ class Flow:
                 # 続きの電話で、振り返る説明の文が無い（説明が質問の文の中にある＝最初の質問がご承認の質問）：ご納得は伺わず（4時48分13秒）、点は1回伺ったので
                 # 手順を終え、次へ進む前に「何か思い出されたりご不満な点がございましたらいつでもお申し出ください。」を挟む（leave_open。頭は、覚えていないと言われ
                 # たら「ごもっともです。」・ほかは「はい、」）。✅ 2026-11-05 日本時間5時20分56秒 ユーザー：「(b)…同上」（下の振り返りのあとと同じ）
-                p["open"] = ("gomottomo" if self._unknown_agreed(nid) else "hai", "point_anytime")
+                self._leave_open("gomottomo" if self._unknown_agreed(nid) else "hai", "point_anytime")
                 self._point_end("unresolved", by=nid)
             else:
                 # 点を言っていただけなかった（この電話＝言いたくない・どの部分か分からない・聞き取れない／続きの電話＝言いたくない）：ご納得は伺わず、押さずに
@@ -7881,7 +7889,7 @@ class Flow:
                 # ＝「承知しました。」・聞き返しを使い切って先へ進む＝「はい、」）と同じ。この一言の頭なので、続く念のための確認のお詫びにはしない）。
                 # ✅ 2026-11-05 日本時間5時45分 ユーザー：「（例えば「承知しました。ご不満な点がございましたらいつでもお申し出ください。続きまして…」のような形は
                 # いかがでしょうか。）その形でOK、進めてください」
-                p["open"] = (self._unsaid_head(nid), "point_anytime_plain")
+                self._leave_open(self._unsaid_head(nid), "point_anytime_plain")
                 self._point_end("unresolved", by=nid)
         elif p["stage"] == "explained":
             if p["explained"]:
@@ -7921,7 +7929,7 @@ class Flow:
                 # 日本時間13時台の見直しで見つけた：下の else で N3 を伺っていた）
                 # 振り返りへの返事でも、言いたくない（覚えてはいる）は「何か思い出されたり」が合わない＝「ご不満な点が…」（本書 9-5 の続きの電話の答えたくない）
                 recap = p.get("recap") and self.items[oid].state != "refused"
-                p["open"] = (self._unsaid_head(oid), "point_anytime" if recap else "point_anytime_plain")
+                self._leave_open(self._unsaid_head(oid), "point_anytime" if recap else "point_anytime_plain")
                 self._point_end("unresolved", by=oid)
             elif self.questions[oid].of:
                 # 振り返りの一言（続きの電話の始め＝recap）への返事も、点を言っていただけない（「そうでしたっけ。」・覚えていないまま・聞き取れない）：上と同じく、
@@ -7930,7 +7938,7 @@ class Flow:
                 # 「はい、続きましてご訪問の日時のご希望はございますでしょうか？」は流れとしておかしくないですか？：「はい、何か思い出されたり、ご不満な点が
                 # ございましたらいつでもお申し出ください」のような言葉を挟んだ方がいいんじゃないでしょうか？「そうでしたっけ。」とはっきりしない状態で、
                 # 「はい、改めましてただいまご説明した内容でご承認いただけますでしょうか？」伺い、承認しますとお客様がいうわけないですよね。」
-                p["open"] = ("hai", "point_anytime")
+                self._leave_open("hai", "point_anytime")
                 self._point_end("unresolved", by=oid)
             else:
                 p["stage"], p["hai"] = "confirm", self.callee_turns   # 「なるほど」を「はい、」で受けて伺う（お礼・承りの相づちは合わない）
@@ -8594,7 +8602,7 @@ class Flow:
         opened = (p := self.point) is not None and p.get("open")
         if opened:
             plays.append({"kind": "recorded", "id": opened[1], "text": RECORDED[opened[1]]})
-            p["open"] = None
+            p["open"], p["anytime_said"] = None, True   # 言った印（取り消しで段を戻しても残す＝_leave_open がもう立てない）
         wish = (w := self.wish) is not None and bool(w["told"])
         if wish:
             plays.append({"kind": "recorded", "id": f"wish_told_{w['told']}", "text": WISH_TOLD[w["told"]]})

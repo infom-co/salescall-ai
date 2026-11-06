@@ -17723,6 +17723,24 @@ class ApprovalReviewTest(unittest.TestCase):
         self.assertNotIn(CALLBACK_ASK_WHICH["other_point"], heard(r))
         self.assertIn("ご不満な点がございましたらいつでもお申し出ください。", heard(r))
 
+    def test_point_anytime_is_said_once_after_a_take_back(self):
+        # ⛔ 2026-11-06 日本時間13時台の見直し（ご承認の持ち場の B2）：N1 の「言いたくない」で「ご不満な点がございましたらいつでもお申し出ください。」を挟んだあと、
+        #    遅れた判定で取り消されて点を伺う段へ戻ると、次の答えのあと（締めの前）にもう一度挟んだ（挟む印を戻すだけで、言った印が無い）＝同じ一言を2回言わない
+        #    （11-05 5時20分56秒・5時45分のお言葉の一言は1回だけ）
+        from flowctl import CALLBACK_IDS
+        from meaning_judge import Reading
+        N1 = CALLBACK_IDS["not_agreed"]
+        heard = lambda r: "".join(p.get("text", "") for p in r.get("play") or []) + r.get("say", "") + r.get("question", "")
+        f = self.late_flow()
+        f.on_check("judge2", Reading("いいえ"))
+        words = "それは言いたくないです。"
+        said = [heard(self.say(f, words, "refused", "record_answer", question_id=N1, condition_id="refused"))]
+        f.on_check("judge2", Reading("点を言った"), turn=f.callee_turns, said=words)
+        said.append(heard(self.say(f, "いや、特に無いです。", "いいえ", "record_answer", question_id=f.current, condition_id="いいえ")))
+        said.append(heard(self.say(f, "15日の午後2時でお願いします。", "答えた", "record_answer", question_id="Q3", condition_id="答えた", value="15日の午後2時")))
+        said.append(heard(self.say(f, "はい、そうです。", "affirmed", "confirm_field", question_id="Q3", result="affirmed")))
+        self.assertEqual("".join(said).count("ご不満な点がございましたら"), 1, said)
+
     def test_taken_back_answers_roll_the_procedure_back(self):
         # ⛔ 2026-11-06 日本時間5時56分55秒のご質問の読み直し（EN-D の指摘2）：ご承認の手順を進めた答え（ご承認の「いいえ」・N1・N2）を、遅れて届いた判定で
         #    取り消しても、その上に積んだ段（ご説明・「ほかに…」・締め）と記録が残った（ほかのご希望には段を戻す所 _wish_taken_back があるのに、ご承認の手順には
