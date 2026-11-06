@@ -256,7 +256,7 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 
 # 共通の一言の録音の部分の名前（判断はここだけ。話してよい声＝`ready_voices` が、共通の一言の組＝システムの持ち物（0171）にこれが全部
 # そろっているかを見る。⇒ 2026-11-06 名前を CONTRACTOR_PARTS から改めた＝CL-2 の連絡帳 4-230。下の経過の「契約者の単位」「契約者の組」は、
-# 0171 より前の呼び方）。名前の正本は CL-1 の phrases.RECORDED（いまは 116。経過：origin/main 6364c51 の58。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41、4-42・4-43 の
+# 0171 より前の呼び方）。名前の正本は CL-1 の phrases.RECORDED（いまは 117。経過：origin/main 6364c51 の58。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41、4-42・4-43 の
 # hold_timeout＝保留で待ちきったときの締め、4-45 の moshimoshi＝電話に出た方が黙っているときの「もしもし？」、4-49 の
 # apology_purpose_same_day・apology_purpose_later＝お詫びの電話で受付の方に用件を聞かれたときの一言、4-55 の
 # callback_next_workday＝お休みのお客様に「次のご出社はいつか」を伺う一言、4-63 (a) の callback_refusal＝ご本人へのご遠慮の確かめ
@@ -325,7 +325,10 @@ COMMON_PARTS: tuple[str, ...] = (
     "told_again_question", "told_again_request", "told_again_opinion", "told_follow_up",
     # CL-1 の連絡帳 4-97 の追記（✅ 2026-11-06 10時12分44秒 ユーザー「(イ)…OK」）：続きの電話の振り返りの一言への返事で点を言って
     # いただけないときの一言（まだ点を伺っていないので「ほかに」を外す）
-    "callback_other_point_which_recap")
+    "callback_other_point_which_recap",
+    # CL-1 の連絡帳 4-100（✅ 2026-11-06 11時19分55秒 ユーザー「(1) ア」）：まだ答えを考えている途中のお客様への相づち「はい。」（判定が「考えている
+    # 途中」と読んだら、会話AIが報告してもしなくてもプログラムが流して待つ）。保留で締める一言（質問の番号_pending）は依頼者の単位の録音（業務の組）なので、ここには入れない
+    "aizuchi")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

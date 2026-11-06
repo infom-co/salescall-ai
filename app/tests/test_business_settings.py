@@ -466,7 +466,10 @@ class Check(unittest.TestCase):
             r["questions"].append(q)
             return r
         for qid in ("Q1_d2", "Q1_tell1", "Q1_other", "Q2_tell12", "Q1_lead_deha", "Q1_v1", "Q1_d2_lead_soredeha_v2", "Q1_x",
-                    "greeting_v1", "intro_lead_deha"):                # 会話の側が作る形とその組み合わせ・システムの名前の続き（作り方を写さず「_」の続きで決める）
+                    "greeting_v1", "intro_lead_deha",
+                    # CL-1 の連絡帳 4-100〜4-103（2026-11-06）で増えた形：保留で締める一言・次の項目の頭・伺い直しの頭・続きの電話の頭・入る一言の頭を替えた形
+                    "Q1_pending", "Q1_lead_tsuzukimashite", "Q1_lead_soredeha", "Q1_lead_resume", "Q1_intro_lead_tsuzukimashite",
+                    "Q1_d2_lead_resume"):                             # 会話の側が作る形とその組み合わせ・システムの名前の続き（作り方を写さず「_」の続きで決める）
             with self.subTest(qid):
                 self.assertTrue(any("録音の部分の名前" in p for p in problems_of(extra(qid))), problems_of(extra(qid)))
         for qid in ("Q3_other", "Q1x", "Q1-2", "Q10"):                         # 無い質問の番号からの形・「_」で続かない番号は取り違えない

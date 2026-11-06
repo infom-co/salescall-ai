@@ -1846,6 +1846,13 @@ class NameLedger(Content):
                               "apology_cut_end_later", "told_again_question", "told_again_request", "told_again_opinion",
                               "told_follow_up"}, set(recordings.COMMON_PARTS))
 
+    def test_the_thinking_aizuchi_cl1_added_on_11_06_is_received(self):
+        """CL-1 の連絡帳 4-100（✅ 2026-11-06 11時19分55秒 ユーザー「(1) ア」）：まだ答えを考えている途中のお客様への相づち「はい。」（aizuchi）は、
+        どの業務でも同じ文の共通の一言（話してよい声が求める＝`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）。
+        保留で締める一言（質問の番号_pending）は質問ごとの依頼者の単位の録音なので、共通の一言の一覧には入らない（業務の組に入れられる）。"""
+        self.assertIn("aizuchi", recordings.COMMON_PARTS)
+        self.assertFalse([p for p in recordings.COMMON_PARTS if p.endswith("_pending")])
+
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
         よろしいでしょうか？」は共通の一言の録音 callback_refusal（話してよい声が求める＝`COMMON_PARTS`）で、その質問の番号 R1 は

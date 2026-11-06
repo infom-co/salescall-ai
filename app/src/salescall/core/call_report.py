@@ -158,7 +158,9 @@ UNTIMED_OUTCOMES = {"absent": ("absent", "not_reached_absent"), "long_absent": (
                     "day_off": ("absent", "not_reached_absent"),
                     "unavailable": ("not_transferred", "not_reached_not_transferred")}
 ENDING_CALLBACKS = ("other_means",)                      # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
-CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")   # お客様の申し出（CL-1 の OFFER_LABEL）：折り返し・伝言・メール・ファクス・郵送
+# お客様の申し出（CL-1 の OFFER_LABEL の鍵）：折り返し・伝言・メール・ファクス・郵送。折り返し（callback）は、CL-1 の連絡帳 4-104 から、答えの段の判定
+# 「お客様から折り返す」（会話の側の flowctl.LATER_THEIRS・later_offer の1か所）でも付く（記録だけ。判定はこちらからかけ直す約束と同じ）
+CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")
 CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた宛先・伝言の答え（取れた値の文字か null。CL-1 の CALLBACK_FIELD の値の一部）
 CONNECT_WHO = ("target", "successor", "substitute")      # 繋いだ方：目的のお客様・後任の方・代わりの方（CL-1 の connect の who）
 # 相手の申し出への応じ方の選択肢（業務設定。CL-1 の flowctl.POLICIES と同じ値。最初が既定＝2026-10-22 ユーザー決定）。正本はここだけ：

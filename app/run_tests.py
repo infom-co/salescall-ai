@@ -4570,8 +4570,15 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    "told_again_question", "told_again_request", "told_again_opinion", "told_follow_up",\n', '',
      ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
     ("振り返りへの返事で点を言っていただけないときの一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
-     '    "callback_other_point_which_recap")', '    )',
+     '    "callback_other_point_which_recap",\n', '',
      ("tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_06_are_received",)),
+    # ── CL-1 の連絡帳 4-100〜4-104（2026-11-06）：考えている方への相づちの録音・お客様から折り返すという申し出
+    ("考えている途中のお客様への相づち「はい。」の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
+     '    "aizuchi")', '    )',
+     ("tests.test_gate.NameLedger.test_the_thinking_aizuchi_cl1_added_on_11_06_is_received",)),
+    ("かけ直しの記録の、お客様から折り返すという申し出を受けない", "src/salescall/core/call_report.py",
+     'CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")', 'CALLBACK_OFFERS = ("message", "email", "fax", "post")',
+     ("tests.test_call_report_cl1.TheirCallback1106.test_a_callback_the_customer_offers_in_the_answer_stage_is_received",)),
     # ── お客様リストの行の直し（0178。2026-11-05 ユーザー「ダッシュボードでも進捗確認や修正ができるようにすること」）
     ("会話が読む行の名前に、ダッシュボードの直しを当てない", "src/salescall/core/business_settings.py",
      '"SELECT t.*, salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks_now t WHERE t.task_id = %s"',

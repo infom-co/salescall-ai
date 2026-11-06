@@ -906,3 +906,29 @@ class Untimed1101(unittest.TestCase):
                 "callback": [{"turn": 1, "said": "岡田は退職いたしました。", "why": why, "read": ["ai"], "time": None, "number": None}]}}
             with self.subTest(why=why), self.assertRaises(ReportInvalid):
                 from_json(raw)
+
+
+# ── main の flowctl（2026-11-06。CL-1 の連絡帳 4-104）で通話を流して出た報告：答えの段で、お客様のほうからあとで連絡すると言った（判定が
+#    「お客様から折り返す」）。会話の側はお礼の一言のあと、こちらからかけ直す形で伺う（C1）。その途中の報告（ほかのご希望を伺う W1 の答えの段
+#    ＝取り終えていない質問 Q1）
+THEIR_CALLBACK = {"version": 3, "unfinished": ["Q1"], "facts": {
+    "callback": [{"turn": 2, "said": "あとでこちらからかけ直しますね。", "why": "later", "read": ["ai", "judge"], "offer": "callback",
+                  "time": None, "number": None}]},
+    "not_reached": None, "cut": None, "apology_delivered": None, "irreversible_check": "agreed", "ai_trouble": []}
+
+
+class TheirCallback1106(unittest.TestCase):
+    def test_a_callback_the_customer_offers_in_the_answer_stage_is_received(self):
+        """CL-1 の連絡帳 4-104：答えの段の判定の選べるもの「お客様から折り返す」と読んだかけ直しは、かけ直しの記録の申し出 offer が "callback"
+        （折り返し。お客様の申し出の一覧 `call_report.CALLBACK_OFFERS`＝会話の側の OFFER_LABEL の鍵）。報告を受けて残し（記録だけ）、判定は
+        今までのこちらからかけ直す約束と同じ（時刻を言っていただければその時刻・言っていただけなければ時刻の決まっていない約束）。"""
+        r = from_json(THEIR_CALLBACK)
+        self.assertEqual(from_json(r.to_json()), r)
+        self.assertEqual((r.callback.reason, r.callback.offer, r.to_json()["facts"]["callback"][0]["offer"]), ("later", "callback", "callback"))
+        untimed = run(THEIR_CALLBACK)
+        self.assertEqual((untimed.state, untimed.detail["callback"]["reason"], untimed.detail["policy_key"]),
+                         ("callback_scheduled", "later", "callback_unspecified_time"))
+        timed = copy.deepcopy(THEIR_CALLBACK)
+        timed["facts"]["callback"][0]["time"] = "明日の15時"
+        got = run(timed)
+        self.assertEqual((got.state, got.detail["callback"]["exact"]), ("callback_scheduled", True))
