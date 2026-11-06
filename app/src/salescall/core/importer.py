@@ -247,8 +247,11 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
     lost_in = {f: _zero_lost(sheet, cols[f]) for f in _NUMBER_FIELDS if f in cols}   # 番号の欄ごとに、先頭の 0 が消えたか
     in_run_by_number: dict[str, dict[str, Any]] = {}
     in_run_by_ref: dict[str, dict[str, Any]] = {}
+    # 同じ実施回にもうある行：番号は、取り込んだ番号といまかける番号（ダッシュボードで直していれば直した番号＝salescall.task_dial_contact
+    # の1か所）の両方（⛔ 見直し (A) の3：前は取り込んだ番号だけで見て、直した番号の行を、追加の取込で別の行として登録しえた）
     for t in tx.all("SELECT t.task_id, t.client_ref, c.phone_e164 FROM salescall.tasks t"
-                    " JOIN salescall.contacts c ON c.client_id = t.client_id AND c.contact_id = t.contact_id"
+                    " JOIN salescall.contacts c ON c.client_id = t.client_id"
+                    "  AND c.contact_id IN (t.contact_id, salescall.task_dial_contact(t.task_id))"
                     " WHERE t.run_id = %s", (run_id,)):
         in_run_by_number[t["phone_e164"]] = t
         if t["client_ref"] is not None:

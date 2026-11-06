@@ -2086,6 +2086,35 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.same_jst_day(p_at timestamptz) RETURNS boolean LANGUAGE sql STABLE"
      " SET search_path = salescall, pg_temp AS $$ SELECT (p_at AT TIME ZONE 'UTC')::date = (now() AT TIME ZONE 'UTC')::date $$",
      ("tests.test_settle.CutOffCalls.test_whether_a_call_was_today_is_the_japanese_date_of_its_end",)),
+    # ── 2026-11-06 の見直し (A)（0188）：番号の直し
+    ("サブの番号の守りを外す（その通話でかけていない番号もサブに書ける）",
+     "DROP TRIGGER task_sub_number_guard ON salescall.task_sub_numbers",
+     ("tests.test_settle.DialFixAfterCalls.test_the_database_keeps_the_sub_number_to_the_old_number_of_the_call",)),
+    ("同じ実施回のほかの行がかけている番号へも直せる（0188 の守りを外す）",
+     "CREATE OR REPLACE FUNCTION salescall.task_dial_fix_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF salescall.cur_actor_kind() IS DISTINCT FROM 'operator' AND salescall.cur_actor_kind() IS DISTINCT FROM 'admin' THEN"
+     " RAISE EXCEPTION 'x' USING ERRCODE = 'insufficient_privilege', CONSTRAINT = 'task_dial_fix_by_person'; END IF;"
+     " IF NEW.recorded_by IS DISTINCT FROM salescall.cur_actor() THEN"
+     " RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation', CONSTRAINT = 'task_dial_fix_recorded_by'; END IF; RETURN NEW; END $$",
+     ("tests.test_import.DialFixes.test_a_number_another_row_of_the_run_dials_is_not_taken",)),
+    ("2回直しても、行の回数を最初の直しから数える（いちばん新しい直しから数え直さない）",
+     "CREATE OR REPLACE FUNCTION salescall.task_count_from(p_task uuid) RETURNS timestamptz LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT coalesce((SELECT min(f.recorded_at) FROM salescall.task_dial_fixes f"
+     " WHERE f.task_id = p_task), '-infinity'::timestamptz) $$",
+     ("tests.test_import.DialFixes.test_a_second_fix_counts_again_and_drops_the_sub",)),
+    ("もう一度直しても、前の直しのあとに記録したサブを使う",
+     "CREATE OR REPLACE FUNCTION salescall.task_sub_contact_at(p_task uuid, p_at timestamptz) RETURNS uuid LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT s.contact_id FROM salescall.task_sub_numbers s WHERE s.task_id = p_task"
+     " AND s.recorded_at <= p_at AND s.contact_id IS DISTINCT FROM salescall.task_dial_contact(p_task) ORDER BY s.seq DESC LIMIT 1 $$",
+     ("tests.test_settle.DialFixAfterCalls.test_a_sub_from_before_the_latest_fix_does_not_count",)),
+    ("前にかける番号だった番号から、お客様が指定した番号を外さない",
+     "CREATE OR REPLACE FUNCTION salescall.task_number_replaced_at(p_task uuid, p_contact uuid, p_at timestamptz) RETURNS boolean"
+     " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$"
+     " SELECT p_contact IS DISTINCT FROM salescall.task_dial_contact(p_task)"
+     " AND p_contact IS DISTINCT FROM salescall.task_sub_contact_at(p_task, p_at)"
+     " AND (p_contact = (SELECT t.contact_id FROM salescall.tasks t WHERE t.task_id = p_task)"
+     " OR EXISTS (SELECT 1 FROM salescall.task_dial_fixes f WHERE f.task_id = p_task AND f.contact_id = p_contact)) $$",
+     ("tests.test_settle.DialFixAfterCalls.test_the_number_the_callee_names_after_a_fix_is_called",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4727,6 +4756,42 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("申し伝える一言の種類を、ご説明できた点にも受ける", "src/salescall/core/call_report.py",
      "        if told is not None and explained is not False:", "        if False:",
      ("tests.test_call_report_cl1.Approval1102.test_the_kind_of_told_words_is_received",)),
+    # ── 2026-11-06 の見直し (A)：番号の直し
+    ("直したあと前の番号でかからなかった約束の電話を、番号のせいで終える（新しい番号へ移さない）", "src/salescall/core/next_action.py",
+     "    d = _moved_on_fix(tx, task_id, d, dialed_row, was_replaced, now=now)", "    pass",
+     ("tests.test_settle.DialFixAfterCalls.test_a_promise_on_the_old_number_that_ends_by_the_number_goes_on_to_the_new_number",)),
+    ("約束の回の数え直しを、かけたときでなく、いまの番号の立場で決める", "src/salescall/core/next_action.py",
+     "    dialed_window = recount_on_switch(dialed_window, was_replaced, target, numbers)",
+     "    dialed_window = recount_on_switch(dialed_window, dialed.contact_id in numbers.superseded, target, numbers)",
+     ("tests.test_settle.DialFixAfterCalls.test_a_promise_moved_after_talking_on_the_old_number_counts_its_rounds_again",)),
+    ("行の回数に数える電話を、かけたときでなく、いまの番号の立場で決める", "src/salescall/core/attempts.py",
+     '            f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)")',
+     '            f" AND NOT salescall.task_number_replaced({t}task_id, {t}contact_id)")',
+     ("tests.test_settle.DialFixAfterCalls.test_a_promise_moved_after_talking_on_the_old_number_counts_its_rounds_again",)),
+    ("前の番号でもうかけた約束の電話も、直したときに前の番号のままにする", "src/salescall/core/next_action.py",
+     "        if not _promise_tried(tx, task_id):", "        if True:",
+     ("tests.test_settle.DialFixAfterCalls.test_a_promise_already_tried_on_the_old_number_moves_at_the_fix",)),
+    ("お呼びする方を直していても、約束の時刻のまま戻す", "src/salescall/core/next_action.py",
+     "            or _target_changed_since(tx, task_id, _promise_since(tx, task_id)):", "            or False:",
+     ("tests.test_settle.DialFixAfterCalls.test_an_ended_promise_comes_back_at_its_time_from_the_first_day_unless_the_person_changed",)),
+    ("番号を直したときに戻す約束の行を、約束の時刻でなく、すぐのふつうの電話にする", "src/salescall/core/next_action.py",
+     '    if row is None or not row["promised"] or row["purpose"] not in ("normal", "resume") \\\n',
+     '    if True or row is None or not row["promised"] or row["purpose"] not in ("normal", "resume") \\\n',
+     ("tests.test_settle.DialFixAfterCalls.test_an_ended_promise_comes_back_at_its_time_from_the_first_day_unless_the_person_changed",)),
+    ("発信禁止を取り消して戻す行の予定を、番号を直したときと別の決め方で向ける（約束の電話もすぐ新しい番号へ）", "src/salescall/core/next_action.py",
+     '        target, window = _point(tx, r["task_id"], row, numbers_of(tx, r["task_id"]))',
+     '        target, window = current_dial(_plan_target(row), numbers_of(tx, r["task_id"])), window_of(row)',
+     ("tests.test_import.DialFixes.test_a_row_put_back_after_a_dnc_is_revoked_points_its_plan_like_a_fix",)),
+    ("番号違い・FAX の回線の発信禁止で門が終えた行を、番号を直しても戻さない", "src/salescall/core/next_action.py",
+     '    if end_reason == "dnc_client":', '    if False:',
+     ("tests.test_import.DialFixes.test_a_row_ended_by_a_number_only_dnc_comes_back",)),
+    ("追加の取込で、直した番号を同じ実施回の行として見ない", "src/salescall/core/importer.py",
+     '"  AND c.contact_id IN (t.contact_id, salescall.task_dial_contact(t.task_id))"', '"  AND c.contact_id = t.contact_id"',
+     ("tests.test_import.DialFixes.test_a_number_another_row_of_the_run_dials_is_not_taken",)),
+    ("かけた予定のままかけ直す道で、いまの番号へ向けない", "src/salescall/core/next_action.py",
+     "    target = _dialed_marks(target, row)   # いまの番号へ向ける（番号を直したあとは前の番号へかけない＝`_point`。⛔ 見直し (A) の5）",
+     "    target = _dialed_marks(dialed, row)",
+     ("tests.test_settle.DialFixAfterCalls.test_a_call_made_again_as_planned_after_a_fix_goes_to_the_new_number",)),
 )
 
 

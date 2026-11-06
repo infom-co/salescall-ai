@@ -11,6 +11,7 @@ import csv
 import io
 import threading
 import unittest
+from datetime import timedelta
 from unittest import mock
 
 from salescall.core import business_settings, conversation_io, customer_contacts, dnc, importer, next_action, row_fixes, settings, tasks
@@ -754,7 +755,8 @@ class DialFixes(CustomerContacts):
         """終えた行で番号を直したとき（2026-11-06 ユーザー）：番号のせい・決めた回数（日数）までかけて終えた行は、新しい番号へすぐかけて
         よい予定に戻る（ふつうの電話）。お客様が断った・業務を終えた行などは戻らない（next_action.reopens_on_dial_fix の1か所）。"""
         back = ("number_unusable", "alternate_wrong_again", "alternate_not_called", "alternate_blocked:dnc_client",
-                "ask_number_again_unanswered", "number_kind_forbidden", "other_contractor_called", "max_attempts", "policy_max:open",
+                "ask_number_again_unanswered", "number_kind_forbidden", "number_kind_not_allowed", "number_unknown",
+                "other_contractor_called", "other_client_promise_never", "max_attempts", "policy_max:open",
                 "callback_exact_unreached", "callback_unspecified_time")
         stay = ("completed", "declined", "do_not_call", "concluded", "out_of_scope", "complaint", "forbidden_speech", "other_means",
                 "not_reached_departed", "not_reached_who_unclear", "open", "declined_in_business", "dnc_client", "apology_done")
@@ -788,6 +790,68 @@ class DialFixes(CustomerContacts):
             with self.subTest(action=action), mock.patch.object(next_action, "_unspecified_policy",
                                                                 return_value=business_rules.Policy(action, 1, None)):
                 self.assertEqual(next_action.reopens_on_dial_fix(Tx(None), None, "callback_unspecified_time"), want)
+
+    def test_a_row_ended_by_a_number_only_dnc_comes_back(self):
+        """門が発信禁止で終えた行は、その番号の登録が番号違い・FAX の回線（その番号だけ）なら番号のせいなので、番号を直すと戻る。
+        お客様が断った・手で登録した番号は戻らない（⛔ 見直し (A) の8 (3)）。"""
+        for n, (reason, back) in enumerate((("wrong_party", True), ("fax_line", True), ("manual", False), ("refused_in_call", False))):
+            with self.subTest(reason=reason):
+                task = self.row(ref=f"D{n}")
+                old = self.tx(lambda tx: tasks.dial_number(tx, task))
+                self.tx(lambda tx: dnc.register(tx, old["phone_e164"], reason))
+                self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：門が発信禁止で終えた"))
+                got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+                p = self.plan(task)
+                self.assertEqual((p["kind"], p["contact_id"] if back else p["end_reason"]),
+                                 ("call", got["contact_id"]) if back else ("end", "dnc_client"))
+
+    def test_a_number_another_row_of_the_run_dials_is_not_taken(self):
+        """同じ実施回のほかの行がかけている番号へは直せない（1つの実施回で同じお客様は1行＝データベースの守り 0188）。追加の取込も、直した
+        番号を同じ実施回の行として見る（⛔ 見直し (A) の3）。"""
+        first, second = self.row(ref="A"), self.row(ref="B")
+        theirs = self.tx(lambda tx: tasks.dial_number(tx, second))["phone_e164"]
+        with self.assertRaises(row_fixes.FixInvalid):
+            self.tx(lambda tx: row_fixes.fix_dial_number(tx, first, theirs))
+        mine = fictional_jp_fixed()
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, first, mine))
+        r = self.register(csv_file([("Z", "架空商事", mine, None, None, None, None, None, None, None, None)], header=self.HEADER),
+                          mapping=self.MAP)
+        self.assertEqual(r["rows"][0]["reason_code"], "number_in_run_other_ref")
+
+    def test_a_second_fix_counts_again_and_drops_the_sub(self):
+        """2回直したとき：行の回数は、いちばん新しい直しから数え直す（salescall.task_count_from）。前の直しのあとに記録したサブが効かない
+        ことは、通話のある試験（test_settle.DialFixAfterCalls）で見る。記録した方は、いま操作している方（データベースの守り）。"""
+        task = self.row()
+        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        first = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        at_first = self.tx(lambda tx: tx.one("SELECT salescall.task_count_from(%s) AS t", (task,)))["t"]
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.assertGreater(self.tx(lambda tx: tx.one("SELECT salescall.task_count_from(%s) AS t", (task,)))["t"], at_first)
+        with self.assertRaises(Rejected) as e:
+            self.tx(lambda tx: tx.execute(
+                "INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by)"
+                " SELECT t.tenant_id, t.client_id, t.task_id, %s, 'だれか別の方' FROM salescall.tasks t WHERE t.task_id = %s",
+                (first["contact_id"], task)))
+        self.assertEqual(e.exception.constraint, "task_dial_fix_recorded_by")
+
+    def test_a_row_put_back_after_a_dnc_is_revoked_points_its_plan_like_a_fix(self):
+        """発信禁止を取り消して終える前の予定に戻すときも、番号を直したときと同じ1か所でいまの番号へ向ける：まだかけていない約束の電話は
+        前の番号のまま（⛔ 見直し (A) の7：前は約束の電話もすぐ新しい番号へ替えた）。"""
+        from tests import support
+        task = self.row(ref="V")
+        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=old["contact_id"], cause="試験：約束", promised=True))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        entry = self.tx(lambda tx: dnc.register(tx, old["phone_e164"], "manual"))
+        self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：門が発信禁止で終えた"))
+        ids = [r["entry_id"] for r in self.tx(lambda tx: tx.all(
+            "SELECT entry_id FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL", (old["phone_e164"],)))]
+        for i in ids:
+            self.tx(lambda tx: dnc.revoke(tx, i, "依頼者からの正式な求め（試験）"))
+        p = self.plan(task)
+        self.assertEqual((p["kind"], p["contact_id"], p["promised"]), ("call", old["contact_id"], True))
+        self.assertTrue(entry)
 
     def test_fixing_to_the_number_already_dialed_writes_nothing(self):
         task = self.row()

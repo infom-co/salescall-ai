@@ -3080,3 +3080,18 @@
 {"at": "2026-11-06T15:32:43+09:00", "who": "CL-2", "text": "Now tests for (C1)(C2) and the told check. Let me find the existing tests for the earlier-call facts."}
 {"at": "2026-11-06T15:33:21+09:00", "who": "CL-2", "text": "Tests pass. Now the mutations that must catch each of these judgements."}
 {"at": "2026-11-06T15:34:16+09:00", "who": "CL-2", "text": "(C) の直しは、試験も壊し試し7つもすべて期待どおりです。記録を足して上げます。"}
+{"at": "2026-11-06T15:34:35+09:00", "who": "CL-2", "text": "(C) は上げる準備ができました。次は (A) 番号の直しです。まず関係する作りを読みます。"}
+{"at": "2026-11-06T15:38:35+09:00", "who": "CL-2", "text": "Now the Python side, starting with the small pieces (counting range, sub record, designation record)."}
+{"at": "2026-11-06T15:38:47+09:00", "who": "CL-2", "text": "Now next_action: the designated number, the \"as of call time\" switch check, the single restart/pointing functions, and their callers."}
+{"at": "2026-11-06T15:39:18+09:00", "who": "CL-2", "text": "Now the single place that decides where a plan points after a number fix, and the single place that restarts a row on the new number."}
+{"at": "2026-11-06T15:40:17+09:00", "who": "CL-2", "text": "Next: after_call and after_denial (the old-number end → new number, and the call-time recount), plus the line-fault redo paths."}
+{"at": "2026-11-06T15:40:47+09:00", "who": "CL-2", "text": "First pass of (A) is written. Running the related test suites."}
+{"at": "2026-11-06T15:44:59+09:00", "who": "CL-2", "text": "Only the pure helper test needs its new signature. Then I'll write the tests for each (A) item; first, the existing helpers for these scenarios."}
+{"at": "2026-11-06T15:47:31+09:00", "who": "CL-2", "text": "Tests pass. Now mutations for each (A) judgement. First, is there an existing helper for \"the line was at fault\" calls (to watch the redo path)?"}
+{"at": "2026-11-06T15:47:49+09:00", "who": "CL-2", "text": "Now the mutations for (A)."}
+{"at": "2026-11-06T15:49:35+09:00", "who": "CL-2", "text": "The designated number no longer needs a Python copy at all; I'll remove the now-unused field and the unused \"now\" database function too, so nothing dead remains."}
+{"at": "2026-11-06T15:51:34+09:00", "who": "CL-2", "text": "The new test fails only after 15:35 Japan time (it passed earlier in the day). Let me look at why the next day's round isn't found."}
+{"at": "2026-11-06T15:52:45+09:00", "who": "CL-2", "text": "Now the remaining mutation for the revoked-DNC restore path, then rerun all (A) mutations."}
+{"at": "2026-11-06T15:53:58+09:00", "who": "CL-2", "text": "All 14 (A) mutations are caught. One test part was dead (the \"sub after a second fix\" check never ran in the import world, which has no calls). I'll move that check to the call-flow world."}
+{"at": "2026-11-06T15:54:55+09:00", "who": "CL-2", "text": "(A) is done: tests pass and all 15 mutations are caught. Now the records (design 3-4-1, 15-2, plan 7-1 with today's answers, contact book)."}
+{"at": "2026-11-06T15:55:28+09:00", "who": "CL-2", "text": "Now the contact-book entry for CL-3/CL-1, then commit (A) and run the wider tests."}

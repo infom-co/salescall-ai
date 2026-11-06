@@ -18,7 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import approval, next_action, readings, target_policy, tasks
-from salescall.core.access import Tx
+from salescall.core.access import Rejected, Tx
 from salescall.core.phone import normalize
 
 FIELDS = ("source_name", "target_name", "target_full_name", "target_role", "target_department")   # 0178 の CHECK と同じ
@@ -85,6 +85,11 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str) -> dict[str, Any]:
     blocked = target_policy.block_reason(tx, number, client_ref=t["client_ref"], **tasks.scope(tx, task_id))
     if blocked is not None:
         raise FixInvalid(f"この番号にはかけられません：{blocked[1]}")
-    tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company")
+    try:
+        tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company")
+    except Rejected as e:
+        if e.constraint != "task_dial_fix_one_row_per_number":   # 同じ実施回のほかの行がかけている番号（データベースの1か所＝0188）
+            raise
+        raise FixInvalid("その番号は、同じ実施回のほかの行がかけている番号です（1つの実施回で、同じお客様は1行）") from e
     next_action.after_dial_fix(tx, task_id, cause="ダッシュボードで、かける番号を直した")
     return tasks.dial_number(tx, task_id)

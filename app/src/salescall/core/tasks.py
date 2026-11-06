@@ -99,6 +99,11 @@ def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_atte
         (contact_id, number.e164, source_attempt_id, task_id))
     if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
         raise TaskNotFound(str(task_id))
+    # お客様がこの番号を指定した記録（行にもうあった番号でも書く。いちばん新しい直しより後の指定は、直した番号より先にかける＝
+    # salescall.task_designated_contact・next_action.current_dial。2026-11-06 ユーザー：「お客様の言った番号へ」。0188）
+    tx.execute("INSERT INTO salescall.task_designations (tenant_id, client_id, task_id, contact_id, attempt_id)"
+               " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s FROM salescall.tasks t WHERE t.task_id = %s",
+               (contact_id, source_attempt_id, task_id))
     return contact_id
 
 
@@ -127,7 +132,8 @@ def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
         "INSERT INTO salescall.task_sub_numbers (tenant_id, client_id, task_id, contact_id, attempt_id)"
         " SELECT a.tenant_id, a.client_id, a.task_id, a.contact_id, a.attempt_id FROM salescall.attempts a"
         " WHERE a.attempt_id = %s AND a.task_id = %s AND a.claimed_at >= salescall.task_count_from(a.task_id)"
-        "   AND salescall.task_number_replaced(a.task_id, a.contact_id)", (attempt_id, task_id))
+        "   AND salescall.task_number_replaced_at(a.task_id, a.contact_id, a.claimed_at)"   # かけたときの立場（0188。データベースも守る）
+        " ON CONFLICT (attempt_id) DO NOTHING", (attempt_id, task_id))   # 判定し直しで同じ通話をまた締めても1つ
 
 
 def record_confirmed_reading(tx: Tx, task_id: UUID, which: str, reading: str, *, attempt_id: UUID) -> None:
