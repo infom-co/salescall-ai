@@ -2267,6 +2267,13 @@ LINE_HOW_SENSES = {"ID": "LINEのIDから登録で大丈夫", "SMS": "SMSから�
 ROLE_SENSES = {"line_how": LINE_HOW_SENSES,
                "other_point": {POINT_AGREED["other_point"]: "ほかにご納得いただけない点は特に無い"},
                "agreed_now": {POINT_AGREED["agreed_now"]: "ご説明した内容でご納得いただけた"}}
+# システムの質問の、受け入れにも断りにも取れる言葉（AMBIGUOUS_WORDS）だけの答えが、その質問でどの選択肢の意味になるか（Question.reply_meanings。業務の質問は
+# 取込で質問の文から決める＝meanings.decide_replies。システムの質問は文が決まっているので役目ごとのこの表。callback_question が入れる唯一の表）。
+# ✅ 2026-11-06 日本時間18時51分27秒 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」お客様「大丈夫です。」（「結構です。」でも
+# 同じ形）こちら「ありがとうございます。続きまして（もしくは「次に」）ご訪問の日時のご希望はございますでしょうか？」」＝「ほかに…」（N2）への「大丈夫です」
+# 「結構です」は「分かった」（ほかに点は無い）。同じ質問への同じ種類の言葉（「いいです」「平気です」）も同じ。⛔ 16時台に入れた形は、意味合いを尋ねる一言
+# （ROLE_SENSES）で「大丈夫ですとおっしゃったのは…」と尋ねていた（10-17「前の質問で意味が決まればその意味」に当てていなかった）
+ROLE_REPLIES = {"other_point": {w: POINT_AGREED["other_point"] for w in AMBIGUOUS_WORDS}}
 # 続きの電話の始めのご説明の話し始めの言葉（「前回お伺いした（その点）の件ですが、」の頭。✅ 2026-11-04 日本時間19時26分 ユーザー「(A)…OK」＝Flow._point_note・
 # 受け取る所 _explain_problem の1か所）
 RESUMED_LEAD = "前回お伺いした"
@@ -2845,6 +2852,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         return Question(qid, text or lines[i], qtype, required=role == "line_how", conditions=tuple(meanings), recording=recording,
                         meanings=meanings, topic=topic, callback=role, declines=_ROLE_DECLINES.get(role, ()),
                         senses={c: w.removeprefix("ほかに") if first else w for c, w in ROLE_SENSES.get(role, {}).items() if c in meanings},
+                        reply_meanings={w: c for w, c in ROLE_REPLIES.get(role, {}).items() if c in meanings},
                         firm_not_needed=role in ("not_agreed", "other_point", "agreed_now", "line_how", "wait_or_later"),
                         asks_once=role in ("not_agreed", "other_point", "agreed_now"),
                         of=recap.id if recap is not None else "")

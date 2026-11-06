@@ -18120,6 +18120,33 @@ class ApprovalReviewTest(unittest.TestCase):
         self.assertEqual(g.point["outcome"], "agreed", heard(r))
 
 
+    def test_no_more_points_in_ambiguous_words_is_taken_without_asking(self):
+        # ✅ 2026-11-06 日本時間18時51分27秒 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」お客様「大丈夫です。」（「結構です。」でも
+        # 同じ形）こちら「ありがとうございます。続きまして（もしくは「次に」）ご訪問の日時のご希望はございますでしょうか？」」
+        # ⇒ 「ほかに…」（N2）への、受け入れにも断りにも取れる言葉だけの答えは、この質問では「分かった」（ほかに点は無い）の意味＝確かめずに受け取り、お礼と次の質問
+        #    （前の質問で意味が決まる言葉＝10-17・Question.reply_meanings。業務の質問は取込で決め、手順の質問は役目ごとの表 ROLE_REPLIES）。
+        #    ⛔ 16時台に入れた形は「大丈夫ですとおっしゃったのは、…意味合いでしょうか？」と尋ねていた
+        from flowctl import CALLBACK_IDS
+        from phrases import ACK
+        N1, N2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        heard = lambda r: (ACK[r["ack"]] if r.get("ack") else "") + "".join(p.get("text", "") for p in r.get("play") or [])
+        for words in ("大丈夫です。", "結構です。", "いいです。"):
+            for ai in ("分かった", "分からない点がある"):   # 会話AIの選んだ答えによらない（この言葉の意味は質問で決まる）
+                f = self.flow()
+                self.say(f, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+                f.apply("replay_opening", {"part": "料金"})
+                f.on_callee(); f.on_heard("そうなんですね。"); f.apply("replay_opening", {"part": "resume"})
+                r = self.say(f, words, "分かった", "record_answer", question_id=N2, condition_id=ai)
+                self.assertEqual((r["result"], heard(r)), ("next", "ありがとうございます。続きましてご訪問の日時のご希望はございますでしょうか？"), (words, ai))
+                self.assertEqual((f.point["outcome"], f.export()["Q2"]), ("agreed", "はい"), words)
+        # 判定がお断りと読めば、言葉の意味より判定（今までどおり確かめる＝受け取らない）
+        f = self.flow()
+        self.say(f, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        f.apply("replay_opening", {"part": "料金"})
+        f.on_callee(); f.on_heard("そうなんですね。"); f.apply("replay_opening", {"part": "resume"})
+        r = self.say(f, "結構です。", "断ろうとしている", "record_answer", question_id=N2, condition_id="分かった")
+        self.assertNotEqual(r["result"], "next")
+
     def test_point_answers_are_asked_in_sense_toward_agreement(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（ご承認の持ち場）：「ほかにご納得いただけない点はございますでしょうか？」への「大丈夫です。」（曖昧な答え＝10-17）に、
         #    「はい、恐れ入ります。ほかにご納得いただけない点をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き直していた＝ご承認の手順には、意味合いを
@@ -18131,8 +18158,10 @@ class ApprovalReviewTest(unittest.TestCase):
         self.say(f, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
         f.apply("replay_opening", {"part": "料金"})
         f.on_callee(); f.on_heard("そうなんですね。"); f.apply("replay_opening", {"part": "resume"})
-        r = self.say(f, "大丈夫です。", "分かった", "record_answer", question_id=N2, condition_id="分かった")
-        self.assertEqual((r["result"], r["say"]), ("confirm_required", "大丈夫ですとおっしゃったのは、ほかにご納得いただけない点は特に無いという意味合いでしょうか？"), r)
+        # 「大丈夫です。」「結構です。」だけの答えは、この質問では意味が決まる（✅ 18時51分27秒＝test_no_more_points_in_ambiguous_words_is_taken_without_asking）。
+        # 意味合いを尋ねるのは、判定がご納得の向きに読み、会話AIの報告と食い違ったとき（言葉が「大丈夫です」だけではないとき）
+        r = self.say(f, "あ、それで大丈夫だと思います。", "分かった", "record_answer", question_id=N2, condition_id="分からない点がある")
+        self.assertEqual((r["result"], r["say"]), ("confirm_required", "あ、それで大丈夫だと思いますとおっしゃったのは、ほかにご納得いただけない点は特に無いという意味合いでしょうか？"), r)
         r = self.say(f, "はい、そうです。", None, "confirm_field", question_id=N2, result="affirmed")
         self.assertEqual((f.point["outcome"], f.export()["Q2"]), ("agreed", "はい"))
         # お断りの読み（遠ざかる向き）には言葉を作らない：今までどおり聞き直す
