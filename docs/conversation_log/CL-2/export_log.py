@@ -40,8 +40,14 @@ def human_text(c) -> str:
 def from_session(path: Path):
     """1つの会話の記録から (時刻, 誰, 発言) を順に返す（どれをご発言とするかは、この1か所）。"""
     seen = set()
-    for line in path.open(encoding="utf-8"):
-        d = json.loads(line)
+    for n, line in enumerate(path.open(encoding="utf-8", errors="replace"), 1):
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:
+            # 書いている途中でディスクがいっぱいになると、記録の1行が途中で切れて次の行とつながる（2026-11-07 夜に起きた）。
+            # 読めない行は飛ばし、飛ばしたことを必ず知らせる（黙って捨てない）
+            print(f"⚠️ {path.name} の {n} 行目は壊れていて読めないので飛ばしました", file=sys.stderr)
+            continue
         if d.get("isSidechain") or d.get("uuid") in seen:
             continue
         seen.add(d.get("uuid"))
