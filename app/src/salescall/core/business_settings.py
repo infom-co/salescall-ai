@@ -376,23 +376,29 @@ class TargetNeeds:
         if self.role and not role:
             return ("target_role_missing", "目的のお客様の役職がありません（この業務は、目的のお客様を役職で呼びます）")
         if self.role and role_problem(role) is not None:
-            return ("target_role_missing", role_problem(role))
+            return ("target_role_unclear", role_problem(role))
         return None
 
 
 # 何の担当かを持たない「担当」だけの役職（敬語の頭・後ろを外した形）。✅ 2026-11-05 日本時間20時29分50秒 ユーザー：「「ご担当の方は
 # いらっしゃいますでしょうか？」って、何のご担当者かわからない質問をしても相手はこたえられないでしょ！」・20時42分50秒：役職の欄には
 # 役割も書ける（「～のご担当者様」「～をされているご担当者様」「～を受け持ちのご担当者様」）。CL-2 の連絡帳 4-216・Intent.md 7-1
-_BARE_TANTOU = re.compile(r"^(?:ご|御)?担当(?:者)?(?:の)?(?:方|者|様|さま|殿)*$")
+# 後ろに付く敬称・呼び方は、ひらがなと漢字の両方（方・かた・方々・かたがた・者・様・さま・さん・殿・どの・各位・宛・あて・御中・
+# 皆様・みなさま。⛔ 2026-11-07 の第三者の見直し (2) の7：「ご担当のかた」「担当者さん」「ご担当者さん」「ご担当の方々」「ご担当者各位」を
+# 通していた）。間に入る「の」「へ」も外す（「ご担当の方へ」「担当者様宛」）
+_TANTOU_TAIL = r"(?:方々|かたがた|方|かた|者|様|さま|さん|殿|どの|各位|宛て?|あて|御中|皆様|皆さま|みなさま|の|へ)"
+_BARE_TANTOU = re.compile(rf"^(?:ご|御)?担当{_TANTOU_TAIL}*$")
+# 役職が使えない理由の、役職によらない部分（門の説明 core/gate.py の target_role_unclear と、`role_problem` が読む1か所）
+ROLE_UNCLEAR = ("何のご担当か分からない役職は使えません（お客様が答えられないため）。"
+                "「〇〇のご担当者様」のように、何の担当かを書いてください")
 
 
 def role_problem(role: str) -> str | None:
-    """目的のお客様の役職として使えない理由（使えれば None。判断はここだけ＝業務設定の役職と、お客様リストの行の役職の両方）。
-    「ご担当者」「ご担当の方」「担当者様」など、何の担当かが無いものは使えない。"""
+    """目的のお客様の役職として使えない理由（使えれば None。判断はここだけ＝業務設定の役職・お客様リストの行の役職・ダッシュボードで
+    直す行の役職＝core/row_fixes.fix）。「ご担当者」「ご担当の方」「担当者様」など、何の担当かが無いものは使えない。"""
     text = re.sub(r"\s+", "", unicodedata.normalize("NFKC", role))
     if _BARE_TANTOU.match(text):
-        return (f"役職「{role}」は、何のご担当か分からないので使えません（お客様が答えられないため）。"
-                "「〇〇のご担当者様」のように、何の担当かを書いてください")
+        return f"役職「{role}」：{ROLE_UNCLEAR}"
     return None
 
 
@@ -615,8 +621,10 @@ def _kana(v: Any) -> bool:
     return isinstance(v, str) and readings.normalize(v) == v
 
 
-def _names_entry(x: Any, where: str, problems: list[str], *, ai_reading_needs_person: bool) -> Name | None:
-    """名前の一覧の1つ（形の確かめはここだけ）。"""
+def _names_entry(x: Any, where: str, problems: list[str], *, ai_reading_needs_person: bool,
+                 placed: frozenset[tuple[str, str]] = frozenset()) -> Name | None:
+    """名前の一覧の1つ（形の確かめはここだけ）。placed＝前に置いた版の、AI が決めた読みの (表記, 読み)（置いたときに確かめた＝確かめ
+    直さない。`check` の説明）。"""
     if not isinstance(x, dict) or set(x) != NAME_KEYS or x.get("source") not in NAME_SOURCES:
         problems.append(f"{where}は {sorted(NAME_KEYS)} です（source は {list(NAME_SOURCES)}）")
         return None
@@ -632,7 +640,7 @@ def _names_entry(x: Any, where: str, problems: list[str], *, ai_reading_needs_pe
     elif not _kana(reading) or by not in NAME_BY or cands or likely is not None:
         problems.append(f"{where}の読みは、ひらがなで、読みを決めたもの（{list(NAME_BY)}）と組です（決まった読みには候補を付けません）")
         return None
-    if by == "ai" and ai_reading_needs_person:
+    if by == "ai" and ai_reading_needs_person and (str(x["text"]).strip(), reading) not in placed:
         problems.append(f"名前「{x['text']}」の読み「{reading}」は AI が決めた読みです。検証モードでは、契約者が確かめてから使います"
                         "（Intent.md 6-8）")
     return None if text is None else Name(text, reading, x["source"], by, tuple(cands), likely)
@@ -792,10 +800,12 @@ def _answer_words(raw: Any, type_name: str, choices: tuple[str, ...], where: str
 
 
 def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_reading_needs_person: bool,
-          voice_types: frozenset[str] | None = None) -> Settings:
+          voice_types: frozenset[str] | None = None, placed_names: Any = ()) -> Settings:
     """業務設定を確かめて読む（ただ1つの確かめ。業務の決まりは版を作るときに business_rules が確かめる）。
     ai_reading_needs_person：AI の読みの案を、契約者が確かめていなければ通さないか（版を作るときは設定 `ai_reading_needs_person`
-    の答え。置いた版を読むときは False＝置いた時に確かめ済み）。standard＝重ねる標準の版（新しい版はいまの標準＝`current_standard`、
+    の答え。置いた版を読むときは False＝置いた時に確かめ済み）。placed_names＝この中身の元にした版に置いた名前の一覧（版を足す＝`derive`・
+    依頼者の解決策＝core/client_solutions）：同じ表記・同じ読みの名前は、置いたときの確かめを信じて、検証モードでも確かめ直さない
+    （⛔ 2026-11-07 の第三者の見直し (2) の3：検証モードに切り替えたあと、前からある AI の読みのせいで、解決策・標準の版を足せなかった）。standard＝重ねる標準の版（新しい版はいまの標準＝`current_standard`、
     置いた版は、その版が指す標準の版。重ね方は `_with_standard` の1か所）。合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
     problems: list[str] = []
     if not isinstance(raw, dict) or not KEYS <= set(raw) <= KEYS | OPTIONAL_KEYS:
@@ -808,11 +818,13 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
         problems.append("お客様が個人の業務は、まだ選べません（法令の確かめ＝計画書 13章が済み、名乗りの法定事項と拒否の即時登録を"
                         "システムが強制する形を作ってから開きます。いまは法人だけ）")
     names: list[Name] = []
+    placed = frozenset((x["text"].strip(), x["reading"]) for x in (placed_names or ())
+                       if isinstance(x, dict) and isinstance(x.get("text"), str) and x.get("reading_by") == "ai")
     if not isinstance(raw["names"], list):
         problems.append("名前の一覧（names）は並びです")
     else:
         for n, x in enumerate(raw["names"], 1):
-            nm = _names_entry(x, f"名前 {n} 番目", problems, ai_reading_needs_person=ai_reading_needs_person)
+            nm = _names_entry(x, f"名前 {n} 番目", problems, ai_reading_needs_person=ai_reading_needs_person, placed=placed)
             if nm is not None:
                 names.append(nm)
         if len({n.text for n in names}) != len(names):   # 同じ表記に読みが2つあると、どちらで言うか決まらない
@@ -1355,13 +1367,21 @@ def _content(s: Settings) -> dict[str, Any]:
     return dict(content, names=[dict(x, text=x["text"].strip()) for x in content.get("names", [])])
 
 
-def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any], *, standard_id: UUID | str | None = LATEST) -> UUID:
+def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any], *, standard_id: UUID | str | None = LATEST,
+                 placed_names: Any = ()) -> UUID:
     """業務設定を確かめて、新しい版を作る（1つの取引。確かめに通らなければ何も置かない）。版の番号を返す。standard_id＝重ねる標準の版
     （LATEST＝いまの標準。取込は契約者がプレビューで見た標準の版を渡す・前の版から作るときは、その版の標準の版を渡す。None＝標準を
-    使わない）。版は、その標準の版を指す（0174）。"""
+    使わない）。版は、その標準の版を指す（0174）。placed_names＝元にした版に置いた名前（`check`。版を足す `derive` が渡す）。
+    中身をそのまま写す道（`save_from`）は、ここを通らない（置いたときの確かめを信じる）。"""
     std = current_standard(tx) if standard_id == LATEST else standard(tx, standard_id)
     s = check(raw, standard=std, field_types=_field_types(tx), ai_reading_needs_person=ai_reading_needs_person(tx, business_id),
-              voice_types=voice_types(tx))
+              voice_types=voice_types(tx), placed_names=placed_names)
+    return _place(tx, business_id, s, std)
+
+
+def _place(tx: Tx, business_id: UUID, s: Settings, std: Standard) -> UUID:
+    """確かめた業務設定を、その業務の新しい版として置く（版・質問・業務の決まり・中身。置くのはここだけ＝`save_version` と、中身を
+    そのまま写す `save_from`）。"""
     version = tx.one(
         "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, created_by, standard_id)"   # 版の番号はデータベースが決める（next_seq。0123）
         " SELECT b.tenant_id, b.client_id, b.business_id, salescall.cur_actor(), %s"
@@ -1374,7 +1394,7 @@ def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any], *, standard_id:
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s)",
                    (vid, q.id, n, q.type, q.required))
     try:
-        business_rules.save(tx, vid, raw["rules"])
+        business_rules.save(tx, vid, s.raw["rules"])
     except business_rules.RulesInvalid as e:
         raise SettingsInvalid([f"業務の決まり：{e}"]) from None
     tx.execute("INSERT INTO salescall.business_contents (tenant_id, client_id, version_id, content, saved_by)"
@@ -1505,15 +1525,26 @@ def restore(tx: Tx, version_id: UUID) -> UUID:
 
 
 def save_from(tx: Tx, business_id: UUID, version_id: UUID) -> UUID:
-    """いまある版から、その業務の新しい版を作る（以前の版へ戻す・業務を複製する、の1か所）。中身は置いたときと同じ確かめで読み直し、
-    契約者が録音を聞いて選んだ名前の読みも引き継ぐ（読みは版ごとの表にあり、版の中身には入っていない。⚠️ 前は中身だけを写したので、
-    戻した版・複製した版では読みが決まらない名前に戻り、契約者が選び直すまで、その名前を話す録音が使えなかった＝見直し8）。"""
+    """いまある版の写しを、その業務の新しい版として作る（中身をそのまま写す道の1か所：以前の版へ戻す・手で前の版に戻す＝`assign`・業務を
+    複製する）。中身は `load` と同じく置いたときの確かめを信じて読み、確かめ直さない（⛔ 2026-11-07 の第三者の見直し (2) の3：前は版を
+    作るのと同じ確かめ＝`save_version` を通したので、検証モードに切り替えたあと、前からある AI の読みのせいで前の版へ戻せなかった）。
+    標準も、その版が指す標準の版のまま（替えるのは (5) の1か所）。写しの元を残し（version_copies＝版の元の1か所。0197）、契約者が録音を
+    聞いて選んだ名前の読みも引き継ぐ（読みは版ごとの表にあり、版の中身には入っていない。⚠️ 前は中身だけを写したので、戻した版・複製した
+    版では読みが決まらない名前に戻り、契約者が選び直すまで、その名前を話す録音が使えなかった＝見直し8）。"""
     old = load(tx, version_id)
-    new = save_version(tx, business_id, old.raw, standard_id=old.standard_id)   # 標準も、その版が指す標準の版のまま（替えるのは (5) の1か所）
+    new = _place(tx, business_id, old, standard(tx, old.standard_id))
+    tx.execute("INSERT INTO salescall.version_copies (tenant_id, client_id, version_id, copied_from, recorded_by)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (new, version_id))
     from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
     recordings.carry_readings(tx, version_id, new)
-    recordings.carry(tx, version_id, new)   # 中身が同じなので、元の版の録音をそのまま引き継ぐ（電話を止めない。0194・計画書 6-1 (4)）
+    recordings.carry(tx, new)   # 中身が同じなので、元の版の録音をそのまま引き継ぐ（電話を止めない。0194・計画書 6-1 (4)）
     return new
+
+
+def version_origins(tx: Tx, version_id: UUID) -> list[UUID]:
+    """その版の元をたどった版（近い順。版の元＝つながりの前の版か、写しの元。たどるのはデータベースの関数 salescall.version_origins の
+    1か所＝0197）。録音の引き継ぎ（core/recordings）が読む。"""
+    return [r["version_id"] for r in tx.all("SELECT version_id FROM salescall.version_origins(%s) ORDER BY depth", (version_id,))]
 
 
 def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
@@ -1623,12 +1654,10 @@ KEEP = "keep"   # derive の standard：元の版が指す標準の版のまま
 
 
 def successor_tip(tx: Tx, version_id: UUID) -> UUID:
-    """その版から、版のつながり（version_successions）をたどった、いちばん後の版（後の版が無ければ、その版）。"""
-    row = tx.one(
-        "WITH RECURSIVE chain(v, depth) AS (SELECT %s::uuid, 0"
-        "  UNION ALL SELECT s.to_version, c.depth + 1 FROM salescall.version_successions s JOIN chain c ON s.from_version = c.v)"
-        " SELECT v FROM chain ORDER BY depth DESC LIMIT 1", (version_id,))
-    return row["v"]
+    """その版から、版のつながり（version_successions）をたどった、いちばん後の版（後の版が無ければ、その版）。「先」を決めるのは
+    データベースの関数 salescall.version_tip の1か所（0197。⛔ 前は同じ再帰の問い合わせが、ここ・`adopt_ready`・データベースの
+    client_solution_line_guard の3か所に写されていた）。"""
+    return tx.one("SELECT salescall.version_tip(%s) AS v", (version_id,))["v"]
 
 
 def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str, Any]], *, cause: str, note: str,
@@ -1645,8 +1674,8 @@ def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str
     base = successor_tip(tx, version_id)
     old = load(tx, base)
     business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (base,))["business_id"]
-    new = save_version(tx, business, change(copy.deepcopy(old.raw)),
-                       standard_id=old.standard_id if standard_id == KEEP else standard_id)
+    new = save_version(tx, business, change(copy.deepcopy(old.raw)),   # 名前は、元の版に置いたものを確かめ直さない（`check`）
+                       standard_id=old.standard_id if standard_id == KEEP else standard_id, placed_names=old.raw.get("names"))
     from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
     recordings.carry_readings(tx, base, new)
     tx.execute("INSERT INTO salescall.version_successions (tenant_id, client_id, business_id, from_version, to_version, cause, note,"
@@ -1654,7 +1683,7 @@ def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, salescall.cur_actor())",
                (business, base, new, cause, note.strip()))
     # 変わっていない部分は元の版の録音を引き継ぐ（写しと同じ1か所。変わった部分だけ録音していただく＝契約者に知らせる。0194・計画書 6-1 (4)）
-    recordings.carry(tx, base, new)
+    recordings.carry(tx, new)
     return new
 
 
@@ -1719,12 +1748,8 @@ def adopt_ready(tx: Tx, run_id: UUID | None = None) -> list[tuple[UUID, UUID]]:
         if run_id is not None and r["run_id"] != run_id:
             continue
         now_voices = set(recordings.ready_voices(tx, r["version_id"]))
-        chain = tx.all(
-            "WITH RECURSIVE chain(v, cause, note, depth) AS ("
-            "  SELECT s.to_version, s.cause, s.note, 1 FROM salescall.version_successions s WHERE s.from_version = %s"
-            "  UNION ALL SELECT s.to_version, s.cause, s.note, c.depth + 1"
-            "  FROM salescall.version_successions s JOIN chain c ON s.from_version = c.v)"
-            " SELECT v, cause, note FROM chain ORDER BY depth DESC", (r["version_id"],))
+        chain = tx.all("SELECT version_id AS v, cause, note FROM salescall.version_line(%s) ORDER BY depth DESC",   # 0197 の1か所
+                       (r["version_id"],))
         for c in chain:
             voices = set(recordings.ready_voices(tx, c["v"]))
             if not voices or not voices >= now_voices:
@@ -1750,9 +1775,10 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
     problems = assign_problems(tx, run_id, version_id)
     if problems:                                     # 目的のお客様を呼べない行を残したまま、版を替えない（全部か、何も無いか）
         raise SettingsInvalid(problems)
-    if not auto and tx.one("SELECT 1 FROM salescall.version_successions WHERE from_version = %s", (version_id,)):
+    if not auto and successor_tip(tx, version_id) != version_id:
         business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["business_id"]
         version_id = save_from(tx, business, version_id)   # 写しの中身は同じ（割り当てられない理由も同じ）
+    before = tx.one("SELECT salescall.run_current_version(%s) AS v", (run_id,))
     row = tx.one(
         "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason, auto)"   # 番号は
         " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"                                                           # next_seq（0109）
@@ -1760,6 +1786,11 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
         (version_id, reason, auto, run_id))
     if row is None:
         raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
+    if not auto and before is not None and before["v"] is not None and before["v"] != version_id:
+        # 手で版を替えた：前の版の流れにあって、この版に無い依頼者の解決策を「手で外した」と残す（取り込み直しでも自動では入れない＝
+        # ✅ 2026-11-07 ユーザー「契約者が確かめる」。決めるのは client_solutions.removed_by_hand の1か所）
+        from salescall.core import client_solutions   # 解決策の部品が業務設定を読むので、ここで読む（読み合いにしない）
+        client_solutions.removed_by_hand(tx, before["v"], version_id)
     # 前の版で取った、まだ発信していない予約を取り消す（門の前提が変わったときの決まり＝DESIGN.md 5-2-1 の2。
     # 取り消さないと、前の版で最大30秒かけうる。2026-10-16 の見直し G7）
     attempts.release(tx, [r["attempt_id"] for r in tx.all(

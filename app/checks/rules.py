@@ -544,6 +544,10 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("client_solutions", "add"): frozenset({WEB_PLACE}),   # 依頼者の解決策を足す：画面だけ（契約者が書く・返った報告を取り込む。0184）
     ("client_solutions", "add_earlier"): frozenset({WEB_PLACE}),   # 流れに入っていない前の解決策を、契約者が選んで足す：画面だけ（0194）
     ("recordings", "carry"): frozenset({_CORE + "business_settings.py"}),   # 版を作ったあと録音を引き継ぐ：版を作る道（写し・版を足す）だけ（0194）
+    # 取り込み直した中身で置き換えられた解決策を残す：取込の登録の共通の1か所（business_import.register_shaped）だけ（0197）
+    ("client_solutions", "replaced"): frozenset({_CORE + "business_import.py"}),
+    # 手で外した解決策を残す：版を手で割り当てる1か所（business_settings.assign）だけ（0197）
+    ("client_solutions", "removed_by_hand"): frozenset({_CORE + "business_settings.py"}),
     ("business_settings", "derive_for_standard"): frozenset({_SUP + "jobs.py"}),
     # 版を足す・割り当てる（見直し(B) の4）：版を足すのは解決策の1か所（ほかは business_settings の中＝標準・自動の替え）。手の割り当ては
     # 実施回を作る所と画面だけ（自動の印 auto はデータベースがシステムの処理だけに守る＝0189）

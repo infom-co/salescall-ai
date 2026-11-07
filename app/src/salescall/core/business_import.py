@@ -2,9 +2,9 @@
 
 入口ごとに、業務設定の1つの形（core/business_settings.py の `check` が受ける形）にするだけ。入口は、Excel のファイル
 （標準のひな形。シートと列の名前は、依頼者の形に合わせて対応付けられる＝`preview`）と、依頼者の画面から抜き出したもの・画面の
-入力（同じ形を作って `review` に渡す。2026-10-16 ユーザー：「依頼主の画面から抽出する場合もある」）。**どの入口も `review`
-（確かめ）と `register_reviewed`（登録）の同じ道を通る**。確かめそのものは business_settings の1か所。ファイルを読むのは
-core/import_files.py。
+入力（同じ形を作って `preview_shaped` に渡す。2026-10-16 ユーザー：「依頼主の画面から抽出する場合もある」）。**どの入口も
+`preview_shaped`（解決策を残す → AI に聞く → 確かめ `review`）と `register_shaped`（解決策を残す → 確かめ → 登録 `register_reviewed`）の
+同じ道を通る**。確かめそのものは business_settings の1か所。ファイルを読むのは core/import_files.py。
 
 流れ（Intent.md 6-5）：`preview`（何も書かない）⇒ 契約者が問題を直す（検証モードでは、AI の読みの案も確かめる）⇒ `register`
 （プレビューと同じ中身のときだけ、新しい版を作る。全部か、何も無いか）。
@@ -708,10 +708,10 @@ def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
             and not q.get("unit") and isinstance(q.get("text"), str) and q["text"].strip()]
 
 
-SPOKEN_WORDS = ("meanings", "do_words", "tell_words")   # 質問の、選択肢ごとの声になる言葉（`_script` が台本に入れる）
+SPOKEN_WORDS = ("meanings", "do_words", "tell_words")   # 質問の、選択肢ごとの声になる言葉（`script` が台本に入れる）
 
 
-def _script(raw: dict[str, Any]) -> str:
+def script(raw: dict[str, Any]) -> str:
     """名前を洗い出す台本（業務設定の文をまとめたもの。名乗り・用件・目的・忙しいときの一言・留守番電話の伝言・「AIですか」への答え・
     想定問答の答え（録音で話すので、名前の読みが要る）・業務の情報（AI が自分の言葉で答える材料。会話の側も名前の読みへ置き換えて
     渡す＝CL-1 の連絡帳 4-29：「港区」をAIの声で言うと3本中1本しか聞き取れず、ひらがなの読みで渡すと6本中6本）・質問の文と質問に入る一言
@@ -719,7 +719,8 @@ def _script(raw: dict[str, Any]) -> str:
     言葉（意味の言葉・こちらがすることの言葉・その答えのあとに伝える一言＝`SPOKEN_WORDS`。どれも「それでは（言葉）…」などで声になる。⛔ 2026-11-03 まで
     入れていなかった＝依頼者が書いた「○○駐車場をご利用いただけます…」の名前に読みが付かなかった。取込の AI が決める言葉は質問の文と選択肢から
     作るので、台本の名前の中にある）・入口の名前）。
-    最短の日の場所（`business_settings.DAY_SLOT`）は外す（声になるのは会話の側が置き換えた言い方＝名前ではない）。"""
+    最短の日の場所（`business_settings.DAY_SLOT`）は外す（声になるのは会話の側が置き換えた言い方＝名前ではない）。
+    録音の引き継ぎ（core/recordings._changes）も、足した名前を答えのほかの文が話すかを、これで見る（台本の作り方は1か所）。"""
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
              caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line"), raw.get("voicemail_message"),
@@ -748,7 +749,7 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
     facts = _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)
     meanings = _decided_pairs(raw, "meanings", decide_meanings)   # こちらがすることの言葉の向きを、意味の言葉の向きとそろえるので先に
-    return {"names": readings.to_json(readings.find(_script(raw), find_names)),
+    return {"names": readings.to_json(readings.find(script(raw), find_names)),
             "units": _decided_units(raw, decide_units),
             "topics": _decided(sorted({q["text"] for q in _topic_questions(raw)}), decide_topics),
             "meanings": meanings,
@@ -763,14 +764,19 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
            ai: dict[str, Any] | None = None, problems: list[str] | None = None,
-           where: dict[str, list[str]] | None = None, standard_id: UUID | str | None = business_settings.LATEST) -> Preview:
-    """業務設定の形を確かめる（どの入口も、ここを通る：ファイル・依頼者の画面から抜き出したもの・画面の入力）。何も書かない。
-    AI には聞かない（AI の答えは `ask_ai` で1回だけ聞いて、ai に渡す）。
+           where: dict[str, list[str]] | None = None, standard_id: UUID | str | None = business_settings.LATEST,
+           placed_names: Any = ()) -> Preview:
+    """業務設定の形を確かめる（どの入口も、ここを通る：取込の入口＝`preview_shaped`・`register_shaped` と、依頼者の解決策を足す道＝
+    core/client_solutions）。何も書かない。AI には聞かない（AI の答えは `ask_ai` で1回だけ聞いて、ai に渡す）。
+    - placed_names＝この中身の元にした版に置いた名前（依頼者の解決策を足すとき）：同じ表記・同じ形の名前は、置いた版のまま変えない
+      （AI の読みを読み直さない・検証モードでも確かめ直さない。⛔ 2026-11-07 の第三者の見直し (2) の1：前は台本全体の名前を探し直して、
+      版の名前の一覧が増え、前からある名前の AI の読みも変わりえた＝録音を引き継げなかった）。
     - 名前と読み：入口の名前に、AI が洗い出した名前を足す（同じ表記は1つ）。読みの決め方は core/readings.py の1か所（入口の読み
       ＞契約者が確かめた読み＞AI が決めた読み＞決まらない＝候補つき）。検証モードの業務では、AI が決めた読みを契約者が確かめる
       （確かめていなければ問題に出る）。名乗りの自社名・担当者名の読みは、名前の一覧の読みの写し。
     - 数の質問の単位：入口が持ってこなければ、AI の答えの単位を入れる（無ければ空）。
-    - 依頼者の解決策で足した想定問答を、取り込み直しても残すのは、ファイルの入口の `_from_file`（AI に名前を探させる前に足す）。ここではしない。
+    - 依頼者の解決策で足した想定問答を、取り込み直しても残すのは、取込の入口の共通の1か所 `preview_shaped`・`register_shaped`（AI に名前を
+      探させる前に足す）。ここではしない。
     standard_id＝重ねる標準の版（LATEST＝いまの標準＝入口の取込。解決策のように前の版から作るときは、その版の標準の版を渡す＝標準を
     替えるのは business_settings.derive_for_standard の1か所。見直し(B) の2）。"""
     problems = list(problems or [])
@@ -787,6 +793,7 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     listed = isinstance(raw.get("names"), list) or raw.get("names") is None
     names = list(raw.get("names") or []) if listed else []
     have = {unicodedata.normalize("NFKC", n["text"]) for n in names if _is_name(n)}
+    placed = {unicodedata.normalize("NFKC", n["text"]): n for n in (placed_names or ()) if _is_name(n)}
     for text in sorted(found) if listed else ():                     # AI が洗い出した名前（入口に無いもの）
         if unicodedata.normalize("NFKC", text) not in have:
             names.append({"text": text, "reading": None, "source": "script"})
@@ -804,7 +811,7 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
                     and not (c["text"] in copied and copied[c["text"]] == readings.normalize(c["reading"]))}
     to_confirm = []
     for n in names:
-        if not _is_name(n):
+        if not _is_name(n) or placed.get(unicodedata.normalize("NFKC", n["text"])) == n:   # 置いた版のまま
             continue
         # 入口が持ってきた読みは、読みを決めたものが入口（または無い）の読みだけ。プレビューの形をもう一度確かめたとき、
         # AI の読み・契約者が確かめた読みを入口の読みにしない（2026-10-16 の見直し I1：検証モードの確かめが抜けた）
@@ -873,7 +880,8 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     notes: list[str] = []
     try:
         s = business_settings.check(raw, standard=standard, field_types=_field_types(tx),   # 確かめは1か所
-                                    ai_reading_needs_person=verification, voice_types=business_settings.voice_types(tx))
+                                    ai_reading_needs_person=verification, voice_types=business_settings.voice_types(tx),
+                                    placed_names=placed_names)
         notes = business_settings.notices(raw) + [
             f"質問 {q.id} の選択肢「{a}」は目的から遠ざかる向きなので、書いてあるこちらがすることの言葉「{written[q.id][a]}」は使いません"
             "（その向きの言葉では言い直しません。目的につなげて伺いたいときは「言い切っていないときに伺う質問」に書きます）"
@@ -895,17 +903,42 @@ def _digest(business_id: UUID, raw: dict[str, Any] | None, problems: list[str], 
                                      ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
-def _from_file(tx: Tx, business_id: UUID, sheets: Any, problems: list[str], notes: list[str] | None = None):
-    """ファイルの入口の中身（取り込み直し）：シートを業務設定の形にし、依頼者の解決策で足した想定問答を残す（✅ 2026-11-06 ユーザー
-    「残す」。中身に同じ問いがあれば中身が先＝client_solutions.keep_in の1か所）。残すのは、AI に名前を探させる前（⛔ 2026-11-06 の
-    2回目の見直し (3) の A-1：前は確かめ `review` の中で足していて、残した文の名前が洗い出されず、検証モードの読みの確かめも抜けた）。
-    プレビューと登録の両方がここを通る（同じ中身＝指紋が合う）。(中身, 問題, 位置, 残した知らせ) を返す。"""
+def _kept(tx: Tx, business_id: UUID, raw: Any) -> tuple[Any, list[str], list[UUID]]:
+    """取り込み直した中身に、依頼者の解決策で足した想定問答を残す（✅ 2026-11-06 ユーザー「残す」。中身に同じ問いがあれば中身が先＝
+    client_solutions.keep_in の1か所）。(中身, 残した知らせ, 取り込んだ中身が先になった解決策) を返す。"""
     from salescall.core import client_solutions   # 解決策の部品が取込を読むので、ここで読む（読み合いにしない）
-    raw, problems, where = _to_raw(sheets, problems, notes)
-    kept: list[str] = []
     if isinstance(raw, dict) and (raw.get("answers") is None or isinstance(raw.get("answers"), list)):
-        raw, kept = client_solutions.keep_in(tx, business_id, raw)
-    return raw, problems, where, kept
+        return client_solutions.keep_in(tx, business_id, raw)
+    return raw, [], []
+
+
+def preview_shaped(tx: Tx, business_id: UUID, raw: Any, *, problems: list[str] | None = None,
+                   where: dict[str, list[str]] | None = None, confirmed_names: Any = (), **deciders: Any) -> Preview:
+    """業務設定の形にした中身のプレビュー（取込のどの入口も通る共通の1か所：ファイル＝`preview`・⏳ 依頼者の画面から抜き出したもの
+    （方式C）・業務の資料一式・画面の入力）。何も書かない。形にしたあと、AI に聞く前に、依頼者の解決策で足した想定問答を残し（`_kept`。
+    ⛔ 2026-11-07 の第三者の見直し (2) の6：前はファイルの入口だけが残していた。⛔ 2026-11-06 の2回目の見直し (3) の A-1：残す文の名前も
+    洗い出すので、AI に聞く前）、AI に1回だけ聞き（`ask_ai`。deciders＝その決め方）、確かめる（`review`）。返す Preview の ai を、登録
+    （`register_shaped`）にそのまま渡す。"""
+    raw, kept, _ = _kept(tx, business_id, raw)
+    ai = ask_ai(raw, **deciders) if isinstance(raw, dict) else {}
+    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
+    p.notes = kept + p.notes
+    return p
+
+
+def register_shaped(tx: Tx, business_id: UUID, raw: Any, *, expected_digest: str, ai: dict[str, Any] | None,
+                    problems: list[str] | None = None, where: dict[str, list[str]] | None = None,
+                    confirmed_names: Any = ()) -> UUID:
+    """業務設定の形にした中身の登録（取込のどの入口も通る共通の1か所。`preview_shaped` と同じ道：解決策を残す → 確かめる）。プレビューと
+    同じ中身のときだけ、新しい版を作る（AI には聞き直さない＝ai はプレビューの答え）。取り込んだ中身が先になった解決策（同じ問いの名前の
+    答えを書いた・「使わない」にした）は、置き換えられたと残す（client_solutions.replaced＝もう「流れに入っていない前の解決策」に出さない。
+    ⛔ 2026-11-07 の第三者の見直し (2) の4）。"""
+    from salescall.core import client_solutions   # 解決策の部品が取込を読むので、ここで読む（読み合いにしない）
+    raw, _, overridden = _kept(tx, business_id, raw)
+    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
+    version = register_reviewed(tx, business_id, p, expected_digest=expected_digest)
+    client_solutions.replaced(tx, overridden, version)
+    return version
 
 
 def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
@@ -920,13 +953,13 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
         return Preview(None, problems, [], notes=notes)
-    raw, problems, where, kept = _from_file(tx, business_id, sheets, problems, notes)
-    ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
-                decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
-                decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear, decide_doubt_words=decide_doubt_words,
-                decide_ways=decide_ways)
-    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
-    p.notes = notes + kept + p.notes
+    raw, problems, where = _to_raw(sheets, problems, notes)
+    p = preview_shaped(tx, business_id, raw, problems=problems, where=where, confirmed_names=confirmed_names,
+                       find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
+                       decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
+                       decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear,
+                       decide_doubt_words=decide_doubt_words, decide_ways=decide_ways)
+    p.notes = notes + p.notes
     return p
 
 
@@ -951,6 +984,6 @@ def register(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, expected
     sheets, problems, _ = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
         raise business_settings.SettingsInvalid(problems)
-    raw, problems, where, _ = _from_file(tx, business_id, sheets, problems)
-    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
-    return register_reviewed(tx, business_id, p, expected_digest=expected_digest)
+    raw, problems, where = _to_raw(sheets, problems)
+    return register_shaped(tx, business_id, raw, expected_digest=expected_digest, ai=ai, problems=problems, where=where,
+                           confirmed_names=confirmed_names)

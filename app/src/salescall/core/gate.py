@@ -86,6 +86,10 @@ REASONS: dict[str, Reason] = {
     "settings_missing": Reason("この版の業務設定（名乗り・質問・目的のお客様など）が無いか、確かめに通りません", "cannot_judge", "run"),
     "target_name_missing": Reason("この業務は目的のお客様を名前で呼びますが、この行に目的のお客様の名前がありません", "cannot_judge", "unoffered"),
     "target_role_missing": Reason("この業務は目的のお客様を役職で呼びますが、この行に目的のお客様の役職がありません", "cannot_judge", "unoffered"),
+    # 行の役職が「ご担当者」だけ（何の担当か無い）。理由の文は業務設定の1か所（business_settings.ROLE_UNCLEAR＝role_problem と同じ）。
+    # ⛔ 2026-11-07 の第三者の見直し (2) の7：前は target_role_missing（「役職がありません」）で断り、何を直せばよいかが契約者に伝わらなかった
+    "target_role_unclear": Reason("この業務は目的のお客様を役職で呼びますが、この行の役職は、" + business_settings.ROLE_UNCLEAR,
+                                  "cannot_judge", "unoffered"),
     "version_not_ready": Reason("この版は、まだかけられる段に入っていません（模擬通話・最初の段の前）", "wait", "stage"),
     "stage_full": Reason("いまの段の件数に達しました（次の段へ進むのを待っています）", "wait", "stage"),
     "stopped": Reason("止まっています", "wait", "unoffered"),

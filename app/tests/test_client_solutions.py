@@ -176,7 +176,7 @@ class Solutions(Base):
     def test_solution_answers_are_kept_when_the_settings_are_imported_again(self):
         """✅ 2026-11-06 ユーザー「残す」：取り込み直したファイルに、解決策で足した問いが無ければ残す（知らせつき）。同じ問いがあれば
         取り込んだ中身が先・ファイルが「使わない」にした問いは戻さない・足せなかった解決策は残さない・同じ問いの解決策が2つなら新しい方
-        （決めるのは client_solutions.keep_in の1か所。足すのはファイルの入口 business_import._from_file で、AI に名前を探させる前＝
+        （決めるのは client_solutions.keep_in の1か所。足すのは取込の入口の共通の1か所 business_import.preview_shaped で、AI に名前を探させる前＝
         残した文の名前も洗い出す。⛔ 2026-11-06 の2回目の見直し (3) の A-1）。"""
         from salescall.core import business_import
         from tests.test_business_import import book, finder
@@ -306,3 +306,218 @@ class Solutions(Base):
         self.assertEqual([line.base for line in got.lines], [s["version"]])
         self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT salescall.task_open(%s) AS o", (s["task"],))["o"]))
         self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.task_open(%s) AS o", (t2,))["o"]))
+
+    # ── 2026-11-07 の第三者の見直し (2)
+    def with_tokai(self, s, *, info=(), answers=()):
+        """前からある AI の読みの名前「東海」（業務の情報で話す）を持つ版を作って、実施回に割り当てる。info・answers＝足す業務の情報・問答。"""
+        r = settings_raw()
+        r["info"] = list(r.get("info") or []) + ["東海の工場で作っています。", *info]
+        r["answers"] = list(r.get("answers") or []) + list(answers)
+        r["names"] = list(r["names"]) + [{"text": "東海", "reading": "とうかい", "source": "script", "reading_by": "ai",
+                                          "candidates": [], "likely": None}]
+        v = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], v, reason="試験"), OPERATOR)
+        return v
+
+    def test_a_solution_looks_for_names_only_in_its_own_text_and_keeps_the_versions_names(self):
+        """(2) の1：解決策で名前を探すのは、足す問答の文だけ。版にある名前と読みは版のまま（AI が「東海」を別の読みで返しても変えない）。
+        名前の一覧は足した名前だけ増え、録音は変わった答えの部分（足した名前を話す、前からある答えも＝その名前の読みを持たない録音を
+        引き継がない）だけを求める（引き継ぎ・知らせ・警告が働く）。⛔ 前は台本全体の名前を探し直し、版の名前の一覧が変わったので録音を
+        引き継げず（録音の要る部分も知らせも出ない）、新しい版がいつまでも電話に使われなかった。"""
+        from salescall.core import recordings
+        from tests.test_business_import import finder
+        s = self.ready()
+        aid = self.called(s)
+        v0 = self.with_tokai(s, answers=[{"name": "場所", "text": "本社は港区にございます。"}])
+        self.w.approve_voices(s["tenant"], s["client"], v0, parts=("intro", "answer_場所"))
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        self.assertTrue(voices)
+        find = finder({"surface": "港区", "reading": "みなとく", "source": "モデル2つ", "candidates": [], "likely": None},
+                      {"surface": "東海", "reading": "あずま", "source": "モデル2つ", "candidates": [], "likely": None})
+        text = "東京都港区の本社でご説明します。"
+        got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, text, origin="dashboard", name_answer=self.namer("料金"),
+                                                         find_names=find), OPERATOR)
+        self.assertEqual(find.asked, [text])                                                   # 足す文だけ
+        before = self.tx(s, lambda tx: bs.load(tx, v0)).raw["names"]
+        after = self.tx(s, lambda tx: bs.load(tx, got.version_id)).raw["names"]
+        self.assertEqual(after[:len(before)], before)                                          # 版の名前と読みは版のまま
+        self.assertEqual([(n["text"], n["reading"]) for n in after[len(before):]], [("港区", "みなとく")])
+        p = bs.ANSWER_PART_PREFIX
+        want = {p + "料金": text, p + "場所": "本社は港区にございます。"}
+        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, got.version_id)), {v: want for v in voices})
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT 1 FROM salescall.notification_events WHERE event_key = %s",
+                                                     (f"recording_needed:{got.version_id}",))))
+
+    def test_a_name_the_solution_adds_that_other_text_speaks_keeps_no_recordings(self):
+        """解決策が足した名前を、答えのほかの文（業務の情報・名乗り・質問など。部分と文の対応は会話の側）も話すなら、どの録音の部分が変わったかを
+        決められないので、録音を引き継がない（core/recordings._changes の1か所。その名前の読みを持たない録音で話さない）。"""
+        from salescall.core import recordings
+        from tests.test_business_import import finder
+        s = self.ready()
+        aid = self.called(s)
+        v0 = self.with_tokai(s, info=["港区の本社があります。"])
+        self.w.approve_voices(s["tenant"], s["client"], v0)
+        self.assertTrue(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)))
+        find = finder({"surface": "港区", "reading": "みなとく", "source": "モデル2つ", "candidates": [], "likely": None})
+        got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "港区の本社でご説明します。", origin="dashboard",
+                                                         name_answer=self.namer("料金"), find_names=find), OPERATOR)
+        self.assertIn("港区", [n.text for n in self.tx(s, lambda tx: bs.load(tx, got.version_id)).names])
+        self.assertEqual((self.tx(s, lambda tx: recordings.needed_parts(tx, got.version_id)),
+                          self.tx(s, lambda tx: recordings.ready_voices(tx, got.version_id))), ({}, []))
+
+    def test_a_solution_the_import_turned_off_is_replaced(self):
+        """取り込み直した中身が「使わない」にした標準の問いの解決策も、取り込んだ中身が先（契約者が決めた）なので、置き換えられたと残す。"""
+        from salescall.core import business_import
+        from tests.test_versions import STD
+        s = self.ready()
+        aid = self.called(s)
+        with self.w.standard(STD) as std:
+            v = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw(), standard_id=std), OPERATOR)
+            self.tx(s, lambda tx: bs.assign(tx, s["run"], v, reason="試験：標準を使う版"), OPERATOR)
+            got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "東京都港区の本社でご説明します。", origin="dashboard",
+                                                             name_answer=self.namer("会社の場所")), OPERATOR)
+            raw = dict(settings_raw(), answers_off=["会社の場所"])
+            p = self.tx(s, lambda tx: business_import.preview_shaped(tx, s["business"], raw), OPERATOR)
+            self.assertEqual(p.problems, [])
+            vi = self.tx(s, lambda tx: business_import.register_shaped(tx, s["business"], raw, expected_digest=p.digest, ai=p.ai),
+                         OPERATOR)
+            replaced = self.tx(s, lambda tx: tx.all("SELECT solution_id, version_id FROM salescall.client_solution_replacements"))
+            self.assertEqual([(r["solution_id"], r["version_id"]) for r in replaced], [(got.solution_id, vi)])
+
+    def test_a_solution_in_verification_mode_does_not_ask_again_for_readings_already_in_the_version(self):
+        """(2) の3：検証モードに切り替えたあとも、版に前からある AI の読みは確かめ直さない（置いたときの確かめを信じる）。解決策の文に
+        新しい名前が無ければ、そのまま版ができる。"""
+        s = self.ready()
+        aid = self.called(s)
+        self.with_tokai(s)
+        self.put_client(s, "approval.human", True)
+        got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                         name_answer=self.namer("料金")), OPERATOR)
+        self.assertEqual(got.problems, ())
+        self.assertIsNotNone(got.version_id)
+
+    def test_a_solution_the_import_replaced_is_no_longer_offered(self):
+        """(2) の4：取り込み直しで、取り込んだ中身が先になった解決策（同じ問いの名前の答えを書いた）は、置き換えられたと残し（1か所＝
+        client_solutions.replaced。登録の共通の1か所 business_import.register_shaped が書く）、流れに入っていない前の解決策に出さず、知らせ
+        solution_earlier も出さない（選んで取り込んだ中身を上書きしない）。そのあとの取り込み直しでも残さない。⛔ 前は出続け、毎回知らせた。"""
+        from salescall.core import business_import
+        from tests.test_business_import import book
+        s = self.ready()
+        aid = self.called(s)
+        first = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                           name_answer=self.namer("料金")), OPERATOR)
+        rows = [("問いの名前", "答え", "標準を使わない"), ("料金", "料金は担当よりご案内します。", None)]
+        data = book(sheets={"想定問答": rows})
+        p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", data), OPERATOR)
+        vi = self.tx(s, lambda tx: business_import.register(tx, s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
+                                                             ai=p.ai), OPERATOR)
+        replaced = self.tx(s, lambda tx: tx.all("SELECT solution_id, version_id FROM salescall.client_solution_replacements"))
+        self.assertEqual([(r["solution_id"], r["version_id"]) for r in replaced], [(first.solution_id, vi)])
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], vi, reason="試験：取り込み直した版"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.not_in_line(tx, vi)), [])
+        later = self.w.insert_claim(s, version=vi)
+        for st in ("dialing", "ringing", "answered", "in_conversation", "ending", "ended"):
+            self.w.move(s, later, st)
+        point = call_report.NotAgreed(5, "Q1", "解約のときは？", 1, False, None, False, "解約")
+        self.tx(s, lambda tx: call_report.save(tx, later, replace(make_report(), not_agreed=(point,))))
+        self.tx(s, lambda tx: client_solutions.add(tx, later, 0, "いつでも解約できます。", origin="dashboard",
+                                                   name_answer=self.namer("解約")), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'solution_earlier'")),
+                         [])
+        p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", book()), OPERATOR)
+        self.assertNotIn("料金", {a["name"] for a in p.raw["answers"]})                       # 置き換えられた解決策は、よみがえらない
+        self.assertIn("解約", {a["name"] for a in p.raw["answers"]})
+        with self.assertRaises(Rejected) as e:                                                # 置き換えた版は、その取引で取り込み直した版だけ
+            self.tx(s, lambda tx: client_solutions.replaced(tx, [first.solution_id], s["version"]), OPERATOR)
+        self.assertIn(e.exception.constraint, ("client_solution_replacement_version", "client_solution_replacements_pkey"))
+        sid = self.tx(s, lambda tx: tx.one("SELECT solution_id FROM salescall.client_solutions WHERE answer_name = '解約'"))["solution_id"]
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: client_solutions.replaced(tx, [sid], s["version"]), OPERATOR)
+        self.assertEqual(e.exception.constraint, "client_solution_replacement_version")
+
+    def test_a_held_line_does_not_offer_the_solution_just_added(self):
+        """(2) の4：確かめに通らなかった流れ（検証モードで、解決策の文の新しい名前の AI の読みをまだ確かめていない）に、いま足した解決策
+        そのものを「流れに入っていない前の解決策」として知らせない（足せなかったことは solution_held で知らせる）。"""
+        from salescall.core import registry
+        from tests.test_business_import import finder
+        s = self.ready()
+        self.put_client(s, "approval.human", True)
+        aid = self.called(s)
+        r2 = settings_raw()
+        r2["names"] = list(r2["names"]) + [{"text": "港区", "reading": "みなとく", "source": "script", "reading_by": "given",
+                                            "candidates": [], "likely": None}]
+        r2["info"] = ["港区の本社があります。"]
+        other = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r2), OPERATOR)
+        run = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "港区の名前を持つ版の実施回", other, reason="試験"), OPERATOR)
+        self.w.task(s["tenant"], s["client"], run, s["contact"])
+        find = finder({"surface": "港区", "reading": "みなとく", "source": "モデル2つ", "candidates": [], "likely": None})
+        got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "港区の本社でご説明します。", origin="dashboard",
+                                                         name_answer=self.namer("料金"), find_names=find), OPERATOR)
+        self.assertEqual([(line.base, line.version_id is None) for line in got.lines], [(s["version"], True), (other, False)])
+        self.assertEqual(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'solution_earlier'")),
+                         [])
+
+    def test_every_import_entry_keeps_the_solutions(self):
+        """(2) の6：依頼者の解決策で足した問答を残すのは、取込のどの入口も通る共通の1か所（business_import.preview_shaped・register_shaped。
+        形にしたあと、AI に聞く前）。ファイルの入口でも、形にした中身を渡す入口（画面の入力・方式C・資料一式）でも残り、プレビューと登録で
+        同じ中身（指紋が合う）。⛔ 前はファイルの入口だけが残していた。"""
+        from salescall.core import business_import
+        from tests.test_business_import import book
+        s = self.ready()
+        aid = self.called(s)
+        self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard", name_answer=self.namer("料金")),
+                OPERATOR)
+        raw = settings_raw()
+        p = self.tx(s, lambda tx: business_import.preview_shaped(tx, s["business"], raw), OPERATOR)
+        self.assertIn({"name": "料金", "text": "月額1万円です。"}, p.raw["answers"])
+        v = self.tx(s, lambda tx: business_import.register_shaped(tx, s["business"], raw, expected_digest=p.digest, ai=p.ai), OPERATOR)
+        self.assertEqual(dict(self.tx(s, lambda tx: bs.load(tx, v)).answers)["料金"], "月額1万円です。")
+        p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", book()), OPERATOR)
+        v = self.tx(s, lambda tx: business_import.register(tx, s["business"], "業務設定.xlsx", book(), expected_digest=p.digest, ai=p.ai),
+                    OPERATOR)
+        self.assertEqual(dict(self.tx(s, lambda tx: bs.load(tx, v)).answers)["料金"], "月額1万円です。")
+
+    def test_solutions_are_kept_only_for_their_own_business(self):
+        """取り込み直しで残す解決策・流れに入っていない前の解決策は、その業務の解決策だけ（`_latest` の1か所が業務で絞る）。"""
+        s = self.ready()
+        aid = self.called(s)
+        self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard", name_answer=self.namer("料金")),
+                OPERATOR)
+        b2, v2 = self.w.business_with_version(s["tenant"], s["client"])
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.kept_answers(tx, s["business"])), [("料金", "月額1万円です。")])
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.kept_answers(tx, b2)), [])
+
+    def test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import(self):
+        """✅ 2026-11-07 ユーザー「契約者が確かめる」（計画書 6-1 の (3) が (2) より先）：契約者が手で前の版に戻して外した解決策（前の版の流れに
+        入っていて、戻した版に入っていない＝client_solutions.removed_by_hand の1か所。0197）は、取り込み直しでも自動では入れない（keep_in。
+        知らせつき）。流れに入っていない前の解決策の一覧には「手で外した」印つきで出し、契約者が選んで足せば、外したことは消える（そのあとの
+        取り込み直しでは残す）。自動の割り当て・実施回を作るときの最初の割り当ては、外したことにしない。"""
+        from salescall.core import business_import
+        from tests.test_business_import import book
+        s = self.ready()
+        aid = self.called(s)
+        first = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                           name_answer=self.namer("料金")), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], first.version_id, reason="試験：解決策の版にする"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.client_solution_removals")), [])   # 入れた方は外していない
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], s["version"], reason="試験：手で前の版に戻す"), OPERATOR)
+        back = self.tx(s, lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v", (s["run"],))["v"])
+        removed = self.tx(s, lambda tx: tx.all("SELECT solution_id, version_id FROM salescall.client_solution_removals"))
+        self.assertEqual([(r["solution_id"], r["version_id"]) for r in removed], [(first.solution_id, back)])
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], s["version"], reason="試験：外したままの前の版へ、もう一度手で戻す"), OPERATOR)
+        self.assertEqual(len(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.client_solution_removals"))), 1)   # 前の版にも無かった
+        p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", book()), OPERATOR)
+        self.assertNotIn("料金", {a["name"] for a in p.raw["answers"]})                       # 取り込み直しでも自動では入れない
+        self.assertTrue(any("料金" in n and "外した" in n for n in p.notes), p.notes)
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.kept_answers(tx, s["business"])), [])
+        offered = self.tx(s, lambda tx: client_solutions.not_in_line(tx, back))
+        self.assertEqual([(r["solution_id"], r["removed"]) for r in offered], [(first.solution_id, True)])   # 一覧には出す
+        self.tx(s, lambda tx: client_solutions.add_earlier(tx, back, [first.solution_id]), OPERATOR)
+        p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", book()), OPERATOR)
+        self.assertIn({"name": "料金", "text": "月額1万円です。"}, p.raw["answers"])            # 選んで足したあとは残す
+        with self.assertRaises(Rejected) as e:                                                # 書けるのは、その取引で手で割り当てたときだけ
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.client_solution_removals (tenant_id, client_id, solution_id, version_id, recorded_by)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (first.solution_id, back)),
+                OPERATOR)
+        self.assertEqual(e.exception.constraint, "client_solution_removal_by_assignment")
