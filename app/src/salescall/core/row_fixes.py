@@ -89,7 +89,7 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, kee
     計画書 7-1 (19)。選ばなければ直せない＝必ず渡す。違う方なら、約束は引き継がず最初から・お詫びはせず引き継ぎを確かめて営業を続ける＝
     next_action._target_changed_since の1か所が読む）。
     keep_old_promise＝「担当の方は違う」を選び、前の担当の方とのかけ直しの約束がまだ残っている（まだかけていない約束の電話の予定がある＝
-    next_action.promise_open の1か所）ときに、契約者が画面で選ぶ「前の担当の方との約束も守るか」（✅ 2026-11-07 ユーザー＝計画書 7-1 (21)：
+    next_action.promise_open の1か所）ときに（その約束の番号が、いま直す番号のときは選べない＝前の担当の方へかける道が無い。0202）、契約者が画面で選ぶ「前の担当の方との約束も守るか」（✅ 2026-11-07 ユーザー＝計画書 7-1 (21)：
     「前の担当者とのかけ直しの約束があったが、次の担当にだけかけるのかを契約者に問うて、選択してもらう。」）。真＝約束も守る（約束の電話は
     いまの決まりのとおり、まず前の番号へ前の担当の方宛てに。そのあとは新しい番号の担当の方へ、引き継ぎを確かめる電話）・偽＝次の担当の方に
     だけかける（約束をやめて、新しい番号へすぐかけてよい、引き継ぎを確かめる電話）。要るときは必ず渡す（渡さなければ `FixInvalid`）・要らない
@@ -103,11 +103,17 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, kee
     now = tasks.dial_number(tx, task_id)
     if now["phone_e164"] == number.e164:
         return now
-    needs_choice = not same_person and next_action.promise_open(tx, task_id)
+    # 選びが要るか（1か所＝データベースの salescall.task_old_promise_choice_needed。守り task_dial_fix_guard も同じ）：まだかけていない約束が
+    # 残っていて、その約束の番号が、いま直す番号でない（直す番号なら、前の担当の方へかける道が無いので「守る」は選べない＝本体の決定。0202）
+    needs_choice = not same_person and bool(tx.one("SELECT salescall.task_old_promise_choice_needed(%s, %s) AS n",
+                                                   (task_id, number.e164))["n"])
     if needs_choice and keep_old_promise is None:
         raise FixInvalid("前の担当の方とのかけ直しの約束が、まだ残っています（約束の電話をまだかけていません）。前の担当の方との約束も"
                          "守るか、次の担当の方にだけかけるかを選んでください")
     if not needs_choice and keep_old_promise is not None:
+        if not same_person and next_action.promise_open(tx, task_id):
+            raise FixInvalid("前の担当の方との約束の電話の番号が、いま直す番号（新しい担当の方の番号）です。前の担当の方へかける道が無いので、"
+                             "「約束も守る」は選べません（約束はやめ、新しい担当の方へ引き継ぎを確かめる電話をかけます）。選ばずに直してください")
         raise FixInvalid("前の担当の方との約束を守るかを選ぶのは、「担当の方は違う」を選び、まだかけていない約束の電話が残っているときだけです")
     blocked = target_policy.block_reason(tx, number, client_ref=t["client_ref"], **tasks.scope(tx, task_id))
     if blocked is not None:

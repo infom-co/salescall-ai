@@ -253,13 +253,13 @@ def refusal_reach(tx: Tx, attempt_id: UUID) -> tuple[list[str], str | None]:
     なので、止めるのは前の担当の方の番号（tasks.former_numbers＝直す前のかける番号・直す前に前の担当の方が言った番号など）と、それを共有
     する行の番号だけ。新しい担当の方の番号（直した番号と、そのあとに足した番号）と、行の管理番号は止めない（✅ 2026-11-07 ユーザー＝
     計画書 7-1 (22)「鈴木様へはかける」）。行を終えないこと（新しい担当の方へ引き継ぎを確かめる電話）は、同じ1か所を読む
-    core/next_action.refusal_ends_row。"""
-    a = tx.one("SELECT task_id, claimed_at FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+    core/next_action.answer_ends_row。締めがまだのあいだ、同じお客様のほかの行を待たせる範囲（`undecided_reach`）も、ここを読む。"""
+    a = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
     if a is None:
         raise attempts.AttemptNotFound(str(attempt_id))
     if not tasks.former_person_call(tx, attempt_id):
         return reach(tx, a["task_id"])
-    own = tasks.former_numbers(tx, a["task_id"], a["claimed_at"])
+    own = tasks.former_numbers(tx, a["task_id"])
     new = set(tasks.numbers(tx, a["task_id"])) - set(own)   # 新しい担当の方の番号（ほかの行を通しても止めない）
     return [n for n in _spread(tx, a["task_id"], own) if n not in new], None
 
@@ -274,8 +274,8 @@ def undecided_reach(tx: Tx, task_id: UUID) -> UndecidedKind | None:
     salescall.decision_pending の1か所：切れ方の分からない通話の確かめのかけ直し・2つ目の判定とそろわず録音の確かめ・検証モードの契約者の
     承認を待っている。2026-10-30 管理者の決定：決まるまでのあいだに、断ったかもしれない会社へほかの行からかけない／unsettled＝そのほか）。
     無ければ None。門の理由の名前は gate の1か所（`gate.RELATED_REASONS`）。
-    「同じお客様」＝その発信が断られていたら、この行の番号（または管理番号）が止まる（止める範囲は `reach` の1か所。その発信が前の担当の方への
-    通話で、断りの範囲が前の担当の方の番号だけになるとき＝`refusal_reach` も、決まるまでは行の範囲で待つ＝かけない側に倒す）。
+    「同じお客様」＝その発信が断られていたら、この行の番号（または管理番号）が止まる（その発信で断られたときの範囲＝`refusal_reach` の1か所。
+    前の担当の方への通話なら、前の担当の方の番号だけ。0202＝止める範囲と待たせる範囲をそろえた）。
 
     止めるのは締めの処理（判定のあと）なので、決まる前に同じお客様へかけると、断ったお客様にまたかけうる。
     2026-10-16 の見直しで直した：(1) かける番号だけでなく、この行の番号すべてで見る（両方向）(2) 予約中も見る
@@ -295,16 +295,16 @@ def undecided_reach(tx: Tx, task_id: UUID) -> UndecidedKind | None:
     near, _ = reach(tx, task_id)   # この行の番号と、番号を共有する行の番号（相手の範囲が、この行の番号に届きうる行の番号）
     found: UndecidedKind | None = None
     for p in tx.all(
-            "SELECT a.task_id, bool_or(salescall.decision_pending(a.attempt_id)) AS pending FROM salescall.attempts a"
+            "SELECT a.attempt_id, salescall.decision_pending(a.attempt_id) AS pending FROM salescall.attempts a"
             " WHERE a.task_id <> %s"
             "   AND (salescall.is_dialed(a.state) OR salescall.is_live(a.state, a.claim_expires_at))"   # かけた・生きている予約
             "   AND (EXISTS (SELECT 1 FROM salescall.task_numbers n WHERE n.task_id = a.task_id AND n.phone_e164 = ANY(%s))"
             "        OR (%s::text IS NOT NULL AND EXISTS (SELECT 1 FROM salescall.tasks o WHERE o.task_id = a.task_id"
             "                                             AND o.client_ref = %s)))"
             "   AND salescall.refusal_undecided(a.attempt_id)"
-            " GROUP BY a.task_id ORDER BY a.task_id",
+            " ORDER BY a.task_id, a.attempt_id",
             (task_id, list(near), t["client_ref"], t["client_ref"])):
-        numbers, ref = reach(tx, p["task_id"])
+        numbers, ref = refusal_reach(tx, p["attempt_id"])   # その発信で断られたときの範囲（止める範囲と同じ1か所）
         if mine.intersection(numbers) or (ref is not None and ref == t["client_ref"]):
             if p["pending"]:
                 return "decision_pending"

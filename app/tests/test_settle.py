@@ -1514,7 +1514,7 @@ class DialFixAfterCalls(SettleBase):
                          [True, True, False, False])
         self.assertFalse(self.ref_stopped(s))
         self.assertTrue(self.tx(s, lambda tx: tasks.former_person_call(tx, aid)))
-        self.assertTrue(self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"].get("former_person"))
+        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"].get("former_person"), "personal")
         self.assertFalse(self.ends_row(s, aid))                                 # あとから決まっても、行を終えない（締めの `_ends_row`）
         # 新しい担当の方が出なかった：引き継ぎを確かめる印のまま、ふつうの決まりで（もう一度「替わった」の形にして、すぐかけ直さない）
         self.put_client(s, "gate.same_contact_min_interval", 1)                # 試験：同じお客様の間隔の外にする（1秒）
@@ -1600,19 +1600,122 @@ class DialFixAfterCalls(SettleBase):
     def test_a_promise_on_the_number_that_becomes_the_new_persons_number_is_not_carried_over(self):
         """前の担当の方が言った番号への約束の予定があり、契約者がその番号へ「担当の方は違う」で直した ⇒ 予定はもう直した番号にあるが、前の担当の方
         との約束は新しい担当の方へ引き継がない（引き継ぎを確かめるふつうの電話。`_onto_dial` の1か所）。その番号は新しい担当の方の番号（前の担当
-        の方の番号は、取り込んだ番号だけ＝tasks.former_numbers）。⛔ 0202 の前：番号が「移った」かで決め、約束が新しい担当の方へ続いた。"""
-        for keep in (False, True):
-            with self.subTest(keep=keep):
-                said = fictional_jp_fixed()
+        の方の番号は、取り込んだ番号だけ＝tasks.former_numbers）。⛔ 0202 の前：番号が「移った」かで決め、約束が新しい担当の方へ続いた。
+        前の担当の方へかける道が無いので、この直しでは「約束も守る」を選べない（本体の決定。選びが要るかの1か所 salescall.task_old_promise_choice_needed
+        ＝データベースの守りも同じ）：選びを渡せば `FixInvalid`（理由の文つき・何も書かない）。"""
+        from salescall.core import row_fixes
+        said = fictional_jp_fixed()
+        s = self.ready()
+        self.settle(s, self.call(s, report=rep(("reception",), callback=callback("other_number", None, said, time="あとで"))))
+        p = self.plan(s)
+        self.assertEqual((p[0], p[2], p[3], self.phone_of(s, p[1])), ("call", "normal", True, normalize(said).e164))
+        self.assertTrue(self.tx(s, lambda tx: next_action.promise_open(tx, s["task"])))
+        for keep in (True, False):
+            with self.subTest(keep=keep), self.assertRaises(row_fixes.FixInvalid) as e:
+                self.tx(s, lambda tx: row_fixes_fix(tx, s["task"], said, keep), OPERATOR)
+            self.assertIn("「約束も守る」は選べません", str(e.exception))
+        with self.assertRaises(Rejected) as e:                                  # データベースも守る
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by, same_person, keep_old_promise)"
+                " SELECT t.tenant_id, t.client_id, t.task_id, %s, salescall.cur_actor(), false, true FROM salescall.tasks t WHERE t.task_id = %s",
+                (p[1], s["task"])), OPERATOR)
+        self.assertEqual(e.exception.constraint, "task_dial_fix_old_promise_choice")
+        self.assertEqual(self.fixes(s), [])
+        new = self.tx(s, lambda tx: row_fixes_fix(tx, s["task"], said, None), OPERATOR)["contact_id"]
+        self.assertEqual(new, p[1])
+        self.assertEqual(self.plan(s), self.handed_over(new))
+        self.assertEqual(self.tx(s, lambda tx: tasks.former_numbers(tx, s["task"])), [s["phone"]])
+
+    def test_the_old_person_stays_the_old_person_after_a_later_same_person_fix(self):
+        """「違う」で直したあとに「同じ」（新しい担当の方の別の番号）で直しても、担当の方は替わったまま：基準は「違う」を選んだ、いちばん新しい
+        直し（salescall.task_former_number の1か所。0202 の本体の指示 (1)。⛔ 前は、いちばん新しい直しだけを見て、前の担当の方の断りで行の番号
+        すべてを止め、行を終えた）。"""
+        s = self.ready()
+        self.promise_window(s)
+        first = self.fixed_as(s, False, True)                                    # 違う方・前の担当の方との約束も守る
+        second = self.fixed_as(s, True)                                          # 新しい担当の方の別の番号（同じ方）
+        self.assertEqual(self.plan(s)[:2], ("call", s["contact"]))              # 約束は、いまも前の番号の前の担当の方へ
+        aid = self.call(s, report=rep(dnc_=True))
+        self.settle(s, aid)
+        self.assertEqual(self.plan(s), self.handed_over(second))
+        self.assertEqual([self.stopped(s, p) for p in (s["phone"], self.phone_of(s, first), self.phone_of(s, second))], [True, False, False])
+
+    def test_a_call_dialed_before_the_fix_and_settled_after_it_is_to_the_old_person(self):
+        """直す前に予約してかけ、つながっているあいだに契約者が「担当の方は違う」で直した通話も、電話口は前の番号の前の担当の方：前の担当の方への
+        通話（かけた時刻ではなく締めるときで見る＝salescall.former_person_call。0202 の本体の指示 (3)）。断れば、前の担当の方の番号だけを止め、
+        新しい担当の方へ引き継ぎ。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(dnc_=True))                               # 直す前の通話（まだ締めていない）
+        new = self.fixed_as(s, False)
+        self.settle(s, aid)
+        self.assertEqual(self.plan(s), self.handed_over(new))
+        self.assertEqual([self.stopped(s, p) for p in (s["phone"], self.phone_of(s, new))], [True, False])
+
+    def test_the_old_persons_numbers_are_not_alternatives_for_the_new_person(self):
+        """番号が使えないときの代わり（`usable`・`numbers_of` の said）に、「違う」を選んだ直しのあとは、前の担当の方が言った番号を入れない
+        （新しい担当の方への代わりにしない。salescall.task_former_number の1か所。0202 の本体の指示 (2)）。直したあとに言われた番号は入る。"""
+        s = self.ready()
+        first = self.call(s, ["dialing", "no_answer"])
+        self.settle(s, first)
+        old_said = self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], normalize(fictional_jp_fixed()), source_attempt_id=first))
+        said = lambda: self.tx(s, lambda tx: next_action.numbers_of(tx, s["task"])).said   # noqa: E731
+        self.assertEqual(said(), (old_said,))
+        new = self.fixed_as(s, False)
+        self.assertEqual(said(), ())
+        self.put_client(s, "gate.same_contact_min_interval", 1)                # 試験：同じお客様の間隔の外にする（1秒）
+        self.at(s, new, promised=False)                                         # 試験：新しい番号への予定の時刻が来た
+        time.sleep(1.1)
+        later = self.call(s, ["dialing", "no_answer"])                          # 新しい番号への電話
+        self.settle(s, later)
+        new_said = self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], normalize(fictional_jp_fixed()), source_attempt_id=later))
+        self.assertEqual(said(), (new_said,))
+        self.assertNotEqual(new, new_said)
+
+    def test_other_rows_wait_only_for_the_numbers_an_undecided_refusal_would_stop(self):
+        """締めがまだの前の担当の方への通話は、断られたときに止まる範囲（前の担当の方の番号だけ＝dnc.refusal_reach）の行だけを待たせる（待たせる
+        範囲 `undecided_reach` も同じ1か所。0202 の本体の指示 (4)。⛔ 前は行の範囲で待たせ、新しい担当の方の番号を持つほかの行も待った）。"""
+        s = self.ready()
+        self.promise_window(s)
+        new = self.fixed_as(s, False, True)
+        run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        shares_new = self.w.task(s["tenant"], s["client"], run2, new)           # 新しい担当の方の番号を持つ、ほかの一覧の行
+        shares_old = self.w.task(s["tenant"], s["client"], run2, s["contact"])   # 前の担当の方の番号を持つ、ほかの一覧の行
+        self.call(s, report=rep(dnc_=True))                                     # 前の担当の方への通話（まだ締めていない）
+        waits = lambda t: self.tx(s, lambda tx: dnc.undecided_reach(tx, t))   # noqa: E731
+        self.assertEqual((waits(shares_old), waits(shares_new)), ("unsettled", None))
+
+    def test_the_old_persons_own_answers_go_on_to_the_new_person_and_company_answers_end_the_row(self):
+        """✅ 2026-11-07 ユーザー＝計画書 7-1 (24)：前の担当の方が用件を断った（「うちは要らない」。発信禁止ではない）ときも、新しい担当の方へは
+        引き継ぎを確かめる電話。「対象外」「目的を果たした」など会社としての答えは行を終える（答えの分け方は next_action.FORMER_ANSWERS の1か所。
+        結果の版の印 former_person も同じ1か所）。用件の断りでは、どの番号も発信禁止にしない。"""
+        from tests.test_judge import goal_refused
+        cases = (("declined", dict(report=goal_refused(rep())), "personal"),
+                 ("completed", dict(items=[("Q1", "confirmed", None)]), "company"),
+                 ("out_of_scope", dict(report=make_report(oos=True)), "company"))
+        for state, call, answer in cases:
+            with self.subTest(state=state):
                 s = self.ready()
-                self.settle(s, self.call(s, report=rep(("reception",), callback=callback("other_number", None, said, time="あとで"))))
-                p = self.plan(s)
-                self.assertEqual((p[0], p[2], p[3], self.phone_of(s, p[1])), ("call", "normal", True, normalize(said).e164))
-                new = self.tx(s, lambda tx: row_fixes_fix(tx, s["task"], said, keep), OPERATOR)["contact_id"]
-                self.assertEqual(new, p[1])
-                self.assertEqual(self.plan(s), self.handed_over(new))
-                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
-                self.assertEqual(self.tx(s, lambda tx: tasks.former_numbers(tx, s["task"], now)), [s["phone"]])
+                self.promise_window(s)
+                new = self.fixed_as(s, False, True)
+                got = self.settle(s, self.call(s, **call))
+                self.assertEqual(got["state"], state)
+                self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"].get("former_person"), answer)
+                if answer == "personal":
+                    self.assertEqual(self.plan(s), self.handed_over(new))
+                    self.assertEqual([self.stopped(s, p) for p in (s["phone"], self.phone_of(s, new))], [False, False])
+                else:
+                    self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", state))
+
+    def test_every_judged_state_has_an_answer_kind_for_the_old_person(self):
+        """前の担当の方への通話の答えの分け方（next_action.FORMER_ANSWERS）は、判定の状態の名前をすべて当てはめる（results.BusinessState と同じ組）。
+        番号違い・FAX は番号の答え、その方の側の事情で電話ではかけ直さない結果（business_rules.SYSTEM_ENDS）は、その方個人の答え。"""
+        from typing import get_args
+        self.assertEqual(set(next_action.FORMER_ANSWERS), set(get_args(results.BusinessState)))
+        self.assertEqual({next_action.former_answer("out_of_scope", out_of_scope=o) for o in ("wrong_party", "fax_line")}, {"number"})
+        self.assertEqual(next_action.former_answer("out_of_scope", out_of_scope="request"), "company")
+        for key in business_rules.SYSTEM_ENDS:
+            self.assertEqual(next_action.former_answer("not_reached", key=key), "personal")
+        self.assertEqual(next_action.former_answer("not_reached", key="not_reached_absent"), "continue")
 
 
 class SalesPurposes(unittest.TestCase):

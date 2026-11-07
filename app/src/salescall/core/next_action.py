@@ -44,7 +44,8 @@
 - **誤って入れた発信禁止を取り消したら**（core/dnc の取り消しの1か所と、見守り役の決まった間隔の仕事が呼ぶ `reopen_revoked`）、発信禁止で
   門が終えた行のうち、もう止まっていないものを、終える前の予定に戻す（2026-10-30 管理者のご決定 (7)）。
 - **「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話**（tasks.former_person_call の1か所。0202。✅ 2026-11-07 ユーザー＝計画書
-  7-1 (22)(23)）：前の担当の方が断っても行を終えず、新しい担当の方へ引き継ぎを確かめる電話（`refusal_ends_row`・`_former_refused`。止める
+  7-1 (22)(23)(24)）：前の担当の方個人の答え（断り・用件の断り）では行を終えず、新しい担当の方へ引き継ぎを確かめる電話（答えの分け方は
+  `FORMER_ANSWERS`・`answer_ends_row`・`_former_personal`。止める
   番号は core/dnc.refusal_reach）。前の担当の方が新しいかけ直しの約束をしたら、その約束は前の番号のまま書き、契約者に知らせて、前の担当の方
   との約束を守るか新しい担当の方へかけるかを選んでいただく（選ぶまで門が止める＝tasks.old_promise_waiting。選びは `after_old_promise_choice`）。
 """
@@ -567,7 +568,7 @@ def _onto_dial(tx: Tx, task_id: UUID, row: dict[str, Any] | None, d: Decision, *
 
 
 def _to_new_person(tx: Tx, task_id: UUID, row: dict[str, Any] | None, rule: str, *, now: datetime) -> Decision | None:
-    """新しい担当の方への形（1か所。`_onto_dial`・前の担当の方の断りのあと＝`_former_refused`・前の担当の方の新しい約束で契約者が新しい担当の方を
+    """新しい担当の方への形（1か所。`_onto_dial`・前の担当の方個人の答えのあと＝`_former_personal`・前の担当の方の新しい約束で契約者が新しい担当の方を
     選んだとき＝`after_old_promise_choice`）：約束・お詫びを引き継がず、引き継ぎを確かめる印を付けた、すぐかけてよいふつうの電話。ただし、前の
     予定（row）が言ってはいけないことのあとのお詫びの電話で、その言葉を言った通話の判定が業務を終えた結果（`END_STATES`）なら、営業を続けない
     ので None（計画書 7-1 (2)）。"""
@@ -581,23 +582,64 @@ def _to_new_person(tx: Tx, task_id: UUID, row: dict[str, Any] | None, rule: str,
                  Target(dial, handover=True), apology=False, cut_call=None)
 
 
-def refusal_ends_row(tx: Tx, attempt_id: UUID) -> bool:
-    """その通話のお客様の断り（do_not_call）で、行を終えるか（1か所。締めの処理 core/settle の `_ends_row`・`_former_refused` が読む）。
-    その通話が「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話（tasks.former_person_call の1か所）なら終えない：断ったのは前の
-    担当の方なので、新しい担当の方へは引き継ぎを確かめる電話をかける（✅ 2026-11-07 ユーザー＝計画書 7-1 (22)「鈴木様へはかける」。止める
-    番号は同じ1か所を読む core/dnc.refusal_reach）。ほかの断りは、いままでどおり行を終える。"""
-    return not tasks.former_person_call(tx, attempt_id)
+# 前の担当の方への通話（tasks.former_person_call）の答えの分け方（1か所。✅ 2026-11-07 ユーザー＝計画書 7-1 (22)「鈴木様へはかける」・(23)・(24)
+# 「新しい担当の方へは引き継ぎを確かめる電話。ただし『対象外』『目的を果たした』など会社としての答えは行を終える」）。判定の状態の名前を
+# すべて当てはめる（results.BusinessState と同じ組かは試験が見張る）：
+#   personal＝その方個人の答え ⇒ 行を終えず、新しい担当の方へ引き継ぎを確かめる電話（`_former_personal`）
+#   company＝会社としての答え ⇒ いままでどおり行を終える
+#   number＝番号の答え（番号違い・FAX）⇒ その番号だけ止め、番号のせいの終わりと同じく新しい番号へ（`_moved_on_fix`。計画書 7-1 (2)(7)）
+#   promise＝新しいかけ直しの約束 ⇒ 契約者が選ぶ（7-1 (23)。`after_call`）
+#   continue＝まだ続く（出なかった・繋がらなかった・取れていない）⇒ 新しい担当の方へ引き継ぎ（`_onto_dial`）
+#   undecided＝判定できない ⇒ 判定待ち
+FORMER_ANSWERS: dict[str, str] = {
+    "do_not_call": "personal",         # 「もうかけないで」（止めるのは前の担当の方の番号だけ＝core/dnc.refusal_reach。7-1 (22)）
+    "declined": "personal",            # 用件・最終目的の断り（「うちは要らない」。発信禁止ではない。7-1 (24)）
+    "completed": "company",            # 目的を果たした
+    "concluded": "company",            # 結論として終えた（取れていない必須の質問の扱いが「結論として終える」・ご納得いただけず担当の者に申し伝える）
+    "out_of_scope": "company",         # 範囲外の求め（対象外）。番号違い・FAX（判定の中身 out_of_scope）は番号の答え＝`FORMER_NUMBER_ANSWERS`
+    "callback_scheduled": "promise",   # 新しいかけ直しの約束
+    "open": "continue", "not_reached": "continue", "incomplete": "continue",
+    "unknown": "undecided",
+}
+FORMER_NUMBER_ANSWERS = frozenset({"wrong_party", "fax_line"})
+# その方個人の答えで行を終える決定の、終わりの理由（`FORMER_ANSWERS` から作る。言ってはいけないこと・苦情など、ほかの理由で終える決定は変えない）
+_PERSONAL_ENDS = frozenset(s for s, a in FORMER_ANSWERS.items() if a == "personal") | business_rules.SYSTEM_ENDS
 
 
-def _former_refused(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None, *, attempt_id: UUID | None,
-                    complaint: bool, now: datetime) -> Decision:
-    """お客様の断りで行を終える決定（d）を、その断りが行を終えない断り（`refusal_ends_row`）なら、新しい担当の方への形（`_to_new_person`）に
-    する（1か所。通話のあと＝`after_call`・お詫びの電話のあと＝`after_apology`）。新しい担当の方へかけない（言ってはいけないことのあとの
-    お詫びで、業務を終えた結果）なら d のまま。前の担当の方が怒っていた（complaint）ときも d のまま（苦情は契約者が対応する特例で、行を
-    終える＝締めの `_ends_row` と同じ）。"""
-    if d.kind != "end" or d.end_reason != "do_not_call" or complaint or attempt_id is None or refusal_ends_row(tx, attempt_id):
+def former_answer(state: str, *, key: str | None = None, out_of_scope: str | None = None) -> str:
+    """前の担当の方への通話の答えの種類（`FORMER_ANSWERS` の1か所）。key＝再発信の方針の鍵（判定の中身 policy_key）：繋がらなかった・取れて
+    いない結果でも、その方の側の事情で電話ではかけ直さない結果（`business_rules.SYSTEM_ENDS`＝ほかの手段を望まれた・在籍していない・お名前
+    だけではどの方か分からない）は、その方個人の答え。out_of_scope＝判定の中身の out_of_scope（番号違い・FAX は番号の答え）。"""
+    if state == "out_of_scope" and out_of_scope in FORMER_NUMBER_ANSWERS:
+        return "number"
+    if state in ("not_reached", "incomplete") and key in business_rules.SYSTEM_ENDS:
+        return "personal"
+    return FORMER_ANSWERS[state]
+
+
+def judged_answer(j: Judgement) -> str:
+    """判定から、前の担当の方への通話の答えの種類（`former_answer` に判定の中身を渡す1か所。通話のあと・締めの結果の版の印が読む）。"""
+    return former_answer(j.state, key=j.detail.get("policy_key"), out_of_scope=j.detail.get("out_of_scope"))
+
+
+def answer_ends_row(tx: Tx, attempt_id: UUID, answer: str) -> bool:
+    """その通話の答え（`former_answer` の種類）で行を終えるか（1か所。締めの処理 core/settle の `_ends_row`・`_former_personal` が読む）。
+    その通話が「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話（tasks.former_person_call の1か所）で、その方個人の答え（personal）
+    なら終えない：新しい担当の方へは引き継ぎを確かめる電話をかける（✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(24)。断りで止める番号は同じ1か所を
+    読む core/dnc.refusal_reach）。ほかは、いままでどおり。"""
+    return answer != "personal" or not tasks.former_person_call(tx, attempt_id)
+
+
+def _former_personal(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None, *, attempt_id: UUID | None, answer: str,
+                     complaint: bool, now: datetime) -> Decision:
+    """行を終える決定（d）を、その答えが行を終えない答え（`answer_ends_row`）なら、新しい担当の方への形（`_to_new_person`）にする（1か所。
+    通話のあと＝`after_call`・お詫びの電話のあと＝`after_apology`）。新しい担当の方へかけない（言ってはいけないことのあとのお詫びで、業務を
+    終えた結果）なら d のまま。前の担当の方が怒っていた（complaint）ときも d のまま（苦情は契約者が対応する特例で、行を終える＝締めの
+    `_ends_row` と同じ）。"""
+    if d.kind != "end" or d.end_reason not in _PERSONAL_ENDS or complaint or attempt_id is None \
+            or answer_ends_row(tx, attempt_id, answer):
         return d
-    moved = _to_new_person(tx, task_id, row, "前の担当の方が断った（止めるのは前の担当の方の番号だけ）：新しい担当の方へ", now=now)
+    moved = _to_new_person(tx, task_id, row, "前の担当の方個人の答え（断り・用件の断りなど）：新しい担当の方へ", now=now)
     return d if moved is None else moved
 
 
@@ -1423,8 +1465,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
                           call=cut_call)
     d = _handover(_apologised(d, reached_target), dialed, reached_target)
     d = _moved_on_fix(tx, task_id, d, dialed_row, was_replaced, now=now)   # 前の番号でかからなかった ⇒ いまかける番号で
-    # 前の担当の方の断り：行を終えず、新しい担当の方へ（`_former_refused` の1か所。計画書 7-1 (22)）
-    d = _former_refused(tx, task_id, d, dialed_row, attempt_id=attempt_id, complaint=j.complaint, now=now)
+    # 前の担当の方個人の答え（断り・用件の断り）：行を終えず、新しい担当の方へ（`_former_personal` の1か所。計画書 7-1 (22)(24)）
+    d = _former_personal(tx, task_id, d, dialed_row, attempt_id=attempt_id, answer=judged_answer(j), complaint=j.complaint, now=now)
     _write(tx, task_id, d)
     if former_promise and tasks.old_promise_waiting(tx, task_id) == attempt_id:
         _notice_old_promise(tx, task_id, attempt_id)
@@ -1470,14 +1512,18 @@ def not_today(not_reached: str | None, again: bool) -> bool:
 
 def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
     """行の番号の材料（1か所）：回線の部品が続けて受け付けなかった番号と、お客様が言った別の番号のうち、かけない理由の無いもの
-    （かけない理由は target_policy.block_reason の1か所）。"""
-    rows = tx.all("SELECT n.contact_id, n.phone_e164, n.source, t.client_ref, s.contact_id AS source_contact"
+    （かけない理由は target_policy.block_reason の1か所）。「担当の方は違う」を選んだ直しのあとの前の担当の方の番号は、お客様が言った別の番号
+    （番号が使えないときの代わり＝`usable`）に入れない（0202）。"""
+    rows = tx.all("SELECT n.contact_id, n.phone_e164, n.source, t.client_ref, s.contact_id AS source_contact,"
+                  "       salescall.task_former_number(n.task_id, n.contact_id, now()) AS former"
                   " FROM salescall.task_numbers n JOIN salescall.tasks t ON t.task_id = n.task_id"
                   " LEFT JOIN salescall.attempts s ON s.attempt_id = n.source_attempt_id"
                   " WHERE n.task_id = %s ORDER BY n.added_at DESC, n.phone_e164", (task_id,))
     scope = tasks.scope(tx, task_id)
     unusable = frozenset(r["contact_id"] for r in rows if health.number_dead(tx, r["contact_id"]))
-    said = tuple(r["contact_id"] for r in rows if r["source"] == "callee" and r["contact_id"] not in unusable
+    # 「担当の方は違う」を選んだ直しのあとは、前の担当の方の番号（tasks.former_numbers と同じ1か所＝salescall.task_former_number）を、新しい
+    # 担当の方への代わりの番号にしない（0202。本体の指示 (2)）
+    said = tuple(r["contact_id"] for r in rows if r["source"] == "callee" and not r["former"] and r["contact_id"] not in unusable
                  and target_policy.block_reason(tx, normalize(r["phone_e164"]), client_ref=r["client_ref"], **scope) is None)
     sources = tuple((r["contact_id"], r["source_contact"]) for r in rows
                     if r["source_contact"] is not None and r["source_contact"] != r["contact_id"])
@@ -1949,7 +1995,7 @@ def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dial
     よいかは、締めの処理が試行に残した「切れたか」を、データベースの resume_allowed の1か所が読む。not_reached・again＝目的のお客様に繋がらなかった理由と、同じ日にまた
     かけてよいと言われたか（会話の報告。同じ日にかけ直さないかは `not_today` の1か所＝ふつうの電話と同じ）。
     blame＝鳴らなかった発信のせい（dialed_at＝かけた時刻。ふつうの電話と同じ `_line_fault_again` の1か所）。attempt_id＝このお詫びの電話
-    （前の担当の方の断りは行を終えない＝`_former_refused` の1か所。ふつうの電話と同じ）。"""
+    （前の担当の方の断りは行を終えない＝`_former_personal` の1か所。ふつうの電話と同じ）。"""
     now = tx.one("SELECT now() AS now")["now"]
     redo = _line_fault_again(tx, task_id, dialed, dialed_at, now, blame) if dialed_at is not None else None
     if redo is not None:
@@ -1970,7 +2016,8 @@ def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dial
     # 行が終わった）
     at = dialed_at or now
     d = _moved_on_fix(tx, task_id, d, _plan_at(tx, task_id, at), replaced_at(tx, task_id, dialed.contact_id, at), now=now)
-    d = _former_refused(tx, task_id, d, _plan_at(tx, task_id, at), attempt_id=attempt_id, complaint=False, now=now)
+    d = _former_personal(tx, task_id, d, _plan_at(tx, task_id, at), attempt_id=attempt_id,
+                         answer=former_answer("do_not_call") if refused else "continue", complaint=False, now=now)
     _write(tx, task_id, d)
     return d
 
