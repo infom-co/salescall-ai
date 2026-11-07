@@ -193,6 +193,10 @@ def either(it: dict) -> bool:
 # 外す語）。⛔ 2026-11-06 日本時間15時台まで、記録する3か所と外す語の並びが2つの項目を名前で手書きしていた（項目を足すと、記録の漏れで数えなくなる）
 SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由"}
 assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
+# 判定の確からしさの広がりを記録する見出し（{判定の名前のあとに付ける語: 読みの属性}。唯一の表＝記録と、使い回すときに外す語）。
+# ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
+# どの選べるものの間で割れたか・どの問いが低かったかを、記録から読めるようにする（決め方には使わない）
+SPREAD_RECORD = {"選べるものの確からしさ": "probs", "問いごとの確からしさ": "confs"}
 
 
 def side_record(it: dict, key: str, got) -> None:
@@ -850,6 +854,8 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     side_record(it, key, it[key])
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
                     it[f"{key}言い切りの確からしさ"] = getattr(it[key], "firm_p", None)   # 言い切りの線と、どちらとも言えない幅を決めるため
+                    for suffix, attr in SPREAD_RECORD.items():   # どの選べるものの間で割れたか・どの問いが低かったか（11-07 10時29分25秒）
+                        it[f"{key}{suffix}"] = getattr(it[key], attr, None)
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
                     break
                 except OtherJudgeError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
@@ -1058,7 +1064,7 @@ def main() -> None:
                 # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
                 for it in pick_sample(items, args.sample):
                     it["見本"] = True
-            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", *SIDE_SUFFIX.values()))
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", *SIDE_SUFFIX.values(), *SPREAD_RECORD))
                                                              for j in args.judge)} for it in items]
         items = [g73_scene(it) for it in items]   # 前の記録の試しの言葉にも、本番で判定に渡る前の言葉を当てる
         have = {(it["set"], it["qid"], it["text"]) for it in items}

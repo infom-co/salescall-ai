@@ -2862,7 +2862,9 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         # 言えない幅を決める測りが使う＝2026-10-31）
         one = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": "はい", "confidence": 0.9}, "firm": {"noul": 0.1}}}))
         # 会話になっているか（10-31 に足した FITS）は、同じ日の夜に外した（✅ ユーザー「(a) OK」）＝返事に入れない
-        self.assertEqual(one, {"choice": "はい", "firm": 0.1 >= OTHER_JUDGES["Jev 1.14"]["firm_min"], "sure": 0.9, "firm_p": 0.1})
+        # 問いごとの確からしさ（confs）と選べるもの全部の確からしさ（probs。この返事には無い）は、測りの記録だけが使う（11-07 10時29分25秒）
+        self.assertEqual(one, {"choice": "はい", "firm": 0.1 >= OTHER_JUDGES["Jev 1.14"]["firm_min"], "sure": 0.9, "firm_p": 0.1,
+                               "probs": None, "confs": {"choice": 0.9}})
         from flowctl import Question
         yn = Question("q", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
         self.assertEqual((read(yn, json.dumps(one)).firm_p, read(yn, json.dumps({"choice": "はい", "firm": True})).firm_p), (0.1, None))
@@ -3521,6 +3523,14 @@ class AmbiguousAnswerTest(unittest.TestCase):
                             "firm": {"noul": 0.99}}}
         got = read(q, other_text("d1 Ultra（Liquid）", data))
         self.assertEqual((str(got), got.end, got.sure), ("いいえ", END_REFUSED, 0.41))
+        # 返事にある選べるもの全部の確からしさと、問いごとの確からしさも読みに残す（どの選べるものの間で割れたか・どの問いが低かったかを
+        #   測りの記録で見る＝✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題と
+        #   いうことでしょ！」。⛔ それまでは選んだものの確からしさだけを読み、ほかを捨てていた。決め方（sure＝いちばん低いもの）は変えない）
+        data["answers"]["choice"]["probabilities"] = {"はい": 0.03, "いいえ": 0.95, "決められない": 0.02}
+        got = read(q, other_text("d1 Ultra（Liquid）", data))
+        self.assertEqual((got.probs, got.confs, got.sure), ({"choice": {"はい": 0.03, "いいえ": 0.95, "決められない": 0.02}},
+                                                             {"choice": 0.95, END: 0.41}, 0.41))
+        self.assertIsNone(read(q, json.dumps({"choice": "いいえ", "firm": True})).probs)   # 返さない判定・前の記録は無し
 
     def test_answer_reading_has_no_talk_axis(self):
         # ✅ 2026-10-31 の夜 ユーザー「(a) OK」：会話になっているか（FITS）を判定に答えさせる軸を外した（G-53final で、正しく救った答えは0・壊した

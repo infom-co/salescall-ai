@@ -251,9 +251,13 @@ class Reading(str):
     facts＝項目ごとの答え（記録・試験の数え方）。weak＝受け持ちの判定がどれも確かな読みを返さず、代わりが答えたときの、受け持ちの確かでない読み
     （流れの制御は、代わりの答えとあわせて数える＝convo.check_handler・Flow.on_unsure）。firm_p＝言い切っているかの確からしさ（0〜1。返す判定
     だけ＝判断のモデル。firm は、これを線 firm_min で分けたもの。線と、どちらとも言えない幅を決める測りが使う）。
-    prior＝その前に相手が言ったことだけから決まる答え（中の名前。決まらない・問わなかったときは None。PRIOR）・prior_p＝その確からしさ。"""
+    prior＝その前に相手が言ったことだけから決まる答え（中の名前。決まらない・問わなかったときは None。PRIOR）・prior_p＝その確からしさ。
+    probs＝問いごとの、選べるもの全部の確からしさ（返す判定だけ＝判断のモデル）・confs＝問いごとの、選んだものの確からしさ（sure はこのいちばん
+    低いもの）。どちらも測りの記録で、どの選べるものの間で割れたか・どの問いが低かったかを見るためだけ（決め方には使わない）。"""
     sure: float | None = None
     firm_p: float | None = None
+    probs: dict | None = None
+    confs: dict | None = None
     prior: str | None = None
     prior_p: float | None = None
     prior_raw: str | None = None
@@ -527,6 +531,15 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
     except (ValueError, AttributeError):
         return None
     sure = sure if isinstance(sure, (int, float)) else None
+    r = _read_one(q, got, name, firm, sure, asked)
+    if r is not None:   # 測りの記録だけが使う確からしさの広がり（どの問いの読みでも同じ1か所）
+        r.probs = got.get("probs") if isinstance(got.get("probs"), dict) else None
+        r.confs = got.get("confs") if isinstance(got.get("confs"), dict) else None
+    return r
+
+
+def _read_one(q, got: dict, name, firm, sure, asked) -> "Reading | None":
+    """read の中身（項目ごとに答える質問と、ほかの質問）。"""
     if q.facets:
         # 項目ごとの答え（どれか1つでも無い・選べるものに無ければ、読めない返事）⇒ 組み合わせた読みと、読みに出ない事実の印（唯一の決まり）
         facts = {f.key: got.get(f.key) for f in q.facets}
@@ -1064,9 +1077,14 @@ def other_text(name: str, data: dict) -> str | None:
             return None
         confs = [a.get("confidence") for a in picked.values()]
         firm = (answers.get(FIRM) or {}).get("noul")
+        # 選べるもの全部の確からしさ（probabilities）と問いごとの確からしさも残す＝どの選べるものの間で割れたか・どの問いが低かったかを測りの記録で
+        # 見るため（決め方の sure は変えない。⛔ 2026-11-07 日本時間10時台まで捨てていた＝11-07 10時29分25秒「d1-ultraの確からしさが低いのは、
+        # こちらの設問か選択肢、説明の問題ということでしょ！」）
+        probs = {k: a["probabilities"] for k, a in picked.items() if isinstance(a.get("probabilities"), dict)}
         return json.dumps({k: a["choice"] for k, a in picked.items()} | {FIRM: firm is None or firm >= OTHER_JUDGES[name]["firm_min"],
                           "sure": min(confs) if all(isinstance(c, (int, float)) for c in confs) else None,
-                          "firm_p": firm if isinstance(firm, (int, float)) else None}, ensure_ascii=False)
+                          "firm_p": firm if isinstance(firm, (int, float)) else None,
+                          "probs": probs or None, "confs": {k: a.get("confidence") for k, a in picked.items()}}, ensure_ascii=False)
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
 
 
