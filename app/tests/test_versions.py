@@ -59,12 +59,14 @@ class Versions(Base):
         self.assertEqual(self.tx(s, lambda tx: bs.successor_tip(tx, v0)), v2)
         names = [a[0] for a in self.tx(s, lambda tx: bs.load(tx, v2)).answers]
         self.assertTrue({"駐車場", "営業時間"} <= set(names), names)                            # v1 の変更も入っている
-        other = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)   # つながりの無い版
-        with self.assertRaises(Rejected) as e:                                                 # 1つの版の後の版は1つだけ
-            self.tx(s, lambda tx: tx.execute(
+        def second(tx):                                                                        # つながりの無い、その取引で作った版
+            other = bs.save_version(tx, s["business"], settings_raw())
+            tx.execute(
                 "INSERT INTO salescall.version_successions (tenant_id, client_id, business_id, from_version, to_version, cause, note,"
                 " recorded_by) VALUES (%s, %s, %s, %s, %s, 'solution', 'x', salescall.cur_actor())",   # ほかの守りには当たらない形
-                (s["tenant"], s["client"], s["business"], v0, other)), OPERATOR)
+                (s["tenant"], s["client"], s["business"], v0, other))
+        with self.assertRaises(Rejected) as e:                                                 # 1つの版の後の版は1つだけ
+            self.tx(s, second, OPERATOR)
         self.assertEqual(e.exception.constraint, "version_successions_from_version_key")
         self.w.approve_voices(s["tenant"], s["client"], v1)
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v1)])         # v2 はまだ録音が無い：v1 まで
@@ -249,15 +251,19 @@ class Versions(Base):
         v1 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)
         other, _ = self.w.business_with_version(s["tenant"], s["client"])
         self.w.add_version(s["tenant"], s["client"], other)
-        far = self.w.add_version(s["tenant"], s["client"], other)   # ほかの業務の版（番号は v1 より大きい＝向きでは断られない）
         sql = ("INSERT INTO salescall.version_successions (tenant_id, client_id, business_id, from_version, to_version, cause, note,"
                " recorded_by, recorded_at) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, 'solution', 'x', %s, %s)")
+        far_sql = ("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, created_by)"   # ほかの業務の版を、その取引で
+                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor()) RETURNING version_id")   # 作る
         for business, frm, to, by, constraint in ((s["business"], v1, v0, "操作", "version_succession_forward"),
                                                   (s["business"], v0, v1, "ほかの方", "version_succession_recorded_by"),
-                                                  (s["business"], v0, far, "操作", None)):
+                                                  (s["business"], v0, "far", "操作", None)):
+            def work(tx, business=business, frm=frm, to=to, by=by):   # ほかの業務の版（番号は v1 より大きい＝向きでは断られない）
+                to = tx.one(far_sql, (other,))["version_id"] if to == "far" else to
+                tx.execute(sql, (business, frm, to, tx.one("SELECT salescall.cur_actor() AS a")["a"] if by == "操作" else by,
+                                 "2000-01-01"))
             with self.subTest(constraint=constraint), self.assertRaises(Rejected) as e:
-                self.tx(s, lambda tx: tx.execute(sql, (business, frm, to, tx.one("SELECT salescall.cur_actor() AS a")["a"]
-                                                       if by == "操作" else by, "2000-01-01")), OPERATOR)
+                self.tx(s, work, OPERATOR)
             if constraint is not None:
                 self.assertEqual(e.exception.constraint, constraint)
             else:                                                                           # 同じ業務の版だけ（0183 の外部キー）
@@ -269,11 +275,25 @@ class Versions(Base):
                 self.tx(s, lambda tx, q=q: tx.execute(q, (s["business"], v0, v1, tx.one("SELECT salescall.cur_actor() AS a")["a"],
                                                          "2000-01-01")), who)
             self.assertEqual(e.exception.constraint, "version_succession_cause_actor")
-        self.tx(s, lambda tx: tx.execute(sql, (s["business"], v0, v1, tx.one("SELECT salescall.cur_actor() AS a")["a"], "2000-01-01")),
-                OPERATOR)
+        # 後の版は、その取引で作った版だけ（前からある版を、ほかの版の後に直接つなげると、adopt_ready が自動で割り当ててしまう。0197）
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: tx.execute(sql, (s["business"], v0, v1, tx.one("SELECT salescall.cur_actor() AS a")["a"],
+                                                   "2000-01-01")), OPERATOR)
+        self.assertEqual(e.exception.constraint, "version_origin_made_now")
+        made = self.tx(s, lambda tx: tx.one("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, created_by,"
+                                            " created_at) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s,"
+                                            " salescall.cur_actor(), '2000-01-01') RETURNING created_at", (s["business"],)), OPERATOR)
+        self.assertGreater(made["created_at"].year, 2000)                                   # 版の作られた時刻はデータベースが決める
+
+        def link(tx):
+            v2 = tx.one(far_sql, (s["business"],))["version_id"]
+            tx.execute(sql, (s["business"], v0, v2, tx.one("SELECT salescall.cur_actor() AS a")["a"], "2000-01-01"))
+            return v2
+        v2 = self.tx(s, link, OPERATOR)
         at = self.tx(s, lambda tx: tx.one("SELECT recorded_at > now() - interval '1 hour' AS fresh FROM salescall.version_successions"
                                           " WHERE from_version = %s", (v0,))["fresh"])
         self.assertTrue(at)
+        self.assertEqual(self.tx(s, lambda tx: bs.successor_tip(tx, v0)), v2)
         with self.assertRaises(Rejected) as e:
             self.tx(s, lambda tx: bs.assign(tx, s["run"], v1, reason="試験：自動に見せかける", auto=True), OPERATOR)
         self.assertEqual(e.exception.constraint, "run_version_auto_by_system")
@@ -330,3 +350,181 @@ class Versions(Base):
         v1 = self.tx(s, lambda tx: bs.derive(tx, v, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
         name = next(n for n in self.tx(s, lambda tx: bs.load(tx, v1)).names if n.text == "中島")
         self.assertEqual((name.reading, name.reading_by), ("なかしま", "recording"))
+
+    # ── 2026-11-07 の第三者の見直し (2)（0197。版の元＝つながりの前の版か写しの元の1か所）
+    def test_answers_added_before_recording_are_recorded_together_from_the_nearest_recorded_version(self):
+        """(2) の2：録音していない途中の版から足した版（V0 は録音済み → V1 はまだ → V2）は、いまの組がある、いちばん近い元の版（V0）から、
+        変わった部分をまとめて録音していただく（needed_parts・complete・知らせ recording_needed。⛔ 前は「つながりの1つ前の版」だけを見たので、
+        V2 には録音の要る部分も警告も出ず、complete も断り、録音が2回に分かれた）。"""
+        from salescall.core import recordings
+        s = self.ready()
+        v0 = s["version"]
+        self.w.approve_voices(s["tenant"], s["client"], v0)
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        self.tx(s, lambda tx: quality_stage.record_mock(tx, v0, GOOD), OPERATOR)
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        v2 = self.tx(s, lambda tx: bs.derive(tx, v1, lambda r: dict(r, answers=list(r["answers"]) + [
+            {"name": "営業時間", "text": "平日の9時から18時でございます。"}]), cause="solution", note="営業時間"), OPERATOR)
+        p = bs.ANSWER_PART_PREFIX
+        want = {p + "駐車場": "建物の裏に3台分ございます。", p + "営業時間": "平日の9時から18時でございます。"}
+        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v2)), {v: want for v in voices})
+        note = self.tx(s, lambda tx: tx.one("SELECT refs FROM salescall.notification_events WHERE event_key = %s",
+                                            (f"recording_needed:{v2}",)))
+        self.assertEqual(note["refs"]["parts"], sorted(want))
+        for v in voices:
+            sid = self.tx(s, lambda tx, v=v: recordings.complete(
+                tx, v2, v, [recordings.Part(k, t, f"test://{v}/{k}", "3" * 64) for k, t in want.items()]), OPERATOR)
+            self.assertEqual(self.tx(s, lambda tx, i=sid: recordings.unapproved_parts(tx, i)), sorted(want))   # 聞くのは録った部分だけ
+            self.tx(s, lambda tx, i=sid: recordings.approve(tx, i), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v2)), voices)
+        self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v2)])         # 1回の録音で、いちばん後の版へ
+
+    def test_a_copy_of_an_unrecorded_version_asks_for_what_differs_from_its_recorded_origin(self):
+        """(2) の2：録音していない途中の版（V1）へ手で戻した写しは、写しの元（V1）・そのつながりの前の版（V0）とたどって、いまの組がある
+        いちばん近い元の版（V0）から変わった部分の録音を求める（警告と知らせ。⛔ 前は写しの元を知らず、組も警告も無いまま話せなかった）。"""
+        from salescall.core import recordings
+        s = self.ready()
+        v0 = s["version"]
+        self.w.approve_voices(s["tenant"], s["client"], v0)
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        self.tx(s, lambda tx: quality_stage.record_mock(tx, v0, GOOD), OPERATOR)
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        v2 = self.tx(s, lambda tx: bs.derive(tx, v1, lambda r: dict(r, answers=list(r["answers"]) + [
+            {"name": "営業時間", "text": "平日の9時から18時でございます。"}]), cause="solution", note="営業時間"), OPERATOR)
+        self.w.approve_voices(s["tenant"], s["client"], v2, parts=("intro", "answer_駐車場", "answer_営業時間"))
+        self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v2)])
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], v1, reason="試験：手で録音していない版に戻す"), OPERATOR)
+        back = self.current(s)
+        self.assertNotIn(back, (v0, v1, v2))
+        self.assertEqual(self.tx(s, lambda tx: bs.version_origins(tx, back)), [v1, v0])
+        part = bs.ANSWER_PART_PREFIX + "駐車場"
+        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, back)), {v: {part: "建物の裏に3台分ございます。"} for v in voices})
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT 1 FROM salescall.notification_events WHERE event_key = %s",
+                                                     (f"recording_needed:{back}",))))
+
+    def test_a_version_put_back_or_derived_after_verification_starts_is_not_checked_again(self):
+        """(2) の3：検証モードに切り替えたあと、後の版がある前の版へ手で戻す（写し）・同じ版から版を足すのは、置いたときの確かめを信じて、
+        前からある AI の読みを確かめ直さない（⛔ 前は版を作る確かめを通したので、後の版がある版へは戻せず、版も足せなかった）。新しく足す
+        AI の読みは、検証モードでは契約者が確かめる（今までどおり）。"""
+        from salescall.core import settings
+        s = self.ready()
+        r = settings_raw()
+        r["info"] = list(r.get("info") or []) + ["東海の工場で作っています。"]
+        r["names"] = list(r["names"]) + [{"text": "東海", "reading": "とうかい", "source": "script", "reading_by": "ai",
+                                          "candidates": [], "likely": None}]
+        v0 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], v0, reason="試験"), OPERATOR)
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], v1, reason="試験：v1"), OPERATOR)
+        self.tx(s, lambda tx: settings.set_value(tx, "approval.human", True, scope="business", status="decided",
+                                              rationale="試験：検証モード", review_when="試験",
+                                              tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], v0, reason="試験：手で v0 に戻す"), OPERATOR)
+        back = self.current(s)
+        self.assertNotIn(back, (v0, v1))
+        self.assertEqual(self.tx(s, lambda tx: bs.load(tx, back).raw), self.tx(s, lambda tx: bs.load(tx, v0).raw))
+        v2 = self.tx(s, lambda tx: bs.derive(tx, back, lambda raw: dict(raw, answers=list(raw["answers"]) + [
+            {"name": "営業時間", "text": "平日の9時から18時でございます。"}]), cause="solution", note="営業時間"), OPERATOR)
+        self.assertIn("営業時間", dict(self.tx(s, lambda tx: bs.load(tx, v2)).answers))
+        with self.assertRaises(bs.SettingsInvalid):                                        # 新しく足す AI の読みは確かめる
+            self.tx(s, lambda tx: bs.derive(tx, v2, lambda raw: dict(raw, names=list(raw["names"]) + [
+                {"text": "西海", "reading": "さいかい", "source": "script", "reading_by": "ai", "candidates": [], "likely": None}]),
+                cause="override", note="名前を足す"), OPERATOR)
+
+    def test_answers_off_changes_keep_the_business_recordings(self):
+        """使わない標準の問い（answers_off）だけが違う版は、標準の録音から流す部分だけが変わる（業務の録音の部分は同じ）ので、業務の録音を
+        その場で引き継ぐ（core/recordings._changes の1か所。想定問答の外の違いとはみなさない）。"""
+        from salescall.core import recordings
+        s = self.ready()
+        with self.w.standard(STD, voices=("Leda", "Sadachbia")) as std:
+            v = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw(), standard_id=std), OPERATOR)
+            self.w.approve_voices(s["tenant"], s["client"], v)
+            voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v))
+            self.assertTrue(voices)
+            off = self.tx(s, lambda tx: bs.derive(tx, v, lambda r: dict(r, answers_off=["会社の場所"]), cause="override",
+                                                  note="会社の場所を使わない"), OPERATOR)
+            self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, off)), {})
+            self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, off)), voices)   # 聞き直さずに話せる
+
+    def test_a_version_whose_names_changed_keeps_no_recordings(self):
+        """前からある名前の読みが変わった版は、どの録音の部分がその名前を話すかを、ここでは決められないので、録音を引き継がない（名前の一覧の
+        違いで引き継ぐのは「足しただけ」のとき＝core/recordings._changes の1か所）。"""
+        from salescall.core import recordings
+        s = self.ready()
+        r = settings_raw()
+        r["names"] = list(r["names"]) + [{"text": "西海", "reading": "さいかい", "source": "script", "reading_by": "given",
+                                          "candidates": [], "likely": None}]
+        v0 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r), OPERATOR)
+        self.w.approve_voices(s["tenant"], s["client"], v0)
+        self.assertTrue(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)))
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda raw: dict(raw, names=[dict(n, reading="にしうみ") if n["text"] == "西海" else n
+                                                                             for n in raw["names"]]),
+                                             cause="override", note="西海の読み"), OPERATOR)
+        self.assertEqual((self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), self.tx(s, lambda tx: recordings.ready_voices(tx, v1))),
+                         ({}, []))
+
+    def test_kept_parts_keep_the_readings_they_were_recorded_with(self):
+        """引き継ぐ部分は、録音で書いた名前の読みも引き継ぐ（承認の中身の鍵に入る。落とすと、その名前を話す部分は組を作れない）。"""
+        from salescall.core import recordings
+        s = self.ready()
+        r = settings_raw()
+        r["names"] = list(r["names"]) + [{"text": "中島", "reading": None, "source": "script", "reading_by": None,
+                                          "candidates": ["なかじま", "なかしま"], "likely": "なかじま"}]
+        r["answers"] = [{"name": "担当", "text": "中島がご案内いたします。"}]
+        v0 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r), OPERATOR)
+        self.tx(s, lambda tx: recordings.choose_reading(tx, v0, "中島", "なかしま"), OPERATOR)
+        part = bs.ANSWER_PART_PREFIX + "担当"
+
+        def record(tx):
+            for v in ("Leda", "Sadachbia"):
+                recordings.approve(tx, recordings.create_set(tx, unit="business", voice_name=v, version_id=v0, parts=[
+                    recordings.Part("intro", "架空の録音（intro）。", f"test://{v}/intro", "0" * 64),
+                    recordings.Part(part, "「なかしま」がご案内いたします。", f"test://{v}/{part}", "4" * 64, {"中島": "なかしま"})]))
+        self.tx(s, record, OPERATOR)
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        self.assertTrue(voices)
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        self.assertEqual(set(self.tx(s, lambda tx: recordings.needed_parts(tx, v1))), set(voices))
+        sid = self.tx(s, lambda tx: recordings.complete(tx, v1, voices[0], [recordings.Part(
+            bs.ANSWER_PART_PREFIX + "駐車場", "建物の裏に3台分ございます。", "test://new", "5" * 64)]), OPERATOR)
+        got = self.tx(s, lambda tx: tx.one("SELECT reading FROM salescall.recording_readings WHERE set_id = %s AND part = %s",
+                                           (sid, part)))
+        self.assertEqual(got["reading"], "なかしま")
+
+    def test_the_database_keeps_copies_to_versions_made_in_the_same_transaction(self):
+        """写しの元（version_copies）も、つながりと同じ守り（0197 の version_origin_check の1か所）：写しの版はその取引で作った版だけ・
+        1つの版の元は1つ（つながりか写しのどちらか）・輪にならない・記録した方は操作している方。"""
+        s = self.ready()
+        v0 = s["version"]
+        v1 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)
+        sql = ("INSERT INTO salescall.version_copies (tenant_id, client_id, version_id, copied_from, recorded_by)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, {by})")
+        me = "salescall.cur_actor()"
+        for frm, to, by, constraint in ((v0, v1, me, "version_origin_made_now"), (v0, "new", "'ほかの方'", "version_copy_recorded_by")):
+            def work(tx, frm=frm, to=to, by=by):
+                to = bs.save_version(tx, s["business"], settings_raw()) if to == "new" else to
+                tx.execute(sql.format(by=by), (to, frm))
+            with self.subTest(constraint=constraint), self.assertRaises(Rejected) as e:
+                self.tx(s, work, OPERATOR)
+            self.assertEqual(e.exception.constraint, constraint)
+
+        def twice(tx):                                                                       # 写しにしてから、つながりの後の版にもする
+            new = bs.save_version(tx, s["business"], settings_raw())
+            tx.execute(sql.format(by=me), (new, v0))
+            tx.execute("INSERT INTO salescall.version_successions (tenant_id, client_id, business_id, from_version, to_version, cause,"
+                       " note, recorded_by) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, 'solution', 'x',"
+                       " salescall.cur_actor())", (s["business"], v1, new))
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, twice, OPERATOR)
+        self.assertEqual(e.exception.constraint, "version_origin_one")
+
+        def loop(tx):                                                                        # 新しい2つの版を、たがいの写しにする
+            a = bs.save_version(tx, s["business"], settings_raw())
+            b = bs.save_version(tx, s["business"], settings_raw())
+            tx.execute(sql.format(by=me), (a, b))
+            tx.execute(sql.format(by=me), (b, a))
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, loop, OPERATOR)
+        self.assertEqual(e.exception.constraint, "version_origin_no_loop")
+        copy = self.tx(s, lambda tx: bs.restore(tx, v0), OPERATOR)                           # 写しの1か所（save_from）が元を残す
+        self.assertEqual(self.tx(s, lambda tx: bs.version_origins(tx, copy)), [v0])

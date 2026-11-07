@@ -115,6 +115,23 @@ class Stages(Base):
         self.assertEqual(self.business_stops(s), [])                   # 新しい版の合格で、自動で再開
         self.assertIsNotNone(got)
 
+    def test_a_copy_of_the_stopped_version_is_the_stopped_version(self):
+        """止まった版の写し（以前の版へ戻す・手で前の版に戻す＝business_settings.save_from）も、止まった版そのもの（中身が同じ）：模擬通話に
+        合格しても再開しない（品質の段の1か所 `_stopped_version` が、写しの元をたどった版＝salescall.version_copy_root で比べる。0197）。
+        ⛔ 2026-11-07 の第三者の見直し (2) の5：前は版の番号で比べたので、写しで同じ中身のまま再開できた。"""
+        from salescall.core import business_settings
+        s = self.fresh(stage_cap=20)
+        self.verified_call(s, said(3))      # 言ってはいけないことが1件
+        self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])
+        copy = self.tx(s, lambda tx: business_settings.restore(tx, s["version"]), OPERATOR)
+        again = self.tx(s, lambda tx: business_settings.restore(tx, copy), OPERATOR)          # 写しの写しも
+        for v in (copy, again):
+            with self.subTest(version=v):
+                self.assertEqual(self.tx(s, lambda tx, v=v: quality_stage.start_kind(tx, v)), "stopped_version")
+        got = self.tx(s, lambda tx: quality_stage.record_mock(tx, again, GOOD))
+        self.assertEqual(got["outcome"], "stopped_version")
+        self.assertEqual(len(self.business_stops(s)), 1)
+
     def test_a_person_resume_measures_the_version_again(self):
         s = self.fresh(stage_cap=2)
         self.verified_call(s, said(3), items=[("Q1", "confirmed", None)])

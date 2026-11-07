@@ -342,8 +342,8 @@ class Import(unittest.TestCase):
                          {"substitute_policy": "target_only", "message_policy": "leave",
                           "message": "山田からお電話があったとお伝えいただけますでしょうか？", "departed_policy": "end",
                           "info": ["営業時間は9時から18時です", "所在地は東京都です"], "follow_up": True})
-        self.assertIn("山田からお電話があった", bi._script(p.raw))
-        self.assertIn("所在地は東京都です", bi._script(p.raw))
+        self.assertIn("山田からお電話があった", bi.script(p.raw))
+        self.assertIn("所在地は東京都です", bi.script(p.raw))
         # 業務の情報が無ければ知らせる（登録は止めない）。書けば知らせない（CL-1 の連絡帳 4-30：業務設定に無いこちらの事実は AI が言わない）
         self.assertFalse(any("業務の情報がありません" in x for x in p.notes), p.notes)
         self.assertTrue(any("業務の情報がありません" in x for x in self.preview(book()).notes))
@@ -581,7 +581,7 @@ class Import(unittest.TestCase):
         p = self.preview(data, decide_facts=lambda texts: {t: "ご予約" not in t for t in texts}, decide_do_words=do_words)
         self.assertEqual(p.problems, [])
         self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"), {})]])   # 事実を伺う質問ではない選択肢の質問だけ
-        self.assertIn("それではご希望の日時の確認からさせていただきます。", bi._script(p.raw))   # 入る一言も録音で話す＝名前を洗い出す台本に入る
+        self.assertIn("それではご希望の日時の確認からさせていただきます。", bi.script(p.raw))   # 入る一言も録音で話す＝名前を洗い出す台本に入る
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
         got = self.tx(lambda tx: bs.load(tx, v))
         self.assertEqual([(q.do_words, q.intro) for q in got.questions],
@@ -798,12 +798,12 @@ class Import(unittest.TestCase):
         p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
         self.assertEqual((p.problems, [q["tell_words"] for q in p.raw["questions"]]),
                          ([], [{"する": "「緑川駐車場」をご利用いただけますのでどうぞご利用ください。"}, {}]))
-        script = bi._script(p.raw)
+        script = bi.script(p.raw)
         self.assertIn("緑川駐車場", script)
         self.assertIn("青葉ホール", script)
         r = copy.deepcopy(p.raw)
         r["questions"][0]["meanings"] = {"する": "「白川会館」でご予約をなさるということ"}
-        self.assertIn("白川会館", bi._script(r))
+        self.assertIn("白川会館", bi.script(r))
         p = self.preview(book(), decide_facts=facts)                        # 前のひな形（列が無い）も読める
         self.assertEqual((p.problems, [q["tell_words"] for q in p.raw["questions"]]), ([], [{}, {}]))
         for name, cell, words in (("区切りが無い", "駐車場をご利用ください。", "「選択肢：言葉」の形"),
@@ -843,8 +843,8 @@ class Import(unittest.TestCase):
         data = book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": basic})
         p = self.preview(data)
         self.assertEqual(p.problems, [])
-        self.assertNotIn(bs.DAY_SLOT, bi._script(p.raw))                   # 名前を洗い出す台本に、最短の日の場所は入れない（名前ではない）
-        self.assertIn("なら対応できますが、）いつ頃がよろしいでしょうか？", bi._script(p.raw))
+        self.assertNotIn(bs.DAY_SLOT, bi.script(p.raw))                   # 名前を洗い出す台本に、最短の日の場所は入れない（名前ではない）
+        self.assertIn("なら対応できますが、）いつ頃がよろしいでしょうか？", bi.script(p.raw))
         self.assertEqual((p.raw["questions"][1]["ask_if"], p.raw["earliest"]),
                          ({"after": "Q1", "answers": ["いいえ"], "hedged": True},
                           {"business_days": 3, "closed_weekdays": ["sat", "sun"], "closed_on_holidays": True,

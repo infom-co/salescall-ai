@@ -647,6 +647,27 @@ class RowFixes(Targets):
         t = self.tx(lambda tx: business_settings.target_of(tx, task))["target"]
         self.assertEqual((t["full_name"], t["full_reading"], t["role"]), ("岡田太郎", "おかだたろう", ""))
 
+    def test_a_role_without_its_charge_is_refused_when_fixed_and_the_gate_says_why(self):
+        """「ご担当者」だけ（何の担当か無い）の役職は、ダッシュボードの直しでも、取込・業務設定と同じ1か所（business_settings.role_problem）で
+        断る（⛔ 2026-11-07 の第三者の見直し (2) の7：ここだけ通していた）。前から入っている行は、門が target_role_unclear で断り、説明に
+        何を直せばよいか（何の担当かを書く）を出す（「役職がありません」とは言わない）。"""
+        from salescall.core import gate
+        vid, task = self.one_row(kind="role", name=(None, None), role="院長")
+        for bare in ("ご担当者さん", "ご担当の方々", "担当者"):
+            with self.subTest(bare=bare), self.assertRaises(row_fixes.FixInvalid) as e:
+                self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", bare))
+            self.assertIn("何の担当かを書いてください", str(e.exception))
+        self.assertEqual(self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", "経理のご担当者様"))["value"], "経理のご担当者様")
+        self.tx(lambda tx: tx.execute(   # 前から入っている「ご担当者」だけの役職（直す前の形）
+            "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, recorded_by)"
+            " SELECT tenant_id, client_id, task_id, 'target_role', 'ご担当者さん', salescall.cur_actor() FROM salescall.tasks"
+            " WHERE task_id = %s", (task,)))
+        content = self.tx(lambda tx: gate._content(tx, vid))
+        self.assertEqual(self.tx(lambda tx: gate._target_short(tx, gate._task(tx, task), "normal", content)), "target_role_unclear")
+        self.assertIn("何の担当かを書いてください", gate.denied("target_role_unclear").message)
+        self.assertEqual(gate.REASONS["target_role_unclear"].message,
+                         "この業務は目的のお客様を役職で呼びますが、この行の役職は、" + business_settings.ROLE_UNCLEAR)
+
     def test_fixes_are_by_a_person_with_the_same_reading_rules(self):
         """直せるのは管理者か契約者だけ（データベースが守る）。読みはひらがなかカタカナ・読みを持つのは名前の欄だけ・直せる欄は決まった5つ。
         検証モードの業務では、AI の読みを契約者が確かめる決まりなので、名前を直すときは読みも入れる。"""

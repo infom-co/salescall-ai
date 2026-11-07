@@ -137,6 +137,18 @@ def _quality_stop(tx: Tx, business_id: UUID) -> dict[str, Any] | None:
         " ORDER BY s.event_id LIMIT 1", (business_id, list(STOP_CAUSES)))
 
 
+def _stopped_version(tx: Tx, stop: dict[str, Any] | None, version_id: UUID) -> bool:
+    """その版が、品質で止まった版そのもの（中身の同じ版）か（1か所。`start_kind` と `record_mock` が読む）。判定できないで止めた停止は
+    当てはまらない（原因が業務設定とは限らないので、同じ版でも再開する）。止まった版の写し（以前の版へ戻す・手で前の版に戻す・業務の複製＝
+    business_settings.save_from）も、止まった版そのもの：写しの元をたどった、中身の同じいちばん元の版（データベースの salescall.
+    version_copy_root＝版の元の1か所。0197）で比べる（⛔ 2026-11-07 の第三者の見直し (2) の5：前は版の番号で比べたので、止まった版の写しで
+    模擬通話に合格すると、同じ中身のまま再開できた）。"""
+    if stop is None or stop["cause"] == "judge_unknown" or stop["version_id"] is None:
+        return False
+    return tx.one("SELECT salescall.version_copy_root(%s) = salescall.version_copy_root(%s) AS same",
+                  (stop["version_id"], version_id))["same"]
+
+
 def start_kind(tx: Tx, version_id: UUID) -> str:
     """その版を始めるとどうなるか（何も書かない。決めるのはここだけ＝`prepare` と、版を自動で替える business_settings.adopt_ready が読む）：
     already（もう段がある）／stopped_version（品質で止まった版そのもの。再開しない）／mock_needed（模擬通話の合格を待つ）／open（最初の段を
@@ -145,7 +157,7 @@ def start_kind(tx: Tx, version_id: UUID) -> str:
         return "already"
     v = _version(tx, version_id)
     stop = _quality_stop(tx, v["business_id"])
-    if stop is not None and stop["cause"] != "judge_unknown" and stop["version_id"] == version_id:
+    if _stopped_version(tx, stop, version_id):
         return "stopped_version"
     passed_before = tx.one("SELECT 1 FROM salescall.mock_runs WHERE passed LIMIT 1") is not None   # この依頼者（取引の範囲）
     if stop is not None or not passed_before:
@@ -189,8 +201,8 @@ def record_mock(tx: Tx, version_id: UUID, r: MockResult) -> dict[str, Any]:
             # 判定できなかった通話の場面を入れていない模擬通話では、直ったと言えない。止めた原因が判定できないでなくても同じ
             # （2026-10-16 見直し：品質の停止がもうあるあいだに締めた通話が判定できなかったとき、前は場面を求めずに再開していた）
             outcome = "scenes_missing"
-        elif stop is not None and stop["cause"] != "judge_unknown" and stop["version_id"] == version_id:
-            outcome = "stopped_version"          # 止まった版そのもの：合格でも再開しない（新しい版で）
+        elif _stopped_version(tx, stop, version_id):
+            outcome = "stopped_version"          # 止まった版そのもの（写しも）：合格でも再開しない（新しい版で）
         else:
             if stop is not None:
                 stops.resume(tx, stop["event_id"], reason=f"新しい版が模擬通話に合格（模擬通話 {mock_id}）",

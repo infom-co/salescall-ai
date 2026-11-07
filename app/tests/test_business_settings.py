@@ -1218,11 +1218,17 @@ class RoleProblem(unittest.TestCase):
     def test_a_bare_tantou_role_is_refused_but_a_role_with_its_charge_is_used(self):
         """「ご担当者」だけ（何の担当か無い）の役職は、業務設定でも、お客様リストの行の役職でも使えない。何の担当かがあればよい
         （✅ 2026-11-05 ユーザー：「～のご担当者様」「～をされているご担当者様」「～を受け持ちのご担当者様」は書ける）。"""
-        for bare in ("ご担当者", "ご担当者様", "ご担当の方", "担当者", "担当", "ご担当者 様", "御担当者"):
+        for bare in ("ご担当者", "ご担当者様", "ご担当の方", "担当者", "担当", "ご担当者 様", "御担当者",
+                     # ⛔ 2026-11-07 の第三者の見直し (2) の7：敬称・呼び方のひらがな・漢字（前は通していた）
+                     "ご担当のかた", "担当者さん", "ご担当者さん", "ご担当の方々", "ご担当者各位", "ご担当者様宛", "担当者あて",
+                     "ご担当の方へ", "ご担当者殿", "ご担当者さま", "担当のかたがた", "ご担当者御中", "ご担当の皆様"):
             with self.subTest(bare=bare):
                 self.assertIsNotNone(bs.role_problem(bare))
-                self.assertEqual(bs.TargetNeeds(name=False, role=True).missing(name=None, role=bare)[0], "target_role_missing")
-        for ok in ("経理のご担当者様", "採用をされているご担当者様", "店長", "人事部長"):
+                short = bs.TargetNeeds(name=False, role=True).missing(name=None, role=bare)
+                self.assertEqual(short[0], "target_role_unclear")                       # 理由は「役職が無い」と分ける
+                self.assertIn("何の担当かを書いてください", short[1])
+        self.assertEqual(bs.TargetNeeds(name=False, role=True).missing(name=None, role=None)[0], "target_role_missing")
+        for ok in ("経理のご担当者様", "採用をされているご担当者様", "店長", "人事部長", "担当課長", "ご担当役員様"):
             with self.subTest(ok=ok):
                 self.assertIsNone(bs.role_problem(ok))
                 self.assertIsNone(bs.TargetNeeds(name=False, role=True).missing(name=None, role=ok))
