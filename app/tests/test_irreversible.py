@@ -1219,6 +1219,39 @@ class Declared(Helpers):
         self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))   # 遅れて届いた申告
         self.assertNotEqual(self.tx(s, lambda tx: settle.resettle(tx, aid))["state"], "do_not_call")
 
+    def test_a_declaration_after_the_call_was_settled_is_put_and_reported_as_a_conversation_fault(self):
+        """2026-11-07 ユーザーとのやり取りで決めた備え：申告は通話の最中に会話の担当の部品から届く。締めのあとに届くのは、部品の不具合（落ちて
+        送り直した など）のときだけ。⇒ 締めのあとに届いた申告も、今までどおり受けて発信禁止にし（かけない側。原則14）、そのうえで「会話の部品の
+        不具合の疑い」として管理者と契約者に知らせ、会話の担当（CL-1）へ修正依頼を出す（同じ通話で何度届いても1つ）。締めのあとかは、締めの
+        記録の1か所（salescall.is_settled）で決める。通話の最中に届いた申告は、知らせも修正依頼も出さない。"""
+        def asked():
+            return [q for q in self.w.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))
+                    if q["kind"] == "declared_after_settle"]
+
+        def faults(s):
+            admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+                "SELECT 1 FROM salescall.notification_events WHERE kind = 'declared_after_settle' AND for_admin"
+                " AND refs ->> 'client_id' = %s", (str(s["client"]),)))
+            return self.notices(s, "declared_after_settle"), len(admin), [q["refs"]["attempt_id"] for q in asked()]
+
+        for q in asked():   # ほかの試験が出した修正依頼は、直したことにしておく（同じ不具合の依頼は、直したと報告するまで1つ）
+            self.w.a.in_system(SYSTEM, lambda tx, q=q: fix_requests.report_fixed(tx, q["request_id"], "試験：前の試験の分"))
+        s = self.ready()
+        aid = self.answered_call(s, TALK[1:])
+        self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))       # 通話の最中
+        self.assertEqual(faults(s), (0, 0, []))
+        s2 = self.ready()
+        late = self.call(s2, report=rep())
+        self.settle(s2, late)
+        self.assertEqual(self.dnc_reasons(s2), [])
+        for _ in range(2):                                                         # 送り直しで2回届いても、知らせと修正依頼は1つ
+            got = self.tx(s2, lambda tx: conversation_io.declare_do_not_call(tx, late))
+            self.assertFalse(got["held"])
+        self.assertEqual(self.dnc_reasons(s2), ["refused_in_call"])                # かけない側（原則14）
+        self.assertEqual(faults(s2), (1, 1, [str(late)]))
+        refs = self.tx(s2, lambda tx: tx.one("SELECT refs FROM salescall.notification_events WHERE kind = 'declared_after_settle'"))["refs"]
+        self.assertEqual((refs["attempt_id"], refs["task_id"]), (str(late), str(s2["task"])))
+
     def test_only_the_declaration_puts_an_in_call_entry(self):
         """申告の印の付いた登録は、理由 refused_in_call・出どころの通話・番号つきだけ（データベースの守り。0198）。"""
         s = self.ready()

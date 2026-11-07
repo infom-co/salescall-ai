@@ -21,8 +21,8 @@ from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 from uuid import UUID
 
-from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, dnc, errors, health, notify,
-                            quality_stage, recordings, settings, spoken_time, stops, target_policy)
+from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, client_solutions, dnc, errors, health,
+                            notify, quality_stage, recordings, settings, spoken_time, stops, target_policy)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.health_rules import RESTS
@@ -92,6 +92,12 @@ REASONS: dict[str, Reason] = {
                                   "cannot_judge", "unoffered"),
     "version_not_ready": Reason("この版は、まだかけられる段に入っていません（模擬通話・最初の段の前）", "wait", "stage"),
     "stage_full": Reason("いまの段の件数に達しました（次の段へ進むのを待っています）", "wait", "stage"),
+    # 実施回の版を、依頼者の解決策の入る前の版にした（手で版を替えた・古い版で実施回を作った）のに、外した解決策を契約者がまだ確かめていない
+    # （✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で入らず、新規の電話もかけられません、ダッシュボードに承認ボタンを分かりやすく
+    # 表示」。止めるのは、まだ一度もかけていないお客様の行だけ＝`unconfirmed_solutions` の1か所。候補にも出さない）
+    "solutions_unconfirmed": Reason("この実施回の業務設定は、依頼者の解決策の入る前の版です。入っていない解決策を、ダッシュボードで"
+                                    "「入れる」か「入れない」かを選んで承認してください（承認するまで、まだ一度もかけていないお客様の行へは"
+                                    "新しい電話をかけません。約束したかけ直し・続きの電話・お詫びの電話はかけます）", "wait", "unoffered"),
     "stopped": Reason("止まっています", "wait", "unoffered"),
     "line_stopped": Reason("この回線が止まっています（回線の異常など。行は、ほかの回線でかけられる）", "wait", "line"),   # 回線の欄の休み・回線の停止
     "client_inactive": Reason("この依頼者は無効にしています", "wait", "client"),
@@ -494,9 +500,20 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
         voice = choose_voice(tx, task, version, content.voice, nxt["today"])
         if isinstance(voice, Denied) and REASONS[voice.reason].handling == "unoffered":
             return voice.reason
+    if version is not None and unconfirmed_solutions(tx, task, version):
+        return "solutions_unconfirmed"
     if line_id is not None and _line_taken(tx, task, line_id, nxt["today"]):
         return "line_used_by_other_client"
     return None
+
+
+def unconfirmed_solutions(tx: Tx, task: dict[str, Any], version_id: UUID) -> bool:
+    """この行に、手で外した依頼者の解決策の確かめ待ちで、かけないか（1か所。門の理由 solutions_unconfirmed・候補を出す処理＝`waits_unknown`）：
+    まだ一度もかけていないお客様の行（attempts.untried）で、実施回の版の流れに、契約者がまだ「入れる」も「入れない」も確かめていない手で
+    外した解決策がある（client_solutions.unconfirmed）。一度かけた行（約束したかけ直し・続き・お詫びの電話がありうる）は止めない（お客様を
+    お待たせしない。原則6）。契約者が全部を確かめたら、すぐ通す。✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で入らず、新規の電話も
+    かけられません」。"""
+    return attempts.untried(tx, task["task_id"]) and bool(client_solutions.unconfirmed(tx, version_id))
 
 
 @dataclass(frozen=True)
@@ -772,6 +789,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     why = stage_reason(tx, version, nxt["keeping"])   # 品質の段（`stage_reason` の1か所）
     if why is not None:
         return _deny(why)
+    # 手で外した依頼者の解決策を、契約者がまだ確かめていない（`unconfirmed_solutions` の1か所。候補を出す処理も同じものを読んで出さない）
+    if unconfirmed_solutions(tx, task, version):
+        return _deny("solutions_unconfirmed")
 
     # (5) 止まっているか（全体・契約者・依頼者・業務・回線）
     #     止めているあいだも、お客様との約束を果たす電話（約束・途中で切れたあとのお詫びのかけ直し・お詫びの電話）を通すかは、
