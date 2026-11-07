@@ -24,7 +24,8 @@
 - 通話の途中の「もうかけないで」の申告（`register_declared`）は、検証モードの業務では台帳へ入れない（契約者が承認を押した場合だけ
   営業拒否と確定＝2026-10-30 (6)。承認の部分 approval.decides_on_spot が答える）。
 - 引くのは `lookup`。門と取込は、`target_policy` を通して引く。
-- **断られたら止める範囲**（`reach`）も、ここの1か所。門は、締めがまだの発信（断られたかがまだ決まっていない）の範囲に入る
+- **断られたら止める範囲**（`reach`。その通話の断りの範囲は `refusal_reach`：「担当の方は違う」を選んだ直しのあとの前の担当の方の断りは、
+  前の担当の方の番号だけ＝計画書 7-1 (22)・0202）も、ここの1か所。門は、締めがまだの発信（断られたかがまだ決まっていない）の範囲に入る
   番号・管理番号へかけない（`undecided_reach`。止める前にかけてしまう隙を作らない。DESIGN.md 5-2-2）。
 """
 
@@ -86,7 +87,9 @@ def stop_set(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_
             raise attempts.AttemptNotFound(str(source_attempt_id))
         if reason in CUSTOMER_WIDE and not in_call:
             numbers.append(a["phone_e164"])
-            rows.append(a["task_id"])
+            got, ref = refusal_reach(tx, source_attempt_id)   # その通話で断られたときの範囲（前の担当の方の断りは、その方の番号だけ）
+            numbers += got
+            refs += [] if ref is None else [ref]
     if reason == "client_list":
         rows += [r["task_id"] for r in tx.all(
             "SELECT DISTINCT task_id FROM salescall.task_numbers WHERE phone_e164 = ANY(%s)"
@@ -230,12 +233,35 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     if t["client_ref"] is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", tenant_id=t["tenant_id"],
                                                         client_id=t["client_id"], business_id=t["business_id"]):
         ref = t["client_ref"]
-    own = tasks.numbers(tx, task_id)
+    return _spread(tx, task_id, tasks.numbers(tx, task_id)), ref
+
+
+def _spread(tx: Tx, task_id: UUID, own: list[str]) -> list[str]:
+    """その番号（own）と、同じ依頼者のほかの行のうち、その番号を1つでも共有する行の番号すべて（広げるのは1段だけ。`reach`・`refusal_reach`
+    の1か所）。"""
     shared = [r["phone_e164"] for r in tx.all(
         "SELECT DISTINCT o.phone_e164 FROM salescall.task_numbers o"
         " WHERE o.task_id IN (SELECT s.task_id FROM salescall.task_numbers s WHERE s.phone_e164 = ANY(%s) AND s.task_id <> %s)"
         " ORDER BY o.phone_e164", (own, task_id))]
-    return list(dict.fromkeys(own + shared)), ref
+    return list(dict.fromkeys(own + shared))
+
+
+def refusal_reach(tx: Tx, attempt_id: UUID) -> tuple[list[str], str | None]:
+    """その通話でお客様が断ったときに止める範囲（1か所。`stop_set` が読む＝締めの登録・取り消しのあとの止め直し）：ふつうは、その通話の行の
+    `reach`（行の番号すべて・番号を共有する行・設定により管理番号。原則14）。
+    その通話が、「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話（tasks.former_person_call の1か所）なら、断ったのは前の担当の方
+    なので、止めるのは前の担当の方の番号（tasks.former_numbers＝直す前のかける番号・直す前に前の担当の方が言った番号など）と、それを共有
+    する行の番号だけ。新しい担当の方の番号（直した番号と、そのあとに足した番号）と、行の管理番号は止めない（✅ 2026-11-07 ユーザー＝
+    計画書 7-1 (22)「鈴木様へはかける」）。行を終えないこと（新しい担当の方へ引き継ぎを確かめる電話）は、同じ1か所を読む
+    core/next_action.refusal_ends_row。"""
+    a = tx.one("SELECT task_id, claimed_at FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+    if a is None:
+        raise attempts.AttemptNotFound(str(attempt_id))
+    if not tasks.former_person_call(tx, attempt_id):
+        return reach(tx, a["task_id"])
+    own = tasks.former_numbers(tx, a["task_id"], a["claimed_at"])
+    new = set(tasks.numbers(tx, a["task_id"])) - set(own)   # 新しい担当の方の番号（ほかの行を通しても止めない）
+    return [n for n in _spread(tx, a["task_id"], own) if n not in new], None
 
 
 UndecidedKind = Literal["unsettled", "decision_pending"]
@@ -248,7 +274,8 @@ def undecided_reach(tx: Tx, task_id: UUID) -> UndecidedKind | None:
     salescall.decision_pending の1か所：切れ方の分からない通話の確かめのかけ直し・2つ目の判定とそろわず録音の確かめ・検証モードの契約者の
     承認を待っている。2026-10-30 管理者の決定：決まるまでのあいだに、断ったかもしれない会社へほかの行からかけない／unsettled＝そのほか）。
     無ければ None。門の理由の名前は gate の1か所（`gate.RELATED_REASONS`）。
-    「同じお客様」＝その発信が断られていたら、この行の番号（または管理番号）が止まる（止める範囲は `reach` の1か所）。
+    「同じお客様」＝その発信が断られていたら、この行の番号（または管理番号）が止まる（止める範囲は `reach` の1か所。その発信が前の担当の方への
+    通話で、断りの範囲が前の担当の方の番号だけになるとき＝`refusal_reach` も、決まるまでは行の範囲で待つ＝かけない側に倒す）。
 
     止めるのは締めの処理（判定のあと）なので、決まる前に同じお客様へかけると、断ったお客様にまたかけうる。
     2026-10-16 の見直しで直した：(1) かける番号だけでなく、この行の番号すべてで見る（両方向）(2) 予約中も見る

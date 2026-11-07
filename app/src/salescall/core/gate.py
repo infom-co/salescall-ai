@@ -22,7 +22,7 @@ from typing import Any, NamedTuple
 from uuid import UUID
 
 from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, client_solutions, dnc, errors, health,
-                            notify, quality_stage, recordings, settings, spoken_time, stops, target_policy)
+                            notify, quality_stage, recordings, settings, spoken_time, stops, target_policy, tasks)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.health_rules import RESTS
@@ -98,6 +98,11 @@ REASONS: dict[str, Reason] = {
     "solutions_unconfirmed": Reason("この実施回の業務設定は、依頼者の解決策の入っていない版です。入っていない解決策を、ダッシュボードで"
                                     "「入れる」か「入れない」かを選んで承認してください（承認するまで、お客様と約束したかけ直し・続きの"
                                     "電話・お詫びの電話のほかは、電話をかけません）", "wait", "unoffered"),
+    # 「担当の方は違う」を選んで番号を直し、前の担当の方との約束も守ると選んだ行で、前の担当の方が新しいかけ直しの約束をした（✅ 2026-11-07
+    # ユーザー＝計画書 7-1 (23)「契約者に知らせて選んでもらう」・選ぶまで、その行はかけない。決まりは tasks.old_promise_waiting の1か所。
+    # 選ぶ入口は core/row_fixes.choose_old_promise）
+    "old_promise_choice": Reason("番号を直す前の担当の方が、新しいかけ直しの約束をしました。ダッシュボードで、前の担当の方との約束を守るか、"
+                                 "新しい担当の方へかけるかを選んでください（選ぶまで、この行にはかけません）", "wait", "unoffered"),
     "stopped": Reason("止まっています", "wait", "unoffered"),
     "line_stopped": Reason("この回線が止まっています（回線の異常など。行は、ほかの回線でかけられる）", "wait", "line"),   # 回線の欄の休み・回線の停止
     "client_inactive": Reason("この依頼者は無効にしています", "wait", "client"),
@@ -472,13 +477,16 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: d
     門に渡さずに飛ばす（門に渡すと、次の動きが決まった間ごとに予定を書き直し、記録が増え続けた＝⛔ 見直し16・17a。待つ時刻が分かる
     理由は、次の動きがその時刻へ1回書くので、ここには入れない）。見るのは、理由の表の扱いが unoffered・plan_if_known の理由のうち、
     候補のデータベースの条件（行の欄の段＝`TASK_STAGE_REASONS`・「かけない」・止まっている）で除けないもの。どれも門と同じ1か所を読む：
-    契約者の承認を待つ（approval.task_cleared）・同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach）・
+    契約者の承認を待つ（approval.task_cleared）・前の担当の方の新しい約束の、契約者の選びを待つ（tasks.old_promise_waiting）・
+    同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach）・
     番号の欄の待つ印（N-4。core/health.number_held）・目的のお客様を呼ぶ材料が無い（`_target_short`）・
     話してよい別の声が無い（`choose_voice`）・その回線の発信番号で、ほかの依頼者がこの番号へかけた（`_line_taken`。line_id を渡した
     ときだけ。ほかの回線には出す）・待つ時刻が分からない約束（`pacing` の known）・手で外した解決策の確かめ待ち（`unconfirmed_solutions`。
     seen＝同じ取引の中で、実施回ごとの答えを1回だけ読むための入れ物＝候補を出す処理が渡す）。"""
     if not approval.task_cleared(tx, task_id):
         return "awaiting_approval"
+    if tasks.old_promise_waiting(tx, task_id) is not None:
+        return "old_promise_choice"
     related = dnc.undecided_reach(tx, task_id)
     if related is not None:
         return RELATED_REASONS[related]
@@ -735,6 +743,10 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # 行ではない。2026-10-24 管理者「回線の問題が明らかな場合は行は取りやめでなく一時中止だけ」。見直し22 の 5。決まりは1か所＝0144）
     if tx.one("SELECT salescall.task_unsettled(%s, %s) AS w", (task["task_id"], line_id))["w"]:
         return _deny("awaiting_decision")
+    # 前の担当の方が新しいかけ直しの約束をして、契約者の選びを待っている（tasks.old_promise_waiting の1か所。候補を出す処理も同じものを読んで
+    # 出さない＝`waits_unknown`。計画書 7-1 (23)）
+    if tasks.old_promise_waiting(tx, task["task_id"]) is not None:
+        return _deny("old_promise_choice")
     # 「かけない」にしている行（一覧の列・ダッシュボード。2026-10-18 ユーザー決定）。お詫び・途中で切れたあとのかけ直し・約束した
     # かけ直しは、「かけない」の例外＝かける（2026-10-18 ユーザー）。「強制かけない」は例外なし（2026-10-19 ユーザー）。
     # 決まりはデータベースの1か所 task_excluded_now（0078・0085）

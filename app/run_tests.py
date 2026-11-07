@@ -166,6 +166,12 @@ _REMOVAL_RULES = "tests.test_client_solutions.Solutions.test_a_removal_is_kept_o
 _RECORDED_BY = "tests.test_client_solutions.Solutions.test_a_replacement_and_a_leave_out_are_recorded_by_the_person_operating"
 _DIRECT_ASSIGN = "tests.test_client_solutions.Solutions.test_a_hand_assignment_written_directly_goes_through_the_assignment_rules"
 _T143 = "tests.test_life.Life."
+_M202, _DF = "0202_old_person_refusal_and_new_promise.sql", "tests.test_settle.DialFixAfterCalls."
+_OLD_REFUSED = _DF + "test_the_old_person_refusing_stops_only_the_old_persons_numbers_and_the_new_person_is_called"
+_OTHER_REFUSED = _DF + "test_every_other_refusal_still_stops_every_number_of_the_row_and_ends_it"
+_OLD_PROMISE = _DF + "test_a_new_promise_from_the_old_person_waits_for_the_contractor_to_choose"
+_NEW_NUMBER = _DF + "test_a_promise_on_the_number_that_becomes_the_new_persons_number_is_not_carried_over"
+_OLD_APOLOGY = "tests.test_apology.ApologyAfterDialFix.test_an_apology_to_the_old_person_after_another_person_fix_goes_on_as_a_handover"
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お詫び・続き・番号の聞き直しの予定に約束の印を求める守りを外す（0126 の前の形：付け忘れると、お詫びの電話が後回しになる）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_promise_mark",
@@ -2403,6 +2409,34 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      _edited(_M201, "CREATE FUNCTION salescall.cur_is_person", "IN ('operator', 'admin')", "IN ('operator', 'admin', 'system')", end="\n$$;"),
      ("tests.test_dnc.Revoke.test_only_a_person_revokes_once_and_can_register_again",
       "tests.test_import.DialFixes.test_a_number_that_was_once_dialed_can_still_be_called_after_another_fix")),
+    # ── 0202（✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(23)）
+    ("「担当の方は同じ」の直しのあとも、前の番号への通話を前の担当の方への通話とみなす（0202 の task_former_number）",
+     _edited(_M202, "CREATE FUNCTION salescall.task_former_number", "    SELECT NOT f.same_person ", "    SELECT true ", end="\n$$;"),
+     (_OTHER_REFUSED,)),
+    ("直す前から行にあった番号を、前の担当の方の番号とみなさない（0202 の task_former_number）",
+     _edited(_M202, "CREATE FUNCTION salescall.task_former_number", "AND (n.added_at < f.recorded_at ", "AND (false ", end="\n$$;"),
+     (_OLD_REFUSED,)),
+    ("直した番号（新しい担当の方の番号）も、直す前から行にあれば前の担当の方の番号とみなす（0202 の task_former_number）",
+     _edited(_M202, "CREATE FUNCTION salescall.task_former_number",
+             "WHERE g.task_id = p_task AND g.seq >= f.seq AND g.contact_id = p_contact)", "WHERE false)", end="\n$$;"),
+     (_NEW_NUMBER,)),
+    ("前の担当の方の新しい約束を選んだあとも、選びを待ち続ける（0202 の task_old_promise_waiting）",
+     _edited(_M202, "CREATE FUNCTION salescall.task_old_promise_waiting",
+             "\n    AND NOT EXISTS (SELECT 1 FROM salescall.old_promise_choices k WHERE k.task_id = p_task AND k.recorded_at > c.claimed_at)",
+             "", end="\n$$;"),
+     (_OLD_PROMISE,)),
+    ("前の担当の方の新しい約束の選びを、待っていない通話にも書ける（0202 の task_old_promise_choice_guard）",
+     _edited(_M202, "CREATE FUNCTION salescall.task_old_promise_choice_guard",
+             "  IF NEW.attempt_id IS DISTINCT FROM salescall.task_old_promise_waiting(NEW.task_id) THEN", "  IF false THEN"),
+     (_OLD_PROMISE,)),
+    ("守ると選んだ前の担当の方の新しい約束を、もうかけた約束とみなす（0202 の task_promise_tried）",
+     _edited(_M202, "CREATE OR REPLACE FUNCTION salescall.task_promise_tried",
+             "WHERE k.task_id = p_task AND k.keep_old_promise))", "WHERE false))", end="\n$$;"),
+     (_OLD_PROMISE,)),
+    ("選びを待っている前の担当の方の新しい約束を、もうかけた約束とみなす（0202 の task_promise_tried）",
+     _edited(_M202, "CREATE OR REPLACE FUNCTION salescall.task_promise_tried",
+             "  SELECT salescall.task_old_promise_waiting(p_task) IS NULL\n     AND ", "  SELECT ", end="\n$$;"),
+     (_OLD_PROMISE,)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -3393,8 +3427,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '            resettle(tx, last["attempt_id"])', "            pass",
      (_TR + "test_revoking_a_refusal_that_ended_a_row_with_a_later_dial_puts_the_row_back",)),
     ("あとでお客様と話した通話があっても、前の通話の断りで行を終える", "src/salescall/core/settle.py",
-     '    return not waiting and (state == "do_not_call" or complaint) and not _later_talk(tx, a)',
-     '    return not waiting and (state == "do_not_call" or complaint)',
+     ' \\\n        and not _later_talk(tx, a)',
+     '',
      (_TR + "test_a_refusal_decided_after_a_later_call_talked_keeps_the_later_calls_plan",)),
     ("確かめのかけ直しで決まった断りを差し戻しても、締め直しで断りが出直す", "src/salescall/core/settle.py",
      'check_rang=_check_rang(next_action.check_outcome(tx, attempt_id)) and "refusal" not in gone,',
@@ -5281,7 +5315,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     # 2026-11-07 の見直し：相手の違いを見るのは、前の番号からいまかける番号へ移る1か所（`_onto_dial`）。終えた行を戻すときも、まだ終えて
     # いない行で番号を直したとき・前の番号でかからずに移るとき・前の番号で切れた続きの電話が移るときも
     ("お呼びする方を直していても、約束の時刻のまま戻す（相手が違っても、前のお客様との約束・お詫びを引き継ぐ）", "src/salescall/core/next_action.py",
-     "    if not _target_changed_since(tx, task_id, _carried_since(tx, task_id, row)):",
+     "    if not _target_changed_since(tx, task_id, _carried_since(tx, task_id, row), fix_only=not moved):",
      "    if True:",
      ("tests.test_settle.DialFixAfterCalls.test_an_ended_promise_comes_back_at_its_time_from_the_first_day_unless_the_person_changed",
       'tests.test_settle.DialFixAfterCalls.test_a_promise_already_tried_does_not_go_on_as_a_promise_to_another_person', 'tests.test_settle.DialFixAfterCalls.test_an_untried_promise_that_fails_on_the_old_number_goes_on_without_the_promise_to_another_person', 'tests.test_settle.DialFixAfterCalls.test_a_cut_call_resumed_after_a_fix_goes_to_another_person_without_the_apology', 'tests.test_settle.DialFixAfterCalls.test_a_promise_cut_on_the_old_number_resumes_to_another_person_without_the_promise')),
@@ -5294,7 +5328,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "        return d\n",
      ('tests.test_settle.DialFixAfterCalls.test_an_untried_promise_that_fails_on_the_old_number_goes_on_without_the_promise_to_another_person', 'tests.test_settle.DialFixAfterCalls.test_a_promise_cut_on_the_old_number_resumes_to_another_person_without_the_promise')),
     ("途中で切れたお詫びの元の電話を、相手が替わったかの基準の時刻にしない", _NEXT,
-     '    if row.get("cut_call") is not None:', "    if False:", ('tests.test_settle.DialFixAfterCalls.test_a_cut_call_resumed_after_a_fix_goes_to_another_person_without_the_apology',)),
+     '    if row.get("cut_call") is not None:', "    if False:", ('tests.test_settle.DialFixAfterCalls.test_a_cut_call_resumed_after_a_fix_goes_to_another_person_without_the_apology',
+                                                                _DF + "test_the_carried_time_is_the_earlier_of_the_cut_call_and_the_last_talk")),
     ("違う相手へ移るとき、お詫びの印を外さない", _NEXT,
      "handover=True), apology=False, cut_call=None)", "handover=True), apology=None, cut_call=None)", ('tests.test_settle.DialFixAfterCalls.test_a_cut_call_resumed_after_a_fix_goes_to_another_person_without_the_apology',)),
     ("番号を直したときに戻す約束の行を、約束の時刻でなく、すぐのふつうの電話にする", "src/salescall/core/next_action.py",
@@ -5372,7 +5407,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("お呼びする方を直していても（違う相手でも）、お詫びの電話にする（言ってはいけないことを言った通話の時刻を基準にしない）", _NEXT,
      '    if row["purpose"] == "apology":\n        src = apology.source_call(tx, task_id)\n        at.append(',
      '    if False:\n        src = apology.source_call(tx, task_id)\n        at.append(',
-     ("tests.test_apology.ApologyAfterDialFix.test_another_person_gets_a_sales_call_that_checks_the_handover_without_an_apology",)),
+     ("tests.test_apology.ApologyAfterDialFix.test_another_person_gets_a_sales_call_that_checks_the_handover_without_an_apology",
+      _OLD_APOLOGY)),
     ("違う相手で、業務を終えていた行（断ったお客様を含む）へも営業の電話をかける", _NEXT,
      '        if src is None or src["state"] is None or src["state"] in END_STATES:\n            return None\n', "",
      ("tests.test_apology.ApologyAfterDialFix.test_a_customer_who_ended_the_business_gets_no_sales_call_from_another_person",)),
@@ -5759,6 +5795,47 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("業務設定の確かめを、取込の部品の外からも呼べる（決まりの機械の見張り）", "checks/rules.py",
      '    ("business_import", "review"): frozenset({_CORE + "business_import.py"}),\n', "",
      ("tests.test_checks.CallErrorsOnlyThroughTroubles.test_the_settings_review_and_registration_are_called_only_from_the_import",)),
+    # ── 0202（✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(23)）
+    ("前の担当の方の断りでも、行の番号すべてと管理番号を止める（dnc.refusal_reach）", "src/salescall/core/dnc.py",
+     "    if not tasks.former_person_call(tx, attempt_id):\n        return reach(tx, a[\"task_id\"])\n",
+     "    if True:\n        return reach(tx, a[\"task_id\"])\n",
+     (_OLD_REFUSED,)),
+    ("前の担当の方の断りで、行を終える（next_action._former_refused）", _NEXT,
+     " or complaint or attempt_id is None or refusal_ends_row(tx, attempt_id):", " or True:",
+     (_OLD_REFUSED, _OLD_APOLOGY)),
+    ("お詫びの電話での前の担当の方の断りで、行を終える（next_action.after_apology）", _NEXT,
+     "    d = _former_refused(tx, task_id, d, _plan_at(tx, task_id, at), attempt_id=attempt_id, complaint=False, now=now)\n", "",
+     (_OLD_APOLOGY,)),
+    ("あとから決まった前の担当の方の断りで、あとに発信のある行を終える（settle._ends_row）", _SETTLE,
+     '(state == "do_not_call" and next_action.refusal_ends_row(tx, a["attempt_id"]))', 'state == "do_not_call"',
+     (_OLD_REFUSED,)),
+    ("前の担当の方の新しい約束を、いまかける番号（新しい担当の方）へ向ける（next_action.after_call）", _NEXT,
+     "connected=connected, keep_former=former_promise)", "connected=connected, keep_former=False)",
+     (_OLD_PROMISE,)),
+    ("前の担当の方の新しい約束の、契約者の選びを待たずに門を通す", "src/salescall/core/gate.py",
+     '    if tasks.old_promise_waiting(tx, task["task_id"]) is not None:\n        return _deny("old_promise_choice")\n',
+     '    if False:\n        return _deny("old_promise_choice")\n',
+     (_OLD_PROMISE,)),
+    ("前の担当の方の新しい約束の、契約者の選びを待っている行を候補に出す（gate.waits_unknown）", "src/salescall/core/gate.py",
+     '    if tasks.old_promise_waiting(tx, task_id) is not None:\n        return "old_promise_choice"\n',
+     '    if False:\n        return "old_promise_choice"\n',
+     (_OLD_PROMISE,)),
+    ("前の担当の方の新しい約束を、契約者に知らせない", _NEXT,
+     "    if former_promise and tasks.old_promise_waiting(tx, task_id) == attempt_id:\n", "    if False:\n",
+     (_OLD_PROMISE,)),
+    ("新しい担当の方を選んでも、前の担当の方との約束のまま（next_action.after_old_promise_choice）", _NEXT,
+     "    if keep_old_promise:\n        return None\n", "    if True:\n        return None\n",
+     (_OLD_PROMISE,)),
+    ("予定がもう直した番号にあれば、前の担当の方との約束を新しい担当の方へ引き継ぐ（next_action._onto_dial）", _NEXT,
+     '    if not moved and row.get("handover"):\n', "    if not moved:\n",
+     (_NEW_NUMBER,)),
+    ("引き継ぎを確かめる予定のあとも、もう一度「替わった」の形にして、すぐかけ直す（next_action._onto_dial）", _NEXT,
+     '    if not moved and row.get("handover"):\n', "    if False:\n",
+     (_DF + "test_a_plain_plan_hands_over_to_another_person_only_after_talking_on_the_row",)),
+    ("番号を直したとき、予定がもう直した番号にあれば、相手の違いを見ない（next_action.after_dial_fix）", _NEXT,
+     '    if moved is None or (moved.target.contact_id == cur["contact_id"] and moved.target.handover == bool(cur["handover"])):\n',
+     '    if moved is None or moved.target.contact_id == cur["contact_id"]:\n',
+     (_NEW_NUMBER,)),
 )
 
 

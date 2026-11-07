@@ -528,6 +528,39 @@ class ApologyAfterDialFix(ApologyBase):
                 p = self.plan(s)
                 self.assertEqual((p["kind"], p["contact_id"], (p["purpose"], p["handover"])), ("call", new, want))
 
+    def test_an_apology_to_the_old_person_after_another_person_fix_goes_on_as_a_handover(self):
+        """「担当の方は違う」で番号を直したとき、まだかけていないお詫びの電話は、前の番号で前の担当の方へ1回（計画書 7-1 (17)）。
+        (1) その電话で受付の方と話してお詫びが届かなかった ⇒ 新しい番号の新しい担当の方へは、お詫びなしで引き継ぎを確かめる電話（基準は
+        言ってはいけないことを言った通話＝`_carried_since`。そのあとに前の番号で話した通話ではない。0202 で、外しても落ちない壊し試しを
+        見つけて足した）。(2) 前の担当の方がお詫びの電話で「もうかけないで」と断った ⇒ 行を終えず同じ形。止めるのは前の担当の方の番号だけ
+        （計画書 7-1 (22)。お詫びの電話の締めも `_former_refused`・`dnc.refusal_reach` の同じ1か所）。"""
+        from salescall.core import row_fixes
+        from tests.support import fictional_jp_fixed
+        for refused in (False, True):
+            with self.subTest(refused=refused):
+                s = self.fresh(stage_cap=20)
+                self.put_client(s, "gate.same_contact_min_interval", 1)
+                aid = self.call(s, verify=None, items=())
+                self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=said()))
+                self.settle(s, aid)
+                self.order(s, aid)
+                new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=False),
+                              OPERATOR)["contact_id"]
+                p = self.plan(s)
+                self.assertEqual((p["kind"], p["purpose"], p["contact_id"]), ("call", "apology", s["contact"]))   # 前の番号で1回
+                time.sleep(1.1)                                                  # 同じお客様への最短の間隔（試験は1秒）のあと
+                report = rep(dnc_=True) if refused else replace(rep(("reception",), not_reached="absent"), apology_delivered=False)
+                ap = self.call(s, report=report)
+                self.settle(s, ap)
+                p = self.plan(s)
+                self.assertEqual((p["kind"], p["purpose"], p["contact_id"], p["promised"], p["handover"], p["apology_reasons"]),
+                                 ("call", "normal", new, False, True, []))
+                if refused:
+                    new_phone = self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s",
+                                                             (new,)))["phone_e164"]
+                    self.assertEqual((self.tx(s, lambda tx: dnc.lookup(tx, s["phone"])) is not None,
+                                      self.tx(s, lambda tx: dnc.lookup(tx, new_phone)) is not None), (True, False))
+
     def test_the_handover_mark_stays_until_the_target_is_reached(self):
         """引き継ぎを確かめる電話に出なかった ⇒ 次の電話にも印を付ける（まだ確かめていない）。目的のお客様と話せたら外す
         （`next_action._handover` の1か所）。"""

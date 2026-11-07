@@ -14,6 +14,7 @@
 タスクを作ったときに自分で足す。お客様が言った別の番号を足すのは `add_callee_number` だけ。記録だけの番号（かけない番号。0175）を
 足すのは `add_record_number` だけ。行の番号を読むのは `numbers` だけ。いまかける番号は `dial_number` だけ（ダッシュボードの直しは
 `fix_dial_number`。0179。⛔ 前は取り込んだ番号を返す list_number もあり、かける番号を読む所が2つあった）。
+「担当の方は違う」を選んだ直しのあとの、前の担当の方の番号・前の担当の方への通話は `former_numbers`・`former_person_call` だけ（0202）。
 """
 
 from __future__ import annotations
@@ -136,6 +137,30 @@ def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
         " SELECT a.tenant_id, a.client_id, a.task_id, a.contact_id, a.attempt_id FROM salescall.attempts a"
         " WHERE a.attempt_id = %s AND a.task_id = %s AND salescall.call_makes_sub(a.attempt_id)"   # データベースの守りも同じ関数
         " ON CONFLICT (attempt_id) DO NOTHING", (attempt_id, task_id))   # 判定し直しで同じ通話をまた締めても1つ
+
+
+def former_person_call(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話は、「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話か（1か所＝データベースの salescall.former_person_call。0202。
+    かけたときの立場で見る：その時刻のいちばん新しい直しが「違う」で、かけた番号が前の担当の方の番号＝`former_numbers` と同じ決まり）。
+    読むのは、断られたときに止める範囲（core/dnc.refusal_reach）・その断りで行を終えるか（core/next_action.refusal_ends_row）・前の担当の方の
+    新しい約束を契約者の選びまで前の番号のままにするか（core/next_action.after_call）。✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(23)。"""
+    return bool(tx.one("SELECT salescall.former_person_call(%s) AS f", (attempt_id,))["f"])
+
+
+def former_numbers(tx: Tx, task_id: UUID, at: Any) -> list[str]:
+    """その時刻に、その行の前の担当の方の番号だった番号（データベースの salescall.task_former_number の1か所。0202）：その時刻のいちばん新しい
+    直しが「違う」で、その直しより前から行にあった番号（直す前のかける番号・直す前に前の担当の方が言った番号・記録だけの番号）と、その直しの
+    あとの前の担当の方への通話で言われた番号。その直しとそのあとの直しの番号（新しい担当の方の番号）は入らない。"""
+    return [r["phone_e164"] for r in tx.all(
+        "SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND salescall.task_former_number(task_id, contact_id, %s)"
+        " ORDER BY source = 'callee', added_at, phone_e164", (task_id, at))]
+
+
+def old_promise_waiting(tx: Tx, task_id: UUID) -> UUID | None:
+    """前の担当の方が新しいかけ直しの約束をして、契約者の選び（前の担当の方との約束を守るか、新しい担当の方へかけるか）を待っている通話
+    （無ければ None。1か所＝データベースの salescall.task_old_promise_waiting。0202。✅ 2026-11-07 ユーザー＝計画書 7-1 (23)：「契約者に知らせて
+    選んでもらう」・選ぶまで、その行はかけない）。門・候補を出す処理（core/gate）・選びの入口（core/row_fixes.choose_old_promise）が読む。"""
+    return tx.one("SELECT salescall.task_old_promise_waiting(%s) AS a", (task_id,))["a"]
 
 
 def record_confirmed_reading(tx: Tx, task_id: UUID, which: str, reading: str, *, attempt_id: UUID) -> None:

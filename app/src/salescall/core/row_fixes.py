@@ -11,6 +11,7 @@
   business_settings.target_of の1か所）。
 - 役職の欄は、取込・版の割り当て・門と同じ1か所（業務設定の `TargetNeeds.role_unclear`）で確かめる（その行の業務が一覧の役職でお呼びするとき、「ご担当者」だけ＝何の担当か無い役職は直せない）。
 - 直せるのは管理者か契約者だけ（データベースが守る）。電話番号・連絡先の直しは core/customer_contacts.py。
+- かける番号の直し（`fix_dial_number`）と、前の担当の方が新しい約束をしたあとの選び（`choose_old_promise`。計画書 7-1 (23)・0202）も、ここ。
 """
 
 from __future__ import annotations
@@ -121,3 +122,21 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, kee
                          "お客様が指定した番号。1つの実施回で、同じお客様は1行）") from e
     next_action.after_dial_fix(tx, task_id, cause="ダッシュボードで、かける番号を直した")
     return tasks.dial_number(tx, task_id)
+
+
+def choose_old_promise(tx: Tx, task_id: UUID, *, keep_old_promise: bool) -> dict[str, Any]:
+    """前の担当の方が新しいかけ直しの約束をした行で、契約者が選ぶ（ダッシュボード。✅ 2026-11-07 ユーザー＝計画書 7-1 (23)「契約者に知らせて
+    選んでもらう」）。選びは番号を直すときの選び（`fix_dial_number` の keep_old_promise）と同じ意味：真＝前の担当の方との約束を守る（前の番号へ、
+    新しい約束どおりかける。そのあとは同じ決まり）・偽＝新しい担当の方へかける（約束をやめ、新しい番号へ引き継ぎを確かめる電話）。
+    選べるのは、選びを待っている行だけ（tasks.old_promise_waiting の1か所。待っていなければ `FixInvalid`＝何も書かない。データベースも同じ
+    1か所で守る＝0202 の task_old_promise_choice_guard）。選びは記録に残り（task_old_promise_choices）、行の予定は
+    next_action.after_old_promise_choice の1か所が決める。選んだものと、そのあとの予定を返す。"""
+    waiting = tasks.old_promise_waiting(tx, task_id)
+    if waiting is None:
+        raise FixInvalid("この行は、前の担当の方との約束を守るかの選びを待っていません（前の担当の方が新しいかけ直しの約束をした行だけ選べます）")
+    tx.execute("INSERT INTO salescall.task_old_promise_choices (tenant_id, client_id, task_id, attempt_id, keep_old_promise, recorded_by)"
+               " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, salescall.cur_actor() FROM salescall.tasks t WHERE t.task_id = %s",
+               (waiting, keep_old_promise, task_id))
+    next_action.after_old_promise_choice(tx, task_id, keep_old_promise=keep_old_promise,
+                                         cause="ダッシュボードで、前の担当の方の新しい約束より、新しい担当の方へかけると選んだ")
+    return {"attempt_id": waiting, "keep_old_promise": keep_old_promise, "next": next_action.current(tx, task_id)}

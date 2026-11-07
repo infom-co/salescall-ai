@@ -172,7 +172,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
                                          reached_target=inp.reached_target, not_reached=not_reached, again=again,
-                                         dialed_at=a["claimed_at"], blame=health.blame_of(tx, attempt_id))
+                                         dialed_at=a["claimed_at"], blame=health.blame_of(tx, attempt_id), attempt_id=attempt_id)
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -435,6 +435,9 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot,
                                 detail={**j.detail, **({"decision_wait": wait.kind} if wait else {}),   # 保留の種類（画面・出力が読む）
                                         **({"decision_assumed": found.assumed} if found is not None and not found.holds else {}),
+                                        # 「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話（tasks.former_person_call の1か所。この通話の
+                                        # 断りでは行を終えない・新しい約束は契約者が選ぶ＝計画書 7-1 (22)(23)。画面・出力が読む＝CL-3）
+                                        **({"former_person": True} if tasks.former_person_call(tx, attempt_id) else {}),
                                         # お名前だけではどの方か分からなかった行：依頼者に埋めていただく欄（フルネーム・部署のうち空いている欄。
                                         # 1か所＝business_settings.who_unclear_blanks。出力が読む＝CL-3。CL-1 の連絡帳 4-65 の (g)）
                                         **({"who_unclear_blanks": list(business_settings.who_unclear_blanks(tx, a["task_id"]))}
@@ -482,8 +485,10 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
 
 def _ends_row(tx: Tx, a: dict[str, Any], state: str, complaint: bool, waiting: bool) -> bool:
     """この通話の決定で、あとに発信のある行を終えるか（1か所。締め・締め直しが読む）：断り・怒っていたが決まり（保留でない）、あとでお客様と
-    話していない（話していれば、その通話の結果が行の結果）。"""
-    return not waiting and (state == "do_not_call" or complaint) and not _later_talk(tx, a)
+    話していない（話していれば、その通話の結果が行の結果）。断りで行を終えるかは次の動きの1か所（next_action.refusal_ends_row：「担当の方は
+    違う」を選んだ直しのあとの、前の担当の方の断りは行を終えない＝計画書 7-1 (22)。0202）。"""
+    return not waiting and ((state == "do_not_call" and next_action.refusal_ends_row(tx, a["attempt_id"])) or complaint) \
+        and not _later_talk(tx, a)
 
 
 def _ends(tx: Tx, a: dict[str, Any], version: dict[str, Any]) -> bool:
