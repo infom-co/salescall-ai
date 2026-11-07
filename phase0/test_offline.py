@@ -13928,9 +13928,11 @@ class NoneOfThemTest(unittest.TestCase):
                           ("callback_email_bare", "恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"),
                           ("callback_email_midway", BACK_TO_MIDWAY + "メールアドレスをお伺いしてもよろしいでしょうか？")])
         self.assertEqual({k: RECORDED.get(k) for k in ("callback_email_bare", "callback_email_midway")}, {p["id"]: p["text"] for p in got[1:]})
-        # システムの質問の録音はどれも、2回目・3回目の形の録音を持つ（決まりは1か所＝phrases.back_fit）
+        # システムの質問の録音はどれも、2回目・3回目の形の録音を持つ（決まりは1か所＝phrases.back_fit）。続きの電話の前置きのある一言（RESUMED_IDS）は、
+        # 戻るときは前置きを言い直さず同じ役目のそれだけで伺う（Question.plain＝2026-11-08 の B-5）ので、その一言の2回目・3回目の形は流れない＝持たない
+        from phrases import RESUMED_IDS
         for rid, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and not k.endswith(("_bare", "_midway"))]:
-            self.assertIn(f"{rid}_midway", RECORDED, rid)
+            self.assertEqual(f"{rid}_midway" in RECORDED, rid not in RESUMED_IDS, rid)
             self.assertEqual(f"{rid}_bare" in RECORDED, text.startswith("それでは"), rid)
         # ほかのご希望を伺う一言（依頼主の単位の録音）も同じ形を録音の表に持つ：方法を並べて伺う一言（問い）は2回目・3回目の形、ご案内の申し出（問いでない一言）は
         # 2回目の形だけ（3回目の一言をつながない）
@@ -14983,7 +14985,8 @@ class NoneOfThemTest(unittest.TestCase):
                          {day_recording_id("Q1", w) for w in DAY_VARIANTS} | {question_clip(day_recording_id("Q1", w), AGAIN_LEAD) for w in DAY_VARIANTS}
                          # 3回目から戻るときの形（日ごと）と、ほかのご希望を伺う一言の2回目・3回目からの形（✅ 2026-11-07 日本時間4時40分35秒＝phrases.back_fit）
                          | {question_clip(day_recording_id("Q1", w), BACK_TO_MIDWAY) for w in DAY_VARIANTS}
-                         | {"Q1_other", "Q1_other_again", "Q1_tell1", "Q1_pending", "Q1_other_bare", "Q1_other_midway", "Q1_other_again_midway"})   # 保留で締める一言（2026-11-06）
+                         # 続きの電話の W1（「前回お伺いした件で…」）へ戻るときは前置きを言い直さない W1 の形（Question.plain＝B-5）＝Q1_other_again の2回目・3回目の形は作らない
+                         | {"Q1_other", "Q1_other_again", "Q1_tell1", "Q1_pending", "Q1_other_bare", "Q1_other_midway"})   # 保留で締める一言（2026-11-06）
         self.assertTrue(t[question_clip(day_recording_id("Q1", DAY_VARIANTS[0]), AGAIN_LEAD)][0].startswith(AGAIN_LEAD))
 
     def test_none_is_never_restated(self):
@@ -20544,6 +20547,81 @@ class BackLineReviewTest(unittest.TestCase):
         g.on_callee(); g.on_heard("特にないです。"); g.apply("record_answer", {"question_id": g.current, "condition_id": "無い"})
         g.on_callee(); g.on_heard("どっちも要らないです。"); g.apply("record_answer", {"question_id": "Q2", "condition_id": NONE})
         self.assertEqual(self.heard(self.talk(g, "雨も多いですし。")), BACK_TO + "それではカードと振込のほかにご希望はございますでしょうか？")
+
+    def test_returning_to_a_system_question_does_not_repeat_its_preamble(self):
+        # ⛔ B-5：初めて伺ったときの前置きのあるシステムの質問（番号を伺い直す「前回お伺いしたお電話番号にお掛けしたところ別の方のお電話でした。恐れ入りますが…」・
+        #    続きの電話の「前回選択いただいたメールでのご連絡の件でメールアドレスを伺う前に切れてしまいましたので恐れ入りますが…」）へ、お話に応えたあと戻るたびに
+        #    前置きを言い直していた（3回目は「確認の途中でしたので…がいただいたお電話番号に…」と前置きごと1つの文）。⛔ B-6：その3回目の形の録音が共通の一言の表に
+        #    無かった。戻るとき（もう伺ったことへ戻る＝前置きはお客様に届いている）は、同じ役目のそれだけで伺う形（Question.plain）。もう一度言ってほしいと頼まれた
+        #    ときは、お客様は聞き取れていないので、伺った文のまま
+        import dataclasses
+        import test_offline as T
+        from flowctl import REPEAT, Flow, Question, callback_question, question_play
+        from g22_opening import BUSINESS
+        from instruction import Target
+        from meaning_judge import Reading
+        from phrases import BACK_LINES, NUMBER_AGAIN, RECORDED, back_fit, closes
+
+        def returns(plain_rid, plain_text):
+            return [(b if closes(b) else "") + back_fit(plain_rid, plain_text, b)[1] for _, b in BACK_LINES]
+
+        talks = ("いやあ、今日は本当に暑いですねえ。", "雨も多いですし。", "夜も寝苦しくて。")
+        # (a) 番号を伺い直す電話
+        b = dataclasses.replace(BUSINESS, info=["弊社の本社は東京都港区にございます。"])
+
+        def number_flow(reason):
+            n = dataclasses.replace(b, number_again=reason)
+            f = Flow(n.questions, play_recordings=True, opening=n.replay_parts(), knowledge=n.knowledge(), number_again=reason)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            if r.get("result") != "opening":
+                r = f.on_first_words_end()
+            self.assertTrue(self.heard(r).endswith(NUMBER_AGAIN[reason]), self.heard(r))   # 名乗りのあと、前置きつきで伺った
+            return f
+        for reason in NUMBER_AGAIN:
+            f = number_flow(reason)
+            rs = [self.talk(f, s) for s in talks]
+            self.assertEqual([self.heard(r) for r in rs], returns("callback_number", callback_question("number").text), reason)
+            self.assertEqual([p["id"] for r in rs for p in r["play"] if p["id"] not in RECORDED], [], reason)
+        # もう一度言ってほしい：前置きごと伺った文のまま
+        f = number_flow("wrong_party")
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("え、すみません、もう一度お願いできますか？"); f.on_check("judge", Reading(REPEAT))
+        self.assertEqual(self.heard(f.judged_turn(voiced=False)), "失礼いたしました。" + NUMBER_AGAIN["wrong_party"])
+        # (b) 続きの電話で、連絡先を伺う前に切れた所から伺う一言
+        qs = [Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("電話", "メール"), final_goal=False),
+              Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        cut = {"Q1": {"state": "accepted", "value": None, "condition": "どれも要らない",
+                      "wish_fact": {"question": "Q1", "means": "email", "contact": None, "outcome": None, "via": None}}}
+        t = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"), questions=qs, earlier=cut, info=b.info)
+        g = Flow(t.questions, play_recordings=True, opening=t.replay_parts(), target=t.replay_parts(), apology=("cut_off",), earlier=t.earlier,
+                 knowledge=t.knowledge())
+        self.assertIn("切れてしまいましたので恐れ入りますがメールアドレス", self.heard(T.TargetTest.say(g, "はい、岡田は私ですが。", "report_party", party="target")))
+        rs = [self.talk(g, s) for s in talks]
+        self.assertEqual([self.heard(r) for r in rs], returns("callback_email", callback_question("email").text))
+        self.assertEqual([p["id"] for r in rs for p in r["play"] if p["id"] not in RECORDED], [])
+        # (c) B-6：システムの質問を作れる形すべて（続きの電話の一言・方法をお伝えした一言に続ける形・番号を伺い直す一言も）で、戻る一言のあとに流す形の録音が
+        #     共通の一言の表にある（3回目からは問いのときだけ＝Flow._continue の asks）
+        from flowctl import OPENING_ROLES, WISH_MEANS
+        from phrases import CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_RESUMED
+        kws = [dict(role=r, nth=n) for r in CALLBACK_ASK if r not in OPENING_ROLES and r != "other_wish" for n in range(len(CALLBACK_ASK_AGAIN.get(r, ())) + 1)]
+        kws += [dict(role=r, **{k: True}) for r in CALLBACK_ASK if r not in OPENING_ROLES and r != "other_wish"
+                for k in ("answering", "which", "announced", "chosen")]
+        for key in CALLBACK_ASK_RESUMED:
+            role = key if key in CALLBACK_ASK else key.split("_")[0]
+            kws.append(dict(role=role, again=True, means=next((m for m, (_, _, r) in WISH_MEANS.items() if r == role and (key == role or key.endswith(m))), None)))
+        kws += [dict(role="line_how", without=w, nth=n) for w in CALLBACK_ASK_OTHER_WAYS for n in (0, 1)]
+        made = []
+        for kw in kws:
+            try:
+                made.append(callback_question(**kw))
+            except (AssertionError, KeyError):
+                continue   # その役目には無い形
+        from flowctl import CALLBACK_IDS
+        made += [Flow(b.questions, number_again=reason).questions[CALLBACK_IDS["number"]] for reason in NUMBER_AGAIN]
+        missing = {(q.recording, i) for q in made for i, (_, bt) in enumerate(BACK_LINES, 1)
+                   if (closes(bt) or q.text.endswith("？")) and question_play([q], q.id, again=True, before=bt)["id"] not in RECORDED}
+        self.assertEqual(missing, set())
 
 
 class RemainingNineTest(unittest.TestCase):

@@ -640,14 +640,14 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
     q = next(x for x in questions if x.id == qid)
     if q.callback in OPENING_ROLES:
         return {"kind": "opening", "part": q.callback, "text": q.text}  # 伝言の文・約束の電話の一言は依頼主の単位の録音
-    if q.of:
-        # 業務の質問から文を作ったシステムの質問（ほかのご希望を伺う質問・振り返りの一言）＝業務の質問と同じ依頼主の単位の録音。直前に流す一言 before
-        # （2回目・3回目からの戻る一言）に続ける形は phrases.back_fit の1か所
-        rid, text = back_fit(q.recording, q.text, before)
-        return {"kind": "question", "id": rid, "text": text, "lead": ""}
-    if q.callback:
-        rid, text = back_fit(q.recording or f"callback_{q.callback}", q.text, before)
-        return {"kind": "recorded", "id": rid, "text": text}
+    if q.of or q.callback:
+        # 業務の質問から文を作ったシステムの質問（ほかのご希望を伺う質問・振り返りの一言）＝業務の質問と同じ依頼主の単位の録音・ほかのシステムの質問＝共通の
+        # 一言の録音。直前に流す一言 before（2回目・3回目からの戻る一言）に続ける形は phrases.back_fit の1か所。戻る一言のあと（again で before がある＝
+        # Flow._continue）は、初めて伺ったときの前置きを言い直さない形（Question.plain＝B-5）。もう一度言ってほしいと頼まれた（before が無い）ときは、
+        # お客様は聞き取れていないので伺った文のまま
+        rid, text = q.plain if again and before and q.plain else (q.recording or f"callback_{q.callback}", q.text)
+        rid, text = back_fit(rid, text, before)
+        return {"kind": "question", "id": rid, "text": text, "lead": ""} if q.of else {"kind": "recorded", "id": rid, "text": text}
     text, lead = spoken_question(questions, qid, before, again, resumed)
     # 日によって変わる言い方の入った質問は、その言い方の録音（Question.recording＝day_recording_id。名前の組み方は今と同じ「番号＋つなぎの言葉」）
     rid = q.recording or q.id
@@ -2165,6 +2165,11 @@ class Question:
     # 業務の質問から文を作ったシステムの質問の、その業務の質問の番号（ほかのご希望を伺う W1＝選ぶ質問の選択肢・振り返りの一言＝ご承認の質問の説明の文）。
     # 文が業務ごとに変わるので、録音は依頼主の単位（question_play の1か所）。空なら共通の一言の録音
     of: str = ""
+    # 戻る一言のあと（お話に応えて、もう伺ったこの質問へ戻るとき）に流す形（録音の名前, 文）：初めて伺ったときの前置き（続きの電話の「前回…切れてしまいました
+    # ので」・番号を伺い直す「前回お伺いしたお電話番号に…」・方法をお伝えした一言に続ける形）は、もうお客様に届いているので言い直さず、同じ役目のそれだけで
+    # 伺う形（作るのは callback_question・番号を伺い直す一言は Flow.__init__。使うのは question_play の1か所）。空なら初めて伺った形のまま。⛔ 2026-11-08
+    # 日本時間7時台（11-07 23時26分13秒のご質問の見直しの B-5・B-6）：戻るたびに前置きを言い直し、3回目は前置きごと1つの文にした形の録音が無かった
+    plain: tuple = ()
     # 選択肢の型の、選択肢ごとの意味の言葉（選択肢 → 「ご予約はお済みということ」）。答えを言い直して確かめるときに使う（choice_words）。
     # 取込で文字のモデルが決める（人は確かめない）。無い選択肢は名前のまま言い直す（返事の言葉だけの名前は言い直せない）
     meanings: dict = field(default_factory=dict)
@@ -3125,7 +3130,9 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
                         recording=other_wish_recording_id(of, again, which), topic="ご案内の方法" if way_offer(of) else CALLBACK_TOPIC[role],
                         callback=role, declines=(WISH_NONE,),
                         firm_not_needed=True, of=of.id, senses=_wish_senses(of),
-                        lists_ways=which and way_any_line(of) is not None)
+                        lists_ways=which and way_any_line(of) is not None,
+                        # 戻るときは「前回お伺いした件で」を言い直さない（Question.plain＝B-5）
+                        plain=(other_wish_recording_id(of), _wish_text(of)) if again else ())
     # nth＝この通話で同じ質問を伺う何回目か（0から）：2回目からの言い方を順に回す（phrases.CALLBACK_ASK_AGAIN。録音は callback_（役目）_2 から）
     lines = (CALLBACK_ASK.get(role, ""), *CALLBACK_ASK_AGAIN.get(role, ()))   # 伝言の文などは言い方の表に無い（text で渡す）
     i = nth % len(lines)
@@ -3134,11 +3141,13 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # ほかの共通の一言の録音をそのまま流すシステムの質問（phrases.CALLBACK_ASK_REUSED＝本心を伺う一言 concern は「AIですか」に応える一言の録音 ai_answer）
         recording, line = CALLBACK_ASK_REUSED[role]
         lines, i = (line,), 0
+    plain = ()   # 戻るときの形（Question.plain）：前置きのある形だけ
     if again:
         # 伺っている途中で切れた電話の続きで、切れた所から伺う一言（phrases.CALLBACK_ASK_RESUMED。共通の一言の録音 callback_（鍵）_again。選択肢と答えの受け方は同じ）。
         # ご連絡の方法の連絡先は、選んでいただいた方法 means で一言を選ぶ（contact_again_key。同じメールアドレスを伺うオンラインは「オンラインでのご案内の件で…」）
         key = contact_again_key(means) if means is not None and WISH_MEANS.get(means, (None, None, None))[2] == role else role
         lines, i, recording = (CALLBACK_ASK_RESUMED[key],), 0, f"callback_{key}_again"
+        plain = (f"callback_{role}", CALLBACK_ASK[role])   # 戻るときは「前回…」の前置きを言い直さない（B-5）
     elif hesitating:
         # ご承認の質問への迷い（Flow._point_begin）：ご承認いただけなかったときの手順の1つ目（N1）を「どういった点でお迷いでしょうか？」で伺う（共通の一言の録音
         # hesitate_point＝迷っているお客様に伺う一言と同じ1本。選択肢と答えの受け方は N1 と同じ＝点を言った・断ろうとしている）。✅ 2026-11-08 日本時間
@@ -3167,6 +3176,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # 名前と文は、戻る一言に続ける形と同じ1か所（phrases.back_fit＝callback_（役目）_bare）
         recording, bare = back_fit(f"callback_{role}", CALLBACK_ASK[role], WAY_ANY_ANNOUNCE)
         lines, i = (bare,), 0
+        plain = (f"callback_{role}", CALLBACK_ASK[role])   # 戻るときは、お伝えした一言に続ける形ではなく、それだけで伺う形（B-5・B-6）
     elif chosen and role in CALLBACK_ASK_CHOSEN:
         # LINE の連絡先の伺い方（line_how）で選んでいただいたあとに伺う一言（phrases.CALLBACK_ASK_CHOSEN。共通の一言の録音 callback_（役目）_chosen）
         lines, i, recording = (CALLBACK_ASK_CHOSEN[role],), 0, f"callback_{role}_chosen"
@@ -3198,9 +3208,9 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
                         reply_meanings={} if first or which else {w: c for w, c in ROLE_REPLIES.get(role, {}).items() if c in meanings},
                         firm_not_needed=role in (*POINT_STAGES.values(), "line_how", "wait_or_later", "concern"),
                         asks_once=role in POINT_STAGES.values(),
-                        of=recap.id if recap is not None else "")
+                        of=recap.id if recap is not None else "", plain=plain)
     return Question(qid, lines[i], qtype, required=role not in ("reachable_time", "ask_who", "ask_when", "not_agreed"), conditions=("答えた",),
-                    topic=CALLBACK_TOPIC[role], callback=role, recording=recording)
+                    topic=CALLBACK_TOPIC[role], callback=role, recording=recording, plain=plain)
 
 
 def reading_question(qid: str, surface: str, likely: str, readings: tuple | list = (), kind: str = "法人") -> "Question":
@@ -3663,7 +3673,9 @@ class Flow:
             # かけ直しの記録は、人の言葉が届いてから書く（_apply_one。⛔ 2026-10-24 の見直し：通話の初めに書いていたので、留守番電話・ファクス・
             # 無言で切られた電話まで、CL-2 は「人と話した」と読んだ＝かけ直しの約束・発信の拒否に誤った）
             qs = [callback_question(r) for r in CALLBACK_PLAN["other_number"]]
-            qs[0] = dataclasses.replace(qs[0], text=NUMBER_AGAIN[number_again], recording=f"number_again_{number_again}")
+            # 戻るときは「前回お伺いしたお電話番号に…」を言い直さず、番号を伺う一言だけ（Question.plain＝B-5）
+            qs[0] = dataclasses.replace(qs[0], text=NUMBER_AGAIN[number_again], recording=f"number_again_{number_again}",
+                                        plain=(qs[0].recording or f"callback_{qs[0].callback}", qs[0].text))
             for q in qs:
                 self.questions[q.id], self.items[q.id] = q, Item()
             self.order = self.callback_ids = [q.id for q in qs]

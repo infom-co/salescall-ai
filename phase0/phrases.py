@@ -870,9 +870,11 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "moshimoshi": MOSHIMOSHI}
 # システムの質問（callback_〜）を、2回目・3回目からの戻る一言のあとに流す形（決まりは back_fit の1か所。方法をお伝えした一言のあとの連絡先の一言も、2回目と同じ
 # 「それでは」を外した形＝flowctl.callback_question の announced）。⛔ 2026-11-07 日本時間4時台に見つけた：3時台に足した方法をお伺いしたあとの形（_announced）は
-# 読み方の表にだけあり、この表に無かった＝録音が作られない形だった
-BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_")] for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)
-            for rid, t in [back_fit(base, text, b)] if rid != base}
+# 読み方の表にだけあり、この表に無かった＝録音が作られない形だった。続きの電話で切れた所から伺う一言（callback_〜_again＝前置き「前回…」つき）へ戻るときは、
+# 前置きを言い直さず同じ役目のそれだけで伺う形（flowctl.Question.plain＝B-5）なので、その一言の2回目・3回目の形は作らない
+RESUMED_IDS = {f"callback_{k}_again" for k in CALLBACK_ASK_RESUMED}
+BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS]
+            for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY) for rid, t in [back_fit(base, text, b)] if rid != base}
 RECORDED.update(BACK_FIT)
 
 
