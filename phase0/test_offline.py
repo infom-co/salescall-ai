@@ -88,7 +88,10 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          "hesitate_point",
                          # 値を伺う質問の最初の「まだ決まっていない」に、1回だけおおよその目安を伺う一言の録音（✅ 11-08 日本時間2時21分15秒「(1)〜(4)ともイでOK」の
                          # (1)。CL-1.md 4-112）
-                         "estimate_ask"})
+                         "estimate_ask",
+                         # 本題に入ったあとの「もういいです。」に本心を伺うシステムの質問の番号（業務の質問に使えない名前）と、言っていただいた気になる点の事実
+                         # （✅ 11-08 日本時間2時21分15秒。CL-1.md 4-113）
+                         "D2", "concern"})
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
 CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
 
@@ -8475,6 +8478,75 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual([RECORDED[k] for k in THINKING_PROMPT_IDS], list(THINKING_PROMPT))   # 録音は共通の一言（「いかがなさいましたか？」は今の録音）
         self.assertNotIn("、", THINKING_PROMPT[0])   # 決まった言い方なので言葉の途中に読点を入れない（10-15）
         self.assertNotIn("dounasaimasu", RECORDED)   # 使わなくなった録音の名前は残さない（CL-2 の一覧から外すのは CL2_RETIRED が待つ）
+
+    def test_enough_in_the_main_talk_asks_what_was_wrong_before_the_refusal_line(self):
+        # ✅ 2026-11-08 日本時間2時21分15秒 ユーザー：「本題に入った状況での「もういいです。」に、序盤の「失礼いたしました。今後このようなお電話はご遠慮したほうが
+        # よろしいでしょうか？」はすぐには使わない。⇒「何か問題でもございましたでしょうか？（別の言い回しでもOK）」などで相手の本心を伺った方がいいんじゃない
+        # でしょうか？…本題のクロージングまで入っている段階で、もういいですなどという言葉が出た場合は、そのクロージングのアプローチに対して問題があった可能性が
+        # あります。それが何なのかということをきっちりお聞きしないと、もしかしたら本音を聞けば取り戻せる内容を失ってしまう可能性がある上、今後の改善にもつながり
+        # ません。」⇒ 本題（この電話で業務の質問の答えを1つ以上いただいた）では、ご遠慮の一言より先に「失礼いたしました。」＋「何か問題でもございましたでしょうか？」
+        # （「AIですか」に応える一言と同じ共通の録音 ai_answer）。問題は無い＝伺う前の質問へ戻る／問題を言った＝会話AIが業務の情報の範囲で応え、依頼者へ渡す記録に
+        # 残す（今後の改善）／まだ終えたい＝ここでご遠慮の一言。序盤（まだ業務の答えをいただいていない）は今までどおりご遠慮の一言
+        from end_words import PAMPHLET, YES_NO, _reading, _spoken, question
+        from flowctl import CALLBACK_IDS, UNDECIDED, Flow, Question
+        from meaning_judge import Reading
+        from phrases import AI_ANSWER
+        r1 = "失礼いたしました。今後このようなお電話はご遠慮したほうがよろしいでしょうか？"
+        cid = CALLBACK_IDS["concern"]
+
+        def say(f, words, reading, qid=None, cond=None, **extra):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", reading)
+            if qid is None:
+                return f.judged_turn(voiced=False)
+            return f.apply("record_answer", {"question_id": qid, "condition_id": cond, **extra})
+
+        def flow(main=True):
+            first = Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=YES_NO, asks_fact=True)
+            qs = ([first] if main else []) + [question(PAMPHLET, qid="Q1"), Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=YES_NO)]
+            f = Flow(qs, play_recordings=True)
+            f.use_checks("judge")
+            if main:
+                say(f, "はい、予約しています。", Reading("はい"), "Q0", "はい")
+            self.assertEqual(f.current, "Q1")
+            return f, say(f, "もういいです。", _reading(UNDECIDED, UNDECIDED))
+        f, r = flow(main=False)
+        self.assertEqual(_spoken(r), r1)   # 序盤は今までどおり
+        f, r = flow()
+        self.assertEqual((_spoken(r), f.current, f.end_reason), ("失礼いたしました。" + AI_ANSWER, cid, None))
+        # 問題は無い：断ったとは言われていない＝伺う前の質問へ戻る（ご遠慮の一言の「いいえ」と同じ1か所）
+        r = say(f, "いえ、別に問題はないです。", Reading("問題は無い"), cid, "問題は無い")
+        self.assertEqual((f.current, "話を戻させていただきますね。" in _spoken(r), PAMPHLET in _spoken(r)), ("Q1", True, True))
+        # 問題を言った：質問は流し直さず、会話AIが業務の情報の範囲で応える（尋ねられて答える1か所と同じ道）。言っていただいた点は依頼者へ渡す記録に残す
+        g, _ = flow()
+        r = say(g, "説明が長くてよく分からないんですよ。", Reading("問題を言った"), cid, "問題を言った", value="説明が長くてよく分からない")
+        self.assertEqual((_spoken(r), g.end_reason), ("", None))
+        self.assertIn("説明が長くて", r["message"])
+        # 会話AIへの知らせは、こちらの考えを尋ねられたとき（「こちらに尋ねています」）の文ではなく、言っていただいた気になる点に応える文
+        self.assertNotIn("こちらに尋ねています", r["message"])
+        self.assertIn("気になる点", r["message"])
+        # 応える文が使えない（中身を確かめられない）：尋ねられる前の流れ（パンフレットの答えとして報告し直す＝_asked_skip）へは進まず、ご承認の手順でご説明
+        # できないときと同じ一言（言ったことの種類＝ご意見）で申し伝える。業務の情報の文で応える形は、使えないときの業務の情報の文を選ばせる
+        from phrases import point_fallback, point_fallback_id
+        k, _ = flow()
+        say(k, "説明が長くてよく分からないんですよ。", Reading("問題を言った"), cid, "問題を言った", value="説明が長くてよく分からない")
+        r = k.apply("replay_opening", {"part": "own", "answer": "大変失礼いたしました。パンフレットは無料でお送りしております。"})
+        self.assertEqual((k.asked_skip == k.callee_turns, "業務の情報の文" in r["message"]), (False, True), r)
+        r = k.apply("replay_opening", {"part": "no_answer", "answer": "大変失礼いたしました。ご意見は担当の者に申し伝えます。", "fallback": "opinion"})
+        self.assertEqual([(p["id"], p["text"]) for p in r.get("play", [])], [(point_fallback_id("opinion", False), point_fallback("opinion", False))], r)
+        self.assertEqual((k.asked_skip == k.callee_turns, k.current, k.end_reason), (False, "Q1", None))
+        line = "大変失礼いたしました。要点だけ申し上げますと、パンフレットは無料でお送りしております。"
+        grounded(g, line)
+        self.assertEqual(g.apply("replay_opening", {"part": "own", "answer": line})["result"], "own_answer")
+        # 言っていただいた点は、お客様の質問（callee_question）ではなく、気になる点の事実 concern に残る（そのとき伺っていた質問・お客様の言葉・応えた文）
+        self.assertEqual([(x["question"], "説明が長くて" in x["said"], x["answered"], x["answer"]) for x in g.facts.get("concern", [])],
+                         [("Q1", True, True, line)], g.facts)
+        self.assertNotIn("callee_question", g.facts)
+        say(g, "それなら送ってください。", Reading("はい"), "Q1", "はい")
+        self.assertEqual(g.export()["Q1"], "はい")
+        # まだ電話を終えたい（断ろうとしている）：ここでご遠慮の一言
+        h, _ = flow()
+        r = say(h, "もういいって言ってるでしょう。", Reading("断ろうとしている"), cid, "断ろうとしている")
+        self.assertEqual(_spoken(r), r1)
 
     def test_final_goal_refusal_closes_only_when_the_goal_is_lost(self):
         # ✅ 2026-11-01 日本時間22時31分 ユーザー：「片方だけでも目的が達成できるときは、質問を続け、片方断られたら、目的は達成できない場合は、途中で
