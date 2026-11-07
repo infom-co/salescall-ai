@@ -35,7 +35,17 @@ OPERATOR = Actor("試験の契約者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
 SYSTEM = Actor("試験のシステムの処理", "system")
 ADMIN = Actor("試験の管理者", "admin")
-VOICES = ("Leda", "Sadachbia")   # 試験の土台は、どちらの声も録音を承認してある（話してよい声）
+
+
+def kindless() -> Actor:
+    """誰が、の種類を持たない取引の「誰が」（読み書きの層が種類を渡しそこねた取引の代わり。`Actor` の確かめを通ったあとで種類を空にする
+    ＝いまの入口では作れない形）。データベースの守りが、種類の無い取引を断るかを試すときだけ使う（0201・0205）。"""
+    actor = Actor("試験の種類の無い取引", "system")
+    object.__setattr__(actor, "kind", "")
+    return actor
+
+
+VOICES =("Leda", "Sadachbia")   # 試験の土台は、どちらの声も録音を承認してある（話してよい声）
 # 契約者ごとの、業務の録音を承認する声（World.tenant の voices。業務の版を足すたびに、この声の組を作って承認する）
 _TENANT_VOICES: dict[UUID, tuple[str, ...]] = {}
 
