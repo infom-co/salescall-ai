@@ -66,13 +66,16 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
     return {"field": field, "value": row["value"], "reading": r.reading if text is not None else None}
 
 
-def fix_dial_number(tx: Tx, task_id: UUID, phone: str) -> dict[str, Any]:
+def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool) -> dict[str, Any]:
     """いまかける番号を直す（ダッシュボード。2026-11-06 ユーザー：「取り込んだ電話番号は残したまま、新しい電話番号が旧番号のすぐ下に入力
     できるようにします。新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます。」）。直した番号は、取込と同じ確かめ
     （番号の形・かけない種類・発信禁止・同じ業務で断られたお客様＝target_policy.block_reason の1か所）を通す。通らなければ `FixInvalid`
     （何も書かない）。いまかける番号と同じ番号なら何も書かない。取り込んだ番号は残る（かけなくなる＝表示は前の番号）。行の予定は
     next_action.after_dial_fix の1か所が決める（約束していない予定は付け替える・約束の電話はまず前の番号で・番号のせいや決めた回数で
-    終えた行は戻す。2026-11-06 ユーザー決定）。行の回数は、直したときから数え直す（0180）。直したあとの、いまかける番号を返す。"""
+    終えた行は戻す。2026-11-06 ユーザー決定）。行の回数は、直したときから数え直す（0180）。直したあとの、いまかける番号を返す。
+    same_person＝契約者が画面で選ぶ「新しい番号の先の担当の方は、前と同じ方か」（✅ 2026-11-07 ユーザー：「番号を直す画面で選ぶ」＝
+    計画書 7-1 (19)。選ばなければ直せない＝必ず渡す。違う方なら、約束は引き継がず最初から・お詫びはせず引き継ぎを確かめて営業を続ける＝
+    next_action._target_changed_since の1か所が読む）。"""
     number = normalize(phone or "")
     if number.e164 is None:
         raise FixInvalid(f"電話番号として読めません（{number.reason or '番号が不明です'}）")
@@ -86,7 +89,7 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str) -> dict[str, Any]:
     if blocked is not None:
         raise FixInvalid(f"この番号にはかけられません：{blocked[1]}")
     try:
-        tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company")
+        tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company", same_person=same_person)
     except Rejected as e:
         if e.constraint != "task_dial_fix_one_row_per_number":   # 同じ実施回のほかの行がかけうる番号（データベースの1か所＝0193 の task_dialable）
             raise

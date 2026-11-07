@@ -747,7 +747,7 @@ class CountedCalls(SettleBase):
             next_action._times(tx, s["task"], key), next_action._said(tx, s["task"], key),
             next_action._unspecified_calls(tx, s["task"]), gate.pacing(tx, s["task"], promised=False).remaining))
         self.assertEqual(counts(), (1, 1, 1, 2))
-        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)
         self.assertEqual(counts(), (0, 0, 0, 3))
         # まだかけていない約束の電話は、まず前の番号で（2026-11-06 ユーザー）。出なければ、次は新しい番号で、約束のまま。前の番号へ
         # かけたその1本は、新しい番号の回数に数えない（salescall.task_number_replaced＝0181）
@@ -761,7 +761,7 @@ class CountedCalls(SettleBase):
         # 番号へかけた電話は、その番号がまたいまかける番号になっても数えない（前にかける番号だった番号かは、いまの立場で読むため、
         # 数え始めが無いと数えてしまう）
         first = self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s", (s["contact"],))["phone_e164"])
-        back = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], first), OPERATOR)
+        back = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], first, same_person=True), OPERATOR)
         self.assertEqual(back["contact_id"], s["contact"])
         self.assertEqual(counts(), (0, 0, 0, 3))
 
@@ -786,7 +786,7 @@ class CountedCalls(SettleBase):
         for via in ("call", "gate"):
             with self.subTest(via=via):
                 s = self.ready()
-                new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)
+                new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)
                 now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
                 w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=2)
                 self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：約束",
@@ -815,7 +815,7 @@ class CountedCalls(SettleBase):
         from salescall.core import customer_contacts, row_fixes
         s = self.ready()
         old = s["contact"]
-        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)["contact_id"]
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)["contact_id"]
         now = lambda: self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # noqa: E731
         at = lambda c: self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now(), contact_id=c, cause="試験：いまかける",   # noqa: E731
                                                                      promised=True))
@@ -841,7 +841,7 @@ class CountedCalls(SettleBase):
         from salescall.core import row_fixes
         s = self.ready()
         old = s["contact"]
-        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)["contact_id"]
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)["contact_id"]
         now = lambda: self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # noqa: E731
         at = lambda c: self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now(), contact_id=c, cause="試験：いまかける",   # noqa: E731
                                                                      promised=True))
@@ -871,7 +871,7 @@ class DialFixAfterCalls(SettleBase):
 
     def fixed(self, s):
         from salescall.core import row_fixes
-        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)["contact_id"]
+        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)["contact_id"]
 
     def at(self, s, contact, **kw):
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
@@ -912,7 +912,7 @@ class DialFixAfterCalls(SettleBase):
         self.at(s, s["contact"], window=w)
         self.settle(s, self.call(s, ["dialing", "no_answer"]))                  # 前の番号で約束の電話に出なかった
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["contact_id"], s["contact"])
-        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)["contact_id"]
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)["contact_id"]
         p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((p["contact_id"], p["promised"], p["window_round"]), (new, True, 0))
 
@@ -1038,7 +1038,7 @@ class DialFixAfterCalls(SettleBase):
 
     def fix_to(self, s, phone, task=None):
         from salescall.core import row_fixes
-        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, task or s["task"], phone), OPERATOR)["contact_id"]
+        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, task or s["task"], phone, same_person=True), OPERATOR)["contact_id"]
 
     def plans_after(self, s, seq):
         return self.tx(s, lambda tx: tx.all("SELECT kind, purpose, promised FROM salescall.task_next_actions WHERE task_id = %s"
@@ -1650,6 +1650,33 @@ class SameDayAndSuccessor(SettleBase):
         d = self.settle(s, self.call(s, report=self.absent(False)))["decision"]
         self.assertEqual((d.kind, d.target.purpose), ("call", "ask_number_again"))
         self.assertGreaterEqual(d.at, self.tomorrow(s))
+
+    def test_ask_number_again_on_the_old_number_goes_once_then_to_the_new_number(self):
+        """✅ 2026-11-07 ユーザー（伺い「聞き直し」に「お詫びと同じ」＝計画書 7-1 (18)）：番号を直したとき、前の番号への番号の聞き直しは
+        直したあと1回まで。届かなければ、いまかける番号へふつうの電話（契約者が直した番号を正しい番号とみなす）。前の番号への聞き直しが
+        もう鳴っていれば、直したときに移す（next_action._old_number_moves の1か所＝お詫びと同じ）。⛔ 0195 の初めの作りは、前の番号への
+        聞き直しを直したときから0回で数え直し、同じお客様へ決めた回数をもう一度かけた。"""
+        from salescall.core import row_fixes
+        for rang_before in (False, True):
+            with self.subTest(rang_before=rang_before):
+                s = self.ready()
+                old = s["contact"]
+                now = lambda: self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # noqa: E731
+                ask = lambda: self.tx(s, lambda tx: support.schedule_call(   # noqa: E731
+                    tx, s["task"], now(), contact_id=old, cause="試験：番号の聞き直し", promised=True, purpose="ask_number_again",
+                    wrong_contact_id=old))
+                ask()
+                if rang_before:
+                    self.settle(s, self.call(s, report=self.absent(False)))           # 直す前に前の番号で1回鳴った
+                new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)["contact_id"]
+                p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+                if rang_before:                                                        # 直したときに、いまかける番号へ
+                    self.assertEqual((p["purpose"], p["contact_id"]), ("normal", new))
+                    continue
+                self.assertEqual((p["purpose"], p["contact_id"]), ("ask_number_again", old))   # まだなら前の番号で1回
+                ask()
+                d = self.settle(s, self.call(s, report=self.absent(False)))["decision"]
+                self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "normal", new))
 
     def test_the_answer_of_the_call_ending_record_counts(self):
         """同じ日にかけてよいかは、その通話を締めた「不在」「取り次げない」の記録のうち、いちばん新しいものの答え（1か所）。"""

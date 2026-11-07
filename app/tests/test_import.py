@@ -710,7 +710,7 @@ class DialFixes(CustomerContacts):
         old = self.tx(lambda tx: tasks.dial_number(tx, task))
         before = self.plan(task)
         new_phone = fictional_jp_fixed()
-        got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, new_phone))
+        got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, new_phone, same_person=True))
         self.assertEqual(got["phone_e164"], normalize(new_phone).e164)
         after = self.plan(task)
         self.assertEqual((after["contact_id"], after["call_at"], after["kind"]), (got["contact_id"], before["call_at"], "call"))
@@ -727,13 +727,13 @@ class DialFixes(CustomerContacts):
                          old["contact_id"])                                       # お詫び（その番号で受けたお客様へ）も替えない
         self.assertEqual(self.tx(lambda tx: gate._task(tx, task))["phone_e164"], got["phone_e164"])
         # 取り込んだ番号に戻すこともできる（直しは足していくだけ）
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, old["phone_e164"]))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, old["phone_e164"], same_person=True))
         self.assertEqual(self.plan(task)["contact_id"], old["contact_id"])
 
     def test_a_recorded_mobile_can_become_the_number_to_dial(self):
         """お客様リストで記録だけにした携帯電話番号も、ダッシュボードでかける番号に直せる（データベースの守りは、いまかける番号だけ通す）。"""
         task = self.row(mobile="090-0000-0171")
-        got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0171"))
+        got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0171", same_person=True))
         self.assertEqual(self.plan(task)["contact_id"], got["contact_id"])
         # 予定の無い行（止めている行）の門も、いまかける番号を読む
         from salescall.core import gate
@@ -748,7 +748,7 @@ class DialFixes(CustomerContacts):
         old = self.tx(lambda tx: tasks.dial_number(tx, task))
         now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
         self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=old["contact_id"], cause="試験：約束", promised=True))
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         self.assertEqual((self.plan(task)["contact_id"], self.plan(task)["promised"]), (old["contact_id"], True))
 
     def test_rows_ended_by_the_number_or_by_the_counts_come_back_and_others_do_not(self):
@@ -769,7 +769,7 @@ class DialFixes(CustomerContacts):
             with self.subTest(reason=reason):
                 task = self.row(ref=f"R{n}")
                 self.tx(lambda tx: next_action.end(tx, task, reason, cause="試験"))
-                got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+                got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
                 p = self.plan(task)
                 if reason in back:
                     self.assertEqual((p["kind"], p["contact_id"], p["promised"], p["purpose"]),
@@ -832,7 +832,7 @@ class DialFixes(CustomerContacts):
                 for reason in reasons[1:]:
                     self.tx(lambda tx: dnc.register(tx, mobile, reason))
                 self.tx(lambda tx: next_action.end(tx, task, end, cause="試験：発信禁止で止めて終えた"))
-                got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+                got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
                 p = self.plan(task)
                 self.assertEqual((p["kind"], p["contact_id"] if back else p["end_reason"]),
                                  ("call", got["contact_id"]) if back else ("end", end))
@@ -844,7 +844,7 @@ class DialFixes(CustomerContacts):
         task = self.row(ref="S")
         old = self.tx(lambda tx: tasks.dial_number(tx, task))
         before = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         then, now = (self.tx(lambda tx: tx.one("SELECT salescall.task_number_replaced_at(%s, %s, %s) AS r",
                                                (task, old["contact_id"], at))["r"]) for at in (before, "infinity"))
         self.assertEqual((then, now), (False, True))
@@ -857,7 +857,7 @@ class DialFixes(CustomerContacts):
         version = self.tx(lambda tx: tx.one("SELECT salescall.run_current_version(t.run_id) AS v FROM salescall.tasks t"
                                             " WHERE t.task_id = %s", (task,)))["v"]
         aid = self.w.insert_claim({**self.s, "task": task, "contact": old["contact_id"], "phone": old["phone_e164"]}, version=version)
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT state FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["state"],
                          "released")
 
@@ -867,9 +867,9 @@ class DialFixes(CustomerContacts):
         first, second = self.row(ref="A"), self.row(ref="B")
         theirs = self.tx(lambda tx: tasks.dial_number(tx, second))["phone_e164"]
         with self.assertRaises(row_fixes.FixInvalid):
-            self.tx(lambda tx: row_fixes.fix_dial_number(tx, first, theirs))
+            self.tx(lambda tx: row_fixes.fix_dial_number(tx, first, theirs, same_person=True))
         mine = fictional_jp_fixed()
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, first, mine))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, first, mine, same_person=True))
         r = self.register(csv_file([("Z", "架空商事", mine, None, None, None, None, None, None, None, None)], header=self.HEADER),
                           mapping=self.MAP)
         self.assertEqual(r["rows"][0]["reason_code"], "number_in_run_other_ref")
@@ -881,7 +881,7 @@ class DialFixes(CustomerContacts):
         task = self.row()
         k = self.tx(lambda tx: tasks.dial_number(tx, task))["contact_id"]
         for table, columns, values, shift in (
-                ("task_dial_fixes", "contact_id", "%s", "10 years"),
+                ("task_dial_fixes", "contact_id, same_person", "%s, true", "10 years"),
                 ("task_fixes", "field, value", "'target_role', %s", "-1 year")):
             with self.subTest(table=table):
                 got = self.tx(lambda tx: tx.one(
@@ -896,8 +896,8 @@ class DialFixes(CustomerContacts):
         """いまかける番号（task_dial_contact）と、行の回数を数え始める時刻（task_count_from）は、同じ「いちばん新しい直し」（0193 の
         task_latest_dial_fix＝順番の番号のいちばん大きいもの）を読む。⛔ 2026-11-06 の見直し：前は片方が順番の番号、片方が時刻の最大で決めていた。"""
         task = self.row()
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         got = self.tx(lambda tx: tx.one(
             "SELECT (salescall.task_latest_dial_fix(%s)).contact_id = salescall.task_dial_contact(%s) AS same_number,"
             "       (salescall.task_latest_dial_fix(%s)).recorded_at = salescall.task_count_from(%s) AS same_time,"
@@ -911,8 +911,8 @@ class DialFixes(CustomerContacts):
         from tests import support
         task = self.row(ref="B")
         y = fictional_jp_fixed()
-        ky = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, y))["contact_id"]
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        ky = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, y, same_person=True))["contact_id"]
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
         self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=ky, cause="試験：約束", promised=True))
         r = self.register(csv_file([("Z", "架空商事", y, None, None, None, None, None, None, None, None)], header=self.HEADER),
@@ -933,7 +933,7 @@ class DialFixes(CustomerContacts):
             waited = []
 
             def work(tx):
-                out = row_fixes.fix_dial_number(tx, task, phone)
+                out = row_fixes.fix_dial_number(tx, task, phone, same_person=True)
                 if not waited:   # 1回目だけ、2つの取引がどちらも書いてから確定する（やり直しでは待たない）
                     waited.append(True)
                     try:
@@ -961,14 +961,14 @@ class DialFixes(CustomerContacts):
         ことは、通話のある試験（test_settle.DialFixAfterCalls）で見る。記録した方は、いま操作している方（データベースの守り）。"""
         task = self.row()
         old = self.tx(lambda tx: tasks.dial_number(tx, task))
-        first = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        first = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         at_first = self.tx(lambda tx: tx.one("SELECT salescall.task_count_from(%s) AS t", (task,)))["t"]
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         self.assertGreater(self.tx(lambda tx: tx.one("SELECT salescall.task_count_from(%s) AS t", (task,)))["t"], at_first)
         with self.assertRaises(Rejected) as e:
             self.tx(lambda tx: tx.execute(
-                "INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by)"
-                " SELECT t.tenant_id, t.client_id, t.task_id, %s, 'だれか別の方' FROM salescall.tasks t WHERE t.task_id = %s",
+                "INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by, same_person)"
+                " SELECT t.tenant_id, t.client_id, t.task_id, %s, 'だれか別の方', true FROM salescall.tasks t WHERE t.task_id = %s",
                 (first["contact_id"], task)))
         self.assertEqual(e.exception.constraint, "task_dial_fix_recorded_by")
 
@@ -980,7 +980,7 @@ class DialFixes(CustomerContacts):
         old = self.tx(lambda tx: tasks.dial_number(tx, task))
         now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
         self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=old["contact_id"], cause="試験：約束", promised=True))
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         entry = self.tx(lambda tx: dnc.register(tx, old["phone_e164"], "manual"))
         self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：門が発信禁止で終えた"))
         ids = [r["entry_id"] for r in self.tx(lambda tx: tx.all(
@@ -994,7 +994,7 @@ class DialFixes(CustomerContacts):
     def test_fixing_to_the_number_already_dialed_writes_nothing(self):
         task = self.row()
         old = self.tx(lambda tx: tasks.dial_number(tx, task))
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, old["phone_e164"]))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, old["phone_e164"], same_person=True))
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT count(*) AS n FROM salescall.task_dial_fixes WHERE task_id = %s",
                                                    (task,)))["n"], 0)
 
@@ -1003,8 +1003,8 @@ class DialFixes(CustomerContacts):
         （データベースの守りは、いままでに一度でもかける番号だった番号を通す＝0182。⛔ 0179 では断った）。"""
         from tests import support
         task = self.row(mobile="090-0000-0173", ref="C")
-        mobile = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0173"))
-        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        mobile = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0173", same_person=True))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
         now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
         self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=mobile["contact_id"], cause="試験：約束", promised=True))
         self.assertEqual(self.plan(task)["contact_id"], mobile["contact_id"])
@@ -1016,8 +1016,8 @@ class DialFixes(CustomerContacts):
         self.tx(lambda tx: dnc.register(tx, bad, "manual"))
         for phone in ("abc", bad):
             with self.subTest(phone=phone), self.assertRaises(row_fixes.FixInvalid):
-                self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, phone))
+                self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, phone, same_person=True))
         task = self.row(mobile="090-0000-0172", ref="B")      # 行にある番号へ直す（記録だけの番号を足す守りより先に、直しの守りに当たる）
         with self.assertRaises(Rejected) as cm:
-            self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0172"), actor=SYSTEM)
+            self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, "090-0000-0172", same_person=True), actor=SYSTEM)
         self.assertEqual(cm.exception.constraint, "task_dial_fix_by_person")

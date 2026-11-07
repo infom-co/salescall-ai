@@ -481,7 +481,7 @@ class ApologyAfterDialFix(ApologyBase):
     def fixed(self, s):
         from salescall.core import row_fixes
         from tests.support import fictional_jp_fixed
-        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)["contact_id"]
+        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)["contact_id"]
 
     def plan(self, s):
         return self.tx(s, lambda tx: next_action.current(tx, s["task"]))
@@ -512,6 +512,21 @@ class ApologyAfterDialFix(ApologyBase):
         c = self.claim(s)
         self.assertIsInstance(c, gate.Claim, c)
         self.assertEqual((c.purpose, c.handover, c.apology), ("normal", True, ()))
+
+    def test_choosing_another_person_when_fixing_the_number_counts_as_another_person(self):
+        """✅ 2026-11-07 ユーザー（伺い「相手の違い」に「番号を直す画面で選ぶ」＝計画書 7-1 (19)）：お呼びする方の欄は直さず、番号を
+        直すときに契約者が「担当の方は違う」を選んだ ⇒ 違う相手（お詫びなしで、引き継ぎを確かめる営業の電話）。「同じ」を選べば、
+        新しい番号へお詫び（next_action._target_changed_since の1か所。⛔ 前は欄を直したかだけで決め、番号だけ直すと同じ相手にした）。"""
+        from salescall.core import row_fixes
+        from tests.support import fictional_jp_fixed
+        for same, want in ((False, ("normal", True)), (True, ("apology", False))):
+            with self.subTest(same_person=same):
+                s = self.fresh(stage_cap=20)
+                self.ended_apology(s, items=())
+                new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=same),
+                              OPERATOR)["contact_id"]
+                p = self.plan(s)
+                self.assertEqual((p["kind"], p["contact_id"], (p["purpose"], p["handover"])), ("call", new, want))
 
     def test_the_handover_mark_stays_until_the_target_is_reached(self):
         """引き継ぎを確かめる電話に出なかった ⇒ 次の電話にも印を付ける（まだ確かめていない）。目的のお客様と話せたら外す
@@ -602,7 +617,7 @@ class ApologyAfterDialFix(ApologyBase):
     def test_an_apology_on_the_old_number_rings_there_once_and_then_moves_to_the_new_number(self):
         """✅ 2026-11-06 ユーザー（伺い「直したあとのお詫び」に「約束の電話と同じ」＝計画書 7-1 (17)）：番号を直したとき、前の番号への
         お詫びの電話がまだ鳴っていなければ、前の番号で1回かけ、届かなければ新しい番号へお詫び（同じ相手）。もう鳴っていれば、直した
-        ときに新しい番号へ移す（`_apology_moves` の1か所＝約束の電話の `_point` と同じ物差し）。新しい番号の回数は0から（計画書 7-1 (15)）。
+        ときに新しい番号へ移す（`_old_number_moves` の1か所＝約束の電話の `_point` と同じ物差し）。新しい番号の回数は0から（計画書 7-1 (15)）。
         ⛔ 0195 の初めの作りは、前の番号で直したときから数え直して、もう決めた回数かけていた。"""
         with self.subTest("まだ鳴っていない"):
             s = self.fresh(stage_cap=20)
