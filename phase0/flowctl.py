@@ -27,7 +27,7 @@ from phrases import APOLOGY_CUT_END, QUESTION_RESUME_LEAD, TOLD_AGAIN, TOLD_FOLL
 from phrases import OTHERS_HEAD, back_fit, closes, head_word, heads_said
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
-from phrases import CHANGE_BY, CLIENT_DOES, TENTATIVELY, confirm as confirm_phrase, restate_words
+from phrases import CHANGE_BY, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from phrases import ESTIMATE_ASK, HESITATE_POINT
@@ -72,29 +72,54 @@ _SPACE = re.compile(r"[\s\u3000]+")
 #    直さない（「番」も数える言葉に入れない：「一番早い日」）。「十分」は「時」のすぐあとのときだけ直す（「2時十分」は時刻。「十分です」は「足りる」の意味）
 _KANJI_DIGIT = {"〇": 0, "零": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 _KANJI_UNIT = {"十": 10, "百": 100, "千": 1000}
-_KANJI_NUMBER = re.compile(r"[〇零一二三四五六七八九十百千万]+(?=[日時分秒月年週人名歳才個枚台件回円階泊杯本部号かヶケ])")
+_KANJI_BIG = {"万": 10 ** 4, "億": 10 ** 8}
+# 数を数える言葉の前の、漢数字を1つ以上含む数の並び（算用数字とのまじり「5万」「3万5千」も1つの数）。小数・桁区切りの途中（「1.5万」）と
+# 「数十」「何十」のあとからは数に直さない（読み違えるより、お客様の言葉のまま）。⛔ 2026-11-08 日本時間5時台に見つけた：並びが漢数字だけで、
+# 算用数字のあとの「万」だけを1つの数と読み、「5万円」を「510000円」・「50万円」を「5010000円」にしていた（10-22 から）
+_NUM_CHARS = "0-9０-９〇零一二三四五六七八九十百千万億"
+_KANJI_NUMBER = re.compile(rf"(?<![0-9０-９.,．，数何])[{_NUM_CHARS}]*[〇零一二三四五六七八九十百千万億][{_NUM_CHARS}]*"
+                           r"(?=[日時分秒月年週人名歳才個枚台件回円階泊杯本部号かヶケ])")
 
 
-def _kanji_int(s: str) -> int:
-    """漢数字の並びを数にする（「十五」15・「二十」20・「三万五千」35000・「二〇二六」2026）。"""
-    total = section = num = 0
+def _kanji_text(s: str) -> str:
+    """漢数字を含む1つの数の並びを、数字の書き方にする唯一の場所（「十五」15・「二十」20・「三万五千」「3万5千」35000・「5万」50000・
+    「二〇二六」2026）。位の言葉（十・百・千・万・億）の無い漢数字の2つ以上の並びは位取りではない（「二三日」＝2〜3日。〇を含む「二〇二六」だけ
+    位取り）：続いた2つの数は範囲（「2〜3」）、ほかは読めないのでそのまま残す（CL-2 の時刻の読み spoken_time._kanji_number の 10-19 の決まりと同じ。
+    ⛔ 11-08 5時台まで「二三日」を「23日」と読んでいた）。"""
+    s = unicodedata.normalize("NFKC", s)
+
+    def digits_of(seg: str) -> list[int]:
+        return [_KANJI_DIGIT[c] if c in _KANJI_DIGIT else int(c) for c in seg]
+
+    def positional(seg: str) -> bool:  # 位の言葉の前の数字の並びを位取りで読めるか（漢数字2つ以上の並びは〇を含むときだけ）
+        return sum(c in _KANJI_DIGIT for c in seg) < 2 or any(c in "〇零" for c in seg)
+
+    total = section = 0
+    seg = ""
     for ch in s:
-        if ch in _KANJI_DIGIT:
-            num = num * 10 + _KANJI_DIGIT[ch]
-        elif ch in _KANJI_UNIT:
-            section += (num or 1) * _KANJI_UNIT[ch]
-            num = 0
-        else:  # 万
-            total += ((section + num) or 1) * 10000
-            section = num = 0
-    return total + section + num
+        if ch in _KANJI_UNIT or ch in _KANJI_BIG:
+            if not positional(seg):
+                return s
+            n = int("".join(map(str, digits_of(seg)))) if seg else None
+            if ch in _KANJI_UNIT:
+                section += (1 if n is None else n) * _KANJI_UNIT[ch]
+            else:
+                total += ((section + (n or 0)) or 1) * _KANJI_BIG[ch]
+                section = 0
+            seg = ""
+        else:
+            seg += ch
+    if not positional(seg):
+        d = digits_of(seg)
+        return f"{d[0]}〜{d[1]}" if not total and not section and len(d) == 2 and d[1] == d[0] + 1 else s
+    return str(total + section + (int("".join(map(str, digits_of(seg)))) if seg else 0))
 
 
 def _kanji_to_digits(v: str) -> str:
     def repl(m: re.Match) -> str:
         if m.group() == "十" and v[m.end()] == "分" and (m.start() == 0 or v[m.start() - 1] != "時"):
             return m.group()
-        return str(_kanji_int(m.group()))
+        return _kanji_text(m.group())
     return _KANJI_NUMBER.sub(repl, v)
 
 
@@ -1000,10 +1025,12 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          # 言い切っていないが向きの決まった最初の答えの確かめ（Flow._hedged_after の1か所が選ぶ。頭の言葉は付けない＝文が「それでは」で始まる）：
          # - 事実を伺う質問ではない質問（希望・申し出）：「はい、」＋「それではパンフレットをお送りさせていただきますね？」（選択肢ごとの Question.do_words。
          #   ✅ 2026-11-01 日本時間20時56分・23時59分 ユーザー）。言葉が無ければ上の hedged
-         # - 事実を伺う質問（Question.asks_fact）：「はい、」＋「それではご予約はお済みということで記録させていただいて大丈夫でしょうか？」（意味の言葉＋
-         #   業務の「依頼者がすること」＝Flow.client_does。✅ 2026-11-01 日本時間6時05分 ユーザー：「「それでは、ご予約はされているということで登録(記録)
-         #   させていただいて大丈夫でしょうか？」のような形で、登録するので確認しているんだよと伝わる形の方がいいでしょう。」・6時27分「依頼主が最終的に
-         #   「登録」することになるのであれば、我々は依頼主の作業代行としてお客様と対峙しているので、それに合わせた方がいいでしょう。」）
+         # - 事実を伺う質問（Question.asks_fact）：「はい、」＋「それではご予約はお済みということで承っておいて大丈夫でしょうか？」（意味の言葉＋
+         #   phrases.client_does_words＝業務の「依頼者がすること」＝Flow.client_does があれば「（それ）させていただいて」・無ければ「承っておいて」。
+         #   ✅ 2026-11-01 日本時間6時05分 ユーザー：「「それでは、ご予約はされているということで登録(記録)させていただいて大丈夫でしょうか？」のような形で、
+         #   登録するので確認しているんだよと伝わる形の方がいいでしょう。」・6時27分「依頼主が最終的に「登録」することになるのであれば、我々は依頼主の
+         #   作業代行としてお客様と対峙しているので、それに合わせた方がいいでしょう。」・2026-11-08 日本時間5時33分05秒「以前、「～で記録させていただいて」
+         #   という言い方にしていましたが、「～で承っておいて」に変更しましょうか。こちらの方が自然だし汎用的です。」）
          "hedged_do": ("言い切っていない答えのあと（こちらがすること）", None, "hai"),
          "hedged_fact": ("言い切っていない答えのあと（事実を伺う質問）", None, "hai"),
          # - 進める向きで、こちらがすることの言葉が決まらなかった：「はい、」＋「それでは当日はお車でお越しになるということで承りますね？」（意味の言葉で承る）
@@ -1030,16 +1057,19 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          # 付けない＝文が「それでは」で始まる）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「…確定で確認するのはあいての意思に反します。⇒「承知しました。
          # それでは15日あたりでお考えということで承っておきますね。」にするか、「はい、それではひとまず15日とさせていただきますね？変更があった場合には（～までに
          # ご連絡いただけましたら）（～までであれば）ご対応可能です。」」
-         # - 業務設定に変更の受付の期限（Question.change_by）がある：「はい、」＋「それではひとまず15日とさせていただきますね？変更があった場合には前日までに
-         #   ご連絡いただけましたらご対応可能です。」（事実を伺う質問は「それではひとまず10名ということで記録させていただいて大丈夫でしょうか？…」）
+         # - 業務設定に変更の受付の期限（Question.change_by）がある：「はい、」＋「それではひとまず15日あたりとさせていただきますね？変更があった場合には
+         #   前日までにご連絡いただけましたらご対応可能です。」（値はお客様の言い方のまま＝5時33分05秒「相手が「あたり」をつけたら、こちらも「あたり」を
+         #   つけた方がいいでしょう。」・確定した値で登録する質問 Question.definite_value だけ「ひとまず15日と」。事実を伺う質問は「それではひとまず10名くらい
+         #   ということで承っておいて大丈夫でしょうか？…」）
          "tentative_do": ("言い切っていない答えのあと（こちらがすること）", None, "hai"),
          "tentative_fact": ("言い切っていない答えのあと（事実を伺う質問）", None, "hai"),
          # - 無い：「承知しました。」＋「それでは15日あたりでお考えということで承っておきますね。」（問いではない＝お客様のお返事が直した値でなければ受け取る。
          #   事実を伺う質問は「それでは10名くらいということで承っておきますね。」）
          "noted": ("確定でない値を承る", None, "shouchi"),
-         # - 言い直し（ひとまずの形も）へ「まだ決まっていない」と返された（期限の有無にかかわらず）：「承知しました。」＋「それではひとまず15日の予定でお考えだと
-         #   承っておきますね。」（✅ 2026-11-08 日本時間5時00分52秒 ユーザー：「…まだ決まっていないと言われたのに、「それでは15日でお考えということで承って
-         #   おきますね。」だと確定のように聞こえ、相手に話が伝わっていないと思われてしまいますよ。」。事実を伺う質問も、まだ決まっていないのは予定なので同じ形）
+         # - 言い直し（ひとまずの形も）へ「まだ決まっていない」と返された：「承知しました。」＋「それではまだ確定ではないと承っておきますね。」（値は言わない・
+         #   質問の種類で変わらない・期限があれば変更の受付の一文を添える。✅ 2026-11-08 日本時間5時33分05秒 ユーザー (2)・(4)「イ」。⛔ 5時00分52秒に入れた
+         #   「それではひとまず15日の予定でお考えだと承っておきますね。」を置き換えた。5時00分52秒「…まだ決まっていないと言われたのに、「それでは15日で
+         #   お考えということで承っておきますね。」だと確定のように聞こえ、相手に話が伝わっていないと思われてしまいますよ。」）
          "noted_undecided": ("まだ決まっていない値を承る", None, "shouchi")}
 # 確定でない値を受ける形（Flow._tentative が選んだもの＝_ask_confirm の頭で回し直さない）
 TENTATIVE_AFTERS = ("tentative_do", "tentative_fact", "noted", "noted_undecided")
@@ -2237,10 +2267,16 @@ class Question:
     option_notes: dict = field(default_factory=dict)
     # 値を伺う質問（日時・数・金額＝ESTIMATE_TYPES）の答えの変更を受け付ける期限（「前日」「3日前」「前週の金曜日」など。業務設定＝取込＝CL-2。空なら無い）：
     # 値が確定でない答え（「15日あたり」＝approx_value）・値の言い直しへの「まだ決まっていない」を、ひとまずその値にして変更の受付を添える形で受ける（Flow._tentative。
-    # 「はい、それではひとまず15日とさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能です。」）。空なら承っておく形
+    # 「はい、それではひとまず15日あたりとさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能です。」・言い直しへの「まだ決まって
+    # いない」には「承知しました。それではまだ確定ではないと承っておきますね。」のあとに変更の受付の一文＝5時33分05秒）。空なら承っておく形
     # （「承知しました。それでは15日あたりでお考えということで承っておきますね。」）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「…（～までにご連絡いただけましたら）
     # （～までであれば）ご対応可能です。」～は日付や曜日、前日など。」
     change_by: str = ""
+    # 確定した値で登録する質問か（確定日付の登録が要る業務の質問。業務設定＝取込＝CL-2）：ひとまずの形（change_by）で、お客様の言い方の値（「15日あたり」）ではなく
+    # 値の芯（「15日」）でひとまずとする（Flow._tentative）。✅ 2026-11-08 日本時間5時33分05秒 ユーザー：「お客様「15日あたりですかね。」：こちら「はい、それでは
+    # ひとまず15日あたりとさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能です。」相手が「あたり」をつけたら、こちらも「あたり」を
+    # つけた方がいいでしょう。ただし、確定日付の登録が必要な業務の場合は、現状のままで大丈夫です。」
+    definite_value: bool = False
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -3235,9 +3271,10 @@ class Flow:
         お呼びする電話か（呼ぶ一言は instruction.Target の successor が作る）。"""
         self.confirm = confirm
         self.busy_ask = busy_ask
-        # 依頼者がすること（業務設定＝CL-2。登録・記録・手配など。空なら「記録」＝phrases.CLIENT_DOES）。事実を伺う質問の、言い切っていない最初の答えの
-        # 確かめ「それでは（意味の言葉）ということで（依頼者がすること）させていただいて大丈夫でしょうか？」に入れる（AFTER の hedged_fact）
-        self.client_does = client_does or CLIENT_DOES
+        # 依頼者がすること（業務設定＝CL-2。登録・手配など。空なら無い）。事実を伺う質問の、言い切っていない最初の答えの確かめ「それでは（意味の言葉）という
+        # ことで（依頼者がすること）させていただいて大丈夫でしょうか？」に入れる（AFTER の hedged_fact・tentative_fact）。空なら「…ということで承っておいて
+        # 大丈夫でしょうか？」（言葉を作るのは phrases.client_does_words の1か所。✅ 2026-11-08 日本時間5時33分05秒「…「～で承っておいて」に変更しましょうか。」）
+        self.client_does = client_does
         assert goal_mode in GOAL_MODES, goal_mode
         self.goal_mode = goal_mode   # 最終目的の果たし方（GOAL_MODES。業務設定＝CL-2）
         # 留守番電話に残す伝言（業務設定。Intent.md 9-4・18-2 の14。None なら残さずに切る＝安全側）
@@ -5657,7 +5694,7 @@ class Flow:
           のではない）。✅ 2026-11-06 日本時間4時11分28秒 ユーザー：「…今回の流れの「送ってもらったほうがいいですかね。」だと言い聞かせの意味合いだと
           思われるので、はい、それではパンフレットをお送りさせていただきますね？で正解です。「はい、それではパンフレットをお送りして大丈夫だということで
           よろしいでしょうか？」でも間違いではありません。」（申し出は「それでは…させていただきますね？」の形＝11-01 20時56分・11-03 のご判断）
-        - 問いの形（事実を伺う質問の「…記録させていただいて大丈夫でしょうか？」など）：同じ問いを続けて言わず、最終的に確かめる言い方（AFTER の settle）。
+        - 問いの形（事実を伺う質問の「…承っておいて大丈夫でしょうか？」など）：同じ問いを続けて言わず、最終的に確かめる言い方（AFTER の settle）。
           ✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」・2026-10-31 の夜 ユーザー：「『それでは…ということで
           よろしいでしょうか？』は矛盾や言い直しの答えを最終的に確認する場合です。」
         ⛔ 2026-11-06 日本時間3時台に、2回目の言い方を1回目と同じ決め方で選んでいた所を、全部 settle にした＝申し出の質問の決まった形を、ご判断で外した
@@ -5772,12 +5809,15 @@ class Flow:
     def _tentative(self, qid: str, undecided: bool = False) -> dict:
         """値を伺う質問（日時・数・金額）で、お客様の答えが確定でないとき（値に「あたり」などが付いた＝approx_value・値の言い直しへの「まだ決まっていない」＝
         _hesitation の tentative＝undecided）に受ける唯一の場所。確定の言い直し（「それでは15日とさせていただきますね？」）も、同じ言い直しのくり返しもしない：
-        - 言い直し（ひとまずの形も）へ「まだ決まっていない」と返された（undecided）：期限の有無にかかわらず、ひとまずの予定として承っておく（AFTER の
-          noted_undecided＝「承知しました。それではひとまず15日の予定でお考えだと承っておきますね。」。✅ 2026-11-08 日本時間5時00分52秒 ユーザー：「…まだ決まって
-          いないと言われたのに、「それでは15日でお考えということで承っておきますね。」だと確定のように聞こえ、相手に話が伝わっていないと思われてしまいますよ。」）
-        - 確定でない値の答えで、業務設定に変更の受付の期限（Question.change_by）があって、まだ伺っていない：ひとまずその値（値の芯）にして、変更の受付を添えて
-          伺う（AFTER の tentative_do・tentative_fact＝「はい、それではひとまず15日とさせていただきますね？変更があった場合には前日までにご連絡いただけましたら
-          ご対応可能です。」）
+        - 言い直し（ひとまずの形も）へ「まだ決まっていない」と返された（undecided）：値を言わずに「まだ確定ではない」と承っておく（AFTER の noted_undecided＝
+          「承知しました。それではまだ確定ではないと承っておきますね。」・期限があれば変更の受付の一文を添える。✅ 2026-11-08 日本時間5時33分05秒 ユーザー：(2)・(4)
+          「イ」。⛔ 5時00分52秒のお言葉の「ひとまず15日の予定でお考えだと…」を置き換えた）。依頼者へ渡すお客様の言葉には、値を言った言葉（あれば）に続けて
+          「まだ決まっていない」の言葉を残す（値だけでは、まだ決まっていないことが依頼者に伝わらない）
+        - 確定でない値の答えで、業務設定に変更の受付の期限（Question.change_by）があって、まだ伺っていない：ひとまずその値にして、変更の受付を添えて伺う（AFTER の
+          tentative_do・tentative_fact＝「はい、それではひとまず15日あたりとさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能
+          です。」）。値はお客様の言い方のまま（「あたり」を付けたらこちらも付ける）。確定した値で登録する質問（Question.definite_value）だけ値の芯（「15日」）。
+          ✅ 2026-11-08 日本時間5時33分05秒 ユーザー：(1)「…相手が「あたり」をつけたら、こちらも「あたり」をつけた方がいいでしょう。ただし、確定日付の登録が必要な
+          業務の場合は、現状のままで大丈夫です。」
         - 確定でない値の答えで、期限が無い：お客様の言い方の値のまま承っておく（AFTER の noted＝「承知しました。それでは15日あたりでお考えということで
           承っておきますね。」。問いではない）
         - 承っておく一言を言ったあと：お客様のお返事が直した値でなければ（はい・まだ決まっていない・答えなかった）、その値で受け取る（もう伺わない）
@@ -5795,14 +5835,19 @@ class Flow:
         ap = approx_value(it.value, self.heard_said)
         if ap is not None:
             it.approx = ap[1]
-        it.hedged = it.hedged or customer_said(self.heard_said) or None
+        words = customer_said(self.heard_said)
+        # お客様の言葉：値を言った言葉（確定でない値の答え）か、まだ決まっていないと言った言葉。両方あれば両方（同じ言葉は重ねない）
+        it.hedged = "／".join(dict.fromkeys(w for w in (it.hedged, words if undecided or not it.hedged else None) if w)) or None
         if q.change_by and it.tentative is None and not undecided:
             it.tentative = "set"
             if ap is not None:
-                it.value = ap[0]
+                it.value = ap[0] if q.definite_value else ap[1]
             return self._ask_confirm(qid, after="tentative_fact" if q.asks_fact else "tentative_do")
         it.tentative = "noted"
-        it.value = it.approx or it.value
+        if not undecided:
+            # 承っておく形はお客様の言い方の値で承る。まだ決まっていないと承る一言は値を言わない＝値は前の答えの値のまま（確定した値で登録する質問の
+            # 芯の値をお客様の言い方の値に替えない。⛔ 11-08 5時台に流れの制御から例を出して見つけた：同じ1行で「15日」を「15日あたり」に替えていた）
+            it.value = it.approx or it.value
         return self._ask_confirm(qid, after="noted_undecided" if undecided else "noted")
 
     def _undecided_final(self, qid: str) -> dict:
@@ -8746,20 +8791,20 @@ class Flow:
             # いただいて大丈夫でしょうか？」（_hedged_after）
             phrase = confirm_phrase(said_as + ("とさせていただきます" if after == "hedged_do" else "ということ"), situation, n, meaning=True, does=self.client_does)
         elif after in ("tentative_do", "tentative_fact"):
-            # 確定でない値を、ひとまずその値（値の芯）にして変更の受付を添える（_tentative）：「それではひとまず15日とさせていただきますね？変更があった場合には
-            # 前日までにご連絡いただけましたらご対応可能です。」（事実を伺う質問は「それではひとまず10名ということで記録させていただいて大丈夫でしょうか？…」）
-            phrase = (confirm_phrase(TENTATIVELY + said_as + ("とさせていただきます" if after == "tentative_do" else "ということ"), situation, n,
-                                     meaning=True, does=self.client_does) + CHANGE_BY.format(by=q.change_by))
+            # 確定でない値を、ひとまずその値にして変更の受付を添える（_tentative）：「それではひとまず15日あたりとさせていただきますね？変更があった場合には
+            # 前日までにご連絡いただけましたらご対応可能です。」（事実を伺う質問は「それではひとまず10名くらいということで承っておいて大丈夫でしょうか？…」。
+            # 「15日をめどに」は「ひとまず15日をめどとさせていただきますね？」＝「にと」を重ねない）
+            phrase = (confirm_phrase(TENTATIVELY + said_as.removesuffix("に") + ("とさせていただきます" if after == "tentative_do" else "ということ"),
+                                     situation, n, meaning=True, does=self.client_does) + CHANGE_BY.format(by=q.change_by))
         elif after == "noted":
             # 確定でない値を、お客様の言い方の値のまま承っておく（_tentative）：「それでは15日あたりでお考えということで承っておきますね。」（事実を伺う質問は
             # 「お考え」と言わない＝「それでは10名くらいということで承っておきますね。」・「15日をめどに」は「15日をめどにお考え」）
             thinks = "" if q.asks_fact else "お考え" if said_as.endswith("に") else "でお考え"
             phrase = confirm_phrase(said_as + thinks, situation, n, meaning=True)
         elif after == "noted_undecided":
-            # 言い直しへ「まだ決まっていない」と返された値を、ひとまずの予定として承っておく（_tentative）：「それではひとまず15日の予定でお考えだと承っておきますね。」
-            # （事実を伺う質問も、まだ決まっていないのは予定なので同じ形。「15日をめどに」は「ひとまず15日をめどにお考えだと」＝「の予定で」を重ねない）
-            plan = "お考え" if said_as.endswith("に") else "の予定でお考え"
-            phrase = confirm_phrase(TENTATIVELY + said_as + plan, situation, n, meaning=True)
+            # 言い直しへ「まだ決まっていない」と返された値を、値を言わずに承っておく（_tentative）：「それではまだ確定ではないと承っておきますね。」。業務設定に
+            # 変更の受付の期限があれば、変更の受付の一文を添える（✅ 2026-11-08 日本時間5時33分05秒 ユーザー「(4) イ」）
+            phrase = confirm_phrase(said_as, situation, n, meaning=True) + (CHANGE_BY.format(by=q.change_by) if q.change_by else "")
         else:
             phrase = self.confirm(said_as, situation, n)
         say = self.awaiting_say = (self._lead(lead) if lead else "") + phrase
