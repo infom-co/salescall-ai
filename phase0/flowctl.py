@@ -30,7 +30,7 @@ from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_agai
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
-from phrases import HESITATE_POINT
+from phrases import ESTIMATE_ASK, HESITATE_POINT
 from units import supply_unit
 
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
@@ -153,6 +153,9 @@ TAKEN = GOT + ("dont_know", "refused")  # AIの報告を受け取った状態（
 # 数・金額の型は、数字か数の言葉が1つも無い値だけ止める（form_problem。✅ 2026-10-14 ユーザー承認）。名前などの型には当てない
 DATE_TIME_TYPES = {"date", "time", "datetime"}
 NUMBER_TYPES = {"number", "amount"}
+# 値を伺う型のうち、最初の答えの「まだ決まっていない」に1回だけ目安を伺う型（唯一の組＝Flow._hesitation の estimate。日時・数・金額＝おおよその目安で
+# 答えられる値。名前・連絡先は入れない）。✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (1)
+ESTIMATE_TYPES = DATE_TIME_TYPES | NUMBER_TYPES
 DATE_TIME_WORDS = ("日", "時", "分", "月", "曜", "午前", "午後", "今日", "明日", "あした", "あす", "明後日", "あさって", "来週", "今週",
                    "再来週", "週", "朝", "昼", "夕方", "夕刻", "晩", "夜", "半", "正午", "年", "明け", "頃", "ごろ", "以降", "旬", "末", "初め", "中")
 
@@ -3349,7 +3352,8 @@ class Flow:
         self.wait_asked = False
         self.wait_turn: int | None = None
         self.thinking_turn: int | None = None   # まだ考えている途中と読んで「はい。」で待った発話（_thinking。同じ発話に相づちを重ねない）
-        # 迷っているお客様への応じ方の印（{質問の番号: {"point": どういった点でお迷いかを伺った発話, "helped": 選ぶ助けを伝えた発話}}。決まりは _hesitation の1か所）
+        # 迷っているお客様への応じ方の印（{質問の番号: {"point": どういった点でお迷いかを伺った発話, "helped": 選ぶ助けを伝えた発話, "estimate": 目安を伺った発話}}。
+        # 決まりは _hesitation の1か所）
         self.hesitating: dict[str, dict] = {}
         self.repeat_turn: int | None = None   # もう一度言ってほしいと読んで、伺ったことを流し直した発話（_repeat_now。同じ発話に流し直しを重ねない）
         self._asked_next: tuple[dict, dict | None] | None = None   # 次の質問を伺う返事とその中の質問の録音（_next_question。替えるのは _relead_next）
@@ -5185,10 +5189,9 @@ class Flow:
           言っていない）は当てない（今までどおり、お客様の言葉への報告の道＝質問に戻る・最終の確かめ＝11-06 11時19分55秒）
         - 何回迷っても保留で締めない（選ぶ助けを続ける）。保留で締めるのは、選ぶ助けのあとの「まだ決めていない」（上の final）と、言い切っていない答えの
           最終の確かめのあとも決められないとき（11-06 11時19分55秒の (2)。_confirm_again）だけ
-        - 最初の答えで「まだ決めていない」と言った（判定の読みがどの答えも選んでいない＝undecided で、理由の読みがそろって「まだ決まっていない」＝_why_of）も、
-          すぐ保留で締めずに、迷っていると同じく先に選ぶ助けをする（まだ助けも伺いもしていないときだけ）。理由の読みがそろわない・無いときは当てない
-          （⛔ 2026-11-08 日本時間0時台＝11-07 23時26分13秒のご質問の見直しの J-2：私が 22時台に「読みの揺れで見放す側へ倒さない」として広げ、知らないだけの
-          言葉「停められるか分からないので」にも伺っていた＝お言葉の範囲「まだ決めていないです。」に戻した。広げるかは伺う）。
+        - 最初の答え・言い直しへの返事で「まだ決めていない」と言った（_not_deciding。理由の読みが割れた・無い「分からない」も）も、すぐ保留で締めず、同じ
+          確かめもくり返さずに、迷っていると同じく先に選ぶ助けをする（まだ助けも伺いもしていないとき・最終の確かめの前だけ）。✅ 2026-11-08 日本時間
+          2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (2)(3)（⛔ 0時台の J-2 で一度、理由の読みがそろって「まだ決まっていない」の最初の答えだけに戻して伺った）。
           当てるのは選択肢から選ぶ質問（CHOICE_TYPES＝はい／いいえ・選択肢）だけ（「まだ決めていない」が「どれにするか迷っている」と同じになるのは、選ぶ
           ものがあるときだけ＝金額・日時などを伺う質問への「まだ決まっていない」に「どういった点でお迷いでしょうか？」とは伺わない）。理由は判定が読む
           （_why_of）ので、判定を使う通話だけ（判定を使わない通話の理由は会話AIの報告＝ここからは見えない）
@@ -5211,12 +5214,12 @@ class Flow:
         if qid is None or not asks_wish(q := self.questions[qid]):
             return None
         h = self.hesitating.get(qid, {})
-        point, helped = h.get("point"), h.get("helped")
-        if self.callee_turns in (point, helped):
+        point, helped, estimate = h.get("point"), h.get("helped"), h.get("estimate")
+        if self.callee_turns in (point, helped, estimate):
             # この発話にはもう応じた（同じ発話に遅れて届いた報告・判定）：応じた番のまま（重ねないのは返事の1か所 _hesitate_now。選ぶ助けを伝えた発話は、
             # 答えた印＝question_answered_turn も立っているので、それより先に見る）。⛔ 2026-11-08 日本時間0時台の見直しの H-4：伺ったばかりの発話を「伺った
             # あとのお返事」と読み、お返事を待たずに選ぶ助けを言わせた・選ぶ助けを伝えた発話への遅れた報告を答えとして受け取り、保留で締めた
-            return "point" if point == self.callee_turns else "help"
+            return "point" if point == self.callee_turns else "estimate" if estimate == self.callee_turns else "help"
         if self.callee_turns in (self.question_answered_turn, self.asked_skip) or self.check_for not in (None, qid):
             # この発話の判定の読みは、発話の始めの質問についての読み（check_for）：保留で締めて次の質問へ進んだあとに同じ発話の遅れた報告が来ても、次の質問の
             # 読みにしない（⛔ 同じ見直しの H-1 を直す途中、流れの制御に通して見つけた形）
@@ -5226,14 +5229,24 @@ class Flow:
             return "point" if point is None and (not q.option_notes or helped is not None) else "help"
         if not undecided(readings) or not self._plain_reply(readings) or self._why_of("unknown") in WHY_ROUTED:
             return None
-        if helped is not None and (point is None or point < helped):
-            return "final" if self._not_deciding(readings) else None   # 選ぶ助けのあと：まだ決めていない＝保留・相づちなどは今までどおり
+        if helped is not None and (point is None or point < helped) or estimate is not None:
+            # 選ぶ助け・目安を伺ったあと：まだ決めていない＝保留・相づちなどは今までどおり（目安を伺うのは1回だけ）
+            return "final" if self._not_deciding(readings) else None
         if point is not None:
             return "help"   # どういった点でお迷いかを伺ったあとの、答えではないお返事（迷っている点）
-        if self.awaiting_confirm is None and self.judging and q.type in CHOICE_TYPES and self._why_of("unknown") == "undecided":
-            # 最初の答え（言い直し・最終の確かめの返事待ちではない＝awaiting_confirm が無い）の「まだ決めていない」（(イ)。最終の確かめのあとも決められないのは、
-            # お客様の最終の決定＝保留＝11-06 11時19分55秒の (2)。_confirm_again）
+        if not self.judging or self.items[qid].final or not self._not_deciding(readings):
+            return None
+        if q.type in CHOICE_TYPES:
+            # まだ助けも伺いもしていない「まだ決めていない」（最初の答えも、言い直しへの返事も＝(イ)。理由の読みが割れた・無い「分からない」も。理由がそろって
+            # 「担当ではない」「いまは分からない」は上で外した）：すぐ保留で締めず、同じ確かめもくり返さずに、先に選ぶ助け。最終の確かめ（Item.final）のあとも
+            # 決められないのは、お客様の最終の決定＝保留（11-06 11時19分55秒の (2)。_confirm_again）。✅ 2026-11-08 日本時間2時21分15秒 ユーザー
+            # 「(1)〜(4)ともイでOK」の (2)(3)（⛔ 0時台の J-2 で一度、理由の読みがそろって「まだ決まっていない」の最初の答えだけに戻して伺った）
             return "help" if q.option_notes else "point"
+        if q.type in ESTIMATE_TYPES and self.awaiting_confirm is None and self._why_of("unknown") == "undecided":
+            # 値を伺う質問（日時・数・金額）の最初の答えの「まだ決まっていない」（理由の読みがそろって「まだ決まっていない」＝お言葉の「まだ決まってないん
+            # ですよね。」）：すぐ保留で締めずに、1回だけ「おおよその目安」を伺う（同じ (1)。一流の営業＝すぐ引かずに、決める手がかりを1つ伺う）。理由の読みが
+            # 割れた・無い「分からない」と、言い直し（「それでは15日とさせていただきますね？」）への返事は、お言葉の場面ではないので今までどおり（⏳ 伺う）
+            return "estimate"
         return None
 
     def _not_deciding(self, readings) -> bool:
@@ -5276,7 +5289,7 @@ class Flow:
         h = self.hesitating.setdefault(self.awaiting_confirm or self.current, {})
         said = (self.callee_said or "").strip()[:30]
         head = f"相手の言葉（「{said}」）は、答えではなく、どれにするか迷っている・まだ決めていない言葉です（意味の判定。報告は要りません）。"
-        if self.callee_turns in (h.get("point"), h.get("helped")):
+        if self.callee_turns in (h.get("point"), h.get("helped"), h.get("estimate")):
             return {"result": "hesitate", "silent": True, "again": True,
                     "message": f"{head}この言葉には、もう応じました。何も言わずに、相手のお返事を待ってください。"}
         if kind == "final":
@@ -5287,13 +5300,13 @@ class Flow:
             qid = self.awaiting_confirm or self.current
             self.awaiting_confirm = None
             return self._undecided_final(qid)
-        if kind != "point":
+        if kind not in ("point", "estimate"):
             return None
         if voiced:
-            h["point"] = self.callee_turns
+            h[kind] = self.callee_turns
             return {"result": "hesitate", "silent": True, "voiced": True,
                     "message": f"{head}あなたの声が相手に流れました。何も言わずに、相手のお返事を待ってください。"}
-        return self._hesitate_point()
+        return self._hesitate_point(kind)
 
     def _asked_turn(self, voiced: bool) -> dict:
         """報告の無いターン（judged_turn）が、答えの段で尋ねられた・迷っているお客様に選ぶ助けを伝える番（_asked_now）だったときの返事（唯一の場所。報告で
@@ -5313,20 +5326,30 @@ class Flow:
                     "message": f"{head}あなたの声が相手に流れました（答えた）。何も言わずに、相手の返事を待ってください。"}
         return {"result": "callee_asked", "speak": True, "message": head + self._now()}
 
-    def _hesitate_point(self) -> dict:
-        """迷っていると言い終えたお客様に、選択肢ごとの良い点・気をつける点が無いとき、どういった点でお迷いかを1回伺う返事（唯一の場所。_hesitation の point）：
-        「はい、」（_ack_choice の hesitate）＋「どういった点でお迷いでしょうか？」（共通の一言の録音 hesitate_point。録音で流せなければ会話AIに言わせる）。
-        ✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(1) ア」"""
+    def _hesitate_point(self, kind: str = "point") -> dict:
+        """迷っている・まだ決めていないお客様に、1回だけ伺う返事（唯一の場所。_hesitation の point・estimate）：「はい、」（_ack_choice の hesitate）＋
+        - point：選択肢ごとの良い点・気をつける点が無いとき「どういった点でお迷いでしょうか？」（共通の一言の録音 hesitate_point）。✅ 2026-11-07 日本時間
+          18時03分49秒 ユーザー「(1) ア」
+        - estimate：値を伺う質問（日時・数・金額）の最初の「まだ決まっていない」に「それではおおよその目安だけでもお伺いしてもよろしいでしょうか？」（共通の
+          一言の録音 estimate_ask）。お答えが目安の値なら、ふつうの答え（言い切っていない答え）と同じ1か所で受け取る。それでも決まらなければ保留（final）。
+          ✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (1)
+        録音で流せなければ会話AIに言わせる。伺った印は質問ごと（hesitating の point・estimate＝同じ発話に重ねない・2回伺わない）。"""
         qid = self.awaiting_confirm or self.current
-        self.hesitating.setdefault(qid, {})["point"] = self.callee_turns
+        self.hesitating.setdefault(qid, {})[kind] = self.callee_turns
         said = (self.callee_said or "").strip()[:30]
-        reply = {"result": "hesitate",
-                 "message": f"相手の言葉（「{said}」）は、どれにするか迷っている・まだ決めていないという言葉です（意味の判定）。答えではないので報告しません。どういった点で"
-                            "お迷いかを伺いました。相手のお返事を待ってください（迷っている点を言われたら、選ぶ助けになることをお伝えする番を知らせます）。"}
-        line = [{"kind": "recorded", "id": "hesitate_point", "text": HESITATE_POINT}]
+        if kind == "estimate":
+            rid, text = "estimate_ask", ESTIMATE_ASK
+            asked = ("まだ決まっていないという言葉です（意味の判定）。答えではないので報告しません。おおよその目安を伺いました。相手のお返事を待ってください"
+                     "（目安の値を言われたら、ふつうの答えと同じく報告してください）。")
+        else:
+            rid, text = "hesitate_point", HESITATE_POINT
+            asked = ("どれにするか迷っている・まだ決めていないという言葉です（意味の判定）。答えではないので報告しません。どういった点でお迷いかを伺いました。"
+                     "相手のお返事を待ってください（迷っている点を言われたら、選ぶ助けになることをお伝えする番を知らせます）。")
+        reply = {"result": "hesitate", "message": f"相手の言葉（「{said}」）は、{asked}"}
+        line = [{"kind": "recorded", "id": rid, "text": text}]
         if self._plays_recorded(line):
-            return reply | {"play": line, "message": played_note(HESITATE_POINT) + reply["message"]}
-        return reply | {"say": HESITATE_POINT, "message": say_note(HESITATE_POINT) + reply["message"]}
+            return reply | {"play": line, "message": played_note(text) + reply["message"]}
+        return reply | {"say": text, "message": say_note(text) + reply["message"]}
 
     def _repeat_now(self, voiced: bool = False) -> dict | None:
         """お客様に、直前にこちらが伺ったこと（いまの質問・言い直しの確かめ）をもう一度言ってほしいと頼まれた（判定の読みがそろって REPEAT＝_meaning_of）：
