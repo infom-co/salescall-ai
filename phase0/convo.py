@@ -966,7 +966,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                           "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,
                           "history": [list(h) for h in v.history]}
                       for k, v in flow.items.items()},
-            "export": flow.export(), "hedged_words": flow.hedged_words(), "final_phase": flow.phase, "hurried": flow.hurried,
+            "export": flow.export(), "customer_words": flow.customer_words(), "final_phase": flow.phase, "hurried": flow.hurried,
             "facts": flow.facts,
             "not_reached": flow.not_reached,  # 目的の人に繋がらずに終わった理由（会話の報告の not_reached。Flow.not_reached の1か所）
             "cut": flow.cut,  # 切れ方の材料（会話の報告の cut。Flow.on_line_end の1か所。CL-2 の 4-151）

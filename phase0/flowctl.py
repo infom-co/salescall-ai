@@ -27,7 +27,7 @@ from phrases import APOLOGY_CUT_END, QUESTION_RESUME_LEAD, TOLD_AGAIN, TOLD_FOLL
 from phrases import OTHERS_HEAD, back_fit, closes, head_word, heads_said
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
-from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
+from phrases import CHANGE_BY, CLIENT_DOES, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from phrases import ESTIMATE_ASK, HESITATE_POINT
@@ -520,6 +520,47 @@ def takes_for_now(q: "Question", condition: str | None) -> bool:
     return bool(q.unclear_none) and condition == q.unclear_none
 
 
+# 値が確定でないことを表す言葉（approx_value の1か所）：値の前に付く（「だいたい15日」「約10名」）・値のすぐあとに付く（「15日あたり」「2時ごろ」「10名くらい」
+# 「15日前後」「10名程度」「10名ほど」「15日をめどに」）。「以降」「まで」「過ぎ」「から」は、お客様が範囲を決めて言ったもの（確定でないのではない）なので入れない
+APPROX_BEFORE = r"(?:だいたい|大体|おおよそ|およそ|約)"
+APPROX_AFTER = r"を?(?:あたり|辺り|ごろ|頃|くらい|ぐらい|位|前後|程度|ほど|程|めど|目処|目途|目安)に?"
+_APPROX_IN_VALUE = re.compile(rf"{APPROX_BEFORE}(?=[0-9０-９一二三四五六七八九十百])[\s、]*|{APPROX_AFTER}")
+_NUMBER_WORD = r"[0-9０-９一二三四五六七八九十百千]+(?:日|時|分|名|人|件|円|万円|千円|万|千|個|台|本|回|週|週間|か月|ヶ月|月|年)?"
+
+
+CUSTOMER_WORDS_MAX = 40   # 依頼者へ渡すお客様の言葉の、1つの発話の長さの上限（customer_said の1か所）
+
+
+def customer_said(text: str | None) -> str:
+    """依頼者へ渡すお客様の言葉（1つの発話）の形（唯一の場所＝言い切っていない印 Item.hedged・答えが動いた発話 Item.said＝Flow.customer_words）：
+    前後の空白を外し、CUSTOMER_WORDS_MAX 字まで（簡潔に＝✅ 2026-11-08 日本時間3時48分03秒「お客様の言葉で簡潔に渡せるように！」）。"""
+    return (text or "").strip()[:CUSTOMER_WORDS_MAX]
+
+
+def approx_value(value: str | None, said: str | None) -> tuple[str, str] | None:
+    """値を伺う質問の答えが確定でない言い方か（唯一の決まり＝言い直しを作る Flow._ask_confirm の頭・受ける1か所 Flow._tentative）。確定でなければ
+    （値の芯, お客様の言い方の値）＝（「15日」, 「15日あたり」）、確定なら None。見るのは、値そのもの（会話AIが言葉のまま報告した＝道具の宣言「相手の言葉のとおり」）
+    か、お客様の言葉の値のすぐ前・すぐあと（会話AIが「15日」とだけ報告した）。値がお客様の言葉に無い（会話AIが「午後2時」と書き直した）ときは、数のすぐあと
+    （「2時ごろ」）を見る。ほかの所の言葉（「なるほど」の「ほど」など）は見ない。
+    ✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「お客様「15日あたりですかね。」のように「あたり」などの日にち確定でない言葉が入っている場合には、こちら
+    「はい、それでは15日とさせていただきますね？」のように確定で確認するのはあいての意思に反します。」"""
+    v = (value or "").strip()
+    if not v:
+        return None
+    if _APPROX_IN_VALUE.search(v):
+        return (_APPROX_IN_VALUE.sub("", v).strip(" 、。") or v), v
+    s = said or ""
+    i = s.find(v)
+    if i < 0:
+        m = re.search(rf"{_NUMBER_WORD}({APPROX_AFTER})", s)
+        return (v, v + m.group(1)) if m else None
+    before = re.search(rf"{APPROX_BEFORE}[\s、]*$", s[:i])
+    after = re.compile(APPROX_AFTER).match(s, i + len(v))
+    if before is None and after is None:
+        return None
+    return v, (before.group(0).rstrip(" 、") if before else "") + v + (after.group(0) if after else "")
+
+
 def pending_recording_id(q: "Question") -> str:
     """保留で締める一言（pending_line）の録音の名前（唯一の場所＝流れの制御と録音を作る道具 make_ack_clips.script_table）：「質問の番号_pending」。"""
     return f"{q.id}_pending"
@@ -984,7 +1025,19 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          "settle": ("言い直しのあと", "言い直しを受けて", "hai"),
          # 電話を終える言葉か判定でも決まらず、いまの話への返事として向きを確かめる（Flow._topic_first）：「はい、」＋「パンフレットはお送りしない方が
          # いいということでしょうか？」（頭の言葉は付けない＝None。✅ 2026-11-01 日本時間22時31分 ユーザー）
-         "end_doubt": ("いまの話の向きを伺う", None, "hai")}
+         "end_doubt": ("いまの話の向きを伺う", None, "hai"),
+         # 値が確定でない答え（「15日あたり」＝approx_value）・値の言い直しへの「まだ決まっていない」を受ける2つの形（Flow._tentative の1か所が選ぶ。頭の言葉は
+         # 付けない＝文が「それでは」で始まる）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「…確定で確認するのはあいての意思に反します。⇒「承知しました。
+         # それでは15日あたりでお考えということで承っておきますね。」にするか、「はい、それではひとまず15日とさせていただきますね？変更があった場合には（～までに
+         # ご連絡いただけましたら）（～までであれば）ご対応可能です。」」
+         # - 業務設定に変更の受付の期限（Question.change_by）がある：「はい、」＋「それではひとまず15日とさせていただきますね？変更があった場合には前日までに
+         #   ご連絡いただけましたらご対応可能です。」（事実を伺う質問は「それではひとまず10名ということで記録させていただいて大丈夫でしょうか？…」）
+         "tentative_do": ("言い切っていない答えのあと（こちらがすること）", None, "hai"),
+         "tentative_fact": ("言い切っていない答えのあと（事実を伺う質問）", None, "hai"),
+         # - 無い：「承知しました。」＋「それでは15日あたりでお考えということで承っておきますね。」（問いではない＝お客様のお返事が直した値でなければ受け取る。
+         #   事実を伺う質問は「それでは10名くらいということで承っておきますね。」）
+         "noted": ("確定でない値を承る", None, "shouchi")}
+TENTATIVE_AFTERS = ("tentative_do", "tentative_fact", "noted")   # 確定でない値を受ける形（Flow._tentative が選んだもの＝_ask_confirm の頭で回し直さない）
 HEDGE_WHY = "言い切っていない答え"  # 確かめる理由の名前（言い直しの言い方を、曖昧な言葉の確かめと分ける。Flow._check_again）
 # 会話になっていない返事（確かめる理由の名前＝Flow._check_again）。✅ 2026-10-31 ユーザー：「この部分だけの判断ならAIがあっています。前の分との
 #    流れの回答として会話になっていないだけです。それを分かるようにしないと！」・前に言ったことと逆の返事は「(イ)」（「念のため…でよろしかった
@@ -1383,9 +1436,10 @@ CALLBACK_FIELD = {"C1": "time", "C2": "number", "C3": "email", "C4": "fax", "C5"
 NOT_YES_IS_NO = ("C7", "P1")
 # 相手の申し出への応じ方（業務設定。instruction.Business の substitute_policy・message_policy・departed_policy・follow_up）。最初が既定（ユーザーの決定）
 POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "message": ("decline", "leave"), "departed": ("successor", "end"),
-            # 本題の始まり（Flow._main_talk）：answered＝この電話で業務の答えを1つ以上いただいたあと（既定）／asked＝最初の業務の質問を流したあと。
-            # 続きの電話はどちらでも本題。✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ア)業務ごとに選択できるようにしてください。」
-            "main_talk": ("answered", "asked")}
+            # 本題の始まり（Flow._main_talk）：asked＝最初の業務の質問を流したあと（既定）／answered＝この電話で業務の答えを1つ以上いただいたあと。
+            # 続きの電話はどちらでも本題。✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ア)業務ごとに選択できるようにしてください。」・3時48分03秒
+            # 「(ア)既定は「最初の質問を流したあと」」
+            "main_talk": ("asked", "answered")}
 SUBSTITUTE_ID = "S1"  # 代わりの方に、判断いただけるお立場かを聞く質問（Flow._substitute）
 # 目的の人を呼んでいる段（calling）の、意味の判定の「質問」（呼ぶ一言）の選択肢と意味の言葉（DESIGN.md 1-1：AIの報告「目的の人」を、
 # 独立した判定とそろったときだけ受け取る。取り次ぎ＝HOLD・代わった人＝HANDOVER は、判定のほうの答えでない言葉）
@@ -2176,6 +2230,12 @@ class Question:
     # 1回伺う（phrases.HESITATE_POINT）。✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「カード と振り込みのメリットデメリットを把握しておき 例えば「カードだと
     # カード会社のポイントがつくのでそういう点も 考慮されるといいかもしれませんね 」のように促すのが一番いいんじゃないでしょうか。」・18時03分49秒「(1) ア」
     option_notes: dict = field(default_factory=dict)
+    # 値を伺う質問（日時・数・金額＝ESTIMATE_TYPES）の答えの変更を受け付ける期限（「前日」「3日前」「前週の金曜日」など。業務設定＝取込＝CL-2。空なら無い）：
+    # 値が確定でない答え（「15日あたり」＝approx_value）・値の言い直しへの「まだ決まっていない」を、ひとまずその値にして変更の受付を添える形で受ける（Flow._tentative。
+    # 「はい、それではひとまず15日とさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能です。」）。空なら承っておく形
+    # （「承知しました。それでは15日あたりでお考えということで承っておきますね。」）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「…（～までにご連絡いただけましたら）
+    # （～までであれば）ご対応可能です。」～は日付や曜日、前日など。」
+    change_by: str = ""
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -2461,7 +2521,7 @@ def earlier_point_open(point: str | None) -> bool:
 # 前の通話で取れた答え（Flow の earlier・instruction.Business.earlier。質問の番号 → この項目）の項目（唯一の一覧。CL-2 の conversation_io.earlier が渡す）：
 # state・value・condition に加え、wish＝その答えに前の通話で伺ったほかのご希望の結果（earlier_wish。伺っていない・W1 の途中で切れたら無し）・point＝ご承認の
 # 質問のお断りに前の通話で伺ったご納得いただけなかった点の進み（earlier_point。伺っていない・N1 の答えをいただく前に切れたら無し）・hedged＝
-# 言い切っていない答えのお客様の言葉（依頼者へ渡した Flow.hedged_words と同じ。言い切っていれば無し）。CL-1 の 11-03 のご判断の (1)：⛔ 見直しで見つけた＝
+# 言い切っていない答えのお客様の言葉（依頼者へ渡した Flow.customer_words と同じ。言い切っていれば無し）。CL-1 の 11-03 のご判断の (1)：⛔ 見直しで見つけた＝
 # 前の通話でご連絡の方法を言っていただいた最終目的の「どれも要らない」を、続きの通話で「目的が果たせない」として締めていた。point_said＝"point" が heard の
 # とき、ご納得いただけなかった点を伺ったお客様の言葉（earlier_point_said。続きの電話の始めに、点を伺い直さずにご説明する＝✅ 2026-11-04 日本時間19時26分
 # ユーザー「(A)…OK」）。wish_means＝"wish" が means で、その方法の連絡先を伺う前に切れたとき、その方法（earlier_wish_means。続きの電話の始めに連絡先を
@@ -2667,7 +2727,15 @@ def earlier_read(earlier: dict | None, qid: str) -> tuple:
     v = (earlier or {}).get(qid) or {}
     if v.get("state") not in TAKEN:
         return "empty", None, False
-    return v["state"], condition(v["condition"]) if v.get("condition") else None, bool(v.get("hedged"))
+    return v["state"], condition(v["condition"]) if v.get("condition") else None, earlier_hedged(v) is not None
+
+
+def earlier_hedged(v: dict | None) -> str | None:
+    """前の通話の答え1つ（EARLIER_KEYS の形）の、言い切っていない返事のお客様の言葉を読む唯一の決まり（電話の始めの決まり earlier_read・流れの制御の前の答えの
+    写し Flow.__init__）：取れた答え（GOT）のときだけ。依頼者へ渡すお客様の言葉（Flow.customer_words）は「-」「✕」の答えにも添えるので、同じ欄で戻ってきても、
+    取れていない答えを言い切っていない答えとして読まない（✅ 2026-11-08 日本時間3時48分03秒「お客様の言葉で簡潔に渡せるように！」で欄を広げたときに分けた）。"""
+    v = v or {}
+    return (v.get("hedged") or None) if v.get("state") in GOT else None
 
 
 def first_open(questions, earlier: dict | None) -> "Question | None":
@@ -3104,7 +3172,11 @@ class Item:
                                       # （NEXT_LEAD）＝Flow._continue。立てるのは質問を流す所（_next_question・_opening_reply・_continue）
     final: bool = False               # 最終の確かめを伺った（Flow._final_check）：同じ確かめはもう言い直さない（Flow._confirm_again の1か所。直された答え・
                                       # お断りは今までどおり受け取る＝確かめの回数 corrections は使い切らせない）
-    hedged: str | None = None         # 言い直しへの返事が言い切っていなかった（その返事の言葉）：依頼主へは別の欄にお客様の言葉を渡す（Flow.hedged_words）
+    hedged: str | None = None         # 言い直しへの返事が言い切っていなかった（その返事の言葉）：依頼主へは別の欄にお客様の言葉を渡す（Flow.customer_words）
+    tentative: str | None = None      # 値が確定でない答えを受ける形（Flow._tentative の1か所）：set＝「ひとまず…」を伺った／noted＝「…承っておきますね。」を言った
+    approx: str | None = None         # 確定でない答えの、お客様の言い方の値（「15日あたり」＝approx_value。承っておく一言で、こちらで言い換えずに言う）
+    said: list = field(default_factory=list)  # この質問の答えが動いた発話の、お客様の言葉（Flow._note_said の1か所。依頼者へは「-」「✕」の答えに添える＝customer_words）
+    said_upto: int = 0                # history のどこまでを、お客様の言葉に当てたか（Flow._note_said）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -3356,8 +3428,9 @@ class Flow:
             # そのまま入れていて、伺う条件・断る答えの見分けが「わからない」を unknown と見なかった＝CL-2 の連絡帳 4-179 の (b)）
             it.value, it.condition = v.get("value"), condition(v["condition"]) if v.get("condition") else None
             # 言い切っていない答えのお客様の言葉（EARLIER_KEYS の hedged）：ほかのご希望を伺う答えか（_wish_due）・業務設定の言い切っていないときだけ伺う
-            # 質問（_business_next）を、この通話で受け取った答えと同じ決まりで決める。前の通話でほかのご希望を伺った結果（wish）は _wish_outcome が読む
-            it.hedged = v.get("hedged") or None
+            # 質問（_business_next）を、この通話で受け取った答えと同じ決まりで決める。前の通話でほかのご希望を伺った結果（wish）は _wish_outcome が読む。
+            # 言い切っていない印は取れた答えのときだけ（earlier_hedged の1か所＝電話の始めの決まり earlier_read と同じ）
+            it.hedged = earlier_hedged(v)
             it.set(v["state"], "前の通話で取れた答え（続きから聞く）")
             it.told = True   # その答えのあとに伝える一言は、前の通話のこと（この通話では言わない）
         self._ask_if_follow_ups()   # 前の通話で取れた答えで伺う質問も、並びに入れる
@@ -3947,6 +4020,7 @@ class Flow:
             if t["turn"] == turn and kind not in t["check"] and (said is None or said == t["said"]):
                 t["check"][kind] = value
                 self._late(qid)
+                self._note_said(t["said"])   # 遅れて届いた判定で答えが動いたら、その判定の発話の言葉で残す
         if (h := self.answer_held) is not None and h["turn"] == turn != self.callee_turns and kind not in h["check"] and said in (None, h["said"]):
             h["check"][kind] = value  # 覚えておいた言葉の確かめが、次の発話のあとに届いた：その言葉の答えの報告に当てる（_held_words）
 
@@ -4160,7 +4234,7 @@ class Flow:
         why, _ = self._compare(q, t["said"], t["reported"], t["check"], policy=False, confirming=t["confirming"])
         if not why:
             if t["confirming"] and not q.reading_of and not it.hedged and Flow._hedged(t["said"], t["check"]):
-                it.hedged = (t["said"] or "").strip()[:40]
+                it.hedged = customer_said(t["said"])
                 it.set(it.state, f"言い切っていない返事だった（「{it.hedged}」・受け取ったあとに届いた確かめ）")
             return
         self._unaccept(qid, f"{why}（受け取ったあとに届いた確かめ）・受け取った答え（「{label(t['reported'])}」）を渡さない")
@@ -4354,7 +4428,7 @@ class Flow:
         """この通話で、質問 qid の答えを cond に決め直す唯一の場所（ほかのご希望を伺って元の質問の選択肢を選び直していただいた＝_wish_step・ご承認いただけ
         なかったときの手順でご納得いただいた＝_point_end・ほかに分からない点は無いと伺った＝_no_doubts_step・遅れて届いた判定で取り消したご承認のお断りを、手順の
         質問へのお返事で確かめた＝_point_taken_back・_point_step）。by＝決め手の答えの質問（W1・N1〜N3）。
-        - 前の通話で取れた答えでも、この通話の答え（依頼者へ渡す＝export・hedged_words）にする。言い切っていないかは、決め手の答えのお客様の言葉で決める
+        - 前の通話で取れた答えでも、この通話の答え（依頼者へ渡す＝export・customer_words）にする。言い切っていないかは、決め手の答えのお客様の言葉で決める
           （Flow._hedged の1か所。決め手の答えの材料＝まだ書いていなければ、いまの報告の言葉）。⛔ 2026-11-04 日本時間21時台に見つけた：決め手の質問（W1・
           N2・N3）は確かめずに受け取る質問なので印が付かず、「たぶん分かったと思います。」「たぶん送ってもらってもいいかもしれないです。」でも、言い切った
           答えとして渡っていた（19-0ba「お客様の言葉で付ける」から漏れていた）
@@ -4368,7 +4442,7 @@ class Flow:
         it = self.items[qid]
         t = self.taken.get(by)
         said, check = (t["said"], t["check"]) if t is not None else (self.heard_said, self.heard_check)
-        hedged = (said or "").strip()[:40] or label(cond) if Flow._hedged(said, check) else None
+        hedged = customer_said(said) or label(cond) if Flow._hedged(said, check) else None
         self.retaken[qid] = (dataclasses.replace(it), self.earlier.get(qid), self.taken.get(qid))
         # その答えのあとに伝える一言は、違う答えに決め直したときだけ「まだ言っていない」（同じ答えに決め直した＝取り消した答えを手順のお返事で確かめた
         # ＝_point_taken_back は、もう言ったかをそのまま）
@@ -4649,6 +4723,7 @@ class Flow:
         reply["ack"] = None if same_turn and not thank else self._ack(run, run_args, reply)
         if reply["ack"]:
             reply["ack_pause_s"] = ack_pause_s(reply["ack"])  # 相づちのあとの間（phrases.ACK_PAUSE_S の1か所。電話接続モジュールが守る）
+        self._note_said(about=self._said_about())
         self.log.append({"op": name, "args": args, "reply": reply, "callee_turns": self.callee_turns, "phase_before": phase_before,
                          "phase": self.phase} | ({"words_turn": words["turn"]} if words else {}) | ({"answering": True} if answering else {}))
         return reply
@@ -5256,15 +5331,21 @@ class Flow:
         if self.phase not in ("asking", "rechecking") or self.after_answer is not None:
             return None
         qid = self.awaiting_confirm or self.current
-        if qid is None or not hears_hesitation(q := self.questions[qid]):
+        if qid is None:
+            return None
+        q = self.questions[qid]
+        # 値を伺う質問（日時・数・金額）の言い直し（ひとまずの形・承っておく一言も）への返事を待っている：「まだ決まっていない」は、確定で確かめ直さずに、確定で
+        # ない値を受ける1か所へ（tentative＝_tentative。事実を伺う質問も同じ理由＝✅ 2026-11-08 日本時間3時48分03秒「確定で確認するのはあいての意思に反します」）
+        restating_value = q.type in ESTIMATE_TYPES and self.awaiting_confirm == qid and not q.callback and self.items[qid].value is not None
+        if not (hears_hesitation(q) or restating_value):
             return None
         h = self.hesitating.get(qid, {})
-        point, helped, estimate = h.get("point"), h.get("helped"), h.get("estimate")
-        if self.callee_turns in (point, helped, estimate):
+        point, helped, estimate, tentative = h.get("point"), h.get("helped"), h.get("estimate"), h.get("tentative")
+        if self.callee_turns in (point, helped, estimate, tentative):
             # この発話にはもう応じた（同じ発話に遅れて届いた報告・判定）：応じた番のまま（重ねないのは返事の1か所 _hesitate_now。選ぶ助けを伝えた発話は、
             # 答えた印＝question_answered_turn も立っているので、それより先に見る）。⛔ 2026-11-08 日本時間0時台の見直しの H-4：伺ったばかりの発話を「伺った
             # あとのお返事」と読み、お返事を待たずに選ぶ助けを言わせた・選ぶ助けを伝えた発話への遅れた報告を答えとして受け取り、保留で締めた
-            return "point" if point == self.callee_turns else "estimate" if estimate == self.callee_turns else "help"
+            return {point: "point", estimate: "estimate", tentative: "tentative"}.get(self.callee_turns, "help")
         if self.callee_turns in (self.question_answered_turn, self.asked_skip) or self.check_for not in (None, qid):
             # この発話の判定の読みは、発話の始めの質問についての読み（check_for）：保留で締めて次の質問へ進んだあとに同じ発話の遅れた報告が来ても、次の質問の
             # 読みにしない（⛔ 同じ見直しの H-1 を直す途中、流れの制御に通して見つけた形）
@@ -5275,6 +5356,12 @@ class Flow:
         # 最初の答えの「まだ決めていない」（まだ助けも伺いもしていない・最終の確かめの前・判定を使う通話。理由の読みが割れた・無い「分からない」も）
         first_undecided = (open_ and helped is None and point is None and estimate is None and self.judging and not self.items[qid].final
                            and self._not_deciding(readings))
+        if restating_value and open_ and self._not_deciding(readings):
+            # 値の言い直しへの「まだ決まっていない」：同じ言い直しをくり返さず（11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）、すぐ保留で
+            # 締めず（お客様が言った値を捨てない）に、ひとまずの形か承っておく形で受ける（_tentative）。目安を伺ったあと（estimate）に言っていただいた値も同じ
+            return "tentative"
+        if not hears_hesitation(q):
+            return None
         if q.approval:
             # 説明した内容のご承認の質問への迷い（「うーん、同意するかどうか迷いますね。」）と、最初の答えの「まだ決められないです。」：ご承認いただけなかったときの
             # 手順と同じ道（_hesitate_now →「わからない（まだ決まっていない）」で受け取り、手順の1か所 _point_step が「はい、」＋「どういった点でお迷いでしょうか？」を
@@ -5347,9 +5434,16 @@ class Flow:
         h = self.hesitating.setdefault(self.awaiting_confirm or self.current, {})
         said = (self.callee_said or "").strip()[:30]
         head = f"相手の言葉（「{said}」）は、答えではなく、どれにするか迷っている・まだ決めていない言葉です（意味の判定。報告は要りません）。"
-        if self.callee_turns in (h.get("point"), h.get("helped"), h.get("estimate")):
+        if self.callee_turns in (h.get("point"), h.get("helped"), h.get("estimate"), h.get("tentative")):
             return {"result": "hesitate", "silent": True, "again": True,
                     "message": f"{head}この言葉には、もう応じました。何も言わずに、相手のお返事を待ってください。"}
+        if kind == "tentative":
+            # 値の言い直しへの「まだ決まっていない」：確定でない値を受ける1か所（_tentative＝ひとまずの形か承っておく形・承っておく一言のあとなら受け取る）。会話AIの
+            # 声がもう流れた（報告の無いターン）なら重ねない（final と同じ＝答えは報告で当てる）。応じた印は発話ごと（同じ発話の遅れた報告で受け取らない）
+            if voiced:
+                return None
+            h["tentative"] = self.callee_turns
+            return self._tentative(self.awaiting_confirm)
         if kind == "final":
             # 選ぶ助けのあとも、まだ決めていない＝お客様の最終の決定：保留で締めて次へ（_undecided_final の1か所＝最終の確かめのあとと同じ）。会話AIの声がもう
             # 流れた（報告の無いターン）なら重ねない（何を言ったか分からない声に、保留の一言を重ねない＝答えは報告で当てる）
@@ -5528,6 +5622,9 @@ class Flow:
         判定が選択肢を選んでいればその意味で）。使い切った・必須でない・言い直す選択肢が無い ⇒「-」（必須なら締めの前の念のための確認で1回）。"""
         it, q = self.items[qid], self.questions[qid]
         self.awaiting_confirm = None
+        if it.tentative == "noted":
+            # 承っておく一言（問いではない）へのお返事は、確かめがそろわなくても言い直さない（_tentative の1か所。直した値は confirm_field の訂正で受ける）
+            return self._tentative(qid)
         if why.startswith(TALK_WHY) and back is None:   # 会話になっていない返事で、確かめる答えが無ければ聞き直す（_check_again の1か所）
             return self._check_again(qid, why, reported, back)
         undecided_now = asks_wish(q) and undecided([self.heard_check.get(k) for k in JUDGMENTS])
@@ -5608,7 +5705,7 @@ class Flow:
         if hedged and (fq is not None or (q.type in CHOICE_TYPES and q.tell_words.get(it.condition))):
             # 言い切っていない答えのあとに伺う質問（Question.ask_if_hedged＝業務設定）がある：言い直さずに「曖昧」の印を付けて受け取り、その質問で伺う
             # （_advance → _follow_ups が前の質問のすぐあとに入れる。✅ 2026-11-03 ユーザー (3)(4)「OK」）
-            it.hedged = (self.heard_said or "").strip()[:40] or label(it.condition)
+            it.hedged = customer_said(self.heard_said) or label(it.condition)
             it.set("accepted", f"言い切っていない答え（「{it.hedged}」）：言い直さずに受け取り、"
                    + (f"{fq.id}「{fq.text[:24]}」で伺う" if fq is not None else f"業務の一言「{q.tell_words[it.condition][:24]}」を伝える"))
             # 相づちは「はい、」（お客様の言葉を受けて「それでは…」と伺う。⛔ 2026-11-03 の見直しで見つけた：順番の「承知しました。」「ありがとうございます。」を
@@ -5666,6 +5763,38 @@ class Flow:
         if q.type in CONFIRM_TYPES:
             return "hedged_fact" if q.asks_fact else "hedged_do"
         return "hedged"
+
+    def _tentative(self, qid: str) -> dict:
+        """値を伺う質問（日時・数・金額）で、お客様の答えが確定でないとき（値に「あたり」などが付いた＝approx_value・値の言い直しへの「まだ決まっていない」＝
+        _hesitation の tentative）に受ける唯一の場所。確定の言い直し（「それでは15日とさせていただきますね？」）も、同じ言い直しのくり返しもしない：
+        - 業務設定に変更の受付の期限（Question.change_by）があって、まだ伺っていない：ひとまずその値（値の芯）にして、変更の受付を添えて伺う（AFTER の
+          tentative_do・tentative_fact＝「はい、それではひとまず15日とさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能です。」）
+        - それ以外（期限が無い・ひとまずの形にも「まだ決まっていない」）：お客様の言い方の値のまま承っておく（AFTER の noted＝「承知しました。それでは15日あたりで
+          お考えということで承っておきますね。」。問いではない）
+        - 承っておく一言を言ったあと：お客様のお返事が直した値でなければ（はい・まだ決まっていない・答えなかった）、その値で受け取る（もう伺わない）
+        受け取る値には、言い切っていない印とお客様の言葉を添える（Item.hedged＝依頼者へ・業務の次の段＝_hedged_follow_up と同じ「言い切っていない答え」）。
+        ✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「お客様「15日あたりですかね。」のように「あたり」などの日にち確定でない言葉が入っている場合には、こちら
+        「はい、それでは15日とさせていただきますね？」のように確定で確認するのはあいての意思に反します。⇒「承知しました。それでは15日あたりでお考えということで
+        承っておきますね。」にするか、「はい、それではひとまず15日とさせていただきますね？変更があった場合には（～までにご連絡いただけましたら）（～までであれば）
+        ご対応可能です。」～は日付や曜日、前日など。」（2つのどちらにするかは、業務に変更の受付の期限があるか＝「ひとまず」の形は期限が要る。値の言い直しへの
+        「まだ決まっていない」は、同じ理由＝確定で確かめ直すのはお客様の意思に反する、で同じ1か所に通す）"""
+        it, q = self.items[qid], self.questions[qid]
+        if it.tentative == "noted":
+            self.awaiting_confirm = None
+            it.set("confirmed", f"承っておく一言のあとのお返事（「{customer_said(self.callee_said)}」）：その値で受け取る（言い切っていない：「{it.hedged}」）")
+            return self._advance("確認できました。")
+        ap = approx_value(it.value, self.heard_said)
+        if ap is not None:
+            it.approx = ap[1]
+        it.hedged = it.hedged or customer_said(self.heard_said) or None
+        if q.change_by and it.tentative is None:
+            it.tentative = "set"
+            if ap is not None:
+                it.value = ap[0]
+            return self._ask_confirm(qid, after="tentative_fact" if q.asks_fact else "tentative_do")
+        it.tentative = "noted"
+        it.value = it.approx or it.value
+        return self._ask_confirm(qid, after="noted")
 
     def _undecided_final(self, qid: str) -> dict:
         """お客様の最終の決定が決められない（最終の確かめのあとも決められない＝_confirm_again。迷っているは保留で締めない＝_hesitation・22時02分54秒）：
@@ -5833,6 +5962,9 @@ class Flow:
                 self.awaiting_confirm = None
                 return self._ask_ampm(qid, correction)
         self.awaiting_confirm = None
+        if it.tentative == "noted" and result != "corrected":
+            # 承っておく一言（問いではない）へのお返事：直した値でなければ（はい・答えなかった）、その値で受け取る（_tentative の1か所）
+            return self._tentative(qid)
         # 選択肢の型は、言い直すのが選択肢の意味の言葉なので、添えられた値で別の値を言い直す形（G-36）には当てない。名前の読みも当てない
         # （認めたか直されたかは相手の言葉でプログラムが決め＝_reading_denied、次に確かめる読みは next_reading の1か所が決める＝G-45：AIは濁りの
         # 違いを聞き分けられない。⛔ 2026-11-04 に見つけた穴：AIが「合っている」に添えた読みで確かめ直していた＝次の読みを決める所が2つ）
@@ -5857,7 +5989,7 @@ class Flow:
                 return self._confirm_again(qid, why, reported, back)
         if result == "affirmed":
             if not q.reading_of and Flow._hedged(self.callee_said, self.check):
-                it.hedged = (self.callee_said or "").strip()[:40]
+                it.hedged = customer_said(self.callee_said)
             it.set("confirmed", f"相手が肯定した（言い切っていない：「{it.hedged}」）" if it.hedged else "相手が肯定した")
             self.last_affirmed = {"qid": qid, "callee_turns": self.callee_turns, "phase": self.phase, "current": self.current,
                                   "recheck_queue": list(self.recheck_queue), "confirm_requested_at": self.confirm_requested_at,
@@ -5869,6 +6001,9 @@ class Flow:
             it.value = correction
             if q.type in CHOICE_TYPES:
                 it.condition = correction
+            if it.tentative:
+                # 確定でない値を受ける形（_tentative）のあとに値を直された：直した値を新しい答えとして確かめる（確定でなければ、また受ける形を選ぶ＝_ask_confirm の頭）
+                it.tentative = it.approx = it.hedged = None
             kind = correction_kind(self.callee_said)
             if kind == "misheard" and it.corrections >= 2:
                 kind = "misheard_again"  # 同じ項目を2度聞き違えた＝こちらの誤りが重なった ⇒ 重いお詫び（✅ 2026-10-16 ユーザー：こちらの誤りは 04）
@@ -6765,6 +6900,7 @@ class Flow:
         """電話接続側からの知らせ（AIの操作ではない）を、操作の記録に残す唯一の場所（流した録音・締めを、ほかの返事と同じく扱う）。
         何もしなかった知らせ（None）は残さない。"""
         if reply is not None:
+            self._note_said()
             self.log.append({"op": "signal", "args": args, "reply": reply, "callee_turns": self.callee_turns})
         return reply
 
@@ -7922,6 +8058,7 @@ class Flow:
         reply["ack"] = self._ack(name, args, reply)
         if reply["ack"]:
             reply["ack_pause_s"] = ack_pause_s(reply["ack"])
+        self._note_said(about=self._said_about())
         self.log.append({"op": "judged_turn", "args": args, "reply": reply, "callee_turns": self.callee_turns, "phase": self.phase})
         return reply
 
@@ -8010,13 +8147,14 @@ class Flow:
         return self._advance("", handled=True)
 
     def _main_talk(self) -> bool:
-        """本題に入っているか（唯一の決まり＝電話を終える言葉か決まらないときの一言の選び _refusal_confirm）：この電話で業務の質問の答えを1つ以上いただいた
-        （システムの質問でない質問が受け取った答え）か、続きの電話（前の通話の答えがある）。序盤（まだ業務の答えをいただいていない）の「もういいです。」は
-        営業のお電話そのものへのお断りが多く、本題に入ってからの「もういいです。」は、こちらの進め方に問題があった見込みがある（✅ 2026-11-08 日本時間
-        2時21分15秒 ユーザー：「序盤で営業拒否の言葉があった場合は、営業電話そのものに対して拒絶されているということが多いですが、本題のクロージングまで
-        入っている段階で、もういいですなどという言葉が出た場合は、そのクロージングのアプローチに対して問題があった可能性があります。」）。"""
+        """本題に入っているか（唯一の決まり＝電話を終える言葉か決まらないときの一言の選び _refusal_confirm）：最初の業務の質問を流した（既定）か、この電話で
+        業務の質問の答えを1つ以上いただいた（業務ごとに選ぶ＝下）か、続きの電話（前の通話の答えがある）。序盤（名乗り・用件のあと、まだ業務の質問を流して
+        いない）の「もういいです。」は営業のお電話そのものへのお断りが多く、本題に入ってからの「もういいです。」は、こちらの進め方に問題があった見込みがある
+        （✅ 2026-11-08 日本時間2時21分15秒 ユーザー：「序盤で営業拒否の言葉があった場合は、営業電話そのものに対して拒絶されているということが多いですが、
+        本題のクロージングまで入っている段階で、もういいですなどという言葉が出た場合は、そのクロージングのアプローチに対して問題があった可能性があります。」）。"""
         # どこから本題かは業務ごと（POLICIES["main_talk"]＝✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ア)業務ごとに選択できるようにしてください。」）：
-        # answered（既定）＝業務の答えを1つ以上いただいたあと／asked＝最初の業務の質問を流したあと（流した印 Item.played）
+        # asked（既定＝3時48分03秒「(ア)既定は「最初の質問を流したあと」」）＝最初の業務の質問を流したあと（流した印 Item.played）／answered＝業務の答えを
+        # 1つ以上いただいたあと
         asked = self.policies["main_talk"] == "asked"
         return bool(self.earlier) or any(it.state in TAKEN or (asked and it.played) for qid, it in self.items.items() if not self.questions[qid].callback)
 
@@ -8548,6 +8686,12 @@ class Flow:
             # 「それではパンフレットをお送りさせていただきますね？」の方がいいんじゃないですか？」を、言い切っていない答えにしか当てていなかった）
             # （こちらがすることの言葉が無ければ、10-15・10-18 のご判断の「念のため（意味の言葉）でよろしいでしょうか？」のまま＝どちらとも取れる答えの確かめ）
             after = "hedged_do"
+        if (not choice and q.type in ESTIMATE_TYPES and not q.callback and after not in TENTATIVE_AFTERS
+                and approx_value(it.value, self.heard_said) is not None):
+            # 業務の質問の値が確定でない答え（「15日あたりですかね。」「10名くらいです。」）は、最初の答えでも直された値でも、確定の言い直し（「それでは15日と
+            # させていただきますね？」）をしない＝受ける形を選ぶ1か所へ（_tentative）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「…確定で確認するのはあいての
+            # 意思に反します。」。システムの質問（お呼びした方の戻る時刻など＝10-19 にご承認の伺い方）は今までどおり、お客様の言葉の値で言い直す（「お考え」が合わない）
+            return self._tentative(qid)
         # 言い直す言葉：いまの話の向きを伺う言葉（end_doubt）・こちらがすることの言葉（hedged_do）は、選択肢ごとの取込の言葉をそのまま。
         # ほかは意味の言葉（choice_words）
         words = ((q.doubt_words[it.condition] + "ということ") if after == "end_doubt" else q.do_words[it.condition] if after in ("hedged_do", "final_do")
@@ -8592,6 +8736,16 @@ class Flow:
             # 値を伺う型の、言い切っていない最初の答え：「それでは15日の14時、午後2時とさせていただきますね？」・「それでは10名ということで記録させて
             # いただいて大丈夫でしょうか？」（_hedged_after）
             phrase = confirm_phrase(said_as + ("とさせていただきます" if after == "hedged_do" else "ということ"), situation, n, meaning=True, does=self.client_does)
+        elif after in ("tentative_do", "tentative_fact"):
+            # 確定でない値を、ひとまずその値（値の芯）にして変更の受付を添える（_tentative）：「それではひとまず15日とさせていただきますね？変更があった場合には
+            # 前日までにご連絡いただけましたらご対応可能です。」（事実を伺う質問は「それではひとまず10名ということで記録させていただいて大丈夫でしょうか？…」）
+            phrase = (confirm_phrase(TENTATIVELY + said_as + ("とさせていただきます" if after == "tentative_do" else "ということ"), situation, n,
+                                     meaning=True, does=self.client_does) + CHANGE_BY.format(by=q.change_by))
+        elif after == "noted":
+            # 確定でない値を、お客様の言い方の値のまま承っておく（_tentative）：「それでは15日あたりでお考えということで承っておきますね。」（事実を伺う質問は
+            # 「お考え」と言わない＝「それでは10名くらいということで承っておきますね。」・「15日をめどに」は「15日をめどにお考え」）
+            thinks = "" if q.asks_fact else "お考え" if said_as.endswith("に") else "でお考え"
+            phrase = confirm_phrase(said_as + thinks, situation, n, meaning=True)
         else:
             phrase = self.confirm(said_as, situation, n)
         say = self.awaiting_say = (self._lead(lead) if lead else "") + phrase
@@ -8619,7 +8773,7 @@ class Flow:
         # 言い直しへの訂正（「いや、たぶん要らないかもしれません。」）も同じ（⛔ 2026-11-04 まで、確かめ方の鍵が hedged のときだけ付けていたので、訂正・
         # 事実を伺う質問の言い切っていない答えには付かず、依頼者へお客様の言葉が渡らず、最終目的はほかのご希望を伺わずに締めた）
         if (after or "").startswith("hedged") or Flow._hedged(self.heard_said, self.heard_check):
-            it.hedged = (self.heard_said or "").strip()[:40] or label(it.condition)
+            it.hedged = customer_said(self.heard_said) or label(it.condition)
         self.awaiting_confirm = None
         it.set("accepted", (f"ほかに分からない点は無いという、言い切っていない答え（「{label(it.condition)}」）：確かめ直さずに受け取り、一言を添える"
                             if takes_for_now(q, it.condition) and it.hedged else
@@ -9991,11 +10145,10 @@ class Flow:
         return it.value
 
     def export(self, unknown_mark: str = "-", refused_mark: str = "✕") -> dict:
-        """依頼主へ渡す値（DESIGN.md 7-1b）。言い切っていない返事で受け取った値も、値はそのまま（お客様の言葉は hedged_words の別の欄）。"""
+        """依頼主へ渡す値（DESIGN.md 7-1b）。言い切っていない返事で受け取った値も、値はそのまま（お客様の言葉は customer_words の別の欄）。"""
         out = {}
-        for qid, it in self.items.items():
-            if self.questions[qid].callback or qid in self.earlier:
-                continue  # かけ直しの申し出の答えは、通話の事実（facts の callback）で渡す／前の通話で取れた答えは、この通話の答えではない
+        for qid in self._exported():
+            it = self.items[qid]
             if it.state == "refused":
                 out[qid] = refused_mark
             elif it.state in GOT:
@@ -10004,13 +10157,43 @@ class Flow:
                 out[qid] = unknown_mark
         return out
 
+    def _exported(self) -> list[str]:
+        """依頼者へ渡す答えの質問（唯一の決まり＝値 export・お客様の言葉 customer_words）：かけ直しの申し出の答え（通話の事実 facts の callback で渡す）と、
+        前の通話で取れた答え（この通話の答えではない＝前の通話で渡した）は渡さない。"""
+        return [qid for qid in self.items if not (self.questions[qid].callback or qid in self.earlier)]
 
-    def hedged_words(self) -> dict:
-        """依頼主へ渡す別の欄：言い切っていない返事で受け取った項目の、お客様の言葉そのまま（DESIGN.md 7-1b）。
-        ✅ 2026-10-18 ユーザー：案C（「ご予約」の欄は「していない」・別の欄にお客様の言葉「していないはずですが…」）が分かりやすい"""
-        # 前の通話で取れた答え（earlier の hedged）は、前の通話で渡したもの（export と同じく、この通話の答えとして渡さない）
-        return {qid: it.hedged for qid, it in self.items.items() if it.state in GOT and it.hedged and not self.questions[qid].callback
-                and qid not in self.earlier}
+    def customer_words(self) -> dict:
+        """依頼者へ渡す別の欄：業務の質問ごとの、お客様の言葉（DESIGN.md 7-1b。唯一の場所）。
+        - 取れた答え（値を渡す）：言い切っていない返事で受け取ったときだけ、その返事の言葉そのまま（値はそのまま＝export。✅ 2026-10-18 ユーザー：案C（「ご予約」の
+          欄は「していない」・別の欄にお客様の言葉「していないはずですが…」）が分かりやすい）
+        - 取れていない答え（「-」「✕」を渡す）：その答えをいただいたお客様の言葉（答えが動いた発話の最後の2つまで＝Item.said・1つ40字まで＝customer_said）。
+          ✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「本題のお客様の意向は、依頼者に「-」が渡っても、「今は決められない」状態か、「拒否」や「必要ない」という
+          ことなのか分からないので、お客様の言葉で簡潔に渡せるように！」。まだ伺っていない質問（お客様の言葉が無い）は渡さない"""
+        out = {}
+        for qid in self._exported():
+            it = self.items[qid]
+            words = it.hedged if it.state in GOT else "／".join(it.said[-2:])
+            if words:
+                out[qid] = words
+        return out
+
+    def _note_said(self, said: str | None = None, about: str | None = None) -> None:
+        """お客様の発話の言葉を、その発話で答えた質問に残す唯一の場所（Item.said＝依頼者へ「-」「✕」の答えに添える customer_words の材料）：
+        - about＝その発話が答えた質問（発話の始めに伺っていた質問＝check_for。質問の段の発話だけ＝お呼びする段の受付の方の言葉は入れない）：答えの状態が動かなくても
+          残す（「まだ決まってないんですよね。」に目安を伺った・迷っている方に選ぶ助けを伝えた、なども「今は決められない」の言葉）
+        - この発話で答えが動いた質問（伺わずに決めた質問・先に言われた答え・遅れて届いた判定で決め直した答えも）。答えが「伺っていない」へ戻っただけの質問には残さない
+        呼ぶのは、お客様の発話を受けて流れが動く所：記録を残す3か所（操作＝_apply_one・報告の無いターン＝judged_turn は about つき・電話接続側からの知らせ＝
+        _log_signal）と、受け取ったあとに遅れて届いた判定を当てた所（on_check の _late＝said はその判定の発話の言葉）。said を省けば、いまの発話（heard_said＝
+        遅れて届いた判定で決め直しているなら、その発話）。同じ言葉は続けて残さない（同じ発話の報告と報告の無いターン）。"""
+        words = customer_said(self.heard_said if said is None else said)
+        for qid, it in self.items.items():
+            moved, it.said_upto = it.history[it.said_upto:], len(it.history)
+            if words and (qid == about or any(to != "empty" for _, to, _ in moved)) and words not in it.said[-1:]:
+                it.said.append(words)
+
+    def _said_about(self) -> str | None:
+        """いまの発話が答えた質問（_note_said の about の唯一の決まり）：発話の始めが質問の段（asking・rechecking）なら、その時に伺っていた質問（check_for）。"""
+        return self.check_for if self.turn_phase in ("asking", "rechecking") else None
 
 
 def tool_declarations(questions: list[Question], replay: bool = False, target: bool = False, answers: tuple = (), known: tuple = ()):
