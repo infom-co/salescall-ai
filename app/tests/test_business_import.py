@@ -828,6 +828,29 @@ class Import(unittest.TestCase):
         p = self.preview(book(sheets={"質問": not_required}), decide_facts=facts)
         self.assertTrue(any("ここで終える答え" in x for x in p.problems), p.problems)
 
+    def test_option_notes_come_in_and_are_in_the_script(self):
+        """CL-1 の連絡帳 4-110：選択肢ごとの良い点・気をつける点は「質問」のシートの無くてもよい列「選択肢ごとの良い点・気をつける点」（「選択肢：文」を
+        「／」か改行で区切る。依頼者のトークスクリプト・資料から入る。前のひな形には無いので、無ければ空）。会話AIが自分の言葉で話す材料だが、名前の
+        読みが要るので、名前を洗い出す台本に入る。宣言した選択肢に無い名前は、業務設定の確かめが止める（1か所）。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "選択肢ごとの良い点・気をつける点"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい",
+                 "する：ご予約いただくと「紫野ラウンジ」をご利用いただけます。／しない：当日のお席はご用意できないことがございます。"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None)]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [q["option_notes"] for q in p.raw["questions"]]),
+                         ([], [{"する": "ご予約いただくと「紫野ラウンジ」をご利用いただけます。",
+                                "しない": "当日のお席はご用意できないことがございます。"}, {}]))
+        self.assertIn("紫野ラウンジ", bi.script(p.raw))
+        p = self.preview(book(), decide_facts=facts)                         # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["option_notes"] for q in p.raw["questions"]]), ([], [{}, {}]))
+        for name, cell, words in (("区切りが無い", "ポイントがつきます。", "「選択肢：言葉」の形"),
+                                  ("選択肢に無い", "検討中：x", "選択肢ごとの良い点・気をつける点")):
+            with self.subTest(name):
+                bad = [rows[0], rows[1][:-1] + (cell,), rows[2]]
+                p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
     def test_hedged_condition_and_earliest_day_come_in(self):
         """CL-1 の連絡帳 4-71 の (b)(c)：前の答えが言い切っていないときだけ伺う（「質問」のシートの無くてもよい列「言い切っていないときだけ
         伺う」。前のひな形には無いので、無ければ偽）。最短の日は「基本」の項目（営業日の数・休みの曜日・祝日は休みか・休業日。休みの曜日を

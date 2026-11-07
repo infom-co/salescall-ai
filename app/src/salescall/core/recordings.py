@@ -303,7 +303,7 @@ COMMON_PARTS: tuple[str, ...] = (
     "callback_ask_who", "callback_authority", "callback_back_date", "callback_back_time", "callback_back_today",
     "callback_call_again", "callback_email", "callback_hurry_again", "callback_hurry_when", "callback_next_workday", "callback_fax", "callback_later_time", "callback_not_agreed", "callback_number",
     "callback_agreed_now", "callback_other_point", "callback_other_point_2", "closing_after_decline", "own_fallback_point",
-    "callback_reachable_time", "callback_refusal", "callback_transfer_time", "closing", "closing_declined", "departed", "dou", "dounasaimasu", "greeting", "hai", "hold_timeout", "ikaga", "kashikomari",
+    "callback_reachable_time", "callback_refusal", "callback_transfer_time", "closing", "closing_declined", "departed", "dou", "greeting", "hai", "hold_timeout", "ikaga", "kashikomari",
     "line_trouble_ask", "line_trouble_bye", "moshimoshi", "moushiwake", "moushiwake_heavy", "number_again_unreachable",
     "number_again_wrong_party", "offer_thanks", "own_fallback", "shitsurei", "shouchi", "successor_call",
     "successor_confirm", "successor_reconfirm", "successor_unavailable", "talk_agree_deep", "talk_agree_high", "talk_agree_light", "talk_cared",
@@ -321,15 +321,49 @@ COMMON_PARTS: tuple[str, ...] = (
     "wish_told_online", "callback_email_online_again", "callback_later_time_answering",
     "wait_reply", "callback_wait_or_later",
     # CL-1 の連絡帳 4-97・4-99（✅ 2026-11-06 9時05分17秒 ユーザー）：「ほかに…」で点を言っていただけないときの一言・申し伝える一言まで言って
-    # 切れた電話の続きの、お詫び（同じ日か）と申し伝え直す一言（種類ごと）と、担当から連絡すると申し出てよい業務の一言
+    # 切れた電話の続きの、お詫び（同じ日か）と申し伝え直す一言（種類ごと）と、担当から連絡すると申し出てよい業務の一言。申し伝え直す一言は、
+    # CL-1 の連絡帳 4-105 で、いつの電話か（同じ日＝「先ほどお伺いした」・あとの日＝「前回お伺いした」）でも分けた（3本 → 6本。いつの印は
+    # お詫びと同じ。⛔ それまでは同じ日でも「前回」で、お詫びの「先ほどは…」と食い違った）
     "callback_other_point_which", "apology_cut_end_same_day", "apology_cut_end_later",
-    "told_again_question", "told_again_request", "told_again_opinion", "told_follow_up",
+    "told_again_question_same_day", "told_again_question_later", "told_again_request_same_day", "told_again_request_later",
+    "told_again_opinion_same_day", "told_again_opinion_later", "told_follow_up",
     # CL-1 の連絡帳 4-97 の追記（✅ 2026-11-06 10時12分44秒 ユーザー「(イ)…OK」）：続きの電話の振り返りの一言への返事で点を言って
     # いただけないときの一言（まだ点を伺っていないので「ほかに」を外す）
     "callback_other_point_which_recap",
     # CL-1 の連絡帳 4-100（✅ 2026-11-06 11時19分55秒 ユーザー「(1) ア」）：まだ答えを考えている途中のお客様への相づち「はい。」（判定が「考えている
     # 途中」と読んだら、会話AIが報告してもしなくてもプログラムが流して待つ）。保留で締める一言（質問の番号_pending）は依頼者の単位の録音（業務の組）なので、ここには入れない
-    "aizuchi")
+    "aizuchi",
+    # CL-1 の連絡帳 4-106・4-107（✅ 2026-11-07 3時14分01秒・4時40分35秒 ユーザー）：並べて伺ったご案内の方法を言っていただけないときの申し伝える
+    # 一言 wish_told_way・同じ所へ2回目に戻るときの「それではもう一度確認させていただきますね。」back_again。⛔ 4-106 の back_often（「たびたび失礼
+    # いたしました。」）は取り下げ（ご指摘）・callback_（役目）_announced は名前を _bare に替えた（4-107）
+    "wish_told_way", "back_again",
+    # CL-1 の連絡帳 4-107：システムの質問を、2回目の戻る一言・方法をお伝えした一言に続けて頭の「それでは」を外して流す形（_bare）と、3回目から戻るときの
+    # 「確認の途中でしたのでもう一度お伺いさせていただきますが」＋質問を1本にした形（_midway）。名前の正本は CL-1 の phrases.BACK_FIT（back_fit の1か所）
+    "callback_address_bare", "callback_email_bare", "callback_email_chosen_bare", "callback_fax_bare", "callback_hurry_again_bare",
+    "callback_line_bare", "callback_line_how_bare", "callback_line_how_2_bare", "callback_line_how_without_email_bare",
+    "callback_line_how_without_email_2_bare", "callback_line_how_without_id_bare", "callback_line_how_without_id_2_bare",
+    "callback_line_how_without_sms_bare", "callback_line_how_without_sms_2_bare", "callback_mobile_bare",
+    "callback_address_midway", "callback_address_again_midway", "callback_agreed_now_midway", "callback_ask_when_midway",
+    "callback_ask_who_midway", "callback_authority_midway", "callback_back_date_midway", "callback_back_time_midway",
+    "callback_back_today_midway", "callback_call_again_midway", "callback_email_midway", "callback_email_again_midway",
+    "callback_email_chosen_midway", "callback_email_online_again_midway", "callback_fax_midway", "callback_fax_again_midway",
+    "callback_hurry_again_midway", "callback_hurry_when_midway", "callback_later_time_midway", "callback_later_time_answering_midway",
+    "callback_line_midway", "callback_line_how_midway", "callback_line_how_2_midway", "callback_line_how_again_midway",
+    "callback_line_how_without_email_midway", "callback_line_how_without_email_2_midway", "callback_line_how_without_id_midway",
+    "callback_line_how_without_id_2_midway", "callback_line_how_without_sms_midway", "callback_line_how_without_sms_2_midway",
+    "callback_mobile_midway", "callback_next_workday_midway", "callback_not_agreed_midway", "callback_not_agreed_again_midway",
+    "callback_number_midway", "callback_other_point_midway", "callback_other_point_2_midway", "callback_other_point_which_midway",
+    "callback_other_point_which_recap_midway", "callback_reachable_time_midway", "callback_refusal_midway",
+    "callback_transfer_time_midway", "callback_wait_or_later_midway",
+    # CL-1 の連絡帳 4-108（✅ 2026-11-07 13時05分06秒 ユーザー）：ほかに分からない点は今のところ無いと言われたときに添える「何かわからないことが
+    # ございましたらいつでもご遠慮なくおっしゃってくださいね。」
+    "unclear_anytime",
+    # CL-1 の連絡帳 4-109（✅ 2026-11-07 18時03分49秒 ユーザー「(2) イ」）：考えている方に5秒黙られたときの「何か気になる点がございましたらお気軽に
+    # お聞かせくださいね。」（急かさない一言）。⛔ それまでの「どうなさいますか？」（dounasaimasu）は使わなくなったので外した
+    "concern_anytime",
+    # CL-1 の連絡帳 4-110（✅ 2026-11-07 13時05分06秒・18時03分49秒 ユーザー「(1) ア」）：迷っていると言い終えたお客様に、業務設定に選択肢ごとの
+    # 良い点・気をつける点（`business_settings.Question.option_notes`）が無いときに1回伺う「どういった点でお迷いでしょうか？」
+    "hesitate_point")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

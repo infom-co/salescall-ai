@@ -1841,10 +1841,12 @@ class NameLedger(Content):
         """CL-1 の連絡帳 4-97・4-99 と 4-97 の追記（✅ 2026-11-06 9時05分17秒・10時12分44秒 ユーザー）：「ほかに…」で点を言っていただけない
         ときの一言（続きの電話の振り返りへの返事なら「ほかに」を外した形）・申し伝える一言まで言って切れた電話の続きのお詫び（同じ日か）と
         申し伝え直す一言（種類ごと）・担当から連絡すると申し出てよい業務の一言は、どの業務でも同じ文の共通の一言（話してよい声が求める＝
-        `COMMON_PARTS`）。"""
+        `COMMON_PARTS`）。申し伝え直す一言は、CL-1 の連絡帳 4-105 で、いつの電話か（同じ日＝先ほど・あとの日＝前回）でも分けた6本になり、
+        前の3本（種類だけの名前）は CL-1 がもう録らない＝求めない（求めると、CL-1 の一覧どおりに録っても声が「そろった」にならない）。"""
+        told = {f"told_again_{k}_{w}" for k in ("question", "request", "opinion") for w in ("same_day", "later")}
         self.assertLessEqual({"callback_other_point_which", "callback_other_point_which_recap", "apology_cut_end_same_day",
-                              "apology_cut_end_later", "told_again_question", "told_again_request", "told_again_opinion",
-                              "told_follow_up"}, set(recordings.COMMON_PARTS))
+                              "apology_cut_end_later", "told_follow_up", *told}, set(recordings.COMMON_PARTS))
+        self.assertFalse({"told_again_question", "told_again_request", "told_again_opinion"} & set(recordings.COMMON_PARTS))
 
     def test_the_thinking_aizuchi_cl1_added_on_11_06_is_received(self):
         """CL-1 の連絡帳 4-100（✅ 2026-11-06 11時19分55秒 ユーザー「(1) ア」）：まだ答えを考えている途中のお客様への相づち「はい。」（aizuchi）は、
@@ -1852,6 +1854,29 @@ class NameLedger(Content):
         保留で締める一言（質問の番号_pending）は質問ごとの依頼者の単位の録音なので、共通の一言の一覧には入らない（業務の組に入れられる）。"""
         self.assertIn("aizuchi", recordings.COMMON_PARTS)
         self.assertFalse([p for p in recordings.COMMON_PARTS if p.endswith("_pending")])
+
+    def test_the_parts_cl1_added_on_11_07_are_received(self):
+        """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、
+        どれも話してよい声が求める（`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）：並べて伺ったご案内の方法を言って
+        いただけないときの申し伝える一言（wish_told_way）・2回目に戻る一言（back_again）・ほかに分からない点は無いと言われたときに添える一言
+        （unclear_anytime）・考えている方への急かさない一言（concern_anytime）・迷っている方に点を伺う一言（hesitate_point）と、システムの質問を
+        戻る一言に続ける形（_bare）・3回目から戻る形（_midway。名前の正本は CL-1 の phrases.BACK_FIT）。取り下げた back_often・前の名前の
+        callback_（役目）_announced は求めない。_bare・_midway は、どれも共通の一言のシステムの質問の形（元の名前も共通の一言）。
+        名前の一覧が CL-1 の正本 phrases.RECORDED とそっくり同じかは、CL-1 の試験 test_recorded_names_match_cl2_common_parts が見る
+        （app/ の試験は試作を読まない＝14章 I-30）。"""
+        parts = set(recordings.COMMON_PARTS)
+        self.assertLessEqual({"wish_told_way", "back_again", "unclear_anytime", "concern_anytime", "hesitate_point",
+                              "callback_email_bare", "callback_line_how_without_sms_2_bare", "callback_email_chosen_bare",
+                              "callback_ask_when_midway", "callback_wait_or_later_midway", "callback_other_point_which_recap_midway",
+                              "callback_line_how_without_id_2_midway", "callback_later_time_answering_midway"}, parts)
+        self.assertFalse({"back_often", "callback_email_announced", "callback_line_how_announced", "callback_fax_announced",
+                          "callback_address_announced"} & parts)
+        for tail in ("_bare", "_midway"):
+            forms = {p for p in parts if p.endswith(tail)}
+            with self.subTest(tail):
+                self.assertTrue(forms)
+                self.assertEqual(sorted(p for p in forms if p.removesuffix(tail) not in parts), [])
+        self.assertEqual(len(recordings.COMMON_PARTS), len(parts))   # 同じ名前を2回書かない
 
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
@@ -1863,10 +1888,13 @@ class NameLedger(Content):
 
     def test_the_hurry_ask_and_the_thinking_prompt_cl1_added_on_11_01_are_received(self):
         """CL-1 の連絡帳 4-64（2026-11-01 ✅ ユーザー）：急いでいる方への「それではまた改めてお掛けしてもよろしいでしょうか？」
-        （callback_hurry_again）・「ご都合のいい日時はいつ頃でしょうか？」（callback_hurry_when）・考えている方に黙られたときの「どう
-        なさいますか？」（dounasaimasu）は共通の一言の録音（話してよい声が求める）。その質問の番号 H1 は業務の質問の番号に使えない。"""
+        （callback_hurry_again）・「ご都合のいい日時はいつ頃でしょうか？」（callback_hurry_when）は共通の一言の録音（話してよい声が求める）。
+        その質問の番号 H1 は業務の質問の番号に使えない。考えている方に黙られたときの一言は、CL-1 の連絡帳 4-109 で「どうなさいますか？」
+        （dounasaimasu）から「何か気になる点がございましたらお気軽にお聞かせくださいね。」（concern_anytime）に替わった（急かさない）ので、
+        前の名前は求めない（求めると、CL-1 がもう録らない録音を待って声が「そろった」にならない）。"""
         from salescall.core import business_settings
-        self.assertLessEqual({"callback_hurry_again", "callback_hurry_when", "dounasaimasu"}, set(recordings.COMMON_PARTS))
+        self.assertLessEqual({"callback_hurry_again", "callback_hurry_when", "concern_anytime"}, set(recordings.COMMON_PARTS))
+        self.assertNotIn("dounasaimasu", recordings.COMMON_PARTS)
         self.assertIn("H1", business_settings.RESERVED_IDS)
 
     def test_the_not_agreed_ask_cl1_added_on_11_02_is_received(self):

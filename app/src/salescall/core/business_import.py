@@ -48,7 +48,8 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
                           "choices": "選択肢", "decline": "断りの答え", "intro": "入る一言", "ask_after": "伺う条件の質問ID",
                           "ask_answers": "伺う条件の答え", "ask_hedged": "言い切っていないときだけ伺う", "approval": "ご承認を伺う",
                           "final_goal": "最終目的", "do_words": "こちらがすることの言葉",
-                          "tell_words": "その答えのあとに伝える一言", "ends_on": "ここで終える答え"}, True),
+                          "tell_words": "その答えのあとに伝える一言", "ends_on": "ここで終える答え",
+                          "option_notes": "選択肢ごとの良い点・気をつける点"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -71,12 +72,14 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # その答えのあとに伝える一言（選択肢ごと。同じ「選択肢：一言」の形。例「はい：○○駐車場をご利用いただけますのでどうぞご利用ください。」。
 # 取込の AI は作らない。CL-1 の連絡帳 4-72 の (i)）
 # ここで終える答え（「この答えなら、ここで終える」。答えを「／」か改行で区切る。この列のある質問は必須の質問。CL-1 の連絡帳 4-74。✅ 2026-11-04 管理者「OK」）
+# 選択肢ごとの良い点・気をつける点（選択肢ごと。同じ「選択肢：文」の形。例「カード：カードですとカード会社のポイントがつきます。」。依頼者のトークスクリプト・
+# 資料から入る＝管理者・契約者は書かない。会話AIが、迷っているお客様に選ぶ助けを伝える材料。CL-1 の連絡帳 4-110。✅ 2026-11-07 ユーザー「(1) ア」）
 # 想定問答の「標準を使わない」（「はい」の行は、その名前のシステムの標準の想定問答を、この業務では使わない＝答えは書かない。答えを書いた行は、
 # 同じ名前の標準の想定問答を、この業務の答えで上書きする＝その業務の録音。設計書 3-8-3 の作る順の (4)・0174。✅ 2026-11-02 管理者 伺い2
 # 「上書きが必要な業務は、トークスクリプト設定画面か、エクセルなどのシートで上書きし、その分の録音を実施する。」）
 OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.ask_hedged",
                               "questions.approval", "questions.final_goal", "questions.do_words", "questions.tell_words",
-                              "questions.ends_on", "answers.off"})
+                              "questions.ends_on", "questions.option_notes", "answers.off"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -324,6 +327,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
                           "do_words": _choice_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems), "doubt_words": None,
                           "tell_words": _choice_words(v.get("tell_words"), f"{where}のその答えのあとに伝える一言", problems) or {},
+                          "option_notes": _choice_words(v.get("option_notes"), f"{where}の選択肢ごとの良い点・気をつける点", problems) or {},
                           "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None, "asks_way": None,
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
@@ -708,7 +712,9 @@ def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
             and not q.get("unit") and isinstance(q.get("text"), str) and q["text"].strip()]
 
 
-SPOKEN_WORDS = ("meanings", "do_words", "tell_words")   # 質問の、選択肢ごとの声になる言葉（`script` が台本に入れる）
+# 質問の、選択肢ごとの声になる言葉（`script` が台本に入れる）。選択肢ごとの良い点・気をつける点（option_notes）は録音ではなく会話AIが
+# 自分の言葉で話す材料だが、業務の情報と同じく名前の読みが要る（会話の側が読みへ置き換えて渡す）ので入れる
+SPOKEN_WORDS = ("meanings", "do_words", "tell_words", "option_notes")
 
 
 def script(raw: dict[str, Any]) -> str:

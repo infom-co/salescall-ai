@@ -109,7 +109,7 @@ READING_BY = readings.BY                          # 読みを決めたもの（�
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
                  "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none", "doubt_words",
-                 "asks_way"}
+                 "asks_way", "option_notes"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -316,6 +316,13 @@ class Question:
     # 決めるのは取込のときの文字の AI 2つ（CL-1 の import_ai.decide_ways。そろって真のときだけ真＝人は確かめない）。真の、はい／いいえの質問では、
     # 言い切っていないお断りのあとのほかのご希望（W1）で、業務の「ご案内できる方法」を申し出る（`Settings.offer_ways_of` の1か所で渡す）
     asks_way: bool = False
+    # 選択肢ごとの良い点・気をつける点（選択肢 → 文。会話の側の Question.option_notes。CL-1 の連絡帳 4-110）。文は業務の情報と同じく、そのまま
+    # 声に出せる文（例：「カード」→「カードですとカード会社のポイントがつきます。」）。会話AIに渡す知っていることの1行になり、どれにするか迷っていると
+    # 言い終えたお客様に、選ぶ助けになることを会話AIが自分の言葉で伝える材料（会話の側の Flow._hesitation）。無い質問は「どういった点でお迷い
+    # でしょうか？」を1回伺う（共通の一言の録音 hesitate_point）。はい／いいえ・決まった選択肢の質問の、宣言した選択肢にだけ付く（その答えのあとに
+    # 伝える一言と同じ確かめ＝`_answer_words`。事実を伺う質問にも付く＝会話の側は業務の質問すべてで選ぶ助けを伝える＝flowctl.helps_choose）。
+    # 依頼者のトークスクリプト・資料から取込が入れる（管理者・契約者は書かない）。✅ 2026-11-07 日本時間13時05分06秒・18時03分49秒 ユーザー「(1) ア」
+    option_notes: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -918,6 +925,8 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                 problems.append(f"{where}は事実を伺う質問なので、いまの話の向きを伺う言葉（doubt_words）は付けません（会話の側が使わない）")
             tell_words = _answer_words(q["tell_words"], q["type"], choices, where, problems, replies=False,
                                        what="その答えのあとに伝える一言")
+            option_notes = _answer_words(q["option_notes"], q["type"], choices, where, problems, replies=False,
+                                         what="選択肢ごとの良い点・気をつける点")
             if do_words and q["asks_fact"] is not False:
                 problems.append(f"{where}は事実を伺う質問なので、こちらがすることの言葉（do_words）は付けません（会話の側が使わない）")
             away = _away(q["away"], q["type"], choices, q["asks_fact"] is not False, where, problems)
@@ -947,7 +956,8 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 q["type"], bool(q["required"]), choices, unit, meanings, replies,
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
-                                q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words, q["asks_way"] is True)
+                                q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words, q["asks_way"] is True,
+                                option_notes=option_notes)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -1470,6 +1480,8 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     - ほかに分からない点は無いにあたる答え（unclear_none。2026-11-05 に足した＝CL-1 の連絡帳 4-82）が無い前の版の質問は、無い（空＝伺う）として読む。
     - いまの話の向きを伺う言葉（doubt_words。2026-11-05＝4-90）・ご案内の方法を伺う質問か（asks_way。2026-11-06＝4-91）が無い前の版の質問は、無い（空・偽）として
       読む。ご案内できる方法（offer_ways）は無くてもよい項目なので、前の版はそのまま（無い）。
+    - 選択肢ごとの良い点・気をつける点（option_notes。2026-11-07＝CL-1 の連絡帳 4-110）が無い前の版の質問は、無い（空の表＝迷っているお客様には
+      「どういった点でお迷いでしょうか？」を1回伺う）として読む。
     - 分岐（next）は、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える（前の版も同じ1か所）。
     - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
       無いとして読む（会話の側は「それでは（言葉）ね？」で言うので、そのままでは文にならない。無い選択肢は、会話の側が意味の言葉で
@@ -1481,7 +1493,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     if not isinstance(questions, list):
         return dict(content, rules=rules)
     added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
-             "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "",
+             "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "option_notes": {},
              "doubt_words": {}, "asks_way": False}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
