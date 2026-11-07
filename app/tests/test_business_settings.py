@@ -40,10 +40,10 @@ def raw() -> dict:
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
              "asks_fact": False, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": True,
-             "declines": ["しない"], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""},
+             "declines": ["しない"], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""},
+             "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -228,7 +228,7 @@ class Check(unittest.TestCase):
         r["questions"].append({"id": "Q3", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""})
+                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False})
         r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"))
         s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual((s.questions[2].ask_if, s.questions[2].approval, s.questions[0].ask_if, s.questions[0].approval),
@@ -272,7 +272,7 @@ class Check(unittest.TestCase):
     def test_do_words_intro_and_client_does(self):
         """CL-1 の連絡帳 4-65 の (a)(b)(c)：こちらがすることの言葉（選択肢 → 言葉）は、事実を伺う質問ではない選択肢の質問だけが持てる
         （宣言した選択肢にだけ・事実を伺う質問には付けない＝会話の側が使わない）。入る一言は最初の質問には付けない（名乗りと一緒に流す）。
-        依頼者がすることは無くてもよい（無ければ会話の側の既定「記録」）。"""
+        依頼者がすることは無くてもよい（無ければ会話の側の既定「承っておいて」＝CL-1 の連絡帳 4-116 の (2)）。"""
         r = raw()
         r["questions"][0]["do_words"] = {"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"}
         r["questions"][1]["intro"] = "それではご希望の日時の確認からさせていただきます。"
@@ -320,9 +320,12 @@ class Check(unittest.TestCase):
         """CL-1 の連絡帳 4-72 の (c)：2つ目からの質問の文は、つなぎの言葉（それでは・続きまして・では・はい・ありがとうございます）で始めない
         （会話の側が、つなぎの言葉か入る一言を頭に付けて流す＝重なる）。最初の質問（名乗りと一緒に流す・頭に何も付かない）は止めない。"""
         # 会話の側が質問の頭に付ける言葉（つなぎの言葉と相づち。CL-1 の連絡帳 4-72 の (c)・4-75。正本は会話の側の phrases.QUESTION_HEADS＝比べる試験は
-        # CL-1 の test_question_heads_match_cl2）が、どれも並びにある
-        self.assertLessEqual({"それでは", "続きまして", "では", "はい", "ありがとうございます", "承知しました", "かしこまりました", "失礼いたしました"},
+        # CL-1 の test_question_heads_match_cl2）が、どれも並びにある。CL-1 の連絡帳 4-118 の (1)：続きの電話の始めの頭と3回目からの戻る一言も、会話の側が
+        # 業務の質問の文のすぐ前に付ける（業務の文がこの言葉で始まると2回続く）。「ほかに」は会話の側が重ねないので入れない（業務の文に書いてよい）
+        self.assertLessEqual({"それでは", "続きまして", "では", "はい", "ありがとうございます", "承知しました", "かしこまりました", "失礼いたしました",
+                              "確認させていただきたい内容なのですが", "確認の途中でしたのでもう一度お伺いさせていただきますが"},
                              set(bs.QUESTION_LEADS))
+        self.assertNotIn("ほかに", bs.QUESTION_LEADS)
         for lead in bs.QUESTION_LEADS:
             with self.subTest(lead=lead):
                 r = raw()
@@ -333,6 +336,9 @@ class Check(unittest.TestCase):
         bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
         r = raw()
         r["questions"][1]["text"] = "ご希望の日時をお聞かせください。それでは承ります。"   # 頭でなければよい
+        bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        r = raw()
+        r["questions"][1]["text"] = "ほかにご希望の日時はございますか。"   # 「ほかに」は書いてよい（4-118 の (2)）
         bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_do_words_run_to_the_end_of_the_sentence(self):
@@ -489,6 +495,37 @@ class Check(unittest.TestCase):
                 change(r)
                 self.assertTrue(any(word in p for p in problems_of(r)), problems_of(r))
 
+    def test_definite_value_is_only_on_value_questions_and_works_without_change_by(self):
+        """CL-1 の連絡帳 4-116 の (1)（✅ 2026-11-08 日本時間5時33分05秒・6時04分57秒 ユーザー）：確定した値で登録するか（definite_value）は真偽で、
+        既定は偽（お客様の言い方の値）。値を伺う質問（日時・数・金額）だけに真を書ける（ほかの質問に書いたら止める＝変更の受付の期限と同じ1か所
+        `_value_fields`。両方を書いたら、1つの理由に両方の欄の名前を並べる）。変更の受付の期限が空でも書ける（期限の無いひとまずの形）。"""
+        s = bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual([q.definite_value for q in s.questions], [False, False])
+        self.assertEqual(bs.VALUE_ONLY_KEYS, {"change_by": "変更の受付の期限", "definite_value": "確定した値で登録する"})
+        for qtype in bs.ESTIMATE_TYPES:
+            for change_by in ("", "前日"):
+                with self.subTest(qtype=qtype, change_by=change_by):
+                    r = raw()
+                    r["questions"][1].update(type=qtype, definite_value=True, change_by=change_by)
+                    q = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[1]
+                    self.assertEqual((q.definite_value, q.change_by), (True, change_by))
+        r = raw()
+        r["questions"][0]["definite_value"] = False   # 偽は、どの質問にも書ける（書いていないのと同じ）
+        bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        for name, change, word in (("選ぶ質問", lambda r: r["questions"][0].update(definite_value=True), "確定した値で登録する（definite_value）は書けません"),
+                                   ("自由な意見", lambda r: r["questions"][1].update(type="free_text", definite_value=True), "値を伺う質問"),
+                                   ("真偽でない", lambda r: r["questions"][1].update(definite_value="はい"), "true / false"),
+                                   ("欄が無い", lambda r: r["questions"][1].pop("definite_value"), "definite_value")):
+            with self.subTest(name):
+                r = raw()
+                change(r)
+                self.assertTrue(any(word in p for p in problems_of(r)), problems_of(r))
+        r = raw()
+        r["questions"][0].update(definite_value=True, change_by="前日")
+        self.assertEqual([p for p in problems_of(r) if "値を伺う質問" in p],
+                         ["質問 Q1は値を伺う質問（日時・数・金額）ではないので、変更の受付の期限（change_by）・確定した値で登録する（definite_value）は"
+                          "書けません（会話の側が使いません）"])
+
     def test_unclear_none_is_a_declared_choice_of_a_choice_question(self):
         """CL-1 の連絡帳 4-82（✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」）：ほかに分からない点が無いかを伺う質問の「無い」にあたる答え
         （unclear_none）は、はい／いいえ・決まった選択肢の質問の、宣言した選択肢の1つ（空＝伺う質問ではない）。"""
@@ -580,7 +617,7 @@ class Check(unittest.TestCase):
                                "required": False, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                "ask_if": {"after": "Q1", "answers": ["しない"], "hedged": True}, "approval": False, "final_goal": False,
-                               "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""})
+                               "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False})
         r["questions"][0]["next"] = None
         r["questions"][0]["final_goal"], r["questions"][0]["declines"] = False, []
         s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
@@ -688,10 +725,10 @@ class Check(unittest.TestCase):
             nxt = f"Ask{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""})
+                       "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "Ask0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -816,7 +853,7 @@ class BranchFlow(unittest.TestCase):
                        "choices": list(choices) if kind == "choice" else None, "next": nxt, "unit": None, "meanings": None,
                        "replies": None, "asks_fact": kind != "choice" or not away, "do_words": None, "away": list(away) or None,
                        "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {},
-                       "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""})
+                       "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False})
         r["questions"] = qs
         r["rules"]["handling"] = {"*": r["rules"]["handling"]["Q1"]}
         return r
@@ -1062,6 +1099,23 @@ class Versions(unittest.TestCase):
             v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], copy.deepcopy(r)))
         got = self.tx(lambda tx: bs.load(tx, v))
         self.assertEqual(([q.change_by for q in got.questions], got.main_talk_policy), (["", ""], "asked"))
+
+    def test_a_version_saved_before_definite_value_reads_it_as_false(self):
+        """確定した値で登録するか（definite_value。2026-11-08 に足した＝CL-1 の連絡帳 4-116 の (1)）の無い前の版の質問は、偽（お客様の言い方の値）として
+        読む（`_current_shape`）。今の版は書いたとおりに読む。"""
+        from unittest import mock
+        old_content = bs._content
+
+        def before(s):
+            c = old_content(s)
+            return dict(c, questions=[{k: v for k, v in q.items() if k != "definite_value"} for q in c["questions"]])
+        r = raw()
+        r["questions"][1]["definite_value"] = True
+        new = self.tx(lambda tx: bs.save_version(tx, self.s["business"], copy.deepcopy(r)))
+        self.assertEqual([q.definite_value for q in self.tx(lambda tx: bs.load(tx, new)).questions], [False, True])
+        with mock.patch.object(bs, "_content", before):
+            v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], copy.deepcopy(r)))
+        self.assertEqual([q.definite_value for q in self.tx(lambda tx: bs.load(tx, v)).questions], [False, False])
 
     def test_a_version_saved_before_hedged_conditions_reads_them_as_always_asked(self):
         """伺う条件に「言い切っていないときだけ伺うか」（hedged。2026-11-03 に足した＝CL-1 の連絡帳 4-71 の (b)）が無い前の版の質問は、偽（伺う

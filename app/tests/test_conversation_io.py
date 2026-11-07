@@ -236,6 +236,23 @@ class Materials(SettleBase):
                 self.write(s, aid, ItemValue("Q1", "accepted", value, "答えた", hedged=f"{value}ですかね。"))
                 self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["value"], value)
 
+    def test_tentative_values_and_undecided_words_are_kept_as_written(self):
+        """CL-1 の連絡帳 4-116 の (3)(4)：ひとまずの形の値は、確定した値で登録する質問なら芯の値（「15日」）、ほかはお客様の言い方の値（「15日あたり」）。
+        言い直し・ひとまずの形へ「まだ決まっていない」と返されたときは、値は前の答えの値のままで、お客様の言葉（項目の値の hedged）に、値を言った言葉と
+        まだ決まっていないと言った言葉が「／」でつながって入る。金額の値は算用数字だけの書き方（「50000円」。前の誤った「510000円」ではない）、「二三日後」は
+        「2〜3日後」（こちらの時刻の読み spoken_time._kanji_number の決まりと同じ）。こちらは、どの値も言葉のまま置き、言葉のまま返す（日時・数として読み直さない）。
+        お客様の言葉は、取れた答えなら全部を「曖昧」の印として前の通話の答えへ渡す（`judge.hedged_words` の1か所。まだ決まっていない言葉を落とさない）。"""
+        s = self.ready()
+        aid = self.answered(s)
+        both = "15日あたりですかね。／うーん、まだ決まってないんですよね。"
+        for value, words in (("15日", both), ("15日あたり", both), ("50000円", "5万円くらいですかね。"),
+                             ("2〜3日後", "二三日後ですかね。")):
+            with self.subTest(value=value):
+                self.write(s, aid, ItemValue("Q1", "accepted", value, "答えた", hedged=words))
+                row, = Write.items(self, s)
+                got = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]
+                self.assertEqual((row["value"], row["hedged"], got["value"], got["hedged"]), (value, words, value, words))
+
     def test_earlier_facts_include_what_later_calls_said_about_the_same_answer(self):
         """答えを取り直さない続きの電話で、同じ答えについて話した事実（申し伝え直した点＝not_agreed の outcome unresolved・told）も、
         次の電話へ渡す（その答えを取った通話と、そのあとの通話の報告から、最後のもの。⛔ 2026-11-06 の見直し (C) の1：答えを取った

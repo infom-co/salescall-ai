@@ -50,7 +50,8 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
                           "final_goal": "最終目的", "do_words": "こちらがすることの言葉",
                           "tell_words": "その答えのあとに伝える一言", "ends_on": "ここで終える答え",
                           "option_notes": "選択肢ごとの良い点・気をつける点",
-                          "change_by": "変更の受付の期限（日時・数・金額の質問だけ。例：前日）"}, True),
+                          "change_by": "変更の受付の期限（日時・数・金額の質問だけ。例：前日）",
+                          "definite_value": "確定した値で登録する（日時・数・金額の質問だけ。例：予約の日付）"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -78,12 +79,17 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # 変更の受付の期限（値を伺う質問＝日時・数・金額だけ。「前日」「3日前」のように期限だけ。お客様の答えの値が確定でないとき、ひとまずその値にして
 # 「変更があった場合には（期限）までにご連絡いただけましたらご対応可能です。」を添えて伺う。ほかの質問に書いたら業務設定の確かめが止める。依頼者の
 # トークスクリプトから入る。CL-1 の連絡帳 4-115 の (1)。✅ 2026-11-08 日本時間3時48分03秒 ユーザー）
+# 確定した値で登録する（「はい」の質問は、お客様の答えの値が確定でない「15日あたりですかね。」のとき、値の芯でひとまずとする＝「はい、それではひとまず15日と
+# させていただきますね？」・値は「15日」。空・「いいえ」なら、お客様の言い方の値「15日あたり」。値を伺う質問＝日時・数・金額だけ。変更の受付の期限が空でも
+# 書ける。ほかの質問に「はい」と書いたら業務設定の確かめが止める＝変更の受付の期限と同じ1か所。依頼者のトークスクリプトから入る。CL-1 の連絡帳 4-116 の (1)。
+# ✅ 2026-11-08 日本時間5時33分05秒・6時04分57秒 ユーザー）
 # 想定問答の「標準を使わない」（「はい」の行は、その名前のシステムの標準の想定問答を、この業務では使わない＝答えは書かない。答えを書いた行は、
 # 同じ名前の標準の想定問答を、この業務の答えで上書きする＝その業務の録音。設計書 3-8-3 の作る順の (4)・0174。✅ 2026-11-02 管理者 伺い2
 # 「上書きが必要な業務は、トークスクリプト設定画面か、エクセルなどのシートで上書きし、その分の録音を実施する。」）
 OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.ask_hedged",
                               "questions.approval", "questions.final_goal", "questions.do_words", "questions.tell_words",
-                              "questions.ends_on", "questions.option_notes", "questions.change_by", "answers.off"})
+                              "questions.ends_on", "questions.option_notes", "questions.change_by",
+                              "questions.definite_value", "answers.off"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -94,7 +100,8 @@ BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class
                # 本題の始まり（書かなければ既定「最初の質問を流したあと」。CL-1 の連絡帳 4-114・4-115 の (4)）
                "本題の始まり": "main_talk_policy",
                "担当から改めて連絡すると申し出てよいか": "follow_up",
-               # 依頼者がすること（登録・記録・手配など。書かなければ会話の側の既定「記録」。CL-1 の連絡帳 4-65 の (c)）
+               # 依頼者がすること（登録・記録・手配など。書かなければ会話の側の既定「承っておいて」＝phrases.NOTED_DOES。CL-1 の連絡帳 4-65 の (c)・
+               # 4-116 の (2)）
                "依頼者がすること": "client_does",
                # 最終目的の果たし方（最終目的の質問が2つ以上の業務だけ書く。業務設定の goal_mode）
                "最終目的の果たし方": "goal_mode",
@@ -127,6 +134,7 @@ LABELS: dict[str, dict[str, str]] = {
     "approval": {"はい": True, "○": True, "いいえ": False, "": False},
     "final_goal": {"はい": True, "○": True, "いいえ": False, "": False},
     "ask_hedged": {"はい": True, "○": True, "いいえ": False, "": False},
+    "definite_value": {"はい": True, "○": True, "いいえ": False, "": False},
     "answer_off": {"はい": True, "○": True, "いいえ": False, "": False},
     "closed_on_holidays": {"はい": True, "いいえ": False},
     "weekday": {f"{w}{x}": k for w, k in zip("月火水木金土日", ("mon", "tue", "wed", "thu", "fri", "sat", "sun")) for x in ("", "曜日")},
@@ -337,6 +345,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "option_notes": _choice_words(v.get("option_notes"), f"{where}の選択肢ごとの良い点・気をつける点", problems) or {},
                           "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None, "asks_way": None,
                           "change_by": v.get("change_by") or "",
+                          "definite_value": _label("definite_value", v.get("definite_value"), f"{where}の確定した値で登録する", problems),
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),
