@@ -34,13 +34,6 @@ def dialed(table: str = "") -> str:
 DIALED = dialed()
 
 
-def untried(tx: Tx, task_id: UUID) -> bool:
-    """その行に、まだ一度もかけていないか（発信まで進んだ試行が1つも無い＝`dialed`。予約のまま・かけずに取り消した予約は数えない）。
-    1か所。一度かけた行には、お客様との約束（かけ直し）・続き・お詫びの電話がありうるので、新しい電話だけを止める所が読む（門の
-    solutions_unconfirmed＝gate.unconfirmed_solutions。✅ 2026-11-07 ユーザー「新規の電話もかけられません」）。"""
-    return tx.one(f"SELECT NOT EXISTS (SELECT 1 FROM salescall.attempts WHERE task_id = %s AND {DIALED}) AS u", (task_id,))["u"]
-
-
 def placed(table: str = "") -> str:
     """発信まで進み、回線の部品が番号を受け付けなかった（call_failed）ものを除いた試行の条件（SQL。1か所）。回線を使った電話：
     回線の1日の上限・報酬の「かけた1本」が使う。番号の続き（番号の欄＝core/health）・約束の回に「かけたか」・その回にかけた数は
@@ -103,7 +96,8 @@ def counts_as_try(table: str = "") -> str:
 def in_row_count(table: str = "", at: str | None = None) -> str:
     """行の回数を数える範囲（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信のうち、前にかける番号だった番号へ
     かけたもの（直したあと、まず前の番号でかけた約束の電話）でないもの（直していなければ、すべて）。行の回数の上限・再発信の方針の回数・
-    「あとで」と言われた回数・時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で数え直す」。
+    時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で数え直す」。お客様が「あとで」と
+    言った回数は、こちらがかけた回数ではなくお客様の言葉なので、どの番号への電話も入る `count_start` で数える＝next_action._laters。
     数え始めの時刻は salescall.task_count_from＝0180、前にかける番号だった番号は salescall.task_number_replaced_at＝0188 の1か所。
     番号の立場は、かけたときの立場で見る＝⛔ 2026-11-06 の見直し (A) の2：前は「いま」の立場で見て、前の番号で話せてサブになった電話を、
     あとから新しい番号の回数に数えた）。at＝その時刻で読む（SQL の式。`count_start`。None＝いま）。"""
@@ -117,8 +111,8 @@ def count_start(table: str = "", at: str | None = None) -> str:
     数え始めの時刻はデータベースの salescall.task_count_from（0180）。行の回数（`in_row_count`）と、その番号へかける電話の回数（番号の
     聞き直し・お詫び＝gate.purpose_dials）の両方が読む（✅ 2026-11-06 ユーザー＝計画書 7-1 (3)・(15)：「新しい番号で数え直す」。0195）。
     at＝その時刻で読む（SQL の式。例：行を終えた時刻の "%s"）：その時刻の数え始め（salescall.task_count_from_at＝0194）から、その時刻
-    までに予約した発信（番号を直したときに、終えた行を戻すかを決める所が、終えたときに数えた回数と同じ範囲を読む＝next_action._laters。
-    2026-11-07 見直し(3)の4）。None＝いま。"""
+    までに予約した発信（番号を直したときに、終えた行を戻すかを決める所が、終えたときに数えた「あとで」と同じ範囲を読む＝next_action._laters。
+    2026-11-07 見直し(3)の4。「あとで」は、直したあと前の番号で言われたものも入る）。None＝いま。"""
     t = table + "." if table else ""
     if at is None:
         return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
