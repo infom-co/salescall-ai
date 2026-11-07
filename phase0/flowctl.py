@@ -3026,6 +3026,13 @@ def _offered_ways(q: "Question") -> list[str]:
     return out
 
 
+def line_play(rid: str, text: str) -> dict:
+    """返事のあとに流す一言の録音の種類を、録音の名前から決める唯一の場所（Flow._advance の業務の一言・保留の一言・お伝えする一言 way_any_line）：
+    どの業務でも同じ一言（共通の一言の表 RECORDED にある）は recorded、業務ごとの一言は依頼主の単位の録音（question）。⛔ 2026-11-08 日本時間7時台
+    （11-07 23時26分13秒のご質問の見直しの B-2）：お伝えする一言（（番号）_other_any）だけ recorded に決め打ちしていた"""
+    return {"kind": "recorded", "id": rid, "text": text} if rid in RECORDED else {"kind": "question", "id": rid, "text": text, "lead": ""}
+
+
 def way_any_line(q: "Question") -> "tuple[str, str] | None":
     """申し出た方法を並べて伺ったあと（W1 の which）に「どれでも」と言われたとき、業務設定で最初に並ぶ方法をこちらでお伝えする一言（唯一の場所＝流す
     Flow._advance・録音の表 make_ack_clips.script_table）：(依頼主の単位の録音の名前（番号）_other_any, 文)。並べて伺えない質問は None。
@@ -6786,12 +6793,19 @@ class Flow:
         digressed, self.digressed, back = self.digressed, False, []
         if self.phase == "calling":
             # 目的の人に繋がる前：名乗り・用件のあとに、もう一度だけ呼ぶ一言（DESIGN.md 4-3）。同じ方に3回目は呼ばない（同じお願いを繰り返さない）
+            lead = []
             if self._calls_to_speaker() < 2:
                 self.target_called.append(self.callee_turns)
-                back = self._back_play(digressed, asks=False)   # お呼びするお願いは名前の録音を組んで流す＝続く一言と1本にしない
-                play += back + [self._part_play("target")]
-                done = played_note(shown + "".join(p["text"] for p in back) + self.target["target"])
-            return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._now()}"} | ({"bridged": True} if back and play else {})
+                # まだこちらの名乗りを聞いていない方（取り次がれて代わった方＝_new_ears）には、戻る一言（もう伺ったことへ戻るとき＝10-23）ではなく、あいさつ・
+                # 名乗りから（相手が替わったら短く名乗り直す＝本書 9-4。流す1か所 _reception_lead）。⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の
+                # 見直しの B-9）：その方の世間話に応えたあと「話を戻させていただきますね。」＋お呼びするお願いを流していた
+                lead = self._reception_lead() if self._new_ears() else []
+                back = [] if lead else self._back_play(digressed, asks=False)   # お呼びするお願いは名前の録音を組んで流す＝続く一言と1本にしない
+                play += lead + back + [self._part_play("target")]
+                done = played_note(shown + "".join(p["text"] for p in lead + back) + self.target["target"])
+            # 戻る一言・あいさつから始まる：相づちを重ねない（その一言が相手の返事を受ける・あいさつの前に相づちは付けない＝_prepend_played の led と同じ）
+            return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._now()}"} | (
+                {"bridged": True} if (back or lead) and play else {})
         if self.awaiting_confirm is not None and final:
             return self._final_check(self.awaiting_confirm)   # 言い直しについて尋ねられて答えた：同じ言い直しには戻らず、最終の確かめ
         if self.awaiting_confirm is not None:
@@ -9870,7 +9884,7 @@ class Flow:
         if (w := self.wish) is not None and w.get("announce"):
             # 並べて伺ったあとの「どれでも」に、こちらで方法をお伝えする一言（way_any_line の1か所）。連絡先の一言より先（1回だけ）
             aid, atext = w.pop("announce")
-            plays.append({"kind": "recorded", "id": aid, "text": atext})
+            plays.append(line_play(aid, atext))
         wish = w is not None and bool(w["told"])
         if wish:
             plays.append({"kind": "recorded", "id": f"wish_told_{w['told']}", "text": WISH_TOLD[w["told"]]})
@@ -9881,9 +9895,8 @@ class Flow:
                 told = True
                 pending = pending or line[1] == pending_recording_id(self.questions[qid])
                 anytime = anytime or line[1] == "unclear_anytime"
-                # 業務の一言・保留の一言は依頼主の単位の録音（question）、どの業務でも同じ一言（unclear_anytime）は共通の一言の録音（recorded）
-                plays.append({"kind": "recorded", "id": line[1], "text": line[0]} if line[1] in RECORDED
-                             else {"kind": "question", "id": line[1], "text": line[0], "lead": ""})
+                # 業務の一言・保留の一言は依頼主の単位の録音（question）、どの業務でも同じ一言（unclear_anytime）は共通の一言の録音（recorded）＝line_play
+                plays.append(line_play(line[1], line[0]))
         if not plays:
             return r
         if r.get("result") == "recheck":

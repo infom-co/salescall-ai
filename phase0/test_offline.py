@@ -13769,6 +13769,9 @@ class NoneOfThemTest(unittest.TestCase):
         f = listed()
         r = say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=ANY)
         heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+        # お伝えする一言（Q1_other_any）は依頼主の単位の録音（question）。⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の見直しの B-2）：共通の一言の
+        # 種類（recorded）で返していた＝電話接続側が共通の一言の録音の中から探して見つからない
+        self.assertIn({"kind": "question", "id": "Q1_other_any"}, [{k: p[k] for k in ("kind", "id")} for p in r["play"]])
         if r.get("question") and r["question"] not in heard:
             heard += r["question"]
         self.assertEqual((r["question_id"], heard),
@@ -13789,7 +13792,8 @@ class NoneOfThemTest(unittest.TestCase):
         HedgedSalesTest.hedged(f, "Q1", "いいえ", "うーん、訪問はちょっと…。")
         say(f, "はい、お願いします。", "record_answer", question_id="W1", condition_id=WAY_UNSAID)
         r = say(f, "どれでも大丈夫ですよ。", "record_answer", question_id="W1", condition_id=ANY)
-        self.assertEqual((r["question_id"], ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [] if p.get("kind") != "question")),
+        # 次の質問（Q2）の録音は外して数える（お伝えする一言も依頼主の単位の録音＝種類では分けられない）
+        self.assertEqual((r["question_id"], ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [] if not p["id"].startswith("Q2"))),
                          ("Q2", "承知しました。それではお電話でご案内させていただきますね。"))
         self.assertEqual([(e["means"], e["outcome"]) for e in f.facts["other_wish"]], [("phone", "means")])
         for words, args in (("うーん、ちょっと分からないです。", {"condition_id": "unknown"}), ("それもちょっと…。", {"condition_id": WAY_UNSAID})):
@@ -20235,6 +20239,41 @@ class ApprovalReviewTest(unittest.TestCase):
         self.assertEqual((heard(r), f.current), ("はい、それではこのままお返事を待っております。", c1))
         r = self.say(f, "お待たせしました。明日の午後3時でお願いします。", "答えた", "record_answer", question_id=c1, condition_id="答えた", value="明日の午後3時")
         self.assertNotEqual(r["result"], "rejected", r["message"])
+
+    def test_new_person_hears_the_introduction_not_the_back_line(self):
+        # ⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の見直しの B-9）：お呼びする段で、取り次がれて代わった方（まだこちらの名乗りもお呼びするお願いも
+        #    聞いていない方）の世間話に応えたあと、「話を戻させていただきますね。」＋お呼びするお願いを流していた（戻る1か所 _continue の呼んでいる段の枝が、まだ
+        #    名乗りを聞いていない方かを見なかった）。もう伺ったことへ戻るときの一言（10-23）は、その方には合わない＝相手が替わったら短く名乗り直す（本書 9-4）
+        import dataclasses
+        from flowctl import ARG_LABEL, HOLD, PART_LABEL, TALK_LABEL, Flow
+        from g22_opening import BUSINESS
+        from grounding import NO_FACT, Verdict
+        from instruction import Target
+        from meaning_judge import Reading
+        from phrases import ACK
+        heard = lambda r: ((ACK[r["ack"]] if r.get("ack") else "") + "".join(p.get("text", "") for p in r.get("play") or [])
+                           + (r.get("say") or ""))
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), knowledge=b.knowledge())
+        f.use_checks("judge")
+        f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        r = f.apply("report_party", {"party": "person"})
+        first = heard(r if r.get("result") in ("opening", "end") else f.on_first_words_end())
+        f.on_callee(); f.on_heard("少々お待ちください。"); f.on_check("judge", Reading(HOLD))
+        f.apply("report_party", {"party": "reception"})
+        line = "本当にそうですね。"
+        f.on_callee(); f.on_heard("いやあ、今日は暑いですねえ。")
+        f.grounding_job("replay_opening", {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: line,
+                                           ARG_LABEL["fallback"]: TALK_LABEL["talk_agree_light"]})
+        v = Verdict(NO_FACT, ""); v.by = "test"; f.on_grounded(line, v)
+        f.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_agree_light"})
+        f.on_callee(); f.on_heard("ええ。")
+        r = heard(f.apply("replay_opening", {"part": "resume"}))
+        self.assertNotIn("話を戻させていただきますね。", r)
+        self.assertTrue(r.startswith("お忙しいところ恐れ入ります。"), r)   # あいさつの前に相づちを付けない
+        self.assertTrue(r.endswith("営業部部長の「おかだ」様はいらっしゃいますでしょうか？"), r)
+        self.assertIn("と申します。", r)   # 名乗り（第一声のあとと同じ録音）
+        self.assertIn("と申します。", first)
 
     def test_asked_to_say_the_answer_again(self):
         # ⛔ 2026-11-08 日本時間6時台（11-07 23時26分13秒のご質問の見直しの A-3）：ご説明の直後の「え、すみません、もう一度お願いできますか？」（判定 REPEAT）を
