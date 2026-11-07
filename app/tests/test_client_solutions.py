@@ -398,8 +398,9 @@ class Solutions(Base):
 
     def test_a_solution_the_import_replaced_is_no_longer_offered(self):
         """(2) の4：取り込み直しで、取り込んだ中身が先になった解決策（同じ問いの名前の答えを書いた）は、置き換えられたと残し（1か所＝
-        client_solutions.replaced。登録の共通の1か所 business_import.register_shaped が書く）、流れに入っていない前の解決策に出さず、知らせ
-        solution_earlier も出さない（選んで取り込んだ中身を上書きしない）。そのあとの取り込み直しでも残さない。⛔ 前は出続け、毎回知らせた。"""
+        client_solutions.replaced。登録の共通の1か所 business_import.register_shaped が書く）、取り込みの答えの入った流れには、流れに入って
+        いない前の解決策に出さず、知らせ solution_earlier も出さない（選んで取り込んだ中身を上書きしない。入っていない流れでは、解決策の古い文
+        でなく取り込みの答えで出す＝0204）。そのあとの取り込み直しでも残さない。⛔ 前は出続け、毎回知らせた。"""
         from salescall.core import business_import
         from tests.test_business_import import book
         s = self.ready()
@@ -427,6 +428,7 @@ class Solutions(Base):
         p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", book()), OPERATOR)
         self.assertNotIn("料金", {a["name"] for a in p.raw["answers"]})                       # 置き換えられた解決策は、よみがえらない
         self.assertIn("解約", {a["name"] for a in p.raw["answers"]})
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.kept_answers(tx, s["business"])), [("解約", "いつでも解約できます。")])
         with self.assertRaises(Rejected) as e:                                                # 置き換えた版は、その取引で取り込み直した版だけ
             self.tx(s, lambda tx: client_solutions.replaced(tx, [first.solution_id], s["version"]), OPERATOR)
         self.assertIn(e.exception.constraint, ("client_solution_replacement_version", "client_solution_replacements_pkey"))
@@ -909,3 +911,182 @@ class Solutions(Base):
         notes = self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'recording_needed'"
                                              " AND refs ->> 'version_id' = %s", (str(made),)))
         self.assertEqual(notes, [])
+
+    # ── 0204（✅ 計画書 6-1 (5)(6) にそろえる＝本体 CL-2 の決定）：取り込み直しで置き換えた解決策も、置き換えた取り込みの答えとして、
+    #    手で外した実施回の確かめに数える。⛔ 前は、置き換えた解決策を一覧から除いたので、取り込み直しで確かめ待ちが消え、門が通った
+    def imported(self, s, answers):
+        """業務設定を取り込み直す（想定問答だけを answers＝[(問いの名前, 答え)] にしたファイル）。登録した版を返す。"""
+        from salescall.core import business_import
+        from tests.test_business_import import book
+        data = book(sheets={"想定問答": [("問いの名前", "答え")] + list(answers)})
+        p = self.tx(s, lambda tx: business_import.preview(tx, s["business"], "業務設定.xlsx", data), OPERATOR)
+        self.assertEqual(p.problems, [])
+        return self.tx(s, lambda tx: business_import.register(tx, s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
+                                                              ai=p.ai), OPERATOR)
+
+    def offered(self, s, run):
+        """その実施回の確かめの一覧：[(解決策, 文, 置き換えた取り込みの答えか, 手で外した, まだ確かめていない)]。"""
+        return [(r["solution_id"], r["solution_text"], r["replaced"], r["removed"], r["unconfirmed"])
+                for r in self.tx(s, lambda tx: client_solutions.not_in_line(tx, run))]
+
+    def test_an_import_that_replaces_a_removed_solution_still_waits_for_the_contractor(self):
+        """場面 S（第三者の見直し）：解決策「料金」を足し、実施回 R1 を手で前の版に戻した（写し C。承認待ち）。契約者が取り込み直し、取り込んだ
+        中身に「料金」の答えを書いた。R1 は写し C のまま（取り込み直しで R1 の版を自動で替えない＝6-1 (5)）なので、確かめの一覧に、置き換えた
+        取り込みの答えで残り、門は止めたまま（6-1 (6)）。「入れる」を選ぶと、R1 の流れに入るのは取り込みの答え（解決策の古い文で上書きしない）
+        で、録音が要るのは、その答えの部分だけ（6-1 (4)）。選んだら、門はすぐ通す。"""
+        from salescall.core import gate, quality_stage, recordings
+        s = self.ready()
+        sid, _, copy = self.reverted(s)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, copy, 1, None, evidence="試験"), OPERATOR)
+        row = self.other_row(s, s["run"], copy)
+        self.assertEqual(self.reason(row), "solutions_unconfirmed")
+        vi = self.imported(s, [("料金", "料金は担当よりご案内します。")])
+        replaced = self.tx(s, lambda tx: tx.all("SELECT solution_id, version_id FROM salescall.client_solution_replacements"))
+        self.assertEqual([(r["solution_id"], r["version_id"]) for r in replaced], [(sid, vi)])
+        self.tx(s, lambda tx: bs.adopt_ready(tx, s["run"]))
+        self.assertEqual(self.cur_v(s, s["run"]), copy)                                          # R1 の版は替わらない
+        self.assertEqual(self.offered(s, s["run"]), [(sid, "料金は担当よりご案内します。", True, True, True)])
+        self.assertEqual(self.reason(row), "solutions_unconfirmed")                              # 門は止めたまま
+        line, = self.tx(s, lambda tx: client_solutions.add_earlier(tx, s["run"], [sid]), OPERATOR)
+        self.assertEqual(line.base, copy)
+        self.assertEqual(dict(self.tx(s, lambda tx: bs.load(tx, line.version_id)).answers)["料金"], "料金は担当よりご案内します。")
+        need = self.tx(s, lambda tx: recordings.needed_parts(tx, line.version_id))
+        self.assertTrue(need)
+        for voice, parts in need.items():                                                        # 録音が要るのは、入れた答えの部分だけ
+            self.assertEqual(list(parts.values()), ["料金は担当よりご案内します。"], voice)
+        self.assertEqual(self.offered(s, s["run"]), [])
+        got = self.claim(row)
+        self.assertIsInstance(got, gate.Claim, got)
+
+    def test_the_confirmation_list_follows_the_latest_import_and_drops_a_question_the_import_no_longer_answers(self):
+        """取り込み直すたびに置き換えを残し（0204 (2)）、確かめの一覧は、いちばん新しく置き換えた取り込みの答えを出す（⛔ 前は1つの解決策に
+        置き換えは1つだけ）。同じ答えの取り込み直しでは置き換えを足さない。置き換えた答えは取り込みの中身なので、あとの取り込み直しに無ければ
+        解決策として残さず（よみがえらせない）、入れる中身が無いので一覧にも出さない。「入れない」と確かめたら門を通し、そのあとの取り込み直しで
+        答えが変わっても、また止めない。"""
+        from salescall.core import gate
+        s = self.ready()
+        sid, solved, copy = self.reverted(s)
+        v1 = self.imported(s, [("料金", "料金は担当よりご案内します。")])
+        v2 = self.imported(s, [("料金", "料金は月額1万2千円です。")])
+        replaced = self.tx(s, lambda tx: tx.all("SELECT solution_id, version_id FROM salescall.client_solution_replacements ORDER BY seq"))
+        self.assertEqual([(r["solution_id"], r["version_id"]) for r in replaced], [(sid, v1), (sid, v2)])
+        self.assertEqual(self.offered(s, s["run"]), [(sid, "料金は月額1万2千円です。", True, True, True)])
+        self.imported(s, [("料金", "料金は月額1万2千円です。")])                                   # 同じ答え：置き換えを足さない
+        self.assertEqual(len(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.client_solution_replacements"))), 2)
+        self.tx(s, lambda tx: client_solutions.leave_out(tx, s["run"], [sid]), OPERATOR)
+        self.assertEqual(self.offered(s, s["run"]), [(sid, "料金は月額1万2千円です。", True, True, False)])
+        self.imported(s, [("料金", "料金は月額1万5千円です。")])
+        self.assertEqual(self.offered(s, s["run"]), [(sid, "料金は月額1万5千円です。", True, True, False)])   # 確かめたまま
+        self.assertIsNone(self.tx(s, lambda tx: gate.waits_unknown(tx, s["task"])))
+        v4 = self.imported(s, [])                                                                 # 「料金」を消した取り込み直し
+        self.assertNotIn("料金", dict(self.tx(s, lambda tx: bs.load(tx, v4)).answers))             # よみがえらせない
+        self.assertEqual(self.offered(s, s["run"]), [])
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.not_in_version(tx, solved)), [])    # 答えのある版にも、空の中身を出さない
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.kept_answers(tx, s["business"])), [])
+
+    def test_a_run_that_chose_to_put_a_solution_in_is_not_held_again_when_an_import_changes_it(self):
+        """手で外した解決策を、その実施回で「入れる」と選んだあと、取り込み直しで答えが変わっても、その実施回は承認待ちに戻さない（「入れない」と
+        同じく確かめ済み＝client_solutions._marks の1か所。⛔ 0204 の前は「入れる」を、流れに入って一覧に出ないことでしか数えなかった）。
+        一覧には新しい答えで出るので、また「入れる」を選べる。"""
+        s = self.ready()
+        sid, _, _ = self.reverted(s)
+        self.tx(s, lambda tx: client_solutions.add_earlier(tx, s["run"], [sid]), OPERATOR)
+        self.assertEqual(self.offered(s, s["run"]), [])
+        self.imported(s, [("料金", "料金は担当よりご案内します。")])
+        self.assertEqual(self.offered(s, s["run"]), [(sid, "料金は担当よりご案内します。", True, True, False)])
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.unconfirmed(tx, s["run"])), [])
+        self.tx(s, lambda tx: client_solutions.add_earlier(tx, s["run"], [sid]), OPERATOR)
+        self.assertEqual(self.offered(s, s["run"]), [])
+
+    def test_an_import_that_renames_or_repeats_a_removed_solution_still_waits_for_the_contractor(self):
+        """取り込み直しの前後で同じ形の抜けが無いか：手で外した解決策の問いを、取り込み直した中身が (1) 別の名前で書いた（名前が変わった＝
+        「料金」は無い。手で外したので、解決策も残さない＝6-1 (5)）(2) 解決策と同じ答えで書いた、どちらでも、置き換えではなく、実施回の版は
+        写しのまま（中身が入っていない）なので、解決策の文のまま一覧に出し、承認待ちのまま。"""
+        from salescall.core import quality_stage
+        s = self.ready()
+        sid, _, copy = self.reverted(s)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, copy, 1, None, evidence="試験"), OPERATOR)
+        row = self.other_row(s, s["run"], copy)
+        for answers, kept in (([("料金のご案内", "料金は担当よりご案内します。")], None), ([("料金", "月額1万円です。")], "月額1万円です。")):
+            with self.subTest(answers=answers):
+                v = self.imported(s, answers)
+                self.assertEqual(dict(self.tx(s, lambda tx: bs.load(tx, v)).answers).get("料金"), kept)
+                self.assertEqual(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.client_solution_replacements")), [])
+                self.assertEqual(self.cur_v(s, s["run"]), copy)
+                self.assertEqual(self.offered(s, s["run"]), [(sid, "月額1万円です。", False, True, True)])
+                self.assertEqual(self.reason(row), "solutions_unconfirmed")
+
+    def test_a_hand_assignment_after_an_import_removes_the_import_answer_that_replaced_a_solution(self):
+        """手で外した印（データベースの hand_removals）も、置き換えた取り込みの答えで数える（同じ1か所 business_solutions を読む）：取り込み直した
+        版から、取り込みの答えの入っていない版へ手で戻した実施回・古い版で作った実施回は、承認待ちになる（6-1 (6)）。"""
+        from salescall.core import registry
+        s = self.ready()
+        aid = self.called(s)
+        sid = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                         name_answer=self.namer("料金")), OPERATOR).solution_id
+        vi = self.imported(s, [("料金", "料金は担当よりご案内します。")])
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], vi, reason="試験：取り込み直した版"), OPERATOR)
+        self.assertEqual(self.offered(s, s["run"]), [])                                          # 取り込みの答えが入っている
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], s["version"], reason="試験：手で前の版に戻す"), OPERATOR)
+        self.assertEqual(self.offered(s, s["run"]), [(sid, "料金は担当よりご案内します。", True, True, True)])
+        old = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "古い版の実施回", s["version"], reason="試験"), OPERATOR)
+        self.assertEqual(self.offered(s, old), [(sid, "料金は担当よりご案内します。", True, True, True)])
+
+    # ── 2026-11-07 の見直し H（データベースの監査）：契約者の取引が直接書いても守られるか・外しても試験が落ちなかった守り
+    PUT = ("INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason)"
+           " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id, %s, salescall.cur_actor(), '直接' FROM salescall.runs r"
+           " WHERE r.run_id = %s")
+
+    def test_a_version_another_run_uses_without_a_solution_cannot_be_given_directly(self):
+        """流れを分けるか（データベースの1か所 salescall.version_shared_without_solutions。0204）：ほかのまだ終えていない実施回がいま使っていて、
+        依頼者の解決策が入っていない版を、契約者の取引が run_versions へ直接、手で割り当てると断る（守り run_version_manual_shared）。
+        ⛔ 前は Python の割り当ての道（business_settings._shared_apart）だけが写しを作って分け、直接書くと2つの実施回が同じ流れを使い、片方の
+        「入れる」で、もう片方の承認待ちが消えて門が開いた。割り当ての道では写しを作る。解決策がすべて入っている版・その実施回だけが使う版
+        （同じ版をもう一度）・自動の割り当ては断らない。"""
+        from salescall.core import registry
+        s = self.ready()
+        sid, solved, copy = self.reverted(s)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], copy, reason="試験：同じ版をもう一度手で"), OPERATOR)   # 使っているのが自分だけ：分けない
+        self.assertEqual(self.cur_v(s, s["run"]), copy)
+        self.tx(s, lambda tx: tx.execute(self.PUT, (copy, s["run"])), OPERATOR)
+        self.assertEqual(self.cur_v(s, s["run"]), copy)
+        r2 = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "R2", solved, reason="試験"), OPERATOR)
+        self.assertEqual(self.cur_v(s, r2), solved)
+        self.rejected(s, lambda tx: tx.execute(self.PUT, (copy, r2)), OPERATOR, "run_version_manual_shared")
+        self.assertEqual(self.marks(s, s["run"]), [(sid, True, True)])
+        r3 = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "R3", solved, reason="試験"), OPERATOR)
+        self.tx(s, lambda tx: tx.execute(self.PUT, (solved, r3)), OPERATOR)                     # 解決策がすべて入っている版は分けない
+        self.assertEqual(self.cur_v(s, r3), solved)
+        self.tx(s, lambda tx: bs.assign(tx, r2, copy, reason="試験：割り当ての道"), OPERATOR)       # 割り当ての道は写しを作る
+        self.assertNotIn(self.cur_v(s, r2), (copy, solved))
+        self.tx(s, lambda tx: bs.assign(tx, r3, copy, reason="自動：試験", auto=True))           # 自動の割り当ては断らない
+        self.assertEqual(self.cur_v(s, r3), copy)
+
+    def test_a_replacement_is_kept_only_for_a_version_of_its_business(self):
+        """置き換えた版は、その解決策の業務の版だけ（守り client_solution_replacement_version の業務の決まり＝salescall.solution_business）。
+        その取引で作った版でも、ほかの業務の版は断る（その業務の版なら書ける）。"""
+        s = self.ready()
+        sid, _, _ = self.reverted(s)
+        b2, _ = self.w.business_with_version(s["tenant"], s["client"])
+        self.rejected(s, lambda tx: client_solutions.replaced(tx, [sid], bs.save_version(tx, b2, settings_raw())), OPERATOR,
+                      "client_solution_replacement_version")
+        self.tx(s, lambda tx: client_solutions.replaced(tx, [sid], bs.save_version(tx, s["business"], settings_raw())), OPERATOR)
+
+    def test_a_leave_out_cannot_be_changed_and_is_seen_only_by_its_client(self):
+        """「入れない」の記録（0200 の client_solution_leave_outs）は、あとから書き換え・消しができず（持ち主の取引でも）、ほかの依頼者・ほかの
+        契約者からは見えない。"""
+        from tests.support import owner_access
+        s = self.ready()
+        sid, _, _ = self.reverted(s)
+        self.tx(s, lambda tx: client_solutions.leave_out(tx, s["run"], [sid]), OPERATOR)
+        own = owner_access()
+        for sql in ("UPDATE salescall.client_solution_leave_outs SET recorded_by = 'だれか' WHERE solution_id = %s",
+                    "DELETE FROM salescall.client_solution_leave_outs WHERE solution_id = %s"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                own.in_system(OPERATOR, lambda tx, sql=sql: tx.execute(sql, (sid,)))
+        read = "SELECT solution_id FROM salescall.client_solution_leave_outs"
+        self.assertEqual([r["solution_id"] for r in self.tx(s, lambda tx: tx.all(read), OPERATOR)], [sid])
+        other_client = self.w.client(s["tenant"])
+        self.assertEqual(self.w.a.in_client(OPERATOR, s["tenant"], other_client, lambda tx: tx.all(read)), [])
+        stranger = self.w.setup()
+        self.assertEqual(self.w.a.in_client(OPERATOR, stranger["tenant"], stranger["client"], lambda tx: tx.all(read)), [])
