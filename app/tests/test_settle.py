@@ -1626,6 +1626,27 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual(self.plan(s), self.handed_over(new))
         self.assertEqual(self.tx(s, lambda tx: tasks.former_numbers(tx, s["task"])), [s["phone"]])
 
+    def test_a_choice_made_during_the_call_to_the_old_person_is_not_the_choice_for_its_new_promise(self):
+        """前の担当の方への通話のあと、締める前に記録された「守る」の選び（前の約束についての選び）は、その通話で前の担当の方がした新しい約束の
+        選びと数えない（選び待ちが数えるのは、その通話を締めたあとの選びだけ＝salescall.task_old_promise_waiting の1か所。0202）。いまの入口では、
+        通話が鳴ったあとは約束を「もうかけた」とみなすので、この時に番号を直しても選びは要らない（記録されない）。⇒ 入口の守りを外して記録を
+        直に置き、データベースの1か所の決まりを確かめる（入口が変わっても、この食い違いを作らない）。"""
+        s = self.ready()
+        self.promise_window(s)
+        new = self.fixed_as(s, False, True)
+        aid = self.call(s, report=rep(callback=callback("later", time="あとで")))   # 前の担当の方の新しい約束（まだ締めていない）
+
+        def chosen_before_settle(tx):   # 試験：持ち主の取引の中だけ仕掛けを外して、締める前の「守る」の選びを置く
+            tx.execute("ALTER TABLE salescall.task_dial_fixes DISABLE TRIGGER USER")
+            tx.execute("INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by, same_person, keep_old_promise,"
+                       " recorded_at) SELECT t.tenant_id, t.client_id, t.task_id, %s, 'test', false, true, now() FROM salescall.tasks t"
+                       " WHERE t.task_id = %s", (new, s["task"]))
+            tx.execute("ALTER TABLE salescall.task_dial_fixes ENABLE TRIGGER USER")
+        owner_access().in_system(SYSTEM, chosen_before_settle)
+        self.settle(s, aid)
+        self.assertEqual(self.plan(s)[:4], ("call", s["contact"], "normal", True))
+        self.assertEqual(self.tx(s, lambda tx: tasks.old_promise_waiting(tx, s["task"])), aid)
+
     def test_the_old_person_stays_the_old_person_after_a_later_same_person_fix(self):
         """「違う」で直したあとに「同じ」（新しい担当の方の別の番号）で直しても、担当の方は替わったまま：基準は「違う」を選んだ、いちばん新しい
         直し（salescall.task_former_number の1か所。0202 の本体の指示 (1)。⛔ 前は、いちばん新しい直しだけを見て、前の担当の方の断りで行の番号
