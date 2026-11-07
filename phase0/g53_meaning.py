@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ANY, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
-                     JUDGMENTS, ambiguous_word, later_offer, off_talk, prior_answer, restates, wait_reading)
+                     JUDGMENTS, ambiguous_word, later_offer, off_talk, prior_answer, restates, takes_for_now, wait_reading)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
 
@@ -614,6 +614,9 @@ ANSWER_FIRST = "尋ねられたことに先に答える"
 # もう一度言ってほしいと頼まれた（flowctl.REPEAT・流れの制御は Flow._repeat_now の1か所）：「失礼いたしました。」のあと、伺ったことを流し直す（✅ 2026-11-06 日本時間
 # 15時20分30秒 ユーザー「(1)…OK」）
 REPEAT_ACT = "「失礼いたしました。」のあと伺ったことを流し直す"
+# ほかに分からない点が無いかを伺う質問への、言い切っていない「無い」（flowctl.takes_for_now の1か所＝流れの制御 Flow._keep_toward_goal・_tell_due）：確かめ直さずに
+# 受け取り、「何かわからないことがございましたら…」を添える（✅ 2026-11-07 日本時間13時05分06秒 ユーザー）。言い切った「無い」は「受け取る：」のまま
+ANYTIME_TAKE = "一言を添えて受け取る："
 
 
 def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
@@ -648,7 +651,9 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
     # 言い切っていない読みは、選択肢も「どちらでも」「どれも要らない」も確かめる（流れの制御は「わからない」「答えたくない」のほかを確かめる＝
     # Flow._checks。⛔ 2026-11-02 に見つけた：この数えは「どちらでも」を確かめずに受け取ると数えていた＝流れの制御の動きと違う）
     # 言い切りで動きが変わる読みかは meaning_judge.firm_matters の1か所（判定の組が確かな読みかを決めるのと同じ）
-    return f"念のため確かめる：{got}" if firm_matters(q, got) and firm is False else f"受け取る：{got}"
+    if firm_matters(q, got) and firm is False:
+        return ANYTIME_TAKE + got if takes_for_now(q, got) else f"念のため確かめる：{got}"
+    return f"受け取る：{got}"
 
 
 def flow_wants(it: dict, q: Question) -> set[str]:
@@ -677,7 +682,8 @@ def flow_wants(it: dict, q: Question) -> set[str]:
         elif a in (UNDECIDED, "unknown"):
             ok.add(ASK_AGAIN)
         elif a in q.conditions or a in (ANY, NONE):
-            ok |= {f"受け取る：{a}", f"念のため確かめる：{a}"} if e else {f"念のため確かめる：{a}" if h else f"受け取る：{a}"}
+            unsure = ANYTIME_TAKE + a if takes_for_now(q, a) else f"念のため確かめる：{a}"   # 言い切っていない答えの動き（flow_act と同じ1か所 takes_for_now）
+            ok |= {f"受け取る：{a}", unsure} if e else {unsure if h else f"受け取る：{a}"}
         else:
             ok.add(f"受け取る：{a}")
     return ok
@@ -713,7 +719,11 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
         return "答えなのに、尋ねられたとして先に答える"
     if ANSWER_FIRST in want and pure:
         return "尋ねられたことに答えずに、推し量って進める・確かめる"
-    if act in (AFFIRMED, AFFIRMED_HEDGED) or act.startswith("受け取る"):
+    if act.startswith(ANYTIME_TAKE) and act.replace(ANYTIME_TAKE, "受け取る：") in want:
+        return "要らない一言（値は正しい）"   # 言い切った「無い」に「何かわからないことが…」を添えた
+    if act.startswith("受け取る：") and act.replace("受け取る：", ANYTIME_TAKE) in want:
+        return "一言が落ちた（値は正しい）"   # 今のところの「無い」を言い切りと読み、「何かわからないことが…」を添えなかった
+    if act in (AFFIRMED, AFFIRMED_HEDGED) or act.startswith("受け取る") or act.startswith(ANYTIME_TAKE):
         if act == AFFIRMED_HEDGED and AFFIRMED in want:
             return "要らない曖昧の印（値は正しい）"
         if act == AFFIRMED and AFFIRMED_HEDGED in want:

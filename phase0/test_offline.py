@@ -79,7 +79,9 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          "wish_told_way",
                          # 同じ所へ2回目に戻るときの戻る一言の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(4) H7」。CL-1.md 4-106）と、システムの質問を2回目・
                          # 3回目からの戻る一言・方法をお伝えした一言に続けて流す形（phrases.BACK_FIT＝back_fit の1か所。4時40分35秒。CL-1.md 4-107）
-                         "back_again", *__import__("phrases").BACK_FIT})
+                         "back_again", *__import__("phrases").BACK_FIT,
+                         # ほかに分からない点は今のところ無いと言われたときに添える一言の録音（✅ 11-07 日本時間13時05分06秒 ユーザー。CL-1.md 4-108）
+                         "unclear_anytime"})
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -13583,6 +13585,56 @@ class NoneOfThemTest(unittest.TestCase):
             names.setdefault(question_clip(p["id"], p["lead"] or ""), set()).add(p["text"])
         self.assertEqual({n: len(t) for n, t in names.items() if len(t) > 1}, {})
         self.assertIn(BACK_TO_MIDWAY + "ほかに" + body, {t for ts in names.values() for t in ts})
+
+    def test_no_doubts_for_now_is_taken_with_the_anytime_line(self):
+        # ✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「「今のところ質問はありません。」⇒「何かわからないことがございましたら いつでもご遠慮なくおっしゃって
+        # くださいね。 」と言った感じで「が」があろうがなかろうが、 この言葉を添える方がいいと思います。その後に続きまして と入るのがスムーズでしょう。」
+        # ⇒ ほかに分からない点が無いかを伺う質問（Question.unclear_none）への、言い切っていない「無い」は、確かめ直さずに受け取り（言い切っていない印は依頼者へ
+        # 渡す）、この一言（共通の一言の録音 unclear_anytime）を添えてから「続きまして」で次の質問へ。⛔ それまでは「はい、それではご不明な点はないということで
+        # 記録させていただいて大丈夫でしょうか？」と確かめていた
+        from flowctl import Flow, Question
+        from meaning_judge import Reading
+        from phrases import ACK, RECORDED, UNCLEAR_ANYTIME
+
+        def answered(firm):
+            f = Flow([Question("Q1", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"), unclear_none="いいえ",
+                               meanings={"はい": "ご不明な点がおありということ", "いいえ": "ご不明な点はないということ"}),
+                      Question("Q2", "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？", "choice", conditions=("オンライン", "訪問"))],
+                     play_recordings=True)
+            f.use_checks("judge", "judge2")
+            f.on_callee(); f.on_heard("今のところ質問はありません。")
+            for k in ("judge", "judge2"):
+                r = Reading("いいえ"); r.firm = firm; f.on_check(k, r)
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+            return f, r, ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])
+        f, r, heard = answered(False)
+        self.assertEqual((r["result"], r["question_id"], f.export()["Q1"]), ("next", "Q2", "いいえ"))
+        self.assertEqual(heard, "承知しました。" + UNCLEAR_ANYTIME + "続きましてお打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？")
+        self.assertTrue(f.items["Q1"].hedged)   # 言い切っていない印とお客様の言葉は依頼者へ渡す
+        self.assertEqual(RECORDED["unclear_anytime"], UNCLEAR_ANYTIME)
+        self.assertNotIn("、", UNCLEAR_ANYTIME)   # 決まった言い方なので言葉の途中に読点を入れない（10-15）
+        # 言い切った「無い」は、今までどおり次の質問へ（一言は添えない）
+        f, r, heard = answered(True)
+        self.assertEqual((r["question_id"], heard), ("Q2", "承知しました。続きましてお打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？"))
+
+    def test_measure_counts_the_anytime_line_for_a_for_now_none(self):
+        # 測りの数え（g53_meaning の flow_act・flow_wants・flow_miss）も、流れの制御と同じ1か所（flowctl.takes_for_now）で、ほかに分からない点が無いかを
+        # 伺う質問への言い切っていない「無い」を「一言を添えて受け取る」と数え、言い切りと読んで一言が落ちたのを「念のための確かめ」と取り違えない
+        # （✅ 2026-11-07 日本時間13時05分06秒 ユーザー）
+        from flowctl import Question
+        from g53_meaning import ANYTIME_TAKE, flow_act, flow_miss, flow_wants
+        q = Question("U1", "ご不明な点はございませんでしょうか？", "yes_no", conditions=("はい", "いいえ"), unclear_none="はい",
+                     meanings={"はい": "ご不明な点はないということ", "いいえ": "ご不明な点がおありということ"})
+        def row(hedged, firm):
+            return {"set": "B", "qid": "U1", "text": "今のところ質問はありません", "label": {"accept": ["はい"], "hedged": hedged},
+                    "J": "はい", "J言い切り": firm}
+        self.assertEqual(flow_act(row(True, False), q, "はい", False), ANYTIME_TAKE + "はい")
+        self.assertEqual(flow_wants(row(True, False), q), {ANYTIME_TAKE + "はい"})
+        self.assertEqual([flow_miss(row(h, firm), q, "J") for h, firm in ((True, False), (True, True), (False, False), (False, True))],
+                         [None, "一言が落ちた（値は正しい）", "要らない一言（値は正しい）", None])
+        # ほかの質問の言い切っていない答えは、今までどおり念のため確かめる
+        other = Question("U2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        self.assertEqual(flow_act(row(True, False), other, "はい", False), "念のため確かめる：はい")
 
     def test_fixed_questions_after_the_second_and_third_back_lines(self):
         # 決まった文の質問（システムの質問・ほかのご希望を伺う一言）へ2回目・3回目から戻るとき（✅ 2026-11-07 日本時間3時14分01秒「(4) H7」・4時40分35秒）：

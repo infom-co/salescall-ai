@@ -491,6 +491,14 @@ def holds_pending(q: "Question") -> bool:
     return not (q.asks_fact or q.reading_of or q.callback or q.approval)
 
 
+def takes_for_now(q: "Question", condition: str | None) -> bool:
+    """ほかに分からない点が無いかを伺う質問（取込の unclear_none）への「無い」か（唯一の決まり＝流れの制御 Flow._ask_confirm・_keep_toward_goal・_tell_due と
+    測りの数え g53_meaning.flow_act・flow_wants）。言い切っていなければ（「今のところ質問はありません。」）確かめ直さずに受け取り、「何かわからないことが
+    ございましたらいつでもご遠慮なくおっしゃってくださいね。」を添えてから次の質問へ。✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「「が」があろうが
+    なかろうが、 この言葉を添える方がいいと思います。その後に続きまして と入るのがスムーズでしょう。」"""
+    return bool(q.unclear_none) and condition == q.unclear_none
+
+
 def pending_recording_id(q: "Question") -> str:
     """保留で締める一言（pending_line）の録音の名前（唯一の場所＝流れの制御と録音を作る道具 make_ack_clips.script_table）：「質問の番号_pending」。"""
     return f"{q.id}_pending"
@@ -4733,9 +4741,10 @@ class Flow:
             return None if args.get("part") in ("handover", "ai") else "shitsurei"
         # 返事の頭に流す決まった一言（Flow._advance）の相づちは、その一言の決まり：聞き取れないまま先へ進むとき・締めの前の念のための確認の前でも同じ
         # （CL-1 の 11-03 のご判断の (7)。⛔ 見直しで見つけた：下の2つが先にあり、「はい、LINEでのご連絡のご希望を…」・「申し訳ございません、そのご希望を…」）
-        if (reply.get("wish_told") or reply.get("pending_told")) and result in ("next", "end", "recheck"):
+        if (reply.get("wish_told") or reply.get("pending_told") or reply.get("anytime_told")) and result in ("next", "end", "recheck"):
             # ほかのご希望を申し伝える一言（業務に無いことはお約束しない）・保留で締める一言（✅ 2026-11-06 日本時間11時19分55秒 ユーザー：「「承知しました。それでは
-            # パンフレットは保留とさせていただきますね。」」）の頭は「承知しました。」（Flow._advance）
+            # パンフレットは保留とさせていただきますね。」」）・今のところ分からない点は無いと言われたときに添える一言（「承知しました。何かわからないことが
+            # ございましたら…」＝言い切った「無い」と同じ受けの言葉のあとに添える。✅ 2026-11-07 日本時間13時05分06秒）の頭は「承知しました。」（Flow._advance）
             return "shouchi"
         if reply.get("told") and result in ("next", "end", "recheck"):
             return "hai"  # 受け取った答えのあとに業務の一言を伝える（「はい、○○駐車場をご利用いただけますので…」＝Flow._advance）
@@ -8073,6 +8082,11 @@ class Flow:
             # 確かめ」。明らかにお断りの方・怒っている方は除く＝その答えは言い直しを通らず、お断り・お詫びの締めの道へ行く）。いまの話の向きを伺う一言
             # （end_doubt。「パンフレットはお送りしない方がいいということでしょうか？」＝11-01 22時31分のご判断）はこのまま
             return self._keep_toward_goal(qid, after)
+        if choice and takes_for_now(q, it.condition) and (after or "").startswith("hedged"):
+            # ほかに分からない点が無いかを伺う質問（取込の unclear_none）への、言い切っていない「無い」（「今のところ質問はありません。」）も、言い直さずに
+            # 受け取る（✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「「が」があろうがなかろうが、この言葉を添える方がいいと思います。その後に続きまして と
+            # 入るのがスムーズでしょう。」＝確かめ直さずに一言を添えて次へ。添える一言は答えのあとの一言の1か所 _tell_due）
+            return self._keep_toward_goal(qid, after)
         if choice and after == "ambiguous" and Flow._hedged_after(q, it.condition) == "hedged_do":
             # どちらとも取れる答え（「大丈夫です。」）を、進める向きの選択肢で伺う：こちらがすることの言葉で（「はい、それではパンフレットをお送りさせて
             # いただきますね？」）。✅ 2026-11-03 ユーザー：「「はい、それではパンフレットをお送りさせていただきますね」だと前に言ったよね！！なぜ、同じ過ちを
@@ -8135,7 +8149,9 @@ class Flow:
         - まだどちらとも言っていない答え（曖昧な答え「大丈夫です」・言い直しで食い違った答え＝ambiguous・settle）：目的に進む向きの選択肢が1つなら、
           その向きで伺う（こちらがすることの言葉で「それではパンフレットをお送りさせていただきますね？」）。1つに決まらなければ、言い直さずに聞き返す
         - 遠ざかる向きに寄っている・言った答え（言い切っていない答え・こちらの言い直しへの「いえ」）：言い直さずに受け取り、「承知しました。」で次へ
-          （✅ 2026-11-03 ユーザー：「提案の「承知しました」で次に進むでもOK」。言い切っていなければ「曖昧」の印とお客様の言葉を依頼者へ渡す）"""
+          （✅ 2026-11-03 ユーザー：「提案の「承知しました」で次に進むでもOK」。言い切っていなければ「曖昧」の印とお客様の言葉を依頼者へ渡す）
+        - ほかに分からない点が無いかを伺う質問への、言い切っていない「無い」（「今のところ質問はありません。」）：同じく言い直さずに受け取る。添える一言
+          「何かわからないことがございましたら…」は _tell_due（✅ 2026-11-07 日本時間13時05分06秒 ユーザー）"""
         it, q = self.items[qid], self.questions[qid]
         if after in ("ambiguous", "settle"):
             ahead = q.toward
@@ -8151,7 +8167,9 @@ class Flow:
         if (after or "").startswith("hedged") or Flow._hedged(self.heard_said, self.heard_check):
             it.hedged = (self.heard_said or "").strip()[:40] or label(it.condition)
         self.awaiting_confirm = None
-        it.set("accepted", f"目的から遠ざかる向きの答え（「{label(it.condition)}」）：その向きの言葉では言い直さずに受け取る"
+        it.set("accepted", (f"ほかに分からない点は無いという、言い切っていない答え（「{label(it.condition)}」）：確かめ直さずに受け取り、一言を添える"
+                            if takes_for_now(q, it.condition) and it.hedged else
+                            f"目的から遠ざかる向きの答え（「{label(it.condition)}」）：その向きの言葉では言い直さずに受け取る")
                + (f"（言い切っていない：「{it.hedged}」）" if it.hedged else ""))
         r = self._advance("受け付けました。")
         return r
@@ -9048,12 +9066,15 @@ class Flow:
         if wish:
             plays.append({"kind": "recorded", "id": f"wish_told_{w['told']}", "text": WISH_TOLD[w["told"]]})
             w["told"], w["told_said"] = None, True
-        told = pending = False
+        told = pending = anytime = False
         for qid, it in self.items.items():
             if (line := self._tell_due(qid, ending=r.get("result") == "end")) is not None:
                 told = True
                 pending = pending or line[1] == pending_recording_id(self.questions[qid])
-                plays.append({"kind": "question", "id": line[1], "text": line[0], "lead": ""})
+                anytime = anytime or line[1] == "unclear_anytime"
+                # 業務の一言・保留の一言は依頼主の単位の録音（question）、どの業務でも同じ一言（unclear_anytime）は共通の一言の録音（recorded）
+                plays.append({"kind": "recorded", "id": line[1], "text": line[0]} if line[1] in RECORDED
+                             else {"kind": "question", "id": line[1], "text": line[0], "lead": ""})
         if not plays:
             return r
         if r.get("result") == "recheck":
@@ -9062,13 +9083,15 @@ class Flow:
             # 相づちの直しで、確かめの前のお詫びが抜けていた＝「…申し伝えます。お声が聞き取れませんでしたので…」）
             plays.append({"kind": "recorded", "id": "moushiwake_heavy", "text": ACK["moushiwake_heavy"]})
         out = self._led(plays, "", r) | ({"point_open": opened[0]} if opened else {"wish_told": True} if wish
-                                         else {"pending_told": True} if pending else {"told": True} if told else {})
+                                         else {"pending_told": True} if pending else {"anytime_told": True} if anytime
+                                         else {"told": True} if told else {})
         if (m := self._asked_next) is not None and m[0] is r:
             self._asked_next = (out, m[1])   # 外でさらに言葉を前に足されても、質問のつなぎの言葉を同じ1か所（_relead_next）で決める
         return out
 
     def _tell_due(self, qid: str, ending: bool) -> str | None:
-        """いま流す、その答えのあとに伝える業務の一言（Question.tell_words。無ければ None）を決める唯一の場所（流すものは「言った」の印を付ける＝1回だけ）：
+        """いま流す、その答えのあとに伝える業務の一言（Question.tell_words。無ければ None）・保留の一言・ほかに分からない点は今のところ無いと言われたときの
+        一言（unclear_anytime）を決める唯一の場所（流すものは「言った」の印を付ける＝1回だけ）：
         受け取った答えの一言で、まだ言っていないもの。ほかのご希望を伺う答え（_wish_due・いま伺っている W1）は、W1 を伺い終えるまで流さない（答えがまだ
         決まっていない）。伺い終えたら、決まった答えの一言を1回（選び直した答えの一言＝_wish_step が印を外す・ご連絡の方法やほかのご希望で続けるなら元の答えの
         一言）。W1 のあとに締める（ending＝無いと言われて目的が果たせない）なら流さない（CL-1 の 11-03 のご判断の (6)。⛔ 見直しで見つけた：「はい、お気軽に
@@ -9083,6 +9106,13 @@ class Flow:
             it.told = True
             return pending_line(q), pending_recording_id(q)
         line = q.tell_words.get(it.condition) if q.type in CHOICE_TYPES and it.state in TAKEN and not it.told else None
+        if line is None and takes_for_now(q, it.condition) and it.state in TAKEN and it.hedged and not it.told:
+            # ほかに分からない点が無いかを伺う質問への、言い切っていない「無い」（「今のところ質問はありません。」）を確かめ直さずに受け取ったら（_keep_toward_goal）、
+            # 「何かわからないことがございましたらいつでもご遠慮なくおっしゃってくださいね。」を添えてから次の質問へ（共通の一言の録音 unclear_anytime。
+            # ✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「「が」があろうがなかろうが、この言葉を添える方がいいと思います。その後に続きまして と入るのが
+            # スムーズでしょう。」）。その答えの業務の一言があれば、そちら（依頼者がその答えに言うと決めた言葉＝同じ意味の言葉を重ねない）
+            it.told = True
+            return RECORDED["unclear_anytime"], "unclear_anytime"
         if line is None:
             return None
         w = self.wish
