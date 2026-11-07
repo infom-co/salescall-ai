@@ -754,7 +754,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if (r := flow.judged_turn(voiced=voiced)) is None:
                         return False
                     if flow.end_reason is None:
-                        if r.get("say"):
+                        # 会話AIが話す返事（言わせる文 say・自分の言葉で答える番 speak＝尋ねられた・選ぶ助けを伝える番＝Flow._asked_turn）：知らせて1ターン話させる
+                        if r.get("say") or r.get("speak"):
                             start = len(flow.log)
                             await send_text(s, r["message"])
                             told = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool,

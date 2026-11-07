@@ -17820,6 +17820,82 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual((r2["result"], r2["after"]), ("confirm_required", "settle"))
         self.assertEqual(r2["say"], "それでは複合機は現在リースでご利用ということでよろしいでしょうか？")
 
+    def test_hesitating_without_a_report_is_answered_the_same_way(self):
+        # 迷っているお客様への応じ方（_hesitation の1か所）は、会話AIの報告で来ても、報告の無いターン（judged_turn）で来ても同じで、お客様に聞こえる言葉も同じ。
+        # 会話AIの声がもう流れていれば重ねない（流れた声を応じたとみなす＝考えている途中の「はい。」・もう一度言ってほしいと同じ voiced の決まり）。同じ発話に
+        # もう応じていれば、遅れて届いた報告・判定で重ねて応じない（伺ったばかりの「どういった点で…」のお返事を待たずに選ぶ助けを言わせない）。
+        # ⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの A-6・H-7・H-4）：報告の無いターンの入口は「どういった点で…」だけを受け持ち、
+        # 選ぶ助けの番（良い点のある業務）は無言だった・会話AIの声のあとにも「はい、どういった点で…」を重ねた・同じ発話の遅れた報告で、伺ったばかりなのに
+        # 選ぶ助けを言わせた
+        from flowctl import HESITATING, UNDECIDED, Flow, Question
+        from meaning_judge import Reading
+        from phrases import ACK, HESITATE_POINT
+        notes = {"カード": "カード会社のポイントがつく", "振込": "振込手数料はお客様のご負担"}
+        help_line = "カードですとカード会社のポイントがつきますので、そういった点もご考慮いただくとよいかもしれませんね。"
+        words = "カードか振込か迷っています。"
+
+        def flow(option_notes, play=True):
+            f = Flow([Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"), option_notes=option_notes),
+                      Question("Q2", "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？", "choice", conditions=("オンライン", "訪問"))],
+                     play_recordings=play)
+            f.use_checks("judge", "judge2")
+            return f
+
+        def hear(f, text, reading):
+            f.on_callee(); f.on_heard(text)
+            for k in ("judge", "judge2"):
+                f.on_check(k, Reading(reading))
+
+        def report(f):
+            return f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
+
+        def heard(r, play):
+            return ACK.get(r.get("ack"), "") + ("".join(p["text"] for p in r.get("play") or []) if play else (r.get("say") or ""))
+
+        def own(f, text):
+            grounded(f, text)
+            return f.apply("replay_opening", {"part": "own", "answer": text})
+
+        for play in (True, False):
+            for option_notes in ({}, notes):
+                name = (play, bool(option_notes))
+                a, b = flow(option_notes, play), flow(option_notes, play)
+                hear(a, words, HESITATING)
+                ra = report(a)
+                hear(b, words, HESITATING)
+                rb = b.judged_turn(voiced=False)
+                self.assertIsNotNone(rb, name)
+                self.assertEqual(heard(rb, play), heard(ra, play), name)
+                if option_notes:   # 選ぶ助けの番：会話AIに、選択肢ごとの良い点・気をつける点から選ぶ助けを伝えさせる（報告で来たときと同じ知らせ）
+                    self.assertTrue(rb.get("speak"), name)
+                    for text in (notes["カード"], notes["振込"], "すすめる気持ち"):
+                        self.assertIn(text, rb["message"], name)
+                    ra, rb = own(a, help_line), own(b, help_line)
+                    self.assertEqual(heard(rb, play), heard(ra, play), name)
+                    # 迷っている言葉は問いではない＝依頼者へ渡すお客様の質問に残さない（H-11）
+                    self.assertEqual((a.facts.get("callee_question"), b.facts.get("callee_question")), (None, None), name)
+                self.assertEqual(a.hesitating, b.hesitating, name)
+                # 同じ発話に、遅れて会話AIの報告が届いた：もう応じたので重ねない（声も相づちも出さず、お返事を待つ）
+                r = report(b)
+                self.assertEqual((heard(r, play), b.hesitating), ("", a.hesitating), name)
+                # 次のお返事には、今までどおりの次の段（重ねた応じ方の印に引きずられない）：選ぶ助けのあともまだ迷っている＝まだ伺っていない「どういった点で…」・
+                # 「どういった点で…」のあとの迷っている点＝選ぶ助け。選ぶ助けのあとの「決められない」は H-1（保留で締める）＝別の試験
+                if option_notes:
+                    hear(b, "うーん、やっぱり迷いますね。", HESITATING)
+                    self.assertEqual(heard(report(b), play), "はい、" + HESITATE_POINT, name)
+                else:
+                    hear(b, "手数料がかかるのか気になっていて。", UNDECIDED)
+                    r = report(b)
+                    self.assertEqual(r["result"], "rejected", name)
+                    self.assertIn("選ぶ助け", r["message"], name)
+            # 会話AIの声がもう流れた（会話AIが話す通話で、報告の代わりに声で応じた）：重ねず、応じた印だけ立てる
+            for option_notes in ({}, notes):
+                f = flow(option_notes, play)
+                hear(f, words, HESITATING)
+                r = f.judged_turn(voiced=True)
+                self.assertEqual((heard(r, play) if r else "", f.callee_turns in f.hesitating["Q1"].values(), f.facts.get("callee_question")),
+                                 ("", True, None), (play, bool(option_notes)))
+
     def test_hesitating_customer_is_helped_to_choose(self):
         # 言い終えた「迷っています。」には、待ったり急かしたり保留で締めたりせず、選ぶ助けになることを伝えて促す（尋ねられて答える1か所と同じ道）。
         # ✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「カード と振り込みのメリットデメリットを把握しておき 例えば「カードだと カード会社のポイントがつくので
