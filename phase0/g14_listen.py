@@ -45,14 +45,23 @@ WANT_AS = {"Q3": {"id": {"a2": "いいえ"}}, "Q5": {"want": {"はい": "して�
 def _decided(name: str, decide) -> dict:
     """取込で決めるもの（意味の言葉＝G-48・曖昧な言葉の意味＝G-49）を、保存した2つのモデルの答えから、取込と同じ決め方で決める（手で書かない）。
     結果が無ければ空（意味の言葉が無ければ選択肢の名前で言い直す・曖昧な言葉は確かめる）。"""
-    files = sorted((HERE / "results").glob(f"{name}_*.json"))
-    if not files:
+    return {qid: _decide_one(name, decide, q) for qid, q in QUESTIONS.items()}
+
+
+_ROWS: dict = {}
+
+
+def _decide_one(name: str, decide, q) -> dict:
+    """1つの質問に、取込で決めるもの（_decided の中身。測りの質問の表＝g53_meaning.question_map も、どの質問もここを通す）。"""
+    if name not in _ROWS:
+        files = sorted((HERE / "results").glob(f"{name}_*.json"))
+        d = json.loads(files[-1].read_text(encoding="utf-8")) if files else {"questions": [], "rows": {}}
+        # 質問の文と選択肢の組で引く（同じ文で選択肢の違う質問がある＝Q1 と Q5）
+        _ROWS[name] = {k: {(t, tuple(c)): w for (t, c), w in zip(d["questions"], v)} for k, v in d["rows"].items()}
+    rows = _ROWS[name]
+    if not rows:
         return {}
-    d = json.loads(files[-1].read_text(encoding="utf-8"))
-    # 質問の文と選択肢の組で引く（同じ文で選択肢の違う質問がある＝Q1 と Q5）
-    rows = {k: {(q, tuple(c)): w for (q, c), w in zip(d["questions"], v)} for k, v in d["rows"].items()}
-    return {qid: decide(q, [rows[k].get((q.text, tuple(q.conditions)), {}) for k in ("3.8 Flash", "3.7 Flash") if k in rows])
-            for qid, q in QUESTIONS.items()}
+    return decide(q, [rows[k].get((q.text, tuple(q.conditions)), {}) for k in ("3.8 Flash", "3.7 Flash") if k in rows])
 
 
 def meanings() -> dict:
@@ -60,9 +69,15 @@ def meanings() -> dict:
     return _decided("G-48", lambda q, got: decide(q.text, q.conditions, got))
 
 
-def replies() -> dict:
+def replies_for(q) -> dict:
+    """1つの質問の、取込で決める曖昧な言葉の意味（G-49 の2つのモデルの答え・meanings.decide_replies＝取込と同じ決め方）。⛔ 2026-11-07 日本時間
+    11時台に見つけた：業務の試しの質問（Q1〜Q5）にだけ当て、測りの質問の表の同じ文の質問（G8 など）には付いていなかった"""
     from meanings import decide_replies
-    return _decided("G-49", lambda q, got: decide_replies(q.conditions, got))
+    return _decide_one("G-49", lambda qq, got: decide_replies(qq.conditions, got), q)
+
+
+def replies() -> dict:
+    return {qid: replies_for(q) for qid, q in QUESTIONS.items()}
 
 
 def business(qid: str, with_meanings: bool = True) -> Business:

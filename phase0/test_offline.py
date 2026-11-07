@@ -3947,6 +3947,20 @@ class AmbiguousAnswerTest(unittest.TestCase):
         r = self.say(f, "大丈夫です。", "record_answer", question_id="Q3", condition_id="はい", value="大丈夫です")
         self.assertEqual(r["result"], "confirm_required")  # 「大丈夫」は、この質問でも決まらない ⇒ 確かめる
 
+    def test_measure_questions_carry_the_import_decided_replies(self):
+        # ⛔ 2026-11-07 日本時間11時台（10時57分18秒「OK、進めてください」の測りの前の準備）：本番は取込が全部の選ぶ質問で曖昧な言葉の意味を
+        #    決める（meanings.decide_replies）のに、測りの質問の表は業務の試しの質問（Q1〜Q5）にだけ付けていた＝同じ文の G8 には無く、
+        #    「結構です。」の正解の動きと読みの動きを本番と違う形で数えていた ⇒ 同じ記録（G-49）・同じ決め方を、文と選択肢の組で全部の質問に当てる
+        from g14_listen import replies_for
+        from g53_meaning import question_map
+        qm = question_map()
+        self.assertEqual(dict(qm["G8"].reply_meanings), {"結構": "いいえ"})
+        self.assertEqual(dict(qm["G8"].reply_meanings), dict(qm["Q3"].reply_meanings))
+        for q in qm.values():   # 業務の質問はどれも、取込と同じ1か所で決めた意味（決める選択肢の無い質問は空）。システムの質問（N1〜N3・W1）は
+            if q.id[0] not in "NW":   # 役目ごとの表（flowctl.ROLE_REPLIES）のまま
+                self.assertEqual(dict(q.reply_meanings), replies_for(q) if q.conditions else {}, q.id)
+        self.assertEqual(dict(qm["N3"].reply_meanings), {"大丈夫": "はい", "平気": "はい"})
+
     def test_question_decides_the_word_even_if_a_judge_cannot(self):
         # ⛔ 2026-11-07 日本時間9時台（8時57分04秒 ユーザー「…モデルの使い方が問題だったりするということが発覚するかもしれないので、測りの前に
         #    やっておくべきじゃないですか」で、前の記録の外れを1つずつ確かめて見つけた）：取込で意味が決まった言葉だけの答え（「結構です。」＝この質問では

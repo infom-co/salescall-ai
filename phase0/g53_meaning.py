@@ -420,6 +420,10 @@ def question_map(facts: bool = True, words: bool = True) -> dict:
     qs = g48_questions(facts) + value_questions(facts) + biz
     if words:
         qs = [with_words(q) for q in qs + end_questions(facts)]
+    # 曖昧な言葉の意味も、本番の取込と同じく業務の質問の全部に、同じ記録・同じ決め方（g14_listen.replies_for）で付ける。⛔ 2026-11-07 日本時間
+    # 11時台まで、業務の試しの質問（Q1〜Q5）にだけ付いていて、同じ文の G8 の「結構です。」を本番と違う形で数えていた
+    from g14_listen import replies_for
+    qs = [dataclasses.replace(q, reply_meanings=replies_for(q) if q.conditions else {}) for q in qs]
     # ご承認いただけなかったときのシステムの質問（N1〜N3＝流れの制御の callback_question の1か所。試しの言葉は G-73＝組 N1〜N3）
     from flowctl import callback_question
     qs += [callback_question(r) for r in ("not_agreed", "other_point", "agreed_now")]
