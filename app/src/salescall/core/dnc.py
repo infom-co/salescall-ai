@@ -165,10 +165,31 @@ def register_declared(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise attempts.AttemptNotFound(str(attempt_id))
     if not a["reached"]:
         raise ValueError("お客様が出ていない通話には、申告はありません")
+    late = tx.one("SELECT salescall.is_settled(%s) AS s", (attempt_id,))["s"]   # 締めのあとか（締めの記録の1か所）
     if not approval.decides_on_spot(tx, attempt_id):
-        return {"entry_id": None, "reason": "refused_in_call", "numbers": [], "client_refs": [], "released_claims": 0,
-                "held": True}
-    return {**register(tx, a["phone_e164"], "refused_in_call", source_attempt_id=attempt_id, in_call=True), "held": False}
+        out = {"entry_id": None, "reason": "refused_in_call", "numbers": [], "client_refs": [], "released_claims": 0, "held": True}
+    else:
+        out = {**register(tx, a["phone_e164"], "refused_in_call", source_attempt_id=attempt_id, in_call=True), "held": False}
+    if late:
+        _declared_after_settle(tx, attempt_id, a["task_id"], held=out["held"])
+    return out
+
+
+def _declared_after_settle(tx: Tx, attempt_id: UUID, task_id: UUID, *, held: bool) -> None:
+    """締めのあとに届いた申告（2026-11-07 ユーザーとのやり取りで決めた備え）。申告は通話の最中に会話の担当の部品から届く。締めのあとに
+    届くのは、部品の不具合（落ちて送り直した など）のときだけ ⇒ 申告は今までどおり受けたうえで（かけない側。原則14＝`register_declared`）、
+    「会話の部品の不具合の疑い」として管理者と契約者に知らせ（通話ごとに1回）、会話の担当（CL-1）へ修正依頼を出す（同じ不具合は直したと
+    報告するまで1つ）。誤りだった申告は、契約者が確かめて取り消す、いまある道（発信禁止の取り消し）で戻す（新しい道は作らない）。"""
+    from salescall.core import fix_requests, notify   # 申告の入口だけが使う
+    refs = {"attempt_id": str(attempt_id), "task_id": str(task_id)}
+    fix_requests.request(tx, "CL-1", "declared_after_settle", key="declared_after_settle", refs=refs,
+                         summary="通話の途中の「もうかけないで」の申告（conversation_io.declare_do_not_call）が、その通話の締めのあとに"
+                                 "届きました（会話の部品が落ちて送り直した など。申告は通話の最中に送ってください）")
+    notify.emit(tx, "declared_after_settle", key=f"declared_after_settle:{attempt_id}", refs=refs, admin=True,
+                summary="通話の途中の「もうかけないで」の申告が、その通話の締めのあとに届きました（会話の部品の不具合の疑い。会話の担当に"
+                        "修正依頼を出しました）。"
+                        + ("検証モードの業務なので、今までどおり契約者の承認を待ちます。" if held else
+                           "申告どおり、その番号は発信禁止にしました。申告が誤りなら、ダッシュボードで確かめて発信禁止を取り消してください。"))
 
 
 def declared_in(tx: Tx, attempt_id: UUID) -> bool:

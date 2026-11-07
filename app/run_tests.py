@@ -156,6 +156,10 @@ _M146 = "0146_health_states_read.sql"
 _M147 = "0147_stage5_remove_old_reads.sql"
 _B141 = "tests.test_supervisor.Blame."
 _M143 = "0143_review21_one_way_and_call_watch.sql"
+_OLD_RUN = ("tests.test_client_solutions.Solutions."
+            "test_an_older_version_chosen_for_a_new_run_removes_the_newer_solutions_and_holds_new_rows_until_confirmed")
+_EACH_RUN = "tests.test_client_solutions.Solutions.test_each_run_confirms_its_own_removed_solutions"
+_LATE = "tests.test_irreversible.Declared.test_a_declaration_after_the_call_was_settled_is_put_and_reported_as_a_conversation_fault"
 _T143 = "tests.test_life.Life."
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お詫び・続き・番号の聞き直しの予定に約束の印を求める守りを外す（0126 の前の形：付け忘れると、お詫びの電話が後回しになる）",
@@ -2272,6 +2276,14 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("手で外した解決策の守りを外す（0197 の client_solution_removal_guard）",
      "DROP TRIGGER client_solution_removal_guard ON salescall.client_solution_removals",
      ('tests.test_client_solutions.Solutions.test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import',)),
+    ("手で外した解決策の「入れない」の守りを外す（0200 の client_solution_leave_out_guard）",
+     "DROP TRIGGER client_solution_leave_out_guard ON salescall.client_solution_leave_outs",
+     (_OLD_RUN,)),
+    ("「入れる」を選んだ実施回の守りを外す（0200 の client_solution_line_run_guard）",
+     "DROP TRIGGER client_solution_line_run_guard ON salescall.client_solution_lines", (_EACH_RUN,)),
+    ("外した印の実施回を、手で割り当てた実施回か見ない（0200 の client_solution_removal_guard）",
+     _edited("0200_solution_leave_out.sql", "CREATE OR REPLACE FUNCTION salescall.client_solution_removal_guard",
+             "v.run_id = NEW.run_id AND ", ""), (_EACH_RUN,)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -5469,25 +5481,69 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      'if k not in ("answers", "names")}',
      ('tests.test_versions.Versions.test_answers_off_changes_keep_the_business_recordings',)),
     ('取り込み直しで、手で外した解決策も入れ直す', 'src/salescall/core/client_solutions.py',
-     '        if r["removed"]:   # 契約者が手で外した解決策は入れない',
-     '        if False:   # 契約者が手で外した解決策は入れない',
+     '        if r["solution_id"] in held:   # 契約者が実施回で手で外した解決策は入れない',
+     '        if False:   # 契約者が実施回で手で外した解決策は入れない',
      ('tests.test_client_solutions.Solutions.test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import',)),
     ('手で版を替えても、外した解決策を残さない', 'src/salescall/core/business_settings.py',
-     '        client_solutions.removed_by_hand(tx, before["v"], version_id)\n',
-     '        pass\n',
-     ('tests.test_client_solutions.Solutions.test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import',)),
-    ('契約者が選んで足しても、手で外したことを消さない', 'src/salescall/core/client_solutions.py',
-     '"                   AND x.chosen_by IS NOT NULL AND x.version_id IS NOT NULL AND x.recorded_at >= d.recorded_at)) AS removed"',
-     '"                   AND false)) AS removed"',
+     '    client_solutions.removed_by_hand(tx, run_id, before["v"] if before is not None else None, chosen, version_id, auto=auto)\n',
+     '    pass\n',
      ('tests.test_client_solutions.Solutions.test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import',)),
     ('前の版の流れに無かった解決策も、手で外したと残す', 'src/salescall/core/client_solutions.py',
      '        if was.get(r["answer_name"]) == r["solution_text"] and now.get',
      '        if now.get',
      ('tests.test_client_solutions.Solutions.test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import',)),
     ('取り込み直して残す問答に、手で外した解決策も入れる', 'src/salescall/core/client_solutions.py',
-     ' if not r["removed"]]',
+     ' if r["solution_id"] not in held]',
      ']',
      ('tests.test_client_solutions.Solutions.test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import',)),
+    # ✅ 2026-11-07 ユーザー（古い版で作った実施回の解決策を「手で外した」とみなす・契約者が承認するまで新しい電話をかけない。0200）
+    ('実施回を作るときに古い版を選んでも、外した解決策を残さない', 'src/salescall/core/client_solutions.py',
+     '    base = before if before is not None else chosen\n', '    base = before if before is not None else after\n', (_OLD_RUN,)),
+    ('自動の割り当ても、手で外したとみなす', 'src/salescall/core/client_solutions.py',
+     '    if auto:\n        return\n    base =', '    if False:\n        return\n    base =',
+     ('tests.test_client_solutions.Solutions.test_an_automatic_assignment_removes_nothing',)),
+    ('手で外しても、契約者に知らせない（承認ボタンの元が無い）', 'src/salescall/core/client_solutions.py',
+     '    if out:\n        names =', '    if False:\n        names =', (_OLD_RUN,)),
+    ('「入れない」と確かめても、確かめたことにしない', 'src/salescall/core/client_solutions.py',
+     '"       d.at IS NOT NULL AND NOT coalesce(k.at >= d.at, false) AS unconfirmed"',
+     '"       d.at IS NOT NULL AS unconfirmed"', (_OLD_RUN,)),
+    ('また外しても、前の「入れない」で確かめたことにする', 'src/salescall/core/client_solutions.py',
+     '" LEFT JOIN LATERAL (SELECT max(recorded_at) AS at FROM salescall.client_solution_removals"',
+     '" LEFT JOIN LATERAL (SELECT min(recorded_at) AS at FROM salescall.client_solution_removals"', (_OLD_RUN,)),
+    ('「入れない」で、まだ確かめていないもののほか（もう確かめたもの）も受ける', 'src/salescall/core/client_solutions.py',
+     '    offered = {r["solution_id"] for r in unconfirmed(tx, run_id)}',
+     '    offered = {r["solution_id"] for r in not_in_line(tx, run_id)}', (_OLD_RUN,)),
+    ('確かめたかを見ず、流れに入っていない解決策があれば止める', 'src/salescall/core/client_solutions.py',
+     '    return _for_run(tx, run_id, lambda r: r["unconfirmed"])', '    return _for_run(tx, run_id, lambda r: True)',
+     (_OLD_RUN,)),
+    ('門で、手で外した解決策の確かめ待ちを見ない', 'src/salescall/core/gate.py',
+     '    if unconfirmed_solutions(tx, task):\n        return _deny("solutions_unconfirmed")\n', '', (_OLD_RUN,)),
+    ('候補を出す処理で、手で外した解決策の確かめ待ちの行も出す', 'src/salescall/core/gate.py',
+     '    if unconfirmed_solutions(tx, task, seen):\n        return "solutions_unconfirmed"\n', '',
+     (_OLD_RUN,)),
+    ('手で外した解決策の確かめ待ちで、一度かけた行（約束・続き・お詫び）も止める', 'src/salescall/core/gate.py',
+     '    if not attempts.untried(tx, task["task_id"]):\n        return False\n', '', (_OLD_RUN,)),
+    ('かけずに取り消した予約も、かけたことにする', 'src/salescall/core/attempts.py',
+     'f"SELECT NOT EXISTS (SELECT 1 FROM salescall.attempts WHERE task_id = %s AND {DIALED}) AS u"',
+     'f"SELECT NOT EXISTS (SELECT 1 FROM salescall.attempts WHERE task_id = %s) AS u"', (_OLD_RUN,)),
+    # 2026-11-07 ユーザーとのやり取りで決めた備え（締めのあとに届いた申告は、会話の部品の不具合の疑いとして知らせる）
+    ('締めのあとに届いた申告を、不具合として知らせない', 'src/salescall/core/dnc.py',
+     '    if late:\n        _declared_after_settle(', '    if False:\n        _declared_after_settle(', (_LATE,)),
+    # ✅ 2026-11-07 本体の決定「確かめは実施回ごと」（0200）
+    ('外した印を、実施回で絞らない（ほかの実施回の操作で、確かめた実施回がまた止まる）', 'src/salescall/core/client_solutions.py',
+     '"                    WHERE solution_id = s.sid AND run_id = %s) d ON true"',
+     '"                    WHERE solution_id = s.sid AND %s::uuid IS NOT NULL) d ON true"', (_EACH_RUN,)),
+    ('「入れる」を選んだ実施回を残さない', 'src/salescall/core/client_solutions.py',
+     '                               find_names=find_names, confirmed_names=confirmed_names, chosen=run_id))',
+     '                               find_names=find_names, confirmed_names=confirmed_names, chosen=None))', (_EACH_RUN,)),
+    ('「入れない」を、実施回で絞らない（まだ選んでいない実施回まで確かめ済みになる）', 'src/salescall/core/client_solutions.py',
+     '"                    WHERE solution_id = s.sid AND run_id = %s) k ON true"',
+     '"                    WHERE solution_id = s.sid AND %s::uuid IS NOT NULL) k ON true"', (_EACH_RUN,)),
+    ('取り込み直しで、「入れない」と確かめた解決策は入れる', 'src/salescall/core/client_solutions.py',
+     '        out |= {r["solution_id"] for r in not_in_line(tx, run) if r["removed"]}',
+     '        out |= {r["solution_id"] for r in not_in_line(tx, run) if r["unconfirmed"]}', (_OLD_RUN,)),
+    ('通話の最中の申告も、不具合として知らせる', 'src/salescall/core/dnc.py',
+     '    late = tx.one("SELECT salescall.is_settled(%s) AS s", (attempt_id,))["s"]', '    late = True', (_LATE,)),
 )
 
 

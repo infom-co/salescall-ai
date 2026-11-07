@@ -50,11 +50,12 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
     （予定は書き直さない。変われば、また出る。⛔ 見直し16・17a：前は門が断るたびに、次の動きが予定を5分先へ書き直し、行ごとに記録が
     1日288ずつ増えた）。"""
     out: list[dict[str, Any]] = []
+    seen: dict[UUID, bool] = {}   # 実施回ごとの、手で外した解決策の確かめ待ち（同じ取引の中で、実施回ごとに1回だけ読む＝gate.unconfirmed_solutions）
     page = max(limit, 50)
     offset = 0
     while len(out) < limit:
         rows = _candidates(tx, page, offset, skip_businesses, skip_runs, skip_stage, promised_only, line_id=line_id)
-        out += [r for r in rows if gate.waits_unknown(tx, r["task_id"], line_id) is None][:limit - len(out)]
+        out += [r for r in rows if gate.waits_unknown(tx, r["task_id"], line_id, seen=seen) is None][:limit - len(out)]
         if len(rows) < page:
             break
         offset += page

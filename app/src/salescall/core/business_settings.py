@@ -1710,9 +1710,10 @@ def in_use_versions(tx: Tx, business_id: UUID | None = None) -> list[UUID]:
     return sorted({r["version_id"] for r in _versions_in_use(tx, business_id)})
 
 
-def in_use_runs(tx: Tx) -> list[UUID]:
-    """まだ終えていない行のある、版のある実施回（取引の依頼者の範囲）。"""
-    return [r["run_id"] for r in _versions_in_use(tx)]
+def in_use_runs(tx: Tx, business_id: UUID | None = None) -> list[UUID]:
+    """まだ終えていない行のある、版のある実施回（取引の依頼者の範囲。business_id＝その業務の実施回だけ＝取り込み直しで入れない解決策を
+    決める client_solutions.held_back が読む）。"""
+    return [r["run_id"] for r in _versions_in_use(tx, business_id)]
 
 
 def derive_for_standard(tx: Tx, version_id: UUID | None = None) -> list[UUID]:
@@ -1781,6 +1782,7 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
     problems = assign_problems(tx, run_id, version_id)
     if problems:                                     # 目的のお客様を呼べない行を残したまま、版を替えない（全部か、何も無いか）
         raise SettingsInvalid(problems)
+    chosen = version_id
     if not auto and successor_tip(tx, version_id) != version_id:
         business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["business_id"]
         version_id = save_from(tx, business, version_id)   # 写しの中身は同じ（割り当てられない理由も同じ）
@@ -1792,11 +1794,11 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
         (version_id, reason, auto, run_id))
     if row is None:
         raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
-    if not auto and before is not None and before["v"] is not None and before["v"] != version_id:
-        # 手で版を替えた：前の版の流れにあって、この版に無い依頼者の解決策を「手で外した」と残す（取り込み直しでも自動では入れない＝
-        # ✅ 2026-11-07 ユーザー「契約者が確かめる」。決めるのは client_solutions.removed_by_hand の1か所）
-        from salescall.core import client_solutions   # 解決策の部品が業務設定を読むので、ここで読む（読み合いにしない）
-        client_solutions.removed_by_hand(tx, before["v"], version_id)
+    # 手で版を替えた・実施回を作るときに古い版を選んだ：その流れにあって、この版に無い依頼者の解決策を「手で外した」と残す（取り込み直しでも
+    # 自動では入れない・契約者が確かめるまで、まだかけていない行へかけない＝✅ 2026-11-07 ユーザー。当たるか（自動の割り当ては除く）を
+    # 決めるのは client_solutions.removed_by_hand の1か所）
+    from salescall.core import client_solutions   # 解決策の部品が業務設定を読むので、ここで読む（読み合いにしない）
+    client_solutions.removed_by_hand(tx, run_id, before["v"] if before is not None else None, chosen, version_id, auto=auto)
     # 前の版で取った、まだ発信していない予約を取り消す（門の前提が変わったときの決まり＝DESIGN.md 5-2-1 の2。
     # 取り消さないと、前の版で最大30秒かけうる。2026-10-16 の見直し G7）
     attempts.release(tx, [r["attempt_id"] for r in tx.all(

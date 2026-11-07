@@ -34,6 +34,13 @@ def dialed(table: str = "") -> str:
 DIALED = dialed()
 
 
+def untried(tx: Tx, task_id: UUID) -> bool:
+    """その行に、まだ一度もかけていないか（発信まで進んだ試行が1つも無い＝`dialed`。予約のまま・かけずに取り消した予約は数えない）。
+    1か所。一度かけた行には、お客様との約束（かけ直し）・続き・お詫びの電話がありうるので、新しい電話だけを止める所が読む（門の
+    solutions_unconfirmed＝gate.unconfirmed_solutions。✅ 2026-11-07 ユーザー「新規の電話もかけられません」）。"""
+    return tx.one(f"SELECT NOT EXISTS (SELECT 1 FROM salescall.attempts WHERE task_id = %s AND {DIALED}) AS u", (task_id,))["u"]
+
+
 def placed(table: str = "") -> str:
     """発信まで進み、回線の部品が番号を受け付けなかった（call_failed）ものを除いた試行の条件（SQL。1か所）。回線を使った電話：
     回線の1日の上限・報酬の「かけた1本」が使う。番号の続き（番号の欄＝core/health）・約束の回に「かけたか」・その回にかけた数は

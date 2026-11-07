@@ -133,7 +133,7 @@ def add(tx: Tx, attempt_id: UUID, point_index: int, solution: str, *, origin: st
         # 戻す前に足した解決策が入っていない流れ（手で前の版に戻した流れ など）：自動では入れず、契約者にダッシュボードで確かめていただく
         # （✅ 2026-11-06 ユーザー＝計画書 6-1 (3)：「契約者にそれをダッシュボードで確認します。」。一覧は `not_in_line`・足す入口は `add_earlier`）。
         # いま足した解決策そのものは出さない（確かめに通らなかった流れは solution_held で知らせる。⛔ 2026-11-07 の第三者の見直し (2) の4）
-        earlier = [e for e in not_in_line(tx, line.version_id or line.base) if e["solution_id"] != sid]
+        earlier = [e for e in not_in_version(tx, line.version_id or line.base) if e["solution_id"] != sid]
         if earlier:
             notify.emit(tx, "solution_earlier", key=f"solution_earlier:{sid}:{line.base}",
                         summary=f"依頼者の解決策（問い「{name}」）を足した業務の版の流れに、入っていない前の解決策が {len(earlier)} 件あります"
@@ -144,12 +144,12 @@ def add(tx: Tx, attempt_id: UUID, point_index: int, solution: str, *, origin: st
 
 
 def _add_line(tx: Tx, sid: UUID, attempt_id: UUID, business_id: UUID, version: UUID, name: str, text: str, note: str, *,
-              find_names: NameFinder | None, confirmed_names: Any, chosen: bool = False) -> Line:
+              find_names: NameFinder | None, confirmed_names: Any, chosen: UUID | None = None) -> Line:
     """業務の版の流れ1つ（version＝その流れの版。足す元は、そのつながりのいちばん後の版＝`business_settings.successor_tip`＝データベースの
     salescall.version_tip の1か所。derive も同じ1か所で決める）に、解決策の問答を足す（1か所。`add` と、契約者が前の解決策を選んで足す
     `add_earlier` の両方が通る）：取込と同じ確かめ（business_import.review。重ねる標準は、その版の標準のまま）を通し、通れば業務設定の版を
-    足す（business_settings.derive。きっかけ solution）。中身が変わらなければ版を作らない。流れの結果を記録し（chosen＝契約者が選んで足した＝
-    選んだ方を残す。0194）、通らなければ契約者に知らせる。
+    足す（business_settings.derive。きっかけ solution）。中身が変わらなければ版を作らない。流れの結果を記録し（chosen＝契約者が、その実施回の承認で選んで
+    足した＝選んだ方と実施回を残す。0194・0200）、通らなければ契約者に知らせる。
     名前（✅ 2026-11-07 の第三者の見直し (2) の1）：AI に名前を探させるのは、足す問答の文だけ。元の版にある名前と読みは、版のまま変えない
     （review の placed_names。⛔ 前は台本全体の名前を探し直したので、版の名前の一覧が増え、前からある名前の AI の読みも変わりえて、録音を
     引き継げなかった）。新しい版の中身は、derive が渡す元の版の中身から作る（⛔ 前は先に作った中身を渡し、元の版の中身を捨てていた）。"""
@@ -174,9 +174,9 @@ def _add_line(tx: Tx, sid: UUID, attempt_id: UUID, business_id: UUID, version: U
         except business_settings.SettingsInvalid as e:
             made, problems = None, tuple(e.problems) or ("確かめに通りませんでした",)
     tx.execute("INSERT INTO salescall.client_solution_lines (tenant_id, client_id, solution_id, base_version, version_id, replaced,"
-               "                                             problems, chosen_by)"
-               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, CASE WHEN %s THEN salescall.cur_actor() END)",
-               (sid, tip, made, replaced, list(problems), chosen))
+               "                                             problems, chosen_by, chosen_run)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, CASE WHEN %s THEN salescall.cur_actor() END, %s)",
+               (sid, tip, made, replaced, list(problems), chosen is not None, chosen))
     if made is None:
         notify.emit(tx, "solution_held", key=f"solution_held:{sid}:{tip}",
                     summary=f"依頼者の解決策（問い「{name}」）を、確かめに通らなかったので想定問答に足していません："
@@ -187,16 +187,11 @@ def _add_line(tx: Tx, sid: UUID, attempt_id: UUID, business_id: UUID, version: U
 
 def _latest(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
     """その業務に、依頼者の解決策で足せた問答（問いの名前ごとに、いちばん新しく足せたもの。1か所＝取り込み直したときに残す `kept_answers` と、
-    流れに入っていない前の解決策の一覧 `not_in_line` が読む）。いちばん新しいものが、取り込み直した中身で置き換えられていれば（`replaced`）、
-    その問いの名前は入れない（前の解決策も、よみがえらせない。⛔ 2026-11-07 の第三者の見直し (2) の4）。
-    removed＝契約者が手で外した解決策か（`removed_by_hand` が残し、そのあと契約者が選んで足していない＝流れの結果の時刻で比べる）。手で外した
-    解決策は、取り込み直しで入れず（`keep_in`）、流れに入っていない前の解決策の一覧には出す（`not_in_line`。✅ 2026-11-07 ユーザー
-    「契約者が確かめる」＝計画書 6-1 の (3) が (2) より先）。"""
+    流れに入っていない前の解決策の一覧 `not_in_version`・`not_in_line` が読む）。いちばん新しいものが、取り込み直した中身で置き換えられていれば
+    （`replaced`）、その問いの名前は入れない（前の解決策も、よみがえらせない。⛔ 2026-11-07 の第三者の見直し (2) の4）。
+    手で外したか・確かめたかは実施回ごと（`_marks`）なので、ここでは持たない。"""
     return tx.all(
-        "SELECT l.*, EXISTS (SELECT 1 FROM salescall.client_solution_removals d WHERE d.solution_id = l.solution_id"
-        "   AND NOT EXISTS (SELECT 1 FROM salescall.client_solution_lines x WHERE x.solution_id = d.solution_id"
-        "                   AND x.chosen_by IS NOT NULL AND x.version_id IS NOT NULL AND x.recorded_at >= d.recorded_at)) AS removed"
-        " FROM ("
+        "SELECT l.* FROM ("
         " SELECT DISTINCT ON (c.answer_name) c.solution_id, c.attempt_id, c.answer_name, c.solution_text, c.point_text, c.recorded_at"
         " FROM salescall.client_solutions c"
         " JOIN salescall.tasks t ON t.task_id = c.task_id JOIN salescall.runs r ON r.run_id = t.run_id"
@@ -207,52 +202,138 @@ def _latest(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
         " ORDER BY l.answer_name", (business_id,))
 
 
-def not_in_line(tx: Tx, version_id: UUID) -> list[dict[str, Any]]:
-    """その版の流れに入っていない、その業務の前の解決策（問いの名前ごとにいちばん新しく足せたもの＝`_latest`）の一覧（1か所。画面が
-    契約者に見せて選んでいただく＝計画書 6-1 (3)。足すのは `add_earlier`）：[{solution_id, attempt_id, answer_name, solution_text,
-    point_text, recorded_at, removed}]（removed＝契約者が手で外した解決策＝`_latest`）。入っていない＝その流れのいちばん後の版（`successor_tip`）の、その問いの答えが、その解決策の文と違う（無い）。
-    取り込み直しで残した問答・同じ答えを書いた問答・選んで足した問答は、入っているとみなす。
-    （attempt_id＝解決策を求めた通話も入る。）
-    ✅ 2026-11-06 ユーザー「契約者にそれをダッシュボードで確認します」＝自動では入れない。"""
-    tip = business_settings.successor_tip(tx, version_id)
-    business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (tip,))["business_id"]
-    now = dict(business_settings.load(tx, tip).answers)
-    return [dict(r) for r in _latest(tx, business) if now.get(r["answer_name"]) != r["solution_text"]]
-
-
-def add_earlier(tx: Tx, version_id: UUID, solution_ids: list[UUID], *, find_names: NameFinder | None = None,
-                confirmed_names: Any = ()) -> list[Line]:
-    """契約者が `not_in_line` の一覧から選んだ前の解決策を、その版の流れに足す（1か所の入口。呼ぶのは画面だけ＝CL-3。管理者か契約者
-    だけ＝データベースの守り client_solution_line_chosen_by_person）。足し方は新しい解決策と同じ `_add_line`（取込と同じ確かめ・版を足す道）。
-    一覧に無い解決策は受けない（何も書かない）。足した流れの結果（版・通らなかった理由）を、選んだ順に返す。"""
+def _marks(tx: Tx, run_id: UUID, solution_ids: list[UUID]) -> dict[UUID, tuple[bool, bool]]:
+    """その実施回で、解決策ごとの (removed, unconfirmed)（1か所。✅ 2026-11-07 本体の決定「確かめは実施回ごと」：外すのも確かめるのも、
+    契約者が実施回ごとにする操作なので、ほかの実施回の外す・入れる・入れないは、この実施回に効かない）。
+    removed＝その実施回で契約者が手で外した（`removed_by_hand` が残した外した印がある）。
+    unconfirmed＝そのうえ、その実施回のいちばん新しい外した印のあとに、その実施回で「入れない」（`leave_out`）とも確かめていない（時刻で比べる。
+    ✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で入らず、新規の電話もかけられません」）。
+    「入れる」（`add_earlier`）を選べば、その解決策はその実施回の流れに入るので、一覧（`_outside`＝入っているかの1か所）に出なくなる＝
+    確かめたことになる（ここでは見ない。選んだ実施回は流れの結果の chosen_run に残る＝0200）。その実施回で、またその解決策を外せば、
+    新しい外した印から、また確かめが要る。"""
     if not solution_ids:
-        raise SolutionInvalid("足す解決策が選ばれていません")
-    offered = {r["solution_id"]: r for r in not_in_line(tx, version_id)}
-    if len(set(solution_ids)) != len(solution_ids) or any(sid not in offered for sid in solution_ids):
-        raise SolutionInvalid("その流れに入っていない前の解決策の一覧に無いものが選ばれています")
+        return {}
+    rows = tx.all(
+        "SELECT s.sid, d.at IS NOT NULL AS removed,"
+        "       d.at IS NOT NULL AND NOT coalesce(k.at >= d.at, false) AS unconfirmed"
+        " FROM unnest(%s::uuid[]) AS s(sid)"
+        " LEFT JOIN LATERAL (SELECT max(recorded_at) AS at FROM salescall.client_solution_removals"
+        "                    WHERE solution_id = s.sid AND run_id = %s) d ON true"
+        " LEFT JOIN LATERAL (SELECT max(recorded_at) AS at FROM salescall.client_solution_leave_outs"
+        "                    WHERE solution_id = s.sid AND run_id = %s) k ON true",
+        (list(solution_ids), run_id, run_id))
+    return {r["sid"]: (r["removed"], r["unconfirmed"]) for r in rows}
+
+
+def not_in_version(tx: Tx, version_id: UUID) -> list[dict[str, Any]]:
+    """その版の流れに入っていない、その業務の前の解決策（問いの名前ごとにいちばん新しく足せたもの＝`_latest`）：[{solution_id, attempt_id,
+    answer_name, solution_text, point_text, recorded_at}]（実施回の承認の印は無い。解決策を足したときの知らせ solution_earlier が読む）。"""
     business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["business_id"]
+    return _outside(tx, version_id, [dict(r) for r in _latest(tx, business)])
+
+
+def not_in_line(tx: Tx, run_id: UUID) -> list[dict[str, Any]]:
+    """その実施回のいまの版の流れに入っていない、その業務の前の解決策の一覧（1か所。画面が実施回ごとに契約者に見せて、承認ボタンを出す＝
+    計画書 6-1 (3)。「入れる」は `add_earlier`・「入れない」は `leave_out`。どちらも同じ実施回を渡す）：[{solution_id, attempt_id, answer_name,
+    solution_text, point_text, recorded_at, removed, unconfirmed}]（removed＝その実施回で契約者が手で外した・unconfirmed＝そのうち、その
+    実施回でまだ「入れる」も「入れない」も確かめていない＝承認ボタンの元。どちらも `_marks`）。入っていない＝その流れのいちばん後の版
+    （`successor_tip`）の、その問いの答えが、その解決策の文と違う（無い）。取り込み直しで残した問答・同じ答えを書いた問答・選んで足した
+    問答は、入っているとみなす。✅ 2026-11-06 ユーザー「契約者にそれをダッシュボードで確認します」＝自動では入れない。"""
+    return _for_run(tx, run_id, lambda r: True)
+
+
+def unconfirmed(tx: Tx, run_id: UUID) -> list[dict[str, Any]]:
+    """その実施回の流れに入っていない、その実施回で手で外した解決策のうち、契約者がまだ確かめていないもの（`not_in_line` の unconfirmed。
+    門が読む＝gate.unconfirmed_solutions。「入れない」と確かめる入口 `leave_out` が受けるのも、この一覧だけ）。まだ確かめていない解決策が
+    無ければ、版を読まない（候補を出す処理が読む）。"""
+    return _for_run(tx, run_id, lambda r: r["unconfirmed"])
+
+
+def _for_run(tx: Tx, run_id: UUID, pick: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
+    """その実施回の承認の印（`_marks`）を付けた解決策のうち pick に当たり、その実施回のいまの版の流れに入っていないもの。"""
+    run = tx.one("SELECT business_id, salescall.run_current_version(run_id) AS v FROM salescall.runs WHERE run_id = %s", (run_id,))
+    if run is None or run["v"] is None:
+        return []
+    rows = _latest(tx, run["business_id"])
+    marks = _marks(tx, run_id, [r["solution_id"] for r in rows])
+    rows = [dict(r, removed=marks[r["solution_id"]][0], unconfirmed=marks[r["solution_id"]][1]) for r in rows]
+    return _outside(tx, run["v"], [r for r in rows if pick(r)])
+
+
+def _outside(tx: Tx, version_id: UUID, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """rows のうち、その版の流れに入っていないもの（入っているかを決めるのは、ここだけ）。rows が無ければ、版を読まない。"""
+    if not rows:
+        return []
+    now = dict(business_settings.load(tx, business_settings.successor_tip(tx, version_id)).answers)
+    return [r for r in rows if now.get(r["answer_name"]) != r["solution_text"]]
+
+
+def add_earlier(tx: Tx, run_id: UUID, solution_ids: list[UUID], *, find_names: NameFinder | None = None,
+                confirmed_names: Any = ()) -> list[Line]:
+    """契約者が、その実施回の `not_in_line` の一覧から選んだ前の解決策を、その実施回のいまの版の流れに足す（「入れる」の承認。1か所の入口。
+    呼ぶのは画面だけ＝CL-3。管理者か契約者だけ＝データベースの守り client_solution_line_chosen_by_person）。足し方は新しい解決策と同じ
+    `_add_line`（取込と同じ確かめ・版を足す道）。流れの結果に、選んだ方と実施回を残す（足せば、その実施回の流れに入るので一覧に出なくなる
+    ＝その実施回で確かめたことになる。ほかの実施回の流れには入らない）。
+    一覧に無い解決策は受けない（何も書かない）。足した流れの結果（版・通らなかった理由）を、選んだ順に返す。"""
+    offered = {r["solution_id"]: r for r in not_in_line(tx, run_id)}
+    _picked(solution_ids, offered, "足す解決策が選ばれていません", "その流れに入っていない前の解決策の一覧に無いものが選ばれています")
+    run = tx.one("SELECT business_id, salescall.run_current_version(run_id) AS v FROM salescall.runs WHERE run_id = %s", (run_id,))
     lines = []
     for sid in solution_ids:
         r = offered[sid]
-        lines.append(_add_line(tx, sid, r["attempt_id"], business, version_id, r["answer_name"], r["solution_text"],
+        lines.append(_add_line(tx, sid, r["attempt_id"], run["business_id"], run["v"], r["answer_name"], r["solution_text"],
                                f"契約者が選んで足した前の解決策（点「{r['point_text']}」・問い「{r['answer_name']}」）",
-                               find_names=find_names, confirmed_names=confirmed_names, chosen=True))
+                               find_names=find_names, confirmed_names=confirmed_names, chosen=run_id))
     return lines
+
+
+def _picked(solution_ids: list[UUID], offered: Any, empty: str, missing: str) -> None:
+    """契約者が選んだ解決策が、1つ以上・重ならず・すべて一覧（offered）にあるか（1か所。`add_earlier`・`leave_out`）。無ければ何も書かない。"""
+    if not solution_ids:
+        raise SolutionInvalid(empty)
+    if len(set(solution_ids)) != len(solution_ids) or any(sid not in offered for sid in solution_ids):
+        raise SolutionInvalid(missing)
+
+
+def leave_out(tx: Tx, run_id: UUID, solution_ids: list[UUID]) -> None:
+    """契約者が、その実施回で手で外した解決策を「入れない」と確かめる（承認。1か所の入口。呼ぶのは画面だけ＝CL-3。管理者か契約者だけ＝
+    データベースの守り client_solution_leave_out_by_person。0200）。「入れる」は `add_earlier`。受けるのは、その実施回の、まだ確かめていない
+    手で外した解決策（`unconfirmed`）だけ（ほかは何も書かない）。確かめたら、その実施回の門はすぐ通す（gate.unconfirmed_solutions）。
+    取り込み直しでも入れないまま（`held_back`）。✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で入らず、新規の電話もかけられません」。"""
+    offered = {r["solution_id"] for r in unconfirmed(tx, run_id)}
+    _picked(solution_ids, offered, "入れない解決策が選ばれていません",
+            "その実施回の、まだ確かめていない手で外した解決策の一覧に無いものが選ばれています")
+    for sid in solution_ids:
+        tx.execute("INSERT INTO salescall.client_solution_leave_outs (tenant_id, client_id, solution_id, run_id, recorded_by)"
+                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (sid, run_id))
+
+
+def held_back(tx: Tx, business_id: UUID) -> set[UUID]:
+    """取り込み直しで自動では入れない解決策（1か所。`kept_answers`・`keep_in` が読む）：その業務のまだ終えていない行のある実施回
+    （business_settings.in_use_runs＝取り込み直した版を使いうる実施回）のどれかで、契約者が手で外して、その実施回の流れに入っていないもの
+    （`not_in_line` の removed。まだ確かめていない・「入れない」と確かめた、の両方）。✅ 2026-11-07 ユーザー「契約者が確かめる」：契約者が
+    外した判断・まだしていない判断を、取り込み直しが代わりにしない（その実施回で「入れる」を選べば外れる）。"""
+    out: set[UUID] = set()
+    for run in business_settings.in_use_runs(tx, business_id):
+        out |= {r["solution_id"] for r in not_in_line(tx, run) if r["removed"]}
+    return out
 
 
 def kept_answers(tx: Tx, business_id: UUID) -> list[tuple[str, str]]:
     """その業務に、依頼者の解決策で足した問答（問いの名前ごとに、いちばん新しく足せたもの）。取り込み直した版にも残す（1か所。
     ✅ 2026-11-06 ユーザー「残す」＝見直し(B) の3。残すのは `keep_in`＝取込の入口の共通の1か所 business_import._kept で、同じ `_latest` を読む）。"""
-    return [(r["answer_name"], r["solution_text"]) for r in _latest(tx, business_id) if not r["removed"]]
+    held = held_back(tx, business_id)
+    return [(r["answer_name"], r["solution_text"]) for r in _latest(tx, business_id) if r["solution_id"] not in held]
 
 
 def keep_in(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[UUID]]:
     """業務設定の中身に、解決策で足した問答を残す（取り込み直したとき。1か所）：中身に同じ問いの名前の答えがあれば中身を優先し、
-    中身が「使わない」にした問いの名前も、そのまま（契約者が決めた）。無ければ足した問答を入れる。（中身, 残した問いの名前の知らせ,
-    取り込んだ中身が先になった解決策＝違う答えを書いた・「使わない」にした）を返す（中身が先になった解決策は、登録したときに置き換えられたと
-    残す＝`replaced`。呼ぶのは business_import._kept だけ）。"""
+    中身が「使わない」にした問いの名前も、そのまま（契約者が決めた）。無ければ足した問答を入れる（実施回で手で外した解決策＝`held_back` は
+    入れない）。（中身, 残した問いの名前の知らせ, 取り込んだ中身が先になった解決策＝違う答えを書いた・「使わない」にした）を返す（中身が先に
+    なった解決策は、登録したときに置き換えられたと残す＝`replaced`。呼ぶのは business_import._kept だけ）。"""
     own = {a.get("name"): a.get("text") for a in (raw.get("answers") or []) if isinstance(a, dict)}
     off = set(raw.get("answers_off") or []) if isinstance(raw.get("answers_off"), list) else set()
+    held = held_back(tx, business_id)
     notes, overridden = [], []
     for r in _latest(tx, business_id):
         name, text = r["answer_name"], r["solution_text"]
@@ -260,30 +341,51 @@ def keep_in(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> tuple[dict[str, A
             overridden.append(r["solution_id"])
         if name in own or name in off:
             continue
-        if r["removed"]:   # 契約者が手で外した解決策は入れない（ダッシュボードで選んでいただく＝`not_in_line`・`add_earlier`）
-            notes.append(f"依頼者の解決策で足した想定問答「{name}」は、手で前の版に戻して外したものなので入れていません"
-                         "（入れるときは、ダッシュボードの「入っていない前の解決策」から選んでください）")
+        if r["solution_id"] in held:   # 契約者が実施回で手で外した解決策は入れない（その実施回の承認で選んでいただく＝`not_in_line`）
+            notes.append(f"依頼者の解決策で足した想定問答「{name}」は、実施回で手で前の版にして外したものなので入れていません"
+                         "（入れるときは、その実施回のダッシュボードの「入っていない前の解決策」から選んでください）")
             continue
         raw = business_settings.with_answer(raw, name, text)
         notes.append(f"依頼者の解決策で足した想定問答「{name}」を残しました（取り込んだ中身に、この問いがありません）")
     return raw, notes, overridden
 
 
-def removed_by_hand(tx: Tx, before: UUID, after: UUID) -> None:
-    """管理者か契約者が実施回の版を手で替えたとき（business_settings.assign の1か所が呼ぶ。自動の割り当て・実施回を作るときの最初の割り当ては
-    呼ばない）、外した解決策を残す（1か所。0197 の client_solution_removals）。外した＝その業務の解決策（`_latest`）のうち、前の版の流れの
-    いちばん後の版（before のつながりの先）に入っていて、割り当てた版（after）に入っていないもの。✅ 2026-11-07 ユーザー「契約者が確かめる」：
-    手で外した解決策は、取り込み直しでも自動では入れない（`keep_in`）。"""
+def removed_by_hand(tx: Tx, run_id: UUID, before: UUID | None, chosen: UUID, after: UUID, *, auto: bool) -> None:
+    """実施回に版を割り当てたとき（business_settings.assign の1か所が、どの割り当てでも呼ぶ）、契約者が「手で外した」解決策を残す（当たるかを
+    決めるのはここだけ。0197 の client_solution_removals）。before＝割り当てる前の実施回の版（実施回を作るときは無い）・chosen＝選んだ版・
+    after＝割り当てた版（選んだ版がつながりの途中なら、その写し）。当たるのは、管理者か契約者が選んだとき（auto でない）の次の2つ：
+    (1) 手で版を替えた：前の版の流れ（before のつながりの先）に入っていて、割り当てた版に入っていない解決策。
+    (2) 実施回を作るときに、その業務のつながりの先でない版（古い版）を選んだ：選んだ版の流れ（chosen のつながりの先）に入っていて、割り当てた
+        版に入っていない解決策（✅ 2026-11-07 ユーザー：伺い「古い版で実施回を作ったとき、入っていない解決策を手で外したとみなすか」に
+        「みなす」）。つながりの先の版を選んだときは、割り当てた版が選んだ版のまま（写しが無い）なので当たらない。
+    ✅ 2026-11-07 ユーザー「契約者が確かめる」：手で外した解決策は、取り込み直しでも自動では入れない（`keep_in`）。契約者が「入れる」
+    （`add_earlier`）か「入れない」（`leave_out`）かを確かめるまで、その実施回では、まだ一度もかけていないお客様の行へ新しい電話をかけない
+    （gate.unconfirmed_solutions）。外したら契約者に知らせる（ダッシュボードの承認ボタンの元。solution_unconfirmed）。"""
+    if auto:
+        return
+    base = before if before is not None else chosen
+    if base == after:
+        return
     business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (after,))["business_id"]
     rows = _latest(tx, business)
     if not rows:   # 解決策の無い業務は、版を読まない
         return
-    was = dict(business_settings.load(tx, business_settings.successor_tip(tx, before)).answers)
+    was = dict(business_settings.load(tx, business_settings.successor_tip(tx, base)).answers)
     now = dict(business_settings.load(tx, after).answers)
+    out = []
     for r in rows:
         if was.get(r["answer_name"]) == r["solution_text"] and now.get(r["answer_name"]) != r["solution_text"]:
-            tx.execute("INSERT INTO salescall.client_solution_removals (tenant_id, client_id, solution_id, version_id, recorded_by)"
-                       " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (r["solution_id"], after))
+            out.append((r, tx.one("INSERT INTO salescall.client_solution_removals (tenant_id, client_id, solution_id, version_id, run_id,"
+                                  "                                               recorded_by)"
+                                  " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor()) RETURNING seq",
+                                  (r["solution_id"], after, run_id))["seq"]))
+    if out:
+        names = "・".join(f"「{r['answer_name']}」" for r, _ in out)
+        notify.emit(tx, "solution_unconfirmed", key=f"solution_unconfirmed:{out[0][1]}",
+                    summary=f"実施回の業務設定を、依頼者の解決策の入る前の版にしたので、解決策 {len(out)} 件（問い{names}）が入っていません。"
+                            "ダッシュボードで、解決策ごとに「入れる」か「入れない」かを選んで承認してください。承認するまで、この実施回では、"
+                            "まだ一度もかけていないお客様の行へ新しい電話をかけません（約束したかけ直し・続きの電話・お詫びの電話はかけます）。",
+                    refs={"run_id": str(run_id), "version_id": str(after), "solutions": [str(r["solution_id"]) for r, _ in out]})
 
 
 def replaced(tx: Tx, solution_ids: list[UUID], version_id: UUID) -> None:
