@@ -8866,6 +8866,123 @@ class EndJudgedTest(unittest.TestCase):
             self.assertFalse(any(t in said for t in (*APOLOGY_CUT_END.values(), *TOLD_AGAIN.values(), "途中で切れて")), (name, said))
             self.assertTrue(said.endswith(q1.text), (name, said))
 
+    # 続きの電話の始めの段（前の通話で伺っている途中で切れた手順＝resumed_step）の場面：前の通話の答えと、その答えの業務の質問
+    _CUT_CONTACT = "ご連絡はお電話とメールのどちらがよろしいでしょうか？"
+
+    def _cut_scenes(self):
+        from flowctl import Question
+        qc = Question("Q1", self._CUT_CONTACT, "choice", conditions=("電話", "メール"), final_goal=True, topic="ご連絡の方法")
+        qd = Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        q1 = Question("Q1", "当日はお車でお越しでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        q2 = Question("Q2", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                      declines=("いいえ",), intro="ご説明させていただきます。初期費用はかかりません。")
+        none = {"state": "accepted", "value": None, "condition": "どれも要らない"}
+        declined = {"Q1": {"state": "accepted", "condition": "はい"}, "Q2": {"state": "accepted", "condition": "いいえ"}}
+        point = {"question": "Q2", "point": "料金のところ", "said": "料金のところがよく分からなかったんです。", "explained": None, "outcome": None}
+        return {
+            "other_wish": ([qc, qd], {"Q1": {**none, "wish_fact": {"question": "Q1", "means": None, "contact": None, "outcome": None, "via": None}}}),
+            "email": ([qc, qd], {"Q1": {**none, "wish_fact": {"question": "Q1", "means": "email", "contact": None, "outcome": None, "via": None}}}),
+            "not_agreed": ([q1, q2], declined),
+            "explain": ([q1, q2], {**declined, "Q2": {**declined["Q2"], "point_fact": point}}),
+            "told": ([q1, q2], {**declined, "Q2": {**declined["Q2"], "point_fact": {**point, "explained": False, "told": "request"}}}),
+        }
+
+    @staticmethod
+    def _cut_call(qs, earlier):
+        from instruction import Business, Target
+        b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=qs,
+                     purpose_line="資料送付の件でお電話いたしました。", earlier=earlier, apology=("cut_off",), apology_when="later",
+                     target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        f = b.flow(play_recordings=True)
+        f.use_checks("judge")
+        f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        r = f.apply("report_party", {"party": "person"})
+        r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+        return f
+
+    def test_a_substitute_on_a_continued_call_is_spoken_to_as_on_a_first_call(self):
+        # ✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(3) H6：…電話が途中で切れることは代わりの方には関係ない話ですよね。しっかりと営業の最初からもしくは
+        # 引き継がれている部分から確認していかないといけないんじゃないですか。」＝続きの電話で判断いただける代わりの方に繋がったら、前の通話の答え（お呼びした方
+        # ご本人の答え）から作るもの（続きの電話の始めの段）は何も残さず、前の通話の答えの無い電話で同じ手順を通ったときと、流れの制御の状態も、そのあとの
+        # お客様に聞こえる言葉も同じ。⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直し B-7）：始めの段を電話の始めに作り、代わりの方のときに
+        # 外す所（_start_over）が一部しか外さなかったので、(1) ご承認のお断りで例外（KeyError 'N1'）で止まった (2) 「どれも要らない」に W1 を伺わなかった
+        # (3) 前の電話がご説明の途中で切れていると、代わりの方の「判断できる」を受け取らず、何も流さなかった
+        from flowctl import NONE, TARGET_IS_AWAY
+        from meaning_judge import Reading
+
+        def substitute(qs, earlier):
+            f = self._cut_call(qs, earlier)
+            f.on_callee(); f.on_heard("岡田は本日不在にしておりまして、代わりに私がご用件を伺います。"); f.on_check("judge", TARGET_IS_AWAY)
+            f.apply("report_party", {"party": "substitute"})
+            f.on_callee(); f.on_heard("はい、私が責任者ですので大丈夫です。"); f.on_check("judge", "判断できる")
+            return f, f.apply("record_answer", {"question_id": "S1", "condition_id": "判断できる"})
+
+        def answer(f, qid, cond, words):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(cond))
+            return f.apply("record_answer", {"question_id": qid, "condition_id": cond})
+
+        def same(a, b, ra, rb, name):
+            self.assertEqual((ra.get("result"), ra.get("question_id"), ra.get("play"), ra.get("say")),
+                             (rb.get("result"), rb.get("question_id"), rb.get("play"), rb.get("say")), name)
+            va, vb = vars(a), vars(b)
+            self.assertEqual({k: repr(va.get(k)) for k in set(va) | set(vb) if k not in ("earlier", "earlier_all") and repr(va.get(k)) != repr(vb.get(k))},
+                             {}, name)
+
+        for name, (qs, earlier) in self._cut_scenes().items():
+            (a, ra), (b, rb) = substitute(qs, earlier), substitute(qs, {})
+            self.assertEqual((ra.get("result"), ra.get("question_id")), ("next", "Q1"), name)
+            same(a, b, ra, rb, name)
+            if qs[0].text == self._CUT_CONTACT:   # 代わりの方の「どれも要らない」にも、ほかのご希望を1回伺う（W1）
+                ra, rb = (answer(f, "Q1", NONE, "うーん、どちらも要らないですね。") for f in (a, b))
+                self.assertEqual(ra.get("question_id"), "W1", name)
+            else:                                 # 代わりの方のご承認のお断りにも、ご納得いただけなかった点を伺う（N1）
+                ra, rb = answer(a, "Q1", "はい", "はい、車で行きます。"), answer(b, "Q1", "はい", "はい、車で行きます。")
+                same(a, b, ra, rb, name)
+                ra, rb = answer(a, "Q2", "いいえ", "いや、それはちょっと。"), answer(b, "Q2", "いいえ", "いや、それはちょっと。")
+                self.assertEqual(ra.get("question_id"), "N1", name)
+            same(a, b, ra, rb, name)
+
+    def test_a_continued_call_resumes_where_it_was_cut_also_after_the_person_comes_back(self):
+        # 続きの電話の始めの段は、お呼びした方ご本人に繋がったときに、どの道で繋がっても同じに伺う（前の通話の答えはご本人の答え）：受付の方の「不在」から
+        # かけ直しの質問を伺ったあとにご本人が戻られて繋がっても、すぐご本人が出たときと同じく、切れた所から伺う（お詫び・申し伝え直しも同じ）。
+        # ⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの B-7 の確かめで見つけた）：始めの段を電話の始めに作っていたので、並びを業務の
+        # 質問に戻す所（_target_back）が始めの段の質問を消し、W1 の続きは伺わずに次の質問へ・ご承認の手順の続きは、お詫びのあとすぐ「お忙しいところお時間を
+        # いただきましてありがとうございました。それでは失礼いたします。」で締めた
+        from flowctl import HOLD, TARGET_IS_AWAY, TARGET_IS_THERE
+
+        def connected(qs, earlier, back):
+            f = self._cut_call(qs, earlier)
+            if back:
+                f.on_callee(); f.on_heard("あいにく岡田は席を外しております。"); f.on_check("judge", TARGET_IS_AWAY)
+                self.assertEqual(f.apply("request_callback", {"why": "absent"})["question_id"], "C1")
+                f.on_callee(); f.on_heard("あ、ちょうど戻ってまいりました。少々お待ちください。"); f.on_check("judge", HOLD)
+                f.apply("report_party", {"party": "reception"})
+                f.on_callee(); f.on_heard("お電話代わりました。岡田です。"); f.on_check("judge", TARGET_IS_THERE)
+                self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
+                f.on_callee(); f.on_heard("はい、そうです。"); f.on_check("judge", TARGET_IS_THERE)
+            else:
+                f.on_callee(); f.on_heard("お電話代わりました。岡田です。"); f.on_check("judge", TARGET_IS_THERE)
+            r = f.apply("report_party", {"party": "target"})
+            # 名乗りの前（すぐ出たご本人には名乗りは流してある）を除いた、お詫びからあとの声
+            play = r.get("play") or []
+            at = next(i for i, p in enumerate(play) if p.get("kind") == "recorded" and p["id"].startswith("apology_"))
+            return f, r, play[at:]
+
+        for name, (qs, earlier) in self._cut_scenes().items():
+            (a, ra, pa), (b, rb, pb) = connected(qs, earlier, False), connected(qs, earlier, True)
+            self.assertEqual((rb.get("result"), rb.get("question_id"), pb, rb.get("speak"), b.end_reason),
+                             (ra.get("result"), ra.get("question_id"), pa, ra.get("speak"), a.end_reason), name)
+            self.assertEqual((b.order, b.current, b.follow_ups, b.wish, b.point), (a.order, a.current, a.follow_ups, a.wish, a.point), name)
+            self.assertIsNone(b.end_reason if name != "told" else None, name)
+        # ご本人に繋がる前（受付の方の不在・かけ直しの質問のあと）に切れても、前の通話から続く手順は伺い終えていない（報告の unfinished＝次の電話でまた切れた
+        # 所から。前の通話の答えから読む決まりは、始めの段と同じ1か所＝申し伝え直す一言を言う前に切れたときも）
+        from flowctl import resumed_step
+        for name, (qs, earlier) in self._cut_scenes().items():
+            f = self._cut_call(qs, earlier)
+            f.on_callee(); f.on_heard("あいにく岡田は席を外しております。"); f.on_check("judge", TARGET_IS_AWAY)
+            f.apply("request_callback", {"why": "absent"})
+            self.assertEqual(f.report()["unfinished"], [resumed_step(qs, earlier)[1].id], name)
+
     def test_told_then_cut_says_it_again_after_the_apology_and_closes(self):
         # ✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(b) 前の電話で「…担当の者に申し伝えさせていただきますね。」まで言ったあとに切れた場合：「先ほどは（前回は）、
         # お話の最後に通信が悪く、お電話が切れてしまい申し訳ございませんでした。」「～の件は、担当の者に申し伝えさせていただきますね。」もしくは「折り返し、担当の者より
@@ -8948,7 +9065,9 @@ class EndJudgedTest(unittest.TestCase):
         f.on_callee(); f.on_heard("岡田は本日休みです。")
         f.apply("request_callback", {"why": "day_off"})
         rep = f.report()
-        self.assertEqual((rep["unfinished"], rep["facts"].get("not_agreed"), f.told_again), (["Q1"], None, "request"))
+        # 申し伝え直す一言（told_again）も、ご本人に繋がった時に作る（続きの電話の始めの段の1か所 _resume_cut）＝繋がる前はまだ無い。伺い終えていないかは
+        # 前の通話の答えから（earlier_point_open＝始めの段と同じ1か所）
+        self.assertEqual((rep["unfinished"], rep["facts"].get("not_agreed"), f.told_again), (["Q1"], None, None))
 
     def test_a_point_heard_then_cut_resumes_with_the_explanation(self):
         # ✅ 2026-11-04 日本時間19時26分 ユーザー：「(A) 前の電話で点（「料金のところ」）までは伺えて、ご説明の途中で切れたとき。…お勧めは、点を伺い直さずに、

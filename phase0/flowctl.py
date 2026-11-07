@@ -2401,6 +2401,15 @@ WISH_OUTCOMES = ("none", "option", "means", "other")
 # earlier_point）：heard＝ご納得いただけなかった点を伺った（ご説明の途中で切れたものも）／agreed・declined・unresolved＝手順の終わり（Flow._point_end）。
 # 無ければ、ご納得いただけなかった点の答えをいただく前に切れた＝続きの電話の始めに、切れた所から伺う（resumed_step。✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」）
 POINT_OUTCOMES = ("heard", "agreed", "declined", "unresolved", "told")
+POINT_ENDS = ("agreed", "declined", "unresolved")   # そのうち手順の終わり（伺い終えた）
+
+
+def earlier_point_open(point: str | None) -> bool:
+    """前の通話の答えの手順の進み（earlier_point_of）で、ご承認いただけなかったときの手順をまだ伺い終えていないか（唯一の決まり＝続きの電話の始めの段
+    resumed_step・報告の伺い終えていない Flow._unfinished）：手順の終わり（POINT_ENDS）でなければ伺い終えていない（点を伺う前に切れた＝無し・点は伺えた＝
+    heard・申し伝える一言まで言って切れた＝told）。⛔ 2026-11-08 日本時間0時台に見つけた：報告の側は「無し・heard」だけを書き、told が抜けていた（始めの段を
+    電話の始めに作っていた間は、この電話の手順の進みで答えていたので表に出なかった）"""
+    return point not in POINT_ENDS
 # 前の通話で取れた答え（Flow の earlier・instruction.Business.earlier。質問の番号 → この項目）の項目（唯一の一覧。CL-2 の conversation_io.earlier が渡す）：
 # state・value・condition に加え、wish＝その答えに前の通話で伺ったほかのご希望の結果（earlier_wish。伺っていない・W1 の途中で切れたら無し）・point＝ご承認の
 # 質問のお断りに前の通話で伺ったご納得いただけなかった点の進み（earlier_point。伺っていない・N1 の答えをいただく前に切れたら無し）・hedged＝
@@ -2705,16 +2714,14 @@ def resumed_step(questions, earlier: dict | None) -> "tuple[str, Question] | Non
             # ご連絡の方法までは伺えて、その連絡先を伺う前に切れた（earlier_wish_means）：切れた所から連絡先を伺う（その方法の連絡先の役目）。
             # もう取れている連絡先は伺わない（known_contact の1か所＝流れの制御の _wish_contact と同じ決まり）
             return role, q
-        if q.approval and state in GOT and q.declined(cond):
-            point = earlier_point_of(entry)
+        if q.approval and state in GOT and q.declined(cond) and earlier_point_open(point := earlier_point_of(entry)):
             if point == "told":
                 # 申し伝える一言まで言って、お返事の前に切れた：お詫びのすぐあとに申し伝える一言を言い直す（伺う質問は無い＝Flow._sorry_lines）
                 return "told", q
             if point == "heard" and (earlier_said_of(entry) or "").strip():
                 return "explain", q
             # 点を伺う前に切れた・点は伺えたがその言葉が渡っていない（ご説明できる点が無い）：切れた所から点を伺う
-            if point not in POINT_OUTCOMES or point == "heard":
-                return "not_agreed", q
+            return "not_agreed", q
     return None
 
 
@@ -3447,25 +3454,11 @@ class Flow:
         # と伺う（✅ 2026-11-03 日本時間23時52分36秒 ユーザー「(ア)」。伺い始めるのは _wish_begin の1か所）。目的のお客様のいる業務は、繋がってから
         # （いまの質問は繋がるまで無い＝_connect が並びの先頭から）。名乗りのあとに最初に伺うこと（instruction.Business.first_question）も、同じ
         # resumed_step で決まる（名乗りの録音・AIへの指示文と、流れの制御が同じ質問から始める）。ご承認いただけなかったときの手順の途中で切れた電話の続きも
-        # 同じ1か所（前の通話の答えに "point" が無い＝_point_begin の again。✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」）
-        if not (apology_call or number_again):
-            business = [self.questions[qid] for qid in self.order]
-            if (step := resumed_step(business, self.earlier)) is not None:
-                role, q = step
-                if role == "other_wish":
-                    self._wish_begin(q, again=True)
-                elif role in CONTACT_ROLES:
-                    self._wish_contact_again(q, role)
-                elif role == "told":
-                    self._point_told(q)
-                else:
-                    self._point_begin(q, again=True, said=earlier_said_of(self.earlier[q.id]).strip() if role == "explain" else None)
-                # 最初に伺う質問の順は opening_question の1か所（名前の読みの確かめの途中なら、そのあと）。ご説明から始めるなら、いまの質問は無い
-                first = opening_question(business, self.earlier) if not target else None
-                if not target and role == "explain" and first is None:
-                    self.current = None
-                elif not target and getattr(first, "callback", None) == role:
-                    self.current = CALLBACK_IDS[ROLE_KEY[role]]
+        # 同じ1か所（前の通話の答えに "point" が無い＝_point_begin の again。✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」）。作るのは、前の通話の答えの
+        # お客様と話し始める時（_resume_cut の1か所）＝目的のお客様のいない業務は電話の始め（ここ）・いる業務はご本人か後任の方に繋がった時（_connect）
+        self.resume_due = not (apology_call or number_again)
+        if not target:
+            self._resume_cut()
 
     def _calling_questions(self) -> None:
         """呼んでいる段の判定の質問（judge_context）を作る唯一の場所（始めと、後任の方へ切り替えたとき＝_to_successor）：呼ぶ一言と、確かめる一言
@@ -7093,8 +7086,12 @@ class Flow:
         keys = [k for k in OPENING_ORDER if self.target.get(k) and (self.passed_on or k in self.opening_unheard)
                 and not (k == "greeting" and self._greeted())]  # 判定を待つ間に流したあいさつは、もう流さない（hold_play）
         self.phase, self.opening_unheard, self.passed_on = "asking", [], False
-        if who == "substitute" and self._resumed_call():
-            self._start_over()   # 続きの電話の代わりの方：前の通話の答え（ご本人の答え）で決めていたことを外し、営業の最初から伺う
+        if who != "substitute":
+            self._resume_cut()   # ご本人・後任の方：前の通話で伺っている途中で切れた所から（続きの電話の始めの段を作る1か所。どの道で繋がっても同じ）
+        else:
+            self.resume_due = False   # 代わりの方には続きの電話の始めの段を作らない
+            if self._resumed_call():
+                self._start_over()   # 続きの電話の代わりの方：前の通話の答え（ご本人の答え）で決めていたことを外し、営業の最初から伺う
         # まずお詫び（前の電話の事情。予約証の apology）：お呼びした方ご本人にだけ。名乗りが要るなら名乗りのあと、用件・質問の前（共通の一言の録音）
         told = self.told_again if who != "substitute" else None
         if told is not None:
@@ -9048,8 +9045,7 @@ class Flow:
             p = self.point
             if p is not None and p["q"] == q.id:
                 return p["outcome"] is None
-            point = earlier_point_of(self.earlier.get(q.id))
-            return point is None or point == "heard"
+            return earlier_point_open(earlier_point_of(self.earlier.get(q.id)))   # 続きの電話の始めの段（resumed_step）と同じ1か所
         return False
 
     def _wish_end(self, outcome: str, contact: str | None = None) -> None:
@@ -9070,15 +9066,46 @@ class Flow:
         始めの段＝申し伝え直し・ほかのご希望・連絡先・ご承認の手順）を外し、営業の最初の質問から伺う（お詫び・申し伝える一言は流さない＝_connect）。
         ✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(3) H6：…電話が途中で切れることは代わりの方には関係ない話ですよね。しっかりと営業の最初からもしくは引き継がれて
         いる部分から確認していかないといけないんじゃないですか。」。⛔ それまでは、申し伝え直す電話（ご承認が最終目的）で「お忙しいところ…」と締め、前の答えの
-        ある続きの電話では残りの質問だけを伺った"""
+        ある続きの電話では残りの質問だけを伺った。外すのは前の通話の答え（伺わずに済ませる質問と、その連絡先）だけ＝続きの電話の始めの段は、ご本人か後任の
+        方に繋がった時にだけ作る（_resume_cut。代わりの方には作らない＝前の通話の答えの無い電話と同じ状態になる）"""
         for qid in self.earlier:
             self.items[qid] = Item()
             self.taken.pop(qid, None)
-        self.earlier, self.earlier_all, self.told_again, self.wish, self.point = {}, {}, None, None, None
-        for qid in [qid for qid, q in self.questions.items() if q.callback and qid != self.substitute_q and qid != SUBSTITUTE_ID
-                    and self.items[qid].state == "empty"]:
-            self._drop_unasked(qid)   # 続きの電話の始めに足したシステムの質問（まだ伺っていない）
+        self.earlier, self.earlier_all = {}, {}
         self.order = list(self.business_ids)
+
+    def _resume_cut(self) -> None:
+        """続きの電話の始めの段（前の通話で伺っている途中で切れた手順＝resumed_step：ほかのご希望・ご連絡の方法の連絡先・ご承認の手順の続き・申し伝え直し）を
+        作る唯一の場所（1通話1回）。前の通話の答えは、お呼びした方ご本人（目的のお客様のいない業務は電話に出た方）の答えなので、その方と話し始める時に作る＝
+        目的のお客様のいない業務は電話の始め（Flow.__init__）・いる業務はご本人か後任の方に繋がった時（_connect）。判断いただける代わりの方には作らない
+        （_start_over）。⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの B-7 と、その確かめで見つけた2つ）：目的のお客様のいる業務でも電話の
+        始めに作っていたので、(1) 代わりの方に営業の最初から伺うとき、作った印（follow_ups・wished・point_marks）が残り、ご承認のお断りで例外で止まった・
+        「どれも要らない」に W1 を伺わなかった (2) 前の電話がご説明の途中で切れていると、代わりの方の「判断できる」を受け取らず、何も流さなかった (3) 受付の方の
+        「不在」からかけ直しの質問を伺ったあとにご本人が戻られると、並びを業務の質問に戻す所（_target_back）が始めの段の質問を消し、ほかのご希望の続きは伺わず、
+        ご承認の手順の続きはお詫びのあとすぐ「お忙しいところお時間をいただきましてありがとうございました。」で締めた"""
+        if not self.resume_due:
+            return
+        self.resume_due = False
+        business = [q for q in self.questions.values() if not q.callback]   # 業務の質問（トークスクリプトの順＝名乗りの録音・AIへの指示文と同じ材料）
+        if (step := resumed_step(business, self.earlier)) is None:
+            return
+        role, q = step
+        if role == "other_wish":
+            self._wish_begin(q, again=True)
+        elif role in CONTACT_ROLES:
+            self._wish_contact_again(q, role)
+        elif role == "told":
+            self._point_told(q)
+        else:
+            self._point_begin(q, again=True, said=earlier_said_of(self.earlier[q.id]).strip() if role == "explain" else None)
+        if self.target is None:
+            # 名乗りの録音の最後に伺う質問（opening_question の1か所。名前の読みの確かめの途中なら、そのあと）。ご説明から始めるなら、いまの質問は無い
+            # （目的のお客様のいる業務は、繋がったときの _advance が並びの先頭から）
+            first = opening_question(business, self.earlier)
+            if role == "explain" and first is None:
+                self.current = None
+            elif getattr(first, "callback", None) == role:
+                self.current = CALLBACK_IDS[ROLE_KEY[role]]
 
     def _drop_unasked(self, qid: str) -> None:
         """まだ伺っていないシステムの質問を、伺わずに外す（並び・質問・答えから。伺い済みの連絡先だった＝_resume）。"""
