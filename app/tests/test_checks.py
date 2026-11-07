@@ -297,6 +297,47 @@ class CallErrorsOnlyThroughTroubles(Planted):
         self.assertEqual(sorted((v.path, v.rule) for v in rules.single_writers(root)),
                          [("src/salescall/core/settle.py", "I-12"), ("src/salescall/core/settle.py", "I-12")])
 
+    def test_the_row_fix_entries_are_for_the_screens_and_their_plans_for_row_fixes_only(self):
+        """お客様リストの行の直しの入口（欄の直し・かける番号の直し・前の担当の方の新しい約束の選び・2つ目の選びが要るかの読み）は、画面だけが
+        呼ぶ。直したあと・選んだあとの予定の決め直し（next_action.after_dial_fix・after_person_fix・after_old_promise_choice）は、その入口の部品
+        row_fixes だけが呼ぶ（記録だけ・予定だけを書く2つ目の道を作らない。0206）。欄の直しの記録へ書くのも row_fixes だけ。"""
+        fixes = ("    row_fixes.fix(tx, t, 'target_role', '部長', keep_old_promise=None)\n"
+                 "    row_fixes.fix_dial_number(tx, t, '0', same_person=True)\n"
+                 "    row_fixes.choose_old_promise(tx, t, keep_old_promise=True)\n"
+                 "    row_fixes.old_promise_choice_needed(tx, t)\n")
+        plans = ("    next_action.after_dial_fix(tx, t, cause='x')\n"
+                 "    next_action.after_person_fix(tx, t, cause='x')\n"
+                 "    next_action.after_old_promise_choice(tx, t, keep_old_promise=False, cause='x')\n")
+        write = "    tx.execute('INSERT INTO salescall.task_fixes (task_id) VALUES (1)')\n"
+        root = self._app({"src/salescall/web/rows.py": "def go(tx, t):\n" + fixes,
+                          "src/salescall/core/row_fixes.py": "def go(tx, t):\n" + plans + write,
+                          "src/salescall/core/settle.py": "def go(tx, t):\n" + fixes + plans + write,
+                          "src/salescall/web/plans.py": "def go(tx, t):\n" + plans})
+        found = rules.entries_called_from_their_places(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/core/settle.py", n) for n in range(2, 9)] + [("src/salescall/web/plans.py", n) for n in range(2, 5)])
+        self.assertEqual([(v.path, v.rule) for v in rules.single_writers(root)], [("src/salescall/core/settle.py", "I-12")])
+
+    def test_the_tables_added_to_the_writers_are_written_only_from_their_places(self):
+        """書く表の一覧に 0206 で足した表：一覧に書いた部品のほかから書けない（アプリの役が読むだけの表は、どこからも書かない）。"""
+        tables = {"task_contacts": "customer_contacts", "task_designations": "tasks", "task_sub_numbers": "tasks",
+                  "version_copies": "business_settings", "version_successions": "business_settings"}
+        system = ("approved_contents", "attempt_transitions", "field_types", "fix_requests", "job_leases", "name_recording_reviews",
+                  "name_review_skips", "part_contents", "setting_definitions", "stop_lets_through")
+        files = {f"src/salescall/core/{home}.py": f"def go(tx):\n    tx.execute('INSERT INTO salescall.{t} (x) VALUES (1)')\n"
+                 for t, home in tables.items() if home not in ("tasks", "business_settings")}
+        files["src/salescall/core/tasks.py"] = "".join(f"tx.execute('INSERT INTO salescall.{t} (x) VALUES (1)')\n"
+                                                       for t, home in tables.items() if home == "tasks")
+        files["src/salescall/core/business_settings.py"] = "".join(f"tx.execute('INSERT INTO salescall.{t} (x) VALUES (1)')\n"
+                                                                   for t, home in tables.items() if home == "business_settings")
+        files["src/salescall/core/settle.py"] = "".join(f"tx.execute('INSERT INTO salescall.{t} (x) VALUES (1)')\n"
+                                                        for t in (*tables, *system))
+        files["src/salescall/core/watch.py"] = "".join(f"tx.execute('UPDATE salescall.{t} SET x = 1')\n" for t in system)
+        found = rules.single_writers(self._app(files))
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/core/settle.py", n) for n in range(1, len(tables) + len(system) + 1)]
+                         + [("src/salescall/core/watch.py", n) for n in range(1, len(system) + 1)])
+
     def test_restoring_a_resting_row_is_for_the_screens_only(self):
         root = self._app({"src/salescall/web/rows.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='直した')\n",
                           "src/salescall/supervisor/jobs.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='x')\n"})

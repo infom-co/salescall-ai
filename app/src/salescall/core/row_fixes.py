@@ -12,6 +12,10 @@
 - 役職の欄は、取込・版の割り当て・門と同じ1か所（業務設定の `TargetNeeds.role_unclear`）で確かめる（その行の業務が一覧の役職でお呼びするとき、「ご担当者」だけ＝何の担当か無い役職は直せない）。
 - 直せるのは管理者か契約者だけ（データベースが守る）。電話番号・連絡先の直しは core/customer_contacts.py。
 - かける番号の直し（`fix_dial_number`）と、前の担当の方が新しい約束をしたあとの選び（`choose_old_promise`。計画書 7-1 (23)・0202）も、ここ。
+- お呼びする方の名前・フルネーム・役職・部署の直し（担当の期が替わる＝計画書 7-1 (19)「違う相手」）でも、前の担当の方との約束が残っていれば、
+  番号の「違う」の直しと同じ選び（7-1 (21)(25)）を受ける（0206）。選びが要るか・選べるかは `_old_promise_choice` の1か所（データベースの
+  salescall.task_old_promise_choice_needed を読む。守りも同じ関数）。画面が「2つ目の選び（前の担当の方との約束も守るか）が要るか」を読む入口は
+  `old_promise_choice_needed`。直したあとの予定は next_action の1か所（番号＝`after_dial_fix`・名前など＝`after_person_fix`）。
 """
 
 from __future__ import annotations
@@ -34,8 +38,14 @@ class FixInvalid(ValueError):
 
 
 def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | None = None,
-        suggest: readings.Suggester | None = None) -> dict[str, Any]:
-    """行の1つの欄を直す（書くのはここだけ）。value が空なら、その欄を消す。直したあとの、その欄のいまの値を返す。"""
+        suggest: readings.Suggester | None = None, keep_old_promise: bool | None = None) -> dict[str, Any]:
+    """行の1つの欄を直す（書くのはここだけ）。value が空なら、その欄を消す。直したあとの、その欄のいまの値を返す。
+    お呼びする方の名前・フルネーム・役職・部署（お呼びする方が替わる欄＝データベースの salescall.person_fix_field の1か所）を直すと、担当の期が
+    替わる（計画書 7-1 (19)）。keep_old_promise＝そのとき前の担当の方とのかけ直しの約束が残っていて、約束の番号がいまかける番号でない（前の担当の方
+    の携帯など）ときに、契約者が画面で選ぶ「前の担当の方との約束も守るか」（番号の直しの `fix_dial_number` の keep_old_promise と同じ意味・同じ
+    1か所 `_old_promise_choice`。要るときは必ず渡す・要らないときは渡さない＝渡さなければ／渡せば `FixInvalid`。データベースも同じ1か所で守る＝
+    0206 の task_fix_guard）。約束の番号がいまかける番号なら選べない（前の担当の方へかける道が無いので、約束をやめ、引き継ぎを確かめる電話）。
+    直したあとの予定は next_action.after_person_fix の1か所が決める。"""
     if field not in FIELDS:
         raise FixInvalid(f"直せる欄は {[FIELD_NAMES[f] for f in FIELDS]} です（{field!r}）")
     text = value.strip() if isinstance(value, str) and value.strip() else None
@@ -66,16 +76,60 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
         why = business_settings.load(tx, version["v"]).target_needs().role_unclear(text)
         if why is not None:
             raise FixInvalid(why)
+    changes_person = bool(tx.one("SELECT salescall.person_fix_field(%s) AS p", (field,))["p"])
+    if changes_person and tx.one("SELECT 1 AS x FROM salescall.tasks WHERE task_id = %s", (task_id,)) is None:
+        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    # 名前などの直しでは番号は変わらない：新しい担当の方へかける番号は、いまかける番号
+    _old_promise_choice(tx, task_id, tasks.dial_number(tx, task_id)["phone_e164"] if changes_person else None, keep_old_promise)
     tx.execute(
         "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, reading, reading_by, candidates, likely,"
-        "                                  recorded_by)"
-        " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, %s, %s, %s, %s, salescall.cur_actor()"
+        "                                  recorded_by, keep_old_promise)"
+        " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, %s, %s, %s, %s, salescall.cur_actor(), %s"
         " FROM salescall.tasks t WHERE t.task_id = %s",
-        (field, text, r.reading, r.by if r.reading else None, list(r.candidates), r.likely, task_id))
+        (field, text, r.reading, r.by if r.reading else None, list(r.candidates), r.likely, keep_old_promise, task_id))
     row = tx.one(f"SELECT {field} AS value FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
     if row is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    if changes_person:
+        next_action.after_person_fix(tx, task_id, cause=f"ダッシュボードで、{FIELD_NAMES[field]}を直した（担当の期が替わる直し）")
     return {"field": field, "value": row["value"], "reading": r.reading if text is not None else None}
+
+
+def old_promise_choice_needed(tx: Tx, task_id: UUID, phone: str | None = None) -> bool:
+    """画面の入口（CL-3）：番号を直す画面・名前などを直す画面で、2つ目の選び「前の担当の方との約束も守るか」を出すか（✅ 2026-11-07 ユーザー＝
+    計画書 7-1 (21)(25)。0206）。phone＝番号を直す画面で「担当の方は違う」を選んだときの新しい番号（番号の読み方は phone.normalize の1か所。読めな
+    ければ `FixInvalid`）。名前・フルネーム・役職・部署を直す画面は渡さない（番号は変わらないので、いまかける番号で見る）。真なら、選ばなければ
+    直せない（`fix_dial_number`・`fix` の keep_old_promise）。偽なら、選びを出さない（約束が無い・約束の番号が新しい担当の方の番号＝「守る」は
+    選べず、約束をやめて引き継ぎを確かめる電話）。決めるのはデータベースの salescall.task_old_promise_choice_needed の1か所（包むだけ）。"""
+    if phone is None:
+        e164 = tasks.dial_number(tx, task_id)["phone_e164"]
+    else:
+        number = normalize(phone)
+        if number.e164 is None:
+            raise FixInvalid(f"電話番号として読めません（{number.reason or '番号が不明です'}）")
+        e164 = number.e164
+    return _choice_needed(tx, task_id, e164)
+
+
+def _choice_needed(tx: Tx, task_id: UUID, e164: str) -> bool:
+    return bool(tx.one("SELECT salescall.task_old_promise_choice_needed(%s, %s) AS n", (task_id, e164))["n"])
+
+
+def _old_promise_choice(tx: Tx, task_id: UUID, e164: str | None, keep_old_promise: bool | None) -> None:
+    """担当の方が替わる直し（番号の「違う」・名前などの直し。e164＝新しい担当の方へかける番号。替わらない直しは None）で、前の担当の方との約束を
+    守るかの選びを確かめる（1か所。`fix_dial_number`・`fix` が通る。データベースの守り task_dial_fix_guard・task_fix_guard も同じ
+    salescall.task_old_promise_choice_needed を読む）。選びが要るのは、約束が残っていて（約束の日・幅が残っている＝1回かけたあとでも）、その約束の
+    番号が新しい担当の方へかける番号でないとき。要るのに選ばなければ・要らないのに選べば `FixInvalid`（何も書かない）。"""
+    needs = e164 is not None and _choice_needed(tx, task_id, e164)
+    if needs and keep_old_promise is None:
+        raise FixInvalid("前の担当の方とのかけ直しの約束が、まだ残っています（約束の日・幅が残っています）。前の担当の方との約束も"
+                         "守るか、次の担当の方にだけかけるかを選んでください")
+    if not needs and keep_old_promise is not None:
+        if e164 is not None and next_action.promise_alive(tx, task_id):
+            raise FixInvalid("前の担当の方との約束の電話の番号が、新しい担当の方へかける番号です。前の担当の方へかける道が無いので、"
+                             "「約束も守る」は選べません（約束はやめ、新しい担当の方へ引き継ぎを確かめる電話をかけます）。選ばずに直してください")
+        raise FixInvalid("前の担当の方との約束を守るかを選ぶのは、お呼びする方が替わる直し（「担当の方は違う」を選んだ番号の直し・お呼びする方の"
+                         "名前・フルネーム・役職・部署の直し）で、約束の電話が残っているときだけです")
 
 
 def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, keep_old_promise: bool | None = None) -> dict[str, Any]:
@@ -103,18 +157,9 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, kee
     now = tasks.dial_number(tx, task_id)
     if now["phone_e164"] == number.e164:
         return now
-    # 選びが要るか（1か所＝データベースの salescall.task_old_promise_choice_needed。守り task_dial_fix_guard も同じ）：まだかけていない約束が
-    # 残っていて、その約束の番号が、いま直す番号でない（直す番号なら、前の担当の方へかける道が無いので「守る」は選べない＝本体の決定。0202）
-    needs_choice = not same_person and bool(tx.one("SELECT salescall.task_old_promise_choice_needed(%s, %s) AS n",
-                                                   (task_id, number.e164))["n"])
-    if needs_choice and keep_old_promise is None:
-        raise FixInvalid("前の担当の方とのかけ直しの約束が、まだ残っています（約束の日・幅が残っています）。前の担当の方との約束も"
-                         "守るか、次の担当の方にだけかけるかを選んでください")
-    if not needs_choice and keep_old_promise is not None:
-        if not same_person and next_action.promise_alive(tx, task_id):
-            raise FixInvalid("前の担当の方との約束の電話の番号が、いま直す番号（新しい担当の方の番号）です。前の担当の方へかける道が無いので、"
-                             "「約束も守る」は選べません（約束はやめ、新しい担当の方へ引き継ぎを確かめる電話をかけます）。選ばずに直してください")
-        raise FixInvalid("前の担当の方との約束を守るかを選ぶのは、「担当の方は違う」を選び、約束の電話が残っているときだけです")
+    # 選びが要るか・選べるか（名前などの直しと同じ1か所。「担当の方は違う」なら、新しい担当の方へかける番号は、いま直す番号。直す番号が約束の
+    # 番号なら、前の担当の方へかける道が無いので「守る」は選べない＝本体の決定。0202）
+    _old_promise_choice(tx, task_id, None if same_person else number.e164, keep_old_promise)
     blocked = target_policy.block_reason(tx, number, client_ref=t["client_ref"], **tasks.scope(tx, task_id))
     if blocked is not None:
         raise FixInvalid(f"この番号にはかけられません：{blocked[1]}")
