@@ -196,21 +196,27 @@ def _add_line(tx: Tx, sid: UUID, attempt_id: UUID, business_id: UUID, version: U
 
 
 def _latest(tx: Tx, business_id: UUID) -> list[dict[str, Any]]:
-    """その業務に、依頼者の解決策で足せた問答（問いの名前ごとに、いちばん新しく足せたもの。1か所＝取り込み直したときに残す `kept_answers` と、
-    流れに入っていない前の解決策の一覧 `not_in_version`・`not_in_line` が読む）。いちばん新しいものが、取り込み直した中身で置き換えられていれば
-    （`replaced`）、その問いの名前は入れない（前の解決策も、よみがえらせない。⛔ 2026-11-07 の第三者の見直し (2) の4）。
+    """その業務の、依頼者の解決策の問いの名前ごとの「いまの中身」（1か所＝取り込み直したときに残す `kept_answers`・`keep_in` と、流れに
+    入っていない前の解決策の一覧 `not_in_version`・`not_in_line`・承認待ち `unconfirmed` が読む。手で外した印を付けるデータベースの
+    hand_removals も同じものを読む）：問いの名前ごとに、いちばん新しく足せた解決策。それが取り込み直した中身で置き換えられていれば
+    （`replaced`）、文（solution_text）は、いちばん新しく置き換えた取り込みの版の、その問いの答え（replaced＝真。置き換えた取り込みが
+    答えを置かなかったときは入れない）。✅ 計画書 6-1 (5)(6)：取り込み直しで置き換えても、手で外した実施回の確かめは消さず、置き換えた
+    取り込みの答えで確かめていただく（⛔ 0204 の前は、置き換えた解決策を一覧から除いたので、手で前の版に戻した実施回の確かめ待ちが、
+    取り込み直しで消えて門が通った）。前の解決策の古い文は、よみがえらせない（⛔ 2026-11-07 の第三者の見直し (2) の4）。
     手で外したか・確かめたかは実施回ごと（`_marks`）なので、ここでは持たない。"""
-    return tx.all("SELECT * FROM salescall.business_solutions(%s)", (business_id,))   # データベースの1か所（0201。手で外した印も同じものを読む）
+    return tx.all("SELECT * FROM salescall.business_solutions(%s)", (business_id,))   # データベースの1か所（0204）
 
 
 def _marks(tx: Tx, run_id: UUID, solution_ids: list[UUID]) -> dict[UUID, tuple[bool, bool]]:
     """その実施回で、解決策ごとの (removed, unconfirmed)（1か所。✅ 2026-11-07 本体の決定「確かめは実施回ごと」：外すのも確かめるのも、
     契約者が実施回ごとにする操作なので、ほかの実施回の外す・入れる・入れないは、この実施回に効かない）。
     removed＝その実施回で契約者が手で外した（`removed_by_hand` が残した外した印がある）。
-    unconfirmed＝そのうえ、その実施回のいちばん新しい外した印のあとに、その実施回で「入れない」（`leave_out`）とも確かめていない（時刻で比べる。
-    ✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で入らず、新規の電話もかけられません」）。
-    「入れる」（`add_earlier`）を選べば、その解決策はその実施回の流れに入るので、一覧（`_outside`＝入っているかの1か所）に出なくなる＝
-    確かめたことになる（ここでは見ない。選んだ実施回は流れの結果の chosen_run に残る＝0200。外した印は消えない）。その実施回の流れは、
+    unconfirmed＝そのうえ、その実施回のいちばん新しい外した印のあとに、その実施回で「入れない」（`leave_out`）とも「入れる」（`add_earlier`
+    で流れに足せた＝流れの結果の chosen_run。0200）とも確かめていない（時刻で比べる。✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で
+    入らず、新規の電話もかけられません」）。「入れる」を選べば、その解決策はその実施回の流れに入るので、一覧（`_outside`＝入っているかの
+    1か所）にも出なくなる。あとの取り込み直しで中身（置き換えた取り込みの答え＝`_latest`）が変わると、また一覧に出るが、もう選んだ実施回は
+    承認待ちに戻さない（「入れない」と同じ。⛔ 0204 の前は「入れる」を一覧に出ないことでしか数えず、中身が変わると、また止まりえた）。
+    外した印は消えない。その実施回の流れは、
     ほかの実施回と分かれている（手で外した印の付く割り当ては、ほかのまだ終えていない実施回の版を使わず写しを作る＝
     business_settings.assign の `_shared_apart`）ので、ほかの実施回の「入れる」で、この実施回の流れに入ることは無い。その実施回で、
     またその解決策を外せば、新しい外した印から、また確かめが要る。"""
@@ -218,13 +224,15 @@ def _marks(tx: Tx, run_id: UUID, solution_ids: list[UUID]) -> dict[UUID, tuple[b
         return {}
     rows = tx.all(
         "SELECT s.sid, d.at IS NOT NULL AS removed,"
-        "       d.at IS NOT NULL AND NOT coalesce(k.at >= d.at, false) AS unconfirmed"
+        "       d.at IS NOT NULL AND NOT coalesce(k.at >= d.at, false) AND NOT coalesce(c.at >= d.at, false) AS unconfirmed"
         " FROM unnest(%s::uuid[]) AS s(sid)"
         " LEFT JOIN LATERAL (SELECT max(recorded_at) AS at FROM salescall.client_solution_removals"
         "                    WHERE solution_id = s.sid AND run_id = %s) d ON true"
         " LEFT JOIN LATERAL (SELECT max(recorded_at) AS at FROM salescall.client_solution_leave_outs"
-        "                    WHERE solution_id = s.sid AND run_id = %s) k ON true",
-        (list(solution_ids), run_id, run_id))
+        "                    WHERE solution_id = s.sid AND run_id = %s) k ON true"
+        " LEFT JOIN LATERAL (SELECT max(recorded_at) AS at FROM salescall.client_solution_lines"   # 「入れる」を選んで、流れに足せた
+        "                    WHERE solution_id = s.sid AND chosen_run = %s AND version_id IS NOT NULL) c ON true",
+        (list(solution_ids), run_id, run_id, run_id))
     return {r["sid"]: (r["removed"], r["unconfirmed"]) for r in rows}
 
 
@@ -238,9 +246,10 @@ def not_in_version(tx: Tx, version_id: UUID) -> list[dict[str, Any]]:
 def not_in_line(tx: Tx, run_id: UUID) -> list[dict[str, Any]]:
     """その実施回のいまの版の流れに入っていない、その業務の前の解決策の一覧（1か所。画面が実施回ごとに契約者に見せて、承認ボタンを出す＝
     計画書 6-1 (3)。「入れる」は `add_earlier`・「入れない」は `leave_out`。どちらも同じ実施回を渡す）：[{solution_id, attempt_id, answer_name,
-    solution_text, point_text, recorded_at, removed, unconfirmed}]（removed＝その実施回で契約者が手で外した・unconfirmed＝そのうち、その
-    実施回でまだ「入れる」も「入れない」も確かめていない＝承認ボタンの元。どちらも `_marks`）。入っていない＝その流れのいちばん後の版
-    （`successor_tip`）の、その問いの答えが、その解決策の文と違う（無い）。取り込み直しで残した問答・同じ答えを書いた問答・選んで足した
+    solution_text, point_text, recorded_at, replaced, removed, unconfirmed}]（solution_text・replaced＝その問いのいまの中身＝`_latest`。replaced が
+    真なら、文は解決策を置き換えた取り込みの答えで、「入れる」とその答えが入る。removed＝その実施回で契約者が手で外した・unconfirmed＝そのうち、
+    その実施回でまだ「入れる」も「入れない」も確かめていない＝承認ボタンの元。どちらも `_marks`）。入っていない＝その流れのいちばん後の版
+    （`successor_tip`）の、その問いの答えが、その文と違う（無い）。取り込み直しで残した問答・同じ答えを書いた問答・選んで足した
     問答は、入っているとみなす。✅ 2026-11-06 ユーザー「契約者にそれをダッシュボードで確認します」＝自動では入れない。"""
     return _for_run(tx, run_id, lambda r: True)
 
@@ -327,23 +336,32 @@ def held_back(tx: Tx, business_id: UUID) -> set[UUID]:
 
 
 def kept_answers(tx: Tx, business_id: UUID) -> list[tuple[str, str]]:
-    """その業務に、依頼者の解決策で足した問答（問いの名前ごとに、いちばん新しく足せたもの）。取り込み直した版にも残す（1か所。
-    ✅ 2026-11-06 ユーザー「残す」＝見直し(B) の3。残すのは `keep_in`＝取込の入口の共通の1か所 business_import._kept で、同じ `_latest` を読む）。"""
+    """その業務に、依頼者の解決策で足した問答（問いの名前ごとに、いちばん新しく足せたもの。取り込みで置き換えられたものは除く）。取り込み直した
+    版にも残す（1か所。✅ 2026-11-06 ユーザー「残す」＝見直し(B) の3。残すのは `keep_in`＝取込の入口の共通の1か所 business_import._kept で、同じ
+    `_latest` を読む）。"""
     held = held_back(tx, business_id)
-    return [(r["answer_name"], r["solution_text"]) for r in _latest(tx, business_id) if r["solution_id"] not in held]
+    return [(r["answer_name"], r["solution_text"]) for r in _latest(tx, business_id)
+            if not r["replaced"] and r["solution_id"] not in held]
 
 
 def keep_in(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> tuple[dict[str, Any], list[str], list[UUID]]:
     """業務設定の中身に、解決策で足した問答を残す（取り込み直したとき。1か所）：中身に同じ問いの名前の答えがあれば中身を優先し、
     中身が「使わない」にした問いの名前も、そのまま（契約者が決めた）。無ければ足した問答を入れる（実施回で手で外した解決策＝`held_back` は
     入れない）。（中身, 残した問いの名前の知らせ, 取り込んだ中身が先になった解決策＝違う答えを書いた・「使わない」にした）を返す（中身が先に
-    なった解決策は、登録したときに置き換えられたと残す＝`replaced`。呼ぶのは business_import._kept だけ）。"""
+    なった解決策は、登録したときに置き換えられたと残す＝`replaced`。呼ぶのは business_import._kept だけ）。
+    前の取り込み直しで置き換えた問い（`_latest` の replaced。文は前に置き換えた取り込みの答え）は、取り込みの中身なので残さない。今度の中身が
+    同じ答えを書いていなければ（違う答え・「使わない」・消した）、今度の中身で置き換えたと残す（確かめの一覧が、いちばん新しい取り込みの
+    答えを読むように＝0204）。"""
     own = {a.get("name"): a.get("text") for a in (raw.get("answers") or []) if isinstance(a, dict)}
     off = set(raw.get("answers_off") or []) if isinstance(raw.get("answers_off"), list) else set()
     held = held_back(tx, business_id)
     notes, overridden = [], []
     for r in _latest(tx, business_id):
         name, text = r["answer_name"], r["solution_text"]
+        if r["replaced"]:
+            if name in off or own.get(name) != text:
+                overridden.append(r["solution_id"])
+            continue
         if name in off or (name in own and own[name] != text):
             overridden.append(r["solution_id"])
         if name in own or name in off:
@@ -383,8 +401,9 @@ def removed_by_hand(tx: Tx, run_id: UUID, version_id: UUID) -> None:
 
 def replaced(tx: Tx, solution_ids: list[UUID], version_id: UUID) -> None:
     """取り込み直して登録した版（version_id）の中身が先になった解決策を、置き換えられたと残す（1か所。0197 の client_solution_replacements。
-    書くのは取込の登録の共通の1か所 business_import.register_shaped だけ）。置き換えられた解決策は `_latest` に入らない（取り込み直しでも
-    残さない・流れに入っていない前の解決策の一覧に出さない・知らせ solution_earlier に数えない）。"""
+    取り込み直すたびに残す＝0204。書くのは取込の登録の共通の1か所 business_import.register_shaped だけ）。置き換えられた解決策は、`_latest` では
+    いちばん新しく置き換えた取り込みの答えになる（取り込み直しでは残さない。流れに入っていない前の解決策の一覧・手で外した印・承認待ちは、
+    その答えで数える＝計画書 6-1 (5)(6)。答えを置かなかった取り込みなら入れない）。"""
     for sid in solution_ids:
         tx.execute("INSERT INTO salescall.client_solution_replacements (tenant_id, client_id, solution_id, version_id, recorded_by)"
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (sid, version_id))

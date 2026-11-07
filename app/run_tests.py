@@ -172,6 +172,11 @@ _OTHER_REFUSED = _DF + "test_every_other_refusal_still_stops_every_number_of_the
 _OLD_PROMISE = _DF + "test_a_new_promise_from_the_old_person_waits_for_the_contractor_to_choose"
 _NEW_NUMBER = _DF + "test_a_promise_on_the_number_that_becomes_the_new_persons_number_is_not_carried_over"
 _OLD_APOLOGY = "tests.test_apology.ApologyAfterDialFix.test_an_apology_to_the_old_person_after_another_person_fix_goes_on_as_a_handover"
+_M204, _SOL = "0204_replaced_solution_still_confirmed.sql", "tests.test_client_solutions.Solutions."
+_S_REPLACED = _SOL + "test_an_import_that_replaces_a_removed_solution_still_waits_for_the_contractor"
+_S_LATEST = _SOL + "test_the_confirmation_list_follows_the_latest_import_and_drops_a_question_the_import_no_longer_answers"
+_S_CHOSEN = _SOL + "test_a_run_that_chose_to_put_a_solution_in_is_not_held_again_when_an_import_changes_it"
+_S_HAND_AFTER_IMPORT = _SOL + "test_a_hand_assignment_after_an_import_removes_the_import_answer_that_replaced_a_solution"
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お詫び・続き・番号の聞き直しの予定に約束の印を求める守りを外す（0126 の前の形：付け忘れると、お詫びの電話が後回しになる）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_promise_mark",
@@ -2359,23 +2364,41 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      _edited(_M201, "CREATE FUNCTION salescall.version_answer", "     WHERE c.version_id = p_version AND a ->> 'name' = p_name LIMIT 1),",
              "     WHERE false LIMIT 1),", end="\n$$;"),
      ("tests.test_client_solutions.Solutions.test_the_answer_of_a_version_is_read_like_the_settings",)),
-    ("足せなかった解決策も、取り込み直しで残す（0201 の business_solutions）",
-     _edited(_M201, "CREATE FUNCTION salescall.business_solutions",
+    # business_solutions は 0204 で作り直した（返す形が変わった）ので、壊し試しは 0204 の形からずらす
+    ("足せなかった解決策も、取り込み直しで残す（0204 の business_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.business_solutions",
              " AND EXISTS (SELECT 1 FROM salescall.client_solution_lines l\n                                                 WHERE l.solution_id = c.solution_id AND l.version_id IS NOT NULL)",
              "", end="\n$$;"),
      ("tests.test_client_solutions.Solutions.test_a_solution_that_needs_the_contractor_to_confirm_a_reading_is_held",)),
-    ("同じ問いの解決策が2つあるとき、古い方を残す（0201 の business_solutions）",
-     _edited(_M201, "CREATE FUNCTION salescall.business_solutions", "ORDER BY c.answer_name, c.seq DESC) l", "ORDER BY c.answer_name, c.seq ASC) l",
+    ("同じ問いの解決策が2つあるとき、古い方を残す（0204 の business_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.business_solutions", "ORDER BY c.answer_name, c.seq DESC) l", "ORDER BY c.answer_name, c.seq ASC) l",
              end="\n$$;"),
      ("tests.test_client_solutions.Solutions.test_solution_answers_are_kept_when_the_settings_are_imported_again",)),
-    ("取り込み直しで置き換えられた解決策も、前の解決策の一覧に出す（0201 の business_solutions）",
-     _edited(_M201, "CREATE FUNCTION salescall.business_solutions",
-             "\n  WHERE NOT EXISTS (SELECT 1 FROM salescall.client_solution_replacements x WHERE x.solution_id = l.solution_id)", "", end="\n$$;"),
-     ("tests.test_client_solutions.Solutions.test_a_solution_the_import_replaced_is_no_longer_offered",)),
-    ("解決策の一覧を業務で絞らない（0201 の business_solutions）",
-     _edited(_M201, "CREATE FUNCTION salescall.business_solutions", "WHERE r.business_id = p_business AND", "WHERE p_business IS NOT NULL AND",
+    ("解決策の一覧を業務で絞らない（0204 の business_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.business_solutions", "WHERE r.business_id = p_business AND", "WHERE p_business IS NOT NULL AND",
              end="\n$$;"),
      ("tests.test_client_solutions.Solutions.test_solutions_are_kept_only_for_their_own_business",)),
+    # ── 0204（✅ 計画書 6-1 (5)(6)）：取り込み直しで置き換えた解決策も、置き換えた取り込みの答えとして確かめに数える
+    ("取り込み直しで置き換えた解決策を、確かめの一覧・手で外した印から除く（0204 の前の形。business_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.business_solutions",
+             "  WHERE x.version_id IS NULL OR x.answer IS NOT NULL", "  WHERE x.version_id IS NULL", end="\n$$;"),
+     (_S_REPLACED, _S_HAND_AFTER_IMPORT)),
+    ("置き換えた解決策を、取り込みの答えでなく解決策の古い文で数える（0204 の business_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.business_solutions",
+             "CASE WHEN x.version_id IS NULL THEN l.solution_text ELSE x.answer END", "l.solution_text", end="\n$$;"),
+     (_S_REPLACED, "tests.test_client_solutions.Solutions.test_a_solution_the_import_replaced_is_no_longer_offered")),
+    ("いちばん古い置き換えの取り込みの答えを読む（0204 の business_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.business_solutions",
+             "ORDER BY y.recorded_at DESC, y.seq DESC LIMIT 1", "ORDER BY y.recorded_at, y.seq LIMIT 1", end="\n$$;"),
+     (_S_LATEST,)),
+    ("置き換えた取り込みが答えを置かなかった問いも、空の中身として数える（0204 の business_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.business_solutions",
+             "\n  WHERE x.version_id IS NULL OR x.answer IS NOT NULL   -- 置き換えた取り込みが答えを置かなかった：入れる中身が無い", "",
+             end="\n$$;"),
+     (_S_LATEST,)),
+    ("置き換えを、1つの解決策に1つだけにする（0204 の前の形）",
+     "ALTER TABLE salescall.client_solution_replacements ADD CONSTRAINT client_solution_replacements_one UNIQUE (solution_id)",
+     (_S_LATEST,)),
     # 第三者の見直し (2) の6：外しても試験が落ちなかった守り
     ("手で外した印の記録した方を、いま操作している方か見ない（client_solution_removal_guard）",
      _edited(_M201, "CREATE OR REPLACE FUNCTION salescall.client_solution_removal_guard",
@@ -2465,6 +2488,7 @@ _RULES, _HR = "src/salescall/core/health_rules.py", "tests.test_health_rules."
 _FU, _OT = "tests.test_irreversible.ForbiddenUnclearCut.", "tests.test_troubles.OurTroubles."
 _BS, _BI = "src/salescall/core/business_settings.py", "src/salescall/core/business_import.py"
 _APPROVAL, _SETTLE = "src/salescall/core/approval.py", "src/salescall/core/settle.py"
+_CSOL = "src/salescall/core/client_solutions.py"
 PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("かけてから「話している」に載せる（かけている途中に、止める・ログインを外す処理が閉じうる）", _LINE,
      "                call.start()   # かける前から", "                pass   # かける前から",
@@ -5722,8 +5746,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '        if False:   # 契約者が実施回で手で外した解決策は入れない',
      ('tests.test_client_solutions.Solutions.test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import',)),
     ('取り込み直して残す問答に、手で外した解決策も入れる', 'src/salescall/core/client_solutions.py',
-     ' if r["solution_id"] not in held]',
-     ']',
+     'if not r["replaced"] and r["solution_id"] not in held]',
+     'if not r["replaced"]]',
      ('tests.test_client_solutions.Solutions.test_a_solution_removed_by_hand_is_offered_but_not_put_back_by_an_import',)),
     # ✅ 2026-11-07 ユーザー（古い版で作った実施回の解決策を「手で外した」とみなす・契約者が承認するまで新しい電話をかけない。0200）
     ('知らせ solution_earlier に、その流れを使う実施回の並びを入れない', 'src/salescall/core/client_solutions.py',
@@ -5731,8 +5755,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ('手で外しても、契約者に知らせない（承認ボタンの元が無い）', 'src/salescall/core/client_solutions.py',
      '    if out:\n        names =', '    if False:\n        names =', (_OLD_RUN,)),
     ('「入れない」と確かめても、確かめたことにしない', 'src/salescall/core/client_solutions.py',
-     '"       d.at IS NOT NULL AND NOT coalesce(k.at >= d.at, false) AS unconfirmed"',
-     '"       d.at IS NOT NULL AS unconfirmed"', (_OLD_RUN,)),
+     '"       d.at IS NOT NULL AND NOT coalesce(k.at >= d.at, false) AND NOT',
+     '"       d.at IS NOT NULL AND NOT', (_OLD_RUN,)),
     ('また外しても、前の「入れない」で確かめたことにする', 'src/salescall/core/client_solutions.py',
      '" LEFT JOIN LATERAL (SELECT max(recorded_at) AS at FROM salescall.client_solution_removals"',
      '" LEFT JOIN LATERAL (SELECT min(recorded_at) AS at FROM salescall.client_solution_removals"', (_OLD_RUN,)),
@@ -5875,6 +5899,20 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    if moved is None or (moved.target.contact_id == cur["contact_id"] and moved.target.handover == bool(cur["handover"])):\n',
      '    if moved is None or moved.target.contact_id == cur["contact_id"]:\n',
      (_NEW_NUMBER,)),
+    # ── 0204（✅ 計画書 6-1 (5)(6)）：取り込み直しで置き換えた解決策も、置き換えた取り込みの答えとして確かめに数える
+    ("その実施回で「入れる」を選んだことを、確かめと数えない（client_solutions._marks）", _CSOL,
+     " AND NOT coalesce(c.at >= d.at, false) AS unconfirmed", " AS unconfirmed",
+     (_S_CHOSEN,)),
+    ("取り込み直しが、前に置き換えた答えを変えても・消しても、置き換えを残さない（client_solutions.keep_in）", _CSOL,
+     '            if name in off or own.get(name) != text:\n                overridden.append(r["solution_id"])\n            continue\n',
+     "            continue\n",
+     (_S_LATEST,)),
+    ("前に置き換えた取り込みの答えを、解決策と同じに取り込み直しで残す（client_solutions.keep_in）", _CSOL,
+     '        if r["replaced"]:\n', "        if False:\n",
+     (_S_LATEST, "tests.test_client_solutions.Solutions.test_a_solution_the_import_replaced_is_no_longer_offered")),
+    ("置き換えた取り込みの答えも、解決策で足した問答として返す（client_solutions.kept_answers）", _CSOL,
+     '            if not r["replaced"] and r["solution_id"] not in held]', '            if r["solution_id"] not in held]',
+     ("tests.test_client_solutions.Solutions.test_a_solution_the_import_replaced_is_no_longer_offered",)),
 )
 
 
