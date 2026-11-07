@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ANY, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
-                     JUDGMENTS, later_offer, off_talk, prior_answer, restates, wait_reading)
+                     JUDGMENTS, ambiguous_word, later_offer, off_talk, prior_answer, restates, wait_reading)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
 
@@ -631,6 +631,10 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
         if got == "affirmed" or got == it.get("asked_choice"):
             return AFFIRMED_HEDGED if firm is False else AFFIRMED
         return ASK_AGAIN if got in (UNDECIDED, "unknown") else DENIED
+    if q.type in CHOICE_TYPES and (decided := q.reply_choice(ambiguous_word(it.get("text")))):
+        # 取込で意味が決まった言葉だけの答え（流れの制御 _op_record_answer と同じ1か所の決まり Flow._names_other）：決めた意味と違う選択肢を
+        # 読んだときだけ確かめる（⛔ 2026-11-07 日本時間9時台に見つけた：流れの制御も数えも、判定の「決められない」で確かめていた）
+        return f"念のため確かめる：{got}" if Flow._names_other(q, got, decided) else f"受け取る：{decided}"
     if got in (UNDECIDED, "unknown"):
         return ASK_AGAIN
     # 言い切っていない読みは、選択肢も「どちらでも」「どれも要らない」も確かめる（流れの制御は「わからない」「答えたくない」のほかを確かめる＝
@@ -647,7 +651,15 @@ def flow_wants(it: dict, q: Question) -> set[str]:
                               for a in accept(it) if a in q.conditions}
     h, e, ok = hedged(it), either(it), set()
     for a in accept(it):
-        if asks_us(it.get("text"), [a]):
+        # 待つ・かけ直す・もう一度言ってほしいは、読みの動き（flow_act）と同じく、ほかの決まり（言い直しへの返事の組 D を含む）より先に見る。
+        # ⛔ 2026-11-07 日本時間9時台に見つけた：組 D の分かれ道が先で、言い直しへの「確認してまいります。」（正解は返事を待つ）の正解の動きが
+        #    「打ち消した（確かめ直す）」になっていた（流れの制御は言い直しの返事待ちでも待つ＝試験 NoneOfThemTest の
+        #    test_measure_wants_the_wait_reading_also_in_a_reply_to_the_restatement）
+        if a in WAIT_KINDS:
+            ok.add(wait_act(a))
+        elif a == REPEAT:
+            ok.add(REPEAT_ACT)
+        elif asks_us(it.get("text"), [a]):
             ok.add(ANSWER_FIRST)   # 正解が「決められない」の、問いかけの言葉（流れの制御は、尋ねられたことに先に答える）
         elif it["set"] == "D":
             if a == "affirmed" or a == it.get("asked_choice"):
@@ -656,10 +668,6 @@ def flow_wants(it: dict, q: Question) -> set[str]:
                 ok.add(ASK_AGAIN if a in (UNDECIDED, "unknown") else DENIED)
         elif a in (UNDECIDED, "unknown"):
             ok.add(ASK_AGAIN)
-        elif a in WAIT_KINDS:
-            ok.add(wait_act(a))
-        elif a == REPEAT:
-            ok.add(REPEAT_ACT)
         elif a in q.conditions or a in (ANY, NONE):
             ok |= {f"受け取る：{a}", f"念のため確かめる：{a}"} if e else {f"念のため確かめる：{a}" if h else f"受け取る：{a}"}
         else:

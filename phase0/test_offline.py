@@ -3937,6 +3937,36 @@ class AmbiguousAnswerTest(unittest.TestCase):
         r = self.say(f, "大丈夫です。", "record_answer", question_id="Q3", condition_id="はい", value="大丈夫です")
         self.assertEqual(r["result"], "confirm_required")  # 「大丈夫」は、この質問でも決まらない ⇒ 確かめる
 
+    def test_question_decides_the_word_even_if_a_judge_cannot(self):
+        # ⛔ 2026-11-07 日本時間9時台（8時57分04秒 ユーザー「…モデルの使い方が問題だったりするということが発覚するかもしれないので、測りの前に
+        #    やっておくべきじゃないですか」で、前の記録の外れを1つずつ確かめて見つけた）：取込で意味が決まった言葉だけの答え（「結構です。」＝この質問では
+        #    いいえ）でも、判定が「決められない」と読むと、会話AIの報告と食い違うとして確かめに回していた（記録の G-53 で、考える Sonnet が「決められない」と
+        #    読んだ2つの言葉）。✅ 2026-10-17 ユーザー：「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」＝前の質問で決まれば
+        #    確かめずにその意味。✅ 2026-11-06 日本時間18時51分27秒（同じ1か所の ROLE_REPLIES）：判定がお断りなどと読めば今までどおり確かめる
+        # ⇒ 取込で決めた意味と違う選択肢を判定が読んだときだけ確かめる（選択肢を名指ししない読み・同じ選択肢の言い切っていない読みでは確かめない）
+        from flowctl import UNDECIDED
+        from meaning_judge import Reading
+        for readings in ((UNDECIDED, UNDECIDED), ("unknown", UNDECIDED), (Reading("いいえ", False), UNDECIDED)):
+            f = self.pamphlet()
+            f.on_callee(); f.on_heard("結構です。")
+            for k, v in zip(("judge", "judge2"), readings):
+                f.on_check(k, v if isinstance(v, Reading) else Reading(v))
+            r = f.apply("record_answer", {"question_id": "Q3", "condition_id": "いいえ", "value": "結構です"})
+            self.assertEqual((r["result"], f.items["Q3"].state, f.export()["Q3"]), ("end", "accepted", "いいえ"), readings)
+        # 判定が取込で決めた意味と違う選択肢を読んだ：今までどおり確かめる
+        f = self.pamphlet()
+        f.on_callee(); f.on_heard("結構です。")
+        f.on_check("judge", Reading("はい")); f.on_check("judge2", Reading(UNDECIDED))
+        r = f.apply("record_answer", {"question_id": "Q3", "condition_id": "いいえ", "value": "結構です"})
+        self.assertEqual(r["result"], "confirm_required")
+        # 測りの数え（g53_meaning.flow_act）も同じ1か所の決まりで数える
+        from g53_meaning import flow_act
+        q = self.pamphlet().questions["Q3"]
+        it = {"set": "A", "qid": "Q3", "text": "結構です。"}
+        self.assertEqual([flow_act(it, q, got, firm) for got, firm in ((UNDECIDED, True), ("unknown", True), ("いいえ", False), ("いいえ", True))],
+                         ["受け取る：いいえ"] * 4)
+        self.assertEqual(flow_act(it, q, "はい", True), "念のため確かめる：はい")
+
     def test_word_alone_does_not_end_the_call(self):
         # ⛔ G-14：相手の「結構です。」だけで、AIが通話の断りとして締めた（30本中4本）
         f = self.flow()
@@ -14079,6 +14109,30 @@ class NoneOfThemTest(unittest.TestCase):
         row = {**it, "label": {"accept": ["お客様から折り返す"]}}
         self.assertEqual([flow_miss({**row, "j": got}, f.questions["W1"], "j") for got in ("お客様から折り返す", "あとでかけ直す", "取り次ぎを待つ")],
                          [None, "違う待ち方・かけ直しの伺い方", "違う待ち方・かけ直しの伺い方"])
+
+    def test_measure_wants_the_wait_reading_also_in_a_reply_to_the_restatement(self):
+        # ⛔ 2026-11-07 日本時間9時台（8時57分04秒 ユーザー「誤りでないものを誤りと数えていたり…測りの前にやっておくべきじゃないですか」で、
+        #    前の記録の外れを1つずつ確かめて見つけた）：正解の動きの1か所（g53_meaning.flow_wants）は、組 D（言い直しへの返事）の分かれ道を、待つ・
+        #    かけ直す・もう一度言ってほしいの正解より先に見ていた＝正解が「返事を待つ」の「確認してまいります。」の正解の動きが「打ち消した（確かめ直す）」に
+        #    なり、待つ読みを外れ・確かめ直す読みを正しいと数えていた（正解の表の組 D の8行）。読みの動き（flow_act）と流れの制御は待つ読みを先に見る
+        # ⇒ 見張り：言い直しの返事待ちで判定がそろって待つ読みなら、流れの制御は待つ返事をする。正解の動きは、組 D でも読みの動きと同じ1つ
+        from flowctl import HOLD_BACK, Flow, Question
+        from g53_meaning import REPEAT, WAIT_KINDS, flow_act, flow_wants
+        from phrases import ACK
+        f = Flow([Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("yes", "no")),
+                  Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",))], play_recordings=True)
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "yes"})
+        f.on_callee(); f.on_heard("15日の午後2時で。")
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q2", "condition_id": "answered", "value": "15日の午後2時"})["result"], "confirm_required")
+        self.turn(f, "ちょっと確認してまいります。", HOLD_BACK, HOLD_BACK)
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((r["result"], ACK[r["ack"]] + "".join(p["text"] for p in r.get("play", []))),
+                         ("hold", "はい、それではこのままお返事を待っております。"))
+        q = f.questions["Q2"]
+        for a in (*WAIT_KINDS, REPEAT):
+            it = {"set": "D", "qid": "Q2", "text": "ちょっと確認してまいります。", "asked": "15日の14時、午後2時でよろしいでしょうか？",
+                  "asked_choice": "answered", "label": {"accept": [a]}}
+            self.assertEqual(flow_wants(it, q), {flow_act(it, q, a, True)}, a)
 
     @staticmethod
     def turn(f, words, *readings):

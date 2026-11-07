@@ -4882,7 +4882,7 @@ class Flow:
         decided = q.reply_choice(ambiguous_word(said)) if q.type in CHOICE_TYPES else None
         if decided:
             cond = it.condition = decided
-        why, back = self._checks(q, cond, policy=not decided, words=said) if q.type in CHOICE_TYPES else (None, None)
+        why, back = self._checks(q, cond, policy=not decided, words=said, decided=decided) if q.type in CHOICE_TYPES else (None, None)
         if why:
             # 必須でない項目は、聞き返さない決まり（6-11）に合わせて確かめず「-」（その場で1回だけ伺い直す質問＝Question.asks_once は除く）
             if not (q.required or q.asks_once):
@@ -4910,7 +4910,7 @@ class Flow:
     # ── 確かめ（DESIGN.md 1章・6-10）を決める唯一の場所：最初の答えの報告にも、言い直しへの返事の報告にも、遅れて届いた確かめにも、これを当てる
     @staticmethod
     def _compare(q: "Question", said: str, reported: str | None, check: dict, policy: bool = True,
-                 confirming: bool = False, words: str | None = None) -> tuple[str | None, str | None]:
+                 confirming: bool = False, words: str | None = None, decided: str | None = None) -> tuple[str | None, str | None]:
         """会話AIの報告（reported。選択肢の型は選んだ選択肢・値を聞く型の言い直しへの返事は affirmed／corrected）を、独立した確かめに当てる：
         (1) 別の耳の文字（check["ear"]。聞き取り。6-10 の (5)。会話AIの聞き取り said と、読みにそろえて比べる）
         (2) 曖昧な答えの決まり（✅ ユーザー確定：「結構です」「大丈夫です」だけ・言い切っていない答えは、その言葉だけで決めない。当てる言葉は
@@ -4944,10 +4944,15 @@ class Flow:
                           and (a := prior_answer(q, str(check[k]), Flow._prior(check))) is not None), None)) is not None:
             return f"{PRIOR_WHY}（いまの言葉だけでは決められず、その前に相手が言ったことから決まる答えを確かめる）", back
         for kind in JUDGMENTS:
+            if decided and not Flow._names_other(q, check.get(kind), decided):
+                # 取込で意味が決まった言葉だけの答え（decided＝Question.reply_choice）：決めた選択肢と違う選択肢を判定が読んだときだけ確かめる
+                # （✅ 2026-10-17 ユーザー：「人でも前の質問や会話から判断する言葉です」＝前の質問で決まれば確かめずにその意味・✅ 2026-11-06 日本時間
+                # 18時51分27秒：判定がお断りなどと読めば今までどおり確かめる）。⛔ 2026-11-07 日本時間9時台に見つけた：判定の「決められない」でも確かめていた
+                continue
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
             if back:
                 return f"意味の判定（「{label(check[kind])}」）と食い違う", back
-        if reported not in SYSTEM_CONDITIONS and not confirming and restates(q) and Flow._judged_unsure(check):
+        if reported not in SYSTEM_CONDITIONS and not confirming and restates(q) and not decided and Flow._judged_unsure(check):
             return f"{HEDGE_WHY}（意味の判定が、言い切っていないと読んだ）", reported
         return None, None
 
@@ -4989,6 +4994,13 @@ class Flow:
         return bool(UNCERTAIN.search(said or "")) or Flow._judged_unsure(check)
 
     @staticmethod
+    def _names_other(q: "Question", meaning: str | None, decided: str) -> bool:
+        """判定の読み meaning が、取込で決めた意味 decided と違う選択肢（宣言した選択肢か「どちらでも」「どれも要らない」）を名指ししているか
+        （唯一の決まり＝取込で意味が決まった言葉だけの答えを確かめるか。流れの制御 _compare と測りの数え g53_meaning.flow_act が使う）。
+        「決められない」「わからない」や、同じ選択肢の言い切っていない読みは名指ししていない＝確かめない。"""
+        return meaning is not None and meaning != decided and (meaning in q.conditions or meaning in (ANY, NONE))
+
+    @staticmethod
     def _meaning_disagrees(q: "Question", reported: str | None, meaning: str | None, confirming: bool = False) -> str | None:
         """意味の判定（meaning）が、会話のAIの報告（reported）と食い違えば、言い直して確かめる答え（判定が選択肢か「どちらでも」を選んだなら
         判定のほう、ほかは会話のAIのほう）。食い違わない・判定が無い ⇒ None。
@@ -5010,9 +5022,9 @@ class Flow:
         return meaning if named else reported
 
     def _checks(self, q: "Question", reported: str | None, policy: bool = True, confirming: bool = False,
-                words: str | None = None) -> tuple[str | None, str | None]:
+                words: str | None = None, decided: str | None = None) -> tuple[str | None, str | None]:
         """答えの報告を当てる相手の言葉と確かめ（heard_said・heard_check＝ふだんは、いまの発話）で、_compare を当てる。"""
-        return self._compare(q, self.heard_said, reported, self.heard_check, policy, confirming, words)
+        return self._compare(q, self.heard_said, reported, self.heard_check, policy, confirming, words, decided)
 
     def _not_an_answer(self) -> dict | None:
         """意味の判定が、相手の言葉は答えではないと決めた（DESIGN.md 6-8）：答え・言い直しへの返事としては受け取らない（唯一の場所。
