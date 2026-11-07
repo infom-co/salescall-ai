@@ -83,7 +83,9 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          # ほかに分からない点は今のところ無いと言われたときに添える一言の録音（✅ 11-07 日本時間13時05分06秒 ユーザー。CL-1.md 4-108）
                          "unclear_anytime",
                          # 考えている方に5秒黙られたときの急かさない一言の録音（✅ 11-07 日本時間18時03分49秒 ユーザー「(2) イ」。CL-1.md 4-109）
-                         "concern_anytime"})
+                         "concern_anytime",
+                         # 迷っていると言い終えたお客様に、選択肢ごとの良い点・気をつける点が無いときに伺う一言の録音（✅ 11-07 日本時間18時03分49秒「(1) ア」。CL-1.md 4-110）
+                         "hesitate_point"})
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
 CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
 
@@ -13646,6 +13648,26 @@ class NoneOfThemTest(unittest.TestCase):
         other = Question("U2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
         self.assertEqual(flow_act(row(True, False), other, "はい", False), "念のため確かめる：はい")
 
+    def test_measure_counts_the_help_for_a_hesitating_customer(self):
+        # 測りの数え（g53_meaning の flow_act・flow_wants・flow_miss）も、流れの制御と同じ1か所（flowctl.hesitates・選択肢ごとの良い点・気をつける点の有無）で、
+        # 言い終えた「迷っています。」を、選ぶ助けを伝える（良い点があるとき）・どういった点でお迷いかを伺う（無いとき）と数え、考えている途中と読んで
+        # 「はい。」で待つ・聞き直すのを、迷っているお客様を待たせる・急かす害のある外れと数える（✅ 2026-11-07 日本時間13時05分06秒・18時03分49秒 ユーザー）
+        from flowctl import HESITATING, THINKING, UNDECIDED, Question
+        from g53_meaning import HESITATE_ACT, flow_act, flow_miss, flow_wants
+        notes = {"カード": "カードですとカード会社のポイントがつきます。"}
+        with_notes = Question("P1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"), option_notes=notes)
+        plain = Question("P1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        def row(got):
+            return {"set": "B", "qid": "P1", "text": "カードか振込か迷っています。", "label": {"accept": [HESITATING]}, "J": got}
+        self.assertEqual((flow_act(row(HESITATING), with_notes, HESITATING, True), flow_act(row(HESITATING), plain, HESITATING, True)),
+                         (HESITATE_ACT[True], HESITATE_ACT[False]))
+        self.assertEqual((flow_wants(row(HESITATING), with_notes), flow_wants(row(HESITATING), plain)), ({HESITATE_ACT[True]}, {HESITATE_ACT[False]}))
+        self.assertEqual([flow_miss(row(g), plain, "J") for g in (HESITATING, THINKING, UNDECIDED)],
+                         [None, "⛔迷っているのに、選ぶ助けを伝えずに待つ・聞き直す・締める", "⛔迷っているのに、選ぶ助けを伝えずに待つ・聞き直す・締める"])
+        # 迷っていない言葉を迷っていると読んだのは、要らない伺い（害は無い＝お客様の言葉を聞いてから決め直す）
+        think = {"set": "B", "qid": "P1", "text": "うーん、どうしようかな…。", "label": {"accept": [THINKING]}, "J": HESITATING}
+        self.assertEqual(flow_miss(think, plain, "J"), "迷っていないのに、迷っている点を伺う・選ぶ助けを伝える")
+
     def test_fixed_questions_after_the_second_and_third_back_lines(self):
         # 決まった文の質問（システムの質問・ほかのご希望を伺う一言）へ2回目・3回目から戻るとき（✅ 2026-11-07 日本時間3時14分01秒「(4) H7」・4時40分35秒）：
         # 2回目の戻る一言「それではもう一度確認させていただきますね。」のあとは、質問の頭の「それでは」を重ねない（⛔ 3時台に入れた形は、システムの質問の録音を
@@ -17678,6 +17700,99 @@ class HedgedSalesTest(unittest.TestCase):
         r2 = g.apply("confirm_field", {"question_id": "G13", "result": "affirmed"})
         self.assertEqual((r2["result"], r2["after"]), ("confirm_required", "settle"))
         self.assertEqual(r2["say"], "それでは複合機は現在リースでご利用ということでよろしいでしょうか？")
+
+    def test_hesitating_customer_is_helped_to_choose(self):
+        # 言い終えた「迷っています。」には、待ったり急かしたり保留で締めたりせず、選ぶ助けになることを伝えて促す（尋ねられて答える1か所と同じ道）。
+        # ✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「カード と振り込みのメリットデメリットを把握しておき 例えば「カードだと カード会社のポイントがつくので
+        #    そういう点も 考慮されるといいかもしれませんね 」のように促すのが一番いいんじゃないでしょうか。迷っていると言っているのに途中で話を終わらしたり
+        #    どうなさいましたか と 急かすのは最悪な手ですよ。」
+        # ✅ 18時03分49秒「(1) ア」：業務設定に選択肢ごとの良い点・気をつける点が無ければ「どういった点でお迷いでしょうか？」と1回伺い、お答えには業務の情報の範囲で答える
+        from flowctl import HESITATING, THINKING, UNDECIDED, Flow, Question, hesitates
+        from instruction import Business
+        from meaning_judge import Reading
+        from phrases import ACK, HESITATE_POINT, RECORDED
+        help_line = "カードですとカード会社のポイントがつきますので、そういった点もご考慮いただくとよいかもしれませんね。"
+        notes = {"カード": "カード会社のポイントがつく", "振込": "振込手数料はお客様のご負担"}
+
+        def flow(option_notes, play=True):
+            f = Flow([Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"), option_notes=option_notes),
+                      Question("Q2", "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？", "choice", conditions=("オンライン", "訪問"))],
+                     play_recordings=play)
+            f.use_checks("judge", "judge2")
+            return f
+
+        def said(f, words, reading, cond="unknown"):
+            f.on_callee(); f.on_heard(words)
+            for k in ("judge", "judge2"):
+                f.on_check(k, Reading(reading))
+            return f.apply("record_answer", {"question_id": "Q1", "condition_id": cond})
+
+        # 迷っているかの決まりは1か所（流れの制御と測りの数え）：届いた読みがどれも迷っている・決められないで、迷っているが1つ以上
+        self.assertTrue(hesitates([Reading(HESITATING), Reading(UNDECIDED)]))
+        self.assertFalse(hesitates([Reading(UNDECIDED)]))
+        self.assertFalse(hesitates([Reading(HESITATING), Reading("カード")]))
+        # 迷っていると「まだ決めていない」（わからない）に割れても、迷っているが1つあれば、すぐ保留で締めずに選ぶ助けを先にする
+        self.assertTrue(hesitates([Reading(HESITATING), Reading("unknown")]))
+        self.assertEqual(HESITATE_POINT, "どういった点でお迷いでしょうか？")
+        self.assertEqual(RECORDED["hesitate_point"], HESITATE_POINT)
+        # 選ぶ助けをするのは業務の質問だけ（ご決定は業務の選択肢の選び方へのもの）：システムの質問（ほかのご希望・ご承認の手順・連絡先など）の判定には
+        # 「迷っている」を選べるものとして出さない＝それぞれの決まった道のまま（判定の選べるもの・流れの制御・測りの数えが同じ1か所 helps_choose を使う）
+        from flowctl import callback_question, helps_choose
+        from meaning_judge import answer_kinds
+        pay = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        self.assertEqual((helps_choose(pay), helps_choose(callback_question("email"))), (True, False))
+        self.assertIn(HESITATING, answer_kinds(pay))
+        self.assertNotIn(HESITATING, answer_kinds(callback_question("email")))
+        # (1) 選択肢ごとの良い点・気をつける点があるとき：報告は受け取らずに、会話AIがその範囲で選ぶ助けを自分の言葉で伝え、お返事を待つ
+        f = flow(notes)
+        r = said(f, "カードか振込か迷っています。", HESITATING)
+        self.assertEqual(r["result"], "rejected")
+        self.assertNotIn("say", r)
+        for text in ("迷って", "カードか振込か迷っています。", notes["カード"], notes["振込"]):
+            self.assertIn(text, r["message"])
+        self.assertNotIn("こちらへの問い", r["message"])   # 迷っているのは問いではない（会話AIへの知らせの頭も、その番に合う言葉）
+        self.assertEqual(f.items["Q1"].state, "empty")
+        grounded(f, help_line)
+        r = f.apply("replay_opening", {"part": "own", "answer": help_line})
+        self.assertEqual((r["result"], r["say"]), ("own_answer", help_line))
+        r = said(f, "じゃあカードにします。", "カード", "カード")
+        self.assertEqual((r["result"], r["question_id"], f.export()["Q1"]), ("next", "Q2", "カード"))
+        # 選択肢ごとの良い点・気をつける点は、会話AIの答えの中身を確かめる材料（知っていること）にも入る
+        q1 = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"), option_notes=notes)
+        known = Business(company="株式会社テスト", caller="佐藤", purpose="ご案内", purpose_line="", questions=[q1]).knowledge()
+        self.assertTrue(any(notes["カード"] in line for line in known), known)
+        # (2) 無いとき：「はい、」＋「どういった点でお迷いでしょうか？」を1回伺い、お答え（迷っている点）には業務の情報の範囲で答える
+        for play in (True, False):
+            f = flow({}, play)
+            r = said(f, "カードか振込か迷っています。", HESITATING)
+            heard = ACK.get(r.get("ack"), "") + ("".join(p["text"] for p in r.get("play") or []) if play else (r.get("say") or ""))
+            self.assertEqual(heard, "はい、" + HESITATE_POINT, play)
+            r = said(f, "手数料がかかるのか気になっていて。", UNDECIDED)
+            self.assertEqual(r["result"], "rejected")
+            self.assertIn("手数料がかかるのか気になっていて。", r["message"])
+            answer = "お振込の場合は振込手数料をお客様にご負担いただいております。"
+            grounded(f, answer)
+            r = f.apply("replay_opening", {"part": "own", "answer": answer})
+            self.assertEqual((r["result"], r["say"]), ("own_answer", answer))
+            # 選ぶ助けを伝えたあとも迷っているのがお客様の最終の決定なら、保留で締めて次へ（✅ 11-06 日本時間11時19分55秒「(2)…最終のお客様の決定であれば…保留」）
+            r = said(f, "うーん、やっぱり迷いますね。", HESITATING)
+            self.assertEqual((r["result"], r["question_id"], f.items["Q1"].state, f.items["Q1"].reason), ("next", "Q2", "dont_know", "undecided"))
+        # 最終の確かめのあとも決められない（11-06 11時19分55秒の (2)）も、判定を使う通話で同じ理由（まだ決まっていない）：お客様の最終の決定はプログラムが
+        # 決めた事実で、判定が読む「わからない・答えたくない理由」（_why_of）ではない。⛔ 2026-11-07 日本時間18時台に見つけた：判定を使う通話では理由が
+        # 「理由を言わなかった」になり、業務の決まり（理由ごとの次の動き）が本番だけ変わりうる形だった（前の試験は判定を使わない形だけだった）
+        f = self.flow("G8n", play_recordings=True)
+        f.use_checks("judge")
+        self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+        self.asked_back(f, "送ってもらったほうがいいですかね？", "confirm_field", {"question_id": "G8n", "result": "affirmed"})
+        f.on_callee(); f.on_heard("そうなんですね。")
+        self.assertEqual(f.apply("replay_opening", {"part": "resume"})["result"], "confirm_required")
+        f.on_callee(); f.on_heard("ちょっと今は決められないですね。"); f.on_check("judge", Reading("unknown"))
+        r = f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})
+        self.assertEqual((r["result"], r["question_id"], f.items["G8n"].state, f.items["G8n"].reason), ("next", "G16", "dont_know", "undecided"))
+        # 言い終えていない言いよどみ（考えている途中）は今までどおり「はい。」のあと待つ
+        f = flow(notes)
+        r = said(f, "うーん、どうしようかな…。", THINKING)
+        self.assertEqual(r["result"], "thinking")
 
     ASKED_BACK = "そうですね、お読みになられるとより理解が深まるかと思います。"
 

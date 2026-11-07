@@ -141,6 +141,8 @@ HOW_OF["point_anytime"] = HOW_OF["point_anytime_plain"] = "own_fallback"
 # 今のところ分からない点は無いと言われたときに添える一言（phrases.UNCLEAR_ANYTIME。✅ 2026-11-07 日本時間13時05分06秒 ユーザー）：いつでもお尋ねを
 # お受けすることを伝える一言＝上と同じ読み方
 HOW_OF["unclear_anytime"] = "own_fallback"
+# 迷っているお客様に、どういった点でお迷いかを伺う一言（phrases.HESITATE_POINT。✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(1) ア」）＝伺う質問の読み方
+HOW_OF["hesitate_point"] = "question"
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）

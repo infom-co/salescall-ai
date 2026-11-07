@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ANY, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
-                     JUDGMENTS, ambiguous_word, later_offer, off_talk, prior_answer, restates, takes_for_now, wait_reading)
+                     JUDGMENTS, ambiguous_word, helps_choose, hesitates, later_offer, off_talk, prior_answer, restates, takes_for_now, wait_reading)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
 
@@ -617,6 +617,9 @@ REPEAT_ACT = "「失礼いたしました。」のあと伺ったことを流し
 # ほかに分からない点が無いかを伺う質問への、言い切っていない「無い」（flowctl.takes_for_now の1か所＝流れの制御 Flow._keep_toward_goal・_tell_due）：確かめ直さずに
 # 受け取り、「何かわからないことがございましたら…」を添える（✅ 2026-11-07 日本時間13時05分06秒 ユーザー）。言い切った「無い」は「受け取る：」のまま
 ANYTIME_TAKE = "一言を添えて受け取る："
+# 迷っていると言い終えた（flowctl.hesitates の1か所＝流れの制御 Flow._hesitation）：選択肢ごとの良い点・気をつける点（Question.option_notes）があれば選ぶ助けを
+# 伝え（True）、無ければ「どういった点でお迷いでしょうか？」を1回伺う（False）。✅ 2026-11-07 日本時間13時05分06秒・18時03分49秒 ユーザー「(1) ア」
+HESITATE_ACT = {True: "選ぶ助けを伝える", False: "どういった点でお迷いかを伺う"}
 
 
 def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
@@ -630,6 +633,8 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
         return wait_act(got)
     if got == REPEAT:
         return REPEAT_ACT
+    if hesitates([got]) and helps_choose(q):   # 迷っていると言い終えた（流れの制御 Flow._hesitation と同じ1か所の決まり。言い直しの返事待ちでも同じ）
+        return HESITATE_ACT[bool(q.option_notes)]
     if asks_us(it.get("text"), [got]):   # 答えの代わりにこちらへ尋ねた（流れの制御は、ほかの決まりより先に、入口で答えさせる）
         return ANSWER_FIRST
     if off_talk(q, got, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり。読みはいつも宣言した選択肢）
@@ -672,6 +677,8 @@ def flow_wants(it: dict, q: Question) -> set[str]:
             ok.add(wait_act(a))
         elif a == REPEAT:
             ok.add(REPEAT_ACT)
+        elif hesitates([a]) and helps_choose(q):
+            ok.add(HESITATE_ACT[bool(q.option_notes)])   # 迷っていると言い終えた（flow_act と同じ1か所 hesitates）
         elif asks_us(it.get("text"), [a]):
             ok.add(ANSWER_FIRST)   # 正解が「決められない」の、問いかけの言葉（流れの制御は、尋ねられたことに先に答える）
         elif it["set"] == "D":
@@ -711,6 +718,11 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
     want -= ends
     if not want:   # 正解は電話を終える読みの動きだけ（答えの読みで続けた）
         return "⛔電話を終える言葉なのに締めない" if closes else "⛔伺わずに続ける"
+    helps = set(HESITATE_ACT.values())   # 迷っている方への動き（hesitates の1か所）
+    if want & helps and act not in helps:
+        return "⛔迷っているのに、選ぶ助けを伝えずに待つ・聞き直す・締める"   # ✅ 13時05分06秒「…急かすのは最悪な手ですよ。」
+    if act in helps:
+        return "迷っていないのに、迷っている点を伺う・選ぶ助けを伝える"
     pure = set(accept(it)) <= {UNDECIDED, "unknown"}   # どの答えにも寄っていない言葉
     waits = {wait_act(k) for k in WAIT_KINDS}   # 待つ・かけ直すの読みの動き（お礼の一言の有無も分ける＝wait_act の1か所）
     if act in waits:

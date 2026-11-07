@@ -13,7 +13,7 @@ import dataclasses
 from dataclasses import dataclass, field
 
 from flowctl import notice  # AIへの知らせの枠の唯一の場所
-from flowctl import approval_explanation, KNOWN_HEADS
+from flowctl import approval_explanation, KNOWN_HEADS, label
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
                      check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
@@ -249,6 +249,9 @@ class Business:
                 # ご承認いただく内容の説明（ご承認を伺う質問に入る一言＝トークスクリプトの説明。点をご説明するときの材料と受け皿＝flowctl.approval_explanation
                 # の1か所。✅ 2026-11-05 日本時間3時49分00秒 ユーザーのご指摘で足した）
                 + [f"{KNOWN_HEADS['approval']}（{q.id}）：{approval_explanation(q)}" for q in self.questions if approval_explanation(q)]
+                # 選択肢ごとの良い点・気をつける点（迷っているお客様に選ぶ助けを伝える材料と受け皿＝flowctl.Flow._hesitation。✅ 2026-11-07 日本時間
+                # 13時05分06秒・18時03分49秒 ユーザー）
+                + [f"{KNOWN_HEADS['option']}（{q.id}「{label(c)}」）：{n}" for q in self.questions for c, n in q.option_notes.items()]
                 # 業務設定で許された申し出（flowctl.own_answer_problem の may_follow_up）も、こちらがしてよいことの事実（無いと、判定が止める）
                 + (["こちらがしてよいこと：業務の情報に無いご質問には、確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってよい"]
                    if self.follow_up else [])]
@@ -519,9 +522,13 @@ def quote_in_text(text: str, names: list) -> str:
 # ✅ 2026-10-14 ユーザー（G-36 を聞いて）：「これまでより、良くなりました」「形 A が良い」⇒ A にした（B の決まりと操作は外した）
 # ✅ 2026-11-01 日本時間23時04分・11-06 11時19分55秒 ユーザー：「うーん。」と悩んで黙る方も考えている方（9-4）。録音で流す通話では、この「はい。」は流さず、判定が
 #    「まだ考えている途中」と読んだらプログラムが録音の「はい。」を流す（flowctl.Flow._thinking）＝報告しないのは同じ
-THINKING_RULE = ("相手が考えている（「えー」「えーと」「その」「うーん」など、まだ答え終わっていない・迷っている最中の）ときは、「はい。」とだけ、軽い相づちとして、"
+# ✅ 2026-11-07 日本時間13時05分06秒・18時03分49秒 ユーザー：言い終えた「迷っています。」は考えている途中ではない（待って急かさず、選ぶ助けを伝えて促す＝
+#    プログラムが応じ方を決める flowctl.Flow._hesitation）＝ここから「迷っている最中」を外し、言い終えた迷いは報告すると書いた
+THINKING_RULE = ("相手が考えている（「えー」「えーと」「その」「うーん」など、まだ答え終わっていない・言いよどんでいる最中の）ときは、「はい。」とだけ、軽い相づちとして、"
                  "落ち着いた声で、語尾を上げずに短く言って、相手が話し終えるまで待ちます（相手の答えを期待するような言い方にしません）。"
-                 "何も報告しません。相手の言葉を真似しません。質問を聞き直してはいけません。")
+                 "何も報告しません。相手の言葉を真似しません。質問を聞き直してはいけません。"
+                 "どれにするか迷っている・決めかねている、と言い終えたときは、考えている途中ではないので、いつものとおり報告します（どう応じるかは、"
+                 "プログラムが知らせます）。")
 
 
 def system_rules(play_recordings: bool = False, target: bool = False, follow_up: bool = False) -> str:

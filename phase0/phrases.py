@@ -712,6 +712,10 @@ POINT_ANYTIME = "何か思い出されたり" + POINT_ANYTIME_PLAIN
 # ございましたら いつでもご遠慮なくおっしゃってくださいね。 」と言った感じで「が」があろうがなかろうが、 この言葉を添える方がいいと思います。その後に続きまして
 # と入るのがスムーズでしょう。」（決まった言い方なので言葉の途中に読点は入れない＝10-15）
 UNCLEAR_ANYTIME = "何かわからないことがございましたらいつでもご遠慮なくおっしゃってくださいね。"
+# どれにするかを迷っていると言い終えたお客様に、業務設定に選択肢ごとの良い点・気をつける点が無いとき、1回伺う一言（共通の一言の録音 hesitate_point。伺う所は
+# Flow._hesitation の1か所）。お答え（迷っている点）には、会話AIが業務の情報の範囲で答える（尋ねられて答える1か所）。✅ 2026-11-07 日本時間18時03分49秒 ユーザー
+# 「(1) ア」（15時台のご報告の (ア)「どういった点でお迷いでしょうか？」と1回伺い、お答えには業務の情報の範囲で答える）
+HESITATE_POINT = "どういった点でお迷いでしょうか？"
 # 続きの電話の始めのご説明（19時26分の (A)＝「前回お伺いした（その点）の件ですが、」から）が、自分で答える受け皿（知っていることの文そのまま＝その点の短い
 # 言葉は会話AIが作るので受け皿では言えない）になったときの話し始め（録音。続けて会話AIが知っていることの文を言う）。⏳ 同じく伺う
 RESUMED_FALLBACK_LEAD = "前回お伺いした件ですが、"
@@ -810,7 +814,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME,
+            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},

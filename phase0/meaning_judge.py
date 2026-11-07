@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 
 from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     REPEAT, THINKING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, label, restates, side_items)
+                     REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, helps_choose, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -406,8 +406,13 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
                 # ✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」：考えている方への「はい。」は、判定が「まだ考えている途中」と読んだらプログラムが流す
                 # （flowctl.THINKING・Flow._thinking）。分かれ目は意味で書く（言葉の形の例は足さない）：言い終えた「決められない」とは、まだ答えを言い終えていない
                 # （続けて話しそう）かで分ける
-                THINKING: "まだ答えを考えている途中で、答えを言い終えていない（迷っている・言いよどんでいる最中で、このあと続けて答えそう。答えではない）。"
-                          "決められない・まだ決めていない、と言い終えたときは、こちらではない",
+                # ⛔ 2026-11-07 日本時間11時台（G-53d1base の読み直し）：「迷っている…最中」と書いていたので、言い終えた「迷っています。」を考えている途中と読み、
+                #    「はい。」で待って5秒で急かす一言を流す形だった＝13時05分06秒のお言葉で、言い終えた迷いは HESITATING に分けた（境目はこの1文だけに書く）
+                THINKING: "まだ答えを考えている途中で、答えを言い終えていない（言いよどんでいる最中で、このあと続けて答えそう。答えではない）。"
+                          "決められない・まだ決めていない・迷っている、と言い終えたときは、こちらではない",
+                # ✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「…のように促すのが一番いいんじゃないでしょうか。迷っていると言っているのに途中で話を終わらしたり
+                # どうなさいましたか と 急かすのは最悪な手ですよ。」・18時03分49秒「(1) ア」（flowctl.HESITATING・Flow._hesitation＝選ぶ助けを伝えて促す）
+                HESITATING: "どの答えにするかを迷っている・決めかねている、と言い終えた（答えのあいだで迷っている気持ちを言った。答えではない）",
                 # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…判定の選べるものに「もう一度言ってほしい」を足します。…OK」（flowctl.REPEAT・
                 # Flow._repeat_now）。分かれ目は意味で書く：こちらに別のこと（名前・会社名・意味）を尋ねたのではなく、伺ったことをもう一度言ってほしい
                 REPEAT: "直前にこちらが伺ったこと（質問・確かめの一言）が聞こえなかった・聞き取れなかったので、もう一度言ってほしいと頼んだ（もう一度とは"
@@ -418,8 +423,11 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
 
 
 def answer_kinds(q) -> dict:
-    """答えでない言葉の選べるもの（唯一の場所）：電話のやり取りを読む問い合わせは KIND_DESC＋決められない・答えの段の問い合わせは ANSWER_KINDS。"""
-    return KIND_DESC | {UNDECIDED: TALK_UNDECIDED} if talk_question(q) else ANSWER_KINDS
+    """答えでない言葉の選べるもの（唯一の場所）：電話のやり取りを読む問い合わせは KIND_DESC＋決められない・答えの段の問い合わせは ANSWER_KINDS
+    （迷っている＝HESITATING は、選ぶ助けを伝える業務の質問だけ＝flowctl.helps_choose の1か所）。"""
+    if talk_question(q):
+        return KIND_DESC | {UNDECIDED: TALK_UNDECIDED}
+    return ANSWER_KINDS if helps_choose(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
 
 
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
