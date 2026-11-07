@@ -81,7 +81,11 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          # 3回目からの戻る一言・方法をお伝えした一言に続けて流す形（phrases.BACK_FIT＝back_fit の1か所。4時40分35秒。CL-1.md 4-107）
                          "back_again", *__import__("phrases").BACK_FIT,
                          # ほかに分からない点は今のところ無いと言われたときに添える一言の録音（✅ 11-07 日本時間13時05分06秒 ユーザー。CL-1.md 4-108）
-                         "unclear_anytime"})
+                         "unclear_anytime",
+                         # 考えている方に5秒黙られたときの急かさない一言の録音（✅ 11-07 日本時間18時03分49秒 ユーザー「(2) イ」。CL-1.md 4-109）
+                         "concern_anytime"})
+# こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
+CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -8456,9 +8460,13 @@ class EndJudgedTest(unittest.TestCase):
 
     def test_thinking_prompts_in_order(self):
         # ✅ 2026-11-01 日本時間23時04分 ユーザー：5秒黙られたら「どうなさいますか？」、さらに5秒黙られたら「いかがなさいましたか？」（どの質問でも）
+        # ⇒ ✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(2) イ」：5秒の一言は、急かさない「何か気になる点がございましたらお気軽にお聞かせくださいね。」
+        #    （13時05分06秒「迷っていると言っているのに…どうなさいましたか と 急かすのは最悪な手ですよ。」と同じ理由）。さらに5秒は今のまま
         from phrases import RECORDED, THINKING_PROMPT, THINKING_PROMPT_IDS
-        self.assertEqual(THINKING_PROMPT, ("どうなさいますか？", "いかがなさいましたか？"))
+        self.assertEqual(THINKING_PROMPT, ("何か気になる点がございましたらお気軽にお聞かせくださいね。", "いかがなさいましたか？"))
         self.assertEqual([RECORDED[k] for k in THINKING_PROMPT_IDS], list(THINKING_PROMPT))   # 録音は共通の一言（「いかがなさいましたか？」は今の録音）
+        self.assertNotIn("、", THINKING_PROMPT[0])   # 決まった言い方なので言葉の途中に読点を入れない（10-15）
+        self.assertNotIn("dounasaimasu", RECORDED)   # 使わなくなった録音の名前は残さない（CL-2 の一覧から外すのは CL2_RETIRED が待つ）
 
     def test_final_goal_refusal_closes_only_when_the_goal_is_lost(self):
         # ✅ 2026-11-01 日本時間22時31分 ユーザー：「片方だけでも目的が達成できるときは、質問を続け、片方断られたら、目的は達成できない場合は、途中で
@@ -11405,7 +11413,9 @@ class TargetTest(unittest.TestCase):
             parts = self.cl2_names("recordings.py", "CONTRACTOR_PARTS")
         if parts is None:
             self.skipTest("CL-2 の録音の部品（app/）がまだ無い")
-        self.assertEqual((sorted(without_cl2_pending(self, set(RECORDED), parts) - parts), sorted(parts - set(RECORDED))), ([], []),
+        self.assertEqual(sorted(CL2_RETIRED - parts), [], "CL-2 の部品から外れた名前は、CL2_RETIRED から外す")
+        self.assertEqual(sorted(CL2_RETIRED & set(RECORDED)), [], "使わなくなった名前は、こちらの表に残さない")
+        self.assertEqual((sorted(without_cl2_pending(self, set(RECORDED), parts) - parts), sorted(parts - set(RECORDED) - CL2_RETIRED)), ([], []),
                          "（こちらだけにある名前, CL-2 の一覧だけにある名前）")
 
     @staticmethod

@@ -168,7 +168,7 @@ def question_how(text: str) -> str:
     return next((k for k in ("question", "question_long") if need <= MAX_S[k]), "question_xl")
 # システムの質問を2回目・3回目からの戻る一言に続けて流す形（phrases.BACK_FIT＝back_fit の1か所。方法をお伝えしたあとの連絡先の一言も同じ形）：質問の読み方で、
 # 長さの上限は文の長さで選ぶ（3回目からの形は頭が27字長い）
-from phrases import BACK_FIT  # noqa: E402
+from phrases import BACK_FIT, THINKING_PROMPT_IDS  # noqa: E402
 HOW_OF.update({k: question_how(t) for k, t in BACK_FIT.items()})
 # 連絡先の一言の鍵は言い方の表の1か所（phrases._CONTACT_RESUMED＝flowctl.contact_again_key。⛔ 2026-11-05 まで役目を手で並べていた＝オンラインの一言を足すと漏れる）
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
@@ -186,8 +186,9 @@ MAX_S["wait_reply"] = 4.0  # 判断いただけるお立場か・お取次ぎの
 HOW_OF.update({"ikaga": "ai", "dou": "ai"})
 # 「AIですか？」への標準の答え（phrases.STANDARD_PARTS。業務が書かないときに流す共通の一言）：業務の答え（依頼主の単位の ai）と同じ読み方
 HOW_OF[STANDARD_PARTS["ai"]] = "ai"
-# 「どうなさいますか？」（phrases.THINKING_PROMPT の1回目）：悩んで黙った方に、どうなさるかを伺う一言＝質問の読み方（✅ 2026-11-01 日本時間23時04分 ユーザー）
-HOW_OF["dounasaimasu"] = "question"
+# 「何か気になる点がございましたらお気軽にお聞かせくださいね。」（phrases.THINKING_PROMPT の1回目）：悩んで黙った方に、急かさずにお尋ねをお受けする一言
+# （✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(2) イ」。前の「どうなさいますか？」＝質問の読み方は使わない）＝いつでもお尋ねをお受けする一言（point_anytime）と同じ読み方
+HOW_OF[THINKING_PROMPT_IDS[0]] = "own_fallback"
 HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})
 HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調子ごとの録音は、名前そのものが読み方の鍵
 # 申し伝える一言まで言って切れた続きの電話のお詫びと申し伝える一言（phrases.APOLOGY_CUT_END・TOLD_AGAIN・TOLD_FOLLOW_UP）：お詫びは前の電話のお詫びと同じ
