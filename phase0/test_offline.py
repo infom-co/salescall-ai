@@ -13376,8 +13376,9 @@ class NoneOfThemTest(unittest.TestCase):
             f.apply("record_answer", {"question_id": "Q1", "condition_id": NONE})
             f.on_callee(); f.on_heard("LINEなら、IDは abc_123 です。"); f.on_check("judge", wish_label("line"))
             f.apply("record_answer", {"question_id": "W1", "condition_id": wish_label("line"), "value": "LINE", "rest": "IDは abc_123"})
-            q, before, words = f.ahead_context()
-            self.assertEqual((q.id, words, f.ahead_pending(), f.ahead_context()), (how, "LINEなら、IDは abc_123 です。", True, None), reading)
+            q, restated, before, words = f.ahead_context()
+            self.assertEqual((q.id, restated, words, f.ahead_pending(), f.ahead_context()), (how, None, "LINEなら、IDは abc_123 です。", True, None),
+                             reading)
             f.on_check("judge" + AHEAD_CHECKS[0][len("judge"):], reading, f.callee_turns)
             self.assertFalse(f.ahead_pending())
             r = f.apply("record_answer", {"question_id": how, "condition_id": "ID", "rest": "abc_123"})
@@ -20324,6 +20325,88 @@ class ApprovalReviewTest(unittest.TestCase):
         r = f.judged_turn(voiced=False)
         self.assertEqual(heard(r), "失礼いたしました。" + said)
         self.assertTrue(f.ai_pending)
+
+    def test_answer_to_the_question_before_wait_or_later_is_taken(self):
+        # ⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の見直しの A-5）：待つかかけ直すか（H2）を伺っている間に、お客様が伺う前の話に答えると
+        #    （「あ、いや、料金のところが気になってたんです。」・言い直しへの「あ、やっぱり送ってください。」）、会話AIの元の質問・元の言い直しへの報告を
+        #    「いまの質問ではありません」で差し戻し、そのあとの H2 の「わからない」の報告で「はい、それではこのままお返事を待っております。」と待った
+        #    （言われた点を捨てた＝本書 9-3「取得済みのことを重ねて聞かない」）。伺う前の位置へ戻し、その言葉を、戻した位置について判定に読み直して
+        #    もらってから受け取る（先に言われた答えを読み直す1か所 ahead_context）
+        from flowctl import AHEAD_CHECKS, CALLBACK_IDS, KEEP_ON, UNDECIDED, WAIT_NOW, WAIT_OR_LATER, Flow, Question, callback_question
+        from meaning_judge import Reading
+        from phrases import ACK
+        heard = lambda r: ((ACK[r["ack"]] if r.get("ack") else "") + "".join(p.get("text", "") for p in r.get("play") or [])
+                           + (r.get("say") or ""))
+        N1, H2 = CALLBACK_IDS["not_agreed"], callback_question("wait_or_later").id
+        AHEAD = "judge" + AHEAD_CHECKS[0][len("judge"):]
+        WORDS = "あ、いや、料金のところが気になってたんです。"
+
+        def waiting(f, words="妻に話してからにしたいので、少し待ってください。"):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(WAIT_OR_LATER))
+            r = f.judged_turn(voiced=False)
+            self.assertEqual(f.current, H2)
+            return r
+
+        # (1) 元の質問（ご承認の手順の N1）への答え
+        f = self.flow()
+        r = waiting(f)
+        self.assertIn(N1, r["message"])   # 会話AIへ：伺う前の質問に答えたら、その番号で報告する
+        r = self.say(f, WORDS, UNDECIDED, "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        self.assertNotEqual(r["result"], "rejected", r["message"])
+        self.assertEqual((heard(r), f.current, f.wait_q, H2 in f.order), ("はい、", N1, None, False))
+        q, restated, before, words = f.ahead_context()
+        self.assertEqual((q.id, restated, words, f.ahead_pending()), (N1, None, WORDS, True))
+        f.on_check(AHEAD, Reading("点を言った"), f.callee_turns)
+        r = f.apply("record_answer", {"question_id": N1, "condition_id": "点を言った", "value": "料金"})
+        self.assertEqual(r["result"], "explain_point", r["message"])
+        self.assertIn("料金", f.point.get("point") or str(f.facts.get("not_agreed")))
+        # 判定が H2 の答え（このまま待つ）と読んでいれば、その読みが先（会話AIの報告は判定を待つきっかけだけ）
+        f = self.flow()
+        waiting(f)
+        r = self.say(f, "はい、このままお待ちください。", WAIT_NOW, "record_answer", question_id=N1, condition_id="unknown")
+        self.assertEqual((heard(r), f.current), ("はい、それではこのままお返事を待っております。", N1))
+        # 会話AIが H2 の「わからない」と報告しても、判定がそろって「待たずに続ける」と読めば同じ（H2 の3つ目の選択肢 KEEP_ON）
+        f = self.flow()
+        waiting(f)
+        r = self.say(f, WORDS, KEEP_ON, "record_answer", question_id=H2, condition_id="unknown")
+        self.assertEqual((r["result"], heard(r), f.current, f.wait_q, H2 in f.order), ("next", "はい、", N1, None, False), r["message"])
+        f.ahead_context(); f.on_check(AHEAD, Reading("点を言った"), f.callee_turns)
+        r = f.apply("record_answer", {"question_id": N1, "condition_id": "点を言った", "value": "料金"})
+        self.assertEqual(r["result"], "explain_point", r["message"])
+        # 報告の無いターン：「あ、もう大丈夫です、続けてください。」＝伺う前の質問の答えは無い＝伺う前の質問を流し直す（待つかかけ直すかはもう伺わない）
+        f = self.flow()
+        waiting(f)
+        f.on_callee(); f.on_heard("あ、もう大丈夫です、続けてください。"); f.on_check("judge", Reading(KEEP_ON))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((heard(r), f.current), ("はい、", N1))
+        self.assertIsNone(f.judged_turn(voiced=False))   # 同じ発話の2回目：重ねない
+        f.ahead_context(); f.on_check(AHEAD, Reading(UNDECIDED), f.callee_turns)
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((f.current, heard(r)), (N1, "ご納得いただけなかった点はどの部分になりますでしょうか？"))
+        # 会話AIが「待たずに続ける」と報告し、判定もそろう
+        f = self.flow()
+        waiting(f)
+        r = self.say(f, "あ、もう大丈夫です。", KEEP_ON, "record_answer", question_id=H2, condition_id=KEEP_ON)
+        self.assertEqual((heard(r), f.current, f.wait_q), ("はい、", N1, None))
+        # (2) 言い直しの返事を待っている間に伺った H2 への、元の言い直しへの返事
+        f = Flow([Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                           do_words={"はい": "パンフレットをお送りさせていただきます"}),
+                  Question("Q3", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("送ってもらおうかな…。"); f.on_check("judge", Reading("はい", firm=False))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        say = f.awaiting_say
+        self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", "Q1"))
+        waiting(f, "うーん、妻に話してからにしたいので、少し待ってください。")
+        r = self.say(f, "あ、やっぱり送ってください。", UNDECIDED, "confirm_field", question_id="Q1", result="affirmed")
+        self.assertNotEqual(r["result"], "rejected", r["message"])
+        self.assertEqual((heard(r), f.current, f.awaiting_confirm, f.wait_q), ("はい、", "Q1", "Q1", None))
+        q, restated, before, words = f.ahead_context()
+        self.assertEqual((q.id, restated, words), ("Q1", say, "あ、やっぱり送ってください。"))
+        f.on_check(AHEAD, Reading("はい"), f.callee_turns)
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual((f.items["Q1"].state, f.items["Q1"].condition, r.get("question_id")), ("confirmed", "はい", "Q3"))
+        self.assertEqual(heard(r), "続きましてご訪問の日時のご希望はございますでしょうか？")   # 「はい、」は読み直しの前に流した＝重ねない
 
 
 class RemainingNineTest(unittest.TestCase):

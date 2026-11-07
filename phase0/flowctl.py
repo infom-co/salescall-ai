@@ -873,6 +873,11 @@ def undecided(readings) -> bool:
 
 
 WAIT_NOW, CALL_LATER = "このまま待つ", "かけ直す"   # 決まらないときに1回伺う質問 H2 の選択肢（callback_question("wait_or_later")）
+# H2 の3つ目の選択肢：待つのも、かけ直すのも要らず、お客様がそのままお話を続けた（伺う前のお話に答えた「あ、いや、料金のところが気になってたんです。」・
+# 「あ、もう大丈夫です、続けてください。」）。伺う前の位置へ戻し、その言葉を戻した位置について読み直す（Flow._wait_continue の1か所）。⛔ 2026-11-08
+# 日本時間7時台（11-07 23時26分13秒のご質問の見直しの A-5）：選べるものが2つだけで、判定は「決められない」と読み、「はい、それではこのままお返事を
+# 待っております。」と待った（言われた点を捨てた＝本書 9-3「取得済みのことを重ねて聞かない」）
+KEEP_ON = "待たずに続ける"
 # H2 の答えの名前を、同じ意味の待つ・かけ直すの読みに読み替える表（唯一の表＝as_wait）。H2 を伺っている間、判定は H2 の答えの名前でも待つ読みの名前でも
 # 読めるので、2つの名前を同じ意味に数える。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（W2）：判定の1つが「かけ直す」・もう1つが「お客様から
 # 折り返す」と読むと、同じ意味なのに割れたとみて「このまま待つ」に決め、「はい、それではこのままお返事を待っております。」と逆の動きをした
@@ -2464,7 +2469,8 @@ _ROLE_MEANINGS = {
     "refusal": {"はい": "今後このようなお電話はご遠慮したほうがよいということ", "いいえ": "今後このようなお電話もご遠慮しなくてよいということ"},
     "hurry_again": {"はい": "また改めてお掛けしてよいということ", "いいえ": "改めてお掛けしないほうがよいということ"},
     # 待つか、かけ直すか（Flow._wait_or_later・_wait_or_later_decided）。✅ 2026-11-05 日本時間23時56分48秒 ユーザー「(ア)」
-    "wait_or_later": {WAIT_NOW: "このまま電話をつないでお待ちしてよいということ", CALL_LATER: "改めておかけ直ししてよいということ"},
+    "wait_or_later": {WAIT_NOW: "このまま電話をつないでお待ちしてよいということ", CALL_LATER: "改めておかけ直ししてよいということ",
+                      KEEP_ON: "待つのも改めておかけ直しするのも要らず、そのままお話を続けたということ（その前のお話に答えた・もう大丈夫だと言った など）"},
     "call_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"},
     "promise_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"},
     # ご承認いただけなかったときの手順（Flow._point_step）：分からない点を聞いているのか、理由を挙げてお断りしようとしているのかを、判定の読みで見分ける
@@ -4704,6 +4710,8 @@ class Flow:
             # 迷っているお客様に選ぶ助けを伝える番（_hesitation の help）も同じ道で、言葉はその番に合わせる（迷っているのは問いではない）
             what = "どれにするか迷っている・まだ決めていない言葉" if self._hesitation() == "help" else "こちらへの問い"
             reply = self._reject(f"いまの相手の言葉は、答えではなく、{what}です（報告は受け付けません）。")
+        elif (left := self._wait_left(name, args)) is not None:
+            reply = left   # 待つかかけ直すかを伺っている間に、伺う前の話に答えた：伺う前の位置へ戻し、その言葉を戻した位置について読み直してから受ける
         else:
             # ほかのご希望を伺っているときの、ほかの手段の申し出は、W1 の答えとして受ける（_wish_reported の1か所。相づちも答えの報告と同じ決まり）。
             # 記録（log）には、AIが呼んだままの操作を残す
@@ -5323,6 +5331,9 @@ class Flow:
         「話を戻させていただきますね。」を流し、もう一度言ってほしいと頼まれてもご遠慮の一言を伺っていた"""
         if (w := self._wait_now()) is not None and (routed := self._wait_route(w, self._wait_read())) is not None:
             return routed
+        if self._kept_on():
+            # 待つかかけ直すか（H2）を伺っている間に、お客様が待たずにお話を続けた（判定がそろって「待たずに続ける」）：伺う前の位置へ戻って、その言葉を読み直す
+            return self._wait_continue()
         # 迷っている（_hesitation の1か所）：どういった点でお迷いかを伺う（何回迷っても保留で締めない＝22時02分54秒）・同じ発話にもう応じていれば重ねない。
         # 報告で来ても報告の無いターンでも同じ返事の1か所（_hesitate_now）。選ぶ助けを伝える番は、尋ねられて答える番の1か所（_asked_now）が受け持つ
         if self._hesitation() is not None and (r := self._hesitate_now(voiced)) is not None:
@@ -5337,7 +5348,7 @@ class Flow:
         待つように言われたら「はい、」のあと待つ（11-06 2時28分41秒「どの段・どの場面でも同じ」）・聞き返されたら流し直す（11-06 15時20分30秒）。⛔ 2026-11-06
         日本時間13時台の見直しで見つけた：電話を終える言葉かの項目が「決められない」だと、待つ・考えている途中の読みより先にご遠慮の一言を伺っていた（「はい」と
         言われると発信禁止）。⛔ 23時22分41秒のご質問の見直し（W4）：もう一度言ってほしいの読みが、この決まりに入っていなかった（前の名前 _waits_not_end）"""
-        return self._wait_handles(self._wait_now()) or self._repeat_due() or self._hesitation() is not None
+        return self._wait_handles(self._wait_now()) or self._kept_on() or self._repeat_due() or self._hesitation() is not None
 
     def _thinking(self) -> dict:
         """お客様がまだ答えを考えている途中（判定の読み THINKING＝wait_reading）：「はい。」の相づち（_ack の1か所＝phrases.ACK の aizuchi。落ち着いた声で、
@@ -6343,9 +6354,13 @@ class Flow:
     def _held_words(self, name: str, args: dict) -> dict | None:
         """この報告が、覚えておいた前の発話の言葉（answer_held）の答えなら、その言葉（_apply_one が、報告の間だけ judged にする）。
         答えを当てる言葉は、判定のどれかが、いまの質問の答えと読んだいちばん新しい言葉：いまの発話で報告した（相手に応える前・応えた直後）・
-        いまの発話を判定が答えと読んだ（「あ、やっぱりまだでした」と言い直された）なら None＝いまの言葉のまま。"""
+        いまの発話を判定が答えと読んだ（「あ、やっぱりまだでした」と言い直された）なら None＝いまの言葉のまま。
+        言い直しへの返事として覚えた言葉（confirm＝待つかかけ直すかを伺っている間に、伺う前の言い直しに返事をした＝_wait_left）は、言い直しへの返事の報告
+        （confirm_field）にだけ当てる。"""
         h = self.answer_held
-        if name != "record_answer" or h is None or (h["turn"] == self.callee_turns and not h.get("ahead")):
+        if name not in ("record_answer", "confirm_field") or h is None or (h["turn"] == self.callee_turns and not h.get("ahead")):
+            return None
+        if (name == "confirm_field") != bool(h.get("confirm")):
             return None
         if args.get("question_id") != h["qid"] or h["qid"] != self.current or self._heard_answer(self.questions[h["qid"]]):
             return None
@@ -6388,10 +6403,17 @@ class Flow:
         a = self._ahead_now()
         if a is None or a["qid"] == q.id or self.items[q.id].state != "empty":
             return None
-        a.update(qid=q.id, check={}, asked=False)
-        self.answer_held = {"turn": a["turn"], "qid": q.id, "said": a["said"], "check": a["check"], "ahead": True, "rest": a["rest"],
-                            "offered": self.callee_turns}
+        self._hold_ahead(q.id)
         return {"result": "next", "question_id": q.id, "question": q.text, "message": f"{prefix}{self._return_note()}", "ahead_offer": True}
+
+    def _hold_ahead(self, qid: str, back: str | None = None) -> None:
+        """先に言われた答え（ahead）を、質問 qid について判定に読み直してもらい（ahead_context）、会話AIの報告をその言葉に当てる（_held_words）印を立てる唯一の場所
+        （次に伺う質問へ進むとき＝_offer_ahead・待つかかけ直すかを伺っている間に、伺う前の話に答えた＝_wait_left）。back＝伺う前の話へ戻した言葉の種類（"answer"＝
+        元の質問への答え・"confirm"＝元の言い直しへの返事）。"""
+        a = self.ahead
+        a.update(qid=qid, check={}, asked=False)
+        self.answer_held = {"turn": a["turn"], "qid": qid, "said": a["said"], "check": a["check"], "ahead": True, "rest": a["rest"],
+                            "offered": self.callee_turns, "back": back, "confirm": back == "confirm"}
 
     def _ahead_now(self) -> dict | None:
         """いま使える先に言われた答え（唯一の決まり＝質問を流さずに伺う所 _offer_ahead・もう伺った連絡先より先に使うか _wish_contact）：答えの段か、締めの前の
@@ -6400,17 +6422,20 @@ class Flow:
         使わずに「それでは恐れ入りますがメールアドレスを…」と伺った（0時31分の直しで起きた後戻り）"""
         return self.ahead if self.phase in ("asking", "rechecking") else None
 
-    def ahead_context(self) -> tuple["Question", str | None, str] | None:
+    def ahead_context(self) -> tuple["Question", str | None, str | None, str] | None:
         """先に言われた答えを、次に伺う選ぶ質問について読み直す判定（電話接続側が、報告の返事を作ったあとに呼ぶ。確かめの名前 judge@ahead・judge2@ahead
-        ＝AHEAD_CHECKS）：(質問, その前に相手が言ったこと, 読み直す相手の言葉)。判定の読みは、伺ったときの発話の番号で返す（_ahead_check）。1つの先に言われた答えにつき1回だけ（2回目からは None）。値を伺う質問は言い直して確かめる
-        ので読み直さない（None）。判定を使わない通話も None。"""
+        ＝AHEAD_CHECKS）：(質問, こちらが言い直して確かめた言葉, その前に相手が言ったこと, 読み直す相手の言葉)＝はじめの3つは、いまの発話の判定に渡すもの
+        （judge_context）と同じ形。判定の読みは、伺ったときの発話の番号で返す（_ahead_check）。1つの先に言われた答えにつき1回だけ（2回目からは None）。
+        値を伺う質問は言い直して確かめるので読み直さない（None）。ただし、伺う前の言い直しへの返事（待つかかけ直すかを伺っている間に返事をした＝_wait_left の
+        confirm）は、その返事が言い直しの確かめそのものなので、どの型でも、言い直した言葉と一緒に読み直す。判定を使わない通話も None。"""
         a, h = self.ahead, self.answer_held
         if (a is None or h is None or not h.get("ahead") or a.get("qid") != h["qid"] or h["qid"] != self.current or a["asked"] or not self.judging
-                or self.questions[h["qid"]].type not in CHOICE_TYPES):
+                or (self.questions[h["qid"]].type not in CHOICE_TYPES and not h.get("confirm"))):
             return None
         a["asked"], a["judge_turn"], self.ahead_asked = True, self.callee_turns, a
-        before = before_words(self.questions[h["qid"]], [w for t, w in self.answer_words.items() if t < a["turn"]])
-        return self.for_judge(self.questions[h["qid"]]), before, a["said"]
+        q = self.questions[h["qid"]]
+        before = before_words(q, [w for t, w in self.answer_words.items() if t < a["turn"]])
+        return self.for_judge(q), (self._judge_text(self.awaiting_say) if h.get("confirm") else None), before, a["said"]
 
     def ahead_pending(self) -> bool:
         """読み直した判定が、まだ1つも届いていない（電話接続側が、先に言われた答えの報告を受け取る前に、待つ長さの中で待つ＝convo の judged）。"""
@@ -6437,6 +6462,14 @@ class Flow:
         if self._held_now() is None:
             return f"{resume}。"
         q, h = self.questions[self.current], self._held_now()
+        if h.get("back"):
+            # 待つかかけ直すかを伺っている間に、待たずにお話を続けた（_wait_continue）：その言葉に、伺う前の質問の答え・言い直しへの返事が入っているか
+            if h.get("confirm"):
+                return (f"相手は、待たずにお話を続けました（「{h['rest']}」）。この言葉が、{q.id} の言い直し「{self.awaiting_say}」への返事なら、何も言わずに "
+                        f"confirm_field で、聞いたとおりに報告します。{self._confirm_how(q.id)}返事でなければ、{resume}（言い直しは、プログラムが流します）。")
+            return (f"相手は、待たずにお話を続けました（「{h['rest']}」）。この言葉に、伺う前の質問 {q.id}「{q.text}」への答えが入っていたなら、何も言わずに "
+                    f"record_answer で、聞いた答えのとおりに報告します（「わからない」「答えたくない」も答えです）。入っていなければ、{resume}"
+                    "（質問は、プログラムが流します）。" + choices_note(q))
         if h.get("ahead"):
             # 先に言われた答え（_offer_ahead）：次に伺う質問の答えが、こちらの質問の答えのほかに言われたことの中にあるか
             return (f"相手の言葉のうち、答えのほかに言われたこと（「{h['rest']}」）に、次に伺う質問 {q.id}「{q.text}」への答えが入っていたなら、"
@@ -8477,19 +8510,81 @@ class Flow:
         self.questions[q.id], self.items[q.id] = q, Item()
         self.wait_q = q.id
         self._put_first(q.id)
-        return self._advance("", handled=True)
+        r = self._advance("", handled=True)
+        return r | {"message": r["message"] + self._wait_note()}
+
+    def _wait_note(self) -> str:
+        """待つかかけ直すか（H2）を伺っている間の、会話AIへの知らせ（伺った返事 _wait_or_later と、いま求めていること _now の1か所）：お客様が、待つかかけ直すか
+        ではなく、伺う前の話（元の質問・元の言い直し）に答えたら、その番号で報告する（受けるのは _wait_left の1か所）。H2 を伺っていなければ空。"""
+        if self.wait_q is None or self.wait_back is None or self.wait_back[0] is None:
+            return ""
+        cur, confirm, say = self.wait_back
+        if confirm is not None:
+            return (f"相手が、待つかかけ直すかではなく、伺う前の {confirm} の言い直し「{say}」に返事をしたら（「やっぱり…」など）、confirm_field を"
+                    f"{ARG_LABEL['question_id']}「{confirm}」で報告します。")
+        return (f"相手が、待つかかけ直すかではなく、伺う前の質問 {cur}「{self.questions[cur].text}」に答えたら（「あ、いや、…」など）、record_answer を"
+                f"{ARG_LABEL['question_id']}「{cur}」で報告します。")
+
+    def _wait_back_to(self) -> str:
+        """待つかかけ直すか（H2）を伺う前の位置へ戻す唯一の場所（答えが決まった＝_wait_or_later_decided・待たずにお話を続けた＝_wait_continue）：H2 の印を下ろし、
+        並びから外し（締めの前に伺い直さない）、覚えた位置（質問・言い直しの返事待ち）へ戻す。H2 の番号を返す。"""
+        qid, self.wait_q = self.wait_q, None
+        (self.current, self.awaiting_confirm, self.awaiting_say), self.wait_back = self.wait_back, None
+        self._out_of_order(qid)
+        return qid
+
+    def _back_of_wait(self) -> str | None:
+        """待つかかけ直すか（H2）を伺う前の位置（言い直しの返事待ちなら、その質問）。H2 を伺っていない・伺う前の位置が無いなら None。"""
+        return None if self.wait_q is None or self.wait_back is None else (self.wait_back[1] or self.wait_back[0])
+
+    def _kept_on(self) -> bool:
+        """待つかかけ直すか（H2）を伺っている間のお客様の言葉を、届いた判定の読みがどれも「待たずに続ける」（KEEP_ON）と読んだか（唯一の決まり＝先に判定の読みで
+        応じる1か所 _judged_first・_judged_due）。H2 を伺うきっかけの発話（遅れて届いた読み）には当てない。"""
+        if self._back_of_wait() is None or self.callee_turns <= self.wait_turn:
+            return False
+        got = [str(self.heard_check[k]) for k in JUDGMENTS if self.heard_check.get(k) is not None]
+        return bool(got) and set(got) == {KEEP_ON}
+
+    def _wait_left(self, name: str, args: dict) -> dict | None:
+        """待つかかけ直すか（H2）を伺っている間に、会話AIが、伺う前の位置への報告（元の質問の答え＝record_answer・元の言い直しへの返事＝confirm_field）をした
+        （唯一の場所＝_apply_one。当たらなければ None）：お客様は待たずに、伺う前のお話に答えた（「あ、いや、料金のところが気になってたんです。」・
+        「あ、やっぱり送ってください。」）＝待たずにお話を続けた1か所（_wait_continue）へ。判定がこの言葉を、待つ・かけ直す・考えている途中・もう一度言ってほしいと
+        読んでいれば、その読みが先（_judged_first＝会話AIの報告は判定を待つきっかけだけ）。H2 を伺うきっかけの発話への遅れた報告は当てない（_wait_route の again）。
+        ⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の見直しの A-5）：「いまの質問ではありません」で差し戻し、そのあとの H2 の「わからない」の報告で
+        「はい、それではこのままお返事を待っております。」と待った（言われた点を捨てた＝本書 9-3「取得済みのことを重ねて聞かない」）"""
+        back = self._back_of_wait()
+        if back is None or args.get("question_id") != back or self.callee_turns <= self.wait_turn:
+            return None
+        if name != ("confirm_field" if self.wait_back[1] is not None else "record_answer"):
+            return None
+        return self._judged_first() or self._wait_continue()
+
+    def _wait_continue(self, prefix: str = "") -> dict:
+        """待つかかけ直すか（H2）を伺っている間に、お客様が、待たずにそのままお話を続けた（判定の読み・H2 の答えが「待たずに続ける」＝KEEP_ON・会話AIが伺う前の位置
+        へ報告した＝_wait_left）唯一の場所：伺う前の位置へ戻し（_wait_back_to）、その言葉を、戻した位置について判定に読み直してもらう（先に言われた答えを読み直す
+        1か所＝_hold_ahead・ahead_context）。会話AIは、その言葉に伺う前の質問の答え・言い直しへの返事が入っていれば報告し（覚えた言葉に当てる＝_held_words）、
+        入っていなければ伺う前の質問・言い直しへ戻る（_resume＝プログラムが流す）。待つかかけ直すかは、もう伺わない。返事の頭は「はい、」だけ（ahead_offer）。"""
+        qid, confirm = self._back_of_wait(), self.wait_back[1] is not None
+        self._wait_back_to()
+        said = self.callee_said.strip()
+        self.ahead = {"turn": self.callee_turns, "said": self.callee_said, "rest": said, "qid": None, "check": {}, "asked": False}
+        self._hold_ahead(qid, back="confirm" if confirm else "answer")
+        return {"result": "next", "question_id": qid, "question": self.questions[qid].text, "ahead_offer": True,
+                "message": f"{prefix}受け付けました。待つかかけ直すかは、もう伺いません。{self._return_note()}"}
 
     def _wait_or_later_decided(self, prefix: str, chosen: str | None = None, why: str = "later", offer: str | None = None,
                                read: set[str] | None = None) -> dict:
         """待つか、かけ直すかを伺った答えが決まった（唯一の入口＝_advance・_wait_route）：かけ直す＝かけ直しの申し出（あとで）として、答えの段の一言で伺う／
-        このまま待つ・はっきりしない（わからない・答えたくない・聞き取れない）＝伺う前の質問へ戻り、「はい、それではこのままお返事を待っております。」のあと
-        待つ（お言葉は「待って」なので、言葉どおり待つ＝2回は伺わない。戻られたお言葉は、伺う前の質問の答えとして受け取る）。read＝判定の読みで決めたとき
-        （_wait_route）の、待つ・かけ直すと読んだ判定の名前（無ければ、受け取った答えの確かめから＝会話AIの答えの報告で決めたとき）。"""
-        qid, self.wait_q = self.wait_q, None
-        it = self.items[qid]
+        待たずに続ける＝伺う前の位置へ戻って、その言葉を読み直す（_wait_continue）／このまま待つ・はっきりしない（わからない・答えたくない・聞き取れない）＝伺う前の
+        質問へ戻り、「はい、それではこのままお返事を待っております。」のあと待つ（お言葉は「待って」なので、言葉どおり待つ＝2回は伺わない。戻られたお言葉は、伺う前の
+        質問の答えとして受け取る）。read＝判定の読みで決めたとき（_wait_route）の、待つ・かけ直すと読んだ判定の名前（無ければ、受け取った答えの確かめから＝会話AIの
+        答えの報告で決めたとき）。"""
+        it = self.items[self.wait_q]
         if chosen is None:
             chosen = it.condition if it.state in TAKEN else None
-        (self.current, self.awaiting_confirm, self.awaiting_say), self.wait_back = self.wait_back, None
+        if chosen == KEEP_ON and self._back_of_wait() is not None:
+            return self._wait_continue(prefix)
+        qid = self._wait_back_to()
         if chosen == CALL_LATER:
             if read is None:
                 read = {"ai"} | {k for k in JUDGMENTS if as_wait(self.taken.get(qid, {}).get("check", {}).get(k), True) == LATER}
@@ -10304,7 +10399,8 @@ class Flow:
         q = self.questions[self.current]
         # ⛔ 2026-10-13 G-28：AIが答えを報告せずに言い直し、差し戻されたあと、「いまの質問は Q2 です」としか伝わらず、
         #    報告しないまま言い直しを繰り返した。⇒ いますることの操作まで書く
-        return f"いまの質問は {q.id}「{q.text}」です。" + answer_wait("相手が答えたら record_answer で報告してください（聞き取れなかったら report_unclear）。")
+        return (f"いまの質問は {q.id}「{q.text}」です。" + answer_wait("相手が答えたら record_answer で報告してください（聞き取れなかったら report_unclear）。")
+                + (self._wait_note() if q.id == self.wait_q else ""))
 
     # ── 依頼主へ渡す書き方（7-1b。Q20 の唯一の場所）
     def answer_of(self, qid: str) -> str | None:

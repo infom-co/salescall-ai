@@ -394,12 +394,13 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         reply = flow.handle_call(fc, midway)
         if (ac := flow.ahead_context()) is not None:
             # 次に伺う選ぶ質問の答えを、先に言われたことから報告してもらう（Flow._offer_ahead）：その言葉を、その質問について読み直す判定を出す
-            # （報告を受け取る前に待つ＝judged・Flow.ahead_pending。読みは確かめにだけ当てる＝Flow._ahead_check）
+            # （報告を受け取る前に待つ＝judged・Flow.ahead_pending。読みは確かめにだけ当てる＝Flow._ahead_check）。はじめの3つ（質問・言い直した言葉・
+            # その前の言葉）は、いまの発話の判定に渡すもの（judge_context）と同じ形
             for base, j in (("judge", judge), ("judge2", judge2)):
                 if j is not None and answers(j, ac[0]):
                     kind = base + AHEAD_SUFFIX
-                    runs[kind], questions[kind] = j, (ac[0], None, ac[1])
-                    jobs[kind] = started(judging(kind, ac[2], None))
+                    runs[kind], questions[kind] = j, ac[:3]
+                    jobs[kind] = started(judging(kind, ac[3], None))
         return reply
 
     async def settle() -> None:
