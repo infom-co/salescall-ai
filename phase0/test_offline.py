@@ -17774,9 +17774,80 @@ class HedgedSalesTest(unittest.TestCase):
             grounded(f, answer)
             r = f.apply("replay_opening", {"part": "own", "answer": answer})
             self.assertEqual((r["result"], r["say"]), ("own_answer", answer))
-            # 選ぶ助けを伝えたあとも迷っているのがお客様の最終の決定なら、保留で締めて次へ（✅ 11-06 日本時間11時19分55秒「(2)…最終のお客様の決定であれば…保留」）
+            # 選ぶ助けを伝えたあとも迷っていれば、保留で締めずに選ぶ助けを続ける（✅ 2026-11-07 日本時間22時02分54秒 ユーザー：「まだ迷っているのにどうして
+            # 締めるんですか？超一流の営業マンがそんなとこで締めますか？…その後の迷いでも保留では締めない。」）。同じ問いを2度言わない＝もう伺った
+            # 「どういった点でお迷いでしょうか？」は伺い直さず、まだお伝えしていない点から会話AIが選ぶ助けを伝える
             r = said(f, "うーん、やっぱり迷いますね。", HESITATING)
+            self.assertEqual((r["result"], f.items["Q1"].state), ("rejected", "empty"))
+            self.assertNotIn("say", r)
+            self.assertIn("まだお伝えしていない", r["message"])
+            more = "カードですとお振込の手間がかからず、カード会社のポイントもつきます。"
+            grounded(f, more)
+            r = f.apply("replay_opening", {"part": "own", "answer": more})
+            self.assertEqual((r["result"], r["say"]), ("own_answer", more))
+            r = said(f, "うーん、迷いますね。", HESITATING)   # 何回迷っても保留で締めない
+            self.assertEqual((r["result"], f.items["Q1"].state), ("rejected", "empty"))
+            grounded(f, more)
+            f.apply("replay_opening", {"part": "own", "answer": more})
+            r = said(f, "じゃあカードにします。", "カード", "カード")
+            self.assertEqual((r["result"], r["question_id"], f.export()["Q1"]), ("next", "Q2", "カード"))
+        # (1) の続き：良い点・気をつける点を伝えたあとも迷っていれば、まだ伺っていない「どういった点でお迷いでしょうか？」を伺い、お答えに答える
+        f = flow(notes)
+        said(f, "カードか振込か迷っています。", HESITATING)
+        grounded(f, help_line)
+        f.apply("replay_opening", {"part": "own", "answer": help_line})
+        r = said(f, "うーん、やっぱり迷いますね。", HESITATING)
+        heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])
+        self.assertEqual((heard, f.items["Q1"].state), ("はい、" + HESITATE_POINT, "empty"))
+        r = said(f, "手数料がかかるのか気になっていて。", UNDECIDED)
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("手数料がかかるのか気になっていて。", r["message"])
+        # (イ) 最初の答えの「まだ決めてないです。」（判定の理由＝まだ決まっていない）も、すぐ保留で締めずに先に選ぶ助けをする（✅ 22時02分54秒「イでOK」）。
+        # 選ぶ助けのあとの「決められない」がお客様の最終の決定なら保留（11-06 11時19分55秒の (2)）
+        def undecided(f, words):
+            f.on_callee(); f.on_heard(words)
+            for k in ("judge", "judge2"):
+                r = Reading("unknown")
+                setattr(r, WHY, "まだ決まっていない")
+                f.on_check(k, r)
+            return f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
+        from flowctl import WHY
+        for notes_now in (notes, {}):
+            f = flow(notes_now)
+            r = undecided(f, "まだ決めてないです。")
+            self.assertEqual((r["result"], f.items["Q1"].state), ("rejected" if notes_now else "hesitate", "empty"), notes_now)
+            if not notes_now:
+                heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])
+                self.assertEqual(heard, "はい、" + HESITATE_POINT)
+                said(f, "手数料がかかるのか気になっていて。", UNDECIDED)
+            grounded(f, help_line)
+            f.apply("replay_opening", {"part": "own", "answer": help_line})
+            r = undecided(f, "まだ決められないですね。")
+            heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])
             self.assertEqual((r["result"], r["question_id"], f.items["Q1"].state, f.items["Q1"].reason), ("next", "Q2", "dont_know", "undecided"))
+            self.assertIn("保留", heard)
+        # (イ) の続き：2つの判定の理由の読みが割れた（まだ決まっていない／いまは分からない）・理由の読みが無い（「分からないです。」）も、まだ決めていない
+        # お客様でありうる＝最初の答えのまま保留で締めずに、先に選ぶ助けをする（理由の読みがそろわないときに、お客様を見放す側へ倒さない）。2つの判定が
+        # そろって「担当ではない」「いまは分からない」と読んだときは今までどおり（担当ではない＝その方の決定ではないので保留にしない・いまは分からない＝
+        # 業務の決まりの「分かる時を伺う」か保留）
+        def unknown(f, words, whys):
+            f.on_callee(); f.on_heard(words)
+            for k, why in zip(("judge", "judge2"), whys):
+                r = Reading("unknown")
+                if why:
+                    setattr(r, WHY, why)
+                f.on_check(k, r)
+            return f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
+        for words, whys in (("まだ決めてないです。", ("まだ決まっていない", "いまは分からない")), ("分からないです。", (None, None))):
+            f = flow({})
+            r = unknown(f, words, whys)
+            heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])
+            self.assertEqual((r["result"], heard, f.items["Q1"].state), ("hesitate", "はい、" + HESITATE_POINT, "empty"), words)
+        for whys, reason, pending in ((("いまは分からない",) * 2, "unknown_now", True), (("担当ではない",) * 2, "not_in_charge", False)):
+            f = flow({})
+            r = unknown(f, "ちょっと分からないです。", whys)
+            heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])
+            self.assertEqual((r["result"], r["question_id"], f.items["Q1"].reason, "保留" in heard), ("next", "Q2", reason, pending), whys)
         # 最終の確かめのあとも決められない（11-06 11時19分55秒の (2)）も、判定を使う通話で同じ理由（まだ決まっていない）：お客様の最終の決定はプログラムが
         # 決めた事実で、判定が読む「わからない・答えたくない理由」（_why_of）ではない。⛔ 2026-11-07 日本時間18時台に見つけた：判定を使う通話では理由が
         # 「理由を言わなかった」になり、業務の決まり（理由ごとの次の動き）が本番だけ変わりうる形だった（前の試験は判定を使わない形だけだった）
@@ -18013,10 +18084,12 @@ class HedgedSalesTest(unittest.TestCase):
         # （順番の言葉・前の答えで伺う質問の「それでは」・業務の入る一言の頭）を重ねない＝次の質問の頭を「続きまして」に替える（つなぎの言葉を決める1か所
         # spoken_question）。✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(1) ウ」（「承知しました。それではこの件は保留とさせていただきますね。それでは
         # お支払いは…」への (ウ)「次の質問の頭を「続きまして」にする」）
-        from flowctl import Flow, Question, start_with
+        from flowctl import WHY, Flow, Question, start_with
         from meaning_judge import Reading
         from phrases import question_clip
         YN = ("はい", "いいえ")
+        # 保留の一言は、最初の答えのまま保留で締める場面で出す（2つの判定がそろって理由を「いまは分からない」と読んだ。まだ決めていないお客様には先に選ぶ
+        # 助け＝✅ 2026-11-07 日本時間22時02分54秒「イでOK」＝test_hesitating_customer_is_helped_to_choose）。判定を使う通話（本番と同じ）
         told = Question("Q1", "当日はお車でお越しでしょうか？", "yes_no", conditions=YN, tell_words={"はい": "それでは当日は駐車場をご利用ください。"})
         undecided = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=YN)
         pay = Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
@@ -18025,15 +18098,19 @@ class HedgedSalesTest(unittest.TestCase):
         cases = [  # (前の質問, 次の質問, 答え, 答えの言葉, 流れる一言, 次の質問の文, 録音の名前)
             (told, pay, {"condition_id": "はい"}, "はい、車で行きます。", "それでは当日は駐車場をご利用ください。",
              "続きましてお支払いはカードと振込のどちらがよろしいでしょうか？", "Q2_lead_tsuzukimashite"),
-            (undecided, pay, {"condition_id": "unknown", "unknown_why": "undecided"}, "まだ決めてないです。", "それではこの件は保留とさせていただきますね。",
+            (undecided, pay, {"condition_id": "unknown", "unknown_why": "unknown_now"}, "今はちょっと分からないです。", "それではこの件は保留とさせていただきますね。",
              "続きましてお支払いはカードと振込のどちらがよろしいでしょうか？", "Q2_lead_tsuzukimashite"),
-            (undecided, intro, {"condition_id": "unknown", "unknown_why": "undecided"}, "まだ決めてないです。", "それではこの件は保留とさせていただきますね。",
+            (undecided, intro, {"condition_id": "unknown", "unknown_why": "unknown_now"}, "今はちょっと分からないです。", "それではこの件は保留とさせていただきますね。",
              "続きましてお支払いの確認からさせていただきます。お支払いはカードと振込のどちらがよろしいでしょうか？", "Q2_intro_lead_tsuzukimashite"),
         ]
         for before, nxt, ans, said, line, text, name in cases:
             for play in (False, True):
                 f = Flow([before, nxt], play_recordings=play)
-                f.on_callee(); f.on_heard(said); f.on_check("judge", Reading(ans["condition_id"] if ans["condition_id"] != "unknown" else "unknown"))
+                f.use_checks("judge")
+                rd = Reading(ans["condition_id"])
+                if ans["condition_id"] == "unknown":
+                    setattr(rd, WHY, "いまは分からない")
+                f.on_callee(); f.on_heard(said); f.on_check("judge", rd)
                 r = f.apply("record_answer", {"question_id": "Q1", **ans})
                 self.assertEqual((r["result"], r["question_id"]), ("next", "Q2"), said)
                 if play:
@@ -18078,8 +18155,9 @@ class HedgedSalesTest(unittest.TestCase):
     def test_an_undecided_final_answer_holds_the_question_and_goes_on(self):
         # 最終の確かめのあとも決められないのがお客様の最終の決定：「承知しました。」＋「それでは（聞くこと）は保留とさせていただきますね。」でその質問を締めて
         # 次へ（✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(2) …」）。答えは「わからない（まだ決まっていない）」＝伺い直さない（10-13「わからない＝「-」で
-        # 聞き直さない」）。事実を伺う質問は保留にしない（今までどおり「-」）。最初の答えで「まだ決めていない」と言われたときも、同じ理由で保留で締める
-        from flowctl import Flow, Question, UNDECIDED
+        # 聞き直さない」）。事実を伺う質問は保留にしない（今までどおり「-」）。最初の答えの「まだ決めていない」は、すぐ保留で締めずに先に選ぶ助け（✅ 2026-11-07
+        # 日本時間22時02分54秒「イでOK」＝test_hesitating_customer_is_helped_to_choose）。2つの判定がそろって理由を「いまは分からない」と読んだ最初の答えは保留
+        from flowctl import WHY, Flow, Question, UNDECIDED
         from meaning_judge import Reading
         # (a) 尋ねられずに迷い続けた：1回目の確かめ → 2回目（同じ一言＝4時11分28秒）→ 決められない ⇒ 保留
         f = self.flow("G8n", play_recordings=True)
@@ -18097,8 +18175,11 @@ class HedgedSalesTest(unittest.TestCase):
         q, follow = self.TALK["G8n"]
         g = Flow([Question("G8n", topic="パンフレット", **q)] + [Question(x["id"], **{k: v for k, v in x.items() if k != "id"}) for x in follow],
                  play_recordings=True)
-        g.on_callee(); g.on_heard("まだ決めてないです。"); g.on_check("judge", Reading("unknown"))
-        r = g.apply("record_answer", {"question_id": "G8n", "condition_id": "unknown", "unknown_why": "undecided"})
+        g.use_checks("judge")
+        rd = Reading("unknown")
+        setattr(rd, WHY, "いまは分からない")
+        g.on_callee(); g.on_heard("今はちょっと分からないです。"); g.on_check("judge", rd)
+        r = g.apply("record_answer", {"question_id": "G8n", "condition_id": "unknown", "unknown_why": "unknown_now"})
         self.assertEqual(([p["text"] for p in r["play"]][0], r["ack"]), ("それではパンフレットは保留とさせていただきますね。", "shouchi"))
         # (c) 事実を伺う質問は保留にしない（言い直しへの決められない返事は今までどおり「-」・最初の答えの「わからない」も一言を足さない）
         h = Flow([Question("G13", "複合機は現在リースでご利用でしょうか？", "yes_no", conditions=self.YN, asks_fact=True, required=False,
