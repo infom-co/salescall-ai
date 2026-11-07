@@ -375,9 +375,15 @@ class TargetNeeds:
             return ("target_name_missing", "目的のお客様の名前がありません（この業務は、目的のお客様を名前で呼びます）")
         if self.role and not role:
             return ("target_role_missing", "目的のお客様の役職がありません（この業務は、目的のお客様を役職で呼びます）")
-        if self.role and role_problem(role) is not None:
-            return ("target_role_unclear", role_problem(role))
+        if self.role_unclear(role) is not None:
+            return ("target_role_unclear", self.role_unclear(role))
         return None
+
+    def role_unclear(self, role: str | None) -> str | None:
+        """一覧の行の役職が、この業務でお呼びするのに使えない理由（「ご担当者」だけ＝何の担当か無い。`role_problem`）。この業務が一覧の役職で
+        お呼びしないなら None（1か所。取込・版の割り当て・門＝`missing` と、ダッシュボードの行の直し＝core/row_fixes.fix が読む。
+        ⛔ 2026-11-07 の見直し：行の直しだけ業務によらず断り、取込は業務が役職で呼ぶときだけ止めていた＝同じ欄に2つの決まり）。"""
+        return role_problem(role) if self.role and role else None
 
 
 # 何の担当かを持たない「担当」だけの役職（敬語の頭・後ろを外した形）。✅ 2026-11-05 日本時間20時29分50秒 ユーザー：「「ご担当の方は

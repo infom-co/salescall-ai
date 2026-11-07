@@ -658,6 +658,10 @@ class RowFixes(Targets):
                 self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", bare))
             self.assertIn("何の担当かを書いてください", str(e.exception))
         self.assertEqual(self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", "経理のご担当者様"))["value"], "経理のご担当者様")
+        # 業務が一覧の役職でお呼びしない（名前で呼ぶ）なら、取込・門と同じく断らない（業務設定の TargetNeeds.role_unclear の1か所。
+        # ⛔ 2026-11-07 の見直し：行の直しだけ業務によらず断っていた）
+        _, by_name = self.one_row()
+        self.assertEqual(self.tx(lambda tx: row_fixes.fix(tx, by_name, "target_role", "ご担当者さん"))["value"], "ご担当者さん")
         self.tx(lambda tx: tx.execute(   # 前から入っている「ご担当者」だけの役職（直す前の形）
             "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, recorded_by)"
             " SELECT tenant_id, client_id, task_id, 'target_role', 'ご担当者さん', salescall.cur_actor() FROM salescall.tasks"

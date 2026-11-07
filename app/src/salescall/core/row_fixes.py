@@ -9,7 +9,7 @@
   （Intent.md 6-8 の決まり。入れなければ `FixInvalid`）。
 - 名前を直したら、直す前に会話の中でお客様に確かめた読みは、その名前には効かない（tasks_now の *_fixed_at より後に確かめた読みだけ＝
   business_settings.target_of の1か所）。
-- 役職の欄は、取込・業務設定と同じ1か所（`business_settings.role_problem`）で確かめる（「ご担当者」だけ＝何の担当か無い役職は直せない）。
+- 役職の欄は、取込・版の割り当て・門と同じ1か所（業務設定の `TargetNeeds.role_unclear`）で確かめる（その行の業務が一覧の役職でお呼びするとき、「ご担当者」だけ＝何の担当か無い役職は直せない）。
 - 直せるのは管理者か契約者だけ（データベースが守る）。電話番号・連絡先の直しは core/customer_contacts.py。
 """
 
@@ -55,10 +55,16 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
             r = readings.resolve(text, None, confirmed={}, ai=readings.ask([text], suggest))
     elif reading is not None and str(reading).strip():
         raise FixInvalid(f"読みを持つのは名前の欄だけです（{FIELD_NAMES[field]}）")
-    if field == "target_role" and text is not None and business_settings.role_problem(text) is not None:
-        # 「ご担当者」だけの役職は、取込・業務設定と同じ1か所（business_settings.role_problem）で断る（⛔ 2026-11-07 の第三者の見直し (2)
-        # の7：ここだけ通していた）
-        raise FixInvalid(business_settings.role_problem(text))
+    if field == "target_role" and text is not None:
+        # 「ご担当者」だけの役職は、取込・版の割り当て・門と同じ1か所（業務設定の TargetNeeds.role_unclear＝その行の実施回のいまの版が
+        # 一覧の役職でお呼びするときだけ）で断る（⛔ 2026-11-07 の第三者の見直し (2) の7：前はここだけ通していた／その直しのあとは、
+        # ここだけ業務によらず断っていた）。あとで版が替わって役職でお呼びするようになれば、門と版の割り当てが同じ1か所で見る
+        version = tx.one("SELECT salescall.run_current_version(t.run_id) AS v FROM salescall.tasks t WHERE t.task_id = %s", (task_id,))
+        if version is None:
+            raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+        why = business_settings.load(tx, version["v"]).target_needs().role_unclear(text)
+        if why is not None:
+            raise FixInvalid(why)
     tx.execute(
         "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, reading, reading_by, candidates, likely,"
         "                                  recorded_by)"
