@@ -2919,6 +2919,25 @@ def resumed_step(questions, earlier: dict | None) -> "tuple[str, Question] | Non
     return None
 
 
+def told_kind(entry: dict | None) -> str:
+    """前の電話で申し伝える一言まで言って切れた（resumed_step の told）ときの、申し伝える一言の種類（ご質問・ご要望・ご意見＝POINT_KINDS。無ければご質問）を
+    前の通話の答えから読む唯一の場所（流れの制御 Flow._point_told・名乗りの録音の文 instruction.Business.opening_parts）"""
+    f = earlier_fact(entry or {}, "point_fact") or {}
+    return f.get("told") if f.get("told") in POINT_KINDS else "question"
+
+
+def sorry_texts(apology, told: str | None, at_end: bool, when: str, follow_up: bool) -> list[tuple[str, str]]:
+    """続きの電話の始めに、名乗りのあと流すお詫びと申し伝える一言の並び（(録音の名前, 文)）を作る唯一の場所（流れの制御 Flow._sorry_lines・名乗りの録音の文
+    instruction.Business.opening_parts＝会話AIへの「プログラムが流す録音」の知らせ）：予約証の理由ごとのお詫び（phrases.APOLOGY_FIRST）。前の電話で申し伝える
+    一言まで言って切れた（told）なら、申し伝え直して締める電話（at_end）の途中で切れたお詫びは、お話の最後に切れたお詫び（APOLOGY_CUT_END。同じ日＝先ほど・
+    あとの日＝前回＝when）と、申し伝える一言（TOLD_AGAIN・担当から連絡すると申し出てよい業務は TOLD_FOLLOW_UP）。✅ 2026-11-06 日本時間9時05分17秒 ユーザーの (b)。
+    ⛔ 2026-11-08 日本時間8時台（(10) の H2 の残り）まで、名乗りの録音の文は別に並べていて、申し伝え直す電話でも途中で切れたお詫び＋用件の一文だった"""
+    out = [(f"apology_cut_end_{when}", APOLOGY_CUT_END[when]) if k == "cut_off" and at_end else (f"apology_{k}", APOLOGY_FIRST[k]) for k in apology]
+    if told is not None:
+        out.append(("told_follow_up", TOLD_FOLLOW_UP) if follow_up else (f"told_again_{told}_{when}", TOLD_AGAIN[f"{told}_{when}"]))
+    return out
+
+
 def opening_question(questions, earlier: dict | None) -> "Question | None":
     """名乗りのあとに最初に伺う質問（唯一の決まり＝流れの制御の始め Flow.__init__・名乗りの録音の最後とAIへの指示文 instruction.Business.first_question）：
     名前の読みの確かめ（前の通話で確かめていなければ＝first_open）が先・続きの電話で切れた所から伺う手順（resumed_step。ほかのご希望 W1・ご納得いただけ
@@ -9292,15 +9311,12 @@ class Flow:
         流したら空にする（2回は流さない）。"""
         told, self.told_again = self.told_again, None
         # お話の最後に切れたお詫びは、申し伝え直したあとに締める電話だけ（ご承認が最終目的＝_advance の not_agreed・残りの質問が無い）。申し伝えたあとも
-        # 話が続く電話は、お話の途中で切れたので今までのお詫び
+        # 話が続く電話は、お話の途中で切れたので今までのお詫び。並びは名乗りの録音の文（instruction.Business.opening_parts）と同じ1か所 sorry_texts
         at_end = told is not None and (self.questions[self.point["q"]].final_goal or not self._remaining())
-        lines = [{"kind": "recorded", "id": f"apology_cut_end_{self.apology_when}", "text": APOLOGY_CUT_END[self.apology_when]}
-                 if k == "cut_off" and at_end else {"kind": "recorded", "id": f"apology_{k}", "text": APOLOGY_FIRST[k]}
-                 for k in self.apology_due]
+        lines = [{"kind": "recorded", "id": rid, "text": text}
+                 for rid, text in sorry_texts(self.apology_due, told, at_end, self.apology_when, self.policies["follow_up"])]
         self.apology_due = []
         if told is not None:
-            lines.append({"kind": "recorded", "id": "told_follow_up", "text": TOLD_FOLLOW_UP} if self.policies["follow_up"]
-                         else {"kind": "recorded", "id": f"told_again_{told}_{self.apology_when}", "text": TOLD_AGAIN[f"{told}_{self.apology_when}"]})
             # 申し伝え直した：手順の終わり（unresolved）と記録（このあとまた切れても、3回目は言い直さない＝_point_told）
             self.point["outcome"] = "unresolved"
             self._point_record(**self.point.pop("told_record"))
@@ -9312,7 +9328,7 @@ class Flow:
         記録は手順の終わり（unresolved）と、申し伝え直したこと（told）を、申し伝える一言を流す時に残す（_sorry_lines。このあとまた切れても、3回目は言い直さない）。
         ✅ 2026-11-06 日本時間9時05分17秒 ユーザーの (b)"""
         f = earlier_fact(self.earlier.get(q.id) or {}, "point_fact") or {}
-        kind = f.get("told") if f.get("told") in POINT_KINDS else "question"
+        kind = told_kind(self.earlier.get(q.id))
         self.told_again = kind
         # 手順の終わり（unresolved）と記録は、申し伝える一言を流す時（_sorry_lines）に。それまでに切れたら、手順は終えていない（報告の unfinished＝次の電話で
         # また申し伝え直す）。⛔ 2026-11-06 日本時間13時台の見直し（13時27分07秒のご質問・ご承認の手順の持ち場の指摘8）で見つけた：ここ（電話の始め）で書いて

@@ -344,8 +344,15 @@ class Business:
         if self.apology_call:
             return parts + [self.apology_call]   # お詫びの電話（目的の人の無い業務）：名乗りのあとにお詫び（用件・質問は無い）
         if not self.number_again:
-            parts += [APOLOGY_FIRST[k] for k in self.apology]   # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び
-            if self.purpose_line:
+            # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び。前の電話で申し伝える一言まで言って切れた続きの電話は、お詫びのあとに申し伝える
+            # 一言を言い直し、用件の一文は流さない（流れの制御と同じ1か所 flowctl.sorry_texts・told_kind。⛔ 2026-11-08 日本時間8時台（(10) の H2 の残り）まで
+            # 途中で切れたお詫び＋用件の一文を並べていた）
+            from flowctl import resumed_step, sorry_texts, told_kind
+            step = resumed_step(self.questions, self.earlier)
+            told = told_kind((self.earlier or {}).get(step[1].id)) if step is not None and step[0] == "told" else None
+            at_end = told is not None and (step[1].final_goal or self.first_ask() is None)
+            parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up)]
+            if self.purpose_line and told is None:
                 parts.append(self.purpose_line)
         if (first := self.first_ask()) is not None:
             parts.append(first[1])   # 番号を伺い直す一言・前の通話の続きなら、まだ取れていない最初の質問（つなぎの言葉ごと）

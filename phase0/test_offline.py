@@ -9192,6 +9192,34 @@ class EndJudgedTest(unittest.TestCase):
         # 前の通話の答えから（earlier_point_open＝始めの段と同じ1か所）
         self.assertEqual((rep["unfinished"], rep["facts"].get("not_agreed"), f.told_again), (["Q1"], None, None))
 
+    def test_opening_parts_are_what_the_flow_plays_on_a_told_call(self):
+        # (10) の H2 の残り（11-08 日本時間8時台）：名乗りの録音の文（instruction.Business.opening_parts＝会話AIへの「プログラムが流す録音」の知らせ・名乗りの録音の
+        # 組み立て）が、前の電話で申し伝える一言まで言って切れた続きの電話でも「途中で切れたお詫び」＋用件の一文を並べていた（流れの制御は、お話の最後に切れた
+        # お詫び＋申し伝える一言を流し、用件の一文は流さない）。お詫びと申し伝える一言の並びは流れの制御と同じ1か所（flowctl.sorry_texts）から作る
+        from flowctl import Question
+        from instruction import Business
+        from phrases import CLOSING
+        q1 = Question("Q1", "ただいまご説明した内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, declines=("いいえ",))
+        told = {"Q1": {"state": "accepted", "condition": "いいえ",
+                       "point_fact": {"question": "Q1", "point": "料金のところ", "said": "料金のところがよく分からなかったんです。", "explained": False,
+                                      "told": "request", "outcome": None}}}
+        rest = Question("Q2", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))
+        for final, more, when, follow_up in ((True, (), "later", False), (True, (), "same_day", True), (False, (rest,), "later", False),
+                                             (False, (rest,), "same_day", False)):
+            q = Question(q1.id, q1.text, "yes_no", conditions=q1.conditions, approval=True, declines=("いいえ",), final_goal=final)
+            for earlier in (told, None):
+                b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料送付", questions=[q, *more],
+                             purpose_line="資料送付の件でお電話いたしました。", earlier=earlier, apology=("cut_off",) if earlier else (),
+                             apology_when=when, follow_up=follow_up)
+                f = b.flow(play_recordings=True)
+                f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+                r = f.apply("report_party", {"party": "person"})
+                r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+                said = [p["text"] for p in r["play"]]
+                if said[-1] == CLOSING:
+                    said = said[:-1]   # 申し伝え直したあとに締める電話の締めは、名乗りの録音ではない
+                self.assertEqual(b.opening_parts(), said, (final, bool(more), when, follow_up, bool(earlier)))
+
     def test_a_point_heard_then_cut_resumes_with_the_explanation(self):
         # ✅ 2026-11-04 日本時間19時26分 ユーザー：「(A) 前の電話で点（「料金のところ」）までは伺えて、ご説明の途中で切れたとき。…お勧めは、点を伺い直さずに、
         # ご説明から始める形：OK」（お見せした形：お詫び（＋用件の一文）のあと、AIの言葉「前回お伺いした料金の件ですが、料金は月額3,000円で、初月は無料と
@@ -11703,6 +11731,24 @@ class TargetTest(unittest.TestCase):
             self.skipTest("CL-2 の business_settings.QUESTION_LEADS が、まだ main に無い")
         mine = without_cl2_pending(self, set(QUESTION_HEADS), theirs)   # K-3 で足した2つは CL-2 が足すまで待つ（CL-1.md 4-118）
         self.assertEqual((sorted(mine - theirs), sorted(theirs - set(QUESTION_HEADS))), ([], []), "（こちらだけ, CL-2 だけ）")
+
+    def test_told_kinds_offers_and_reasons_match_cl2(self):
+        # K-2（11-08 日本時間8時台。CL-2 の 4-229・4-234 の (a)・4-236／4-250 の頼み）：CL-2 の写しと比べる試験が無かった4つ＝申し伝える一言の種類（CL-2 の
+        # call_report.TOLD_KINDS＝phrases.POINT_KINDS の鍵）・お客様の申し出（call_report.CALLBACK_OFFERS＝flowctl.OFFER_LABEL の鍵）・「わからない」「答えたくない」の
+        # 理由（business_rules.DONT_KNOW_REASONS・REFUSED_REASONS＝flowctl.DONT_KNOW_LABEL・REFUSED_LABEL の鍵）。CL-2 の版が main に無い一覧は、入るまで飛ばす
+        # （TOLD_KINDS は 11-08 時点で CL-2 の枝だけ）。CL-2 の LATER_INTENTS は会話の側に同じ一覧が無い（比べるものが無い＝CL-1.md 4-119）
+        from flowctl import DONT_KNOW_LABEL, OFFER_LABEL, REFUSED_LABEL
+        from phrases import POINT_KINDS
+        compared = []
+        for path, var, mine in (("call_report.py", "TOLD_KINDS", set(POINT_KINDS)), ("call_report.py", "CALLBACK_OFFERS", set(OFFER_LABEL)),
+                                ("business_rules.py", "DONT_KNOW_REASONS", set(DONT_KNOW_LABEL)), ("business_rules.py", "REFUSED_REASONS", set(REFUSED_LABEL))):
+            theirs = self.cl2_names(path, var)
+            if theirs is None:
+                continue
+            compared.append(var)
+            self.assertEqual((sorted(mine - theirs), sorted(theirs - mine)), ([], []), f"{var}（こちらだけ, CL-2 だけ）")
+        if not compared:
+            self.skipTest("CL-2 の一覧が、まだ main に無い")
 
     def test_do_words_rules_match_cl2(self):
         # CL-2 の 4-202 の (a)：こちらがすることの言葉の形の決まり（こちら＝meanings の DO_END・DO_DOUBLED・MARKS と頭の言葉 QUESTION_HEADS・CL-2 の
