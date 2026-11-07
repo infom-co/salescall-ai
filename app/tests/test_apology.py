@@ -582,20 +582,26 @@ class ApologyAfterDialFix(ApologyBase):
         self.assertEqual((d.kind, self.plan(s)["handover"]), ("call", False))
 
     def test_a_customer_who_ended_the_business_gets_no_sales_call_from_another_person(self):
-        """違う相手でも、言ってはいけないことを言った通話で業務を終えていた（目的を果たした・お客様が業務を断った）なら、営業の電話にしない
-        （計画書 7-1 (2)「業務を終えた行は戻しません」）。断ったお客様へも営業の電話はかからない（お詫びは同じ相手のときだけ）。"""
+        """違う相手でも、言ってはいけないことを言った通話で業務を終えていた（目的を果たした＝会社としての答え）なら、営業の電話にしない
+        （計画書 7-1 (2)「業務を終えた行は戻しません」）。前の担当の方が用件を断った（その方個人の答え）なら、お呼びする方が替わったあとは、新しい
+        担当の方へ引き継ぎを確かめる営業の電話（✅ 2026-11-07 ユーザーの新しい決定：直したあとに断ったとき＝計画書 7-1 (24) とそろえる。
+        next_action.answer_still_ends の1か所）。"""
         from tests.test_judge import goal_refused
-        for name, kw in (("completed", {}), ("declined", {"items": (), "report": goal_refused(rep(), ("Q1",))})):
+        for name, kw, want in (("completed", {}, ("end", None)), ("declined", {"items": (), "report": goal_refused(rep(), ("Q1",))}, ("call", True))):
             with self.subTest(name=name):
                 s = self.fresh(stage_cap=20)
                 seq = self.ended_apology(s, other_person=True, **kw)
                 state = self.tx(s, lambda tx: apology.source_call(tx, s["task"]))["state"]
                 self.assertEqual(state, name)
-                self.fixed(s)
+                new = self.fixed(s)
                 p = self.plan(s)
-                self.assertEqual((p["kind"], p["end_reason"]), ("end", "number_unusable"))
-                self.assertNotIn("normal", [r["purpose"] for r in self.tx(s, lambda tx: tx.all(
-                    "SELECT purpose FROM salescall.task_next_actions WHERE task_id = %s AND seq > %s", (s["task"], seq)))])
+                if want[0] == "end":
+                    self.assertEqual((p["kind"], p["end_reason"]), ("end", "number_unusable"))
+                    self.assertNotIn("normal", [r["purpose"] for r in self.tx(s, lambda tx: tx.all(
+                        "SELECT purpose FROM salescall.task_next_actions WHERE task_id = %s AND seq > %s", (s["task"], seq)))])
+                else:
+                    self.assertEqual((p["kind"], p["purpose"], p["contact_id"], p["handover"], p["apology_reasons"]),
+                                     ("call", "normal", new, True, []))
 
     def kept_old_promise_forbidden(self, s, **kw):
         """「違う」・「約束も守る」で直し、前の番号の約束の電話で、前の担当の方（田中様）に言ってはいけないことを言った ⇒ お詫びの電話（前の番号）。

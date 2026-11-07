@@ -812,7 +812,7 @@ class DialFixes(CustomerContacts):
                 self.why = why
 
             def one(self, sql, params=()):
-                return {"why": self.why}
+                return {"why": self.why, "attempt_id": None}   # その方個人の答えで終えた行の元の通話は無い（場面の試験は test_settle）
         for why, want in (("wrong_party", True), ("fax_line", True), ("request", False)):
             with self.subTest(why=why):
                 self.assertEqual(next_action.reopens_on_dial_fix(Tx(why), None, "out_of_scope"), want)
