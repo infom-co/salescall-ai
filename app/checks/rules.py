@@ -656,6 +656,40 @@ def call_errors_only_through_troubles(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── 一本化（2章 Q74・Q100。0205）：「管理者か契約者か（人か）」を、誰が、の種類の組（admin と operator だけの組）で Python に書かない。
+#    人かは、データベースの1か所（salescall.cur_is_person＝種類からは salescall.is_person_kind）に問い合わせる（⛔ 0205 の前は
+#    core/health.py の BY が組を書き写していた）。Python の組（集まり・辞書の鍵）と、文字に書いた SQL の組（IN (…)・ARRAY[…]）を見る。
+#    種類の呼び名を3つとも並べた表（core/health.py の KIND_NAMES）・種類の一覧（core/access.ACTOR_KINDS）は、組ではない
+_PERSON_KINDS = frozenset({"admin", "operator"})
+_SQL_LIST = re.compile(r"\bIN\s*\(([^()]*)\)|\bARRAY\s*\[([^\]]*)\]", re.IGNORECASE)
+
+
+def _quoted_words(text: str) -> set[str]:
+    return set(re.findall(r"'([^']*)'", text))
+
+
+def person_kinds_only_in_the_database(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py":
+            continue
+        tree = _parse(path)
+        found: list[int] = []
+        for node in ast.walk(tree):
+            items = node.keys if isinstance(node, ast.Dict) else node.elts if isinstance(node, (ast.Set, ast.List, ast.Tuple)) else None
+            if items and {k.value for k in items if isinstance(k, ast.Constant)} == _PERSON_KINDS \
+                    and all(isinstance(k, ast.Constant) for k in items):
+                found.append(node.lineno)
+        for text, line in _string_constants(tree):
+            if any(_quoted_words(m.group(1) or m.group(2)) == _PERSON_KINDS for m in _SQL_LIST.finditer(text)):
+                found.append(line)
+        out.extend(Violation("一本化", rel, line, "管理者か契約者か（人か）は、データベースの salescall.cur_is_person"
+                             "（種類からは salescall.is_person_kind）に問い合わせます。種類の組を書き写しません（0205）")
+                   for line in sorted(set(found)))
+    return out
+
+
 def no_shadowed_definitions(app_root: Path) -> list[Violation]:
     """同じ場所（部品のいちばん上・1つのクラスの中）に、同じ名前の関数・クラスを2つ書かない（あとの定義が前の定義を黙って上書きし、
     前の試験が流れない・前の処理が使われない＝⛔ 2026-11-06：test_gate.py の同じ名前の試験2つで、前の試験が流れず、壊し試し3件が
@@ -692,6 +726,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     web_parts_only_in_web,
     entries_called_from_their_places,
     call_errors_only_through_troubles,
+    person_kinds_only_in_the_database,
     no_shadowed_definitions,
 )
 

@@ -371,6 +371,27 @@ class ValueTypesStaysPure(Planted):
         self.assertEqual(rules.value_types_stays_pure(root), [])
 
 
+class PersonKindsOnlyInTheDatabase(Planted):
+    """管理者か契約者か（人か）の種類の組を、Python に書き写さない（データベースの salescall.cur_is_person に問い合わせる。0205）。"""
+
+    def test_a_copied_pair_of_person_kinds(self):
+        for body in ('BY = {"admin": "管理者", "operator": "契約者"}\n',
+                     'PEOPLE = ("operator", "admin")\n',
+                     'def f(kind):\n    return kind in {"admin", "operator"}\n',
+                     'SQL = "SELECT salescall.cur_actor_kind() IN (\'operator\', \'admin\')"\n',
+                     'SQL = "SELECT k = ANY(ARRAY[\'admin\'::text, \'operator\'::text])"\n'):
+            with self.subTest(body=body):
+                root = self._app({"src/salescall/core/x.py": body})
+                self.assertEqual([v.rule for v in rules.person_kinds_only_in_the_database(root)], ["一本化"])
+
+    def test_names_of_every_kind_and_tests_are_fine(self):
+        root = self._app({"src/salescall/core/x.py": 'NAMES = {"admin": "管理者", "operator": "契約者", "system": "システム"}\n'
+                                                     'KINDS = ("operator", "system", "admin")\n'
+                                                     'SQL = "SELECT k IN (\'system\', \'admin\')"\n',
+                          "tests/test_x.py": 'PEOPLE = ("operator", "admin")\n'})
+        self.assertEqual(rules.person_kinds_only_in_the_database(root), [])
+
+
 class CurrentCodePasses(unittest.TestCase):
     def test_all_rules_pass(self):
         self.assertEqual([str(v) for v in rules.run_all(APP)], [])

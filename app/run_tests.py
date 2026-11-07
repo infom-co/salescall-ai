@@ -124,8 +124,10 @@ def _edited(migration: str, start: str, old: str, new: str, *, end: str = "END $
         raise AssertionError(f"壊し試しの置き換え元が {migration} の関数に1つだけありません：{old!r}")
     edited = body.replace(old, new).replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
     # 作り直すと、あとの表の作りで足した「持ち主の権限で動く」形が外れる（狙った守りでなく権限の誤りで試験が落ち、見張れていない
-    # のに「見張れている」と出る）。あとで足していれば、作り直したあとも同じ形に戻す
-    signature = re.match(r"CREATE FUNCTION (salescall\.\w+\([^)]*\))", body)
+    # のに「見張れている」と出る）。あとで足していれば、作り直したあとも同じ形に戻す。⛔ 0205 の前は `CREATE FUNCTION` で始まる関数
+    # だけを戻し、`CREATE OR REPLACE FUNCTION` で作り直した関数（0201 の line_before_update・only_name_changes など）は戻さなかった。
+    # 戻し忘れは、壊し試しを流すとき（main の `_attributes`）にも見つけて止める
+    signature = re.match(r"CREATE (?:OR REPLACE )?FUNCTION (salescall\.\w+\([^)]*\))", body)
     if signature:
         definer = f"ALTER FUNCTION {signature.group(1)} SECURITY DEFINER SET search_path = salescall, pg_temp"
         if any(definer in f.read_text() for f in sorted((APP / "db" / "migrations").glob("*.sql"))):
@@ -172,6 +174,10 @@ _OTHER_REFUSED = _DF + "test_every_other_refusal_still_stops_every_number_of_the
 _OLD_PROMISE = _DF + "test_a_new_promise_from_the_old_person_waits_for_the_contractor_to_choose"
 _NEW_NUMBER = _DF + "test_a_promise_on_the_number_that_becomes_the_new_persons_number_is_not_carried_over"
 _OLD_APOLOGY = "tests.test_apology.ApologyAfterDialFix.test_an_apology_to_the_old_person_after_another_person_fix_goes_on_as_a_handover"
+_M205, _PK = "0205_person_kind_one_place.sql", "tests.test_foundation.PersonKinds."
+_PERSONS, _ONE_PLACE = _PK + "test_only_the_admin_and_the_contractor_are_persons", _PK + "test_the_person_kinds_are_written_only_in_the_one_place"
+_PC_KINDLESS = "tests.test_agents.Passes.test_a_transaction_without_a_kind_cannot_issue_or_stop_a_pass"
+_MANUAL = "tests.test_stops.ManualStops."
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お詫び・続き・番号の聞き直しの予定に約束の印を求める守りを外す（0126 の前の形：付け忘れると、お詫びの電話が後回しになる）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_promise_mark",
@@ -450,7 +456,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP TRIGGER client_state_by_person ON salescall.client_states",
      ("tests.test_registry.Clients.test_an_inactive_client_is_not_called_until_it_is_active_again",)),
     ("無効にした依頼者も、門が通す",
-     "CREATE OR REPLACE FUNCTION salescall.client_active(p_client uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
+     "CREATE OR REPLACE FUNCTION salescall.client_active(p_client uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp"
+     " AS $$ SELECT true $$",
      ("tests.test_registry.Clients.test_an_inactive_client_is_not_called_until_it_is_active_again",)),
     ("回線の発信番号を変えられる・使わなくなった印を外せる",
      "DROP TRIGGER line_before_update ON salescall.lines",
@@ -588,7 +595,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_measure.Verification.test_the_truth_goes_on_the_latest_judgement_of_the_call",)),
     ("同じ仕事を2つの見守り役が同時にできる",
      "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
-     " LANGUAGE sql AS $$ SELECT true $$",
+     " LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT true $$",
      ("tests.test_supervisor.Leases.test_jobs_are_taken_by_one_supervisor_and_only_by_the_system",)),
     # 行ごとの「かけない」（3-4-2・0071）
     ("システムの処理が、ダッシュボードの「かけない」を付け外しできる",
@@ -735,15 +742,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 約束したかけ直しの取り置き・次の回（0089。2026-10-19 ユーザー決定）
     ("回線の1日の上限で、今日の約束の電話の分を取り置かない",
      "CREATE OR REPLACE FUNCTION salescall.line_promised_due(p_line uuid, p_day date, p_except uuid) RETURNS integer"
-     " LANGUAGE sql STABLE AS $$ SELECT 0 $$",
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_supervisor.Rounds.test_promised_calls_go_first_across_clients_and_keep_their_share_of_the_line",)),
     ("時刻を指定した約束の前でも、その回線でほかの電話を始める",
      "CREATE OR REPLACE FUNCTION salescall.line_kept_for_promise(p_line uuid, p_until timestamptz, p_except uuid)"
-     " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
+     " RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT false $$",
      ("tests.test_supervisor.Rounds.test_an_exact_time_promise_keeps_one_line_free_shortly_before",)),
     ("業務の平均通話時間を数えない（いつも初めの値）",
      "CREATE OR REPLACE FUNCTION salescall.business_call_seconds(p_business uuid, p_days integer)"
-     " RETURNS TABLE (seconds integer, calls integer) LANGUAGE sql STABLE AS $$ SELECT 0, 0 $$",
+     " RETURNS TABLE (seconds integer, calls integer) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0, 0 $$",
      ("tests.test_supervisor.Rounds.test_the_guard_is_the_average_call_length_of_the_business_once_measured",)),
     # 約束の電話の取り置きと空けを、契約者の回線全体で数える（0092。2026-10-19 の見直し）
     ("回線の1日の上限で、どの回線も同じ約束をまるごと取り置く（回線の数で分けない）",
@@ -1204,7 +1211,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql STABLE AS $$ SELECT CASE WHEN NOT salescall.is_dialed(s) THEN NULL WHEN NOT salescall.is_placed(s) THEN"
      " 'not_placed' WHEN coalesce(p_cut_off, false) THEN 'cut_off' WHEN s = 'technical_error' AND NOT"
      " salescall.reached_answer(p_attempt) THEN 'line_failure' ELSE 'reached' END $$;"
-     " CREATE OR REPLACE FUNCTION salescall.resume_allowed(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " CREATE OR REPLACE FUNCTION salescall.resume_allowed(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path = salescall, pg_temp"
      " AS $$ SELECT coalesce((SELECT a.cut_off FROM salescall.attempts a WHERE a.attempt_id = p_attempt), false) $$",
      ("tests.test_settle.CutOffCalls.test_cuts_beyond_the_call_backs_count_and_the_row_ends",)),
     ("続けて切れた数を、行の回数に数えるかの決まりと、すぐかけ直すかの決まりで別々に持つ（0118：数え方と予定が食い違う）",
@@ -1726,7 +1733,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_settings.Review23Marks.test_marks_follow_the_decisions",)),
     # ── 切れ方の分からない通話の確かめのかけ直し・お知らせの声（2026-10-30 管理者の決定と指摘・取り消せない決定の洗い出し。0150・0151）
     ("確かめのかけ直しの答えを待っている通話を、断られたかが決まったとみなす（同じお客様のほかの行からかけ、結果も確定する）",
-     "CREATE OR REPLACE FUNCTION salescall.unclear_check_pending(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
+     "CREATE OR REPLACE FUNCTION salescall.unclear_check_pending(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path = salescall, pg_temp"
+     " AS $$ SELECT false $$",
      ("tests.test_settle.UnclearCutChecks.test_until_the_check_call_nothing_irreversible_is_decided",)),
     ("確かめのかけ直しを、同じ行で何度でも記録できる（同じお客様に1回だけ、をデータベースが守らない）",
      "ALTER TABLE salescall.unclear_checks DROP CONSTRAINT unclear_checks_pkey",
@@ -1745,11 +1753,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_settle.DialNotices.test_the_database_keeps_the_notice_with_its_ending_once",)),
     # ── 取り消せない決定の確かめ・発信禁止の取り消し・やり取りの文字（2026-10-30 管理者のご決定 (6)(7)。0152）
     ("2つ目の判定とそろわない取り消せない決定の保留を、まだ決まっていないに数えない（同じお客様のほかの行からかけ、結果も確定する）",
-     "CREATE OR REPLACE FUNCTION salescall.decision_pending(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$"
+     "CREATE OR REPLACE FUNCTION salescall.decision_pending(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$"
      " SELECT salescall.unclear_check_pending(p_attempt) $$",
      ("tests.test_irreversible.Irreversible.test_a_disagreed_refusal_waits_for_the_recording_check_which_confirms_it",)),
     ("断られたかがまだ決まっていないの1か所が、取り消せない決定の保留を読まない（0150 の形に戻す）",
-     "CREATE OR REPLACE FUNCTION salescall.refusal_undecided(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$"
+     "CREATE OR REPLACE FUNCTION salescall.refusal_undecided(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$"
      " SELECT NOT salescall.is_settled(p_attempt) OR salescall.unclear_check_pending(p_attempt) $$",
      ("tests.test_irreversible.Irreversible.test_a_disagreed_refusal_waits_for_the_recording_check_which_confirms_it",)),
     ("承認・録音の確かめに、だれでも答えられる（システムの処理が契約者の承認を押せる）",
@@ -2405,10 +2413,6 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("営業の電話の目的の組を、Python と違えて持つ（0201 の sales_purpose）",
      _edited(_M201, "CREATE FUNCTION salescall.sales_purpose", "IN ('normal', 'resume')", "IN ('normal')", end="$$;"),
      ("tests.test_settle.SalesPurposes.test_the_sales_purposes_are_the_same_in_python_and_the_database",)),
-    ("システムの処理も、管理者か契約者とみなす（0201 の cur_is_person）",
-     _edited(_M201, "CREATE FUNCTION salescall.cur_is_person", "IN ('operator', 'admin')", "IN ('operator', 'admin', 'system')", end="\n$$;"),
-     ("tests.test_dnc.Revoke.test_only_a_person_revokes_once_and_can_register_again",
-      "tests.test_import.DialFixes.test_a_number_that_was_once_dialed_can_still_be_called_after_another_fix")),
     # ── 0202（✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(23)）
     ("「担当の方は同じ」の直しのあとも、前の番号への通話を前の担当の方への通話とみなす（0202 の task_former_number）",
      _edited(_M202, "CREATE FUNCTION salescall.task_former_number", "AND NOT d.same_person AND d.recorded_at <= p_at",
@@ -2455,6 +2459,58 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      _edited(_M202, "CREATE OR REPLACE FUNCTION salescall.task_promise_tried",
              "  SELECT salescall.task_old_promise_waiting(p_task) IS NULL\n     AND ", "  SELECT ", end="\n$$;"),
      (_OLD_PROMISE,)),
+    # ── 0205（「管理者か契約者か（人か）」を種類から決める1か所。0201 の cur_is_person の壊し試しも、ここへ移した）
+    ("システムの処理も、管理者か契約者とみなす（0205 の is_person_kind）",
+     _edited(_M205, "CREATE FUNCTION salescall.is_person_kind", "IN ('operator', 'admin')", "IN ('operator', 'admin', 'system')", end="\n$$;"),
+     (_PERSONS, _MANUAL + "test_system_cannot_press_a_manual_stop",
+      "tests.test_dnc.Revoke.test_only_a_person_revokes_once_and_can_register_again",
+      "tests.test_import.DialFixes.test_a_number_that_was_once_dialed_can_still_be_called_after_another_fix")),
+    ("誰が、の種類の無い取引を、管理者か契約者とみなす（0205 の is_person_kind）",
+     _edited(_M205, "CREATE FUNCTION salescall.is_person_kind", "IN ('operator', 'admin'), false)", "IN ('operator', 'admin'), true)",
+             end="\n$$;"),
+     (_PERSONS,)),
+    ("いま操作している方の判断が、種類から決める1か所を読まない（種類があれば人とみなす。0205 の cur_is_person）",
+     _edited(_M205, "CREATE OR REPLACE FUNCTION salescall.cur_is_person", "salescall.is_person_kind(salescall.cur_actor_kind())",
+             "salescall.cur_actor_kind() IS NOT NULL", end="\n$$;"),
+     (_PERSONS, "tests.test_dnc.Revoke.test_only_a_person_revokes_once_and_can_register_again")),
+    ("緊急停止を押せるのは管理者か契約者、の CHECK を外す（0205 の stop_events_manual_by_person）",
+     "ALTER TABLE salescall.stop_events DROP CONSTRAINT stop_events_manual_by_person",
+     (_MANUAL + "test_system_cannot_press_a_manual_stop", _ONE_PLACE)),
+    ("緊急停止の CHECK が、1か所を読まずに管理者と契約者の組を書き写す（0205 の前の形）",
+     "ALTER TABLE salescall.stop_events DROP CONSTRAINT stop_events_manual_by_person;"
+     " ALTER TABLE salescall.stop_events ADD CONSTRAINT stop_events_manual_by_person"
+     " CHECK (cause IS DISTINCT FROM 'manual' OR actor_kind IN ('operator', 'admin'))",
+     (_ONE_PLACE,)),
+    ("休んだ行を戻した記録の CHECK が、1か所を読まずに管理者と契約者の組を書き写す（0205 の前の形）",
+     "ALTER TABLE salescall.task_trouble_restores DROP CONSTRAINT task_trouble_restores_actor_kind_check;"
+     " ALTER TABLE salescall.task_trouble_restores ADD CONSTRAINT task_trouble_restores_actor_kind_check"
+     " CHECK (actor_kind IN ('operator', 'admin'))",
+     (_ONE_PLACE,)),
+    ("管理者か契約者が押した緊急停止を、人でない取引でも解ける（0205 の stop_event_before_insert）",
+     _edited(_M205, "CREATE OR REPLACE FUNCTION salescall.stop_event_before_insert",
+             "IF NOT salescall.is_person_kind(NEW.actor_kind::text) AND s.cause = 'manual' THEN", "IF false THEN"),
+     (_MANUAL + "test_system_cannot_resume_a_manual_stop",)),
+    ("緊急停止を解ける種類を、1か所を読まずに「システムの処理でない」と書く（0205 の前の形）",
+     _edited(_M205, "CREATE OR REPLACE FUNCTION salescall.stop_event_before_insert",
+             "IF NOT salescall.is_person_kind(NEW.actor_kind::text) AND s.cause = 'manual' THEN",
+             "IF NEW.actor_kind = 'system' AND s.cause = 'manual' THEN"),
+     (_ONE_PLACE,)),
+    ("PC の通行証を、誰が、の種類の無い取引も払い出せる（0205 の前の pc_agents_guard）",
+     _edited(_M205, "CREATE OR REPLACE FUNCTION salescall.pc_agents_guard",
+             "IF coalesce(salescall.cur_actor_kind(), '') NOT IN ('system', 'admin') THEN",
+             "IF salescall.cur_actor_kind() NOT IN ('system', 'admin') THEN"),
+     (_PC_KINDLESS,)),
+    ("PC の通行証を、誰が、の種類の無い取引も止められる（0205 の前の pc_agents_guard）",
+     _edited(_M205, "CREATE OR REPLACE FUNCTION salescall.pc_agents_guard",
+             "IF coalesce(salescall.cur_actor_kind(), '') NOT IN ('system', 'admin', 'operator') THEN",
+             "IF salescall.cur_actor_kind() NOT IN ('system', 'admin', 'operator') THEN"),
+     (_PC_KINDLESS,)),
+    # 持ち主の権限で動く関数を `CREATE OR REPLACE FUNCTION` から壊す（0205 の前の `_edited` は、権限の形を戻さなかった＝名前の変更を
+    # 残せずに、契約者の名前の直しまで落ち、見張れているように見えた）
+    ("依頼者・業務・実施回の名前を、システムの処理も直せる（0201 の only_name_changes）",
+     _edited(_M201, "CREATE OR REPLACE FUNCTION salescall.only_name_changes", "    IF NOT salescall.cur_is_person() THEN\n      RAISE EXCEPTION '名前を",
+             "    IF false THEN\n      RAISE EXCEPTION '名前を"),
+     ("tests.test_registry.Clients.test_create_rename_and_the_change_is_recorded",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -2883,6 +2939,9 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      (_TH + "Places.test_time_comes_at_the_head_of_each_round",)),
     ("手で解いた回線の停止（E12）を渡さない", "src/salescall/core/stops.py", "    health.by_hand_stop(tx, stop_event_id, reason)", "    pass",
      (_TH + "Places.test_hands_resume_a_line_and_remove_it",)),
+    ("手で動かしたのが人かを、データベースの1か所に問い合わせず、種類の呼び名で決める（システムの処理も手で回線を再開できる。0205）",
+     "src/salescall/core/health.py", 'return (KIND_NAMES[row["k"]] if row["p"] else None), row["a"]',
+     'return KIND_NAMES.get(row["k"]), row["a"]', (_TH + "Places.test_hands_resume_a_line_and_remove_it",)),
     ("システムが解いた停止も、手で解いた（E12）として渡す", "src/salescall/core/health.py",
      "    who, name = _by(tx)\n    if who is None:\n        return\n    s = tx.one(", "    who, name = _by(tx)\n    s = tx.one(",
      (_TH + "Places.test_hands_resume_a_line_and_remove_it",)),
@@ -5985,16 +6044,21 @@ def main() -> int:
             dbname, owner_dsn, app_dsn = _fresh_db(superuser_dsn)
             try:
                 with psycopg.connect(owner_dsn, autocommit=True) as conn:
-                    overloads = _overloads(conn)
+                    overloads, attributes = _overloads(conn), _attributes(conn)
                     conn.execute(sql)
                     added = sorted(set(_overloads(conn).items()) - set(overloads.items()))
+                    lost = _attributes_lost(attributes, _attributes(conn), sql)
                 # 守りを「置き換え」ずに、同じ名前の関数を足してしまった壊し試しは、何も外していない（呼ぶ側が「関数が1つに決まらない」
-                # で落ち、見張れているように見える＝2026-10-21 の見直しで見つけた）。⇒ 試験を走らせずに、壊し試しの誤りとして止める
-                caught = not added and not _run_tests(owner_dsn, app_dsn, tests, 0)
+                # で落ち、見張れているように見える＝2026-10-21 の見直しで見つけた）。⇒ 試験を走らせずに、壊し試しの誤りとして止める。
+                # 関数を作り直して、狙っていない権限の形（持ち主の権限で動くか・search_path）を外した壊し試しも同じ（権限の誤りで落ちて、
+                # 見張れているように見える＝0205）
+                caught = not added and not lost and not _run_tests(owner_dsn, app_dsn, tests, 0)
             finally:
                 _drop_db(superuser_dsn, dbname)
             if added:
                 print(f"守りを外す：{title} ⇒ ⛔ 壊し試しが、今の関数を置き換えずに同じ名前の関数を足した（形がずれている：{added}）")
+            elif lost:
+                print(f"守りを外す：{title} ⇒ ⛔ 壊し試しが、狙っていない関数の権限の形を変えた（作り直して外れた：{lost}）")
             else:
                 print(f"守りを外す：{title} ⇒ {'試験が落ちた（見張れている）' if caught else '⛔ 試験が通ってしまった'}")
             if not caught:
@@ -6035,6 +6099,22 @@ def _overloads(conn: psycopg.Connection) -> dict[str, int]:
     return {r[0]: r[1] for r in conn.execute(
         "SELECT p.proname, count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
         " WHERE n.nspname = 'salescall' GROUP BY 1").fetchall()}
+
+
+def _attributes(conn: psycopg.Connection) -> dict[str, tuple[bool, tuple[str, ...]]]:
+    """表の作りの場所の関数ごとの、権限の形（持ち主の権限で動くか・関数に付けた設定＝search_path）。"""
+    return {r[0]: (r[1], tuple(r[2] or ())) for r in conn.execute(
+        "SELECT p.oid::regprocedure::text, p.prosecdef, p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+        " WHERE n.nspname = 'salescall'").fetchall()}
+
+
+def _attributes_lost(before: dict[str, tuple[bool, tuple[str, ...]]], after: dict[str, tuple[bool, tuple[str, ...]]],
+                     sql: str) -> list[str]:
+    """壊し試しで権限の形が変わった関数のうち、壊し試しが狙っていないもの（関数の名前と SECURITY INVOKER を書いた壊し試しだけが、
+    わざと外す＝0109 の「呼んだ役の権限で動かす」など）。⛔ 0205 の前は、作り直すと外れる形を見ていなかった（`_edited` が戻し忘れると、
+    権限の誤りで試験が落ち、見張れているように見えた）。"""
+    return sorted(f for f, a in after.items() if f in before and a != before[f]
+                  and not ("SECURITY INVOKER" in sql and f.split("(")[0] in sql))
 
 
 @contextmanager
