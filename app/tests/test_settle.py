@@ -834,6 +834,30 @@ class CountedCalls(SettleBase):
         # サブへの電話は、新しい番号の回数に数える（前にかける番号だった番号ではない＝0182 で task_number_replaced から外した）
         self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.task_number_replaced(%s, %s) AS r", (s["task"], old))["r"]))
 
+    def test_a_planned_call_to_the_sub_that_our_program_ended_stays_on_the_sub(self):
+        """メインで話せず次がサブへの電話に決まったあと、そのサブへの電話がこちらのせいで鳴らなかったら、かけた予定のまま（サブへ）
+        かけ直す（`_line_fault_again`＝かけなかったのと同じ。予定を向け直すだけの `_point` はサブをメインへ替えない＝current_dial の
+        called。⛔ 2026-11-06 の見直し：前はメインへ替わり、つながらなかったメインへまたかけた）。"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        old = s["contact"]
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed()), OPERATOR)["contact_id"]
+        now = lambda: self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # noqa: E731
+        at = lambda c: self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now(), contact_id=c, cause="試験：いまかける",   # noqa: E731
+                                                                     promised=True))
+        at(old)
+        self.settle(s, self.call(s, report=rep(callback=callback("later", time="あとで"))))   # 前の番号で話せた ⇒ サブ
+        at(new)
+        d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
+        self.assertEqual(d.target.contact_id, old)                                            # メインで話せない ⇒ サブ
+        at(old)                                                                               # その時刻が来た（サブへの予定のまま）
+        aid = self.call(s, ["dialing", "ringing"])
+        self.assertTrue(self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "runner_error")))
+        self.tx(s, lambda tx: health.after_call(tx, aid))
+        d = self.settle(s, aid)["decision"]
+        self.assertEqual((d.kind, d.target.contact_id), ("call", old))                       # かけた予定のまま（サブへ）
+        self.assertIn("こちらのせい", d.rule)
+
     def test_a_dead_main_number_goes_to_the_sub_first(self):
         """メインの番号が使えない（鳴らない電話が続いた）ときは、まずサブの番号へ（お客様が言った別の番号より先）。"""
         main, subn, said = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()

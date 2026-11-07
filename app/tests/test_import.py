@@ -754,12 +754,17 @@ class DialFixes(CustomerContacts):
     def test_rows_ended_by_the_number_or_by_the_counts_come_back_and_others_do_not(self):
         """終えた行で番号を直したとき（2026-11-06 ユーザー）：番号のせい・決めた回数（日数）までかけて終えた行は、新しい番号へすぐかけて
         よい予定に戻る（ふつうの電話）。お客様が断った・業務を終えた行などは戻らない（next_action.reopens_on_dial_fix の1か所）。"""
-        back = ("number_unusable", "alternate_wrong_again", "alternate_not_called", "alternate_blocked:dnc_client",
+        back = ("number_unusable", "alternate_wrong_again", "alternate_not_called", "alternate_blocked:number_kind_not_allowed",
+                "alternate_blocked:number_unknown", "alternate_blocked:other_contractor_called",
                 "ask_number_again_unanswered", "number_kind_forbidden", "number_kind_not_allowed", "number_unknown",
                 "other_contractor_called", "other_client_promise_never", "max_attempts", "policy_max:open",
                 "callback_exact_unreached", "callback_unspecified_time", "apology_wrong_party", "apology_fax_line", "apology_unreached")
         stay = ("completed", "declined", "do_not_call", "concluded", "out_of_scope", "complaint", "forbidden_speech", "other_means",
-                "not_reached_departed", "not_reached_who_unclear", "open", "declined_in_business", "dnc_client", "apology_done")
+                "not_reached_departed", "not_reached_who_unclear", "open", "declined_in_business", "dnc_client", "apology_done",
+                # お客様が言った番号が、お客様の断りで止まって終えた行（発信禁止・管理番号・同じ業務で断られたお客様。⛔ 2026-11-06 の
+                # 見直し：前は理由を見ずに戻した）
+                "alternate_blocked:dnc_client", "alternate_blocked:dnc_contractor", "alternate_blocked:dnc_client_ref",
+                "alternate_blocked:declined_in_business", "dnc_contractor", "dnc_client_ref")
         for n, reason in enumerate(back + stay):
             with self.subTest(reason=reason):
                 task = self.row(ref=f"R{n}")
@@ -791,7 +796,7 @@ class DialFixes(CustomerContacts):
         # NUMBER_ENDS そのものを読むと、一覧から抜けても見張れない＝⛔ 2026-11-06 の見直し (A) の9）
         for end in ("number_unusable", "alternate_wrong_again", "alternate_not_called", "ask_number_again_unanswered",
                     "number_unknown", "number_kind_forbidden", "number_kind_not_allowed", "other_contractor_called",
-                    "other_client_promise_never", "alternate_blocked:dnc", "max_attempts", "callback_exact_unreached",
+                    "other_client_promise_never", "alternate_blocked:number_kind_forbidden", "max_attempts", "callback_exact_unreached",
                     "policy_max:open", "apology_wrong_party", "apology_fax_line",
                     "apology_unreached"):   # お詫びの電話を決めた回数かけても届かなかった（計画書 7-1 (14)。0195）
             with self.subTest(end=end):
@@ -812,17 +817,49 @@ class DialFixes(CustomerContacts):
 
     def test_a_row_ended_by_a_number_only_dnc_comes_back(self):
         """門が発信禁止で終えた行は、その番号の登録が番号違い・FAX の回線（その番号だけ）なら番号のせいなので、番号を直すと戻る。
-        お客様が断った・手で登録した番号は戻らない（⛔ 見直し (A) の8 (3)）。"""
-        for n, (reason, back) in enumerate((("wrong_party", True), ("fax_line", True), ("manual", False), ("refused_in_call", False))):
-            with self.subTest(reason=reason):
-                task = self.row(ref=f"D{n}")
+        お客様が断った・手で登録した番号は戻らない（⛔ 見直し (A) の8 (3)）。お客様が言った番号が発信禁止で止まって終えた行
+        （alternate_blocked:dnc_client）も、同じ1か所（next_action._blocked_by_number）で決める（⛔ 2026-11-06 の見直し：前は理由を見ずに戻した）。"""
+        cases = [(end, reasons, back) for end in ("dnc_client", "alternate_blocked:dnc_client")
+                 for reasons, back in ((("wrong_party",), True), (("fax_line",), True), (("manual",), False),
+                                       (("refused_in_call",), False),
+                                       (("wrong_party", "refused_in_call"), False))]   # 行のほかの番号（携帯）に断りの登録があれば戻さない
+        for n, (end, reasons, back) in enumerate(cases):
+            with self.subTest(end=end, reasons=reasons):
+                mobile = normalize(f"090-0001-{n:04d}").e164
+                task = self.row(mobile=mobile, ref=f"D{n}")
                 old = self.tx(lambda tx: tasks.dial_number(tx, task))
-                self.tx(lambda tx: dnc.register(tx, old["phone_e164"], reason))
-                self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：門が発信禁止で終えた"))
+                self.tx(lambda tx: dnc.register(tx, old["phone_e164"], reasons[0]))
+                for reason in reasons[1:]:
+                    self.tx(lambda tx: dnc.register(tx, mobile, reason))
+                self.tx(lambda tx: next_action.end(tx, task, end, cause="試験：発信禁止で止めて終えた"))
                 got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
                 p = self.plan(task)
                 self.assertEqual((p["kind"], p["contact_id"] if back else p["end_reason"]),
-                                 ("call", got["contact_id"]) if back else ("end", "dnc_client"))
+                                 ("call", got["contact_id"]) if back else ("end", end))
+
+    def test_the_standing_of_a_number_is_read_at_that_time(self):
+        """番号の立場（前にかける番号だったか）は、その時刻で読む（いまかける番号も、その時刻までの直しで＝salescall.task_dial_contact_at・
+        0196）。直す前にかけた通話の番号は「かけたとき前の番号」ではない（⛔ 2026-11-06 の見直し：前は、いまかける番号だけ「いま」で読み、
+        通話の途中で直すと、その通話の番号が前の番号とされた）。"""
+        task = self.row(ref="S")
+        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        before = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        then, now = (self.tx(lambda tx: tx.one("SELECT salescall.task_number_replaced_at(%s, %s, %s) AS r",
+                                               (task, old["contact_id"], at))["r"]) for at in (before, "infinity"))
+        self.assertEqual((then, now), (False, True))
+
+    def test_a_claim_taken_before_the_fix_is_released(self):
+        """門が前の番号へ予約を出したあと、発信の前に契約者が番号を直したら、その予約は取り消す（門の判定に効く変更。DESIGN.md 5-2-1 の2。
+        予約し直すのは門＝直したあとの予定で。⛔ 2026-11-06 の見直し：前は予約が残り、直したあとに前の番号へかかった）。"""
+        task = self.row(ref="C")
+        old = self.tx(lambda tx: tasks.dial_number(tx, task))
+        version = self.tx(lambda tx: tx.one("SELECT salescall.run_current_version(t.run_id) AS v FROM salescall.tasks t"
+                                            " WHERE t.task_id = %s", (task,)))["v"]
+        aid = self.w.insert_claim({**self.s, "task": task, "contact": old["contact_id"], "phone": old["phone_e164"]}, version=version)
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed()))
+        self.assertEqual(self.tx(lambda tx: tx.one("SELECT state FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["state"],
+                         "released")
 
     def test_a_number_another_row_of_the_run_dials_is_not_taken(self):
         """同じ実施回のほかの行がかけている番号へは直せない（1つの実施回で同じお客様は1行＝データベースの守り 0188）。追加の取込も、直した

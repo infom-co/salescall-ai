@@ -628,6 +628,19 @@ class ApologyAfterDialFix(ApologyBase):
             d = self.apology_call(s, apology_delivered=False)["decision"]      # 新しい番号で1回目：まだ終えない（前の番号の1回を足さない）
             self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))
 
+    def test_an_apology_on_the_old_number_that_did_not_ring_also_moves_to_the_new_number(self):
+        """直したあと前の番号へかけたお詫びの電話が、お客様のところで鳴らなかった（発信に失敗）ときも、前の番号へは1本までなので、
+        新しい番号へお詫び（約束の電話と同じ＝直したあと前の番号へ1本かければ、結果によらず次は新しい番号。計画書 7-1 (4)・(17)）。
+        ⛔ 2026-11-06 の見直し：前は鳴ったかだけを見て、前の番号へ決まった順（当日・翌日・2日後）でかけ続けた。"""
+        s = self.fresh(stage_cap=20)
+        old = s["contact"]
+        self.order(s, self.incident(s))
+        new = self.fixed(s)
+        self.now_on(s, old)
+        aid = self.call(s, ("dialing", "call_failed"))
+        d = self.settle(s, aid)["decision"]
+        self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))
+
     def test_calls_to_a_number_are_counted_per_number_from_the_latest_fix(self):
         """別の時間帯にかけ直す電話（お詫び・番号の聞き直し）の回数は、その番号へ、かける番号を直したあとにかけた電話だけ（1か所＝
         gate.purpose_dials の counted。計画書 7-1 (3)・(15)「新しい番号で数え直す」）。直したあと前の番号へかけた電話も、その番号の
