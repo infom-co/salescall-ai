@@ -123,6 +123,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
         raise NotReady("承認されたお詫びの案が無いのに、お詫びの電話をかけています")
     inp, _, _ = _judge_input(tx, a, a["version_id"])
     report = inp.report
+    attempts.record_reached_target(tx, attempt_id, inp.reached_target)   # ふつうの通話と同じ1か所（引き継ぎを確かめる印が読む。0203）
     # 伝えたか：目的のお客様だと確かめられなかった通話（別の方に伝えた・確かめられなかった）は、伝えていない側に倒す
     delivered = bool(report is not None and report.apology_delivered) and not inp.target_unconfirmed
     # 発信の拒否・番号違いは、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6：前は通話中の申告だけを見て、
@@ -401,6 +402,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     attempt_id = a["attempt_id"]
     inp, report_source, dialed = _judge_input(tx, a, rules_version)
     report, rules, items = inp.report, inp.rules, inp.items
+    attempts.record_reached_target(tx, attempt_id, inp.reached_target)   # 目的のお客様と話せたか（引き継ぎを確かめる印が読む。0203）
     j = judge(inp)
     decided = j.state != "unknown"
     # 取り消せない決定（断り・番号違い・怒っていた）を、その場で決めるか、決まるまで保留にするか（判定の1か所 judge.irreversible と、

@@ -123,7 +123,8 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
     current = next_action.current(tx, task_id)
     if judged is None or judged["state"] in ("unknown", "do_not_call") or (current is not None and current["kind"] == "hold"):
         return False
-    next_action.schedule_apology(tx, task_id, row["contact_id"], cause=f"お詫びの電話の承認（案 {row['order_id']}）")
+    next_action.schedule_apology(tx, task_id, row["contact_id"], cause=f"お詫びの電話の承認（案 {row['order_id']}）",
+                                 source=row["source_attempt_id"])
     return True
 
 
@@ -142,12 +143,14 @@ def _order(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
 
 def source_call(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     """その行の、承認されたいちばん新しいお詫びの案のもとの通話（言ってはいけないことを言った通話。`_order` と同じ案）の、かけた時刻
-    （claimed_at）と判定の業務の状態（state。判定が無ければ None）。番号のせいでかけられずに終えたお詫びの電話を、番号を直して戻すとき、
-    同じ相手か・営業を続けてよいかを決める材料（core/next_action._restart_apology だけが読む。計画書 7-1 (12)）。案が無ければ None。"""
+    （claimed_at）と判定の業務の状態（state。判定が無ければ None）・判定の中身の再発信の方針の鍵（policy_key）と対象外の中身（out_of_scope）。
+    営業を続けてよいか（その通話の答えで行を終えたか＝core/next_action.source_ends_row）と、戻すお詫びがあるか（core/next_action._restart_apology）
+    の材料（計画書 7-1 (12)）。案が無ければ None。"""
     o = _order(tx, task_id)
     if o is None:
         return None
-    return tx.one("SELECT a.attempt_id, a.claimed_at, j.business_state::text AS state FROM salescall.attempts a"
+    return tx.one("SELECT a.attempt_id, a.claimed_at, j.business_state::text AS state, j.detail ->> 'policy_key' AS policy_key,"
+                  "       j.detail ->> 'out_of_scope' AS out_of_scope FROM salescall.attempts a"
                   " LEFT JOIN salescall.call_judgements j ON j.attempt_id = a.attempt_id WHERE a.attempt_id = %s",
                   (o["source_attempt_id"],))
 

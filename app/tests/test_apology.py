@@ -9,7 +9,7 @@ from dataclasses import replace
 from datetime import timedelta
 
 from salescall.core import apology, attempts, call_report, fix_requests, gate, next_action, quality_stage, recordings, reward, settle, stops
-from salescall.core import dnc, health
+from salescall.core import dnc, health, tasks
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 from salescall.core.call_report import Cut
@@ -563,7 +563,7 @@ class ApologyAfterDialFix(ApologyBase):
 
     def test_the_handover_mark_stays_until_the_target_is_reached(self):
         """引き継ぎを確かめる電話に出なかった ⇒ 次の電話にも印を付ける（まだ確かめていない）。目的のお客様と話せたら外す
-        （`next_action._handover` の1か所）。"""
+        （`next_action._handover_due` の1か所＝いまの担当の期の通話で、目的のお客様とまだ話していない。0203）。"""
         s = self.fresh(stage_cap=20)
         self.put_client(s, "gate.same_contact_min_interval", 1)
         self.put_client(s, "gate.max_dials_per_contact_per_day", 9)       # 試験：同じお客様へ今日かける回数を使い切らない
@@ -571,14 +571,15 @@ class ApologyAfterDialFix(ApologyBase):
         self.fixed(s)
         time.sleep(1.1)                                                  # 同じお客様への最短の間隔（試験は1秒）のあと
         d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
-        self.assertEqual((d.kind, d.target.handover), ("call", True))
+        self.assertEqual((d.kind, self.plan(s)["handover"]), ("call", True))
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         from tests import support
         self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=d.target.contact_id, cause="試験：いまかける",
-                                                    promised=False, handover=True))
+                                                    promised=False))
+        self.assertTrue(self.plan(s)["handover"])                         # 予定を書くたびに求める（まだ目的のお客様と話していない）
         time.sleep(1.1)
         d = self.settle(s, self.call(s, report=rep(callback=support.callback("later", time="あとで"))))["decision"]
-        self.assertEqual((d.kind, d.target.handover), ("call", False))
+        self.assertEqual((d.kind, self.plan(s)["handover"]), ("call", False))
 
     def test_a_customer_who_ended_the_business_gets_no_sales_call_from_another_person(self):
         """違う相手でも、言ってはいけないことを言った通話で業務を終えていた（目的を果たした・お客様が業務を断った）なら、営業の電話にしない
@@ -596,14 +597,70 @@ class ApologyAfterDialFix(ApologyBase):
                 self.assertNotIn("normal", [r["purpose"] for r in self.tx(s, lambda tx: tx.all(
                     "SELECT purpose FROM salescall.task_next_actions WHERE task_id = %s AND seq > %s", (s["task"], seq)))])
 
+    def kept_old_promise_forbidden(self, s, **kw):
+        """「違う」・「約束も守る」で直し、前の番号の約束の電話で、前の担当の方（田中様）に言ってはいけないことを言った ⇒ お詫びの電話（前の番号）。
+        新しい担当の方の番号を返す。"""
+        from datetime import timedelta
+        from salescall.core import row_fixes
+        from tests import support
+        from tests.support import fictional_jp_fixed
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=2)
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：約束", promised=True, window=w))
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=False, keep_old_promise=True),
+                      OPERATOR)["contact_id"]
+        aid = self.call(s, verify=None, **kw)
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=said()))
+        self.settle(s, aid)
+        self.order(s, aid)
+        p = self.plan(s)
+        self.assertEqual((p["kind"], p["purpose"], p["contact_id"]), ("call", "apology", s["contact"]))
+        self.assertTrue(self.tx(s, lambda tx: tasks.former_person_call(tx, aid)))
+        time.sleep(1.1)
+        return new
+
+    def test_an_apology_to_the_old_person_never_goes_to_the_new_person(self):
+        """指摘2・5・6：「約束も守る」の約束の電話で前の担当の方（田中様）に言ってはいけないことを言った。田中様へのお詫びは田中様個人のこと
+        （✅ 2026-11-07 本体の決定＝計画書 7-1 (12)(22)(24) にそろえる）：お詫びが届いても・断られても・届かずに番号を直しても、新しい担当の方
+        （鈴木様）へはお詫びなしで、引き継ぎを確かめる営業の電話。田中様が用件を断った（declined＝その方個人の答え）通話でも同じ。言ってはいけない
+        ことを言った通話が会社としての答え（目的を果たした）なら、行を終える。
+        ⛔ 0202：(指摘2) 元の通話が「違う」の直しより後なので同じ相手とみなし、お詫びが鈴木様へ行った・(指摘5) 用件の断りを業務を終えた結果と
+        みなし、鈴木様へかからなかった・(指摘6) お詫びが届いたときだけ、行がお詫び済みで終わった。"""
+        from salescall.core import row_fixes
+        from tests.support import fictional_jp_fixed
+        from tests.test_judge import goal_refused
+        handed = lambda s, new: (lambda p: (p["kind"], p["purpose"], p["contact_id"], p["promised"], p["handover"],   # noqa: E731
+                                            p["apology_reasons"]))(self.plan(s)) == ("call", "normal", new, False, True, [])
+        for case, kw in (("incomplete", dict(items=())), ("declined", dict(items=(), report=goal_refused(rep(), ("Q1",))))):
+            for after in ("delivered", "refused", "unusable"):
+                with self.subTest(case=case, after=after):
+                    s = self.fresh(stage_cap=20)
+                    new = self.kept_old_promise_forbidden(s, **kw)
+                    if after == "unusable":                                       # お詫びの番号が鳴らずに終わり、番号を「同じ」で直す
+                        self.tx(s, lambda tx: next_action.end(tx, s["task"], "number_unusable", cause="試験：お詫びの番号が鳴らない"))
+                        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True),
+                                      OPERATOR)["contact_id"]
+                    else:
+                        report = replace(rep(), apology_delivered=True) if after == "delivered" else rep(dnc_=True)
+                        self.settle(s, self.call(s, report=report))
+                    self.assertTrue(handed(s, new), self.plan(s))
+        s = self.fresh(stage_cap=20)                                              # 会社としての答え（目的を果たした）：行を終える
+        self.kept_old_promise_forbidden(s, items=TAKEN)
+        self.settle(s, self.call(s, report=replace(rep(), apology_delivered=True)))
+        p = self.plan(s)
+        self.assertEqual((p["kind"], p["end_reason"]), ("end", "apology_done"))
+
     def test_only_a_sales_call_carries_the_handover_mark(self):
         """引き継ぎを確かめる印を持てるのは、ふつうの電話・続きの電話の予定だけ（データベースが守る＝0194 の task_next_actions_handover_calls）。"""
         from salescall.core.access import Rejected
         s = self.fresh(stage_cap=20)
-        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
-        with self.assertRaises(Rejected) as e:
-            self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=now, end_reason=None, cause="試験", promised=True,
-                                                      target=next_action.Target(s["contact"], purpose="apology", handover=True)))
+        with self.assertRaises(Rejected) as e:   # 印は予定を書く1か所が求めるので、試験は表へ直に書く
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, kind, call_at, cause, promised, contact_id,"
+                "                                         purpose, handover)"
+                " VALUES (%s, %s, %s, 'call', now(), '試験', true, %s, 'apology', true)",
+                (s["tenant"], s["client"], s["task"], s["contact"])))
         self.assertEqual(e.exception.constraint, "task_next_actions_handover_calls")
 
     def now_on(self, s, contact):
