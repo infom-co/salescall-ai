@@ -4313,7 +4313,9 @@ class ReplayOpeningTest(unittest.TestCase):
         reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "名乗り"}})())
         self.assertFalse(silent)
         self.assertEqual([p["part"] for p in f.log[-1]["reply"]["play"]], ["intro"])
-        self.assertIn(f.awaiting_say, reply["次にすること"])
+        # 名乗り直しのあとは、もう伺ったことへ戻る頭「それでは」から（言い直しの頭の受けの言葉は言い直さない＝B-1）
+        self.assertEqual(f.awaiting_say, "ありがとうございます。15日の14時、午後2時でよろしいでしょうか？")
+        self.assertIn("「それでは15日の14時、午後2時でよろしいでしょうか？」", reply["次にすること"])
 
     def test_without_recorded_questions_ai_asks(self):
         f, _ = self.flow(play=False)
@@ -8132,7 +8134,9 @@ class AIQuestionTest(unittest.TestCase):
         f.on_callee(); f.apply("replay_opening", {"part": "ai"})
         f.on_callee(); r = f.apply("replay_opening", {"part": "resume"})
         self.assertTrue(r.get("speak"))
-        self.assertIn(f.awaiting_say, r["message"])
+        # 言い直しの頭の受けの言葉（「ありがとうございます。」＝前の答えへのお礼）は言い直さず、もう伺ったことへ戻る頭「それでは」から（B-1）
+        self.assertEqual(f.awaiting_say, "ありがとうございます。15日でよろしいでしょうか？")
+        self.assertIn("「それでは15日でよろしいでしょうか？」", r["message"])
 
     def test_an_answer_instead_ends_the_wait(self):
         f = self.flow()
@@ -8362,7 +8366,8 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual(d.apply("request_end", {"reason": "callee_refused_call"})["question_id"], R1)
         d.on_callee(); d.on_heard("いえ、そういうわけでは。"); d.on_check("judge", self.R("いいえ", "言っていない"))
         r = d.apply("record_answer", {"question_id": R1, "condition_id": "いいえ"})
-        self.assertEqual(([p["text"] for p in r["play"]], r["say"], d.awaiting_confirm), ([BACK_TO], say, "Q1"))
+        # 戻る一言のあとは、質問へ戻るときと同じく頭に「それでは」（B-1）
+        self.assertEqual(([p["text"] for p in r["play"]], r["say"], d.awaiting_confirm), ([BACK_TO], "それでは" + say, "Q1"))
         # 伺うのは1回だけ：もう一度決まらなければ、受け付けず会話を続ける
         m = self.flow()
         self.heard(m, "そういうお電話はちょっと……。", self.R(UNDECIDED, UNDECIDED, (END_REFUSED,)))
@@ -14154,7 +14159,9 @@ class NoneOfThemTest(unittest.TestCase):
         f.on_check("judge", Reading(REPEAT))
         f.on_check("judge2", Reading(REPEAT))
         r = f.judged_turn(voiced=False)
-        self.assertEqual((ACK[r["ack"]], r.get("speak"), r.get("say")), ("失礼いたしました。", True, c["say"]))
+        # 質問と同じ「失礼いたしました。」＋「それでは」から（言い直しの頭の受けの言葉「ありがとうございます。」は言い直さない＝B-1）
+        self.assertEqual(c["say"], "ありがとうございます。15日の14時、午後2時でよろしいでしょうか？")
+        self.assertEqual((ACK[r["ack"]], r.get("speak"), r.get("say")), ("失礼いたしました。", True, "それでは15日の14時、午後2時でよろしいでしょうか？"))
         self.assertEqual((f.awaiting_confirm, f.items["Q1"].state), ("Q1", "checking"))
         # こちらがお話に応えた直後（「AIですか」への一言など）は、もう一度言ってほしいのはその一言＝「失礼いたしました。」のあと同じ一言を言い直し、お返事を待つ。
         # ⛔ 2026-11-08 日本時間6時台（11-07 23時26分13秒のご質問の見直しの A-3）まで、ここは当てず「会話AIが言い直す」としていた＝録音で流す通話では会話AIの
@@ -20407,6 +20414,71 @@ class ApprovalReviewTest(unittest.TestCase):
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
         self.assertEqual((f.items["Q1"].state, f.items["Q1"].condition, r.get("question_id")), ("confirmed", "はい", "Q3"))
         self.assertEqual(heard(r), "続きましてご訪問の日時のご希望はございますでしょうか？")   # 「はい、」は読み直しの前に流した＝重ねない
+
+
+class BackLineReviewTest(unittest.TestCase):
+    """⛔ 2026-11-07 日本時間23時26分13秒のご質問「他にも、ここまでの実装で、想定との食い違いや不備、1本化漏れはないですか？」の見直し（戻る一言・質問の頭の持ち場）で
+    見つけた不備（11-08 6時28分25秒「残りの⏳ 直す」）。どれも直す前の作りで落ちる"""
+
+    @staticmethod
+    def heard(r):
+        from phrases import ACK
+        return (ACK[r["ack"]] if r.get("ack") else "") + "".join(p.get("text", "") for p in r.get("play") or []) + (r.get("say") or "")
+
+    @staticmethod
+    def talk(f, said, line="本当にそうですね。"):
+        """世間話に受け答えして、お客様の相づちのあと戻る（戻ったときの返事）。"""
+        from flowctl import ARG_LABEL, PART_LABEL, TALK_LABEL
+        from grounding import NO_FACT, Verdict
+        f.on_callee(); f.on_heard(said)
+        f.grounding_job("replay_opening", {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: line,
+                                           ARG_LABEL["fallback"]: TALK_LABEL["talk_agree_light"]})
+        v = Verdict(NO_FACT, ""); v.by = "test"; f.on_grounded(line, v)
+        f.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_agree_light"})
+        f.on_callee(); f.on_heard("ええ。")
+        return f.apply("replay_opening", {"part": "resume"})
+
+    @staticmethod
+    def own_flow(play=True):
+        import dataclasses
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        b = dataclasses.replace(BUSINESS, info=["弊社の本社は東京都港区にございます。"])
+        f = Flow(b.questions, play_recordings=play, opening=b.replay_parts(), answers=dict(b.answers), knowledge=b.knowledge(),
+                 names=b.spoken_names(), name_readings=b.name_readings(), policies=b.policies())
+        f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        r = f.apply("report_party", {"party": "person"})
+        if r.get("result") != "opening":
+            f.on_first_words_end()
+        return f
+
+    def test_restatement_is_said_again_without_its_old_receiving_word(self):
+        # ⛔ B-1：言い直しの返事待ちへ戻るとき、伺ったときの頭の受けの言葉（前の答えへのお礼「ありがとうございます。」）ごと言い直していた
+        #    （「確認の途中でしたのでもう一度お伺いさせていただきますがありがとうございます。明日の19時…」）・2回目の「それではもう一度確認させていただきますね。」の
+        #    あとに言い直しの頭の「それでは」を重ねていた。言い直しの文が受けの言葉と確かめの文を1つの文字列で持ち、戻る所がそのまま言い直していた。
+        #    もう伺ったことへ戻るときは、質問へ戻るときと同じ決まり（頭は「それでは」・2回目の一言のあとは重ねない・3回目は1つの文＝phrases.back_fit の1か所）
+        from meaning_judge import Reading
+        from flowctl import REPEAT
+        from phrases import BACK_TO, BACK_TO_AGAIN, BACK_TO_MIDWAY
+        for play in (True, False):
+            f = self.own_flow(play)
+            f.on_callee(); f.on_heard("はい、予約してます。"); f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+            f.on_callee(); f.on_heard("明日の19時です。")
+            r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "明日の19時"})
+            core = "明日の19時、午後7時でよろしいでしょうか？"
+            self.assertTrue(self.heard(r).endswith("ありがとうございます。" + core), self.heard(r))
+            got = [self.heard(self.talk(f, s)) for s in ("いやあ、今日は本当に暑いですねえ。", "雨も多いですし。", "夜も寝苦しくて。")]
+            self.assertEqual(got, [BACK_TO + "それでは" + core, BACK_TO_AGAIN + core, BACK_TO_MIDWAY + core], play)
+            # もう一度言ってほしいと頼まれた：「失礼いたしました。」＋「それでは（言い直し）」（質問を聞き返されたときと同じ＝11-06 15時20分30秒）
+            f.on_callee(); f.on_heard("え、すみません、もう一度お願いできますか？"); f.on_check("judge", Reading(REPEAT))
+            self.assertEqual(self.heard(f.judged_turn(voiced=False)), "失礼いたしました。それでは" + core)
+        # こちらがすることの言い直し（頭が「それでは」）：2回目の一言のあとは「それでは」を重ねない・3回目は1つの文
+        f = HedgedSalesTest.flow("G8n", play_recordings=True)
+        r = HedgedSalesTest.hedged(f, "G8n", "はい", "まあ、送ってもらってもいいかな…。")
+        say = r["say"]
+        core = say[say.index("それでは") + len("それでは"):]
+        got = [self.heard(self.talk(f, s)) for s in ("いやあ、今日は本当に暑いですねえ。", "雨も多いですし。", "夜も寝苦しくて。")]
+        self.assertEqual(got, [BACK_TO + "それでは" + core, BACK_TO_AGAIN + core, BACK_TO_MIDWAY + core])
 
 
 class RemainingNineTest(unittest.TestCase):

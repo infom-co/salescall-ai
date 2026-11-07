@@ -822,6 +822,15 @@ def heads_said(before: str) -> set[str]:
 
 # 3回目からの戻る一言（「…お伺いさせていただきますが」）のあとに重ねない、質問の頭のていねいの言葉（「…いただきますが恐れ入りますが…」と「が」が続く）
 POLITE_HEAD = "恐れ入りますが"
+# 言い直しの頭の受けの言葉（伺ったときに前の答えを受けた言葉＝LEAD_IN の「言い直し」のお礼・承りと、聞き違いのお詫びのあとの「改めまして」）
+RESTATE_RECEIPTS = (*LEAD_IN["言い直し"], *LEAD_IN["お詫びのあとの言い直し"])
+
+
+def drop_receipt(text: str) -> str:
+    """言い直しの文の頭の受けの言葉（RESTATE_RECEIPTS）を外した文（唯一の決まり＝もう伺った言い直しへ戻るときの文 flowctl.restated_again）。受けの言葉は、その答えを
+    受けたときだけの言葉＝戻るときに言い直さない（「話を戻させていただきますね。ありがとうございます。明日の19時…」にしない）。無ければ、そのまま。"""
+    w = next((w for w in sorted(RESTATE_RECEIPTS, key=len, reverse=True) if text.startswith(w) and len(text) > len(w)), "")
+    return text[len(w):]
 
 
 def back_fit(rid: str, text: str, before: str) -> tuple[str, str]:

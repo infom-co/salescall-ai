@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, QUESTION_RESUME_LEAD, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE
-from phrases import OTHERS_HEAD, back_fit, closes, head_word, heads_said
+from phrases import OTHERS_HEAD, back_fit, closes, drop_receipt, head_word, heads_said
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
@@ -669,6 +669,17 @@ NEXT_LEAD = "続きまして"
 # ✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(2) イ」＝11時台のご報告の (イ)「進む向きが1つに決まらない選ぶ質問は (ウ) の形」＝「はい、それでは
 # パンフレットをお送りしてもよろしいでしょうか？」。同じ理由（次の項目ではない＝「続きまして」は合わない）で、もう伺った質問へ戻るとき全部に当てる
 AGAIN_LEAD = "それでは"
+
+
+def restated_again(say: str, back: str = "") -> str:
+    """もう伺った言い直し（言い直しの返事を待っている所）へ戻るときに、もう一度言う文（唯一の決まり＝戻る1か所 Flow._continue＝話を戻す・もう一度言ってほしいと
+    頼まれた・待たずにお話を続けた）：伺ったときの頭の受けの言葉（前の答えを受けた「ありがとうございます。」など＝phrases.drop_receipt）は言い直さず、もう伺った
+    質問へ戻るときと同じ頭「それでは」（AGAIN_LEAD）から。直前に流す戻る一言 back があれば、質問へ戻るときと同じ決まり（phrases.back_fit＝2回目の「それでは
+    もう一度確認させていただきますね。」のあとは「それでは」を重ねない・3回目の「…お伺いさせていただきますが」とは1つの文＝返す文に back も入る）。
+    ⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の見直しの B-1）：伺ったときの文をそのまま言い直していた（「確認の途中でしたのでもう一度お伺い
+    させていただきますがありがとうございます。明日の19時…」・「それではもう一度確認させていただきますね。それではパンフレットを…」）"""
+    text = drop_receipt(say)
+    return back_fit("", text if head_word(text) else AGAIN_LEAD + text, back)[1]
 # その回に直前に流す一言の文の頭のつなぎの言葉と、次の質問の頭のつなぎの言葉が重なったときに替える言葉の順（✅ 同じ時「(1) ウ」＝11時台のご報告の
 # 「(ウ) 次の質問の頭を「続きまして」にする」。「続きまして」と重なるときは、残りのつなぎの言葉から）
 RELEAD_ORDER = ("続きまして", *(w for w in LEAD_IN["次の質問"] if w != "続きまして"))
@@ -6846,22 +6857,21 @@ class Flow:
             # 言うときは、その一言を頭に付けて渡す）。戻る一言は、録音で流す通話は録音・会話AIが話す通話は会話AIが言う（質問へ戻るときと同じ）。
             # ⛔ 2026-11-06 日本時間10時台に見つけた：この枝だけ、戻る一言を作って捨てていた（ご遠慮の一言の「いいえ」・お客様のご質問に答えたあとに、
             # 言い直しをそのまま言い直した＝本書 9-4 の「範囲外の質問」の「もう伺った質問へ戻るときは話を戻す一言の録音から」に届いていなかった）
-            say, then = self.awaiting_say, ""
-            back = self._back_play(digressed)
+            # もう一度言う文は、伺ったときの頭の受けの言葉を外して「それでは」から（restated_again の1か所＝戻る一言のあとの形も質問と同じ back_fit）。3回目からの
+            # 一言（文を終えない「…お伺いさせていただきますが」）は言い直しの頭＝言い直しと1つの文で会話AIが言う（言い直しは値を含むので会話AIの声＝録音のあとに
+            # 「改めまして（値）で大丈夫でしょうか？」と言うのと同じ形）。問いでない言い直し（「…承っておきますね。」）には文を終えない一言をつながない（asks）
+            back = self._back_play(digressed, asks=self.awaiting_say.endswith(("？", "?")))
             btext = "".join(p["text"] for p in back)
             joined = bool(back) and not closes(btext)
-            if joined:
-                # 3回目からの一言（文を終えない「…お伺いさせていただきますが」）は言い直しの頭：言い直しと1つの文で会話AIが言う（言い直しは値を含むので
-                # 会話AIの声＝録音のあとに「改めまして（値）で大丈夫でしょうか？」と言うのと同じ形）
-                say = btext + say
-            elif back and self.play_recordings:
+            say, then = restated_again(self.awaiting_say, btext), ""
+            note = say_note(say, "もう一度、言い直し")
+            if back and not joined and self.play_recordings:
                 play += back
                 done = played_note(shown + btext)
-            elif back:
+            elif back and not joined:
                 say, then = btext + say, say_note(btext) + "続けて、"
             return {"result": "replayed", "play": play, "speak": True, "say": say,
-                    "message": f"{done}続けて、{then}{say_note(say if joined else self.awaiting_say, 'もう一度、言い直し')}相手の返事を待ってください。"} | (
-                {"bridged": True} if back else {})
+                    "message": f"{done}続けて、{then}{note}相手の返事を待ってください。"} | ({"bridged": True} if back else {})
         q = self.questions.get(self.current) if self.current else None
         if self._held_now() is not None:
             # 応える前の相手の言葉を、判定のどれかがいまの質問の答えと読んだ（_keep_answer_reading）：質問を流す前に、その言葉の答えの報告か、
