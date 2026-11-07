@@ -931,6 +931,19 @@ class DialFixAfterCalls(SettleBase):
         again = self.fixed(s)                                                   # 指定のあとに、契約者がまた直した
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["contact_id"], again)
 
+    def test_a_designation_counts_only_from_the_time_it_was_made(self):
+        """お客様が指定した番号は、指定した時刻から（salescall.task_designated_contact_at の、その時刻までの指定だけ＝0196。第三者の見直し (2)
+        の6：外しても試験が落ちなかった）。指定より前の時刻で読めば、指定は無い（その時刻の番号の立場を、あとの指定で変えない）。"""
+        phone = fictional_jp_fixed()
+        s = self.ready(phone=phone)
+        new = self.fixed(s)
+        before = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.at(s, new, promised=False)
+        self.settle(s, self.call(s, report=rep(("reception",), callback=callback("other_number", None, phone, time="すぐ"))))
+        at = lambda t: self.tx(s, lambda tx: tx.one("SELECT salescall.task_designated_contact_at(%s, %s) AS c", (s["task"], t))["c"])   # noqa: E731
+        self.assertIsNone(at(before))
+        self.assertEqual(at(self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])), s["contact"])
+
     def test_a_call_made_again_as_planned_after_a_fix_goes_to_the_new_number(self):
         """前の番号への電話の途中で番号を直し、その電話がこちらのせい・回線のせいで鳴らなかった：かけた予定のままかけ直す道も、いまの
         番号へ向ける（`_point` の1か所。⛔ 見直し (A) の5：前は前の番号へのふつうの電話をまた書いた）。"""
@@ -1266,10 +1279,10 @@ class DialFixAfterCalls(SettleBase):
     # ── 「担当の方は違う」を、まだ終えていない行にも効かせる（2026-11-07 の見直し。前の番号からいまかける番号へ移る1か所＝
     #    next_action._onto_dial。計画書 7-1 (8)「担当の相手が電話番号で違うのであれば、最初から」・(12)「違う相手の場合は、お詫びなしで、
     #    どこまで引き継がれているのかを確認しつつ」・(19)）。同じ相手なら約束・お詫びのまま（7-1 (4)(6)）。
-    def fixed_as(self, s, same):
+    def fixed_as(self, s, same, keep=None):
         from salescall.core import row_fixes
-        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=same),
-                       OPERATOR)["contact_id"]
+        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=same,
+                                                               keep_old_promise=keep), OPERATOR)["contact_id"]
 
     def promise_window(self, s):
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
@@ -1307,7 +1320,7 @@ class DialFixAfterCalls(SettleBase):
             with self.subTest(same=same):
                 s = self.ready()
                 self.promise_window(s)
-                new = self.fixed_as(s, same)
+                new = self.fixed_as(s, same, None if same else True)              # 違う方：前の担当の方との約束も守る（7-1 (21)）
                 self.assertEqual(self.plan(s)[:2], ("call", s["contact"]))       # 前の番号で1回
                 d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
                 self.assertEqual((d.kind, d.target.contact_id, d.promised, d.target.handover), ("call", new, same, not same))
@@ -1335,9 +1348,111 @@ class DialFixAfterCalls(SettleBase):
         ふつうの電話（約束の始まりは直す前＝`_carried_since`）。"""
         s = self.ready()
         self.promise_window(s)
-        new = self.fixed_as(s, False)
+        new = self.fixed_as(s, False, True)                                     # 前の担当の方との約束も守る（7-1 (21)）
         self.settle(s, self.call(s, self.CUT, side="line", report=rep(cut=Cut("callee", False, False))))
         self.assertEqual(self.plan(s), self.handed_over(new))
+
+    # ── 前の担当の方との約束が残っているときの選び（✅ 2026-11-07 ユーザー＝計画書 7-1 (21)：「前の担当者とのかけ直しの約束があったが、
+    #    次の担当にだけかけるのかを契約者に問うて、選択してもらう。」。0201）
+    def fixes(self, s):
+        return self.tx(s, lambda tx: tx.all("SELECT same_person, keep_old_promise FROM salescall.task_dial_fixes WHERE task_id = %s"
+                                            " ORDER BY seq", (s["task"],)))
+
+    def direct_fix(self, s, same, keep):
+        """契約者の取引が、直しの記録へ直接書く（データベースの守りの確かめ）。"""
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by, same_person, keep_old_promise)"
+            " SELECT t.tenant_id, t.client_id, t.task_id, %s, salescall.cur_actor(), %s, %s FROM salescall.tasks t WHERE t.task_id = %s",
+            (self.w.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164), same, keep, s["task"])), OPERATOR)
+
+    def test_another_person_with_an_untried_promise_must_choose_whether_to_keep_it(self):
+        """「担当の方は違う」で、まだかけていない約束の電話が残っていれば、約束も守るか・次の担当の方にだけかけるかを必ず選ぶ（選ばなければ
+        直せない＝何も書かない）。選びが要らないとき（同じ方・約束が無い・約束の電話をもうかけた）は、選びを渡せない。データベースも同じ
+        1か所（salescall.task_promise_open）で守る。"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        self.promise_window(s)
+        self.assertTrue(self.tx(s, lambda tx: next_action.promise_open(tx, s["task"])))
+        with self.assertRaises(row_fixes.FixInvalid) as e:
+            self.fixed_as(s, False)
+        self.assertIn("選んでください", str(e.exception))
+        with self.assertRaises(row_fixes.FixInvalid):
+            self.fixed_as(s, True, True)                                        # 同じ方には選びが無い
+        self.assertEqual(self.fixes(s), [])                                     # 何も書いていない
+        for same, keep in ((False, None), (True, False)):
+            with self.subTest(same=same, keep=keep), self.assertRaises(Rejected) as e:
+                self.direct_fix(s, same, keep)
+            self.assertEqual(e.exception.constraint, "task_dial_fix_old_promise_choice")
+        # 約束でない予定・約束の電話をもうかけた行には、選びが無い
+        for promised in (False, True):
+            with self.subTest(promised=promised):
+                s = self.ready()
+                if promised:
+                    self.promise_window(s)
+                    self.settle(s, self.call(s, ["dialing", "no_answer"]))       # 約束の電話を前の番号でもうかけた（鳴った）
+                else:
+                    self.at(s, s["contact"], promised=False)
+                self.assertFalse(self.tx(s, lambda tx: next_action.promise_open(tx, s["task"])))
+                with self.assertRaises(row_fixes.FixInvalid):
+                    self.fixed_as(s, False, True)
+                with self.assertRaises(Rejected) as e:
+                    self.direct_fix(s, False, False)
+                self.assertEqual(e.exception.constraint, "task_dial_fix_old_promise_choice")
+                self.fixed_as(s, False)
+                self.assertEqual(self.fixes(s), [{"same_person": False, "keep_old_promise": None}])
+
+    def test_keeping_the_old_promise_calls_the_old_person_first_and_then_hands_over_without_a_sub(self):
+        """「約束も守る」：約束の電話は、まず前の番号へ前の担当の方宛てに（7-1 (4)）。前の番号で前の担当の方と話せても、前の番号はサブに
+        しない（担当の方が違う＝salescall.call_makes_sub の1か所。⛔ 見直し (1) の (b)：前はサブになり、新しい番号がつながらないと前の
+        番号の前の担当の方へかけた）。そのあとは、新しい番号の担当の方へ、引き継ぎを確かめるふつうの電話。"""
+        s = self.ready()
+        self.promise_window(s)
+        new = self.fixed_as(s, False, True)
+        self.assertEqual(self.fixes(s), [{"same_person": False, "keep_old_promise": True}])
+        p = self.plan(s)
+        self.assertEqual((p[0], p[1], p[3], p[5]), ("call", s["contact"], True, True))   # 約束のまま前の番号へ
+        aid = self.call(s, report=rep(("reception",), not_reached="absent"))      # 前の番号で前の会社の受付の方と話せた
+        d = self.settle(s, aid)["decision"]
+        self.assertEqual((d.kind, d.target.contact_id, d.promised, d.target.handover), ("call", new, False, True))
+        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.call_makes_sub(%s) AS m", (aid,))["m"]))
+        self.assertIsNone(self.tx(s, lambda tx: next_action.numbers_of(tx, s["task"])).sub)
+        self.assertEqual(self.plan(s), self.handed_over(new))
+
+    def test_calling_only_the_next_person_drops_the_promise_at_once(self):
+        """「次の担当の方にだけかける」：約束をやめ、新しい番号へ、すぐかけてよい引き継ぎを確かめる電話（「違う」の形＝`_onto_dial`）。"""
+        s = self.ready()
+        self.promise_window(s)
+        new = self.fixed_as(s, False, False)
+        self.assertEqual(self.fixes(s), [{"same_person": False, "keep_old_promise": False}])
+        self.assertEqual(self.plan(s), self.handed_over(new))
+        self.assertFalse(self.tx(s, lambda tx: next_action.promise_open(tx, s["task"])))
+
+    def test_a_plain_plan_hands_over_to_another_person_only_after_talking_on_the_row(self):
+        """約束もお詫びも無いふつうの予定：その行で前のお客様と話していれば、「違う」で直すと引き継ぎを確かめる印を付ける（元の時刻は、その行で
+        話したいちばん新しい通話＝`_carried_since`。⛔ 見直し (1) の (c)：前は元の時刻が無く、印が付かなかった）。一度も話していなければ、
+        確かめる引き継ぎが無いので印を付けない。"""
+        for talked in (True, False):
+            with self.subTest(talked=talked):
+                s = self.ready()
+                self.at(s, s["contact"], promised=False)
+                if talked:
+                    self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))
+                else:
+                    self.settle(s, self.call(s, ["dialing", "no_answer"]))
+                self.assertEqual(self.plan(s)[:4], ("call", s["contact"], "normal", False))
+                new = self.fixed_as(s, False)
+                p = self.plan(s)
+                self.assertEqual((p[0], p[1], p[2], p[3], p[8]), ("call", new, "normal", False, talked))
+
+
+class SalesPurposes(unittest.TestCase):
+    def test_the_sales_purposes_are_the_same_in_python_and_the_database(self):
+        """営業の電話の目的（引き継ぎを確かめる印を持てる・番号を直したらいまかける番号へ替える）の組は1つ：next_action.SALES_PURPOSES と、
+        データベースの salescall.sales_purpose（次の予定の CHECK task_next_actions_handover_calls が読む。0201）が同じ組。"""
+        got = owner_access().in_system(SYSTEM, lambda tx: [r["p"] for r in tx.all(
+            "SELECT p FROM unnest(%s::text[]) p WHERE salescall.sales_purpose(p)", (list(next_action.PURPOSES),))])
+        self.assertEqual(sorted(got), sorted(next_action.SALES_PURPOSES))
+        self.assertEqual(set(next_action.NUMBER_BOUND), set(next_action.PURPOSES) - set(next_action.SALES_PURPOSES))
 
 
 class UnusableNumber(SettleBase):

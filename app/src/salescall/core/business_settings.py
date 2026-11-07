@@ -1167,7 +1167,14 @@ def _day_slot_problems(raw: dict[str, Any], has_earliest: bool) -> list[str]:
 
 
 def _derived_part_problems(raw: dict[str, Any]) -> list[str]:
-    """質問の番号が、ほかの質問の番号やシステムの名前に「_」を続けた形でないか（1か所。上の `DERIVED_JOIN`）。"""
+    """業務の録音の名前（質問の番号から作る名前）の確かめ（1か所。上の `DERIVED_JOIN`）：
+    - 質問の番号が、ほかの質問の番号やシステムの名前に「_」を続けた形でないか（取り違えるため）。
+    - 質問の番号から作る業務の録音の名前（質問の番号そのものと、その後ろに「_」と何かを続けた名前＝会話の側の作り方を写さない）が、共通の一言の
+      名前（core/recordings.COMMON_PARTS の1か所）と、ちょうど重ならないか。重なると、業務の録音の組を作れない（recordings.create_set が
+      共通の一言の名前を業務の組に入れない）。例：質問の番号 callback_email ⇒ 業務の録音 callback_email・callback_email_again が、共通の一言
+      callback_email・callback_email_again と同じ名前（⛔ CL-2 の連絡帳 4-290 の (b)：前は確かめず、版を置けても録音の組が作れなかった）。
+      断るのは、重なる共通の一言の名前があるときだけ（その名前を理由に書く。共通の一言の名前を、まとめて使えない名前にはしない）。"""
+    from salescall.core import recordings   # 共通の一言の名前の1か所（録音の部品が業務設定を読むので、ここで読む＝読み合いにしない）
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     ids = [q.get("id") for q in qs if isinstance(q, dict) and isinstance(q.get("id"), str)]
     problems = []
@@ -1176,6 +1183,11 @@ def _derived_part_problems(raw: dict[str, Any]) -> list[str]:
         if clash:
             problems.append(f"質問の番号 {clash} は、{'質問' if base in ids else 'システムの名前'} {base} に「{DERIVED_JOIN}」を続けた形です（会話の側は、"
                             f"録音の部分の名前を {base}_d番号・{base}_tell番号・{base}_other・{base}_v番号 などの形で作るので、取り違えます）")
+    for q in ids:
+        same = sorted(c for c in recordings.COMMON_PARTS if c == q or c.startswith(q + DERIVED_JOIN))
+        if same:
+            problems.append(f"質問の番号 {q} から作る業務の録音の名前が、共通の一言の名前 {same} と重なります（業務の録音の組を作れません。"
+                            "質問の番号を変えてください）")
     return problems
 
 
@@ -1817,7 +1829,6 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
     if not auto and (successor_tip(tx, version_id) != version_id or _shared_apart(tx, run_id, version_id)):
         business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["business_id"]
         version_id = save_from(tx, business, version_id)   # 写しの中身は同じ（割り当てられない理由も同じ）
-    before = tx.one("SELECT salescall.run_current_version(%s) AS v", (run_id,))
     row = tx.one(
         "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason, auto)"   # 番号は
         " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"                                                           # next_seq（0109）
@@ -1826,10 +1837,11 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
     if row is None:
         raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
     # 手で版を替えた・実施回を作るときに古い版を選んだ：その流れにあって、この版に無い依頼者の解決策を「手で外した」と残す（取り込み直しでも
-    # 自動では入れない・契約者が確かめるまで、まだかけていない行へかけない＝✅ 2026-11-07 ユーザー。当たるか（自動の割り当ては除く）を
-    # 決めるのは client_solutions.removed_by_hand の1か所）
-    from salescall.core import client_solutions   # 解決策の部品が業務設定を読むので、ここで読む（読み合いにしない）
-    client_solutions.removed_by_hand(tx, run_id, before["v"] if before is not None else None, version_id, auto=auto)
+    # 自動では入れない・契約者が確かめるまで、まだかけていない行へかけない＝✅ 2026-11-07 ユーザー）。印を付けるのは、割り当てと同じ取引で
+    # データベースの1か所（0201 の salescall.hand_removals。自動の割り当ては除く）。ここは、その印を契約者に知らせる
+    if not auto:
+        from salescall.core import client_solutions   # 解決策の部品が業務設定を読むので、ここで読む（読み合いにしない）
+        client_solutions.removed_by_hand(tx, run_id, version_id)
     # 前の版で取った、まだ発信していない予約を取り消す（門の前提が変わったときの決まり＝DESIGN.md 5-2-1 の2。
     # 取り消さないと、前の版で最大30秒かけうる。2026-10-16 の見直し G7）
     attempts.release(tx, [r["attempt_id"] for r in tx.all(

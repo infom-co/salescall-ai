@@ -502,6 +502,29 @@ class Check(unittest.TestCase):
             with self.subTest(reserved=qid):
                 self.assertTrue(any("会話の側で使う" in p for p in problems_of(extra(qid))), problems_of(extra(qid)))
 
+    def test_question_ids_whose_recordings_are_named_like_common_parts_are_refused(self):
+        """質問の番号から作る業務の録音の名前（質問の番号そのものと、その後ろに「_」と何かを続けた名前）が、共通の一言の名前
+        （recordings.COMMON_PARTS）と、ちょうど重なるときだけ断る（重なった名前を理由に書く。業務の録音の組を作れなくなるため＝CL-2 の
+        連絡帳 4-290 の (b)。例：callback_email ⇒ 業務の録音 callback_email_again が共通の一言 callback_email_again と同じ名前）。"""
+        from salescall.core import recordings
+        def extra(qid):
+            r = raw()
+            q = copy.deepcopy(r["questions"][1])
+            q.update(id=qid, text="ほかにご希望はございますか？", required=False)
+            r["questions"].append(q)
+            return r
+        for qid, names in (("callback_email", ["callback_email", "callback_email_again"]), ("hesitate_point", ["hesitate_point"]),
+                           ("told_again_question", ["told_again_question_later", "told_again_question_same_day"])):
+            with self.subTest(qid):
+                want = sorted(c for c in recordings.COMMON_PARTS if c == qid or c.startswith(qid + "_"))
+                self.assertLessEqual(set(names), set(want))
+                found = [p for p in problems_of(extra(qid)) if "共通の一言の名前" in p]
+                self.assertEqual(len(found), 1, problems_of(extra(qid)))
+                self.assertIn(str(want), found[0])
+        for qid in ("callback_e", "Q3", "email", "anytime"):             # 名前の途中までが同じ・後ろだけが同じは、重ならない
+            with self.subTest(ok=qid):
+                bs.check(extra(qid), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+
     def test_a_question_asked_only_after_a_hedged_answer(self):
         """CL-1 の連絡帳 4-71 の (b)（✅ 2026-11-03 ユーザー (3)(4)）：伺う条件の hedged＝前の質問の答えが言い切っていないときだけ伺う。真偽で書き、
         前の質問は、はい／いいえ・決まった選択肢の質問だけ（会話の側が言い直さずに受け取ってこの質問で伺うのは、選択肢の答えだけ）。"""

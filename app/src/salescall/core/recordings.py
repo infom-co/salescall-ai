@@ -234,6 +234,21 @@ def approve(tx: Tx, set_id: UUID) -> None:
                  " RETURNING set_id", (set_id,))
     if row is None:
         raise LookupError(f"録音の組がありません（または、取引の範囲の外）：{set_id}")
+    unit = tx.one("SELECT unit, version_id FROM salescall.recording_sets WHERE set_id = %s", (set_id,))
+    if unit["unit"] == "business":
+        _carry_ready(tx, unit["version_id"])
+
+
+def _carry_ready(tx: Tx, version_id: UUID) -> None:
+    """業務の録音を承認したとき（`approve` だけが呼ぶ）：その業務の版のうち、組が無く、録音が要る部分（`needed_parts`）が空になった版の組を、
+    版を作ったときと同じ1か所（`carry`）で作る（⛔ 2026-11-07 の第三者の見直し (1) の (a)：版を作ったあとに、元の版の録音や同じ文の録音が
+    承認されると、要る部分は空になるのに、その版の組を作る道が無く、その版では話せないまま、録音の警告も出なかった）。承認は中身に付く
+    （0172）ので、引き継ぐ部分は、そのまま承認済み。"""
+    for r in tx.all("SELECT o.version_id FROM salescall.business_versions o JOIN salescall.business_versions b"
+                    " ON b.business_id = o.business_id WHERE b.version_id = %s AND o.version_id <> %s ORDER BY o.version_no",
+                    (version_id, version_id)):
+        if not needed_parts(tx, r["version_id"]):
+            carry(tx, r["version_id"])
 
 
 def unapproved_parts(tx: Tx, set_id: UUID) -> list[str]:
@@ -775,8 +790,7 @@ def _bases(tx: Tx, version_id: UUID) -> dict[str, _Base]:
     あれば、それを使う（録り直さない＝`_approved_same` の1か所）。`needed_parts`・`complete`・`carry`（と、その知らせ）は、どれもこの答えを読む。"""
     out: dict[str, _Base] = {}
     for origin in business_settings.version_origins(tx, version_id):
-        voices = {r["voice_name"] for r in tx.all("SELECT s.voice_name FROM salescall.current_recording_sets s WHERE " + _BUSINESS,
-                                                  (origin,))} - set(out)
+        voices = _voices_with_set(tx, origin) - set(out)   # 声ごとに、いまの組がある、いちばん近い元の版
         if voices:
             changes = _changes(tx, origin, version_id)
             for v in voices:
@@ -818,6 +832,8 @@ def _approved_same(tx: Tx, version_id: UUID, voice_name: str, wanted: dict[str, 
 
 
 def _voices_with_set(tx: Tx, version_id: UUID) -> set[str]:
+    """その版の、いまの業務の録音の組（流す組と同じ見方 current_recording_sets）がある声（1か所。引き継ぐ元を探す `_bases`・まだ組の無い声を
+    見る `needed_parts`・`carry` が読む。⛔ 2026-11-07 の第三者の見直し (2) の7：前は同じ問い合わせが `_bases` の中にもあった）。"""
     return {r["voice_name"] for r in tx.all("SELECT s.voice_name FROM salescall.current_recording_sets s WHERE " + _BUSINESS,
                                             (version_id,))}
 
@@ -827,8 +843,9 @@ def carry(tx: Tx, version_id: UUID) -> dict[str, dict[str, str]]:
     部分が無い声は、新しい版の組をその場で作る。変わった部分がある声は組を作らず、契約者に録音が要る部分を知らせる（1つの知らせ）。
     答え：録音が要る部分（声 → 部分の名前 → 文。`needed_parts` と同じ形。空＝要らない）。"""
     needed: dict[str, dict[str, str]] = {}
+    have = _voices_with_set(tx, version_id)   # もう組のある声は作らない（承認したときに呼び直す＝`_carry_ready`）
     for voice, base in sorted(_bases(tx, version_id).items()):
-        if base.changes is None:
+        if base.changes is None or voice in have:
             continue
         if base.needed:
             needed[voice] = base.needed

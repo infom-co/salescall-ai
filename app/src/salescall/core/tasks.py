@@ -73,16 +73,18 @@ def dial_number(tx: Tx, task_id: UUID) -> dict[str, Any]:
     return row
 
 
-def fix_dial_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, same_person: bool) -> UUID:
+def fix_dial_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, same_person: bool,
+                    keep_old_promise: bool | None = None) -> UUID:
     """いまかける番号を、ダッシュボードで直した番号にする（書くのはここだけ。かけてよいかの確かめと予定の付け替えは core/row_fixes.py）。
     取り込んだ番号は残す（一覧の番号のまま。かけなくなる）。行に無い番号は記録だけの番号として足してから付け替える（名札 label）。
-    same_person＝契約者が選んだ「新しい番号の先の担当の方は、前と同じ方か」（計画書 7-1 (19)・0199）。直した番号の連絡先を返す。"""
+    same_person＝契約者が選んだ「新しい番号の先の担当の方は、前と同じ方か」（計画書 7-1 (19)・0199）。keep_old_promise＝「違う」で、前の担当の方
+    との約束が残っているときに選んだ「その約束も守るか」（計画書 7-1 (21)・0201。要らなければ None）。直した番号の連絡先を返す。"""
     contact_id = contacts.get_or_create(tx, number)
     if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
         add_record_number(tx, task_id, number, label, origin="dashboard")
-    tx.execute("INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by, same_person)"
-               " SELECT t.tenant_id, t.client_id, t.task_id, %s, salescall.cur_actor(), %s FROM salescall.tasks t WHERE t.task_id = %s",
-               (contact_id, same_person, task_id))
+    tx.execute("INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by, same_person, keep_old_promise)"
+               " SELECT t.tenant_id, t.client_id, t.task_id, %s, salescall.cur_actor(), %s, %s FROM salescall.tasks t WHERE t.task_id = %s",
+               (contact_id, same_person, keep_old_promise, task_id))
     return contact_id
 
 

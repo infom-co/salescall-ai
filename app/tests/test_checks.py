@@ -268,6 +268,21 @@ class CallErrorsOnlyThroughTroubles(Planted):
                          [("src/salescall/core/settle.py", 2), ("src/salescall/supervisor/jobs.py", 2),
                           ("src/salescall/supervisor/line.py", 2)])
 
+    def test_the_settings_review_and_registration_are_called_only_from_the_import(self):
+        """業務設定の形の確かめ（business_import.review）と、確かめた中身の登録（register_reviewed）は、取込の部品の中だけ（2026-11-07 の
+        第三者の見直し (2) の8。取込の入口は解決策を残す1か所を通る）。依頼者の解決策を足す道は review_solution だけ。"""
+        root = self._app({
+            "src/salescall/core/business_import.py": "def go(tx, b, r):\n    return register_reviewed(tx, b, review(tx, b, r), expected_digest='x')\n",
+            "src/salescall/core/client_solutions.py": "def go(tx, b, r):\n    business_import.review_solution(tx, b, r)\n"
+                                                      "def bad(tx, b, r):\n    business_import.review(tx, b, r)\n",
+            "src/salescall/web/imports.py": "from salescall.core.business_import import register_reviewed\n",
+            "src/salescall/core/registry.py": "def go(tx, b, r):\n    business_import.review_solution(tx, b, r)\n",
+        })
+        found = rules.entries_called_from_their_places(root)
+        self.assertEqual(sorted((v.path, v.rule) for v in found),
+                         [("src/salescall/core/client_solutions.py", "一本化"), ("src/salescall/core/registry.py", "一本化"),
+                          ("src/salescall/web/imports.py", "一本化")])
+
     def test_restoring_a_resting_row_is_for_the_screens_only(self):
         root = self._app({"src/salescall/web/rows.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='直した')\n",
                           "src/salescall/supervisor/jobs.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='x')\n"})

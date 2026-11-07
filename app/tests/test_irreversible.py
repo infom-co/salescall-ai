@@ -1266,6 +1266,43 @@ class Declared(Helpers):
                     self.tx(s, lambda tx: tx.execute(put, (phone, ref, reason, source)))
                 self.assertEqual(e.exception.constraint, "dnc_entries_in_call_declared")
 
+    def test_a_revoked_declaration_is_no_longer_read_as_a_declaration(self):
+        """取り消した申告の登録は、申告と読まない（dnc.declared_in の revoked_at の決まり。第三者の見直し (2) の6：外しても試験が落ちなかった。
+        数えると、判定し直しで「発信の拒否」に戻り、取り消した番号を締めがまた止めた）。"""
+        s = self.ready()
+        aid = self.answered_call(s, TALK[1:])
+        self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))
+        self.tx(s, lambda tx: call_report.save(tx, aid, rep(dnc=True, check="none")))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.settle(s, aid)
+        self.assertTrue(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
+        entry = self.tx(s, lambda tx: tx.one("SELECT entry_id FROM salescall.dnc_entries WHERE source_attempt_id = %s AND in_call",
+                                             (aid,)))["entry_id"]
+        self.tx(s, lambda tx: dnc.revoke(tx, entry, "試験：申告の誤りと確かめた"), OPERATOR)
+        self.assertFalse(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
+
+    def test_the_in_call_mark_cannot_be_changed_or_put_on_another_call(self):
+        """申告の印 in_call は、あとから変えられない（締めが入れた登録を申告に見せかけない・申告を申告でない登録にしない）。印を付けられるのは、
+        その通話でかけた番号の、お客様が出た通話からの登録だけ（契約者の取引が直接書いても。0201。⛔ 第三者の見直し (2) の4：前は、締めが
+        入れた登録の印をあとから真にでき、契約者の取引が別の番号に印つきの登録を書けた）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(cut=Cut("ai", False, True)))
+        self.assertEqual(self.settle(s, aid)["state"], "do_not_call")              # 締めが入れた登録（印は無い）
+        for actor in (SYSTEM, OPERATOR):
+            with self.subTest(actor=actor), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute("UPDATE salescall.dnc_entries SET in_call = true WHERE source_attempt_id = %s",
+                                                 (aid,)), actor)
+        self.assertFalse(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
+        put = ("INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, source_attempt_id, registered_by, in_call)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'refused_in_call', %s, salescall.cur_actor(), true)")
+        other = self.ready()
+        unanswered = self.call(other, ["dialing", "no_answer"])
+        for at, phone, source in ((s, normalize(fictional_jp_fixed()).e164, aid),          # その通話の番号でない
+                                  (other, other["phone"], unanswered)):                    # お客様が出ていない通話
+            with self.subTest(source=source), self.assertRaises(Rejected) as e:
+                self.tx(at, lambda tx: tx.execute(put, (phone, source)), OPERATOR)
+            self.assertEqual(e.exception.constraint, "dnc_entries_in_call_of_call")
+
     def test_the_parts_of_a_revoked_reason_are_one_table(self):
         """発信禁止の理由から、その通話の報告から外す決定の中身への読み替えは、judge.DNC_PARTS の1つの表（dnc.REFUSALS・judge.irreversible が
         読む）。データベースの salescall.revoked_parts の読み替えも、この表と同じ（⛔ 2026-11-07 見直し(3)の7：3か所に別々にあった）。"""

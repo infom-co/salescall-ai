@@ -77,7 +77,7 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
     return {"field": field, "value": row["value"], "reading": r.reading if text is not None else None}
 
 
-def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool) -> dict[str, Any]:
+def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, keep_old_promise: bool | None = None) -> dict[str, Any]:
     """いまかける番号を直す（ダッシュボード。2026-11-06 ユーザー：「取り込んだ電話番号は残したまま、新しい電話番号が旧番号のすぐ下に入力
     できるようにします。新番号を登録すると、旧電話番号はグレーアウトして、新番号がくっきり表示されます。」）。直した番号は、取込と同じ確かめ
     （番号の形・かけない種類・発信禁止・同じ業務で断られたお客様＝target_policy.block_reason の1か所）を通す。通らなければ `FixInvalid`
@@ -86,7 +86,13 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool) -> 
     終えた行は戻す。2026-11-06 ユーザー決定）。行の回数は、直したときから数え直す（0180）。直したあとの、いまかける番号を返す。
     same_person＝契約者が画面で選ぶ「新しい番号の先の担当の方は、前と同じ方か」（✅ 2026-11-07 ユーザー：「番号を直す画面で選ぶ」＝
     計画書 7-1 (19)。選ばなければ直せない＝必ず渡す。違う方なら、約束は引き継がず最初から・お詫びはせず引き継ぎを確かめて営業を続ける＝
-    next_action._target_changed_since の1か所が読む）。"""
+    next_action._target_changed_since の1か所が読む）。
+    keep_old_promise＝「担当の方は違う」を選び、前の担当の方とのかけ直しの約束がまだ残っている（まだかけていない約束の電話の予定がある＝
+    next_action.promise_open の1か所）ときに、契約者が画面で選ぶ「前の担当の方との約束も守るか」（✅ 2026-11-07 ユーザー＝計画書 7-1 (21)：
+    「前の担当者とのかけ直しの約束があったが、次の担当にだけかけるのかを契約者に問うて、選択してもらう。」）。真＝約束も守る（約束の電話は
+    いまの決まりのとおり、まず前の番号へ前の担当の方宛てに。そのあとは新しい番号の担当の方へ、引き継ぎを確かめる電話）・偽＝次の担当の方に
+    だけかける（約束をやめて、新しい番号へすぐかけてよい、引き継ぎを確かめる電話）。要るときは必ず渡す（渡さなければ `FixInvalid`）・要らない
+    ときは渡さない（渡せば `FixInvalid`。データベースも同じ1か所で守る＝0201 の task_dial_fix_guard）。選んだものは直しの記録に残る。"""
     number = normalize(phone or "")
     if number.e164 is None:
         raise FixInvalid(f"電話番号として読めません（{number.reason or '番号が不明です'}）")
@@ -96,11 +102,18 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool) -> 
     now = tasks.dial_number(tx, task_id)
     if now["phone_e164"] == number.e164:
         return now
+    needs_choice = not same_person and next_action.promise_open(tx, task_id)
+    if needs_choice and keep_old_promise is None:
+        raise FixInvalid("前の担当の方とのかけ直しの約束が、まだ残っています（約束の電話をまだかけていません）。前の担当の方との約束も"
+                         "守るか、次の担当の方にだけかけるかを選んでください")
+    if not needs_choice and keep_old_promise is not None:
+        raise FixInvalid("前の担当の方との約束を守るかを選ぶのは、「担当の方は違う」を選び、まだかけていない約束の電話が残っているときだけです")
     blocked = target_policy.block_reason(tx, number, client_ref=t["client_ref"], **tasks.scope(tx, task_id))
     if blocked is not None:
         raise FixInvalid(f"この番号にはかけられません：{blocked[1]}")
     try:
-        tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company", same_person=same_person)
+        tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company", same_person=same_person,
+                              keep_old_promise=keep_old_promise)
     except Rejected as e:
         if e.constraint != "task_dial_fix_one_row_per_number":   # 同じ実施回のほかの行がかけうる番号（データベースの1か所＝0193 の task_dialable）
             raise

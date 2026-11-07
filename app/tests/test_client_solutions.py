@@ -711,6 +711,96 @@ class Solutions(Base):
         self.tx(s, lambda tx: bs.assign(tx, s["run"], s["version"], reason="試験：手で前の版に戻す"), OPERATOR)
         return first.solution_id, first.version_id, self.cur_v(s, s["run"])
 
+    # ── 2026-11-07 の第三者の見直し (2) の5・6：契約者の取引が直接書いても、割り当ての決まりを通る守り／外しても試験が落ちなかった守り
+    #    （0197・0200。その解決策の業務かは 0201 の salescall.solution_business の1か所）
+    @staticmethod
+    def removal(solution, version, run, by="salescall.cur_actor()"):
+        return lambda tx: tx.execute(
+            "INSERT INTO salescall.client_solution_removals (tenant_id, client_id, solution_id, version_id, run_id, recorded_by)"
+            f" VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, {by})", (solution, version, run))
+
+    def rejected(self, s, work, actor, constraint):
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, work, actor)
+        self.assertEqual(e.exception.constraint, constraint)
+
+    def test_a_removal_is_kept_only_with_a_hand_assignment_of_its_business_in_the_same_transaction(self):
+        """手で外した印を書けるのは、その取引で、いま操作している方が、その実施回に、その解決策の業務の版を手で割り当てたときだけ（記録した方は
+        いま操作している方）。4つの決まりを1つずつ確かめる（どれを外しても、ほかの決まりでは断られない場面）。"""
+        from salescall.core import registry
+        s = self.ready()
+        sid, _, back = self.reverted(s)
+        again = lambda tx: bs.assign(tx, s["run"], back, reason="試験：同じ版をもう一度手で")   # noqa: E731（前と同じ版：印は付かない）
+        # 記録した方：その取引で手で割り当てても、記録した方が別の方なら断る
+        self.rejected(s, lambda tx: (again(tx), self.removal(sid, back, s["run"], "'だれか別の方'")(tx)), OPERATOR,
+                      "client_solution_removal_recorded_by")
+        # その取引で割り当てたか：前の取引の割り当てでは書けない
+        self.rejected(s, self.removal(sid, back, s["run"]), OPERATOR, "client_solution_removal_by_assignment")
+        # 手の割り当てか：自動の割り当て（システムの処理）では書けない
+        self.rejected(s, lambda tx: (bs.assign(tx, s["run"], back, reason="自動：試験", auto=True),
+                                     self.removal(sid, back, s["run"])(tx)), SYSTEM, "client_solution_removal_by_assignment")
+        # その解決策の業務の版か：ほかの業務の実施回に、その業務の版を手で割り当てた取引でも、その版への印は書けない
+        b2, _ = self.w.business_with_version(s["tenant"], s["client"])
+        v2 = self.tx(s, lambda tx: bs.save_version(tx, b2, settings_raw()), OPERATOR)
+        self.rejected(s, lambda tx: self.removal(sid, v2, registry.create_run(tx, b2, "ほかの業務の実施回", v2, reason="試験"))(tx),
+                      OPERATOR, "client_solution_removal_by_assignment")
+
+    def test_a_replacement_and_a_leave_out_are_recorded_by_the_person_operating(self):
+        """置き換えられた解決策（0197）と「入れない」（0200）の記録した方は、いま操作している方（ほかの決まりには当たる場面で、記録した方だけを
+        変えて確かめる）。流れの結果の「入れる」の選んだ方と実施回は、そろって書く（CHECK client_solution_lines_chosen_run）。"""
+        s = self.ready()
+        sid, _, _ = self.reverted(s)
+        self.assertEqual(self.marks(s, s["run"]), [(sid, True, True)])
+        self.rejected(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.client_solution_replacements (tenant_id, client_id, solution_id, version_id, recorded_by)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, 'だれか別の方')",
+            (sid, bs.save_version(tx, s["business"], settings_raw()))), OPERATOR, "client_solution_replacement_recorded_by")
+        self.rejected(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.client_solution_leave_outs (tenant_id, client_id, solution_id, run_id, recorded_by)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, 'だれか別の方')", (sid, s["run"])), OPERATOR,
+            "client_solution_leave_out_by_person")
+        self.rejected(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.client_solution_lines (tenant_id, client_id, solution_id, base_version, version_id, replaced, chosen_by)"
+            " SELECT salescall.cur_tenant(), salescall.cur_client(), %s, v, v, false, salescall.cur_actor()"
+            " FROM (SELECT %s::uuid AS v) x", (sid, bs.save_version(tx, s["business"], settings_raw()))), OPERATOR,
+            "client_solution_lines_chosen_run")
+
+    def test_the_answer_of_a_version_is_read_like_the_settings(self):
+        """解決策が版の流れに入っているかを比べる、版の答え（データベースの salescall.version_answer。0201）は、業務設定の重ね方
+        （business_settings.load の answers＝業務の答え、無ければ「使わない」にしていない標準の答え）と同じ答え。"""
+        from tests.test_versions import STD
+        s = self.ready()
+        with self.w.standard(STD) as std:
+            plain = settings_raw()
+            off = dict(settings_raw(), answers_off=["会社の場所"])
+            own = dict(settings_raw(), answers=[{"name": "会社の場所", "text": "大阪の支店でご説明します。"},
+                                                {"name": "料金", "text": "月額1万円です。"}])
+            for raw, standard in ((plain, std), (off, std), (own, std), (own, None)):
+                with self.subTest(off=raw.get("answers_off"), own=bool(raw["answers"]), standard=standard is not None):
+                    v = self.tx(s, lambda tx: bs.save_version(tx, s["business"], raw, standard_id=standard), OPERATOR)
+                    want = dict(self.tx(s, lambda tx: bs.load(tx, v)).answers)
+                    names = sorted(set(want) | {"会社の場所", "料金", "無い問い"})
+                    got = {n: self.tx(s, lambda tx, n=n: tx.one("SELECT salescall.version_answer(%s, %s) AS a", (v, n))["a"])
+                           for n in names}
+                    self.assertEqual(got, {n: want.get(n) for n in names})
+
+    def test_a_hand_assignment_written_directly_goes_through_the_assignment_rules(self):
+        """契約者の取引が実施回の版の割り当て（run_versions）へ直接書いても（見直し (2) の5）：つながりの途中の版は手で割り当てられない
+        （写しを作る道＝business_settings.assign を通す）。つながりの先の版なら、手で外した印は、同じ取引でデータベースが付ける
+        （salescall.hand_removals の1か所。⛔ 前は Python の割り当ての道だけが付けた）。"""
+        s = self.ready()
+        aid = self.called(s)
+        first = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                           name_answer=self.namer("料金")), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], first.version_id, reason="試験：解決策の版にする"), OPERATOR)
+        put = ("INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason)"
+               " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id, %s, salescall.cur_actor(), '直接' FROM salescall.runs r"
+               " WHERE r.run_id = %s")
+        self.rejected(s, lambda tx: tx.execute(put, (s["version"], s["run"])), OPERATOR, "run_version_manual_tip")   # 途中の版
+        copy = self.tx(s, lambda tx: bs.save_from(tx, s["business"], s["version"]), OPERATOR)
+        self.tx(s, lambda tx: tx.execute(put, (copy, s["run"])), OPERATOR)
+        self.assertEqual(self.marks(s, s["run"]), [(first.solution_id, True, True)])
+
     def test_a_run_made_on_any_version_without_a_solution_marks_it_removed(self):
         """✅ 2026-11-07 ユーザー＝計画書 6-1 (6)：実施回を作るとき（管理者か契約者が選んだとき）は、その業務のいまの解決策のうち、割り当てた
         版に入っていないもの（client_solutions._outside の1か所）を、すべて「手で外した」とする。手で前の版に戻した写し（それ自身がつながりの

@@ -546,6 +546,12 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("recordings", "carry"): frozenset({_CORE + "business_settings.py"}),   # 版を作ったあと録音を引き継ぐ：版を作る道（写し・版を足す）だけ（0194）
     # 取り込み直した中身で置き換えられた解決策を残す：取込の登録の共通の1か所（business_import.register_shaped）だけ（0197）
     ("client_solutions", "replaced"): frozenset({_CORE + "business_import.py"}),
+    # 業務設定の形の確かめと、確かめた中身の登録：取込の部品の中だけ（取込の入口は、解決策を残す1か所 _kept を通る preview_shaped・
+    # register_shaped。依頼者の解決策を足す道は review_solution。⛔ 2026-11-07 の第三者の見直し (2) の8：外から直に呼べば、解決策を残さずに
+    # 版を作れた）
+    ("business_import", "review"): frozenset({_CORE + "business_import.py"}),
+    ("business_import", "register_reviewed"): frozenset({_CORE + "business_import.py"}),
+    ("business_import", "review_solution"): frozenset({_CORE + "client_solutions.py"}),
     # 手で外した解決策を残す：版を割り当てる1か所（business_settings.assign。手か自動か・古い版で作ったかは removed_by_hand が決める）だけ（0197・0200）
     ("client_solutions", "removed_by_hand"): frozenset({_CORE + "business_settings.py"}),
     # 手で外した解決策を「入れない」と確かめる（承認）：画面だけ（契約者・管理者。0200。「入れる」は add_earlier）

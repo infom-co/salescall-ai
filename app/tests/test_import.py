@@ -862,6 +862,20 @@ class DialFixes(CustomerContacts):
                 self.assertEqual((p["kind"], p["contact_id"] if back else p["end_reason"]),
                                  ("call", got["contact_id"]) if back else ("end", end))
 
+    def test_a_refusal_in_the_contractors_ledger_keeps_a_dnc_row_ended(self):
+        """発信禁止で終えた行が番号のせいかは、依頼者の台帳と契約者の共通の台帳の、その行の番号の登録をあわせて見る（next_action._blocked_by_number
+        の1か所。第三者の見直し (2) の6：契約者の台帳の部分を外しても試験が落ちなかった）。依頼者の台帳は番号違い（その番号だけ）でも、契約者の
+        共通の台帳に、行のほかの番号の手の登録（お客様の断り）があれば、番号を直しても戻さない。契約者の台帳も番号違いだけなら戻す。"""
+        for n, (theirs, back) in enumerate((("manual", False), ("wrong_party", True))):
+            with self.subTest(contractor=theirs):
+                mobile = normalize(f"090-0002-{n:04d}").e164
+                task = self.row(mobile=mobile, ref=f"K{n}")
+                old = self.tx(lambda tx: tasks.dial_number(tx, task))
+                self.tx(lambda tx: dnc.register(tx, old["phone_e164"], "wrong_party"))
+                self.tx(lambda tx: dnc.register_contractor(tx, mobile, theirs))
+                self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：発信禁止で止めて終えた"))
+                self.assertEqual(self.tx(lambda tx: next_action.reopens_on_dial_fix(tx, task, "dnc_client")), back)
+
     def test_the_standing_of_a_number_is_read_at_that_time(self):
         """番号の立場（前にかける番号だったか）は、その時刻で読む（いまかける番号も、その時刻までの直しで＝salescall.task_dial_contact_at・
         0196）。直す前にかけた通話の番号は「かけたとき前の番号」ではない（⛔ 2026-11-06 の見直し：前は、いまかける番号だけ「いま」で読み、

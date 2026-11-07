@@ -221,6 +221,58 @@ class Versions(Base):
         self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, back)), voices)      # 聞き直さずに、すぐ話せる
         self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, back)), {})
 
+    def test_a_version_made_before_its_origin_was_approved_gets_its_set_when_the_origin_is_approved(self):
+        """見直し (1) の (a)：版を作ったときに元の版の録音がまだ承認されていなかった（引き継ぐ元が無い）。あとで元の版の録音を承認すると、
+        新しい版の録音の要る部分は空になる ⇒ 承認の1か所（recordings.approve）が、その業務の版のうち、組が無く要る部分が空になった版の組を、
+        版を作るときと同じ1か所（recordings.carry）で作る（⛔ 前は組を作る道が無く、新しい版では話せないまま、警告も出なかった）。"""
+        from salescall.core import recordings
+        from tests.support import _TENANT_VOICES, VOICES
+        s = self.ready()
+        v0 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)   # まだ録音の無い版
+        voices = sorted(_TENANT_VOICES.get(s["tenant"], VOICES))
+        sids = self.tx(s, lambda tx: [recordings.create_set(
+            tx, unit="business", voice_name=v, version_id=v0,
+            parts=[recordings.Part("intro", "まだ聞いていない録音（intro）。", f"test://{v}/unheard", "9" * 64)]) for v in voices],
+            OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)), [])         # まだ承認していない
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: r, cause="override", note="そのまま"), OPERATOR)
+        self.assertEqual((self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), self.tx(s, lambda tx: recordings.ready_voices(tx, v1))),
+                         ({}, []))
+        for sid in sids:
+            self.tx(s, lambda tx, i=sid: recordings.approve(tx, i), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)), voices)
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), voices)     # 新しい版も、聞き直さずに話せる
+        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), {})
+
+    def test_each_voice_carries_from_its_nearest_recorded_origin(self):
+        """声ごとに、いまの組がある、いちばん近い元の版から引き継ぐ（`_bases` の1か所。第三者の見直し (2) の6：外しても落ちる試験が
+        無かった）。V0（録音済み）→ V1（想定問答のほかの項目を変えた＝V0 からは引き継げない。V1 も録音して承認した）→ V2（V1 に答えを足した）：
+        V2 で録音が要るのは、いちばん近い V1 から変わった答えだけ（遠い V0 から見ると、どの部分が変わったか決められず、何も求めない）。"""
+        from salescall.core import recordings
+        s = self.ready()
+        v0 = s["version"]
+        self.w.approve_voices(s["tenant"], s["client"], v0)
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: dict(r, purpose=r["purpose"] + "（改）"), cause="override",
+                                             note="目的の文を変えた"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), {})            # V0 からは決められない（録音の道具が組を作る）
+        self.w.approve_voices(s["tenant"], s["client"], v1)
+        v2 = self.tx(s, lambda tx: bs.derive(tx, v1, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        part = bs.ANSWER_PART_PREFIX + "駐車場"
+        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v2)), {v: {part: "建物の裏に3台分ございます。"} for v in voices})
+
+    def test_the_copy_root_follows_only_copies(self):
+        """写しの元のいちばん元の版（salescall.version_copy_root。版の元をたどる1か所 version_origins から読む＝0201）：写し・写しの写しは、
+        写しの元をたどった版。つながり（版を足した）の先の版は、それ自身（中身が違う）。写しの先に足した版の写しは、その足した版まで。"""
+        s = self.ready()
+        v0 = s["version"]
+        root = lambda v: self.tx(s, lambda tx: tx.one("SELECT salescall.version_copy_root(%s) AS r", (v,))["r"])   # noqa: E731
+        c1 = self.tx(s, lambda tx: bs.save_from(tx, s["business"], v0), OPERATOR)
+        c2 = self.tx(s, lambda tx: bs.save_from(tx, s["business"], c1), OPERATOR)
+        d1 = self.tx(s, lambda tx: bs.derive(tx, c2, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        c3 = self.tx(s, lambda tx: bs.save_from(tx, s["business"], d1), OPERATOR)
+        self.assertEqual([root(v) for v in (v0, c1, c2, d1, c3)], [v0, v0, v0, d1, d1])
+
     def test_a_version_changed_beyond_its_answers_keeps_no_recordings(self):
         """想定問答のほかの項目も違う版（どの録音の部分が変わったかを、ここでは決められない）：元の版の録音を引き継がない（録音の道具が、
         その版の部分の一覧で組を作る。core/recordings._changes）。"""

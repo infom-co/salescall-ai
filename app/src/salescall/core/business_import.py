@@ -773,7 +773,7 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
            where: dict[str, list[str]] | None = None, standard_id: UUID | str | None = business_settings.LATEST,
            placed_names: Any = ()) -> Preview:
     """業務設定の形を確かめる（どの入口も、ここを通る：取込の入口＝`preview_shaped`・`register_shaped` と、依頼者の解決策を足す道＝
-    core/client_solutions）。何も書かない。AI には聞かない（AI の答えは `ask_ai` で1回だけ聞いて、ai に渡す）。
+    core/client_solutions＝`review_solution`）。何も書かない。AI には聞かない（AI の答えは `ask_ai` で1回だけ聞いて、ai に渡す）。
     - placed_names＝この中身の元にした版に置いた名前（依頼者の解決策を足すとき）：同じ表記・同じ形の名前は、置いた版のまま変えない
       （AI の読みを読み直さない・検証モードでも確かめ直さない。⛔ 2026-11-07 の第三者の見直し (2) の1：前は台本全体の名前を探し直して、
       版の名前の一覧が増え、前からある名前の AI の読みも変わりえた＝録音を引き継げなかった）。
@@ -930,6 +930,15 @@ def preview_shaped(tx: Tx, business_id: UUID, raw: Any, *, problems: list[str] |
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     p.notes = kept + p.notes
     return p
+
+
+def review_solution(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any, ai: dict[str, Any],
+                    standard_id: UUID | None, placed_names: Any) -> Preview:
+    """依頼者の解決策を足す道（core/client_solutions._add_line）の確かめ（入口の1つ。取込と同じ確かめ＝`review`）。取込の入口と違い、解決策を
+    残す1か所（`_kept`）は通さない（元の版に問答を1つ足すだけ）。重ねる標準は、元の版の標準のまま（standard_id）。元の版に置いた名前は変えない
+    （placed_names）。`review`・`register_reviewed` を呼んでよいのは、この部品の中だけ（app/checks の PY_ENTRY_CALLERS。⛔ 2026-11-07 の第三者の
+    見直し (2) の8：取込の外から直に呼ぶと、解決策を残す1か所を通らずに版を作れた）。"""
+    return review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, standard_id=standard_id, placed_names=placed_names)
 
 
 def register_shaped(tx: Tx, business_id: UUID, raw: Any, *, expected_digest: str, ai: dict[str, Any] | None,
