@@ -161,6 +161,10 @@ class Business:
     message: str | None = None
     # お呼びした方が在籍していない（退職・異動）＝後任の方をお呼びする（successor）／お礼を言って終える（end）
     departed_policy: str = "successor"
+    # 本題の始まり（電話を終える言葉か決まらない「もういいです。」に、ご遠慮の一言より先に本心を伺う＝flowctl.Flow._main_talk）＝この電話で業務の答えを1つ以上
+    # いただいたあと（answered）／最初の業務の質問を流したあと（asked）。続きの電話はどちらでも本題。✅ 2026-11-08 日本時間3時15分04秒 ユーザー
+    # 「(ア)業務ごとに選択できるようにしてください。」
+    main_talk_policy: str = "answered"
     # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら標準の文（phrases.AI_ANSWER＝共通の一言の録音 ai_answer）
     ai_answer: str | None = None
     # 目的の人（DESIGN.md 4-3）。None＝「誰でも」（最初に出た人が目的の人）。目的の人のある業務では、名乗りの終わりは目的の人を呼ぶ一言で、
@@ -309,7 +313,7 @@ class Business:
     def policies(self) -> dict:
         """相手の申し出への応じ方（流れの制御 Flow の policies。中の名前は flowctl.POLICIES）。"""
         return {"substitute": self.substitute_policy, "message": self.message_policy, "departed": self.departed_policy,
-                "follow_up": self.follow_up}
+                "main_talk": self.main_talk_policy, "follow_up": self.follow_up}
 
     @property
     def company_name(self) -> str:

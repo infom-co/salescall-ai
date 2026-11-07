@@ -7439,9 +7439,10 @@ class CallbackTest(unittest.TestCase):
         # 判定がそろって「担当ではない」と読めば、会話AIが理由を言わなくても、業務の決まりどおり結論として締める
         f, r = told(None, ("担当ではない", "担当ではない"))
         self.assertEqual((f.items["Q1"].reason, r["result"]), ("not_in_charge", "end"))
-        # 判定が割れたら受け皿（結論にしない）
+        # 判定が割れたら受け皿（結論にしない）。値を伺う質問の理由の読みが割れた最初の「分からない」は、1回だけ目安を伺う（✅ 2026-11-08 日本時間3時15分04秒
+        # ユーザー「(イ) 前者は、選ぶ質問の (3) と同じく、1回「おおよその目安だけでも…」を伺う形にします。：OK」。⛔ 直す前：受け皿の理由で次の質問へ）
         f, r = told("not_in_charge", ("担当ではない", "わからない理由を言わなかった"))
-        self.assertEqual((f.items["Q1"].reason, f.end_reason, r.get("question_id")), ("unspecified", None, "Q2"))
+        self.assertEqual((r["result"], f.end_reason, f.items["Q1"].state), ("hesitate", None, "empty"))
 
     def test_follow_up_is_asked_in_rechecks_and_after_a_restatement(self):
         # ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴2つ：(1) 締めの前の念のための確認への「担当ではないので分からない」で分かる方を足しても、
@@ -8511,6 +8512,27 @@ class EndJudgedTest(unittest.TestCase):
             return f, say(f, "もういいです。", _reading(UNDECIDED, UNDECIDED))
         f, r = flow(main=False)
         self.assertEqual(_spoken(r), r1)   # 序盤は今までどおり
+        # (ア) 本題の始まりは業務ごとに選べる（✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ア)業務ごとに選択できるようにしてください。」）：既定＝この電話で
+        # 業務の答えを1つ以上いただいたあと（answered）／最初の業務の質問を流したあと（asked＝名乗り・用件のあと最初の質問への「もういいです。」も本心を伺う）。
+        # 続きの電話はどちらでも本題。業務設定の欄は instruction.Business.main_talk_policy（取込＝CL-2）
+        from flowctl import POLICIES, check_policies
+        from instruction import Business
+        self.assertEqual(POLICIES["main_talk"], ("answered", "asked"))
+        self.assertEqual(Business(company="株式会社テスト", caller="佐藤", purpose="ご案内", questions=[]).policies()["main_talk"], "answered")
+        with self.assertRaises(ValueError):
+            check_policies({"main_talk": "never"})
+        def early(policy):
+            # 本番と同じく、第一声のあとに名乗り・用件・最初の質問を流してから（最初の質問を流した印＝Item.played）
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="資料のご案内", main_talk_policy=policy,
+                         questions=[question(PAMPHLET, qid="Q1"), Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=YES_NO)])
+            f = b.flow(play_recordings=True)
+            f.use_checks("judge")
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            if f.apply("report_party", {"party": "person"}).get("result") not in ("opening", "end"):
+                f.on_first_words_end()
+            self.assertTrue(f.items["Q1"].played)
+            return say(f, "もういいです。", _reading(UNDECIDED, UNDECIDED))
+        self.assertEqual((_spoken(early("answered")), _spoken(early("asked"))), (r1, "失礼いたしました。" + AI_ANSWER))
         f, r = flow()
         self.assertEqual((_spoken(r), f.current, f.end_reason), ("失礼いたしました。" + AI_ANSWER, cid, None))
         # 問題は無い：断ったとは言われていない＝伺う前の質問へ戻る（ご遠慮の一言の「いいえ」と同じ1か所）
@@ -15754,6 +15776,34 @@ class ApprovalTest(unittest.TestCase):
         say(k, "届いてないです。", "Q1", "いいえ")
         r = say(k, "うーん、同意するかどうか迷いますね。", "Q2", "unknown", HESITATING, HESITATING)
         self.assertEqual((k.current, k.end_reason), (n1, None))
+        # (ウ) ご承認の質問への「まだ決められないです。」（判定は迷っているとは読まず、わからない＝まだ決まっていない）も同じ道で「はい、どういった点で…」
+        # （✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ウ)お勧めの形でOK」。選ぶ質問の (3) と同じ決まり＝理由の読みが割れた・無い「分からない」も）。理由が
+        # そろって「担当ではない」「いまは分からない」は今までどおり（その方の決定ではない・業務の決まりの分かる時）。⛔ 直す前：「承知しました。続きまして…」
+        from flowctl import WHY
+
+        def why(x, w=None):
+            r = Reading(x)
+            if w:
+                setattr(r, WHY, w)
+            return r
+
+        def undecided_over(words, *readings):
+            m = self.flow(play=True)
+            m.use_checks(*JUDGMENTS)
+            say(m, "届いてないです。", "Q1", "いいえ")
+            m.on_callee(); m.on_heard(words)
+            for key, x in zip(JUDGMENTS, readings):
+                m.on_check(key, x)
+            return m, m.apply("record_answer", {"question_id": "Q2", "condition_id": "unknown"})
+        for words, readings in (("まだ決められないです。", (why("unknown", "まだ決まっていない"),) * 2),
+                                ("ちょっと分からないですね。", (why("unknown", "まだ決まっていない"), why("unknown", "いまは分からない"))),
+                                ("ちょっと分からないですね。", (why("unknown"),) * 2)):
+            m, r = undecided_over(words, *readings)
+            self.assertEqual((m.current, heard(r), m.end_reason), (n1, "はい、" + HESITATE_POINT, None), (words, readings))
+        for w in ("担当ではない", "いまは分からない"):
+            m, r = undecided_over("ちょっと分からないですね。", *(why("unknown", w),) * 2)
+            self.assertNotEqual(m.current, n1, w)
+            self.assertNotIn(HESITATE_POINT, heard(r), w)
 
     def test_neutral_reply_asks_whether_agreed(self):
         # 「なるほど」のように、ほかにあるとも分かったとも言わないときは「ご説明した内容でご納得いただけましたでしょうか？」
@@ -18393,8 +18443,15 @@ class HedgedSalesTest(unittest.TestCase):
         hear(g, "来週の水曜あたりですかね。", rd("答えた", firm=False))
         r = g.apply("record_answer", {"question_id": "D1", "condition_id": "答えた", "value": "来週の水曜"})
         self.assertEqual((r["result"], "保留" in heard(r)), ("confirm_required", False))
-        # 理由の読みが割れた・無い「分からない」・目安を伺う型でない値（名前など）は今までどおり（お言葉の (1) の場面＝「まだ決まってないんですよね。」ではない）
-        for qq, readings in ((visit(), (rd("unknown"),)), (visit(), (rd("unknown", not_yet), rd("unknown", "いまは分からない"))),
+        # 理由の読みが割れた・無い「分からない」も、選ぶ質問の (3) と同じく1回だけ目安を伺う（✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(イ) 前者は、選ぶ
+        # 質問の (3) と同じく、1回「おおよその目安だけでも…」を伺う形にします。：OK」。⛔ 直す前：すぐ保留）
+        for readings in ((rd("unknown"),), (rd("unknown", not_yet), rd("unknown", "いまは分からない"))):
+            f = flow(first=visit())
+            hear(f, "ちょっとまだ分からないです。", *readings)
+            r = report(f, "D1")
+            self.assertEqual((r["result"], heard(r), f.items["D1"].state), ("hesitate", "はい、" + ESTIMATE_ASK, "empty"), readings)
+        # 理由がそろって「担当ではない」「いまは分からない」・目安を伺う型でない値（名前など）は今までどおり
+        for qq, readings in ((visit(), (rd("unknown", "担当ではない"),)), (visit(), (rd("unknown", "いまは分からない"),)),
                              (Question("N1", "ご担当者様のお名前をお伺いしてもよろしいでしょうか？", "name", conditions=("答えた",)), (rd("unknown", not_yet),))):
             f = flow(first=qq)
             hear(f, "まだ決まってないんですよね。", *readings)
@@ -18445,6 +18502,7 @@ class HedgedSalesTest(unittest.TestCase):
             # 判定に「迷っている」を出すのは、迷っているお客様に応じる質問だけ（hears_hesitation＝選ぶ助けの業務の質問と、ご承認の質問＝ご承認いただけなかった
             # ときの手順と同じ道。✅ 2026-11-08 日本時間2時21分15秒「(1)〜(4)ともイでOK」の (4)＝ApprovalTest.test_hesitating_over_the_approval_takes_the_same_way_as_not_agreeing）
             self.assertEqual(HESITATING in answer_kinds(q), q is approval, q.id)
+        from flowctl import CALLBACK_IDS
         for make in (lambda: Question("G13", fact.text, "yes_no", conditions=yn, asks_fact=True, meanings=fact.meanings),
                      lambda: Question("A1", approval.text, "yes_no", conditions=yn, approval=True, intro=approval.intro),
                      lambda: Question("U1", unclear_q.text, "yes_no", conditions=yn, unclear_none="いいえ", meanings=unclear_q.meanings)):
@@ -18452,6 +18510,11 @@ class HedgedSalesTest(unittest.TestCase):
             f = flow(first=q)
             hear(f, "まだ決めてないです。", rd("unknown", not_yet))
             r = report(f, q.id)
+            if q.approval:
+                # ご承認の質問への「まだ決めていない」は、ご承認を迷っているときと同じ道（✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ウ)お勧めの形でOK」＝
+                # ApprovalTest.test_hesitating_over_the_approval_takes_the_same_way_as_not_agreeing）。保留では締めない
+                self.assertEqual((f.current, HESITATE_POINT in heard(r), "保留" in heard(r)), (CALLBACK_IDS["not_agreed"], True, False))
+                continue
             self.assertNotEqual(r["result"], "hesitate", q.id)
             self.assertNotIn(HESITATE_POINT, heard(r), q.id)
             self.assertNotIn("保留", heard(r), q.id)

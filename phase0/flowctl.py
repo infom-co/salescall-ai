@@ -1382,7 +1382,10 @@ CALLBACK_FIELD = {"C1": "time", "C2": "number", "C3": "email", "C4": "fax", "C5"
 # （「本日お戻りのご予定」の「わからない」は、戻らないとは言われていない）
 NOT_YES_IS_NO = ("C7", "P1")
 # 相手の申し出への応じ方（業務設定。instruction.Business の substitute_policy・message_policy・departed_policy・follow_up）。最初が既定（ユーザーの決定）
-POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "message": ("decline", "leave"), "departed": ("successor", "end")}
+POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "message": ("decline", "leave"), "departed": ("successor", "end"),
+            # 本題の始まり（Flow._main_talk）：answered＝この電話で業務の答えを1つ以上いただいたあと（既定）／asked＝最初の業務の質問を流したあと。
+            # 続きの電話はどちらでも本題。✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ア)業務ごとに選択できるようにしてください。」
+            "main_talk": ("answered", "asked")}
 SUBSTITUTE_ID = "S1"  # 代わりの方に、判断いただけるお立場かを聞く質問（Flow._substitute）
 # 目的の人を呼んでいる段（calling）の、意味の判定の「質問」（呼ぶ一言）の選択肢と意味の言葉（DESIGN.md 1-1：AIの報告「目的の人」を、
 # 独立した判定とそろったときだけ受け取る。取り次ぎ＝HOLD・代わった人＝HANDOVER は、判定のほうの答えでない言葉）
@@ -5267,23 +5270,28 @@ class Flow:
             # 読みにしない（⛔ 同じ見直しの H-1 を直す途中、流れの制御に通して見つけた形）
             return None
         readings = [self.check.get(k) for k in JUDGMENTS]
+        # 答えを選んでいず、迷っていない答えの道でもなく（_plain_reply）、理由がそろって「担当ではない」「いまは分からない」（WHY_ROUTED）でもない言葉（唯一の決まり）
+        open_ = undecided(readings) and self._plain_reply(readings) and self._why_of("unknown") not in WHY_ROUTED
+        # 最初の答えの「まだ決めていない」（まだ助けも伺いもしていない・最終の確かめの前・判定を使う通話。理由の読みが割れた・無い「分からない」も）
+        first_undecided = (open_ and helped is None and point is None and estimate is None and self.judging and not self.items[qid].final
+                           and self._not_deciding(readings))
         if q.approval:
-            # 説明した内容のご承認の質問への迷い（「うーん、同意するかどうか迷いますね。」）：ご承認いただけなかったときの手順と同じ道（_hesitate_now →
-            # 「わからない（まだ決まっていない）」で受け取り、手順の1か所 _point_step が「はい、」＋「どういった点でお迷いでしょうか？」を伺ってご説明する）。
-            # 保留では締めない。手順を始めるのは、ご承認の質問ごとに1回（印 approval）＝そのあとの迷っている点のお返事・ご説明・「ほかに…」は手順の質問が受け持つ。
-            # 当てるのは判定が「迷っている」と読んだときだけ（お言葉の場面。「まだ決められない」「分からない」は今までどおり＝⏳ 伺う）。
-            # ✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (4)
-            return "approval" if hesitates(readings) and "approval" not in h else None
+            # 説明した内容のご承認の質問への迷い（「うーん、同意するかどうか迷いますね。」）と、最初の答えの「まだ決められないです。」：ご承認いただけなかったときの
+            # 手順と同じ道（_hesitate_now →「わからない（まだ決まっていない）」で受け取り、手順の1か所 _point_step が「はい、」＋「どういった点でお迷いでしょうか？」を
+            # 伺ってご説明する）。保留では締めない。手順を始めるのは、ご承認の質問ごとに1回（印 approval）＝そのあとの迷っている点のお返事・ご説明・「ほかに…」は
+            # 手順の質問が受け持つ。✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (4)・3時15分04秒「(ウ)お勧めの形でOK」（「まだ決められない」も
+            # (4) と同じ道。選ぶ質問の (3) と同じ決まり＝理由の読みが割れた・無い「分からない」も）
+            return "approval" if (hesitates(readings) or first_undecided) and "approval" not in h else None
         if hesitates(readings):
             return "point" if point is None and (not q.option_notes or helped is not None) else "help"
-        if not undecided(readings) or not self._plain_reply(readings) or self._why_of("unknown") in WHY_ROUTED:
+        if not open_:
             return None
         if helped is not None and (point is None or point < helped) or estimate is not None:
             # 選ぶ助け・目安を伺ったあと：まだ決めていない＝保留・相づちなどは今までどおり（目安を伺うのは1回だけ）
             return "final" if self._not_deciding(readings) else None
         if point is not None:
             return "help"   # どういった点でお迷いかを伺ったあとの、答えではないお返事（迷っている点）
-        if not self.judging or self.items[qid].final or not self._not_deciding(readings):
+        if not first_undecided:
             return None
         if q.type in CHOICE_TYPES:
             # まだ助けも伺いもしていない「まだ決めていない」（最初の答えも、言い直しへの返事も＝(イ)。理由の読みが割れた・無い「分からない」も。理由がそろって
@@ -5291,10 +5299,11 @@ class Flow:
             # 決められないのは、お客様の最終の決定＝保留（11-06 11時19分55秒の (2)。_confirm_again）。✅ 2026-11-08 日本時間2時21分15秒 ユーザー
             # 「(1)〜(4)ともイでOK」の (2)(3)（⛔ 0時台の J-2 で一度、理由の読みがそろって「まだ決まっていない」の最初の答えだけに戻して伺った）
             return "help" if q.option_notes else "point"
-        if q.type in ESTIMATE_TYPES and self.awaiting_confirm is None and self._why_of("unknown") == "undecided":
-            # 値を伺う質問（日時・数・金額）の最初の答えの「まだ決まっていない」（理由の読みがそろって「まだ決まっていない」＝お言葉の「まだ決まってないん
-            # ですよね。」）：すぐ保留で締めずに、1回だけ「おおよその目安」を伺う（同じ (1)。一流の営業＝すぐ引かずに、決める手がかりを1つ伺う）。理由の読みが
-            # 割れた・無い「分からない」と、言い直し（「それでは15日とさせていただきますね？」）への返事は、お言葉の場面ではないので今までどおり（⏳ 伺う）
+        if q.type in ESTIMATE_TYPES and self.awaiting_confirm is None:
+            # 値を伺う質問（日時・数・金額）の最初の答えの「まだ決まっていない」：すぐ保留で締めずに、1回だけ「おおよその目安」を伺う（同じ (1)。一流の営業＝すぐ
+            # 引かずに、決める手がかりを1つ伺う）。理由の読みが割れた・無い「分からない」も、選ぶ質問の (3) と同じ決まり（✅ 2026-11-08 日本時間3時15分04秒
+            # ユーザー「(イ) 前者は、選ぶ質問の (3) と同じく、1回「おおよその目安だけでも…」を伺う形にします。：OK」）。言い直し（「それでは15日とさせていただきますね？」）
+            # への返事は今までどおり（⏳ 前後を省かない例で伺い直す＝帳面 1 の (11)）
             return "estimate"
         return None
 
@@ -8006,7 +8015,10 @@ class Flow:
         営業のお電話そのものへのお断りが多く、本題に入ってからの「もういいです。」は、こちらの進め方に問題があった見込みがある（✅ 2026-11-08 日本時間
         2時21分15秒 ユーザー：「序盤で営業拒否の言葉があった場合は、営業電話そのものに対して拒絶されているということが多いですが、本題のクロージングまで
         入っている段階で、もういいですなどという言葉が出た場合は、そのクロージングのアプローチに対して問題があった可能性があります。」）。"""
-        return bool(self.earlier) or any(it.state in TAKEN for qid, it in self.items.items() if not self.questions[qid].callback)
+        # どこから本題かは業務ごと（POLICIES["main_talk"]＝✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ア)業務ごとに選択できるようにしてください。」）：
+        # answered（既定）＝業務の答えを1つ以上いただいたあと／asked＝最初の業務の質問を流したあと（流した印 Item.played）
+        asked = self.policies["main_talk"] == "asked"
+        return bool(self.earlier) or any(it.state in TAKEN or (asked and it.played) for qid, it in self.items.items() if not self.questions[qid].callback)
 
     def _ask_aside(self, role: str) -> str:
         """いまの質問・言い直しの位置を覚えて、そのすぐ前にシステムの質問を1つ伺う（唯一の場所＝ご遠慮の一言 _refusal_confirm・本心を伺う一言 _concern_ask）。
