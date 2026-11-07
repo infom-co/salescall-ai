@@ -6816,11 +6816,25 @@ class Flow:
         新しい方に、初めて聞く「それではもう一度確認させていただきますね。」を流しうる形だった"""
         if not digressed:
             return []
-        key = f"calling@{self.speaker_from}" if self.phase == "calling" else self.awaiting_confirm or self.current or ""
+        key = self._place()
         n = self.back_counts[key] = self.back_counts.get(key, 0) + 1
         lines = BACK_LINES if asks else [x for x in BACK_LINES if closes(x[1])]
         rid, text = lines[min(n, len(lines)) - 1]
         return [{"kind": "recorded", "id": rid, "text": text}]
+
+    def _place(self) -> str:
+        """いまお返事を待っている所（戻る一言の回数を数える単位の唯一の決まり＝_back_play）：お呼びする段は電話口の方ごと（同じ方にお呼びする一言は2回まで）・
+        言い直しの返事待ちは、その言い直し（言い直した言葉ごと＝値を直していただいたあとの言い直しは別の所。頭の受けの言葉は数えない＝drop_receipt）・質問は、
+        その質問（システムの質問の番号は役目ごとに1つ＝元の質問と文で分ける）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」の「同じ所（同じ質問・
+        同じ言い直し・お呼びするお願い）へ2回目に戻るとき」。⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の見直しの B-4）：言い直しを待っている
+        質問の番号か、いまの質問の番号で数えていた＝質問へ1回戻ったあとの、その言い直しへの初めての戻りと、別の質問の W1 への初めての戻りに、2回目の
+        「それではもう一度確認させていただきますね。」を流した"""
+        if self.phase == "calling":
+            return f"calling@{self.speaker_from}"
+        if self.awaiting_confirm is not None:
+            return f"言い直し@{self.awaiting_confirm}@{drop_receipt(self.awaiting_say or '')}"
+        q = self.questions.get(self.current) if self.current is not None else None
+        return "" if q is None else f"{q.id}@{q.of or ''}@{q.text}"
 
     def _continue(self, play: list, shown: str, final: bool = False) -> dict:
         """録音（名乗りの流し直し・お詫びの相づち）を流したあと、いまの位置へ戻る返事（唯一の場所。_op_replay_opening・_resume）。

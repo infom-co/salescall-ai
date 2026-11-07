@@ -20521,6 +20521,30 @@ class BackLineReviewTest(unittest.TestCase):
         self.assertLessEqual(set(got), table([q1t, plain]))
         self.assertNotIn("では", {lead for _, lead, _ in table([q1t, plain])})
 
+    def test_back_lines_are_counted_per_place(self):
+        # ⛔ B-4：戻る一言の回数を、言い直しを待っている質問の番号か、いまの質問の番号で数えていた＝(a) 質問 Q2 へ1回戻ったあと、Q2 の言い直しへ初めて
+        #    戻るのに2回目の「それではもう一度確認させていただきますね。」 (b) システムの質問の番号は役目ごとに1つ（W1）＝Q1 の W1 へ1回戻ったあと、Q2 の W1 へ
+        #    初めて戻るのに2回目の一言。数えるのは同じ所（✅ 2026-11-07 日本時間3時14分01秒「(4) H7」＝同じ質問・同じ言い直し・お呼びするお願いへ2回目に戻るとき）
+        from flowctl import NONE, Flow, Question
+        from phrases import BACK_TO, BACK_TO_AGAIN
+        f = self.own_flow()
+        f.on_callee(); f.on_heard("はい、予約してます。"); f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual(self.heard(self.talk(f, "いやあ、今日は本当に暑いですねえ。")), BACK_TO + "それではご希望の日時をお聞かせいただけますでしょうか？")
+        f.on_callee(); f.on_heard("明日の19時です。")
+        f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "明日の19時"})
+        core = "明日の19時、午後7時でよろしいでしょうか？"
+        got = [self.heard(self.talk(f, s)) for s in ("雨も多いですし。", "夜も寝苦しくて。")]
+        self.assertEqual(got, [BACK_TO + "それでは" + core, BACK_TO_AGAIN + core])
+        # (b) 別の質問の W1（ほかのご希望を伺う質問）
+        g = Flow([Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("電話", "メール")),
+                  Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込")),
+                  Question("Q3", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+        g.on_callee(); g.on_heard("どっちも要らないです。"); g.apply("record_answer", {"question_id": "Q1", "condition_id": NONE})
+        self.assertEqual(self.heard(self.talk(g, "いやあ、今日は本当に暑いですねえ。")), BACK_TO + "それでは電話とメールのほかにご希望はございますでしょうか？")
+        g.on_callee(); g.on_heard("特にないです。"); g.apply("record_answer", {"question_id": g.current, "condition_id": "無い"})
+        g.on_callee(); g.on_heard("どっちも要らないです。"); g.apply("record_answer", {"question_id": "Q2", "condition_id": NONE})
+        self.assertEqual(self.heard(self.talk(g, "雨も多いですし。")), BACK_TO + "それではカードと振込のほかにご希望はございますでしょうか？")
+
 
 class RemainingNineTest(unittest.TestCase):
     """✅ 2026-11-05 日本時間2時45分39秒 ユーザー：「OK、残りの9つを直してください。…」（2時05分37秒のご質問のあと、別の担当がファイルを変えずに読み直して
