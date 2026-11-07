@@ -718,20 +718,25 @@ def final_toward(q: "Question") -> str | None:
     return q.toward[0] if len(q.toward) == 1 else None
 
 
-def before_heads(questions: list["Question"]) -> set[str]:
-    """業務の質問の直前に、同じ回に流しうる業務の一言の文の頭のつなぎの言葉（録音を作る形を決める＝question_forms）：保留で締める一言（pending_line）と、
-    業務の「答えのあとに伝える一言」（Question.tell_words）。ほかに質問の前に流す決まった言葉（戻る一言・ご不満な点…・申し伝える一言・お詫び）の頭には
-    つなぎの言葉が無い（試験 test_lines_before_a_question_do_not_start_with_a_lead_word）。"""
+def before_lines(questions: list["Question"]) -> list[str]:
+    """業務の質問の直前に、同じ返事で流しうる業務の一言の文（唯一の一覧＝録音を作る形を決める question_forms）：保留で締める一言（pending_line）・業務の
+    「答えのあとに伝える一言」（Question.tell_words）・方法を並べて伺ったあとの「どれでも」にこちらで方法をお伝えする一言（way_any_line。お電話でのご案内なら
+    そのあと次の質問へ）。流れの制御は、質問の前に同じ返事で流す一言の文そのものを質問の頭を決める1か所（spoken_question の before）に渡す＝録音の形の一覧も
+    文そのものを渡す。ほかに質問の前に流す決まった一言（戻る一言・ご不満な点…・申し伝える一言・お詫び）の頭にはつなぎの言葉が無い（試験
+    test_lines_before_a_question_do_not_start_with_a_lead_word）。⛔ 2026-11-08 日本時間7時台（11-07 23時26分13秒のご質問の見直しの B-3）：前は一言の頭の
+    つなぎの言葉だけ（「それでは」）を返し、録音の形の一覧がそれを前の言葉として渡していた＝spoken_question は「。」で終わらない前の言葉を3回目に戻る一言と
+    つなぐ頭と読むので、入る一言のある質問の替えた形（（番号）_intro）が一覧に無く録音が無いまま流れ、頭が「では」の一言があれば流れない形を作っていた"""
     lines = [pending_line(q) for q in questions if asks_wish(q)] + [t for q in questions for t in q.tell_words.values()]
-    return {w for line in lines for w in heads_said(line)}
+    lines += [w[1] for q in questions if may_wish(q) and (w := way_any_line(q))]
+    return list(dict.fromkeys(lines))
 
 
 def question_forms(questions: list["Question"], qid: str) -> list[dict]:
     """業務の質問を録音で流しうる形（唯一の一覧＝録音を作る make_ack_clips.script_table。流す形は question_play の1か所が作る）：次の項目として初めて伺う形・
-    直前に流しうる一言の頭と重なってつなぎの言葉を替えた形（before_heads）・もう伺った質問を伺い直す形（頭は AGAIN_LEAD＝Flow._continue。戻る一言のあと・
+    直前に流しうる一言（before_lines）の頭と重なってつなぎの言葉を替えた形・もう伺った質問を伺い直す形（頭は AGAIN_LEAD＝Flow._continue。戻る一言のあと・
     「失礼いたしました。」のあと・尋ねられて答えたあと）・続きの電話で最初に伺う形（頭は QUESTION_RESUME_LEAD）。同じ録音の名前は1つ。"""
     q = next(x for x in questions if x.id == qid)
-    forms = [question_play(questions, qid)] + [question_play(questions, qid, before=w) for w in sorted(before_heads(questions))]
+    forms = [question_play(questions, qid)] + [question_play(questions, qid, before=line) for line in before_lines(questions)]
     if not (q.reading_of or q.callback or q.of):
         forms += [question_play(questions, qid, again=True), question_play(questions, qid, resumed=True)]
         # 戻る一言のあとに伺い直す形（頭が戻る一言の頭と重なれば外す＝spoken_question の again）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」
@@ -751,7 +756,8 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     流すので、つなぎの言葉は付けない。
     ✅ 2026-10-15 ユーザー（聞き比べ）：つなぎの言葉と質問を1本で録音したほうが「しいて言えば自然」⇒ 1本の録音にする。順番で決めておけば、
     依頼主ごとの録音は質問1つにつき1本のまま（流れの制御・録音を作る道具の両方が、ここを使う）
-    before＝その回に、この質問の直前に流す一言：その文の頭のつなぎの言葉と重なれば替える（relead。✅ 2026-11-06 日本時間11時55分13秒「(1) ウ」）。
+    before＝その回に、この質問の直前に流す一言の文そのもの：その文の頭のつなぎの言葉と重なれば替える（relead。✅ 2026-11-06 日本時間11時55分13秒「(1) ウ」）。
+    「。」で終わらない一言（3回目に戻る一言）なら、質問をその文に続ける。頭の言葉だけを渡さない（文として読む＝B-3。録音の形の一覧も before_lines の文を渡す）。
     again＝尋ねられて答えたあとに伺い直す形（頭は AGAIN_LEAD。入る一言はもう流したので付けない。✅ 同じ時「(2) イ」）。
     resumed＝続きの電話で、お詫び（＋用件の一文）のすぐあとに最初に伺う（次の項目のつなぎの言葉の代わりに QUESTION_RESUME_LEAD。✅ 2026-11-06 日本時間
     15時20分30秒 ユーザー「続きまして、も、それではも繋がりがおかしい」。前の答えで伺う質問も同じ。入る一言は業務の言葉のまま）。"""

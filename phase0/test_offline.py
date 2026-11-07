@@ -18948,16 +18948,21 @@ class HedgedSalesTest(unittest.TestCase):
 
     def test_lines_before_a_question_do_not_start_with_a_lead_word(self):
         # 質問の直前に、同じ回に流しうる決まった一言（戻る一言・お礼・在籍していないお詫び・ご不満な点・申し伝える一言・続きの電話のお詫び）の文の頭には、
-        # つなぎの言葉が無い。つなぎの言葉を替えた質問の録音を作るのは、頭につなぎの言葉のある一言（保留の一言・業務の「答えのあとに伝える一言」）の分だけ
-        # （flowctl.before_heads）。この試験が落ちたら、その一言を before_heads に足す（足さないと、流れの制御が替えた形の録音が無い）
-        from flowctl import before_heads, heads_said, pending_line, Question
+        # つなぎの言葉が無い。つなぎの言葉を替えた質問の録音を作るのは、頭につなぎの言葉のありうる業務の一言（保留の一言・業務の「答えのあとに伝える一言」・
+        # 方法をお伝えする一言）の分だけ（flowctl.before_lines＝文そのもの）。この試験が落ちたら、その一言を before_lines に足す（足さないと、流れの制御が
+        # 替えた形の録音が無い）
+        from flowctl import before_lines, heads_said, pending_line, Question
         from phrases import (APOLOGY_CUT_END, APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, OFFER_THANKS, POINT_ANYTIME, POINT_ANYTIME_PLAIN,
-                             TOLD_AGAIN, TOLD_FOLLOW_UP, WISH_TOLD)
-        lines = [BACK_TO, OFFER_THANKS, DEPARTED_ACK, POINT_ANYTIME, POINT_ANYTIME_PLAIN, TOLD_FOLLOW_UP, *WISH_TOLD.values(), *APOLOGY_FIRST.values(),
-                 *APOLOGY_PURPOSE.values(), *APOLOGY_CUT_END.values(), *TOLD_AGAIN.values()]
+                             RECORDED, TOLD_AGAIN, TOLD_FOLLOW_UP, UNCLEAR_ANYTIME, WISH_TOLD)
+        lines = [BACK_TO, OFFER_THANKS, DEPARTED_ACK, POINT_ANYTIME, POINT_ANYTIME_PLAIN, TOLD_FOLLOW_UP, UNCLEAR_ANYTIME, *WISH_TOLD.values(),
+                 *APOLOGY_FIRST.values(), *APOLOGY_PURPOSE.values(), *APOLOGY_CUT_END.values(), *TOLD_AGAIN.values()]
         self.assertEqual({line: heads_said(line) for line in lines if heads_said(line)}, {})
+        # 共通の一言の表の全部：頭につなぎの言葉のある一言は、お返事を待つ伺う一言（？で終わる）・締め・待つ一言・2回目の戻る一言（質問の again の形が受ける）
+        # だけ＝同じ返事の中で、そのあとに業務の質問を流さない（B-3）
+        ends_reply = {"back_again", "closing", "closing_after_decline", "closing_declined", "hold_timeout", "line_trouble_bye", "wait_reply"}
+        self.assertEqual({k for k, v in RECORDED.items() if isinstance(v, str) and heads_said(v) and not v.endswith("？")}, ends_reply)
         q = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
-        self.assertEqual((heads_said(pending_line(q)), before_heads([q])), ({"それでは"}, {"それでは"}))
+        self.assertEqual((heads_said(pending_line(q)), before_lines([q])), ({"それでは"}, [pending_line(q)]))
 
     def test_a_lead_word_is_not_repeated_after_a_line_that_starts_with_it(self):
         # その回に直前に流す一言（保留の一言・業務の「答えのあとに伝える一言」・続きの電話の始めの一言）の文の頭のつなぎの言葉と、次の質問の頭のつなぎの言葉
@@ -20479,6 +20484,42 @@ class BackLineReviewTest(unittest.TestCase):
         core = say[say.index("それでは") + len("それでは"):]
         got = [self.heard(self.talk(f, s)) for s in ("いやあ、今日は本当に暑いですねえ。", "雨も多いですし。", "夜も寝苦しくて。")]
         self.assertEqual(got, [BACK_TO + "それでは" + core, BACK_TO_AGAIN + core, BACK_TO_MIDWAY + core])
+
+    def test_recording_table_lists_exactly_the_forms_played_after_a_line(self):
+        # ⛔ B-3：質問の録音を作る形の一覧（question_forms＝make_ack_clips.script_table）は、直前に流す一言の頭のつなぎの言葉だけ（「それでは」）を質問の前の
+        #    言葉として渡していた。質問の頭を決める1か所（spoken_question）は、「。」で終わらない前の言葉を、3回目に戻る一言（「確認の途中でしたので…が」）と
+        #    つなぐ頭と読む＝(a) 入る一言のある質問の、保留の一言のあとに流す形（「続きましてお支払いの確認からさせていただきます。…」＝（番号）_intro）が
+        #    一覧に無く、録音が無いまま流す (b) 業務の一言の頭が「では」なら、本番が流さない「ではお支払いは…」を一覧に入れ、要らない録音を作る。
+        #    一覧も、本番と同じく、質問の直前に流しうる一言の文そのものを前の言葉として渡す
+        from flowctl import Flow, Question, WHY, question_forms
+        from meaning_judge import Reading
+        YN = ("はい", "いいえ")
+        pay = dict(text="お支払いはカードと振込のどちらがよろしいでしょうか？", type="choice", conditions=("カード", "振込"))
+
+        def played(qs, said, reading, op):
+            f = Flow(qs, play_recordings=True); f.use_checks("judge")
+            f.on_callee(); f.on_heard(said); f.on_check("judge", reading)
+            r = f.apply("record_answer", op)
+            return [(p["id"], p.get("lead") or "", p["text"]) for p in r.get("play") or [] if p.get("id", "").startswith("Q2")]
+
+        def table(qs):
+            return {(p["id"], p.get("lead") or "", p["text"]) for p in question_forms(qs, "Q2")}
+        # (a) 保留の一言（頭が「それでは」）のあとの、入る一言（頭が「それでは」）のある質問
+        q1 = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=YN)
+        q2 = Question("Q2", intro="それではお支払いの確認からさせていただきます。", **pay)
+        unsure = Reading("unknown"); setattr(unsure, WHY, "いまは分からない")
+        got = played([q1, q2], "今はちょっと分からないです。", unsure,
+                     {"question_id": "Q1", "condition_id": "unknown", "unknown_why": "unknown_now"})
+        self.assertEqual(got, [("Q2_intro", "続きまして", "続きましてお支払いの確認からさせていただきます。" + pay["text"])])
+        self.assertLessEqual(set(got), table([q1, q2]))
+        # (b) 業務の「答えのあとに伝える一言」の頭が「では」：次の質問の頭は「続きまして」のまま（重ならない）＝「では…」の形は流れない・作らない
+        q1t = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=YN,
+                       tell_words={"はい": "では3日以内にお送りいたします。"})
+        plain = Question("Q2", **pay)
+        got = played([q1t, plain], "はい、お願いします。", Reading("はい"), {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual(got, [("Q2", "続きまして", "続きまして" + pay["text"])])
+        self.assertLessEqual(set(got), table([q1t, plain]))
+        self.assertNotIn("では", {lead for _, lead, _ in table([q1t, plain])})
 
 
 class RemainingNineTest(unittest.TestCase):
