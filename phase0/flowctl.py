@@ -946,6 +946,23 @@ def off_talk(q: "Question", got: str | None, prior: str | None = None) -> bool:
     return prior in q.conditions and got in q.conditions and prior != got
 
 
+def before_words(q: "Question | None", said: "list[str]") -> str | None:
+    """判定に渡す「その前に相手が言ったこと」（唯一の決まり＝流れの制御 Flow.judge_context（呼んでいる段・答えの段）・ahead_context と、測りの場面
+    g73_system_words.answer_scenes）：その段の相手の言葉 said（古い順）の、直前の3つまで。業務の質問には、前の答えも前の話として渡す（前に言ったことと
+    食い違う答えを見つける＝G-70・10-31「(a) 検査OK」）。呼んでいる段の質問（呼ぶ一言・確かめる一言）には、取り次いだ方の言葉を渡す（target_facets）。
+    プログラムが前の答えをきっかけに足す質問（システムの質問＝Question.callback。ほかのご希望 W1・ご承認いただけなかったときの N1〜N3・待つかかけ直すかの
+    H2・ご遠慮の確かめ・かけ直しの時刻など）には渡さない（その質問への言葉だけで読む）：それまでの言葉は、それぞれの質問について判定がもう読み、流れの制御は
+    その読みで要るものが無いと決めて、この質問を伺う＝同じ言葉をこの質問の前の話の答えとしてもう一度読むと、同じ言葉に2つの決めができる（一本化の破れ）。
+    きっかけは直前の言葉だけではない（ご承認の手順の N3「ご説明した内容でご納得いただけましたでしょうか？」は、ご承認のお断り・点・ご説明への返事・「なるほど」の
+    続きで伺う＝ご説明でお考えが変わったかを伺うのに、前の話のお断りで「いいえ」と読めば、ご納得の「はい」を食い違いとして伺い直す）。きっかけの言葉の中に
+    この質問の答えになる言葉があれば、先に言われた答えとして、この質問について1回読み直す（ahead_context＝前の話ではなく、いまの言葉として）。
+    ⛔ 2026-11-07 日本時間11時台（11時29分43秒のお言葉で入れた (イ)）：G-53d1base で、W1 のきっかけの「どちらも要らないです。」（出した選択肢が合わない＝
+       11-03 19時54分）を、前の話の答えを読む判定が W1 の「無い」と読み（100件中32件）、「郵便で送ってもらえますか。」のような正しい答えにも意味合いを尋ねていた"""
+    if q is not None and q.callback:
+        return None
+    return "／".join(said[-3:]) or None
+
+
 def restates(q: "Question") -> bool:
     """確かめがそろわない答え（前の話と食い違う・前の話で補う・言い切っていない・判定と食い違う）を、意味の言葉で言い直して確かめるか（唯一の決まり＝
     流れの制御 Flow._check_again・測りの数え g53_meaning.flow_act）。言い直さない質問（Question.firm_not_needed＝ほかのご希望 W1・伺い方 C11・ご承認
@@ -3895,11 +3912,11 @@ class Flow:
             # 「お電話代わりました。担当の山田です。」のあとの「いいえ、私は山田と申します。」を3回中2回「ご本人」と読んだ（決まりの文を足す形は、
             # 判定ごとに誤りの出方が入れ替わるだけだった＝Jev が「いえ、違います。」を「ご本人」と読んだ）
             q = self.confirm_questions[self.confirm_part] if self.asked_target is not None and self.confirm_open else self.calling_question
-            return self.for_judge(q), None, "／".join(list(self.calling_words.values())[-3:]) or None
+            return self.for_judge(q), None, before_words(q, list(self.calling_words.values()))
         if self.answering:
             return None, None, None   # 出た方の第一声（「はい、〇〇でございます」）は、まだ流していない最初の質問の答えではない
         q = self.questions.get(self.current) if self.current else None
-        before = "／".join(list(self.answer_words.values())[-3:]) or None   # 答えの段のその前の言葉（直前の3つまで＝呼んでいる段と同じ）
+        before = before_words(q, list(self.answer_words.values()))   # 答えの段のその前の言葉（直前の3つまで＝呼んでいる段と同じ・システムの質問には渡さない）
         return self.for_judge(q), (self._judge_text(self.awaiting_say) if self.awaiting_confirm is not None else None), before
 
     def for_judge(self, q: "Question | None") -> "Question | None":
@@ -5826,7 +5843,7 @@ class Flow:
                 or self.questions[h["qid"]].type not in CHOICE_TYPES):
             return None
         a["asked"], a["judge_turn"], self.ahead_asked = True, self.callee_turns, a
-        before = "／".join([w for t, w in self.answer_words.items() if t < a["turn"]][-3:]) or None
+        before = before_words(self.questions[h["qid"]], [w for t, w in self.answer_words.items() if t < a["turn"]])
         return self.for_judge(self.questions[h["qid"]]), before, a["said"]
 
     def ahead_pending(self) -> bool:

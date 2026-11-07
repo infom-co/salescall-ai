@@ -15,7 +15,7 @@ import functools
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from flowctl import HEAR_OK, REPEAT, UNDECIDED, WAIT_KINDS, WISH_OTHER, callback_question, hear_choices
+from flowctl import HEAR_OK, REPEAT, UNDECIDED, WAIT_KINDS, WISH_OTHER, before_words, callback_question, hear_choices
 
 # 作り手（判定の顔ぶれ＝meaning_judge.members(JUDGE2) と 3.5 Flash Lite に入れない）。✅ 2026-11-03 日本時間2時41分10秒 ユーザー「はい」＝
 # 2人目の作り手を 3.7 Flash（Google の混雑で答えなかった）から Claude Haiku 5.5 に替える（Sonnet は判定に入っているので作り手にしない。
@@ -32,11 +32,10 @@ SCENE_TRIES = 3
 PER_KIND = 4   # 種類ごとに作らせる言葉の数
 EXPLAINED = "料金は月額3,000円で、初月は無料となっております。"   # 前の段でご説明した内容（試しの業務。ApprovalTest と同じ）
 UNSURE = "どちらとも取れない"   # 決められない（UNDECIDED）の種類の名前
-# 答えの段の試しの場面の、その質問の前にお客様が言ったこと（本番で判定に渡る「その前に相手が言ったこと」＝流れの制御 Flow.judge_context の、答えの段の
-# 言葉の直前の3つまでを BEFORE_SEP でつないだもの。前の話の答え meaning_judge.PRIOR も、これで読まれる）。どれも、本番の流れの制御を同じ言葉で進めて
-# 出した前の言葉と同じ（試験 G73WordsTest）。⛔ 2026-11-05 日本時間20時台に見つけた：測り（G-53）は前の言葉を渡しておらず、本番で走る前の話の読み
-# （前の話と食い違えば聞き直す）を数えていなかった
-BEFORE_SEP = "／"
+# 答えの段の試しの場面の、その質問の前にお客様が言ったこと。判定に渡す前の言葉は、本番と同じ1か所（flowctl.before_words＝流れの制御 Flow.judge_context）で
+# 作る（試験 G73WordsTest が、本番の流れの制御を同じ言葉で進めて比べる）。⛔ 2026-11-05 日本時間20時台に見つけた：測り（G-53）は前の言葉を渡しておらず、
+# 本番で走る前の話の読み（前の話と食い違えば聞き直す）を数えていなかった。⛔ 2026-11-07 日本時間11時台：N1〜N3・W1 はシステムの質問＝本番は前の話を
+# 渡さない（before_words。W1 のきっかけの「どちらも要らないです。」を前の話の答えに「無い」と読み、正しい答えにも意味合いを尋ねていた＝G-53d1base）
 APPROVAL_SAID = ("届いてないです。", "いや、それはちょっと。", "料金のところですね。", "そうなんですね。", "なるほど。")   # ご承認の手順の試し（ApprovalTest と同じ）
 POINT_BEFORE = {"not_agreed": APPROVAL_SAID[:2], "other_point": APPROVAL_SAID[1:4], "agreed_now": APPROVAL_SAID[2:5]}
 # ほかのご希望（W1）の場面：(元の質問＝測りの質問の表 g53_meaning.question_map の番号, 最終目的にするか, W1 を伺うきっかけのお客様の答え)。選ぶ質問の
@@ -58,7 +57,7 @@ def _point_sets() -> list[dict]:
         q = callback_question(role)
         kinds = dict(_ROLE_MEANINGS[role])
         kinds[UNSURE] = "受け入れにも断りにも取れて、その言葉だけでは、どれか決められない一言（「なるほど」「うーん」など、相づちや考えている言葉）"
-        out.append({"set": q.id, "qid": q.id, "question": q.text, "scene": scene, "kinds": kinds, "before": POINT_BEFORE[role]})
+        out.append({"set": q.id, "qid": q.id, "q": q, "question": q.text, "scene": scene, "kinds": kinds, "before": POINT_BEFORE[role]})
     return out
 
 
@@ -91,16 +90,16 @@ def _wish_sets() -> list[dict]:
         # 会話2（✅ 2026-11-05 日本時間23時19分06秒・23時56分48秒 ユーザー）：待つ・かけ直すの言葉も作る。説明は判定に見せる文と同じ1か所（meaning_judge.ANSWER_KINDS）。
         # もう一度言ってほしい（✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…OK」＝flowctl.REPEAT）の言葉も同じく作る
         kinds |= {k: ANSWER_KINDS[k] for k in (*WAIT_KINDS, REPEAT)}
-        out.append({"set": w.id, "qid": key, "question": w.text, "scene": f"こちらが「{of.text}」と伺ったところ、お客様が「{said}」と答えたので",
+        out.append({"set": w.id, "qid": key, "q": w, "question": w.text, "scene": f"こちらが「{of.text}」と伺ったところ、お客様が「{said}」と答えたので",
                     "kinds": kinds, "before": (said,)})
     return out
 
 
 @functools.lru_cache(maxsize=1)
 def answer_scenes() -> dict[str, dict]:
-    """答えの段の試しの場面（N1〜N3・W1）の、質問の文 ⇒ {"qid": 測りの質問の表の鍵, "before": 判定に渡す前の言葉}（唯一の読み口＝測りの道具
-    g53_meaning.set_n）。"""
-    return {s["question"]: {"qid": s["qid"], "before": BEFORE_SEP.join(s["before"])} for s in _point_sets() + _wish_sets()}
+    """答えの段の試しの場面（N1〜N3・W1）の、質問の文 ⇒ {"qid": 測りの質問の表の鍵, "before": 判定に渡す前の言葉（本番と同じ1か所 before_words）}
+    （唯一の読み口＝測りの道具 g53_meaning.set_n）。"""
+    return {s["question"]: {"qid": s["qid"], "before": before_words(s["q"], list(s["before"]))} for s in _point_sets() + _wish_sets()}
 
 
 # こちらの声が届いていない様子：答えの段のいろいろな質問のあとに、お客様が言う言葉（そういう様子の無い、紛らわしい言葉も作らせる）

@@ -3467,6 +3467,45 @@ class AmbiguousAnswerTest(unittest.TestCase):
         f.on_callee()
         self.assertEqual(f.judge_context()[2], "1つ目です。／2つ目です。／3つ目です。")
 
+    def test_trigger_words_are_not_the_prior_talk_of_the_system_question_they_raise(self):
+        # ✅ 2026-11-07 日本時間11時29分43秒 ユーザー（途中のご報告の (イ) を直しに入れる）：G-53d1base で、ほかのご希望（W1）のきっかけの「どちらも要らないです。」
+        # （＝出した選択肢が合わない＝11-03 19時54分）を、前の話の答えを読む判定が W1 の「無い」と読み（100件中32件）、正しい答えにも意味合いを尋ねていた。
+        # ⇒ プログラムが前の答えをきっかけに足す質問（システムの質問）には、前の話を渡さない（それまでの言葉は、それぞれの質問について判定がもう読み、流れの
+        #    制御はその読みで伺う＝同じ言葉を前の話の答えとしてもう一度読まない）。きっかけは直前の言葉だけではない（N3 は、ご承認のお断りから続く手順で伺う＝
+        #    直前の「なるほど。」だけ外す形では、お断りを N3 の前の話に読み、ご説明で変わったご納得を食い違いとして伺い直しうる）。業務の質問は、前の答えも前の話
+        #    （G-70 の決まり）
+        from flowctl import CALLBACK_IDS, NONE, Flow, Question
+        f = Flow([Question("Q0", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
+                  Question("Q1", NoneOfThemTest.CONTACT, "choice", conditions=("電話", "メール")),
+                  Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        self.say(f, "届いてないです。", "record_answer", question_id="Q0", condition_id="いいえ")
+        f.on_callee(); f.on_heard("どちらも要らないです。")
+        self.assertEqual(f.judge_context()[2], "届いてないです。")   # 業務の質問は、前の答えも前の話
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": NONE})
+        self.assertEqual((r["question_id"], f.current), (CALLBACK_IDS["other_wish"],) * 2)
+        f.on_callee(); f.on_heard("郵便で送ってもらえますか。")
+        q, _, before = f.judge_context()
+        self.assertEqual((q.id, before), (CALLBACK_IDS["other_wish"], None))
+        # ご承認の手順（N1〜N3）も同じ：ご承認のお断り「いや、それはちょっと。」・点・ご説明への返事・「なるほど。」を、手順の質問の前の話にしない
+        n1, n2, n3 = (CALLBACK_IDS[r] for r in ("not_agreed", "other_point", "agreed_now"))
+        a = ApprovalTest().flow()
+        self.say(a, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        a.on_callee(); a.on_heard("いや、それはちょっと。")
+        self.assertEqual(a.judge_context()[2], "届いてないです。")   # ご承認の質問（業務の前の答えで伺う質問）は、前の答えも前の話
+        a.apply("record_answer", {"question_id": "Q2", "condition_id": "いいえ"})
+        self.assertEqual(a.current, n1)
+        a.on_callee(); a.on_heard("料金のところですね。")
+        self.assertIsNone(a.judge_context()[2])
+        a.apply("record_answer", {"question_id": n1, "condition_id": "点を言った"})
+        a.apply("replay_opening", {"part": "answer_料金"})
+        a.on_callee(); a.on_heard("そうなんですね。")
+        a.apply("replay_opening", {"part": "resume"})
+        a.on_callee(); a.on_heard("なるほど。")
+        self.assertEqual((a.current, a.judge_context()[2]), (n2, None))
+        a.apply("record_answer", {"question_id": n2, "condition_id": "unknown"})
+        a.on_callee(); a.on_heard("そうですね、大丈夫です。")
+        self.assertEqual((a.current, a.judge_context()[2]), (n3, None))
+
     def test_talk_questions_carry_no_answer_text(self):
         # ✅ 2026-10-31 ユーザー：(4) の案「OK」＝電話のやり取りを読む問い合わせ（尋ねているか・待たせた方が戻ったか）には、お客様の答え用の文
         #    （言い切り・「わからない」「答えたくない」）を入れない。答えの段の問い合わせには、言い切りを聞く（会話になっているか＝FITS は、
@@ -17148,9 +17187,10 @@ class G73WordsTest(unittest.TestCase):
         self.assertNotIn(wish_label("phone"), wishes["W1@E1"][1].conditions)
 
     def test_g53_reads_the_prior_once_for_every_judge(self):
-        # 測り（G-53）は、前の言葉のある答え（N1〜N3・W1）の前の話の答えを、本番と同じ読み手の順で1件ずつ読み（read_priors）、どの判定の読みにも
-        # 同じものを添えて、流れの制御の動きを数える（prior_of＝本番の判定の組 JudgePanel.ask と同じ）。言い直さない質問で前の話と食い違えば、質問から
-        # 聞き直す動き（要らない聞き直し）として外れに数える
+        # 測り（G-53）は、前の言葉のある答えの前の話の答えを、本番と同じ読み手の順で1件ずつ読み（read_priors）、どの判定の読みにも同じものを添えて、
+        # 流れの制御の動きを数える（prior_of＝本番の判定の組 JudgePanel.ask と同じ）。システムの質問（N1〜N3・W1）には、本番と同じく前の話を渡さない
+        # （flowctl.before_words。⛔ 2026-11-07 日本時間11時台：W1 のきっかけの「どちらも要らないです。」を前の話の答えに「無い」と読み、正しい答えにも
+        # 意味合いを尋ねていた＝G-53d1base の 100件中32件）＝前の話の答えを読まない
         import unittest.mock as m
         from types import SimpleNamespace as N
         import g53_meaning as g
@@ -17158,21 +17198,20 @@ class G73WordsTest(unittest.TestCase):
         qm = g.question_map()
         w = qm["W1@G17"]
         before = answer_scenes()[w.text]["before"]
+        self.assertIsNone(before)
         it = {"set": "W1", "qid": "W1@G17", "text": "LINEならいいです。", "truth": "LINEでの連絡", "before": before, "j": "LINEでの連絡", "j言い切り": True}
         self.assertIsNone(g.flow_miss(it, w, "j"))
+        p = qm["G6"]   # 業務の質問は、前の答えも前の話（G-70 の場面 A2 と同じ言葉）
+        biz = {"set": "C", "qid": "G6", "text": "差し控えさせていただきます", "before": "車で伺うので、駐車場を使わせてください。"}
         got = []
 
         def read(clients, q, b):
             got.append((q.text, b))
-            return ("無い", 0.9, "無い")
+            return ("利用する", 0.9, "利用する")
         with m.patch("meaning_judge.read_prior_first", read), m.patch("meaning_judge.other_client", lambda *a, **k: None), \
                 m.patch("common.load_secret", lambda *a, **k: "k"):
-            n = g.read_priors(N(sets=None, env=None, budget_yen=1, tag="x"), [it, {"set": "B", "qid": "G1", "text": "はい"}], qm)
-        self.assertEqual((n, got, it[g.PRIOR_KEY]), (1, [(w.text, before)], "無い"))
-        # 前の話（無い）と食い違う ⇒ 判定の読みの選択肢で意味合いを尋ねる（✅ 11-05 23時56分48秒「ア」。それまでは質問から聞き直す）。正解は受け取る＝要らない
-        # 尋ねとして外れに数える
-        self.assertEqual(g.flow_miss(it, w, "j") is not None, True)
-        self.assertEqual(g.step_act(it, w, "j"), g.SENSE + "LINEでの連絡")
+            n = g.read_priors(N(sets=None, env=None, budget_yen=1, tag="x"), [it, biz, {"set": "B", "qid": "G1", "text": "はい"}], qm)
+        self.assertEqual((n, got, g.PRIOR_KEY in it, biz[g.PRIOR_KEY]), (1, [(p.text, biz["before"])], False, "利用する"))
         # 使い回す前の記録（前の言葉の無い N1 の言葉）にも、同じ1か所（g73_scene）で前の言葉を当てる
         from flowctl import callback_question
         n1 = callback_question("not_agreed")
