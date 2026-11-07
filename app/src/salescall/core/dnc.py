@@ -35,13 +35,15 @@ from uuid import UUID
 
 from salescall.core import approval, attempts, next_action, settings, tasks
 from salescall.core.access import Tx
+from salescall.core.judge import DNC_PARTS
 from salescall.core.phone import PhoneNumber, normalize
 
 Reason = Literal["refused_in_call", "refused_unclear_checked", "wrong_party", "fax_line", "manual", "client_list"]
 # お客様が断った：通話の中ではっきり断られた（refused_in_call）・切れ方の分からない通話のあとの確かめのかけ直しが鳴ったのに出なかった
 # ＝営業拒否とみなす（refused_unclear_checked。2026-10-30 管理者の決定。広げ方は営業拒否と同じ）。⛔ 2026-10-30 に外した：
-# refused_found_after（通話後の検証で見つけた断り。書く入口がどこにも無かった。あとから見つける道は録音から作り直した報告の1本）
-REFUSALS = frozenset({"refused_in_call", "refused_unclear_checked"})
+# refused_found_after（通話後の検証で見つけた断り。書く入口がどこにも無かった。あとから見つける道は録音から作り直した報告の1本）。
+# どの理由が断りかは、判定の表 judge.DNC_PARTS の1か所（⛔ 2026-11-07 見直し(3)の7：前はここにも同じ組を書いていた）
+REFUSALS = frozenset(r for r, part in DNC_PARTS.items() if part == "refusal")
 # お客様（行）ごと止める理由：お客様が断った・依頼者の一覧（依頼者が受けた、お客様の「かけないで」。Intent.md 原則14「止めるのは
 # お客様ごと」。誤って広げても「かけない」側の誤りで害は無い＝Intent.md 10-3）
 CUSTOMER_WIDE = REFUSALS | {"client_list"}
@@ -105,7 +107,7 @@ def register(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_
     管理番号）・released_claims。
     """
     numbers, refs = stop_set(tx, phone, reason, source_attempt_id=source_attempt_id, client_ref=client_ref, in_call=in_call)
-    _put(tx, numbers, refs, reason, source_attempt_id, import_id)
+    _put(tx, numbers, refs, reason, source_attempt_id, import_id, in_call=in_call)
     entry = (tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
                     (_number(phone).e164,)) if phone is not None else
              tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE client_ref = %s AND revoked_at IS NULL",
@@ -114,15 +116,17 @@ def register(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_
             "released_claims": _release_claims(tx, numbers, refs)}
 
 
-def _put(tx: Tx, numbers: list[str], refs: list[str], reason: str, source_attempt_id: UUID | None, import_id: UUID | None) -> None:
-    """台帳へ書く1か所（同じ番号・管理番号に、取り消していない登録があれば、そのまま＝台帳は番号ごとに1つ）。"""
+def _put(tx: Tx, numbers: list[str], refs: list[str], reason: str, source_attempt_id: UUID | None, import_id: UUID | None,
+         *, in_call: bool = False) -> None:
+    """台帳へ書く1か所（同じ番号・管理番号に、取り消していない登録があれば、そのまま＝台帳は番号ごとに1つ）。in_call＝通話の途中の申告
+    （`register_declared` だけ。その通話の番号1つ。印は `declared_in` が読む＝0198）。"""
     for e164 in numbers:
         tx.execute(
             "INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, source_attempt_id, registered_by,"
-            "                                   import_id)"
-            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), %s)"
+            "                                   import_id, in_call)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), %s, %s)"
             " ON CONFLICT (client_id, phone_e164) WHERE revoked_at IS NULL DO NOTHING",
-            (e164, reason, source_attempt_id, import_id),
+            (e164, reason, source_attempt_id, import_id, in_call),
         )
     for ref in refs:
         tx.execute(
@@ -167,11 +171,14 @@ def register_declared(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     return {**register(tx, a["phone_e164"], "refused_in_call", source_attempt_id=attempt_id, in_call=True), "held": False}
 
 
-def refused_in(tx: Tx, attempt_id: UUID, reason: Reason) -> bool:
-    """その通話の拒否が、台帳に入っているか（1か所。refused_in_call＝通話の途中の申告）。取り消した登録は数えない（取り消し＝契約者が誤りと確かめた。数えると、判定し直しで「発信の拒否」に
-    戻り、取り消した番号を締めがまた止めた）。"""
-    return tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s AND reason = %s"
-                  " AND revoked_at IS NULL LIMIT 1", (attempt_id, reason)) is not None
+def declared_in(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話の途中の申告が、台帳に入っているか（1か所。締めの判定の入力 declared_in_call と、判定し直すかの比べの両方が読む）。見るのは
+    申告の入口（`register_declared`）が入れた登録（印 in_call＝0198）だけ。⛔ 2026-11-07 見直し(3)の5：前は理由と出どころの通話だけで見て、
+    その通話の締めが自分で入れた発信禁止（同じ理由 refused_in_call・出どころ＝その通話）も申告と読み、締め直しで判定の中身の断りの名前が
+    in_call に変わり、取り消せない決定の控えの unsure から断りが消えた。取り消した登録は数えない（取り消し＝契約者が誤りと確かめた。
+    数えると、判定し直しで「発信の拒否」に戻り、取り消した番号を締めがまた止めた）。"""
+    return tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s AND in_call"
+                  " AND revoked_at IS NULL LIMIT 1", (attempt_id,)) is not None
 
 
 def active(tx: Tx, numbers: list[str], refs: list[str], *, contractor: bool = False) -> tuple[set[str], set[str]]:
@@ -321,7 +328,8 @@ def revoke_source(tx: Tx, attempt_id: UUID, reason: str) -> dict[str, Any]:
     return _revoke(tx, ids, reason)
 
 
-# 発信禁止の理由 → その通話の報告から外す決定の中身（call_report.DECISION_PARTS。取り消したときに締め直す＝`_revoke`）
+# 発信禁止の理由 → その通話の報告から外す決定の中身（call_report.DECISION_PARTS。取り消したときに締め直す＝`_revoke`）は、判定の表
+# judge.DNC_PARTS の1か所。`_revoke` が読むデータベースの salescall.revoked_parts の読み替えも同じもの（試験が比べる。2026-11-07 見直し(3)の7）
 
 def _revoke(tx: Tx, entry_ids: list[UUID], reason: str) -> dict[str, Any]:
     """取り消しの1か所（2026-10-30 管理者のご決定 (7)「案A」：誤って入れた発信禁止を取り消したら、その発信禁止で終えた行を予定に戻し、

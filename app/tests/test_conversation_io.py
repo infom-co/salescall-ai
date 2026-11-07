@@ -103,7 +103,7 @@ class Write(SettleBase):
         first = self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))
         again = self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))
         self.assertEqual(first["entry_id"], again["entry_id"])
-        self.assertTrue(self.tx(s, lambda tx: dnc.refused_in(tx, aid, "refused_in_call")))
+        self.assertTrue(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
 
 
 class Materials(SettleBase):

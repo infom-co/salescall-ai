@@ -744,7 +744,7 @@ class CountedCalls(SettleBase):
         self.settle(s, self.call(s, ["dialing", "no_answer"]))
         key = "callback_unspecified_time"
         counts = lambda: self.tx(s, lambda tx: (   # noqa: E731
-            next_action._times(tx, s["task"], key), next_action._said(tx, s["task"], key),
+            next_action._times(tx, s["task"], key), len(next_action._laters(tx, s["task"])),   # 「あとで」の並び（見直し(3)の4）
             next_action._unspecified_calls(tx, s["task"]), gate.pacing(tx, s["task"], promised=False).remaining))
         self.assertEqual(counts(), (1, 1, 1, 2))
         new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)
@@ -1076,7 +1076,8 @@ class DialFixAfterCalls(SettleBase):
         「あとで」があれば戻さない（安全側。next_action._later_refused の1か所）。約束の電話を方針の回数かけて話せずに終えた行は、
         「あとで」の意味に関係なく戻す（決めた回数で終えた行）。
         ✅ 2026-11-06 ユーザー＝計画書 7-1 (16)：営業拒否と読んだ「あとで」は、その通話の判定で断り（発信の拒否＝もうかけない・発信禁止に
-        登録。0195）なので、行はお客様が断った行（do_not_call）として終わり、番号を直しても戻らない（next_action.reopens_on_dial_fix）。"""
+        登録。0195）なので、行はお客様が断った行（do_not_call）として終わり、番号を直しても戻らない（next_action.reopens_on_dial_fix）。
+        営業拒否と読んだ「あとで」は、受付の営業拒否と同じ事実 do_not_call で書く（intent では書かない＝2026-11-07 見直し(3)の1）。"""
         keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
         for intents, back in (((None, None), False), (("promise", "refusal"), False), (("promise", "promise"), True),
                               (("unanswered",), True)):
@@ -1089,9 +1090,9 @@ class DialFixAfterCalls(SettleBase):
                         self.settle(s, self.call(s, report=rep(callback=callback("later", time="あとで"))))
                         self.at(s, s["contact"])
                         d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
-                    else:
-                        cb = replace(callback("later", time="あとで"), intent=intent)
-                        d = self.settle(s, self.call(s, report=rep(callback=cb)))["decision"]
+                    else:   # 営業拒否と読んだ「あとで」は、事実 do_not_call（intent は書かない）
+                        cb = replace(callback("later", time="あとで"), intent=None if intent == "refusal" else intent)
+                        d = self.settle(s, self.call(s, report=rep(callback=cb, dnc_=intent == "refusal")))["decision"]
                 why = "callback_unspecified_time" if intents == ("unanswered",) else \
                     "do_not_call" if "refusal" in intents else next_action.LATER_OVER
                 self.assertEqual((d.kind, d.end_reason), ("end", why))
@@ -1102,6 +1103,48 @@ class DialFixAfterCalls(SettleBase):
                 new = self.fixed(s)
                 p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
                 self.assertEqual((p["kind"], p["contact_id"] if back else p["end_reason"]), ("call", new) if back else ("end", why))
+
+    # ── 2026-11-07 見直し(3)の4：「あとで」と言われた回数と、戻すかを決めるときに見る「あとで」は、同じ並び（next_action._laters の1か所）
+    LATER_ONCE = {**{k: {"action": "call", "max_times": 3, "interval": {"hours": 1}} for k in ("open", "incomplete", "not_reached_absent")},
+                  "callback_unspecified_time": {"action": "call", "max_times": 1, "interval": {"hours": 1}}}
+
+    def later_call(self, s, contact, intent):
+        self.at(s, contact)
+        cb = replace(callback("later", time="あとで"), intent=intent)
+        return self.settle(s, self.call(s, report=rep(callback=cb)))["decision"]
+
+    def test_the_laters_counted_and_the_laters_read_at_a_fix_are_the_same(self):
+        """「あとで」と言われた回数（行を終えるか）と、番号を直したときに見る「あとで」（戻すか）は、同じ並び＝時刻の決まっていない約束の
+        判定だけ・行の回数の範囲（attempts.in_row_count。直したあと前の番号へかけた電話は数えない）・終えたときまで（next_action._laters の
+        1か所）。⛔ 2026-11-07 見直し(3)の4：前は数える所（行の回数の範囲）と戻すかを見る所（前の番号への電話も入る独自の問い合わせ）が
+        別で、直したあと前の番号で言われた「あとで」（意味はまだ分からない）を、数えないのに戻すかでは読み、戻さなかった。"""
+        s = self.ready(rules=rules_raw(retry=self.LATER_ONCE))
+        new = self.fixed(s)
+        d = self.later_call(s, s["contact"], None)                 # 直したあと、前の番号で約束の電話：「あとで」（意味はまだ分からない）
+        self.assertEqual(d.kind, "call")
+        self.assertEqual(self.later_call(s, new, "promise").kind, "call")   # 新しい番号の1回目（前の番号の「あとで」は数えない）
+        d = self.later_call(s, new, "promise")
+        self.assertEqual((d.kind, d.end_reason), ("end", next_action.LATER_OVER))
+        again = self.fixed(s)
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["contact_id"]), ("call", again))   # 数えた「あとで」は、どれも約束の一環
+
+    def test_only_untimed_laters_up_to_the_end_are_read(self):
+        """数えるのは時刻の決まっていない約束の判定（「あとで」）だけ（ほかの結果の通話は数えない・意味も読まない）。戻すかで見るのは、行を
+        終えたとき（as_of）までの「あとで」だけ（終えたあとにかけた電話の「あとで」は読まない）。⛔ 2026-11-07 見直し(3)の8（M1・M5）：
+        どちらの絞りも、外して落ちる試験が無かった。"""
+        s = self.ready(rules=rules_raw(retry=self.LATER_ONCE))
+        d = self.settle(s, self.call(s))["decision"]                # 必須の質問が取れていない（「あとで」ではない）
+        self.assertEqual(d.kind, "call")
+        self.assertEqual(self.later_call(s, s["contact"], "promise").kind, "call")
+        d = self.later_call(s, s["contact"], "promise")
+        self.assertEqual((d.kind, d.end_reason), ("end", next_action.LATER_OVER))
+        ended = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["decided_at"]
+        self.assertTrue(self.tx(s, lambda tx: next_action.reopens_on_dial_fix(tx, s["task"], next_action.LATER_OVER, as_of=ended)))
+        time.sleep(0.01)
+        self.later_call(s, s["contact"], None)                      # 終えたあとにかけた電話の「あとで」（意味はまだ分からない）
+        self.assertTrue(self.tx(s, lambda tx: next_action.reopens_on_dial_fix(tx, s["task"], next_action.LATER_OVER, as_of=ended)))
+        self.assertFalse(self.tx(s, lambda tx: next_action.reopens_on_dial_fix(tx, s["task"], next_action.LATER_OVER)))
 
     def test_a_row_put_back_by_a_fix_carries_no_apology_for_a_cut(self):
         """途中で切れたあと決めた回数までかけて終えた行を、番号を直して戻した電話には、途中で切れたお詫びの印を付けない（計画書 7-1 (11)。

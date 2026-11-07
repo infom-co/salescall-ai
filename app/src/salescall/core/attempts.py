@@ -93,24 +93,29 @@ def counts_as_try(table: str = "") -> str:
     return f"salescall.counts_as_try({t}state, {t}cut_off, {t}promised, {t}attempt_id)"
 
 
-def in_row_count(table: str = "") -> str:
+def in_row_count(table: str = "", at: str | None = None) -> str:
     """行の回数を数える範囲（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信のうち、前にかける番号だった番号へ
     かけたもの（直したあと、まず前の番号でかけた約束の電話）でないもの（直していなければ、すべて）。行の回数の上限・再発信の方針の回数・
     「あとで」と言われた回数・時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で数え直す」。
     数え始めの時刻は salescall.task_count_from＝0180、前にかける番号だった番号は salescall.task_number_replaced_at＝0188 の1か所。
     番号の立場は、かけたときの立場で見る＝⛔ 2026-11-06 の見直し (A) の2：前は「いま」の立場で見て、前の番号で話せてサブになった電話を、
-    あとから新しい番号の回数に数えた）。"""
+    あとから新しい番号の回数に数えた）。at＝その時刻で読む（SQL の式。`count_start`。None＝いま）。"""
     t = table + "." if table else ""
-    return (f"{count_start(table)}"
+    return (f"{count_start(table, at)}"
             f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)")
 
 
-def count_start(table: str = "") -> str:
+def count_start(table: str = "", at: str | None = None) -> str:
     """回数を数え始めてからの発信の条件（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信（直していなければ、すべて）。
     数え始めの時刻はデータベースの salescall.task_count_from（0180）。行の回数（`in_row_count`）と、その番号へかける電話の回数（番号の
-    聞き直し・お詫び＝gate.purpose_dials）の両方が読む（✅ 2026-11-06 ユーザー＝計画書 7-1 (3)・(15)：「新しい番号で数え直す」。0195）。"""
+    聞き直し・お詫び＝gate.purpose_dials）の両方が読む（✅ 2026-11-06 ユーザー＝計画書 7-1 (3)・(15)：「新しい番号で数え直す」。0195）。
+    at＝その時刻で読む（SQL の式。例：行を終えた時刻の "%s"）：その時刻の数え始め（salescall.task_count_from_at＝0194）から、その時刻
+    までに予約した発信（番号を直したときに、終えた行を戻すかを決める所が、終えたときに数えた回数と同じ範囲を読む＝next_action._laters。
+    2026-11-07 見直し(3)の4）。None＝いま。"""
     t = table + "." if table else ""
-    return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
+    if at is None:
+        return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
+    return f"{t}claimed_at >= salescall.task_count_from_at({t}task_id, {at}) AND {t}claimed_at <= {at}"
 
 
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）

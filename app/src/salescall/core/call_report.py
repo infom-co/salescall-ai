@@ -57,6 +57,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
+from salescall.core import spoken_time
 from salescall.core.access import Tx
 from salescall.core.phone import normalize
 
@@ -157,15 +158,16 @@ CALLBACK_REASONS = ("absent", "long_absent", "day_off", "other_number", "later",
 UNTIMED_OUTCOMES = {"absent": ("absent", "not_reached_absent"), "long_absent": ("absent", "not_reached_absent"),
                     "day_off": ("absent", "not_reached_absent"),
                     "unavailable": ("not_transferred", "not_reached_not_transferred")}
-# 時刻の無いかけ直しの申し出（「あとで」など）が、約束の一環か営業拒否か（会話の側の読み。✅ 2026-11-06 ユーザー＝計画書 7-1 (13)：
-# 「営業拒否でなければ戻せます。あくまで後でというのは約束の一環なのか営業拒否なのかというのを判断する必要があります。」）。判定は
-# 判定の中身の callback.intent に残す。営業拒否（refusal）の申し出が1つでもあれば、その通話の判定でも断り（発信の拒否＝もうかけない・
-# 発信禁止に登録。原則14）として扱う（✅ 2026-11-06 ユーザー＝計画書 7-1 (16)。断りに入れる所は `CallReport.do_not_call` の1か所＝受付で
-# 「営業はお断り」と言われたときと同じ道。0195）。約束の一環（promise）・無い（読んでいない）ときの判定は変えない。番号を直したときに
-# 「あとで」を方針の回数より多く言って終えた行を戻すかは、どれも約束の一環のときだけ（next_action._later_refused。無い＝まだ分からない
-# ＝戻さない）。CL-2 の連絡帳 4-236・4-238 で CL-1 に頼んだ・知らせた
-LATER_PROMISE, LATER_REFUSAL = "promise", "refusal"
-LATER_INTENTS = (LATER_PROMISE, LATER_REFUSAL)
+# 時刻の決まらないかけ直しの申し出（「あとで」など＝`Callback.later`）が、約束の一環か（会話の側の読み。✅ 2026-11-06 ユーザー＝計画書
+# 7-1 (13)：「営業拒否でなければ戻せます。あくまで後でというのは約束の一環なのか営業拒否なのかというのを判断する必要があります。」）。
+# 書けるのは約束の一環（promise）だけで、書かない＝まだ分からない。判定は判定の中身の callback.intent に残すだけ（判定の結果は変えない）。
+# 番号を直したときに「あとで」を方針の回数より多く言って終えた行を戻すかは、どれも約束の一環のときだけ（next_action._later_refused）。
+# 営業拒否と読んだ「あとで」は、受付で「営業はお断り」と言われたときと同じ事実 do_not_call（2つ目の判定がそろったかは irreversible_check）
+# の1本で書く（✅ 2026-11-06 ユーザー＝計画書 7-1 (16)「断りとして扱う」）。⛔ 2026-11-07 見直し(3)の1：前は intent＝refusal という2つ目の
+# 断りの道があり（0195）、2つ目の判定がその「あとで」を読んだかに関係なく、報告の irreversible_check が agreed なら、その場で発信禁止に
+# 登録しえた ⇒ "refusal" は報告の誤り（ReportInvalid）。CL-2 の連絡帳 4-236・4-238・4-250 で CL-1 に頼んだ・知らせた
+LATER_PROMISE = "promise"
+LATER_INTENTS = (LATER_PROMISE,)
 ENDING_CALLBACKS = ("other_means",)                      # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
 # お客様の申し出（CL-1 の OFFER_LABEL の鍵）：折り返し・伝言・メール・ファクス・郵送。折り返し（callback）は、CL-1 の連絡帳 4-104 から、答えの段の判定
 # 「お客様から折り返す」（会話の側の flowctl.LATER_THEIRS・later_offer の1か所）でも付く（記録だけ。判定はこちらからかけ直す約束と同じ）
@@ -283,9 +285,17 @@ class Callback:
     #                                  ユーザー：「案B＆案A(確かめたうえで案A)」。読むのは時刻の読み spoken_time.read の1か所＝judge._when）
     until_why: str | None = None     # 「〇時まで」の言い方のときの、いま電話を続けられなかった理由（UNTIL_WHYS）。かけ直しの理由（reason）
     #                                  だけで決まらないとき（あとで など）だけ書く（UNTIL_BY_REASON の理由に書けば報告の形の誤り）
-    intent: str | None = None        # 時刻の決まらない申し出（「あとで」など）が、約束の一環（promise）か営業拒否（refusal）か（LATER_INTENTS。
-    #                                  無い＝読んでいない。判定の中身 callback.intent に残す。0194・計画書 7-1 (13)）。営業拒否なら、その
-    #                                  通話は断り（`CallReport.later_refusal`→`do_not_call`。計画書 7-1 (16)・0195）
+    intent: str | None = None        # 時刻の決まらない申し出（`later`）が約束の一環か（LATER_INTENTS＝promise だけ。無い＝まだ分からない。
+    #                                  判定の中身 callback.intent に残す。0194・計画書 7-1 (13)）。営業拒否の「あとで」は事実 do_not_call で書く
+
+    @property
+    def later(self) -> bool:
+        """時刻の決まらない申し出（「あとで」など）か（1か所。会話の報告の intent を書けるのは、これだけ＝`from_json`）：電話で
+        かけ直す申し出で（ほかの手段＝ENDING_CALLBACKS でない）、時刻が取れなければ約束にしない理由（不在の仲間・ご事情＝
+        UNTIMED_OUTCOMES）でもなく、時刻の言葉が「時刻の決まっていない」（言葉が無い・「あとで」「いつでも」など＝spoken_time.unspecified の
+        1か所）。判定が時刻の決まっていない約束（再発信の方針 callback_unspecified_time）にする申し出と同じ（judge の (7)。試験が比べる）。"""
+        return (self.reason not in ENDING_CALLBACKS and self.reason not in UNTIMED_OUTCOMES
+                and spoken_time.unspecified(self.time_said))
 
     @property
     def until_reason(self) -> str | None:
@@ -575,17 +585,11 @@ class CallReport:
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
     def do_not_call(self) -> bool:
-        """発信の拒否の候補（申告か、判定が届かずに会話AIの読みで「通話を断られた」と締めた、か、かけ直しの申し出「あとで」を営業拒否と
-        読んだ＝`later_refusal`）。どれも取り消せない決定で、2つ目の判定がそろったか（judge.irreversible）で、その場で決めるか、録音の
-        確かめまで保留にする。断りに入れるのは、ここの1か所（判定の (2)＝judge.refusal が読む）。"""
-        return bool(self.refusals) or self.unjudged_refusal or self.later_refusal
-
-    @property
-    def later_refusal(self) -> bool:
-        """かけ直しの申し出（「あとで」など）を、会話の側が営業拒否と読んだ（intent＝refusal）ものがあるか（✅ 2026-11-06 ユーザー＝計画書
-        7-1 (16)：会話の担当がお客様の「あとで」を営業拒否と読んだとき、その通話の判定でも「断りとして扱う」）。申告（refusals）と同じく、
-        通話の中のどれか1つでもあれば断り（受付で「営業はお断り」と言われたときと同じ道。新しい断りの道は作らない）。"""
-        return any(c.intent == LATER_REFUSAL for c in self.callbacks)
+        """発信の拒否の候補（申告＝事実 do_not_call か、判定が届かずに会話AIの読みで「通話を断られた」と締めた）。受付の営業拒否も、
+        会話の側が営業拒否と読んだ「あとで」（計画書 7-1 (16)）も、申告の1本で来る（2026-11-07 見直し(3)の1）。どれも取り消せない決定で、
+        2つ目の判定がそろったか（judge.irreversible）で、その場で決めるか、録音の確かめまで保留にする。断りに入れるのは、ここの1か所
+        （判定の (2)＝judge.refusal が読む）。"""
+        return bool(self.refusals) or self.unjudged_refusal
 
     @property
     def complaint(self) -> bool:
@@ -690,8 +694,8 @@ class CallReport:
 
     def without(self, parts: frozenset[str] | set[str] | tuple[str, ...]) -> CallReport:
         """取り消せない決定の中身（DECISION_PARTS）を、この報告から外した形（1か所。差し戻し・発信禁止の取り消しのあと、その通話を
-        ふつうに締めるため＝core/settle._judge_input）。断り＝発信禁止の申告と、切れ方の「断りの言葉のあとに切れた」と、「あとで」を
-        営業拒否と読んだ印（`later_refusal`）／番号違い・FAX＝その電話口の種別／怒っていた＝苦情。2つ目の判定の項目はそのまま（外さなかった決定は、そろっていればそのまま決まる）。"""
+        ふつうに締めるため＝core/settle._judge_input）。断り＝発信禁止の申告と、切れ方の「断りの言葉のあとに切れた」と、判定が届かずに
+        「通話を断られた」と締めた印（断りを外したら、同じ通話の「あとで」は約束の一環とみなす）／番号違い・FAX＝その電話口の種別／怒っていた＝苦情。2つ目の判定の項目はそのまま（外さなかった決定は、そろっていればそのまま決まる）。"""
         unknown = set(parts) - set(DECISION_PARTS)
         if unknown:
             raise ValueError(f"報告から外せるのは {DECISION_PARTS} です：{sorted(unknown)}")
@@ -704,9 +708,10 @@ class CallReport:
         unjudged = {"refusal": "callee_refused_call", "complaint": "callee_complaint"}
         drop_unjudged = {unjudged[p] for p in parts if p in unjudged}
         return replace(self, refusals=() if "refusal" in parts else self.refusals,
-                       # 断りを外したら、「あとで」を営業拒否と読んだ印も外す（断りではなかった。約束の一環かは分からない＝無い。
-                       # 番号を直したときは戻さない側＝next_action._later_refused。計画書 7-1 (16)・0195）
-                       callbacks=tuple(replace(c, intent=None) if "refusal" in parts and c.intent == LATER_REFUSAL else c
+                       # 断りを外したら（差し戻し・発信禁止の取り消しで「断りではなかった」と決まった）、同じ通話の時刻の決まらない申し出
+                       # （「あとで」＝`Callback.later`）は約束の一環とみなす（✅ 2026-11-07 ユーザー：「約束の一環とみなす」。番号を直したときに
+                       # 戻す側＝next_action._later_refused）
+                       callbacks=tuple(replace(c, intent=LATER_PROMISE) if "refusal" in parts and c.later else c
                                        for c in self.callbacks),
                        complaints=() if "complaint" in parts else self.complaints,
                        unjudged_ends=tuple(u for u in self.unjudged_ends if u.reason not in drop_unjudged),
@@ -962,19 +967,23 @@ def from_json(raw: Any) -> CallReport:
         number = _text(r.get("number"), "facts.callback.number")
         if number is not None and reason != "other_number":
             raise ReportInvalid("番号を持つのは、別の番号のかけ直しだけです")
+        # 約束の一環か（intent）は promise だけ（営業拒否の「あとで」は事実 do_not_call で書く＝2026-11-07 見直し(3)の1）
         intent = _choice(r.get("intent"), LATER_INTENTS, "facts.callback.intent", optional=True)
-        callbacks.append(Callback(reason, _text(r.get("time"), "facts.callback.time"), number,
-                                  _text(r.get("person"), "facts.callback.person"), s,
-                                  _choice(r.get("cycle"), CALLBACK_CYCLES, "facts.callback.cycle", optional=True),
-                                  None if "read" not in r else _reads(r["read"], "facts.callback.read"),
-                                  "connected" in r and _bool(r, "connected"),
-                                  _choice(r.get("offer"), CALLBACK_OFFERS, "facts.callback.offer", optional=True),
-                                  tuple((k, _value(r[k], f"facts.callback.{k}")) for k in CALLBACK_MEANS if k in r),
-                                  "message_left" in r and _true(r, "message_left"),
-                                  _bool(r, "again") if "again" in r else None,
-                                  _bool(r, "back_today") if "back_today" in r else None,
-                                  "beyond_limit_ok" in r and _bool(r, "beyond_limit_ok"),
-                                  _until_why(r, reason), intent))
+        cb = Callback(reason, _text(r.get("time"), "facts.callback.time"), number,
+                      _text(r.get("person"), "facts.callback.person"), s,
+                      _choice(r.get("cycle"), CALLBACK_CYCLES, "facts.callback.cycle", optional=True),
+                      None if "read" not in r else _reads(r["read"], "facts.callback.read"),
+                      "connected" in r and _bool(r, "connected"),
+                      _choice(r.get("offer"), CALLBACK_OFFERS, "facts.callback.offer", optional=True),
+                      tuple((k, _value(r[k], f"facts.callback.{k}")) for k in CALLBACK_MEANS if k in r),
+                      "message_left" in r and _true(r, "message_left"),
+                      _bool(r, "again") if "again" in r else None,
+                      _bool(r, "back_today") if "back_today" in r else None,
+                      "beyond_limit_ok" in r and _bool(r, "beyond_limit_ok"),
+                      _until_why(r, reason), intent)
+        if intent is not None and not cb.later:   # 約束の一環かを書けるのは、時刻の決まらない申し出（「あとで」）だけ（2026-11-07 見直し(3)の3）
+            raise ReportInvalid("facts.callback.intent を書けるのは、時刻の決まらないかけ直しの申し出（「あとで」など）だけです")
+        callbacks.append(cb)
     ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
                  for r, s in _records(facts, "end", {"reason"}))
     if any(e.reason in NEVER_CLOSES for e in ends):

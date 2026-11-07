@@ -18,14 +18,26 @@
       番号違いの電話口が断った・何も言わずに切ったときも、ここ（止めるのは、その番号だけ。行のお客様が断ったのではない
       ので、行の番号すべて・管理番号へ広げない。DESIGN.md 3-6。2026-10-16 見直し：前は断りを先に見て、番号違いの相手の
       断りで、行のお客様ごと止めていた）
-  (2) 発信の拒否（通話中の申告・かけ直しの申し出「あとで」を会話の側が営業拒否と読んだ＝計画書 7-1 (16)・
-      切れ方の判定が「断った」＝営業拒否の言葉のあとに切れた・
-      切れ方の分からない通話のあとの確かめのかけ直しが鳴ったのに、お客様が出て話さなかった＝2026-10-30 管理者の決定）  ⇒ do_not_call
-      (1)(2) は `refusal` の1か所（お詫びの電話の締めも使う）。はっきりした拒否は、切れ方の材料が無くても拒否
+  (2) 発信の拒否                                                                    ⇒ do_not_call
+      - 通話中の申告（会話の報告の事実 do_not_call・申告の入口が台帳に入れた登録＝dnc.declared_in）。受付で「営業はお断り」と言われた
+        ときも、会話の側がお客様の「あとで」を営業拒否と読んだとき（計画書 7-1 (16)）も、この1本（2026-11-07 見直し(3)の1：前は
+        かけ直しの申し出の intent＝refusal という2つ目の道があった）。中身の refusal＝in_call
+      - 判定が届かず、会話AIの読みで「通話を断られた」と締めた（事実 end_unjudged。録音の確かめまで保留の候補）。中身の refusal＝unjudged
+      - 切れ方の分からない通話のあとの確かめのかけ直しが鳴ったのに、お客様が出て話さなかった（2026-10-30 管理者の決定）。
+        発信禁止 refused_unclear_checked・中身の refusal＝unclear_checked
+      - 言ってはいけないことを言った通話で、切れ方が決められない（断りの候補。取り消せない決定の保留で決める＝2026-10-31 管理者：伺い3）。
+        発信禁止 refused_unclear_checked・中身の refusal＝unclear_forbidden
+      - 切れ方の判定が「断った」（営業拒否の言葉のあとに切れた）。中身の refusal＝cut
+      はっきりした拒否（申告）は、切れ方の材料が無くても拒否。断りが無く、お客様と話したのに切れ方の材料が無ければ unknown（cut_missing）。
+      (0)(1)(2) は `refusal` の1か所（お詫びの電話の締めも使う）
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
-  (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
-  (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
-  (6) 取れていない必須の質問の扱いが「結論として終える」                              ⇒ concluded（結論の名前）
+  (3b) ご承認の質問でご納得いただけず、担当の者に申し伝えることにして締めた（締めた理由 not_agreed） ⇒ concluded（not_agreed）
+  (4) 用件を断られた（最終目的の申し出を断られ、目的が果たせなくなった＝会話の報告の事実 goal_refused）  ⇒ declined
+  (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義。伺っていない（対象外）の質問は数えない） ⇒ completed
+  (6) 取れていない必須の質問の扱いが「結論として終える」のものが1つでもある（お客様と話した通話だけ見る。⛔ 「どれもが」＝見直し J7 は
+      2026-10-17 に取り下げた）                                                    ⇒ concluded（結論の名前）
+      理由の無い「わからない」「答えない」⇒ unknown（reason_missing）
+  (6b) お呼びした方が在籍しておらず、行を終える（事実 departed。約束・かけ直しより先）  ⇒ not_reached（departed）
   (7) かけ直しの約束（お客様に頼まれた・分かるお客様／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
       読むのは、いちばん新しい申し出（その質問の途中で目的のお客様に繋がった申し出＝要らなくなったものは読まない。
       call_report.CallReport.callback の1か所。2026-10-22 CL-1 の連絡帳 4-27）
@@ -58,7 +70,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-06.2+time-{spoken_time.VERSION}"   # 2026-11-06.2（計画書 7-1 (16)・0195）：かけ直しの申し出「あとで」を会話の側が営業拒否と読んだ（会話の報告の Callback.intent＝refusal）通話は、断り（発信の拒否＝もうかけない・発信禁止に登録。受付で営業拒否を言われたときと同じ (2) の道＝call_report.CallReport.do_not_call の1か所。判定の中身 refusal＝later）。約束の一環・読んでいないときは変わらない
+JUDGE_VERSION = f"judge-2026-11-07.1+time-{spoken_time.VERSION}"   # 2026-11-07.1（見直し(3)の1・5）：断りを言い表す道を1本にした。会話の側が営業拒否と読んだ「あとで」も、受付の営業拒否と同じ事実 do_not_call（2つ目の判定は irreversible_check）で来る。かけ直しの申し出の intent は約束の一環（promise）だけ（"refusal" は報告の誤り＝call_report.from_json）。判定の中身 refusal の later は無くなった（申告と同じ in_call）。通話の途中の申告かは、申告の入口が入れた登録だけで見る（dnc.declared_in。締めが自分で入れた登録を締め直しで申告と読まない）
+# 前の版：   # 2026-11-06.2（計画書 7-1 (16)・0195）：かけ直しの申し出「あとで」を会話の側が営業拒否と読んだ（会話の報告の Callback.intent＝refusal）通話は、断り（発信の拒否＝もうかけない・発信禁止に登録。受付で営業拒否を言われたときと同じ (2) の道＝call_report.CallReport.do_not_call の1か所。判定の中身 refusal＝later）。約束の一環・読んでいないときは変わらない
 # 前の版：   # 2026-11-06.1（計画書 7-1 (13)・0194）：時刻の無いかけ直しの申し出が約束の一環か営業拒否か（会話の報告の Callback.intent）を、判定の中身 callback.intent に残す（判定の結果は変わらない。番号を直したとき「あとで」を方針の回数より多く言って終えた行を戻すかが読む）
 # 前の版：   # 2026-11-05.2（CL-2 の連絡帳 4-213）：手順を伺い終えていない答え（会話の報告の unfinished）は、まだ受け取っていない答えとして読む（JudgeInput.answers。続きの電話がかかる）・判定の中身で依頼者へ返す
 # 前の版：   # 2026-11-05.1（CL-1 の 4-81 の (3)）：ほかのご希望の LINE の連絡先をどの形でいただいたか（事実 other_wish の via）も判定の中身で依頼者へ返す（判定の結果は変わらない）
@@ -98,6 +111,12 @@ PROGRAM_CAUSES = frozenset(UNKNOWN_CAUSE_FIXERS)
 REFUSAL_KNOWN: dict[str, bool] = {"report_missing": False, "cut_missing": False, "reason_missing": True,
                                   "not_reached_reason_missing": True, "callback_time_unreadable": True,
                                   "callback_time_unconfirmed": True}
+# 判定が出す発信禁止の理由 → その通話の取り消せない決定の中身（call_report.DECISION_PARTS。1つの表）。お客様の断り（refused_*）は
+# refusal。発信禁止の部品の断りの組（dnc.REFUSALS＝お客様ごと止める理由）・取り消せない決定（`irreversible`）が、これを読む。データベースの
+# salescall.revoked_parts（取り消したときに報告から外す中身。0161）の読み替えも同じもの（試験が比べる＝tests.test_irreversible.Declared）。
+# ⛔ 2026-11-07 見直し(3)の7：前は judge・dnc・データベースの3か所に別々にあった
+DNC_PARTS: dict[str, str] = {"refused_in_call": "refusal", "refused_unclear_checked": "refusal", "wrong_party": "wrong_party",
+                             "fax_line": "fax"}
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 # 会話の報告を受け取った状態（取れた＋「わからない」「答えたくない」。会話の側の flowctl.TAKEN と同じ）：前の答えで伺う質問は、前の質問が
 # この状態になってから、その答えで伺うかが決まる（会話の側の Flow._follow_ups。`not_asked` の1か所）
@@ -132,7 +151,8 @@ class JudgeInput:
     # ⛔ 2026-10-30 に外した入力：refused_after（通話後の検証で見つけた断り。書く入口がどこにも無く、使われない道だった。断りを
     # あとから見つける道は「録音から作り直した報告」の1本＝call_report.save_rebuilt）・unclear_is_refusal（設定
     # judge.unclear_disconnect_is_refusal。決め方が管理者の決定の1つ＝確かめのかけ直しになったので、設定ごと外した）
-    # 通話の途中の「もうかけないで」が、その場で台帳に入っている（dnc.register_declared）。⚠️ 会話の処理が報告を書く前に
+    # 通話の途中の「もうかけないで」が、その場で台帳に入っている（申告の入口 dnc.register_declared が入れた登録だけ＝dnc.declared_in の
+    # 1か所。締めが自分で入れた登録は入れない＝2026-11-07 見直し(3)の5。断りを外すと答えた通話は見ない＝settle._judge_input）。⚠️ 会話の処理が報告を書く前に
     # 落ちても、申告は台帳にある：報告だけを見ると、断りを見落として、行のほかの番号へ広げず、お詫びしてかけ直そうとした
     # （2026-10-19 の見直し）
     declared_in_call: bool = False
@@ -216,13 +236,14 @@ def irreversible(inp: JudgeInput, j: Judgement) -> Irreversible | None:
     parts: set[str] = set()
     unsure: set[str] = set()
     undecided: set[str] = set()
-    if j.dnc_reason in ("refused_in_call", "refused_unclear_checked"):
+    part = DNC_PARTS.get(j.dnc_reason or "")   # 発信禁止の理由の読み替えは1つの表（FAX の回線は音の信号から分かるので入れない）
+    if part == "refusal":
         parts.add("refusal")
         if j.detail.get("refusal") == "unclear_forbidden":
             undecided.add("refusal")
         elif not (inp.declared_in_call or j.detail.get("refusal") == "unclear_checked"):
             unsure.add("refusal")
-    if j.dnc_reason == "wrong_party":
+    if part == "wrong_party":
         parts.add("wrong_party")
         unsure.add("wrong_party")
     if j.complaint:
@@ -343,9 +364,8 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     # (2) 発信の拒否（原則14）：はっきりした拒否が先、切れ方はそのあと
     if (r and r.do_not_call) or inp.declared_in_call:   # 申告の台帳も見る（報告が無い・報告から抜けた＝結果不明の通話も）
         # 判定が届かず会話AIの読みで「通話を断られた」と締めただけ（申告が無い）は、録音の確かめまで保留の候補（judge.irreversible）。
-        # 申告は無く、「あとで」を営業拒否と読んだ（call_report.CallReport.later_refusal。計画書 7-1 (16)・0195）は、申告と同じく2つ目の
-        # 判定がそろったかで決める（中身の名前だけ later。発信禁止の理由・広げ方は申告と同じ refused_in_call）
-        how = ("in_call" if r is None or r.refusals or inp.declared_in_call else "unjudged" if r.unjudged_refusal else "later")
+        # 会話の側が営業拒否と読んだ「あとで」も申告（事実 do_not_call）で来る（計画書 7-1 (16)。2026-11-07 見直し(3)の1）＝in_call
+        how = "in_call" if r is None or r.refusals or inp.declared_in_call else "unjudged"
         return done("do_not_call", dnc="refused_in_call", refusal=how)
     # 切れ方の分からない通話のあとの確かめのかけ直しが、お客様の電話まで鳴ったのに、お客様が出て話さなかった（出なかった・留守電）：
     # 両方の回線は元気なので、前の通話はお客様が切った＝営業拒否とみなす（2026-10-30 管理者の決定。発信禁止の登録は、ほかの営業拒否と
