@@ -3531,6 +3531,17 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual((got.probs, got.confs, got.sure), ({"choice": {"はい": 0.03, "いいえ": 0.95, "決められない": 0.02}},
                                                              {"choice": 0.95, END: 0.41}, 0.41))
         self.assertIsNone(read(q, json.dumps({"choice": "いいえ", "firm": True})).probs)   # 返さない判定・前の記録は無し
+        # 読みの確からしさは、その読みで流れの制御が使う問いだけで決める（✅ 2026-11-07 日本時間11時29分43秒 ユーザー「違うなら、抜けている部分を
+        #   洗い出して、直しに入れてください」＝途中のご報告の (ア)。G-53d1base で、確かでない読みの約6割に、答えがわからないでないのに使わない
+        #   「分からない理由」の問いが入っていた）：分からない理由は答えが わからない・答えたくない のときだけ・声が届いていない様子は入れない
+        #   （確かでない読みでも切れ方の材料に使う＝確からしさに関係しない）・電話を終える言葉かはいつも入れる
+        from flowctl import HEAR, WHY
+        data = {"answers": {"choice": {"choice": "いいえ", "confidence": 0.95}, END: {"choice": "言っていない", "confidence": 0.9},
+                            HEAR: {"choice": "そういう様子は無い", "confidence": 0.3}, WHY: {"choice": "決められない", "confidence": 0.4},
+                            "firm": {"noul": 0.99}}}
+        self.assertEqual(read(q, other_text("d1 Ultra（Liquid）", data)).sure, 0.9)
+        data["answers"]["choice"]["choice"] = "わからない"   # 答えが わからない なら、分からない理由の問いも使う
+        self.assertEqual(read(q, other_text("d1 Ultra（Liquid）", data)).sure, 0.4)
 
     def test_answer_reading_has_no_talk_axis(self):
         # ✅ 2026-10-31 の夜 ユーザー「(a) OK」：会話になっているか（FITS）を判定に答えさせる軸を外した（G-53final で、正しく救った答えは0・壊した

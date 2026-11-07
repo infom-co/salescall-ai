@@ -535,7 +535,23 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
     if r is not None:   # 測りの記録だけが使う確からしさの広がり（どの問いの読みでも同じ1か所）
         r.probs = got.get("probs") if isinstance(got.get("probs"), dict) else None
         r.confs = got.get("confs") if isinstance(got.get("confs"), dict) else None
+        used = used_sure(r.confs, str(r))
+        if used is not None:
+            r.sure = used
     return r
+
+
+def used_sure(confs: dict | None, cond: str) -> float | None:
+    """読みの確からしさ＝その読みで流れの制御が使う問いの、選んだものの確からしさのいちばん低いもの（唯一の決まり。問いごとの確からしさを返す
+    判定だけ＝判断のモデル。返さなければ None＝返事の sure のまま）。分からない理由（WHY）は答えが わからない・答えたくない のときだけ使う
+    （Flow._why_of）・声が届いていない様子（HEAR）は確からしさに関係なく切れ方の材料に使う（確かでない読みも数える＝Flow.cut）ので入れない・
+    答えと電話を終える言葉か（END）と項目ごとの答えは、いつも使う。✅ 2026-11-07 日本時間11時29分43秒 ユーザー「違うなら、抜けている部分を
+    洗い出して、直しに入れてください」（途中のご報告の (ア)）。⛔ それまでは返した問いの全部のいちばん低いもので、G-53d1base では確かでない読みの
+    約6割に、答えが わからない でないのに使わない分からない理由の問いが入っていた"""
+    if not confs:
+        return None
+    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused"))]
+    return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 
 def _read_one(q, got: dict, name, firm, sure, asked) -> "Reading | None":
