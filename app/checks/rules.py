@@ -180,6 +180,20 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     # tasks.fix_dial_number＝下の PY_ENTRY_CALLERS で入口 row_fixes だけが呼ぶ。新しい約束の選びは row_fixes.choose_old_promise）
     "task_dial_fixes": {"INSERT": frozenset({_CORE + "tasks.py"})},
     "task_old_promise_choices": {"INSERT": frozenset({_CORE + "row_fixes.py"})},
+    # 0206 で足した（それまで一覧に無く、業務の土台のどこからでも書けた表）。お客様リストの行の欄の直し（お呼びする方の名前などの直しは、前の
+    # 担当の方との約束の選びも持つ＝予定も同じ取引で決め直す入口 row_fixes.fix だけ）・行の連絡先・お客様が指定した番号・サブの番号・版の写しと
+    # つながり
+    "task_fixes": {"INSERT": frozenset({_CORE + "row_fixes.py"})},
+    "task_contacts": {"INSERT": frozenset({_CORE + "customer_contacts.py"})},
+    "task_designations": {"INSERT": frozenset({_CORE + "tasks.py"})},
+    "task_sub_numbers": {"INSERT": frozenset({_CORE + "tasks.py"})},
+    "version_copies": {"INSERT": frozenset({_CORE + "business_settings.py"})},
+    "version_successions": {"INSERT": frozenset({_CORE + "business_settings.py"})},
+    # 0206 で足した：アプリの役は読むだけの表（書くのは表の作り・データベースの関数だけ。仕事の借用 take_job・修正依頼 request_fix などは
+    # 下の WRITE_FUNCTIONS）
+    **{t: {"INSERT": frozenset(), "UPDATE": frozenset()}
+       for t in ("approved_contents", "attempt_transitions", "field_types", "fix_requests", "job_leases", "name_recording_reviews",
+                 "name_review_skips", "part_contents", "setting_definitions", "stop_lets_through")},
     "dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},  # Q3
     "contractor_dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},
     "stop_events": {"INSERT": frozenset({_CORE + "stops.py"})},              # 運転の状態（Q13）
@@ -596,6 +610,16 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     # かける番号の直しの記録（前の担当の方との約束の選びも持つ）：書くのは入口 row_fixes.fix_dial_number だけ（同じ取引で予定を決め直す＝
     # next_action.after_dial_fix。見直し H の (B2)：下の層を直に呼ぶと、記録は「約束をやめた」、予定は前の担当の方への約束のまま、と食い違った）
     ("tasks", "fix_dial_number"): frozenset({_CORE + "row_fixes.py"}),
+    # お客様リストの行の直し（ダッシュボード。0178・0179・0202・0206）：契約者・管理者が画面で直す入口は、画面だけ（直しの記録と、前の担当の方との
+    # 約束の選びと、予定の決め直しを、同じ取引で行う1か所。ほかの部品から呼ぶと、契約者の選び無しに担当の期が替わる）。画面が2つ目の選びを出すか
+    # 読む入口も画面だけ。直したあと・選んだあとの予定を決め直すのは、その入口の部品だけ（予定だけ・記録だけを書く道を作らない）
+    ("row_fixes", "fix"): frozenset({WEB_PLACE}),
+    ("row_fixes", "fix_dial_number"): frozenset({WEB_PLACE}),
+    ("row_fixes", "choose_old_promise"): frozenset({WEB_PLACE}),
+    ("row_fixes", "old_promise_choice_needed"): frozenset({WEB_PLACE}),
+    ("next_action", "after_dial_fix"): frozenset({_CORE + "row_fixes.py"}),
+    ("next_action", "after_person_fix"): frozenset({_CORE + "row_fixes.py"}),
+    ("next_action", "after_old_promise_choice"): frozenset({_CORE + "row_fixes.py"}),
 }
 
 
