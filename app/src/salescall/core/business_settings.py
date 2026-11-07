@@ -1710,9 +1710,10 @@ def in_use_versions(tx: Tx, business_id: UUID | None = None) -> list[UUID]:
     return sorted({r["version_id"] for r in _versions_in_use(tx, business_id)})
 
 
-def in_use_runs(tx: Tx) -> list[UUID]:
-    """まだ終えていない行のある、版のある実施回（取引の依頼者の範囲）。"""
-    return [r["run_id"] for r in _versions_in_use(tx)]
+def in_use_runs(tx: Tx, business_id: UUID | None = None) -> list[UUID]:
+    """まだ終えていない行のある、版のある実施回（取引の依頼者の範囲。business_id＝その業務の実施回だけ＝取り込み直しで入れない解決策を
+    決める client_solutions.held_back が読む）。"""
+    return [r["run_id"] for r in _versions_in_use(tx, business_id)]
 
 
 def derive_for_standard(tx: Tx, version_id: UUID | None = None) -> list[UUID]:

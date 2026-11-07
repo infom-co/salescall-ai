@@ -467,7 +467,7 @@ def _line_taken(tx: Tx, task: dict[str, Any], line_id: UUID, today: Any) -> bool
     return True
 
 
-def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | None:
+def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: dict[UUID, bool] | None = None) -> str | None:
     """門が必ず断り、いつまで待てば変わるか分からない行の理由（無ければ None。1か所）：候補を出す処理（scheduler.due_tasks）が、
     門に渡さずに飛ばす（門に渡すと、次の動きが決まった間ごとに予定を書き直し、記録が増え続けた＝⛔ 見直し16・17a。待つ時刻が分かる
     理由は、次の動きがその時刻へ1回書くので、ここには入れない）。見るのは、理由の表の扱いが unoffered・plan_if_known の理由のうち、
@@ -475,7 +475,8 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
     契約者の承認を待つ（approval.task_cleared）・同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach）・
     番号の欄の待つ印（N-4。core/health.number_held）・目的のお客様を呼ぶ材料が無い（`_target_short`）・
     話してよい別の声が無い（`choose_voice`）・その回線の発信番号で、ほかの依頼者がこの番号へかけた（`_line_taken`。line_id を渡した
-    ときだけ。ほかの回線には出す）・待つ時刻が分からない約束（`pacing` の known）。"""
+    ときだけ。ほかの回線には出す）・待つ時刻が分からない約束（`pacing` の known）・手で外した解決策の確かめ待ち（`unconfirmed_solutions`。
+    seen＝同じ取引の中で、実施回ごとの答えを1回だけ読むための入れ物＝候補を出す処理が渡す）。"""
     if not approval.task_cleared(tx, task_id):
         return "awaiting_approval"
     related = dnc.undecided_reach(tx, task_id)
@@ -500,20 +501,27 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
         voice = choose_voice(tx, task, version, content.voice, nxt["today"])
         if isinstance(voice, Denied) and REASONS[voice.reason].handling == "unoffered":
             return voice.reason
-    if version is not None and unconfirmed_solutions(tx, task, version):
+    if unconfirmed_solutions(tx, task, seen):
         return "solutions_unconfirmed"
     if line_id is not None and _line_taken(tx, task, line_id, nxt["today"]):
         return "line_used_by_other_client"
     return None
 
 
-def unconfirmed_solutions(tx: Tx, task: dict[str, Any], version_id: UUID) -> bool:
+def unconfirmed_solutions(tx: Tx, task: dict[str, Any], seen: dict[UUID, bool] | None = None) -> bool:
     """この行に、手で外した依頼者の解決策の確かめ待ちで、かけないか（1か所。門の理由 solutions_unconfirmed・候補を出す処理＝`waits_unknown`）：
-    まだ一度もかけていないお客様の行（attempts.untried）で、実施回の版の流れに、契約者がまだ「入れる」も「入れない」も確かめていない手で
-    外した解決策がある（client_solutions.unconfirmed）。一度かけた行（約束したかけ直し・続き・お詫びの電話がありうる）は止めない（お客様を
+    まだ一度もかけていないお客様の行（attempts.untried）で、その行の実施回に、その実施回で契約者がまだ「入れる」も「入れない」も確かめて
+    いない手で外した解決策がある（client_solutions.unconfirmed。確かめは実施回ごと＝ほかの実施回の操作は見ない）。一度かけた行（約束したかけ直し・続き・お詫びの電話がありうる）は止めない（お客様を
     お待たせしない。原則6）。契約者が全部を確かめたら、すぐ通す。✅ 2026-11-07 ユーザー「契約者が承認をしないと自動で入らず、新規の電話も
-    かけられません」。"""
-    return attempts.untried(tx, task["task_id"]) and bool(client_solutions.unconfirmed(tx, version_id))
+    かけられません」。seen＝実施回ごとの答えの入れ物（同じ取引の中で、実施回ごとに1回だけ読む。候補を出す処理が行ごとに読み直さない）。"""
+    if not attempts.untried(tx, task["task_id"]):
+        return False
+    run = task["run_id"]
+    if seen is None:
+        return bool(client_solutions.unconfirmed(tx, run))
+    if run not in seen:
+        seen[run] = bool(client_solutions.unconfirmed(tx, run))
+    return seen[run]
 
 
 @dataclass(frozen=True)
@@ -790,7 +798,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if why is not None:
         return _deny(why)
     # 手で外した依頼者の解決策を、契約者がまだ確かめていない（`unconfirmed_solutions` の1か所。候補を出す処理も同じものを読んで出さない）
-    if unconfirmed_solutions(tx, task, version):
+    if unconfirmed_solutions(tx, task):
         return _deny("solutions_unconfirmed")
 
     # (5) 止まっているか（全体・契約者・依頼者・業務・回線）
