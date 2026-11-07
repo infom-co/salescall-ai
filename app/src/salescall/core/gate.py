@@ -200,7 +200,7 @@ class Claim:
     #                                convo.run_call の judge_route へ渡す（判定を初めから緊急の道へ送る＝CL-1 の連絡帳 4-62）。None＝ふつうの道
     handover: bool = False         # 前の電話でお話しした方と、お呼びする方が替わった（契約者がお客様リストのお呼びする方を直した）：
     #                                お詫びはせず、どこまで引き継がれているかを確かめつつ、続きから（または途中から）営業を続ける（✅ 2026-11-06
-    #                                ユーザー＝計画書 7-1 (12)。次の予定の印 handover を写す。0194）。会話の処理（CL-1）は、これを読んで確かめる
+    #                                ユーザー＝計画書 7-1 (12)。次の予定の印 handover を写す。0194。印を決めるのは next_action._handover_due＝0203）。会話の処理（CL-1）は、これを読んで確かめる
     #                                （前の通話で取れた答えは conversation_io.earlier。CL-2 の連絡帳 4-236）
 
 
@@ -725,7 +725,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
                  "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor, handover,"
                  "       salescall.number_again_of(purpose, number_again) AS number_again,"   # 前の予定の読み替えは1か所（0136）
-                 "       salescall.jst(window_from) AS window_from, window_said, window_day_said,"
+                 "       salescall.jst(window_from) AS window_from, window_said, window_day_said, person_since,"
                  "       salescall.keeping_kind(purpose, promised) AS keeping"
                  " FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
     if nxt is None:
@@ -936,13 +936,15 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
             row = tx.one(
                 "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"
                 "                                state, claimed_at, claim_expires_at, purpose, wrong_contact_id, voice_type,"
-                "                                promised)"
+                "                                promised, person_since)"
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'claimed', now(), now() + %s,"
-                "         %s, %s, %s, %s)"
+                "         %s, %s, %s, %s, %s)"
                 " RETURNING attempt_id, claim_expires_at, judge_route,"
                 "   (SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s) AS wrong_phone",
                 (task["task_id"], task["contact_id"], task["phone_e164"], line_id, version, lifetime,
-                 nxt["purpose"], nxt["wrong_contact_id"], voice, bool(nxt["promised"]), task["task_id"],
+                 nxt["purpose"], nxt["wrong_contact_id"], voice, bool(nxt["promised"]),
+                 nxt["person_since"],   # 通話の担当の期は、予定の期を写す（1か所。あとから変えられない＝0203）
+                 task["task_id"],
                  nxt["wrong_contact_id"]))
     except Rejected as e:
         if e.constraint == "attempts_one_active_per_contact":

@@ -176,6 +176,10 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "result_releases": {"INSERT": frozenset({_CORE + "approval.py"})},
     "task_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},       # 発信の前の契約者の承認（10-2）       # 送ってよい印は承認の部分だけ（10章）
     "task_next_actions": {"INSERT": frozenset({_CORE + "next_action.py"})},  # 次の予定（Q4）
+    # 前の担当の方との約束の選び（0201・0202）：書くのは、予定も同じ取引で決め直す入口の部品だけ（見直し H の (B2)。かける番号の直しは
+    # tasks.fix_dial_number＝下の PY_ENTRY_CALLERS で入口 row_fixes だけが呼ぶ。新しい約束の選びは row_fixes.choose_old_promise）
+    "task_dial_fixes": {"INSERT": frozenset({_CORE + "tasks.py"})},
+    "task_old_promise_choices": {"INSERT": frozenset({_CORE + "row_fixes.py"})},
     "dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},  # Q3
     "contractor_dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},
     "stop_events": {"INSERT": frozenset({_CORE + "stops.py"})},              # 運転の状態（Q13）
@@ -589,6 +593,9 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("health", "number_set"): frozenset({_CORE + "settings.py"}),                    # E14：テスト番号が入った（契約者の値）
     ("health", "number_set_everywhere"): frozenset({_CORE + "settings.py"}),         # E14：システムの初めの値（契約者ごとに1回ずつ）
     ("health", "claimed"): frozenset({_CORE + "gate.py"}),                           # E15：門の通過
+    # かける番号の直しの記録（前の担当の方との約束の選びも持つ）：書くのは入口 row_fixes.fix_dial_number だけ（同じ取引で予定を決め直す＝
+    # next_action.after_dial_fix。見直し H の (B2)：下の層を直に呼ぶと、記録は「約束をやめた」、予定は前の担当の方への約束のまま、と食い違った）
+    ("tasks", "fix_dial_number"): frozenset({_CORE + "row_fixes.py"}),
 }
 
 

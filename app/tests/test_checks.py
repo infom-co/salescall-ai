@@ -283,6 +283,20 @@ class CallErrorsOnlyThroughTroubles(Planted):
                          [("src/salescall/core/client_solutions.py", "一本化"), ("src/salescall/core/registry.py", "一本化"),
                           ("src/salescall/web/imports.py", "一本化")])
 
+    def test_the_old_promise_choices_are_written_only_with_their_plans(self):
+        """前の担当の方との約束の選び（かける番号の直しの記録・新しい約束の選び）を書くのは、同じ取引で予定を決め直す入口の部品だけ（見直し H の
+        (B2)）：かける番号の直しの記録の下の層（tasks.fix_dial_number）を呼ぶのは row_fixes だけ。表へ直に書くのも、その部品だけ。"""
+        root = self._app({
+            "src/salescall/core/row_fixes.py": "def go(tx, t, n):\n    tasks.fix_dial_number(tx, t, n, 'company', same_person=False)\n"
+                                               "    tx.execute('INSERT INTO salescall.task_old_promise_choices (task_id) VALUES (1)')\n",
+            "src/salescall/web/rows.py": "def go(tx, t, n):\n    tasks.fix_dial_number(tx, t, n, 'company', same_person=False)\n",
+            "src/salescall/core/settle.py": "def go(tx):\n    tx.execute('INSERT INTO salescall.task_old_promise_choices (task_id) VALUES (1)')\n"
+                                            "    tx.execute('INSERT INTO salescall.task_dial_fixes (task_id) VALUES (1)')\n",
+        })
+        self.assertEqual([(v.path, v.rule) for v in rules.entries_called_from_their_places(root)], [("src/salescall/web/rows.py", "一本化")])
+        self.assertEqual(sorted((v.path, v.rule) for v in rules.single_writers(root)),
+                         [("src/salescall/core/settle.py", "I-12"), ("src/salescall/core/settle.py", "I-12")])
+
     def test_restoring_a_resting_row_is_for_the_screens_only(self):
         root = self._app({"src/salescall/web/rows.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='直した')\n",
                           "src/salescall/supervisor/jobs.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='x')\n"})

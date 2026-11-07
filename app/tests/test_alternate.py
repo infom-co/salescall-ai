@@ -489,5 +489,72 @@ class WrongNumber(Base):
                 own.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql, (aid,)))
 
 
+
+class HandoverPeriods(Base):
+    """引き継ぎを確かめる印（予約証の handover）は、予定を書くたびに1か所で求める（next_action._handover_due。0203）：いまの担当の期が最初の期で
+    なく、前の期で行に引き継ぐことがあり、いまの期の通話で目的のお客様とまだ話していない。"""
+
+    def wrong_call(self, s, outcome):
+        """言われた番号へかけて番号違いだった（番号の確かめ outcome）を締める。"""
+        from salescall.core import number_recheck
+        aid = self.call(s, report=rep(("wrong_party",)), verify=None)
+        self.tx(s, lambda tx: number_recheck.record(tx, aid, outcome, corrected=None, evidence="試験", checked_by="試験"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        return self.settle(s, aid)
+
+    def fix_another(self, s):
+        from salescall.core import row_fixes
+        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=False),
+                       OPERATOR)["contact_id"]
+
+    def test_the_handover_mark_survives_an_ask_again_in_between(self):
+        """指摘4：「違う」で直した新しい番号の受付の方が別の番号を言い、その番号が番号違いで聞き直し（印を持てない目的）をはさんでも、聞き直しで
+        伺った番号への電話には、引き継ぎを確かめる印が付く（新しい担当の方とは、まだ一度も話していない）。受付の方とだけ話した通話は「目的の
+        お客様と話した」に入らない（attempts.reached_target）。⛔ 0202：かけた電話の予定の印を写すだけで、聞き直しのあと消えた。"""
+        s = self.ready_jp()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 20)
+        self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))      # 前の会社の受付と話した
+        self.fix_another(s)
+        self.assertTrue(self.current(s)["handover"])
+        time.sleep(1.1)
+        self.redirect(s)                                                                     # 新しい番号の受付：「こちらの番号へ」
+        self.assertTrue(self.current(s)["handover"])
+        time.sleep(1.1)
+        self.wrong_call(s, "as_said")                                                        # その番号は番号違い ⇒ 聞き直し
+        c = self.current(s)
+        self.assertEqual((c["purpose"], c["handover"]), ("ask_number_again", False))
+        time.sleep(1.1)
+        self.redirect(s)                                                                     # 聞き直しで、また別の番号を伺った
+        self.assertTrue(self.current(s)["handover"])
+        time.sleep(1.1)
+        claim = self.claim(s)
+        self.assertIsInstance(claim, gate.Claim, claim)
+        self.assertTrue(claim.handover)
+
+    def test_a_talk_with_the_old_reception_after_the_fix_is_carried_over(self):
+        """指摘3：前の番号への番号の聞き直し（直す前に決めた予定）の途中で「違う」で直し、その聞き直しで前の会社の受付の方と話した（または出な
+        かった）⇒ 新しい担当の方への電話には、どちらも引き継ぎを確かめる印が付く（前の期の通話をすべて見る＝next_action._carried）。⛔ 0202：
+        いちばん新しい「話した通話」（直したあとの受付との通話）の時刻を使い、引き継ぐことが無いとみなした。"""
+        for result in ("no_answer", "reception_absent"):
+            with self.subTest(result=result):
+                s = self.ready_jp()
+                self.put_client(s, "gate.same_contact_min_interval", 1)
+                self.put_client(s, "gate.max_dials_per_contact_per_day", 20)
+                self.redirect(s)                                                             # 前の会社の受付：「こちらの番号へ」
+                time.sleep(1.1)
+                self.wrong_call(s, "as_said")                                                # 番号違い ⇒ 前の番号へ聞き直し
+                self.assertEqual(self.current(s)["purpose"], "ask_number_again")
+                new = self.fix_another(s)
+                self.assertEqual(self.current(s)["purpose"], "ask_number_again")            # 聞き直しは前の番号で1回（7-1 (18)）
+                time.sleep(1.1)
+                if result == "no_answer":
+                    self.settle(s, self.call(s, ["dialing", "no_answer"]))
+                else:
+                    self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))
+                c = self.current(s)
+                self.assertEqual((c["kind"], c["purpose"], c["contact_id"], c["handover"]), ("call", "normal", new, True))
+
+
 if __name__ == "__main__":
     unittest.main()

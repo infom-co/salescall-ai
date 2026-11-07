@@ -140,23 +140,25 @@ def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
 
 
 def former_person_call(tx: Tx, attempt_id: UUID) -> bool:
-    """その通話は、「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話か（1か所＝データベースの salescall.former_person_call。0202）。
-    決め方：かけた番号が、いま（締めるとき）前の担当の方の番号か（`former_numbers` と同じ決まり）。かけた時刻ではなく締めるときで見るので、
-    直す前に予約して直したあとにつながった通話も、電話口の前の担当の方への通話になる。「違う」のあとに「同じ」で直しても、担当の方は
-    替わったまま（基準は「違う」を選んだいちばん新しい直し）。読むのは、断られたときに止める範囲・待たせる範囲（core/dnc.refusal_reach・
+    """その通話は、前の担当の方への通話か（1か所＝データベースの salescall.former_person_call。0203）。決め方：通話の担当の期（予約したときの
+    予定の期＝attempts.person_since）が、その通話を締めたときの期（salescall.settled_at。まだ締めていなければ、いま）と違う。直す前に予約して
+    直したあとにつながった通話も、期が古いので前の担当の方への通話。締めたあとにもう一度お呼びする方が替わっても、締めた通話の判断は変わらない
+    （見直し H の (B3)）。「違う」のあとに「同じ」で直しても、担当の方は替わったまま（期は替わらない）。新しい担当の方が指定した前の番号への
+    通話は、いまの期の予定からかけるので、前の担当の方への通話ではない（⛔ 0202：番号で見ていた＝第三者の見直しの指摘1）。読むのは、断られたときに止める範囲・待たせる範囲（core/dnc.refusal_reach・
     undecided_reach）・その答えで行を終えるか（core/next_action.answer_ends_row）・前の担当の方の新しい約束を契約者の選びまで前の番号の
     ままにするか（core/next_action.after_call）・サブにするか（salescall.call_makes_sub）。✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(23)(24)。"""
     return bool(tx.one("SELECT salescall.former_person_call(%s) AS f", (attempt_id,))["f"])
 
 
-def former_numbers(tx: Tx, task_id: UUID) -> list[str]:
-    """いま、その行の前の担当の方の番号（データベースの salescall.task_former_number の1か所。0202）：基準は「違う」を選んだ、いちばん新しい
-    直し（そのあとに「同じ」で直しても替わったまま）。その直しより前から行にあった番号（直す前のかける番号・直す前に前の担当の方が言った番号・
-    記録だけの番号）と、前の担当の方の番号への通話で言われた番号。その直しとそのあとの直しの番号（新しい担当の方の番号）は入らない。
-    「違う」を選んだ直しが無ければ、無い。"""
+def former_numbers(tx: Tx, task_id: UUID, *, as_of_call: UUID | None = None) -> list[str]:
+    """その行の前の担当の方の番号（データベースの salescall.task_former_number の1か所。0203）：いまの担当の期の始まりより前から行にあった番号と、
+    前の期の通話で言われた番号のうち、いまの担当の方の番号（いまかける番号・期の始まりのあとの直しの番号・いまの期の通話で指定された
+    番号＝salescall.task_current_person_number）でないもの。お呼びする方が替わっていなければ、無い。as_of_call＝その通話を締めたときの立場で読む
+    （断りの範囲＝core/dnc.refusal_reach。締め直し・止め直しでも同じ範囲。見直し H の (B3)）。None＝いま。"""
     return [r["phone_e164"] for r in tx.all(
-        "SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND salescall.task_former_number(task_id, contact_id, now())"
-        " ORDER BY source = 'callee', added_at, phone_e164", (task_id,))]
+        "SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s"
+        "   AND salescall.task_former_number(task_id, contact_id, coalesce(salescall.settled_at(%s), now()))"
+        " ORDER BY source = 'callee', added_at, phone_e164", (task_id, as_of_call))]
 
 
 def old_promise_waiting(tx: Tx, task_id: UUID) -> UUID | None:

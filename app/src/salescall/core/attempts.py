@@ -368,6 +368,15 @@ def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "r
         raise AttemptNotFound(str(attempt_id))
 
 
+def record_reached_target(tx: Tx, attempt_id: UUID, reached: bool) -> None:
+    """締めの処理（core/settle.py）だけが呼ぶ。その通話で目的のお客様と話せたか（判定の入力の1か所 judge.JudgeInput.reached_target）を、
+    終わった試行に記録する（判定し直しでは書き直す）。読むのは、引き継ぎを確かめる印の1か所（core/next_action の `_handover_due`：いまの担当の
+    期の通話で、目的のお客様とまだ話していないか。受付の方とだけ話した通話は入らない＝call_report.talked_in とは別。0203）。"""
+    row = tx.one("UPDATE salescall.attempts SET reached_target = %s WHERE attempt_id = %s RETURNING attempt_id", (reached, attempt_id))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
 def record_cut_off(tx: Tx, attempt_id: UUID, cut_off: bool) -> None:
     """締めの処理（core/settle.py）だけが呼ぶ。途中で切れたか（決めるのは judge.cut_off の1か所）を、終わった試行に1回だけ
     記録する（続けて何回、途中で切れたかを数える＝データベースの salescall.cuts_in_a_row）。"""

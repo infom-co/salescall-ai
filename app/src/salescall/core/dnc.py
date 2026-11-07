@@ -233,25 +233,35 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     if t["client_ref"] is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", tenant_id=t["tenant_id"],
                                                         client_id=t["client_id"], business_id=t["business_id"]):
         ref = t["client_ref"]
-    return _spread(tx, task_id, tasks.numbers(tx, task_id)), ref
+    return _spread(tx, task_id, _row_stop(tx, task_id, former=False)), ref
+
+
+def _row_stop(tx: Tx, task_id: UUID, *, former: bool, as_of_call: UUID | None = None) -> list[str]:
+    """その行で断られたときに止める、その行の番号（1か所。断った通話の行＝`refusal_reach` と、番号を通って入るほかの行＝`_spread` が読む）：
+    前の担当の方の断り（former）なら前の担当の方の番号（tasks.former_numbers＝直す前のかける番号・前の期の通話で言われた番号など。いまの担当の方の
+    番号は入らない。as_of_call＝断った通話を締めたときの立場で読む）、ふつうは行の番号すべて（tasks.numbers。原則14）。"""
+    return tasks.former_numbers(tx, task_id, as_of_call=as_of_call) if former else tasks.numbers(tx, task_id)
 
 
 def _spread(tx: Tx, task_id: UUID, own: list[str]) -> list[str]:
-    """その番号（own）と、同じ依頼者のほかの行のうち、その番号を1つでも共有する行の番号すべて（広げるのは1段だけ。`reach`・`refusal_reach`
-    の1か所）。"""
-    shared = [r["phone_e164"] for r in tx.all(
-        "SELECT DISTINCT o.phone_e164 FROM salescall.task_numbers o"
-        " WHERE o.task_id IN (SELECT s.task_id FROM salescall.task_numbers s WHERE s.phone_e164 = ANY(%s) AND s.task_id <> %s)"
-        " ORDER BY o.phone_e164", (own, task_id))]
-    return list(dict.fromkeys(own + shared))
+    """その番号（own）と、同じ依頼者のほかの行のうち、その番号を1つでも共有する行の番号（広げるのは1段だけ。`reach`・`refusal_reach` の1か所）。
+    入る行で止める番号は、その行の中でその番号から断られたときと同じ1か所（`_row_stop`）で決める：共有する番号が、その行では前の担当の方の番号
+    だけ（いまの担当の方の通話で言われた・指定された番号でもない＝salescall.task_former_number）なら、その行の前の担当の方の番号だけ。ほかは、
+    その行の番号すべて（✅ 2026-11-07 本体の決定。⛔ 0202：入る行の番号すべてを止め、ほかの行で前の担当の方（田中様）が断ると、その行の新しい
+    担当の方（鈴木様）の番号まで止まった＝第三者の見直しの指摘8。行の中で前の担当の方の番号から断られたときより強く止めていた）。"""
+    out = list(own)
+    for r in tx.all("SELECT DISTINCT s.task_id FROM salescall.task_numbers s WHERE s.phone_e164 = ANY(%s) AND s.task_id <> %s"
+                    " ORDER BY s.task_id", (own, task_id)):
+        hit = set(tasks.numbers(tx, r["task_id"])).intersection(own)
+        out += _row_stop(tx, r["task_id"], former=hit <= set(tasks.former_numbers(tx, r["task_id"])))
+    return list(dict.fromkeys(out))
 
 
 def refusal_reach(tx: Tx, attempt_id: UUID) -> tuple[list[str], str | None]:
     """その通話でお客様が断ったときに止める範囲（1か所。`stop_set` が読む＝締めの登録・取り消しのあとの止め直し）：ふつうは、その通話の行の
     `reach`（行の番号すべて・番号を共有する行・設定により管理番号。原則14）。
-    その通話が、「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話（tasks.former_person_call の1か所）なら、断ったのは前の担当の方
-    なので、止めるのは前の担当の方の番号（tasks.former_numbers＝直す前のかける番号・直す前に前の担当の方が言った番号など）と、それを共有
-    する行の番号だけ。新しい担当の方の番号（直した番号と、そのあとに足した番号）と、行の管理番号は止めない（✅ 2026-11-07 ユーザー＝
+    その通話が前の担当の方への通話（tasks.former_person_call の1か所＝通話の担当の期が、締めたときの期と違う。0203）なら、断ったのは前の担当の方
+    なので、止めるのは前の担当の方の番号（`_row_stop`）と、それを共有する行の、同じ1か所で決めた番号だけ。新しい担当の方の番号（直した番号と、そのあとに足した番号）と、行の管理番号は止めない（✅ 2026-11-07 ユーザー＝
     計画書 7-1 (22)「鈴木様へはかける」）。行を終えないこと（新しい担当の方へ引き継ぎを確かめる電話）は、同じ1か所を読む
     core/next_action.answer_ends_row。締めがまだのあいだ、同じお客様のほかの行を待たせる範囲（`undecided_reach`）も、ここを読む。"""
     a = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
@@ -259,7 +269,7 @@ def refusal_reach(tx: Tx, attempt_id: UUID) -> tuple[list[str], str | None]:
         raise attempts.AttemptNotFound(str(attempt_id))
     if not tasks.former_person_call(tx, attempt_id):
         return reach(tx, a["task_id"])
-    own = tasks.former_numbers(tx, a["task_id"])
+    own = _row_stop(tx, a["task_id"], former=True, as_of_call=attempt_id)
     new = set(tasks.numbers(tx, a["task_id"])) - set(own)   # 新しい担当の方の番号（ほかの行を通しても止めない）
     return [n for n in _spread(tx, a["task_id"], own) if n not in new], None
 
