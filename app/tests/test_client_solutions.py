@@ -578,6 +578,14 @@ class Solutions(Base):
         new = self.other_row(s, run, v)
         self.assertEqual(self.reason(new), "solutions_unconfirmed")
         self.assertIn("ダッシュボード", gate.REASONS["solutions_unconfirmed"].message)
+        # 止める範囲の文は1か所（notify.SOLUTIONS_WAIT）：門の理由と知らせの種類の説明が同じ範囲を言う（⛔ 2026-11-07 の見直しのあと、知らせの種類の
+        # 説明だけが「まだ一度もかけていないお客様の行へ新しい電話をかけない」のままだった）
+        from salescall.core import notify
+        for text in (gate.REASONS["solutions_unconfirmed"].message, notify.KINDS["solution_unconfirmed"]):
+            self.assertIn(notify.SOLUTIONS_WAIT, text)
+            self.assertNotIn("まだ一度もかけていない", text)
+        self.assertIn("番号の聞き直し", notify.SOLUTIONS_WAIT)
+        self.assertIn("一度かけたお客様へのかけ直しも含めて", notify.SOLUTIONS_WAIT)
         self.assertEqual(self.tx(s, lambda tx: gate.waits_unknown(tx, new["task"])), "solutions_unconfirmed")
         self.assertNotIn(new["task"], [r["task_id"] for r in self.tx(s, lambda tx: scheduler.due_tasks(tx, 50))])
         on_tip = self.other_row(s, tip_run, first.version_id)

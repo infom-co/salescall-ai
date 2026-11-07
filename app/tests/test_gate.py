@@ -1855,6 +1855,16 @@ class NameLedger(Content):
         self.assertIn("aizuchi", recordings.COMMON_PARTS)
         self.assertFalse([p for p in recordings.COMMON_PARTS if p.endswith("_pending")])
 
+    def test_the_parts_cl1_added_on_11_08_are_received(self):
+        """CL-1 の連絡帳 4-112・4-113（✅ 2026-11-08 日本時間2時21分15秒 ユーザー）：値を伺う質問の最初の「まだ決まっていない」に1回だけ流す「それでは
+        おおよその目安だけでもお伺いしてもよろしいでしょうか？」（共通の一言の録音 estimate_ask）は、話してよい声が求める（`COMMON_PARTS`。無いと、
+        その一言を流せないまま声を「話してよい」にする）。本題で本心を伺うシステムの質問の番号 D2 は、業務の質問の番号に使えない（使えると、業務の
+        質問の答えと本心を伺った答えを取り違える）。D2 の録音は共通の一言 ai_answer をそのまま流すので、新しい部分は無い。"""
+        from salescall.core import business_settings
+        self.assertLessEqual({"estimate_ask", "ai_answer"}, set(recordings.COMMON_PARTS))
+        self.assertIn("D2", business_settings.RESERVED_IDS)
+        self.assertNotIn("D2", recordings.COMMON_PARTS)
+
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、
         どれも話してよい声が求める（`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）：並べて伺ったご案内の方法を言って

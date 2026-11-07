@@ -159,7 +159,8 @@ class Materials(SettleBase):
         placed = self.tx(s, lambda tx: tx.one("SELECT report FROM salescall.call_reports WHERE attempt_id = %s", (aid,)))["report"]["facts"]
         got = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))
         self.assertEqual(got, {"Q1": {"state": "accepted", "value": "答えた", "condition": "答えた", "hedged": "たぶん大丈夫です",
-                                      "wish_fact": placed["other_wish"][1], "point_fact": placed["not_agreed"][1]}})   # 置いた報告の形のまま
+                                      "wish_fact": placed["other_wish"][1], "point_fact": placed["not_agreed"][1],
+                                      "who": "target"}})   # 置いた報告の形のまま・その通話で繋いだ方（4-106 の H6）
         self.assertEqual((got["Q1"]["wish_fact"]["contact"], got["Q1"]["wish_fact"]["via"], got["Q1"]["point_fact"]["said"]),
                          ("abc_123", "id", "料金のところです。"))
         self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 言い切っていれば hedged は無し
@@ -173,7 +174,67 @@ class Materials(SettleBase):
             self.w.move(s, later, st)
         self.tx(s, lambda tx: call_report.save(tx, later, rep()))           # あとの通話では、ほかのご希望もご承認の手順も伺っていない
         self.write(s, later, ItemValue("Q1", "accepted", "答えた", "答えた"))   # 答えを、あとの通話で取り直した
-        self.assertEqual(set(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]), {"state", "value", "condition"})
+        self.assertEqual(set(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]), {"state", "value", "condition", "who"})
+
+    def test_earlier_answers_carry_who_was_connected_in_the_call_that_took_them(self):
+        """前の通話の答えに、その答えを取った通話で繋いだ方（"who"＝call_report.CONNECT_WHO の target・successor・substitute）を質問ごとに添える
+        （CL-1 の連絡帳 4-106 の H6：続きの電話で判断いただける代わりの方に繋がったとき、前の通話で代わりの方とお話しした答えかを見分ける）。
+        繋いだ方は、その通話のいちばん新しい繋ぎ（`CallReport.connected_who` の1か所）。who の無い繋ぎ（前の形の報告）は目的のお客様。
+        繋いだ事実の無い通話・報告の無い通話の答えには入れない。あとの通話の繋ぎは、前の通話で取った答えに付けない。"""
+        import dataclasses
+        s = self.ready()
+        aid = self.answered(s)
+        self.write(s, aid, ItemValue("Q1", "confirmed", {"text": "来週の火曜"}, "答えた"))
+        self.assertNotIn("who", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"])   # 報告がまだ無い
+        base = rep()
+        first, = base.connects
+        report = dataclasses.replace(base, connects=(first, dataclasses.replace(first, evidence=call_report.Said(5, "代わりに伺います。"),
+                                                                                 who="substitute")))
+        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, report.to_json()))
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["who"], "substitute")   # いちばん新しい繋ぎ
+        self.w.move(s, aid, "ending")
+        self.w.move(s, aid, "ended")
+        later = self.w.insert_claim(s)
+        for st in ("dialing", "answered", "in_conversation"):
+            self.w.move(s, later, st)
+        self.tx(s, lambda tx: call_report.save(tx, later, dataclasses.replace(base, connects=(dataclasses.replace(first, who="successor"),))))
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["who"], "substitute")   # あとの通話の繋ぎは付けない
+        self.write(s, later, ItemValue("Q1", "confirmed", {"text": "来週の水曜"}, "答えた"))   # あとの通話で取り直した答えは、その通話の繋ぎ
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["who"], "successor")
+        self.assertEqual([r.connected_who for r in (rep(), rep(("reception",)), dataclasses.replace(base, connects=()))],
+                         ["target", None, None])   # who の無い繋ぎ＝目的のお客様・繋いでいない＝無し
+
+    def test_customer_words_on_answers_not_taken_are_kept_but_are_not_hedged_marks(self):
+        """依頼者へ渡すお客様の言葉（CL-1 の連絡帳 4-115 の (2)＝Flow.customer_words）は、「-」「✕」で渡る答え（わからない・答えたくない・保留・
+        聞き取れない）にも付き、項目の値の欄 hedged に書ける（依頼者への報告で値の欄の横に出す＝DESIGN.md 7-1b）。言い切っていない答えの印として
+        読むのは取れた答えのときだけ（`judge.hedged_words` の1か所）：前の通話の答えの "hedged" にも、判定の入力の「曖昧」の印にも入れない
+        （⛔ 入れると、伺う条件の「言い切っていないときだけ伺う」が、わからない答えのあとにも伺う質問になる）。"""
+        from salescall.core import judge
+        s = self.ready()
+        aid = self.answered(s)
+        words = "まだ決まってないんですよね。／うーん、それもまだ決まってないですね。"
+        for state, cond, reason in (("dont_know", "わからない", "undecided"), ("refused", "答えたくない", "unwilling"),
+                                    ("unclear", None, None), ("empty", None, None)):
+            with self.subTest(state=state):
+                self.write(s, aid, ItemValue("Q1", state, None, cond, reason=reason, hedged=words))
+                row, = Write.items(self, s)
+                self.assertEqual(row["hedged"], words)                                         # 依頼者へ渡す言葉は残る
+                self.assertNotIn("hedged", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])).get("Q1", {}))
+                self.assertIsNone(judge.hedged_words(state, words))
+        self.write(s, aid, ItemValue("Q1", "accepted", "15日あたり", "答えた", hedged="15日あたりですかね。"))   # 取れた答えの言葉は印
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["hedged"], "15日あたりですかね。")
+        self.assertEqual((judge.hedged_words("confirmed", "x"), judge.hedged_words("accepted", None)), ("x", None))
+
+    def test_values_that_are_not_definite_are_kept_as_said(self):
+        """承っておく形で受け取った値（「15日あたり」「10名くらい」「14時ごろ」。CL-1 の連絡帳 4-115 の (3)）は、言葉のまま置き、言葉のまま返す
+        （こちらは業務の質問の値を日時・数として読まない＝読むのは会話の報告のかけ直しの時刻だけ＝spoken_time.read の1か所。⏳ 値の形の確かめ
+        core/value_types.py を作るときも、確定でない言葉の付いた値を断らない・確定した値に直さない）。"""
+        s = self.ready()
+        aid = self.answered(s)
+        for value in ("15日あたり", "10名くらい", "14時ごろ"):
+            with self.subTest(value=value):
+                self.write(s, aid, ItemValue("Q1", "accepted", value, "答えた", hedged=f"{value}ですかね。"))
+                self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["value"], value)
 
     def test_earlier_facts_include_what_later_calls_said_about_the_same_answer(self):
         """答えを取り直さない続きの電話で、同じ答えについて話した事実（申し伝え直した点＝not_agreed の outcome unresolved・told）も、

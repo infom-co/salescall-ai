@@ -851,6 +851,32 @@ class Import(unittest.TestCase):
                 p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
                 self.assertTrue(any(words in x for x in p.problems), p.problems)
 
+    def test_change_by_comes_in_only_for_value_questions(self):
+        """CL-1 の連絡帳 4-115 の (1)：変更の受付の期限は「質問」のシートの無くてもよい列「変更の受付の期限（日時・数・金額の質問だけ。例：前日）」
+        （依頼者のトークスクリプトから入る。前のひな形には無いので、無ければ空）。値を伺う質問でない質問に書いたら、取込で断る（業務設定の確かめの1か所）。"""
+        head = ("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "変更の受付の期限（日時・数・金額の質問だけ。例：前日）")
+        rows = [head, ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", None),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, "前日")]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [q["change_by"] for q in p.raw["questions"]]), ([], ["", "前日"]))
+        p = self.preview(book(), decide_facts=facts)                         # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["change_by"] for q in p.raw["questions"]]), ([], ["", ""]))
+        bad = [head, rows[1][:-1] + ("前日",), rows[2]]                       # 選ぶ質問に書いた
+        p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
+        self.assertTrue(any("値を伺う質問" in x for x in p.problems), p.problems)
+
+    def test_main_talk_policy_is_read_from_the_basic_sheet(self):
+        """CL-1 の連絡帳 4-114・4-115 の (4)：シート「基本」の項目「本題の始まり」＝「最初の質問を流したあと」（asked）／「業務の答えを1ついただいたあと」
+        （answered）。書かなければ入れない（業務設定の確かめが既定＝最初の質問を流したあと、にする）。選べない言葉は問題。"""
+        p = self.preview(book())
+        self.assertEqual((p.problems, "main_talk_policy" in p.raw), ([], False))
+        for label, value in (("最初の質問を流したあと", "asked"), ("業務の答えを1ついただいたあと", "answered")):
+            p = self.preview(book(sheets={"基本": book_rows("基本") + [("本題の始まり", label)]}))
+            self.assertEqual((p.problems, p.raw.get("main_talk_policy")), ([], value))
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("本題の始まり", "名乗りのあと")]}))
+        self.assertTrue(any("本題の始まり" in x for x in p.problems), p.problems)
+
     def test_hedged_condition_and_earliest_day_come_in(self):
         """CL-1 の連絡帳 4-71 の (b)(c)：前の答えが言い切っていないときだけ伺う（「質問」のシートの無くてもよい列「言い切っていないときだけ
         伺う」。前のひな形には無いので、無ければ偽）。最短の日は「基本」の項目（営業日の数・休みの曜日・祝日は休みか・休業日。休みの曜日を

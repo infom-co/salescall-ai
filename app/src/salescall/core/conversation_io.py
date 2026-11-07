@@ -57,7 +57,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, customer_contacts, dnc, settings, tasks
+from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, customer_contacts, dnc, judge, settings, tasks
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.attempts import AttemptNotFound
 
@@ -82,7 +82,11 @@ class ItemValue:
     value: Any = None              # 取れた値（JSON にできる形。⏳ 形の確かめは core/value_types.py ができてから）
     condition: str | None = None   # 選んだ選択肢（business_settings.possible_answers のどれか）
     reason: str | None = None      # 「わからない」「答えない」の理由（dont_know・refused のときだけ）
-    hedged: str | None = None      # 言い切っていない返事の言葉（お客様の言葉そのまま。CL-1 の 4-21）
+    # 依頼者へ渡すお客様の言葉（お客様の言葉そのまま。会話の側の Flow.customer_words の1か所が作る。依頼者への報告では値の欄の横の別の欄＝DESIGN.md
+    # 7-1b）。取れた答えでは言い切っていない返事の言葉（CL-1 の 4-21）、「-」「✕」で渡る答え（わからない・答えたくない・保留・聞き取れない・伺ったが
+    # お答えをいただけない）では、その答えをいただいた発話の言葉（CL-1 の連絡帳 4-115 の (2)。最後の2つまでを「／」でつなぐ）。どの状態でも書ける。
+    # 「曖昧」の印として読むのは取れた答えのときだけ（judge.hedged_words の1か所）。欄の名前は前のまま（hedged）
+    hedged: str | None = None
 
 
 @dataclass(frozen=True)
@@ -288,9 +292,9 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
 
 
 # 前の通話で取れた答えの項目のうち、値のあるときだけ渡すもの（`earlier`。state・value・condition は無くても渡す）
-# 前の通話の答えで、値が無ければ入れない項目（入れないこと自体が意味を持つ＝言い切っていた・その質問の事実が無い。会話の側の flowctl.earlier_fact は
-# 無い鍵と null を同じに読むが、渡す形をそろえる）
-_EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact")
+# 前の通話の答えで、値が無ければ入れない項目（入れないこと自体が意味を持つ＝言い切っていた・その質問の事実が無い・繋いだ事実が無い。会話の側の
+# flowctl.earlier_fact は無い鍵と null を同じに読むが、渡す形をそろえる）
+_EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who")
 
 
 def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
@@ -298,7 +302,11 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
     質問を伺わないため・切れた所から伺うために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の
     番号のまま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。
     - "state"・"value"・"condition"：項目の値のまま。
-    - "hedged"：言い切っていない答えのお客様の言葉（項目の値の hedged。言い切っていれば入れない。CL-1 の連絡帳 4-73 の (2)）。
+    - "hedged"：言い切っていない答えのお客様の言葉（項目の値の hedged。言い切っていれば入れない。CL-1 の連絡帳 4-73 の (2)）。項目の値の hedged には
+      「-」「✕」の答えに添えたお客様の言葉も入る（CL-1 の連絡帳 4-115 の (2)）ので、取れた答えのときだけ入れる（judge.hedged_words の1か所）。
+    - "who"：その答えを取った通話（項目の値の attempt_id）で繋いだ方（`call_report.CallReport.connected_who`＝CONNECT_WHO の target・successor・
+      substitute）。前の通話で判断いただける代わりの方とお話しした答えかを、続きの電話で見分ける（CL-1 の連絡帳 4-106 の H6）。繋いだ事実の無い通話
+      （目的のお客様のいない業務・報告の無い通話）は入れない。
     - "wish_fact"・"point_fact"：その答えを取った通話（項目の値の attempt_id。作り直した報告があればそれ＝`call_report.load`）の会話の報告の通話の
       事実 other_wish・not_agreed のうち、その質問の最後の1つを、報告に書く形のまま（`OtherWish.to_json`・`NotAgreed.to_json`＝報告の書き出しと
       同じ1か所）。無ければ入れない（W1・ご納得いただけなかった点の答えをいただく前に切れた・伺っていない）。どこまで伺えたか・伺えた連絡先・
@@ -327,8 +335,11 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
                 continue
             w = next((x for x in reversed(report.other_wishes) if x.question == q), w)
             n = next((x for x in reversed(report.not_agreed) if x.question == q), n)
-        item = {"state": r["state"], "value": r["value"], "condition": r["condition"], "hedged": r["hedged"],
-                "wish_fact": w.to_json() if w is not None else None, "point_fact": n.to_json() if n is not None else None}
+        took = reports.get(r["attempt_id"])   # その答えを取った通話の報告（上で読んだ。行の通話に無い答え＝None）
+        item = {"state": r["state"], "value": r["value"], "condition": r["condition"],
+                "hedged": judge.hedged_words(r["state"], r["hedged"]),
+                "wish_fact": w.to_json() if w is not None else None, "point_fact": n.to_json() if n is not None else None,
+                "who": took.connected_who if took is not None else None}
         out[q] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
     return out
 

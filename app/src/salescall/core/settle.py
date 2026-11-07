@@ -40,7 +40,7 @@ from salescall.core import (apology, approval, attempts, business_rules, busines
                             target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
-                                  classify_cut, cut_off as judge_cut_off, irreversible, judge, refusal, unreached_today)
+                                  classify_cut, cut_off as judge_cut_off, hedged_words, irreversible, judge, refusal, unreached_today)
 from salescall.core.phone import normalize
 
 
@@ -216,9 +216,9 @@ def _after(tx: Tx, a: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
 
 def _items(tx: Tx, task_id: UUID) -> dict[str, Item]:
     """行の項目（判定の入力。読むのはここだけ）。"""
-    return {r["question_id"]: Item(r["state"], r["condition"], r["reason"], r["hedged"]) for r in tx.all(
-        "SELECT question_id, state::text AS state, condition, reason, hedged IS NOT NULL AS hedged"
-        " FROM salescall.item_values WHERE task_id = %s", (task_id,))}
+    return {r["question_id"]: Item(r["state"], r["condition"], r["reason"], hedged_words(r["state"], r["hedged"]) is not None)
+            for r in tx.all("SELECT question_id, state::text AS state, condition, reason, hedged"
+                            " FROM salescall.item_values WHERE task_id = %s", (task_id,))}
 
 
 def _items_snapshot(items: dict[str, Item]) -> dict[str, dict[str, Any]]:

@@ -2282,7 +2282,7 @@ class NotAskedSettle(SettleBase):
         two["questions"].append({"id": "Q2", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}})
+                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""})
         for q1, state, more in ((("Q1", "confirmed", "答えた"), "completed", {"not_asked": ["Q2"]}),
                                 (("Q1", "accepted", "わからない"), "incomplete", {"missing": ["Q2"]})):
             with self.subTest(q1=q1):
@@ -2319,7 +2319,7 @@ class NotAskedSettle(SettleBase):
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                  "ask_if": {"after": "Q1", "answers": ["いいえ"], "hedged": True}, "approval": False, "final_goal": False,
-                                 "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}})
+                                 "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": ""})
         for q1, state, more, hedged in ((("Q1", "accepted", "いいえ"), "completed", {"not_asked": ["Q2"]}, False),
                                         (("Q1", "accepted", "いいえ", "都合が悪くなってしまいまして"), "incomplete", {"missing": ["Q2"]}, True),
                                         (("Q1", "accepted", "はい", "たぶん大丈夫かと"), "completed", {"not_asked": ["Q2"]}, True)):
@@ -2328,6 +2328,17 @@ class NotAskedSettle(SettleBase):
                 snap = self.tx(s, lambda tx: tx.one("SELECT snapshot FROM salescall.call_judgements WHERE attempt_id = %s",
                                                     (aid,)))["snapshot"]
                 self.assertEqual(snap["items"]["Q1"].get("hedged", False), hedged)
+
+    def test_customer_words_on_an_answer_not_taken_are_not_a_hedged_mark(self):
+        """項目の値の欄 hedged には、「-」「✕」で渡る答えにも依頼者へ渡すお客様の言葉が入る（CL-1 の連絡帳 4-115 の (2)）。締めが判定に渡す
+        「曖昧」の印は、取れた答えのときだけ（`judge.hedged_words` の1か所）：わからない答えの言葉を「言い切っていない答え」と読むと、伺う条件の
+        「言い切っていないときだけ伺う」が、わからない答えのあとの質問を伺うはずの質問と読み、取れていない質問に数える。"""
+        s = self.ready()
+        aid = self.call(s, items=(("Q1", "dont_know", "わからない", "まだ決まってないんですよね。"),))
+        self.assertFalse(self.tx(s, lambda tx: settle._items(tx, s["task"]))["Q1"].hedged)
+        self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET state = 'accepted', condition = '答えた'"
+                                         " WHERE task_id = %s AND attempt_id = %s", (s["task"], aid)))
+        self.assertTrue(self.tx(s, lambda tx: settle._items(tx, s["task"]))["Q1"].hedged)
 
 
 class StuckVerification(SettleBase):
