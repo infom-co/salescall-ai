@@ -579,8 +579,12 @@ def question_clip(qid: str, lead: str) -> str:
 # flowctl.spoken_question）と、質問の文のすぐ前に流しうる相づち（flowctl.Flow._ack_choice が返す相づちのうち、お詫びの「申し訳ございません、」は
 # 聞き返しの文の頭にだけ流す＝質問の文の前には流さない。「失礼いたしました。」は「AIですか？」のあと・確かめに「いいえ」と言われたあとに、いまの
 # 質問へ戻るとき）。業務の質問の文がこれで始まると、同じ言葉が2回続く（「それではそれでは…」「承知しました。承知しました…」）＝業務設定の確かめで
-# 止める（CL-2 の business_settings.QUESTION_LEADS が同じ一覧＝test_question_heads_match_cl2。CL-2 の 4-198 の (3)-(c)）
-QUESTION_HEADS = tuple(dict.fromkeys([*LEAD_IN["次の質問"], *(ACK[k].rstrip("、。") for k in ("hai", "arigatou", "shouchi", "kashikomari", "shitsurei"))]))
+# 止める（CL-2 の business_settings.QUESTION_LEADS が同じ一覧＝test_question_heads_match_cl2。CL-2 の 4-198 の (3)-(c)）。
+# つなぎの言葉は、質問の頭を組む部分の1か所 LEAD_PIECES から作る（続きの電話の始めの頭・3回目からの戻る一言も入る。⛔ 2026-11-08 日本時間8時台（11-07 23時26分13秒の
+# ご質問の見直しの K-3・CL-2 の 4-234 の (b)）まで、11-06 からの2つが無かった＝業務の文がその言葉で始まると2回続いた）。「ほかに」（OTHERS_HEAD）は、業務の文が
+# もう「ほかに」で始まれば会話の側が足さない（flowctl.others_head）ので重ならない＝入れない（業務の文に「ほかに」と書いてよい）
+QUESTION_HEADS = tuple(dict.fromkeys([*(w for w in LEAD_PIECES if w != OTHERS_HEAD),
+                                      *(ACK[k].rstrip("、。") for k in ("hai", "arigatou", "shouchi", "kashikomari", "shitsurei"))]))
 # 共通の一言で録音して流すもの（中の名前 → 言葉）。声の型ごとに1回だけ作って承認し、どの依頼主にも同じものを使う（DESIGN.md 6-13）。
 # 依頼主の単位で録音するのは、トークスクリプト（名乗り・質問の文）だけ
 # ⚠️ 2026-10-15：つなぎの言葉だけの録音は使わなくなった（質問と1本で録音する＝flowctl.spoken_question）。LEAD_RECORDED は、録音の
@@ -822,6 +826,13 @@ def heads_said(before: str) -> set[str]:
 
 # 3回目からの戻る一言（「…お伺いさせていただきますが」）のあとに重ねない、質問の頭のていねいの言葉（「…いただきますが恐れ入りますが…」と「が」が続く）
 POLITE_HEAD = "恐れ入りますが"
+
+
+def head_join(head: str, text: str) -> str:
+    """質問の頭（文を終えない一言・つなぎの言葉）に質問の文をつなぐ1か所（システムの質問＝back_fit・業務の質問＝flowctl.spoken_question）：頭が「が」で終わるなら
+    （3回目からの戻る一言「…お伺いさせていただきますが」・続きの電話の始めの頭「確認させていただきたい内容なのですが」）、文の頭の「恐れ入りますが」を外す
+    （「が」を続けない＝11-07 4時40分35秒のお言葉の形「…いただきますが、ご予約は～」。⛔ 2026-11-08 日本時間8時台（K-3 の確かめ）まで業務の質問は外していなかった）"""
+    return head + (text.removeprefix(POLITE_HEAD) if head.endswith("が") else text)
 # 言い直しの頭の受けの言葉（伺ったときに前の答えを受けた言葉＝LEAD_IN の「言い直し」のお礼・承りと、聞き違いのお詫びのあとの「改めまして」）
 RESTATE_RECEIPTS = (*LEAD_IN["言い直し"], *LEAD_IN["お詫びのあとの言い直し"])
 
@@ -843,7 +854,7 @@ def back_fit(rid: str, text: str, before: str) -> tuple[str, str]:
     - どちらでもなければ、そのまま"""
     w = head_word(text) or ""
     if before and not closes(before):
-        return (f"{rid}_midway", before + text[len(w):].removeprefix(POLITE_HEAD)) if text.endswith(("？", "?")) else (rid, text)
+        return (f"{rid}_midway", head_join(before, text[len(w):])) if text.endswith(("？", "?")) else (rid, text)
     if w and any(a.endswith(w) or w.endswith(a) for a in heads_said(before)):
         return f"{rid}_bare", text[len(w):]
     return rid, text

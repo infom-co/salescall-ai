@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, QUESTION_RESUME_LEAD, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE
-from phrases import LEAD_PIECES, OTHERS_HEAD, back_fit, closes, drop_receipt, head_word, heads_said
+from phrases import LEAD_PIECES, OTHERS_HEAD, back_fit, closes, drop_receipt, head_join, head_word, heads_said
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
@@ -775,11 +775,12 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     if before and not closes(before):
         # 3回目から戻るときの一言（phrases.BACK_TO_MIDWAY「確認の途中でしたのでもう一度お伺いさせていただきますが」＝文を終えない）は、質問の頭として1本で
         # 録音する（✅ 2026-11-07 日本時間4時40分35秒 ユーザー「…「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」）
-        return before + others + q.text, before + others
+        # 頭と文をつなぐのは phrases.head_join の1か所（「が」で終わる頭のあとは「恐れ入りますが」を外す＝システムの質問の back_fit と同じ。⛔ K-3 の確かめで見つけた）
+        return head_join(before + others, q.text), before + others
     if again:
         # 直前に流す一言（2回目に戻るときの「それではもう一度確認させていただきますね。」＝phrases.BACK_LINES）の頭が同じ「それでは」なら重ねない（頭を付けない）
         lead = ("" if AGAIN_LEAD in heads_said(before) else AGAIN_LEAD) + others
-        return lead + q.text, lead
+        return head_join(lead, q.text), lead
     if i == 0:
         return q.text, ""
     # この質問に入る一言（Question.intro＝業務設定）があれば、つなぎの言葉の代わりにそれを頭に。前の答えで伺う質問（ask_if。
@@ -792,7 +793,7 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     # 受ける答えが無い（15時20分30秒「続きまして、も、それではも繋がりがおかしい」と同じ理由。⛔ 23時22分41秒のご質問の見直し A6・H4：前の答えで伺う質問だけ
     # 「それでは」のまま流していた）。業務の入る一言は業務の言葉のまま
     if resumed and not q.intro:
-        return QUESTION_RESUME_LEAD + q.text, QUESTION_RESUME_LEAD
+        return head_join(QUESTION_RESUME_LEAD, q.text), QUESTION_RESUME_LEAD
     # ほかに分からない点が無いかを伺う質問は、次の項目ではなく、ほかの話のあとの「ほかに」（others_head。⛔ それまでは「続きまして」）
     if q.intro:
         lead = relead(q.intro, before)
@@ -802,7 +803,7 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
         lead = others
     else:
         lead = relead(NEXT_LEAD, before)
-    return lead + q.text, lead
+    return head_join(lead, q.text), lead
 
 
 def others_head(q: "Question") -> str:

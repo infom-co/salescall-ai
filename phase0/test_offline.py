@@ -91,7 +91,10 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          "estimate_ask",
                          # 本題に入ったあとの「もういいです。」に本心を伺うシステムの質問の番号（業務の質問に使えない名前）と、言っていただいた気になる点の事実
                          # （✅ 11-08 日本時間2時21分15秒。CL-1.md 4-113）
-                         "D2", "concern"})
+                         "D2", "concern",
+                         # 業務の質問の文の頭に書けない言葉に足した、続きの電話の始めの頭と3回目からの戻る一言（11-08 日本時間8時台の K-3＝CL-2 の 4-234 の (b) への
+                         # 答え。CL-1.md 4-118）
+                         __import__("phrases").QUESTION_RESUME_LEAD, __import__("phrases").BACK_TO_MIDWAY})
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
 CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
 
@@ -11698,7 +11701,8 @@ class TargetTest(unittest.TestCase):
         theirs = self.cl2_names("business_settings.py", "QUESTION_LEADS")
         if theirs is None:
             self.skipTest("CL-2 の business_settings.QUESTION_LEADS が、まだ main に無い")
-        self.assertEqual((sorted(set(QUESTION_HEADS) - theirs), sorted(theirs - set(QUESTION_HEADS))), ([], []), "（こちらだけ, CL-2 だけ）")
+        mine = without_cl2_pending(self, set(QUESTION_HEADS), theirs)   # K-3 で足した2つは CL-2 が足すまで待つ（CL-1.md 4-118）
+        self.assertEqual((sorted(mine - theirs), sorted(theirs - set(QUESTION_HEADS))), ([], []), "（こちらだけ, CL-2 だけ）")
 
     def test_do_words_rules_match_cl2(self):
         # CL-2 の 4-202 の (a)：こちらがすることの言葉の形の決まり（こちら＝meanings の DO_END・DO_DOUBLED・MARKS と頭の言葉 QUESTION_HEADS・CL-2 の
@@ -20653,6 +20657,36 @@ class BackLineReviewTest(unittest.TestCase):
         self.assertEqual(relead("それではお支払いの確認からさせていただきます。", "それではお手元の資料をご覧ください。"),
                          "続きましてお支払いの確認からさせていただきます。")
         self.assertEqual(relead("それでは", "それではお手元の資料をご覧ください。"), "続きまして")
+
+    def test_question_heads_cover_every_head_the_flow_adds(self):
+        # K-3（11-08 日本時間8時台。CL-2 の 4-234 の (b)）：業務の質問の文の頭に書けない言葉の一覧（phrases.QUESTION_HEADS＝CL-2 の business_settings.QUESTION_LEADS と
+        # 同じ）に、11-06 からの質問の頭（続きの電話の始めの「確認させていただきたい内容なのですが」・3回目からの戻る一言「確認の途中でしたので…が」）が無かった＝業務の
+        # 文がその言葉で始まると同じ言葉が2回続く。頭を組む部分の1か所（phrases.LEAD_PIECES）から作る。「ほかに」は、業務の文がもう「ほかに」で始まれば会話の側が
+        # 足さない（flowctl.others_head）ので重ならない＝入れない（業務の文に「ほかに」と書いてよい）
+        from flowctl import Question, spoken_question
+        from phrases import LEAD_PIECES, OTHERS_HEAD, QUESTION_HEADS
+        self.assertEqual(sorted({w for w in LEAD_PIECES if w != OTHERS_HEAD} - set(QUESTION_HEADS)), [])
+        self.assertNotIn(OTHERS_HEAD, QUESTION_HEADS)
+        q = Question("Q1", "ほかにご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"), unclear_none="いいえ")
+        self.assertEqual(spoken_question([Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")), q], "Q1")[0],
+                         "ほかにご不明な点はございますでしょうか？")
+
+    def test_polite_head_is_not_doubled_after_a_head_ending_in_ga(self):
+        # K-3 の確かめで見つけた穴（11-08 日本時間8時台）：3回目からの戻る一言（「確認の途中でしたのでもう一度お伺いさせていただきますが」）に続ける質問の頭の
+        # 「恐れ入りますが」は、システムの質問では外していた（phrases.back_fit＝11-07 4時40分35秒のお言葉の形に「が」を続けない）のに、業務の質問の頭を決める
+        # flowctl.spoken_question は外していなかった＝「…お伺いさせていただきますが恐れ入りますがご予算は…」。同じ理由（「が」が続く）が当たる続きの電話の始めの頭
+        # （「確認させていただきたい内容なのですが」）も同じ。頭に質問の文をつなぐ決まりを1か所（phrases.head_join）にして両方が通る
+        from flowctl import Question, callback_question, question_play, spoken_question
+        from phrases import BACK_TO_MIDWAY, QUESTION_RESUME_LEAD
+        q0 = Question("Q0", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        q = Question("Q1", "恐れ入りますがご予算はおいくらほどでしょうか？", "amount")
+        self.assertEqual(question_play([q0, q], "Q1", again=True, before=BACK_TO_MIDWAY)["text"], BACK_TO_MIDWAY + "ご予算はおいくらほどでしょうか？")
+        self.assertEqual(spoken_question([q0, q], "Q1", resumed=True)[0], QUESTION_RESUME_LEAD + "ご予算はおいくらほどでしょうか？")
+        # 頭が「が」で終わらなければ今までどおり（「それでは恐れ入りますが…」）
+        self.assertEqual(spoken_question([q0, q], "Q1", again=True)[0], "それでは恐れ入りますがご予算はおいくらほどでしょうか？")
+        # システムの質問は今までどおり（同じ1か所を通る）
+        email = callback_question("email")
+        self.assertEqual(question_play([email], email.id, again=True, before=BACK_TO_MIDWAY)["text"], BACK_TO_MIDWAY + "メールアドレスをお伺いしてもよろしいでしょうか？")
 
 
 class RemainingNineTest(unittest.TestCase):
