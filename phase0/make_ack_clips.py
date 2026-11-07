@@ -298,7 +298,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, holds_pending, may_wish, other_wish_recording_id, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
+    from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, asks_wish, may_wish, other_wish_recording_id, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
                          tell_recording_id)
     from instruction import reading_variants
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, back_fit, question_clip
@@ -332,7 +332,7 @@ def script_table(business) -> tuple[dict, dict]:
                 items.append((question_clip(p["id"], lead), text, question_how(text)))
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
-        if holds_pending(q):
+        if asks_wish(q):
             # 決められないのがお客様の最終の決定のとき、その質問を締める一言（文は flowctl.pending_line・名前は flowctl.pending_recording_id。✅ 2026-11-06
             # 日本時間11時19分55秒 ユーザー「(2) …「承知しました。それではパンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」）
             items.append((pending_recording_id(q), pending_line(q), "question"))

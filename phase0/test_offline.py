@@ -17931,11 +17931,12 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual(HESITATE_POINT, "どういった点でお迷いでしょうか？")
         self.assertEqual(RECORDED["hesitate_point"], HESITATE_POINT)
         # 選ぶ助けをするのは業務の質問だけ（ご決定は業務の選択肢の選び方へのもの）：システムの質問（ほかのご希望・ご承認の手順・連絡先など）の判定には
-        # 「迷っている」を選べるものとして出さない＝それぞれの決まった道のまま（判定の選べるもの・流れの制御・測りの数えが同じ1か所 helps_choose を使う）
-        from flowctl import callback_question, helps_choose
+        # 「迷っている」を選べるものとして出さない＝それぞれの決まった道のまま（判定の選べるもの・流れの制御・測りの数えが同じ1か所 asks_wish を使う。
+        # 事実を伺う質問・ご承認の質問・ほかに分からない点の質問も入れない＝test_undecided_after_help_is_held_and_other_words_keep_their_way の H-8）
+        from flowctl import asks_wish, callback_question
         from meaning_judge import answer_kinds
         pay = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
-        self.assertEqual((helps_choose(pay), helps_choose(callback_question("email"))), (True, False))
+        self.assertEqual((asks_wish(pay), asks_wish(callback_question("email"))), (True, False))
         self.assertIn(HESITATING, answer_kinds(pay))
         self.assertNotIn(HESITATING, answer_kinds(callback_question("email")))
         # (1) 選択肢ごとの良い点・気をつける点があるとき：報告は受け取らずに、会話AIがその範囲で選ぶ助けを自分の言葉で伝え、お返事を待つ
@@ -18024,9 +18025,10 @@ class HedgedSalesTest(unittest.TestCase):
             heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])
             self.assertEqual((r["result"], r["question_id"], f.items["Q1"].state, f.items["Q1"].reason), ("next", "Q2", "dont_know", "undecided"))
             self.assertIn("保留", heard)
-        # (イ) の続き：2つの判定の理由の読みが割れた（まだ決まっていない／いまは分からない）・理由の読みが無い（「分からないです。」）も、まだ決めていない
-        # お客様でありうる＝最初の答えのまま保留で締めずに、先に選ぶ助けをする（理由の読みがそろわないときに、お客様を見放す側へ倒さない）。2つの判定が
-        # そろって「担当ではない」「いまは分からない」と読んだときは今までどおり（担当ではない＝その方の決定ではないので保留にしない・いまは分からない＝
+        # (イ) の続き：2つの判定の理由の読みが割れた（まだ決まっていない／いまは分からない）・理由の読みが無い（「分からないです。」）は、(イ) のお言葉
+        # 「まだ決めていないです。」の範囲の外＝今までどおり（「どういった点で…」と伺わない。⛔ 2026-11-08 日本時間0時台＝11-07 23時26分13秒のご質問の
+        # 見直しの J-2：私が 22時台に「読みの揺れでお客様を見放す側へ倒さない」として広げ、知らないだけの言葉にも伺っていた＝広げるかは伺う）。2つの判定が
+        # そろって「担当ではない」「いまは分からない」と読んだときも今までどおり（担当ではない＝その方の決定ではないので保留にしない・いまは分からない＝
         # 業務の決まりの「分かる時を伺う」か保留）
         def unknown(f, words, whys):
             f.on_callee(); f.on_heard(words)
@@ -18040,7 +18042,8 @@ class HedgedSalesTest(unittest.TestCase):
             f = flow({})
             r = unknown(f, words, whys)
             heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or [])
-            self.assertEqual((r["result"], heard, f.items["Q1"].state), ("hesitate", "はい、" + HESITATE_POINT, "empty"), words)
+            self.assertNotEqual(r["result"], "hesitate", words)
+            self.assertNotIn(HESITATE_POINT, heard, words)
         for whys, reason, pending in ((("いまは分からない",) * 2, "unknown_now", True), (("担当ではない",) * 2, "not_in_charge", False)):
             f = flow({})
             r = unknown(f, "ちょっと分からないです。", whys)
@@ -18062,6 +18065,214 @@ class HedgedSalesTest(unittest.TestCase):
         f = flow(notes)
         r = said(f, "うーん、どうしようかな…。", THINKING)
         self.assertEqual(r["result"], "thinking")
+
+    def test_undecided_after_help_is_held_and_other_words_keep_their_way(self):
+        # 迷っているお客様への応じ方の残り（11-07 日本時間23時26分13秒のご質問の見直しの H-1・H-2・H-3・H-8・J-2）。
+        # H-1 選ぶ助けのあとの「まだ決められないです」は保留で締める（18時台のご報告の (イ) の文「それでも決められなければ保留で締める。」＝22時02分54秒
+        #     「イでOK」）。最初の答えの段でも言い直しの段でも、報告で来ても報告の無いターンでも同じ。相づち（「なるほど。」）は今までどおり（最終の確かめへ）。
+        #     ⛔ 直す前：最初の答えの段は「申し訳ございません、お電話が少し遠いようでして…」・言い直しの段は同じ確かめの一言をもう一度・理由の読みが割れると
+        #     「お分かりになる方は…」（a496d7e2 で選ぶ助けのあとの受け取りを外したあと、受け取る所が無かった）
+        # H-2 「まだ決めていない」の読み（判定の「わからない」か、「決められない」で理由が「まだ決まっていない」）は、どの段でも同じ1つの決まりで読む
+        #     （⛔ 直す前：最初の答えは「わからない」だけ・「どういった点で…」のあとは決められないも・最終の確かめのあとも、と4か所で違った）
+        # H-3 「どういった点で…」・選ぶ助けのあとの、電話を終える言葉に寄った言葉（「もういいです。」）・聞き取れない言葉・こちらへの問いは、選ぶ助けにも
+        #     保留にもしない＝迷っていない最初の答えと同じ道（⛔ 直す前：どれも選ぶ助けの番にして、ご遠慮の確かめも聞き返しもしなかった）
+        # H-8 選ぶ助けをする質問と保留で締める質問は1つの決まり（asks_wish＝お客様のご希望・申し出から選んでいただく業務の質問。事実を伺う質問・ご承認の
+        #     質問・ほかに分からない点の質問は入れない）。⛔ 直す前：判定の選べるもの・選ぶ助け・保留・最初の答えの決まりが3か所で違い、事実を伺う質問・
+        #     ご承認の質問・ほかに分からない点の質問にも「どういった点で…」と伺った
+        # J-2 最初の答えで先に選ぶ助けをするのは、理由の読みがそろって「まだ決まっていない」ときだけ（22時02分54秒の (イ) のお言葉「まだ決めていないです。」の
+        #     範囲。⛔ 私が 22時台に、理由の読みが割れた・無いときにも広げ、知らないだけの言葉にも「どういった点で…」と伺っていた）
+        from flowctl import END, END_REFUSED, HESITATING, UNDECIDED, WHY, WHY_NOT_SAID, Flow, Question, asks_wish, callback_question
+        from meaning_judge import Reading, answer_kinds
+        from phrases import ACK, HESITATE_POINT
+        notes = {"カード": "カード会社のポイントがつく", "振込": "振込手数料はお客様のご負担"}
+        help_line = "カードですとカード会社のポイントがつきますので、そういった点もご考慮いただくとよいかもしれませんね。"
+        pay = dict(text="お支払いはカードと振込のどちらがよろしいでしょうか？", type="choice", conditions=("カード", "振込"))
+        meet_text = "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？"
+        held = "承知しました。それではこの件は保留とさせていただきますね。続きまして" + meet_text
+        not_yet, yn = "まだ決まっていない", ("はい", "いいえ")
+
+        def flow(option_notes=None, first=None, play=True):
+            f = Flow([first or Question("Q1", option_notes=option_notes or {}, **pay),
+                      Question("Q2", meet_text, "choice", conditions=("オンライン", "訪問"))], play_recordings=play)
+            f.use_checks("judge", "judge2")
+            return f
+
+        def rd(x, why=None, end=None, firm=None):
+            r = Reading(x) if firm is None else Reading(x, firm=firm)
+            if why:
+                setattr(r, WHY, why)
+            if end:
+                setattr(r, END, end)
+            return r
+
+        def hear(f, words, *readings):
+            f.on_callee(); f.on_heard(words)
+            for k, r in zip(("judge", "judge2"), readings * 2 if len(readings) == 1 else readings):
+                f.on_check(k, r if isinstance(r, Reading) else rd(r))
+
+        def heard(r):
+            return "" if r is None else ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+
+        def report(f, qid="Q1", op="record_answer"):
+            args = ({"question_id": qid, "condition_id": "unknown"} if op == "record_answer" else {"question_id": qid} if op == "report_unclear"
+                    else {"question_id": qid, "result": "affirmed"})
+            return f.apply(op, args)
+
+        def helped(f, qid="Q1", op="record_answer", line=help_line):
+            if f.hesitating.get(qid, {}).get("point") is None:
+                hear(f, "カードか振込か迷っています。", HESITATING)
+                report(f, qid, op)
+            grounded(f, line)
+            r = f.apply("replay_opening", {"part": "own", "answer": line})
+            self.assertEqual(r["result"], "own_answer")
+            return r
+
+        def pointed(f, qid="Q1", op="record_answer"):
+            hear(f, "カードか振込か迷っています。", HESITATING)
+            r = report(f, qid, op)
+            self.assertEqual(heard(r), "はい、" + HESITATE_POINT)
+            return r
+
+        # H-1：選ぶ助けのあとの「まだ決められないです」＝保留で締める（理由はプログラムが決めた事実＝まだ決まっていない）。読みは「わからない」（理由が割れても・
+        # 無くても）か、「決められない」で理由が「まだ決まっていない」
+        still = "うーん、まだ決められないですね。"
+        for readings in ((rd("unknown"),), (rd("unknown", not_yet), rd("unknown", "わからない理由を言わなかった")), (rd(UNDECIDED, not_yet),),
+                         (rd(UNDECIDED, not_yet), rd("unknown"))):
+            f = flow(notes)
+            helped(f)
+            hear(f, still, *readings)
+            r = report(f)
+            self.assertEqual((r["result"], r.get("question_id"), heard(r), f.items["Q1"].state, f.items["Q1"].reason),
+                             ("next", "Q2", held, "dont_know", "undecided"), readings)
+            # 報告の無いターンでも同じ返事（会話AIの声が流れていなければ）。声が流れたら重ねない（受け取らない＝報告で当てる）
+            g = flow(notes)
+            helped(g)
+            hear(g, still, *readings)
+            self.assertEqual(heard(g.judged_turn(voiced=False)), held, readings)
+            g = flow(notes)
+            helped(g)
+            hear(g, still, *readings)
+            r = g.judged_turn(voiced=True)
+            self.assertEqual((heard(r), g.items["Q1"].state), ("", "empty"), readings)
+        # 選ぶ助けのあとの相づち（「なるほど。」＝決められない・理由は言っていない）は今までどおり質問に戻り、そのあとの「まだ決められないです」で保留
+        f = flow(notes)
+        helped(f)
+        hear(f, "なるほど。", rd(UNDECIDED, WHY_NOT_SAID))
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((r["result"], heard(r)), ("replayed", "はい、それでは" + pay["text"]))
+        hear(f, still, rd("unknown"))
+        self.assertEqual(heard(report(f)), held)
+        # 判定が「決められない」とだけ読み（理由の読みが無い＝まだ決めていないとは決まらない）、会話AIが「わからない」と報告した＝食い違いなので聞き直す（G-55）。
+        # 聞き取れているので、お電話のせいにせず「はい、恐れ入ります。…をもう一度…」で聞き直す（設計の (3)「お客様ははっきり話しているので、電話のせいに
+        # する聞き返しは合わない」＝G-14）。⛔ 直す前：選ぶ助けのあとも最初の答えも「申し訳ございません、お電話が少し遠いようでして…」だった。別の耳の文字が
+        # 会話AIの聞き取りと食い違う（聞き取りにくい）ときは今までどおり
+        for option_notes in (notes, {}):
+            f = flow(option_notes)
+            if option_notes:
+                helped(f)
+            hear(f, "うーん、決められないですね。", UNDECIDED)
+            r = report(f)
+            self.assertEqual(r["result"], "ask_back", option_notes)
+            self.assertNotIn("お電話が少し遠い", heard(r), option_notes)
+            self.assertTrue(heard(r).startswith("はい、恐れ入ります。"), heard(r))
+        f = flow({})
+        hear(f, "うーん、決められないですね。", UNDECIDED)
+        f.on_check("ear", "ふーん、きめられないでした。")
+        self.assertIn("お電話が少し遠い", heard(report(f)))
+        # 理由がそろって「担当ではない」は、まだ決めていないのではない＝その理由の業務の決まりで進む（保留にしない＝その方の決定ではない）
+        f = flow(notes)
+        helped(f)
+        hear(f, "上の者に聞かないと分からないです。", rd("unknown", "担当ではない"))
+        r = report(f)
+        self.assertEqual((r["result"], f.items["Q1"].reason, "保留" in heard(r)), ("next", "not_in_charge", False))
+        # 言い直しの段（言い切っていない答えの「それでは…させていただきますね？」の返事待ち）でも同じ：同じ確かめの一言をもう一度言わずに保留
+        g8 = lambda: Question("G8n", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=yn,   # noqa: E731
+                              meanings={"はい": "パンフレットをお送りしてよろしいということ", "いいえ": "パンフレットをお送りしなくてよろしいということ"},
+                              do_words={"はい": "パンフレットをお送りさせていただきます"}, away=("いいえ",))
+        def restated(readings, words="うーん、決められないですね。"):
+            f = flow(first=g8())
+            hear(f, "送ってもらおうかな…。", rd("はい", firm=False))
+            self.assertEqual(f.apply("record_answer", {"question_id": "G8n", "condition_id": "はい"})["result"], "confirm_required")
+            hear(f, "うーん、迷ってるんですよね。", HESITATING)
+            self.assertEqual(heard(report(f, "G8n", "confirm_field")), "はい、" + HESITATE_POINT)
+            hear(f, "読む時間があるか気になってて。", UNDECIDED)
+            self.assertEqual(report(f, "G8n", "confirm_field")["result"], "rejected")
+            helped(f, "G8n", "confirm_field", "数分でお読みいただける内容ですので、お手すきの時にご覧いただけますよ。")
+            hear(f, words, *readings)
+            return f, report(f, "G8n", "confirm_field")
+        for readings in ((rd(UNDECIDED, not_yet),), (rd("unknown", not_yet),), (rd("unknown", not_yet), rd("unknown", "いまは分からない")), (rd("unknown"),)):
+            f, r = restated(readings)
+            self.assertEqual((r["result"], heard(r), f.items["G8n"].state, f.items["G8n"].reason), ("next", held, "dont_know", "undecided"), readings)
+        # 理由がそろって「担当ではない」：同じ確かめの一言をもう一度言わずに、その理由の「わからない」で受け取る（最初の答えと同じ。保留にしない）
+        f, r = restated((rd("unknown", "担当ではない"),), "上の者に聞かないと分からないです。")
+        self.assertEqual((r["result"], f.items["G8n"].reason, "保留" in heard(r), "パンフレット" in heard(r)), ("next", "not_in_charge", False, False))
+        # H-2・J-2：最初の答えの「まだ決めていない」（判定の「わからない」でも「決められない」でも、理由がそろって「まだ決まっていない」）は先に選ぶ助け
+        for readings in ((rd("unknown", not_yet),), (rd(UNDECIDED, not_yet),), (rd(UNDECIDED, not_yet), rd("unknown", not_yet))):
+            f = flow({})
+            hear(f, "まだ決めかねていて。", *readings)
+            r = report(f)
+            self.assertEqual((r["result"], heard(r), f.items["Q1"].state), ("hesitate", "はい、" + HESITATE_POINT, "empty"), readings)
+        # J-2：理由の読みが割れた・無い（知らないだけの言葉でありうる）は、(イ) のお言葉の範囲の外＝今までどおり（「どういった点で…」と伺わない）
+        for readings in ((rd("unknown", not_yet), rd("unknown", "いまは分からない")), (rd("unknown"),), (rd(UNDECIDED),)):
+            f = flow({})
+            hear(f, "停められるか分からないので。", *readings)
+            r = report(f)
+            self.assertNotEqual(r["result"], "hesitate", readings)
+            self.assertNotIn(HESITATE_POINT, heard(r), readings)
+        # H-3：「どういった点で…」・選ぶ助けのあとの「もういいです。」（電話を終える言葉かの読みが割れた）は、迷っていない最初の答えと同じ（ご遠慮の確かめ）
+        def ending(f):
+            hear(f, "もういいです。", rd(UNDECIDED, end=END_REFUSED), rd(UNDECIDED, end=UNDECIDED))
+            return heard(report(f))
+        plain = ending(flow({}))
+        self.assertIn("ご遠慮", plain)
+        f = flow({})
+        pointed(f)
+        self.assertEqual(ending(f), plain)
+        f = flow(notes)
+        helped(f)
+        self.assertEqual(ending(f), plain)
+        # H-3：「どういった点で…」・選ぶ助けのあとの聞き取れない言葉（会話AIは聞き取れないと報告・判定は決められない）は、聞き返す（迷っていない最初の答えと同じ）
+        def unclear(f, *readings):
+            hear(f, "（ザザッ）…で…が…", *(readings or (UNDECIDED,)))
+            r = report(f, op="report_unclear")
+            return r["result"], heard(r)
+        plain = unclear(flow({}))
+        self.assertEqual(plain[0], "ask_back")
+        f = flow({})
+        pointed(f)
+        self.assertEqual(unclear(f), plain)
+        f = flow(notes)
+        helped(f)
+        self.assertEqual(unclear(f, rd("unknown")), plain)
+        # H-3：選ぶ助けのあとのこちらへの問い（「？」で判定がどれも決められない）は、保留で締めずに先に答える
+        f = flow(notes)
+        helped(f)
+        hear(f, "カードだと手数料はかかりますか？", rd(UNDECIDED, not_yet))
+        r = report(f)
+        self.assertEqual((r["result"], f.items["Q1"].state), ("rejected", "empty"))
+        self.assertIn("こちらへの問い", r["message"])
+        # H-8：選ぶ助けをする質問・保留で締める質問・判定に「迷っている」を出す質問は1つの決まり（asks_wish）
+        fact = Question("G13", "複合機は現在リースでご利用でしょうか？", "yes_no", conditions=yn, asks_fact=True,
+                        meanings={"はい": "複合機は現在リースでご利用ということ", "いいえ": "複合機は現在リースでご利用ではないということ"})
+        approval = Question("A1", "この内容でご同意いただけますでしょうか？", "yes_no", conditions=yn, approval=True,
+                            intro="初期費用はかからず、月々の料金だけでお使いいただけます。")
+        unclear_q = Question("U1", "ご不明な点はございますでしょうか？", "yes_no", conditions=yn, unclear_none="いいえ",
+                             meanings={"はい": "ご不明な点がおありということ", "いいえ": "ご不明な点はないということ"})
+        self.assertTrue(asks_wish(Question("Q1", **pay)))
+        self.assertIn(HESITATING, answer_kinds(Question("Q1", **pay)))
+        for q in (fact, approval, unclear_q, callback_question("email")):
+            self.assertFalse(asks_wish(q), q.id)
+            self.assertNotIn(HESITATING, answer_kinds(q), q.id)
+        for make in (lambda: Question("G13", fact.text, "yes_no", conditions=yn, asks_fact=True, meanings=fact.meanings),
+                     lambda: Question("A1", approval.text, "yes_no", conditions=yn, approval=True, intro=approval.intro),
+                     lambda: Question("U1", unclear_q.text, "yes_no", conditions=yn, unclear_none="いいえ", meanings=unclear_q.meanings)):
+            q = make()
+            f = flow(first=q)
+            hear(f, "まだ決めてないです。", rd("unknown", not_yet))
+            r = report(f, q.id)
+            self.assertNotEqual(r["result"], "hesitate", q.id)
+            self.assertNotIn(HESITATE_POINT, heard(r), q.id)
+            self.assertNotIn("保留", heard(r), q.id)
 
     ASKED_BACK = "そうですね、お読みになられるとより理解が深まるかと思います。"
 

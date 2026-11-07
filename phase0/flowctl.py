@@ -484,12 +484,20 @@ def merge_ampm(pending: str | None, answer: str | None) -> str | None:
     return pending[:m.start()] + w.group() + pending[m.start():] if m else answer
 
 
-def holds_pending(q: "Question") -> bool:
-    """決められない（わからない）のがお客様の最終の決定のとき、その質問を保留で締めるか（唯一の決まり＝流れの制御 Flow._confirm_again・_tell_due と録音を作る道具
-    make_ack_clips.script_table）：お客様のご希望・申し出を伺う業務の質問（事実を伺う質問・名前の読みの確かめ・システムの質問・ご承認の質問ではない）。
+def asks_wish(q: "Question") -> bool:
+    """お客様のご希望・申し出から選んでいただく業務の質問か（唯一の決まり）。この質問だけ：
+    - 迷っているお客様に選ぶ助けを伝える（判定の選べるもの「迷っている」＝meaning_judge.answer_kinds・流れの制御 Flow._hesitation・測りの数え
+      g53_meaning.flow_act／flow_wants）
+    - 決められない（まだ決めていない）のがお客様の最終の決定なら、その質問を保留で締める（Flow._confirm_again・_tell_due・録音を作る道具 make_ack_clips）
+    入れない質問：事実を伺う質問（選ぶものではない）・名前の読みの確かめ・システムの質問（ほかのご希望 W1・ご承認の手順 N1〜N3・待つかかけ直すか H2・
+    連絡先など＝それぞれの決まった道）・ご承認の質問（ご承認の手順の道）・ほかに分からない点が無いかを伺う質問（取込の unclear_none）。
     ✅ 2026-11-06 日本時間11時19分55秒 ユーザー：「(2) 「ちょっと今は決められないですね。」というのが最終のお客様の決定であれば、「承知しました。それでは
-    パンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」"""
-    return not (q.asks_fact or q.reading_of or q.callback or q.approval)
+    パンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」・2026-11-07 13時05分06秒・18時03分49秒・22時02分54秒（迷っているお客様＝
+    業務の選択肢の選び方へのお言葉。お言葉に無い場面には当てない＝帳面 0-2。ご承認の質問への迷いは伺う＝帳面 1 の (11) の A-7）。
+    ⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの H-8）：選ぶ助けをする質問（システムの質問だけ除く）・保留で締める質問・最初の
+    「まだ決めていない」に選ぶ助けをする質問を3か所で別々に決めていて、事実を伺う質問・ご承認の質問・ほかに分からない点の質問にも「どういった点で
+    お迷いでしょうか？」と伺い、ほかに分からない点の質問を保留で締めえた"""
+    return not (q.asks_fact or q.reading_of or q.callback or q.approval or q.unclear_none)
 
 
 def takes_for_now(q: "Question", condition: str | None) -> bool:
@@ -625,7 +633,7 @@ def before_heads(questions: list["Question"]) -> set[str]:
     """業務の質問の直前に、同じ回に流しうる業務の一言の文の頭のつなぎの言葉（録音を作る形を決める＝question_forms）：保留で締める一言（pending_line）と、
     業務の「答えのあとに伝える一言」（Question.tell_words）。ほかに質問の前に流す決まった言葉（戻る一言・ご不満な点…・申し伝える一言・お詫び）の頭には
     つなぎの言葉が無い（試験 test_lines_before_a_question_do_not_start_with_a_lead_word）。"""
-    lines = [pending_line(q) for q in questions if holds_pending(q)] + [t for q in questions for t in q.tell_words.values()]
+    lines = [pending_line(q) for q in questions if asks_wish(q)] + [t for q in questions for t in q.tell_words.values()]
     return {w for line in lines for w in heads_said(line)}
 
 
@@ -773,6 +781,19 @@ REPEAT = "もう一度言ってほしい"
 # 測りの数えの曖昧の印 g53_meaning.mark）。⛔ 2026-11-06 日本時間15時台に見つけた：同じ並びを3か所で手で書いていて、待つ読みを足したときに測りの側が
 # 取り次ぎを待つ・代わった人のままだった
 NOT_ANSWERS = (*WAIT_KINDS, REPEAT, HANDOVER, HESITATING)
+# 判定の読みのうち、どの答えも選んでいないもの（唯一の組＝undecided・hesitates）：決められない（判定が言葉から決められない＝相づち・選ぶのを避けた・
+# お客様の「決められない」も）と、わからない（わからない・まだ決めていない、と言った＝meaning_judge.SYSTEM_DESC）。お客様が「まだ決めていない」と
+# 言ったかは、この組と理由の読みで決める1か所（Flow._not_deciding）。⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの H-2）：
+# 最初の答え・「どういった点で…」のあと・迷っているか・最終の確かめのあと、の4か所で組が違った（「届き先を決めかねていて」が読みしだいで3通りに分かれた）
+UNDECIDED_READS = (UNDECIDED, "unknown")
+
+
+def undecided(readings) -> bool:
+    """届いた判定の読みがどれも、どの答えも選んでいない（UNDECIDED_READS）か（唯一の決まり＝流れの制御 Flow._hesitation・_confirm_again）。"""
+    got = {str(r) for r in readings if r is not None}
+    return bool(got) and got <= set(UNDECIDED_READS)
+
+
 WAIT_NOW, CALL_LATER = "このまま待つ", "かけ直す"   # 決まらないときに1回伺う質問 H2 の選択肢（callback_question("wait_or_later")）
 # H2 の答えの名前を、同じ意味の待つ・かけ直すの読みに読み替える表（唯一の表＝as_wait）。H2 を伺っている間、判定は H2 の答えの名前でも待つ読みの名前でも
 # 読めるので、2つの名前を同じ意味に数える。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（W2）：判定の1つが「かけ直す」・もう1つが「お客様から
@@ -881,16 +902,8 @@ def hesitates(readings) -> bool:
     選んでいない＝決められない・まだ決めていないと読まれても同じ向き。割れたら、すぐ保留で締めずに選ぶ助けを先にする＝✅ 2026-11-07 日本時間13時05分06秒
     ユーザー「迷っていると言っているのに途中で話を終わらしたり…急かすのは最悪な手ですよ。」）。考えている途中（言いよどみ）と割れたら、待つ読みの1か所
     （wait_reading）が先に受け持つ（「はい。」で待つ＝お客様が続けて話せば決め直す）。"""
-    got = [str(r) for r in readings if r is not None]
-    return HESITATING in got and set(got) <= {HESITATING, UNDECIDED, "unknown"}
-
-
-def helps_choose(q) -> bool:
-    """迷っていると言い終えたお客様に、選ぶ助けを伝える質問か（唯一の決まり＝判定の選べるもの meaning_judge.answer_kinds・流れの制御 Flow._hesitation・
-    測りの数え g53_meaning.flow_act／flow_wants）：業務の質問だけ。システムの質問（callback＝ほかのご希望 W1・ご承認の手順 N1〜N3・待つかかけ直すか H2・
-    連絡先など）は、判定に「迷っている」を選べるものとして出さず、それぞれの決まった道（意味合いを尋ねる・聞き直す）のまま（ご決定＝✅ 2026-11-07 日本時間
-    13時05分06秒・18時03分49秒は、業務の選択肢の選び方へのもの。お言葉に無い場面には当てない＝帳面 0-2）"""
-    return not getattr(q, "callback", "")
+    got = {str(r) for r in readings if r is not None}
+    return HESITATING in got and got <= {HESITATING, *UNDECIDED_READS}
 
 
 def asks_us_words(said: str | None) -> str | None:
@@ -1288,6 +1301,9 @@ DONT_KNOW_LABEL = {"not_in_charge": "担当ではない", "undecided": "まだ�
                    "unspecified": "わからない理由を言わなかった"}
 REFUSED_LABEL = {"policy": "決まりで言えない", "unwilling": "答えたくない理由を言わなかった"}
 UNKNOWN_WHY_LABEL = {**DONT_KNOW_LABEL, **REFUSED_LABEL}
+# 「わからない」の理由のうち、まだ決めていない（迷っている・決められない）のではなく、その理由の業務の決まり（分かる方・分かる時を伺う）で進むもの（唯一の組＝
+# 迷っているお客様への応じ方 Flow._hesitation・最終の確かめのあとの受け取り Flow._confirm_again）：担当ではない（その方の決定ではない）・いまは分からない
+WHY_ROUTED = ("not_in_charge", "unknown_now")
 # 「〇時まで」「〇日まで」（いま電話を続けられない理由で、かけてよい時間・日が決まる言い方。理由を伺い直す・記録に until_why を書く唯一の
 # 見分け。CL-2 の 4-149・4-155：「来月の5日までに」も「〇時まで」と同じ。「〇日以降」「〇日ごろ」は理由なしで読める）。
 # 言葉の終わり（UNTIL_TAIL）は、CL-2 の時刻の読み（spoken_time._UNTIL_TAIL）と同じ並び（比べる試験。⏳ フェーズ1で spoken_time を呼ぶ1か所に）。
@@ -3146,6 +3162,7 @@ class Flow:
         self.answer_held: dict | None = None
         self.judged: dict | None = None  # いま当てている報告が、前の発話の言葉の答え（answer_held）なら、その言葉（_apply_one の間だけ）
         self.question_answered_turn = -1  # 相手の質問に答えた相手の発話の番号（同じ発話の質問に、もう一度答えさせない＝_advance）
+        self.unclear_turn = -1   # 会話AIが「聞き取れない」と報告した相手の発話の番号（聞き取れているかの1か所 _heard_clearly が読む。入口 _apply_one が立てる）
         # 答えの段で尋ねられた（_asked_now）問いへの答えの文が使えず、尋ねられる前の流れのとおりに進めると決めた相手の発話の番号（_asked_skip）
         self.asked_skip = -1
         self.knowledge = list(knowledge or [])
@@ -4472,6 +4489,10 @@ class Flow:
         held_was = self.answer_held   # この報告の前に覚えていた言葉（この報告で次の質問へ進み、先に言われた答えを覚え直したら残す＝下）
         run, run_args = name, args   # 実際に受ける操作（_wish_reported）。相づちもこの操作で選ぶ
         self.reply_started = False
+        if name == "report_unclear":
+            # 会話AIが、この発話を聞き取れないと言った（判定は文字だけを読むので、音の聞こえは会話AIと別の耳が決める＝_heard_clearly）。どの確かめより先に立てる
+            # （迷っているお客様への応じ方 _hesitation が、聞き取れない言葉を選ぶ助けの番・保留にしない＝⛔ 11-07 23時26分13秒のご質問の見直しの H-3）
+            self.unclear_turn = self.callee_turns
         if name == "replay_opening" and args.get("part") in self.answers:
             args = {**args, "part": ANSWER_PREFIX + args["part"]}  # 想定問答の問いの名前 ⇒ 録音の部分の名前
         if self.trouble is not None:
@@ -4930,8 +4951,11 @@ class Flow:
             if why and q.required and not (back == cond and it.ask_backs):
                 # 言い直す選択肢が無い（聞き取りが食い違う・値を聞く型で答えがあったと判定した）：質問から聞き直す（6-11 の回数の中で）。
                 # 「わからない」と判定の「決められない」の食い違い（back＝報告のまま）は、最初の答えだけ（2回目の「わからない」は受け取る＝
-                # 本当にわからない方に、何度も聞かない）
-                return self._ask_again(qid, "unclear", f"{why}（AIは「{label(cond)}」と受け取った）")
+                # 本当にわからない方に、何度も聞かない）。聞き取れている（_heard_clearly）なら、お電話のせいにせず「はい、」＋「恐れ入ります。（聞くこと）を
+                # もう一度…」（"form"＝設計の (3)「お客様ははっきり話しているので、電話のせいにする聞き返しは合わない」＝G-14・言い直さない質問の聞き直し
+                # _check_again と同じ）。⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの H-1 を直す途中、流れの制御に通して見つけた）：
+                # 判定の「決められない」と会話AIの「わからない」の食い違いにも「申し訳ございません、お電話が少し遠いようでして…」と聞き返していた
+                return self._ask_again(qid, "form" if self._heard_clearly() else "unclear", f"{why}（AIは「{label(cond)}」と受け取った）")
             return self._take_system(qid, cond, a.get("unknown_why"))
         after = self.unreported_correction[1] if self.unreported_correction and self.unreported_correction[0] == qid else None
         self.unreported_correction = None
@@ -5155,15 +5179,27 @@ class Flow:
           答える1か所と同じ道＝お返事が答えなら受け取る・相づちだけなら最終の確かめ＝_resume）
         - "point"：迷っていると言い終えたが、まだ「どういった点でお迷いでしょうか？」を伺っていなくて、選択肢ごとの良い点・気をつける点が無い・もう伝えた
           ⇒「はい、」＋その一言を1回（_hesitate_point。同じ問いを2度言わない＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）
-        - 何回迷っても保留で締めない（選ぶ助けを続ける）。保留で締めるのは、選ぶ助けのあとに「決められない」「まだ決めていない」と言われたとき（お客様の最終の
-          決定＝11-06 11時19分55秒の (2)。_take_system・_confirm_again の受け取り）だけ
-        - 最初の答えで「まだ決めていない」と言った（判定の読みがどれも「わからない」で、理由がまだ決まっていない＝_why_of。保留で締める質問＝holds_pending）も、
-          すぐ保留で締めずに、迷っていると同じく先に選ぶ助けをする（まだ助けも伺いもしていないときだけ）。理由の読みがそろわない・無い（_why_of の受け皿＝
-          理由を言わなかった）も同じ（まだ決めていないお客様でありうる＝読みの揺れで、お客様を見放す側へ倒さない）。2つの判定がそろって「担当ではない」
-          「いまは分からない」と読んだときは当てない（担当ではない＝その方の決定ではない・いまは分からない＝業務の決まりの「分かる時を伺う」か保留）。
+        - "final"：選ぶ助けを伝えたあと（選ぶ助けがいちばん新しい応じ方）に、お客様が「まだ決められない」「まだ決めていない」と言った（_not_deciding）
+          ⇒ 保留で締める（_hesitate_now → _undecided_final＝「承知しました。それではこの件は保留とさせていただきますね。」。最初の答えの段でも言い直しの段でも
+          同じ。18時台のご報告の (イ) の文「それでも決められなければ保留で締める。」＝22時02分54秒「イでOK」）。相づち（「なるほど。」＝決められない・理由は
+          言っていない）は当てない（今までどおり、お客様の言葉への報告の道＝質問に戻る・最終の確かめ＝11-06 11時19分55秒）
+        - 何回迷っても保留で締めない（選ぶ助けを続ける）。保留で締めるのは、選ぶ助けのあとの「まだ決めていない」（上の final）と、言い切っていない答えの
+          最終の確かめのあとも決められないとき（11-06 11時19分55秒の (2)。_confirm_again）だけ
+        - 最初の答えで「まだ決めていない」と言った（判定の読みがどの答えも選んでいない＝undecided で、理由の読みがそろって「まだ決まっていない」＝_why_of）も、
+          すぐ保留で締めずに、迷っていると同じく先に選ぶ助けをする（まだ助けも伺いもしていないときだけ）。理由の読みがそろわない・無いときは当てない
+          （⛔ 2026-11-08 日本時間0時台＝11-07 23時26分13秒のご質問の見直しの J-2：私が 22時台に「読みの揺れで見放す側へ倒さない」として広げ、知らないだけの
+          言葉「停められるか分からないので」にも伺っていた＝お言葉の範囲「まだ決めていないです。」に戻した。広げるかは伺う）。
           当てるのは選択肢から選ぶ質問（CHOICE_TYPES＝はい／いいえ・選択肢）だけ（「まだ決めていない」が「どれにするか迷っている」と同じになるのは、選ぶ
           ものがあるときだけ＝金額・日時などを伺う質問への「まだ決まっていない」に「どういった点でお迷いでしょうか？」とは伺わない）。理由は判定が読む
           （_why_of）ので、判定を使う通話だけ（判定を使わない通話の理由は会話AIの報告＝ここからは見えない）
+        - 当てる質問は、お客様のご希望・申し出から選んでいただく業務の質問だけ（asks_wish の1か所＝保留で締める質問と同じ）
+        - 判定の読みが答えを選んでいない（undecided）だけの応じ方（伺ったあとの選ぶ助け・final・最初の「まだ決めていない」）は、電話を終える言葉に寄っている・
+          聞き取れていない・こちらへの問い、のときは当てない（_plain_reply＝迷っていない答えと同じ道：ご遠慮の確かめ・聞き返し・先に答える）。判定が「迷っている」
+          と読んだときは、言葉に迷っている中身がある（考えている途中と同じく、ご遠慮の確かめの場面にしない＝11-01 22時31分）。理由がそろって「担当ではない」
+          「いまは分からない」も当てない（担当ではない＝その方の決定ではない・いまは分からない＝業務の決まりの「分かる時を伺う」か保留）
+        ⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの H-1・H-3）：選ぶ助けのあとの「まだ決められないです」を受け取る所が無く
+        （a496d7e2 で外したまま）、最初の答えの段は「申し訳ございません、お電話が少し遠いようでして…」・言い直しの段は同じ確かめの一言をもう一度・理由の
+        読みが割れると「お分かりになる方は…」だった／「どういった点で…」のあとの「もういいです。」・聞き取れない言葉も選ぶ助けの番にしていた
         ✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「カード と振り込みのメリットデメリットを把握しておき 例えば「カードだと カード会社のポイントがつくので
         そういう点も 考慮されるといいかもしれませんね 」のように促すのが一番いいんじゃないでしょうか。迷っていると言っているのに途中で話を終わらしたり
         どうなさいましたか と 急かすのは最悪な手ですよ。」・18時03分49秒「(1) ア」・22時02分54秒「まだ迷っているのにどうして締めるんですか？超一流の営業マンが
@@ -5172,7 +5208,7 @@ class Flow:
         if self.phase not in ("asking", "rechecking") or self.after_answer is not None:
             return None
         qid = self.awaiting_confirm or self.current
-        if qid is None or not helps_choose(q := self.questions[qid]):
+        if qid is None or not asks_wish(q := self.questions[qid]):
             return None
         h = self.hesitating.get(qid, {})
         point, helped = h.get("point"), h.get("helped")
@@ -5181,19 +5217,49 @@ class Flow:
             # 答えた印＝question_answered_turn も立っているので、それより先に見る）。⛔ 2026-11-08 日本時間0時台の見直しの H-4：伺ったばかりの発話を「伺った
             # あとのお返事」と読み、お返事を待たずに選ぶ助けを言わせた・選ぶ助けを伝えた発話への遅れた報告を答えとして受け取り、保留で締めた
             return "point" if point == self.callee_turns else "help"
-        if self.callee_turns in (self.question_answered_turn, self.asked_skip):
+        if self.callee_turns in (self.question_answered_turn, self.asked_skip) or self.check_for not in (None, qid):
+            # この発話の判定の読みは、発話の始めの質問についての読み（check_for）：保留で締めて次の質問へ進んだあとに同じ発話の遅れた報告が来ても、次の質問の
+            # 読みにしない（⛔ 同じ見直しの H-1 を直す途中、流れの制御に通して見つけた形）
             return None
         readings = [self.check.get(k) for k in JUDGMENTS]
-        got = [str(r) for r in readings if r is not None]
-        # 最初の答え（言い直し・最終の確かめの返事待ちではない＝awaiting_confirm が無い）だけ。最終の確かめのあとも決められないのは、お客様の最終の決定＝保留
-        # （11-06 11時19分55秒の (2)。_confirm_again）
-        not_yet = (point is None and helped is None and self.awaiting_confirm is None and self.judging and q.type in CHOICE_TYPES
-                   and holds_pending(q) and set(got) == {"unknown"} and self._why_of("unknown") in ("undecided", "unspecified"))
-        if hesitates(readings) or not_yet:
+        if hesitates(readings):
             return "point" if point is None and (not q.option_notes or helped is not None) else "help"
-        if point is not None and point < self.callee_turns and (helped is None or helped < point) and got and set(got) <= {UNDECIDED, "unknown"}:
+        if not undecided(readings) or not self._plain_reply(readings) or self._why_of("unknown") in WHY_ROUTED:
+            return None
+        if helped is not None and (point is None or point < helped):
+            return "final" if self._not_deciding(readings) else None   # 選ぶ助けのあと：まだ決めていない＝保留・相づちなどは今までどおり
+        if point is not None:
             return "help"   # どういった点でお迷いかを伺ったあとの、答えではないお返事（迷っている点）
+        if self.awaiting_confirm is None and self.judging and q.type in CHOICE_TYPES and self._why_of("unknown") == "undecided":
+            # 最初の答え（言い直し・最終の確かめの返事待ちではない＝awaiting_confirm が無い）の「まだ決めていない」（(イ)。最終の確かめのあとも決められないのは、
+            # お客様の最終の決定＝保留＝11-06 11時19分55秒の (2)。_confirm_again）
+            return "help" if q.option_notes else "point"
         return None
+
+    def _not_deciding(self, readings) -> bool:
+        """お客様が「まだ決めていない」「まだ決められない」と言ったか（唯一の決まり＝選ぶ助けのあとに保留で締める _hesitation の final）：届いた判定の読みが
+        どの答えも選んでいない（undecided）で、わからない（わからない・まだ決めていない、と言った）と読んだ判定があるか、理由の読みがそろって「まだ決まって
+        いない」。決められないとだけ読んだ言葉（相づち「なるほど。」・選ぶのを避けた）は入れない（判定の「決められない」は、判定が言葉から決められないこと＝
+        meaning_judge の UNDECIDED）。"""
+        return undecided(readings) and ("unknown" in {str(r) for r in readings if r is not None} or self._why_of("unknown") == "undecided")
+
+    def _plain_reply(self, readings) -> bool:
+        """答えを選んでいないお客様の言葉（undecided）を、迷っているお客様への応じ方（_hesitation の伺ったあとの選ぶ助け・final・最初の「まだ決めていない」）で
+        読んでよいか（唯一の決まり）：電話を終える言葉に寄っていない（判定が電話を終える言葉と読んでいない・決まらない読みではない＝_end_due_now と同じ
+        _end_unsure_now）・聞き取れている（_heard_clearly）・こちらへの問いではない（asks_us＝尋ねられて答える番 _asked_now が先に答える）。当たらなければ、
+        迷っていない答えと同じ道（ご遠慮の確かめ・聞き返し・先に答える）。⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの H-3）：
+        「どういった点でお迷いでしょうか？」のあとの「もういいです。」にご遠慮の確かめをせず（_judged_due が飛ばした）、聞き取れない言葉にも選ぶ助けを
+        言わせた"""
+        end = self._end_now()
+        return (end not in END_REASON and not self._end_unsure_now(end) and self._heard_clearly()
+                and not asks_us(self.callee_said, readings))
+
+    def _heard_clearly(self) -> bool:
+        """いまのお客様の言葉が聞き取れているか（唯一の決まり＝はっきり待つように言われたか _wait_clear・迷っているお客様への応じ方 _plain_reply）：会話AIが
+        この発話を聞き取れないと報告していない（unclear_turn＝入口 _apply_one）・別の耳の文字が届いていれば、会話AIの聞き取りと食い違わない（確かめの (1) と
+        同じ heard_alike。届いていない確かめは比べない＝_compare と同じ）。"""
+        said, ear = self.callee_said or "", self.check.get("ear")
+        return self.unclear_turn != self.callee_turns and (ear is None or heard_alike(said, ear))
 
     def _hesitate_now(self, voiced: bool = False) -> dict:
         """迷っているお客様（_hesitation が当たった）に応じる返事の唯一の場所（先に判定の読みで応じる1か所 _judged_first から＝会話AIの報告で来ても、報告の
@@ -5213,6 +5279,14 @@ class Flow:
         if self.callee_turns in (h.get("point"), h.get("helped")):
             return {"result": "hesitate", "silent": True, "again": True,
                     "message": f"{head}この言葉には、もう応じました。何も言わずに、相手のお返事を待ってください。"}
+        if kind == "final":
+            # 選ぶ助けのあとも、まだ決めていない＝お客様の最終の決定：保留で締めて次へ（_undecided_final の1か所＝最終の確かめのあとと同じ）。会話AIの声がもう
+            # 流れた（報告の無いターン）なら重ねない（何を言ったか分からない声に、保留の一言を重ねない＝答えは報告で当てる）
+            if voiced:
+                return None
+            qid = self.awaiting_confirm or self.current
+            self.awaiting_confirm = None
+            return self._undecided_final(qid)
         if kind != "point":
             return None
         if voiced:
@@ -5345,7 +5419,7 @@ class Flow:
         いないので「話を戻させていただきますね。」も付けない）、最終の確かめで、その質問を締めにいく。こちらがすることの言葉のある質問は「はい、」＋「それでは
         パンフレットをお送りさせていただきましょうか？」（AFTER の final_do）、ほかは言い直しの答えを最終的に確かめる言い方（settle＝「それでは…ということで
         よろしいでしょうか？」）。最終の確かめなので、同じ確かめはもう言い直さない（印 Item.final）：そろわなければ _confirm_again が締める
-        （決められないのがお客様の最終の決定なら保留＝holds_pending）。
+        （決められないのがお客様の最終の決定なら保留＝asks_wish）。
         ✅ 2026-11-06 日本時間11時19分55秒 ユーザー：「「はい、それではパンフレットをお送りさせていただきましょうか？」という方向性ですよね。話はパンフレットを
         から移っていないので戻す必要はなく、あいてが迷っている最中の最終確認をして、パンフレットのシーンを締めないといけないんじゃないですか？」
         toward＝まだ答えていない質問について尋ねられて答えたあと（_continue の final）：こちらが勧めた向き（final_toward）で同じ最終の確かめ（✅ 2026-11-06
@@ -5365,13 +5439,20 @@ class Flow:
         self.awaiting_confirm = None
         if why.startswith(TALK_WHY) and back is None:   # 会話になっていない返事で、確かめる答えが無ければ聞き直す（_check_again の1か所）
             return self._check_again(qid, why, reported, back)
+        undecided_now = asks_wish(q) and undecided([self.heard_check.get(k) for k in JUDGMENTS])
+        if undecided_now and self._why_of("unknown") in WHY_ROUTED:
+            # 判定の読みがどれも答えを選んでいず、理由の読みがそろって「担当ではない」「いまは分からない」：まだ決めていないのではない＝言い直して確かめずに、
+            # その理由の「わからない」として受け取る（最初の答えと同じ＝業務の決まりで分かる方・分かる時を伺う。WHY_ROUTED）。⛔ 2026-11-08 日本時間0時台
+            # （11-07 23時26分13秒のご質問の見直しの H-1・H-2）：「上の者に聞かないと分からないです。」にも同じ確かめの一言をもう一度言い、そのあと理由を
+            # 「まだ決まっていない」にして保留で締めていた
+            return self._take_system(qid, "unknown")
         if q.required and not it.final and it.corrections < self.limits.after_correction and (q.type not in CHOICE_TYPES or back in q.conditions + (ANY, NONE)):
             it.corrections += 1
             return self._check_again(qid, why, reported, back, final=True)
-        judged = {str(v) for k in JUDGMENTS if (v := self.heard_check.get(k)) is not None}
-        if holds_pending(q) and judged and judged <= {UNDECIDED, "unknown"}:
-            # 最終の確かめのあとも、判定の読みがどれも決められない・わからない（お客様の最終の決定。迷っているは保留で締めない＝_hesitation・22時02分54秒）：「わからない（まだ決まっていない）」として受け取り、答えのあとに伝える一言の1か所
-            # （_tell_due）から「それでは（聞くこと）は保留とさせていただきますね。」でその質問を締めて次へ（伺い直さない＝10-13「わからない＝「-」で聞き直さない」）
+        if undecided_now:
+            # 最終の確かめのあとも、判定の読みがどれも答えを選んでいない（お客様の最終の決定。迷っているは保留で締めない＝_hesitation・22時02分54秒）：「わからない
+            # （まだ決まっていない）」として受け取り、答えのあとに伝える一言の1か所（_tell_due）から「それでは（聞くこと）は保留とさせていただきますね。」でその
+            # 質問を締めて次へ（伺い直さない＝10-13「わからない＝「-」で聞き直さない」）
             return self._undecided_final(qid)
         it.set("unresolved", f"{why}（言い直しへの返事「{(self.callee_said or '')[:20]}」・AIは「{label(reported)}」と受け取った）・確かめがそろわない")
         return self._dash(qid)
@@ -7646,6 +7727,14 @@ class Flow:
                | self.end_leans.get(self.callee_turns, set()))
         return got & set(END_REASON)
 
+    def _end_unsure_now(self, end: str | None) -> bool:
+        """いまの発話が、電話を終える言葉か判定でも決まらないか（唯一の決まり＝決まらないときの場面 _end_due_now・迷っているお客様への応じ方 _plain_reply）。
+        end＝_end_now。決まらない：届いた読みが食い違った・判定が「決められない」と読んだ（寄りが無くても）・確かな読みが無く、答えを待っている判定も無いのに
+        確かでない読みが電話を終える言葉に寄った。⛔ 2026-11-01 夜の見直しで見つけた穴：前は食い違ったときだけで、確かでない読みだけの寄りでは
+        何もしなかった。⛔ 同じ夜、正解の表を作りから出して見つけた穴：判定の「決められない」も、寄りが無いと何もせず、「もういいです。」の答えを
+        向きを確かめずに受け取って次の質問を流していた"""
+        return end == UNDECIDED or (end is None and not self._end_pending() and bool(self._end_lean()))
+
     def _end_due_now(self) -> str | None:
         """会話AIの報告より先に当てる、判定が読んだ電話を終える言葉（終わりの理由）：あとから届いた判定の読み（end_due）か、いまの発話の言葉が
         出揃ったあとの読み。判定を使わない通話・もう締めた通話は None。"""
@@ -7657,11 +7746,7 @@ class Flow:
         if self.end_used_turn == self.callee_turns or self.midway or not self.words_complete:
             return None
         end = self._end_now()
-        # 決まらない：届いた読みが食い違った・判定が「決められない」と読んだ（寄りが無くても）・確かな読みが無く、答えを待っている判定も無いのに
-        # 確かでない読みが電話を終える言葉に寄った。⛔ 2026-11-01 夜の見直しで見つけた穴：前は食い違ったときだけで、確かでない読みだけの寄りでは
-        # 何もしなかった。⛔ 同じ夜、正解の表を作りから出して見つけた穴：判定の「決められない」も、寄りが無いと何もせず、「もういいです。」の答えを
-        # 向きを確かめずに受け取って次の質問を流していた
-        unsure = end == UNDECIDED or (end is None and not self._end_pending() and bool(self._end_lean()))
+        unsure = self._end_unsure_now(end)
         if unsure and self._judged_due():
             return None   # 待つ・考えている途中・もう一度言ってほしいの読み：電話を終える言葉か決まらないときの場面にしない（報告の無いターンは _judged_first が応じる）
         topic = unsure and self._topic_first()
@@ -7943,10 +8028,9 @@ class Flow:
         return self._wait_or_later()
 
     def _wait_clear(self) -> bool:
-        """お客様が、はっきり待つように言ったか（唯一の決まり＝_wait_rethought）：言葉に待つように言う言葉があり（says_wait）、聞き取りにくくない（別の耳の
-        文字が届いていれば、会話AIの聞き取りと食い違わない＝確かめの (1) と同じ heard_alike。届いていない確かめは比べない＝_compare と同じ）。"""
-        said, ear = self.callee_said or "", self.check.get("ear")
-        return says_wait(said) and (ear is None or heard_alike(said, ear))
+        """お客様が、はっきり待つように言ったか（唯一の決まり＝_wait_rethought）：言葉に待つように言う言葉があり（says_wait）、聞き取れている（_heard_clearly の
+        1か所＝会話AIが聞き取れないと報告していない・別の耳の文字が会話AIの聞き取りと食い違わない）。"""
+        return says_wait(self.callee_said) and self._heard_clearly()
 
     def _wait_or_later(self) -> dict:
         """待つのか、かけ直すのか、お言葉から決まらない（判定が WAIT_OR_LATER・待つ読みとかけ直す読みが食い違った＝wait_reading）：1回だけ「かしこまりました。」＋
@@ -9319,8 +9403,8 @@ class Flow:
         ご相談ください。それではほかにご希望などは…」と W1 の前に流し、選び直した答えの一言は「言った」の印のまま流さなかった）。"""
         q, it = self.questions[qid], self.items[qid]
         if (it.state == "dont_know" and it.reason != "not_in_charge" and qid not in self.follow_ups.values() and not it.told
-                and holds_pending(q)):
-            # 決められないのがお客様の最終の決定（わからない）：「それでは（聞くこと）は保留とさせていただきますね。」でその質問を締める（holds_pending。録音は
+                and asks_wish(q)):
+            # 決められないのがお客様の最終の決定（わからない）：「それでは（聞くこと）は保留とさせていただきますね。」でその質問を締める（asks_wish。録音は
             # 依頼主の単位＝pending_recording_id）。締めないのは、最終の決定ではないとき＝担当ではない（その方の決定ではない）・業務の決まりで分かる方・分かる時を
             # 続けて伺う（聞き足しの質問 follow_ups がこの質問を指す＝_take_system）。⛔ 2026-11-06 日本時間13時台の見直しで見つけた：理由と聞き足しを見ずに、
             # 「私の担当ではないので。」にも「…保留とさせていただきますね。恐れ入りますがお分かりになる方は…」と言っていた

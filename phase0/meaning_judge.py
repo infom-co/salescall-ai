@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 
 from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, helps_choose, label, restates, side_items)
+                     REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, asks_wish, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -424,10 +424,10 @@ ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電
 
 def answer_kinds(q) -> dict:
     """答えでない言葉の選べるもの（唯一の場所）：電話のやり取りを読む問い合わせは KIND_DESC＋決められない・答えの段の問い合わせは ANSWER_KINDS
-    （迷っている＝HESITATING は、選ぶ助けを伝える業務の質問だけ＝flowctl.helps_choose の1か所）。"""
+    （迷っている＝HESITATING は、選ぶ助けを伝える業務の質問だけ＝flowctl.asks_wish の1か所）。"""
     if talk_question(q):
         return KIND_DESC | {UNDECIDED: TALK_UNDECIDED}
-    return ANSWER_KINDS if helps_choose(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
+    return ANSWER_KINDS if asks_wish(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
 
 
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
