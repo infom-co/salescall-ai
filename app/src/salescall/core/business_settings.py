@@ -110,15 +110,17 @@ ANYONE = "anyone"                                  # 目的のお客様のいな
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
-# 値を伺う質問の型（日時・数・金額。会話の側の flowctl.ESTIMATE_TYPES＝DATE_TIME_TYPES と NUMBER_TYPES の写し）：変更の受付の期限（`Question.change_by`）を
-# 書ける型（CL-1 の連絡帳 4-115 の (1)。ほかの型の質問は、確定でない値を受けない＝期限を使わない）
+# 値を伺う質問の型（日時・数・金額。会話の側の flowctl.ESTIMATE_TYPES＝DATE_TIME_TYPES と NUMBER_TYPES の写し）：値を伺う質問だけの欄（`VALUE_ONLY_KEYS`＝
+# 変更の受付の期限・確定した値で登録する）を書ける型（CL-1 の連絡帳 4-115 の (1)・4-116 の (1)。ほかの型の質問は、確定でない値を受けない＝どちらも使わない）
 ESTIMATE_TYPES = ("date", "time", "datetime", "number", "amount")
+# 値を伺う質問（`ESTIMATE_TYPES`）だけが書ける質問の欄（欄 → 言葉）。ほかの質問に書いたら止める決まりは `_value_fields` の1か所（取込も同じ道）
+VALUE_ONLY_KEYS = {"change_by": "変更の受付の期限", "definite_value": "確定した値で登録する"}
 # 変更の受付の期限の終わりに書かない言葉（会話の側が「（期限）までにご連絡いただけましたら」と続ける＝CL-1 の phrases.CHANGE_BY。重ねると「前日までまでに」）
 CHANGE_BY_TAILS = ("までに", "まで")
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
                  "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none", "doubt_words",
                  "asks_way", "option_notes",
-                 "change_by"}
+                 "change_by", "definite_value"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -137,7 +139,12 @@ DAY_SLOT = "{最短の日}"
 # つなぎの言葉の表 LEAD_IN["次の質問"] と相づちの表 ACK から作る1か所。比べる試験は CL-1 の test_question_heads_match_cl2）
 # ⇒ CL-1 の連絡帳 4-102・4-103 でも、この一覧の中身は変わらない（会話の側の QUESTION_HEADS が変わっていない。「では」は今は質問の頭に付かないが、会話の側の
 # 一覧に残る）。続きの電話の頭「確認させていただきたい内容なのですが」は会話の側の一覧に入っていないので、ここにも入れない（CL-2 の連絡帳 4-234 で CL-1 に伺う）
-QUESTION_LEADS = ("それでは", "続きまして", "では", "はい", "ありがとうございます", "承知しました", "かしこまりました", "失礼いたしました")
+# ⇒ CL-1 の連絡帳 4-118 の (1)（4-234 の (b) への答え）：会話の側の一覧に、続きの電話の始めの頭「確認させていただきたい内容なのですが」（phrases.QUESTION_RESUME_LEAD）と
+# 3回目からの戻る一言「確認の途中でしたのでもう一度お伺いさせていただきますが」（phrases.BACK_TO_MIDWAY）が入った（どちらも会話の側が業務の質問の文のすぐ前に
+# 付ける＝業務の文がこの言葉で始まると2回続く）ので、ここにも足した。「ほかに」（phrases.OTHERS_HEAD）は、業務の文がもう「ほかに」で始まっていれば会話の側が
+# 足さない（flowctl.others_head）ので重ならない＝足さない（業務の文に「ほかに」と書いてよい）
+QUESTION_LEADS = ("それでは", "続きまして", "では", "はい", "ありがとうございます", "承知しました", "かしこまりました", "失礼いたしました",
+                  "確認させていただきたい内容なのですが", "確認の途中でしたのでもう一度お伺いさせていただきますが")
 # こちらがすることの言葉の形（1か所。会話の側の同じ決まりは CL-1 の meanings.check の kind "do"）：会話の側は「それでは（言葉）ね？」で言うので、
 # 言葉は文の終わりまで持ち、終わりは「させていただきます」か「承ります」だけ（「。」は付けない）。へりくだりを重ねない（「差し上げさせ」「お伺いさせ」）。
 # ✅ 2026-11-03 ユーザー（(D) の案への答え）＝CL-1 の連絡帳 4-72 の答えの (2)・(g)。⛔ 2026-11-03 まで：言葉の途中で止める前の形（「パンフレットをお送り」）を
@@ -196,6 +203,8 @@ def means_in(text: str) -> list[str]:
 # 写して見ていた＝会話の側の作り方の全部ではなく、形が増えるたびに漏れる。作り方を写さず「_」の続きで決める
 # ⇒ CL-1 の連絡帳 4-100〜4-103（2026-11-06）で、保留で締める一言「_pending」・質問の録音の形「_lead_tsuzukimashite」「_lead_soredeha」「_lead_resume」・
 # 入る一言の頭を替えた形「_intro_lead_…」が増えた（作る形の一覧は会話の側の flowctl.question_forms の1か所）。どれも「_」の続きなので、ここは変えない
+# ⇒ CL-1 の連絡帳 4-117 の (3)：「（番号）_intro_lead_tsuzukimashite」が業務の録音の表に入り、「（番号）_other_again_midway」は作らなくなった。これも「_」の続きの
+# 形の中のことで、業務の録音の部分の名前は今までどおり会話の側の一覧（make_ack_clips.script_table）から作られる＝ここも組を作る道（recordings.complete）も変えない
 DERIVED_JOIN = "_"
 EARLIEST_KEYS = {"business_days", "closed_weekdays", "closed_on_holidays", "closed_dates"}   # 業務設定の「最短の日」の項目
 EARLIEST_MAX_DAYS = 60                            # 「N営業日以降」の N の上限（祝日の暦が届く先＝翌年の分まで、に収まる長さ）
@@ -335,9 +344,17 @@ class Question:
     # 答えの変更を受け付ける期限（「前日」「3日前」「前週の金曜日」など。言い方はそのまま文に入る。会話の側の Question.change_by。CL-1 の連絡帳
     # 4-115 の (1)）。値を伺う質問（日時・数・金額＝`ESTIMATE_TYPES`）だけ。お客様の答えの値が確定でない（「15日あたりですかね。」）ときに、ひとまずその
     # 値にして「変更があった場合には（期限）までにご連絡いただけましたらご対応可能です。」を添えて伺う（会話の側の Flow._tentative）。空なら無い
-    # （お客様の言い方のまま「承知しました。それでは15日あたりでお考えということで承っておきますね。」）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：
-    # 「…（～までにご連絡いただけましたら）（～までであれば）ご対応可能です。」～は日付や曜日、前日など。」。依頼者のトークスクリプトから取込が入れる
+    # （確定した値で登録する質問＝`definite_value` でなければ、お客様の言い方のまま「承知しました。それでは15日あたりでお考えということで承っておきますね。」）。
+    # ✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「…（～までにご連絡いただけましたら）（～までであれば）ご対応可能です。」～は日付や曜日、前日など。」。
+    # 依頼者のトークスクリプトから取込が入れる
     change_by: str = ""
+    # 確定した値で登録する質問か（確定日付の登録が要る業務の質問。会話の側の Question.definite_value。CL-1 の連絡帳 4-116 の (1)）。値を伺う質問（日時・数・
+    # 金額＝`ESTIMATE_TYPES`）だけ。真なら、確定でない値の答え（「15日あたりですかね。」）を、値の芯でひとまずとする（「はい、それではひとまず15日とさせて
+    # いただきますね？」・値は「15日」。期限＝`change_by` があれば変更の受付の一文を添える）。偽なら、お客様の言い方の値（期限があれば「ひとまず15日あたりと
+    # させていただきますね？…」・値は「15日あたり」、無ければ承っておく形）。期限が空でも効く（✅ 2026-11-08 日本時間5時33分05秒 ユーザー：「…相手が「あたり」を
+    # つけたら、こちらも「あたり」をつけた方がいいでしょう。ただし、確定日付の登録が必要な業務の場合は、現状のままで大丈夫です。」・6時04分57秒「イでOK」）。
+    # 依頼者のトークスクリプトから取込が入れる
+    definite_value: bool = False
 
 
 @dataclass(frozen=True)
@@ -457,7 +474,8 @@ class Settings:
     follow_up: bool = False                       # 担当から改めて連絡すると申し出てよいか（既定はいいえ＝約束しない）
     # 依頼者がすること（登録・記録・手配など。CL-1 の連絡帳 4-65 の (c)・instruction.Business.client_does）。事実を伺う質問の、言い切って
     # いない最初の答えの確かめ「それでは（意味の言葉）ということで（依頼者がすること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01
-    # 日本時間6時05分・6時27分 ユーザー）。書かなければ None＝会話の側の既定「記録」（phrases.CLIENT_DOES）
+    # 日本時間6時05分・6時27分 ユーザー）。書かなければ None＝会話の側の既定「承っておいて」（phrases.NOTED_DOES。「それでは10名ということで承っておいて
+    # 大丈夫でしょうか？」。CL-1 の連絡帳 4-116 の (2)。⛔ 前の既定「記録」＝phrases.CLIENT_DOES は外れた）
     client_does: str | None = None
     # 最終目的の果たし方（`GOAL_MODES`：any＝最終目的のどれか1つで果たせる／all＝全部が要る。会話の側の instruction.Business.goal_mode）。
     # 最終目的の質問が2つ以上の業務だけ書く（必ず書く＝こちらで推し量らない）。1つ以下なら None（どちらでも同じ）
@@ -943,7 +961,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                        what="その答えのあとに伝える一言")
             option_notes = _answer_words(q["option_notes"], q["type"], choices, where, problems, replies=False,
                                          what="選択肢ごとの良い点・気をつける点")
-            change_by = _change_by(q["change_by"], q["type"], where, problems)
+            change_by, definite_value = _value_fields(q, where, problems)
             if do_words and q["asks_fact"] is not False:
                 problems.append(f"{where}は事実を伺う質問なので、こちらがすることの言葉（do_words）は付けません（会話の側が使わない）")
             away = _away(q["away"], q["type"], choices, q["asks_fact"] is not False, where, problems)
@@ -974,7 +992,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
                                 q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words, q["asks_way"] is True,
-                                option_notes=option_notes, change_by=change_by)
+                                option_notes=option_notes, change_by=change_by, definite_value=definite_value)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -1016,22 +1034,31 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
     return s
 
 
-def _change_by(raw: Any, type_name: str, where: str, problems: list[str]) -> str:
-    """質問の変更の受付の期限（`Question.change_by`。確かめはここだけ）：空（無い）か文字。書けるのは値を伺う質問（`ESTIMATE_TYPES`）だけ（ほかの質問に
-    書いたら止める＝CL-1 の連絡帳 4-115 の (1)。会話の側は使わない）。期限だけを書く（終わりに「まで」「までに」を書かない・「。」を書かない＝会話の側が
-    「（期限）までにご連絡いただけましたら…」と続ける）。"""
-    if raw is None or raw == "":
-        return ""
-    if not isinstance(raw, str) or not raw.strip():
-        problems.append(f"{where}の変更の受付の期限（change_by）は文字か空です")
-        return ""
-    text = raw.strip()
-    if type_name not in ESTIMATE_TYPES:
-        problems.append(f"{where}は値を伺う質問（日時・数・金額）ではないので、変更の受付の期限（change_by）は書けません（会話の側が使いません）")
-    if text.endswith(CHANGE_BY_TAILS) or "。" in text:
-        problems.append(f"{where}の変更の受付の期限「{text}」は、「前日」「3日前」のように期限だけを書きます（「まで」「までに」「。」は書きません。"
-                        "会話の側が「（期限）までにご連絡いただけましたらご対応可能です。」と続けます）")
-    return text
+def _value_fields(q: dict[str, Any], where: str, problems: list[str]) -> tuple[str, bool]:
+    """値を伺う質問だけの欄（`VALUE_ONLY_KEYS`。確かめはここだけ）：(変更の受付の期限 `Question.change_by`, 確定した値で登録する `Question.definite_value`)。
+    - 書けるのは値を伺う質問（`ESTIMATE_TYPES`）だけ（ほかの質問に書いたら止める＝CL-1 の連絡帳 4-115 の (1)・4-116 の (1)。会話の側は使わない）。
+      書いたとは、期限が空でない・確定した値で登録するが真。
+    - 期限は空（無い）か文字。期限だけを書く（終わりに「まで」「までに」を書かない・「。」を書かない＝会話の側が「（期限）までにご連絡いただけましたら…」と
+      続ける）。
+    - 確定した値で登録するは true / false（期限が空でも書ける＝期限の無いひとまずの形。4-116 の (1) の ✅ 6時04分57秒「イでOK」）。"""
+    raw, definite = q["change_by"], q["definite_value"]
+    text = ""
+    if raw is not None and raw != "":
+        if not isinstance(raw, str) or not raw.strip():
+            problems.append(f"{where}の変更の受付の期限（change_by）は文字か空です")
+        else:
+            text = raw.strip()
+            if text.endswith(CHANGE_BY_TAILS) or "。" in text:
+                problems.append(f"{where}の変更の受付の期限「{text}」は、「前日」「3日前」のように期限だけを書きます（「まで」「までに」「。」は書きません。"
+                                "会話の側が「（期限）までにご連絡いただけましたらご対応可能です。」と続けます）")
+    if not isinstance(definite, bool):
+        problems.append(f"{where}の確定した値で登録するか（definite_value）は true / false です")
+        definite = False
+    given = {"change_by": bool(text), "definite_value": definite}   # 書いた欄（鍵は VALUE_ONLY_KEYS と同じ）
+    written = [f"{VALUE_ONLY_KEYS[key]}（{key}）" for key, on in given.items() if on]
+    if written and q["type"] not in ESTIMATE_TYPES:
+        problems.append(f"{where}は値を伺う質問（日時・数・金額）ではないので、{'・'.join(written)}は書けません（会話の側が使いません）")
+    return text, definite
 
 
 def _offer_ways(raw: Any, problems: list[str]) -> tuple[str, ...]:
@@ -1530,6 +1557,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     - 選択肢ごとの良い点・気をつける点（option_notes。2026-11-07＝CL-1 の連絡帳 4-110）が無い前の版の質問は、無い（空の表＝迷っているお客様には
       「どういった点でお迷いでしょうか？」を1回伺う）として読む。
     - 変更の受付の期限（change_by。2026-11-08＝CL-1 の連絡帳 4-115 の (1)）が無い前の版の質問は、無い（空＝承っておく形）として読む。
+    - 確定した値で登録するか（definite_value。2026-11-08＝CL-1 の連絡帳 4-116 の (1)）が無い前の版の質問は、偽（お客様の言い方の値）として読む。
     - 分岐（next）は、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える（前の版も同じ1か所）。
     - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
       無いとして読む（会話の側は「それでは（言葉）ね？」で言うので、そのままでは文にならない。無い選択肢は、会話の側が意味の言葉で
@@ -1542,7 +1570,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
         return dict(content, rules=rules)
     added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
              "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "option_notes": {},
-             "doubt_words": {}, "asks_way": False, "change_by": ""}
+             "doubt_words": {}, "asks_way": False, "change_by": "", "definite_value": False}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:

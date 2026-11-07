@@ -1888,6 +1888,19 @@ class NameLedger(Content):
                 self.assertEqual(sorted(p for p in forms if p.removesuffix(tail) not in parts), [])
         self.assertEqual(len(recordings.COMMON_PARTS), len(parts))   # 同じ名前を2回書かない
 
+    def test_the_resumed_asks_have_no_midway_form_since_11_08(self):
+        """CL-1 の連絡帳 4-117 の (1)(2)（11-07 23時26分13秒のご質問の見直しの B-3・B-5・B-6）：続きの電話で切れた所から伺う一言（前置き「前回選択いただいた
+        …の件で…切れてしまいましたので」の付く6つ）と番号を伺い直す電話の一言へ、お話に応えたあと戻るときは、前置きを言い直さず同じ役目の形（callback_email・
+        _bare・_midway など）を流す。⇒ その3回目からの形（_midway）は、もう流さない・作らない＝話してよい声に求めない（`COMMON_PARTS`。求めると、作られない
+        録音を待って声が「話してよい」にならない）。戻り先の同じ役目の形は、今までどおり求める。"""
+        parts = set(recordings.COMMON_PARTS)
+        resumed = ("callback_address_again", "callback_email_again", "callback_email_online_again", "callback_fax_again",
+                   "callback_line_how_again", "callback_not_agreed_again", "number_again_wrong_party", "number_again_unreachable")
+        self.assertLessEqual(set(resumed), parts)                                     # 一言そのものは流す
+        self.assertEqual(sorted(p for p in parts if p.startswith(tuple(f"{r}_" for r in resumed))), [])   # その _midway・_bare は無い
+        self.assertLessEqual({"callback_address_midway", "callback_email_midway", "callback_email_bare", "callback_fax_midway",
+                              "callback_line_how_midway", "callback_not_agreed_midway", "callback_number_midway"}, parts)   # 戻り先の形
+
     def test_the_refusal_confirm_cl1_added_on_11_01_is_received(self):
         """CL-1 の連絡帳 4-63（2026-11-01 ユーザー「(a) OK、(b) OK」）：ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうが
         よろしいでしょうか？」は共通の一言の録音 callback_refusal（話してよい声が求める＝`COMMON_PARTS`）で、その質問の番号 R1 は

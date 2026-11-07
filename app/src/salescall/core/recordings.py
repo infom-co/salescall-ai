@@ -354,19 +354,22 @@ COMMON_PARTS: tuple[str, ...] = (
     "wish_told_way", "back_again",
     # CL-1 の連絡帳 4-107：システムの質問を、2回目の戻る一言・方法をお伝えした一言に続けて頭の「それでは」を外して流す形（_bare）と、3回目から戻るときの
     # 「確認の途中でしたのでもう一度お伺いさせていただきますが」＋質問を1本にした形（_midway）。名前の正本は CL-1 の phrases.BACK_FIT（back_fit の1か所）
+    # ⇒ CL-1 の連絡帳 4-117 の (1)(2)：続きの電話で切れた所から伺う一言（callback_（役目）_again・callback_not_agreed_again）と番号を伺い直す電話の一言
+    # （number_again_*）へ戻るときは、前置きを言い直さず同じ役目の形（callback_email・_bare・_midway など）を流すので、その _midway（6つ）は外した（もう流さない）。
+    # 番号を伺い直す電話の一言の _midway は、もともと無い
     "callback_address_bare", "callback_email_bare", "callback_email_chosen_bare", "callback_fax_bare", "callback_hurry_again_bare",
     "callback_line_bare", "callback_line_how_bare", "callback_line_how_2_bare", "callback_line_how_without_email_bare",
     "callback_line_how_without_email_2_bare", "callback_line_how_without_id_bare", "callback_line_how_without_id_2_bare",
     "callback_line_how_without_sms_bare", "callback_line_how_without_sms_2_bare", "callback_mobile_bare",
-    "callback_address_midway", "callback_address_again_midway", "callback_agreed_now_midway", "callback_ask_when_midway",
+    "callback_address_midway", "callback_agreed_now_midway", "callback_ask_when_midway",
     "callback_ask_who_midway", "callback_authority_midway", "callback_back_date_midway", "callback_back_time_midway",
-    "callback_back_today_midway", "callback_call_again_midway", "callback_email_midway", "callback_email_again_midway",
-    "callback_email_chosen_midway", "callback_email_online_again_midway", "callback_fax_midway", "callback_fax_again_midway",
+    "callback_back_today_midway", "callback_call_again_midway", "callback_email_midway",
+    "callback_email_chosen_midway", "callback_fax_midway",
     "callback_hurry_again_midway", "callback_hurry_when_midway", "callback_later_time_midway", "callback_later_time_answering_midway",
-    "callback_line_midway", "callback_line_how_midway", "callback_line_how_2_midway", "callback_line_how_again_midway",
+    "callback_line_midway", "callback_line_how_midway", "callback_line_how_2_midway",
     "callback_line_how_without_email_midway", "callback_line_how_without_email_2_midway", "callback_line_how_without_id_midway",
     "callback_line_how_without_id_2_midway", "callback_line_how_without_sms_midway", "callback_line_how_without_sms_2_midway",
-    "callback_mobile_midway", "callback_next_workday_midway", "callback_not_agreed_midway", "callback_not_agreed_again_midway",
+    "callback_mobile_midway", "callback_next_workday_midway", "callback_not_agreed_midway",
     "callback_number_midway", "callback_other_point_midway", "callback_other_point_2_midway", "callback_other_point_which_midway",
     "callback_other_point_which_recap_midway", "callback_reachable_time_midway", "callback_refusal_midway",
     "callback_transfer_time_midway", "callback_wait_or_later_midway",

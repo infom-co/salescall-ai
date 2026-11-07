@@ -866,6 +866,26 @@ class Import(unittest.TestCase):
         p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
         self.assertTrue(any("値を伺う質問" in x for x in p.problems), p.problems)
 
+    def test_definite_value_comes_in_from_its_column_only_for_value_questions(self):
+        """CL-1 の連絡帳 4-116 の (1)：確定した値で登録するかは「質問」のシートの無くてもよい列「確定した値で登録する（日時・数・金額の質問だけ。例：予約の日付）」
+        （「はい」「○」で真・空か「いいえ」で偽。依頼者のトークスクリプトから入る。前のひな形には無いので、無ければ偽）。変更の受付の期限が空でも書ける。
+        値を伺う質問でない質問に「はい」と書いたら、取込で断る（業務設定の確かめの1か所＝変更の受付の期限と同じ）。使えない言葉も断る。"""
+        head = ("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的",
+                "確定した値で登録する（日時・数・金額の質問だけ。例：予約の日付）")
+        self.assertEqual(bi.SHEETS["questions"][1]["definite_value"], head[-1])
+        rows = [head, ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", None),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, "はい")]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [(q["definite_value"], q["change_by"]) for q in p.raw["questions"]]), ([], [(False, ""), (True, "")]))
+        p = self.preview(book(), decide_facts=facts)                         # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["definite_value"] for q in p.raw["questions"]]), ([], [False, False]))
+        for name, bad, words in (("選ぶ質問", [head, rows[1][:-1] + ("はい",), rows[2]], "値を伺う質問"),
+                                 ("使えない言葉", [head, rows[1], rows[2][:-1] + ("たぶん",)], "確定した値で登録する")):
+            with self.subTest(name):
+                p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
     def test_main_talk_policy_is_read_from_the_basic_sheet(self):
         """CL-1 の連絡帳 4-114・4-115 の (4)：シート「基本」の項目「本題の始まり」＝「最初の質問を流したあと」（asked）／「業務の答えを1ついただいたあと」
         （answered）。書かなければ入れない（業務設定の確かめが既定＝最初の質問を流したあと、にする）。選べない言葉は問題。"""
