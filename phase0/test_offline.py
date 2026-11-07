@@ -18614,6 +18614,9 @@ class HedgedSalesTest(unittest.TestCase):
         #    ある業務：イ」（まだ決まっていないへの一言に、変更の受付の一文を添える）
         tentative_as_said = "はい、それではひとまず15日あたりとさせていただきますね？" + change
         undecided = "承知しました。それではまだ確定ではないと承っておきますね。"
+        # ✅ 2026-11-08 日本時間6時04分57秒 ユーザー：「・「変更があった場合には前日までにご連絡いただけましたらご対応可能です。」：2回言っているので、2回目は、
+        #    「お伝えしております通り、前日まで変更は可能です。」」（決まった言い方なので言葉の途中の読点は外す＝10-15）
+        change_again = "お伝えしております通り前日まで変更は可能です。"
         # (A) 変更の受付の期限が無い：承っておく。会話AIの言い方の値も、お客様の言葉のまま（「15日あたり」。こちらで言い換えない）
         for words, value, firm in (("15日あたりですかね。", "15日", False), ("15日あたりですかね。", "15日あたり", False), ("15日あたりでお願いします。", "15日あたり", True)):
             f = flow()
@@ -18632,6 +18635,19 @@ class HedgedSalesTest(unittest.TestCase):
             self.assertEqual(heard(answer(f, "15日あたりですかね。", "15日")), said_back, definite)
             r = reply(f, "はい、お願いします。", rd("affirmed"))
             self.assertEqual((r.get("question_id"), f.export()["V1"], f.customer_words().get("V1")), ("Q2", value, "15日あたりですかね。"), definite)
+        # ✅ 2026-11-08 日本時間6時04分57秒 ユーザー「イでOK」：確定日付の登録が要る質問は、変更の受付の期限が業務設定に無いときも、ひとまずの形で芯の値に
+        #    （期限の一文は付けない。⛔ 前は承っておく形で、依頼者へ「15日あたり」＝登録できない値が渡った）。事実を伺う質問も同じ。まだ決まっていないと言われても値は芯のまま
+        f = flow(definite=True)
+        self.assertEqual(heard(answer(f, "15日あたりですかね。", "15日")), "はい、それではひとまず15日とさせていただきますね？")
+        r = reply(f, "はい、お願いします。", rd("affirmed"))
+        self.assertEqual((r.get("question_id"), f.export()["V1"], f.customer_words().get("V1")), ("Q2", "15日", "15日あたりですかね。"))
+        f = flow(fact=True, definite=True)
+        self.assertEqual(heard(answer(f, "10名くらいです。", "10名", True)), "はい、それではひとまず10名ということで承っておいて大丈夫でしょうか？")
+        f = flow(definite=True)
+        answer(f, "15日あたりですかね。", "15日")
+        self.assertEqual(heard(reply(f, "うーん、まだ決まってないんですよね。", rd("unknown", not_yet))), undecided)
+        reply(f, "はい。", rd("affirmed"))
+        self.assertEqual(f.export()["V1"], "15日")
         # 「〜をめどに」は「〜をめどとさせていただきますね？」（「にと」を重ねない）
         f = flow("前日")
         self.assertEqual(heard(answer(f, "15日をめどにお願いします。", "15日", True)), "はい、それではひとまず15日をめどとさせていただきますね？" + change)
@@ -18644,7 +18660,7 @@ class HedgedSalesTest(unittest.TestCase):
         f = flow("前日")
         answer(f, "15日あたりですかね。", "15日")
         r = reply(f, "うーん、まだ決まってないんですよね。", rd("unknown", not_yet))
-        self.assertEqual(heard(r), undecided + change)
+        self.assertEqual(heard(r), undecided + change_again)
         # 同じ発話に遅れて届いた報告で、承っておく一言へのお返事を待たずに受け取らない
         self.assertEqual((heard(f.apply("confirm_field", {"question_id": "V1", "result": "affirmed"})), f.items["V1"].state), ("", "checking"))
         r = reply(f, "はい。", rd("affirmed"))
@@ -18654,7 +18670,7 @@ class HedgedSalesTest(unittest.TestCase):
         # ⛔ 11-08 5時台に流れの制御から例を出して見つけた：承っておく形と同じ1行で、芯の値をお客様の言い方の値（「15日あたり」）に替えていた
         f = flow("前日", definite=True)
         answer(f, "15日あたりですかね。", "15日")
-        self.assertEqual(heard(reply(f, "うーん、まだ決まってないんですよね。", rd("unknown", not_yet))), undecided + change)
+        self.assertEqual(heard(reply(f, "うーん、まだ決まってないんですよね。", rd("unknown", not_yet))), undecided + change_again)
         r = reply(f, "はい。", rd("affirmed"))
         self.assertEqual((r.get("question_id"), f.export()["V1"], f.customer_words().get("V1")),
                          ("Q2", "15日", "15日あたりですかね。／うーん、まだ決まってないんですよね。"))
@@ -18664,6 +18680,28 @@ class HedgedSalesTest(unittest.TestCase):
                   Question("Q2", meet, "choice", conditions=("オンライン", "訪問"))], play_recordings=True)
         g.use_checks("judge", "judge2")
         self.assertEqual(heard(answer(g, "5万円くらいですかね。", "5万円")), "はい、それではひとまず50000円くらいとさせていただきますね？" + change)
+        # 変更の受付の一文は、この電話でその期限をもうお伝えしていれば短い形（6時04分57秒の (1)「2回言っているので」と同じ理由で、別の質問で同じ期限を
+        # お伝えしたあとも。期限が違えば初めの形）。お客様にもう一度言ってほしいと頼まれて言い直すときは、伺った文のまま（お客様は聞き取れていない）
+        from flowctl import REPEAT
+        h = Flow([Question("V1", "ご訪問の日にちのご希望はございますでしょうか？", "date", conditions=("答えた",), change_by="前日"),
+                  Question("V2", "当日は何名様でお越しになりますか？", "number", conditions=("答えた",), asks_fact=True, change_by="前日"),
+                  Question("V3", "ご予算はおいくらほどをお考えでしょうか？", "amount", conditions=("答えた",), change_by="3日前")], play_recordings=True)
+        h.use_checks("judge", "judge2")
+
+        def say_to(qid, words, reading, op, args):
+            hear(h, words, reading)
+            return heard(h.apply(op, {"question_id": qid} | args))
+
+        self.assertEqual(heard(answer(h, "15日あたりですかね。", "15日")), tentative_as_said)
+        hear(h, "え、すみません、もう一度お願いできますか？", rd(REPEAT))
+        again = heard(h.judged_turn(voiced=False))
+        self.assertEqual((again.endswith(tentative_as_said.removeprefix("はい、")), "お伝えしております" in again), (True, False), again)
+        say_to("V1", "はい、お願いします。", rd("affirmed"), "confirm_field", {"result": "affirmed"})
+        self.assertEqual(say_to("V2", "10名くらいです。", rd("答えた", firm=True), "record_answer", {"condition_id": "答えた", "value": "10名"}),
+                         "はい、それではひとまず10名くらいということで承っておいて大丈夫でしょうか？" + change_again)
+        say_to("V2", "はい。", rd("affirmed"), "confirm_field", {"result": "affirmed"})
+        self.assertEqual(say_to("V3", "5万円くらいですかね。", rd("答えた"), "record_answer", {"condition_id": "答えた", "value": "5万円"}),
+                         "はい、それではひとまず50000円くらいとさせていただきますね？変更があった場合には3日前までにご連絡いただけましたらご対応可能です。")
         for change_by in ("", "前日"):
             f = flow(change_by)
             self.assertEqual(heard(answer(f, "15日ですかね。", "15日")), "はい、それでは15日とさせていただきますね？")

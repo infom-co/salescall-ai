@@ -27,7 +27,7 @@ from phrases import APOLOGY_CUT_END, QUESTION_RESUME_LEAD, TOLD_AGAIN, TOLD_FOLL
 from phrases import OTHERS_HEAD, back_fit, closes, head_word, heads_said
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
-from phrases import CHANGE_BY, TENTATIVELY, confirm as confirm_phrase, restate_words
+from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from phrases import ESTIMATE_ASK, HESITATE_POINT
@@ -2275,7 +2275,8 @@ class Question:
     # 確定した値で登録する質問か（確定日付の登録が要る業務の質問。業務設定＝取込＝CL-2）：ひとまずの形（change_by）で、お客様の言い方の値（「15日あたり」）ではなく
     # 値の芯（「15日」）でひとまずとする（Flow._tentative）。✅ 2026-11-08 日本時間5時33分05秒 ユーザー：「お客様「15日あたりですかね。」：こちら「はい、それでは
     # ひとまず15日あたりとさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能です。」相手が「あたり」をつけたら、こちらも「あたり」を
-    # つけた方がいいでしょう。ただし、確定日付の登録が必要な業務の場合は、現状のままで大丈夫です。」
+    # つけた方がいいでしょう。ただし、確定日付の登録が必要な業務の場合は、現状のままで大丈夫です。」。期限（change_by）が無い質問でも、承っておく形
+    # （値「15日あたり」＝登録できない）ではなく、変更の受付の一文を付けないひとまずの形「はい、それではひとまず15日とさせていただきますね？」（✅ 6時04分57秒「イでOK」）
     definite_value: bool = False
 
     def __post_init__(self):
@@ -3356,6 +3357,7 @@ class Flow:
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
+        self.change_told: set[str] = set()         # この電話でお伝えした変更の受付の期限（Flow._change_line の1か所。2回目からは短い形）
         # 「わからない」のあとに足した聞き足しの質問（分かるお客様・分かる時）→ 元の質問（_take_system）。答えはかけ直しの記録に残す（noted＝残した分）
         self.follow_ups: dict[str, str] = {}
         # ご承認いただけなかったときの手順の状態（Flow._point_step の1か所だけが書く）：q＝ご承認の質問・stage＝ask（どの部分か伺っている）／explain
@@ -5817,8 +5819,9 @@ class Flow:
           tentative_do・tentative_fact＝「はい、それではひとまず15日あたりとさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能
           です。」）。値はお客様の言い方のまま（「あたり」を付けたらこちらも付ける）。確定した値で登録する質問（Question.definite_value）だけ値の芯（「15日」）。
           ✅ 2026-11-08 日本時間5時33分05秒 ユーザー：(1)「…相手が「あたり」をつけたら、こちらも「あたり」をつけた方がいいでしょう。ただし、確定日付の登録が必要な
-          業務の場合は、現状のままで大丈夫です。」
-        - 確定でない値の答えで、期限が無い：お客様の言い方の値のまま承っておく（AFTER の noted＝「承知しました。それでは15日あたりでお考えということで
+          業務の場合は、現状のままで大丈夫です。」。確定した値で登録する質問は、期限が無くても、変更の受付の一文を付けずにひとまずの形（「はい、それではひとまず
+          15日とさせていただきますね？」。✅ 6時04分57秒「イでOK」）。変更の受付の一文は、同じ期限をこの電話でもうお伝えしていれば短い形（_change_line）
+        - 確定でない値の答えで、期限が無く、確定した値で登録する質問でもない：お客様の言い方の値のまま承っておく（AFTER の noted＝「承知しました。それでは15日あたりでお考えということで
           承っておきますね。」。問いではない）
         - 承っておく一言を言ったあと：お客様のお返事が直した値でなければ（はい・まだ決まっていない・答えなかった）、その値で受け取る（もう伺わない）
         受け取る値には、言い切っていない印とお客様の言葉を添える（Item.hedged＝依頼者へ・業務の次の段＝_hedged_follow_up と同じ「言い切っていない答え」）。
@@ -5838,7 +5841,9 @@ class Flow:
         words = customer_said(self.heard_said)
         # お客様の言葉：値を言った言葉（確定でない値の答え）か、まだ決まっていないと言った言葉。両方あれば両方（同じ言葉は重ねない）
         it.hedged = "／".join(dict.fromkeys(w for w in (it.hedged, words if undecided or not it.hedged else None) if w)) or None
-        if q.change_by and it.tentative is None and not undecided:
+        if (q.change_by or q.definite_value) and it.tentative is None and not undecided:
+            # ひとまずの形：期限のある質問と、確定した値で登録する質問（期限が無ければ変更の受付の一文は付けない＝_change_line。✅ 2026-11-08 日本時間
+            # 6時04分57秒 ユーザー「イでOK」＝承っておく形では、依頼者へ登録できない値「15日あたり」が渡った）
             it.tentative = "set"
             if ap is not None:
                 it.value = ap[0] if q.definite_value else ap[1]
@@ -8795,7 +8800,7 @@ class Flow:
             # 前日までにご連絡いただけましたらご対応可能です。」（事実を伺う質問は「それではひとまず10名くらいということで承っておいて大丈夫でしょうか？…」。
             # 「15日をめどに」は「ひとまず15日をめどとさせていただきますね？」＝「にと」を重ねない）
             phrase = (confirm_phrase(TENTATIVELY + said_as.removesuffix("に") + ("とさせていただきます" if after == "tentative_do" else "ということ"),
-                                     situation, n, meaning=True, does=self.client_does) + CHANGE_BY.format(by=q.change_by))
+                                     situation, n, meaning=True, does=self.client_does) + self._change_line(q))
         elif after == "noted":
             # 確定でない値を、お客様の言い方の値のまま承っておく（_tentative）：「それでは15日あたりでお考えということで承っておきますね。」（事実を伺う質問は
             # 「お考え」と言わない＝「それでは10名くらいということで承っておきますね。」・「15日をめどに」は「15日をめどにお考え」）
@@ -8804,12 +8809,26 @@ class Flow:
         elif after == "noted_undecided":
             # 言い直しへ「まだ決まっていない」と返された値を、値を言わずに承っておく（_tentative）：「それではまだ確定ではないと承っておきますね。」。業務設定に
             # 変更の受付の期限があれば、変更の受付の一文を添える（✅ 2026-11-08 日本時間5時33分05秒 ユーザー「(4) イ」）
-            phrase = confirm_phrase(said_as, situation, n, meaning=True) + (CHANGE_BY.format(by=q.change_by) if q.change_by else "")
+            phrase = confirm_phrase(said_as, situation, n, meaning=True) + self._change_line(q)
         else:
             phrase = self.confirm(said_as, situation, n)
         say = self.awaiting_say = (self._lead(lead) if lead else "") + phrase
         return {"result": "confirm_required", "value": shown, "say": say, "after": after,
                 "message": f"言い直して確かめます。{say_note(say)}相手の返事を待ってください。" + (self._confirm_how(qid) if choice else "")}
+
+    def _change_line(self, q: "Question") -> str:
+        """変更の受付の一文を作る唯一の場所（_ask_confirm のひとまずの形・まだ決まっていないと承る一言）。業務設定に期限（Question.change_by）が無ければ空。
+        その期限をこの電話でまだお伝えしていなければ「変更があった場合には前日までにご連絡いただけましたらご対応可能です。」（CHANGE_BY）、もうお伝えして
+        いれば「お伝えしております通り前日まで変更は可能です。」（CHANGE_BY_AGAIN）。お伝えしたかは期限の言葉ごとに通話で1つ（change_told）＝同じ質問の
+        2回目（ひとまずの形のあとの「まだ確定ではないと承っておきますね。」）も、別の質問で同じ期限をお伝えしたあとも短い形（同じ理由＝同じ文を2回言う）・
+        期限が違えば初めの形。お客様に聞き取れなかったと言われて言い直すとき（_repeat_now など）は、伺った文（awaiting_say）をそのまま言うので初めの形のまま。
+        ✅ 2026-11-08 日本時間6時04分57秒 ユーザー：「・「変更があった場合には前日までにご連絡いただけましたらご対応可能です。」：2回言っているので、2回目は、
+        「お伝えしております通り、前日まで変更は可能です。」」"""
+        if not q.change_by:
+            return ""
+        told = q.change_by in self.change_told
+        self.change_told.add(q.change_by)
+        return (CHANGE_BY_AGAIN if told else CHANGE_BY).format(by=q.change_by)
 
     def _keep_toward_goal(self, qid: str, after: str | None) -> dict:
         """目的から遠ざかる向きの答え（と「どれも要らない」）を、その向きの言葉で言い直さずに扱う唯一の場所（_ask_confirm の頭）：
