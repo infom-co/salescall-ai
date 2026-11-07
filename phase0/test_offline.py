@@ -20623,6 +20623,37 @@ class BackLineReviewTest(unittest.TestCase):
                    if (closes(bt) or q.text.endswith("？")) and question_play([q], q.id, again=True, before=bt)["id"] not in RECORDED}
         self.assertEqual(missing, set())
 
+    def test_others_question_right_after_a_line_is_led_by_hokani_only(self):
+        # B-8（11-08 日本時間8時台）：前の答えで伺う、ほかに分からない点が無いかを伺う質問（ask_if・unclear_none＝頭は「それではほかに」）を、頭が「それでは」の
+        # 業務の一言（答えのあとに伝える一言）のすぐあとに伺うとき、重なった「それでは」を「続きまして」に替えて「続きましてほかにご不明な点は…」としていた
+        # （11-07 日本時間4時40分35秒「ここで「続きまして」はおかしいでしょ。「ほかに」とかでしょ。」に反する）。頭の言葉（「ほかに」）がまだ続くなら、
+        # 重なった頭は替えずに外す（重なりで頭を替える1か所 flowctl.relead）
+        import types
+        from flowctl import Flow, Question, relead
+        from make_ack_clips import script_table
+        from meaning_judge import Reading
+        from phrases import question_clip
+        yn = ("はい", "いいえ")
+        q1 = Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=yn, tell_words={"はい": "それではお手元の資料をご覧ください。"})
+        q2 = Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=yn, unclear_none="いいえ", ask_if=("Q1", ("はい",)))
+        q3 = Question("Q3", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        f = Flow([q1, q2, q3], play_recordings=True)
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("はい、届いてます。"); f.on_check("judge", Reading("はい"))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual(self.heard(r), "はい、それではお手元の資料をご覧ください。ほかにご不明な点はございますでしょうか？")
+        # 流す形の録音が、録音を作る形の一覧にある
+        b = types.SimpleNamespace(questions=[q1, q2, q3], opening_parts=lambda: ["", "名乗り", "", ""], purpose_line="", replay_parts=lambda: {},
+                                  standard_answers=set(), names=[])
+        table = script_table(b)[0]
+        played = [question_clip(p["id"], p.get("lead") or "") for p in r["play"] if p["kind"] == "question"]
+        self.assertEqual([(n, table.get(n, ("（表に無い）",))[0]) for n in played],
+                         [("Q1_tell1", "それではお手元の資料をご覧ください。"), ("Q2_lead_hokani", "ほかにご不明な点はございますでしょうか？")])
+        # 頭の言葉が続かない頭は、今までどおり重ならない言葉に替える（業務の入る一言「それでは…」・前の答えで伺う質問の「それでは」）
+        self.assertEqual(relead("それではお支払いの確認からさせていただきます。", "それではお手元の資料をご覧ください。"),
+                         "続きましてお支払いの確認からさせていただきます。")
+        self.assertEqual(relead("それでは", "それではお手元の資料をご覧ください。"), "続きまして")
+
 
 class RemainingNineTest(unittest.TestCase):
     """✅ 2026-11-05 日本時間2時45分39秒 ユーザー：「OK、残りの9つを直してください。…」（2時05分37秒のご質問のあと、別の担当がファイルを変えずに読み直して

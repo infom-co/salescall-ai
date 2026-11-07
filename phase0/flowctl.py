@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, QUESTION_RESUME_LEAD, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE
-from phrases import OTHERS_HEAD, back_fit, closes, drop_receipt, head_word, heads_said
+from phrases import LEAD_PIECES, OTHERS_HEAD, back_fit, closes, drop_receipt, head_word, heads_said
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
@@ -695,13 +695,18 @@ def relead(lead: str, before: str) -> str:
     重なれば（同じ言葉・片方がもう片方の終わり＝「それでは」と「では」）、重ならない言葉（RELEAD_ORDER の順）に替える（唯一の場所＝spoken_question）。
     ✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(1) ウ」（「承知しました。それではこの件は保留とさせていただきますね。それではお支払いは…」の重なりに、
     「次の質問の頭を「続きまして」にする」）。同じ理由が当たる場面すべて＝業務の「答えのあとに伝える一言」（頭のつなぎの言葉を業務設定の確かめで止めて
-    いない）・業務の入る一言（頭の言葉を変えたい業務が書く＝CL-2 の business_settings）・続きの電話の始めの一言も、この1か所。"""
+    いない）・業務の入る一言（頭の言葉を変えたい業務が書く＝CL-2 の business_settings）・続きの電話の始めの一言も、この1か所。
+    重なった頭のあとに、まだ頭の言葉（質問の頭を組む部分 phrases.LEAD_PIECES＝「ほかに」など）が続くなら、替えずに外す（「それではお手元の資料をご覧ください。
+    ほかにご不明な点は…」。⛔ 2026-11-08 日本時間8時台（11-07 23時26分13秒のご質問の見直しの B-8）まで「続きましてほかに…」＝11-07 4時40分35秒「ここで
+    「続きまして」はおかしいでしょ。「ほかに」とかでしょ。」に反していた）。"""
     w = head_word(lead)
     said = heads_said(before) if w else set()
     def echoes(a: str) -> bool:
         return any(a.endswith(x) or x.endswith(a) for x in said)
     if not said or not echoes(w):
         return lead
+    if lead[len(w):].startswith(tuple(LEAD_PIECES)):
+        return lead[len(w):]
     alt = next((a for a in RELEAD_ORDER if not echoes(a)), None)
     return lead if alt is None else alt + lead[len(w):]
 
@@ -792,7 +797,7 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     if q.intro:
         lead = relead(q.intro, before)
     elif q.ask_if:
-        lead = relead("それでは", before) + others
+        lead = relead("それでは" + others, before)
     elif q.unclear_none:
         lead = others
     else:
