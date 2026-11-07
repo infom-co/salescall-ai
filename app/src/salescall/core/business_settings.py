@@ -1694,24 +1694,28 @@ def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str
 
 
 def _versions_in_use(tx: Tx, business_id: UUID | None = None) -> list[dict[str, Any]]:
-    """まだ終えていない行のある実施回と、その今の版（取引の依頼者の範囲。business_id＝その業務の実施回だけ）。「使っている版」を
-    決めるのはここだけ（版を足して自動で替える仕事・依頼者の解決策を足す流れ＝client_solutions._lines）。"""
+    """まだ終えていない、版のある実施回と、その今の版（取引の依頼者の範囲。business_id＝その業務の実施回だけ）。「使っている版」・
+    「まだ終えていない実施回」を決めるのはここだけ（版を足して自動で替える仕事・依頼者の解決策を足す流れ＝client_solutions._lines・
+    取り込み直しで入れない解決策＝client_solutions.held_back・手で割り当てるときに流れを分けるか＝`assign`）。終えた実施回＝行がすべて
+    終わった実施回（行の終わりは salescall.task_open の1か所＝0192）。行が0の実施回（作ったばかり・まだ取り込んでいない）は、終えていない
+    （⛔ 2026-11-07 のつなぎ目の見直し (D)：前は「まだ終えていない行のある実施回」で、行の無い実施回で外した解決策を取り込み直しで入れた）。"""
     return tx.all(
         "SELECT r.run_id, salescall.run_current_version(r.run_id) AS version_id FROM salescall.runs r"
         " WHERE salescall.run_current_version(r.run_id) IS NOT NULL AND (%s::uuid IS NULL OR r.business_id = %s)"
-        "   AND EXISTS (SELECT 1 FROM salescall.tasks t WHERE t.run_id = r.run_id AND salescall.task_open(t.task_id))"
+        "   AND (EXISTS (SELECT 1 FROM salescall.tasks t WHERE t.run_id = r.run_id AND salescall.task_open(t.task_id))"
+        "        OR NOT EXISTS (SELECT 1 FROM salescall.tasks t WHERE t.run_id = r.run_id))"
         " ORDER BY r.run_id", (business_id, business_id))
 
 
 def in_use_versions(tx: Tx, business_id: UUID | None = None) -> list[UUID]:
-    """まだ終えていない行のある実施回の今の版（取引の依頼者の範囲。同じ版は1つ。business_id＝その業務だけ）。版を足して自動で替える
+    """まだ終えていない実施回（`_versions_in_use`）の今の版（取引の依頼者の範囲。同じ版は1つ。business_id＝その業務だけ）。版を足して自動で替える
     仕事が、1つずつ別の取引で `derive_for_standard`・`adopt_ready` を呼ぶための並び（1つの失敗が、ほかの版・実施回を止めない＝
     見直し(B) の5）。依頼者の解決策を足す流れ（client_solutions._lines）も、これを読む。"""
     return sorted({r["version_id"] for r in _versions_in_use(tx, business_id)})
 
 
 def in_use_runs(tx: Tx, business_id: UUID | None = None) -> list[UUID]:
-    """まだ終えていない行のある、版のある実施回（取引の依頼者の範囲。business_id＝その業務の実施回だけ＝取り込み直しで入れない解決策を
+    """まだ終えていない、版のある実施回（`_versions_in_use`）（取引の依頼者の範囲。business_id＝その業務の実施回だけ＝取り込み直しで入れない解決策を
     決める client_solutions.held_back が読む）。"""
     return [r["run_id"] for r in _versions_in_use(tx, business_id)]
 
@@ -1770,20 +1774,35 @@ def adopt_ready(tx: Tx, run_id: UUID | None = None) -> list[tuple[UUID, UUID]]:
     return done
 
 
+def _shared_apart(tx: Tx, run_id: UUID, version_id: UUID) -> bool:
+    """手で割り当てる版（version_id）の流れを、その実施回のために分けるか（`assign` だけが読む）：ほかのまだ終えていない実施回
+    （`_versions_in_use`）のいまの版で、その業務の依頼者の解決策が入っていない（client_solutions.not_in_version＝入っているかの1か所）。
+    入っていない解決策を「入れる」は実施回ごとの承認で、流れに版を足すので、流れを分けないと、ほかの実施回の承認になる。解決策が
+    すべて入っている版は分けない（分けると、新しい版の品質の段を始め直すことになる）。"""
+    business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["business_id"]
+    if not any(r["version_id"] == version_id and r["run_id"] != run_id for r in _versions_in_use(tx, business)):
+        return False
+    from salescall.core import client_solutions   # 解決策の部品が業務設定を読むので、ここで読む（読み合いにしない）
+    return bool(client_solutions.not_in_version(tx, version_id))
+
+
 def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = False) -> str:
     """実施回に版を割り当てる（記録つき。DESIGN.md 3-2）。割り当てた版の、品質の段の始め方の答えを返す
     （quality_stage.prepare：opened／mock_needed／already／stopped_version）。中身の無い版は割り当てない。
     手で（auto でなく）割り当てる版に後の版がある（つながりの途中の版＝前の版へ戻す・前の版で実施回を作る）なら、その版の写しを
     以前の版へ戻す1か所（`save_from`）で作り、写しを割り当てる。つながりは1本の列なので、途中の版をそのまま割り当てると、そのあとに足す
     版（解決策・新しい標準）が戻す前の変更を含む列の先にしか作れず、この実施回へ届かなかった（見直し(B) の1）。写しはつながりの先が
-    無いので、そこから足した版だけが、この実施回へ自動で替わる。自動の割り当て（auto）は、つながりの中の版をそのまま割り当てる。"""
+    無いので、そこから足した版だけが、この実施回へ自動で替わる。自動の割り当て（auto）は、つながりの中の版をそのまま割り当てる。
+    手で割り当てる版が、ほかのまだ終えていない実施回のいまの版で、その業務の依頼者の解決策が入っていない（`_shared_apart`）ときも写しを
+    作る（流れを実施回ごとに分ける。入っていない解決策は、実施回ごとに「入れる／入れない」を確かめる＝client_solutions の承認の印は
+    実施回ごと。⛔ 2026-11-07 のつなぎ目の見直し (A)：前は同じ版を2つの実施回が使い、片方の実施回の「入れる」で作った版が、もう片方の
+    流れの先にもなって、もう片方の一覧が空になり、門が開き、自動で替わった）。"""
     if not reason.strip():
         raise ValueError("版を割り当てる理由を書いてください")
     problems = assign_problems(tx, run_id, version_id)
     if problems:                                     # 目的のお客様を呼べない行を残したまま、版を替えない（全部か、何も無いか）
         raise SettingsInvalid(problems)
-    chosen = version_id
-    if not auto and successor_tip(tx, version_id) != version_id:
+    if not auto and (successor_tip(tx, version_id) != version_id or _shared_apart(tx, run_id, version_id)):
         business = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))["business_id"]
         version_id = save_from(tx, business, version_id)   # 写しの中身は同じ（割り当てられない理由も同じ）
     before = tx.one("SELECT salescall.run_current_version(%s) AS v", (run_id,))
@@ -1798,7 +1817,7 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str, auto: bool = 
     # 自動では入れない・契約者が確かめるまで、まだかけていない行へかけない＝✅ 2026-11-07 ユーザー。当たるか（自動の割り当ては除く）を
     # 決めるのは client_solutions.removed_by_hand の1か所）
     from salescall.core import client_solutions   # 解決策の部品が業務設定を読むので、ここで読む（読み合いにしない）
-    client_solutions.removed_by_hand(tx, run_id, before["v"] if before is not None else None, chosen, version_id, auto=auto)
+    client_solutions.removed_by_hand(tx, run_id, before["v"] if before is not None else None, version_id, auto=auto)
     # 前の版で取った、まだ発信していない予約を取り消す（門の前提が変わったときの決まり＝DESIGN.md 5-2-1 の2。
     # 取り消さないと、前の版で最大30秒かけうる。2026-10-16 の見直し G7）
     attempts.release(tx, [r["attempt_id"] for r in tx.all(

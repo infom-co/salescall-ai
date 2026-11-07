@@ -551,10 +551,11 @@ class Solutions(Base):
         """(1) 管理者か契約者が、実施回を作るときに、その業務のつながりの先でない版（解決策の入る前の古い版）を選んだら、その版の流れに
         入っていない解決策を、その実施回で「手で外した」とする（手で版を替えたときと同じ1か所＝client_solutions.removed_by_hand）。つながりの
         先の版で作ったときは外さない。契約者に知らせる（ダッシュボードの承認ボタンの元）。
-        (2)(3) 契約者がその実施回で「入れる」（add_earlier）か「入れない」（leave_out）かを確かめるまで、その実施回では、まだ一度もかけていない
-        お客様の行へ新しい電話をかけない（門の理由 solutions_unconfirmed。候補にも出さない）。一度かけた行（約束・続き・お詫びを含む）は
-        止めない。「入れない」と確かめたら、門はすぐ通す（取り込み直しでも自動では入れないまま）。"""
-        from salescall.core import attempts, business_import, gate, quality_stage, registry, scheduler
+        (2)(3) 契約者がその実施回で「入れる」（add_earlier）か「入れない」（leave_out）かを確かめるまで、その実施回では、お客様と約束した
+        かけ直し・続きの電話・お詫びの電話のほかは電話をかけない（門の理由 solutions_unconfirmed。候補にも出さない。一度かけた行の
+        ふつうのかけ直しも止める＝⛔ 2026-11-07 の見直し：前は、まだ一度もかけていない行だけを止めた）。「入れない」と確かめたら、門は
+        すぐ通す（取り込み直しでも自動では入れないまま）。"""
+        from salescall.core import attempts, business_import, gate, next_action, quality_stage, registry, scheduler
         from tests.test_business_import import book
         s = self.ready()
         aid = self.called(s)
@@ -573,7 +574,7 @@ class Solutions(Base):
         note = self.tx(s, lambda tx: tx.all("SELECT refs FROM salescall.notification_events WHERE kind = 'solution_unconfirmed'"))
         self.assertEqual([(n["refs"]["run_id"], n["refs"]["version_id"], n["refs"]["solutions"]) for n in note],
                          [(str(run), str(v), [str(sid)])])
-        # 門：まだ一度もかけていない行は止める（候補にも出さない）。先の版の実施回・一度かけた行は止めない
+        # 門：まだ一度もかけていない行は止める（候補にも出さない）。先の版の実施回は止めない
         new = self.other_row(s, run, v)
         self.assertEqual(self.reason(new), "solutions_unconfirmed")
         self.assertIn("ダッシュボード", gate.REASONS["solutions_unconfirmed"].message)
@@ -582,11 +583,18 @@ class Solutions(Base):
         on_tip = self.other_row(s, tip_run, first.version_id)
         self.assertIsNone(self.tx(s, lambda tx: gate.waits_unknown(tx, on_tip["task"])))
         called = self.other_row(s, run, v)
-        self.past_attempt(called, ("dialing", "no_answer"))                                     # 一度かけた行
-        got = self.claim(called)
-        self.assertFalse(isinstance(got, gate.Denied) and got.reason == "solutions_unconfirmed", got)
-        if not isinstance(got, gate.Denied):
-            self.tx(s, lambda tx: attempts.release(tx, [got.attempt_id]))
+        self.past_attempt(called, ("dialing", "no_answer"))                                     # 一度かけた行のふつうのかけ直しも止める
+        self.assertEqual(self.reason(called), "solutions_unconfirmed")
+        # 止めないのは、お客様と約束したかけ直し・続きの電話・お詫びの電話（新しい電話でない＝salescall.is_new_call の1か所）だけ
+        from tests import support
+        for purpose, promised in (("normal", True), ("resume", True), ("apology", True)):
+            with self.subTest(purpose=purpose):
+                self.tx(s, lambda tx: support.schedule_call(tx, called["task"], tx.one("SELECT now() AS t")["t"],
+                                                            contact_id=called["contact"], cause="試験", promised=promised,
+                                                            purpose=purpose))
+                self.assertFalse(self.tx(s, lambda tx: gate.unconfirmed_solutions(tx, {"task_id": called["task"], "run_id": run})))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, called["task"], cause="試験：ふつうの電話に戻す"))
+        self.assertTrue(self.tx(s, lambda tx: gate.unconfirmed_solutions(tx, {"task_id": called["task"], "run_id": run})))
         # 「入れない」：その実施回の、まだ確かめていないものだけ・管理者か契約者だけ・その実施回で外した解決策だけ
         with self.assertRaises(client_solutions.SolutionInvalid):
             self.tx(s, lambda tx: client_solutions.leave_out(tx, run, [aid]), OPERATOR)
@@ -687,4 +695,119 @@ class Solutions(Base):
                                                            name_answer=self.namer("料金")), OPERATOR)
         self.tx(s, lambda tx: bs.assign(tx, s["run"], first.version_id, reason="試験：解決策の版にする"), OPERATOR)
         self.tx(s, lambda tx: bs.assign(tx, s["run"], s["version"], reason="自動：試験", auto=True))
+        copy = self.tx(s, lambda tx: bs.save_from(tx, s["business"], s["version"]), OPERATOR)   # 解決策の入っていない、つながりの先の版
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], copy, reason="自動：試験", auto=True))
         self.assertEqual(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.client_solution_removals")), [])
+
+    def cur_v(self, s, run):
+        return self.tx(s, lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v", (run,))["v"])
+
+    def reverted(self, s):
+        """解決策を1つ足し、いまの実施回を手で前の版に戻す（写し C が割り当たる）。(解決策, 解決策の版, C)。"""
+        aid = self.called(s)
+        first = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                           name_answer=self.namer("料金")), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], first.version_id, reason="試験：解決策の版"), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], s["version"], reason="試験：手で前の版に戻す"), OPERATOR)
+        return first.solution_id, first.version_id, self.cur_v(s, s["run"])
+
+    def test_a_run_made_on_any_version_without_a_solution_marks_it_removed(self):
+        """✅ 2026-11-07 ユーザー＝計画書 6-1 (6)：実施回を作るとき（管理者か契約者が選んだとき）は、その業務のいまの解決策のうち、割り当てた
+        版に入っていないもの（client_solutions._outside の1か所）を、すべて「手で外した」とする。手で前の版に戻した写し（それ自身がつながりの
+        先）・写しの写し・写しの先の版で作っても当たる。⛔ 2026-11-07 の見直し：前は選んだ版の「自分のつながりの先」とだけ比べ、写しで作った
+        実施回には何も印を付けず、門も開いていた。"""
+        from salescall.core import registry
+        s = self.ready()
+        sid, _, copy = self.reverted(s)
+        self.assertEqual(self.tx(s, lambda tx: bs.successor_tip(tx, copy)), copy)
+        on_copy = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "写しで作った実施回", copy, reason="試験"), OPERATOR)
+        self.assertEqual(self.marks(s, on_copy), [(sid, True, True)])
+        copy2 = self.tx(s, lambda tx: bs.save_from(tx, s["business"], copy), OPERATOR)          # 写しの写し（どの実施回も使っていない）
+        on_copy2 = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "写しの写しで作った実施回", copy2, reason="試験"),
+                           OPERATOR)
+        self.assertEqual(self.cur_v(s, on_copy2), copy2)                                        # 使われていない先の版は、そのまま
+        self.assertEqual(self.marks(s, on_copy2), [(sid, True, True)])
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.held_back(tx, s["business"])), {sid})
+
+    def test_a_run_given_another_runs_version_without_a_solution_gets_its_own_line(self):
+        """2026-11-07 のつなぎ目の見直し (A)：同じ版（解決策の入っていない版）を2つの実施回が使うと、片方の「入れる」で作った版が、もう
+        片方の流れの先にもなり、もう片方の承認になった。⇒ 手で割り当てる版が、ほかのまだ終えていない実施回のいまの版で、解決策が
+        入っていなければ、写しを作って流れを分ける（business_settings.assign の `_shared_apart` の1か所）。片方の「入れる」は、もう片方の
+        一覧・門・自動の割り当てに効かない。解決策がすべて入っている版は分けない。"""
+        from salescall.core import gate, quality_stage, registry
+        s = self.ready()
+        sid, solved, copy = self.reverted(s)
+        self.other_row(s, s["run"], copy)
+        whole = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "解決策の入った版の実施回", solved, reason="試験"),
+                        OPERATOR)
+        self.assertEqual(self.cur_v(s, whole), solved)                                          # 入っている版は分けない
+        r2 = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "R2", copy, reason="試験：R1 の版を選ぶ"), OPERATOR)
+        c2 = self.cur_v(s, r2)
+        self.assertNotEqual(c2, copy)                                                           # 写しを作って流れを分けた
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, c2, 1, None, evidence="試験"), OPERATOR)
+        row2 = self.other_row(s, r2, c2)
+        self.assertEqual((self.marks(s, s["run"]), self.marks(s, r2)), ([(sid, True, True)], [(sid, True, True)]))
+        self.tx(s, lambda tx: client_solutions.add_earlier(tx, s["run"], [sid]), OPERATOR)      # R1 だけ「入れる」
+        self.assertEqual((self.marks(s, s["run"]), self.marks(s, r2)), ([], [(sid, True, True)]))
+        self.assertEqual(self.reason(row2), "solutions_unconfirmed")
+        self.tx(s, lambda tx: bs.adopt_ready(tx, r2))
+        self.assertEqual(self.cur_v(s, r2), c2)                                                 # R1 の「入れる」の版へは替わらない
+        self.assertIsInstance(self.claim(row2), gate.Denied)
+
+    def test_a_run_without_rows_yet_holds_its_removed_solutions_back_from_an_import(self):
+        """2026-11-07 のつなぎ目の見直し (D)：取り込み直しで入れない解決策は、版のある実施回すべて（終えた実施回＝行がすべて終わった実施回
+        だけ除く）で外したもの。行がまだ0の実施回は終えていない（まだ終えていない実施回の1か所＝business_settings._versions_in_use）。"""
+        s = self.ready()
+        aid = self.called(s)
+        sid = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                         name_answer=self.namer("料金")), OPERATOR).solution_id
+        run, _ = self.old_run(s, "行の無い古い版の実施回")
+        self.assertIn(run, self.tx(s, lambda tx: bs.in_use_runs(tx, s["business"])))
+        self.assertEqual(self.tx(s, lambda tx: client_solutions.held_back(tx, s["business"])), {sid})
+
+    def test_the_notice_of_earlier_solutions_names_the_runs_of_the_line(self):
+        """2026-11-07 のつなぎ目の見直し (C)：知らせ solution_earlier に、その版の流れを使う実施回（まだ終えていない実施回）の並びを入れる
+        （確かめは実施回ごと。画面が実施回ごとの入口を呼べるように）。"""
+        s = self.ready()
+        sid, _, copy = self.reverted(s)
+        self.other_row(s, s["run"], copy)
+        now = dict(s, version=copy)                                                               # いまの版（写し）でかけた通話
+        aid = self.w.insert_claim(now)
+        for st in ("dialing", "ringing", "answered", "in_conversation", "ending", "ended"):
+            self.w.move(now, aid, st)
+        later = call_report.NotAgreed(5, "Q1", "解約のときは？", 1, False, None, False, "解約")
+        self.tx(s, lambda tx: call_report.save(tx, aid, replace(make_report(), not_agreed=(later,))))
+        self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "いつでも解約できます。", origin="dashboard",
+                                                   name_answer=self.namer("解約")), OPERATOR)
+        notes = self.tx(s, lambda tx: tx.all("SELECT refs FROM salescall.notification_events WHERE kind = 'solution_earlier'"))
+        self.assertEqual([(n["refs"]["runs"], n["refs"]["earlier"]) for n in notes], [([str(s["run"])], [str(sid)])])
+
+    def test_an_approved_recording_of_the_same_text_is_used_again(self):
+        """✅ 計画書 6-1 (4)・6-2「承認は録音の中身に付け」（0172）：要る部分ごとに、同じ業務・同じ声の録音から、部分の名前・文・読みが同じで
+        承認済みのものを使う（recordings._approved_same の1か所。needed_parts・complete・carry・知らせが同じ答えを読む）。⛔ 2026-11-07 の
+        見直し：前は版の元をたどったいちばん近い版の録音しか見ず、手で戻す前の版で録音して承認した同じ文を、録り直させた。"""
+        from salescall.core import recordings
+        s = self.ready()
+        aid = self.called(s)
+        first = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
+                                                           name_answer=self.namer("料金")), OPERATOR)
+        need = self.tx(s, lambda tx: recordings.needed_parts(tx, first.version_id))
+        self.assertTrue(need)
+        sets = [self.tx(s, lambda tx, voice=voice, parts=parts: recordings.complete(tx, first.version_id, voice, [
+            recordings.Part(p, t, f"test://{voice}/{p}", "1" * 64) for p, t in parts.items()]), OPERATOR) for voice, parts in need.items()]
+
+        def put_back_and_choose_in():
+            self.tx(s, lambda tx: bs.assign(tx, s["run"], first.version_id, reason="試験：解決策の版"), OPERATOR)
+            self.tx(s, lambda tx: bs.assign(tx, s["run"], s["version"], reason="試験：手で前の版に戻す"), OPERATOR)
+            return self.tx(s, lambda tx: client_solutions.add_earlier(tx, s["run"], [first.solution_id]), OPERATOR)[0].version_id
+        # まだ承認していない録音は使わない（録音していただく）
+        self.assertEqual(self.tx(s, lambda tx, v=put_back_and_choose_in(): recordings.needed_parts(tx, v)), need)
+        for set_id in sets:
+            self.tx(s, lambda tx, set_id=set_id: recordings.approve(tx, set_id), OPERATOR)
+        made = put_back_and_choose_in()
+        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, made)), {})
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, made)),
+                         self.tx(s, lambda tx: recordings.ready_voices(tx, first.version_id)))
+        notes = self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'recording_needed'"
+                                             " AND refs ->> 'version_id' = %s", (str(made),)))
+        self.assertEqual(notes, [])

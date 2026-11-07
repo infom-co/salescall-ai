@@ -1115,19 +1115,23 @@ class DialFixAfterCalls(SettleBase):
 
     def test_the_laters_counted_and_the_laters_read_at_a_fix_are_the_same(self):
         """「あとで」と言われた回数（行を終えるか）と、番号を直したときに見る「あとで」（戻すか）は、同じ並び＝時刻の決まっていない約束の
-        判定だけ・行の回数の範囲（attempts.in_row_count。直したあと前の番号へかけた電話は数えない）・終えたときまで（next_action._laters の
-        1か所）。⛔ 2026-11-07 見直し(3)の4：前は数える所（行の回数の範囲）と戻すかを見る所（前の番号への電話も入る独自の問い合わせ）が
-        別で、直したあと前の番号で言われた「あとで」（意味はまだ分からない）を、数えないのに戻すかでは読み、戻さなかった。"""
-        s = self.ready(rules=rules_raw(retry=self.LATER_ONCE))
-        new = self.fixed(s)
-        d = self.later_call(s, s["contact"], None)                 # 直したあと、前の番号で約束の電話：「あとで」（意味はまだ分からない）
-        self.assertEqual(d.kind, "call")
-        self.assertEqual(self.later_call(s, new, "promise").kind, "call")   # 新しい番号の1回目（前の番号の「あとで」は数えない）
-        d = self.later_call(s, new, "promise")
-        self.assertEqual((d.kind, d.end_reason), ("end", next_action.LATER_OVER))
-        again = self.fixed(s)
-        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
-        self.assertEqual((p["kind"], p["contact_id"]), ("call", again))   # 数えた「あとで」は、どれも約束の一環
+        判定だけ・数え始め以降の、どの番号への電話も（attempts.count_start。直したあと前の番号へかけた電話で言われた「あとで」も入る：
+        お客様の言葉は、どの番号で言われても同じお客様の言葉）・終えたときまで（next_action._laters の1か所）。前の番号で言われた「あとで」
+        の意味がまだ分からなければ戻さない（計画書 7-1 (13)・安全側）。約束の一環なら戻す。⛔ 2026-11-07 見直し(3)の4：前は数える所と
+        戻すかを見る所が別だった。⛔ 2026-11-07 の見直し：そろえた範囲が行の回数（attempts.in_row_count）で、直したあと前の番号で言われた
+        意味の分からない「あとで」を数えず・読まず、戻した。"""
+        for intent, back in ((None, False), ("promise", True)):
+            with self.subTest(intent=intent):
+                s = self.ready(rules=rules_raw(retry=self.LATER_ONCE))
+                new = self.fixed(s)
+                d = self.later_call(s, s["contact"], intent)            # 直したあと、前の番号で約束の電話：「あとで」
+                self.assertEqual(d.kind, "call")
+                d = self.later_call(s, new, "promise")                  # 新しい番号で2回目の「あとで」（前の番号の「あとで」も数える）
+                self.assertEqual((d.kind, d.end_reason), ("end", next_action.LATER_OVER))
+                again = self.fixed(s)
+                p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+                self.assertEqual((p["kind"], p["contact_id"]) if back else (p["kind"], p["end_reason"]),
+                                 ("call", again) if back else ("end", next_action.LATER_OVER))
 
     def test_only_untimed_laters_up_to_the_end_are_read(self):
         """数えるのは時刻の決まっていない約束の判定（「あとで」）だけ（ほかの結果の通話は数えない・意味も読まない）。戻すかで見るのは、行を
@@ -1258,6 +1262,82 @@ class DialFixAfterCalls(SettleBase):
                 a = self.w.task(s["tenant"], s["client"], s["run"], k)       # 同じ実施回の行A
                 with self.assertRaises(row_fixes.FixInvalid):
                     self.fix_to(s, y, task=a)
+
+    # ── 「担当の方は違う」を、まだ終えていない行にも効かせる（2026-11-07 の見直し。前の番号からいまかける番号へ移る1か所＝
+    #    next_action._onto_dial。計画書 7-1 (8)「担当の相手が電話番号で違うのであれば、最初から」・(12)「違う相手の場合は、お詫びなしで、
+    #    どこまで引き継がれているのかを確認しつつ」・(19)）。同じ相手なら約束・お詫びのまま（7-1 (4)(6)）。
+    def fixed_as(self, s, same):
+        from salescall.core import row_fixes
+        return self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=same),
+                       OPERATOR)["contact_id"]
+
+    def promise_window(self, s):
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=2)
+        self.at(s, s["contact"], window=w)
+
+    def plan(self, s):
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        return (p["kind"], p["contact_id"], p["purpose"], p["promised"], p["callee_at"] is not None, p["window_until"] is not None,
+                p["apology_reasons"], p["cut_call"] is not None, p["handover"])
+
+    def handed_over(self, new):
+        """違う相手への形：すぐかけてよいふつうの電話・約束も時刻も幅も無い・お詫びの印も元の電話も無い・引き継ぎを確かめる印。"""
+        return ("call", new, "normal", False, False, False, [], False, True)
+
+    def test_a_promise_already_tried_does_not_go_on_as_a_promise_to_another_person(self):
+        """約束の電話を前の番号でもうかけた（鳴った）あと番号を直す（まだ終えていない行）：違う相手なら、約束をやめて引き継ぎを確かめる
+        ふつうの電話（`after_dial_fix` も `_onto_dial` を通る）。同じ相手なら、約束のまま新しい番号で数え直す（7-1 (4)(6)）。"""
+        for same in (True, False):
+            with self.subTest(same=same):
+                s = self.ready()
+                self.promise_window(s)
+                self.settle(s, self.call(s, ["dialing", "no_answer"]))
+                new = self.fixed_as(s, same)
+                p = self.plan(s)
+                if same:
+                    self.assertEqual(p[:4] + p[5:6] + p[8:], ("call", new, "normal", True, True, False))
+                else:
+                    self.assertEqual(p, self.handed_over(new))
+
+    def test_an_untried_promise_that_fails_on_the_old_number_goes_on_without_the_promise_to_another_person(self):
+        """まだかけていない約束の電話は前の番号で1回（7-1 (4)）。前の番号で出ずに新しい番号へ移るとき（通話のあと＝`_moved_on_fix`）、
+        違う相手なら約束をやめる。同じ相手なら約束のまま。"""
+        for same in (True, False):
+            with self.subTest(same=same):
+                s = self.ready()
+                self.promise_window(s)
+                new = self.fixed_as(s, same)
+                self.assertEqual(self.plan(s)[:2], ("call", s["contact"]))       # 前の番号で1回
+                d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
+                self.assertEqual((d.kind, d.target.contact_id, d.promised, d.target.handover), ("call", new, same, not same))
+                if not same:
+                    self.assertEqual(self.plan(s), self.handed_over(new))
+
+    def test_a_cut_call_resumed_after_a_fix_goes_to_another_person_without_the_apology(self):
+        """お客様と話している途中で切れた（続きの電話・お詫びの印 cut_off）あと、「担当の方は違う」で番号を直す ⇒ 新しい番号の別の担当の
+        方へは、途中で切れたお詫びをせず、引き継ぎを確かめるふつうの電話（基準は切れた電話の時刻＝`_carried_since`）。同じ相手なら、
+        続きの電話のまま（お詫びの印も）。"""
+        for same in (True, False):
+            with self.subTest(same=same):
+                s = self.ready()
+                self.cut(s)
+                new = self.fixed_as(s, same)
+                p = self.plan(s)
+                if same:
+                    self.assertEqual((p[0], p[1], p[2], p[6], p[7], p[8]), ("call", new, "resume", ["cut_off"], True, False))
+                else:
+                    self.assertEqual(p, self.handed_over(new))
+
+    def test_a_promise_cut_on_the_old_number_resumes_to_another_person_without_the_promise(self):
+        """「違う」で直したあと、まだかけていない約束の電話を前の番号へかけ、前のお客様と話している途中で切れた ⇒ 続きの電話は
+        いまかける番号へ移る（`current_dial`）が、新しい番号の先は別の担当の方なので、約束・お詫びを引き継がず、引き継ぎを確かめる
+        ふつうの電話（約束の始まりは直す前＝`_carried_since`）。"""
+        s = self.ready()
+        self.promise_window(s)
+        new = self.fixed_as(s, False)
+        self.settle(s, self.call(s, self.CUT, side="line", report=rep(cut=Cut("callee", False, False))))
+        self.assertEqual(self.plan(s), self.handed_over(new))
 
 
 class UnusableNumber(SettleBase):

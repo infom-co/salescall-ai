@@ -720,28 +720,66 @@ def _kept_parts(tx: Tx, from_version: UUID, dropped: frozenset[str]) -> dict[str
 @dataclass(frozen=True)
 class _Base:
     """その版のその声の録音を引き継ぐ元（`_bases` の答え）。version＝いまの組がある、いちばん近い元の版・changes＝その版からの変わった部分
-    （`_changes`。None＝決められない＝引き継がない）。"""
+    （`_changes`。None＝決められない＝引き継がない）・reused＝変わった部分のうち、同じ業務・同じ声の承認済みの録音から使う部分（`_approved_same`）。"""
     version: UUID
     changes: tuple[frozenset[str], dict[str, str]] | None
+    reused: dict[str, Part] = field(default_factory=dict)
 
     def kept(self, tx: Tx, voice_name: str) -> list[Part]:
-        return [] if self.changes is None else _kept_parts(tx, self.version, self.changes[0]).get(voice_name, [])
+        if self.changes is None:
+            return []
+        return _kept_parts(tx, self.version, self.changes[0]).get(voice_name, []) + list(self.reused.values())
 
     @property
     def needed(self) -> dict[str, str]:
-        return {} if self.changes is None else dict(self.changes[1])
+        return {} if self.changes is None else {k: v for k, v in self.changes[1].items() if k not in self.reused}
 
 
 def _bases(tx: Tx, version_id: UUID) -> dict[str, _Base]:
     """声ごとの、その版の録音を引き継ぐ元（1か所。上の説明）：その版の元を近い順にたどり、声ごとに、いまの業務の録音の組がある、
-    いちばん近い元の版と、その版からの変わった部分。"""
+    いちばん近い元の版と、その版からの変わった部分。変わった部分でも、同じ業務・同じ声で、部分の名前・文・読みが同じ承認済みの録音が
+    あれば、それを使う（録り直さない＝`_approved_same` の1か所）。`needed_parts`・`complete`・`carry`（と、その知らせ）は、どれもこの答えを読む。"""
     out: dict[str, _Base] = {}
     for origin in business_settings.version_origins(tx, version_id):
         voices = {r["voice_name"] for r in tx.all("SELECT s.voice_name FROM salescall.current_recording_sets s WHERE " + _BUSINESS,
                                                   (origin,))} - set(out)
         if voices:
-            base = _Base(origin, _changes(tx, origin, version_id))
-            out.update({v: base for v in voices})
+            changes = _changes(tx, origin, version_id)
+            for v in voices:
+                reused = {} if changes is None else _approved_same(tx, version_id, v, changes[1])
+                out[v] = _Base(origin, changes, reused)
+    return out
+
+
+def _approved_same(tx: Tx, version_id: UUID, voice_name: str, wanted: dict[str, str]) -> dict[str, Part]:
+    """その版で録音が要る部分（wanted＝部分の名前 → 文）のうち、同じ業務・同じ声の業務の録音（どの実施回・どの版の組でも）に、部分の名前・
+    文が同じで、承認済みの中身（見方 part_states の1か所＝0172）の部分があるもの（1か所。部分の名前 → 使う部分）。読みは、その版のいまの
+    読みと合うものだけ（組を作るときの確かめ `_chosen_readings` と同じ1か所で確かめる）。いくつもあれば、いちばん新しく作った組の部分。
+    ✅ 計画書 6-1 (4)「録音が必要な部分がある場合のみ必要な部分だけ録音を実施します」・6-2「承認は録音の中身に付け」（0172）。
+    ⛔ 2026-11-07 の見直し：前は、版の元をたどったいちばん近い版の録音しか見ず、同じ業務で同じ部分・同じ文・同じ読みを録音して承認した
+    ものがあっても（ほかの実施回の版・手で戻す前の版）、録り直させた。"""
+    if not wanted:
+        return {}
+    out: dict[str, Part] = {}
+    for r in tx.all(
+            "SELECT r.part, r.spoken_text, r.audio_ref, r.audio_sha256,"
+            "       (SELECT coalesce(jsonb_object_agg(x.name_text, x.reading), '{}'::jsonb) FROM salescall.recording_readings x"
+            "         WHERE x.set_id = r.set_id AND x.part = r.part) AS readings"
+            " FROM salescall.recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
+            " JOIN salescall.part_states k ON k.set_id = r.set_id AND k.part = r.part AND k.approved"
+            " JOIN unnest(%s::text[], %s::text[]) w(part, spoken) ON w.part = r.part AND w.spoken = r.spoken_text"
+            " WHERE s.unit = 'business' AND s.tenant_id = salescall.cur_tenant() AND s.voice_name = %s"
+            "   AND s.version_id IN (SELECT o.version_id FROM salescall.business_versions o JOIN salescall.business_versions b"
+            "                        ON b.business_id = o.business_id WHERE b.version_id = %s)"
+            " ORDER BY s.created_at DESC, s.set_id", (list(wanted), list(wanted.values()), voice_name, version_id)):
+        if r["part"] in out:
+            continue
+        part = Part(r["part"], r["spoken_text"], r["audio_ref"], r["audio_sha256"], dict(r["readings"]))
+        try:
+            _chosen_readings(tx, [part], version_id)   # 読みが、その版のいまの読みと合うか（組を作るときと同じ確かめ）
+        except ValueError:
+            continue
+        out[r["part"]] = part
     return out
 
 
