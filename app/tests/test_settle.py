@@ -1096,7 +1096,7 @@ class DialFixAfterCalls(SettleBase):
         「あとで」があれば戻さない（安全側。next_action._later_refused の1か所）。約束の電話を方針の回数かけて話せずに終えた行は、
         「あとで」の意味に関係なく戻す（決めた回数で終えた行）。
         ✅ 2026-11-06 ユーザー＝計画書 7-1 (16)：営業拒否と読んだ「あとで」は、その通話の判定で断り（発信の拒否＝もうかけない・発信禁止に
-        登録。0195）なので、行はお客様が断った行（do_not_call）として終わり、番号を直しても戻らない（next_action.reopens_on_dial_fix）。
+        登録。0195）なので、行はお客様が断った行（do_not_call）として終わり、番号を直しても戻らない（next_action.reopens_on_fix）。
         営業拒否と読んだ「あとで」は、受付の営業拒否と同じ事実 do_not_call で書く（intent では書かない＝2026-11-07 見直し(3)の1）。"""
         keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
         for intents, back in (((None, None), False), (("promise", "refusal"), False), (("promise", "promise"), True),
@@ -1164,11 +1164,11 @@ class DialFixAfterCalls(SettleBase):
         d = self.later_call(s, s["contact"], "promise")
         self.assertEqual((d.kind, d.end_reason), ("end", next_action.LATER_OVER))
         ended = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["decided_at"]
-        self.assertTrue(self.tx(s, lambda tx: next_action.reopens_on_dial_fix(tx, s["task"], next_action.LATER_OVER, as_of=ended)))
+        self.assertTrue(self.tx(s, lambda tx: next_action.reopens_on_fix(tx, s["task"], next_action.LATER_OVER, as_of=ended)))
         time.sleep(0.01)
         self.later_call(s, s["contact"], None)                      # 終えたあとにかけた電話の「あとで」（意味はまだ分からない）
-        self.assertTrue(self.tx(s, lambda tx: next_action.reopens_on_dial_fix(tx, s["task"], next_action.LATER_OVER, as_of=ended)))
-        self.assertFalse(self.tx(s, lambda tx: next_action.reopens_on_dial_fix(tx, s["task"], next_action.LATER_OVER)))
+        self.assertTrue(self.tx(s, lambda tx: next_action.reopens_on_fix(tx, s["task"], next_action.LATER_OVER, as_of=ended)))
+        self.assertFalse(self.tx(s, lambda tx: next_action.reopens_on_fix(tx, s["task"], next_action.LATER_OVER)))
 
     def test_a_row_put_back_by_a_fix_carries_no_apology_for_a_cut(self):
         """途中で切れたあと決めた回数までかけて終えた行を、番号を直して戻した電話には、途中で切れたお詫びの印を付けない（計画書 7-1 (11)。
@@ -1499,7 +1499,7 @@ class DialFixAfterCalls(SettleBase):
     def test_a_row_the_old_person_ended_with_their_own_answer_comes_back_for_the_new_person(self):
         """✅ 2026-11-07 ユーザーの新しい決定：直す前に前の担当の方（田中様）が用件を断って（その方個人の答え）終えた行を、あとで「違う」で直したら、
         新しい担当の方（鈴木様）へ引き継ぎを確かめる電話（行を戻す。直したあとに断ったとき＝計画書 7-1 (24) とそろえる。戻すかは
-        next_action.reopens_on_dial_fix が next_action.answer_still_ends の1か所で決める）。会社としての答え（目的を果たした）と「もうかけないで」で
+        next_action.reopens_on_fix が next_action.answer_still_ends の1か所で決める）。会社としての答え（目的を果たした）と「もうかけないで」で
         終えた行は戻さない。「同じ」で直しても戻さない。"""
         from tests.test_judge import goal_refused
         cases = (("declined", False, dict(report=goal_refused(rep())), True),
@@ -2182,6 +2182,88 @@ class DialFixAfterCalls(SettleBase):
         self.tx(s, lambda tx: next_action._write(tx, s["task"], next_action._call(now, True, "試験：約束のまま新しい担当の方の番号へ",
                                                                                   next_action.Target(new), window=w)))
         self.assertEqual(self.plan(s), self.handed_over(new))
+
+    # ── 値が変わらない直しは、お呼びする方の替わりにしない・名前などの直しでも、前の担当の方個人の答えで終えた行を戻す（0208。計画書 7-1 (19)(26)。
+    #    替わるかの1か所＝データベースの salescall.person_fix_changes・終えた行を戻すかの1か所＝next_action.reopens_on_fix）
+    def person_fix(self, s, field, value, reading=None, keep=None):
+        from salescall.core import row_fixes
+        return self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], field, value, reading=reading, keep_old_promise=keep), OPERATOR)
+
+    def test_a_fix_that_keeps_the_value_does_not_change_the_person(self):
+        """計画書 7-1 (19)「名前・役職・部署を直したときは違う相手」は、中身が変わったときのこと：同じ名前のまま読みだけを直す・同じ値を入れ直す直しは、
+        お呼びする方の替わりにしない（担当の期も予定も変わらない・前の担当の方との約束の選びは要らない＝渡せば断る。データベースの守りも同じ1か所）。
+        比べるのは、その直しの直前の値（前に直していれば、その直しの値。取り込んだ値ではない）。名前を変えれば、期が替わり、約束の選びが要る。
+        ⛔ 0206 まで：直しの記録が1つ増えるだけで期が替わり、読みだけの直しでも約束の選びを求め、予定が新しい担当の方への形になった。"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        self.person_fix(s, "target_name", "田中", "たなか")                      # 最初のお名前（まだ話していない）
+        self.person_fix(s, "target_department", "総務部")
+        self.promise_on_another_number(s)                                       # 田中様が携帯 M を言って約束した
+        since = self.tx(s, lambda tx: next_action.person_now(tx, s["task"]))
+        seq = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"]
+        self.assertTrue(self.choice_needed(s))                                  # 中身が変われば選ぶ
+        for field, value, reading in (("target_name", "田中", "でんなか"), ("target_name", "田中", "たなか"), ("target_department", "総務部", None)):
+            with self.subTest(field=field, reading=reading):
+                with self.assertRaises(row_fixes.FixInvalid):
+                    self.person_fix(s, field, value, reading, keep=True)
+                self.person_fix(s, field, value, reading)
+                self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"], seq)
+                self.assertEqual(self.tx(s, lambda tx: next_action.person_now(tx, s["task"])), since)
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT target_name_reading AS r FROM salescall.tasks_now WHERE task_id = %s",
+                                                      (s["task"],)))["r"], "たなか")   # 読みの直しは効いている
+        with self.assertRaises(Rejected) as e:                                  # データベースも同じ1か所で守る
+            self.direct_name_fix(s, True)
+        self.assertEqual(e.exception.constraint, "task_fix_old_promise_choice")
+        self.direct_name_fix(s, None)
+        self.assertEqual(self.tx(s, lambda tx: next_action.person_now(tx, s["task"])), since)
+        # 名前を変える ⇒ 期が替わる（約束の選びが要る）
+        with self.assertRaises(row_fixes.FixInvalid):
+            self.person_fix(s, "target_name", "鈴木", "すずき")
+        self.person_fix(s, "target_name", "鈴木", "すずき", keep=False)
+        changed = self.tx(s, lambda tx: next_action.person_now(tx, s["task"]))
+        self.assertNotEqual(changed, since)
+        self.assertEqual(changed, self.tx(s, lambda tx: tx.one(                # 期の始まりは、名前を変えた直しの時刻
+            "SELECT recorded_at FROM salescall.task_fixes WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (s["task"],)))["recorded_at"])
+        self.assertEqual(self.plan(s), self.handed_over(s["contact"]))
+        # 直したあとの値（鈴木）を入れ直しても替わらない（比べるのは、その直しの直前の値）
+        seq = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"]
+        self.person_fix(s, "target_name", "鈴木", "すずき")
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"], seq)
+        self.assertEqual(self.tx(s, lambda tx: next_action.person_now(tx, s["task"])), changed)
+
+    def test_a_name_fix_brings_back_a_row_the_old_person_ended_with_their_own_answer(self):
+        """計画書 7-1 (19)(26)：名前などの直しも「違う相手」なので、番号の「違う」の直しとそろえ、前の担当の方（田中様）個人の答え（在籍していない・
+        用件の断り・ほかの手段）で終えた行を、新しい担当の方（鈴木様）へ引き継ぎを確かめる電話に戻す（戻すかは番号の直しと同じ1か所
+        next_action.reopens_on_fix → answer_still_ends。戻す道も同じ `_restart`）。会社としての答え（目的を果たした・対象外）と「もうかけないで」で
+        終えた行は戻さない。番号のせい・決めた回数で終えた行は、番号が変わらないので戻さない（計画書 7-1 (2) は番号の直しの決まり）。
+        ⛔ 0206 まで：名前などの直しでは、終えた行を戻さなかった。"""
+        from salescall.core.call_report import Departed, Said
+        from tests.test_judge import goal_refused
+        departed = replace(rep(("reception",), not_reached="departed"),
+                           departures=(Departed("end", ("ai",), False, Said(1, "田中は退職いたしました。")),))
+        cases = (("declined", dict(report=goal_refused(rep())), True),
+                 ("other_means", dict(report=rep(("reception",), callback=callback("other_means", None), not_reached="other_means")), True),
+                 ("not_reached_departed", dict(report=departed), True),
+                 ("completed", dict(items=[("Q1", "confirmed", None)]), False),
+                 ("out_of_scope", dict(report=make_report(oos=True)), False),
+                 ("do_not_call", dict(report=rep(dnc_=True)), False),
+                 ("number_unusable", None, False),
+                 ("max_attempts", None, False))
+        for end, call, back in cases:
+            with self.subTest(end=end):
+                s = self.ready()
+                if call is None:                                                # 番号のせい・決めた回数で終えた
+                    self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))
+                    self.tx(s, lambda tx: next_action.end(tx, s["task"], end, cause="試験：番号のせい・決めた回数"))
+                else:
+                    got = self.settle(s, self.call(s, **call))
+                    self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", end))
+                self.name_fix(s)
+                p = self.plan(s)
+                if back:
+                    self.assertEqual(p, self.handed_over(s["contact"]))
+                else:
+                    self.assertEqual((p[0], self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"]), ("end", end))
 
 
 class SalesPurposes(unittest.TestCase):

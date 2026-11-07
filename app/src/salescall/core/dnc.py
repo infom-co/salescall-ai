@@ -49,7 +49,7 @@ REFUSALS = frozenset(r for r, part in DNC_PARTS.items() if part == "refusal")
 # お客様ごと」。誤って広げても「かけない」側の誤りで害は無い＝Intent.md 10-3）
 CUSTOMER_WIDE = REFUSALS | {"client_list"}
 # その番号のせいの理由（番号違い＝その番号の持ち主が別のお客様・FAX の回線）：かける番号を直したら、その番号で門が終えた行は戻す
-# （next_action.reopens_on_dial_fix。2026-11-06 ユーザー「番号のせいで終えた行…は、新しい番号へすぐかけてよい予定に戻します」）
+# （next_action.reopens_on_fix。2026-11-06 ユーザー「番号のせいで終えた行…は、新しい番号へすぐかけてよい予定に戻します」）
 NUMBER_ONLY = frozenset({"wrong_party", "fax_line"})
 
 

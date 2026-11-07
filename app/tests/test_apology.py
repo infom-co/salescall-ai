@@ -702,6 +702,31 @@ class ApologyAfterDialFix(ApologyBase):
         self.assertEqual((p["kind"], p["purpose"], p["contact_id"], p["promised"], p["handover"], p["apology_reasons"]),
                          ("call", "normal", s["contact"], False, True, []))
 
+    def test_after_a_name_fix_an_apology_that_never_reaches_the_old_person_hands_over_to_the_new_person(self):
+        """お呼びする方の名前などを直したあと、前の担当の方へのお詫びの電話（同じ番号・前の担当の方の期）を、ふつうのお詫びのかけ直しの決まりで
+        決めた回数（retry.apology_max）かけても届かなかった ⇒ 行を終えず、新しい担当の方へ引き継ぎを確かめる電話（前の担当の方へのお詫びの電話の
+        あと＝after_apology。届いたとき＝上の試験と同じ形。0206 の形を、届かずに回数を使い切った場面でも確かめる。0208）。"""
+        from salescall.core import row_fixes
+        s = self.fresh(stage_cap=20)
+        self.put_client(s, "retry.apology_max", 2)
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        aid = self.call(s, verify=None, items=())
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=said()))
+        self.settle(s, aid)
+        self.order(s, aid)
+        self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], "target_department", "総務部"), OPERATOR)
+        time.sleep(1.1)
+        first = self.apology_call(s, apology_delivered=False)["decision"]      # 1回目：届かなかった ⇒ 前の担当の方へ、お詫びのかけ直し
+        self.assertEqual((first.kind, first.target.purpose, first.target.contact_id), ("call", "apology", s["contact"]))
+        self.assertIsNone(self.plan(s)["person_since"])
+        self.now_on(s, s["contact"])
+        time.sleep(1.1)
+        self.apology_call(s, apology_delivered=False)                          # 2回目：届かずに回数を使い切った
+        p = self.plan(s)
+        self.assertEqual((p["kind"], p["purpose"], p["contact_id"], p["promised"], p["handover"], p["apology_reasons"]),
+                         ("call", "normal", s["contact"], False, True, []))
+        self.assertIsNotNone(p["person_since"])                                 # 新しい担当の方の期
+
     def test_an_apology_call_settled_before_a_later_fix_keeps_its_person(self):
         """お詫びの電話を締めた時刻（salescall.settled_at）は、お詫びの電話の結び（apology_outcomes。お詫びの電話は業務の判定の版を書かない）でも
         決まる：いまの担当の方がお詫びの電話で断り、そのあと契約者が「担当の方は違う」で直しても、その通話は前の担当の方への通話にならない（断りの
@@ -729,7 +754,7 @@ class ApologyAfterDialFix(ApologyBase):
         """✅ 2026-11-06 ユーザー＝計画書 7-1 (14)：お詫びの電話を決めた回数かけてもお客様に届かずに終えた行（apology_unreached）も、
         番号を直したら「戻す」。戻し方は番号のせいで終えた行と同じ（next_action._restart_apology の1か所）：同じ相手 ⇒ 新しい番号へお詫び／
         違う相手 ⇒ お詫びなしで引き継ぎを確かめる営業の電話／違う相手で業務を終えていた ⇒ 戻さない。戻すかは
-        next_action.reopens_on_dial_fix の1か所（決めた回数で終えた＝COUNT_ENDS）。"""
+        next_action.reopens_on_fix の1か所（決めた回数で終えた＝COUNT_ENDS）。"""
         for other, items, want in ((False, TAKEN, ("call", "apology", True, False)), (True, (), ("call", "normal", False, True)),
                                    (True, TAKEN, None)):
             with self.subTest(other=other, items=bool(items)):

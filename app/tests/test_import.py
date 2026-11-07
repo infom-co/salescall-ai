@@ -778,7 +778,7 @@ class DialFixes(CustomerContacts):
 
     def test_rows_ended_by_the_number_or_by_the_counts_come_back_and_others_do_not(self):
         """終えた行で番号を直したとき（2026-11-06 ユーザー）：番号のせい・決めた回数（日数）までかけて終えた行は、新しい番号へすぐかけて
-        よい予定に戻る（ふつうの電話）。お客様が断った・業務を終えた行などは戻らない（next_action.reopens_on_dial_fix の1か所）。"""
+        よい予定に戻る（ふつうの電話）。お客様が断った・業務を終えた行などは戻らない（next_action.reopens_on_fix の1か所）。"""
         back = ("number_unusable", "alternate_wrong_again", "alternate_not_called", "alternate_blocked:number_kind_not_allowed",
                 "alternate_blocked:number_unknown", "alternate_blocked:other_contractor_called",
                 "ask_number_again_unanswered", "number_kind_forbidden", "number_kind_not_allowed", "number_unknown",
@@ -815,7 +815,7 @@ class DialFixes(CustomerContacts):
                 return {"why": self.why, "attempt_id": None}   # その方個人の答えで終えた行の元の通話は無い（場面の試験は test_settle）
         for why, want in (("wrong_party", True), ("fax_line", True), ("request", False)):
             with self.subTest(why=why):
-                self.assertEqual(next_action.reopens_on_dial_fix(Tx(why), None, "out_of_scope"), want)
+                self.assertEqual(next_action.reopens_on_fix(Tx(why), None, "out_of_scope"), want)
         # 番号のせいの終わりの理由（門が番号や番号への契約者の設定で終えた行も入る＝2026-11-06 CL-2 の案への「(1)…OK (2)…OK (3)…OK」）と、
         # 決めた回数で終えた理由は、どれも戻る。お客様が断った・業務を終えたなどは戻らない（一覧は計画書 3-4-1 の (7) から書き写した。
         # NUMBER_ENDS そのものを読むと、一覧から抜けても見張れない＝⛔ 2026-11-06 の見直し (A) の9）
@@ -825,10 +825,10 @@ class DialFixes(CustomerContacts):
                     "policy_max:open", "apology_wrong_party", "apology_fax_line",
                     "apology_unreached"):   # お詫びの電話を決めた回数かけても届かなかった（計画書 7-1 (14)。0195）
             with self.subTest(end=end):
-                self.assertTrue(next_action.reopens_on_dial_fix(Tx(None), None, end))
+                self.assertTrue(next_action.reopens_on_fix(Tx(None), None, end))
         for end in ("do_not_call", "complaint", "forbidden_speech", "apology_done", "completed"):
             with self.subTest(end=end):
-                self.assertFalse(next_action.reopens_on_dial_fix(Tx(None), None, end))
+                self.assertFalse(next_action.reopens_on_fix(Tx(None), None, end))
         # 「あとで」を方針の回数より多く言って終えた行は、どれも約束の一環だったときだけ戻る（営業拒否か、まだ分からないものがあれば
         # 戻らない＝`_later_refused`。計画書 7-1 (13)。場面の試験は tests.test_settle.DialFixAfterCalls）
         for end, action, refused, want in (("callback_unspecified_time", "end", False, False),
@@ -838,7 +838,7 @@ class DialFixes(CustomerContacts):
             with self.subTest(end=end, action=action, refused=refused), \
                     mock.patch.object(next_action, "_unspecified_policy", return_value=business_rules.Policy(action, 1, None)), \
                     mock.patch.object(next_action, "_later_refused", return_value=refused):
-                self.assertEqual(next_action.reopens_on_dial_fix(Tx(None), None, end), want)
+                self.assertEqual(next_action.reopens_on_fix(Tx(None), None, end), want)
 
     def test_a_row_ended_by_a_number_only_dnc_comes_back(self):
         """門が発信禁止で終えた行は、その番号の登録が番号違い・FAX の回線（その番号だけ）なら番号のせいなので、番号を直すと戻る。
@@ -874,7 +874,7 @@ class DialFixes(CustomerContacts):
                 self.tx(lambda tx: dnc.register(tx, old["phone_e164"], "wrong_party"))
                 self.tx(lambda tx: dnc.register_contractor(tx, mobile, theirs))
                 self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：発信禁止で止めて終えた"))
-                self.assertEqual(self.tx(lambda tx: next_action.reopens_on_dial_fix(tx, task, "dnc_client")), back)
+                self.assertEqual(self.tx(lambda tx: next_action.reopens_on_fix(tx, task, "dnc_client")), back)
 
     def test_the_standing_of_a_number_is_read_at_that_time(self):
         """番号の立場（前にかける番号だったか）は、その時刻で読む（いまかける番号も、その時刻までの直しで＝salescall.task_dial_contact_at・
