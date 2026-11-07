@@ -285,8 +285,8 @@ def reopens_on_dial_fix(tx: Tx, task_id: UUID, end_reason: str, *, as_of: dateti
     戻すとき。見る「あとで」は、そのときの行の回数の数え始めから。None＝いま＝終える決定を書く前）。
     ここが見るのは終わりの理由だけ。お詫びの電話が番号のせい・決めた回数で終わった行を、どう戻すか（同じ相手へお詫び・違う相手へ営業を
     続ける・業務を終えていれば戻さない）は、戻す形を決める `_restart` の1か所。
-    「あとで」を営業拒否と読んだ通話は、判定が断り（do_not_call。計画書 7-1 (16)・0195）にするので、その行は do_not_call で終わり、ここで
-    戻さない（お客様が断った行）。"""
+    「あとで」を営業拒否と読んだ通話は、受付の営業拒否と同じ事実 do_not_call で来て、判定が断り（do_not_call。計画書 7-1 (16)。
+    2026-11-07 見直し(3)の1）にするので、その行は do_not_call で終わり、ここで戻さない（お客様が断った行）。"""
     from salescall.core import dnc   # 発信禁止の部品が次の動きを読むので、ここで読む（読み合いにしない）
     if end_reason in NUMBER_ENDS:
         return True
@@ -328,25 +328,33 @@ def _blocked_by_number(tx: Tx, task_id: UUID, reason: str) -> bool:
         (list(dnc.NUMBER_ONLY), task_id, task_id))["only"] is True
 
 
-def _later_refused(tx: Tx, task_id: UUID, as_of: datetime | None) -> bool:
-    """お客様が「あとで」を方針の回数より多く言って終えた行（`LATER_OVER`）で、その「あとで」に営業拒否か、まだ分からないものがあるか
-    （1か所。✅ 2026-11-06 ユーザー：「営業拒否でなければ戻せます。あくまで後でというのは約束の一環なのか営業拒否なのかというのを判断する
-    必要があります。」）。見るのは、終えたとき（as_of。None＝いま＝終える決定を書く前）の行の回数の数え始め（salescall.task_count_from_at
-    の1か所）から終えたときまでに、お客様が「あとで」（時刻の決まっていない約束）と言った通話すべて（番号を直したあと前の番号で言った
-    「あとで」も、同じお客様の言葉なので入れる）。約束の一環かは、会話の報告のかけ直しの申し出の intent を判定が残したもの（判定の中身
-    callback.intent）。intent の無い「あとで」は、まだ分からないので戻さない（安全側。原則6・14。会話の側が intent を報告するまで＝
-    CL-2 の連絡帳 4-236）。
-    営業拒否と読んだ「あとで」（intent＝refusal）は、判定の版 2026-11-06.2 から、その通話の判定が断り（do_not_call）にする（計画書 7-1
-    (16)・0195）ので、その行は「あとで」の回数で終わらない（ここに来ない）。ここで refusal を見るのは、それより前の版の判定で終えた行と、
-    まだ分からない「あとで」のため（約束の一環でないものは、どれも戻さない＝1つの比べ方）。"""
-    at = "now()" if as_of is None else "%s"
+def _laters(tx: Tx, task_id: UUID, as_of: datetime | None = None) -> list[str | None]:
+    """数え始め以降にお客様が「あとで」と言った通話の、約束の一環か（判定の中身 callback.intent。promise か None＝まだ分からない）の並び
+    （1か所）。「あとで」＝判定が時刻の決まっていない約束（再発信の方針 callback_unspecified_time）にした通話（通話ごとに最新の判定の版＝
+    見方 call_judgements）。範囲は行の回数と同じ（attempts.in_row_count：番号を直したあと前の番号へかけた電話は数えない）。as_of＝その時刻で
+    読む（その時刻の数え始めから、その時刻までに予約した発信。None＝いま）。
+    読むのは、「あとで」と言われた回数（`_unspecified_next`＝その数で行を終える）と、そうして終えた行を番号の直しで戻すか（`_later_refused`＝
+    終えた時刻で読む）の2つ：終えるときに数えた「あとで」と、戻すかで見る「あとで」が、いつも同じ並び。⛔ 2026-11-07 見直し(3)の4：前は
+    数える所（行の回数の範囲）と戻すかを見る所（前の番号への電話も入る独自の問い合わせ）が別で、数えなかった「あとで」で戻さなかった。"""
     rows = tx.all(
         "SELECT j.detail -> 'callback' ->> 'intent' AS intent FROM salescall.call_judgements j"
         " JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
         " WHERE j.task_id = %s AND j.detail ->> 'policy_key' = 'callback_unspecified_time'"
-        f"   AND a.claimed_at >= salescall.task_count_from_at(a.task_id, {at}) AND a.claimed_at <= {at}",
+        f" AND {attempts.in_row_count('a', None if as_of is None else '%s')}",
         (task_id,) if as_of is None else (task_id, as_of, as_of))
-    return not rows or any(r["intent"] != call_report.LATER_PROMISE for r in rows)
+    return [r["intent"] for r in rows]
+
+
+def _later_refused(tx: Tx, task_id: UUID, as_of: datetime | None) -> bool:
+    """お客様が「あとで」を方針の回数より多く言って終えた行（`LATER_OVER`）で、その「あとで」に約束の一環でないもの（まだ分からない）が
+    あるか（1か所。✅ 2026-11-06 ユーザー：「営業拒否でなければ戻せます。あくまで後でというのは約束の一環なのか営業拒否なのかというのを
+    判断する必要があります。」）。見るのは、終えたとき（as_of。None＝いま＝終える決定を書く前）に数えた「あとで」（`_laters` の1か所）。
+    約束の一環かは、会話の報告のかけ直しの申し出の intent を判定が残したもの。intent の無い「あとで」は、まだ分からないので戻さない（安全側。
+    原則6・14。会話の側が intent を報告するまで＝CL-2 の連絡帳 4-236）。営業拒否と読んだ「あとで」は、受付の営業拒否と同じ事実 do_not_call で
+    来て、その通話の判定が断り（do_not_call）にする（計画書 7-1 (16)。2026-11-07 見直し(3)の1）ので、その行は「あとで」の回数で終わらない。
+    それより前の版の判定で intent＝refusal を残した通話も、約束の一環でないので戻さない（1つの比べ方）。"""
+    laters = _laters(tx, task_id, as_of)
+    return not laters or any(i != call_report.LATER_PROMISE for i in laters)
 
 
 _PLAN_COLUMNS = ("n.seq, n.contact_id, n.kind, n.call_at, n.promised, n.purpose, n.wrong_contact_id, n.callee_at, n.window_until,"
@@ -1366,14 +1374,6 @@ def _times(tx: Tx, task_id: UUID, key: str) -> int:
         (task_id, key))["n"]
 
 
-def _said(tx: Tx, task_id: UUID, key: str) -> int:
-    """この行で、その再発信の方針の鍵の結果が出た通話の数（お客様が言った回数。数える発信かに関係なく。1か所）。"""
-    return tx.one(
-        "SELECT count(*) AS n FROM salescall.call_judgements j JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
-        f" WHERE j.task_id = %s AND j.detail ->> 'policy_key' = %s AND {attempts.in_row_count('a')}",
-        (task_id, key))["n"]
-
-
 def _retry_at(tx: Tx, task_id: UUID, interval: tuple[str, int], now: datetime, dialed_at: datetime) -> datetime | None:
     """再発信の方針の間隔が指す時刻（1か所。2026-10-15 ユーザー：「2時間おき・3時間おき・○時間おき・○日後」を業務ごとに）。
     - n 時間おき ⇒ いまから n 時間後（時間帯の外・NG時間に当たれば、門が止め、次の動きが次の始まりへ回す）。
@@ -1865,7 +1865,7 @@ def _unspecified_next(tx: Tx, task_id: UUID, target: Target, *, now: datetime, b
     base＝間隔を数え始める時刻、tried＝前にかけた時刻（「n 日後」は別の時間帯にする）。not_today＝同じ日にはかけ直さない（`_policy_at`）。⚠️ 前は、約束の電話に出ないと、約束でない
     ふつうのかけ直しになり、行の回数の上限で終わった。"""
     p = _unspecified_policy(tx, task_id)
-    said = _said(tx, task_id, "callback_unspecified_time")   # 「あとで」と言われた回数（言った回数なので、どの通話も数える）
+    said = len(_laters(tx, task_id))   # 「あとで」と言われた回数（言った回数なので、数える発信かに関係なく数える。戻すかで見る並びと同じ）
     calls = _unspecified_calls(tx, task_id)
     if p.action != "end" and said > p.max_times:
         # お客様が「あとで」を方針の回数より多く言った：番号を直したとき、その「あとで」が約束の一環か営業拒否かで戻すかが決まる

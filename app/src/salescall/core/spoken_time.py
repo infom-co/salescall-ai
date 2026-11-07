@@ -534,6 +534,13 @@ def _at(d: date, sec: int) -> datetime:
     return datetime.combine(d, time(), tzinfo=JST) + timedelta(seconds=sec)
 
 
+def unspecified(text: str | None) -> bool:
+    """時刻の言葉が「時刻の決まっていない」（言葉が無い＝時刻を聞けなかった・時刻をこちらに任せる答え・「あとで」「後ほど」など）か
+    （1か所。言葉だけで決まる＝通話の時刻・お客様の設定を見ない）。`read` の UNSPECIFIED も、会話の報告に約束の一環か（intent）を書ける
+    申し出か（call_report.Callback.later。2026-11-07 見直し(3)の3）も、これを読む。"""
+    return text is None or not text.strip() or _UNSPECIFIED.fullmatch(_clean(text)) is not None
+
+
 def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], limit: tuple[int, int], slot: int,
          until: str | None, periods: Mapping[str, tuple[int, int]], monthly: bool = False,
          beyond_ok: bool = False) -> Reading:
@@ -554,12 +561,10 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
     （「〇時以降」と同じ）・slot_after＝〇時から1回分（slot）。None なら決めずに確かめる（CONFIRM。2026-10-23 ユーザー：「電話を
     切った理由があるから、電話を続けられなかったと考えるべきでしょ。その理由を確かめないと、何時から3時までの何時が決められない
     でしょ！」。⛔ 前は理由を見ずに、いつも「今から〇時まで」にしていた）。"""
-    if text is None or not text.strip():
+    if unspecified(text):
         return Reading(UNSPECIFIED)
     t = _clean(text)
     local = now.astimezone(JST)
-    if _UNSPECIFIED.fullmatch(t):
-        return Reading(UNSPECIFIED)
     if _ASAP.fullmatch(t):
         return Reading(WINDOW, local, None, repeat=DAY_REPEAT, day_said=True)
     if (m := _LATER_CLOCK.match(t)) and _TAIL.fullmatch(t[m.end():]):   # 「30分後」「1時間後」「1時間半後」

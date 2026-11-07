@@ -240,7 +240,7 @@ def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     return {"judge_version": JUDGE_VERSION, "rules_version": str(version),
             "report_source": call_report.load_with_source(tx, a["attempt_id"])[1],
             "items": _items_snapshot(_items(tx, a["task_id"])),
-            "declared_in_call": dnc.refused_in(tx, a["attempt_id"], "refused_in_call"),   # 通話の途中の申告（2026-10-19 の見直し）
+            "declared_in_call": dnc.declared_in(tx, a["attempt_id"]),   # 通話の途中の申告（2026-10-19 の見直し。申告の入口の登録だけ＝見直し(3)の5）
             "target_recheck": target_recheck.load(tx, a["attempt_id"]),   # 目的のお客様の確かめ直し（0108）
             # お客様の時間の設定（歯止め時間・1回分の長さ・営業時間。直したら判定し直す＝⛔ 見直し17b：前は比べていなかった）
             "callee": _callee(tx, a).to_json()}
@@ -377,7 +377,8 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
     dialed = number_recheck.dialed(tx, attempt_id)
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["spoken_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version),
-                     dnc.refused_in(tx, attempt_id, "refused_in_call") and "refusal" not in gone,
+                     # 通話の途中の申告（申告の入口が入れた登録だけ＝dnc.declared_in。断りを外すと答えたら見ない）
+                     dnc.declared_in(tx, attempt_id) and "refusal" not in gone,
                      target_recheck.unconfirmed(tx, attempt_id),
                      callee=_callee(tx, a),   # お客様の時間の設定・言葉ごとの幅（読むのは gate.callee_settings の1か所）
                      anyone_target=business_settings.anyone_target(tx, rules_version),   # 「誰でも」の業務か（見直し18b の (3)）
