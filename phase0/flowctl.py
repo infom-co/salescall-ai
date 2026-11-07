@@ -1036,8 +1036,13 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          "tentative_fact": ("言い切っていない答えのあと（事実を伺う質問）", None, "hai"),
          # - 無い：「承知しました。」＋「それでは15日あたりでお考えということで承っておきますね。」（問いではない＝お客様のお返事が直した値でなければ受け取る。
          #   事実を伺う質問は「それでは10名くらいということで承っておきますね。」）
-         "noted": ("確定でない値を承る", None, "shouchi")}
-TENTATIVE_AFTERS = ("tentative_do", "tentative_fact", "noted")   # 確定でない値を受ける形（Flow._tentative が選んだもの＝_ask_confirm の頭で回し直さない）
+         "noted": ("確定でない値を承る", None, "shouchi"),
+         # - 言い直し（ひとまずの形も）へ「まだ決まっていない」と返された（期限の有無にかかわらず）：「承知しました。」＋「それではひとまず15日の予定でお考えだと
+         #   承っておきますね。」（✅ 2026-11-08 日本時間5時00分52秒 ユーザー：「…まだ決まっていないと言われたのに、「それでは15日でお考えということで承って
+         #   おきますね。」だと確定のように聞こえ、相手に話が伝わっていないと思われてしまいますよ。」。事実を伺う質問も、まだ決まっていないのは予定なので同じ形）
+         "noted_undecided": ("まだ決まっていない値を承る", None, "shouchi")}
+# 確定でない値を受ける形（Flow._tentative が選んだもの＝_ask_confirm の頭で回し直さない）
+TENTATIVE_AFTERS = ("tentative_do", "tentative_fact", "noted", "noted_undecided")
 HEDGE_WHY = "言い切っていない答え"  # 確かめる理由の名前（言い直しの言い方を、曖昧な言葉の確かめと分ける。Flow._check_again）
 # 会話になっていない返事（確かめる理由の名前＝Flow._check_again）。✅ 2026-10-31 ユーザー：「この部分だけの判断ならAIがあっています。前の分との
 #    流れの回答として会話になっていないだけです。それを分かるようにしないと！」・前に言ったことと逆の返事は「(イ)」（「念のため…でよろしかった
@@ -5443,7 +5448,7 @@ class Flow:
             if voiced:
                 return None
             h["tentative"] = self.callee_turns
-            return self._tentative(self.awaiting_confirm)
+            return self._tentative(self.awaiting_confirm, undecided=True)
         if kind == "final":
             # 選ぶ助けのあとも、まだ決めていない＝お客様の最終の決定：保留で締めて次へ（_undecided_final の1か所＝最終の確かめのあとと同じ）。会話AIの声がもう
             # 流れた（報告の無いターン）なら重ねない（何を言ったか分からない声に、保留の一言を重ねない＝答えは報告で当てる）
@@ -5764,13 +5769,17 @@ class Flow:
             return "hedged_fact" if q.asks_fact else "hedged_do"
         return "hedged"
 
-    def _tentative(self, qid: str) -> dict:
+    def _tentative(self, qid: str, undecided: bool = False) -> dict:
         """値を伺う質問（日時・数・金額）で、お客様の答えが確定でないとき（値に「あたり」などが付いた＝approx_value・値の言い直しへの「まだ決まっていない」＝
-        _hesitation の tentative）に受ける唯一の場所。確定の言い直し（「それでは15日とさせていただきますね？」）も、同じ言い直しのくり返しもしない：
-        - 業務設定に変更の受付の期限（Question.change_by）があって、まだ伺っていない：ひとまずその値（値の芯）にして、変更の受付を添えて伺う（AFTER の
-          tentative_do・tentative_fact＝「はい、それではひとまず15日とさせていただきますね？変更があった場合には前日までにご連絡いただけましたらご対応可能です。」）
-        - それ以外（期限が無い・ひとまずの形にも「まだ決まっていない」）：お客様の言い方の値のまま承っておく（AFTER の noted＝「承知しました。それでは15日あたりで
-          お考えということで承っておきますね。」。問いではない）
+        _hesitation の tentative＝undecided）に受ける唯一の場所。確定の言い直し（「それでは15日とさせていただきますね？」）も、同じ言い直しのくり返しもしない：
+        - 言い直し（ひとまずの形も）へ「まだ決まっていない」と返された（undecided）：期限の有無にかかわらず、ひとまずの予定として承っておく（AFTER の
+          noted_undecided＝「承知しました。それではひとまず15日の予定でお考えだと承っておきますね。」。✅ 2026-11-08 日本時間5時00分52秒 ユーザー：「…まだ決まって
+          いないと言われたのに、「それでは15日でお考えということで承っておきますね。」だと確定のように聞こえ、相手に話が伝わっていないと思われてしまいますよ。」）
+        - 確定でない値の答えで、業務設定に変更の受付の期限（Question.change_by）があって、まだ伺っていない：ひとまずその値（値の芯）にして、変更の受付を添えて
+          伺う（AFTER の tentative_do・tentative_fact＝「はい、それではひとまず15日とさせていただきますね？変更があった場合には前日までにご連絡いただけましたら
+          ご対応可能です。」）
+        - 確定でない値の答えで、期限が無い：お客様の言い方の値のまま承っておく（AFTER の noted＝「承知しました。それでは15日あたりでお考えということで
+          承っておきますね。」。問いではない）
         - 承っておく一言を言ったあと：お客様のお返事が直した値でなければ（はい・まだ決まっていない・答えなかった）、その値で受け取る（もう伺わない）
         受け取る値には、言い切っていない印とお客様の言葉を添える（Item.hedged＝依頼者へ・業務の次の段＝_hedged_follow_up と同じ「言い切っていない答え」）。
         ✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「お客様「15日あたりですかね。」のように「あたり」などの日にち確定でない言葉が入っている場合には、こちら
@@ -5787,14 +5796,14 @@ class Flow:
         if ap is not None:
             it.approx = ap[1]
         it.hedged = it.hedged or customer_said(self.heard_said) or None
-        if q.change_by and it.tentative is None:
+        if q.change_by and it.tentative is None and not undecided:
             it.tentative = "set"
             if ap is not None:
                 it.value = ap[0]
             return self._ask_confirm(qid, after="tentative_fact" if q.asks_fact else "tentative_do")
         it.tentative = "noted"
         it.value = it.approx or it.value
-        return self._ask_confirm(qid, after="noted")
+        return self._ask_confirm(qid, after="noted_undecided" if undecided else "noted")
 
     def _undecided_final(self, qid: str) -> dict:
         """お客様の最終の決定が決められない（最終の確かめのあとも決められない＝_confirm_again。迷っているは保留で締めない＝_hesitation・22時02分54秒）：
@@ -8746,6 +8755,11 @@ class Flow:
             # 「お考え」と言わない＝「それでは10名くらいということで承っておきますね。」・「15日をめどに」は「15日をめどにお考え」）
             thinks = "" if q.asks_fact else "お考え" if said_as.endswith("に") else "でお考え"
             phrase = confirm_phrase(said_as + thinks, situation, n, meaning=True)
+        elif after == "noted_undecided":
+            # 言い直しへ「まだ決まっていない」と返された値を、ひとまずの予定として承っておく（_tentative）：「それではひとまず15日の予定でお考えだと承っておきますね。」
+            # （事実を伺う質問も、まだ決まっていないのは予定なので同じ形。「15日をめどに」は「ひとまず15日をめどにお考えだと」＝「の予定で」を重ねない）
+            plan = "お考え" if said_as.endswith("に") else "の予定でお考え"
+            phrase = confirm_phrase(TENTATIVELY + said_as + plan, situation, n, meaning=True)
         else:
             phrase = self.confirm(said_as, situation, n)
         say = self.awaiting_say = (self._lead(lead) if lead else "") + phrase

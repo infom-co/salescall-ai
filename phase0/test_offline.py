@@ -18605,29 +18605,38 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual(heard(answer(f, "15日あたりですかね。", "15日")), tentative)
         r = reply(f, "はい、お願いします。", rd("affirmed"))
         self.assertEqual((r.get("question_id"), f.export()["V1"], f.customer_words().get("V1")), ("Q2", "15日", "15日あたりですかね。"))
-        # ひとまずの形への「まだ決まってない」：同じ確かめをくり返さず、承っておく（値はお客様の言い方のまま）
+        # ✅ 2026-11-08 日本時間5時00分52秒 ユーザー：「・「まだ決まってないんですよね。」と返されたとき：「承知しました。それではひとまず15日の予定でお考えだと
+        #    承っておきますね。」⇒まだ決まっていないと言われたのに、「それでは15日でお考えということで承っておきますね。」だと確定のように聞こえ、相手に話が
+        #    伝わっていないと思われてしまいますよ。」⇒ 言い直し（ひとまずの形も）へ「まだ決まっていない」と返されたら、どの業務でも（期限があっても）この一言で承っておく
+        # ひとまずの形への「まだ決まってない」：同じ確かめをくり返さず、ひとまずの予定として承っておく（値はお客様の言い方のまま）
         f = flow("前日")
         answer(f, "15日あたりですかね。", "15日")
         r = reply(f, "うーん、まだ決まってないんですよね。", rd("unknown", not_yet))
-        self.assertEqual(heard(r), noted)
+        self.assertEqual(heard(r), "承知しました。それではひとまず15日あたりの予定でお考えだと承っておきますね。")
         # 同じ発話に遅れて届いた報告で、承っておく一言へのお返事を待たずに受け取らない
         self.assertEqual((heard(f.apply("confirm_field", {"question_id": "V1", "result": "affirmed"})), f.items["V1"].state), ("", "checking"))
         r = reply(f, "はい。", rd("affirmed"))
         self.assertEqual((r.get("question_id"), f.export()["V1"]), ("Q2", "15日あたり"))
-        # (C) 確定でない言葉の無い値の言い直しへの「まだ決まっていない」：同じ言い直しをくり返さず、期限が無ければ承っておく・あれば先に「ひとまず」
-        f = flow()
-        self.assertEqual(heard(answer(f, "15日ですかね。", "15日")), "はい、それでは15日とさせていただきますね？")
+        # (C) 確定でない言葉の無い値の言い直しへの「まだ決まっていない」：同じ言い直しをくり返さず、期限があってもなくても、ひとまずの予定として承っておく
+        undecided = "承知しました。それではひとまず15日の予定でお考えだと承っておきますね。"
+        for change_by in ("", "前日"):
+            f = flow(change_by)
+            self.assertEqual(heard(answer(f, "15日ですかね。", "15日")), "はい、それでは15日とさせていただきますね？")
+            r = reply(f, "うーん、まだ決まってないんですよね。", rd("unknown", not_yet))
+            self.assertEqual(heard(r), undecided, change_by)
+            # 承っておく一言へのお返事は、直した値でなければ受け取る（「まだ決まってないですけど。」も＝まだ決まっていないことは承った）
+            r = reply(f, "まだ決まってないですけどね。", rd("unknown", not_yet))
+            self.assertEqual((r.get("question_id"), f.export()["V1"], f.customer_words().get("V1")), ("Q2", "15日", "うーん、まだ決まってないんですよね。"))
+        # 事実を伺う質問（当日の人数）も、まだ決まっていないのは予定なので同じ一言（「お考え」も付ける）
+        f = flow(fact=True)
+        answer(f, "10名ですかね。", "10名")
         r = reply(f, "うーん、まだ決まってないんですよね。", rd("unknown", not_yet))
-        self.assertEqual(heard(r), "承知しました。それでは15日でお考えということで承っておきますね。")
-        # 承っておく一言へのお返事は、直した値でなければ受け取る（「まだ決まってないですけど。」も＝まだ決まっていないことは承った）
-        r = reply(f, "まだ決まってないですけどね。", rd("unknown", not_yet))
-        self.assertEqual((r.get("question_id"), f.export()["V1"], f.customer_words().get("V1")), ("Q2", "15日", "うーん、まだ決まってないんですよね。"))
+        self.assertEqual(heard(r), "承知しました。それではひとまず10名の予定でお考えだと承っておきますね。")
+        # お客様の言い方が「〜をめどに」なら「の予定で」を重ねない
         f = flow("前日")
-        answer(f, "15日ですかね。", "15日")
+        self.assertEqual(heard(answer(f, "15日をめどにお願いします。", "15日", True)), tentative)
         r = reply(f, "うーん、まだ決まってないんですよね。", rd("unknown", not_yet))
-        self.assertEqual(heard(r), tentative)
-        r = reply(f, "それもまだ決まってないですね。", rd("unknown", not_yet))
-        self.assertEqual(heard(r), "承知しました。それでは15日でお考えということで承っておきますね。")
+        self.assertEqual(heard(r), "承知しました。それではひとまず15日をめどにお考えだと承っておきますね。")
         # (D) 承っておく一言のあとに、はっきりした値に直された：ふつうの直しと同じく言い直して確かめ、言い切った値として渡す
         f = flow()
         answer(f, "15日あたりですかね。", "15日")
