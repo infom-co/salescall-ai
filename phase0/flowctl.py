@@ -2609,7 +2609,10 @@ def earlier_point_open(point: str | None) -> bool:
 # ある答えではいつも空）から読んでいて、続きの電話で、もう伺った連絡先を伺い直していた。⇒ 前の通話の答えには、その答えを取った通話の、その質問の最後の
 # 事実そのもの（wish_fact＝通話の事実 other_wish の1つ・point_fact＝not_agreed の1つ。無ければ入れない）を渡していただき、読み方は会話の側の earlier_* の
 # 1か所だけ（earlier_wish_of・earlier_means_of・earlier_point_of・earlier_said_of・earlier_records）
-EARLIER_KEYS = ("state", "value", "condition", "hedged", "wish_fact", "point_fact")
+# "who"（CL-2 の 4-320＝4-290 の (5)・CL-1.md 4-106 の H6）：その答えを取った通話の、いちばん新しい繋いだ方（target・successor・substitute）。繋いだ事実の
+#    無い通話の答えには無い・who の無い前の形は target と読む（読むのは CL-2 の CallReport.connected_who の1か所）。⏳ 続きの電話で判断いただける代わりの方に
+#    「引き継がれている部分から」伺う（本書 9-4 の「お客様の申し出」）の見分けに使う＝読み方は CL-1.md 4-120
+EARLIER_KEYS = ("state", "value", "condition", "hedged", "wish_fact", "point_fact", "who")
 
 
 def earlier_fact(entry: dict | None, key: str) -> dict | None:

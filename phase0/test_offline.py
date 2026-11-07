@@ -94,7 +94,11 @@ CL2_PENDING = frozenset({"aizuchi",   # まだ考えている途中のお客様�
                          "D2", "concern",
                          # 業務の質問の文の頭に書けない言葉に足した、続きの電話の始めの頭と3回目からの戻る一言（11-08 日本時間8時台の K-3＝CL-2 の 4-234 の (b) への
                          # 答え。CL-1.md 4-118）
-                         __import__("phrases").QUESTION_RESUME_LEAD, __import__("phrases").BACK_TO_MIDWAY})
+                         __import__("phrases").QUESTION_RESUME_LEAD, __import__("phrases").BACK_TO_MIDWAY,
+                         # 前の通話の答えの繋いだ方（CL-2 の 4-320 の (a)＝flowctl.EARLIER_KEYS）と、本題の始まりの選べるもの（CL-2 の call_report.RESPONSE_POLICIES の
+                         # main_talk＝4-114・4-320 の (b)。選べるもの asked・answered は鍵の中で見る＝test_told_kinds_offers_and_reasons_match_cl2）。どちらも CL-2 の
+                         # 枝だけ（CL-1.md 4-120）
+                         "who", "main_talk"})
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
 CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
 
@@ -11736,17 +11740,23 @@ class TargetTest(unittest.TestCase):
         # K-2（11-08 日本時間8時台。CL-2 の 4-229・4-234 の (a)・4-236／4-250 の頼み）：CL-2 の写しと比べる試験が無かった4つ＝申し伝える一言の種類（CL-2 の
         # call_report.TOLD_KINDS＝phrases.POINT_KINDS の鍵）・お客様の申し出（call_report.CALLBACK_OFFERS＝flowctl.OFFER_LABEL の鍵）・「わからない」「答えたくない」の
         # 理由（business_rules.DONT_KNOW_REASONS・REFUSED_REASONS＝flowctl.DONT_KNOW_LABEL・REFUSED_LABEL の鍵）。CL-2 の版が main に無い一覧は、入るまで飛ばす
-        # （TOLD_KINDS は 11-08 時点で CL-2 の枝だけ）。CL-2 の LATER_INTENTS は会話の側に同じ一覧が無い（比べるものが無い＝CL-1.md 4-119）
-        from flowctl import DONT_KNOW_LABEL, OFFER_LABEL, REFUSED_LABEL
+        # （TOLD_KINDS は 11-08 時点で CL-2 の枝だけ）。CL-2 の LATER_INTENTS は会話の側に同じ一覧が無い（比べるものが無い＝CL-1.md 4-119）。
+        # CL-2 の 4-320 の (b)：値を伺う質問の型（CL-2 の business_settings.ESTIMATE_TYPES＝flowctl.ESTIMATE_TYPES。変更の受付の期限を書ける質問）と、
+        # お客様の申し出・本題の始まりの選べるもの（CL-2 の call_report.RESPONSE_POLICIES＝flowctl.POLICIES の鍵と選べるもの）も（CL-1.md 4-120）
+        from flowctl import DONT_KNOW_LABEL, ESTIMATE_TYPES, OFFER_LABEL, POLICIES, REFUSED_LABEL
         from phrases import POINT_KINDS
         compared = []
         for path, var, mine in (("call_report.py", "TOLD_KINDS", set(POINT_KINDS)), ("call_report.py", "CALLBACK_OFFERS", set(OFFER_LABEL)),
-                                ("business_rules.py", "DONT_KNOW_REASONS", set(DONT_KNOW_LABEL)), ("business_rules.py", "REFUSED_REASONS", set(REFUSED_LABEL))):
+                                ("business_rules.py", "DONT_KNOW_REASONS", set(DONT_KNOW_LABEL)), ("business_rules.py", "REFUSED_REASONS", set(REFUSED_LABEL)),
+                                ("business_settings.py", "ESTIMATE_TYPES", set(ESTIMATE_TYPES)),
+                                ("call_report.py", "RESPONSE_POLICIES", None)):
             theirs = self.cl2_names(path, var)
             if theirs is None:
                 continue
+            if mine is None:   # 鍵と選べるもの：CL-2 の版にまだ無い鍵（CL2_PENDING）の選べるものは、ほかの一覧の名前と重なりうるので、鍵ごと外して比べる
+                mine = {x for k, vs in POLICIES.items() if not (k in CL2_PENDING and k not in theirs) for x in (k, *vs)} | set(POLICIES)
             compared.append(var)
-            self.assertEqual((sorted(mine - theirs), sorted(theirs - mine)), ([], []), f"{var}（こちらだけ, CL-2 だけ）")
+            self.assertEqual((sorted(without_cl2_pending(self, mine, theirs) - theirs), sorted(theirs - mine)), ([], []), f"{var}（こちらだけ, CL-2 だけ）")
         if not compared:
             self.skipTest("CL-2 の一覧が、まだ main に無い")
 
@@ -11754,8 +11764,10 @@ class TargetTest(unittest.TestCase):
         # CL-2 の 4-202 の (a)：こちらがすることの言葉の形の決まり（こちら＝meanings の DO_END・DO_DOUBLED・MARKS と頭の言葉 QUESTION_HEADS・CL-2 の
         # business_settings の DO_WORDS_END・DO_WORDS_DOUBLED・DO_WORDS_MARKS と QUESTION_LEADS）が同じ。依頼者が書いた言葉は CL-2 の1か所だけを通り、
         # 取込の AI の言葉は先にこちらの meanings.check を通る＝決まりが食い違うと、同じ言葉が片方でだけ通る
+        # CL-2 の 4-215 の (4-90 の (1))：言葉の終わりに書けない形（こちら＝meanings.BAD_END・CL-2 の business_settings.DOUBT_WORDS_BAD_END）も（CL-1.md 4-120）
         import meanings
-        for mine, var in ((meanings.DO_END, "DO_WORDS_END"), (meanings.DO_DOUBLED, "DO_WORDS_DOUBLED"), (meanings.MARKS, "DO_WORDS_MARKS")):
+        for mine, var in ((meanings.DO_END, "DO_WORDS_END"), (meanings.DO_DOUBLED, "DO_WORDS_DOUBLED"), (meanings.MARKS, "DO_WORDS_MARKS"),
+                          (meanings.BAD_END, "DOUBT_WORDS_BAD_END")):
             theirs = self.cl2_names("business_settings.py", var)
             if theirs is None:
                 self.skipTest(f"CL-2 の business_settings.{var} が、まだ main に無い")
@@ -21117,7 +21129,7 @@ class Cl2Round211Test(unittest.TestCase):
         # 答えではいつも空）。前の通話の答えには、その質問の最後の事実そのもの（wish_fact＝other_wish・point_fact＝not_agreed）を渡していただき、読み方は
         # 会話の側の earlier_* の1か所だけにする（CL-2 の案2）
         from flowctl import CALLBACK_IDS, EARLIER_KEYS, Flow, earlier_records, known_contact
-        self.assertEqual(set(EARLIER_KEYS), {"state", "value", "condition", "hedged", "wish_fact", "point_fact"})
+        self.assertEqual(set(EARLIER_KEYS), {"state", "value", "condition", "hedged", "wish_fact", "point_fact", "who"})
         taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
         line = {"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "line", "via": "id", "contact": "abc_123", "outcome": "means"}}}
         mail = {"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "email", "via": None, "contact": "a@example.com", "outcome": "means"}}}

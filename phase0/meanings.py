@@ -166,6 +166,9 @@ _BARE = re.compile(r"(?:はい|いいえ|いえ|ええ|うん|いや)")
 MARKS = re.compile(r"[、。，．？?！!「」『』]")
 DO_END = re.compile(r"(?:させていただきます|承ります)$")
 DO_DOUBLED = re.compile(r"(?:差し上げ|お伺い|伺わ)させ")
+# どの種類の言葉も、問いの形で終えない（会話の側が「…でよろしいでしょうか？」「…ということでしょうか？」と続ける。CL-2 の business_settings.DOUBT_WORDS_BAD_END と
+#    同じ＝比べる試験 test_do_words_rules_match_cl2。CL-1.md 4-120）
+BAD_END = re.compile(r"(?:でしょうか|ですか|ますか|よろしい)$")
 
 
 def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool:
@@ -190,7 +193,7 @@ def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool
     from phrases import QUESTION_HEADS
     if w.startswith(QUESTION_HEADS):
         return False
-    if re.search(r"(?:でしょうか|ですか|ますか|よろしい)$", w):
+    if BAD_END.search(w):
         return False
     if kind == "doubt" and ("ということ" in w or w.endswith("こと")):
         return False
