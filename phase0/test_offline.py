@@ -14151,16 +14151,18 @@ class NoneOfThemTest(unittest.TestCase):
         r = f.judged_turn(voiced=False)
         self.assertEqual((ACK[r["ack"]], r.get("speak"), r.get("say")), ("失礼いたしました。", True, c["say"]))
         self.assertEqual((f.awaiting_confirm, f.items["Q1"].state), ("Q1", "checking"))
-        # こちらがお話に応えた直後（「AIですか」への一言など）は当てない：もう一度言ってほしいのは、こちらの答えのほう（会話AIが言い直す）
+        # こちらがお話に応えた直後（「AIですか」への一言など）は、もう一度言ってほしいのはその一言＝「失礼いたしました。」のあと同じ一言を言い直し、お返事を待つ。
+        # ⛔ 2026-11-08 日本時間6時台（11-07 23時26分13秒のご質問の見直しの A-3）まで、ここは当てず「会話AIが言い直す」としていた＝録音で流す通話では会話AIの
+        # 声は流れない（speech_allowed）ので、お客様には無言だった
         f, _ = asked(None, None)
         f.on_callee(); f.on_heard("これって機械の声ですか？")
-        f.apply("replay_opening", {"part": "ai"})
+        said = f.apply("replay_opening", {"part": "ai"})
         f.on_callee(); f.on_heard("え、すみません、もう一度お願いできますか？")
         f.on_check("judge", Reading(REPEAT))
         f.on_check("judge2", Reading(REPEAT))
-        turn = f.repeat_turn
-        self.assertIsNone(f.judged_turn(voiced=False))
-        self.assertEqual(f.repeat_turn, turn)
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((ACK[r["ack"]], r["play"]), ("失礼いたしました。", said["play"]))
+        self.assertTrue(f.ai_pending)
 
     def test_late_wait_reading_after_thinking_is_applied(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（待つ持ち場の指摘3）：考えている途中と読んで「はい。」と応えたあとに、同じ発話のもう1つの判定が遅れて「あとで
@@ -20122,6 +20124,167 @@ class ApprovalReviewTest(unittest.TestCase):
         self.assertEqual(callback_question("other_point", which=True, after_recap=True).senses, {"分かった": "ご納得いただけない点は特に無い"})
         self.assertEqual(callback_question("other_point", which=True).senses, {"分かった": "ほかにご納得いただけない点は特に無い"})
         self.assertEqual(callback_question("not_agreed").senses, {})
+
+    def test_explanation_stays_due_until_it_is_given(self):
+        # ⛔ 2026-11-08 日本時間6時台（11-07 23時26分13秒のご質問の見直しの A-1）：ご説明を頼んだあと、会話AIがご説明する前に、お客様が点を言い足す・待たせる・
+        #    差し戻しが入ると、ご説明を頼む決まり（_explain_due）が「点を伺ったその発話」しか見ていなかったので、ご説明が落ちて「ありがとうございます。続きまして…」で
+        #    次の質問へ進み（ご承認は「いいえ」のまま・手順はご説明の段のまま）、言い足した点は記録に残らず（同じ回の記録は前の点だけ）、いま求めていることの知らせも
+        #    「いまの質問は N2…」だった。✅ 本書 9-5 のご承認の手順（11-02 5時37分「説明をし…しっかりと説明して納得してもらう」・6時21分「親身に答えないといけない」）
+        from flowctl import CALLBACK_IDS, HOLD
+        from meaning_judge import Reading
+        from phrases import ACK
+        N1, N2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        heard = lambda r: ((ACK[r["ack"]] if r.get("ack") else "") + "".join(p.get("text", "") for p in r.get("play") or [])
+                           + (r.get("say") or ""))
+        NOTE = "次へ進む前に、その点を"
+        # (a) N1 のあとの言い足し：同じ回の点に足して、両方をご説明する（回は数えない）
+        f = self.flow()
+        r = self.say(f, "料金のところがちょっと。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        self.assertEqual(r["result"], "explain_point")
+        r = self.say(f, "あ、あと解約の条件も気になってます。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="解約の条件")
+        self.assertEqual(r["result"], "explain_point", heard(r))
+        self.assertIn("料金のところがちょっと。", r["message"])
+        self.assertIn("解約の条件も気になってます。", r["message"])
+        rec = [e for e in f.facts["not_agreed"] if e.get("round") == 1]
+        self.assertEqual([e["point"] for e in rec], ["料金／解約の条件"])
+        self.assertEqual(rec[0]["said"], "料金のところがちょっと。／あ、あと解約の条件も気になってます。")
+        f.apply("replay_opening", {"part": "料金"})
+        f.on_callee(); f.on_heard("そうなんですね。")
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((r["question_id"], heard(r)), (N2, "はい、ほかにご納得いただけない点はございますでしょうか？"))
+        self.assertEqual(f.facts["not_agreed"][0]["explained"], True)
+        # 同じ点をもう一度言われた（「それで料金のところなんですけど」）：点は重ねない
+        f = self.flow()
+        self.say(f, "料金のところがちょっと。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        r = self.say(f, "それで料金のところなんですけど。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        self.assertEqual(r["result"], "explain_point")
+        self.assertEqual([e["point"] for e in f.facts["not_agreed"]], ["料金"])
+        # (b) 「ほかに…」（N2）のあとの言い足しも同じ（回は2のまま）
+        f = self.flow()
+        self.say(f, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        f.apply("replay_opening", {"part": "料金"})
+        f.on_callee(); f.on_heard("そうなんですね。"); f.apply("replay_opening", {"part": "resume"})
+        r = self.say(f, "あと解約の条件がちょっと。", "分からない点がある", "record_answer", question_id=N2, condition_id="分からない点がある", value="解約の条件")
+        self.assertEqual(r["result"], "explain_point")
+        r = self.say(f, "それと違約金のことも。", "分からない点がある", "record_answer", question_id=N2, condition_id="分からない点がある", value="違約金")
+        self.assertEqual(r["result"], "explain_point", heard(r))
+        self.assertEqual(f.point["round"], 2)
+        self.assertEqual([e["point"] for e in f.facts["not_agreed"]], ["料金", "解約の条件／違約金"])
+        # (c) ご説明の前に待たされた：「はい、」のあと待ち、戻られたら、いま求めていることはご説明（質問の N1・N2 ではない）。受け答え・質問に戻るだけは受け付けない
+        f = self.flow()
+        self.say(f, "料金のところがちょっと。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        f.on_callee(); f.on_heard("あ、ちょっと待ってください。"); f.on_check("judge", Reading(HOLD))
+        self.assertEqual(heard(f.judged_turn(voiced=False)), "はい、")
+        f.on_callee(); f.on_heard("お待たせしました。")
+        self.assertIn(NOTE, f._now())
+        for part in ("resume", "talk"):
+            r = f.apply("replay_opening", {"part": part, **({"answer": "さようでございますか。"} if part == "talk" else {})})
+            self.assertEqual(r["result"], "rejected", part)
+            self.assertIn("ご説明する番", r["message"], part)
+        r = f.apply("replay_opening", {"part": "料金"})
+        self.assertEqual(heard(r), "はい、料金は月額3,000円で、初月は無料となっております。")
+        self.assertEqual(f.point["explained"], True)
+        # (d) ご説明の前に、お断りの向きで言い直した：押さずに手順を終える（点の記録は残す）
+        f = self.flow()
+        self.say(f, "料金のところがちょっと。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        self.say(f, "いや、やっぱり今回はやめておきます。", "断ろうとしている", "record_answer", question_id=N1, condition_id="断ろうとしている")
+        self.assertEqual(f.point["outcome"], "declined")
+        self.assertEqual([e["point"] for e in f.facts["not_agreed"]], ["料金"])
+
+    def test_second_point_note_does_not_ask_the_ai_which_point(self):
+        # ⛔ 2026-11-08 日本時間6時台（11-07 23時26分13秒のご質問の見直しの A-8）：2つ目からの点のご説明を頼む知らせ（_point_note）が、まだ会話AIに「その点を
+        #    言っていなければ、どの点かを自分の言葉で短く伺ってから」と頼んでいた＝会話AIが伺うと、問いかけとして差し戻され（お客様に伺うことはプログラムが流す＝
+        #    本書 9-3）、無言が続く。どの点かを言っていない答え（点は言っていない）は、プログラムが「ほかにご不明な点はどのようなことになりますでしょうか？」と
+        #    1回伺う（✅ 2026-11-06 日本時間9時05分17秒の (5)(a)）ので、ご説明の段に来たときは、いつも点を言っていただいている
+        from flowctl import CALLBACK_IDS
+        N1, N2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        f = self.flow()
+        self.say(f, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金")
+        f.apply("replay_opening", {"part": "料金"})
+        f.on_callee(); f.on_heard("そうなんですね。"); f.apply("replay_opening", {"part": "resume"})
+        r = self.say(f, "あと解約の条件がちょっと気になってて。", "分からない点がある", "record_answer", question_id=N2, condition_id="分からない点がある",
+                     value="解約の条件")
+        self.assertEqual(r["result"], "explain_point")
+        self.assertNotIn("伺ってから", r["message"])
+        self.assertIn("「あと解約の条件がちょっと気になってて。」", r["message"])
+
+    def test_pending_system_questions_are_dropped_when_another_procedure_starts(self):
+        # ⛔ 2026-11-08 日本時間6時台（11-07 23時26分13秒のご質問の見直しの A-4）：待つかかけ直すか（H2）を伺っている途中に、急いでいる方への伺い（H1）→ かけ直しの
+        #    日時へ進んでも、H2 の印（伺う前の位置）が残っていた＝日時を伺っている最中の「ちょっと待ってください、手帳を見ます。」で、伺う前の質問（N1）へ戻って
+        #    「はい、それではこのままお返事を待っております。」と言い、そのあとの日時の答えは「いまの質問ではありません」で差し戻した。伺っている途中のシステムの
+        #    質問の印は、並びを入れ替えて別の手順を始める所（急いでいる方への伺い・かけ直し・目的の人かを確かめに戻る）で、1か所から全部下ろす
+        from flowctl import CALLBACK_IDS, END, END_HURRY, HOLD_BACK, UNDECIDED, WAIT_OR_LATER, callback_question
+        from meaning_judge import Reading
+        from phrases import ACK
+        heard = lambda r: ((ACK[r["ack"]] if r.get("ack") else "") + "".join(p.get("text", "") for p in r.get("play") or [])
+                           + (r.get("say") or ""))
+        N1, H1, H2 = CALLBACK_IDS["not_agreed"], callback_question("hurry_again").id, callback_question("wait_or_later").id
+        f = self.flow()
+        f.on_callee(); f.on_heard("妻に話してからにしたいので、少し待ってください。"); f.on_check("judge", Reading(WAIT_OR_LATER))
+        f.judged_turn(voiced=False)
+        self.assertEqual(f.current, H2)
+        hurry = Reading(UNDECIDED)
+        setattr(hurry, END, END_HURRY)
+        f.on_callee(); f.on_heard("すみません、いま急いでるので。"); f.on_check("judge", hurry)
+        self.assertEqual(heard(f.judged_turn(voiced=False)), "はい、それではまた改めてお掛けしてもよろしいでしょうか？")
+        self.say(f, "はい、いいですよ。", "はい", "record_answer", question_id=H1, condition_id="はい")
+        c1 = f.current
+        self.assertNotIn(c1, (N1, H1, H2))
+        f.on_callee(); f.on_heard("ちょっと待ってください、手帳を見ます。"); f.on_check("judge", Reading(HOLD_BACK))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((heard(r), f.current), ("はい、それではこのままお返事を待っております。", c1))
+        r = self.say(f, "お待たせしました。明日の午後3時でお願いします。", "答えた", "record_answer", question_id=c1, condition_id="答えた", value="明日の午後3時")
+        self.assertNotEqual(r["result"], "rejected", r["message"])
+
+    def test_asked_to_say_the_answer_again(self):
+        # ⛔ 2026-11-08 日本時間6時台（11-07 23時26分13秒のご質問の見直しの A-3）：ご説明の直後の「え、すみません、もう一度お願いできますか？」（判定 REPEAT）を
+        #    誰も受け持たなかった：もう一度言ってほしいと頼まれたときに流し直す1か所（_repeat_now）は、直前にこちらが言ったのが伺ったことではないとき（ご説明・
+        #    ご質問に答えた・「AIですか」に応えた）を外したまま（その答え・ご説明を言い直す道が無い）で、報告の無いターンは無言・会話AIが「質問に戻る」と報告すると
+        #    「はい、ほかにご納得いただけない点は…」へ進んだ。✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…プログラムが「失礼いたしました。」＋「それでは（質問）」を
+        #    流します。OK」と同じ理由（お客様はこちらの言ったことを聞き取れていない）＝「失礼いたしました。」のあと、直前に言った答え・ご説明をそのまま言い直し、
+        #    お客様のお返事を待つ
+        from flowctl import CALLBACK_IDS, REPEAT
+        from meaning_judge import Reading
+        from phrases import ACK
+        N1, N2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        heard = lambda r: ((ACK[r["ack"]] if r.get("ack") else "") + "".join(p.get("text", "") for p in r.get("play") or [])
+                           + (r.get("say") or ""))
+        EXPL = "料金は月額3,000円で、初月は無料となっております。"
+        REP = "え、すみません、もう一度お願いできますか？"
+
+        def explained():
+            f = self.flow()
+            self.say(f, "料金のところですね。", "点を言った", "record_answer", question_id=N1, condition_id="点を言った", value="料金のところ")
+            self.assertEqual(heard(f.apply("replay_opening", {"part": "料金"})), "はい、" + EXPL)
+            f.on_callee(); f.on_heard(REP); f.on_check("judge", Reading(REPEAT))
+            return f
+
+        # 報告の無いターン
+        f = explained()
+        r = f.judged_turn(voiced=False)
+        self.assertEqual(heard(r), "失礼いたしました。" + EXPL)
+        r = f.apply("replay_opening", {"part": "resume"})   # 同じ発話への遅れた報告：重ねない（お返事はまだ待っている）
+        self.assertEqual((r.get("again"), heard(r), bool(f.own_pending)), (True, "", True))
+        f.on_callee(); f.on_heard("ああ、そうなんですね。")
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((r["question_id"], heard(r)), (N2, "はい、ほかにご納得いただけない点はございますでしょうか？"))
+        # 会話AIが「質問に戻る」と報告しても同じ（「ほかに…」へ進まない）
+        f = explained()
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(heard(r), "失礼いたしました。" + EXPL)
+        self.assertEqual(f.point["stage"], "explain")
+        f.on_callee(); f.on_heard("ああ、そうなんですね。")
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(r["question_id"], N2)
+        # 「AIですか」に応えた一言も同じ（言い直したあとも、お返事を待つ）
+        f = self.flow()
+        f.on_callee(); f.on_heard("あなた、AIですか？")
+        r = f.apply("replay_opening", {"part": "ai"})
+        said = heard(r)
+        f.on_callee(); f.on_heard(REP); f.on_check("judge", Reading(REPEAT))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual(heard(r), "失礼いたしました。" + said)
+        self.assertTrue(f.ai_pending)
 
 
 class RemainingNineTest(unittest.TestCase):
