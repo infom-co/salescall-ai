@@ -378,7 +378,11 @@ COMMON_PARTS: tuple[str, ...] = (
     "concern_anytime",
     # CL-1 の連絡帳 4-110（✅ 2026-11-07 13時05分06秒・18時03分49秒 ユーザー「(1) ア」）：迷っていると言い終えたお客様に、業務設定に選択肢ごとの
     # 良い点・気をつける点（`business_settings.Question.option_notes`）が無いときに1回伺う「どういった点でお迷いでしょうか？」
-    "hesitate_point")
+    "hesitate_point",
+    # CL-1 の連絡帳 4-112（✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (1)）：値を伺う質問（日時・数・金額）の最初の答えの
+    # 「まだ決まってないんですよね。」に、すぐ保留で締めずに1回だけ流す「それではおおよその目安だけでもお伺いしてもよろしいでしょうか？」（文の正本は
+    # CL-1 の phrases.ESTIMATE_ASK・名前の一覧は phrases.RECORDED。頭の「はい、」は相づちの録音 hai）
+    "estimate_ask")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

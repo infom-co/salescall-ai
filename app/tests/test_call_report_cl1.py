@@ -754,6 +754,37 @@ class OtherWish1103(unittest.TestCase):
                 from_json(self.raw(bad))
 
 
+class Concern1108(unittest.TestCase):
+    """CL-1 の連絡帳 4-113（✅ 2026-11-08 日本時間2時21分15秒 ユーザー）：本題に入ったあとの「もういいです。」に、ご遠慮の一言より先に「何か問題でも
+    ございましたでしょうか？」（システムの質問 D2）と本心を伺い、言っていただいた気になる点（事実 concern）。鍵は turn・said・question（そのとき
+    伺っていた業務の質問）と、会話AIが応えた文＝callee_question と同じ answered・answer・drafts・checked（応える前に切れたら無い）。依頼者へ返す
+    （判定の中身 concern＝今後の改善）。判定の結果は変えない。人の言葉でしか起きない（話した）。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "concern": list(rows), "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+
+    def test_concerns_are_received_and_returned_to_the_client(self):
+        told = {"turn": 4, "said": "説明が長くてよく分からないんですよ。", "question": "Q2", "answered": True,
+                "answer": "失礼いたしました。要点だけお伝えいたしますね。", "drafts": [{"text": "x", "problem": "中身を確かめられませんでした"}],
+                "checked": "judge"}
+        cut = {"turn": 6, "said": "電話が多すぎるんですよ。", "question": None}   # 応える前に切れた・伺う前の位置が質問でなかった
+        r = from_json(self.raw(told, cut))
+        self.assertEqual(([(c.question, c.answered, c.own.answer, c.evidence.said) for c in r.concerns], from_json(r.to_json())),
+                         ([("Q2", True, told["answer"], told["said"]), (None, None, None, cut["said"])], r))
+        self.assertEqual(r.callee_questions, ())                                   # お客様の質問ではない
+        j = run(self.raw(told, cut))
+        self.assertEqual(j.detail["concern"], [{"question": "Q2", "said": told["said"], "answer": told["answer"]},
+                                               {"question": None, "said": cut["said"], "answer": None}])
+        self.assertNotIn("concern", run(self.raw()).detail)                         # 言っていただいていなければ中身に出さない
+        self.assertEqual(j.state, run(self.raw()).state)                             # 判定の結果は変えない
+        self.assertTrue(from_json({**self.raw(told), "facts": {"concern": [told]}}).talked)   # 人の言葉でしか起きない＝話した
+        for bad in ({**told, "question": ""}, {**told, "question": 3}, {**told, "answered": "はい"}, {**told, "x": 1},
+                    {**told, "drafts": [{"text": "x"}]}, {**told, "said": 3}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(bad))
+
+
 class Unfinished1105(unittest.TestCase):
     """CL-2 の連絡帳 4-213（データの形 版 1.18）：手順を伺い終えていない業務の質問（報告の unfinished）。ほかのご希望 W1・その連絡先と伺い方・
     ご納得いただけなかった点の手順の途中で切れた答えは、判定ではまだ受け取っていない答え（`JudgeInput.answers` の1か所）＝必須なら「完了」に

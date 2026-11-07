@@ -49,7 +49,8 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
                           "ask_answers": "伺う条件の答え", "ask_hedged": "言い切っていないときだけ伺う", "approval": "ご承認を伺う",
                           "final_goal": "最終目的", "do_words": "こちらがすることの言葉",
                           "tell_words": "その答えのあとに伝える一言", "ends_on": "ここで終える答え",
-                          "option_notes": "選択肢ごとの良い点・気をつける点"}, True),
+                          "option_notes": "選択肢ごとの良い点・気をつける点",
+                          "change_by": "変更の受付の期限（日時・数・金額の質問だけ。例：前日）"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -74,12 +75,15 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 # ここで終える答え（「この答えなら、ここで終える」。答えを「／」か改行で区切る。この列のある質問は必須の質問。CL-1 の連絡帳 4-74。✅ 2026-11-04 管理者「OK」）
 # 選択肢ごとの良い点・気をつける点（選択肢ごと。同じ「選択肢：文」の形。例「カード：カードですとカード会社のポイントがつきます。」。依頼者のトークスクリプト・
 # 資料から入る＝管理者・契約者は書かない。会話AIが、迷っているお客様に選ぶ助けを伝える材料。CL-1 の連絡帳 4-110。✅ 2026-11-07 ユーザー「(1) ア」）
+# 変更の受付の期限（値を伺う質問＝日時・数・金額だけ。「前日」「3日前」のように期限だけ。お客様の答えの値が確定でないとき、ひとまずその値にして
+# 「変更があった場合には（期限）までにご連絡いただけましたらご対応可能です。」を添えて伺う。ほかの質問に書いたら業務設定の確かめが止める。依頼者の
+# トークスクリプトから入る。CL-1 の連絡帳 4-115 の (1)。✅ 2026-11-08 日本時間3時48分03秒 ユーザー）
 # 想定問答の「標準を使わない」（「はい」の行は、その名前のシステムの標準の想定問答を、この業務では使わない＝答えは書かない。答えを書いた行は、
 # 同じ名前の標準の想定問答を、この業務の答えで上書きする＝その業務の録音。設計書 3-8-3 の作る順の (4)・0174。✅ 2026-11-02 管理者 伺い2
 # 「上書きが必要な業務は、トークスクリプト設定画面か、エクセルなどのシートで上書きし、その分の録音を実施する。」）
 OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.ask_hedged",
                               "questions.approval", "questions.final_goal", "questions.do_words", "questions.tell_words",
-                              "questions.ends_on", "questions.option_notes", "answers.off"})
+                              "questions.ends_on", "questions.option_notes", "questions.change_by", "answers.off"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -87,6 +91,8 @@ BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class
                # 相手の申し出への応じ方と業務の情報（CL-1 の連絡帳 4-28。書かなければ既定＝ユーザー決定）
                "代わりの方への応じ方": "substitute_policy", "伝言への応じ方": "message_policy", "伝言の文": "message",
                "在籍していないときの応じ方": "departed_policy", "業務の情報": "info",
+               # 本題の始まり（書かなければ既定「最初の質問を流したあと」。CL-1 の連絡帳 4-114・4-115 の (4)）
+               "本題の始まり": "main_talk_policy",
                "担当から改めて連絡すると申し出てよいか": "follow_up",
                # 依頼者がすること（登録・記録・手配など。書かなければ会話の側の既定「記録」。CL-1 の連絡帳 4-65 の (c)）
                "依頼者がすること": "client_does",
@@ -116,6 +122,7 @@ LABELS: dict[str, dict[str, str]] = {
                           "どなたとでも話す": "anyone"},
     "message_policy": {"お礼を言って断り戻る時刻を聞く": "decline", "伝言を残す": "leave"},
     "departed_policy": {"後任の方をお呼びする": "successor", "お礼を言って終える": "end"},
+    "main_talk_policy": {"最初の質問を流したあと": "asked", "業務の答えを1ついただいたあと": "answered"},
     "follow_up": {"はい": True, "いいえ": False},
     "approval": {"はい": True, "○": True, "いいえ": False, "": False},
     "final_goal": {"はい": True, "○": True, "いいえ": False, "": False},
@@ -205,12 +212,12 @@ def _rows(sheets: dict[str, tuple[Sheet, dict[str, int]]], role: str, problems: 
 
 
 def _responses(basic: dict[str, str | None], problems: list[str], notes: list[str]) -> dict[str, Any]:
-    """シート「基本」の、相手の申し出への応じ方・伝言の文・業務の情報（1行に1つ）・改めて連絡すると申し出てよいか。書いていない
+    """シート「基本」の、相手の申し出への応じ方・本題の始まり・伝言の文・業務の情報（1行に1つ）・改めて連絡すると申し出てよいか。書いていない
     項目は入れない（業務設定の確かめが既定にする＝ユーザー決定の既定）。業務の情報が無ければ、知らせる（登録は止めない）：会話の側は、
     業務の情報・想定問答の答えなど業務設定に無い、こちらの会社・業務の事実を AI が言うと止める（CL-1 の連絡帳 4-30＝中身の判定）ので、
     無いと、所在地・営業時間などを聞かれても「担当の者に申し伝えます」で受けるだけになる。"""
     out: dict[str, Any] = {}
-    for key in ("substitute_policy", "message_policy", "departed_policy", "follow_up"):
+    for key in (*business_settings.POLICIES, "follow_up"):
         if basic.get(key):
             v = _label(key, basic.get(key), f"シート「基本」の{_basic_name(key)}", problems)
             if v is not None:
@@ -329,6 +336,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "tell_words": _choice_words(v.get("tell_words"), f"{where}のその答えのあとに伝える一言", problems) or {},
                           "option_notes": _choice_words(v.get("option_notes"), f"{where}の選択肢ごとの良い点・気をつける点", problems) or {},
                           "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None, "asks_way": None,
+                          "change_by": v.get("change_by") or "",
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
                           "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems),
                           "final_goal": _label("final_goal", v.get("final_goal"), f"{where}の最終目的", problems),

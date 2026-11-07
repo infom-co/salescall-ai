@@ -72,7 +72,10 @@ END = "END"                                       # 分岐の行き先「終わ�
 # CL-1 の連絡帳 4-81 の (4) で足した：C11（LINE の連絡先の伺い方＝ID を伺うか SMS かメールからご招待するか）・C12（SMS でご招待する携帯電話の番号）
 # （✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。SMSかメールを選ばれたら、もし、携帯電話番号やメールを伺っていなければ
 # ここで確認。」）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "M1", "S1", "P1", "R1", "D1", "H1", "H2", "N1", "N2", "N3", "W1",
+# CL-1 の連絡帳 4-113 で足した：D2（本題に入ったあとの「もういいです。」に、ご遠慮の一言 D1 より先に1通話1回伺う「何か問題でもございましたでしょうか？」。
+# 録音は共通の一言 ai_answer をそのまま流す。答えの気になる点は通話の事実 concern＝依頼者へ返すが、項目には入らない＝ほかのシステムの質問と同じ。
+# ✅ 2026-11-08 日本時間2時21分15秒 ユーザー）。使えると、業務の質問の答えと本心を伺った答えを取り違える。
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "M1", "S1", "P1", "R1", "D1", "D2", "H1", "H2", "N1", "N2", "N3", "W1",
                           "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
@@ -107,9 +110,15 @@ ANYONE = "anyone"                                  # 目的のお客様のいな
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
+# 値を伺う質問の型（日時・数・金額。会話の側の flowctl.ESTIMATE_TYPES＝DATE_TIME_TYPES と NUMBER_TYPES の写し）：変更の受付の期限（`Question.change_by`）を
+# 書ける型（CL-1 の連絡帳 4-115 の (1)。ほかの型の質問は、確定でない値を受けない＝期限を使わない）
+ESTIMATE_TYPES = ("date", "time", "datetime", "number", "amount")
+# 変更の受付の期限の終わりに書かない言葉（会話の側が「（期限）までにご連絡いただけましたら」と続ける＝CL-1 の phrases.CHANGE_BY。重ねると「前日までまでに」）
+CHANGE_BY_TAILS = ("までに", "まで")
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
                  "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none", "doubt_words",
-                 "asks_way", "option_notes"}
+                 "asks_way", "option_notes",
+                 "change_by"}
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -323,6 +332,12 @@ class Question:
     # 伝える一言と同じ確かめ＝`_answer_words`。事実を伺う質問にも付く＝会話の側は業務の質問すべてで選ぶ助けを伝える＝flowctl.helps_choose）。
     # 依頼者のトークスクリプト・資料から取込が入れる（管理者・契約者は書かない）。✅ 2026-11-07 日本時間13時05分06秒・18時03分49秒 ユーザー「(1) ア」
     option_notes: dict[str, str] = field(default_factory=dict)
+    # 答えの変更を受け付ける期限（「前日」「3日前」「前週の金曜日」など。言い方はそのまま文に入る。会話の側の Question.change_by。CL-1 の連絡帳
+    # 4-115 の (1)）。値を伺う質問（日時・数・金額＝`ESTIMATE_TYPES`）だけ。お客様の答えの値が確定でない（「15日あたりですかね。」）ときに、ひとまずその
+    # 値にして「変更があった場合には（期限）までにご連絡いただけましたらご対応可能です。」を添えて伺う（会話の側の Flow._tentative）。空なら無い
+    # （お客様の言い方のまま「承知しました。それでは15日あたりでお考えということで承っておきますね。」）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：
+    # 「…（～までにご連絡いただけましたら）（～までであれば）ご対応可能です。」～は日付や曜日、前日など。」。依頼者のトークスクリプトから取込が入れる
+    change_by: str = ""
 
 
 @dataclass(frozen=True)
@@ -437,6 +452,7 @@ class Settings:
     message_policy: str = "decline"               # 伝言：お礼を言って断り、戻る時刻を聞く／伝言を残す
     message: str | None = None                    # 伝言の文（伝言を残す業務は必ず要る。依頼者の単位の録音＝名乗りの部分 message）
     departed_policy: str = "successor"            # 在籍していない：後任の方をお呼びする／お礼を言って終える
+    main_talk_policy: str = "asked"               # 本題の始まり：最初の業務の質問を流したあと／業務の答えを1ついただいたあと（CL-1 の連絡帳 4-114）
     info: tuple[str, ...] = ()                    # 業務の情報（AI が自分の言葉で答える材料。1つに1文。無くてもよい）
     follow_up: bool = False                       # 担当から改めて連絡すると申し出てよいか（既定はいいえ＝約束しない）
     # 依頼者がすること（登録・記録・手配など。CL-1 の連絡帳 4-65 の (c)・instruction.Business.client_does）。事実を伺う質問の、言い切って
@@ -472,8 +488,8 @@ class Settings:
 
 KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voicemail_message", "ai_answer", "answers", "voice",
         "questions", "names", "rules"}
-# 相手の申し出への応じ方（選択肢の正本は call_report.RESPONSE_POLICIES の1か所。最初が既定＝2026-10-22 ユーザー決定）と、業務の情報
-# （CL-1 の連絡帳 4-28）。書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
+# 相手の申し出への応じ方・本題の始まり（選択肢の正本は call_report.RESPONSE_POLICIES の1か所。最初が既定＝2026-10-22・2026-11-08 ユーザー決定）と、
+# 業務の情報（CL-1 の連絡帳 4-28・4-114）。書かなければ既定（ユーザー決定の既定。2026-10-22・2026-11-08 より前に作った版にも無い＝既定として読む）
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
 OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest", "answers_off", "offer_ways"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
@@ -927,6 +943,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                        what="その答えのあとに伝える一言")
             option_notes = _answer_words(q["option_notes"], q["type"], choices, where, problems, replies=False,
                                          what="選択肢ごとの良い点・気をつける点")
+            change_by = _change_by(q["change_by"], q["type"], where, problems)
             if do_words and q["asks_fact"] is not False:
                 problems.append(f"{where}は事実を伺う質問なので、こちらがすることの言葉（do_words）は付けません（会話の側が使わない）")
             away = _away(q["away"], q["type"], choices, q["asks_fact"] is not False, where, problems)
@@ -957,7 +974,7 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
                                 q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words, q["asks_way"] is True,
-                                option_notes=option_notes)
+                                option_notes=option_notes, change_by=change_by)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -997,6 +1014,24 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
     if problems:
         raise SettingsInvalid(problems)
     return s
+
+
+def _change_by(raw: Any, type_name: str, where: str, problems: list[str]) -> str:
+    """質問の変更の受付の期限（`Question.change_by`。確かめはここだけ）：空（無い）か文字。書けるのは値を伺う質問（`ESTIMATE_TYPES`）だけ（ほかの質問に
+    書いたら止める＝CL-1 の連絡帳 4-115 の (1)。会話の側は使わない）。期限だけを書く（終わりに「まで」「までに」を書かない・「。」を書かない＝会話の側が
+    「（期限）までにご連絡いただけましたら…」と続ける）。"""
+    if raw is None or raw == "":
+        return ""
+    if not isinstance(raw, str) or not raw.strip():
+        problems.append(f"{where}の変更の受付の期限（change_by）は文字か空です")
+        return ""
+    text = raw.strip()
+    if type_name not in ESTIMATE_TYPES:
+        problems.append(f"{where}は値を伺う質問（日時・数・金額）ではないので、変更の受付の期限（change_by）は書けません（会話の側が使いません）")
+    if text.endswith(CHANGE_BY_TAILS) or "。" in text:
+        problems.append(f"{where}の変更の受付の期限「{text}」は、「前日」「3日前」のように期限だけを書きます（「まで」「までに」「。」は書きません。"
+                        "会話の側が「（期限）までにご連絡いただけましたらご対応可能です。」と続けます）")
+    return text
 
 
 def _offer_ways(raw: Any, problems: list[str]) -> tuple[str, ...]:
@@ -1494,6 +1529,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
       読む。ご案内できる方法（offer_ways）は無くてもよい項目なので、前の版はそのまま（無い）。
     - 選択肢ごとの良い点・気をつける点（option_notes。2026-11-07＝CL-1 の連絡帳 4-110）が無い前の版の質問は、無い（空の表＝迷っているお客様には
       「どういった点でお迷いでしょうか？」を1回伺う）として読む。
+    - 変更の受付の期限（change_by。2026-11-08＝CL-1 の連絡帳 4-115 の (1)）が無い前の版の質問は、無い（空＝承っておく形）として読む。
     - 分岐（next）は、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える（前の版も同じ1か所）。
     - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
       無いとして読む（会話の側は「それでは（言葉）ね？」で言うので、そのままでは文にならない。無い選択肢は、会話の側が意味の言葉で
@@ -1506,7 +1542,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
         return dict(content, rules=rules)
     added = {"asks_fact": True, "do_words": {}, "away": [], "intro": None, "ask_if": None,   # 足した項目と、足す前の版で読む値
              "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "option_notes": {},
-             "doubt_words": {}, "asks_way": False}
+             "doubt_words": {}, "asks_way": False, "change_by": ""}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
 
     def shaped(i: int, q: Any) -> Any:

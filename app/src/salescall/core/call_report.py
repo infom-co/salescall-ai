@@ -64,7 +64,7 @@ from salescall.core.phone import normalize
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
-              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on")
+              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -117,6 +117,13 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   判定は skipped を「伺っていない（対象外）」と数える（どの質問を伺わなかったかは、この事実だけで読む＝会話の側の決まり flowctl.gate_of・held を
 #   こちらで持たない。`judge.not_asked` の1か所）。締めた理由は今までどおり（断りではない）。前の通話の答えで止めたときは人の証にならないので、
 #   人の証の表（HUMAN_FACTS）には入れない
+# concern：本題に入ったあとの「もういいです。」に、ご遠慮の一言（D1）より先に1通話1回「何か問題でもございましたでしょうか？」（システムの質問 D2）と
+#   本心を伺い、こちらの話し方・進め方・ご案内についての気になる点を言っていただいた（CL-1 の連絡帳 4-113。✅ 2026-11-08 日本時間2時21分15秒 ユーザー：
+#   「本題に入った状況での「もういいです。」に…「何か問題でもございましたでしょうか？（別の言い回しでもOK）」などで相手の本心を伺った方がいいんじゃない
+#   でしょうか？」）。turn・said＝気になる点を言っていただいた発話・question＝そのとき伺っていた業務の質問の番号（伺う前の位置が質問でなければ null）・
+#   会話AIが応えた文は callee_question と同じ形（answered・answer・drafts・checked。AI の自分の言葉は `_own_words` の1か所。応える前に切れたら answered も
+#   答えの文も無い）。お客様の質問ではないので callee_question には入れない。依頼者へ返す（今後の改善＝お言葉「今後の改善にもつながりません」。判定の中身
+#   concern＝judge._detail の1か所）。判定の結果は変えない（電話を終えるかは、そのあとのご遠慮の一言・締めた理由で今までどおり読む）
 OTHER_WISH_MEANS = ("line", "email", "fax", "post", "phone", "online")   # LINE・メール・ファクス・郵送・お電話・オンライン（ZOOM など。連絡先は
 #                                                                        ご案内の URL をお送りするメールアドレス＝CL-1 の連絡帳 4-91 の (2)）（CL-1 の flowctl.WISH_MEANS の鍵）
 OTHER_WISH_OUTCOMES = ("option", "means", "other", "none")   # 元の質問の選択肢を選び直した・ご連絡の方法・ほかのご希望・無い
@@ -176,8 +183,12 @@ CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた
 CONNECT_WHO = ("target", "successor", "substitute")      # 繋いだ方：目的のお客様・後任の方・代わりの方（CL-1 の connect の who）
 # 相手の申し出への応じ方の選択肢（業務設定。CL-1 の flowctl.POLICIES と同じ値。最初が既定＝2026-10-22 ユーザー決定）。正本はここだけ：
 # 業務設定の確かめ（business_settings.POLICIES＝鍵に _policy を付けたもの）も、会話の報告の事実（代わりの方・在籍していない）も、これを読む
+# main_talk＝本題の始まり（CL-1 の連絡帳 4-114・4-115 の (4)。会話の側の Flow._main_talk。本題に入ったあとの「もういいです。」に、ご遠慮の一言より先に
+# 「何か問題でもございましたでしょうか？」と本心を伺う＝D2）：asked＝最初の業務の質問を流したあと（既定）／answered＝この電話で業務の答えを1つ以上
+# いただいたあと。続きの電話はどちらでも本題。✅ 2026-11-08 日本時間3時15分04秒 ユーザー「(ア)業務ごとに選択できるようにしてください。」・
+# 3時48分03秒「(ア)既定は「最初の質問を流したあと」」
 RESPONSE_POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "message": ("decline", "leave"),
-                     "departed": ("successor", "end")}
+                     "departed": ("successor", "end"), "main_talk": ("asked", "answered")}
 # かけ直しの日を選んだ理由の周期（お客様が言ったときだけ）：month＝月ぎめの業務・締め・振り込みなど月単位の理由（2026-10-19 ユーザー：
 # 「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」）。無ければ、言葉だけで読む（spoken_time）
 CALLBACK_CYCLES = ("month",)
@@ -229,7 +240,8 @@ MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # （お客様からの質問・受け答え・録音で答えた質問）で見る
 HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
                "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts",
-               "unjudged_ends", "goal_refusals", "who_unclears", "not_agreed", "other_wishes")   # other_wishes＝ほかのご希望への答え（人の言葉でしか起きない）
+               "unjudged_ends", "goal_refusals", "who_unclears", "not_agreed", "other_wishes",   # other_wishes＝ほかのご希望への答え（人の言葉でしか起きない）
+               "concerns")   # concerns＝本心を伺った一言に言っていただいた気になる点（人の言葉でしか起きない。CL-1 の連絡帳 4-113）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 # 取り消せない決定について、会話AIの報告と2つ目の判定（意味の判定）がそろったか（報告ごとに1つ。データの形 版 1.07）：
 # agreed＝そろった（その場で決める）／disagreed＝食い違った／none＝判定が無い（無い・古い報告もこれ）。そろわなければ録音の確かめまで保留
@@ -369,6 +381,15 @@ class CalleeQuestion:
     answered: bool | None        # 業務の情報で答えた／答えを持っていなかった／答えに添えられた質問（None）
     evidence: Said
     own: OwnWords = OwnWords()   # AI の自分の言葉（答えに添えられた質問で、まだ答えていなければ空）
+
+
+@dataclass(frozen=True)
+class Concern:
+    """本題で本心を伺った一言に、言っていただいた気になる点（事実 concern。CL-1 の連絡帳 4-113）。依頼者へ返す（judge._detail）。"""
+    evidence: Said
+    question: str | None         # そのとき伺っていた業務の質問の番号（無ければ None）
+    answered: bool | None        # 会話AIが業務の情報で応えた true／応える答えを持っていなかった false／まだ応えていない None
+    own: OwnWords = OwnWords()   # 会話AIが応えた文（callee_question と同じ形）
 
 
 @dataclass(frozen=True)
@@ -573,6 +594,7 @@ class CallReport:
     who_unclears: tuple[WhoUnclear, ...] = ()     # 事実 who_unclear：お名前だけではどの方か分からず、取り次いでいただけなかった
     not_agreed: tuple[NotAgreed, ...] = ()        # 事実 not_agreed：ご承認いただけず、ご納得いただけなかった点を伺った答え
     other_wishes: tuple[OtherWish, ...] = ()      # 事実 other_wish：ほかのご希望を伺った答え
+    concerns: tuple[Concern, ...] = ()            # 事実 concern：本題で本心を伺い、言っていただいた気になる点（依頼者へ返す）
     ended_on: EndedOn | None = None               # 事実 ended_on：ここで終える答えで、残りを伺わなかった（1通話に1つまで）
     irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
     ai_troubles: tuple[AiTrouble, ...] = ()   # 止まったAI（データの形 版 1.08。無い・古い報告は空。判定には使わない）
@@ -635,6 +657,13 @@ class CallReport:
         無ければ電話口の種別の target で見た。「誰でも」の業務で CL-1 が person を出すと、話した通話がすべて「繋がらなかった」になり、
         繋がらなかった理由が無いので判定待ちがあふれた。"""
         return self.talked if anyone else bool(self.connects)
+
+    @property
+    def connected_who(self) -> str | None:
+        """この通話で繋いだ方（1か所。CONNECT_WHO の target・successor・substitute。前の通話の答えに、その答えを取った通話の繋いだ方として添える
+        ＝conversation_io.earlier・CL-1 の連絡帳 4-106 の H6）：いちばん新しい繋ぎの方（業務の質問は繋いだあとに伺う）。who の無い繋ぎは前の形の
+        報告＝目的のお客様。繋いでいなければ None（目的のお客様のいない業務の通話・繋がらなかった通話）。"""
+        return (self.connects[-1].who or "target") if self.connects else None
 
     @property
     def target_unverified(self) -> bool:
@@ -761,6 +790,8 @@ class CallReport:
             "who_unclear": [{**said(w.evidence), "recalled": w.recalled} for w in self.who_unclears],
             "not_agreed": [n.to_json() for n in self.not_agreed],
             "other_wish": [w.to_json() for w in self.other_wishes],
+            "concern": [{**said(c.evidence), "question": c.question, **({} if c.answered is None else {"answered": c.answered}),
+                         **c.own.to_json()} for c in self.concerns],
             "ended_on": [] if self.ended_on is None else [
                 {"turn": self.ended_on.turn, "said": self.ended_on.said, "question": self.ended_on.question,
                  "answer": self.ended_on.answer, "skipped": list(self.ended_on.skipped)}]}
@@ -1068,6 +1099,14 @@ def from_json(raw: Any) -> CallReport:
     other_wishes = tuple(_other_wish(r, s, i) for i, (r, s) in enumerate(
         _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome", "via"})))
     ended_on = _ended_on(facts)
+    concerns = []
+    for r, s in _records(facts, "concern", {"question", "answered"} | OWN_WORDS_KEYS):
+        question, replied = r.get("question"), r.get("answered")
+        if question is not None and (not isinstance(question, str) or not question.strip()):
+            raise ReportInvalid("facts.concern.question は、そのとき伺っていた業務の質問の番号か null です")
+        if replied is not None and not isinstance(replied, bool):
+            raise ReportInvalid("facts.concern.answered は true / false / null（まだ応えていない）です")
+        concerns.append(Concern(s, question, replied, _own_words(r, "facts.concern")))
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \
         _choice(d["irreversible_check"], IRREVERSIBLE_CHECKS, "irreversible_check")
@@ -1089,6 +1128,7 @@ def from_json(raw: Any) -> CallReport:
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions), talks, tuple(holds), unjudged_ends=unjudged, goal_refusals=tuple(goals),
                       who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes, ended_on=ended_on,
+                      concerns=tuple(concerns),
                       irreversible_check=check, ai_troubles=troubles, unfinished=tuple(sorted(unfinished)))
 
 
@@ -1096,7 +1136,7 @@ OWN_WORDS_KEYS = {"answer", "drafts", "checked"}
 
 
 def _own_words(r: dict[str, Any], where: str) -> OwnWords:
-    """AI の自分の言葉（callee_question・talk で同じ形。読むのはここだけ）。"""
+    """AI の自分の言葉（callee_question・talk・concern で同じ形。読むのはここだけ）。"""
     drafts = r.get("drafts", [])
     if not isinstance(drafts, list):
         raise ReportInvalid(f"{where}.drafts は、確かめに通らなかった文の並びです")
