@@ -1023,3 +1023,62 @@ class Solutions(Base):
         self.assertEqual(self.offered(s, s["run"]), [(sid, "料金は担当よりご案内します。", True, True, True)])
         old = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "古い版の実施回", s["version"], reason="試験"), OPERATOR)
         self.assertEqual(self.offered(s, old), [(sid, "料金は担当よりご案内します。", True, True, True)])
+
+    # ── 2026-11-07 の見直し H（データベースの監査）：契約者の取引が直接書いても守られるか・外しても試験が落ちなかった守り
+    PUT = ("INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason)"
+           " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id, %s, salescall.cur_actor(), '直接' FROM salescall.runs r"
+           " WHERE r.run_id = %s")
+
+    def test_a_version_another_run_uses_without_a_solution_cannot_be_given_directly(self):
+        """流れを分けるか（データベースの1か所 salescall.version_shared_without_solutions。0204）：ほかのまだ終えていない実施回がいま使っていて、
+        依頼者の解決策が入っていない版を、契約者の取引が run_versions へ直接、手で割り当てると断る（守り run_version_manual_shared）。
+        ⛔ 前は Python の割り当ての道（business_settings._shared_apart）だけが写しを作って分け、直接書くと2つの実施回が同じ流れを使い、片方の
+        「入れる」で、もう片方の承認待ちが消えて門が開いた。割り当ての道では写しを作る。解決策がすべて入っている版・その実施回だけが使う版
+        （同じ版をもう一度）・自動の割り当ては断らない。"""
+        from salescall.core import registry
+        s = self.ready()
+        sid, solved, copy = self.reverted(s)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], copy, reason="試験：同じ版をもう一度手で"), OPERATOR)   # 使っているのが自分だけ：分けない
+        self.assertEqual(self.cur_v(s, s["run"]), copy)
+        self.tx(s, lambda tx: tx.execute(self.PUT, (copy, s["run"])), OPERATOR)
+        self.assertEqual(self.cur_v(s, s["run"]), copy)
+        r2 = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "R2", solved, reason="試験"), OPERATOR)
+        self.assertEqual(self.cur_v(s, r2), solved)
+        self.rejected(s, lambda tx: tx.execute(self.PUT, (copy, r2)), OPERATOR, "run_version_manual_shared")
+        self.assertEqual(self.marks(s, s["run"]), [(sid, True, True)])
+        r3 = self.tx(s, lambda tx: registry.create_run(tx, s["business"], "R3", solved, reason="試験"), OPERATOR)
+        self.tx(s, lambda tx: tx.execute(self.PUT, (solved, r3)), OPERATOR)                     # 解決策がすべて入っている版は分けない
+        self.assertEqual(self.cur_v(s, r3), solved)
+        self.tx(s, lambda tx: bs.assign(tx, r2, copy, reason="試験：割り当ての道"), OPERATOR)       # 割り当ての道は写しを作る
+        self.assertNotIn(self.cur_v(s, r2), (copy, solved))
+        self.tx(s, lambda tx: bs.assign(tx, r3, copy, reason="自動：試験", auto=True))           # 自動の割り当ては断らない
+        self.assertEqual(self.cur_v(s, r3), copy)
+
+    def test_a_replacement_is_kept_only_for_a_version_of_its_business(self):
+        """置き換えた版は、その解決策の業務の版だけ（守り client_solution_replacement_version の業務の決まり＝salescall.solution_business）。
+        その取引で作った版でも、ほかの業務の版は断る（その業務の版なら書ける）。"""
+        s = self.ready()
+        sid, _, _ = self.reverted(s)
+        b2, _ = self.w.business_with_version(s["tenant"], s["client"])
+        self.rejected(s, lambda tx: client_solutions.replaced(tx, [sid], bs.save_version(tx, b2, settings_raw())), OPERATOR,
+                      "client_solution_replacement_version")
+        self.tx(s, lambda tx: client_solutions.replaced(tx, [sid], bs.save_version(tx, s["business"], settings_raw())), OPERATOR)
+
+    def test_a_leave_out_cannot_be_changed_and_is_seen_only_by_its_client(self):
+        """「入れない」の記録（0200 の client_solution_leave_outs）は、あとから書き換え・消しができず（持ち主の取引でも）、ほかの依頼者・ほかの
+        契約者からは見えない。"""
+        from tests.support import owner_access
+        s = self.ready()
+        sid, _, _ = self.reverted(s)
+        self.tx(s, lambda tx: client_solutions.leave_out(tx, s["run"], [sid]), OPERATOR)
+        own = owner_access()
+        for sql in ("UPDATE salescall.client_solution_leave_outs SET recorded_by = 'だれか' WHERE solution_id = %s",
+                    "DELETE FROM salescall.client_solution_leave_outs WHERE solution_id = %s"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                own.in_system(OPERATOR, lambda tx, sql=sql: tx.execute(sql, (sid,)))
+        read = "SELECT solution_id FROM salescall.client_solution_leave_outs"
+        self.assertEqual([r["solution_id"] for r in self.tx(s, lambda tx: tx.all(read), OPERATOR)], [sid])
+        other_client = self.w.client(s["tenant"])
+        self.assertEqual(self.w.a.in_client(OPERATOR, s["tenant"], other_client, lambda tx: tx.all(read)), [])
+        stranger = self.w.setup()
+        self.assertEqual(self.w.a.in_client(OPERATOR, stranger["tenant"], stranger["client"], lambda tx: tx.all(read)), [])

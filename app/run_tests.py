@@ -177,6 +177,8 @@ _S_REPLACED = _SOL + "test_an_import_that_replaces_a_removed_solution_still_wait
 _S_LATEST = _SOL + "test_the_confirmation_list_follows_the_latest_import_and_drops_a_question_the_import_no_longer_answers"
 _S_CHOSEN = _SOL + "test_a_run_that_chose_to_put_a_solution_in_is_not_held_again_when_an_import_changes_it"
 _S_HAND_AFTER_IMPORT = _SOL + "test_a_hand_assignment_after_an_import_removes_the_import_answer_that_replaced_a_solution"
+_H_SHARED = _SOL + "test_a_version_another_run_uses_without_a_solution_cannot_be_given_directly"
+_H_LEAVE_OUT = _SOL + "test_a_leave_out_cannot_be_changed_and_is_seen_only_by_its_client"
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お詫び・続き・番号の聞き直しの予定に約束の印を求める守りを外す（0126 の前の形：付け忘れると、お詫びの電話が後回しになる）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_promise_mark",
@@ -2328,8 +2330,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("申告の印を、ほかの番号・お客様が出ていない通話の登録にも付けられる（0201 の dnc_in_call_guard を外す）",
      "DROP TRIGGER dnc_in_call_guard ON salescall.dnc_entries",
      ("tests.test_irreversible.Declared.test_the_in_call_mark_cannot_be_changed_or_put_on_another_call",)),
-    ("手の割り当てを、つながりの途中の版にもできる（0201 の run_version_guard）",
-     _edited(_M201, "CREATE OR REPLACE FUNCTION salescall.run_version_guard",
+    ("手の割り当てを、つながりの途中の版にもできる（0204 の run_version_guard）",
+     _edited(_M204, "CREATE OR REPLACE FUNCTION salescall.run_version_guard",
              "  IF NOT NEW.auto AND salescall.version_tip(NEW.version_id) IS DISTINCT FROM NEW.version_id THEN", "  IF false THEN"),
      (_DIRECT_ASSIGN,)),
     ("手で版を替えても、外した解決策を残さない（0201 の run_version_removals を外す）",
@@ -2399,6 +2401,41 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("置き換えを、1つの解決策に1つだけにする（0204 の前の形）",
      "ALTER TABLE salescall.client_solution_replacements ADD CONSTRAINT client_solution_replacements_one UNIQUE (solution_id)",
      (_S_LATEST,)),
+    # ── 0204 (4)（2026-11-07 の見直し H）：手で割り当てる版の流れを分けるか・まだ終えていない実施回か（データベースの1か所）
+    ("手の割り当てで、ほかの実施回が使う解決策の入っていない版を断らない（0204 の run_version_guard）",
+     _edited(_M204, "CREATE OR REPLACE FUNCTION salescall.run_version_guard",
+             "  IF NOT NEW.auto AND salescall.version_shared_without_solutions(NEW.run_id, NEW.version_id) THEN", "  IF false THEN"),
+     (_H_SHARED,)),
+    ("流れを分けるかで、解決策が入っているかを見ない（すべて入っている版も分ける。0204 の version_shared_without_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.version_shared_without_solutions",
+             "\n       AND EXISTS (SELECT 1 FROM salescall.business_solutions(b.business_id) s\n"
+             "                   WHERE salescall.solution_outside(p_version, s.answer_name, s.solution_text))", "", end="\n$$;"),
+     (_H_SHARED,)),
+    ("流れを分けるかで、ほかの実施回が使う版かを見ない（だれも使っていない版も写す。0204 の version_shared_without_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.version_shared_without_solutions",
+             " AND salescall.run_current_version(r.run_id) = p_version AND", " AND", end="\n$$;"),
+     ("tests.test_client_solutions.Solutions.test_a_run_made_on_any_version_without_a_solution_marks_it_removed",)),
+    ("流れを分けるかで、割り当てる実施回そのものも「ほかの実施回」と数える（0204 の version_shared_without_solutions）",
+     _edited(_M204, "CREATE FUNCTION salescall.version_shared_without_solutions",
+             "WHERE r.run_id IS DISTINCT FROM p_run AND", "WHERE", end="\n$$;"),
+     (_H_SHARED,)),
+    ("まだ終えていない実施回に、行が0の実施回を入れない（取り込み直しで、その実施回で外した解決策を入れる。0204 の run_in_use）",
+     _edited(_M204, "CREATE FUNCTION salescall.run_in_use",
+             "\n          OR NOT EXISTS (SELECT 1 FROM salescall.tasks t WHERE t.run_id = p_run))", ")", end="\n$$;"),
+     ("tests.test_client_solutions.Solutions.test_a_run_without_rows_yet_holds_its_removed_solutions_back_from_an_import",)),
+    ("まだ終えていない実施回に、行がすべて終わった実施回も入れる（0204 の run_in_use）",
+     _edited(_M204, "CREATE FUNCTION salescall.run_in_use", " AND salescall.task_open(t.task_id)", "", end="\n$$;"),
+     ("tests.test_client_solutions.Solutions.test_a_run_with_every_row_ended_takes_no_solution",)),
+    # 見直し H：外しても試験が落ちなかった守り
+    ("置き換えた版を、その解決策の業務の版か見ない（0201 の client_solution_replacement_guard）",
+     _edited(_M201, "CREATE OR REPLACE FUNCTION salescall.client_solution_replacement_guard",
+             "\n     OR NOT EXISTS (SELECT 1 FROM salescall.business_versions b WHERE b.version_id = NEW.version_id\n"
+             "                      AND b.business_id = salescall.solution_business(NEW.solution_id))", ""),
+     (_SOL + "test_a_replacement_is_kept_only_for_a_version_of_its_business",)),
+    ("「入れない」の記録の変更の拒みを外す", "DROP TRIGGER client_solution_leave_outs_frozen ON salescall.client_solution_leave_outs",
+     (_H_LEAVE_OUT,)),
+    ("「入れない」の記録を、ほかの依頼者・契約者にも見せる", "ALTER TABLE salescall.client_solution_leave_outs DISABLE ROW LEVEL SECURITY",
+     (_H_LEAVE_OUT,)),
     # 第三者の見直し (2) の6：外しても試験が落ちなかった守り
     ("手で外した印の記録した方を、いま操作している方か見ない（client_solution_removal_guard）",
      _edited(_M201, "CREATE OR REPLACE FUNCTION salescall.client_solution_removal_guard",
@@ -5201,12 +5238,11 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      'src/salescall/core/business_settings.py',
      '    if not auto and (successor_tip(tx, version_id) != version_id or _shared_apart(tx, run_id, version_id)):\n',
      '    if not auto and successor_tip(tx, version_id) != version_id:\n', ('tests.test_client_solutions.Solutions.test_a_run_given_another_runs_version_without_a_solution_gets_its_own_line',)),
-    ('流れを分けるかで、ほかの実施回が使う版かを見ない（だれも使っていない版も写す）', 'src/salescall/core/business_settings.py',
-     '    if not any(r["version_id"] == version_id and r["run_id"] != run_id for r in _versions_in_use(tx, business)):\n',
-     '    if False:\n', ('tests.test_client_solutions.Solutions.test_a_run_made_on_any_version_without_a_solution_marks_it_removed',)),
-    ('まだ終えていない実施回に、行が0の実施回を入れない（取り込み直しで、その実施回で外した解決策を入れる）',
-     'src/salescall/core/business_settings.py',
-     '"        OR NOT EXISTS (SELECT 1 FROM salescall.tasks t WHERE t.run_id = r.run_id))"', '"        OR false)"', ('tests.test_client_solutions.Solutions.test_a_run_without_rows_yet_holds_its_removed_solutions_back_from_an_import',)),
+    # 「流れを分けるか」「まだ終えていない実施回か」は 0204 でデータベースの1か所へ移した（壊し試しは表の作りの方＝0204 の段）。ここは、
+    # 割り当ての道が、その1か所を読むか
+    ('流れを分けるかを、データベースの1か所を読まずに「分けない」とする（business_settings._shared_apart）', 'src/salescall/core/business_settings.py',
+     '    return tx.one("SELECT salescall.version_shared_without_solutions(%s, %s) AS x", (run_id, version_id))["x"]',
+     '    return False', ('tests.test_client_solutions.Solutions.test_a_run_given_another_runs_version_without_a_solution_gets_its_own_line',)),
     ('自動で替える仕事の実施回ごとの取引で、ほかの実施回まで替える（(B) の5）', 'src/salescall/core/business_settings.py',
      '        if run_id is not None and r["run_id"] != run_id:\n            continue\n',
      '',
