@@ -17751,6 +17751,9 @@ class HedgedSalesTest(unittest.TestCase):
         for text in ("迷って", "カードか振込か迷っています。", notes["カード"], notes["振込"]):
             self.assertIn(text, r["message"])
         self.assertNotIn("こちらへの問い", r["message"])   # 迷っているのは問いではない（会話AIへの知らせの頭も、その番に合う言葉）
+        # 良い点は、説明の言い切りで終えず、お客様にすすめる気持ちが伝わる言い方で（✅ 2026-11-07 日本時間23時19分05秒 ユーザー：ご報告の例
+        # 「…カード会社のポイントもつきます。」を「・「カードですとお振込の手間がかからず、カード会社のポイントもつきますよ。」」に直していただいた）
+        self.assertIn("すすめる気持ち", r["message"])
         self.assertEqual(f.items["Q1"].state, "empty")
         grounded(f, help_line)
         r = f.apply("replay_opening", {"part": "own", "answer": help_line})
@@ -17781,7 +17784,7 @@ class HedgedSalesTest(unittest.TestCase):
             self.assertEqual((r["result"], f.items["Q1"].state), ("rejected", "empty"))
             self.assertNotIn("say", r)
             self.assertIn("まだお伝えしていない", r["message"])
-            more = "カードですとお振込の手間がかからず、カード会社のポイントもつきます。"
+            more = "カードですとお振込の手間がかからず、カード会社のポイントもつきますよ。"
             grounded(f, more)
             r = f.apply("replay_opening", {"part": "own", "answer": more})
             self.assertEqual((r["result"], r["say"]), ("own_answer", more))
