@@ -2635,6 +2635,22 @@ class MeaningJudgeTest(unittest.TestCase):
         self.report(f, "Q1", "はい、予約しています。", "はい", None)
         self.assertEqual(f.items["Q1"].state, "accepted")
 
+    def test_unchecked_counts_only_the_judgments_issued_for_that_utterance(self):
+        # F0（✅ 2026-11-07 日本時間8時57分04秒）：答えの段でその場の判定を使わない（meaning_judge.UNUSED_IN）と、その発話には組（judge2）だけを出す。
+        # 届かなかった確かめ（unchecked＝通話後の検証へ回す答え）は、その発話に出した判定（電話接続側の on_judging）だけを数える。⛔ F0 の地図で見つけた：
+        # 通話で使う確かめ（use_checks）の全部を数えていたので、出していない judge を毎回「届かなかった」とし、どの答えも通話後の検証へ回る形だった。
+        # 1つも出していない発話（判定を出す前に受け取った）は、今までどおり使う判定の全部が届かなかった
+        f = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_judging("judge2"); f.on_heard("はい、予約しています。"); f.on_check("judge2", "はい")
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "はい、予約しています。"})
+        self.assertEqual((f.items["Q1"].state, f.unchecked()), ("accepted", {}))
+        f = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("はい、予約しています。")
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "はい、予約しています。"})
+        self.assertEqual(f.unchecked(), {"Q1": ["judge", "judge2"]})
+
     def test_late_clash_is_not_handed_over_and_is_asked_again(self):
         # 判定が、受け取ったあとに届いて食い違った ⇒ 依頼主へ渡さない（「-」）・締めの前の念のための確認で、もう一度聞く
         f = self.flow()
@@ -5932,10 +5948,17 @@ class JudgePanelTest(unittest.TestCase):
     LITE, SONNET, JEV = "3.5 Flash Lite", "Claude Sonnet 5.5（考える）", "Jev 1.14"
 
     def panel(self, fail=None, sure=0.99, standin=True, took=None):
-        """fail：判定の名前 ⇒ 投げる失敗（呼ばれた順は calls に残る）。took：判定の名前 ⇒ かかる秒。"""
+        """fail：判定の名前 ⇒ 投げる失敗（呼ばれた順は calls に残る）。took：判定の名前 ⇒ かかる秒。
+        ここの試験は、2つの受け持ちが同じ質問（質問を渡さない＝答えの段の種類）に答えるときの、代わりの判定の入り方を見る。答えの段でその場の判定を
+        使わない形（meaning_judge.UNUSED_IN＝F0）は test_flash_lite_is_switched_out_of_the_answer_stage_in_one_place で見るので、ここでは表を空にする"""
         import asyncio
+        import unittest.mock as m
 
+        import meaning_judge as mj
         from meaning_judge import JudgePanel, Reading
+        patcher = m.patch.object(mj, "UNUSED_IN", {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         calls, now = [], [0.0]
         fail, took = fail or {}, took or {}
 
@@ -6064,14 +6087,21 @@ class JudgePanelTest(unittest.TestCase):
             self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([D1, JEV, FAST])))   # どちらも確かでない：考えない Sonnet だけ
             by, calls = run(q, {D1: 0.7, JEV: 0.9})
             self.assertEqual((by, sorted(n for n, _ in calls)), (D1, sorted([D1, JEV])))       # 2つとも確か：先に届いた Jev ではなく d1-ultra の読み
+        # 答えの意味（F0＝✅ 2026-11-07 日本時間8時57分04秒「はい、その形でいいですが…」・8時05分55秒「d1-ultra とJev を、両方出して、d1-ultra を優先する。
+        # d1-ultra が答えを出せないときは、Jev が対応する。それでも対応できないときに、そのソネットが対応する」）：お呼びする段と同じ形＝d1-ultra と Jev を同時に
+        # 先に出し、d1-ultra の確かな読み → Jev の確かな読み → 考える Sonnet。⛔ それまでは Jev を d1-ultra が止まったときの代わりだけにしていた（10-31 の (b)）
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.99})
-        self.assertEqual((by, [n for n, _ in calls]), (D1, [D1]))                              # 答えの意味：d1-ultra の確かな読み（Jev は出さない）
-        by, calls = run(answer_q, {D1: sure_line(D1, answer_q) - 0.01, JEV: 0.99})   # 線より下（線の値に寄りかからない）
-        self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([D1, THINK])))     # d1-ultra が確かでない：考える Sonnet（Jev は出さない）
+        self.assertEqual((by, sorted(n for n, _ in calls)), (D1, sorted([D1, JEV])))           # 2つとも確か：d1-ultra の読み（考える Sonnet は出さない）
+        self.assertTrue(all(t < 0.01 for _, t in calls))                                     # 2つは同時に先に出す
+        below = sure_line(D1, answer_q) - 0.01                                               # 線より下（線の値に寄りかからない）
+        by, calls = run(answer_q, {D1: below, JEV: 0.99})
+        self.assertEqual((by, sorted(n for n, _ in calls)), (JEV, sorted([D1, JEV])))         # d1-ultra が確かでない：Jev の確かな読み
+        by, calls = run(answer_q, {D1: below, JEV: sure_line(JEV, answer_q) - 0.01})
+        self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([D1, JEV, THINK])))   # どちらも確かでない：考える Sonnet
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.99}, down=[D1])
-        self.assertEqual(by, THINK)                                                            # d1-ultra が止まったと分かった発話：考える Sonnet
+        self.assertEqual(by, JEV)                                                              # d1-ultra が止まったと分かった発話：同時に出した Jev
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.99}, down=[D1], asks=2)
-        self.assertEqual((by, [n for n, _ in calls]), (JEV, [JEV]))                            # 止まっている間：Jev が d1-ultra の代わりに先に出る
+        self.assertEqual((by, [n for n, _ in calls]), (JEV, [JEV]))                            # 止まっている間：Jev だけが先に出る
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.5}, down=[D1], asks=2)
         self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([JEV, THINK])))
 
@@ -6166,9 +6196,15 @@ class JudgePanelTest(unittest.TestCase):
         #    別の発話・別の質問でも、お呼びする段の組から Jev を「ほかの受け持ちが同じ会社で答えた」として外した（d1-ultra が確かでない言葉が、Jev ではなく
         #    考えない Sonnet で決まった）。会社を分ける決まりは「1つの発話の同じ質問で」（✅ 2026-10-19「同じ会社のモデルだけだと、通信の問題が影響するでしょ」・
         #    本書 9-5 の (6)「お呼びする段は Jev を外さない」）⇒ 代わりの印は発話（質問と言葉）ごと
+        #    （答えの段の質問でその場の判定が止まったときの代わりを見るので、答えの段でその場の判定を使わない表 UNUSED_IN は空にする＝F0 の形は別の試験）
         import asyncio
+        import unittest.mock as m
 
+        import meaning_judge as mj
         from meaning_judge import RACE, JudgePanel, OtherJudgeError, Reading
+        patcher = m.patch.object(mj, "UNUSED_IN", {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         D1, JEV = RACE[0], RACE[1]
         LITE = "3.5 Flash Lite"
 
@@ -6259,6 +6295,30 @@ class JudgePanelTest(unittest.TestCase):
             self.assertEqual(trusted(jev, sure), sure_reading(jev, "ground", SimpleNamespace(sure=sure, firm_p=None)), sure)
         self.assertEqual((trusted(jev, None), trusted(jev, 0.9)), (False, True))
 
+    def test_flash_lite_is_switched_out_of_the_answer_stage_in_one_place(self):
+        # F0（✅ 2026-11-07 日本時間8時57分04秒「はい、その形でいいですが…」＝8時台の2回目のご報告「Flash Lite は、まず (1) の使わない形で入れます。測りの数で
+        # 使い方を決め、同じ1か所で切り替えます」）：組の中で使わない判定の表（meaning_judge.UNUSED_IN）にあれば、その種類の質問では、自分でも答えず・止める側
+        # だけにも裏で出さない（料金だけかかる＝その読みを使う所が無い）。ほかの種類（待たせた方が戻ったか・お呼びする段の止める側）は今までどおり。ほかの受け持ちが
+        # 無い（1つの判定で測る道具）ときは答える。表から外せば、今までの形（自分で答える）に戻る
+        import unittest.mock as m
+
+        import meaning_judge as mj
+        from flowctl import ASKS_MEANINGS, RETURN_MEANINGS, Question
+        from meaning_judge import RACE, JudgePanel
+        fn = lambda *a, **k: None
+        answer_q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        returned_q = Question("R", "（戻ったか）", "choice", conditions=tuple(RETURN_MEANINGS))
+        asks_q = Question("A", "（尋ねているか）", "choice", conditions=tuple(ASKS_MEANINGS))
+        panel = lambda: JudgePanel({"judge": ("3.5 Flash Lite", fn), "judge2": tuple((n, fn) for n in RACE)}, backup=True)
+        p = panel()
+        self.assertEqual([p.answers("judge", q) for q in (answer_q, returned_q, asks_q)], [False, True, False])
+        self.assertTrue(p.answers("judge2", answer_q))
+        self.assertNotIn("3.5 Flash Lite", [n for n, _ in p._backups("judge2", "other")])   # 裏でも出さない
+        self.assertIn("3.5 Flash Lite", [n for n, _ in p._backups("judge2", "facets")])     # お呼びする段の止める側は今までどおり
+        self.assertTrue(JudgePanel({"judge": ("3.5 Flash Lite", fn)}).answers("judge", answer_q))   # 1つの判定で測る
+        with m.patch.object(mj, "UNUSED_IN", {}):
+            self.assertTrue(panel().answers("judge", answer_q))   # 表から外せば、今までの形
+
     def test_stop_only_backup_starts_when_the_leads_fail_even_without_the_rest(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘6）：お呼びする段で考えない Sonnet が止まっている（組が d1-ultra と Jev だけ＝全部が先に
         #    出すもの）と、どちらも確かでないと分かっても on_rest が呼ばれず、止める側だけの 3.5 Flash Lite が裏で出なかった（✅ 本書 9-5 の (6)「d1-ultra と Jev が
@@ -6314,7 +6374,8 @@ class JudgePanelTest(unittest.TestCase):
                     return Reading(answer, sure=sure)
                 return go
             panel = JudgePanel({"judge": ("3.5 Flash Lite", judge("はい", lite_s)),
-                                "judge2": ((D1, judge("はい", d1_s, 0.99)), (JEV, judge("はい", 0.01, 0.99)),
+                                # Jev は確かでない読み（答えの段も Jev を同時に出す＝F0。確かなら Jev で決まり、待つ長さの切れ目を見られない）
+                                "judge2": ((D1, judge("はい", d1_s, 0.99)), (JEV, judge("はい", 0.01, 0.5)),
                                            (THINK, judge("いいえ", 0.1)), (FAST, judge("はい", 0.01)))},
                                standin=(JEV, judge("はい", 0.01, 0.99)))
 
@@ -6523,18 +6584,21 @@ class JudgePanelTest(unittest.TestCase):
     def test_lite_is_stop_only_for_the_calling_questions(self):
         # ✅ 2026-10-30 ユーザー：「Flash Lite は代わりだけにする形でOKです」・同じ夜「(1)(2)ともお勧めの形でOKです」＝お呼びする段の2つの質問では、
         # その場の判定（3.5 Flash Lite）は自分で答えず、組が答えられない（止まった・時間切れ・確かな読みが無い）ときも答えにしない＝止める側だけ
-        # （組が答えられないときの代わりは、同じ Sonnet の緊急の道＝下の test_emergency_route_*）。答えの意味の質問は今のまま。
+        # （組が答えられないときの代わりは、同じ Sonnet の緊急の道＝下の test_emergency_route_*）。
         # ⛔ 同じ言葉に同時に出していたので、組が正しく読んでも、Flash Lite の読み1つで流れの制御が動いた（G-59 のいまの文で 213回中30回）
+        # 答えの意味の質問は、F0（✅ 2026-11-07 日本時間8時57分04秒）で使わない形（止める側だけでもない＝meaning_judge.UNUSED_IN。
+        # test_flash_lite_is_switched_out_of_the_answer_stage_in_one_place）
         import asyncio
 
-        from meaning_judge import RACE, NoJudgment, stop_only
+        from meaning_judge import RACE, NoJudgment, stop_only, unused
         D1, JEV, THINK, FAST = RACE
         _, target_q, asks_q, answer_q = self.calling()
         self.assertEqual([stop_only(self.LITE, k) for k in ("facets", "asks", "other", "ground")], [True, True, False, False])
+        self.assertEqual([unused(self.LITE, k) for k in ("facets", "asks", "other", "returned")], [False, False, True, False])
         panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3})
         self.assertEqual([(panel.answers("judge", q), panel.answers("judge2", q)) for q in (target_q, asks_q, answer_q)],
-                         [(False, True), (False, True), (True, True)])
-        self.assertEqual([panel.slot("judge").answers(q) for q in (target_q, answer_q)], [False, True])   # 会話の側が見る形（convo.answers）
+                         [(False, True), (False, True), (False, True)])
+        self.assertEqual([panel.slot("judge").answers(q) for q in (target_q, answer_q)], [False, False])   # 会話の側が見る形（convo.answers）
         for q in (target_q, asks_q):
             panel.reset(); calls.clear()
             with self.assertRaises(NoJudgment) as e:   # 止める側だけの受け持ちは、問い合わせない（止まった判定の代わりの Jev も入れない）
@@ -6567,9 +6631,11 @@ class JudgePanelTest(unittest.TestCase):
         with self.assertRaises(NoJudgment):
             asyncio.run(panel.ask("judge2", target_q, "はい。"))
         self.assertNotIn(self.LITE, calls)
-        # 答えの意味の質問：Flash Lite は今までどおり自分で答える
+        # 答えの意味の質問：F0 で Flash Lite は使わない（問い合わせない＝料金もかからない。UNUSED_IN）
         panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3})
-        self.assertEqual(asyncio.run(panel.ask("judge", answer_q, "はい。")).by, self.LITE)
+        with self.assertRaises(NoJudgment):
+            asyncio.run(panel.ask("judge", answer_q, "はい。"))
+        self.assertNotIn(self.LITE, calls)
         # Flash Lite だけで測るとき（ほかの受け持ちが無い）は、お呼びする段の質問にも答える
         from meaning_judge import JudgePanel
         alone = JudgePanel({"judge": (self.LITE, panel.judges["judge"][0][1])})
@@ -6988,7 +7054,14 @@ class JudgePanelTest(unittest.TestCase):
 
     def test_two_slots_never_answer_from_one_maker(self):
         # 1つの発話で、2つの受け持ちの答えは違う会社から：3.5 Flash Lite が止まって Jev が代わりに入ると、組からは Jev を外す（Sonnet を待つ）
+        # （答えの段の質問で見るので、答えの段でその場の判定を使わない表 UNUSED_IN は空にする＝F0 の形は別の試験）
+        import unittest.mock as m
+
+        import meaning_judge as mj
         from meaning_judge import NoJudgment, OtherJudgeError, SAME_MAKER
+        patcher = m.patch.object(mj, "UNUSED_IN", {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         down = OtherJudgeError(503, "混雑")
         took = {self.JEV: 0.0, self.SONNET: 0.03, "Claude Sonnet 5.5": 0.02}
         panel, calls, _ = self.race(took, fail={self.LITE: down})

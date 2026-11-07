@@ -3578,6 +3578,9 @@ class Flow:
         self.refusal_back: tuple | None = None  # ご遠慮の一言を伺う前の位置（いまの質問・言い直しの返事待ち）＝答えが決まったら、そこへ戻る
         self.check_for: str | None = None       # いまの発話の判定が、どの質問について読んだか（発話の始めの質問＝judge_context。_heard_answer）
         self.judging_now: dict[str, tuple] = {}   # いま読んでいる意味の判定（受け持ち → (発話の番号, 読んでいる言葉)。on_judging・on_judged。_end_pending）
+        # 発話ごとに出した意味の判定（発話の番号 → 受け持ちの組。on_judging）。届かなかった確かめ（unchecked）は、その発話に出した判定だけを数える
+        # （答えの段でその場の判定を使わない形＝meaning_judge.UNUSED_IN では、組だけを出す＝F0）
+        self.judged_turns: dict[int, set[str]] = {}
         self.answer_leans: dict[int, set] = {}    # 発話ごとの、確かでなかった判定の答えの読み（答えの段。いまの話を先に伺うか＝_topic_first）
         self.hurry_asked = False                  # 急いでいる方に、また改めてお掛けしてよいかを伺った（_hurry_ask。1通話1回）
         self.hurry_q: str | None = None           # その質問の番号（答えが決まったら _hurry_decided）
@@ -4066,6 +4069,7 @@ class Flow:
     def on_judging(self, kind: str, turn: int | None = None, said: str | None = None) -> None:
         if kind in JUDGMENTS:
             self.judging_now[kind] = (self.callee_turns if turn is None else turn, said)
+            self.judged_turns.setdefault(self.callee_turns if turn is None else turn, set()).add(kind)
 
     def on_judged(self, kind: str, turn: int | None = None, said: str | None = None) -> None:
         if self.judging_now.get(kind) == (self.callee_turns if turn is None else turn, said):
@@ -4595,10 +4599,13 @@ class Flow:
     def unchecked(self) -> dict[str, list[str]]:
         """受け取った項目のうち、使う確かめ（use_checks）が通話の終わりまで届かなかったもの（項目 → 届かなかった確かめ）。
         通話後の検証（DESIGN.md 6-12）が、録音からやり直す。やり直せなければ「-」に落とす（確かめていない答えを、取れたとして渡さない）。"""
-        # 会話AIの聞き取りが届かなかった発話は、別の耳の文字が届いても比べられない（届かなかったのと同じ）
+        # 会話AIの聞き取りが届かなかった発話は、別の耳の文字が届いても比べられない（届かなかったのと同じ）。意味の判定は、その発話に出したもの
+        # （judged_turns）だけを数える＝出していない受け持ちは届くはずが無い。1つも出していない発話は、使う判定の全部が届かなかった
+        def due(k: str, turn: int) -> bool:
+            return k not in JUDGMENTS or not self.judged_turns.get(turn) or k in self.judged_turns[turn]
         return {qid: miss for qid, t in self.taken.items()
                 if self.items[qid].state in TAKEN
-                and (miss := [k for k in self.checks_used if k not in t["check"] or (k == "ear" and not t["said"])])}
+                and (miss := [k for k in self.checks_used if due(k, t["turn"]) and (k not in t["check"] or (k == "ear" and not t["said"]))])}
 
     # ── この操作の返事を作る前に、確かめ（use_checks）を待つか：答えをそのまま受け取りうる報告だけ（DESIGN.md 1章）。
     #    確かめない型の答え・「わからない」「答えたくない」・自由な意見の答え／言い直しへの返事／代わった方への名乗りの流し直し（取り次ぎを待つ

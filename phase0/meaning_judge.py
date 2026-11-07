@@ -760,7 +760,11 @@ OTHER_JUDGES = {
     #    「利用する」と読んだ（線では防げない）＝d1-ultra と同時に出すと、Jev が先に答えた発話ではこの読みを受け取る（d1-ultra は正しく読んだ）
     "Jev 1.14": {"maker": "typesafe", "api": "decision", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
                  "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_sure_min": 0.8, "returned_sure_min": 0.6,
-                 "yen_per_char": 7.6e-6, "group_kinds": CALLING_KINDS + ("returned", "ground"), "stands_in": {"other": "d1 Ultra（Liquid）"}},
+                 "yen_per_char": 7.6e-6, "group_kinds": CALLING_KINDS + ("other", "returned", "ground")},
+    # ⇒ ✅ 2026-11-07 日本時間8時05分55秒・8時57分04秒（F0）：答えの段も、お呼びする段と同じ形＝d1-ultra と Jev を同時に出し、d1-ultra の確かな読みを優先
+    #    → Jev の確かな読み → 考える Sonnet（並びは RACE の1か所）。10-31 の (b) の理由（先に届いた方を使うと Jev の読み違いを受け取る）は、11-05 に組の
+    #    決め方を優先の順（first_of）に直したときに成り立たなくなっていた。⚠️ 上の「利用は結構です」の読み（1.0）は、d1-ultra が確かでない言葉では Jev で
+    #    決まりうる＝今の文の1回の測りで、Jev が決めた行の外れを数える（CL-1.md 1 の (10)）
     # 前の話の答えの線（prior_min。2026-10-31 の夜・G-70 の前の話のある13組×3回）：d1-ultra が前の話と逆の返事を拾うのに要る前の話の答えは
     #    どれも 0.85 から上・「その日は空いています。」から説明会に参加するか（決まらないはず）の「参加する」は 0.45〜0.55 ⇒ 0.6（⏳ 組の数が少ない）
     # 待たせた方が戻ったかの線（returned_sure_min。2026-10-31 の昼・✅ ユーザー：「(b) 精度が100％ならOK」）：G-68 の18の言葉と、紛らわしい
@@ -904,6 +908,12 @@ def members_for(names, qkind: str, down=lambda name: False) -> list[str]:
 #    答えにしていた＝その言葉（d1-ultra と Jev が2つとも確かでない言葉）96回中17回で流れの制御の動きが外れる（PHASE0 G-59）。組が答えられない
 #    ときの代わりは、同じ Sonnet の緊急の道（EMERGENCY）。答えの意味・待たせた方が戻ったかは今のまま同時に出す
 STOP_ONLY = {"3.5 Flash Lite": CALLING_KINDS}
+# 質問の種類ごとに、組の中で使わない判定（唯一の場所。JudgePanel._own・_backups）：その種類の質問には、自分でも答えず、止める側だけにも裏で出さない
+#    （ほかの受け持ちが無い＝1つの判定で測るときは答える）。✅ 2026-11-07 日本時間8時57分04秒（F0）：答えの段のその場の判定 3.5 Flash Lite は「まず使わない
+#    形で入れ、測りの数で使い方を決め、同じ1か所で切り替える」＝使うと決めたら、ここから "other" を外す（11-01・11-02 の前の文の記録では、使わない形の外れが
+#    いちばん少なかった＝要らない確かめも外れとして数える 10-29 の数え方。CL-1.md 1 の (10)）。待たせた方が戻ったか（returned）は2つの判定のそろいで決める
+#    （Flow.on_check）ので今までどおり
+UNUSED_IN = {"3.5 Flash Lite": ("other",)}
 
 
 PROBE_TEXT = "はい、しています。"   # 回復の確かめで判定に送る言葉（JudgePanel.probe）
@@ -919,6 +929,11 @@ def probe_question():
 def stop_only(name: str, kind: str) -> bool:
     """判定 name が kind（question_kind）の質問では、止める側だけに使う判定か（STOP_ONLY の1か所）。"""
     return kind in STOP_ONLY.get(name, ())
+
+
+def unused(name: str, kind: str) -> bool:
+    """判定 name が kind（question_kind）の質問では、組の中で使わない判定か（UNUSED_IN の1か所）。"""
+    return kind in UNUSED_IN.get(name, ())
 
 
 # 同時に出して、優先の順（並びの前ほど優先＝first_of）の確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
@@ -2021,9 +2036,11 @@ class JudgePanel(RouteState):
     def _own(self, kind: str, qkind: str) -> list:
         """受け持ち kind が qkind の質問に自分で出す判定：組の中の分けのうち、ほかの受け持ちに自分で答える判定があれば、止める側だけの判定
         （stop_only）を除く（ほかの受け持ちが無い・ほかも止める側だけなら、自分で答える＝1つの判定で測るとき）。"""
+        # 組の中で使わない判定（unused＝UNUSED_IN）も、ほかの受け持ちに自分で答える判定があれば除く（止める側だけと同じ形。裏でも出さない＝_backups）
+        aside = lambda n: stop_only(n, qkind) or unused(n, qkind)
         mine = self._parts(kind, qkind)
-        if any(not stop_only(n, qkind) for k in self.judges if k != kind for n, _ in self._parts(k, qkind)):
-            mine = [(n, f) for n, f in mine if not stop_only(n, qkind)]
+        if any(not aside(n) for k in self.judges if k != kind for n, _ in self._parts(k, qkind)):
+            mine = [(n, f) for n, f in mine if not aside(n)]
         return mine
 
     def answers(self, kind: str, q) -> bool:
@@ -2037,7 +2054,7 @@ class JudgePanel(RouteState):
             return []
         makers = {maker(n) for n, _ in self._own(kind, qkind)}
         return [(n, f) for k in self.judges if k != kind for n, f in self._parts(k, qkind)
-                if (n, f) not in self._own(k, qkind) and maker(n) not in makers]
+                if (n, f) not in self._own(k, qkind) and maker(n) not in makers and not unused(n, qkind)]
 
     def reset(self) -> None:
         """止まっているとみなした印と、代わりが入っている受け持ちを消す（判定の読みを言葉ごとに測る試験だけ：1つの言葉の時間切れで、
