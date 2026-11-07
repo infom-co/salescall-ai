@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ANY, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
-                     JUDGMENTS, ambiguous_word, asks_wish, hesitates, later_offer, off_talk, prior_answer, restates, takes_for_now, wait_reading)
+                     JUDGMENTS, ambiguous_word, hears_hesitation, hesitates, later_offer, off_talk, prior_answer, restates, takes_for_now, wait_reading)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
 
@@ -633,7 +633,7 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
         return wait_act(got)
     if got == REPEAT:
         return REPEAT_ACT
-    if hesitates([got]) and asks_wish(q):   # 迷っていると言い終えた（流れの制御 Flow._hesitation と同じ1か所の決まり。言い直しの返事待ちでも同じ）
+    if hesitates([got]) and hears_hesitation(q):   # 迷っていると言い終えた（流れの制御 Flow._hesitation と同じ1か所の決まり。言い直しの返事待ちでも同じ）
         return HESITATE_ACT[bool(q.option_notes)]
     if asks_us(it.get("text"), [got]):   # 答えの代わりにこちらへ尋ねた（流れの制御は、ほかの決まりより先に、入口で答えさせる）
         return ANSWER_FIRST
@@ -677,7 +677,7 @@ def flow_wants(it: dict, q: Question) -> set[str]:
             ok.add(wait_act(a))
         elif a == REPEAT:
             ok.add(REPEAT_ACT)
-        elif hesitates([a]) and asks_wish(q):
+        elif hesitates([a]) and hears_hesitation(q):
             ok.add(HESITATE_ACT[bool(q.option_notes)])   # 迷っていると言い終えた（flow_act と同じ1か所 hesitates）
         elif asks_us(it.get("text"), [a]):
             ok.add(ANSWER_FIRST)   # 正解が「決められない」の、問いかけの言葉（流れの制御は、尋ねられたことに先に答える）

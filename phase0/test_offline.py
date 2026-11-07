@@ -15622,6 +15622,67 @@ class ApprovalTest(unittest.TestCase):
         r = AmbiguousAnswerTest.say(f, "だいたい分かりました。", "record_answer", question_id=n2, condition_id="分かった")
         self.assertEqual((f.current, f.export()["Q2"], f.end_reason, r["ack"], f.facts["not_agreed"][0]["outcome"]), ("Q3", "はい", None, "arigatou", "agreed"))
 
+    def test_hesitating_over_the_approval_takes_the_same_way_as_not_agreeing(self):
+        # ✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (4)：ご承認の質問への「うーん、同意するかどうか迷いますね。」は、ご承認いただけ
+        # なかったときの手順と同じ道で「はい、どういった点でお迷いでしょうか？」と伺ってご説明し、保留では締めない（一流の営業＝迷っている点を伺い、ご説明で
+        # ご納得いただく）。⛔ 直す前：判定に「迷っている」を出さず、「承知しました。続きまして…」と、ご承認を伺わないまま次の質問へ進んだ（ご承認は「わからない」）
+        from flowctl import CALLBACK_IDS, HESITATING, JUDGMENTS, hears_hesitation
+        from meaning_judge import Reading, answer_kinds
+        from phrases import ACK, HESITATE_POINT
+        n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        self.assertTrue(hears_hesitation(self.flow().questions["Q2"]))
+        self.assertIn(HESITATING, answer_kinds(self.flow().questions["Q2"]))   # 判定に「迷っている」を出す（ほかのシステムの質問・事実を伺う質問には出さない）
+        self.assertNotIn(HESITATING, answer_kinds(self.flow().questions["Q1"]))
+
+        def heard(r):
+            return ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+
+        def say(f, words, qid, cond, *readings):
+            f.on_callee(); f.on_heard(words)
+            for k, x in zip(JUDGMENTS, readings or (cond,) * 2):
+                f.on_check(k, Reading(x))
+            return f.apply("record_answer", {"question_id": qid, "condition_id": cond})
+
+        def hesitated(goal=False, play=True):
+            f = self.flow(goal=goal, play=play)
+            f.use_checks(*JUDGMENTS)
+            say(f, "届いてないです。", "Q1", "いいえ")
+            r = say(f, "うーん、同意するかどうか迷いますね。", "Q2", "unknown", HESITATING, HESITATING)
+            return f, r
+        f, r = hesitated()
+        self.assertEqual((f.current, heard(r), f.end_reason), (n1, "はい、" + HESITATE_POINT, None))
+        self.assertNotIn("保留", heard(r))
+        f, r = hesitated(play=False)   # 会話AIが話す通話：質問の文は会話AIへの知らせで渡す（頭の「はい、」は相づちの録音）
+        self.assertEqual((f.current, f.questions[n1].text, f.questions[n1].topic, r["ack"], HESITATE_POINT in r["message"]),
+                         (n1, HESITATE_POINT, "お迷いの点", "hai", True))
+        # 迷っている点を言っていただいたら、ご説明し、「ほかに…」を伺う（ご承認いただけなかったときの手順と同じ）。分かったと言っていただけたら、ご承認は「はい」
+        f, r = hesitated()
+        r = say(f, "解約するときの費用が気になって。", n1, "点を言った")
+        self.assertEqual(r["result"], "explain_point")
+        self.assertIn("迷", r["message"])   # 会話AIへの知らせも、迷っている点を伺ったこと
+        r = self.explained(f, "answer_費用")
+        self.assertEqual((f.current, r["ack"]), (n2, "hai"))
+        r = say(f, "それなら大丈夫です。", n2, "分かった")
+        self.assertEqual((f.current, f.export()["Q2"], f.end_reason, r["ack"]), ("Q3", "はい", None, "arigatou"))
+        # 迷っている点を伺ったあとにお断りの向き（断ろうとしている）なら、ご承認は「いいえ」（お客様ご自身の言葉）＝最終目的なら締めて、その業務はかけない。
+        # 保留では締めない
+        g, _ = hesitated(goal=True)
+        r = say(g, "いや、やっぱりやめておきます。", n1, "断ろうとしている")
+        self.assertEqual((g.export()["Q2"], g.end_reason, "保留" in heard(r)), ("いいえ", "goal_refused", False))
+        # 迷っている点を言っていただけない（言いたくない）：ご承認いただけなかったときと同じく押さずに手順を終える（ご承認は「わからない（まだ決まっていない）」の
+        # まま・保留の一言は言わない）
+        h, _ = hesitated()
+        r = say(h, "いや、特にどこというわけでは。", n1, "refused")
+        self.assertEqual((h.current, h.items["Q2"].state, h.items["Q2"].reason, "保留" in heard(r)), ("Q3", "dont_know", "undecided", False))
+        self.assertIn("いつでもお申し出ください", heard(r))
+        # 業務の決まりで「わからない（まだ決まっていない）」が結論の質問でも、迷っているのは結論ではない（手順を伺う）
+        k = self.flow()
+        k.questions["Q2"].handlings[("dont_know", "undecided")] = "conclude"
+        k.use_checks(*JUDGMENTS)
+        say(k, "届いてないです。", "Q1", "いいえ")
+        r = say(k, "うーん、同意するかどうか迷いますね。", "Q2", "unknown", HESITATING, HESITATING)
+        self.assertEqual((k.current, k.end_reason), (n1, None))
+
     def test_neutral_reply_asks_whether_agreed(self):
         # 「なるほど」のように、ほかにあるとも分かったとも言わないときは「ご説明した内容でご納得いただけましたでしょうか？」
         from flowctl import CALLBACK_IDS
@@ -17937,8 +17998,9 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual(HESITATE_POINT, "どういった点でお迷いでしょうか？")
         self.assertEqual(RECORDED["hesitate_point"], HESITATE_POINT)
         # 選ぶ助けをするのは業務の質問だけ（ご決定は業務の選択肢の選び方へのもの）：システムの質問（ほかのご希望・ご承認の手順・連絡先など）の判定には
-        # 「迷っている」を選べるものとして出さない＝それぞれの決まった道のまま（判定の選べるもの・流れの制御・測りの数えが同じ1か所 asks_wish を使う。
-        # 事実を伺う質問・ご承認の質問・ほかに分からない点の質問も入れない＝test_undecided_after_help_is_held_and_other_words_keep_their_way の H-8）
+        # 「迷っている」を選べるものとして出さない＝それぞれの決まった道のまま（判定の選べるもの・流れの制御・測りの数えが同じ1か所 hears_hesitation を使う。
+        # 事実を伺う質問・ほかに分からない点の質問も入れない＝test_undecided_after_help_is_held_and_other_words_keep_their_way の H-8。ご承認の質問は、ご承認
+        # いただけなかったときの手順と同じ道＝11-08 2時21分15秒の (4)・ApprovalTest.test_hesitating_over_the_approval_takes_the_same_way_as_not_agreeing）
         from flowctl import asks_wish, callback_question
         from meaning_judge import answer_kinds
         pay = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
@@ -18308,7 +18370,9 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertIn(HESITATING, answer_kinds(Question("Q1", **pay)))
         for q in (fact, approval, unclear_q, callback_question("email")):
             self.assertFalse(asks_wish(q), q.id)
-            self.assertNotIn(HESITATING, answer_kinds(q), q.id)
+            # 判定に「迷っている」を出すのは、迷っているお客様に応じる質問だけ（hears_hesitation＝選ぶ助けの業務の質問と、ご承認の質問＝ご承認いただけなかった
+            # ときの手順と同じ道。✅ 2026-11-08 日本時間2時21分15秒「(1)〜(4)ともイでOK」の (4)＝ApprovalTest.test_hesitating_over_the_approval_takes_the_same_way_as_not_agreeing）
+            self.assertEqual(HESITATING in answer_kinds(q), q is approval, q.id)
         for make in (lambda: Question("G13", fact.text, "yes_no", conditions=yn, asks_fact=True, meanings=fact.meanings),
                      lambda: Question("A1", approval.text, "yes_no", conditions=yn, approval=True, intro=approval.intro),
                      lambda: Question("U1", unclear_q.text, "yes_no", conditions=yn, unclear_none="いいえ", meanings=unclear_q.meanings)):

@@ -503,6 +503,15 @@ def asks_wish(q: "Question") -> bool:
     return not (q.asks_fact or q.reading_of or q.callback or q.approval or q.unclear_none)
 
 
+def hears_hesitation(q: "Question") -> bool:
+    """迷っているお客様に応じる質問か（唯一の決まり＝判定の選べるもの「迷っている」meaning_judge.answer_kinds・流れの制御 Flow._hesitation・測りの数え
+    g53_meaning.flow_act／flow_wants）：ご希望・申し出から選んでいただく業務の質問（asks_wish＝選ぶ助け・それでも決められなければ保留）と、説明した内容の
+    ご承認の質問（approval＝ご承認いただけなかったときの手順と同じ道で、迷っている点を伺ってご説明する・保留では締めない＝Flow._point_step）。
+    ✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (4)（伺ったときの例：「この内容でご同意いただけますでしょうか？」への「うーん、同意する
+    かどうか迷いますね。」）。⛔ 直す前：ご承認の質問には「迷っている」を出さず、「承知しました。続きまして…」と、ご承認を伺わないまま次の質問へ進んだ"""
+    return asks_wish(q) or q.approval
+
+
 def takes_for_now(q: "Question", condition: str | None) -> bool:
     """ほかに分からない点が無いかを伺う質問（取込の unclear_none）への「無い」か（唯一の決まり＝流れの制御 Flow._ask_confirm・_keep_toward_goal・_tell_due と
     測りの数え g53_meaning.flow_act・flow_wants）。言い切っていなければ（「今のところ質問はありません。」）確かめ直さずに受け取り、「何かわからないことが
@@ -2315,6 +2324,9 @@ CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご
                   "refusal": "今後のお電話", "hurry_again": "改めてのお電話", "hurry_when": "ご都合のよろしい日時", "not_agreed": "ご納得いただけなかった点",
                   "other_point": "ほかにご納得いただけない点", "agreed_now": "ご説明した内容へのご納得", "line": "LINEのID", "other_wish": "ほかのご希望",
                   "line_how": "LINEでのご連絡の方法", "mobile": "携帯電話の番号", "wait_or_later": "このままお待ちするか改めておかけ直しするか"}
+# ご承認の質問への迷いから始めた手順の1つ目（「どういった点でお迷いでしょうか？」＝callback_question の hesitating）の聞き直しの聞くこと
+# （✅ 2026-11-08 日本時間2時21分15秒「(1)〜(4)ともイでOK」の (4)）
+HESITATE_TOPIC = "お迷いの点"
 # 文が依頼主の単位の録音のもの（伝言の文＝業務設定 message・約束の電話の一言＝お名前が入る＝instruction.Business.replay_parts の promise_again）
 OPENING_ROLES = ("message", "promise_again")
 # 文が業務の質問から決まる、依頼主の単位の録音のもの（ほかのご希望を伺う質問＝その質問の選択肢の名前が入る。録音の名前は other_wish_recording_id）
@@ -2929,7 +2941,8 @@ def _wish_text(q: "Question", again: bool = False, which: bool = False) -> str:
 
 def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Question | None" = None, again: bool = False,
                       chosen: bool = False, without: str | None = None, recap: "Question | None" = None, means: str | None = None,
-                      answering: bool = False, which: bool = False, after_recap: bool = False, announced: bool = False) -> "Question":
+                      answering: bool = False, which: bool = False, after_recap: bool = False, announced: bool = False,
+                      hesitating: bool = False) -> "Question":
     """システムが足す質問（役目＝SYSTEM_ROLES の1つ）を作る唯一の場所：かけ直し・ほかの手段で聞くこと（時刻＝日時の型＝日にちだけの答えも
     受け取る・番号＝電話番号の型・メール・住所。どれも言い直して確かめる型）と、選んでいただくこと（代わりの方に、判断いただけるお立場か・
     お取次ぎのみか＝✅ 2026-10-22 ユーザー（4回目）の2つから選んでいただく問い／伝言を伝えていただけるか＝はい／いいえ）。
@@ -2963,6 +2976,12 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # ご連絡の方法の連絡先は、選んでいただいた方法 means で一言を選ぶ（contact_again_key。同じメールアドレスを伺うオンラインは「オンラインでのご案内の件で…」）
         key = contact_again_key(means) if means is not None and WISH_MEANS.get(means, (None, None, None))[2] == role else role
         lines, i, recording = (CALLBACK_ASK_RESUMED[key],), 0, f"callback_{key}_again"
+    elif hesitating:
+        # ご承認の質問への迷い（Flow._point_begin）：ご承認いただけなかったときの手順の1つ目（N1）を「どういった点でお迷いでしょうか？」で伺う（共通の一言の録音
+        # hesitate_point＝迷っているお客様に伺う一言と同じ1本。選択肢と答えの受け方は N1 と同じ＝点を言った・断ろうとしている）。✅ 2026-11-08 日本時間
+        # 2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (4)
+        assert role == "not_agreed", role
+        lines, i, recording = (HESITATE_POINT,), 0, "hesitate_point"
     elif recap is not None:
         # 続きの電話の始めに、ご納得いただけなかった点を言っていただけなかったとき、「ほかに…」（other_point）の代わりに流す振り返りの一言（phrases.recap_line。
         # ご承認の質問 recap の説明の文が入る＝依頼主の単位の録音 recap_recording_id）。選択肢と答えの受け方は「ほかに…」と同じ（Flow._point_step の1か所）。
@@ -3006,7 +3025,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # （✅ 2026-11-06 日本時間10時12分44秒 ユーザー「(イ)「ほかに」を外して…OK」と同じ理由。⛔ 15時台まで、聞き直しで「ほかにご納得いただけない点を…」と言った）
         # 意味合いを尋ねる一言の候補の言葉（ROLE_SENSES）も同じ理由で「ほかに」を外す
         first = recap is not None or after_recap
-        topic = CALLBACK_TOPIC[role].removeprefix("ほかに") if first else CALLBACK_TOPIC[role]
+        topic = HESITATE_TOPIC if hesitating else CALLBACK_TOPIC[role].removeprefix("ほかに") if first else CALLBACK_TOPIC[role]
         return Question(qid, text or lines[i], qtype, required=role == "line_how", conditions=tuple(meanings), recording=recording,
                         meanings=meanings, topic=topic, callback=role, declines=_ROLE_DECLINES.get(role, ()),
                         senses={c: w.removeprefix("ほかに") if first else w for c, w in ROLE_SENSES.get(role, {}).items() if c in meanings},
@@ -5211,7 +5230,7 @@ class Flow:
         if self.phase not in ("asking", "rechecking") or self.after_answer is not None:
             return None
         qid = self.awaiting_confirm or self.current
-        if qid is None or not asks_wish(q := self.questions[qid]):
+        if qid is None or not hears_hesitation(q := self.questions[qid]):
             return None
         h = self.hesitating.get(qid, {})
         point, helped, estimate = h.get("point"), h.get("helped"), h.get("estimate")
@@ -5225,6 +5244,13 @@ class Flow:
             # 読みにしない（⛔ 同じ見直しの H-1 を直す途中、流れの制御に通して見つけた形）
             return None
         readings = [self.check.get(k) for k in JUDGMENTS]
+        if q.approval:
+            # 説明した内容のご承認の質問への迷い（「うーん、同意するかどうか迷いますね。」）：ご承認いただけなかったときの手順と同じ道（_hesitate_now →
+            # 「わからない（まだ決まっていない）」で受け取り、手順の1か所 _point_step が「はい、」＋「どういった点でお迷いでしょうか？」を伺ってご説明する）。
+            # 保留では締めない。手順を始めるのは、ご承認の質問ごとに1回（印 approval）＝そのあとの迷っている点のお返事・ご説明・「ほかに…」は手順の質問が受け持つ。
+            # 当てるのは判定が「迷っている」と読んだときだけ（お言葉の場面。「まだ決められない」「分からない」は今までどおり＝⏳ 伺う）。
+            # ✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (4)
+            return "approval" if hesitates(readings) and "approval" not in h else None
         if hesitates(readings):
             return "point" if point is None and (not q.option_notes or helped is not None) else "help"
         if not undecided(readings) or not self._plain_reply(readings) or self._why_of("unknown") in WHY_ROUTED:
@@ -5300,6 +5326,16 @@ class Flow:
             qid = self.awaiting_confirm or self.current
             self.awaiting_confirm = None
             return self._undecided_final(qid)
+        if kind == "approval":
+            # ご承認の質問への迷い：「わからない（まだ決まっていない）」で受け取り、ご承認いただけなかったときの手順を始める（_take_system の opens_point＝業務の
+            # 決まりの結論・分かる方を伺う、は当てない＝迷っているのは結論ではない。手順の1か所 _point_step が伺う）。会話AIの声がもう流れた（報告の無いターン）
+            # なら重ねない（final と同じ＝答えは報告で当てる）
+            if voiced:
+                return None
+            qid = self.awaiting_confirm or self.current
+            h["approval"] = self.callee_turns
+            self.awaiting_confirm = None
+            return self._take_system(qid, "unknown", "undecided", settled=True, opens_point=True)
         if kind not in ("point", "estimate"):
             return None
         if voiced:
@@ -5608,13 +5644,15 @@ class Flow:
         本番だけ変わりうる形だった"""
         return self._take_system(qid, "unknown", "undecided", settled=True)
 
-    def _take_system(self, qid: str, cond: str, reason: str | None = None, settled: bool = False) -> dict:
+    def _take_system(self, qid: str, cond: str, reason: str | None = None, settled: bool = False, opens_point: bool = False) -> dict:
         """相手が「わからない」「答えたくない」と答えた（答えの報告と、言い直しへの返事の、どちらからも来る）。reason＝会話AIが選んだ理由（判定を使う
-        通話では使わない＝理由は判定が読む _why_of の1か所）。settled＝理由はプログラムが決めた事実（_undecided_final の1か所だけ）。"""
+        通話では使わない＝理由は判定が読む _why_of の1か所）。settled＝理由はプログラムが決めた事実（_undecided_final・_hesitate_now の approval）。
+        opens_point＝ご承認の質問への迷い（_hesitate_now の approval）：ご承認いただけなかったときの手順を始める受け取り（_point_step が伺う）なので、業務の
+        決まり（結論として締める・分かる方／分かる時を伺う）は当てない（迷っているのは結論ではない）。"""
         it = self.items[qid]
         it.condition = cond
         it.reason = reason if settled else self._why_of(cond, reason)
-        kind = self.questions[qid].handlings.get(("refused" if cond == "refused" else "dont_know", it.reason))
+        kind = None if opens_point else self.questions[qid].handlings.get(("refused" if cond == "refused" else "dont_know", it.reason))
         if kind == "conclude":
             # 業務の決まりで、この答えが結論（「回答不可」など）：ほかの質問は伺わずに、丁寧に締める（CL-2 の 15-2-3 の (d)。結論の名前は CL-2 の判定が決める）
             it.set("refused" if cond == "refused" else "dont_know", "相手の答えが、業務の決まりで結論になった")
@@ -5633,6 +5671,9 @@ class Flow:
         if cond == "refused":
             it.set("refused", "相手が答えを拒んだ")
             return self._advance("受け付けました（答えたくない）。この質問は二度としません。")
+        if opens_point:
+            it.set("dont_know", "相手がご承認を迷っている（ご承認いただけなかったときの手順と同じ道で、迷っている点を伺う）")
+            return self._advance("受け付けました（迷っている）。")
         it.set("dont_know", "相手が「わからない」と答えた")
         return self._advance("受け付けました（わからない）。")
 
@@ -8539,7 +8580,7 @@ class Flow:
             # 見つけた：1通話1回にしていたので、2つ目のお断りでは点を伺わず、報告は「伺い終えていない」になった）
             done = {e.get("question") for e in self.facts.get("not_agreed", [])} | ({p["q"]} if p is not None else set())
             q = next((q for q in self.questions.values() if q.approval and q.id not in self.earlier and q.id not in done
-                      and self.items[q.id].state in GOT and q.declined(self.items[q.id].condition)), None)
+                      and self._approval_open(q) is not None), None)
             if q is not None and self._point_begin(q):
                 self._point_step()   # 同じご承認で手順をまた始めた（N1 はもう伺った）：伺ったときのお返事で進める（_point_begin）
             return
@@ -8716,6 +8757,16 @@ class Flow:
                       "hai": None, "again": True,
                       "told_record": dict(point=f.get("point"), said=(f.get("said") or "")[:80] or None, explained=False, told=kind, outcome="unresolved")}
 
+    def _approval_open(self, q: "Question") -> str | None:
+        """ご承認いただけなかったときの手順を始めるご承認の答えか（唯一の決まり＝手順を始める _point_step・伺う一言を選ぶ _point_begin・終える _point_end）：
+        "declined"＝お断り（Question.declined）／"hesitating"＝ご承認を迷っている（_hesitate_now の approval で受け取った「わからない（まだ決まっていない）」＝
+        印 hesitating の approval。✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (4)：ご承認いただけなかったときの手順と同じ道で
+        「はい、どういった点でお迷いでしょうか？」と伺ってご説明し、保留では締めない）／None＝どちらでもない。"""
+        it = self.items[q.id]
+        if it.state in GOT and q.declined(it.condition):
+            return "declined"
+        return "hesitating" if it.state == "dont_know" and "approval" in self.hesitating.get(q.id, {}) else None
+
     def _point_begin(self, q: "Question", again: bool = False, said: str | None = None) -> bool:
         """ご承認いただけなかったときの手順を始める唯一の場所（この通話のご承認のお断りのあと＝_point_step・続きの電話の始め＝Flow.__init__）：ご納得いただけ
         なかった点（N1）を伺う。N1 の前の相づちは、手順のほかの質問と同じ「はい、」（ご承認いただけなかった答えにお礼は合わない）。again＝伺っている途中で
@@ -8726,8 +8777,10 @@ class Flow:
         目的のお客様に繋がったあと＝_connect の _advance。どちらも _explain_due の1か所）。✅ 2026-11-04 日本時間19時26分 ユーザー「(A)…OK」
         返す値＝同じご承認でこの通話にやめた手順をまた始め、N1 を伺い直さなかったか（True なら、呼び手 _point_step がそのお返事で手順を進める）。"""
         # again＝続きの電話の始めから（この電話ではまだご説明していない＝点を伺えなければ、振り返りの一言を流してから伺う＝_point_step の recap）
+        # hesitating＝ご承認を迷っているお客様の手順（_approval_open）：1つ目の一言は「どういった点でお迷いでしょうか？」（_ask_point）・お断りの向きで終えたら
+        # ご承認を「いいえ」に決め直す（_point_end）・会話AIへの知らせは迷っている点（_point_note）。ほかは同じ道
         self.point = {"q": q.id, "stage": "ask", "round": 1, "explained": None, "turn": None, "outcome": None,
-                      "hai": None if again else self.callee_turns, "again": again}
+                      "hai": None if again else self.callee_turns, "again": again, "hesitating": self._approval_open(q) == "hesitating"}
         if said is not None:
             # turn＝None：この通話のどの発話にも当たらない（続きの電話の始めに、まだご説明していない間は、ご説明を頼む＝_explain_due）
             self.point.update(stage="explain", resumed=said)
@@ -8761,7 +8814,7 @@ class Flow:
             asked = self._point_marks()["asked"]   # 伺った数（ご承認の質問ごとに通話で1つ）
             nth = asked.get(role, 0)
             asked[role] = nth + 1
-            q = callback_question(role, nth=nth, again=again)
+            q = callback_question(role, nth=nth, again=again, hesitating=role == "not_agreed" and self.point.get("hesitating", False))
         self.questions[q.id], self.items[q.id] = q, Item()
         self.follow_ups[q.id] = self.point["q"]
         if after is None:
@@ -8843,6 +8896,10 @@ class Flow:
         for e in self.facts.get("not_agreed", []):
             if e.get("question") == p["q"]:
                 e["outcome"] = outcome
+        if outcome == "declined" and self._approval_open(q := self.questions[p["q"]]) == "hesitating":
+            # ご承認を迷っていたお客様が、迷っている点を伺ったあと・ご説明のあとにお断りの向きで答えた（断ろうとしている・ご納得いただけない）：ご承認はお客様ご自身の
+            # 言葉で「いいえ」（決め直す1か所 _retake。最終目的なら _goals_lost で締め、その業務はかけない＝お断りのときと同じ）
+            self._retake(q.id, q.conditions[1], by, "ご承認を迷っていたお客様が、迷っている点を伺ったあとにお断りの向きで答えた")
         if outcome == "agreed":
             q = self.questions[p["q"]]
             self._retake(q.id, q.conditions[0], by, "ご承認いただけなかった点をご説明して、ご納得いただいた")
@@ -8879,7 +8936,8 @@ class Flow:
                     f"話し始めの言葉に続けて担当の者に申し伝えることを伝える文を書き、「{PART_LABEL['no_answer']}」で呼びます（{ARG_LABEL['fallback']}に、"
                     f"その点の種類＝{POINT_KIND_CHOICES}、を選びます）。")
         said = next((e.get("said") for e in reversed(self.facts.get("not_agreed", []))), None) or ""
-        head = (f"お客様がご納得いただけなかった点を伺いました（「{said[:40]}」）。" if p["round"] == 1 else
+        what = "ご承認を迷っている点" if p.get("hesitating") else "ご納得いただけなかった点"   # 迷っているお客様の手順（_point_begin の hesitating）
+        head = (f"お客様が{what}を伺いました（「{said[:40]}」）。" if p["round"] == 1 else
                 "お客様が、ほかにも分からない点・確かめたい点があると言いました。その点を言っていなければ、どの点かを自分の言葉で短く伺ってから、")
         return (f"{head}次へ進む前に、その点を、お客様が分かるまで親身にご説明します：想定問答に答えがあれば、その答えを流します。こちらが知っていること（業務の情報）に"
                 f"あれば、その範囲で、自分の言葉で短くご説明します（お客様の誤解なら、正しい中身をご説明します）。知っていることに無ければ、答えを作らずに"
