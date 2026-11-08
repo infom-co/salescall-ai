@@ -146,6 +146,8 @@ HOW_OF["hesitate_point"] = "question"
 # 値を伺う質問の最初の「まだ決まっていない」に、おおよその目安を伺う一言（phrases.ESTIMATE_ASK。✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイ
 # でOK」の (1)）＝伺う質問の読み方
 HOW_OF["estimate_ask"] = "question"
+# 言い直しへのお返事がまだ決めていないときの2回目の一言（phrases.HOW_NOW。✅ 2026-11-09 日本時間3時06分51秒 ユーザー）＝伺う質問の読み方
+HOW_OF["how_now"] = "question"
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
@@ -358,6 +360,13 @@ def script_table(business) -> tuple[dict, dict]:
             # 続きの電話の始めに、ご納得いただけなかった点を言っていただけなかったときの振り返りの一言（文は callback_question の recap＝phrases.recap_line の1か所。
             # 名前は flowctl.recap_recording_id）。説明の文の無いご承認の質問には作らない（振り返らずにご納得を伺う＝Flow._point_step）
             items.append((recap_recording_id(q), callback_question("other_point", recap=q).text, "recap"))
+    if getattr(business, "handoff_ways", ()):
+        # 営業に引き継ぐ架電の、改めてのお話の方法を選んでいただく一言（文は flowctl.callback_question の handoff_way の1か所・名前は flowctl.HANDOFF_WAY_RECORDING）と、
+        # 2回目・3回目からの戻る一言に続けて流す形（phrases.back_fit の1か所）。✅ 2026-11-09 日本時間4時36分49秒 ユーザー
+        from flowctl import HANDOFF_WAY_RECORDING
+        way_text = callback_question("handoff_way", ways=tuple(business.handoff_ways)).text
+        fitted = [back_fit(HANDOFF_WAY_RECORDING, way_text, b) for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)]
+        items += [(rid, text, question_how(text)) for rid, text in dict([(HANDOFF_WAY_RECORDING, way_text)] + fitted).items()]
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)

@@ -132,6 +132,11 @@ class Business:
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
     goal_mode: str = "any"   # 最終目的の果たし方（flowctl.GOAL_MODES。最終目的は質問の final_goal・断る答えは declines＝業務設定＝CL-2）
+    # 営業に引き継ぐ架電の、詳しい者からの改めてのお話の方法（名前の並び。例：("訪問", "オンラインでのご説明", "お電話", "セミナーへのご参加")。業務設定＝取込＝CL-2）。
+    # あれば、ご承認が最終目的のご承認の手順を点を言っていただけないまま終えるとき、締めずに「それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？」
+    # と伺い、はいならこの中から選んでいただく（flowctl.Flow._handoff_step）。空なら営業に引き継がない架電（一言を挟んで残りの質問へ）。✅ 2026-11-09 日本時間
+    # 4時36分49秒 ユーザー
+    handoff_ways: tuple = ()
     # 依頼者がすること（登録・手配など。業務設定＝CL-2）。事実を伺う質問の、言い切っていない最初の答えの確かめ「それでは（意味の言葉）ということで（依頼者が
     # すること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01 日本時間6時05分・6時27分 ユーザー）。空なら「…ということで承っておいて大丈夫でしょうか？」
     # （phrases.client_does_words の1か所。✅ 2026-11-08 日本時間5時33分05秒 ユーザー：「…「～で承っておいて」に変更しましょうか。こちらの方が自然だし汎用的です。」）
@@ -293,7 +298,7 @@ class Business:
         DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
         AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
         from flowctl import Flow
-        return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does,
+        return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does, handoff_ways=tuple(self.handoff_ways),
                     play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
                     name_readings=self.name_readings(), judge_names=self.judge_names(),

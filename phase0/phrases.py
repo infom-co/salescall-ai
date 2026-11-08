@@ -117,10 +117,13 @@ TENTATIVELY = "ひとまず"
 # 承っておいて」に変更しましょうか。こちらの方が自然だし汎用的です。」（前は「記録」を「…させていただいて」に入れていた。依頼者がすること（登録・手配など）を
 # 書いた業務は、✅ 2026-11-01 日本時間6時27分「…A社の仕事を受けていたら、私たちはA社の人間として振舞わらなければなりませんよ。」のとおり、その言葉）
 NOTED_DOES = "承っておいて"
-# 決められないのがお客様の最終の決定のとき、その質問を締める一言（flowctl.pending_line の1か所。{t}＝聞くこと＝flowctl.Question.topic・無ければ PENDING_THING）。
-# 頭の相づちは「承知しました。」（flowctl.Flow._ack）。✅ 2026-11-06 日本時間11時19分55秒 ユーザー：「(2) 「ちょっと今は決められないですね。」というのが最終の
-# お客様の決定であれば、「承知しました。それではパンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」
-PENDING_LINE = "それでは{t}は保留とさせていただきますね。"
+# 決められないのがお客様の最終の決定のとき、その質問を保留にしてよいかを伺う一言（flowctl.pending_line の1か所。{t}＝聞くこと＝flowctl.Question.topic・
+# 無ければ PENDING_THING）。頭の相づちは「承知しました。」（flowctl.Flow._ack）。✅ 2026-11-06 日本時間11時19分55秒 ユーザー：「(2) 「ちょっと今は決められない
+# ですね。」というのが最終のお客様の決定であれば、「承知しました。それではパンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」⇒
+# ⛔✅ 2026-11-09 日本時間3時46分53秒 ユーザー：「お客様が決められないと言っているのは、悩んでいるのか、今決められないだけなのか、判断を拒んだわけではない
+# ので、「それではこの件は保留ということでよろしいでしょうか？」のように聞いてあげた方がいいんじゃないですか？この状況でこちらに決めつけられるのは心外じゃない
+# でしょうか？」＝言い渡さずに伺う（お返事を待つ所は Flow._ask_pending・お返事は Flow._pending_reply の1か所）
+PENDING_LINE = "それでは{t}は保留ということでよろしいでしょうか？"
 PENDING_THING = "この件"
 # 名乗りの頭。✅ 2026-10-16 ユーザー：「名乗りの頭は、『お忙しいところ恐れ入ります。』でOK」（法人・個人の名乗りの例では「お忙しいところ
 #    失礼いたします。」と書かれていたので一度替えたが、もとのままにする）
@@ -261,6 +264,11 @@ CALLBACK_ASK = {
     # んじゃないでしょうか！」。決まった言い方なので、言葉の途中の読点は外した（✅ 2026-10-15 ユーザー）。⏳ 録音は声の型ごとに作って聞いていただく
     "other_point": "ほかにご納得いただけない点はございますでしょうか？",
     "agreed_now": "ご説明した内容でご納得いただけましたでしょうか？",
+    # 営業に引き継ぐ架電（業務設定の引き継ぎの方法 handoff_ways がある）で、ご承認が最終目的のご承認の手順を、点を言っていただけないまま終えるとき、電話を締めずに
+    # 伺う一言（flowctl.Flow._handoff_step の1か所。頭の「承知しました。」は相づち）。✅ 2026-11-09 日本時間4時36分49秒 ユーザー：「それだと多分、もういいです。
+    # となると思うので、営業に引き継ぐ架電なら、「それでは、詳しい者より、改めてお話しさせていただいてもよろしいでしょうか？」の方がよくないですか？」
+    # （決まった言い方なので、言葉の途中の読点は外した＝10-15）
+    "handoff": "それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？",
 }
 # 同じシステムの質問を1通話に何度か伺うときの、2回目からの言い方（順に回す。1回目は CALLBACK_ASK。録音は callback_（役目）_2 から）。
 # ✅ 2026-11-02 日本時間6時33分 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」が続いて機械ぽいので、「ご不明点などほかにも
@@ -271,7 +279,12 @@ CALLBACK_ASK_AGAIN = {"other_point": ("ご不明点などほかにもござい�
 # ご承認の手順の「ほかに…」（other_point）に、分からない点があるとだけ言われ、どの点かを言っていただけなかったときに1回伺う一言（flowctl.callback_question の which・
 # Flow._point_step。共通の一言の録音 callback_other_point_which）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(a) ほかに分からない点が「ある」とだけ言われたとき：
 # 「ほかにご不明な点はどのようなことになりますでしょうか？」」
-CALLBACK_ASK_WHICH = {"other_point": "ほかにご不明な点はどのようなことになりますでしょうか？"}
+CALLBACK_ASK_WHICH = {"other_point": "ほかにご不明な点はどのようなことになりますでしょうか？",
+                      # ご承認の手順の1つ目（not_agreed＝N1）に、点を言っていただけなかった（どの部分か分からない・どちらとも取れない。言いたくないは除く）とき、
+                      # 手順を終える前に1回だけ伺う一言（共通の一言の録音 callback_not_agreed_which。頭の「承知しました。」は相づち）。✅ 2026-11-09 日本時間
+                      # 3時46分53秒 ユーザー：「「その中でも、どのあたりが特に、気になっていらっしゃいますでしょうか？」のような汎用的な言葉で相手の一言を引き出すのが
+                      # 使いやすいんじゃないでしょうか？」（決まった言い方なので、言葉の途中の読点は外した＝10-15）
+                      "not_agreed": "その中でもどのあたりが特に気になっていらっしゃいますでしょうか？"}
 # 続きの電話の振り返りの一言（「前回は『…』とお話ししたところで…」）への返事で、どの点かを言っていただけなかったとき：まだ点を1つも伺っていないので「ほかに」を
 # 外す（共通の一言の録音 callback_other_point_which_recap）。✅ 2026-11-06 日本時間10時12分44秒 ユーザー：「(イ) 「ほかに」を外して「ご不明な点はどのようなことに
 # なりますでしょうか？」OK」
@@ -752,6 +765,11 @@ UNCLEAR_ANYTIME = "何かわからないことがございましたらいつで�
 # Flow._hesitation の1か所）。お答え（迷っている点）には、会話AIが業務の情報の範囲で答える（尋ねられて答える1か所）。✅ 2026-11-07 日本時間18時03分49秒 ユーザー
 # 「(1) ア」（15時台のご報告の (ア)「どういった点でお迷いでしょうか？」と1回伺い、お答えには業務の情報の範囲で答える）
 HESITATE_POINT = "どういった点でお迷いでしょうか？"
+# 言い直し（「はい、それではパンフレットをお送りさせていただきますね？」）へのお返事が、まだ決めていない（判定が答えを選んでいない＝「うーん、どうでしょうね。」）
+# ときの2回目：同じ言い直しをくり返さず、この一言で伺う（共通の一言の録音 how_now。伺う所は Flow._how_now の1か所。頭の「はい、」は相づち）。判定に見せる文は
+# 言い直した中身のまま（何のお返事かを分かって読む）。✅ 2026-11-09 日本時間3時06分51秒 ユーザー：「同じ質問を繰り返しているし、悩んでいるのに、この返答は
+# おかしいですよね。「いかがなさいますか？」のような返答が妥当じゃないですか？」
+HOW_NOW = "いかがなさいますか？"
 # 値を伺う質問（日時・数・金額＝flowctl.ESTIMATE_TYPES）の最初の「まだ決まっていない」に、すぐ保留で締めずに1回伺う一言（共通の一言の録音 estimate_ask。
 # 伺う所は HESITATE_POINT と同じ1か所＝Flow._hesitate_point。頭の「はい、」は相づち）。それでも決まらなければ保留。✅ 2026-11-08 日本時間2時21分15秒
 # ユーザー「(1)〜(4)ともイでOK」の (1)（途中のご報告の (イ)「1回だけ「はい、それではおおよその目安だけでもお伺いしてもよろしいでしょうか？」と伺い…」）
@@ -870,7 +888,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK,
+            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
