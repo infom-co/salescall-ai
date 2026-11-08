@@ -3405,8 +3405,9 @@ class Flow:
         self.back_counts: dict[str, int] = {}
         self.own_turn = -1
         self.own_tried: tuple[int, list] = (-1, [])  # 確かめに通らなかった答えの文（相手の発話の番号, [(文, 理由)]）。書き直させた回数を数える
-        # 答えに添えられた相手の質問（_advance）：次へ進む返事は先に作っておき、AIがその質問に答えてから流す（_continue）。(相手の質問, 返事)
-        self.after_answer: tuple[str, dict] | None = None
+        # 答えに添えられた相手の質問（_question_first）：答えへの返事は先に作っておき、AIがその質問に答えてから流す（取り出す1か所 _take_after_answer）。
+        # (相手の質問, 返事, 返事を作った時の相手の発話の番号)
+        self.after_answer: tuple[str, dict, int] | None = None
         # 答え方の操作を受けたとき、意味の判定のどれかが、いまの質問の答えとも読んだ相手の言葉（_keep_answer_reading）：
         # {"turn": 相手の発話の番号, "qid": 質問, "said": 言葉, "check": その言葉の確かめ}。AIは相手に応えたあと、いまの質問へ戻る前に、
         # その言葉の答えを報告できる（報告は、この言葉と確かめに当てる＝judged・_held_words）
@@ -4818,8 +4819,36 @@ class Flow:
             return reply
         if not any(x["turn"] == self.callee_turns for x in self.facts.get("callee_question", [])):
             self._note("callee_question", answered=None)  # 同じ発話に報告が2回届いても、1つの質問は1つの記録
-        self.after_answer = (asked, reply)
+        self.after_answer = (asked, reply, self.callee_turns)
         return {"result": "callee_asked", "message": f"相手が質問をしています。次へ進む前に、まずその質問に答えます。{self._now()}"}
+
+    def _take_after_answer(self) -> dict:
+        """答えに添えた質問に答えたあと、取っておいた返事（_question_first）を取り出す唯一の場所（戻る1か所 _continue・締めの報告 _op_request_end）。
+        取っておいた返事は、作った時の発話ではなく、いま流す時の発話（答えたあとのお客様の発話）で言う＝その返事を作った時に立てた「この発話で言った」印を、
+        いまの発話に付け直す：言い直しを頼んだ（confirm_requested_at＝言い直しへの返事は、このあとの発話から）・考えている途中の「はい。」を流した
+        （thinking_turn）・待つかかけ直すかを伺った（wait_turn）・もう一度言った（repeat_turn）・先に言われたことを伺った（answer_held の offered＝その答えの
+        報告に相づちを重ねない）・ご承認の手順の相づち（point の thank・hai・gomottomo＝その返事の頭に流す）・迷っている方に伺った・選ぶ助けを伝えた（hesitating）。
+        お客様が言った・読んだ印（聞き取れない・ご意見を言った・電話を終える言葉の読み など）は、お客様の発話のものなので付け直さない。
+        取っておいた言い直しは、頭の受けの言葉（前の答えへの「ありがとうございます。」など）を外して「それでは」から＝もう伺ったことへ戻るときと同じ決まり
+        （restated_again の1か所。✅ 2026-10-23 ユーザー：「そうなんですね。」のあとの「ありがとうございます、それでは…」は会話が繋がっていない）。
+        ⛔ 2026-11-08 日本時間11時台（J-5 の確かめのあと、ご報告の例を流れの制御から出して見つけた）：作った時の発話の番号のままだったので、急いでいる方への
+        伺いへの「はい、来週なら大丈夫です。」（来週＝先に言われた日時）に添えた質問に答えたあと、「はい、」のあとの「ありがとうございます。来週で…」にも
+        「はい、」を重ねた。先に答える番の返事で、取っておいた返事のお礼「ありがとうございます。」を流していた（_ack_choice が印を先に読んだ）"""
+        _, r, made = self.after_answer
+        self.after_answer, now = None, self.callee_turns
+        for name in ("confirm_requested_at", "thinking_turn", "wait_turn", "repeat_turn"):
+            if getattr(self, name) == made:
+                setattr(self, name, now)
+        for marks, keys in ((self.answer_held, ("offered",)), (self.point, ("thank", "hai", "gomottomo")),
+                            *((h, tuple(h)) for h in self.hesitating.values())):
+            for k in keys if marks is not None else ():
+                if marks.get(k) == made:
+                    marks[k] = now
+        if self.awaiting_confirm is not None and self.confirm_requested_at == now and r.get("say") == self.awaiting_say:
+            say = restated_again(self.awaiting_say)
+            r = {**r, "say": say, "message": r["message"].replace(self.awaiting_say, say)}
+            self.awaiting_say = say
+        return r
 
     def speech_allowed(self, since: int) -> bool:
         """AIが話した声を、相手に流してよいか（電話接続側が決める唯一の場所。since＝このターンの記録の始まり）。録音で流す通話では、AIの声で
@@ -4897,6 +4926,11 @@ class Flow:
           （moushiwake_heavy）。✅ 2026-10-16 ユーザー：「02だと軽薄に聞こえる」場面（こちらの誤り・クレーム・かけ直し）は重いほう
         - 差し戻し ⇒ 流さない（AIはまだ受け付けられていない報告を出し直す）"""
         result = reply["result"]
+        if result == "callee_asked":
+            # 答えに添えられた質問に先に答える番（_question_first）：相づちは流さない（答える操作の頭が「はい、」）。取っておいた返事の相づちの印（ご承認の手順の
+            # お礼 など）は、その返事を流す時に読む（_take_after_answer が印を流す時の発話に付け直す）＝ここでは読まない（⛔ 2026-11-08 日本時間11時台：下の印を
+            # 先に読み、先に答える番で「ありがとうございます。」を流し、答えたあとの次の質問の頭は「はい、」になっていた）
+            return None
         if reply.get("again"):
             # 同じ発話にもう返事をしていた（報告の無いターンの入口 judged_turn のあとに、同じ言葉への報告が届いた＝_hold・_wait_route の again）：重ねない
             return None
@@ -4904,16 +4938,19 @@ class Flow:
             # もう一度言ってほしいと頼まれ、伺ったことを流し直す（Flow._repeat_now）：「失礼いたしました。」＋「それでは（質問）」（✅ 2026-11-06 日本時間
             # 15時20分30秒 ユーザー「(1)…OK」）
             return "shitsurei"
-        if self.point is not None and self.point.get("thank") == self.callee_turns and result != "end":
+        # ご承認の手順の相づちの印は、その印を立てた返事のもの＝取っておいた返事（after_answer）を流す前は、どの返事でも読まない（先に答える番・会話AIの答え。
+        # ⛔ 2026-11-08 日本時間11時台：会話AIの答えの頭に、取っておいた返事のお礼「ありがとうございます。」を流していた）
+        p = self.point if self.after_answer is None else None
+        if p is not None and p.get("thank") == self.callee_turns and result != "end":
             # ご説明でご納得いただけた：「ありがとうございます。それでは、～」（✅ 2026-11-02 日本時間5時56分 ユーザー）
-            self.point["thank"] = None
+            p["thank"] = None
             return "arigatou"
-        if self.point is not None and self.point.get("hai") == self.callee_turns and result != "end":
-            self.point["hai"] = None
+        if p is not None and p.get("hai") == self.callee_turns and result != "end":
+            p["hai"] = None
             return "hai"
-        if self.point is not None and self.point.get("gomottomo") == self.callee_turns and result != "end":
+        if p is not None and p.get("gomottomo") == self.callee_turns and result != "end":
             # 続きの電話の始めに「覚えていない」と言われ、振り返りの一言を流す（_point_step の recap）：「ごもっともです。」（✅ 2026-11-05 日本時間4時16分52秒 ユーザー）
-            self.point["gomottomo"] = None
+            p["gomottomo"] = None
             return "gomottomo"
         if reply.get("ahead_offer"):
             # 先に言われたことを伺う（_offer_ahead）間は「はい、」だけ（ご承認の手順の「はい、」＝上の hai も、ここで流したもの＝伺い直すときに重ねない。
@@ -4935,11 +4972,10 @@ class Flow:
             # 迷っていると言い終えたお客様に、どういった点でお迷いかを1回伺う（Flow._hesitate_point）：「はい、」＋「どういった点でお迷いでしょうか？」
             # （✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(1) ア」）。会話AIの声がもう流れた（voiced）なら流さない（Flow._hesitate_now）
             return None if reply.get("voiced") else "hai"
-        if result in ("rejected", "wait", "confirm_target", "callee_asked", "end_trouble", "explain_point"):
+        if result in ("rejected", "wait", "confirm_target", "end_trouble", "explain_point"):
             # 差し戻し・相手の言葉の途中・目的の人かを確かめる（どの報告から来ても同じ＝確かめる
             # 一言だけ。聞き返しにもお詫びは重ねない＝✅ 2026-10-22 ユーザーの言い方「おかだ様でお間違えなかったでしょうか？」）・
-            # 答えに相手の質問が添えられていた（先に質問に答える。その答えの頭の相づちは、答える操作のほう）・こちらの不具合で終える（お詫びの
-            # 一言「恐れ入ります。…」から始まる＝相づちを重ねない）
+            # こちらの不具合で終える（お詫びの一言「恐れ入ります。…」から始まる＝相づちを重ねない）。答えに添えられた質問に先に答える番は、上の1行目
             return None
         if reply.get("point_open") and result in ("next", "end", "recheck"):
             # 点を言っていただけないまま手順を終えたあとに挟む一言（Flow._advance）の頭：「はい、」・覚えていないと言われたら「ごもっともです。」・この電話の
@@ -6871,18 +6907,8 @@ class Flow:
         こちらが勧めた向き＝final_toward。向きが決まらない質問は、頭に「それでは」を付けて伺い直す）。✅ 2026-11-06 日本時間11時19分55秒・11時55分13秒 ユーザー"""
         if self.after_answer is not None:
             # 答えに添えられた相手の質問に答えた：先に作っておいた返事（次の質問・言い直し・聞き返し・念のための確認・締め＝_question_first）を、答えのあとに流す
-            r, self.after_answer = self.after_answer[1], None
-            if self.awaiting_confirm is not None:
-                # 取っておいた言い直し（awaiting_confirm は、取っておいた返事の言い直しのときだけ立つ）：言い直しを頼むのは、いま流すこの発話（言い直しへの返事は、
-                # このあとの発話から＝_op_confirm_field）。答えたあと（お客様の「あ、そうですか。」のあと）に流すので、頭の受けの言葉（前の答えへの「ありがとう
-                # ございます。」など）は外して「それでは」から＝もう伺ったことへ戻るときと同じ決まり（restated_again の1か所。✅ 2026-10-23 ユーザー：「そうなんですね。」
-                # のあとの「ありがとうございます、それでは…」は会話が繋がっていない）
-                self.confirm_requested_at = self.callee_turns
-                if r.get("say") == self.awaiting_say:
-                    say = restated_again(self.awaiting_say)
-                    r = {**r, "say": say, "message": r["message"].replace(self.awaiting_say, say)}
-                    self.awaiting_say = say
-            return self._led(play, "", r)
+            # （取り出す1か所 _take_after_answer＝その返事の「この発話で言った」印を、いま流すこの発話に付け直す）
+            return self._led(play, "", self._take_after_answer())
         if self._explaining() and self.point["explained"] is not None:
             # ご納得いただけなかった点をご説明した：次は手順の1か所が決める（ほかに…・ご説明できなければ申し伝えて続ける／締める。ご説明の最中に、ご説明の
             # もとの答えが遅れて届いた判定で取り消されていたら、段を戻して「-」の決まりで進む＝_point_step の back）
@@ -7030,7 +7056,11 @@ class Flow:
         お詫びの相づち「失礼いたしました。」（_ack）のあと、いまの位置へ戻る（_continue）。相手の質問に自分の言葉で答えたあと（_own_answer）の
         相手の返事（「そうですか」「わかりました」）も、ここから戻る（相づちはお礼）。応える前の相手の言葉にいまの質問の答えがあるか、AIが選ぶ
         ところ（_held_now・_return_note）で、AIが「入っていない」と選んだときも、ここから戻る（覚えておいた言葉は、もう使わない）。"""
-        held = self._held_now() is not None   # （先に言われたことを持ち続けるかは、報告の入口の _take_rest の1か所で決める）
+        # 取っておいた返事（_question_first）が、先に言われたことを伺う番（_offer_ahead が、その返事を作った発話に立てた印 offered）なら、その言葉は取っておいた
+        # 返事のもの＝消さずに、流す時に使う（_take_after_answer が印を流す時の発話に付け直す）。⛔ 2026-11-08 日本時間11時台：消していたので、急いでいる方への
+        # 伺いへの「はい、来週なら大丈夫です。」に添えた質問に答えたあと、「来週」の報告を答えたあとの発話の言葉に当てていた
+        kept = self.answer_held if self.after_answer is not None and (self.answer_held or {}).get("offered") == self.after_answer[2] else None
+        held = self._held_now() is not None and kept is None   # （先に言われたことを持ち続けるかは、報告の入口の _take_rest の1か所で決める）
         ahead = held and bool(self._held_now().get("ahead"))   # 先に言われたことに、次に伺う質問の答えは無かった
         if (self.own_pending == ASKED_REPLY and (qid := self.awaiting_confirm or self.current) is not None
                 and self.meaning_said in self.questions[qid].all_conditions):
@@ -7041,7 +7071,7 @@ class Flow:
         if not (self.ai_pending or self.own_pending or held):
             return self._reject(f"「{PART_LABEL['resume']}」は、エーアイかと聞かれて決まった言い方を流したあと・相手の質問に自分の言葉で答えたあとの、"
                                 "相手の返事にだけ使います。")
-        own, ai, self.ai_pending, self.own_pending, self.answer_held = self.own_pending, self.ai_pending, False, False, None
+        own, ai, self.ai_pending, self.own_pending, self.answer_held = self.own_pending, self.ai_pending, False, False, kept
         w = self.wish
         if ahead and w is not None and w.get("known") is not None and w.get("detail") == self.current and self.items[self.current].state == "empty":
             # 伺おうとした連絡先は、もう伺っていた（_wish_contact）：伺わずに、その連絡先で申し伝えて次へ（伺ったのと同じ発話なので、相づちは重ねない）
@@ -8130,8 +8160,7 @@ class Flow:
                 self._note_irreversible("do_not_call" if reason == "callee_refused_call" else "complaint",
                                         self._end_check(reason, bool(a.get("judged"))))
             if self.after_answer is not None:
-                reply, self.after_answer = self.after_answer[1], None   # 相手の質問に答えてから流すはずだった締め：いま流す
-                return reply
+                return self._take_after_answer()   # 相手の質問に答えてから流すはずだった締め：いま流す（取り出す1か所）
             return self._ended()
         if reason == "done" and not a.get("judged") and (due := self._end_due_now()) is not None:
             reason, a = due, {**a, "judged": True}   # 「質問が終わった」の報告でも、判定が電話を終える言葉と読んでいれば、その理由で締める

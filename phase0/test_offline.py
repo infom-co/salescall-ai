@@ -19311,6 +19311,59 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual(r["result"], "callee_asked")
         self.assertIn("ご都合のいい日時はいつ頃でしょうか？", heard(answered_then_resumed(f)))
 
+    def test_reply_kept_for_after_an_attached_question_is_said_on_the_turn_it_is_played(self):
+        # 答えに添えた質問に先に答えるとき、取っておいた返事（Flow._question_first）は、答えたあとのお客様の発話のあとに流す＝その返事の「この発話で言った」印
+        # （先に言われたことを伺った・言い直しを頼んだ・相づちのお礼 など）は、流す時の発話に付く（取り出す1か所 Flow._take_after_answer）。先に答える番の返事には
+        # 相づちを流さない（取っておいた返事の相づちの印は、流す時に読む）。⛔ 2026-11-08 日本時間11時台（J-5 の確かめのあと、ご報告の例を流れの制御から出して
+        # 見つけた）：(a) 作った時の発話の番号のままだったので、先に言われた答え（「来週なら」）を受け取る報告に「はい、」をもう一度重ねた（「はい、」「はい、ありがとう
+        # ございます。来週で…」） (b) 先に答える番の返事でご納得のお礼「ありがとうございます。」を流し（そのあと会話AIの答えまで黙る）、答えたあとの次の質問の頭は
+        # 「はい、」になった（前からある＝次へ進む返事の中で先に答えていた形にもあった）
+        from flowctl import CALLBACK_IDS, END_HURRY, END_NONE, QUERY, QUERY_NO, QUERY_YES, UNDECIDED, Flow, Question
+        from grounding import NO_FACT, Verdict
+        from meaning_judge import Reading
+
+        def answer_then(f, words="あ、そうなんですね。", ans="弊社は東京都港区にございます。"):
+            v = Verdict(NO_FACT, "")
+            v.by = "t"
+            f.on_grounded(ans, v)
+            self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": ans})["result"], "own_answer")
+            f.on_callee(); f.on_heard(words)
+            return f.apply("replay_opening", {"part": "resume"})
+        # (a) 急いでいる方への伺いへの「はい、来週なら大丈夫です。」（来週＝次に伺う日時の答え＝ほかに言われたこと）に添えた質問
+        f = EndJudgedTest.flow(self)
+        f.on_callee(); f.on_heard("今ちょっとバタバタしてて。"); f.on_check("judge", EndJudgedTest.R(UNDECIDED, UNDECIDED, (END_HURRY,)))
+        hurry_q = f.apply("request_end", {"reason": "callee_refused_call"})["question_id"]
+        yes = EndJudgedTest.R("はい", END_NONE)
+        setattr(yes, QUERY, QUERY_YES)
+        f.on_callee(); f.on_heard("はい、来週なら大丈夫です。ちなみに御社ってどちらにあるんですか？"); f.on_check("judge", yes)
+        r = f.apply("record_answer", {"question_id": hurry_q, "condition_id": "はい", "rest": "来週なら大丈夫"})
+        self.assertEqual((r["result"], r["ack"]), ("callee_asked", None))
+        r = answer_then(f)
+        self.assertEqual((r["result"], r["ack"], r.get("play"), r.get("say")), ("next", "hai", None, None))   # 「はい、」だけ（先に言われた「来週」を報告してもらう）
+        r = f.apply("record_answer", {"question_id": r["question_id"], "condition_id": "答えた", "value": "来週"})
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", None, "ありがとうございます。来週でよろしいでしょうか？"))   # 同じ発話に「はい、」を重ねない
+        # (b) ご納得のあとの「ほかに…」（N2）への「だいたい分かりました。」に添えた質問：お礼は、答えたあとの次の質問の頭に
+        n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+
+        def rd(c, q=QUERY_NO):
+            x = Reading(c, firm=True)
+            setattr(x, QUERY, q)
+            return x
+        f = Flow([Question("Q1", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                           meanings={"はい": "ご説明した内容でご承認いただける", "いいえ": "ご説明した内容ではご承認いただけない"}),
+                  Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))],
+                 play_recordings=True, answers={"料金": "料金は月額3,000円で、初月は無料となっております。"})
+        f.use_checks("judge")
+        for words, reading, args in (("いいえ、ちょっと。", rd("いいえ"), {"question_id": "Q1", "condition_id": "いいえ"}),
+                                     ("料金のところですね。", rd("点を言った"), {"question_id": n1, "condition_id": "点を言った", "value": "料金のところ"})):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", reading); f.apply("record_answer", args)
+        ApprovalTest.explained(f, "answer_料金")
+        f.on_callee(); f.on_heard("だいたい分かりました。ちなみに解約っていつでもできるんですか？"); f.on_check("judge", rd("分かった", QUERY_YES))
+        r = f.apply("record_answer", {"question_id": n2, "condition_id": "分かった"})
+        self.assertEqual((r["result"], r["ack"]), ("callee_asked", None))   # 先に答える番：お礼を先に流さない
+        r = answer_then(f, "そうなんですね。", "解約はいつでも承っております。")
+        self.assertEqual((r["ack"], [p["text"] for p in r["play"]]), ("arigatou", ["続きましてお支払いはカードと振込のどちらがよろしいでしょうか？"]))
+
     def test_thinking_or_waiting_words_are_not_end_doubts(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直すの持ち場の指摘2）で見つけた：判定が「考えている途中」「返事を待つ」と読んでいても、電話を終える
         # 言葉かの項目が「決められない」（割れも）だと、ご遠慮の一言「失礼いたしました。今後このようなお電話はご遠慮したほうがよろしいでしょうか？」を伺った
