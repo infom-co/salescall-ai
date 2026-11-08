@@ -2678,7 +2678,10 @@ RESUMED_LEAD = "前回お伺いした"
 CONTACT_ROLES = tuple(dict.fromkeys(r for _, _, r in WISH_MEANS.values() if r))
 # ほかのご希望を伺った結果（通話の事実 other_wish の outcome と、前の通話で取れた答えの "wish" の値）：none＝無い・聞き取れない・わからない／option＝元の
 # 質問の選択肢を選び直した／means＝ご連絡の方法（連絡先を伺う途中で切れたものも）／other＝ほかのご希望
-WISH_OUTCOMES = ("none", "option", "means", "other")
+# unresolved＝W1 に答えをいただけないまま終えた（迷ったあとも決められない・分からない・答えたくない）：断られたとはしない（Flow._goals_lost）。聞き取れないまま
+# 締めの前の念のための確認も使い切ったときは、今までどおり元の答えのまま（none＝RemainingNineTest の (4)・⏳ 伺う候補）。
+# ✅ 11-01「わからない・答えたくないは断られたとはしない」・11-05 4時48分13秒（もうかけないの印は付けない）。⛔ 2026-11-09 日本時間7時台まで「無い」と同じ none だった
+WISH_OUTCOMES = ("none", "option", "means", "other", "unresolved")
 # ご承認いただけなかったときの手順（ご納得いただけなかった点を伺う＝Flow._point_step）を、前の通話でどこまで伺えたか（前の通話で取れた答えの "point" の値＝
 # earlier_point）：heard＝ご納得いただけなかった点を伺った（ご説明の途中で切れたものも）／agreed・declined・unresolved＝手順の終わり（Flow._point_end）。
 # 無ければ、ご納得いただけなかった点の答えをいただく前に切れた＝続きの電話の始めに、切れた所から伺う（resumed_step。✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」）
@@ -10129,7 +10132,8 @@ class Flow:
             self._retake(q.id, picked, wid, f"ほかのご希望を伺って、選択肢「{picked}」を選び直していただいた")
             return self._wish_end("option")
         if means is None:
-            return self._wish_end("other" if cond == WISH_OTHER else "none")
+            # 決められない・分からない・答えたくない（わからない・答えたくないの受け取り）は「無い」ではない＝unresolved（断られたとはしない＝_goals_lost）
+            return self._wish_end("other" if cond == WISH_OTHER else "unresolved" if it.state in ("dont_know", "refused") else "none")
         w["means"] = means
         role = WISH_MEANS[means][2]
         if role is None:
@@ -10483,7 +10487,8 @@ class Flow:
         # ほかのご希望を伺い終えた質問のうち、ご連絡の方法・ほかのご希望を言っていただいた質問は、断られていない（その方法・ご希望を担当の者に申し伝えて進む。
         # 前の通話で言っていただいたものも＝_wish_outcome）。無いと言われたら、元の答えのまま決める（✅ 2026-11-03 日本時間19時54分・20時48分 ユーザー：
         # 最終目的なら、お礼を言って締める）。伺っている途中は上の _unfinished
-        asking |= {q.id for q in goals if self._wish_outcome(q.id) in ("means", "other")}
+        # W1 を答えをいただけないまま終えた（unresolved）も断られていない（✅ 11-01「わからない・答えたくないは断られたとはしない」）
+        asking |= {q.id for q in goals if self._wish_outcome(q.id) in ("means", "other", "unresolved")}
         # 言い切っていないお断りを確かめずに受け取った最終目的の質問（業務の手立ての質問が無い＝_keep_toward_goal）は、その答えだけでは締めず、ほかのご希望を
         # 伺った答えで決める（上の asking。✅ 2026-11-03 日本時間21時38分 ユーザー：「…(1) ほかのご希望を1回だけ伺う。ということですよね？それならOKですよ」。
         # 前は確かめてから締めた＝「念のためどちらもご不要ということでよろしかったでしょうか？」＝遠ざかる向きの言葉の確かめ・そのあと 19時49分に伺うまで

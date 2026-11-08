@@ -10150,6 +10150,50 @@ class EndJudgedTest(unittest.TestCase):
         # 方法を選んでいただく N5 は保留を伺わない（方法の件を申し伝える＝前の試験）。業務設定に無ければ作らない
         self.assertFalse({"close_offer", "N6_pending", "N5_pending"} & (set(table) - {"close_offer", "N6_pending"} | set(script_table(BUSINESS)[0])))
 
+    def test_other_wish_ended_without_an_answer_is_not_a_refusal(self):
+        # 最終目的の選ぶ質問の「どれも要らない」のあと、ほかのご希望（W1）を答えをいただけないまま終えた（迷ったあとも決められない・分からない・答えたくない）
+        # ときは、断られたとはしない：お礼の締め（その業務をかけない印 goal_refused は付けない。結果は unresolved）。「無い」と言われたときだけ、
+        # 元の答えのとおりお断りの締め。決まり＝11-01「わからない・答えたくないは断られたとはしない」・11-05 4時48分13秒（点を言っていただけないまま終えても
+        # もうかけないの印は付けない）。⛔ 2026-11-09 日本時間7時台に見つけた（申し出への迷いの直しの表）：「無い」と同じ none にして、お断りの締めと印を付けていた
+        from flowctl import HESITATING, NONE, QUERY, QUERY_NO, WISH_NONE, Flow, Question
+        from meaning_judge import Reading
+        from phrases import CLOSING, CLOSING_AFTER_DECLINE
+
+        def say(f, words, op, judged=None, **args):
+            f.on_callee(); f.on_heard(words)
+            if judged is not None:
+                r = Reading(judged, firm=True)
+                setattr(r, QUERY, QUERY_NO)
+                f.on_check("judge", r)
+            return f.apply(op, args)
+
+        def flow(judging=False):
+            f = Flow([Question("Q1", "パンフレットとカタログのどちらをお送りしましょうか？", "choice", conditions=("パンフレット", "カタログ"),
+                               final_goal=True)], play_recordings=True)
+            if judging:
+                f.use_checks("judge")
+            say(f, "どちらも要らないです。", "record_answer", NONE if judging else None, question_id="Q1", condition_id=NONE)
+            return f
+
+        def ended(f, r):
+            return (r["result"], f.end_reason, "goal_refused" in f.facts, [e["outcome"] for e in f.facts["other_wish"]], CLOSING_AFTER_DECLINE in str(r))
+
+        # 迷ったあとも決められない（判定を使う通話）
+        f = flow(True)
+        say(f, "うーん、どうしようかな。", "record_answer", HESITATING, question_id="W1", condition_id="unknown")
+        say(f, "メールだと見落としそうで。", "record_answer", "unknown", question_id="W1", condition_id="unknown")
+        line = "郵送でしたらお手元にそのまま残りますので、見落としの心配も少ないかもしれませんね。"
+        grounded(f, line)
+        f.apply("replay_opening", {"part": "own", "answer": line})
+        r = say(f, "まだ決められないですね。", "record_answer", "unknown", question_id="W1", condition_id="unknown")
+        self.assertEqual(ended(f, r), ("end", "done", False, ["unresolved"], False))
+        self.assertIn(CLOSING, str(r))
+        # 会話AIの報告の「わからない」「答えたくない」も同じ。「無い」だけお断りの締め
+        for cond, want in (("unknown", ("end", "done", False, ["unresolved"], False)), ("refused", ("end", "done", False, ["unresolved"], False)),
+                           (WISH_NONE, ("end", "goal_refused", True, ["none"], True))):
+            f = flow()
+            self.assertEqual(ended(f, say(f, "…", "record_answer", question_id="W1", condition_id=cond)), want, cond)
+
     def test_the_opening_and_the_flow_start_with_the_same_question(self):
         # 名乗りのあとに最初に伺う質問（名乗りの録音の最後・AIへの指示文＝instruction.Business.first_ask）と、流れの制御の始めは、同じ1か所
         # （flowctl.opening_question）：名前の読みの確かめが先、続きの電話のほかのご希望はそのあと。⛔ 名乗りの組み立てだけ、読みの確かめを見ずに
@@ -14432,12 +14476,18 @@ class NoneOfThemTest(unittest.TestCase):
         # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直す・W1 の持ち場の指摘11）で見つけた：最終目的の W1 に「わからない」「答えたくない」と言われて
         # 締めるとき、相づち「承知しました。」のあとに締めの「承知いたしました。お忙しいところ…」が続いた。締めの頭がお断りのあとの一言（「承知いたしました。」）
         # なら、相づちは「はい、」（✅ 11-02 6時33分「はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。…」）
+        # ✅ 2026-11-09 日本時間7時台（11-01「わからない・答えたくないは断られたとはしない」）：W1 の「わからない」「答えたくない」は断られたとはしない＝締めずに
+        # 次の質問へ（「承知しました。」）。お断りの締めは「無い」と言われたときだけ（その締めの相づちは「はい、」のまま）
+        from flowctl import WISH_NONE
         from phrases import ACK
         for cond, words in (("unknown", "ちょっと分からないです。"), ("refused", "それは言いたくないです。")):
             f, _ = self.wished(True)
             r = AmbiguousAnswerTest.say(f, words, "record_answer", question_id="W1", condition_id=cond)
-            self.assertEqual((r["result"], r["ack"]), ("end", "hai"), cond)
-            self.assertEqual(ACK[r["ack"]] + r["say"], "はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。")
+            self.assertEqual((r["result"], r["ack"], f.end_reason, "goal_refused" in f.facts), ("next", "shouchi", None, False), cond)
+        f, _ = self.wished(True)
+        r = AmbiguousAnswerTest.say(f, "特にないです。", "record_answer", question_id="W1", condition_id=WISH_NONE)
+        self.assertEqual((r["result"], r["ack"]), ("end", "hai"))
+        self.assertEqual(ACK[r["ack"]] + r["say"], "はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。")
 
     def test_any_way_after_listing_takes_the_first_offered_way(self):
         # ✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」：申し出た方法を並べて伺ったあとの「どれでも」は答え（どちらでも＝10-17 の案A）＝業務設定で
