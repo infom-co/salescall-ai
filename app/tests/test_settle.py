@@ -659,15 +659,24 @@ class PromiseNotTransferred(SettleBase):
         まで：比べる相手は不在の方針の回数だった＝✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回」。0216）。"""
         s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 5, "interval": {"hours": 1}}
                                               for k in business_rules.POLICY_KEYS}))
-        self.put_client(s, "callback.window_daily_max", 2)
-        now, window = self.promised(s)
+        self.put_client(s, "callback.window_daily_max", 1)
+        clock = self.tx(s, lambda tx: tx.one("SELECT now() AS now, salescall.jst_day_start(salescall.jst(now())::date + 1) AS midnight"))
+        window = next_action.Window(min(clock["now"] + timedelta(hours=3), clock["midnight"]), (0, 24 * 3600), None,
+                                    clock["now"] - timedelta(hours=1), "day")   # 今日のうちに終わる回
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], clock["now"], contact_id=s["contact"], cause="試験", promised=True,
+                                                       window=window))
         first = self.settle(s, self.call(s, report=self.report(True)))["decision"]
-        self.assertEqual((first.promised, first.window.round), (True, 0))
-        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
-                                                       window=first.window))
-        second = self.settle(s, self.call(s, report=self.report(True)))["decision"]
-        self.assertEqual((second.promised, second.window.round), (True, 1))
-        self.assertGreaterEqual(second.at, window.until)
+        self.assertEqual((first.promised, first.window.round), (True, 1))       # その日の1本目で回数に届いた：回の終わり（次の回）へ
+        self.assertGreaterEqual(first.at, window.until)
+        # 回が日をまたいで続く幅（終わりが明日）でも、その日の回数に届いたら、その日はかけない（次の日から＝同じ回のまま）
+        t = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 5, "interval": {"hours": 1}}
+                                              for k in business_rules.POLICY_KEYS}))
+        self.put_client(t, "callback.window_daily_max", 1)
+        self.promised(t, window_hours=48)
+        got = self.settle(t, self.call(t, report=self.report(True)))["decision"]
+        tomorrow = self.tx(t, lambda tx: tx.one("SELECT salescall.jst_day_start(salescall.jst(now())::date + 1) AS d")["d"])
+        self.assertEqual((got.promised, got.window.round), (True, 0))
+        self.assertGreaterEqual(got.at, tomorrow)
 
     def test_the_claim_tells_the_conversation_whether_it_is_a_promised_call(self):
         """予約証が、約束の電話かを会話の処理へ渡す（約束の電話のときだけ、締めの前に「後ほど改めてお掛けしても」と聞く）。"""
