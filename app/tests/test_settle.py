@@ -3184,6 +3184,28 @@ class DialFixAfterCalls(SettleBase):
                         self.assertEqual(self.plan(s), self.handed_over(new))
                         self.assertIsNotNone(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["person_since"])
 
+    def test_a_kept_promise_used_up_at_the_gate_also_hands_over(self):
+        """「守る」約束の回が、門で止められているあいだに使い切られた（幅の外で止められ、次の回が打ち止め）⇒ 通話のあとと同じく、行を終えずに新しい担当の方へ
+        引き継ぎを確かめる電話（門のあとも next_action._after_former の1か所。前の担当の方の期の予定を止めたとき。0214。⛔ 0213 まで：行が終わった）。
+        お呼びする方が替わっていない行（same）の約束は、いままでどおり行を終える。"""
+        for way in ("dial", "name", "same"):
+            with self.subTest(way=way):
+                s = self.ready()
+                if way == "same":
+                    self.put_client(s, "gate.same_contact_min_interval", 1)
+                    self.promise_window(s)
+                else:
+                    new = self.kept_promise(s, way)
+                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+                self.at(s, s["contact"], window=next_action.Window(now - timedelta(minutes=1), None, None, now - timedelta(hours=1), "week",
+                                                                   round=50))   # 試験：最後の回が、かけられないまま過ぎた
+                d = self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], gate.denied("callback_window"), tenant_id=s["tenant"],
+                                                                   client_id=s["client"], business_id=s["business"]))
+                if way == "same":
+                    self.assertEqual((d.kind, d.end_reason), ("end", "callback_unspecified_time"))
+                else:
+                    self.assertEqual(self.plan(s), self.handed_over(new), d)
+
     def test_going_back_keeps_the_promise_kept_for_the_person_left_before_a_dropped_one(self):
         """田中様の約束を「次の担当の方にだけ」でやめ、鈴木様が「あとで」と約束 → 田中様に戻すとき鈴木様との約束を「守る」⇒ 契約者が守ると選んだ鈴木様の約束を
         先にする（やめた田中様の約束は戻さない＝next_action._period_promise。0214）。"""

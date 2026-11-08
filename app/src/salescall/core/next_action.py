@@ -753,17 +753,19 @@ def source_ends_row(tx: Tx, src: dict[str, Any] | None) -> bool:
     return answer_still_ends(tx, src)
 
 
-def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None, *, attempt_id: UUID | None, answer: str | None,
-                  complaint: bool = False, kept: bool = False, reached: bool = False, now: datetime) -> Decision:
-    """前の担当の方への通話（tasks.former_person_call の1か所）のあとの決定（d＝同じ方のときの決まりで決めたもの）を、行を終えずに新しい担当の方への形
-    （`_to_new_person`）にするか（1か所。通話のあと＝`after_call`・お詫びの電話のあと＝`after_apology`。番号の直しと名前などの直しで別々に書かない。0214）：
+def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None, *, attempt_id: UUID | None = None,
+                  answer: str | None = None, apology: bool = False, complaint: bool = False, kept: bool = False, reached: bool = False,
+                  now: datetime) -> Decision:
+    """前の担当の方への通話（tasks.former_person_call の1か所）のあと・前の担当の方の期の予定（row の期が、いまの期と違う）を門が止めたあとの決定（d＝同じ方の
+    ときの決まりで決めたもの）を、行を終えずに新しい担当の方への形（`_to_new_person`）にするか（1か所。通話のあと＝`after_call`・お詫びの電話のあと＝
+    `after_apology`・門のあと＝`after_denial`。番号の直しと名前などの直しで別々に書かない。0214）：
     - その方個人の答え（用件の断り・「もうかけないで」・ほかの手段・在籍していない など＝`FORMER_ANSWERS` の personal。行を終えるかは `answer_ends_row` の
       1か所）で行を終える決定 ⇒ 新しい担当の方へ（✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(24)）。
     - その方への用を使い切って終える決定（約束・番号の聞き直し・お詫びの回数・日数を使い切った＝`_count_end`、その方の番号のせいで終えた＝`NUMBER_ENDS`）
       ⇒ 新しい担当の方へ（✅ 2026-11-08 ユーザー＝計画書 7-1 (32)「約束の幅いっぱい → 鈴木様」。行を終えずに引き継ぎを確かめる電話。
       ⛔ 0213 まで：番号の直しでは前の番号へ1回で新しい番号へ移り（`_moved_on_fix`）、名前などの直し・前の担当の方の携帯では、約束を使い切ると行が
       終わった。前の担当の方への番号の聞き直しを使い切ったときも、名前などの直しでは行が終わった）。
-    - お詫びの電話（answer が None）：お詫びは前の担当の方個人のこと。届いても・届かなくても・断られても、行を終える決定なら新しい担当の方へ（2026-11-07
+    - お詫びの電話（apology）：お詫びは前の担当の方個人のこと。届いても・届かなくても・断られても、行を終える決定なら新しい担当の方へ（2026-11-07
       本体の決定＝計画書 7-1 (12)(22)(24)）。
     - 契約者が「守る」を選んだ約束の電話（kept＝`_kept_old_promise`）で、前の担当の方と話し（reached）、新しい約束でも行を終える答えでもない（まだ続く＝
       `FORMER_ANSWERS` の continue）⇒ 新しい担当の方へ（約束でない答えになったので、約束はそこまで。⛔ 0213 まで：番号の直しでは新しい番号へ移って
@@ -771,10 +773,15 @@ def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None
     新しい担当の方へかけない（言ってはいけないことのあとのお詫びで、業務を終えた結果＝`_to_new_person` が None）なら d のまま。前の担当の方が怒っていた
     （complaint）ときも d のまま（苦情は契約者が対応する特例で、行を終える＝締めの `_ends_row` と同じ）。会社としての答え（目的を果たした・対象外）は
     d のまま（行を終える）。新しい約束（promise）は契約者の選び（`after_call` の former_promise）。"""
-    if attempt_id is None or complaint or d.kind == "hold" or not tasks.former_person_call(tx, attempt_id):
+    if complaint or d.kind == "hold":
         return d
+    if attempt_id is not None:
+        if not tasks.former_person_call(tx, attempt_id):
+            return d
+    elif row is None or row["kind"] != "call" or row["person_since"] == person_now(tx, task_id):
+        return d   # 門のあと：止めた予定が、いまの担当の方の期の予定
     if d.kind == "end":
-        own = answer is None or (d.end_reason in _PERSONAL_ENDS and not answer_ends_row(tx, attempt_id, answer))
+        own = apology or (answer is not None and d.end_reason in _PERSONAL_ENDS and not answer_ends_row(tx, attempt_id, answer))
         used = _count_end(tx, task_id, d.end_reason) or d.end_reason in NUMBER_ENDS
         if not (own or used):
             return d
@@ -2304,7 +2311,7 @@ def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dial
     at = dialed_at or now
     row = _plan_at(tx, task_id, at)
     # 前の担当の方へのお詫びの電話のあと、行を終える決定 ⇒ 新しい担当の方へ（通話のあとと同じ `_after_former` の1か所。0214）
-    d = _after_former(tx, task_id, d, row, attempt_id=attempt_id, answer=None, now=now)
+    d = _after_former(tx, task_id, d, row, attempt_id=attempt_id, apology=True, now=now)
     d = _moved_on_fix(tx, task_id, d, row, replaced_at(tx, task_id, dialed.contact_id, at), now=now)
     _write(tx, task_id, d, after=attempt_id)
     return d
@@ -2339,8 +2346,9 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
             d = _call(now, bool(cur["promised"]), "門：その番号は、鳴らない電話が続いた ⇒ お客様が言った別の番号へ", t,
                       cur["callee_at"], window)
         # 直したあと前の番号へかける電話（まだかけていなかった約束の電話・お詫びの電話）を、門がその番号のせいで止めた ⇒ いまかける番号で
-        # （ほかの門の理由・通話のあと・お詫びの電話のあとと同じ1か所。⛔ 0194 の前は、ここだけ通らず、行が終わった）
-        d = _moved_on_fix(tx, task_id, d, cur, was_replaced=was_replaced, now=now)
+        # （ほかの門の理由・通話のあと・お詫びの電話のあとと同じ1か所。⛔ 0194 の前は、ここだけ通らず、行が終わった）。前の担当の方の期の予定なら、
+        # 先に、新しい担当の方へ移すか（`_after_former` の1か所。0214）
+        d = _moved_on_fix(tx, task_id, _after_former(tx, task_id, d, cur, now=now), cur, was_replaced=was_replaced, now=now)
         _write(tx, task_id, d)
         return d
     if denied.reason == "number_failed_wait" and now_target is not None:
@@ -2356,6 +2364,7 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
     if denied.reason in ("outside_hours", "callback_window") and window is not None and now_target is not None:
         # お客様が言った時間の幅の約束：幅の中の次の始まり・話せなかった回のあとは理由に合わせた次の回（`_keep_promise` の1か所）
         d = _keep_promise(tx, task_id, now, window, now_target, now=now, exact=cur["callee_at"] is not None)
+        d = _after_former(tx, task_id, d, cur, now=now)   # 前の担当の方との「守る」約束を使い切った ⇒ 新しい担当の方へ（7-1 (32)。0214）
         _write(tx, task_id, d)
         return d
     if denied.reason == "outside_hours":   # 次の時間帯の始まり（門の1日の回数の待ちと同じ gate.next_opening の1か所。暦の無い
@@ -2367,7 +2376,7 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
                             current_callee_at=cur["callee_at"] if cur else None, current_window=window)
     if d is not None:
         # 直したあと前の番号へかける約束の電話を、門がその番号のせいで止めた ⇒ いまかける番号で（通話のあとと同じ1か所）
-        d = _moved_on_fix(tx, task_id, d, cur, was_replaced, now=now)
+        d = _moved_on_fix(tx, task_id, _after_former(tx, task_id, d, cur, now=now), cur, was_replaced, now=now)
         _write(tx, task_id, d)
     return d
 
