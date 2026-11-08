@@ -1574,8 +1574,10 @@ class DialFixAfterCalls(SettleBase):
         s = self.ready()
         self.promise_window(s)
         new = self.fixed_as(s, False, True)                                     # 前の担当の方との約束も守る（7-1 (21)）
-        self.settle(s, self.call(s, self.CUT, side="line", report=rep(cut=Cut("callee", False, False))))
+        d = self.settle(s, self.call(s, self.CUT, side="line", report=rep(cut=Cut("callee", False, False))))["decision"]
         self.assertEqual(self.plan(s), self.handed_over(new))
+        # 締めの処理へ返す決定も、新しい担当の方への形（前の番号から移る1か所 `_moved_on_fix` が `_onto_dial` を通す）
+        self.assertEqual((d.kind, d.target.contact_id, d.target.purpose, d.promised, d.window), ("call", new, "normal", False, None))
 
     # ── 前の担当の方との約束が残っているときの選び（✅ 2026-11-07 ユーザー＝計画書 7-1 (21)：「前の担当者とのかけ直しの約束があったが、
     #    次の担当にだけかけるのかを契約者に問うて、選択してもらう。」。0201）
@@ -3093,19 +3095,21 @@ class DialFixAfterCalls(SettleBase):
         self.assertTrue(self.tx(s, lambda tx: next_action._missed(tx, s["task"], w)))   # 田中様へは、まだかけていない
 
     def kept_promise(self, s, way):
-        """田中様との幅の約束を「違う」・「約束も守る」で直す（番号の直し＝前の番号 O に約束が残る・名前などの直し＝会社の番号に約束が残る）。
-        新しい担当の方（鈴木様）へかける番号を返す。"""
+        """田中様との幅の約束を「違う」・「約束も守る」で直す（番号の直し＝前の番号 O に約束が残る・名前などの直し＝会社の番号に約束が残る・
+        mobile＝田中様が言った携帯 M への約束を、名前などの直しで残す）。新しい担当の方（鈴木様）へかける番号を返す。"""
         self.put_client(s, "gate.same_contact_min_interval", 1)
         self.put_client(s, "gate.max_dials_per_contact_per_day", 20)
         self.person_fix(s, "target_name", "田中", "たなか", same=True)
-        self.promise_window(s)
-        if way == "name":
+        at = self.promise_on_another_number(s) if way == "mobile" else s["contact"]
+        if way != "mobile":
+            self.promise_window(s)
+        if way in ("name", "mobile"):
             self.person_fix(s, "target_name", "鈴木", "すずき", keep=True, same=False)
             new = s["contact"]
         else:
             new = self.fixed_as(s, False, True)
         p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
-        self.assertEqual((p["contact_id"], p["promised"], p["person_since"]), (s["contact"], True, None))   # 田中様の約束のまま
+        self.assertEqual((p["contact_id"], p["promised"], p["person_since"]), (at, True, None))   # 田中様の約束のまま
         return new
 
     def test_a_kept_promise_is_called_through_its_window_and_then_hands_over(self):
@@ -3167,9 +3171,9 @@ class DialFixAfterCalls(SettleBase):
     def test_a_kept_promise_answered_by_the_old_person_follows_the_former_answers(self):
         """「守る」約束の途中で田中様が出て話した ⇒ いまの決まりどおり（前の担当の方の答えの分け方 FORMER_ANSWERS の1か所）：まだ続く答え（約束でない
         答え）なら鈴木様へ引き継ぎ・用件の断り（その方個人の答え）なら鈴木様へ・新しい約束なら契約者の選び。番号の直しも名前などの直しも同じ
-        （next_action._after_former の1か所。⛔ 0213：名前などの直しの会社の番号・前の担当の方の携帯では、話したあとも田中様への約束が続いた）。"""
+        （next_action._after_former の1か所。⛔ 0213：前の担当の方の携帯では、話したあとも田中様への電話が続いた）。"""
         from tests.test_judge import goal_refused
-        for way in ("dial", "name"):
+        for way in ("dial", "name", "mobile"):
             for answer, report in (("continue", rep()), ("declined", goal_refused(rep())),
                                    ("promise", rep(callback=callback("later", time="あとで")))):
                 with self.subTest(way=way, answer=answer):

@@ -1661,9 +1661,9 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     former_promise = cb is not None and attempt_id is not None and tasks.former_person_call(tx, attempt_id)
     # 契約者が「守る」を選んだ前の担当の方との約束の電話（`_kept_old_promise` の1か所）で、前の担当の方とまだ話せていない ⇒ 約束の決まりいっぱいまで、
     # その方の番号のまま（いまかける番号へ替えない。✅ 2026-11-08 ユーザー＝計画書 7-1 (32)。⛔ 0213 まで：番号の直しだけ、前の番号へ1回で移った）
-    kept = attempt_id is not None and _kept_old_promise(tx, task_id, dialed_row)
+    kept_old = attempt_id is not None and _kept_old_promise(tx, task_id, dialed_row)
     target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off, numbers=numbers,
-                           connected=connected, keep_former=former_promise or (kept and not reached_target))
+                           connected=connected, keep_former=former_promise or (kept_old and not reached_target))
     dialed_window = recount_on_switch(dialed_window, was_replaced, target, numbers)   # 新しい番号へ移る約束は0から数え直す
     count_at = target.contact_id or dialed.contact_id     # 終えるときは数え方を使わない（いまの番号で数えておく）
     promised = gate.pacing(tx, task_id, contact_id=count_at, promised=True)
@@ -1753,7 +1753,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     # 前の担当の方への通話のあと：その方個人の答え・その方への用を使い切った・「守る」約束でその方と話した ⇒ 行を終えず、新しい担当の方へ
     # （`_after_former` の1か所。計画書 7-1 (22)(24)(32)。番号の直しの「前の番号へは1回」＝`_moved_on_fix` より先に決める）
     d = _after_former(tx, task_id, d, dialed_row, attempt_id=attempt_id, answer=judged_answer(j), complaint=j.complaint,
-                      kept=kept, reached=reached_target, now=now)
+                      kept=kept_old, reached=reached_target, now=now)
     d = _moved_on_fix(tx, task_id, d, dialed_row, was_replaced, now=now)   # 前の番号でかからなかった ⇒ いまかける番号で
     _write(tx, task_id, d, after=attempt_id)
     if former_promise and tasks.old_promise_waiting(tx, task_id) == attempt_id:
