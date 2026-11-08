@@ -301,10 +301,11 @@ class CallErrorsOnlyThroughTroubles(Planted):
         """お客様リストの行の直しの入口（欄の直し・かける番号の直し・前の担当の方の新しい約束の選び・2つ目の選びが要るかの読み）は、画面だけが
         呼ぶ。直したあと・選んだあとの予定の決め直し（next_action.after_dial_fix・after_person_fix・after_old_promise_choice）は、その入口の部品
         row_fixes だけが呼ぶ（記録だけ・予定だけを書く2つ目の道を作らない。0206）。欄の直しの記録へ書くのも row_fixes だけ。"""
-        fixes = ("    row_fixes.fix(tx, t, 'target_role', '部長', keep_old_promise=None)\n"
+        fixes = ("    row_fixes.fix(tx, t, 'target_role', '部長', same_person=True, keep_old_promise=None)\n"
                  "    row_fixes.fix_dial_number(tx, t, '0', same_person=True)\n"
                  "    row_fixes.choose_old_promise(tx, t, keep_old_promise=True)\n"
-                 "    row_fixes.old_promise_choice_needed(tx, t, field='target_role', value='部長')\n")
+                 "    row_fixes.old_promise_choice_needed(tx, t, field='target_role', value='部長', same_person=False)\n"
+                 "    row_fixes.same_person_choice_needed(tx, t, field='target_role', value='部長')\n")
         plans = ("    next_action.after_dial_fix(tx, t, cause='x')\n"
                  "    next_action.after_person_fix(tx, t, cause='x')\n"
                  "    next_action.after_old_promise_choice(tx, t, keep_old_promise=False, cause='x')\n")
@@ -315,8 +316,16 @@ class CallErrorsOnlyThroughTroubles(Planted):
                           "src/salescall/web/plans.py": "def go(tx, t):\n" + plans})
         found = rules.entries_called_from_their_places(root)
         self.assertEqual(sorted((v.path, v.line) for v in found),
-                         [("src/salescall/core/settle.py", n) for n in range(2, 9)] + [("src/salescall/web/plans.py", n) for n in range(2, 5)])
+                         [("src/salescall/core/settle.py", n) for n in range(2, 10)] + [("src/salescall/web/plans.py", n) for n in range(2, 5)])
         self.assertEqual([(v.path, v.rule) for v in rules.single_writers(root)], [("src/salescall/core/settle.py", "I-12")])
+
+    def test_whether_the_target_was_reached_is_written_only_by_settle(self):
+        """目的のお客様と話せたか（attempts.record_reached_target）を書くのは締めの処理だけ（データベースの監査 K の (d)。データベースの守りも、締めの
+        記録を書く取引の中だけ＝0211 の attempt_reached_target_guard）。"""
+        call = "def go(tx, a):\n    attempts.record_reached_target(tx, a, True)\n"
+        root = self._app({"src/salescall/core/settle.py": call, "src/salescall/core/next_action.py": call})
+        self.assertEqual([(v.path, v.line) for v in rules.entries_called_from_their_places(root)],
+                         [("src/salescall/core/next_action.py", 2)])
 
     def test_the_tables_added_to_the_writers_are_written_only_from_their_places(self):
         """書く表の一覧に 0206 で足した表：一覧に書いた部品のほかから書けない（アプリの役が読むだけの表は、どこからも書かない）。"""

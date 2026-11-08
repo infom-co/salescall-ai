@@ -474,7 +474,7 @@ class ApologyAfterDialFix(ApologyBase):
         cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((cur["kind"], cur["purpose"]), ("call", "apology"))
         if other_person:
-            self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], "target_department", "総務部"), OPERATOR)
+            self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], "target_department", "総務部", same_person=False), OPERATOR)
         self.tx(s, lambda tx: next_action.end(tx, s["task"], end, cause="試験：お詫びの電話が終わった"))
         return cur["seq"]
 
@@ -560,6 +560,35 @@ class ApologyAfterDialFix(ApologyBase):
                                                              (new,)))["phone_e164"]
                     self.assertEqual((self.tx(s, lambda tx: dnc.lookup(tx, s["phone"])) is not None,
                                       self.tx(s, lambda tx: dnc.lookup(tx, new_phone)) is not None), (True, False))
+
+    def test_an_unreached_apology_comes_back_without_an_apology_after_a_name_fix_to_another_person(self):
+        """お詫びの電話を決めた回数かけても届かずに終えた行（apology_unreached）は、名前などを「担当の方は違う」で直したときも戻す（番号を「違う」で
+        直したときと同じ＝決めた回数で終えた行。計画書 7-1 (14) の「違う相手ならお詫びなしで営業を続ける」・(8)。0210）：お詫びはせず、新しい担当の方へ
+        引き継ぎを確かめる電話（名前などの直しでは番号が変わらないが、お詫びを前の担当の方へ戻さない＝next_action._restart_apology が、言っては
+        いけないことを言った通話がいまの担当の方の期の通話かを見る）。言ってはいけないことを言った通話で業務を終えていれば戻さない。「同じ」で直せば
+        戻さない。⛔ 0209 まで：名前などの直しでは戻さなかった。"""
+        from salescall.core import row_fixes
+        for items, same, want in (((), False, ("call", "normal", False, True)), (TAKEN, False, None), ((), True, None)):
+            with self.subTest(items=bool(items), same=same):
+                s = self.fresh(stage_cap=20)
+                self.ended_apology(s, items=items, end="apology_unreached")
+                self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], "target_department", "総務部", same_person=same), OPERATOR)
+                p = self.plan(s)
+                if want is None:
+                    self.assertEqual((p["kind"], p["end_reason"]), ("end", "apology_unreached"))
+                else:
+                    self.assertEqual((p["kind"], p["purpose"], p["promised"], p["handover"], p["contact_id"]), (*want, s["contact"]))
+
+    def test_an_apology_call_records_whether_it_reached_the_target(self):
+        """お詫びの電話で目的のお客様と話せたかも、ふつうの通話と同じ1か所（attempts.record_reached_target。締めの処理が、お詫びの電話の結びを書いた同じ
+        取引で書く＝0211 の守り）に記録する（引き継ぎを確かめる印 next_action._handover_due が、いまの担当の期の通話で読む）。データベースの監査 K の
+        (b)：お詫びの締めの記録を消しても落ちる試験が無かった。"""
+        s = self.fresh(stage_cap=20)
+        self.order(s, self.incident(s))
+        self.apology_call(s, apology_delivered=True)                             # お詫びは目的のお客様に届いた
+        ap = self.tx(s, lambda tx: tx.one("SELECT purpose, reached_target FROM salescall.attempts WHERE task_id = %s"
+                                          " ORDER BY claimed_at DESC LIMIT 1", (s["task"],)))
+        self.assertEqual((ap["purpose"], ap["reached_target"]), ("apology", True))
 
     def test_the_handover_mark_stays_until_the_target_is_reached(self):
         """引き継ぎを確かめる電話に出なかった ⇒ 次の電話にも印を付ける（まだ確かめていない）。目的のお客様と話せたら外す
@@ -685,7 +714,7 @@ class ApologyAfterDialFix(ApologyBase):
         self.order(s, aid)
         before = self.plan(s)
         self.assertEqual((before["purpose"], before["contact_id"], before["person_since"]), ("apology", s["contact"], None))
-        self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], "target_department", "総務部"), OPERATOR)
+        self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], "target_department", "総務部", same_person=False), OPERATOR)
         self.assertEqual(self.plan(s)["seq"], before["seq"])                   # 予定はそのまま（前の担当の方へのお詫び）
         time.sleep(1.1)
         first = self.call(s, report=rep())                                      # 届かなかった
@@ -714,7 +743,7 @@ class ApologyAfterDialFix(ApologyBase):
         self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=said()))
         self.settle(s, aid)
         self.order(s, aid)
-        self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], "target_department", "総務部"), OPERATOR)
+        self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], "target_department", "総務部", same_person=False), OPERATOR)
         time.sleep(1.1)
         first = self.apology_call(s, apology_delivered=False)["decision"]      # 1回目：届かなかった ⇒ 前の担当の方へ、お詫びのかけ直し
         self.assertEqual((first.kind, first.target.purpose, first.target.contact_id), ("call", "apology", s["contact"]))

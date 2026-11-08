@@ -34,6 +34,13 @@ def undecided(texts):
     return {t: {"reading": "", "candidates": ["なかじま", "なかしま"], "likely": "なかじま"} for t in texts}
 
 
+def row_fix(tx, task, field, value, *, same=True, **kw):
+    """行の欄の直し（画面の流れ＝0210。計画書 7-1 (28)）：1つ目の問い「いまの担当の方と同じ方か」を出す直し（row_fixes.same_person_choice_needed）
+    なら、契約者が same を選ぶ（この試験の初めの値は「同じ方」＝欄の直しそのものを確かめる）。出さない直しなら選ばない。"""
+    same_person = same if field in row_fixes.FIELDS and row_fixes.same_person_choice_needed(tx, task, field=field, value=value) else None
+    return row_fixes.fix(tx, task, field, value, same_person=same_person, **kw)
+
+
 def csv_file(rows, header=("管理番号", "会社名", "電話番号")) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
@@ -620,7 +627,7 @@ class RowFixes(Targets):
         aid = self.claim(vid, task)
         self.tx(lambda tx: tasks.record_confirmed_reading(tx, task, "target", "ナカシマ", attempt_id=aid))
         self.assertEqual(self.tx(lambda tx: business_settings.target_of(tx, task))["person"]["reading"], "なかしま")
-        got = self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "中嶋", reading="ナカジマ"))
+        got = self.tx(lambda tx: row_fix(tx, task, "target_name", "中嶋", reading="ナカジマ"))
         self.assertEqual(got, {"field": "target_name", "value": "中嶋", "reading": "なかじま"})
         p = self.tx(lambda tx: business_settings.target_of(tx, task))["person"]
         self.assertEqual((p["text"], p["reading"], p["reading_by"]), ("中嶋", "なかじま", "person"))   # 前の確かめは付けない
@@ -628,20 +635,57 @@ class RowFixes(Targets):
         p = self.tx(lambda tx: business_settings.target_of(tx, task))["person"]
         self.assertEqual((p["reading"], p["reading_by"]), ("なかしま", "conversation"))      # 直したあとに確かめた読みは効く
         # 読みを入れなければ AI の読み（取込と同じ決め方）
-        self.tx(lambda tx: row_fixes.fix(tx, task, "source_name", "架空商事ホールディングス", suggest=ai))
+        self.tx(lambda tx: row_fix(tx, task, "source_name", "架空商事ホールディングス", suggest=ai))
         c = self.tx(lambda tx: business_settings.target_of(tx, task))["company"]
         self.assertEqual((c["text"], c["reading"], c["reading_by"]), ("架空商事ホールディングス", "てすとがいしゃ", "ai"))
+
+    def test_the_call_reads_the_name_of_its_own_period(self):
+        """会話が読むお呼びする方の名前（target_of）は、その通話の担当の期の値（データベースの1か所 salescall.task_call_values。0210）：通話中に契約者が
+        名前を「担当の方は違う」で直しても、その通話（前の担当の方と話している）は前の担当の方のお名前・読みのまま。通話が終われば、これから
+        かける予定の期（新しい担当の方）の名前。「同じ」の直し（誤字の直し）は、その通話にも効く。⛔ 0209 まで：いまの値（tasks_now）を読み、
+        前の担当の方への電話でも新しい担当の方のお名前でお呼びした（見直し J-1）。"""
+        vid, task = self.one_row(name=("中島", "なかしま"))
+        aid = self.claim(vid, task)
+        n = self.tx(lambda tx: tasks.dial_number(tx, task))
+        s = {**self.s, "task": task, "contact": n["contact_id"], "phone": n["phone_e164"]}
+        for state in ("dialing", "ringing", "answered", "in_conversation"):
+            self.w.move(s, aid, state)
+        self.tx(lambda tx: row_fix(tx, task, "target_name", "中嶋", reading="なかじま", same=True))   # 同じ方の誤字の直し
+        self.assertEqual(self.tx(lambda tx: business_settings.target_of(tx, task))["person"]["text"], "中嶋")
+        self.tx(lambda tx: row_fix(tx, task, "target_name", "岡田", reading="おかだ", same=False))   # 違う方
+        p = self.tx(lambda tx: business_settings.target_of(tx, task))["person"]
+        self.assertEqual((p["text"], p["reading"]), ("中嶋", "なかじま"))                            # 通話中は、その通話の期の名前
+        self.assertEqual(self.tx(lambda tx: tx.one("SELECT target_name FROM salescall.tasks_now WHERE task_id = %s", (task,)))["target_name"],
+                         "岡田")
+        for state in ("ending", "ended"):
+            self.w.move(s, aid, state)
+        self.assertEqual(self.tx(lambda tx: business_settings.target_of(tx, task))["person"]["text"], "岡田")   # これからかける予定の期
+
+    def test_a_reading_confirmed_with_another_person_is_not_used(self):
+        """会話の中で確かめたお呼びする方の名前の読みは、同じ担当の期の通話で確かめたものだけ使う（その通話の期の値を読む1か所＝target_of。0210）：
+        番号を「担当の方は違う」で直したら、名前の文字が同じでも、前の担当の方の通話で確かめた読みは新しい担当の方には付けない（会話の中で確かめ
+        直す）。会社名の読みは、担当の方によらず使う。"""
+        vid, task = self.one_row()
+        aid = self.claim(vid, task)
+        self.tx(lambda tx: tasks.record_confirmed_reading(tx, task, "target", "ナカシマ", attempt_id=aid))
+        self.tx(lambda tx: tasks.record_confirmed_reading(tx, task, "source", "カクウショウジ", attempt_id=aid))
+        got = self.tx(lambda tx: business_settings.target_of(tx, task))
+        self.assertEqual((got["person"]["reading"], got["company"]["reading"]), ("なかしま", "かくうしょうじ"))
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=False))
+        got = self.tx(lambda tx: business_settings.target_of(tx, task))
+        self.assertNotEqual(got["person"]["reading"], "なかしま")
+        self.assertEqual(got["company"]["reading"], "かくうしょうじ")
 
     def test_full_name_department_and_role_fixes_and_clears(self):
         """フルネーム・部署・役職も直せる。空にすると、その欄を消す（取込の値に戻さない）。直した値を、依頼者に埋めていただく欄の決め方
         （who_unclear_blanks）・門の材料の確かめ（gate._task）も読む。"""
         vid, task = self.one_row(kind="role_and_name", name=("岡田", "おかだ"), role="部長")
-        self.tx(lambda tx: row_fixes.fix(tx, task, "target_full_name", "岡田太郎", reading="おかだたろう"))
-        self.tx(lambda tx: row_fixes.fix(tx, task, "target_department", "営業部"))
+        self.tx(lambda tx: row_fix(tx, task, "target_full_name", "岡田太郎", reading="おかだたろう"))
+        self.tx(lambda tx: row_fix(tx, task, "target_department", "営業部"))
         self.assertEqual(self.tx(lambda tx: business_settings.who_unclear_blanks(tx, task)), ())
-        self.tx(lambda tx: row_fixes.fix(tx, task, "target_department", "  "))           # 空＝消す
+        self.tx(lambda tx: row_fix(tx, task, "target_department", "  "))           # 空＝消す
         self.assertEqual(self.tx(lambda tx: business_settings.who_unclear_blanks(tx, task)), ("department",))
-        self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", None))
+        self.tx(lambda tx: row_fix(tx, task, "target_role", None))
         from salescall.core import gate
         self.assertIsNone(self.tx(lambda tx: gate._task(tx, task))["target_role"])          # 門も直した値を読む
         t = self.tx(lambda tx: business_settings.target_of(tx, task))["target"]
@@ -655,16 +699,16 @@ class RowFixes(Targets):
         vid, task = self.one_row(kind="role", name=(None, None), role="院長")
         for bare in ("ご担当者さん", "ご担当の方々", "担当者"):
             with self.subTest(bare=bare), self.assertRaises(row_fixes.FixInvalid) as e:
-                self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", bare))
+                self.tx(lambda tx: row_fix(tx, task, "target_role", bare))
             self.assertIn("何の担当かを書いてください", str(e.exception))
-        self.assertEqual(self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", "経理のご担当者様"))["value"], "経理のご担当者様")
+        self.assertEqual(self.tx(lambda tx: row_fix(tx, task, "target_role", "経理のご担当者様"))["value"], "経理のご担当者様")
         # 業務が一覧の役職でお呼びしない（名前で呼ぶ）なら、取込・門と同じく断らない（業務設定の TargetNeeds.role_unclear の1か所。
         # ⛔ 2026-11-07 の見直し：行の直しだけ業務によらず断っていた）
         _, by_name = self.one_row()
-        self.assertEqual(self.tx(lambda tx: row_fixes.fix(tx, by_name, "target_role", "ご担当者さん"))["value"], "ご担当者さん")
+        self.assertEqual(self.tx(lambda tx: row_fix(tx, by_name, "target_role", "ご担当者さん"))["value"], "ご担当者さん")
         self.tx(lambda tx: tx.execute(   # 前から入っている「ご担当者」だけの役職（直す前の形）
-            "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, recorded_by)"
-            " SELECT tenant_id, client_id, task_id, 'target_role', 'ご担当者さん', salescall.cur_actor() FROM salescall.tasks"
+            "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, recorded_by, same_person)"
+            " SELECT tenant_id, client_id, task_id, 'target_role', 'ご担当者さん', salescall.cur_actor(), true FROM salescall.tasks"
             " WHERE task_id = %s", (task,)))
         content = self.tx(lambda tx: gate._content(tx, vid))
         self.assertEqual(self.tx(lambda tx: gate._target_short(tx, gate._task(tx, task), "normal", content)), "target_role_unclear")
@@ -677,17 +721,17 @@ class RowFixes(Targets):
         検証モードの業務では、AI の読みを契約者が確かめる決まりなので、名前を直すときは読みも入れる。"""
         vid, task = self.one_row()
         with self.assertRaises(Rejected) as cm:
-            self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", "部長"), actor=SYSTEM)
+            self.tx(lambda tx: row_fix(tx, task, "target_role", "部長"), actor=SYSTEM)
         self.assertEqual(cm.exception.constraint, "task_fix_by_person")
         for field, value, reading in (("target_name", "中嶋", "中嶋"), ("target_role", "部長", "ぶちょう"), ("phone", "x", None)):
             with self.subTest(field=field), self.assertRaises(row_fixes.FixInvalid):
-                self.tx(lambda tx: row_fixes.fix(tx, task, field, value, reading=reading, suggest=ai))
+                self.tx(lambda tx: row_fix(tx, task, field, value, reading=reading, suggest=ai))
         self.tx(lambda tx: settings.set_value(tx, "approval.human", True, scope="business", status="decided",
                                               rationale="試験：検証モード", review_when="試験", tenant_id=self.s["tenant"],
                                               client_id=self.s["client"], business_id=self.s["business"]))
         with self.assertRaises(row_fixes.FixInvalid):
-            self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "中嶋", suggest=ai))
-        self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "中嶋", reading="なかじま"))
+            self.tx(lambda tx: row_fix(tx, task, "target_name", "中嶋", suggest=ai))
+        self.tx(lambda tx: row_fix(tx, task, "target_name", "中嶋", reading="なかじま"))
         rows = self.tx(lambda tx: tx.all("SELECT field, recorded_by FROM salescall.task_fixes WHERE task_id = %s", (task,)))
         self.assertEqual([(r["field"], r["recorded_by"]) for r in rows], [("target_name", OPERATOR.name)])
 
@@ -696,7 +740,7 @@ class RowFixes(Targets):
         次の予定・「かけない」の印・かけた回数・連絡先。どれも、それを決める1か所から読む。"""
         from salescall.core import customer_rows
         vid, task = self.one_row(kind="role_and_name", name=("岡田", "おかだ"), role="部長")
-        self.tx(lambda tx: row_fixes.fix(tx, task, "target_role", "取締役"))
+        self.tx(lambda tx: row_fix(tx, task, "target_role", "取締役"))
         self.tx(lambda tx: customer_contacts.add(tx, task, "email", "okada@example.com", origin="dashboard"))
         run = self.tx(lambda tx: tx.one("SELECT run_id FROM salescall.tasks WHERE task_id = %s", (task,)))["run_id"]
         got = self.tx(lambda tx: customer_rows.progress(tx, run))
@@ -804,7 +848,9 @@ class DialFixes(CustomerContacts):
 
     def test_which_ends_come_back_is_decided_in_one_place(self):
         """番号違い・FAX の回線で対象外にした行は戻る（ほかの対象外は戻らない）。時刻の決まっていない約束を、回数でなく契約者の方針が
-        「終える」ので終えた行は戻らない。"""
+        「終える」ので終えた行は戻らない。名前などを「担当の方は違う」で直したとき（dial=False）は、決めた回数・「あとで」の回数で終えた行は戻り
+        （新しい担当の方にはまだかけていない＝計画書 7-1 (8)(27)）、番号のせいで終えた行は戻らない（番号は変わらない）。番号の直しと名前などの直しで
+        別々に書かない（reopens_on_fix の1か所。0210）。"""
         from salescall.core import business_rules
 
         class Tx:
@@ -819,26 +865,27 @@ class DialFixes(CustomerContacts):
         # 番号のせいの終わりの理由（門が番号や番号への契約者の設定で終えた行も入る＝2026-11-06 CL-2 の案への「(1)…OK (2)…OK (3)…OK」）と、
         # 決めた回数で終えた理由は、どれも戻る。お客様が断った・業務を終えたなどは戻らない（一覧は計画書 3-4-1 の (7) から書き写した。
         # NUMBER_ENDS そのものを読むと、一覧から抜けても見張れない＝⛔ 2026-11-06 の見直し (A) の9）
-        for end in ("number_unusable", "alternate_wrong_again", "alternate_not_called", "ask_number_again_unanswered",
-                    "number_unknown", "number_kind_forbidden", "number_kind_not_allowed", "other_contractor_called",
-                    "other_client_promise_never", "alternate_blocked:number_kind_forbidden", "max_attempts", "callback_exact_unreached",
-                    "policy_max:open", "apology_wrong_party", "apology_fax_line",
-                    "apology_unreached"):   # お詫びの電話を決めた回数かけても届かなかった（計画書 7-1 (14)。0195）
-            with self.subTest(end=end):
-                self.assertTrue(next_action.reopens_on_fix(Tx(None), None, end))
+        by_number = ("number_unusable", "alternate_wrong_again", "alternate_not_called", "ask_number_again_unanswered",
+                     "number_unknown", "number_kind_forbidden", "number_kind_not_allowed", "other_contractor_called",
+                     "other_client_promise_never", "alternate_blocked:number_kind_forbidden", "apology_wrong_party", "apology_fax_line")
+        by_count = ("max_attempts", "callback_exact_unreached", "policy_max:open",
+                    "apology_unreached")   # お詫びの電話を決めた回数かけても届かなかった（計画書 7-1 (14)。0195）
+        for end in by_number + by_count:
+            for dial in (True, False):
+                with self.subTest(end=end, dial=dial):
+                    self.assertEqual(next_action.reopens_on_fix(Tx(None), None, end, dial=dial), dial or end in by_count)
         for end in ("do_not_call", "complaint", "forbidden_speech", "apology_done", "completed"):
-            with self.subTest(end=end):
-                self.assertFalse(next_action.reopens_on_fix(Tx(None), None, end))
-        # 「あとで」を方針の回数より多く言って終えた行は、どれも約束の一環だったときだけ戻る（営業拒否か、まだ分からないものがあれば
-        # 戻らない＝`_later_refused`。計画書 7-1 (13)。場面の試験は tests.test_settle.DialFixAfterCalls）
-        for end, action, refused, want in (("callback_unspecified_time", "end", False, False),
-                                           ("callback_unspecified_time", "call", True, True),
-                                           (next_action.LATER_OVER, "end", False, False), (next_action.LATER_OVER, "call", False, True),
-                                           (next_action.LATER_OVER, "call", True, False)):
-            with self.subTest(end=end, action=action, refused=refused), \
-                    mock.patch.object(next_action, "_unspecified_policy", return_value=business_rules.Policy(action, 1, None)), \
-                    mock.patch.object(next_action, "_later_refused", return_value=refused):
-                self.assertEqual(next_action.reopens_on_fix(Tx(None), None, end), want)
+            for dial in (True, False):
+                with self.subTest(end=end, dial=dial):
+                    self.assertFalse(next_action.reopens_on_fix(Tx(None), None, end, dial=dial))
+        # 時刻の決まっていない約束の回数・「あとで」を方針の回数より多く言って終えた行は、回数で終えた行として戻る（✅ 2026-11-08 ユーザー＝
+        # 計画書 7-1 (27)：営業拒否と読んだ「あとで」は断りとして別に終わる。⛔ 0209 まで：意味の分からない「あとで」があれば戻さなかった）。
+        # 契約者の方針が「終える」ので終えた行は戻らない。場面の試験は tests.test_settle.DialFixAfterCalls
+        for end in ("callback_unspecified_time", next_action.LATER_OVER):
+            for action, dial in (("end", True), ("end", False), ("call", True), ("call", False)):
+                with self.subTest(end=end, action=action, dial=dial), \
+                        mock.patch.object(next_action, "_unspecified_policy", return_value=business_rules.Policy(action, 1, None)):
+                    self.assertEqual(next_action.reopens_on_fix(Tx(None), None, end, dial=dial), action == "call")
 
     def test_a_row_ended_by_a_number_only_dnc_comes_back(self):
         """門が発信禁止で終えた行は、その番号の登録が番号違い・FAX の回線（その番号だけ）なら番号のせいなので、番号を直すと戻る。
@@ -921,7 +968,7 @@ class DialFixes(CustomerContacts):
         k = self.tx(lambda tx: tasks.dial_number(tx, task))["contact_id"]
         for table, columns, values, shift in (
                 ("task_dial_fixes", "contact_id, same_person", "%s, true", "10 years"),
-                ("task_fixes", "field, value", "'target_role', %s", "-1 year")):
+                ("task_fixes", "field, value, same_person", "'target_role', %s, true", "-1 year")):
             with self.subTest(table=table):
                 got = self.tx(lambda tx: tx.one(
                     f"INSERT INTO salescall.{table} (tenant_id, client_id, task_id, {columns}, recorded_by, recorded_at)"

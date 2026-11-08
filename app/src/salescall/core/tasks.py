@@ -141,7 +141,10 @@ def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
 
 def former_person_call(tx: Tx, attempt_id: UUID) -> bool:
     """その通話は、前の担当の方への通話か（1か所＝データベースの salescall.former_person_call。0203）。決め方：通話の担当の期（予約したときの
-    予定の期＝attempts.person_since）が、その通話を締めたときの期（salescall.settled_at。まだ締めていなければ、いま）と違う。直す前に予約して
+    予定の期＝attempts.person_since）が、その通話を締めたときの期（締めたときの立場の時刻＝salescall.call_standing_at：行の結果が決まった最初の版
+    ＝判定待ち・保留の版は入らない・お詫びの電話の結びの時刻。まだ締めていなければ、いま。0210）と違う（その時刻にいまの期の通話か＝
+    salescall.attempt_in_period の1か所）。⛔ 0209 まで：判定待ち・保留の版の時刻も締めた時刻にしたので、保留のあいだに「違う」で直し、そのあと
+    断りと決まると、いまの担当の方の断りになった（見直し J-3）。直す前に予約して
     直したあとにつながった通話も、期が古いので前の担当の方への通話。締めたあとにもう一度お呼びする方が替わっても、締めた通話の判断は変わらない
     （見直し H の (B3)）。「違う」のあとに「同じ」で直しても、担当の方は替わったまま（期は替わらない）。新しい担当の方が指定した前の番号への
     通話は、いまの期の予定からかけるので、前の担当の方への通話ではない（⛔ 0202：番号で見ていた＝第三者の見直しの指摘1）。読むのは、断られたときに止める範囲・待たせる範囲（core/dnc.refusal_reach・
@@ -157,7 +160,7 @@ def former_numbers(tx: Tx, task_id: UUID, *, as_of_call: UUID | None = None) -> 
     （断りの範囲＝core/dnc.refusal_reach。締め直し・止め直しでも同じ範囲。見直し H の (B3)）。None＝いま。"""
     return [r["phone_e164"] for r in tx.all(
         "SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s"
-        "   AND salescall.task_former_number(task_id, contact_id, coalesce(salescall.settled_at(%s), now()))"
+        "   AND salescall.task_former_number(task_id, contact_id, salescall.call_standing_at(%s))"   # 締めたときの立場の時刻（0210 の1か所）
         " ORDER BY source = 'callee', added_at, phone_e164", (task_id, as_of_call))]
 
 

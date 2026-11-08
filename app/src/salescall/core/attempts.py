@@ -93,30 +93,27 @@ def counts_as_try(table: str = "") -> str:
     return f"salescall.counts_as_try({t}state, {t}cut_off, {t}promised, {t}attempt_id)"
 
 
-def in_row_count(table: str = "", at: str | None = None) -> str:
+def in_row_count(table: str = "") -> str:
     """行の回数を数える範囲（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信のうち、前にかける番号だった番号へ
     かけたもの（直したあと、まず前の番号でかけた約束の電話）でないもの（直していなければ、すべて）。行の回数の上限・再発信の方針の回数・
     時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で数え直す」。お客様が「あとで」と
     言った回数は、こちらがかけた回数ではなくお客様の言葉なので、どの番号への電話も入る `count_start` で数える＝next_action._laters。
     数え始めの時刻は salescall.task_count_from＝0180、前にかける番号だった番号は salescall.task_number_replaced_at＝0188 の1か所。
     番号の立場は、かけたときの立場で見る＝⛔ 2026-11-06 の見直し (A) の2：前は「いま」の立場で見て、前の番号で話せてサブになった電話を、
-    あとから新しい番号の回数に数えた）。at＝その時刻で読む（SQL の式。`count_start`。None＝いま）。"""
+    あとから新しい番号の回数に数えた）。"""
     t = table + "." if table else ""
-    return (f"{count_start(table, at)}"
+    return (f"{count_start(table)}"
             f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)")
 
 
-def count_start(table: str = "", at: str | None = None) -> str:
+def count_start(table: str = "") -> str:
     """回数を数え始めてからの発信の条件（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信（直していなければ、すべて）。
     数え始めの時刻はデータベースの salescall.task_count_from（0180）。行の回数（`in_row_count`）と、その番号へかける電話の回数（番号の
     聞き直し・お詫び＝gate.purpose_dials）の両方が読む（✅ 2026-11-06 ユーザー＝計画書 7-1 (3)・(15)：「新しい番号で数え直す」。0195）。
-    at＝その時刻で読む（SQL の式。例：行を終えた時刻の "%s"）：その時刻の数え始め（salescall.task_count_from_at＝0194）から、その時刻
-    までに予約した発信（番号を直したときに、終えた行を戻すかを決める所が、終えたときに数えた「あとで」と同じ範囲を読む＝next_action._laters。
-    2026-11-07 見直し(3)の4。「あとで」は、直したあと前の番号で言われたものも入る）。None＝いま。"""
+    ⛔ 0209 まで：その時刻で読む形（at）も持っていた（「あとで」を回数より多く言って終えた行を戻すかが、終えた時刻の「あとで」を読んだ）。
+    計画書 7-1 (27) で、戻すかは「あとで」の意味を読まなくなったので消した（0210）。"""
     t = table + "." if table else ""
-    if at is None:
-        return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
-    return f"{t}claimed_at >= salescall.task_count_from_at({t}task_id, {at}) AND {t}claimed_at <= {at}"
+    return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
 
 
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
@@ -371,7 +368,8 @@ def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "r
 def record_reached_target(tx: Tx, attempt_id: UUID, reached: bool) -> None:
     """締めの処理（core/settle.py）だけが呼ぶ。その通話で目的のお客様と話せたか（判定の入力の1か所 judge.JudgeInput.reached_target）を、
     終わった試行に記録する（判定し直しでは書き直す）。読むのは、引き継ぎを確かめる印の1か所（core/next_action の `_handover_due`：いまの担当の
-    期の通話で、目的のお客様とまだ話していないか。受付の方とだけ話した通話は入らない＝call_report.talked_in とは別。0203）。"""
+    期の通話で、目的のお客様とまだ話していないか。受付の方とだけ話した通話は入らない＝call_report.talked_in とは別。0203）。書き換えられるのは、
+    その通話の締めの記録（結果の版・お詫びの電話の結び）を書いた同じ取引の中だけ（データベースの守り attempt_reached_target_guard。0211）。"""
     row = tx.one("UPDATE salescall.attempts SET reached_target = %s WHERE attempt_id = %s RETURNING attempt_id", (reached, attempt_id))
     if row is None:
         raise AttemptNotFound(str(attempt_id))

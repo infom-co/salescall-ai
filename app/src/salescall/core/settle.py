@@ -123,7 +123,6 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
         raise NotReady("承認されたお詫びの案が無いのに、お詫びの電話をかけています")
     inp, _, _ = _judge_input(tx, a, a["version_id"])
     report = inp.report
-    attempts.record_reached_target(tx, attempt_id, inp.reached_target)   # ふつうの通話と同じ1か所（引き継ぎを確かめる印が読む。0203）
     # 伝えたか：目的のお客様だと確かめられなかった通話（別の方に伝えた・確かめられなかった）は、伝えていない側に倒す
     delivered = bool(report is not None and report.apology_delivered) and not inp.target_unconfirmed
     # 発信の拒否・番号違いは、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6：前は通話中の申告だけを見て、
@@ -157,6 +156,9 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
         tx.execute("INSERT INTO salescall.apology_outcomes (tenant_id, client_id, attempt_id, order_id, delivered)"
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)",
                    (attempt_id, order["order_id"], delivered))
+        # ふつうの通話と同じ1か所（引き継ぎを確かめる印が読む。0203）。書けるのは締めの記録（お詫びの電話の結び）を書いた同じ取引の中だけ（0211。
+        # 締め直し＝again は、結びも話せたかも、最初の締めのまま）
+        attempts.record_reached_target(tx, attempt_id, inp.reached_target)
     if j is not None and j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     refused = j is not None and j.state == "do_not_call"
@@ -402,7 +404,6 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     attempt_id = a["attempt_id"]
     inp, report_source, dialed = _judge_input(tx, a, rules_version)
     report, rules, items = inp.report, inp.rules, inp.items
-    attempts.record_reached_target(tx, attempt_id, inp.reached_target)   # 目的のお客様と話せたか（引き継ぎを確かめる印が読む。0203）
     j = judge(inp)
     decided = j.state != "unknown"
     # 取り消せない決定（断り・番号違い・怒っていた）を、その場で決めるか、決まるまで保留にするか（判定の1か所 judge.irreversible と、
@@ -446,6 +447,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
                                         **({"who_unclear_blanks": list(business_settings.who_unclear_blanks(tx, a["task_id"]))}
                                            if j.detail.get("not_reached") == "who_unclear" else {})},
                                 decided_by="判定")
+    # 目的のお客様と話せたか（引き継ぎを確かめる印が読む。0203）：書けるのは締めの記録（結果の版）を書いた同じ取引の中だけ（守り。0211）
+    attempts.record_reached_target(tx, attempt_id, inp.reached_target)
     # 保留を書く（承認の部分の1か所。報告や答えが変われば版を足し、待たなくなれば閉じる。承認待ちは契約者へ知らせる）
     approval.record_wait(tx, a, found, version_no, report_source)
     if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）

@@ -44,12 +44,13 @@
 - **誤って入れた発信禁止を取り消したら**（core/dnc の取り消しの1か所と、見守り役の決まった間隔の仕事が呼ぶ `reopen_revoked`）、発信禁止で
   門が終えた行のうち、もう止まっていないものを、終える前の予定に戻す（2026-10-30 管理者のご決定 (7)）。
 - **担当の期**（0203）：その予定・その通話が、どの担当の方の期のものか（`person_since`。期の始まり＝お呼びする方が替わった時刻＝データベースの
-  salescall.task_person_since）。予定の期は `_append` が `_plan_person` で決め、通話は門が予定から写す。前の期の予定がいまの期へ移るか＝
+  salescall.task_person_since）。予定の期は `_append` が `_plan_person` で決め、通話は予約するときデータベースが予定から入れる（0210）。前の期の予定がいまの期へ移るか＝
   `_plan_person` のもとの期との比べ、引き継ぐことがあるか＝`_carried`、引き継ぎを確かめる印＝`_handover_due`（予定を書くたびに求める）。
   前の期の約束・お詫びを、いまの期の予定に持ち込まない（新しい担当の方への形は `_onto_dial` の1か所。決定を書く `_write` が必ず通し、`_append` が
   通っていない予定を書かない＝0206）。お呼びする方の名前などを直したあとの予定は `after_person_fix`（番号の直しの `after_dial_fix` と同じ1か所
   `_after_fix`。終えた行を戻すかも同じ1か所 `reopens_on_fix`＝0208）。名前などの直しで替わるのは、中身が変わったときだけ（データベースの
-  salescall.person_fix_changes。読みだけの直し・同じ値の入れ直しは替わらない＝0208。全角・半角・空白など表記の揺れだけの直しも替わらない＝0209）。
+  salescall.person_fix_changes。読みだけの直し・同じ値の入れ直しは替わらない＝0208。全角・半角・空白など表記の揺れだけの直しも替わらない＝0209。
+  値が本当に変わっても、契約者が「担当の方は同じ」を選べば替わらない＝計画書 7-1 (28)・0210）。
 - **前の担当の方への通話**（tasks.former_person_call の1か所＝通話の期が、締めたときの期と違う。0202・0203。✅ 2026-11-07 ユーザー＝計画書
   7-1 (22)(23)(24)）：前の担当の方個人の答え（断り・用件の断り）では行を終えず、新しい担当の方へ引き継ぎを確かめる電話（答えの分け方は
   `FORMER_ANSWERS`・`answer_ends_row`・`_former_personal`。止める
@@ -197,12 +198,13 @@ def _apology_reasons(prev: tuple[str, ...], apology: Apology) -> tuple[str, ...]
 def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str | None, cause: str,
             call_now: bool = False, promised: bool | None = None, target: Target | None = None,
             callee_at: datetime | None = None, hold: bool = False, window: Window | None = None,
-            apology: Apology = None, cut_call: UUID | None = None, after: UUID | None = None) -> int:
+            apology: Apology = None, cut_call: UUID | None = None, after: UUID | None = None,
+            former_promise: bool = False) -> int:
     """次の予定を1つ足す（1か所）。cut_call＝この予定でお詫びの理由 cut_off を付けた元の電話（試行。付けた所だけが渡す＝
     `decide_after_call`・`_check_unrung`）。渡さなければ、理由 cut_off を引き継ぐときに元の電話も前の予定から引き継ぐ（0187）。
     after＝この予定が、どの通話のあとの予定か（通話のあと＝`after_call`・`after_apology`、お詫びの電話＝言ってはいけないことを言った通話）。
     予定の担当の期（person_since）は `_plan_person`、引き継ぎを確かめる印（handover）は `_handover_due` の1か所で、ここが求める（呼ぶ側は
-    渡さない。0203）。"""
+    渡さない。0203）。former_promise＝前の担当の方への通話（after）で、その方がした新しいかけ直しの約束（`after_call` だけが決める＝`_plan_person`）。"""
     calls = call_at is not None or call_now
     if hold and (calls or end_reason is not None):
         raise ValueError("判定待ちは、日時も終える理由も持ちません")
@@ -227,7 +229,7 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
         window = replace(window, repeat=None, since=None)
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     prev = current(tx, task_id)
-    since, origin = _plan_person(tx, task_id, prev, target if calls else None, after)
+    since, origin = _plan_person(tx, task_id, prev, target if calls else None, after, former_promise=former_promise)
     handover = calls and target.purpose in SALES_PURPOSES and since == person_now(tx, task_id) and _handover_due(tx, task_id, since)
     reasons = _apology_reasons(tuple(prev["apology_reasons"]) if prev else (), apology)
     # 前の担当の方の期の約束・お詫び・その方への用件（番号の聞き直し・続き）を、いまの期の予定に持ち込まない（守り。0206）：前の期から
@@ -302,25 +304,23 @@ LATER_OVER = "callback_later_over"
 COUNT_END_PREFIXES = ("policy_max:",)                        # 再発信の方針の回数まで
 
 
-def reopens_on_fix(tx: Tx, task_id: UUID, end_reason: str, *, dial: bool = True, as_of: datetime | None = None) -> bool:
+def reopens_on_fix(tx: Tx, task_id: UUID, end_reason: str, *, dial: bool = True) -> bool:
     """その終わりの理由で終えた行を、行の直しで戻すか（1か所。dial＝かける番号の直し＝`after_dial_fix`・`_moved_on_fix`。偽＝お呼びする方の
-    名前などの中身の直し＝`after_person_fix`。0208）。
+    名前などを「担当の方は違う」で直した＝`after_person_fix`。0208・0210）。番号の直しと名前などの直しで別々に書かない：
     - その方個人の答え（`_PERSONAL_ENDS`＝用件の断り・ほかの手段・在籍していない など）で終えた行は、どちらの直しでも同じ1か所
       （`answer_still_ends`）：そのあとお呼びする方が替わっていれば戻す（新しい担当の方へ引き継ぎを確かめる電話）。「もうかけないで」と会社としての
-      答えは戻さない（計画書 7-1 (24)(26)。名前などの直しも 7-1 (19) で「違う相手」なので、番号の「違う」の直しとそろえる。⛔ 0206 まで：
-      名前などの直しでは、終えた行を戻さなかった）。
-    - ほかの終わりの理由は、番号の直しだけ（名前などの直しでは番号は変わらない＝番号のせい・決めた回数で終えた行は戻さない。計画書 7-1 (2) は
-      番号の直しの決まり）。
-    番号のせい（`NUMBER_ENDS`・番号違いと FAX の回線の対象外）と、
-    決めた回数（日数）までかけて終えた（`COUNT_ENDS`）なら戻す。ただし、時刻の決まっていない約束を、回数でなく契約者の再発信の方針が
-    「終える」ので終えた行は戻さない（いまの版の方針で見る）。お客様が「あとで」を方針の回数より多く言って終えた行（`LATER_OVER`）は、
-    その「あとで」がどれも約束の一環だったときだけ戻す（営業拒否か、まだ分からない「あとで」があれば戻さない＝`_later_refused`。
-    計画書 7-1 (13)）。お客様が断った・業務を終えた・苦情・言ってはいけないことなどは戻さない。as_of＝その行が終わった時刻（終えた行を
-    戻すとき。見る「あとで」は、そのときの行の回数の数え始めから。None＝いま＝終える決定を書く前）。
+      答えは戻さない（計画書 7-1 (24)(26)）。
+    - 決めた回数（日数）までかけて終えた行（`_count_end`）は、どちらの直しでも戻す：番号の直しでは新しい番号でまだかけていない（7-1 (2)(4)）、
+      「担当の方は違う」の直しでは新しい担当の方にまだかけていない（7-1 (8)「担当の相手が…違うのであれば、最初から」）。お客様が「あとで」を
+      方針の回数より多く言って終えた行（`LATER_OVER`）も入る（✅ 2026-11-08 ユーザー＝計画書 7-1 (27)「戻す」：営業拒否と読んだ「あとで」は断りとして
+      別に終わる＝判定が do_not_call にする＝7-1 (16)・0198 ので、回数で終えた行の「あとで」は約束の一環とみなす。「違う」の直しでは、前の担当の方の
+      「あとで」は新しい担当の方の言葉でもない。⛔ 0209 まで：判定の中身 callback.intent の書いていない「あとで」を「まだ分からない」として戻さなかった＝
+      `_later_refused`。消した）。
+    - 番号のせいで終えた行（`NUMBER_ENDS`・かけない種類の番号など・番号違いと FAX の回線の対象外）は、番号の直しだけ（名前などの直しでは番号が
+      変わらない）。
+    お客様が断った・業務を終えた・苦情・言ってはいけないことなどは戻さない。
     ここが見るのは終わりの理由だけ。お詫びの電話が番号のせい・決めた回数で終わった行を、どう戻すか（同じ相手へお詫び・違う相手へ営業を
-    続ける・業務を終えていれば戻さない）は、戻す形を決める `_restart` の1か所。
-    「あとで」を営業拒否と読んだ通話は、受付の営業拒否と同じ事実 do_not_call で来て、判定が断り（do_not_call。計画書 7-1 (16)。
-    2026-11-07 見直し(3)の1）にするので、その行は do_not_call で終わり、ここで戻さない（お客様が断った行）。"""
+    続ける・業務を終えていれば戻さない）は、戻す形を決める `_restart` の1か所。"""
     from salescall.core import dnc   # 発信禁止の部品が次の動きを読むので、ここで読む（読み合いにしない）
     if end_reason in _PERSONAL_ENDS:
         # その方個人の答え（用件の断り・ほかの手段・在籍していない など）で終えた行：そのあとお呼びする方が替わっていれば戻す（新しい担当の方へ
@@ -330,8 +330,10 @@ def reopens_on_fix(tx: Tx, task_id: UUID, end_reason: str, *, dial: bool = True,
         r = tx.one("SELECT attempt_id, business_state::text AS state, detail ->> 'policy_key' AS policy_key,"
                    "       detail ->> 'out_of_scope' AS out_of_scope FROM salescall.latest_task_results WHERE task_id = %s", (task_id,))
         return r is not None and r["attempt_id"] is not None and not answer_still_ends(tx, r)
+    if _count_end(tx, task_id, end_reason):
+        return True   # 決めた回数で終えた：新しい番号・新しい担当の方には、まだかけていない（番号の直しと名前などの直しで同じ）
     if not dial:
-        return False   # 名前などの直しでは番号は変わらない：番号のせい・決めた回数で終えた行は戻さない
+        return False   # 名前などの直しでは番号は変わらない：番号のせいで終えた行は戻さない
     if end_reason in NUMBER_ENDS:
         return True
     if end_reason.startswith(ALTERNATE_BLOCKED):
@@ -345,8 +347,15 @@ def reopens_on_fix(tx: Tx, task_id: UUID, end_reason: str, *, dial: bool = True,
         # 見直し：前は同じ組をここにも持っていた）
         r = tx.one("SELECT detail ->> 'out_of_scope' AS why FROM salescall.latest_task_results WHERE task_id = %s", (task_id,))
         return r is not None and r["why"] in dnc.NUMBER_ONLY
+    return False
+
+
+def _count_end(tx: Tx, task_id: UUID, end_reason: str) -> bool:
+    """決めた回数（日数）までかけて終えた終わりの理由か（`reopens_on_fix` だけが読む）：`COUNT_ENDS`・再発信の方針の回数（`COUNT_END_PREFIXES`）・
+    時刻の決まっていない約束の回数・「あとで」の回数（`LATER_OVER`。計画書 7-1 (27)）。ただし、時刻の決まっていない約束を、回数でなく契約者の
+    再発信の方針が「終える」ので終えた行は入れない（いまの版の方針で見る）。"""
     if end_reason in ("callback_unspecified_time", LATER_OVER):
-        return _unspecified_policy(tx, task_id).action != "end" and not (end_reason == LATER_OVER and _later_refused(tx, task_id, as_of))
+        return _unspecified_policy(tx, task_id).action != "end"
     return end_reason in COUNT_ENDS or end_reason.startswith(COUNT_END_PREFIXES)
 
 
@@ -372,38 +381,24 @@ def _blocked_by_number(tx: Tx, task_id: UUID, reason: str) -> bool:
         (list(dnc.NUMBER_ONLY), task_id, task_id))["only"] is True
 
 
-def _laters(tx: Tx, task_id: UUID, as_of: datetime | None = None) -> list[str | None]:
+def _laters(tx: Tx, task_id: UUID) -> list[str | None]:
     """数え始め以降にお客様が「あとで」と言った通話の、約束の一環か（判定の中身 callback.intent。promise か None＝まだ分からない）の並び
-    （1か所）。「あとで」＝判定が時刻の決まっていない約束（再発信の方針 callback_unspecified_time）にした通話（通話ごとに最新の判定の版＝
-    見方 call_judgements）。範囲は数え始め以降の、どの番号への電話も（attempts.count_start。番号を直したあと前の番号へかけた電話で言われた
-    「あとで」も入る：お客様の言葉は、どの番号で言われても同じお客様の言葉。✅ 計画書 7-1 (13)・まだ分からない「あとで」があれば戻さない
-    安全側の決まり。⛔ 2026-11-07 の見直し：前は行の回数の範囲＝attempts.in_row_count で、直したあと前の番号で言われた意味の分からない
-    「あとで」を見ずに戻した）。as_of＝その時刻で読む（その時刻の数え始めから、その時刻までに予約した発信。None＝いま）。
-    読むのは、「あとで」と言われた回数（`_unspecified_next`＝その数で行を終える）と、そうして終えた行を番号の直しで戻すか（`_later_refused`＝
-    終えた時刻で読む）の2つ：終えるときに数えた「あとで」と、戻すかで見る「あとで」が、いつも同じ並び。⛔ 2026-11-07 見直し(3)の4：前は
-    数える所（行の回数の範囲）と戻すかを見る所（前の番号への電話も入る独自の問い合わせ）が別で、数えなかった「あとで」で戻さなかった。"""
-    at = "now()" if as_of is None else "%s"
+    （1か所。読むのは「あとで」と言われた回数＝`_unspecified_next`＝その数で行を終える）。「あとで」＝判定が時刻の決まっていない約束（再発信の方針
+    callback_unspecified_time）にした通話（通話ごとに最新の判定の版＝見方 call_judgements）。範囲は数え始め以降の、どの番号への電話も
+    （attempts.count_start。番号を直したあと前の番号へかけた電話で言われた「あとで」も入る：お客様の言葉は、どの番号で言われても同じお客様の言葉）。
+    いまの担当の方の期の通話だけ（前の担当の方の「あとで」は、新しい担当の方の言葉ではない。その通話が、いまの期のものかはデータベースの1か所
+    salescall.attempt_in_period。0203・0210）。
+    ⛔ 0209 まで：「あとで」を回数より多く言って終えた行を番号の直しで戻すか（`_later_refused`）も、この並びの意味（intent）を読み、まだ分からない
+    「あとで」があれば戻さなかった ⇒ 計画書 7-1 (27) で、回数で終えた行の「あとで」は約束の一環とみなす（`reopens_on_fix`）ので、読むのは回数だけ。"""
     rows = tx.all(
         "SELECT j.detail -> 'callback' ->> 'intent' AS intent FROM salescall.call_judgements j"
         " JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
         " WHERE j.task_id = %s AND j.detail ->> 'policy_key' = 'callback_unspecified_time'"
-        f" AND {attempts.count_start('a', None if as_of is None else '%s')}"
+        f" AND {attempts.count_start('a')}"
         # いまの担当の方の期の通話だけ（前の担当の方の「あとで」は、新しい担当の方の言葉ではない。0203。⛔ 0202：数えた＝指摘7）
-        f" AND a.person_since IS NOT DISTINCT FROM salescall.task_person_since(a.task_id, {at})",
-        (task_id,) if as_of is None else (task_id, as_of, as_of, as_of))
+        " AND salescall.attempt_in_period(a.attempt_id, now())",
+        (task_id,))
     return [r["intent"] for r in rows]
-
-
-def _later_refused(tx: Tx, task_id: UUID, as_of: datetime | None) -> bool:
-    """お客様が「あとで」を方針の回数より多く言って終えた行（`LATER_OVER`）で、その「あとで」に約束の一環でないもの（まだ分からない）が
-    あるか（1か所。✅ 2026-11-06 ユーザー：「営業拒否でなければ戻せます。あくまで後でというのは約束の一環なのか営業拒否なのかというのを
-    判断する必要があります。」）。見るのは、終えたとき（as_of。None＝いま＝終える決定を書く前）に数えた「あとで」（`_laters` の1か所）。
-    約束の一環かは、会話の報告のかけ直しの申し出の intent を判定が残したもの。intent の無い「あとで」は、まだ分からないので戻さない（安全側。
-    原則6・14。会話の側が intent を報告するまで＝CL-2 の連絡帳 4-236）。営業拒否と読んだ「あとで」は、受付の営業拒否と同じ事実 do_not_call で
-    来て、その通話の判定が断り（do_not_call）にする（計画書 7-1 (16)。2026-11-07 見直し(3)の1）ので、その行は「あとで」の回数で終わらない。
-    それより前の版の判定で intent＝refusal を残した通話も、約束の一環でないので戻さない（1つの比べ方）。"""
-    laters = _laters(tx, task_id, as_of)
-    return not laters or any(i != call_report.LATER_PROMISE for i in laters)
 
 
 _PLAN_COLUMNS = ("n.seq, n.contact_id, n.kind, n.call_at, n.promised, n.purpose, n.wrong_contact_id, n.callee_at, n.window_until,"
@@ -552,7 +547,7 @@ def _handover_due(tx: Tx, task_id: UUID, since: datetime | None) -> bool:
 
 
 def _plan_person(tx: Tx, task_id: UUID, prev: dict[str, Any] | None, target: Target | None,
-                 after: UUID | None) -> tuple[datetime | None, datetime | None]:
+                 after: UUID | None, *, former_promise: bool = False) -> tuple[datetime | None, datetime | None]:
     """書く予定の担当の期と、もとの期（1か所。予定を書く `_append` と、新しい担当の方への形にするか＝`_onto_dial` が読む。0203）。
     もとの期＝その予定が続く元：通話のあとの予定は、その通話（after）の期・お詫びの電話の予定は、言ってはいけないことを言った通話
     （`schedule_apology` が after に渡す）の期・ほかは、いまの予定（prev）の期（どれも無ければ、いまの期）。
@@ -564,6 +559,10 @@ def _plan_person(tx: Tx, task_id: UUID, prev: dict[str, Any] | None, target: Tar
       ⛔ 0205 まで：いまかける番号はいまの担当の方の番号なので、前の担当の方へのお詫びのかけ直しが、新しい担当の方への期の予定になった）。
     - そのほか（いまかける番号・いまの担当の方の番号へ向いた予定）は、いまの期（前の期から移るときは `_onto_dial` が新しい担当の方への形にする）。
     - 終える・判定待ちの記録は、もとの期のまま（続きの元を残す）。
+    - 前の担当の方への通話で、その方がした新しいかけ直しの約束（former_promise＝`after_call` の1か所が決める）も、もとの期のまま（契約者の選びを
+      待つ＝計画書 7-1 (23)。salescall.task_old_promise_waiting）。かける先が、いまの担当の方の番号でも同じ（名前などを「違う」で直したあとは、
+      前の担当の方と話した番号が、いまかける番号でもある。⛔ 0209 まで：通話の途中で名前などを「違う」で直し、前の担当の方が「あとで」と
+      約束すると、その約束が契約者への知らせも無く新しい担当の方への形になった＝見直し J2）。
     ⛔ 0202 まで：期を持たず、通話の時刻と番号から推し量っていた（新しい担当の方が指定した前の番号への通話を、前の担当の方への通話とした＝指摘1）。"""
     now_since = person_now(tx, task_id)
     if after is not None:
@@ -575,7 +574,7 @@ def _plan_person(tx: Tx, task_id: UUID, prev: dict[str, Any] | None, target: Tar
     origin = o["person_since"]
     if origin == now_since:
         return now_since, origin
-    if target is None or target.contact_id is None:
+    if target is None or target.contact_id is None or former_promise:
         return origin, origin
     if target.purpose in NUMBER_BOUND and target.contact_id == o["contact_id"]:
         return origin, origin
@@ -600,7 +599,7 @@ def _onto_dial(tx: Tx, task_id: UUID, row: dict[str, Any] | None, d: Decision, *
     直した など）も、期で見るので同じ（⛔ 0202 は、前の番号から移ったかと直しの種類で分けていた）。"""
     if d.kind != "call" or d.target is None or d.target.contact_id is None:
         return d
-    since, origin = _plan_person(tx, task_id, row, d.target, after)
+    since, origin = _plan_person(tx, task_id, row, d.target, after, former_promise=d.former_promise)
     if since == origin or not _carried(tx, task_id, since) or _new_person_form(d):
         return d
     return _to_new_person(tx, task_id, row, d.rule, now=now, contact=d.target.contact_id)
@@ -687,8 +686,7 @@ def answer_still_ends(tx: Tx, call: dict[str, Any]) -> bool:
     answer = former_answer(call["state"], key=call["policy_key"], out_of_scope=call["out_of_scope"])
     if answer != "personal" or call["state"] == "do_not_call":
         return True
-    return tx.one("SELECT person_since IS NOT DISTINCT FROM salescall.task_person_since(task_id, now()) AS same"
-                  " FROM salescall.attempts WHERE attempt_id = %s", (call["attempt_id"],))["same"]
+    return tx.one("SELECT salescall.attempt_in_period(%s, now()) AS same", (call["attempt_id"],))["same"]
 
 
 def source_ends_row(tx: Tx, src: dict[str, Any] | None) -> bool:
@@ -738,7 +736,7 @@ def _restart(tx: Tx, task_id: UUID, row: dict[str, Any] | None, *, now: datetime
       直したあと前の番号でかからずに新しい番号へ移る電話（行を終えていない＝`_moved_on_fix`）は、その決定の印（marks）のまま（同じ相手
       のときだけ。違う相手なら `_onto_dial` が外す）。"""
     served = _served_plan(tx, task_id, row)
-    again = _restart_apology(tx, task_id, now=now, rule=rule) if served is not None and served["purpose"] == "apology" else \
+    again = _restart_apology(tx, task_id, served, now=now, rule=rule) if served is not None and served["purpose"] == "apology" else \
         _restart_plan(tx, task_id, served, now=now, rule=rule)
     if again is None:
         return None
@@ -747,18 +745,24 @@ def _restart(tx: Tx, task_id: UUID, row: dict[str, Any] | None, *, now: datetime
     return _onto_dial(tx, task_id, row, again, now=now)
 
 
-def _restart_apology(tx: Tx, task_id: UUID, *, now: datetime, rule: str) -> Decision | None:
+def _restart_apology(tx: Tx, task_id: UUID, served: dict[str, Any], *, now: datetime, rule: str) -> Decision | None:
     """番号のせいでかけられずに終える、または決めた回数かけてもお客様に届かずに終える（apology_unreached）、言ってはいけないことのあとの
     お詫びの電話を、いまかける番号で、もう一度かけ始める予定（`_restart` だけが呼ぶ。✅ 2026-11-06 ユーザー＝計画書 7-1 (12)・(14)：
     届かずに終えた行も「戻す」＝戻し方は (12) と同じ）：新しい番号へ、お詫びの電話（目的 apology のまま。お詫びの電話は約束の印を
     持つ＝`schedule_apology` と同じ。お詫びの文・承認・録音はそのまま）。戻したお詫びの電話の回数は、新しい番号で0回から（計画書
-    7-1 (15)＝gate.purpose_dials の counted の1か所）。違う相手なら、`_restart` が `_onto_dial` の1か所で、お詫びなしの営業の電話に
-    する（業務を終えていれば戻さない）。承認されたお詫びの案が無い（お詫びの電話の予定は、承認からしか書かない＝
-    core/apology.schedule_if_ready）ときは戻さない（None）。"""
+    7-1 (15)＝gate.purpose_dials の counted の1か所）。承認されたお詫びの案が無い（お詫びの電話の予定は、承認からしか書かない＝
+    core/apology.schedule_if_ready）ときは戻さない（None）。
+    違う相手（言ってはいけないことを言った通話＝core/apology.source_call が、いまの担当の方の期の通話でない＝データベースの
+    salescall.attempt_in_period）なら、お詫びをせず、新しい担当の方への形（`_to_new_person` の1か所＝引き継ぎを確かめる電話。言ってはいけないことを
+    言った通話で業務を終えていれば戻さない＝None）。served＝お詫びの電話の予定（`_served_plan`）。⛔ 0209 まで：同じ相手かを見ずにお詫びの電話にしていたので、名前などを「違う」で
+    直した行（番号が変わらない）では、お詫びがその番号のまま前の担当の方へ戻った（`_plan_person` の、同じ番号への `NUMBER_BOUND` の電話）。"""
     from salescall.core import apology   # お詫びの部品が次の動きを読むので、ここで読む（読み合いにしない）
-    if apology.source_call(tx, task_id) is None:
+    src = apology.source_call(tx, task_id)
+    if src is None:
         return None
     dial = tasks.dial_number(tx, task_id)["contact_id"]
+    if not tx.one("SELECT salescall.attempt_in_period(%s, now()) AS same", (src["attempt_id"],))["same"]:
+        return _to_new_person(tx, task_id, served, rule + "（言ってはいけないことを言った相手と違う：お詫びなしで）", now=now)
     return _call(now, True, rule + "（言ってはいけないことを言った同じ相手：新しい番号へお詫びの電話）", Target(dial, purpose="apology"))
 
 
@@ -815,13 +819,15 @@ def after_dial_fix(tx: Tx, task_id: UUID, *, cause: str) -> int | None:
 
 
 def after_person_fix(tx: Tx, task_id: UUID, *, cause: str) -> int | None:
-    """お呼びする方の名前・フルネーム・役職・部署を直した（担当の期が替わった＝計画書 7-1 (19)「違う相手」）あとの、行の予定（1か所。
+    """お呼びする方の名前・フルネーム・役職・部署を「担当の方は違う」で直した（担当の期が替わった＝計画書 7-1 (19)「違う相手」・(28)）あとの、行の予定（1か所。
     core/row_fixes.fix だけが呼ぶ。0206）。かけ直すの予定の決め直しは、番号を直したとき（`after_dial_fix`）と同じ1か所（`_repoint`）：
     前の担当の方との約束は、契約者の選び（row_fixes が受けて直しの記録に残す）のとおり。約束の番号がいまかける番号なら選べず、約束をやめて
     引き継ぎを確かめる電話（`_onto_dial`）・別の番号で「守る」なら約束の番号のまま前の担当の方の期・「次の担当の方にだけ」なら約束をやめて
     いまかける番号へ（`_point`）。終えた行を戻すかも番号の直しと同じ1か所（`reopens_on_fix`）：前の担当の方個人の答え（用件の断り・ほかの手段・
-    在籍していない など）で終えた行は戻し、新しい担当の方へ引き継ぎを確かめる電話（計画書 7-1 (19)(26)。0208）。番号は変わらないので、番号の
-    せい・決めた回数で終えた行は戻さない。呼ぶのは、お呼びする方が替わる直し（中身が変わる直し＝データベースの salescall.person_fix_changes）だけ。
+    在籍していない など）で終えた行は戻し、新しい担当の方へ引き継ぎを確かめる電話（計画書 7-1 (19)(26)。0208）。決めた回数（日数）・「あとで」の
+    回数で終えた行も戻す（新しい担当の方には、まだかけていない＝計画書 7-1 (8)(27)。0210）。番号は変わらないので、番号のせいで終えた行は戻さない。
+    呼ぶのは、お呼びする方が替わる直し（値が本当に変わり、契約者が「違う」を選んだ直し＝データベースの salescall.person_fix_changes）だけ。
+    ⛔ 0209 まで：決めた回数・「あとで」の回数で終えた行を、名前などの直しでは戻さなかった（番号を「違う」で直したときは戻る＝見直し J-(C)）。
     ⛔ 0205 まで：名前などを直しても予定を見直さず、前の担当の方との約束が選び無しに前の担当の方の期のまま残り、その電話は前の担当の方への
     通話になった。⛔ 0206 まで：前の担当の方個人の答えで終えた行を戻さなかった。書いたら、その予定の番号（seq）を返す。"""
     return _after_fix(tx, task_id, cause=cause, dial=False)
@@ -835,7 +841,7 @@ def _after_fix(tx: Tx, task_id: UUID, *, cause: str, dial: bool) -> int | None:
     if cur is None:
         return None
     if cur["kind"] == "end":
-        if not reopens_on_fix(tx, task_id, cur["end_reason"], dial=dial, as_of=cur["decided_at"]):
+        if not reopens_on_fix(tx, task_id, cur["end_reason"], dial=dial):
             return None
         again = _restart(tx, task_id, _last_call_plan(tx, task_id, cur["seq"]), now=now,
                          rule=f"{cause}（{cur['end_reason']} で終えた行を、いまかける番号で）")
@@ -956,6 +962,9 @@ class Decision:
     apology: Apology = None              # お詫びの印（`Apology`。None＝前の予定から引き継ぐ）
     check_of: UUID | None = None         # call のとき：切れ方の分からなかった通話（試行）の、確かめのかけ直し（`after_call` が記録する）
     cut_call: UUID | None = None         # この決定でお詫びの理由 cut_off を付けた元の電話（試行。0187。None＝前の予定から引き継ぐ）
+    # call のとき：前の担当の方への通話で、その方がした新しいかけ直しの約束（契約者の選びを待つ＝計画書 7-1 (23)。その方の期のまま書く＝
+    # `_plan_person`。付けるのは `after_call` の1か所。0210）
+    former_promise: bool = False
 
     @property
     def contact_id(self) -> UUID | None:
@@ -1336,7 +1345,8 @@ def _write(tx: Tx, task_id: UUID, d: Decision, *, after: UUID | None = None) -> 
     if d.kind == "hold":
         return hold(tx, task_id, cause=d.rule, apology=d.apology, cut_call=d.cut_call, after=after)
     return _append(tx, task_id, call_at=d.at, end_reason=None, cause=d.rule, promised=d.promised, target=d.target,
-                   callee_at=d.callee_at, window=d.window, apology=d.apology, cut_call=d.cut_call, after=after)
+                   callee_at=d.callee_at, window=d.window, apology=d.apology, cut_call=d.cut_call, after=after,
+                   former_promise=d.former_promise)
 
 
 # 目的のお客様に繋がらなかった理由のうち、同じ日にまたかけてよいかを聞く（判定の again）もの（1か所）：不在・取り次げない・在籍して
@@ -1575,6 +1585,9 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
                           check_of=_unclear_check_of(tx, task_id, attempt_id, j, dialed, target), waiting=waiting,
                           call=cut_call)
     d = _apologised(d, reached_target)
+    if former_promise and d.kind == "call" and d.promised:
+        # 前の担当の方の新しい約束は、その方の期のまま書く（かける先が、いまの担当の方の番号でも＝名前などを「違う」で直したあと。`_plan_person`）
+        d = replace(d, former_promise=True)
     d = _moved_on_fix(tx, task_id, d, dialed_row, was_replaced, now=now)   # 前の番号でかからなかった ⇒ いまかける番号で
     # 前の担当の方個人の答え（断り・用件の断り）：行を終えず、新しい担当の方へ（`_former_personal` の1か所。計画書 7-1 (22)(24)）
     d = _former_personal(tx, task_id, d, dialed_row, attempt_id=attempt_id, answer=judged_answer(j), complaint=j.complaint, now=now)

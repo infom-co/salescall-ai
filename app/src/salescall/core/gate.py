@@ -235,9 +235,11 @@ def _task(tx: Tx, task_id: UUID, contact_id: UUID | None = None) -> dict[str, An
     """行と、かける番号（contact_id・phone_e164）。番号は、渡されればそれ、無ければいまの予定の番号
     （予定が無い・終えた行は一覧の番号。どちらにしても門は通さない）。行の番号の表にある番号だけ。"""
     row = tx.one(
-        "SELECT t.task_id, t.tenant_id, t.client_id, t.run_id, t.client_ref, t.target_name, t.target_role, r.business_id,"
+        "SELECT t.task_id, t.tenant_id, t.client_id, t.run_id, t.client_ref, p.target_name, p.target_role, r.business_id,"
         "       n.contact_id, n.phone_e164"
         " FROM salescall.tasks_now t"   # 行のいまの値（ダッシュボードの直しを当てたもの。0178）
+        # 目的のお客様を呼ぶ材料は、これからかける通話の担当の期のお呼びする方の値（会話が読むのと同じ1か所＝salescall.task_call_values。0210）
+        " CROSS JOIN LATERAL salescall.task_call_values(t.task_id) p"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
         " JOIN salescall.task_numbers n ON n.task_id = t.task_id AND n.contact_id = coalesce(%s,"
         "   (SELECT x.contact_id FROM salescall.current_next_actions x WHERE x.task_id = t.task_id),"
@@ -725,7 +727,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
                  "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor, handover,"
                  "       salescall.number_again_of(purpose, number_again) AS number_again,"   # 前の予定の読み替えは1か所（0136）
-                 "       salescall.jst(window_from) AS window_from, window_said, window_day_said, person_since,"
+                 "       salescall.jst(window_from) AS window_from, window_said, window_day_said,"
                  "       salescall.keeping_kind(purpose, promised) AS keeping"
                  " FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
     if nxt is None:
@@ -936,14 +938,13 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
             row = tx.one(
                 "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"
                 "                                state, claimed_at, claim_expires_at, purpose, wrong_contact_id, voice_type,"
-                "                                promised, person_since)"
+                "                                promised)"   # 通話の担当の期は、データベースがいまの予定の期を入れる（0210 の1か所）
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'claimed', now(), now() + %s,"
-                "         %s, %s, %s, %s, %s)"
+                "         %s, %s, %s, %s)"
                 " RETURNING attempt_id, claim_expires_at, judge_route,"
                 "   (SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s) AS wrong_phone",
                 (task["task_id"], task["contact_id"], task["phone_e164"], line_id, version, lifetime,
                  nxt["purpose"], nxt["wrong_contact_id"], voice, bool(nxt["promised"]),
-                 nxt["person_since"],   # 通話の担当の期は、予定の期を写す（1か所。あとから変えられない＝0203）
                  task["task_id"],
                  nxt["wrong_contact_id"]))
     except Rejected as e:

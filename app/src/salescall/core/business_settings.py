@@ -1646,17 +1646,22 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     目的のお客様の名前とお客様の会社名（どちらも {text, reading, reading_by, candidates, likely}）と、会話の「目的の人」の形
     （target：{kind＝法人／個人, name, reading, role}。誰でもは None）。いまの版の業務設定で決まる。
     名前の読みは、会話の中でお客様に確かめた読みがあれば、それを使う（readings.with_confirmed）。読みが決まらなければ reading は
-    空で、candidates・likely を持つ（会話の中で確かめる。CL-1 の flowctl.reading_question）。"""
-    # 行のいまの値（ダッシュボードの直しを当てたもの＝見方 tasks_now の1か所。0178）
-    t = tx.one("SELECT t.*, salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks_now t WHERE t.task_id = %s",
-               (task_id,))
+    空で、candidates・likely を持つ（会話の中で確かめる。CL-1 の flowctl.reading_question）。
+    お呼びする方の値は、その通話の担当の期の値（データベースの1か所 salescall.task_call_values：予約した通話の期・予約の前は予定の期の、その期の
+    終わりの直前までに効いていた値。0210）：前の担当の方への約束・お詫び・番号の聞き直しの電話では、前の担当の方のお名前でお呼びする（⛔ 0209 まで：
+    いまの値＝新しい担当の方のお名前でお呼びした＝見直し J-1）。録音の名前の部分（core/recordings.name_needs）・門の材料も同じ1か所を読む。"""
+    t = tx.one("SELECT t.*, salescall.run_current_version(t.run_id) AS version_id, salescall.task_call_period(t.task_id) AS period"
+               " FROM salescall.task_call_values(%s) t", (task_id,))
     if t is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
-    # 会話の中で確かめた読みは、その名前を直したより後に確かめたものだけ（直す前の名前の読みを、直したあとの名前に付けない）
+    # 会話の中で確かめた読みは、その名前を直したより後に確かめたものだけ（直す前の名前の読みを、直したあとの名前に付けない）。お呼びする方の
+    # 名前の読みは、同じ担当の期の通話で確かめたものだけ（ほかの担当の方の通話で確かめた読みを付けない。会社名は、担当の方によらない）
     said = {r["which"]: r["reading"] for r in tx.all(
-        "SELECT DISTINCT ON (which) which, reading FROM salescall.task_confirmed_readings c WHERE task_id = %s"
+        "SELECT DISTINCT ON (which) which, reading FROM salescall.task_confirmed_readings c"
+        " JOIN salescall.attempts a ON a.attempt_id = c.attempt_id WHERE c.task_id = %s"
         "   AND c.confirmed_at > coalesce(CASE c.which WHEN 'source' THEN %s::timestamptz ELSE %s::timestamptz END, '-infinity')"
-        " ORDER BY which, confirm_id DESC", (task_id, t["source_name_fixed_at"], t["target_name_fixed_at"]))}
+        "   AND (c.which = 'source' OR a.person_since IS NOT DISTINCT FROM %s)"
+        " ORDER BY which, confirm_id DESC", (task_id, t["source_name_fixed_at"], t["target_name_fixed_at"], t["period"]))}
 
     def name(which: str) -> dict[str, Any] | None:
         p = f"{which}_name"

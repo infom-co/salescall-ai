@@ -540,6 +540,9 @@ def settings_read_in_one_place(app_root: Path) -> list[Violation]:
 _SUP = "src/salescall/supervisor/"
 PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("attempts", "end_for_trouble"): frozenset({_SUP + "line.py"}),          # 甚大な問題で終える：通話ごとの口だけ
+    # 目的のお客様と話せたか（引き継ぎを確かめる印が読む）：締めの処理だけ（締めの記録を書いた同じ取引の中だけ＝データベースの守りも。0211。
+    # ⛔ 見直し K の (d)：守りが無く、どこからでも書けた）
+    ("attempts", "record_reached_target"): frozenset({_CORE + "settle.py"}),
     ("ring_test", "run"): frozenset({_SUP + "line.py"}),                     # テスト番号を鳴らす：電話の部品を持つ回線ごとの処理だけ
     ("watch", "record_check"): frozenset({_SUP + "jobs.py"}),               # 止めた停止（会話AI）の確かめ：確かめの部品だけ
     ("troubles", "after_trouble"): frozenset({_SUP + "line.py"}),           # こちらの不具合を伝える：通話ごとの口だけ（0139）
@@ -617,6 +620,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("row_fixes", "fix_dial_number"): frozenset({WEB_PLACE}),
     ("row_fixes", "choose_old_promise"): frozenset({WEB_PLACE}),
     ("row_fixes", "old_promise_choice_needed"): frozenset({WEB_PLACE}),
+    ("row_fixes", "same_person_choice_needed"): frozenset({WEB_PLACE}),   # 1つ目の選び（いまの担当の方と同じ方か）を出すか（0210）
     ("next_action", "after_dial_fix"): frozenset({_CORE + "row_fixes.py"}),
     ("next_action", "after_person_fix"): frozenset({_CORE + "row_fixes.py"}),
     ("next_action", "after_old_promise_choice"): frozenset({_CORE + "row_fixes.py"}),
