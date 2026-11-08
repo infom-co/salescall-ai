@@ -777,30 +777,6 @@ def first(it: dict) -> bool:
     return bool(it.get("前の読み違え") or misread_as_affirmed(it, BASE))
 
 
-def versus(items: list[dict], qmap: dict, key: str) -> dict:
-    """2つ目の判定の候補（key）を、いまの判定（BASE）と同じ答えで比べる。BASE の読みを会話のAIの報告とみなし、key の読みが、流れの制御の
-    決まり（Flow._meaning_disagrees）で食い違うか（＝確かめに回るか）を数える。"""
-    c = Counter()
-    for it in items:
-        if BASE not in it or key not in it or it.get("maker") in (BASE, key) or it["qid"] not in qmap or it["set"] == "HEAR":
-            continue
-        q, b = qmap[it["qid"]], it[BASE]
-        clash = Flow._meaning_disagrees(q, b, it[key], confirming=it["set"] == "D") is not None
-        # 最初の答えは、候補が言い切っていないと読んでも確かめに回る（言い直しへの返事は、印を付けて受け取る＝確かめには回らない）
-        clash = clash or (it["set"] != "D" and b not in SYSTEM_CONDITIONS and Flow._judged_unsure({"judge": reading(it, key)}))
-        c["両方が判定"] += 1
-        if dangerous(it, q, BASE):
-            c["いまの判定が危ない向き"] += 1
-            c["⇒ 候補が食い違う（確かめに回る）" if clash else "⇒ ⛔候補も食い違わない（そろって通る）"] += 1
-        elif b in accept(it):
-            c["いまの判定が正しい"] += 1
-            if clash:
-                c["⇒ 候補が食い違う（要らない確かめ）"] += 1
-        if dangerous(it, q, key) and not dangerous(it, q, BASE):
-            c["候補だけが危ない向き"] += 1
-    return dict(c)
-
-
 def pick_sample(items: list[dict], n: int) -> list[dict]:
     """2つ目の判定の候補（3.6〜3.8 Flash）は1日の上限が少ないので、3.5 Flash Lite が誤った・決められなかった答えと、ほかから無作為に n 個
     （記録の通話の言葉・答えでない言葉は全部）。3.5 Flash Lite が言い直しへの返事を認めたと読み違えたものを先頭に置く
@@ -1143,7 +1119,8 @@ def main() -> None:
     summary = tally(items, args.judge, qmap)
     summary["前の話の答え（組の1か所）"] = dict(Counter(f"{it['set']}・{it['qid']}・{it[PRIOR_KEY]}" for it in items if PRIOR_KEY in it))
     summary["記録の通話に当てた見込み"] = {k: predict_calls(items, k) for k in args.judge}
-    summary[f"{BASE} と同じ答えで比べた"] = {k: versus(items, qmap, k) for k in args.judge if k != BASE}
+    # ⛔ 2026-11-08 日本時間12時台まで、2つ目の判定の読みを BASE の読み（会話AIの報告に見立てた）と比べて、食い違えば確かめに回ると数えていた（versus）。
+    # 会話AIは判定に加えない（✅ 12時11分40秒）＝その比べ方は本番に無いので外した（判定の組の決め方は g59_tally の cascade＝本番の Race の1か所）
     for k, v in summary.items():
         say(k, json.dumps({kk: vv for kk, vv in v.items() if kk != "⛔別の答えの例"}, ensure_ascii=False))
     save_result(f"G-53{args.tag}", {"model_ids": ids, "summary": summary, "items": items})

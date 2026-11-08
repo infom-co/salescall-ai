@@ -1689,9 +1689,8 @@ def leans(tried) -> tuple[tuple, tuple]:
 
 
 class NoJudgment(RuntimeError):
-    """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由・prior＝前の話の答え＝JudgePanel.ask・
-    unsure＝確かでない読みの記録を優先の順に並べたもの＝unsure_order）。"""
-    prior: str | None = None
+    """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由・unsure＝確かでない読みの記録を優先の順に
+    並べたもの＝unsure_order）。"""
 
     def __init__(self, tried: list[dict], unsure: list[dict] | None = None):
         self.unsure = unsure or []
@@ -2154,12 +2153,9 @@ class JudgePanel(RouteState):
                 return job.result() if job in done else (None, None, None)
             except Exception:   # 読めなくても、いまの言葉の答えは使う（食い違いを比べないだけ）
                 return None, None, None
-        try:
-            got = await self._ask(kind, q, text, asked, before, early, release)
-        except NoJudgment as exc:
-            # 組が答えられなかった：前の話の答えは、会話の側が確かめ（flowctl.PRIOR_CHECK）として流れの制御へ渡す（会話AIの報告と比べる）
-            exc.prior = (await prior_of())[0]
-            raise
+        # 組が答えられなかったとき（NoJudgment）は、前の話の答えを待たずにそのまま上げる（前の話の答えは判定の読みに添えるだけ＝会話AIの報告と比べない＝
+        # 会話AIは判定に加えない。✅ 2026-11-08 日本時間12時11分40秒。⛔ それまでは前の話の答えを待って例外に付け、会話の側が会話AIの報告と比べていた）
+        got = await self._ask(kind, q, text, asked, before, early, release)
         got.prior, got.prior_p, got.prior_raw = await prior_of()
         return got
 

@@ -912,10 +912,10 @@ def as_wait(reading, asking_wait: bool):
     名前を WAIT_ANSWERS で読み替える（ほかの質問の選択肢の名前は、たまたま同じ字でも読み替えない）。"""
     return WAIT_ANSWERS.get(str(reading), reading) if asking_wait and reading is not None else reading
 # 確かめの名前（Flow.on_check）：別の耳の文字（聞き取り。6-10 の (5)）・意味の判定（6-10 の (6)。judge2＝後ろで走らせる2つ目の判定）
-CHECKS = ("ear", "judge", "judge2", "asks", "asks2", "returned", "returned2", "prior", "judge@ahead", "judge2@ahead")  # asks・asks2＝呼んでいる段の、こちらに尋ねているかの問い合わせ
-# （Flow.asks_context）・returned・returned2＝取り次ぎで待ったあとに話した方が、待たせた方か（Flow.returned_context）
-# prior＝前の話の答え（判定の組が答えられなかったときに、単独で届く＝meaning_judge.JudgePanel.ask の NoJudgment.prior。読み口は Flow._prior の1か所）
-PRIOR_CHECK = "prior"
+CHECKS = ("ear", "judge", "judge2", "asks", "asks2", "returned", "returned2", "judge@ahead", "judge2@ahead")  # asks・asks2＝呼んでいる段の、こちらに尋ねているかの問い合わせ
+# （Flow.asks_context）・returned・returned2＝取り次ぎで待ったあとに話した方が、待たせた方か（Flow.returned_context）。前の話の答えは、判定の読みに添えて届く
+# （Reading.prior。読み口は Flow._prior の1か所）。⛔ 2026-11-08 日本時間12時台まで、判定の組が答えられなかったときにも前の話の答えだけを単独で受け（"prior"）、
+# 会話AIの報告と比べていた＝会話AIを判定に加えていた（12時11分40秒のご判断で外した）
 # 意味の判定の受け持ち（会社を分けて同時に出す2つ。早く届いたほうで決め、遅れて届いたほうも同じ決まりで当てる。meaning_judge.JudgePanel）
 JUDGMENTS = ("judge", "judge2")
 
@@ -1137,6 +1137,7 @@ def restates(q: "Question") -> bool:
 
 # いまの言葉だけでは決められず、前の話の答えで念のため確かめる（確かめる理由の名前＝Flow._check_again。言い切っていない答えと同じ言い方）
 PRIOR_WHY = "前の話の答え"
+PRIOR_BACK_WHY = f"{PRIOR_WHY}（いまの言葉だけでは決められず、その前に相手が言ったことから決まる答えを確かめる）"   # Flow._prior_back で補う理由（_compare・_undecided_answer）
 END_DOUBT_WHY = "電話を終える言葉か決まらなかった答え"   # 確かめる理由の名前（いまの話を先に伺う＝Flow._topic_first。向きを確かめる）
 
 
@@ -3492,6 +3493,8 @@ class Flow:
         self.last_ack: str | None = None # 最後に流した相づち（同じ「承知しました。」が続かないように＝_ack）
         # AIが答えを報告せずに言い直し、相手に値を直された：(質問, 直され方＝AFTER の鍵)。その答えの報告で、直され方に合う言い直しにする
         self.unreported_correction: tuple[str, str] | None = None
+        # 判定は値を言ったと読んだのに会話AIが値を報告せず、値を報告し直させた：(質問, 発話の番号)。同じ発話で2回目なら質問から聞き直す（_judged_answer の所）
+        self.value_asked_at: tuple[str, int] | None = None
         self.callee_said = ""            # いまの相手の発話の文字（会話AIの聞き取り。届いた分だけ。on_heard）
         # 会話AIの、相手の話し始め・話し終わりの知らせ（on_activity）：いまの発話で話し終わりが来たか・その位置・いま相手が話しているか。
         # 相手の声の終わりの位置（on_voice。電話接続側の声の見張り）。位置は、会話AIへ送った音の上の秒（words_complete）
@@ -5151,21 +5154,40 @@ class Flow:
             # 問いを自分の声で3回言い直した）
             return self._reject(f"{ARG_LABEL['condition_id']}「{shown}」は、この質問の選択肢にありません（選べるのは {'、'.join(q.labels)}）。"
                                 + choices_note(q))
-        value = normalize_value(q.type, a.get("value"), q.unit)
-        if cond not in SYSTEM_CONDITIONS and (bad := kana_number(q.type, value)):
+        reported = cond
+        if (judged := self._judged_answer()) is not None and judged not in q.all_conditions:
+            # 判定の確かな読みが、この質問の答え（選択肢・どちらでも・どれも要らない・わからない・答えたくない）に無い：答えを決められない読みと同じ（会話AIの報告へ戻して
+            # 決めない＝会話AIは判定に加えない。⛔ 2026-11-08 日本時間12時台に見つけた：判定を入口で当てる直しの途中、読みが選択肢に無いと会話AIの答えで受け取っていた）
+            judged = UNDECIDED
+        if judged is not None and judged != cond:
+            # 会話AIは判定に加えない（✅ 2026-11-08 日本時間12時11分40秒 ユーザー：「そもそも会話 AI がなぜ判定に加わっているんですか？会話 AI の判定は当てに
+            # ならないというのは、以前から分かっていることだから判定 AI を入れたんですよね。」）：判定の組が確かに読んだ答え（決められない、も）が、会話AIの選んだ
+            # 答えに代わる＝会話AIがどの答えを報告しても、お客様に聞こえる返事と記録される答えは同じ。値の文字は会話AIが渡す＝値を伺う型で、判定は値を言ったと
+            # 読んだのに会話AIが値を報告しないときは、お客様には何も言わずに値を報告し直させる（同じ発話で2回目なら、質問から聞き直す）
+            if q.type not in CHOICE_TYPES and cond in SYSTEM_CONDITIONS and judged not in (*SYSTEM_CONDITIONS, UNDECIDED):
+                if self.value_asked_at != (qid, self.callee_turns):
+                    self.value_asked_at = (qid, self.callee_turns)
+                    return self._reject(f"相手は答えの値を言っています（意味の判定）。相手が言った値を「{ARG_LABEL['value']}」に入れて、{qid} の答えとして、"
+                                        "すぐ record_answer で報告してください。")
+                return self._ask_again(qid, self._ask_kind(), "意味の判定は値を言ったと読んだが、会話AIが値を報告しない")
+            it.set(it.state, f"会話AIの報告「{label(cond)}」は使わず、意味の判定の読み「{label(judged)}」で決める")
+            cond = judged
+        answered = cond not in SYSTEM_CONDITIONS and cond != UNDECIDED
+        value = normalize_value(q.type, a.get("value"), q.unit) if answered or cond == reported else None
+        if answered and (bad := kana_number(q.type, value)):
             return self._reject(kana_number_note(value, bad))  # お客様は正しく答えている＝AIの書き間違いなので、聞き返さずに書き直させる
-        if cond not in SYSTEM_CONDITIONS and (why := form_problem(q.type, value)):
+        if answered and (why := form_problem(q.type, value)):
             # 値を聞く質問に「結構です」だけ：答えの値ではないので聞き返す（そのあとにまた言われたら、断りとして締めてよい＝_op_request_end）
             it.ambiguous_asked = it.ambiguous_asked or bool(ambiguous_word(self.heard_said or value))
             return self._bad_form(qid, value, why)
-        if value is None and q.type not in CHOICE_TYPES and cond not in SYSTEM_CONDITIONS:
+        if value is None and q.type not in CHOICE_TYPES and answered:
             # ⛔ 2026-10-13 G-25 で見つけた漏れ：値の要る質問で値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を
             #    入れていた（確かめない型なら、依頼主へ値の代わりに条件の名前が渡っていた）
             return self._reject(f"答えの値がありません。相手が答えた値を「{ARG_LABEL['value']}」に入れて、もう一度報告してください。")
         # 時刻の答えと一緒に受け取る理由（月単位の理由・「〇時まで」の理由）。午前・午後を伺ったときは、前の報告の理由を引き継ぐ（⛔ 2026-10-24 の
         # 見直し：午前・午後の答えの報告には理由が無いので、理由が消え、承認済みの時刻の問いでもう一度伺っていた）
         reasons = {k: a.get(k) for k in ("cycle", "until_why")}
-        if cond not in SYSTEM_CONDITIONS and q.type in AMPM_TYPES:
+        if answered and q.type in AMPM_TYPES:
             if it.pending_value is not None:
                 reasons = {k: v or it.pending_reasons.get(k) for k, v in reasons.items()}
             value, it.pending_value, it.pending_reasons = merge_ampm(it.pending_value, value), None, {}
@@ -5175,8 +5197,8 @@ class Flow:
                 return self._ask_ampm(qid, value)
         if CALLBACK_FIELD.get(qid) == "time":
             # かけ直しの時刻の質問（分かる時 C9 も）：月単位の理由でその日・頃を選んだか（⛔ 2026-10-24 の見直し：前は C1 だけで、C9 では捨てていた）
-            it.cycle = reasons["cycle"] if cond not in SYSTEM_CONDITIONS else None
-        if q.callback == "later_time" and cond not in SYSTEM_CONDITIONS:
+            it.cycle = reasons["cycle"] if answered else None
+        if q.callback == "later_time" and answered:
             # 「あとで」のかけ直しの「〇時まで」：いま電話を続けられない理由で、かけてよい時間が決まる（CL-2 の 4-149）。理由が相手の言葉に無ければ、
             # 承認済みの時刻の問いで1回だけ伺い直す（✅ 2026-10-24 ユーザー「進めてよい」＝CL-1 の提案）。伺い直しても理由が無ければ、そのまま受け取る
             # （判定は「理由が分からない」＝通話の中で確かめが要った時刻として CL-2 が扱う）
@@ -5184,11 +5206,12 @@ class Flow:
             it.until_why = reasons["until_why"] if until else None
             if until and not it.until_why and not it.until_asked:
                 return self._ask_until(qid, value)
-        if cond in SYSTEM_CONDITIONS and (taken := self._ambiguous_only(f"「{SYSTEM_LABEL[cond]}」")):
-            # 相手の言葉が「大丈夫です」「結構です」だけなのに、AIが「わからない」「答えたくない」を選んだ：その言葉だけで決めない
+        if cond in SYSTEM_CONDITIONS and judged is None and (taken := self._ambiguous_only(f"「{SYSTEM_LABEL[cond]}」")):
+            # 相手の言葉が「大丈夫です」「結構です」だけなのに、AIが「わからない」「答えたくない」を選んだ：その言葉だけで決めない（判定の組の確かな読みが
+            # あれば、その読みで決まっている＝会話AIの報告は判定に加えない）
             # ⛔ G-14 の続き：日時の質問への「大丈夫です」を、AIは 6本中2本「わからない」にした（聞き返さずに「-」になる）
             return taken
-        it.condition, it.value = cond, value
+        it.condition, it.value = (cond, value) if cond != UNDECIDED else (None, None)
         said = self.heard_said or value
         if self.end_doubt == self.callee_turns and self.judged is None and (way := self._answer_direction(q)) is not None:
             # 電話を終える言葉か判定でも決まらず、いまの話への返事として受け取る言葉（_topic_first）の答え：受け取る前に、判定が読んだ向きを確かめる
@@ -5196,19 +5219,23 @@ class Flow:
             # ✅ 2026-11-01 日本時間20時56分 ユーザー：「「パンフレットはお送りしない方がいいということでしょうか？」のような流れが普通じゃないですか？」）
             self.end_doubt = None
             return self._check_again(qid, f"{END_DOUBT_WHY}（判定の読み「{label(way)}」）", cond, way)
+        if cond == UNDECIDED:
+            if q.type in CHOICE_TYPES and (decided := q.reply_choice(ambiguous_word(said))):
+                cond = it.condition = decided   # 前の質問から意味が決まる曖昧な言葉だけの答え（取込で決めた＝G-49・10-17）：判定が決められないと読んでも、その意味
+            else:
+                return self._undecided_answer(qid)
         if cond in SYSTEM_CONDITIONS:
             why, back = self._checks(q, cond, policy=False)
             if why and q.checks_now and q.type in CHOICE_TYPES and back in q.conditions + (ANY, NONE):
                 # ⛔ 2026-10-17：「いや、これからなんです」「家まだです」（聞き取りは正しい）を、AIが「わからない」と報告し、確かめずに受け取っていた
                 return self._check_again(qid, why, cond, back)
             if why and q.required and not (back == cond and it.ask_backs):
-                # 言い直す選択肢が無い（聞き取りが食い違う・値を聞く型で答えがあったと判定した）：質問から聞き直す（6-11 の回数の中で）。
-                # 「わからない」と判定の「決められない」の食い違い（back＝報告のまま）は、最初の答えだけ（2回目の「わからない」は受け取る＝
-                # 本当にわからない方に、何度も聞かない）。聞き取れている（_heard_clearly）なら、お電話のせいにせず「はい、」＋「恐れ入ります。（聞くこと）を
-                # もう一度…」（"form"＝設計の (3)「お客様ははっきり話しているので、電話のせいにする聞き返しは合わない」＝G-14・言い直さない質問の聞き直し
-                # _check_again と同じ）。⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの H-1 を直す途中、流れの制御に通して見つけた）：
-                # 判定の「決められない」と会話AIの「わからない」の食い違いにも「申し訳ございません、お電話が少し遠いようでして…」と聞き返していた
-                return self._ask_again(qid, self._ask_kind(), f"{why}（AIは「{label(cond)}」と受け取った）")
+                # 言い直す選択肢が無い（別の耳の文字と食い違う・前の話と食い違う）：質問から聞き直す（6-11 の回数の中で）。言い直す答えが受け取る答えのまま
+                # （back＝cond＝別の耳の文字との食い違い）は最初の答えだけ（2回目の「わからない」は受け取る＝本当にわからない方に、何度も聞かない）。聞き取れて
+                # いる（_heard_clearly）なら、お電話のせいにせず「はい、」＋「恐れ入ります。（聞くこと）をもう一度…」（_ask_kind の1か所）。判定が「決められない」と
+                # 読んだ答えは、この前の _undecided_answer が受け持つ（⛔ 2026-11-08 日本時間12時台まで、ここで会話AIの「わからない」と判定の「決められない」の
+                # 食い違いを聞き直していた＝会話AIの報告で決まる道だった）
+                return self._ask_again(qid, self._ask_kind(), f"{why}（受け取る答えは「{label(cond)}」）")
             return self._take_system(qid, cond, a.get("unknown_why"))
         after = self.unreported_correction[1] if self.unreported_correction and self.unreported_correction[0] == qid else None
         self.unreported_correction = None
@@ -5245,15 +5272,18 @@ class Flow:
     @staticmethod
     def _compare(q: "Question", said: str, reported: str | None, check: dict, policy: bool = True,
                  confirming: bool = False, words: str | None = None, decided: str | None = None) -> tuple[str | None, str | None]:
-        """会話AIの報告（reported。選択肢の型は選んだ選択肢・値を聞く型の言い直しへの返事は affirmed／corrected）を、独立した確かめに当てる：
+        """受け取る答え（reported。判定を使う通話で判定の組の確かな読みがあれば、入口でその読みに置き換えた答え＝_judged_answer。無ければ会話AIの報告。
+        選択肢の型は選んだ選択肢・値を聞く型の言い直しへの返事は affirmed／corrected）を、聞き取り・言葉の決まり・前の話に当てる（会話AIの報告と判定の読みは
+        比べない＝会話AIは判定に加えない。✅ 2026-11-08 日本時間12時11分40秒）：
         (1) 別の耳の文字（check["ear"]。聞き取り。6-10 の (5)。会話AIの聞き取り said と、読みにそろえて比べる）
         (2) 曖昧な答えの決まり（✅ ユーザー確定：「結構です」「大丈夫です」だけ・言い切っていない答えは、その言葉だけで決めない。当てる言葉は
             words＝会話AIの聞き取り、届いていなければAIの報告の値）。「結構です」だけの決まりは policy のときだけ（言い直しへの返事の「大丈夫です」は、
             言い直した意味を認める返事。取込で意味が決まった言葉も当てない）。言い切っていない答え（「たぶん」「かもしれない」）は、答えを選んだ報告と
             「合っている」の報告のすべてに当てる
-        (3) 意味の判定（check の JUDGMENTS。届いたものすべて。意味。6-10 の (6)。meaning_judge）
-        返り値＝(確かめる理由, 言い直す答え)。理由が None ＝そろった（受け取ってよい）。届いていない確かめは比べない
-        （遅れて届けば Flow.on_check が同じ決まりで当てる。最後まで届かなければ通話後の検証＝Flow.unchecked）。
+        (3) 意味の判定（check の JUDGMENTS）の読みのうち、答えそのもの以外：前の話と合わない返事（off_talk）・前の話から決まる答え（prior_answer）・
+            取込で意味が決まった言葉と違う選択肢の読み（_names_other）・言い切っていないという読み（_judged_unsure）
+        返り値＝(確かめる理由, 言い直す答え)。理由が None ＝受け取ってよい。届いていない確かめは比べない（決めたあとに届いた読みは記録だけ＝on_check の
+        _after_decision。最後まで届かなければ通話後の検証＝Flow.unchecked）。
         理由は、聞き取り・決まり・意味の判定の順に書く（判定が増やした確かめを、記録から数えられるように）。
         ⛔ 2026-10-18 に外したもの：頭の言葉（「はい」「いいえ」「いや」）と選んだ答えの食い違いの確かめ（reply_lead）。記録の通話で働いた13回は
            13回とも意味の判定も食い違いを出していた（判定が受け持つ）。打ち消しを混ぜた答え（G-52 の B）では、頭の言葉の付いた82個のうち
@@ -5270,47 +5300,49 @@ class Flow:
             # 意味に寄っていれば、その答えに「曖昧」の印を付けて受け取る＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）。
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
             return HEDGE_WHY, reported
-        if (off := Flow._judged_off_talk(q, check, reported)) is not False:
+        if (off := Flow._judged_off_talk(q, check)) is not False:
             # 前の話と合わない返事：その読み（宣言した選択肢＝off_talk の決まり）を確かめる答えに（前に言ったことと逆の返事＝✅ ユーザー「(イ)」。
             # お客様が考えを変えた場合も、聞き違いの場合も、確かめへの返事で分かる）
             return f"{TALK_WHY}（意味の判定の読みが、その前に相手が言ったことから決まる答えと食い違う）", off
-        if (back := next((a for k in JUDGMENTS if check.get(k) is not None
-                          and (a := prior_answer(q, str(check[k]), Flow._prior(check))) is not None), None)) is not None:
-            return f"{PRIOR_WHY}（いまの言葉だけでは決められず、その前に相手が言ったことから決まる答えを確かめる）", back
+        if (back := Flow._prior_back(q, check)) is not None:
+            return PRIOR_BACK_WHY, back
         for kind in JUDGMENTS:
-            if decided and not Flow._names_other(q, check.get(kind), decided):
-                # 取込で意味が決まった言葉だけの答え（decided＝Question.reply_choice）：決めた選択肢と違う選択肢を判定が読んだときだけ確かめる
+            if decided and Flow._names_other(q, check.get(kind), decided):
+                # 取込で意味が決まった言葉だけの答え（decided＝Question.reply_choice）：決めた選択肢と違う選択肢を判定が読んだときだけ、判定の読みで確かめる
                 # （✅ 2026-10-17 ユーザー：「人でも前の質問や会話から判断する言葉です」＝前の質問で決まれば確かめずにその意味・✅ 2026-11-06 日本時間
-                # 18時51分27秒：判定がお断りなどと読めば今までどおり確かめる）。⛔ 2026-11-07 日本時間9時台に見つけた：判定の「決められない」でも確かめていた
-                continue
-            back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
-            if back:
-                return f"意味の判定（「{label(check[kind])}」）と食い違う", back
+                # 18時51分27秒：判定がお断りなどと読めば今までどおり確かめる）。⛔ 2026-11-07 日本時間9時台に見つけた：判定の「決められない」でも確かめていた。
+                # 会話AIの報告と判定の読みは比べない（会話AIは判定に加えない＝答えは入口で判定の読みに置き換えてある＝_judged_answer）。⛔ 2026-11-08 日本時間
+                # 12時台まで、ここで会話AIの報告と判定の読みを比べ（_meaning_disagrees）、食い違えば会話AIの選んだ答えで言い直していた
+                return f"意味の判定（「{label(check[kind])}」）と食い違う", check[kind]
         if reported not in SYSTEM_CONDITIONS and not confirming and restates(q) and not decided and Flow._judged_unsure(check):
             return f"{HEDGE_WHY}（意味の判定が、言い切っていないと読んだ）", reported
         return None, None
 
     @staticmethod
     def _prior(check: dict) -> str | None:
-        """前の話の答え（唯一の読み口）：判定の読みに添えて届いたもの（meaning_judge.JudgePanel.ask）か、判定の組が答えられなかったときに単独で
-        届いたもの（確かめの PRIOR_CHECK）。前の話の答えは、いまの言葉と関わりなく前の話と質問だけで決まる（どの判定の読みに添えても同じもの）。"""
-        return next((p for k in JUDGMENTS if (p := getattr(check.get(k), "prior", None)) is not None), None) or check.get(PRIOR_CHECK)
+        """前の話の答え（唯一の読み口）：判定の読みに添えて届いたもの（meaning_judge.JudgePanel.ask）。前の話の答えは、いまの言葉と関わりなく前の話と
+        質問だけで決まる（どの判定の読みに添えても同じもの）。判定の組が答えられなかったときは使わない（会話AIの報告と比べない＝会話AIは判定に加えない。
+        ⛔ 2026-11-08 日本時間12時台まで、そのときだけ単独で受け（確かめの "prior"）、会話AIの報告と比べていた）。"""
+        return next((p for k in JUDGMENTS if (p := getattr(check.get(k), "prior", None)) is not None), None)
 
     @staticmethod
-    def _judged_off_talk(q: "Question", check: dict, reported: str | None = None) -> str | None | bool:
+    def _judged_off_talk(q: "Question", check: dict) -> str | bool:
         """お客様の言葉が、前の話と合わない（会話になっていない）返事：意味の判定の読み（中の名前）が、前の話の答えと食い違う（off_talk の
         1か所）ときは、その読み。どの判定の読みも食い違わなければ False。
         待つように言った・代わった人が話し始めた、の読みは答えではないので当てない（待つ・名乗る、の道が受け持つ）。⛔ 2026-10-31 の昼（G-53）：
         「わかる者に代わりますので、少しお待ちいただけますか。」を、d1-ultra も Jev も「取り次ぎを待つ」と正しく読み、会話になっていないとも
         読んだ（そのころの FITS）＝待たずに聞き直す側へ回った。
-        判定の組が答えられなかった（判定の読みが無い）ときは、会話AIの報告（reported）を前の話の答えと比べる（前の話と逆なら、その報告）。
-        prior＝前の話の答え（Flow._prior の1か所）。"""
+        判定の組が答えられなかった（判定の読みが無い）ときは当てない（会話AIの報告を前の話の答えと比べない＝会話AIは判定に加えない。決める時に確かな読みが
+        無ければ F0 の決まり＝_missed）。prior＝前の話の答え（Flow._prior の1か所）。"""
         prior = Flow._prior(check)
-        read = [k for k in JUDGMENTS if check.get(k) is not None]
-        hit = next((str(check[k]) for k in read if off_talk(q, str(check[k]), prior)), None)
-        if hit is not None:
-            return hit
-        return reported if not read and reported is not None and off_talk(q, reported, prior) else False
+        return next((str(check[k]) for k in JUDGMENTS if check.get(k) is not None and off_talk(q, str(check[k]), prior)), False)
+
+    @staticmethod
+    def _prior_back(q: "Question", check: dict) -> str | None:
+        """いまの言葉だけでは決められない（判定が確かに「決められない」と読んだ）言葉を、判定の読みに添えて届いた前の話の答えで補う答え（唯一の場所＝prior_answer の
+        決まりを当てる。最初の答えの _compare と、判定が「決められない」と読んだ答えの _undecided_answer が通る）。前の話の答えも判定の組の読み（会話AIの報告では
+        ない）。無ければ None。⛔ 2026-11-08 日本時間12時台に見つけた：判定の読みで決める直しの途中、「決められない」の答えを前の話の答えで補わずに聞き直していた"""
+        return next((a for k in JUDGMENTS if check.get(k) is not None and (a := prior_answer(q, str(check[k]), Flow._prior(check))) is not None), None)
 
     @staticmethod
     def _judged_unsure(check: dict) -> bool:
@@ -5334,27 +5366,6 @@ class Flow:
         「決められない」「わからない」や、同じ選択肢の言い切っていない読みは名指ししていない＝確かめない。"""
         return meaning is not None and meaning != decided and (meaning in q.conditions or meaning in (ANY, NONE))
 
-    @staticmethod
-    def _meaning_disagrees(q: "Question", reported: str | None, meaning: str | None, confirming: bool = False) -> str | None:
-        """意味の判定（meaning）が、会話のAIの報告（reported）と食い違えば、言い直して確かめる答え（判定が選択肢か「どちらでも」を選んだなら
-        判定のほう、ほかは会話のAIのほう）。食い違わない・判定が無い ⇒ None。
-        - どちらも選択肢を選んでいない（わからない・答えたくない・決められない・取り次ぎ）ときは、食い違いとしない（言い直す答えが無い）
-        - 値を聞く型の言い直しへの返事（confirming）：「合っている」と報告したのに、判定が「合っている」と読まなかったときだけ
-          （「違う値を言われた」は、直された値をもう一度言い直して確かめるので、食い違っても誤った値は渡らない）"""
-        if meaning is None or meaning == reported:
-            return None
-        if confirming and q.type not in CHOICE_TYPES:
-            return reported if reported == "affirmed" else None
-        named = meaning in q.conditions or meaning in (ANY, NONE)
-        if not named and reported in SYSTEM_CONDITIONS:
-            # 「わからない」の報告に、判定が「決められない」（どの選択肢かは決まらないが、わからないとも言っていない）：食い違い＝聞き直す。
-            # ⛔ 2026-10-19 G-55：「10名未満ではないです」（従業員数の3択）を、AIは「わからない」と報告し、2つの判定は「決められない」と読んだのに、
-            #    確かめずに「わからない」で受け取った（相手は答えの一部を言っていた＝依頼主へ「-」）。G-55 で、AIの「わからない」57回のうち、
-            #    判定が「決められない」だったのは2回（これと、本当にわからない1回＝聞き直しが1回増えるだけ）。「答えたくない」には当てない
-            #    （二度と聞かない決まり）
-            return reported if reported == "unknown" and meaning == UNDECIDED and q.type in CHOICE_TYPES else None
-        return meaning if named else reported
-
     def _checks(self, q: "Question", reported: str | None, policy: bool = True, confirming: bool = False,
                 words: str | None = None, decided: str | None = None) -> tuple[str | None, str | None]:
         """答えの報告を当てる相手の言葉と確かめ（heard_said・heard_check＝ふだんは、いまの発話）で、_compare を当てる。そろったと出ても、決める時に判定の
@@ -5376,6 +5387,62 @@ class Flow:
             return False
         turn = self.judged["turn"] if self.judged else self.callee_turns
         return bool(self.judged_turns.get(turn, set()) & set(JUDGMENTS)) and not any(self.heard_check.get(k) is not None for k in JUDGMENTS)
+
+    def _judged_answer(self) -> str | None:
+        """答えの段で、いまの言葉（heard_said・heard_check）の答えを決める判定の組の読み（唯一の場所＝答えの報告 _op_record_answer・言い直しへの返事の報告
+        _op_confirm_field）：その言葉への確かな読みが届いていれば、その読み（届いた判定どうしが食い違えば「決められない」＝_meaning_of）。
+        届いていなければ None＝決める時に確かな読みが無い（F0 の決まり＝_missed：その場で確かめる質問は受け取らずにその場で確かめる）・判定を使わない通話（会話AIの
+        通話の試験）は読みが届かないので None（届いた読みがあるかだけで決める＝通話の印 judging では分けない：印の有無で同じ読みの扱いを変えない）。会話AIの報告（選んだ答え・「合っている」「違う値を言われた」）は判定に加えない＝この読みがあれば、会話AIがどの答えを報告しても、
+        この読みが答え（会話AIの報告は、判定を待つきっかけ・値の文字＝お客様ご本人の「はい」で確かめる・ほかに言われたこと、だけ）。
+        ✅ 2026-11-08 日本時間12時11分40秒 ユーザー：「そもそも会話 AI がなぜ判定に加わっているんですか？会話 AI の判定は当てにならないというのは、以前から
+        分かっていることだから判定 AI を入れたんですよね。それを判定 AI と一致する時ということにしたら精度が下がるに決まってるじゃないですか。」
+        ⛔ それまでは、会話AIの報告を独立した確かめの1つとして判定の読みと比べ（10-18「そろったときだけ受け取る」を、判定AIを入れた理由に当てて読み直して
+        いなかった）、判定が確かに読んでいても、会話AIの報告しだいで聞き返し・会話AIの選んだ答えで言い直し・会話AIの「答えたくない」で受け取っていた"""
+        turn = self.judged["turn"] if self.judged else self.callee_turns
+        if turn in self.calling_words:
+            # 呼んでいる段の発話：判定は呼んでいる段の質問（目的のお客様か＝judge_context）として読んだ＝この質問の答えの読みではない（かけ直しの質問の途中で
+            # 目的の人かを確かめに戻ったあとの答え＝_op_record_answer の頭）。⛔ 2026-11-08 日本時間12時台に見つけた：目的のお客様の判定の「不在」を答えの読みと
+            # 取り違え、「夕方の5時頃には戻ると思います。」を聞き直していた
+            return None
+        return Flow._meaning_of(self.heard_check)
+
+    def _undecided_answer(self, qid: str) -> dict:
+        """判定の組が、お客様の言葉はどの答えも指していない（決められない）と確かに読んだ答えの報告（唯一の場所＝_op_record_answer）：受け取らず、会話AIの選んだ
+        答えも言い直す候補にしない（会話AIは判定に加えない＝_judged_answer）。その場で確かめる質問（Question.checks_now）は、言い直す選択肢の型なら目的に進む向きの
+        1か所（_keep_toward_goal＝進む向きが1つならその向きで伺い、決まらなければ質問から聞き直す＝11-03 の「まだどちらとも言っていない答え」の決まり）、言い直さ
+        ない質問（W1・C11・N1〜N3）は聞き直しの1か所（_check_again）、値を伺う型は質問から聞き直す。必須でない質問は聞き返さない決まり（6-11）なので「-」。
+        迷っている・まだ決めていない・考えている途中・待つ・こちらへの問いは、この前に、先に判定の読みで応じる1か所（_judged_first）と尋ねられて答える1か所が受け持つ。"""
+        q, it = self.questions[qid], self.items[qid]
+        why = f"意味の判定（「{UNDECIDED}」）：どの答えも指していない"
+        said = (self.heard_said or "")[:20]
+        if q.callback in POINT_STAGES.values():
+            # ご承認いただけなかったときの手順の段（N1〜N3・振り返りの一言・どの点かを伺う一言）：判定の「決められない」は、手順の決まりの「どちらとも取れない」
+            # （「そうでしたっけ。」「なるほど」）＝「わからない」として受け取り、手順の1か所（_point_step・頭の言葉は _unknown_agreed＝判定の読みで「はい、」）が進める
+            # （N1・振り返りは押さずに手順を終える＝✅ 2026-11-05 日本時間4時48分13秒・N2 はご納得を伺う＝11-02 5時56分）。⛔ 2026-11-08 日本時間12時台まで、ここへは
+            # 会話AIが「わからない」と報告したときだけ入り、会話AIが別の答えを報告すると判定との食い違いで聞き直していた（会話AIの報告で手順が変わる形）
+            return self._take_system(qid, "unknown")
+        if not q.checks_now:
+            it.set("unresolved", f"{why}（「{said}」）・必須でないので確かめない")
+            return self._dash(qid)
+        if (back := Flow._prior_back(q, self.heard_check)) is not None:
+            # 前の話を指す言葉（「先ほど申し上げたとおりです。」）：判定の読みに添えて届いた前の話の答えを「それでは…ということでよろしいでしょうか？」で確かめる
+            # （_compare と同じ1か所＝_prior_back。✅ 2026-10-31 の昼「(a) 検査OK」・夜「『それでは…ということでよろしいでしょうか？』は矛盾や言い直しの答えを
+            # 最終的に確認する場合です」）。言い直さない質問は、_check_again が質問から聞き直す
+            return self._check_again(qid, PRIOR_BACK_WHY, None, back)
+        named = {str(v) for k in JUDGMENTS if (v := self.heard_check.get(k)) is not None and (str(v) in q.conditions or str(v) in (ANY, NONE))}
+        if q.type in CHOICE_TYPES and len(named) == 1:
+            # 判定どうしが割れ（_meaning_of の「決められない」）、選択肢を名指しした判定の読みが1つだけ：その判定の読みで確かめる（言い直す質問は「念のため…」・
+            # 言い直さない質問は、その選択肢で意味合いを尋ねる＝_check_again の1か所）。候補は判定の読み（会話AIの選んだ答えではない）。⛔ 2026-11-08 日本時間
+            # 12時台まで、ここでは会話AIの選んだ答えで確かめていた
+            back = named.pop()
+            return self._check_again(qid, f"意味の判定が割れた（「{label(back)}」と「{UNDECIDED}」など）", None, back)
+        if q.type in CHOICE_TYPES and restates(q):
+            it.set("heard", f"{why}（「{said}」）・会話AIの選んだ答えは言い直す候補にしない")
+            it.ambiguous_asked = True
+            return self._keep_toward_goal(qid, "ambiguous")
+        if q.type in CHOICE_TYPES:
+            return self._check_again(qid, why, None, None)
+        return self._ask_again(qid, self._ask_kind(), why)
 
     def _not_an_answer(self) -> dict | None:
         """意味の判定が、相手の言葉は答えではないと決めた（DESIGN.md 6-8）：答え・言い直しへの返事としては受け取らない（唯一の場所。
@@ -6097,6 +6164,14 @@ class Flow:
         result = a.get("result")
         correction = normalize_value(self.questions[qid].type, a.get("correction"), self.questions[qid].unit)
         q = self.questions[qid]
+        if not q.reading_of and (judged := self._judged_answer()) is not None:
+            # 会話AIは判定に加えない（_judged_answer の1か所）：言い直しへの返事も、判定の組が確かに読んだ答えで決める（会話AIの「合っている」「違う値を言われた」・
+            # 選んだ選択肢は使わない。直した値の文字だけは会話AIが渡す）。名前の読みは、相手の言葉でプログラムが決める（_reading_denied・G-45）ので当てない
+            got = self._judged_reply(qid, judged, result, correction)
+            if isinstance(got, dict):
+                return got
+            if got is not None:
+                result, correction = got
         if q.reading_of and result == "affirmed" and self._reading_denied(q):
             # 読みの違いは AIには聞き分けられない（G-45）ので、認めたか直されたかは、相手の言葉でプログラムが決める
             # （値を直されたときの直され方を相手の言葉で決めるのと同じ。✅ 2026-10-14 ユーザー決定 (a)）
@@ -6220,6 +6295,47 @@ class Flow:
     def _not_current(self, qid: str) -> dict:
         """いまの質問ではない質問の番号で報告されたときの差し戻し（唯一の書き方。record_answer・report_unclear の2つの受け口）。"""
         return self._reject(f"{qid} は、いまの質問ではありません。")
+
+    def _judged_reply(self, qid: str, judged: str, result: str | None, correction: str | None) -> "tuple[str, str | None] | dict | None":
+        """言い直しへの返事を、判定の組が確かに読んだ答え（judged＝_judged_answer）で決める唯一の場所（_op_confirm_field の入口）。返り値＝会話AIの報告に代わる
+        (result, correction)・そのまま返す返事・None（この質問の答えではない読み＝今までどおり）。会話AIの「合っている」「違う値を言われた」・選んだ選択肢は使わない
+        （会話AIは判定に加えない＝11-08 12時11分40秒）。直した値の文字だけは会話AIが渡す：
+        - 選択肢の型：判定の読みが言い直した選択肢なら合っている・ほかの答え（選択肢・どちらでも・どれも要らない・わからない・答えたくない）ならその答えに直された
+        - 値を伺う型：判定が合っていると読めば合っている（会話AIが「違う値」と言っても直した値は使わない。会話AIが「合っている」に添えた別の値＝AIが自分で言い直した
+          値＝G-36 は、今までどおり値の文字として念のため言い直す）・違う値を言われたと読めば直された（直した値は会話AIの報告から。会話AIが値を渡さなければ、
+          お客様には何も言わずに報告し直させ、同じ発話で2回目なら質問から聞き直す）・わからない・答えたくないと読めばその答えで受け取る
+        - 答えを選んでいない（決められない・ご希望を伺う質問＝asks_wish の「わからない」＝_confirm_again の undecided と同じ組）：言い直しへの返事がそろわないときの
+          1か所（_confirm_again）：理由がそろって「担当ではない」「いまは分からない」ならその理由の「わからない」・もう1回だけ言い直す（言い直すのは、こちらが言い
+          直した答え＝会話AIの報告ではない）・最終の確かめのあとなら「まだ決まっていない」で保留（_undecided_final）。ご希望を伺う質問でない（事実を伺う など）の
+          「わからない」は答えそのもの＝「わからない」として受け取る（理由は判定が読む＝_why_of・業務の決まりで分かる方・分かる時を伺う）。⛔ 2026-11-08 日本時間
+          12時台に見つけた：前の作りは、会話AIが「合っている」と報告すれば _confirm_again（最終の確かめのあとは理由「まだ決まっていない」で保留）・「わからない」と
+          報告すれば「わからない」の答え（理由は判定の読み）で、会話AIの報告の置き方で道と業務の決まり（理由ごとの次の動き）が変わる形だった"""
+        q, it = self.questions[qid], self.items[qid]
+        choice = q.type in CHOICE_TYPES
+        if judged not in ((it.condition, "affirmed", *q.all_conditions) if choice else ("affirmed", "corrected", *SYSTEM_CONDITIONS)):
+            judged = UNDECIDED   # この質問の言い直しへの返事に無い読み＝答えを決められない読みと同じ（会話AIの報告へ戻して決めない）
+        if judged == UNDECIDED or (judged == "unknown" and asks_wish(q)):
+            why = f"意味の判定（「{label(judged)}」）：言い直しへの返事がどの答えも指していない"
+            return self._confirm_again(qid, why, it.condition if choice else "affirmed", it.condition if choice else None)
+        if choice:
+            if judged in (it.condition, "affirmed"):
+                return "affirmed", None
+            return ("corrected", label(judged)) if judged in q.all_conditions else None
+        if judged == "affirmed":
+            return "affirmed", correction if result == "affirmed" else None
+        if judged in SYSTEM_CONDITIONS:
+            self.awaiting_confirm = None
+            return self._take_system(qid, judged)
+        if judged != "corrected":
+            return None
+        if correction is not None and (result == "corrected" or other_value(q.type, it.value, correction)):
+            return "corrected", correction
+        if self.value_asked_at != (qid, self.callee_turns):
+            self.value_asked_at = (qid, self.callee_turns)
+            return self._reject(f"相手は言い直した値と違う値を言っています（意味の判定）。相手が言った値を「{ARG_LABEL['correction']}」に入れて、confirm_field を"
+                                f"{ARG_LABEL['result']}「{CONFIRM_LABEL['corrected']}」で、すぐ報告してください。")
+        self.awaiting_confirm = None
+        return self._ask_again(qid, self._ask_kind(), "意味の判定は違う値を言ったと読んだが、会話AIが直した値を報告しない")
 
     def _dash(self, qid: str, shown: str = "") -> dict:
         """「-」にした項目（呼ぶ前に、記録の理由を付けて unresolved にする）から次へ進む唯一の場所。名前の読みの確かめなら、読みを確かめられ
