@@ -501,16 +501,37 @@ def _line_taken(tx: Tx, task: dict[str, Any], line_id: UUID, today: Any) -> bool
     期間に関係なく、声と発信番号は変えた方がいい」「依頼者ごとに発信番号があることがデフォルト。ただし、検証時は発信番号は1つでOK」＝検証
     モードの業務は見ない）。同じ依頼者のほかの業務・ほかの実施回の電話とも、お客様が前に見た発信番号（その番号へのいちばん新しい電話の回線）を
     替える（✅ 2026-11-08 ユーザー＝計画書 7-3 (1)「声と電話番号は必ず変える」。0216。⛔ 0215 まで：同じ依頼者なら同じ発信番号でかけた）。替えられる
-    回線が無いときは、ほかの回線が空くのを待つ（その依頼者の専用の回線がまだ無いときだけ、契約者に知らせる。専用の回線が使用中で共有の
-    回線が回ってきたときは知らせない。設定の抜けは注意だけ）。⛔ 見直し17a：前は門だけが見て、共有の回線が回るたびに断り、次の動きが
-    予定を5分ずつ先へ書き直し続けた（その回線では、いつまで待っても変わらない）。"""
-    if approval.human_for_business(tx, task["business_id"]) or not tx.one(
-            "SELECT salescall.line_called_number_elsewhere(%s, %s, %s) AS hit", (line_id, task["phone_e164"], task["task_id"]))["hit"]:
+    回線が無いときは、ほかの回線が空くのを待つ（契約者に知らせるかは `_no_line_to_switch` の1か所）。⛔ 見直し17a：前は門だけが見て、共有の回線が
+    回るたびに断り、次の動きが予定を5分ずつ先へ書き直し続けた（その回線では、いつまで待っても変わらない）。"""
+    if approval.human_for_business(tx, task["business_id"]) or not _number_seen_on(tx, task, line_id):
         return False
+    _no_line_to_switch(tx, task, line_id, today)
+    return True
+
+
+def _number_seen_on(tx: Tx, task: dict[str, Any], line_id: UUID) -> bool:
+    """その回線の発信番号を、ほかの行の電話でお客様がもう見たか（決まりはデータベースの salescall.line_called_number_elsewhere の1か所）。"""
+    return bool(tx.one("SELECT salescall.line_called_number_elsewhere(%s, %s, %s) AS hit",
+                       (line_id, task["phone_e164"], task["task_id"]))["hit"])
+
+
+def _no_line_to_switch(tx: Tx, task: dict[str, Any], line_id: UUID, today: Any) -> None:
+    """発信番号を替えなければならない行（`_line_taken`）が、替えられる回線が無いせいで待っているとき、契約者に知らせる（知らせるかを決める
+    1か所。止めない。同じ依頼者には1日に1つ＝ほかの設定の抜けの知らせと同じ。行ごと・回線ごとに知らせを増やさない）：
+    (1) その依頼者の専用の回線がまだ無い ⇒ 専用の発信番号が無い（設定の抜け setting_missing。いままでどおり）。
+    (2) 専用の回線はあるが、その依頼者が使える回線（専用・共有。使わなくなった回線は除く）のどれも、お客様がもう見た発信番号 ⇒ 替えられる回線が
+        無い（line_none_to_switch。回線を足すまで、その行は待ったまま）。使える回線のどれかが替えられるなら知らせない（その回線が空けばかける）。
+    ⛔ 0216 まで：(1) だけ知らせ、依頼者の専用の回線が1本だけで共有の回線も無いと、同じ番号へのほかの業務の行が、知らせの無いまま待ち続けた。"""
     if tx.one("SELECT 1 FROM salescall.lines WHERE client_id = %s LIMIT 1", (task["client_id"],)) is None:
         notify.emit(tx, "setting_missing", key=f"own_line:{task['client_id']}:{today}",
                     summary=OWN_LINE_MISSING, refs={"client_id": task["client_id"], "line_id": line_id})
-    return True
+        return
+    usable = [r["line_id"] for r in tx.all("SELECT line_id FROM salescall.lines WHERE retired_at IS NULL"
+                                           " AND salescall.line_serves(client_id, %s)", (task["client_id"],))]
+    if any(not _number_seen_on(tx, task, other) for other in usable):
+        return
+    notify.emit(tx, "line_none_to_switch", key=f"line_none_to_switch:{task['client_id']}:{today}",
+                summary=LINE_NONE_TO_SWITCH, refs={"client_id": task["client_id"], "task_id": task["task_id"], "line_id": line_id})
 
 
 def apology_unapproved(tx: Tx, task_id: UUID) -> bool:
@@ -618,6 +639,9 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str, number: UUID | None = 
 # 依頼者専用の発信番号が無いときの注意（2026-10-17 ユーザー決定の文。設定する場所は、画面の依頼者タブの「回線（発信番号）」＝CL-3）。
 # 注意には短い文だけ。詳しい説明は、登録画面の i マーク（core/help_texts.py の "line.client"。2026-10-17 ユーザー）
 OWN_LINE_MISSING = "この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。"
+# 依頼者の使える回線がどれも、同じ番号へのほかの行の電話でお客様が見た発信番号のときの注意（`_no_line_to_switch`。注意には短い文だけ）
+LINE_NONE_TO_SWITCH = ("この依頼者の回線では、発信番号を替えられないため待っている電話があります（同じ番号へ、ほかの業務・実施回が前に"
+                       "かけています）。回線（発信番号）を依頼者タブの「回線（発信番号）」で足してください。")
 
 
 VOICE_NOT_READY = "この業務の録音が、まだ承認されていません。録音を聞いて承認してください。"
@@ -959,8 +983,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("line_not_leased")
     # 発信番号：依頼者に割り当てた回線は、その依頼者だけ。依頼者が替わったら、期間に関係なく発信番号を替える（2026-10-17
     # ユーザー：「依頼者が違うと、期間に関係なく、声と発信番号は変えた方がいい」「依頼者ごとに発信番号があることがデフォルト。
-    # ただし、検証時は発信番号は1つでOK」）。替えられる回線が無いときは、ほかの回線が空くのを待つ（契約者に、依頼者ごとの
-    # 発信番号が無いことを知らせる。設定の抜けは注意だけ）
+    # ただし、検証時は発信番号は1つでOK」）。替えられる回線が無いときは、ほかの回線が空くのを待つ（契約者に知らせるかは
+    # `_no_line_to_switch` の1か所：専用の発信番号が無い・使える回線のどれも替えられない。注意だけ）
     if not tx.one("SELECT salescall.line_serves(%s, %s) AS ok", (line["client_id"], task["client_id"]))["ok"]:
         return _deny("line_other_client")   # 決まりはデータベースの1か所 line_serves（0094）
     if _line_taken(tx, task, line_id, local.date()):   # `_line_taken` の1か所（候補を出す処理も、この回線には出さない）

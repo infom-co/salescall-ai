@@ -8,7 +8,7 @@ from __future__ import annotations
 import unittest
 from datetime import timedelta
 
-from salescall.core import apology, attempts, business_rules, gate, next_action, notify, quality_stage, scheduler
+from salescall.core import apology, attempts, business_rules, gate, next_action, notify, quality_stage, registry, scheduler
 from tests.support import OPERATOR, callback, make_report, rules_raw, said
 from tests.test_apology import ApologyBase
 from tests.test_gate import ALL_DAY
@@ -36,6 +36,16 @@ class SameNumberOtherRows(SettleBase):
         y = dict(s, business=b, version=v, run=run, task=task, line=self.w.line(s["tenant"]))
         self.lease(y)
         return y
+
+    def promised_now(self, y):
+        """その行の予定を、いまのお客様と約束したかけ直しにする（同じ番号へのほかの電話の間を待たない）。"""
+        self.tx(y, lambda tx: next_action._append(tx, y["task"], call_at=tx.one("SELECT now() AS t")["t"], end_reason=None,
+                                                  cause="試験：お客様と約束したかけ直し（間を待たない）", promised=True,
+                                                  target=next_action.Target(y["contact"])))
+
+    def notices(self, s, kind):
+        return self.tx(s, lambda tx: [n["summary"] for n in tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE kind = %s AND refs ->> 'client_id' = %s", (kind, str(s["client"])))])
 
     def tomorrow(self, s):
         return self.tx(s, lambda tx: tx.one("SELECT salescall.jst_day_start(salescall.jst(now())::date + 1) AS t")["t"])
@@ -113,6 +123,31 @@ class SameNumberOtherRows(SettleBase):
         second = self.claim(y)                                                    # ほかの回線（発信番号）で
         self.assertIsInstance(second, gate.Claim, second)
         self.assertNotEqual(second.voice_type, first["voice_type"])               # 前に聞いた声と替える
+
+    def test_a_client_whose_lines_all_were_seen_tells_the_contractor_and_a_new_line_calls(self):
+        """依頼者の専用の回線が1本（L）で、ほかの回線が無い：業務X が L でかけた番号へ、業務Y は発信番号を替えられないので待ち、契約者に1回
+        知らせる（line_none_to_switch。門と候補を出す処理が何度見ても、同じ依頼者には1日に1つ＝gate._no_line_to_switch の1か所）。共有の回線が
+        替えられるあいだは知らせない（その回線が空けばかける）。回線を足すと、Y はその回線でかける。⛔ 0216 まで：知らせは専用の回線が無いとき
+        だけで、Y は知らせの無いまま待ち続けた。"""
+        s = self.ready()
+        self.tx(s, lambda tx: registry.assign_line(tx, s["line"], s["client"]), OPERATOR)   # 依頼者の専用の回線 L
+        y = self.sibling(s)                                                       # 業務Y（共有の回線 S を1本足す）
+        self.settle(s, self.call(s))                                              # 業務X：L でかけ、お客様が出て話した
+        self.promised_now(y)
+        self.lease(y, line=s["line"])
+        offered = lambda line: self.tx(y, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10, line_id=line)])  # noqa: E731
+        self.assertEqual(self.reason(y, line=s["line"]), "line_used_by_other_client")
+        self.assertEqual(self.notices(s, "line_none_to_switch"), [])             # S なら替えられる：知らせない
+        self.tx(s, lambda tx: registry.retire_line(tx, y["line"], reason="試験：端末を返した"), OPERATOR)   # 替えられる回線が無くなった
+        for _ in range(2):
+            self.assertEqual(self.reason(y, line=s["line"]), "line_used_by_other_client")
+            self.assertEqual(offered(s["line"]), [])
+        self.assertEqual(self.notices(s, "line_none_to_switch"), [gate.LINE_NONE_TO_SWITCH])   # 1回だけ
+        self.assertNotIn(gate.OWN_LINE_MISSING, self.notices(s, "setting_missing"))   # 専用の回線はある（専用の発信番号が無い、ではない）
+        new = self.w.line(s["tenant"])
+        self.tx(s, lambda tx: registry.assign_line(tx, new, s["client"]), OPERATOR)   # 契約者が回線を足した
+        self.lease(y, line=new)
+        self.assertIsInstance(self.claim(y, line=new), gate.Claim)               # Y は足した回線でかける
 
     def test_another_client_follows_its_own_setting_and_another_contractor_keeps_its_own_rule(self):
         """ほかの依頼者がかけたあとも同じ決まり（かける側の依頼者の設定。初めはその日はかけない）。ほかの契約者がかけたあとは、契約者の設定の間

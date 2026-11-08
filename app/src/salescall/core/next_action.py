@@ -19,7 +19,7 @@
   依頼者の時間帯・NG時間の外でもかける。端の決まっていない側（「朝」の始まり・「午後」の終わり・「3時まで」の始まりなど）は
   お客様の営業時間（設定 callee.business_hours。お客様指定の歯止め時間 callee.designated_limit の中）で切る（✅ 2026-11-08 ユーザー＝
   計画書 7-3 (3)。0216。お客様が口にした端はその外でも切らない）。幅の約束で出ないときの回の中の本数は `_window_round_next` の1か所
-  （1日の回数＝業務ごとの設定 callback.window_daily_max）。こちらの止めでかけられなかった時刻ちょうどの約束は、今日のうちに取り戻す
+  （1日の回数＝業務ごとの設定 callback.window_daily_max と、回の合計＝再発信の方針の回数の両方。0216 の見直し）。こちらの止めでかけられなかった時刻ちょうどの約束は、今日のうちに取り戻す
   （`_recover_today`＝計画書 7-3 (4)）。お客様が言った日は依頼者の休みの
   日でもかけ、日を言っていない次の日の回は依頼者のかける日だけ（門と同じ `calling_hours.callee_hours` の1か所。2026-10-22・10-23
   ユーザー・見直し16）。
@@ -1760,8 +1760,9 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     elif target.contact_id is not None and dialed_window is not None and j.state in ("open", "not_reached"):
         # 約束の電話で話せなかった：同じ回の中でもう一度か、次の回か。時刻ちょうどの約束は、前の電話から決めた間をあけて
         # （`_exact_next_try`）。幅の約束は、この結果の再発信の方針の間隔で、その日にかけた数が1日の回数の中で、回の終わりより
-        # 前だけ（`_window_round_next` の1か所。⛔ 2026-10-22 の見直し14：前は、約束の回に出なかった分まで数え、別の結果の回数と混ぜていた。
-        # ⛔ 0215 まで：その回にかけた数を再発信の方針の回数と比べ、1日4回・夜21時半まで鳴らしえた）
+        # 前で、その回にかけた数が再発信の方針の回数の中のときだけ（`_window_round_next` の1か所。⛔ 2026-10-22 の見直し14：前は、約束の回に
+        # 出なかった分まで数え、別の結果の回数と混ぜていた。⛔ 0215 まで：1日の回数が無く、1日4回・夜21時半まで鳴らしえた。⛔ 0216：回の合計の
+        # 上限を外し、何日も続く幅で1日3回が毎日ついた）
         if no_today:   # 幅が当日を越えて続くときも、当日の分はやめる
             after = min(dialed_window.round_end or _next_day(now), _next_day(now))
         elif dialed_exact:
@@ -1770,7 +1771,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
             # 目的のお客様に繋がらなかったが、あとでまたかけてよいと言われた ⇒ 目的のお客様がいま出られない＝「不在」の方針の間隔で
             # （「取り次げなかった」の方針＝日を改めて1回は、約束の電話には使わない＝約束の時刻が先）
             after = _window_round_next(tx, task_id, dialed_window, rules.retry["not_reached_absent"] if unreached else policy,
-                                       now=now, dialed_at=dialed_at, period=dialed_row["person_since"])
+                                       now=now, dialed_at=dialed_at, period=dialed_row["person_since"], times=times)
         kept = _keep_promise(tx, task_id, after, dialed_window, target, now=now, exact=dialed_exact)
     elif (target.contact_id is not None and j.state in ("open", "not_reached")
           and _served_unspecified(tx, task_id, dialed_at, dialed.purpose)):
@@ -1941,16 +1942,20 @@ def _round_calls(tx: Tx, task_id: UUID, window: Window, fallback: int, period: d
 
 
 def _window_round_next(tx: Tx, task_id: UUID, window: Window, policy: business_rules.Policy | None, *, now: datetime,
-                       dialed_at: datetime, period: datetime | None) -> datetime:
+                       dialed_at: datetime, period: datetime | None, times: int) -> datetime:
     """お客様が言った幅の約束の電話で話せなかったあと、その回の中で次にかける時刻（回の中の本数を決める1か所。時刻ちょうどの約束は
-    `_exact_next_try`）：この結果の再発信の方針の間隔（`_retry_at`）のあと。ただし、その日にかけた数（`_round_calls` の on）が1日の回数
-    （業務ごとの設定 callback.window_daily_max。初め3）に届いていれば、次の日から。回の終わりを過ぎれば、回の終わり（次の回は `_keep_promise`）。
-    方針がかけ直さない（終える）なら、回の終わり。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回・営業時間内」。⛔ 0215 まで：その回にかけた数を
-    再発信の方針の回数と比べ、回の中で1日4回まで鳴らしえた。0216。"""
+    `_exact_next_try`）：この結果の再発信の方針の間隔（`_retry_at`）のあと。回の中は、次の2つの上限の両方を守る（どちらかに届けば、その回は
+    終わり＝回の終わり。次の回・終わり方は `_keep_promise`）。
+    (1) 回の合計：その回にかけた数（`_round_calls`。今回を含む）が、再発信の方針の回数を超えた（回の最初の1本＋方針の回数のかけ直しまで。
+        回の始まりの分からない幅は times＝その結果の方針の回数で数える。0215 の前と同じ）。
+    (2) 1日：その日にかけた数（`_round_calls` の on）が1日の回数（業務ごとの設定 callback.window_daily_max。初め3）に届いていれば、次の日から。
+    回の終わりを過ぎれば、回の終わり。方針がかけ直さない（終える）なら、回の終わり。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回・営業時間内」
+    （1日の上限を足した決定で、回の合計の上限を外す決定ではない）。⛔ 0215 まで：1日の上限が無く、回の中で1日4回まで鳴らしえた。⛔ 0216：
+    回の合計の上限を外し、何日も続く幅（「来週なら」「月末」）で1日3回が毎日つき、「来週なら」で15回まで鳴らしえた。0216 の見直し。"""
     end = window.round_end
     at = _retry_at(tx, task_id, policy.interval, now, dialed_at) if policy is not None and policy.action == "call" else None
-    if at is None:
-        return end or now
+    if at is None or _round_calls(tx, task_id, window, times, period) > policy.max_times:
+        return end or now   # かけ直さない・回の合計に届いた：回の終わり
     cap = int(settings.resolve(tx, "callback.window_daily_max", **tasks.scope(tx, task_id)))
     if _round_calls(tx, task_id, window, 0, period, on=at) >= cap:
         at = max(at, _next_day(at))   # その日は使い切った：次の日の始まりから（その日の幅の中の次の始まりは `_keep_promise` が探す）
