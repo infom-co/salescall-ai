@@ -11972,12 +11972,14 @@ class TargetTest(unittest.TestCase):
         # （TOLD_KINDS は 11-08 時点で CL-2 の枝だけ）。CL-2 の LATER_INTENTS は会話の側に同じ一覧が無い（比べるものが無い＝CL-1.md 4-119）。
         # CL-2 の 4-320 の (b)：値を伺う質問の型（CL-2 の business_settings.ESTIMATE_TYPES＝flowctl.ESTIMATE_TYPES。変更の受付の期限を書ける質問）と、
         # お客様の申し出・本題の始まりの選べるもの（CL-2 の call_report.RESPONSE_POLICIES＝flowctl.POLICIES の鍵と選べるもの）も（CL-1.md 4-120）
-        from flowctl import DONT_KNOW_LABEL, ESTIMATE_TYPES, OFFER_LABEL, POLICIES, REFUSED_LABEL
+        # CL-2 の 4-340 の Q110：「取れた」の定義（CL-2 の judge.TAKEN＝flowctl.GOT。依頼者へ渡すお客様の言葉の欄 hedged を、取れた答えのときだけ言い切っていない
+        # 印と読む決まり＝こちらの earlier_hedged・CL-2 の judge.hedged_words が、この組を使う）も（CL-1.md 4-121）
+        from flowctl import DONT_KNOW_LABEL, ESTIMATE_TYPES, GOT, OFFER_LABEL, POLICIES, REFUSED_LABEL
         from phrases import POINT_KINDS
         compared = []
         for path, var, mine in (("call_report.py", "TOLD_KINDS", set(POINT_KINDS)), ("call_report.py", "CALLBACK_OFFERS", set(OFFER_LABEL)),
                                 ("business_rules.py", "DONT_KNOW_REASONS", set(DONT_KNOW_LABEL)), ("business_rules.py", "REFUSED_REASONS", set(REFUSED_LABEL)),
-                                ("business_settings.py", "ESTIMATE_TYPES", set(ESTIMATE_TYPES)),
+                                ("business_settings.py", "ESTIMATE_TYPES", set(ESTIMATE_TYPES)), ("judge.py", "TAKEN", set(GOT)),
                                 ("call_report.py", "RESPONSE_POLICIES", None)):
             theirs = self.cl2_names(path, var)
             if theirs is None:
