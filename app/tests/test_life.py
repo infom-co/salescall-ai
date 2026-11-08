@@ -948,17 +948,18 @@ class CallsNotUnwelcome(SupervisorBase):
         self.assertEqual(len(mon), 4, calls)                                    # 15時・16時台・17時台・18時台（1時間おき）
         self.assertTrue(all(15 <= t.hour < 19 for t in mon), mon)
 
-    def test_a_range_over_many_days_stops_at_the_policy_times_and_keeps_three_a_day(self):
-        """「来週なら」（その週の月曜〜日曜の回）で出ない ⇒ 1日3回まで（月曜3本）で、回の合計は、再発信の方針の回数（ここでは4回）のかけ直しまで
-        （最初の1本＋4本＝火曜2本で止まり、その回はもうかけない。次は回の終わりのあと＝前の決まりのまま）。両方の上限を守るのは
-        next_action._window_round_next の1か所。⛔ 0216：回の合計の上限を外し、1日3回が毎日ついた（「来週なら」で15回まで）。"""
+    def test_a_range_over_many_days_stops_at_exactly_the_policy_times_and_keeps_three_a_day(self):
+        """「来週なら」（その週の月曜〜日曜の回）で出ない ⇒ 1日3回まで（月曜3本）で、回の合計は、再発信の方針の回数（ここでは4回）ちょうどまで
+        （月曜3本＋火曜1本＝4本で止まり、その回はもうかけない。次は回の終わりのあと＝前の決まりのまま）。両方の上限を守るのは
+        next_action._window_round_next の1か所。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「4回なら4本まで」。⛔ 前は「最初の1本＋方針の回数の
+        かけ直し」と数え、火曜2本＝合計5本まで鳴らした。⛔ 0216：回の合計の上限を外し、1日3回が毎日ついた（「来週なら」で15回まで）。"""
         monday = self.next_monday_9()
         s = self.row(monday.replace(hour=8, minute=50), times=4)
         self.promise(s, next_action.Window(monday + timedelta(days=7) - timedelta(hours=9), None, None, monday))   # 「来週なら」（先週に言われた。終わりは次の月曜の0時）
         self.run_until(s, Phone(), Script(default="no_answer"), monday.replace(hour=18) + timedelta(days=3),
                        step=timedelta(minutes=30), night=timedelta(hours=2))
         days = [(t.date() - monday.date()).days for t in self.times(s)]
-        self.assertEqual([days.count(d) for d in range(4)], [3, 2, 0, 0], self.times(s))
+        self.assertEqual([days.count(d) for d in range(4)], [3, 1, 0, 0], self.times(s))
 
     def test_tomorrow_forenoon_starts_at_the_business_hours(self):
         """「明日の午前中」：始まりは言葉で決まっていないので、営業時間の9時から（⛔ 0215 まで：歯止め時間の7時）。"""
