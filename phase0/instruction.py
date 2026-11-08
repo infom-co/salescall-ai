@@ -198,6 +198,9 @@ class Business:
     # その文が、いつの電話のことか（same_day＝同じ日「先ほど」・later＝あとの日「先日」。CL-2 の apology.for_task が選んだ文の部分
     # apology_same_day・apology_later）。繋がる前に用件を聞かれたときの一言も、これで選ぶ（phrases.APOLOGY_PURPOSE）
     apology_when: str = "later"
+    # 約束の電話などの頭で流す、承認したお詫びの文（予約証のお詫びの理由 forbidden_speech のとき要る＝CL-2 の apology.for_task の text。承認したときに聞いて
+    # いただいた録音で流す＝お詫びだけの電話の apology_call と同じ流し方。並べる順は flowctl.apology_order の1か所）。✅ CL-2 の 4-350 の (2)
+    apology_text: str | None = None
     # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
     # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
     #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
@@ -310,7 +313,7 @@ class Business:
                     name_readings=self.name_readings(), judge_names=self.judge_names(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again,
-                    hold_wait_s=self.hold_wait_s, apology_call=self.apology_call, apology_when=self.apology_when,
+                    hold_wait_s=self.hold_wait_s, apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
                     opening=self.replay_parts() if recorded else None, **kw)
@@ -362,7 +365,7 @@ class Business:
             step = resumed_step(self.questions, self.earlier)
             told = told_kind((self.earlier or {}).get(step[1].id)) if step is not None and step[0] == "told" else None
             at_end = told is not None and (step[1].final_goal or self.first_ask() is None)
-            parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up)]
+            parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up, self.apology_text)]
             if self.purpose_line and told is None:
                 parts.append(self.purpose_line)
         if (first := self.first_ask()) is not None:

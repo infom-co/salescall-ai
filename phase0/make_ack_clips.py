@@ -17,6 +17,7 @@
 ⚠️ 本番で使うなら、決まった発話の録音（6-13）と同じく、人（運営者）が聞いて承認する。
 """
 from __future__ import annotations
+from dataclasses import dataclass, field
 
 import asyncio
 import json
@@ -379,6 +380,28 @@ def script_table(business) -> tuple[dict, dict]:
             if read:
                 readings[aid] = read
     return table, readings
+
+
+@dataclass(frozen=True)
+class ListedPart:
+    """版の録音の部分の一覧の1つ（CL-2 の recordings.ListedPart と同じ形＝比べる試験）：流す単位の名前・録音の文・その部分が話す名前の読み。"""
+    part: str
+    spoken_text: str
+    readings: dict = field(default_factory=dict)
+
+
+def listed_parts(business) -> list[ListedPart]:
+    """業務の版の録音の部分の一覧を作る唯一の場所（CL-2 の recordings.list_parts へ渡す＝4-120 で約束した入口。依頼主の単位の録音の表 script_table の
+    名前・文・読みそのまま。共通の一言は入れない＝共通の一言の組から流す）。✅ CL-2 の 4-350 の (4)"""
+    table, readings = script_table(business)
+    return [ListedPart(name, text, dict(readings.get(name, {}))) for name, (text, _) in table.items()]
+
+
+def hand_list(business, tx, version_id) -> object:
+    """業務の版の録音の部分の一覧を CL-2 へ渡す口（唯一の場所。CL-2 の salescall.core.recordings.list_parts を呼び、答え＝VersionNeeds をそのまま返す）。
+    ⏳ CL-2 の枝（4-350）が main に入るまで、CL-2 の list_parts はこちらから呼べない（比べる試験は CL2_PENDING）。"""
+    from salescall.core import recordings
+    return recordings.list_parts(tx, version_id, [recordings.ListedPart(p.part, p.spoken_text, p.readings) for p in listed_parts(business)])
 
 
 def words(script: bool) -> tuple[dict, Path]:

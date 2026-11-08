@@ -99,7 +99,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     本番は電話接続側の声の見張りが、送った音の上で決める）。
     clip_s：判定を待つ間に流す録音（Flow.hold_play）の長さを返す（録音の部分の名前 -> 秒）。流したら、その長さだけ待つ長さを延ばす。
     grounder：AIが自分の言葉で言う文の中身の判定（grounding.make_grounder。async (知っていること, お客様の言葉, 返す文) -> 読み）。聞くべき操作
-    （Flow.grounding_job）が来たら、返事を作る前に flow.limits.hold_s 秒まで待ち、届いた読みを flow.on_grounded へ渡す（待つ間は「はい、」の相づち。
+    （Flow.grounding_jobs）が来たら、返事を作る前に flow.limits.hold_s 秒まで待ち、届いた読みを flow.on_grounded へ渡す（待つ間は「はい、」の相づち。
     届かなければ渡さない＝流れの制御は、その文を声に出さずに受け皿へ回す。遅れて届いた読みは記録だけ＝通話後の検証が見る）。"""
     loop = asyncio.get_running_loop()
     if pcm is not None:
@@ -351,7 +351,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             info.setdefault("late", info["waits"][-1]["late"])
 
     async def ground(draft: str, task, t0: float, release) -> None:
-        """答えの文の中身の判定（t0 に出した task）を、出してから待つ長さまで待つ（Flow.grounding_job・on_grounded）。⛔ 2026-10-22 の5回目：
+        """答えの文の中身の判定（t0 に出した task）を、出してから待つ長さまで待つ（Flow.grounding_jobs・on_grounded）。⛔ 2026-10-22 の5回目：
         言葉で見る確かめは、世間話・お礼まで止め、作り話を通していた（G-63）⇒ 中身で読む。待つ間は「はい、」（報告を待たせるときと同じ相づち）。
         待つ長さは会話の側の1か所（flow.limits.hold_s）：切れる時に組へ合図（release）し、組が持っている読みを受ける（意味の判定と同じ＝RELEASE_GRACE_S。
         ⛔ 2026-11-06 日本時間8時台：中身の判定の組は、先に出す Jev がまだ答えていない間、届いた考える Sonnet の読みを組の既定値まで持ち、会話の側が
@@ -381,9 +381,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     async def handle(fc):
         midway = not complete()  # AIが、相手の言葉が出揃う前に報告した（Flow.handle の midway）
         # 答えの文の中身の判定は、相手の言葉の確かめ（hold）と同時に出す（順に待つと、待たせる長さが足し算になる）
-        job = flow.grounding_job(fc.name, fc.args) if grounder is not None else None
-        rel = asyncio.Event()   # 中身の判定の組へ、待つのをやめる合図（ground）
-        grounding = (asyncio.create_task(grounder(*job, release=rel)), loop.time(), rel) if job is not None else None
+        # 中身の判定に聞く文の並び（答えの文・申し出の条件＝Flow.grounding_jobs の1か所）は、どれも同時に出す（待つ長さは出した時から＝順に待っても足し算にならない）
+        groundings = []
+        for job in (flow.grounding_jobs(fc.name, fc.args) if grounder is not None else []):
+            rel = asyncio.Event()   # 中身の判定の組へ、待つのをやめる合図（ground）
+            groundings.append((job[2], asyncio.create_task(grounder(*job, release=rel)), loop.time(), rel))
         if flow.wants_checks(fc.name, fc.args):
             binding = flow.binding(fc.name, fc.args)
             await hold(ear_too=True, every=flow.waits_every(fc.name, fc.args),
@@ -396,8 +398,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             flow.on_decided(turn)
         else:
             release_at(loop.time() + flow.limits.judge_wait_s())   # 判定を待たない報告：組には、ここから待つ長さで合図する（打ち切りまで待たせない）
-        if grounding is not None:
-            await ground(job[2], *grounding)
+        for draft, *grounding in groundings:
+            await ground(draft, *grounding)
         reply = flow.handle_call(fc, midway)
         if (ac := flow.ahead_context()) is not None:
             # 次に伺う選ぶ質問の答えを、先に言われたことから報告してもらう（Flow._offer_ahead）：その言葉を、その質問について読み直す判定を出す
