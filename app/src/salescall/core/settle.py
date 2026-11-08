@@ -197,11 +197,13 @@ def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> boo
     forbidden = attempts.forbidden_speech(tx, a["attempt_id"])
     if not forbidden:
         return False
-    summary = "言ってはいけないことを言った通話がありました。その行はひとまず終えました。"
+    summary = "言ってはいけないことを言った通話がありました。"
     refs: dict[str, Any] = {"attempt_id": a["attempt_id"], "task_id": a["task_id"], "version_id": a["version_id"]}
     if prepare:
         draft = apology.prepare(tx, a["attempt_id"])
-        summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこのお客様にかけて伝えます。"
+        # お客様がかけ直しを約束していれば、お詫びは約束の時刻の電話の頭で伝え、そのまま約束の用件を続ける（計画書 7-3 (2)。0216）
+        summary += (f"お詫びの案：「{draft['text']}」承認すると、AI がこのお客様にかけて伝えます（お客様がかけ直しを約束していれば、約束の時刻の"
+                    "電話の頭で伝え、そのまま約束の用件を続けます。承認するまで、その電話はかけません）。")
         refs["apology_order_id"] = draft["order_id"]
     # 同じ不具合は1つ＝業務設定の版ごと（台本が違えば原因も違いうる。⛔ 2026-10-22 の見直し13：前は版をまたいで1つにまとめ、
     # 直したと報告するまで、ほかの業務の版で起きても依頼が出なかった）

@@ -345,7 +345,8 @@ class UntilByReason(unittest.TestCase):
         r = read("21時45分まで", NOW, until="slot_after", slot=1800)
         self.assertEqual((r.kind, r.end, r.daily, r.said), (WINDOW, at(2026, 10, 14, 22), (21 * H + 2700, 22 * H), (True, False)))
         from salescall.core import calling_hours
-        self.assertEqual(calling_hours.callee_range(r.daily, r.said, CALLEE.designated_limit), r.daily)   # 門も同じ幅を読む
+        self.assertEqual(calling_hours.callee_range(r.daily, r.said, CALLEE.designated_limit, business=CALLEE.business_hours),
+                         r.daily)   # 門も同じ幅を読む
         # 歯止めの始まりより前の時刻（「明日の朝6時までに確認しておきます」）も同じ：作った 6:00〜6:30 は歯止めの外なので確かめる
         self.assertEqual(read("明日の朝6時まで", NOW, until="slot_after", slot=1800).kind, CONFIRM)
         r = read("明日の朝6時まで", NOW, until="slot_after", slot=1800, beyond_ok=True)

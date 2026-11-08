@@ -106,6 +106,16 @@ def in_row_count(table: str = "") -> str:
             f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)")
 
 
+def in_purpose_count(table: str = "") -> str:
+    """その番号へかける電話（番号の聞き直し・お詫び）の回数を数える範囲（SQL。1か所。gate.purpose_dials が読む）：
+    - いまの担当の方の期の通話は、回数の数え始めのあと（`count_start`＝番号を直したら、新しい番号で数え直す＝計画書 7-1 (15)）。
+    - 前の担当の方の期の通話（「担当の方は違う」を選んで直す前の期）は、すべて（前の担当の方へのお詫び・番号の聞き直しは、決めた回数まで、その方へ
+      かける＝✅ 2026-11-08 本体の決定。計画書 7-1 (32) にそろえる。番号の直しで数え直すのは、いまの担当の方の決まり。⛔ 0201〜0215：「違う」で番号を
+      直すと、前の番号への回数も0から数え直していた（前の番号へは1回で移っていたので困らなかった）。0216）。"""
+    t = table + "." if table else ""
+    return f"({count_start(table)} OR {t}person_since IS DISTINCT FROM salescall.task_person_since({t}task_id, now()))"
+
+
 def in_promise_count(table: str = "", period: str | None = None) -> str:
     """お客様と約束したかけ直しの回数を数える範囲（SQL。1か所。next_action の約束の回の数え＝`_round_calls`・`_exact_next_try`・
     `_unspecified_calls`・`_missed` が読む）。period＝その約束の担当の期（SQL の式。None＝その通話の期）：

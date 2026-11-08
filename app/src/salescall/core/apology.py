@@ -6,6 +6,9 @@
     文面は決まった形（`TEMPLATE_*`。正本はここだけ）にはめる。案は契約者への知らせに入れる。
 (2) 契約者が案を見て承認する（`approve`。管理者か契約者だけ。データベースが守る）。承認で、AI がそのお客様（その通話でかけた番号）へかける
     予定が書かれる。承認しなければ、かけない（「場合によっては」の判断は、承認するかどうか）。
+    その通話でお客様がかけ直しを約束していたら、お詫びだけの電話はかけず、約束の時刻の電話の頭で伝え、そのまま約束の用件を続ける（次の予定の
+    お詫びの理由 forbidden_speech。承認するまで、その約束の電話もかけない＝gate.apology_unapproved。会話の担当は、予約証の apology にこの理由が
+    あれば `for_task` の文と録音を最初に流す。✅ 2026-11-08 ユーザー＝計画書 7-3 (2)「約束の時刻にお詫び」。0216）。
 - 業務設定に正しい案内が無い言ってはいけないこと（失礼な言葉など）を言ったときは、別の文面（`TEMPLATE_IMPROPER_*`）を使う
   （2026-10-16 ユーザー：「その場合は、別のトークスクリプトを作成しておきましょう」）。**何を言ってしまったかを、文面に入れる**
   （2026-10-16 ユーザー：「何が不適切なのかが相手に伝わらない、お詫びは、お詫びになりません」）。正しい案内のあるものと両方なら、
@@ -108,7 +111,10 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
     すぐ書いていたので、判定待ち＝断ったかが決まっていない行の予定を「いまお詫び」に替え、断ったかもしれないお客様へかけ、
     あとで判定し直す道も消していた）：
     - 誤った通話の判定がまだ無い（締めが済んでいない）・その行が判定待ち（断ったかを決められない）
-    - 誤った通話でお客様が発信を断った（もうかけない）"""
+    - 誤った通話でお客様が発信を断った（もうかけない）
+    - いまの予定が、お客様と約束したかけ直しの電話で、その頭でお詫びを伝える（お詫びの理由 forbidden_speech＝次の動きの1か所が付けた。承認で門が
+      通す＝gate.apology_unapproved）。お詫びだけの電話は書かない（✅ 2026-11-08 ユーザー＝計画書 7-3 (2)「約束の時刻にお詫び」：約束を守り、
+      1本で済ませる。⛔ 0215 まで：お詫びの電話だけかけて apology_done で終わり、約束の電話がかからなかった。0216）"""
     row = tx.one("SELECT o.order_id, o.source_attempt_id, a.contact_id, p.approved_at"
                  " FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
                  " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id"
@@ -123,6 +129,8 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
     current = next_action.current(tx, task_id)
     if judged is None or judged["state"] in ("unknown", "do_not_call") or (current is not None and current["kind"] == "hold"):
         return False
+    if current is not None and "forbidden_speech" in (current["apology_reasons"] or ()):
+        return False   # 約束の電話の頭で伝える（承認で門が通す）
     next_action.schedule_apology(tx, task_id, row["contact_id"], cause=f"お詫びの電話の承認（案 {row['order_id']}）",
                                  source=row["source_attempt_id"])
     return True

@@ -73,7 +73,11 @@ class Shapes(unittest.TestCase):
                            ("retry.time_band_boundaries", [12, 24]), ("retry.time_band_boundaries", [11.5]),
                            ("line.test_number", "0312345678"), ("line.test_number", "+81-3-1234-5678"),
                            ("line.test_number", "+0312345678"), ("line.test_number", 81312345678),
-                           ("line.test_number", "")]:
+                           ("line.test_number", ""),
+                           # その日はかけない・間隔の形（0215・0216）と、幅の約束の1日の回数は1以上
+                           ("gate.same_number_gap", "never"), ("gate.same_number_gap", {"hours": 0}),
+                           ("gate.same_number_gap", {"days": 1, "hours": 1}), ("gate.same_number_gap", 3600),
+                           ("callback.window_daily_max", 0), ("callback.window_daily_max", "3")]:
             with self.subTest(key=key, value=value), self.assertRaises(Rejected):
                 sys_tx(lambda tx: settings.set_system_value(tx, key, value, status="provisional",
                                                             rationale="試験", review_when="試験"))
@@ -90,7 +94,7 @@ class Shapes(unittest.TestCase):
         w = World(); t = w.tenant(); c = w.client(t)
         b, _ = w.business_with_version(t, c)
         for key, scope, value in [("gate.claim_lifetime", "client", 60), ("gate.claim_lifetime", "tenant", 60),
-                                  ("gate.cross_client_interval", "client", 60), ("stop.ai.probe_interval", "client", 1),
+                                  ("gate.same_number_gap", "business", "next_day"), ("stop.ai.probe_interval", "client", 1),
                                   ("line.max_dials_per_day", "business", 10), ("calling.hours_limit", "business", ALL_DAY)]:
             with self.subTest(key=key, scope=scope), self.assertRaises(Rejected):
                 if scope == "tenant":
@@ -386,8 +390,11 @@ class ScopesDecidedByUser(unittest.TestCase):
               "callback.period_morning", "callback.period_forenoon", "callback.period_afternoon", "callback.period_evening",
               "callback.period_night",     # かけ直しの言葉ごとの幅は依頼者ごと（2026-10-19。0088）
               "gate.exact_promise_guard", "gate.exact_promise_guard_samples",  # 時刻を指定した約束の前の空け（0090・0091）
-              "callback.exact_slot", "callback.exact_retry_gaps", "callback.exact_days")   # 時刻ちょうどの約束の回（0093）
-    TENANT = ("gate.cross_client_interval", "stop.ai.probe_interval",
+              "callback.exact_slot", "callback.exact_retry_gaps", "callback.exact_days",   # 時刻ちょうどの約束の回（0093）
+              # 同じ番号へのほかの行の電話の間・断りと苦情のあと同じ依頼者からかけるか（2026-11-08 ユーザー：依頼者ごと。0216。
+              # ⛔ 0215 まで：依頼者をまたいだ間隔 gate.cross_client_interval は契約者の範囲の上のシステムの値だった）
+              "gate.same_number_gap", "calling.call_after_refusal")
+    TENANT = ("gate.other_contractor_interval", "stop.ai.probe_interval",
               "stop.ai.resume_after_successes", "budget.tenant_daily_yen",   # 費用の見張りは契約者ごと（2026-10-18 ユーザー）
               "judge.models", "pc.auto_update")   # 判定に使うAI・プログラムの更新（2026-10-18 ユーザー）
 
@@ -410,7 +417,7 @@ class ScopesDecidedByUser(unittest.TestCase):
                 self.assertNotEqual(resolved(self.w, self.t, self.w.client(self.t), key), value)
 
     def test_tenant_values_are_used_by_every_client_of_the_contractor(self):
-        for key, value in [("gate.cross_client_interval", 86400), ("stop.ai.probe_interval", 5)]:
+        for key, value in [("gate.other_contractor_interval", {"days": 1}), ("stop.ai.probe_interval", 5)]:
             with self.subTest(key=key):
                 self.w.a.in_tenant(OPERATOR, self.t, lambda tx: tx.execute(
                     "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when,"

@@ -34,9 +34,9 @@ callee.business_hours。会社の初めは 9:00〜19:00。日をまたいでよ�
 gate.callee_settings の CalleeSettings.periods。この部品は初めの値を持たない＝`read` に必ず渡す。2026-10-19 ユーザー「OK」。幅はお客様の指定＝2026-10-23 ユーザー「『朝』も時間帯が決まっているでしょ」）：朝・朝一＝〜10時・午前（中）＝〜12時・
 午後一＝13〜14時・午後＝13時〜・夕方＝16〜18時・夜（晩）＝18〜20時。日の言葉の一覧は DESIGN.md 7-1d の表。
 幅の端のうち、お客様が実際に口にした端（「4時以降」の4時・「3時まで」の3時・時刻ちょうど）を返す（`Reading.said`）。端の決まって
-いない側（「朝」の0時・「午後」の24時）は、かける所（calling_hours.callee_range の1か所）がお客様指定の歯止め時間（設定
-callee.designated_limit）で埋めて切る（口にした端はその外でも切らない）。お客様の営業時間（callee.business_hours）は、午前・午後の
-読み分けだけに使う（2026-10-23 ユーザー）。
+いない側（「朝」の0時・「午後」の24時）は、かける所（calling_hours.callee_range の1か所）がお客様の営業時間（設定
+callee.business_hours）で切る（✅ 2026-11-08 ユーザー＝計画書 7-3 (3)。営業時間で切ると空になるときだけ、お客様指定の歯止め時間
+callee.designated_limit で埋める。口にした端はその外でも切らない。0216）。営業時間は、午前・午後の読み分けにも使う。
 - 時刻は日本の時刻（日本標準時）で読む。結果は時差つきの時刻。
 """
 
@@ -550,8 +550,8 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
     periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの。読むのは gate.callee_settings の1か所＝
     CalleeSettings.period_table。初めの値を持たない＝必ず渡す）。
     monthly＝お客様が月の理由（月ぎめの業務・入金の間隔など）を言った（会話の報告の callback.cycle＝month）。
-    limit＝お客様指定の歯止め時間（設定 callee.designated_limit。幅の端の決まっていない側を埋めて切る＝calling_hours.callee_range）。
-    埋めると幅が空になる言い方（口にした端が歯止め時間の外：「23時以降なら」「明日の朝6時まで」）は、通話の中で確かめる（CONFIRM）。
+    limit＝お客様指定の歯止め時間（設定 callee.designated_limit。幅の端の決まっていない側は営業時間で切り、空になるときだけ歯止め時間で
+    埋める＝calling_hours.callee_range。0216）。埋めると幅が空になる言い方（口にした端が歯止め時間の外：「23時以降なら」「明日の朝6時まで」）は、通話の中で確かめる（CONFIRM）。
     確かめて「はい」と言われた（会話の報告の callback.beyond_limit_ok＝beyond_ok）ときは、口にした端から1回分（slot＝設定
     callback.exact_slot。時刻ちょうどの約束と同じ）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」。決めるのは
     calling_hours.callee_range の1か所。⛔ 見直し16b：前は空の幅が時刻の決まっていない約束になり、お客様の言ったことと反対の
@@ -640,12 +640,12 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
         elif until != "now":
             raise ValueError(f"「〇時まで」の決め方が違います：{until!r}")
         s0, s1 = daily
-    got = None if daily is None else callee_range(daily, said, limit, made=made)
+    got = None if daily is None else callee_range(daily, said, limit, made=made, business=business_hours)
     if made and got is not None:                      # 作った終わりは歯止め時間で切る（「21時45分までに確認」＝21:45〜22:00）
         daily = got
         s0, s1 = daily
     if daily is not None and got is None:             # かけてよい時間が空になる（判断は callee_range の1か所）
-        slotted = callee_range(daily, said, limit, slot, made=made) if beyond_ok else None
+        slotted = callee_range(daily, said, limit, slot, made=made, business=business_hours) if beyond_ok else None
         if slotted is None:
             return _confirm("お客様が言った時刻が、お客様指定の歯止め時間の外です（夜遅く・朝早く）。その時刻でよいかを確かめてください"
                             "（「はい」なら、その時刻から1回分かける）")

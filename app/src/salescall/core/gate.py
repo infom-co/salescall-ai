@@ -11,7 +11,9 @@
   cannot_judge＝判断の材料が無い（通さない。契約者が直す。暦の取り込み・設定の値・業務の版）。
 - 依頼者の範囲の外（ほかの依頼者・契約者の試行）は、中身を返さない確かめの関数だけで見る（「同じ契約者か、外か」だけ）。
 - **どの番号へかけるか**は、いまの予定（次の動きの記録の最新）が持つ番号（行の番号の表にある番号だけ。DESIGN.md 3-5）。
-  門は決め直さない。「同じお客様」は、かける番号が同じ発信と、同じ行（一覧の1行）の発信の両方（番号を変えて回数を増やさない）。
+  門は決め直さない。行の最短の間隔・1日の回数は、同じ行（一覧の1行）の発信で数える（番号を変えて回数を増やさない）。同じ番号への、ほかの行
+  （同じ依頼者のほかの業務・ほかの実施回・ほかの依頼者）の発信からの間は、依頼者ごとの設定 gate.same_number_gap の1つの決まり（✅ 2026-11-08
+  ユーザー＝計画書 7-3 (1)。⛔ 0215 まで：同じ依頼者のほかの行は「同じお客様」として5分・1日2回で数え、ほかの依頼者は3日だった）。
 """
 
 from __future__ import annotations
@@ -63,6 +65,11 @@ REASONS: dict[str, Reason] = {
     "voice_redial": Reason("声が聞き取れずに終えた行です。声が通ると分かっている回線が空くのを待っています（声が聞き取れなかった電話から"
                            "15分たっても来なければ、同じ回線でお詫びとともにかけ直します）", "wait", "unoffered"),
     "awaiting_approval": Reason("契約者の承認を使う業務で、この行がまだ承認されていません", "wait", "unoffered"),
+    # 言ってはいけないことを言った通話で、お客様がかけ直しを約束していた：お詫びは約束の時刻の電話の頭で伝える（✅ 2026-11-08 ユーザー＝計画書
+    # 7-3 (2)「約束の時刻にお詫び」）。契約者がお詫びの案を承認するまで、その約束の電話もかけない（承認を待つ決まりはいままでと同じ。
+    # 決まりはデータベースの salescall.task_apology_unapproved の1か所＝`apology_unapproved`。候補にも出さない。0216）
+    "apology_unapproved": Reason("言ってはいけないことを言った通話の、お詫びの案がまだ承認されていません。お詫びは、お客様と約束した電話の"
+                                 "頭でお伝えします。案を確かめて承認してください（承認するまで、この約束の電話はかけません）", "wait", "unoffered"),
     "number_unknown": Reason("番号が不明です", "permanent", "plan"),
     "number_kind_forbidden": Reason("かけない種類の番号です", "permanent", "plan"),
     "number_kind_not_allowed": Reason("この業務の設定でかけない種類の番号です", "permanent", "plan"),
@@ -80,6 +87,10 @@ REASONS: dict[str, Reason] = {
     # 同じ業務で、用件・最終目的を断られたお客様（業務の設定で、次の実施回でもかけない＝2026-11-01 管理者：伺い8。決まりは
     # target_policy.block_reason の1か所。行を終える＝待っても変わらない）
     "declined_in_business": Reason("同じ業務で、用件か最終目的を断られたお客様です（業務の設定で、かけない）", "permanent", "plan"),
+    # 同じ依頼者のほかの業務で用件を断られた・苦情があったお客様（依頼者の設定 calling.call_after_refusal で、その依頼者からはかけない＝
+    # ✅ 2026-11-08 ユーザー＝計画書 7-3 (1)。決まりは target_policy.block_reason の1か所。0216）
+    "declined_in_client": Reason("同じ依頼者のほかの業務で、用件を断られた・苦情があったお客様です（依頼者の設定で、その依頼者からはかけない）",
+                                 "permanent", "plan"),
     "max_attempts": Reason("この行に発信してよい回数を使い切りました", "permanent", "plan"),
     "no_version": Reason("実施回に業務設定の版が割り当てられていません", "cannot_judge", "run"),
     "rules_missing": Reason("この版の業務の決まり（断りの答え・理由×扱い・再発信の方針）がありません", "cannot_judge", "run"),
@@ -120,7 +131,11 @@ REASONS: dict[str, Reason] = {
                                        "確かめのかけ直し・録音の確かめ・契約者の承認を待っています）", "wait", "unoffered"),
     "same_contact_interval": Reason("同じお客様への前の発信から、間隔が空いていません", "wait", "plan"),
     "daily_attempts": Reason("同じお客様へ、今日かけてよい回数を使い切りました", "wait", "plan"),
-    "cross_client_interval_same_tenant": Reason("ほかの依頼者が同じ番号へかけたばかりです", "wait", "plan"),
+    # 同じ番号へ、ほかの行（同じ依頼者のほかの業務・ほかの実施回・同じ契約者のほかの依頼者）の電話がかかったあと、依頼者ごとの設定
+    # gate.same_number_gap（初め「その日はかけない」）の間が空いていない（✅ 2026-11-08 ユーザー＝計画書 7-3 (1)。⛔ 0215 まで：理由の名前は
+    # cross_client_interval_same_tenant で、ほかの依頼者だけを3日で見ていた）
+    "same_number_interval": Reason("同じ番号へ、ほかの業務・実施回・依頼者の電話がかかったばかりです（依頼者ごとの設定の間をあけます）",
+                                   "wait", "plan"),
     "cross_client_interval_other_tenant": Reason("同じ番号へかけたばかりです", "wait", "plan"),   # 契約者の外は、中身を出さない
     "other_client_promise": Reason("同じ番号へ、ほかの約束の電話がかかります（契約者の設定で、その電話が済むまで待ちます）", "wait", "plan_if_known"),
     "number_promise_soon": Reason("同じ番号へ、お客様が時刻を指定した約束の電話が、もうすぐかかります（その電話が済むまで待ちます）", "wait", "plan_if_known"),
@@ -139,13 +154,14 @@ REASONS: dict[str, Reason] = {
                                 "wait", "unoffered"),
     "business_daily_limit": Reason("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait", "business"),
     "line_other_client": Reason("この回線は、ほかの依頼者に割り当てた発信番号です", "wait", "line"),
-    "line_used_by_other_client": Reason("この発信番号で、ほかの依頼者がこの番号へかけたことがあります（依頼者が替わったら発信番号を替える）",
-                                  "wait", "unoffered"),
+    "line_used_by_other_client": Reason("この発信番号で、ほかの依頼者がこの番号へかけたことがあるか、この依頼者のほかの業務・実施回がこの番号へ"
+                                        "いちばん新しくかけました（依頼者・業務・実施回が替わったら発信番号を替える）", "wait", "unoffered"),
     "line_busy": Reason("回線が使用中です", "wait", "line"),
     "voice_not_ready": Reason("この業務の、承認した録音のある声がありません", "wait", "run"),
     "name_recording_missing": Reason("この行のお客様のお名前の録音（名前の録音の台帳の名前の部分・続く言葉）が、どの声でもまだ承認されて"
                                      "いません", "wait", "unoffered"),
-    "voice_used_by_other_client": Reason("ほかの依頼者がこの番号へ同じ声でかけています（別の声の録音がありません）", "wait", "unoffered"),
+    "voice_used_by_other_client": Reason("ほかの依頼者・この依頼者のほかの業務や実施回が、この番号へ同じ声でかけています（別の声の録音が"
+                                         "ありません）", "wait", "unoffered"),
     "client_concurrency": Reason("この依頼者の同時の本数の上限です", "wait", "client"),
     "contact_active": Reason("同じ番号のお客様（この依頼者の別の行を含む）に、進行中の発信があります", "wait", "task"),
     "task_active": Reason("この行（ほかの番号を含む）に、進行中の発信があります", "wait", "task"),
@@ -162,7 +178,9 @@ _COUNTED = attempts.reached()
 # 相手側にした場合やかけ直しを依頼された場合は対象外」。2026-10-17 の計画書との突き合わせ：前は約束したかけ直しを止めないだけで、
 # かけたあとは回数に数えていたので、そのあとのふつうのかけ直しが減った）。最小の間隔は、約束したかけ直しも起点に数える（歯止め）
 _COUNTED_TIMES = attempts.counts_as_try()   # 決まりはデータベースの1か所（0116。次の動きの再発信の方針の回数も同じものを読む）
-_SAME = "(contact_id = %s OR task_id = %s)"             # 同じお客様：かける番号が同じ発信、または同じ行の発信
+# 行の最短の間隔・1日の回数に数える発信：同じ行の発信（番号を直しても同じ行。同じ番号への、ほかの行の発信は `_pacing` の、同じ番号への
+# ほかの電話の間の1つの決まり＝0216。⛔ 0215 まで：かける番号が同じ発信も数え、同じ依頼者のほかの業務の電話が5分あけて同じ日にかかった）
+_SAME = "task_id = %s"
 
 
 @dataclass(frozen=True)
@@ -181,7 +199,10 @@ class Claim:
     apology: tuple[str, ...] = ()  # お客様につながったら、まずお詫びすること（理由。次の予定の apology_reasons を写す。0113）：
     #                                missed_promise＝約束した日（回）に一度もかけられなかった（2026-10-19 ユーザー：「お約束の日に
     #                                かけることができなかったことを深くお詫びする必要」）／cut_off＝前の電話が途中で切れた（2026-10-17
-    #                                ユーザー：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」）。目的のお客様と話せた
+    #                                ユーザー：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」）／forbidden_speech＝前の通話で
+    #                                言ってはいけないことを言った（お客様がかけ直しを約束していた。✅ 2026-11-08 ユーザー＝計画書 7-3 (2)「約束の
+    #                                時刻にお詫び」：約束の電話の頭で、契約者が承認したお詫びの案＝core/apology.for_task の文と録音を伝え、そのまま
+    #                                約束の用件を続ける。0216）。目的のお客様と話せた
     #                                締めで外れる＝core/next_action の _apologised。会話の処理（CL-1）は、これを読んで最初にお詫びする
     promised: bool = False         # お客様と約束したかけ直しの電話か（試行の印 promised と同じ）。会話の処理は、約束の電話で受付の方に
     #                                事情で取り次げないと言われたら、締めの前に「後ほど改めてお掛けしてもよろしいでしょうか」と聞く
@@ -285,11 +306,13 @@ def window_hours(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID 
                  window: calling_hours.CalleeWindow) -> dict:
     """お客様が言った幅の約束でかける電話の、かけてよい時間帯（`calling_hours.callee_hours` の1か所＝門の時刻の確かめと同じ決まり。
     次の動きが幅の中を探すのに使う）。依頼者の深夜早朝の歯止め（設定 calling.hours_limit。日だけの幅で依頼者の時間帯が1日も無い
-    とき）と、お客様指定の歯止め時間（設定 callee.designated_limit。業務ごと。お客様が言った時間の幅の端を埋めて切る）も読む。"""
+    とき）と、お客様指定の歯止め時間（設定 callee.designated_limit。業務ごと）・お客様の営業時間（設定 callee.business_hours。お客様が言った
+    時間の幅の、言葉で決まっていない端を切る＝2026-11-08 ユーザー。0216）も読む。"""
     scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
     hours, ng = _hours_settings(tx, scope)
+    callee = callee_settings(tx, **scope)
     return calling_hours.callee_hours(hours, ng, settings.resolve(tx, "calling.hours_limit", **scope),
-                                      callee_settings(tx, **scope).designated_limit, window)
+                                      callee.designated_limit, window, business=callee.business_hours)
 
 
 # 言葉ごとの幅の設定（依頼者ごと。表の作り 0088）の名前（読むのは `callee_settings` の1か所＝checks/rules.py の SETTING_READERS）
@@ -343,7 +366,7 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     related = dnc.undecided_reach(tx, task["task_id"])
     if related is not None:
         return Pacing(remaining, None, RELATED_REASONS[related], promised)
-    same = (task["contact_id"], task["task_id"])   # 同じお客様＝かける番号が同じ発信、または同じ行の発信
+    same = (task["task_id"],)   # 同じ行の発信（ほかの行の発信は、下の同じ番号へのほかの電話の間）
     limits: list[tuple[datetime, str, bool]] = []   # 待つ時刻・理由・その時刻が分かっているか（Pacing.known）
     if not promised:
         last = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE {_SAME} AND {_COUNTED}", same)["at"]
@@ -360,17 +383,23 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     # こちらの不具合で切れた通話（結果不明）は、回線が途中で切れた通話と同じ（数えない＝数え方の1か所 salescall.dial_kind の
     # line_failure・cut_off）。前は、お客様が出たあとなら1時間あけていた（2026-10-17 ユーザー：「たどり着いていない場合は、その理由で違うよね」＝次は理由ごとの再発信の
     # 方針で決める。断っていたかもしれないことは、通話後の確かめが受け持つ）
-    # 同じ番号へ、ほかの依頼者がかけたとき：同じ契約者の中＝システムの間隔／ほかの契約者＝契約者の設定（2026-10-16 ユーザー。
-    # 「かけない」は target_policy が答える）。お客様と約束したかけ直し・途中で切れたあとのかけ直し（promised）は止めない（お客様が
-    # 頼んだ時刻を守る。⛔ 2026-10-22 の見直し：前は、ほかの依頼者がかけたあとだと、約束の「15時」を止めて約3日後にずらした）
-    #  間隔の計算はデータベースの中（ほかの契約者の発信の時刻は出さない。待つ時刻は1時間単位に切り上げて返る＝0116）
+    # 同じ番号へ、ほかの行がかけたとき（1つの決まり。0216）：同じ契約者の中（同じ依頼者のほかの業務・ほかの実施回・ほかの依頼者）＝依頼者ごとの
+    # 設定 gate.same_number_gap（初め "next_day"＝その日はかけない。✅ 2026-11-08 ユーザー＝計画書 7-3 (1)「依頼者をまたぐ電話も単に3日を空けるから、
+    # こちらに合わせる」）／ほかの契約者＝契約者の設定（gate.other_contractor_interval。計画書 1-4。別の決まりのまま＝混ぜない。「かけない」は
+    # target_policy が答える）。お客様と約束したかけ直し・途中で切れたあとのかけ直し（promised）は止めない（お客様が頼んだ時刻を守る。
+    # ⛔ 2026-10-22 の見直し：前は、ほかの依頼者がかけたあとだと、約束の「15時」を止めて約3日後にずらした）
+    #  間隔の計算はデータベースの中（ほかの依頼者・契約者の発信の時刻は出さない。ほかの契約者の待つ時刻は1時間単位に切り上げて返る＝0116）。
+    #  同じ契約者の中の待つ時刻は、その時刻からの、かけてよい時間帯の始まり（`next_opening`。「その日はかけない」の次の日の0時にしない）
     if not promised:
         v = _setting(tx, "gate.other_contractor_interval", task)
         other_gap = None if v == "never" else timedelta(hours=v["hours"]) if "hours" in v else timedelta(days=v["days"])
-        for r in tx.all("SELECT relation, wait_until FROM salescall.number_dial_wait_elsewhere(%s, %s, %s)",
-                        (task["phone_e164"], timedelta(seconds=int(_setting(tx, "gate.cross_client_interval", task))),
-                         other_gap)):
-            limits.append((r["wait_until"], "cross_client_interval_" + r["relation"], True))
+        for r in tx.all("SELECT relation, wait_until FROM salescall.number_dial_wait_elsewhere(%s, %s, %s, %s)",
+                        (task["phone_e164"], task["task_id"], same_number_gap(tx, task), other_gap)):
+            if r["relation"] == "same_tenant":
+                limits.append((next_opening(tx, r["wait_until"], tenant_id=task["tenant_id"], client_id=task["client_id"],
+                                            business_id=task["business_id"]) or r["wait_until"], "same_number_interval", True))
+            else:
+                limits.append((r["wait_until"], "cross_client_interval_other_tenant", True))
     # 同じ番号へ、お客様が時刻を指定した約束の電話（同じ契約者のほかの行。同じ依頼者・ほかの依頼者とも）が、約束の前に回線を空ける
     # 長さ（promise_guard_seconds＝この業務の平均通話時間）のうちに来るなら、約束でない電話は待つ（約束の電話より先に、同じお客様へ
     # ほかの電話が届かない。⛔ 見直し15：前は回線の取り置きだけで、同じ番号へのふつうの電話は約束の直前でもかかった）。約束の時刻を
@@ -396,6 +425,13 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
         return Pacing(remaining, now, None, promised)
     at, reason, known = max(binding, key=lambda x: x[0])
     return Pacing(remaining, at, reason, promised, known)
+
+
+def same_number_gap(tx: Tx, scope: dict[str, Any]) -> timedelta | None:
+    """同じ番号へ、ほかの行（同じ依頼者のほかの業務・ほかの実施回・同じ契約者のほかの依頼者）の電話がかかったあとの間（依頼者ごとの設定
+    gate.same_number_gap を読む1か所。None＝その日はかけない＝その電話の日の次の日から。✅ 2026-11-08 ユーザー＝計画書 7-3 (1)。0216）。"""
+    v = _setting(tx, "gate.same_number_gap", scope)
+    return None if v == "next_day" else timedelta(hours=v["hours"]) if "hours" in v else timedelta(days=v["days"])
 
 
 def same_contact_free_at(tx: Tx, scope: dict[str, Any], last_end: datetime) -> datetime:
@@ -460,19 +496,30 @@ def stage_reason(tx: Tx, version_id: UUID | None, keeping: str | None) -> str | 
 
 
 def _line_taken(tx: Tx, task: dict[str, Any], line_id: UUID, today: Any) -> bool:
-    """その回線の発信番号で、ほかの依頼者がこの番号へかけたことがあるか（あれば、この回線ではかけない。1か所＝門と候補を出す処理）。
-    依頼者が替わったら、期間に関係なく発信番号を替える（2026-10-17 ユーザー：「依頼者が違うと、期間に関係なく、声と発信番号は変えた
-    方がいい」「依頼者ごとに発信番号があることがデフォルト。ただし、検証時は発信番号は1つでOK」＝検証モードの業務は見ない）。替えられる
+    """その回線の発信番号で、ほかの行がこの番号へかけたか（あれば、この回線ではかけない。1か所＝門と候補を出す処理。決まりはデータベースの
+    salescall.line_called_number_elsewhere の1か所）。依頼者が替わったら、期間に関係なく発信番号を替える（2026-10-17 ユーザー：「依頼者が違うと、
+    期間に関係なく、声と発信番号は変えた方がいい」「依頼者ごとに発信番号があることがデフォルト。ただし、検証時は発信番号は1つでOK」＝検証
+    モードの業務は見ない）。同じ依頼者のほかの業務・ほかの実施回の電話とも、お客様が前に見た発信番号（その番号へのいちばん新しい電話の回線）を
+    替える（✅ 2026-11-08 ユーザー＝計画書 7-3 (1)「声と電話番号は必ず変える」。0216。⛔ 0215 まで：同じ依頼者なら同じ発信番号でかけた）。替えられる
     回線が無いときは、ほかの回線が空くのを待つ（その依頼者の専用の回線がまだ無いときだけ、契約者に知らせる。専用の回線が使用中で共有の
     回線が回ってきたときは知らせない。設定の抜けは注意だけ）。⛔ 見直し17a：前は門だけが見て、共有の回線が回るたびに断り、次の動きが
     予定を5分ずつ先へ書き直し続けた（その回線では、いつまで待っても変わらない）。"""
     if approval.human_for_business(tx, task["business_id"]) or not tx.one(
-            "SELECT salescall.line_called_number_elsewhere(%s, %s) AS hit", (line_id, task["phone_e164"]))["hit"]:
+            "SELECT salescall.line_called_number_elsewhere(%s, %s, %s) AS hit", (line_id, task["phone_e164"], task["task_id"]))["hit"]:
         return False
     if tx.one("SELECT 1 FROM salescall.lines WHERE client_id = %s LIMIT 1", (task["client_id"],)) is None:
         notify.emit(tx, "setting_missing", key=f"own_line:{task['client_id']}:{today}",
                     summary=OWN_LINE_MISSING, refs={"client_id": task["client_id"], "line_id": line_id})
     return True
+
+
+def apology_unapproved(tx: Tx, task_id: UUID) -> bool:
+    """いまの予定が、約束の時刻の電話の頭で伝えるお詫び（お詫びの理由 forbidden_speech）を持ち、そのお詫びの案を契約者がまだ承認していないか
+    （1か所＝データベースの salescall.task_apology_unapproved。門と候補を出す処理＝`waits_unknown` が読む）。✅ 2026-11-08 ユーザー＝計画書 7-3 (2)
+    「約束の時刻にお詫び」。お詫びの承認を待つ決まりはいままでと同じ（承認するまでかけない＝core/apology.approve）。承認が約束の時刻に間に合わ
+    なければ、ほかの理由で約束の回を逃したときと同じ決まり（幅の外で門が断り、次の動きの `_keep_promise` が次の回へ。その回に一度もかけられ
+    なければ、約束の日にかけられなかったお詫びも足す）。0216。"""
+    return bool(tx.one("SELECT salescall.task_apology_unapproved(%s) AS w", (task_id,))["w"])
 
 
 def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: dict[UUID, bool] | None = None) -> str | None:
@@ -490,6 +537,8 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: d
         return "awaiting_approval"
     if tasks.old_promise_waiting(tx, task_id) is not None:
         return "old_promise_choice"
+    if apology_unapproved(tx, task_id):
+        return "apology_unapproved"
     related = dnc.undecided_reach(tx, task_id)
     if related is not None:
         return RELATED_REASONS[related]
@@ -554,14 +603,15 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str, number: UUID | None = 
     別の時間帯にかけ直す電話の、回数・試した時間帯・最小の間隔を決めるのに使う（next_action._new_band_retry の1か所。DESIGN.md 3-5）。
     counted＝回数と試した時間帯に数えるか：これからかける番号（number。None＝どの番号も）へ、回数の数え始め（かける番号を直した
     とき＝attempts.count_start の1か所。行の回数と同じ）のあとにかけたもの（✅ 2026-11-06 ユーザー＝計画書 7-1 (15)：番号を直して
-    戻したお詫びの電話の回数は「数え直す」＝新しい番号で0回から）。最小の間隔は、同じお客様なので数え直さない（どの発信も見る。
+    戻したお詫びの電話の回数は「数え直す」＝新しい番号で0回から）。前の担当の方の期の通話（「担当の方は違う」で直す前）は数え直さない
+    （決めた回数まで前の担当の方へ＝attempts.in_purpose_count の1か所。0216）。最小の間隔は、同じお客様なので数え直さない（どの発信も見る。
     計画書 7-1 (4) の「1日の回数と最短の間隔は数え直さない」と同じ）。
     行の回数の範囲（attempts.in_row_count）は、直したあと前の番号へかけた電話を除くが、ここでは除かない：番号の聞き直し・お詫びは、
     その番号のお客様へかける電話なので、直したあとも前の番号へかけ続ける（next_action.current_dial）。除くと前の番号への回数が増えず、
     決めた回数で終わらない（終われば、いまかける番号へ移る＝next_action._moved_on_fix）。⇒ 番号で分けて数える。"""
     return [PurposeDial(r["t"], r["e"], r["counted"]) for r in tx.all(
         "SELECT salescall.jst(claimed_at) AS t, salescall.jst(coalesce(ended_at, claimed_at)) AS e,"
-        f"      ({attempts.count_start()} AND (%s::uuid IS NULL OR contact_id = %s)) AS counted FROM salescall.attempts"
+        f"      ({attempts.in_purpose_count()} AND (%s::uuid IS NULL OR contact_id = %s)) AS counted FROM salescall.attempts"
         f" WHERE task_id = %s AND purpose = %s AND {_COUNTED} ORDER BY claimed_at", (number, number, task_id, purpose))]
 
 
@@ -577,15 +627,18 @@ VOICE_PARTS_MISSING = ("システムの録音（どの契約者にも同じ、�
                        "録音を入れた組を作り、聞いて承認するまで、その声ではかけません。")
 NAME_RECORDING_MISSING = ("お名前の録音（名前の録音の台帳）がそろっていない行があります（例：{}）。台帳の録音を作り、聞いて承認して"
                           "ください（それまで、その行はかけません）。")
-OTHER_VOICE_MISSING = "別の声の録音がありません。ほかの依頼者がかけた番号へは、同じ声ではかけません。別の声の録音を承認してください。"
+OTHER_VOICE_MISSING = ("別の声の録音がありません。ほかの依頼者や、この依頼者のほかの業務・実施回がかけた番号へは、同じ声ではかけません。"
+                       "別の声の録音を承認してください。")
 
 
 def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice: str, today: Any) -> str | Denied:
     """この通話で話す声の型（決めるのはここだけ。DESIGN.md 5-2-2 の順10。2026-10-17 ユーザー：声を決める場所は門＝案A）。
     話してよい声は、承認した録音のある声だけ（`recordings.ready_voices` の1か所。事前の録音チェック）。
     (1) この行で前に話した声の型があり、その声が話してよい声なら、それ（同じお客様へのかけ直し・お詫びの電話は同じ声）。
-    (2) ほかの依頼者（ほかの契約者を含む）がこの番号へかけてお客様が聞いた声とは、別の声（2026-10-17 ユーザー：「依頼者が違うと、
-        期間に関係なく、声…は変えた方がいい」「同じ男性ならサービスを聞く前に嫌悪感を持たれるので、Ledaが対応するなど」）。
+    (2) ほかの行（同じ依頼者のほかの業務・ほかの実施回・ほかの依頼者・ほかの契約者）がこの番号へかけてお客様が聞いた、いちばん新しい声とは、
+        別の声（2026-10-17 ユーザー：「依頼者が違うと、期間に関係なく、声…は変えた方がいい」「同じ男性ならサービスを聞く前に嫌悪感を持たれる
+        ので、Ledaが対応するなど」。✅ 2026-11-08 ユーザー＝計画書 7-3 (1)「声と電話番号は必ず変える」：同じ依頼者のほかの業務・実施回も。0216。
+        ⛔ 0215 まで：ほかの依頼者の声だけ見ていた）。
         別の性別の声があれば、その中から（声の一覧の性別の表示名。見直し16）。業務設定の声の型が使えればそれ、使えなければ、話して
         よいほかの声の初めの声の型（声の名前の順。声が増えても同じ決まり）。
     話してよい声が無い・別の声が無いときは、通さずに待つ（発信番号を替えられないときと同じ）。契約者に知らせる（止めない）。
@@ -619,7 +672,7 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
                   " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
     if mine is not None and types[mine["voice_type"]]["voice_name"] in ready:
         return mine["voice_type"]
-    before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s) AS v", (task["phone_e164"],))["v"]
+    before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s, %s) AS v", (task["phone_e164"], task["task_id"]))["v"]
     usable = [v for v in ready if v != before]
     if before is not None:
         # お客様が前に聞いた声と、別の性別の声があれば、それだけにする（2026-10-17 ユーザー：「同じ男性ならサービスを聞く前に嫌悪感を
@@ -733,6 +786,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
                  "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, cut_call, successor, handover,"
                  "       salescall.number_again_of(purpose, number_again) AS number_again,"   # 前の予定の読み替えは1か所（0136）
                  "       salescall.jst(window_from) AS window_from, window_said, window_day_said,"
+                 "       salescall.jst(window_recover_until) AS window_recover_until,"
                  "       salescall.keeping_kind(purpose, promised) AS keeping"
                  " FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
     if nxt is None:
@@ -755,6 +809,10 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # 出さない＝`waits_unknown`。計画書 7-1 (23)）
     if tasks.old_promise_waiting(tx, task["task_id"]) is not None:
         return _deny("old_promise_choice")
+    # 約束の時刻の電話の頭で伝えるお詫びの案を、契約者がまだ承認していない（`apology_unapproved` の1か所。候補を出す処理も同じものを読んで
+    # 出さない＝`waits_unknown`。計画書 7-3 (2)。0216）
+    if apology_unapproved(tx, task["task_id"]):
+        return _deny("apology_unapproved")
     # 「かけない」にしている行（一覧の列・ダッシュボード。2026-10-18 ユーザー決定）。お詫び・途中で切れたあとのかけ直し・約束した
     # かけ直しは、「かけない」の例外＝かける（2026-10-18 ユーザー）。「強制かけない」は例外なし（2026-10-19 ユーザー）。
     # 決まりはデータベースの1か所 task_excluded_now（0078・0085）
@@ -845,7 +903,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     #      幅の決まりは calling_hours.in_window の1か所。話せなかったときの次の回（お客様がその日を選んだ理由に合わせる）は次の動き（`_keep_promise`）が決める
     daily = None if nxt["window_daily"] is None else tuple(nxt["window_daily"])
     days = None if nxt["window_days"] is None else tuple(nxt["window_days"])
-    if not calling_hours.in_window(local, nxt["window_until"], daily, days, holiday_checker(tx), since_local=nxt["window_from"]):
+    #      こちらの止めで約束の時刻にかけられなかった回を、その日のうちに取り戻す電話（window_recover_until。計画書 7-3 (4)。0216）は、その期限まで
+    if not calling_hours.in_window(local, nxt["window_until"], daily, days, holiday_checker(tx), since_local=nxt["window_from"],
+                                   recover_until_local=nxt["window_recover_until"]):
         return _deny("callback_window")
 
     # (6b) 時間帯：予約から予約証の期限まで、まるごと内側（5-2-1 の4）。祝日の暦の外は判断できない（5-2-1 の5）
