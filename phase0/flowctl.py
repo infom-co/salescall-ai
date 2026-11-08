@@ -988,18 +988,27 @@ def says_wait(said: str | None) -> bool:
     return any(getattr(w.feature, "lemma", "") == "待つ" and w.feature.pos1 == "動詞" and asks(i) for i, w in enumerate(ws))
 
 
-def asks_us(said: str | None, readings) -> bool:
+def asks_us(readings) -> bool:
     """答えの段で、お客様が、いまの質問・言い直しに答える代わりに、こちらに尋ねたか（唯一の決まり＝流れの制御 Flow._asked_now・測りの数え
-    g53_meaning.flow_act）：届いた意味の判定の読みがどれも「決められない」（説明に「どの答えがよいかを、こちらの考えとして尋ねた」を含む＝
-    meaning_judge）で、言葉が「？」で終わる文を含む（question_in の書いた文の見方＝語尾の上がりを聞き取った印）。
+    g53_meaning.flow_act）：届いた意味の判定の読みがどれも答えを選んでいない「決められない」（説明に「どの答えがよいかを、こちらの考えとして尋ねた」を含む＝
+    meaning_judge）で、こちらへ尋ねた問いがある（項目 QUERY＝queries_us の1か所）。
     ✅ 2026-11-06 日本時間4時11分28秒 ユーザー：「送ってもらったほうがいいですかねは、「送ってもらったほうがいいですかね？」の相手への確認の意味と、
        「送ってもらったほうがいいですかね。」の自身への言い聞かせの意味合いがあります。」・4時23分33秒「お客様：送ってもらったほうがいいですかね？や、
        送ってもらったほうがいいですかねー？だった場合は、こちらは「そうですね、お読みになられるとより理解が深まるかと思います。」のような返答が自然です。」
-    ⇒「。」で終わる・句読点の無い言葉は尋ねたとは決めない（言葉だけでは2つの意味のどちらか決まらない＝今までどおり確かめる）。判定が答えに寄っていると
-       読んだ問いの形（「メールでもいいですか？」＝頼み）も尋ねたとしない（「それでは…させていただきますね？」の一言が、頼みへの答えを兼ねる＝11-01 3時45分）。
-    「ですか。」で終わる言葉も問いかけとして見ない（「あー、そういうことですか。」＝ご納得の手順の「なるほど」と同じ扱い＝11-02 5時56分のご判断のまま）"""
+    ✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」＝相手への確認か言い聞かせかは、
+       言葉の形（「？」「。」）ではなく判定が読む（⛔ それまでは「？」で終わる文があるときだけ尋ねたとしていた＝聞き取りの文字が「。」で終わった問いを聞き流した）。
+       判定が答えに寄っていると読んだ問いの形（頼み）は、答えの代わりではない（「それでは…させていただきますね？」の一言が、頼みへの答えを兼ねる＝11-01 3時45分）"""
     got = [r for r in readings if r is not None]
-    return bool(got) and all(str(r) == UNDECIDED for r in got) and asks_us_words(said) is not None
+    return bool(got) and all(str(r) == UNDECIDED for r in got) and queries_us(got)
+
+
+def queries_us(readings) -> bool:
+    """お客様の言葉に、こちらへ尋ねた問いがあるか（唯一の決まり＝答えの代わりに尋ねた asks_us・答えに添えた質問 Flow._question_to_us。読む項目は
+    query_choices）：届いた意味の判定の読みのうち、この項目を読んだものがそろって「尋ねた問いがある」。項目を読んでいない読み（届いていない・項目を足す前の
+    記録）は数えず、1つも無ければ尋ねたとしない（言葉の形で補わない。判定を使わない通話の見方は Flow._question_to_us の中だけ）。割れたら尋ねたとしない
+    （答えの段の読みは組の1つ＝割れるのは、判定の受け持ちが2つある通話だけ）。✅ 2026-11-08 日本時間8時55分08秒 ユーザー（query_choices に引いたお言葉）"""
+    got = [q for r in readings if r is not None and (q := getattr(r, QUERY, None)) is not None]
+    return bool(got) and all(q == QUERY_YES for q in got)
 
 
 def hesitates(readings) -> bool:
@@ -1012,11 +1021,10 @@ def hesitates(readings) -> bool:
     return HESITATING in got and got <= {HESITATING, *UNDECIDED_READS}
 
 
-def asks_us_words(said: str | None) -> str | None:
-    """asks_us の言葉の側の決まり（唯一の場所）：お客様の言葉が「？」で終わる文を含むなら、その問いの文（無ければ None）。判定の読みしだいで、こちらへ
-    尋ねた言葉になりうるか（判定を待つかの前提＝Flow._may_ask_back）と、尋ねられた問いの文（Flow._asked_now）も、ここから読む（⛔ 2026-11-06 日本時間
-    5時56分55秒のご質問のあとの読み直しで見つけた：3か所がそれぞれ「？」の文を探していた＝言葉の側の決まりを変えると、判定を待つかがずれる形）"""
-    return question_in(said, written=True)
+def asked_text(said: str | None) -> str | None:
+    """こちらへ尋ねた問いの文（会話AIへ渡す「お客様の質問」の文。唯一の場所＝Flow._asked_now・_question_to_us）：問いかけで終わる文（question_in の語尾の
+    見方）があればその文、無ければ言葉そのもの。尋ねたかは判定の読みで決まっている（queries_us）＝ここは渡す文を選ぶだけ。"""
+    return question_in(said) or (said or "").strip() or None
 
 
 # 先に言われた答え（Flow.ahead）を、次に伺う質問について読み直す判定（電話接続側が、同じ発話の言葉で出す＝Flow.ahead_context。読みは Flow.on_check が
@@ -1681,11 +1689,32 @@ def why_choices(calling: bool) -> dict:
             UNDECIDED: "この言葉からは、どの理由か決められない"}
 
 
+QUERY, QUERY_HEADING = "query", "こちらへ尋ねた問いがあるか"
+QUERY_YES, QUERY_NO = "こちらへ尋ねた問いがある", "こちらへ尋ねた問いは無い"
+
+
+def query_choices(calling: bool) -> dict:
+    """お客様の言葉に、こちらへ尋ねた問いがあるかの選べるもの（{中の名前: 説明}）。答えの段だけ（お呼びする段は {}＝お呼びする段の「尋ねているか」は
+    別の問い合わせ asks が受け持つ＝お呼びする段の文は変わらない）。読みを組み合わせるのは queries_us の1か所（答えの代わりに尋ねた＝asks_us・
+    答えに添えた質問＝Flow._question_to_us）。✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、
+    1か所で読む」（⛔ それまでは言葉の形で2か所が別々に決めていた＝答えの代わりに尋ねたは「？」の文だけ・答えに添えた質問は語尾の「ですか」など。
+    ご納得の手順への相づちの「…ですか。」を質問として会話AIに答えさせ、「。」で終わった本当の質問を聞き流した）。
+    説明は意味で書き、試しの言葉と同じ言い方の例は書かない。"""
+    if calling:
+        return {}
+    return {QUERY_YES: "いまの言葉の中で、こちらの答えを求めて尋ねた（こちらの考え・こちらのこと・業務やご案内のことなどを、教えてほしいと問いかけた）。"
+                       "文の終わりの形（「？」があるか、「。」で終わるか）ではなく、こちらの答えを求めているかで決める",
+            QUERY_NO: "こちらに尋ねていない（答えた・こちらにしてほしいことを頼んだ・申し出た・相づちや納得を言った・自分に言い聞かせた・"
+                      "もう一度言ってほしいと頼んだ、だけのときも。頼み・申し出は、問いの形で言っても尋ねたとしない）",
+            UNDECIDED: "この言葉からは、こちらに尋ねたのかどうか決められない"}
+
+
 # 答えとは別に、判定がお客様の言葉ごとに読む項目の唯一の表（{項目の名前: (見出し, 選べるものを作る関数)}。並びは問い合わせの文の並び）。
 # 読むのは、お呼びする段の項目（target_facets）・答えの段の項目（meaning_judge.answer_items）・判定の決まりの文・Jev の問い・読み取り（Reading の
 # 同じ名前の値）。⛔ 2026-11-02 まで「電話を終える言葉か」だけを7か所に写して持っていた＝項目を足すと、写し漏れで片方の段だけ読まなくなる
-# 項目は、その段で読むものだけ選べるものを返す（その段で読まない項目は {}＝わからない・答えたくない理由は答えの段だけ）
-SIDE_ITEMS = {END: (END_HEADING, end_choices), HEAR: (HEAR_HEADING, hear_choices), WHY: (WHY_HEADING, why_choices)}
+# 項目は、その段で読むものだけ選べるものを返す（その段で読まない項目は {}＝わからない・答えたくない理由・こちらへ尋ねた問いがあるかは答えの段だけ）
+SIDE_ITEMS = {END: (END_HEADING, end_choices), HEAR: (HEAR_HEADING, hear_choices), WHY: (WHY_HEADING, why_choices),
+              QUERY: (QUERY_HEADING, query_choices)}
 
 
 def side_items(calling: bool) -> dict:
@@ -2424,7 +2453,7 @@ def acknowledgment(sentence: str) -> bool:
 
 
 def question_in(text: str | None, written: bool = False) -> str | None:
-    """文の中の問いかけの文（文の終わりが問いかけのもの。無ければ None）。相手の言葉の中の質問（Flow._callee_question）と、AIの自分の言葉の中の
+    """文の中の問いかけの文（文の終わりが問いかけのもの。無ければ None）。判定を使わない通話の、相手の言葉の中の質問（Flow._question_to_us）・こちらへ尋ねた問いの渡す文（asked_text）と、AIの自分の言葉の中の
     問いかけ（own_answer_problem）を見分ける唯一の場所。written＝AIが書いた文（書き言葉なので、問いかけは「？」で終える＝「？」の文だけを見る。
     「さようでございましたか。」は相づち。聞き取りの文字は「？」が抜けうるので、語尾でも見る）。"""
     for sent in re.findall(r"[^。！!？?]+[。！!？?]?", text or ""):
@@ -4045,7 +4074,7 @@ class Flow:
 
     # ── 答えの報告を当てる相手の言葉（唯一の場所）：ふだんは、いまの発話。相手に応えたあとで、その前の発話の答えを報告した
     #    （answer_held・_held_words）ときだけ、その発話の言葉と確かめ（judged）。値の形・曖昧の決まり・意味の判定・言い直しの言葉は、
-    #    どちらでもこの2つから決める（次へ進むときの「相手が質問をしているか」は、いまの発話のまま＝_callee_question）
+    #    どちらでもこの2つから決める（次へ進むときの「相手が質問をしているか」は、いまの発話のまま＝_question_to_us）
     @property
     def heard_said(self) -> str:
         return self.judged["said"] if self.judged else self.callee_said
@@ -5545,7 +5574,7 @@ class Flow:
         言わせた"""
         end = self._end_now()
         return (end not in END_REASON and not self._end_unsure_now(end) and self._heard_clearly()
-                and not asks_us(self.callee_said, readings))
+                and not asks_us(readings))
 
     def _heard_clearly(self) -> bool:
         """いまのお客様の言葉が聞き取れているか（唯一の決まり＝はっきり待つように言われたか _wait_clear・迷っているお客様への応じ方 _plain_reply）：会話AIが
@@ -7401,7 +7430,7 @@ class Flow:
         kind = self._asked_kind()
         if kind is None:
             return None
-        return asks_us_words(self.callee_said) if kind == "asked" else (self.callee_said or "").strip() or None
+        return asked_text(self.callee_said) if kind == "asked" else (self.callee_said or "").strip() or None
 
     def _asked_kind(self) -> str | None:
         """答えの段で、いまのお客様の言葉に、報告より先に会話AIが応える番の種類（唯一の決まり＝_asked_now・知らせ _asked_note・自分の言葉の答え _own_answer・
@@ -7420,7 +7449,7 @@ class Flow:
             return "concern"
         if self._hesitation() == "help":
             return "help"
-        if self._may_ask_back() and asks_us(self.callee_said, [self.check.get(k) for k in JUDGMENTS]):
+        if self._may_ask_back() and asks_us([self.check.get(k) for k in JUDGMENTS]):
             return "asked"
         return None
 
@@ -7455,12 +7484,13 @@ class Flow:
         self._mark_answered()
 
     def _may_ask_back(self) -> bool:
-        """答えの段（いまの質問か言い直しへの返事を待っている）で、いまのお客様の言葉が「？」で終わる文を含む＝判定の読みしだいで、こちらへ尋ねた言葉に
-        なりうるか（_asked_now の前提・判定を待つかの決まり wants_checks の1か所。会話AIが先に自分の言葉で答えても、判定が届いてから当てる＝判定の届く速さで、
-        同じ言葉への動きが変わらない）。この言葉の答えをもう受け取って、添えられた質問に答える番（after_answer＝_advance の callee_asked）なら当たらない
-        （その質問は答えに添えられた質問の道が受け持つ）"""
-        return (self.phase in ("asking", "rechecking") and (self.current is not None or self.awaiting_confirm is not None)
-                and self.after_answer is None and asks_us_words(self.callee_said) is not None)
+        """答えの段（いまの質問か言い直しへの返事を待っている）で、判定の読みしだいで、いまのお客様の言葉がこちらへ尋ねた言葉になりうるか（_asked_now の
+        前提・判定を待つかの決まり wants_checks の1か所。尋ねたかは判定の読みで決まる＝queries_us。言葉の形にかかわらず判定が届いてから当てる＝判定の届く
+        速さで、同じ言葉への動きが変わらない）。この言葉の答えをもう受け取って、添えられた質問に答える番（after_answer＝_advance の callee_asked）なら
+        当たらない（その質問は答えに添えられた質問の道が受け持つ）。⛔ 2026-11-08 日本時間8時台まで、言葉が「？」で終わる文を含むときだけ当てていた
+        （✅ 8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」）"""
+        return (self.phase in ("asking", "rechecking") and not self.answering   # 出た方の第一声は判定に出さない（judge_context と同じ）
+                and (self.current is not None or self.awaiting_confirm is not None) and self.after_answer is None)
 
     def _asked_note(self, asked: str) -> str:
         """答えの段で尋ねられた（_asked_now）ときに、いま求めていること（AIへの知らせの文。_now の1か所）：報告はせずに、聞かれたことに合う答え方
@@ -10027,10 +10057,17 @@ class Flow:
         return {"turn": t.get("turn"), "said": (t.get("said") or "").strip()[:80], "question": qid, "answer": label(self.items[qid].condition),
                 "skipped": [x for x in self.questions if x in skipped and self.items[x].state == "empty"]}
 
-    def _callee_question(self) -> str | None:
-        """いまの相手の発話の中の、相手からの質問（無ければ None）。相手の言葉の文字（会話AIの聞き取り）で、文の終わりが問いかけのもの。
+    def _question_to_us(self) -> str | None:
+        """いまのお客様の言葉の中の、こちらへ尋ねた問いの文（無ければ None。唯一の場所＝答えに添えた質問 _advance）。判定の読みが届く通話は、項目
+        「こちらへ尋ねた問いがあるか」の読み（queries_us の1か所）で決め、渡す文は asked_text。判定を使わない通話（会話AIの通話の試験）だけ、言葉の形
+        （question_in の語尾の見方）で見る。✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」
+        （⛔ それまでは判定の読みがあっても語尾の形で決めていた＝ご納得の手順への「あー、そういうことですか。」を質問として会話AIに答えさせ、「。」で
+        終わった問い「…決まってるのかなと思って。」を聞き流した）。
         ⛔ G-47：相手が「はい、予約しています。当日はどなたが担当されるんですか？」と答えたのに、プログラムはすぐ次の質問の録音を流し、
            AIには「何も言わずに待って」と伝えた＝相手の質問が10本中10本、聞き流された。"""
+        readings = [self.check.get(k) for k in JUDGMENTS]
+        if self.judging or any(r is not None for r in readings):
+            return asked_text(self.callee_said) if queries_us(readings) else None
         return question_in(self.callee_said)
 
     def _advance(self, prefix: str, handled: bool = False) -> dict:
@@ -10189,7 +10226,7 @@ class Flow:
             # ご納得いただけなかった点を伺った（続きの電話の始めは、前の電話で伺った）：次へ進む前に、AIが知っていることでご説明する（相手の質問・お話に答える
             # 1か所＝replay_opening）
             return {"result": "explain_point", "message": f"{prefix}{self._point_note()}"}
-        asked = None if handled or self.question_answered_turn == self.callee_turns else self._callee_question()
+        asked = None if handled or self.question_answered_turn == self.callee_turns else self._question_to_us()
         if asked:
             # 答えに添えられた相手の質問：次へ進む返事は先に作っておき、AIが相手の質問に答えてから流す（_continue）。答え方は、ひとつで出てきた
             # 質問と同じ1か所（replay_opening：名乗り・用件・想定問答は録音、それ以外は自分の言葉＝声に出す前に確かめる _own_answer）。

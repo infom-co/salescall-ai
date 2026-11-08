@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
@@ -270,6 +270,7 @@ class Reading(str):
     facts: dict | None = None
     end: str | None = None      # 電話を終える言葉か（中の名前＝flowctl.end_choices。問わない問い合わせは None）
     hear: str | None = None     # こちらの声が届いていない様子か（中の名前＝flowctl.hear_choices。問わない問い合わせは None）
+    query: str | None = None    # こちらへ尋ねた問いがあるか（中の名前＝flowctl.query_choices。答えの段だけ・問わない問い合わせは None）
     end_lean: tuple = ()        # 受け持ちの判定の、確かでなかった読みの「電話を終える言葉か」（JudgePanel._mark。流れの制御が、決まらないときの場面に使う）
 
     def __new__(cls, cond: str, firm: bool = True, sure: float | None = None):
@@ -1047,7 +1048,10 @@ JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当�
                   + NOW_ONLY + "）",
              HEAR: "お客様の言葉は、こちらの声がお客様に届いていない様子を表していますか？（答えとは別に読みます。" + NOW_ONLY + "）",
              # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(3)…判定に理由も読ませます。OK」（flowctl.why_choices・Flow._why_of）
-             WHY: "お客様が、分からない・答えたくないと言ったなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）"}
+             WHY: "お客様が、分からない・答えたくないと言ったなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）",
+             # ✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」（flowctl.query_choices・queries_us）
+             QUERY: "お客様の言葉に、こちらの答えを求めて尋ねた問いがありますか？（答えとは別に読みます。文の終わりの「？」「。」の形ではなく、"
+                    "こちらの答えを求めているかで決めます。" + NOW_ONLY + "）"}
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 

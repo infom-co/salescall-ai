@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
+from flowctl import (ANY, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, QUERY_YES, QUERY_NO, asks_sense, asks_us, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS, WAIT_OR_LATER, Flow, Question,
                      JUDGMENTS, ambiguous_word, hears_hesitation, hesitates, later_offer, off_talk, prior_answer, restates, takes_for_now, wait_reading)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, firm_matters, judge, judge_other
@@ -179,7 +179,18 @@ def reading(it: dict, key: str):
     got = it.get(key)
     if got is None:
         return None
-    return Reading(got, it.get(f"{key}言い切り") is not False)
+    r = Reading(got, it.get(f"{key}言い切り") is not False)
+    for k, suffix in SIDE_SUFFIX.items():
+        setattr(r, k, it.get(f"{key}{suffix}"))   # 答えとは別に読む項目の読み（記録の見出しの1か所 SIDE_SUFFIX。項目を足す前の記録は None＝読んでいない）
+    return r
+
+
+def query_truths(it: dict) -> tuple:
+    """正解の表の行の、こちらへ尋ねた問いがあるか（flowctl.QUERY）の正解（中の名前の並び）。付けていない行は、どちらの読みも正解（数えない＝わからない理由の
+    正解と同じ形）。✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」（⛔ それまでは言葉が
+    「？」で終わるかで、正解の動きを「先に答える」にしていた＝本番の決まりと同じ言葉の形の写し）"""
+    got = _label(it)
+    return tuple((got or {}).get(QUERY) or (QUERY_YES, QUERY_NO))
 
 
 def either(it: dict) -> bool:
@@ -191,7 +202,7 @@ def either(it: dict) -> bool:
 
 # 答えとは別に読む項目（flowctl.SIDE_ITEMS）の読みを記録する見出し（{項目の名前: 判定の名前のあとに付ける語}。唯一の表＝記録 side_record・使い回すときに
 # 外す語）。⛔ 2026-11-06 日本時間15時台まで、記録する3か所と外す語の並びが2つの項目を名前で手書きしていた（項目を足すと、記録の漏れで数えなくなる）
-SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由"}
+SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由", QUERY: "問い"}
 assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
 # 判定の確からしさの広がりを記録する見出し（{判定の名前のあとに付ける語: 読みの属性}。唯一の表＝記録と、使い回すときに外す語）。
 # ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
@@ -635,7 +646,7 @@ def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
         return REPEAT_ACT
     if hesitates([got]) and hears_hesitation(q):   # 迷っていると言い終えた（流れの制御 Flow._hesitation と同じ1か所の決まり。言い直しの返事待ちでも同じ）
         return HESITATE_ACT[bool(q.option_notes)]
-    if asks_us(it.get("text"), [got]):   # 答えの代わりにこちらへ尋ねた（流れの制御は、ほかの決まりより先に、入口で答えさせる）
+    if asks_us([got]):   # 答えの代わりにこちらへ尋ねた（流れの制御は、ほかの決まりより先に、入口で答えさせる）
         return ANSWER_FIRST
     if off_talk(q, got, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり。読みはいつも宣言した選択肢）
         if not restates(q):
@@ -667,20 +678,28 @@ def flow_wants(it: dict, q: Question) -> set[str]:
     if talk(it) is False:
         return {ASK_AGAIN} | {SENSE + a if asks_sense(q, a) else RECHECK if it["set"] == "D" else f"念のため確かめる：{a}"
                               for a in accept(it) if a in q.conditions}
+    from meaning_judge import Reading
+
     h, e, ok = hedged(it), either(it), set()
+
+    def with_query(a: str, v: str):
+        r = Reading(a)
+        setattr(r, QUERY, v)
+        return r
     for a in accept(it):
         # 待つ・かけ直す・もう一度言ってほしいは、読みの動き（flow_act）と同じく、ほかの決まり（言い直しへの返事の組 D を含む）より先に見る。
         # ⛔ 2026-11-07 日本時間9時台に見つけた：組 D の分かれ道が先で、言い直しへの「確認してまいります。」（正解は返事を待つ）の正解の動きが
         #    「打ち消した（確かめ直す）」になっていた（流れの制御は言い直しの返事待ちでも待つ＝試験 NoneOfThemTest の
         #    test_measure_wants_the_wait_reading_also_in_a_reply_to_the_restatement）
+        ways = {asks_us([with_query(a, v)]) for v in query_truths(it)}   # 答えの代わりに尋ねたか（flow_act と同じ1か所 asks_us・正解の項目 query_truths）
         if a in WAIT_KINDS:
             ok.add(wait_act(a))
         elif a == REPEAT:
             ok.add(REPEAT_ACT)
         elif hesitates([a]) and hears_hesitation(q):
             ok.add(HESITATE_ACT[bool(q.option_notes)])   # 迷っていると言い終えた（flow_act と同じ1か所 hesitates）
-        elif asks_us(it.get("text"), [a]):
-            ok.add(ANSWER_FIRST)   # 正解が「決められない」の、問いかけの言葉（流れの制御は、尋ねられたことに先に答える）
+        elif True in ways and (ok.add(ANSWER_FIRST) or False not in ways):
+            pass   # 正解が「決められない」で、こちらへ尋ねた問いがある（流れの制御は、尋ねられたことに先に答える）。尋ねていない正解もあれば、下の動きも正解
         elif it["set"] == "D":
             if a == "affirmed" or a == it.get("asked_choice"):
                 ok |= {AFFIRMED, AFFIRMED_HEDGED} if e else {AFFIRMED_HEDGED if h else AFFIRMED}

@@ -1959,7 +1959,7 @@ class AskingMuteTest(unittest.TestCase):
         # 受け付けたが、相手に何も聞こえない返事（先に相手の質問に答える番＝callee_asked）のあとの声：流していないと知らせる（⛔ 2026-10-23 tc41：
         # 知らせが出ず、AIは声で答えたつもりで「質問に戻る」を9回呼んだ）
         m = self.flow()
-        m.on_callee(); m.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        m.on_callee(); m.on_heard("はい、予約しています。当日はどなたが担当されるんですか？"); m.on_check("judge", HedgedSalesTest.asks_rd("はい"))
         self.assertEqual(m.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
         self.assertIn("相手に流していません", m.unreported_note(muted=True))
         # 断らない一言の録音を流したターン（言い方を渡していない）は、AIの声を流さない
@@ -2039,7 +2039,7 @@ class AskingMuteTest(unittest.TestCase):
         self.assertNotIn("words_turn", f.log[-1])
         # 応えたあとの相手の言葉に、別の質問があった：その質問に答える番（相手の質問は、いまの言葉で見る）
         f = flow(); replied(f)
-        f.on_callee(); f.on_heard("そうなんですね。駐車場はありますか？")
+        f.on_callee(); f.on_heard("そうなんですね。駐車場はありますか？"); f.on_check("judge", HedgedSalesTest.asks_rd("はい"))
         self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
         # AIが「入っていない」と選んだ（質問に戻る）：いまの質問を流す（もう覚えておかない）
         f = flow(); replied(f)
@@ -2123,19 +2123,19 @@ class AskingMuteTest(unittest.TestCase):
         self.assertNotIn("record_answer", f.apply("replay_opening", {"part": "no_answer", "answer": LINE})["message"])
         # AIが答えを先に報告した（答えに添えられた質問）：その道のまま。答える前の受け答えは、答えたことにならない（⛔ 2026-10-23 tc42）
         g2 = self.flow()
-        g2.on_callee(); g2.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        g2.on_callee(); g2.on_heard("はい、予約しています。当日はどなたが担当されるんですか？"); g2.on_check("judge", HedgedSalesTest.asks_rd("はい"))
         self.assertEqual(g2.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
         r = g2.apply("replay_opening", {"part": "talk", "answer": "よろしくお願いいたします。", "fallback": "talk_yoroshiku"})
         self.assertEqual(r["result"], "rejected")
         self.assertIn("先に相手の質問に答えます", r["message"])
         # 答え方の操作も、いまの質問がまだ答えをもらっていない間は判定を待つ（⛔ G-57 tc37：判定の届く前に呼ばれ、差し戻せなかった）。
-        # 答えを受け取ったあと・呼んでいる段・質問に戻るは待たない。ただし「？」の言葉では、質問に戻るも待つ（尋ねられたか＝asks_us は判定の読みで決まり、
-        # 尋ねられたら質問に戻るは受け付けない＝_asked_blocks。「？」の無い言葉で待たないことは HedgedSalesTest が確かめる）
+        # 答えを受け取って添えた質問に答える番になったら待たない。答えの段では、質問に戻るも待つ（尋ねられたか＝asks_us は判定の読みで決まり、
+        # 尋ねられたら質問に戻るは受け付けない＝_asked_blocks。✅ 2026-11-08 日本時間8時55分08秒「(イ)」＝言葉の形にかかわらず判定の読みで決まる）
         k = self.flow()
         k.on_callee(); k.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
         self.assertTrue(k.wants_checks("replay_opening", {"part": "no_answer"}))
         self.assertTrue(k.wants_checks("replay_opening", {"part": "resume"}))
-        k.on_check("judge", "はい")
+        k.on_check("judge", HedgedSalesTest.asks_rd("はい"))
         k.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
         self.assertFalse(k.wants_checks("replay_opening", {"part": "no_answer"}))
         # 判定が答えと読んでいない（質問だけ）なら、覚えない（そのまま答える）
@@ -2528,16 +2528,20 @@ class EarCheckTest(unittest.TestCase):
 
     def test_which_reports_wait(self):
         # 返事を作る前に確かめを待つのは、答えをそのまま受け取りうる報告だけ（DESIGN.md 1章）
+        # 答えの段の報告は、こちらへ尋ねた言葉かが判定の読みで決まる（flowctl.queries_us）ので、尋ねられたときに止める報告は、どれも判定が届いてから当てる
+        # （✅ 2026-11-08 日本時間8時55分08秒「(イ)」。⛔ それまでは値を聞く型の最初の答え・言い直しを待っていないときの言い直しへの返事は待たなかった）
         f = self.flow()
         self.assertTrue(f.wants_checks("record_answer", {"質問": "Q1", "答えの種類": "はい"}))
-        self.assertFalse(f.wants_checks("confirm_field", {"質問": "Q1"}))   # 言い直しの返事を待っていない
+        self.assertTrue(f.wants_checks("confirm_field", {"質問": "Q1"}))
         f.current = "Q2"
-        self.assertFalse(f.wants_checks("record_answer", {"質問": "Q2", "答えの種類": "答えた"}))  # 値を聞く型は、言い直して確かめる（その返事で待つ）
+        self.assertTrue(f.wants_checks("record_answer", {"質問": "Q2", "答えの種類": "答えた"}))
+        self.assertFalse(f.wants_checks("request_end", {"reason": "done"}))   # 電話を終える報告は止めない（判定を待つかは電話を終える決まりのまま）
         self.assertTrue(f.wants_checks("record_answer", {"質問": "Q2", "答えの種類": "わからない"}))  # 「わからない」はそのまま受け取る
         f.awaiting_confirm = "Q2"
         self.assertTrue(f.wants_checks("confirm_field", {"質問": "Q2"}))   # 言い直しへの返事
         self.assertTrue(f.wants_checks("replay_opening", {"流し直す部分": "代わった方へ"}))  # 取り次ぎを待つ間に流さない
-        self.assertFalse(f.wants_checks("replay_opening", {"流し直す部分": "名乗り"}))
+        # 答えの段の名乗りの流し直しも、判定が届いてから当てる（こちらへ尋ねた言葉かは判定の読みで決まる＝✅ 2026-11-08 日本時間8時55分08秒「(イ)」）
+        self.assertTrue(f.wants_checks("replay_opening", {"流し直す部分": "名乗り"}))
         f.on_check("ear", "はい")
         f.on_callee()
         self.assertIsNone(f.ear_said)                                       # 相手の発話ごとに消える
@@ -3580,8 +3584,10 @@ class AmbiguousAnswerTest(unittest.TestCase):
         text = prompt(ans, "差し控えさせていただきます。")
         self.assertIn(FIRM_RULE, text)
         self.assertNotIn("会話になっているか", text)
-        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end", "hear", "why"])   # わからない・答えたくない理由（答えの段だけの項目。2026-11-06）   # 電話を終える言葉か（答えとは別の項目。2026-11-01）
-        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, "end", "hear", "why"})
+        # 電話を終える言葉か（答えとは別の項目。2026-11-01）・わからない・答えたくない理由（答えの段だけの項目。2026-11-06）・こちらへ尋ねた問いがあるか
+        # （答えの段だけの項目。✅ 2026-11-08 日本時間8時55分08秒「(イ)」）
+        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end", "hear", "why", "query"])
+        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, "end", "hear", "why", "query"})
 
     def test_end_item_is_asked_apart_from_the_answer(self):
         # ✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」＝電話を終える言葉か（通話・営業を断った・急いでいる・怒っている・取り次げない）を、
@@ -3598,8 +3604,9 @@ class AmbiguousAnswerTest(unittest.TestCase):
         from flowctl import HEAR, hear_choices
         facets = {f.key: f for f in target_facets()}                         # お呼びする段は項目の1つ（答えとは別に読む項目の表 SIDE_ITEMS から）
         self.assertEqual((set(facets[END].choices), set(facets[HEAR].choices)), (set(end_choices(True)), set(hear_choices(True))))
-        from flowctl import WHY, why_choices
-        self.assertEqual(answer_items(q), {END: end_choices(False), HEAR: hear_choices(False), WHY: why_choices(False)})   # 答えの段は答えとは別の項目（同じ表から）
+        from flowctl import QUERY, WHY, query_choices, why_choices
+        self.assertEqual(answer_items(q), {END: end_choices(False), HEAR: hear_choices(False), WHY: why_choices(False),
+                                           QUERY: query_choices(False)})   # 答えの段は答えとは別の項目（同じ表から）
         self.assertTrue(all(d in prompt(q, "x") for d in hear_choices(False).values()))
         text = prompt(q, "結構です。もうかけてこないでください。")
         self.assertTrue(all(d in text for d in end_choices(False).values()))
@@ -18436,7 +18443,7 @@ class HedgedSalesTest(unittest.TestCase):
         #     ご承認の質問・ほかに分からない点の質問にも「どういった点で…」と伺った
         # J-2 最初の答えで先に選ぶ助けをするのは、理由の読みがそろって「まだ決まっていない」ときだけ（22時02分54秒の (イ) のお言葉「まだ決めていないです。」の
         #     範囲。⛔ 私が 22時台に、理由の読みが割れた・無いときにも広げ、知らないだけの言葉にも「どういった点で…」と伺っていた）
-        from flowctl import END, END_REFUSED, HESITATING, UNDECIDED, WHY, WHY_NOT_SAID, Flow, Question, asks_wish, callback_question
+        from flowctl import END, END_REFUSED, HESITATING, QUERY, QUERY_YES, UNDECIDED, WHY, WHY_NOT_SAID, Flow, Question, asks_wish, callback_question
         from meaning_judge import Reading, answer_kinds
         from phrases import ACK, HESITATE_POINT
         notes = {"カード": "カード会社のポイントがつく", "振込": "振込手数料はお客様のご負担"}
@@ -18452,12 +18459,14 @@ class HedgedSalesTest(unittest.TestCase):
             f.use_checks("judge", "judge2")
             return f
 
-        def rd(x, why=None, end=None, firm=None):
+        def rd(x, why=None, end=None, firm=None, query=None):
             r = Reading(x) if firm is None else Reading(x, firm=firm)
             if why:
                 setattr(r, WHY, why)
             if end:
                 setattr(r, END, end)
+            if query:
+                setattr(r, QUERY, query)
             return r
 
         def hear(f, words, *readings):
@@ -18648,10 +18657,10 @@ class HedgedSalesTest(unittest.TestCase):
         f = flow(notes)
         helped(f)
         self.assertEqual(unclear(f, rd("unknown")), plain)
-        # H-3：選ぶ助けのあとのこちらへの問い（「？」で判定がどれも決められない）は、保留で締めずに先に答える
+        # H-3：選ぶ助けのあとのこちらへの問い（判定がどれも決められないで、こちらへ尋ねた問いがある＝asks_us）は、保留で締めずに先に答える
         f = flow(notes)
         helped(f)
-        hear(f, "カードだと手数料はかかりますか？", rd(UNDECIDED, not_yet))
+        hear(f, "カードだと手数料はかかりますか？", rd(UNDECIDED, not_yet, query=QUERY_YES))
         r = report(f)
         self.assertEqual((r["result"], f.items["Q1"].state), ("rejected", "empty"))
         self.assertIn("こちらへの問い", r["message"])
@@ -18688,12 +18697,25 @@ class HedgedSalesTest(unittest.TestCase):
 
     ASKED_BACK = "そうですね、お読みになられるとより理解が深まるかと思います。"
 
-    def asked_back(self, f, words: str, op: str, args: dict) -> dict:
-        """お客様が、答えの代わりにこちらの考えを尋ねた（判定は「決められない」）：会話AIがいまの質問・言い直しへの返事として報告しても受け取らずに、
-        先に尋ねられたことに答えさせる。会話AIが自分の言葉で答える（中身の判定は「事実を言っていない」）までを流し、答えの返事を返す。"""
-        from flowctl import UNDECIDED
+    @staticmethod
+    def asks_rd(cond: str | None = None):
+        """こちらへ尋ねた言葉への判定の読み（答えを選んでいない「決められない」で、こちらへ尋ねた問いがある＝flowctl.QUERY。尋ねたかは判定の読みで決まる
+        ＝✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ)」）。"""
+        from flowctl import QUERY, QUERY_YES, UNDECIDED
         from meaning_judge import Reading
-        f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(UNDECIDED))
+        r = Reading(cond or UNDECIDED)
+        setattr(r, QUERY, QUERY_YES)
+        return r
+
+    def asked_back(self, f, words: str, op: str, args: dict, query: str | None = None) -> dict:
+        """お客様が、答えの代わりにこちらの考えを尋ねた（判定は「決められない」で、こちらへ尋ねた問いがある＝flowctl.QUERY）：会話AIがいまの質問・
+        言い直しへの返事として報告しても受け取らずに、先に尋ねられたことに答えさせる。会話AIが自分の言葉で答える（中身の判定は「事実を言っていない」）
+        までを流し、答えの返事を返す。"""
+        from flowctl import QUERY, QUERY_YES, UNDECIDED
+        from meaning_judge import Reading
+        got = Reading(UNDECIDED)
+        setattr(got, QUERY, query or QUERY_YES)
+        f.on_callee(); f.on_heard(words); f.on_check("judge", got)
         r = f.apply(op, args)
         self.assertEqual(r["result"], "rejected")
         self.assertNotIn("say", r)                       # 言い直し・質問は繰り返さない
@@ -18903,12 +18925,18 @@ class HedgedSalesTest(unittest.TestCase):
         # お客様が、答えの代わりにこちらの考えを尋ねたら（「〜ですかね？」）、言い直して確かめる前に、尋ねられたことに自分の言葉で答える。
         # ✅ 2026-11-06 日本時間4時23分33秒 ユーザー：「お客様：送ってもらったほうがいいですかね？や、送ってもらったほうがいいですかねー？だった場合は、こちらは
         #    「そうですね、お読みになられるとより理解が深まるかと思います。」のような返答が自然です。」
-        # 尋ねたかは、判定の読み（「決められない」＝どの答えがよいかをこちらの考えとして尋ねた、を含む）と、言葉が問いかけで終わるか（question_in）の1か所
-        # （asks_us）。「。」で終わる言葉は自分への言い聞かせ（4時11分28秒）＝今までどおり確かめる
-        from flowctl import UNDECIDED, asks_us
+        # 尋ねたかは、判定の読み（「決められない」＝どの答えがよいかをこちらの考えとして尋ねた、を含む）と、こちらへ尋ねた問いがあるかの項目（QUERY）の
+        # 1か所（asks_us）。自分への言い聞かせ（4時11分28秒）と判定が読めば、今までどおり確かめる（✅ 2026-11-08 日本時間8時55分08秒「(イ)」＝言葉の形では
+        # 決めない＝test_question_to_us_is_read_by_the_judges）
+        from flowctl import QUERY, QUERY_NO, QUERY_YES, UNDECIDED, asks_us
         from meaning_judge import Reading
+
+        def rd(cond, query, firm=True):
+            r = Reading(cond, firm=firm)
+            setattr(r, QUERY, query)
+            return r
         for words in ("送ってもらったほうがいいですかね？", "送ってもらったほうがいいですかねー？"):
-            self.assertTrue(asks_us(words, [Reading(UNDECIDED)]))
+            self.assertTrue(asks_us([rd(UNDECIDED, QUERY_YES)]))
             # (1) 言い直しへの返事で尋ねられた：答えたあと、お客様が認めたら受け取る
             f = self.flow("G8n")
             self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
@@ -18962,26 +18990,85 @@ class HedgedSalesTest(unittest.TestCase):
             r = f.apply("replay_opening", {"part": "resume"})
             self.assertEqual((r["result"], r["ack"], r["say"], r.get("after")),
                              ("confirm_required", "hai", "それではパンフレットをお送りさせていただきましょうか？", "final_do"))   # 話は移っていない＝戻る一言は付けない
-        # 「。」で終わる言葉（自分への言い聞かせ）・句読点の無い言葉は、尋ねたとは決めない（今までどおり、言い直しと同じ一言で受ける）
+        # 判定が自分への言い聞かせ（こちらへ尋ねた問いは無い）と読んだ言葉は、尋ねたとは決めない（今までどおり、言い直しと同じ一言で受ける）
         for words in ("送ってもらったほうがいいですかね。", "送ってもらったほうがいいですかね"):
-            self.assertFalse(asks_us(words, [Reading(UNDECIDED)]))
+            self.assertFalse(asks_us([rd(UNDECIDED, QUERY_NO)]))
             f = self.flow("G8n")
             self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
-            f.on_callee(); f.on_heard(words); f.on_check("judge", Reading(UNDECIDED))
+            f.on_callee(); f.on_heard(words); f.on_check("judge", rd(UNDECIDED, QUERY_NO))
             r = f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})
             self.assertEqual((r["result"], r["say"]), ("confirm_required", "それではパンフレットをお送りさせていただきますね？"))
         # 判定が答えに寄っていると読んだ問いの形（「〜でもいいですか？」の頼み）は、尋ねたとは決めない（今までどおり「それでは…させていただきますね？」）
-        self.assertFalse(asks_us("送ってもらってもいいですか？", [Reading("はい", firm=False)]))
-        self.assertFalse(asks_us("送ってもらったほうがいいですかね？", [Reading(UNDECIDED), Reading("はい", firm=False)]))
-        self.assertFalse(asks_us("送ってもらったほうがいいですかね？", []))
-        # 測りの数え（g53_meaning.flow_act・flow_wants）も同じ1か所（asks_us）で数える
-        from g53_meaning import ANSWER_FIRST, ASK_AGAIN, flow_act, flow_wants
+        self.assertFalse(asks_us([rd("はい", QUERY_NO, firm=False)]))
+        self.assertFalse(asks_us([rd(UNDECIDED, QUERY_YES), rd("はい", QUERY_YES, firm=False)]))
+        self.assertFalse(asks_us([]))
+        # 測りの数え（g53_meaning.flow_act）も同じ1か所（asks_us）で数える＝判定の読みの項目で（言葉の形では数えない）
+        from g53_meaning import ANSWER_FIRST, ASK_AGAIN, flow_act
         q = self.flow("G8n").questions["G8n"]
         for st in ("D", "C"):
-            asked = {"set": st, "text": "送ってもらったほうがいいですかね？", "label": {"accept": [UNDECIDED, "unknown"]}}
-            plain = {"set": st, "text": "送ってもらったほうがいいですかね", "label": {"accept": [UNDECIDED, "unknown"]}}
-            self.assertEqual((flow_act(asked, q, UNDECIDED, True), flow_act(plain, q, UNDECIDED, True)), (ANSWER_FIRST, ASK_AGAIN))
-            self.assertEqual((flow_wants(asked, q), flow_wants(plain, q)), ({ANSWER_FIRST, ASK_AGAIN}, {ASK_AGAIN}))
+            item = {"set": st, "text": "送ってもらったほうがいいですかね", "label": {"accept": [UNDECIDED, "unknown"]}}
+            self.assertEqual((flow_act(item, q, rd(UNDECIDED, QUERY_YES), True), flow_act(item, q, rd(UNDECIDED, QUERY_NO), True)),
+                             (ANSWER_FIRST, ASK_AGAIN))
+
+    def test_question_to_us_is_read_by_the_judges(self):
+        # ✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」（J-5）
+        # ⇒ お客様がこちらへ尋ねたか（答えの代わりに尋ねた＝asks_us・答えに添えた質問＝Flow._advance の callee_asked）は、答えの段の判定の項目
+        #    （flowctl.QUERY）の読みだけで決める（言葉の形＝「？」の文・語尾の「ですか」では決めない）。⛔ 直す前：2か所が言葉の形で別々に決めていた＝
+        #    ご納得の手順への「あー、そういうことですか。」を語尾で質問と見て会話AIに答えさせ、「。」で終わった本当の質問を聞き流した
+        from flowctl import QUERY, QUERY_NO, QUERY_YES, UNDECIDED, Flow, Question, asks_us, side_items
+        from meaning_judge import Reading
+
+        def rd(cond, query, firm=True):
+            r = Reading(cond, firm=firm)
+            setattr(r, QUERY, query)
+            return r
+        # 項目は答えの段だけ（お呼びする段は「尋ねているか」の問い合わせが受け持つ＝お呼びする段の文は変わらない）
+        self.assertEqual((QUERY in side_items(False), QUERY in side_items(True)), (True, False))
+        # (1) 答えの代わりに尋ねた：答えを選んでいない読みで、項目が「尋ねた問いがある」（届いた読みがそろって）
+        self.assertTrue(asks_us([rd(UNDECIDED, QUERY_YES)]))
+        self.assertFalse(asks_us([rd(UNDECIDED, QUERY_NO)]))
+        self.assertFalse(asks_us([rd(UNDECIDED, QUERY_YES), rd(UNDECIDED, QUERY_NO)]))   # 割れたら尋ねたとしない
+        self.assertFalse(asks_us([rd("はい", QUERY_YES, firm=False)]))                    # 答えを読んでいれば、答えの代わりではない
+        self.assertFalse(asks_us([]))
+        # 「。」で終わっても、判定が尋ねたと読めば先に答える（言い直しへの返事でも同じ）
+        f = self.flow("G8n")
+        self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+        r = self.asked_back(f, "送ってもらったほうがいいですかね。", "confirm_field", {"question_id": "G8n", "result": "affirmed"}, QUERY_YES)
+        self.assertEqual((r["result"], r["say"]), ("own_answer", self.ASKED_BACK))
+        # 「？」で終わっても、判定が尋ねていない（自分への言い聞かせ）と読めば、今までどおり言い直しと同じ一言で受ける
+        f = self.flow("G8n")
+        self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", rd(UNDECIDED, QUERY_NO))
+        r = f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})
+        self.assertEqual((r["result"], r["say"]), ("confirm_required", "それではパンフレットをお送りさせていただきますね？"))
+        # (2) 答えに添えた質問：答えを受け取ったあと、項目が「尋ねた問いがある」なら先に答える（語尾の形にかかわらず）。会話AIへは、その言葉を渡す
+        def booked():
+            g = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                      Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+            g.use_checks("judge")
+            return g
+        for words, query, want in (("はい、予約しています。当日の担当の方って決まってるのかなと思って。", QUERY_YES, "callee_asked"),
+                                   ("はい、予約しています。あー、そういうことですか。", QUERY_NO, "next"),
+                                   ("はい、予約しています。当日はどなたが担当されるんですか？", QUERY_YES, "callee_asked")):
+            g = booked()
+            g.on_callee(); g.on_heard(words); g.on_check("judge", rd("はい", query))
+            r = g.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+            self.assertEqual((r["result"], g.items["Q1"].condition), (want, "はい"), words)
+            if want == "callee_asked":
+                self.assertIn("当日", r["message"], words)
+        # 判定の読みに項目が無い（項目を足す前の読み）なら、尋ねたとしない（言葉の形で補わない）
+        g = booked()
+        g.on_callee(); g.on_heard("はい、予約しています。当日はどなたが担当されるんですか？"); g.on_check("judge", Reading("はい"))
+        self.assertEqual(g.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "next")
+        # 判定を使わない通話（会話AIの通話の試験）だけ、言葉の形で見る（CalleeQuestionTest）
+        g = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        g.on_callee(); g.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        self.assertEqual(g.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
+        # (3) 判定を待つか：答えの段の報告は、言葉の形にかかわらず判定を待つ（尋ねたかは判定の読みで決まる＝届く速さで同じ言葉への動きを変えない）
+        k = booked()
+        k.on_callee(); k.on_heard("はい、予約しています。当日の担当の方って決まってるのかなと思って。")
+        self.assertTrue(k.wants_checks("replay_opening", {"part": "resume"}))
 
     def test_thinking_or_waiting_words_are_not_end_doubts(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直すの持ち場の指摘2）で見つけた：判定が「考えている途中」「返事を待つ」と読んでいても、電話を終える
@@ -19158,7 +19245,7 @@ class HedgedSalesTest(unittest.TestCase):
         from meaning_judge import Reading
         f = self.flow("G8n")
         self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
-        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", self.asks_rd())
         self.assertEqual(f.apply("confirm_field", {"question_id": "G8n", "result": "affirmed"})["result"], "rejected")
         r = f.apply("replay_opening", {"part": "own", "answer": self.ASKED_BACK})   # 中身の判定が届かなかった
         self.assertEqual(r["result"], "rejected")
@@ -19258,23 +19345,23 @@ class HedgedSalesTest(unittest.TestCase):
         from meaning_judge import Reading
         f = self.flow("G8n", play_recordings=True)
         self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
-        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", self.asks_rd())
         note = f.unreported_note(muted=True)
         self.assertIsNotNone(note)
         self.assertIn("尋ね", note)
         self.assertIn("replay_opening", note)
 
     def test_an_answer_to_a_question_back_waits_for_the_judges(self):
-        # 会話AIが、言い直しの返事待ちの間に「？」の言葉へ先に自分の言葉で答えた：判定が届いてから当てる（尋ねられたかで、答えの文が使えないときの道が
-        # 変わる＝判定の届く速さで、同じ言葉への動きが変わらないように。答えの報告・言い直しへの返事の報告と同じく待つ）。「。」の言葉は待たない
+        # 会話AIが、言い直しの返事待ちの間に先に自分の言葉で答えた：判定が届いてから当てる（尋ねられたかで、答えの文が使えないときの道が変わる＝判定の
+        # 届く速さで、同じ言葉への動きが変わらないように。答えの報告・言い直しへの返事の報告と同じく待つ）。尋ねたかは判定の読みで決まる（✅ 2026-11-08
+        # 日本時間8時55分08秒「(イ)」）＝言葉の形（「？」「。」）にかかわらず待つ（⛔ それまでは「。」の言葉は待たなかった）
         f = self.flow("G8n")
         self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
         args = {"part": "own", "answer": self.ASKED_BACK}
-        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？")
-        self.assertTrue(f.wants_checks("replay_opening", args))
-        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね。")
-        self.assertFalse(f.wants_checks("replay_opening", args))
-        self.assertFalse(f.wants_checks("replay_opening", {"part": "resume"}))
+        for words in ("送ってもらったほうがいいですかね？", "送ってもらったほうがいいですかね。"):
+            f.on_callee(); f.on_heard(words)
+            self.assertTrue(f.wants_checks("replay_opening", args), words)
+            self.assertTrue(f.wants_checks("replay_opening", {"part": "resume"}), words)
 
     # ⛔ 2026-11-06 日本時間5時56分55秒 ユーザー：「測る前に、ここまでの実装で、想定との食い違いや不備、1本化漏れはないですか？」＝別の担当の読み直しで見つけた、
     #    尋ねられたときの道の穴（11-06 4時台に入れた作りの不具合）。下の試験は、どれも直す前の作りで落ちる
@@ -19288,7 +19375,7 @@ class HedgedSalesTest(unittest.TestCase):
         f = self.flow("G8n", play_recordings=True)
         self.hedged(f, "G8n", "はい", "送ってもらおうかな…。")
         self.asked_back(f, "送ってもらったほうがいいですかね？", "confirm_field", {"question_id": "G8n", "result": "affirmed"})
-        f.on_callee(); f.on_heard("あ、そうなんですか？"); f.on_check("judge", Reading(UNDECIDED))
+        f.on_callee(); f.on_heard("あ、そうなんですか？"); f.on_check("judge", self.asks_rd())
         r = f.apply("replay_opening", {"part": "talk", "answer": "はい、そうなんです。"})   # 中身の判定は届かない・使えないときの一言も選んでいない
         self.assertEqual(r["result"], "rejected")
         self.assertIn("先に相手の質問に答えます", r["message"])
@@ -19297,7 +19384,7 @@ class HedgedSalesTest(unittest.TestCase):
         f.on_callee(); f.on_heard("いやー、今日は暑いですね。")
         grounded(f, "本当に暑いですね。")
         self.assertEqual(f.apply("replay_opening", {"part": "talk", "answer": "本当に暑いですね。"})["result"], "own_answer")
-        f.on_callee(); f.on_heard("で、パンフレットって送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        f.on_callee(); f.on_heard("で、パンフレットって送ってもらったほうがいいですかね？"); f.on_check("judge", self.asks_rd())
         grounded(f, "そうですよね！")
         r = f.apply("replay_opening", {"part": "talk", "answer": "そうですよね！"})
         self.assertEqual(r["result"], "rejected")
@@ -19311,7 +19398,7 @@ class HedgedSalesTest(unittest.TestCase):
         from meaning_judge import Reading
         for play in (False, True):
             f = self.flow("G8n", answers=dict(self.PAMPHLET), play_recordings=play)
-            f.on_callee(); f.on_heard("パンフレットって、読んだほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+            f.on_callee(); f.on_heard("パンフレットって、読んだほうがいいですかね？"); f.on_check("judge", self.asks_rd())
             self.assertEqual(f.apply("record_answer", {"question_id": "G8n", "condition_id": "はい"})["result"], "rejected")
             r = f.apply("replay_opening", {"part": "パンフレットの中身"})
             heard = [p["text"] for p in r.get("play") or []] + ([r["say"]] if r.get("say") else [])
@@ -19378,12 +19465,12 @@ class HedgedSalesTest(unittest.TestCase):
         from flowctl import UNDECIDED
         from meaning_judge import Reading
         f = self.flow("G8n")
-        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", self.asks_rd())
         self.assertIsNone(f.unreported_note(muted=False))
         f.on_callee(); f.on_heard("そうなんですね。")
         self.assertEqual(f.apply("replay_opening", {"part": "resume"})["result"], "confirm_required")   # 最終の確かめ（11時55分13秒「(2) イ」）
         f = self.flow("G8n", play_recordings=True)
-        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", Reading(UNDECIDED))
+        f.on_callee(); f.on_heard("送ってもらったほうがいいですかね？"); f.on_check("judge", self.asks_rd())
         self.assertIn("尋ね", f.unreported_note(muted=True))
 
     def test_unclear_answer_is_asked_toward_the_goal(self):
@@ -19678,11 +19765,15 @@ class ApprovalReviewTest(unittest.TestCase):
         return f
 
     @staticmethod
-    def say(f, words, judge, op, **args):
+    def say(f, words, judge, op, *, query=None, **args):
+        from flowctl import QUERY
         from meaning_judge import Reading
         f.on_callee(); f.on_heard(words)
         if judge is not None:
-            f.on_check("judge", Reading(judge))
+            r = Reading(judge)
+            if query:
+                setattr(r, QUERY, query)   # こちらへ尋ねた問いがあるかの読み（flowctl.queries_us）
+            f.on_check("judge", r)
         return f.apply(op, args)
 
     def test_points_are_told_apart_with_the_judges(self):
@@ -19794,7 +19885,8 @@ class ApprovalReviewTest(unittest.TestCase):
         from flowctl import CALLBACK_IDS
         N1 = CALLBACK_IDS["not_agreed"]
         f = self.flow()
-        r = self.say(f, "それは言いたくないです。ところで料金はおいくらなんですか？", "refused", "record_answer", question_id=N1, condition_id="refused")
+        from flowctl import QUERY_YES
+        r = self.say(f, "それは言いたくないです。ところで料金はおいくらなんですか？", "refused", "record_answer", query=QUERY_YES, question_id=N1, condition_id="refused")
         self.assertEqual(r["result"], "callee_asked")
         r = f.apply("replay_opening", {"part": "料金"})
         heard = "".join(p["text"] for p in r.get("play") or [])
