@@ -32,7 +32,9 @@ _SAME_MARKS = str.maketrans({"\u301c": "~", "\uff5e": "~", "\u2053": "~", "\u223
 
 
 def normalize(text: str) -> str:
-    """照らすための文字の形（1か所）：NFKC で形をそろえ、見た目の同じ記号をそろえ（`_SAME_MARKS`）、空白・改行・タブを除く。"""
+    """照らすための文字の形（1か所）：NFKC で形をそろえ、見た目の同じ記号をそろえ（`_SAME_MARKS`）、空白・改行・タブを除く。
+    お客様リストの行の直しで値が「違う」かを比べる形（データベースの salescall.compare_form。0209）も同じ決まり。決まりを変えるときは
+    両方を変える（同じ形かは tests/test_settle.py の CompareForm が見張る）。"""
     return _SPACE.sub("", unicodedata.normalize("NFKC", text).translate(_SAME_MARKS))
 
 

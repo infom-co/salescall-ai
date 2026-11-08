@@ -2051,9 +2051,10 @@ class DialFixAfterCalls(SettleBase):
         from salescall.core import row_fixes
         return self.tx(s, lambda tx: row_fixes.fix(tx, s["task"], field, value, keep_old_promise=keep), OPERATOR)
 
-    def choice_needed(self, s, phone=None):
+    def choice_needed(self, s, phone=None, **fix):
+        """画面の入口の答え（番号を直す画面は phone・名前などを直す画面は field と value＝`fix` に渡すものと同じ）。"""
         from salescall.core import row_fixes
-        return self.tx(s, lambda tx: row_fixes.old_promise_choice_needed(tx, s["task"], phone))
+        return self.tx(s, lambda tx: row_fixes.old_promise_choice_needed(tx, s["task"], phone, **fix))
 
     def direct_name_fix(self, s, keep, field="target_department"):
         """契約者の取引が、行の欄の直しの記録へ直接書く（データベースの守りの確かめ）。"""
@@ -2082,7 +2083,7 @@ class DialFixAfterCalls(SettleBase):
         from salescall.core import row_fixes
         s = self.ready()
         self.promise_window(s)
-        self.assertFalse(self.choice_needed(s))
+        self.assertFalse(self.choice_needed(s, field="target_department", value="総務部"))
         with self.assertRaises(row_fixes.FixInvalid) as e:
             self.name_fix(s, keep=True)
         self.assertIn("「約束も守る」は選べません", str(e.exception))
@@ -2122,7 +2123,7 @@ class DialFixAfterCalls(SettleBase):
                         self.settle(s, self.call(s, ["dialing", "no_answer"]))
                         self.assertEqual(self.plan(s)[:4], ("call", m, "normal", True))
                     self.assertTrue(self.tx(s, lambda tx: next_action.promise_alive(tx, s["task"])))
-                    self.assertTrue(self.choice_needed(s))
+                    self.assertTrue(self.choice_needed(s, field="target_department", value="総務部"))
                     self.assertTrue(self.choice_needed(s, fictional_jp_fixed()))   # 番号を「違う」で直す画面でも同じ
                     self.assertFalse(self.choice_needed(s, self.phone_of(s, m)))   # 約束の番号へ直すなら選べない
                     with self.assertRaises(row_fixes.FixInvalid):
@@ -2201,9 +2202,10 @@ class DialFixAfterCalls(SettleBase):
         self.promise_on_another_number(s)                                       # 田中様が携帯 M を言って約束した
         since = self.tx(s, lambda tx: next_action.person_now(tx, s["task"]))
         seq = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"]
-        self.assertTrue(self.choice_needed(s))                                  # 中身が変われば選ぶ
+        self.assertTrue(self.choice_needed(s, field="target_name", value="鈴木"))   # 中身が変われば選ぶ
         for field, value, reading in (("target_name", "田中", "でんなか"), ("target_name", "田中", "たなか"), ("target_department", "総務部", None)):
             with self.subTest(field=field, reading=reading):
+                self.assertFalse(self.choice_needed(s, field=field, value=value))   # 画面の入口も同じ答え（選びを出さない）
                 with self.assertRaises(row_fixes.FixInvalid):
                     self.person_fix(s, field, value, reading, keep=True)
                 self.person_fix(s, field, value, reading)
@@ -2264,6 +2266,124 @@ class DialFixAfterCalls(SettleBase):
                     self.assertEqual(p, self.handed_over(s["contact"]))
                 else:
                     self.assertEqual((p[0], self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"]), ("end", end))
+
+    # ── 表記の揺れだけの直しは、お呼びする方の替わりにしない（0209。比べる形の1か所＝データベースの salescall.compare_form。替わるかの1か所＝
+    #    salescall.person_fix_changes。値の整え方と替わるかを Python で決めるのは row_fixes._person_fix の1か所＝fix と画面の入口が通る）
+    def stored(self, s, field):
+        return self.tx(s, lambda tx: tx.one(f"SELECT {field} AS v FROM salescall.tasks_now WHERE task_id = %s", (s["task"],)))["v"]
+
+    def test_a_fix_that_only_changes_how_it_is_written_does_not_change_the_person(self):
+        """全角・半角の空白・空白の有無・半角カナ・全角の数字だけが違う値を入れ直しても、同じお客様（担当の期も予定も変わらない・前の担当の方との
+        約束の選びは要らない＝渡せば断る・画面の入口も選びを出さない。データベースの守りも同じ1か所）。値そのものは、契約者が入れたまま残る。
+        本当に違う名前なら、期が替わり、約束の選びが要る。⛔ 0208 まで：文字そのもので比べたので、「田中　太郎」と「田中 太郎」が違う値になり、
+        期が替わった（引き継ぎを確かめる電話・約束の選び＝お客様に影響する）。"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        self.person_fix(s, "target_name", "田中　太郎", "たなかたろう")           # 最初の値（まだ話していない）
+        self.person_fix(s, "target_full_name", "ﾀﾅｶ ﾀﾛｳ", "たなかたろう")
+        self.person_fix(s, "target_department", "営業部 第１課")
+        self.promise_on_another_number(s)                                       # 田中様が携帯 M を言って約束した
+        since = self.tx(s, lambda tx: next_action.person_now(tx, s["task"]))
+        seq = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"]
+        for field, value, reading in (("target_name", "田中 太郎", "たなかたろう"), ("target_name", "田中太郎", "たなかたろう"),
+                                      ("target_name", " 田中　 太郎\t", "たなかたろう"), ("target_full_name", "タナカタロウ", "たなかたろう"),
+                                      ("target_full_name", "ﾀﾅｶ　ﾀﾛｳ", "たなかたろう"), ("target_department", "営業部第1課", None),
+                                      ("target_department", "営業部　第１課", None)):
+            with self.subTest(field=field, value=value):
+                self.assertFalse(self.choice_needed(s, field=field, value=value))
+                with self.assertRaises(row_fixes.FixInvalid):
+                    self.person_fix(s, field, value, reading, keep=True)
+                self.person_fix(s, field, value, reading)
+                self.assertEqual(self.stored(s, field), value.strip())         # 値は入れたまま（比べるときだけそろえる）
+                self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"], seq)
+                self.assertEqual(self.tx(s, lambda tx: next_action.person_now(tx, s["task"])), since)
+        with self.assertRaises(Rejected) as e:                                  # データベースも同じ1か所で守る
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, recorded_by, keep_old_promise)"
+                " SELECT t.tenant_id, t.client_id, t.task_id, 'target_department', 'ｴｲｷﾞｮｳﾌﾞ', salescall.cur_actor(), NULL"
+                " FROM salescall.tasks t WHERE t.task_id = %s", (s["task"],)), OPERATOR)
+        self.assertEqual(e.exception.constraint, "task_fix_old_promise_choice")   # 本当に違う値には選びが要る（守りが比べている）
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, recorded_by, keep_old_promise)"
+                " SELECT t.tenant_id, t.client_id, t.task_id, 'target_department', '営業部　第1課', salescall.cur_actor(), true"
+                " FROM salescall.tasks t WHERE t.task_id = %s", (s["task"],)), OPERATOR)
+        self.assertEqual(e.exception.constraint, "task_fix_old_promise_choice")   # 表記の揺れだけには選びを渡せない
+        # 本当に違う名前 ⇒ 期が替わる（約束の選びが要る。画面の入口も同じ答え）
+        self.assertTrue(self.choice_needed(s, field="target_name", value="田中 次郎"))
+        with self.assertRaises(row_fixes.FixInvalid):
+            self.person_fix(s, "target_name", "田中 次郎", "たなかじろう")
+        self.person_fix(s, "target_name", "田中 次郎", "たなかじろう", keep=False)
+        self.assertNotEqual(self.tx(s, lambda tx: next_action.person_now(tx, s["task"])), since)
+        self.assertEqual(self.plan(s), self.handed_over(s["contact"]))
+
+    def test_a_fix_that_only_changes_how_it_is_written_does_not_bring_back_an_ended_row(self):
+        """前の担当の方個人の答え（用件の断り）で終えた行は、表記の揺れだけの直しでは戻さない（お呼びする方は替わっていない＝同じお客様に、
+        引き継ぎを確かめる電話をかけない）。本当に違う名前なら戻す（0208 の決まり）。"""
+        from tests.test_judge import goal_refused
+        s = self.ready()
+        self.person_fix(s, "target_department", "営業部 第１課")               # 最初の値（まだ話していない）
+        got = self.settle(s, self.call(s, report=goal_refused(rep())))
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "declined"))
+        for value in ("営業部第1課", "営業部　第１課", "営業部 第1課"):
+            with self.subTest(value=value):
+                self.assertFalse(self.choice_needed(s, field="target_department", value=value))
+                self.person_fix(s, "target_department", value)
+                self.assertEqual((self.plan(s)[0], self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"]),
+                                 ("end", "declined"))
+        self.person_fix(s, "target_department", "総務部")
+        self.assertEqual(self.plan(s), self.handed_over(s["contact"]))
+
+    def test_the_screen_entry_answers_as_the_fix_does(self):
+        """画面の入口（row_fixes.old_promise_choice_needed）は、名前などを直す画面では欄と値を受け、直す入口 `fix` と同じ1か所
+        （row_fixes._person_fix＝値の整え方と、替わるか）で答える：お呼びする方が替わらない直し（同じ値・表記の揺れだけ・会社名）は偽、
+        替わる直し（違う値・欄を消す直し）は、約束が残っていて約束の番号がいまかける番号でなければ真（`fix` は選ばなければ断る）。
+        渡すのは、番号か、欄と値の、どちらか一方だけ。⛔ 0208 まで：欄も値も受けず、名前などの直しはいつも替わる直しとして答えた
+        （値が変わらない直しでも真＝画面が選びを出すのに、`fix` は選びを断った）。"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        self.person_fix(s, "target_department", "総務部")
+        self.promise_on_another_number(s)
+        cases = (("target_department", "総務部", False), ("target_department", " 総務部\u3000", False), ("target_department", "ｿｳﾑﾌﾞ", True),
+                 ("target_department", "経理部", True), ("target_department", None, True), ("target_department", "\u3000", True),
+                 ("source_name", "架空商事", False))
+        for field, value, needed in cases:
+            with self.subTest(field=field, value=value):
+                self.assertEqual(self.choice_needed(s, field=field, value=value), needed)
+                if needed:                                                      # fix も、選ばなければ断る（何も書かない）
+                    with self.assertRaises(row_fixes.FixInvalid) as e:
+                        self.person_fix(s, field, value)
+                    self.assertIn("選んでください", str(e.exception))
+                else:                                                           # fix も、選びを渡せば断る
+                    with self.assertRaises(row_fixes.FixInvalid):
+                        self.person_fix(s, field, value, keep=False)
+        self.assertEqual(self.stored(s, "target_department"), "総務部")
+        for wrong in (dict(), dict(phone=fictional_jp_fixed(), field="target_department", value="経理部"), dict(value="経理部")):
+            with self.subTest(wrong=wrong), self.assertRaises(TypeError):
+                self.tx(s, lambda tx: row_fixes.old_promise_choice_needed(tx, s["task"], **wrong))
+        with self.assertRaises(row_fixes.FixInvalid):                           # 直せない欄は、fix と同じに断る
+            self.choice_needed(s, field="target_phone", value="x")
+        # 約束の番号がいまかける番号なら、違う値でも選びは要らない（fix も選びを渡せば断る）
+        s = self.ready()
+        self.promise_window(s)
+        self.assertFalse(self.choice_needed(s, field="target_department", value="経理部"))
+
+
+class CompareForm(unittest.TestCase):
+    def test_the_compare_form_is_the_same_as_the_source_check(self):
+        """お呼びする方が替わるかで値を比べる形（データベースの salescall.compare_form。0209）は、出典の照らしの1か所
+        core/source_check.normalize と同じ決まり（文字の形をそろえ・見た目の同じ記号をそろえ・空白をすべて除く）。空は NULL（値が無いのと
+        同じ）。空白の文字・記号の組がずれれば、ここが落ちる。"""
+        from salescall.core import source_check
+        marks = [chr(k) for k in source_check._SAME_MARKS]
+        spaces = [chr(c) for c in range(0x110000) if chr(c).isspace()]
+        samples = (spaces + marks + [f"田{c}中" for c in spaces + marks]
+                   + ["田中　太郎", " 田中 太郎 ", "ﾀﾅｶ ﾀﾛｳ", "タナカタロウ", "第１営業部", "ＡＢＣ商事", "営業部―第一課", "9:00〜18:00",
+                      "ー", "ｰ", "①", "", "\u3000\u3000"])
+        got = owner_access().in_system(SYSTEM, lambda tx: [r["f"] for r in tx.all(
+            "SELECT salescall.compare_form(x) AS f FROM unnest(%s::text[]) WITH ORDINALITY u(x, i) ORDER BY i", (samples,))])
+        self.assertEqual(got, [source_check.normalize(x) or None for x in samples])
+        self.assertIsNone(owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT salescall.compare_form(NULL) AS f")["f"]))
 
 
 class SalesPurposes(unittest.TestCase):
