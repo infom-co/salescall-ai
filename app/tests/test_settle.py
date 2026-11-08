@@ -3087,6 +3087,40 @@ class DialFixAfterCalls(SettleBase):
                     self.assertTrue(self.tx(s, lambda tx: next_action.promise_alive(tx, s["task"])))
                     self.assertEqual(self.period_name(s), "田中")
 
+    def test_going_back_after_the_round_passed_goes_to_the_next_round_while_days_remain(self):
+        """✅ 2026-11-08 本体の決定（計画書 7-1 (31) の「約束の日・幅がもう過ぎていれば、ふつうの電話」の読み方）：「過ぎた」は約束全体（すべての日・回）が
+        終わったとき。田中様と「昨日の15時」の約束（1日目の回）を「次の担当の方にだけ」でやめ、その回が過ぎてから田中様に戻す ⇒ まだ日が残っている
+        （3日まで＝callback.exact_days）ので、次の回（次の15時）の約束の電話に戻す（約束の印・お客様が指定した時刻。その回にかけられなかったお詫びの
+        印も付く）。今日のうちに取り戻す電話（こちらの止めのとき＝計画書 7-3 (4)）にはしない。すべての日が過ぎていれば、ふつうの電話（上の試験）。
+        決めるのは next_action._period_promise の1か所。⛔ 0214：いまの回の終わりが過ぎたら、日が残っていても、ふつうの電話にしていた。0216。"""
+        from salescall.core import calling_hours
+        for way in ("name", "dial"):
+            with self.subTest(way=way):
+                s = self.ready()
+                self.put_client(s, "gate.same_contact_min_interval", 1)
+                self.person_fix(s, "target_name", "田中", "たなか", same=True)
+                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+                day = calling_hours.local(now - timedelta(days=1))
+                said = calling_hours.from_local(day.replace(hour=15, minute=0, second=0, microsecond=0))
+                w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], said, day_said=True, beyond_ok=False))
+                self.tx(s, lambda tx: support.schedule_call(tx, s["task"], said, contact_id=s["contact"], cause="試験：田中様と昨日15時の約束",
+                                                           promised=True, callee_at=said, window=w))
+                if way == "name":
+                    self.person_fix(s, "target_name", "鈴木", "すずき", keep=False, same=False)
+                    new = s["contact"]
+                else:
+                    new = self.fixed_as(s, False, False)
+                self.assertEqual(self.plan(s), self.handed_over(new))
+                self.back_to_first(s, way)
+                p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+                local_at = calling_hours.local(p["callee_at"])
+                self.assertEqual((p["kind"], p["contact_id"], p["purpose"], p["promised"], (local_at.hour, local_at.minute),
+                                  p["window_recover_until"], p["person_since"]),
+                                 ("call", s["contact"], "normal", True, (15, 0), None, None))
+                self.assertGreater(p["callee_at"], now)                          # 次の回（今日か明日の15時）
+                self.assertIn(p["window_round"], (1, 2))
+                self.assertIn("missed_promise", p["apology_reasons"])           # 約束の日にかけられなかったお詫び
+
     def test_a_dropped_promise_brought_back_does_not_count_the_calls_to_the_other_person(self):
         """やめていた約束を戻したとき、約束の回の数え（もうかけた回）は、約束の始めから数えたまま：やめていたあいだにかけた電話は、新しい担当の方への電話
         なので、戻した約束の回に数えない（担当の期の比べ＝core/attempts.in_promise_count の1か所。計画書 7-1 (31)。0214）。"""

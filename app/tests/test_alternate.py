@@ -545,13 +545,22 @@ class HandoverPeriods(Base):
                 time.sleep(1.1)
                 self.wrong_call(s, "as_said")                                                # 番号違い ⇒ 前の番号へ聞き直し
                 self.assertEqual(self.current(s)["purpose"], "ask_number_again")
+                self.put_client(s, "retry.ask_number_again_max", 2)
                 new = self.fix_another(s)
-                self.assertEqual(self.current(s)["purpose"], "ask_number_again")            # 聞き直しは前の番号で1回（7-1 (18)）
-                time.sleep(1.1)
-                if result == "no_answer":
-                    self.settle(s, self.call(s, ["dialing", "no_answer"]))
-                else:
-                    self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))
+                self.assertEqual(self.current(s)["purpose"], "ask_number_again")            # 聞き直しは前の番号で、決めた回数まで
+                old = self.current(s)["contact_id"]
+                for n in range(2):   # 「違う」の直し：前の担当の方へ決めた回数まで（✅ 2026-11-08 本体の決定＝7-1 (32)。0216。「同じ」は1回＝7-1 (18)）
+                    time.sleep(1.1)
+                    if result == "no_answer":
+                        self.settle(s, self.call(s, ["dialing", "no_answer"]))
+                    else:
+                        self.settle(s, self.call(s, report=rep(("reception",), not_reached="absent")))
+                    if n == 0:
+                        c = self.current(s)
+                        self.assertEqual((c["purpose"], c["contact_id"]), ("ask_number_again", old))
+                        self.tx(s, lambda tx: support.schedule_call(
+                            tx, s["task"], tx.one("SELECT now() AS t")["t"], contact_id=old, cause="試験：別の時間帯を待たずに",
+                            promised=True, purpose="ask_number_again", wrong_contact_id=c["wrong_contact_id"]))
                 c = self.current(s)
                 self.assertEqual((c["kind"], c["purpose"], c["contact_id"], c["handover"]), ("call", "normal", new, True))
 

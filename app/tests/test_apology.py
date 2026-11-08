@@ -529,7 +529,9 @@ class ApologyAfterDialFix(ApologyBase):
                 self.assertEqual((p["kind"], p["contact_id"], (p["purpose"], p["handover"])), ("call", new, want))
 
     def test_an_apology_to_the_old_person_after_another_person_fix_goes_on_as_a_handover(self):
-        """「担当の方は違う」で番号を直したとき、まだかけていないお詫びの電話は、前の番号で前の担当の方へ1回（計画書 7-1 (17)）。
+        """「担当の方は違う」で番号を直したとき、まだかけていないお詫びの電話は、前の番号で前の担当の方へ、決めた回数（retry.apology_max）まで
+        （✅ 2026-11-08 本体の決定＝計画書 7-1 (32) にそろえる。名前などの直しと同じ。⛔ 0201〜0215：前の番号へ1回で移った。0216。「同じ」担当の方の
+        番号の直しは前の番号へ1回のまま＝計画書 7-1 (17)）。届かずに使い切ったら、新しい担当の方へ。
         (1) その電话で受付の方と話してお詫びが届かなかった ⇒ 新しい番号の新しい担当の方へは、お詫びなしで引き継ぎを確かめる電話（基準は
         言ってはいけないことを言った通話＝`_carried_since`。そのあとに前の番号で話した通話ではない。0202 で、外しても落ちない壊し試しを
         見つけて足した）。(2) 前の担当の方がお詫びの電話で「もうかけないで」と断った ⇒ 行を終えず同じ形。止めるのは前の担当の方の番号だけ
@@ -540,6 +542,7 @@ class ApologyAfterDialFix(ApologyBase):
             with self.subTest(refused=refused):
                 s = self.fresh(stage_cap=20)
                 self.put_client(s, "gate.same_contact_min_interval", 1)
+                self.put_client(s, "retry.apology_max", 2)
                 aid = self.call(s, verify=None, items=())
                 self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=said()))
                 self.settle(s, aid)
@@ -547,11 +550,17 @@ class ApologyAfterDialFix(ApologyBase):
                 new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=False),
                               OPERATOR)["contact_id"]
                 p = self.plan(s)
-                self.assertEqual((p["kind"], p["purpose"], p["contact_id"]), ("call", "apology", s["contact"]))   # 前の番号で1回
+                self.assertEqual((p["kind"], p["purpose"], p["contact_id"]), ("call", "apology", s["contact"]))   # 前の番号で
                 time.sleep(1.1)                                                  # 同じお客様への最短の間隔（試験は1秒）のあと
                 report = rep(dnc_=True) if refused else replace(rep(("reception",), not_reached="absent"), apology_delivered=False)
                 ap = self.call(s, report=report)
                 self.settle(s, ap)
+                if not refused:   # 届かなかった：決めた回数（2回）まで前の担当の方へ（1回で新しい担当の方へ移らない。0216）
+                    p = self.plan(s)
+                    self.assertEqual((p["kind"], p["purpose"], p["contact_id"]), ("call", "apology", s["contact"]))
+                    self.now_on(s, s["contact"])
+                    time.sleep(1.1)
+                    self.settle(s, self.call(s, report=report))
                 p = self.plan(s)
                 self.assertEqual((p["kind"], p["purpose"], p["contact_id"], p["promised"], p["handover"], p["apology_reasons"]),
                                  ("call", "normal", new, False, True, []))

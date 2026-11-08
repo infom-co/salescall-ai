@@ -1024,15 +1024,27 @@ def _period_promise(tx: Tx, task_id: UUID, cur: dict[str, Any], *, cause: str, n
         # ⛔ 0214：いまの回の終わりが過ぎたら、まだ日・回が残っていても、ふつうの電話にしていた。0216
         if _window_opening(tx, task_id, now, window, now=now)[1] is None:
             return None   # 約束の回がもう無い（理由の分からない日だけの約束が過ぎた など）：ふつうの電話
-        d = _keep_promise(tx, task_id, now, window, _plan_target(r), now=now, exact=r["callee_at"] is not None, recover=False)
-        if d.kind != "call" or d.window is None:
-            return None   # 約束の日数・回数を使い切った：ふつうの電話
+        exact = r["callee_at"] is not None
+        d = _keep_promise(tx, task_id, now, window, _plan_target(r), now=now, exact=exact, recover=False)
+        if d.kind != "call" or d.window is None or _promise_over(tx, task_id, d.window.round, exact=exact):
+            return None   # 約束の日数・回数を使い切った・約束の日・回がもう過ぎた：ふつうの電話
         reasons = _apology_reasons(tuple(r["apology_reasons"]), d.apology)
         return replace(d, rule=f"{cause}（戻した担当の方との、やめていた約束を戻す：次の回へ）", apology=reasons,
                        cut_call=r["cut_call"] if "cut_off" in reasons else None, resumes=r["seq"])
     return replace(_call(max(r["call_at"], now), True, f"{cause}（戻した担当の方との、やめていた約束を戻す：約束の時刻・幅・回の数えのまま）",
                          _plan_target(r), r["callee_at"], window, apology=tuple(r["apology_reasons"]), cut_call=r["cut_call"]),
                    resumes=r["seq"])
+
+
+def _promise_over(tx: Tx, task_id: UUID, round_: int, *, exact: bool) -> bool:
+    """その約束の、何回目の回（round_。最初の回は0）が、約束全体（すべての日・回）を過ぎているか（`_period_promise` だけが読む）：時刻ちょうどの
+    約束は設定 callback.exact_days の日数、幅の約束は時刻の決まっていない約束の方針の回数（`_keep_promise` の打ち止めと同じ数）。やめていたあいだに
+    過ぎた回も数える（契約者の選びでかけなかった回は、こちらの止めでかけられなかった回＝打ち止めに数えない回ではない。✅ 2026-11-08 本体の決定：
+    「過ぎた」は約束全体が終わったとき。0216）。"""
+    if exact:
+        return round_ >= int(settings.resolve(tx, "callback.exact_days", **tasks.scope(tx, task_id)))
+    p = _unspecified_policy(tx, task_id)
+    return p.action == "end" or round_ > p.max_times
 
 
 def _fix_start(tx: Tx, task_id: UUID) -> tuple[dict[str, Any] | None, datetime]:
