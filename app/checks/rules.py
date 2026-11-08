@@ -216,6 +216,9 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "recordings": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "recording_approvals": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "recording_readings": {"INSERT": frozenset({_CORE + "recordings.py"})},    # 録音で選んだ名前の読み（Intent.md 6-2。0099）
+    # 版の録音の部分の一覧（会話の担当の録音の道具が recordings.list_parts で渡す。計画書 6-1 (4)。0212）
+    "recording_lists": {"INSERT": frozenset({_CORE + "recordings.py"})},
+    "recording_list_parts": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "version_name_readings": {"INSERT": frozenset({_CORE + "recordings.py"})},  # 録音を聞いて選んだ名前の読み（6-2。0100。版の読みは
     #                                                                           データベースが版の中身を置いたときに入れる＝0101）
     "recording_holds": {"INSERT": frozenset({_CORE + "recordings.py"}),        # 測り終わるまで消さない録音（11-4 第2版。0056）

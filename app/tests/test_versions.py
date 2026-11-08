@@ -9,6 +9,7 @@ from __future__ import annotations
 from salescall.core import business_settings as bs
 from salescall.core import quality_stage
 from salescall.core.access import Rejected
+from tests import support
 from tests.support import OPERATOR, SYSTEM
 from tests.test_business_settings import raw as settings_raw
 from tests.test_gate import Base
@@ -120,9 +121,9 @@ class Versions(Base):
         self.w.approve_voices(s["tenant"], s["client"], v0, ("Leda", "Sadachbia"))
         self.tx(s, lambda tx: quality_stage.record_mock(tx, v0, GOOD), OPERATOR)
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
-        self.w.approve_voices(s["tenant"], s["client"], v1, ("Leda",))
+        self.w.approve_voices(s["tenant"], s["client"], v1, ("Leda",), parts=("intro", "answer_駐車場"))   # Sadachbia は答えの録音が要る
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [])                        # Sadachbia が減る
-        self.w.approve_voices(s["tenant"], s["client"], v1, ("Sadachbia",))
+        self.w.approve_voices(s["tenant"], s["client"], v1, ("Sadachbia",), parts=("intro", "answer_駐車場"))
         v2 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: dict(r, target_person={"kind": "name", "role": None}),
                                              cause="override", note="お名前でお呼びする"), OPERATOR)
         self.w.approve_voices(s["tenant"], s["client"], v2, ("Leda", "Sadachbia"))
@@ -173,11 +174,12 @@ class Versions(Base):
 
     def test_a_copy_keeps_its_recordings_and_a_derived_version_records_only_what_changed(self):
         """✅ 2026-11-06 ユーザー＝計画書 6-1 (4)：「録音が必要な部分がある場合のみ必要な部分だけ録音を実施します。それはダッシュボードにも
-        警告として出し、それができれば新しい版でも電話がかけられるようになります。」⇒ 変わっていない部分は元の版の録音を引き継ぐ1か所
-        （core/recordings.carry。写し＝save_from と、版を足す＝derive の両方が呼ぶ。0194）。
-        (1) 手で前の版に戻した写しは中身が同じなので、元の版の録音をその場で引き継ぎ、聞き直さずに話せる（電話を止めない）。
-        (2) 版を足して想定問答が変わった版は、変わった部分だけが録音の要る部分（画面が読む needed_parts・契約者への知らせ recording_needed）。
-            その部分だけを録って complete を呼ぶと、引き継ぐ部分と合わせた組ができ、聞くのは録った部分だけ。"""
+        警告として出し、それができれば新しい版でも電話がかけられるようになります。」⇒ 版の録音の部分の一覧は会話の担当の録音の道具が渡し
+        （recordings.list_parts）、要る部分は、その一覧のうち承認済みの同じ録音が無い部分だけ（recordings.version_needs の1か所。0212）。
+        (1) 版を足した版は、一覧が届くまで「録音の部分の一覧がまだ」（警告・知らせ recording_list_needed・その版ではかけない＝今の版のまま）。
+        (2) 一覧が届くと、変わった部分だけが録音の要る部分（警告・知らせ recording_needed）。その部分だけを録って complete を呼ぶと、使い回す部分と
+            合わせた組ができ、聞くのは録った部分だけ。一覧の外の部分・文の違う録音は断る。
+        (3) 手で前の版に戻した写しは中身が同じなので、元の版の一覧と録音をそのまま使い、聞き直さずに話せる（電話を止めない）。"""
         from salescall.core import recordings
         s = self.ready()
         v0 = s["version"]
@@ -186,29 +188,39 @@ class Versions(Base):
         self.assertTrue(voices)
         self.tx(s, lambda tx: quality_stage.record_mock(tx, v0, GOOD), OPERATOR)
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v1)), recordings.VersionNeeds(False, {}))   # 一覧がまだ
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT 1 FROM salescall.notification_events WHERE event_key = %s",
+                                                     (f"recording_list_needed:{v1}",))))
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), [])
         part = bs.ANSWER_PART_PREFIX + "駐車場"
         want = {part: "建物の裏に3台分ございます。"}
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), {v: want for v in voices})
+        got = self.tx(s, lambda tx: support.send_list(tx, v1), OPERATOR)                      # 会話の担当の録音の道具が一覧を渡す
+        self.assertEqual(got, recordings.VersionNeeds(True, {v: want for v in voices}))
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v1)), got)
         self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), [])            # 録るまでは話さない（今の版のまま）
         note = self.tx(s, lambda tx: tx.one("SELECT refs FROM salescall.notification_events WHERE kind = 'recording_needed'"
                                             " AND event_key = %s", (f"recording_needed:{v1}",)))
         self.assertEqual(note["refs"]["parts"], [part])
-        with self.assertRaises(ValueError):                                                  # 要る部分と違う録音では作らない
-            self.tx(s, lambda tx: recordings.complete(tx, v1, voices[0], [recordings.Part(part, "違う文です。", "test://x", "1" * 64)]),
-                    OPERATOR)
+        for wrong in ([recordings.Part(part, "違う文です。", "test://x", "1" * 64)],                                 # 文が違う
+                      [recordings.Part(part, want[part], "test://x", "1" * 64), recordings.Part("Q9", "一覧に無い文。", "test://x",
+                                                                                              "1" * 64)],          # 一覧の外
+                      [recordings.Part("intro", "架空の録音（intro）。", "test://x", "1" * 64)]):                  # 要る部分が無い
+            with self.subTest(parts=[p.part for p in wrong]), self.assertRaises(ValueError):
+                self.tx(s, lambda tx, wrong=wrong: recordings.complete(tx, v1, voices[0], wrong), OPERATOR)
         for v in voices:
             sid = self.tx(s, lambda tx, v=v: recordings.complete(
                 tx, v1, v, [recordings.Part(part, want[part], f"test://{v}/{part}", "1" * 64)]), OPERATOR)
             self.assertEqual(self.tx(s, lambda tx, i=sid: recordings.unapproved_parts(tx, i)), [part])   # 聞くのは録った部分だけ
             self.tx(s, lambda tx, i=sid: recordings.approve(tx, i), OPERATOR)
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), {})
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v1)), recordings.VersionNeeds(True, {}))
         self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), voices)
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v1)])
-        # 同じ問いの答えを置き換えた版：前の答えの録音は引き継がず（その部分は録り直す）、ほかの部分は引き継ぐ
+        # 同じ問いの答えを置き換えた版：前の答えの録音は使えず（その部分は録り直す）、ほかの部分は使い回す
         new_text = "建物の裏に5台分ございます。"
         v2 = self.tx(s, lambda tx: bs.derive(tx, v1, lambda r: dict(r, answers=[
             dict(a, text=new_text) if a["name"] == "駐車場" else a for a in r["answers"]]), cause="solution", note="駐車場の答え"), OPERATOR)
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v2)), {v: {part: new_text} for v in voices})
+        self.tx(s, lambda tx: support.send_list(tx, v2), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v2)).parts, {v: {part: new_text} for v in voices})
         sid = self.tx(s, lambda tx: recordings.complete(tx, v2, voices[0], [recordings.Part(part, new_text, "test://new", "2" * 64)]),
                       OPERATOR)
         got = self.tx(s, lambda tx: recordings.parts(tx, sid))
@@ -219,47 +231,125 @@ class Versions(Base):
         back = self.current(s)
         self.assertNotIn(back, (v0, v1))
         self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, back)), voices)      # 聞き直さずに、すぐ話せる
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, back)), {})
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, back)), recordings.VersionNeeds(True, {}))
+
+    def test_the_gate_waits_for_the_recording_list_and_calls_once_the_needed_parts_are_recorded(self):
+        """場面（0212・計画書 6-1 (4)）：契約者が手で、目的の文を変えた新しい版を実施回に割り当てた。(1) 会話の担当の録音の部分の一覧が届くまで、
+        門は「録音の部分の一覧がまだ」で待たせ、契約者に知らせる（ダッシュボードの警告＝version_needs と同じ1か所）。(2) 一覧が届くと、要る部分は
+        変わった目的の文だけ（名乗りは承認済みの同じ録音を使う）。録音するまでは「録音がまだ」で待つ。(3) その部分を録って承認すると、門が通す。"""
+        from salescall.core import gate, recordings
+        s = self.ready()
+        v0 = s["version"]
+        self.w.approve_voices(s["tenant"], s["client"], v0, parts=("intro", "purpose"))
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        self.assertTrue(voices)
+        v1 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: dict(r, purpose="ご予約の内容を伺う"), cause="override", note="目的"),
+                     OPERATOR)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, v1, 1, None, evidence="試験"), OPERATOR)
+        self.tx(s, lambda tx: bs.assign(tx, s["run"], v1, reason="試験：手で新しい版にする"), OPERATOR)
+        self.assertEqual(self.current(s), v1)
+        told = lambda: [r["summary"] for r in self.tx(s, lambda tx: tx.all(   # noqa: E731
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing' AND summary = ANY(%s) ORDER BY event_id",
+            ([gate.VOICE_LIST_MISSING, gate.VOICE_NOT_READY],)))]
+        self.assertEqual(self.reason(s), "voice_not_ready")
+        self.assertEqual(told(), [gate.VOICE_LIST_MISSING])
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v1)), recordings.VersionNeeds(False, {}))
+        new = recordings.ListedPart("purpose", "ご予約の内容を伺うお電話です。")
+        need = self.tx(s, lambda tx: recordings.list_parts(tx, v1, [recordings.ListedPart("intro", "架空の録音（intro）。"), new]),
+                       OPERATOR)
+        self.assertEqual(need, recordings.VersionNeeds(True, {v: {"purpose": new.spoken_text} for v in voices}))
+        self.assertEqual(self.reason(s), "voice_not_ready")
+        self.assertEqual(told(), [gate.VOICE_LIST_MISSING, gate.VOICE_NOT_READY])
+        for v in voices:
+            self.tx(s, lambda tx, v=v: recordings.approve(tx, recordings.complete(tx, v1, v, [recordings.Part(
+                "purpose", new.spoken_text, f"test://{v}/purpose", "6" * 64)])), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v1)), recordings.VersionNeeds(True, {}))
+        got = self.claim(s)
+        self.assertIsInstance(got, gate.Claim, got)
+        # 会話の担当が一覧を渡し直して部分が増えたら（質問を足した など）、その部分の無い組では話さない（その部分だけ録音していただく）
+        more = recordings.ListedPart("Q2", "ご希望の台数をお聞かせください。")
+        need = self.tx(s, lambda tx: recordings.list_parts(tx, v1, [recordings.ListedPart("intro", "架空の録音（intro）。"), new, more]),
+                       OPERATOR)
+        self.assertEqual(need.parts, {v: {"Q2": more.spoken_text} for v in voices})
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), [])
+
+    def test_the_database_keeps_recording_lists_as_written(self):
+        """版の録音の部分の一覧（0212）は、書いたまま（変えない・消さない）。部分は、その一覧を作った取引でだけ足せる（あとから足せない）。
+        書いた方は、いま操作している方。ほかの依頼者からは見えない。"""
+        from salescall.core import recordings
+        s = self.ready()
+        v = s["version"]
+        self.tx(s, lambda tx: recordings.list_parts(tx, v, [recordings.ListedPart("Q7", "ご希望の日時をお聞かせください。")]), OPERATOR)
+        list_id = self.tx(s, lambda tx: tx.one("SELECT salescall.recording_list_of(%s) AS l", (v,))["l"])
+        self.assertIsNotNone(list_id)
+        for sql, constraint in (
+                ("UPDATE salescall.recording_lists SET recorded_by = 'x' WHERE list_id = %s", None),
+                ("DELETE FROM salescall.recording_list_parts WHERE list_id = %s", None),
+                ("INSERT INTO salescall.recording_list_parts (tenant_id, client_id, list_id, part, spoken_text)"
+                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q8', 'あとから足した文。')", "recording_list_part_made_now")):
+            with self.subTest(sql=sql), self.assertRaises(Rejected) as e:
+                self.tx(s, lambda tx, sql=sql: tx.execute(sql, (list_id,)), OPERATOR)
+            if constraint:
+                self.assertEqual(e.exception.constraint, constraint)
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: tx.execute("INSERT INTO salescall.recording_lists (tenant_id, client_id, version_id, recorded_by)"
+                                             " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'ほかの方')", (v,)), OPERATOR)
+        self.assertEqual(e.exception.constraint, "recording_list_recorded_by")
+        other = self.ready(tenant=s["tenant"])
+        self.assertEqual(self.tx(other, lambda tx: tx.all("SELECT 1 FROM salescall.recording_lists WHERE list_id = %s", (list_id,))), [])
 
     def test_a_version_made_before_its_origin_was_approved_gets_its_set_when_the_origin_is_approved(self):
-        """見直し (1) の (a)：版を作ったときに元の版の録音がまだ承認されていなかった（引き継ぐ元が無い）。あとで元の版の録音を承認すると、
-        新しい版の録音の要る部分は空になる ⇒ 承認の1か所（recordings.approve）が、その業務の版のうち、組が無く要る部分が空になった版の組を、
-        版を作るときと同じ1か所（recordings.carry）で作る（⛔ 前は組を作る道が無く、新しい版では話せないまま、警告も出なかった）。"""
+        """見直し (1) の (a)：版を作ったときに元の版の録音がまだ承認されていなかった（使い回せる録音が無い）。あとで元の版の録音を承認すると、
+        中身の同じ新しい版（元の版の一覧を使う）の録音の要る部分は空になる ⇒ 承認の1か所（recordings.approve）が、その業務の版のうち、使い回せる
+        録音だけで一覧がそろう版の組を作る（⛔ 前は組を作る道が無く、新しい版では話せないまま、警告も出なかった）。"""
         from salescall.core import recordings
         from tests.support import _TENANT_VOICES, VOICES
         s = self.ready()
         v0 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], settings_raw()), OPERATOR)   # まだ録音の無い版
         voices = sorted(_TENANT_VOICES.get(s["tenant"], VOICES))
-        sids = self.tx(s, lambda tx: [recordings.create_set(
-            tx, unit="business", voice_name=v, version_id=v0,
-            parts=[recordings.Part("intro", "まだ聞いていない録音（intro）。", f"test://{v}/unheard", "9" * 64)]) for v in voices],
+        sids = self.tx(s, lambda tx: [support.make_business_set(
+            tx, v, v0, [recordings.Part("intro", "まだ聞いていない録音（intro）。", f"test://{v}/unheard", "9" * 64)]) for v in voices],
             OPERATOR)
         self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)), [])         # まだ承認していない
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: r, cause="override", note="そのまま"), OPERATOR)
-        self.assertEqual((self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), self.tx(s, lambda tx: recordings.ready_voices(tx, v1))),
-                         ({}, []))
+        self.assertEqual((self.tx(s, lambda tx: recordings.version_needs(tx, v1)), self.tx(s, lambda tx: recordings.ready_voices(tx, v1))),
+                         (recordings.VersionNeeds(True, {}), []))                         # 中身が同じ＝元の版の一覧を使う
         for sid in sids:
             self.tx(s, lambda tx, i=sid: recordings.approve(tx, i), OPERATOR)
         self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)), voices)
         self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), voices)     # 新しい版も、聞き直さずに話せる
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), {})
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v1)), recordings.VersionNeeds(True, {}))
 
-    def test_each_voice_carries_from_its_nearest_recorded_origin(self):
-        """声ごとに、いまの組がある、いちばん近い元の版から引き継ぐ（`_bases` の1か所。第三者の見直し (2) の6：外しても落ちる試験が
-        無かった）。V0（録音済み）→ V1（想定問答のほかの項目を変えた＝V0 からは引き継げない。V1 も録音して承認した）→ V2（V1 に答えを足した）：
-        V2 で録音が要るのは、いちばん近い V1 から変わった答えだけ（遠い V0 から見ると、どの部分が変わったか決められず、何も求めない）。"""
+    def test_a_part_is_used_again_from_any_approved_recording_of_the_business(self):
+        """使い回す録音は、その業務の、同じ声の承認済みの録音のどれでも（`recordings._approved_same` の1か所。版の元をたどった近い版だけではない）。
+        V0（名乗り・目的を録音済み）→ V1（目的の文を変えた。録音して承認した）→ V2（V1 に答えを足した）→ V3（目的の文を V0 に戻した）：V2 で録音が
+        要るのは足した答えだけ、V3 で要るものは無い（目的の文は V0 の録音を使う）。"""
         from salescall.core import recordings
         s = self.ready()
         v0 = s["version"]
-        self.w.approve_voices(s["tenant"], s["client"], v0)
+        self.w.approve_voices(s["tenant"], s["client"], v0, parts=("intro", "purpose"))
         voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        purpose = recordings.ListedPart("purpose", "架空の録音（purpose・改）。")
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: dict(r, purpose=r["purpose"] + "（改）"), cause="override",
                                              note="目的の文を変えた"), OPERATOR)
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), {})            # V0 からは決められない（録音の道具が組を作る）
-        self.w.approve_voices(s["tenant"], s["client"], v1)
+        self.assertEqual(self.tx(s, lambda tx: recordings.list_parts(tx, v1, [recordings.ListedPart("intro", "架空の録音（intro）。"),
+                                                                                purpose])).parts,
+                         {v: {"purpose": purpose.spoken_text} for v in voices})
+        for v in voices:
+            self.tx(s, lambda tx, v=v: recordings.approve(tx, recordings.complete(tx, v1, v, [recordings.Part(
+                "purpose", purpose.spoken_text, f"test://{v}/purpose2", "6" * 64)])), OPERATOR)
         v2 = self.tx(s, lambda tx: bs.derive(tx, v1, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
         part = bs.ANSWER_PART_PREFIX + "駐車場"
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v2)), {v: {part: "建物の裏に3台分ございます。"} for v in voices})
+        self.assertEqual(self.tx(s, lambda tx: support.send_list(tx, v2, purpose)).parts,
+                         {v: {part: "建物の裏に3台分ございます。"} for v in voices})
+        v3 = self.tx(s, lambda tx: bs.derive(tx, v2, lambda r: dict(r, purpose=r["purpose"].removesuffix("（改）")), cause="override",
+                                             note="目的の文を戻した"), OPERATOR)
+        for v in voices:
+            self.tx(s, lambda tx, v=v: recordings.approve(tx, recordings.complete(tx, v2, v, [recordings.Part(
+                part, "建物の裏に3台分ございます。", f"test://{v}/{part}", "7" * 64)])), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: support.send_list(tx, v3, recordings.ListedPart("purpose", "架空の録音（purpose）。"))),
+                         recordings.VersionNeeds(True, {}))
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v3)), voices)    # 聞き直さずに話せる
 
     def test_the_copy_root_follows_only_copies(self):
         """写しの元のいちばん元の版（salescall.version_copy_root。版の元をたどる1か所 version_origins から読む＝0201）：写し・写しの写しは、
@@ -273,18 +363,26 @@ class Versions(Base):
         c3 = self.tx(s, lambda tx: bs.save_from(tx, s["business"], d1), OPERATOR)
         self.assertEqual([root(v) for v in (v0, c1, c2, d1, c3)], [v0, v0, v0, d1, d1])
 
-    def test_a_version_changed_beyond_its_answers_keeps_no_recordings(self):
-        """想定問答のほかの項目も違う版（どの録音の部分が変わったかを、ここでは決められない）：元の版の録音を引き継がない（録音の道具が、
-        その版の部分の一覧で組を作る。core/recordings._changes）。"""
+    def test_a_version_changed_beyond_its_answers_records_only_the_listed_parts_that_changed(self):
+        """想定問答のほかの項目が違う版（目的の文を変えた）も、会話の担当の一覧のうち、承認済みの同じ録音の無い部分だけを録音していただく
+        （0212。⛔ 前は CL-2 が業務設定の項目の違いから要る部分を決めていたので、この版には要る部分も警告も出ず、組を作る道も無かった）。"""
         from salescall.core import recordings
         s = self.ready()
         v0 = s["version"]
-        self.w.approve_voices(s["tenant"], s["client"], v0)
-        self.assertTrue(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)))
+        self.w.approve_voices(s["tenant"], s["client"], v0, parts=("intro", "purpose"))
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        self.assertTrue(voices)
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: dict(r, purpose="ご予約の内容を伺う"), cause="override", note="目的"),
                      OPERATOR)
-        self.assertEqual((self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), self.tx(s, lambda tx: recordings.needed_parts(tx, v1))),
-                         ([], {}))
+        self.assertEqual((self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), self.tx(s, lambda tx: recordings.version_needs(tx, v1))),
+                         ([], recordings.VersionNeeds(False, {})))
+        new = recordings.ListedPart("purpose", "ご予約の内容を伺うお電話です。")
+        self.assertEqual(self.tx(s, lambda tx: recordings.list_parts(tx, v1, [recordings.ListedPart("intro", "架空の録音（intro）。"), new]),
+                                 OPERATOR).parts, {v: {"purpose": new.spoken_text} for v in voices})
+        for v in voices:
+            self.tx(s, lambda tx, v=v: recordings.approve(tx, recordings.complete(tx, v1, v, [recordings.Part(
+                "purpose", new.spoken_text, f"test://{v}/purpose", "6" * 64)])), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, v1)), voices)
 
     def test_a_later_version_needs_a_voice_even_when_the_current_one_has_none(self):
         """今の版に話してよい声が無くても、後の版には声が1つ以上要る（声の無い版へ替えても電話はかけられない）。"""
@@ -404,10 +502,10 @@ class Versions(Base):
         self.assertEqual((name.reading, name.reading_by), ("なかしま", "recording"))
 
     # ── 2026-11-07 の第三者の見直し (2)（0197。版の元＝つながりの前の版か写しの元の1か所）
-    def test_answers_added_before_recording_are_recorded_together_from_the_nearest_recorded_version(self):
-        """(2) の2：録音していない途中の版から足した版（V0 は録音済み → V1 はまだ → V2）は、いまの組がある、いちばん近い元の版（V0）から、
-        変わった部分をまとめて録音していただく（needed_parts・complete・知らせ recording_needed。⛔ 前は「つながりの1つ前の版」だけを見たので、
-        V2 には録音の要る部分も警告も出ず、complete も断り、録音が2回に分かれた）。"""
+    def test_answers_added_before_recording_are_recorded_together_in_the_latest_version(self):
+        """(2) の2：録音していない途中の版から足した版（V0 は録音済み → V1 はまだ → V2）は、V2 の一覧のうち、承認済みの同じ録音の無い部分
+        （V1 と V2 で足した答えの両方）をまとめて録音していただく（version_needs・complete・知らせ recording_needed。⛔ 前は V2 には録音の要る
+        部分も警告も出ず、complete も断り、録音が2回に分かれた）。"""
         from salescall.core import recordings
         s = self.ready()
         v0 = s["version"]
@@ -419,7 +517,8 @@ class Versions(Base):
             {"name": "営業時間", "text": "平日の9時から18時でございます。"}]), cause="solution", note="営業時間"), OPERATOR)
         p = bs.ANSWER_PART_PREFIX
         want = {p + "駐車場": "建物の裏に3台分ございます。", p + "営業時間": "平日の9時から18時でございます。"}
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, v2)), {v: want for v in voices})
+        self.tx(s, lambda tx: support.send_list(tx, v2), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v2)).parts, {v: want for v in voices})
         note = self.tx(s, lambda tx: tx.one("SELECT refs FROM salescall.notification_events WHERE event_key = %s",
                                             (f"recording_needed:{v2}",)))
         self.assertEqual(note["refs"]["parts"], sorted(want))
@@ -432,8 +531,8 @@ class Versions(Base):
         self.assertEqual(self.tx(s, lambda tx: bs.adopt_ready(tx)), [(s["run"], v2)])         # 1回の録音で、いちばん後の版へ
 
     def test_a_copy_of_an_unrecorded_version_asks_for_what_differs_from_its_recorded_origin(self):
-        """(2) の2：録音していない途中の版（V1）へ手で戻した写しは、写しの元（V1）・そのつながりの前の版（V0）とたどって、いまの組がある
-        いちばん近い元の版（V0）から変わった部分の録音を求める（警告と知らせ。⛔ 前は写しの元を知らず、組も警告も無いまま話せなかった）。"""
+        """(2) の2：録音していない途中の版（V1）へ手で戻した写しは、V1 の一覧（中身が同じ）を使い、そのうち承認済みの同じ録音の無い部分の録音を
+        求める（警告と知らせ。⛔ 前は写しの元を知らず、組も警告も無いまま話せなかった）。一覧の無い版の写しは「一覧がまだ」。"""
         from salescall.core import recordings
         s = self.ready()
         v0 = s["version"]
@@ -441,6 +540,7 @@ class Versions(Base):
         voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
         self.tx(s, lambda tx: quality_stage.record_mock(tx, v0, GOOD), OPERATOR)
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
+        self.tx(s, lambda tx: support.send_list(tx, v1), OPERATOR)
         v2 = self.tx(s, lambda tx: bs.derive(tx, v1, lambda r: dict(r, answers=list(r["answers"]) + [
             {"name": "営業時間", "text": "平日の9時から18時でございます。"}]), cause="solution", note="営業時間"), OPERATOR)
         self.w.approve_voices(s["tenant"], s["client"], v2, parts=("intro", "answer_駐車場", "answer_営業時間"))
@@ -450,9 +550,18 @@ class Versions(Base):
         self.assertNotIn(back, (v0, v1, v2))
         self.assertEqual(self.tx(s, lambda tx: bs.version_origins(tx, back)), [v1, v0])
         part = bs.ANSWER_PART_PREFIX + "駐車場"
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, back)), {v: {part: "建物の裏に3台分ございます。"} for v in voices})
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, back)),
+                         recordings.VersionNeeds(True, {v: {part: "建物の裏に3台分ございます。"} for v in voices}))
         self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT 1 FROM salescall.notification_events WHERE event_key = %s",
                                                      (f"recording_needed:{back}",))))
+        other = self.tx(s, lambda tx: bs.save_from(tx, s["business"], v2), OPERATOR)          # 写しの元の一覧は、承認済みの録音でそろう
+        self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, other)), voices)
+        plain = self.tx(s, lambda tx: bs.derive(tx, v0, lambda r: dict(r, purpose="ご予約の内容を伺う"), cause="override", note="目的"),
+                        OPERATOR)
+        copy = self.tx(s, lambda tx: bs.save_from(tx, s["business"], plain), OPERATOR)        # 一覧の無い版の写し
+        self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, copy)), recordings.VersionNeeds(False, {}))
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT 1 FROM salescall.notification_events WHERE event_key = %s",
+                                                     (f"recording_list_needed:{copy}",))))
 
     def test_a_version_put_back_or_derived_after_verification_starts_is_not_checked_again(self):
         """(2) の3：検証モードに切り替えたあと、後の版がある前の版へ手で戻す（写し）・同じ版から版を足すのは、置いたときの確かめを信じて、
@@ -484,8 +593,8 @@ class Versions(Base):
                 cause="override", note="名前を足す"), OPERATOR)
 
     def test_answers_off_changes_keep_the_business_recordings(self):
-        """使わない標準の問い（answers_off）だけが違う版は、標準の録音から流す部分だけが変わる（業務の録音の部分は同じ）ので、業務の録音を
-        その場で引き継ぐ（core/recordings._changes の1か所。想定問答の外の違いとはみなさない）。"""
+        """使わない標準の問い（answers_off）だけが違う版は、標準の録音から流す部分だけが変わる。会話の担当の一覧の業務の録音の部分は同じなので、
+        一覧が届けば、承認済みの録音でその場で組ができる（聞き直さない）。"""
         from salescall.core import recordings
         s = self.ready()
         with self.w.standard(STD, voices=("Leda", "Sadachbia")) as std:
@@ -495,28 +604,31 @@ class Versions(Base):
             self.assertTrue(voices)
             off = self.tx(s, lambda tx: bs.derive(tx, v, lambda r: dict(r, answers_off=["会社の場所"]), cause="override",
                                                   note="会社の場所を使わない"), OPERATOR)
-            self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, off)), {})
+            self.assertEqual(self.tx(s, lambda tx: support.send_list(tx, off), OPERATOR), recordings.VersionNeeds(True, {}))
             self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, off)), voices)   # 聞き直さずに話せる
 
-    def test_a_version_whose_names_changed_keeps_no_recordings(self):
-        """前からある名前の読みが変わった版は、どの録音の部分がその名前を話すかを、ここでは決められないので、録音を引き継がない（名前の一覧の
-        違いで引き継ぐのは「足しただけ」のとき＝core/recordings._changes の1か所）。"""
+    def test_a_version_whose_name_reading_changed_records_only_the_parts_that_speak_it(self):
+        """前からある名前の読みが変わった版は、その名前を話す部分（会話の担当の一覧で文が変わる部分）だけを録音していただく（ほかの部分は
+        承認済みの同じ録音を使う。0212。⛔ 前は CL-2 がどの部分がその名前を話すかを決められず、録音を何も使わなかった）。"""
         from salescall.core import recordings
         s = self.ready()
         r = settings_raw()
         r["names"] = list(r["names"]) + [{"text": "西海", "reading": "さいかい", "source": "script", "reading_by": "given",
                                           "candidates": [], "likely": None}]
         v0 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r), OPERATOR)
-        self.w.approve_voices(s["tenant"], s["client"], v0)
-        self.assertTrue(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)))
+        self.w.approve_voices(s["tenant"], s["client"], v0, parts=("intro", "info"))
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        self.assertTrue(voices)
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, lambda raw: dict(raw, names=[dict(n, reading="にしうみ") if n["text"] == "西海" else n
                                                                              for n in raw["names"]]),
                                              cause="override", note="西海の読み"), OPERATOR)
-        self.assertEqual((self.tx(s, lambda tx: recordings.needed_parts(tx, v1)), self.tx(s, lambda tx: recordings.ready_voices(tx, v1))),
-                         ({}, []))
+        new = recordings.ListedPart("info", "「にしうみ」の工場で作っています。")
+        self.assertEqual(self.tx(s, lambda tx: recordings.list_parts(tx, v1, [recordings.ListedPart("intro", "架空の録音（intro）。"), new]),
+                                 OPERATOR).parts, {v: {"info": new.spoken_text} for v in voices})
 
     def test_kept_parts_keep_the_readings_they_were_recorded_with(self):
-        """引き継ぐ部分は、録音で書いた名前の読みも引き継ぐ（承認の中身の鍵に入る。落とすと、その名前を話す部分は組を作れない）。"""
+        """使い回す部分は、録音で書いた名前の読みも使い回す（承認の中身の鍵に入る。落とすと、その名前を話す部分は組を作れない）。読みの違う
+        録音は使い回さない（一覧の読みと同じものだけ）。"""
         from salescall.core import recordings
         s = self.ready()
         r = settings_raw()
@@ -526,19 +638,23 @@ class Versions(Base):
         v0 = self.tx(s, lambda tx: bs.save_version(tx, s["business"], r), OPERATOR)
         self.tx(s, lambda tx: recordings.choose_reading(tx, v0, "中島", "なかしま"), OPERATOR)
         part = bs.ANSWER_PART_PREFIX + "担当"
+        spoken = recordings.ListedPart(part, "「なかしま」がご案内いたします。", {"中島": "なかしま"})
 
         def record(tx):
             for v in ("Leda", "Sadachbia"):
-                recordings.approve(tx, recordings.create_set(tx, unit="business", voice_name=v, version_id=v0, parts=[
+                recordings.approve(tx, support.make_business_set(tx, v, v0, [
                     recordings.Part("intro", "架空の録音（intro）。", f"test://{v}/intro", "0" * 64),
-                    recordings.Part(part, "「なかしま」がご案内いたします。", f"test://{v}/{part}", "4" * 64, {"中島": "なかしま"})]))
+                    recordings.Part(part, spoken.spoken_text, f"test://{v}/{part}", "4" * 64, {"中島": "なかしま"})]))
         self.tx(s, record, OPERATOR)
         voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
         self.assertTrue(voices)
         v1 = self.tx(s, lambda tx: bs.derive(tx, v0, self.add_answer, cause="solution", note="駐車場"), OPERATOR)
-        self.assertEqual(set(self.tx(s, lambda tx: recordings.needed_parts(tx, v1))), set(voices))
+        parking = bs.ANSWER_PART_PREFIX + "駐車場"
+        need = self.tx(s, lambda tx: recordings.list_parts(tx, v1, [recordings.ListedPart("intro", "架空の録音（intro）。"), spoken,
+                                                                    recordings.ListedPart(parking, "建物の裏に3台分ございます。")]), OPERATOR)
+        self.assertEqual(need.parts, {v: {parking: "建物の裏に3台分ございます。"} for v in voices})
         sid = self.tx(s, lambda tx: recordings.complete(tx, v1, voices[0], [recordings.Part(
-            bs.ANSWER_PART_PREFIX + "駐車場", "建物の裏に3台分ございます。", "test://new", "5" * 64)]), OPERATOR)
+            parking, "建物の裏に3台分ございます。", "test://new", "5" * 64)]), OPERATOR)
         got = self.tx(s, lambda tx: tx.one("SELECT reading FROM salescall.recording_readings WHERE set_id = %s AND part = %s",
                                            (sid, part)))
         self.assertEqual(got["reading"], "なかしま")

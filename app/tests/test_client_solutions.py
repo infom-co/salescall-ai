@@ -321,15 +321,25 @@ class Solutions(Base):
 
     def test_a_solution_looks_for_names_only_in_its_own_text_and_keeps_the_versions_names(self):
         """(2) の1：解決策で名前を探すのは、足す問答の文だけ。版にある名前と読みは版のまま（AI が「東海」を別の読みで返しても変えない）。
-        名前の一覧は足した名前だけ増え、録音は変わった答えの部分（足した名前を話す、前からある答えも＝その名前の読みを持たない録音を
-        引き継がない）だけを求める（引き継ぎ・知らせ・警告が働く）。⛔ 前は台本全体の名前を探し直し、版の名前の一覧が変わったので録音を
-        引き継げず（録音の要る部分も知らせも出ない）、新しい版がいつまでも電話に使われなかった。"""
+        名前の一覧は足した名前だけ増える。録音は、会話の担当の一覧のうち、承認済みの同じ録音（名前・文・読みが同じ）の無い部分だけを求める：
+        足した答えと、足した名前を話す前からある答え（文は同じでも、その名前の読みを持たない録音は使い回さない）。⛔ 前は台本全体の名前を
+        探し直し、版の名前の一覧が変わったので録音を引き継げず（録音の要る部分も知らせも出ない）、新しい版がいつまでも電話に使われなかった。"""
         from salescall.core import recordings
+        from tests import support
         from tests.test_business_import import finder
         s = self.ready()
         aid = self.called(s)
-        v0 = self.with_tokai(s, answers=[{"name": "場所", "text": "本社は港区にございます。"}])
-        self.w.approve_voices(s["tenant"], s["client"], v0, parts=("intro", "answer_場所"))
+        p = bs.ANSWER_PART_PREFIX
+        place = recordings.ListedPart(p + "場所", "本社は港区にございます。")
+        v0 = self.with_tokai(s, answers=[{"name": "場所", "text": place.spoken_text}])
+
+        def record(tx):
+            recordings.list_parts(tx, v0, [recordings.ListedPart("intro", "架空の録音（intro）。"), place])
+            for v in support._TENANT_VOICES.get(s["tenant"], support.VOICES):
+                recordings.approve(tx, recordings.create_set(tx, unit="business", voice_name=v, version_id=v0, parts=[
+                    recordings.Part("intro", "架空の録音（intro）。", f"test://{v}/intro", "0" * 64),
+                    recordings.Part(place.part, place.spoken_text, f"test://{v}/place", "0" * 64)]))
+        self.tx(s, record, OPERATOR)
         voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
         self.assertTrue(voices)
         find = finder({"surface": "港区", "reading": "みなとく", "source": "モデル2つ", "candidates": [], "likely": None},
@@ -342,28 +352,38 @@ class Solutions(Base):
         after = self.tx(s, lambda tx: bs.load(tx, got.version_id)).raw["names"]
         self.assertEqual(after[:len(before)], before)                                          # 版の名前と読みは版のまま
         self.assertEqual([(n["text"], n["reading"]) for n in after[len(before):]], [("港区", "みなとく")])
-        p = bs.ANSWER_PART_PREFIX
-        want = {p + "料金": text, p + "場所": "本社は港区にございます。"}
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, got.version_id)), {v: want for v in voices})
+        self.assertFalse(self.tx(s, lambda tx: recordings.version_needs(tx, got.version_id)).listed)   # 一覧が届くまで
+        port = {"港区": "みなとく"}
+        need = self.tx(s, lambda tx: support.send_list(tx, got.version_id, readings={p + "料金": port, p + "場所": port}), OPERATOR)
+        self.assertEqual(need.parts, {v: {p + "料金": text, p + "場所": place.spoken_text} for v in voices})
         self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT 1 FROM salescall.notification_events WHERE event_key = %s",
                                                      (f"recording_needed:{got.version_id}",))))
 
-    def test_a_name_the_solution_adds_that_other_text_speaks_keeps_no_recordings(self):
-        """解決策が足した名前を、答えのほかの文（業務の情報・名乗り・質問など。部分と文の対応は会話の側）も話すなら、どの録音の部分が変わったかを
-        決められないので、録音を引き継がない（core/recordings._changes の1か所。その名前の読みを持たない録音で話さない）。"""
+    def test_a_name_the_solution_adds_that_other_text_speaks_is_recorded_in_that_part(self):
+        """解決策が足した名前を、答えのほかの文（業務の情報・名乗り・質問など。部分と文の対応は会話の側）も話すなら、会話の担当の一覧で、その文の
+        部分にその名前の読みが付くので、その部分も録音していただく（その名前の読みを持たない録音で話さない。ほかの部分は使い回す。0212。
+        ⛔ 前は CL-2 がどの部分が話すかを決められず、録音を何も使わず、組を作る道も無かった）。"""
         from salescall.core import recordings
+        from tests import support
         from tests.test_business_import import finder
         s = self.ready()
         aid = self.called(s)
         v0 = self.with_tokai(s, info=["港区の本社があります。"])
         self.w.approve_voices(s["tenant"], s["client"], v0)
-        self.assertTrue(self.tx(s, lambda tx: recordings.ready_voices(tx, v0)))
+        voices = self.tx(s, lambda tx: recordings.ready_voices(tx, v0))
+        self.assertTrue(voices)
         find = finder({"surface": "港区", "reading": "みなとく", "source": "モデル2つ", "candidates": [], "likely": None})
         got = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "港区の本社でご説明します。", origin="dashboard",
                                                          name_answer=self.namer("料金"), find_names=find), OPERATOR)
         self.assertIn("港区", [n.text for n in self.tx(s, lambda tx: bs.load(tx, got.version_id)).names])
-        self.assertEqual((self.tx(s, lambda tx: recordings.needed_parts(tx, got.version_id)),
-                          self.tx(s, lambda tx: recordings.ready_voices(tx, got.version_id))), ({}, []))
+        self.assertEqual((self.tx(s, lambda tx: recordings.version_needs(tx, got.version_id)),
+                          self.tx(s, lambda tx: recordings.ready_voices(tx, got.version_id))), (recordings.VersionNeeds(False, {}), []))
+        port = {"港区": "みなとく"}
+        info = recordings.ListedPart("info", "港区の本社があります。", port)
+        need = self.tx(s, lambda tx: support.send_list(tx, got.version_id, info, readings={bs.ANSWER_PART_PREFIX + "料金": port}),
+                       OPERATOR)
+        self.assertEqual(need.parts, {v: {"info": info.spoken_text, bs.ANSWER_PART_PREFIX + "料金": "港区の本社でご説明します。"}
+                                      for v in voices})
 
     def test_a_solution_the_import_turned_off_is_replaced(self):
         """取り込み直した中身が「使わない」にした標準の問いの解決策も、取り込んだ中身が先（契約者が決めた）なので、置き換えられたと残す。"""
@@ -896,15 +916,17 @@ class Solutions(Base):
         self.assertEqual([(n["refs"]["runs"], n["refs"]["earlier"]) for n in notes], [([str(s["run"])], [str(sid)])])
 
     def test_an_approved_recording_of_the_same_text_is_used_again(self):
-        """✅ 計画書 6-1 (4)・6-2「承認は録音の中身に付け」（0172）：要る部分ごとに、同じ業務・同じ声の録音から、部分の名前・文・読みが同じで
-        承認済みのものを使う（recordings._approved_same の1か所。needed_parts・complete・carry・知らせが同じ答えを読む）。⛔ 2026-11-07 の
-        見直し：前は版の元をたどったいちばん近い版の録音しか見ず、手で戻す前の版で録音して承認した同じ文を、録り直させた。"""
+        """✅ 計画書 6-1 (4)・6-2「承認は録音の中身に付け」（0172）：一覧の部分ごとに、同じ業務・同じ声の録音から、部分の名前・文・読みが同じで
+        承認済みのものを使う（recordings._approved_same の1か所。version_needs・complete・組をその場で作る `_settle`・知らせが同じ答えを読む）。
+        ⛔ 2026-11-07 の見直し：前は版の元をたどったいちばん近い版の録音しか見ず、手で戻す前の版で録音して承認した同じ文を、録り直させた。"""
         from salescall.core import recordings
+        from tests import support
         s = self.ready()
         aid = self.called(s)
         first = self.tx(s, lambda tx: client_solutions.add(tx, aid, 0, "月額1万円です。", origin="dashboard",
                                                            name_answer=self.namer("料金")), OPERATOR)
-        need = self.tx(s, lambda tx: recordings.needed_parts(tx, first.version_id))
+        self.assertFalse(self.tx(s, lambda tx: recordings.version_needs(tx, first.version_id)).listed)
+        need = self.tx(s, lambda tx: support.send_list(tx, first.version_id), OPERATOR).parts
         self.assertTrue(need)
         sets = [self.tx(s, lambda tx, voice=voice, parts=parts: recordings.complete(tx, first.version_id, voice, [
             recordings.Part(p, t, f"test://{voice}/{p}", "1" * 64) for p, t in parts.items()]), OPERATOR) for voice, parts in need.items()]
@@ -912,13 +934,14 @@ class Solutions(Base):
         def put_back_and_choose_in():
             self.tx(s, lambda tx: bs.assign(tx, s["run"], first.version_id, reason="試験：解決策の版"), OPERATOR)
             self.tx(s, lambda tx: bs.assign(tx, s["run"], s["version"], reason="試験：手で前の版に戻す"), OPERATOR)
-            return self.tx(s, lambda tx: client_solutions.add_earlier(tx, s["run"], [first.solution_id]), OPERATOR)[0].version_id
+            made = self.tx(s, lambda tx: client_solutions.add_earlier(tx, s["run"], [first.solution_id]), OPERATOR)[0].version_id
+            return made, self.tx(s, lambda tx: support.send_list(tx, made), OPERATOR)   # 会話の担当の録音の道具が一覧を渡す
         # まだ承認していない録音は使わない（録音していただく）
-        self.assertEqual(self.tx(s, lambda tx, v=put_back_and_choose_in(): recordings.needed_parts(tx, v)), need)
+        self.assertEqual(put_back_and_choose_in()[1].parts, need)
         for set_id in sets:
             self.tx(s, lambda tx, set_id=set_id: recordings.approve(tx, set_id), OPERATOR)
-        made = put_back_and_choose_in()
-        self.assertEqual(self.tx(s, lambda tx: recordings.needed_parts(tx, made)), {})
+        made, got = put_back_and_choose_in()
+        self.assertEqual(got, recordings.VersionNeeds(True, {}))
         self.assertEqual(self.tx(s, lambda tx: recordings.ready_voices(tx, made)),
                          self.tx(s, lambda tx: recordings.ready_voices(tx, first.version_id)))
         notes = self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'recording_needed'"
@@ -963,7 +986,8 @@ class Solutions(Base):
         line, = self.tx(s, lambda tx: client_solutions.add_earlier(tx, s["run"], [sid]), OPERATOR)
         self.assertEqual(line.base, copy)
         self.assertEqual(dict(self.tx(s, lambda tx: bs.load(tx, line.version_id)).answers)["料金"], "料金は担当よりご案内します。")
-        need = self.tx(s, lambda tx: recordings.needed_parts(tx, line.version_id))
+        from tests import support
+        need = self.tx(s, lambda tx: support.send_list(tx, line.version_id), OPERATOR).parts   # 会話の担当の録音の道具が一覧を渡す
         self.assertTrue(need)
         for voice, parts in need.items():                                                        # 録音が要るのは、入れた答えの部分だけ
             self.assertEqual(list(parts.values()), ["料金は担当よりご案内します。"], voice)
