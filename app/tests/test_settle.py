@@ -1579,6 +1579,19 @@ class DialFixAfterCalls(SettleBase):
         # 締めの処理へ返す決定も、新しい担当の方への形（前の番号から移る1か所 `_moved_on_fix` が `_onto_dial` を通す）
         self.assertEqual((d.kind, d.target.contact_id, d.target.purpose, d.promised, d.window), ("call", new, "normal", False, None))
 
+    def test_a_promise_call_ringing_during_a_drop_fix_returns_the_handover_form(self):
+        """前の番号への約束の電話が鳴っているあいだに「違う」・「次の担当の方にだけ」で直し、その電話に出なかった ⇒ 前の番号から新しい番号へ移る1か所
+        （`_moved_on_fix` の `_onto_dial`）が、締めの処理へ返す決定も、新しい担当の方への形（約束・幅の無い、ふつうの電話）にする（予定も同じ形）。0214 で、
+        「守る」約束の電話がこの道を通らなくなったので、見張る場面を足した。"""
+        s = self.ready()
+        self.promise_window(s)
+        aid = self.call(s, ["dialing", "ringing"])                              # 前の番号へかけている途中
+        new = self.fixed_as(s, False, False)                                    # 次の担当の方にだけ
+        self.tx(s, lambda tx: attempts.move(tx, aid, "no_answer"))
+        d = self.settle(s, aid)["decision"]
+        self.assertEqual((d.kind, d.target.contact_id, d.target.purpose, d.promised, d.window), ("call", new, "normal", False, None))
+        self.assertEqual(self.plan(s), self.handed_over(new))
+
     # ── 前の担当の方との約束が残っているときの選び（✅ 2026-11-07 ユーザー＝計画書 7-1 (21)：「前の担当者とのかけ直しの約束があったが、
     #    次の担当にだけかけるのかを契約者に問うて、選択してもらう。」。0201）
     def fixes(self, s):
