@@ -656,7 +656,8 @@ class PromiseNotTransferred(SettleBase):
     def test_ok_to_call_again_counts_only_the_calls_in_the_round(self):
         """またかけてよいと言われたときの、同じ回の中のかけ直しの上限は、その回のその日にかけた数（幅の約束の1日の回数＝業務ごとの設定
         callback.window_daily_max。ここでは1回）。1本目で次の回へ（⛔ 2026-10-22 の見直し14：前は、別の結果の回数と混ぜて数えていた。⛔ 0215
-        まで：比べる相手は不在の方針の回数だった＝✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回」。0216）。"""
+        まで：比べる相手は不在の方針の回数だった＝✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回」。0216。回の合計の上限＝不在の方針の回数
+        ＝ここでは5回も、両方を守る＝0216 の見直し）。"""
         s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 5, "interval": {"hours": 1}}
                                               for k in business_rules.POLICY_KEYS}))
         self.put_client(s, "callback.window_daily_max", 1)
