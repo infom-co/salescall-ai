@@ -512,6 +512,14 @@ SETTING_READERS: dict[str, tuple[str, str, str]] = {
     # 断られたお客様に同じ業務の次の実施回でかけるか（0168。2026-11-01 管理者：伺い8）：かけない理由の1か所（target_policy.block_reason）
     "business.call_declined_again": ("src/salescall/core/target_policy.py", "5-2-1",
                                      "断られたお客様に同じ業務でまたかけるかは target_policy.block_reason の1か所で読みます"),
+    # 同じ依頼者のほかの業務で断られた・苦情があったお客様にかけるか・同じ番号へのほかの行の電話の間・幅の約束の1日の回数（0216。2026-11-08
+    # ユーザー＝計画書 7-3 (1)(3)）：それぞれ決める1か所だけが読む
+    "calling.call_after_refusal": ("src/salescall/core/target_policy.py", "5-2-1",
+                                   "断り・苦情のあと同じ依頼者からかけるかは target_policy.block_reason の1か所で読みます"),
+    "gate.same_number_gap": ("src/salescall/core/gate.py", "5-2",
+                             "同じ番号へのほかの行の電話の間は gate.same_number_gap の1か所で読みます"),
+    "callback.window_daily_max": ("src/salescall/core/next_action.py", "7-2",
+                                  "幅の約束の1日の回数は next_action._window_round_next の1か所で読みます"),
     # Fly.io に残す日数（0157）：やり取りの文字を消す1か所（conversation_io.purge_utterances）。録音を Fly.io から消す処理を作るときも、
     # 同じ1か所から日数を読む（⛔ 見直し25b の 5：片方だけ変えると、録音とやり取りで消える日がずれる）
     "recording.keep_days_cloud": ("src/salescall/core/conversation_io.py", "11-4",

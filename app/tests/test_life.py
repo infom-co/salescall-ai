@@ -30,7 +30,7 @@ from pathlib import Path
 import run_tests
 from salescall.core import access as access_mod
 from salescall.core import (approval, attempts, conversation_io, dial_exit, fix_requests, health, next_action, quality_stage, settings,
-                            watch)
+                            stops, watch)
 from salescall.core.health_rules import TaskStage
 from salescall.core.calling_hours import JST
 from salescall.core.phone import normalize
@@ -865,3 +865,176 @@ class Script(Talk):
         call.end_for_trouble(reason)
         if answered:
             access.in_client(actor, tenant_id, client_id, lambda tx: attempts.record_verification(tx, claim.attempt_id, summary=CLEAN))
+
+
+class CallsNotUnwelcome(SupervisorBase):
+    """✅ 2026-11-08 ユーザー＝計画書 7-3「お客様から見て煙たがられないかけ方」の (3)(4) の場面（データベースの時計を進める。0216。DESIGN.md 7-2 の
+    【0215】）。本物の回線ごとの処理・締めの仕事・門・次の動きを通す。お客様は出ない（Script の no_answer）。時計の進め方・回線のまわし方は
+    `Life` の部品を使う（Life の場面は持たない）。"""
+
+    db_now, jump, next_monday_9, give_test_number, ctx, turn, run_until, calls_on, compare = (
+        Life.db_now, Life.jump, Life.next_monday_9, Life.give_test_number, Life.ctx, Life.turn, Life.run_until, Life.calls_on,
+        Life.compare)
+
+    def setUp(self):
+        super().setUp()
+        self.override("calling.ng_hours", NG_NONE)
+        self.override("calling.hours_limit", LIMIT_7_22)
+        self.override("callee.designated_limit", ["07:00", "22:00"])   # 初めの値
+        self.override("callee.business_hours", ["09:00", "19:00"])      # 初めの値（試験の土台は1日じゅうにしている）
+        self.shadow_labels, self.shadow_seen = shadow.Labels(), {}
+
+    def tearDown(self):
+        super().tearDown()
+        self.assertEqual(list(self.shadow_seen), [], "読み手と状態の欄の食い違い（4段目では無いはず）")
+
+    def row(self, at, *, cap=None):
+        """1行（依頼者の時間帯は平日9〜18時・再発信の方針は1時間おき＝回数は多め）。cap＝幅の約束の1日の回数（業務ごとの設定）。"""
+        self.jump(at)
+        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 20, "interval": {"hours": 1}}
+                                              for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")}))
+        self.put_client(s, "calling.hours", WEEKDAY_9_18)
+        if cap is not None:
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+                " review_when, set_by) VALUES ('callback.window_daily_max', 'business', %s, %s, %s, %s, 'decided', '試験', '試験', '試験')",
+                (s["tenant"], s["client"], s["business"], str(cap))), OPERATOR)
+        self.give_test_number(s)
+        return s
+
+    def promise(self, s, window, callee_at=None):
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], window.since, contact_id=s["contact"], cause="試験：お客様との約束",
+                                                     promised=True, callee_at=callee_at, window=window))
+
+    def exact(self, s, at):
+        """お客様が言った時刻ちょうどの約束（「…の15時」）。その回の幅は次の動きの1か所で作る（next_action._exact_window）。"""
+        w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], at, day_said=True))
+        self.promise(s, w, callee_at=at)
+
+    def times(self, s):
+        return [t for _, t, _ in self.calls_on(s, s["line"])]
+
+    def plan_of_call(self, s, t):
+        """その時刻にかけた電話の予定（その時刻までに決めた、いちばん新しい予定）。"""
+        return self.tx(s, lambda tx: tx.one(
+            "SELECT apology_reasons, window_recover_until, callee_at FROM salescall.task_next_actions WHERE task_id = %s"
+            " AND decided_at <= %s ORDER BY seq DESC LIMIT 1", (s["task"], t)))
+
+    # ── (3) 幅の約束で出ない：1日3回まで・端が言葉で決まっていない側は営業時間（初め 9〜19時）で切る
+    def range_day(self, cap):
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=14, minute=50), cap=cap)
+        midnight = monday.replace(hour=0) + timedelta(days=1)
+        self.promise(s, next_action.Window(midnight, (15 * 3600, 24 * 3600), None, monday.replace(hour=15), "day",
+                                           said=(True, False), day_said=True))   # 「今日の3時以降」（終わりは言葉で決まっていない）
+        self.run_until(s, Phone(), Script(default="no_answer"), midnight + timedelta(hours=15, minutes=10))
+        return monday, self.times(s)
+
+    def test_a_range_promise_unanswered_is_called_three_times_a_day_until_the_business_hours_end(self):
+        """「3時以降」で出ない ⇒ その日は3回まで（業務ごとの設定 callback.window_daily_max。初め3）・19時まで（営業時間）。次の日は、同じ幅の始まり
+        （15時）から。⛔ 0215 まで：再発信の方針の回数で回の中を数え、端を歯止め時間（22時）で埋めて、1日4回・夜21時半まで鳴らしえた。"""
+        monday, calls = self.range_day(None)
+        mon = [t for t in calls if t.date() == monday.date()]
+        self.assertEqual(len(mon), 3, calls)
+        self.assertTrue(all(15 <= t.hour < 19 for t in mon), mon)
+        tue = [t for t in calls if t.date() == monday.date() + timedelta(days=1)]
+        self.assertEqual((tue[0].hour, tue[0].minute), (15, 0))
+
+    def test_the_daily_count_is_the_business_setting_and_the_end_is_the_business_hours(self):
+        """1日の回数を業務ごとに増やしても（10回）、言葉で決まっていない終わりは営業時間の19時（19時からはかけない＝次の日の回）。"""
+        monday, calls = self.range_day(10)
+        mon = [t for t in calls if t.date() == monday.date()]
+        self.assertEqual(len(mon), 4, calls)                                    # 15時・16時台・17時台・18時台（1時間おき）
+        self.assertTrue(all(15 <= t.hour < 19 for t in mon), mon)
+
+    def test_tomorrow_forenoon_starts_at_the_business_hours(self):
+        """「明日の午前中」：始まりは言葉で決まっていないので、営業時間の9時から（⛔ 0215 まで：歯止め時間の7時）。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=18))
+        tuesday = monday.replace(hour=0) + timedelta(days=1)
+        self.promise(s, next_action.Window(tuesday + timedelta(days=1), (0, 12 * 3600), None, tuesday, "day", said=(False, False),
+                                           day_said=True))
+        self.run_until(s, Phone(), Script(default="no_answer"), tuesday.replace(hour=9, minute=5))
+        calls = self.times(s)
+        self.assertEqual([(t.date(), t.hour, t.minute) for t in calls[:1]], [(tuesday.date(), 9, 0)])
+
+    def test_a_time_the_customer_said_is_called_even_outside_the_hours(self):
+        """「明日の朝6時に」：お客様が口にした時刻そのものは、いまどおり営業時間・歯止め時間の外でもかける。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=18))
+        six = monday.replace(hour=6) + timedelta(days=1)
+        self.exact(s, six)
+        self.run_until(s, Phone(), Script(default="no_answer"), six + timedelta(minutes=20))
+        self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(s)[:1]], [(six.date(), 6, 0)])
+
+    def test_the_four_calls_of_an_exact_promise_stay_as_they_were(self):
+        """時刻ちょうどの約束の1日目の4本（約束の時刻・5分後・15分後・30分の終わり＝2026-10-23 の案A）は変えない（1日の回数の設定は当てない）。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=14, minute=59))
+        self.exact(s, monday.replace(hour=15))
+        self.run_until(s, Phone(), Script(default="no_answer"), monday.replace(hour=15, minute=40), step=timedelta(minutes=1))
+        calls = self.times(s)
+        self.assertEqual(len(calls), 4, calls)
+        self.assertEqual(((calls[0].hour, calls[0].minute), (calls[-1].hour, calls[-1].minute)), ((15, 0), (15, 30)))
+
+    # ── (4) こちらの止めで約束の時刻にかけられなかった：復旧しだい今日（お客様指定の歯止め時間の中で）・今日かけられなければ次の日の約束の時刻
+    def test_a_promise_missed_by_our_stop_is_called_as_soon_as_it_is_lifted_that_day(self):
+        """15時の約束・14:50〜16:00 止め ⇒ 解けたら、その日のうちに、すぐお詫び（約束の日にかけられなかった）つきでかける（1本）。出なければ、
+        次の日の約束の時刻。⛔ 0215 まで：次の日の15時まで待った。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=14, minute=40))
+        self.exact(s, monday.replace(hour=15))
+        phone, talk = Phone(), Script(default="no_answer")
+        self.jump(monday.replace(hour=14, minute=50))
+        stop = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.stop(
+            tx, scope="tenant", cause="manual", reason="試験：緊急停止", tenant_id=s["tenant"]))["event_id"]
+        self.run_until(s, phone, talk, monday.replace(hour=16), step=timedelta(minutes=5))
+        self.assertEqual(self.times(s), [])
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, stop, reason="試験：解いた"))
+        self.run_until(s, phone, talk, monday.replace(hour=15, minute=20) + timedelta(days=1), step=timedelta(minutes=5))
+        calls = self.times(s)
+        self.assertEqual([(t.date(), t.hour, t.minute) for t in calls[:2]],
+                         [(monday.date(), 16, 0), (monday.date() + timedelta(days=1), 15, 0)])
+        first = self.plan_of_call(s, calls[0])
+        self.assertIn("missed_promise", first["apology_reasons"])               # お詫びつき
+        self.assertIsNotNone(first["window_recover_until"])                     # 今日のうちに取り戻す電話（歯止め時間の終わりまで）
+        second = self.plan_of_call(s, calls[1])
+        self.assertIn("missed_promise", second["apology_reasons"])              # 話せなかったので、次の日もお詫びから
+        self.assertIsNone(second["window_recover_until"])
+
+    def test_a_second_day_missed_by_our_stop_is_also_called_that_day(self):
+        """2日目の回（1日目は出なかった）も同じ：15時・15:00〜16:00 止め ⇒ 解けたら、その日のうちにお詫びつきで（2日目からの回は、回の幅が
+        1日じゅうなので、取り戻すかは約束の時刻からの1回分で見る＝next_action._recover_today）。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=14, minute=50))
+        self.exact(s, monday.replace(hour=15))
+        phone, talk = Phone(), Script(default="no_answer")
+        self.run_until(s, phone, talk, monday.replace(hour=15, minute=40), step=timedelta(minutes=1))   # 1日目：4本とも出ない
+        tuesday = monday + timedelta(days=1)
+        self.run_until(s, phone, talk, tuesday.replace(hour=14, minute=50), step=timedelta(minutes=30))
+        stop = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.stop(
+            tx, scope="tenant", cause="manual", reason="試験：緊急停止", tenant_id=s["tenant"]))["event_id"]
+        self.run_until(s, phone, talk, tuesday.replace(hour=16), step=timedelta(minutes=5))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, stop, reason="試験：解いた"))
+        self.run_until(s, phone, talk, tuesday.replace(hour=16, minute=30), step=timedelta(minutes=5))
+        tue = [t for t in self.times(s) if t.date() == tuesday.date()]
+        self.assertEqual([(t.hour, t.minute) for t in tue], [(16, 0)])
+        plan = self.plan_of_call(s, tue[0])
+        self.assertIn("missed_promise", plan["apology_reasons"])
+        self.assertIsNotNone(plan["window_recover_until"])
+
+    def test_a_promise_whose_stop_lasts_past_the_limit_is_called_at_the_next_days_time(self):
+        """15時の約束・止めが歯止め時間の終わり（22時）を過ぎた ⇒ 今日はかけない・次の日の約束の時刻（15時）に、お詫びつきで。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=14, minute=40))
+        self.exact(s, monday.replace(hour=15))
+        phone, talk = Phone(), Script(default="no_answer")
+        self.jump(monday.replace(hour=14, minute=50))
+        stop = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.stop(
+            tx, scope="tenant", cause="manual", reason="試験：緊急停止", tenant_id=s["tenant"]))["event_id"]
+        self.run_until(s, phone, talk, monday.replace(hour=22, minute=30), step=timedelta(minutes=30))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, stop, reason="試験：解いた"))
+        self.run_until(s, phone, talk, monday.replace(hour=15, minute=20) + timedelta(days=1), step=timedelta(minutes=10))
+        calls = self.times(s)
+        self.assertEqual([(t.date(), t.hour, t.minute) for t in calls[:1]], [(monday.date() + timedelta(days=1), 15, 0)])
+        self.assertIn("missed_promise", self.plan_of_call(s, calls[0])["apology_reasons"])

@@ -57,6 +57,10 @@ class Base(unittest.TestCase):
         # お客様指定の歯止め時間（初め 7〜22時）も、試験を流す時刻（夜22時すぎなど）に左右されないように1日じゅうにする。
         # 歯止めで埋めて切る決まりは、値を決めた専用の試験（test_calling_hours.CalleeRange・test_settle.CallbackWindow）で確かめる
         self.override("callee.designated_limit", ["00:00", "24:00"])   # 終わりの 24:00 は1日の終わり（0121）
+        # お客様の営業時間（初め 9〜19時）も、お客様が言った幅の言葉で決まっていない端を切る（2026-11-08 ユーザー。0216）ので、同じく1日じゅうにする
+        # （午前・午後の読み分けは、歯止め時間を1日じゅうにした時点で、どちらも時間内＝変わらない）。営業時間で切る決まりは、値を決めた専用の試験
+        # （test_calling_hours.CalleeHours・test_life.CallsNotUnwelcome）で確かめる
+        self.override("callee.business_hours", ["00:00", "24:00"])
         load_calendar()
 
     # ── 試験のあいだだけ、システムの値を変える（終わったら、元の行の写しを足して戻す）
@@ -262,7 +266,11 @@ class DataReasons(Base):
         self.assertIsNone(why(t2))
         self.tx(s, lambda tx: next_action.end(tx, s["task"], "declined", cause="試験：用件を断られた"))
         self.assertEqual(why(t2)[0], "declined_in_business")
-        self.assertIsNone(why(t2, business=uuid.uuid4()))                       # ほかの業務からはかかる
+        # 同じ依頼者のほかの業務からも、初めはかけない（依頼者の設定 calling.call_after_refusal。✅ 2026-11-08 ユーザー＝計画書 7-3 (1)。0216。
+        # ⛔ 0215 まで：ほかの業務からはかかった）。依頼者の設定を「はい」にすれば、ほかの業務からはかかる
+        self.assertEqual(why(t2, business=uuid.uuid4())[0], "declined_in_client")
+        self.put_client(s, "calling.call_after_refusal", True)
+        self.assertIsNone(why(t2, business=uuid.uuid4()))
         denied = self.claim(s, task=t2)
         self.assertEqual(denied.reason, "declined_in_business")
         self.tx(s, lambda tx: next_action.after_denial(tx, t2, denied, tenant_id=s["tenant"], client_id=s["client"],
@@ -617,12 +625,17 @@ class Pacing(Base):
         self.assertEqual((p.binding, p.earliest), ("daily_attempts", nine))
 
     def test_cross_client_interval_tells_same_or_other_tenant_only(self):
+        """同じ番号へ、ほかの行がかけたあと：同じ契約者の中（ほかの依頼者）は、依頼者ごとの設定の間（same_number_interval。初め「その日はかけない」
+        ＝次の日の、かけてよい時間帯の始まりまで。0216）。ほかの契約者は、契約者の設定（中身は出さない）。"""
         a = self.ready()
         b = self.ready(tenant=a["tenant"], phone=a["phone"])
         other = self.ready(phone=a["phone"])
         self.past_attempt(b, ["dialing", "no_answer"])
-        self.assertEqual(self.reason(a), "cross_client_interval_same_tenant")
+        self.assertEqual(self.reason(a), "same_number_interval")
         self.assertEqual(self.reason(other), "cross_client_interval_other_tenant")   # 契約者の外は、中身を出さない
+        p = self.tx(a, lambda tx: gate.pacing(tx, a["task"]))
+        tomorrow = self.tx(a, lambda tx: tx.one("SELECT salescall.jst_day_start(salescall.jst(now())::date + 1) AS t")["t"])
+        self.assertEqual((p.binding, p.earliest), ("same_number_interval", tomorrow))   # 試験の時間帯は1日じゅう：次の日の0時
 
     def test_the_interval_with_other_contractors_is_the_contractors_setting(self):
         """ほかの契約者が同じ番号へかけたときの間隔は、契約者の設定（○○時間・○○日・かけない。2026-10-16 ユーザー）。"""
@@ -650,7 +663,7 @@ class Pacing(Base):
         a = self.ready()
         b = self.ready(tenant=a["tenant"], phone=a["phone"])
         self.past_attempt(b, ["dialing", "no_answer"])
-        self.assertEqual(self.reason(a), "cross_client_interval_same_tenant")   # ふつうの予定なら止める
+        self.assertEqual(self.reason(a), "same_number_interval")   # ふつうの予定なら止める
         self.tx(a, lambda tx: support.schedule_call(tx, a["task"], tx.one("SELECT now() AS t")["t"],
                                                         contact_id=a["contact"], cause="お客様に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(a), gate.Claim)
@@ -974,6 +987,15 @@ class CallerNumberAndVoice(Base):
             self.w.move(s, c.attempt_id, state)
         return c
 
+    def other_row(self, *, tenant=None, phone=None):
+        """同じ番号の、ほかの依頼者の行。同じ番号へのほかの行の電話の間（依頼者ごとの設定 gate.same_number_gap。初め「その日はかけない」＝0216）を
+        待たないように、お客様と約束したかけ直しの予定にする（約束の電話は、その間を待たない。声と発信番号の決まりは、どの電話も同じ）。
+        ⛔ 0215 まで：依頼者をまたぐ間隔（システムの設定）を1秒にして試していた。"""
+        s = self.ready(tenant=tenant, phone=phone)
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"], contact_id=s["contact"],
+                                                        cause="試験：約束", promised=True))
+        return s
+
     @staticmethod
     def voice(tx, s, business_voice):
         """門の声の決め方（choose_voice の1か所）を、その行・その版で呼ぶ。"""
@@ -1023,11 +1045,10 @@ class CallerNumberAndVoice(Base):
         self.assertTrue(got.promised)
 
     def test_another_client_or_contractor_gets_the_other_voice(self):
-        self.override("gate.cross_client_interval", 1)
         a = self.ready()
         self.assertEqual(self.dialed(a).voice_type, "S2")                           # 業務の声の型（Sadachbia）
         time.sleep(1.1)
-        b = self.ready(tenant=a["tenant"], phone=a["phone"])                        # 同じ契約者の、ほかの依頼者
+        b = self.other_row(tenant=a["tenant"], phone=a["phone"])                        # 同じ契約者の、ほかの依頼者
         self.assertEqual(self.claim(b).voice_type, "L4")                            # 前が男性の声 ⇒ Leda
         c = self.ready(phone=a["phone"])                                            # ほかの契約者（中身は見えず、声の名前だけ）
         self.assertEqual(self.tx(c, lambda tx: self.voice(tx, c, "S4")), "L4")
@@ -1035,11 +1056,10 @@ class CallerNumberAndVoice(Base):
 
     def test_a_reservation_that_never_dialed_does_not_fix_the_voice(self):
         """発信しなかった予約の声は、お客様が聞いていないので引き継がない（2026-10-17 の見直し）。"""
-        self.override("gate.cross_client_interval", 1)
         r = self.ready()
         c = self.claim(r)
         self.tx(r, lambda tx: attempts.release(tx, [c.attempt_id]))           # 予約だけで取り消された（S2）
-        y = self.ready(tenant=r["tenant"], phone=r["phone"])
+        y = self.other_row(tenant=r["tenant"], phone=r["phone"])
         self.dialed(y)                                                          # ほかの依頼者が Sadachbia でかけた
         time.sleep(1.1)
         self.assertEqual(self.tx(r, lambda tx: self.voice(tx, r, "S2")), "L4")
@@ -1047,11 +1067,10 @@ class CallerNumberAndVoice(Base):
     def test_only_what_the_customer_saw_or_heard_counts(self):
         """声は、お客様が出た発信の声だけ（出なかった発信の声は聞いていない）。発信番号は、お客様の電話を鳴らした発信だけ
         （出なくても着信の履歴に番号が残る。発信に失敗した発信の番号は出ていない）。2026-10-17 の計画書との突き合わせ。"""
-        self.override("gate.cross_client_interval", 1)
         a = self.ready()
         self.dialed(a, path=("ringing", "no_answer"))                              # 鳴ったが出なかった（S2）
         time.sleep(1.1)
-        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        b = self.other_row(tenant=a["tenant"], phone=a["phone"])
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")   # 声は替えない
         self.lease(b, line=a["line"])
         self.assertEqual(self.reason(b, line=a["line"]), "line_used_by_other_client")   # 番号は着信の履歴に残る
@@ -1070,7 +1089,7 @@ class CallerNumberAndVoice(Base):
         e = self.ready()
         self.dialed(e, path=("answered", "ending", "ended"))
         time.sleep(1.1)
-        f = self.ready(tenant=e["tenant"], phone=e["phone"])
+        f = self.other_row(tenant=e["tenant"], phone=e["phone"])
         self.lease(f, line=e["line"])
         self.assertEqual(self.reason(f, line=e["line"]), "line_used_by_other_client")
 
@@ -1098,18 +1117,16 @@ class CallerNumberAndVoice(Base):
         self.assertEqual(self.tx(x, lambda tx: recordings.ready_voices(tx, x["version"])), ["Sadachbia"])
 
     def test_no_other_voice_waits_instead_of_using_the_same_voice(self):
-        self.override("gate.cross_client_interval", 1)
         only_s = self.w.tenant(voices=("Sadachbia",))
         a = self.ready(tenant=only_s)
         self.dialed(a)                                                             # Sadachbia でかけた
         time.sleep(1.1)
-        b = self.ready(tenant=only_s, phone=a["phone"])                            # ほかの依頼者：別の声の録音が無い
+        b = self.other_row(tenant=only_s, phone=a["phone"])                            # ほかの依頼者：別の声の録音が無い
         self.assertEqual(self.reason(b), "voice_used_by_other_client")
         self.assertEqual(self.tx(b, lambda tx: scheduler.due_tasks(tx, 10)), [])    # 候補に出さない（予定を書き直し続けない）
 
     def test_a_new_voice_is_used_without_changing_the_code_and_a_retired_voice_is_not(self):
         """会話AIのモデルが進化して声が増えたら、声の一覧に足すだけ（2026-10-17 ユーザー）。使えなくなった声は印を付ける。"""
-        self.override("gate.cross_client_interval", 1)
         self.w.a.in_system(ADMIN, lambda tx: recordings.add_voice(tx, "Kore", note="試験で足した声",
                                                                            display_gender="女性"))   # 管理者がデータを足すだけ
         self.w.a.in_system(ADMIN, lambda tx: recordings.add_voice_type(tx, "K1", "Kore", default_for_voice=True, note="試験"))
@@ -1122,7 +1139,7 @@ class CallerNumberAndVoice(Base):
         a = self.ready(tenant=t)
         self.dialed(a)                                                             # Sadachbia
         time.sleep(1.1)
-        b = self.ready(tenant=t, phone=a["phone"])
+        b = self.other_row(tenant=t, phone=a["phone"])
         self.assertEqual(self.claim(b).voice_type, "K1")                           # 足した声で話す
         with self.assertRaises(Rejected):                                          # 声を足せるのは管理者だけ
             self.w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(
@@ -1139,14 +1156,13 @@ class CallerNumberAndVoice(Base):
         """ほかの依頼者がこの番号へかけた声と替えるとき、別の性別の声があれば、業務の声の型より先にそれにする（2026-10-17 ユーザー：
         「同じ男性ならサービスを聞く前に嫌悪感を持たれるので、Ledaが対応するなど」。性別は声の一覧の表示名＝0118。⛔ 見直し16：前は
         前の声と違えば同じ性別の声でもかけた）。性別の表示名は、あとから変えられない。"""
-        self.override("gate.cross_client_interval", 1)
         self.w.a.in_system(ADMIN, lambda tx: recordings.add_voice(tx, "Orus", note="試験で足した男性の声", display_gender="男性"))
         self.w.a.in_system(ADMIN, lambda tx: recordings.add_voice_type(tx, "O1", "Orus", default_for_voice=True, note="試験"))
         t = self.w.tenant(voices=("Sadachbia", "Leda", "Orus"))
         a = self.ready(tenant=t)
         self.dialed(a)                                                             # Sadachbia（男性）
         time.sleep(1.1)
-        b = self.ready(tenant=t, phone=a["phone"])
+        b = self.other_row(tenant=t, phone=a["phone"])
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "O1")), "L4")    # 業務の声の型（Orus＝男性）より、女性の Leda
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "L4")), "L4")
         with self.assertRaises(Rejected):
@@ -1441,11 +1457,10 @@ class CallerNumberAndVoice(Base):
             self.tx(s, lambda tx: business_settings.restore(tx, vid))
 
     def test_caller_number_changes_with_the_client(self):
-        self.override("gate.cross_client_interval", 1)
         a = self.ready()
         self.dialed(a)
         time.sleep(1.1)
-        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        b = self.other_row(tenant=a["tenant"], phone=a["phone"])
         self.lease(b, line=a["line"])
         self.assertEqual(self.reason(b, line=a["line"]), "line_used_by_other_client")   # 同じ発信番号ではかけない
         notice = self.tx(b, lambda tx: tx.all("SELECT summary FROM salescall.notification_events"

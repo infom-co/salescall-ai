@@ -11,7 +11,8 @@
   other_contractor_called（ほかの契約者がかけた番号で、契約者の設定が「かけない」）／
   dnc_client_ref（断ったお客様の管理番号。依頼者ごとの設定で、管理番号を「お客様を表す変わらない番号」としたとき。DESIGN.md 3-6）／
   declined_in_business（同じ業務で、用件・最終目的を断られたお客様。業務の設定 business.call_declined_again が「いいえ」（初め）のとき。
-  2026-11-01 管理者：伺い8。DESIGN.md 5-2-1）
+  2026-11-01 管理者：伺い8。DESIGN.md 5-2-1）／declined_in_client（同じ依頼者のほかの業務で用件を断られた・苦情があったお客様。依頼者の設定
+  calling.call_after_refusal が「いいえ」（初め）のとき。✅ 2026-11-08 ユーザー＝計画書 7-3 (1)「用件の断り・苦情のあとは、その依頼者からはかけない」。0216）
 """
 
 from __future__ import annotations
@@ -64,7 +65,24 @@ def customer_block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None
     if business_id is not None and _declined_in_business(tx, number, client_ref=client_ref, tenant_id=tenant_id,
                                                          client_id=client_id, business_id=business_id):
         return ("declined_in_business", "同じ業務で、用件か最終目的を断られたお客様です（業務の設定で、次の実施回でもかけない）")
+    if business_id is not None and _declined_in_client(tx, number, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
+                                                       business_id=business_id):
+        return ("declined_in_client", "同じ依頼者のほかの業務で、用件を断られた・苦情があったお客様です（依頼者の設定で、その依頼者からはかけない）")
     return None
+
+
+def _declined_in_client(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
+                        business_id: UUID) -> bool:
+    """同じ依頼者のほかの業務で用件・最終目的を断られた・どの業務でも苦情があったお客様か（依頼者の設定 calling.call_after_refusal が「はい」なら、
+    いつも いいえ）。同じ業務で用件を断られたお客様は、業務の設定（`_declined_in_business`）が受け持つ。同じお客様かは、データベースの1か所
+    salescall.declined_in_client（断られた・苦情で終わった行の番号のどれか・依頼者が管理番号をお客様を表す変わらない番号としたときは管理番号＝
+    `_declined_in_business` と同じ決め方）。✅ 2026-11-08 ユーザー＝計画書 7-3 (1)「用件の断り・苦情のあとは、その依頼者からはかけない（契約者が
+    依頼者ごとに変えられる）」。⛔ 0215 まで：同じ依頼者のほかの業務は、断られた10分後でも同じ会社名でかけた。0216。"""
+    scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+    if settings.resolve(tx, "calling.call_after_refusal", **scope):
+        return False
+    ref = client_ref if client_ref is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", **scope) else None
+    return tx.one("SELECT salescall.declined_in_client(%s, %s, %s, %s) AS d", (client_id, business_id, number.e164, ref))["d"]
 
 
 def _declined_in_business(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,

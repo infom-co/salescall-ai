@@ -137,10 +137,15 @@ def restrict(hours: dict, daily: tuple[int, int] | None, days: tuple[str, ...] |
 
 def in_window(local: datetime, until_local: datetime | None, daily: tuple[int, int] | None,
               days: tuple[str, ...] | None = None, is_holiday: Callable[[date], bool] | None = None, *,
-              since_local: datetime | None = None) -> bool:
+              since_local: datetime | None = None, recover_until_local: datetime | None = None) -> bool:
     """その時刻（日本時間・時差なし）が、お客様が言った幅の中か（門が使う1か所）。[since, until)＝いまの回（since は含む・until は
     含まない）。days＝かけてよい日の種類（曜日・祝日の鍵。祝日かどうかは is_holiday で決める＝暦の外は例外のまま呼び出し元へ）。
-    ⛔ 2026-10-22 の見直し14：前は回の始まりを見ず、「週末なら」の約束を、お客様が言っていない金曜にかけえた。"""
+    ⛔ 2026-10-22 の見直し14：前は回の始まりを見ず、「週末なら」の約束を、お客様が言っていない金曜にかけえた。
+    recover_until_local＝こちらの止めで約束の時刻にかけられなかった回を、その日のうちに取り戻す電話の期限（次の予定の列 window_recover_until。
+    ✅ 2026-11-08 ユーザー＝計画書 7-3 (4)「復旧しだい今日」。0216）：その回は、約束の時刻の1回分でなく、この期限まで（1日の中の幅は見ない。
+    かけてよい時間はお客様指定の歯止め時間＝`callee_hours`）。"""
+    if recover_until_local is not None:
+        until_local, daily = recover_until_local, None
     if until_local is not None and local >= until_local:
         return False
     if since_local is not None and local < since_local:
@@ -236,8 +241,9 @@ UNTIL_SETTINGS = {"other_party": "callback.until_other_party", "unavailable": "c
 @dataclass(frozen=True)
 class CalleeSettings:
     """お客様の時間の設定（読むのは gate.callee_settings の1か所。判定・門・次の動きが同じものを使う。0時からの秒）：
-    business_hours＝お客様の営業時間（設定 callee.business_hours。午前・午後の読み分けだけ）・designated_limit＝お客様指定の歯止め時間
-    （設定 callee.designated_limit。業務ごと。お客様が言った幅の、言葉で決まっていない端を埋めて切る）・exact_slot＝時刻ちょうどの
+    business_hours＝お客様の営業時間（設定 callee.business_hours。午前・午後の読み分けと、お客様が言った幅の言葉で決まっていない端を切る
+    ＝2026-11-08 ユーザー。0216）・designated_limit＝お客様指定の歯止め時間（設定 callee.designated_limit。業務ごと。お客様が言った幅は、
+    この外にはかけない。営業時間で切ると空になるときだけ、端を埋める）・exact_slot＝時刻ちょうどの
     約束のその日の時間と、歯止め時間の外の時刻を確かめて「はい」と言われたときの1回分（設定 callback.exact_slot）。⛔ 見直し17b：前は
     門と締めが別々に読み、時刻の読み・判定の引数に初めの値（7〜22時・1時間）の写しがあって、渡し忘れても黙って初めの値になった。
     until_rules＝「〇時まで」の言い方の、いま電話を続けられなかった理由（call_report.UNTIL_WHYS）ごとの、かけてよい時間の決め方
@@ -272,11 +278,13 @@ class CalleeWindow:
     daily＝1日の中の幅（0時からの秒の [始まり, 終わり)。時間の言葉があるときだけ。言葉の表の端・数の端。端の決まっていない側は
     0時・24時）・days＝日の種類（曜日・祝日の鍵）・said＝daily の始まり・終わりを、お客様が実際に口にしたか（「4時以降」の4時・
     「3時まで」の3時・時刻ちょうどは両方。言葉の表の端は口にしていない）・day_said＝お客様がその日を言った（依頼者の休みの曜日・
-    祝日でもかける。日を言っていない今日の回も言った日＝見直し16）。"""
+    祝日でもかける。日を言っていない今日の回も言った日＝見直し16）。recover＝こちらの止めで約束の時刻にかけられなかった時刻ちょうどの
+    約束の回を、その日のうちに取り戻す電話（次の予定の列 window_recover_until がある。かけてよいのは、お客様指定の歯止め時間の中。0216）。"""
     daily: tuple[int, int] | None
     days: tuple[str, ...] | None
     said: tuple[bool, bool] | None
     day_said: bool
+    recover: bool = False
 
 
 def callee_window(row: dict) -> CalleeWindow | None:
@@ -284,20 +292,24 @@ def callee_window(row: dict) -> CalleeWindow | None:
     if all(row.get(k) is None for k in ("window_until", "window_daily", "window_days", "window_from")):
         return None
     t = lambda v: None if v is None else tuple(v)   # noqa: E731
-    return CalleeWindow(t(row["window_daily"]), t(row["window_days"]), t(row.get("window_said")), bool(row.get("window_day_said")))
+    return CalleeWindow(t(row["window_daily"]), t(row["window_days"]), t(row.get("window_said")), bool(row.get("window_day_said")),
+                        row.get("window_recover_until") is not None)
 
 
 def callee_range(daily: tuple[int, int], said: tuple[bool, bool] | None,
-                 limit: tuple[int, int], beyond_slot: int | None = None, *, made: bool = False) -> tuple[int, int] | None:
+                 limit: tuple[int, int], beyond_slot: int | None = None, *, made: bool = False,
+                 business: tuple[int, int]) -> tuple[int, int] | None:
     """お客様が言った1日の中の幅から、かけてよい [始まり, 終わり)（1か所。2026-10-23 ユーザー：「『朝』も時間帯が決まっているでしょ」
     「お客様の日時指定の場合は、『お客様指定の歯止め時間』で見るようにしないといけない」）：
     - 幅はすべてお客様の指定（言葉の表の幅：朝〜10時・午前中〜12時・午後一13〜14時・午後13時〜・夕方16〜18時・夜18〜20時、数の幅：
       「3時まで」「4時以降」「3時から5時」・時刻ちょうど）。依頼者の時間帯・NG時間・依頼者の深夜早朝の歯止めでは切らない（呼ぶ側
       `callee_hours`）。
     - 端の決まっていない側（朝・午前中の始まり、午後の終わり、「〜まで」の始まり、「〜以降」の終わり＝0時・24時でお客様が口にして
-      いない端）は、お客様指定の歯止め時間 limit（設定 callee.designated_limit。業務ごと。初め 7:00〜22:00）の始まり・終わりで埋め、
-      口にしていない端はすべて limit で切る。お客様の営業時間（callee.business_hours）は午前・午後の読み分けだけに使い、ここでは
-      使わない（⛔ 2026-10-23 ユーザー：営業時間で埋めると、営業時間が12時からのお店で「朝」にかからなくなる）。
+      いない端）は、お客様の営業時間 business（設定 callee.business_hours。業務ごと。初め 9:00〜19:00。日をまたいでよい）を、お客様指定の
+      歯止め時間 limit（設定 callee.designated_limit。業務ごと。初め 7:00〜22:00）の中に絞った時間で切る（✅ 2026-11-08 ユーザー＝計画書 7-3 (3)
+      「1日3回・営業時間内」。⛔ 0118〜0215：limit で埋め、「3時以降」に夜21時半までかけた）。営業時間で切ると空になるとき（営業時間が12時
+      からのお店の「朝」・「20時以降」）だけ、前の決まりのとおり limit で埋める（2026-10-23 ユーザー：営業時間で埋めると、営業時間が12時からの
+      お店で「朝」にかからなくなる）。言葉の表の端（「夕方」の16時・18時など。0時・24時でない端）は、言葉で決まった端なので limit でだけ切る。
     - お客様が実際に口にした端（時刻ちょうど・「6時以降」の6時など）は、limit の外でも切らない（2026-10-22 ユーザー：「お客様が
       指定した時刻ならNG時間でもかけてよい（歯止めなし、ただし、午前と午後を間違えないように）」。2026-10-23 ユーザー「OK」）。
     - 口にした端が limit の外で、反対の端を limit で埋めると空になるとき（「23時以降なら」「明日の朝6時まで」）：通話の中で確かめて
@@ -316,20 +328,34 @@ def callee_range(daily: tuple[int, int], said: tuple[bool, bool] | None,
         if limit[0] <= lo < limit[1]:
             return lo, min(hi, limit[1])
         return None if beyond_slot is None else (lo, min(lo + beyond_slot, _DAY))
-    a = lo if said_lo else max(lo, limit[0])
-    b = hi if said_hi else min(hi, limit[1])
-    if a < b:
-        return a, b
+    open_hours = [(max(a, limit[0]), min(b, limit[1])) for a, b in daily_spans([business]) if max(a, limit[0]) < min(b, limit[1])]
+    got = _edges(lo, hi, said_lo, said_hi, limit, open_hours) or _edges(lo, hi, said_lo, said_hi, limit, [limit])
+    if got is not None:
+        return got
     if beyond_slot is None or said_lo == said_hi:   # 確かめていない・口にした端が1つでない（両方口にした幅は空にならない）
         return None
     return (lo, min(lo + beyond_slot, _DAY)) if said_lo else (max(hi - beyond_slot, 0), hi)
 
 
-def callee_hours(hours: dict, ng: dict, guard: dict, limit: tuple[int, int], w: CalleeWindow) -> dict:
+def _edges(lo: int, hi: int, said_lo: bool, said_hi: bool, limit: tuple[int, int],
+           open_hours: list[tuple[int, int]]) -> tuple[int, int] | None:
+    """`callee_range` の端の決め方（そこだけが呼ぶ）：口にした端はそのまま・言葉の表の端（0時・24時でない端）は limit で切る・端の決まって
+    いない側（0時・24時）は open_hours（1日の中の区間の並び）の始まり・終わりで切る。空なら None。"""
+    a = lo if said_lo else max(lo, limit[0]) if lo > 0 else min((s for s, e in open_hours if e > lo), default=None)
+    if a is None:
+        return None
+    b = hi if said_hi else min(hi, limit[1]) if hi < _DAY else max((e for s, e in open_hours if e > a and s < hi), default=None)
+    return (a, b) if b is not None and a < b else None
+
+
+def callee_hours(hours: dict, ng: dict, guard: dict, limit: tuple[int, int], w: CalleeWindow, *,
+                 business: tuple[int, int]) -> dict:
     """お客様が言った時刻・時間の幅（約束の幅）でかける電話の、かけてよい時間帯（曜日・祝日ごと。1か所。門の時刻の確かめ
     `allowed` と、次の動きが幅の中を探す所が、同じもの＝gate.window_hours を使う）。
     - 時間の言葉・時刻のある幅（w.daily）：`callee_range` の1か所（お客様の指定なので、依頼者の時間帯・NG時間の外でもかける。端の
-      決まっていない側はお客様指定の歯止め時間 limit で埋めて切る。口にした端は limit の外でも）。
+      決まっていない側はお客様の営業時間 business で切る。口にした端は limit の外でも）。
+    - 取り戻す電話（w.recover。こちらの止めで約束の時刻にかけられなかった時刻ちょうどの約束の回を、その日のうちに）：お客様指定の歯止め
+      時間 limit の中（✅ 2026-11-08 ユーザー＝計画書 7-3 (4)「お客様指定の歯止めの中で」。0216）。
     - 日だけの幅（「13日なら」「週末なら」。時間を言っていない）：その日の依頼者のいつもの時間（依頼者の時間帯から NG時間を引いた
       もの。依頼者の時間帯が1日も無いときは歯止め）（2026-10-22 ユーザー「OK」）。
     - お客様がその日を言った（w.day_said。「土曜の夕方」「週末なら」「13日なら」・日を言っていない今日の回）：依頼者の休みの曜日・
@@ -344,8 +370,11 @@ def callee_hours(hours: dict, ng: dict, guard: dict, limit: tuple[int, int], w: 
         if (w.days is not None and key not in w.days) or not (own or w.day_said):
             out[key] = []
             continue
+        if w.recover:
+            out[key] = [[_hhmm(limit[0]), _hhmm(limit[1])]]
+            continue
         if w.daily is not None:
-            got = callee_range(w.daily, w.said, limit)
+            got = callee_range(w.daily, w.said, limit, business=business)
             out[key] = [] if got is None else [[_hhmm(got[0]), _hhmm(got[1])]]
             continue
         base = subtract({key: own or usual}, {key: ng.get(key) or []})

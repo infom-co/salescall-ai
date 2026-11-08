@@ -654,18 +654,29 @@ class PromiseNotTransferred(SettleBase):
                     self.assertGreaterEqual(d.at, clock["tomorrow"])
 
     def test_ok_to_call_again_counts_only_the_calls_in_the_round(self):
-        """またかけてよいと言われたときの、同じ回の中のかけ直しの上限は、その回にかけた数（不在の方針の回数。ここでは1回）。
-        2本目で次の回へ（⛔ 2026-10-22 の見直し14：前は、別の結果の回数と混ぜて数えていた）。"""
-        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}}
+        """またかけてよいと言われたときの、同じ回の中のかけ直しの上限は、その回のその日にかけた数（幅の約束の1日の回数＝業務ごとの設定
+        callback.window_daily_max。ここでは1回）。1本目で次の回へ（⛔ 2026-10-22 の見直し14：前は、別の結果の回数と混ぜて数えていた。⛔ 0215
+        まで：比べる相手は不在の方針の回数だった＝✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回」。0216）。"""
+        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 5, "interval": {"hours": 1}}
                                               for k in business_rules.POLICY_KEYS}))
-        now, window = self.promised(s)
+        self.put_client(s, "callback.window_daily_max", 1)
+        clock = self.tx(s, lambda tx: tx.one("SELECT now() AS now, salescall.jst_day_start(salescall.jst(now())::date + 1) AS midnight"))
+        window = next_action.Window(min(clock["now"] + timedelta(hours=3), clock["midnight"]), (0, 24 * 3600), None,
+                                    clock["now"] - timedelta(hours=1), "day")   # 今日のうちに終わる回
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], clock["now"], contact_id=s["contact"], cause="試験", promised=True,
+                                                       window=window))
         first = self.settle(s, self.call(s, report=self.report(True)))["decision"]
-        self.assertEqual((first.promised, first.window.round), (True, 0))
-        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
-                                                       window=first.window))
-        second = self.settle(s, self.call(s, report=self.report(True)))["decision"]
-        self.assertEqual((second.promised, second.window.round), (True, 1))
-        self.assertGreaterEqual(second.at, window.until)
+        self.assertEqual((first.promised, first.window.round), (True, 1))       # その日の1本目で回数に届いた：回の終わり（次の回）へ
+        self.assertGreaterEqual(first.at, window.until)
+        # 回が日をまたいで続く幅（終わりが明日）でも、その日の回数に届いたら、その日はかけない（次の日から＝同じ回のまま）
+        t = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 5, "interval": {"hours": 1}}
+                                              for k in business_rules.POLICY_KEYS}))
+        self.put_client(t, "callback.window_daily_max", 1)
+        self.promised(t, window_hours=48)
+        got = self.settle(t, self.call(t, report=self.report(True)))["decision"]
+        tomorrow = self.tx(t, lambda tx: tx.one("SELECT salescall.jst_day_start(salescall.jst(now())::date + 1) AS d")["d"])
+        self.assertEqual((got.promised, got.window.round), (True, 0))
+        self.assertGreaterEqual(got.at, tomorrow)
 
     def test_the_claim_tells_the_conversation_whether_it_is_a_promised_call(self):
         """予約証が、約束の電話かを会話の処理へ渡す（約束の電話のときだけ、締めの前に「後ほど改めてお掛けしても」と聞く）。"""
@@ -3087,6 +3098,45 @@ class DialFixAfterCalls(SettleBase):
                     self.assertTrue(self.tx(s, lambda tx: next_action.promise_alive(tx, s["task"])))
                     self.assertEqual(self.period_name(s), "田中")
 
+    def test_going_back_after_the_round_passed_goes_to_the_next_round_while_days_remain(self):
+        """✅ 2026-11-08 本体の決定（計画書 7-1 (31) の「約束の日・幅がもう過ぎていれば、ふつうの電話」の読み方）：「過ぎた」は約束全体（すべての日・回）が
+        終わったとき。田中様と「昨日の15時」の約束（1日目の回）を「次の担当の方にだけ」でやめ、その回が過ぎてから田中様に戻す ⇒ まだ日が残っている
+        （3日まで＝callback.exact_days）ので、次の回（次の15時）の約束の電話に戻す（約束の印・お客様が指定した時刻。その回にかけられなかったお詫びの
+        印も付く）。今日のうちに取り戻す電話（こちらの止めのとき＝計画書 7-3 (4)）にはしない。すべての日が過ぎていれば、ふつうの電話（上の試験）。
+        決めるのは next_action._period_promise の1か所。⛔ 0214：いまの回の終わりが過ぎたら、日が残っていても、ふつうの電話にしていた。0216。"""
+        from salescall.core import calling_hours
+        # recent＝約束の時刻が「いまの2時間前」（今日のその時刻の回も、もう過ぎた。試験の歯止め時間は1日じゅうなので、こちらの止めなら今日のうちに
+        # 取り戻せる形）。それでも取り戻さず、次の回（明日のその時刻）へ（かけなかったのは契約者の選び）
+        for way, recent in (("name", False), ("dial", False), ("name", True)):
+            with self.subTest(way=way, recent=recent):
+                s = self.ready()
+                self.put_client(s, "gate.same_contact_min_interval", 1)
+                self.person_fix(s, "target_name", "田中", "たなか", same=True)
+                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+                if recent and calling_hours.local(now).hour < 3:
+                    continue   # 今日のその時刻の回が、日をまたぐ時刻は飛ばす
+                day = calling_hours.local(now - timedelta(days=1))
+                said = calling_hours.from_local(day.replace(hour=15, minute=0, second=0, microsecond=0)) if not recent else \
+                    (now - timedelta(days=1, hours=2)).replace(second=0, microsecond=0)
+                w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], said, day_said=True, beyond_ok=False))
+                self.tx(s, lambda tx: support.schedule_call(tx, s["task"], said, contact_id=s["contact"], cause="試験：田中様と昨日15時の約束",
+                                                           promised=True, callee_at=said, window=w))
+                if way == "name":
+                    self.person_fix(s, "target_name", "鈴木", "すずき", keep=False, same=False)
+                    new = s["contact"]
+                else:
+                    new = self.fixed_as(s, False, False)
+                self.assertEqual(self.plan(s), self.handed_over(new))
+                self.back_to_first(s, way)
+                p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+                local_at, local_said = calling_hours.local(p["callee_at"]), calling_hours.local(said)
+                self.assertEqual((p["kind"], p["contact_id"], p["purpose"], p["promised"], (local_at.hour, local_at.minute),
+                                  p["window_recover_until"], p["person_since"]),
+                                 ("call", s["contact"], "normal", True, (local_said.hour, local_said.minute), None, None))
+                self.assertGreater(p["callee_at"], now)                          # 次の回（今日か明日の約束の時刻）
+                self.assertIn(p["window_round"], (1, 2))
+                self.assertIn("missed_promise", p["apology_reasons"])           # 約束の日にかけられなかったお詫び
+
     def test_a_dropped_promise_brought_back_does_not_count_the_calls_to_the_other_person(self):
         """やめていた約束を戻したとき、約束の回の数え（もうかけた回）は、約束の始めから数えたまま：やめていたあいだにかけた電話は、新しい担当の方への電話
         なので、戻した約束の回に数えない（担当の期の比べ＝core/attempts.in_promise_count の1か所。計画書 7-1 (31)。0214）。"""
@@ -3135,9 +3185,9 @@ class DialFixAfterCalls(SettleBase):
             with self.subTest(way=way):
                 s = self.ready()
                 new = self.kept_promise(s, way)
+                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # 試験：約束の最初の回の中で、いまかける（同じ回のまま2本）
+                w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week")
                 for n, report in enumerate((None, rep(("reception",), not_reached="absent")), 1):   # 出なかった・受付の方が出て不在
-                    now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # 試験：約束の最初の回の中で、いまかける
-                    w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week")
                     self.at(s, s["contact"], window=w)
                     time.sleep(1.1)
                     aid = self.call(s, ["dialing", "no_answer"]) if report is None else self.call(s, report=report)
