@@ -19196,6 +19196,121 @@ class HedgedSalesTest(unittest.TestCase):
         k.on_callee(); k.on_heard("はい、予約しています。当日の担当の方って決まってるのかなと思って。")
         self.assertTrue(k.wants_checks("replay_opening", {"part": "resume"}))
 
+    def test_question_added_to_an_answer_is_answered_before_any_reply(self):
+        # ⛔ 2026-11-08 日本時間9時台（J-5 の確かめ）で見つけた（J-5 の前からある）：答えに添えた質問に先に答えるのは、次へ進む返事（_advance_to）の中だけ
+        #    だった＝言い直して確かめる答え（値の答え・言い切っていない答え）・形の合わない答えに添えた質問は、聞き流して言い直し・聞き返しへ進んだ（G-47 と
+        #    同じ害：お客様の質問に答えない）。報告の無いターンでは、添えた質問に答える番なのに、会話AIへの知らせが「相手の質問に自分の言葉で答えたところです」
+        #    だった（前の答えのあとの返事を待つ印が、報告の無いターンでは消えなかった＝報告の入口だけが消していた）
+        # ⇒ 答えを受け取った返事（次の質問・言い直し・聞き返し・締め）のどれでも、添えた質問に先に答える（唯一の場所 Flow._question_first。報告の入口と報告の
+        #    無いターンの入口が、返事のあとの同じ1か所を通る）。取っておいた言い直しは、お客様の返事（「あ、そうですか。」）のあとに流すので、頭の受けの言葉
+        #    （「ありがとうございます。」）は外して「それでは」から（もう伺ったことへ戻るときと同じ決まり restated_again。✅ 2026-10-23 ユーザー：「そうなんですね。」の
+        #    あとの「ありがとうございます、それでは…」は会話が繋がっていない）。言い直しへの返事は、言い直しを流したあとの発話から
+        from flowctl import HESITATING, QUERY, QUERY_NO, QUERY_YES, Flow, Question
+        from meaning_judge import Reading
+        from phrases import ACK
+
+        def rd(cond, query=None, firm=True):
+            r = Reading(cond, firm=firm)
+            if query:
+                setattr(r, QUERY, query)
+            return r
+
+        def heard(r):
+            return ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+
+        def flow():
+            f = Flow([Question("Q1", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",)),
+                      Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))],
+                     play_recordings=True)
+            f.use_checks("judge")
+            return f
+        answer = "いただいたご質問は担当の者に申し伝えます。"
+
+        def answered_then_resumed(f):
+            grounded(f, answer)
+            self.assertEqual(f.apply("replay_opening", {"part": "no_answer", "answer": answer})["result"], "own_answer")
+            f.on_callee(); f.on_heard("あ、そうですか。")
+            return f.apply("replay_opening", {"part": "resume"})
+        # (1) 値の答えに添えた質問：先に答え、お客様の返事のあとに言い直す（頭は「それでは」）。言い直す前の報告は、言い直しへの返事として受けない
+        f = flow()
+        f.on_callee(); f.on_heard("15日の14時でお願いします。駐車場ってありますか？"); f.on_check("judge", rd("答えた", QUERY_YES))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の14時"})
+        self.assertEqual((r["result"], r.get("say"), r.get("play")), ("callee_asked", None, None))
+        self.assertIn("駐車場ってありますか？", r["message"])
+        grounded(f, answer)
+        f.apply("replay_opening", {"part": "no_answer", "answer": answer})
+        f.on_callee(); f.on_heard("あ、そうですか。")
+        self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "rejected")   # まだ言い直していない
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((r["result"], heard(r)), ("confirm_required", "はい、それでは15日の14時、午後2時でよろしいでしょうか？"))
+        f.on_callee(); f.on_heard("はい、お願いします。"); f.on_check("judge", rd("affirmed"))
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual((r.get("question_id"), f.items["Q1"].state, f.export()["Q1"]), ("Q2", "confirmed", "15日の14時"))
+        # (2) 言い切っていない値の答え・(3) 形の合わない答えに添えた質問も、先に答えてから、言い直し・聞き返し
+        for words, value, firm, want in (("15日の14時ですかね。駐車場ってありますか？", "15日の14時", False,
+                                          "はい、それでは15日の14時、午後2時とさせていただきますね？"),
+                                         ("3人です。駐車場ってありますか？", "3人", True, "はい、恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？")):
+            f = flow()
+            f.on_callee(); f.on_heard(words); f.on_check("judge", rd("答えた", QUERY_YES, firm))
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": value})
+            self.assertEqual(r["result"], "callee_asked", words)
+            self.assertEqual(heard(answered_then_resumed(f)), want, words)
+        # 判定が尋ねていないと読めば、今までどおりすぐに言い直す
+        f = flow()
+        f.on_callee(); f.on_heard("15日の14時でお願いします。そこなら空いてますので。"); f.on_check("judge", rd("答えた", QUERY_NO))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の14時"})
+        self.assertEqual((r["result"], heard(r)), ("confirm_required", "はい、ありがとうございます。15日の14時、午後2時でよろしいでしょうか？"))
+        # (4) 報告の無いターンで受け取った答え（選ぶ助けのあとの「まだ決められない」＝保留）に添えた質問：会話AIへの知らせは、その質問に答える番
+        line = "カードですとカード会社のポイントがつきますので、そういった点もご考慮いただくとよいかもしれませんね。"
+        f = Flow([Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"),
+                           option_notes={"カード": "カード会社のポイントがつく", "振込": "振込手数料はお客様のご負担"}),
+                  Question("Q2", "お打ち合わせはオンラインとご訪問のどちらがよろしいでしょうか？", "choice", conditions=("オンライン", "訪問"))],
+                 play_recordings=True)
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("カードか振込か迷っています。"); f.on_check("judge", rd(HESITATING))
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown"})
+        grounded(f, line)
+        f.apply("replay_opening", {"part": "own", "answer": line})
+        asked = "うーん、まだ決められないですね。ちなみにいつまでに決めればいいですか？"
+        f.on_callee(); f.on_heard(asked); f.on_check("judge", rd("unknown", QUERY_YES))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((r["result"], f.items["Q1"].state), ("callee_asked", "dont_know"))
+        self.assertIn("答える番", r["message"])
+        self.assertNotIn("答えたところ", r["message"])
+        r = answered_then_resumed(f)
+        self.assertEqual(r.get("question_id"), "Q2")
+        self.assertIn("保留", heard(r))
+        # (5) 答えとして受けていない言葉（判定が電話を終える言葉と読んで締める＝断り・苦情は弁明せずに締める＝本書 9-4）には当てない
+        from flowctl import END_REFUSED, UNDECIDED
+        f = flow()
+        refused = rd(UNDECIDED, QUERY_YES)
+        refused.end = END_REFUSED
+        f.on_callee(); f.on_heard("もう結構です。なんでこの番号を知ってるんですか？"); f.on_check("judge", refused)
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の14時"})
+        self.assertNotEqual(r["result"], "callee_asked")
+        self.assertIsNone(f.after_answer)
+        # (6) 判定を使わない通話（会話AIの通話の試験）の言葉の形の見方：答えのほかに問いの文があるときだけ（言葉全体が1つの問いの文なら、それは頼みの形の答え
+        #     そのもの＝「16日に変更できますか。」。判定の説明の「頼み・申し出は、問いの形で言っても尋ねたとしない」と同じ）
+        for words, want in (("16日の14時に変更できますか。", "confirm_required"), ("16日の14時でお願いします。駐車場ってありますか？", "callee_asked")):
+            f = Flow([Question("Q1", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",)),
+                      Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))],
+                     play_recordings=True)
+            f.on_callee(); f.on_heard(words)
+            self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "16日の14時"})["result"], want, words)
+        # (7) システムの質問（急いでいる方への「また改めてお掛けしてもよろしいでしょうか？」）への答えに添えた質問も、先に答えてから、ご都合の日時を伺う
+        #     （判定を使う通話は、頼み・申し出かを判定の項目が読み分ける＝かけ直しの道の印では外さない）
+        from flowctl import END_HURRY, END_NONE
+        f = EndJudgedTest.flow(self)
+        f.on_callee(); f.on_heard("今ちょっとバタバタしてて。"); f.on_check("judge", EndJudgedTest.R(UNDECIDED, UNDECIDED, (END_HURRY,)))
+        r = f.apply("request_end", {"reason": "callee_refused_call"})
+        hurry_q = r["question_id"]
+        yes = EndJudgedTest.R("はい", END_NONE)
+        setattr(yes, QUERY, QUERY_YES)
+        f.on_callee(); f.on_heard("はい、来週なら大丈夫です。ちなみに御社ってどちらにあるんですか？"); f.on_check("judge", yes)
+        r = f.apply("record_answer", {"question_id": hurry_q, "condition_id": "はい"})
+        self.assertEqual(r["result"], "callee_asked")
+        self.assertIn("ご都合のいい日時はいつ頃でしょうか？", heard(answered_then_resumed(f)))
+
     def test_thinking_or_waiting_words_are_not_end_doubts(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直すの持ち場の指摘2）で見つけた：判定が「考えている途中」「返事を待つ」と読んでいても、電話を終える
         # 言葉かの項目が「決められない」（割れも）だと、ご遠慮の一言「失礼いたしました。今後このようなお電話はご遠慮したほうがよろしいでしょうか？」を伺った
