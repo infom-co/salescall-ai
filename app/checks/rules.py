@@ -624,6 +624,8 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("row_fixes", "choose_old_promise"): frozenset({WEB_PLACE}),
     ("row_fixes", "old_promise_choice_needed"): frozenset({WEB_PLACE}),
     ("row_fixes", "same_person_choice_needed"): frozenset({WEB_PLACE}),   # 1つ目の選び（いまの担当の方と同じ方か）を出すか（0210）
+    ("row_fixes", "back_choices"): frozenset({WEB_PLACE}),          # 「前の担当の方に戻す」で選べる期の一覧（0213。計画書 7-1 (30)）
+    ("row_fixes", "old_promise_keepable"): frozenset({WEB_PLACE}),  # 前の担当の方の新しい約束の選びで「約束も守る」を出すか（0213）
     ("next_action", "after_dial_fix"): frozenset({_CORE + "row_fixes.py"}),
     ("next_action", "after_person_fix"): frozenset({_CORE + "row_fixes.py"}),
     ("next_action", "after_old_promise_choice"): frozenset({_CORE + "row_fixes.py"}),

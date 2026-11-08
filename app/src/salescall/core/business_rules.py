@@ -101,7 +101,8 @@ SYSTEM_POLICIES["not_reached_departed"] = Policy("end", None, None)
 # いただけなかった＝繋がらなかった理由 who_unclear。CL-1 の連絡帳 4-65 の (e)）：日を改めて同じお名前でかけても同じになるので、かけ直さずに
 # 行を終え、依頼者に「お名前だけではどの方か分からなかった」と返して、フルネームや部署を足していただく（埋めていただく欄は
 # business_settings.who_unclear_blanks の1か所。✅ 2026-11-02 日本時間1時22分 ユーザー：(a)「どちらもなければ、(イ)」・1時54分「OK」）
-SYSTEM_POLICIES["not_reached_who_unclear"] = Policy("end", None, None)
+WHO_UNCLEAR = "not_reached_who_unclear"   # この方針の鍵＝行の終わりの理由（依頼者に埋めていただく欄を埋めたら戻す＝計画書 7-1 (29)。0213）
+SYSTEM_POLICIES[WHO_UNCLEAR] = Policy("end", None, None)
 SYSTEM_ENDS = frozenset(k for k, p in SYSTEM_POLICIES.items() if p.action == "end")
 
 # 業務で決める再発信の方針の初めの値（業務設定に書かれていなければ、この値で入れる。入れたことはプレビューに出す＝契約者が見て
