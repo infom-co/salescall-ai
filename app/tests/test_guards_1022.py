@@ -65,8 +65,7 @@ class Guards(Base):
         s = self.w.setup()
         other = self.other_client(s)
         _, other_version = self.w.business_with_version(other["tenant"], other["client"])
-        theirs = self.tx(other, lambda tx: recordings.create_set(
-            tx, unit="business", voice_name="Leda", version_id=other_version, parts=[PART]), OPERATOR)
+        theirs = self.tx(other, lambda tx: support.make_business_set(tx, "Leda", other_version, [PART]), OPERATOR)
         shared = self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(   # 承認しない（システムの組はほかの試験も読む）
             tx, unit="contractor", voice_name="Leda", parts=[PART]))
         add = ("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
@@ -118,8 +117,7 @@ class Guards(Base):
         self.assertEqual(self.tx(s, lambda tx: [r["seq"] for r in tx.all(
             "SELECT seq FROM salescall.client_states WHERE client_id = %s ORDER BY seq", (s["client"],))]), [1, 2])
 
-        own = self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=s["version"],
-                                                          parts=[PART]), OPERATOR)
+        own = self.tx(s, lambda tx: support.make_business_set(tx, "Leda", s["version"], [PART]), OPERATOR)
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.recording_approvals (tenant_id, client_id, set_id, approved_by, approved_at)"
             f" VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor(), {future})", (own,)), OPERATOR)

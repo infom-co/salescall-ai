@@ -1094,7 +1094,7 @@ class CallerNumberAndVoice(Base):
         self.assertEqual([r["summary"] for r in told], [gate.VOICE_NOT_READY])
         x = self.ready(tenant=only_s)                                              # 承認していない組は使わない
         self.tx(x, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=x["version"], parts=[
-            recordings.Part("intro", "お忙しいところ恐れ入ります。", "test://Leda/intro", "1" * 64)]), OPERATOR)
+            recordings.Part("intro", "架空の録音（intro）。", "test://Leda/intro", "1" * 64)]), OPERATOR)   # 版の一覧の部分
         self.assertEqual(self.tx(x, lambda tx: recordings.ready_voices(tx, x["version"])), ["Sadachbia"])
 
     def test_no_other_voice_waits_instead_of_using_the_same_voice(self):
@@ -1155,12 +1155,13 @@ class CallerNumberAndVoice(Base):
 
     def test_only_a_person_approves_recordings_and_an_approved_set_is_fixed(self):
         s = self.ready()
-        with self.assertRaises(ValueError):   # 業務の組に共通の一言の名前は入れない（共通の一言の組から流すので、入れても流れない）
+        with self.assertRaises(ValueError):   # 業務の録音の部分の一覧に共通の一言の名前は入れない（共通の一言の組から流すので、入れても流れない）
+            self.tx(s, lambda tx: recordings.list_parts(tx, s["version"], [recordings.ListedPart("hai", "はい、")]))
+        with self.assertRaises(ValueError):   # 業務の組の部分は、版の一覧の部分だけ（0212）
             self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=s["version"],
                                                         parts=[recordings.Part("hai", "はい、", "test://Leda/hai", "2" * 64)]))
-        sid = self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=s["version"],
-                                                          parts=[recordings.Part("Q1", "ご希望の日時をお聞かせください。",
-                                                                                 "test://Leda/Q1", "2" * 64)]))
+        sid = self.tx(s, lambda tx: support.make_business_set(tx, "Leda", s["version"], [recordings.Part(
+            "Q1", "ご希望の日時をお聞かせください。", "test://Leda/Q1", "2" * 64)]))
         with self.assertRaises(Rejected):                                          # システムの処理は承認できない
             self.tx(s, lambda tx: recordings.approve(tx, sid))
         self.tx(s, lambda tx: recordings.approve(tx, sid), OPERATOR)
@@ -1250,8 +1251,8 @@ class CallerNumberAndVoice(Base):
         tail = P("intro", "架空の続く言葉（target）。", "test://Leda/target", "0" * 64)
         intro = lambda v, sha="0" * 64: P("intro", "架空の録音（intro）。", f"test://{v}/again", sha)   # noqa: E731
         q1 = P("Q1", "ご希望の日時をお聞かせください。", "test://Leda/Q1", "5" * 64)
-        make = lambda c, v, voice, *ps: self.w.a.in_client(OPERATOR, t, c, lambda tx: recordings.create_set(   # noqa: E731
-            tx, unit="business", voice_name=voice, version_id=v, parts=list(ps)))
+        make = lambda c, v, voice, *ps: self.w.a.in_client(OPERATOR, t, c, lambda tx: support.make_business_set(   # noqa: E731
+            tx, voice, v, list(ps)))
         current = lambda c, v, voice: self.w.a.in_client(OPERATOR, t, c, lambda tx: recordings.current_sets(   # noqa: E731
             tx, v, voice))["business"]
         unheard = lambda c, sid: self.w.a.in_client(OPERATOR, t, c, lambda tx: recordings.unapproved_parts(tx, sid))  # noqa: E731
@@ -1287,9 +1288,8 @@ class CallerNumberAndVoice(Base):
         """質問の録音の部品の名前は、質問の番号。番号に使える「-」を、部品の名前も受け付ける（前は、「-」のある番号の質問の録音を
         入れられなかった。0103。見直し9）。番号に使えない文字は、部品の名前にも使えない。"""
         s = self.ready()
-        make = lambda name: self.tx(s, lambda tx: recordings.create_set(   # noqa: E731
-            tx, unit="business", voice_name="Leda", version_id=s["version"],
-            parts=[recordings.Part(name, "ご希望の日時をお聞かせください。", "test://Leda/x", "2" * 64)]))
+        make = lambda name: self.tx(s, lambda tx: support.make_business_set(   # noqa: E731
+            tx, "Leda", s["version"], [recordings.Part(name, "ご希望の日時をお聞かせください。", "test://Leda/x", "2" * 64)]))
         sid = make("Q-1")
         self.assertEqual(list(self.tx(s, lambda tx: recordings.parts(tx, sid))), ["Q-1"])
         for bad in ("Q 1", "Q.1", ""):
@@ -1301,9 +1301,9 @@ class CallerNumberAndVoice(Base):
         問いの名前の決まり（30文字まで・Windows のファイル名に使えない文字なし）は、業務設定の確かめと同じ（0112。2026-10-22 の
         見直し13：前は英数字だけを受け付け、答えの録音を持つ業務の録音の組が丸ごと作れなかった）。"""
         s = self.ready()
-        make = lambda name: self.tx(s, lambda tx: recordings.create_set(   # noqa: E731
-            tx, unit="business", voice_name="Leda", version_id=s["version"],
-            parts=[recordings.Part(name, "以前ご予約の際にいただいたお電話番号にお掛けしております。", "test://Leda/a", "2" * 64)]))
+        make = lambda name: self.tx(s, lambda tx: support.make_business_set(   # noqa: E731
+            tx, "Leda", s["version"], [recordings.Part(name, "以前ご予約の際にいただいたお電話番号にお掛けしております。", "test://Leda/a",
+                                                       "2" * 64)]))
         sid = make("answer_番号の出どころ")
         self.assertEqual(list(self.tx(s, lambda tx: recordings.parts(tx, sid))), ["answer_番号の出どころ"])
         for bad in ("answer_番号:出どころ", "answer_" + "あ" * 31, "番号の出どころ", "answer_番号\t"):
@@ -1332,13 +1332,15 @@ class CallerNumberAndVoice(Base):
         choose = lambda r: self.tx(s, lambda tx: recordings.choose_reading(tx, vid, "中島", r), OPERATOR)   # noqa: E731
         part = lambda v, r, p="Q1", said=True: recordings.Part(   # noqa: E731
             p, f"「{r}」様のご紹介でお電話いたしました。", f"test://{v}/{p}/{r}", "4" * 64, readings={"中島": r} if said else {})
-        make = lambda v, *ps: self.tx(s, lambda tx: recordings.create_set(   # noqa: E731
-            tx, unit="business", voice_name=v, version_id=vid, parts=list(ps)))
+        make = lambda v, *ps: self.tx(s, lambda tx: support.make_business_set(tx, v, vid, list(ps)))   # noqa: E731
+        listed = lambda *ps: self.tx(s, lambda tx: recordings.list_parts(tx, vid, support.listed(*ps)))   # noqa: E731
         approve = lambda sid: self.tx(s, lambda tx: recordings.approve(tx, sid), OPERATOR)   # noqa: E731
         current = lambda v: self.tx(s, lambda tx: recordings.current_sets(tx, vid, v))["business"]   # noqa: E731
         self.assertEqual((name().reading, name().reading_by), (None, None))          # 選ぶまでは、会話の中で確かめる名前
-        with self.assertRaises(ValueError):                                        # 選ぶ前に、その読みの録音は作れない
+        with self.assertRaises(ValueError):                                        # 選ぶ前に、その読みの録音（と一覧）は作れない
             make("Leda", part("Leda", "なかしま"))
+        with self.assertRaises(ValueError):                                        # 名前を話すのに、読みを書かない一覧（素通りさせない）
+            listed(part("Leda", "なかしま", said=False))
         with self.assertRaises(Rejected):                                          # 選ぶのは管理者か契約者（システムは選べない）
             self.tx(s, lambda tx: recordings.choose_reading(tx, vid, "中島", "なかしま"))
         choose("なかしま")
@@ -1350,9 +1352,13 @@ class CallerNumberAndVoice(Base):
             make("Leda", part("Leda", "なかしま", "Q2", said=False))
         with self.assertRaises(ValueError):                                        # 選んでいない読み
             make("Leda", part("Leda", "なかじま"))
+        with self.assertRaises(ValueError):                                        # 一覧と読みの違う録音（一覧はそのまま）
+            self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=vid, parts=[
+                recordings.Part("Q1", part("Leda", "なかしま").spoken_text, "test://Leda/odd", "4" * 64, {"中嶋": "なかしま"})]))
         choose("なかじま")                                                          # 選び直せる（前の形では、声どうしで行き詰まった）
         self.assertEqual(name().reading, "なかじま")
         self.assertNotEqual(current("Leda"), leda)                                 # 前の読みの組は、もう流さない
+        self.assertFalse(self.tx(s, lambda tx: recordings.version_needs(tx, vid)).listed)   # 前の読みの一覧も（渡し直していただく）
         with self.assertRaises(Rejected) as e:                                     # 前の読みで作った組は承認しない
             approve(sada)
         self.assertEqual(e.exception.constraint, "recording_approval_fits")

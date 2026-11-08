@@ -204,7 +204,7 @@ def means_in(text: str) -> list[str]:
 # ⇒ CL-1 の連絡帳 4-100〜4-103（2026-11-06）で、保留で締める一言「_pending」・質問の録音の形「_lead_tsuzukimashite」「_lead_soredeha」「_lead_resume」・
 # 入る一言の頭を替えた形「_intro_lead_…」が増えた（作る形の一覧は会話の側の flowctl.question_forms の1か所）。どれも「_」の続きなので、ここは変えない
 # ⇒ CL-1 の連絡帳 4-117 の (3)：「（番号）_intro_lead_tsuzukimashite」が業務の録音の表に入り、「（番号）_other_again_midway」は作らなくなった。これも「_」の続きの
-# 形の中のことで、業務の録音の部分の名前は今までどおり会話の側の一覧（make_ack_clips.script_table）から作られる＝ここも組を作る道（recordings.complete）も変えない
+# 形の中のことで、業務の録音の部分の名前は今までどおり会話の側の一覧（make_ack_clips.script_table）から作られる＝ここも組を作る道（recordings.list_parts・complete）も変えない
 DERIVED_JOIN = "_"
 EARLIEST_KEYS = {"business_days", "closed_weekdays", "closed_on_holidays", "closed_dates"}   # 業務設定の「最短の日」の項目
 EARLIEST_MAX_DAYS = 60                            # 「N営業日以降」の N の上限（祝日の暦が届く先＝翌年の分まで、に収まる長さ）
@@ -608,7 +608,8 @@ def with_answer(raw: dict[str, Any], name: str, text: str) -> dict[str, Any]:
 
 def own_answers(s: Settings) -> tuple[tuple[str, str], ...]:
     """その業務の版が、業務の録音で話す想定問答（業務だけの問答と、標準を上書きした問答。標準から来た問答は標準の録音＝`standard_parts`）。
-    業務の録音の組の部分（answer_＋問いの名前）は、これだけから作る（1か所）。"""
+    画面の想定問答の行（`answer_rows`）が読む。業務の録音の組の部分の名前と文は、会話の担当の録音の道具が版の録音の部分の一覧として渡す
+    （recordings.list_parts。0212。⛔ 0212 の前は、録音の引き継ぎ＝recordings._changes も、ここから要る部分を決めていた）。"""
     return tuple(a for a in s.answers if a[0] not in s.standard_answers)
 
 
@@ -1631,7 +1632,7 @@ def save_from(tx: Tx, business_id: UUID, version_id: UUID) -> UUID:
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (new, version_id))
     from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
     recordings.carry_readings(tx, version_id, new)
-    recordings.carry(tx, new)   # 中身が同じなので、元の版の録音をそのまま引き継ぐ（電話を止めない。0194・計画書 6-1 (4)）
+    recordings.carry(tx, new)   # 中身が同じなので、元の版の録音の部分の一覧と承認済みの録音をそのまま使う（電話を止めない。0194・0212・計画書 6-1 (4)）
     return new
 
 
@@ -1776,7 +1777,8 @@ def derive(tx: Tx, version_id: UUID, change: Callable[[dict[str, Any]], dict[str
                "                                         recorded_by)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, salescall.cur_actor())",
                (business, base, new, cause, note.strip()))
-    # 変わっていない部分は元の版の録音を引き継ぐ（写しと同じ1か所。変わった部分だけ録音していただく＝契約者に知らせる。0194・計画書 6-1 (4)）
+    # 録音の部分の一覧は、会話の担当の録音の道具が新しい版の分を作る（中身が同じなら元の版の一覧を使う）。承認済みの同じ録音は使い回し、要る部分だけ
+    # 録音していただく（写しと同じ1か所。一覧がまだなら契約者に知らせる。0194・0212・計画書 6-1 (4)）
     recordings.carry(tx, new)
     return new
 

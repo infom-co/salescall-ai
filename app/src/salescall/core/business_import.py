@@ -742,8 +742,7 @@ def script(raw: dict[str, Any]) -> str:
     言葉（意味の言葉・こちらがすることの言葉・その答えのあとに伝える一言＝`SPOKEN_WORDS`。どれも「それでは（言葉）…」などで声になる。⛔ 2026-11-03 まで
     入れていなかった＝依頼者が書いた「○○駐車場をご利用いただけます…」の名前に読みが付かなかった。取込の AI が決める言葉は質問の文と選択肢から
     作るので、台本の名前の中にある）・入口の名前）。
-    最短の日の場所（`business_settings.DAY_SLOT`）は外す（声になるのは会話の側が置き換えた言い方＝名前ではない）。
-    録音の引き継ぎ（core/recordings._changes）も、足した名前を答えのほかの文が話すかを、これで見る（台本の作り方は1か所）。"""
+    最短の日の場所（`business_settings.DAY_SLOT`）は外す（声になるのは会話の側が置き換えた言い方＝名前ではない）。"""
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
              caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line"), raw.get("voicemail_message"),

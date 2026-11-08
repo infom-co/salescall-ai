@@ -52,6 +52,29 @@ _TENANT_VOICES: dict[UUID, tuple[str, ...]] = {}
 _numbers = itertools.count(int(uuid.uuid4().int % 500))
 
 
+def listed(*parts: "recordings.Part") -> list["recordings.ListedPart"]:
+    """録音の部分（Part）の名前・文・読みの、版の録音の部分の一覧（会話の担当の録音の道具の役で recordings.list_parts に渡す。0212）。"""
+    return [recordings.ListedPart(p.part, p.spoken_text, dict(p.readings)) for p in parts]
+
+
+def send_list(tx, version_id: UUID, *extra: "recordings.ListedPart", readings: dict[str, dict[str, str]] | None = None):
+    """会話の担当の録音の道具の役：その版の録音の部分の一覧を渡す（試験の名乗り intro＝approve_voices の文と、業務の想定問答の答え＝
+    answer_＋問いの名前・答えの文。extra＝ほかの部分。readings＝部分の名前 → その部分が話す名前の読み）。答えは recordings.list_parts の答え（0212）。"""
+    from salescall.core import business_settings
+    own = business_settings.own_answers(business_settings.load(tx, version_id))
+    readings = readings or {}
+    parts = [recordings.ListedPart("intro", "架空の録音（intro）。")] + [
+        recordings.ListedPart(business_settings.ANSWER_PART_PREFIX + n, t, readings.get(business_settings.ANSWER_PART_PREFIX + n, {}))
+        for n, t in own] + list(extra)
+    return recordings.list_parts(tx, version_id, parts)
+
+
+def make_business_set(tx, voice_name: str, version_id: UUID, parts: list) -> UUID:
+    """その部分で版の録音の部分の一覧を渡し（会話の担当の録音の道具の役）、業務の録音の組を作る（承認の前。0212）。"""
+    recordings.list_parts(tx, version_id, listed(*parts))
+    return recordings.create_set(tx, unit="business", voice_name=voice_name, version_id=version_id, parts=list(parts))
+
+
 def fictional_phone() -> str:
     """架空の番号（+447700900000〜+447700900999）。試験の中で重ならないよう順に配る。"""
     return f"+447700900{next(_numbers) % 1000:03d}"
@@ -232,8 +255,10 @@ class World:
     def approve_voices(self, tenant: UUID, client: UUID, version: UUID,
                        voices: tuple[str, ...] | None = None, *, parts: tuple[str, ...] = ("intro",)) -> None:
         """声ごとに、その版の業務の録音の組（依頼者の単位）を作って承認する（架空の録音）。voices が無ければ、その契約者の声
-        （World.tenant の voices）。parts＝組に入れる部分の名前（無ければ名乗り）。"""
+        （World.tenant の voices）。parts＝組に入れる部分の名前（無ければ名乗り）。録音の部分の一覧も、その部分で渡す（会話の担当の録音の
+        道具の役。recordings.list_parts。0212）。"""
         def work(tx):
+            recordings.list_parts(tx, version, [recordings.ListedPart(n, f"架空の録音（{n}）。") for n in parts])
             for v in (_TENANT_VOICES.get(tenant, VOICES) if voices is None else voices):
                 sid = recordings.create_set(tx, unit="business", voice_name=v, version_id=version,
                                             parts=[recordings.Part(n, f"架空の録音（{n}）。", f"test://{v}/{n}", "0" * 64)
