@@ -31,7 +31,7 @@ from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
 from phrases import POINT_FALLBACK
-from phrases import _CONTACT_RESUMED, APOLOGY_FIRST, CALLBACK_ASK_ANSWERING, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
+from phrases import _CONTACT_RESUMED, APOLOGY_FIRST, CALLBACK_ASK_ANSWERING, CALLBACK_PENDING, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -125,6 +125,7 @@ HOW_OF.update({f"callback_{k}_{i}": "question" for k, vs in CALLBACK_ASK_AGAIN.i
 HOW_OF.update({f"callback_{k}_which{t}": "question" for k in CALLBACK_ASK_WHICH for t in ("", "_recap")})   # どの点かを伺う一言も質問の読み方（2026-11-06）
 HOW_OF.update({f"callback_{k}_again": "question" for k in CALLBACK_ASK_RESUMED})   # 続きの電話で切れた所から伺う一言も質問の読み方（2026-11-04）
 HOW_OF.update({f"callback_{k}_chosen": "question" for k in CALLBACK_ASK_CHOSEN})
+HOW_OF.update({f"callback_{k}_pending": "question" for k in CALLBACK_PENDING})   # 申し出の保留でよいかを伺う一言も質問の読み方（2026-11-09）
 HOW_OF.update({f"callback_{k}_answering": "question" for k in CALLBACK_ASK_ANSWERING})   # 答えの段のかけ直しの一言も質問の読み方（2026-11-06）   # LINE の伺い方を選んでいただいたあとの一言も質問の読み方（2026-11-04 20時27分）
 # LINE の伺い方で選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言と、その伺い直しも質問の読み方（2026-11-05 0時48分。phrases.CALLBACK_ASK_OTHER_WAYS）。
 # ほかの方法を伺う一言は、LINE の伺い方の一言（callback_line_how）と同じく長い質問の上限（1時19分47秒のメールの一言は40字＝見込み 6.5秒）
@@ -303,7 +304,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (ANSWER_PREFIX, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
+    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, offer_questions, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
                          tell_recording_id)
     from instruction import reading_variants
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, back_fit, question_clip
@@ -360,13 +361,15 @@ def script_table(business) -> tuple[dict, dict]:
             # 続きの電話の始めに、ご納得いただけなかった点を言っていただけなかったときの振り返りの一言（文は callback_question の recap＝phrases.recap_line の1か所。
             # 名前は flowctl.recap_recording_id）。説明の文の無いご承認の質問には作らない（振り返らずにご納得を伺う＝Flow._point_step）
             items.append((recap_recording_id(q), callback_question("other_point", recap=q).text, "recap"))
-    if getattr(business, "handoff_ways", ()):
-        # 営業に引き継ぐ架電の、改めてのお話の方法を選んでいただく一言（文は flowctl.callback_question の handoff_way の1か所・名前は flowctl.HANDOFF_WAY_RECORDING）と、
-        # 2回目・3回目からの戻る一言に続けて流す形（phrases.back_fit の1か所）。✅ 2026-11-09 日本時間4時36分49秒 ユーザー
-        from flowctl import HANDOFF_WAY_RECORDING
-        way_text = callback_question("handoff_way", ways=tuple(business.handoff_ways)).text
-        fitted = [back_fit(HANDOFF_WAY_RECORDING, way_text, b) for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)]
-        items += [(rid, text, question_how(text)) for rid, text in dict([(HANDOFF_WAY_RECORDING, way_text)] + fitted).items()]
+    # 業務設定で決まる申し出（締める前の申し出 N6＝依頼主の単位の文・方法を選んでいただく N5。文と名前は flowctl.offer_questions・callback_question の1か所）と、
+    # 2回目・3回目からの戻る一言に続けて流す形（phrases.back_fit の1か所）、保留でよいかを伺う一言（flowctl.pending_line・pending_recording_id。詳しい者からの
+    # お話 N4 は共通の一言の録音）。✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒 ユーザー
+    for oq in offer_questions(getattr(business, "handoff_ways", ()), getattr(business, "close_offer", None)):
+        if oq.callback in BUSINESS_ROLES:
+            fitted = [back_fit(oq.recording, oq.text, b) for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)]
+            items += [(rid, text, question_how(text)) for rid, text in dict([(oq.recording, oq.text)] + fitted).items()]
+            if asks_wish(oq):
+                items.append((pending_recording_id(oq), pending_line(oq), "question"))
     table, readings = {}, {}
     for base, text, how in items:
         variants = reading_variants(text, business.names)

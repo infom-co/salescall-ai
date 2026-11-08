@@ -132,6 +132,11 @@ NOTED_DOES = "承っておいて"
 # ので、「それではこの件は保留ということでよろしいでしょうか？」のように聞いてあげた方がいいんじゃないですか？この状況でこちらに決めつけられるのは心外じゃない
 # でしょうか？」＝言い渡さずに伺う（お返事を待つ所は Flow._ask_pending・お返事は Flow._pending_reply の1か所）
 PENDING_LINE = "それでは{t}は保留ということでよろしいでしょうか？"
+# こちらの申し出のシステムの質問（flowctl.OFFER_ROLES）のうち、文が業務によらない質問の、保留でよいかを伺う一言の（聞くこと）（共通の一言の録音
+# callback_（役目）_pending。flowctl.pending_line・pending_recording_id の1か所）。詳しい者からのお話は「ご希望」を付けない（保留にするのはお話そのもの。
+# 聞き直しの聞くことは「詳しい者からのお話のご希望」＝flowctl.CALLBACK_TOPIC）。✅ 2026-11-09 日本時間6時33分57秒の帳面の伺いの形
+# 「それでは詳しい者からのお話は保留ということでよろしいでしょうか？」
+CALLBACK_PENDING = {"handoff": "詳しい者からのお話"}
 PENDING_THING = "この件"
 # 名乗りの頭。✅ 2026-10-16 ユーザー：「名乗りの頭は、『お忙しいところ恐れ入ります。』でOK」（法人・個人の名乗りの例では「お忙しいところ
 #    失礼いたします。」と書かれていたので一度替えたが、もとのままにする）
@@ -278,6 +283,11 @@ CALLBACK_ASK = {
     # （決まった言い方なので、言葉の途中の読点は外した＝10-15）
     "handoff": "それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？",
 }
+# 詳しい者からのお話の良い点（「それでは詳しい者より改めて…」N4 への迷いに選ぶ助けを伝える材料＝業務の選ぶ質問の選択肢ごとの良い点 Question.option_notes と
+# 同じ形の「はい」の良い点。どの業務でも同じ。3つ目は業務設定の引き継ぎの方法が2つ以上のときだけ＝{w} に方法の名前。flowctl.callback_question の1か所）。
+# ✅ 2026-11-09 日本時間6時33分57秒のご指摘（申し出への迷いに「もう一度お聞かせ…」は誤り）を受けて、迷っているお客様への応じ方の1か所に乗せた材料
+HANDOFF_NOTES = ("お話を聞いていただいてからご判断いただける", "気になっていらっしゃる点に詳しい者がその場でお答えできる",
+                 "ご都合のよい方法（{w}）をお選びいただける")
 # 同じシステムの質問を1通話に何度か伺うときの、2回目からの言い方（順に回す。1回目は CALLBACK_ASK。録音は callback_（役目）_2 から）。
 # ✅ 2026-11-02 日本時間6時33分 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」が続いて機械ぽいので、「ご不明点などほかにも
 # ございますでしょうか？」なども織り交ぜた方がいいんじゃないでしょうか？」
@@ -904,7 +914,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "told_follow_up": TOLD_FOLLOW_UP,
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
-            "moshimoshi": MOSHIMOSHI}
+            "moshimoshi": MOSHIMOSHI, **{f"callback_{k}_pending": PENDING_LINE.format(t=t) for k, t in CALLBACK_PENDING.items()}}
 # システムの質問（callback_〜）を、2回目・3回目からの戻る一言のあとに流す形（決まりは back_fit の1か所。方法をお伝えした一言のあとの連絡先の一言も、2回目と同じ
 # 「それでは」を外した形＝flowctl.callback_question の announced）。⛔ 2026-11-07 日本時間4時台に見つけた：3時台に足した方法をお伺いしたあとの形（_announced）は
 # 読み方の表にだけあり、この表に無かった＝録音が作られない形だった。続きの電話で切れた所から伺う一言（callback_〜_again＝前置き「前回…」つき）へ戻るときは、

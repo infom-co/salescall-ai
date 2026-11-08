@@ -524,8 +524,18 @@ def asks_wish(q: "Question") -> bool:
     業務の選択肢の選び方へのお言葉。お言葉に無い場面には当てない＝帳面 0-2。ご承認の質問への迷いは伺う＝帳面 1 の (11) の A-7）。
     ⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの H-8）：選ぶ助けをする質問（システムの質問だけ除く）・保留で締める質問・最初の
     「まだ決めていない」に選ぶ助けをする質問を3か所で別々に決めていて、事実を伺う質問・ご承認の質問・ほかに分からない点の質問にも「どういった点で
-    お迷いでしょうか？」と伺い、ほかに分からない点の質問を保留で締めえた"""
-    return not (q.asks_fact or q.reading_of or q.callback or q.approval or q.unclear_none)
+    お迷いでしょうか？」と伺い、ほかに分からない点の質問を保留で締めえた
+    システムの質問のうち、こちらの申し出（OFFER_ROLES＝詳しい者より改めて N4・締める前の申し出 N6）は入れる（業務の選ぶ質問と同じ理由：お客様は聞き取れる
+    言葉で迷いを言っている＝伺い直しは誤り。決められないのが最終の決定なら、断られてはいないので保留でよいかを伺う）。⛔✅ 2026-11-09 日本時間6時33分57秒
+    ユーザー：「…「うーん、どうですかね。」と返されたら、1回だけ伺い直します：こちら「はい、恐れ入ります。詳しい者からのお話のご希望をもう一度お聞かせ
+    いただいてもよろしいでしょうか？」。：この質問はおかしいでしょ！…ちゃんと流れを考えたらわかるだろうが！」。申し出の方法を選んでいただく質問（WAY_ROLES）は
+    迷いへの応じ方だけ同じ（hears_hesitation）で、保留は伺わない（決められなければ、それぞれの決まった道＝方法の件を申し伝える・ほかのご希望は無い）。入れない
+    システムの質問は、それぞれの決まった道（急いでいる方への「また改めて」H1＝急いでいる方を引き止めない・はっきりしなければ丁寧に締める（11-01）／ご遠慮の
+    確かめ D1＝お断りの向きの方に勧めない／待つか改めてか H2・かけ直し C7・約束の電話 P1・伝言 M1・お戻り C6＝この電話の段取りで、こちらの申し出から選ぶ
+    ものではない／本心を伺う D2・ご承認の手順 N1〜N3＝それぞれの手順の道）"""
+    if q.callback:
+        return q.callback in OFFER_ROLES
+    return not (q.asks_fact or q.reading_of or q.approval or q.unclear_none)
 
 
 def hears_hesitation(q: "Question") -> bool:
@@ -533,8 +543,12 @@ def hears_hesitation(q: "Question") -> bool:
     g53_meaning.flow_act／flow_wants）：ご希望・申し出から選んでいただく業務の質問（asks_wish＝選ぶ助け・それでも決められなければ保留）と、説明した内容の
     ご承認の質問（approval＝ご承認いただけなかったときの手順と同じ道で、迷っている点を伺ってご説明する・保留では締めない＝Flow._point_step）。
     ✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (4)（伺ったときの例：「この内容でご同意いただけますでしょうか？」への「うーん、同意する
-    かどうか迷いますね。」）。⛔ 直す前：ご承認の質問には「迷っている」を出さず、「承知しました。続きまして…」と、ご承認を伺わないまま次の質問へ進んだ"""
-    return asks_wish(q) or q.approval
+    かどうか迷いますね。」）。⛔ 直す前：ご承認の質問には「迷っている」を出さず、「承知しました。続きまして…」と、ご承認を伺わないまま次の質問へ進んだ。
+    申し出の方法をお客様に選んでいただくシステムの質問（WAY_ROLES＝ほかのご希望 W1・申し出の方法 N5・LINE の伺い方 C11）も、迷いへの応じ方は同じ（伺い直さずに
+    選ぶ助け。✅ 2026-11-09 日本時間6時33分57秒のご指摘と同じ理由。⛔ 直す前は判定に「迷っている」を出さず、「うーん、どうしようかな。」に「はい、恐れ入ります。
+    （聞くこと）をもう一度お聞かせいただいてもよろしいでしょうか？」と伺い直した）。選ぶ助けのあとも決められなければ、保留は伺わずにそれぞれの決まった道
+    （asks_wish の説明）"""
+    return asks_wish(q) or q.approval or q.callback in WAY_ROLES
 
 
 def takes_for_now(q: "Question", condition: str | None) -> bool:
@@ -587,15 +601,19 @@ def approx_value(value: str | None, said: str | None) -> tuple[str, str] | None:
 
 
 def pending_recording_id(q: "Question") -> str:
-    """保留で締める一言（pending_line）の録音の名前（唯一の場所＝流れの制御と録音を作る道具 make_ack_clips.script_table）：「質問の番号_pending」。"""
-    return f"{q.id}_pending"
+    """保留でよいかを伺う一言（pending_line）の録音の名前（唯一の場所＝流れの制御と録音を作る道具 make_ack_clips.script_table）：業務の質問と、業務設定から
+    文が決まる締める前の申し出（N6）は「質問の番号_pending」（依頼主の単位）。文が業務によらないシステムの質問（詳しい者からのお話 N4＝phrases.CALLBACK_PENDING）は
+    共通の一言 callback_（役目）_pending。"""
+    from phrases import CALLBACK_PENDING
+    return f"callback_{q.callback}_pending" if q.callback in CALLBACK_PENDING else f"{q.id}_pending"
 
 
 def pending_line(q: "Question") -> str:
     """決められないのがお客様の最終の決定のとき、その質問を締める一言（唯一の場所。Flow._tell_due）：「それでは（聞くこと）は保留とさせていただきますね。」。
-    （聞くこと）は聞き返しと同じ取込の言葉（Question.topic）。無ければ「この件」（phrases.PENDING_THING）。"""
-    from phrases import PENDING_LINE, PENDING_THING
-    return PENDING_LINE.format(t=q.topic or PENDING_THING)
+    （聞くこと）は聞き返しと同じ取込の言葉（Question.topic）。無ければ「この件」（phrases.PENDING_THING）。文が業務によらないシステムの質問は phrases.CALLBACK_PENDING
+    （詳しい者からのお話は「ご希望」を付けない＝2026-11-09 日本時間6時33分57秒の帳面の伺いの形）。"""
+    from phrases import CALLBACK_PENDING, PENDING_LINE, PENDING_THING
+    return PENDING_LINE.format(t=CALLBACK_PENDING.get(q.callback) or q.topic or PENDING_THING)
 
 
 def tell_recording_id(q: "Question", cond: str) -> str:
@@ -1408,7 +1426,8 @@ def ear_ai(kind: str) -> str:
 # out_of_scope（範囲外の求めで終えた）は、まだ書かない（実際にあるかを測ってから作る＝2-2 の「まだ作っていないもの」）
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end", "connect", "answered",
               "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question", "talk", "hold_timeout",
-              "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern", "handoff")   # end_unjudged：判定の答えが届かず、会話AIの読みで丁寧に締めた（Flow._end_late。通話のあとの確かめが読み直す）
+              "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern", "handoff",
+              "close_offer")   # end_unjudged：判定の答えが届かず、会話AIの読みで丁寧に締めた（Flow._end_late。通話のあとの確かめが読み直す）
 # goal_refused：最終目的の申し出を断られ、業務の目的が果たせなくなったので途中で締めた（Flow._goals_lost。その業務だけかけない＝CL-2）
 # concern：本題に入ったあとの「もういいです。」に本心を伺い（「何か問題でもございましたでしょうか？」）、こちらの話し方・進め方・ご案内についての気になる点を
 # 言っていただいた（Flow._concern_decided。question＝そのとき伺っていた業務の質問・said＝お客様の言葉。会話AIが応えた文は callee_question と同じ形＝
@@ -1480,7 +1499,8 @@ MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほ
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
                 "when": "C9", "message": "M1", "promise_again": "P1",
                 "refusal": "D1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3", "line": "C10", "other_wish": "W1",
-                "line_how": "C11", "mobile": "C12", "wait_or_later": "H2", "concern": "D2", "handoff": "N4", "handoff_way": "N5"}
+                "line_how": "C11", "mobile": "C12", "wait_or_later": "H2", "concern": "D2", "handoff": "N4", "handoff_way": "N5",
+                "close_offer": "N6"}
 ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
             "number": "number",
             "email": "email",
@@ -1488,7 +1508,7 @@ ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "nex
             "promise_again": "promise_again", "ask_who": "who", "ask_when": "when", "refusal": "refusal",
             "hurry_again": "hurry", "hurry_when": "time", "not_agreed": "not_agreed", "other_point": "other_point", "agreed_now": "agreed_now",
             "line": "line", "other_wish": "other_wish", "line_how": "line_how", "mobile": "mobile", "wait_or_later": "wait_or_later",
-            "concern": "concern", "handoff": "handoff", "handoff_way": "handoff_way"}
+            "concern": "concern", "handoff": "handoff", "handoff_way": "handoff_way", "close_offer": "close_offer"}
 # 必須の質問の「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules.HANDLINGS と同じ名前。Question.handlings の値）：
 # 分かるお客様を聞く・分かる時を聞く（聞き足しの質問を1通話1回）・日を改める（会話は次の質問へ進む）・結論として終える（丁寧に締める）
 HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")
@@ -2527,16 +2547,23 @@ CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご
                   "refusal": "今後のお電話", "hurry_again": "改めてのお電話", "hurry_when": "ご都合のよろしい日時", "not_agreed": "ご納得いただけなかった点",
                   "other_point": "ほかにご納得いただけない点", "agreed_now": "ご説明した内容へのご納得", "line": "LINEのID", "other_wish": "ほかのご希望",
                   "line_how": "LINEでのご連絡の方法", "mobile": "携帯電話の番号", "wait_or_later": "このままお待ちするか改めておかけ直しするか",
-                  "concern": "お気づきの点", "handoff": "詳しい者からのお話のご希望", "handoff_way": "改めてのお話の方法"}
+                  "concern": "お気づきの点", "handoff": "詳しい者からのお話のご希望", "handoff_way": "ご希望の方法",
+                  "close_offer": ""}   # 締める前の申し出の聞くことは業務設定（CloseOffer.topic）
 # ご承認の質問への迷いから始めた手順の1つ目（「どういった点でお迷いでしょうか？」＝callback_question の hesitating）の聞き直しの聞くこと
 # （✅ 2026-11-08 日本時間2時21分15秒「(1)〜(4)ともイでOK」の (4)）
 HESITATE_TOPIC = "お迷いの点"
 # 文が依頼主の単位の録音のもの（伝言の文＝業務設定 message・約束の電話の一言＝お名前が入る＝instruction.Business.replay_parts の promise_again）
 OPENING_ROLES = ("message", "promise_again")
 # 文が業務の質問から決まる、依頼主の単位の録音のもの（ほかのご希望を伺う質問＝その質問の選択肢の名前が入る。録音の名前は other_wish_recording_id）
-# 営業に引き継ぐ架電の、改めてのお話の方法を選んでいただく質問（handoff_way＝業務設定の引き継ぎの方法 handoff_ways の名前が入る。録音の名前は HANDOFF_WAY_RECORDING）も
-BUSINESS_ROLES = ("other_wish", "handoff_way")
-HANDOFF_WAY_RECORDING = "handoff_which"   # 改めてのお話の方法を選んでいただく一言の依頼主の単位の録音（make_ack_clips.script_table・callback_question の1か所）
+# 申し出の方法を選んでいただく質問（handoff_way＝業務設定の引き継ぎの方法・締める前の申し出の方法の名前が入る＝offer_ways。録音の名前は OFFER_WAY_RECORDING）と、
+# 締める前の申し出（close_offer＝業務設定の文。録音の名前は CLOSE_OFFER_RECORDING）も
+BUSINESS_ROLES = ("other_wish", "handoff_way", "close_offer")
+OFFER_WAY_RECORDING = "offer_which"   # 申し出の方法を選んでいただく一言の依頼主の単位の録音（make_ack_clips.script_table・callback_question の1か所）
+CLOSE_OFFER_RECORDING = "close_offer"   # 締める前の申し出の一言の依頼主の単位の録音（同じ2か所）
+# 申し出の役目（通話の事実の名前も同じ＝Flow._handoff_step の1か所）：営業に引き継ぐ架電の詳しい者からのお話（N4）・そうでない架電の締める前の申し出（N6）
+OFFER_ROLES = ("handoff", "close_offer")
+# 申し出の方法をお客様に選んでいただくシステムの質問（迷っているお客様への応じ方の1か所＝hears_hesitation が入れる。保留は伺わない＝asks_wish には入れない）
+WAY_ROLES = ("other_wish", "handoff_way", "line_how")
 # 業務の質問によらず文が決まる役目の並び（唯一の並び＝会話AIの道具の宣言 tool_declarations が初めから並べる質問・SYSTEM_ROLES の元）。言い方の表ごとに
 # 手で並べない（⛔ 2026-11-08 日本時間2時台：本心を伺う一言 D2＝CALLBACK_ASK_REUSED を足したとき、宣言の手の並びに無く、AIが答えを報告できない形だった。
 # 10-24・11-03 にも同じ穴）
@@ -2545,7 +2572,8 @@ SYSTEM_ROLES = set(ASKED_ROLES) | set(BUSINESS_ROLES)  # システムが足す�
 _ROLE_TYPE = {"number": "phone", "fax": "phone", "email": "email", "address": "address", "authority": "choice", "message": "yes_no", "ask_who": "name",
               "back_today": "yes_no", "call_again": "yes_no", "promise_again": "yes_no", "refusal": "yes_no", "hurry_again": "yes_no",
               "not_agreed": "choice", "other_point": "choice", "agreed_now": "yes_no", "line": "line_id", "other_wish": "choice",
-              "line_how": "choice", "mobile": "mobile", "wait_or_later": "choice", "concern": "choice", "handoff": "yes_no", "handoff_way": "choice"}
+              "line_how": "choice", "mobile": "mobile", "wait_or_later": "choice", "concern": "choice", "handoff": "yes_no", "handoff_way": "choice",
+              "close_offer": "yes_no"}
 # 代わりの方にお立場を伺った答えのうち、話を進めてよい答え（_substitute_decided の1か所）。✅ 2026-10-22 ユーザー（4回目）：問いは「ご判断いただける
 # お立場の方ということで問題ございませんでしょうか？それともお取次ぎのみいただけるということでしたでしょうか？」の2つから選んでいただく形
 AUTHORITY_YES = "判断できる"
@@ -2585,11 +2613,13 @@ _ROLE_MEANINGS = {
                 "問題は無い": "特に問題は無い・気にしないでよいということ",
                 "断ろうとしている": "これ以上は話したくない・電話を終えたいということ"},
     # 営業に引き継ぐ架電で、点を言っていただけないままご承認の手順を終えたときに伺う一言への答え（Flow._handoff_step。✅ 2026-11-09 日本時間4時36分49秒 ユーザー）
-    "handoff": {"はい": "詳しい者から改めてお話ししてよいということ", "いいえ": "詳しい者からのお話は要らないということ"}}
+    "handoff": {"はい": "詳しい者から改めてお話ししてよいということ", "いいえ": "詳しい者からのお話は要らないということ"},
+    # 営業に引き継がない架電で、同じ場面に伺う締める前の申し出（業務設定の文＝CloseOffer。Flow._handoff_step の同じ1か所。✅ 2026-11-09 日本時間6時33分57秒「(ア)…ｂ」）
+    "close_offer": {"はい": "申し出のとおりにしてよいということ", "いいえ": "申し出は要らないということ"}}
 POINT_UNSAID = "点は言っていない"   # 「ほかに…」（N2）への、分からない点があるとだけ言った答え（_ROLE_MEANINGS の other_point・Flow._point_step）
 # システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）
 _ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("断ろうとしている",), "agreed_now": ("いいえ",), "concern": ("断ろうとしている",),
-                  "handoff": ("いいえ",)}
+                  "handoff": ("いいえ",), "close_offer": ("いいえ",)}
 # ご承認いただけなかったときの手順の段と、その段で伺うシステムの質問の役目（唯一の表＝Flow._point_step・
 # 手順の質問の作り callback_question。⛔ 23時22分41秒のご質問の見直し A9：4か所が役目を手で並べていた）。
 # ご説明する段（explain・explained）と申し伝え直す段（told）は、伺う質問が無い
@@ -3207,22 +3237,23 @@ def _wish_text(q: "Question", again: bool = False, which: bool = False) -> str:
 def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Question | None" = None, again: bool = False,
                       chosen: bool = False, without: str | None = None, recap: "Question | None" = None, means: str | None = None,
                       answering: bool = False, which: bool = False, after_recap: bool = False, announced: bool = False,
-                      hesitating: bool = False, ways: tuple = ()) -> "Question":
+                      hesitating: bool = False, ways: tuple = (), about: str = "") -> "Question":
     """システムが足す質問（役目＝SYSTEM_ROLES の1つ）を作る唯一の場所：かけ直し・ほかの手段で聞くこと（時刻＝日時の型＝日にちだけの答えも
     受け取る・番号＝電話番号の型・メール・住所。どれも言い直して確かめる型）と、選んでいただくこと（代わりの方に、判断いただけるお立場か・
     お取次ぎのみか＝✅ 2026-10-22 ユーザー（4回目）の2つから選んでいただく問い／伝言を伝えていただけるか＝はい／いいえ）。
     出られる時間は必須にしない（✅ 2026-10-14 ユーザー：分からないと言われたら、それでよい）。選んでいただく問いも必須にしない（はっきりしなければ、
     話を進めない側＝お礼を言って戻る時刻を聞く）。text：伝言の文（依頼主の単位。業務設定の message）。
-    of：ほかのご希望を伺う質問（other_wish）の元の質問（選ぶ質問で「どれも要らない」と答えていただいたもの。文と選択肢はその質問から＝_wish_choices）。"""
+    of：ほかのご希望を伺う質問（other_wish）の元の質問（選ぶ質問で「どれも要らない」と答えていただいたもの。文と選択肢はその質問から＝_wish_choices）。
+    ways：申し出の方法（offer_ways）。about：聞くこと（業務設定の締める前の申し出＝CloseOffer.topic）。"""
     qtype = _ROLE_TYPE.get(role, "datetime")
     qid = SUBSTITUTE_ID if role == "authority" else CALLBACK_IDS[ROLE_KEY[role]]
     if role == "handoff_way":
-        # 営業に引き継ぐ架電で、詳しい者から改めてお話ししてよいと言っていただいたあと、改めてのお話の方法（業務設定の引き継ぎの方法 ways の名前のまま）を選んで
-        # いただく一言（申し出た方法を並べて伺う形と同じ phrases.OTHER_WAYS_WHICH。依頼主の単位の録音 HANDOFF_WAY_RECORDING）。必須（聞き取れなければ聞き返す）。
+        # 申し出（詳しい者からのお話 N4・締める前の申し出 N6）を受けていただいたあと、その方法（業務設定の方法 ways の名前のまま＝offer_ways）を選んでいただく一言
+        # （申し出た方法を並べて伺う形と同じ phrases.OTHER_WAYS_WHICH。依頼主の単位の録音 OFFER_WAY_RECORDING）。必須（聞き取れなければ聞き返す）。
         # ✅ 2026-11-09 日本時間4時36分49秒 ユーザー：「それがOKなら、連絡手段として、「訪問、オンライン説明、お電話、セミナー参加」などを選択していただく方向で
-        # 誘導する。」
+        # 誘導する。」・6時33分57秒「(ア)…ｂ」（締める前の申し出も同じ1か所＝意味と聞くことは、どちらの申し出にも合う言葉）
         return Question(qid, OTHER_WAYS_WHICH.format(w="と".join(ways)), qtype, required=True, conditions=tuple(ways),
-                        meanings={w: f"改めてのお話の方法は「{w}」がよいということ" for w in ways}, recording=HANDOFF_WAY_RECORDING,
+                        meanings={w: f"ご希望の方法は「{w}」ということ" for w in ways}, recording=OFFER_WAY_RECORDING,
                         topic=CALLBACK_TOPIC[role], callback=role, firm_not_needed=True)
     if role == "other_wish":
         conds, meanings = _wish_choices(of)
@@ -3307,22 +3338,56 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         # （✅ 2026-11-06 日本時間10時12分44秒 ユーザー「(イ)「ほかに」を外して…OK」と同じ理由。⛔ 15時台まで、聞き直しで「ほかにご納得いただけない点を…」と言った）
         # 意味合いを尋ねる一言の候補の言葉（ROLE_SENSES）も同じ理由で「ほかに」を外す
         first = recap is not None or after_recap
-        topic = HESITATE_TOPIC if hesitating else CALLBACK_TOPIC[role].removeprefix("ほかに") if first else CALLBACK_TOPIC[role]
-        return Question(qid, text or lines[i], qtype, required=role == "line_how", conditions=tuple(meanings), recording=recording,
+        topic = about or (HESITATE_TOPIC if hesitating else CALLBACK_TOPIC[role].removeprefix("ほかに") if first else CALLBACK_TOPIC[role])
+        if role == "close_offer":
+            recording = CLOSE_OFFER_RECORDING   # 文は業務設定（text）＝依頼主の単位の録音
+        notes = {}
+        if role == "handoff":
+            # 詳しい者からのお話への迷いに選ぶ助けを伝える材料（業務の選ぶ質問の Question.option_notes と同じ形＝迷っているお客様への応じ方の1か所 Flow._hesitation）：
+            # どの業務でも同じ良い点と、方法が2つ以上なら業務設定の方法から選んでいただけること（phrases.HANDOFF_NOTES）。✅ 2026-11-09 日本時間6時33分57秒のご指摘
+            from phrases import HANDOFF_NOTES
+            notes = {"はい": "。".join((*HANDOFF_NOTES[:2], *([HANDOFF_NOTES[2].format(w="・".join(ways))] if len(ways) > 1 else [])))}
+        return Question(qid, text or lines[i], qtype, required=role == "line_how", conditions=tuple(meanings), recording=recording, option_notes=notes,
                         meanings=meanings, topic=topic, callback=role, declines=_ROLE_DECLINES.get(role, ()),
                         senses={c: w.removeprefix("ほかに") if first else w for c, w in ROLE_SENSES.get(role, {}).items() if c in meanings},
                         # 受け入れにも断りにも取れる言葉の意味（ROLE_REPLIES）は、その質問の意味で決まる「ほかに…」・「ご説明した内容で…」そのものだけ（18時51分27秒・
                         # 20時03分09秒のお言葉のとおり）。振り返りの一言（質問ではない）・どの点かを伺う一言（何の点かを尋ねる）には当てない（⛔ 23時22分41秒のご質問の
                         # 見直し A2：当てていて、振り返りへの「結構です。」でご承認を「はい」で渡した）
                         reply_meanings={} if first or which else {w: c for w, c in ROLE_REPLIES.get(role, {}).items() if c in meanings},
-                        firm_not_needed=role in (*POINT_STAGES.values(), "line_how", "wait_or_later", "concern", "handoff"),
+                        firm_not_needed=role in (*POINT_STAGES.values(), "line_how", "wait_or_later", "concern", *OFFER_ROLES),
                         # その場で1回だけ伺い直す：ご承認いただけなかったときの手順（N1〜N3）と、詳しい者からの改めてのお話を伺う N4（ご承認を伺い終える所＝受けて
                         # いただけたかを取りこぼさない。11-02 6時21分「契約を断ろうとしているのか、本当に分からないのかをしっかりと見分けないといけない」と同じ理由。
                         # ⛔ 2026-11-09 日本時間5時台に N4 を入れた形は伺い直さずに次へ進んだ）
-                        asks_once=role in (*POINT_STAGES.values(), "handoff"),
+                        asks_once=role in (*POINT_STAGES.values(), *OFFER_ROLES),
                         of=recap.id if recap is not None else "", plain=plain)
     return Question(qid, lines[i], qtype, required=role not in ("reachable_time", "ask_who", "ask_when", "not_agreed"), conditions=("答えた",),
                     topic=CALLBACK_TOPIC[role], callback=role, recording=recording, plain=plain)
+
+
+@dataclass(frozen=True)
+class CloseOffer:
+    """営業に引き継がない架電の、締める前の申し出（業務設定＝instruction.Business.close_offer・取込＝CL-2）：ご承認が最終目的のご承認の手順を点を言って
+    いただけないまま終え、残りの質問が無いとき、締める前に伺う（営業に引き継ぐ架電の詳しい者からのお話と同じ1か所＝Flow._handoff_step）。
+    ✅ 2026-11-09 日本時間6時33分57秒 ユーザー「・(ア) 営業に引き継がない架電で、ご承認が最終目的で、残りの質問が無いとき：ｂ」（ｂ＝締める前に別の一言を足す
+    （例：資料を改めてお送りする申し出。ただし業務設定にある場合だけ））"""
+    text: str          # 申し出の文（依頼主の単位の録音 CLOSE_OFFER_RECORDING。例「それでは改めて資料をお送りさせていただいてもよろしいでしょうか？」）
+    topic: str = ""    # 聞くこと（聞き直し・保留でよいかを伺う一言に入る。例「資料のお送りのご希望」。無ければ聞き直しは聞くこと無し・保留は「この件」）
+    ways: tuple = ()   # 方法（2つ以上なら選んでいただく・1つならその方法・無ければ方法も連絡先も伺わずに申し伝える。例 ("メール", "郵送")）
+
+
+def offer_ways(handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None) -> tuple:
+    """申し出の方法（唯一の決まり）：営業に引き継ぐ架電は引き継ぎの方法、そうでなければ締める前の申し出の方法。"""
+    return tuple(handoff_ways) or (tuple(close_offer.ways) if close_offer is not None else ())
+
+
+def offer_questions(handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None) -> list["Question"]:
+    """業務設定で決まる申し出の質問（唯一の作り＝流れの制御 Flow._handoff_ask・会話AIへの宣言 tool_declarations・録音の表 make_ack_clips.script_table・
+    知っていること instruction.Business.knowledge）：営業に引き継ぐ架電は詳しい者からのお話 N4（選ぶ助けの材料つき）、そうでなく業務設定にあれば締める前の
+    申し出 N6、方法が2つ以上ならその方法を選んでいただく N5。"""
+    asks = ([callback_question("handoff", ways=tuple(handoff_ways))] if handoff_ways else
+            [callback_question("close_offer", close_offer.text, about=close_offer.topic)] if close_offer is not None else [])
+    ways = offer_ways(handoff_ways, close_offer)
+    return asks + ([callback_question("handoff_way", ways=ways)] if len(ways) > 1 else [])
 
 
 def reading_question(qid: str, surface: str, likely: str, readings: tuple | list = (), kind: str = "法人") -> "Question":
@@ -3414,7 +3479,7 @@ class Flow:
                  promised: bool = False, apology: tuple = (), successor: bool = False,
                  voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300,
                  apology_call: str | None = None, apology_when: str = "later", client_does: str = "",
-                 earliest_day=None, today=None, handoff_ways: tuple = ()):
+                 earliest_day=None, today=None, handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う引き止めの一言（業務設定。録音で流す電話では業務の録音 busy。None なら引き止めず、
         締める前の伺い「それではまた改めてお掛けしてもよろしいでしょうか？」へ＝_hurry_ask。✅ 2026-11-01 日本時間20時56分。Intent.md 9-4）。
@@ -3439,6 +3504,9 @@ class Flow:
         # 営業に引き継ぐ架電の、詳しい者からの改めてのお話の方法（業務設定＝instruction.Business.handoff_ways・取込＝CL-2。空なら営業に引き継がない架電）と、
         # その伺いの手順の印（Flow._handoff_step の1か所）
         self.handoff_ways: tuple = tuple(handoff_ways)
+        # 営業に引き継がない架電の締める前の申し出（業務設定＝instruction.Business.close_offer・取込＝CL-2。None なら今のお礼の締め）と、申し出の方法（offer_ways の1か所）
+        self.close_offer: CloseOffer | None = close_offer
+        self.offer_ways: tuple = offer_ways(self.handoff_ways, close_offer)
         self.handoff: dict | None = None
         # 留守番電話に残す伝言（業務設定。Intent.md 9-4・18-2 の14。None なら残さずに切る＝安全側）
         self.voicemail_message = voicemail_message
@@ -4487,8 +4555,8 @@ class Flow:
                       "何も言わずに、record_answer で報告してください。", quiet=True)
 
     def _leave_open(self, head: str, rid: str) -> None:
-        if self._handoff_due():
-            return   # 営業に引き継ぐ架電：この一言の代わりに、詳しい者から改めてお話ししてよいかを伺う（_handoff_step。✅ 2026-11-09 日本時間4時36分49秒）
+        if self._offer_due():
+            return   # この一言の代わりに申し出を伺う（営業に引き継ぐ架電の詳しい者からのお話・締める前の申し出＝_handoff_step。✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒）
         """点を言っていただけないまま手順を終えたときに、次へ進む前に挟む一言（「ご不満な点がございましたらいつでもお申し出ください。」など）の印を立てる唯一の
         場所（head＝頭の相づち・rid＝一言の録音の名前。流すのは _advance の1か所）。このご承認の質問でもう言っていれば立てない（同じ一言を2回言わない）。
         ⛔ 2026-11-06 日本時間13時台の見直し（B2）：遅れた判定で取り消して段を戻す（_point_taken_back）と印だけ外し、言った印が無かったので、段が戻ったあとの
@@ -9239,7 +9307,11 @@ class Flow:
         # ご質問のあと流れの制御に通して見つけた：使い切ったあとの固定電話の番号に理由を添えず「承知しました。」で次へ進み、締めの前に「お声が聞き取れません
         # でしたので…」と伺っていた（番号は聞き取れている）
         # 必須でなくても、判定と食い違えばその場で1回だけ伺い直す質問（Question.asks_once。答えが質問に合わない＝"form" のときだけ。締めの前には伺わない）
-        here = self.phase == "asking" and (it.ask_backs < self.limits.ask_back if q.required else q.asks_once and reason == "form" and it.ask_backs < 1)
+        # 申し出（OFFER_ROLES＝詳しい者からのお話 N4・締める前の申し出 N6）は、聞き取れないときも1回だけ伺い直す（取りこぼすと申し出が無くなる・締める前の申し出は
+        # そのまま締めになる。伺い直しは聞き取れない・会話が繋がらないときだけ＝✅ 2026-11-09 日本時間6時33分57秒のご指摘を受けた帳面の伺い。⛔ 直す前は N6 への
+        # 聞き取れないお返事で、伺い直さずに締めていた＝流れの制御から出したお返事の種類ごとの表で見つけた）
+        here = self.phase == "asking" and (it.ask_backs < self.limits.ask_back if q.required else
+                                           q.asks_once and (reason == "form" or q.callback in OFFER_ROLES) and it.ask_backs < 1)
         spare = bool(form_reason) and not it.form_asked and not here and self.phase == "asking" and q.required and it.rechecks < self.limits.recheck
         if form_reason and (it.form_asked or not (here or spare)):
             # 理由を添えて伺っても形が合わない・もう伺えない（締めの前の念のための確認でも固定電話の番号だった）：その形の答えは無い（聞き取れている＝
@@ -9841,14 +9913,20 @@ class Flow:
             if by == CALLBACK_IDS["other_point"]:
                 self.no_doubts = by   # 「ほかに…」に「分かった」＝ほかに分からない点は無い（ご納得を伺った N3 の「はい」は、ご説明した内容へのご納得だけ）
 
-    def _handoff_due(self) -> bool:
-        """ご承認の手順を点を言っていただけないまま終える（終えた）とき、電話を締めずに、詳しい者から改めてお話ししてよいかを伺うか（唯一の決まり＝挟む一言を
-        置かない _leave_open・伺い始める _handoff_step）：営業に引き継ぐ架電（業務設定の引き継ぎの方法 handoff_ways がある）で、そのご承認が最終目的で、
-        まだそのご承認で伺っていない。✅ 2026-11-09 日本時間4時36分49秒 ユーザー：「…営業に引き継ぐ架電なら、「それでは、詳しい者より、改めてお話しさせて
-        いただいてもよろしいでしょうか？」の方がよくないですか？」"""
+    def _offer_due(self) -> str | None:
+        """ご承認の手順を点を言っていただけないまま終える（終えた）とき、伺う申し出の役目（OFFER_ROLES。無ければ None。唯一の決まり＝挟む一言を置かない
+        _leave_open・伺い始める _handoff_step）：そのご承認が最終目的で、まだそのご承認で申し出を伺っていなくて、
+        - 営業に引き継ぐ架電（業務設定の引き継ぎの方法 handoff_ways がある）⇒ 詳しい者から改めてお話ししてよいか（handoff。残りの質問があっても先に伺う）
+        - そうでない架電で、業務設定に締める前の申し出（close_offer）があり、残りの質問が無い ⇒ 締める前の申し出（close_offer。残りの質問があれば、今までどおり
+          一言を挟んで残りの質問へ進み、伺い終えて締める前に伺う＝この決まりが伺う番ごとに見る）
+        ✅ 2026-11-09 日本時間4時36分49秒 ユーザー：「…営業に引き継ぐ架電なら、「それでは、詳しい者より、改めてお話しさせていただいてもよろしいでしょうか？」の方が
+        よくないですか？」・6時33分57秒「・(ア) 営業に引き継がない架電で、ご承認が最終目的で、残りの質問が無いとき：ｂ」"""
         p, h = self.point, self.handoff
-        return (p is not None and bool(self.handoff_ways) and self.questions[p["q"]].final_goal
-                and (h is None or h["q"] != p["q"]) and self.end_reason is None)
+        if p is None or self.end_reason is not None or not self.questions[p["q"]].final_goal or (h is not None and h["q"] == p["q"]):
+            return None
+        if self.handoff_ways:
+            return "handoff"
+        return "close_offer" if self.close_offer is not None and not self._remaining() else None
 
     def _handoff_step(self) -> None:
         """営業に引き継ぐ架電で、ご承認が最終目的のご承認の手順を点を言っていただけないまま終えたときの手順（唯一の場所。_follow_ups から）：
@@ -9865,18 +9943,20 @@ class Flow:
         「訪問、オンライン説明、お電話、セミナー参加」などを選択していただく方向で誘導する。」"""
         h, p = self.handoff, self.point
         if h is None or h["q"] != (p["q"] if p is not None else None):
-            if p is not None and p["outcome"] == "unresolved" and self._handoff_due():
-                # 段（stage）：ask＝N4・way＝N5・detail＝その方法の連絡先（伺い方 C11 も。ほかのご希望と同じ手順の段の名前＝_contact_step）
-                self.handoff = {"q": p["q"], "stage": "ask", "way": None, "means": None, "detail": None, "outcome": None, "told": None}
-                self._note("handoff", question=p["q"], agreed=None, way=None, means=None, via=None, contact=None, outcome=None)
-                self._handoff_ask("handoff")
+            role = self._offer_due() if p is not None and p["outcome"] == "unresolved" else None
+            if role is not None:
+                # 段（stage）：ask＝申し出（N4・N6）・way＝その方法（N5）・detail＝その方法の連絡先（伺い方 C11 も。ほかのご希望と同じ手順の段の名前＝_contact_step）。
+                # kind＝申し出の役目（OFFER_ROLES＝通話の事実の名前。締める前の申し出の「いいえ」はお断りの締めにしない＝_goals_lost）
+                self.handoff = {"q": p["q"], "kind": role, "stage": "ask", "way": None, "means": None, "detail": None, "outcome": None, "told": None}
+                self._note(role, question=p["q"], agreed=None, way=None, means=None, via=None, contact=None, outcome=None)
+                self._handoff_ask(role)
             return
         self._contact_reopen(h)
         if h["outcome"] is not None:
             return
         if h["stage"] == "detail":
             return self._contact_step(h)
-        qid = CALLBACK_IDS["handoff"] if h["stage"] == "ask" else CALLBACK_IDS["handoff_way"]
+        qid = CALLBACK_IDS[h["kind"]] if h["stage"] == "ask" else CALLBACK_IDS["handoff_way"]
         it = self.items[qid]
         if it.state not in TAKEN + ("unresolved",):
             return
@@ -9884,19 +9964,20 @@ class Flow:
         if h["stage"] == "ask":
             if cond == "はい":
                 self._handoff_fact(agreed=True)
-                if len(self.handoff_ways) > 1:
+                if len(self.offer_ways) > 1:
                     h["stage"] = "way"
                     self._handoff_ask("handoff_way", after=qid)
                 else:
-                    self._handoff_way(self.handoff_ways[0])
+                    self._handoff_way(self.offer_ways[0] if self.offer_ways else None)   # 方法が1つならその方法・無ければ伺わずに申し伝える
             else:
                 self._handoff_end("declined" if self.questions[qid].declined(cond) else "unresolved")
         else:
-            self._handoff_way(cond if cond in self.handoff_ways else None)
+            self._handoff_way(cond if cond in self.offer_ways else None)
 
     def _handoff_ask(self, role: str, after: str | None = None) -> None:
-        """詳しい者からの改めてのお話の手順の質問を伺う唯一の場所（_handoff_step・_handoff_way）：並びの先頭（after＝前の段の質問のすぐあと）。"""
-        q = callback_question(role, ways=self.handoff_ways) if role == "handoff_way" else callback_question(role)
+        """申し出の手順の質問（申し出 N4・N6・その方法 N5）を伺う唯一の場所（_handoff_step）：並びの先頭（after＝前の段の質問のすぐあと）。質問は業務設定で
+        決まる申し出の質問の1か所（offer_questions）から。"""
+        q = next(x for x in offer_questions(self.handoff_ways, self.close_offer) if x.callback == role)
         self._new_item(q)
         self.follow_ups[q.id] = self.handoff["q"]
         if after is None:
@@ -9916,11 +9997,11 @@ class Flow:
         # その方法の連絡先（オンライン＝ご案内の URL をお送りするメールアドレス・LINE＝伺い方 C11 から など）を、ほかのご希望と同じ1か所で伺う（伺い済みなら
         # 伺わない・LINE の伺い方・その連絡先が無いときのほかの方法＝_wish_contact・_line_how・_line_other_ways）。⛔ 2026-11-09 日本時間5時台に入れた形は、
         # 連絡先の段をほかのご希望とは別に書き、LINE は連絡先を伺わずに申し伝えた
-        self._wish_contact(role, after=CALLBACK_IDS["handoff_way"] if CALLBACK_IDS["handoff_way"] in self.items else CALLBACK_IDS["handoff"], proc=h)
+        self._wish_contact(role, after=CALLBACK_IDS["handoff_way"] if CALLBACK_IDS["handoff_way"] in self.items else CALLBACK_IDS[h["kind"]], proc=h)
 
     def _handoff_fact(self, **extra) -> None:
-        """詳しい者からの改めてのお話の通話の事実 handoff（この通話のこのご承認の1つ）を書き足す唯一の場所。"""
-        for e in self.facts.get("handoff", []):
+        """申し出の通話の事実（handoff・close_offer＝申し出の役目。この通話のこのご承認の1つ）を書き足す唯一の場所。"""
+        for e in self.facts.get(self.handoff["kind"], []):
             if e.get("question") == self.handoff["q"]:
                 e.update(extra)
 
@@ -9934,7 +10015,8 @@ class Flow:
         self._wish_facts_now()   # 結果・伺い方・連絡先を写す1か所（ほかのご希望と同じ）
         if outcome == "agreed" and not h.get("told_said"):
             # 申し伝える一言は1回だけ（連絡先の段を開き直して＝_contact_reopen、もう一度終えたときは言わない）
-            h["told"] = h["means"] if h["means"] in WISH_TOLD else "other" if h["way"] else "way"
+            # 方法が無い申し出（業務設定に方法が無い）は「そのご希望を…」・方法を言っていただけないときは「ご案内の方法の件は…」
+            h["told"] = h["means"] if h["means"] in WISH_TOLD else "other" if h["way"] or not self.offer_ways else "way"
 
     def _no_doubts_step(self) -> None:
         """ほかに分からない点が無いかを伺う業務の質問（Question.unclear_none）を、重ねて伺わない唯一の場所（_follow_ups から＝次の質問を決める前に毎回）：
@@ -10090,7 +10172,7 @@ class Flow:
         resumed_step と同じ）：質問の答え（業務の質問の答えも、前の通話で取れた答えも＝items）と、ほかのご希望で伺った連絡先（この通話の通話の事実 other_wish・
         前の通話の答え）・詳しい者からのお話で伺った連絡先（この通話の通話の事実 handoff。同じ形 {"means", "via", "contact"}）。"""
         answers = [(q, it.state, self.answer_of(qid)) for qid, q in self.questions.items() if (it := self.items.get(qid)) is not None]
-        return known_contact(role, answers, earlier_records(self.earlier_all) + list(self.facts.get("other_wish", [])) + list(self.facts.get("handoff", [])))
+        return known_contact(role, answers, earlier_records(self.earlier_all) + [e for k in ("other_wish", *OFFER_ROLES) for e in self.facts.get(k, [])])
 
     def _line_how(self, it: "Item", proc: dict) -> None:
         """LINE でのご連絡の連絡先の伺い方（C11）の答えを受けた（唯一の場所＝_wish_step）：ID・SMS・メールなら、その連絡先を伺う（_wish_contact。伺い済みなら
@@ -10149,14 +10231,14 @@ class Flow:
         連絡先＝LINE_HOW）。渡さなくした答え（unresolved）から書いたもの（W1＝方法と結果・伺い方＝via・連絡先）は、渡さない（9-5 の (7)「依頼者へ渡るのは
         確かめた値か「-」だけ」。⛔ 21時台の見直しで見つけた：伺い方の答えが遅れて届いた確かめで「-」になっても、via は残った）。"""
         hid = CALLBACK_IDS["line_how"]
-        for w, key in ((self.wish, "other_wish"), (self.handoff, "handoff")):
+        for w, key in ((self.wish, "other_wish"), (self.handoff, (self.handoff or {}).get("kind", "handoff"))):
             wish = self.facts.get(key, [])
             if wish and w is not None and wish[-1].get("question") == w["q"]:
                 # いま伺っている手順の段の進み（結果＝_wish_end・_handoff_end・伺い方＝_wish_via・もう伺った連絡先＝_wish_known）を写す。⛔ 2026-11-05 日本時間
                 # 2時05分37秒のご質問のあとの読み直しで見つけた：段の進みを2か所（_wish_via・_wish_end）が直接書き、渡さなくした W1 の上に積んだ連絡先が依頼者へ
                 # 渡った。W1 が聞き取れないだけ（「-」のまま元の答え＝outcome none）でも、記録を「W1 の途中で切れた」（outcome None）に戻し、次の電話で W1 を伺い直した
                 wish[-1].update(outcome=w["outcome"], via=w.get("via"), contact=w.get("contact"))
-        for e in [*self.facts.get("other_wish", []), *self.facts.get("handoff", [])]:
+        for e in [e for k in ("other_wish", *OFFER_ROLES) for e in self.facts.get(k, [])]:
             if e.get("means") == "line" and hid in self.items and self.items[hid].state == "unresolved":
                 e["via"] = None
             role = WISH_MEANS[e["means"]][2] if e.get("means") else None
@@ -10390,9 +10472,10 @@ class Flow:
         # 日本時間18時台に見つけた：続きの電話でほかの質問を伺ったあと、目的が果たせないとして締めていた）
         asking = {q.id for q in goals if self._unfinished(q)}
         p, h = self.point, self.handoff
-        if p is not None and p["outcome"] == "unresolved" and not (h is not None and h["q"] == p["q"] and h["outcome"] == "declined"):
+        if p is not None and p["outcome"] == "unresolved" and not (h is not None and h["q"] == p["q"] and h["kind"] == "handoff" and h["outcome"] == "declined"):
             # 点を言っていただけないまま終えた・ご説明できなかった：断られたとはしない（締めない＝残りの質問へ・営業に引き継ぐ架電は詳しい者からのお話を伺う＝
-            # _handoff_step）。詳しい者からのお話もはっきり断られたら、お断りと同じに締める（その業務はかけない）
+            # _handoff_step）。詳しい者からのお話もはっきり断られたら、お断りと同じに締める（その業務はかけない）。締める前の申し出（資料のお送りなど）を
+            # 断られても、ご承認を断られたとはしない（お礼の締め＝✅ 2026-11-09 日本時間6時33分57秒「(ア)…ｂ」の帳面の伺い「断られたら…お礼の締め」）
             asking.add(p["q"])
         # 言い切っていないお断りのあとに、業務設定の追って伺う質問（ask_if_hedged）をまだ伺い終えていない：伺う前に締めない（⛔ 2026-11-03 の見直しで
         # 見つけた：最終目的の質問への「来月以降になると思います」に追って伺う質問があっても、伺う前に「目的が果たせない」で締めていた）。当たるかは _business_next
@@ -10947,7 +11030,7 @@ class Flow:
 
 
 def tool_declarations(questions: list[Question], replay: bool = False, target: bool = False, answers: tuple = (), known: tuple = (),
-                      handoff_ways: tuple = ()):
+                      handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None):
     """AIが呼べる操作（6-2）の宣言を作る唯一の場所。条件の選択肢は、質問の宣言＋システムの2つ。
     target：目的の人のある業務か（相手の種別に、受付・目的の人を足す。DESIGN.md 4-3）。known：自分で答える質問の受け皿に選べる、知っていることの文
     （Flow.known_lines）。
@@ -10964,8 +11047,8 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
     texts = {"message": "（伝言の文）", "promise_again": "（約束の電話の一言）"}
     added = [callback_question(r, texts.get(r)) for r in ASKED_ROLES if target or r not in ("authority", "promise_again")]
     added += [callback_question("other_wish", of=q) for q in questions if may_wish(q)]
-    # 営業に引き継ぐ架電（業務設定の引き継ぎの方法 handoff_ways がある）だけ、改めてのお話の方法を選んでいただく N5（選択肢が業務で変わる＝W1 と同じ）
-    added += [callback_question("handoff_way", ways=tuple(handoff_ways))] if handoff_ways else []
+    # 業務設定で決まる申し出（締める前の申し出 N6・方法を選んでいただく N5＝選択肢が業務で変わる＝W1 と同じ。N4 は上の並びにもある）
+    added += offer_questions(handoff_ways, close_offer)
     qids = list(dict.fromkeys([q.id for q in questions] + [q.id for q in added]))
     conds = sorted({c for q in questions + added for c in q.labels})
     A = ARG_LABEL

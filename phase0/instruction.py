@@ -13,7 +13,7 @@ import dataclasses
 from dataclasses import dataclass, field
 
 from flowctl import notice  # AIへの知らせの枠の唯一の場所
-from flowctl import approval_explanation, KNOWN_HEADS, label
+from flowctl import approval_explanation, CloseOffer, KNOWN_HEADS, label, offer_questions
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
                      check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
@@ -137,6 +137,10 @@ class Business:
     # と伺い、はいならこの中から選んでいただく（flowctl.Flow._handoff_step）。空なら営業に引き継がない架電（一言を挟んで残りの質問へ）。✅ 2026-11-09 日本時間
     # 4時36分49秒 ユーザー
     handoff_ways: tuple = ()
+    # 営業に引き継がない架電の、締める前の申し出（flowctl.CloseOffer＝申し出の文・聞くこと・方法。業務設定＝取込＝CL-2）。あれば、ご承認が最終目的のご承認の手順を
+    # 点を言っていただけないまま終え、残りの質問が無いとき、締める前に営業に引き継ぐ架電の申し出と同じ1か所で伺う（flowctl.Flow._handoff_step）。None なら今の
+    # お礼の締め。✅ 2026-11-09 日本時間6時33分57秒 ユーザー「・(ア) 営業に引き継がない架電で、ご承認が最終目的で、残りの質問が無いとき：ｂ」
+    close_offer: CloseOffer | None = None
     # 依頼者がすること（登録・手配など。業務設定＝CL-2）。事実を伺う質問の、言い切っていない最初の答えの確かめ「それでは（意味の言葉）ということで（依頼者が
     # すること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01 日本時間6時05分・6時27分 ユーザー）。空なら「…ということで承っておいて大丈夫でしょうか？」
     # （phrases.client_does_words の1か所。✅ 2026-11-08 日本時間5時33分05秒 ユーザー：「…「～で承っておいて」に変更しましょうか。こちらの方が自然だし汎用的です。」）
@@ -261,7 +265,9 @@ class Business:
                 + [f"{KNOWN_HEADS['approval']}（{q.id}）：{approval_explanation(q)}" for q in self.questions if approval_explanation(q)]
                 # 選択肢ごとの良い点・気をつける点（迷っているお客様に選ぶ助けを伝える材料と受け皿＝flowctl.Flow._hesitation。✅ 2026-11-07 日本時間
                 # 13時05分06秒・18時03分49秒 ユーザー）
-                + [f"{KNOWN_HEADS['option']}（{q.id}「{label(c)}」）：{n}" for q in self.questions for c, n in q.option_notes.items()]
+                # 申し出の質問（詳しい者からのお話の良い点＝flowctl.offer_questions の1か所）も同じ
+                + [f"{KNOWN_HEADS['option']}（{q.id}「{label(c)}」）：{n}" for q in [*self.questions, *offer_questions(self.handoff_ways, self.close_offer)]
+                   for c, n in q.option_notes.items()]
                 # 業務設定で許された申し出（flowctl.own_answer_problem の may_follow_up）も、こちらがしてよいことの事実（無いと、判定が止める）
                 + (["こちらがしてよいこと：業務の情報に無いご質問には、確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってよい"]
                    if self.follow_up else [])]
@@ -299,7 +305,7 @@ class Business:
         AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
         from flowctl import Flow
         return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does, handoff_ways=tuple(self.handoff_ways),
-                    play_recordings=play_recordings, voicemail_message=self.voicemail_message,
+                    close_offer=self.close_offer, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
                     name_readings=self.name_readings(), judge_names=self.judge_names(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か

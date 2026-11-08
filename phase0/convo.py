@@ -641,7 +641,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                                                                                           target=business.target is not None,
                                                                                           answers=tuple(n for n, _ in business.answers),
                                                                                           known=tuple(flow.known_lines()),
-                                                                                          handoff_ways=tuple(business.handoff_ways)),
+                                                                                          handoff_ways=tuple(business.handoff_ways),
+                                                                                          close_offer=business.close_offer),
                                    thinking_budget=thinking_budget, speech_end=speech_end)
 
     played_upto = 0
