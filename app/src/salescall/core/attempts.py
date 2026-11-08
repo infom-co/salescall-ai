@@ -106,6 +106,21 @@ def in_row_count(table: str = "") -> str:
             f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)")
 
 
+def in_promise_count(table: str = "", period: str | None = None) -> str:
+    """お客様と約束したかけ直しの回数を数える範囲（SQL。1か所。next_action の約束の回の数え＝`_round_calls`・`_exact_next_try`・
+    `_unspecified_calls`・`_missed` が読む）。period＝その約束の担当の期（SQL の式。None＝その通話の期）：
+    - その約束の担当の期の通話だけ（担当の期の比べ＝試行の person_since）。前の担当の方に戻したとき、やめていたあいだにかけた電話は、ほかの期の
+      方（新しい担当の方）への電話なので、戻した約束の回に数えない（✅ 2026-11-08 ユーザー＝計画書 7-1 (31)。0214）。
+    - いまの担当の方の期の約束なら、行の回数の範囲（`in_row_count`＝番号を直したら、新しい番号で数え直す＝7-1 (4)）。
+    - 前の担当の方の期の約束（契約者が「守る」を選んだ約束）なら、その期の通話すべて（前の担当の方の番号で、約束の決まりいっぱいまでかける＝
+      ✅ 2026-11-08 ユーザー＝計画書 7-1 (32)。新しい番号での数え直しは、いまの担当の方への番号の直しの決まりなので当てない。⛔ 0213 まで：
+      前の番号へは1回で新しい番号へ移っていたので、前の番号への電話を数えなくても困らなかった）。"""
+    t = table + "." if table else ""
+    p = period or f"{t}person_since"
+    return (f"({t}person_since IS NOT DISTINCT FROM {p} AND ({in_row_count(table)}"
+            f" OR {p} IS DISTINCT FROM salescall.task_person_since({t}task_id, now())))")
+
+
 def count_start(table: str = "") -> str:
     """回数を数え始めてからの発信の条件（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信（直していなければ、すべて）。
     数え始めの時刻はデータベースの salescall.task_count_from（0180）。行の回数（`in_row_count`）と、その番号へかける電話の回数（番号の
