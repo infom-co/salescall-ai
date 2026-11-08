@@ -5208,7 +5208,7 @@ class Flow:
                 # もう一度…」（"form"＝設計の (3)「お客様ははっきり話しているので、電話のせいにする聞き返しは合わない」＝G-14・言い直さない質問の聞き直し
                 # _check_again と同じ）。⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの H-1 を直す途中、流れの制御に通して見つけた）：
                 # 判定の「決められない」と会話AIの「わからない」の食い違いにも「申し訳ございません、お電話が少し遠いようでして…」と聞き返していた
-                return self._ask_again(qid, "form" if self._heard_clearly() else "unclear", f"{why}（AIは「{label(cond)}」と受け取った）")
+                return self._ask_again(qid, self._ask_kind(), f"{why}（AIは「{label(cond)}」と受け取った）")
             return self._take_system(qid, cond, a.get("unknown_why"))
         after = self.unreported_correction[1] if self.unreported_correction and self.unreported_correction[0] == qid else None
         self.unreported_correction = None
@@ -5567,6 +5567,14 @@ class Flow:
         同じ heard_alike。届いていない確かめは比べない＝_compare と同じ）。"""
         said, ear = self.callee_said or "", self.check.get("ear")
         return self.unclear_turn != self.callee_turns and (ear is None or heard_alike(said, ear))
+
+    def _ask_kind(self) -> str:
+        """意味が決まらない答え（判定の読みと会話AIの報告が割れた・曖昧な答えで言い直す言葉が無い・目的に進む向きが1つに決まらない）を質問から聞き直すときの
+        聞き返しの種類を決める唯一の場所（_ask_again に渡す）：聞き取れている（_heard_clearly）なら、お電話のせいにせず "form"＝「はい、」＋「恐れ入ります。
+        （聞くこと）をもう一度…」（本書 9-5 の (3)「お客様ははっきり話しているので、電話のせいにする聞き返しは合わない」＝G-14）・聞き取れていなければ
+        "unclear"＝「申し訳ございません、」＋「お電話が少し遠いようでして…」。会話AIが聞き取れないと報告したとき（report_unclear）は、ここを通らない（聞き取りの
+        問題）。⛔ 2026-11-08 日本時間0時台（K-13）は最初の答えの1か所だけ・11時台（F1 の設計で流れの制御に通して見つけた）に確かめ直しの1か所の2つも通した"""
+        return "form" if self._heard_clearly() else "unclear"
 
     def _hesitate_now(self, voiced: bool = False) -> dict:
         """迷っているお客様（_hesitation が当たった）に応じる返事の唯一の場所（先に判定の読みで応じる1か所 _judged_first から＝会話AIの報告で来ても、報告の
@@ -9005,7 +9013,7 @@ class Flow:
             # 選択肢の名前が返事の言葉だけ（「はい」「いいえ」）で、意味の言葉が取込で決まらなかった＝言い直せない（止めずに進める）。
             # 曖昧な答えは、言い直さずに聞き返す（聞き返しの回数と言い方は _ask_again の1か所）。それ以外は聞き取れた答えのまま受け付ける
             if after in ("ambiguous", "hedged", "hedged_fact", "hedged_noted", "settle"):
-                return self._ask_again(qid, "unclear", "曖昧な答え（言い直す言葉が無い）")
+                return self._ask_again(qid, self._ask_kind(), "曖昧な答え（言い直す言葉が無い）")
             it.set("accepted", "選択肢の型で、言い直す言葉が無い（聞き取れた答えのまま受け付ける）")
             return self._advance("受け付けました。")
         it.set("checking", "言い直して確かめる")
@@ -9087,7 +9095,7 @@ class Flow:
         if after in ("ambiguous", "settle"):
             ahead = q.toward
             if len(ahead) != 1:
-                return self._ask_again(qid, "unclear", "曖昧な答え（目的から遠ざかる向きの言葉では言い直さない・目的に進む向きが1つに決まらない）")
+                return self._ask_again(qid, self._ask_kind(), "曖昧な答え（目的から遠ざかる向きの言葉では言い直さない・目的に進む向きが1つに決まらない）")
             it.condition = ahead[0]
             if it.value in q.away_answers:
                 it.value = ahead[0]

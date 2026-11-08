@@ -19364,6 +19364,33 @@ class HedgedSalesTest(unittest.TestCase):
         r = answer_then(f, "そうなんですね。", "解約はいつでも承っております。")
         self.assertEqual((r["ack"], [p["text"] for p in r["play"]]), ("arigatou", ["続きましてお支払いはカードと振込のどちらがよろしいでしょうか？"]))
 
+    def test_meaning_disagreement_heard_clearly_is_not_blamed_on_the_line(self):
+        # 判定の読みと会話AIの報告が割れた・曖昧な答えで意味の言い直しができないときの聞き返しは、聞き取れていれば（Flow._heard_clearly）お電話のせいにせず
+        # 「はい、」＋「恐れ入ります。（聞くこと）をもう一度…」（本書 9-5 の (3)「お客様ははっきり話しているので、電話のせいにする聞き返しは合わない」＝G-14）。
+        # 聞き返しの言い方を選ぶのは1か所（Flow._ask_kind）。⛔ 2026-11-08 日本時間11時台（F1 の設計で流れの制御に通して見つけた）：0時台の K-13 で直したのは
+        # 最初の答えの「わからない」と判定の「決められない」の食い違いの1か所だけで、確かめ直しの1か所（_check_again）の「言い直す言葉が無い」「目的に進む向きが
+        # 1つに決まらない」では「申し訳ございません、お電話が少し遠いようでして…」のままだった
+        from flowctl import QUERY, QUERY_NO, UNDECIDED, Flow, Question
+        from meaning_judge import Reading
+
+        def run(words, reading, firm, ai, q1):
+            f = Flow([q1, Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))], play_recordings=True)
+            f.use_checks("judge")
+            f.on_callee(); f.on_heard(words)
+            r = Reading(reading, firm=firm)
+            setattr(r, QUERY, QUERY_NO)
+            f.on_check("judge", r)
+            return f.apply("record_answer", {"question_id": "Q1", "condition_id": ai})
+        brochure = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        contact = Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("電話", "メール", "不要"), away=("不要",),
+                           meanings={"電話": "お電話でのご連絡", "メール": "メールでのご連絡", "不要": "ご連絡は要らない"})
+        for words, reading, firm, ai, q1 in (("送ってもらって構いません。", "はい", True, "いいえ", brochure),   # 言い直す言葉が無い（9008行の道）
+                                             ("結構です。", UNDECIDED, True, "不要", contact)):               # 曖昧な答えで目的に進む向きが2つ（_keep_toward_goal）
+            r = run(words, reading, firm, ai, q1)
+            self.assertEqual((r["result"], r["ack"]), ("ask_back", "hai"), words)
+            self.assertNotIn("お電話が少し遠い", r["say"], words)
+            self.assertTrue(r["say"].startswith("恐れ入ります。"), words)
+
     def test_thinking_or_waiting_words_are_not_end_doubts(self):
         # ⛔ 2026-11-06 日本時間13時台の見直し（待つ・かけ直すの持ち場の指摘2）で見つけた：判定が「考えている途中」「返事を待つ」と読んでいても、電話を終える
         # 言葉かの項目が「決められない」（割れも）だと、ご遠慮の一言「失礼いたしました。今後このようなお電話はご遠慮したほうがよろしいでしょうか？」を伺った
