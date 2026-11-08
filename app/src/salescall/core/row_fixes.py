@@ -16,6 +16,9 @@
   番号の「違う」の直しと同じ選び（7-1 (21)(25)）を受ける（0206）。選びが要るか・選べるかは `_old_promise_choice` の1か所（データベースの
   salescall.task_old_promise_choice_needed を読む。守りも同じ関数）。画面が「2つ目の選び（前の担当の方との約束も守るか）が要るか」を読む入口は
   `old_promise_choice_needed`。直したあとの予定は next_action の1か所（番号＝`after_dial_fix`・名前など＝`after_person_fix`）。
+- 欄の値の整え方（前後の空白を除く・空なら消す）と、その直しでお呼びする方が替わるか（表記の揺れ＝全角・半角・空白の違いだけなら替わらない。
+  データベースの salescall.person_fix_changes の1か所＝0209）は `_person_fix` の1か所（直す入口 `fix` と、画面の入口
+  `old_promise_choice_needed` が通る＝画面が選びを出すのに、直す入口が選びを断る、の食い違いを作らない）。
 """
 
 from __future__ import annotations
@@ -42,14 +45,14 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
     """行の1つの欄を直す（書くのはここだけ）。value が空なら、その欄を消す。直したあとの、その欄のいまの値を返す。
     お呼びする方の名前・フルネーム・役職・部署（お呼びする方が替わる欄＝データベースの salescall.person_fix_field の1か所）の中身を直すと、担当の期が
     替わる（計画書 7-1 (19)）。値が変わらない直し（同じ名前のまま読みだけを直す・同じ値を入れ直す）は、お呼びする方の替わりにしない（期も予定も
-    変えない・選びは要らない＝渡せば `FixInvalid`。替わるかはデータベースの salescall.person_fix_changes の1か所。0208）。keep_old_promise＝そのとき前の担当の方とのかけ直しの約束が残っていて、約束の番号がいまかける番号でない（前の担当の方
+    変えない・選びは要らない＝渡せば `FixInvalid`。0208）。表記の揺れだけの直し（全角・半角・半角カナ・空白の違いだけ）も替わらない（0209）。
+    値の整え方と、替わるかは `_person_fix` の1か所（画面の入口 `old_promise_choice_needed` も通る。替わるかの決まりはデータベースの
+    salescall.person_fix_changes）。keep_old_promise＝そのとき前の担当の方とのかけ直しの約束が残っていて、約束の番号がいまかける番号でない（前の担当の方
     の携帯など）ときに、契約者が画面で選ぶ「前の担当の方との約束も守るか」（番号の直しの `fix_dial_number` の keep_old_promise と同じ意味・同じ
     1か所 `_old_promise_choice`。要るときは必ず渡す・要らないときは渡さない＝渡さなければ／渡せば `FixInvalid`。データベースも同じ1か所で守る＝
     0206 の task_fix_guard）。約束の番号がいまかける番号なら選べない（前の担当の方へかける道が無いので、約束をやめ、引き継ぎを確かめる電話）。
     直したあとの予定は next_action.after_person_fix の1か所が決める。"""
-    if field not in FIELDS:
-        raise FixInvalid(f"直せる欄は {[FIELD_NAMES[f] for f in FIELDS]} です（{field!r}）")
-    text = value.strip() if isinstance(value, str) and value.strip() else None
+    text, new_person_e164 = _person_fix(tx, task_id, field, value)
     r = readings.UNDECIDED
     if field in NAME_FIELDS and text is not None:
         given = reading.strip() if isinstance(reading, str) and reading.strip() else None
@@ -77,13 +80,7 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
         why = business_settings.load(tx, version["v"]).target_needs().role_unclear(text)
         if why is not None:
             raise FixInvalid(why)
-    # お呼びする方が替わる直しか（替わる欄で、値が直前の値と違う。読みだけの直し・同じ値の入れ直しは替わらない）は、データベースの1か所
-    # （salescall.person_fix_changes。担当の期 task_person_since と守り task_fix_guard も同じ関数を読む。0208）
-    changes_person = bool(tx.one("SELECT salescall.person_fix_changes(%s, %s, %s, NULL) AS p", (task_id, field, text))["p"])
-    if changes_person and tx.one("SELECT 1 AS x FROM salescall.tasks WHERE task_id = %s", (task_id,)) is None:
-        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
-    # 名前などの直しでは番号は変わらない：新しい担当の方へかける番号は、いまかける番号
-    _old_promise_choice(tx, task_id, tasks.dial_number(tx, task_id)["phone_e164"] if changes_person else None, keep_old_promise)
+    _old_promise_choice(tx, task_id, new_person_e164, keep_old_promise)
     tx.execute(
         "INSERT INTO salescall.task_fixes (tenant_id, client_id, task_id, field, value, reading, reading_by, candidates, likely,"
         "                                  recorded_by, keep_old_promise)"
@@ -93,25 +90,52 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
     row = tx.one(f"SELECT {field} AS value FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
     if row is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
-    if changes_person:
+    if new_person_e164 is not None:
         next_action.after_person_fix(tx, task_id, cause=f"ダッシュボードで、{FIELD_NAMES[field]}を直した（担当の期が替わる直し）")
     return {"field": field, "value": row["value"], "reading": r.reading if text is not None else None}
 
 
-def old_promise_choice_needed(tx: Tx, task_id: UUID, phone: str | None = None) -> bool:
+def old_promise_choice_needed(tx: Tx, task_id: UUID, phone: str | None = None, *, field: str | None = None,
+                              value: str | None = None) -> bool:
     """画面の入口（CL-3）：番号を直す画面・名前などを直す画面で、2つ目の選び「前の担当の方との約束も守るか」を出すか（✅ 2026-11-07 ユーザー＝
-    計画書 7-1 (21)(25)。0206）。phone＝番号を直す画面で「担当の方は違う」を選んだときの新しい番号（番号の読み方は phone.normalize の1か所。読めな
-    ければ `FixInvalid`）。名前・フルネーム・役職・部署を直す画面は渡さない（番号は変わらないので、いまかける番号で見る）。真なら、選ばなければ
-    直せない（`fix_dial_number`・`fix` の keep_old_promise）。偽なら、選びを出さない（約束が無い・約束の番号が新しい担当の方の番号＝「守る」は
-    選べず、約束をやめて引き継ぎを確かめる電話）。決めるのはデータベースの salescall.task_old_promise_choice_needed の1か所（包むだけ）。"""
-    if phone is None:
-        e164 = tasks.dial_number(tx, task_id)["phone_e164"]
+    計画書 7-1 (21)(25)。0206）。渡すのは、番号か、欄と値の、どちらか一方だけ（両方・どちらも無しは `TypeError`）。
+    - phone＝番号を直す画面で「担当の方は違う」を選んだときの新しい番号（番号の読み方は phone.normalize の1か所。読めなければ `FixInvalid`）。
+    - field・value＝名前・フルネーム・役職・部署などを直す画面の、直す欄と、入れた値（`fix` に渡すものと同じ。value が空なら、その欄を消す直し）。
+      その直しでお呼びする方が替わるか（値の整え方と、表記の揺れだけの違いを替わりとしない決まり）は `fix` と同じ1か所 `_person_fix` で決める
+      （替わらない直し＝値が同じ・表記の揺れだけ・会社名の直し、は偽）。替わる直しなら、番号は変わらないので、いまかける番号で見る。
+      ⛔ 0208 まで：欄も値も受けず、名前などの直しは、いつも替わる直しとして答えた（値が変わらない直しでも真を返し、画面が選びを出すのに、
+      `fix` は選びを断った）。
+    真なら、選ばなければ直せない（`fix_dial_number`・`fix` の keep_old_promise）。偽なら、選びを出さない（約束が無い・約束の番号が新しい担当の方の
+    番号＝「守る」は選べず、約束をやめて引き継ぎを確かめる電話・お呼びする方が替わらない直し）。決めるのはデータベースの
+    salescall.task_old_promise_choice_needed の1か所（包むだけ）。"""
+    if (phone is None) == (field is None) or (field is None and value is not None):
+        raise TypeError("old_promise_choice_needed には、番号（phone）か、直す欄と値（field・value）の、どちらか一方だけを渡します")
+    if field is not None:
+        _, e164 = _person_fix(tx, task_id, field, value)
     else:
-        number = normalize(phone)
+        number = normalize(phone or "")
         if number.e164 is None:
             raise FixInvalid(f"電話番号として読めません（{number.reason or '番号が不明です'}）")
         e164 = number.e164
-    return _choice_needed(tx, task_id, e164)
+    return e164 is not None and _choice_needed(tx, task_id, e164)
+
+
+def _person_fix(tx: Tx, task_id: UUID, field: str, value: str | None) -> tuple[str | None, str | None]:
+    """行の欄の直しの、値の整え方と、お呼びする方が替わるかの1か所（直す入口 `fix` と画面の入口 `old_promise_choice_needed` が通る）。
+    （書く値, 新しい担当の方へかける番号）を返す。書く値は、前後の空白を除いた値（空なら None＝その欄を消す。値そのものは契約者が入れた
+    まま残す）。新しい担当の方へかける番号は、その直しでお呼びする方が替わるときだけ（名前などの直しでは番号は変わらないので、いまかける
+    番号）。替わらなければ None。
+    替わるかはデータベースの salescall.person_fix_changes の1か所（担当の期 task_person_since と守り task_fix_guard も同じ関数を読む）：
+    お呼びする方が替わる欄（名前・フルネーム・役職・部署）で、値が直しの直前の値と違うとき。比べるのは表記をそろえた形（0209 の
+    salescall.compare_form＝全角・半角・半角カナ・空白の違いをそろえる。出典の照らし core/source_check.normalize と同じ決まり）なので、
+    読みだけの直し・同じ値の入れ直し・表記の揺れだけの直しは替わらない（0208・0209）。"""
+    if field not in FIELDS:
+        raise FixInvalid(f"直せる欄は {[FIELD_NAMES[f] for f in FIELDS]} です（{field!r}）")
+    if tx.one("SELECT 1 AS x FROM salescall.tasks WHERE task_id = %s", (task_id,)) is None:
+        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    text = value.strip() if isinstance(value, str) and value.strip() else None
+    changes = bool(tx.one("SELECT salescall.person_fix_changes(%s, %s, %s, NULL) AS p", (task_id, field, text))["p"])
+    return text, (tasks.dial_number(tx, task_id)["phone_e164"] if changes else None)
 
 
 def _choice_needed(tx: Tx, task_id: UUID, e164: str) -> bool:

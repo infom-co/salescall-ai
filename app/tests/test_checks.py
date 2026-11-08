@@ -304,7 +304,7 @@ class CallErrorsOnlyThroughTroubles(Planted):
         fixes = ("    row_fixes.fix(tx, t, 'target_role', '部長', keep_old_promise=None)\n"
                  "    row_fixes.fix_dial_number(tx, t, '0', same_person=True)\n"
                  "    row_fixes.choose_old_promise(tx, t, keep_old_promise=True)\n"
-                 "    row_fixes.old_promise_choice_needed(tx, t)\n")
+                 "    row_fixes.old_promise_choice_needed(tx, t, field='target_role', value='部長')\n")
         plans = ("    next_action.after_dial_fix(tx, t, cause='x')\n"
                  "    next_action.after_person_fix(tx, t, cause='x')\n"
                  "    next_action.after_old_promise_choice(tx, t, keep_old_promise=False, cause='x')\n")
