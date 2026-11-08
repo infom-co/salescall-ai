@@ -19501,6 +19501,36 @@ class HedgedSalesTest(unittest.TestCase):
         got = run(date, "15日の14時でお願いします。", "答えた", "unknown")
         self.assertEqual((got[0], got[3]), ("rejected", None), got)
 
+    def test_reading_outside_the_answers_of_the_question_is_not_confirmed(self):
+        # 判定の読みが、その質問の選べる答えに無い（事実を伺う質問への「どちらでも」＝✅ 2026-11-01 日本時間1時50分 (a)「OK」：事実を伺う質問では「どちらでも」を
+        # 選べるものから外す＝「お任せします」は答えになっていないので聞き直す）：その読みで確かめず、質問から聞き直す。⛔ 2026-11-09 日本時間3時46分53秒のご質問
+        # （(g) が何を言いたかったのか）に答えるため流れの制御に通して見つけた：答えに無い読みは「決められない」になるが、その先で選択肢を名指しした読みを数える所
+        # （Flow._undecided_answer）が「どちらでも」「どれも要らない」を質問に関係なく選択肢として数え、「はい、念のためどちらでも構わないということで
+        # よろしいでしょうか？」と確かめていた。選べる答えかは Question.all_conditions の1か所（Question.offers）で決める＝同じ手書きの4か所も
+        from flowctl import ANY, NONE, QUERY, QUERY_NO, Flow, Question
+        from meaning_judge import Reading
+        nxt = Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        car = Question("Q1", "当日はお車でお越しでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True,
+                       meanings={"はい": "お車でお越し", "いいえ": "お車ではない"})
+        for judged, words in ((ANY, "どっちでもいいですよ。"), (NONE, "どれでもないですね。")):
+            for ai in ("はい", "いいえ", "unknown"):
+                f = Flow([car, nxt], play_recordings=True)
+                f.use_checks("judge")
+                f.on_callee(); f.on_heard(words)
+                r = Reading(judged, firm=True)
+                setattr(r, QUERY, QUERY_NO)
+                f.on_check("judge", r)
+                rep = f.apply("record_answer", {"question_id": "Q1", "condition_id": ai})
+                heard = " ".join(p.get("text", "") for p in rep.get("play") or []) + (rep.get("say") or "")
+                self.assertNotIn("どちらでも", heard, (judged, ai, rep))
+                self.assertNotIn(f.items["Q1"].condition, (ANY, NONE), (judged, ai, f.items["Q1"].condition))
+                self.assertIn("もう一度", heard, (judged, ai, rep))
+        # 選べる答えかの1か所：業務の選ぶ質問は「どちらでも」「どれも要らない」を選べる・事実を伺う質問とシステムの質問は選べない
+        pay = Question("Q3", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        self.assertTrue(pay.offers(ANY) and pay.offers(NONE) and pay.offers("カード"))
+        self.assertFalse(car.offers(ANY) or car.offers(NONE) or car.offers("unknown"))
+        self.assertTrue(car.offers("はい"))
+
     def test_judges_decide_the_reply_to_a_restatement_whatever_the_conversation_ai_reports(self):
         # 言い直しへの返事も、判定の組が確かに読んだ答えで決める（会話AIの「合っている」「違う値を言われた」・選んだ選択肢は使わない＝Flow._judged_reply の1か所。
         # ✅ 2026-11-08 日本時間12時11分40秒の同じ理由）。直した値の文字だけは会話AIが渡す＝判定が「違う値を言われた」と読み、会話AIが値を渡さなければ、お客様には

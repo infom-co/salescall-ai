@@ -590,7 +590,7 @@ def dangerous(it: dict, q: Question, key: str) -> bool:
     if it["set"] == "D":
         return misread_as_affirmed(it, key)
     got = it.get(key)
-    return got not in accept(it) and (got in q.conditions or got in (ANY, NONE)) and it.get(f"{key}言い切り") is not False
+    return got not in accept(it) and q.offers(got) and it.get(f"{key}言い切り") is not False   # 選べる答えかは本番と同じ1か所（Question.offers）
 
 
 # 流れの制御がすること（判定1つの読みから。Flow._agree の向き：最初の答えは、言い切っていなければ念のため確かめる・決められなければ聞き直す／
@@ -707,7 +707,7 @@ def flow_wants(it: dict, q: Question) -> set[str]:
                 ok.add(ASK_AGAIN if a in (UNDECIDED, "unknown") else DENIED)
         elif a in (UNDECIDED, "unknown"):
             ok.add(ASK_AGAIN)
-        elif a in q.conditions or a in (ANY, NONE):
+        elif q.offers(a):   # 選べる答えかは本番と同じ1か所（Question.offers）
             unsure = ANYTIME_TAKE + a if takes_for_now(q, a) else f"念のため確かめる：{a}"   # 言い切っていない答えの動き（flow_act と同じ1か所 takes_for_now）
             ok |= {f"受け取る：{a}", unsure} if e else {unsure if h else f"受け取る：{a}"}
         else:

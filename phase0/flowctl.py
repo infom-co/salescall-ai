@@ -2357,6 +2357,14 @@ class Question:
         business = self.type == "choice" and not self.asks_fact and not self.callback
         return tuple(self.conditions) + ((ANY, NONE) if business else (ANY,) if self.lists_ways else ()) + SYSTEM_CONDITIONS
 
+    def offers(self, condition: str | None) -> bool:
+        """condition が、この質問でお客様が選べる答え（宣言した選択肢と、この質問が出す「どちらでも」「どれも要らない」＝all_conditions のうち、わからない・
+        答えたくないを除いたもの）か（唯一の決まり＝判定の読み・確かめる答えが、この質問の答えを名指ししているか。Flow._names_other・_undecided_answer・
+        _op_record_answer の確かめ・_confirm_again が使う）。⛔ 2026-11-09 日本時間3時46分53秒のご質問のあとに見つけた：4か所が「宣言した選択肢か「どちらでも」
+        「どれも要らない」か」を手で書き、事実を伺う質問（「どちらでも」を出さない＝11-01 1時50分）への判定の「どちらでも」を名指しと数え、「はい、念のため
+        どちらでも構わないということでよろしいでしょうか？」と確かめていた"""
+        return condition is not None and condition in self.all_conditions and condition not in SYSTEM_CONDITIONS
+
     @property
     def checks_now(self) -> bool:
         """確かめがそろわない答えを、その場で確かめる質問か（唯一の決まり＝必須の質問・その場で1回だけ伺い直す質問 asks_once。ほかは聞き返さず確かめない
@@ -5226,7 +5234,7 @@ class Flow:
                 return self._undecided_answer(qid)
         if cond in SYSTEM_CONDITIONS:
             why, back = self._checks(q, cond, policy=False)
-            if why and q.checks_now and q.type in CHOICE_TYPES and back in q.conditions + (ANY, NONE):
+            if why and q.checks_now and q.type in CHOICE_TYPES and q.offers(back):
                 # ⛔ 2026-10-17：「いや、これからなんです」「家まだです」（聞き取りは正しい）を、AIが「わからない」と報告し、確かめずに受け取っていた
                 return self._check_again(qid, why, cond, back)
             if why and q.required and not (back == cond and it.ask_backs):
@@ -5364,7 +5372,7 @@ class Flow:
         """判定の読み meaning が、取込で決めた意味 decided と違う選択肢（宣言した選択肢か「どちらでも」「どれも要らない」）を名指ししているか
         （唯一の決まり＝取込で意味が決まった言葉だけの答えを確かめるか。流れの制御 _compare と測りの数え g53_meaning.flow_act が使う）。
         「決められない」「わからない」や、同じ選択肢の言い切っていない読みは名指ししていない＝確かめない。"""
-        return meaning is not None and meaning != decided and (meaning in q.conditions or meaning in (ANY, NONE))
+        return meaning is not None and meaning != decided and q.offers(meaning)
 
     def _checks(self, q: "Question", reported: str | None, policy: bool = True, confirming: bool = False,
                 words: str | None = None, decided: str | None = None) -> tuple[str | None, str | None]:
@@ -5429,7 +5437,7 @@ class Flow:
             # （_compare と同じ1か所＝_prior_back。✅ 2026-10-31 の昼「(a) 検査OK」・夜「『それでは…ということでよろしいでしょうか？』は矛盾や言い直しの答えを
             # 最終的に確認する場合です」）。言い直さない質問は、_check_again が質問から聞き直す
             return self._check_again(qid, PRIOR_BACK_WHY, None, back)
-        named = {str(v) for k in JUDGMENTS if (v := self.heard_check.get(k)) is not None and (str(v) in q.conditions or str(v) in (ANY, NONE))}
+        named = {str(v) for k in JUDGMENTS if (v := self.heard_check.get(k)) is not None and q.offers(str(v))}
         if q.type in CHOICE_TYPES and len(named) == 1:
             # 判定どうしが割れ（_meaning_of の「決められない」）、選択肢を名指しした判定の読みが1つだけ：その判定の読みで確かめる（言い直す質問は「念のため…」・
             # 言い直さない質問は、その選択肢で意味合いを尋ねる＝_check_again の1か所）。候補は判定の読み（会話AIの選んだ答えではない）。⛔ 2026-11-08 日本時間
@@ -5877,7 +5885,7 @@ class Flow:
             # （11-07 23時26分13秒のご質問の見直しの H-1・H-2）：「上の者に聞かないと分からないです。」にも同じ確かめの一言をもう一度言い、そのあと理由を
             # 「まだ決まっていない」にして保留で締めていた
             return self._take_system(qid, "unknown")
-        if q.required and not it.final and it.corrections < self.limits.after_correction and (q.type not in CHOICE_TYPES or back in q.conditions + (ANY, NONE)):
+        if q.required and not it.final and it.corrections < self.limits.after_correction and (q.type not in CHOICE_TYPES or q.offers(back)):
             it.corrections += 1
             return self._check_again(qid, why, reported, back, final=True)
         if undecided_now:
