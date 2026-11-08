@@ -778,8 +778,8 @@ def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None
     if attempt_id is not None:
         if not tasks.former_person_call(tx, attempt_id):
             return d
-    elif row is None or row["kind"] != "call" or row["person_since"] == person_now(tx, task_id):
-        return d   # 門のあと：止めた予定が、いまの担当の方の期の予定
+    elif answer is not None or apology or row is None or row["kind"] != "call" or row["person_since"] == person_now(tx, task_id):
+        return d   # 通話が無い（門のあとでない）・門のあと：止めた予定が、いまの担当の方の期の予定
     if d.kind == "end":
         own = apology or (answer is not None and d.end_reason in _PERSONAL_ENDS and not answer_ends_row(tx, attempt_id, answer))
         used = _count_end(tx, task_id, d.end_reason) or d.end_reason in NUMBER_ENDS

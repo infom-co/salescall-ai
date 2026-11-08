@@ -14,6 +14,8 @@
 --     受付の方が出て「不在です」と言った約束の電話のあとも約束が前の担当の方の期に残る。お客様が出たかで見ると、その電話を「新しい約束をした通話」と
 --     みなし、契約者への知らせも無く選び待ちで止まり、いままでの「守る」の選びも数えなかった（前の担当の方の携帯・名前などの直しの会社の番号へ
 --     「守る」で残した約束では、0213 でも同じことが起きえた）。
+--     「締めた通話か」（settled_at が NULL でない）は消した：判定の版（call_judgements）がある通話は締めた通話で、判定が保留（取り消せない決定の
+--     待ち）のときは、いまの予定が判定待ちになり約束の予定でないので、どの場面でも効かない（壊し試しで、外しても試験が落ちないことを確かめた）。
 
 CREATE OR REPLACE FUNCTION salescall.task_old_promise_call(p_task uuid) RETURNS uuid LANGUAGE sql STABLE
 SET search_path = salescall, pg_temp AS $$
@@ -24,7 +26,6 @@ SET search_path = salescall, pg_temp AS $$
                 ORDER BY a.claimed_at DESC, a.attempt_id DESC LIMIT 1) c ON true
   WHERE n.task_id = p_task AND salescall.promise_call(n.purpose, n.promised)
     AND n.person_since IS DISTINCT FROM salescall.task_person_since(p_task, now())   -- いまの予定が、前の担当の方の期の予定
-    AND EXISTS (SELECT 1 FROM salescall.call_judgements j                             -- その通話で、新しいかけ直しの約束をした
+    AND EXISTS (SELECT 1 FROM salescall.call_judgements j                             -- その通話で、新しいかけ直しの約束をした（締めた）
                 WHERE j.attempt_id = c.attempt_id AND j.business_state = 'callback_scheduled')
-    AND salescall.settled_at(c.attempt_id) IS NOT NULL
 $$;
