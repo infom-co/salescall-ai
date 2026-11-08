@@ -11,6 +11,7 @@ from datetime import timedelta
 from salescall.core import apology, attempts, business_rules, gate, next_action, notify, quality_stage, scheduler
 from tests.support import OPERATOR, callback, make_report, rules_raw, said
 from tests.test_apology import ApologyBase
+from tests.test_gate import ALL_DAY
 from tests.test_judge import goal_refused
 from tests.test_settle import SettleBase, rep
 
@@ -80,6 +81,12 @@ class SameNumberOtherRows(SettleBase):
         for row in (y, again):
             self.assertEqual(self.reason(row), "same_number_interval")
             self.assertEqual(self.tx(row, lambda tx: gate.pacing(tx, row["task"])).earliest, self.tomorrow(s))
+        # 待つのは次の日の、かけてよい時間帯の始まりまで（次の日の0時にしない＝門の1日の回数の待ちと同じ gate.next_opening の1か所）
+        self.put_client(s, "calling.hours", {k: [["09:00", "18:00"]] for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")})
+        opening = self.tx(y, lambda tx: gate.next_opening(tx, self.tomorrow(s), tenant_id=y["tenant"], client_id=y["client"],
+                                                          business_id=y["business"]))
+        self.assertEqual(self.tx(y, lambda tx: gate.pacing(tx, y["task"])).earliest, opening)
+        self.put_client(s, "calling.hours", ALL_DAY)
         self.put_client(s, "gate.same_number_gap", {"hours": 1})
         claimed = self.tx(s, lambda tx: tx.one("SELECT claimed_at FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["claimed_at"]
         self.assertEqual(self.tx(y, lambda tx: gate.pacing(tx, y["task"])).earliest, claimed + timedelta(hours=1))
@@ -199,6 +206,61 @@ class PromiseAndApology(ApologyBase):
         self.order(s, aid)
         p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((p["kind"], p["purpose"], p["apology_reasons"]), ("call", "apology", []))
+
+
+class OldPersonAfterAnotherFix(ApologyBase):
+    """(5) 番号を「違う」で直したときの、前の担当の方へのお詫び・番号の聞き直しの回数（✅ 2026-11-08 本体の決定＝計画書 7-1 (32) にそろえる）：
+    名前の直しと同じく、決めた回数まで前の担当の方へかけ、使い切ったら新しい担当の方へ。「同じ」担当の方の番号の直しは、前の番号へ1回のまま
+    （計画書 7-1 (17)(18)）。決める所は next_action._after_former の1か所（前の番号へ1回で移すのは `_old_number_moves`＝同じ担当の方の期の予定だけ）。
+    ⛔ 0201〜0215：番号の直しだけ、前の番号へ1回で新しい担当の方へ移った。"""
+
+    def test_the_apology_to_the_old_person_counts_every_call_to_them(self):
+        """「違う」で直す前に前の担当の方へかけたお詫びの電話も、決めた回数（retry.apology_max＝ここでは2）に数える（直したときから数え直さない＝
+        attempts.in_purpose_count）。直したときに1本かけたあとでも、新しい番号へ移さない。2本目で使い切って、新しい担当の方へ引き継ぎ。"""
+        import time
+        from dataclasses import replace
+        from salescall.core import row_fixes
+        from tests import support
+        from tests.support import fictional_jp_fixed
+        s = self.fresh(stage_cap=20)
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.put_client(s, "retry.apology_max", 2)
+        aid = self.call(s, verify=None, items=())
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=said()))
+        self.settle(s, aid)
+        self.order(s, aid)
+        unreached = replace(rep(("reception",), not_reached="absent"), apology_delivered=False)
+        time.sleep(1.1)
+        self.settle(s, self.call(s, report=unreached))                           # 1本目（直す前）：届かなかった
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=False), OPERATOR)["contact_id"]
+        plan = lambda: self.tx(s, lambda tx: next_action.current(tx, s["task"]))   # noqa: E731
+        self.assertEqual((plan()["purpose"], plan()["contact_id"]), ("apology", s["contact"]))   # 前の担当の方へ（1本で移さない）
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"], contact_id=s["contact"],
+                                                     cause="試験：別の時間帯を待たずに", promised=True, purpose="apology"))
+        time.sleep(1.1)
+        self.settle(s, self.call(s, report=unreached))                           # 2本目：使い切った
+        p = plan()
+        self.assertEqual((p["kind"], p["purpose"], p["contact_id"], p["promised"], p["handover"]), ("call", "normal", new, False, True))
+
+
+class Guards(SettleBase):
+    """0216 のデータベースの守り。"""
+
+    def test_a_recovering_deadline_is_only_on_an_exact_promise(self):
+        """取り戻す電話の期限（次の予定の列 window_recover_until）は、時刻ちょうどの約束（お客様が指定した時刻と幅を持つ、かけ直す予定）にだけ
+        付けられる（データベースの守り task_next_actions_window_recover）。"""
+        from salescall.core.access import Rejected
+        s = self.ready()
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        w = next_action.Window(now + timedelta(hours=1), (0, 24 * 3600), None, now - timedelta(hours=1), "day",
+                               recover_until=now + timedelta(hours=2))
+        write = lambda callee: self.tx(s, lambda tx: next_action._append(   # noqa: E731
+            tx, s["task"], call_at=now, end_reason=None, cause="試験：取り戻す電話", promised=True,
+            target=next_action.Target(s["contact"]), callee_at=callee, window=w))
+        with self.assertRaises(Rejected):
+            write(None)                                                          # 時刻ちょうどの約束でない
+        write(now)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["window_recover_until"], w.recover_until)
 
 
 if __name__ == "__main__":

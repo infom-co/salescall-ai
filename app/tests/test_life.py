@@ -880,7 +880,8 @@ class CallsNotUnwelcome(SupervisorBase):
         super().setUp()
         self.override("calling.ng_hours", NG_NONE)
         self.override("calling.hours_limit", LIMIT_7_22)
-        self.override("callee.designated_limit", ["07:00", "22:00"])   # 初めの値（お客様の営業時間は初めの 9〜19時のまま）
+        self.override("callee.designated_limit", ["07:00", "22:00"])   # 初めの値
+        self.override("callee.business_hours", ["09:00", "19:00"])      # 初めの値（試験の土台は1日じゅうにしている）
         self.shadow_labels, self.shadow_seen = shadow.Labels(), {}
 
     def tearDown(self):

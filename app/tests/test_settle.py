@@ -654,10 +654,12 @@ class PromiseNotTransferred(SettleBase):
                     self.assertGreaterEqual(d.at, clock["tomorrow"])
 
     def test_ok_to_call_again_counts_only_the_calls_in_the_round(self):
-        """またかけてよいと言われたときの、同じ回の中のかけ直しの上限は、その回にかけた数（不在の方針の回数。ここでは1回）。
-        2本目で次の回へ（⛔ 2026-10-22 の見直し14：前は、別の結果の回数と混ぜて数えていた）。"""
-        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}}
+        """またかけてよいと言われたときの、同じ回の中のかけ直しの上限は、その回のその日にかけた数（幅の約束の1日の回数＝業務ごとの設定
+        callback.window_daily_max。ここでは1回）。1本目で次の回へ（⛔ 2026-10-22 の見直し14：前は、別の結果の回数と混ぜて数えていた。⛔ 0215
+        まで：比べる相手は不在の方針の回数だった＝✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回」。0216）。"""
+        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 5, "interval": {"hours": 1}}
                                               for k in business_rules.POLICY_KEYS}))
+        self.put_client(s, "callback.window_daily_max", 2)
         now, window = self.promised(s)
         first = self.settle(s, self.call(s, report=self.report(True)))["decision"]
         self.assertEqual((first.promised, first.window.round), (True, 0))
@@ -3169,9 +3171,9 @@ class DialFixAfterCalls(SettleBase):
             with self.subTest(way=way):
                 s = self.ready()
                 new = self.kept_promise(s, way)
+                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # 試験：約束の最初の回の中で、いまかける（同じ回のまま2本）
+                w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week")
                 for n, report in enumerate((None, rep(("reception",), not_reached="absent")), 1):   # 出なかった・受付の方が出て不在
-                    now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])   # 試験：約束の最初の回の中で、いまかける
-                    w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week")
                     self.at(s, s["contact"], window=w)
                     time.sleep(1.1)
                     aid = self.call(s, ["dialing", "no_answer"]) if report is None else self.call(s, report=report)

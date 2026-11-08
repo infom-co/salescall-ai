@@ -57,6 +57,10 @@ class Base(unittest.TestCase):
         # お客様指定の歯止め時間（初め 7〜22時）も、試験を流す時刻（夜22時すぎなど）に左右されないように1日じゅうにする。
         # 歯止めで埋めて切る決まりは、値を決めた専用の試験（test_calling_hours.CalleeRange・test_settle.CallbackWindow）で確かめる
         self.override("callee.designated_limit", ["00:00", "24:00"])   # 終わりの 24:00 は1日の終わり（0121）
+        # お客様の営業時間（初め 9〜19時）も、お客様が言った幅の言葉で決まっていない端を切る（2026-11-08 ユーザー。0216）ので、同じく1日じゅうにする
+        # （午前・午後の読み分けは、歯止め時間を1日じゅうにした時点で、どちらも時間内＝変わらない）。営業時間で切る決まりは、値を決めた専用の試験
+        # （test_calling_hours.CalleeHours・test_life.CallsNotUnwelcome）で確かめる
+        self.override("callee.business_hours", ["00:00", "24:00"])
         load_calendar()
 
     # ── 試験のあいだだけ、システムの値を変える（終わったら、元の行の写しを足して戻す）

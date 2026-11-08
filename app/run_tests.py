@@ -225,6 +225,11 @@ _UNREACHED_NAME = "tests.test_apology.ApologyAfterDialFix.test_an_unreached_apol
 _ROW_ENTRIES = "tests.test_checks.CallErrorsOnlyThroughTroubles.test_the_row_fix_entries_are_for_the_screens_and_their_plans_for_row_fixes_only"
 _ADDED_WRITERS = "tests.test_checks.CallErrorsOnlyThroughTroubles.test_the_tables_added_to_the_writers_are_written_only_from_their_places"
 _M214 = "0214_kept_promise_runs_full_and_back_restores_dropped.sql"
+_M216 = "0216_calls_not_unwelcome.sql"
+_UNW = "tests.test_unwelcome."
+_UNW_SAME = _UNW + "SameNumberOtherRows."
+_UNW_PROMISE = _UNW + "PromiseAndApology.test_the_apology_is_said_at_the_head_of_the_promised_call"
+_LIFE_UNW = "tests.test_life.CallsNotUnwelcome."
 _BACK_DROPPED = _DF + "test_going_back_brings_back_a_dropped_promise_while_its_time_remains"
 _BACK_COUNT = _DF + "test_a_dropped_promise_brought_back_does_not_count_the_calls_to_the_other_person"
 _KEPT_FULL = _DF + "test_a_kept_promise_is_called_through_its_window_and_then_hands_over"
@@ -313,28 +318,23 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " SET search_path = salescall, pg_temp AS $$ SELECT NOT salescall.is_settled(p_attempt) $$",
      ("tests.test_gate.ActiveConflicts.test_unknown_judgement_keeps_the_same_customer_protected",)),
     ("ほかの依頼者がかけた声を見ない（声を替えない）",
-     "CREATE OR REPLACE FUNCTION salescall.number_last_voice_elsewhere(p_phone text) RETURNS text LANGUAGE sql STABLE"
+     "CREATE OR REPLACE FUNCTION salescall.number_last_voice_elsewhere(p_phone text, p_task uuid) RETURNS text LANGUAGE sql STABLE"
      " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::text $$",
      ("tests.test_gate.CallerNumberAndVoice.test_another_client_or_contractor_gets_the_other_voice",)),
     ("ほかの依頼者の声を、お客様が出なかった発信でも数える",
-     "CREATE OR REPLACE FUNCTION salescall.number_last_voice_elsewhere(p_phone text) RETURNS text LANGUAGE sql STABLE"
-     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT v.voice_name FROM salescall.attempts a"
-     " JOIN salescall.voice_types v ON v.code = a.voice_type WHERE a.phone_e164 = p_phone"
-     " AND a.client_id IS DISTINCT FROM salescall.cur_client() AND a.state NOT IN ('claimed', 'released')"
-     " ORDER BY a.claimed_at DESC LIMIT 1 $$",
+     _edited(_M216, "CREATE FUNCTION salescall.number_last_voice_elsewhere(", "AND salescall.is_dialed(a.state) AND salescall.reached_answer(a.attempt_id)",
+             "AND a.state NOT IN ('claimed', 'released')", end="\n$$"),
      ("tests.test_gate.CallerNumberAndVoice.test_only_what_the_customer_saw_or_heard_counts",)),
     ("ほかの依頼者の発信番号を、鳴らなかった発信でも数える",
-     "CREATE OR REPLACE FUNCTION salescall.line_called_number_elsewhere(p_line uuid, p_phone text) RETURNS boolean"
-     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT EXISTS (SELECT 1"
-     " FROM salescall.attempts a WHERE a.line_id = p_line AND a.tenant_id = salescall.cur_tenant()"
-     " AND a.phone_e164 = p_phone AND a.client_id IS DISTINCT FROM salescall.cur_client()"
-     " AND a.state NOT IN ('claimed', 'released')) $$",
+     _edited(_M216, "CREATE FUNCTION salescall.line_called_number_elsewhere(",
+             "AND a.client_id IS DISTINCT FROM salescall.cur_client() AND salescall.is_placed(a.state))",
+             "AND a.client_id IS DISTINCT FROM salescall.cur_client() AND a.state NOT IN ('claimed', 'released'))", end="\n$$"),
      ("tests.test_gate.CallerNumberAndVoice.test_only_what_the_customer_saw_or_heard_counts",)),
     ("約束したかけ直しかを、あとから変えられる",
      "DROP TRIGGER attempt_record_fixed ON salescall.attempts",
      ("tests.test_gate.UncountedDials.test_a_promised_callback_is_not_counted_afterwards",)),
     ("ほかの依頼者がかけた発信番号を見ない（発信番号を替えない）",
-     "CREATE OR REPLACE FUNCTION salescall.line_called_number_elsewhere(p_line uuid, p_phone text) RETURNS boolean"
+     "CREATE OR REPLACE FUNCTION salescall.line_called_number_elsewhere(p_line uuid, p_phone text, p_task uuid) RETURNS boolean"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT false $$",
      ("tests.test_gate.CallerNumberAndVoice.test_caller_number_changes_with_the_client",)),
     ("発信禁止の取り消しは人だけ、の決まりを外す", "DROP TRIGGER dnc_entries_guard ON salescall.dnc_entries",
@@ -353,7 +353,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql STABLE AS $$ SELECT salescall.is_active(s) $$",
      ("tests.test_gate.ExpiredClaimsDoNotUseCapacity.test_expired_claims_elsewhere_do_not_block",)),
     ("ほかの依頼者の発信からの間隔を見ない",
-     "CREATE OR REPLACE FUNCTION salescall.number_dial_wait_elsewhere(p_phone text, p_same_gap interval, p_other_gap interval)"
+     "CREATE OR REPLACE FUNCTION salescall.number_dial_wait_elsewhere(p_phone text, p_task uuid, p_same_gap interval, p_other_gap interval)"
      " RETURNS TABLE (relation text, wait_until timestamptz)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::text, NULL::timestamptz WHERE false $$",
      ("tests.test_gate.Pacing.test_cross_client_interval_tells_same_or_other_tenant_only",)),
@@ -1359,12 +1359,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN RETURN NULL; END $$",
      ("tests.test_gate.PromisesStopsAndConflicts.test_a_normal_call_waits_for_an_exact_promise_coming_soon_on_the_same_number",)),
     ("ほかの契約者の発信から待つ時刻を、正確な時刻で返す（0116 の前の形：ほかの契約者がかけた時刻が分かる）",
-     "CREATE OR REPLACE FUNCTION salescall.number_dial_wait_elsewhere(p_phone text, p_same_gap interval, p_other_gap interval)"
-     " RETURNS TABLE (relation text, wait_until timestamptz) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp"
-     " AS $$ SELECT x.relation, x.until FROM (SELECT CASE WHEN a.tenant_id = salescall.cur_tenant() THEN 'same_tenant'"
-     " ELSE 'other_tenant' END AS relation, max(a.claimed_at + CASE WHEN a.tenant_id = salescall.cur_tenant() THEN p_same_gap"
-     " ELSE p_other_gap END) AS until FROM salescall.attempts a WHERE a.phone_e164 = p_phone"
-     " AND a.client_id IS DISTINCT FROM salescall.cur_client() AND salescall.is_placed(a.state) GROUP BY 1) x WHERE x.until > now() $$",
+     _edited(_M216, "CREATE FUNCTION salescall.number_dial_wait_elsewhere(", "ELSE date_trunc('hour', x.until) + interval '1 hour' END",
+             "ELSE x.until END", end="\n$$"),
      ("tests.test_gate.Pacing.test_the_interval_with_other_contractors_is_the_contractors_setting",)),
     ("候補を出す処理が、ほかの依頼者・契約者の進行中の発信を見ない（0116 の前の形：門が断り、予定を書き直し続ける）",
      "CREATE OR REPLACE FUNCTION salescall.number_live(p_phone text) RETURNS boolean"
@@ -1458,11 +1454,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WHERE h.attempt_id = a.attempt_id AND h.to_state IN ('ringing', 'answered', 'busy', 'no_answer')) GROUP BY 1, 2 $$",
      ("tests.test_answer_rate.Counts.test_only_rung_calls_are_counted_and_only_for_that_contractor",)),
     ("ほかの依頼者の発信番号を、呼び出し中に入った発信だけで見る（0123 の前：呼び出し中を知らせずに出た回線の発信を見落とす）",
-     "CREATE OR REPLACE FUNCTION salescall.line_called_number_elsewhere(p_line uuid, p_phone text) RETURNS boolean"
-     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT EXISTS (SELECT 1"
-     " FROM salescall.attempts a WHERE a.line_id = p_line AND a.tenant_id = salescall.cur_tenant()"
-     " AND a.phone_e164 = p_phone AND a.client_id IS DISTINCT FROM salescall.cur_client() AND salescall.is_dialed(a.state)"
-     " AND EXISTS (SELECT 1 FROM salescall.attempt_state_history h WHERE h.attempt_id = a.attempt_id AND h.to_state = 'ringing')) $$",
+     _edited(_M216, "CREATE FUNCTION salescall.line_called_number_elsewhere(",
+             "AND a.client_id IS DISTINCT FROM salescall.cur_client() AND salescall.is_placed(a.state))",
+             "AND a.client_id IS DISTINCT FROM salescall.cur_client() AND salescall.is_dialed(a.state)"
+             " AND EXISTS (SELECT 1 FROM salescall.attempt_state_history h WHERE h.attempt_id = a.attempt_id AND h.to_state = 'ringing'))",
+             end="\n$$"),
      ("tests.test_gate.CallerNumberAndVoice.test_only_what_the_customer_saw_or_heard_counts",)),
     ("回線の1日の上限に、発信に失敗（鳴っていない）も数える（0109 の前の形。見直し17b：変異が無かった）",
      "CREATE OR REPLACE FUNCTION salescall.line_dials_on(p_line uuid, p_day date) RETURNS integer LANGUAGE sql STABLE"
@@ -1542,7 +1538,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP TRIGGER line_ring_tests_frozen ON salescall.line_ring_tests",
      ("tests.test_supervisor.Blame.test_a_phone_part_that_fails_while_ringing_the_test_number_is_unknown_not_silent",)),
     ("テスト番号の値の形を見ない（0134：そろえていない番号へテストをかけうる）",
-     _edited(_M139, "CREATE OR REPLACE FUNCTION salescall.setting_value_ok(", "WHEN 'phone' THEN jsonb_typeof(v) = 'null' OR (jsonb_typeof(v) = 'string' AND (v #>> '{}') ~ '^\\+[1-9][0-9]{7,14}$')", "WHEN 'phone' THEN true", end="\n$$"),
+     _edited(_M216, "CREATE OR REPLACE FUNCTION salescall.setting_value_ok(", "WHEN 'phone' THEN jsonb_typeof(v) = 'null' OR (jsonb_typeof(v) = 'string' AND (v #>> '{}') ~ '^\\+[1-9][0-9]{7,14}$')", "WHEN 'phone' THEN true", end="\n$$"),
      ("tests.test_settings.Shapes.test_bad_values_are_rejected",)),
     ("通話を終えた理由を、あとで変えられる・ほかの状態にも付けられる（0134：甚大な問題の記録が書き換わる）",
      "DROP TRIGGER attempt_trouble_fixed ON salescall.attempts",
@@ -1654,10 +1650,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_gate.Exit.test_old_plans_without_a_reason_to_ask_the_number_again_read_as_wrong_party",)),
     # 2026-10-25 の管理者の決定（0139）：テスト番号を鳴らしてよい時間を何か所でも・あける長さの並び・こちらの不具合を行だけか全体かで見極める
     ("テスト番号を鳴らしてよい時間の範囲どうしの重なりを断らない（0139：同じ時間を2つ書いても通る＝値の形の確かめの1か所が働かない）",
-     _edited(_M139, "CREATE OR REPLACE FUNCTION salescall.setting_value_ok(", "ELSE NOT EXISTS (SELECT 1 FROM salescall.daily_range_spans(v) x", "ELSE true OR NOT EXISTS (SELECT 1 FROM salescall.daily_range_spans(v) x", end="\n$$"),
+     _edited(_M216, "CREATE OR REPLACE FUNCTION salescall.setting_value_ok(", "ELSE NOT EXISTS (SELECT 1 FROM salescall.daily_range_spans(v) x", "ELSE true OR NOT EXISTS (SELECT 1 FROM salescall.daily_range_spans(v) x", end="\n$$"),
      ("tests.test_supervisor.Blame." + "test_the_test_ring_hours_are_the_contractors_any_number_of_ranges_and_start_at_7_to_22",)),
     ("テスト番号を鳴らしてよい時間を、空の並びでも通す（0139：いつも時間の外になり、テスト番号で決めなくなる）",
-     _edited(_M139, "CREATE OR REPLACE FUNCTION salescall.setting_value_ok(", "WHEN jsonb_array_length(v) < 1 THEN false\n                                  WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(v) r", "WHEN false THEN false\n                                  WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(v) r", end="\n$$"),
+     _edited(_M216, "CREATE OR REPLACE FUNCTION salescall.setting_value_ok(", "WHEN jsonb_array_length(v) < 1 THEN false\n                                  WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(v) r", "WHEN false THEN false\n                                  WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(v) r", end="\n$$"),
      ("tests.test_supervisor.Blame." + "test_the_test_ring_hours_are_the_contractors_any_number_of_ranges_and_start_at_7_to_22",)),
     ("日をまたぐ範囲の朝の側を、重なりの確かめに入れない（0139：22時〜2時と1時〜3時の重なりを見のがす）",
      _edited(_M139, "CREATE FUNCTION salescall.daily_range_spans(", "UNION ALL SELECT r.i, 0, r.b FROM r WHERE r.a > r.b AND r.b > 0", "UNION ALL SELECT r.i, 0, r.b FROM r WHERE false", end="\n$$"),
@@ -2883,6 +2879,47 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      (_BACK_PROMISE,)),
     ("前の担当の方の新しい約束の選びで、守れない約束にも「守る」を書ける（0213 の task_old_promise_keep_guard）",
      "DROP TRIGGER task_old_promise_keep_guard ON salescall.task_old_promise_choices", (_KEEP_BOTH,)),
+    # ── 0216（✅ 2026-11-08 ユーザー＝計画書 7-3「お客様から見て煙たがられないかけ方」(1)〜(4)）
+    ("同じ番号へのほかの電話の間を、ほかの依頼者の電話だけで見る（0215 の前の形：同じ依頼者のほかの業務・実施回の電話を待たない）",
+     _edited(_M216, "CREATE FUNCTION salescall.number_dial_wait_elsewhere(", "a.task_id IS DISTINCT FROM p_task",
+             "a.client_id IS DISTINCT FROM salescall.cur_client()", end="\n$$"),
+     (_UNW_SAME + "test_another_call_of_the_client_waits_until_the_next_day_and_the_setting_changes_it",)),
+    ("「その日はかけない」を、間を置かないにする（同じ日に、ほかの業務の電話が続けて鳴る）",
+     _edited(_M216, "CREATE FUNCTION salescall.number_dial_wait_elsewhere(",
+             "WHEN p_same_gap IS NULL THEN salescall.jst_day_start(salescall.jst(a.claimed_at)::date + 1)",
+             "WHEN p_same_gap IS NULL THEN a.claimed_at", end="\n$$"),
+     (_UNW_SAME + "test_another_call_of_the_client_waits_until_the_next_day_and_the_setting_changes_it",
+      "tests.test_gate.Pacing.test_cross_client_interval_tells_same_or_other_tenant_only")),
+    ("お客様が前に聞いた声を、ほかの依頼者の電話だけで見る（0215 の前の形：同じ依頼者のほかの業務の電話と同じ声でかける）",
+     _edited(_M216, "CREATE FUNCTION salescall.number_last_voice_elsewhere(", "a.task_id IS DISTINCT FROM p_task",
+             "a.client_id IS DISTINCT FROM salescall.cur_client()", end="\n$$"),
+     (_UNW_SAME + "test_the_voice_and_the_caller_number_change_between_businesses_of_the_client",)),
+    ("同じ依頼者のほかの業務・実施回の電話の発信番号を見ない（0215 の前の形：同じ発信番号でかける）",
+     _edited(_M216, "CREATE FUNCTION salescall.line_called_number_elsewhere(", "      OR coalesce((SELECT a.line_id = p_line",
+             "      OR false AND coalesce((SELECT a.line_id = p_line", end="\n$$"),
+     (_UNW_SAME + "test_the_voice_and_the_caller_number_change_between_businesses_of_the_client",)),
+    ("同じ依頼者のほかの業務の用件の断りを、かけない理由に入れない",
+     _edited(_M216, "CREATE FUNCTION salescall.declined_in_client(",
+             "OR (n.end_reason = 'declined' AND r.business_id IS DISTINCT FROM p_business))", "OR false)", end="\n$$"),
+     (_UNW_SAME + "test_after_a_refusal_the_client_does_not_call_from_another_business_unless_the_contractor_changes_it",)),
+    ("苦情のあとも、同じ依頼者のほかの業務・実施回からかける",
+     _edited(_M216, "CREATE FUNCTION salescall.declined_in_client(", "(n.end_reason = 'complaint'", "(false", end="\n$$"),
+     (_UNW_SAME + "test_after_a_complaint_no_business_or_run_of_the_client_calls_again",)),
+    ("約束の電話の頭で伝えるお詫びを、承認を待たずにかける",
+     _edited(_M216, "CREATE FUNCTION salescall.task_apology_unapproved(",
+             "     AND NOT EXISTS (SELECT 1 FROM salescall.apology_approvals p", "     AND false AND NOT EXISTS (SELECT 1 FROM salescall.apology_approvals p",
+             end="\n$$"),
+     (_UNW_PROMISE,)),
+    ("取り戻す電話の期限を、約束の時刻の無い予定にも付けられる",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_recover",
+     (_UNW + "Guards.test_a_recovering_deadline_is_only_on_an_exact_promise",)),
+    ("幅の約束の1日の回数に0を入れられる（かけられない約束になる）",
+     "ALTER TABLE salescall.setting_values DROP CONSTRAINT setting_values_window_daily_max_at_least_one",
+     ("tests.test_settings.Shapes.test_bad_values_are_rejected",)),
+    ("「その日はかけない、または間隔」の値の形を見ない",
+     _edited(_M216, "CREATE OR REPLACE FUNCTION salescall.setting_value_ok(", "WHEN 'day_or_gap' THEN CASE", "WHEN 'day_or_gap' THEN true OR CASE",
+             end="\n$$"),
+     ("tests.test_settings.Shapes.test_bad_values_are_rejected",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -4190,8 +4227,9 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    if settings.resolve(tx, "business.call_declined_again", **scope):\n        return False\n', "",
      ("tests.test_gate.DataReasons.test_a_customer_who_declined_is_not_called_again_in_the_same_business",)),
     ("管理番号を、お客様を表す変わらない番号としていない業務でも、管理番号で断ったお客様と決める", "src/salescall/core/target_policy.py",
-     '    ref = client_ref if client_ref is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", **scope) else None',
-     "    ref = client_ref",
+     '    ref = client_ref if client_ref is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", **scope) else None\n'
+     '    return tx.one("SELECT salescall.declined_in_business(',
+     '    ref = client_ref\n    return tx.one("SELECT salescall.declined_in_business(',
      ("tests.test_gate.DataReasons.test_a_customer_who_declined_is_not_called_again_in_the_same_business",)),
     # ── 伺い10（2026-11-01 管理者「人は甚大な問題以外で介入しない」）：データベースの止まりだけで休んだ行は、行の書き込みの確かめで1回だけ戻す
     ("データベースの止まりで休んだ行を、何度でも書き込みの確かめで戻す（その行に関わる不具合でも、お詫びの電話がかかり続ける）", _RULES,
@@ -5906,21 +5944,21 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      ("tests.test_apology.ApologyAfterDialFix.test_an_apology_on_the_old_number_rings_there_once_and_then_moves_to_the_new_number",
       "tests.test_apology.ApologyAfterDialFix.test_calls_to_a_number_are_counted_per_number_from_the_latest_fix")),
     ("お詫び・番号の聞き直しの回数を、かける番号を直したときから数え直さない", "src/salescall/core/gate.py",
-     'f"      ({attempts.count_start()} AND (%s::uuid', 'f"      (true AND (%s::uuid',
+     'f"      ({attempts.in_purpose_count()} AND (%s::uuid', 'f"      (true AND (%s::uuid',
      ("tests.test_apology.ApologyAfterDialFix.test_an_apology_on_the_old_number_rings_there_once_and_then_moves_to_the_new_number",
       "tests.test_apology.ApologyAfterDialFix.test_calls_to_a_number_are_counted_per_number_from_the_latest_fix")),
     ("お詫びの電話の回数を、行の回数の範囲（直したあと前の番号へかけた電話を除く）で数える（前の番号へかけ続ける）", "src/salescall/core/gate.py",
-     'f"      ({attempts.count_start()} AND (%s::uuid IS NULL OR contact_id = %s)) AS counted',
+     'f"      ({attempts.in_purpose_count()} AND (%s::uuid IS NULL OR contact_id = %s)) AS counted',
      'f"      ({attempts.in_row_count()} AND (%s::uuid IS NULL OR %s::uuid IS NOT NULL)) AS counted',
      ("tests.test_apology.ApologyAfterDialFix.test_an_apology_on_the_old_number_rings_there_once_and_then_moves_to_the_new_number",
       "tests.test_apology.ApologyAfterDialFix.test_calls_to_a_number_are_counted_per_number_from_the_latest_fix")),
     # ── 0195 の続き（✅ 2026-11-06 ユーザー：伺い「直したあとのお詫び」に「約束の電話と同じ」＝計画書 7-1 (17)）
     ("直したあと前の番号でお詫びが届かなくても、前の番号へかけ続ける", _NEXT,
-     '    moves = d.kind == "call" and _old_number_moves(tx, task_id, d.target, now, called=was_replaced)',
+     '    moves = d.kind == "call" and _old_number_moves(tx, task_id, d.target, now, called=was_replaced, row=row)',
      '    moves = False',
      ("tests.test_apology.ApologyAfterDialFix.test_an_apology_on_the_old_number_rings_there_once_and_then_moves_to_the_new_number",)),
     ("前の番号へのお詫びがもう鳴っていても、番号を直したときに新しい番号へ移さない", _NEXT,
-     "    if _old_number_moves(tx, task_id, _plan_target(cur), now, called=False):",
+     "    if _old_number_moves(tx, task_id, _plan_target(cur), now, called=False, row=cur):",
      "    if False:",
      ("tests.test_apology.ApologyAfterDialFix.test_an_apology_on_the_old_number_rings_there_once_and_then_moves_to_the_new_number",)),
     ("前の番号へのお詫びがまだかかっていなくても、番号を直したときに新しい番号へ移す", _NEXT,
@@ -6637,8 +6675,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "    restored = None",
      (_BACK_DROPPED, _BACK_PROMISE)),
     ("約束の日・幅が過ぎていても、やめた約束を戻す（next_action._period_promise）", _NEXT,
-     "    if window is not None and window.until is not None and window.until <= now:\n        return None   # 約束の日・幅がもう過ぎた：ふつうの電話\n",
-     "",
+     "    if window is not None and window.round_end is not None and window.round_end <= now:\n",
+     "    if False:\n",
      (_BACK_DROPPED,)),
     ("契約者がやめていない約束（使い切った「守る」約束）も、戻したら戻す（next_action._period_promise）", _NEXT,
      '            "SELECT EXISTS (SELECT 1 FROM salescall.old_promise_choices c WHERE c.task_id = %s AND NOT c.keep_old_promise"',
@@ -6672,6 +6710,95 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "(not _promise_tried(tx, task_id) or _kept_old_promise(tx, task_id, row)):",
      "not _promise_tried(tx, task_id):",
      (_KEPT_REFIX,)),
+    # ── 0216（✅ 2026-11-08 ユーザー＝計画書 7-3「お客様から見て煙たがられないかけ方」(1)〜(4)・本体の決定 (5)(6)）
+    ("「その日はかけない」を、間を置かないと読む（gate.same_number_gap）", "src/salescall/core/gate.py",
+     '    return None if v == "next_day" else timedelta(hours=v["hours"]) if "hours" in v else timedelta(days=v["days"])',
+     '    return timedelta(0) if v == "next_day" else timedelta(hours=v["hours"]) if "hours" in v else timedelta(days=v["days"])',
+     (_UNW_SAME + "test_another_call_of_the_client_waits_until_the_next_day_and_the_setting_changes_it",)),
+    ("ほかの行の電話の待ちを、次の日の0時にする（かけてよい時間帯の始まりにしない＝gate._pacing）", "src/salescall/core/gate.py",
+     '                limits.append((next_opening(tx, r["wait_until"], tenant_id=task["tenant_id"], client_id=task["client_id"],\n'
+     '                                            business_id=task["business_id"]) or r["wait_until"], "same_number_interval", True))',
+     '                limits.append((r["wait_until"], "same_number_interval", True))',
+     (_UNW_SAME + "test_another_call_of_the_client_waits_until_the_next_day_and_the_setting_changes_it",)),
+    ("門が、約束の電話の頭で伝えるお詫びの承認を待たない（gate._judge_and_claim）", "src/salescall/core/gate.py",
+     '    if apology_unapproved(tx, task["task_id"]):\n        return _deny("apology_unapproved")\n', "",
+     (_UNW_PROMISE,)),
+    ("候補を出す処理が、お詫びの承認待ちの行も出す（gate.waits_unknown）", "src/salescall/core/gate.py",
+     '    if apology_unapproved(tx, task_id):\n        return "apology_unapproved"\n', "",
+     (_UNW_PROMISE,)),
+    ("言ってはいけないことのあと、約束があっても行を終える（0215 の前の形＝next_action._decide）", _NEXT,
+     '        if j.state == "callback_scheduled" and not j.complaint and kept is not None and kept.kind == "call" \\\n',
+     '        if False and kept is not None and kept.kind == "call" \\\n',
+     (_UNW_PROMISE,)),
+    ("約束の電話の頭で伝えるお詫びを承認したとき、お詫びだけの電話も書く（apology.schedule_if_ready）", "src/salescall/core/apology.py",
+     '    if current is not None and "forbidden_speech" in (current["apology_reasons"] or ()):\n        return False',
+     '    if False:\n        return False',
+     (_UNW_PROMISE,)),
+    ("約束の電話の頭でお詫びを伝えても、契約者に知らせない（next_action.after_call）", _NEXT,
+     '    if reached_target and attempt_id is not None and dialed_row is not None and "forbidden_speech" in',
+     '    if False and attempt_id is not None and dialed_row is not None and "forbidden_speech" in',
+     (_UNW_PROMISE,)),
+    ("幅の端の決まっていない側を、営業時間でなく歯止め時間で埋める（0215 の前の形＝calling_hours.callee_range）", "src/salescall/core/calling_hours.py",
+     "    got = _edges(lo, hi, said_lo, said_hi, limit, open_hours) or _edges(lo, hi, said_lo, said_hi, limit, [limit])",
+     "    got = _edges(lo, hi, said_lo, said_hi, limit, [limit])",
+     ("tests.test_calling_hours.CalleeHours.test_words_are_the_callees_own_hours", _LIFE_UNW + "test_tomorrow_forenoon_starts_at_the_business_hours")),
+    ("営業時間で切ると空になる幅を、歯止め時間で埋めない（calling_hours.callee_range）", "src/salescall/core/calling_hours.py",
+     "    got = _edges(lo, hi, said_lo, said_hi, limit, open_hours) or _edges(lo, hi, said_lo, said_hi, limit, [limit])",
+     "    got = _edges(lo, hi, said_lo, said_hi, limit, open_hours)",
+     ("tests.test_calling_hours.CalleeHours.test_the_designated_limit_cuts_only_the_unsaid_edges",)),
+    ("言葉の表の端（「夕方」の16時など）も、営業時間で切る（calling_hours._edges）", "src/salescall/core/calling_hours.py",
+     "    a = lo if said_lo else max(lo, limit[0]) if lo > 0 else min((s for s, e in open_hours if e > lo), default=None)",
+     "    a = lo if said_lo else min((s for s, e in open_hours if e > lo), default=None)",
+     ("tests.test_calling_hours.CalleeHours.test_words_are_the_callees_own_hours",)),
+    ("営業時間を、歯止め時間の中に絞らない（calling_hours.callee_range）", "src/salescall/core/calling_hours.py",
+     "    open_hours = [(max(a, limit[0]), min(b, limit[1])) for a, b in daily_spans([business]) if max(a, limit[0]) < min(b, limit[1])]",
+     "    open_hours = list(daily_spans([business]))",
+     ("tests.test_calling_hours.CalleeHours.test_the_designated_limit_cuts_only_the_unsaid_edges",)),
+    ("取り戻す電話の時間帯を、お客様指定の歯止め時間にしない（calling_hours.callee_hours）", "src/salescall/core/calling_hours.py",
+     "        if w.recover:\n            out[key] = [[_hhmm(limit[0]), _hhmm(limit[1])]]\n            continue\n", "",
+     ("tests.test_calling_hours.CalleeHours.test_a_recovering_call_is_inside_the_designated_limit",
+      _LIFE_UNW + "test_a_promise_missed_by_our_stop_is_called_as_soon_as_it_is_lifted_that_day")),
+    ("幅の約束の1日の回数を見ない（0215 の前の形＝next_action._window_round_next）", _NEXT,
+     "    if _round_calls(tx, task_id, window, 0, period, on=at) >= cap:",
+     "    if False:",
+     (_LIFE_UNW + "test_a_range_promise_unanswered_is_called_three_times_a_day_until_the_business_hours_end",)),
+    ("こちらの止めでかけられなかった約束を、今日のうちに取り戻さない（0215 の前の形＝next_action._keep_promise）", _NEXT,
+     "    if recover and exact and moved and window.recover_until is None:",
+     "    if False:",
+     (_LIFE_UNW + "test_a_promise_missed_by_our_stop_is_called_as_soon_as_it_is_lifted_that_day",)),
+    ("取り戻す電話で出なくても、その日の約束の時刻の並びでかけ続ける（next_action._exact_next_try）", _NEXT,
+     "    if window.recover_until is not None:\n        return window.recover_until\n    start, end = _slot_of(window)",
+     "    start, end = _slot_of(window)",
+     (_LIFE_UNW + "test_a_promise_missed_by_our_stop_is_called_as_soon_as_it_is_lifted_that_day",)),
+    ("門が、取り戻す電話の期限を見ない（gate._judge_and_claim）", "src/salescall/core/gate.py",
+     '                                   recover_until_local=nxt["window_recover_until"]):',
+     "                                   recover_until_local=None):",
+     (_LIFE_UNW + "test_a_promise_missed_by_our_stop_is_called_as_soon_as_it_is_lifted_that_day",)),
+    ("やめた約束を戻すとき、いまの回が過ぎたら、日が残っていても、ふつうの電話にする（0214 の形＝next_action._period_promise）", _NEXT,
+     "        if _window_opening(tx, task_id, now, window, now=now)[1] is None:\n            return None",
+     "        if True:\n            return None",
+     (_DF + "test_going_back_after_the_round_passed_goes_to_the_next_round_while_days_remain",)),
+    ("やめた約束を戻すとき、約束の日がすべて過ぎていても、次の回へ戻す（next_action._promise_over）", _NEXT,
+     "    if exact:\n        return round_ >= int(settings.resolve(tx, \"callback.exact_days\", **tasks.scope(tx, task_id)))",
+     "    if exact:\n        return False",
+     (_BACK_DROPPED,)),
+    ("やめた約束を戻すとき、こちらの止めのときと同じく今日のうちに取り戻す（next_action._period_promise）", _NEXT,
+     "exact=exact, recover=False)", "exact=exact, recover=True)",
+     (_DF + "test_going_back_after_the_round_passed_goes_to_the_next_round_while_days_remain",)),
+    ("「違う」で直したあとの前の担当の方へのお詫び・番号の聞き直しも、前の番号へ1回で移す（0215 の前の形＝next_action._old_number_moves）", _NEXT,
+     '    if row is not None and row["person_since"] != person_now(tx, task_id):\n        return False',
+     '    if False:\n        return False',
+     ("tests.test_apology.ApologyAfterDialFix.test_an_apology_to_the_old_person_after_another_person_fix_goes_on_as_a_handover",
+      "tests.test_alternate.HandoverPeriods.test_a_talk_with_the_old_reception_after_the_fix_is_carried_over",
+      _UNW + "OldPersonAfterAnotherFix.test_the_apology_to_the_old_person_counts_every_call_to_them")),
+    ("「違う」で直したあとの前の担当の方へのお詫びの回数を、直したときから数え直す（attempts.in_purpose_count）", "src/salescall/core/attempts.py",
+     '    return f"({count_start(table)} OR {t}person_since IS DISTINCT FROM salescall.task_person_since({t}task_id, now()))"',
+     '    return f"({count_start(table)})"',
+     (_UNW + "OldPersonAfterAnotherFix.test_the_apology_to_the_old_person_counts_every_call_to_them",)),
+    ("用件の断り・苦情のあとの、依頼者ごとの設定を見ない（いつも、かけない＝target_policy._declined_in_client）", "src/salescall/core/target_policy.py",
+     '    if settings.resolve(tx, "calling.call_after_refusal", **scope):\n        return False',
+     '    if False:\n        return False',
+     (_UNW_SAME + "test_after_a_refusal_the_client_does_not_call_from_another_business_unless_the_contractor_changes_it",)),
 )
 
 
