@@ -168,7 +168,9 @@ UNTIMED_OUTCOMES = {"absent": ("absent", "not_reached_absent"), "long_absent": (
 # 時刻の決まらないかけ直しの申し出（「あとで」など＝`Callback.later`）が、約束の一環か（会話の側の読み。✅ 2026-11-06 ユーザー＝計画書
 # 7-1 (13)：「営業拒否でなければ戻せます。あくまで後でというのは約束の一環なのか営業拒否なのかというのを判断する必要があります。」）。
 # 書けるのは約束の一環（promise）だけで、書かない＝まだ分からない。判定は判定の中身の callback.intent に残すだけ（判定の結果は変えない）。
-# 番号を直したときに「あとで」を方針の回数より多く言って終えた行を戻すかは、どれも約束の一環のときだけ（next_action._later_refused）。
+# ⇒ ✅ 2026-11-08 ユーザー＝計画書 7-1 (27)：番号を直したときに「あとで」を方針の回数より多く言って終えた行は「戻す」（営業拒否と読んだ「あとで」は
+# 断りとして別に終わるので、回数で終えた行の「あとで」は約束の一環とみなす＝next_action.reopens_on_fix。0210）。intent は判定の中身に残す記録。
+# ⛔ 0209 まで：どれも約束の一環のときだけ戻した（next_action._later_refused。消した）。
 # 営業拒否と読んだ「あとで」は、受付で「営業はお断り」と言われたときと同じ事実 do_not_call（2つ目の判定がそろったかは irreversible_check）
 # の1本で書く（✅ 2026-11-06 ユーザー＝計画書 7-1 (16)「断りとして扱う」）。⛔ 2026-11-07 見直し(3)の1：前は intent＝refusal という2つ目の
 # 断りの道があり（0195）、2つ目の判定がその「あとで」を読んだかに関係なく、報告の irreversible_check が agreed なら、その場で発信禁止に
@@ -738,8 +740,8 @@ class CallReport:
         drop_unjudged = {unjudged[p] for p in parts if p in unjudged}
         return replace(self, refusals=() if "refusal" in parts else self.refusals,
                        # 断りを外したら（差し戻し・発信禁止の取り消しで「断りではなかった」と決まった）、同じ通話の時刻の決まらない申し出
-                       # （「あとで」＝`Callback.later`）は約束の一環とみなす（✅ 2026-11-07 ユーザー：「約束の一環とみなす」。番号を直したときに
-                       # 戻す側＝next_action._later_refused）
+                       # （「あとで」＝`Callback.later`）は約束の一環とみなす（✅ 2026-11-07 ユーザー：「約束の一環とみなす」。判定の中身の記録。
+                       # 番号を直したときに戻すかは、0210 から「あとで」の意味によらない＝計画書 7-1 (27)）
                        callbacks=tuple(replace(c, intent=LATER_PROMISE) if "refusal" in parts and c.later else c
                                        for c in self.callbacks),
                        complaints=() if "complaint" in parts else self.complaints,

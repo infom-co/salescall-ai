@@ -865,6 +865,19 @@ class Solutions(Base):
         self.assertIn(run, self.tx(s, lambda tx: bs.in_use_runs(tx, s["business"])))
         self.assertEqual(self.tx(s, lambda tx: client_solutions.held_back(tx, s["business"])), {sid})
 
+    def test_a_run_without_a_version_is_not_in_use(self):
+        """まだ終えていない実施回（データベースの1か所 salescall.run_in_use）は、版のある実施回だけ（行が0でも、版が無ければ入らない）：版を足して自動で
+        替える仕事・取り込み直しで入れない解決策が読む並び（business_settings._versions_in_use）に、版の無い実施回は入らない（データベースの監査 K の
+        (b)：「版がある」を外しても落ちる試験が無かった）。"""
+        s = self.ready()
+        run = self.tx(s, lambda tx: tx.one(
+            "INSERT INTO salescall.runs (tenant_id, client_id, business_id, name, created_by)"
+            " SELECT b.tenant_id, b.client_id, b.business_id, '版をまだ割り当てていない実施回', salescall.cur_actor()"
+            " FROM salescall.businesses b WHERE b.business_id = %s RETURNING run_id", (s["business"],))["run_id"], OPERATOR)
+        self.assertNotIn(run, self.tx(s, lambda tx: bs.in_use_runs(tx, s["business"])))
+        self.assertNotIn(None, self.tx(s, lambda tx: bs.in_use_versions(tx, s["business"])))
+        self.assertIn(s["run"], self.tx(s, lambda tx: bs.in_use_runs(tx, s["business"])))
+
     def test_the_notice_of_earlier_solutions_names_the_runs_of_the_line(self):
         """2026-11-07 のつなぎ目の見直し (C)：知らせ solution_earlier に、その版の流れを使う実施回（まだ終えていない実施回）の並びを入れる
         （確かめは実施回ごと。画面が実施回ごとの入口を呼べるように）。"""
