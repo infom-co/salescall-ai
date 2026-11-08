@@ -1701,13 +1701,16 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
 WHO_UNCLEAR_FIELDS = ("full_name", "department")   # 「お名前だけではどの方か分からなかった」行で、依頼者に埋めていただく欄（4-65 の (g)）
 
 
-def who_unclear_blanks(tx: Tx, task_id: UUID) -> tuple[str, ...]:
+def who_unclear_blanks(tx: Tx, task_id: UUID, *, before: datetime | None = None) -> tuple[str, ...]:
     """「お名前だけではどの方か分からなかった」（繋がらなかった理由 who_unclear）で依頼者に返す行の、埋めていただく欄（1か所。CL-1 の連絡帳
     4-65 の (g)・✅ 2026-11-02 日本時間1時54分 ユーザー：「どちらも分からないときは、依頼者に「お名前だけではどの方か分からなかった」と返し、
     フルネームや部署を足していただきます。」「一覧の入れるべき空欄部分が、その行だけ赤背景になると分かりやすいですね。」）：フルネーム・
     部署のうち、その行の一覧で空いている欄（WHO_UNCLEAR_FIELDS の順）。両方あってもまた分からないと言われた行（お呼びし直した＝recalled）は
-    空（埋める欄は無い。依頼者には同じく「分からなかった」と返す）。見せ方（赤い背景など）は CL-3。"""
-    t = tx.one("SELECT target_full_name, target_department FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
+    空（埋める欄は無い。依頼者には同じく「分からなかった」と返す）。見せ方（赤い背景など）は CL-3。
+    before＝その時刻の値で読む（その時刻より前の直しだけを当てた値＝データベースの行の値の1か所 salescall.task_values。None＝いまの値）。
+    その通話を締めたときに空いていた欄が、いま埋まっていれば、その行を戻す（✅ 2026-11-08 ユーザー＝計画書 7-1 (29)「埋めたらかけ直す」。
+    core/next_action.answer_still_ends が読む。0213）。"""
+    t = tx.one("SELECT target_full_name, target_department FROM salescall.task_values(%s, %s::timestamptz)", (task_id, before))
     if t is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
     have = {"full_name": t["target_full_name"], "department": t["target_department"]}
