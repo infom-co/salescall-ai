@@ -293,6 +293,12 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             flow.on_voice(None)
         elif not complete():
             info["incomplete"] = True   # 会話AIが、まだ声の終わりまで聞き取っていない：途中の言葉では判定しない（流れの制御も使わない）
+        if flow.callee_turns == turn and flow.decided.get(turn) == flow.callee_said and not flow.ahead_pending():
+            # この発話（この言葉）はもう決めた（Flow.on_decided）：このあとに届く読みは記録だけ（Flow._after_decision）なので、待たない・判定し直さない
+            # （同じ発話への2つ目の報告で、もう一度「はい、」と待たせない）。先に言われた答えを次の質問について読み直す判定（Flow.ahead_pending）は、その質問の
+            # 新しい決め（別の読み）なので待つ
+            info.setdefault("waits", []).append({"for": "report" if ack else "settle", "decided": True})
+            return
         for kind in runs:
             if kind in AHEAD_CHECKS:
                 continue   # 先に言われた答えの読み直しは、その言葉のまま（いまの言葉で判定し直さない）
@@ -387,6 +393,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 # 電話を終えるかを決める所で、まだ答えの返っていない判定がある：もう一度だけ、黙って全部待つ（Flow.waits_again。最大 hold_s）
                 info["end_waited_again"] = True
                 await hold(ear_too=False, ack=False, every=True, rejudge=False)
+            # 待つのをやめた：この発話は、ここまでに届いた確かめで決める（Flow.on_decided＝答えの段・言葉が出揃っていなければ決めない。このあとに届いた読みは記録だけ）
+            flow.on_decided(turn)
         else:
             release_at(loop.time() + flow.limits.judge_wait_s())   # 判定を待たない報告：組には、ここから待つ長さで合図する（打ち切りまで待たせない）
         if grounding is not None:
@@ -408,6 +416,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         if flow.waits_again(None, None):
             info["end_waited_again"] = True   # 届いた読みに電話を終える読みがあり、まだ答えの返っていない判定がある：もう一度だけ全部待つ
             await hold(ear_too=False, ack=False, every=True, rejudge=False)
+        flow.on_decided(turn)   # 報告の無いターンも、待つのをやめた時に決める（このあとに届いた読みは記録だけ＝Flow.judged_turn は1回だけ決める）
     return handle, task, info, settle
 
 
@@ -946,7 +955,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     deliver_plays()
     flow.on_line_end(ai_speaking=False, callee_speaking=False)
     # 通話は終わった：まだ走っている確かめは、届くまで待って同じ決まりで当てる（通話後の検証＝DESIGN.md 6-12 と同じ判定・同じ決まり。
-    # Flow.on_check ⇒ _late）。LATE_CHECK_S まで待っても届かないものは止める（届かなかった＝unchecked。通話後の検証でやり直す）。
+    # Flow.on_check。決めたあとの読みは記録だけ＝通話後の確かめの材料・Flow._after_decision・_late_to_taken）。LATE_CHECK_S まで待っても届かないものは止める（届かなかった＝unchecked。通話後の検証でやり直す）。
     # ⛔ 2026-10-18 に見つけた漏れ：通話の終わりに止めていたので、1秒以上かかる2つ目の判定（Sonnet 5.5）が、短い試験の通話ではほとんど
     #    当たらないまま「受け取った」と数えていた（本番では通話後の検証で当たる）
     before_after = len(flow.unchecked())
