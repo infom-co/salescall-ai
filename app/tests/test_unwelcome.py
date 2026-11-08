@@ -153,7 +153,12 @@ class PromiseAndApology(ApologyBase):
         self.assertEqual((p["kind"], p["purpose"], p["apology_reasons"], p["callee_at"] is not None), ("call", "normal", ["forbidden_speech"], True))
         self.assertTrue(self.tx(s, lambda tx: gate.apology_unapproved(tx, s["task"])))
         self.assertEqual(self.tx(s, lambda tx: gate.waits_unknown(tx, s["task"])), "apology_unapproved")   # 候補に出さない
-        seq = p["seq"]
+        # 約束の時刻が来ても、承認するまで門が通さない（試験の近道：同じ約束の電話の予定を、いまにする）
+        self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=tx.one("SELECT now() AS t")["t"], end_reason=None,
+                                                  cause="試験：約束の時刻", promised=True, target=next_action.Target(s["contact"]),
+                                                  apology="forbidden_speech"))
+        self.assertEqual(self.reason(s), "apology_unapproved")
+        seq = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"]
         self.order(s, aid)                                                       # 契約者が案（と録音）を確かめて承認
         self.assertFalse(self.tx(s, lambda tx: gate.apology_unapproved(tx, s["task"])))
         p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))

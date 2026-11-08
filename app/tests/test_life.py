@@ -1002,6 +1002,27 @@ class CallsNotUnwelcome(SupervisorBase):
         self.assertIn("missed_promise", second["apology_reasons"])              # 話せなかったので、次の日もお詫びから
         self.assertIsNone(second["window_recover_until"])
 
+    def test_a_second_day_missed_by_our_stop_is_also_called_that_day(self):
+        """2日目の回（1日目は出なかった）も同じ：15時・15:00〜16:00 止め ⇒ 解けたら、その日のうちにお詫びつきで（2日目からの回は、回の幅が
+        1日じゅうなので、取り戻すかは約束の時刻からの1回分で見る＝next_action._recover_today）。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=14, minute=50))
+        self.exact(s, monday.replace(hour=15))
+        phone, talk = Phone(), Script(default="no_answer")
+        self.run_until(s, phone, talk, monday.replace(hour=15, minute=40), step=timedelta(minutes=1))   # 1日目：4本とも出ない
+        tuesday = monday + timedelta(days=1)
+        self.run_until(s, phone, talk, tuesday.replace(hour=14, minute=50), step=timedelta(minutes=30))
+        stop = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.stop(
+            tx, scope="tenant", cause="manual", reason="試験：緊急停止", tenant_id=s["tenant"]))["event_id"]
+        self.run_until(s, phone, talk, tuesday.replace(hour=16), step=timedelta(minutes=5))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, stop, reason="試験：解いた"))
+        self.run_until(s, phone, talk, tuesday.replace(hour=16, minute=30), step=timedelta(minutes=5))
+        tue = [t for t in self.times(s) if t.date() == tuesday.date()]
+        self.assertEqual([(t.hour, t.minute) for t in tue], [(16, 0)])
+        plan = self.plan_of_call(s, tue[0])
+        self.assertIn("missed_promise", plan["apology_reasons"])
+        self.assertIsNotNone(plan["window_recover_until"])
+
     def test_a_promise_whose_stop_lasts_past_the_limit_is_called_at_the_next_days_time(self):
         """15時の約束・止めが歯止め時間の終わり（22時）を過ぎた ⇒ 今日はかけない・次の日の約束の時刻（15時）に、お詫びつきで。"""
         monday = self.next_monday_9()

@@ -2199,7 +2199,8 @@ def _recover_today(tx: Tx, task_id: UUID, window: Window, target: Target, *, now
         if found is None or found.since is None or calling_hours.local(found.since).date() != today:
             return None   # 今日は約束の回の日でない（依頼者の休みの日など）
         w = replace(found, missed=window.missed + int(_missed(tx, task_id, window)) + max(0, found.round - window.round - 1))
-    if w.until > now or not _missed(tx, task_id, w):
+    # 今日の回の時間（約束の時刻からの1回分と遅れの許し＝`_slot_of`。2日目からの回は、回の幅が1日じゅうなので回の終わりでは見ない）
+    if _slot_of(w)[1] > now or not _missed(tx, task_id, w):
         return None   # 今日の回の時間がまだ終わっていない・今日の回にもうかけた（出なかった＝ふつうの決まりで次の日）
     scope = tasks.scope(tx, task_id)
     if w.round - w.missed >= int(settings.resolve(tx, "callback.exact_days", **scope)):

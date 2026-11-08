@@ -3105,14 +3105,19 @@ class DialFixAfterCalls(SettleBase):
         印も付く）。今日のうちに取り戻す電話（こちらの止めのとき＝計画書 7-3 (4)）にはしない。すべての日が過ぎていれば、ふつうの電話（上の試験）。
         決めるのは next_action._period_promise の1か所。⛔ 0214：いまの回の終わりが過ぎたら、日が残っていても、ふつうの電話にしていた。0216。"""
         from salescall.core import calling_hours
-        for way in ("name", "dial"):
-            with self.subTest(way=way):
+        # recent＝約束の時刻が「いまの2時間前」（今日のその時刻の回も、もう過ぎた。試験の歯止め時間は1日じゅうなので、こちらの止めなら今日のうちに
+        # 取り戻せる形）。それでも取り戻さず、次の回（明日のその時刻）へ（かけなかったのは契約者の選び）
+        for way, recent in (("name", False), ("dial", False), ("name", True)):
+            with self.subTest(way=way, recent=recent):
                 s = self.ready()
                 self.put_client(s, "gate.same_contact_min_interval", 1)
                 self.person_fix(s, "target_name", "田中", "たなか", same=True)
                 now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+                if recent and calling_hours.local(now).hour < 3:
+                    continue   # 今日のその時刻の回が、日をまたぐ時刻は飛ばす
                 day = calling_hours.local(now - timedelta(days=1))
-                said = calling_hours.from_local(day.replace(hour=15, minute=0, second=0, microsecond=0))
+                said = calling_hours.from_local(day.replace(hour=15, minute=0, second=0, microsecond=0)) if not recent else \
+                    (now - timedelta(days=1, hours=2)).replace(second=0, microsecond=0)
                 w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], said, day_said=True, beyond_ok=False))
                 self.tx(s, lambda tx: support.schedule_call(tx, s["task"], said, contact_id=s["contact"], cause="試験：田中様と昨日15時の約束",
                                                            promised=True, callee_at=said, window=w))
@@ -3124,11 +3129,11 @@ class DialFixAfterCalls(SettleBase):
                 self.assertEqual(self.plan(s), self.handed_over(new))
                 self.back_to_first(s, way)
                 p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
-                local_at = calling_hours.local(p["callee_at"])
+                local_at, local_said = calling_hours.local(p["callee_at"]), calling_hours.local(said)
                 self.assertEqual((p["kind"], p["contact_id"], p["purpose"], p["promised"], (local_at.hour, local_at.minute),
                                   p["window_recover_until"], p["person_since"]),
-                                 ("call", s["contact"], "normal", True, (15, 0), None, None))
-                self.assertGreater(p["callee_at"], now)                          # 次の回（今日か明日の15時）
+                                 ("call", s["contact"], "normal", True, (local_said.hour, local_said.minute), None, None))
+                self.assertGreater(p["callee_at"], now)                          # 次の回（今日か明日の約束の時刻）
                 self.assertIn(p["window_round"], (1, 2))
                 self.assertIn("missed_promise", p["apology_reasons"])           # 約束の日にかけられなかったお詫び
 

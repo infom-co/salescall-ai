@@ -150,12 +150,13 @@ GRANT EXECUTE ON FUNCTION salescall.number_dial_wait_elsewhere(text, uuid, inter
 
 -- ═════════ (1) 声と発信番号は必ず替える（ほかの行＝同じ依頼者のほかの業務・実施回も） ═════════
 -- お客様が前に聞いた声：ほかの行（同じ依頼者のほかの業務・実施回・ほかの依頼者・ほかの契約者）の発信で、お客様が出た通話の声のうち、いちばん新しい
--- もの。⛔ 0097〜0215：ほかの依頼者の発信だけ見ていた
+-- もの（行 p_task は、取引の依頼者の行だけ＝ほかの依頼者・契約者の番号を問い合わせる道にしない）。⛔ 0097〜0215：ほかの依頼者の発信だけ見ていた
 DROP FUNCTION salescall.number_last_voice_elsewhere(text);
 CREATE FUNCTION salescall.number_last_voice_elsewhere(p_phone text, p_task uuid) RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$
   SELECT v.voice_name FROM salescall.attempts a JOIN salescall.voice_types v ON v.code = a.voice_type
   WHERE a.phone_e164 = p_phone AND a.task_id IS DISTINCT FROM p_task
+    AND EXISTS (SELECT 1 FROM salescall.tasks t WHERE t.task_id = p_task AND t.client_id = salescall.cur_client())   -- 取引の依頼者の行だけ
     AND salescall.is_dialed(a.state) AND salescall.reached_answer(a.attempt_id)
   ORDER BY a.claimed_at DESC LIMIT 1
 $$;
