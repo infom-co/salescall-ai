@@ -360,7 +360,6 @@ class MonthAhead(SettleBase):
         予定は、いまから見れば1か月より手前でも、契約者の答えを待つ（同じ時刻のまま書き直しても同じ）。その日になって数え直すと、答えを待たずに
         かかってしまう。"""
         from salescall.core import tasks
-        from tests.support import SYSTEM, owner_access
         s = self.ready()
         self.choose(s, "with_approval")
         at = self.tx(s, lambda tx: tx.one("SELECT now() + interval '5 days' AS t")["t"])
@@ -369,15 +368,36 @@ class MonthAhead(SettleBase):
         write()
         self.assertIsNone(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])))   # いま決めた5日後：1か月より手前
 
-        def back(tx):   # 試験：その予定を40日前に決めたことにする（持ち主の取引の中だけ仕掛けを外す）
+        self.back_40_days(s, at)
+        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])), at)   # 40日前から見れば1か月以上先
+        write()                                                                  # 同じ時刻のまま書き直す（番号の直しなど）
+        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])), at)
+
+
+    def back_40_days(self, s, at):
+        """試験：その時刻の予定を40日前に決めたことにする（持ち主の取引の中だけ仕掛けを外す）。"""
+        from tests.support import SYSTEM, owner_access
+
+        def back(tx):
             tx.execute("ALTER TABLE salescall.task_next_actions DISABLE TRIGGER USER")
             tx.execute("UPDATE salescall.task_next_actions SET decided_at = decided_at - interval '40 days' WHERE task_id = %s AND call_at = %s",
                        (s["task"], at))
             tx.execute("ALTER TABLE salescall.task_next_actions ENABLE TRIGGER USER")
         owner_access().in_system(SYSTEM, back)
-        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])), at)   # 40日前から見れば1か月以上先
-        write()                                                                  # 同じ時刻のまま書き直す（番号の直しなど）
-        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])), at)
+
+    def test_when_the_time_comes_the_gate_waits_for_the_answer(self):
+        """答えないまま予定の時刻が来た ⇒ 門は month_ahead_approval で断る（tasks.month_ahead_waiting の1か所）。契約者が認めたら、門が通す。
+        （試験の近道：いまの時刻の予定を40日前に決めたことにする＝決めた日から1か月以上先の予定の時刻が来た）"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        self.choose(s, "with_approval")
+        at = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: next_action._write(tx, s["task"], next_action._call(at, True, "試験：お客様と約束したかけ直し",
+                                                                                next_action.Target(s["contact"]))))
+        self.back_40_days(s, at)
+        self.assertEqual(self.reason(s), "month_ahead_approval")
+        self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=True), OPERATOR)
+        self.assertNotIsInstance(self.claim(s), gate.Denied)
 
 
 class Guards(SettleBase):

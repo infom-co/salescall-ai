@@ -6887,7 +6887,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      (_MONTH_APPROVAL,)),
     ("門が、1か月以上先のかけ直しの契約者の答えを待たない（gate._judge_and_claim）", "src/salescall/core/gate.py",
      "    if tasks.month_ahead_waiting(tx, task[\"task_id\"]) is not None:\n        return _deny(\"month_ahead_approval\")\n", "",
-     (_LIFE_MONTH,)),
+     (_MONTH + "test_when_the_time_comes_the_gate_waits_for_the_answer",)),
     ("候補を出す処理が、1か月以上先のかけ直しの契約者の答えを待つ行も出す（gate.waits_unknown）", "src/salescall/core/gate.py",
      "    if tasks.month_ahead_waiting(tx, task_id) is not None:\n        return \"month_ahead_approval\"\n", "",
      (_MONTH_APPROVAL, _LIFE_MONTH)),
