@@ -12,6 +12,7 @@
 - 役職の欄は、取込・版の割り当て・門と同じ1か所（業務設定の `TargetNeeds.role_unclear`）で確かめる（その行の業務が一覧の役職でお呼びするとき、「ご担当者」だけ＝何の担当か無い役職は直せない）。
 - 直せるのは管理者か契約者だけ（データベースが守る）。電話番号・連絡先の直しは core/customer_contacts.py。
 - かける番号の直し（`fix_dial_number`）と、前の担当の方が新しい約束をしたあとの選び（`choose_old_promise`。計画書 7-1 (23)・0202）も、ここ。
+  1か月以上先のかけ直しの予定への契約者の答え（`answer_month_ahead`。計画書 7-3 (3)・0217）も、行への契約者の選びとして、ここ。
 - お呼びする方の名前・フルネーム・役職・部署の中身を「担当の方は違う」で直したとき（担当の期が替わる＝計画書 7-1 (19)「違う相手」・(28)。値が変わらない直しは替わらない＝0208）も、前の担当の方との約束が残っていれば、
   番号の「違う」の直しと同じ選び（7-1 (21)(25)）を受ける（0206）。選びが要るか・選べるかは `_old_promise_choice` の1か所（データベースの
   salescall.task_old_promise_choice_needed を読む。守りも同じ関数）。画面が「2つ目の選び（前の担当の方との約束も守るか）が要るか」を読む入口は
@@ -340,6 +341,23 @@ def choose_old_promise(tx: Tx, task_id: UUID, *, keep_old_promise: bool) -> dict
     next_action.after_old_promise_choice(tx, task_id, keep_old_promise=keep_old_promise,
                                          cause="ダッシュボードで、前の担当の方の新しい約束より、新しい担当の方へかけると選んだ")
     return {"attempt_id": waiting, "keep_old_promise": keep_old_promise, "next": next_action.current(tx, task_id)}
+
+
+def answer_month_ahead(tx: Tx, task_id: UUID, *, approve: bool) -> dict[str, Any]:
+    """1か月以上先のかけ直しの予定に、契約者が答える（ダッシュボード。業務の設定 callback.month_ahead が「契約者が認めたらかける」の行。✅ 2026-11-08
+    ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」。0217）。真＝かけると認める（その時刻にかける）・偽＝
+    認めない（行を終える。終わりの理由は next_action.MONTH_AHEAD）。答えられるのは、答えを待っている行の、その時刻だけ（tasks.month_ahead_waiting
+    の1か所。待っていなければ `FixInvalid`＝何も書かない。データベースも同じ1か所で守る＝task_month_ahead_answer_guard）。答えは記録に残り
+    （task_month_ahead_answers）、行の予定は next_action.after_month_ahead_answer の1か所が決める。答えた予定の時刻・答え・そのあとの予定を返す。"""
+    waiting = tasks.month_ahead_waiting(tx, task_id)
+    if waiting is None:
+        raise FixInvalid("この行は、1か月以上先のかけ直しの答えを待っていません（1か月以上先のかけ直しの予定がある行だけ答えられます）")
+    tx.execute("INSERT INTO salescall.task_month_ahead_answers (tenant_id, client_id, task_id, call_at, approved, answered_by)"
+               " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, salescall.cur_actor() FROM salescall.tasks t WHERE t.task_id = %s",
+               (waiting, approve, task_id))
+    next_action.after_month_ahead_answer(tx, task_id, approved=approve,
+                                         cause="ダッシュボードで、1か月以上先のかけ直しの予定を、契約者が認めなかった")
+    return {"call_at": waiting, "approved": approve, "next": next_action.current(tx, task_id)}
 
 
 def old_promise_keepable(tx: Tx, task_id: UUID) -> bool:

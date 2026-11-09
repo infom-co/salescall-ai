@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -172,6 +173,13 @@ def old_promise_waiting(tx: Tx, task_id: UUID) -> UUID | None:
     （無ければ None。1か所＝データベースの salescall.task_old_promise_waiting。0202。✅ 2026-11-07 ユーザー＝計画書 7-1 (23)：「契約者に知らせて
     選んでもらう」・選ぶまで、その行はかけない）。門・候補を出す処理（core/gate）・選びの入口（core/row_fixes.choose_old_promise）が読む。"""
     return tx.one("SELECT salescall.task_old_promise_waiting(%s) AS a", (task_id,))["a"]
+
+
+def month_ahead_waiting(tx: Tx, task_id: UUID) -> datetime | None:
+    """1か月以上先のかけ直しの予定で、契約者の答え（かけると認めるか）を待っている、その予定の時刻（無ければ None。1か所＝データベースの
+    salescall.task_month_ahead_waiting。0217。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」）。
+    門・候補を出す処理（core/gate）・答えの入口（core/row_fixes.answer_month_ahead）が読む。"""
+    return tx.one("SELECT salescall.task_month_ahead_waiting(%s) AS a", (task_id,))["a"]
 
 
 def record_confirmed_reading(tx: Tx, task_id: UUID, which: str, reading: str, *, attempt_id: UUID) -> None:

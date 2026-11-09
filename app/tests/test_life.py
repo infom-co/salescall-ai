@@ -30,7 +30,7 @@ from pathlib import Path
 import run_tests
 from salescall.core import access as access_mod
 from salescall.core import (approval, attempts, conversation_io, dial_exit, fix_requests, health, next_action, quality_stage, settings,
-                            stops, watch)
+                            stops, tasks, watch)
 from salescall.core.health_rules import TaskStage
 from salescall.core.calling_hours import JST
 from salescall.core.phone import normalize
@@ -960,6 +960,53 @@ class CallsNotUnwelcome(SupervisorBase):
                        step=timedelta(minutes=30), night=timedelta(hours=2))
         days = [(t.date() - monday.date()).days for t in self.times(s)]
         self.assertEqual([days.count(d) for d in range(4)], [3, 1, 0, 0], self.times(s))
+
+    def test_an_evening_promise_unanswered_is_called_on_exactly_the_policy_days(self):
+        """「夕方なら」（毎日16〜18時の回）で出ない・再発信の方針3回 ⇒ 3日分（月・火・水）で終える（終わりの理由 callback_unspecified_time）。約束の
+        回（日）の数を上限と比べるのは next_action._promise_used_up の1か所（時刻ちょうどの約束の日数・時刻の決まっていない約束の電話の数と同じ
+        「ちょうど」）。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)：伺い「約束の日数」に「ちょうどにそろえる」。⛔ 前は「超えたら」で比べ、最初の回＋
+        方針の回数＝4日分（木曜まで）かけた。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=15, minute=50), times=3)
+        self.promise(s, next_action.Window(monday.replace(hour=0) + timedelta(days=1), (16 * 3600, 18 * 3600), None, monday.replace(hour=0),
+                                           "day", day_said=True))   # 「今日の夕方なら」（毎日の同じ幅が次の回）
+        self.run_until(s, Phone(), Script(default="no_answer"), monday.replace(hour=19) + timedelta(days=4),
+                       step=timedelta(minutes=30), night=timedelta(hours=2))
+        days = [(t.date() - monday.date()).days for t in self.times(s)]
+        self.assertEqual(sorted(set(days)), [0, 1, 2], self.times(s))
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "callback_unspecified_time")
+
+    def test_a_promise_a_month_ahead_is_called_at_its_time_only_when_the_contractor_approves(self):
+        """1か月以上先のかけ直し（翌月の同じ日の15時の約束）・業務の設定「契約者が認めたらかける」⇒ 契約者が認めた行は、その日の15時にかかる。
+        答えていない行は、その時刻になってもかけない（門が待つ＝tasks.month_ahead_waiting。候補にも出さない。1か月以上先かは、その時刻へかける予定を
+        初めて決めた日で見る＝データベースの salescall.month_ahead：その日になって数え直すと1か月より手前になり、答えを待たずにかかってしまう）。
+        ✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」。0217。"""
+        import calendar
+        from salescall.core import gate, row_fixes
+        monday = self.next_monday_9()
+        y, m = (monday.year, monday.month + 1) if monday.month < 12 else (monday.year + 1, 1)
+        day = monday.replace(year=y, month=m, day=min(monday.day, calendar.monthrange(y, m)[1]), hour=15)   # 翌月の同じ日の15時
+        rows = []
+        for _ in range(2):
+            s = self.row(monday.replace(hour=10))
+            self.tx(s, lambda tx, s=s: tx.execute(
+                "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+                " review_when, set_by) VALUES ('callback.month_ahead', 'business', %s, %s, %s, '\"with_approval\"', 'decided', '試験',"
+                " '試験', '試験')", (s["tenant"], s["client"], s["business"])), OPERATOR)
+            w = self.tx(s, lambda tx, s=s: next_action._exact_window(tx, s["task"], day, day_said=True))
+            self.tx(s, lambda tx, s=s, w=w: next_action._write(tx, s["task"], next_action._call(
+                day, True, "試験：お客様と約束したかけ直し（翌月の同じ日の15時）", next_action.Target(s["contact"]), day, w)))
+            self.assertEqual(self.tx(s, lambda tx, s=s: tasks.month_ahead_waiting(tx, s["task"])), day)
+            rows.append(s)
+        a, b = rows
+        self.tx(a, lambda tx: row_fixes.answer_month_ahead(tx, a["task"], approve=True), OPERATOR)   # 契約者が認めた
+        self.assertIsNone(self.tx(a, lambda tx: tasks.month_ahead_waiting(tx, a["task"])))
+        phone, talk = Phone(), Script(default="no_answer")
+        self.jump(day.replace(hour=14, minute=50))
+        self.run_until(a, phone, talk, day.replace(hour=15, minute=10), step=timedelta(minutes=1), each=lambda: self.turn(b, phone, talk))
+        self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(a)[:1]], [(day.date(), 15, 0)])
+        self.assertEqual(self.times(b), [])                                       # 答えていない：かけない
+        self.assertEqual(self.tx(b, lambda tx: gate.waits_unknown(tx, b["task"])), "month_ahead_approval")
 
     def test_tomorrow_forenoon_starts_at_the_business_hours(self):
         """「明日の午前中」：始まりは言葉で決まっていないので、営業時間の9時から（⛔ 0215 まで：歯止め時間の7時）。"""

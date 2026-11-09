@@ -230,6 +230,12 @@ _UNW = "tests.test_unwelcome."
 _UNW_SAME = _UNW + "SameNumberOtherRows."
 _UNW_PROMISE = _UNW + "PromiseAndApology.test_the_apology_is_said_at_the_head_of_the_promised_call"
 _LIFE_UNW = "tests.test_life.CallsNotUnwelcome."
+_M217 = "0217_month_ahead_callback.sql"
+_MONTH = _UNW + "MonthAhead."
+_MONTH_DEFAULT = _MONTH + "test_a_promise_a_month_ahead_ends_by_default_and_one_before_is_called_as_before"
+_MONTH_APPROVAL = _MONTH + "test_with_approval_the_plan_waits_for_the_contractor_who_approves_or_refuses"
+_LIFE_MONTH = _LIFE_UNW + "test_a_promise_a_month_ahead_is_called_at_its_time_only_when_the_contractor_approves"
+_LIFE_EVENING = _LIFE_UNW + "test_an_evening_promise_unanswered_is_called_on_exactly_the_policy_days"
 _BACK_DROPPED = _DF + "test_going_back_brings_back_a_dropped_promise_while_its_time_remains"
 _BACK_COUNT = _DF + "test_a_dropped_promise_brought_back_does_not_count_the_calls_to_the_other_person"
 _KEPT_FULL = _DF + "test_a_kept_promise_is_called_through_its_window_and_then_hands_over"
@@ -2920,6 +2926,22 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      _edited(_M216, "CREATE OR REPLACE FUNCTION salescall.setting_value_ok(", "WHEN 'day_or_gap' THEN CASE", "WHEN 'day_or_gap' THEN true OR CASE",
              end="\n$$"),
      ("tests.test_settings.Shapes.test_bad_values_are_rejected",)),
+    # ── 0217 1か月以上先のかけ直し
+    ("1か月以上先かを、翌月の同じ日でなく、その次の日から数える（翌月の同じ日の約束をかける）",
+     _edited(_M217, "CREATE FUNCTION salescall.month_ahead(", "  SELECT salescall.jst(p_at)::date\n         >= ", "  SELECT salescall.jst(p_at)::date\n         > ",
+             end="\n$$"),
+     (_MONTH_DEFAULT,)),
+    ("1か月以上先かを、その時刻へかける予定を初めて決めた日でなく、いまから数える（その日になると待たずにかける）",
+     _edited(_M217, "CREATE FUNCTION salescall.month_ahead(", "AND n.call_at = p_at), now()))", "AND n.call_at = p_at AND false), now()))",
+             end="\n$$"),
+     (_LIFE_MONTH,)),
+    ("契約者が認めても、1か月以上先のかけ直しを待ち続ける",
+     _edited(_M217, "CREATE FUNCTION salescall.month_ahead_unapproved(", "AND k.approved)", "AND k.approved AND false)", end="\n$$"),
+     (_MONTH_APPROVAL, _LIFE_MONTH)),
+    ("1か月以上先のかけ直しに、システムの処理も答えられる",
+     _edited(_M217, "CREATE FUNCTION salescall.task_month_ahead_answer_guard(", "  IF NOT salescall.cur_is_person() THEN",
+             "  IF false THEN"),
+     (_MONTH_APPROVAL,)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -6783,9 +6805,9 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "        if _window_opening(tx, task_id, now, window, now=now)[1] is None:\n            return None",
      "        if True:\n            return None",
      (_DF + "test_going_back_after_the_round_passed_goes_to_the_next_round_while_days_remain",)),
-    ("やめた約束を戻すとき、約束の日がすべて過ぎていても、次の回へ戻す（next_action._promise_over）", _NEXT,
-     "    if exact:\n        return round_ >= int(settings.resolve(tx, \"callback.exact_days\", **tasks.scope(tx, task_id)))",
-     "    if exact:\n        return False",
+    ("やめた約束を戻すとき、約束の日がすべて過ぎていても、次の回へ戻す（next_action._period_promise）", _NEXT,
+     "        if d.kind != \"call\" or d.window is None or _promise_used_up(tx, task_id, d.window.round, exact=exact) is not None:",
+     "        if d.kind != \"call\" or d.window is None:",
      (_BACK_DROPPED,)),
     ("やめた約束を戻すとき、こちらの止めのときと同じく今日のうちに取り戻す（next_action._period_promise）", _NEXT,
      "exact=exact, recover=False)", "exact=exact, recover=True)",
@@ -6834,6 +6856,41 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      """key=f"line_none_to_switch:{task['client_id']}:{today}",""",
      """key=f"line_none_to_switch:{task['client_id']}:{today}:" + str(tx.one("SELECT clock_timestamp() AS t")["t"]),""",
      (_UNW_SAME + "test_a_client_whose_lines_all_were_seen_tells_the_contractor_and_a_new_line_calls",)),
+    # ── 2026-11-08 ユーザー＝計画書 7-3 (3)：伺い「約束の日数」に「ちょうどにそろえる」（約束の数を上限と比べる1か所 next_action._promise_used_up）
+    ("幅の約束の回（日）の数を、最初の回＋方針の回数までにする（前の形＝next_action._promise_used_up）", _NEXT,
+     "        limit = 0 if p.action == \"end\" else p.max_times\n",
+     "        limit = 0 if p.action == \"end\" else p.max_times + 1\n",
+     (_LIFE_EVENING, "tests.test_settle.CallbackWindow.test_a_weekday_promise_moves_to_the_same_weekday_and_ends_after_the_policy_count",
+      "tests.test_settle.CallbackWindow.test_a_window_retry_within_the_round_stops_at_the_policy_times")),
+    ("約束の数を「超えたら」で比べる（next_action._promise_used_up）", _NEXT,
+     "    return limit if count >= limit else None\n", "    return limit if count > limit else None\n",
+     (_LIFE_EVENING, "tests.test_settle.CallbackWindow.test_a_weekday_promise_moves_to_the_same_weekday_and_ends_after_the_policy_count")),
+    ("幅の約束の回の数を、上限と比べない（next_action._keep_promise）", _NEXT,
+     "        if limit is not None:\n            return replace(_end(\"callback_unspecified_time\",",
+     "        if False:\n            return replace(_end(\"callback_unspecified_time\",",
+     (_LIFE_EVENING,)),
+    # ── 2026-11-08 ユーザー＝計画書 7-3 (3)：1か月以上先のかけ直しは、初めの値は「かけない」（0217）
+    ("決定を書くとき、1か月以上先かを見ない（next_action._write）", _NEXT,
+     "        d = _month_ahead(tx, task_id, d)   # 1か月以上先のかけ直し（どの道で決めた予定も、ここを通る）\n", "",
+     (_MONTH_DEFAULT, _MONTH_APPROVAL)),
+    ("1か月以上先のかけ直しを、業務の設定に関係なく、いつも終える（next_action._month_ahead）", _NEXT,
+     "    if settings.resolve(tx, \"callback.month_ahead\", **tasks.scope(tx, task_id)) == \"with_approval\":",
+     "    if False:",
+     (_MONTH_APPROVAL, _LIFE_MONTH)),
+    ("1か月以上先のかけ直しを、業務の設定に関係なく、いつも契約者の答えを待つ（next_action._month_ahead）", _NEXT,
+     "    if settings.resolve(tx, \"callback.month_ahead\", **tasks.scope(tx, task_id)) == \"with_approval\":",
+     "    if True:",
+     (_MONTH_DEFAULT,)),
+    ("1か月以上先のかけ直しを契約者が認めなくても、行を終えない（next_action.after_month_ahead_answer）", _NEXT,
+     "    if approved:\n        return None\n    return _write(tx, task_id, _end(MONTH_AHEAD,",
+     "    if True:\n        return None\n    return _write(tx, task_id, _end(MONTH_AHEAD,",
+     (_MONTH_APPROVAL,)),
+    ("門が、1か月以上先のかけ直しの契約者の答えを待たない（gate._judge_and_claim）", "src/salescall/core/gate.py",
+     "    if tasks.month_ahead_waiting(tx, task[\"task_id\"]) is not None:\n        return _deny(\"month_ahead_approval\")\n", "",
+     (_LIFE_MONTH,)),
+    ("候補を出す処理が、1か月以上先のかけ直しの契約者の答えを待つ行も出す（gate.waits_unknown）", "src/salescall/core/gate.py",
+     "    if tasks.month_ahead_waiting(tx, task_id) is not None:\n        return \"month_ahead_approval\"\n", "",
+     (_MONTH_APPROVAL, _LIFE_MONTH)),
 )
 
 

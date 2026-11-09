@@ -180,6 +180,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     # tasks.fix_dial_number＝下の PY_ENTRY_CALLERS で入口 row_fixes だけが呼ぶ。新しい約束の選びは row_fixes.choose_old_promise）
     "task_dial_fixes": {"INSERT": frozenset({_CORE + "tasks.py"})},
     "task_old_promise_choices": {"INSERT": frozenset({_CORE + "row_fixes.py"})},
+    # 1か月以上先のかけ直しへの契約者の答え（0217）：書くのは、予定も同じ取引で決め直す入口 row_fixes.answer_month_ahead だけ
+    "task_month_ahead_answers": {"INSERT": frozenset({_CORE + "row_fixes.py"})},
     # 0206 で足した（それまで一覧に無く、業務の土台のどこからでも書けた表）。お客様リストの行の欄の直し（お呼びする方の名前などの直しは、前の
     # 担当の方との約束の選びも持つ＝予定も同じ取引で決め直す入口 row_fixes.fix だけ）・行の連絡先・お客様が指定した番号・サブの番号・版の写しと
     # つながり
@@ -637,6 +639,9 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("next_action", "after_dial_fix"): frozenset({_CORE + "row_fixes.py"}),
     ("next_action", "after_person_fix"): frozenset({_CORE + "row_fixes.py"}),
     ("next_action", "after_old_promise_choice"): frozenset({_CORE + "row_fixes.py"}),
+    # 1か月以上先のかけ直しへの契約者の答え（0217）：答える入口は画面だけ、答えのあとの予定の決め直しは、その入口の部品だけ
+    ("row_fixes", "answer_month_ahead"): frozenset({WEB_PLACE}),
+    ("next_action", "after_month_ahead_answer"): frozenset({_CORE + "row_fixes.py"}),
 }
 
 

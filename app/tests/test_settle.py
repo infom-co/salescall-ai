@@ -4897,12 +4897,17 @@ class CallbackWindow(SettleBase):
                                                                now=first.until + timedelta(days=14)))
         self.assertEqual((late.window.round, late.window.missed, late.window.since, late.apology),
                          (3, 3, midnight(d + timedelta(days=21)), "missed_promise"))   # 過ぎた回は回に数えるが、かけなかった回は打ち止めに数えない
-        uncalled = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], first.until, replace(first, round=3), target,
+        uncalled = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], first.until, replace(first, round=2), target,
                                                                    now=now))
-        self.assertEqual((uncalled.kind, uncalled.window.round, uncalled.window.missed), ("call", 4, 1))   # 一度もかけていない回で打ち切らない
-        called = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=3)   # かけた回
+        self.assertEqual((uncalled.kind, uncalled.window.round, uncalled.window.missed), ("call", 3, 1))   # 一度もかけていない回で打ち切らない
+        # （3回目の回へ移る：かけた回は2つ＝方針の回数3に届いていない。かけていない回も数えると3つで終わってしまう）
+        called = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=1)   # かけた回
+        more = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], called.until, called, target, now=now))
+        self.assertEqual((more.kind, more.window.round), ("call", 2))   # かけた回が2つ：3つ目の回（方針の回数3の中）
+        called = replace(called, round=2)
         over = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], called.until, called, target, now=now))
-        self.assertEqual((over.kind, over.end_reason), ("end", "callback_unspecified_time"))   # かけた回が、最初の回＋方針の回数（3）を超えたら終える
+        self.assertEqual((over.kind, over.end_reason), ("end", "callback_unspecified_time"))   # かけた回が、方針の回数（3）ちょうどに届いたら終える
+        # （✅ 2026-11-08 ユーザー：伺い「約束の日数」に「ちょうどにそろえる」。⛔ 前は「超えたら」＝最初の回＋方針の回数＝4回まで）
         self.put_client(s, "calling.hours", {k: [] for k in KEYS})
         guard = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], first.until, first, target, now=now))
         self.assertEqual((guard.kind, guard.window.round, guard.window.since), ("call", 1, midnight(d + timedelta(days=7))))   # 依頼者の
@@ -5100,9 +5105,10 @@ class CallbackWindow(SettleBase):
 
     def test_a_window_retry_within_the_round_stops_at_the_policy_times(self):
         """幅の約束で出なかったとき、その回にかけた数が再発信の方針の回数に届くまでは、同じ回の中で方針の間隔でかけ直し、届いたら
-        次の回へ（境目。回の合計は方針の回数ちょうど＝方針1回なら1本で次の回へ、方針2回なら1本目のあとは同じ回の中。✅ 2026-11-08
+        次の回へ（境目。回の合計は方針の回数ちょうど＝方針1回なら1本で回の終わり、方針2回なら1本目のあとは同じ回の中。✅ 2026-11-08
         ユーザー＝計画書 7-3 (3)「4回なら4本まで」。⛔ 前は「回の最初の1本＋方針の回数のかけ直し」で数え、方針1回でも2本目まで同じ回の
-        中でかけた。見直し7で試験を足した）。"""
+        中でかけた。見直し7で試験を足した）。方針1回なら、回（日）の数も1つちょうどまでなので、1本目の回が終わったら行を終える（✅ 2026-11-08
+        ユーザー：伺い「約束の日数」に「ちょうどにそろえる」。⛔ 前は次の回へ移り、最初の回＋方針の回数＝2回目の回までかけた）。"""
         keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
         for times, same_round in ((1, False), (2, True)):
             with self.subTest(times=times):
@@ -5117,9 +5123,8 @@ class CallbackWindow(SettleBase):
                 if same_round:
                     self.assertEqual((cur["promised"], cur["window_round"]), (True, 0))   # 1本目：方針の回数（2回）に届かない＝同じ回の中
                     self.assertLess(cur["call_at"], now + timedelta(hours=2))
-                else:
-                    self.assertEqual((cur["promised"], cur["window_round"]), (True, 1))   # 1本目で方針の回数（1回）に届いた＝次の回へ
-                    self.assertGreaterEqual(cur["call_at"], w.until)
+                else:   # 1本目で方針の回数（1回）に届いた＝回の終わり。回の数も方針の回数（1つ）に届いた＝終える
+                    self.assertEqual((cur["kind"], cur["end_reason"]), ("end", "callback_unspecified_time"))
 
     def test_an_untimed_promise_ends_when_later_is_said_more_than_the_policy_times(self):
         """「あとで」と言われた回数が方針の回数（ここでは1回）を超えたら終える。言われた回数そのものは続ける（境目。見直し7で試験を
