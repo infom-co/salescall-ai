@@ -355,6 +355,31 @@ class MonthAhead(SettleBase):
         self.assertEqual((got["next"]["kind"], got["next"]["end_reason"]), ("end", next_action.MONTH_AHEAD))
 
 
+    def test_a_month_ahead_is_counted_from_the_day_the_time_was_first_decided(self):
+        """1か月以上先かは、その時刻へかける予定をその行で初めて決めた日から数える（データベースの salescall.month_ahead）：40日前に決めた5日後の
+        予定は、いまから見れば1か月より手前でも、契約者の答えを待つ（同じ時刻のまま書き直しても同じ）。その日になって数え直すと、答えを待たずに
+        かかってしまう。"""
+        from salescall.core import tasks
+        from tests.support import SYSTEM, owner_access
+        s = self.ready()
+        self.choose(s, "with_approval")
+        at = self.tx(s, lambda tx: tx.one("SELECT now() + interval '5 days' AS t")["t"])
+        write = lambda: self.tx(s, lambda tx: next_action._write(tx, s["task"], next_action._call(   # noqa: E731
+            at, True, "試験：お客様と約束したかけ直し", next_action.Target(s["contact"]))))
+        write()
+        self.assertIsNone(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])))   # いま決めた5日後：1か月より手前
+
+        def back(tx):   # 試験：その予定を40日前に決めたことにする（持ち主の取引の中だけ仕掛けを外す）
+            tx.execute("ALTER TABLE salescall.task_next_actions DISABLE TRIGGER USER")
+            tx.execute("UPDATE salescall.task_next_actions SET decided_at = decided_at - interval '40 days' WHERE task_id = %s AND call_at = %s",
+                       (s["task"], at))
+            tx.execute("ALTER TABLE salescall.task_next_actions ENABLE TRIGGER USER")
+        owner_access().in_system(SYSTEM, back)
+        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])), at)   # 40日前から見れば1か月以上先
+        write()                                                                  # 同じ時刻のまま書き直す（番号の直しなど）
+        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])), at)
+
+
 class Guards(SettleBase):
     """0216 のデータベースの守り。"""
 
