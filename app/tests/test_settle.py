@@ -927,7 +927,7 @@ class DialFixAfterCalls(SettleBase):
         from salescall.core import row_fixes
         s = self.ready()
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
-        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=2)
+        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=1)   # まだ回が残る約束（方針3回の2回目の回。回の数は方針の回数ちょうどまで）
         self.at(s, s["contact"], window=w)
         self.settle(s, self.call(s, ["dialing", "no_answer"]))                  # 前の番号で約束の電話に出なかった
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["contact_id"], s["contact"])
@@ -1301,7 +1301,7 @@ class DialFixAfterCalls(SettleBase):
 
     def promise_window(self, s):
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
-        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=2)
+        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=1)   # まだ回が残る約束（方針3回の2回目の回。回の数は方針の回数ちょうどまで）
         self.at(s, s["contact"], window=w)
 
     def handover_now(self, s):
@@ -2111,7 +2111,7 @@ class DialFixAfterCalls(SettleBase):
         m = self.plan(s)[1]
         self.assertEqual(self.phone_of(s, m), normalize(said).e164)
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
-        self.at(s, m, window=next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=2))
+        self.at(s, m, window=next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=1))   # まだ回が残る約束（方針3回の2回目の回）
         return m
 
     def test_a_name_fix_with_a_promise_on_the_number_dialed_may_keep_it(self):
@@ -2291,7 +2291,7 @@ class DialFixAfterCalls(SettleBase):
         s = self.ready()
         new, _ = kept(s)
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
-        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=2)
+        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=1)   # まだ回が残る約束（方針3回の2回目の回）
         with self.assertRaises(ValueError) as e:
             self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=new, cause="試験：約束のまま", promised=True,
                                                        window=w))
