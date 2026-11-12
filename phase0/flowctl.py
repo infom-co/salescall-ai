@@ -784,14 +784,18 @@ def resumed_call(earlier: dict | None, apology_call=None, number_again=None) -> 
     return bool(earlier) and not apology_call and not number_again
 
 
-def purpose_part(earlier: dict | None, apology, when: str, who: str | None = None) -> str:
+def purpose_part(earlier: dict | None, apology, when: str, who: str | None = None, handover: bool = False) -> str:
     """名乗り（お詫び）のあとに流す用件の一文の、名乗りの部分の名前（唯一の決まり＝流れの制御 Flow._purpose_play・名乗りの録音の文
     instruction.Business.opening_parts）。前の電話でお話しした方への続きの電話は、用件の一文を前の電話とつなげる（phrases.PURPOSE_AGAIN）：
     - 前の電話で業務の質問を伺い始めていた（前の通話で取れた答えがあり、その答えを取った通話で繋いだ方＝who がこの方。who の無い前の形・目的のお客様のいない
       業務は、目的の方と読む）：「前回のお電話で途中になっておりました（用件）でお電話いたしました。」（cut）
     - 伺う前に終わっていた（取れた答えは無いが、前の電話のお詫びがある＝その電話でお話しした方）：「前回お伺いすることができませんでした（用件）…」（unasked）
     - 同じ日の電話は「先ほど」（お詫びと同じ when＝apology_when）。それ以外（初めての電話・前の電話でお話ししていない方）は今の用件の一文（purpose）
+    - 担当の方が替わった電話（handover＝予約証の handover）の方も、前の電話でお話ししていない方（前の担当の方も新しい担当の方も who は target なので、
+      who では見分けられない）。CL-2 の 4-370 の (5)（⛔ それまでは、新しい担当の方に「前回のお電話で途中になっておりました…」と言った）
     ✅ 2026-11-09 日本時間9時48分09秒 ユーザー（お言葉は phrases.PURPOSE_AGAIN）"""
+    if handover:
+        return "purpose"
     if earlier:
         whos = {(e or {}).get("who") or "target" for e in earlier.values() if isinstance(e, dict)}
         return f"purpose_again_cut_{when}" if whos == {who or "target"} else "purpose"
@@ -2805,7 +2809,8 @@ def earlier_point_open(point: str | None) -> bool:
 # "who"（CL-2 の 4-320＝4-290 の (5)・CL-1.md 4-106 の H6）：その答えを取った通話の、いちばん新しい繋いだ方（target・successor・substitute）。繋いだ事実の
 #    無い通話の答えには無い・who の無い前の形は target と読む（読むのは CL-2 の CallReport.connected_who の1か所）。⏳ 続きの電話で判断いただける代わりの方に
 #    「引き継がれている部分から」伺う（本書 9-4 の「お客様の申し出」）の見分けに使う＝読み方は CL-1.md 4-120
-EARLIER_KEYS = ("state", "value", "condition", "hedged", "wish_fact", "point_fact", "who")
+# offer_fact＝その質問の最後の申し出の事実（詳しい者からのお話・締める前の申し出＝通話の事実 handoff・close_offer の形。CL-2 の 4-370 の (4)。読むのは earlier_records の1か所）
+EARLIER_KEYS = ("state", "value", "condition", "hedged", "wish_fact", "point_fact", "who", "offer_fact")
 
 
 def earlier_fact(entry: dict | None, key: str) -> dict | None:
@@ -3087,10 +3092,12 @@ def known_contact(role: str, answers, records) -> "tuple[str, str | None] | None
 
 
 def earlier_records(earlier: dict | None) -> list[dict]:
-    """前の通話の答えにある、ほかのご希望で伺った連絡先（known_contact の records の形＝通話の事実 other_wish そのもの）：前の通話の答えの wish_fact のうち、
-    連絡先のあるもの。⛔ 2026-11-05 CL-2 の連絡帳 4-212 の (B)：前は連絡先の方法を wish_means（連絡先を伺う前に切れた方法）から読み、連絡先のある答えでは
-    いつも空＝もう伺った連絡先を伺い直していた。"""
-    return [f for v in (earlier or {}).values() if (f := earlier_fact(v, "wish_fact")) is not None and (f.get("contact") or "").strip()]
+    """前の通話の答えにある、ほかのご希望・申し出で伺った連絡先（known_contact の records の形＝通話の事実 other_wish・handoff・close_offer そのもの）：前の通話の
+    答えの wish_fact・offer_fact のうち、連絡先のあるもの。⛔ 2026-11-05 CL-2 の連絡帳 4-212 の (B)：前は連絡先の方法を wish_means（連絡先を伺う前に切れた方法）
+    から読み、連絡先のある答えではいつも空＝もう伺った連絡先を伺い直していた。⛔ 2026-11-12（CL-2 の 4-370 の (4)・CL-1.md 4-123 の ⚠️）まで、申し出（詳しい者からの
+    お話・締める前の申し出）で伺った連絡先は前の通話の答えに乗らず、続きの電話で重ねて伺いえた（この通話の申し出の連絡先は前から読む＝Flow._known_contact）"""
+    return [f for v in (earlier or {}).values() for key in ("wish_fact", "offer_fact")
+            if (f := earlier_fact(v, key)) is not None and (f.get("contact") or "").strip()]
 
 
 def resumed_step(questions, earlier: dict | None) -> "tuple[str, Question] | None":
@@ -3522,6 +3529,14 @@ class CloseOffer:
             raise ValueError(f"締める前の申し出のこちらがすることの言葉（do）は「…{OFFER_DO_END}」の形で要ります（取込の decide_do_words）：{self.do!r}")
 
 
+def close_offer_do_question(text: str) -> tuple[str, tuple, dict]:
+    """締める前の申し出のこちらがすることの言葉（CloseOffer.do）を取込で決める問い（import_ai.decide_do_words に渡す (質問の文, 選択肢の並び, 意味の言葉) の1つ）を作る
+    唯一の場所：申し出の文を、はい／いいえの質問として、会話の側が N6 で使う意味の言葉（callback_question の close_offer＝_ROLE_MEANINGS）で。取込が別に意味の言葉を
+    決めない（同じ質問の意味の言葉を2か所に置かない。CL-2 の 4-370 の (3)）。"""
+    q = callback_question("close_offer", text, do="")
+    return text, q.conditions, dict(q.meanings)
+
+
 def offer_ways(handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None) -> tuple:
     """申し出の方法（唯一の決まり）：営業に引き継ぐ架電は引き継ぎの方法、そうでなければ締める前の申し出の方法。"""
     return tuple(handoff_ways) or (tuple(close_offer.ways) if close_offer is not None else ())
@@ -3656,7 +3671,7 @@ class Flow:
                  voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300,
                  apology_call: str | None = None, apology_when: str = "later", client_does: str = "", apology_text: str | None = None,
                  earliest_day=None, today=None, handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None,
-                 way_words: dict | None = None):
+                 way_words: dict | None = None, handover: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う引き止めの一言（業務設定。録音で流す電話では業務の録音 busy。None なら引き止めず、
         締める前の伺い「それではまた改めてお掛けしてもよろしいでしょうか？」へ＝_hurry_ask。✅ 2026-11-01 日本時間20時56分。Intent.md 9-4）。
@@ -4048,6 +4063,7 @@ class Flow:
         # 業務の質問はしない。お呼びした方（目的のお客様のいる業務）に繋がったら、または名乗りのあと（いない業務）にお詫びの録音を流し、お客様の
         # お返事を聞いてから、お礼の締めで終える。伝えられたかは会話の報告の apology_delivered（Flow.apology_delivered）
         self.apology_call = apology_call
+        self.handover = handover   # 担当の方が替わった電話か（予約証の handover。読むのは用件の一文の _purpose_play＝purpose_part の1か所）
         self.apology_when = apology_when   # お詫びの文が、いつの電話のことか（same_day＝先ほど・later＝先日。CL-2 の apology の文の部分）
         assert apology_when in APOLOGY_PURPOSE, apology_when
         # お詫びを流すように頼んだか（apology_asked）・頼んだあと止まっていないか（apology_played。止まれば on_opening_cut が外す）・流し直したか
@@ -11454,7 +11470,7 @@ class Flow:
         """名乗り（お詫び）のあとに流す用件の一文の録音（_opening_reply・_connect）：続きの電話は前の電話とつなげた一文（決まりは purpose_part の1か所。業務の録音に
         無ければ＝用件の名詞が決まらなかった業務は、今の一文）。代わりの方は前の電話でお話ししていない（今の一文）。"""
         parts = self.target or self.opening or {}
-        key = purpose_part(self.earlier, self.apology_reasons, self.apology_when, who) if who != "substitute" else "purpose"
+        key = purpose_part(self.earlier, self.apology_reasons, self.apology_when, who, self.handover) if who != "substitute" else "purpose"
         key = key if parts.get(key) else "purpose"
         return {"kind": "opening", "part": key, "text": parts[key]}
 

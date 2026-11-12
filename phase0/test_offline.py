@@ -32,6 +32,7 @@ def fc(name, **args):
 # callback_not_agreed_again（✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」。CL-1.md 4-80）も。⇒ 前の通話で取れた答えの "wish"・"point"・"point_said"・"wish_means"
 # は、2026-11-05 にその質問の最後の事実そのもの（"wish_fact"・"point_fact"）に替えた（CL-2 の 4-212 の案2。CL-1.md 4-88）ので、ここから外した
 CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に入れる言い方（まとめ役の11-12 の (1)。CL-1.md 4-132）
+                         "offer_fact",   # 前の通話の答えの、申し出で伺った連絡先（CL-2 の 4-370 の (4)。CL-1.md 4-138）
                          "way_words",   # その答えの業務設定の欄（instruction.Business.way_words。CL-1.md 4-132）
                          "added",   # こちらから足した条件の欄（14時58分17秒「アで！」。CL-1.md 4-131）
                          "offer_terms",   # 業務の申し出の質問を条件つきで受けていただいた通話の事実（11-12 日本時間13時40分05秒の (2)。CL-1.md 4-129）
@@ -5315,6 +5316,12 @@ class PlayRecordingsTest(unittest.TestCase):
             self.assertEqual(purpose_said(target), [line])
         # 前の電話でお話ししていない方（前の通話の答えを取ったのは代わりの方）にはつなげない
         self.assertEqual(purpose_said(okada, earlier={"Q1": {"state": "accepted", "condition": "はい", "who": "substitute"}}, apology=("cut_off",)), [line])
+        # 担当の方が替わった電話（予約証の handover＝CL-2 の gate.Claim.handover）：新しい担当の方は前の電話でお話ししていない方（前の通話の答えの who は
+        # 前の担当の方も target なので、who では見分けられない）＝今の用件の一文。CL-2 の 4-370 の (5)。⛔ 直す前は「前回のお電話で途中になっておりました…」を
+        # 新しい担当の方に言った（CL-2 の apology_when は担当の方の期を見ない＝前の担当の方との電話の日）
+        for target in (None, okada):
+            for when in ("later", "same_day"):
+                self.assertEqual(purpose_said(target, earlier=earlier, apology_when=when, handover=True), [line], (target, when))
         # お詫びの無い約束の電話で、前の電話で伺い始めていた：同じ理由が当たる（お言葉の外）
         self.assertEqual(purpose_said(okada, earlier=earlier, promised=True), ["前回のお電話で途中になっておりましたご予約の確認でお電話いたしました。"])
 
@@ -12052,6 +12059,7 @@ class TargetTest(unittest.TestCase):
         # 会話の側のお詫びの理由の一覧（flowctl.APOLOGY_REASONS）は、CL-2 の次の予定のお詫びの理由の CHECK（いちばん新しい migration）と同じ（4-350 の (2)＝知らない
         # 理由を黙って捨てない見張り）。録音の部分の一覧（make_ack_clips.listed_parts＝4-350 の (4)・4-120 の入口）は、依頼主の単位の録音の表そのままで、共通の
         # 一言を入れない。形は CL-2 の recordings.ListedPart と同じ（CL-2 の枝が main に入るまで CL2_PENDING）
+        import dataclasses   # ⛔ CL-2 の枝（9df8ea46）の app/ で流して見つけた：CL-2 に ListedPart があるときだけ通る行で、読み込みが抜けていた（NameError）
         import re
         from flowctl import APOLOGY_REASONS
         from g22_opening import BUSINESS
@@ -12066,7 +12074,9 @@ class TargetTest(unittest.TestCase):
         self.assertEqual([(p.part, p.spoken_text, p.readings) for p in parts], [(k, v[0], readings.get(k, {})) for k, v in table.items()])
         self.assertEqual(sorted({p.part for p in parts} & set(RECORDED)), [])
         m = re.search(r"class ListedPart:\n(.*?)\n\n", (app / "src" / "salescall" / "core" / "recordings.py").read_text(encoding="utf-8"), re.S)
-        self.assertEqual(without_cl2_pending(self, {"ListedPart"}, {"ListedPart"} if m else set()), set())
+        # ほかの比べる試験と同じ形（CL-2 にある名前を引く）。⛔ CL-2 の 4-370 の (2)：前の形は、CL-2 に ListedPart があると、CL2_PENDING から外しても外さなくても落ちた
+        theirs = {"ListedPart"} if m else set()
+        self.assertEqual(without_cl2_pending(self, {"ListedPart"}, theirs) - theirs, set())
         if m:
             self.assertEqual(re.findall(r"^    (\w+):", m.group(1), re.M), [x.name for x in dataclasses.fields(ListedPart)])
 
@@ -13809,6 +13819,30 @@ class TargetTest(unittest.TestCase):
             self.assertTrue(check(w, q, "はい", kind), kind)
             for head in ("それでは", "はい", "承知しました"):
                 self.assertFalse(check(head + w, q, "はい", kind), (kind, head))
+
+    def test_offer_do_end_and_means_in_match_cl2(self):
+        # CL-2 の 4-370 の (8)：締める前の申し出のこちらがすることの言葉の終わり（こちら phrases.OFFER_DO_END・CL-2 の business_settings.OFFER_DO_END）と、
+        # ご連絡の方法の見分け方（こちら flowctl.means_in・WISH_MEANS の言葉・CL-2 の business_settings.means_in・MEANS_WORDS）が同じ。見分け方は、CL-2 の関数の文と
+        # 言葉の表だけを別の名前空間で動かして、同じ名前の並びで答えを比べる（CL-2 の部品は読み込まない＝I-30）
+        import ast
+        import pathlib
+        import unicodedata
+        from flowctl import WISH_MEANS, means_in
+        from phrases import OFFER_DO_END
+        theirs = self.cl2_names("business_settings.py", "OFFER_DO_END")
+        if theirs is None:
+            self.skipTest("CL-2 の business_settings.OFFER_DO_END が、まだ main に無い")
+        self.assertEqual(theirs, {OFFER_DO_END})
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "business_settings.py"
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        nodes = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name == "means_in")
+                 or (isinstance(n, ast.Assign) and any(getattr(t, "id", None) == "MEANS_WORDS" for t in n.targets))]
+        self.assertEqual(len(nodes), 2, "CL-2 の business_settings に MEANS_WORDS と means_in がある")
+        space = {"unicodedata": unicodedata}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(src), "exec"), space)
+        self.assertEqual({k: set(v) for k, v in space["MEANS_WORDS"].items()}, {k: set(ws) for k, (_, ws, _) in WISH_MEANS.items()})
+        names = [w for _, ws, _ in WISH_MEANS.values() for w in ws] + ["オンライン説明", "LINEかメール", "ｚｏｏｍ", "電話・FAX", "郵便でお送り", "セミナー参加", "訪問"]
+        self.assertEqual([space["means_in"](n) for n in names], [means_in(n) for n in names])
 
     def test_day_slot_matches_cl2(self):
         # CL-2 の 4-197 の (c)：質問の文・入る一言に書く「最短の日」の文字（こちら flowctl.DAY_SLOT・CL-2 の business_settings.DAY_SLOT）が同じ
@@ -16934,6 +16968,30 @@ class NoneOfThemTest(unittest.TestCase):
         fn = next(n for n in ast.parse(src.read_text(encoding="utf-8")).body if isinstance(n, ast.FunctionDef) and n.name == "earlier")
         theirs = {k.value for d in ast.walk(fn) if isinstance(d, ast.Dict) for k in d.keys if isinstance(k, ast.Constant)}
         self.assertEqual((sorted(without_cl2_pending(self, set(EARLIER_KEYS), theirs) - theirs), sorted(theirs - set(EARLIER_KEYS))), ([], []))
+
+    def test_contact_taken_in_an_earlier_offer_is_not_asked_again(self):
+        # CL-2 の 4-370 の (4)・4-123 の ⚠️：前の通話で申し出（詳しい者からのお話・締める前の申し出）で伺った連絡先も、ほかのご希望で伺った連絡先と同じく、
+        # 続きの電話で重ねて伺わない（9-3「取得済みのことを重ねて聞かない」・✅ 2026-11-04 日本時間19時26分「もし、携帯電話番号やメールを伺っていなければ
+        # ここで確認」）。前の通話の答えの鍵 offer_fact（その質問の最後の申し出の事実＝通話の事実 handoff・close_offer の形）を、ほかのご希望の wish_fact と
+        # 同じ1か所（earlier_records → known_contact）で読む
+        from flowctl import EARLIER_KEYS, earlier_records, known_contact
+        self.assertIn("offer_fact", EARLIER_KEYS)
+        fact = {"turn": 5, "said": "オンラインならお願いします。", "question": "Q1", "agreed": True, "way": "オンライン", "means": "online", "via": None,
+                "contact": "taro@example.com", "outcome": "told", "terms": None, "topic": None}
+        earlier = {"Q1": {"state": "confirmed", "value": None, "condition": "いいえ", "offer_fact": fact}}
+        self.assertEqual(earlier_records(earlier), [fact])
+        self.assertEqual(known_contact("email", [], earlier_records(earlier)), ("taro@example.com", None))
+        # 連絡先の無い申し出の事実（お電話・伺えなかった）は読まない
+        self.assertEqual(earlier_records({"Q1": {"offer_fact": {**fact, "contact": None}}}), [])
+
+    def test_close_offer_do_words_are_decided_with_the_flow_meanings(self):
+        # CL-2 の 4-370 の (3)：締める前の申し出のこちらがすることの言葉（CloseOffer.do）を取込で決めるときの問い（申し出の文・はい／いいえ・意味の言葉）は、
+        # 会話の側が N6 で使う意味の言葉（_ROLE_MEANINGS の close_offer＝callback_question の1か所）から作る1か所（close_offer_do_question）。取込が別に
+        # decide_meanings で決めると、同じ質問の意味の言葉が2か所になる
+        from flowctl import callback_question, close_offer_do_question
+        text = "それでは改めて資料をお送りさせていただいてもよろしいでしょうか？"
+        q = callback_question("close_offer", text, do="改めて資料をお送りさせていただきます")
+        self.assertEqual(close_offer_do_question(text), (text, q.conditions, dict(q.meanings)))
 
     def test_yes_no_repick_is_not_labelled_yes(self):
         # はい／いいえの質問の W1 では、選び直しの選択肢を「はい」「いいえ」の名前にしない（W1 そのものが「はい、あります。」で答えられる問い）。意味の言葉が
@@ -23987,7 +24045,7 @@ class Cl2Round211Test(unittest.TestCase):
         # 答えではいつも空）。前の通話の答えには、その質問の最後の事実そのもの（wish_fact＝other_wish・point_fact＝not_agreed）を渡していただき、読み方は
         # 会話の側の earlier_* の1か所だけにする（CL-2 の案2）
         from flowctl import CALLBACK_IDS, EARLIER_KEYS, Flow, earlier_records, known_contact
-        self.assertEqual(set(EARLIER_KEYS), {"state", "value", "condition", "hedged", "wish_fact", "point_fact", "who"})
+        self.assertEqual(set(EARLIER_KEYS), {"state", "value", "condition", "hedged", "wish_fact", "point_fact", "who", "offer_fact"})   # offer_fact＝CL-2 の 4-370 の (4)
         taken = {"state": "accepted", "value": None, "condition": "どれも要らない"}
         line = {"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "line", "via": "id", "contact": "abc_123", "outcome": "means"}}}
         mail = {"Q1": {**taken, "wish_fact": {"question": "Q1", "means": "email", "via": None, "contact": "a@example.com", "outcome": "means"}}}
