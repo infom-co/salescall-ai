@@ -10865,6 +10865,43 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual(lines[0], "ありがとうございます。それでは料金の面も含めてパンフレットをメールでお送りさせていただきますね。恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？")
         self.assertFalse(any(t in x for x in lines for t in told), lines)
         self.assertEqual(f.facts["other_wish"][0]["contact"], "yamada@example.co.jp")
+        # 言い切りでお伝えした方法の連絡先を伺えなかった（聞き取れないまま締めの前の念のための確認も使い切った）：言い切りはお送りする先まで伝えていない＝
+        # N4・W1 から来た C11 と同じ1か所で申し伝える一言を言う（お客様がその方法を選んだという同じ理由）。✅ 2026-11-12 まとめ役の (L2)。⛔ それまでは言い切りを
+        # 申し伝える一言の1回と数え、何も言わずに締めていた
+        noise = "（雑音）……ですかね。"
+
+        def unheard_to_end(f, r):
+            lines = [heard(r)]
+            for _ in range(8):
+                if r.get("result") == "end":
+                    break
+                q = f.awaiting_confirm or r.get("question_id")
+                if f.awaiting_confirm == "Q9":
+                    r = say(f, "はい、そうです。", "confirm_field", "affirmed", question_id="Q9", result="affirmed")
+                elif q == "Q9":
+                    r = say(f, "来週の水曜の午後でお願いします。", "record_answer", "答えた", question_id="Q9", condition_id="答えた", value="来週の水曜の午後")
+                elif f.awaiting_confirm == q:
+                    r = say(f, noise, "confirm_field", question_id=q, result="no_answer")
+                else:
+                    r = say(f, noise, "report_unclear", question_id=q)
+                lines.append(heard(r))
+            return r, lines
+
+        import dataclasses
+        line_pamph = dataclasses.replace(pamph, offer_ways=("メール", "LINE"))
+        f = Flow([line_pamph, Question("Q9", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("LINEで送ってもらえるならいいですよ。")
+        rd = Reading("はい", firm=True); setattr(rd, QUERY, QUERY_NO); f.on_check("judge", rd)
+        r, lines = unheard_to_end(f, f.apply("record_answer", {"question_id": "P1", "condition_id": "はい", "way": "LINE"}))
+        self.assertEqual((r["result"], lines[-1]), ("end", "はい、" + WISH_TOLD["line"] + "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"))
+        self.assertEqual(sum(t in x for x in lines for t in told), 1, lines)
+        # 締める前の申し出 N6 をメールで受けていただき、メールアドレスが聞き取れないまま：同じ1か所
+        f = to_offer(ways=(), close=offer)
+        f.on_callee(); f.on_heard("メールで送ってもらえるならいいですよ。")
+        rd = Reading("はい", firm=True); setattr(rd, QUERY, QUERY_NO); f.on_check("judge", rd)
+        r, lines = unheard_to_end(f, f.apply("record_answer", {"question_id": n6, "condition_id": "はい", "way": "メール"}))
+        self.assertEqual((r["result"], lines[-1]), ("end", "はい、" + WISH_TOLD["email"] + "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"))
 
         # (J2) 申し出 N4 の伺い直しを断られた：お客様の条件は残し、こちらから足した条件は残さない
         f = to_offer()
@@ -11011,9 +11048,32 @@ class EndJudgedTest(unittest.TestCase):
         say(f, "来週の水曜の午後でお願いします。", "record_answer", "答えた", question_id="Q9", condition_id="答えた", value="来週の水曜の午後")
         r = say(f, "はい、そうです。", "confirm_field", "affirmed", question_id="Q9", result="affirmed")
         self.assertEqual(heard(r), "申し訳ございません、お声が聞き取れませんでしたのでご案内の方法をもう一度だけお聞かせいただいてもよろしいでしょうか？")
+        # 聞き取れないまま終えても、断られたとはしない（その業務をかけない印は付けない。ほかのご希望の結果は「無い」ではなく unresolved＝わからない・答えたくないと
+        # 同じ1か所。お客様はほかのご希望が無いとはおっしゃっていない＝✅ 2026-11-12 まとめ役の (L1)。⛔ それまでは終わりの理由が goal_refused・根拠は言い切って
+        # いないお断り「うーん、訪問はちょっと…。」・結果は none だった）
         r = unheard(f, w1)
-        self.assertEqual((r["result"], heard(r), f.end_reason),
-                         ("end", "はい、お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。", "goal_refused"))
+        self.assertEqual((r["result"], heard(r), f.end_reason, "goal_refused" in f.facts, [e["outcome"] for e in f.facts["other_wish"]]),
+                         ("end", "はい、お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。", "done", False, ["unresolved"]))
+        # 提案へのお返事が、聞き取れたのにはっきりしない（決められない）：伺い直さない（今のまま）。決められないも断られたとはしない（77d34df6 と同じ1か所）ので、
+        # 締めずに次の質問へ
+        f = Flow([visit_q, Question("Q9", "ご来店のご希望の日はございますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        f.use_checks("judge")
+        HedgedSalesTest.hedged(f, "G1", "いいえ", "うーん、訪問はちょっと…。")
+        say(f, "平日の昼間は会議ばかりなんですよ。", "record_answer", UNDECIDED, question_id=w1, condition_id=f.questions[w1].conditions[0])
+        talk(f, "さようでございますか。", way="メール")
+        r = say(f, "平日はとにかく忙しくてねえ。", "confirm_field", UNDECIDED, question_id=w1, result="no_answer")
+        self.assertEqual((r["result"], heard(r), f.end_reason, "goal_refused" in f.facts, [e["outcome"] for e in f.facts["other_wish"]]),
+                         ("next", "承知しました。続きましてご来店のご希望の日はございますでしょうか？", None, False, ["unresolved"]))
+        # はっきり断られた（判定が「無い」と読んだ）ときだけ、今までどおり締める（W1 の提案を断られたら締める＝11-03 の決まり・まとめ役の (Q2)）
+        from flowctl import WISH_NONE
+        f = Flow([visit_q, Question("Q9", "ご来店のご希望の日はございますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        f.use_checks("judge")
+        HedgedSalesTest.hedged(f, "G1", "いいえ", "うーん、訪問はちょっと…。")
+        say(f, "平日の昼間は会議ばかりなんですよ。", "record_answer", UNDECIDED, question_id=w1, condition_id=f.questions[w1].conditions[0])
+        talk(f, "さようでございますか。", way="メール")
+        r = say(f, "いや、それも結構です。", "confirm_field", WISH_NONE, question_id=w1, result="no_answer")
+        self.assertEqual((r["result"], heard(r), f.end_reason, [e["outcome"] for e in f.facts["other_wish"]]),
+                         ("end", "はい、承知いたしました。お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。", "goal_refused", ["none"]))
 
     def test_a_method_not_in_the_business_ways_is_taken_with_its_contact(self):
         # 方法を選んでいただく質問（N5）に、業務に無い方法を直接言っていただいた（「オンラインでお願いします。」・業務の方法は訪問とお電話だけ）：ほかのご希望 W1 と
@@ -11338,6 +11398,15 @@ class EndJudgedTest(unittest.TestCase):
                            (WISH_NONE, ("end", "goal_refused", True, ["none"], True))):
             f = flow()
             self.assertEqual(ended(f, say(f, "…", "record_answer", question_id="W1", condition_id=cond)), want, cond)
+        # 聞き取れないまま（その場の聞き返し2回と締めの前の念のための確認を使い切った）も同じ：お客様はほかのご希望が無いとはおっしゃっていない（✅ 2026-11-12
+        # まとめ役の (L1)。⛔ それまでは「無い」と同じ none で、お断りの締めと goal_refused だった＝RemainingNineTest の (4) の期待も直した）
+        f = flow(True)
+        r = {}
+        for _ in range(6):
+            if r.get("result") == "end":
+                break
+            r = say(f, "（雑音）", "report_unclear", question_id="W1")
+        self.assertEqual(ended(f, r), ("end", "done", False, ["unresolved"], False))
 
     def test_the_opening_and_the_flow_start_with_the_same_question(self):
         # 名乗りのあとに最初に伺う質問（名乗りの録音の最後・AIへの指示文＝instruction.Business.first_ask）と、流れの制御の始めは、同じ1か所
@@ -23584,10 +23653,12 @@ class RemainingNineTest(unittest.TestCase):
         r = self.say(f, "いいえ、ないです。", "record_answer", question_id="Q2", condition_id="いいえ")
         self.assertEqual((r["result"], r["question_id"]), ("recheck", "W1"))
         r = self.say(f, "（雑音）", "report_unclear", question_id="W1")
-        self.assertEqual((r["result"], f.end_reason), ("end", "goal_refused"))
-        self.assertEqual([(e["outcome"], earlier_wish(e)) for e in f.facts["other_wish"]], [("none", "none")])
-        self.assertEqual(f.facts["goal_refused"][-1]["said"], "そもそも要りません。")
-        self.assertEqual([(e["outcome"], earlier_wish(e)) for e in f.report()["facts"]["other_wish"]], [("none", "none")])
+        # それでも聞き取れなければ、断られたとはしない（結果は unresolved＝わからない・答えたくないと同じ 77d34df6 の1か所。次の電話でも W1 は伺い直さない）。
+        # ✅ 2026-11-12 まとめ役の (L1)：お客様はほかのご希望が無いとはおっしゃっていない。⛔ それまでは「無い」と同じ none で、goal_refused（根拠は「そもそも
+        # 要りません。」）だった
+        self.assertEqual((r["result"], f.end_reason, "goal_refused" in f.facts), ("end", "done", False))
+        self.assertEqual([(e["outcome"], earlier_wish(e)) for e in f.facts["other_wish"]], [("unresolved", "unresolved")])
+        self.assertEqual([(e["outcome"], earlier_wish(e)) for e in f.report()["facts"]["other_wish"]], [("unresolved", "unresolved")])
         # 言い直さない質問（W1・伺い方 C11）は、確かめに回すとき（別の耳の文字と食い違う など）も意味の言葉で言い直さず、お客様に言う候補の言葉で意味合いを尋ねる
         # （その意味の言葉は判定に見せる説明＝お客様に言う言葉ではない）。⛔ C11 を必須にした 21時04分から「念のためメールでLINEに招待してほしいということで
         # よろしいでしょうか？」と言っていた。✅ 2026-11-08 日本時間12時11分40秒（会話AIは判定に加えない）：判定が確かに「メール」と読み、確かめに回すきっかけが
