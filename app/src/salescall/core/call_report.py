@@ -64,7 +64,8 @@ from salescall.core.phone import normalize
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
-              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern")
+              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern",
+              "handoff", "close_offer", "offer_terms")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -124,12 +125,24 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   会話AIが応えた文は callee_question と同じ形（answered・answer・drafts・checked。AI の自分の言葉は `_own_words` の1か所。応える前に切れたら answered も
 #   答えの文も無い）。お客様の質問ではないので callee_question には入れない。依頼者へ返す（今後の改善＝お言葉「今後の改善にもつながりません」。判定の中身
 #   concern＝judge._detail の1か所）。判定の結果は変えない（電話を終えるかは、そのあとのご遠慮の一言・締めた理由で今までどおり読む）
+# handoff・close_offer：業務の申し出の答え（1つのご承認に1つ。CL-1 の連絡帳 4-122〜4-125・4-127・4-128）。ご承認が最終目的のご承認の手順を、点を言って
+#   いただけないまま終えたときに伺う申し出：handoff＝営業に引き継ぐ架電の「詳しい者からの改めてのお話」（システムの質問 N4・方法を選んでいただく N5。
+#   ✅ 2026-11-09 日本時間4時36分49秒 ユーザー）／close_offer＝営業に引き継がない架電の締める前の申し出（業務設定の close_offer の文＝N6。✅ 同 6時33分57秒）。
+#   項目は同じ形：question＝ご承認の質問の番号・agreed＝はい true／はっきりいいえ false／まだ null・way＝選んでいただいた方法の名前（業務設定の方法の名前のほか、
+#   業務の方法に無い方法の名前＝会話の側の flowctl.wish_label の形「オンラインでの連絡」も入る＝こちらは業務の方法と突き合わせない。言っていただけなければ null）・
+#   means・via・contact＝ほかのご希望 other_wish と同じ（その方法の連絡先の種類・LINE の伺い方・伺えた連絡先）・outcome＝結び（`OFFER_OUTCOMES`。伺っている
+#   途中なら null）・terms＝会話が繋がらないお返事のあとの伺い直しに入れた、お客様の申し出の受け方の条件（「月曜日を避けて」）・topic＝伺い直しに入れた、申し出に
+#   含める中身（「料金の面も含めて」）。依頼者へ返す（判定の中身 handoff・close_offer＝judge._detail の1か所）。判定は今の1か所のまま：handoff をはっきり
+#   断られたら、会話の側が事実 goal_refused も残す（その業務はかけない）。close_offer の declined は、ご承認のお断りにしない（goal_refused は付かない）
+# offer_terms：業務の申し出の質問を、こちらで応えられる条件つきで受けていただいた（CL-1 の連絡帳 4-129。question・terms・topic）。申し出のシステムの質問
+#   （N4・N6）の条件は handoff・close_offer の terms・topic に入る。依頼者へ返す（判定の中身 offer_terms）。判定は今の1か所のまま（答えは項目で読む）
 OTHER_WISH_MEANS = ("line", "email", "fax", "post", "phone", "online")   # LINE・メール・ファクス・郵送・お電話・オンライン（ZOOM など。連絡先は
 #                                                                        ご案内の URL をお送りするメールアドレス＝CL-1 の連絡帳 4-91 の (2)）（CL-1 の flowctl.WISH_MEANS の鍵）
 OTHER_WISH_OUTCOMES = ("option", "means", "other", "none")   # 元の質問の選択肢を選び直した・ご連絡の方法・ほかのご希望・無い
 # LINE の連絡先をどの形でいただいたか（事実 other_wish の via。ID・SMS でご招待・メールでご招待。LINE でないか決まらなかったら null。CL-1 の flowctl.LINE_HOW の値。
 # ✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。」・11-05 1時29分06秒「招待はメールとSMSだけだよ。」。CL-1 の連絡帳 4-81 の (3)）
 OTHER_WISH_VIA = ("id", "sms", "email")
+OFFER_OUTCOMES = ("agreed", "declined", "unresolved")   # 申し出の結び（方法・連絡先まで伺えた・はっきり断られた・はっきりしない。CL-1 の Flow._handoff_end）
 UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear", "who_unclear")
 GOAL_MODES = ("any", "all")                              # どれか1つで目的が果たせる／全部が要る（CL-1 の instruction.Business.goal_mode）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
@@ -229,6 +242,9 @@ HUMAN_ENDS = frozenset({"done", "callee_hurry", "callee_refused_call", "callee_c
 # not_agreed（締めた理由。CL-1 の連絡帳 4-66 のあとの (g)＝11-02 5時56分 ✅ ユーザー）：最終目的のご承認で、ご納得いただけなかった点を
 #   資料でご説明できず、担当の者に申し伝えることにして、お礼で締めた。もうかけないの印は付けず、改めてご案内するかは依頼者が決める
 #   ＝判定は「結論として終えた」（judge の1か所。goal_refused と違って「用件を断られた」に入れない＝同じ業務の次の実施回でもかけうる）
+#   ⇒ CL-1 の連絡帳 4-122（⛔ 2026-11-09 日本時間3時06分51秒 ユーザー「断られてもいないのに、電話を切るなんてありえますか？」）：会話の側はもうこの理由で
+#   締めない（点を言っていただけないまま手順を終えても締めず、申し出 handoff・close_offer か残りの質問へ）。名前は残す：前に置いた報告（作り直した報告も）を
+#   読むため（外すと、前の通話の報告が丸ごと読めなくなり、判定し直し・前の通話の答え・依頼者への出力が止まる）。会話の側の一覧にも残っている
 NOT_AGREED_OUTCOMES = ("agreed", "declined", "unresolved")   # ご納得いただけなかった点ごとの結び（ご納得いただけた・お断りになった・分からないまま）
 # 申し伝える一言の種類（not_agreed の told。会話の側の phrases.POINT_KINDS の鍵の写し＝名前を比べる試験が見張る。CL-1 の連絡帳 4-99：
 # ✅ 2026-11-06 9時05分17秒 ユーザー「～の件は、担当の者に申し伝えさせていただきますね。」）
@@ -243,7 +259,8 @@ MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
                "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts",
                "unjudged_ends", "goal_refusals", "who_unclears", "not_agreed", "other_wishes",   # other_wishes＝ほかのご希望への答え（人の言葉でしか起きない）
-               "concerns")   # concerns＝本心を伺った一言に言っていただいた気になる点（人の言葉でしか起きない。CL-1 の連絡帳 4-113）
+               "concerns",   # concerns＝本心を伺った一言に言っていただいた気になる点（人の言葉でしか起きない。CL-1 の連絡帳 4-113）
+               "offers", "offer_terms")   # 申し出への答え・条件つきで受けていただいた申し出（人の言葉でしか起きない。CL-1 の連絡帳 4-122〜4-129）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 # 取り消せない決定について、会話AIの報告と2つ目の判定（意味の判定）がそろったか（報告ごとに1つ。データの形 版 1.07）：
 # agreed＝そろった（その場で決める）／disagreed＝食い違った／none＝判定が無い（無い・古い報告もこれ）。そろわなければ録音の確かめまで保留
@@ -513,6 +530,39 @@ class OtherWish:
 
 
 @dataclass(frozen=True)
+class Offer:
+    """業務の申し出の答え（事実 handoff・close_offer。1つのご承認に1つ。CL-1 の連絡帳 4-122〜4-128）。依頼者へ返す。"""
+    kind: str                    # 申し出の種類（事実の名前 handoff・close_offer）
+    evidence: Said               # 根拠の発話
+    question: str                # ご承認の質問の番号
+    agreed: bool | None          # はい True／はっきりいいえ False／まだ None
+    way: str | None              # 選んでいただいた方法の名前（業務の方法に無い方法の名前も入る。言っていただけなければ None）
+    means: str | None            # その方法の連絡先の種類（OTHER_WISH_MEANS。無ければ None）
+    via: str | None              # LINE の伺い方（OTHER_WISH_VIA。LINE でない・決まらなかったら None）
+    contact: str | None          # 伺えた連絡先
+    outcome: str | None          # 結び（OFFER_OUTCOMES。伺っている途中なら None）
+    terms: str | None = None     # 伺い直しに入れた、お客様の申し出の受け方の条件（無ければ None）
+    topic: str | None = None     # 伺い直しに入れた、申し出に含める中身（無ければ None）
+
+    def to_json(self) -> dict[str, Any]:
+        """報告に書く形（唯一の場所。報告の書き出し `CallReport.to_json` が使う）。"""
+        return {"turn": self.evidence.turn, "said": self.evidence.said, "question": self.question, "agreed": self.agreed, "way": self.way,
+                "means": self.means, "via": self.via, "contact": self.contact, "outcome": self.outcome, "terms": self.terms, "topic": self.topic}
+
+
+@dataclass(frozen=True)
+class OfferTerms:
+    """業務の申し出の質問を、こちらで応えられる条件つきで受けていただいた（事実 offer_terms。CL-1 の連絡帳 4-129）。依頼者へ返す。"""
+    evidence: Said
+    question: str                # 業務の申し出の質問の番号
+    terms: str | None            # お客様の申し出の受け方の条件
+    topic: str | None            # 申し出に含める中身
+
+
+OFFER_KINDS = ("handoff", "close_offer")   # 申し出の答えの事実の名前（`Offer.kind`）
+
+
+@dataclass(frozen=True)
 class EndedOn:
     """ここで電話を終える答えで、残りの業務の質問を伺わなかった（事実 ended_on。CL-1 の 4-74）。"""
     turn: int | None             # 止めた答えを受け取った相手の発話の番号（前の通話の答えで止めたときは None）
@@ -598,6 +648,8 @@ class CallReport:
     other_wishes: tuple[OtherWish, ...] = ()      # 事実 other_wish：ほかのご希望を伺った答え
     concerns: tuple[Concern, ...] = ()            # 事実 concern：本題で本心を伺い、言っていただいた気になる点（依頼者へ返す）
     ended_on: EndedOn | None = None               # 事実 ended_on：ここで終える答えで、残りを伺わなかった（1通話に1つまで）
+    offers: tuple[Offer, ...] = ()                # 事実 handoff・close_offer：業務の申し出の答え（起きた順。種類は Offer.kind）
+    offer_terms: tuple[OfferTerms, ...] = ()      # 事実 offer_terms：業務の申し出の質問を条件つきで受けていただいた
     irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
     ai_troubles: tuple[AiTrouble, ...] = ()   # 止まったAI（データの形 版 1.08。無い・古い報告は空。判定には使わない）
     # 手順を伺い終えていない業務の質問（データの形 版 1.18。CL-2 の連絡帳 4-213）：答えは受け取ったが、その答えのあとに伺う会話の側の手順
@@ -794,6 +846,8 @@ class CallReport:
             "other_wish": [w.to_json() for w in self.other_wishes],
             "concern": [{**said(c.evidence), "question": c.question, **({} if c.answered is None else {"answered": c.answered}),
                          **c.own.to_json()} for c in self.concerns],
+            **{k: [o.to_json() for o in self.offers if o.kind == k] for k in OFFER_KINDS},
+            "offer_terms": [{**said(t.evidence), "question": t.question, "terms": t.terms, "topic": t.topic} for t in self.offer_terms],
             "ended_on": [] if self.ended_on is None else [
                 {"turn": self.ended_on.turn, "said": self.ended_on.said, "question": self.ended_on.question,
                  "answer": self.ended_on.answer, "skipped": list(self.ended_on.skipped)}]}
@@ -950,12 +1004,63 @@ def _other_wish(r: dict, s: Said, i: int) -> OtherWish:
         if v is not None and not isinstance(v, str):
             raise ReportInvalid(f"{where}.{key} は文字か null です")
         texts[key] = v
+    means, via = _means_via(r, where)
+    return OtherWish(s, question, texts["wish"], texts["value"], means, texts["contact"],
+                     _choice(r.get("outcome"), OTHER_WISH_OUTCOMES, f"{where}.outcome", optional=True), via)
+
+
+def _means_via(r: dict, where: str) -> tuple[str | None, str | None]:
+    """ご連絡の方法と LINE の伺い方（means・via。ほかのご希望 other_wish・申し出 handoff・close_offer の同じ項目＝会話の側の同じ手順 _contact_step が書く）を
+    確かめて読む1か所：方法は OTHER_WISH_MEANS・伺い方は OTHER_WISH_VIA で、伺い方は方法が LINE のときだけ。"""
     means = _choice(r.get("means"), OTHER_WISH_MEANS, f"{where}.means", optional=True)
     via = _choice(r.get("via"), OTHER_WISH_VIA, f"{where}.via", optional=True)
     if via is not None and means != "line":
         raise ReportInvalid(f"{where}.via は、ご連絡の方法が LINE のときだけです（{means!r}）")
-    return OtherWish(s, question, texts["wish"], texts["value"], means, texts["contact"],
-                     _choice(r.get("outcome"), OTHER_WISH_OUTCOMES, f"{where}.outcome", optional=True), via)
+    return means, via
+
+
+def _optional_text(r: dict, key: str, where: str) -> str | None:
+    """文字か null の項目（空の文字は受け取らない）。"""
+    v = r.get(key)
+    if v is not None and (not isinstance(v, str) or not v.strip()):
+        raise ReportInvalid(f"{where}.{key} は文字か null です")
+    return v
+
+
+def _offers(facts: dict) -> tuple[Offer, ...]:
+    """事実 handoff・close_offer の並び（形は CL-1 の Flow._handoff_step が書くもの。確かめはここだけ）。1つのご承認に1つ（同じ種類で同じ質問が
+    2つあれば報告の誤り）。way は業務の方法と突き合わせない（業務の方法に無い方法の名前も入る＝CL-1 の連絡帳 4-127）。"""
+    out = []
+    for kind in OFFER_KINDS:
+        seen: set[str] = set()
+        for i, (r, s) in enumerate(_records(facts, kind, {"question", "agreed", "way", "means", "via", "contact", "outcome", "terms", "topic"})):
+            where = f"facts.{kind}[{i}]"
+            question, agreed = r.get("question"), r.get("agreed")
+            if not isinstance(question, str) or not question.strip():
+                raise ReportInvalid(f"{where}.question は、ご承認の質問の番号です")
+            if question in seen:
+                raise ReportInvalid(f"{where}：同じご承認の質問 {question} の申し出が2つあります（1つのご承認に1つ）")
+            seen.add(question)
+            if agreed is not None and not isinstance(agreed, bool):
+                raise ReportInvalid(f"{where}.agreed は true / false / null（まだ）です")
+            means, via = _means_via(r, where)
+            out.append(Offer(kind, s, question, agreed, _optional_text(r, "way", where), means, via,
+                             _optional_text(r, "contact", where),
+                             _choice(r.get("outcome"), OFFER_OUTCOMES, f"{where}.outcome", optional=True),
+                             _optional_text(r, "terms", where), _optional_text(r, "topic", where)))
+    return tuple(out)
+
+
+def _offer_terms(facts: dict) -> tuple[OfferTerms, ...]:
+    """事実 offer_terms の並び（形は CL-1 の Flow._taken_on_terms が書くもの）。"""
+    out = []
+    for i, (r, s) in enumerate(_records(facts, "offer_terms", {"question", "terms", "topic"})):
+        where = f"facts.offer_terms[{i}]"
+        question = r.get("question")
+        if not isinstance(question, str) or not question.strip():
+            raise ReportInvalid(f"{where}.question は、業務の申し出の質問の番号です")
+        out.append(OfferTerms(s, question, _optional_text(r, "terms", where), _optional_text(r, "topic", where)))
+    return tuple(out)
 
 
 def _ended_on(facts: dict) -> EndedOn | None:
@@ -1130,7 +1235,7 @@ def from_json(raw: Any) -> CallReport:
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions), talks, tuple(holds), unjudged_ends=unjudged, goal_refusals=tuple(goals),
                       who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes, ended_on=ended_on,
-                      concerns=tuple(concerns),
+                      concerns=tuple(concerns), offers=_offers(facts), offer_terms=_offer_terms(facts),
                       irreversible_check=check, ai_troubles=troubles, unfinished=tuple(sorted(unfinished)))
 
 

@@ -110,7 +110,15 @@ BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class
                "最短の日（営業日の数）": "earliest_days", "休みの曜日": "closed_weekdays", "祝日は休みか": "closed_on_holidays",
                "休業日": "closed_dates",
                # ご案内できる方法（業務で1つ。名前を「／」か改行で区切る。例「メール／LINE／ZOOM」。業務設定の offer_ways。CL-1 の連絡帳 4-91）
-               "ご案内できる方法": "offer_ways"}
+               "ご案内できる方法": "offer_ways",
+               # 営業に引き継ぐ架電の、詳しい者からの改めてのお話の方法（名前を「／」か改行で区切る。例「訪問／オンラインでのご説明／お電話」。業務設定の
+               # handoff_ways。CL-1 の連絡帳 4-122）
+               "詳しい者からのお話の方法": "handoff_ways",
+               # 営業に引き継がない架電の、締める前の申し出（業務設定の close_offer。CL-1 の連絡帳 4-124・4-125）：申し出の文・聞くこと・方法（「／」か改行で
+               # 区切る）・受けていただいたときにこちらがすること（「…させていただきます」。書かなければ取込の AI が申し出の文から決め、決まらなければ
+               # 締める前の申し出は入れない＝`review`）
+               "締める前の申し出の文": "close_offer_text", "締める前の申し出の聞くこと": "close_offer_topic",
+               "締める前の申し出の方法": "close_offer_ways", "締める前の申し出でこちらがすること": "close_offer_do"}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
@@ -343,7 +351,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                           "do_words": _choice_words(v.get("do_words"), f"{where}のこちらがすることの言葉", problems), "doubt_words": None,
                           "tell_words": _choice_words(v.get("tell_words"), f"{where}のその答えのあとに伝える一言", problems) or {},
                           "option_notes": _choice_words(v.get("option_notes"), f"{where}の選択肢ごとの良い点・気をつける点", problems) or {},
-                          "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None, "asks_way": None,
+                          "ends_on": _split(v.get("ends_on")) or [], "unclear_none": None, "asks_way": None, "maybe": None,
                           "change_by": v.get("change_by") or "",
                           "definite_value": _label("definite_value", v.get("definite_value"), f"{where}の確定した値で登録する", problems),
                           "away": None, "intro": v.get("intro"), "ask_if": ask_if,
@@ -471,10 +479,25 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
            if basic.get("goal_mode") else {}),
         **_earliest(basic, problems),
         **({"offer_ways": _split(basic["offer_ways"])} if basic.get("offer_ways") else {}),
+        **({"handoff_ways": _split(basic["handoff_ways"])} if basic.get("handoff_ways") else {}),
+        **_close_offer(basic, problems),
         "questions": questions, "names": names,
         "rules": {"handling": handling, "retry": retry, "forbidden": forbidden},
     }
     return raw, problems, {"名前": where_n, "質問": where_q, "想定問答": where_a}
+
+
+def _close_offer(basic: dict[str, str | None], problems: list[str]) -> dict[str, Any]:
+    """シート「基本」の締める前の申し出の4つの項目を、業務設定の close_offer の形にする（文が無ければ入れない。ほかの項目だけ書いた行は問題に出す）。
+    こちらがすることを書いていなければ None（取込の AI が決める＝`review`）。"""
+    rest = ("close_offer_topic", "close_offer_ways", "close_offer_do")
+    if not basic.get("close_offer_text"):
+        if any(basic.get(k) for k in rest):
+            problems.append("シート「基本」：締める前の申し出の文が無いので、締める前の申し出の聞くこと・方法・こちらがすることは使えません"
+                            "（申し出の文を書きます）")
+        return {}
+    return {"close_offer": {"text": basic["close_offer_text"], "topic": basic.get("close_offer_topic") or "",
+                            "ways": _split(basic.get("close_offer_ways")) or [], "do": basic.get("close_offer_do") or None}}
 
 
 _POSITION = re.compile(r"(名前|質問|想定問答) (\d+) 番目")
@@ -561,6 +584,61 @@ UnclearDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[str]]
 FactDecider = Callable[[list[str]], dict[str, bool]]
 """質問ごとに「お客様に事実を伺う質問か」を決める処理（質問の文の並び → 文ごとの真偽。決まらない文は入れない）。決め方は CL-1 の
 1か所（`facts.by_model` を2つのモデルで1回ずつ → `facts.decide`。G-71。CL-1 の連絡帳 2-1 の版 0.6）。管理者も契約者も確かめない。"""
+
+
+MaybeDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[tuple[str, ...]]]
+"""どちらの場合もありうると言われたとき（「どっちでもいいですよ」）に確かめる (答え, 言葉) を決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで
+(選択肢, 言葉) か空）。決め方は CL-1 の1か所（`import_ai.decide_maybes`＝2つのモデルがそろったときだけ）。業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う
+質問も）だけを渡す。管理者も契約者も確かめない。⛔✅ 2026-11-09 日本時間4時36分49秒 ユーザー（CL-1 の連絡帳 4-123）"""
+
+
+PurposeDecider = Callable[[list[str]], dict[str, str]]
+"""用件の一文の中の用件の名詞を決める処理（用件の一文の並び → 文ごとの名詞。決まらなければ空）。決め方は CL-1 の1か所（`import_ai.decide_purposes`＝2つの
+モデルがそろって、文の中の言葉のときだけ）。管理者も契約者も確かめない。✅ 2026-11-09 日本時間9時48分09秒の (4)（CL-1 の連絡帳 4-128）"""
+
+
+def _decided_maybes(raw: dict[str, Any], decide: MaybeDecider | None) -> dict[str, list[str]]:
+    """選ぶ質問ごとに、どちらの場合もありうるときに確かめる (答え, 言葉) を、決める処理に1回だけ聞く（答え＝質問の文と選択肢 → [選択肢, 言葉] か空）。
+    答えが無い・形が違う・選択肢に無い名前・言葉が空・決める処理が渡されないときは空（確かめない＝今までどおり「どちらでも」は聞き直す。CL-1 の
+    maybes.decide と同じ側）。"""
+    pairs = list(dict.fromkeys((q["text"], c) for q, c in _choice_questions(raw, "maybe")))
+    if not pairs or decide is None:
+        return {}
+    got = decide(pairs)
+    if not isinstance(got, list) or len(got) != len(pairs):
+        return {}
+    return {_pair_key(text, choices): ([d[0], d[1].strip()] if isinstance(d, (tuple, list)) and len(d) == 2 and d[0] in choices
+                                       and isinstance(d[1], str) and d[1].strip() else [])
+            for (text, choices), d in zip(pairs, got)}
+
+
+def _decided_purposes(raw: dict[str, Any], decide: PurposeDecider | None) -> dict[str, str]:
+    """用件の一文の中の用件の名詞を、決める処理に1回だけ聞く（答え＝用件の一文 → 名詞。文の中の言葉だけ受ける＝業務設定の確かめと同じ決まり）。
+    入口が書いた名詞があれば聞かない。"""
+    caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
+    line = caller.get("purpose_line")
+    if raw.get("purpose_noun") is not None or not isinstance(line, str) or not line.strip() or decide is None:
+        return {}
+    got = decide([line])
+    noun = got.get(line) if isinstance(got, dict) else None
+    return {line: noun.strip()} if isinstance(noun, str) and noun.strip() and noun.strip() in line else {}
+
+
+def _offer_question(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """締める前の申し出を、こちらがすることの言葉を決めるための、はい／いいえの質問の形にしたもの（入口がこちらがすることを書いていないときだけ。無ければ None）。
+    業務の選ぶ質問のこちらがすることの言葉（do_words）と同じ1か所（意味の言葉 → こちらがすることの言葉）で、申し出の文の「はい」の言葉を決める（CL-1 の連絡帳
+    4-125：import_ai.decide_do_words に (申し出の文, ("はい", "いいえ"), 意味の言葉) を渡したときの「はい」の言葉）。"""
+    offer = raw.get("close_offer")
+    if not isinstance(offer, dict) or offer.get("do") or not isinstance(offer.get("text"), str) or not offer["text"].strip():
+        return None
+    return {"id": None, "text": offer["text"], "type": "yes_no", "choices": None, "asks_fact": False, "meanings": None, "do_words": None}
+
+
+def _with_offer(raw: dict[str, Any]) -> dict[str, Any]:
+    """意味の言葉・こちらがすることの言葉を聞く並びに、締める前の申し出（`_offer_question`）を足した中身（受けたものは変えない）。"""
+    q = _offer_question(raw)
+    qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
+    return raw if q is None else {**raw, "questions": [*qs, q]}
 
 
 def _undecided(raw: dict[str, Any], key: str) -> list[dict[str, Any]]:
@@ -751,6 +829,10 @@ def script(raw: dict[str, Any]) -> str:
     parts += [q.get(k) for q in questions for k in ("text", "intro")]
     parts += [w for q in questions for k in SPOKEN_WORDS if isinstance(q.get(k), dict) for w in q[k].values()]
     parts += [a.get("text") for a in (raw.get("answers") if isinstance(raw.get("answers"), list) else []) if isinstance(a, dict)]
+    # 申し出の方法（録音の「それでは（方法）と（方法）のどちらが…」）・締める前の申し出の文（録音）とこちらがすること（会話AIの伺い直しの声）
+    offer = raw.get("close_offer") if isinstance(raw.get("close_offer"), dict) else {}
+    parts += [w for k in ("handoff_ways",) if isinstance(raw.get(k), list) for w in raw[k]]
+    parts += [offer.get("text"), offer.get("do"), *(offer.get("ways") if isinstance(offer.get("ways"), list) else [])]
     parts += raw.get("info") if isinstance(raw.get("info"), list) else []
     parts += [n["text"] for n in _names(raw) if n.get("source") == "script"]
     return "\n".join(p.replace(business_settings.DAY_SLOT, "") for p in parts if isinstance(p, str) and p.strip())
@@ -761,27 +843,34 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
            decide_replies: ReplyDecider | None = None, decide_facts: FactDecider | None = None,
            decide_do_words: DoWordsDecider | None = None, decide_away: AwayDecider | None = None,
            decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None,
-           decide_ways: WaysDecider | None = None) -> dict[str, Any]:
+           decide_ways: WaysDecider | None = None, decide_maybes: MaybeDecider | None = None,
+           decide_purposes: PurposeDecider | None = None) -> dict[str, Any]:
     """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味・事実を伺う質問かを決める処理。
     どれも CL-1 の決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics":
     質問の文 → 聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢},
     "facts": 質問の文 → 事実を伺う質問か, "do_words": 質問の文と選択肢 → {選択肢: こちらがすることの言葉}（事実を伺う質問ではない質問
     だけ＝事実を伺う質問かが決まってから聞く）, "away": 質問の文と選択肢 → 目的から遠ざかる向きの選択肢の並び（do_words と同じ質問）,
-    "unclear": 質問の文と選択肢 → ほかに分からない点は無いにあたる選択肢か空（選ぶ質問すべて）}。
+    "unclear": 質問の文と選択肢 → ほかに分からない点は無いにあたる選択肢か空（選ぶ質問すべて）, "ways": 質問の文 → ご案内の方法を伺う質問か,
+    "maybes": 質問の文と選択肢 → どちらの場合もありうるときに確かめる [選択肢, 言葉] か空（選ぶ質問すべて）, "purposes": 用件の一文 → 用件の名詞}。
+    締める前の申し出（入口がこちらがすることを書いていないとき）は、はい／いいえの質問として意味の言葉・こちらがすることの言葉の聞く並びに入れる
+    （`_with_offer`。同じ1回の問い合わせで、業務の選ぶ質問と同じ決め方）。
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
     facts = _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)
-    meanings = _decided_pairs(raw, "meanings", decide_meanings)   # こちらがすることの言葉の向きを、意味の言葉の向きとそろえるので先に
+    offered = _with_offer(raw)   # 締める前の申し出のこちらがすることの言葉も、業務の選ぶ質問と同じ道で決める（CL-1 の連絡帳 4-125）
+    meanings = _decided_pairs(offered, "meanings", decide_meanings)   # こちらがすることの言葉の向きを、意味の言葉の向きとそろえるので先に
     return {"names": readings.to_json(readings.find(script(raw), find_names)),
             "units": _decided_units(raw, decide_units),
             "topics": _decided(sorted({q["text"] for q in _topic_questions(raw)}), decide_topics),
             "meanings": meanings,
             "replies": _decided_pairs(raw, "replies", decide_replies),
             "facts": facts,
-            "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts, meanings),
+            "do_words": _decided_pairs(offered, "do_words", decide_do_words, facts, meanings),
             "doubt_words": _decided_pairs(raw, "doubt_words", decide_doubt_words, facts, meanings),
             "away": _decided_away(raw, decide_away, facts, meanings),
             "unclear": _decided_unclear(raw, decide_unclear),
-            "ways": _decided_ways(sorted({q["text"] for q in _undecided(raw, "asks_way")}), decide_ways)}
+            "ways": _decided_ways(sorted({q["text"] for q in _undecided(raw, "asks_way")}), decide_ways),
+            "maybes": _decided_maybes(raw, decide_maybes),
+            "purposes": _decided_purposes(raw, decide_purposes)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -883,6 +972,24 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     # ほかに分からない点は無いにあたる選択肢：入口が持ってこなければ、AI の答えを入れる（決まらなければ空＝伺う。選ぶ質問すべて）
     for q, choices in _choice_questions(raw, "unclear_none"):
         q["unclear_none"] = (ai.get("unclear") or {}).get(_pair_key(q["text"], choices)) or ""
+    # どちらの場合もありうるときに確かめる答え：入口が持ってこなければ、AI の答えを入れる（決まらなければ空＝確かめない。選ぶ質問すべて＝CL-1 の連絡帳 4-123）
+    for q, choices in _choice_questions(raw, "maybe"):
+        q["maybe"] = (ai.get("maybes") or {}).get(_pair_key(q["text"], choices)) or []
+    # 用件の名詞：入口に無ければ AI の答え（決まらなければ入れない＝続きの電話でも今の用件の一文。CL-1 の連絡帳 4-128）
+    line = caller.get("purpose_line") if isinstance(caller.get("purpose_line"), str) else None
+    if raw.get("purpose_noun") is None and line and (ai.get("purposes") or {}).get(line):
+        raw["purpose_noun"] = ai["purposes"][line]
+    # 締める前の申し出のこちらがすること：入口に無ければ AI の答え（申し出の文の「はい」の言葉で、申し出の形＝business_settings.offer_do_ok のときだけ）。
+    # 決まらなければ締める前の申し出は入れない（今のお礼の締め。CL-1 の連絡帳 4-125：「決まらなければ、締める前の申し出は作らないでください」）
+    dropped: list[str] = []
+    if (offered := _offer_question(raw)) is not None:
+        do = ((ai.get("do_words") or {}).get(_pair_key(offered["text"], business_settings.YES_NO_CHOICES)) or {}).get("はい")
+        if isinstance(do, str) and business_settings.offer_do_ok(do):
+            raw["close_offer"]["do"] = do
+        else:
+            del raw["close_offer"]
+            dropped.append("締める前の申し出は、受けていただいたときにこちらがすることの言葉（「…させていただきます」）が決まらなかったので入れていません"
+                           "（締めは今のお礼の締めです。入れるときは「締める前の申し出でこちらがすること」を書きます）")
     # こちらがすることの言葉：入口（業務設定に書いた言葉）が書いていない選択肢に、AI の答えを入れる（書いた選択肢は入口の言葉が先＝CL-1 の連絡帳
     # 4-72 の (d)。事実を伺う質問ではない選択肢の質問だけ。事実を伺う質問かは上で決まった）
     written: dict[Any, dict[str, str]] = {}   # 依頼者が書いたこちらがすることの言葉（使わない言葉の知らせ＝下）
@@ -899,12 +1006,12 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
             same = next((n for n in names if _is_name(n) and n.get("text") == c["text"]), None)
             if same is not None:
                 c["reading"] = same["reading"]
-    notes: list[str] = []
+    notes: list[str] = list(dropped)
     try:
         s = business_settings.check(raw, standard=standard, field_types=_field_types(tx),   # 確かめは1か所
                                     ai_reading_needs_person=verification, voice_types=business_settings.voice_types(tx),
                                     placed_names=placed_names)
-        notes = business_settings.notices(raw) + [
+        notes = dropped + business_settings.notices(raw) + [
             f"質問 {q.id} の選択肢「{a}」は目的から遠ざかる向きなので、書いてあるこちらがすることの言葉「{written[q.id][a]}」は使いません"
             "（その向きの言葉では言い直しません。目的につなげて伺いたいときは「言い切っていないときに伺う質問」に書きます）"
             for q in s.questions for a in business_settings.unused_do_words(q, written.get(q.id) or {})]
@@ -978,7 +1085,8 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
             decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None,
             decide_facts: FactDecider | None = None, decide_do_words: DoWordsDecider | None = None,
             decide_away: AwayDecider | None = None, decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None,
-            decide_ways: WaysDecider | None = None) -> Preview:
+            decide_ways: WaysDecider | None = None, decide_maybes: MaybeDecider | None = None,
+            decide_purposes: PurposeDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
@@ -989,7 +1097,8 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
                        find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
                        decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts,
                        decide_do_words=decide_do_words, decide_away=decide_away, decide_unclear=decide_unclear,
-                       decide_doubt_words=decide_doubt_words, decide_ways=decide_ways)
+                       decide_doubt_words=decide_doubt_words, decide_ways=decide_ways, decide_maybes=decide_maybes,
+                       decide_purposes=decide_purposes)
     p.notes = notes + p.notes
     return p
 

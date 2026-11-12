@@ -754,6 +754,70 @@ class OtherWish1103(unittest.TestCase):
                 from_json(self.raw(bad))
 
 
+class Offers1109(unittest.TestCase):
+    """CL-1 の連絡帳 4-122〜4-129（✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒・7時57分50秒・9時48分09秒・11-12 13時40分05秒 ユーザー）：業務の申し出の
+    答え（事実 handoff＝詳しい者からの改めてのお話・close_offer＝締める前の申し出。1つのご承認に1つ）と、条件つきで受けていただいた業務の申し出（事実 offer_terms）。
+    依頼者へ返す（判定の中身 handoff・close_offer・offer_terms）。判定の結果は変えない：handoff のはっきりしたお断りは会話の側が残す goal_refused で読み、
+    close_offer のお断りはご承認のお断りにしない。way は業務の方法と突き合わせない（業務の方法に無い方法の名前も入る＝4-127）。人の言葉でしか起きない（話した）。"""
+
+    def raw(self, **facts):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            **{k: list(v) for k, v in facts.items()}, "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+
+    HANDOFF = {"turn": 5, "said": "オンラインならいいですよ。", "question": "Q3", "agreed": True, "way": "オンラインでのご説明", "means": "online",
+               "via": None, "contact": "taro@example.com", "outcome": "agreed", "terms": "月曜日を避けて", "topic": "料金の面も含めて"}
+    OFFER = {"turn": 6, "said": "いえ、要らないです。", "question": "Q3", "agreed": False, "way": None, "means": None, "via": None,
+             "contact": None, "outcome": "declined", "terms": None, "topic": None}
+
+    def test_offers_are_received_and_returned_to_the_client(self):
+        other = {**self.HANDOFF, "way": "LINEでの連絡", "means": "line", "via": "sms", "contact": "09012345678", "terms": None, "topic": None,
+                 "question": "Q4"}   # 業務の方法に無い方法（会話の側の wish_label の形）もそのまま受ける
+        midway = {"turn": 7, "said": "うーん。", "question": "Q5", "agreed": None, "way": None, "means": None, "via": None, "contact": None,
+                  "outcome": None, "terms": None, "topic": None}   # 伺っている途中で切れた
+        terms = {"turn": 3, "said": "月曜以外なら大丈夫です。", "question": "Q2", "terms": "月曜日を避けて", "topic": None}
+        raw = self.raw(handoff=[self.HANDOFF, other, midway], close_offer=[self.OFFER], offer_terms=[terms])
+        r = from_json(raw)
+        self.assertEqual(([(o.kind, o.question, o.agreed, o.way, o.means, o.outcome) for o in r.offers], from_json(r.to_json())),
+                         ([("handoff", "Q3", True, "オンラインでのご説明", "online", "agreed"), ("handoff", "Q4", True, "LINEでの連絡", "line", "agreed"),
+                           ("handoff", "Q5", None, None, None, None), ("close_offer", "Q3", False, None, None, "declined")], r))
+        self.assertEqual([(t.question, t.terms, t.topic) for t in r.offer_terms], [("Q2", "月曜日を避けて", None)])
+        j = run(raw)
+        keys = ("question", "agreed", "way", "means", "via", "contact", "outcome", "terms", "topic", "said")
+        self.assertEqual((j.detail["handoff"], j.detail["close_offer"], j.detail["offer_terms"]),
+                         ([{k: x[k] for k in keys} for x in (self.HANDOFF, other, midway)], [{k: self.OFFER[k] for k in keys}],
+                          [{"question": "Q2", "terms": "月曜日を避けて", "topic": None, "said": terms["said"]}]))
+        self.assertEqual((j.state, j.detail.get("declined_by")), (run(self.raw()).state, None))   # 判定の結果は変えない（締める前の申し出のお断りも）
+        for k in ("handoff", "close_offer", "offer_terms"):
+            self.assertNotIn(k, run(self.raw()).detail)                                # 伺っていなければ中身に出さない
+        for kind, row in (("handoff", self.HANDOFF), ("close_offer", self.OFFER), ("offer_terms", terms)):
+            self.assertTrue(from_json({**self.raw(), "facts": {kind: [row]}}).talked)   # 人の言葉でしか起きない＝話した
+        # 無い鍵は null と同じに読む（読み手の決まりの1か所 `_keys`）
+        self.assertIsNone(from_json(self.raw(handoff=[{k: v for k, v in self.HANDOFF.items() if k not in ("terms", "topic")}])).offers[0].terms)
+
+    def test_a_handoff_refused_is_read_from_goal_refused_and_a_close_offer_refused_is_not_a_refusal(self):
+        """handoff をはっきり断られたら、会話の側が goal_refused も残す（その業務はかけない＝今の判定の1か所が読む）。close_offer の declined だけでは
+        用件のお断りにならない。"""
+        refused = {**self.OFFER, "turn": 6}
+        j = run({**self.raw(handoff=[refused]), "facts": {"handoff": [refused],
+                                                           "goal_refused": [{"turn": 6, "said": refused["said"], "goals": ["Q3"], "mode": "any"}],
+                                                           "end": [{"turn": 6, "said": refused["said"], "reason": "goal_refused"}]}})
+        self.assertEqual((j.state, j.detail["declined_by"], j.detail["handoff"][0]["outcome"]), ("declined", "goal", "declined"))
+        self.assertNotEqual(run(self.raw(close_offer=[self.OFFER])).state, "declined")
+
+    def test_wrong_shapes_are_refused(self):
+        for kind, bad in (("handoff", {**self.HANDOFF, "question": ""}), ("handoff", {**self.HANDOFF, "agreed": "はい"}),
+                          ("handoff", {**self.HANDOFF, "means": "sms"}), ("handoff", {**self.HANDOFF, "via": "id"}),   # via は LINE のときだけ
+                          ("handoff", {**self.HANDOFF, "outcome": "maybe"}), ("handoff", {**self.HANDOFF, "way": ""}),
+                          ("handoff", {**self.HANDOFF, "contact": 3}), ("handoff", {**self.HANDOFF, "terms": ["x"]}),
+                          ("close_offer", {**self.OFFER, "x": 1}), ("offer_terms", {"turn": 1, "said": "x", "question": "", "terms": None, "topic": None}),
+                          ("offer_terms", {"turn": 1, "said": "x", "question": "Q1", "terms": 3, "topic": None})):
+            with self.subTest(kind=kind, bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(**{kind: [bad]}))
+        with self.assertRaises(ReportInvalid):   # 1つのご承認に1つ
+            from_json(self.raw(handoff=[self.HANDOFF, {**self.HANDOFF, "turn": 8}]))
+        self.assertEqual(len(from_json(self.raw(handoff=[self.HANDOFF], close_offer=[self.OFFER])).offers), 2)   # 種類が違えば別
+
+
 class Concern1108(unittest.TestCase):
     """CL-1 の連絡帳 4-113（✅ 2026-11-08 日本時間2時21分15秒 ユーザー）：本題に入ったあとの「もういいです。」に、ご遠慮の一言より先に「何か問題でも
     ございましたでしょうか？」（システムの質問 D2）と本心を伺い、言っていただいた気になる点（事実 concern）。鍵は turn・said・question（そのとき

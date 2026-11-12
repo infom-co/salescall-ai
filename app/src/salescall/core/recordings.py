@@ -376,7 +376,19 @@ COMMON_PARTS: tuple[str, ...] = (
     # CL-1 の連絡帳 4-112（✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (1)）：値を伺う質問（日時・数・金額）の最初の答えの
     # 「まだ決まってないんですよね。」に、すぐ保留で締めずに1回だけ流す「それではおおよその目安だけでもお伺いしてもよろしいでしょうか？」（文の正本は
     # CL-1 の phrases.ESTIMATE_ASK・名前の一覧は phrases.RECORDED。頭の「はい、」は相づちの録音 hai）
-    "estimate_ask")
+    "estimate_ask",
+    # CL-1 の連絡帳 4-122（✅ 2026-11-09 日本時間3時06分51秒・3時46分53秒・4時36分49秒 ユーザー）：言い直しへのお返事がまだ決めていないときの2回目
+    # 「いかがなさいますか？」（how_now）・ご承認の手順の N1 に点を言っていただけなかったときに1回伺う「その中でもどのあたりが特に気になっていらっしゃいますで
+    # しょうか？」（callback_not_agreed_which）・営業に引き継ぐ架電の「それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？」（システムの質問 N4＝
+    # callback_handoff）と、その戻る一言に続ける形（_bare・_midway。名前は CL-1 の phrases.BACK_FIT の決まりのまま）
+    "how_now", "callback_not_agreed_which", "callback_not_agreed_which_midway",
+    "callback_handoff", "callback_handoff_bare", "callback_handoff_midway",
+    # CL-1 の連絡帳 4-124（✅ 2026-11-09 日本時間6時33分57秒）：詳しい者からのお話を保留でよいかを伺う「それでは詳しい者からのお話は保留ということで
+    # よろしいでしょうか？」と、その戻る一言に続ける形
+    "callback_handoff_pending", "callback_handoff_pending_bare", "callback_handoff_pending_midway",
+    # CL-1 の連絡帳 4-129（✅ 2026-11-12 日本時間13時40分05秒 の (4)）：同じ日の続きの電話の、途中で切れたお詫び「先ほどはお電話が途中で切れてしまい大変失礼
+    # いたしました。」（予約証の apology_when が same_day のとき。あとの日は今の apology_cut_off）
+    "apology_cut_off_same_day")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
