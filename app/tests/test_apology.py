@@ -298,6 +298,8 @@ class Apology(ApologyBase):
         self.order(s, aid)
         c = self.claim(s)
         self.assertEqual((c.purpose, c.apology_when), ("apology", "same_day"))
+        # 会話へ渡す承認したお詫びの文は、お詫びだけの電話の欄（apology_call。CL-1 の連絡帳 4-126 の (2)：入れる欄で分ける）
+        self.assertEqual((c.apology_call, c.apology_text), (self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], None))
         self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
 
         def back(tx):   # 試験：誤った通話を前の日にする（持ち主の取引の中だけ仕掛けを外す）

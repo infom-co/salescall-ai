@@ -163,17 +163,42 @@ def source_call(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
                   (o["source_attempt_id"],))
 
 
-def when(tx: Tx, task_id: UUID, purpose: str, cut_call: UUID | None) -> str:
-    """お詫びする前の電話が今日（日本時間）か（same_day／later。1か所＝予約証の apology_when）。お詫びの電話（purpose apology）は、
-    承認されたいちばん新しいお詫びの案のもとの通話（`_order`＝お詫びの文と同じ）、ほかは、お詫びの理由「途中で切れた」の元の電話（次の
-    予定の cut_call＝理由を付けた所が書き、理由と一緒に引き継ぐ。0187。⛔ 0186 の思い違い：前は、その行でいちばん新しい発信まで進んだ
-    電話で決めていて、昨日切れたあと今日かけて出なかった電話があると「先ほどは」と言った）。今日かは、どちらも salescall.call_today の
-    1か所。前の電話が無ければ later（「前回は」）。"""
+def when(tx: Tx, task_id: UUID, purpose: str, cut_call: UUID | None, attempt_id: UUID) -> str | None:
+    """前の電話が今日（日本時間）か（same_day／later。1か所＝予約証の apology_when）。どの電話を「前の電話」とするか：
+    - お詫びの電話（purpose apology）：承認されたいちばん新しいお詫びの案のもとの通話（`_order`＝お詫びの文と同じ）。
+    - お詫びの理由「途中で切れた」のある電話：その元の電話（次の予定の cut_call＝理由を付けた所が書き、理由と一緒に引き継ぐ。0187。⛔ 0186 の思い違い：
+      前は、その行でいちばん新しい発信まで進んだ電話で決めていて、昨日切れたあと今日かけて出なかった電話があると「先ほどは」と言った）。
+    - ほかの電話（お詫びの無い約束の電話・約束の時刻にかけられなかったお詫びの電話も）：この電話（attempt_id）の前の、その行でいちばん新しい、目的の
+      お客様と話せた電話（attempts.reached_target。お詫び・続きの用件の一文を聞くのは目的のお客様＝cut_call と同じ見方）。無ければ None（前にお話しした
+      電話が無い＝会話の側は今の用件の一文）。担当の方が替わった電話（予約証の handover）で前の担当の方との電話を「前の電話」と言わないのは、会話の側が
+      前の通話の答えの who・handover で決める（CL-2 の連絡帳 4-370 で確かめを頼んだ）。⇒ CL-1 の連絡帳 4-128：続きの電話の用件の一文（「先ほど／前回のお電話で途中になっておりました…」＝会話の側の
+      flowctl.purpose_part）が、この値で同じ日かを読む（⛔ それまでは途中で切れた電話とお詫びの電話のときだけ渡していて、お詫びの無い約束の電話で前の電話が
+      同じ日でも「前回の…」と言う形だった）。
+    今日かは、どれも salescall.call_today の1か所。お詫びの電話・途中で切れた電話の元の電話が無ければ later（「前回は」）。"""
     if purpose == "apology":
         o = _order(tx, task_id)
         return WHEN[bool(o and o["same_day"])]
+    if cut_call is None:
+        prev = tx.one("SELECT p.attempt_id FROM salescall.attempts p WHERE p.task_id = %s AND p.attempt_id <> %s AND p.reached_target"
+                      " ORDER BY coalesce(p.ended_at, p.claimed_at) DESC, p.attempt_id DESC LIMIT 1", (task_id, attempt_id))
+        if prev is None:
+            return None
+        cut_call = prev["attempt_id"]
     row = tx.one("SELECT salescall.call_today(%s) AS today", (cut_call,))
     return WHEN[bool(row and row["today"])]
+
+
+def call_texts(tx: Tx, task_id: UUID, purpose: str, reasons: tuple[str, ...]) -> tuple[str | None, str | None]:
+    """会話へ渡す、承認したお詫びの文（1か所＝予約証の apology_call・apology_text）：(お詫びだけの電話の文, 約束の電話などの頭のお詫びの文)。お詫びの電話
+    （purpose apology）は前者、お詫びの理由に「言ってはいけないことを言った」（forbidden_speech）のある電話は後者（どちらも `for_task` の文＝承認したときに
+    聞いていただいた録音の文）。ほかは (None, None)。⇒ CL-1 の連絡帳 4-126 の (2)：会話の側の欄が分かれている（instruction.Business.apology_call・apology_text。
+    目的はゲートが分かっているので、入れる欄で分ける）。承認の無い forbidden_speech の電話は門が止め（apology_unapproved）、お詫びの電話の予定は承認のあとに
+    だけ書かれる（`schedule_if_ready`）ので、ふつうは文がある。無ければ None のまま渡す（会話の側は、文の無い forbidden_speech では電話を始めない＝
+    flowctl.apology_order の ValueError。ここで予約を止める形にはしない＝門の止めの1か所を2つにしない）。"""
+    if purpose != "apology" and "forbidden_speech" not in reasons:
+        return None, None
+    text = (for_task(tx, task_id) or {}).get("text")
+    return (text, None) if purpose == "apology" else (None, text)
 
 
 def for_task(tx: Tx, task_id: UUID) -> dict[str, Any] | None:

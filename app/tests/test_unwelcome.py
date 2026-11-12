@@ -206,6 +206,8 @@ class PromiseAndApology(ApologyBase):
         self.assertIsInstance(c, gate.Claim, c)
         self.assertEqual((c.promised, c.purpose, "forbidden_speech" in c.apology), (True, "normal", True))   # 会話は頭でお詫び
         self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["order_id"], self.draft(s, aid)["order_id"])
+        # 会話へ渡す承認したお詫びの文は、約束の電話の頭のお詫びの欄（apology_text。お詫びだけの電話の apology_call ではない＝CL-1 の連絡帳 4-126 の (2)）
+        self.assertEqual((c.apology_text, c.apology_call), (self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], None))
         got = self.settle(s, self.call_claimed(s, c))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "completed"))   # 約束の用件を続けて果たした
         notes = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'apology'"

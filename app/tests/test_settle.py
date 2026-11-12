@@ -3884,7 +3884,7 @@ class NotAskedSettle(SettleBase):
         two["questions"].append({"id": "Q2", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False})
+                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False, "maybe": []})
         for q1, state, more in ((("Q1", "confirmed", "答えた"), "completed", {"not_asked": ["Q2"]}),
                                 (("Q1", "accepted", "わからない"), "incomplete", {"missing": ["Q2"]})):
             with self.subTest(q1=q1):
@@ -3921,7 +3921,7 @@ class NotAskedSettle(SettleBase):
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                  "ask_if": {"after": "Q1", "answers": ["いいえ"], "hedged": True}, "approval": False, "final_goal": False,
-                                 "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False})
+                                 "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False, "maybe": []})
         for q1, state, more, hedged in ((("Q1", "accepted", "いいえ"), "completed", {"not_asked": ["Q2"]}, False),
                                         (("Q1", "accepted", "いいえ", "都合が悪くなってしまいまして"), "incomplete", {"missing": ["Q2"]}, True),
                                         (("Q1", "accepted", "はい", "たぶん大丈夫かと"), "completed", {"not_asked": ["Q2"]}, True)):
@@ -4235,6 +4235,34 @@ class CutOffCalls(SettleBase):
                                                        cause="試験：その時刻が来たことにする", promised=True))
         c = self.claim(s)
         self.assertEqual((c.apology, c.apology_when), (("cut_off",), "later"))   # 切れたのは昨日＝「前回は」
+
+    def test_the_claim_tells_whether_the_last_talk_was_today_without_an_apology(self):
+        """CL-1 の連絡帳 4-128：お詫びの無い約束の電話でも、前に目的のお客様と話した電話が今日か（apology_when）を渡す（続きの電話の用件の一文
+        「先ほど／前回のお電話で途中に…」＝会話の側の flowctl.purpose_part が読む）。前に話した電話が無ければ None。決めるのは core/apology.when の1か所
+        （今日かは salescall.call_today の1か所）。お詫びもお詫びの文も無い電話には、承認したお詫びの文を渡さない。"""
+        s = self.ready()
+        c = self.claim(s)
+        self.assertEqual((c.apology, c.apology_when, c.apology_call, c.apology_text), ((), None, None, None))   # 初めての電話
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        talked = self.call(s, report=rep(callback=callback("later", time="あとで")))
+        self.settle(s, talked)
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        come = lambda: self.tx(s, lambda tx: support.schedule_call(   # noqa: E731
+            tx, s["task"], now, contact_id=s["contact"], cause="試験：その時刻が来たことにする", promised=True))
+        come()
+        c = self.claim(s)
+        self.assertEqual((c.promised, c.apology, c.apology_when), (True, (), "same_day"))   # 今日話した＝「先ほど」
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+
+        def back(tx):   # 試験：話した電話を前の日にする（持ち主の取引の中だけ仕掛けを外す）
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER")
+            tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - interval '1 day',"
+                       " ended_at = ended_at - interval '1 day' WHERE attempt_id = %s", (talked,))
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
+        owner_access().in_system(SYSTEM, back)
+        self.settle(s, self.call(s, ["dialing", "no_answer"]))               # 今日の出なかった電話は「前の電話」にしない
+        come()
+        self.assertEqual(self.claim(s).apology_when, "later")                # 話したのは昨日＝「前回」
 
     def test_the_apology_is_for_the_last_cut_call_in_which_the_callee_was_talking(self):
         """お詫びの元の電話（cut_call）は、目的のお客様と話していた電話が切れたらその電話。受付の方と話している途中で切れた電話では
@@ -5628,7 +5656,7 @@ class DatabaseGuards(Base):
         self.tx(s, lambda tx: tx.execute(sql, (0, ["missed_promise"], s["task"])))
         self.assertTrue(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["apology_owed"])
         c = self.claim(s)
-        self.assertEqual((c.apology, c.apology_when), (("missed_promise",), None))   # 同じ日かは、途中で切れた電話のときだけ
+        self.assertEqual((c.apology, c.apology_when), (("missed_promise",), None))   # 前に目的のお客様と話した電話が無い＝None（core/apology.when）
 
     def test_fixed_purposes_always_carry_the_promise_mark(self):
         """お詫びの電話・すぐのかけ直し（続き）・番号の聞き直しの予定は、必ず約束の印を持つ（先に出す・取り置く電話＝Q38。0126：

@@ -1874,7 +1874,9 @@ class NameLedger(Content):
         どの業務でも同じ文の共通の一言（話してよい声が求める＝`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）。
         保留で締める一言（質問の番号_pending）は質問ごとの依頼者の単位の録音なので、共通の一言の一覧には入らない（業務の組に入れられる）。"""
         self.assertIn("aizuchi", recordings.COMMON_PARTS)
-        self.assertFalse([p for p in recordings.COMMON_PARTS if p.endswith("_pending")])
+        # ⇒ CL-1 の連絡帳 4-124：詳しい者からのお話の保留を伺う一言（callback_handoff_pending）は、どの業務でも同じ文のシステムの質問の一言＝共通の一言。
+        # 業務の質問の番号から作る（番号）_pending は、今までどおり入らない
+        self.assertEqual([p for p in recordings.COMMON_PARTS if p.endswith("_pending")], ["callback_handoff_pending"])
 
     def test_the_parts_cl1_added_on_11_08_are_received(self):
         """CL-1 の連絡帳 4-112・4-113（✅ 2026-11-08 日本時間2時21分15秒 ユーザー）：値を伺う質問の最初の「まだ決まっていない」に1回だけ流す「それでは
@@ -1885,6 +1887,19 @@ class NameLedger(Content):
         self.assertLessEqual({"estimate_ask", "ai_answer"}, set(recordings.COMMON_PARTS))
         self.assertIn("D2", business_settings.RESERVED_IDS)
         self.assertNotIn("D2", recordings.COMMON_PARTS)
+
+    def test_the_parts_cl1_added_from_11_09_to_11_12_are_received(self):
+        """CL-1 の連絡帳 4-122・4-124・4-129（✅ 2026-11-09〜11-12 ユーザー）の共通の一言の録音は、どれも話してよい声が求める（`COMMON_PARTS`）：言い直しへの
+        2回目の「いかがなさいますか？」（how_now）・N1 に点を言っていただけなかったときの一言（callback_not_agreed_which）・詳しい者からのお話を伺う N4
+        （callback_handoff）・その保留を伺う一言（callback_handoff_pending）と、それぞれを戻る一言に続ける形（_bare・_midway）・同じ日の続きの電話の切れたお詫び
+        （apology_cut_off_same_day）。申し出のシステムの質問の番号 N4・N5・N6 と申し出の業務の録音の部分 offer_which・close_offer は、業務の質問の番号に使えず、
+        共通の一言の組にも入れない（業務の組から流す）。"""
+        from salescall.core import business_settings
+        self.assertLessEqual({"how_now", "callback_not_agreed_which", "callback_not_agreed_which_midway", "callback_handoff", "callback_handoff_bare",
+                              "callback_handoff_midway", "callback_handoff_pending", "callback_handoff_pending_bare",
+                              "callback_handoff_pending_midway", "apology_cut_off_same_day"}, set(recordings.COMMON_PARTS))
+        self.assertLessEqual({"N4", "N5", "N6", "offer_which", "close_offer"}, business_settings.RESERVED_IDS)
+        self.assertEqual({"offer_which", "close_offer", "N6_pending"} & set(recordings.COMMON_PARTS), set())
 
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、

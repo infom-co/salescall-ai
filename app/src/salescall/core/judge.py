@@ -70,7 +70,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-08.1+time-{spoken_time.VERSION}"   # 2026-11-08.1（CL-1 の連絡帳 4-113・4-115）：本題で本心を伺った一言に言っていただいた気になる点（会話の報告の事実 concern）を判定の中身で依頼者へ返す（判定の結果は変えない）。「曖昧」の印（伺う条件の hedged が読む）は、項目の値の欄 hedged（依頼者へ渡すお客様の言葉）を、取れた答えのときだけ読む（`hedged_words` の1か所。「-」「✕」の答えに添えたお客様の言葉を、言い切っていない答えと読まない）
+JUDGE_VERSION = f"judge-2026-11-12.1+time-{spoken_time.VERSION}"   # 2026-11-12.1（CL-1 の連絡帳 4-122〜4-129）：業務の申し出の答え（会話の報告の事実 handoff・close_offer）と、条件つきで受けていただいた申し出（事実 offer_terms）を判定の中身で依頼者へ返す（判定の結果は変えない。handoff のはっきりしたお断りは会話の側が残す事実 goal_refused で今までどおり読む）
+# 前の版：   # 2026-11-08.1（CL-1 の連絡帳 4-113・4-115）：本題で本心を伺った一言に言っていただいた気になる点（会話の報告の事実 concern）を判定の中身で依頼者へ返す（判定の結果は変えない）。「曖昧」の印（伺う条件の hedged が読む）は、項目の値の欄 hedged（依頼者へ渡すお客様の言葉）を、取れた答えのときだけ読む（`hedged_words` の1か所。「-」「✕」の答えに添えたお客様の言葉を、言い切っていない答えと読まない）
 # 前の版：   # 2026-11-07.1（見直し(3)の1・5）：断りを言い表す道を1本にした。会話の側が営業拒否と読んだ「あとで」も、受付の営業拒否と同じ事実 do_not_call（2つ目の判定は irreversible_check）で来る。かけ直しの申し出の intent は約束の一環（promise）だけ（"refusal" は報告の誤り＝call_report.from_json）。判定の中身 refusal の later は無くなった（申告と同じ in_call）。通話の途中の申告かは、申告の入口が入れた登録だけで見る（dnc.declared_in。締めが自分で入れた登録を締め直しで申告と読まない）
 # 前の版：   # 2026-11-06.2（計画書 7-1 (16)・0195）：かけ直しの申し出「あとで」を会話の側が営業拒否と読んだ（会話の報告の Callback.intent＝refusal）通話は、断り（発信の拒否＝もうかけない・発信禁止に登録。受付で営業拒否を言われたときと同じ (2) の道＝call_report.CallReport.do_not_call の1か所。判定の中身 refusal＝later）。約束の一環・読んでいないときは変わらない
 # 前の版：   # 2026-11-06.1（計画書 7-1 (13)・0194）：時刻の無いかけ直しの申し出が約束の一環か営業拒否か（会話の報告の Callback.intent）を、判定の中身 callback.intent に残す（判定の結果は変わらない。番号を直したとき「あとで」を方針の回数より多く言って終えた行を戻すかが読む）
@@ -521,12 +522,15 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallRep
 def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, Any]:
     """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか・伺っていない（対象外）の質問・ご納得いただけなかった点・
     ほかのご希望を伺った答え・手順を伺い終えていない質問・本題で本心を伺って言っていただいた気になる点＝concern（question＝そのとき伺っていた
-    業務の質問・said＝お客様の言葉・answer＝会話AIが応えた文か None）。1か所。どの結果でも依頼者へ返す）。"""
+    業務の質問・said＝お客様の言葉・answer＝会話AIが応えた文か None）・業務の申し出の答え＝handoff・close_offer（事実の項目のまま＋お客様の言葉 said）・
+    条件つきで受けていただいた申し出＝offer_terms。1か所。どの結果でも依頼者へ返す）。"""
     skipped = not_asked(inp.ask_if, inp.answers, inp.report)
     agreed = inp.report.not_agreed if inp.report is not None else ()
     wishes = inp.report.other_wishes if inp.report is not None else ()
     unfinished = inp.report.unfinished if inp.report is not None else ()   # 手順を伺い終えていない質問（依頼者へ返す答えはまだ途中＝`JudgeInput.answers`）
     concerns = inp.report.concerns if inp.report is not None else ()       # 本題で本心を伺い、言っていただいた気になる点（今後の改善。CL-1 の連絡帳 4-113）
+    offers = inp.report.offers if inp.report is not None else ()           # 業務の申し出の答え（事実 handoff・close_offer。CL-1 の連絡帳 4-122〜4-128）
+    terms = inp.report.offer_terms if inp.report is not None else ()       # 条件つきで受けていただいた申し出（事実 offer_terms。CL-1 の連絡帳 4-129）
     return {"cut": raw_cut, "cut_recorded": cut, **({"target_unconfirmed": True} if inp.target_unconfirmed else {}),
             **({"not_asked": sorted(skipped)} if skipped else {}),
             **({"not_agreed": [{"question": n.question, "point": n.point, "said": n.said, "round": n.round,
@@ -534,7 +538,11 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
             **({"other_wish": [{"question": w.question, "wish": w.wish, "value": w.value, "means": w.means, "contact": w.contact,
                                 "via": w.via, "outcome": w.outcome, "said": w.evidence.said} for w in wishes]} if wishes else {}),
             **({"unfinished": list(unfinished)} if unfinished else {}),
-            **({"concern": [{"question": c.question, "said": c.evidence.said, "answer": c.own.answer} for c in concerns]} if concerns else {})}
+            **({"concern": [{"question": c.question, "said": c.evidence.said, "answer": c.own.answer} for c in concerns]} if concerns else {}),
+            **{kind: rows for kind in call_report.OFFER_KINDS
+               if (rows := [{"question": o.question, "agreed": o.agreed, "way": o.way, "means": o.means, "via": o.via, "contact": o.contact,
+                             "outcome": o.outcome, "terms": o.terms, "topic": o.topic, "said": o.evidence.said} for o in offers if o.kind == kind])},
+            **({"offer_terms": [{"question": t.question, "terms": t.terms, "topic": t.topic, "said": t.evidence.said} for t in terms]} if terms else {})}
 
 
 def _business(inp: JudgeInput) -> Judgement:
