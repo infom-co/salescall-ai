@@ -1317,6 +1317,26 @@ class DialFixAfterCalls(SettleBase):
         """違う相手への形：すぐかけてよいふつうの電話・約束も時刻も幅も無い・お詫びの印も元の電話も無い・引き継ぎを確かめる印。"""
         return ("call", new, "normal", False, False, False, [], False, True)
 
+    def test_the_last_call_is_counted_within_the_person(self):
+        """予約証の「前の電話が今日か」（apology_when）は、この電話と同じ担当の期の、目的のお客様と話せた電話で決める（core/attempts.last_talk の
+        1か所＝引き継ぎを確かめる印と同じ。✅ 2026-11-12 ユーザー：「案Bでお願いします」）。例：今日田中様と話したあと、契約者が番号を直して
+        「担当の方は違う」（鈴木様）を選んだら、鈴木様への電話に「前の電話」は無い（None＝会話の側は今の用件の一文。⛔ 前は田中様との電話を
+        「前の電話」として same_day を渡し、鈴木様に「先ほどのお電話で…」と言いうる形だった）。「担当の方は同じ」なら、今日話した電話が
+        「前の電話」のまま（same_day）。"""
+        for same in (True, False):
+            with self.subTest(same=same):
+                s = self.ready()
+                self.put_client(s, "gate.same_contact_min_interval", 1)    # 試験：同じお客様の間隔の外にする（1秒）
+                self.settle(s, self.call(s, report=rep(callback=callback("later", time="あとで"))))   # 今日、目的のお客様と話した
+                new = self.fixed_as(s, same, None if same else False)   # 違う方なら、前の担当の方との約束は守らない（次の担当の方にだけかける）
+                if same:   # 同じ方：約束のまま新しい番号へ（その時刻が来たことにする）
+                    self.at(s, new)
+                else:      # 違う方：新しい担当の方への形（すぐかけてよい・引き継ぎを確かめる印）
+                    self.assertEqual(self.plan(s), self.handed_over(new))
+                time.sleep(1.1)
+                c = self.claim(s)
+                self.assertEqual((c.apology_when, c.handover), ("same_day" if same else None, not same))
+
     def test_a_promise_already_tried_does_not_go_on_as_a_promise_to_another_person(self):
         """約束の電話を前の番号でもうかけた（鳴った）あと番号を直す（まだ終えていない行）：違う相手なら、約束をやめて引き継ぎを確かめる
         ふつうの電話（`after_dial_fix` も `_onto_dial` を通る）。同じ相手なら、約束のまま新しい番号で数え直す（7-1 (4)(6)）。"""

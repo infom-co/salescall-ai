@@ -588,8 +588,7 @@ def _handover_due(tx: Tx, task_id: UUID, since: datetime | None) -> bool:
     まだ話していない（締めの処理が試行に写した attempts.reached_target＝judge.JudgeInput.reached_target。受付の方とだけ話した通話は入らない）。
     ⛔ 0202 まで：かけた電話の予定の印を写すだけ（`_handover`）で、印を持てない番号の聞き直しをはさむと消えた（第三者の見直しの指摘4）。
     最初の担当の方の期（since が None）でも、前の担当の方に戻したときは同じ（`_carried`。0213）。"""
-    if tx.one("SELECT EXISTS (SELECT 1 FROM salescall.attempts WHERE task_id = %s AND person_since IS NOT DISTINCT FROM %s"
-              " AND reached_target) AS r", (task_id, since))["r"]:
+    if attempts.last_talk(tx, task_id, since) is not None:   # いまの期で目的のお客様と話した電話（1か所）
         return False
     return _carried(tx, task_id, since)
 

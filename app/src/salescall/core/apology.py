@@ -31,7 +31,7 @@ import json
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_rules, next_action, recordings
+from salescall.core import attempts, business_rules, next_action, recordings
 from salescall.core.access import Tx
 
 # 2026-10-16 ユーザー決定の文面（「○○」に、誤って案内したことと正しい内容が入る）。誤りが2つ以上なら「また、…」で続ける。
@@ -168,10 +168,13 @@ def when(tx: Tx, task_id: UUID, purpose: str, cut_call: UUID | None, attempt_id:
     - お詫びの電話（purpose apology）：承認されたいちばん新しいお詫びの案のもとの通話（`_order`＝お詫びの文と同じ）。
     - お詫びの理由「途中で切れた」のある電話：その元の電話（次の予定の cut_call＝理由を付けた所が書き、理由と一緒に引き継ぐ。0187。⛔ 0186 の思い違い：
       前は、その行でいちばん新しい発信まで進んだ電話で決めていて、昨日切れたあと今日かけて出なかった電話があると「先ほどは」と言った）。
-    - ほかの電話（お詫びの無い約束の電話・約束の時刻にかけられなかったお詫びの電話も）：この電話（attempt_id）の前の、その行でいちばん新しい、目的の
-      お客様と話せた電話（attempts.reached_target。お詫び・続きの用件の一文を聞くのは目的のお客様＝cut_call と同じ見方）。無ければ None（前にお話しした
-      電話が無い＝会話の側は今の用件の一文）。担当の方が替わった電話（予約証の handover）で前の担当の方との電話を「前の電話」と言わないのは、会話の側が
-      前の通話の答えの who・handover で決める（CL-2 の連絡帳 4-370 で確かめを頼んだ）。⇒ CL-1 の連絡帳 4-128：続きの電話の用件の一文（「先ほど／前回のお電話で途中になっておりました…」＝会話の側の
+    - ほかの電話（お詫びの無い約束の電話・約束の時刻にかけられなかったお詫びの電話も）：この電話（attempt_id）と同じ担当の期で、この電話の前の、
+      目的のお客様と話せた、いちばん新しい電話（core/attempts.last_talk の1か所＝引き継ぎを確かめる印と同じ。お詫び・続きの用件の一文を聞くのは
+      目的のお客様＝cut_call と同じ見方）。無ければ None（前にお話しした電話が無い＝会話の側は今の用件の一文）。担当の方が替わったら、新しい担当の
+      方との電話だけを数える（✅ 2026-11-12 ユーザー：「案Bでお願いします」。例：昨日田中様と話したあと、お呼びする方を鈴木様に直したら、今日の
+      鈴木様への電話は None。⛔ 前は担当の期を見ず、田中様との電話を「前の電話」として渡していた）。途中で切れた電話の元の電話・お詫びの案の
+      もとの通話は、いつもこの電話と同じ担当の期（担当の方が替わると、約束・お詫びを引き継がない＝core/next_action._to_new_person）。
+      ⇒ CL-1 の連絡帳 4-128：続きの電話の用件の一文（「先ほど／前回のお電話で途中になっておりました…」＝会話の側の
       flowctl.purpose_part）が、この値で同じ日かを読む（⛔ それまでは途中で切れた電話とお詫びの電話のときだけ渡していて、お詫びの無い約束の電話で前の電話が
       同じ日でも「前回の…」と言う形だった）。
     今日かは、どれも salescall.call_today の1か所。お詫びの電話・途中で切れた電話の元の電話が無ければ later（「前回は」）。"""
@@ -179,11 +182,10 @@ def when(tx: Tx, task_id: UUID, purpose: str, cut_call: UUID | None, attempt_id:
         o = _order(tx, task_id)
         return WHEN[bool(o and o["same_day"])]
     if cut_call is None:
-        prev = tx.one("SELECT p.attempt_id FROM salescall.attempts p WHERE p.task_id = %s AND p.attempt_id <> %s AND p.reached_target"
-                      " ORDER BY coalesce(p.ended_at, p.claimed_at) DESC, p.attempt_id DESC LIMIT 1", (task_id, attempt_id))
-        if prev is None:
+        period = tx.one("SELECT person_since FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["person_since"]
+        cut_call = attempts.last_talk(tx, task_id, period, besides=attempt_id)
+        if cut_call is None:
             return None
-        cut_call = prev["attempt_id"]
     row = tx.one("SELECT salescall.call_today(%s) AS today", (cut_call,))
     return WHEN[bool(row and row["today"])]
 
