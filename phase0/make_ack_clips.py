@@ -32,7 +32,7 @@ from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
 from phrases import POINT_FALLBACK
-from phrases import _CONTACT_RESUMED, APOLOGY_FIRST, CALLBACK_ASK_ANSWERING, CALLBACK_PENDING, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
+from phrases import _CONTACT_RESUMED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALLBACK_ASK_ANSWERING, CALLBACK_PENDING, APOLOGY_PURPOSE, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, CALLBACK_ASK_RESUMED, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, STANDARD_PARTS, SUCCESSOR_IDS, TALK_FALLBACK, WISH_TOLD
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -199,7 +199,7 @@ HOW_OF[STANDARD_PARTS["ai"]] = "ai"
 # （✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(2) イ」。前の「どうなさいますか？」＝質問の読み方は使わない）＝いつでもお尋ねをお受けする一言（point_anytime）と同じ読み方
 HOW_OF[THINKING_PROMPT_IDS[0]] = "own_fallback"
 HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})
-HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調子ごとの録音は、名前そのものが読み方の鍵
+HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST} | {f"apology_{k}_same_day": "apology_first" for k in APOLOGY_SAME_DAY})  # 調子ごとの録音は、名前そのものが読み方の鍵
 # 申し伝える一言まで言って切れた続きの電話のお詫びと申し伝える一言（phrases.APOLOGY_CUT_END・TOLD_AGAIN・TOLD_FOLLOW_UP）：お詫びは前の電話のお詫びと同じ
 # 読み方・申し伝える一言はご説明できないときの一言と同じ読み方
 HOW_OF.update({**{f"apology_cut_end_{k}": "apology_first" for k in ("same_day", "later")},

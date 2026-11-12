@@ -116,10 +116,13 @@ CONFIRM = {
     # ✅ 2026-11-09 日本時間7時57分50秒 ユーザー：「1.(a)（お勧め）会話AIがお客様の言葉にひとこと応えてから、申し出を伺い直す。例：「さようでございますか。
     # それでは月曜日を避けて、詳しい者よりお話しさせていただくということでよろしいでしょうか？」いただいてもと同じことを言わない」
     "申し出の伺い直し": ("それでは{v}ということでよろしいでしょうか？",),
-    # お客様が受けにくい事情（気にかかっていること）を言ったあとの代わりの提案（申し出に含める中身がある＝flowctl.Flow._offer_again の1か所）は「でも」。
+    # お客様が受けにくい事情（気にかかっていること）を言ったあとの代わりの提案（申し出に含める中身がある＝flowctl.Flow._offer_again の1か所）は「では
+# いかがでしょうか？」（⛔ 11-09 に入れた「でもよろしいでしょうか？」は強引＝✅ 2026-11-12 日本時間13時40分05秒 ユーザー：「(1) 申し出に含める中身（topic）の
+# ある伺い直しは「…ということではいかがでしょうか？」です（「でもよろしいでしょうか？」は強引）」。例「かしこまりました。それでは料金の面も含めて詳しい者より
+# お話しさせていただくということではいかがでしょうか？」。条件・方法だけの伺い直しは「申し出の伺い直し」のまま）。
     # ✅ 2026-11-09 日本時間9時48分09秒 ユーザー：「かしこまりました。それではお金がかからないで利用できる範囲とお金がかかるのはどこからなのかを詳しい者より
     # お話しさせていただくということでもよろしいでしょうか？」
-    "申し出の代わりの伺い直し": ("それでは{v}ということでもよろしいでしょうか？",),
+    "申し出の代わりの伺い直し": ("それでは{v}ということではいかがでしょうか？",),
 }
 # 値が確定でない答えを、ひとまずその値にするときに添える、変更の受付の一文（flowctl.Flow._ask_confirm の tentative_do・tentative_fact。{by}＝業務設定の期限＝
 # flowctl.Question.change_by。決まった言い方なので言葉の途中に読点は入れない＝10-15）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「「はい、それではひとまず
@@ -306,7 +309,7 @@ HANDOFF_DO = "詳しい者よりお話しさせていただきます"
 OFFER_DO_END, OFFER_DO_PLAIN = "させていただきます", "させていただく"
 
 
-def offer_words(do: str, terms: str | None = None, topic: str | None = None, way: str | None = None) -> str:
+def offer_words(do: str, terms: str | None = None, topic: str | None = None, way: str | None = None, polite: bool = False) -> str:
     """申し出の伺い直し（CONFIRM の「申し出の伺い直し」「申し出の代わりの伺い直し」）の {v} を作る唯一の場所（flowctl.Flow._ask_confirm の offer_again・offer_alt）：
     お客様のお話に申し出で応える提案。会話AIが書いた提案の言葉＝ご都合の条件（terms＝「月曜日を避けて」。あとに「、」）・申し出に含める中身（topic＝お客様が
     気にかけていることに応えて詳しい者がお話しする中身「料金の面も含めて」）・ご希望の方法（way＝業務の方法の名前。こちらがすることの言葉の終わりの動詞
@@ -314,14 +317,27 @@ def offer_words(do: str, terms: str | None = None, topic: str | None = None, way
     「月曜日を避けて、詳しい者よりお話しさせていただく」・「料金の面も含めて詳しい者よりお話しさせていただく」・「詳しい者よりオンラインでお話しさせていただく」。
     ✅ 2026-11-09 日本時間9時48分09秒 ユーザー（お言葉は flowctl.Flow._proposal_problem）"""
     assert do.endswith(OFFER_DO_END), do
-    body = do.removesuffix(OFFER_DO_END) + OFFER_DO_PLAIN
+    # polite＝文の終わりまで（「〜させていただきます」。条件つきで受けていただいたときの言い切り OFFER_TAKEN の {v}）
+    body = do.removesuffix(OFFER_DO_END) + (OFFER_DO_END if polite else OFFER_DO_PLAIN)
     if way:
-        stem = body.removesuffix(OFFER_DO_PLAIN)
+        stem = body.removesuffix(OFFER_DO_END if polite else OFFER_DO_PLAIN)
         i = max(stem.rfind("お"), stem.rfind("ご"))
         # 終わりの動詞（お・ごから始まり、あとに助詞の無い言葉）の前。見つからなければ言葉の頭
         at = i if i >= 0 and not any(c in stem[i:] for c in "をにがへでと") else 0
         body = body[:at] + f"{way}で" + body[at:]
     return (f"{terms}、" if terms else "") + (topic or "") + body
+
+
+# 申し出（N4・N6・ご案内の方法の申し出・業務の申し出の質問＝flowctl.Question.offered）を、こちらで応えられる条件（業務の方法・ご都合の条件・申し出に含める中身）
+# つきで受けていただいたときの言い切り（問いではない＝伺い直さずに次へ。flowctl.Flow._taken_on_terms の1か所）。言い切っていない答えの一言（「それでは{v}ね？」＝
+# 11-01 20時56分）と同じ文を、言い切りの「。」で言う（文は CONFIRM の1か所から作る）。{v}＝offer_words(..., polite=True)。頭の相づちは「ありがとうございます。」
+# ✅ 2026-11-12 日本時間13時40分05秒 ユーザー：「(2) お客様が、こちらで応えられる条件（業務の方法・ご都合の条件）つきで申し出を受けたら、伺い直さない。
+# 例「ありがとうございます。それでは料金の面も含めて改めて資料をメールでお送りさせていただきますね。恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？」」
+OFFER_TAKEN = CONFIRM["言い切っていない答えのあと（こちらがすること）"][0].removesuffix("？") + "。"
+# 業務に無いご連絡の方法を言われたときの申し出の中身（flowctl.Flow._offer_parts の1か所。こちらがすることの中には入れない＝お約束しない）。受けていただいたら、
+# その方法の連絡先を伺って申し伝える（ほかのご希望と同じ1か所＝flowctl.Flow._handoff_way・11-03 20時48分）。✅ 2026-11-12 日本時間13時40分05秒 ユーザー：「(3) (ア) は
+# ア」＝「かしこまりました。それではオンラインでのご希望も含めて詳しい者よりお話しさせていただくということではいかがでしょうか？」
+WISH_WAY_TOPIC = "{way}でのご希望も含めて"
 
 
 # 続きの電話で、お詫びのあと（お詫びの無い約束の電話も）に流す用件の一文（前の電話とつなげる。{p}＝用件の名詞＝instruction.Business.purpose_noun。決まった言い方
@@ -719,6 +735,10 @@ PROMISE_AGAIN = "{who}とお電話の約束をしておりましたので後ほ�
 # 「お約束の時間にお電話ができず誠に申し訳ございませんでした。」（「お」が多すぎのため修正＝案の「お時間」）・途中で切れたとき「OK」
 APOLOGY_FIRST = {"missed_promise": "お約束の時間にお電話ができず誠に申し訳ございませんでした。",
                  "cut_off": "前回はお電話が途中で切れてしまい大変失礼いたしました。"}
+# 同じ日の続きの電話のお詫び（いつの電話かは apology_when＝CL-2。あとの日は APOLOGY_FIRST のまま。共通の一言の録音 apology_（理由）_same_day）。並べ方は
+# flowctl.sorry_texts の1か所。✅ 2026-11-12 日本時間13時40分05秒 ユーザー：「(4) (イ)：つなぎは今の「途中になっておりました」のままにする…途中で切れたお詫びを
+# 日に合わせる。」例「先ほどはお電話が途中で切れてしまい大変失礼いたしました。先ほどのお電話で途中になっておりましたご予約の確認でお電話いたしました。」
+APOLOGY_SAME_DAY = {"cut_off": "先ほどはお電話が途中で切れてしまい大変失礼いたしました。"}
 # 言ってはいけないことを言ってしまったあとのお詫びの電話（予約証の目的 apology）で、目的のお客様に繋がる前に受付の方から用件を聞かれたときの一言
 # （共通の一言の録音。お詫びそのものは、お詫びを伝える方にだけ流す）。いつの電話のことかは、お詫びの文と同じ2つ（CL-2 の apology の
 # text_same_day「先ほど」・text_later「先日」）。✅ 2026-10-24 ユーザー「OK」（言葉の途中の読点は外す＝2026-10-15）
@@ -959,7 +979,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW,
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
-            **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
+            **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
             "told_follow_up": TOLD_FOLLOW_UP,
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
