@@ -2534,7 +2534,12 @@ class Question:
         承りますね？」と遠ざかる向きの言葉で言い直していた）。最終目的でない質問の断る答えは入れない（その申し出を断っただけ＝お断りの相づち・締めは
         turned_down。✅ 2026-11-01 日本時間20時11分 ユーザー：「担当者からの折り返しを拒否しただけ」）。"""
         approval_no = (self.conditions[1],) if self.approval and len(self.conditions) > 1 else ()
-        return tuple(dict.fromkeys((*self.away, *(self.declines if self.final_goal else ()), *approval_no)))
+        # 申し出の断る向きの言葉（「〜は控えさせていただきます」＝取込の決まり DO_PROMPT の断る向き・meanings.do_kind の decline）の答えも、取込の away に無くても
+        # 遠ざかる向き（取込の away の決まり AWAY_PROMPT も「控える」を遠ざかるとする）。✅ 2026-11-12 まとめ役の (I2)。⛔ 952cea0b までは away が無いと
+        # 「はい、それではお電話でのご案内は控えさせていただきますね？」と遠ざかる向きの言葉で言い直していた（11-03 の決まりに反する）
+        from meanings import do_kind
+        declined = tuple(c for c in self.conditions if do_kind(self.do_words.get(c, "")) == "decline")
+        return tuple(dict.fromkeys((*self.away, *declined, *(self.declines if self.final_goal else ()), *approval_no)))
 
     @property
     def toward(self) -> tuple:
@@ -3685,7 +3690,6 @@ class Flow:
         # 申し出を条件つきで受けていただいた答え・お返事の報告に添えた提案の言葉（相手の発話の番号, 質問, {terms, topic, way}）・業務に無い方法つきのお返事に、
         # ひとこと応えて提案で伺う番（相手の発話の番号）。_terms_reported・_taken_on_terms
         self.taken_terms: tuple | None = None
-        self.offer_wish_turn = -1
         self.own_tried: tuple[int, list] = (-1, [])  # 確かめに通らなかった答えの文（相手の発話の番号, [(文, 理由)]）。書き直させた回数を数える
         # 答えに添えられた相手の質問（_question_first）：答えへの返事は先に作っておき、AIがその質問に答えてから流す（取り出す1か所 _take_after_answer）。
         # (相手の質問, 返事, 返事を作った時の相手の発話の番号)
@@ -7352,11 +7356,8 @@ class Flow:
         ways = self._offer_ways_of(q)
         if (w := proposal["way"]) is not None and q.asks_way:
             return self._reject(f"「{ARG_LABEL['way']}」は、この質問には書きません（方法を伺う質問なので、別の方法は「{ARG_LABEL['rest']}」に、相手の言ったとおりに書きます）。")
-        if w is not None and w not in ways and means_in(w) and not it.offer_again:
-            self.offer_wish_turn = self.callee_turns
-            return self._reject(f"「{w}」は業務の方法（{'・'.join(ways) or 'なし'}）ではないので、受けていただいた答えにしません。"
-                                f"replay_opening を「{PART_LABEL['talk']}」で呼び、相手の言葉にひとこと応え（「かしこまりました。」など）、"
-                                f"「{ARG_LABEL['way']}」に「{w}」と書きます（プログラムが「{w}でのご希望も含めて…ということではいかがでしょうか？」と伺います）。")
+        # 業務に無い方法つきでも、もう受けていただいた答えは伺い直さない（その方法はお約束せず、連絡先を伺って申し伝える＝_taken_on_terms・_handoff_way・
+        # _offer_wish。提案で伺うのは会話が繋がらないお返事だけ＝_offer_unlinked の1か所。✅ 2026-11-12 まとめ役の (I1)）
         rejected, proposal, _ = self._proposal_checked(proposal, given, ways)
         if rejected is not None:
             return rejected
@@ -7390,7 +7391,11 @@ class Flow:
             self._handoff_fact(terms=it.offer_terms, topic=it.offer_topic)
         else:
             self._note("offer_terms", question=qid, terms=it.offer_terms, topic=it.offer_topic)
-        return OFFER_TAKEN.format(v=offer_words(q.do_words[it.condition], *self._offer_parts(qid), polite=True))
+        # 言い切るのは、こちらで応えられる条件だけ（業務に無い方法はお約束しない＝言い切りに入れず、連絡先を伺って申し伝えるだけ。✅ 2026-11-12 まとめ役の (I1)）
+        way = it.offer_way if it.offer_way in self._offer_ways_of(q) else None
+        if not (it.offer_terms or it.offer_topic or way):
+            return None
+        return OFFER_TAKEN.format(v=offer_words(q.do_words[it.condition], it.offer_terms, it.offer_topic, way, polite=True))
 
     def _offer_wish(self) -> None:
         """業務の申し出の質問を、方法つきで受けていただいた（条件つきの受け・「（方法）でのご希望も含めて」の提案を受けていただいた）：その方法の連絡先を、
@@ -8233,8 +8238,8 @@ class Flow:
             return "help"
         if self._may_ask_back() and asks_us([self.check.get(k) for k in JUDGMENTS]):
             return "asked"
-        if self._offer_unlinked() or self.offer_wish_turn == self.callee_turns:
-            return "offer"   # 業務に無い方法つきのお返事（_terms_reported）も、ひとこと応えてから提案で伺う
+        if self._offer_unlinked():
+            return "offer"
         return None
 
     def _offer_unlinked(self) -> bool:

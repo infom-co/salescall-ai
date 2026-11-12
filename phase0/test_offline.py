@@ -3519,7 +3519,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
                      meanings={"はい": "パンフレットをお送りして大丈夫だということ", "いいえ": "パンフレットはお送りしなくて大丈夫だということ"},
                      do_words={"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"})   # ✅ 11-02 1時22分「送付は控え」
         for heard, cond, want in (("たぶん送ってもらうと思います。", "はい", "それではパンフレットをお送りさせていただきますね？"),
-                                  ("たぶん要らないです。", "いいえ", "それではパンフレットの送付は控えさせていただきますね？")):
+                                  ):   # ⛔ 952cea0b までは「たぶん要らないです。」にも「それではパンフレットの送付は控えさせていただきますね？」と言い直していた＝遠ざかる向きの言葉で言い直さない 11-03 の決まりに反していた（申し出の断る向きの言葉は遠ざかる向き＝Question.away_answers。まとめ役の (I2)）。言い直さない形は下の試験
             f = Flow([q])
             r = self.say(f, heard, "record_answer", question_id="Q8", condition_id=cond)
             self.assertEqual((r["result"], r["say"], r["ack"]), ("confirm_required", want, "hai"), heard)
@@ -10151,11 +10151,14 @@ class EndJudgedTest(unittest.TestCase):
                                         ("うちはメールしか見ないんですよ。", "record_answer", UNDECIDED, "はい")):
             f = business(pamph)
             r = say(f, words, op, judged, question_id="P1", condition_id=cond, **({"way": "メール"} if judged == "はい" else {}))
-            self.assertEqual((r["result"], heard(r)), ("rejected", ""), words)
-            grounded(f, "かしこまりました。")
-            r = f.apply("replay_opening", {"part": "talk", "answer": "かしこまりました。", "way": "メール"})
-            self.assertEqual(heard(r), f"かしこまりました。それではメールでのご希望も含めてパンフレットをお送りさせていただく{alt}", words)
-            r = say(f, "はい、それでお願いします。", "confirm_field", "はい", question_id="P1", result="affirmed")
+            if judged != "はい":   # 提案で伺うのは、会話が繋がらないお返事（受けていない）だけ（_offer_unlinked の1か所）
+                self.assertEqual((r["result"], heard(r)), ("rejected", ""), words)
+                grounded(f, "かしこまりました。")
+                r = f.apply("replay_opening", {"part": "talk", "answer": "かしこまりました。", "way": "メール"})
+                self.assertEqual(heard(r), f"かしこまりました。それではメールでのご希望も含めてパンフレットをお送りさせていただく{alt}", words)
+                r = say(f, "はい、それでお願いします。", "confirm_field", "はい", question_id="P1", result="affirmed")
+            # もう受けていただいた（「メールで送ってもらえるならいいですよ。」）：伺い直さずに、その方法の連絡先を伺って申し伝える（お約束はしない＝11-03 20時48分・
+            # aab2ec4c の (E)。✅ 2026-11-12 まとめ役の (I1)。⛔ 952cea0b までは、受けていただいたのに「…のご希望も含めて…ではいかがでしょうか？」と伺い直していた）
             self.assertEqual((r["question_id"], heard(r)), ("C3", "ありがとうございます。それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"), words)
             r = say(f, "yamada@example.co.jp です。", "record_answer", "答えた", question_id="C3", condition_id="答えた", value="yamada@example.co.jp")
             r = say(f, "はい、そうです。", "confirm_field", "affirmed", question_id="C3", result="affirmed")
@@ -10168,6 +10171,18 @@ class EndJudgedTest(unittest.TestCase):
         r = say(f, "メールならいいですよ。", "record_answer", "はい", question_id="P1", condition_id="はい", way="メール")
         self.assertEqual((r["question_id"], heard(r)), ("C3", "ありがとうございます。それではパンフレットをメールでお送りさせていただきますね。"
                                                               "恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"))
+
+        # (I2) 申し出の断る向きの言葉（「〜は控えさせていただきます」＝meanings.do_kind の decline）は、取込の away に無くても目的から遠ざかる向き
+        # （Question.away_answers の1か所）：言い切っていないお断りを、その言葉で言い直さない（11-03・本書 9-5。⛔ 952cea0b までは、取込の away に無いと
+        # 「はい、それではお電話でのご案内は控えさせていただきますね？」と言い直していた）。最終目的でない質問は次へ（ご案内の方法を申し出るのは最終目的の質問だけ）
+        guide = Question("G1", "お電話にてご案内させていただいてもよろしいでしょうか？", "yes_no", conditions=YN, asks_way=True, offer_ways=("お電話", "メール"),
+                         do_words={"はい": "お電話にてご案内させていただきます", "いいえ": "お電話でのご案内は控えさせていただきます"})
+        for q in (pamph, guide):
+            self.assertIn("いいえ", q.away_answers, q.id)
+            f = business(q)
+            r = say(f, "うーん、今回はいいかな…。", "record_answer", "いいえ", firm=False, question_id=q.id, condition_id="いいえ")
+            self.assertEqual(r["question_id"], "P6", heard(r))
+            self.assertNotIn("控え", heard(r))
 
         # (H3) 決まった言葉を返事の前に足す1か所（Flow._led）：会話AIが先に言う言葉があれば、その返事の録音も会話AIがその文のとおりに言う
         # （流す側は録音→会話AIの順だけ）。質問でも締めでもない返事も同じ
@@ -10441,9 +10456,9 @@ class EndJudgedTest(unittest.TestCase):
         setattr(rd, QUERY, QUERY_NO)
         f.on_check("judge", rd)
         r = f.apply("record_answer", {"question_id": n4, "condition_id": "はい", "way": "オンライン"})
-        self.assertEqual((r["result"], heard(r)), ("rejected", ""))
-        r = talk(f, "かしこまりました。", way="オンライン")
-        self.assertEqual(heard(r), f"かしこまりました。それではオンラインでのご希望も含めて詳しい者よりお話しさせていただく{alt}")
+        # もう受けていただいた：伺い直さずに、その方法の連絡先を伺って申し伝える（✅ 2026-11-12 まとめ役の (I1)。⛔ 952cea0b までは提案で伺い直していた）
+        self.assertEqual((r["question_id"], heard(r)), ("C3", "ありがとうございます。それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"))
+        self.assertEqual(f.facts["handoff"][0]["way"], "オンライン")
         # 申し出でない答え（「いいえ」）・申し出でない質問には条件を書かない（差し戻す）
         f = to_offer(words=None)
         self.assertEqual(taken(f, "月曜以外なら…いや、やっぱりいいです。", n4, judged="いいえ", cond="いいえ", terms="月曜日以外で")["result"], "rejected")
@@ -10480,8 +10495,12 @@ class EndJudgedTest(unittest.TestCase):
         # ご案内の方法の申し出・業務の申し出の質問に方法は書かない（方法は質問そのもの＝ほかのご希望の道）
         f = Flow([pamph, last], play_recordings=True)
         f.use_checks("judge")
-        self.assertEqual(taken(f, "メールでなら送ってもらっていいですよ。", "Q4", way="メール")["result"], "rejected")
+        # 業務に無い方法（この質問はご案内できる方法の設定なし）つきでもう受けていただいた：伺い直さずに、その方法の連絡先へ（✅ 2026-11-12 まとめ役の (H2)(I1)。
+        # ⛔ 5de3425e では差し戻していた）
+        self.assertEqual(taken(f, "メールでなら送ってもらっていいですよ。", "Q4", way="メール")["question_id"], "C3")
         # (5) 申し出を受けていただいたお返事には、必ず「ありがとうございます。」（✅ 2026-11-12 日本時間13時40分05秒 ユーザー「(5) (ウ) は a」）
+        f = Flow([pamph, last], play_recordings=True)
+        f.use_checks("judge")
         r = say(f, "はい、お願いします。", "record_answer", "はい", question_id="Q4", condition_id="はい")
         self.assertEqual((r["question_id"], heard(r)[:len(_ACK["arigatou"])]), ("Q6", _ACK["arigatou"]))
         f = to_offer(words=None)
