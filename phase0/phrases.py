@@ -718,6 +718,10 @@ QUESTION_HEADS = tuple(dict.fromkeys([*(w for w in LEAD_PIECES if w != OTHERS_HE
 # 聞く）。✅ 2026-10-22 ユーザー「(a) お礼を言い、こちらからかけ直す形にして戻る時刻を聞く」＝かけ直すと言うのは、この録音だけ（AIは約束しない）。
 # かけ直すかは次の動き（CL-2）が決めるので、この録音を流した通話は、通話の事実の callback に申し出（offer）が残る
 OFFER_THANKS = "お気遣いありがとうございます。お手数ですので改めてこちらからお電話させていただきます。"  # ✅ 2026-10-22 ユーザー（4回目）の言い方
+# お礼の一言を言ったあとに、同じ電話で重ねて申し出られた（「いえいえ、戻りましたらこちらから折り返させますので。」）：ご厚意を2回とも受け止め、こちらから
+# 連絡する形を保つ一言（そのあと、いま伺っている質問）。さらに重ねられたら、時刻を無理に伺わず「分からない」と同じ道へ（押し問答にしない）。
+# ⏳ 言い方は伺い中（2026-11-12 まとめ役の指示＝お勧めの形で入れる）。選ぶのは flowctl.Flow._offer_reply の1か所
+OFFER_THANKS_AGAIN = "重ねてお気遣いありがとうございます。お手数をおかけしてはいけませんのでこちらからご連絡させていただきますね。"
 # お呼びした方が、もう在籍していない（退職・異動・担当が変わった）：✅ 2026-10-22 ユーザー「基本は後任の方をお呼びする＋業務ごとに選べる」
 # ✅ 2026-10-23 ユーザー：「さようでと実際に使う人はほとんどいません」⇒ 同じ理由で「そうでしたか。」に（⏳ 言い方はユーザーに伺う）
 DEPARTED_ACK = "そうでしたか。大変失礼いたしました。"
@@ -997,7 +1001,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW,
-            "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
+            "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},

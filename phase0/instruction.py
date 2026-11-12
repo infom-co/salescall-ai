@@ -193,7 +193,8 @@ class Business:
     # 電話）。新しい担当の方は前の電話でお話ししていない方なので、用件の一文を前の電話とつなげない（決まりは flowctl.purpose_part の1か所。CL-2 の 4-370 の (5)）
     handover: bool = False
     # 前の通話で取れた答え（質問の番号 → {"state", "value", "condition"}。途中で切れた通話の、お詫びしてすぐのかけ直し＝予約証の目的 resume など。
-    # CL-2 の行の項目の記録から）。取れた答え（flowctl.TAKEN の状態）の質問は、もう伺わずに続きから聞く（CL-2 の 4-77）。流れの制御 Flow の earlier
+    # CL-2 の行の項目の記録から）。もう伺わない答え（決まりは flowctl.earlier_kept の1か所＝取れた答え。CL-2 がかけ直す「わからない」は除く）の質問は、伺わずに
+    # 続きから聞く（CL-2 の 4-77）。流れの制御 Flow の earlier。続きの電話か（用件の一文・質問の頭）は、このまま（earlier_kept の前＝Flow.earlier_all と同じ材料）で読む
     earlier: dict = field(default_factory=dict)
     # 番号を伺い直す電話（予約証の目的 ask_number_again）：前の電話で伺った番号がどうだったか（phrases.NUMBER_AGAIN の鍵＝wrong_party・unreachable）。
     # 名乗りのあとに伺い直す一言で番号を伺い、答えはかけ直しの申し出（別の番号）として残す（CL-2 の 4-42）。流れの制御 Flow の number_again
