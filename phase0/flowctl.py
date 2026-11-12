@@ -11538,7 +11538,7 @@ class Flow:
                 return r
             return self._next_question(q, prefix)
         if self.phase == "asking":
-            # 締めの前に、「-」の必須項目を1回だけ念のため確かめる（6-11）。急いでいる相手・かけ直しを頼んだ相手にはしない
+            # 締めの前に、「-」の必須項目を1回だけ念のため確かめる（6-11）。どの項目かは _will_ask_again の1か所
             self.recheck_queue = [qid for qid in self.order if self._will_ask_again(qid)]
             self.phase = "rechecking"
         if self.phase == "rechecking" and self.recheck_queue and not self.hurried:
@@ -11555,9 +11555,16 @@ class Flow:
 
     def _will_ask_again(self, qid: str) -> bool:
         """「-」にした項目を、締めの前の念のための確認でまた伺うか（唯一の決まり＝その並びを作る所 _advance_to・伺い終えるまで決めない所 _wish_step）：必須の
-        項目で、その確認の回数が残り、急いでいる方・かけ直しを頼まれた方ではない（答えの段なら並びにある・確認の段なら確認の並びにある）。"""
+        項目で、その確認の回数が残り、急いでいる方ではない（答えの段なら並びにある・確認の段なら確認の並びにある）。かけ直しを頼まれた方には、業務の質問は
+        伺わない（残りの質問は次の電話で）が、かけ直しの手順の必須の質問（時刻・番号・ほかの手段の連絡先＝callback_ids）は、業務の必須の質問と同じに伺う
+        （最初の質問のほかに最大3回＝10-14。✅ 2026-11-12 まとめ役の (M1)。⛔ それまでは、かけ直しを頼まれた方には念のための確認を一切せず、時刻の言い直しへの
+        お返事が1回聞き取れないだけで「はい、お忙しいところ…」と締め、時刻を捨てていた＝業務の必須の日時の質問なら締めの前にもう1回伺う場面）。急いでいる方
+        （また改めてお掛けしてよいかを伺った方＝hurry_asked）には、かけ直しの日時でも伺わない（Intent.md 9-5「お客様が急いでいる・切ろうとしているときは、
+        念のための確認をしない」）"""
         q, it = self.questions.get(qid), self.items.get(qid)
-        if q is None or it.state != "unresolved" or not q.required or self.callback_why:
+        if q is None or it.state != "unresolved" or not q.required:
+            return False
+        if self.callback_why and (qid not in self.callback_ids or self.hurry_asked):
             return False
         if it.offer_settled:
             # 会話が繋がらないお返事のあとの提案（申し出・方法を選んでいただく質問＝_offer_again）へのお返事が、聞き取れたのに決まらない（_dash の1か所）：伺い直しは
