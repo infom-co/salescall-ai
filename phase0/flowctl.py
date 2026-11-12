@@ -814,10 +814,35 @@ def earlier_whose(earlier: dict | None, who: str | None = None, handover: bool =
         return None
     if handover:
         return "handed"
-    whos = {(e or {}).get("who") or "target" for e in earlier.values() if isinstance(e, dict)}
+    whos = _earlier_whos(earlier)
     if whos == {who or "target"}:
         return "same"
     return "handed" if who == "successor" and whos == {"target"} else "other"
+
+
+def _earlier_whos(earlier: dict) -> set[str]:
+    """前の通話で取れた答えを取った通話の繋いだ方の集まり（who の無い前の形・目的のお客様のいない業務は target）。earlier_whose・earlier_talked が読む。"""
+    return {(e or {}).get("who") or "target" for e in earlier.values() if isinstance(e, dict)}
+
+
+def earlier_talked(earlier: dict | None, who: str | None = None, handover: bool = False) -> bool | None:
+    """この電話で繋いだ方（who）が、前の電話でお話しした方か（唯一の決まり＝前の電話のお詫びを流すか＝sorry_texts の talked。流れの制御 Flow._sorry_lines・
+    名乗りの録音の文 instruction.Business.opening_parts が同じ1つを読む）：
+    - False：前の電話でお話ししていない方＝代わりの方（11-07 3時14分01秒 H6）・担当の方が替わった電話の新しい方（予約証の handover）・後任の方で前の答えが
+      前の方の答えだけ（earlier_whose の handed）・前の答えが代わりの方の答えだけのときのご本人
+    - True：前の通話の答えに、この方の答えがある（ご本人と代わりの方の両方とお話しした電話も）
+    - None：前の通話の答えが無い（伺う前に切れた・約束の時間にかけられなかった）＝誰とお話ししたかは分からない＝今までどおり（お詫びする）
+    ✅ 2026-11-07 日本時間3時14分01秒 ユーザー「電話が途中で切れることは代わりの方には関係ない話ですよね」と同じ理由（前の電話でお話ししていない方には、
+    前の電話で起きたことのお詫びは関係ない）。⛔ 2026-11-12 まで、後任の方・担当が替わった電話の新しい方にも「前回はお電話が途中で切れてしまい
+    大変失礼いたしました。」を流した（後任の方には「そうでしたか。大変失礼いたしました。」に続けて「失礼いたしました」が2回続いた）"""
+    if who == "substitute" or handover:
+        return False
+    whose = earlier_whose(earlier, who)
+    if whose is None:
+        return None
+    if whose in ("same", "handed"):
+        return whose == "same"
+    return (who or "target") in _earlier_whos(earlier)
 
 
 def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False) -> tuple[str, str]:
@@ -3206,18 +3231,22 @@ def apology_order(apology, approved: str | None = None) -> list[str]:
     return sorted(dict.fromkeys(apology), key=APOLOGY_REASONS.index)
 
 
-def sorry_texts(apology, told: str | None, at_end: bool, when: str, follow_up: bool, approved: str | None = None) -> list[tuple[str, str]]:
+def sorry_texts(apology, told: str | None, at_end: bool, when: str, follow_up: bool, approved: str | None = None,
+                talked: bool | None = None) -> list[tuple[str, str]]:
     """続きの電話の始めに、名乗りのあと流すお詫びと申し伝える一言の並び（(録音の名前, 文)）を作る唯一の場所（流れの制御 Flow._sorry_lines・名乗りの録音の文
     instruction.Business.opening_parts＝会話AIへの「プログラムが流す録音」の知らせ）：予約証の理由ごとのお詫び（phrases.APOLOGY_FIRST）。前の電話で申し伝える
     一言まで言って切れた（told）なら、申し伝え直して締める電話（at_end）の途中で切れたお詫びは、お話の最後に切れたお詫び（APOLOGY_CUT_END。同じ日＝先ほど・
     あとの日＝前回＝when）と、申し伝える一言（TOLD_AGAIN・担当から連絡すると申し出てよい業務は TOLD_FOLLOW_UP）。✅ 2026-11-06 日本時間9時05分17秒 ユーザーの (b)。
     ⛔ 2026-11-08 日本時間8時台（(10) の H2 の残り）まで、名乗りの録音の文は別に並べていて、申し伝え直す電話でも途中で切れたお詫び＋用件の一文だった。
     言ってはいけないことを言ったお詫び（理由 forbidden_speech）は、承認したお詫びの文（approved）を、お詫びだけの電話と同じ流し方（録音の名前 "apology"＝
-    承認したときに聞いていただいた、お詫びの案ごとの録音。共通の一言ではない）で流す。並べる順と理由の確かめは apology_order の1か所。✅ CL-2 の 4-350 の (2)"""
+    承認したときに聞いていただいた、お詫びの案ごとの録音。共通の一言ではない）で流す。並べる順と理由の確かめは apology_order の1か所。✅ CL-2 の 4-350 の (2)
+    talked＝この電話で繋いだ方が前の電話でお話しした方か（earlier_talked の1か所）。False なら、前の電話で起きたことのお詫び（途中で切れた・約束の時間に
+    かけられなかった）は流さない（前の電話でお話ししていない方には関係ない＝11-07 3時14分01秒と同じ理由）。言ってはいけないことのお詫び（forbidden_speech）は、
+    相手が違うときの扱いがまだ決まっていないので今までどおり流す（⏳ 伺う。CL-2 の本書の計画書 7-1 (12) は、もとの伺いが CL-2 の会話の記録に無い）"""
     out = [("apology", approved) if k == "forbidden_speech" else
            (f"apology_cut_end_{when}", APOLOGY_CUT_END[when]) if k == "cut_off" and at_end
            else (f"apology_{k}_same_day", APOLOGY_SAME_DAY[k]) if when == "same_day" and k in APOLOGY_SAME_DAY else (f"apology_{k}", APOLOGY_FIRST[k])
-           for k in apology_order(apology, approved)]
+           for k in apology_order(apology, approved) if talked is not False or k == "forbidden_speech"]
     if told is not None:
         out.append(("told_follow_up", TOLD_FOLLOW_UP) if follow_up else (f"told_again_{told}_{when}", TOLD_AGAIN[f"{told}_{when}"]))
     return out
@@ -8936,7 +8965,7 @@ class Flow:
         told = self.told_again if who != "substitute" else None
         if told is not None:
             keys = [k for k in keys if k != "purpose"]   # 申し伝え直す電話：お詫び・申し伝える一言のあとは残りの質問か最後のあいさつ（用件の一文は流さない＝(b) のお言葉の並び）
-        sorry = self._sorry_lines() if who != "substitute" else []
+        sorry = self._sorry_lines(who) if who != "substitute" else []
         at = next((i + 1 for i, k in enumerate(keys) if k == "intro"), 0)
         lines = [self._purpose_play(who) if k == "purpose" else {"kind": "opening", "part": k, "text": self.target[k]} for k in keys]
         lines[at:at] = sorry
@@ -10574,7 +10603,7 @@ class Flow:
         check = self._material(qid).get("check", {})   # 受け取った報告の操作の中（記録はそのあと＝_apply_one）なら、いまの言葉の確かめ
         return self.items[qid].state == "dont_know" and Flow._meaning_of(check) != UNDECIDED
 
-    def _sorry_lines(self) -> list[dict]:
+    def _sorry_lines(self, who: str | None = None) -> list[dict]:
         """続きの電話の始めに、名乗りのあと（目的のお客様のいる業務は繋がってから）流すお詫びの録音の並びを作る唯一の場所（_opening_reply・_connect）：予約証の
         理由ごとのお詫び（phrases.APOLOGY_FIRST）。前の電話で申し伝える一言まで言って、お返事の前に切れた（told_again＝resumed_step の told）なら、途中で
         切れたお詫びの代わりに、お話の最後に切れたお詫び（phrases.APOLOGY_CUT_END。同じ日＝先ほど・あとの日＝前回＝apology_when）と、申し伝える一言
@@ -10586,7 +10615,8 @@ class Flow:
         at_end = told is not None and (self.questions[self.point["q"]].final_goal or not self._remaining())
         # 承認したお詫び（"apology"）は、お詫びだけの電話と同じ流し方（kind "apology"＝お詫びの案ごとの録音・_apology_line と同じ形）
         lines = [{"kind": "apology", "text": text} if rid == "apology" else {"kind": "recorded", "id": rid, "text": text}
-                 for rid, text in sorry_texts(self.apology_due, told, at_end, self.apology_when, self.policies["follow_up"], self.apology_text)]
+                 for rid, text in sorry_texts(self.apology_due, told, at_end, self.apology_when, self.policies["follow_up"], self.apology_text,
+                                              earlier_talked(self.earlier, who, self.handover))]
         self.apology_due = []
         if told is not None:
             # 申し伝え直した：手順の終わり（unresolved）と記録（このあとまた切れても、3回目は言い直さない＝_point_told）

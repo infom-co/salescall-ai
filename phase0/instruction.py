@@ -369,11 +369,14 @@ class Business:
             # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び。前の電話で申し伝える一言まで言って切れた続きの電話は、お詫びのあとに申し伝える
             # 一言を言い直し、用件の一文は流さない（流れの制御と同じ1か所 flowctl.sorry_texts・told_kind。⛔ 2026-11-08 日本時間8時台（(10) の H2 の残り）まで
             # 途中で切れたお詫び＋用件の一文を並べていた）
-            from flowctl import resumed_step, sorry_texts, told_kind
+            # 前の電話のお詫びを流すかも、流れの制御と同じ1か所（flowctl.earlier_talked＝前の電話でお話しした方か。目的の人の無い業務は who を持たない＝
+            # 目的の方と読む・担当の方が替わった電話の新しい方には流さない）
+            from flowctl import earlier_talked, resumed_step, sorry_texts, told_kind
             step = resumed_step(self.questions, self.earlier)
             told = told_kind((self.earlier or {}).get(step[1].id)) if step is not None and step[0] == "told" else None
             at_end = told is not None and (step[1].final_goal or self.first_ask() is None)
-            parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up, self.apology_text)]
+            parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up, self.apology_text,
+                                                      earlier_talked(self.earlier, None, self.handover))]
             if self.purpose_line and told is None:
                 from flowctl import purpose_part
                 parts.append(self.replay_parts().get(purpose_part(self.earlier, self.apology, self.apology_when, handover=self.handover)) or self.purpose_line)

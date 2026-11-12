@@ -5423,6 +5423,101 @@ class PlayRecordingsTest(unittest.TestCase):
         f, r = start([q_res, q_pay], {"Q1": {"state": "accepted", "condition": "はい", "who": "substitute"}}, handover=False)
         self.assertNotIn(hc, heard(r))
 
+    def test_earlier_call_apology_is_said_only_to_the_person_in_that_call(self):
+        # 前の電話でお話ししていない方（後任の方・担当の方が替わった電話の新しい方・前の答えが代わりの方の答えだけのときのご本人）には、前の電話の
+        # 途中で切れた・約束の時間にかけられなかったお詫びを流さない（✅ 2026-11-07 日本時間3時14分01秒 ユーザー「電話が途中で切れることは代わりの方には
+        # 関係ない話ですよね」と同じ理由。決まりは flowctl.earlier_talked の1か所・お詫びを並べるのは sorry_texts の1か所）。⛔ 直す前は、後任の方に
+        # 「そうでしたか。大変失礼いたしました。前回はお電話が途中で切れてしまい大変失礼いたしました。ご予約の確認でお電話いたしました。…」と流した
+        # （「失礼いたしました」が2回続き、後任の方の知らない電話を詫びた）。言ってはいけないことのお詫び（予約証の forbidden_speech）は今までどおり
+        # （相手が違うときの扱いは伺う＝CL-2 の本書の計画書 7-1 (12) のもとの伺いが記録に無い）
+        from flowctl import Question, earlier_talked, facts_reading
+        from instruction import Business, Target
+        from meaning_judge import Reading
+        from phrases import ACK
+        okada = Target(name="岡田", reading="おかだ", role="営業部部長")
+        q_res = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        q_pay = Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        cut = "前回はお電話が途中で切れてしまい大変失礼いたしました。"
+        missed = "お約束の時間にお電話ができず誠に申し訳ございませんでした。"
+
+        def heard(r):
+            return ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+
+        def start(earlier, apology, party="target", handover=False, **kw):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=[q_res, q_pay],
+                         purpose_line="ご予約の確認でお電話いたしました。", purpose_noun="ご予約の確認", target=okada, earlier=earlier,
+                         apology=apology, apology_when="later", handover=handover, **kw)
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+            if party == "successor":
+                f.use_checks("judge")
+                f.on_callee(); f.on_heard("岡田は異動になりまして、今は私が担当しております。")
+                told = dict(speaker="前と同じ方", who="代理の方（後任）", phone="何もない", target="在籍していない")
+                value, away, new, succ = facts_reading(told, False)
+                rd = Reading(value)
+                rd.away, rd.new, rd.successor, rd.facts = away, new, succ, told
+                f.on_check("judge", rd)
+                return f, f.apply("report_party", {"party": "successor"})
+            f.on_callee(); f.on_heard("はい、お電話代わりました。岡田です。")
+            f.on_check("judge", Reading("ご本人"))
+            return f, f.apply("report_party", {"party": "target"})
+
+        mine = {"Q1": {"state": "accepted", "condition": "はい", "who": "target"}}
+        # 前の電話でお話しした方ご本人：今までどおり、お詫びのあとに用件（前の電話とつなげる）
+        for apology, text in ((("cut_off",), cut), (("missed_promise",), missed)):
+            f, r = start(mine, apology)
+            self.assertIn(text, heard(r), apology)
+        # 後任の方（前の答えは前の方の答え）：途中で切れたお詫びは流さない＝「失礼いたしました」は在籍していないことへの1回だけ
+        f, r = start(mine, ("cut_off",), party="successor")
+        self.assertNotIn(cut, heard(r))
+        self.assertEqual(heard(r).count("失礼いたしました"), 1, heard(r))
+        # 担当の方が替わった電話の新しい方：途中で切れた・約束の時間のお詫びとも流さない
+        for apology, text in ((("cut_off",), cut), (("missed_promise",), missed), (("missed_promise", "cut_off"), missed)):
+            f, r = start(mine, apology, handover=True)
+            self.assertNotIn(text, heard(r), apology)
+            self.assertNotIn(cut, heard(r), apology)
+            self.assertTrue(heard(r).startswith("ご予約の確認でお電話いたしました。"), heard(r))
+        # 前の答えが代わりの方の答えだけ：ご本人は前の電話でお話ししていない方
+        f, r = start({"Q1": {"state": "accepted", "condition": "はい", "who": "substitute"}}, ("cut_off",))
+        self.assertNotIn(cut, heard(r))
+        # 前の答えにご本人の答えも入っている（代わりの方とご本人の両方とお話しした）：ご本人は前の電話でお話しした方
+        f, r = start({**mine, "Q2": {"state": "accepted", "condition": "カード", "who": "substitute"}}, ("cut_off",))
+        self.assertIn(cut, heard(r))
+        # 前の通話の答えが無い（伺う前に切れた・約束の時間にかけられなかった）：誰とお話ししたかは分からない＝今までどおり詫びる（担当の方が替わった電話は除く）
+        f, r = start({}, ("cut_off",))
+        self.assertIn(cut, heard(r))
+        f, r = start({}, ("cut_off",), handover=True)
+        self.assertNotIn(cut, heard(r))
+        # 言ってはいけないことのお詫び（承認したお詫びの文）は今までどおり（相手が違うときの扱いは伺う）
+        approved = "先日のお電話では大変失礼なことを申し上げてしまい誠に申し訳ございませんでした。"
+        f, r = start(mine, ("forbidden_speech", "cut_off"), handover=True, apology_text=approved)
+        self.assertIn(approved, heard(r))
+        self.assertNotIn(cut, heard(r))
+
+        # 目的の人の無い業務：名乗りの録音の文（会話AIへの知らせ＝opening_parts）と流れの制御が、同じ1か所で決める
+        def no_target(earlier, apology, handover=False):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=[q_res, q_pay],
+                         purpose_line="ご予約の確認でお電話いたしました。", purpose_noun="ご予約の確認", earlier=earlier, apology=apology,
+                         apology_when="later", handover=handover)
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+            said = [p["text"] for p in r.get("play") or [] if p["text"] in (cut, missed)]
+            self.assertEqual([t for t in b.opening_parts() if t in (cut, missed)], said, (earlier, apology, handover))
+            return said
+        anyone = {"Q1": {"state": "accepted", "condition": "はい"}}
+        self.assertEqual(no_target(anyone, ("cut_off",)), [cut])
+        self.assertEqual(no_target({}, ("missed_promise",)), [missed])
+        self.assertEqual(no_target(anyone, ("cut_off",), handover=True), [])
+        self.assertEqual(no_target({}, ("missed_promise",), handover=True), [])
+        # 決まりの1か所
+        self.assertEqual([earlier_talked(e, w, h) for e, w, h in ((mine, "target", False), (mine, "successor", False), (mine, "target", True),
+                                                                   ({}, "target", False), ({}, "target", True), (mine, "substitute", False))],
+                         [True, False, False, None, False, False])
+
     def test_purpose_noun_is_decided_at_import_by_two_text_ais(self):
         # 続きの電話の用件の一文（前の電話とつなげる＝9時48分09秒の (4)）に入れる用件の名詞は、取込で文字のAI 2つが用件の一文から決める（そろって、その文の中の
         # 言葉のときだけ。そろわない・文に無い言葉なら空＝今の用件の一文のまま）。問い合わせと読み取りは askitems の1か所
