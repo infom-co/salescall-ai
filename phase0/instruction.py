@@ -206,7 +206,7 @@ class Business:
     apology_call: str | None = None
     # その文が、いつの電話のことか（same_day＝同じ日「先ほど」・later＝あとの日「先日」。CL-2 の apology.for_task が選んだ文の部分
     # apology_same_day・apology_later）。繋がる前に用件を聞かれたときの一言も、これで選ぶ（phrases.APOLOGY_PURPOSE）
-    apology_when: str = "later"
+    apology_when: str | None = "later"   # None＝この電話と同じ担当の期に話せた電話が無い（CL-2 の 4-382）＝前の電話でお話ししていない方（flowctl.earlier_talked）
     # 約束の電話などの頭で流す、承認したお詫びの文（予約証のお詫びの理由 forbidden_speech のとき要る＝CL-2 の apology.for_task の text。承認したときに聞いて
     # いただいた録音で流す＝お詫びだけの電話の apology_call と同じ流し方。並べる順は flowctl.apology_order の1か所）。✅ CL-2 の 4-350 の (2)
     apology_text: str | None = None
@@ -377,7 +377,7 @@ class Business:
             told = told_kind((self.earlier or {}).get(step[1].id)) if step is not None and step[0] == "told" else None
             at_end = told is not None and (step[1].final_goal or self.first_ask() is None)
             parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up, self.apology_text,
-                                                      earlier_talked(self.earlier, None, self.handover))]
+                                                      earlier_talked(self.earlier, None, self.handover, self.apology_when))]
             if self.purpose_line and told is None:
                 from flowctl import purpose_part
                 parts.append(self.replay_parts().get(purpose_part(self.earlier, self.apology, self.apology_when, handover=self.handover)) or self.purpose_line)
