@@ -10507,6 +10507,132 @@ class EndJudgedTest(unittest.TestCase):
         r = say(f, "はい、お願いします。", "record_answer", "はい", question_id=n4, condition_id="はい")
         self.assertEqual((r["question_id"], r["ack"]), (n5, "arigatou"), heard(r))
 
+    def test_an_unlinked_reply_to_a_way_question_gets_a_business_way_proposal(self):
+        # 方法を選んでいただく質問（詳しい者からのお話の方法 N5・LINE の連絡先の伺い方 C11・ほかのご希望 W1）に、会話が繋がらないお返事（判定がそろって決められないと
+        # 読んだ「うちは平日の昼間はほとんど外に出てるんですよ。」）をいただいたら、「もう一度お聞かせ…」で伺い直さずに、申し出への会話が繋がらないお返事と同じ1か所
+        # （Flow._offer_unlinked → _own_answer → _offer_again）で、(1) 会話AIがひとこと応え、(2) お客様のお言葉に合う業務の方法を提案する（「それでは夕方以降に、
+        # 詳しい者よりお電話でお話しさせていただくということではいかがでしょうか？」）。提案の方法は、その質問で業務がお約束できる方法だけ（N5＝申し出の方法・C11＝その
+        # 手順の方法のうち LINE でないもの・W1＝ご案内できる方法のうち断られた方法でないもの）。こちらから足した条件（「夕方以降に」）は、お客様の条件（terms）とは別の
+        # 欄（added）に残す。こちらから条件・中身・方法を足した提案は「ではいかがでしょうか？」。受けていただいたら「ありがとうございます。」＋その方法の連絡先・
+        # 申し伝え（C11 は LINE をやめてその方法に決め直す＝方法を選んでいただいた答えも決め直し、伺い方の段を外す）。
+        # ✅ 2026-11-12 日本時間14時58分17秒 ユーザー「アで！」（ア＝「さようでございますか。それでは夕方以降に、詳しい者よりお電話でお話しさせていただくということでは
+        #    いかがでしょうか？」）。⛔ 直す前は「はい、恐れ入ります。ご希望の方法をもう一度お聞かせいただいてもよろしいでしょうか？」（お客様のお話に応えずに同じことを伺う）
+        from flowctl import CALLBACK_IDS, OWN_REWRITES, QUERY, QUERY_NO, UNDECIDED, Flow, Question
+        from meaning_judge import Reading
+        from phrases import ACK
+        n1, n4, n5, c11, w1 = (CALLBACK_IDS[k] for k in ("not_agreed", "handoff", "handoff_way", "line_how", "other_wish"))
+        alt = "ということではいかがでしょうか？"
+
+        def heard(r):
+            return ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+
+        def say(f, words, op, judged=None, **args):
+            f.on_callee(); f.on_heard(words)
+            if judged is not None:
+                r = Reading(judged, firm=True)
+                setattr(r, QUERY, QUERY_NO)
+                f.on_check("judge", r)
+            return f.apply(op, args)
+
+        def talk(f, answer, **kw):
+            for text in [answer, kw.get("terms"), kw.get("added"), kw.get("topic")]:
+                if text:
+                    grounded(f, text)
+            return f.apply("replay_opening", {"part": "talk", "answer": answer, **kw})
+
+        def to_way(ways):
+            f = Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                      Question("Q2", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                               intro="こちらのプランは月額3,000円で初月は無料となっております。", final_goal=True, declines=("いいえ",)),
+                      Question("Q3", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))],
+                     play_recordings=True, handoff_ways=ways)
+            f.use_checks("judge")
+            say(f, "はい、届いています。", "record_answer", "はい", question_id="Q1", condition_id="はい")
+            say(f, "いいえ、承認はできないですね。", "record_answer", "いいえ", question_id="Q2", condition_id="いいえ")
+            say(f, "うーん、なんとなくですかね。", "record_answer", "unknown", question_id=n1, condition_id="unknown")
+            say(f, "うーん、特にこれというのは…。", "record_answer", "unknown", question_id=n1, condition_id="unknown")
+            r = say(f, "はい、お願いします。", "record_answer", "はい", question_id=n4, condition_id="はい")
+            self.assertEqual(r["question_id"], n5, heard(r))
+            return f
+
+        # (1) N5：ひとこと＋業務の方法の提案。こちらから足した条件は added に。受けていただいたら、お礼＋その方法の申し伝え
+        words = "うちは平日の昼間はほとんど外に出てるんですよ。"
+        f = to_way(("訪問", "お電話"))
+        r = say(f, words, "record_answer", UNDECIDED, question_id=n5, condition_id="訪問")
+        self.assertEqual((r["result"], heard(r)), ("rejected", ""))
+        self.assertIn("申し出の方法", r["message"])
+        r = talk(f, "さようでございますか。", added="夕方以降に", way="お電話")
+        self.assertEqual(heard(r), f"さようでございますか。それでは夕方以降に、詳しい者よりお電話でお話しさせていただく{alt}")
+        self.assertEqual((f.facts["handoff"][0]["terms"], f.facts["handoff"][0]["added"]), (None, "夕方以降に"))
+        r = say(f, "それならお願いします。", "confirm_field", "お電話", question_id=n5, result="affirmed")
+        self.assertTrue(heard(r).startswith("ありがとうございます。お電話でのご連絡のご希望を担当の者に申し伝えます。"), heard(r))
+        h = f.facts["handoff"][0]
+        self.assertEqual((h["agreed"], h["way"], h["means"], h["added"], h["outcome"]), (True, "お電話", "phone", "夕方以降に", "agreed"))
+        # 提案の方法は必ず書く・業務の方法（申し出の方法）だけ。書き直しを使い切ったら、業務設定で最初に並ぶ方法（「どれでも」と同じ決まり）
+        f = to_way(("訪問", "お電話"))
+        say(f, words, "record_answer", UNDECIDED, question_id=n5, condition_id="訪問")
+        r = talk(f, "さようでございますか。")
+        self.assertEqual((r["result"], heard(r)), ("rejected", ""))
+        self.assertIn("申し出の方法", r["message"])
+        r = talk(f, "さようでございますか。", way="LINE")
+        self.assertEqual(r["result"], "rejected")
+        for _ in range(OWN_REWRITES):
+            if r["result"] != "rejected":
+                break
+            r = talk(f, "さようでございますか。", way="ZOOM")
+        self.assertEqual(heard(r), f"さようでございますか。それでは詳しい者より訪問でお話しさせていただく{alt}")
+        # 提案へのお返事もまた繋がらない ⇒ 伺い直さずに申し伝えて次へ。締めの前の念のための確認でも伺わない（伺い直しは1回＝申し出と同じ。⛔ 入れる途中、
+        # お返事の種類ごとの表で見つけた：必須の N5 は「申し伝えます。」のあと、締めの前に「お声が聞き取れませんでしたので…もう一度だけお聞かせ…」と伺っていた）
+        r = say(f, "平日はとにかく忙しくてねえ。", "confirm_field", UNDECIDED, question_id=n5, result="no_answer")
+        self.assertEqual((r["question_id"], heard(r)), ("Q3", "承知しました。ご案内の方法の件は担当の者に申し伝えさせていただきますね。続きましてご訪問の日時のご希望はございますでしょうか？"))
+        r = say(f, "来週の水曜の午後でお願いします。", "record_answer", "答えた", question_id="Q3", condition_id="答えた", value="来週の水曜の午後")
+        if f.awaiting_confirm == "Q3":
+            r = say(f, "はい、そうです。", "confirm_field", "affirmed", question_id="Q3", result="affirmed")
+        self.assertEqual(r["result"], "end", heard(r))
+        self.assertNotIn("もう一度", heard(r))
+        # 提案を条件つきで受けていただいた ⇒ 言い切りはお客様の言ったご都合だけ（こちらから足した条件と重ねない）。依頼者へは両方の欄で渡す
+        f = to_way(("訪問", "お電話"))
+        say(f, words, "record_answer", UNDECIDED, question_id=n5, condition_id="訪問")
+        talk(f, "さようでございますか。", added="夕方以降に", way="お電話")
+        f.on_callee(); f.on_heard("夕方6時以降ならお願いします。"); grounded(f, "夕方6時以降で")
+        f.on_check("judge", Reading("affirmed", firm=True))
+        r = f.apply("confirm_field", {"question_id": n5, "result": "affirmed", "terms": "夕方6時以降で"})
+        self.assertTrue(heard(r).startswith("ありがとうございます。それでは夕方6時以降で、詳しい者よりお電話でお話しさせていただきますね。お電話でのご連絡のご希望を"), heard(r))
+        h = f.facts["handoff"][0]
+        self.assertEqual((h["terms"], h["added"], h["way"]), ("夕方6時以降で", "夕方以降に", "お電話"))
+
+        # (2) C11：LINE の伺い方への繋がらないお返事 ⇒ LINE でない業務の方法の提案。受けていただいたら、方法をその方法に決め直し、伺い方の段を外す
+        f = to_way(("訪問", "LINE", "お電話"))
+        r = say(f, "LINEでお願いします。", "record_answer", "LINE", question_id=n5, condition_id="LINE")
+        self.assertEqual(r["question_id"], c11, heard(r))
+        r = say(f, "LINEってあんまり見ないんですよね。", "record_answer", UNDECIDED, question_id=c11, condition_id="ID")
+        self.assertEqual((r["result"], heard(r)), ("rejected", ""))
+        r = talk(f, "さようでございますか。", way="LINE")
+        self.assertEqual(r["result"], "rejected")
+        r = talk(f, "さようでございますか。", way="お電話")
+        self.assertEqual(heard(r), f"さようでございますか。それでは詳しい者よりお電話でお話しさせていただく{alt}")
+        r = say(f, "それならお願いします。", "confirm_field", "affirmed", question_id=c11, result="affirmed")
+        self.assertTrue(heard(r).startswith("ありがとうございます。お電話でのご連絡のご希望を担当の者に申し伝えます。"), heard(r))
+        h = f.facts["handoff"][0]
+        self.assertEqual((h["way"], h["means"], h["via"], h["outcome"]), ("お電話", "phone", None, "agreed"))
+        self.assertEqual(f.items[n5].condition, "お電話")
+        self.assertNotIn(c11, f.order)
+
+        # (3) W1：ご案内の方法の申し出のほかのご希望への繋がらないお返事 ⇒ ご案内できる方法の提案（こちらがすることは「ご案内させていただきます」）
+        visit = Question("G1", "担当者がご訪問させていただいてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal=True,
+                         declines=("いいえ",), away=("いいえ",), meanings={"はい": "担当者がご訪問してよいということ", "いいえ": "担当者のご訪問はしなくてよいということ"},
+                         asks_way=True, offer_ways=("お電話", "メール", "LINE"))
+        f = Flow([visit, Question("Q9", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        r = HedgedSalesTest.hedged(f, "G1", "いいえ", "うーん、訪問はちょっと…。")
+        self.assertEqual(r["question_id"], w1, heard(r))
+        r = say(f, "平日の昼間は会議ばかりなんですよ。", "record_answer", UNDECIDED, question_id=w1, condition_id=f.questions[w1].conditions[0])
+        self.assertEqual((r["result"], heard(r)), ("rejected", ""))
+        r = talk(f, "さようでございますか。", way="メール")
+        self.assertEqual(heard(r), f"さようでございますか。それではメールでご案内させていただく{alt}")
+        r = say(f, "それならお願いします。", "confirm_field", "affirmed", question_id=w1, result="affirmed")
+        self.assertEqual(heard(r), "ありがとうございます。それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？")
+        self.assertEqual((f.facts["other_wish"][0]["means"], f.facts["other_wish"][0]["added"]), ("email", None))
+
     def test_a_method_not_in_the_business_ways_is_taken_with_its_contact(self):
         # 方法を選んでいただく質問（N5）に、業務に無い方法を直接言っていただいた（「オンラインでお願いします。」・業務の方法は訪問とお電話だけ）：ほかのご希望 W1 と
         # 同じ1か所（選べるもの＝other_means・連絡先＝_wish_contact・申し伝える一言＝WISH_TOLD）で、その方法の連絡先まで伺い、担当の者に申し伝えて次へ（業務に
