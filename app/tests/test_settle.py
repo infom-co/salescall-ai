@@ -5262,8 +5262,14 @@ class CallbackWindow(SettleBase):
         self.assertGreaterEqual(cur["call_at"], ended + timedelta(minutes=30) - timedelta(seconds=1))
 
     def test_a_monthly_reason_moves_to_the_same_day_next_month(self):
-        """月の理由（月ぎめ・入金の間隔）で選んだ日は、話せなければ次の月の同じ日の回（2026-10-19 ユーザー）。"""
+        """月の理由（月ぎめ・入金の間隔）で選んだ日は、話せなければ次の月の同じ日の回（2026-10-19 ユーザー）。次の月の回は1か月以上先なので、業務の
+        設定 callback.month_ahead が「契約者が認めたらかける」のときだけ（契約者に伺う。初めの値「かけない」では、次の回へは回さず別の日に＝
+        tests.test_unwelcome.MonthAhead。0220）。"""
         s = self.ready()
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale, review_when,"
+            " set_by) VALUES ('callback.month_ahead', 'business', %s, %s, %s, '\"with_approval\"', 'decided', '試験', '試験', '試験')",
+            (s["tenant"], s["client"], s["business"])), OPERATOR)
         local = self.local_now(s)
         first = (local.date().replace(day=1) + timedelta(days=32)).replace(day=3)
         nxt = (first.replace(day=1) + timedelta(days=32)).replace(day=3)
@@ -5272,7 +5278,7 @@ class CallbackWindow(SettleBase):
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         d = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], w.until, w, next_action.Target(s["contact"]),
                                                             now=now))
-        self.assertEqual((d.kind, d.window.round, d.window.since, d.at), ("call", 1, midnight(nxt), midnight(nxt)))
+        self.assertEqual((d.kind, d.window.round, d.window.since, d.at, d.month_ahead_after), ("call", 1, midnight(nxt), midnight(nxt), w))
 
     def test_the_plan_of_an_exact_promise_ends_at_the_end_of_its_slot(self):
         """時刻ちょうどの約束の1日目にかける時刻の並び（`_exact_plan` の1か所）：約束の時刻・5分後・15分後・そして1回分の終わり

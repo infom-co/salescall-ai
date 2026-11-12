@@ -834,7 +834,8 @@ class DialFixes(CustomerContacts):
                 # 見直し：前は理由を見ずに戻した）
                 "alternate_blocked:dnc_client", "alternate_blocked:dnc_contractor", "alternate_blocked:dnc_client_ref",
                 "alternate_blocked:declined_in_business", "dnc_contractor", "dnc_client_ref",
-                # 1か月以上先のかけ直しを、業務の設定・契約者の答えで終えた行（0217。予定が先すぎることは、番号を直しても変わらない）
+                # 1か月以上先のかけ直しを、業務の設定・契約者の答えで終えた行（0217。0220 で外し、もう書かないが、その前に書いた行の記録には
+                # 残りうる。番号のせいでも決めた回数でもないので、番号を直しても戻さない）
                 "callback_month_ahead")
         for n, reason in enumerate(back + stay):
             with self.subTest(reason=reason):

@@ -235,15 +235,19 @@ _OFFERS = "tests.test_call_report_cl1.Offers1109."
 _IMPORT_MAYBE = "tests.test_business_import.Import.test_maybes_and_the_purpose_noun_are_decided_by_the_ai"
 _IMPORT_OFFER = "tests.test_business_import.Import.test_the_offers_come_from_the_basic_sheet_and_the_close_offer_needs_its_do_words"
 _MONTH = _UNW + "MonthAhead."
-_MONTH_DEFAULT = _MONTH + "test_a_promise_a_month_ahead_ends_by_default_and_one_before_is_called_as_before"
-_MONTH_APPROVAL = _MONTH + "test_with_approval_the_plan_waits_for_the_contractor_who_approves_or_refuses"
-_LIFE_MONTH = _LIFE_UNW + "test_a_promise_a_month_ahead_is_called_at_its_time_and_without_an_answer_with_an_urgent_notice"
+_MONTH_DEFAULT = _MONTH + "test_a_monthly_round_unanswered_goes_to_another_day_by_default"
+_MONTH_SAID = _MONTH + "test_a_date_the_callee_said_is_called_however_far_ahead"
+_MONTH_WEEK = _MONTH + "test_a_weekly_round_unanswered_goes_to_the_next_week_as_before"
+_MONTH_FAR = "tests.test_judge.AfterCall.test_a_next_round_a_month_ahead_is_seen_by_the_last_days_of_the_rounds"
+_MONTH_APPROVAL = _MONTH + "test_with_approval_the_next_round_is_asked_and_a_refusal_goes_to_another_day"
+_LIFE_MONTH = _LIFE_UNW + "test_with_approval_the_next_month_round_is_called_when_approved_and_with_an_urgent_notice_when_unanswered"
+_LIFE_MONTH_OTHER = _LIFE_UNW + "test_a_monthly_day_unanswered_is_called_on_another_day_not_next_month"
 _M219 = "0219_month_ahead_unanswered_and_callee_said.sql"
 _MONTH_POLICY = _MONTH + "test_a_month_ahead_set_by_the_contractors_policy_is_called_as_set"
 _MONTH_URGENT = _MONTH + "test_when_the_time_comes_without_an_answer_the_call_goes_with_one_urgent_notice"
-_MONTH_BOUNDARY = _MONTH + "test_after_the_time_a_refusal_ends_the_row_only_before_it_is_called"
+_MONTH_BOUNDARY = _MONTH + "test_after_the_time_a_refusal_goes_to_another_day_only_before_it_is_called"
 _MONTH_FIVE = _MONTH + "test_the_urgent_notice_goes_five_minutes_before_and_an_answer_in_between_is_followed"
-_MONTH_CARRY = _MONTH + "test_a_plan_that_keeps_the_callees_time_is_still_asked_once"
+_MONTH_CARRY = _MONTH + "test_a_plan_that_keeps_the_asked_time_is_still_asked_once"
 _URGENT_KINDS = _UNW + "UrgentNotices.test_only_the_urgent_kinds_are_marked_urgent_in_both_copies"
 _LIFE_EVENING = _LIFE_UNW + "test_an_evening_promise_unanswered_is_called_on_exactly_the_policy_days"
 _BACK_DROPPED = _DF + "test_going_back_brings_back_a_dropped_promise_while_its_time_remains"
@@ -2937,14 +2941,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
              end="\n$$"),
      ("tests.test_settings.Shapes.test_bad_values_are_rejected",)),
     # ── 0217 1か月以上先のかけ直し
-    ("1か月以上先かを、翌月の同じ日でなく、その次の日から数える（翌月の同じ日の約束をかける）",
-     _edited(_M217, "CREATE FUNCTION salescall.month_ahead(", "  SELECT salescall.jst(p_at)::date\n         >= ", "  SELECT salescall.jst(p_at)::date\n         > ",
-             end="\n$$"),
-     (_MONTH_DEFAULT,)),
-    ("1か月以上先かを、その時刻へかける予定を初めて決めた日でなく、いまから数える（その日になると待たずにかける）",
-     _edited(_M217, "CREATE FUNCTION salescall.month_ahead(", "AND n.call_at = p_at), now()))", "AND n.call_at = p_at AND false), now()))",
-             end="\n$$"),
-     (_MONTH + "test_a_month_ahead_is_counted_from_the_day_the_time_was_first_decided",)),
+    # ⛔ 0217 の salescall.month_ahead（決めた日から1か月以上先か）の壊し試し2つは外した（0220 で関数を外した。見分けは Python の
+    # next_action._next_round_far の1か所＝Python の壊し試し）
     ("1か月以上先のかけ直しに、システムの処理も答えられる",
      _edited(_M219, "CREATE OR REPLACE FUNCTION salescall.task_month_ahead_answer_guard(", "  IF NOT salescall.cur_is_person() THEN",
              "  IF false THEN"),
@@ -6910,36 +6908,63 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "        if limit is not None:\n            return replace(_end(\"callback_unspecified_time\",",
      "        if False:\n            return replace(_end(\"callback_unspecified_time\",",
      (_LIFE_EVENING,)),
-    # ── 2026-11-08 ユーザー＝計画書 7-3 (3)：1か月以上先のかけ直しは、初めの値は「かけない」（0217）
-    ("決定を書くとき、1か月以上先かを見ない（next_action._write）", _NEXT,
-     "        d, ask = _month_ahead(tx, task_id, d)   # 1か月以上先のかけ直し（どの道で決めた予定も、ここを通る）\n", "",
-     (_MONTH_DEFAULT, _MONTH_APPROVAL)),
-    ("1か月以上先のかけ直しを、業務の設定に関係なく、いつも終える（next_action._month_ahead）", _NEXT,
-     "    if settings.resolve(tx, \"callback.month_ahead\", **tasks.scope(tx, task_id)) == \"with_approval\":",
-     "    if False:",
+    # ── 2026-11-12 ユーザー＝計画書 7-3 (3)：1か月以上先の決まりは、話せなかった回のあとの、理由に合わせた次の回にだけ（0220。⛔ 0217・0219 の
+    # お客様が言った日時にも当てはめる作りの壊し試しは、今の形に置き換えた）
+    ("1か月以上先の次の回かを見ない（いつも次の回へ回す＝next_action._keep_promise）", _NEXT,
+     "        if _next_round_far(window, w2):\n", "        if False:\n",
+     (_MONTH_DEFAULT, _MONTH_APPROVAL, _LIFE_MONTH_OTHER)),
+    ("どの次の回も1か月以上先と見る（next_action._next_round_far）", _NEXT,
+     "    return calling_hours.local(nxt.until - timedelta(microseconds=1)).date() >= month_later\n", "    return True\n",
+     (_MONTH_WEEK, _MONTH_FAR)),
+    ("1か月以上先かを、翌月の同じ日でなく、その次の日から数える（next_action._next_round_far）", _NEXT,
+     "    return calling_hours.local(nxt.until - timedelta(microseconds=1)).date() >= month_later\n",
+     "    return calling_hours.local(nxt.until - timedelta(microseconds=1)).date() > month_later\n",
+     (_MONTH_FAR, _MONTH_DEFAULT)),
+    ("1か月以上先かを、次の回の始まりで比べる（0217 の salescall.month_ahead の形＝「月末」の次の回が1か月より手前になる。next_action._next_round_far）",
+     _NEXT,
+     "    return calling_hours.local(nxt.until - timedelta(microseconds=1)).date() >= month_later\n",
+     "    return calling_hours.local(nxt.since).date() >= month_later\n",
+     (_MONTH_FAR, _MONTH_DEFAULT)),
+    ("1か月以上先の次の回へ回さないとき、別の日でなく行を終える（0217 の形＝next_action._keep_promise）", _NEXT,
+     "                d = _window_over(tx, task_id, now, target, window, apology=apology)\n",
+     "                d = _end(\"callback_month_ahead\", \"試験：1か月以上先\")\n",
+     (_MONTH_DEFAULT, _LIFE_MONTH_OTHER)),
+    ("1か月以上先の次の回を、業務の設定に関係なく、いつも別の日へ（next_action._keep_promise）", _NEXT,
+     "            if settings.resolve(tx, \"callback.month_ahead\", **tasks.scope(tx, task_id)) != \"with_approval\":",
+     "            if True:",
      (_MONTH_APPROVAL, _LIFE_MONTH)),
-    ("1か月以上先のかけ直しを、業務の設定に関係なく、いつも契約者の答えを待つ（next_action._month_ahead）", _NEXT,
-     "    if settings.resolve(tx, \"callback.month_ahead\", **tasks.scope(tx, task_id)) == \"with_approval\":",
-     "    if True:",
-     (_MONTH_DEFAULT,)),
-    ("1か月以上先のかけ直しを契約者が認めなくても、行を終えない（next_action.after_month_ahead_answer）", _NEXT,
-     "    if approved:\n        return None\n    return _write(tx, task_id, _end(MONTH_AHEAD,",
-     "    if True:\n        return None\n    return _write(tx, task_id, _end(MONTH_AHEAD,",
-     (_MONTH_APPROVAL,)),
-    # ── 2026-11-12 ユーザー＝計画書 7-3 (3)：答えが無いまま約束の時刻が来たら緊急の知らせをしてかける・契約者が設定した方針の間隔はかける（0219）
-    ("お客様の言葉から決まった予定かを見ず、どの予定にも1か月以上先の決まりを当てはめる（0217 の形＝next_action._month_ahead）", _NEXT,
-     "    if not d.said_by_callee or not tx.one(\"SELECT salescall.month_ahead(%s, %s) AS w\", (task_id, d.at))[\"w\"]:",
-     "    if not tx.one(\"SELECT salescall.month_ahead(%s, %s) AS w\", (task_id, d.at))[\"w\"]:",
-     (_MONTH_POLICY,)),
-    ("お客様が言った幅を持つ予定を、お客様の言葉と見ない（next_action.Decision.said_by_callee）", _NEXT,
-     "        return self.window is not None and not self.window.empty\n", "        return False\n",
-     (_MONTH_DEFAULT, _MONTH_APPROVAL, "tests.test_judge.AfterCall.test_a_plan_keeps_coming_from_the_callees_words_when_the_gate_denies")),
-    ("どの予定も、お客様の言葉と見る（next_action.Decision.said_by_callee）", _NEXT,
-     "        return self.window is not None and not self.window.empty\n", "        return True\n",
-     (_MONTH_POLICY, "tests.test_judge.AfterCall.test_a_plan_keeps_coming_from_the_callees_words_when_the_gate_denies")),
-    ("「契約者が認めたらかける」の予定に、伺う印を付けない（next_action._month_ahead）", _NEXT,
-     "        return d, True\n", "        return d, False\n",
+    ("1か月以上先の次の回を、業務の設定に関係なく、いつも契約者に伺う（next_action._keep_promise）", _NEXT,
+     "            if settings.resolve(tx, \"callback.month_ahead\", **tasks.scope(tx, task_id)) != \"with_approval\":",
+     "            if False:",
+     (_MONTH_DEFAULT, _LIFE_MONTH_OTHER)),
+    ("お客様が言った幅・日を持つ予定のすべてに伺う（0219 の said_by_callee の形＝next_action._month_ahead_ask）", _NEXT,
+     "    if d.month_ahead_after is not None:\n        passed, nxt = _round_days(d.month_ahead_after), _round_days(d.window)\n",
+     "    if d.window is not None and d.window.until is not None:\n        passed, nxt = _round_days(d.window), _round_days(d.window)\n",
+     (_MONTH_SAID,)),
+    ("決定を書くとき、契約者に伺う印を決めない（next_action._write）", _NEXT,
+     "        ask = _month_ahead_ask(tx, task_id, base, d)   # 1か月以上先の次の回へ回した予定・伺っている予定の書き直し\n", "",
+     (_MONTH_APPROVAL, _LIFE_MONTH)),
+    ("「契約者が認めたらかける」の次の回に、伺う印を付けない（next_action._month_ahead_ask）", _NEXT,
+     "        return True\n    return base is not None and base[\"kind\"] == \"call\"",
+     "        return False\n    return base is not None and base[\"kind\"] == \"call\"",
      (_MONTH_APPROVAL, _MONTH_URGENT, _LIFE_MONTH)),
+    ("伺っている予定を同じ時刻のまま書き直すと、伺いが消える（next_action._month_ahead_ask）", _NEXT,
+     "    return base is not None and base[\"kind\"] == \"call\" and bool(base.get(\"month_ahead_ask\")) and base[\"call_at\"] == d.at\n",
+     "    return False\n",
+     (_MONTH_CARRY,)),
+    ("伺っている予定の印を、時刻が変わっても引き継ぐ（next_action._month_ahead_ask）", _NEXT,
+     "    return base is not None and base[\"kind\"] == \"call\" and bool(base.get(\"month_ahead_ask\")) and base[\"call_at\"] == d.at\n",
+     "    return base is not None and base[\"kind\"] == \"call\" and bool(base.get(\"month_ahead_ask\"))\n",
+     (_MONTH_CARRY, _MONTH_APPROVAL)),
+    ("契約者が認めなくても、何もしない（その時刻にかける＝next_action.after_month_ahead_answer）", _NEXT,
+     "    if approved:\n        return None\n    cur = current(tx, task_id)\n",
+     "    if True:\n        return None\n    cur = current(tx, task_id)\n",
+     (_MONTH_APPROVAL, _MONTH_BOUNDARY)),
+    ("契約者が認めないと、別の日でなく行を終える（0217 の形＝next_action.after_month_ahead_answer）", _NEXT,
+     "    d = _unspecified_next(tx, task_id, _plan_target(cur), now=now, base=now, tried=now)\n",
+     "    d = _end(\"callback_month_ahead\", \"試験：認めない\")\n",
+     (_MONTH_APPROVAL, _MONTH_FIVE, _MONTH_BOUNDARY)),
+    # ── 2026-11-12 ユーザー＝計画書 7-3 (3)：答えが無いまま約束の時刻が来たら緊急の知らせをしてかける（0219）
     ("門が通しても、答えの無いまま約束の時刻が来たことを知らせない（見守り役が出しそびれた知らせを、門で出さない＝gate.claim）", "src/salescall/core/gate.py",
      "        month_ahead_unanswered(tx, task_id)   # 見守り役が5分前に", "        pass   # 見守り役が5分前に",
      (_MONTH_URGENT,)),

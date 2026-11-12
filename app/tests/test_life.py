@@ -977,46 +977,70 @@ class CallsNotUnwelcome(SupervisorBase):
         self.assertEqual(sorted(set(days)), [0, 1, 2], self.times(s))
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "callback_unspecified_time")
 
-    def test_a_promise_a_month_ahead_is_called_at_its_time_and_without_an_answer_with_an_urgent_notice(self):
-        """1か月以上先のかけ直し（翌月の同じ日の15時の約束）・業務の設定「契約者が認めたらかける」⇒ 契約者が認めた行は、その日の15時にかかる。
-        答えていない行も、約束の時刻まで答えを待ったあと、その日の15時にかかり（待つのは約束の時刻より前だけ＝tasks.month_ahead_waiting）、契約者に
-        緊急の知らせが1回出る（約束の時刻の5分前＝見守り役の仕事 supervisor/jobs.month_ahead_notices が gate.month_ahead_unanswered の1か所で）。
-        認めた行には出ない。✅ 2026-11-12 ユーザー：「時刻は5分前」。
-        ✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」。0217。✅ 2026-11-12 ユーザー：
-        「契約者に緊急の通知をして、約束の時間にかける」。0219（⛔ 0217：答えていない行は、その時刻になってもかけなかった）。"""
-        import calendar
+    def monthly_day(self, s, monday):
+        """お客様が月ぎめの理由で選んだ日（「（月曜の日付）日なら」。次の回は翌月の同じ日）の約束。"""
+        day0 = monday.replace(hour=0)
+        self.promise(s, next_action.Window(day0 + timedelta(days=1), None, None, day0, f"month:day:{monday.day}", day_said=True))
+
+    def choose_month_ahead(self, s, value):
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+            " review_when, set_by) VALUES ('callback.month_ahead', 'business', %s, %s, %s, %s, 'decided', '試験', '試験', '試験')",
+            (s["tenant"], s["client"], s["business"], f'"{value}"')), OPERATOR)
+
+    def test_a_monthly_day_unanswered_is_called_on_another_day_not_next_month(self):
+        """月ぎめの理由で選んだ日（次の回は翌月の同じ日＝1か月以上先）に出ない・業務の設定は初めの値（かけない）⇒ まずその日の中で、方針の回数
+        （3回）までかけ直し、その日に繋がらなければ、翌月の回へは回さず、時刻の決まっていない約束の方針（1時間おき・3回）で次の日にかけ、約束の回数の
+        上限で終える（終わりの理由 callback_unspecified_time。行を「1か月以上先」で終えない）。✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「まず、その期間内で
+        かけ直すことです。…どうしても、その日に繋がらなければ制限回数の範囲で、別の日にかけてもOKしかし、あくまでの優先は指定の範囲内。」。0220。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=8, minute=50), times=3)
+        self.monthly_day(s, monday)
+        self.run_until(s, Phone(), Script(default="no_answer"), monday.replace(hour=19) + timedelta(days=2),
+                       step=timedelta(minutes=30), night=timedelta(hours=2))
+        days = [(t.date() - monday.date()).days for t in self.times(s)]
+        self.assertEqual(days, [0, 0, 0, 1, 1, 1], self.times(s))                # その日に3本・次の日に3本（翌月の回ではない）
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "callback_unspecified_time")
+
+    def test_with_approval_the_next_month_round_is_called_when_approved_and_with_an_urgent_notice_when_unanswered(self):
+        """月ぎめの理由で選んだ日に出ない・業務の設定「契約者が認めたらかける」⇒ その日の中で3回かけ直したあと、翌月の同じ日の回の予定を書いて契約者に
+        伺う（約束の時刻まで答えを待つ）。認めた行は、翌月のその回にかかる。答えていない行も、その時刻にかかり、契約者に緊急の知らせが1回出る（約束の
+        時刻の5分前＝見守り役の仕事 supervisor/jobs.month_ahead_notices が gate.month_ahead_unanswered の1か所で）。認めた行には出ない。
+        ✅ 2026-11-12 ユーザー＝計画書 7-3 (3)：「契約者に緊急の通知をして、約束の時間にかける」「時刻は5分前」。0219・0220。"""
         from salescall.core import row_fixes
         monday = self.next_monday_9()
-        y, m = (monday.year, monday.month + 1) if monday.month < 12 else (monday.year + 1, 1)
-        day = monday.replace(year=y, month=m, day=min(monday.day, calendar.monthrange(y, m)[1]), hour=15)   # 翌月の同じ日の15時
         rows = []
         for _ in range(2):
-            s = self.row(monday.replace(hour=10))
-            self.tx(s, lambda tx, s=s: tx.execute(
-                "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
-                " review_when, set_by) VALUES ('callback.month_ahead', 'business', %s, %s, %s, '\"with_approval\"', 'decided', '試験',"
-                " '試験', '試験')", (s["tenant"], s["client"], s["business"])), OPERATOR)
-            w = self.tx(s, lambda tx, s=s: next_action._exact_window(tx, s["task"], day, day_said=True))
-            self.tx(s, lambda tx, s=s, w=w: next_action._write(tx, s["task"], next_action._call(
-                day, True, "試験：お客様と約束したかけ直し（翌月の同じ日の15時）", next_action.Target(s["contact"]), day, w)))
-            self.assertEqual(self.tx(s, lambda tx, s=s: tasks.month_ahead_waiting(tx, s["task"])), day)
+            s = self.row(monday.replace(hour=8, minute=50), times=3)
+            self.choose_month_ahead(s, "with_approval")
+            self.monthly_day(s, monday)
             rows.append(s)
         a, b = rows
+        phone, talk = Phone(), Script(default="no_answer")
+        self.run_until(a, phone, talk, monday.replace(hour=19), step=timedelta(minutes=30), each=lambda: self.turn(b, phone, talk))
+        plans = [self.tx(s, lambda tx, s=s: next_action.current(tx, s["task"])) for s in rows]
+        at = plans[0]["call_at"]
+        for s, p in zip(rows, plans):
+            self.assertEqual([t.date() for t in self.times(s)], [monday.date()] * 3, self.times(s))   # その日の中で3本
+            self.assertEqual((p["kind"], p["call_at"], p["month_ahead_ask"]), ("call", at, True))
+            self.assertEqual(at.astimezone(JST).day, monday.day)                 # 翌月の同じ日の回
+            self.assertGreater(at - monday, timedelta(days=27))
+            self.assertEqual(self.tx(s, lambda tx, s=s: tasks.month_ahead_waiting(tx, s["task"])), at)
         self.tx(a, lambda tx: row_fixes.answer_month_ahead(tx, a["task"], approve=True), OPERATOR)   # 契約者が認めた
         self.assertIsNone(self.tx(a, lambda tx: tasks.month_ahead_waiting(tx, a["task"])))
-        self.assertEqual(self.tx(b, lambda tx: tasks.month_ahead_waiting(tx, b["task"])), day)   # 答えていない：約束の時刻までは待つ
-        phone, talk = Phone(), Script(default="no_answer")
-        self.jump(day.replace(hour=14, minute=50))
-        self.run_until(a, phone, talk, day.replace(hour=15, minute=10), step=timedelta(minutes=1), each=lambda: self.turn(b, phone, talk))
-        self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(a)[:1]], [(day.date(), 15, 0)])
-        self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(b)[:1]], [(day.date(), 15, 0)])   # 答えていない：約束どおりかける
+        self.jump(at - timedelta(minutes=10))
+        self.run_until(a, phone, talk, at + timedelta(minutes=10), step=timedelta(minutes=1), each=lambda: self.turn(b, phone, talk))
+        local = at.astimezone(JST).replace(tzinfo=None)
+        for s in rows:                                                           # 認めた行も、答えていない行も、その時刻にかかる
+            self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(s) if t.date() != monday.date()][:1],
+                             [(local.date(), local.hour, local.minute)], self.times(s))
         urgent = lambda s: self.tx(s, lambda tx: [(r["urgent"], r["at"].astimezone(JST).replace(tzinfo=None)) for r in tx.all(   # noqa: E731
             "SELECT urgent, occurred_at AS at FROM salescall.notification_events WHERE kind = 'month_ahead_unanswered' AND refs ->> 'task_id' = %s",
             (str(s["task"]),))])
         self.assertEqual(urgent(a), [])                                          # 認めた行には出ない
         got = urgent(b)                                                          # 答えていない行に、緊急の知らせが1回・約束の時刻の5分前
         self.assertEqual([u for u, _ in got], [True])
-        self.assertTrue(day.replace(hour=14, minute=55, tzinfo=None) <= got[0][1] < day.replace(hour=14, minute=57, tzinfo=None), got)
+        self.assertTrue(local - timedelta(minutes=5) <= got[0][1] < local - timedelta(minutes=3), got)
 
     def test_tomorrow_forenoon_starts_at_the_business_hours(self):
         """「明日の午前中」：始まりは言葉で決まっていないので、営業時間の9時から（⛔ 0215 まで：歯止め時間の7時）。"""

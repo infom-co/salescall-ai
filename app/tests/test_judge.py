@@ -406,21 +406,34 @@ class AfterCall(unittest.TestCase):
                                 current_callee_at=at)
         self.assertEqual(d.callee_at, at)
 
-    def test_a_plan_keeps_coming_from_the_callees_words_when_the_gate_denies(self):
-        """お客様の言葉から決まった予定か（next_action.Decision.said_by_callee の1か所。0219）：門で止められたあとの決め直しは、いまの予定の幅を
-        引き継ぐので、お客様の言葉のまま（「1か月以上先」の決まりが当たる）。幅の無い予定（再発信の方針の間隔の電話）は、お客様の言葉ではない。"""
-        from salescall.core.next_action import Window
+    def test_a_next_round_a_month_ahead_is_seen_by_the_last_days_of_the_rounds(self):
+        """1か月以上先の次の回か（next_action._next_round_far の1か所。0220）：次の回の最後の日（日本時間）が、話せないまま過ぎた回の最後の日の翌月の
+        同じ日（その月に無ければ月の終わり）以上。月ぎめの理由の「月末」⇒次の月末（10月29〜31日 ⇒ 11月28〜30日：始まりどうしでは1か月より手前）・
+        「31日」⇒翌月の終わりの日・「下旬」・2月をまたぐ回は1か月以上先。週ごと・日ごとの次の回は手前。⛔ 0217 の salescall.month_ahead（次の回の
+        始まりを、回が過ぎた日から数える）では、「月末」の次の回が28日先で「1か月より手前」になった。"""
+        from salescall.core.calling_hours import JST
+        from salescall.core.next_action import Window, _next_round_far
+        day = lambda y, m, d: datetime(y, m, d, tzinfo=JST)   # noqa: E731
+        rnd = lambda a, b: Window(b + timedelta(days=1), None, None, a, "month:part:月末")   # noqa: E731  [a, b] の日の回
+        far = {
+            "月末 ⇒ 次の月末": (rnd(day(2026, 10, 29), day(2026, 10, 31)), rnd(day(2026, 11, 28), day(2026, 11, 30)), True),
+            "31日 ⇒ 翌月の終わりの日": (rnd(day(2026, 10, 31), day(2026, 10, 31)), rnd(day(2026, 11, 30), day(2026, 11, 30)), True),
+            "30日 ⇒ 翌月の30日": (rnd(day(2026, 11, 30), day(2026, 11, 30)), rnd(day(2026, 12, 30), day(2026, 12, 30)), True),
+            "1月31日 ⇒ 2月28日": (rnd(day(2027, 1, 31), day(2027, 1, 31)), rnd(day(2027, 2, 28), day(2027, 2, 28)), True),
+            "下旬 ⇒ 次の下旬": (rnd(day(2026, 10, 21), day(2026, 10, 31)), rnd(day(2026, 11, 21), day(2026, 11, 30)), True),
+            "12月の月末 ⇒ 1月の月末": (rnd(day(2026, 12, 29), day(2026, 12, 31)), rnd(day(2027, 1, 29), day(2027, 1, 31)), True),
+            "金曜 ⇒ 次の金曜": (rnd(day(2026, 11, 13), day(2026, 11, 13)), rnd(day(2026, 11, 20), day(2026, 11, 20)), False),
+            "夕方 ⇒ 次の日": (rnd(day(2026, 11, 30), day(2026, 11, 30)), rnd(day(2026, 12, 1), day(2026, 12, 1)), False),
+            "翌月の同じ日の前の日": (rnd(day(2026, 10, 15), day(2026, 10, 15)), rnd(day(2026, 11, 14), day(2026, 11, 14)), False),
+        }
+        for name, (passed, nxt, want) in far.items():
+            with self.subTest(name):
+                self.assertIs(_next_round_far(passed, nxt), want)
+        # 門で止められたあとの決め直しは、いまの予定の幅を引き継ぐだけで、次の回へは移らない（契約者に伺う決定の値を持たない）
         w = Window(NOW + timedelta(days=40, hours=1), None, None, NOW + timedelta(days=40), None)
-        for reason in ("outside_hours", "same_contact_interval"):
-            with self.subTest(reason=reason):
-                kw = dict(recheck=NO_OPENING_RECHECK, current_promised=True, current=Target(MAIN), pacing=P_NONE, now=NOW,
-                          opening=NOW + timedelta(days=40), retry_wait=300)
-                self.assertTrue(decide_after_denial(gate.denied(reason), current_window=w, **kw).said_by_callee)
-                self.assertFalse(decide_after_denial(gate.denied(reason), **kw).said_by_callee)
-        j = run(items={}, rep=report(("reception",), not_reached="not_transferred"))
-        d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
-                              retry_at=NOW + timedelta(days=40), target=Target(MAIN))
-        self.assertEqual((d.kind, d.said_by_callee), ("call", False))            # 方針の間隔で決めた予定
+        d = decide_after_denial(gate.denied("outside_hours"), current_window=w, recheck=NO_OPENING_RECHECK, current_promised=True,
+                                current=Target(MAIN), pacing=P_NONE, now=NOW, opening=NOW + timedelta(days=40), retry_wait=300)
+        self.assertEqual((d.kind, d.window, d.month_ahead_after), ("call", w, None))
 
     def test_a_reception_that_could_not_put_us_through_means_one_more_call_on_another_day(self):
         """受付が事情があり取り次げなかった（と、確かめ直しで目的のお客様だと確かめられなかった）通話は、日を改めて1回だけかけ直す。

@@ -6,6 +6,7 @@ tests/test_life.py の `CallsNotUnwelcome`。(5)(6) は test_apology・test_alte
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import timedelta
 
 from salescall.core import apology, attempts, business_rules, gate, next_action, notify, quality_stage, registry, scheduler
@@ -286,21 +287,13 @@ class OldPersonAfterAnotherFix(ApologyBase):
 
 
 class MonthAhead(SettleBase):
-    """(3) の書き足し：1か月以上先のかけ直し（✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月先に電話を入れるなんてことは通常ありえません。1か月以上先の
-    予定がある場合、契約者が認めた場合のみかけます。設定で、1か月以上先の架電はかけないがデフォルト。（選択式）」。0217）。決めるのは決定を書く
-    1か所（next_action._write の _month_ahead）、1か月以上先かはデータベースの salescall.month_ahead の1か所。⛔ 前は、何か月先でもかけていた。
-    時計を進めて、認めた行がその時刻にかかる場面は tests/test_life.py の `CallsNotUnwelcome`。"""
-
-    def days(self, s):
-        """今日（日本時間）の翌月の同じ日（その月に無ければ月の終わり）と、その前の日。"""
-        r = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now())::date + interval '1 month')::date AS m"))
-        return r["m"], r["m"] - timedelta(days=1)
-
-    def said(self, s, day):
-        """お客様が「（月）（日）なら」と日だけを言った約束の通話を締め、そのあとの予定を返す。"""
-        aid = self.call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日なら")))
-        self.settle(s, aid)
-        return self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+    """(3) の書き足し：1か月以上先の次の回（✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「「月末なら」と言った場合、何日か幅がありますよね。まず、その期間内で
+    かけ直すことです。ピンポイントで31日問言われた場合は、その日の範囲で何回かかけ直します。どうしても、その日に繋がらなければ制限回数の範囲で、
+    別の日にかけてもOKしかし、あくまでの優先は指定の範囲内。」。0220）。お客様が言った日時は、何か月先でもそのままかける。お客様が言った幅・日の中で
+    話せないまま回が過ぎ、理由に合わせた次の回が1か月以上先になるときだけ（見分けは next_action._keep_promise の _next_round_far の1か所）、業務の設定
+    callback.month_ahead に従う：かけない（初め）＝次の回へは回さず、時刻の決まっていない約束の方針の間隔で別の日に／契約者が認めたらかける＝次の回の
+    予定を書いて伺う。⛔ 0217・0219（CL-2 の思い違い）：お客様が言った「来月の15日に」なども、初めの値で行を終えていた。
+    時計を進めて、別の日にかかる・認めた行が翌月の回にかかる場面は tests/test_life.py の `CallsNotUnwelcome`。"""
 
     def choose(self, s, value):
         self.tx(s, lambda tx: tx.execute(
@@ -314,33 +307,173 @@ class MonthAhead(SettleBase):
             "SELECT summary, urgent FROM salescall.notification_events WHERE kind = %s AND refs ->> 'task_id' = %s ORDER BY event_id",
             (kind, str(s["task"])))])
 
-    def asked(self, s, at):
-        """試験：その時刻の、お客様が言った時刻ちょうどの約束（その回の幅を持つ）を、決定を書く1か所で書く。"""
-        def write(tx):
-            w = next_action._exact_window(tx, s["task"], at, day_said=True)
-            return next_action._write(tx, s["task"], next_action._call(at, True, "試験：お客様と約束したかけ直し", next_action.Target(s["contact"]),
-                                                                       at, w))
-        self.tx(s, write)
+    def asking(self, s):
+        from salescall.core import tasks
+        return self.tx(s, lambda tx: tasks.month_ahead_asking(tx, s["task"]))
 
-    def test_a_promise_a_month_ahead_ends_by_default_and_one_before_is_called_as_before(self):
-        """初めの値（かけない）：お客様が翌月の同じ日を言った ⇒ 予定を書かずに、終わりの理由 callback_month_ahead で行を終える（契約者・依頼者に
-        分かる文つき）。その前の日（1か月より手前）は、いまどおり約束の日にかける。"""
+    def plan(self, s):
+        return self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+
+    def day(self, s, t):
+        return self.tx(s, lambda tx: tx.one("SELECT salescall.jst(%s::timestamptz)::date AS d", (t,))["d"])
+
+    def midnight(self, s, day):
+        return self.tx(s, lambda tx: tx.one("SELECT salescall.jst_day_start(%s::date) AS t", (day,))["t"])
+
+    def next_month(self, s):
+        """今日（日本時間）の翌月の1日。"""
+        today = self.day(s, self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"]))
+        return (today.replace(day=1) + timedelta(days=32)).replace(day=1)
+
+    def passed(self, s, first, last, repeat):
+        """試験：お客様が言った回（日本時間の first〜last の日。repeat＝お客様がその日を選んだ理由）に、話せないまま回が過ぎた ⇒ 約束を守る1か所
+        （next_action._keep_promise）が次の動きを決め、決定を書く1か所（_write）で書く。（その回の幅, 決定, 書いたあとの予定）を返す。"""
+        w = next_action.Window(self.midnight(s, last + timedelta(days=1)), None, None, self.midnight(s, first), repeat, day_said=True)
+
+        def go(tx):
+            d = next_action._keep_promise(tx, s["task"], w.until, w, next_action.Target(s["contact"]), now=tx.one("SELECT now() AS t")["t"])
+            next_action._write(tx, s["task"], d)
+            return d
+        d = self.tx(s, go)
+        return w, d, self.plan(s)
+
+    def monthly_rounds(self):
+        """月ぎめの理由の回（言葉, 回の始まりの日, 終わりの日, 理由）：来月の月末（最後の3日）・来月の終わりの日（「31日に」。その月に無ければ月の
+        終わり）・来月の下旬。"""
+        end = lambda s: (self.next_month(s) + timedelta(days=32)).replace(day=1) - timedelta(days=1)   # noqa: E731
+        return (("月末なら", lambda s: end(s) - timedelta(days=2), end, "month:part:月末"),
+                ("31日に", end, end, "month:day:31"),
+                ("下旬なら", lambda s: self.next_month(s).replace(day=21), end, "month:part:下旬"))
+
+    def test_a_date_the_callee_said_is_called_however_far_ahead(self):
+        """(1) お客様が言った日時（「来月の15日に」「再来月の月末に」）は、業務の設定に関係なく、その日にかける（行を終えない・伺わない・知らせない）。
+        ⛔ 0217・0219：初めの値で、終わりの理由 callback_month_ahead で行を終えていた（CL-2 の思い違い。2026-11-12 ユーザー：「1か月後にかけないと
+        決めた覚えはありません。」）。"""
+        first = self.next_month(self.ready())
+        after = (first + timedelta(days=32)).replace(day=1)
+        last = (after + timedelta(days=32)).replace(day=1) - timedelta(days=1)   # 再来月の終わりの日
+        for setting in (None, "with_approval"):
+            for words, day in (("来月の15日に", first.replace(day=15)), ("再来月の月末に", last - timedelta(days=2))):
+                with self.subTest(setting=setting, words=words):
+                    s = self.ready()
+                    if setting is not None:
+                        self.choose(s, setting)
+                    self.settle(s, self.call(s, report=rep(callback=callback("later", time=words))))
+                    p = self.plan(s)
+                    self.assertEqual((p["kind"], p["promised"], p["month_ahead_ask"]), ("call", True, False))
+                    self.assertEqual(self.day(s, next_action.window_of(p).since), day)   # お客様が言った日（回の始まり）にかける
+                    self.assertIsNone(self.asking(s))
+                    self.assertEqual(self.notices(s, "month_ahead_approval"), [])
+
+    def test_a_monthly_round_unanswered_goes_to_another_day_by_default(self):
+        """(2)(3) 初めの値（かけない）：月ぎめの理由の「月末なら」「31日に」「下旬なら」の回に話せないまま過ぎた ⇒ 次の回（次の月末・翌月の同じ日・
+        次の下旬）へは回さず、時刻の決まっていない約束の方針の間隔（ここでは1時間おき）で、回が過ぎてから＝別の日にかける（約束したかけ直しのまま・
+        幅は外す・行を終えない・伺わない）。理由の分からない日だけの約束が過ぎたときと同じ道（next_action._window_over）。その回に一度もかけられ
+        なかったお詫びも引き継ぐ。"""
+        for words, first, last, repeat in self.monthly_rounds():
+            with self.subTest(words=words):
+                s = self.ready()
+                w, d, p = self.passed(s, first(s), last(s), repeat)
+                self.assertEqual((d.kind, d.promised, d.window, d.month_ahead_after), ("call", True, None, None))
+                self.assertEqual(d.at, w.until + timedelta(hours=1))             # 回の終わりから、方針の間隔（1時間）
+                self.assertIn("1か月以上先のため、次の回へは回さずに別の日に", d.rule)
+                self.assertEqual((p["kind"], p["promised"], p["window_until"], p["month_ahead_ask"]), ("call", True, None, False))
+                self.assertEqual(tuple(p["apology_reasons"]), ("missed_promise",))
+                self.assertIsNone(self.asking(s))
+                self.assertEqual(self.notices(s, "month_ahead_approval"), [])
+
+    def test_a_weekly_round_unanswered_goes_to_the_next_week_as_before(self):
+        """(4)「金曜なら」（週ごとの理由）の回に話せないまま過ぎた ⇒ いまどおり次の金曜（1か月より手前）。業務の設定に関係なく、伺わない。"""
+        for setting in (None, "with_approval"):
+            with self.subTest(setting=setting):
+                s = self.ready()
+                if setting is not None:
+                    self.choose(s, setting)
+                friday = self.next_month(s) + timedelta(days=(4 - self.next_month(s).weekday()) % 7)
+                w, d, p = self.passed(s, friday, friday, "week")
+                self.assertEqual((d.kind, d.window.round, self.day(s, d.window.since), d.month_ahead_after),
+                                 ("call", 1, friday + timedelta(days=7), None))
+                self.assertFalse(p["month_ahead_ask"])
+                self.assertEqual(self.notices(s, "month_ahead_approval"), [])
+
+    def test_with_approval_the_next_round_is_asked_and_a_refusal_goes_to_another_day(self):
+        """(5) 設定「契約者が認めたらかける」：次の回（次の月末）の予定を、伺う印を付けて書き、契約者に知らせる（話せなかった回と次の回の日が分かる文。
+        急ぎでない）。認めたら伺いは終わり（その時刻にかける）・認めなければ、行を終えずに、次の回へは回さず、別の日に時刻の決まっていない約束の方針で
+        かける（⛔ 0217・0219：行を終えていた）。答えられるのは管理者か契約者だけで、伺っている行の、その時刻だけ（データベースの守り）。"""
+        from salescall.core import row_fixes, tasks
+        from salescall.core.access import Rejected
+        rows = []
+        for _ in range(2):
+            s = self.ready()
+            self.choose(s, "with_approval")
+            words, first, last, repeat = self.monthly_rounds()[0]
+            w, d, p = self.passed(s, first(s), last(s), repeat)
+            self.assertEqual((d.kind, d.window.round, d.month_ahead_after), ("call", 1, w))
+            self.assertEqual((p["kind"], p["promised"], p["month_ahead_ask"]), ("call", True, True))
+            for read in (tasks.month_ahead_asking, tasks.month_ahead_waiting, tasks.month_ahead_answerable):
+                self.assertEqual(self.tx(s, lambda tx, s=s, read=read: read(tx, s["task"])), p["call_at"])
+            got = self.notices(s, "month_ahead_approval")
+            self.assertEqual([u for _, u in got], [False])                     # 伺いの知らせは急ぎでない
+            label = lambda a, b: f"{a.month}月{a.day}日〜{b.month}月{b.day}日"   # noqa: E731
+            nxt_first, nxt_last = self.day(s, d.window.since), self.day(s, d.window.until - timedelta(microseconds=1))
+            self.assertIn(f"お約束の回（{label(first(s), last(s))}）にお話しできず", got[0][0])
+            self.assertIn(f"次の回（{label(nxt_first, nxt_last)}）は1か月以上先です", got[0][0])
+            self.assertIn("認めなければ、次の回へは回さず、別の日に時刻の決まっていない約束の方針でかけます", got[0][0])
+            rows.append((s, p))
+        (a, pa), (b, pb) = rows
+        with self.assertRaises(Rejected):                                        # システムの処理は答えられない
+            self.tx(a, lambda tx: tx.execute(
+                "INSERT INTO salescall.task_month_ahead_answers (tenant_id, client_id, task_id, call_at, approved, answered_by)"
+                " VALUES (%s, %s, %s, %s, true, salescall.cur_actor())", (a["tenant"], a["client"], a["task"], pa["call_at"])))
+        got = self.tx(a, lambda tx: row_fixes.answer_month_ahead(tx, a["task"], approve=True), OPERATOR)
+        self.assertEqual((got["approved"], got["next"]["seq"]), (True, pa["seq"]))   # 予定はそのまま（次の回の時刻にかける）
+        self.assertIsNone(self.asking(a))
+        self.assertIsNone(self.tx(a, lambda tx: tasks.month_ahead_waiting(tx, a["task"])))
+        with self.assertRaises(row_fixes.FixInvalid):                            # もう伺っていない
+            self.tx(a, lambda tx: row_fixes.answer_month_ahead(tx, a["task"], approve=False), OPERATOR)
+        self.refused_goes_to_another_day(b)
+
+    def refused_goes_to_another_day(self, s):
+        """契約者が「認めない」と答えた ⇒ 行を終えずに、答えたときから、時刻の決まっていない約束の方針の間隔（1時間）で別の日に（幅は外す・約束の
+        かけ直しのまま・伺いは終わり）。"""
+        from salescall.core import row_fixes
+        got = self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=False), OPERATOR)
+        p = got["next"]
+        self.assertEqual((p["kind"], p["promised"], p["window_until"], p["month_ahead_ask"]), ("call", True, None, False))
+        self.assertTrue(timedelta(minutes=59) <= p["call_at"] - p["decided_at"] <= timedelta(hours=1, minutes=1), p)
+        self.assertIn("次の回へは回さず、別の日に", p["cause"])
+        self.assertIsNone(self.asking(s))
+
+    def test_a_plan_that_keeps_the_asked_time_is_still_asked_once(self):
+        """(6) 伺っている予定を、同じ時刻のまま書き直す（門で止められたあと・番号や名前を直したあとの決め直し）⇒ 伺いを続ける（印を引き継ぐ・知らせは
+        その時刻ごとに1回）。時刻が変われば伺いは終わる。お客様が言った回そのものの決め直しは、何か月先でも伺わない（次の回へ移っていない）。"""
         s = self.ready()
-        month, before = self.days(s)
-        p = self.said(s, month)
-        self.assertEqual((p["kind"], p["end_reason"]), ("end", next_action.MONTH_AHEAD))
-        self.assertIn("1か月以上先", p["cause"])
+        self.choose(s, "with_approval")
+        words, first, last, repeat = self.monthly_rounds()[0]
+        w, _, p = self.passed(s, first(s), last(s), repeat)
+        again = lambda at, far=None: self.tx(s, lambda tx: next_action._write(tx, s["task"], replace(next_action._call(   # noqa: E731
+            at, True, "試験：いまの予定の時刻のまま決め直す", next_action.Target(s["contact"]), None, next_action.window_of(p)),
+            month_ahead_after=far)))
+        again(p["call_at"])
+        self.assertEqual(self.asking(s), p["call_at"])
+        again(p["call_at"], w)                                                   # 同じ次の回を、もう一度決めた（時刻の表し方が違っても1回）
+        self.assertEqual(len(self.notices(s, "month_ahead_approval")), 1)
+        again(p["call_at"] + timedelta(hours=1))                                 # 回の中の別の時刻へ
+        self.assertIsNone(self.asking(s))
         t = self.ready()
-        p = self.said(t, before)
-        self.assertEqual((p["kind"], p["promised"], next_action.window_of(p).since.astimezone(next_action.calling_hours.JST).date()),
-                         ("call", True, before))
+        self.choose(t, "with_approval")
+        self.settle(t, self.call(t, report=rep(callback=callback("later", time="再来月の月末に"))))
+        q = self.plan(t)
+        self.tx(t, lambda tx: next_action._write(tx, t["task"], next_action._call(
+            q["call_at"] + timedelta(hours=1), True, "試験：お客様が言った回の中の決め直し", next_action.Target(t["contact"]), None,
+            next_action.window_of(q))))
+        self.assertIsNone(self.asking(t))
+        self.assertEqual(self.notices(t, "month_ahead_approval"), [])
 
     def test_a_month_ahead_set_by_the_contractors_policy_is_called_as_set(self):
-        """(b) 契約者が設定した再発信の方針の間隔（40日後）で1か月以上先になった電話は、業務の設定に関係なく、そのままかける（伺わない・知らせない）。
-        ふつうの電話の結果ごとの方針も、時刻の決まっていない約束（「あとで」）の方針も同じ（お客様の言葉から決まった予定かは
-        next_action.Decision.said_by_callee の1か所）。✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「契約者が意図的に設定したら、かけて良い。」。
-        ⛔ 0217：初めの値で行を終えた・「契約者が認めたらかける」では答えを待った。"""
-        from salescall.core import tasks
+        """(7) 契約者が設定した再発信の方針の間隔（40日後）で1か月以上先になった電話は、業務の設定に関係なく、そのままかける（伺わない・知らせない）。
+        ふつうの電話の結果ごとの方針も、時刻の決まっていない約束（「あとで」）の方針も同じ。✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「契約者が意図的に
+        設定したら、かけて良い。」。⛔ 0217：初めの値で行を終えた・「契約者が認めたらかける」では答えを待った。"""
         forty = rules_raw(retry={k: {"action": "call", "max_times": 3, "interval": {"days": 40}}
                                  for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")})
         for setting, later in ((None, False), ("with_approval", False), (None, True)):
@@ -349,99 +482,33 @@ class MonthAhead(SettleBase):
                 if setting is not None:
                     self.choose(u, setting)
                 self.settle(u, self.call(u, report=rep(callback=callback("later")) if later else rep()))
-                p = self.tx(u, lambda tx, u=u: next_action.current(tx, u["task"]))
+                p = self.plan(u)
                 self.assertEqual((p["kind"], p["promised"]), ("call", later))
-                self.assertTrue(self.tx(u, lambda tx, u=u, p=p: tx.one("SELECT salescall.month_ahead(%s, %s) AS m",
-                                                                       (u["task"], p["call_at"]))["m"]))   # 1か月以上先
-                self.assertIsNone(self.tx(u, lambda tx, u=u: tasks.month_ahead_asking(tx, u["task"])))   # 伺わない
+                self.assertGreaterEqual(p["call_at"] - p["decided_at"], timedelta(days=39))   # 1か月以上先
+                self.assertIsNone(self.asking(u))                                # 伺わない
                 self.assertEqual(self.notices(u, "month_ahead_approval"), [])
 
-    def test_with_approval_the_plan_waits_for_the_contractor_who_approves_or_refuses(self):
-        """設定「契約者が認めたらかける」：予定はそのまま、伺う印を付けて書き、契約者に知らせる（約束の時刻より前は答えを待つ）。認めたら伺いは終わり
-        （その時刻にかかる）・認めなければ行を終える。答えられるのは管理者か契約者だけで、伺っている行の、その時刻だけ（データベースの守り）。"""
-        from salescall.core import row_fixes, tasks
-        from salescall.core.access import Rejected
-        rows = []
-        for _ in range(2):
-            s = self.ready()
-            self.choose(s, "with_approval")
-            month, _ = self.days(s)
-            p = self.said(s, month)
-            self.assertEqual((p["kind"], p["promised"]), ("call", True))
-            for read in (tasks.month_ahead_asking, tasks.month_ahead_waiting, tasks.month_ahead_answerable):
-                self.assertEqual(self.tx(s, lambda tx, s=s, read=read: read(tx, s["task"])), p["call_at"])
-            self.assertEqual([u for _, u in self.notices(s, "month_ahead_approval")], [False])   # 伺いの知らせは急ぎでない
-            rows.append((s, p))
-        (a, pa), (b, pb) = rows
-        with self.assertRaises(Rejected):                                        # システムの処理は答えられない
-            self.tx(a, lambda tx: tx.execute(
-                "INSERT INTO salescall.task_month_ahead_answers (tenant_id, client_id, task_id, call_at, approved, answered_by)"
-                " VALUES (%s, %s, %s, %s, true, salescall.cur_actor())", (a["tenant"], a["client"], a["task"], pa["call_at"])))
-        got = self.tx(a, lambda tx: row_fixes.answer_month_ahead(tx, a["task"], approve=True), OPERATOR)
-        self.assertEqual((got["approved"], got["next"]["seq"]), (True, pa["seq"]))   # 予定はそのまま（その時刻にかける）
-        self.assertIsNone(self.tx(a, lambda tx: tasks.month_ahead_asking(tx, a["task"])))
-        self.assertIsNone(self.tx(a, lambda tx: tasks.month_ahead_waiting(tx, a["task"])))
-        with self.assertRaises(row_fixes.FixInvalid):                            # もう伺っていない
-            self.tx(a, lambda tx: row_fixes.answer_month_ahead(tx, a["task"], approve=False), OPERATOR)
-        got = self.tx(b, lambda tx: row_fixes.answer_month_ahead(tx, b["task"], approve=False), OPERATOR)
-        self.assertEqual((got["next"]["kind"], got["next"]["end_reason"]), ("end", next_action.MONTH_AHEAD))
-
-    def test_a_plan_that_keeps_the_callees_time_is_still_asked_once(self):
-        """門で止められたあと・番号を直したあとなどの決め直しが、いまの予定の時刻と幅（お客様の言葉）を引き継げば、お客様の言葉のまま伺い続ける
-        （伺う印は付いたまま・知らせは、その時刻ごとに1回）。幅を引き継がない予定（お客様の言葉から決まっていない予定）になれば、伺わない。"""
-        from salescall.core import tasks
-        s = self.ready()
-        self.choose(s, "with_approval")
-        month, _ = self.days(s)
-        p = self.said(s, month)
-        again = lambda w: self.tx(s, lambda tx: next_action._write(tx, s["task"], next_action._call(   # noqa: E731
-            p["call_at"], True, "試験：いまの予定の時刻のまま決め直す", next_action.Target(s["contact"]), p["callee_at"], w)))
-        again(next_action.window_of(p))
-        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_asking(tx, s["task"])), p["call_at"])
-        self.assertEqual(len(self.notices(s, "month_ahead_approval")), 1)
-        again(None)                                                              # 幅を引き継がない（お客様の言葉でない予定）
-        self.assertIsNone(self.tx(s, lambda tx: tasks.month_ahead_asking(tx, s["task"])))
-
-    def test_a_month_ahead_is_counted_from_the_day_the_time_was_first_decided(self):
-        """1か月以上先かは、その時刻へかける予定をその行で初めて決めた日から数える（データベースの salescall.month_ahead）：40日前に決めた5日後の
-        予定は、同じ時刻のまま書き直すと（番号の直しなど）、いまから見れば1か月より手前でも伺う。その日になって数え直すと、伺わずにかかってしまう。
-        伺うかは書いたときに決まる（予定の印。データベースが予定ごとに決め直さない＝0219）。"""
-        from salescall.core import tasks
-        s = self.ready()
-        self.choose(s, "with_approval")
-        at = self.tx(s, lambda tx: tx.one("SELECT now() + interval '5 days' AS t")["t"])
-        self.asked(s, at)
-        self.assertIsNone(self.tx(s, lambda tx: tasks.month_ahead_asking(tx, s["task"])))   # いま決めた5日後：1か月より手前
-
-        self.back_40_days(s, at)
-        self.assertIsNone(self.tx(s, lambda tx: tasks.month_ahead_asking(tx, s["task"])))   # 書いたときに決まる（決め直さない）
-        self.asked(s, at)                                                        # 同じ時刻のまま書き直す（番号の直しなど）
-        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_waiting(tx, s["task"])), at)   # 40日前から見れば1か月以上先
-
-    def back_40_days(self, s, at):
-        """試験：その時刻の予定を40日前に決めたことにする（持ち主の取引の中だけ仕掛けを外す）。"""
-        from tests.support import SYSTEM, owner_access
-
-        def back(tx):
-            tx.execute("ALTER TABLE salescall.task_next_actions DISABLE TRIGGER USER")
-            tx.execute("UPDATE salescall.task_next_actions SET decided_at = decided_at - interval '40 days' WHERE task_id = %s AND call_at = %s",
-                       (s["task"], at))
-            tx.execute("ALTER TABLE salescall.task_next_actions ENABLE TRIGGER USER")
-        owner_access().in_system(SYSTEM, back)
+    def asked(self, s, at):
+        """試験の近道：1か月以上先の次の回へ回し、契約者に伺う予定（その時刻 at を含む次の回。話せなかった回は、その30日前）を、決定を書く1か所で
+        書く（決定の値 month_ahead_after を持たせるのは、ふだんは next_action._keep_promise の1か所）。"""
+        def write(tx):
+            day = tx.one("SELECT salescall.jst(%s::timestamptz)::date AS d", (at,))["d"]
+            nxt = next_action.Window(at + timedelta(days=1), None, None, at - timedelta(hours=1), f"month:day:{day.day}", round=1, day_said=True)
+            passed = replace(nxt, until=nxt.until - timedelta(days=30), since=nxt.since - timedelta(days=30), round=0)
+            d = next_action._call(at, True, "試験：1か月以上先の次の回", next_action.Target(s["contact"]), None, nxt)
+            return next_action._write(tx, s["task"], replace(d, month_ahead_after=passed))
+        self.tx(s, write)
 
     def due_and_asked(self, ahead=timedelta(0)):
-        """試験の近道：契約者に伺っていて答えの無い、1か月以上先の予定の時刻が来た行（いまの時刻＋ahead の予定を40日前に決めたことにして、同じ
-        時刻のまま書き直す。ahead＝約束の時刻まで、あとどれだけか）。"""
+        """試験の近道：契約者に伺っていて答えの無い、1か月以上先の次の回の予定の時刻が来た行（ahead＝約束の時刻まで、あとどれだけか）。"""
         s = self.ready()
         self.choose(s, "with_approval")
         at = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"]) + ahead
         self.asked(s, at)
-        self.back_40_days(s, at)
-        self.asked(s, at)
         return s, at
 
     def test_when_the_time_comes_without_an_answer_the_call_goes_with_one_urgent_notice(self):
-        """(a) 答えの無いまま約束の時刻が来た ⇒ 待たずにかける（門が通す）。通したところで、契約者に緊急の知らせを1回（行とその時刻ごとに。予約を
+        """(5) 答えの無いまま約束の時刻が来た ⇒ 待たずにかける（門が通す）。通したところで、契約者に緊急の知らせを1回（行とその時刻ごとに。予約を
         取り消してまた通しても増えない）。かけた・かけている予定には、もう答えられない。予約を取り消して、まだかけていなければ答えられる。
         ✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「契約者に緊急の通知をして、約束の時間にかける」。⛔ 0217：門が待ち続け、行がかけられないまま残った。"""
         from salescall.core import row_fixes, tasks
@@ -455,8 +522,8 @@ class MonthAhead(SettleBase):
         got = self.notices(s, "month_ahead_unanswered")
         self.assertEqual(len(got), 1, got)
         self.assertTrue(got[0][1])                                               # 緊急
-        self.assertIn(f"（{next_action.calling_hours.label(at)}）が1か月以上先のため伺っていましたが、お答えが無いので、約束の時刻にお約束どおり",
-                      got[0][0])
+        self.assertIn(f"お約束の次の回（{next_action.calling_hours.label(at)}から）は1か月以上先のため伺っていましたが、お答えが無いので、"
+                      "約束の時刻にお約束どおり", got[0][0])
         self.assertIsNone(self.tx(s, lambda tx: tasks.month_ahead_answerable(tx, s["task"])))   # 予約した＝かけている
         with self.assertRaises(row_fixes.FixInvalid):
             self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=False), OPERATOR)
@@ -466,11 +533,9 @@ class MonthAhead(SettleBase):
         self.assertEqual(len(self.notices(s, "month_ahead_unanswered")), 1)
 
     def test_the_urgent_notice_goes_five_minutes_before_and_an_answer_in_between_is_followed(self):
-        """(a) の知らせの時刻：約束の時刻の5分前（gate.MONTH_AHEAD_NOTICE）を過ぎたら、見守り役の仕事の候補（gate.month_ahead_notice_rows）に入り、
+        """(5) の知らせの時刻：約束の時刻の5分前（gate.MONTH_AHEAD_NOTICE）を過ぎたら、見守り役の仕事の候補（gate.month_ahead_notice_rows）に入り、
         緊急の知らせを1回出す（gate.month_ahead_unanswered の1か所。門が通すときも同じ所を通るので増えない）。5分より前は出さない。知らせのあと、
-        かけるまでに契約者が「認めない」と答えれば、そのとおり行を終える。✅ 2026-11-12 ユーザー：「時刻は5分前」。
-        ⛔ 0219 のはじめ：門が通したとき（約束の時刻ちょうど）にだけ出し、契約者が止める時間が無かった。"""
-        from salescall.core import row_fixes
+        かけるまでに契約者が「認めない」と答えれば、そのとおり別の日へ（行を終えない）。✅ 2026-11-12 ユーザー：「時刻は5分前」。"""
         self.assertEqual(gate.MONTH_AHEAD_NOTICE, timedelta(minutes=5))
         early, _ = self.due_and_asked(timedelta(minutes=6))                     # 6分前：まだ出さない
         self.assertNotIn(early["task"], self.tx(early, gate.month_ahead_notice_rows))
@@ -484,18 +549,16 @@ class MonthAhead(SettleBase):
         self.assertEqual(len(got), 1, got)
         self.assertTrue(got[0][1])                                               # 緊急
         self.assertIsInstance(self.claim(s), gate.Denied)                        # 約束の時刻の前はかけない
-        got = self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=False), OPERATOR)   # 知らせを見て止めた
-        self.assertEqual((got["next"]["kind"], got["next"]["end_reason"]), ("end", next_action.MONTH_AHEAD))
-        self.assertEqual(self.tx(s, gate.month_ahead_notice_rows), [])          # 終えた行は候補に入らない
+        self.refused_goes_to_another_day(s)                                      # 知らせを見て止めた
+        self.assertEqual(self.tx(s, gate.month_ahead_notice_rows), [])          # 伺っていない予定は候補に入らない
 
-    def test_after_the_time_a_refusal_ends_the_row_only_before_it_is_called(self):
-        """(a) の境目：約束の時刻のあとでも、まだかけていなければ「認めない」で行を終える（いまどおり）。かけた予定には答えられない（`FixInvalid`。
+    def test_after_the_time_a_refusal_goes_to_another_day_only_before_it_is_called(self):
+        """(5) の境目：約束の時刻のあとでも、まだかけていなければ「認めない」で別の日へ（行を終えない）。かけた予定には答えられない（`FixInvalid`。
         データベースの守りも同じ1か所＝salescall.task_month_ahead_answerable）。"""
         from salescall.core import row_fixes
         from salescall.core.access import Rejected
         s, _ = self.due_and_asked()
-        got = self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=False), OPERATOR)
-        self.assertEqual((got["next"]["kind"], got["next"]["end_reason"]), ("end", next_action.MONTH_AHEAD))
+        self.refused_goes_to_another_day(s)
         t, at = self.due_and_asked()
         self.call(t, ["dialing"])                                                # かけた（発信まで進んだ）
         with self.assertRaises(row_fixes.FixInvalid):
@@ -504,7 +567,7 @@ class MonthAhead(SettleBase):
             self.tx(t, lambda tx: tx.execute(
                 "INSERT INTO salescall.task_month_ahead_answers (tenant_id, client_id, task_id, call_at, approved, answered_by)"
                 " VALUES (%s, %s, %s, %s, false, salescall.cur_actor())", (t["tenant"], t["client"], t["task"], at)), OPERATOR)
-        self.assertEqual(self.tx(t, lambda tx: next_action.current(tx, t["task"]))["kind"], "call")
+        self.assertEqual(self.plan(t)["kind"], "call")
 
 
 class UrgentNotices(SettleBase):
@@ -548,7 +611,7 @@ class Guards(SettleBase):
         from salescall.core.access import Rejected
         s = self.ready()
         with self.assertRaises(Rejected):
-            self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=None, end_reason=next_action.MONTH_AHEAD, cause="試験：終える",
+            self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=None, end_reason="callback_unspecified_time", cause="試験：終える",
                                                       month_ahead_ask=True))
 
 

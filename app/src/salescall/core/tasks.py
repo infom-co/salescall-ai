@@ -178,7 +178,7 @@ def old_promise_waiting(tx: Tx, task_id: UUID) -> UUID | None:
 def month_ahead_asking(tx: Tx, task_id: UUID) -> datetime | None:
     """1か月以上先のかけ直しの予定で、契約者に伺っていて、まだ答えの無い、その予定の時刻（無ければ None。1か所＝データベースの
     salescall.task_month_ahead_asking：いまの予定に伺う印＝列 month_ahead_ask があり、その時刻への答えが無い。印を付けるのは
-    core/next_action._month_ahead の1か所。0219）。待っているか（`month_ahead_waiting`）・答えられるか（`month_ahead_answerable`）は、ここから決まる。
+    core/next_action._month_ahead_ask の1か所＝1か月以上先の次の回へ回した予定。0219・0220）。待っているか（`month_ahead_waiting`）・答えられるか（`month_ahead_answerable`）は、ここから決まる。
     門が通したとき、これがあれば、答えの無いまま約束の時刻が来てかける電話（緊急の知らせ＝core/gate.claim）。"""
     return tx.one("SELECT salescall.task_month_ahead_asking(%s) AS a", (task_id,))["a"]
 
@@ -195,7 +195,7 @@ def month_ahead_waiting(tx: Tx, task_id: UUID) -> datetime | None:
 def month_ahead_answerable(tx: Tx, task_id: UUID) -> datetime | None:
     """契約者が答えられる、1か月以上先のかけ直しの予定の時刻（無ければ None。1か所＝データベースの salescall.task_month_ahead_answerable＝
     `month_ahead_asking` のうち、まだかけていない＝その時刻から、発信まで進んだ電話も、いま生きている予約も無い。0219）。約束の時刻のあとでも、
-    まだかけていなければ答えられる（「認めない」なら行を終える）。答えの入口（core/row_fixes.answer_month_ahead）と、データベースの答えの守り
+    まだかけていなければ答えられる（「認めない」なら、次の回へは回さず別の日に。0220）。答えの入口（core/row_fixes.answer_month_ahead）と、データベースの答えの守り
     （task_month_ahead_answer_guard）が読む。"""
     return tx.one("SELECT salescall.task_month_ahead_answerable(%s) AS a", (task_id,))["a"]
 
