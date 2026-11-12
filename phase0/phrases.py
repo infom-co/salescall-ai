@@ -313,7 +313,16 @@ WISH_DO = "ご案内させていただきます"
 OFFER_DO_END, OFFER_DO_PLAIN = "させていただきます", "させていただく"
 
 
-def offer_words(do: str, terms: str | None = None, topic: str | None = None, way: str | None = None, polite: bool = False) -> str:
+def offer_verb(do: str) -> str:
+    """こちらがすることの言葉（「〜させていただきます」）の終わりの動詞（お・ごから始まり、あとに助詞の無い言葉。「お話しさせていただきます」）を読む唯一の
+    場所（方法を入れる所 offer_words・取込で決めた方法を入れた言い方の確かめ meanings.check の way）。見つからなければ言葉の全部。"""
+    stem = do.removesuffix(OFFER_DO_END)
+    i = max(stem.rfind("お"), stem.rfind("ご"))
+    return do[i:] if i >= 0 and not any(c in stem[i:] for c in "をにがへでと") else do
+
+
+def offer_words(do: str, terms: str | None = None, topic: str | None = None, way: str | None = None, polite: bool = False,
+                way_do: str | None = None) -> str:
     """申し出の伺い直し（CONFIRM の「申し出の伺い直し」「申し出の代わりの伺い直し」）の {v} を作る唯一の場所（flowctl.Flow._ask_confirm の offer_again・offer_alt）：
     お客様のお話に申し出で応える提案。会話AIが書いた提案の言葉＝ご都合の条件（terms＝「月曜日を避けて」。あとに「、」）・申し出に含める中身（topic＝お客様が
     気にかけていることに応えて詳しい者がお話しする中身「料金の面も含めて」）・ご希望の方法（way＝業務の方法の名前。こちらがすることの言葉の終わりの動詞
@@ -321,13 +330,16 @@ def offer_words(do: str, terms: str | None = None, topic: str | None = None, way
     「月曜日を避けて、詳しい者よりお話しさせていただく」・「料金の面も含めて詳しい者よりお話しさせていただく」・「詳しい者よりオンラインでお話しさせていただく」。
     ✅ 2026-11-09 日本時間9時48分09秒 ユーザー（お言葉は flowctl.Flow._proposal_problem）"""
     assert do.endswith(OFFER_DO_END), do
+    # 方法を入れた言い方が取込で決まっていれば（way_do＝業務設定 way_words。import_ai.decide_way_words）、その言い方（「詳しい者がご訪問のうえお話しさせて
+    # いただきます」）。決まっていなければ、終わりの動詞の前に「（方法）で」。✅ 2026-11-12 まとめ役の (1)（「詳しい者より訪問でお話し」は不自然）
+    if way and way_do:
+        assert way_do.endswith(OFFER_DO_END), way_do
+        do, way = way_do, None
     # polite＝文の終わりまで（「〜させていただきます」。条件つきで受けていただいたときの言い切り OFFER_TAKEN の {v}）
     body = do.removesuffix(OFFER_DO_END) + (OFFER_DO_END if polite else OFFER_DO_PLAIN)
     if way:
-        stem = body.removesuffix(OFFER_DO_END if polite else OFFER_DO_PLAIN)
-        i = max(stem.rfind("お"), stem.rfind("ご"))
-        # 終わりの動詞（お・ごから始まり、あとに助詞の無い言葉）の前。見つからなければ言葉の頭
-        at = i if i >= 0 and not any(c in stem[i:] for c in "をにがへでと") else 0
+        # 終わりの動詞（offer_verb の1か所）の前。見つからなければ言葉の頭
+        at = len(do) - len(offer_verb(do))
         body = body[:at] + f"{way}で" + body[at:]
     return (f"{terms}、" if terms else "") + (topic or "") + body
 

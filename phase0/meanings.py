@@ -115,7 +115,21 @@ AWAY_PROMPT = (
     "決まり：向きは、（　）の中の意味で決めます（選択肢の名前の「はい」「いいえ」では決めません）。words には、遠ざかる・進む・関わらない のどれか1つだけを書きます。\n"
     "質問（番号：質問の文／選択肢（意味））：\n"
 )
-PROMPTS = {"meaning": PROMPT, "doubt": DOUBT_PROMPT, "do": DO_PROMPT, "away": AWAY_PROMPT}
+# 方法を申し出の中身に入れる言い方（取込で、こちらがすることの言葉と方法の組ごとに1回だけ決める＝import_ai.decide_way_words・業務設定 way_words。会話の側は
+# phrases.offer_words が読む＝方法を選ぶ質問の提案・条件つきの受けの言い切り・申し出の伺い直し）。決まりは check の way（終わりの動詞を変えない・方法の名前を
+# 入れる）。✅ 2026-11-12 まとめ役の (1)：「詳しい者より訪問でお話し」は不自然＝「詳しい者がご訪問のうえお話しさせていただく」の形
+WAY_PROMPT = (
+    "電話でお客様に、こちらがすることを申し出る言葉と、そのときにお客様が選べる方法（ご連絡・ご案内の方法）の一覧です。\n"
+    "申し出の言葉に方法を入れて「それでは（　）ね？」と伝えます。番号ごと・方法ごとに、（　）に入れる言葉を words に書いてください（choice には方法を"
+    "書いてあるとおりに書きます）。\n"
+    "決まり：申し出の言葉の中身と、文の終わりの動詞（「お話しさせていただきます」「お送りさせていただきます」など、お・ごから文の終わりまで）は変えずに使い、"
+    "方法を日本語として自然な言い方で入れます。方法の名前は書いてあるとおりに入れます（「訪問」なら「ご訪問」のように頭に「ご」を付けるのはよい）。"
+    "区切りの記号（、。）や問いかけは入れません。\n"
+    "例：「詳しい者よりお話しさせていただきます」に「お電話」⇒「詳しい者よりお電話でお話しさせていただきます」、「訪問」⇒「詳しい者がご訪問のうえお話し"
+    "させていただきます」。\n"
+    "一覧（番号：申し出の言葉／方法・方法）：\n"
+)
+PROMPTS = {"meaning": PROMPT, "doubt": DOUBT_PROMPT, "do": DO_PROMPT, "away": AWAY_PROMPT, "way": WAY_PROMPT}
 
 
 # 答えの欄（問い合わせは askitems.ask の1か所。Gemini には説明つき・Anthropic には型だけ）
@@ -214,6 +228,11 @@ def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool
     # こちらがすることの言葉の文の終わり・へりくだりの重ね（決まりは上の DO_END・DO_DOUBLED の1か所）
     if kind == "do" and (not DO_END.search(w) or DO_DOUBLED.search(w)):
         return False
+    if kind == "way":
+        # 方法を入れた申し出の言葉（question＝こちらがすることの言葉・choice＝方法の名前）：終わりの動詞を変えず（phrases.offer_verb の1か所）、方法の名前が入る
+        from phrases import offer_verb
+        if DO_DOUBLED.search(w) or not w.endswith(offer_verb(question)) or unicodedata.normalize("NFKC", choice) not in unicodedata.normalize("NFKC", w):
+            return False
     base = unicodedata.normalize("NFKC", question + choice)
     nouns = [x.surface for x in split(w) if x.feature.pos1 == "名詞" and len(x.surface) >= 2]
     return any(n in base for n in nouns)

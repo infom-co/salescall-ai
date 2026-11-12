@@ -144,6 +144,8 @@ class Business:
     # 点を言っていただけないまま終え、残りの質問が無いとき、締める前に営業に引き継ぐ架電の申し出と同じ1か所で伺う（flowctl.Flow._handoff_step）。None なら今の
     # お礼の締め。✅ 2026-11-09 日本時間6時33分57秒 ユーザー「・(ア) 営業に引き継がない架電で、ご承認が最終目的で、残りの質問が無いとき：ｂ」
     close_offer: CloseOffer | None = None
+    # 方法を申し出の中身に入れる言い方（取込で決めたもの＝import_ai.decide_way_words。{こちらがすることの言葉: {方法: 言葉}}。無ければ「（方法）で」）
+    way_words: dict = field(default_factory=dict)
     # 依頼者がすること（登録・手配など。業務設定＝CL-2）。事実を伺う質問の、言い切っていない最初の答えの確かめ「それでは（意味の言葉）ということで（依頼者が
     # すること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01 日本時間6時05分・6時27分 ユーザー）。空なら「…ということで承っておいて大丈夫でしょうか？」
     # （phrases.client_does_words の1か所。✅ 2026-11-08 日本時間5時33分05秒 ユーザー：「…「～で承っておいて」に変更しましょうか。こちらの方が自然だし汎用的です。」）
@@ -311,7 +313,7 @@ class Business:
         AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
         from flowctl import Flow
         return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does, handoff_ways=tuple(self.handoff_ways),
-                    close_offer=self.close_offer, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
+                    close_offer=self.close_offer, way_words=self.way_words, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
                     name_readings=self.name_readings(), judge_names=self.judge_names(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
