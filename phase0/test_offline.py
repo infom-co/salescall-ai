@@ -8065,14 +8065,15 @@ class CallbackTest(unittest.TestCase):
         self.assertEqual((r["result"], f.end_reason, f.facts["callback"][0]["time"]), ("end", "callback", None))   # 使い切ったら受け取らずに締める
 
     def test_unheard_reply_to_the_restated_callback_time_is_rechecked_like_a_business_question(self):
-        # 言い直したかけ直しの時刻への聞き取れないお返事：業務の必須の日時の質問の言い直しと同じ動き（締めの前の念のための確認で1回伺い、聞けた値は聞き取り
-        # にくかったあとの言い方で言い直す）。⛔ 直す前は、すぐ「はい、お忙しいところ…」で締め、時刻を捨てていた
-        from flowctl import Flow, Question
-        from phrases import ACK
+        # 言い直したかけ直しの時刻への聞き取れないお返事：業務の必須の日時の質問の言い直しと同じ動き（その場で2回聞き返し、締めの前の念のための確認で1回伺い、
+        # 聞けた値は聞き取りにくかったあとの言い方で言い直す）。⛔ M1 の前は、すぐ「はい、お忙しいところ…」で締め、時刻を捨てていた。⛔ (GB) の前は、その場の
+        # 聞き返しが無く、1回聞き取れないだけで締めの前の確認（「…もう一度だけ…」）になった
+        from flowctl import Flow, Limits, Question
+        from phrases import ACK, ask_again as ask_again_phrase
         def run(f, qid):
             said = []
             for words, op, args in (("来週の水曜でお願いします。", "record_answer", {"condition_id": "答えた", "value": "来週の水曜"}),
-                                    ("（雑音）……ですかね。", "confirm_field", {"result": "no_answer"}),
+                                    *[("（雑音）……ですかね。", "confirm_field", {"result": "no_answer"})] * (Limits().ask_back + 1),
                                     ("来週の水曜です。", "record_answer", {"condition_id": "答えた", "value": "来週の水曜"}),
                                     ("はい。", "confirm_field", {"result": "affirmed"})):
                 r = self.say(f, words, op, question_id=qid, **args)
@@ -8084,16 +8085,53 @@ class CallbackTest(unittest.TestCase):
         self.say(f, "いま立て込んでいて、来週また電話してもらえますか。", "request_callback", why="later")
         topic = f.questions["C1"].topic
         self.assertEqual(run(f, "C1"), run(business(topic), "Q1"))
-        self.assertEqual(run(business(topic), "Q1")[1:3],
-                         [("recheck", "申し訳ございません、お声が聞き取れませんでしたのでご都合のよろしいお時間をもう一度だけお聞かせいただいてもよろしいでしょうか？"),
+        n = Limits().ask_back
+        self.assertEqual(run(business(topic), "Q1")[1:n + 3],
+                         [*[("ask_back", ACK["moushiwake"] + ask_again_phrase(i, "unclear", topic)) for i in range(1, n + 1)],
+                          ("recheck", "申し訳ございません、お声が聞き取れませんでしたのでご都合のよろしいお時間をもう一度だけお聞かせいただいてもよろしいでしょうか？"),
                           ("confirm_required", "はい、かしこまりました。来週の水曜とおっしゃいましたでしょうか？")])
         self.assertEqual((f.end_reason, f.facts["callback"][0]["time"]), ("callback", "来週の水曜"))
 
+    def test_unheard_reply_to_a_restatement_is_asked_back_on_the_spot(self):
+        # (GB) 必須の質問の言い直しへのお返事が聞き取れないときも、答えの質問と同じ1か所（_ask_again）で、その場で聞き返す（10-14「必須の項目は最初の質問のほかに
+        # 最大3回（その場2回＋締めの前の念のための確認1回）」「安易に「-」にしたらダメ」・提案へのお返事＝まとめ役の11-12 の (K1) と同じ理由）。聞き返しへのお返事は、
+        # 同じ言い直しへの返事として受ける（はい＝確認できた・違う値＝今までの直し方）。必須でない質問は今までどおり聞き返さない
+        from flowctl import Flow, Question
+        from phrases import ACK, ask_again as ask_again_phrase
+        def flow():
+            return Flow([Question("Q1", "ご都合のよろしい日時はいつ頃でしょうか？", "datetime", conditions=("答えた",), topic="ご都合のよろしい日時"),
+                         Question("Q2", "当日のご人数をお伺いしてもよろしいでしょうか？", "number", conditions=("答えた",), required=False, topic="ご人数")])
+        f = flow()
+        self.say(f, "来週の水曜でお願いします。", "record_answer", question_id="Q1", condition_id="答えた", value="来週の水曜")
+        r = self.say(f, "（雑音）……ですかね。", "confirm_field", question_id="Q1", result="no_answer")
+        self.assertEqual((r["result"], ACK.get(r.get("ack"), "") + r["say"], f.awaiting_confirm),
+                         ("ask_back", ACK["moushiwake"] + ask_again_phrase(1, "unclear", "ご都合のよろしい日時"), "Q1"))
+        r = self.say(f, "はい、大丈夫です。", "confirm_field", question_id="Q1", result="affirmed")
+        self.assertEqual((r["result"], r.get("question_id"), f.items["Q1"].state), ("next", "Q2", "confirmed"))
+        # 聞き返したあとに違う値を言われた：今までの直し方（打ち消しがあればこちらの聞き違いのお詫びで言い直す）
+        f = flow()
+        self.say(f, "来週の水曜でお願いします。", "record_answer", question_id="Q1", condition_id="答えた", value="来週の水曜")
+        self.say(f, "（雑音）……ですかね。", "confirm_field", question_id="Q1", result="no_answer")
+        r = self.say(f, "いえ、来週の木曜です。", "confirm_field", question_id="Q1", result="corrected", correction="来週の木曜")
+        self.assertEqual((r["result"], r["value"]), ("confirm_required", "来週の木曜"))
+        self.assertIn("改めまして来週の木曜", r["say"])
+        # 必須でない質問の言い直しへの聞き取れないお返事は、今までどおり聞き返さずに「-」で次へ（必須でない項目は聞き返さない＝6-11）
+        f = flow()
+        self.say(f, "来週の水曜でお願いします。", "record_answer", question_id="Q1", condition_id="答えた", value="来週の水曜")
+        self.say(f, "はい。", "confirm_field", question_id="Q1", result="affirmed")
+        self.say(f, "10名です。", "record_answer", question_id="Q2", condition_id="答えた", value="10")
+        r = self.say(f, "（雑音）……ですかね。", "confirm_field", question_id="Q2", result="no_answer")
+        self.assertEqual((r["result"], f.items["Q2"].state, f.end_reason), ("end", "unresolved", "done"))
+
     def test_callback_number_is_rechecked_after_the_reachable_time(self):
-        # 別の番号の番号（必須）の言い直しへのお返事が聞き取れない：出られる時間（必須でない）を伺ってから、締めの前に番号をもう1回伺う（業務の質問の並びと同じ）
+        # 別の番号の番号（必須）の言い直しへのお返事が聞き取れない：その場で聞き返し（(GB)）、使い切ったら出られる時間（必須でない）を伺ってから、締めの前に
+        # 番号をもう1回伺う（業務の質問の並びと同じ）
+        from flowctl import Limits
         f = self.flow()
         self.say(f, "別の事務所におりますので、そちらにお掛けいただけますか。", "request_callback", why="other_number")
         self.say(f, "03-1234-5678です。", "record_answer", question_id="C2", condition_id="答えた", value="03-1234-5678")
+        for _ in range(Limits().ask_back):
+            self.assertEqual(self.say(f, "（雑音）……ですかね。", "confirm_field", question_id="C2", result="no_answer")["result"], "ask_back")
         r = self.say(f, "（雑音）……ですかね。", "confirm_field", question_id="C2", result="no_answer")
         self.assertEqual((r["result"], r["question_id"]), ("next", "C1"))
         self.say(f, "夕方なら出られます。", "record_answer", question_id="C1", condition_id="答えた", value="夕方")
@@ -8105,12 +8143,15 @@ class CallbackTest(unittest.TestCase):
 
     def test_hurried_callee_is_not_rechecked(self):
         # 急いでいる方（また改めてお掛けしてよいかを伺った方）には、かけ直しの日時でも念のための確認をしない（Intent.md 9-5「お客様が急いでいる・切ろうと
-        # しているときは、念のための確認をしない」。その場の聞き返しはする）
+        # しているときは、念のための確認をしない」。その場の聞き返しはする＝言い直しへのお返事にも (GB)）
+        from flowctl import Limits
         f = self.flow()
         r = self.say(f, "いま時間がないので。", "request_end", reason="callee_hurry")
         self.assertEqual(r["question_id"], "H1")
         self.say(f, "はい、大丈夫です。", "record_answer", question_id="H1", condition_id="はい")
         self.say(f, "来週の水曜ですかね。", "record_answer", question_id="C1", condition_id="答えた", value="来週の水曜")
+        for _ in range(Limits().ask_back):
+            self.assertEqual(self.say(f, "（雑音）……ですかね。", "confirm_field", question_id="C1", result="no_answer")["result"], "ask_back")
         r = self.say(f, "（雑音）……ですかね。", "confirm_field", question_id="C1", result="no_answer")
         self.assertEqual((r["result"], f.end_reason, f.facts["callback"][0]["time"]), ("end", "callback", None))
 

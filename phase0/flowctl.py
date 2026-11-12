@@ -6783,11 +6783,15 @@ class Flow:
             it.set("heard", "相手が訂正した（こちらの聞き違い）" if kind.startswith("misheard") else "相手が訂正した（相手の言い間違い）")
             return self._ask_confirm(qid, after=kind)
         if result == "no_answer" and self._judged_answer() is None:
-            # 判定の確かな読みも無い「答えなかった」＝聞き取れない（答えをいただけないまま先へ進む頭は「はい、」＝_unheard_now）。提案（会話が繋がらないお返事のあとの
-            # 伺い直し）へのお返事なら、提案とは別に、聞き返しの回数が残っていれば聞き返す（答えの質問と同じ1か所 _ask_again。✅ 2026-11-12 まとめ役の (K1)）
+            # 判定の確かな読みも無い「答えなかった」＝聞き取れない（答えをいただけないまま先へ進む頭は「はい、」＝_unheard_now）。言い直し（提案＝会話が繋がらない
+            # お返事のあとの伺い直しも）へのお返事でも、答えの質問と同じ1か所 _ask_again で、聞き返しの回数が残っていれば聞き返す（必須の項目はその場で2回・使い
+            # 切ったら「-」にして締めの前の念のための確認で1回＝10-14「必須の大事な部分の「分からない」は、極力なくすべき。安易に「-」にしたらダメ」。必須でない
+            # 項目・名前の読みは聞き返さない＝今までどおり「-」。聞き返しへのお返事は、同じ言い直しへの返事として受ける＝confirming）。✅ 2026-11-12 まとめ役の (K1)
+            # （提案へのお返事）と同じ理由。⛔ (GB) まで、提案のほかの言い直し（値・選択肢の確かめ・最終の確かめ）は1回聞き取れないだけで「-」にしていた＝業務の必須の
+            # 日時の言い直しへの聞き取れないお返事に、その場の聞き返しをせず、すぐ締めの前の確認「お声が聞き取れませんでしたので…もう一度だけ…」を伺っていた
             self.unheard_turn = self.callee_turns
-            if it.offer_again:
-                return self._ask_again(qid, "unclear", "提案へのお返事が聞き取れない", confirming=True)
+            return self._ask_again(qid, "unclear", "提案へのお返事が聞き取れない" if it.offer_again else "言い直しへのお返事が聞き取れない",
+                                   confirming=True)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
         return self._dash(qid)
 
