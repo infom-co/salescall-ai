@@ -116,6 +116,10 @@ CONFIRM = {
     # ✅ 2026-11-09 日本時間7時57分50秒 ユーザー：「1.(a)（お勧め）会話AIがお客様の言葉にひとこと応えてから、申し出を伺い直す。例：「さようでございますか。
     # それでは月曜日を避けて、詳しい者よりお話しさせていただくということでよろしいでしょうか？」いただいてもと同じことを言わない」
     "申し出の伺い直し": ("それでは{v}ということでよろしいでしょうか？",),
+    # お客様が受けにくい事情（気にかかっていること）を言ったあとの代わりの提案（申し出に含める中身がある＝flowctl.Flow._offer_again の1か所）は「でも」。
+    # ✅ 2026-11-09 日本時間9時48分09秒 ユーザー：「かしこまりました。それではお金がかからないで利用できる範囲とお金がかかるのはどこからなのかを詳しい者より
+    # お話しさせていただくということでもよろしいでしょうか？」
+    "申し出の代わりの伺い直し": ("それでは{v}ということでもよろしいでしょうか？",),
 }
 # 値が確定でない答えを、ひとまずその値にするときに添える、変更の受付の一文（flowctl.Flow._ask_confirm の tentative_do・tentative_fact。{by}＝業務設定の期限＝
 # flowctl.Question.change_by。決まった言い方なので言葉の途中に読点は入れない＝10-15）。✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「「はい、それではひとまず
@@ -302,12 +306,38 @@ HANDOFF_DO = "詳しい者よりお話しさせていただきます"
 OFFER_DO_END, OFFER_DO_PLAIN = "させていただきます", "させていただく"
 
 
-def offer_words(do: str, terms: str | None = None) -> str:
-    """申し出の伺い直し（CONFIRM の「申し出の伺い直し」）の {v} を作る唯一の場所（flowctl.Flow._ask_confirm の offer_again）：お客様の言葉にある申し出の受け方の
-    条件（terms＝会話AIが報告した「月曜日を避けて」。無ければ付けない）＋「、」＋こちらがすることの言葉（do＝「〜させていただきます」）を「〜させていただく」に
-    した形。「月曜日を避けて、詳しい者よりお話しさせていただく」。"""
+def offer_words(do: str, terms: str | None = None, topic: str | None = None, way: str | None = None) -> str:
+    """申し出の伺い直し（CONFIRM の「申し出の伺い直し」「申し出の代わりの伺い直し」）の {v} を作る唯一の場所（flowctl.Flow._ask_confirm の offer_again・offer_alt）：
+    お客様のお話に申し出で応える提案。会話AIが書いた提案の言葉＝ご都合の条件（terms＝「月曜日を避けて」。あとに「、」）・申し出に含める中身（topic＝お客様が
+    気にかけていることに応えて詳しい者がお話しする中身「料金の面も含めて」）・ご希望の方法（way＝業務の方法の名前。こちらがすることの言葉の終わりの動詞
+    「お話し」「お送り」の前に「（方法）で」）＋こちらがすることの言葉（do＝「〜させていただきます」）を「〜させていただく」にした形（中身は変えない）。
+    「月曜日を避けて、詳しい者よりお話しさせていただく」・「料金の面も含めて詳しい者よりお話しさせていただく」・「詳しい者よりオンラインでお話しさせていただく」。
+    ✅ 2026-11-09 日本時間9時48分09秒 ユーザー（お言葉は flowctl.Flow._proposal_problem）"""
     assert do.endswith(OFFER_DO_END), do
-    return (f"{terms}、" if terms else "") + do.removesuffix(OFFER_DO_END) + OFFER_DO_PLAIN
+    body = do.removesuffix(OFFER_DO_END) + OFFER_DO_PLAIN
+    if way:
+        stem = body.removesuffix(OFFER_DO_PLAIN)
+        i = max(stem.rfind("お"), stem.rfind("ご"))
+        # 終わりの動詞（お・ごから始まり、あとに助詞の無い言葉）の前。見つからなければ言葉の頭
+        at = i if i >= 0 and not any(c in stem[i:] for c in "をにがへでと") else 0
+        body = body[:at] + f"{way}で" + body[at:]
+    return (f"{terms}、" if terms else "") + (topic or "") + body
+
+
+# 続きの電話で、お詫びのあと（お詫びの無い約束の電話も）に流す用件の一文（前の電話とつなげる。{p}＝用件の名詞＝instruction.Business.purpose_noun。決まった言い方
+# なので読点は入れない＝10-15。どれを流すかは flowctl.purpose_part の1か所。業務の録音＝名乗りの部分 purpose_again_（鍵））。
+# ✅ 2026-11-09 日本時間9時48分09秒 ユーザー：「申し訳ございませんでした。の後に、唐突に、ご予約の確認でお電話いたしました。と言われても何の話？ってなりますよ。
+# 「前回の電話で途中になっておりました、ご予約の確認～」や「前回、お伺いすることができませんでした、ご予約の確認～」などのような一言が必要じゃないですか？」
+# （同じ日の電話は「先ほど」＝お詫びの APOLOGY_CUT_END と同じ分け方）
+PURPOSE_AGAIN = {"cut_later": "前回のお電話で途中になっておりました{p}でお電話いたしました。",
+                 "cut_same_day": "先ほどのお電話で途中になっておりました{p}でお電話いたしました。",
+                 "unasked_later": "前回お伺いすることができませんでした{p}でお電話いたしました。",
+                 "unasked_same_day": "先ほどお伺いすることができませんでした{p}でお電話いたしました。"}
+
+
+def purpose_again_parts(noun: str) -> dict[str, str]:
+    """続きの電話の用件の一文の名乗りの部分（部分の名前 → 文）を作る唯一の場所（instruction.Business.replay_parts）。"""
+    return {f"purpose_again_{k}": t.format(p=noun) for k, t in PURPOSE_AGAIN.items()}
 # 同じシステムの質問を1通話に何度か伺うときの、2回目からの言い方（順に回す。1回目は CALLBACK_ASK。録音は callback_（役目）_2 から）。
 # ✅ 2026-11-02 日本時間6時33分 ユーザー：「こちら「はい、ほかにご納得いただけない点はございますでしょうか？」が続いて機械ぽいので、「ご不明点などほかにも
 # ございますでしょうか？」なども織り交ぜた方がいいんじゃないでしょうか？」

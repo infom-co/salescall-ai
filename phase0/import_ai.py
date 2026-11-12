@@ -19,6 +19,7 @@ from typing import Callable
 import facts
 import maybes
 import meanings
+import purposes
 import target_asks
 import topics
 import unclear
@@ -183,6 +184,15 @@ def decide_maybes(askers: list[Asker], questions: list[tuple[str, tuple]], on_er
 # 名前のずれを見る。いまの CL-2 の受け口は取り下げた decide_keep_words＝帳面 4-72 で替えていただくよう頼んだ）
 # 決める処理の唯一の一覧（CL-2 の取込 business_import.preview の decide_* の受け口と同じ名前＝試験で比べる）。decide_away・decide_unclear は、CL-2 の受け口が
 # できた（CL-2 の連絡帳 4-212 の (A)。⛔ それまで、この一覧に無く、取込から呼ばれなかった）
+def decide_purposes(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, str]:
+    """用件の一文の並び → 文ごとの用件の名詞（purposes.decide＝2つのモデルがそろって、その文の中の言葉のときだけ。そろわない・答えが無い・文に無い言葉なら空＝
+    続きの電話でも今の用件の一文のまま）。答えは instruction.Business.purpose_noun（CL-2 の取込が業務設定へ）。✅ 2026-11-09 日本時間9時48分09秒の (4)"""
+    if not texts:
+        return {}
+    rows = _each(askers, lambda c, m: purposes.by_model(c, m, texts), [None] * len(texts), on_error)
+    return {t: purposes.decide(t, [r[i] for r in rows]) for i, t in enumerate(texts)}
+
+
 DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
             "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words,
             "decide_away": decide_away, "decide_unclear": decide_unclear,
@@ -191,7 +201,9 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # ご案内の方法を伺う質問か（✅ 2026-11-05 日本時間23時19分06秒「案でOK　(2)ア」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4章で頼む）
             "decide_ways": decide_ways,
             # どちらの場合もありうると言われたときに確かめる答えと言葉（⛔✅ 2026-11-09 日本時間4時36分49秒。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-123）
-            "decide_maybes": decide_maybes}
+            "decide_maybes": decide_maybes,
+            # 用件の一文の中の用件の名詞（続きの電話の用件の一文を前の電話とつなげる＝✅ 11-09 日本時間9時48分09秒の (4)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-128）
+            "decide_purposes": decide_purposes}
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None) -> dict[str, Callable]:

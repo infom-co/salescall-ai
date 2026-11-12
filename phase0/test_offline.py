@@ -31,7 +31,8 @@ def fc(name, **args):
 # 前の通話で取れた答えの "point"（ご承認いただけなかったときの手順の進み＝flowctl.earlier_point）と、その続きの電話の一言の共通の一言の録音
 # callback_not_agreed_again（✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」。CL-1.md 4-80）も。⇒ 前の通話で取れた答えの "wish"・"point"・"point_said"・"wish_means"
 # は、2026-11-05 にその質問の最後の事実そのもの（"wish_fact"・"point_fact"）に替えた（CL-2 の 4-212 の案2。CL-1.md 4-88）ので、ここから外した
-CL2_PENDING = frozenset({"forbidden_speech",   # 約束の電話などの頭のお詫びの理由（CL-2 の 0216 の CHECK・4-350 の (2)。CL-2 の枝が main に入るまで）
+CL2_PENDING = frozenset({"decide_purposes",   # 用件の一文の中の用件の名詞（続きの電話の用件の一文を前の電話とつなげる＝11-09 日本時間9時48分09秒の (4)。CL-1.md 4-128）
+                         "forbidden_speech",   # 約束の電話などの頭のお詫びの理由（CL-2 の 0216 の CHECK・4-350 の (2)。CL-2 の枝が main に入るまで）
                          "ListedPart",   # 録音の部分の一覧の1つ（CL-2 の recordings.ListedPart・4-350 の (4)。CL-2 の枝が main に入るまで）
                          "aizuchi",   # まだ考えている途中のお客様への相づち「はい。」（2026-11-06 日本時間11時19分55秒「(1) ア」＝4-100）
                          # 締める前の申し出（業務設定 close_offer・質問 N6・通話の事実 close_offer）と、詳しい者からのお話の保留を伺う一言（callback_handoff_pending）
@@ -5242,6 +5243,75 @@ class PlayRecordingsTest(unittest.TestCase):
             self.assertEqual(said[-1], RESUME_LEAD + q2.text, (target, said))
             self.assertEqual(said[-2], "ご予約の確認でお電話いたしました。", (target, said))
 
+    def test_purpose_after_the_apology_connects_to_the_earlier_call(self):
+        # ⛔✅ 2026-11-09 日本時間9時48分09秒 ユーザー（帳面 1 の 9時48分09秒の段の (4)）：「申し訳ございませんでした。の後に、唐突に、ご予約の確認でお電話いたしました。と
+        # 言われても何の話？ってなりますよ。「前回の電話で途中になっておりました、ご予約の確認～」や「前回、お伺いすることができませんでした、ご予約の確認～」などのような
+        # 一言が必要じゃないですか？」＝前の電話でお話しした方への続きの電話で、用件の一文を前の電話とつなげる（決まった言い方なので読点は外す＝10-15）。
+        # 用件の名詞（「ご予約の確認」）は、取込で文字のAI 2つが用件の一文から決める（Business.purpose_noun。そろわなければ空＝今の用件の一文）
+        from flowctl import Question
+        from instruction import Business, Target
+        from meaning_judge import Reading
+        qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+              Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))]
+        line = "ご予約の確認でお電話いたしました。"
+        okada = Target(name="岡田", reading="おかだ", role="営業部部長")
+
+        def purpose_said(target, noun="ご予約の確認", **kw):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=qs,
+                         purpose_line=line, purpose_noun=noun, target=target, **kw)
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+            if target is not None:
+                f.on_callee(); f.on_heard("はい、岡田です。")
+                f.on_check("judge", Reading("ご本人"))
+                r = f.apply("report_party", {"party": "target"})
+            said = [p["text"] for p in r.get("play") or [] if p["text"].endswith("でお電話いたしました。")]
+            if target is None:   # 名乗りの録音の文（会話AIへの知らせ）も流れの制御と同じ1か所
+                self.assertEqual([t for t in b.opening_parts() if t.endswith("でお電話いたしました。")], said, kw)
+            return said
+        earlier = {"Q1": {"state": "accepted", "condition": "はい"}}
+        for target in (None, okada):
+            # 業務の質問を伺い始めていた電話の続き（途中で切れたお詫びのあと）：「前回のお電話で途中になっておりました…」・同じ日は「先ほどのお電話で…」
+            self.assertEqual(purpose_said(target, earlier=earlier, apology=("cut_off",)), ["前回のお電話で途中になっておりましたご予約の確認でお電話いたしました。"])
+            self.assertEqual(purpose_said(target, earlier=earlier, apology=("cut_off",), apology_when="same_day"),
+                             ["先ほどのお電話で途中になっておりましたご予約の確認でお電話いたしました。"])
+            # 伺う前に終わっていた（約束の時間にかけられなかったお詫びのあと）：「前回お伺いすることができませんでした…」
+            self.assertEqual(purpose_said(target, apology=("missed_promise",)), ["前回お伺いすることができませんでしたご予約の確認でお電話いたしました。"])
+            # 用件の名詞が決まらなかった業務：今の用件の一文
+            self.assertEqual(purpose_said(target, noun="", earlier=earlier, apology=("cut_off",)), [line])
+            # 初めての電話：今の用件の一文
+            self.assertEqual(purpose_said(target), [line])
+        # 前の電話でお話ししていない方（前の通話の答えを取ったのは代わりの方）にはつなげない
+        self.assertEqual(purpose_said(okada, earlier={"Q1": {"state": "accepted", "condition": "はい", "who": "substitute"}}, apology=("cut_off",)), [line])
+        # お詫びの無い約束の電話で、前の電話で伺い始めていた：同じ理由が当たる（お言葉の外）
+        self.assertEqual(purpose_said(okada, earlier=earlier, promised=True), ["前回のお電話で途中になっておりましたご予約の確認でお電話いたしました。"])
+
+    def test_purpose_noun_is_decided_at_import_by_two_text_ais(self):
+        # 続きの電話の用件の一文（前の電話とつなげる＝9時48分09秒の (4)）に入れる用件の名詞は、取込で文字のAI 2つが用件の一文から決める（そろって、その文の中の
+        # 言葉のときだけ。そろわない・文に無い言葉なら空＝今の用件の一文のまま）。問い合わせと読み取りは askitems の1か所
+        import json
+        from types import SimpleNamespace
+
+        import import_ai
+        import purposes
+
+        def asker(got):
+            prompts = []
+
+            class Models:
+                def generate_content(self, model, contents, config):
+                    prompts.append(contents)
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models(), prompts=prompts)
+        texts = ["ご予約の確認でお電話いたしました。", "本日は先日お送りした資料の件でお電話いたしました。", "光回線のご案内でお電話いたしました。"]
+        a = asker([{"no": 1, "noun": "ご予約の確認"}, {"no": 2, "noun": "先日お送りした資料の件"}, {"no": 3, "noun": "光回線のご紹介"}])
+        b = asker([{"no": 1, "noun": "ご予約の確認"}, {"no": 2, "noun": "資料の件"}, {"no": 3, "noun": "光回線のご紹介"}])
+        self.assertEqual(import_ai.decide_purposes([(a, "m1"), (b, "m2")], texts), {texts[0]: "ご予約の確認", texts[1]: "", texts[2]: ""})
+        self.assertIn("decide_purposes", import_ai.DECIDERS)
+        self.assertTrue(a.prompts[0].startswith(purposes.PROMPT))
+
     def test_resumed_first_question_after_the_told_line_starts_with_the_resume_words(self):
         # ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（A5・H2）：前の電話で申し伝える一言まで言って切れた続きの電話で、目的のお客様のいない業務は、
         #    お詫び・申し伝える一言のあとの最初の質問の頭が「続きまして」だった（目的のお客様のいる業務＝繋がったときは「確認させていただきたい内容なのですが」）。
@@ -10005,9 +10075,9 @@ class EndJudgedTest(unittest.TestCase):
 
         def talk(f, answer, terms_verdict=None, **kw):
             # 電話接続側が操作を渡す前に、ひとことと申し出の条件の中身の判定の読みを渡す（既定は事実を言っていない＝grounding_jobs の並び）
-            for text in [answer, kw.get("terms")]:
+            for text in [answer, kw.get("terms"), kw.get("topic")]:
                 if text:
-                    grounded(f, text, terms_verdict if text == kw.get("terms") else None)
+                    grounded(f, text, terms_verdict if text in (kw.get("terms"), kw.get("topic")) else None)
             return f.apply("replay_opening", {"part": "talk", "answer": answer, **kw})
 
         def to_offer(handoff=("訪問", "お電話"), close=None, rest=True, n=n4, words=unlinked):
@@ -10074,22 +10144,64 @@ class EndJudgedTest(unittest.TestCase):
         self.assertIn("申し出の条件", r["message"])
         r = talk(f, "さようでございますか。", terms="月曜日以外で")
         self.assertIn("それでは月曜日以外で、詳しい者より", heard(r))
-        # 条件の中身：お客様のご都合だけで、こちらについての事実・約束（料金・方法・日時・すること）でないことを、会話AIの自分の言葉と同じ1か所（中身の判定＝
-        # grounding_jobs → on_grounded）で確かめてから声に出す。「事実を言っていない」のほかは声に出さず、書き直させずに条件を入れずに伺い直す（記録には残す）。
-        # ⛔ 2026-11-09 日本時間8時台の見直しで見つけた：形しか確かめず、「それでは無料で、詳しい者よりお話しさせていただくということでよろしいでしょうか？」と
-        # 言いうる作りだった（許されていない約束＝本書 1-3 の取り消せない害）
-        from grounding import UNGROUNDED
+        # ⛔✅ 2026-11-09 日本時間9時48分09秒 ユーザー（帳面 1 の 9時48分09秒の段）：伺い直しは、お客様のお話に申し出で応える提案にする＝お客様の言ったこと
+        # （ご都合の条件 terms・気にかかっていること＝詳しい者がお話しする中身 topic・ご希望の方法 way）を受ける。申し出の中身（こちらがすること）は変えず、問いかけの
+        # 部分（「ということで（も）よろしいでしょうか？」）はプログラムが作る。提案の言葉は会話AIが書き、自分の言葉と全く同じ1か所・同じ決まり（中身の判定）を通す
+        # （業務の情報にある事実は言ってよい・知らない事実は止めて書き直させる・書き直しの回数も同じ・使い切ったらお客様の言ったことに依らない形）。
+        # ⛔ 4fd9d79d まで、条件は「事実を言っていない」ものだけを通す別の決まりで、料金・方法を言ったお客様に、その言葉を受けない伺い直しをしていた
+        from flowctl import OWN_REWRITES
+        from grounding import GROUNDED, UNGROUNDED
+        alt = "ということでもよろしいでしょうか？"
+        # (2) 気にかかっていること（料金）：詳しい者がお話しする中身として受ける。お客様が受けにくい事情を言ったあとの代わりの提案は「でも」
         f = to_offer(words="お金がかかるならいいです。")
-        self.assertEqual([j[2] for j in f.grounding_jobs("replay_opening", {"part": "talk", "answer": "さようでございますか。", "terms": "無料で"})],
-                         ["さようでございますか。", "無料で"])
-        r = talk(f, "さようでございますか。", terms="無料で", terms_verdict=UNGROUNDED)
-        self.assertEqual(heard(r), "さようでございますか。" + plain)
-        self.assertIsNone(f.facts["handoff"][0]["terms"])
-        self.assertEqual(f.facts["talk"][-1]["terms_dropped"], {"text": "無料で", "problem": "中身の判定「知らない事実がある」"})
+        want = "お金がかからないで利用できる範囲とお金がかかるのはどこからなのかを"
+        self.assertEqual([j[2] for j in f.grounding_jobs("replay_opening", {"part": "talk", "answer": "かしこまりました。", "topic": want})],
+                         ["かしこまりました。", want])
+        r = talk(f, "かしこまりました。", topic=want, terms_verdict=GROUNDED)   # 業務の情報に無料の範囲がある
+        self.assertEqual(heard(r), f"かしこまりました。それでは{want}詳しい者よりお話しさせていただく{alt}")
+        self.assertEqual(f.facts["handoff"][0]["topic"], want)
+        r = say(f, "それなら一度聞いてみようかな。", "confirm_field", "はい", question_id=n4, result="affirmed")
+        self.assertEqual(r["question_id"], n5, heard(r))
+        # 業務の情報に無料の範囲が無い＝知らない事実：止めて書き直させる（料金の決まりが無ければ「料金の面も含めて」）
+        f = to_offer(words="お金がかかるならいいです。")
+        r = talk(f, "かしこまりました。", topic=want, terms_verdict=UNGROUNDED)
+        self.assertEqual((r["result"], heard(r)), ("rejected", ""))
+        self.assertIn("知らない事実", r["message"])
+        r = talk(f, "かしこまりました。", topic="料金の面も含めて")
+        self.assertEqual(heard(r), f"かしこまりました。それでは料金の面も含めて詳しい者よりお話しさせていただく{alt}")
+        # 書き直しを使い切った：お客様の言ったことに依らない形で伺い直す（声に出さなかった提案の言葉は受け答えの記録に残す）
+        f = to_offer(words="お金がかかるならいいです。")
+        for _ in range(OWN_REWRITES + 1):
+            r = talk(f, "かしこまりました。", topic="無料で使える範囲を", terms_verdict=UNGROUNDED)
+            if r["result"] != "rejected":
+                break
+        self.assertEqual(heard(r), "かしこまりました。" + plain)
+        self.assertIsNone(f.facts["handoff"][0]["topic"])
+        self.assertEqual(f.facts["talk"][-1]["terms_dropped"]["text"], "無料で使える範囲を")
+        # 中身の判定の読みが届かなかった：声に出さない（書き直しても判定は速くならない＝自分の言葉と同じ）
         f = to_offer()
-        grounded(f, "さようでございますか。")   # 条件の読みが届かなかった：声に出さない
+        grounded(f, "さようでございますか。")
         r = f.apply("replay_opening", {"part": "talk", "answer": "さようでございますか。", "terms": "月曜日を避けて"})
         self.assertEqual(heard(r), "さようでございますか。" + plain)
+        # (3) ご希望の方法が業務の方法にある：申し出の中身の中に方法を入れ、受けていただいたら方法を重ねて伺わない（その方法の連絡先へ）
+        f = to_offer(handoff=("訪問", "オンライン", "お電話"), words="うちはオンラインしか無理なんですよ。")
+        r = talk(f, "さようでございますか。", way="オンライン")
+        self.assertEqual(heard(r), "さようでございますか。それでは詳しい者よりオンラインでお話しさせていただくということでよろしいでしょうか？")
+        r = say(f, "オンラインでしたら、ぜひお願いします。", "confirm_field", "はい", question_id=n4, result="affirmed")
+        self.assertEqual(r["question_id"], "C3", heard(r))
+        self.assertTrue(heard(r).endswith("それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"), heard(r))
+        self.assertEqual({k: f.facts["handoff"][0][k] for k in ("way", "means")}, {"way": "オンライン", "means": "online"})
+        # 業務の方法に無い方法は申し出に入れない（差し戻す。業務に無い方法の受け方は伺い中＝帳面 1 の 9時48分09秒の段）
+        f = to_offer(words="うちはオンラインしか無理なんですよ。")
+        r = talk(f, "さようでございますか。", way="オンライン")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("申し出の方法", r["message"])
+        # 締める前の申し出 N6 も同じ1か所：「それでは料金の面も含めて改めて資料をメールでお送りさせていただくということでもよろしいでしょうか？」
+        f = to_offer(handoff=(), close=offer, rest=False, n=n6, words="お金がかかるならいいです。")
+        r = talk(f, "かしこまりました。", topic="料金の面も含めて", way="メール")
+        self.assertEqual(heard(r), f"かしこまりました。それでは料金の面も含めて改めて資料をメールでお送りさせていただく{alt}")
+        r = say(f, "資料だけなら見てみます。", "confirm_field", "はい", question_id=n6, result="affirmed")
+        self.assertEqual((r["question_id"], f.facts["close_offer"][0]["way"]), ("C3", "メール"), heard(r))
         # 方法は条件にせず「ほかに言われたこと」で次の質問（方法を選んでいただく N5）の先に言われた答えへ（方法の決まりは業務の方法と同じ1か所のまま）：
         # 業務の方法にあれば重ねて伺わない（本書 9-3「取得済みのことを重ねて聞かない」）。⛔ 直す前は条件「オンラインで」で伺い直し、そのあと「訪問とお電話の
         # どちらがよろしいでしょうか？」と重ねて伺う形だった

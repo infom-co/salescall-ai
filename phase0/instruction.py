@@ -128,6 +128,9 @@ class Business:
     questions: list[Question]
     forbidden: list[str] = field(default_factory=list)   # 言ってはいけないこと
     purpose_line: str = ""      # 名乗りのあとに言う用件の一文（例：「ご予約の確認でお電話いたしました。」）
+    # 用件の一文の中の用件の名詞（例：「ご予約の確認」。取込で文字のAI 2つが用件の一文から決める＝import_ai.decide_purposes。そろわなければ空）。続きの電話で、
+    # 用件の一文を前の電話とつなげる（「前回のお電話で途中になっておりましたご予約の確認でお電話いたしました。」＝phrases.PURPOSE_AGAIN・flowctl.purpose_part）
+    purpose_noun: str = ""
     # 相手が「忙しい」と言ったときの一言（Intent.md 9-4）。空なら丁寧に終える（既定＝安全側）。文があれば、1回だけそれで聞く
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
@@ -367,7 +370,8 @@ class Business:
             at_end = told is not None and (step[1].final_goal or self.first_ask() is None)
             parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up, self.apology_text)]
             if self.purpose_line and told is None:
-                parts.append(self.purpose_line)
+                from flowctl import purpose_part
+                parts.append(self.replay_parts().get(purpose_part(self.earlier, self.apology, self.apology_when)) or self.purpose_line)
         if (first := self.first_ask()) is not None:
             parts.append(first[1])   # 番号を伺い直す一言・前の通話の続きなら、まだ取れていない最初の質問（つなぎの言葉ごと）
         return parts
@@ -413,6 +417,9 @@ class Business:
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
         company, caller = self._said()
         parts = {"greeting": GREETING, "intro": f"{company}の{caller}と申します。", "purpose": self.purpose_line or ""}
+        if self.purpose_line and self.purpose_noun:
+            from phrases import purpose_again_parts
+            parts.update(purpose_again_parts(self.purpose_noun))   # 続きの電話の用件の一文（どれを流すかは flowctl.purpose_part）
         if self.ai_answer:
             # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）。業務が書いたときだけ業務の録音。書かなければ
             # 標準（phrases.AI_ANSWER）を共通の一言の録音から流す（phrases.STANDARD_PARTS・flowctl.Flow._part_play。✅ 2026-11-02 管理者＝CL-2 の 4-188）
