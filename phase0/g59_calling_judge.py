@@ -10,7 +10,7 @@ import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import ABOUT, END, END_NONE, HEAR, HEAR_LOST, HEAR_OK, PHONE, SPEAKER, WHO
+from flowctl import ABOUT, END, END_HURRY, END_NONE, HEAR, HEAR_LOST, HEAR_OK, PHONE, SPEAKER, WHO
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, make_judges
 
 # ── 正解の表（言葉ごとに、項目ごとの正解＝flowctl.target_facets の項目）。正解は、判定に見せた言葉（質問・はじめにお呼びした言葉・その前に相手が
@@ -138,9 +138,13 @@ LINES_BOTH = [
     # 電話を代わった違う方が、お呼びした方は出られないと伝えた
     ("お電話代わりました、鈴木です。岡田は本日お休みをいただいております。", TO_TARGET, False, F("違", "別", "無", "在")),
     ("お電話代わりました。佐藤と申します。岡田は席を外しておりまして。", TO_TARGET, False, F("違", "別", "無", "在")),
-    # ご本人が、いまは話せないと言った（お呼びし直さず・繋がずに、あとでかけ直す）
+    # ご本人が、いまは話せないと言った（お呼びし直さず・繋がずに）：かけ直してほしいと頼んだ＝かけ直しの申し出（電話を終える言葉ではない＝あとで
+    # かけ直す）／忙しいとだけ言った＝電話を終える言葉の「急いでいる」（急いでいる方への伺い。✅ 11-01 23時59分「(a) OK」の電話を終える言葉の表の
+    # ご本人「すみません、いま手が離せないので失礼します。」＝「10-13『忙しい』とだけ＝急いでいる」と同じ理由。判定への説明 end_choices も同じ境目＝
+    # 「何時ならよい・かけ直してほしい、とまでは言っていない」）。⛔ 2026-11-05 に直した：11-01 に項目を足したとき、この言葉も読まずに「言っていない」
+    # にしていた（11-02・11-03 の測りで、d1-ultra と考えない Sonnet が3回とも「急いでいる」と読んだのを外れと数えていた＝判定のほうが正しかった）
     ("はい、そうですが、いまちょっと手が離せないので後でかけ直してもらえますか。", ASKED_AFTER, True, F("同", "本", "無", "在")),
-    ("はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。", TO_TARGET, False, F("違", "本", "無", "在")),
+    ("はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。", TO_TARGET, False, F("違", "本", "無", "在") | {END: {END_HURRY}}),
 ]
 # 後任の方の話が出る言葉（はじめの場面。✅ 2026-10-29 ユーザー：「『別の方』の中に『後任』『上司』『同僚』などがいることになるでしょ！」）：
 # (相手の言葉, その前に相手が言ったこと, 確かめたあとか, 正解)
@@ -194,6 +198,17 @@ def lines_end() -> list[tuple[str, str | None, dict[str, set]]]:
     return [(t, BEFORE_TARGET if who == "ご本人" else None, F(*codes) | {END: set(ends)}) for who, t, ends, _, codes in CALLING]
 
 
+def unsure_of(target: bool, exc: NoJudgment) -> str | None:
+    """答えが無かった行（組も代わりも答えなかった＝NoJudgment）で、本番と同じに数える確かでない読み（唯一の場所）：本番の組が優先の順に並べた確かでない読み
+    （exc.unsure＝meaning_judge.unsure_order）の最初を、本番と同じ決まり（flowctl.unsure_counts＝Flow.on_unsure）で数えた名前。target＝目的のお客様の判定か
+    （でなければ尋ねているか）。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（J2）：問い合わせた記録 tried の届いた順の最初を使っていた（本番は 15時台に
+    優先の順へ直した＝写し漏れ）"""
+    from flowctl import label, unsure_counts
+    first = next(iter(exc.unsure), None)
+    counted = unsure_counts("judge" if target else "asks", first["unsure"]) if first else None
+    return label(counted) if counted else None
+
+
 def lines_hear() -> list[tuple[str, bool, dict[str, set]]]:
     """試しの言葉（G-73 の組 HEAR_CALL・読み口は g73_system_words.latest の1か所）：お呼びする段の2つの一言のあとの、こちらの声が届いていない様子か
     の言葉 (相手の言葉, 確かめる一言のあとか, 正解)。✅ 2026-11-02 日本時間23時15分58秒 ユーザー「特にない」＝正解は作らせた種類のまま。
@@ -213,9 +228,19 @@ def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]
     return sorted({facts_reading(dict(zip(keys, c)), seeks_successor)[0] for c in product(*(facts[k] for k in keys))})
 
 
+ADDED = (END, HEAR)   # あとから足した項目（足す前の記録は、この項目を数えない＝facts_ok・facts_whole の1か所）
+
+
 def facts_ok(got: dict | None, facts: dict[str, set]) -> bool:
     """項目ごとの答え（判定の返事＝Reading.facts）が、項目ごとの正解にどれも当たるか。"""
-    return got is not None and all(got.get(k) in f for k, f in facts.items() if not (k in (END, HEAR) and got.get(k) is None))   # 項目を足す前の記録は、足した項目を数えない
+    return got is not None and all(got.get(k) in f for k, f in facts.items() if not (k in ADDED and got.get(k) is None))   # 項目を足す前の記録は、足した項目を数えない
+
+
+def facts_whole(got: dict | None, facts: dict) -> bool:
+    """項目ごとの答えが、正解の表の項目をそろえて持っているか（足す前の記録は、足した項目 ADDED が無くてもそろっている＝facts_ok と同じ決まり。
+    測りの数え g59_tally が、読みを流れの制御に当てる前に見る1か所）。⛔ 2026-11-06 日本時間8時台に見つけた：数えは「項目の数が正解の表と同じか」を
+    手で見ていて、足す前の記録（10-31 の Jev・d1-ultra）の読みを、流れの制御の動きが同じなのに外れと数えた"""
+    return bool(got) and all(k in got for k in facts if k not in ADDED)
 
 
 def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bool, dict]]:
@@ -225,7 +250,9 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED] + [(t, b, c, True, f) for t, b, c, f in LINES_SUCCESSOR]
             + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, None, a, False, f) for t, a, f in lines_hear()])
-    # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉には、断り・取り次げない・急ぎ・怒りの言葉が無い＝どれも「言っていない」。
+    # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉の正解は、行に END を書いたもの（ご本人の「…会議中で手が離せないのですが。」＝
+    #    急いでいる）のほかは「言っていない」（断り・取り次げない・急ぎ・怒りの言葉は無い。⛔ 11-01 は1つずつ読まずに全部を「言っていない」にしていた＝
+    #    2026-11-05 に71の言葉を1つずつ読み直した）。
     #    電話を終える言葉の試しの表の言葉（lines_end）は、表の正解（✅ 2026-11-02 日本時間1時59分 ユーザー：「OK、進めてください」）
     # こちらの声が届いていない様子か（2026-11-02 日本時間21時16分 ユーザー「(ア) OK」で項目を足した）：今までの試しの言葉には、届いていない様子の
     #    言葉が無い＝どれも「そういう様子は無い」。届いていない様子の言葉とそうでない紛らわしい言葉は、試しの言葉（lines_hear）
@@ -234,14 +261,15 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
             for t, b, c, s, f in rows]
 
 
-def flows():
-    """測る業務と、2つの流れの制御（ふつうの場面・後任の方をお呼びしたあと）。測る所（run）と送る文の指紋（prompts_fingerprint）の1か所。"""
+def flows(sees_target: bool | None = None):
+    """測る業務と、2つの流れの制御（ふつうの場面・後任の方をお呼びしたあと）。測る所（run）と送る文の指紋（prompts_fingerprint）の1か所。
+    sees_target＝お呼びする方の名前と読みを判定に見せるか（既定は本番の形。False＝名前を伏せる形＝--hide-names・CL-1.md 4-165）。"""
     from flowctl import Flow
     from instruction import Target
     from g22_opening import BUSINESS
     import dataclasses
     b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
-    mk = lambda: Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
+    mk = lambda: Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names(sees_target=sees_target))
     f, fs = mk(), mk()
     fs._to_successor()  # 後任の方をお呼びしたあとの問い（本番と同じ1か所で作り直す）
     return b, f, fs
@@ -252,7 +280,7 @@ def question_of(fl, asked) -> "Question":
     return fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
 
 
-def prompts_fingerprint() -> dict[str, tuple[int, str]]:
+def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int, str]]:
     """判定に送る文（71件の、目的のお客様の判定と尋ねているかの問い合わせの文の全部）の長さと指紋を、問い合わせごとに（0円）。測った文に
     1文字も違わず戻したか・文を変えていないかを確かめる（⛔ 2026-10-30：文をいくつも直して測りが悪くなり、測った中でいちばん良い形に戻すとき、
     その形の写しが作業の場所の外にしか無かった）。
@@ -260,7 +288,7 @@ def prompts_fingerprint() -> dict[str, tuple[int, str]]:
        「お呼びする段の文は変わらない」と記録した ⇒ 尋ねているかの文も出す"""
     import hashlib
     from meaning_judge import prompt_parts
-    b, f, fs = flows()
+    b, f, fs = flows(sees_target)
     target = asks = ""
     for text, _, before, asked, succ, _ in cases(b.target.confirm()):
         fl = fs if succ else f
@@ -271,8 +299,8 @@ def prompts_fingerprint() -> dict[str, tuple[int, str]]:
 
 
 async def run(args) -> dict:
-    from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label, unsure_counts
-    b, f, fs = flows()
+    from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label
+    b, f, fs = flows(False if args.hide_names else None)
     if args.batch:
         # 正しさだけを見る測り：1つの Anthropic の判定を、まとめて送る（meaning_judge.batch_judge。料金は半分・答えまでの秒は測らない）
         name = args.judge2
@@ -290,10 +318,8 @@ async def run(args) -> dict:
         と同じ決まり）。s＝答えが届くまでの秒（まとめて送る測りは None）。"""
         row[f"{col}_s"] = s
         if got is None:
-            row[f"{col}_tried"] = tried or []
-            unsure = next((t["unsure"] for t in tried or [] if "unsure" in t), None)
-            counted = unsure_counts("judge" if col == k else "asks", unsure) if unsure is not None else None
-            row[col] = label(counted) if counted else None
+            row[f"{col}_tried"] = (tried.tried if isinstance(tried, NoJudgment) else tried) or []
+            row[col] = unsure_of(col == k, tried) if isinstance(tried, NoJudgment) else None   # 確かでない読みは本番と同じ優先の順（unsure_of の1か所）
             return
         row[col] = label(got) if got else None
         if getattr(got, "facts", None) is not None:   # 項目ごとの答え（目的のお客様の判定）
@@ -346,7 +372,7 @@ async def run(args) -> dict:
                 try:
                     got = await j(question, text, None, before=before)
                 except NoJudgment as exc:
-                    fill(row, k, col, None, round(time.monotonic() - t0, 3), exc.tried)
+                    fill(row, k, col, None, round(time.monotonic() - t0, 3), exc)
                     return
                 fill(row, k, col, got, round(time.monotonic() - t0, 3))   # 答えが届くまでの秒（判定の速さ。2026-10-25：2つ目の判定の替えを比べる）
             # 止める側だけの受け持ち（お呼びする段の 3.5 Flash Lite）には問い合わせない（convo.answers）
@@ -433,9 +459,11 @@ def main() -> None:
     p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
     p.add_argument("--asks-only", action="store_true", help="尋ねているかだけを問い合わせる（文が変わったのが尋ねているかだけのとき＝指紋で確かめてから）")
     p.add_argument("--g73-partial", action="store_true", help="試しの言葉（G-73）がそろっていなくても測る（ユーザーがその形で測ると選んだときだけ）")
+    p.add_argument("--hide-names", action="store_true", help="お呼びする方の名前と読みを伏せた形で判定に見せる（名前を伏せる形と今の形の比べ＝CL-1.md 4-165・"
+                                                            "本書 18-3 の 10-30 の (5)。伏せ方は instruction.Business.judge_names の1か所）")
     args = p.parse_args()
     if args.fingerprint:
-        say("判定に送る文：" + "／".join("%s %d 字・指紋 %s" % (name, n, h) for name, (n, h) in prompts_fingerprint().items()))
+        say("判定に送る文：" + "／".join("%s %d 字・指紋 %s" % (name, n, h) for name, (n, h) in prompts_fingerprint(False if args.hide_names else None).items()))
         return
     from g73_system_words import require_complete
     if args.count:

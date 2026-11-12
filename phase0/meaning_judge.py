@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, HOLD, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     UNDECIDED, WHO, called_words, facts_reading, label, side_items)
+from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+                     REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, label, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -37,6 +37,9 @@ SYSTEM_DESC = {ANY: "こちらに任せた・どれでもよい・希望は無�
                # ✅ 2026-11-02 日本時間4時36分 ユーザー：(a)「OK」（選ぶ質問の「連絡自体控えてほしいです」＝電話もメールも控える・最終目的なら営業拒否）
                NONE: "どの選択肢も要らない・どれもしないでほしい、と言った（選ぶもとになっていること＝連絡・訪問・送付・打ち合わせなど、そのものを断った。"
                      "答えることだけを拒んだのは入れない）"}
+# どちらの場合もありうるときに確かめる答えのある質問（flowctl.Question.maybe）の「どちらでも」：お客様のこれからのご様子で、どの答えにもなりうると言った（その答えは
+# 受け取らずに、依頼者が備える答えの可能性を確かめる＝flowctl.Flow._ask_confirm の maybe）。⛔✅ 2026-11-09 日本時間4時36分49秒 ユーザー（お言葉は maybes.py の頭）
+MAYBE_DESC = "どれでもよい・どちらにもなりうる（場合による・その時次第など）、と言った（どの答えになるかが、まだ決まっていない。どれかに言い切ったのは、そちら）"
 REFUSED_FACT = ("この質問に答えることそのものを、はっきり拒んだ（知らないとは言わずに、答えを言わない・言えない、と言ったのも。どの答えを選んでも"
                 "要ることを言うのを拒んだのも。お客様に事実を伺う質問なので、答えることを控える・断る、と言ったのも、これ＝事実の答えにはならない。"
                 "選ぶこと・指定することを避けただけの言葉は入れない）")
@@ -45,7 +48,10 @@ REFUSED_FACT = ("この質問に答えることそのものを、はっきり拒
 def system_desc(q, c: str) -> str:
     """システムが足す選べるもの（どちらでも・わからない・答えたくない）の説明（唯一の場所。options が使う）：事実を伺う質問（Question.asks_fact）の
     「答えたくない」は、控える・断る返事も入れる（⛔ 2026-10-31 の夜：「ご予約はされていますでしょうか？」への「差し控えさせていただきます」を、
-    d1-ultra と Jev が3回の測りとも「いいえ」と読んだ＝申し出への断りの決まりを、事実の質問に当てた見込み）。"""
+    d1-ultra と Jev が3回の測りとも「いいえ」と読んだ＝申し出への断りの決まりを、事実の質問に当てた見込み）。どちらの場合もありうるときに確かめる答えの
+    ある質問（Question.maybe）の「どちらでも」は、どちらにもなりうると言った答え（MAYBE_DESC）。"""
+    if c == ANY and getattr(q, "maybe", ()):
+        return MAYBE_DESC
     return REFUSED_FACT if c == "refused" and getattr(q, "asks_fact", False) else SYSTEM_DESC[c]
 # ⛔ 2026-10-31：取り次ぎを待つを「取り次ぐので」と書いていた＝「確認してまいります。少々お待ちください。」を「決められない」と読んだ（待つ側と同じ）
 # ⛔ 2026-10-31 早朝（直した文の測り・G-53bf_fix）：上の「確かめてくる など」で、あとで家の人に聞く必要があると言っただけの「ちょっと家の人に
@@ -251,9 +257,13 @@ class Reading(str):
     facts＝項目ごとの答え（記録・試験の数え方）。weak＝受け持ちの判定がどれも確かな読みを返さず、代わりが答えたときの、受け持ちの確かでない読み
     （流れの制御は、代わりの答えとあわせて数える＝convo.check_handler・Flow.on_unsure）。firm_p＝言い切っているかの確からしさ（0〜1。返す判定
     だけ＝判断のモデル。firm は、これを線 firm_min で分けたもの。線と、どちらとも言えない幅を決める測りが使う）。
-    prior＝その前に相手が言ったことだけから決まる答え（中の名前。決まらない・問わなかったときは None。PRIOR）・prior_p＝その確からしさ。"""
+    prior＝その前に相手が言ったことだけから決まる答え（中の名前。決まらない・問わなかったときは None。PRIOR）・prior_p＝その確からしさ。
+    probs＝問いごとの、選べるもの全部の確からしさ（返す判定だけ＝判断のモデル）・confs＝問いごとの、選んだものの確からしさ（sure はこのいちばん
+    低いもの）。どちらも測りの記録で、どの選べるものの間で割れたか・どの問いが低かったかを見るためだけ（決め方には使わない）。"""
     sure: float | None = None
     firm_p: float | None = None
+    probs: dict | None = None
+    confs: dict | None = None
     prior: str | None = None
     prior_p: float | None = None
     prior_raw: str | None = None
@@ -266,6 +276,7 @@ class Reading(str):
     facts: dict | None = None
     end: str | None = None      # 電話を終える言葉か（中の名前＝flowctl.end_choices。問わない問い合わせは None）
     hear: str | None = None     # こちらの声が届いていない様子か（中の名前＝flowctl.hear_choices。問わない問い合わせは None）
+    query: str | None = None    # こちらへ尋ねた問いがあるか（中の名前＝flowctl.query_choices。答えの段だけ・問わない問い合わせは None）
     end_lean: tuple = ()        # 受け持ちの判定の、確かでなかった読みの「電話を終える言葉か」（JudgePanel._mark。流れの制御が、決まらないときの場面に使う）
 
     def __new__(cls, cond: str, firm: bool = True, sure: float | None = None):
@@ -289,7 +300,7 @@ MAYBE_RULE = "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 RULES = (
     ASK_HEAD +
     "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）も答えてください。さらに、答えとは別に、お客様の言葉が"
-    + "・".join(f"{h}（{k}）" for k, (h, _) in SIDE_ITEMS.items()) + "を、それぞれの選べるものから1つずつ選んでください（答えを言っていても、"
+    + "・".join(f"{SIDE_ITEMS[k][0]}（{k}）" for k in side_items(False)) + "を、それぞれの選べるものから1つずつ選んでください（答えを言っていても、"
     "電話を終える言葉が入っていれば、それを選びます。どれも" + NOW_ONLY + "）。\n"
     "決まり：\n" +
     MEANING_RULE + "（「いいえ、もう済ませてあります」は、済ませた側）。\n"
@@ -339,13 +350,13 @@ def facet_rules(q) -> str:
             + "決まり：\n"
             "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません。\n"
             "- 話している方は誰かは、言葉から言える段まで選び、2つの答えの境目は、その項目の見分け方で決めます。\n"
-            f"- 電話のやり取りと、{P}の事情と、" + "と、".join(h for h, _ in SIDE_ITEMS.values()) + f"は、{NOW_ONLY}（その前に相手が言った取り次ぎ・不在・断りなどの事実は、いまの言葉の答えにしません）。\n"
+            f"- 電話のやり取りと、{P}の事情と、" + "と、".join(SIDE_ITEMS[k][0] for k in side_items(True)) + f"は、{NOW_ONLY}（その前に相手が言った取り次ぎ・不在・断りなどの事実は、いまの言葉の答えにしません）。\n"
             "- 前と同じ方かと、話している方は誰かは、その前に相手が言ったことも合わせて決めます（説明と見分け方の中の「その前の言葉で」「取り次ぐと"
             "言われたあとに」などは、その前に相手が言ったことに当てます。いまの言葉の中の人が誰かも、その前の言葉で結びます）。\n")
 
 
 # いまの言葉だけで読む項目（facet_rules の4行目と、Jev の問い＝jev_request が同じ文を使う。Jev には決まりの文を渡さないため）
-NOW_ONLY_FACETS = (PHONE, ABOUT, *SIDE_ITEMS)   # 答えとは別に読む項目（SIDE_ITEMS）も。 電話を終える言葉かも、いまの言葉だけ（前の断りは、その発話で当てた＝流れの制御）
+NOW_ONLY_FACETS = (PHONE, ABOUT, *side_items(True))   # 答えとは別に読む項目（SIDE_ITEMS）も。 電話を終える言葉かも、いまの言葉だけ（前の断りは、その発話で当てた＝流れの制御）
 TERM_FACETS = (SPEAKER, WHO)   # 説明に言葉の決まり（flowctl.facet_terms）の言葉を使う項目（Jev の問いの指示に、言葉の決まりを入れる）
 
 
@@ -378,6 +389,53 @@ PROMPT = RULES + (   # 並びの見本（文を作るのは prompt_parts の1か
 #    ユーザー：「『メールのほうが助かりますが、電話でも大丈夫です』なら、メールは優先でOK…決まらないではないですよね」＝望みが言えていれば答え。
 #    案は逆の向きだった（測った「直った」は、作らせたモデルの誤った正解に合わせただけのものを含む。PHASE0 G-53 の3回目）。
 
+# 答えの段の答えでない言葉（電話のやり取りを読む問い合わせ＝お呼びする段の尋ねているか・戻ったかは KIND_DESC のまま＝文を変えない）。待つ・かけ直すの読みを分ける
+# （flowctl.WAIT_KINDS・組み合わせは flowctl.wait_reading の1か所）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー（会話2）：「電話がつながったまま、妻に確認を
+# 待ってと言っていらっしゃるなら、「はい、それではこのままお返事を待っております。」で待ち、妻に確認するから、また、後からや別日程でかけ直してという意味であれば、
+# 「（はい、）承知しました。いつ頃おかけ直しさせていただきましょうか？」のように一旦終えると良いでしょう。」・23時56分48秒「待つか、かけ直すかが言葉から
+# 決まらないとき：(ア)」。分かれ目は意味で書く（10-31 の分かれ目＝この電話の間に確かめてくるので待つ／あとで確かめる、はそのまま：あとで確かめると言った
+# だけで、かけ直しを頼んでいなければ、ここのどれでもなく「わからない」）
+ANSWER_KINDS = {HOLD: "この電話の間に、ほかの方に取り次ぐ・電話を代わるあいだ、こちらに待つように言った（どうして待つのかを言わずに、待つようにとだけ"
+                      "言ったときも。答えではない）",
+                HOLD_BACK: "この電話の間に、ご自分で確かめてくる・周りの方に聞いてくる・相談してくるあいだ、電話をつないだまま待つように言った（待って"
+                           "とは言わなくても、いま確かめてくる、と言ったのも。そのあと、ご自分で返事をする。答えではない）",
+                # ⛔ 11-06 2時台（W1 の試しの言葉を作って読んだ）：「こちらからかけ直してほしい」だけを書いていたので、お客様のほうから連絡するという
+                #    折り返しの申し出（「あとでこちらからかけ直しますね。」）の置き場が無かった＝この電話は終えて、あとで続きを話す、という意味で書いた
+                # ⛔ 2026-11-06 日本時間13時台の見直し（C9）：お客様のほうから連絡するという申し出も同じ1つで読んでいたので、誰からかけ直すかを判定が読まず、
+                #    お礼の一言を会話AIの報告だけで決めていた＝お客様のほうから連絡する（LATER_THEIRS）を分けた（組み合わせでは同じ1つ＝flowctl.wait_reading）
+                LATER: "いまは答えずに、この電話は終えて、あとで（別の時・別の日に）こちらからかけ直してほしいと言った（どちらから連絡するかを言わずに、"
+                       "あとで続きを話したいと言ったのも。答えではない）",
+                LATER_THEIRS: "いまは答えずに、この電話は終えて、あとで（別の時・別の日に）お客様のほうからこちらへ連絡すると言った（答えではない）",
+                # ⛔ 11-06 2時台：分かれ目を書いていなかったので、作り手は「ちょっと待ってもらえますか。」（理由を言わずに待つようにとだけ言った＝電話を
+                #    つないだまま待つ）まで、こちらとして作った＝決められないのは、考えたい・相談したいという事情を添えたときだけ、と意味で書いた
+                WAIT_OR_LATER: "考えたい・ほかの方と相談したいので待ってほしい、と言ったが、そのあいだ電話をつないだまま待ってほしいのか、この電話は終えて"
+                               "あとでかけ直してほしいのかが、この言葉からは決められない（待つようにとだけ言ったのは、こちらではない。答えではない）",
+                # ✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」：考えている方への「はい。」は、判定が「まだ考えている途中」と読んだらプログラムが流す
+                # （flowctl.THINKING・Flow._thinking）。分かれ目は意味で書く（言葉の形の例は足さない）：言い終えた「決められない」とは、まだ答えを言い終えていない
+                # （続けて話しそう）かで分ける
+                # ⛔ 2026-11-07 日本時間11時台（G-53d1base の読み直し）：「迷っている…最中」と書いていたので、言い終えた「迷っています。」を考えている途中と読み、
+                #    「はい。」で待って5秒で急かす一言を流す形だった＝13時05分06秒のお言葉で、言い終えた迷いは HESITATING に分けた（境目はこの1文だけに書く）
+                THINKING: "まだ答えを考えている途中で、答えを言い終えていない（言いよどんでいる最中で、このあと続けて答えそう。答えではない）。"
+                          "決められない・まだ決めていない・迷っている、と言い終えたときは、こちらではない",
+                # ✅ 2026-11-07 日本時間13時05分06秒 ユーザー：「…のように促すのが一番いいんじゃないでしょうか。迷っていると言っているのに途中で話を終わらしたり
+                # どうなさいましたか と 急かすのは最悪な手ですよ。」・18時03分49秒「(1) ア」（flowctl.HESITATING・Flow._hesitation＝選ぶ助けを伝えて促す）
+                HESITATING: "どの答えにするかを迷っている・決めかねている、と言い終えた（答えのあいだで迷っている気持ちを言った。答えではない）",
+                # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(1)…判定の選べるものに「もう一度言ってほしい」を足します。…OK」（flowctl.REPEAT・
+                # Flow._repeat_now）。分かれ目は意味で書く：こちらに別のこと（名前・会社名・意味）を尋ねたのではなく、伺ったことをもう一度言ってほしい
+                REPEAT: "直前にこちらが伺ったこと（質問・確かめの一言）が聞こえなかった・聞き取れなかったので、もう一度言ってほしいと頼んだ（もう一度とは"
+                        "言わなくても、聞こえなかった・聞き取れなかったと言ったのも。こちらの名前・会社名や、伺ったことの意味など、ほかのことを尋ねたの"
+                        "ではない。答えではない）",
+                # 残り（代わった人が話し始めた・決められない）は KIND_DESC のまま（1か所。⛔ 11-06 1時台に、ここを手で並べて「決められない」を落とした）
+                **{k: d for k, d in KIND_DESC.items() if k != HOLD}}
+
+
+def answer_kinds(q) -> dict:
+    """答えでない言葉の選べるもの（唯一の場所）：電話のやり取りを読む問い合わせは KIND_DESC＋決められない・答えの段の問い合わせは ANSWER_KINDS
+    （迷っている＝HESITATING は、迷っているお客様に応じる質問だけ＝flowctl.hears_hesitation の1か所＝選ぶ助けを伝える業務の質問と、説明した内容のご承認の質問）。"""
+    if talk_question(q):
+        return KIND_DESC | {UNDECIDED: TALK_UNDECIDED}
+    return ANSWER_KINDS if hears_hesitation(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
+
 
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     """選べるもの（判定に見せる名前、説明、中の名前）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び
@@ -393,7 +451,7 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     ⛔ 2026-10-29：印のある質問も意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び（目的のお客様の判定で送る量の55%）、
        「ご本人」と答えるたびに長い文（約400トークン＝入力の5倍の値段）を書き出していた"""
     if q.type in CHOICE_TYPES or asked is None:
-        taken = {label(c) for c in q.all_conditions if c not in q.conditions} | set(KIND_DESC)
+        taken = {label(c) for c in q.all_conditions if c not in q.conditions} | set(answer_kinds(q))
         head = []
         for c in q.all_conditions:
             if c in q.conditions and getattr(q, "named", False):
@@ -408,7 +466,7 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
                 head.append((label(c), system_desc(q, c), c))
     else:
         head = [(CONFIRM_LABEL[k], d, k) for k, d in CONFIRM_DESC.items()]
-    kinds = KIND_DESC | ({UNDECIDED: TALK_UNDECIDED} if talk_question(q) else {})
+    kinds = answer_kinds(q)
     return head + [(k, d, k) for k, d in kinds.items()]
 
 
@@ -488,6 +546,31 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
     except (ValueError, AttributeError):
         return None
     sure = sure if isinstance(sure, (int, float)) else None
+    r = _read_one(q, got, name, firm, sure, asked)
+    if r is not None:   # 測りの記録だけが使う確からしさの広がり（どの問いの読みでも同じ1か所）
+        r.probs = got.get("probs") if isinstance(got.get("probs"), dict) else None
+        r.confs = got.get("confs") if isinstance(got.get("confs"), dict) else None
+        used = used_sure(r.confs, str(r))
+        if used is not None:
+            r.sure = used
+    return r
+
+
+def used_sure(confs: dict | None, cond: str) -> float | None:
+    """読みの確からしさ＝その読みで流れの制御が使う問いの、選んだものの確からしさのいちばん低いもの（唯一の決まり。問いごとの確からしさを返す
+    判定だけ＝判断のモデル。返さなければ None＝返事の sure のまま）。分からない理由（WHY）は答えが わからない・答えたくない のときだけ使う
+    （Flow._why_of）・声が届いていない様子（HEAR）は確からしさに関係なく切れ方の材料に使う（確かでない読みも数える＝Flow.cut）ので入れない・
+    答えと電話を終える言葉か（END）と項目ごとの答えは、いつも使う。✅ 2026-11-07 日本時間11時29分43秒 ユーザー「違うなら、抜けている部分を
+    洗い出して、直しに入れてください」（途中のご報告の (ア)）。⛔ それまでは返した問いの全部のいちばん低いもので、G-53d1base では確かでない読みの
+    約6割に、答えが わからない でないのに使わない分からない理由の問いが入っていた"""
+    if not confs:
+        return None
+    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused"))]
+    return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
+
+
+def _read_one(q, got: dict, name, firm, sure, asked) -> "Reading | None":
+    """read の中身（項目ごとに答える質問と、ほかの質問）。"""
     if q.facets:
         # 項目ごとの答え（どれか1つでも無い・選べるものに無ければ、読めない返事）⇒ 組み合わせた読みと、読みに出ない事実の印（唯一の決まり）
         facts = {f.key: got.get(f.key) for f in q.facets}
@@ -497,7 +580,8 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
         value, away, new, successor = facts_reading(facts, getattr(q, "seeks_successor", False))
         r = Reading(value, True, sure)
         r.away, r.new, r.successor, r.facts = away, new, successor, facts
-        r.end, r.hear = facts.get(END), facts.get(HEAR)
+        for k in SIDE_ITEMS:
+            setattr(r, k, facts.get(k))   # 答えとは別に読む項目の読み（項目の名前の値＝flowctl.SIDE_ITEMS の1か所。⛔ 2026-11-06 日本時間15時台まで、ここと下と確かでない読みの記録の3か所が2つの項目を名前で手書きしていた）
         return r
     cond = next((c for n, _, c in options(q, asked) if n == name), None)
     if cond is None:
@@ -506,7 +590,9 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
         return None   # 答えとは別の項目に、選べるものに無い名前（読めない返事）。項目が無い返事（足す前の記録）は、読んでいない＝None
     r = Reading(cond, firm is not False, sure)
     r.firm_p = got.get("firm_p") if isinstance(got.get("firm_p"), (int, float)) else None
-    r.end, r.hear = (got.get(END), got.get(HEAR)) if answer_items(q) else (None, None)
+    items = answer_items(q)
+    for k in SIDE_ITEMS:
+        setattr(r, k, got.get(k) if k in items else None)
     return r
 
 
@@ -664,7 +750,7 @@ OTHER_JUDGES = {
     # 線（2026-10-18 G-53 の「曖昧の印と Jev」。線は正解の付いた答えの半分で決め、残りの半分で数えた）：
     # sure_min＝答えにする確からしさ（Jev が受け持って誤った数が 0.95 から0。下は答えにしない＝もう1つの判定で決める）・
     # firm_min＝言い切っているとする確からしさ（0.5 では要らない「曖昧」の印が53個、0.2 では5個）
-    # ground_min＝中身の判定（grounding）で読みにする確からしさ（2026-10-23 G-63：Jev が外したのは5回とも 0.48 以下・正しく通したのは 0.51 以上
+    # ground_sure_min＝中身の判定（grounding＝質問の種類 ground）で読みにする確からしさ（2026-10-23 G-63：Jev が外したのは5回とも 0.48 以下・正しく通したのは 0.51 以上
     # ＝線 0.8 で危ない文 0・Jev が決めるのは 76%。✅ 2026-10-23 の2回目・ユーザー承認で、中身の判定にも毎回入れた＝grounding.GROUNDERS）
     # facets_sure_min＝目的のお客様の判定（項目ごとに答える質問）で答えにする確からしさ（3つの項目の一番低いもの）。✅ 線の決め方は G-53 と同じ
     # （2026-10-18 ユーザーの案：正解の付いた答えの半分で決め、残りの半分で数える）。G-59 の60行×3回り：Jev が外れた回の確からしさは、1回り目で
@@ -680,8 +766,12 @@ OTHER_JUDGES = {
     #    答えの段の顔ぶれは d1-ultra → 考える Sonnet・Jev は d1-ultra の代わりだけ）。⛔ 同じ夜の G-53final：Jev は「利用は結構です」を確からしさ 1.0 で
     #    「利用する」と読んだ（線では防げない）＝d1-ultra と同時に出すと、Jev が先に答えた発話ではこの読みを受け取る（d1-ultra は正しく読んだ）
     "Jev 1.14": {"maker": "typesafe", "api": "decision", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
-                 "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_min": 0.8, "returned_sure_min": 0.6,
-                 "yen_per_char": 7.6e-6, "group_kinds": CALLING_KINDS + ("returned", "ground"), "stands_in": {"other": "d1 Ultra（Liquid）"}},
+                 "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_sure_min": 0.8, "returned_sure_min": 0.6,
+                 "yen_per_char": 7.6e-6, "group_kinds": CALLING_KINDS + ("other", "returned", "ground")},
+    # ⇒ ✅ 2026-11-07 日本時間8時05分55秒・8時57分04秒（F0）：答えの段も、お呼びする段と同じ形＝d1-ultra と Jev を同時に出し、d1-ultra の確かな読みを優先
+    #    → Jev の確かな読み → 考える Sonnet（並びは RACE の1か所）。10-31 の (b) の理由（先に届いた方を使うと Jev の読み違いを受け取る）は、11-05 に組の
+    #    決め方を優先の順（first_of）に直したときに成り立たなくなっていた。⚠️ 上の「利用は結構です」の読み（1.0）は、d1-ultra が確かでない言葉では Jev で
+    #    決まりうる＝今の文の1回の測りで、Jev が決めた行の外れを数える（CL-1.md 1 の (10)）
     # 前の話の答えの線（prior_min。2026-10-31 の夜・G-70 の前の話のある13組×3回）：d1-ultra が前の話と逆の返事を拾うのに要る前の話の答えは
     #    どれも 0.85 から上・「その日は空いています。」から説明会に参加するか（決まらないはず）の「参加する」は 0.45〜0.55 ⇒ 0.6（⏳ 組の数が少ない）
     # 待たせた方が戻ったかの線（returned_sure_min。2026-10-31 の昼・✅ ユーザー：「(b) 精度が100％ならOK」）：G-68 の18の言葉と、紛らわしい
@@ -742,6 +832,8 @@ def question_kind(q) -> str:
     q.facets）は facets・尋ねているか（選ぶものが flowctl.ASKS_MEANINGS の質問）は asks・待たせた方が戻ったか（flowctl.RETURN_MEANINGS）は
     returned・ほか（答えの意味の判定）は other。中身の判定（grounding）は質問を持たないので、呼ぶ側が ground と書く。
     ⛔ 2026-10-31：待たせた方が戻ったかを other（答えの意味と同じ種類）にしていた＝答えの段の線（測っていない）と答え用の文が入っていた"""
+    if q == "ground":
+        return "ground"
     if getattr(q, "facets", ()):
         return "facets"
     conds = set(getattr(q, "conditions", ()) or ())
@@ -773,10 +865,10 @@ def firm_matters(q, got) -> bool:
     付くか）と、値の言い直しを認めた読み。⛔ 2026-11-02 日本時間7時40分ごろ（G-53end）に見つけた：流れの制御（Flow._checks）と測りの道具（flow_act）は、
     言い切っていない「どちらでも」「どれも要らない」も確かめるのに、ここは選択肢だけを数えていた（同じ決まりを2か所に書き、片方だけ直していた）＝
     d1-ultra の「どちらでも」の読みは、言い切りが迷う値でも確かな読みとして採られ、言い切った「お任せします」を確かめていた（33件）。"""
-    # 言い切っていなくても確かめない質問（Question.firm_not_needed＝ご承認いただけなかったときの N1〜N3。流れの制御 Flow._checks と同じ決まり）では、
+    # 言い直して確かめない質問（flowctl.restates の1か所＝ほかのご希望 W1・伺い方 C11・ご承認いただけなかったときの N1〜N3。流れの制御と同じ決まり）では、
     # 言い切りは動きを変えない。⛔ 2026-11-03 に見つけた（d1-ultra の外れの原因を追った）：ここに無く、N2・N3 の言い切りの読みが迷うと考える Sonnet へ
     # 回し、測りの道具も要らない確かめを外れと数えていた（同じ決まりを流れの制御にだけ書いていた）
-    if getattr(q, "firm_not_needed", False):
+    if not restates(q):
         return False
     return got in (getattr(q, "conditions", ()) or ()) or got in (ANY, NONE) or got == "affirmed"
 
@@ -807,6 +899,13 @@ def takes_part(name: str, kind: str, missing=None) -> bool:
     return stood is not None and missing is not None and bool(missing(stood))
 
 
+def members_for(names, qkind: str, down=lambda name: False) -> list[str]:
+    """組 names のうち、qkind の質問に答える判定（唯一の場所。JudgePanel._parts と測りの数え g59_tally.cascade）：1つだけの組は、その判定。
+    ほかは takes_part（代わりだけの判定 stands_in は、代わる判定が組に無いか、止まっている down(その判定) ときだけ）。"""
+    names = list(names)
+    return [n for n in names if len(names) == 1 or takes_part(n, qkind, lambda s: s not in names or down(s))]
+
+
 # 質問の種類ごとに、止める側だけに使う判定（唯一の場所。JudgePanel）：その質問には自分で答えず、ほかの受け持ち（組）が確かな読みを返さないと
 #    分かった時点で裏で出し、その読みは、組の答えが待つ長さに間に合わない・組が答えられないときに、止める側（黙って待つ・繋ぐのを止める）だけに使う
 #    （NoJudgment の tried の stop_only ⇒ convo が Flow.on_unsure(…, answer=False)）。答えにはしない。
@@ -816,6 +915,12 @@ def takes_part(name: str, kind: str, missing=None) -> bool:
 #    答えにしていた＝その言葉（d1-ultra と Jev が2つとも確かでない言葉）96回中17回で流れの制御の動きが外れる（PHASE0 G-59）。組が答えられない
 #    ときの代わりは、同じ Sonnet の緊急の道（EMERGENCY）。答えの意味・待たせた方が戻ったかは今のまま同時に出す
 STOP_ONLY = {"3.5 Flash Lite": CALLING_KINDS}
+# 質問の種類ごとに、組の中で使わない判定（唯一の場所。JudgePanel._own・_backups）：その種類の質問には、自分でも答えず、止める側だけにも裏で出さない
+#    （ほかの受け持ちが無い＝1つの判定で測るときは答える）。✅ 2026-11-07 日本時間8時57分04秒（F0）：答えの段のその場の判定 3.5 Flash Lite は「まず使わない
+#    形で入れ、測りの数で使い方を決め、同じ1か所で切り替える」＝使うと決めたら、ここから "other" を外す（11-01・11-02 の前の文の記録では、使わない形の外れが
+#    いちばん少なかった＝要らない確かめも外れとして数える 10-29 の数え方。CL-1.md 1 の (10)）。待たせた方が戻ったか（returned）は2つの判定のそろいで決める
+#    （Flow.on_check）ので今までどおり
+UNUSED_IN = {"3.5 Flash Lite": ("other",)}
 
 
 PROBE_TEXT = "はい、しています。"   # 回復の確かめで判定に送る言葉（JudgePanel.probe）
@@ -833,16 +938,23 @@ def stop_only(name: str, kind: str) -> bool:
     return kind in STOP_ONLY.get(name, ())
 
 
-# 同時に出して、先に届いた確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
+def unused(name: str, kind: str) -> bool:
+    """判定 name が kind（question_kind）の質問では、組の中で使わない判定か（UNUSED_IN の1か所）。"""
+    return kind in UNUSED_IN.get(name, ())
+
+
+# 同時に出して、優先の順（並びの前ほど優先＝first_of）の確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
 #    ✅ 2026-10-23 ユーザー（中身の判定）：「W sonnetで暫定としてOK」・2回目「OK」（Jev と2つの Sonnet を同時に出し、早く届いた確かな読みで決める）
 #    ✅ 2026-10-25 ユーザー：「以前、JevやSonnet 5.5 の「考えない」形を使うと決めましたよね。同じことを聞くな！」＝意味の2つ目の判定も同じ組
 #    ⛔ 2026-10-25 の失敗：意味の2つ目の判定だけ Sonnet 5.5（考える）1つのまま（Jev は止まったときの代わりだけ）にして、答えまで中央 1.69秒・
-#       4割が2秒超のまま、「判定の顔ぶれと待つ長さ」を伺い続けた。確かな読み＝Jev は線（OTHER_JUDGES の sure_min・ground_min）から上だけ
+#       4割が2秒超のまま、「判定の顔ぶれと待つ長さ」を伺い続けた。確かな読み＝Jev は線（OTHER_JUDGES の sure_min・ground_sure_min）から上だけ
 #    ✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない Sonnet を出す形。OK」＝組の前に
 #       d1-ultra を足した。どの判定がどの質問に答えるかは takes_part の1か所（お呼びする段の2つ＝d1-ultra・Jev → 考えない Sonnet／答えの意味・
 #       中身の判定＝Jev → 考える・考えない Sonnet で今のまま）。先に出すのは組の中の判断のモデル全部（first_of の leads）
 #    ✅ 2026-10-31 の夜 ユーザー：(b)「OK」＝答えの意味は d1-ultra → 考える Sonnet（Jev は d1-ultra が止まったときの代わりだけ＝stands_in）。
 #       待たせた方が戻ったか・中身の判定は今のまま（Jev → 考える Sonnet。d1-ultra は中身の判定を測っていない）
+# 並びが優先の順（first_of：先に出す判断のモデルは d1-ultra が Jev より優先。✅ 2026-11-05 ユーザー：「d1-ultra と Jev を同時に出すが、
+#    d1-ultra の判定が優先じゃないんですか？」）
 RACE = ("d1 Ultra（Liquid）", "Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
 RACE_NAME = "d1 Ultra＋Jev 1.14＋Claude Sonnet 5.5（考える・考えない）"
 # 契約者が Jev を使わないと選んだとき（✅ 2026-10-18 ユーザー：「契約者設定で、Jev も使うか、Sonnetだけにするかも選択できるようにした方がいいね」。
@@ -940,7 +1052,13 @@ JEV_FIRM = {"true": FIRM_YES, "false": FIRM_NOT}
 JEV_MARKS = {FIRM: ("お客様の返事を、確かめずにそのまま記録しますか？", JEV_FIRM)}
 JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当たりますか？（答えとは別に読みます。答えを言っていても、電話を終える言葉が入っていれば、それ。"
                   + NOW_ONLY + "）",
-             HEAR: "お客様の言葉は、こちらの声がお客様に届いていない様子を表していますか？（答えとは別に読みます。" + NOW_ONLY + "）"}
+             HEAR: "お客様の言葉は、こちらの声がお客様に届いていない様子を表していますか？（答えとは別に読みます。" + NOW_ONLY + "）",
+             # ✅ 2026-11-06 日本時間15時20分30秒 ユーザー「(3)…判定に理由も読ませます。OK」（flowctl.why_choices・Flow._why_of）
+             WHY: "お客様が、分からない・答えたくないと言ったなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）",
+             # ✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」（flowctl.query_choices・queries_us）
+             QUERY: "お客様の言葉に、こちらの答えを求めて尋ねた問いがありますか？（答えとは別に読みます。文の終わりの「？」「。」の形ではなく、"
+                    "こちらの答えを求めているかで決めます。" + NOW_ONLY + "）"}
+assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 
 def jev_criteria(q, asked: str | None = None) -> dict:
@@ -1008,9 +1126,14 @@ def other_text(name: str, data: dict) -> str | None:
             return None
         confs = [a.get("confidence") for a in picked.values()]
         firm = (answers.get(FIRM) or {}).get("noul")
+        # 選べるもの全部の確からしさ（probabilities）と問いごとの確からしさも残す＝どの選べるものの間で割れたか・どの問いが低かったかを測りの記録で
+        # 見るため（決め方の sure は変えない。⛔ 2026-11-07 日本時間10時台まで捨てていた＝11-07 10時29分25秒「d1-ultraの確からしさが低いのは、
+        # こちらの設問か選択肢、説明の問題ということでしょ！」）
+        probs = {k: a["probabilities"] for k, a in picked.items() if isinstance(a.get("probabilities"), dict)}
         return json.dumps({k: a["choice"] for k, a in picked.items()} | {FIRM: firm is None or firm >= OTHER_JUDGES[name]["firm_min"],
                           "sure": min(confs) if all(isinstance(c, (int, float)) for c in confs) else None,
-                          "firm_p": firm if isinstance(firm, (int, float)) else None}, ensure_ascii=False)
+                          "firm_p": firm if isinstance(firm, (int, float)) else None,
+                          "probs": probs or None, "confs": {k: a.get("confidence") for k, a in picked.items()}}, ensure_ascii=False)
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
 
 
@@ -1361,32 +1484,67 @@ async def ajudge_other(client, name: str, q, text: str, asked: str | None = None
 PRIOR_READERS = ("d1 Ultra（Liquid）", "Jev 1.14")
 
 
+def _prior_walk(clients: dict, q, before: str):
+    """前の話の答えを読む順と取り出しの唯一の場所（同期の read_prior_first・通話の中の aread_prior_first は、送り方だけ）：PRIOR_READERS の順に
+    （判定の名前, 送るもの）を渡し、返ってきた文（つながらない・時間切れ・断られた・止まった＝None）を受け取る。読めた最初の判定の答え。どれも読めなければ
+    (None, None, None)。⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘5）：断られた（OtherJudgeError）ときだけ次の判定へ回し、
+    d1-ultra につながらない・時間切れのときは Jev に問い合わせずに誤りを上げていた（本書 9-5 の (6)「d1-ultra が読み（答えられなければ Jev）」）。
+    同期と非同期の2本が同じ形の写しだった"""
+    for name in PRIOR_READERS:
+        if name not in clients:
+            continue
+        text = yield name, prior_request(name, q, before)
+        if text is None:
+            continue
+        got = read_prior(q, other_text(name, text))
+        if got[2] is not None:
+            return got
+    return None, None, None
+
+
 def read_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
-    """前の話の答えを、PRIOR_READERS の順に読む（clients＝判定の名前 ⇒ other_client。読めた最初の判定の答え）。どれも読めなければ (None, None, None)。"""
-    for name in PRIOR_READERS:
-        if name not in clients:
-            continue
+    """前の話の答えを、PRIOR_READERS の順に読む（測りの道具の同期の形。clients＝判定の名前 ⇒ other_client）。読み方は通話の中の形と同じ1か所
+    （aread_prior_first＝順と取り出し _prior_walk・1回ずつの問い合わせ routed_call＝DOWN_AFTER_S で打ち切る）で、送り方だけ同期の client を別の
+    スレッドで送る。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の A5）：同期の形は自分で送り、打ち切りを持たなかった＝遅れた d1-ultra の
+    答えを待って使い、本番（打ち切って Jev）と違う判定の答えを数えうる形だった。
+    全体は、会話の側の待つ長さの1か所（flowctl.Limits.judge_wait_s）で打ち切る＝本番の組の入口（JudgePanel.ask）は、会話の側が待つのをやめる合図
+    （convo の release_at＝言葉が出揃ってから judge_wait_s）のあと前の話の答えを待たない（読めなかった＝食い違いを比べない）。⛔ 2026-11-06 日本時間
+    23時22分41秒のご質問の見直し（判定の組の持ち場の J3）：同期の形は1回ずつの打ち切り（DOWN_AFTER_S＝10秒）だけで、本番なら間に合わない遅れた
+    d1-ultra・Jev の答えを使って数えていた"""
+    import asyncio
+    from flowctl import Limits
+
+    async def send(client, name: str, body: dict) -> dict:
+        return await asyncio.to_thread(_send_other, client, name, body)
+
+    async def read():
         try:
-            got = read_prior(q, other_text(name, _send_other(clients[name], name, prior_request(name, q, before))))
-        except OtherJudgeError:
-            continue
-        if got[2] is not None:
-            return got
-    return None, None, None
+            return await asyncio.wait_for(aread_prior_first(clients, q, before, send=send), Limits().judge_wait_s())
+        except asyncio.TimeoutError:
+            return None, None, None
+    return asyncio.run(read())
 
 
-async def aread_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
-    """read_prior_first と同じ（通話の中の形。clients は other_client(…, aio=True)）。"""
-    for name in PRIOR_READERS:
-        if name not in clients:
-            continue
-        try:
-            got = read_prior(q, other_text(name, await _asend_other(clients[name], name, prior_request(name, q, before))))
-        except OtherJudgeError:
-            continue
-        if got[2] is not None:
-            return got
-    return None, None, None
+async def aread_prior_first(clients: dict, q, before: str, state=None, send=None) -> tuple[str | None, float | None, str | None]:
+    """read_prior_first と同じ（通話の中の形。clients は other_client(…, aio=True)）。1回ずつの問い合わせは、ほかの判定と同じ1か所（routed_call＝
+    DOWN_AFTER_S で打ち切る・止まった印・知らせ）を、組と同じ道の状態 state（JudgePanel。無ければこの読みだけの RouteState）で通し、止まっている判定には
+    送らない（⛔ 2026-11-06 日本時間8時台（EN-C の指摘6）：打ち切りは通信の60秒だけだった。同じ日、EN-C の残り「前の話の答えの止まりの記録」を確かめて
+    見つけた：routed_call を通らず、止まった d1-ultra にも送り、止まっても印も知らせ（通話の報告の ai_trouble）も残らなかった）。
+    send＝1回送る関数（client, 判定の名前, 送るもの）。無ければ通話の中の _asend_other（測りの道具の同期の形 read_prior_first は、同期の client を送る形）。"""
+    walk = _prior_walk(clients, q, before)
+    state = state if state is not None else RouteState()
+    tried: list[dict] = []
+    try:
+        name, req = next(walk)
+        while True:
+            if not state.usable(name):   # 止まっている（DOWN_S のあいだ）：次の判定へ
+                text = None
+            else:
+                got = await routed_call(state, name, lambda: (send or _asend_other)(clients[name], name, req), None, tried)
+                text = None if got is FAILED else got
+            name, req = walk.send(text)
+    except StopIteration as done:
+        return done.value
 
 
 BATCH_FACTOR = 0.5  # まとめて送る測り（Message Batches）の料金の掛け目：送った量すべて（前の部分の書き込み・読み出しも）が半分
@@ -1484,6 +1642,7 @@ STANDIN = "Jev 1.14"
 NO_GROUNDER = "なし"
 DOWN_AFTER_S = 10.0  # 1回の判定をこの秒で打ち切り、その判定は止まっているとみなす（報告を待たせるのは2秒まで。G-61：Sonnet 5.5 の最長 9.4秒）
 DOWN_S = 60.0        # 止まっているとみなした判定に、問い合わせずに代わりへ回す秒（毎回の発話で、止まった判定の答えを待たない）
+DOWN_NOTE = "止まっている（前の問い合わせ）"   # 止まっているとみなした判定に送らなかったときの記録（tried の error）
 
 
 def maker(name: str) -> str:
@@ -1514,11 +1673,34 @@ def outage(exc: BaseException) -> bool:
     return True
 
 
-class NoJudgment(RuntimeError):
-    """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由・prior＝前の話の答え＝JudgePanel.ask）。"""
-    prior: str | None = None
+def unsure_order(tried: list[dict], order) -> list[dict]:
+    """確かでない読み（tried の unsure のある記録）を、優先の順（組の並び order＝前の判定が先。並びに無い判定は後ろ・同じ判定は届いた順）に並べたもの
+    （唯一の決まり＝組の弱い読み Reading.weak・答えが無かった知らせ NoJudgment.unsure・会話の側が数える Flow.on_unsure とその寄り）。
+    ⛔ 2026-11-06 日本時間13時台の見直し（判定の持ち場の A7）で見つけた：届いた順の最初を使っていた＝同じ言葉の弱い読みが、どの判定が速く届いたかで
+    変わった。確かな読みを優先の順で決める（11-05 18時42分05秒 ユーザー「d1-ultra と Jev を同時に出すが、d1-ultra の判定が優先じゃないんですか？」＝
+    first_of）のと同じ理由なので、伺わずに同じ順にした"""
+    rank = {n: i for i, n in enumerate(order)}
+    return sorted((t for t in tried if "unsure" in t), key=lambda t: rank.get(t["model"], len(rank)))
 
-    def __init__(self, tried: list[dict]):
+
+def leans(tried) -> tuple[tuple, tuple]:
+    """確かでない読みの寄り（電話を終える言葉か end・こちらの声が届いていない様子か hear）の唯一の決まり＝(end の寄り, hear の寄り)：tried の確かで
+    なかった読み（unsure のある記録。止める側だけの読みは入れない）の全部。組が答えたとき（JudgePanel._mark＝Reading.end_lean・hear_lean）と答えが
+    無かったとき（NoJudgment.end_lean・hear_lean＝通話の側 convo が Flow.on_unsure へそのまま渡す）の両方が通る。流れの制御は寄りを集まりとして使う
+    （Flow._end_lean＝食い違った確かな読みも全部・怒っている・苦情に寄れば丁寧に締める側）ので、全部を渡す（確かでない答えそのもの＝1つ要る＝は
+    unsure_order の最初）。⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（判定の組の持ち場の J4）：答えが無かったとき、通話の側が優先の1つ
+    だけを渡していた＝同じ読みの組でも、組が答えたかで決まらないときの場面が変わった"""
+    unsure = [t for t in tried if "unsure" in t]
+    return tuple(t["end"] for t in unsure if t.get("end")), tuple(t["hear"] for t in unsure if t.get("hear"))
+
+
+class NoJudgment(RuntimeError):
+    """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由・unsure＝確かでない読みの記録を優先の順に
+    並べたもの＝unsure_order）。"""
+
+    def __init__(self, tried: list[dict], unsure: list[dict] | None = None):
+        self.unsure = unsure or []
+        self.end_lean, self.hear_lean = leans(self.unsure)   # 確かでない読みの寄り（組が答えたときの Reading と同じ1か所）
         def why(t: dict) -> str:
             if t.get("error"):
                 return t["error"]
@@ -1534,7 +1716,11 @@ class NoJudgment(RuntimeError):
 #    払っていた（送った問い合わせは、止めても料金がかかる）。記録の読みと秒で数えると、正しさは1件も変わらず、Sonnet は意味の判定で 58%・
 #    中身の判定で 70% 減る（PHASE0 G-59 の 10-29・phase0/judge_cost.py）。Jev の答えまでは中央 0.16秒
 #    ✅ 2026-10-30：先に出すのは組の中の判断のモデル全部（decision_model＝Jev・d1-ultra。同時に出す。d1-ultra の答えまでは中央 0.19秒）。
-#    G-59 の6回りで、2つがどちらも確かなときに読みが食い違った回は0（目的のお客様の判定21回・尋ねているか243回）＝先に届いた確かな読みで決める
+#    G-59 の6回りで、2つがどちらも確かなときに読みが食い違った回は0（目的のお客様の判定21回・尋ねているか243回）。10-31 の同じ文を事実ごとの
+#    読み（facts_reading）で数えても、2つとも確かな行の流れの制御の動きはどれも同じ（目的のお客様の判定7行・尋ねているか117行）。それでも、
+#    先に届いたほうで決めると、同じ言葉の読みがどちらが速く届いたかで変わりうる ⇒ 並びの前の d1-ultra を優先する（first_of の leads の順。
+#    ✅ 2026-11-05 ユーザー：「d1-ultra と Jev を同時に出すが、d1-ultra の判定が優先じゃないんですか？」。確かな読みの項目の外れは、10-31 の同じ
+#    文で d1-ultra 0/95・Jev 12/25＝どれも流れの制御が使わない項目。⛔ 11-05 18時台に「157行のうち72行が食い違い」と書いたのは数え違い）
 LEAD_WAIT_S = 0.3
 
 
@@ -1543,55 +1729,178 @@ def leads_of(names) -> tuple[int, ...]:
     return tuple(i for i, n in enumerate(names) if decision_model(n))
 
 
-async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S, on_rest=None):
-    """先に届いた使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める関数の並び
-    （引数なし・答えを返す）。usable(答え) が真の、最初に届いた答えを返し、残りの問い合わせは止める。どれも無ければ None。
+class Race:
+    """組の決め方の唯一の場所（時計を持たない）：本物の時計で動かすのが first_of（本番の組）、記録の秒で動かすのが race_recorded（測りの数え
+    g59_tally）。秒は問い合わせを始めた時からの秒。leads・wait_s・prefer_s（持っておく長さ。上限なしは inf）の意味は first_of と同じ。
+    ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘8）：測りの数え（g59_tally.cascade）は、決め方を手で写し（並べた順で
+    線から上か）、届いた秒を見なかった＝本番の組と違う判定で決めたと数えうる ⇒ 決め方をここへ移し、本番と測りが同じものを動かす。"""
+
+    def __init__(self, n: int, leads=(), wait_s: float = LEAD_WAIT_S, prefer_s: float = float("inf")):
+        self.n = n
+        self.lead_order = [i for i in leads if 0 <= i < n]
+        self.rank = {i: r for r, i in enumerate(self.lead_order)}   # 先に出すものの優先の順（小さいほど優先）
+        self.rest = [i for i in range(n) if i not in self.rank]
+        self.staged = bool(self.lead_order) and bool(self.rest)
+        # 全部が先に出すもの（お呼びする段で考えない Sonnet が止まっている＝d1-ultra と Jev だけ）でも、先のものから使える答えが無いと分かった時点で
+        # on_rest を1回呼ぶ（止める側だけの判定を裏で出す＝JudgePanel。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘6）：呼ばなかった）
+        self.backup_due = bool(self.lead_order) and not self.rest
+        self.wait_s, self.prefer_s = wait_s, prefer_s
+        self.started: list[int] = []                                # 出した番号（出した順）
+        self.finished: set[int] = set()                             # 答え終えた（使えない答え・失敗を含む）番号
+        self.held: dict = {}                                        # 使える答え（番号 ⇒ 答え。届いた順）
+        self.released = False                                       # 会話の側が待つのをやめた（first_of の release）
+
+    def begin(self) -> tuple[list[int], bool]:
+        """初めに出す番号の並びと、そのときに on_rest を呼ぶか（先に出すものが無い組は初めに呼ぶ・全部が先のものなら呼ばない）。"""
+        first = list(self.lead_order) if self.staged else list(range(self.n))
+        self.started += first
+        return first, not self.lead_order and self.n > 0
+
+    def done(self, i: int, got=None) -> None:
+        """番号 i が答え終えた（got＝使える答え。使えない答え・失敗は None）。"""
+        self.finished.add(i)
+        if got is not None:
+            self.held[i] = got
+
+    def pick(self, now: float):
+        """いま決めてよい番号（無ければ None）：持っている中でいちばん前の順の答え（先に出すものは並びの順・ほかのものは、どれも先に出すものの後ろで、
+        ほかのもの同士は届いた順＝先に出すものが無い組は今までどおり同時に出して早いほう）。それより前の順のものがまだ答えていなければ、待つ長さまで待つ。"""
+        if not self.held:
+            return None
+        mine = [i for i in self.held if i in self.rank]
+        i = min(mine, key=self.rank.get) if mine else next(iter(self.held))
+        top = self.rank.get(i, len(self.lead_order))
+        ahead = [j for j in self.started if j in self.rank and self.rank[j] < top and j not in self.finished]
+        if not ahead or now >= self.prefer_s or self.released:
+            return i                                          # 前の順のものが答え終えた・間に合わない・会話の側が待つのをやめた
+        return None                                           # 前の順（優先）の答えを待つ
+
+    def next(self, now: float) -> tuple[str, object]:
+        """いますること：("won", 番号)・("rest", 出す番号の並び＝on_rest を呼んで出す)・("none", None)＝使える答えが無い・
+        ("wait", 待つ秒の上限（None＝届くまで）)。"""
+        won = self.pick(now)
+        if won is not None:
+            return "won", won
+        pending = [i for i in self.started if i not in self.finished]
+        if (self.staged or self.backup_due) and not self.held and (not pending or now >= self.wait_s):
+            self.staged = self.backup_due = False             # 先のものから使える答えが無い：ほかを同時に出す（ほかが無くても on_rest は呼ぶ）
+            self.started += self.rest
+            return "rest", list(self.rest)
+        if not pending:
+            return "none", None
+        if (self.staged or self.backup_due) and not self.held:
+            return "wait", max(0.0, self.wait_s - now)
+        if self.held:
+            return "wait", max(0.0, self.prefer_s - now)
+        return "wait", None
+
+
+def race_recorded(runs, leads=(), wait_s: float = LEAD_WAIT_S, prefer_s: float | None = None) -> tuple[int | None, float, tuple[int, ...]]:
+    """記録の秒で組を決める（測りの数え g59_tally の入口。決め方は Race の1か所＝本番の first_of と同じ）：runs＝番号ごとの
+    (答え・失敗が届くまでの秒（その判定を出してから。届かなければ inf）, 使える答えか)。prefer_s の既定は会話の側の待つ長さ Limits.hold_s
+    （測りには会話の側の合図が無い＝合図の無い first_of と同じ。本番の待つ長さは言葉が出揃った時からなので、測りの秒は本番より厳しい側）。
+    同じ秒に届いたものは出した順に受ける（first_of が1回の待ちで受けたときと同じ）。返すのは (決めた番号（無ければ None）, 決めた秒, 出した番号)。"""
+    from flowctl import Limits
+
+    race = Race(len(runs), leads, wait_s, Limits().judge_wait_s() if prefer_s is None else prefer_s)
+    now = 0.0
+    first, _ = race.begin()
+    begun = {i: now for i in first}
+    while True:
+        act, arg = race.next(now)
+        if act == "won":
+            return arg, now, tuple(race.started)
+        if act == "rest":
+            begun.update({i: now for i in arg})
+            continue
+        if act == "none":
+            return None, now, tuple(race.started)
+        due = {i: begun[i] + runs[i][0] for i in race.started if i not in race.finished}
+        nxt = min(due.values())
+        limit = float("inf") if arg is None else now + arg
+        if nxt > limit:
+            now = limit
+            continue
+        now = nxt
+        for i in race.started:
+            if i not in race.finished and due[i] == now:
+                race.done(i, True if runs[i][1] else None)
+
+
+async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S, on_rest=None, prefer_s: float | None = None,
+                   release=None):
+    """使える答えで決める（本番の組の入口。JudgePanel の受け持ち・grounding.make_grounder。決め方は Race の1か所を本物の時計で動かす＝測りの数えは
+    同じ Race を記録の秒で動かす race_recorded）：starts＝問い合わせを始める関数の並び
+    （引数なし・答えを返す）。usable(答え) が真の答えを返し、残りの問い合わせは止める。どれも無ければ None。
     失敗した問い合わせ・None の答えは待たない（ほかの答えを待つ）。
-    leads＝先に出すもの（starts の番号。安くて速い判断のモデル＝leads_of）：それだけを同時に先に出し、使える答えが1つ届けばそれで決める（ほかは
-    出さない）。先に出したものが全部、使えない答え・失敗を返したとき、または wait_s 秒たっても使える答えが無いときに、ほかを同時に出す（まだ
-    答えていない先のものは、そのまま待つ）。leads が無いか、全部が先のものなら、全部を同時に出す。
-    on_rest＝先に出したもの以外（確からしさを返さない判定）を出す時点で呼ぶ（引数なし。先に出すものが無ければ初めに。全部が先のものなら呼ばない＝
-    JudgePanel が、組が確かな読みを返せないと分かった時点で、代わりも裏で出しておく）。"""
+    leads＝先に出すもの（starts の番号。安くて速い判断のモデル＝leads_of）：それだけを同時に先に出し、使える答えが届けばそれで決める（ほかは
+    出さない）。先に出したものが全部、使えない答え・失敗を返したとき、または wait_s 秒たっても使える答えが1つも無いときに、ほかを同時に出す
+    （まだ答えていない先のものは、そのまま待つ）。leads が無いか、全部が先のものなら、全部を同時に出す。ほかのもの（leads の外）は届いた順。
+    優先の順は1つ：leads の並びの順、そのあとにほかのもの（ほかのもの同士は届いた順）。使える答えは、それより前の順のものが、まだ答えていない間は持っておき、
+    前のものが使えない答え・失敗を返したら、持っている中でいちばん前の順の答えで決める（届いた順では決めない＝同じ言葉の読みが、どちらが速く届いたかで
+    変わらない）。先に出すものの答えを持っている間は、ほかを出さない。持っておくのは、問い合わせを始めてから prefer_s 秒（会話の側が判定を待つ長さ
+    Limits.hold_s の1か所）まで（それより遅い前の順のものは間に合わない＝持っている中でいちばん前の順の答えで決める）。⛔ 2026-11-06 日本時間8時台
+    （5時56分55秒のご質問の読み直し EN-C の指摘1）：ほかのもの（Sonnet）を出したあとは届いた順で決め、Sonnet の答えが届くと前の順の答えを待たなかった＝
+    d1-ultra の確かな読みが待つ長さの中で届いても、先に届いた Sonnet・Jev で決まっていた。✅ 2026-11-05 日本時間18時台 ユーザー：「d1-ultra と Jev を同時に出すが、
+    d1-ultra の判定が優先じゃないんですか？」（⛔ それまでは先に届いた使える答えで決めていて、お呼びする段の d1-ultra と Jev が2つとも確かな
+    とき、速い Jev の読みで決めていた＝同じ言葉の読みが、どちらが速く届いたかで変わりうる形だった。d1-ultra を前にするのは、答えの段で 10-31 に
+    Jev を代わりだけにしたのと同じく、d1-ultra のほうが正しく読むため（お呼びする段の 10-31 の同じ文でも、確かな読みの項目の外れは
+    d1-ultra 0/95・Jev 12/25＝LEAD_WAIT_S の説明））。
+    release＝会話の側が待つのをやめる合図（asyncio.Event。待つ長さは会話の側の1か所＝convo.check_handler の hold が、切れる時に立てる）：立ったら、
+    前の順のものを待たずに、持っている中でいちばん前の順の答えで決める（⛔ 2026-11-06 日本時間8時台（EN-C の指摘2・3）：組は問い合わせを始めてから
+    Limits.hold_s まで持ち、会話の側は言葉が出揃ってから flow.limits.hold_s で待つのをやめた＝持っていた Jev の読みが、会話の側が待つのをやめた直後に
+    渡り、目的の人かを1回確かめた）。
+    on_rest＝先に出したもの以外（確からしさを返さない判定）を出す時点で呼ぶ（引数なし。先に出すものが無ければ初めに。全部が先のものなら、先のものから
+    使える答えが無いと分かった時点で＝JudgePanel が、組が確かな読みを返せないと分かった時点で、代わりも裏で出しておく）。"""
     import asyncio
 
-    jobs, rest = [], True
-    if leads and len(leads) < len(starts):
-        pending = {asyncio.ensure_future(starts[i]()) for i in leads}
-        deadline = asyncio.get_running_loop().time() + wait_s
-        while pending:
-            done, pending = await asyncio.wait(pending, timeout=max(0.0, deadline - asyncio.get_running_loop().time()),
-                                               return_when=asyncio.FIRST_COMPLETED)
-            if not done:
-                break
-            for d in done:
-                try:
-                    got = d.result()
-                except Exception:
-                    got = None
-                if got is not None and usable(got):
-                    for p in pending:
-                        p.cancel()
-                    return got
-        jobs += list(pending)
-        starts = [s for i, s in enumerate(starts) if i not in leads]
-    elif leads:
-        rest = False   # 全部が先のもの（判断のモデルだけの組）：ほかを出す時点は無い
-    if rest and on_rest is not None and starts:
+    from flowctl import Limits
+
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    # 持っておく長さ：会話の側の合図（release）があれば、合図まで（待つ長さは会話の側の1か所＝自分の既定値では切らない）。合図の無い呼び出し（測りの道具・
+    # 中身の判定）は、会話の側と同じ既定値 Limits.hold_s
+    race = Race(len(starts), leads, wait_s, prefer_s if prefer_s is not None else float("inf") if release is not None else Limits().judge_wait_s())
+    running: dict = {}                                        # 出した問い合わせ（番号 ⇒ 仕事）
+
+    def start(idxs):
+        for i in idxs:
+            running[i] = asyncio.ensure_future(starts[i]())
+
+    rel = asyncio.ensure_future(release.wait()) if release is not None else None
+    first, rest_now = race.begin()
+    if rest_now and on_rest is not None:
         on_rest()
-    jobs += [asyncio.ensure_future(start()) for start in starts]
+    start(first)
     try:
-        for done in asyncio.as_completed(jobs):
-            try:
-                got = await done
-            except Exception:
+        while True:
+            race.released = release is not None and release.is_set()
+            act, arg = race.next(loop.time() - t0)
+            if act == "won":
+                return race.held[arg]
+            if act == "rest":                                 # 先のものから使える答えが無い：ほかを同時に出す
+                if on_rest is not None:
+                    on_rest()
+                start(arg)
                 continue
-            if got is not None and usable(got):
-                return got
-        return None
+            if act == "none":
+                return None
+            pending = {f for i, f in running.items() if i not in race.finished}
+            done, _ = await asyncio.wait(pending | ({rel} if race.held and rel is not None else set()), timeout=arg,
+                                         return_when=asyncio.FIRST_COMPLETED)
+            for i, f in running.items():
+                if f in done and i not in race.finished:
+                    try:
+                        got = f.result()
+                    except Exception:
+                        got = None
+                    race.done(i, got if got is not None and usable(got) else None)
     finally:
-        for j in jobs:
-            if not j.done():
-                j.cancel()
+        for f in running.values():
+            if not f.done():
+                f.cancel()
+        if rel is not None and not rel.done():
+            rel.cancel()
 
 
 SAME_MAKER = "ほかの受け持ちが同じ会社の判定で答えた"
@@ -1633,6 +1942,11 @@ async def routed_call(state: RouteState, name: str, direct, urgent, tried: list[
     from common import redact
 
     timeout = DOWN_AFTER_S if timeout is None else timeout
+    if not state.usable(name, urgent):
+        # 止まっているとみなした判定（DOWN_S のあいだ。緊急の道も無い・止まっている）には送らない（意味の判定の組・中身の判定の組・止まった判定の代わり・
+        # 前の話の答えの、どの入口からも同じ＝この1か所。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘2）：意味の判定の組にだけあった）
+        tried.append({"model": name, "error": DOWN_NOTE})
+        return FAILED
     def note(entry: dict) -> None:
         tried.append(entry)
         if (entry.get("outage") or entry.get("used")) and state.on_trouble is not None:
@@ -1667,7 +1981,7 @@ async def routed_call(state: RouteState, name: str, direct, urgent, tried: list[
 
 class JudgePanel(RouteState):
     """通話の中の意味の判定の受け持ち（唯一の場所。DESIGN.md 6-10 の (6)）：受け持ち（judge・judge2）ごとに、決めた判定の組へ同時に問い合わせ、
-    先に届いた確かな読みで決める（組＝members。1つだけの組もある）。受け持ちの組のどれも答えなかった（止まっている・上限・時間切れ・読めない返事・
+    優先の順（組の並びの前ほど優先＝first_of）の確かな読みで決める（組＝members。1つだけの組もある）。受け持ちの組のどれも答えなかった（止まっている・上限・時間切れ・読めない返事・
     確からしさが線より下）ときは、代わり（STANDIN）に問い合わせる。
     - 1つの発話で、2つの受け持ちの答えは違う会社から（同じ会社だと、独立した2つの確かめにならない・止まるのも遅れるのも一緒）：
       ほかの受け持ちが答えた会社の読みは使わない。代わりが入っている間は、ほかの受け持ちの組から代わりと同じ会社を外す
@@ -1689,7 +2003,7 @@ class JudgePanel(RouteState):
         from collections import OrderedDict
 
         super().__init__(down, clock)
-        # 前の話の答えを読む道具（async (質問, 前の話) -> (中の名前, 確からしさ, 線より下も含めた選び)＝aread_prior_first。無ければ問わない）。
+        # 前の話の答えを読む道具（async (質問, 前の話, state=この組) -> (中の名前, 確からしさ, 線より下も含めた選び)＝aread_prior_first。道の状態は組と同じ＝止まった印・知らせ。無ければ問わない）。
         # 同じ質問と前の話には1回だけ問い合わせる（2つの受け持ちが同じ発話を読んでも、前の話の答えは同じ＝prior_jobs）
         self.prior, self.prior_jobs = prior, OrderedDict()
 
@@ -1703,7 +2017,9 @@ class JudgePanel(RouteState):
                            and all(any(maker(n) != s for n, _ in other) for k2, other in self.judges.items() if k2 != k)}
             if not self.serves:
                 self.standin = None
-        self.holder: str | None = None  # 代わりが入っている受け持ち
+        # 代わりが入っている受け持ち（発話の印＝質問と言葉 ⇒ 受け持ち）。会社を分ける決まりは「1つの発話の同じ質問で」なので、発話ごとに持つ（⛔ 2026-11-06
+        # 日本時間8時台（EN-C の指摘4）：組に1つだけ持っていて、一度代わりが入ると、そのあとの別の発話でもお呼びする段の Jev を外していた）
+        self.holders: dict = {}
         self.answered: OrderedDict = OrderedDict()  # 発話 ⇒ {受け持ち: (答えた会社, 時刻)}（同じ発話で、2つの受け持ちを同じ会社にしない）
         self.backup = backup
         # emergency_first（RouteState）＝契約者以上の権限で、緊急の道を使って再開した通話（✅ 2026-10-30 夜 ユーザー：「どうしても使わなければいけない
@@ -1713,8 +2029,8 @@ class JudgePanel(RouteState):
 
     def slot(self, kind: str):
         """受け持ち kind の判定（convo.check_handler に渡す形。panel＝この受け持ちの仕組み・answers＝その質問に自分で答えるか）。"""
-        async def run(q, text, asked=None, before=None, early=None):
-            return await self.ask(kind, q, text, asked, before, early)
+        async def run(q, text, asked=None, before=None, early=None, release=None):
+            return await self.ask(kind, q, text, asked, before, early, release)
         run.panel = self
         run.answers = lambda q: self.answers(kind, q)
         return run
@@ -1723,15 +2039,17 @@ class JudgePanel(RouteState):
         """受け持ち kind の判定のうち、組の中の分け（takes_part）で qkind の質問に答えるもの（1つだけの受け持ちは、その判定）。代わりだけの
         判定（stands_in）は、代わる判定が組に無いか、止まっている（DOWN_S のあいだ）ときだけ入る。"""
         ms = self.judges[kind]
-        names = {n for n, _ in ms}
-        return [(n, f) for n, f in ms if len(ms) == 1 or takes_part(n, qkind, lambda s: s not in names or self._down(s))]
+        keep = set(members_for([n for n, _ in ms], qkind, self._down))
+        return [(n, f) for n, f in ms if n in keep]
 
     def _own(self, kind: str, qkind: str) -> list:
         """受け持ち kind が qkind の質問に自分で出す判定：組の中の分けのうち、ほかの受け持ちに自分で答える判定があれば、止める側だけの判定
         （stop_only）を除く（ほかの受け持ちが無い・ほかも止める側だけなら、自分で答える＝1つの判定で測るとき）。"""
+        # 組の中で使わない判定（unused＝UNUSED_IN）も、ほかの受け持ちに自分で答える判定があれば除く（止める側だけと同じ形。裏でも出さない＝_backups）
+        aside = lambda n: stop_only(n, qkind) or unused(n, qkind)
         mine = self._parts(kind, qkind)
-        if any(not stop_only(n, qkind) for k in self.judges if k != kind for n, _ in self._parts(k, qkind)):
-            mine = [(n, f) for n, f in mine if not stop_only(n, qkind)]
+        if any(not aside(n) for k in self.judges if k != kind for n, _ in self._parts(k, qkind)):
+            mine = [(n, f) for n, f in mine if not aside(n)]
         return mine
 
     def answers(self, kind: str, q) -> bool:
@@ -1745,13 +2063,13 @@ class JudgePanel(RouteState):
             return []
         makers = {maker(n) for n, _ in self._own(kind, qkind)}
         return [(n, f) for k in self.judges if k != kind for n, f in self._parts(k, qkind)
-                if (n, f) not in self._own(k, qkind) and maker(n) not in makers]
+                if (n, f) not in self._own(k, qkind) and maker(n) not in makers and not unused(n, qkind)]
 
     def reset(self) -> None:
         """止まっているとみなした印と、代わりが入っている受け持ちを消す（判定の読みを言葉ごとに測る試験だけ：1つの言葉の時間切れで、
         次の言葉からの問い合わせを飛ばさない。⛔ 2026-10-22 G-59：3.5 Flash Lite の時間切れ1回のあと、残りの言葉を全部飛ばして数えた）。"""
         self.down_until.clear()
-        self.holder = None
+        self.holders.clear()
         self.answered.clear()
 
     async def probe(self) -> list[dict]:
@@ -1794,7 +2112,7 @@ class JudgePanel(RouteState):
             return None
         if not sure_reading(name, q, got):  # 確からしさを返す判定（Jev・d1）は、確かな読み（線から上・言い切りが幅の外）だけを答えにする
             tried.append({"model": name, "unsure": str(got), "sure": got.sure, "s": round(self.clock() - t0, 3)}
-                         | ({"end": got.end} if getattr(got, "end", None) else {}) | ({"hear": got.hear} if getattr(got, "hear", None) else {}))
+                         | {k: getattr(got, k) for k in SIDE_ITEMS if getattr(got, k, None)})
             return None
         return got
 
@@ -1802,7 +2120,7 @@ class JudgePanel(RouteState):
         """この発話で、ほかの受け持ちが答えに使った会社と、代わりがほかの受け持ちに入っているならその会社（kind の答えに使わない）。"""
         fresh = self.clock() - DOWN_AFTER_S - 1.0  # 1つの発話の2つの受け持ちは、この秒のうちに答える（同じ言葉の前の発話の答えは見ない）
         taken = {m for k, (m, t) in self.answered.get(key, {}).items() if k != kind and t >= fresh}
-        if self.standin and self.holder not in (None, kind):
+        if self.standin and self.holders.get(key) not in (None, kind):
             taken.add(maker(self.standin[0]))
         return taken
 
@@ -1812,36 +2130,42 @@ class JudgePanel(RouteState):
         while len(self.answered) > 64:
             self.answered.popitem(last=False)
 
-    async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
+    async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None, release=None) -> Reading:
         """受け持ち kind の判定で、言葉 text を読む（_ask）。前の話の答えを問うとき（prior_asked）は、組の1か所（ここ）で、いまの言葉の問い合わせと
         同時に前の話の答えを問い合わせ（self.prior＝PRIOR_READERS の順）、返す読みに添える（読めなくても、いまの言葉の答えは使う＝食い違いを
         比べないだけ）。前の話の答えの問い合わせは短い（d1-ultra で約0.5秒）ので、待つ長さは延びない。"""
         import asyncio
 
         if self.prior is None or not prior_asked(q, asked, before):
-            return await self._ask(kind, q, text, asked, before, early)
+            return await self._ask(kind, q, text, asked, before, early, release)
         pkey = (getattr(q, "id", None), tuple(getattr(q, "conditions", ()) or ()), before)
         job = self.prior_jobs.get(pkey)
         if job is None:
-            job = self.prior_jobs[pkey] = asyncio.ensure_future(self.prior(q, before))
+            job = self.prior_jobs[pkey] = asyncio.ensure_future(self.prior(q, before, state=self))   # 道の状態は組と同じ（止まった印・知らせ）
             while len(self.prior_jobs) > 32:   # 古い発話の分は捨てる（同じ質問・同じ前の話は、その発話のあいだだけ使う）
                 self.prior_jobs.popitem(last=False)
 
         async def prior_of():
+            # 会話の側が待つのをやめる合図（release）が立ったら、前の話の答えは待たない（いまの言葉の答えを遅らせない＝待つ長さは会話の側の1か所。
+            # ⛔ 2026-11-06 日本時間8時台（EN-C の指摘6）：前の話の答えが遅れると、いまの言葉の読みも同じだけ遅れた）
             try:
-                return await asyncio.shield(job)
+                if release is None:
+                    return await asyncio.shield(job)
+                rel = asyncio.ensure_future(release.wait())
+                try:
+                    done, _ = await asyncio.wait({job, rel}, return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    rel.cancel()
+                return job.result() if job in done else (None, None, None)
             except Exception:   # 読めなくても、いまの言葉の答えは使う（食い違いを比べないだけ）
                 return None, None, None
-        try:
-            got = await self._ask(kind, q, text, asked, before, early)
-        except NoJudgment as exc:
-            # 組が答えられなかった：前の話の答えは、会話の側が確かめ（flowctl.PRIOR_CHECK）として流れの制御へ渡す（会話AIの報告と比べる）
-            exc.prior = (await prior_of())[0]
-            raise
+        # 組が答えられなかったとき（NoJudgment）は、前の話の答えを待たずにそのまま上げる（前の話の答えは判定の読みに添えるだけ＝会話AIの報告と比べない＝
+        # 会話AIは判定に加えない。✅ 2026-11-08 日本時間12時11分40秒。⛔ それまでは前の話の答えを待って例外に付け、会話の側が会話AIの報告と比べていた）
+        got = await self._ask(kind, q, text, asked, before, early, release)
         got.prior, got.prior_p, got.prior_raw = await prior_of()
         return got
 
-    async def _ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
+    async def _ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None, release=None) -> Reading:
         """受け持ち kind の判定で、言葉 text を読む。early＝組が確かな読みを返せないと分かった時点で裏で出した止める側だけの判定（STOP_ONLY）
         の読みが、組の答えより先に届いたら知らせる先（引数は読み。会話の側が、組の答えが待つ長さに間に合わなかったときだけ、止める側だけに
         使う＝convo.check_handler。✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」）。"""
@@ -1857,7 +2181,7 @@ class JudgePanel(RouteState):
             raise NoJudgment([{"model": n, "error": "この質問では止める側だけ"} for n, _ in self.judges[kind]])
         for name, fn in own:
             if not self.usable(name, getattr(fn, "emergency", None)):
-                tried.append({"model": name, "error": "止まっている（前の問い合わせ）"})
+                tried.append({"model": name, "error": DOWN_NOTE})
             elif maker(name) in self._taken(kind, key):
                 tried.append({"model": name, "error": SAME_MAKER})
             else:
@@ -1894,17 +2218,17 @@ class JudgePanel(RouteState):
                 return got
             ahead = (bname, asyncio.ensure_future(go()))
         won = await first_of([start(n, f) for n, f in live], usable, leads=leads_of([n for n, _ in live]),
-                             on_rest=start_ahead if backups else None)
+                             on_rest=start_ahead if backups else None, release=release)
         if won is not None:
             if ahead is not None:
                 ahead[1].cancel()  # 組が答えた：裏の代わりは使わない
-            if self.holder == kind:
-                self.holder = None
+            if self.holders.get(key) == kind:
+                del self.holders[key]
             self._keep(kind, key, won[0])
             return self._mark(won[1], won[0], tried)
         # 受け持ちの判定がどれも答えなかった：確かでない読み（流れの制御が数える＝Reading.weak・NoJudgment の unsure）と、止める側だけの判定の読み
         # （答えにはしない＝NoJudgment の tried の stop_only。会話の側が止める側だけに使う）・止まった判定の代わり STANDIN の順
-        weak = next((t["unsure"] for t in tried if "unsure" in t), None)
+        weak = (unsure := unsure_order(tried, [n for n, _ in own])) and unsure[0]["unsure"] or None
         if ahead is not None:  # 裏で出しておいた止める側だけの判定：その読みを待つ（同じ判定に2回は問い合わせない）
             bname, job = ahead
             got = await job
@@ -1913,30 +2237,31 @@ class JudgePanel(RouteState):
             backups = []
         for bname, bfn in backups:
             if self._down(bname):
-                tried.append({"model": bname, "error": "止まっている（前の問い合わせ）"})
+                tried.append({"model": bname, "error": DOWN_NOTE})
             elif maker(bname) in self._taken(kind, key):
                 tried.append({"model": bname, "error": SAME_MAKER})
             elif (got := await self._try(bname, bfn, q, text, asked, before, tried)) is not None:
                 tried.append({"model": bname, "stop_only": str(got)})
                 break
-        if self.standin is None or kind not in self.serves or self.holder not in (None, kind):
-            raise NoJudgment(tried)
+        if self.standin is None or kind not in self.serves or self.holders.get(key) not in (None, kind):
+            raise NoJudgment(tried, unsure_order(tried, [n for n, _ in own]))
         sname, sfn = self.standin
         if maker(sname) in self._taken(kind, key):
             tried.append({"model": sname, "error": SAME_MAKER})
-            raise NoJudgment(tried)
-        self.holder = kind
+            raise NoJudgment(tried, unsure_order(tried, [n for n, _ in own]))
+        self.holders[key] = kind
+        while len(self.holders) > 64:   # 古い発話の分は捨てる（answered と同じ数）
+            del self.holders[next(iter(self.holders))]
         got = await self._try(sname, sfn, q, text, asked, before, tried)
         if got is None:
-            raise NoJudgment(tried)
+            raise NoJudgment(tried, unsure_order(tried, [n for n, _ in own]))
         self._keep(kind, key, sname)
         return self._mark(got, sname, tried, weak)
 
     @staticmethod
     def _mark(got: Reading, name: str, tried: list[dict], weak: str | None = None) -> Reading:
         got.by, got.tried, got.weak = name, tuple(tried), weak
-        got.hear_lean = tuple(t["hear"] for t in tried if "unsure" in t and t.get("hear"))   # 確かでなかった読みの、こちらの声が届いていない様子か
-        got.end_lean = tuple(t["end"] for t in tried if "unsure" in t and t.get("end"))   # 確かでなかった読みの、電話を終える言葉か（止める側だけの読みは入れない）
+        got.end_lean, got.hear_lean = leans(tried)   # 確かでなかった読みの寄り（電話を終える言葉か・こちらの声が届いていない様子か。答えが無かった知らせと同じ1か所）
         return got
 
 
@@ -1977,8 +2302,8 @@ def make_prior(args):
     if not clients:
         return None
 
-    async def prior(q, before):
-        return await aread_prior_first(clients, q, before)
+    async def prior(q, before, state=None):
+        return await aread_prior_first(clients, q, before, state)
     return prior
 
 

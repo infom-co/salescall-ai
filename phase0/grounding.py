@@ -30,7 +30,7 @@ import time
 #    危ない文を通した 0・2秒を超えたのは168回中3回。1つだけのときは 164回中22回）。⚠️ 2つとも同じ会社（Anthropic）＝止まるのも混むのも一緒
 #    （そのときは全部が受け皿＝安全側）。違う会社の判定は、2秒に入って危ない文を通さないものが見つかったら入れ替える（Jev 1.14 は線 0.8 で候補）
 # ✅ 2026-10-23 の2回目・ユーザー「OK」：Jev 1.14 と2つの Sonnet を同時に出し、早く届いた確かな読みで決める（Jev は確からしさの線 0.8 より下なら
-#    届かなかったのと同じ＝Sonnet を待つ。`grounding.trusted`）。同じ時間帯に並べて測った（G-63 `race3`・`race2b`）：危ない文はどちらも0・
+#    届かなかったのと同じ＝Sonnet を待つ。`grounding.trusted`＝`meaning_judge.sure_reading`）。同じ時間帯に並べて測った（G-63 `race3`・`race2b`）：危ない文はどちらも0・
 #    答えまで中央 0.2秒（2つの Sonnet は 1.4秒）・2秒を超えたのは168回中1回（同4回）。Jev だけでは、線より下で決められないのが約4回に1回
 #    （そのたびに AI の文が使えず決まった一言になる）。毎回 TypeSafe・OpenRouter（米国）へも送る＝Intent.md 13章に書き足した（ユーザー承認）
 from meaning_judge import RACE  # noqa: E402（組は1か所＝meaning_judge.RACE。意味の2つ目の判定と同じ組）
@@ -134,12 +134,15 @@ async def ask_gemini(client, model: str, knowledge: list[str], said: str, draft:
 
 
 def trusted(by: str | None, sure: float | None) -> bool:
-    """確からしさを返す判定（Jev）の読みを、読みとして使うか：線（OTHER_JUDGES の ground_min）から上だけ（下は届かなかったのと同じ＝
-    同時に出したほかの判定を待つ。どれも無ければ文は声に出さない）。線の無い判定・確からしさの無い読みは使う。"""
-    from meaning_judge import OTHER_JUDGES
+    """確からしさを返す判定（Jev）の読みを、読みとして使うか：確かな読みの決まりの1か所（meaning_judge.sure_reading。質問の種類 ground の線＝
+    OTHER_JUDGES の ground_sure_min）から上だけ（下と確からしさの無い読みは届かなかったのと同じ＝同時に出したほかの判定を待つ。どれも無ければ文は
+    声に出さない）。線の無い判定は使う。⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の指摘3）：ここに別の決まりを書き、確からしさの無い
+    読みを確かとしていた（意味の判定は確かでないとする）"""
+    from types import SimpleNamespace
 
-    line = OTHER_JUDGES.get(by or "", {}).get("ground_min")
-    return line is None or sure is None or sure >= line
+    from meaning_judge import sure_reading
+
+    return sure_reading(by or "", "ground", SimpleNamespace(sure=sure, firm_p=None))
 
 
 # Jev（選ぶ・分けるだけの専用モデル）への問い方：公式の型（場面・短い問い1つ・選択肢の意味は定義に書く）。決まりの中身は PROMPT と同じ
@@ -266,16 +269,14 @@ def verbatim(draft: str, knowledge: list[str]) -> bool:
 
 def make_grounder(args, names: tuple[str, ...], state=None):
     """通話の中で使う形：async (知っていること, お客様の言葉, 返す文) -> Verdict | None。names の判定（ふだんは GROUNDERS）に出し、
-    先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。組の中で中身の判定に答えるのは takes_part（ground）の判定だけ
+    先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。組の中で中身の判定に答えるのは members_for（ground）の判定だけ
     （d1-ultra は測っていないので入らない）。判断のモデル（Jev）があれば先に出し、確かな読みが無いときだけほかを出す（意味の判定と同じ1か所＝
     first_of・leads_of）。どれも届かなければ None（呼ぶ側が待つ長さで打ち切り、文は声に出さない）。
     1回ずつの問い合わせは意味の判定と同じ1か所（meaning_judge.routed_call）：道の選び方（直接が止まっていれば緊急の道）・止まった印・知らせは
     state（meaning_judge.RouteState。通話の中では意味の判定の受け持ちと同じもの＝make_judges）。
     ⚠️ 遅れて届いた読みは使わない（声はもう出ている）＝呼ぶ側が通話の事実に残し、通話後の検証が見る。"""
-    from meaning_judge import EMERGENCY_ROUTE, FAILED, OTHER_JUDGES, RouteState, first_of, leads_of, routed_call, takes_part
-    names = [n for n in names if n]
-    if len(names) > 1:
-        names = [n for n in names if takes_part(n, "ground")]
+    from meaning_judge import EMERGENCY_ROUTE, FAILED, OTHER_JUDGES, RouteState, first_of, leads_of, members_for, routed_call
+    names = members_for([n for n in names if n], "ground")   # 組の中で中身の判定に答える判定（意味の判定の組と同じ1か所）
     state = state if state is not None else RouteState()
 
     def urgent_reader(n):
@@ -294,9 +295,11 @@ def make_grounder(args, names: tuple[str, ...], state=None):
             return None if got is FAILED else got
         return go
 
-    async def ground(knowledge, said, draft):
+    async def ground(knowledge, said, draft, release=None):
+        """release＝会話の側が待つのをやめる合図（convo の ground が立てる）：立ったら、持っている読みのうち、いちばん前の順の読みを返す（意味の判定と
+        同じ1か所＝first_of。合図の無い呼び出し＝測りの道具 g63_grounding は、組の既定値 Limits.hold_s まで持つ）。"""
         tried: list[dict] = []
         return await first_of([start(n, d, u, knowledge, said, draft, tried) for n, d, u in readers], lambda v: trusted(v.by, v.sure),
-                              leads=leads_of(names))
+                              leads=leads_of(names), release=release)
     ground.state = state
     return ground

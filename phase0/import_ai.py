@@ -17,11 +17,14 @@ from __future__ import annotations
 from typing import Callable
 
 import facts
+import maybes
 import meanings
+import purposes
 import target_asks
 import topics
 import unclear
 import units
+import ways
 
 Asker = tuple   # (client, モデルの名前)
 
@@ -156,15 +159,51 @@ def decide_unclear(askers: list[Asker], questions: list[tuple[str, tuple]], on_e
     return [unclear.decide(c, [r[i] for r in rows]) for i, (_, c) in enumerate(items)]
 
 
+def decide_ways(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, bool]:
+    """業務の質問の文の並び → 文ごとの「ご案内の方法でご案内してよいかを伺う質問か」（ways.decide＝2つのモデルがそろって真のときだけ真。そろわない・答えが無い
+    ときは偽＝今までどおり「ほかにご希望などは…」）。答えは Question.asks_way（はい／いいえで伺う最終目的の質問だけに効く＝flowctl._wish_text）。
+    facts.decide と同じ形（文の並び → 真偽）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」（お言葉は ways.py の頭）"""
+    if not texts:
+        return {}
+    rows = _each(askers, lambda c, m: ways.by_model(c, m, texts), [None] * len(texts), on_error)
+    return {t: ways.decide([r[i] for r in rows]) for i, t in enumerate(texts)}
+
+
+def decide_maybes(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[tuple]:
+    """(質問の文, 選択肢の並び) の並び → 同じ並びで、お客様が「どちらの場合もありうる」と言ったときに確かめる (選択肢, 言葉)（当たらない・決まらないなら空＝
+    maybes.decide）。業務の選ぶ質問（はい／いいえ・選択肢）だけを渡すのは呼ぶ側（CL-2 の取込。値を伺う質問は入れない）。答えは Question.maybe。
+    decide_unclear と同じ形。⛔✅ 2026-11-09 日本時間4時36分49秒 ユーザー（お言葉は maybes.py の頭）"""
+    items = [(q[0], tuple(q[1])) for q in questions]
+    if not items:
+        return []
+    rows = _each(askers, lambda c, m: maybes.by_model(c, m, items), [None] * len(items), on_error)
+    return [maybes.decide(c, [r[i] for r in rows]) for i, (_, c) in enumerate(items)]
+
+
 # ⚠️ decide_away・decide_unclear は、CL-2 の取込の受け口（business_import.preview）が受けるようになったら、ここに足す（比べる試験 test_shapes_match_cl2_import が
 # 名前のずれを見る。いまの CL-2 の受け口は取り下げた decide_keep_words＝帳面 4-72 で替えていただくよう頼んだ）
 # 決める処理の唯一の一覧（CL-2 の取込 business_import.preview の decide_* の受け口と同じ名前＝試験で比べる）。decide_away・decide_unclear は、CL-2 の受け口が
 # できた（CL-2 の連絡帳 4-212 の (A)。⛔ それまで、この一覧に無く、取込から呼ばれなかった）
+def decide_purposes(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, str]:
+    """用件の一文の並び → 文ごとの用件の名詞（purposes.decide＝2つのモデルがそろって、その文の中の言葉のときだけ。そろわない・答えが無い・文に無い言葉なら空＝
+    続きの電話でも今の用件の一文のまま）。答えは instruction.Business.purpose_noun（CL-2 の取込が業務設定へ）。✅ 2026-11-09 日本時間9時48分09秒の (4)"""
+    if not texts:
+        return {}
+    rows = _each(askers, lambda c, m: purposes.by_model(c, m, texts), [None] * len(texts), on_error)
+    return {t: purposes.decide(t, [r[i] for r in rows]) for i, t in enumerate(texts)}
+
+
 DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
             "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words,
             "decide_away": decide_away, "decide_unclear": decide_unclear,
             # いまの話の向きを伺う言葉・お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-199 の (1)・4-203 の (1)。⏳ CL-2 の受け口ができるまで CL2_PENDING）
-            "decide_doubt_words": decide_doubt_words, "decide_target_asks": decide_target_asks}
+            "decide_doubt_words": decide_doubt_words, "decide_target_asks": decide_target_asks,
+            # ご案内の方法を伺う質問か（✅ 2026-11-05 日本時間23時19分06秒「案でOK　(2)ア」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4章で頼む）
+            "decide_ways": decide_ways,
+            # どちらの場合もありうると言われたときに確かめる答えと言葉（⛔✅ 2026-11-09 日本時間4時36分49秒。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-123）
+            "decide_maybes": decide_maybes,
+            # 用件の一文の中の用件の名詞（続きの電話の用件の一文を前の電話とつなげる＝✅ 11-09 日本時間9時48分09秒の (4)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-128）
+            "decide_purposes": decide_purposes}
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None) -> dict[str, Callable]:

@@ -3,7 +3,7 @@
 import json, sys, glob
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from g53_meaning import JUDGES, accept, dangerous, mark, question_map, versus
+from g53_meaning import JUDGES, accept, dangerous, mark, question_map
 from flowctl import UNDECIDED
 from collections import Counter
 qmap = question_map()
@@ -35,5 +35,3 @@ for j in J:
     print("   曖昧の印:", dict(Counter(m for i in its if (m := mark(i, j)))))
     bad = [i for i in its if dangerous(i, qmap[i["qid"]], j)]
     print("   危ない:", Counter((i["set"], i.get("kind")) for i in bad).most_common(6))
-    if j != "3.5 Flash Lite":
-        print("   いまの判定と比べて:", versus(items, qmap, j))

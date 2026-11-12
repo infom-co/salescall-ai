@@ -4,7 +4,8 @@
   Sonnetを使う形がいいんじゃないですか？」）＝Jev の確からしさが線から上なら Jev、そうでなければ難しくない場面（呼ぶ一言への返事・確かめへの
   返事）は安い判定、難しい場面（取り次ぎのあと・後任の方）は今の組。場面は流れの制御の状態だけで分ける（言葉の中身で分けない）
 - agree：会社の違う安い判定2つの読みが、流れの制御の動きでそろえば決め、そろわなければ今の組を出す形を数える（2秒超も、ご本人の回とほかの回に分ける）
-- cascade：判断のモデル（Jev・d1 など）を線つきで並べ、どれかが線から上なら決め、どれも違えば今の組を出す形を数える"""
+- cascade：本番の組（meaning_judge.RACE）が、判定ごとの記録（1つの判定で測った結果）の秒で、どの判定で決めるかを本番と同じ1か所で決めて数える
+  （顔ぶれ＝members_for・確かな読み＝sure_reading・先に出すもの＝leads_of・決め方＝Race を記録の秒で動かす race_recorded）"""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +14,7 @@ import json
 from pathlib import Path
 
 import g59_calling_judge as g
-from flowctl import HANDOVER, TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, facts_reading
+from flowctl import END, END_REASON, HANDOVER, TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, Limits, facts_reading
 
 RESULTS = Path(__file__).parent / "results"
 HARD = {"取り次ぎのあと", "後任の方"}
@@ -38,9 +39,21 @@ def current() -> dict:
 
 
 def flow_flags(f: dict, r: dict) -> tuple:
-    """項目ごとの答え f で、行 r の場面の流れの制御がどう動くか（読み・不在・電話を代わった方・後任の方の印）。2つの答えの印が同じなら、流れの制御の
-    動きも同じ（flow_ok と、判定どうしのそろいを数える agree の両方が使う1か所）。電話を代わった方の印は、流れの制御が使うときだけ持つ
-    （Flow._new_speaker：確かめる一言を聞いた方の返事・取り次ぎの言葉のあとの言葉では使わない＝g.HELD_BEFORE）。"""
+    """項目ごとの答え f で、行 r の場面の流れの制御がどう動くか（読み・不在・電話を代わった方・後任の方の印・電話を終える言葉か）。2つの答えの印が
+    同じなら、流れの制御の動きも同じ（flow_ok と、判定どうしのそろいを数える agree の両方が使う1か所）。電話を代わった方の印は、流れの制御が
+    使うときだけ持つ（Flow._new_speaker：確かめる一言を聞いた方の返事・取り次ぎの言葉のあとの言葉では使わない＝g.HELD_BEFORE）。
+    電話を終える言葉か（END）：判定が電話を終える言葉（締める・急いでいる方への伺い・お礼の締め・確かめの一言・お呼びし直し）か「決められない」と
+    読めば、流れの制御は会話AIのどの報告より先に、その読みで次の動きを決める（Flow._end_due_now。お呼びする段では _topic_first は働かない）
+    ＝(END, その読み) だけを返す（その発話の目的のお客様の読みは、その一手に効かない）。「言っていない」・項目を足す前の記録（None）は、目的の
+    お客様の読みで決まる。⛔ 2026-11-05 に足した：11-01 に項目を足したとき、答えの段の数え（いまの g53_meaning.flow_miss の中）には入れたが、ここには入れず、
+    この項目の外れを「項目だけ」と数えていた。
+    こちらの声が届いていない様子か（HEAR）は、電話が切れたときの記録（Flow.cut）だけを変える＝ここでは数えない（g59_calling_judge が別に数える）。
+    尋ねているか（別の問い合わせ asks）は、流れの制御がほかのどの読みより先に当てる（Flow._asking_now：お客様の質問に先に答える）が、ここでは
+    数えず、g59_calling_judge の「尋ねているか」の数えに任せる＝質問の発話で目的のお客様・電話を終える読みが外れても、ここでは外れと数える
+    （本当は動きが変わらない＝多めに数える側。外れを見逃す側ではない）。"""
+    end = f.get(END)
+    if end in END_REASON or end == UNDECIDED:
+        return END, end
     used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
     value, away, new, succ = facts_reading(f, r["successor"])
     if not used and value == HANDOVER:   # 印を使わない所では「代わった人が話し始めた」＝「別の方」と同じ動き（2026-10-30 に会話の試しで確かめた）
@@ -51,12 +64,18 @@ def flow_flags(f: dict, r: dict) -> tuple:
 
 def flow_ok(got: dict, facts: dict, acc: list, r: dict) -> bool:
     """流れの制御の動きが正解と同じか：組み合わせた読み（flowctl.facts_reading）が受け取ってよい読みに入り、印（不在・電話を代わった方・後任の方）も
-    正解の組み合わせのどれかと同じ（flow_flags）。項目だけの外れ（読みも印も変わらない）は、流れの制御の動きを変えない。"""
+    正解の組み合わせのどれかと同じ（flow_flags）。項目だけの外れ（読みも印も変わらない）は、流れの制御の動きを変えない。電話を終える言葉か（END）が
+    読みに無い記録（項目を足す前）は、その項目を数えない（g59_calling_judge.facts_ok と同じ決まり）。"""
     from itertools import product
+    facts = {k: v for k, v in facts.items() if k != END or END in got}
     used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
     keys = list(facts)
-    want = {flow_flags(dict(zip(keys, c)), r)[1:] for c in product(*(facts[k] for k in keys))}
-    value, *rest = flow_flags(got, r)
+    flags = [flow_flags(dict(zip(keys, c)), r) for c in product(*(facts[k] for k in keys))]
+    mine = flow_flags(got, r)
+    if mine[0] == END:   # 電話を終える読み（決められないも）が次の動きを決める：正解の組み合わせのどれかと同じ読みか
+        return mine in flags
+    want = {f[1:] for f in flags if f[0] != END}
+    value, *rest = mine
     accepted = {TARGET_IS_NOT if not used and a == HANDOVER else a for a in acc}
     return value in accepted and tuple(rest) in want
 
@@ -77,9 +96,9 @@ def misses(names: list[str]) -> None:
             for col in ["jev"] if "jev" in r else [k[:-6] for k in r if k.endswith("_facts") and not k.endswith("_asks_facts")]:
                 got = judged(r, col) or {}
                 bad = {k: (got.get(k), sorted(v)) for k, v in facts.items() if got.get(k) not in v}
-                value = facts_reading(got, r["successor"])[0] if len(got) == len(facts) else None
+                value = facts_reading(got, r["successor"])[0] if g.facts_whole(got, facts) else None
                 if bad or value not in acc:
-                    moved = not (len(got) == len(facts) and flow_ok(got, facts, acc, r))
+                    moved = not (g.facts_whole(got, facts) and flow_ok(got, facts, acc, r))
                     print(name, r.get("rep", ""), col, scene(r), r["text"], "｜前：", r["before"] or "", "｜外れ：", bad,
                           "｜読み：", value, "○" if value in acc else "×", "｜流れの制御の動き：", "変わる" if moved else "同じ")
 
@@ -136,7 +155,7 @@ def plan(cheap: list[str], jev: list[str], group: str, line: float) -> None:
             count[sc] += 1
             if s > 2.0:
                 slow[f"{who}・{sc}"] += 1
-            if not got or len(got) != len(facts):
+            if not g.facts_whole(got, facts):
                 none[f"{who}・{sc}"] += 1
                 out.append((sc, who, jr["text"], jr["before"] or "", "答え無し"))
                 continue
@@ -184,14 +203,14 @@ def agree(a_specs: list[str], b_specs: list[str], jev: list[str], group: str, li
             else:
                 (a_got, _, a_s), (b_got, _, b_s) = answer(*ar[k][i % len(ar[k])]), answer(*br[k][i % len(br[k])])
                 both = max(a_s, b_s)
-                if a_got and b_got and len(a_got) == len(b_got) == len(facts) and flow_flags(a_got, jr) == flow_flags(b_got, jr):
+                if g.facts_whole(a_got, facts) and g.facts_whole(b_got, facts) and flow_flags(a_got, jr) == flow_flags(b_got, jr):
                     who, got, s = "そろい", a_got, both
                 else:
                     who, got, s = "今の組（食い違い）", g_got, both + g_s
             by[who] += 1
             if s > 2.0:
                 late["ご本人の回" if TARGET_IS_THERE in acc else "ほかの回"] += 1
-            if not got or len(got) != len(facts) or not flow_ok(got, facts, acc, jr):
+            if not g.facts_whole(got, facts) or not flow_ok(got, facts, acc, jr):
                 moved[f"{who}・{sc}"] += 1
                 out.append((sc, who, jr["text"], jr["before"] or ""))
             elif not g.facts_ok(got, facts):
@@ -205,55 +224,180 @@ def agree(a_specs: list[str], b_specs: list[str], jev: list[str], group: str, li
         print("  ", x)
 
 
-def cascade(stages: list[str], group: str) -> None:
-    """判断のモデルを線つきで並べる形（2026-10-30 ユーザー：「他に、無料や格安で使える優秀なAPIはありますか？」）：どれも同時に出し、確からしさが
-    その判定の線から上の読みが届けば、並べた順の先のもので決める。どれも線より下なら今の組（0.3秒で出す＝meaning_judge の組と同じ）。
-    stages は「ファイル名:列@線」（列の既定は judge2）。外れは流れの制御の動きで数え、2秒超は plan と同じに数える。"""
+PARTS = (("目的のお客様の判定", ""), ("尋ねているか", "_asks"))   # 判定の問い合わせ（行の欄の後ろに付く名前）
+EPS = 1e-6
+
+
+def new_person(r: dict) -> bool:
+    """行の場面の電話口の方が、まだあいさつを聞いていないかもしれない新しい方か（本番は、その方の報告が繋ぐ報告なら、判定を待つ間にあいさつを流す＝
+    Flow.hold_play）：取り次ぎの言葉など前の言葉のあとの方で、確かめる一言（その方に伺う一言）への返事ではない。名乗りの頭であいさつを聞いた方
+    （呼ぶ一言への返事）・確かめる一言への返事は、もうあいさつを聞いた方。"""
+    return bool(r["before"]) and not r["asked"]
+
+
+def waits(new: bool) -> tuple[float, ...]:
+    """本番の会話の側が判定を待つ長さのありうる値（待つ長さの1か所 Limits.judge_wait_s）：待つ間に録音を流さない回と、新しい方（new＝new_person）なら
+    あいさつ（Flow.hold_play の greeting）を流す回（声の型ごとの録音の長さ＝本番の電話接続側と同じ convo.recording_seconds）。あいさつを流すかは、その
+    方への会話AIの報告（繋ぐ報告か）でも決まり、測りは持たない＝記録の無い判定の届き方と同じく、どの待つ長さでも同じ判定で決まる行だけを決めたと数える。
+    ⛔ 2026-11-06 日本時間13時台の見直し（判定の組の持ち場の A4）：Limits.hold_s だけで数えていた"""
+    lim = Limits()
+    if not new:
+        return (lim.judge_wait_s(),)
+    from convo import recording_seconds
+    from instruction import VOICE_TYPES
+    return tuple(sorted({lim.judge_wait_s()} | {lim.judge_wait_s(recording_seconds(v, "greeting")) for v in VOICE_TYPES}))
+
+
+# 記録の無い判定（測っていない・まだ流していない）の届き方：すぐに使える答え・すぐに使えない答え・届かない・待つ長さ（その行の waits のどれも）の前後の
+# 使える答え。どの届き方でも同じ判定で決まる行だけを「決めた」と数える（記録の無い判定の読みを推し量らない）
+def missing_tries(ws: tuple[float, ...]) -> tuple:
+    return ((EPS, True), (EPS, False), (float("inf"), False), *((w + d, True) for w in ws for d in (-EPS, EPS)))
+
+
+def judge_of(rows: list[dict], col: str) -> str:
+    """1つの判定で測った記録（g59_calling_judge の --judge2 に1つの判定）の、判定の名前（答えた名前 _by・確かでない読み・失敗の _tried の
+    model）。2つ以上の名前が出る記録（組で測った記録）は、判定ごとの秒が残っていないので使えない。"""
+    names = set()
+    for r in rows:
+        for _, sfx in PARTS:
+            if r.get(f"{col}{sfx}_by"):
+                names.add(r[f"{col}{sfx}_by"])
+            names |= {t["model"] for t in r.get(f"{col}{sfx}_tried") or [] if t.get("model")}
+    if len(names) != 1:
+        raise SystemExit(f"1つの判定だけで測った記録を渡してください（この記録の判定：{sorted(names)}）")
+    return names.pop()
+
+
+def record(r: dict, col: str, sfx: str, name: str, q):
+    """1行の、1つの判定の記録：(答え・失敗が届くまでの秒, 使える答えか, 答え)。使える答え＝その判定が答え、確かな読み（本番と同じ
+    meaning_judge.sure_reading＝線は今の値。記録したときの線より下げた線では、記録に答えが残っていないので数えられない）。秒の無い行（その問い合わせを
+    測っていない・まとめて送る測り）・答えの形の無い古い記録は None（記録が無い）。"""
+    from types import SimpleNamespace
+
+    from meaning_judge import sure_reading
+    s = r.get(f"{col}{sfx}_s")
+    if s is None:
+        return None
+    if r.get(f"{col}{sfx}_by") != name:
+        return s, False, None
+    got = r.get(f"{col}_facts") if sfx == "" else r.get(f"{col}_asks")
+    if got is None:
+        return None
+    return s, sure_reading(name, q, SimpleNamespace(sure=r.get(f"{col}{sfx}_sure"), firm_p=None)), got
+
+
+def outcomes(runs: list, leads, new: bool = False) -> set:
+    """記録の秒で、本番の組が決める (番号, 秒, 待つ長さ) の全部：会話の側の待つ長さ（waits(new) のどれも。new＝行の電話口の方が新しい方か＝new_person）と、
+    記録の無い判定 None の届き方（missing_tries のどれも）のすべての組み合わせで動かす（待つ長さが切れる時に組へ合図＝本番の release と同じく、組が
+    後ろの順の確かな読みを持つ長さ prefer_s）。"""
+    from itertools import product
+
+    from meaning_judge import race_recorded
+    missing = [i for i, x in enumerate(runs) if x is None]
+    outs = set()
+    ws = waits(new)
+    for wait in ws:
+        for tries in product(missing_tries(ws), repeat=len(missing)):
+            rs = list(runs)
+            for i, x in zip(missing, tries):
+                rs[i] = x
+            won, at, _ = race_recorded([x[:2] for x in rs], leads, prefer_s=wait)
+            outs.add((won, at, wait))
+    return outs
+
+
+def cascade(stages: list[str]) -> dict:
+    """本番の組（meaning_judge.RACE）で、どの判定で決めるかと外れを数える（0円）：stages＝判定ごとの記録（「ファイル名:列」。列の既定は judge2。
+    1つの判定で測った記録＝判定の名前は記録から読む）。お呼びする段の2つの問い合わせ（目的のお客様の判定・尋ねているか）ごとに、組の顔ぶれ
+    （members_for）と先に出すもの（leads_of）を本番の1か所から作り、判定ごとの記録の秒と確かな読みを、本番の決め方（Race）に記録の秒で通す
+    （race_recorded）。記録の無い判定で決まりうる行は、決めたとは数えない：どの届き方でも記録の無い判定（測っていない Sonnet など）か「どれも答えない」
+    になる行は「記録の無い判定に回る」、記録のある判定とない判定のどちらでも決まりうる行は「記録が足りない」（流す判定の名前つき＝次の測りの
+    --only の言葉）。決めた行の外れは、流れの制御の動きが変わるもの（目的のお客様の判定＝flow_ok・尋ねているか＝「尋ねている」かが正解と違う）と、
+    項目だけのものに分ける。2秒超＝決めた秒が会話の側の待つ長さ（その回の待つ長さ＝waits）を超える（記録の無い判定の届き方によっては超える行も数える）。
+    待つ長さ（あいさつの録音を流す回か＝waits）で決める判定が変わる行は「待つ長さで変わる」（どちらの判定の読みも外れを数える＝外れを隠さない）。
+    ⛔ 2026-11-06 日本時間8時台（EN-C の指摘8）：線を手で渡し、並べた順で線から上かだけを見ていた（届いた秒を見ない＝本番の組と違う判定で決めたと
+    数えうる）・どれも線より下なら、組で測った記録（今の組）の答えを使っていた"""
+    from flowctl import ASKED
+    from meaning_judge import RACE, leads_of, members_for, question_kind
     table = current()
-    loaded = []
+    _, f, fs = g.flows()
+    have: dict[str, dict] = {}                         # 判定の名前 ⇒ {(場面の鍵, 回): (行, 列)}
     for spec in stages:
-        src, _, line = spec.rpartition("@")
-        name, c = source(src, "judge2")
-        rows = collections.defaultdict(list)
-        for r in rows_of(name):
-            rows[key(r)].append((r, c))
-        loaded.append((name, float(line), rows))
-    gr = collections.defaultdict(list)
-    gname, gc = source(group, "judge2")
-    for r in rows_of(gname):
-        gr[key(r)].append((r, gc))
-    by, moved, only, late = (collections.Counter() for _ in range(4))
-    out = []
-    keys = set(gr).intersection(*(set(rows) for _, _, rows in loaded))
-    for k in sorted(keys, key=str):
+        name, c = source(spec, "judge2")
+        rows = [r for r in rows_of(name) if key(r) in table]
+        who = judge_of(rows, c)
+        if who not in RACE:
+            raise SystemExit(f"組（meaning_judge.RACE）に入っていない判定の記録です：{who}")
+        have.setdefault(who, {}).update({(key(r), r.get("rep", 0)): (r, c) for r in rows})
+    by, moved, only, late, rest = (collections.Counter() for _ in range(5))
+    short, out, split = [], [], []
+    for k, rep in sorted({kr for h in have.values() for kr in h}, key=str):
         acc, facts = table[k]
-        for i in range(max(len(rows[k]) for _, _, rows in loaded)):
-            who = got = None
-            for name, line, rows in loaded:
-                r, c = rows[k][i % len(rows[k])]
-                g_, sure, s = answer(r, c)
-                if g_ and sure >= line:
-                    who, got, sc_row = name, g_, r
-                    break
-            if who is None:
-                r, c = gr[k][i % len(gr[k])]
-                got, _, s = answer(r, c)
-                who, sc_row, s = "今の組", r, 0.3 + s
-            by[who] += 1
-            if s > 2.0:
-                late["ご本人の回" if TARGET_IS_THERE in acc else "ほかの回"] += 1
-            sc = scene(sc_row)
-            if not got or len(got) != len(facts) or not flow_ok(got, facts, acc, sc_row):
-                moved[f"{who}・{sc}"] += 1
-                out.append((sc, who, sc_row["text"], sc_row["before"] or ""))
-            elif not g.facts_ok(got, facts):
-                only[f"{who}・{sc}"] += 1
-    n = sum(by.values())
-    print("決めた判定：", dict(by), f"｜今の組を出した回 {by['今の組']}/{n}（{by['今の組'] / n:.0%}）")
-    print("流れの制御の動きが変わる外れ：", dict(moved) or 0, "｜項目だけの外れ：", dict(only) or 0)
-    print("2秒超：", dict(late) or 0)
-    for x in out:
+        sc_row = next(h[(k, rep)][0] for h in have.values() if (k, rep) in h)
+        fl = fs if sc_row["successor"] else f
+        target_q = g.question_of(fl, sc_row["asked"])
+        sc = scene(sc_row)
+        for part, sfx in PARTS:
+            q = target_q if sfx == "" else fl.for_judge(fl.asks_questions[target_q.id])
+            names = members_for(RACE, question_kind(q))
+            runs = []
+            for n in names:
+                rc = have.get(n, {}).get((k, rep))
+                runs.append(record(*rc, sfx, n, q) if rc else None)
+            if all(x is None for x in runs):
+                continue                               # この問い合わせは、どの判定でも測っていない
+            outs = outcomes(runs, leads_of(names), new_person(sc_row))
+            winners = {w for w, _, _ in outs}
+            known = {i for i, x in enumerate(runs) if x is not None}
+            label = lambda ws: "・".join("どれも答えない" if w is None else names[w] for w in sorted(ws, key=lambda w: (w is None, w)))
+
+            def miss(w) -> None:
+                """記録のある判定 w で決めたときの外れ（流れの制御の動きが変わるもの・項目だけのもの）を数える。"""
+                who, got = names[w], runs[w][2]
+                if sfx == "":
+                    if not g.facts_whole(got, facts) or not flow_ok(got, facts, acc, sc_row):
+                        moved[(part, who, sc)] += 1
+                        out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got))
+                    elif not g.facts_ok(got, facts):
+                        only[(part, who, sc)] += 1
+                elif sc_row.get("asks_accept") is not None and (got in ASKED) != sc_row["asks_accept"]:
+                    moved[(part, who, sc)] += 1
+                    out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got))
+            if winners <= known:
+                if any(at > wait for _, at, wait in outs):
+                    late[(part, "ご本人の回" if TARGET_IS_THERE in acc else "ほかの回")] += 1
+                if len(winners) == 1:
+                    by[(part, names[next(iter(winners))])] += 1
+                else:
+                    split.append((part, sc, sc_row["text"], sc_row["before"] or "", label(winners)))
+                for w in sorted(winners):
+                    miss(w)
+            elif not winners & known:
+                rest[(part, label(winners), sc)] += 1
+            else:
+                need = [names[w] for w in winners if w is not None and w not in known]
+                short.append((part, sc, sc_row["text"], sc_row["before"] or "", rep, need))
+    return {"決めた判定": by, "動きが変わる外れ": moved, "項目だけの外れ": only, "2秒超": late, "記録の無い判定に回る": rest,
+            "記録が足りない": short, "待つ長さで変わる": split, "外れの行": out}
+
+
+def show_cascade(got: dict) -> None:
+    n = sum(got["決めた判定"].values())
+    print("決めた判定：", dict(got["決めた判定"]), f"｜決めた行 {n}")
+    print("流れの制御の動きが変わる外れ：", dict(got["動きが変わる外れ"]) or 0, "｜項目だけの外れ：", dict(got["項目だけの外れ"]) or 0)
+    print("2秒超：", dict(got["2秒超"]) or 0)
+    print("記録の無い判定に回る（どれで決まるか）：", dict(got["記録の無い判定に回る"]) or 0)
+    print("記録が足りない（決まらない・流す判定）：", len(got["記録が足りない"]))
+    for x in got["記録が足りない"]:
         print("  ", x)
+    texts = sorted({x[2] for x in got["記録が足りない"]})
+    if texts:
+        print("記録が足りない言葉（次の測りの --only）：", json.dumps(texts, ensure_ascii=False))
+    print("待つ長さ（あいさつの録音を流す回か）で決める判定が変わる行：", len(got["待つ長さで変わる"]))
+    for x in got["待つ長さで変わる"]:
+        print("  ", x)
+    for x in got["外れの行"]:
+        print("  外れ：", x)
 
 
 def main() -> None:
@@ -274,15 +418,15 @@ def main() -> None:
     w.add_argument("--line", type=float, default=0.8)
     w.add_argument("--sonnet-scenes", default=",".join(sorted(HARD)), help="そろいを使わず今の組で決める場面（,で区切る。空なら全部の場面でそろいを使う）")
     c = sub.add_parser("cascade")
-    c.add_argument("--stage", action="append", required=True, help="判断のモデルの答えと線（「ファイル名:列@線」。並べた順に先のもので決める。いくつでも）")
-    c.add_argument("--group", required=True, help="今の組の答え（plan と同じ）")
+    c.add_argument("--stage", action="append", required=True,
+                   help="判定ごとの記録（「ファイル名:列」。1つの判定で測ったもの。列の既定は judge2。判定の名前・線・組の顔ぶれは本番の1か所から。いくつでも）")
     a = p.parse_args()
     if a.cmd == "misses":
         misses(a.names)
     elif a.cmd == "plan":
         plan(a.cheap.split(","), a.jev.split(","), a.group, a.line)
     elif a.cmd == "cascade":
-        cascade(a.stage, a.group)
+        show_cascade(cascade(a.stage))
     else:
         agree(a.a.split(","), a.b.split(","), a.jev.split(","), a.group, a.line, set(filter(None, a.sonnet_scenes.split(","))))
 

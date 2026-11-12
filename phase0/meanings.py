@@ -166,6 +166,23 @@ _BARE = re.compile(r"(?:はい|いいえ|いえ|ええ|うん|いや)")
 MARKS = re.compile(r"[、。，．？?！!「」『』]")
 DO_END = re.compile(r"(?:させていただきます|承ります)$")
 DO_DOUBLED = re.compile(r"(?:差し上げ|お伺い|伺わ)させ")
+# こちらがすることの言葉の種類を、言葉の終わりの形から読む唯一の場所（取込の決まり DO_PROMPT が種類ごとに終わりの形を決めている。上から順に当てる）：
+# お好みの選び（「〜とさせていただきます」）・ご意向の進む向き（「〜の方向で進めさせていただきます」）・申し出の断る向き（「〜は控えさせていただきます」）・
+# 申し出の受ける向き（ほかの「〜させていただきます」）・ご様子とご意向の進まない向き（「〜承ります」）。読むのは flowctl.Question.offered（申し出か）だけ。
+# どの種類にも当たらない言葉は、文の終わりの決まり DO_END に当たらない言葉と同じ（DO_END の2つの終わりは、どれもいずれかの種類に当たる）＝取込の確かめ
+# （check）・CL-2 の do_words_ok で使わない（今の決まりのまま）。✅ 2026-11-12 まとめ役（11-12 の (H4)）：「申し出かどうかを、業務の質問の文の形で決めないで
+# ください。業務の質問の文は依頼者が書くもので、形は決まっていません。…取込で決める「こちらがすることの言葉」は、種類ごとに終わりの形が決まっています」
+DO_KINDS = (("prefer", re.compile(r"とさせていただきます$")), ("intent", re.compile(r"の方向で進めさせていただきます$")),
+            ("decline", re.compile(r"控えさせていただきます$")), ("offer", re.compile(r"させていただきます$")), ("noted", re.compile(r"承ります$")))
+
+
+def do_kind(words: str) -> str | None:
+    """こちらがすることの言葉の種類（DO_KINDS の名前。当たらなければ None）。"""
+    w = (words or "").strip()
+    return next((k for k, pat in DO_KINDS if pat.search(w)), None)
+# どの種類の言葉も、問いの形で終えない（会話の側が「…でよろしいでしょうか？」「…ということでしょうか？」と続ける。CL-2 の business_settings.DOUBT_WORDS_BAD_END と
+#    同じ＝比べる試験 test_do_words_rules_match_cl2。CL-1.md 4-120）
+BAD_END = re.compile(r"(?:でしょうか|ですか|ますか|よろしい)$")
 
 
 def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool:
@@ -190,7 +207,7 @@ def check(words: str, question: str, choice: str, kind: str = "meaning") -> bool
     from phrases import QUESTION_HEADS
     if w.startswith(QUESTION_HEADS):
         return False
-    if re.search(r"(?:でしょうか|ですか|ますか|よろしい)$", w):
+    if BAD_END.search(w):
         return False
     if kind == "doubt" and ("ということ" in w or w.endswith("こと")):
         return False

@@ -67,3 +67,21 @@ def ask(client, model: str, prompt: str, fields: dict[str, Field], *, required: 
         config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_gemini_schema(key, fields, required or list(fields)),
                                            temperature=0))
     return json.loads(r.text).get(key, []) or []
+
+
+def ask_flags(client, model: str, prompt: str, texts: list[str], field: str, desc: str, tool: tuple[str, str]) -> list[bool | None]:
+    """質問の文ごとに真か偽かを、1回の問い合わせでまとめて答えさせる唯一の場所（事実を伺う質問か＝facts・お呼びする方がいらっしゃるかの一文か＝target_asks・
+    ご案内の方法を伺う質問か＝ways）。送る文は prompt＋「番号：質問の文」の並び、答えの欄は「no」（質問の番号）と field（desc の真偽）。texts と同じ並びの答え
+    （無い・形の違うものは None）を返す。⛔ 2026-11-05 まで、決め方ごとに同じ聞き方と読み取りを写していた（facts・target_asks の by_model と _read_items）。"""
+    body = "\n".join(f"{n}：{t}" for n, t in enumerate(texts, 1))
+    items = ask(client, model, prompt + body, {"no": ("integer", "質問の番号"), field: ("boolean", desc)}, tool=tool)
+    got = {x.get("no"): x.get(field) for x in items or [] if isinstance(x, dict)}
+    return [got.get(n) if isinstance(got.get(n), bool) else None for n in range(1, len(texts) + 1)]
+
+
+def agreed(answers: list, otherwise):
+    """2つ以上のモデルの答え answers がそろえばその答え、そろわない・答えが無い・1つだけなら otherwise（倒す側）＝取込で決めることの合わせ方の唯一の場所
+    （facts.decide・target_asks.decide・ways.decide）。"""
+    if len(answers) >= 2 and all(a is not None for a in answers) and len(set(answers)) == 1:
+        return answers[0]
+    return otherwise
