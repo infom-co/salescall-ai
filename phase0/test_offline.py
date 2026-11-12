@@ -10069,6 +10069,117 @@ class EndJudgedTest(unittest.TestCase):
                          [{"way": "LINEでのご案内", "means": "line", "via": "email", "contact": "yamada@example.co.jp", "outcome": "agreed"}])
         self.assertNotIn("other_wish", f.facts)   # 引き継ぎの連絡先は、ほかのご希望の記録に混ぜない（同じ伺い方の1か所を通るだけ）
 
+    def test_offer_kinds_terms_on_confirm_wish_ways_and_spoken_lead(self):
+        # まとめ役の 11-12 のご指摘 (H1)〜(H4)（13時40分05秒のご判断の残り。決まりで決まるもの）
+        import re as _re
+        from flowctl import CALLBACK_IDS, QUERY, QUERY_NO, UNDECIDED, Flow, Question, played_note, say_note
+        from grounding import GROUNDED
+        from meaning_judge import Reading
+        from meanings import do_kind
+        from phrases import ACK, AS_PLANNED
+        YN = ("はい", "いいえ")
+        n1, n4, n5 = (CALLBACK_IDS[k] for k in ("not_agreed", "handoff", "handoff_way"))
+
+        def heard(r):
+            return ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+
+        def say(f, words, op, judged=None, firm=True, ground=(), **args):
+            f.on_callee(); f.on_heard(words)
+            if judged is not None:
+                rd = Reading(judged, firm=firm)
+                setattr(rd, QUERY, QUERY_NO)
+                f.on_check("judge", rd)
+            for k in ground:
+                grounded(f, args[k], GROUNDED)
+            return f.apply(op, args)
+
+        # (H4) 申し出かは、取込で決めたこちらがすることの言葉の終わりの形で読む（meanings.do_kind の1か所）。質問の文の形では決めない
+        self.assertEqual([do_kind(w) for w in ("パンフレットをお送りさせていただきます", "パンフレットの送付は控えさせていただきます",
+                                               "お支払いはカードとさせていただきます", "今月中のご導入の方向で進めさせていただきます", AS_PLANNED,
+                                               "当日はお車でお越しということで承ります", "お申し込みを承ります", "パンフレットをお送りします")],
+                         ["offer", "decline", "prefer", "intent", "intent", "noted", "noted", None])
+        pamph = Question("P1", "パンフレットをお送りしましょうか？", "yes_no", conditions=YN,
+                         do_words={"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"})
+        others = [Question("P2", "今月中のご導入をお考えでしょうか？", "yes_no", conditions=YN,
+                           do_words={"はい": "今月中のご導入の方向で進めさせていただきます", "いいえ": "今月中のご導入はお考えではないということで承ります"}),
+                  Question("P3", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"),
+                           do_words={"カード": "お支払いはカードとさせていただきます", "振込": "お支払いは振込とさせていただきます"}),
+                  Question("P4", "当日はお車でお越しでしょうか？", "yes_no", conditions=YN,
+                           do_words={"はい": "当日はお車でお越しということで承ります", "いいえ": "当日はお車以外でお越しということで承ります"})]
+        mail_ok = Question("P5", "資料をお送りしてもいいですか？", "yes_no", conditions=YN, do_words={"はい": "資料をお送りさせていただきます"})
+        self.assertEqual([x.offered for x in [pamph, *others, mail_ok]], ["はい", None, None, None, "はい"])
+        last = Question("P6", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))
+
+        def business(*qs):
+            f = Flow([*qs, last], play_recordings=True)
+            f.use_checks("judge")
+            return f
+        r = say(business(pamph), "はい、お願いします。", "record_answer", "はい", question_id="P1", condition_id="はい")
+        self.assertEqual((r["question_id"], r["ack"]), ("P6", "arigatou"))   # 「〜しましょうか？」の申し出も、受けていただいたらお礼
+
+        # (H1) 「…ますね？」へのお返事に添えた条件も、答えの報告と同じ入口・同じ確かめ（Flow._terms_reported）
+        f = business(pamph)
+        r = say(f, "うーん、送ってもらおうかな…。", "record_answer", "はい", firm=False, question_id="P1", condition_id="はい")
+        self.assertEqual(heard(r), "はい、それではパンフレットをお送りさせていただきますね？")
+        args = {"question_id": "P1", "result": "affirmed", "terms": "来週以降に"}
+        self.assertEqual([j[2] for j in f.grounding_jobs("confirm_field", args)], ["来週以降に"])
+        r = say(f, "来週以降に送ってもらえるならお願いします。", "confirm_field", "はい", ground=("terms",), **args)
+        self.assertEqual((r["question_id"], r.get("play")), ("P6", None))
+        self.assertEqual(heard(r), "ありがとうございます。それでは来週以降に、パンフレットをお送りさせていただきますね。続きましてご訪問の日時のご希望はございますでしょうか？")
+        self.assertEqual(f.facts["offer_terms"][0]["terms"], "来週以降に")
+        # 申し出の伺い直しへのお返事に添えた業務の方法：前に添えた条件と合わせて言い切る（方法の連絡先へ）
+        f = Flow([Question("Q1", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=YN, approval=True, final_goal=True, declines=("いいえ",))],
+                 play_recordings=True, handoff_ways=("訪問", "オンライン", "お電話"))
+        f.use_checks("judge")
+        say(f, "いいえ、承認はできないですね。", "record_answer", "いいえ", question_id="Q1", condition_id="いいえ")
+        say(f, "うーん、なんとなくですかね。", "record_answer", "unknown", question_id=n1, condition_id="unknown")
+        say(f, "うーん、特にこれというのは…。", "record_answer", "unknown", question_id=n1, condition_id="unknown")
+        self.assertEqual(say(f, "うちは月曜が定休日なんですよ。", "record_answer", UNDECIDED, question_id=n4, condition_id="はい")["result"], "rejected")
+        grounded(f, "さようでございますか。")
+        grounded(f, "月曜日を避けて", GROUNDED)
+        r = f.apply("replay_opening", {"part": "talk", "answer": "さようでございますか。", "terms": "月曜日を避けて"})
+        self.assertEqual(heard(r), "さようでございますか。それでは月曜日を避けて、詳しい者よりお話しさせていただくということでよろしいでしょうか？")
+        r = say(f, "それなら、オンラインでお願いします。", "confirm_field", "はい", question_id=n4, result="affirmed", way="オンライン")
+        self.assertEqual((r["question_id"], heard(r)), ("C3", "ありがとうございます。それでは月曜日を避けて、詳しい者よりオンラインでお話しさせていただきますね。"
+                                                              "恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"))
+        self.assertEqual({k: f.facts["handoff"][0][k] for k in ("terms", "way")}, {"terms": "月曜日を避けて", "way": "オンライン"})
+
+        # (H2) 業務の申し出の質問に業務に無い方法：N4・N6 と同じ1か所（提案で伺う → 受けていただいたら、その方法の連絡先を伺って申し伝える＝ほかのご希望の1か所）。
+        # 業務設定のご案内できる方法（Question.offer_ways）が無い質問は、どの方法も業務に無い方法（お約束しない）
+        alt = "ということではいかがでしょうか？"
+        for words, op, judged, cond in (("メールで送ってもらえるならいいですよ。", "record_answer", "はい", "はい"),
+                                        ("うちはメールしか見ないんですよ。", "record_answer", UNDECIDED, "はい")):
+            f = business(pamph)
+            r = say(f, words, op, judged, question_id="P1", condition_id=cond, **({"way": "メール"} if judged == "はい" else {}))
+            self.assertEqual((r["result"], heard(r)), ("rejected", ""), words)
+            grounded(f, "かしこまりました。")
+            r = f.apply("replay_opening", {"part": "talk", "answer": "かしこまりました。", "way": "メール"})
+            self.assertEqual(heard(r), f"かしこまりました。それではメールでのご希望も含めてパンフレットをお送りさせていただく{alt}", words)
+            r = say(f, "はい、それでお願いします。", "confirm_field", "はい", question_id="P1", result="affirmed")
+            self.assertEqual((r["question_id"], heard(r)), ("C3", "ありがとうございます。それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"), words)
+            r = say(f, "yamada@example.co.jp です。", "record_answer", "答えた", question_id="C3", condition_id="答えた", value="yamada@example.co.jp")
+            r = say(f, "はい、そうです。", "confirm_field", "affirmed", question_id="C3", result="affirmed")
+            self.assertEqual(r["question_id"], "P6", heard(r))
+            self.assertIn("メールでのご連絡のご希望を担当の者に申し伝えます。", heard(r))
+            self.assertEqual({k: f.facts["other_wish"][0][k] for k in ("question", "means", "contact")},
+                             {"question": "P1", "means": "email", "contact": "yamada@example.co.jp"})
+        # 業務設定のご案内できる方法にある方法：条件として言い切り、その方法の連絡先を伺う
+        f = business(Question("P1", pamph.text, "yes_no", conditions=YN, do_words=pamph.do_words, offer_ways=("郵送", "メール")))
+        r = say(f, "メールならいいですよ。", "record_answer", "はい", question_id="P1", condition_id="はい", way="メール")
+        self.assertEqual((r["question_id"], heard(r)), ("C3", "ありがとうございます。それではパンフレットをメールでお送りさせていただきますね。"
+                                                              "恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"))
+
+        # (H3) 決まった言葉を返事の前に足す1か所（Flow._led）：会話AIが先に言う言葉があれば、その返事の録音も会話AIがその文のとおりに言う
+        # （流す側は録音→会話AIの順だけ）。質問でも締めでもない返事も同じ
+        f = business(pamph)
+        rec = {"result": "explain_point", "play": [{"kind": "recorded", "id": "x", "text": "録音の一言です。"}], "speak": True,
+               "message": "受け付けました。" + played_note("録音の一言です。", "業務の一言") + "続けて、ご納得いただけなかった点をご説明します。"}
+        out = f._led([{"kind": "said", "text": "それではパンフレットをお送りさせていただきますね。"}], "", rec)
+        self.assertEqual((out.get("play"), out.get("speak"), out["say"]), (None, None, "それではパンフレットをお送りさせていただきますね。録音の一言です。"))
+        self.assertTrue(out["message"].startswith(say_note("それではパンフレットをお送りさせていただきますね。録音の一言です。")), out["message"])
+        self.assertNotIn("録音で流しました", out["message"])
+        self.assertIn("ご納得いただけなかった点をご説明します。", out["message"])
+
     def test_an_unlinked_reply_to_an_offer_is_answered_then_the_offer_is_put_again(self):
         # 申し出のシステムの質問（詳しい者より改めて N4・締める前の申し出 N6）に、会話が繋がらないお返事（判定がそろって決められないと読んだ「うちは月曜が定休日
         # なんですよ。」）をいただいたら、「（聞くこと）をもう一度お聞かせ…」で伺い直さずに、(1) 会話AIがお客様の言葉にひとこと応え（受け答えと同じ1か所＝確かめた
@@ -10343,6 +10454,14 @@ class EndJudgedTest(unittest.TestCase):
                          offer_ways=("お電話", "メール"), do_words={"はい": "お電話にてご案内させていただきます"})
         last = Question("Q6", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))
         self.assertEqual([x.offered for x in (pamph, guide, last)], ["はい", "はい", None])
+        def stated(r, play, line):
+            # 録音で流す通話：言い切りのあとの返事の録音も会話AIが言う（say）。録音で流さない通話：ほかの決まった言葉と同じく、まず言い切りをとだけ言う知らせ
+            from flowctl import say_note
+            self.assertEqual(r["ack"], "arigatou")
+            if play:
+                self.assertTrue(heard(r).startswith(_ACK["arigatou"] + line), heard(r))
+            else:
+                self.assertIn("まず、" + say_note(line) + "続けて、", r["message"])
         for play in (True, False):
             f = Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ")), pamph, guide, last],
                      play_recordings=play)
@@ -10351,12 +10470,13 @@ class EndJudgedTest(unittest.TestCase):
             self.assertEqual(r["ack"], "shouchi")   # 申し出でない質問の相づちは今のまま
             r = taken(f, "来週以降なら送ってもらっていいですよ。", "Q4", terms="来週以降に")
             self.assertEqual((r["question_id"], r.get("play")), ("Q5", None))
-            self.assertTrue(heard(r).startswith("ありがとうございます。それでは来週以降に、パンフレットをお送りさせていただきますね。"), heard(r))
-            self.assertIn("お電話にてご案内させていただいてもよろしいでしょうか？", heard(r))
+            stated(r, play, "それでは来週以降に、パンフレットをお送りさせていただきますね。")
+            if play:
+                self.assertIn("お電話にてご案内させていただいてもよろしいでしょうか？", heard(r))
             self.assertEqual(f.facts["offer_terms"][0]["terms"], "来週以降に")
             r = taken(f, "夕方以降なら大丈夫ですよ。", "Q5", terms="夕方以降に")
             self.assertEqual(r["question_id"], "Q6", heard(r))
-            self.assertTrue(heard(r).startswith("ありがとうございます。それでは夕方以降に、お電話にてご案内させていただきますね。"), heard(r))
+            stated(r, play, "それでは夕方以降に、お電話にてご案内させていただきますね。")
         # ご案内の方法の申し出・業務の申し出の質問に方法は書かない（方法は質問そのもの＝ほかのご希望の道）
         f = Flow([pamph, last], play_recordings=True)
         f.use_checks("judge")
@@ -12973,6 +13093,10 @@ class TargetTest(unittest.TestCase):
         # 取込の AI の言葉は先にこちらの meanings.check を通る＝決まりが食い違うと、同じ言葉が片方でだけ通る
         # CL-2 の 4-215 の (4-90 の (1))：言葉の終わりに書けない形（こちら＝meanings.BAD_END・CL-2 の business_settings.DOUBT_WORDS_BAD_END）も（CL-1.md 4-120）
         import meanings
+        # 言葉の種類の決まり（meanings.DO_KINDS＝申し出かを読む Question.offered の1か所）は、文の終わりの決まり（DO_END＝CL-2 の DO_WORDS_END）を通る言葉なら
+        # 必ずどれかに当たる＝どの種類にも当たらない言葉は、取込でも依頼者の言葉でも今の決まりのまま使わない（CL-2 は種類の写しを持たない。まとめ役の (H4)）
+        for end in meanings.DO_END.pattern.removeprefix("(?:").split(")")[0].split("|"):
+            self.assertIsNotNone(meanings.do_kind("パンフレットをお送り" + end), end)
         for mine, var in ((meanings.DO_END, "DO_WORDS_END"), (meanings.DO_DOUBLED, "DO_WORDS_DOUBLED"), (meanings.MARKS, "DO_WORDS_MARKS"),
                           (meanings.BAD_END, "DOUBT_WORDS_BAD_END")):
             theirs = self.cl2_names("business_settings.py", var)
@@ -21642,8 +21766,10 @@ class ApprovalReviewTest(unittest.TestCase):
         r = self.say(f, "それは言いたくないです。ところで料金はおいくらなんですか？", "refused", "record_answer", query=QUERY_YES, question_id=N1, condition_id="refused")
         self.assertEqual(r["result"], "callee_asked")
         r = f.apply("replay_opening", {"part": "料金"})
-        heard = "".join(p["text"] for p in r.get("play") or [])
-        self.assertIn("ご不満な点がございましたらいつでもお申し出ください。", heard)
+        # 名乗りの録音の無い通話：答えは会話AIが言うので、続く一言・次の質問も会話AIがその順に言う（✅ 2026-11-12 まとめ役の (H3)。⛔ 5de3425e までは
+        # 「まず答えを言って、続けて」と知らせながら一言と質問を録音で並べていた＝流す側は録音を先に流すので、答えより先に一言が聞こえうった）
+        heard = "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+        self.assertIn("料金は月額3,000円で、初月は無料となっております。ご不満な点がございましたらいつでもお申し出ください。", heard)
         self.assertEqual(r["ack"], "shouchi")
 
     def test_resumed_unclear_point_is_received_with_hai(self):
