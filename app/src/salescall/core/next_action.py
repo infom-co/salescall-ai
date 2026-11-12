@@ -27,7 +27,12 @@
   1か月以上先の架電はかけないがデフォルト。（選択式）」。0217）：かけ直す予定の時刻（お客様が言った時刻・幅の始まり・再発信の方針の間隔で決めた
   時刻のどれも。お客様の「来月の15日に」も）が、決めた日の翌月の同じ日以上なら（データベースの salescall.month_ahead の1か所）、決定を書く1か所
   （`_write` の `_month_ahead`）が、業務ごとの設定 callback.month_ahead で決める：「かけない」（初め）＝予定を書かずに終える（`MONTH_AHEAD`）／
-  「契約者が認めたらかける」＝予定を書き、契約者に知らせ、認めるまで門が止める（tasks.month_ahead_waiting）。答えのあとは `after_month_ahead_answer`。
+  「契約者が認めたらかける」＝予定を書き、契約者に知らせ、~~認めるまで門が止める~~（⇒ 0219：答えを待つのは約束の時刻より前だけ＝tasks.month_ahead_waiting）。答えのあとは `after_month_ahead_answer`。
+  **【0219】✅ 2026-11-12 ユーザー＝計画書 7-3 (3)**：(a) 当てはめるのは、お客様の言葉から決まった予定だけ（お客様が言った時刻・幅・日。見分けるのは
+  決定の値の1か所＝`Decision.said_by_callee`）。契約者が設定した再発信の方針の間隔（`_policy_at` など）で1か月以上先になった電話は、そのままかける
+  （「契約者が意図的に設定したら、かけて良い。」）。(b)「契約者が認めたらかける」の予定は、伺う印（次の予定の列 month_ahead_ask）を付けて書き、
+  契約者の答えが無いまま約束の時刻が来たら、待たずにかける（「契約者に緊急の通知をして、約束の時間にかける」。緊急の知らせは、門が通したところ＝
+  core/gate.claim の1か所）。
 - **同じ日にかけ直さないか**は `not_today` の1か所（ふつうの電話・約束の電話・番号の聞き直し・お詫びの電話）。
 - **お客様のところで電話が鳴らない電話が続いた番号**（回線の部品が番号を受け付けない・お客様が出る前に回線やこちらの側で終わる）
   へはかけない（`usable`。番号の欄が「使えない」＝DESIGN.md 17-1-3。core/health.number_dead の1か所＝門も同じ）。番号のせいの鳴らなかった
@@ -221,13 +226,14 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
             call_now: bool = False, promised: bool | None = None, target: Target | None = None,
             callee_at: datetime | None = None, hold: bool = False, window: Window | None = None,
             apology: Apology = None, cut_call: UUID | None = None, after: UUID | None = None,
-            former_promise: bool = False, origin: dict[str, Any] | None = None) -> int:
+            former_promise: bool = False, origin: dict[str, Any] | None = None, month_ahead_ask: bool = False) -> int:
     """次の予定を1つ足す（1か所）。cut_call＝この予定でお詫びの理由 cut_off を付けた元の電話（試行。付けた所だけが渡す＝
     `decide_after_call`・`_check_unrung`）。渡さなければ、理由 cut_off を引き継ぐときに元の電話も前の予定から引き継ぐ（0187）。
     after＝この予定が、どの通話のあとの予定か（通話のあと＝`after_call`・`after_apology`、お詫びの電話＝言ってはいけないことを言った通話）。
     予定の担当の期（person_since）は `_plan_person`、引き継ぎを確かめる印（handover）は `_handover_due` の1か所で、ここが求める（呼ぶ側は
     渡さない。0203）。former_promise＝前の担当の方への通話（after）で、その方がした新しいかけ直しの約束（`after_call` だけが決める＝`_plan_person`）。
-    origin＝この予定が続ける元の予定（いまの予定でないとき。前の担当の方に戻したときの、やめていた約束の予定＝決定の resumes。`_write` だけが渡す。0214）。"""
+    origin＝この予定が続ける元の予定（いまの予定でないとき。前の担当の方に戻したときの、やめていた約束の予定＝決定の resumes。`_write` だけが渡す。0214）。
+    month_ahead_ask＝1か月以上先のかけ直しで、契約者に伺う予定（決めるのは `_month_ahead` の1か所。`_write` だけが渡す。0219）。"""
     calls = call_at is not None or call_now
     if hold and (calls or end_reason is not None):
         raise ValueError("判定待ちは、日時も終える理由も持ちません")
@@ -274,10 +280,10 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
         "                                         promised, contact_id, purpose, wrong_contact_id, callee_at, window_until,"
         "                                         window_daily, window_days, window_from, window_repeat, window_round,"
         "                                         window_missed, window_said, window_day_said, apology_reasons, successor,"
-        "                                         number_again, cut_call, handover, person_since, window_recover_until)"
+        "                                         number_again, cut_call, handover, person_since, window_recover_until, month_ahead_ask)"
         " SELECT t.tenant_id, t.client_id, t.task_id,"
         "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        "        %s, %s, %s, %s, %s, %s, %s, %s, %s"
+        "        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING seq",
         ("hold" if hold else "call" if calls else "end", call_now, call_at, end_reason, cause, promised,
          target and target.contact_id, target and target.purpose, target and target.wrong_contact_id, callee_at,
@@ -287,7 +293,7 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
          None if window is None or window.said is None else list(window.said), bool(window and window.day_said),
          list(reasons), bool(target and target.contact_id and target.successor),
          target.number_again if target is not None and target.purpose == "ask_number_again" else None, cut,
-         handover, since, window and window.recover_until, task_id),
+         handover, since, window and window.recover_until, month_ahead_ask, task_id),
     )
     if row is None:
         raise TaskNotFound(str(task_id))
@@ -1195,6 +1201,21 @@ class Decision:
     def contact_id(self) -> UUID | None:
         return None if self.target is None else self.target.contact_id
 
+    @property
+    def said_by_callee(self) -> bool:
+        """この予定の時刻が、お客様の言葉から決まったか（1か所。0219）：お客様が言った時間の幅（window）を持つ予定＝時刻ちょうどの約束（その回の
+        1回分の幅とお客様が指定した時刻 callee_at を持つ）・幅の約束・お客様が言った日・それらの次の回（「金曜なら」の次の金曜・月ぎめの理由の
+        翌月など、お客様がその日を選んだ理由に合わせた回）。門で止められたあと・番号や名前を直したあと・途中で切れたあと・やめた約束を戻すとき
+        などの決め直しは、いまの予定の幅を引き継ぐ（`decide_after_denial` の current_window・`_repoint`・`_restart_plan`・`_period_promise` など）
+        ので、引き継いだ予定もお客様の言葉のまま。幅を持たない予定＝契約者が設定した再発信の方針の間隔（`_policy_at`。ふつうの電話の結果ごとの
+        方針・時刻の決まっていない約束「あとで」の方針・理由の分からない日だけの約束が過ぎたあと＝`_window_over`）や、システムが決める間（番号の
+        聞き直し・お詫び・鳴らなかった電話の決まった順・かけてよい時間帯の始まり）は、お客様の言葉から決まっていない。お客様が指定した時刻
+        （callee_at）だけを見ないのは、それを持つ予定はいつも幅も持つから（幅を外して時刻だけ残す道は無い。前の担当の方との約束をやめて
+        いまかける番号へ移すときは、`_onto_dial` が時刻も外す）。
+        「1か月以上先」の決まり（`_month_ahead`）は、お客様の言葉から決まった予定にだけ当てはめる（✅ 2026-11-12 ユーザー＝計画書 7-3 (3)：
+        「契約者が意図的に設定したら、かけて良い。」）。⛔ 0217：どの予定にも当てはめ、方針の間隔40日の電話も初めの値で行を終えた。"""
+        return self.window is not None and not self.window.empty
+
 
 def _call(at: datetime, promised: bool, rule: str, target: Target, callee_at: datetime | None = None,
           window: Window | None = None, apology: Apology = None, cut_call: UUID | None = None) -> Decision:
@@ -1571,9 +1592,10 @@ def _write(tx: Tx, task_id: UUID, d: Decision, *, after: UUID | None = None) -> 
     base = current(tx, task_id) if d.resumes is None else \
         tx.one(f"SELECT {_PLAN_COLUMNS} FROM salescall.task_next_actions n JOIN salescall.task_numbers k"
                " ON k.task_id = n.task_id AND k.contact_id = n.contact_id WHERE n.task_id = %s AND n.seq = %s", (task_id, d.resumes))
+    ask = False   # 1か月以上先のかけ直しで、契約者に伺う印（決めるのは `_month_ahead` の1か所。0219）
     if d.kind == "call":
         d = _onto_dial(tx, task_id, base, d, now=tx.one("SELECT now() AS now")["now"], after=after) or d
-        d = _month_ahead(tx, task_id, d)   # 1か月以上先のかけ直し（どの道で決めた予定も、ここを通る）
+        d, ask = _month_ahead(tx, task_id, d)   # 1か月以上先のかけ直し（どの道で決めた予定も、ここを通る）
     if d.check_of is not None:   # 確かめのかけ直し：同じ行で1回だけ（判定し直しで、同じ通話のために書き直すときは、そのまま）
         tx.execute("INSERT INTO salescall.unclear_checks (tenant_id, client_id, task_id, attempt_id)"
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s) ON CONFLICT (task_id) DO NOTHING",
@@ -1584,37 +1606,46 @@ def _write(tx: Tx, task_id: UUID, d: Decision, *, after: UUID | None = None) -> 
         return hold(tx, task_id, cause=d.rule, apology=d.apology, cut_call=d.cut_call, after=after)
     return _append(tx, task_id, call_at=d.at, end_reason=None, cause=d.rule, promised=d.promised, target=d.target,
                    callee_at=d.callee_at, window=d.window, apology=d.apology, cut_call=d.cut_call, after=after,
-                   former_promise=d.former_promise, origin=base if d.resumes is not None else None)
+                   former_promise=d.former_promise, origin=base if d.resumes is not None else None,
+                   month_ahead_ask=ask)
 
 
-def _month_ahead(tx: Tx, task_id: UUID, d: Decision) -> Decision:
+def _month_ahead(tx: Tx, task_id: UUID, d: Decision) -> tuple[Decision, bool]:
     """かけ直す決定（d）の時刻が1か月以上先なら、業務ごとの設定 callback.month_ahead に従う（1か所。決定を書く `_write` だけが呼ぶ＝通話のあと・
     門で止められたあと・番号などを直したあとの予定の決め直しなど、どの道で決めた予定も通る。0217）。
-    - 1か月以上先か・契約者がもう認めたかは、データベースの salescall.month_ahead_unapproved の1か所（門が待つかを読む tasks.month_ahead_waiting も
-      同じものを読む）：予定の時刻の日が、その時刻へかける予定をその行で初めて決めた日（まだ無ければ今日）の、翌月の同じ日（その月に無ければ月の
-      終わり）以上。日本時間の日で比べる。長さは1か月で決まり（設定にしない：ユーザーの言葉「1か月以上先」そのもの。いまの時間の設定の形＝秒・
-      時間・日では、月の長さの違う「翌月の同じ日」を書けない）。
+    - 当てはめるのは、お客様の言葉から決まった予定だけ（`Decision.said_by_callee` の1か所）。契約者が設定した再発信の方針の間隔などで1か月以上先に
+      なった予定は、そのまま書く（伺う印も付けない）。✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「契約者が意図的に設定したら、かけて良い。」。0219。
+    - 1か月以上先かは、データベースの salescall.month_ahead の1か所：予定の時刻の日が、その時刻へかける予定をその行で初めて決めた日（まだ無ければ
+      今日）の、翌月の同じ日（その月に無ければ月の終わり）以上。日本時間の日で比べる。長さは1か月で決まり（設定にしない：ユーザーの言葉「1か月
+      以上先」そのもの。いまの時間の設定の形＝秒・時間・日では、月の長さの違う「翌月の同じ日」を書けない）。契約者がもう答えたかは、ここでは
+      見ない（伺っていて答えが無いかは salescall.task_month_ahead_asking の1か所。答えた時刻の予定を書き直しても、印は付くが伺いにはならず、
+      知らせも鍵で1回だけ。⛔ 0217：もう認めたかを salescall.month_ahead_unapproved でも見ていた＝答えを見る所が2つ。0219 で外した）。
     - 「かけない」（"never"。初め）：予定を書かずに、行を終える（`MONTH_AHEAD`。決めた決まりの文に、予定の日と理由を足す）。
-    - 「契約者が認めたらかける」（"with_approval"）：予定はそのまま書き、契約者に知らせる（その行の、その時刻ごとに1回）。認めるまで門がかけない
-      （tasks.month_ahead_waiting）。答えたあとは `after_month_ahead_answer`。
+    - 「契約者が認めたらかける」（"with_approval"）：予定はそのまま、契約者に伺う印（month_ahead_ask）を付けて書き、契約者に知らせる（その行の、その
+      時刻ごとに1回。答えのあとに同じ時刻のまま書き直しても、知らせは増えない）。印のある予定で答えが無いあいだ（データベースの salescall.task_month_ahead_asking の1か所）、約束の時刻より前は答えを待ち
+      （tasks.month_ahead_waiting）、約束の時刻が来たら、待たずにかける（緊急の知らせは門が通したところ＝core/gate.claim。✅ 2026-11-12
+      ユーザー：「契約者に緊急の通知をして、約束の時間にかける」。0219）。答えたあとは `after_month_ahead_answer`。
+    （書く決定, 契約者に伺う印を付けるか）を返す。印を決めるのは、ここだけ（決定の値に持たせない＝ほかの道が付けられない）。
     ✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月先に電話を入れるなんてことは通常ありえません。1か月以上先の予定がある場合、契約者が認めた場合のみ
     かけます。設定で、1か月以上先の架電はかけないがデフォルト。（選択式）」。⛔ 前は、何か月先の約束でも、そのままかけていた。"""
-    if not tx.one("SELECT salescall.month_ahead_unapproved(%s, %s) AS w", (task_id, d.at))["w"]:
-        return d
+    if not d.said_by_callee or not tx.one("SELECT salescall.month_ahead(%s, %s) AS w", (task_id, d.at))["w"]:
+        return d, False
     day = calling_hours.local(d.at).date()
     if settings.resolve(tx, "callback.month_ahead", **tasks.scope(tx, task_id)) == "with_approval":
-        notify.emit(tx, "month_ahead_approval", key=f"month_ahead_approval:{task_id}:{d.at.isoformat()}",
+        notify.emit(tx, "month_ahead_approval", key=f"month_ahead_approval:{task_id}:{notify.key_time(d.at)}",
                     refs={"task_id": task_id, "call_at": d.at},
-                    summary=f"お客様とのかけ直しの予定が1か月以上先（{day.month}月{day.day}日）です。ダッシュボードで、かけるかを答えてください"
-                            "（認めるまで、この行にはかけません。認めなければ、行を終えます）。")
-        return d
+                    summary=f"お客様とのかけ直しの予定が1か月以上先（{calling_hours.label(d.at)}）です。ダッシュボードで、かけるかを答えてください"
+                            "（認めればその時刻にかけます。認めなければ、行を終えます。お答えが無いまま約束の時刻になったら、緊急でお知らせして、"
+                            "お約束どおりおかけします）。")
+        return d, True
     return _end(MONTH_AHEAD, f"{d.rule}：ただし予定の日（{day.year}年{day.month}月{day.day}日）が1か月以上先のため、かけずに終える"
-                             "（業務の設定「1か月以上先のかけ直し」＝かけない）")
+                             "（業務の設定「1か月以上先のかけ直し」＝かけない）"), False
 
 
 def after_month_ahead_answer(tx: Tx, task_id: UUID, *, approved: bool, cause: str) -> int | None:
     """1か月以上先のかけ直しの予定への、契約者の答えのあとの予定（1か所。core/row_fixes.answer_month_ahead だけが呼ぶ。0217）。認めた ⇒ いまの予定の
-    まま（認めたので門が通す＝その時刻にかける）。認めない ⇒ 行を終える（`MONTH_AHEAD`）。書いたら、その予定の番号（seq）を返す。"""
+    まま（答えがあるので伺いは終わり、その時刻にかける）。認めない ⇒ 行を終える（`MONTH_AHEAD`。約束の時刻のあとでも、まだかけていなければ同じ＝
+    答えられるかは tasks.month_ahead_answerable の1か所。0219）。書いたら、その予定の番号（seq）を返す。"""
     lock(tx, task_id)
     if approved:
         return None

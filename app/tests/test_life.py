@@ -976,13 +976,14 @@ class CallsNotUnwelcome(SupervisorBase):
         self.assertEqual(sorted(set(days)), [0, 1, 2], self.times(s))
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "callback_unspecified_time")
 
-    def test_a_promise_a_month_ahead_is_called_at_its_time_only_when_the_contractor_approves(self):
+    def test_a_promise_a_month_ahead_is_called_at_its_time_and_without_an_answer_with_an_urgent_notice(self):
         """1か月以上先のかけ直し（翌月の同じ日の15時の約束）・業務の設定「契約者が認めたらかける」⇒ 契約者が認めた行は、その日の15時にかかる。
-        答えていない行は、その時刻になってもかけない（門が待つ＝tasks.month_ahead_waiting。候補にも出さない。1か月以上先かは、その時刻へかける予定を
-        初めて決めた日で見る＝データベースの salescall.month_ahead：その日になって数え直すと1か月より手前になり、答えを待たずにかかってしまう）。
-        ✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」。0217。"""
+        答えていない行も、約束の時刻まで答えを待ったあと、その日の15時にかかり（待つのは約束の時刻より前だけ＝tasks.month_ahead_waiting）、契約者に
+        緊急の知らせが1回出る（門が通したところ＝gate._month_ahead_unanswered）。認めた行には出ない。
+        ✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」。0217。✅ 2026-11-12 ユーザー：
+        「契約者に緊急の通知をして、約束の時間にかける」。0219（⛔ 0217：答えていない行は、その時刻になってもかけなかった）。"""
         import calendar
-        from salescall.core import gate, row_fixes
+        from salescall.core import row_fixes
         monday = self.next_monday_9()
         y, m = (monday.year, monday.month + 1) if monday.month < 12 else (monday.year + 1, 1)
         day = monday.replace(year=y, month=m, day=min(monday.day, calendar.monthrange(y, m)[1]), hour=15)   # 翌月の同じ日の15時
@@ -1001,12 +1002,16 @@ class CallsNotUnwelcome(SupervisorBase):
         a, b = rows
         self.tx(a, lambda tx: row_fixes.answer_month_ahead(tx, a["task"], approve=True), OPERATOR)   # 契約者が認めた
         self.assertIsNone(self.tx(a, lambda tx: tasks.month_ahead_waiting(tx, a["task"])))
+        self.assertEqual(self.tx(b, lambda tx: tasks.month_ahead_waiting(tx, b["task"])), day)   # 答えていない：約束の時刻までは待つ
         phone, talk = Phone(), Script(default="no_answer")
         self.jump(day.replace(hour=14, minute=50))
         self.run_until(a, phone, talk, day.replace(hour=15, minute=10), step=timedelta(minutes=1), each=lambda: self.turn(b, phone, talk))
         self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(a)[:1]], [(day.date(), 15, 0)])
-        self.assertEqual(self.times(b), [])                                       # 答えていない：かけない
-        self.assertEqual(self.tx(b, lambda tx: gate.waits_unknown(tx, b["task"])), "month_ahead_approval")
+        self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(b)[:1]], [(day.date(), 15, 0)])   # 答えていない：約束どおりかける
+        urgent = lambda s: self.tx(s, lambda tx: [r["urgent"] for r in tx.all(   # noqa: E731
+            "SELECT urgent FROM salescall.notification_events WHERE kind = 'month_ahead_unanswered' AND refs ->> 'task_id' = %s",
+            (str(s["task"]),))])
+        self.assertEqual((urgent(a), urgent(b)), ([], [True]))                  # 緊急の知らせは、答えていない行に1回
 
     def test_tomorrow_forenoon_starts_at_the_business_hours(self):
         """「明日の午前中」：始まりは言葉で決まっていないので、営業時間の9時から（⛔ 0215 まで：歯止め時間の7時）。"""

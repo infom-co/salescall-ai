@@ -406,6 +406,22 @@ class AfterCall(unittest.TestCase):
                                 current_callee_at=at)
         self.assertEqual(d.callee_at, at)
 
+    def test_a_plan_keeps_coming_from_the_callees_words_when_the_gate_denies(self):
+        """お客様の言葉から決まった予定か（next_action.Decision.said_by_callee の1か所。0219）：門で止められたあとの決め直しは、いまの予定の幅を
+        引き継ぐので、お客様の言葉のまま（「1か月以上先」の決まりが当たる）。幅の無い予定（再発信の方針の間隔の電話）は、お客様の言葉ではない。"""
+        from salescall.core.next_action import Window
+        w = Window(NOW + timedelta(days=40, hours=1), None, None, NOW + timedelta(days=40), None)
+        for reason in ("outside_hours", "same_contact_interval"):
+            with self.subTest(reason=reason):
+                kw = dict(recheck=NO_OPENING_RECHECK, current_promised=True, current=Target(MAIN), pacing=P_NONE, now=NOW,
+                          opening=NOW + timedelta(days=40), retry_wait=300)
+                self.assertTrue(decide_after_denial(gate.denied(reason), current_window=w, **kw).said_by_callee)
+                self.assertFalse(decide_after_denial(gate.denied(reason), **kw).said_by_callee)
+        j = run(items={}, rep=report(("reception",), not_reached="not_transferred"))
+        d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
+                              retry_at=NOW + timedelta(days=40), target=Target(MAIN))
+        self.assertEqual((d.kind, d.said_by_callee), ("call", False))            # 方針の間隔で決めた予定
+
     def test_a_reception_that_could_not_put_us_through_means_one_more_call_on_another_day(self):
         """受付が事情があり取り次げなかった（と、確かめ直しで目的のお客様だと確かめられなかった）通話は、日を改めて1回だけかけ直す。
         システムが決め、業務では変えない（2026-10-22 ユーザー：「『事情があり、取り次げなかった』：日を改めて1回」。営業拒否は

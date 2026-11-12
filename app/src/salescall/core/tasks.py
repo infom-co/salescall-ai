@@ -175,11 +175,29 @@ def old_promise_waiting(tx: Tx, task_id: UUID) -> UUID | None:
     return tx.one("SELECT salescall.task_old_promise_waiting(%s) AS a", (task_id,))["a"]
 
 
+def month_ahead_asking(tx: Tx, task_id: UUID) -> datetime | None:
+    """1か月以上先のかけ直しの予定で、契約者に伺っていて、まだ答えの無い、その予定の時刻（無ければ None。1か所＝データベースの
+    salescall.task_month_ahead_asking：いまの予定に伺う印＝列 month_ahead_ask があり、その時刻への答えが無い。印を付けるのは
+    core/next_action._month_ahead の1か所。0219）。待っているか（`month_ahead_waiting`）・答えられるか（`month_ahead_answerable`）は、ここから決まる。
+    門が通したとき、これがあれば、答えの無いまま約束の時刻が来てかける電話（緊急の知らせ＝core/gate.claim）。"""
+    return tx.one("SELECT salescall.task_month_ahead_asking(%s) AS a", (task_id,))["a"]
+
+
 def month_ahead_waiting(tx: Tx, task_id: UUID) -> datetime | None:
     """1か月以上先のかけ直しの予定で、契約者の答え（かけると認めるか）を待っている、その予定の時刻（無ければ None。1か所＝データベースの
-    salescall.task_month_ahead_waiting。0217。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」）。
-    門・候補を出す処理（core/gate）・答えの入口（core/row_fixes.answer_month_ahead）が読む。"""
+    salescall.task_month_ahead_waiting＝`month_ahead_asking` のうち、約束の時刻より前。0217・0219）。約束の時刻が来たら待たない（かける。✅ 2026-11-12
+    ユーザー＝計画書 7-3 (3)「契約者に緊急の通知をして、約束の時間にかける」）。約束の時刻より前の予定は、門がもともとかけない（not_due）ので、
+    門・候補を出す処理は読まない。画面（CL-3）が「お答え待ち（約束の時刻まで）」を出すのに読む。⛔ 0217：約束の時刻が来ても待ち、門が
+    month_ahead_approval で断り続けた。"""
     return tx.one("SELECT salescall.task_month_ahead_waiting(%s) AS a", (task_id,))["a"]
+
+
+def month_ahead_answerable(tx: Tx, task_id: UUID) -> datetime | None:
+    """契約者が答えられる、1か月以上先のかけ直しの予定の時刻（無ければ None。1か所＝データベースの salescall.task_month_ahead_answerable＝
+    `month_ahead_asking` のうち、まだかけていない＝その時刻から、発信まで進んだ電話も、いま生きている予約も無い。0219）。約束の時刻のあとでも、
+    まだかけていなければ答えられる（「認めない」なら行を終える）。答えの入口（core/row_fixes.answer_month_ahead）と、データベースの答えの守り
+    （task_month_ahead_answer_guard）が読む。"""
+    return tx.one("SELECT salescall.task_month_ahead_answerable(%s) AS a", (task_id,))["a"]
 
 
 def record_confirmed_reading(tx: Tx, task_id: UUID, which: str, reading: str, *, attempt_id: UUID) -> None:

@@ -30,6 +30,12 @@ def from_local(t: datetime) -> datetime:
     return t.replace(tzinfo=JST)
 
 
+def label(t: datetime) -> str:
+    """時刻を、契約者への知らせに出す日本時間の形にする（1か所。例：12月15日15時・12月15日15時30分。年は出さない）。"""
+    t = local(t)
+    return f"{t.month}月{t.day}日{t.hour}時" + (f"{t.minute}分" if t.minute else "")
+
+
 DAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 HOURS_KEYS = DAY_KEYS + ("holiday",)   # 時間帯の値の鍵（曜日ごと＋祝日）
 _DAY = 24 * 3600

@@ -234,7 +234,13 @@ _M217 = "0217_month_ahead_callback.sql"
 _MONTH = _UNW + "MonthAhead."
 _MONTH_DEFAULT = _MONTH + "test_a_promise_a_month_ahead_ends_by_default_and_one_before_is_called_as_before"
 _MONTH_APPROVAL = _MONTH + "test_with_approval_the_plan_waits_for_the_contractor_who_approves_or_refuses"
-_LIFE_MONTH = _LIFE_UNW + "test_a_promise_a_month_ahead_is_called_at_its_time_only_when_the_contractor_approves"
+_LIFE_MONTH = _LIFE_UNW + "test_a_promise_a_month_ahead_is_called_at_its_time_and_without_an_answer_with_an_urgent_notice"
+_M219 = "0219_month_ahead_unanswered_and_callee_said.sql"
+_MONTH_POLICY = _MONTH + "test_a_month_ahead_set_by_the_contractors_policy_is_called_as_set"
+_MONTH_URGENT = _MONTH + "test_when_the_time_comes_without_an_answer_the_call_goes_with_one_urgent_notice"
+_MONTH_BOUNDARY = _MONTH + "test_after_the_time_a_refusal_ends_the_row_only_before_it_is_called"
+_MONTH_CARRY = _MONTH + "test_a_plan_that_keeps_the_callees_time_is_still_asked_once"
+_URGENT_KINDS = _UNW + "UrgentNotices.test_only_the_urgent_kinds_are_marked_urgent_in_both_copies"
 _LIFE_EVENING = _LIFE_UNW + "test_an_evening_promise_unanswered_is_called_on_exactly_the_policy_days"
 _BACK_DROPPED = _DF + "test_going_back_brings_back_a_dropped_promise_while_its_time_remains"
 _BACK_COUNT = _DF + "test_a_dropped_promise_brought_back_does_not_count_the_calls_to_the_other_person"
@@ -2935,13 +2941,44 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      _edited(_M217, "CREATE FUNCTION salescall.month_ahead(", "AND n.call_at = p_at), now()))", "AND n.call_at = p_at AND false), now()))",
              end="\n$$"),
      (_MONTH + "test_a_month_ahead_is_counted_from_the_day_the_time_was_first_decided",)),
-    ("契約者が認めても、1か月以上先のかけ直しを待ち続ける",
-     _edited(_M217, "CREATE FUNCTION salescall.month_ahead_unapproved(", "AND k.approved)", "AND k.approved AND false)", end="\n$$"),
-     (_MONTH_APPROVAL,)),
     ("1か月以上先のかけ直しに、システムの処理も答えられる",
-     _edited(_M217, "CREATE FUNCTION salescall.task_month_ahead_answer_guard(", "  IF NOT salescall.cur_is_person() THEN",
+     _edited(_M219, "CREATE OR REPLACE FUNCTION salescall.task_month_ahead_answer_guard(", "  IF NOT salescall.cur_is_person() THEN",
              "  IF false THEN"),
      (_MONTH_APPROVAL,)),
+    # ── 0219 答えが無いまま約束の時刻が来たら緊急の知らせをしてかける・お客様の言葉から決まった予定だけに当てはめる
+    ("伺う印の無い予定（契約者の方針の間隔の電話）も伺う（salescall.task_month_ahead_asking）",
+     _edited(_M219, "CREATE FUNCTION salescall.task_month_ahead_asking(", "AND n.kind = 'call' AND n.month_ahead_ask", "AND n.kind = 'call' AND true",
+             end="\n$$"),
+     (_MONTH_POLICY,)),
+    ("契約者が答えても、伺い続ける（salescall.task_month_ahead_asking）",
+     _edited(_M219, "CREATE FUNCTION salescall.task_month_ahead_asking(", "WHERE k.task_id = p_task AND k.call_at = n.call_at)", "WHERE false)",
+             end="\n$$"),
+     (_MONTH_APPROVAL,)),
+    ("約束の時刻が来ても、答えを待ち続ける（0217 の形＝salescall.task_month_ahead_waiting）",
+     _edited(_M219, "CREATE OR REPLACE FUNCTION salescall.task_month_ahead_waiting(", "WHERE now() < a", "WHERE true", end="\n$$"),
+     (_MONTH_URGENT,)),
+    ("かけた・かけている予定にも答えられる（salescall.task_month_ahead_answerable）",
+     _edited(_M219, "CREATE FUNCTION salescall.task_month_ahead_answerable(", "  WHERE NOT EXISTS (SELECT 1 FROM salescall.attempts t",
+             "  WHERE true OR EXISTS (SELECT 1 FROM salescall.attempts t", end="\n$$"),
+     (_MONTH_URGENT, _MONTH_BOUNDARY)),
+    ("取り消した予約も、かけた電話に数える（salescall.task_month_ahead_answerable）",
+     _edited(_M219, "CREATE FUNCTION salescall.task_month_ahead_answerable(",
+             "AND (salescall.is_dialed(t.state) OR salescall.is_live(t.state, t.claim_expires_at)))", "AND true)", end="\n$$"),
+     (_MONTH_URGENT,)),
+    ("いま生きている予約を、かけている電話に数えない（salescall.task_month_ahead_answerable）",
+     _edited(_M219, "CREATE FUNCTION salescall.task_month_ahead_answerable(",
+             "salescall.is_dialed(t.state) OR salescall.is_live(t.state, t.claim_expires_at)", "salescall.is_dialed(t.state)", end="\n$$"),
+     (_MONTH_URGENT,)),
+    ("データベースが、答えられない予定への答えも入れる（task_month_ahead_answer_guard）",
+     _edited(_M219, "CREATE OR REPLACE FUNCTION salescall.task_month_ahead_answer_guard(",
+             "  IF NEW.call_at IS DISTINCT FROM salescall.task_month_ahead_answerable(NEW.task_id) THEN", "  IF false THEN"),
+     (_MONTH_BOUNDARY,)),
+    ("終える予定にも、契約者に伺う印を付けられる",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_month_ahead_ask",
+     (_UNW + "Guards.test_the_ask_mark_is_only_on_a_call",)),
+    ("管理者あての写しに、急ぎの印を残さない（salescall.notify_admin）",
+     _edited(_M219, "CREATE FUNCTION salescall.notify_admin(", "true, salescall.cur_tenant(), p_urgent)", "true, salescall.cur_tenant(), false)"),
+     (_URGENT_KINDS,)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -6871,7 +6908,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      (_LIFE_EVENING,)),
     # ── 2026-11-08 ユーザー＝計画書 7-3 (3)：1か月以上先のかけ直しは、初めの値は「かけない」（0217）
     ("決定を書くとき、1か月以上先かを見ない（next_action._write）", _NEXT,
-     "        d = _month_ahead(tx, task_id, d)   # 1か月以上先のかけ直し（どの道で決めた予定も、ここを通る）\n", "",
+     "        d, ask = _month_ahead(tx, task_id, d)   # 1か月以上先のかけ直し（どの道で決めた予定も、ここを通る）\n", "",
      (_MONTH_DEFAULT, _MONTH_APPROVAL)),
     ("1か月以上先のかけ直しを、業務の設定に関係なく、いつも終える（next_action._month_ahead）", _NEXT,
      "    if settings.resolve(tx, \"callback.month_ahead\", **tasks.scope(tx, task_id)) == \"with_approval\":",
@@ -6885,12 +6922,40 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "    if approved:\n        return None\n    return _write(tx, task_id, _end(MONTH_AHEAD,",
      "    if True:\n        return None\n    return _write(tx, task_id, _end(MONTH_AHEAD,",
      (_MONTH_APPROVAL,)),
-    ("門が、1か月以上先のかけ直しの契約者の答えを待たない（gate._judge_and_claim）", "src/salescall/core/gate.py",
-     "    if tasks.month_ahead_waiting(tx, task[\"task_id\"]) is not None:\n        return _deny(\"month_ahead_approval\")\n", "",
-     (_MONTH + "test_when_the_time_comes_the_gate_waits_for_the_answer",)),
-    ("候補を出す処理が、1か月以上先のかけ直しの契約者の答えを待つ行も出す（gate.waits_unknown）", "src/salescall/core/gate.py",
-     "    if tasks.month_ahead_waiting(tx, task_id) is not None:\n        return \"month_ahead_approval\"\n", "",
-     (_MONTH_APPROVAL, _LIFE_MONTH)),
+    # ── 2026-11-12 ユーザー＝計画書 7-3 (3)：答えが無いまま約束の時刻が来たら緊急の知らせをしてかける・契約者が設定した方針の間隔はかける（0219）
+    ("お客様の言葉から決まった予定かを見ず、どの予定にも1か月以上先の決まりを当てはめる（0217 の形＝next_action._month_ahead）", _NEXT,
+     "    if not d.said_by_callee or not tx.one(\"SELECT salescall.month_ahead(%s, %s) AS w\", (task_id, d.at))[\"w\"]:",
+     "    if not tx.one(\"SELECT salescall.month_ahead(%s, %s) AS w\", (task_id, d.at))[\"w\"]:",
+     (_MONTH_POLICY,)),
+    ("お客様が言った幅を持つ予定を、お客様の言葉と見ない（next_action.Decision.said_by_callee）", _NEXT,
+     "        return self.window is not None and not self.window.empty\n", "        return False\n",
+     (_MONTH_DEFAULT, _MONTH_APPROVAL, "tests.test_judge.AfterCall.test_a_plan_keeps_coming_from_the_callees_words_when_the_gate_denies")),
+    ("どの予定も、お客様の言葉と見る（next_action.Decision.said_by_callee）", _NEXT,
+     "        return self.window is not None and not self.window.empty\n", "        return True\n",
+     (_MONTH_POLICY, "tests.test_judge.AfterCall.test_a_plan_keeps_coming_from_the_callees_words_when_the_gate_denies")),
+    ("「契約者が認めたらかける」の予定に、伺う印を付けない（next_action._month_ahead）", _NEXT,
+     "        return d, True\n", "        return d, False\n",
+     (_MONTH_APPROVAL, _MONTH_URGENT, _LIFE_MONTH)),
+    ("門が通しても、答えの無いまま約束の時刻が来たことを知らせない（gate.claim）", "src/salescall/core/gate.py",
+     "        _month_ahead_unanswered(tx, task_id)\n", "",
+     (_MONTH_URGENT, _LIFE_MONTH)),
+    ("緊急の知らせの種類を持たない（notify.URGENT）", "src/salescall/core/notify.py",
+     "URGENT: frozenset[str] = frozenset({\"month_ahead_unanswered\"})", "URGENT: frozenset[str] = frozenset()",
+     (_MONTH_URGENT, _URGENT_KINDS, _LIFE_MONTH)),
+    ("契約者の台帳に、急ぎの印を残さない（notify.emit）", "src/salescall/core/notify.py",
+     "        (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str), kind in URGENT))\n",
+     "        (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str), False))\n",
+     (_MONTH_URGENT, _URGENT_KINDS)),
+    ("管理者あての写しに、急ぎの印を渡さない（notify.emit）", "src/salescall/core/notify.py",
+     "                     (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str), kind in URGENT))[\"new\"]",
+     "                     (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str), False))[\"new\"]",
+     (_URGENT_KINDS,)),
+    ("知らせの鍵の時刻を、時差の表し方のまま入れる（0217 の形＝notify.key_time）", "src/salescall/core/notify.py",
+     "    return at.astimezone(timezone.utc).isoformat()\n", "    return at.isoformat()\n",
+     (_MONTH_CARRY,)),
+    ("答えの入口が、かけた・かけている予定にも答えさせる（row_fixes.answer_month_ahead）", "src/salescall/core/row_fixes.py",
+     "    waiting = tasks.month_ahead_answerable(tx, task_id)\n", "    waiting = tasks.month_ahead_asking(tx, task_id)\n",
+     (_MONTH_URGENT, _MONTH_BOUNDARY)),
 )
 
 

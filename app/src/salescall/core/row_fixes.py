@@ -346,12 +346,17 @@ def choose_old_promise(tx: Tx, task_id: UUID, *, keep_old_promise: bool) -> dict
 def answer_month_ahead(tx: Tx, task_id: UUID, *, approve: bool) -> dict[str, Any]:
     """1か月以上先のかけ直しの予定に、契約者が答える（ダッシュボード。業務の設定 callback.month_ahead が「契約者が認めたらかける」の行。✅ 2026-11-08
     ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」。0217）。真＝かけると認める（その時刻にかける）・偽＝
-    認めない（行を終える。終わりの理由は next_action.MONTH_AHEAD）。答えられるのは、答えを待っている行の、その時刻だけ（tasks.month_ahead_waiting
-    の1か所。待っていなければ `FixInvalid`＝何も書かない。データベースも同じ1か所で守る＝task_month_ahead_answer_guard）。答えは記録に残り
-    （task_month_ahead_answers）、行の予定は next_action.after_month_ahead_answer の1か所が決める。答えた予定の時刻・答え・そのあとの予定を返す。"""
-    waiting = tasks.month_ahead_waiting(tx, task_id)
+    認めない（行を終える。終わりの理由は next_action.MONTH_AHEAD）。答えられるのは、契約者に伺っていて、まだかけていない行の、その時刻だけ
+    （tasks.month_ahead_answerable の1か所。約束の時刻のあとでも、まだかけていなければ答えられる＝0219。答えられなければ `FixInvalid`＝何も書かない。
+    データベースも同じ1か所で守る＝task_month_ahead_answer_guard）。答えは記録に残り（task_month_ahead_answers）、行の予定は
+    next_action.after_month_ahead_answer の1か所が決める。答えた予定の時刻・答え・そのあとの予定を返す。"""
+    waiting = tasks.month_ahead_answerable(tx, task_id)
     if waiting is None:
-        raise FixInvalid("この行は、1か月以上先のかけ直しの答えを待っていません（1か月以上先のかけ直しの予定がある行だけ答えられます）")
+        if tasks.month_ahead_asking(tx, task_id) is not None:   # 伺っていたが、答えの無いまま約束の時刻が来て、もうかけた・かけている
+            raise FixInvalid("この行の1か月以上先のかけ直しは、お答えが無いまま約束の時刻になったので、もうおかけしています（かけた・かけている"
+                             "予定には答えられません）")
+        raise FixInvalid("この行は、1か月以上先のかけ直しの答えを待っていません（1か月以上先のかけ直しの予定で伺っている行だけ答えられます。"
+                         "お答えが無いまま約束の時刻になって、もうかけた予定には答えられません）")
     tx.execute("INSERT INTO salescall.task_month_ahead_answers (tenant_id, client_id, task_id, call_at, approved, answered_by)"
                " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, salescall.cur_actor() FROM salescall.tasks t WHERE t.task_id = %s",
                (waiting, approve, task_id))

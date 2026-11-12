@@ -10,6 +10,10 @@
   エラーのうち、契約者にも知らせるのは、処置の表（core/errors.py）が「知らせる」とした種類だけ（ほかは管理者あてだけ。
   `contractor=False`）。2026-10-16 見直し：前は「知らせる」の種類だけを管理者にも送り、キーの無効化など、直せるのが管理者
   だけのエラーが、管理者に届いていなかった。
+- **緊急の知らせ**（`URGENT`。2026-11-12。0219）：緊急の知らせかは、知らせの種類ごとに `URGENT` の1か所で決める（呼ぶ側は決めない）。`emit` が
+  台帳の列 urgent に残し、画面・送る処理（CL-3）は、その列を読んで目立たせる。いまは `month_ahead_unanswered` だけ（契約者のお答えが無いまま、
+  1か月以上先のかけ直しの約束の時刻が来て、お約束どおりかける＝✅ 2026-11-12 ユーザー：「契約者に緊急の通知をして、約束の時間にかける」）。
+  ほかの種類を緊急にするかは、ユーザー・管理者が決める（勝手に足さない）。
 - 要約に、お客様の電話番号・名前・発話の中身を入れない（画面と知らせに出す。中身は refs の ID で指す。CL-3 の 4-1e の5）。
   要約は、この部品を呼ぶ処理が、決まった言葉と ID・数から作る（会話の文字をそのまま入れない）。
 """
@@ -17,6 +21,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from salescall.core.access import Tx
@@ -50,8 +55,13 @@ KINDS: dict[str, str] = {
                           "契約者が、前の担当の方との約束を守るか、新しい担当の方へかけるかを選ぶまで、その行にはかけない。✅ 2026-11-07 ユーザー＝"
                           "計画書 7-1 (23)。DESIGN.md 3-4-1・0202）",
     "month_ahead_approval": "お客様とのかけ直しの予定が1か月以上先になった（業務の設定「1か月以上先のかけ直し」が「契約者が認めたらかける」の行。"
-                            "契約者がダッシュボードで、かけるかを答えるまで、その行にはかけない。認めなければ行を終える。✅ 2026-11-08 ユーザー＝"
-                            "計画書 7-3 (3)。DESIGN.md 7-2・0217）",
+                            "契約者がダッシュボードで、かけるかを答える。認めればその時刻にかけ、認めなければ行を終える。✅ 2026-11-08 ユーザー＝"
+                            "計画書 7-3 (3)。DESIGN.md 7-2・0217）。お客様の言葉から決まった予定だけ（契約者が決めた再発信の方針の間隔で1か月以上先に"
+                            "なった電話は、伺わずにかける。お答えが無いまま約束の時刻が来たら、緊急の知らせ month_ahead_unanswered をして、かける。0219）",
+    "month_ahead_unanswered": "【緊急】1か月以上先のかけ直しの予定で契約者に伺っていたが、お答えが無いまま約束の時刻になったので、お約束どおりかけた"
+                              "（業務の設定「1か月以上先のかけ直し」が「契約者が認めたらかける」の行。門がその電話を通したときに、行とその時刻ごとに1回。"
+                              "かけた・かけている予定には、もう答えられない。✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「契約者に緊急の通知をして、約束の時間に"
+                              "かける」。DESIGN.md 7-2・9-2・0219）",
     "solution_held": "依頼者の解決策を、確かめに通らなかったので想定問答に足していない（検証モードで名前の読みを契約者が確かめていない"
                      "など。契約者が確かめてから、もう一度足す。DESIGN.md 3-8-3 の (h)）",
     "solution_earlier": "手で前の版に戻した流れ（など）に、新しい依頼者の解決策を足したが、その流れに入っていない前の解決策がある（自動では"
@@ -87,6 +97,19 @@ KINDS: dict[str, str] = {
 }
 
 
+# 緊急の知らせの種類（1か所。KINDS の中から。台帳の列 urgent に残す＝画面・送る処理が読む。0219）：契約者のお答えが無いまま、1か月以上先の
+# かけ直しの約束の時刻が来て、お約束どおりかける（✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「契約者に緊急の通知をして、約束の時間にかける」）。
+# ほかの種類は、ユーザー・管理者が決めるまで緊急にしない
+URGENT: frozenset[str] = frozenset({"month_ahead_unanswered"})
+
+
+def key_time(at: datetime) -> str:
+    """出来事の鍵に入れる時刻の形（1か所。0219）：同じ時刻は、時差の表し方（データベースから読んだ時刻・日本時間で作った時刻など）によらず同じ
+    鍵になる（協定世界時の形）。⛔ 0217：鍵に時刻をそのままの形で入れ、同じ予定の時刻を書き直すと（日本時間で作った時刻とデータベースから読んだ
+    時刻で形が違い）、同じ伺いの知らせが2つ入った。"""
+    return at.astimezone(timezone.utc).isoformat()
+
+
 class UnknownKind(Exception):
     """一覧に無い種類。"""
 
@@ -95,19 +118,20 @@ def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | No
          contractor: bool = True) -> bool:
     """出来事を台帳に入れる（取引の契約者・依頼者の出来事）。admin＝管理者あての写しも入れる。contractor=False＝契約者の台帳には
     入れない（管理者あてだけ。admin と組で使う）。新しく入れたら True、同じ出来事がもうあれば False。同じ出来事かは、鍵と契約者で
-    決まる（管理者あての写しは、鍵と出どころの契約者。データベースの一意の約束の1か所＝0064。鍵に契約者を入れなくてよい）。"""
+    決まる（管理者あての写しは、鍵と出どころの契約者。データベースの一意の約束の1か所＝0064。鍵に契約者を入れなくてよい）。
+    緊急の知らせか（台帳の列 urgent）は、種類で決まる（`URGENT` の1か所。呼ぶ側は渡さない。0219）。"""
     if kind not in KINDS:
         raise UnknownKind(kind)
     if not (admin or contractor):
         raise ValueError("あて先がありません（管理者か契約者のどちらか）")
     if admin:
-        got = tx.one("SELECT salescall.notify_admin(%s, %s, %s, %s) AS new",
-                     (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str)))["new"]
+        got = tx.one("SELECT salescall.notify_admin(%s, %s, %s, %s, %s) AS new",
+                     (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str), kind in URGENT))["new"]
         if not contractor:
             return got
     row = tx.one(
-        "INSERT INTO salescall.notification_events (tenant_id, client_id, kind, event_key, summary, refs)"
-        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)"
+        "INSERT INTO salescall.notification_events (tenant_id, client_id, kind, event_key, summary, refs, urgent)"
+        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s)"
         " ON CONFLICT (event_key, tenant_id, origin_tenant) DO NOTHING RETURNING event_id",   # 同じ出来事かは契約者ごと（0064）
-        (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str)))
+        (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str), kind in URGENT))
     return row is not None

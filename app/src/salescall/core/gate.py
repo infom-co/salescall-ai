@@ -115,11 +115,9 @@ REASONS: dict[str, Reason] = {
     # 選ぶ入口は core/row_fixes.choose_old_promise）
     "old_promise_choice": Reason("番号を直す前の担当の方が、新しいかけ直しの約束をしました。ダッシュボードで、前の担当の方との約束を守るか、"
                                  "新しい担当の方へかけるかを選んでください（選ぶまで、この行にはかけません）", "wait", "unoffered"),
-    # 1か月以上先のかけ直しの予定で、契約者がまだ「かける」と認めていない（業務の設定 callback.month_ahead が「契約者が認めたらかける」。✅ 2026-11-08
-    # ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」。決まりは tasks.month_ahead_waiting の1か所。答える
-    # 入口は core/row_fixes.answer_month_ahead。0217）
-    "month_ahead_approval": Reason("お客様とのかけ直しの予定が1か月以上先です。ダッシュボードで、かけるかを契約者が答えてください（認めるまで、"
-                                   "この行にはかけません。認めなければ、行を終えます）", "wait", "unoffered"),
+    # ⛔ 0217 の month_ahead_approval（1か月以上先のかけ直しで、契約者がまだ認めていない）は外した（0219）：契約者の答えを待つのは約束の時刻より前
+    # だけになり（✅ 2026-11-12 ユーザー＝計画書 7-3 (3)「契約者に緊急の通知をして、約束の時間にかける」）、時刻より前の予定は門がもともと not_due で
+    # かけないので、この理由で断る場面が無くなった。答えの無いまま約束の時刻が来た電話は通し、緊急の知らせを出す（`_month_ahead_unanswered`）
     "stopped": Reason("止まっています", "wait", "unoffered"),
     "line_stopped": Reason("この回線が止まっています（回線の異常など。行は、ほかの回線でかけられる）", "wait", "line"),   # 回線の欄の休み・回線の停止
     "client_inactive": Reason("この依頼者は無効にしています", "wait", "client"),
@@ -554,7 +552,6 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: d
     理由は、次の動きがその時刻へ1回書くので、ここには入れない）。見るのは、理由の表の扱いが unoffered・plan_if_known の理由のうち、
     候補のデータベースの条件（行の欄の段＝`TASK_STAGE_REASONS`・「かけない」・止まっている）で除けないもの。どれも門と同じ1か所を読む：
     契約者の承認を待つ（approval.task_cleared）・前の担当の方の新しい約束の、契約者の選びを待つ（tasks.old_promise_waiting）・
-    1か月以上先のかけ直しの、契約者の答えを待つ（tasks.month_ahead_waiting）・
     同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach）・
     番号の欄の待つ印（N-4。core/health.number_held）・目的のお客様を呼ぶ材料が無い（`_target_short`）・
     話してよい別の声が無い（`choose_voice`）・その回線の発信番号で、ほかの依頼者がこの番号へかけた（`_line_taken`。line_id を渡した
@@ -564,8 +561,6 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: d
         return "awaiting_approval"
     if tasks.old_promise_waiting(tx, task_id) is not None:
         return "old_promise_choice"
-    if tasks.month_ahead_waiting(tx, task_id) is not None:
-        return "month_ahead_approval"
     if apology_unapproved(tx, task_id):
         return "apology_unapproved"
     related = dnc.undecided_reach(tx, task_id)
@@ -766,7 +761,24 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
                                                                      "reason": outcome.reason})
     else:   # 通した：その行がほかの回線の判定待ちなら（E15）、状態の表を引く入口へ（DESIGN.md 17章。R-4）
         health.claimed(tx, task_id, line_id)
+        _month_ahead_unanswered(tx, task_id)
     return outcome
+
+
+def _month_ahead_unanswered(tx: Tx, task_id: UUID) -> None:
+    """門が通した電話が、1か月以上先のかけ直しで契約者に伺っていて、お答えの無いまま約束の時刻が来た予定の電話なら、契約者に緊急の知らせを出す
+    （1か所。`claim` が通したときだけ呼ぶ。行とその時刻ごとに1回＝知らせの鍵。予約が使われずに切れて、あとでまた通しても増えない）。伺っているかは
+    tasks.month_ahead_asking の1か所（門は約束の時刻より前の予定を not_due で断るので、通したなら約束の時刻が来ている）。緊急かは知らせの種類で
+    決まる（notify.URGENT）。✅ 2026-11-12 ユーザー＝計画書 7-3 (3)：伺い「答えが無い」に「契約者に緊急の通知をして、約束の時間にかける」。0219。
+    出す所を門にしたのは、知らせの中身（お約束どおりおかけします）が本当になる所が、予約証を出す同じ取引だから：見守り役の決まった間隔の仕事で
+    時刻が来たことを見て出すと、止まっている・時間帯の外などでかけられないあいだも「おかけします」と知らせ、かける前後に知らせが遅れて届く。"""
+    at = tasks.month_ahead_asking(tx, task_id)
+    if at is None:
+        return
+    notify.emit(tx, "month_ahead_unanswered", key=f"month_ahead_unanswered:{task_id}:{notify.key_time(at)}",
+                refs={"task_id": task_id, "call_at": at},
+                summary=f"お客様とのかけ直しの予定（{calling_hours.label(at)}）が1か月以上先のため伺っていましたが、お答えが無いまま約束の時刻に"
+                        "なったので、お約束どおりおかけします。")
 
 
 def _handled(handling: str) -> frozenset[str]:
@@ -841,10 +853,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # 出さない＝`waits_unknown`。計画書 7-1 (23)）
     if tasks.old_promise_waiting(tx, task["task_id"]) is not None:
         return _deny("old_promise_choice")
-    # 1か月以上先のかけ直しの予定で、契約者の答えを待っている（tasks.month_ahead_waiting の1か所。候補を出す処理も同じものを読んで出さない＝
-    # `waits_unknown`。計画書 7-3 (3)。0217）
-    if tasks.month_ahead_waiting(tx, task["task_id"]) is not None:
-        return _deny("month_ahead_approval")
+    # 1か月以上先のかけ直しの予定で、契約者に伺っていて答えの無いものは、約束の時刻より前は上の not_due でかけない。約束の時刻が来たら待たずに
+    # かける（通したら緊急の知らせ＝`claim` の `_month_ahead_unanswered`。✅ 2026-11-12 ユーザー＝計画書 7-3 (3)。0219。⛔ 0217：ここで
+    # month_ahead_approval で断り続け、答えの無い行がかけられないまま残った）
     # 約束の時刻の電話の頭で伝えるお詫びの案を、契約者がまだ承認していない（`apology_unapproved` の1か所。候補を出す処理も同じものを読んで
     # 出さない＝`waits_unknown`。計画書 7-3 (2)。0216）
     if apology_unapproved(tx, task["task_id"]):
