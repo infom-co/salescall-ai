@@ -210,6 +210,7 @@ class Life(SupervisorBase):
             if got.pause or (got.called is None and not got.free):
                 break
         self.w.a.in_tenant(SYSTEM, s["tenant"], watch.lasting_stops)
+        jobs.month_ahead_notices(self.ctx(s))   # 見守り役の決まった間隔の仕事（1か月以上先のかけ直しの、約束の時刻の5分前の緊急の知らせ）
 
     def run_until(self, s, phone, talk, until, *, step=timedelta(minutes=10), night=timedelta(minutes=30), each=None, lines=None):
         """時計を step ずつ（夜は night ずつ）進め、毎回その回線をまわす（lines＝(回線, 電話の部品) の並び：毎回この順にまわす）。"""
@@ -979,7 +980,8 @@ class CallsNotUnwelcome(SupervisorBase):
     def test_a_promise_a_month_ahead_is_called_at_its_time_and_without_an_answer_with_an_urgent_notice(self):
         """1か月以上先のかけ直し（翌月の同じ日の15時の約束）・業務の設定「契約者が認めたらかける」⇒ 契約者が認めた行は、その日の15時にかかる。
         答えていない行も、約束の時刻まで答えを待ったあと、その日の15時にかかり（待つのは約束の時刻より前だけ＝tasks.month_ahead_waiting）、契約者に
-        緊急の知らせが1回出る（門が通したところ＝gate._month_ahead_unanswered）。認めた行には出ない。
+        緊急の知らせが1回出る（約束の時刻の5分前＝見守り役の仕事 supervisor/jobs.month_ahead_notices が gate.month_ahead_unanswered の1か所で）。
+        認めた行には出ない。✅ 2026-11-12 ユーザー：「時刻は5分前」。
         ✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1か月以上先の予定がある場合、契約者が認めた場合のみかけます」。0217。✅ 2026-11-12 ユーザー：
         「契約者に緊急の通知をして、約束の時間にかける」。0219（⛔ 0217：答えていない行は、その時刻になってもかけなかった）。"""
         import calendar
@@ -1008,10 +1010,13 @@ class CallsNotUnwelcome(SupervisorBase):
         self.run_until(a, phone, talk, day.replace(hour=15, minute=10), step=timedelta(minutes=1), each=lambda: self.turn(b, phone, talk))
         self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(a)[:1]], [(day.date(), 15, 0)])
         self.assertEqual([(t.date(), t.hour, t.minute) for t in self.times(b)[:1]], [(day.date(), 15, 0)])   # 答えていない：約束どおりかける
-        urgent = lambda s: self.tx(s, lambda tx: [r["urgent"] for r in tx.all(   # noqa: E731
-            "SELECT urgent FROM salescall.notification_events WHERE kind = 'month_ahead_unanswered' AND refs ->> 'task_id' = %s",
+        urgent = lambda s: self.tx(s, lambda tx: [(r["urgent"], r["at"].astimezone(JST).replace(tzinfo=None)) for r in tx.all(   # noqa: E731
+            "SELECT urgent, occurred_at AS at FROM salescall.notification_events WHERE kind = 'month_ahead_unanswered' AND refs ->> 'task_id' = %s",
             (str(s["task"]),))])
-        self.assertEqual((urgent(a), urgent(b)), ([], [True]))                  # 緊急の知らせは、答えていない行に1回
+        self.assertEqual(urgent(a), [])                                          # 認めた行には出ない
+        got = urgent(b)                                                          # 答えていない行に、緊急の知らせが1回・約束の時刻の5分前
+        self.assertEqual([u for u, _ in got], [True])
+        self.assertTrue(day.replace(hour=14, minute=55, tzinfo=None) <= got[0][1] < day.replace(hour=14, minute=57, tzinfo=None), got)
 
     def test_tomorrow_forenoon_starts_at_the_business_hours(self):
         """「明日の午前中」：始まりは言葉で決まっていないので、営業時間の9時から（⛔ 0215 まで：歯止め時間の7時）。"""

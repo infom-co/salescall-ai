@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import (agents, answer_rate, attempts, backup, business_settings, calendar, conversation_io, health, leases,
+from salescall.core import (agents, answer_rate, attempts, backup, business_settings, calendar, conversation_io, gate, health, leases,
                             measure, next_action, recordings, settle, usage, watch)
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, line, plugins, report
@@ -206,6 +206,16 @@ def fixed_stops(ctx: Context) -> None:
     ctx.access.in_tenant(ACTOR, ctx.tenant_id, health.fixed)
 
 
+def month_ahead_notices(ctx: Context) -> None:
+    """1か月以上先のかけ直しで契約者に伺っていて、お答えの無いまま約束の時刻の5分前を過ぎた予定の、契約者への緊急の知らせ（依頼者ごと。候補は
+    core/gate.month_ahead_notice_rows、出すかは core/gate.month_ahead_unanswered の1か所＝門が通すときと同じ。行ごとに別の取引＝1つの行の誤りで、
+    ほかの行の知らせを止めない）。✅ 2026-11-12 ユーザー：「時刻は5分前」。"""
+    for client_id in _clients(ctx):
+        in_client = lambda work, c=client_id: ctx.access.in_client(ACTOR, ctx.tenant_id, c, work)   # noqa: E731
+        _each(ctx, "1か月以上先のかけ直しの緊急の知らせ", in_client(gate.month_ahead_notice_rows),
+              lambda t, in_client=in_client: in_client(lambda tx: gate.month_ahead_unanswered(tx, t)))
+
+
 def storage_recovery(ctx: Context) -> None:
     """データベースへの書き込みが戻った（E21）を、その契約者の復旧待ちの行へ渡す（core/health.storage_back。1か所）。渡す取引そのものが
     書き込みの確かめ（supervisor/line.timed_write＝確定まで call.frozen_after のうちに終わるか。回線の流れの `storage_back` と同じ1か所）
@@ -293,6 +303,8 @@ def pc_watch(ctx: Context) -> None:
 # - lasting_stops・system_lasting_stops：止まったまま1時間続いた停止の修正依頼（確かめの部品が無くても動く。依頼は同じ不具合で1つ）
 # - backup_watch・whole_backup_watch：控えが1日以上取れていないことに気づく（取る仕事は設定が無いと動かないので、別の仕事にする）。
 #   1時間に1回で足りる（知らせは1日1回）
+# - month_ahead_notices：1か月以上先のかけ直しで、お答えの無いまま約束の時刻の5分前を過ぎた予定の緊急の知らせ（1分。5分前から4分前のあいだに
+#   出る。出しそびれても、門が通すときに同じ1か所で出す）
 # - trusted_names：管理者のチェックを要らないとした契約者の名前の録音を、システムの共通の録音に入れるまでの遅れ（5分。その業務では、
 #   契約者が承認したときから使っている＝遅れるのは、ほかの契約者の電話で使えるまでだけ）
 JOBS: tuple[Job, ...] = (
@@ -303,6 +315,7 @@ JOBS: tuple[Job, ...] = (
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None, parts=True),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
     Job("reopen_revoked", 300, "tenant", 600, reopen_revoked),
+    Job("month_ahead_notices", 60, "tenant", 300, month_ahead_notices),   # 1か月以上先のかけ直しの、約束の時刻の5分前の緊急の知らせ
     Job("versions", 300, "tenant", 600, versions),   # 版を足して、そろったら自動で替える（0183）
     Job("utterances", 86400, "tenant", 600, purge_utterances),   # やり取りの文字を、録音と同じ日数で消す（1日1回。0157）
     Job("samples", 3600, "tenant", 1800, draw_samples),

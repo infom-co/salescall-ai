@@ -2466,7 +2466,7 @@ class Main(SupervisorBase):
         here = lambda cfg: {j.name for j in jobs.JOBS if j.wanted(cfg)}   # noqa: E731
         bare = here(self.cfg(s))
         self.assertTrue({"recover", "settle", "backups", "backup_watch", "whole_backup_watch", "lasting_stops",
-                         "system_lasting_stops", "pc_watch", "budget", "holidays", "fixed_stops"} <= bare)   # fixed_stops＝直した版で解く（0139）
+                         "system_lasting_stops", "pc_watch", "budget", "holidays", "fixed_stops", "month_ahead_notices"} <= bare)   # fixed_stops＝直した版で解く（0139）・month_ahead_notices＝1か月以上先のかけ直しの5分前の緊急の知らせ
         self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks"} & bare)
         full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_ADMIN_TENANT=str(uuid.uuid4()),
                              SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p"))

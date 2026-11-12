@@ -1634,7 +1634,7 @@ def _month_ahead(tx: Tx, task_id: UUID, d: Decision) -> tuple[Decision, bool]:
         notify.emit(tx, "month_ahead_approval", key=f"month_ahead_approval:{task_id}:{notify.key_time(d.at)}",
                     refs={"task_id": task_id, "call_at": d.at},
                     summary=f"お客様とのかけ直しの予定が1か月以上先（{calling_hours.label(d.at)}）です。ダッシュボードで、かけるかを答えてください"
-                            "（認めればその時刻にかけます。認めなければ、行を終えます。お答えが無いまま約束の時刻になったら、緊急でお知らせして、"
+                            "（認めればその時刻にかけます。認めなければ、行を終えます。お答えが無いまま約束の時刻の5分前になったら、緊急でお知らせして、"
                             "お約束どおりおかけします）。")
         return d, True
     return _end(MONTH_AHEAD, f"{d.rule}：ただし予定の日（{day.year}年{day.month}月{day.day}日）が1か月以上先のため、かけずに終える"

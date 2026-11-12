@@ -242,6 +242,7 @@ _M219 = "0219_month_ahead_unanswered_and_callee_said.sql"
 _MONTH_POLICY = _MONTH + "test_a_month_ahead_set_by_the_contractors_policy_is_called_as_set"
 _MONTH_URGENT = _MONTH + "test_when_the_time_comes_without_an_answer_the_call_goes_with_one_urgent_notice"
 _MONTH_BOUNDARY = _MONTH + "test_after_the_time_a_refusal_ends_the_row_only_before_it_is_called"
+_MONTH_FIVE = _MONTH + "test_the_urgent_notice_goes_five_minutes_before_and_an_answer_in_between_is_followed"
 _MONTH_CARRY = _MONTH + "test_a_plan_that_keeps_the_callees_time_is_still_asked_once"
 _URGENT_KINDS = _UNW + "UrgentNotices.test_only_the_urgent_kinds_are_marked_urgent_in_both_copies"
 _LIFE_EVENING = _LIFE_UNW + "test_an_evening_promise_unanswered_is_called_on_exactly_the_policy_days"
@@ -6939,9 +6940,24 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("「契約者が認めたらかける」の予定に、伺う印を付けない（next_action._month_ahead）", _NEXT,
      "        return d, True\n", "        return d, False\n",
      (_MONTH_APPROVAL, _MONTH_URGENT, _LIFE_MONTH)),
-    ("門が通しても、答えの無いまま約束の時刻が来たことを知らせない（gate.claim）", "src/salescall/core/gate.py",
-     "        _month_ahead_unanswered(tx, task_id)\n", "",
-     (_MONTH_URGENT, _LIFE_MONTH)),
+    ("門が通しても、答えの無いまま約束の時刻が来たことを知らせない（見守り役が出しそびれた知らせを、門で出さない＝gate.claim）", "src/salescall/core/gate.py",
+     "        month_ahead_unanswered(tx, task_id)   # 見守り役が5分前に", "        pass   # 見守り役が5分前に",
+     (_MONTH_URGENT,)),
+    ("見守り役が、約束の時刻の5分前の緊急の知らせを出さない（supervisor/jobs.month_ahead_notices）", "src/salescall/supervisor/jobs.py",
+     "              lambda t, in_client=in_client: in_client(lambda tx: gate.month_ahead_unanswered(tx, t)))",
+     "              lambda t, in_client=in_client: None)",
+     (_LIFE_MONTH,)),
+    ("緊急の知らせを、約束の時刻の5分前でなく約束の時刻に出す（gate.month_ahead_unanswered）", "src/salescall/core/gate.py",
+     '    if at is None or tx.one("SELECT now() AS t")["t"] < at - MONTH_AHEAD_NOTICE:',
+     '    if at is None or tx.one("SELECT now() AS t")["t"] < at:',
+     (_MONTH_FIVE, _LIFE_MONTH)),
+    ("緊急の知らせを、約束の時刻の5分前より早く出す（gate.month_ahead_unanswered）", "src/salescall/core/gate.py",
+     '    if at is None or tx.one("SELECT now() AS t")["t"] < at - MONTH_AHEAD_NOTICE:',
+     '    if at is None or tx.one("SELECT now() AS t")["t"] < at - 2 * MONTH_AHEAD_NOTICE:',
+     (_MONTH_FIVE,)),
+    ("見守り役の候補に、約束の時刻の5分前を過ぎた予定を入れない（gate.month_ahead_notice_rows）", "src/salescall/core/gate.py",
+     "AND month_ahead_ask AND call_at <= now() + %s\",", "AND month_ahead_ask AND call_at <= now() - %s\",",
+     (_MONTH_FIVE, _LIFE_MONTH)),
     ("緊急の知らせの種類を持たない（notify.URGENT）", "src/salescall/core/notify.py",
      "URGENT: frozenset[str] = frozenset({\"month_ahead_unanswered\"})", "URGENT: frozenset[str] = frozenset()",
      (_MONTH_URGENT, _URGENT_KINDS, _LIFE_MONTH)),

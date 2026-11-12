@@ -429,12 +429,12 @@ class MonthAhead(SettleBase):
             tx.execute("ALTER TABLE salescall.task_next_actions ENABLE TRIGGER USER")
         owner_access().in_system(SYSTEM, back)
 
-    def due_and_asked(self):
-        """試験の近道：契約者に伺っていて答えの無い、1か月以上先の予定の時刻が来た行（いまの時刻の予定を40日前に決めたことにして、同じ時刻のまま
-        書き直す）。"""
+    def due_and_asked(self, ahead=timedelta(0)):
+        """試験の近道：契約者に伺っていて答えの無い、1か月以上先の予定の時刻が来た行（いまの時刻＋ahead の予定を40日前に決めたことにして、同じ
+        時刻のまま書き直す。ahead＝約束の時刻まで、あとどれだけか）。"""
         s = self.ready()
         self.choose(s, "with_approval")
-        at = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        at = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"]) + ahead
         self.asked(s, at)
         self.back_40_days(s, at)
         self.asked(s, at)
@@ -449,13 +449,14 @@ class MonthAhead(SettleBase):
         self.assertEqual(self.tx(s, lambda tx: (tasks.month_ahead_asking(tx, s["task"]), tasks.month_ahead_waiting(tx, s["task"]),
                                                 tasks.month_ahead_answerable(tx, s["task"]))), (at, None, at))
         self.assertIsNone(self.tx(s, lambda tx: gate.waits_unknown(tx, s["task"])))   # 候補にも出す
-        self.assertEqual(self.notices(s, "month_ahead_unanswered"), [])         # 時刻が来ても、通すまでは出さない
-        c = self.claim(s)
+        self.assertEqual(self.notices(s, "month_ahead_unanswered"), [])         # 見守り役の仕事がまだ回っていない
+        c = self.claim(s)                                                        # 門が通す：出しそびれていても、知らせの無いままかけない
         self.assertIsInstance(c, gate.Claim, c)
         got = self.notices(s, "month_ahead_unanswered")
         self.assertEqual(len(got), 1, got)
         self.assertTrue(got[0][1])                                               # 緊急
-        self.assertIn(f"（{next_action.calling_hours.label(at)}）が1か月以上先のため伺っていましたが、お答えが無いまま約束の時刻", got[0][0])
+        self.assertIn(f"（{next_action.calling_hours.label(at)}）が1か月以上先のため伺っていましたが、お答えが無いので、約束の時刻にお約束どおり",
+                      got[0][0])
         self.assertIsNone(self.tx(s, lambda tx: tasks.month_ahead_answerable(tx, s["task"])))   # 予約した＝かけている
         with self.assertRaises(row_fixes.FixInvalid):
             self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=False), OPERATOR)
@@ -463,6 +464,29 @@ class MonthAhead(SettleBase):
         self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_answerable(tx, s["task"])), at)
         self.assertIsInstance(self.claim(s), gate.Claim)                         # また通しても、知らせは1回のまま
         self.assertEqual(len(self.notices(s, "month_ahead_unanswered")), 1)
+
+    def test_the_urgent_notice_goes_five_minutes_before_and_an_answer_in_between_is_followed(self):
+        """(a) の知らせの時刻：約束の時刻の5分前（gate.MONTH_AHEAD_NOTICE）を過ぎたら、見守り役の仕事の候補（gate.month_ahead_notice_rows）に入り、
+        緊急の知らせを1回出す（gate.month_ahead_unanswered の1か所。門が通すときも同じ所を通るので増えない）。5分より前は出さない。知らせのあと、
+        かけるまでに契約者が「認めない」と答えれば、そのとおり行を終える。✅ 2026-11-12 ユーザー：「時刻は5分前」。
+        ⛔ 0219 のはじめ：門が通したとき（約束の時刻ちょうど）にだけ出し、契約者が止める時間が無かった。"""
+        from salescall.core import row_fixes
+        self.assertEqual(gate.MONTH_AHEAD_NOTICE, timedelta(minutes=5))
+        early, _ = self.due_and_asked(timedelta(minutes=6))                     # 6分前：まだ出さない
+        self.assertNotIn(early["task"], self.tx(early, gate.month_ahead_notice_rows))
+        self.assertFalse(self.tx(early, lambda tx: gate.month_ahead_unanswered(tx, early["task"])))
+        self.assertEqual(self.notices(early, "month_ahead_unanswered"), [])
+        s, at = self.due_and_asked(timedelta(minutes=4))                         # 4分前：出す
+        self.assertIn(s["task"], self.tx(s, gate.month_ahead_notice_rows))
+        for _ in range(2):                                                       # 何回見ても1回
+            self.tx(s, lambda tx: gate.month_ahead_unanswered(tx, s["task"]))
+        got = self.notices(s, "month_ahead_unanswered")
+        self.assertEqual(len(got), 1, got)
+        self.assertTrue(got[0][1])                                               # 緊急
+        self.assertIsInstance(self.claim(s), gate.Denied)                        # 約束の時刻の前はかけない
+        got = self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=False), OPERATOR)   # 知らせを見て止めた
+        self.assertEqual((got["next"]["kind"], got["next"]["end_reason"]), ("end", next_action.MONTH_AHEAD))
+        self.assertEqual(self.tx(s, gate.month_ahead_notice_rows), [])          # 終えた行は候補に入らない
 
     def test_after_the_time_a_refusal_ends_the_row_only_before_it_is_called(self):
         """(a) の境目：約束の時刻のあとでも、まだかけていなければ「認めない」で行を終える（いまどおり）。かけた予定には答えられない（`FixInvalid`。
