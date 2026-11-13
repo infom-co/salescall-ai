@@ -297,7 +297,7 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
 _EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who", "offer_fact")
 
 
-def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
+def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None) -> dict[str, dict[str, Any]]:
     """その行で、前の通話までに取れた答え（質問の番号 → 会話の側の flowctl.EARLIER_KEYS の形）。続きから聞く電話（目的 resume）で、取れた答えの
     質問を伺わないため・切れた所から伺うために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の
     番号のまま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。
@@ -322,6 +322,9 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
     （kept が偽）ときは、その通話より前に取った答えを全部、引き継いだ（kept が真）ときは、その事実の dropped の質問の答えを入れない（決めるのは、ここの
     1か所＝`_dropped_by_carried`。その通話かあとの通話で取り直した答えは、取った通話が新しいので入る）。外さないと、その電話が途中で切れたとき、次の電話で
     新しい方に前の方の答えのまま伺う（「前回お伺いした件でご納得いただけなかった点は…」）。
+    before＝その通話（試行）より前の通話だけを読む（その通話を始めたときに会話へ渡した前の通話の答えと同じもの）。依頼者へ「新しい担当の方が引き継いだと
+    言った前の方の答え」を返す所（settle._earlier_answers）が読む。⛔ 2026-11-13 の見直し：はじめはそこで項目の値を通話の順だけで拾い、ここの「使わない
+    ことにした答え」を見ていなかった＝前の通話の答えの決まりが2か所になり、3人目の担当の方の電話で、会話へ渡していない答えを引き継いだと返しえた。
     ⛔ 2026-11-03 の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
     答えに、前の通話（別の方と話していた通話）の事実を付けうる形だった。⇒ その答えを取った通話と、そのあとの通話の報告から読む（その答えを
     取った通話より前の通話は読まない）。⛔ 2026-11-06 の見直し (C) の1：その答えを取った通話の報告だけを読んでいたので、続きの電話で
@@ -329,11 +332,15 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
     （CL-1 の連絡帳 4-99「また切れても3回目は言いません」）。続きの電話で伺い直したほかのご希望も同じ。"""
     calls = [c["attempt_id"] for c in tx.all("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s"
                                              " ORDER BY claimed_at, attempt_id", (task_id,))]
+    if before is not None:
+        calls = calls[:calls.index(before)] if before in calls else []
     since = {a: i for i, a in enumerate(calls)}
     reports: dict[UUID, call_report.CallReport | None] = {}
     out: dict[str, dict[str, Any]] = {}
     for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged, attempt_id FROM salescall.item_values"
                     " WHERE task_id = %s ORDER BY question_id", (task_id,)):
+        if before is not None and r["attempt_id"] not in since:   # その通話か、そのあとの通話で取った答え（その通話の前には無かった）
+            continue
         q, w, n, o, gone = r["question_id"], None, None, None, False
         for i, a in enumerate(calls[since[r["attempt_id"]]:] if r["attempt_id"] in since else ()):   # その答えを取った通話と、そのあとの通話（古い順）
             if a not in reports:

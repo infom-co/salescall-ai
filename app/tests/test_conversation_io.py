@@ -364,6 +364,39 @@ class Materials(SettleBase):
         d = self.tx(s, lambda tx: tx.one("SELECT detail FROM salescall.call_judgements WHERE attempt_id = %s", (first,)))["detail"]
         self.assertNotIn("carried", d)
 
+    def test_the_client_is_not_told_of_answers_an_earlier_new_person_did_not_carry(self):
+        """前の通話の答えの決まりは1か所（conversation_io.earlier。依頼者へ返す carried_answers も、その通話を始めたときに会話へ渡した前の通話の答え＝
+        settle._earlier_answers が earlier(before=) を読む）。前の担当の方の答えを、2人目の新しい方が引き継がなかった（kept が偽）あと、3人目の方が
+        「聞いている」と言っても、その電話の会話へは前の方の答えを渡していないので、引き継いだ答えとして返さない。⛔ 2026-11-13 の見直し：はじめは
+        項目の値を通話の順だけで拾い、会話へ渡していない答えを引き継いだと返しえた。"""
+        import dataclasses
+        import time
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 5)              # 同じ日に3本かける
+        first = self.call(s)                                                     # 前の担当の方と話した
+        self.settle(s, first)
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
+            " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', NULL, %s)", (s["tenant"], s["client"], s["task"], s["version"], first)))
+        no = call_report.Carried(call_report.Said(2, "いえ、聞いていないです。"), "聞いていない", False, ())
+        yes = call_report.Carried(call_report.Said(2, "はい、聞いております。"), "聞いている", True, ())
+        calls = []
+        for carried in (no, yes):
+            self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：いまかける"))
+            time.sleep(1.1)
+            calls.append(self.call(s, report=dataclasses.replace(rep(), carried=(carried,))))
+            if carried is yes:   # 3人目の方に、その電話で伺い直して取れた答え（新しい方の答え＝引き継いだ答えではない）
+                self.assertNotIn("Q1", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"], before=calls[1])))   # 3つ目の電話の会話へは渡していない
+                self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET attempt_id = %s WHERE task_id = %s AND question_id = 'Q1'",
+                                                 (calls[1], s["task"])))
+            self.settle(s, calls[-1])
+            if carried is no:
+                self.assertIn("Q1", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"], before=calls[0])))   # 2つ目の電話の会話へは渡した
+        self.assertNotIn("Q1", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"], before=calls[1])))   # その電話で取った答えは前の答えでない
+        d = self.tx(s, lambda tx: tx.one("SELECT detail FROM salescall.call_judgements WHERE attempt_id = %s", (calls[1],)))["detail"]
+        self.assertEqual(d["carried"][0]["carried_answers"], [])
+
     def test_contacts_heard_in_the_call_are_added_to_the_row(self):
         """電話でお客様が答えた連絡先は、その行（お客様リストの1行）に足す（2026-11-05 ユーザー：「お客様が電話で答えてくれた場合は、
         このシートを元にしたデータベースに加える必要があるでしょ？」。customer_contacts.from_report の1か所。報告を置いた取引の中）。

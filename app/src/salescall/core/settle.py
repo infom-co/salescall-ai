@@ -35,7 +35,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (apology, approval, attempts, business_rules, business_settings, call_report, calling_hours, dnc,
+from salescall.core import (apology, approval, attempts, business_rules, business_settings, call_report, calling_hours, conversation_io, dnc,
                             fix_requests, gate, health, next_action, notify, number_recheck, quality_stage, results, settings,
                             target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
@@ -393,19 +393,15 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                      # 言ってはいけないことを言った通話（切れ方が決められなければ、断ったかを保留で決める＝伺い3。断りを外すと答えたら見ない）
                      forbidden=attempts.forbidden_speech(tx, attempt_id) and "refusal" not in gone,
                      # この通話より前の通話で取った答え（新しい担当の方が引き継いだと言った前の方の答えを依頼者へ分かる形で返す＝判定の中身 carried）
-                     earlier_answers=_earlier_answers(tx, attempt_id))
+                     earlier_answers=_earlier_answers(tx, a["task_id"], attempt_id))
     return inp, report_source, dialed
 
 
-def _earlier_answers(tx: Tx, attempt_id: UUID) -> frozenset[str]:
-    """その行で、この通話より前の通話で取った答えの質問（判定の入力 JudgeInput.earlier_answers を読む1か所）：行の項目の値のうち、答えを受け取った
-    状態（judge.ANSWERED）で、取った通話がこの通話より前（発信の順＝conversation_io.earlier と同じ claimed_at の順）のもの。"""
-    return frozenset(r["question_id"] for r in tx.all(
-        "SELECT v.question_id FROM salescall.item_values v"
-        " JOIN salescall.attempts t ON t.attempt_id = %s AND t.task_id = v.task_id"
-        " JOIN salescall.attempts a ON a.attempt_id = v.attempt_id"
-        " WHERE v.state::text = ANY(%s) AND (a.claimed_at, a.attempt_id) < (t.claimed_at, t.attempt_id)",
-        (attempt_id, sorted(ANSWERED))))
+def _earlier_answers(tx: Tx, task_id: UUID, attempt_id: UUID) -> frozenset[str]:
+    """その行で、この通話を始めたときに会話へ渡した前の通話の答えのうち、答えを受け取った状態（judge.ANSWERED）の質問（判定の入力
+    JudgeInput.earlier_answers を読む1か所）。どの答えが前の通話の答えかの決まりは conversation_io.earlier の1か所（担当の方が替わった電話で使わない
+    ことにした答えは入らない）。⛔ 2026-11-13 の見直し：はじめはここで項目の値を通話の順だけで拾っていた（決まりが2か所）。"""
+    return frozenset(q for q, v in conversation_io.earlier(tx, task_id, before=attempt_id).items() if v["state"] in ANSWERED)
 
 
 def _apology_delivered(inp: JudgeInput) -> bool:
