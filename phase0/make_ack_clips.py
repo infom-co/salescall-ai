@@ -179,6 +179,13 @@ def question_how(text: str) -> str:
 # 長さの上限は文の長さで選ぶ（3回目からの形は頭が27字長い）
 from phrases import BACK_FIT, THINKING_PROMPT_IDS  # noqa: E402
 HOW_OF.update({k: question_how(t) for k, t in BACK_FIT.items()})
+# 引き継ぎを確かめる一言の、前の答えに前の担当の方の答えが無い方へ伺う文（phrases.CARRIED_TALKED。✅ 2026-11-13 日本時間20時06分19秒「伺い3はア（候補2）」）：
+# 前の担当の方へ伺う文（callback_carried＝質問の読み方）と同じ読み方で、長さの上限は文の長さで選ぶ
+from phrases import CARRIED_TALKED  # noqa: E402
+HOW_OF.update({f"callback_carried_talked_{k}": question_how(t) for k, t in CARRIED_TALKED.items()})
+# 引き継ぎを確かめる一言のあと最初から伺うときの一言（phrases.START_OVER「それでは改めて確認させていただきますね。」。✅ 同じ時「伺い2はア」）：2回目の戻る一言
+# 「それではもう一度確認させていただきますね。」（back_again）と同じ形・同じ長さの一言なので、同じ読み方と上限
+HOW_OF["start_over"] = "back_again"
 # 連絡先の一言の鍵は言い方の表の1か所（phrases._CONTACT_RESUMED＝flowctl.contact_again_key。⛔ 2026-11-05 まで役目を手で並べていた＝オンラインの一言を足すと漏れる）
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
