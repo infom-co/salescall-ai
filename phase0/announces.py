@@ -62,7 +62,12 @@ def fits(intro: str, text: str, line: str | None) -> bool:
     言わない・説明と質問の文の数と期限の言葉を落としていない（数は同じ字で・期限の言葉はそのまま）。"""
     if not line or not line.endswith(ANNOUNCE_END) or line.count("。") != 1 or any(m in line for m in ("？", "?", "ご承認")):
         return False
-    source = f"{intro}{text}"
+    return keeps_facts(f"{intro}{text}", line)
+
+
+def keeps_facts(source: str, line: str) -> bool:
+    """取込で作った文 line が、もとの文 source の数（同じ字で）と期限の言葉（そのまま）を落としていないか（唯一の決まり＝お知らせの文 fits・言い換えた質問
+    rewords.fits）。"""
     have = _digits(line)
     if any(d not in have for d in _digits(source)):
         return False
@@ -89,16 +94,10 @@ def decide(intro: str, text: str, model_lines: list[str | None]) -> str | None:
 
 
 def grounded(client, model: str, intro: str, text: str, line: str) -> bool:
-    """お知らせの文が、説明と質問の文に無い事実を足していないか（中身の判定の1か所＝grounding の問いと選べるもの。会話AIの自分の言葉を声に出す前に読むのと同じ）。
-    考える形で聞く（askitems.ask の1か所）。通った（grounding.PASSES）ときだけ True。答えが無い・読めないときは False（使わない側）。"""
-    from askitems import ask
-    from grounding import CHOICES, PASSES, prompt
+    """お知らせの文が、説明と質問の文に無い事実を足していないか（中身の判定の1か所＝askitems.grounded）。通ったときだけ True。"""
+    from askitems import grounded as check
 
-    fields = {"choice": ("string", "選んだものの名前（" + "・".join(CHOICES) + " のどれか1つ）"), "part": ("string", "その部分（無ければ空）")}
-    items = ask(client, model, prompt([intro, text], "", line) + "\n答えは items に1つだけ入れてください。\n", fields, tool=("grounding", "お知らせの文の中身"),
-                think=True)
-    first = next((x for x in items or [] if isinstance(x, dict)), None)
-    return first is not None and first.get("choice") in PASSES
+    return check(client, model, [intro, text], line, ("grounding", "お知らせの文の中身"))
 
 
 def _hand_body(questions: list[tuple[str, tuple]]) -> str:

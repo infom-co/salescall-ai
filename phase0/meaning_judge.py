@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items)
 
@@ -648,6 +648,9 @@ def answer_items(q) -> dict:
         return {}
     # 電話を終える言葉か・こちらの声が届いていない様子か など（flowctl.SIDE_ITEMS の段ごとの項目）。黙ったあとの一言を流したときだけ、その一言へのお返事だけか
     # （PROMPT_REPLY）も（流していない場面の文・返事の形は変わらない）
+    # ⏳ 質問の答えの話か・別のお話か（AWAY＝flowctl.asks_away の質問だけ・伺い9＝flowctl.talked_away）は、まだ問い合わせに入れていない：入れると答えの段の
+    # 業務の質問の判定の文がすべて変わる（測りの指紋が変わる＝測り直しが要る）ので、まとめ役のご判断を待つ（分身 D の報告・帳面 1 の (6)）。入れる所はここだけ
+    # （`| ({AWAY: away_choices(False, True)} if asks_away(q) else {})`）
     return side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
 
 
@@ -1098,6 +1101,8 @@ JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当�
              # 黙ったあとの一言を流したときだけ（flowctl.PROMPT_REPLY・prompt_replied）
              PROMPT_REPLY: "お客様の言葉は、こちらの声かけ（お客様が黙っていたので言った一言）へのお返事だけですか？（気になる点は無い・分かった、と言った"
                            "だけで、質問への答えも、ほかのお話・気がかりも言っていないか。答えとは別に読みます。" + NOW_ONLY + "）"}
+JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、それとも答えの話ではない別のお話（ご事情・世間話・ほかの話題など）ですか？（どれとも決められない答え・"
+                   "答えの一部・迷い・分からない、も答えの話です。答えとは別に読みます。" + NOW_ONLY + "）")   # ✅ 2026-11-13 日本時間22時17分01秒「9は…」（flowctl.AWAY）
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 

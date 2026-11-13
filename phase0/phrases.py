@@ -779,12 +779,27 @@ OFFER_ACCEPTED = "ありがとうございます。それではお言葉に甘�
 # 書いていればその文）。お返事を待って締める（選ぶのは flowctl.Flow._callback の1か所＝伺い5 と同じ所）。✅ 2026-11-13 日本時間22時17分01秒 ユーザー
 # 「伺い7はイ」（伺ったときのイの文「それでは（会社名）の（名前）から（用件）の件でお電話があったとお伝えいただけますでしょうか？」）。用件の名詞が取込で
 # 決まらなかった業務は「（用件）の件で」を言わない形（お言葉の外）
-MESSAGE_STANDARD = "それでは{company}の{caller}から{about}お電話があったとお伝えいただけますでしょうか？"
+# 申し出でない業務の質問への会話が繋がらないお返事に、会話AIのひとことのあとで伺い直す質問の頭（質問と1本の録音「番号_aside」＝flowctl.aside_form。
+# 言い換えた質問は取込で作る＝rewords）。✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は「さようでございますか。ところで、お支払いの方はカードと振込の
+# どちらにされますか？」」（決まった言い方なので読点は外す＝10-15）
+ASIDE_LEAD = "ところで"
+MESSAGE_STANDARD = "それでは{who}{about}お電話があったとお伝えいただけますでしょうか？"
+# 決まった伝言をお願いしたあと、受付の方に名前を聞き返されて名乗り（と用件）を流し直したすぐあとに戻る形：名前と用件を言い直さない短い形（同じ型から作る＝
+# 共通の一言の録音 message_again）。✅ 11-01「同じ長い文を2度言わない」・11-08 B-5（戻るときは前置きを言い直さない＝flowctl.Question.plain）と同じ理由
+# （分身 D の (b)。⛔ それまでは「…佐藤と申します。ご予約の確認でお電話いたしました。それでは株式会社「アオバ物流」の「佐藤」からご予約の確認の件で…」）
+MESSAGE_AGAIN = MESSAGE_STANDARD.format(who="", about="")
 
 
 def standard_message(company: str, caller: str, noun: str = "") -> str:
     """決まった伝言の文を作る唯一の場所（instruction.Business.replay_parts の message）。company・caller は名乗りと同じ声に出す形（Business._said）。"""
-    return MESSAGE_STANDARD.format(company=company, caller=caller, about=f"{noun}の件で" if noun else "")
+    return MESSAGE_STANDARD.format(who=f"{company}の{caller}から", about=f"{noun}の件で" if noun else "")
+
+
+def message_again(text: str) -> str | None:
+    """伝言の文 text が決まった伝言（standard_message の型）なら、戻るときの短い形（MESSAGE_AGAIN）。業務が書いた伝言の文（中身が業務ごと）は None＝今のまま
+    言い直す（中身を落とさない）。見分けは型の頭と終わりの1か所（flowctl.callback_question の message の Question.plain）。"""
+    head, tail = MESSAGE_STANDARD.split("{who}{about}")
+    return MESSAGE_AGAIN if text != MESSAGE_AGAIN and text.startswith(head) and text.endswith(tail) and "から" in text[len(head):-len(tail)] else None
 # お礼の一言を言ったあとに、同じ電話で重ねて申し出られた（「いえいえ、戻りましたらこちらから折り返させますので。」）：ご厚意を2回とも受け止め、こちらから
 # 連絡する形を保つ一言（そのあと、いま伺っている質問）。さらに重ねられたら、時刻を無理に伺わず「分からない」と同じ道へ（押し問答にしない）。
 # ⏳ 言い方は伺い中（2026-11-12 まとめ役の指示＝お勧めの形で入れる）。選ぶのは flowctl.Flow._offer_reply の1か所
@@ -1067,7 +1082,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK,
+            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK,
             "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
