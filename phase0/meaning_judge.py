@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 
 from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_since_form, label, prompt_reply_choices,
+                     REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
@@ -443,6 +443,14 @@ def answer_kinds(q) -> dict:
 SINCE_VALUE = "決まった中身（値）を言った（決まった・はい、とだけ言って、中身を言っていないのは、こちらではない）"
 
 
+# ご承認をお知らせの形（flowctl.announce_form＝「…のでご了承ください。」）で伝えた質問の、選択肢の説明（1つ目＝ご承認いただける・2つ目＝いただけない）。お客様は
+# 問いに「はい」と答えるのではなく、お知らせを受け入れる言葉で返す（「分かりました。」）。お知らせのあと黙られて流した一言へのお返事だけかは、別の項目
+# （PROMPT_REPLY＝PROMPTED の行があるときだけ）で読む。✅ 2026-11-12 日本時間19時32分21秒・11-13 20時06分19秒 ユーザー（伺い1）。測りの試しの質問には
+# お知らせの形が無い＝判定の文は前と同じ
+ANNOUNCE_DESC = ("お知らせした内容を受け入れた（「はい」「分かりました」「承知しました」など、お知らせを受け入れる言葉）",
+                 "お知らせした内容を受け入れない・納得できない（「それは困ります」「納得できません」など）")
+
+
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     """選べるもの（判定に見せる名前、説明、中の名前）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び
     （宣言した選択肢は、意味の言葉を名前にする。無い・ほかの名前とかぶるときは選択肢の名前）。選択肢がこちらが決めた意味の名前の質問
@@ -468,6 +476,7 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
                     name = label(c)
                 taken.add(name)
                 head.append((name, SINCE_VALUE if in_since_form(q) and q.type not in CHOICE_TYPES else
+                             ANNOUNCE_DESC[q.conditions.index(c)] if in_announce_form(q) and c in q.conditions[:2] else
                              "この意味の答え" if name != label(c) else f"「{c}」と答えた", c))
             elif not talk_question(q):   # 電話のやり取りを読む問い合わせには、お客様の答えの「わからない」「答えたくない」を並べない
                 head.append((label(c), system_desc(q, c), c))

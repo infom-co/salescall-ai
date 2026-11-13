@@ -115,6 +115,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          "who", "main_talk",
                          # 言い直しへのお返事がまだ決めていないときの2回目「いかがなさいますか？」の録音（✅ 11-09 日本時間3時06分51秒 ユーザー。CL-1.md 4-122）
                          "how_now",
+                         # ご承認のお知らせの形（✅ 11-12 19時32分21秒・11-13 20時06分19秒「伺い1…」。CL-1.md 4-150）：業務設定の質問の欄 announce・at_hand・取込の決める処理・
+                         # 黙ったあとの一言へのお返事だけのときの最終の確かめの録音・流す形の印 silence_prompt
+                         "announce", "at_hand", "decide_announces", "decide_at_hand", "announce_recheck", "silence_prompt",
                          # ご承認の手順の N1 に点を言っていただけなかったときに1回伺う一言の録音（✅ 11-09 日本時間3時46分53秒）・営業に引き継ぐ架電で詳しい者からの
                          # 改めてのお話を伺う一言の録音・その質問の番号 N4 と方法を選んでいただく N5・通話の事実 handoff（✅ 11-09 日本時間4時36分49秒。CL-1.md 4-122）
                          "callback_not_agreed_which", "callback_handoff", "N4", "N5", "handoff",
@@ -25249,6 +25252,214 @@ class NoticeOnePlaceTest(unittest.TestCase):
                 break
         self.assertEqual(r["result"], "end")
         self.assertIn(say_note(r["say"]), r["message"])
+
+
+class AnnounceTest(unittest.TestCase):
+    """伺い1（✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い1の(1)はウでいいけど、「あ、はい、分かりました。」は、こちら：「何か気になる点がございましたら
+    お気軽にお聞かせくださいね。」に対して答えてる可能性があるので、気をつけないといけないよ。(2)ウ (3)b」・11-12 日本時間19時32分21秒「…こちらの内容でご承認
+    いただけますでしょうか？⇒こんな言い方だと誰でも、警戒してしまうので、「ご予約の内容ですがキャンセルは前日までにご連絡いただく必要がございますのでご了承
+    ください。（お客様手元に資料などがあれば、「ご確認ください。」）」のようにすらっと言わないといけないんじゃないですか？」）：ご承認を伺う質問は、取込で作った
+    お知らせの文（Question.announce＝「（説明）のでご了承ください。」）を、入る一言＋質問の文の代わりに流す。お客様が資料がお手元にあると答えていれば（この電話・前の
+    電話。資料が届いているかを伺う質問＝Question.at_hand）「ご確認ください。」の文。流すのは流す形を作る1か所（question_play）＝どの道（次の質問・戻る・続きの電話）も同じ"""
+    EXPL = "ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく決まりになっております。"
+    LINE = "ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく必要がございますのでご了承ください。"
+    CHECK = "ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく必要がございますのでご確認ください。"
+    ASK = "こちらの内容でご承認いただけますでしょうか？"
+
+    def questions(self, announce=LINE, at_hand="はい"):
+        from flowctl import Question
+        return [Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True, at_hand=at_hand),
+                Question("Q2", self.ASK, "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.EXPL, announce=announce),
+                Question("Q3", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))]
+
+    def flow(self, play=True, **kw):
+        from flowctl import Flow
+        f = Flow(self.questions(**kw), play_recordings=play)
+        f.use_checks("judge")
+        return f
+
+    @staticmethod
+    def say(f, words, op, judged=None, **args):
+        from flowctl import QUERY, QUERY_NO
+        from meaning_judge import Reading
+        f.on_callee(); f.on_heard(words)
+        if judged is not None:
+            r = Reading(judged, firm=True)
+            setattr(r, QUERY, QUERY_NO)
+            f.on_check("judge", r)
+        return f.apply(op, args)
+
+    def announced(self, answer="いいえ", **kw):
+        f = self.flow(**kw)
+        r = self.say(f, "届いていないです。" if answer == "いいえ" else "はい、届いています。", "record_answer", answer, question_id="Q1", condition_id=answer)
+        return f, r
+
+    def test_the_announce_is_played_instead_of_the_question(self):
+        from flowctl import approval_explanation, question_play
+        from meaning_judge import options
+        f, r = self.announced()
+        p = r["play"][-1]
+        # 入る一言の説明を含む1つの文＝入る一言と同じく頭のつなぎの言葉は付けない。流し終えたら黙った秒を数える（電話接続側の5秒の一言＝THINKING_PROMPT の1つ目）
+        self.assertEqual((p["id"], p["text"], p.get("silence_prompt")), ("Q2_announce", self.LINE, True))
+        self.assertEqual(f.judge_context()[0].text, self.LINE)   # 判定はお客様が聞いた文（説明を重ねない）
+        self.assertEqual(approval_explanation(f.questions["Q2"]), self.EXPL)   # 点のご説明・振り返りの材料は説明のまま
+        # 判定の選べるものの説明は、お知らせへのお返事の形（「はい」と答えた、ではない）。資料が届いているかを伺う質問の説明は今のまま
+        descs = {n: d for n, d, _ in options(f.judge_context()[0])}
+        self.assertNotIn("「はい」と答えた", descs["はい"]); self.assertIn("受け入れ", descs["はい"]); self.assertIn("受け入れ", descs["いいえ"])
+        self.assertEqual({n: d for n, d, _ in options(f.questions["Q1"])}["はい"], "「はい」と答えた")
+        # 戻るとき（それでは＋同じ文）は同じ名前の頭つきの録音（録音は名前と頭の組＝今の決まり）
+        self.assertEqual({k: question_play(list(f.questions.values()), "Q2", again=True)[k] for k in ("id", "text", "lead")},
+                         {"id": "Q2_announce", "text": "それでは" + self.LINE, "lead": "それでは"})
+        # 資料がお手元にあると答えた方には「ご確認ください。」
+        g, r = self.announced("はい")
+        self.assertEqual((r["play"][-1]["id"], r["play"][-1]["text"]), ("Q2_check", self.CHECK))
+        self.assertEqual(g.judge_context()[0].text, self.CHECK)
+        # 取込で文が決まらなかった（空）・資料を伺う質問の印が無い：今の形（入る一言＋質問の文。黙った秒は数えない）／「ご了承ください。」
+        h, r = self.announced(announce="")
+        self.assertEqual(r["play"][-1]["text"], self.EXPL + self.ASK); self.assertNotIn("silence_prompt", r["play"][-1])
+        h, r = self.announced("はい", at_hand="")
+        self.assertEqual(r["play"][-1]["text"], self.LINE)
+
+    def test_earlier_answers_and_the_first_ask_read_the_same_way(self):
+        from instruction import Business
+        from flowctl import question_forms
+        for cond, line in (("はい", self.CHECK), ("いいえ", self.LINE)):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=self.questions(),
+                         purpose_line="ご予約の確認でお電話いたしました。", purpose_noun="ご予約の確認",
+                         earlier={"Q1": {"state": "accepted", "condition": cond}})
+            self.assertEqual(b.first_ask(), ("Q2", line), cond)   # 名乗りの録音の文・AIへの指示文
+            f = b.flow(play_recordings=True)
+            self.assertEqual(f.questions["Q2"].text, line, cond)   # 流れの制御も同じ1か所
+        # 録音の形の一覧：お知らせの2つの文の形（初めて・戻る・続きの電話）。質問の文の形は流さないので入れない
+        forms = {(p["id"], p.get("lead") or "") for p in question_forms(self.questions(), "Q2")}
+        self.assertTrue({("Q2_announce", ""), ("Q2_check", ""), ("Q2_announce", "それでは"), ("Q2_check", "それでは")} <= forms, forms)
+        self.assertFalse({i for i, _ in forms} - {"Q2_announce", "Q2_check"}, forms)
+
+    def test_a_reply_only_to_the_silence_line_is_not_taken_as_consent(self):
+        # (D) お知らせのあと黙られたら電話接続側が「何か気になる点が…」を流す（silence_prompt）。そのあとの「あ、はい、分かりました。」は一言へのお返事だけかも
+        # しれない（11-13 20時06分19秒）＝判定の項目がお返事だけと読めば、答えの読みが「はい」でも了承として受け取らず、最終の確かめ（共通の一言の録音）
+        from flowctl import PROMPT_REPLY, PROMPT_REPLY_YES, QUERY, QUERY_NO
+        from meaning_judge import Reading
+        from phrases import ANNOUNCE_RECHECK, THINKING_PROMPT
+        from flowctl import UNDECIDED
+        for reading in ("はい", "いいえ", UNDECIDED):
+            for report in (True, False):
+                f, r = self.announced()
+                f.on_played([self.LINE]); f.on_played([THINKING_PROMPT[0]])
+                f.on_callee(); f.on_heard("あ、はい、分かりました。")
+                rd = Reading(reading); setattr(rd, QUERY, QUERY_NO); setattr(rd, PROMPT_REPLY, PROMPT_REPLY_YES)
+                f.on_check("judge", rd)
+                r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"}) if report else f.judged_turn(voiced=False)
+                self.assertEqual(([p["id"] for p in r.get("play") or []], f.awaiting_confirm, f.items["Q2"].state),
+                                 (["announce_recheck"], "Q2", "checking"), (reading, report))
+                self.assertEqual(r["play"][-1]["text"], ANNOUNCE_RECHECK)
+                # 最終の確かめへの「はい」で了承として受け取る
+                r = self.say(f, "はい、大丈夫です。", "confirm_field", "はい", question_id="Q2", result="affirmed")
+                self.assertEqual((f.export()["Q2"], f.current), ("はい", "Q3"), (reading, report))
+
+    def test_an_unlinked_reply_is_answered_in_the_ai_own_words(self):
+        # (E) お知らせに会話が繋がらないお返事（判定がそろって決められない）：会話AIが受け答えでひとこと応え、お客様のお話に寄せて決まりを自分の言葉で伝え直す
+        # （確かめた文だけ。問いかけは入れない）。伺い直しは1回。使えなければ受け答えの録音＋「それでは」＋同じお知らせ（ア）
+        from flowctl import UNDECIDED
+        from phrases import ACK, TALK_FALLBACK
+        own = "さようでございますか。月曜がお休みでいらっしゃるのですね。キャンセルのご連絡は前日までにいただく決まりとなっておりますので、ご了承いただければと思います。"
+        f, r = self.announced()
+        self.say(f, "うちは月曜が定休日なんですよ。", "record_answer", UNDECIDED, question_id="Q2", condition_id="unknown")
+        self.assertEqual(f._asked_kind(), "offer")
+        note = f._asked_note("うちは月曜が定休日なんですよ。")
+        self.assertIn(self.LINE, note); self.assertIn("自分の言葉", note); self.assertNotIn("申し出の中身", note)
+        grounded(f, own)
+        r = f.apply("replay_opening", {"part": "talk", "answer": own, "fallback": "talk_heard_nod"})
+        self.assertEqual((r["result"], r.get("say"), r.get("play"), r.get("ack")), ("own_answer", own, None, None))   # 相づちは付けない
+        self.assertTrue(f.items["Q2"].offer_again)
+        # お返事はご承認の答えとして受ける（今の手順のまま）
+        r = self.say(f, "分かりました。", "record_answer", "はい", question_id="Q2", condition_id="はい")
+        self.assertEqual((f.export()["Q2"], f.current), ("はい", "Q3"))
+        # 会話AIの文が使えない（知らない事実）：受け答えの録音＋「それでは」＋同じお知らせ（録音）
+        g, r = self.announced()
+        self.say(g, "うちは月曜が定休日なんですよ。", "record_answer", UNDECIDED, question_id="Q2", condition_id="unknown")
+        bad = "さようでございますか。月曜でしたら火曜にお振替もできます。"
+        for _ in range(3):   # 書き直しを使い切っても知らない事実がある
+            grounded(g, bad, "知らない事実がある", "火曜にお振替もできます")
+            r = g.apply("replay_opening", {"part": "talk", "answer": bad, "fallback": "talk_heard_nod"})
+        self.assertEqual([p["text"] for p in r["play"]], [TALK_FALLBACK["talk_heard_nod"][0], "それでは" + self.LINE])
+        self.assertIsNone(r.get("ack"))
+        self.assertEqual((r["play"][-1]["id"], r["play"][-1]["lead"]), ("Q2_announce", "それでは"))
+
+    def test_the_lines_are_made_at_import(self):
+        # (A) 取込の文字のAI2つがそろい、確かめを通った文だけ（ほかは考える Sonnet・それでも決まらなければ空＝今の文）。確かめ＝問いでない1つの文・終わりは
+        # 「のでご了承ください。」・数と期限の言葉を落とさない（形の1か所 announces.fits）・知らない事実を足していない（中身の判定の1か所 grounding）
+        import announces
+        intro, text = self.EXPL, self.ASK
+        self.assertTrue(announces.fits(intro, text, self.LINE))
+        for bad in ("ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく必要がございます。ご了承ください。",   # 2つの文
+                    "当日のキャンセルはご連絡いただく必要がございますのでご了承ください。",   # 期限の言葉を落とした
+                    "ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく必要がございますがよろしいでしょうか？",   # 問い
+                    ""):
+            self.assertFalse(announces.fits(intro, text, bad), bad)
+        self.assertFalse(announces.fits("料金は月額3,000円でございます。", text, "料金は月額がかかりますのでご了承ください。"))   # 数を落とした
+        self.assertEqual(__import__("phrases").announce_check(self.LINE), self.CHECK)   # 「ご確認ください。」の文はプログラムが作る（お言葉の決まった言い方）
+        # 資料が届いているかを伺う質問と「届いている」の答え（unclear と同じ形）
+        self.assertEqual(announces.decide_hand(("はい", "いいえ"), [{"asks": True, "yes": "はい"}, {"asks": True, "yes": "はい"}]), "はい")
+        self.assertEqual(announces.decide_hand(("はい", "いいえ"), [{"asks": True, "yes": "はい"}, {"asks": False, "yes": ""}]), "")
+        self.assertEqual(announces.decide_hand(("はい", "いいえ"), [{"asks": True, "yes": "届いた"}, {"asks": True, "yes": "届いた"}]), "")
+
+    def test_the_import_asks_two_text_ais_and_the_thinking_sonnet(self):
+        # 取込の受け口（import_ai.deciders）：文字のAI2つがそろって形に合う文 → 考える Sonnet の中身の判定（説明に無い事実を足していない）を通ったときだけ使う。
+        # そろわない文は考える Sonnet に書かせ、同じ中身の判定を通ったときだけ。考える Sonnet が無ければ空（今の形）。資料が届いているかの質問は unclear と同じ形
+        import json
+        from types import SimpleNamespace
+
+        import announces
+        import import_ai
+        import meaning_judge as mj
+
+        def gemini(got):
+            class Models:
+                def generate_content(self, model, contents, config):
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models())
+
+        def claude(*answers):
+            bodies, left = [], list(answers)
+
+            class Messages:
+                def create(self, **body):
+                    bodies.append(body)
+                    return SimpleNamespace(content=[SimpleNamespace(type="text", text=json.dumps({"items": left.pop(0)}))],
+                                           usage=SimpleNamespace(input_tokens=500, output_tokens=200, cache_read_input_tokens=0, cache_creation_input_tokens=0),
+                                           stop_reason="end_turn")
+            return SimpleNamespace(messages=Messages(), bodies=bodies)
+
+        fee = ("料金のご案内ですが月額3,000円となります。", "こちらの内容でご承認いただけますでしょうか？")
+        fee_line = "料金のご案内ですが月額3,000円となりますのでご了承ください。"
+        pairs = [(self.EXPL, self.ASK), fee]
+        a = gemini([{"no": 1, "line": self.LINE}, {"no": 2, "line": "料金は月額3,000円ですがよろしいでしょうか？"}])
+        b = gemini([{"no": 1, "line": self.LINE}, {"no": 2, "line": fee_line}])
+        old, mj.SPEND = mj.SPEND, mj.Spend()
+        try:
+            from grounding import GROUNDED, UNGROUNDED
+            # 1つ目はそろった（中身の判定だけ）・2つ目はそろわない（考える Sonnet が書く → 中身の判定）
+            ref = claude([{"no": 1, "line": fee_line}], [{"choice": GROUNDED, "part": ""}], [{"choice": GROUNDED, "part": ""}])
+            self.assertEqual(import_ai.decide_announces([(a, "m1"), (b, "m2")], pairs, referee=(ref, "claude-sonnet-5-5")), [self.LINE, fee_line])
+            self.assertEqual(len(ref.bodies), 3)
+            self.assertTrue(ref.bodies[0]["messages"][0]["content"].startswith(announces.PROMPT))
+            self.assertIn(fee_line, ref.bodies[2]["messages"][0]["content"])   # 中身の判定は grounding の問い（こちらが返す文＝お知らせの文）
+            # 中身の判定で知らない事実がある・考える Sonnet が無い：空（今の形）
+            ref = claude([{"no": 1, "line": fee_line}], [{"choice": UNGROUNDED, "part": "当日"}], [{"choice": GROUNDED, "part": ""}])
+            self.assertEqual(import_ai.decide_announces([(a, "m1"), (b, "m2")], pairs, referee=(ref, "claude-sonnet-5-5")), ["", fee_line])
+            self.assertEqual(import_ai.decide_announces([(a, "m1"), (b, "m2")], pairs), ["", ""])
+            # 取込に渡す決める処理の一覧にも入る（考える Sonnet は deciders の referee から）
+            ref = claude([{"no": 1, "line": fee_line}], [{"choice": GROUNDED, "part": ""}], [{"choice": GROUNDED, "part": ""}])
+            fns = import_ai.deciders([(a, "m1"), (b, "m2")], referee=(ref, "claude-sonnet-5-5"))
+            self.assertEqual(fns["decide_announces"](pairs), [self.LINE, fee_line])
+            h = gemini([{"no": 1, "asks": True, "yes": "はい"}, {"no": 2, "asks": False, "yes": ""}])
+            self.assertEqual(fns["decide_at_hand"]([("資料はお手元に届いていますでしょうか？", ("はい", "いいえ")), (self.ASK, ("はい", "いいえ"))]), [""] * 2)
+            self.assertEqual(import_ai.decide_at_hand([(h, "m1"), (h, "m2")], [("資料はお手元に届いていますでしょうか？", ("はい", "いいえ")), (self.ASK, ("はい", "いいえ"))]),
+                             ["はい", ""])
+        finally:
+            mj.SPEND = old
+
 
 if __name__ == "__main__":
     unittest.main()

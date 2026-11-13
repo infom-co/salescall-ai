@@ -150,6 +150,8 @@ HOW_OF["hesitate_point"] = "question"
 HOW_OF["estimate_ask"] = "question"
 # 言い直しへのお返事がまだ決めていないときの2回目の一言（phrases.HOW_NOW。✅ 2026-11-09 日本時間3時06分51秒 ユーザー）＝伺う質問の読み方
 HOW_OF["how_now"] = "question"
+# ご承認のお知らせのあと、黙ったあとの一言へのお返事だけのときの最終の確かめ（phrases.ANNOUNCE_RECHECK。✅ 2026-11-13 日本時間20時06分19秒）＝伺う質問の読み方
+HOW_OF["announce_recheck"] = "question"
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）

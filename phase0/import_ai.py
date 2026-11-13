@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+import announces
 import facts
 import maybes
 import meanings
@@ -221,6 +222,41 @@ def decide_since(askers: list[Asker], texts: list[str], on_error: Callable | Non
     return {t: w or "" for t, w in out.items()}
 
 
+def decide_announces(askers: list[Asker], pairs: list[tuple[str, str]], on_error: Callable | None = None, referee: Asker | None = None) -> list[str]:
+    """ご承認を伺う質問の (説明＝入る一言, 質問の文) の並び（flowctl.Question.approval の質問だけを渡すのは呼ぶ側）→ 同じ並びで、すらっと伝えるお知らせの文
+    （「（説明）…のでご了承ください。」。答えは flowctl.Question.announce。決まらなければ空＝今の形）。決め方は announces の1か所：2つの文字のAIがそろって形に合う
+    （announces.fits）文、そろわない文は考える Sonnet（referee）にまとめて1回聞いて形に合う文。どちらも、考える Sonnet の中身の判定（announces.grounded＝grounding の
+    問い）を通ったときだけ使う。referee が無ければ空（中身を確かめられない文は使わない）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い1の(1)はウ…」"""
+    pairs = [(str(i or ""), str(t or "")) for i, t in pairs]
+    if not pairs:
+        return []
+    rows = _each(askers, lambda c, m: announces.by_model(c, m, pairs), [None] * len(pairs), on_error)
+    got = [announces.decide(i, t, [r[n] for r in rows]) for n, (i, t) in enumerate(pairs)]
+    if referee is None:
+        return [""] * len(pairs)
+    left = [n for n, line in enumerate(got) if line is None]
+    if left:
+        drafts = _each([referee], lambda c, m: announces.by_model(c, m, [pairs[n] for n in left], think=True), [None] * len(left), on_error)[0]
+        for n, line in zip(left, drafts):
+            got[n] = line if announces.fits(*pairs[n], line) else None
+    out = []
+    for (intro, text), line in zip(pairs, got):
+        ok = line is not None and _each([referee], lambda c, m: announces.grounded(c, m, intro, text, line), False, on_error)[0]
+        out.append(line if ok else "")
+    return out
+
+
+def decide_at_hand(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[str]:
+    """(質問の文, 選択肢の並び) の並び → 同じ並びで、資料がお手元に届いているかを伺う質問の「届いている」にあたる選択肢の名前（伺う質問でない・決まらないなら空＝
+    announces.decide_hand。unclear と同じ形）。業務の選ぶ質問だけを渡すのは呼ぶ側。答えは flowctl.Question.at_hand（お知らせの「ご確認ください。」の文の条件）。
+    ✅ 2026-11-13 日本時間20時06分19秒 ユーザー「(3)b」"""
+    items = [(q[0], tuple(q[1])) for q in questions]
+    if not items:
+        return []
+    rows = _each(askers, lambda c, m: announces.hand_by_model(c, m, items), [None] * len(items), on_error)
+    return [announces.decide_hand(c, [r[i] for r in rows]) for i, (_, c) in enumerate(items)]
+
+
 DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
             "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words,
             "decide_away": decide_away, "decide_unclear": decide_unclear,
@@ -235,9 +271,12 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # 方法を申し出の中身に入れる言い方（✅ 2026-11-12 まとめ役の (1)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-132）
             "decide_way_words": decide_way_words,
             # その後の文の中身（✅ 2026-11-13 日本時間20時06分19秒「伺い6は…」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-149）。考える Sonnet は referee
-            "decide_since": decide_since}
+            "decide_since": decide_since,
+            # ご承認のお知らせの文と、資料が届いているかを伺う質問（✅ 2026-11-13 日本時間20時06分19秒「伺い1…」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-150）。
+            # お知らせの文は考える Sonnet が referee（書く・中身の判定）
+            "decide_announces": decide_announces, "decide_at_hand": decide_at_hand}
 # 2つの文字のAIがそろわない文を、考える Sonnet（deciders の referee）に聞く決める処理（唯一の一覧）
-REFEREED = frozenset({"decide_since"})
+REFEREED = frozenset({"decide_since", "decide_announces"})
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, Callable]:

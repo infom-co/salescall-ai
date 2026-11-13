@@ -687,6 +687,28 @@ def since_ask(words: str) -> str:
     return f"{SINCE_HEAD}{words}{SINCE_END}"
 
 
+# ご承認を伺う質問を、入る一言（説明）＋「…ご承認いただけますでしょうか？」の代わりに、すらっと伝えるお知らせの文の終わり（✅ 2026-11-12 日本時間19時32分21秒
+# ユーザー：「…こちらの内容でご承認いただけますでしょうか？⇒こんな言い方だと誰でも、警戒してしまうので、「ご予約の内容ですがキャンセルは前日までにご連絡
+# いただく必要がございますのでご了承ください。（お客様手元に資料などがあれば、「ご確認ください。」）」のようにすらっと言わないといけないんじゃないですか？」）。
+# 「ご了承ください。」「ご確認ください。」はお言葉の決まった言い方（10-15。ほかの所へ「〜ください」を広げない）。説明の部分（「…必要がございます」）は取込の
+# 文字のAIが説明と質問の文から作る（announces.py＝flowctl.Question.announce）。「ご確認ください。」の文は、その文の終わりだけを替えてプログラムが作る（announce_check）
+ANNOUNCE_END = "のでご了承ください。"
+ANNOUNCE_CHECK_END = "のでご確認ください。"
+
+
+def announce_check(line: str) -> str:
+    """お知らせの文（「…のでご了承ください。」）の、資料がお手元にある方への形（「…のでご確認ください。」）を作る唯一の場所（flowctl.announce_form）。
+    終わりが違う文には作らない（空）。"""
+    return line[: -len(ANNOUNCE_END)] + ANNOUNCE_CHECK_END if line.endswith(ANNOUNCE_END) else ""
+
+
+# お知らせのあと黙られて電話接続側が流した一言（THINKING_PROMPT）へのお返事だけ（「あ、はい、分かりました。」＝一言に答えているかもしれない）のときの最終の確かめ
+# （共通の一言の録音 announce_recheck。了承として受け取らない＝✅ 2026-11-13 日本時間20時06分19秒 ユーザー「「あ、はい、分かりました。」は、こちら：「何か気になる
+# 点がございましたらお気軽にお聞かせくださいね。」に対して答えてる可能性があるので、気をつけないといけないよ。」）。⏳ 言い方は伺い中（ほかの形：お知らせの文を
+# 「それでは」で言い直す・「念のため、先ほどの内容でご了承いただけますでしょうか？」）。「ご承認」は使わない（19時32分21秒「警戒してしまう」）
+ANNOUNCE_RECHECK = "それでは先ほどの内容でよろしいでしょうか？"
+
+
 # 同じ所（同じ質問・同じ言い直し）へ3回目から戻るときの一言＝続く質問の頭（✅ 2026-11-07 日本時間4時40分35秒 ユーザー：「たびたび失礼いたしました。はおかしい
 # ですね：「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」。決まった言い方なので読点は入れない＝10-15。文を終えないので、続く質問と1本で
 # 録音する＝つなぎの言葉と同じ 10-15 の聞き比べ。並びは BACK_LINES）
@@ -1027,7 +1049,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW,
+            "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK,
             "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},

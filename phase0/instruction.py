@@ -416,8 +416,11 @@ class Business:
         if q.callback:
             return q.id, q.text
         # CL-2 がかけ直す「わからない」を前の電話でお話しした方に伺い直す質問は、その後の形（決まりは flowctl.since_due の1か所＝流れの制御 Flow._resume_cut と同じ）
-        from flowctl import since_due, since_form
-        qs = [since_form(x) if x.id == q.id and since_due(x, self.earlier, None, self.handover, self.apology_when) else x for x in self.questions]
+        # ご承認のお知らせの文（決まりは flowctl.announce_forms の1か所＝流れの制御 Flow._announce_refresh と同じ。前の電話で資料がお手元にあると答えていただいていれば
+        # 「ご確認ください。」の形）
+        from flowctl import announce_forms, condition, since_due, since_form
+        got = {k: condition(v["condition"]) for k, v in (self.earlier or {}).items() if v.get("condition") and v.get("state") in ("accepted", "confirmed")}
+        qs = [since_form(x) if x.id == q.id and since_due(x, self.earlier, None, self.handover, self.apology_when) else x for x in announce_forms(self.questions, got)]
         return q.id, spoken_question(qs, q.id, resumed=resumed_call(self.earlier, self.apology_call, self.number_again))[0]
 
     def replay_parts(self) -> dict:
