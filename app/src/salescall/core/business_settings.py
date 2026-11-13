@@ -77,6 +77,7 @@ END = "END"                                       # 分岐の行き先「終わ�
 # ✅ 2026-11-08 日本時間2時21分15秒 ユーザー）。使えると、業務の質問の答えと本心を伺った答えを取り違える。
 RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "M1", "S1", "P1", "R1", "D1", "D2", "H1", "H2", "N1", "N2", "N3", "W1",
                           "N4", "N5", "N6",   # 申し出のシステムの質問（詳しい者からのお話・その方法・締める前の申し出。CL-1 の連絡帳 4-122・4-124）
+                          "HC",   # 新しい担当の方に、前の担当の方からお話を聞いているかを伺うシステムの質問（CL-1 の連絡帳 4-141）
                           "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
@@ -530,6 +531,11 @@ class Settings:
     # instruction.Business.purpose_noun・業務の録音 purpose_again_*。CL-1 の連絡帳 4-128＝✅ 2026-11-09 日本時間9時48分09秒の (4)）。決めるのは取込のときの
     # 文字の AI 2つ（CL-1 の import_ai.decide_purposes。そろって、文の中の言葉のときだけ。人は確かめない）
     purpose_noun: str = ""
+    # 方法を申し出の中身に入れる言い方（{こちらがすることの言葉: {方法: その方法を入れた言葉}}。例 {"詳しい者より改めてお話しさせていただきます": {"訪問":
+    # "詳しい者がご訪問のうえお話しさせていただきます"}}。空＝無い＝会話の側は「（方法）で」を終わりの動詞の前に入れる今の形）。会話の側の
+    # instruction.Business.way_words（CL-1 の連絡帳 4-132＝2026-11-12 まとめ役の (1)）。決めるのは取込のときの文字の AI 2つ（CL-1 の import_ai.decide_way_words。
+    # 並べるのは会話の側の1か所 flowctl.way_word_pairs＝取込の `business_import._decided_way_words`。人は確かめない）。確かめは `_way_words` の1か所
+    way_words: dict[str, dict[str, str]] = field(default_factory=dict)
     # 重ねた標準の版（0174。無ければ None＝標準を使わない前の版）と、answers のうち標準から来た問いの名前（業務が上書きしていない・
     # 「使わない」にしていないもの。録音は標準の録音＝`standard_parts`。業務の録音には入れない＝`own_answers`）
     standard_id: UUID | None = None
@@ -555,11 +561,13 @@ KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voic
 # 業務の情報（CL-1 の連絡帳 4-28・4-114）。書かなければ既定（ユーザー決定の既定。2026-10-22・2026-11-08 より前に作った版にも無い＝既定として読む）
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
-OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest", "answers_off", "offer_ways", "handoff_ways", "close_offer", "purpose_noun"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
+OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest", "answers_off", "offer_ways", "handoff_ways", "close_offer", "purpose_noun",
+                                 "way_words"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
 #                                                                 4-65 の (c)。goal_mode＝最終目的の果たし方。最終目的が2つ以上の業務だけ書く。
 #                                                                 earliest＝最短の日。DAY_SLOT を書いた業務だけ書く。4-71 の (c)。answers_off＝使わない
 #                                                                 標準の想定問答の問いの名前＝業務の上書き。0174。handoff_ways・close_offer・purpose_noun＝
-#                                                                 申し出・続きの電話の用件の名詞。CL-1 の連絡帳 4-122・4-124・4-128）
+#                                                                 申し出・続きの電話の用件の名詞。CL-1 の連絡帳 4-122・4-124・4-128。way_words＝方法を
+#                                                                 申し出の中身に入れる言い方。4-132）
 
 
 # ═════════ システムの標準（設計書 3-8-3 の作る順の (4)・0174） ═════════
@@ -1074,12 +1082,13 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
         problems.append("営業に引き継ぐ架電（詳しい者からのお話の方法 handoff_ways のある業務）には、締める前の申し出（close_offer）は書きません"
                         "（会話の側は詳しい者からのお話を伺い、締める前の申し出は使いません）")
     purpose_noun = _purpose_noun(raw.get("purpose_noun"), purpose_line, problems)
+    way_words = _way_words(raw.get("way_words"), {*offer_ways, *handoff_ways, *(close_offer.ways if close_offer is not None else ())}, problems)
     problems += _day_slot_problems(raw, earliest is not None or raw.get("earliest") is not None)
     problems += _derived_part_problems(raw)
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
                  **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest,
-                 offer_ways=offer_ways, handoff_ways=handoff_ways, close_offer=close_offer, purpose_noun=purpose_noun,
+                 offer_ways=offer_ways, handoff_ways=handoff_ways, close_offer=close_offer, purpose_noun=purpose_noun, way_words=way_words,
                  standard_id=standard.standard_id, standard_answers=from_standard)
     if flowed:
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
@@ -1194,6 +1203,27 @@ def _purpose_noun(raw: Any, purpose_line: str | None, problems: list[str]) -> st
     if not purpose_line or raw.strip() not in purpose_line:
         problems.append(f"用件の名詞「{raw}」は、用件の一文の中の言葉にします（用件の一文：{purpose_line!r}）")
     return raw.strip()
+
+
+def _way_words(raw: Any, ways: set[str], problems: list[str]) -> dict[str, dict[str, str]]:
+    """方法を申し出の中身に入れる言い方（無ければ空）を確かめて読む1か所：{こちらがすることの言葉: {方法: 言葉}}。方法は、この業務の方法の名前（ご案内できる
+    方法 offer_ways・詳しい者からのお話の方法 handoff_ways・締める前の申し出の方法）だけ・言葉は文字（空でない）。こちらがすることの言葉の側は、会話の側の
+    決まった言葉（申し出の質問 N4 の言葉など）も入るので、ここでは文字であることだけを見る（並べるのは会話の側の1か所＝flowctl.way_word_pairs）。"""
+    if raw is None or raw == {}:
+        return {}
+    if not isinstance(raw, dict) or not all(isinstance(k, str) and k.strip() and isinstance(v, dict) and v for k, v in raw.items()):
+        problems.append("方法を申し出の中身に入れる言い方（way_words）は、{こちらがすることの言葉: {方法: 言葉}} です")
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for do, words in raw.items():
+        for way, text in words.items():
+            if way not in ways:
+                problems.append(f"方法を申し出の中身に入れる言い方（way_words）の「{way}」は、この業務の方法ではありません（{sorted(ways)}）")
+            elif not isinstance(text, str) or not text.strip():
+                problems.append(f"方法を申し出の中身に入れる言い方（way_words）の「{do}」の「{way}」は、言葉（文字）です")
+            else:
+                out.setdefault(do.strip(), {})[way] = text.strip()
+    return out
 
 
 def _maybe(raw: Any, type_name: str, choices: tuple[str, ...], where: str, problems: list[str]) -> tuple[str, ...]:

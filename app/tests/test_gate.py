@@ -1901,6 +1901,16 @@ class NameLedger(Content):
         self.assertLessEqual({"N4", "N5", "N6", "offer_which", "close_offer"}, business_settings.RESERVED_IDS)
         self.assertEqual({"offer_which", "close_offer", "N6_pending"} & set(recordings.COMMON_PARTS), set())
 
+    def test_the_parts_cl1_added_on_11_12_evening_are_received(self):
+        """CL-1 の連絡帳 4-141・4-144 の (1)（✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」・まとめ役の指示）の共通の一言の録音も、話してよい声が
+        求める（`COMMON_PARTS`）：新しい担当の方に前の担当の方からお話を聞いているかを伺う一言（callback_carried。システムの質問 HC）と、3回目からの戻る一言に
+        続ける形（_midway）・かけ直しの質問の途中に重ねて申し出られたときのお礼の一言（offer_thanks_again）。HC は業務の質問の番号に使えず、共通の一言の組の
+        部分の名前ではない（録音は callback_carried）。"""
+        from salescall.core import business_settings
+        self.assertLessEqual({"callback_carried", "callback_carried_midway", "offer_thanks_again"}, set(recordings.COMMON_PARTS))
+        self.assertIn("HC", business_settings.RESERVED_IDS)
+        self.assertNotIn("HC", recordings.COMMON_PARTS)
+
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、
         どれも話してよい声が求める（`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）：並べて伺ったご案内の方法を言って
