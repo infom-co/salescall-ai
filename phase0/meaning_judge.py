@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
-                     REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, label, restates, side_items)
+from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+                     REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
+                     restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -437,6 +438,21 @@ def answer_kinds(q) -> dict:
     return ANSWER_KINDS if hears_hesitation(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
 
 
+# 「その後（中身）かお決まりになりましたでしょうか？」（flowctl.since_form）で伺った値を伺う質問の「答えた」の説明：決まった中身を言ったときだけ答え（「はい、
+# 決まりました。」だけは答えではない＝決められない＝流れの制御が元の質問で伺い直す Flow._undecided_answer）。✅ 2026-11-13 日本時間20時06分19秒「伺い6は…」。
+# 事実を伺う質問（asks_fact）は結びが「お分かりになりましたでしょうか？」なので、説明も「分かった」（✅ 2026-11-13 日本時間22時17分01秒「8はイ」。キー＝asks_fact）
+SINCE_VALUE = {False: "決まった中身（値）を言った（決まった・はい、とだけ言って、中身を言っていないのは、こちらではない）",
+               True: "分かった中身（値）を言った（分かった・はい、とだけ言って、中身を言っていないのは、こちらではない）"}
+
+
+# ご承認をお知らせの形（flowctl.announce_form＝「…のでご了承ください。」）で伝えた質問の、選択肢の説明（1つ目＝ご承認いただける・2つ目＝いただけない）。お客様は
+# 問いに「はい」と答えるのではなく、お知らせを受け入れる言葉で返す（「分かりました。」）。お知らせのあと黙られて流した一言へのお返事だけかは、別の項目
+# （PROMPT_REPLY＝PROMPTED の行があるときだけ）で読む。✅ 2026-11-12 日本時間19時32分21秒・11-13 20時06分19秒 ユーザー（伺い1）。測りの試しの質問には
+# お知らせの形が無い＝判定の文は前と同じ
+ANNOUNCE_DESC = ("お知らせした内容を受け入れた（「はい」「分かりました」「承知しました」など、お知らせを受け入れる言葉）",
+                 "お知らせした内容を受け入れない・納得できない（「それは困ります」「納得できません」など）")
+
+
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     """選べるもの（判定に見せる名前、説明、中の名前）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び
     （宣言した選択肢は、意味の言葉を名前にする。無い・ほかの名前とかぶるときは選択肢の名前）。選択肢がこちらが決めた意味の名前の質問
@@ -461,7 +477,9 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
                 if not name or name in taken:
                     name = label(c)
                 taken.add(name)
-                head.append((name, "この意味の答え" if name != label(c) else f"「{c}」と答えた", c))
+                head.append((name, SINCE_VALUE[bool(q.asks_fact)] if in_since_form(q) and q.type not in CHOICE_TYPES else
+                             ANNOUNCE_DESC[q.conditions.index(c)] if in_announce_form(q) and c in q.conditions[:2] else
+                             "この意味の答え" if name != label(c) else f"「{c}」と答えた", c))
             elif not talk_question(q):   # 電話のやり取りを読む問い合わせには、お客様の答えの「わからない」「答えたくない」を並べない
                 head.append((label(c), system_desc(q, c), c))
     else:
@@ -478,6 +496,16 @@ CALLED = "はじめにお呼びした言葉"  # 後任の方をお呼びした�
 # その一言へのお返事か、質問の答えかを、判定が分かって読む。⛔ 2026-11-12 まとめ役の (1)：渡しておらず、「何か気になる点がございましたらお気軽にお聞かせください
 # ね。」への「いえ、大丈夫です。」を、質問への「いいえ」と読みえた。流していない場面（測りの試しの言葉）の文は前と同じ
 PROMPTED = "質問のあとにこちらが言った一言"
+# その一言のあとのお客様の言葉の読み方（PROMPTED の行のすぐあと＝流したときだけ。流していない場面・測りの試しの言葉の文は前と同じ）：その一言は「気になる点が
+# あれば聞かせてほしい」という声かけなので、「はい」「分かりました」「大丈夫です」は、その声かけへのお返事（気になる点は無い）でありうる＝質問の答えと
+# 決めつけない。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「「あ、はい、分かりました。」は、こちら：「何か気になる点がございましたらお気軽にお聞かせくださいね。」
+# に対して答えてる可能性があるので、気をつけないといけないよ。」
+# お返事だけかは、答えとは別に読む項目（flowctl.PROMPT_REPLY＝一言を流したときだけ answer_items に入る）でも答えさせる＝お返事だけ（最終の確かめ）と、
+# お話・気がかり（「うちは月曜が定休日なんですよ。」＝ひとこと応える）を、流れの制御が判定の読みで分ける（11-13 まとめ役の決め＝flowctl.PROMPT_REPLY に引いた決まり）
+PROMPTED_NOTE = (f"（{PROMPTED}は、お客様が黙っていたので、こちらが声をかけた言葉です。お客様の言葉が、その声かけへのお返事だけ（「はい」「分かりました」"
+                 f"「大丈夫です」「特にないです」など＝気になる点は無いということ）で、質問への答えをはっきり言っていなければ「{UNDECIDED}」を選び、"
+                 f"{PROMPT_REPLY_HEADING}（{PROMPT_REPLY}）は「{PROMPT_REPLY_YES}」を選びます。質問への答えをはっきり言っていれば、その答えを選びます。"
+                 f"気になる点・ご事情などのお話をしたときは、声かけへのお返事だけではありません）")
 
 
 def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:
@@ -499,7 +527,7 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
     （Question.named）は、選べるもの（意味の定義＝長くて毎回同じ）を、その前に相手が言ったことより先に置く（定義もまとめて送れる）。
     ⛔ 2026-10-29：お客様の選択肢の言葉の質問で選べるものを先に置くと、言い直しへの返事の読みが悪くなった（G-53。上の PROMPT の注意）。
        目的のお客様の判定（G-59）は、選べるものを先に置いた形で 139 → 144/147"""
-    said = (f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else "") + (f"{PROMPTED}：「{q.prompted}」\n" if getattr(q, "prompted", "") else "")
+    said = (f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else "") + (f"{PROMPTED}：「{q.prompted}」\n{PROMPTED_NOTE}\n" if getattr(q, "prompted", "") else "")
     before = f"{BEFORE}：「{before}」\n" if before else f"{BEFORE}：{NO_BEFORE}\n" if q.facets else ""
     if q.facets:   # 項目ごとに答える質問：決まり・質問（はじめにお呼びした言葉）・項目は毎回同じ（まとめて送る前の部分）
         # ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、
@@ -616,7 +644,14 @@ def answer_items(q) -> dict:
     jev_request・問い合わせの文 prompt_parts・読み取り read）：お客様の答えを読む問い合わせ（答えの段）は、電話を終える言葉か（flowctl.END・
     end_choices の1か所。✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」）。電話のやり取りを読む問い合わせ（talk_question）・
     項目ごとに答える質問（お呼びする段＝項目 END を target_facets が持つ）には付けない。"""
-    return {} if q.facets or talk_question(q) else side_items(False)   # 電話を終える言葉か・こちらの声が届いていない様子か（flowctl.SIDE_ITEMS）
+    if q.facets or talk_question(q):
+        return {}
+    # 電話を終える言葉か・こちらの声が届いていない様子か など（flowctl.SIDE_ITEMS の段ごとの項目）。黙ったあとの一言を流したときだけ、その一言へのお返事だけか
+    # （PROMPT_REPLY）も（流していない場面の文・返事の形は変わらない）
+    # ⏳ 質問の答えの話か・別のお話か（AWAY＝flowctl.asks_away の質問だけ・伺い9＝flowctl.talked_away）は、まだ問い合わせに入れていない：入れると答えの段の
+    # 業務の質問の判定の文がすべて変わる（測りの指紋が変わる＝測り直しが要る）ので、まとめ役のご判断を待つ（分身 D の報告・帳面 1 の (6)）。入れる所はここだけ
+    # （`| ({AWAY: away_choices(False, True)} if asks_away(q) else {})`）
+    return side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
 
 
 def items_text(q) -> str:
@@ -1062,7 +1097,12 @@ JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当�
              WHY: "お客様が、分からない・答えたくないと言ったなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）",
              # ✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」（flowctl.query_choices・queries_us）
              QUERY: "お客様の言葉に、こちらの答えを求めて尋ねた問いがありますか？（答えとは別に読みます。文の終わりの「？」「。」の形ではなく、"
-                    "こちらの答えを求めているかで決めます。" + NOW_ONLY + "）"}
+                    "こちらの答えを求めているかで決めます。" + NOW_ONLY + "）",
+             # 黙ったあとの一言を流したときだけ（flowctl.PROMPT_REPLY・prompt_replied）
+             PROMPT_REPLY: "お客様の言葉は、こちらの声かけ（お客様が黙っていたので言った一言）へのお返事だけですか？（気になる点は無い・分かった、と言った"
+                           "だけで、質問への答えも、ほかのお話・気がかりも言っていないか。答えとは別に読みます。" + NOW_ONLY + "）"}
+JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、それとも答えの話ではない別のお話（ご事情・世間話・ほかの話題など）ですか？（どれとも決められない答え・"
+                   "答えの一部・迷い・分からない、も答えの話です。答えとは別に読みます。" + NOW_ONLY + "）")   # ✅ 2026-11-13 日本時間22時17分01秒「9は…」（flowctl.AWAY）
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 

@@ -18,7 +18,7 @@ from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LA
                      check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, standard_message, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -100,6 +100,12 @@ class Target:
     def promise_again(self) -> str:
         """約束の電話で取り次げないと言われたときに伺う一言（お名前は確かめる一言と同じ呼び方）。"""
         return PROMISE_AGAIN.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
+
+    def carried_from(self) -> str:
+        """続きの電話で判断いただける代わりの方に、この方からお話を聞いているかを伺う一言（phrases.CARRIED_FROM。お名前は確かめる一言と同じ呼び方＝お名前の無い
+        業務は呼ぶ一言と同じ呼び名「採用のご担当者様」。名前の録音の台帳の「〇〇様」＋続く言葉「のほうからこれまでのお話はお聞き及びでしょうか？」）。
+        ✅ 2026-11-13 日本時間22時17分01秒 ユーザー「11はイ」"""
+        return CARRIED_FROM.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
 
     def full_call(self) -> str:
         """お名前だけではどの方か分からないと言われた・どなたをお呼びかを聞かれたときにお呼びし直す一言（まだお伝えしていない部署とフルネームの、
@@ -413,7 +419,15 @@ class Business:
             return CALLBACK_IDS["number"], NUMBER_AGAIN[self.number_again]
         if (q := self.first_question()) is None:
             return None
-        return q.id, (q.text if q.callback else spoken_question(self.questions, q.id, resumed=resumed_call(self.earlier, self.apology_call, self.number_again))[0])
+        if q.callback:
+            return q.id, q.text
+        # CL-2 がかけ直す「わからない」を前の電話でお話しした方に伺い直す質問は、その後の形（決まりは flowctl.since_due の1か所＝流れの制御 Flow._resume_cut と同じ）
+        # ご承認のお知らせの文（決まりは flowctl.announce_forms の1か所＝流れの制御 Flow._announce_refresh と同じ。前の電話で資料がお手元にあると答えていただいていれば
+        # 「ご確認ください。」の形）
+        from flowctl import announce_forms, condition, since_due, since_form
+        got = {k: condition(v["condition"]) for k, v in (self.earlier or {}).items() if v.get("condition") and v.get("state") in ("accepted", "confirmed")}
+        qs = [since_form(x) if x.id == q.id and since_due(x, self.earlier, None, self.handover, self.apology_when) else x for x in announce_forms(self.questions, got)]
+        return q.id, spoken_question(qs, q.id, resumed=resumed_call(self.earlier, self.apology_call, self.number_again))[0]
 
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
@@ -441,7 +455,8 @@ class Business:
             t = dataclasses.replace(self.target, successor=False)
             parts.update(target=t.call(), target_confirm=t.confirm(), target_reconfirm=t.reconfirm(),
                          promise_again=t.promise_again(),  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
-                         unavailable_confirm=t.unavailable_confirm())  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
+                         unavailable_confirm=t.unavailable_confirm(),  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
+                         carried_target=t.carried_from())  # 続きの電話の判断いただける代わりの方への引き継ぎの確かめ（flowctl.carried_ask の "target"）
             if t.full_call():
                 parts["target_full"] = t.full_call()   # お名前だけでは分からないと言われたとき（部署・フルネーム。flowctl.Flow._who_unclear）
                 if t.successor_full_call():
@@ -450,8 +465,12 @@ class Business:
                 parts["target_successor"] = t.successor_call()
         if self.voicemail_message:
             parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
-        if self.message:
-            parts["message"] = self.message  # 伝言の申し出に残す伝言（伝言を残す業務だけ。依頼主の単位の録音。flowctl.Flow._callback）
+        if self.message or self.target is not None:
+            # 伝言の申し出に残す伝言（依頼主の単位の録音。flowctl.Flow._callback）＝伝言の文の1か所：業務が書いた伝言の文（伝言を残す業務）か、無ければ業務の名乗りと
+            # 用件から作る決まった伝言（phrases.standard_message。伝言を残さない業務で、お礼の一言のあとに伝言の申し出を重ねられたときにお願いする＝✅ 2026-11-13
+            # 日本時間22時17分01秒 ユーザー「伺い7はイ」）。伝言は、お呼びした方がいらっしゃらないときの申し出なので、目的のお客様のいる業務だけ
+            company, caller = self._said()
+            parts["message"] = self.message or standard_message(company, caller, self.purpose_noun if self.purpose_line else "")
         parts.update({f"answer_{name}": text for name, text in self.answers})  # 想定問答の答え（依頼主の単位の録音。flowctl.ANSWER_PREFIX）
         return parts
 

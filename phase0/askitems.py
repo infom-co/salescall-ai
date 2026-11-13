@@ -44,14 +44,25 @@ def _anthropic_schema(key: str, fields: dict[str, Field]) -> dict:
 
 
 def ask(client, model: str, prompt: str, fields: dict[str, Field], *, required: list[str] | None = None, key: str = "items",
-        tool: tuple[str, str] = ("items", "質問ごとの答え"), max_tokens: int = 8000) -> list:
+        tool: tuple[str, str] = ("items", "質問ごとの答え"), max_tokens: int = 8000, think: bool = False) -> list:
     """prompt を1回送り、答えの並び（key の中身。読み取り・並べ直しは呼ぶ側）を返す。fields＝{欄の名前: (型, 説明)}（並びのまま送る）。
     required＝Gemini の答えの形で欠かせない欄（無ければ全部。Anthropic は strict なので全部）。tool＝Anthropic の道具の (名前, 説明)。
+    think＝Anthropic を考える形で聞く（考える段を入れ、道具を使わず返事の形を決めて JSON で返させる＝判定の「考える Sonnet」と同じ送り方
+    meaning_judge.OTHER_JUDGES。名前を指定した道具の呼び出しは考える段を飛ばすため）。2つの文字のAIがそろわなかった文だけを聞く所（import_ai.decide_since）。
     Anthropic が答えの形で返さなければ誤りを上げる（呼ぶ側＝import_ai._each が、そのモデルの答えは無いとして決める）。"""
     if hasattr(client, "messages"):
         from meaning_judge import SPEND
 
         SPEND.check()
+        if think:
+            msg = client.messages.create(model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}], thinking={"type": "adaptive"},
+                                         output_config={"effort": "low", "format": {"type": "json_schema", "schema": _anthropic_schema(key, fields)}})
+            SPEND.add(model, msg.usage)
+            text = next((b.text for b in msg.content if getattr(b, "type", "") == "text"), None)
+            got = json.loads(text) if text else None
+            if not isinstance(got, dict):
+                raise ValueError(f"{model} が答えの形で返さなかった（{getattr(msg, 'stop_reason', '')}）")
+            return got.get(key, []) or []
         msg = client.messages.create(model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}],
                                      tools=[{"name": tool[0], "description": tool[1], "input_schema": _anthropic_schema(key, fields), "strict": True}],
                                      tool_choice={"type": "tool", "name": tool[0]})
@@ -77,6 +88,18 @@ def ask_flags(client, model: str, prompt: str, texts: list[str], field: str, des
     items = ask(client, model, prompt + body, {"no": ("integer", "質問の番号"), field: ("boolean", desc)}, tool=tool)
     got = {x.get("no"): x.get(field) for x in items or [] if isinstance(x, dict)}
     return [got.get(n) if isinstance(got.get(n), bool) else None for n in range(1, len(texts) + 1)]
+
+
+def grounded(client, model: str, sources: list[str], line: str, tool: tuple[str, str]) -> bool:
+    """取込で作った文 line が、もとの文 sources に無い事実を足していないか（中身の判定の1か所＝grounding の問いと選べるもの。会話AIの自分の言葉を声に出す前に
+    読むのと同じ）。考える形で聞く。通った（grounding.PASSES）ときだけ True。答えが無い・読めないときは False（使わない側）。使う所＝お知らせの文
+    （announces.grounded）・言い換えた質問（rewords.grounded）。"""
+    from grounding import CHOICES, PASSES, prompt
+
+    fields = {"choice": ("string", "選んだものの名前（" + "・".join(CHOICES) + " のどれか1つ）"), "part": ("string", "その部分（無ければ空）")}
+    items = ask(client, model, prompt(sources, "", line) + "\n答えは items に1つだけ入れてください。\n", fields, tool=tool, think=True)
+    first = next((x for x in items or [] if isinstance(x, dict)), None)
+    return first is not None and first.get("choice") in PASSES
 
 
 def agreed(answers: list, otherwise):

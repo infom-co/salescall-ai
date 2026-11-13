@@ -150,6 +150,10 @@ HOW_OF["hesitate_point"] = "question"
 HOW_OF["estimate_ask"] = "question"
 # 言い直しへのお返事がまだ決めていないときの2回目の一言（phrases.HOW_NOW。✅ 2026-11-09 日本時間3時06分51秒 ユーザー）＝伺う質問の読み方
 HOW_OF["how_now"] = "question"
+# ご承認のお知らせのあと、黙ったあとの一言へのお返事だけのときの最終の確かめ（phrases.ANNOUNCE_RECHECK。✅ 2026-11-13 日本時間20時06分19秒）＝伺う質問の読み方
+HOW_OF["announce_recheck"] = "question"
+# 決まった伝言をお願いしたあと、名乗りを流し直したすぐあとの短い形（phrases.MESSAGE_AGAIN。分身 D の (b)）
+HOW_OF["message_again"] = "question"
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
@@ -179,6 +183,13 @@ def question_how(text: str) -> str:
 # 長さの上限は文の長さで選ぶ（3回目からの形は頭が27字長い）
 from phrases import BACK_FIT, THINKING_PROMPT_IDS  # noqa: E402
 HOW_OF.update({k: question_how(t) for k, t in BACK_FIT.items()})
+# 引き継ぎを確かめる一言の、前の答えに前の担当の方の答えが無い方へ伺う文（phrases.CARRIED_TALKED。✅ 2026-11-13 日本時間20時06分19秒「伺い3はア（候補2）」）：
+# 前の担当の方へ伺う文（callback_carried＝質問の読み方）と同じ読み方で、長さの上限は文の長さで選ぶ
+from phrases import CARRIED_TALKED  # noqa: E402
+HOW_OF.update({f"callback_carried_talked_{k}": question_how(t) for k, t in CARRIED_TALKED.items()})
+# 引き継ぎを確かめる一言のあと最初から伺うときの一言（phrases.START_OVER「それでは改めて確認させていただきますね。」。✅ 同じ時「伺い2はア」）：2回目の戻る一言
+# 「それではもう一度確認させていただきますね。」（back_again）と同じ形・同じ長さの一言なので、同じ読み方と上限
+HOW_OF["start_over"] = "back_again"
 # 連絡先の一言の鍵は言い方の表の1か所（phrases._CONTACT_RESUMED＝flowctl.contact_again_key。⛔ 2026-11-05 まで役目を手で並べていた＝オンラインの一言を足すと漏れる）
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
@@ -226,6 +237,9 @@ MAX_S["moshimoshi"] = 1.5
 # 重ねての申し出へのお礼（phrases.OFFER_THANKS_AGAIN。⏳ 言い方は伺い中＝2026-11-12）：読み方はお礼と同じ。文が長い（51字＝見込み 8.3秒）ので、上限だけ別
 HOW["offer_thanks_again"] = HOW["offer_thanks"]
 MAX_S["offer_thanks_again"] = 9.0
+# 2回目の好意の折り返しの申し出を受ける一言（phrases.OFFER_ACCEPTED＝✅ 2026-11-13 日本時間20時06分19秒「伺い5はイ」）：読み方はお礼と同じ
+HOW["offer_accepted"] = HOW["offer_thanks"]
+MAX_S["offer_accepted"] = 6.0
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす
