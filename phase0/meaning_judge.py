@@ -439,8 +439,10 @@ def answer_kinds(q) -> dict:
 
 
 # 「その後（中身）かお決まりになりましたでしょうか？」（flowctl.since_form）で伺った値を伺う質問の「答えた」の説明：決まった中身を言ったときだけ答え（「はい、
-# 決まりました。」だけは答えではない＝決められない＝流れの制御が元の質問で伺い直す Flow._undecided_answer）。✅ 2026-11-13 日本時間20時06分19秒「伺い6は…」
-SINCE_VALUE = "決まった中身（値）を言った（決まった・はい、とだけ言って、中身を言っていないのは、こちらではない）"
+# 決まりました。」だけは答えではない＝決められない＝流れの制御が元の質問で伺い直す Flow._undecided_answer）。✅ 2026-11-13 日本時間20時06分19秒「伺い6は…」。
+# 事実を伺う質問（asks_fact）は結びが「お分かりになりましたでしょうか？」なので、説明も「分かった」（✅ 2026-11-13 日本時間22時17分01秒「8はイ」。キー＝asks_fact）
+SINCE_VALUE = {False: "決まった中身（値）を言った（決まった・はい、とだけ言って、中身を言っていないのは、こちらではない）",
+               True: "分かった中身（値）を言った（分かった・はい、とだけ言って、中身を言っていないのは、こちらではない）"}
 
 
 # ご承認をお知らせの形（flowctl.announce_form＝「…のでご了承ください。」）で伝えた質問の、選択肢の説明（1つ目＝ご承認いただける・2つ目＝いただけない）。お客様は
@@ -475,7 +477,7 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
                 if not name or name in taken:
                     name = label(c)
                 taken.add(name)
-                head.append((name, SINCE_VALUE if in_since_form(q) and q.type not in CHOICE_TYPES else
+                head.append((name, SINCE_VALUE[bool(q.asks_fact)] if in_since_form(q) and q.type not in CHOICE_TYPES else
                              ANNOUNCE_DESC[q.conditions.index(c)] if in_announce_form(q) and c in q.conditions[:2] else
                              "この意味の答え" if name != label(c) else f"「{c}」と答えた", c))
             elif not talk_question(q):   # 電話のやり取りを読む問い合わせには、お客様の答えの「わからない」「答えたくない」を並べない
