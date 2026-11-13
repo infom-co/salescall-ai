@@ -52,6 +52,10 @@ def ask_again(n: int, reason: str, topic: str = "", last: bool = False) -> str:
        締めの前の念のための確認1回）では、締めの前の念のための確認がこれにあたる。「もう一度だけ」は、最後の1回にしか使わない"""
     what = f"{topic}を" if topic else ""
     if last:
+        # お声は聞き取れていた（reason "form"＝答えが質問に合わない・別のお話・意味が決まらない答えで「-」にした＝flowctl.Flow._ask_kind・Item.dash_heard）：電話の
+        # せいにせず、聞き取れていたときの聞き直しの文（「恐れ入ります。（聞くこと）をもう一度…」＝本書 9-5 の (3)）に、最後の1回だけの「もう一度だけ」（10-14）
+        if reason == "form":
+            return f"恐れ入ります。{what}もう一度だけお聞かせいただいてもよろしいでしょうか？"
         return f"お声が聞き取れませんでしたので{what}もう一度だけお聞かせいただいてもよろしいでしょうか？"
     if n <= 1:
         return ASK_BACK if reason == "unclear" else f"恐れ入ります。{what}もう一度お聞かせいただいてもよろしいでしょうか？"

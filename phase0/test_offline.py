@@ -4869,9 +4869,12 @@ class AskLadderTest(unittest.TestCase):
         g = self.flow(ask_back=3)
         says = [self.do(g, "report_unclear", question_id="Q1")["say"] for _ in range(3)]
         self.assertFalse(any("もう一度だけ" in s for s in says), says)
-        h = self.flow(ask_back=1, recheck=0)  # 1回きりの聞き直しが、答えが質問に合わないとき：言い方も相づちも、最後の1回のもの
+        # 1回きりの聞き直しが、答えが質問に合わないとき：最後の1回の「もう一度だけ」（10-14）。お声は聞き取れている（答えが質問に合わない）ので、電話のせいにせず
+        # 「恐れ入ります。…」・相づちは「はい、」（本書 9-5 の (3)＝聞き取れていたときの聞き直しと同じ。⛔ 092f2317 まで「お声が聞き取れませんでしたので…」
+        # ＋「申し訳ございません、」＝締めの前の念のための確認の直し（Item.dash_heard）と同じ理由で直した）
+        h = self.flow(ask_back=1, recheck=0)
         r = self.do(h, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
-        self.assertEqual((r["say"], r["ack"]), (self.LAST, "moushiwake_heavy"))
+        self.assertEqual((r["say"], r["ack"]), (self.LAST.replace("お声が聞き取れませんでしたので", "恐れ入ります。"), "hai"))
 
     def test_poor_audio_ends_after_two_different_questions_stay_unclear(self):
         """声が聞き取れない（甚大な問題の poor_audio＝DESIGN.md 6-8。✅ 2026-10-24 ユーザー：「回線が悪く、声がお互いや片方がほとんど聞き取れない
@@ -25864,14 +25867,17 @@ class AsideTest(unittest.TestCase):
     def test_every_talk_away_gets_a_word_first(self):
         # 伺い直したあとも続く別のお話にも、何回目でも、まず会話AIのひとこと（9-3・11-09 9時48分09秒）。次の一歩は今の回数の決まりのまま：必須の質問は聞き返しの
         # 回数（10-14）の中で「それでは」＋もう伺った質問（同じ問いを同じ言い方で2度言わない＝11-01）・使い切ったら「-」にして次へ（締めの前の念のための確認で1回）
-        from phrases import TALK_FALLBACK
+        from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, TALK_FALLBACK
         hot = "本当に暑い日が続いておりますね。"
         f = self.flow()
         self.talk(f)
         self.assertEqual(f.items["Q2"].ask_backs, 0)
-        for n in (1, 2):
+        # 2回目からの伺い直しは、もう伺った質問へ戻る一言の1か所（_continue・_back_play・数える単位 _place）：「ところで」をその所の1回目の戻りと数え、
+        # 2回目は「それではもう一度確認させていただきますね。」・3回目からは「確認の途中でしたのでもう一度お伺いさせていただきますが」＋質問（✅ 2026-11-07
+        # 日本時間3時14分01秒 H7・4時40分35秒。同じ問いを同じ言い方で2度言わない＝11-01。⛔ 分身 E の 092f2317 は2回目も3回目も「それでは」＋同じ質問だった）
+        for n, head in ((1, BACK_TO_AGAIN), (2, BACK_TO_MIDWAY)):
             r = self.talk(f, hot, "いやあ最近は暑くてねえ。")
-            self.assertEqual((r.get("say"), r.get("ack"), f.items["Q2"].ask_backs, f.current), (hot + "それでは" + self.PAY2, None, n, "Q2"), n)
+            self.assertEqual((r.get("say"), r.get("ack"), f.items["Q2"].ask_backs, f.current), (hot + head + self.PAY2, None, n, "Q2"), n)
         r = self.talk(f, hot, "いやあ最近は暑くてねえ。")
         self.assertEqual((r.get("say"), r.get("ack"), f.current), (hot + "続きましてご予算はおいくらほどでしょうか？", None, "Q3"))
         self.assertEqual(f.items["Q2"].state, "unresolved")
@@ -25885,8 +25891,8 @@ class AsideTest(unittest.TestCase):
         for _ in range(3):
             grounded(h, "暑いですね。月曜は割引です。", "知らない事実がある", "月曜は割引です")
             r = h.apply("replay_opening", {"part": "talk", "answer": "暑いですね。月曜は割引です。", "fallback": "talk_heard_nod"})
-        self.assertEqual([(p.get("id"), p["text"]) for p in r["play"]],
-                         [("talk_heard_nod", TALK_FALLBACK["talk_heard_nod"][0]), ("Q2_aside", "それでは" + self.PAY2)])
+        self.assertEqual([p["text"] for p in r["play"]], [TALK_FALLBACK["talk_heard_nod"][0], BACK_TO_AGAIN, self.PAY2])
+        self.assertEqual(r["play"][1]["id"], "back_again")
         self.assertEqual((r.get("ack"), h.items["Q2"].ask_backs), (None, 1))
         # 答えの話（「振込じゃないほうがいいかなとは思いますけど」）は今の道（質問から聞き直す）
         k = self.flow(); self.talk(k)
@@ -25907,6 +25913,47 @@ class AsideTest(unittest.TestCase):
         self.say(f, "100万円です。", "record_answer", "答えた", question_id="Q3", condition_id="答えた", value="100万円")
         r = self.say(f, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q3", result="affirmed")
         self.assertEqual((f.phase, f.current), ("rechecking", "Q2"), r)
+        # お客様のお声は聞き取れていた（別のお話で「-」）：電話のせいにしない（9-5 の (3)＝聞き取れていたときの聞き直しの1か所 _ask_kind）。最後の1回の「もう一度だけ」
+        # （10-14）は同じ。頭の相づちも聞き取れていたときの聞き直しと同じ「はい、」。⛔ 092f2317 まで「申し訳ございません、」＋「お声が聞き取れませんでしたので…」
+        self.assertEqual((r.get("say"), r.get("ack")), ("恐れ入ります。もう一度だけお聞かせいただいてもよろしいでしょうか？", "hai"))
+        # 聞き取れないまま「-」にした質問は今のまま（「申し訳ございません、」＋「お声が聞き取れませんでしたので…もう一度だけ…」）
+        g = self.flow()
+        for _ in range(3):
+            g.on_callee(); g.on_heard("……")
+            g.apply("report_unclear", {"question_id": "Q2"})
+        self.assertEqual(g.current, "Q3")
+        self.say(g, "100万円です。", "record_answer", "答えた", question_id="Q3", condition_id="答えた", value="100万円")
+        r = self.say(g, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q3", result="affirmed")
+        self.assertEqual((g.current, r.get("say"), r.get("ack")),
+                         ("Q2", "お声が聞き取れませんでしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？", "moushiwake_heavy"))
+
+    def test_every_talk_to_the_announcement_gets_a_word(self):
+        # ご承認のお知らせ（問いでない一言）への別のお話：1回目は会話AIが伝え直す（伺い1-(2) ウ）。2回目からも、ほかの質問と同じ1か所（_unlinked_kind の again・
+        # _talk_again）で会話AIのひとこと＋戻る一言の1か所の形（問いでない一言へ2回目に戻る形＝「それではもう一度確認させていただきますね。」。3回目からも2回目の
+        # 形のまま＝11-07 4時台の決まり）＋お知らせ。⛔ 092f2317 まで、2回目だけ「はい、恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」（聞くことが
+        # 空・お話に応えていない＝9-3・11-09 4時36分49秒の (g)）：伝え直しを会話AIの受け答えとして返事を待つ印（own_pending）を立てていたので、2回目のお話が
+        # 受け答えへの返事として扱われ、別のお話の番（_offer_unlinked）から外れていた
+        from phrases import BACK_TO_AGAIN
+        own = "さようでございますか。月曜がお休みでいらっしゃるのですね。キャンセルのご連絡は前日までにいただく決まりとなっておりますので、ご了承いただければと思います。"
+        hot = "本当に暑い日が続いておりますね。"
+        f, r = AnnounceTest().announced()
+        self.unlinked(f, away=None)
+        grounded(f, own)
+        r = f.apply("replay_opening", {"part": "talk", "answer": own, "fallback": "talk_heard_nod"})
+        self.assertEqual((r.get("say"), f.items["Q2"].offer_again, f.own_pending), (own, True, False))
+        for n in (1, 2):
+            self.unlinked(f, words="いやあ最近は暑くてねえ。", away=None)
+            self.assertEqual((f._asked_kind(), f._unlinked_kind("Q2")), ("offer", "again"), n)
+            grounded(f, hot)
+            r = f.apply("replay_opening", {"part": "talk", "answer": hot, "fallback": "talk_heard_nod"})
+            self.assertEqual((r.get("say"), r.get("ack"), f.items["Q2"].ask_backs, f.current), (hot + BACK_TO_AGAIN + AnnounceTest.LINE, None, n, "Q2"), n)
+        # 伝え直しへのお返事はご承認の答えとして受ける（今のまま）
+        g, r = AnnounceTest().announced()
+        self.unlinked(g, away=None)
+        grounded(g, own)
+        g.apply("replay_opening", {"part": "talk", "answer": own, "fallback": "talk_heard_nod"})
+        self.say(g, "分かりました。", "record_answer", "はい", question_id="Q2", condition_id="はい")
+        self.assertEqual((g.export()["Q2"], g.current), ("はい", "Q3"))
 
     def test_an_offer_after_its_proposal_gets_a_word_then_moves_on(self):
         # 申し出（こちらがすることの言葉がある業務の質問）の提案へのお返事も別のお話：ひとことのあと、伺い直しは1回なので「-」にして次へ・締め（相づちは付けない）
