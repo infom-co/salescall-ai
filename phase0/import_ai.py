@@ -20,6 +20,7 @@ import facts
 import maybes
 import meanings
 import purposes
+import since
 import target_asks
 import topics
 import unclear
@@ -204,6 +205,22 @@ def decide_purposes(askers: list[Asker], texts: list[str], on_error: Callable | 
     return {t: purposes.decide(t, [r[i] for r in rows]) for i, t in enumerate(texts)}
 
 
+def decide_since(askers: list[Asker], texts: list[str], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, str]:
+    """業務の質問の文の並び（CL-2 がかけ直す「わからない」の質問＝flowctl.Question.unknown_called_back の質問だけを渡すのは呼ぶ側）→ 文ごとの、その後の文
+    「その後（中身）かお決まりになりましたでしょうか？」の中身の言葉（答えは flowctl.Question.since）。決め方は since.decide の1か所：2つの文字のAIがそろって形に
+    合えばその言葉・そろって空なら空。そろわない文だけを、まとめて1回、考える Sonnet（referee＝(client, モデルの名前)。CL-2 の取込が deciders に渡す）に聞き、
+    形に合えばその言葉。referee が無い・答えない・形に合わなければ空（今の形で伺い直す）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い6は…」"""
+    if not texts:
+        return {}
+    rows = _each(askers, lambda c, m: since.by_model(c, m, texts), [None] * len(texts), on_error)
+    out = {t: since.decide([r[i] for r in rows]) for i, t in enumerate(texts)}
+    left = [t for t in texts if out[t] is None]
+    if left and referee is not None:
+        got = _each([referee], lambda c, m: since.by_model(c, m, left, think=True), [None] * len(left), on_error)[0]
+        out.update({t: w for t, w in zip(left, got) if since.fits(w)})
+    return {t: w or "" for t, w in out.items()}
+
+
 DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
             "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words,
             "decide_away": decide_away, "decide_unclear": decide_unclear,
@@ -216,11 +233,16 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # 用件の一文の中の用件の名詞（続きの電話の用件の一文を前の電話とつなげる＝✅ 11-09 日本時間9時48分09秒の (4)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-128）
             "decide_purposes": decide_purposes,
             # 方法を申し出の中身に入れる言い方（✅ 2026-11-12 まとめ役の (1)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-132）
-            "decide_way_words": decide_way_words}
+            "decide_way_words": decide_way_words,
+            # その後の文の中身（✅ 2026-11-13 日本時間20時06分19秒「伺い6は…」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-149）。考える Sonnet は referee
+            "decide_since": decide_since}
+# 2つの文字のAIがそろわない文を、考える Sonnet（deciders の referee）に聞く決める処理（唯一の一覧）
+REFEREED = frozenset({"decide_since"})
 
 
-def deciders(askers: list[Asker], on_error: Callable | None = None) -> dict[str, Callable]:
+def deciders(askers: list[Asker], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, Callable]:
     """CL-2 の取込（business_import.preview・ask_ai）に渡す決める処理（引数の名前 → 処理）。askers は2つ以上（2つのモデルが合うときだけ
-    決める＝1つでは何も決まらない）。"""
+    決める＝1つでは何も決まらない）。referee＝そろわない文だけを聞く考える Sonnet（(client, モデルの名前)。REFEREED の処理だけが使う。無ければ空のまま）。"""
     assert len(askers) >= 2, "取込で決めることは、2つ以上のモデルが合うときだけ決める"
-    return {name: (lambda qs, fn=fn: fn(askers, qs, on_error)) for name, fn in DECIDERS.items()}
+    return {name: ((lambda qs, fn=fn: fn(askers, qs, on_error, referee)) if name in REFEREED else (lambda qs, fn=fn: fn(askers, qs, on_error)))
+            for name, fn in DECIDERS.items()}

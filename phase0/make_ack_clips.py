@@ -233,6 +233,9 @@ MAX_S["moshimoshi"] = 1.5
 # 重ねての申し出へのお礼（phrases.OFFER_THANKS_AGAIN。⏳ 言い方は伺い中＝2026-11-12）：読み方はお礼と同じ。文が長い（51字＝見込み 8.3秒）ので、上限だけ別
 HOW["offer_thanks_again"] = HOW["offer_thanks"]
 MAX_S["offer_thanks_again"] = 9.0
+# 2回目の好意の折り返しの申し出を受ける一言（phrases.OFFER_ACCEPTED＝✅ 2026-11-13 日本時間20時06分19秒「伺い5はイ」）：読み方はお礼と同じ
+HOW["offer_accepted"] = HOW["offer_thanks"]
+MAX_S["offer_accepted"] = 6.0
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす

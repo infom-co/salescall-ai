@@ -675,6 +675,18 @@ assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
 # 内容なのですが（内容の1つ目ですが）、お支払いはカードと振込のどちらがよろしいでしょうか？」：続きまして、も、それではも繋がりがおかしい。」。決まった
 # 言い方なので読点は外す＝10-15）。⚠️ flowctl.RESUMED_LEAD（「前回お伺いした」＝会話AIのご説明の話し始め）とは別の言葉
 QUESTION_RESUME_LEAD = "確認させていただきたい内容なのですが"
+# CL-2 がかけ直す「わからない」（flowctl.Question.unknown_called_back）を、続きの電話で前の電話でお話しした方に伺い直す文の頭と終わり（✅ 2026-11-13 日本時間
+# 20時06分19秒 ユーザー「伺い6は「…でお電話いたしました。その後ご予算はおいくらほどかお決まりになりましたでしょうか？」」）。間に入る質問の中身（「ご予算は
+# おいくらほど」）は取込で決める（flowctl.Question.since＝since.decide）。この形で伺うかは flowctl.since_due の1か所。用件の一文のすぐあとに、頭のつなぎの言葉を
+# 付けずに流す（QUESTION_RESUME_LEAD の代わり＝お言葉の並び）。⏳ 事実を伺う質問・「いまは分からない」には「お分かりになりましたでしょうか？」も考えられる（伺い中）
+SINCE_HEAD, SINCE_END = "その後", "かお決まりになりましたでしょうか？"
+
+
+def since_ask(words: str) -> str:
+    """その後の形の文を作る唯一の場所（flowctl.since_form）：「その後（質問の中身）かお決まりになりましたでしょうか？」。"""
+    return f"{SINCE_HEAD}{words}{SINCE_END}"
+
+
 # 同じ所（同じ質問・同じ言い直し）へ3回目から戻るときの一言＝続く質問の頭（✅ 2026-11-07 日本時間4時40分35秒 ユーザー：「たびたび失礼いたしました。はおかしい
 # ですね：「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」。決まった言い方なので読点は入れない＝10-15。文を終えないので、続く質問と1本で
 # 録音する＝つなぎの言葉と同じ 10-15 の聞き比べ。並びは BACK_LINES）
@@ -729,6 +741,10 @@ QUESTION_HEADS = tuple(dict.fromkeys([*(w for w in LEAD_PIECES if w != OTHERS_HE
 # 聞く）。✅ 2026-10-22 ユーザー「(a) お礼を言い、こちらからかけ直す形にして戻る時刻を聞く」＝かけ直すと言うのは、この録音だけ（AIは約束しない）。
 # かけ直すかは次の動き（CL-2）が決めるので、この録音を流した通話は、通話の事実の callback に申し出（offer）が残る
 OFFER_THANKS = "お気遣いありがとうございます。お手数ですので改めてこちらからお電話させていただきます。"  # ✅ 2026-10-22 ユーザー（4回目）の言い方
+# 2回目の好意の折り返しの申し出（お礼の一言・伝言を断るお礼を言ったあとの、お客様のほうから折り返すという申し出の重ね）：お言葉に甘えて受け、お礼の締めで
+# 終える（折り返しのお約束は通話の事実 callback の theirs に残し、折り返しが無ければ再度かける＝CL-2 の次の動き）。選ぶのは flowctl.Flow._callback の1か所。
+# ✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い5はイ（相手の好意を2回目は無下にしない）（折り返しかからなければ、再度かける）」（伺ったときのイの文のまま）
+OFFER_ACCEPTED = "ありがとうございます。それではお言葉に甘えさせていただきます。"
 # お礼の一言を言ったあとに、同じ電話で重ねて申し出られた（「いえいえ、戻りましたらこちらから折り返させますので。」）：ご厚意を2回とも受け止め、こちらから
 # 連絡する形を保つ一言（そのあと、いま伺っている質問）。さらに重ねられたら、時刻を無理に伺わず「分からない」と同じ道へ（押し問答にしない）。
 # ⏳ 言い方は伺い中（2026-11-12 まとめ役の指示＝お勧めの形で入れる）。選ぶのは flowctl.Flow._offer_reply の1か所
@@ -1012,7 +1028,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW,
-            "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
+            "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},

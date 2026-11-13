@@ -413,7 +413,12 @@ class Business:
             return CALLBACK_IDS["number"], NUMBER_AGAIN[self.number_again]
         if (q := self.first_question()) is None:
             return None
-        return q.id, (q.text if q.callback else spoken_question(self.questions, q.id, resumed=resumed_call(self.earlier, self.apology_call, self.number_again))[0])
+        if q.callback:
+            return q.id, q.text
+        # CL-2 がかけ直す「わからない」を前の電話でお話しした方に伺い直す質問は、その後の形（決まりは flowctl.since_due の1か所＝流れの制御 Flow._resume_cut と同じ）
+        from flowctl import since_due, since_form
+        qs = [since_form(x) if x.id == q.id and since_due(x, self.earlier, None, self.handover, self.apology_when) else x for x in self.questions]
+        return q.id, spoken_question(qs, q.id, resumed=resumed_call(self.earlier, self.apology_call, self.number_again))[0]
 
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
