@@ -460,19 +460,27 @@ def sense_ask(said: str | None, words: str) -> str:
     return SENSE_ASK.format(said=s, words=words) if s and len(s) <= SENSE_SAID_MAX else SENSE_ASK_NOW.format(words=words)
 
 
+def of_matter(noun: str) -> str:
+    """「（名詞）の件」の「件」の前まで（唯一の作り方＝組む所は「{t}件」の形：決まった伝言 standard_message・続きの電話で切れた所から伺う一言
+    flowctl._wish_text・申し伝える一言 TOLD_AGAIN・連絡先を伺う前に切れた続き CONTACT_RESUMED）：名詞が「件」で終わる（取込で決めた用件の名詞「先日お送りした
+    お見積りの件」・業務の聞くこと「ご連絡の件」）なら、その「件」の前まで（「…の件の件」と重ねない）・ほかは名詞＋「の」・名詞が無ければ空（「前回お伺いした件で」）。
+    ✅ 2026-11-13 まとめ役の決め（分身 D の伺いC＝ア。日本語の誤り）"""
+    return noun[:-1] if noun.endswith("件") else f"{noun}の" if noun else ""
+
+
 CALLBACK_ASK_ANSWERING = {"later_time": "いつ頃おかけ直しさせていただきましょうか？"}
 CALLBACK_ASK_RESUMED = {"not_agreed": "前回お伺いした件で" + CALLBACK_ASK["not_agreed"]}
 # ほかのご希望でご連絡の方法までは伺えて、その連絡先を伺う前に切れた電話の続き（前の通話の答えの "wish_means"＝flowctl.resumed_step）。✅ 2026-11-04 日本時間19時26分
 # ユーザー：「前回、選択いただいたLINEでのご連絡の件でLINEの連絡先を伺う前に切れてしまいましたので、恐れ入りますがLINEのIDをお伺いするか、SMSかメールからご招待する
 # 方法で対応させていただいてもよろしいでしょうか？」（決まった言い方なので読点は外した＝10-15）。同じ場面のメール・ファクス・郵送も、同じ形で（ご連絡の方法・
 # 伺う連絡先・伺う一言の「それでは恐れ入りますが」のあと）。役目 → (ご連絡の方法の言葉, 伺う連絡先の言葉)
-CONTACT_RESUMED = "前回選択いただいた{means}の件で{what}を伺う前に切れてしまいましたので恐れ入りますが{ask}"
+CONTACT_RESUMED = "前回選択いただいた{means}件で{what}を伺う前に切れてしまいましたので恐れ入りますが{ask}"   # {means}＝of_matter（方法の名前）
 # 鍵＝flowctl.contact_again_key（連絡先の役目、同じ役目を後ろの方法も使うときは「役目_方法」）→ (伺う一言の役目, 方法の名前, 伺う連絡先)。
 # オンライン（ZOOM など）は、ご案内の URL をお送りするメールアドレス（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK」）
 _CONTACT_RESUMED = {"line_how": ("line_how", "LINEでのご連絡", "LINEの連絡先"), "email": ("email", "メールでのご連絡", "メールアドレス"),
                     "fax": ("fax", "ファクスでのご連絡", "ファクス番号"), "address": ("address", "郵送でのご案内", "ご住所"),
                     "email_online": ("email", "オンラインでのご案内", "メールアドレス")}
-CALLBACK_ASK_RESUMED.update({k: CONTACT_RESUMED.format(means=m, what=w, ask=CALLBACK_ASK[r].removeprefix("それでは恐れ入りますが"))
+CALLBACK_ASK_RESUMED.update({k: CONTACT_RESUMED.format(means=of_matter(m), what=w, ask=CALLBACK_ASK[r].removeprefix("それでは恐れ入りますが"))
                              for k, (r, m, w) in _CONTACT_RESUMED.items()})
 # 選ぶ質問（「どちら」）に「どれも要らない」と言われたとき、ほかのご希望を1回だけ伺う（flowctl.Flow._wish_step。{c}＝その質問の選択肢を「と」でつないだもの。
 # 質問ごとに文が変わるので、依頼主の単位の録音＝flowctl.other_wish_recording_id）。✅ 2026-11-03 日本時間19時54分 ユーザー：「この質問に入ったという
@@ -485,7 +493,8 @@ OTHER_WISH_ASK = "それでは{c}のほかにご希望はございますでし�
 # 最終目的の質問に、言い切っていないお断りをいただいた場合は、(1) ほかのご希望を1回だけ伺う。ということですよね？それならOKですよ」）。申し出（パンフレット・
 # お電話・ご訪問）にもご意向（今月中のご導入）にも合うよう「ご希望など」（「方法」「時期」と決めると、どちらかに合わない）
 OTHER_WISH_ASK_PLAIN = "それではほかにご希望などはございますでしょうか？"
-# ほかのご希望を伺っている途中で電話が切れたときの、続きの電話（お詫びのすぐあと）で切れた所から伺う一言（{t}＝元の質問の聞くこと＋「の」・無ければ空。
+# ほかのご希望を伺っている途中で電話が切れたときの、続きの電話（お詫びのすぐあと）で切れた所から伺う一言（{t}＝元の質問の聞くことの of_matter＝「件」で終われば
+# その前まで・ほかは＋「の」・無ければ空。
 # {c} と並べるかは上の2つと同じ決まり＝flowctl._wish_text）。✅ 2026-11-03 日本時間23時52分36秒 ユーザー：「(ア)」（お見せした案：「前回はお電話が
 # 途中で切れてしまい大変失礼いたしました。」→「前回お伺いしたご連絡の方法の件で」＋「電話とメールのほかにご希望はございますでしょうか？」＝10-17 の
 # 「続きから聞く」と同じ形）。決まった言い方なので、言葉の途中に読点を入れない（✅ 2026-10-15）。依頼主の単位の録音（（番号）_other_again）
@@ -792,7 +801,7 @@ MESSAGE_AGAIN = MESSAGE_STANDARD.format(who="", about="")
 
 def standard_message(company: str, caller: str, noun: str = "") -> str:
     """決まった伝言の文を作る唯一の場所（instruction.Business.replay_parts の message）。company・caller は名乗りと同じ声に出す形（Business._said）。"""
-    return MESSAGE_STANDARD.format(who=f"{company}の{caller}から", about=f"{noun}の件で" if noun else "")
+    return MESSAGE_STANDARD.format(who=f"{company}の{caller}から", about=f"{of_matter(noun)}件で" if noun else "")
 
 
 def message_again(text: str) -> str | None:
@@ -920,7 +929,7 @@ POINT_FALLBACK = {point_fallback_id(k, a): point_fallback(k, a) for k in POINT_K
 # 「先ほど」「前回」はお詫び（APOLOGY_CUT_END）と同じ＝同じ日は先ほど・あとの日は前回（同じ返事の中で混ぜない。⛔ 2026-11-06 日本時間23時22分41秒の
 # ご質問の見直し H10：いつも「前回お伺いした…」で、同じ日は「先ほどは…切れてしまい…」のすぐあとに「前回お伺いした…」と混ざった）
 EARLIER_CALL_WORD = {"same_day": "先ほど", "later": "前回"}
-TOLD_AGAIN = {f"{k}_{when}": f"{at}お伺いした{noun}の件は担当の者に申し伝えさせていただきますね。"
+TOLD_AGAIN = {f"{k}_{when}": f"{at}お伺いした{of_matter(noun)}件は担当の者に申し伝えさせていただきますね。"
               for when, at in EARLIER_CALL_WORD.items() for k, (noun, _) in POINT_KINDS.items()}
 OWN_FALLBACK_POINT = POINT_FALLBACK["own_fallback_point"]
 OWN_FALLBACK_POINT_AGAIN = POINT_FALLBACK["own_fallback_point_again"]

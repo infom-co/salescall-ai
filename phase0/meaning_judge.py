@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, aside_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items)
 
@@ -537,7 +537,7 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
         called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
         return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
-    head, tail = rules(q) + items_text(q) + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
+    head, tail = rules(q) + items_text(q, asked) + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
         return head + choices, before + said + tail
     return head, before + said + choices + tail
@@ -564,8 +564,8 @@ def _config(q, asked: str | None):
     names = [n for n, _, _ in options(q, asked)]
     schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names)}
                           | {m: types.Schema(type=types.Type.BOOLEAN) for m in answer_marks(q)}
-                          | {k: types.Schema(type=types.Type.STRING, enum=list(c)) for k, c in answer_items(q).items()},
-                          required=["choice", *answer_marks(q), *answer_items(q)])
+                          | {k: types.Schema(type=types.Type.STRING, enum=list(c)) for k, c in answer_items(q, asked).items()},
+                          required=["choice", *answer_marks(q), *answer_items(q, asked)])
     # ⚠️ 考える量（thinking_budget）は指定しない：3.5 Flash Lite は指定すると断る（400）。3.8 Flash は0にしても約3.3秒（2026-10-17 に測った）
     return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
 
@@ -619,11 +619,11 @@ def _read_one(q, got: dict, name, firm, sure, asked) -> "Reading | None":
     cond = next((c for n, _, c in options(q, asked) if n == name), None)
     if cond is None:
         return None
-    if any(got.get(k) is not None and got.get(k) not in c for k, c in answer_items(q).items()):
+    if any(got.get(k) is not None and got.get(k) not in c for k, c in answer_items(q, asked).items()):
         return None   # 答えとは別の項目に、選べるものに無い名前（読めない返事）。項目が無い返事（足す前の記録）は、読んでいない＝None
     r = Reading(cond, firm is not False, sure)
     r.firm_p = got.get("firm_p") if isinstance(got.get("firm_p"), (int, float)) else None
-    items = answer_items(q)
+    items = answer_items(q, asked)
     for k in SIDE_ITEMS:
         setattr(r, k, got.get(k) if k in items else None)
     return r
@@ -635,11 +635,11 @@ def _schema(q, asked: str | None) -> dict:
         return {"type": "object", "properties": {f.key: {"type": "string", "enum": list(f.choices)} for f in q.facets},
                 "required": [f.key for f in q.facets], "additionalProperties": False}
     return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]}}
-            | {m: {"type": "boolean"} for m in answer_marks(q)} | {k: {"type": "string", "enum": list(c)} for k, c in answer_items(q).items()},
-            "required": ["choice", *answer_marks(q), *answer_items(q)], "additionalProperties": False}
+            | {m: {"type": "boolean"} for m in answer_marks(q)} | {k: {"type": "string", "enum": list(c)} for k, c in answer_items(q, asked).items()},
+            "required": ["choice", *answer_marks(q), *answer_items(q, asked)], "additionalProperties": False}
 
 
-def answer_items(q) -> dict:
+def answer_items(q, asked: str | None = None) -> dict:
     """答えとは別に、選べるものから選ばせる項目（{項目の名前: {中の名前: 説明}}。唯一の場所＝返事の形 _config・_schema・判断のモデルの問い
     jev_request・問い合わせの文 prompt_parts・読み取り read）：お客様の答えを読む問い合わせ（答えの段）は、電話を終える言葉か（flowctl.END・
     end_choices の1か所。✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」）。電話のやり取りを読む問い合わせ（talk_question）・
@@ -647,17 +647,18 @@ def answer_items(q) -> dict:
     if q.facets or talk_question(q):
         return {}
     # 電話を終える言葉か・こちらの声が届いていない様子か など（flowctl.SIDE_ITEMS の段ごとの項目）。黙ったあとの一言を流したときだけ、その一言へのお返事だけか
-    # （PROMPT_REPLY）も（流していない場面の文・返事の形は変わらない）
-    # ⏳ 質問の答えの話か・別のお話か（AWAY＝flowctl.asks_away の質問だけ・伺い9＝flowctl.talked_away）は、まだ問い合わせに入れていない：入れると答えの段の
-    # 業務の質問の判定の文がすべて変わる（測りの指紋が変わる＝測り直しが要る）ので、まとめ役のご判断を待つ（分身 D の報告・帳面 1 の (6)）。入れる所はここだけ
-    # （`| ({AWAY: away_choices(False, True)} if asks_away(q) else {})`）
-    return side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
+    # （PROMPT_REPLY）も（流していない場面の文・返事の形は変わらない）。「ところで」で伺い直しうる業務の質問（flowctl.aside_fits の1か所＝伺い直したあとの形・
+    # 続きの電話のその後の形も）の、質問への答えを読むときだけ（言い直しの確かめ asked では読まない＝流れの制御が使わない）、質問の答えの話か・別のお話か（AWAY。読みを組み合わせるのは flowctl.talked_away の1か所）も。✅ 2026-11-13 日本時間22時17分01秒
+    # 「9は…」を本番で働かせる（意味は判定が読む＝11-08 12時11分40秒。⛔ 分身 D の f5fa2a9c までは、流れの制御は読みを使うのに問い合わせに入れていなかった＝本番の
+    # 判定は読まず、伺い9 が働かなかった）。答えの段の業務の質問の判定の文が変わる＝整理が済んでからの1回の測りで測る（帳面 1 の (1)）
+    return (side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
+            | ({AWAY: away_choices(False, True)} if aside_fits(q) and not asked else {}))
 
 
-def items_text(q) -> str:
+def items_text(q, asked: str | None = None) -> str:
     """答えとは別の項目の、選べるものの文（毎回同じ前の部分に入れる＝prompt_parts）。"""
     return "".join(f"{SIDE_ITEMS[k][0] if k in SIDE_ITEMS else k}（{k}）の選べるもの（名前：説明）：\n" + "".join(f"- {n}：{d}\n" for n, d in c.items())
-                   for k, c in answer_items(q).items())
+                   for k, c in answer_items(q, asked).items())
 
 
 def answer_marks(q) -> tuple[str, ...]:
@@ -1134,7 +1135,7 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
     return {"model": model, "state": scene(q, text, asked, before),
             "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)}}
             | {m: {"type": "noul", "instructions": JEV_MARKS[m][0], "criteria": JEV_MARKS[m][1]} for m in answer_marks(q)}
-            | {k: {"type": "choice", "instructions": JEV_ITEMS[k], "criteria": c} for k, c in answer_items(q).items()}}
+            | {k: {"type": "choice", "instructions": JEV_ITEMS[k], "criteria": c} for k, c in answer_items(q, asked).items()}}
 
 
 def jev_prior_request(model: str, q, before: str) -> dict:
