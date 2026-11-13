@@ -603,7 +603,8 @@ class ApologyAfterDialFix(ApologyBase):
 
     def test_the_handover_mark_stays_until_the_target_is_reached(self):
         """引き継ぎを確かめる電話に出なかった ⇒ 次の電話にも印を付ける（まだ確かめていない）。目的のお客様と話せたら外す
-        （`next_action._handover_due` の1か所＝いまの担当の期の通話で、目的のお客様とまだ話していない。0203）。"""
+        （`next_action._handover_due` の1か所＝いまの担当の期の通話で、目的のお客様とまだ話していない。0203）。新しい担当の方と話して引き継ぎを確かめた
+        （事実 carried のある）電話のあとも同じく下りる（CL-1 の連絡帳 4-141 の (c)）。"""
         s = self.fresh(stage_cap=20)
         self.put_client(s, "gate.same_contact_min_interval", 1)
         self.put_client(s, "gate.max_dials_per_contact_per_day", 9)       # 試験：同じお客様へ今日かける回数を使い切らない
@@ -618,7 +619,12 @@ class ApologyAfterDialFix(ApologyBase):
                                                     promised=False))
         self.assertTrue(self.plan(s)["handover"])                         # 予定を書くたびに求める（まだ目的のお客様と話していない）
         time.sleep(1.1)
-        d = self.settle(s, self.call(s, report=rep(callback=support.callback("later", time="あとで"))))["decision"]
+        # 新しい担当の方と話した電話（会話の側が引き継ぎを確かめる一言 HC を伺い、事実 carried を残す＝CL-1 の連絡帳 4-141）のあとは下りている（その方に次の電話で
+        # HC をもう一度伺わない＝4-141 の (c) への答え。作りは変えない：いまの期で目的のお客様と話した電話があるか＝attempts.last_talk の1か所）
+        from dataclasses import replace as _replace
+        from salescall.core import call_report
+        heard = call_report.Carried(call_report.Said(2, "いえ、聞いていないです。"), "聞いていない", False, ("Q1",))
+        d = self.settle(s, self.call(s, report=_replace(rep(callback=support.callback("later", time="あとで")), carried=(heard,))))["decision"]
         self.assertEqual((d.kind, self.plan(s)["handover"]), ("call", False))
 
     def test_a_customer_who_ended_the_business_gets_no_sales_call_from_another_person(self):

@@ -39,7 +39,7 @@ from salescall.core import (apology, approval, attempts, business_rules, busines
                             fix_requests, gate, health, next_action, notify, number_recheck, quality_stage, results, settings,
                             target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
-from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
+from salescall.core.judge import (ANSWERED, JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
                                   classify_cut, cut_off as judge_cut_off, hedged_words, irreversible, judge, refusal, unreached_today)
 from salescall.core.phone import normalize
 
@@ -123,8 +123,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
         raise NotReady("承認されたお詫びの案が無いのに、お詫びの電話をかけています")
     inp, _, _ = _judge_input(tx, a, a["version_id"])
     report = inp.report
-    # 伝えたか：目的のお客様だと確かめられなかった通話（別の方に伝えた・確かめられなかった）は、伝えていない側に倒す
-    delivered = bool(report is not None and report.apology_delivered) and not inp.target_unconfirmed
+    delivered = _apology_delivered(inp)
     # 発信の拒否・番号違いは、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6：前は通話中の申告だけを見て、
     # 何も言わずに切った＝断った、を見落としていた）。断ったかを決められない（報告・切れ方の抜け）・通話後の検証で確かめられ
     # なかった ⇒ もうかけない（かけない側に倒す）
@@ -392,8 +391,28 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                      # 切れ方の分からなかった通話のあとの確かめのかけ直しで、お客様の電話まで鳴ったか（next_action.check_outcome の1か所）
                      check_rang=_check_rang(next_action.check_outcome(tx, attempt_id)) and "refusal" not in gone,
                      # 言ってはいけないことを言った通話（切れ方が決められなければ、断ったかを保留で決める＝伺い3。断りを外すと答えたら見ない）
-                     forbidden=attempts.forbidden_speech(tx, attempt_id) and "refusal" not in gone)
+                     forbidden=attempts.forbidden_speech(tx, attempt_id) and "refusal" not in gone,
+                     # この通話より前の通話で取った答え（新しい担当の方が引き継いだと言った前の方の答えを依頼者へ分かる形で返す＝判定の中身 carried）
+                     earlier_answers=_earlier_answers(tx, attempt_id))
     return inp, report_source, dialed
+
+
+def _earlier_answers(tx: Tx, attempt_id: UUID) -> frozenset[str]:
+    """その行で、この通話より前の通話で取った答えの質問（判定の入力 JudgeInput.earlier_answers を読む1か所）：行の項目の値のうち、答えを受け取った
+    状態（judge.ANSWERED）で、取った通話がこの通話より前（発信の順＝conversation_io.earlier と同じ claimed_at の順）のもの。"""
+    return frozenset(r["question_id"] for r in tx.all(
+        "SELECT v.question_id FROM salescall.item_values v"
+        " JOIN salescall.attempts t ON t.attempt_id = %s AND t.task_id = v.task_id"
+        " JOIN salescall.attempts a ON a.attempt_id = v.attempt_id"
+        " WHERE v.state::text = ANY(%s) AND (a.claimed_at, a.attempt_id) < (t.claimed_at, t.attempt_id)",
+        (attempt_id, sorted(ANSWERED))))
+
+
+def _apology_delivered(inp: JudgeInput) -> bool:
+    """会話の報告が、お詫びの文面を伝えたと言っているか（1か所。お詫びの電話の締め＝`_settle_apology` と、約束の電話の頭の言ってはいけないことの
+    お詫び＝next_action.after_call の両方が読む）：報告の apology_delivered が真で、目的のお客様だと確かめられなかった通話（別の方に伝えた・確かめられ
+    なかった）でない（伝えていない側に倒す）。"""
+    return bool(inp.report is not None and inp.report.apology_delivered) and not inp.target_unconfirmed
 
 
 def _check_rang(check: next_action.Check | None) -> bool:
@@ -486,7 +505,9 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         reached_target=inp.reached_target,   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
         blame=health.blame_of(tx, attempt_id),   # 回線のせい・こちらのせい（試行のせいの欄）：かけた予定のまま（0129・0136）
         attempt_id=attempt_id, check=next_action.check_outcome(tx, attempt_id),   # 確かめのかけ直し（2026-10-30 管理者の決定）
-        waiting=None if wait is None else wait.kind)   # 取り消せない決定の保留の種類（2026-10-30 管理者のご決定 (6)）
+        waiting=None if wait is None else wait.kind,   # 取り消せない決定の保留の種類（2026-10-30 管理者のご決定 (6)）
+        # 言ってはいけないことのお詫びを伝えたか（印を外すのは伝えたときだけ＝next_action._forbidden_told。CL-1 の連絡帳 4-143）
+        apology_delivered=_apology_delivered(inp))
     apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from salescall.core import attempts, business_rules, call_report, conversation_io, customer_contacts, dnc, gate, settings
+from salescall.core import attempts, business_rules, call_report, conversation_io, customer_contacts, dnc, gate, next_action, settings
 from salescall.core.access import Rejected
 from salescall.core.conversation_io import ItemInvalid, ItemValue
 from tests.support import CLEAN, OPERATOR, SYSTEM
@@ -273,6 +273,96 @@ class Materials(SettleBase):
         self.tx(s, lambda tx: conversation_io.save_report(tx, later, dataclasses.replace(rep(), not_agreed=(again,)).to_json()))
         fact = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["point_fact"]
         self.assertEqual((fact["turn"], fact["outcome"], fact["told"]), (2, "unresolved", "request"))
+
+    def next_call(self, s, prev):
+        """前の通話を終え、同じ行の次の通話を始める（門の間隔は、ここでは試さない）。"""
+        self.w.move(s, prev, "ending")
+        self.w.move(s, prev, "ended")
+        later = self.w.insert_claim(s)
+        for st in ("dialing", "answered", "in_conversation"):
+            self.w.move(s, later, st)
+        return later
+
+    def test_earlier_answers_carry_the_last_offer_fact_as_written(self):
+        """CL-1 の連絡帳 4-138 の (4)（CL-2 の連絡帳 4-370 の (4) の案）：前の通話の答えに、その答えを取った通話とそのあとの通話の報告の、その質問（ご承認の
+        質問）の最後の申し出の事実 handoff・close_offer を、報告に書く形のまま（"offer_fact"＝`Offer.to_json`。種類は入れない）。申し出で伺った連絡先を、続きの
+        電話で重ねて伺わないため（読み方は会話の側の flowctl.earlier_records の1か所）。無ければ鍵ごと入れない。"""
+        import dataclasses
+        s = self.ready()
+        aid = self.answered(s)
+        self.write(s, aid, ItemValue("Q1", "accepted", "答えた", "答えた"))
+        offer = call_report.Offer("handoff", call_report.Said(5, "オンラインならいいですよ。"), "Q1", True, "オンラインでのご説明", "online", None,
+                                  None, None, "月曜日を避けて", None, "夕方以降に")   # 連絡先を伺う前に切れた
+        other_q = dataclasses.replace(offer, question="Q9", contact="x@example.com")
+        self.tx(s, lambda tx: conversation_io.save_report(tx, aid, dataclasses.replace(rep(), offers=(offer, other_q)).to_json()))
+        placed = self.tx(s, lambda tx: tx.one("SELECT report FROM salescall.call_reports WHERE attempt_id = %s", (aid,)))["report"]["facts"]
+        got = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]
+        self.assertEqual(got["offer_fact"], placed["handoff"][0])   # 置いた報告の形のまま（ほかの質問の事実は入れない）
+        self.assertNotIn("kind", got["offer_fact"])
+        later = self.next_call(s, aid)
+        done = dataclasses.replace(offer, evidence=call_report.Said(2, "メールは taro@example.com です。"), contact="taro@example.com", outcome="agreed")
+        self.tx(s, lambda tx: conversation_io.save_report(tx, later, dataclasses.replace(rep(), offers=(done,)).to_json()))
+        fact = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))["Q1"]["offer_fact"]   # あとの通話で伺えた連絡先（最後のもの）
+        self.assertEqual((fact["turn"], fact["contact"], fact["outcome"], fact["added"]), (2, "taro@example.com", "agreed", "夕方以降に"))
+        t = self.ready()
+        bid = self.answered(t)
+        self.write(t, bid, ItemValue("Q1", "accepted", "答えた", "答えた"))
+        self.tx(t, lambda tx: conversation_io.save_report(tx, bid, rep().to_json()))
+        self.assertNotIn("offer_fact", self.tx(t, lambda tx: conversation_io.earlier(tx, t["task"]))["Q1"])   # 申し出を伺っていない
+
+    def test_answers_the_new_person_did_not_carry_are_dropped_from_earlier_answers(self):
+        """CL-1 の連絡帳 4-141 の (a)（✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」）：担当の方が替わった電話で、新しい方に前の担当の方からお話を
+        聞いているかを伺った答え（事実 carried）のあと、次の電話の前の通話の答えからは、引き継がなかった（kept が偽）なら前の方の答えを全部・引き継いだ（kept が真）
+        なら dropped の質問の答えを外す（`conversation_io._dropped_by_carried` の1か所）。その電話で取り直した答え（新しい方の答え）は残る。外さないと、その電話が
+        途中で切れたとき、次の電話で新しい方に前の方の答えのまま伺う（「前回お伺いした件でご納得いただけなかった点は…」）。"""
+        import dataclasses
+        said = call_report.Said(2, "いえ、何も聞いていないです。")
+        for kept, dropped, retaken, stays in ((False, ("Q1",), False, False),   # 引き継がなかった：前の方の答えは外す
+                                              (False, (), False, False),        # dropped が空でも、引き継がなければ全部外す
+                                              (False, ("Q1",), True, True),     # その電話で取り直した答え（新しい方の答え）は残る
+                                              (True, ("Q1",), False, False),    # 引き継いだが、その質問（前の方の途中の手順の質問）は使わない
+                                              (True, (), False, True)):         # 引き継いだ答えは残る
+            with self.subTest(kept=kept, dropped=dropped, retaken=retaken):
+                s = self.ready()
+                old = self.answered(s)
+                self.write(s, old, ItemValue("Q1", "accepted", "答えた", "答えた"))
+                self.tx(s, lambda tx: conversation_io.save_report(tx, old, rep().to_json()))
+                self.assertIn("Q1", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])))
+                new = self.next_call(s, old)
+                carried = call_report.Carried(said, "聞いている" if kept else "聞いていない", kept, dropped)
+                self.tx(s, lambda tx: conversation_io.save_report(tx, new, dataclasses.replace(rep(), carried=(carried,)).to_json()))
+                if retaken:
+                    self.write(s, new, ItemValue("Q1", "accepted", "答えた", "答えた"))
+                got = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))
+                self.assertEqual("Q1" in got, stays)
+                if stays and retaken:
+                    self.assertEqual(Write.items(self, s)[0]["attempt_id"], new)
+                # さらに次の電話（同じ新しい方）でも、外した答えは外れたまま（引き継ぎを確かめる事実は、その答えを取った通話のあとの通話にある）
+                third = self.next_call(s, new)
+                self.tx(s, lambda tx: conversation_io.save_report(tx, third, rep().to_json()))
+                self.assertEqual("Q1" in self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])), stays)
+
+    def test_the_answers_the_new_person_carried_are_shown_to_the_client(self):
+        """CL-1 の連絡帳 4-141 の (b)：依頼者への結果（判定の中身 carried＝judge._detail の1か所）で、新しい担当の方が引き継いだと言った前の方の答え
+        （carried_answers＝この通話より前の通話で取った答え。読むのは settle._earlier_answers の1か所）が分かる。この電話の答えは新しい方の答え。"""
+        import dataclasses
+        import time
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        first = self.call(s)                                                     # 前の担当の方と話した（答えはまだ）
+        self.settle(s, first)
+        self.tx(s, lambda tx: tx.execute(                                       # 前の方の答え（その通話で取った）
+            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
+            " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', NULL, %s)", (s["tenant"], s["client"], s["task"], s["version"], first)))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：いまかける"))
+        time.sleep(1.1)
+        heard = call_report.Carried(call_report.Said(2, "はい、聞いております。"), "聞いている", True, ())
+        second = self.call(s, report=dataclasses.replace(rep(), carried=(heard,)))
+        self.settle(s, second)
+        d = self.tx(s, lambda tx: tx.one("SELECT detail FROM salescall.call_judgements WHERE attempt_id = %s", (second,)))["detail"]
+        self.assertEqual(d["carried"], [{"answer": "聞いている", "kept": True, "carried_answers": ["Q1"], "dropped": [], "said": "はい、聞いております。"}])
+        d = self.tx(s, lambda tx: tx.one("SELECT detail FROM salescall.call_judgements WHERE attempt_id = %s", (first,)))["detail"]
+        self.assertNotIn("carried", d)
 
     def test_contacts_heard_in_the_call_are_added_to_the_row(self):
         """電話でお客様が答えた連絡先は、その行（お客様リストの1行）に足す（2026-11-05 ユーザー：「お客様が電話で答えてくれた場合は、

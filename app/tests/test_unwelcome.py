@@ -209,7 +209,7 @@ class PromiseAndApology(ApologyBase):
         self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["order_id"], self.draft(s, aid)["order_id"])
         # 会話へ渡す承認したお詫びの文は、約束の電話の頭のお詫びの欄（apology_text。お詫びだけの電話の apology_call ではない＝CL-1 の連絡帳 4-126 の (2)）
         self.assertEqual((c.apology_text, c.apology_call), (self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], None))
-        got = self.settle(s, self.call_claimed(s, c))
+        got = self.settle(s, self.call_claimed(s, c, delivered=True))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "completed"))   # 約束の用件を続けて果たした
         notes = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'apology'"
                                              " AND refs ->> 'task_id' = %s", (str(s["task"]),)))
@@ -217,21 +217,48 @@ class PromiseAndApology(ApologyBase):
         self.assertIn("約束した電話の頭で、お詫びを伝えました", notes[0]["summary"])
         self.assertIn("apology", notify.KINDS)
 
-    def call_claimed(self, s, c):
-        """予約した電話をかけ、目的のお客様と話して Q1 が取れた（締めはまだ）。"""
+    def call_claimed(self, s, c, *, delivered, taken=True, report=None):
+        """予約した電話をかけ、目的のお客様と話して（taken なら Q1 が取れた。締めはまだ）、会話の報告に、お詫びの文面を伝えたか（delivered）を書く。"""
         from salescall.core import call_report, dial_exit, health
         from tests.support import SYSTEM, CLEAN
         from tests.test_gate import FakeDriver
         self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
         for st in ("answered", "in_conversation", "ending", "ended"):
             self.tx(s, lambda tx, st=st: attempts.move(tx, c.attempt_id, st))
-        self.tx(s, lambda tx: tx.execute(
-            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
-            " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', NULL, %s)", (s["tenant"], s["client"], s["task"], s["version"], c.attempt_id)))
-        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, rep()))
+        if taken:
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
+                " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', NULL, %s)", (s["tenant"], s["client"], s["task"], s["version"], c.attempt_id)))
+        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, replace(report or rep(), apology_delivered=delivered)))
         self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, summary=CLEAN))
         self.tx(s, lambda tx: health.after_call(tx, c.attempt_id))
         return c.attempt_id
+
+    def test_the_mark_stays_until_the_apology_is_delivered(self):
+        """CL-1 の連絡帳 4-143 の頼み：言ってはいけないことのお詫びの印（予定の印 forbidden_speech）を外すのと、契約者への知らせ（「お客様と約束した電話の頭で、
+        お詫びを伝えました」）は、会話の報告がお詫びを伝えた（apology_delivered）ときだけ（お詫びの電話の締めと同じ材料＝settle._apology_delivered。決めるのは
+        next_action._forbidden_told の1か所）。会話の側は、代わりの方・前の電話でお話ししていない方にはお詫びを流さない ⇒ 目的のお客様と話せても、流していない
+        電話のあとは印が残り、次に話せた電話の頭でお詫びを流す。⛔ 2026-11-13 まで：目的のお客様と話せたら外し、流していないのに契約者に「伝えました」と知らせた。"""
+        import time
+        s = self.fresh(stage_cap=20)
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '1 day')::date AS d")["d"])
+        aid, _ = self.promise_call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の15時")))
+        self.order(s, aid)                                                       # 契約者が案を承認
+        notes = lambda: self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'apology'"   # noqa: E731
+                                                     " AND refs ->> 'task_id' = %s", (str(s["task"]),)))
+        for delivered, reasons, told in ((False, ["forbidden_speech"], 0), (True, [], 1)):
+            with self.subTest(delivered=delivered):
+                time.sleep(1.1)
+                self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=tx.one("SELECT now() AS t")["t"], end_reason=None,
+                                                          cause="試験：約束の時刻", promised=True, target=next_action.Target(s["contact"])))
+                c = self.claim(s)
+                self.assertIsInstance(c, gate.Claim, c)
+                self.assertIn("forbidden_speech", c.apology)                     # 会話は頭でお詫び（流すかは会話の側が決める）
+                got = self.settle(s, self.call_claimed(s, c, delivered=delivered, taken=False))   # 目的のお客様と話せた・Q1 はまだ
+                self.assertEqual(got["decision"].kind, "call")
+                self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["apology_reasons"], reasons)
+                self.assertEqual(len(notes()), told)
 
     def test_a_refusal_with_the_mistake_ends_the_row_as_before(self):
         """「もうかけないで」と言われた通話で言ってはいけないことを言った ⇒ いままでどおり行を終え、お詫びの電話もかけない（発信禁止）。"""

@@ -1759,7 +1759,8 @@ def _check_unrung(tx: Tx, task_id: UUID, dialed: Target, dialed_at: datetime, ch
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Target,
                dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool,
                cut_off: bool = False, reached_target: bool = False, blame: str | None = None,
-               attempt_id: UUID | None = None, check: Check | None = None, waiting: str | None = None) -> Decision:
+               attempt_id: UUID | None = None, check: Check | None = None, waiting: str | None = None,
+               apology_delivered: bool = False) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。判定の結果から次の動きを決めて記録する（同じ取引）。
     cut_off＝お客様が出たあと、お客様の意思と関係なく途中で切れた（決めるのは締めの処理の1か所）。
     dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝お客様が言った別の番号の材料（言われたときだけ）。
@@ -1769,7 +1770,9 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     かけた予定のまま）。attempt_id＝この通話（試行。確かめのかけ直しを記録する）。check＝この通話が確かめのかけ直しなら、その答え
     （`check_outcome`。鳴らなかったときは `_check_unrung` の1か所で、回線のせいとして決めた長さのあとお詫びから。こちらのせいで鳴らなかった
     ときも、回線のせいでも番号のせいでもなく、こちらで決める＝2026-10-30 管理者：「鳴らなかったら回線のせい」）。
-    waiting＝取り消せない決定の保留の種類（core/approval.decision_wait。保留なら判定待ち＝`decide_after_call`）。"""
+    waiting＝取り消せない決定の保留の種類（core/approval.decision_wait。保留なら判定待ち＝`decide_after_call`）。
+    apology_delivered＝会話の報告が、お詫びの文面（言ってはいけないことのお詫び）を伝えたと言っている（締めの処理の1か所 settle._apology_delivered。
+    言ってはいけないことのお詫びの印を外すか・契約者に知らせるか＝`_forbidden_told`）。"""
     now = tx.one("SELECT now() AS now")["now"]
     if check is not None and check.outcome == "unrung" and waiting is None and not forbidden and not j.complaint and j.state not in END_STATES:
         d = _check_unrung(tx, task_id, dialed, dialed_at, check, now)
@@ -1883,7 +1886,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
                           failed_at=failed_at, recheck=no_opening_recheck(tx, task_id),
                           check_of=_unclear_check_of(tx, task_id, attempt_id, j, dialed, target), waiting=waiting,
                           call=cut_call)
-    d = _apologised(d, reached_target)
+    told = _forbidden_told(dialed_row, reached_target, apology_delivered)
+    d = _apologised(d, reached_target, forbidden_kept=_forbidden_owed(dialed_row) and not told)
     if former_promise and d.kind == "call" and d.promised:
         # 前の担当の方の新しい約束は、その方の期のまま書く（かける先が、いまの担当の方の番号でも＝名前などを「違う」で直したあと。`_plan_person`）
         d = replace(d, former_promise=True)
@@ -1895,9 +1899,10 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     _write(tx, task_id, d, after=attempt_id)
     if former_promise and tasks.old_promise_waiting(tx, task_id) == attempt_id:
         _notice_old_promise(tx, task_id, attempt_id)
-    if reached_target and attempt_id is not None and dialed_row is not None and "forbidden_speech" in (dialed_row["apology_reasons"] or ()):
-        # 約束の時刻の電話の頭で、言ってはいけないことのお詫びを伝えた（目的のお客様と話せた＝会話の処理が予約証の印を見て最初にお詫び
-        # している。印を外すのは `_apologised`）：契約者に知らせる（お詫びの電話を伝えたときと同じ知らせの種類。計画書 7-3 (2)。0216）
+    if told and attempt_id is not None:
+        # 約束の時刻の電話の頭で、言ってはいけないことのお詫びを伝えた（会話の報告の apology_delivered。伝えたかは `_forbidden_told` の1か所。
+        # 印を外すのは `_apologised`）：契約者に知らせる（お詫びの電話を伝えたときと同じ知らせの種類。計画書 7-3 (2)。0216）。⛔ 2026-11-13 まで
+        # （CL-1 の連絡帳 4-143）：目的のお客様と話せたら（代わりの方に繋いだ電話で、お詫びを流していなくても）印を外し、この知らせを出していた
         notify.emit(tx, "apology", key=f"apology:{attempt_id}", summary="お客様と約束した電話の頭で、お詫びを伝えました（そのまま約束の用件を続けました）。",
                     refs={"attempt_id": attempt_id, "task_id": task_id})
     return d
@@ -2045,12 +2050,32 @@ def _window_round_next(tx: Tx, task_id: UUID, window: Window, policy: business_r
     return at if end is None or at < end else end
 
 
-def _apologised(d: Decision, reached_target: bool) -> Decision:
+def _forbidden_owed(row: dict[str, Any] | None) -> bool:
+    """かけた予定（row）に、言ってはいけないことのお詫びの印（forbidden_speech）があったか。"""
+    return row is not None and "forbidden_speech" in (row["apology_reasons"] or ())
+
+
+def _forbidden_told(row: dict[str, Any] | None, reached_target: bool, delivered: bool) -> bool:
+    """この通話で、言ってはいけないことのお詫び（かけた予定 row の印 forbidden_speech）を伝えたか（1か所。印を外す `_apologised` と、契約者への
+    知らせ（0216）の両方が読む）：印があり、目的のお客様と話せて、会話の報告がお詫びを伝えたと言っている（delivered＝apology_delivered。お詫びの電話の
+    締めと同じ材料＝settle._apology_delivered）。CL-1 の連絡帳 4-143 の頼み：会話の側は、代わりの方に繋いだ電話・前の電話でお話ししていない方には
+    お詫びを流さない（apology_delivered は偽）。⛔ 2026-11-13 まで：目的のお客様と話せたら外していた＝流していない電話でも印が外れ、契約者に「伝えました」
+    と知らせた。外れなかった印は、次に前の電話でお話しした方と話せた電話で流れる。"""
+    return reached_target and delivered and _forbidden_owed(row)
+
+
+def _apologised(d: Decision, reached_target: bool, *, forbidden_kept: bool) -> Decision:
     """目的のお客様と話せた通話のあと：前の印のお詫び（約束の日にかけられなかった・途中で切れた）は済んだ（会話の処理が、予約証の
     印を見て最初にお詫びしている）。印を外すのは、ここの1か所（ふつうの通話・お詫びの電話の締めの両方）。この通話で新しく付けた
-    理由（また途中で切れた など）だけは残す。"""
+    理由（また途中で切れた など）だけは残す。言ってはいけないことのお詫び（forbidden_speech）は、伝えた通話のあとだけ外す（forbidden_kept＝印があり、
+    この通話で伝えていない＝`_forbidden_told` が偽。残して、次の電話で流す）。⏳ 途中で切れた・約束の時間にかけられなかったお詫びも、会話の報告に
+    「流したか」が足されたら同じ形にする（CL-1 の連絡帳 4-143 の伺い）。"""
     if not reached_target:
         return d
+    if forbidden_kept:
+        new = () if d.apology is None or d.apology is False else (d.apology,) if isinstance(d.apology, str) else \
+            tuple(sorted(d.apology)) if isinstance(d.apology, frozenset) else tuple(d.apology)
+        return replace(d, apology=tuple(dict.fromkeys(("forbidden_speech",) + new)))
     if d.apology is None or d.apology is False:
         return replace(d, apology=False)
     if isinstance(d.apology, str):
@@ -2559,12 +2584,12 @@ def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dial
                              cut_off=attempts.resume_allowed(tx, task_id),
                              failed_at=_failed_retry_at(tx, task_id, target.contact_id, now, now),
                              recheck=no_opening_recheck(tx, task_id))
-    d = _apologised(d, reached_target)
+    at = dialed_at or now
+    row = _plan_at(tx, task_id, at)
+    d = _apologised(d, reached_target, forbidden_kept=_forbidden_owed(row) and not _forbidden_told(row, reached_target, delivered))
     # 直したあと前の番号へかけたお詫びの電話が、番号のせいで終える決定になった ⇒ 終えずに、いまかける番号で（同じ相手ならお詫び・違う
     # 相手なら営業を続ける＝`_restart` の1か所。通話のあと・門のあとと同じ `_moved_on_fix`。⛔ 0194 の前は、お詫びの電話のあとだけ通らず、
     # 行が終わった）
-    at = dialed_at or now
-    row = _plan_at(tx, task_id, at)
     # 前の担当の方へのお詫びの電話のあと、行を終える決定 ⇒ 新しい担当の方へ（通話のあとと同じ `_after_former` の1か所。0214）
     d = _after_former(tx, task_id, d, row, attempt_id=attempt_id, apology=True, now=now)
     d = _moved_on_fix(tx, task_id, d, row, replaced_at(tx, task_id, dialed.contact_id, at), now=now)

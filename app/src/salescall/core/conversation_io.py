@@ -294,7 +294,7 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
 # 前の通話で取れた答えの項目のうち、値のあるときだけ渡すもの（`earlier`。state・value・condition は無くても渡す）
 # 前の通話の答えで、値が無ければ入れない項目（入れないこと自体が意味を持つ＝言い切っていた・その質問の事実が無い・繋いだ事実が無い。会話の側の
 # flowctl.earlier_fact は無い鍵と null を同じに読むが、渡す形をそろえる）
-_EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who")
+_EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who", "offer_fact")
 
 
 def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
@@ -314,6 +314,14 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
       earlier_records）で、ここでは読まない（✅ 2026-11-05 CL-2 の連絡帳 4-212 の案2・CL-1 の連絡帳 4-88。⛔ 前は、ここで結果・方法・連絡先・
       手順の進み・点を読み分けて6つの項目で渡し、会話の側にも同じ読み方があった＝2か所。会話の側が連絡先の方法を別の項目から読み、もう伺った
       連絡先を伺い直す不具合が出た）。
+    - "offer_fact"：同じ通話の報告の、業務の申し出の事実 handoff・close_offer のうち、その質問（ご承認の質問）の最後の1つを、報告に書く形のまま
+      （`Offer.to_json`。種類は入れない）。無ければ入れない。申し出で伺った連絡先を、続きの電話で重ねて伺わないため（読み方は会話の側の
+      flowctl.earlier_records の1か所。CL-2 の連絡帳 4-370 の (4)・CL-1 の連絡帳 4-138 の (4)）。
+    **担当の方が替わった電話で、前の担当の方の答えを使わないことにした答えは入れない**（CL-1 の連絡帳 4-141 の (a)＝✅ 2026-11-12 日本時間19時32分21秒
+    ユーザー「1はウ（候補(1)）」）：その答えを取った通話のあとの通話の報告に、新しい担当の方に引き継ぎを確かめた事実 carried があれば、引き継がなかった
+    （kept が偽）ときは、その通話より前に取った答えを全部、引き継いだ（kept が真）ときは、その事実の dropped の質問の答えを入れない（決めるのは、ここの
+    1か所＝`_dropped_by_carried`。その通話かあとの通話で取り直した答えは、取った通話が新しいので入る）。外さないと、その電話が途中で切れたとき、次の電話で
+    新しい方に前の方の答えのまま伺う（「前回お伺いした件でご納得いただけなかった点は…」）。
     ⛔ 2026-11-03 の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
     答えに、前の通話（別の方と話していた通話）の事実を付けうる形だった。⇒ その答えを取った通話と、そのあとの通話の報告から読む（その答えを
     取った通話より前の通話は読まない）。⛔ 2026-11-06 の見直し (C) の1：その答えを取った通話の報告だけを読んでいたので、続きの電話で
@@ -326,22 +334,35 @@ def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged, attempt_id FROM salescall.item_values"
                     " WHERE task_id = %s ORDER BY question_id", (task_id,)):
-        q, w, n = r["question_id"], None, None
-        for a in calls[since[r["attempt_id"]]:] if r["attempt_id"] in since else ():   # その答えを取った通話と、そのあとの通話（古い順）
+        q, w, n, o, gone = r["question_id"], None, None, None, False
+        for i, a in enumerate(calls[since[r["attempt_id"]]:] if r["attempt_id"] in since else ()):   # その答えを取った通話と、そのあとの通話（古い順）
             if a not in reports:
                 reports[a] = call_report.load(tx, a)
             report = reports[a]
             if report is None:
                 continue
+            gone = gone or (i > 0 and _dropped_by_carried(report, q))
             w = next((x for x in reversed(report.other_wishes) if x.question == q), w)
             n = next((x for x in reversed(report.not_agreed) if x.question == q), n)
+            o = next((x for x in reversed(report.offers) if x.question == q), o)
+        if gone:
+            continue
         took = reports.get(r["attempt_id"])   # その答えを取った通話の報告（上で読んだ。行の通話に無い答え＝None）
         item = {"state": r["state"], "value": r["value"], "condition": r["condition"],
                 "hedged": judge.hedged_words(r["state"], r["hedged"]),
                 "wish_fact": w.to_json() if w is not None else None, "point_fact": n.to_json() if n is not None else None,
-                "who": took.connected_who if took is not None else None}
+                "who": took.connected_who if took is not None else None,
+                "offer_fact": o.to_json() if o is not None else None}
         out[q] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
     return out
+
+
+def _dropped_by_carried(report: call_report.CallReport, question_id: str) -> bool:
+    """あとの通話（report）で、新しい担当の方に引き継ぎを確かめた答え（事実 carried）により、それより前に取った質問 question_id の答えを使わないことに
+    したか（1か所＝`earlier`）：引き継がなかった（kept が偽）なら前の答えは全部・引き継いだなら dropped の質問だけ。1つの通話に carried は1つ（会話の側が
+    1通話1回伺う）なので、いちばん新しいものを読む。"""
+    c = report.carried[-1] if report.carried else None
+    return c is not None and (not c.kept or question_id in c.dropped)
 
 
 def handlings(tx: Tx, version_id: UUID, question_id: str) -> dict[tuple[str, str], str]:

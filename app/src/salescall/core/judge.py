@@ -70,7 +70,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-12.1+time-{spoken_time.VERSION}"   # 2026-11-12.1（CL-1 の連絡帳 4-122〜4-129）：業務の申し出の答え（会話の報告の事実 handoff・close_offer）と、条件つきで受けていただいた申し出（事実 offer_terms）を判定の中身で依頼者へ返す（判定の結果は変えない。handoff のはっきりしたお断りは会話の側が残す事実 goal_refused で今までどおり読む）
+JUDGE_VERSION = f"judge-2026-11-13.1+time-{spoken_time.VERSION}"   # 2026-11-13.1（CL-1 の連絡帳 4-131・4-135・4-141・4-142）：判定の中身で依頼者へ返す申し出・ほかのご希望に、こちらから足した条件 added（お客様のご都合 terms と分ける）・ほかのご希望の W1 の答えの状態 wish_state と提案の terms・topic を足し、新しい担当の方に引き継ぎを確かめた答え（会話の報告の事実 carried）を carried で返す（引き継いだと言った前の方の答え＝carried_answers。判定の結果は変えない）
+# 前の版：   # 2026-11-12.1（CL-1 の連絡帳 4-122〜4-129）：業務の申し出の答え（会話の報告の事実 handoff・close_offer）と、条件つきで受けていただいた申し出（事実 offer_terms）を判定の中身で依頼者へ返す（判定の結果は変えない。handoff のはっきりしたお断りは会話の側が残す事実 goal_refused で今までどおり読む）
 # 前の版：   # 2026-11-08.1（CL-1 の連絡帳 4-113・4-115）：本題で本心を伺った一言に言っていただいた気になる点（会話の報告の事実 concern）を判定の中身で依頼者へ返す（判定の結果は変えない）。「曖昧」の印（伺う条件の hedged が読む）は、項目の値の欄 hedged（依頼者へ渡すお客様の言葉）を、取れた答えのときだけ読む（`hedged_words` の1か所。「-」「✕」の答えに添えたお客様の言葉を、言い切っていない答えと読まない）
 # 前の版：   # 2026-11-07.1（見直し(3)の1・5）：断りを言い表す道を1本にした。会話の側が営業拒否と読んだ「あとで」も、受付の営業拒否と同じ事実 do_not_call（2つ目の判定は irreversible_check）で来る。かけ直しの申し出の intent は約束の一環（promise）だけ（"refusal" は報告の誤り＝call_report.from_json）。判定の中身 refusal の later は無くなった（申告と同じ in_call）。通話の途中の申告かは、申告の入口が入れた登録だけで見る（dnc.declared_in。締めが自分で入れた登録を締め直しで申告と読まない）
 # 前の版：   # 2026-11-06.2（計画書 7-1 (16)・0195）：かけ直しの申し出「あとで」を会話の側が営業拒否と読んだ（会話の報告の Callback.intent＝refusal）通話は、断り（発信の拒否＝もうかけない・発信禁止に登録。受付で営業拒否を言われたときと同じ (2) の道＝call_report.CallReport.do_not_call の1か所。判定の中身 refusal＝later）。約束の一環・読んでいないときは変わらない
@@ -192,6 +193,10 @@ class JudgeInput:
     # 伺わなかった質問は「伺っていない（対象外）」（`not_asked`）：取れていない必須の質問に数えず、依頼者へは答えが取れなかった質問と
     # 分けて返す（CL-1 の連絡帳 4-66 の (e)）
     ask_if: dict[str, AskIf] = field(kw_only=True)
+    # この通話より前の通話で取った答えの質問（行の項目の値のうち、取った通話＝attempt_id がこの通話より前のもの。読むのは settle._judge_input の1か所）。
+    # 新しい担当の方が引き継いだと言った前の方の答えを、依頼者へ分かる形で渡す（判定の中身 carried の carried_answers＝`_carried_detail`。CL-1 の連絡帳
+    # 4-141 の (b)）。判定の結果には使わない
+    earlier_answers: frozenset[str] = field(default=frozenset(), kw_only=True)
 
     @property
     def reached_target(self) -> bool:
@@ -531,18 +536,36 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
     concerns = inp.report.concerns if inp.report is not None else ()       # 本題で本心を伺い、言っていただいた気になる点（今後の改善。CL-1 の連絡帳 4-113）
     offers = inp.report.offers if inp.report is not None else ()           # 業務の申し出の答え（事実 handoff・close_offer。CL-1 の連絡帳 4-122〜4-128）
     terms = inp.report.offer_terms if inp.report is not None else ()       # 条件つきで受けていただいた申し出（事実 offer_terms。CL-1 の連絡帳 4-129）
+    carried = inp.report.carried if inp.report is not None else ()         # 新しい担当の方に引き継ぎを確かめた答え（事実 carried。CL-1 の連絡帳 4-141）
     return {"cut": raw_cut, "cut_recorded": cut, **({"target_unconfirmed": True} if inp.target_unconfirmed else {}),
             **({"not_asked": sorted(skipped)} if skipped else {}),
             **({"not_agreed": [{"question": n.question, "point": n.point, "said": n.said, "round": n.round,
                                 "explained": n.explained, "outcome": n.outcome} for n in agreed]} if agreed else {}),
+            # 提案の欄（terms＝お客様のご都合・topic＝中身・added＝こちらから足した条件）は、お客様のご都合とこちらの提案を分けて渡す（CL-1 の連絡帳 4-131）
             **({"other_wish": [{"question": w.question, "wish": w.wish, "value": w.value, "means": w.means, "contact": w.contact,
-                                "via": w.via, "outcome": w.outcome, "said": w.evidence.said} for w in wishes]} if wishes else {}),
+                                "via": w.via, "outcome": w.outcome, "wish_state": w.wish_state, "terms": w.terms, "topic": w.topic,
+                                "added": w.added, "said": w.evidence.said} for w in wishes]} if wishes else {}),
             **({"unfinished": list(unfinished)} if unfinished else {}),
             **({"concern": [{"question": c.question, "said": c.evidence.said, "answer": c.own.answer} for c in concerns]} if concerns else {}),
             **{kind: rows for kind in call_report.OFFER_KINDS
                if (rows := [{"question": o.question, "agreed": o.agreed, "way": o.way, "means": o.means, "via": o.via, "contact": o.contact,
-                             "outcome": o.outcome, "terms": o.terms, "topic": o.topic, "said": o.evidence.said} for o in offers if o.kind == kind])},
-            **({"offer_terms": [{"question": t.question, "terms": t.terms, "topic": t.topic, "said": t.evidence.said} for t in terms]} if terms else {})}
+                             "outcome": o.outcome, "terms": o.terms, "topic": o.topic, "added": o.added, "said": o.evidence.said}
+                            for o in offers if o.kind == kind])},
+            **({"offer_terms": [{"question": t.question, "terms": t.terms, "topic": t.topic, "added": t.added, "said": t.evidence.said}
+                                for t in terms]} if terms else {}),
+            **({"carried": [_carried_detail(inp, c) for c in carried]} if carried else {})}
+
+
+def _carried_detail(inp: JudgeInput, c: call_report.Carried) -> dict[str, Any]:
+    """新しい担当の方に引き継ぎを確かめた答えの、依頼者へ渡す形（判定の中身 carried。1か所＝`_detail`。CL-1 の連絡帳 4-141 の (b)）：
+    - answer・said：新しい方の答えの名前とお言葉。この電話の答え（項目の値）は、新しい方の答え（繋いだ方は事実 connect の who）。
+    - kept：前の担当の方の答えを引き継いだか。
+    - carried_answers：kept が真のとき、新しい方が引き継いだと言った前の担当の方の答え（この通話より前の通話で取った答え＝`JudgeInput.earlier_answers`
+      のうち、この電話で使わないことにした質問 dropped を除いたもの。この電話で取り直した答えは、新しい方の答えなので入れない）。kept が偽なら空
+      （前の方の答えは、この電話では使っていない）。
+    - dropped：この電話で使わないことにした前の通話の答えの質問（次の電話の前の通話の答えからも外す＝conversation_io.earlier）。"""
+    kept_from = sorted(q for q in inp.earlier_answers if q not in c.dropped) if c.kept else []
+    return {"answer": c.answer, "kept": c.kept, "carried_answers": kept_from, "dropped": list(c.dropped), "said": c.evidence.said}
 
 
 def _business(inp: JudgeInput) -> Judgement:

@@ -451,13 +451,32 @@ class Check(unittest.TestCase):
     def test_the_offer_questions_and_parts_are_reserved(self):
         """CL-1 の連絡帳 4-122・4-124・4-128：申し出のシステムの質問 N4・N5・N6 と、申し出の業務の録音の部分（offer_which・close_offer）は質問の番号にできない。
         続きの電話の用件の一文の部分（purpose_again_*）は purpose に「_」を続けた形として断る。"""
-        for qid in ("N4", "N5", "N6", "offer_which", "close_offer", "purpose_again_cut_later"):
+        for qid in ("N4", "N5", "N6", "offer_which", "close_offer", "purpose_again_cut_later",
+                    "HC"):   # 新しい担当の方に引き継ぎを確かめるシステムの質問（CL-1 の連絡帳 4-141）
             with self.subTest(qid=qid):
                 r = raw()
                 r["questions"][1]["id"] = qid
                 r["questions"][0]["next"] = {"しない": "END", "*": qid}
                 r["rules"] = rules_raw(required=("Q1", qid))
                 self.assertTrue(any(qid in p for p in problems_of(r)), problems_of(r))
+
+    def test_way_words_are_words_for_the_ways_of_the_business(self):
+        """CL-1 の連絡帳 4-132（2026-11-12 まとめ役の (1)）：方法を申し出の中身に入れる言い方 way_words（{こちらがすることの言葉: {方法: 言葉}}。会話の側の
+        instruction.Business.way_words）。方法は、この業務の方法の名前（詳しい者からのお話の方法・締める前の申し出の方法・ご案内できる方法）だけ・言葉は文字。
+        こちらがすることの言葉の側は、会話の側の決まった言葉（N4 の言葉など）も入るので文字であることだけを見る。無ければ空（会話の側は「（方法）で」）。"""
+        r = raw()
+        r["handoff_ways"] = ["訪問", "オンラインでのご説明"]
+        words = {"詳しい者より改めてお話しさせていただきます": {"訪問": "詳しい者がご訪問のうえお話しさせていただきます"}}
+        r["way_words"] = words
+        s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual(s.way_words, words)
+        self.assertEqual(bs.check(raw(), standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).way_words, {})
+        for bad, word in (({"詳しい者より改めてお話しさせていただきます": {"郵送": "郵送で…"}}, "この業務の方法ではありません"),
+                          ({"詳しい者より改めてお話しさせていただきます": {"訪問": " "}}, "言葉（文字）"),
+                          ({"詳しい者より改めてお話しさせていただきます": {}}, "way_words"), (["訪問"], "way_words"), ({"": {"訪問": "x"}}, "way_words")):
+            with self.subTest(bad=bad):
+                r["way_words"] = bad
+                self.assertTrue(any(word in p for p in problems_of(r)), problems_of(r))
 
     def test_doubt_words_are_asking_words_on_wish_questions(self):
         """CL-1 の連絡帳 4-90（✅ 2026-11-01 日本時間20時56分・22時31分 ユーザー）：いまの話の向きを伺う言葉（選択肢 → 言葉。会話の側は「はい、」＋

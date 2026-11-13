@@ -388,7 +388,14 @@ COMMON_PARTS: tuple[str, ...] = (
     "callback_handoff_pending", "callback_handoff_pending_bare", "callback_handoff_pending_midway",
     # CL-1 の連絡帳 4-129（✅ 2026-11-12 日本時間13時40分05秒 の (4)）：同じ日の続きの電話の、途中で切れたお詫び「先ほどはお電話が途中で切れてしまい大変失礼
     # いたしました。」（予約証の apology_when が same_day のとき。あとの日は今の apology_cut_off）
-    "apology_cut_off_same_day")
+    "apology_cut_off_same_day",
+    # CL-1 の連絡帳 4-141（✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」）：担当の方が替わった電話・後任の方に、前の担当の方からお話を
+    # 聞いているかを伺う「恐れ入りますが前のご担当者様からこれまでのお話はお聞き及びでしょうか？」（システムの質問 HC）と、3回目からの戻る一言に続ける形
+    # （_midway。名前は CL-1 の phrases.BACK_FIT の決まりのまま）
+    "callback_carried", "callback_carried_midway",
+    # CL-1 の連絡帳 4-144 の (1)（2026-11-12 まとめ役の指示。⏳ 言い方はユーザーに伺い中＝お勧めの形）：かけ直しの質問の途中に、お礼の一言（offer_thanks）のあとで
+    # また折り返し・伝言を申し出られたときの「重ねてお気遣いありがとうございます。お手数をおかけしてはいけませんのでこちらからご連絡させていただきますね。」
+    "offer_thanks_again")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

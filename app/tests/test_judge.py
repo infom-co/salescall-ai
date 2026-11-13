@@ -863,5 +863,29 @@ class Causes(unittest.TestCase):
         self.assertEqual(run(items=old).detail["unknown_cause"], "reason_missing")   # 話した通話では、これまでどおり
 
 
+class DontKnowEnough1113(unittest.TestCase):
+    def test_a_dont_know_on_a_question_that_is_not_required_goes_on_and_is_not_called_back(self):
+        """CL-1 の連絡帳 4-144 の (4) への答え（✅ 2026-11-13 ユーザー：「一例のパンフレットが、もし、必須なら、これについてもっと深掘りしないといけないし、
+        必須でなく、説明だけで何とかなる業務なら、次へ進む形でいいんじゃないですか！」）：「わからない」でも先へ進んでよい質問は、業務設定で必須にしない
+        （扱いの一覧 business_rules.HANDLINGS に新しい扱いは足さない）。必須でない質問の「わからない」は、取れていない必須の質問に数えない（judge の missing は
+        rules.required だけを見る）＝ほかの必須の質問が取れていれば完了で行を終え、かけ直さない（理由が無くても判定待ちにしない）。必須の質問の「わからない」は、
+        今の扱い（理由×扱い）どおり深掘りする（ここでは日を改める）。作りは変えていない（確かめの試験）。"""
+        rules = check(V, ("Q2",), rules_raw(("Q2",)))   # Q1（資料は届いているか）は必須でない・Q2（ご承認）は必須
+
+        def judged(q1, q2):
+            return judge(JudgeInput(TALKED, report(), {"Q1": q1, "Q2": q2}, rules, callee=CALLEE, anyone_target=False,
+                                    check_rang=False, forbidden=False, ask_if={}))
+        for reason in ("undecided", None):   # 必須でない質問の「わからない」は、理由が無くても先へ進む
+            with self.subTest(reason=reason):
+                j = judged(Item("dont_know", "わからない", reason), Item("accepted", "はい", None))
+                self.assertEqual((j.state, j.detail.get("missing"), j.detail.get("unknown_cause")), ("completed", None, None))
+                d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=gate.Pacing(3, NOW, None, True), rules=rules,
+                                      times_with_key=1, now=NOW, retry_at=NOW + HOUR, target=Target(MAIN))
+                self.assertEqual((d.kind, d.end_reason), ("end", "completed"))   # かけ直さない（次の電話は無い＝伺い直さない）
+        # 必須の質問の「わからない」は、今の扱いで深掘りする（理由×扱い＝日を改める）
+        j = judged(Item("accepted", "はい", None), Item("dont_know", "わからない", "undecided"))
+        self.assertEqual((j.state, j.detail.get("missing")), ("incomplete", ["Q2"]))
+
+
 if __name__ == "__main__":
     unittest.main()
