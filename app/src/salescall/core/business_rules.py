@@ -78,6 +78,14 @@ class Rules:
     retry: dict[str, Policy]                           # 再発信の方針の鍵 → 方針
     forbidden: dict[str, "Forbidden"]                  # 言ってはいけないことの名前 → 中身
 
+    def calls_back(self, question_id: str) -> bool:
+        """その質問の「わからない」で、続きの電話をかけうるか（1か所）：必須の質問で（扱いを持つのは必須の質問だけ＝`check`）、「わからない」の扱いが、どの理由でも
+        結論として終える、ではない（分かるお客様を聞く・分かる時を聞く・日を改める、のどれかがある）。判定は、取れていない必須の質問の「わからない」を、その理由の扱いで決める
+        （結論として終えるなら行を終え、ほかはかけ直す＝judge の (6)〜(10)）ので、かけ直しがありうるのはこの質問だけ。その後の文の中身（業務設定の
+        `Question.since`）を取込で決める質問を選ぶ所（business_import の `_decided_later`）と、付けてよい質問の確かめ（business_settings.check）が読む。
+        会話の側の同じ決まりは flowctl.Question.unknown_called_back（比べる試験 test_reasked_earlier_answers_match_cl2。CL-1 の連絡帳 4-149）。"""
+        return any(h.kind != "conclude" for (q, state, _), h in self.handling.items() if q == question_id and state == "dont_know")
+
 
 # 目的のお客様に取り次いでもらえなかった（not_reached_not_transferred）は、2つに分けて決める（2026-10-22 ユーザー：「『取り次いで
 # もらえなかった』というのは、『営業拒否』のためと、『事情があり、取り次げなかった』の2つがありますよね。これを通常パターンでも分ける

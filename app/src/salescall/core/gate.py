@@ -231,6 +231,9 @@ class Claim:
     #                                お詫びはせず、どこまで引き継がれているかを確かめつつ、続きから（または途中から）営業を続ける（✅ 2026-11-06
     #                                ユーザー＝計画書 7-1 (12)。次の予定の印 handover を写す。0194。印を決めるのは next_action._handover_due＝0203）。会話の処理（CL-1）は、これを読んで確かめる
     #                                （前の通話で取れた答えは conversation_io.earlier。CL-2 の連絡帳 4-236）
+    earlier_when: str | None = None  # この電話で会話へ渡す前の通話の答えを取った、いちばん新しい電話が今日か（same_day／later。答えが無ければ None。決めるのは
+    #                                core/apology.earlier_when の1か所）。引き継ぎを確かめる一言「先日（先ほど）お話しさせていただいた方から…」の言い分け
+    #                                （CL-1 の連絡帳 4-148）。担当の方が替わった電話（handover）でも渡る（apology_when は同じ担当の期の話せた電話なので None）
 
 
 @dataclass(frozen=True)
@@ -1103,4 +1106,5 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
                  nxt["purpose"], row["wrong_phone"], voice, reasons, bool(nxt["promised"]),
                  bool(nxt["successor"]), nxt["number_again"], apology_when=when, apology_call=said, apology_text=sorry,
-                 judge_route=row["judge_route"], handover=bool(nxt["handover"]))
+                 judge_route=row["judge_route"], handover=bool(nxt["handover"]),
+                 earlier_when=apology.earlier_when(tx, task["task_id"], row["attempt_id"]))

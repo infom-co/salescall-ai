@@ -395,7 +395,20 @@ COMMON_PARTS: tuple[str, ...] = (
     "callback_carried", "callback_carried_midway",
     # CL-1 の連絡帳 4-144 の (1)（2026-11-12 まとめ役の指示。⏳ 言い方はユーザーに伺い中＝お勧めの形）：かけ直しの質問の途中に、お礼の一言（offer_thanks）のあとで
     # また折り返し・伝言を申し出られたときの「重ねてお気遣いありがとうございます。お手数をおかけしてはいけませんのでこちらからご連絡させていただきますね。」
-    "offer_thanks_again")
+    "offer_thanks_again",
+    # CL-1 の連絡帳 4-148（✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い2はア」「伺い3はア（候補2）」）：前の通話の答えにお呼びした方の答えが無いときの
+    # 引き継ぎを確かめる一言「恐れ入りますが先日（先ほど）お話しさせていただいた方からこれまでのお話はお聞き及びでしょうか？」（いつの電話かで2つ。3回目からの戻る
+    # 一言に続ける形 _midway は、名前の決まりが CL-1 の phrases.BACK_FIT のまま）と、そのあと最初から伺うときの「それでは改めて確認させていただきますね。」
+    "callback_carried_talked_later", "callback_carried_talked_same_day",
+    "callback_carried_talked_later_midway", "callback_carried_talked_same_day_midway", "start_over",
+    # CL-1 の連絡帳 4-149（✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い5はイ」）：重ねての折り返しの申し出をお言葉に甘えて受ける「ありがとうございます。
+    # それではお言葉に甘えさせていただきます。」
+    "offer_accepted",
+    # CL-1 の連絡帳 4-150（ご承認をお知らせの形で伝える＝伺い1。⏳ 言い方はユーザーに伺い中）：黙ったあとの一言へのお返事だけのときの最終の確かめ「それでは
+    # 先ほどの内容でよろしいでしょうか？」
+    "announce_recheck",
+    # CL-1 の連絡帳 4-152（伺い9・分身 D の (b)）：名前を聞き返されたあとの伝言の短い形「それではお電話があったとお伝えいただけますでしょうか？」
+    "message_again")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
@@ -471,8 +484,10 @@ def missing_parts(tx: Tx, version_id: UUID) -> list[str]:
 #   共通の録音。同じ持ち主の中では、いちばん新しく作ったそろった組。
 # 続く言葉の名前（データベースの守り 0134 の recording_sets_name_key と同じ。名前の正本は CL-1 の Business.replay_parts の部分の名前。呼ぶ一言は法人と個人で
 # 続く言葉が違うので、個人は target_individual）
+# carried_target＝続きの電話で判断いただける代わりの方に、お呼びした方から引き継いでいるかを伺う一言「恐れ入りますが（〇〇様）のほうからこれまでのお話は
+# お聞き及びでしょうか？」の続く言葉（CL-1 の連絡帳 4-151 の伺い11。✅ 2026-11-13 日本時間22時17分01秒「11はイ」。0221）
 NAME_TAILS: tuple[str, ...] = ("target", "target_individual", "target_confirm", "target_reconfirm", "promise_again",
-                               "target_successor", "unavailable_confirm")
+                               "target_successor", "unavailable_confirm", "carried_target")
 NAME_UNITS: tuple[str, ...] = ("name_role", "name", "name_tail")   # 名前の録音の台帳の単位（データベースの recording_sets_unit と同じ）
 
 
@@ -518,8 +533,10 @@ def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
     corporate = target["kind"] == "法人"
     role = target["role"] or None
     named = bool(target["name"])
+    # 引き継ぎを確かめる一言の名前の入る形（carried_target）も、続きの電話でどなたに繋がるかが前もって分からないので、目的のお客様のいる業務ならどの行も
+    # 初めから要る（約束の一言・取り次げないの確かめの一言と同じ。録音は声ごとの続く言葉1つ＝行ごとに増えない。CL-1 の連絡帳 4-151 の伺い11）
     tails = ("target" if corporate or not named else "target_individual", "target_confirm", "target_reconfirm",
-             "promise_again", "unavailable_confirm") + (("target_successor",) if corporate else ())
+             "promise_again", "unavailable_confirm", "carried_target") + (("target_successor",) if corporate else ())
     if named:
         reading = target["reading"] or None
         if reading is None:

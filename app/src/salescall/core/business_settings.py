@@ -81,6 +81,9 @@ RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "
                           "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
+                          # 続きの電話で判断いただける代わりの方に、お呼びした方から引き継いでいるかを伺う一言（お名前が入る名乗りの部分。流すのは名前の録音の
+                          # 台帳から＝target と同じ。CL-1 の連絡帳 4-151 の伺い11）
+                          "carried_target",
                           "voicemail", "message", "busy",   # busy＝引き止めの一言の業務の録音の部分（CL-1 の連絡帳 4-75。ai・voicemail・message と同じ）
                           # 申し出の業務の録音の部分（申し出の方法を選んでいただく一言・締める前の申し出の文。CL-1 の連絡帳 4-122・4-124）。続きの電話の用件の
                           # 一文 purpose_again_*（4-128）は purpose に「_」を続けた形なので、上の purpose で断られる（`_derived_part_problems`）
@@ -125,7 +128,13 @@ CHANGE_BY_TAILS = ("までに", "まで")
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
                  "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none", "doubt_words",
                  "asks_way", "option_notes",
-                 "change_by", "definite_value", "maybe"}
+                 "change_by", "definite_value", "maybe", *("since", "announce", "at_hand", "reworded")}
+# 取込のときの AI だけが決める質問の欄（依頼者・契約者・管理者は書かない＝CL-1 の帳面 0-2。CL-1 の連絡帳 4-149・4-150・4-152）：その後の文の中身 since・ご承認の
+# お知らせの文 announce・資料がお手元に届いているかを伺う質問の「届いている」にあたる選択肢 at_hand・会話が繋がらないお返事のあとの言い換えた質問 reworded。
+# どれも空（""）＝無い＝会話の側は今の形。決めるのは business_import の `_decided_later`・`ask_ai`
+# （質問の鍵の一覧 QUESTION_KEYS には文字のまま書く＝会話の側の比べる試験が、こちらの部品を読み込まずに一覧の文字を読むため。2つがそろうことは下で確かめる）
+AI_ONLY_KEYS = ("since", "announce", "at_hand", "reworded")
+assert set(AI_ONLY_KEYS) <= QUESTION_KEYS
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -374,6 +383,25 @@ class Question:
     # （`possible_answers`。会話の側はその答えを受け取らずに可能性を確かめ、依頼者へ渡る答えは選択肢＝通話の答えに「どちらでも」は残らない）。
     # ⛔✅ 2026-11-09 日本時間4時36分49秒 ユーザー（お言葉は会話の側の maybes.py の頭）
     maybe: tuple[str, ...] = ()
+    # その後の文「その後（中身）かお決まりになりましたでしょうか？」（事実を伺う質問は「…かお分かりになりましたでしょうか？」）の中身の言葉（例「ご予算はおいくらほど」。
+    # 会話の側の Question.since。CL-1 の連絡帳 4-149・4-151 の伺い8）。こちらが「わからない」でかけ直しうる必須の質問（`business_rules.Rules.calls_back` の1か所）
+    # だけに付く。続きの電話で、前の電話でその答えをいただいた方ご本人に伺い直すとき、用件の一文のすぐあとにこの形で伺う（伺うかは会話の側の flowctl.since_due）。
+    # 決めるのは取込のときの文字の AI 2つ・そろわなければ考える Sonnet（CL-1 の import_ai.decide_since。人は書かない）。空＝今の形で伺い直す。
+    # ✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い6は「…でお電話いたしました。その後ご予算はおいくらほどかお決まりになりましたでしょうか？」」
+    since: str = ""
+    # ご承認を伺う質問（`approval`）を、入る一言（説明）＋質問の文の代わりに、すらっと伝えるお知らせの文（「（説明）…必要がございますのでご了承ください。」。
+    # 会話の側の Question.announce。CL-1 の連絡帳 4-150）。ご承認を伺う質問だけ。決めるのは取込のときの文字の AI 2つ・そろわなければ考える Sonnet・中身の判定
+    # （CL-1 の import_ai.decide_announces。人は書かない）。空＝今の形（入る一言＋質問の文）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い1…」
+    announce: str = ""
+    # 資料がお手元に届いているかを伺う質問の、「届いている」にあたる選択肢の名前（会話の側の Question.at_hand。CL-1 の連絡帳 4-150）。この答えなら、お知らせの
+    # 終わりを「ご確認ください。」に替える。はい／いいえ・決まった選択肢の質問の、宣言した選択肢（確かめは `_choice_name` の1か所＝unclear_none と同じ）。
+    # 決めるのは取込のときの文字の AI 2つ（CL-1 の import_ai.decide_at_hand。人は書かない）。空＝伺う質問ではない
+    at_hand: str = ""
+    # 会話が繋がらないお返事のあとに、会話AIのひとことに続けて「ところで」＋この文で伺い直す、言い換えた質問の文（会話の側の Question.reworded。CL-1 の
+    # 連絡帳 4-152）。どの質問で使うかは会話の側の flowctl.aside_fits（申し出の質問・お知らせの形は使わない）。決めるのは取込のときの文字の AI 2つ・
+    # そろわなければ考える Sonnet・中身の判定（CL-1 の import_ai.decide_rewords。人は書かない）。空＝「ところで」＋元の質問の文。
+    # ✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」
+    reworded: str = ""
 
 
 @dataclass(frozen=True)
@@ -1039,6 +1067,10 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
             declines = _declines(q["declines"], q["type"], choices, where, problems)
             ends_on = _ends_on(q, choices, where, problems)
             unclear_none = _unclear_none(q["unclear_none"], q["type"], choices, where, problems)
+            since, announce, reworded = (_ai_text(q[k], f"{where}の{k}", problems) for k in ("since", "announce", "reworded"))
+            if announce and q["approval"] is not True:
+                problems.append(f"{where}はご承認を伺う質問ではないので、お知らせの文（announce）は付けません（会話の側が使わない）")
+            at_hand = _choice_name(q["at_hand"], q["type"], choices, f"{where}の資料がお手元に届いているにあたる答え（at_hand）", problems)
             if not isinstance(q["final_goal"], bool):
                 problems.append(f"{where}の最終目的の申し出か（final_goal）は true / false です")
                 continue
@@ -1051,7 +1083,8 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 q["asks_fact"] is not False, do_words, away, intro,
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
                                 q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words, q["asks_way"] is True,
-                                option_notes=option_notes, change_by=change_by, definite_value=definite_value, maybe=maybe)
+                                option_notes=option_notes, change_by=change_by, definite_value=definite_value, maybe=maybe,
+                                since=since, announce=announce, at_hand=at_hand, reworded=reworded)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -1092,9 +1125,14 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                  standard_id=standard.standard_id, standard_answers=from_standard)
     if flowed:
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
-            business_rules.check(UUID(int=0), tuple(q.id for q in questions if q.required), raw["rules"])
+            rules = business_rules.check(UUID(int=0), tuple(q.id for q in questions if q.required), raw["rules"])
         except business_rules.RulesInvalid as e:
             problems.append(f"業務の決まり：{e}")
+        else:
+            # その後の文の中身は、こちらが「わからない」でかけ直しうる必須の質問だけ（会話の側はほかの質問で使わない＝その質問は続きの電話で伺い直さない。
+            # 選ぶのは取込と同じ1か所 Rules.calls_back）
+            problems += [f"質問 {q.id} は「わからない」でかけ直す必須の質問ではないので、その後の文の中身（since）は付けません（会話の側が使わない）"
+                         for q in questions if q.since and not rules.calls_back(q.id)]
     if problems:
         raise SettingsInvalid(problems)
     return s
@@ -1283,16 +1321,31 @@ def _ends_on(q: dict[str, Any], choices: tuple[str, ...], where: str, problems: 
     return tuple(raw)
 
 
-def _unclear_none(raw: Any, type_name: str, choices: tuple[str, ...] | None, where: str, problems: list[str]) -> str:
-    """ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢（`Question.unclear_none`）を読む（無ければ空）：はい／いいえ・決まった選択肢の
-    質問の、宣言した選択肢の1つ（確かめはここだけ。会話の側の Question.__post_init__ と同じ決まり）。"""
+def _ai_text(raw: Any, where: str, problems: list[str]) -> str:
+    """取込のときの AI だけが決める文の欄（`AI_ONLY_KEYS` の since・announce・reworded）を読む（無ければ空）：空でない文字か、空・None。"""
+    if raw is None or raw == "":
+        return ""
+    if not isinstance(raw, str) or not raw.strip():
+        problems.append(f"{where}は、文字か空です")
+        return ""
+    return raw.strip()
+
+
+def _choice_name(raw: Any, type_name: str, choices: tuple[str, ...] | None, what: str, problems: list[str]) -> str:
+    """選ぶ質問の宣言した選択肢の1つを持つ欄を読む（無ければ空。1か所＝ほかに分からない点は無いにあたる答え `_unclear_none`・資料がお手元に届いているにあたる
+    答え at_hand。会話の側の Question.__post_init__ と同じ決まり）：はい／いいえ・決まった選択肢の質問の、宣言した選択肢の1つ。"""
     if raw is None or raw == "":
         return ""
     if not isinstance(raw, str) or type_name not in CHOICE_TYPES or raw not in (choices or ()):
-        problems.append(f"{where}のほかに分からない点は無いにあたる答え（unclear_none）は、はい／いいえ・決まった選択肢の質問の、"
-                        f"宣言した選択肢の1つです（{list(choices or ())}）")
+        problems.append(f"{what}は、はい／いいえ・決まった選択肢の質問の、宣言した選択肢の1つです（{list(choices or ())}）")
         return ""
     return raw
+
+
+def _unclear_none(raw: Any, type_name: str, choices: tuple[str, ...] | None, where: str, problems: list[str]) -> str:
+    """ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢（`Question.unclear_none`）を読む（無ければ空）：はい／いいえ・決まった選択肢の
+    質問の、宣言した選択肢の1つ（確かめはここだけ。会話の側の Question.__post_init__ と同じ決まり）。"""
+    return _choice_name(raw, type_name, choices, f"{where}のほかに分からない点は無いにあたる答え（unclear_none）", problems)
 
 
 def _away(raw_away: Any, type_name: str, choices: tuple[str, ...], asks_fact: bool, where: str, problems: list[str]) -> tuple[str, ...]:
@@ -1716,7 +1769,9 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
       「どういった点でお迷いでしょうか？」を1回伺う）として読む。
     - 変更の受付の期限（change_by。2026-11-08＝CL-1 の連絡帳 4-115 の (1)）が無い前の版の質問は、無い（空＝承っておく形）として読む。
     - 確定した値で登録するか（definite_value。2026-11-08＝CL-1 の連絡帳 4-116 の (1)）が無い前の版の質問は、偽（お客様の言い方の値）として読む。
-    - どちらの場合もありうるときに確かめる答え（maybe。2026-11-12＝CL-1 の連絡帳 4-123）が無い前の版の質問は、無い（空）として読む。詳しい者からのお話の方法
+    - どちらの場合もありうるときに確かめる答え（maybe。2026-11-12＝CL-1 の連絡帳 4-123）が無い前の版の質問は、無い（空）として読む。
+    - 取込のときの AI だけが決める欄（`AI_ONLY_KEYS`＝その後の文の中身 since・お知らせの文 announce・資料が届いているにあたる答え at_hand・言い換えた質問
+      reworded。2026-11-13＝CL-1 の連絡帳 4-149・4-150・4-152）が無い前の版の質問は、無い（空＝会話の側は今の形）として読む。詳しい者からのお話の方法
       （handoff_ways）・締める前の申し出（close_offer）・用件の名詞（purpose_noun）は無くてもよい項目なので、前の版はそのまま（無い）。
     - 分岐（next）は、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える（前の版も同じ1か所）。
     - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
@@ -1732,6 +1787,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
              "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "option_notes": {},
              "doubt_words": {}, "asks_way": False, "change_by": "", "definite_value": False, "maybe": []}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
+    added |= {k: "" for k in AI_ONLY_KEYS}   # 取込のときの AI だけが決める欄（2026-11-13）も、足す前の版は空として読む
 
     def shaped(i: int, q: Any) -> Any:
         if not isinstance(q, dict):

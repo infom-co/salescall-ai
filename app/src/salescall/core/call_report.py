@@ -330,7 +330,8 @@ class Callback:
     connected: bool = False      # かけ直しの質問の途中で、目的のお客様に繋がった（このかけ直しは要らない）
     offer: str | None = None     # お客様の申し出（CALLBACK_OFFERS。無ければ None）。記録だけ（折り返しの申し出も、こちらからかけ直す約束）
     means: tuple[tuple[str, str | None], ...] = ()   # 申し出で聞いた宛先・伝言の答え（CALLBACK_MEANS → 取れた値。依頼者へ渡す＝CL-3）
-    message_left: bool = False   # 伝言を残す業務で、伝言をお願いした（記録だけ）
+    message_left: bool = False   # 伝言をお願いした（記録だけ）。伝言を残す業務のほか、伝言を残さない業務でお礼の一言のあとに伝言の申し出を重ねられて伝言を
+    #                              お願いしたときも（CL-1 の連絡帳 4-151 の伺い7。✅ 2026-11-13 日本時間22時17分01秒）
     again: bool | None = None    # 不在で戻る時刻が分からなかったとき：今日戻る見込みがあり、後でかけてよいと言われたか（None＝聞いて
     #                              いない）。同じ日のうちにかけ直すかを決める（may_call_again・judge._untimed_offer の1か所。2026-10-22 ユーザー）
     back_today: bool | None = None   # 「本日お戻りのご予定は」への答え（記録だけ）
@@ -340,6 +341,10 @@ class Callback:
     #                                  だけで決まらないとき（あとで など）だけ書く（UNTIL_BY_REASON の理由に書けば報告の形の誤り）
     intent: str | None = None        # 時刻の決まらない申し出（`later`）が約束の一環か（LATER_INTENTS＝promise だけ。無い＝まだ分からない。
     #                                  判定の中身 callback.intent に残す。0194・計画書 7-1 (13)）。営業拒否の「あとで」は事実 do_not_call で書く
+    theirs: bool = False             # お客様のほうから折り返すお約束（お礼の一言のあとに重ねて折り返しを申し出られ、お言葉に甘えて受けた。戻る時刻は伺わない。
+    #                                  CL-1 の連絡帳 4-149 の伺い5。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「イ（相手の好意を2回目は無下にしない）（折り返し
+    #                                  かからなければ、再度かける）」）。記録だけ：次にいつかけるかは、時刻の取れなかったかけ直しと同じ1か所（判定と次の動き）のまま。
+    #                                  ⏳ 何分・何時間待ってからかけるか・折り返しがあったことをどう知るかは、まだ決まっていない（CL-2 の連絡帳 4-389）
 
     @property
     def later(self) -> bool:
@@ -864,7 +869,8 @@ class CallReport:
                           **({} if c.back_today is None else {"back_today": c.back_today}),
                           **({"beyond_limit_ok": True} if c.beyond_limit_ok else {}),
                           **({} if c.until_why is None else {"until_why": c.until_why}),
-                          **({} if c.intent is None else {"intent": c.intent})} for c in self.callbacks],
+                          **({} if c.intent is None else {"intent": c.intent}),
+                          **({"theirs": True} if c.theirs else {})} for c in self.callbacks],
             "ai_question": [said(q) for q in self.ai_questions],
             "voicemail_message": [said(v) for v in self.voicemail_messages],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends],
@@ -1185,7 +1191,7 @@ def from_json(raw: Any) -> CallReport:
     callbacks = []
     for r, s in _records(facts, "callback", {"why", "time", "number", "person", "cycle", "read", "connected", "offer",
                                              "message_left", "again", "back_today", "beyond_limit_ok", "until_why",
-                                             "intent", *CALLBACK_MEANS}):
+                                             "intent", "theirs", *CALLBACK_MEANS}):
         reason = _choice(r.get("why"), CALLBACK_REASONS, "facts.callback.why")
         number = _text(r.get("number"), "facts.callback.number")
         if number is not None and reason != "other_number":
@@ -1203,7 +1209,7 @@ def from_json(raw: Any) -> CallReport:
                       _bool(r, "again") if "again" in r else None,
                       _bool(r, "back_today") if "back_today" in r else None,
                       "beyond_limit_ok" in r and _bool(r, "beyond_limit_ok"),
-                      _until_why(r, reason), intent)
+                      _until_why(r, reason), intent, "theirs" in r and _true(r, "theirs"))
         if intent is not None and not cb.later:   # 約束の一環かを書けるのは、時刻の決まらない申し出（「あとで」）だけ（2026-11-07 見直し(3)の3）
             raise ReportInvalid("facts.callback.intent を書けるのは、時刻の決まらないかけ直しの申し出（「あとで」など）だけです")
         callbacks.append(cb)

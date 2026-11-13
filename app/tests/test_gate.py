@@ -1911,6 +1911,19 @@ class NameLedger(Content):
         self.assertIn("HC", business_settings.RESERVED_IDS)
         self.assertNotIn("HC", recordings.COMMON_PARTS)
 
+    def test_the_parts_cl1_added_on_11_13_are_received(self):
+        """CL-1 の連絡帳 4-148〜4-152（✅ 2026-11-13 日本時間20時06分19秒・22時17分01秒 ユーザー）の共通の一言の録音も、話してよい声が求める（`COMMON_PARTS`）：
+        前の答えにお呼びした方の答えが無いときの引き継ぎを確かめる一言（いつの電話かで2つと、3回目からの戻る一言に続ける形）・最初から伺うときの一言・重ねての
+        折り返しの申し出を受ける一言・お知らせの最終の確かめ・伝言の短い形。お名前の入る引き継ぎの確かめ（carried_target）は名前の録音の台帳の続く言葉
+        （`NAME_TAILS`・データベースの守り 0221）で、質問の番号に使えない名前（`business_settings.RESERVED_IDS`）。"""
+        from salescall.core import business_settings
+        self.assertLessEqual({"callback_carried_talked_later", "callback_carried_talked_same_day", "callback_carried_talked_later_midway",
+                              "callback_carried_talked_same_day_midway", "start_over", "offer_accepted", "announce_recheck", "message_again"},
+                             set(recordings.COMMON_PARTS))
+        self.assertIn("carried_target", recordings.NAME_TAILS)
+        self.assertIn("carried_target", business_settings.RESERVED_IDS)
+        self.assertNotIn("carried_target", recordings.COMMON_PARTS)
+
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、
         どれも話してよい声が求める（`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）：並べて伺ったご案内の方法を言って
@@ -2002,8 +2015,10 @@ class NameLedger(Content):
         got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         K = recordings.NameKey
         self.assertEqual((got.roles, got.names), (("営業部部長",), (K(reading="おかだ"),)))
+        # 取り次げないの確かめの一言（CL-1 が 11-01 に足した）・引き継ぎを確かめる一言の名前の入る形（carried_target。CL-1 の連絡帳 4-151 の伺い11）も、
+        # 目的のお客様のいる行はいつも要る
         self.assertEqual(got.tails, ("target", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm",
-                                     "target_successor"))   # 取り次げないの確かめの一言（CL-1 が 11-01 に足した）も、目的のお客様のいる行はいつも要る
+                                     "carried_target", "target_successor"))
         b = self.ready()
         got = self.tx(b, lambda tx: recordings.name_needs(tx, b["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(role=support.DEFAULT_ROLE),)))
@@ -2015,7 +2030,8 @@ class NameLedger(Content):
         with mock.patch.object(recordings.business_settings, "target_of", return_value=person):
             got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
         self.assertEqual((got.roles, got.names), ((), (K(reading="おかだ"),)))
-        self.assertEqual(got.tails, ("target_individual", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm"))
+        self.assertEqual(got.tails, ("target_individual", "target_confirm", "target_reconfirm", "promise_again", "unavailable_confirm",
+                                     "carried_target"))
         with self.assertRaises(ValueError):                                   # 名前の部分の鍵は、読みか役職のどちらか1つ
             K(reading="おかだ", role="社長")
 

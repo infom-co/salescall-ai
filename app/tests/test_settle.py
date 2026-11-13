@@ -1336,6 +1336,32 @@ class DialFixAfterCalls(SettleBase):
                 time.sleep(1.1)
                 c = self.claim(s)
                 self.assertEqual((c.apology_when, c.handover), ("same_day" if same else None, not same))
+                self.assertIsNone(c.earlier_when)   # 話せた電話で答えを1つもいただいていない＝引き継ぐ答えが無い
+
+    def test_the_handover_call_tells_whether_the_earlier_answers_were_taken_today(self):
+        """CL-1 の連絡帳 4-148 の「頼みたいこと (同じ日か)」：予約証の earlier_when＝この電話で会話へ渡す前の通話の答えを取った、いちばん新しい電話が今日か（決めるのは
+        core/apology.earlier_when の1か所。どの答えを渡すかは conversation_io.earlier・その答えを取った電話は conversation_io.earlier_call）。担当の方が替わった電話
+        （handover）は、新しい担当の期に話せた電話が無いので apology_when が None（案B）でも、前の担当の方の答えを取った電話が今日なら same_day（引き継ぎを確かめる
+        一言「先ほどお話しさせていただいた方から…」）、昨日なら later（「先日…」）。例：今朝、田中様と Q1 をお話しし、契約者がお呼びする方を鈴木様に直して
+        かけた電話。"""
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)    # 試験：同じお客様の間隔の外にする（1秒）
+        talked = self.call(s, report=rep(callback=callback("later", time="あとで")), items=[("Q1", "unclear", None)])   # 前の通話の答え（まだ取れていない）
+        self.settle(s, talked)
+        self.fixed_as(s, False, False)
+        time.sleep(1.1)
+        c = self.claim(s)
+        self.assertEqual((c.handover, c.apology_when, c.earlier_when), (True, None, "same_day"))
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+
+        def back(tx):   # 試験：答えをいただいた電話を前の日にする（持ち主の取引の中だけ仕掛けを外す）
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER")
+            tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - interval '1 day',"
+                       " ended_at = ended_at - interval '1 day' WHERE attempt_id = %s", (talked,))
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
+        owner_access().in_system(SYSTEM, back)
+        c = self.claim(s)
+        self.assertEqual((c.handover, c.apology_when, c.earlier_when), (True, None, "later"))
 
     def test_a_promise_already_tried_does_not_go_on_as_a_promise_to_another_person(self):
         """約束の電話を前の番号でもうかけた（鳴った）あと番号を直す（まだ終えていない行）：違う相手なら、約束をやめて引き継ぎを確かめる
@@ -3904,7 +3930,7 @@ class NotAskedSettle(SettleBase):
         two["questions"].append({"id": "Q2", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "away": None, "intro": "それでは重要な点だけご説明させていただきます。",
-                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False, "maybe": []})
+                                 "ask_if": {"after": "Q1", "answers": ["わからない"], "hedged": False}, "approval": True, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False, "maybe": [], "since": "", "announce": "", "at_hand": "", "reworded": ""})
         for q1, state, more in ((("Q1", "confirmed", "答えた"), "completed", {"not_asked": ["Q2"]}),
                                 (("Q1", "accepted", "わからない"), "incomplete", {"missing": ["Q2"]})):
             with self.subTest(q1=q1):
@@ -3941,7 +3967,7 @@ class NotAskedSettle(SettleBase):
                                  "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
                                  "asks_fact": False, "do_words": None, "away": None, "intro": None,
                                  "ask_if": {"after": "Q1", "answers": ["いいえ"], "hedged": True}, "approval": False, "final_goal": False,
-                                 "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False, "maybe": []})
+                                 "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False, "maybe": [], "since": "", "announce": "", "at_hand": "", "reworded": ""})
         for q1, state, more, hedged in ((("Q1", "accepted", "いいえ"), "completed", {"not_asked": ["Q2"]}, False),
                                         (("Q1", "accepted", "いいえ", "都合が悪くなってしまいまして"), "incomplete", {"missing": ["Q2"]}, True),
                                         (("Q1", "accepted", "はい", "たぶん大丈夫かと"), "completed", {"not_asked": ["Q2"]}, True)):

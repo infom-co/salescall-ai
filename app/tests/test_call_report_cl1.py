@@ -1153,3 +1153,42 @@ class TheirCallback1106(unittest.TestCase):
         timed["facts"]["callback"][0]["time"] = "明日の15時"
         got = run(timed)
         self.assertEqual((got.state, got.detail["callback"]["exact"]), ("callback_scheduled", True))
+
+
+class Theirs1113(unittest.TestCase):
+    """CL-1 の連絡帳 4-149 の伺い5（✅ 2026-11-13 日本時間20時06分19秒 ユーザー「イ（相手の好意を2回目は無下にしない）（折り返しかからなければ、再度かける）」）と
+    4-151 の伺い7（22時17分01秒）：お礼の一言のあとに重ねて折り返しを申し出られ、お言葉に甘えて受けたかけ直しの記録は theirs（お客様のほうから折り返すお約束）、
+    伝言を残さない業務で伝言の申し出を重ねられて伝言をお願いしたかけ直しの記録は message_left（伝言を残す業務と同じ印）。どちらも記録だけ：判定・次の動きは、
+    同じかけ直しの印の無い記録と同じ（戻る時刻の取れなかった不在＝不在の方針・時刻の決まらない申し出＝時刻の決まっていない約束。⏳ 待つ長さ・折り返しが
+    あったかの知り方は未決＝CL-2 の連絡帳 4-389）。"""
+
+    ABSENT = {"version": 3, "facts": {
+        "callback": [{"turn": 1, "said": "あいにく岡田は外出しておりまして、戻りましたら折り返させますが。", "why": "absent", "read": ["ai", "judge"],
+                      "offer": "callback", "time": None, "number": None, "theirs": True}],
+        "end": [{"turn": 2, "said": "いえいえ、戻りましたらこちらから折り返させますので。", "reason": "callback"}]},
+        "not_reached": "absent", "cut": None, "apology_delivered": None}
+
+    def test_their_callback_is_received_and_kept(self):
+        r = from_json(self.ABSENT)
+        self.assertEqual(from_json(r.to_json()), r)
+        self.assertEqual((r.callback.theirs, r.to_json()["facts"]["callback"][0]["theirs"]), (True, True))
+        plain = copy.deepcopy(self.ABSENT)
+        del plain["facts"]["callback"][0]["theirs"]
+        self.assertFalse(from_json(plain).callback.theirs)
+        self.assertNotIn("theirs", from_json(plain).to_json()["facts"]["callback"][0])
+        got, same = run(self.ABSENT), run(plain)
+        self.assertEqual((got.state, got.detail.get("policy_key")), (same.state, same.detail.get("policy_key")))
+        later = copy.deepcopy(THEIR_CALLBACK)
+        later["facts"]["callback"][0]["theirs"] = True
+        self.assertEqual((run(later).state, run(later).detail["policy_key"]), ("callback_scheduled", "callback_unspecified_time"))
+        for bad in (False, "true", 1):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**self.ABSENT, "facts": {**self.ABSENT["facts"], "callback": [{**self.ABSENT["facts"]["callback"][0], "theirs": bad}]}})
+
+    def test_a_message_left_without_a_message_business_is_received(self):
+        raw = copy.deepcopy(self.ABSENT)
+        cb = raw["facts"]["callback"][0]
+        del cb["theirs"], cb["offer"]
+        cb.update(message_left=True, message=None)
+        r = from_json(raw)
+        self.assertEqual((r.callback.message_left, r.callback.theirs, dict(r.callback.means)), (True, False, {"message": None}))

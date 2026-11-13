@@ -780,6 +780,75 @@ class Import(unittest.TestCase):
             with self.subTest(kw=sorted(kw)):
                 self.assertNotIn("way_words", self.preview(data, **kw).raw)
 
+    APPROVAL_QUESTIONS = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "入る一言", "ご承認を伺う"),
+                          ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", None, None),
+                          ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None, None),
+                          ("Q3", "ご了承いただけますでしょうか？", "ご了承", "はい／いいえ", "はい", None, None, None,
+                           "ご予約の際は前日までのお支払いが必要になります。", "はい")]
+
+    def test_the_fields_only_the_ai_decides_are_asked_once_and_kept_at_registration(self):
+        """CL-1 の連絡帳 4-149・4-150・4-152（✅ 2026-11-13 日本時間20時06分19秒・22時17分01秒 ユーザー）：取込のときの AI だけが決める質問の欄。
+        - お知らせの文（announce）：ご承認を伺う質問の (入る一言, 質問の文) を decide_announces（CL-1 の import_ai.decide_announces）に1回だけ。
+        - 資料がお手元に届いているにあたる答え（at_hand）：業務の選ぶ質問の (質問の文, 選択肢) を decide_at_hand に1回だけ（unclear_none と同じ1か所）。
+        - その後の文の中身（since）：確かめに通った中身の、こちらが「わからない」でかけ直しうる必須の質問（`Rules.calls_back`）の文を decide_since に1回だけ。
+        - 言い換えた質問（reworded）：会話の側が並べた (質問の文, 選択肢, 型)（reword_items＝CL-1 の flowctl.aside_fits。つなぐ所が渡す）を decide_rewords に1回だけ。
+        考える Sonnet（referee）は、つなぐ所が CL-1 の deciders に渡して決める処理に入っている（こちらは受け取るだけ）。登録はプレビューの答えのまま（聞き直さない）。
+        決まらない・形の違う答え・決める処理が無いときは空（会話の側は今の形）。"""
+        asked = {"since": [], "announces": [], "at_hand": [], "rewords": [], "items": []}
+        q1, q2, q3 = (r[1] for r in self.APPROVAL_QUESTIONS[1:])
+        intro = self.APPROVAL_QUESTIONS[3][8]
+        notice = "ご予約の際は前日までのお支払いが必要になりますのでご了承ください。"
+
+        def since(texts):
+            asked["since"].append(texts)
+            return {t: "ご希望の日時" if t == q2 else "ご予約のご意向" for t in texts}
+
+        def announces(pairs):
+            asked["announces"].append(pairs)
+            return [notice for _ in pairs]
+
+        def at_hand(items):
+            asked["at_hand"].append(items)
+            return ["はい" if t == q3 else "" for t, _ in items]
+
+        def items_of(content):
+            asked["items"].append([q["id"] for q in content["questions"]])
+            return [(q["text"], tuple(q.get("choices") or ()), q["type"]) for q in content["questions"] if q["id"] == "Q2"]
+
+        def rewords(items):
+            asked["rewords"].append(items)
+            return ["ところでご希望の日時はいつ頃になりますか？" for _ in items]
+
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        kw = dict(decide_since=since, decide_announces=announces, decide_at_hand=at_hand, decide_rewords=rewords, reword_items=items_of)
+        p = self.preview(data, **kw)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, {"since": [sorted([q1, q2, q3])], "announces": [[(intro, q3)]],
+                                 "at_hand": [[(q1, ("する", "しない")), (q3, ("はい", "いいえ"))]],
+                                 "rewords": [[(q2, (), "datetime")]], "items": [["Q1", "Q2", "Q3"]]})
+        want = [("ご予約のご意向", "", "", ""), ("ご希望の日時", "", "", "ところでご希望の日時はいつ頃になりますか？"), ("ご予約のご意向", notice, "はい", "")]
+        self.assertEqual([(q["since"], q["announce"], q["at_hand"], q["reworded"]) for q in p.raw["questions"]], want)
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual([(q.since, q.announce, q.at_hand, q.reworded) for q in got.questions], want)
+        self.assertEqual([len(x) for x in asked.values()], [1] * 5)   # 登録は聞き直さない
+        # 「わからない」でかけ直さない質問（Q2 の「わからない」はどの理由でも結論として終える）には、その後の文の中身を聞かない
+        handling = book_rows("わからない・答えたくない") + [("Q2", "わからない", r, "結論として終える", "未定") for r in REASONS]
+        asked["since"].clear()
+        p = self.preview(book(sheets={"質問": self.APPROVAL_QUESTIONS, "わからない・答えたくない": handling}), decide_since=since)
+        self.assertEqual((p.problems, asked["since"], p.raw["questions"][1]["since"]), ([], [sorted([q1, q3])], ""))
+        # 決まらない・形の違う答え・決める処理が無い＝空
+        for bad in ({"since": lambda t: None, "announces": lambda p: [" "], "at_hand": lambda i: ["届いている", "x"], "rewords": lambda i: None},
+                    {"since": lambda t: {q1: 3}, "announces": lambda p: None, "at_hand": lambda i: None, "rewords": lambda i: [1]},
+                    {"since": lambda t: {}, "announces": lambda p: [notice, notice], "at_hand": lambda i: [], "rewords": lambda i: []}):
+            with self.subTest(bad=sorted(bad)):
+                p = self.preview(data, decide_since=bad["since"], decide_announces=bad["announces"], decide_at_hand=bad["at_hand"],
+                                 decide_rewords=bad["rewords"], reword_items=items_of)
+                self.assertEqual((p.problems, [tuple(q[k] for k in bs.AI_ONLY_KEYS) for q in p.raw["questions"]]), ([], [("", "", "", "")] * 3))
+        for kw2 in ({}, {"decide_rewords": rewords}, {"reword_items": items_of}):   # 決める処理か並べる処理が無い＝聞かない
+            with self.subTest(kw=sorted(kw2)):
+                self.assertEqual([q["reworded"] for q in self.preview(data, **kw2).raw["questions"]], [""] * 3)
+
     def test_unclear_none_is_decided_by_the_ai_for_choice_questions(self):
         """CL-1 の連絡帳 4-82（✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」）：ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢は、
         業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う質問も）だけ、取込のときに AI（CL-1 の import_ai.decide_unclear）に1回だけ聞いて入れる。

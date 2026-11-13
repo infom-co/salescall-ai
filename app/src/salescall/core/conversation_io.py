@@ -297,7 +297,7 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
 _EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who", "offer_fact")
 
 
-def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None) -> dict[str, dict[str, Any]]:
+def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None, took_by: dict[str, UUID] | None = None) -> dict[str, dict[str, Any]]:
     """その行で、前の通話までに取れた答え（質問の番号 → 会話の側の flowctl.EARLIER_KEYS の形）。続きから聞く電話（目的 resume）で、取れた答えの
     質問を伺わないため・切れた所から伺うために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の
     番号のまま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。
@@ -323,7 +323,7 @@ def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None) -> dict[str, d
     1か所＝`_dropped_by_carried`。その通話かあとの通話で取り直した答えは、取った通話が新しいので入る）。外さないと、その電話が途中で切れたとき、次の電話で
     新しい方に前の方の答えのまま伺う（「前回お伺いした件でご納得いただけなかった点は…」）。
     before＝その通話（試行）より前の通話だけを読む（その通話を始めたときに会話へ渡した前の通話の答えと同じもの）。依頼者へ「新しい担当の方が引き継いだと
-    言った前の方の答え」を返す所（settle._earlier_answers）が読む。⛔ 2026-11-13 の見直し：はじめはそこで項目の値を通話の順だけで拾い、ここの「使わない
+    言った前の方の答え」を返す所（settle._earlier_answers）が読む。took_by＝渡せば、入れた答えごとに、その答えを取った通話を入れる（質問の番号 → 通話。`earlier_call` が読む）。⛔ 2026-11-13 の見直し：はじめはそこで項目の値を通話の順だけで拾い、ここの「使わない
     ことにした答え」を見ていなかった＝前の通話の答えの決まりが2か所になり、3人目の担当の方の電話で、会話へ渡していない答えを引き継いだと返しえた。
     ⛔ 2026-11-03 の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
     答えに、前の通話（別の方と話していた通話）の事実を付けうる形だった。⇒ その答えを取った通話と、そのあとの通話の報告から読む（その答えを
@@ -361,7 +361,20 @@ def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None) -> dict[str, d
                 "who": took.connected_who if took is not None else None,
                 "offer_fact": o.to_json() if o is not None else None}
         out[q] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
+        if took_by is not None:
+            took_by[q] = r["attempt_id"]
     return out
+
+
+def earlier_call(tx: Tx, task_id: UUID, *, before: UUID) -> UUID | None:
+    """その通話（before）を始めたときに会話へ渡す前の通話の答え（`earlier(before=…)` と同じ1か所）を取った通話のうち、いちばん新しい通話（答えが無ければ None）。
+    引き継ぎを確かめる一言の「先ほど／先日」（予約証の earlier_when＝core/apology.earlier_when）が読む（CL-1 の連絡帳 4-148 の「頼みたいこと (同じ日か)」）。"""
+    took_by: dict[str, UUID] = {}
+    earlier(tx, task_id, before=before, took_by=took_by)
+    if not took_by:
+        return None
+    return tx.one("SELECT attempt_id FROM salescall.attempts WHERE attempt_id = ANY(%s) ORDER BY claimed_at DESC, attempt_id DESC LIMIT 1",
+                  (list(set(took_by.values())),))["attempt_id"]
 
 
 def _dropped_by_carried(report: call_report.CallReport, question_id: str) -> bool:

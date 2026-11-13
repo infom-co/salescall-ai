@@ -190,6 +190,23 @@ def when(tx: Tx, task_id: UUID, purpose: str, cut_call: UUID | None, attempt_id:
     return WHEN[bool(row and row["today"])]
 
 
+def earlier_when(tx: Tx, task_id: UUID, attempt_id: UUID) -> str | None:
+    """この電話（attempt_id）を始めるときに会話へ渡す前の通話の答えを取った、いちばん新しい電話が今日（日本時間）か（same_day／later。1か所＝予約証の
+    earlier_when。答えが無ければ None）。どの答えを渡すかは前の通話の答えの1か所（core/conversation_io.earlier＝担当替わりで使わないことにした答えを外したもの）、
+    その答えを取った電話は `conversation_io.earlier_call`、今日かは `when` と同じ salescall.call_today と `WHEN`。
+    引き継ぎを確かめる一言の「先日／先ほどお話しさせていただいた方から…」（会話の側の phrases.CARRIED_TALKED。CL-1 の連絡帳 4-148 の「頼みたいこと (同じ日か)」）が
+    読む。予約証の apology_when（`when`＝同じ担当の期で、目的のお客様と話せた、いちばん新しい電話）とは別の値：担当の方が替わった電話（handover）は、新しい担当の
+    期に話せた電話が無いので apology_when が None（✅ 2026-11-12 ユーザー「案Bでお願いします」）だが、前の担当の方の答えを取った電話はある（例：今朝、前の担当の
+    田中様にお答えをいただき、お呼びする方を鈴木様に直して今日の午後にかけた電話は、apology_when が None・earlier_when が same_day＝「先ほどお話しさせていただいた
+    方から…」）。担当の方の替わっていない電話では、ふつう同じ電話を指す（違うのは、話せた電話で答えを1つもいただけなかったとき）。"""
+    from salescall.core import conversation_io   # 書き込み口が判定などを読むので、使うときに読む（読み合いにしない）
+    call = conversation_io.earlier_call(tx, task_id, before=attempt_id)
+    if call is None:
+        return None
+    row = tx.one("SELECT salescall.call_today(%s) AS today", (call,))
+    return WHEN[bool(row and row["today"])]
+
+
 def call_texts(tx: Tx, task_id: UUID, purpose: str, reasons: tuple[str, ...]) -> tuple[str | None, str | None]:
     """会話へ渡す、承認したお詫びの文（1か所＝予約証の apology_call・apology_text）：(お詫びだけの電話の文, 約束の電話などの頭のお詫びの文)。お詫びの電話
     （purpose apology）は前者、お詫びの理由に「言ってはいけないことを言った」（forbidden_speech）のある電話は後者（どちらも `for_task` の文＝承認したときに
