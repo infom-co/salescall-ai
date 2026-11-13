@@ -144,6 +144,8 @@ class Business:
     # 点を言っていただけないまま終え、残りの質問が無いとき、締める前に営業に引き継ぐ架電の申し出と同じ1か所で伺う（flowctl.Flow._handoff_step）。None なら今の
     # お礼の締め。✅ 2026-11-09 日本時間6時33分57秒 ユーザー「・(ア) 営業に引き継がない架電で、ご承認が最終目的で、残りの質問が無いとき：ｂ」
     close_offer: CloseOffer | None = None
+    # 方法を申し出の中身に入れる言い方（取込で決めたもの＝import_ai.decide_way_words。{こちらがすることの言葉: {方法: 言葉}}。無ければ「（方法）で」）
+    way_words: dict = field(default_factory=dict)
     # 依頼者がすること（登録・手配など。業務設定＝CL-2）。事実を伺う質問の、言い切っていない最初の答えの確かめ「それでは（意味の言葉）ということで（依頼者が
     # すること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01 日本時間6時05分・6時27分 ユーザー）。空なら「…ということで承っておいて大丈夫でしょうか？」
     # （phrases.client_does_words の1か所。✅ 2026-11-08 日本時間5時33分05秒 ユーザー：「…「～で承っておいて」に変更しましょうか。こちらの方が自然だし汎用的です。」）
@@ -187,8 +189,12 @@ class Business:
     # missed_promise・cut_off）。どちらも会話の処理が読む（flowctl.Flow の promised・apology）
     promised: bool = False
     apology: tuple = ()
+    # 担当の方が替わった電話か（予約証の handover＝CL-2 の gate.Claim.handover：前の電話でお話しした方と、お呼びする方が替わった。お詫び・約束の無い営業の
+    # 電話）。新しい担当の方は前の電話でお話ししていない方なので、用件の一文を前の電話とつなげない（決まりは flowctl.purpose_part の1か所。CL-2 の 4-370 の (5)）
+    handover: bool = False
     # 前の通話で取れた答え（質問の番号 → {"state", "value", "condition"}。途中で切れた通話の、お詫びしてすぐのかけ直し＝予約証の目的 resume など。
-    # CL-2 の行の項目の記録から）。取れた答え（flowctl.TAKEN の状態）の質問は、もう伺わずに続きから聞く（CL-2 の 4-77）。流れの制御 Flow の earlier
+    # CL-2 の行の項目の記録から）。もう伺わない答え（決まりは flowctl.earlier_kept の1か所＝取れた答え。CL-2 がかけ直す「わからない」は除く）の質問は、伺わずに
+    # 続きから聞く（CL-2 の 4-77）。流れの制御 Flow の earlier。続きの電話か（用件の一文・質問の頭）は、このまま（earlier_kept の前＝Flow.earlier_all と同じ材料）で読む
     earlier: dict = field(default_factory=dict)
     # 番号を伺い直す電話（予約証の目的 ask_number_again）：前の電話で伺った番号がどうだったか（phrases.NUMBER_AGAIN の鍵＝wrong_party・unreachable）。
     # 名乗りのあとに伺い直す一言で番号を伺い、答えはかけ直しの申し出（別の番号）として残す（CL-2 の 4-42）。流れの制御 Flow の number_again
@@ -200,7 +206,7 @@ class Business:
     apology_call: str | None = None
     # その文が、いつの電話のことか（same_day＝同じ日「先ほど」・later＝あとの日「先日」。CL-2 の apology.for_task が選んだ文の部分
     # apology_same_day・apology_later）。繋がる前に用件を聞かれたときの一言も、これで選ぶ（phrases.APOLOGY_PURPOSE）
-    apology_when: str = "later"
+    apology_when: str | None = "later"   # None＝この電話と同じ担当の期に話せた電話が無い（CL-2 の 4-382）＝前の電話でお話ししていない方（flowctl.earlier_talked）
     # 約束の電話などの頭で流す、承認したお詫びの文（予約証のお詫びの理由 forbidden_speech のとき要る＝CL-2 の apology.for_task の text。承認したときに聞いて
     # いただいた録音で流す＝お詫びだけの電話の apology_call と同じ流し方。並べる順は flowctl.apology_order の1か所）。✅ CL-2 の 4-350 の (2)
     apology_text: str | None = None
@@ -311,11 +317,11 @@ class Business:
         AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
         from flowctl import Flow
         return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does, handoff_ways=tuple(self.handoff_ways),
-                    close_offer=self.close_offer, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
+                    close_offer=self.close_offer, way_words=self.way_words, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
                     name_readings=self.name_readings(), judge_names=self.judge_names(),
-                    # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
-                    promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again,
+                    # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か・担当の方が替わった電話か
+                    promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again, handover=self.handover,
                     hold_wait_s=self.hold_wait_s, apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
@@ -364,14 +370,17 @@ class Business:
             # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び。前の電話で申し伝える一言まで言って切れた続きの電話は、お詫びのあとに申し伝える
             # 一言を言い直し、用件の一文は流さない（流れの制御と同じ1か所 flowctl.sorry_texts・told_kind。⛔ 2026-11-08 日本時間8時台（(10) の H2 の残り）まで
             # 途中で切れたお詫び＋用件の一文を並べていた）
-            from flowctl import resumed_step, sorry_texts, told_kind
+            # 前の電話のお詫びを流すかも、流れの制御と同じ1か所（flowctl.earlier_talked＝前の電話でお話しした方か。目的の人の無い業務は who を持たない＝
+            # 目的の方と読む・担当の方が替わった電話の新しい方には流さない）
+            from flowctl import earlier_talked, resumed_step, sorry_texts, told_kind
             step = resumed_step(self.questions, self.earlier)
             told = told_kind((self.earlier or {}).get(step[1].id)) if step is not None and step[0] == "told" else None
             at_end = told is not None and (step[1].final_goal or self.first_ask() is None)
-            parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up, self.apology_text)]
+            parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up, self.apology_text,
+                                                      earlier_talked(self.earlier, None, self.handover, self.apology_when))]
             if self.purpose_line and told is None:
                 from flowctl import purpose_part
-                parts.append(self.replay_parts().get(purpose_part(self.earlier, self.apology, self.apology_when)) or self.purpose_line)
+                parts.append(self.replay_parts().get(purpose_part(self.earlier, self.apology, self.apology_when, handover=self.handover)) or self.purpose_line)
         if (first := self.first_ask()) is not None:
             parts.append(first[1])   # 番号を伺い直す一言・前の通話の続きなら、まだ取れていない最初の質問（つなぎの言葉ごと）
         return parts

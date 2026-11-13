@@ -474,13 +474,18 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
 
 
 CALLED = "はじめにお呼びした言葉"  # 後任の方をお呼びしたあとの目的のお客様の判定だけ（Question.called。「ご本人」は、はじめにお呼びした方）
+# 質問（言い直し）のあとに、お客様が黙ったので電話接続側が流した一言の行（Question.prompted＝流したときだけ。flowctl.Flow.judge_context が入れる）。お客様の言葉が
+# その一言へのお返事か、質問の答えかを、判定が分かって読む。⛔ 2026-11-12 まとめ役の (1)：渡しておらず、「何か気になる点がございましたらお気軽にお聞かせください
+# ね。」への「いえ、大丈夫です。」を、質問への「いいえ」と読みえた。流していない場面（測りの試しの言葉）の文は前と同じ
+PROMPTED = "質問のあとにこちらが言った一言"
 
 
 def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:
     """判定に渡す場面（質問の文・はじめにお呼びした言葉・その前に相手が言ったこと・こちらが言い直して確かめた言葉・お客様の言葉）。prompt はこれを文にしたもの。"""
     called, before = getattr(q, "called", ""), before or (NO_BEFORE if getattr(q, "facets", None) else None)
+    prompted = getattr(q, "prompted", "")
     return ({"質問": q.text} | ({CALLED: called} if called else {}) | ({BEFORE: before} if before else {})
-            | ({"こちらが言い直して確かめた言葉": asked} if asked else {}) | {"お客様の言葉": text})
+            | ({"こちらが言い直して確かめた言葉": asked} if asked else {}) | ({PROMPTED: prompted} if prompted else {}) | {"お客様の言葉": text})
 
 
 def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
@@ -494,7 +499,7 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
     （Question.named）は、選べるもの（意味の定義＝長くて毎回同じ）を、その前に相手が言ったことより先に置く（定義もまとめて送れる）。
     ⛔ 2026-10-29：お客様の選択肢の言葉の質問で選べるものを先に置くと、言い直しへの返事の読みが悪くなった（G-53。上の PROMPT の注意）。
        目的のお客様の判定（G-59）は、選べるものを先に置いた形で 139 → 144/147"""
-    said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
+    said = (f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else "") + (f"{PROMPTED}：「{q.prompted}」\n" if getattr(q, "prompted", "") else "")
     before = f"{BEFORE}：「{before}」\n" if before else f"{BEFORE}：{NO_BEFORE}\n" if q.facets else ""
     if q.facets:   # 項目ごとに答える質問：決まり・質問（はじめにお呼びした言葉）・項目は毎回同じ（まとめて送る前の部分）
         # ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、

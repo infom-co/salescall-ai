@@ -295,6 +295,10 @@ CALLBACK_ASK = {
     # となると思うので、営業に引き継ぐ架電なら、「それでは、詳しい者より、改めてお話しさせていただいてもよろしいでしょうか？」の方がよくないですか？」
     # （決まった言い方なので、言葉の途中の読点は外した＝10-15）
     "handoff": "それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？",
+    # 前の担当の方とお話しした続きの電話で、まだお話ししていない新しい方に繋がったとき（担当の方が替わった電話＝予約証の handover・後任の方）、名乗り・用件の
+    # すぐあとに伺う一言（flowctl.Flow._connect・_carried_decided の1か所）。聞いている＝前の方の取れた答えは引き継いで続きから・聞いていない（分からない・
+    # 聞き取れないも）＝最初から。✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」（18時台のご報告の伺い1の候補(1)の言い方そのまま）
+    "carried": "恐れ入りますが前のご担当者様からこれまでのお話はお聞き及びでしょうか？",
 }
 # 詳しい者からのお話の良い点（「それでは詳しい者より改めて…」N4 への迷いに選ぶ助けを伝える材料＝業務の選ぶ質問の選択肢ごとの良い点 Question.option_notes と
 # 同じ形の「はい」の良い点。どの業務でも同じ。3つ目は業務設定の引き継ぎの方法が2つ以上のときだけ＝{w} に方法の名前。flowctl.callback_question の1か所）。
@@ -305,11 +309,24 @@ HANDOFF_NOTES = ("お話を聞いていただいてからご判断いただけ�
 # meanings.DO_PROMPT の申し出の受ける向き「〜させていただきます」と同じ形。どの業務でも同じ）。会話が繋がらないお返事のあとの伺い直し（申し出の伺い直し）の
 # 申し出の中身になる（offer_words）。✅ 2026-11-09 日本時間7時57分50秒 ユーザーの例「…詳しい者よりお話しさせていただくということでよろしいでしょうか？」
 HANDOFF_DO = "詳しい者よりお話しさせていただきます"
+# ほかのご希望（W1）とその LINE の伺い方（C11）で、会話が繋がらないお返事のあとにご案内できる方法を提案するときの、こちらがすることの言葉（flowctl.Flow._proposal_of の
+# 1か所。方法は offer_words が「（方法）で」を入れる＝「メールでご案内させていただく」）。どの業務でも同じ。✅ 2026-11-12 日本時間14時58分17秒 ユーザー「アで！」
+# （案ア＝言葉は「ご案内させていただきます」。まとめ役が決めた）
+WISH_DO = "ご案内させていただきます"
 # 申し出を受ける向きの、こちらがすることの言葉の終わり（申し出の受ける向き＝meanings.DO_PROMPT。flowctl.CloseOffer の do もこの形）と、伺い直しで言う形
 OFFER_DO_END, OFFER_DO_PLAIN = "させていただきます", "させていただく"
 
 
-def offer_words(do: str, terms: str | None = None, topic: str | None = None, way: str | None = None, polite: bool = False) -> str:
+def offer_verb(do: str) -> str:
+    """こちらがすることの言葉（「〜させていただきます」）の終わりの動詞（お・ごから始まり、あとに助詞の無い言葉。「お話しさせていただきます」）を読む唯一の
+    場所（方法を入れる所 offer_words・取込で決めた方法を入れた言い方の確かめ meanings.check の way）。見つからなければ言葉の全部。"""
+    stem = do.removesuffix(OFFER_DO_END)
+    i = max(stem.rfind("お"), stem.rfind("ご"))
+    return do[i:] if i >= 0 and not any(c in stem[i:] for c in "をにがへでと") else do
+
+
+def offer_words(do: str, terms: str | None = None, topic: str | None = None, way: str | None = None, polite: bool = False,
+                way_do: str | None = None) -> str:
     """申し出の伺い直し（CONFIRM の「申し出の伺い直し」「申し出の代わりの伺い直し」）の {v} を作る唯一の場所（flowctl.Flow._ask_confirm の offer_again・offer_alt）：
     お客様のお話に申し出で応える提案。会話AIが書いた提案の言葉＝ご都合の条件（terms＝「月曜日を避けて」。あとに「、」）・申し出に含める中身（topic＝お客様が
     気にかけていることに応えて詳しい者がお話しする中身「料金の面も含めて」）・ご希望の方法（way＝業務の方法の名前。こちらがすることの言葉の終わりの動詞
@@ -317,13 +334,16 @@ def offer_words(do: str, terms: str | None = None, topic: str | None = None, way
     「月曜日を避けて、詳しい者よりお話しさせていただく」・「料金の面も含めて詳しい者よりお話しさせていただく」・「詳しい者よりオンラインでお話しさせていただく」。
     ✅ 2026-11-09 日本時間9時48分09秒 ユーザー（お言葉は flowctl.Flow._proposal_problem）"""
     assert do.endswith(OFFER_DO_END), do
+    # 方法を入れた言い方が取込で決まっていれば（way_do＝業務設定 way_words。import_ai.decide_way_words）、その言い方（「詳しい者がご訪問のうえお話しさせて
+    # いただきます」）。決まっていなければ、終わりの動詞の前に「（方法）で」。✅ 2026-11-12 まとめ役の (1)（「詳しい者より訪問でお話し」は不自然）
+    if way and way_do:
+        assert way_do.endswith(OFFER_DO_END), way_do
+        do, way = way_do, None
     # polite＝文の終わりまで（「〜させていただきます」。条件つきで受けていただいたときの言い切り OFFER_TAKEN の {v}）
     body = do.removesuffix(OFFER_DO_END) + (OFFER_DO_END if polite else OFFER_DO_PLAIN)
     if way:
-        stem = body.removesuffix(OFFER_DO_END if polite else OFFER_DO_PLAIN)
-        i = max(stem.rfind("お"), stem.rfind("ご"))
-        # 終わりの動詞（お・ごから始まり、あとに助詞の無い言葉）の前。見つからなければ言葉の頭
-        at = i if i >= 0 and not any(c in stem[i:] for c in "をにがへでと") else 0
+        # 終わりの動詞（offer_verb の1か所）の前。見つからなければ言葉の頭
+        at = len(do) - len(offer_verb(do))
         body = body[:at] + f"{way}で" + body[at:]
     return (f"{terms}、" if terms else "") + (topic or "") + body
 
@@ -698,6 +718,10 @@ QUESTION_HEADS = tuple(dict.fromkeys([*(w for w in LEAD_PIECES if w != OTHERS_HE
 # 聞く）。✅ 2026-10-22 ユーザー「(a) お礼を言い、こちらからかけ直す形にして戻る時刻を聞く」＝かけ直すと言うのは、この録音だけ（AIは約束しない）。
 # かけ直すかは次の動き（CL-2）が決めるので、この録音を流した通話は、通話の事実の callback に申し出（offer）が残る
 OFFER_THANKS = "お気遣いありがとうございます。お手数ですので改めてこちらからお電話させていただきます。"  # ✅ 2026-10-22 ユーザー（4回目）の言い方
+# お礼の一言を言ったあとに、同じ電話で重ねて申し出られた（「いえいえ、戻りましたらこちらから折り返させますので。」）：ご厚意を2回とも受け止め、こちらから
+# 連絡する形を保つ一言（そのあと、いま伺っている質問）。さらに重ねられたら、時刻を無理に伺わず「分からない」と同じ道へ（押し問答にしない）。
+# ⏳ 言い方は伺い中（2026-11-12 まとめ役の指示＝お勧めの形で入れる）。選ぶのは flowctl.Flow._offer_reply の1か所
+OFFER_THANKS_AGAIN = "重ねてお気遣いありがとうございます。お手数をおかけしてはいけませんのでこちらからご連絡させていただきますね。"
 # お呼びした方が、もう在籍していない（退職・異動・担当が変わった）：✅ 2026-10-22 ユーザー「基本は後任の方をお呼びする＋業務ごとに選べる」
 # ✅ 2026-10-23 ユーザー：「さようでと実際に使う人はほとんどいません」⇒ 同じ理由で「そうでしたか。」に（⏳ 言い方はユーザーに伺う）
 DEPARTED_ACK = "そうでしたか。大変失礼いたしました。"
@@ -977,7 +1001,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW,
-            "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
+            "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},

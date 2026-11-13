@@ -184,6 +184,17 @@ def decide_maybes(askers: list[Asker], questions: list[tuple[str, tuple]], on_er
 # 名前のずれを見る。いまの CL-2 の受け口は取り下げた decide_keep_words＝帳面 4-72 で替えていただくよう頼んだ）
 # 決める処理の唯一の一覧（CL-2 の取込 business_import.preview の decide_* の受け口と同じ名前＝試験で比べる）。decide_away・decide_unclear は、CL-2 の受け口が
 # できた（CL-2 の連絡帳 4-212 の (A)。⛔ それまで、この一覧に無く、取込から呼ばれなかった）
+def decide_way_words(askers: list[Asker], pairs: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[dict[str, str]]:
+    """(こちらがすることの言葉, 方法の並び) の並び（業務設定から並べる1か所＝flowctl.way_word_pairs）→ 同じ並びで {方法: その方法を入れた言葉}（2つのモデルの
+    言葉がどちらも確かめに通るときだけ、最初のモデルの言葉＝meanings.decide の way）。答えは業務設定 way_words（{言葉: {方法: 言葉}}＝instruction.Business）。
+    決まらない方法は入れない＝会話の側は今の形（「（方法）で」を終わりの動詞の前に）。decide_unclear と同じ形。✅ 2026-11-12 まとめ役の (1)"""
+    items = [(d, tuple(w)) for d, w in pairs]
+    if not items:
+        return []
+    rows = _each(askers, lambda c, m: meanings.by_model(c, m, items, "way"), [{}] * len(items), on_error)
+    return [meanings.decide(d, w, [r[i] for r in rows], "way") for i, (d, w) in enumerate(items)]
+
+
 def decide_purposes(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, str]:
     """用件の一文の並び → 文ごとの用件の名詞（purposes.decide＝2つのモデルがそろって、その文の中の言葉のときだけ。そろわない・答えが無い・文に無い言葉なら空＝
     続きの電話でも今の用件の一文のまま）。答えは instruction.Business.purpose_noun（CL-2 の取込が業務設定へ）。✅ 2026-11-09 日本時間9時48分09秒の (4)"""
@@ -203,7 +214,9 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # どちらの場合もありうると言われたときに確かめる答えと言葉（⛔✅ 2026-11-09 日本時間4時36分49秒。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-123）
             "decide_maybes": decide_maybes,
             # 用件の一文の中の用件の名詞（続きの電話の用件の一文を前の電話とつなげる＝✅ 11-09 日本時間9時48分09秒の (4)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-128）
-            "decide_purposes": decide_purposes}
+            "decide_purposes": decide_purposes,
+            # 方法を申し出の中身に入れる言い方（✅ 2026-11-12 まとめ役の (1)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-132）
+            "decide_way_words": decide_way_words}
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None) -> dict[str, Callable]:
