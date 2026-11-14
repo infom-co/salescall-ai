@@ -1846,13 +1846,19 @@ OFFER_REPLIES = (("offer_thanks", OFFER_THANKS), ("offer_thanks_again", OFFER_TH
 CALLBACK_PLAN = {"absent": ("back_time",), "day_off": ("next_workday",), "long_absent": ("back_date",),
                  "other_number": ("number", "reachable_time"), "later": ("later_time",), "other_means": (), "unavailable": ("transfer_time",)}
 MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほかの手段で、聞くこと（手段の申し出が無ければ、聞かずに締める）
+# 2回目の好意（お客様のほうから折り返すという重ねての申し出）をお言葉に甘えて受けたあと（Flow._callback の1か所）に伺うこと（理由 → 役目）。伺い方・受け方は
+# ふつうのかけ直しの質問と同じ1か所。伺えた時刻は折り返しのお約束（theirs）と同じかけ直しの記録の time。表に無い理由（お休み・出張・ご事情・答えの段の
+# お客様ご本人の「あとで」）は今までどおり伺わずにお礼の締め（お言葉の場面＝不在の受付の方の外は、言い方をいただいてから足す）。✅ 2026-11-14 日本時間
+# 20時11分41秒 ユーザー（CL-2 の伺いへのお返事。お言葉は phrases.CALLBACK_ASK の theirs_time）・CL-2 の 4-391 の (1)
+THEIRS_PLAN = {"absent": ("theirs_time",)}
+THEIRS_ROLES = {r for rs in THEIRS_PLAN.values() for r in rs}   # お言葉に甘えたあとに伺う役目（Flow._callback・_follow_ups）
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
                 "when": "C9", "message": "M1", "promise_again": "P1",
                 "refusal": "D1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3", "line": "C10", "other_wish": "W1",
                 "line_how": "C11", "mobile": "C12", "wait_or_later": "H2", "concern": "D2", "handoff": "N4", "handoff_way": "N5",
                 "close_offer": "N6", "carried": "HC"}
-ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
+ROLE_KEY = {"back_time": "time", "theirs_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
             "number": "number",
             "email": "email",
             "fax": "fax", "address": "address", "message": "message", "back_today": "back_today", "call_again": "again",
@@ -3037,7 +3043,7 @@ def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) ->
     return untried[0] if untried else None
 
 
-CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "transfer_time": "お取り次ぎいただけそうな時期", "number": "お電話番号",
+CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "theirs_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "transfer_time": "お取り次ぎいただけそうな時期", "number": "お電話番号",
                   "reachable_time": "お電話に出られるお時間", "back_date": "お戻りのご予定", "next_workday": "次のご出社のご予定",
                   "email": "メールアドレス", "fax": "ファクス番号",
                   "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言", "back_today": "本日のお戻りのご予定",
@@ -10127,17 +10133,37 @@ class Flow:
         relay = (offer == "message" and self.policies["message"] != "leave" and bool(self.message_text)
                  and not (resume and message_id in self.callback_ids))
         if self.offers_thanked >= 1 and (offer == "callback" or relay):
+            if offer == "callback" and resume and cur is not None and self.questions[cur].callback in THEIRS_ROLES:
+                # お言葉に甘えて戻る時刻を伺っている途中に、また折り返しを重ねて申し出られた（時刻は言っていただけない）：お言葉に甘える一言はもう言わず、
+                # 伺っている時刻は「分からない」と同じ道（_follow_ups は折り返しのお約束のあとは本日のお戻りのご予定を伺わない＝お礼の締め）
+                self.offers_thanked += 1
+                self.awaiting_confirm = self.awaiting_say = None
+                return self._take_system(cur, "unknown", "unspecified", settled=True)
             if not resume:
                 self.callback_why, self.callback_means = why, None
                 self._note("callback", why=why, read=sorted(read), offer=offer)
             self.offers_thanked += 1
             self.awaiting_confirm = self.awaiting_say = None
             if offer == "callback":
-                # 折り返し：お礼の締めで終える。折り返しのお約束（theirs）を通話の事実に残す＝折り返しが無ければ再度かける（いつかけるかは CL-2 の次の動き）。
+                # 折り返し：折り返しのお約束（theirs）を通話の事実に残す＝折り返しが無ければ再度かける（いつかけるかは CL-2 の次の動き）。お言葉に甘える一言の
+                # あと、理由の表（THEIRS_PLAN）に伺うことがあり、その答えをまだいただいていなければ、ふつうのかけ直しの質問と同じ1か所（callback_question・
+                # _advance＝聞き返し・言い直し・締めの前の念のための確認）で伺う。伺えた時刻は同じかけ直しの記録の time（_callback_fields）。もう伺って答えを
+                # いただいた時刻は重ねて伺わない（9-3「取得済みのことを重ねて聞かない」）。表に無い理由・もう伺ったときはお礼の締めで終える（11-13 の伺い5 の形）。
+                # ✅ 2026-11-14 日本時間20時11分41秒 ユーザー（CL-2 の伺いへのお返事＝CL-2 の 4-391 の (1)）「お言葉に甘えた電話の時に、『お電話をいただいた際に
+                # 出られないことがないように、お戻りになられる時間はお分かりになるでしょうか？』のような確認をしておいた方がいいんじゃないでしょうか。」
                 # お礼の一言から始まる返事＝相づち「はい、」を重ねない（最初のお礼の一言と同じ led）
                 self.facts["callback"][-1]["theirs"] = True
-                return self._led(intro + [{"kind": "recorded", "id": "offer_accepted", "text": OFFER_ACCEPTED}], prefix + (NOT_INTRODUCED if intro else ""),
-                                 self._close("callback")) | {"led": True} | ({"renamed": True} if intro else {})
+                plays = intro + [{"kind": "recorded", "id": "offer_accepted", "text": OFFER_ACCEPTED}]
+                note = prefix + (NOT_INTRODUCED if intro else "")
+                qs = [callback_question(r, answering=self.in_answer_stage) for r in THEIRS_PLAN.get(why, ())
+                      if (it := self.items.get(CALLBACK_IDS[ROLE_KEY[r]])) is None or it.state == "empty"]
+                if not qs:
+                    return self._led(plays, note, self._close("callback")) | {"led": True} | ({"renamed": True} if intro else {})
+                for q in qs:
+                    self._new_item(q)
+                self.order = self.callback_ids = [q.id for q in qs]
+                self.phase, self.recheck_queue, self.callback_held = "asking", [], False
+                return self._led(plays, note, self._advance("", handled=True)) | {"led": True} | ({"renamed": True} if intro else {})
             # 伝言：相づち「ありがとうございます。」（伝言を残す業務と同じ thanks）のあと、業務の名乗りと用件から作る決まった伝言（伝言の文の1か所＝名乗りの部分 message＝
             # instruction.Business.replay_parts・phrases.standard_message）をはい／いいえで伺い（M1）、お返事を待って締める（伺うのはこの1つだけ＝お返事のあとは
             # _advance が締める。聞き取れなければ聞き返さない＝必須でない伺い。名前・番号を聞かれたら今ある1か所で答えて、お返事を待つ）。伝言をお願いした印
@@ -11429,7 +11455,9 @@ class Flow:
         self._point_step()
         self._handoff_step()        # あとに：ご承認の手順を点を言っていただけないまま終えた（上で決まる）ら、営業に引き継ぐ架電は詳しい者からのお話を伺う
         self._no_doubts_step()      # あとに：ご承認の手順で「分かった」と伺ったあとの、ほかに分からない点が無いかを伺う質問（上で決まる）
-        if self.callback_why != "absent":
+        if self.callback_why != "absent" or self.facts["callback"][-1].get("theirs"):
+            # 折り返しのお約束（お客様のほうから折り返していただく）をお言葉に甘えて受けたあと：戻る時刻が分からなくても、本日のお戻りのご予定・後ほど改めて
+            # お掛けしてよいか（こちらからかける約束）は伺わない（お礼の締め＝THEIRS_PLAN。CL-2 は時刻の無い折り返しのお約束をふつうの不在として扱う＝4-391 の (2)）
             return
         time_q, today_q = CALLBACK_IDS["time"], CALLBACK_IDS["back_today"]
         if today_q not in self.items:

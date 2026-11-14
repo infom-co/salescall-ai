@@ -41,6 +41,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          # 先に並べる選択肢ごとの、選択肢を並べた文（業務設定の質問の欄 alternatives_led・取込は decide_alternatives の同じ問い合わせ。
                          # 11-14 23時45分00秒「伺い16はイでOK」。CL-1.md 4-157）
                          "alternatives_led",
+                         # お言葉に甘えたあとに戻る時刻を伺う一言の共通の一言の録音（phrases.CALLBACK_ASK の theirs_time。✅ 11-14 20時11分41秒＝CL-2 の
+                         # 4-391 の (1)。CL-1.md 4-158）
+                         "callback_theirs_time",
                          # ご承認のお知らせの中身の名詞（業務設定の質問の欄 matter・取込の決める処理 decide_matters と考える Sonnet の referee。11-14 14時31分38秒
                          # 「●伺い10」。CL-1.md 4-154）
                          "decide_matters", "matter",
@@ -6244,7 +6247,8 @@ class Answers2217Test(unittest.TestCase):
         self.hear(f, offer)
         r = f.apply("request_callback", {"why": "absent", "offer": "message"})
         self.assertEqual((self.heard(r), r["question_id"]), ("ありがとうございます。" + own, m1))
-        # 折り返しの重ね（伺い5）は今のまま
+        # 折り返しの重ね（伺い5）は今のまま（お言葉に甘えて受ける。そのあと戻る時刻を伺う＝✅ 11-14 20時11分41秒・CL-2 の 4-391 の (1)＝
+        # OfferTest.test_their_callback_accepted_asks_the_return_time）
         f, b = self.offer_flow()
         self.hear(f, absent, TARGET_IS_AWAY)
         f.apply("request_callback", {"why": "absent"})
@@ -6252,7 +6256,8 @@ class Answers2217Test(unittest.TestCase):
         f.apply("request_callback", {"why": "absent", "offer": "message"})
         self.hear(f, "いえ、戻りましたら折り返させますので。", LATER_THEIRS)
         r = f.apply("request_callback", {"why": "absent", "offer": "callback"})
-        self.assertEqual((r["result"], f.facts["callback"][-1].get("theirs"), f.facts["callback"][-1].get("message_left")), ("end", True, None))
+        self.assertEqual((r["result"], r["question_id"], f.facts["callback"][-1].get("theirs"), f.facts["callback"][-1].get("message_left")),
+                         ("next", "C1", True, None))
 
     def substitute_call(self, earlier, target=None, when="later"):
         from flowctl import TARGET_IS_AWAY, Question
@@ -19446,6 +19451,76 @@ class OfferTest(unittest.TestCase):
         self.assertEqual((r["result"], r["play"][0]["text"], f.end_reason, f.not_reached), ("end", CLOSING, "callback", "absent"))
         self.assertEqual(f.facts["callback"][0]["time"], "午後3時ごろ")
 
+    def test_their_callback_accepted_asks_the_return_time(self):
+        # CL-2 の 4-391 の (1)：お言葉に甘えて受けた電話でも、戻る時刻を伺う。✅ 2026-11-14 日本時間20時11分41秒 ユーザー（CL-2 の会話の記録 rows.jsonl で
+        # 伺いの文とお返事の原文を確かめた）「お言葉に甘えた電話の時に、『お電話をいただいた際に出られないことがないように、お戻りになられる時間はお分かりに
+        # なるでしょうか？』のような確認をしておいた方がいいんじゃないでしょうか。」（決まった言い方なので言葉の途中の読点は外す＝10-15）。伺えた時刻は、
+        # 折り返しのお約束（theirs）と同じかけ直しの記録の time に入る（CL-2 が戻る時刻の1時間後からかける＝20時13分06秒「戻る時刻の1時間後」）。
+        # 伺い方・受け方はふつうの戻る時刻の質問と同じ1か所（聞き返し・言い直し・締めの前の念のための確認）。違うのは文と、分からないときの続き＝本日のお戻りの
+        # ご予定・後ほど改めてお掛けしてよいかは伺わずにお礼の締め（お客様から折り返していただくお約束を受けたあとに、こちらからかける約束を伺わない）。
+        # ⛔ 11-13 の伺い5 の形（559036d5）は、お言葉に甘えたあと時刻を伺わずに締めた
+        import json
+        from flowctl import LATER_THEIRS, TARGET_IS_AWAY, Limits
+        from phrases import CALLBACK_ASK, CLOSING, OFFER_ACCEPTED
+        offer = "あいにく岡田は外出しておりまして、戻りましたら折り返させますが。"
+        again = "いえいえ、戻りましたらこちらから折り返させますので。"
+        self.assertEqual(CALLBACK_ASK["theirs_time"], "お電話をいただいた際に出られないことがないようにお戻りになられる時間はお分かりになるでしょうか？")
+
+        def accepted(reported=True):
+            f, b = self.flow()
+            self.heard(f, offer, TARGET_IS_AWAY)
+            f.apply("request_callback", {"why": "absent", "offer": "callback"})
+            self.heard(f, again, LATER_THEIRS)
+            r = f.apply("request_callback", {"why": "absent", "offer": "callback"}) if reported else f.judged_turn(voiced=False)
+            return f, r
+        for reported in (True, False):   # 会話AIが申し出と報告しても、判定だけが読んでも同じ1か所
+            f, r = accepted(reported)
+            self.assertEqual((r["result"], self.played(r), [p["text"] for p in r["play"]], f.current, r.get("ack")),
+                             ("next", ["offer_accepted", "callback_theirs_time"], [OFFER_ACCEPTED, CALLBACK_ASK["theirs_time"]], "C1", None), reported)
+            self.assertEqual([(c["why"], c.get("offer"), c.get("theirs")) for c in f.facts["callback"]], [("absent", "callback", True)], reported)
+        # (1) 時刻を伺えた：ふつうの戻る時刻と同じく言い直して確かめ、お礼の締め。時刻は折り返しのお約束と同じ記録に
+        f, r = accepted()
+        self.heard(f, "3時ごろには戻ると思います。")
+        f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "3時ごろ"})
+        self.heard(f, "はい。")
+        r = f.apply("confirm_field", {"question_id": "C1", "result": "affirmed"})
+        self.assertEqual((r["result"], r["play"][0]["text"], f.end_reason), ("end", CLOSING, "callback"))
+        self.assertEqual([(c["why"], c.get("theirs"), c.get("time")) for c in f.facts["callback"]], [("absent", True, "午後3時ごろ")])
+        # (2) 分からない：本日のお戻りのご予定（C6）・後ほど改めてお掛けしてよいか（C7）は伺わずにお礼の締め。記録は theirs だけ（time は無い）
+        f, r = accepted()
+        self.heard(f, "ちょっと戻りの時間は分からないですね。")
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "unknown"})
+        self.assertEqual((r["result"], f.end_reason, "C6" in f.items, "C7" in f.items), ("end", "callback", False, False))
+        self.assertEqual([(c.get("theirs"), c.get("time")) for c in f.facts["callback"]], [(True, None)])
+        # (3) 聞き取れない：その場の聞き返し（2回）のあと締めの前の念のための確認で1回（必須のかけ直しの質問と同じ＝M1）、それでも聞き取れなければお礼の締め
+        f, r = accepted()
+        for _ in range(Limits().ask_back):
+            self.heard(f, "（雑音）……")
+            self.assertEqual(f.apply("report_unclear", {"question_id": "C1"})["result"], "ask_back")
+        self.heard(f, "（雑音）……")
+        r = f.apply("report_unclear", {"question_id": "C1"})
+        self.assertEqual(r["result"], "recheck")
+        self.heard(f, "（雑音）……")
+        r = f.apply("report_unclear", {"question_id": "C1"})
+        self.assertEqual((r["result"], f.end_reason, "C6" in f.items), ("end", "callback", False))
+        self.assertEqual([(c.get("theirs"), c.get("time")) for c in f.facts["callback"]], [(True, None)])
+        # (4) 時刻を伺っている途中に、また折り返しを重ねて申し出られた：お言葉に甘える一言をもう言わず、時刻は「分からない」と同じ道（お礼の締め）
+        f, r = accepted()
+        self.heard(f, "いえ、本当にこちらから折り返させますので。", LATER_THEIRS)
+        r = f.apply("request_callback", {"why": "absent", "offer": "callback"})
+        self.assertEqual((r["result"], OFFER_ACCEPTED in json.dumps(r, ensure_ascii=False), f.end_reason, "C6" in f.items), ("end", False, "callback", False))
+        # (5) 戻る時刻はもう伺って「分からない」と答えていただいたあとの重ね：時刻は重ねて伺わない（取得済みのことを重ねて聞かない＝9-3）＝お言葉に甘えて締める
+        f, b = self.flow()
+        self.heard(f, offer, TARGET_IS_AWAY)
+        f.apply("request_callback", {"why": "absent", "offer": "callback"})
+        self.heard(f, "戻りの時間はちょっと分からないですね。")
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "unknown"})
+        self.assertEqual(r["question_id"], "C6")
+        self.heard(f, again, LATER_THEIRS)
+        r = f.apply("request_callback", {"why": "absent", "offer": "callback"})
+        self.assertEqual((r["result"], self.played(r), f.end_reason), ("end", ["offer_accepted", "closing"], "callback"))
+        self.assertEqual(f.facts["callback"][-1].get("theirs"), True)
+
     def test_message_offer_follows_the_business_setting(self):
         # 伝言の申し出：✅ ユーザー「業務ごとに選べるようにし、選んでいなければ (a)」＝(a) お礼を言って断り、戻る時刻を聞く／(b) 伝言を残す
         from flowctl import TARGET_IS_AWAY
@@ -19477,7 +19552,7 @@ class OfferTest(unittest.TestCase):
         # 同じ道／理由の替わった申し出（別の番号へ・あとで）は新しい申し出（10-22 の3回目「決まった答え1つに押し込めない」）。受けるのは、会話AIの報告の道でも
         # 判定だけの道でも同じ1か所（_wait_route → _callback）
         from flowctl import LATER, LATER_THEIRS, TARGET_IS_AWAY
-        from phrases import CALLBACK_ASK, CALLBACK_ASK_ANSWERING, CLOSING, OFFER_ACCEPTED, OFFER_THANKS, OFFER_THANKS_AGAIN
+        from phrases import CALLBACK_ASK, CALLBACK_ASK_ANSWERING, OFFER_ACCEPTED, OFFER_THANKS, OFFER_THANKS_AGAIN
         offer, absent = "あいにく岡田は外出しておりまして、戻りましたら折り返させますが。", "あいにく岡田は外出しております。"
 
         def again(f, words, reading, reported, **a):
@@ -19489,15 +19564,17 @@ class OfferTest(unittest.TestCase):
             self.heard(f, offer, TARGET_IS_AWAY)
             r = f.apply("request_callback", {"why": "absent", "offer": "callback"})
             self.assertEqual(self.played(r), ["offer_thanks", "callback_back_time"])
-            # 2回目の好意（重ねての折り返しの申し出）は無下にしない：お言葉に甘えて締め、折り返しのお約束を通話の事実に残す（折り返しが無ければ再度かける＝CL-2 の
+            # 2回目の好意（重ねての折り返しの申し出）は無下にしない：お言葉に甘えて受け、折り返しのお約束を通話の事実に残す（折り返しが無ければ再度かける＝CL-2 の
             # 次の動き）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い5はイ（相手の好意を2回目は無下にしない）（折り返しかからなければ、再度かける）」。
             # ⛔ 11-12（穴1）は「重ねてお気遣い…こちらからご連絡させていただきますね。」＋戻る時刻をもう一度伺い、3回目は「分からない」と同じ道だった
+            # お言葉に甘えたあと戻る時刻を伺う（✅ 2026-11-14 日本時間20時11分41秒 ユーザー＝CL-2 の 4-391 の (1)。くわしくは
+            # test_their_callback_accepted_asks_the_return_time。⛔ 11-13 の形は時刻を伺わずに締めた）
             r = again(f, "いえいえ、戻りましたらこちらから折り返させますので。", LATER_THEIRS, reported, why="absent", offer="callback")
             self.assertEqual((r["result"], self.played(r), [p["text"] for p in r["play"]], f.items["C1"].state, r.get("ack")),
-                             ("end", ["offer_accepted", "closing"], [OFFER_ACCEPTED, CLOSING], "empty", None), reported)   # 時刻は伺わない（お客様から折り返していただく）。
+                             ("next", ["offer_accepted", "callback_theirs_time"], [OFFER_ACCEPTED, CALLBACK_ASK["theirs_time"]], "empty", None), reported)
             # お礼の一言から始まる返事に相づち「はい、」を重ねない（最初のお礼の一言と同じ＝_ack の led）
             self.assertEqual([(c["why"], c.get("offer"), c.get("theirs")) for c in f.facts["callback"]], [("absent", "callback", True)], reported)
-            self.assertEqual(f.end_reason, "callback", reported)
+            self.assertEqual((f.end_reason, f.current), (None, "C1"), reported)
             # (4) 戻る時刻を伺っている途中に、明日またと言われる（理由が「あとで」に替わる＝新しい申し出）
             f, b = self.flow()
             self.heard(f, absent, TARGET_IS_AWAY)
@@ -19517,7 +19594,7 @@ class OfferTest(unittest.TestCase):
         self.assertEqual((r["result"], self.played(r), r["play"][0]["text"], f.current), ("next", ["offer_thanks", "callback_back_time"], OFFER_THANKS, "C1"))
         self.heard(f, "いえ、戻りましたら折り返させますので。", LATER_THEIRS)
         r = f.apply("request_callback", {"why": "absent", "offer": "callback"})
-        self.assertEqual((self.played(r), f.facts["callback"][-1].get("theirs")), (["offer_accepted", "closing"], True))   # 2回目の好意＝お言葉に甘える
+        self.assertEqual((self.played(r), f.facts["callback"][-1].get("theirs")), (["offer_accepted", "callback_theirs_time"], True))   # 2回目の好意＝お言葉に甘えて戻る時刻を伺う
         # 伝言の申し出の重ね（伝言を残さない業務で、お礼のあとにまた伝言を申し出られる）＝2回目の好意（伺い5 と同じ1か所）：「ありがとうございます。」＋業務の名乗りと
         # 用件から作る決まった伝言（名乗りの部分 message）を伺い、お返事のあと締める（✅ 2026-11-13 日本時間22時17分01秒「伺い7はイ」。くわしくは
         # Answers2217Test.test_repeated_message_offer_asks_to_pass_on_a_standard_message。⛔ それまでは「重ねて…」＋戻る時刻）
@@ -22993,7 +23070,8 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertEqual({line: heads_said(line) for line in lines if heads_said(line)}, {})
         # 共通の一言の表の全部：頭につなぎの言葉のある一言は、お返事を待つ伺う一言（？で終わる）・締め・待つ一言・2回目の戻る一言（質問の again の形が受ける）
         # だけ＝同じ返事の中で、そのあとに業務の質問を流さない（B-3）
-        # （offer_accepted＝2回目の好意の折り返しの申し出をお言葉に甘えて受ける一言は、そのあとお礼の締めだけ＝✅ 2026-11-13 日本時間20時06分19秒「伺い5はイ」）
+        # （offer_accepted＝2回目の好意の折り返しの申し出をお言葉に甘えて受ける一言は、そのあとお礼の締めか、頭のつなぎの言葉の無い戻る時刻のシステムの質問
+        # （callback_theirs_time）だけ＝業務の質問は流さない。✅ 2026-11-13 日本時間20時06分19秒「伺い5はイ」・11-14 20時11分41秒（CL-2 の 4-391 の (1)））
         ends_reply = {"back_again", "closing", "closing_after_decline", "closing_declined", "hold_timeout", "line_trouble_bye", "wait_reply", "offer_accepted"}
         # 引き継ぎを確かめる一言のあと最初から伺うときの一言（phrases.START_OVER＝頭が「それでは」）は、そのあとに最初の質問だけを流す（Flow._carried_decided）。
         # 最初の質問は頭のつなぎの言葉を付けない形（spoken_question のはじめ）なので重ならず、録音の形の一覧（question_forms）は最初の質問にだけ、この一言の
