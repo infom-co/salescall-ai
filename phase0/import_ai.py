@@ -230,10 +230,13 @@ def decide_since(askers: list[Asker], texts: list[str], on_error: Callable | Non
 
 
 def _drafted(askers: list[Asker], items: list[tuple], by_model: Callable, decide: Callable, fits: Callable, grounded: Callable,
-             on_error: Callable | None, referee: Asker | None) -> list[str]:
+             on_error: Callable | None, referee: Asker | None, groups: list | None = None) -> list[str]:
     """取込で文を作る唯一の形（お知らせの文 decide_announces・言い換えた質問 decide_rewords・選択肢を並べた質問 decide_alternatives）：2つの文字のAIがそろって形に合う（fits）文、そろわない文は
     考える Sonnet（referee）にまとめて1回書かせて形に合う文。どちらも、考える Sonnet の中身の判定（grounded＝askitems.grounded の grounding の問い）を通ったとき
-    だけ使う。referee が無ければ空（中身を確かめられない文は使わない）。items は文ごとの材料の組（decide・fits・grounded にそのまま渡す）。"""
+    だけ使う。referee が無ければ空（中身を確かめられない文は使わない）。items は文ごとの材料の組（decide・fits・grounded にそのまま渡す）。
+    groups＝文ごとの組の印（同じ質問を並べ方を変えて書かせた文＝decide_alternatives）：同じ印の文は、中身の判定に1回でまとめて読ませる（問い合わせの数は組の数
+    ＝増えない）。通らなければ組の文を全部使わない（どの文が事実を足したかは分からない）・組の初めの文が決まらなければ、組のほかの文も使わない（中身の判定にも
+    出さない）。無ければ文ごとに1つの組（今と同じ）。"""
     if not items:
         return []
     rows = _each(askers, lambda c, m: by_model(c, m, items), [None] * len(items), on_error)
@@ -245,10 +248,17 @@ def _drafted(askers: list[Asker], items: list[tuple], by_model: Callable, decide
         drafts = _each([referee], lambda c, m: by_model(c, m, [items[n] for n in left], think=True), [None] * len(left), on_error)[0]
         for n, line in zip(left, drafts):
             got[n] = line if fits(*items[n], line) else None
-    out = []
-    for it, line in zip(items, got):
-        ok = line is not None and _each([referee], lambda c, m: grounded(c, m, *it, line), False, on_error)[0]
-        out.append(line if ok else "")
+    keys = groups if groups is not None else list(range(len(items)))
+    out = [""] * len(items)
+    for key in dict.fromkeys(keys):
+        idx = [n for n, k in enumerate(keys) if k == key]
+        lines = [(n, got[n]) for n in idx if got[n] is not None]
+        if got[idx[0]] is None:
+            continue
+        line = "\n".join(x for _, x in lines)
+        if _each([referee], lambda c, m: grounded(c, m, *items[idx[0]], line), False, on_error)[0]:
+            for n, x in lines:
+                out[n] = x
     return out
 
 
@@ -285,11 +295,17 @@ def decide_rewords(askers: list[Asker], items: list[tuple[str, tuple, str]], on_
 def decide_alternatives(askers: list[Asker], items: list[tuple[str, tuple, str]], on_error: Callable | None = None,
                         referee: Asker | None = None) -> list[str]:
     """選ぶ質問の (質問の文, 選択肢の並び, 型) の並び（flowctl.alternatives_fits の質問だけを渡すのは呼ぶ側）→ 同じ並びで、お客様の意向がまだ分からないまま戻る
-    ときに「はい、」に続けて伺う、選択肢を並べた質問の文（答えは flowctl.Question.alternatives。決まらなければ空＝「はい、」＋言い換えた質問）。決め方は言い換えた
-    質問と同じ1か所（_drafted）・形は alternatives.fits（選択肢を質問の順のまま全部・「それとも」）・中身の判定は alternatives.grounded。
-    ✅ 2026-11-14 日本時間22時15分15秒 ユーザー（お言葉は alternatives の頭）"""
+    ときに「はい、」に続けて伺う、選択肢を並べた質問の文の組 (質問の順の文, 先に並べる選択肢ごとの文の並び)（答えは flowctl.Question.alternatives と
+    alternatives_led。並びは alternatives.orders の順＝2つ目からの選択肢ごと。決まらなければ空＝質問の順の文が空なら「はい、」＋言い換えた質問・先に並べた文が
+    空ならその選択肢に触れたときも質問の順）。決め方は言い換えた質問と同じ1か所（_drafted）：並べ方ごとの行を同じ問い合わせに足す（2つの文字のAIと考える Sonnet の
+    問い合わせの数は同じ）・形は alternatives.fits（並べた順のまま全部・「それとも」）・中身の判定は alternatives.grounded を質問ごとに1回（その質問の文をまとめて）。
+    ✅ 2026-11-14 日本時間22時15分15秒 ユーザー（お言葉は alternatives の頭）・23時45分00秒「伺い16はイでOK」"""
     items = [(str(t or ""), tuple(c), str(k or "")) for t, c, k in items]
-    return _drafted(askers, items, alternatives.by_model, alternatives.decide, alternatives.fits, alternatives.grounded, on_error, referee)
+    rows = [(n, (t, order, k)) for n, (t, c, k) in enumerate(items) for order in (c, *alternatives.orders(c))]
+    got = _drafted(askers, [r for _, r in rows], alternatives.by_model, alternatives.decide, alternatives.fits, alternatives.grounded, on_error, referee,
+                   groups=[n for n, _ in rows])
+    lines = [[x for (n, _), x in zip(rows, got) if n == m] for m in range(len(items))]
+    return [(x[0], tuple(x[1:])) for x in lines]
 
 
 def decide_at_hand(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[str]:

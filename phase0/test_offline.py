@@ -38,6 +38,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          # 意向がまだ分からないまま戻るときの選択肢を並べた文（業務設定の質問の欄 alternatives・取込の決める処理 decide_alternatives と考える Sonnet の referee。
                          # 11-14 22時15分15秒。CL-1.md 4-156）
                          "decide_alternatives", "alternatives",
+                         # 先に並べる選択肢ごとの、選択肢を並べた文（業務設定の質問の欄 alternatives_led・取込は decide_alternatives の同じ問い合わせ。
+                         # 11-14 23時45分00秒「伺い16はイでOK」。CL-1.md 4-157）
+                         "alternatives_led",
                          # ご承認のお知らせの中身の名詞（業務設定の質問の欄 matter・取込の決める処理 decide_matters と考える Sonnet の referee。11-14 14時31分38秒
                          # 「●伺い10」。CL-1.md 4-154）
                          "decide_matters", "matter",
@@ -25796,10 +25799,11 @@ class AsideTest(unittest.TestCase):
     # 意向がまだ分からないまま戻るときの、選択肢を並べた文（取込の Question.alternatives。✅ 2026-11-14 日本時間22時15分15秒 ユーザー）
     ALT = "カードになさいますかそれともお振込の方がよろしいでしょうか？"
 
-    def flow(self, reworded=PAY2, required=True, play=True, alternatives=""):
+    def flow(self, reworded=PAY2, required=True, play=True, alternatives="", led=()):
         from flowctl import Flow, Question
         qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True),
-              Question("Q2", self.PAY, "choice", conditions=("カード", "振込"), required=required, reworded=reworded, alternatives=alternatives),
+              Question("Q2", self.PAY, "choice", conditions=("カード", "振込"), required=required, reworded=reworded, alternatives=alternatives,
+                       alternatives_led=led),
               Question("Q3", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), required=True,
                        reworded="ご予算はだいたいおいくらくらいでお考えですか？")]
         f = Flow(qs, play_recordings=play)
@@ -26079,6 +26083,105 @@ class AsideTest(unittest.TestCase):
         before = {(p["id"], p.get("lead") or ""): p["text"] for p in question_forms(list(self.flow().questions.values()), "Q2")}
         self.assertEqual({k: v for k, v in forms.items() if k not in before}, {("Q2" + ALTERNATIVES_SUFFIX, ""): self.ALT})
         self.assertNotIn("、", self.ALT)
+
+    def test_the_alternatives_put_first_the_option_our_word_touched(self):
+        # 伺い16＝イ（✅ 2026-11-14 日本時間23時45分00秒 ユーザー「伺い16はイでOK」）：選択肢を並べて伺う形（soft_form）は、直前にこちらのひとことが話した選択肢を
+        # 先に並べる（「さようでございますか。お振込でしたら月曜日以外でもご対応いただけますよ。」⇒ お客様「そうなんですね。」⇒「はい、お振込になさいますか
+        # それともカードの方がよろしいでしょうか？」）。どの選択肢に触れたかは、ひとことの中身を確かめる判定が、触れたかの読み（伺い15）と同じ1回の問い合わせで、
+        # 触れた選択肢の名前まで読む（grounding.touches）。2つ以上に触れた・どれにも触れていない・読みが無い・名前が選択肢に無い・先に並べた文が無いときは質問の順
+        from flowctl import ALTERNATIVES_SUFFIX, question_forms
+        from grounding import GROUNDED, TOUCHED, UNTOUCHED, one_touched
+        ALT2 = "お振込になさいますかそれともカードの方がよろしいでしょうか？"
+        ON = "さようでございますか。お振込でしたら月曜日以外でもご対応いただけますよ。"
+
+        def waited(f, touch, said=ON):
+            self.unlinked(f)
+            grounded(f, said, GROUNDED, touch=touch)
+            f.apply("replay_opening", {"part": "talk", "answer": said, "fallback": "talk_heard_nod"})
+            self.reply(f, "そうなんですね。")
+            return f.apply("replay_opening", {"part": "resume"})
+        led = ("Q2" + ALTERNATIVES_SUFFIX + "_2", ALT2)
+        first = ("Q2" + ALTERNATIVES_SUFFIX, self.ALT)
+        for touch, want in ((one_touched("振込"), led), (one_touched("カード"), first), (TOUCHED, first), (UNTOUCHED, first), ("", first),
+                            (one_touched("現金"), first)):
+            f = self.flow(alternatives=self.ALT, led=(ALT2,))
+            r = waited(f, touch)
+            self.assertEqual(([(p["id"], p["text"]) for p in r["play"]], r.get("ack")), ([want], "hai"), touch)
+            self.assertEqual(f.judge_context()[0].text, want[1])   # 判定と会話AIへの知らせは、お客様が聞いた文で読む
+        f = self.flow(alternatives=self.ALT, led=(ALT2,), play=False)
+        self.assertIn(f"「{ALT2}」", waited(f, one_touched("振込"))["message"])   # 会話AIが話す通話も同じ文
+        f = self.flow(alternatives=self.ALT, led=("",))   # 先に並べた文が決まらなかった質問は、質問の順
+        self.assertEqual([(p["id"], p["text"]) for p in waited(f, one_touched("振込"))["play"]], [first])
+        # 判定に一緒に読ませる選択肢は、先に並べた文のある質問だけ（ひとことの文の仕事の5つ目。無い質問の仕事は今のまま＝4つ）
+        f = self.flow(alternatives=self.ALT, led=(ALT2,)); self.unlinked(f)
+        self.assertEqual(f.grounding_jobs("replay_opening", {"part": "talk", "answer": ON}), [(f.knowledge, self.OFF, ON, self.PAY2, ("カード", "振込"))])
+        f = self.flow(alternatives=self.ALT); self.unlinked(f)
+        self.assertEqual(f.grounding_jobs("replay_opening", {"part": "talk", "answer": ON}), [(f.knowledge, self.OFF, ON, self.PAY2)])
+        # 1つの選択肢に触れた読みも「触れている」（伺い15）：お話に沿った受け答えでないひとことのあとは「それでは」＋言い換えた質問
+        f = self.flow(alternatives=self.ALT, led=(ALT2,)); self.unlinked(f)
+        said = "さようでございますか。お振込ですね。"
+        grounded(f, said, touch=one_touched("振込"))
+        self.assertEqual(f.apply("replay_opening", {"part": "talk", "answer": said, "fallback": "talk_heard_nod"}).get("say"), said + "それでは" + self.PAY2)
+        # 録音で流す形の一覧：先に並べた文ごとに1本（「番号_alternatives_（先に並べた選択肢の番号）」・頭は無い）
+        forms = {(p["id"], p.get("lead") or ""): p["text"]
+                 for p in question_forms(list(self.flow(alternatives=self.ALT, led=(ALT2,)).questions.values()), "Q2")}
+        before = {(p["id"], p.get("lead") or ""): p["text"] for p in question_forms(list(self.flow(alternatives=self.ALT).questions.values()), "Q2")}
+        self.assertEqual({k: v for k, v in forms.items() if k not in before}, {(led[0], ""): ALT2})
+
+    def test_the_touch_names_the_option_in_the_same_answer(self):
+        # 伺い16＝イ：触れたかの項目の答えの形を、触れた選択肢の名前まで返す形に広げる（項目は足さない＝同じ1回の問い合わせ）。選択肢を添えないときは今の形
+        import asyncio
+        import unittest.mock as m
+
+        import grounding
+        from grounding import NO_FACT, TOUCH, TOUCHED, UNTOUCHED, one_touched, prompt, read, touched, touched_option, touches
+        from meaning_judge import RACE, decision_model, takes_part
+        k, s, d, opts = ["業務の情報：x"], self.OFF, "さようでございますか。", ("カード", "振込")
+        self.assertIs(touches(()), TOUCH)
+        names = touches(opts)
+        self.assertEqual(list(names), [one_touched("カード"), one_touched("振込"), TOUCHED, UNTOUCHED])
+        self.assertEqual(prompt(k, s, d, self.PAY2), prompt(k, s, d, self.PAY2, ()))
+        with_o = prompt(k, s, d, self.PAY2, opts)
+        self.assertTrue(with_o.startswith(prompt(k, s, d)))
+        for n, desc in names.items():
+            self.assertIn(f"- {n}：{desc}", with_o)
+        self.assertEqual(grounding.schema(self.PAY2, opts)["properties"]["touch"]["enum"], list(names))
+        answer = '{"choice": "%s", "part": "", "touch": "%s"}'
+        v = read(answer % (NO_FACT, one_touched("振込")), touch=True, options=opts)
+        self.assertEqual((v.touch, touched_option(v.touch, opts), touched(v.touch, opts)), (one_touched("振込"), "振込", True))
+        self.assertEqual(read(answer % (NO_FACT, one_touched("振込")), touch=True).touch, "")   # 選択肢を添えていない問い合わせの答えに選択肢の名前は無い
+        self.assertEqual(read(answer % (NO_FACT, one_touched("現金")), touch=True, options=opts).touch, "")
+        self.assertEqual([touched_option(t, opts) for t in (TOUCHED, UNTOUCHED, "")], ["", "", ""])
+        self.assertEqual([touched(t, opts) for t in (TOUCHED, UNTOUCHED, "")], [True, False, False])
+        # 組（make_grounder）は、選択肢を添えたときだけ5つ目を渡す
+        got = []
+
+        def reader(args, name, route=None):
+            async def call(knowledge, said, draft, *asking):
+                got.append(asking)
+                v = grounding.Verdict(NO_FACT)
+                v.by, v.sure = name, None
+                return v
+            return call
+        sonnet = next(n for n in RACE if takes_part(n, "ground") and not decision_model(n))
+        with m.patch.object(grounding, "make_reader", reader):
+            ground = grounding.make_grounder(None, (sonnet,))
+        asyncio.run(ground(k, s, d, self.PAY2)); asyncio.run(ground(k, s, d, self.PAY2, opts))
+        self.assertEqual(got, [(self.PAY2,), (self.PAY2, opts)])
+        # Jev（公式の型）：触れたかの別の問い1つの選べるものを広げる（問いは同じ1つ）
+        jev = next(n for n in RACE if decision_model(n) and takes_part(n, "ground"))
+
+        class Client:
+            bodies = []
+
+            async def post(self, path, json):
+                self.bodies.append(json)
+                ans = {"choice": {"choice": NO_FACT, "confidence": 0.99}, "touch": {"choice": one_touched("振込"), "confidence": 0.99}}
+                return m.Mock(raise_for_status=lambda: None, json=lambda: {"answers": ans})
+        c = Client()
+        v = asyncio.run(grounding.ask_other(c, jev, k, s, d, asking=self.PAY2, options=opts))
+        self.assertEqual((sorted(c.bodies[0]["questions"]), c.bodies[0]["questions"]["touch"]["criteria"], v.touch),
+                         (["choice", "touch"], names, one_touched("振込")))
 
     def test_the_touch_is_read_in_the_same_request_only_when_asked(self):
         # 触れたかの項目は、質問を添えたときだけ問い合わせに入る（添えないときの文・答えの形は今と1文字も違わない＝ほかの仕事と測りの文の指紋は変わらない）
@@ -26650,27 +26753,51 @@ class AlternativesTest(unittest.TestCase):
             self.assertFalse(alternatives_fits(q), q.id)
 
     def test_the_import_asks_two_text_ais_and_the_thinking_sonnet(self):
+        # 先に並べる選択肢ごとの文（伺い16＝イ。✅ 2026-11-14 日本時間23時45分00秒）は、質問の順の文と同じ問い合わせで書かせる（並べ方ごとの行を同じ問い合わせに
+        # 足す＝alternatives.orders。質問の順の文からの並べ替えは、選択肢に付く「お」と選択肢ごとの言い方が一緒に動くので作らない）。形は同じ1か所（alternatives.fits
+        # を並べた順で）・中身の判定は質問ごとに1回（その質問の文をまとめて読む）＝問い合わせの数は増えない
         from unittest import mock
         import alternatives
         import import_ai
+        ALT2 = "お振込になさいますかそれともカードの方がよろしいでしょうか？"
         way = "ご連絡はメールと電話のどちらがよろしいでしょうか？"
         way2 = "メールになさいますかそれともお電話の方がよろしいでしょうか？"
+        way3 = "お電話になさいますかそれともメールの方がよろしいでしょうか？"
+        self.assertEqual(alternatives.orders(("カード", "振込")), [("振込", "カード")])
+        self.assertEqual(alternatives.orders(("メール", "電話", "FAX")), [("電話", "メール", "FAX"), ("FAX", "メール", "電話")])
+        self.assertTrue(alternatives.fits(self.PAY, ("振込", "カード"), "choice", ALT2))
+        self.assertFalse(alternatives.fits(self.PAY, ("振込", "カード"), "choice", self.ALT))   # 並べた順になっていない
         items = [(self.PAY, ("カード", "振込"), "choice"), (way, ("メール", "電話"), "choice")]
-        rows = iter([[self.ALT, "メールとお電話のどちらですか？"], [self.ALT, way2], [way2]])
-        seen = []
+        rows = iter([[self.ALT, ALT2, "メールとお電話のどちらですか？", way3], [self.ALT, ALT2, way2, way3], [way2]])
+        seen, checked = [], []
 
         def by_model(client, model, its, think=False):
-            seen.append((model, think, len(its)))
+            seen.append((model, think, [c for _, c, _ in its]))
             return next(rows)
-        with mock.patch.object(alternatives, "by_model", by_model), mock.patch.object(alternatives, "grounded", lambda c, m, *a: True):
-            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [self.ALT, way2])
-        self.assertEqual(seen, [("m1", False, 2), ("m2", False, 2), ("sonnet", True, 1)])
-        rows = iter([[self.ALT, way2], [self.ALT, way2]])
+
+        def ok(c, m, text, conds, qtype, line):
+            checked.append(line)
+            return True
+        with mock.patch.object(alternatives, "by_model", by_model), mock.patch.object(alternatives, "grounded", ok):
+            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")),
+                             [(self.ALT, (ALT2,)), (way2, (way3,))])
+        orders = [("カード", "振込"), ("振込", "カード"), ("メール", "電話"), ("電話", "メール")]
+        self.assertEqual(seen, [("m1", False, orders), ("m2", False, orders), ("sonnet", True, [("メール", "電話")])])
+        self.assertEqual(checked, [self.ALT + "\n" + ALT2, way2 + "\n" + way3])
+        rows = iter([[self.ALT, ALT2, way2, way3], [self.ALT, ALT2, way2, way3]])
         with mock.patch.object(alternatives, "by_model", by_model):
-            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items), ["", ""])   # 中身を確かめられない＝使わない
-        rows = iter([[self.ALT, "メールとお電話のどちらですか？"], [self.ALT, way2], [way2]])
-        with mock.patch.object(alternatives, "by_model", by_model), mock.patch.object(alternatives, "grounded", lambda c, m, *a: a[-1] != way2):
-            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [self.ALT, ""])
+            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items), [("", ("",)), ("", ("",))])   # 中身を確かめられない＝使わない
+        # 中身の判定が通らない質問は、その質問の文を全部使わない（どの文が事実を足したかは分からない）
+        rows = iter([[self.ALT, ALT2, way2, way3], [self.ALT, ALT2, way2, way3]])
+        with mock.patch.object(alternatives, "by_model", by_model), mock.patch.object(alternatives, "grounded", lambda c, m, *a: way2 not in a[-1]):
+            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [(self.ALT, (ALT2,)), ("", ("",))])
+        # 先に並べた文だけが形に合わない（並べた順になっていない）＝その文だけ空（質問の順の文は使う）。質問の順の文が決まらなければ、先に並べた文も使わない
+        # （中身の判定にも出さない）
+        rows = iter([[self.ALT, self.ALT, "", way3], [self.ALT, self.ALT, "", way3], [self.ALT, ""]])
+        checked.clear()
+        with mock.patch.object(alternatives, "by_model", by_model), mock.patch.object(alternatives, "grounded", ok):
+            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [(self.ALT, ("",)), ("", ("",))])
+        self.assertEqual(checked, [self.ALT])
         self.assertIn("decide_alternatives", import_ai.REFEREED)
         self.assertIn("decide_alternatives", import_ai.deciders([("a", "m1"), ("b", "m2")], referee=("c", "sonnet")))
 
