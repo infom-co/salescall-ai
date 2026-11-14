@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -628,7 +629,7 @@ CL-1 の1か所（`import_ai.decide_since`＝2つのモデルがそろう・そ�
 
 AnnounceDecider = Callable[[list[tuple[str, str]]], list[str]]
 """ご承認を伺う質問のお知らせの文を決める処理（(説明＝入る一言, 質問の文) の並び → 同じ並びで、お知らせの文か空）。決め方は CL-1 の1か所（`import_ai.decide_announces`
-＝2つのモデルがそろう・そろわなければ考える Sonnet・中身の判定。考える Sonnet は referee＝つなぐ所が渡す）。渡すのはご承認を伺う質問だけ（`_decided_announces`）。
+＝2つのモデルがそろう・そろわなければ考える Sonnet・中身の判定。考える Sonnet は referee＝つなぐ所が渡す）。渡すのはご承認を伺う質問だけ（`_decided_approvals`）。
 管理者も契約者も確かめない（CL-1 の連絡帳 4-150）"""
 
 
@@ -649,6 +650,27 @@ RewordItems = Callable[[dict[str, Any]], list[tuple[str, tuple[str, ...], str]]]
 言葉の種類で決まる＝こちらでは決めない）。こちらは選び方を持たない（2か所にしない。`WayPairs` と同じ形）。決める処理と一緒に、つなぐ所が渡す。"""
 
 
+MatterDecider = Callable[[list[tuple[str, str]]], list[str]]
+"""ご承認のお知らせの中身の名詞を決める処理（(説明＝入る一言, 質問の文) の並び → 同じ並びで名詞か空。空＝「先ほどの内容」）。決め方は CL-1 の1か所
+（`import_ai.decide_matters`＝2つのモデルがそろって説明と質問の文の中の言葉・そろわなければ考える Sonnet。考える Sonnet は referee＝つなぐ所が渡す）。渡すのは
+お知らせの文と同じご承認を伺う質問だけ（`_decided_approvals` の1か所）。管理者も契約者も確かめない。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10」
+（CL-1 の連絡帳 4-154）"""
+
+
+AlternativesDecider = Callable[[list[tuple[str, tuple[str, ...], str]]], list[tuple[str, tuple[str, ...]]]]
+"""お客様の意向がまだ分からないまま戻るときの、選択肢を並べた質問の文を決める処理（(質問の文, 選択肢の並び, 型) の並び → 同じ並びで、質問ごとの組
+(質問の順の文, 先に並べた文の並び)。空の文＝決まらなかった）。決め方は CL-1 の1か所（`import_ai.decide_alternatives`＝2つのモデルがそろう・そろわなければ
+考える Sonnet・中身の判定。考える Sonnet は referee＝つなぐ所が渡す。先に並べた文の並びの番目は CL-1 の alternatives.orders＝こちらは並べ方を持たない）。
+渡す質問は会話の側の決まり（flowctl.alternatives_fits）で並べたもの（`AlternativesItems`）。管理者も契約者も確かめない。✅ 2026-11-14 日本時間22時15分15秒・
+23時45分00秒「伺い16はイでOK」（CL-1 の連絡帳 4-156・4-157）"""
+
+
+AlternativesItems = Callable[[dict[str, Any]], list[tuple[str, tuple[str, ...], str]]]
+"""選択肢を並べた質問の文を決めるために、業務設定から (質問の文, 選択肢の並び, 型) の並びを作る処理（確かめに通った業務設定の中身 → 並び）。どの質問を渡すかは
+会話の側の1か所（CL-1 の `flowctl.alternatives_fits`＝意向が分からないまま戻る質問のうち、業務の選ぶ質問で選択肢が2つ以上）。こちらは選び方を持たない
+（`RewordItems` と同じ形）。決める処理と一緒に、つなぐ所が渡す。"""
+
+
 def _decided_maybes(raw: dict[str, Any], decide: MaybeDecider | None) -> dict[str, list[str]]:
     """選ぶ質問ごとに、どちらの場合もありうるときに確かめる (答え, 言葉) を、決める処理に1回だけ聞く（答え＝質問の文と選択肢 → [選択肢, 言葉] か空）。
     答えが無い・形が違う・選択肢に無い名前・言葉が空・決める処理が渡されないときは空（確かめない＝今までどおり「どちらでも」は聞き直す。CL-1 の
@@ -667,7 +689,7 @@ def _decided_maybes(raw: dict[str, Any], decide: MaybeDecider | None) -> dict[st
 def _ai_empty(q: dict[str, Any], key: str) -> bool:
     """取込のときの AI だけが決める欄（business_settings.AI_ONLY_KEYS）が、まだ入口から来ていないか（無い・None・空）。入口が持ってきた文（前の版から作り直す
     ときの中身など）があれば聞かない。"""
-    return q.get(key) in (None, "")
+    return q.get(key) in (None, "", [], ())   # 並びの欄（business_settings.AI_ONLY_LISTS）は空の並び
 
 
 def _announce_key(intro: str, text: str) -> str:
@@ -675,12 +697,13 @@ def _announce_key(intro: str, text: str) -> str:
     return json.dumps([intro, text], ensure_ascii=False)
 
 
-def _decided_announces(raw: dict[str, Any], decide: AnnounceDecider | None) -> dict[str, str]:
-    """ご承認を伺う質問ごとに、お知らせの文を決める処理に1回だけ聞く（答え＝入る一言と質問の文 → 文。決まらない・形の違う答えは入れない＝今の形）。聞くのは、
-    ご承認を伺う質問（approval が真）で、お知らせの文がまだ入口から来ていないもの（CL-1 の連絡帳 4-150：「(説明, 質問の文) の並び」）。"""
+def _decided_approvals(raw: dict[str, Any], key: str, decide: AnnounceDecider | MatterDecider | None) -> dict[str, str]:
+    """ご承認を伺う質問ごとに、その欄（key＝business_settings.APPROVAL_ONLY_KEYS のお知らせの文 announce・お知らせの中身の名詞 matter）を決める処理に1回だけ
+    聞く（1か所。答え＝入る一言と質問の文 → 文。決まらない・形の違う答えは入れない＝今の形）。聞くのは、ご承認を伺う質問（approval が真）で、その欄がまだ
+    入口から来ていないもの（CL-1 の連絡帳 4-150・4-154：「(説明, 質問の文) の並び」。渡すのは approval の質問だけ）。"""
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     pairs = list(dict.fromkeys((q.get("intro") if isinstance(q.get("intro"), str) else "", q["text"]) for q in qs
-                               if isinstance(q, dict) and q.get("approval") is True and _ai_empty(q, "announce")
+                               if isinstance(q, dict) and q.get("approval") is True and _ai_empty(q, key)
                                and isinstance(q.get("text"), str) and q["text"].strip()))
     if not pairs or decide is None:
         return {}
@@ -700,14 +723,31 @@ def _decided_since(s: business_settings.Settings, decide: SinceDecider | None) -
     return _decided(sorted({q.text for q in s.questions if rules.calls_back(q.id) and not q.since and q.text.strip()}), decide)
 
 
-def _decided_rewords(raw: dict[str, Any], decide: RewordDecider | None, items_of: RewordItems | None) -> dict[str, str]:
-    """言い換えた質問の文を、決める処理に1回だけ聞く（答え＝質問の文 → 言い換えた文。決まらない・形の違う答えは入れない＝「ところで」＋元の質問の文）。聞く
-    並びは会話の側の決まりで並べたもの（items_of＝つなぐ所が渡す。確かめに通った中身から）のうち、言い換えがまだ入口から来ていない質問の文だけ（同じ文は1回）。
-    決める処理か並べる処理が渡されないときは聞かない。"""
+def _reworded(answer: Any) -> str | None:
+    """言い換えた質問の決める処理の答えの1つを読む（文か None＝決まらない・形が違う＝「ところで」＋元の質問の文）。"""
+    return answer.strip() if isinstance(answer, str) and answer.strip() else None
+
+
+def _alternatives(answer: Any) -> list[Any] | None:
+    """選択肢を並べた文の決める処理の答えの1つ＝組 (質問の順の文, 先に並べた文の並び) を読む（[文, [文, …]] か None＝決まらない・形が違う）。先に並べた文の
+    並びは、そのまま（空の文も番目のまま。CL-1 の連絡帳 4-157：「組の2つ目をそのまま入れてください」）。どれも空なら決まらない。"""
+    if not (isinstance(answer, (tuple, list)) and len(answer) == 2 and isinstance(answer[0], str) and isinstance(answer[1], (tuple, list))
+            and all(isinstance(x, str) for x in answer[1])):
+        return None
+    first, led = answer[0].strip(), [x.strip() for x in answer[1]]
+    return [first, led] if first or any(led) else None
+
+
+def _decided_items(raw: dict[str, Any], keys: tuple[str, ...], decide: RewordDecider | AlternativesDecider | None,
+                   items_of: RewordItems | AlternativesItems | None, read: Callable[[Any], Any]) -> dict[str, Any]:
+    """会話の側が並べた質問（(質問の文, 選択肢, 型)）ごとに、その欄（keys）を決める処理に1回だけ聞く（1か所＝言い換えた質問 reworded・選択肢を並べた文
+    alternatives と先に並べた文の並び alternatives_led。答え＝質問の文 → read で読んだ答え。決まらない・形の違う答えは入れない＝今の形）。聞く並びは会話の側の
+    決まりで並べたもの（items_of＝つなぐ所が渡す。確かめに通った中身から）のうち、その欄がまだ入口から来ていない質問の文だけ（同じ文は1回）。答えは質問の文で
+    引く（選択肢の並びの書き方が、こちらと会話の側で違っても当たるように）。決める処理か並べる処理が渡されないときは聞かない。"""
     if decide is None or items_of is None:
         return {}
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
-    given = {q.get("text") for q in qs if isinstance(q, dict) and not _ai_empty(q, "reworded")}
+    given = {q.get("text") for q in qs if isinstance(q, dict) and not all(_ai_empty(q, k) for k in keys)}
     items, seen = [], set()
     for text, choices, kind in items_of(raw):
         if isinstance(text, str) and text.strip() and text not in given and text not in seen:
@@ -718,18 +758,20 @@ def _decided_rewords(raw: dict[str, Any], decide: RewordDecider | None, items_of
     got = decide(items)
     if not isinstance(got, list) or len(got) != len(items):
         return {}
-    return {text: s.strip() for (text, _, _), s in zip(items, got) if isinstance(s, str) and s.strip()}
+    return {text: x for (text, _, _), a in zip(items, got) if (x := read(a)) is not None}
 
 
 def _decided_later(p: Preview, *, decide_way_words: WayWordsDecider | None, way_pairs: WayPairs | None, decide_since: SinceDecider | None,
-                   decide_rewords: RewordDecider | None, reword_items: RewordItems | None) -> dict[str, Any]:
+                   decide_rewords: RewordDecider | None, reword_items: RewordItems | None,
+                   decide_alternatives: AlternativesDecider | None, alternatives_items: AlternativesItems | None) -> dict[str, Any]:
     """確かめに通った中身（p。問題が無い）から決める AI の答え（1か所。`preview_shaped` が1回だけ聞き、決まれば AI の答えに入れて確かめ直す＝登録も同じ AI の
-    答えから同じ中身になる）：方法を申し出の中身に入れる言い方（way_words）・その後の文の中身（since）・言い換えた質問（rewords）。どれも、確かめに通った
-    中身でなければ選べない（会話の側が並べる・必須かが分岐の置き換えで決まる）。"""
+    答えから同じ中身になる）：方法を申し出の中身に入れる言い方（way_words）・その後の文の中身（since）・言い換えた質問（rewords）・選択肢を並べた文と先に
+    並べた文の並び（alternatives）。どれも、確かめに通った中身でなければ選べない（会話の側が並べる・必須かが分岐の置き換えで決まる）。"""
     if p.raw is None or p.problems or p.settings is None:
         return {}
     later = {"way_words": _decided_way_words(p, decide_way_words, way_pairs), "since": _decided_since(p.settings, decide_since),
-             "rewords": _decided_rewords(p.raw, decide_rewords, reword_items)}
+             "rewords": _decided_items(p.raw, ("reworded",), decide_rewords, reword_items, _reworded),
+             "alternatives": _decided_items(p.raw, ("alternatives", "alternatives_led"), decide_alternatives, alternatives_items, _alternatives)}
     return {k: v for k, v in later.items() if v}
 
 
@@ -1012,7 +1054,8 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
            decide_unclear: UnclearDecider | None = None, decide_doubt_words: DoWordsDecider | None = None,
            decide_ways: WaysDecider | None = None, decide_maybes: MaybeDecider | None = None,
            decide_purposes: PurposeDecider | None = None, offer_question: OfferQuestion | None = None,
-           decide_announces: AnnounceDecider | None = None, decide_at_hand: AtHandDecider | None = None) -> dict[str, Any]:
+           decide_announces: AnnounceDecider | None = None, decide_at_hand: AtHandDecider | None = None,
+           decide_matters: MatterDecider | None = None) -> dict[str, Any]:
     """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味・事実を伺う質問かを決める処理。
     どれも CL-1 の決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics":
     質問の文 → 聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢},
@@ -1021,7 +1064,8 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
     "unclear": 質問の文と選択肢 → ほかに分からない点は無いにあたる選択肢か空（選ぶ質問すべて）, "ways": 質問の文 → ご案内の方法を伺う質問か,
     "maybes": 質問の文と選択肢 → どちらの場合もありうるときに確かめる [選択肢, 言葉] か空（選ぶ質問すべて）, "purposes": 用件の一文 → 用件の名詞,
     "announces": 入る一言と質問の文 → ご承認のお知らせの文（ご承認を伺う質問だけ）, "at_hand": 質問の文と選択肢 → 資料がお手元に届いているにあたる選択肢か空
-    （選ぶ質問すべて）}。確かめに通った中身から決めるもの（方法を申し出の中身に入れる言い方・その後の文の中身・言い換えた質問）は `_decided_later`。
+    （選ぶ質問すべて）, "matters": 入る一言と質問の文 → ご承認のお知らせの中身の名詞（お知らせの文と同じ質問）}。確かめに通った中身から決めるもの（方法を
+    申し出の中身に入れる言い方・その後の文の中身・言い換えた質問・選択肢を並べた文）は `_decided_later`。
     締める前の申し出（入口がこちらがすることを書いていないとき）は、会話の側が N6 で使う意味の言葉（offer_question）を持つはい／いいえの質問として、
     こちらがすることの言葉の聞く並びに入れる（`_with_offer`。同じ1回の問い合わせで、業務の選ぶ質問と同じ決め方。意味の言葉は聞かない）。方法を申し出の
     中身に入れる言い方は、確かめに通った中身から並べて聞く（`preview_shaped` の `_decided_way_words`）。
@@ -1042,8 +1086,9 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
             "ways": _decided_ways(sorted({q["text"] for q in _undecided(raw, "asks_way")}), decide_ways),
             "maybes": _decided_maybes(raw, decide_maybes),
             "purposes": _decided_purposes(raw, decide_purposes),
-            "announces": _decided_announces(raw, decide_announces),
-            "at_hand": _decided_choice(raw, "at_hand", decide_at_hand)}
+            "announces": _decided_approvals(raw, "announce", decide_announces),
+            "at_hand": _decided_choice(raw, "at_hand", decide_at_hand),
+            "matters": _decided_approvals(raw, "matter", decide_matters)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -1160,14 +1205,16 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         if not isinstance(q, dict):
             continue
         text = q.get("text") if isinstance(q.get("text"), str) else None
+        approval = _announce_key(q.get("intro") if isinstance(q.get("intro"), str) else "", text) if q.get("approval") is True and text else None
+        listed = (ai.get("alternatives") or {}).get(text) or [None, None]
         found = {"since": (ai.get("since") or {}).get(text), "reworded": (ai.get("rewords") or {}).get(text),
-                 "announce": (ai.get("announces") or {}).get(_announce_key(q.get("intro") if isinstance(q.get("intro"), str) else "", text))
-                 if q.get("approval") is True and text else None}
+                 "announce": (ai.get("announces") or {}).get(approval), "matter": (ai.get("matters") or {}).get(approval),
+                 "alternatives": listed[0], "alternatives_led": listed[1]}
         for key in business_settings.AI_ONLY_KEYS:
             if _ai_empty(q, key) and found.get(key):
-                q[key] = found[key]
+                q[key] = copy.deepcopy(found[key])
             elif key in q and q[key] is None:
-                q[key] = ""
+                q[key] = business_settings.ai_only_empty(key)
     # 方法を申し出の中身に入れる言い方：入口に無ければ AI の答え（決まらなければ入れない＝会話の側は「（方法）で」。CL-1 の連絡帳 4-132）
     if raw.get("way_words") is None and ai.get("way_words"):
         raw["way_words"] = ai["way_words"]
@@ -1238,19 +1285,21 @@ def preview_shaped(tx: Tx, business_id: UUID, raw: Any, *, problems: list[str] |
                    where: dict[str, list[str]] | None = None, confirmed_names: Any = (),
                    decide_way_words: WayWordsDecider | None = None, way_pairs: WayPairs | None = None,
                    decide_since: SinceDecider | None = None, decide_rewords: RewordDecider | None = None, reword_items: RewordItems | None = None,
+                   decide_alternatives: AlternativesDecider | None = None, alternatives_items: AlternativesItems | None = None,
                    **deciders: Any) -> Preview:
     """業務設定の形にした中身のプレビュー（取込のどの入口も通る共通の1か所：ファイル＝`preview`・⏳ 依頼者の画面から抜き出したもの
     （方式C）・業務の資料一式・画面の入力）。何も書かない。形にしたあと、AI に聞く前に、依頼者の解決策で足した想定問答を残し（`_kept`。
     ⛔ 2026-11-07 の第三者の見直し (2) の6：前はファイルの入口だけが残していた。⛔ 2026-11-06 の2回目の見直し (3) の A-1：残す文の名前も
     洗い出すので、AI に聞く前）、AI に1回だけ聞き（`ask_ai`。deciders＝その決め方）、確かめる（`review`）。返す Preview の ai を、登録
     （`register_shaped`）にそのまま渡す。方法を申し出の中身に入れる言い方（並べるのは会話の側＝way_pairs）・その後の文の中身（かけ直しうる必須の質問は分岐の
-    置き換えのあとで決まる）・言い換えた質問（並べるのは会話の側＝reword_items）は、確かめに通った中身から1回だけ聞き（`_decided_later`）、決まれば AI の答えに
-    入れて確かめ直す（登録も同じ AI の答えから同じ中身になる）。"""
+    置き換えのあとで決まる）・言い換えた質問（並べるのは会話の側＝reword_items）・選択肢を並べた文（並べるのは会話の側＝alternatives_items）は、確かめに通った
+    中身から1回だけ聞き（`_decided_later`）、決まれば AI の答えに入れて確かめ直す（登録も同じ AI の答えから同じ中身になる）。"""
     raw, kept, _ = _kept(tx, business_id, raw)
     ai = ask_ai(raw, **deciders) if isinstance(raw, dict) else {}
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     if later := _decided_later(p, decide_way_words=decide_way_words, way_pairs=way_pairs, decide_since=decide_since,
-                               decide_rewords=decide_rewords, reword_items=reword_items):
+                               decide_rewords=decide_rewords, reword_items=reword_items,
+                               decide_alternatives=decide_alternatives, alternatives_items=alternatives_items):
         p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai={**ai, **later}, problems=problems, where=where)
     p.notes = kept + p.notes
     return p
@@ -1291,10 +1340,11 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
             way_pairs: WayPairs | None = None, offer_question: OfferQuestion | None = None,
             decide_since: SinceDecider | None = None, decide_announces: AnnounceDecider | None = None,
             decide_at_hand: AtHandDecider | None = None, decide_rewords: RewordDecider | None = None,
-            reword_items: RewordItems | None = None) -> Preview:
+            reword_items: RewordItems | None = None, decide_matters: MatterDecider | None = None,
+            decide_alternatives: AlternativesDecider | None = None, alternatives_items: AlternativesItems | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
-    返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。way_pairs・offer_question・reword_items は、決める処理と一緒につなぐ所が渡す会話の側の
-    1か所（`WayPairs`・`OfferQuestion`・`RewordItems`）。考える Sonnet（referee）は、つなぐ所が CL-1 の import_ai.deciders に渡して決める処理に入っている
+    返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。way_pairs・offer_question・reword_items・alternatives_items は、決める処理と一緒に
+    つなぐ所が渡す会話の側の1か所（`WayPairs`・`OfferQuestion`・`RewordItems`・`AlternativesItems`）。考える Sonnet（referee）は、つなぐ所が CL-1 の import_ai.deciders に渡して決める処理に入っている
     （こちらは受け取るだけ）。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
@@ -1307,7 +1357,8 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
                        decide_doubt_words=decide_doubt_words, decide_ways=decide_ways, decide_maybes=decide_maybes,
                        decide_purposes=decide_purposes, decide_way_words=decide_way_words, way_pairs=way_pairs,
                        offer_question=offer_question, decide_since=decide_since, decide_announces=decide_announces,
-                       decide_at_hand=decide_at_hand, decide_rewords=decide_rewords, reword_items=reword_items)
+                       decide_at_hand=decide_at_hand, decide_rewords=decide_rewords, reword_items=reword_items,
+                       decide_matters=decide_matters, decide_alternatives=decide_alternatives, alternatives_items=alternatives_items)
     p.notes = notes + p.notes
     return p
 

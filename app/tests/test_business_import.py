@@ -844,10 +844,78 @@ class Import(unittest.TestCase):
             with self.subTest(bad=sorted(bad)):
                 p = self.preview(data, decide_since=bad["since"], decide_announces=bad["announces"], decide_at_hand=bad["at_hand"],
                                  decide_rewords=bad["rewords"], reword_items=items_of)
-                self.assertEqual((p.problems, [tuple(q[k] for k in bs.AI_ONLY_KEYS) for q in p.raw["questions"]]), ([], [("", "", "", "")] * 3))
+                self.assertEqual((p.problems, [tuple(q[k] for k in bs.AI_ONLY_KEYS) for q in p.raw["questions"]]),
+                                 ([], [tuple(bs.ai_only_empty(k) for k in bs.AI_ONLY_KEYS)] * 3))
         for kw2 in ({}, {"decide_rewords": rewords}, {"reword_items": items_of}):   # 決める処理か並べる処理が無い＝聞かない
             with self.subTest(kw=sorted(kw2)):
                 self.assertEqual([q["reworded"] for q in self.preview(data, **kw2).raw["questions"]], [""] * 3)
+
+    def test_the_matter_and_the_alternatives_are_asked_once_and_kept_at_registration(self):
+        """CL-1 の連絡帳 4-154・4-156・4-157（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」・22時15分15秒・23時45分00秒「伺い16はイでOK」）：
+        - お知らせの中身の名詞（matter）：ご承認を伺う質問の (入る一言, 質問の文) を decide_matters（CL-1 の import_ai.decide_matters）に1回だけ（お知らせの文
+          announce と同じ並べ方の1か所）。答えは同じ並びの名詞（空＝「先ほどの内容」）。
+        - 選択肢を並べた文（alternatives）と先に並べた文の並び（alternatives_led）：会話の側が並べた (質問の文, 選択肢, 型)（alternatives_items＝CL-1 の
+          flowctl.alternatives_fits。つなぐ所が渡す）を decide_alternatives に、確かめに通った中身から1回だけ（言い換えた質問 reworded と同じ1か所）。答えは
+          質問ごとの組 (質問の順の文, 先に並べた文の並び)：1つ目を alternatives、2つ目をそのまま alternatives_led へ（決まらなかった選択肢の空の文も番目のまま）。
+        考える Sonnet（referee）は、つなぐ所が CL-1 の deciders に渡して決める処理に入っている（こちらは受け取るだけ）。登録はプレビューの答えのまま（聞き直さない）。
+        決まらない・形の違う答え・決める処理が無いときは空（会話の側は今の形）。"""
+        asked = {"matters": [], "alternatives": [], "items": []}
+        q1, q3 = self.APPROVAL_QUESTIONS[1][1], self.APPROVAL_QUESTIONS[3][1]
+        intro = self.APPROVAL_QUESTIONS[3][8]
+        listed = "するになさいますかそれともしないの方がよろしいでしょうか？"
+        led = "しないになさいますかそれともするの方がよろしいでしょうか？"
+
+        def matters(pairs):
+            asked["matters"].append(pairs)
+            return ["前日までのお支払い" for _ in pairs]
+
+        def items_of(content):
+            asked["items"].append([q["id"] for q in content["questions"]])
+            return [(q["text"], tuple(q.get("choices") or ()), q["type"]) for q in content["questions"] if q["id"] == "Q1"]
+
+        def alternatives(items):
+            asked["alternatives"].append(items)
+            return [(listed, (led,)) for _ in items]
+
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        p = self.preview(data, decide_matters=matters, decide_alternatives=alternatives, alternatives_items=items_of)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, {"matters": [[(intro, q3)]], "alternatives": [[(q1, ("する", "しない"), "choice")]], "items": [["Q1", "Q2", "Q3"]]})
+        want = [("", listed, [led]), ("", "", []), ("前日までのお支払い", "", [])]
+        self.assertEqual([(q["matter"], q["alternatives"], q["alternatives_led"]) for q in p.raw["questions"]], want)
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual([(q.matter, q.alternatives, list(q.alternatives_led)) for q in got.questions], want)
+        self.assertEqual([len(x) for x in asked.values()], [1] * 3)   # 登録は聞き直さない
+        # 先に並べた文が決まらなかった選択肢は空の文のまま番目に残す（質問の順の文だけ決まった・先に並べた文だけ決まった）
+        for answer, kept in (((listed, ("",)), (listed, [""])), (("", (led,)), ("", [led]))):
+            with self.subTest(answer=answer):
+                p = self.preview(data, decide_alternatives=lambda items, a=answer: [a for _ in items], alternatives_items=items_of)
+                self.assertEqual((p.problems, (p.raw["questions"][0]["alternatives"], p.raw["questions"][0]["alternatives_led"])), ([], kept))
+        # 決まらない・形の違う答え・決める処理が無い＝空
+        for bad_m, bad_a in ((lambda p: [""], lambda i: [("", ("",))]), (lambda p: None, lambda i: None), (lambda p: [1], lambda i: [listed]),
+                             (lambda p: ["a", "b"], lambda i: [(listed, led)]), (lambda p: [], lambda i: [(listed, (led,)), (listed, (led,))]),
+                             (lambda p: [" "], lambda i: [(listed, (1,))]), (lambda p: [None], lambda i: [(1, (led,))])):
+            with self.subTest(bad=(bad_m, bad_a)):
+                p = self.preview(data, decide_matters=bad_m, decide_alternatives=bad_a, alternatives_items=items_of)
+                self.assertEqual((p.problems, [(q["matter"], q["alternatives"], q["alternatives_led"]) for q in p.raw["questions"]]),
+                                 ([], [("", "", [])] * 3))
+        for kw in ({}, {"decide_alternatives": alternatives}, {"alternatives_items": items_of}):   # 決める処理か並べる処理が無い＝聞かない
+            with self.subTest(kw=sorted(kw)):
+                self.assertEqual([(q["alternatives"], q["alternatives_led"]) for q in self.preview(data, **kw).raw["questions"]], [("", [])] * 3)
+        # 入口が持ってきた中身（前の版から作り直すときなど）は聞かない（同じ並べ方の1か所＝お知らせの文・言い換えた質問と同じ）
+        asked = {"matters": [], "alternatives": [], "items": []}
+        raw = dict(p.raw, questions=[dict(q, matter="お支払い" if q["id"] == "Q3" else "", alternatives=listed if q["id"] == "Q1" else "")
+                                     for q in p.raw["questions"]])
+        got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], raw, decide_matters=matters, decide_alternatives=alternatives,
+                                                   alternatives_items=items_of))
+        self.assertEqual((got.problems, asked["matters"], asked["alternatives"]), ([], [], []))
+        # 空の文・空の並び（前の版から作り直した中身の、決まらなかった欄）は、まだ来ていない＝聞く
+        raw = dict(p.raw, questions=[dict(q, matter="", alternatives="", alternatives_led=[]) for q in p.raw["questions"]])
+        got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], raw, decide_matters=matters, decide_alternatives=alternatives,
+                                                   alternatives_items=items_of))
+        self.assertEqual((got.problems, len(asked["matters"]), len(asked["alternatives"])), ([], 1, 1))
+        self.assertEqual([(q["matter"], q["alternatives"], q["alternatives_led"]) for q in got.raw["questions"]], want)
 
     def test_unclear_none_is_decided_by_the_ai_for_choice_questions(self):
         """CL-1 の連絡帳 4-82（✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」）：ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢は、
