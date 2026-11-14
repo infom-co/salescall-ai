@@ -25909,6 +25909,111 @@ class AsideTest(unittest.TestCase):
         self.assertNotIn("ところで", f._asked_note(self.OFF))
         self.assertIn("同じことを別の言い方で伺い直します", f._asked_note(self.OFF))
 
+    @staticmethod
+    def reply(f, words, away=False):
+        """お返事を待っている間のお客様の言葉（判定がそろって「決められない」。away＝「別のお話」か・False＝「答えの話」＝相づちだけの返事もこちら）。"""
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, QUERY, QUERY_NO, UNDECIDED
+        from meaning_judge import Reading
+        f.on_callee(); f.on_heard(words)
+        r = Reading(UNDECIDED, firm=True)
+        setattr(r, QUERY, QUERY_NO); setattr(r, AWAY, AWAY_YES if away else AWAY_NO)
+        f.on_check("judge", r)
+
+    def test_a_word_answering_the_talk_with_our_facts_waits_for_the_reply(self):
+        # ✅ 2026-11-14 日本時間21時04分53秒 ユーザー「・”振込に触れたとき：こちら「さようでございますか。お振込でしたら月曜日以外でもご対応いただけますよ。それでは
+        # お支払いの方はカードと振込のどちらにされますか？」日程の話だけのとき：こちら「さようでございますか。お支払いは月曜日以外でも問題ございませんよ。ところでお支払いの
+        # 方はカードと振込のどちらにされますか？」”この例だと、どちらも話に沿っていますよね。その場合、「ご対応いただけますよ。」「問題ございませんよ。」の後で、お客様の
+        # 返答を待つのが一般的じゃないですか？」：業務の質問への別のお話に、会話AIのひとことがこちらの業務の情報でお話に応えた（お話に沿った受け答え＝ひとことの中身を
+        # 確かめる判定が「知っていることだけ」と読んだ・知っていることの文をそのまま言った）ときは、伺い直しを続けずにお客様のお返事を待つ（判定の項目は足さない）。待った
+        # あとは、お客様に尋ねられて答えたあとと同じ1か所（答えなら受け取る・相づちだけなら「はい、」＋「それでは」＋言い換えた質問（2回目の戻りなら「それではもう一度確認
+        # させていただきますね。」＋質問）・また別のお話なら次の別のお話の番）。待ったひとことは、その場で伺い直せる回数（10-14・11-14 14時31分38秒）の1回に数える。
+        # 気持ちを受け止めるだけのひとこと（事実を言っていない）・読みが無い・使えない文（受け答えの録音）は今のまま。申し出・方法の提案・ご承認のお知らせも今のまま
+        from grounding import GROUNDED, TOUCHED, UNTOUCHED
+        from phrases import BACK_TO_AGAIN
+        ON = "さようでございますか。お振込でしたら月曜日以外でもご対応いただけますよ。"
+        DATE = "さようでございますか。お支払いは月曜日以外でも問題ございませんよ。"
+        HOT = "さようでございますか。暑い日でもお振込はお手続きいただけますよ。"
+        hot = "本当に暑い日が続いておりますね。"
+
+        def wait(f, said=DATE, touch=""):
+            self.unlinked(f)
+            grounded(f, said, GROUNDED, touch=touch)
+            return f.apply("replay_opening", {"part": "talk", "answer": said, "fallback": "talk_heard_nod"})
+        for said, touch in ((ON, TOUCHED), (DATE, UNTOUCHED)):
+            f = self.flow()
+            r = wait(f, said, touch)
+            # ひとことだけ（相づち「はい、」も伺い直しも付けない）を言って、お返事を待つ
+            self.assertEqual((r.get("say"), r.get("play"), r.get("ack"), f.own_pending), (said, None, None, "talk"), said)
+            # その場で伺い直せる回数の1回目・判定と会話AIへの知らせはお客様がこのあと聞く言い換えた文
+            self.assertEqual((f.items["Q2"].talk_backs, f.items["Q2"].ask_backs, f.items["Q2"].offer_again, f.questions["Q2"].text), (1, 0, True, self.PAY2))
+            # 会話AIへの知らせ：お返事がいまの質問への答えなら、質問に戻らずに答えとして報告する（尋ねられて答えたあとと同じ知らせの1か所）
+            self.assertIn(self.PAY2, r["message"]); self.assertIn("record_answer", r["message"])
+            # 相づちだけ（「そうなんですね。」）：話はいまの質問から移っていない＝「はい、」＋「それでは」＋言い換えた質問（録音の一覧にある形＝録音は増えない）
+            self.reply(f, "そうなんですね。")
+            self.assertIsNone(f._asked_kind())
+            r = f.apply("replay_opening", {"part": "resume"})
+            self.assertEqual(([(p["id"], p["text"]) for p in r["play"]], r.get("ack"), f.own_pending), ([("Q2_aside", "それでは" + self.PAY2)], "hai", False), said)
+            self.assertEqual((f.items["Q2"].talk_backs, f.items["Q2"].ask_backs), (1, 0))   # 「それでは」の伺い直しは数え直さない
+        # 待っている間の答えは、そのまま受け取る
+        f = self.flow(); wait(f)
+        self.say(f, "じゃあ振込でお願いします。", "record_answer", "振込", question_id="Q2", condition_id="振込")
+        self.assertEqual((f.items["Q2"].condition, f.own_pending), ("振込", False))
+        # 相づちのつもりで「質問に戻る」を選んでも、判定がいまの質問の答えと読んだお返事は、答えとして報告し直させる（尋ねられて答えたあとと同じ1か所）
+        g = self.flow(); wait(g)
+        r = self.say(g, "じゃあ振込で。", "replay_opening", "振込", part="resume")
+        self.assertEqual((r["result"], g.own_pending), ("rejected", "talk"))
+        # 聞き取れない：今の聞き返し（その場の回数の2回目）。聞き返したあとのお言葉も、ひとことへのお返事として受ける（待つ印を残す）＝相づちだけなら「はい、」＋
+        # 「それでは」＋言い換えた質問（⛔ 入れる途中、流れの制御に通して見つけた：待つ印を消していたので「承知しました。続きまして…」で次の質問へ進んだ）
+        u = self.flow(); wait(u)
+        u.on_callee(); u.on_heard("……")
+        r = u.apply("report_unclear", {"question_id": "Q2"})
+        self.assertEqual((r["result"], u.own_pending, u.items["Q2"].ask_backs), ("ask_back", "talk", 1))
+        self.reply(u, "そうなんですね。")
+        r = u.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(([p["text"] for p in r["play"]], r.get("ack"), u.current), (["それでは" + self.PAY2], "hai", "Q2"))
+        # また別のお話：次の別のお話の番（会話AIのひとこと＋2回目の戻りの一言＋質問）。報告（「わからない」など）は受け付けない
+        k = self.flow(); wait(k)
+        r = self.talk(k, hot, "いやあ最近は暑くてねえ。")
+        self.assertEqual((r.get("say"), r.get("ack"), k.items["Q2"].talk_backs, k.own_pending), (hot + BACK_TO_AGAIN + self.PAY2, None, 2, False))
+        # 2回目の別のお話にもお話に沿った受け答えなら、また待つ（その場の回数の2回目）。相づちだけなら2回目の戻りの一言＋質問（一言がお返事を受ける＝「はい、」は重ねない）
+        m = self.flow(); wait(m)
+        self.unlinked(m, words="いやあ最近は暑くてねえ。")
+        self.assertEqual(m._asked_kind(), "offer")
+        grounded(m, HOT, GROUNDED)
+        r = m.apply("replay_opening", {"part": "talk", "answer": HOT, "fallback": "talk_heard_nod"})
+        self.assertEqual((r.get("say"), r.get("play"), m.own_pending, m.items["Q2"].talk_backs, m.current), (HOT, None, "talk", 2, "Q2"))
+        self.reply(m, "そうなんですね。")
+        r = m.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(([p["text"] for p in r["play"]], r.get("ack")), ([BACK_TO_AGAIN, self.PAY2], None))
+        # その場の回数を使い切ったあとは、お話に沿った受け答えでも今のまま（ひとことのあと「-」にして次へ＝締めの前の念のための確認で1回）
+        self.unlinked(m, words="いやあ最近は暑くてねえ。")
+        grounded(m, HOT, GROUNDED)
+        r = m.apply("replay_opening", {"part": "talk", "answer": HOT, "fallback": "talk_heard_nod"})
+        self.assertEqual((r.get("say"), m.current, m.own_pending, m.items["Q2"].state), (HOT + "続きましてご予算はおいくらほどでしょうか？", "Q3", False, "unresolved"))
+        # 気持ちを受け止めるだけのひとこと（事実を言っていない）は今のまま（続けて「ところで」＋言い換えた質問）
+        n = self.flow(); self.unlinked(n)
+        FEEL = "さようでございますか。月曜日がお休みでいらっしゃるのですね。"
+        grounded(n, FEEL)
+        r = n.apply("replay_opening", {"part": "talk", "answer": FEEL, "fallback": "talk_heard_nod"})
+        self.assertEqual((r.get("say"), n.own_pending), (FEEL + "ところで" + self.PAY2, False))
+        # 知っていることの文をそのまま言ったひとことも、こちらの事実で応えた（判定に聞かない文＝「知っていることだけ」と同じ読み）
+        line = "お支払いは月曜日以外でも問題ございません。"
+        p = self.flow(); p.knowledge = [f"お支払い：{line}"]; self.unlinked(p)
+        r = p.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_heard_nod"})
+        self.assertEqual((r.get("say"), p.own_pending), (line, "talk"))
+        # 会話AIが話す通話も同じ（ひとことだけ言って待つ）
+        q = self.flow(play=False)
+        r = wait(q)
+        self.assertEqual((r.get("say"), q.own_pending), (DATE, "talk"))
+        # ご承認のお知らせは今のまま：2回目の別のお話にお話に沿った受け答えをしても、戻る一言＋お知らせ（待たない）
+        a, _ = AnnounceTest().announced()
+        own = "さようでございますか。キャンセルのご連絡は前日までにいただく決まりとなっております。"
+        self.unlinked(a, away=None); grounded(a, own, GROUNDED)
+        a.apply("replay_opening", {"part": "talk", "answer": own, "fallback": "talk_heard_nod"})
+        self.unlinked(a, words="いやあ最近は暑くてねえ。", away=None); grounded(a, HOT, GROUNDED)
+        r = a.apply("replay_opening", {"part": "talk", "answer": HOT, "fallback": "talk_heard_nod"})
+        self.assertEqual((r.get("say"), a.own_pending), (HOT + BACK_TO_AGAIN + AnnounceTest.LINE, False))
+
     def test_the_touch_is_read_in_the_same_request_only_when_asked(self):
         # 触れたかの項目は、質問を添えたときだけ問い合わせに入る（添えないときの文・答えの形は今と1文字も違わない＝ほかの仕事と測りの文の指紋は変わらない）
         import asyncio
