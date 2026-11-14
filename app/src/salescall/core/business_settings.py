@@ -128,13 +128,24 @@ CHANGE_BY_TAILS = ("までに", "まで")
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
                  "do_words", "away", "intro", "ask_if", "approval", "final_goal", "declines", "tell_words", "ends_on", "unclear_none", "doubt_words",
                  "asks_way", "option_notes",
-                 "change_by", "definite_value", "maybe", *("since", "announce", "at_hand", "reworded")}
-# 取込のときの AI だけが決める質問の欄（依頼者・契約者・管理者は書かない＝CL-1 の帳面 0-2。CL-1 の連絡帳 4-149・4-150・4-152）：その後の文の中身 since・ご承認の
-# お知らせの文 announce・資料がお手元に届いているかを伺う質問の「届いている」にあたる選択肢 at_hand・会話が繋がらないお返事のあとの言い換えた質問 reworded。
-# どれも空（""）＝無い＝会話の側は今の形。決めるのは business_import の `_decided_later`・`ask_ai`
+                 "change_by", "definite_value", "maybe", *("since", "announce", "at_hand", "reworded", "matter", "alternatives", "alternatives_led")}
+# 取込のときの AI だけが決める質問の欄（依頼者・契約者・管理者は書かない＝CL-1 の帳面 0-2。CL-1 の連絡帳 4-149・4-150・4-152・4-154・4-156・4-157）：その後の文の
+# 中身 since・ご承認のお知らせの文 announce・資料がお手元に届いているかを伺う質問の「届いている」にあたる選択肢 at_hand・会話が繋がらないお返事のあとの言い換えた
+# 質問 reworded・ご承認のお知らせの中身の名詞 matter・選択肢を並べた質問の文 alternatives・先に並べた文の並び alternatives_led。
+# どれも空（文は ""・並びは []。`ai_only_empty` の1か所）＝無い＝会話の側は今の形。決めるのは business_import の `_decided_later`・`ask_ai`
 # （質問の鍵の一覧 QUESTION_KEYS には文字のまま書く＝会話の側の比べる試験が、こちらの部品を読み込まずに一覧の文字を読むため。2つがそろうことは下で確かめる）
-AI_ONLY_KEYS = ("since", "announce", "at_hand", "reworded")
+AI_ONLY_KEYS = ("since", "announce", "at_hand", "reworded", "matter", "alternatives", "alternatives_led")
 assert set(AI_ONLY_KEYS) <= QUESTION_KEYS
+AI_ONLY_LISTS = ("alternatives_led",)            # 取込のときの AI だけが決める欄のうち、文字の並びの欄（ほかは文字）
+# ご承認を伺う質問（approval）だけが持つ、取込のときの AI だけが決める欄（欄 → 言葉。ほかの質問に付いていたら止める決まりは `check` の1か所。取込で聞く質問の
+# 並べ方も同じ＝business_import._decided_approvals）：お知らせの文（CL-1 の連絡帳 4-150）・お知らせの中身の名詞（4-154）
+APPROVAL_ONLY_KEYS = {"announce": "お知らせの文", "matter": "お知らせの中身の名詞"}
+assert set(APPROVAL_ONLY_KEYS) <= set(AI_ONLY_KEYS)
+
+
+def ai_only_empty(key: str) -> Any:
+    """取込のときの AI だけが決める欄の、無い（空）の値（1か所＝前の版を読む `_current_shape`・取込の business_import.review）：並びの欄は []、ほかは ""。"""
+    return [] if key in AI_ONLY_LISTS else ""
 GOAL_MODES = call_report.GOAL_MODES               # 最終目的の果たし方の名前（正本は会話の報告の形＝事実 goal_refused の mode と同じ）
 ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）・
 #                                                   その答えが言い切っていないときだけ伺うか（4-71 の (b)）
@@ -226,6 +237,8 @@ def means_in(text: str) -> list[str]:
 # 入る一言の頭を替えた形「_intro_lead_…」が増えた（作る形の一覧は会話の側の flowctl.question_forms の1か所）。どれも「_」の続きなので、ここは変えない
 # ⇒ CL-1 の連絡帳 4-117 の (3)：「（番号）_intro_lead_tsuzukimashite」が業務の録音の表に入り、「（番号）_other_again_midway」は作らなくなった。これも「_」の続きの
 # 形の中のことで、業務の録音の部分の名前は今までどおり会話の側の一覧（make_ack_clips.script_table）から作られる＝ここも組を作る道（recordings.list_parts・complete）も変えない
+# ⇒ CL-1 の連絡帳 4-154・4-156・4-157（2026-11-14）：お知らせの最終の確かめ「（番号）_accepted」・選択肢を並べた文「（番号）_alternatives」・先に並べた文
+# 「（番号）_alternatives_N」（N は2から）も「_」の続きの形（会話の側の flowctl.question_forms・accepted_line の一覧から）＝ここは変えない
 DERIVED_JOIN = "_"
 EARLIEST_KEYS = {"business_days", "closed_weekdays", "closed_on_holidays", "closed_dates"}   # 業務設定の「最短の日」の項目
 EARLIEST_MAX_DAYS = 60                            # 「N営業日以降」の N の上限（祝日の暦が届く先＝翌年の分まで、に収まる長さ）
@@ -402,6 +415,21 @@ class Question:
     # そろわなければ考える Sonnet・中身の判定（CL-1 の import_ai.decide_rewords。人は書かない）。空＝「ところで」＋元の質問の文。
     # ✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」
     reworded: str = ""
+    # ご承認のお知らせの中身を表す名詞（「キャンセル」。会話の側の Question.matter。CL-1 の連絡帳 4-154）。ご承認を伺う質問だけ（`APPROVAL_ONLY_KEYS`）。
+    # お知らせのあとの最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」に入る（組むのは会話の側の flowctl.accepted_line。
+    # 依頼主の単位の録音「番号_accepted」）。決めるのは取込のときの文字の AI 2つ・そろわなければ考える Sonnet（CL-1 の import_ai.decide_matters。人は書かない）。
+    # 空＝「それでは先ほどの内容は…」（共通の一言 announce_recheck）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10」
+    matter: str = ""
+    # お客様の意向がまだ分からないまま戻るときに「はい、」に続けて伺う、選択肢を並べた質問の文（「カードになさいますかそれともお振込の方がよろしいでしょうか？」。
+    # 会話の側の Question.alternatives。CL-1 の連絡帳 4-156）。どの質問で使うかは会話の側の flowctl.alternatives_fits（業務の選ぶ質問で選択肢が2つ以上）。
+    # 決めるのは取込のときの文字の AI 2つ・そろわなければ考える Sonnet・中身の判定（CL-1 の import_ai.decide_alternatives。人は書かない）。依頼主の単位の録音
+    # 「番号_alternatives」。空＝「はい、」＋言い換えた質問。✅ 2026-11-14 日本時間22時15分15秒 ユーザー
+    alternatives: str = ""
+    # 先に並べる選択肢ごとの、選択肢を並べた質問の文の並び（会話の側の Question.alternatives_led。CL-1 の連絡帳 4-157）。並びの番目は、2つ目からの選択肢の順
+    # （会話の側の alternatives.orders。並べ方はこちらで持たない）。取込は decide_alternatives の答えの組の2つ目をそのまま入れる（決まらなかった選択肢は空の文の
+    # まま＝番目がずれない）。直前のこちらのひとことが1つだけに触れた選択肢のとき、その選択肢を先に並べた文で伺う（依頼主の単位の録音「番号_alternatives_N」、
+    # N は2から。空の文の選択肢は録音も無い）。空の並び＝いつも質問の順。✅ 2026-11-14 日本時間23時45分00秒 ユーザー「伺い16はイでOK」
+    alternatives_led: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1067,9 +1095,12 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
             declines = _declines(q["declines"], q["type"], choices, where, problems)
             ends_on = _ends_on(q, choices, where, problems)
             unclear_none = _unclear_none(q["unclear_none"], q["type"], choices, where, problems)
-            since, announce, reworded = (_ai_text(q[k], f"{where}の{k}", problems) for k in ("since", "announce", "reworded"))
-            if announce and q["approval"] is not True:
-                problems.append(f"{where}はご承認を伺う質問ではないので、お知らせの文（announce）は付けません（会話の側が使わない）")
+            ai_texts = {k: _ai_text(q[k], f"{where}の{k}", problems) for k in ("since", "announce", "reworded", "matter", "alternatives")}
+            since, announce, reworded, matter, alternatives = ai_texts.values()
+            alternatives_led = _ai_texts(q["alternatives_led"], f"{where}の alternatives_led", problems)
+            for key, what in APPROVAL_ONLY_KEYS.items():   # ご承認を伺う質問だけの欄（1か所）
+                if ai_texts[key] and q["approval"] is not True:
+                    problems.append(f"{where}はご承認を伺う質問ではないので、{what}（{key}）は付けません（会話の側が使わない）")
             at_hand = _choice_name(q["at_hand"], q["type"], choices, f"{where}の資料がお手元に届いているにあたる答え（at_hand）", problems)
             if not isinstance(q["final_goal"], bool):
                 problems.append(f"{where}の最終目的の申し出か（final_goal）は true / false です")
@@ -1084,7 +1115,8 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
                                 _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True,
                                 q["final_goal"] is True, declines, tell_words, ends_on, unclear_none, doubt_words, q["asks_way"] is True,
                                 option_notes=option_notes, change_by=change_by, definite_value=definite_value, maybe=maybe,
-                                since=since, announce=announce, at_hand=at_hand, reworded=reworded)
+                                since=since, announce=announce, at_hand=at_hand, reworded=reworded,
+                                matter=matter, alternatives=alternatives, alternatives_led=alternatives_led)
             questions.append(question)
     # 分岐のシートは、すべての質問が読めたときだけ置き換える（読めなかった質問を除くと「どこからも行きません」などのうその理由が出る）。
     # 置き換えたあとの質問に、書いた欄と同じ確かめ（最終目的の断る答え・必須の数・果たし方）を当てる
@@ -1322,13 +1354,25 @@ def _ends_on(q: dict[str, Any], choices: tuple[str, ...], where: str, problems: 
 
 
 def _ai_text(raw: Any, where: str, problems: list[str]) -> str:
-    """取込のときの AI だけが決める文の欄（`AI_ONLY_KEYS` の since・announce・reworded）を読む（無ければ空）：空でない文字か、空・None。"""
+    """取込のときの AI だけが決める文の欄（`AI_ONLY_KEYS` の since・announce・reworded・matter・alternatives と、alternatives_led の並びの1つ）を読む（無ければ
+    空）：空でない文字か、空・None。"""
     if raw is None or raw == "":
         return ""
     if not isinstance(raw, str) or not raw.strip():
         problems.append(f"{where}は、文字か空です")
         return ""
     return raw.strip()
+
+
+def _ai_texts(raw: Any, where: str, problems: list[str]) -> tuple[str, ...]:
+    """取込のときの AI だけが決める文の並びの欄（`AI_ONLY_LISTS` の alternatives_led）を読む（無ければ空の並び）：文字の並び。並びの中の空の文は、そのまま
+    残す（決まらなかった番目＝番目をずらさない）。空白だけの文・文字でないものは止める（`_ai_text` と同じ決まり）。"""
+    if raw is None:
+        return ()
+    if not isinstance(raw, (list, tuple)):
+        problems.append(f"{where}は、文の並びか空です")
+        return ()
+    return tuple(_ai_text(x, where, problems) for x in raw)
 
 
 def _choice_name(raw: Any, type_name: str, choices: tuple[str, ...] | None, what: str, problems: list[str]) -> str:
@@ -1771,7 +1815,8 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
     - 確定した値で登録するか（definite_value。2026-11-08＝CL-1 の連絡帳 4-116 の (1)）が無い前の版の質問は、偽（お客様の言い方の値）として読む。
     - どちらの場合もありうるときに確かめる答え（maybe。2026-11-12＝CL-1 の連絡帳 4-123）が無い前の版の質問は、無い（空）として読む。
     - 取込のときの AI だけが決める欄（`AI_ONLY_KEYS`＝その後の文の中身 since・お知らせの文 announce・資料が届いているにあたる答え at_hand・言い換えた質問
-      reworded。2026-11-13＝CL-1 の連絡帳 4-149・4-150・4-152）が無い前の版の質問は、無い（空＝会話の側は今の形）として読む。詳しい者からのお話の方法
+      reworded。2026-11-13＝CL-1 の連絡帳 4-149・4-150・4-152。お知らせの中身の名詞 matter・選択肢を並べた文 alternatives・先に並べた文の並び
+      alternatives_led。2026-11-14＝4-154・4-156・4-157）が無い前の版の質問は、無い（空の文・空の並び＝`ai_only_empty`。会話の側は今の形）として読む。詳しい者からのお話の方法
       （handoff_ways）・締める前の申し出（close_offer）・用件の名詞（purpose_noun）は無くてもよい項目なので、前の版はそのまま（無い）。
     - 分岐（next）は、読むたびに `check` の置き換え `_branch_flow` が、今の決まりで置き換える（前の版も同じ1か所）。
     - こちらがすることの言葉（do_words）のうち、文の終わりまで持たない前の形の言葉（「パンフレットをお送り」。2026-11-03 に形を決めた＝`do_words_ok`）は、
@@ -1787,7 +1832,7 @@ def _current_shape(content: dict[str, Any], rules: Any) -> dict[str, Any]:
              "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "option_notes": {},
              "doubt_words": {}, "asks_way": False, "change_by": "", "definite_value": False, "maybe": []}
     ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
-    added |= {k: "" for k in AI_ONLY_KEYS}   # 取込のときの AI だけが決める欄（2026-11-13）も、足す前の版は空として読む
+    added |= {k: ai_only_empty(k) for k in AI_ONLY_KEYS}   # 取込のときの AI だけが決める欄（2026-11-13・11-14）も、足す前の版は空として読む
 
     def shaped(i: int, q: Any) -> Any:
         if not isinstance(q, dict):
