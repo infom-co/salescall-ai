@@ -1103,7 +1103,9 @@ def main() -> None:
     args = p.parse_args()
     args.judge = args.judge or ["3.5 Flash Lite"]
     ring = KeyRing(args)
-    ids = ring.model_ids()
+    # 表示名 ⇒ モデルID は Gemini に聞く＝送るときだけ引く（答えを作る枝と、判定の前）。⛔ 2026-11-15 日本時間：ここで引いていたので、
+    # 組み立てだけ（--dry-run）でも止まりの前に Gemini へ送っていた
+    ids = None
     from review_words import questions as review_questions
     qmap = question_map() | review_questions()   # 組 R の質問（見直し (12) の組 Q の試しの言葉）
     qs, vqs = g48_questions(), value_questions()   # ⛔ 2026-11-02 に見つけた：作らずに使っていた（--reuse でない流し方・--add-de で止まっていた）
@@ -1132,6 +1134,7 @@ def main() -> None:
                     say(m, "が作った", make.__name__, len(got))
                     items += got
     else:
+        ids = ring.model_ids()
         items = set_a() + set_b(qs) + set_f() + set_n() + set_h() + set_r()
         for m in MAKERS:
             got, _ = ring.call(ids[m], lambda c: make_c(c, ids[m], qs))
@@ -1146,6 +1149,7 @@ def main() -> None:
             "前の話の答え", len(prior_todo(args, items, qmap)))
         require_complete(args, "組み立てだけ", stop=False)   # 試しの言葉がそろっているかも出す（止めない）
         return
+    ids = ids or ring.model_ids()
     require_complete(args, "答えの段の測り（G-53）")
     say("前の話の答えを読んだ数", read_priors(args, items, qmap))
     run_judges(args, items, qmap, ids)

@@ -170,6 +170,10 @@ def say(*parts: object) -> None:
 def make_client(key: ApiKey, timeout_s: float | None = None):
     """timeout_s＝1回の問い合わせを待つ長さの上限（秒。None＝区切らない）。⛔ 2026-11-02：キーの確かめ（keys_now）で、混んでいるモデルの
     問い合わせが答えずに止まり、5分の時間切れで、それまでに分かったキーの状態も出なかった"""
+    if DRY_RUN:
+        # 組み立てだけ（--dry-run）：Gemini へつなぐ唯一の口なので、ここで止める（キーの束 KeyRing の call・model_ids もここを通る）。⛔ 2026-11-15
+        # 日本時間：答えの段の道具を --reuse なしの --dry-run で流し、組み立てだけの止まりの前に Gemini に試しの答えを作らせた（混んでいて 503 で止まった）
+        raise SystemExit("組み立てだけ（--dry-run）なので、Gemini には送りません")
     from google import genai  # 使うときだけ読み込む（dry-run では不要）
     from google.genai import types
 

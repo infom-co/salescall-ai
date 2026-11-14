@@ -18536,6 +18536,44 @@ class DryRunTest(unittest.TestCase):
             common.DRY_RUN = False   # ほかの試験に持ち越さない
         self.assertFalse(common.base_parser("x").parse_args([]).dry_run)
 
+    def test_no_gemini_on_dry_run(self):
+        """Gemini へつなぐ唯一の口（common.make_client）も、組み立てだけの印では送らない（キーの束 KeyRing の call・model_ids も、ここを通る）。
+        ⛔ 2026-11-15 日本時間：答えの段の道具（g53_meaning）を --reuse なしの --dry-run で流すと、組み立てだけの止まりの前に Gemini に試しの答えを
+        作らせ（混んでいて 503 で止まった）、印は判定の鍵（load_secret）と1本のキー（pick_key）にしか効いていなかった。"""
+        import common
+        try:
+            common.base_parser("x").parse_args(["--dry-run"])
+            with self.assertRaises(SystemExit) as got:
+                common.make_client(common.ApiKey("TEST", "AIza" + "0" * 35))
+            self.assertIn("送りません", str(got.exception))
+        finally:
+            common.DRY_RUN = False
+
+    def test_answer_stage_dry_run_with_reuse_asks_gemini_nothing(self):
+        """答えの段の道具（g53_meaning）の組み立てだけ（--dry-run --reuse）は、Gemini に何も聞かずに（モデルIDも引かずに）送る数を出して止まる。
+        モデルIDを引くのは、Gemini に送る枝（答えを作る枝・判定の前）だけ。⛔ 2026-11-15 日本時間：main の頭で引いていた＝組み立てだけでも
+        止まりの前に Gemini へ送っていた（上の試験の Gemini の口の止めを入れると、組み立てだけが流せなくなった）"""
+        import contextlib, io, os
+        import g53_meaning
+
+        class Ring:   # 鍵の束の代わり：Gemini に聞いたら落とす
+            def __init__(self, args):
+                pass
+
+            def __getattr__(self, name):
+                raise AssertionError(f"組み立てだけで Gemini に聞いた（{name}）")
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump({"items": []}, f)
+        out = io.StringIO()
+        try:
+            with unittest.mock.patch.object(g53_meaning, "KeyRing", Ring), \
+                    unittest.mock.patch("sys.argv", ["g53_meaning.py", "--dry-run", "--reuse", f.name]), contextlib.redirect_stdout(out):
+                g53_meaning.main()
+        finally:
+            common.DRY_RUN = False
+            os.unlink(f.name)
+        self.assertIn("判定は送りません", out.getvalue())
+
 
 class OnelinerGuardTest(unittest.TestCase):
     """道具を呼ぶ前に、最近の一言が英語なら止める見張り（oneliner_guard。✅ 2026-11-02 日本時間7時12分 ユーザー「(b) OK」）。記録への書き込みが
