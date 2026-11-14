@@ -113,15 +113,19 @@ def daily_seconds(start: datetime, end: datetime, ranges: Sequence[tuple[int, in
 
 
 def next_opening(hours: dict, is_holiday: Callable[[date], bool], after: datetime, length: timedelta,
-                 *, horizon_days: int = 31, back_to: datetime | None = None) -> datetime | None:
+                 *, horizon_days: int = 31, back_to: datetime | None = None, ends: dict | None = None) -> datetime | None:
     """after 以降で、length の長さの区間がまるごと時間帯に入る、最も早い始まり（日本時間）。horizon_days 日のうちに無ければ None。
     back_to（after より前）があれば、after に始められないとき、先に after より前を探す：区間（予約から予約証の期限まで）が back_to から
     after までの間に重なる（始まりが after 以前・終わりが back_to 以後）、after にいちばん近い（最も遅い）始まり（`_latest_before`）。
-    区間を時間帯で見る決まり（`covers`）は、どちらも同じ1か所。"""
+    ends＝NG時間を引く前の依頼者の時間帯（back_to と一緒に渡す）：前を探すとき、期限を置いてよい終わりは、その時間帯そのものの終わり
+    （こちらの都合の終わり）だけ。NG時間を引いてできた終わり（その後ろがNG時間）には置かない（✅ 2026-11-14 ユーザー「13時にかける
+    （おすすめ）」）。区間を時間帯で見る決まり（`covers`）は、どちらも同じ1か所。"""
     if covers(hours, is_holiday, after, after + length):
         return after
     if back_to is not None and back_to < after:
-        found = _latest_before(hours, is_holiday, after, back_to - length, length)
+        if ends is None:
+            raise ValueError("前を探すときは、NG時間を引く前の時間帯（ends）も渡してください")
+        found = _latest_before(hours, ends, is_holiday, after, back_to - length, length)
         if found is not None:
             return found
     for offset in range(horizon_days + 1):
@@ -133,14 +137,16 @@ def next_opening(hours: dict, is_holiday: Callable[[date], bool], after: datetim
     return None
 
 
-def _latest_before(hours: dict, is_holiday: Callable[[date], bool], before: datetime, lowest: datetime,
+def _latest_before(hours: dict, ends: dict, is_holiday: Callable[[date], bool], before: datetime, lowest: datetime,
                    length: timedelta) -> datetime | None:
-    """lowest から before までの始まりのうち、length の長さの区間がまるごと時間帯に入る、最も遅い始まり（`next_opening` の back_to だけが
-    呼ぶ）。最も遅い始まりは、時間帯のどれかの区間の終わりから length 前（区間の終わりが before より後なら、before そのもの＝呼ぶ側が先に見た）。"""
+    """lowest から before までの始まりのうち、length の長さの区間がまるごと時間帯（hours）に入り、終わりが ends（NG時間を引く前の依頼者の
+    時間帯）の区間の終わりちょうどに来る、最も遅い始まり（`next_opening` の back_to だけが呼ぶ）。終わりちょうどにかけてよいのは、その後ろが
+    こちらの都合の終わり（依頼者の時間帯の終わり）のときだけ（✅ 2026-11-14 ユーザー「13時にかける（おすすめ）」＝後ろがNG時間なら、NG時間が明ける
+    のを待つ）。before に始められないとき、時間帯に入る最も遅い始まりは、どれかの区間の終わりの length 前なので、ほかの始まりは見なくてよい。"""
     found = []
     for offset in range((before.date() - lowest.date()).days + 1):
         day = datetime.combine(lowest.date() + timedelta(days=offset), time())
-        for _, r1 in _ranges(hours, day_key(day.date(), is_holiday)):
+        for _, r1 in _ranges(ends, day_key(day.date(), is_holiday)):
             t = day + timedelta(seconds=r1) - length
             if lowest <= t <= before and covers(hours, is_holiday, t, t + length):
                 found.append(t)

@@ -295,15 +295,15 @@ def next_opening(tx: Tx, after: datetime, *, tenant_id: UUID, client_id: UUID, b
     次の日の0時にしたので、0時に門へ渡し、時間帯の外で断られて、次の動きがもう一度書き直した）。31日のうちに無ければ None。
     暦の無い日に当たれば、決めつけず、after 以降の最初の日の始まり（その日に門がもう一度確かめる。暦が無ければ門は実施回の理由で
     断り、予定は書き直さない＝1日に1回まで）。back_to＝after に始められないとき、先に after より前（予約から予約証の期限までが back_to
-    から after までの間に重なる、最も遅い始まり）を探す（`calling_hours.next_opening` の back_to。お客様のほうから折り返すお約束の
-    こちらからかける時＝next_action._theirs_at だけが渡す）。"""
+    から after までの間に重なる、最も遅い始まり。期限を置いてよいのは、NG時間を引く前の依頼者の時間帯の終わりだけ）を探す
+    （`calling_hours.next_opening` の back_to・ends。お客様のほうから折り返すお約束のこちらからかける時＝next_action._theirs_at だけが渡す）。"""
     lifetime = timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", tenant_id=tenant_id, client_id=client_id,
                                                       business_id=business_id)))
     local = calling_hours.local(after)
+    own, usable = _usable_hours(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))
     try:
-        found = calling_hours.next_opening(calling_hours_for(tx, tenant_id=tenant_id, client_id=client_id,
-                                                             business_id=business_id), holiday_checker(tx), local, lifetime,
-                                           back_to=None if back_to is None else calling_hours.local(back_to))
+        found = calling_hours.next_opening(usable, holiday_checker(tx), local, lifetime,
+                                           back_to=None if back_to is None else calling_hours.local(back_to), ends=own)
     except CalendarOutOfRange:
         day = datetime.combine(local.date(), datetime.min.time())
         found = day if day == local else day + timedelta(days=1)
@@ -313,8 +313,15 @@ def next_opening(tx: Tx, after: datetime, *, tenant_id: UUID, client_id: UUID, b
 def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> dict:
     """かけてよい時間帯（曜日・祝日ごと）：かけてよい時間帯から NG時間を引いた残り（次の始まりを探すのに使う）。お客様が言った
     幅の約束の電話は `window_hours`（依頼者の時間帯・NG時間の外でもかける）。"""
-    hours, ng = _hours_settings(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))
-    return calling_hours.subtract(hours, ng)
+    return _usable_hours(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))[1]
+
+
+def _usable_hours(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
+    """（依頼者の時間帯そのもの, そこから NG時間を引いた残り）。ふつうの電話の時間帯から NG時間を引くのは、ここの1か所（`calling_hours_for`・
+    `next_opening` が使う）。引く前の時間帯は、どの終わりがこちらの都合の終わりで、どれがNG時間で切れた終わりかを見分ける材料（`next_opening`
+    の back_to）。"""
+    hours, ng = _hours_settings(tx, scope)
+    return hours, calling_hours.subtract(hours, ng)
 
 
 def window_hours(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None,

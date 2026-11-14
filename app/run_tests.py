@@ -7319,15 +7319,25 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("折り返しのお約束で、1時間後より前を探さない（次の動きが早めてよい所を渡さない）", "src/salescall/core/next_action.py",
      "back_to=earliest if now < want else None)", "back_to=None)", (_BACK_MOVE,)),
     ("ふつうの電話の次の始まりの1か所が、前を探す所を受け取っても使わない", "src/salescall/core/gate.py",
-     "back_to=None if back_to is None else calling_hours.local(back_to))", "back_to=None)", (_BACK_MOVE,)),
+     "back_to=None if back_to is None else calling_hours.local(back_to), ends=own)", "back_to=None, ends=own)", (_BACK_MOVE,)),
     ("前を探すとき、予約証の期限でなく予約の時刻を30分後と比べる（「18時に戻ります」で18時半に期限が来る予約を使わず、次の日へ）",
      "src/salescall/core/calling_hours.py",
-     "        found = _latest_before(hours, is_holiday, after, back_to - length, length)",
-     "        found = _latest_before(hours, is_holiday, after, back_to, length)",
+     "        found = _latest_before(hours, ends, is_holiday, after, back_to - length, length)",
+     "        found = _latest_before(hours, ends, is_holiday, after, back_to, length)",
      ("tests.test_calling_hours.NextOpening.test_back_to_finds_the_latest_start_that_reaches_it", _BACK_MOVE)),
     ("前を探すとき、時間帯を確かめずに区間の終わりの前を使う", "src/salescall/core/calling_hours.py",
      "            if lowest <= t <= before and covers(hours, is_holiday, t, t + length):", "            if lowest <= t <= before:",
      ("tests.test_calling_hours.NextOpening.test_back_to_finds_the_latest_start_that_reaches_it",)),
+    # 2026-11-14 ユーザー「13時にかける（おすすめ）」：終わりちょうどにかけてよいのは、後ろがこちらの都合の終わり（依頼者の時間帯の終わり）のときだけ。
+    # 後ろがNG時間なら、NG時間が明けるのを待つ（calling_hours._latest_before の ends・gate._usable_hours）
+    ("前を探すとき、NG時間を引いてできた終わり（後ろがNG時間）にも期限を置く（「11時半に戻ります」で12時昼のNG時間の直前にかける）",
+     "src/salescall/core/calling_hours.py",
+     "        for _, r1 in _ranges(ends, day_key(day.date(), is_holiday)):",
+     "        for _, r1 in _ranges(hours, day_key(day.date(), is_holiday)):",
+     ("tests.test_calling_hours.NextOpening.test_back_to_finds_the_latest_start_that_reaches_it", _BACK_MOVE)),
+    ("ふつうの電話の次の始まりの1か所が、NG時間を引く前の時間帯でなく引いた残りを、期限を置いてよい終わりとして渡す", "src/salescall/core/gate.py",
+     "back_to=None if back_to is None else calling_hours.local(back_to), ends=own)",
+     "back_to=None if back_to is None else calling_hours.local(back_to), ends=usable)", (_BACK_MOVE,)),
 )
 
 
