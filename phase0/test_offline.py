@@ -4880,7 +4880,8 @@ class AskLadderTest(unittest.TestCase):
         # ＋「申し訳ございません、」＝締めの前の念のための確認の直し（Item.dash_heard）と同じ理由で直した）
         h = self.flow(ask_back=1, recheck=0)
         r = self.do(h, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
-        self.assertEqual((r["say"], r["ack"]), (self.LAST.replace("お声が聞き取れませんでしたので", "恐れ入ります。"), "hai"))
+        # お声は聞き取れていた最後の1回は「恐れ入りますが（聞くこと）をもう一度だけ…」（✅ 2026-11-14 日本時間20時05分14秒＝phrases.ask_again の1か所）
+        self.assertEqual((r["say"], r["ack"]), (self.LAST.replace("お声が聞き取れませんでしたので", "恐れ入りますが"), "hai"))
 
     def test_poor_audio_ends_after_two_different_questions_stay_unclear(self):
         """声が聞き取れない（甚大な問題の poor_audio＝DESIGN.md 6-8。✅ 2026-10-24 ユーザー：「回線が悪く、声がお互いや片方がほとんど聞き取れない
@@ -20048,11 +20049,12 @@ class OfferTest(unittest.TestCase):
 
 
 
-def grounded(f, text: str, choice: str | None = None, part: str = ""):
-    """答えの文の中身の判定の読みを渡す（電話接続側が操作を渡す前に呼ぶ Flow.on_grounded と同じ）。既定は「事実を言っていない」。"""
+def grounded(f, text: str, choice: str | None = None, part: str = "", touch: str = ""):
+    """答えの文の中身の判定の読みを渡す（電話接続側が操作を渡す前に呼ぶ Flow.on_grounded と同じ）。既定は「事実を言っていない」。touch＝いま伺っている質問が
+    尋ねていることに触れたかの読み（一緒に読ませたときだけ。grounding.TOUCH）。"""
     from grounding import NO_FACT, Verdict
     v = Verdict(choice or NO_FACT, part)
-    v.by = "test"
+    v.by, v.touch = "test", touch
     f.on_grounded(text, v)
 
 
@@ -25834,7 +25836,7 @@ class AsideTest(unittest.TestCase):
         self.unlinked(f)
         self.assertEqual(f._asked_kind(), "offer")   # 申し出の質問と同じ番（同じ1か所）
         note = f._asked_note(self.OFF)
-        self.assertIn("ところで", note); self.assertNotIn("申し出の中身", note); self.assertNotIn("ARG", note)
+        self.assertIn("別の言い方で伺い直します", note); self.assertNotIn("申し出の中身", note); self.assertNotIn("ARG", note)
         grounded(f, "さようでございますか。")
         r = f.apply("replay_opening", {"part": "talk", "answer": "さようでございますか。", "fallback": "talk_heard_nod"})
         self.assertEqual((r.get("say"), r.get("ack")), ("さようでございますか。ところで" + self.PAY2, None))
@@ -25866,6 +25868,105 @@ class AsideTest(unittest.TestCase):
         forms = {(p["id"], p.get("lead") or ""): p["text"] for p in question_forms(list(f.questions.values()), "Q2")}
         self.assertEqual(forms[("Q2_aside", "ところで")], "ところで" + self.PAY2)
         self.assertNotIn("、", forms[("Q2_aside", "ところで")])   # 決まった言い方に読点を入れない（10-15）
+
+    def test_a_word_touching_what_the_question_asks_is_followed_by_soredeha(self):
+        # 伺い15＝ア（✅ 2026-11-14 日本時間20時05分14秒 ユーザー「ア（お勧め）：ひとことが質問の話に触れたら「それでは」、触れていなければ「ところで」。でOKですが、
+        # 伺い15の例の場合は、直前が、お支払いの日程の話をしていて、カードと振込のどちらかの話では全くないので、「ところで」…のようなひとことで大丈夫です。」）：
+        # 会話AIのひとことが、いま伺っている質問が尋ねていること（選択肢・値）に触れたかは、ひとことの中身を確かめる判定が同じ問い合わせで一緒に読む（touch。
+        # 問い合わせの数は増やさない）。触れていれば「それでは」＋言い換えた質問・触れていない／読みが無い／受け答えの録音で応えたときは「ところで」
+        from flowctl import aside_play, question_forms
+        from grounding import TOUCHED, UNGROUNDED, UNTOUCHED
+        from phrases import TALK_FALLBACK
+        ON = "さようでございますか。お振込でしたら月曜日以外でもご対応いただけますよ。"
+        DATE = "さようでございますか。お支払いは月曜日以外でも問題ございませんよ。"
+        # 判定に一緒に読ませる質問は、このあと伺い直す文（言い換えた文）。ひとことの文の仕事に添える（仕事の数は増えない）
+        f = self.flow(); self.unlinked(f)
+        self.assertEqual(f.grounding_jobs("replay_opening", {"part": "talk", "answer": ON}), [(f.knowledge, self.OFF, ON, self.PAY2)])
+        for said, touch, lead in ((ON, TOUCHED, "それでは"), (DATE, UNTOUCHED, "ところで"), (DATE, "", "ところで"), (ON, "", "ところで")):
+            f = self.flow(); self.unlinked(f)
+            grounded(f, said, touch=touch)
+            r = f.apply("replay_opening", {"part": "talk", "answer": said, "fallback": "talk_heard_nod"})
+            self.assertEqual(r.get("say"), said + lead + self.PAY2, (said, touch))
+        # ひとことが使えず受け答えの録音で応えた：読みが触れていても「ところで」（録音の一言は質問の話に触れない）
+        f = self.flow(); self.unlinked(f)
+        for _ in range(3):
+            grounded(f, ON + "月曜は割引です。", UNGROUNDED, "月曜は割引です", touch=TOUCHED)
+            r = f.apply("replay_opening", {"part": "talk", "answer": ON + "月曜は割引です。", "fallback": "talk_heard_nod"})
+        self.assertEqual([p["text"] for p in r["play"]], [TALK_FALLBACK["talk_heard_nod"][0], "ところで" + self.PAY2])
+        # 伺い直したあとの別のお話（戻る一言の1か所＝_talk_again）は今のまま＝質問を添えない（読ませても使わない）
+        self.talk(f)
+        self.unlinked(f)
+        self.assertEqual(f.grounding_jobs("replay_opening", {"part": "talk", "answer": DATE}), [(f.knowledge, self.OFF, DATE)])
+        # 録音で流す形はどちらも今の一覧にある（言い換えた質問の「それでは」の形＝伺い直したあとに戻る形と同じ録音・言い換えの無い質問は元の質問の戻る形）＝録音は増えない
+        for reworded, text in ((self.PAY2, self.PAY2), ("", self.PAY)):
+            qs = list(self.flow(reworded=reworded).questions.values())
+            forms = {(p["id"], p.get("lead") or ""): p["text"] for p in question_forms(qs, "Q2")}
+            for touched, lead in ((True, "それでは"), (False, "ところで")):
+                p = aside_play(qs, "Q2", touched)
+                self.assertEqual(forms.get((p["id"], p.get("lead") or "")), lead + text, (reworded, touched))
+        # 会話AIへの知らせは、伺い直しの頭を決め打ちしない（どちらになるかはひとことで決まる）
+        f = self.flow(); self.unlinked(f)
+        self.assertNotIn("ところで", f._asked_note(self.OFF))
+        self.assertIn("同じことを別の言い方で伺い直します", f._asked_note(self.OFF))
+
+    def test_the_touch_is_read_in_the_same_request_only_when_asked(self):
+        # 触れたかの項目は、質問を添えたときだけ問い合わせに入る（添えないときの文・答えの形は今と1文字も違わない＝ほかの仕事と測りの文の指紋は変わらない）
+        import asyncio
+        import unittest.mock as m
+
+        import grounding
+        from grounding import NO_FACT, TOUCHED, prompt, prompt_parts, read
+        from meaning_judge import RACE, decision_model, sure_line, takes_part
+        k, s, d = ["業務の情報：x"], self.OFF, "さようでございますか。"
+        self.assertEqual(prompt(k, s, d, ""), prompt(k, s, d))
+        self.assertNotIn("いま伺っている質問", prompt(k, s, d))
+        with_q = prompt(k, s, d, self.PAY2)
+        self.assertTrue(with_q.startswith(prompt(k, s, d)))                         # 足すのは後ろだけ
+        self.assertEqual(prompt_parts(k, s, d, self.PAY2)[0], prompt_parts(k, s, d)[0])   # 毎回同じ前の部分（キャッシュ）は同じ
+        for w in (self.PAY2, *grounding.TOUCH):
+            self.assertIn(w, with_q)
+        self.assertIs(grounding.schema(""), grounding.SCHEMA)
+        self.assertIn("touch", grounding.schema(self.PAY2)["required"])
+        answer = '{"choice": "%s", "part": "", "touch": "%s"}'
+        self.assertEqual(read(answer % (NO_FACT, TOUCHED), touch=True).touch, TOUCHED)
+        self.assertEqual(read(answer % (NO_FACT, "どちらでも"), touch=True).touch, "")
+        self.assertEqual(read(answer % (NO_FACT, TOUCHED)).touch, "")              # 尋ねていない項目は読まない
+        # 組（make_grounder）は、質問を添えたときだけ1回ずつの問い合わせに渡す
+        got = []
+
+        def reader(args, name, route=None):
+            async def call(knowledge, said, draft, *asking):
+                got.append(asking)
+                v = grounding.Verdict(NO_FACT)
+                v.by, v.sure = name, None
+                return v
+            return call
+        sonnet = next(n for n in RACE if takes_part(n, "ground") and not decision_model(n))
+        with m.patch.object(grounding, "make_reader", reader):
+            ground = grounding.make_grounder(None, (sonnet,))
+        asyncio.run(ground(k, s, d)); asyncio.run(ground(k, s, d, self.PAY2))
+        self.assertEqual(got, [(), (self.PAY2,)])
+        # Jev（公式の型）：触れたかは別の問い1つ（同じ問い合わせ）。確からしさが線より下なら読まない（＝「ところで」）
+        jev = next(n for n in RACE if decision_model(n) and takes_part(n, "ground"))
+        line = sure_line(jev, "ground")
+
+        class Client:
+            bodies, sure = [], 0.99
+
+            async def post(self, path, json):
+                self.bodies.append(json)
+                ans = {"choice": {"choice": NO_FACT, "confidence": 0.99}}
+                if "touch" in json["questions"]:
+                    ans["touch"] = {"choice": TOUCHED, "confidence": self.sure}
+                return m.Mock(raise_for_status=lambda: None, json=lambda: {"answers": ans})
+        c = Client()
+        v0 = asyncio.run(grounding.ask_other(c, jev, k, s, d))
+        v1 = asyncio.run(grounding.ask_other(c, jev, k, s, d, asking=self.PAY2))
+        c.sure = line - 0.01
+        v2 = asyncio.run(grounding.ask_other(c, jev, k, s, d, asking=self.PAY2))
+        self.assertEqual([sorted(b["questions"]) for b in c.bodies], [["choice"], ["choice", "touch"], ["choice", "touch"]])
+        self.assertEqual(sorted(c.bodies[0]["state"]), sorted(k for k in c.bodies[1]["state"] if k != "いま伺っている質問"))
+        self.assertEqual((v0.touch, v1.touch, v2.touch), ("", TOUCHED, ""))
 
     def talk(self, f, said="さようでございますか。", words=OFF, away=True):
         """別のお話（判定がそろって「別のお話」）に、会話AIがひとこと応える。"""
@@ -25939,7 +26040,12 @@ class AsideTest(unittest.TestCase):
         # お客様のお声は聞き取れていた（別のお話で「-」）：電話のせいにしない（9-5 の (3)＝聞き取れていたときの聞き直しの1か所 _ask_kind）。最後の1回の「もう一度だけ」
         # （10-14）は同じ。⛔ 092f2317 まで「申し訳ございません、」＋「お声が聞き取れませんでしたので…」。頭の相づちは、答え（「はい、大丈夫です。」）を受け取った
         # すぐあとなので受け取った答えで選ぶ（⛔ d3db377f まで、聞き取れていたときの聞き直しと同じ「はい、」＝受けの言葉が抜けた）
-        self.assertEqual((r.get("say"), r.get("ack"), r.get("play")), ("恐れ入ります。もう一度だけお聞かせいただいてもよろしいでしょうか？", "arigatou", None))
+        self.assertEqual((r.get("say"), r.get("ack"), r.get("play")), ("恐れ入りますがもう一度だけお聞かせいただいてもよろしいでしょうか？", "arigatou", None))
+        # ✅ 2026-11-14 日本時間20時05分14秒 ユーザー「ありがとうございます。恐れ入ります。はおかしい。⇒恐れ入りますが、など」＝受けの一文のあとに「恐れ入ります。」の
+        # 一文を重ねず、「恐れ入りますが」でお願いにつなぐ（決まった言い方なので「恐れ入りますが」のあとに読点は入れない＝10-15。文を作るのは phrases.ask_again の1か所）
+        from phrases import ask_again
+        self.assertEqual(ask_again(1, "form", "お支払いの方法", last=True), "恐れ入りますがお支払いの方法をもう一度だけお聞かせいただいてもよろしいでしょうか？")
+        self.assertEqual(ask_again(1, "unclear", "お支払いの方法", last=True), "お声が聞き取れませんでしたのでお支払いの方法をもう一度だけお聞かせいただいてもよろしいでしょうか？")
         # 聞き取れないまま「-」にした質問は今のまま（「申し訳ございません、」＋「お声が聞き取れませんでしたので…もう一度だけ…」）
         g = self.flow()
         for _ in range(3):
@@ -25969,7 +26075,7 @@ class AsideTest(unittest.TestCase):
         r = self.say(f, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q3", result="affirmed")
         self.assertEqual((f.phase, f.current), ("rechecking", "Q2"), r)
         self.assertIn(r.get("ack"), receipts, r)
-        self.assertEqual(([p["id"] for p in r.get("play") or []], r.get("say")), ([], "恐れ入ります。もう一度だけお聞かせいただいてもよろしいでしょうか？"))
+        self.assertEqual(([p["id"] for p in r.get("play") or []], r.get("say")), ([], "恐れ入りますがもう一度だけお聞かせいただいてもよろしいでしょうか？"))
         # (b) 聞き取れないまま「-」にした質問を、申し出（資料）を受けていただいたすぐあとに伺う：お礼のあとにお詫び
         qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True),
               Question("Q2", self.PAY, "choice", conditions=("カード", "振込"), required=True, reworded=self.PAY2),
