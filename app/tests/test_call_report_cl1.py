@@ -16,6 +16,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from salescall.core import gate
+from salescall.core import judge as judge_mod
 from salescall.core.business_rules import check
 from salescall.core.call_report import Cut, ReportInvalid, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, judge
@@ -1236,15 +1237,39 @@ class TheirsBackTime1114(unittest.TestCase):
         self.assertEqual({k: r.to_json()["facts"]["callback"][0][k] for k in ("theirs", "time")}, {"theirs": True, "time": "15時"})
 
     def test_okada_back_at_three_is_called_from_four(self):
-        """岡田様が15時に戻られる・折り返しのお約束 ⇒ 16時の時刻ちょうどの約束（戻る時刻は back_at に残す）。ふつうの不在の「15時に戻ります」は15時のまま。"""
-        self.assertEqual(self.promise(self.okada("15時")), (jst(16), None, True, True, jst(15)))
-        self.assertEqual(self.promise(self.okada("3時ごろ")), (jst(16), None, True, True, jst(15)))
-        self.assertEqual(self.promise(self.okada("明日の15時")), (jst(16, d=8), None, True, True, jst(15, d=8)))
+        """岡田様が15時に戻られる・折り返しのお約束 ⇒ 16時から終わり無しの幅の約束（戻る時刻は back_at に残す）。✅ 2026-11-14 ユーザー：ずらした
+        時刻はお客様が指定した時刻でない ⇒ 時刻ちょうどの約束にしない（exact 偽）。ふつうの不在の「15時に戻ります」は15時の時刻ちょうどの約束のまま。"""
+        self.assertEqual(self.promise(self.okada("15時")), (jst(16), None, False, True, jst(15)))
+        self.assertEqual(self.promise(self.okada("3時ごろ")), (jst(16), None, False, True, jst(15)))
+        self.assertEqual(self.promise(self.okada("明日の15時")), (jst(16, d=8), None, False, True, jst(15, d=8)))
         self.assertEqual(self.promise(self.okada("15時", theirs=False)), (jst(15), None, True, False, None))
         # 途中で切れて判定できなかった通話に残す約束の申し出（promise_offer）も、同じ1か所
         cut = self.judged(self.okada("15時"), cut=None)
-        self.assertEqual((cut.state, cut.detail["promise_offer"]["at"], cut.detail["promise_offer"]["back_at"]),
-                         ("unknown", jst(16).isoformat(), jst(15).isoformat()))
+        self.assertEqual((cut.state, cut.detail["promise_offer"]["at"], cut.detail["promise_offer"]["back_at"],
+                          cut.detail["promise_offer"]["exact"]), ("unknown", jst(16).isoformat(), jst(15).isoformat(), False))
+
+    def test_the_moved_time_is_an_open_window_on_the_usual_days_and_hours(self):
+        """ずらした時刻（✅ 2026-11-14 ユーザー）はお客様が指定した時刻でないので、お客様が指定した時刻にだけ認めている例外（NG時間の枠・依頼者の時間帯の
+        外・依頼者の休みの日でもかけてよい）を使わない形：時刻ちょうどでない・1日の中の幅が無い（日だけの幅＝依頼者のいつもの時間）・日を言っていない
+        （依頼者のかける日だけ）・終わり無し・話せなければ「すぐ」と同じく次の日の回へ。かける時刻そのものは次の動きが選ぶ（next_action._theirs_at）。"""
+        for time, back in (("15時", jst(15)), ("11時半", jst(11, 30)), ("18時", jst(18)), ("21時半", jst(21, 30)), ("すぐ", jst(10))):
+            with self.subTest(time=time):
+                cb = self.judged(self.okada(time)).detail["callback"]
+                self.assertEqual({k: cb[k] for k in ("at", "until", "exact", "daily", "days", "said", "day_said", "repeat", "since", "back_at")},
+                                 {"at": (back + timedelta(hours=1)).isoformat(), "until": None, "exact": False, "daily": None, "days": None,
+                                  "said": [False, False], "day_said": False, "repeat": "day", "since": None, "back_at": back.isoformat()})
+
+    def test_the_old_exceptions_are_gone(self):
+        """前の決め方が残っていない：「18時に戻ります」を、依頼者の時間帯の外の19時の時刻ちょうどの約束にしない（例外で19時にかけない）。「21時半に
+        戻ります」を、ずらさずに21時半の時刻ちょうどの約束にしない。日をまたぐ「23時半」（歯止め時間が1日じゅうの業務）も、ずらさずに残さない。"""
+        self.assertEqual(self.promise(self.okada("18時")), (jst(19), None, False, True, jst(18)))
+        self.assertEqual(self.promise(self.okada("21時半")), (jst(22, 30), None, False, True, jst(21, 30)))
+        whole_day = replace(CALLEE, designated_limit=(0, 24 * 3600))
+        self.assertEqual(self.promise(self.okada("23時半"), callee=whole_day), (jst(0, 30, d=8), None, False, True, jst(23, 30)))
+
+    def test_the_span_to_search_is_from_half_an_hour_to_an_hour(self):
+        """探す間の1か所（judge.theirs_span）：戻る時刻の30分後から1時間後（✅ 2026-11-14 ユーザー「30分から1時間の間で調整してもOK」）。"""
+        self.assertEqual(judge_mod.theirs_span(jst(15)), (jst(15, 30), jst(16)))
 
     def test_an_unknown_return_time_stays_the_absent_policy(self):
         """お戻りの時間が「分からない」（時刻の言葉が無い・「後ほど」）お言葉に甘えた電話は、ふつうの不在と同じ（不在の方針。約束にしない）。"""
@@ -1256,22 +1281,14 @@ class TheirsBackTime1114(unittest.TestCase):
                                  (plain.state, plain.detail["policy_key"], plain.detail["again"]))
 
     def test_a_moment_from_now_moves_its_start(self):
-        """「30分後」「すぐ」（その時点から終わり無しの幅）は、始まりを1時間あとへ（終わり無しのまま）。"""
+        """「30分後」「すぐ」（その時点から終わり無しの幅）も同じ決まり：始まりを戻る時刻の1時間後へ（終わり無しのまま。日を言っていない）。"""
         self.assertEqual(self.promise(self.okada("30分後")), (jst(11, 30), None, False, True, jst(10, 30)))
         self.assertEqual(self.promise(self.okada("すぐ")), (jst(11), None, False, True, jst(10)))
         self.assertEqual(self.promise(self.okada("30分後", theirs=False)), (jst(10, 30), None, False, False, None))
 
-    def test_outside_the_clients_hours_but_inside_the_limit_is_still_an_hour_after(self):
-        """ずらした時刻は、こちらが作った時刻（作った端）なので、お客様指定の歯止め時間（試験の値 7〜22時）でだけ切る：「18時に戻ります」は
-        依頼者の時間帯が18時半まででも19時（依頼者の時間帯は判定では読まない＝お客様が言った時刻から決まった約束）。"""
-        self.assertEqual(self.promise(self.okada("18時")), (jst(19), None, True, True, jst(18)))
-
-    def test_what_the_plan_does_not_decide_is_not_moved(self):
-        """計画書・設計書に決まりが無いものは、ずらさない（今の作りのまま。CL-2 の連絡帳 4-391 の (3)）：ずらすと歯止め時間の外（「21時半」で22時半）・
-        日をまたぐ（歯止め時間が1日じゅうの業務の「23時半」で翌0時半）・幅の言葉（「夕方」「3時から5時」「3時以降」・日だけの「明日」）。"""
-        self.assertEqual(self.promise(self.okada("21時半")), (jst(21, 30), None, True, True, None))
-        whole_day = replace(CALLEE, designated_limit=(0, 24 * 3600))
-        self.assertEqual(self.promise(self.okada("23時半"), callee=whole_day), (jst(23, 30), None, True, True, None))
+    def test_window_words_are_not_moved(self):
+        """幅の言葉（「夕方」「3時から5時」「3時以降」・日だけの「明日」）は、ずらし方が決まっていないので、今のまま（ずらさない。CL-2 の連絡帳 4-391 の
+        (3)(b)）。"""
         for time in ("夕方", "3時から5時", "3時以降", "明日"):
             with self.subTest(time=time):
                 got, plain = self.judged(self.okada(time)), self.judged(self.okada(time, theirs=False))

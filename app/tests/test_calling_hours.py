@@ -110,6 +110,33 @@ class NextOpening(unittest.TestCase):
         never = {k: [] for k in KEYS}
         self.assertIsNone(next_opening(never, no_holiday, at(MON, 10), length))
 
+    def test_back_to_finds_the_latest_start_that_reaches_it(self):
+        """back_to（お客様のほうから折り返すお約束の、戻る時刻の30分後＝next_action._theirs_at）：after に始められなければ、予約から予約証の期限
+        までが back_to〜after に重なる、after にいちばん近い始まり。無ければ after のあとの次の始まり。区間を時間帯で見る決まりは covers の1か所。"""
+        length = timedelta(seconds=30)
+        until_1830 = {k: ([["09:00", "18:30"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
+        lunch = subtract(until_1830, {k: [["12:00", "13:00"]] for k in KEYS})
+        tea = subtract(until_1830, {k: [["15:45", "16:15"]] for k in KEYS})
+        # 1時間後（after）に始められる ⇒ after のまま（前を探さない）
+        self.assertEqual(next_opening(lunch, no_holiday, at(MON, 16), length, back_to=at(MON, 15, 30)), at(MON, 16))
+        # 「15時に戻ります」で 15:45〜16:15 がNG時間 ⇒ 15:30〜15:45 の、いちばん遅い始まり（期限が 15:45 ちょうど）
+        self.assertEqual(next_opening(tea, no_holiday, at(MON, 16), length, back_to=at(MON, 15, 30)), at(MON, 15, 44, 30))
+        # 「18時に戻ります」で依頼者の時間帯が18時半まで ⇒ 期限が18時半ちょうどの予約（✅ 2026-11-14 ユーザー「18時半でOK」）
+        self.assertEqual(next_opening(until_1830, no_holiday, at(MON, 19), length, back_to=at(MON, 18, 30)), at(MON, 18, 29, 30))
+        # 「11時半に戻ります」で12時〜13時がNG時間 ⇒ 期限が12時ちょうどの予約（同じ決まり。NG時間の中にはかけない）
+        self.assertEqual(next_opening(lunch, no_holiday, at(MON, 12, 30), length, back_to=at(MON, 12)), at(MON, 11, 59, 30))
+        # 30分後から1時間後までが、まるごとかけてはいけない時間 ⇒ 1時間後のあとの次の始まり（NG時間の終わり・次の日の時間帯の始まり）
+        early_lunch = subtract(until_1830, {k: [["11:50", "13:00"]] for k in KEYS})
+        self.assertEqual(next_opening(early_lunch, no_holiday, at(MON, 12, 30), length, back_to=at(MON, 12)), at(MON, 13))
+        self.assertEqual(next_opening(until_1830, no_holiday, at(MON, 22, 30), length, back_to=at(MON, 22)),
+                         at(MON + timedelta(days=1), 9))
+        # 予約から期限までが入りきらない短い区間（15:44〜15:45 の1分に、2分の区間）は使わない（covers の1か所で見る）
+        short = subtract(until_1830, {k: [["15:00", "15:44"], ["15:45", "16:15"]] for k in KEYS})
+        self.assertEqual(next_opening(short, no_holiday, at(MON, 16), timedelta(minutes=2), back_to=at(MON, 15, 30)), at(MON, 16, 15))
+        # 前は探さない所まで（back_to より前に期限が来る始まりは使わない）
+        self.assertEqual(next_opening(until_1830, no_holiday, at(MON, 19, 30), length, back_to=at(MON, 19)),
+                         at(MON + timedelta(days=1), 9))
+
 
 
 class OtherBand(unittest.TestCase):

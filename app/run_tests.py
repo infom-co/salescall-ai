@@ -3013,6 +3013,7 @@ _EARLIER_WHEN = "tests.test_settle.DialFixAfterCalls.test_the_handover_call_tell
 # お言葉に甘えたお客様のほうから折り返すお約束の戻る時刻（2026-11-14 ユーザー。DESIGN.md 2章 Q248）
 _BACK_1114 = "tests.test_call_report_cl1.TheirsBackTime1114."
 _BACK_SETTLE = "tests.test_settle.CallbackWindow.test_their_callback_with_a_return_time_is_called_an_hour_after_it"
+_BACK_MOVE = "tests.test_settle.CallbackWindow.test_their_callback_an_hour_after_that_cannot_be_called_moves_within_half_an_hour"
 PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("かけてから「話している」に載せる（かけている途中に、止める・ログインを外す処理が閉じうる）", _LINE,
      "                call.start()   # かける前から", "                pass   # かける前から",
@@ -7290,10 +7291,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      (_BACK_1114 + "test_okada_back_at_three_is_called_from_four", _BACK_SETTLE)),
     ("折り返しのお約束で、幅の言葉（「夕方」「3時以降」）の始まりもずらす（ずらし方が決まっていない）", "src/salescall/core/judge.py",
      "    if not cb.theirs or not when.moment or when.start is None:", "    if not cb.theirs or when.start is None:",
-     (_BACK_1114 + "test_what_the_plan_does_not_decide_is_not_moved",)),
-    ("折り返しのお約束で、ずらすと歯止め時間の外・日をまたぐ時刻にもずらす", "src/salescall/core/judge.py",
-     "        if local.date() != back.date() or not lo <= sec < hi:", "        if False:",
-     (_BACK_1114 + "test_what_the_plan_does_not_decide_is_not_moved",)),
+     (_BACK_1114 + "test_window_words_are_not_moved",)),
     ("「30分後」を1つの時点と読まない（折り返しのお約束でずらさない）", "src/salescall/core/spoken_time.py",
      "        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True, point=True)",
      "        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True)",
@@ -7301,6 +7299,35 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("判定の中身に、折り返しのお約束の戻る時刻（back_at）を残さない", "src/salescall/core/judge.py",
      '"theirs": cb.theirs, "back_at": iso(back)}', '"theirs": cb.theirs, "back_at": None}',
      (_BACK_1114 + "test_okada_back_at_three_is_called_from_four",)),
+    # 2026-11-14 ユーザー：「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで待つ」・「18時半でOK」「22時でOK」
+    # （ずらした時刻はお客様が指定した時刻でない。judge._after_theirs・judge.theirs_span・next_action._theirs_at・calling_hours.next_opening の back_to）
+    ("折り返しのお約束のずらした時刻を、前のとおり時刻ちょうどの約束にする（NG時間の枠・依頼者の時間帯の外でかける例外が戻る）", "src/salescall/core/judge.py",
+     "    return spoken_time.Reading(spoken_time.WINDOW, theirs_span(when.start)[1], None, repeat=spoken_time.DAY_REPEAT), when.start",
+     "    return spoken_time.Reading(spoken_time.AT, theirs_span(when.start)[1], None, repeat=spoken_time.DAY_REPEAT), when.start",
+     (_BACK_1114 + "test_the_moved_time_is_an_open_window_on_the_usual_days_and_hours", _BACK_1114 + "test_the_old_exceptions_are_gone",
+      _BACK_SETTLE, _BACK_MOVE)),
+    ("折り返しのお約束のずらした時刻を、お客様が日を言った回にする（依頼者の休みの日でもかける）", "src/salescall/core/judge.py",
+     "    return spoken_time.Reading(spoken_time.WINDOW, theirs_span(when.start)[1], None, repeat=spoken_time.DAY_REPEAT), when.start",
+     "    return spoken_time.Reading(spoken_time.WINDOW, theirs_span(when.start)[1], None, repeat=spoken_time.DAY_REPEAT, day_said=True),"
+     " when.start",
+     (_BACK_1114 + "test_the_moved_time_is_an_open_window_on_the_usual_days_and_hours", _BACK_SETTLE)),
+    ("折り返しのお約束で、1時間後がかけてはいけない時間のとき、30分後まで早めない（次のかけてよい時刻まで待つだけ）", "src/salescall/core/judge.py",
+     "THEIRS_EARLIEST = timedelta(minutes=30)", "THEIRS_EARLIEST = timedelta(hours=1)",
+     (_BACK_1114 + "test_the_span_to_search_is_from_half_an_hour_to_an_hour", _BACK_MOVE)),
+    ("折り返しのお約束で、こちらからかける時を選ばず、1時間後からの幅の始まりにかける", "src/salescall/core/next_action.py",
+     '        elif cb.get("back_at") is not None:', "        elif False:", (_BACK_MOVE,)),
+    ("折り返しのお約束で、1時間後より前を探さない（次の動きが早めてよい所を渡さない）", "src/salescall/core/next_action.py",
+     "back_to=earliest if now < want else None)", "back_to=None)", (_BACK_MOVE,)),
+    ("ふつうの電話の次の始まりの1か所が、前を探す所を受け取っても使わない", "src/salescall/core/gate.py",
+     "back_to=None if back_to is None else calling_hours.local(back_to))", "back_to=None)", (_BACK_MOVE,)),
+    ("前を探すとき、予約証の期限でなく予約の時刻を30分後と比べる（「18時に戻ります」で18時半に期限が来る予約を使わず、次の日へ）",
+     "src/salescall/core/calling_hours.py",
+     "        found = _latest_before(hours, is_holiday, after, back_to - length, length)",
+     "        found = _latest_before(hours, is_holiday, after, back_to, length)",
+     ("tests.test_calling_hours.NextOpening.test_back_to_finds_the_latest_start_that_reaches_it", _BACK_MOVE)),
+    ("前を探すとき、時間帯を確かめずに区間の終わりの前を使う", "src/salescall/core/calling_hours.py",
+     "            if lowest <= t <= before and covers(hours, is_holiday, t, t + length):", "            if lowest <= t <= before:",
+     ("tests.test_calling_hours.NextOpening.test_back_to_finds_the_latest_start_that_reaches_it",)),
 )
 
 

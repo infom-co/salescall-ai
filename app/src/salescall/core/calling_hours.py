@@ -113,10 +113,17 @@ def daily_seconds(start: datetime, end: datetime, ranges: Sequence[tuple[int, in
 
 
 def next_opening(hours: dict, is_holiday: Callable[[date], bool], after: datetime, length: timedelta,
-                 *, horizon_days: int = 31) -> datetime | None:
-    """after 以降で、length の長さの区間がまるごと時間帯に入る、最も早い始まり（日本時間）。horizon_days 日のうちに無ければ None。"""
+                 *, horizon_days: int = 31, back_to: datetime | None = None) -> datetime | None:
+    """after 以降で、length の長さの区間がまるごと時間帯に入る、最も早い始まり（日本時間）。horizon_days 日のうちに無ければ None。
+    back_to（after より前）があれば、after に始められないとき、先に after より前を探す：区間（予約から予約証の期限まで）が back_to から
+    after までの間に重なる（始まりが after 以前・終わりが back_to 以後）、after にいちばん近い（最も遅い）始まり（`_latest_before`）。
+    区間を時間帯で見る決まり（`covers`）は、どちらも同じ1か所。"""
     if covers(hours, is_holiday, after, after + length):
         return after
+    if back_to is not None and back_to < after:
+        found = _latest_before(hours, is_holiday, after, back_to - length, length)
+        if found is not None:
+            return found
     for offset in range(horizon_days + 1):
         d = after.date() + timedelta(days=offset)
         for r0, _ in sorted(_ranges(hours, day_key(d, is_holiday))):
@@ -124,6 +131,20 @@ def next_opening(hours: dict, is_holiday: Callable[[date], bool], after: datetim
             if candidate >= after and covers(hours, is_holiday, candidate, candidate + length):
                 return candidate
     return None
+
+
+def _latest_before(hours: dict, is_holiday: Callable[[date], bool], before: datetime, lowest: datetime,
+                   length: timedelta) -> datetime | None:
+    """lowest から before までの始まりのうち、length の長さの区間がまるごと時間帯に入る、最も遅い始まり（`next_opening` の back_to だけが
+    呼ぶ）。最も遅い始まりは、時間帯のどれかの区間の終わりから length 前（区間の終わりが before より後なら、before そのもの＝呼ぶ側が先に見た）。"""
+    found = []
+    for offset in range((before.date() - lowest.date()).days + 1):
+        day = datetime.combine(lowest.date() + timedelta(days=offset), time())
+        for _, r1 in _ranges(hours, day_key(day.date(), is_holiday)):
+            t = day + timedelta(seconds=r1) - length
+            if lowest <= t <= before and covers(hours, is_holiday, t, t + length):
+                found.append(t)
+    return max(found, default=None)
 
 
 # ── お客様が言ったかけ直しの時間の幅（DESIGN.md 7-2。表の作り 0086。2026-10-19 ユーザー：「夕方」「3時まで」などに合わせてかける） ──

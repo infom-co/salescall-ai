@@ -288,18 +288,22 @@ def _hours_settings(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
     return settings.resolve(tx, "calling.hours", **scope), settings.resolve(tx, "calling.ng_hours", **scope)
 
 
-def next_opening(tx: Tx, after: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> datetime | None:
+def next_opening(tx: Tx, after: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None,
+                 back_to: datetime | None = None) -> datetime | None:
     """after 以降で、ふつうの電話をかけてよい時間帯（`calling_hours_for`）に、予約から予約証の期限までがまるごと入る、最も早い始まり
     （1か所。門の「今日かけてよい回数を使い切った」の待ちと、次の動きの「時間帯の外」が読む。⛔ 見直し17a：前は1日の回数の待ちを
     次の日の0時にしたので、0時に門へ渡し、時間帯の外で断られて、次の動きがもう一度書き直した）。31日のうちに無ければ None。
     暦の無い日に当たれば、決めつけず、after 以降の最初の日の始まり（その日に門がもう一度確かめる。暦が無ければ門は実施回の理由で
-    断り、予定は書き直さない＝1日に1回まで）。"""
+    断り、予定は書き直さない＝1日に1回まで）。back_to＝after に始められないとき、先に after より前（予約から予約証の期限までが back_to
+    から after までの間に重なる、最も遅い始まり）を探す（`calling_hours.next_opening` の back_to。お客様のほうから折り返すお約束の
+    こちらからかける時＝next_action._theirs_at だけが渡す）。"""
     lifetime = timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", tenant_id=tenant_id, client_id=client_id,
                                                       business_id=business_id)))
     local = calling_hours.local(after)
     try:
         found = calling_hours.next_opening(calling_hours_for(tx, tenant_id=tenant_id, client_id=client_id,
-                                                             business_id=business_id), holiday_checker(tx), local, lifetime)
+                                                             business_id=business_id), holiday_checker(tx), local, lifetime,
+                                           back_to=None if back_to is None else calling_hours.local(back_to))
     except CalendarOutOfRange:
         day = datetime.combine(local.date(), datetime.min.time())
         found = day if day == local else day + timedelta(days=1)

@@ -4837,27 +4837,71 @@ class CallbackWindow(SettleBase):
             else:
                 self.assertEqual(daily[1], 15 * 3600)                        # この業務：15時まで
 
+    def their_promise(self, words, *, hours=("09:00", "18:30"), ng=("12:00", "13:00"), theirs=True):
+        """お言葉に甘えて受けた、お客様のほうから折り返すお約束で戻る時刻を伺えた（受付の方「岡田は〇時に戻ります。戻りましたら折り返させます」）通話を
+        締め、次の予定（日本時間）と予約証の期限までの長さを返す。依頼者の時間帯・NG時間は、かけたあと・締める前に入れる（いまの時刻に関わらず
+        かけられるように。締めの処理が読むのは締めの時）。"""
+        x = self.ready()
+        cb = replace(callback("absent", time=words), theirs=theirs)
+        aid = self.call(x, report=rep(("reception",), callback=cb, not_reached="absent"))
+        self.put_client(x, "calling.hours", {k: [list(hours)] for k in KEYS})
+        self.put_client(x, "calling.ng_hours", {k: [list(ng)] for k in KEYS})
+        self.assertEqual(self.settle(x, aid)["state"], "callback_scheduled")
+        nxt = self.tx(x, lambda tx: tx.one(
+            "SELECT kind, promised, salescall.jst(call_at) AS at, salescall.jst(callee_at) AS callee, salescall.jst(window_from) AS since,"
+            " salescall.jst(window_until) AS until, window_daily AS daily, window_day_said AS day_said, window_repeat AS repeat"
+            " FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (x["task"],)))
+        life = timedelta(seconds=int(self.tx(x, lambda tx: settings.resolve(tx, "gate.claim_lifetime", tenant_id=x["tenant"],
+                                                                           client_id=x["client"], business_id=x["business"]))))
+        return nxt, life
+
     def test_their_callback_with_a_return_time_is_called_an_hour_after_it(self):
         """お言葉に甘えて受けた、お客様のほうから折り返すお約束（会話の報告の Callback.theirs）で戻る時刻を伺えた（受付の方「岡田は15時に戻ります。
-        戻りましたら折り返させます」）：締めると、次の予定は戻る時刻の1時間後（16時）の時刻ちょうどの約束（✅ 2026-11-14 ユーザー。判定の
-        judge._after_theirs の1か所。次の動きは今の時刻ちょうどの約束のまま）。印の無いふつうの不在の「15時に戻ります」は15時のまま。戻る時刻が
-        分からないお言葉に甘えた電話は、今までどおり不在の方針（約束にしない）。"""
+        戻りましたら折り返させます」）：締めると、次の予定は戻る時刻の1時間後（16時）。ずらした時刻はお客様が指定した時刻でない（✅ 2026-11-14 ユーザー）
+        ので、時刻ちょうどの約束にせず（約束の時刻 callee_at が無い）、その日の終わり無しの幅（1日の中の幅が無い・日を言っていない・話せなければ
+        次の日の回＝「すぐ」と同じ決まり。かける時刻を選ぶのは next_action._theirs_at の1か所）。印の無いふつうの不在の「15時に戻ります」は15時の時刻
+        ちょうどの約束のまま。戻る時刻が分からないお言葉に甘えた電話は、今までどおり不在の方針（約束にしない）。"""
+        day = self.local_now(self.ready()).date() + timedelta(days=2)
+        words = f"{day.month}月{day.day}日の"
+        at = lambda h, m=0, d=day: datetime.combine(d, datetime.min.time()) + timedelta(hours=h, minutes=m)   # noqa: E731
+        nxt, _ = self.their_promise(words + "15時")
+        self.assertEqual((nxt["kind"], nxt["promised"], nxt["at"], nxt["callee"]), ("call", True, at(16), None))
+        self.assertEqual((nxt["since"], nxt["until"], nxt["daily"], nxt["day_said"], nxt["repeat"]),
+                         (at(0), at(0, d=day + timedelta(days=1)), None, False, "day"))
+        plain, _ = self.their_promise(words + "15時", theirs=False)
+        self.assertEqual((plain["at"], plain["callee"]), (at(15), at(15)))
         s = self.ready()
-        day = self.local_now(s).date() + timedelta(days=2)
-        words = f"{day.month}月{day.day}日の15時"
-        for theirs, hour in ((True, 16), (False, 15)):
-            with self.subTest(theirs=theirs):
-                x = self.ready()
-                cb = replace(callback("absent", time=words), theirs=theirs)
-                got = self.settle(x, self.call(x, report=rep(("reception",), callback=cb, not_reached="absent")))
-                self.assertEqual(got["state"], "callback_scheduled")
-                nxt = self.latest(x)
-                want = datetime.combine(day, datetime.min.time()) + timedelta(hours=hour)
-                self.assertEqual((nxt["kind"], nxt["promised"], nxt["at"], calling_hours.local(nxt["callee_at"])), ("call", True, want, want))
         unknown = replace(callback("absent"), theirs=True)
         got = self.settle(s, self.call(s, report=rep(("reception",), callback=unknown, not_reached="absent")))
         self.assertEqual(got["state"], "not_reached")
         self.assertFalse(self.latest(s)["promised"])
+
+    def test_their_callback_an_hour_after_that_cannot_be_called_moves_within_half_an_hour(self):
+        """1時間後がかけてはいけない時間（ふつうの電話の決まり＝依頼者の時間帯・NG時間）なら、30分後から1時間後の間に重なる、1時間後にいちばん近い
+        時刻。無ければ次にかけてよい時刻まで待つ（✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて
+        良い時刻まで待つ」・「「18時に戻ります」（依頼者の時間帯が18時半まで）：18時半でOK　「21時半に戻ります」（歯止めの時間が22時まで）：22時でOK」・
+        「こちらの都合でなく、相手に問題がなければ、その時間を多少過ぎてもOK」）。時間帯の終わりちょうど（18時半・22時）は、予約証の期限がその時刻に
+        来る予約（期限までの長さは設定 gate.claim_lifetime。門と同じ「予約から期限まで、まるごと内側」の1か所）。前の決め方（依頼者の時間帯の外・NG時間の
+        枠でも、作った時刻ちょうどにかける・歯止めの外ならずらさない）は残っていない。"""
+        day = self.local_now(self.ready()).date() + timedelta(days=2)
+        words = f"{day.month}月{day.day}日の"
+        at = lambda h, m=0, d=day: datetime.combine(d, datetime.min.time()) + timedelta(hours=h, minutes=m)   # noqa: E731
+        cases = (   # (戻る時刻, 依頼者の時間帯, NG時間, 期限の来る時刻 or 予約の時刻)
+            ("例 (1) 11時半・NG時間12〜13時：期限が12時ちょうど", "午前11時半", ("09:00", "18:30"), ("12:00", "13:00"), "end", at(12)),
+            ("例 (1) 11時半・NG時間11時50分〜13時：30分後〜1時間後がまるごとNG ⇒ 13時", "午前11時半", ("09:00", "18:30"), ("11:50", "13:00"),
+             "start", at(13)),
+            ("例 (2) 18時・依頼者の時間帯が18時半まで ⇒ 18時半", "18時", ("09:00", "18:30"), ("12:00", "13:00"), "end", at(18, 30)),
+            ("例 (3) 21時半・依頼者の時間帯が22時まで ⇒ 22時", "21時半", ("09:00", "22:00"), ("12:00", "13:00"), "end", at(22)),
+            ("21時半・依頼者の時間帯が18時半まで ⇒ 次の日の時間帯の始まり", "21時半", ("09:00", "18:30"), ("12:00", "13:00"), "start",
+             at(9, d=day + timedelta(days=1))),
+            ("15時・NG時間15時45分〜16時15分 ⇒ 15時30分〜15時45分のいちばん遅い時刻", "15時", ("09:00", "18:30"), ("15:45", "16:15"), "end",
+             at(15, 45)),
+        )
+        for title, back, hours, ng, edge, want in cases:
+            with self.subTest(title):
+                nxt, life = self.their_promise(words + back, hours=hours, ng=ng)
+                self.assertEqual((nxt["promised"], nxt["callee"], nxt["daily"]), (True, None, None))
+                self.assertEqual(nxt["at"], want - life if edge == "end" else want)
 
     def test_the_designated_limit_is_one_day_and_per_business(self):
         """お客様指定の歯止め時間（callee.designated_limit）は、業務ごとに選べる1日の中の [始まり, 終わり)（日をまたがない。

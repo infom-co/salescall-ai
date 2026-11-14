@@ -80,7 +80,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, attempts, business_rules, business_settings, call_report, calling_hours, gate, health, notify,
+from salescall.core import (approval, attempts, business_rules, business_settings, call_report, calling_hours, gate, health, judge, notify,
                             number_recheck, settings, spoken_time, target_policy, tasks)
 from salescall.core.access import Tx
 from salescall.core.business_rules import Rules
@@ -1830,6 +1830,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     if target.contact_id is not None and cb is not None:
         if cb["at"] is None:
             kept = _unspecified_next(tx, task_id, target, now=now, base=now, tried=dialed_at)
+        elif cb.get("back_at") is not None:   # お客様のほうから折り返すお約束：戻る時刻のあと、こちらからかける時（`_theirs_at` の1か所）
+            kept = _keep_promise(tx, task_id, _theirs_at(tx, task_id, cb, now=now), window_said(cb), target, now=now)
         elif cb.get("exact", True):
             said = datetime.fromisoformat(cb["at"])
             kept = _keep_promise(tx, task_id, said, _exact_window(tx, task_id, said, day_said=bool(cb.get("day_said")),
@@ -1906,6 +1908,24 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
         notify.emit(tx, "apology", key=f"apology:{attempt_id}", summary="お客様と約束した電話の頭で、お詫びを伝えました（そのまま約束の用件を続けました）。",
                     refs={"attempt_id": attempt_id, "task_id": task_id})
     return d
+
+
+def _theirs_at(tx: Tx, task_id: UUID, cb: dict[str, Any], *, now: datetime) -> datetime:
+    """お客様のほうから折り返すお約束（判定の中身 callback の back_at＝お客様が言った戻る時刻がある約束）で、こちらからかける時（1か所。
+    `after_call` だけが呼ぶ）。✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで
+    待つ」・「「18時に戻ります」（依頼者の時間帯が18時半まで）：18時半でOK　「21時半に戻ります」（歯止めの時間が22時まで）：22時でOK」・
+    「こちらの都合でなく、相手に問題がなければ、その時間を多少過ぎてもOK」。
+    - 探す間は判定の1か所（judge.theirs_span＝戻る時刻の30分後から1時間後）。かけてよいかは、ふつうの電話の決まりの1か所（gate.next_opening＝
+      依頼者の時間帯から NG時間を引いた残り・休みの日。予約から予約証の期限までが、まるごと内側）。ずらした時刻はお客様が指定した時刻ではないので、
+      NG時間の枠・依頼者の時間帯の外でかけてよい例外は使わない。
+    - 1時間後にかけてよければ1時間後。いけなければ、予約から予約証の期限までが30分後から1時間後の間に重なる（予約が1時間後以前・期限が30分後
+      以後）、1時間後にいちばん近い始まり（「18時に戻ります」で依頼者の時間帯が18時半まで ⇒ 18時半に期限が来る予約。期限までの長さは設定
+      gate.claim_lifetime）。それも無ければ、1時間後のあとの、次にかけてよい始まり（次の日の時間帯の始まり など）。
+    - いまが1時間後より後（判定し直し）なら、いまから探す。31日のうちに無ければ、1時間後（約束の幅の次の動き `_keep_promise` が、かけてよい
+      時間帯の無いときの道へ）。"""
+    earliest, want = judge.theirs_span(datetime.fromisoformat(cb["back_at"]))
+    found = gate.next_opening(tx, max(want, now), **tasks.scope(tx, task_id), back_to=earliest if now < want else None)
+    return max(found or want, now)
 
 
 def _notice_old_promise(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
