@@ -409,7 +409,12 @@ COMMON_PARTS: tuple[str, ...] = (
     # 正本は CL-1 の phrases.ANNOUNCE_RECHECK。名前は同じ）。名詞のある質問は依頼主の単位の録音「番号_accepted」（業務の録音＝会話の側の一覧から。ここには無い）
     "announce_recheck",
     # CL-1 の連絡帳 4-152（伺い9・分身 D の (b)）：名前を聞き返されたあとの伝言の短い形「それではお電話があったとお伝えいただけますでしょうか？」
-    "message_again")
+    "message_again",
+    # CL-1 の連絡帳 4-158（CL-2 の 4-391 の (1)・✅ 2026-11-14 日本時間20時11分41秒 ユーザー）：お客様のほうから折り返すとおっしゃり、お言葉に甘えて受けた
+    # 不在の電話で、戻る時刻を伺う「お電話をいただいた際に出られないことがないようにお戻りになられる時間はお分かりになるでしょうか？」（文の正本は CL-1 の
+    # phrases.CALLBACK_ASK の theirs_time。伺えた時刻は theirs の記録の time に入り、かける時刻は Intent.md 7-3 の決定 2026-11-14 のとおり）と、ほかのかけ直しの
+    # 質問と同じく、3回目から戻るときの形（_midway。名前の決まりは CL-1 の phrases.BACK_FIT のまま。4-158 には書かれていないが、CL-1 の比べる試験で見つけた）
+    "callback_theirs_time", "callback_theirs_time_midway")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

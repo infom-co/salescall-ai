@@ -1924,6 +1924,12 @@ class NameLedger(Content):
         self.assertIn("carried_target", business_settings.RESERVED_IDS)
         self.assertNotIn("carried_target", recordings.COMMON_PARTS)
 
+    def test_the_parts_cl1_added_on_11_14_are_received(self):
+        """CL-1 の連絡帳 4-158（CL-2 の 4-391 の (1)。✅ 2026-11-14 日本時間20時11分41秒 ユーザー）の共通の一言の録音も、話してよい声が求める（`COMMON_PARTS`）：
+        お言葉に甘えて受けた不在の電話で、戻る時刻を伺う一言（callback_theirs_time）と、3回目から戻るときの形（_midway。名前の決まりは CL-1 の phrases.BACK_FIT）。
+        無いと、その一言を流せないまま声を「話してよい」にする。"""
+        self.assertLessEqual({"callback_theirs_time", "callback_theirs_time_midway"}, set(recordings.COMMON_PARTS))
+
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、
         どれも話してよい声が求める（`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）：並べて伺ったご案内の方法を言って

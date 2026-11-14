@@ -3009,6 +3009,7 @@ _AI_FIELDS = "tests.test_business_settings.Check.test_the_fields_only_the_import
 _AI_IMPORT = _BI_IMPORT + "test_the_fields_only_the_ai_decides_are_asked_once_and_kept_at_registration"
 _THEIRS = "tests.test_call_report_cl1.Theirs1113.test_their_callback_is_received_and_kept"
 _PARTS_1113 = "tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_13_are_received"
+_PARTS_1114 = "tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_14_are_received"
 _EARLIER_WHEN = "tests.test_settle.DialFixAfterCalls.test_the_handover_call_tells_whether_the_earlier_answers_were_taken_today"
 # お言葉に甘えたお客様のほうから折り返すお約束の戻る時刻（2026-11-14 ユーザー。DESIGN.md 2章 Q248）
 _BACK_1114 = "tests.test_call_report_cl1.TheirsBackTime1114."
@@ -7272,6 +7273,10 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    "callback_carried_talked_later_midway", "callback_carried_talked_same_day_midway", "start_over",\n', "", (_PARTS_1113,)),
     ("重ねての折り返しの申し出を受ける一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
      '    "offer_accepted",\n', "", (_PARTS_1113,)),
+    ("お言葉に甘えたあとに戻る時刻を伺う一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
+     '    "callback_theirs_time", "callback_theirs_time_midway")', '    "callback_theirs_time_midway")', (_PARTS_1114,)),
+    ("お言葉に甘えたあとに戻る時刻を伺う一言の、3回目から戻るときの形の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
+     '    "callback_theirs_time", "callback_theirs_time_midway")', '    "callback_theirs_time")', (_PARTS_1114,)),
     ("名前の録音の台帳の続く言葉の一覧に、お呼びした方から引き継いでいるかを伺う一言を入れない（台帳に録音を入れられない）", "src/salescall/core/recordings.py",
      '"target_successor", "unavailable_confirm", "carried_target")', '"target_successor", "unavailable_confirm")', (_PARTS_1113,)),
     ("その行に要る名前の録音に、お呼びした方から引き継いでいるかを伺う一言を入れない（その一言を流せない）", "src/salescall/core/recordings.py",
