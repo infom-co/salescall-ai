@@ -23,7 +23,7 @@ import json
 
 from flowctl import (ABOUT, ANY, NONE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
-                     prompt_used, restates, side_items)
+                     restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -583,13 +583,13 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
     if r is not None:   # 測りの記録だけが使う確からしさの広がり（どの問いの読みでも同じ1か所）
         r.probs = got.get("probs") if isinstance(got.get("probs"), dict) else None
         r.confs = got.get("confs") if isinstance(got.get("confs"), dict) else None
-        used = used_sure(r.confs, str(r), None if asked else q)
+        used = used_sure(r.confs, str(r))
         if used is not None:
             r.sure = used
     return r
 
 
-def used_sure(confs: dict | None, cond: str, q=None) -> float | None:
+def used_sure(confs: dict | None, cond: str) -> float | None:
     """読みの確からしさ＝その読みで流れの制御が使う問いの、選んだものの確からしさのいちばん低いもの（唯一の決まり。問いごとの確からしさを返す
     判定だけ＝判断のモデル。返さなければ None＝返事の sure のまま）。分からない理由（WHY）は答えが わからない・答えたくない のときだけ使う
     （Flow._why_of）・声が届いていない様子（HEAR）は確からしさに関係なく切れ方の材料に使う（確かでない読みも数える＝Flow.cut）ので入れない・
@@ -597,13 +597,13 @@ def used_sure(confs: dict | None, cond: str, q=None) -> float | None:
     洗い出して、直しに入れてください」（途中のご報告の (ア)）。⛔ それまでは返した問いの全部のいちばん低いもので、G-53d1base では確かでない読みの
     約6割に、答えが わからない でないのに使わない分からない理由の問いが入っていた。
     質問の答えの話か・別のお話か（AWAY）は、答えが「決められない」のときだけ使う（Flow._offer_unlinked・_resume_due＝そろって決められない読みだけで分ける）。
-    黙ったあとの一言へのお返事だけか（PROMPT_REPLY）は、使う答えの読みの決まり（flowctl.prompt_used の1か所＝決められない・ご承認のお知らせ）のときだけ。
-    q＝判定に見せた質問（言い直し・最終の確かめのお返事を読むときは None）。⛔ 0c55c4e7 まで AWAY と PROMPT_REPLY をいつも数えていたので、答えの確からしさが
-    高くても、使わない項目の確からしさが線より下なら読み全体が「確かでない」になった（見直し (12) の D-3）"""
+    黙ったあとの一言へのお返事だけか（PROMPT_REPLY）は、読んだとき（一言を流したあとの言葉）はいつも使う（そろって「お返事だけ」なら答えの読みにかかわらず最終の
+    確かめ＝flowctl.prompt_replied・Flow._prompt_due。見直し (12) の B-4）。⛔ 0c55c4e7 まで AWAY をいつも数えていたので、答えの確からしさが高くても、使わない
+    項目の確からしさが線より下なら読み全体が「確かでない」になった（見直し (12) の D-3。⛔ 2e5986f5 まで PROMPT_REPLY は答えが「決められない」かご承認の
+    お知らせのときだけ数えた＝流れの制御もそのときだけ使い、資料の申し出への「いえ、大丈夫です。」を「いいえ」と読むとお断りで締めた）"""
     if not confs:
         return None
-    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)
-            and (k != PROMPT_REPLY or prompt_used(q, cond))]
+    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)]
     return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 

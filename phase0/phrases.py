@@ -39,6 +39,9 @@ import re
 #    あるので、『ご希望の日時をお聞かせいただけますでしょうか？』とすらっと読めると自然（人っぽい）」「『、』が悪影響で読み方が不自然」
 #    ⇒ 決まった言い方・録音の文には、言葉の途中に読点を入れない（文の終わりの「。」「？」だけ）。問いかけは「？」で終える
 ASK_BACK = "お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"
+# 聞き取れなかった項目を聞く最後の1回（締めの前の念のための確認）の頭（✅ 2026-10-14 ユーザー「お声が聞き取れませんでしたので、ご希望の日時を、もう一度だけ…」。
+# 読点は外した＝10-15）。業務の質問の最後の1回（ask_again の last）と、聞き取れないまま「-」にしたお知らせの最終の確かめ（unheard_form）が同じ言葉で始まる
+UNHEARD_LEAD = "お声が聞き取れませんでしたので"
 
 
 def ask_again(n: int, reason: str, topic: str = "", last: bool = False) -> str:
@@ -59,7 +62,7 @@ def ask_again(n: int, reason: str, topic: str = "", last: bool = False) -> str:
         # 「恐れ入りますが」でお願いにつなぐ（決まった言い方なので読点は入れない＝10-15。その場の聞き直し（下の n<=1）は頭が「はい、」だけなので今のまま）
         if reason == "form":
             return f"恐れ入りますが{what}もう一度だけお聞かせいただいてもよろしいでしょうか？"
-        return f"お声が聞き取れませんでしたので{what}もう一度だけお聞かせいただいてもよろしいでしょうか？"
+        return f"{UNHEARD_LEAD}{what}もう一度だけお聞かせいただいてもよろしいでしょうか？"
     if n <= 1:
         return ASK_BACK if reason == "unclear" else f"恐れ入ります。{what}もう一度お聞かせいただいてもよろしいでしょうか？"
     return "もう一回よろしいでしょうか？"
@@ -742,6 +745,14 @@ ANNOUNCE_ACCEPTED = "それでは{t}件はご了承ということでよろし�
 ANNOUNCE_RECHECK = "それでは先ほどの内容はご了承ということでよろしかったでしょうか？"
 
 
+def unheard_form(text: str) -> str:
+    """聞き取れないまま「-」にしたご承認のお知らせの、締めの前の最終の確かめの文（唯一の作り方＝flowctl.accepted_line の heard=False）：最終の確かめの文の頭の
+    つなぎの言葉（「それでは」）の代わりに「お声が聞き取れませんでしたので」（UNHEARD_LEAD＝業務の質問の最後の1回と同じ頭）。お詫び「申し訳ございません、」は
+    確認を作る所（flowctl.Flow._advance_to）が前に置く（聞き取れなかった質問の締めの前の確認と同じ1か所）。見直し (12) の B-1・まとめ役の決め (f)：「ありがとう
+    ございます。申し訳ございません、お声が聞き取れませんでしたのでキャンセルの件はご了承ということでよろしかったでしょうか？」（伺い10 の形）"""
+    return UNHEARD_LEAD + text[len(head_word(text) or ""):]
+
+
 # 同じ所（同じ質問・同じ言い直し）へ3回目から戻るときの一言＝続く質問の頭（✅ 2026-11-07 日本時間4時40分35秒 ユーザー：「たびたび失礼いたしました。はおかしい
 # ですね：「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」。決まった言い方なので読点は入れない＝10-15。文を終えないので、続く質問と1本で
 # 録音する＝つなぎの言葉と同じ 10-15 の聞き比べ。並びは BACK_LINES）
@@ -1052,6 +1063,13 @@ def closes(text: str) -> bool:
     return text.endswith(("。", "？", "！", "?", "!"))
 
 
+# もう伺った質問を伺い直すときの頭（唯一の言葉＝flowctl.spoken_question・restated_again・Flow._continue・決まった文の質問の again_fit）。戻る一言・「失礼
+# いたしました。」のあと・尋ねられて答えたあとに最終の確かめの向きが決まらない質問（✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(2) イ」＝11時台のご報告の
+# (イ)「進む向きが1つに決まらない選ぶ質問は (ウ) の形」＝「はい、それではパンフレットをお送りしてもよろしいでしょうか？」）。同じ理由（次の項目ではない＝
+# 「続きまして」は合わない）で、もう伺った質問へ戻るとき全部に当てる。⛔ 2e5986f5 まで flowctl にあり、決まった文の質問（システムの質問）の録音の形を作れなかった
+AGAIN_LEAD = "それでは"
+
+
 def head_word(text: str) -> str | None:
     """文の頭のつなぎの言葉（LEAD_IN の「次の質問」の言葉。長いものから見る＝「それでは」を「では」と読まない）。無ければ None。"""
     return next((w for w in sorted(LEAD_IN["次の質問"], key=len, reverse=True) if text.startswith(w)), None)
@@ -1096,6 +1114,18 @@ def back_fit(rid: str, text: str, before: str) -> tuple[str, str]:
     if w and any(a.endswith(w) or w.endswith(a) for a in heads_said(before)):
         return f"{rid}_bare", text[len(w):]
     return rid, text
+
+
+def again_fit(rid: str, text: str) -> tuple[str, str]:
+    """決まった文の質問（システムの質問・ほかのご希望を伺う一言など）を、戻る一言なしに伺い直すときの録音の名前と文（唯一の決まり＝流す flowctl.question_play・
+    録音の表 RECORDED・make_ack_clips.script_table）：もう伺った質問へ戻る頭「それでは」（AGAIN_LEAD）＋文（1本の録音。名前は業務の質問と同じ組み方＝
+    question_clip の「_lead_soredeha」）。文がもうつなぎの言葉で始まれば、そのまま（「それではそれでは」と重ねない）。問いでない一言（振り返りの一言など）は、
+    そのまま（もう伺った「質問」へ戻る頭＝問いだけ。3回目からの戻る一言をつながないのと同じ見分け＝back_fit）。見直し (12) の B-9・まとめ役の決め (g)：
+    受付の方の伝言の申し出をお礼で断ったあとの「お気遣いありがとうございます。…お電話させていただきます。それでは恐れ入りますが何時ごろお戻りになられます
+    でしょうか？」（⛔ 2e5986f5 まで、直前に伺った文を同じ言い方でくり返した＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）"""
+    if head_word(text) or not text.endswith(("？", "?")):
+        return rid, text
+    return question_clip(rid, AGAIN_LEAD), AGAIN_LEAD + text
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             STANDARD_PARTS["ai"]: AI_ANSWER, "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
@@ -1108,7 +1138,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK,
+            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(ANNOUNCE_RECHECK),
             "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
@@ -1126,6 +1156,11 @@ RESUMED_IDS = {f"callback_{k}_again" for k in CALLBACK_ASK_RESUMED}
 BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS]
             for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY) for rid, t in [back_fit(base, text, b)] if rid != base}
 RECORDED.update(BACK_FIT)
+# システムの質問を、戻る一言なしに伺い直す形（again_fit の1か所。もう伺った質問へ戻る頭「それでは」＝見直し (12) の B-9）。続きの電話の前置きつきの一言
+# （RESUMED_IDS）は、伺い直すときは前置きを言い直さない形（flowctl.Question.plain）なので作らない
+AGAIN_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS and k not in BACK_FIT]
+             for rid, t in [again_fit(base, text)] if rid != base}
+RECORDED.update(AGAIN_FIT)
 
 
 def lead_in(kind: str, n: int) -> str:

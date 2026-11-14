@@ -182,8 +182,14 @@ def question_how(text: str) -> str:
     return next((k for k in ("question", "question_long") if need <= MAX_S[k]), "question_xl")
 # システムの質問を2回目・3回目からの戻る一言に続けて流す形（phrases.BACK_FIT＝back_fit の1か所。方法をお伝えしたあとの連絡先の一言も同じ形）：質問の読み方で、
 # 長さの上限は文の長さで選ぶ（3回目からの形は頭が27字長い）
-from phrases import BACK_FIT, THINKING_PROMPT_IDS  # noqa: E402
+from phrases import AGAIN_FIT, BACK_FIT, RECORDED as _RECORDED, THINKING_PROMPT_IDS  # noqa: E402
 HOW_OF.update({k: question_how(t) for k, t in BACK_FIT.items()})
+# システムの質問を戻る一言なしに伺い直す形（phrases.AGAIN_FIT＝頭「それでは」。見直し (12) の B-9）：元の一言の読み方（決まった読み方のある一言はそのまま）で、
+# 長さの上限は文の長さで選ぶ。聞き取れないまま「-」にしたお知らせの締めの前の最終の確かめ（phrases.unheard_form＝「お声が聞き取れませんでしたので先ほどの内容は…」。
+# 見直し (12) の B-1）も、伺う質問の読み方で長さの上限は文の長さで選ぶ
+HOW_OF.update({k: question_how(t) if HOW_OF.get(k.removesuffix("_lead_soredeha"), "question").startswith("question") else HOW_OF[k.removesuffix("_lead_soredeha")]
+               for k, t in AGAIN_FIT.items()})
+HOW_OF["announce_recheck_unheard"] = question_how(_RECORDED["announce_recheck_unheard"])
 # 引き継ぎを確かめる一言の、前の答えに前の担当の方の答えが無い方へ伺う文（phrases.CARRIED_TALKED。✅ 2026-11-13 日本時間20時06分19秒「伺い3はア（候補2）」）：
 # 前の担当の方へ伺う文（callback_carried＝質問の読み方）と同じ読み方で、長さの上限は文の長さで選ぶ
 from phrases import CARRIED_TALKED  # noqa: E402
@@ -328,7 +334,7 @@ def script_table(business) -> tuple[dict, dict]:
     from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, offer_questions, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
                          tell_recording_id)
     from instruction import reading_variants
-    from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, back_fit, question_clip
+    from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, again_fit, back_fit, question_clip
 
     items = [("intro", business.opening_parts()[1], "intro")]
     if business.purpose_line:
@@ -374,6 +380,8 @@ def script_table(business) -> tuple[dict, dict]:
             # 2回目・3回目からの戻る一言に続けて流す形（phrases.back_fit の1か所＝流す flowctl.question_play と同じ。システムの質問は phrases.BACK_FIT）。
             # 戻るときは前置き（「前回お伺いした件で」）を言い直さない形（Question.plain＝B-5）から
             fitted = [back_fit(*(v.plain or (v.recording, v.text)), b) for v in variants for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)]
+            # 戻る一言なしに・頭が「それでは」でない一言のあとに伺い直す形（phrases.again_fit＝頭「それでは」。流す flowctl.question_play と同じ。見直し (12) の B-9）
+            fitted += [again_fit(*(v.plain or (v.recording, v.text))) for v in variants]
             items += [(rid, text, question_how(text)) for rid, text in dict(wishes + fitted).items()]
             if len(way_offer(q) or ()) > 1:
                 # 並べて伺ったあとの「どれでも」に、こちらで方法をお伝えする一言（flowctl.way_any_line の1か所。2026-11-07 3時14分01秒 H3 イ）
@@ -386,12 +394,16 @@ def script_table(business) -> tuple[dict, dict]:
             # ご承認のお知らせの最終の確かめ（文と名前は flowctl.accepted_line の1か所＝「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」・
             # 「番号_accepted」。名詞の決まらないお知らせは共通の一言の録音 announce_recheck）。✅ 2026-11-14 日本時間14時31分38秒「●伺い10」
             items.append((*accepted_line(q), "question"))
+            # 聞き取れないまま「-」にしたお知らせの締めの前の最終の確かめ（accepted_line の heard=False＝「お声が聞き取れませんでしたので（名詞）の件は…」・
+            # 「番号_accepted_unheard」。見直し (12) の B-1）
+            line = accepted_line(q, heard=False)
+            items.append((*line, question_how(line[1])))
     # 業務設定で決まる申し出（締める前の申し出 N6＝依頼主の単位の文・方法を選んでいただく N5。文と名前は flowctl.offer_questions・callback_question の1か所）と、
     # 2回目・3回目からの戻る一言に続けて流す形（phrases.back_fit の1か所）、保留でよいかを伺う一言（flowctl.pending_line・pending_recording_id。詳しい者からの
     # お話 N4 は共通の一言の録音）。✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒 ユーザー
     for oq in offer_questions(getattr(business, "handoff_ways", ()), getattr(business, "close_offer", None)):
         if oq.callback in BUSINESS_ROLES:
-            fitted = [back_fit(oq.recording, oq.text, b) for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)]
+            fitted = [back_fit(oq.recording, oq.text, b) for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY)] + [again_fit(oq.recording, oq.text)]
             items += [(rid, text, question_how(text)) for rid, text in dict([(oq.recording, oq.text)] + fitted).items()]
             if asks_wish(oq):
                 items.append((pending_recording_id(oq), pending_line(oq), "question"))
