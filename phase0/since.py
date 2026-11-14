@@ -42,8 +42,9 @@ def by_model(client, model: str, texts: list[str], think: bool = False) -> list[
 def fits(words: str | None) -> bool:
     """その後の文（phrases.since_ask）の中身に入れられる言葉か（形の決まりの唯一の場所）：空でない・問いや文の終わりを含まない・頭の「その後」や終わりの「か」を
     重ねない。"""
-    return (bool(words) and not any(m in words for m in ("？", "?", "。", "お決まりになり", "お分かりになり"))
-            and not words.startswith(SINCE_HEAD) and not words.endswith("か"))
+    from askitems import noun_fits
+
+    return noun_fits(words, around=("お決まりになり", "お分かりになり")) and not words.startswith(SINCE_HEAD) and not words.endswith("か")
 
 
 def decide(model_words: list[str | None]) -> str | None:

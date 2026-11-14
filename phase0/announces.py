@@ -159,7 +159,9 @@ def matter_by_model(client, model: str, pairs: list[tuple[str, str]], think: boo
 
 def matter_fits(intro: str, text: str, matter: str | None) -> bool:
     """お知らせの中身の名詞として使えるか（唯一の決まり＝用件の名詞 purposes.fits と同じ考え）：空でない・説明か質問の文の中の言葉・文の終わりや問いを含まない。"""
-    return bool(matter) and not any(m in matter for m in ("。", "？", "?")) and (matter in intro or matter in text)
+    from askitems import noun_fits
+
+    return noun_fits(matter, (intro, text))
 
 
 def matter_decide(intro: str, text: str, model_matters: list[str | None]) -> str | None:

@@ -239,10 +239,11 @@ def _drafted(askers: list[Asker], items: list[tuple], by_model: Callable, decide
     出さない）。無ければ文ごとに1つの組（今と同じ）。"""
     if not items:
         return []
+    if referee is None:
+        # 中身を確かめられない文は使わない＝2つの文字のAIにも聞かない（料金。⛔ 0c55c4e7 まで、聞いてから捨てていた＝見直し (12) の C-8）
+        return [""] * len(items)
     rows = _each(askers, lambda c, m: by_model(c, m, items), [None] * len(items), on_error)
     got = [decide(*it, [r[n] for r in rows]) for n, it in enumerate(items)]
-    if referee is None:
-        return [""] * len(items)
     left = [n for n, line in enumerate(got) if line is None]
     if left:
         drafts = _each([referee], lambda c, m: by_model(c, m, [items[n] for n in left], think=True), [None] * len(left), on_error)[0]
@@ -292,20 +293,21 @@ def decide_rewords(askers: list[Asker], items: list[tuple[str, tuple, str]], on_
     return _drafted(askers, items, rewords.by_model, rewords.decide, rewords.fits, rewords.grounded, on_error, referee)
 
 
-def decide_alternatives(askers: list[Asker], items: list[tuple[str, tuple, str]], on_error: Callable | None = None,
+def decide_alternatives(askers: list[Asker], items: list[tuple], on_error: Callable | None = None,
                         referee: Asker | None = None) -> list[str]:
     """選ぶ質問の (質問の文, 選択肢の並び, 型) の並び（flowctl.alternatives_fits の質問だけを渡すのは呼ぶ側）→ 同じ並びで、お客様の意向がまだ分からないまま戻る
     ときに「はい、」に続けて伺う、選択肢を並べた質問の文の組 (質問の順の文, 先に並べる選択肢ごとの文の並び)（答えは flowctl.Question.alternatives と
     alternatives_led。並びは alternatives.orders の順＝2つ目からの選択肢ごと。決まらなければ空＝質問の順の文が空なら「はい、」＋言い換えた質問・先に並べた文が
-    空ならその選択肢に触れたときも質問の順）。決め方は言い換えた質問と同じ1か所（_drafted）：並べ方ごとの行を同じ問い合わせに足す（2つの文字のAIと考える Sonnet の
+    空ならその選択肢に触れたときも質問の順）。items の4つ目（無ければ真）＝先に並べた文を作る質問か（flowctl.leads_fit の1か所＝先に並べる番に来る質問。偽なら
+    質問の順の文だけを作り、先に並べた文は空。⛔ 0c55c4e7 まで、申し出の選ぶ質問にも作っていた＝流れない文の料金＝見直し (12) の C-6）。決め方は言い換えた質問と同じ1か所（_drafted）：並べ方ごとの行を同じ問い合わせに足す（2つの文字のAIと考える Sonnet の
     問い合わせの数は同じ）・形は alternatives.fits（並べた順のまま全部・「それとも」）・中身の判定は alternatives.grounded を質問ごとに1回（その質問の文をまとめて）。
     ✅ 2026-11-14 日本時間22時15分15秒 ユーザー（お言葉は alternatives の頭）・23時45分00秒「伺い16はイでOK」"""
-    items = [(str(t or ""), tuple(c), str(k or "")) for t, c, k in items]
-    rows = [(n, (t, order, k)) for n, (t, c, k) in enumerate(items) for order in (c, *alternatives.orders(c))]
+    items = [(str(it[0] or ""), tuple(it[1]), str(it[2] or ""), bool(it[3]) if len(it) > 3 else True) for it in items]
+    rows = [(n, (t, order, k)) for n, (t, c, k, leads) in enumerate(items) for order in (c, *(alternatives.orders(c) if leads else ()))]
     got = _drafted(askers, [r for _, r in rows], alternatives.by_model, alternatives.decide, alternatives.fits, alternatives.grounded, on_error, referee,
                    groups=[n for n, _ in rows])
     lines = [[x for (n, _), x in zip(rows, got) if n == m] for m in range(len(items))]
-    return [(x[0], tuple(x[1:])) for x in lines]
+    return [(x[0], tuple(x[1:]) or ("",) * len(alternatives.orders(c))) for x, (_, c, _, _) in zip(lines, items)]
 
 
 def decide_at_hand(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[str]:

@@ -18,8 +18,6 @@
 from __future__ import annotations
 
 import rewords
-from announces import keeps_facts
-from phrases import head_word
 
 # 頭に付けない言葉（「はい、」は相づちの録音でこちらが付ける・つなぎの言葉は意向を決めつける＝お言葉）
 LEADS = ("はい", *rewords.LEADS)
@@ -59,9 +57,9 @@ def fits(text: str, conditions: tuple, qtype: str, line: str | None) -> bool:
     （announces.keeps_facts＝言い換えた質問と同じ）。"""
     if qtype != "choice" or len(conditions) < 2:
         return False
-    if not line or line == text or not line.endswith("？") or line.count("？") != 1 or any(m in line for m in ("?", "。", "、", "，")):
-        return False
-    if line.startswith(LEADS) or head_word(line) or not keeps_facts(text, line):
+    from askitems import question_line_fits
+
+    if not question_line_fits(text, line, LEADS):
         return False
     at = 0
     for n, c in enumerate(conditions):
@@ -95,4 +93,4 @@ def grounded(client, model: str, text: str, conditions: tuple, qtype: str, line:
     """選択肢を並べた質問が、元の質問（選択肢も）に無い事実を足していないか（中身の判定の1か所＝askitems.grounded）。通ったときだけ True。"""
     from askitems import grounded as check
 
-    return check(client, model, [text, _answers(conditions)], line, ("grounding", "選択肢を並べた質問の中身"))
+    return check(client, model, [text, _answers(conditions)], line, ("grounding", "選択肢を並べた質問の中身"), same=True)

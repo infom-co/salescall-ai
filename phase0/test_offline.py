@@ -27579,5 +27579,238 @@ class RecheckAckTest(unittest.TestCase):
         self.assertIn("「それでは」から話し始めてください。", r["message"])
 
 
+class ImportFormsReviewTest(unittest.TestCase):
+    """見直し (12) の組 Q（取込で決めた文・録音の一覧）：C-1 事実を伺う質問に選択肢を並べた文を作らない・C-2／C-3 {最短の日} を声に出す文のすべてで1か所で
+    置き換え、流す録音の名前と録音の表の名前を同じ1つから作る・C-4 取込の中身の判定で同じことを伺っているかを読む・C-5 形の確かめの1か所・C-6 先に並べた文は
+    先に並べる番に来る質問だけ・C-7 並べ方の番号は alternatives.orders の1か所・C-8 考える Sonnet が無ければ聞かない・15 ひとことのあとにすることの知らせ。"""
+    PAY = AsideTest.PAY
+    PAY2 = AsideTest.PAY2
+    ALT = AsideTest.ALT
+    DAY = "{最短の日}のご訪問は午前と午後のどちらがよろしいでしょうか？"
+    DAY_REW = "{最短の日}のご訪問の方は午前と午後のどちらになさいますか？"
+    DAY_ALT = "{最短の日}のご訪問は午前になさいますかそれとも午後の方がよろしいでしょうか？"
+    DAY_LED = ("{最短の日}のご訪問は午後になさいますかそれとも午前の方がよろしいでしょうか？",)
+
+    def test_a_fact_question_gets_no_listed_choices(self):
+        # C-1：事実を伺う選ぶ質問（asks_fact）は選んでいただく質問ではない＝並べた文を作らず（alternatives_fits）、取込で作ってあっても流さない（soft_form も
+        # 同じ1か所）＝「はい、」＋言い換えた質問。「どちらでも」「どれも要らない」を出さないのも同じ1か所（Question.chooses）
+        import dataclasses
+        from flowctl import ANY, Question, alternatives_fits, question_forms, soft_form
+        fact = Question("Q2", "現在のお支払いはカードと振込のどちらでしょうか？", "choice", conditions=("カード", "振込"), asks_fact=True,
+                        reworded="現在のお支払いの方はカードと振込のどちらになっていますか？", alternatives=self.ALT, alternatives_led=("x",))
+        self.assertFalse(fact.chooses)
+        self.assertFalse(alternatives_fits(fact))
+        self.assertNotIn(ANY, fact.all_conditions)
+        self.assertEqual(soft_form(fact).text, fact.reworded)
+        self.assertFalse([p["id"] for p in question_forms([fact], "Q2") if "_alternatives" in p["id"]])
+        choose = dataclasses.replace(fact, asks_fact=False)
+        self.assertTrue(choose.chooses and alternatives_fits(choose))
+        self.assertEqual(soft_form(choose).text, self.ALT)
+
+    def day_question(self, **kw):
+        from flowctl import Question
+        return Question("Q2", self.DAY, "choice", conditions=("午前", "午後"), required=True, **kw)
+
+    def test_the_day_words_are_filled_in_every_spoken_field(self):
+        # C-2：取込で決めた文（言い換え・並べた文・先に並べた文・その後の中身・お知らせの中身の名詞）の {最短の日} も、流れの制御が同じ1か所で置き換える
+        from datetime import date
+        from flowctl import DAY_SLOT, Flow, Question, day_question
+        q = self.day_question(reworded=self.DAY_REW, alternatives=self.DAY_ALT, alternatives_led=self.DAY_LED, since="{最短の日}のご訪問の時間帯",
+                              matter="{最短の日}のご訪問")
+        self.assertTrue(day_question(q))
+        self.assertTrue(day_question(Question("Q3", "ご訪問は午前と午後のどちらがよろしいでしょうか？", "choice", conditions=("午前", "午後"),
+                                              reworded=self.DAY_REW)))
+        for play in (False, True):
+            f = Flow([q], earliest_day=date(2026, 11, 9), today=date(2026, 11, 3), play_recordings=play)
+            got = f.questions["Q2"]
+            for field in ("text", "reworded", "alternatives", "since", "matter"):
+                self.assertNotIn(DAY_SLOT, getattr(got, field), (play, field))
+                self.assertIn("来週以降", getattr(got, field), (play, field))
+            self.assertEqual(got.alternatives_led, ("来週以降のご訪問は午後になさいますかそれとも午前の方がよろしいでしょうか？",))
+
+    def test_the_recording_table_has_every_day_form_the_flow_plays(self):
+        # C-2・C-3：日ごとの録音かの決まりは1か所（day_question）。入る一言だけに {最短の日} がある質問の「ところで」・選択肢を並べた形・その後の形も、流れの制御が
+        # 流す名前（その言い方の録音の名前から）が録音の表にある
+        import dataclasses
+        from datetime import date
+        from flowctl import DAY_VARIANTS, Flow, accepted_line, aside_form, day_recording_id, since_form, soft_form
+        from g22_opening import BUSINESS
+        from make_ack_clips import script_table
+        plain = "ご訪問は午前と午後のどちらがよろしいでしょうか？"
+        q = dataclasses.replace(self.day_question(reworded="ご訪問の方は午前と午後のどちらになさいますか？",
+                                                  alternatives="ご訪問は午前になさいますかそれとも午後の方がよろしいでしょうか？",
+                                                  alternatives_led=("ご訪問は午後になさいますかそれとも午前の方がよろしいでしょうか？",),
+                                                  since="ご訪問の時間帯"), text=plain, intro="{最短の日}でしたらご訪問できます。")
+        table = script_table(dataclasses.replace(BUSINESS, questions=[q]))[0]
+        for n, (today, earliest) in enumerate(((date(2026, 11, 3), date(2026, 11, 5)), (date(2026, 11, 3), date(2026, 11, 9)))):
+            f = Flow([q], earliest_day=earliest, today=today, play_recordings=True)
+            got = f.questions["Q2"]
+            for form in (aside_form(got), soft_form(got), soft_form(got, "午後"), since_form(got)):
+                self.assertIn(form.recording, table, form.recording)
+                self.assertTrue(form.recording.startswith(got.recording), form.recording)
+        self.assertNotIn("Q2_since", table)
+        self.assertNotIn("Q2_aside", table)
+        self.assertEqual(len([k for k in table if k.endswith("_aside") and k.startswith("Q2_d")]), len(DAY_VARIANTS))
+        # お知らせの中身の名詞に {最短の日} がある質問の最終の確かめも、その言い方の録音（「番号_d番号_accepted」）
+        a = dataclasses.replace(self.day_question(), text="ご承認いただけますでしょうか？", type="yes_no", conditions=("はい", "いいえ"), approval=True,
+                                announce="{最短の日}のご訪問になりますのでご了承ください。", matter="{最短の日}のご訪問")
+        table = script_table(dataclasses.replace(BUSINESS, questions=[a]))[0]
+        f = Flow([a], earliest_day=date(2026, 11, 9), today=date(2026, 11, 3), play_recordings=True)
+        rid, text = accepted_line(f.questions["Q2"])
+        self.assertEqual(rid, day_recording_id("Q2", "来週以降") + "_accepted")
+        self.assertEqual(table[rid][0], text)
+        self.assertIn("来週以降のご訪問の件", text)
+
+    def test_only_questions_that_lead_get_led_lines(self):
+        # C-6：先に並べた文は、先に並べる番に来る質問（leads_fit＝aside_fits）だけ取込で作り、録音の一覧にも載せる。申し出の選ぶ質問は質問の順の文だけ
+        import dataclasses
+        from unittest import mock
+        import import_ai
+        from flowctl import Question, leads_fit, question_forms
+        led = ("お振込になさいますかそれともカードの方がよろしいでしょうか？",)
+        offered = Question("Q2", self.PAY, "choice", conditions=("カード", "振込"), do_words={"カード": "カードでのお支払いでご案内させていただきます"},
+                           alternatives=self.ALT, alternatives_led=led)
+        asked = dataclasses.replace(offered, do_words={})
+        self.assertEqual((leads_fit(offered), leads_fit(asked)), (False, True))
+        ids = lambda q: sorted(p["id"] for p in question_forms([q], "Q2") if "_alternatives" in p["id"])
+        self.assertEqual(ids(offered), ["Q2_alternatives"])
+        self.assertEqual(ids(asked), ["Q2_alternatives", "Q2_alternatives_2"])
+        seen = []
+
+        def by_model(client, model, its, think=False):
+            seen.append([c for _, c, _ in its])
+            return [self.ALT] * len(its)
+
+        with mock.patch("alternatives.by_model", by_model), mock.patch("alternatives.grounded", lambda *a: True):
+            got = import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], [(self.PAY, ("カード", "振込"), "choice", False)], referee=("c", "s"))
+        self.assertEqual(seen[0], [("カード", "振込")])
+        self.assertEqual(got, [(self.ALT, ("",))])
+
+    def test_the_led_line_is_read_from_the_one_order_rule(self):
+        # C-7：並べ方の番目は alternatives.orders の1か所から読む（流れの制御で「選択肢の番号−1」と書き直さない）。選択肢3つで3つ目に触れたとき（C-9）
+        from unittest import mock
+        from flowctl import Question, alternatives_form
+        three = ("メール", "電話", "FAX")
+        led = ("お電話になさいますかメールになさいますかそれともFAXの方がよろしいでしょうか？",
+               "FAXになさいますかメールになさいますかそれともお電話の方がよろしいでしょうか？")
+        q = Question("Q2", "ご連絡はメールと電話とFAXのどれがよろしいでしょうか？", "choice", conditions=three,
+                     alternatives="メールになさいますかお電話になさいますかそれともFAXの方がよろしいでしょうか？", alternatives_led=led)
+        third = alternatives_form(q, "FAX")
+        self.assertEqual((third.text, third.recording), (led[1], "Q2_alternatives_3"))
+        self.assertEqual(alternatives_form(q, "メール").recording, "Q2_alternatives")
+        with mock.patch("alternatives.orders", lambda c: [("FAX", "メール", "電話"), ("電話", "メール", "FAX")]):
+            self.assertEqual(alternatives_form(q, "FAX").text, led[0])
+
+    def test_three_options_touching_the_third_leads_with_it(self):
+        # C-9：選択肢3つの質問で、ひとことが3つ目だけに触れたら、お話に沿った受け答えで待ち、相づちだけのお返事のあと 3つ目を先に並べた文
+        # （alternatives_led の2つ目＝alternatives.orders の2つ目・録音「番号_alternatives_3」）で伺う。2つ目に触れたら2つ目を先に並べた文
+        import dataclasses
+        from flowctl import ALTERNATIVES_SUFFIX
+        from grounding import GROUNDED, one_touched
+        t = AsideTest()
+        alts = "カードになさいますかお振込になさいますかそれとも現金の方がよろしいでしょうか？"
+        led = ("お振込になさいますかカードになさいますかそれとも現金の方がよろしいでしょうか？",
+               "現金になさいますかカードになさいますかそれともお振込の方がよろしいでしょうか？")
+        said = "さようでございますか。現金でのお支払いもお受けしております。"
+        for touch, want in ((one_touched("現金"), ("Q2" + ALTERNATIVES_SUFFIX + "_3", led[1])), (one_touched("振込"), ("Q2" + ALTERNATIVES_SUFFIX + "_2", led[0]))):
+            f = t.flow(alternatives=alts, led=led)
+            f.questions["Q2"] = q = dataclasses.replace(f.questions["Q2"], conditions=("カード", "振込", "現金"))
+            self.assertEqual(f._led_options(q), ("カード", "振込", "現金"))
+            t.unlinked(f)
+            grounded(f, said, GROUNDED, touch=touch)
+            f.apply("replay_opening", {"part": "talk", "answer": said, "fallback": "talk_heard_nod"})
+            t.reply(f, "そうなんですね。")
+            self.assertEqual([(p["id"], p["text"]) for p in f.apply("replay_opening", {"part": "resume"})["play"]], [want])
+
+    def test_no_referee_means_no_question_to_the_text_ais(self):
+        # C-8：考える Sonnet（referee）が無ければ、中身を確かめられない文は使わない＝2つの文字のAIにも聞かない（料金）
+        from unittest import mock
+        import import_ai
+        calls = []
+        with mock.patch("alternatives.by_model", lambda *a, **k: calls.append(a) or [self.ALT]), \
+                mock.patch("rewords.by_model", lambda *a, **k: calls.append(a) or [self.PAY2]):
+            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], [(self.PAY, ("カード", "振込"), "choice")]), [("", ("",))])
+            self.assertEqual(import_ai.decide_rewords([("a", "m1"), ("b", "m2")], [(self.PAY, ("カード", "振込"), "choice")]), [""])
+        self.assertEqual(calls, [])
+
+    def test_the_import_grounding_reads_whether_it_asks_the_same(self):
+        # C-4・まとめ役の決め (h)：言い換え・並べた文の中身の判定（同じ1回の問い合わせ）で、元の質問と同じことを伺っているかも読み、真のときだけ使う
+        from unittest import mock
+        import askitems
+        import alternatives
+        import rewords
+        sent = []
+
+        def ask(client, model, prompt, fields, **kw):
+            sent.append((prompt, dict(fields)))
+            return [{"choice": "事実を言っていない", "part": "", askitems.SAME_FIELD: same}]
+
+        for same in (True, False):
+            with mock.patch("askitems.ask", ask):
+                self.assertEqual(rewords.grounded(None, "s", self.PAY, ("カード", "振込"), "choice", self.PAY2), same)
+                self.assertEqual(alternatives.grounded(None, "s", self.PAY, ("カード", "振込"), "choice", self.ALT), same)
+        self.assertTrue(all(askitems.SAME_FIELD in f and askitems.SAME_FIELD in p for p, f in sent))
+        # お知らせの文（問いでない）は今のまま（同じことを伺っているかは読まない）
+        with mock.patch("askitems.ask", ask):
+            import announces
+            announces.grounded(None, "s", "説明です。", "ご承認いただけますでしょうか？", "説明ですのでご了承ください。")
+        self.assertNotIn(askitems.SAME_FIELD, sent[-1][1])
+
+    def test_one_shape_check_for_question_lines_and_one_for_nouns(self):
+        # C-5：問いの文の形は1か所（askitems.question_line_fits＝rewords.fits・alternatives.fits）・名詞の形も1か所（askitems.noun_fits＝purposes・matter・since）
+        from unittest import mock
+        import alternatives
+        import announces
+        import purposes
+        import rewords
+        import since
+        with mock.patch("askitems.question_line_fits", lambda *a: False):
+            self.assertFalse(rewords.fits(self.PAY, ("カード", "振込"), "choice", self.PAY2))
+            self.assertFalse(alternatives.fits(self.PAY, ("カード", "振込"), "choice", self.ALT))
+        self.assertTrue(rewords.fits(self.PAY, ("カード", "振込"), "choice", self.PAY2))
+        line = "ご予約の確認でお電話いたしました。"
+        self.assertTrue(purposes.fits(line, "ご予約の確認"))
+        for bad in ("ご予約の確認でお電話いたしました。", "ご予約の確認でお電話いたしました"):
+            self.assertFalse(purposes.fits(line, bad), bad)
+        self.assertTrue(since.fits("ご予算はおいくらほど"))
+        self.assertFalse(since.fits("ご予算は、おいくらほど"))
+        intro = "ご予約の内容ですが、当日のキャンセルは前日までにご連絡いただく決まりになっております"
+        self.assertTrue(announces.matter_fits(intro, "ご承認いただけますでしょうか？", "キャンセル"))
+        self.assertFalse(announces.matter_fits(intro, "ご承認いただけますでしょうか？", "ご予約の内容ですが、当日のキャンセル"))
+
+    def test_the_word_notice_says_what_the_program_does_next(self):
+        # 15：伺い直したあとも続く別のお話にひとこと応える番の、会話AIへの知らせの終わりは、そのあとプログラムがすること（_talk_then の1か所）から作る。
+        # 決まった伝言のお願い（M1）へのお話のあと締める番では「お礼を言って電話を締めます（お礼・締めのあいさつは…入れません）」・C1 へ進む番は「次へ進みます」
+        from flowctl import AWAY, AWAY_YES, QUERY, QUERY_NO, TARGET_IS_AWAY, TALK_THEN, UNDECIDED
+        from meaning_judge import Reading
+        for kw, then, after in (({}, "close", "closing"),
+                                ({"message_policy": "leave", "message": "それでは佐藤から予約の件でお電話があったとお伝えいただいてもよろしいでしょうか？"},
+                                 "next", "callback_back_time")):
+            f, _ = OfferTest.flow(self, **kw)
+            OfferTest.heard(f, "岡田はただいま外出しております。ご伝言を承りましょうか？", TARGET_IS_AWAY)
+            f.apply("request_callback", {"why": "absent", "offer": "message"})
+            if f.current != "M1":
+                OfferTest.heard(f, "いえいえ、ご伝言はお伝えしておきますよ。")
+                f.apply("request_callback", {"why": "absent", "offer": "message"})
+            self.assertEqual(f.current, "M1")
+            rd = Reading(UNDECIDED, firm=True)
+            setattr(rd, QUERY, QUERY_NO); setattr(rd, AWAY, AWAY_YES)
+            OfferTest.heard(f, "岡田は最近ずっと忙しくてねえ。", rd)
+            r = f.apply("record_answer", {"question_id": "M1", "condition_id": "unknown"})
+            self.assertEqual(f._talk_then("M1"), then)
+            self.assertTrue(r["message"].endswith(TALK_THEN[then]), r["message"][-80:])
+            self.assertIn("ひとことに入れません", TALK_THEN[then])
+            r = f.apply("replay_opening", {"part": "talk", "answer": "さようでございますか。", "fallback": "talk_heard_nod"})
+            self.assertIn(after, OfferTest.played(r))
+        self.assertNotIn("ひとことに入れません", TALK_THEN["again"])
+
+    def test_the_dash_notice_says_what_happens_to_the_customer(self):
+        # 14：会話AIへの知らせに内部の言葉「「-」にします。」を使わない（お客様に何が起きるかの言葉）
+        import flowctl
+        import inspect
+        self.assertNotIn("「-」にします。", inspect.getsource(flowctl.Flow._dash))
+        self.assertFalse(hasattr(flowctl.Flow, "_lead_note") or hasattr(flowctl, "NOT_REACHED_LABEL") or hasattr(flowctl, "WISH_OUTCOMES"))
+
+
 if __name__ == "__main__":
     unittest.main()
