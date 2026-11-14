@@ -13,7 +13,7 @@ import dataclasses
 from dataclasses import dataclass, field
 
 from flowctl import notice  # AIへの知らせの枠の唯一の場所
-from flowctl import approval_explanation, CloseOffer, KNOWN_HEADS, label, offer_questions
+from flowctl import approval_explanation, CloseOffer, KNOWN_HEADS, TALK_RECEIVE, label, offer_questions
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
                      check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
@@ -694,7 +694,9 @@ def system_rules(play_recordings: bool = False, target: bool = False, follow_up:
         "（ご質問は、プログラムが依頼主へ渡します）。\n"
         # ✅ 2026-10-22 ユーザー（5回目）：「世間話のような対応や設定にない無難な対応はライブAIにしかできないよ！」（Intent.md 9-3「AIが柔軟にやること：
         #    …想定外の発話への受け答え」）⛔ 前は質問への答えの道しか無く、録音で流す通話の答えの段では、世間話・お礼に返す道が無かった
-        f"- 答え・申し出・質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）には、聞き流さずに、ひとこと受け答えします。"
+        # ✅ 2026-11-14 日本時間14時31分38秒 ユーザー（お話には相づちだけで終えず、中身を受けた受け答え）：別のお話にひとこと応える番の知らせと同じ1つの文
+        #    （flowctl.TALK_RECEIVE）
+        f"- 答え・申し出・質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）には、聞き流さずに、ひとこと受け答えします。お客様の{TALK_RECEIVE}"
         f"replay_opening を「{PART_LABEL['talk']}」で選び、返す文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書き、"
         f"返す文が使えないときに流す一言を「{ARG_LABEL['fallback']}」から選んで呼びます。"
         "言葉の選び方は自由ですが、こちらの会社・業務についての事実は、業務の情報にあることだけを言います。\n"

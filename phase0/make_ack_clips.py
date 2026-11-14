@@ -150,7 +150,8 @@ HOW_OF["hesitate_point"] = "question"
 HOW_OF["estimate_ask"] = "question"
 # 言い直しへのお返事がまだ決めていないときの2回目の一言（phrases.HOW_NOW。✅ 2026-11-09 日本時間3時06分51秒 ユーザー）＝伺う質問の読み方
 HOW_OF["how_now"] = "question"
-# ご承認のお知らせのあと、黙ったあとの一言へのお返事だけのときの最終の確かめ（phrases.ANNOUNCE_RECHECK。✅ 2026-11-13 日本時間20時06分19秒）＝伺う質問の読み方
+# ご承認のお知らせのあと、黙ったあとの一言へのお返事だけ・別のお話が続いたときの最終の確かめで、お知らせの中身の名詞が決まらなかったとき（phrases.ANNOUNCE_RECHECK。
+# ✅ 2026-11-13 日本時間20時06分19秒・11-14 14時31分38秒「●伺い10」）＝伺う質問の読み方
 HOW_OF["announce_recheck"] = "question"
 # 決まった伝言をお願いしたあと、名乗りを流し直したすぐあとの短い形（phrases.MESSAGE_AGAIN。分身 D の (b)）
 HOW_OF["message_again"] = "question"
@@ -322,7 +323,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, offer_questions, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
+    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, offer_questions, DAY_SLOT, DAY_VARIANTS, approval_explanation, callback_question, day_recording_id, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
                          tell_recording_id)
     from instruction import reading_variants
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, back_fit, question_clip
@@ -379,6 +380,10 @@ def script_table(business) -> tuple[dict, dict]:
             # 続きの電話の始めに、ご納得いただけなかった点を言っていただけなかったときの振り返りの一言（文は callback_question の recap＝phrases.recap_line の1か所。
             # 名前は flowctl.recap_recording_id）。説明の文の無いご承認の質問には作らない（振り返らずにご納得を伺う＝Flow._point_step）
             items.append((recap_recording_id(q), callback_question("other_point", recap=q).text, "recap"))
+        if q.approval and q.announce and q.matter:
+            # ご承認のお知らせの最終の確かめ（文と名前は flowctl.accepted_line の1か所＝「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」・
+            # 「番号_accepted」。名詞の決まらないお知らせは共通の一言の録音 announce_recheck）。✅ 2026-11-14 日本時間14時31分38秒「●伺い10」
+            items.append((*accepted_line(q), "question"))
     # 業務設定で決まる申し出（締める前の申し出 N6＝依頼主の単位の文・方法を選んでいただく N5。文と名前は flowctl.offer_questions・callback_question の1か所）と、
     # 2回目・3回目からの戻る一言に続けて流す形（phrases.back_fit の1か所）、保留でよいかを伺う一言（flowctl.pending_line・pending_recording_id。詳しい者からの
     # お話 N4 は共通の一言の録音）。✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒 ユーザー

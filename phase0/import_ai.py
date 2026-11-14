@@ -260,6 +260,19 @@ def decide_announces(askers: list[Asker], pairs: list[tuple[str, str]], on_error
     return _drafted(askers, pairs, announces.by_model, announces.decide, announces.fits, announces.grounded, on_error, referee)
 
 
+def decide_matters(askers: list[Asker], pairs: list[tuple[str, str]], on_error: Callable | None = None, referee: Asker | None = None) -> list[str]:
+    """ご承認を伺う質問の (説明＝入る一言, 質問の文) の並び（decide_announces と同じ質問だけを渡すのは呼ぶ側）→ 同じ並びで、お知らせの中身を表す名詞（「キャンセル」。
+    答えは flowctl.Question.matter。最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」＝flowctl.accepted_line）。決め方は用件の名詞と
+    同じ1か所（_settled：2つの文字のAIがそろって説明と質問の文の中の言葉・そろわない文は考える Sonnet＝referee・文に無い言葉は使わない＝announces.matter_fits）。
+    決まらなければ空＝「先ほどの内容」。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承ということでよろしかった
+    でしょうか？」」"""
+    pairs = [(str(i or ""), str(t or "")) for i, t in pairs]
+    src = {f"{i}／{t}": (i, t) for i, t in pairs}   # 文ごとに決める1か所（_settled）の鍵＝説明と質問の文
+    got = _settled(askers, list(src), lambda c, m, keys, think=False: announces.matter_by_model(c, m, [src[k] for k in keys], think),
+                   lambda k, words: announces.matter_decide(*src[k], words), lambda k, w: announces.matter_fits(*src[k], w), on_error, referee)
+    return [got[f"{i}／{t}"] for i, t in pairs]
+
+
 def decide_rewords(askers: list[Asker], items: list[tuple[str, tuple, str]], on_error: Callable | None = None, referee: Asker | None = None) -> list[str]:
     """申し出でない業務の質問の (質問の文, 選択肢の並び, 型) の並び（flowctl.aside_fits の質問だけを渡すのは呼ぶ側）→ 同じ並びで、会話が繋がらないお返事のあとに
     「ところで」に続けて伺い直す、言い換えた質問の文（答えは flowctl.Question.reworded。決まらなければ空＝「ところで」＋元の質問の文）。決め方はお知らせの文と
@@ -297,11 +310,13 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # ご承認のお知らせの文と、資料が届いているかを伺う質問（✅ 2026-11-13 日本時間20時06分19秒「伺い1…」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-150）。
             # お知らせの文は考える Sonnet が referee（書く・中身の判定）
             "decide_announces": decide_announces, "decide_at_hand": decide_at_hand,
+            # お知らせの中身の名詞（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-154）。考える Sonnet は referee
+            "decide_matters": decide_matters,
             # 会話が繋がらないお返事のあとに「ところで」に続けて伺い直す、言い換えた質問（✅ 2026-11-13 日本時間22時17分01秒「9は…」。⏳ CL-2 の受け口ができるまで
             # CL2_PENDING＝帳面 4-152）。考える Sonnet は referee（書く・中身の判定）
             "decide_rewords": decide_rewords}
 # 2つの文字のAIがそろわない文を、考える Sonnet（deciders の referee）に聞く決める処理（唯一の一覧）
-REFEREED = frozenset({"decide_since", "decide_announces", "decide_purposes", "decide_rewords"})
+REFEREED = frozenset({"decide_since", "decide_announces", "decide_purposes", "decide_rewords", "decide_matters"})
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, Callable]:

@@ -14,12 +14,17 @@ flowctl.at_hand の1か所）。「ご確認ください。」の文は、お知
   その文だけを聞き、形に合えば候補。候補は、中身の判定の1か所（grounding.prompt・CHOICES＝会話AIの自分の言葉を声に出す前に読むのと同じ問い）で、説明と質問の文に無い
   事実を足していないかを考える Sonnet に読ませ、通った（grounding.PASSES）ときだけ使う。ほかは空＝今の形（入る一言＋質問の文）で伺う（違う中身を言うことはない側へ倒す）。
 - 資料が届いているかを伺う質問：unclear と同じ形（2つがそろって「伺う質問」で同じ選択肢を挙げ、その選択肢が質問の選択肢にあるときだけ。ほかは空＝「ご了承ください。」）。
+- お知らせの中身の名詞（flowctl.Question.matter。最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」＝flowctl.accepted_line の1か所）：
+  用件の名詞（purposes）と同じ形＝2つの文字のAIがそろい、説明と質問の文の中の言葉のときだけ、その言葉。そろわない・文に無いときは考える Sonnet
+  （import_ai.decide_matters の referee）に、その文だけを聞き、文の中の言葉ならその言葉（考える Sonnet に聞く所は import_ai._settled の1か所）。ほかは空＝
+  「先ほどの内容」（違う中身を言うことはない側へ倒す）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承という
+  ことでよろしかったでしょうか？」」
 """
 from __future__ import annotations
 
 import re
 
-from phrases import ANNOUNCE_END
+from phrases import ANNOUNCE_ACCEPTED, ANNOUNCE_END
 
 PROMPT = (
     "電話でお客様に、こちらの決まり（説明）をお伝えしてから、その内容でよいかを伺う質問の一覧です。伺う形は、お客様が身構えてしまうので、説明の内容を1つの文で"
@@ -125,3 +130,44 @@ def decide_hand(conditions: tuple, model_rows: list[dict | None]) -> str:
         return ""
     yes = {r["yes"] for r in model_rows}
     return next(iter(yes)) if len(yes) == 1 and next(iter(yes)) in conditions else ""
+
+
+# お知らせの中身の名詞を聞く問い（例の最終の確かめの文は、言い方の表の1か所 phrases.ANNOUNCE_ACCEPTED から作る）
+MATTER_PROMPT = (
+    "電話でお客様に、こちらの決まり（説明）をお伝えしてから、その内容でよいかを伺う質問の一覧です。お伝えしたあと、最後に"
+    f"「{ANNOUNCE_ACCEPTED.format(t='（中身）の')}」と確かめます。質問ごとに、（中身）に入る、お伝えする決まりの中身を表す短い言葉を、説明と質問の文の中の"
+    "文字のまま matter に答えてください。\n"
+    "決まり：\n"
+    "- 例：説明「ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく決まりになっております。」なら「キャンセル」。\n"
+    "- 「の件」は入れません。説明と質問の文の中に無い言葉・言い換えた言葉は書きません。中身を短い言葉で表せなければ空にします。\n"
+    "質問（番号：説明／質問の文）：\n"
+)
+MATTER_FIELD, MATTER_DESC = "matter", "お伝えする決まりの中身を表す短い言葉（説明と質問の文の中の文字のまま）"
+MATTER_TOOL = ("announce_matters", "質問ごとの、お知らせの中身を表す言葉")
+
+
+def matter_by_model(client, model: str, pairs: list[tuple[str, str]], think: bool = False) -> list[str | None]:
+    """1回の問い合わせでまとめて答えさせる（by_model と同じ形）。pairs（(説明, 質問の文)）と同じ並びの答え（無ければ None）を返す（think＝考える形で聞く＝
+    決まらなかった文だけを聞く referee）。"""
+    from askitems import ask
+
+    body = "\n".join(f"{n}：{intro}／{text}" for n, (intro, text) in enumerate(pairs, 1))
+    items = ask(client, model, MATTER_PROMPT + body, {"no": ("integer", "質問の番号"), MATTER_FIELD: ("string", MATTER_DESC)}, tool=MATTER_TOOL, think=think)
+    got = {x.get("no"): x.get(MATTER_FIELD) for x in items or [] if isinstance(x, dict)}
+    return [got[n].strip() if isinstance(got.get(n), str) else None for n in range(1, len(pairs) + 1)]
+
+
+def matter_fits(intro: str, text: str, matter: str | None) -> bool:
+    """お知らせの中身の名詞として使えるか（唯一の決まり＝用件の名詞 purposes.fits と同じ考え）：空でない・説明か質問の文の中の言葉・文の終わりや問いを含まない。"""
+    return bool(matter) and not any(m in matter for m in ("。", "？", "?")) and (matter in intro or matter in text)
+
+
+def matter_decide(intro: str, text: str, model_matters: list[str | None]) -> str | None:
+    """2つの文字のAIの答えから決める（取込のとき）：そろって形に合えばその言葉・そろって空なら空（中身を短い言葉で表せない）・ほかは None（考える Sonnet に聞く＝
+    import_ai.decide_matters）。"""
+    from askitems import agreed
+
+    got = agreed(model_matters, None)
+    if got is None:
+        return None
+    return got if got == "" or matter_fits(intro, text, got) else None
