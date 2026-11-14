@@ -35,6 +35,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          # 会話が繋がらないお返事のあとに「ところで」に続けて伺い直す言い換えた質問（業務設定の質問の欄 reworded・取込の決める処理 decide_rewords と
                          # 考える Sonnet の referee）と、名前を聞き返されたあとの伝言の短い形の共通の一言の録音 message_again（11-13 22時17分01秒「9は…」・分身 D の (b)。CL-1.md 4-152）
                          "decide_rewords", "reworded", "message_again",
+                         # 意向がまだ分からないまま戻るときの選択肢を並べた文（業務設定の質問の欄 alternatives・取込の決める処理 decide_alternatives と考える Sonnet の referee。
+                         # 11-14 22時15分15秒。CL-1.md 4-156）
+                         "decide_alternatives", "alternatives",
                          # ご承認のお知らせの中身の名詞（業務設定の質問の欄 matter・取込の決める処理 decide_matters と考える Sonnet の referee。11-14 14時31分38秒
                          # 「●伺い10」。CL-1.md 4-154）
                          "decide_matters", "matter",
@@ -21851,12 +21854,14 @@ class HedgedSalesTest(unittest.TestCase):
             hear(g, still, *readings)
             r = g.judged_turn(voiced=True)
             self.assertEqual((heard(r), g.items["Q1"].state), ("", "empty"), readings)
-        # 選ぶ助けのあとの相づち（「なるほど。」＝決められない・理由は言っていない）は今までどおり質問に戻り、そのあとの「まだ決められないです」で保留
+        # 選ぶ助けのあとの相づち（「なるほど。」＝決められない・理由は言っていない）は今までどおり質問に戻り、そのあとの「まだ決められないです」で保留。
+        # お客様の意向はまだ分からないので、戻る質問の頭に「それでは」を付けない（✅ 2026-11-14 日本時間22時15分15秒＝お言葉は AsideTest。この業務の質問は選択肢を
+        # 並べた文・言い換えた質問が無い＝「はい、」＋元の質問の文）
         f = flow(notes)
         helped(f)
         hear(f, "なるほど。", rd(UNDECIDED, WHY_NOT_SAID))
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual((r["result"], heard(r)), ("replayed", "はい、それでは" + pay["text"]))
+        self.assertEqual((r["result"], heard(r)), ("replayed", "はい、" + pay["text"]))
         hear(f, still, rd("unknown"))
         self.assertEqual(heard(report(f)), held)
         # 判定が「決められない」とだけ読み（理由の読みが無い＝まだ決めていないとは決まらない）、会話AIが「わからない」と報告した＝食い違いなので聞き直す（G-55）。
@@ -22901,11 +22906,13 @@ class HedgedSalesTest(unittest.TestCase):
     def test_a_question_back_before_the_answer_closes_with_the_final_check(self):
         # 質問の返事待ちに、答えの代わりにこちらの考えを尋ねられて答えたあと、お客様が相づちだけ：同じ質問の2回目にせず、こちらが勧めた向き（目的に進む向き＝
         # 宣言した選択肢のうち遠ざからないものが1つ）で、言い直しの返事待ちと同じ最終の確かめ（Flow._final_check）。進む向きが1つに決まらない質問・事実を
-        # 伺う質問は、質問の頭に「それでは」を付けて伺い直す。✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(2) イ」（11時台のご報告の (イ)。11時19分55秒
-        # 「話はパンフレットをから移っていないので戻す必要はなく、あいてが迷っている最中の最終確認をして、パンフレットのシーンを締めないといけないんじゃないですか？」）
-        from flowctl import Flow, Question, final_toward, start_with
+        # 伺う質問は、意向がまだ分からないまま戻るので頭に「それでは」を付けずに伺い直す。✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(2) イ」（11時台のご報告の
+        # (イ)。11時19分55秒「話はパンフレットをから移っていないので戻す必要はなく、あいてが迷っている最中の最終確認をして、パンフレットのシーンを締めないといけないんじゃない
+        # ですか？」）・2026-11-14 日本時間22時15分15秒 ユーザー（「それでは」は強制的に決められたように受け止められる＝お言葉は AsideTest）
+        import dataclasses
+        from flowctl import ALTERNATIVES_SUFFIX, Flow, Question, final_toward, start_with
         from meaning_judge import Reading
-        from phrases import BACK_TO, question_clip
+        from phrases import BACK_TO
         words = "送ってもらったほうがいいですかね？"
 
         def to_final(qid, play, cond):
@@ -22944,12 +22951,16 @@ class HedgedSalesTest(unittest.TestCase):
             f, r = to_final("G9", play, "参加する")
             self.assertEqual((r["result"], r.get("ack"), r["say"], r.get("after")),
                              ("confirm_required", "hai", "それでは説明会にご参加いただけるということでよろしいでしょうか？", "settle"))
-        # (3) 進む向きが1つに決まらない質問（選ぶ質問の2つとも進む向き）・事実を伺う質問：質問の頭に「それでは」を付けて伺い直す（はじめの質問はつなぎの言葉の
-        #     無い録音なので、「それでは」付きの録音を流す＝録音の名前は質問の番号＋「それでは」）
+        # (3) 進む向きが1つに決まらない質問（選ぶ質問の2つとも進む向き）・事実を伺う質問：お客様の意向がまだ分からないので、頭に「それでは」を付けずに伺い直す
+        #     （✅ 2026-11-14 日本時間22時15分15秒。⛔ それまでは「それでは」＋質問＝11-06 11時55分13秒「(2) イ」の形）。選ぶ質問は選択肢を並べた文（取込の
+        #     Question.alternatives）・無ければ言い換えた質問・それも無ければ元の質問の文（はじめの質問はつなぎの言葉の無い録音＝初めて伺う録音と同じ）。判定と会話AIへの
+        #     知らせはお客様が聞いた文（soft_form の1か所）
         pay = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
         fact = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True,
                         meanings={"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"}, away=("いいえ",))
-        for q, said, cond in ((pay, "カードのほうがいいですかね？", "カード"), (fact, "予約したほうがいいですかね？", "はい")):
+        alt = dataclasses.replace(pay, alternatives=AsideTest.ALT)
+        for q, said, cond, heard, rid in ((pay, "カードのほうがいいですかね？", "カード", pay.text, "Q1"), (fact, "予約したほうがいいですかね？", "はい", fact.text, "Q1"),
+                                         (alt, "カードのほうがいいですかね？", "カード", AsideTest.ALT, "Q1" + ALTERNATIVES_SUFFIX)):
             self.assertIsNone(final_toward(q))
             for play in (False, True):
                 f = Flow([q, Question("Q2", "当日はお車でお越しでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=play)
@@ -22959,10 +22970,11 @@ class HedgedSalesTest(unittest.TestCase):
                 self.assertEqual((r["result"], r.get("ack")), ("replayed", "hai"))
                 self.assertNotIn(BACK_TO, str(r))
                 if play:
-                    self.assertEqual([p["text"] for p in r["play"]], ["それでは" + q.text])
-                    self.assertEqual(question_clip(r["play"][0]["id"], r["play"][0]["lead"]), "Q1_lead_soredeha")
+                    self.assertEqual([(p["id"], p["text"], p["lead"]) for p in r["play"]], [(rid, heard, "")])
                 else:
-                    self.assertIn(start_with("それでは"), r["message"])
+                    self.assertIn(f"「{heard}」", r["message"])
+                    self.assertNotIn(start_with("それでは"), r["message"])
+                self.assertEqual(f.judge_context()[0].text, heard)
         self.assertEqual(final_toward(self.flow("G8n").questions["G8n"]), "はい")
 
     def test_lines_before_a_question_do_not_start_with_a_lead_word(self):
@@ -25781,10 +25793,13 @@ class AsideTest(unittest.TestCase):
     OFF = "うちは月曜が定休日なんですよ。"
     say = staticmethod(AnnounceTest.say)
 
-    def flow(self, reworded=PAY2, required=True, play=True):
+    # 意向がまだ分からないまま戻るときの、選択肢を並べた文（取込の Question.alternatives。✅ 2026-11-14 日本時間22時15分15秒 ユーザー）
+    ALT = "カードになさいますかそれともお振込の方がよろしいでしょうか？"
+
+    def flow(self, reworded=PAY2, required=True, play=True, alternatives=""):
         from flowctl import Flow, Question
         qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True),
-              Question("Q2", self.PAY, "choice", conditions=("カード", "振込"), required=required, reworded=reworded),
+              Question("Q2", self.PAY, "choice", conditions=("カード", "振込"), required=required, reworded=reworded, alternatives=alternatives),
               Question("Q3", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), required=True,
                        reworded="ご予算はだいたいおいくらくらいでお考えですか？")]
         f = Flow(qs, play_recordings=play)
@@ -25925,8 +25940,8 @@ class AsideTest(unittest.TestCase):
         # 方はカードと振込のどちらにされますか？」”この例だと、どちらも話に沿っていますよね。その場合、「ご対応いただけますよ。」「問題ございませんよ。」の後で、お客様の
         # 返答を待つのが一般的じゃないですか？」：業務の質問への別のお話に、会話AIのひとことがこちらの業務の情報でお話に応えた（お話に沿った受け答え＝ひとことの中身を
         # 確かめる判定が「知っていることだけ」と読んだ・知っていることの文をそのまま言った）ときは、伺い直しを続けずにお客様のお返事を待つ（判定の項目は足さない）。待った
-        # あとは、お客様に尋ねられて答えたあとと同じ1か所（答えなら受け取る・相づちだけなら「はい、」＋「それでは」＋言い換えた質問（2回目の戻りなら「それではもう一度確認
-        # させていただきますね。」＋質問）・また別のお話なら次の別のお話の番）。待ったひとことは、その場で伺い直せる回数（10-14・11-14 14時31分38秒）の1回に数える。
+        # あとは、お客様に尋ねられて答えたあとと同じ1か所（答えなら受け取る・相づちだけなら「はい、」＋言い換えた質問（意向がまだ分からないので「それでは」は付けない＝
+        # 11-14 22時15分15秒・soft_form の1か所。2回目の戻りなら「それではもう一度確認させていただきますね。」＋質問）・また別のお話なら次の別のお話の番）。待ったひとことは、その場で伺い直せる回数（10-14・11-14 14時31分38秒）の1回に数える。
         # 気持ちを受け止めるだけのひとこと（事実を言っていない）・読みが無い・使えない文（受け答えの録音）は今のまま。申し出・方法の提案・ご承認のお知らせも今のまま
         from grounding import GROUNDED, TOUCHED, UNTOUCHED
         from phrases import BACK_TO_AGAIN
@@ -25948,11 +25963,12 @@ class AsideTest(unittest.TestCase):
             self.assertEqual((f.items["Q2"].talk_backs, f.items["Q2"].ask_backs, f.items["Q2"].offer_again, f.questions["Q2"].text), (1, 0, True, self.PAY2))
             # 会話AIへの知らせ：お返事がいまの質問への答えなら、質問に戻らずに答えとして報告する（尋ねられて答えたあとと同じ知らせの1か所）
             self.assertIn(self.PAY2, r["message"]); self.assertIn("record_answer", r["message"])
-            # 相づちだけ（「そうなんですね。」）：話はいまの質問から移っていない＝「はい、」＋「それでは」＋言い換えた質問（録音の一覧にある形＝録音は増えない）
+            # 相づちだけ（「そうなんですね。」）：話はいまの質問から移っていない＝「はい、」＋言い換えた質問（意向がまだ分からないので「それでは」を付けない＝11-14 22時15分
+            # 15秒。2回目に戻る一言のあとの形と同じ録音「番号_aside_again」＝録音は増えない）
             self.reply(f, "そうなんですね。")
             self.assertIsNone(f._asked_kind())
             r = f.apply("replay_opening", {"part": "resume"})
-            self.assertEqual(([(p["id"], p["text"]) for p in r["play"]], r.get("ack"), f.own_pending), ([("Q2_aside", "それでは" + self.PAY2)], "hai", False), said)
+            self.assertEqual(([(p["id"], p["text"]) for p in r["play"]], r.get("ack"), f.own_pending), ([("Q2_aside_again", self.PAY2)], "hai", False), said)
             self.assertEqual((f.items["Q2"].talk_backs, f.items["Q2"].ask_backs), (1, 0))   # 「それでは」の伺い直しは数え直さない
         # 待っている間の答えは、そのまま受け取る
         f = self.flow(); wait(f)
@@ -25963,14 +25979,14 @@ class AsideTest(unittest.TestCase):
         r = self.say(g, "じゃあ振込で。", "replay_opening", "振込", part="resume")
         self.assertEqual((r["result"], g.own_pending), ("rejected", "talk"))
         # 聞き取れない：今の聞き返し（その場の回数の2回目）。聞き返したあとのお言葉も、ひとことへのお返事として受ける（待つ印を残す）＝相づちだけなら「はい、」＋
-        # 「それでは」＋言い換えた質問（⛔ 入れる途中、流れの制御に通して見つけた：待つ印を消していたので「承知しました。続きまして…」で次の質問へ進んだ）
+        # 言い換えた質問（⛔ 入れる途中、流れの制御に通して見つけた：待つ印を消していたので「承知しました。続きまして…」で次の質問へ進んだ）
         u = self.flow(); wait(u)
         u.on_callee(); u.on_heard("……")
         r = u.apply("report_unclear", {"question_id": "Q2"})
         self.assertEqual((r["result"], u.own_pending, u.items["Q2"].ask_backs), ("ask_back", "talk", 1))
         self.reply(u, "そうなんですね。")
         r = u.apply("replay_opening", {"part": "resume"})
-        self.assertEqual(([p["text"] for p in r["play"]], r.get("ack"), u.current), (["それでは" + self.PAY2], "hai", "Q2"))
+        self.assertEqual(([p["text"] for p in r["play"]], r.get("ack"), u.current), ([self.PAY2], "hai", "Q2"))
         # また別のお話：次の別のお話の番（会話AIのひとこと＋2回目の戻りの一言＋質問）。報告（「わからない」など）は受け付けない
         k = self.flow(); wait(k)
         r = self.talk(k, hot, "いやあ最近は暑くてねえ。")
@@ -26013,6 +26029,56 @@ class AsideTest(unittest.TestCase):
         self.unlinked(a, words="いやあ最近は暑くてねえ。", away=None); grounded(a, HOT, GROUNDED)
         r = a.apply("replay_opening", {"part": "talk", "answer": HOT, "fallback": "talk_heard_nod"})
         self.assertEqual((r.get("say"), a.own_pending), (HOT + BACK_TO_AGAIN + AnnounceTest.LINE, False))
+
+    def test_a_return_while_the_wish_is_unknown_has_no_soredeha(self):
+        # ✅ 2026-11-14 日本時間22時15分15秒 ユーザー「・お客様：そうなんですね。こちら：はい、それではお支払いの方はカードと振込のどちらにされますか？⇒まだ、どちらの
+        # 意向なのか分からない状況で、「それでは」は、あたかも強制的に決められたかのように受け止められてしまいます。しかし、否定的な返事でもないときは、「はい、振り込みに
+        # なさいますか、それともカードの方がよろしいでしょうか？」のような聞き方の方が流れが自然ではないでしょうか？」：お客様の意向がまだ分からないまま相づちだけが
+        # 返って質問へ戻るとき（お話に沿った受け答えで待ったあと＝ここ・尋ねられて答えたあとで最終の確かめの向きが決まらない＝
+        # test_a_question_back_before_the_answer_closes_with_the_final_check の (3)）は、頭に「それでは」を付けない（戻る1か所 _continue の soft・形は soft_form の1か所）。
+        # 選ぶ質問は「はい、」＋選択肢を並べた文（取込の Question.alternatives）・決まらなければ「はい、」＋言い換えた質問・それも無ければ元の質問の文
+        from flowctl import ALTERNATIVES_SUFFIX, question_forms, start_with
+        from grounding import GROUNDED
+        from phrases import BACK_TO_AGAIN
+        DATE = "さようでございますか。お支払いは月曜日以外でも問題ございませんよ。"
+        hot = "本当に暑い日が続いておりますね。"
+
+        def waited(f):
+            self.unlinked(f)
+            grounded(f, DATE, GROUNDED)
+            f.apply("replay_opening", {"part": "talk", "answer": DATE, "fallback": "talk_heard_nod"})
+            self.reply(f, "そうなんですね。")
+            return f.apply("replay_opening", {"part": "resume"})
+        f = self.flow(alternatives=self.ALT)
+        r = waited(f)
+        # 「はい、」（相づちの録音）＋選択肢を並べた文（依頼主の単位の録音「番号_alternatives」・頭のつなぎの言葉は無い）
+        self.assertEqual(([(p["id"], p["text"], p["lead"]) for p in r["play"]], r.get("ack")), ([("Q2" + ALTERNATIVES_SUFFIX, self.ALT, "")], "hai"))
+        # 判定と会話AIへの知らせは、お客様が聞いた文（選択肢を並べた文）で読む
+        self.assertEqual(f.judge_context()[0].text, self.ALT)
+        self.assertIn(self.ALT, r["message"])
+        self.say(f, "じゃあ振込でお願いします。", "record_answer", "振込", question_id="Q2", condition_id="振込")
+        self.assertEqual(f.items["Q2"].condition, "振込")
+        # 会話AIが話す通話も同じ文（「それでは」から話し始めさせない）
+        g = self.flow(alternatives=self.ALT, play=False)
+        r = waited(g)
+        self.assertIn(f"「{self.ALT}」", r["message"])
+        self.assertNotIn(start_with("それでは"), r["message"])
+        # 選択肢を並べた形は、この戻りだけの形：そのあとの別のお話の戻る一言のあと（もう一度言ってほしい・代わった方へも）は、替える前の形（言い換えた質問）で伺う
+        # （話の続きを聞いていない方に、選択肢だけを並べない）
+        k = self.flow(alternatives=self.ALT); waited(k)
+        r = self.talk(k, hot, "いやあ最近は暑くてねえ。")
+        self.assertEqual((r.get("say"), k.questions["Q2"].text), (hot + BACK_TO_AGAIN + self.PAY2, self.PAY2))
+        # 選択肢を並べた文が決まらなかった質問は「はい、」＋言い換えた質問（2回目に戻る一言のあとの形と同じ録音）・言い換えも無ければ元の質問の文（頭は無い）
+        for reworded, rid, text in ((self.PAY2, "Q2_aside_again", self.PAY2), ("", "Q2_again", self.PAY)):
+            h = self.flow(reworded=reworded)
+            r = waited(h)
+            self.assertEqual(([(p["id"], p["text"]) for p in r["play"]], r.get("ack")), ([(rid, text)], "hai"), reworded)
+        # 録音で流す形の一覧：増えるのは、選択肢を並べた文のある選ぶ質問ごとに1本（頭は無い・読点は入れない＝10-15）。言い換えた質問・元の質問の頭の無い形は前から
+        # 一覧にある
+        forms = {(p["id"], p.get("lead") or ""): p["text"] for p in question_forms(list(self.flow(alternatives=self.ALT).questions.values()), "Q2")}
+        before = {(p["id"], p.get("lead") or ""): p["text"] for p in question_forms(list(self.flow().questions.values()), "Q2")}
+        self.assertEqual({k: v for k, v in forms.items() if k not in before}, {("Q2" + ALTERNATIVES_SUFFIX, ""): self.ALT})
+        self.assertNotIn("、", self.ALT)
 
     def test_the_touch_is_read_in_the_same_request_only_when_asked(self):
         # 触れたかの項目は、質問を添えたときだけ問い合わせに入る（添えないときの文・答えの形は今と1文字も違わない＝ほかの仕事と測りの文の指紋は変わらない）
@@ -26544,6 +26610,69 @@ class RewordsTest(unittest.TestCase):
         with mock.patch.object(rewords, "by_model", by_model), mock.patch.object(rewords, "grounded", lambda c, m, *a: a[-1] != fee2):
             self.assertEqual(import_ai.decide_rewords([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [self.PAY2, ""])
         self.assertIn("decide_rewords", import_ai.REFEREED)
+
+
+class AlternativesTest(unittest.TestCase):
+    """意向がまだ分からないまま戻るときの、選択肢を並べた文（取込）：文字のAI2つがそろって形に合う文・そろわなければ考える Sonnet の文。どちらも考える Sonnet の
+    中身の判定を通ったときだけ（言い換えた質問と同じ1か所＝import_ai._drafted）。考える Sonnet が無ければ空（「はい、」＋言い換えた質問）。
+    ✅ 2026-11-14 日本時間22時15分15秒 ユーザー（お言葉は AsideTest.test_a_return_while_the_wish_is_unknown_has_no_soredeha）"""
+    PAY = AsideTest.PAY
+    ALT = AsideTest.ALT
+
+    def test_the_form_rules(self):
+        import alternatives
+        item = (self.PAY, ("カード", "振込"), "choice")
+        self.assertTrue(alternatives.fits(*item, self.ALT))
+        self.assertTrue(alternatives.fits("ご連絡はメールと電話とFAXのどれがよろしいでしょうか？", ("メール", "電話", "FAX"), "choice",
+                                          "メールになさいますかお電話になさいますかそれともFAXの方がよろしいでしょうか？"))
+        for bad in ("お振込になさいますかそれともカードの方がよろしいでしょうか？",   # 選択肢の順が質問と違う（⏳ 伺い16 までは質問の順）
+                    "カードになさいますか、それともお振込の方がよろしいでしょうか？",   # 読点（決まった言い方＝10-15）
+                    "はいカードになさいますかそれともお振込の方がよろしいでしょうか？",   # 頭の「はい、」はこちらで付ける
+                    "それではカードになさいますかそれともお振込の方がよろしいでしょうか？",   # 頭のつなぎの言葉
+                    "カードとお振込のどちらがよろしいでしょうか？",   # 選択肢を並べていない（「それとも」が無い）
+                    "カードになさいますかそれとも現金の方がよろしいでしょうか？",   # 選択肢を落とした
+                    "カードになさいますかそれともお振込の方がよろしいですか。",   # 問いでない
+                    self.PAY, ""):
+            self.assertFalse(alternatives.fits(*item, bad), bad)
+        # 数・期限の言葉は落とさない（言い換えた質問と同じ announces.keeps_facts）・選ぶ質問だけ（はい／いいえの質問は「はい、」＋言い換えた質問）
+        self.assertFalse(alternatives.fits("月額3,000円のAプランとBプランのどちらがよろしいでしょうか？", ("Aプラン", "Bプラン"), "choice",
+                                           "AプランになさいますかそれともBプランの方がよろしいでしょうか？"))
+        self.assertFalse(alternatives.fits("ご予約はされていますでしょうか？", ("はい", "いいえ"), "yes_no", "はいになさいますかそれともいいえの方がよろしいでしょうか？"))
+
+    def test_which_questions_get_one(self):
+        # 取込で選択肢を並べた文を作る質問（alternatives_fits の1か所＝呼ぶ側が渡す）：業務の選ぶ質問（選択肢が2つ以上）だけ。はい／いいえ・値を伺う質問・システムの
+        # 質問は作らない
+        from flowctl import Question, alternatives_fits, callback_question
+        self.assertTrue(alternatives_fits(Question("Q1", self.PAY, "choice", conditions=("カード", "振込"))))
+        for q in (Question("Q2", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  Question("Q3", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",)),
+                  Question("Q4", "どちらになさいますか？", "choice", conditions=("A",)), callback_question("line_how")):
+            self.assertFalse(alternatives_fits(q), q.id)
+
+    def test_the_import_asks_two_text_ais_and_the_thinking_sonnet(self):
+        from unittest import mock
+        import alternatives
+        import import_ai
+        way = "ご連絡はメールと電話のどちらがよろしいでしょうか？"
+        way2 = "メールになさいますかそれともお電話の方がよろしいでしょうか？"
+        items = [(self.PAY, ("カード", "振込"), "choice"), (way, ("メール", "電話"), "choice")]
+        rows = iter([[self.ALT, "メールとお電話のどちらですか？"], [self.ALT, way2], [way2]])
+        seen = []
+
+        def by_model(client, model, its, think=False):
+            seen.append((model, think, len(its)))
+            return next(rows)
+        with mock.patch.object(alternatives, "by_model", by_model), mock.patch.object(alternatives, "grounded", lambda c, m, *a: True):
+            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [self.ALT, way2])
+        self.assertEqual(seen, [("m1", False, 2), ("m2", False, 2), ("sonnet", True, 1)])
+        rows = iter([[self.ALT, way2], [self.ALT, way2]])
+        with mock.patch.object(alternatives, "by_model", by_model):
+            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items), ["", ""])   # 中身を確かめられない＝使わない
+        rows = iter([[self.ALT, "メールとお電話のどちらですか？"], [self.ALT, way2], [way2]])
+        with mock.patch.object(alternatives, "by_model", by_model), mock.patch.object(alternatives, "grounded", lambda c, m, *a: a[-1] != way2):
+            self.assertEqual(import_ai.decide_alternatives([("a", "m1"), ("b", "m2")], items, referee=("c", "sonnet")), [self.ALT, ""])
+        self.assertIn("decide_alternatives", import_ai.REFEREED)
+        self.assertIn("decide_alternatives", import_ai.deciders([("a", "m1"), ("b", "m2")], referee=("c", "sonnet")))
 
 
 if __name__ == "__main__":

@@ -93,7 +93,7 @@ def ask_flags(client, model: str, prompt: str, texts: list[str], field: str, des
 def grounded(client, model: str, sources: list[str], line: str, tool: tuple[str, str]) -> bool:
     """取込で作った文 line が、もとの文 sources に無い事実を足していないか（中身の判定の1か所＝grounding の問いと選べるもの。会話AIの自分の言葉を声に出す前に
     読むのと同じ）。考える形で聞く。通った（grounding.PASSES）ときだけ True。答えが無い・読めないときは False（使わない側）。使う所＝お知らせの文
-    （announces.grounded）・言い換えた質問（rewords.grounded）。"""
+    （announces.grounded）・言い換えた質問（rewords.grounded）・選択肢を並べた質問（alternatives.grounded）。"""
     from grounding import CHOICES, PASSES, prompt
 
     fields = {"choice": ("string", "選んだものの名前（" + "・".join(CHOICES) + " のどれか1つ）"), "part": ("string", "その部分（無ければ空）")}

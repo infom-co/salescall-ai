@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+import alternatives
 import announces
 import facts
 import maybes
@@ -230,7 +231,7 @@ def decide_since(askers: list[Asker], texts: list[str], on_error: Callable | Non
 
 def _drafted(askers: list[Asker], items: list[tuple], by_model: Callable, decide: Callable, fits: Callable, grounded: Callable,
              on_error: Callable | None, referee: Asker | None) -> list[str]:
-    """取込で文を作る唯一の形（お知らせの文 decide_announces・言い換えた質問 decide_rewords）：2つの文字のAIがそろって形に合う（fits）文、そろわない文は
+    """取込で文を作る唯一の形（お知らせの文 decide_announces・言い換えた質問 decide_rewords・選択肢を並べた質問 decide_alternatives）：2つの文字のAIがそろって形に合う（fits）文、そろわない文は
     考える Sonnet（referee）にまとめて1回書かせて形に合う文。どちらも、考える Sonnet の中身の判定（grounded＝askitems.grounded の grounding の問い）を通ったとき
     だけ使う。referee が無ければ空（中身を確かめられない文は使わない）。items は文ごとの材料の組（decide・fits・grounded にそのまま渡す）。"""
     if not items:
@@ -281,6 +282,16 @@ def decide_rewords(askers: list[Asker], items: list[tuple[str, tuple, str]], on_
     return _drafted(askers, items, rewords.by_model, rewords.decide, rewords.fits, rewords.grounded, on_error, referee)
 
 
+def decide_alternatives(askers: list[Asker], items: list[tuple[str, tuple, str]], on_error: Callable | None = None,
+                        referee: Asker | None = None) -> list[str]:
+    """選ぶ質問の (質問の文, 選択肢の並び, 型) の並び（flowctl.alternatives_fits の質問だけを渡すのは呼ぶ側）→ 同じ並びで、お客様の意向がまだ分からないまま戻る
+    ときに「はい、」に続けて伺う、選択肢を並べた質問の文（答えは flowctl.Question.alternatives。決まらなければ空＝「はい、」＋言い換えた質問）。決め方は言い換えた
+    質問と同じ1か所（_drafted）・形は alternatives.fits（選択肢を質問の順のまま全部・「それとも」）・中身の判定は alternatives.grounded。
+    ✅ 2026-11-14 日本時間22時15分15秒 ユーザー（お言葉は alternatives の頭）"""
+    items = [(str(t or ""), tuple(c), str(k or "")) for t, c, k in items]
+    return _drafted(askers, items, alternatives.by_model, alternatives.decide, alternatives.fits, alternatives.grounded, on_error, referee)
+
+
 def decide_at_hand(askers: list[Asker], questions: list[tuple[str, tuple]], on_error: Callable | None = None) -> list[str]:
     """(質問の文, 選択肢の並び) の並び → 同じ並びで、資料がお手元に届いているかを伺う質問の「届いている」にあたる選択肢の名前（伺う質問でない・決まらないなら空＝
     announces.decide_hand。unclear と同じ形）。業務の選ぶ質問だけを渡すのは呼ぶ側。答えは flowctl.Question.at_hand（お知らせの「ご確認ください。」の文の条件）。
@@ -314,9 +325,12 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             "decide_matters": decide_matters,
             # 会話が繋がらないお返事のあとに「ところで」に続けて伺い直す、言い換えた質問（✅ 2026-11-13 日本時間22時17分01秒「9は…」。⏳ CL-2 の受け口ができるまで
             # CL2_PENDING＝帳面 4-152）。考える Sonnet は referee（書く・中身の判定）
-            "decide_rewords": decide_rewords}
+            "decide_rewords": decide_rewords,
+            # 意向がまだ分からないまま戻るときの選択肢を並べた質問（✅ 2026-11-14 日本時間22時15分15秒。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-156）。
+            # 考える Sonnet は referee（書く・中身の判定）
+            "decide_alternatives": decide_alternatives}
 # 2つの文字のAIがそろわない文を、考える Sonnet（deciders の referee）に聞く決める処理（唯一の一覧）
-REFEREED = frozenset({"decide_since", "decide_announces", "decide_purposes", "decide_rewords", "decide_matters"})
+REFEREED = frozenset({"decide_since", "decide_announces", "decide_purposes", "decide_rewords", "decide_matters", "decide_alternatives"})
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, Callable]:

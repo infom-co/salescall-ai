@@ -678,10 +678,10 @@ def recap_recording_id(q: "Question") -> str:
     return f"{q.id}_recap"
 
 
-def question_play(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False) -> dict:
+def question_play(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False, soft: bool = False) -> dict:
     """その質問を録音で流すときの1つ（電話接続側が流すもの）。業務の質問＝依頼主の単位の録音（つなぎの言葉＋質問の文）、かけ直しで足す質問＝
     共通の一言の録音（phrases.RECORDED の callback_〜。どの業務でも同じ文）。読みの確かめは録音にしない（相手ごとの名前を含む＝AIが言う）。
-    before・again・resumed は、つなぎの言葉を決める1か所（spoken_question）へ渡す。入る一言の頭のつなぎの言葉を替えた形は、入る一言の録音（番号だけ）とは別の録音
+    before・again・resumed・soft は、つなぎの言葉を決める1か所（spoken_question）へ渡す。入る一言の頭のつなぎの言葉を替えた形は、入る一言の録音（番号だけ）とは別の録音
     （名前は「番号_intro」＋つなぎの言葉＝phrases.question_clip）。"""
     q = next(x for x in questions if x.id == qid)
     if (part := opening_part(q)) is not None:
@@ -701,7 +701,7 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
         rid, text = back_fit(rid, text, before)
         # 業務設定から文を作ったシステムの質問（改めてのお話の方法を選んでいただく一言＝BUSINESS_ROLES）も依頼主の単位の録音
         return {"kind": "question", "id": rid, "text": text, "lead": ""} if q.of or q.callback in BUSINESS_ROLES else {"kind": "recorded", "id": rid, "text": text}
-    text, lead = spoken_question(questions, qid, before, again, resumed)
+    text, lead = spoken_question(questions, qid, before, again, resumed, soft)
     # 日によって変わる言い方の入った質問は、その言い方の録音（Question.recording＝day_recording_id。名前の組み方は今と同じ「番号＋つなぎの言葉」）
     rid = q.recording or q.id
     if again and not lead:
@@ -804,7 +804,8 @@ def before_lines(questions: list["Question"]) -> list[str]:
 def question_forms(questions: list["Question"], qid: str) -> list[dict]:
     """業務の質問を録音で流しうる形（唯一の一覧＝録音を作る make_ack_clips.script_table。流す形は question_play の1か所が作る）：次の項目として初めて伺う形・
     直前に流しうる一言（before_lines）の頭と重なってつなぎの言葉を替えた形・もう伺った質問を伺い直す形（頭は AGAIN_LEAD＝Flow._continue。戻る一言のあと・
-    「失礼いたしました。」のあと・尋ねられて答えたあと）・続きの電話で最初に伺う形（頭は QUESTION_RESUME_LEAD）。同じ録音の名前は1つ。"""
+    「失礼いたしました。」のあと）・お客様の意向がまだ分からないまま戻る形（頭は無い＝soft_form。尋ねられて答えたあと・お話に沿った受け答えで待ったあと）・
+    続きの電話で最初に伺う形（頭は QUESTION_RESUME_LEAD）。同じ録音の名前は1つ。"""
     q = next(x for x in questions if x.id == qid)
     if q.approval and q.announce and not in_announce_form(q):
         # お知らせの文のある質問（Question.announce）は、質問の文では流さない＝お知らせの2つの形（「ご了承ください。」・資料がお手元にある方の「ご確認ください。」）の一覧
@@ -818,6 +819,10 @@ def question_forms(questions: list["Question"], qid: str) -> list[dict]:
         forms += [question_play(questions, qid, again=True), question_play(questions, qid, resumed=True)]
         # 戻る一言のあとに伺い直す形（頭が戻る一言の頭と重なれば外す＝spoken_question の again）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」
         forms += [question_play(questions, qid, again=True, before=text) for _, text in BACK_LINES]
+    if soft_fits(q) and not (in_aside_form(q) or in_since_form(q) or in_alternatives_form(q)):
+        # お客様の意向がまだ分からないまま戻る形（soft_form・頭のつなぎの言葉は無い）。新しい録音は選択肢を並べた文の「番号_alternatives」だけ（言い換えた質問・元の
+        # 質問の頭の無い形は、2回目に戻る一言のあとの形と同じ録音）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー
+        forms.append(question_play([soft_form(x) if x.id == qid else x for x in questions], qid, again=True, soft=True))
     if q.since and not in_since_form(q) and not (q.reading_of or q.callback or q.of):
         # 続きの電話でその後の形で伺いうる質問（since_due）：その形でも同じ一覧（「番号_since」の録音）
         forms += question_forms([since_form(x) if x.id == qid else x for x in questions], qid)
@@ -1012,7 +1017,52 @@ def aside_play(questions: list["Question"], qid: str, touched: bool = False) -> 
     return question_play([aside_form(x) if x.id == qid else x for x in questions], qid, again=touched)
 
 
-def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False) -> tuple[str, str]:
+# お客様の意向がまだ分からないまま戻るときの形（soft_form）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー「・お客様：そうなんですね。こちら：はい、それではお支払いの方は
+# カードと振込のどちらにされますか？⇒まだ、どちらの意向なのか分からない状況で、「それでは」は、あたかも強制的に決められたかのように受け止められてしまいます。しかし、
+# 否定的な返事でもないときは、「はい、振り込みになさいますか、それともカードの方がよろしいでしょうか？」のような聞き方の方が流れが自然ではないでしょうか？」
+ALTERNATIVES_SUFFIX = "_alternatives"   # 選択肢を並べた形の録音の名前の終わり（依頼主の単位の録音「番号_alternatives」）
+
+
+def soft_fits(q: "Question") -> bool:
+    """お客様の意向がまだ分からないまま戻るとき（Flow._continue の soft）に、頭に「それでは」を付けずに伺い直す質問か（唯一の決まり＝流れの制御・録音を作る形
+    question_forms）：業務の質問（読みの確かめ・かけ直しの質問・業務の質問から文を作ったシステムの質問でない）で、ご承認のお知らせの形でないもの。システムの質問の頭の
+    「それでは」（「それでは恐れ入りますがメールアドレスを…」）はお客様が選んだ答えを受ける言葉・ご承認のお知らせの最終の確かめ「それでは（中身）の件はご了承という
+    ことで…」はお言葉の形（11-14 14時31分38秒「●伺い10」）なので当たらない。"""
+    return not (q.reading_of or q.callback or q.of) and not in_announce_form(q)
+
+
+def alternatives_fits(q: "Question") -> bool:
+    """取込で選択肢を並べた文（Question.alternatives）を作る質問か（唯一の決まり＝取込で作る import_ai.decide_alternatives を渡す呼ぶ側）：意向が分からないまま戻る質問
+    （soft_fits）のうち、選択肢から選んでいただく質問（型が選ぶ質問で、宣言した選択肢が2つ以上）。はい／いいえ・事実・値を伺う質問は「はい、」＋言い換えた質問。"""
+    return soft_fits(q) and q.type == "choice" and len(q.conditions) >= 2
+
+
+def alternatives_form(q: "Question") -> "Question":
+    """選択肢を並べた形（唯一の作り方＝soft_form）：文は取込で決めた選択肢を並べた文（Question.alternatives）・入る一言は言わない（もう伺った質問）・録音は
+    「番号_alternatives」（頭のつなぎの言葉の無い1本＝spoken_question。日によって変わる言い方の質問は、その言い方の録音の名前から＝「ところで」の形と同じ）。"""
+    base = str(q.recording or q.id).removesuffix(ASIDE_SUFFIX)
+    return dataclasses.replace(q, text=q.alternatives, intro="", recording=f"{base}{ALTERNATIVES_SUFFIX}")
+
+
+def in_alternatives_form(q: "Question | None") -> bool:
+    """選択肢を並べた形（alternatives_form）の質問か（唯一の見分け＝頭のつなぎの言葉 spoken_question・録音の一覧 question_forms）。"""
+    return q is not None and str(getattr(q, "recording", "") or "").endswith(ALTERNATIVES_SUFFIX)
+
+
+def soft_form(q: "Question") -> "Question":
+    """お客様の意向がまだ分からないまま戻るとき（Flow._continue の soft）に伺う形（唯一の決まり＝流れの制御が替える Flow._soften・録音を作る形 question_forms）：
+    選択肢を並べた文（Question.alternatives）があればその形（alternatives_form）・無ければ言い換えた質問（aside_form）・それも無ければいまの形のまま。その後の形
+    （since_form）はそのまま（「その後…かお決まりになりましたでしょうか？」のお返事を伺う前に、選択肢を並べない）。頭のつなぎの言葉は付けない（spoken_question の
+    soft）。頭の「はい、」は相づちの録音（Flow._ack）。"""
+    if in_since_form(q) or in_alternatives_form(q):
+        return q
+    if q.alternatives:
+        return alternatives_form(q)
+    return aside_form(q) if q.reworded and not in_aside_form(q) else q
+
+
+def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False,
+                    soft: bool = False) -> tuple[str, str]:
     """録音で流す質問の文（つなぎの言葉＋質問の文）と、そのつなぎの言葉（唯一の場所）。次の項目の質問に入るときは「続きまして」（NEXT_LEAD。
     ✅ 2026-11-06 日本時間12時54分30秒 ユーザー。⛔ それまでは質問の順番で「それでは」「続きまして」「では」を回していた）。最初の質問は名乗りと一緒に
     流すので、つなぎの言葉は付けない。
@@ -1022,7 +1072,10 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     「。」で終わらない一言（3回目に戻る一言）なら、質問をその文に続ける。頭の言葉だけを渡さない（文として読む＝B-3。録音の形の一覧も before_lines の文を渡す）。
     again＝尋ねられて答えたあとに伺い直す形（頭は AGAIN_LEAD。入る一言はもう流したので付けない。✅ 同じ時「(2) イ」）。
     resumed＝続きの電話で、お詫び（＋用件の一文）のすぐあとに最初に伺う（次の項目のつなぎの言葉の代わりに QUESTION_RESUME_LEAD。✅ 2026-11-06 日本時間
-    15時20分30秒 ユーザー「続きまして、も、それではも繋がりがおかしい」。前の答えで伺う質問も同じ。入る一言は業務の言葉のまま）。"""
+    15時20分30秒 ユーザー「続きまして、も、それではも繋がりがおかしい」。前の答えで伺う質問も同じ。入る一言は業務の言葉のまま）。
+    soft＝お客様の意向がまだ分からないまま戻る形（Flow._continue の soft・形は soft_form）：頭に「それでは」を付けない（ほかに分からない点を伺う質問の「ほかに」は
+    残す）。選択肢を並べた形（alternatives_form）はこの戻りだけの形（次の項目として伺うことは無い）なので、いつも頭を付けない。✅ 2026-11-14 日本時間22時15分15秒
+    ユーザー（お言葉は soft_form の上）。"""
     q = next(x for x in questions if x.id == qid)
     if q.reading_of or q.callback:  # プログラムが足す質問（読みの確かめ・かけ直し）：つなぎの言葉は付けない
         return q.text, ""
@@ -1032,6 +1085,8 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     # ⛔ 見直しで見つけた漏れ：読みの確かめを挟むと、そのあとの質問のつなぎの言葉（＝録音の名前）が1つずれた（「それでは」⇒「続きまして」）
     i = [x.id for x in questions if not x.reading_of and not x.callback].index(qid)
     others = others_head(q)
+    if soft or in_alternatives_form(q):
+        return head_join(others, q.text), others
     if before and not closes(before):
         # 3回目から戻るときの一言（phrases.BACK_TO_MIDWAY「確認の途中でしたのでもう一度お伺いさせていただきますが」＝文を終えない）は、質問の頭として1本で
         # 録音する（✅ 2026-11-07 日本時間4時40分35秒 ユーザー「…「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」）
@@ -2763,6 +2818,11 @@ class Question:
     # 考える Sonnet・中身の判定を通った文＝import_ai.decide_rewords。決まらなければ空＝「ところで」＋元の質問の文）。流す形は aside_form の1か所。
     # ✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は「さようでございますか。ところで、お支払いの方はカードと振込のどちらにされますか？」」
     reworded: str = ""
+    # お客様の意向がまだ分からないまま戻るとき（Flow._continue の soft）に「はい、」に続けて伺う、選択肢を並べた質問の文（「カードになさいますかそれともお振込の方が
+    # よろしいでしょうか？」。選ぶ質問だけ＝alternatives_fits。取込で文字のAI2つがそろう・そろわなければ考える Sonnet・中身の判定を通った文＝
+    # import_ai.decide_alternatives。決まらなければ空＝「はい、」＋言い換えた質問）。流す形は soft_form の1か所。✅ 2026-11-14 日本時間22時15分15秒 ユーザー
+    # 「…「はい、振り込みになさいますか、それともカードの方がよろしいでしょうか？」のような聞き方の方が流れが自然ではないでしょうか？」
+    alternatives: str = ""
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -4511,6 +4571,8 @@ class Flow:
         self.resume_due = not (apology_call or number_again)
         # その後の形（since_form）で伺っている質問の、元の質問（番号 → 質問。_resume_cut が代え、値の無い「決まりました」で _undecided_answer が戻す）
         self.since_plain: dict = {}
+        # お客様の意向がまだ分からないまま戻る形（soft_form）に替えた質問の、替える前の形（番号 → 質問。替えるのも戻すのも Flow._soften の1か所）
+        self.soft_plain: dict = {}
         if not target:
             self._resume_cut()
 
@@ -7969,6 +8031,7 @@ class Flow:
         どちらにされますか？」」（11-01 3時45分「会話が成り立たない返事はもう一度伺う」は、この形で伺う。⛔ それまでは「はい、恐れ入ります。もう一度お聞かせ
         いただいてもよろしいでしょうか？」＝聞くことが空・お客様のお話に応えない＝9-3）"""
         qid = self.current
+        self._soften(qid, False)   # 意向が分からないまま戻る形（soft_form）で伺っていた質問は、替える前の形から言い換える
         q, it = self.questions[qid], self.items[qid]
         fb = TALK_FALLBACK[pick][0] if said is None else None
         self._note("talk", answer=said or fb, **({"fallback": pick} if said is None else {}), **drafts, **checked)
@@ -8754,13 +8817,28 @@ class Flow:
         n = self.back_counts[key] = self.back_counts.get(key, 0) + 1
         return n
 
-    def _continue(self, play: list, shown: str, final: bool = False) -> dict:
+    def _soften(self, qid: str, soft: bool) -> None:
+        """お客様の意向がまだ分からないまま戻る形（soft_form）に替えるか、替える前の形に戻すかの唯一の場所（戻る1か所 _continue・「ところで」の伺い直し
+        _aside_again）：soft なら、判定と会話AIへの知らせがお客様の聞く文を読むよう、その形に替える（替える前の形は soft_plain）。soft でなければ替える前の形に
+        戻す（選択肢を並べた形は意向が分からないまま戻るときだけの形＝戻る一言のあと・もう一度言ってほしいと頼まれたとき・代わった方へ・「ところで」の伺い直しは、
+        替える前の形で伺う。話の続きを聞いていない方に選択肢だけを並べない）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー（お言葉は soft_form の上）"""
+        q = self.questions[qid]
+        if soft and (s := soft_form(q)) is not q:
+            self.soft_plain.setdefault(qid, q)
+            self.questions[qid] = s
+        elif not soft and qid in self.soft_plain:
+            self.questions[qid] = self.soft_plain.pop(qid)
+
+    def _continue(self, play: list, shown: str, final: bool = False, soft: bool = False) -> dict:
         """録音（名乗りの流し直し・お詫びの相づち）を流したあと、いまの位置へ戻る返事（唯一の場所。_op_replay_opening・_resume）。
         いまの位置＝目的の人を呼んでいる段（もう一度だけ呼ぶ）／言い直しの返事待ち（AIが言い直しをもう一度言う）／答えを待っている質問
         （その質問の録音）／聞いている質問が無い（相手が話すのを待つ）。shown＝流した録音の文（空なら、流したのはお詫びの相づちだけ）。
         final＝いまの質問・言い直しについて尋ねられて答えたあと、お客様が相づちだけを返した（_resume の ASKED_REPLY）：話はいまの質問から移っていないので
         戻る一言は付けず、同じ言い直し・同じ質問へは戻らずに、最終の確かめで締めにいく（_final_check。言い直しの返事待ちは言い直した向き・質問の返事待ちは
-        こちらが勧めた向き＝final_toward。向きが決まらない質問は、頭に「それでは」を付けて伺い直す）。✅ 2026-11-06 日本時間11時19分55秒・11時55分13秒 ユーザー"""
+        こちらが勧めた向き＝final_toward。向きが決まらない質問は伺い直す）。✅ 2026-11-06 日本時間11時19分55秒・11時55分13秒 ユーザー
+        soft＝別のお話にお話に沿った受け答えで応えて待ったあと、お客様が相づちだけを返した（_resume の待った印）。final で向きが決まらないときと同じく、お客様の意向が
+        まだ分からないまま戻る＝戻る一言の無い伺い直しは、頭に「それでは」を付けず、意向が分からないまま戻る形（soft_form）で伺う（_soften の1か所）。✅ 2026-11-14
+        日本時間22時15分15秒 ユーザー（お言葉は soft_form の上）"""
         if self.after_answer is not None:
             # 答えに添えられた相手の質問に答えた：先に作っておいた返事（次の質問・言い直し・聞き返し・念のための確認・締め＝_question_first）を、答えのあとに流す
             # （取り出す1か所 _take_after_answer＝その返事の「この発話で言った」印を、いま流すこの発話に付け直す）
@@ -8819,7 +8897,7 @@ class Flow:
             return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._return_note()}"}
         if final and q is not None and not q.reading_of and (toward := final_toward(q)) is not None:
             return self._final_check(q.id, toward)   # 質問について尋ねられて答えた：同じ質問には戻らず、こちらが勧めた向きで最終の確かめ
-        # もう流した質問へ戻る（戻る一言・「失礼いたしました。」のあと・尋ねられて答えたあと）＝頭は「それでは」（AGAIN_LEAD）。まだ流していない質問（先に
+        # もう流した質問へ戻る（戻る一言・「失礼いたしました。」のあと）＝頭は「それでは」（AGAIN_LEAD）。まだ流していない質問（先に
         # 言われた答えを受け取らずに、初めて流す＝_offer_ahead のあと）は、次の項目として「続きまして」（✅ 2026-11-06 日本時間12時54分30秒 ユーザー：「次の
         # 項目の質問に入る前は、すべて「続きまして」でいいんじゃないですか。」＝戻るときは次の項目ではない）
         again = q is not None and not q.reading_of and (final or self.items[q.id].played)
@@ -8831,11 +8909,18 @@ class Flow:
         back = self._back_play(digressed, asks=asks)
         btext = "".join(p["text"] for p in back)   # 戻る一言の頭のつなぎの言葉と、質問の頭を重ねない（spoken_question・phrases.back_fit の before）
         joined = bool(back) and not closes(btext)   # 3回目からの一言は質問の頭（質問と1本の録音・会話AIの1つの文）
+        # お客様の意向がまだ分からないまま戻る（尋ねられて答えたあと・黙ったあとの一言へのお返事で最終の確かめの向きが決まらない＝final・お話に沿った受け答えで
+        # 待ったあとの相づちだけのお返事＝soft）：戻る一言の無い伺い直しは、頭に「それでは」を付けず、その形（soft_form＝選択肢を並べた文・言い換えた質問）で伺う。
+        # 戻る一言のあと・もう一度言ってほしいと頼まれたとき・代わった方へは、替える前の形と「それでは」（_soften の1か所）。✅ 2026-11-14 日本時間22時15分15秒
+        soft = (final or soft) and again and not back and soft_fits(q)
+        if q is not None and not q.reading_of:
+            self._soften(q.id, soft)
+            q, qs = self.questions[q.id], self._plays()
         bridged = {"bridged": True} if back and q is not None else {}
         # 名乗りの部分で伺う質問（伝言の文＝opening_part）には、同じ返事で直前に流した名乗りの文も渡す（名前と用件を言い直さない短い形＝question_play）
         prior = btext or (shown if q is not None and opening_part(q) is not None else "")
         if q is not None and self.play_recordings and not q.reading_of:
-            qp = question_play(qs, q.id, again=again, before=prior)
+            qp = question_play(qs, q.id, again=again, before=prior, soft=soft)
             play += ([] if joined else back) + [qp]
             return {"result": "replayed", "play": play,
                     "message": played_note(shown + ("" if joined else btext) + qp["text"]) + "何も言わずに、相手の答えを待ってください。"
@@ -8846,7 +8931,7 @@ class Flow:
                 # 決まった文の質問：流す形と同じ文（phrases.back_fit）をそのまま言う
                 lead, quoted = "", question_play(qs, q.id, again=again, before=prior)["text"]
             else:
-                lead = btext if joined and q.reading_of else spoken_question(qs, q.id, again=again, before=btext)[1]
+                lead = btext if joined and q.reading_of else spoken_question(qs, q.id, again=again, before=btext, soft=soft)[1]
                 quoted = q.text
             return {"result": "replayed", "play": play, "speak": True,
                     "message": f"{done}続けて、{then}いまの質問 {q.id}「{quoted}」を聞いてください（名乗りは繰り返しません）。"
@@ -8938,11 +9023,11 @@ class Flow:
             self._wish_known(w.pop("known"), w)
             return self._advance("", handled=True) | {"quiet": True, "ahead_closed": True}
         if waited is not None:
-            # 別のお話にお話に沿った受け答えで応えて待ったあとの相づちだけのお返事（_wait_after_word）：話はいまの質問から移っていない＝その質問へ「それでは」で戻る
-            # （戻りはもう数えた＝1回目は「ところで」の伺い直しの代わりなので戻る一言は付けない・2回目の別のお話のあとは戻る一言の1か所 _back_play の2回目の一言）。
-            # ✅ 2026-11-14 日本時間21時04分53秒 ユーザー（お言葉は _informs）
+            # 別のお話にお話に沿った受け答えで応えて待ったあとの相づちだけのお返事（_wait_after_word）：話はいまの質問から移っていない＝その質問へ戻る（戻りはもう
+            # 数えた＝1回目は「ところで」の伺い直しの代わりなので戻る一言は付けない・2回目の別のお話のあとは戻る一言の1か所 _back_play の2回目の一言）。お客様の意向は
+            # まだ分からないので、戻る一言の無い戻りは「それでは」を付けない（_continue の soft）。✅ 2026-11-14 日本時間21時04分53秒・22時15分15秒 ユーザー
             self.digressed = waited[1]
-        r = self._continue([], "", final=own == ASKED_REPLY)
+        r = self._continue([], "", final=own == ASKED_REPLY, soft=waited is not None)
         if r["result"] == "confirm_required":
             return r   # 最終の確かめ（_final_check）：相づちは確かめの一言の頭（_ack）
         if r["result"] == "end":
