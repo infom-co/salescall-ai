@@ -4829,7 +4829,10 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual((r["result"], r["question_id"], f.items["Q1"].state), ("next", "Q2", "unresolved"))  # その場は2回まで
         self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
         r = self.do(f, "confirm_field", question_id="Q2", result="affirmed")
-        self.assertEqual((r["result"], r["question_id"], r["say"], r["ack"]), ("recheck", "Q1", self.LAST, "moushiwake_heavy"))  # 最後の1回＝重いお詫び
+        # 最後の1回＝重いお詫び。言い直しへの「はい」を受け取ったすぐあとなので、頭の相づちは受け取った答えで選び（承り）、お詫びはそのあと（録音で流さない
+        # 形では会話AIが先に言う）。⛔ d3db377f まで、受け取った答えを見ずに頭が「申し訳ございません、」だった（受けの言葉が抜けた）
+        self.assertEqual((r["result"], r["question_id"], r["say"], r["ack"]), ("recheck", "Q1", self.LAST, "shouchi"))
+        self.assertIn("まず、「申し訳ございません、」とだけ言います", r["message"])
         self.assertIn(self.LAST, r["message"])
         self.assertEqual(self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")["result"], "confirm_required")
         self.assertEqual(self.do(f, "confirm_field", question_id="Q1", result="affirmed")["result"], "end")
@@ -10066,7 +10069,10 @@ class EndJudgedTest(unittest.TestCase):
             if cond == "unknown":
                 self.assertEqual((r["result"], r["ack"], [p["id"] for p in r["play"]]), ("confirm_required", "shouchi", ["Q2_pending"]))
                 r = say(f, "はい。", "confirm_field", question_id="Q2", result="affirmed")
-            self.assertEqual((r["result"], r["ack"]), ("recheck", "moushiwake_heavy"), heard)
+            # 頭の相づちは受け取った答えで選び（カード＝順番の「承知しました。」・わからない＝「承知しました。」が続くので「かしこまりました。」）、重いお詫びはそのあと
+            # （⛔ d3db377f まで、受け取った答えを見ずに頭が重いお詫びだった＝受けの言葉が抜けた）
+            self.assertEqual((r["result"], r["ack"], [p["id"] for p in r["play"]]),
+                             ("recheck", "shouchi" if cond == "カード" else "kashikomari", ["moushiwake_heavy"]), heard)
         # (d)
         f = Flow([Question("Q1", "ご来店のご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",)),
                   yn("Q2", "ほかの日時もご検討いただけますでしょうか？", ask_if=("Q1", ("答えた",)), ask_if_hedged=True),
@@ -12070,7 +12076,8 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual(heard(unheard(f, w1)), "はい、続きましてご来店のご希望の日はございますでしょうか？")
         say(f, "来週の水曜の午後でお願いします。", "record_answer", "答えた", question_id="Q9", condition_id="答えた", value="来週の水曜の午後")
         r = say(f, "はい、そうです。", "confirm_field", "affirmed", question_id="Q9", result="affirmed")
-        self.assertEqual(heard(r), "申し訳ございません、お声が聞き取れませんでしたのでご案内の方法をもう一度だけお聞かせいただいてもよろしいでしょうか？")
+        # 言い直しへの「はい、そうです。」を受け取ったすぐあと：受けの言葉のあとに重いお詫び（⛔ d3db377f まで、頭が「申し訳ございません、」だけ＝受けの言葉が抜けた）
+        self.assertEqual(heard(r), "承知しました。申し訳ございません、お声が聞き取れませんでしたのでご案内の方法をもう一度だけお聞かせいただいてもよろしいでしょうか？")
         # 聞き取れないまま終えても、断られたとはしない（その業務をかけない印は付けない。ほかのご希望の結果は「無い」ではなく unresolved＝わからない・答えたくないと
         # 同じ1か所。お客様はほかのご希望が無いとはおっしゃっていない＝✅ 2026-11-12 まとめ役の (L1)。⛔ それまでは終わりの理由が goal_refused・根拠は言い切って
         # いないお断り「うーん、訪問はちょっと…。」・結果は none だった）
@@ -25930,8 +25937,9 @@ class AsideTest(unittest.TestCase):
         r = self.say(f, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q3", result="affirmed")
         self.assertEqual((f.phase, f.current), ("rechecking", "Q2"), r)
         # お客様のお声は聞き取れていた（別のお話で「-」）：電話のせいにしない（9-5 の (3)＝聞き取れていたときの聞き直しの1か所 _ask_kind）。最後の1回の「もう一度だけ」
-        # （10-14）は同じ。頭の相づちも聞き取れていたときの聞き直しと同じ「はい、」。⛔ 092f2317 まで「申し訳ございません、」＋「お声が聞き取れませんでしたので…」
-        self.assertEqual((r.get("say"), r.get("ack")), ("恐れ入ります。もう一度だけお聞かせいただいてもよろしいでしょうか？", "hai"))
+        # （10-14）は同じ。⛔ 092f2317 まで「申し訳ございません、」＋「お声が聞き取れませんでしたので…」。頭の相づちは、答え（「はい、大丈夫です。」）を受け取った
+        # すぐあとなので受け取った答えで選ぶ（⛔ d3db377f まで、聞き取れていたときの聞き直しと同じ「はい、」＝受けの言葉が抜けた）
+        self.assertEqual((r.get("say"), r.get("ack"), r.get("play")), ("恐れ入ります。もう一度だけお聞かせいただいてもよろしいでしょうか？", "arigatou", None))
         # 聞き取れないまま「-」にした質問は今のまま（「申し訳ございません、」＋「お声が聞き取れませんでしたので…もう一度だけ…」）
         g = self.flow()
         for _ in range(3):
@@ -25940,8 +25948,67 @@ class AsideTest(unittest.TestCase):
         self.assertEqual(g.current, "Q3")
         self.say(g, "100万円です。", "record_answer", "答えた", question_id="Q3", condition_id="答えた", value="100万円")
         r = self.say(g, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q3", result="affirmed")
-        self.assertEqual((g.current, r.get("say"), r.get("ack")),
-                         ("Q2", "お声が聞き取れませんでしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？", "moushiwake_heavy"))
+        # 頭は受け取った答えの相づち、そのあとに重いお詫び（⛔ d3db377f まで、頭が重いお詫びだけ＝受けの言葉が抜けた）
+        self.assertEqual((g.current, r.get("say"), r.get("ack"), [p["id"] for p in r.get("play") or []]),
+                         ("Q2", "お声が聞き取れませんでしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？", "arigatou", ["moushiwake_heavy"]))
+
+    def test_the_closing_recheck_starts_with_the_receipt_of_the_answer_just_taken(self):
+        # 締めの前の念のための確認を流す返事の頭の相づちも、ほかの返事と同じく、いま受け取った答えで選ぶ（相づちの1か所 _ack＝本書 9-7「相づちは受け取った答えで
+        # 選ぶ」。申し出を受けていただいたお返事なら「ありがとうございます。」＝11-12 13時40分05秒の (5)）。確認の頭の「はい、」はその相づちに譲り（同じ発話に相づちを
+        # 2つ重ねない）、聞き取れなかった質問のお詫び「申し訳ございません、」は相づちのあとに流す（確認の前に一言を挟むときと同じ＝_advance）。⛔ d3db377f まで、
+        # 確認の頭は受け取った答えを見ずに「はい、」か「申し訳ございません、」だった（「はい、大丈夫です。」→「はい、恐れ入ります。お支払いの方法をもう一度だけ…」
+        # ＝受けの言葉が抜けた）。申し出のお受けでは「ありがとうございます。」になっていたが、聞き取れなかった質問のお詫びが抜けた
+        from flowctl import Flow, Question
+        from phrases import ANNOUNCE_RECHECK
+        receipts = ("shouchi", "arigatou", "kashikomari")
+        # (a) 別のお話で「-」にした（お声は聞き取れていた）質問を、ほかの質問の答えの確かめ（「はい、大丈夫です。」）のすぐあとに伺う
+        f = self.flow(); self.talk(f)
+        for _ in range(2):
+            self.talk(f, "暑いですね。", "いやあ最近は暑くてねえ。")
+        self.say(f, "100万円です。", "record_answer", "答えた", question_id="Q3", condition_id="答えた", value="100万円")
+        r = self.say(f, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q3", result="affirmed")
+        self.assertEqual((f.phase, f.current), ("rechecking", "Q2"), r)
+        self.assertIn(r.get("ack"), receipts, r)
+        self.assertEqual(([p["id"] for p in r.get("play") or []], r.get("say")), ([], "恐れ入ります。もう一度だけお聞かせいただいてもよろしいでしょうか？"))
+        # (b) 聞き取れないまま「-」にした質問を、申し出（資料）を受けていただいたすぐあとに伺う：お礼のあとにお詫び
+        qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True),
+              Question("Q2", self.PAY, "choice", conditions=("カード", "振込"), required=True, reworded=self.PAY2),
+              Question("Q4", "資料をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                       do_words={"はい": "資料をお送りさせていただきます"})]
+        g = Flow(qs, play_recordings=True)
+        g.use_checks("judge")
+        self.say(g, "はい、しています。", "record_answer", "はい", question_id="Q1", condition_id="はい")
+        for _ in range(3):
+            g.on_callee(); g.on_heard("……")
+            g.apply("report_unclear", {"question_id": "Q2"})
+        self.assertEqual(g.current, "Q4")
+        r = self.say(g, "はい、お願いします。", "record_answer", "はい", question_id="Q4", condition_id="はい")
+        self.assertEqual((g.phase, g.current), ("rechecking", "Q2"), r)
+        self.assertEqual((r.get("ack"), [p["id"] for p in r.get("play") or []], r.get("say")),
+                         ("arigatou", ["moushiwake_heavy"], "お声が聞き取れませんでしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？"))
+        # (c) 別のお話が続いて「-」にしたご承認のお知らせを、次の質問の答え（「カードでお願いします。」）のすぐあとに伺い10 の形で伺う
+        h, r = AnnounceTest().announced()
+        for words in (self.OFF, "いやあ最近は暑くてねえ。", "いやあ最近は暑くてねえ。"):
+            self.unlinked(h, words=words, away=None)
+            grounded(h, "本当に暑い日が続いておりますね。")
+            h.apply("replay_opening", {"part": "talk", "answer": "本当に暑い日が続いておりますね。", "fallback": "talk_heard_nod"})
+        self.assertEqual(h.current, "Q3")
+        r = self.say(h, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        self.assertEqual((h.phase, h.awaiting_confirm), ("rechecking", "Q2"), r)
+        self.assertIn(r.get("ack"), receipts, r)
+        self.assertEqual(([p["id"] for p in r.get("play") or []], r["play"][-1]["text"]), (["announce_recheck"], ANNOUNCE_RECHECK))
+        # (d) 前の念のための確認へのお返事のすぐあとに次の確認を伺う（確認の段の中の続き）・聞き取れないお返事のあとに伺う：今の決まりのまま
+        k = self.flow(); self.talk(k)
+        for _ in range(2):
+            self.talk(k, "暑いですね。", "いやあ最近は暑くてねえ。")
+        for _ in range(3):
+            k.on_callee(); k.on_heard("……")
+            r = k.apply("report_unclear", {"question_id": "Q3"})
+        self.assertEqual((k.phase, k.current, r.get("ack"), r.get("play")), ("rechecking", "Q2", "hai", None), r)
+        self.say(k, "カードでお願いします。", "record_answer", "カード", question_id="Q2", condition_id="カード")
+        r = self.say(k, "はい、そうです。", "confirm_field", "affirmed", question_id="Q2", result="affirmed")
+        self.assertEqual((k.current, r.get("ack"), r.get("play"), r.get("say")),
+                         ("Q3", "moushiwake_heavy", None, "お声が聞き取れませんでしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？"), r)
 
     def test_every_talk_to_the_announcement_gets_a_word(self):
         # ご承認のお知らせ（問いでない一言）への別のお話：1回目は会話AIが伝え直す（伺い1-(2) ウ）。2回目からも、ほかの質問と同じ1か所（_unlinked_kind の again・

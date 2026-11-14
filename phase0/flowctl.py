@@ -5754,8 +5754,12 @@ class Flow:
         - 言い直した値が違っていた ⇒「失礼いたしました。」／聞き取れなかった ⇒「申し訳ございません、」（お詫びの決まり。6-11）
           「申し訳ございません、」は2本：1回目の聞き返し＝軽いお詫び（moushiwake）／同じ項目を2回目以降に聞く・最後の1回＝重いお詫び
           （moushiwake_heavy）。✅ 2026-10-16 ユーザー：「02だと軽薄に聞こえる」場面（こちらの誤り・クレーム・かけ直し）は重いほう
-        - 差し戻し ⇒ 流さない（AIはまだ受け付けられていない報告を出し直す）"""
+        - 差し戻し ⇒ 流さない（AIはまだ受け付けられていない報告を出し直す）
+        - 答えを受け取ったすぐあとの締めの前の念のための確認（印 receipt＝_advance_to。業務の質問の確認も、お知らせの最終の確かめ＝_accepted_ask も）⇒ 次の質問へ
+          進む返事と同じ決まりで、受け取った答えで選ぶ（確認の頭の「はい、」「申し訳ございません、」は決め打ちしない＝お詫びは確認を作る所が相づちのあとに置く）"""
         result = reply["result"]
+        if reply.get("receipt"):
+            result = "recheck"   # お知らせの最終の確かめ（confirm_required）も、締めの前の確認として読む＝下の受け取った答えの決まりへ
         if result == "callee_asked":
             # 答えに添えられた質問に先に答える番（_question_first）：相づちは流さない（答える操作の頭が「はい、」）。取っておいた返事の相づちの印（ご承認の手順の
             # お礼 など）は、その返事を流す時に読む（_take_after_answer が印を流す時の発話に付け直す）＝ここでは読まない（⛔ 2026-11-08 日本時間11時台：下の印を
@@ -5902,7 +5906,7 @@ class Flow:
             return "shouchi"
         if reply.get("told") and result in ("next", "end", "recheck"):
             return "hai"  # 受け取った答えのあとに業務の一言を伝える（「はい、○○駐車場をご利用いただけますので…」＝Flow._advance）
-        if result == "recheck":
+        if result == "recheck" and not reply.get("receipt"):
             # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」。聞き返しを使い切ったすぐあとに入るときも
             # （最後の質問・先へ進むかを決める質問＝gate_of）。⛔ 2026-11-04 まで、下の「聞き取れないまま先へ進む」の「はい、」が先に当たっていた。
             # お声が聞き取れていた質問（ask_reason "form"＝Item.dash_heard）は、聞き取れていたときの聞き直しと同じ「はい、」（下の ask_back の first_form と同じ）
@@ -5934,12 +5938,13 @@ class Flow:
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない（曖昧な言葉の意味で答えが決まったら、下の答えの決まり）
         if result == "next" and self._hedged_next(reply):
             return "hai"  # 言い切っていない答えのあとに、業務設定の追って伺う質問で伺う（「はい、」＋「それでは、キャンセルになさいますか？…」＝_hedged_next）
-        if result == "next" and reply.get("turned_down"):
+        if (result == "next" or reply.get("receipt")) and reply.get("turned_down"):
             # お断り・目的から遠ざかる向きの答え（Question.turned_down の1か所）を受け取って次へ進む：「承知しました。」（お礼は場面に合わない＝上の
             # 「通話を断られた」と同じ。⛔ 2026-11-02 日本時間6時台の見直しで見つけた：「いえ、登録は結構です。」「どちらも要らないです。」にも、順番で
             # 「ありがとうございます。」を返していた。⛔ 2026-11-04 日本時間7時台：言い切った遠ざかる答えにも、同じく返していた）
             return "shouchi"
-        if result == "next":
+        if result == "next" or reply.get("receipt"):
+            # 次の質問へ進む・答えを受け取ったすぐあとの締めの前の確認（receipt）：「承知しました。」「ありがとうございます。」を順番に
             self.ack_count += 1
             return ("shouchi", "arigatou")[(self.ack_count - 1) % 2]
         # 締めの相づちは、締めた理由（判定が決めた理由＝end_reason）で選ぶ。⛔ 2026-11-01 夜の見直しで見つけた穴：会話AIが報告した理由で選んでいたので、
@@ -12324,7 +12329,8 @@ class Flow:
                 plays.append(line_play(line[1], line[0]))
         if not plays:
             return r
-        if r.get("result") == "recheck" and r.get("ask_reason") != "form":
+        if r.get("result") == "recheck" and r.get("ask_reason") != "form" and not r.get("receipt"):
+            # （答えを受け取ったすぐあとの確認＝印 receipt は、確認を作る所 _advance_to がもうお詫びを相づちのあとに置いた＝重ねない）
             # 締めの前の念のための確認の頭のお詫び（お声が聞き取れていた質問＝ask_reason "form" は、お詫びを付けずに「恐れ入ります。…」から＝一言のあとに「はい、」を重ねない）（_ack の moushiwake_heavy）は、相づちの位置を一言に譲るので、一言のあとに流す（「承知しました。そのご希望を
             # 担当の者に申し伝えます。」＋「申し訳ございません、」＋「お声が聞き取れませんでしたので…」。⛔ 11-03 の /clear のあとの見直しで見つけた：
             # 相づちの直しで、確かめの前のお詫びが抜けていた＝「…申し伝えます。お声が聞き取れませんでしたので…」）
@@ -12481,6 +12487,8 @@ class Flow:
             if (r := self._offer_ahead(q, prefix)) is not None:
                 return r
             return self._next_question(q, prefix)
+        # 締めの前の念のための確認の段へ、この報告で初めて入るか（下の receipt。確認の段の中の続き＝前の確認へのお返事のあとは今の決まり）
+        entering = self.phase == "asking"
         if self.phase == "asking":
             # 締めの前に、「-」の必須項目を1回だけ念のため確かめる（6-11）。どの項目かは _will_ask_again の1か所
             self.recheck_queue = [qid for qid in self.order if self._will_ask_again(qid)]
@@ -12495,15 +12503,27 @@ class Flow:
             # 本書 9-5 の (3)＝_ask_kind と同じ決まり）・聞き取れなかったなら "unclear"（「申し訳ございません、」＋「お声が聞き取れませんでしたので…」）。
             # ⛔ 092f2317 まで、どの「-」も "unclear" だった＝別のお話で「-」にした質問に「お声が聞き取れませんでしたので」と言った
             reason = "form" if self.items[self.current].dash_heard else "unclear"
+            # この報告で答えを受け取ったすぐあとの確認（ほかの質問の答え・確認への返事）：頭の相づちは、ほかの返事と同じく受け取った答えで選ぶ（印 receipt＝
+            # 相づちの1か所 _ack_choice が、次の質問へ進む返事と同じ決まりで選ぶ。本書 9-7「相づちは受け取った答えで選ぶ」・申し出のお受けには「ありがとうございます。」
+            # ＝11-12 13時40分05秒の (5)）。確認の頭の「はい、」はその相づちに譲り（同じ発話に相づちを2つ重ねない）、聞き取れなかった質問のお詫び「申し訳ございません、」
+            # は、相づちのあとに流す（確認の前に一言を挟むときと同じ＝_advance）。⛔ d3db377f まで、受け取った答えを見ずに「はい、」か「申し訳ございません、」を頭に
+            # 置き、「はい、大丈夫です。」のあとの受けの言葉が抜けた（申し出のお受けのお礼は出たが、そのときは聞き取れなかった質問のお詫びが抜けた）。
+            # 前の確認へのお返事のあと（確認の段の中の続き＝entering でない）・聞き取れないお返事・答えでないお返事のあとは今の決まりのまま（指示のとおり）
+            receipt = entering and bool(self._received_now())
             if reason == "form" and in_announce_form(q):
                 # ご承認のお知らせを、別のお話が続いて「-」にした（_talk_again）：お知らせの文はくり返さず、最終の確かめの1か所（_accepted_ask＝「はい、それでは
                 # （名詞）の件はご了承ということでよろしかったでしょうか？」）で伺う。✅ 2026-11-14 日本時間14時31分38秒「●伺い13 3回目は最後に回したほうがよく
                 # ないですか？」・「●伺い10」。聞き取れないまま「-」にしたお知らせは今の決まりのまま（「ただし、通話が聞き取れないなどは、これに当てはまらない。」）
-                return self._accepted_ask(q.id, "締めの前の念のための確認：別のお話が続いたお知らせの最終の確かめ",
-                                          f"{prefix}念のための確認です。{q.id} の別のお話が続いたお知らせについて、")
+                r = self._accepted_ask(q.id, "締めの前の念のための確認：別のお話が続いたお知らせの最終の確かめ",
+                                       f"{prefix}念のための確認です。{q.id} の別のお話が続いたお知らせについて、")
+                return r | ({"receipt": True} if receipt else {})
             say = ask_again_phrase(self.items[self.current].ask_backs + 1, reason, q.topic, last=True)
-            return {"result": "recheck", "question_id": q.id, "question": q.text, "say": say, "ask_reason": reason,
-                    "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ伺います。{say_note(say)}相手の答えを待ってください。" + answer_wait()}
+            r = {"result": "recheck", "question_id": q.id, "question": q.text, "say": say, "ask_reason": reason,
+                 "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ伺います。{say_note(say)}相手の答えを待ってください。" + answer_wait()}
+            if not receipt:
+                return r
+            r["receipt"] = True
+            return r if reason == "form" else self._led([{"kind": "recorded", "id": "moushiwake_heavy", "text": ACK["moushiwake_heavy"]}], "", r)
         reason = self.close_after or (("other_means" if self.callback_why == "other_means" else "callback") if self.callback_why else "done")
         return self._close(reason, prefix=f"{prefix}質問は終わりです。")
 
