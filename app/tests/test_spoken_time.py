@@ -532,3 +532,22 @@ class NamedDay(unittest.TestCase):
         self.assertFalse(read("来月の5日までに", NOW, until="now").day_said)          # 今からその日まで（範囲）
         self.assertTrue(read("13日の3時", NOW).day_said)                              # 時刻ちょうど（その日）
         self.assertEqual(read("週末なら", NOW).repeat, "week")                       # 週末の次の回は、これまでどおり次の週の同じ日
+
+
+class Moment(unittest.TestCase):
+    """言葉が1つの時点を言うか（Reading.moment の1か所）：ちょうどの時刻と、その時点から終わり無しの幅（「すぐ」「30分後」）。お客様のほうから
+    折り返すお約束で、戻る時刻の1時間後からかける（judge._after_theirs。✅ 2026-11-14 ユーザー）のは、この時点だけ（幅の言葉はずらし方が決まっていない）。
+    読み方（幅・始まり・終わり）は変えない。"""
+
+    def test_points_in_time_and_windows(self):
+        for text in ("15時", "3時ごろ", "明日の15時", "15時半", "すぐ", "なるべく早く", "30分後", "1時間半後", "30分後くらい"):
+            with self.subTest(text=text):
+                self.assertTrue(read(text, NOW).moment)
+        for text in ("夕方", "3時から5時", "3時以降", "3時台", "明日", "明日なるべく早く", "平日ならいつでも", "来月の5日以降", "来週"):
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertEqual(r.kind, WINDOW)
+                self.assertFalse(r.moment)
+        for text in (None, "後ほど", "昼"):
+            with self.subTest(text=text):
+                self.assertFalse(read(text, NOW).moment)

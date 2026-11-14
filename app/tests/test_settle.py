@@ -4837,6 +4837,28 @@ class CallbackWindow(SettleBase):
             else:
                 self.assertEqual(daily[1], 15 * 3600)                        # この業務：15時まで
 
+    def test_their_callback_with_a_return_time_is_called_an_hour_after_it(self):
+        """お言葉に甘えて受けた、お客様のほうから折り返すお約束（会話の報告の Callback.theirs）で戻る時刻を伺えた（受付の方「岡田は15時に戻ります。
+        戻りましたら折り返させます」）：締めると、次の予定は戻る時刻の1時間後（16時）の時刻ちょうどの約束（✅ 2026-11-14 ユーザー。判定の
+        judge._after_theirs の1か所。次の動きは今の時刻ちょうどの約束のまま）。印の無いふつうの不在の「15時に戻ります」は15時のまま。戻る時刻が
+        分からないお言葉に甘えた電話は、今までどおり不在の方針（約束にしない）。"""
+        s = self.ready()
+        day = self.local_now(s).date() + timedelta(days=2)
+        words = f"{day.month}月{day.day}日の15時"
+        for theirs, hour in ((True, 16), (False, 15)):
+            with self.subTest(theirs=theirs):
+                x = self.ready()
+                cb = replace(callback("absent", time=words), theirs=theirs)
+                got = self.settle(x, self.call(x, report=rep(("reception",), callback=cb, not_reached="absent")))
+                self.assertEqual(got["state"], "callback_scheduled")
+                nxt = self.latest(x)
+                want = datetime.combine(day, datetime.min.time()) + timedelta(hours=hour)
+                self.assertEqual((nxt["kind"], nxt["promised"], nxt["at"], calling_hours.local(nxt["callee_at"])), ("call", True, want, want))
+        unknown = replace(callback("absent"), theirs=True)
+        got = self.settle(s, self.call(s, report=rep(("reception",), callback=unknown, not_reached="absent")))
+        self.assertEqual(got["state"], "not_reached")
+        self.assertFalse(self.latest(s)["promised"])
+
     def test_the_designated_limit_is_one_day_and_per_business(self):
         """お客様指定の歯止め時間（callee.designated_limit）は、業務ごとに選べる1日の中の [始まり, 終わり)（日をまたがない。
         2026-10-23 ユーザー：「『営業時間』と『お客様指定の歯止め時間』も業務ごとに選択できるようにした方がいいね」）。"""

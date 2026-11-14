@@ -1192,3 +1192,88 @@ class Theirs1113(unittest.TestCase):
         cb.update(message_left=True, message=None)
         r = from_json(raw)
         self.assertEqual((r.callback.message_left, r.callback.theirs, dict(r.callback.means)), (True, False, {"message": None}))
+
+
+MORNING = datetime(2030, 1, 7, 1, 0, tzinfo=timezone.utc)   # 日本の 2030-01-07（月）10:00（戻る時刻の15時が、まだ来ていない）
+JST9 = timezone(timedelta(hours=9))
+
+
+def jst(h, m=0, d=7):
+    return datetime(2030, 1, d, h, m, tzinfo=JST9)
+
+
+class TheirsBackTime1114(unittest.TestCase):
+    """✅ 2026-11-14 ユーザー（DESIGN.md 2章 Q248）：お言葉に甘えて受けた、お客様のほうから折り返すお約束（theirs）の電話で、戻る時刻を伺えたら
+    （「お電話をいただいた際に出られないことがないように、お戻りになられる時間はお分かりになるでしょうか？」）、こちらからかけるのは戻る時刻の1時間後
+    （15時なら16時）。決めるのは判定の約束の中身の1か所（judge._after_theirs・待つ長さ judge.THEIRS_WAIT）。戻る時刻が分からないお言葉に甘えた電話は、
+    今までどおり不在の方針。印の無いふつうの不在の「15時に戻ります」は15時のまま。"""
+
+    def okada(self, time, *, theirs=True):
+        """受付の方「あいにく岡田は外出しておりまして、戻りましたら折り返させますが。」・お言葉に甘え、戻る時刻を伺った報告（time＝伺えた言葉）。"""
+        raw = copy.deepcopy(Theirs1113.ABSENT)
+        raw["facts"]["callback"][0]["time"] = time
+        if not theirs:
+            del raw["facts"]["callback"][0]["theirs"]
+        return raw
+
+    def judged(self, raw, *, callee=CALLEE, cut=CLOSED):
+        rep = replace(from_json(raw), cut=cut)
+        return judge(JudgeInput(Facts("ended", None, True, False, MORNING), rep, {}, RULES, callee=callee, anyone_target=False,
+                                check_rang=False, forbidden=False, ask_if={}))
+
+    def promise(self, raw, **kw):
+        j = self.judged(raw, **kw)
+        self.assertEqual(j.state, "callback_scheduled")
+        cb = j.detail["callback"]
+        return (datetime.fromisoformat(cb["at"]), cb["until"], cb["exact"], cb["theirs"],
+                None if cb["back_at"] is None else datetime.fromisoformat(cb["back_at"]))
+
+    def test_the_report_carries_their_callback_and_the_return_time_together(self):
+        """会話の報告の受け口は、theirs と戻る時刻の言葉（time）を一緒に受け、置いて読み直しても同じ（CL-1 の流れの制御が作る形のまま）。"""
+        r = from_json(self.okada("15時"))
+        self.assertEqual((r.callback.theirs, r.callback.time_said, r.callback.reason), (True, "15時", "absent"))
+        self.assertEqual(from_json(r.to_json()), r)
+        self.assertEqual({k: r.to_json()["facts"]["callback"][0][k] for k in ("theirs", "time")}, {"theirs": True, "time": "15時"})
+
+    def test_okada_back_at_three_is_called_from_four(self):
+        """岡田様が15時に戻られる・折り返しのお約束 ⇒ 16時の時刻ちょうどの約束（戻る時刻は back_at に残す）。ふつうの不在の「15時に戻ります」は15時のまま。"""
+        self.assertEqual(self.promise(self.okada("15時")), (jst(16), None, True, True, jst(15)))
+        self.assertEqual(self.promise(self.okada("3時ごろ")), (jst(16), None, True, True, jst(15)))
+        self.assertEqual(self.promise(self.okada("明日の15時")), (jst(16, d=8), None, True, True, jst(15, d=8)))
+        self.assertEqual(self.promise(self.okada("15時", theirs=False)), (jst(15), None, True, False, None))
+        # 途中で切れて判定できなかった通話に残す約束の申し出（promise_offer）も、同じ1か所
+        cut = self.judged(self.okada("15時"), cut=None)
+        self.assertEqual((cut.state, cut.detail["promise_offer"]["at"], cut.detail["promise_offer"]["back_at"]),
+                         ("unknown", jst(16).isoformat(), jst(15).isoformat()))
+
+    def test_an_unknown_return_time_stays_the_absent_policy(self):
+        """お戻りの時間が「分からない」（時刻の言葉が無い・「後ほど」）お言葉に甘えた電話は、ふつうの不在と同じ（不在の方針。約束にしない）。"""
+        for time in (None, "後ほど"):
+            with self.subTest(time=time):
+                got, plain = self.judged(self.okada(time)), self.judged(self.okada(time, theirs=False))
+                self.assertEqual((got.state, got.detail["not_reached"], got.detail["policy_key"]), ("not_reached", "absent", "not_reached_absent"))
+                self.assertEqual((got.state, got.detail["policy_key"], got.detail["again"]),
+                                 (plain.state, plain.detail["policy_key"], plain.detail["again"]))
+
+    def test_a_moment_from_now_moves_its_start(self):
+        """「30分後」「すぐ」（その時点から終わり無しの幅）は、始まりを1時間あとへ（終わり無しのまま）。"""
+        self.assertEqual(self.promise(self.okada("30分後")), (jst(11, 30), None, False, True, jst(10, 30)))
+        self.assertEqual(self.promise(self.okada("すぐ")), (jst(11), None, False, True, jst(10)))
+        self.assertEqual(self.promise(self.okada("30分後", theirs=False)), (jst(10, 30), None, False, False, None))
+
+    def test_outside_the_clients_hours_but_inside_the_limit_is_still_an_hour_after(self):
+        """ずらした時刻は、こちらが作った時刻（作った端）なので、お客様指定の歯止め時間（試験の値 7〜22時）でだけ切る：「18時に戻ります」は
+        依頼者の時間帯が18時半まででも19時（依頼者の時間帯は判定では読まない＝お客様が言った時刻から決まった約束）。"""
+        self.assertEqual(self.promise(self.okada("18時")), (jst(19), None, True, True, jst(18)))
+
+    def test_what_the_plan_does_not_decide_is_not_moved(self):
+        """計画書・設計書に決まりが無いものは、ずらさない（今の作りのまま。CL-2 の連絡帳 4-391 の (3)）：ずらすと歯止め時間の外（「21時半」で22時半）・
+        日をまたぐ（歯止め時間が1日じゅうの業務の「23時半」で翌0時半）・幅の言葉（「夕方」「3時から5時」「3時以降」・日だけの「明日」）。"""
+        self.assertEqual(self.promise(self.okada("21時半")), (jst(21, 30), None, True, True, None))
+        whole_day = replace(CALLEE, designated_limit=(0, 24 * 3600))
+        self.assertEqual(self.promise(self.okada("23時半"), callee=whole_day), (jst(23, 30), None, True, True, None))
+        for time in ("夕方", "3時から5時", "3時以降", "明日"):
+            with self.subTest(time=time):
+                got, plain = self.judged(self.okada(time)), self.judged(self.okada(time, theirs=False))
+                self.assertEqual({**got.detail["callback"], "theirs": False}, plain.detail["callback"])
+                self.assertIsNone(got.detail["callback"]["back_at"])

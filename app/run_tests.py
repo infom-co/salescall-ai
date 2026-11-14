@@ -3010,6 +3010,9 @@ _AI_IMPORT = _BI_IMPORT + "test_the_fields_only_the_ai_decides_are_asked_once_an
 _THEIRS = "tests.test_call_report_cl1.Theirs1113.test_their_callback_is_received_and_kept"
 _PARTS_1113 = "tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_13_are_received"
 _EARLIER_WHEN = "tests.test_settle.DialFixAfterCalls.test_the_handover_call_tells_whether_the_earlier_answers_were_taken_today"
+# お言葉に甘えたお客様のほうから折り返すお約束の戻る時刻（2026-11-14 ユーザー。DESIGN.md 2章 Q248）
+_BACK_1114 = "tests.test_call_report_cl1.TheirsBackTime1114."
+_BACK_SETTLE = "tests.test_settle.CallbackWindow.test_their_callback_with_a_return_time_is_called_an_hour_after_it"
 PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("かけてから「話している」に載せる（かけている途中に、止める・ログインを外す処理が閉じうる）", _LINE,
      "                call.start()   # かける前から", "                pass   # かける前から",
@@ -6002,7 +6005,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      'handover=bool(nxt["handover"]),', "handover=False,",
      ("tests.test_apology.ApologyAfterDialFix.test_another_person_gets_a_sales_call_that_checks_the_handover_without_an_apology",)),
     ("判定の中身に、「あとで」が約束の一環か営業拒否かを残さない", "src/salescall/core/judge.py",
-     '"beyond_ok": cb.beyond_limit_ok, "intent": cb.intent}', '"beyond_ok": cb.beyond_limit_ok}',
+     '"beyond_ok": cb.beyond_limit_ok, "intent": cb.intent, "theirs"', '"beyond_ok": cb.beyond_limit_ok, "theirs"',
      ("tests.test_settle.DialFixAfterCalls.test_a_row_that_heard_later_too_often_comes_back_unless_a_later_was_a_refusal",)),
     ("会話の報告の「あとで」の意味を読まない", "src/salescall/core/call_report.py",
      '_until_why(r, reason), intent, "theirs" in r', '_until_why(r, reason), None, "theirs" in r',
@@ -7278,6 +7281,26 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "    call = conversation_io.earlier_call(tx, task_id, before=attempt_id)",
      "    call = attempts.last_talk(tx, task_id, tx.one('SELECT person_since FROM salescall.attempts WHERE attempt_id = %s', (attempt_id,))['person_since'],"
      " besides=attempt_id)", (_EARLIER_WHEN,)),
+    # 2026-11-14 ユーザー：お言葉に甘えた電話で伺えた戻る時刻の1時間後からかける（judge._after_theirs。DESIGN.md 2章 Q248）
+    ("お客様のほうから折り返すお約束で、戻る時刻の1時間後でなく戻る時刻ちょうどにかける（1時間を外す）", "src/salescall/core/judge.py",
+     "THEIRS_WAIT = timedelta(hours=1)", "THEIRS_WAIT = timedelta(0)",
+     (_BACK_1114 + "test_okada_back_at_three_is_called_from_four", _BACK_SETTLE)),
+    ("折り返しのお約束（theirs）を見ずに、ふつうの不在の「15時に戻ります」も1時間ずらす", "src/salescall/core/judge.py",
+     "    if not cb.theirs or not when.moment or when.start is None:", "    if not when.moment or when.start is None:",
+     (_BACK_1114 + "test_okada_back_at_three_is_called_from_four", _BACK_SETTLE)),
+    ("折り返しのお約束で、幅の言葉（「夕方」「3時以降」）の始まりもずらす（ずらし方が決まっていない）", "src/salescall/core/judge.py",
+     "    if not cb.theirs or not when.moment or when.start is None:", "    if not cb.theirs or when.start is None:",
+     (_BACK_1114 + "test_what_the_plan_does_not_decide_is_not_moved",)),
+    ("折り返しのお約束で、ずらすと歯止め時間の外・日をまたぐ時刻にもずらす", "src/salescall/core/judge.py",
+     "        if local.date() != back.date() or not lo <= sec < hi:", "        if False:",
+     (_BACK_1114 + "test_what_the_plan_does_not_decide_is_not_moved",)),
+    ("「30分後」を1つの時点と読まない（折り返しのお約束でずらさない）", "src/salescall/core/spoken_time.py",
+     "        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True, point=True)",
+     "        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True)",
+     (_BACK_1114 + "test_a_moment_from_now_moves_its_start", "tests.test_spoken_time.Moment.test_points_in_time_and_windows")),
+    ("判定の中身に、折り返しのお約束の戻る時刻（back_at）を残さない", "src/salescall/core/judge.py",
+     '"theirs": cb.theirs, "back_at": iso(back)}', '"theirs": cb.theirs, "back_at": None}',
+     (_BACK_1114 + "test_okada_back_at_three_is_called_from_four",)),
 )
 
 

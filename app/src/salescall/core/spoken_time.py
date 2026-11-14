@@ -186,11 +186,20 @@ class Reading:
     #                                      日を言わない「3時なら」「夕方なら」「すぐ」も、いま話している今日の回は言った日（見直し16：
     #                                      依頼者の休みの日に約束の電話で話していても、お客様は今日のつもり）。次の日からの回は、
     #                                      言っていない（依頼者のかける日だけ＝next_action の Window.later）
+    point: bool = False                  # WINDOW：1つの時点から終わり無し（「すぐ」「30分後」「1時間後」＝言葉が言うのは1つの時点。
+    #                                      幅の形は「すぐ」と同じ。読み方は変えない＝お客様のほうから折り返すお約束の待ち＝judge._after_theirs が読む）
 
     @property
     def exact(self) -> bool:
         """お客様が自分で時刻を指定したか（その時刻を含むNG時間の枠でもかけてよい根拠）。"""
         return self.kind == AT
+
+    @property
+    def moment(self) -> bool:
+        """言葉が1つの時点を言うか（1か所）：ちょうどの時刻（AT。「15時」「3時ごろ」「明日の15時」）と、その時点から終わり無しの幅
+        （「すぐ」「30分後」「1時間後」＝point）。幅の言葉（「夕方」「3時から5時」「3時以降」「明日」「平日なら」など）は言わない。
+        お客様のほうから折り返すお約束で、戻る時刻の1時間後からかける（judge._after_theirs。✅ 2026-11-14 ユーザー）のは、この時点だけ。"""
+        return self.kind == AT or (self.kind == WINDOW and self.point)
 
 
 class _Ambiguous(Exception):
@@ -566,7 +575,7 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
     t = _clean(text)
     local = now.astimezone(JST)
     if _ASAP.fullmatch(t):
-        return Reading(WINDOW, local, None, repeat=DAY_REPEAT, day_said=True)
+        return Reading(WINDOW, local, None, repeat=DAY_REPEAT, day_said=True, point=True)
     if (m := _LATER_CLOCK.match(t)) and _TAIL.fullmatch(t[m.end():]):   # 「30分後」「1時間後」「1時間半後」
         n = int(m.group("n"))
         minutes = n if m.group("unit") == "分" else n * 60 + (30 if m.group("half") else 0)
@@ -574,7 +583,7 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
             return _confirm("「〜後」が読めません")
         # 「いまは忙しいが、できるだけ早くかけ直して」（2026-10-19 ユーザー）：時刻ちょうどの約束ではなく、その時からの「すぐ」と
         # 同じ（終わり無しの幅。話せなければ「すぐ」と同じ決まりでかけ直す。NG時間は守る）
-        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True)
+        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True, point=True)
     try:
         days, period, pos, cycle = _day_part(t, local.date())
         pos = _JOIN.match(t, pos).end()
