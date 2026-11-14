@@ -12556,7 +12556,8 @@ class EndJudgedTest(unittest.TestCase):
         from flowctl import END, END_NONE, end_choices
         from meaning_judge import NOW_ONLY, NOW_ONLY_FACETS, RULES
         self.assertIn(END, NOW_ONLY_FACETS)
-        self.assertIn(NOW_ONLY, RULES.split("電話を終える言葉か（end）", 1)[1].split("\n", 1)[0])
+        # 頭の文は読む項目の名前を並べない（質問ごとの選べるもの answer_items の1か所＝見直し (12) の D-12）。どの項目も、いまの言葉だけで選ぶ
+        self.assertIn(NOW_ONLY, RULES.split("答えとは別に読む項目", 1)[1].split("\n", 1)[0])
         self.assertNotIn("結構です", end_choices(False)[END_NONE])
 
     def test_end_choices_say_offer_declines_and_matter_urgency_by_meaning(self):
@@ -27810,6 +27811,92 @@ class ImportFormsReviewTest(unittest.TestCase):
         import inspect
         self.assertNotIn("「-」にします。", inspect.getsource(flowctl.Flow._dash))
         self.assertFalse(hasattr(flowctl.Flow, "_lead_note") or hasattr(flowctl, "NOT_REACHED_LABEL") or hasattr(flowctl, "WISH_OUTCOMES"))
+
+
+class MeasureReviewTest(unittest.TestCase):
+    """見直し (12) の組 Q の測りの準備：D-2 別のお話の番を流れの制御と測りの数えが同じ1つの関数（flowctl.away_turn）で決める・D-12 境目の説明は1か所・
+    決まりの頭に項目の名前を並べない・D-14 指紋の道具は G-73 のファイルを名指しし、無ければ止める・試しの言葉の表（review_words）。"""
+
+    def test_the_measure_counts_the_away_turn_with_the_flow_rule(self):
+        # D-2：決められない読みが別のお話の番か（ひとこと＋「ところで」）は、流れの制御と測りの数えが同じ flowctl.away_turn の1か所
+        from unittest import mock
+        import g53_meaning
+        import review_words
+        from flowctl import AWAY_NO, AWAY_YES
+        from g53_meaning import ASK_AGAIN, AWAY_ACT, flow_act, flow_miss, step_wants
+        from meaning_judge import UNDECIDED
+        qs = review_words.questions()
+        rows = {it["text"]: it for it in review_words.answer_words() if it["qid"] == "R1"}
+        away, plain = rows["うちは月曜が定休日なんですよ。"], rows["そうですね。"]
+        self.assertEqual(step_wants(away, qs["R1"], False), {AWAY_ACT})
+        self.assertEqual(step_wants(plain, qs["R1"], False), {ASK_AGAIN})
+        self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, AWAY_YES), AWAY_ACT)
+        self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, AWAY_NO), ASK_AGAIN)
+        self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, None), ASK_AGAIN)   # 読んでいない＝今の道
+        # 日にちの質問へのご事情は答えの手がかり（いちばん大事な境目）・申し出の質問は「ところで」の番に来ない（aside_fits）
+        self.assertEqual(step_wants([it for it in review_words.answer_words() if it["qid"] == "R2"][0], qs["R2"], False), {ASK_AGAIN})
+        # 外れの種類：別のお話をひとことも無く聞き直す・答えの話に「ところで」
+        key = "判定"
+        self.assertEqual(flow_miss({**away, key: UNDECIDED, f"{key}別の話": AWAY_NO}, qs["R1"], key), "⛔別のお話なのに、ひとことも無く聞き直す")
+        self.assertEqual(flow_miss({**plain, key: UNDECIDED, f"{key}別の話": AWAY_YES}, qs["R1"], key), "答えの話なのに、別のお話として「ところで」で伺い直す")
+        self.assertIsNone(flow_miss({**away, key: UNDECIDED, f"{key}別の話": AWAY_YES}, qs["R1"], key))
+        # 流れの制御も同じ1か所を呼ぶ
+        import flowctl
+        calls = []
+        real = flowctl.away_turn
+        with mock.patch("flowctl.away_turn", lambda *a: calls.append(a) or real(*a)):
+            f = AsideTest.flow(AsideTest())
+            AsideTest.unlinked(f)
+        self.assertTrue(calls)
+        self.assertIs(g53_meaning.away_turn, real)
+
+    def test_the_review_words_are_in_the_tables(self):
+        # 試しの言葉（流さない）：G-53 は組 R の読み口（set_r）・G-63 は質問と選択肢を添えた形・選択肢だけ外した形・質問を添えない形の3つ
+        import g53_meaning
+        import g63_grounding
+        import review_words
+        from grounding import TOUCHED, one_touched
+        self.assertEqual(len(g53_meaning.set_r()), len(review_words.answer_words()))
+        self.assertTrue(all(it["qid"] in review_words.questions() for it in g53_meaning.set_r()))
+        cases = g63_grounding.touch_cases()
+        self.assertEqual(len(cases), 3 * len(review_words.GROUND_WORDS))
+        self.assertEqual({c[4] for c in cases}, {"触れたか", "触れたか（選択肢を添えない）", "触れたか（質問を添えない）"})
+        first = [c for c in cases if c[2].startswith("さようでございますか。お振込でしたら")]
+        self.assertEqual([c[7] for c in first], [one_touched("振込"), TOUCHED, None])
+        # G-57 の別のお話：決まりの例の言葉は、支払日の事実の無い業務でだけ使う（D-13）
+        from flowctl import TALK_RECEIVE
+        for know, words, _ in review_words.TALK_WORDS:
+            if words in TALK_RECEIVE:
+                self.assertIs(know, review_words.KNOW_NO_DAY)
+        self.assertTrue(any(words not in TALK_RECEIVE for _, words, _ in review_words.TALK_WORDS))
+
+    def test_the_away_boundary_is_written_once_and_the_rules_head_lists_no_items(self):
+        # D-12：境目（答えの話に入るもの）は「答えの話」の説明の1か所だけ。決まりの頭は項目の名前を並べない（読む項目は質問ごと＝answer_items）
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, SIDE_ITEMS, away_choices
+        from meaning_judge import JEV_ITEMS, RULES
+        c = away_choices(False, True)
+        for words in ("迷い", "分からない"):
+            self.assertIn(words, c[AWAY_NO])
+            self.assertNotIn(words, c[AWAY_YES])
+            self.assertNotIn(words, JEV_ITEMS[AWAY])
+        head = RULES.split("決まり：", 1)[0]
+        for k in SIDE_ITEMS:
+            self.assertNotIn(f"（{k}）", head)
+
+    def test_the_fingerprint_names_the_g73_file_and_stops_without_it(self):
+        # D-14：お呼びする段の指紋は試しの言葉（G-73）の結果のファイルで変わる＝ファイルの名前を出し、無ければ指紋を出さずに止める
+        import subprocess
+        import sys
+        from pathlib import Path
+        here = Path(__file__).resolve().parent
+        src = (here / "g59_calling_judge.py").read_text(encoding="utf-8")
+        self.assertIn("試しの言葉（G-73）：results/", src)
+        code = ("import sys, g73_system_words as g; g.latest = lambda: {'path': None, 'words': [], 'errors': {}}; "
+                "sys.argv = ['g59', '--fingerprint']; import runpy; runpy.run_path('g59_calling_judge.py', run_name='__main__')")
+        r = subprocess.run([sys.executable, "-c", code], cwd=here, capture_output=True, text=True, timeout=120)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("指紋を出しません", r.stderr)
+        self.assertNotIn("指紋 ", r.stdout)
 
 
 if __name__ == "__main__":

@@ -463,6 +463,12 @@ def main() -> None:
                                                             "本書 18-3 の 10-30 の (5)。伏せ方は instruction.Business.judge_names の1か所）")
     args = p.parse_args()
     if args.fingerprint:
+        # 指紋は、試しの言葉（G-73）の結果のファイルで変わる（お呼びする段の試しの言葉に入る）：使ったファイルの名前を出し、無ければ指紋を出さずに止める
+        # （黙って違う指紋を出さない。⛔ 0c55c4e7 まで、results を除いた写しで流すと 7df51a7178317d1a／0d48d4cbc3c5877c を出し、記録の値と違って見えた＝見直し (12) の D-14）
+        from g73_system_words import latest
+        if (g73 := latest()["path"]) is None:
+            raise SystemExit("試しの言葉（G-73）の結果のファイル（results/G-73_2*.json）が無いので、指紋を出しません（指紋はこのファイルの言葉で変わります）")
+        say(f"試しの言葉（G-73）：results/{g73}")
         say("判定に送る文：" + "／".join("%s %d 字・指紋 %s" % (name, n, h) for name, (n, h) in prompts_fingerprint(False if args.hide_names else None).items()))
         return
     from g73_system_words import require_complete

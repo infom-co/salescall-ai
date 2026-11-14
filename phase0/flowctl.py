@@ -2209,11 +2209,36 @@ def away_choices(calling: bool, asked: bool = False) -> dict:
     if calling or not asked:
         return {}
     # 説明はお客様の様子として思い浮かぶ言葉で書く（試しの言葉そのものは書かない＝混入の試験）。✅ 2026-11-13 まとめ役の決め（分身 E）
+    # 境目（答えの話に入るもの）は「答えの話」の説明の1か所だけに書く（Jev への問い meaning_judge.JEV_ITEMS は問うだけ）。⛔ 0c55c4e7 まで、「別のお話」の説明・
+    # 「答えの話」の説明・Jev への問いの3か所に違う並びで書いていた（見直し (12) の D-12）
     return {AWAY_YES: "質問の答えの話ではなく、別のお話をした（お店やお仕事の休みの日・天気や季節・ご家族やご近所のことなど、聞かれたことと関わりのない"
-                      "ご事情・世間話・ほかの話題）。どれかに寄った考え・迷い・分からない・要らない、は言っていない",
+                      "ご事情・世間話・ほかの話題）",
             AWAY_NO: "質問の答えの話をした（はっきりした答えのほか、相づちだけの返事・どれかに寄った考え・答えの一部・迷い・分からない・要らない・答えたくない、"
                      "も答えの話。ご事情のお話でも、聞かれたこと（日にち・曜日・方法など）の答えや答えの手がかりになっていれば答えの話）",
             UNDECIDED: "この言葉からは、どちらか決められない"}
+
+
+# 決められない読みの道（Flow._undecided_way）のうち、別のお話の番になりうる道（取込で意味が決まった言葉・前の話を指す言葉・判定が割れて名指しした答え・
+# ご承認いただけなかったときの手順は、言葉で決まる特別な道＝別のお話にしない）
+AWAY_WAYS = ("since", "dash", "toward", "again_restate", "again_check", "again_ask")
+
+
+def plain_way(q: "Question") -> str:
+    """決められない読みの道のうち、言葉で決まる特別な道（取込で意味が決まった言葉・その後の形・ご承認の手順・前の話を指す言葉・名指し）でない道（唯一の決まり＝
+    Flow._undecided_way の終わり・測りの数え g53_meaning.undecided_act）："dash"（必須でない）・"toward"・"again_restate"・"again_check"・"again_ask"。"""
+    if not q.checks_now:
+        return "dash"
+    if q.type in CHOICE_TYPES and restates(q):
+        return "toward" if len(q.toward) == 1 else "again_restate"
+    return "again_check" if q.type in CHOICE_TYPES else "again_ask"
+
+
+def away_turn(q: "Question", readings, way: str) -> bool:
+    """決められないお返事が、別のお話にひとこと応えて「ところで」で伺い直す番（申し出でない業務の質問の別のお話）か（唯一の決まり＝流れの制御
+    Flow._unlinked_base・測りの数え g53_meaning.flow_act・正解の動き flow_wants）：「ところで」で伺い直しうる業務の質問（aside_fits）で、判定がそろって
+    「別のお話」と読み（talked_away）、決められない読みの道 way（Flow._undecided_way）が言葉で決まる特別な道でない（AWAY_WAYS）。⛔ 0c55c4e7 まで、
+    測りの数えはこの読みを見ず、「そうですね。」を判定が「別のお話」と読み違えても「正しい動き（聞き直す）」と数えていた（見直し (12) の D-2）"""
+    return aside_fits(q) and talked_away(readings) and way in AWAY_WAYS
 
 
 def talked_away(readings) -> bool:
@@ -6555,9 +6580,7 @@ class Flow:
         named = {str(v) for k in JUDGMENTS if (v := self.heard_check.get(k)) is not None and q.offers(str(v))}
         if q.type in CHOICE_TYPES and len(named) == 1:
             return "named"
-        if q.type in CHOICE_TYPES and restates(q):
-            return "toward" if len(q.toward) == 1 else "again_restate"
-        return "again_check" if q.type in CHOICE_TYPES else "again_ask"
+        return plain_way(q)
 
     def _not_an_answer(self) -> dict | None:
         """意味の判定が、相手の言葉は答えではないと決めた（DESIGN.md 6-8）：答え・言い直しへの返事としては受け取らない（唯一の場所。
@@ -9748,8 +9771,7 @@ class Flow:
             # AIが自分の言葉でひとこと返す」を、その道のまま当てる＝会話AIのひとこと＋今の締め（_unlinked_kind の again→_talk_again）。見直し (12) の B-8・
             # まとめ役が決まりで決めた。⛔ 2e5986f5 まで、「岡田は最近ずっと忙しくてねえ。」に「承知しました。お忙しいところ…」（ひとことも無く締めた）
             return "message"
-        if (aside_fits(q) and talked_away([self.check.get(k) for k in JUDGMENTS])
-                and self._undecided_way(qid) in ("since", "dash", "toward", "again_restate", "again_check", "again_ask")):
+        if away_turn(q, [self.check.get(k) for k in JUDGMENTS], self._undecided_way(qid)):
             # 申し出でない業務の質問は、判定がそろって「別のお話」と読み（AWAY・talked_away の1か所）、決められない読みの道（_undecided_way の1か所）が言葉で決まる
             # 特別な道（取込で意味が決まった言葉・前の話を指す言葉・判定が割れて名指しした答え）でないときだけ。どれとも決められない答え・答えの一部・迷い・分からないは
             # 今の道。続きの電話のその後の形（"since"＝その形で伺っているという状態で決まる道）も、そろって「別のお話」なら同じ番（伺い直すのは元の質問＝_asked_plain）。
