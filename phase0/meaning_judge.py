@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, aside_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
-                     restates, side_items)
+                     prompt_used, restates, side_items)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -583,22 +583,27 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
     if r is not None:   # 測りの記録だけが使う確からしさの広がり（どの問いの読みでも同じ1か所）
         r.probs = got.get("probs") if isinstance(got.get("probs"), dict) else None
         r.confs = got.get("confs") if isinstance(got.get("confs"), dict) else None
-        used = used_sure(r.confs, str(r))
+        used = used_sure(r.confs, str(r), None if asked else q)
         if used is not None:
             r.sure = used
     return r
 
 
-def used_sure(confs: dict | None, cond: str) -> float | None:
+def used_sure(confs: dict | None, cond: str, q=None) -> float | None:
     """読みの確からしさ＝その読みで流れの制御が使う問いの、選んだものの確からしさのいちばん低いもの（唯一の決まり。問いごとの確からしさを返す
     判定だけ＝判断のモデル。返さなければ None＝返事の sure のまま）。分からない理由（WHY）は答えが わからない・答えたくない のときだけ使う
     （Flow._why_of）・声が届いていない様子（HEAR）は確からしさに関係なく切れ方の材料に使う（確かでない読みも数える＝Flow.cut）ので入れない・
     答えと電話を終える言葉か（END）と項目ごとの答えは、いつも使う。✅ 2026-11-07 日本時間11時29分43秒 ユーザー「違うなら、抜けている部分を
     洗い出して、直しに入れてください」（途中のご報告の (ア)）。⛔ それまでは返した問いの全部のいちばん低いもので、G-53d1base では確かでない読みの
-    約6割に、答えが わからない でないのに使わない分からない理由の問いが入っていた"""
+    約6割に、答えが わからない でないのに使わない分からない理由の問いが入っていた。
+    質問の答えの話か・別のお話か（AWAY）は、答えが「決められない」のときだけ使う（Flow._offer_unlinked・_resume_due＝そろって決められない読みだけで分ける）。
+    黙ったあとの一言へのお返事だけか（PROMPT_REPLY）は、使う答えの読みの決まり（flowctl.prompt_used の1か所＝決められない・ご承認のお知らせ）のときだけ。
+    q＝判定に見せた質問（言い直し・最終の確かめのお返事を読むときは None）。⛔ 0c55c4e7 まで AWAY と PROMPT_REPLY をいつも数えていたので、答えの確からしさが
+    高くても、使わない項目の確からしさが線より下なら読み全体が「確かでない」になった（見直し (12) の D-3）"""
     if not confs:
         return None
-    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused"))]
+    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)
+            and (k != PROMPT_REPLY or prompt_used(q, cond))]
     return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 
@@ -647,12 +652,13 @@ def answer_items(q, asked: str | None = None) -> dict:
     if q.facets or talk_question(q):
         return {}
     # 電話を終える言葉か・こちらの声が届いていない様子か など（flowctl.SIDE_ITEMS の段ごとの項目）。黙ったあとの一言を流したときだけ、その一言へのお返事だけか
-    # （PROMPT_REPLY）も（流していない場面の文・返事の形は変わらない）。「ところで」で伺い直しうる業務の質問（flowctl.aside_fits の1か所＝伺い直したあとの形・
-    # 続きの電話のその後の形も）の、質問への答えを読むときだけ（言い直しの確かめ asked では読まない＝流れの制御が使わない）、質問の答えの話か・別のお話か（AWAY。読みを組み合わせるのは flowctl.talked_away の1か所）も。✅ 2026-11-13 日本時間22時17分01秒
-    # 「9は…」を本番で働かせる（意味は判定が読む＝11-08 12時11分40秒。⛔ 分身 D の f5fa2a9c までは、流れの制御は読みを使うのに問い合わせに入れていなかった＝本番の
-    # 判定は読まず、伺い9 が働かなかった）。答えの段の業務の質問の判定の文が変わる＝整理が済んでからの1回の測りで測る（帳面 1 の (1)）
+    # （PROMPT_REPLY）も（流していない場面の文・返事の形は変わらない）。流れの制御が別のお話の番を分ける問い合わせ（flowctl.away_fits の1か所＝「ところで」で
+    # 伺い直しうる業務の質問への答え・その言い直しと最終の確かめ・ご承認のお知らせと申し出の質問の言い直しと最終の確かめ）だけ、質問の答えの話か・別のお話か（AWAY。
+    # 読みを組み合わせるのは flowctl.talked_away の1か所）も。✅ 2026-11-13 日本時間22時17分01秒「9は…」を本番で働かせる（意味は判定が読む＝11-08 12時11分40秒。
+    # ⛔ 分身 D の f5fa2a9c までは、流れの制御は読みを使うのに問い合わせに入れていなかった＝本番の判定は読まず、伺い9 が働かなかった。⛔ 0c55c4e7 までは言い直しの
+    # 確かめに読ませなかった＝見直し (12) の A-9・B-3）。答えの段の業務の質問・言い直しの判定の文が変わる＝整理が済んでからの1回の測りで測る（帳面 1 の (1)）
     return (side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
-            | ({AWAY: away_choices(False, True)} if aside_fits(q) and not asked else {}))
+            | ({AWAY: away_choices(False, True)} if away_fits(q, bool(asked)) else {}))
 
 
 def items_text(q, asked: str | None = None) -> str:
