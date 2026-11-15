@@ -6288,6 +6288,12 @@ class Flow:
                 return self._ask_again(qid, self._ask_kind(), "意味の判定は値を言ったと読んだが、会話AIが値を報告しない")
             it.set(it.state, f"会話AIの報告「{label(cond)}」は使わず、意味の判定の読み「{label(judged)}」で決める")
             cond = judged
+        if judged in SYSTEM_CONDITIONS and (decided := self._word_choice(qid)) is not None:
+            # 前の質問から意味が決まる言葉だけのお返事（「結構です。」）を、判定の組が「わからない」「答えたくない」と読んだ：選択肢を名指ししない読みでは、取込で決めた
+            # 意味で受け取る（判定の「決められない」と同じ＝下の UNDECIDED の道。確かめるのは取込で決めた意味と違う選択肢を判定が読んだときだけ＝_names_other。✅ 2026-10-17
+            # ユーザー「人でも前の質問や会話から判断する言葉です」・11-07 9時台）。⛔ F1（測りの数えを本番の流れの制御に通す）で見つけた：判定の「わからない」のまま
+            # 受け取り、ご希望を伺う質問では保留を伺っていた
+            cond = decided
         answered = cond not in SYSTEM_CONDITIONS and cond != UNDECIDED
         value = normalize_value(q.type, a.get("value"), q.unit) if answered or cond == reported else None
         if answered and (bad := kana_number(q.type, value)):
@@ -6734,7 +6740,7 @@ class Flow:
         # 値を伺う質問（日時・数・金額）の言い直し（ひとまずの形・承っておく一言も）への返事を待っている：「まだ決まっていない」は、確定で確かめ直さずに、確定で
         # ない値を受ける1か所へ（tentative＝_tentative。事実を伺う質問も同じ理由＝✅ 2026-11-08 日本時間3時48分03秒「確定で確認するのはあいての意思に反します」）
         restating_value = q.type in ESTIMATE_TYPES and self.awaiting_confirm == qid and not q.callback and self.items[qid].value is not None
-        if not (hears_hesitation(q) or restating_value):
+        if not (hears_hesitation(q) or restating_value) or self._word_reply(qid):
             return None
         h = self.hesitating.get(qid, {})
         point, helped, estimate, tentative = h.get("point"), h.get("helped"), h.get("estimate"), h.get("tentative")
@@ -9803,6 +9809,16 @@ class Flow:
             return "aside"
         return None
 
+    def _word_reply(self, qid: str) -> bool:
+        """受け入れにも断りにも取れる言葉だけの最初のお返事（「結構です。」「大丈夫です。」＝AMBIGUOUS）か（唯一の決まり＝迷っているお客様への応じ方 _hesitation・
+        会話が繋がらないお返事の番 _offer_unlinked が外す）：質問へのお返事で、迷い・別のお話ではない。判定がそろって決められない・わからないと読んでも、受け取る所
+        （_op_record_answer）が曖昧な言葉の決まりで受ける＝前の質問から意味が決まればその意味（_word_choice）・決まらなければ確かめる（✅ 2026-10-17 ユーザー
+        「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」）。言い直し・最終の確かめへのお返事（awaiting_confirm）は当てない（言い直した
+        意味を認める返事＝_compare の policy と同じ）。申し出でない業務の質問の別のお話の道（away_turn）は、決められない読みの道の "word" で同じく外れる。
+        ⛔ F1（測りの数えを本番の流れの制御に通す）で見つけた：申し出の質問の「結構です。」に、会話AIのひとことのあと「それでは…パンフレットをお送りするということで
+        よろしいでしょうか？」と申し出を伺い直し、ご希望を伺う質問の「結構です。」を判定が「わからない」と読むと「はい、どういった点でお迷いでしょうか？」と伺っていた"""
+        return self.awaiting_confirm != qid and bool(AMBIGUOUS.fullmatch((self.heard_said or "").strip()))
+
     def _offer_unlinked(self) -> bool:
         """申し出のシステムの質問（OFFER_ROLES＝詳しい者より改めて N4・締める前の申し出 N6）に、会話が繋がらないお返事（「うちは月曜が定休日なんですよ。」）を
         いただいたか（唯一の決まり＝応える番の種類 _asked_kind の offer）：いまの質問の答えの番（言い直しの返事待ちではない。伺い直した申し出・方法の提案への
@@ -9829,6 +9845,8 @@ class Flow:
         reproposal = self.items[qid].offer_again and self._proposal_of(qid) is not None
         if self.awaiting_confirm == qid and not (reproposal or away):
             return False
+        if self._word_reply(qid):
+            return False   # 受け入れにも断りにも取れる言葉だけの最初のお返事は、会話が繋がらないお返事ではない（_word_reply の1か所）
         # こちらが応えたあと（選ぶ助け・ご質問への答え・受け答え）のお返事と、迷いの印が残っている質問へのお返事は、判定がそろって「別のお話」と読んだときのほかは
         # 当てない（相づち・決められない答えの話は、それぞれの道＝_resume の最終の確かめ・質問に戻る）。⛔ 入れる途中、流れの制御から出したお返事の種類ごとの表で
         # 見つけた：選ぶ助けのあとの「なるほど。」（判定は決められない）にもこの番を当て、会話AIに申し出の伺い直しをさせていた。

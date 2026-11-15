@@ -4001,9 +4001,10 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertTrue(restates(Question("Q1", "駐車場はご利用になりますでしょうか？", "choice", conditions=("利用する", "利用しない"))))
         # 判定の読みが「分かった」（ご納得の向き）なら、候補の言葉で意味合いを尋ねる（16時台に言葉を足した＝ApprovalReviewTest.test_point_answers_are_asked_in_sense_toward_agreement）。
         # 判定が決められないなら、今までどおり聞き直す
-        from g53_meaning import SENSE as SENSE_ACT
-        self.assertEqual(flow_act({"set": "N2"}, n2, "分かった", True, "分からない点がある"), SENSE_ACT + "分かった")
-        self.assertEqual(flow_act({"set": "N2"}, n2, UNDECIDED, True, "分からない点がある"), ASK_AGAIN)
+        # 測りの数え（F1 から本番の流れの制御に通す）：システムの質問には本番が前の話を判定に渡さない（flowctl.before_words＝11-07 11時台の F3）ので、記録に前の話の
+        # 答えがあっても数えに入れない（入れた数えは本番に無い動き＝⛔ F1 の前は、ここで意味合いを尋ねると数えていた）
+        for got in ("分かった", UNDECIDED):
+            self.assertEqual(flow_act({"set": "N2"}, n2, got, True, "分からない点がある"), flow_act({"set": "N2"}, n2, got, True), got)
         # 流れの制御：ほかのご希望（W1）への「LINEならいいです」を判定が「LINEでの連絡」と読み、前の話の答えが「無い」なら、言い直さずに質問から聞き直す
         f = Flow([Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("電話", "メール")),
                   Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
@@ -4017,8 +4018,11 @@ class AmbiguousAnswerTest(unittest.TestCase):
         # ⇒ ✅ 2026-11-05 日本時間23時56分48秒「(1) 会話1：…候補の選び方：ア」：判定の読みに選択肢（「LINEでの連絡」）があれば、聞き直さずに意味合いを尋ねる
         # （flowctl.asks_sense の1か所。測りの数え flow_act も同じ）。判定の読みが決められないなら、今までどおり質問から聞き直す（上の N2）
         self.assertEqual((r["result"], r["say"]), ("confirm_required", "LINEならいいですとおっしゃったのは、LINEで大丈夫という意味合いでしょうか？"), r)
-        from g53_meaning import SENSE
-        self.assertEqual(flow_act({"set": "N1"}, f.questions["W1"], "LINEでの連絡", True, "無い"), SENSE + "LINEでの連絡")
+        import g53_meaning
+        from g73_system_words import wish_scenes
+        w1 = wish_scenes(g53_meaning.question_map())["W1@G17"][1]
+        row = {"set": "W1", "qid": "W1@G17", "text": "LINEならいいです。"}
+        self.assertEqual(flow_act(row, w1, "LINEでの連絡", True, "無い"), flow_act(row, w1, "LINEでの連絡", True))
 
     def test_prior_alone_is_not_compared_with_the_ai_report(self):
         # 判定の組がどれも答えられなかったとき、前の話の答えだけを流れの制御へ渡さない＝会話AIの報告と比べない（会話AIは判定に加えない。✅ 2026-11-08 日本時間
@@ -4381,6 +4385,47 @@ class AmbiguousAnswerTest(unittest.TestCase):
         f = self.pamphlet()
         r = self.say(f, "大丈夫です。", "record_answer", question_id="Q3", condition_id="はい", value="大丈夫です")
         self.assertEqual(r["result"], "confirm_required")  # 「大丈夫」は、この質問でも決まらない ⇒ 確かめる
+
+    def test_question_decides_the_word_of_an_offer_too(self):
+        # こちらがすることを申し出る業務の質問（Question.offered＝本番の取込は「パンフレットをお送りさせていただきます」を付ける）でも、前の質問から意味が
+        # 決まる言葉だけのお返事は、判定がそろって決められないと読んでも、その意味で受け取る（✅ 2026-10-17 ユーザー「人でも前の質問や会話から判断する言葉です」・
+        # 判定の「決められない」では確かめない＝11-07 9時台の _names_other と同じ決まり）。会話が繋がらないお返事（ひとこと＋申し出の伺い直し＝11-09 7時57分50秒）
+        # ではない。⛔ F1（測りの数えを本番の流れの制御に通す）で見つけた：申し出の質問だけ、別のお話の道（away_turn の "word"）と違って、この言葉を会話が繋がらない
+        # お返事にし、「結構です。」に会話AIのひとことのあと「それでは…パンフレットをお送りするということでよろしいでしょうか？」と申し出を伺い直した
+        from flowctl import QUERY, QUERY_NO, UNDECIDED, Flow, Question
+        from meaning_judge import Reading
+
+        def offer(words="結構です。", read=UNDECIDED):
+            f = Flow([Question("Q3", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                               meanings={"はい": "パンフレットをお送りしてもよろしいということ", "いいえ": "パンフレットはお送りしなくてよろしいということ"},
+                               do_words={"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"},
+                               reply_meanings={"結構": "いいえ"}),
+                      Question("Q4", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))],
+                     play_recordings=True)
+            f.use_checks("judge")
+            f.on_callee(); f.on_heard(words)
+            r = Reading(read, firm=False)
+            setattr(r, QUERY, QUERY_NO)
+            f.on_check("judge", r)
+            f.on_decided()
+            return f
+        self.assertEqual(offer().questions["Q3"].offered, "はい")
+        # 判定が「決められない」と読んでも「わからない」と読んでも（ご希望を伺う質問の「わからない」は、迷っている方への「どういった点でお迷いでしょうか？」の番＝
+        # Flow._hesitation。この言葉は迷いではない）
+        for read in (UNDECIDED, "unknown"):
+            self.assertIsNone(offer(read=read).judged_turn(voiced=False), read)   # 報告の無いターン：ひとこと・迷いの伺いを言わせない
+            for cond in ("はい", "unknown"):   # 会話AIの報告は判定に加えない（どの答えを報告しても同じ）
+                f = offer(read=read)
+                r = f.apply("record_answer", {"question_id": "Q3", "condition_id": cond, "value": "結構です"})
+                self.assertEqual((r["result"], f.items["Q3"].state, f.items["Q3"].condition), ("next", "accepted", "いいえ"), (read, cond))
+        # この質問で意味の決まらない「大丈夫です。」も、会話が繋がらないお返事ではなく、まだどちらとも言っていない答え（目的に進む向きで伺う＝11-03）
+        f = offer("大丈夫です。")
+        self.assertIsNone(f.judged_turn(voiced=False))
+        r = f.apply("record_answer", {"question_id": "Q3", "condition_id": "unknown"})
+        self.assertEqual((r["result"], r.get("say")), ("confirm_required", "それではパンフレットをお送りさせていただきますね？"))
+        # 会話が繋がらないお返事は今のまま（ひとこと＋申し出の伺い直し）
+        f = offer("うちは月曜が定休日なんですよ。")
+        self.assertEqual(f.judged_turn(voiced=False)["result"], "callee_asked")
 
     def test_measure_questions_carry_the_import_decided_replies(self):
         # ⛔ 2026-11-07 日本時間11時台（10時57分18秒「OK、進めてください」の測りの前の準備）：本番は取込が全部の選ぶ質問で曖昧な言葉の意味を
@@ -16089,7 +16134,7 @@ class G53EndTest(unittest.TestCase):
     def test_end_act_is_what_the_flow_does(self):
         from end_words import ANSWER, HEDGED, answer_flow, question
         from flowctl import END_ANGRY, END_HURRY, END_REFUSED
-        from g53_meaning import END_ACTS, END_ASK, END_GO, END_TOPIC, end_act
+        from g53_meaning import END_ACTS, END_ASK, END_TOPIC, end_act, end_step
         for row in ANSWER:
             qtext, words, ends, answers, _, _ = row
             _, heard, marks = answer_flow(row)
@@ -16105,7 +16150,8 @@ class G53EndTest(unittest.TestCase):
             elif act == END_ACTS[END_ANGRY]:
                 self.assertIn("callee_complaint", marks, words)
             else:
-                self.assertEqual(act, END_GO, words)
+                # 電話を終える読みで動かない（答えの読みの動き＝F1 から end_act も流れの制御そのものに通す。⛔ それまでは「続ける」という写しの名前だった）
+                self.assertFalse(end_step(act), (words, act))
                 self.assertNotIn(heard, (EndWordsTest.R1, EndWordsTest.H1), words)
                 self.assertNotIn("callee_", marks, words)
 
@@ -17221,11 +17267,13 @@ class NoneOfThemTest(unittest.TestCase):
             return {"set": "B", "qid": "U1", "text": "今のところ質問はありません", "label": {"accept": ["はい"], "hedged": hedged},
                     "J": "はい", "J言い切り": firm}
         self.assertEqual(flow_act(row(True, False), q, "はい", False), ANYTIME_TAKE + "はい")
-        self.assertEqual(flow_wants(row(True, False), q), {ANYTIME_TAKE + "はい"})
+        # 問いの正解を付けていない行は、添えた質問に先に答える動きも正解（query_truths の決まり）
+        self.assertEqual(flow_wants(row(True, False), q) - {w for w in flow_wants(row(True, False), q) if w.startswith("添えた質問")}, {ANYTIME_TAKE + "はい"})
         self.assertEqual([flow_miss(row(h, firm), q, "J") for h, firm in ((True, False), (True, True), (False, False), (False, True))],
                          [None, "一言が落ちた（値は正しい）", "要らない一言（値は正しい）", None])
         # ほかの質問の言い切っていない答えは、今までどおり念のため確かめる
-        other = Question("U2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        other = Question("U2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                         meanings={"はい": "パンフレットをお送りしてもよろしいということ", "いいえ": "パンフレットはお送りしなくてよろしいということ"})
         self.assertEqual(flow_act(row(True, False), other, "はい", False), "念のため確かめる：はい")
 
     def test_measure_counts_the_help_for_a_hesitating_customer(self):
@@ -17836,17 +17884,20 @@ class NoneOfThemTest(unittest.TestCase):
         from phrases import ACK
         WORDS = "あとで連絡しますね。"
 
-        def heard(w):   # 2つの判定がそろって w と読んだ報告の無いターンで、お客様に聞こえる一言（相づち・流す録音・会話AIに言わせる文）
-            f = Flow([Question("Q1", self.CONTACT, "choice", conditions=("電話", "メール"), final_goal=False),
-                      Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
-            AmbiguousAnswerTest.say(f, "そもそも要りません。", "record_answer", question_id="Q1", condition_id=NONE)
+        # 数えの場面は測りの W1 の場面（g73_system_words.wish_scenes＝F1 から数えも同じ場面を本番の流れの制御で組む）
+        import g53_meaning
+        from g73_system_words import wish_scenes
+        w1 = wish_scenes(g53_meaning.question_map())["W1@G17"][1]
+        it = {"set": "W1", "qid": "W1@G17", "text": WORDS}
+
+        def heard(w):   # 判定が w と読んだ報告の無いターンで、お客様に聞こえる一言（相づち・流す録音・会話AIに言わせる文）
+            f, _ = g53_meaning.flow_scene(it, w1)
             f.on_callee(); f.on_heard(WORDS)
-            for k in ("judge", "judge2"):
-                f.on_check(k, Reading(w))
+            f.on_check("judge", Reading(w))
+            f.on_decided()
             r = f.judged_turn(voiced=False)
             return (r["result"], (ACK[r["ack"]] if r.get("ack") else "") + "".join(p["text"] for p in r.get("play", [])) + r.get("say", ""))
-        f, _ = self.wished(False)
-        it = {"set": "N1", "text": WORDS}
+        f = type("Scene", (), {"questions": {"W1": w1}})
         acts = {w: flow_act(it, f.questions["W1"], w, True) for w in WAIT_KINDS}
         outs = {w: heard(w) for w in WAIT_KINDS}
         for a in WAIT_KINDS:
@@ -22774,12 +22825,14 @@ class HedgedSalesTest(unittest.TestCase):
         self.assertFalse(asks_us([rd(UNDECIDED, QUERY_YES), rd("はい", QUERY_YES, firm=False)]))
         self.assertFalse(asks_us([]))
         # 測りの数え（g53_meaning.flow_act）も同じ1か所（asks_us）で数える＝判定の読みの項目で（言葉の形では数えない）
-        from g53_meaning import ANSWER_FIRST, ASK_AGAIN, flow_act
+        # 尋ねていない決められない読みは、本番の流れの制御のとおり（F1）：言い直しへの返事は「いかがなさいますか？」・申し出の質問の最初の答えは会話が繋がらない
+        # お返事（ひとこと＋申し出の伺い直し＝11-09 7時57分50秒）。⛔ F1 の前は、どちらも「聞き直す」と写していた
+        from g53_meaning import ANSWER_FIRST, AWAY_ACT, HOW_NOW_ACT, flow_act
         q = self.flow("G8n").questions["G8n"]
-        for st in ("D", "C"):
-            item = {"set": st, "text": "送ってもらったほうがいいですかね", "label": {"accept": [UNDECIDED, "unknown"]}}
+        for st, plain in (("D", HOW_NOW_ACT), ("C", AWAY_ACT)):
+            item = {"set": st, "text": "送ってもらったほうがいいですかね", "asked_choice": "はい", "label": {"accept": [UNDECIDED, "unknown"]}}
             self.assertEqual((flow_act(item, q, rd(UNDECIDED, QUERY_YES), True), flow_act(item, q, rd(UNDECIDED, QUERY_NO), True)),
-                             (ANSWER_FIRST, ASK_AGAIN))
+                             (ANSWER_FIRST, plain))
 
     def test_question_to_us_is_read_by_the_judges(self):
         # ✅ 2026-11-08 日本時間8時55分08秒 ユーザー「(イ) 判定に「こちらへ尋ねた問いがあるか」を1項目足し、1か所で読む」（J-5）
@@ -28329,7 +28382,16 @@ class MeasureReviewTest(unittest.TestCase):
             f = AsideTest.flow(AsideTest())
             AsideTest.unlinked(f)
         self.assertTrue(calls)
-        self.assertIs(g53_meaning.away_turn, real)
+        # 測りの数えは、別のお話の番を流れの制御そのもので数える（写しの決まりを持たない＝F1）：数えも本番の away_turn を通る
+        self.assertFalse(hasattr(g53_meaning, "away_turn"))
+        calls.clear()
+        g53_meaning._ACTS.clear()   # 同じ場面・同じ読みは1回だけ流す（act_of）
+        with mock.patch("flowctl.away_turn", lambda *a: calls.append(a) or real(*a)):
+            from flowctl import AWAY_YES, UNDECIDED
+            q = review_words.questions()["R1"]
+            self.assertEqual(g53_meaning.flow_act({"set": "R", "qid": "R1", "text": "うちは月曜が定休日なんですよ。"}, q, UNDECIDED, True, None, AWAY_YES),
+                             g53_meaning.AWAY_ACT)
+        self.assertTrue(calls)
 
     def test_tally_counts_the_rows_that_carry_their_own_label(self):
         # ⛔ 2026-11-15 日本時間13時台：小さな試し（伺い19 ア）で d1-ultra の読みを数える所（tally）が、正解を行の label に持つ組 R の行で止まった
