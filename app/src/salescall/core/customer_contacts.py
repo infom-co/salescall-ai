@@ -23,7 +23,7 @@ from uuid import UUID
 
 from salescall.core import tasks
 from salescall.core.access import Tx
-from salescall.core.phone import PhoneNumber, normalize
+from salescall.core.phone import SMS_KINDS, PhoneNumber, normalize
 
 KINDS = ("email", "fax", "address", "line_id", "meeting")          # 番号ではない連絡先の種類（0175 の CHECK と同じ）
 KIND_NAMES = {"email": "メールアドレス", "fax": "ファクス番号", "address": "住所", "line_id": "LINE ID",
@@ -124,7 +124,7 @@ def by_role(tx: Tx, task_id: UUID) -> dict[str, str]:
     got = now(tx, task_id)
     out = {_ROLE_OF_KIND[c["kind"]]: c["value"] for c in got["contacts"] if c["kind"] in _ROLE_OF_KIND}
     phones = [n for n in got["numbers"] if n["label"] in _MOBILE_LABELS] or \
-             [n for n in got["numbers"] if n["label"] == "designated" and normalize(n["phone"]).kind == "mobile"]
+             [n for n in got["numbers"] if n["label"] == "designated" and normalize(n["phone"]).kind in SMS_KINDS]
     if phones:
         out["mobile"] = phones[-1]["phone"]
     return out

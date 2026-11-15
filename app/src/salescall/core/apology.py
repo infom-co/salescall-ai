@@ -207,6 +207,20 @@ def earlier_when(tx: Tx, task_id: UUID, attempt_id: UUID) -> str | None:
     return WHEN[bool(row and row["today"])]
 
 
+def carries(purpose: str, reasons: tuple[str, ...]) -> bool:
+    """その電話が、承認したお詫びの文（と、その録音）を伝えるか（1か所。予約証の文＝`call_texts` と、話す声＝門の gate.choose_voice が読む）：お詫びだけの
+    電話（purpose apology）か、お詫びの理由に「言ってはいけないことを言った」（forbidden_speech）がある電話（約束の電話の頭でお詫び＝計画書 7-3 (2)）。"""
+    return purpose == "apology" or "forbidden_speech" in reasons
+
+
+def voice(tx: Tx, task_id: UUID) -> str | None:
+    """その行の、承認されたいちばん新しいお詫びの案（`_order` の1か所）に結んだ録音の声（承認が無ければ None。どの承認にも録音の組がある＝0131・0137）。
+    お詫びを伝える電話（`carries`）は、この声で話す（録音と同じ声。決めるのは門の gate.choose_voice）。⛔ 2026-11-15 の見直しまで：同じ案を
+    recordings.apology_voice が別の問い合わせで選んでいた・門はお詫びだけの電話でしか声を限らず、約束の電話の頭のお詫びは別の声で続きえた。"""
+    row = _order(tx, task_id)
+    return None if row is None else tx.one("SELECT voice_name FROM salescall.recording_sets WHERE set_id = %s", (row["set_id"],))["voice_name"]
+
+
 def call_texts(tx: Tx, task_id: UUID, purpose: str, reasons: tuple[str, ...]) -> tuple[str | None, str | None]:
     """会話へ渡す、承認したお詫びの文（1か所＝予約証の apology_call・apology_text）：(お詫びだけの電話の文, 約束の電話などの頭のお詫びの文)。お詫びの電話
     （purpose apology）は前者、お詫びの理由に「言ってはいけないことを言った」（forbidden_speech）のある電話は後者（どちらも `for_task` の文＝承認したときに
@@ -214,7 +228,7 @@ def call_texts(tx: Tx, task_id: UUID, purpose: str, reasons: tuple[str, ...]) ->
     目的はゲートが分かっているので、入れる欄で分ける）。承認の無い forbidden_speech の電話は門が止め（apology_unapproved）、お詫びの電話の予定は承認のあとに
     だけ書かれる（`schedule_if_ready`）ので、ふつうは文がある。無ければ None のまま渡す（会話の側は、文の無い forbidden_speech では電話を始めない＝
     flowctl.apology_order の ValueError。ここで予約を止める形にはしない＝門の止めの1か所を2つにしない）。"""
-    if purpose != "apology" and "forbidden_speech" not in reasons:
+    if not carries(purpose, reasons):
         return None, None
     text = (for_task(tx, task_id) or {}).get("text")
     return (text, None) if purpose == "apology" else (None, text)

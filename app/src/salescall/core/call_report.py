@@ -239,10 +239,10 @@ UNTIL_WHYS = ("other_party", "unavailable", "preparing")
 UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "absent": "unavailable", "long_absent": "unavailable",
                    "day_off": "unavailable", "ask_when": "preparing",
                    "unavailable": "unavailable"}   # 今はお電話に出られないご事情の「〇時まで」＝それまでは出られない（CL-1 の 4-69 の (3)）
-# お客様のほうから折り返すお約束（theirs）で伺った時刻の「〇時まで」（「4時までにはお電話できると思います」「3時までには戻ります」）の理由＝それまでは出られない
-# （その時刻までには、お客様のほうから折り返すお時間が来る）。かけ直しの理由だけで決まらない理由（あとで＝会議中など）でも同じ（会話の側は、この時刻の
-# 「〇時まで」の理由を伺い直さない＝CL-1 の連絡帳 4-161。⛔ 2026-11-15 まで：あとでの「4時までには」は理由が無く、判定できない＝callback_time_unconfirmed）
-THEIRS_UNTIL = "unavailable"
+# ⛔ 2026-11-15 の見直しまで：お客様のほうから折り返すお約束（theirs）の「〇時まで」の理由を THEIRS_UNTIL（＝unavailable）とし、その読み方を契約者の設定
+# callback.until_unavailable に任せていた＝設定を now にした業務では「いま〜〇時」と読み、戻ると言った時刻より前にかけえた。「〇日まで」は日の翌日から
+# 終わり無しと読み、ずらさずにその日の時間帯の始まりにかけた。読み方は理由・設定によらない1か所（judge.THEIRS_READ）にした（会話の側は、この時刻の
+# 「〇時まで」の理由を伺い直さない＝CL-1 の連絡帳 4-161 のまま）
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
                "callback", "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused",
                "transfer_unclear", "who_unclear", "not_agreed")   # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
@@ -350,7 +350,7 @@ class Callback:
     #                                  かからなければ、再度かける）」）。戻る時刻を伺えたら time_said に入る（✅ 2026-11-14 ユーザー：お言葉に甘えたあと「お電話を
     #                                  いただいた際に出られないことがないように、お戻りになられる時間はお分かりになるでしょうか？」と伺う＝CL-2 の連絡帳 4-391）。
     #                                  判定は、伺えたいちばん遅い戻りの1時間後からかける約束にする（judge._after_theirs の1か所。幅の言葉は幅の終わり・「〇時まで」は
-    #                                  その時刻＝2026-11-15 ユーザー。「〇時まで」の理由は THEIRS_UNTIL）。不在のほかの理由（お休み・長期の不在・ご事情・あとで）でも
+    #                                  その時刻＝2026-11-15 ユーザー。「〇時まで」「〇日まで」の読み方は judge.THEIRS_READ）。不在のほかの理由（お休み・長期の不在・ご事情・あとで）でも
     #                                  伺う（CL-1 の連絡帳 4-161）。分からなければ、印の無い同じ記録と同じ
     #                                  （不在の方針・時刻の決まっていない約束）。⏳ 折り返しがあったことをシステムがどう知るかは未決（計画書 8-7。それまでは、
     #                                  折り返しをいただいていても、決めた時刻にこちらからかける）
@@ -367,10 +367,11 @@ class Callback:
     @property
     def until_reason(self) -> str | None:
         """「〇時まで」の言い方のときの、いま電話を続けられなかった理由（1か所。UNTIL_WHYS のどれか。分からなければ None＝
-        かけてよい時間を決めず、通話の中で確かめる）。お客様のほうから折り返すお約束で、理由も until_why も無ければ THEIRS_UNTIL。"""
+        かけてよい時間を決めず、通話の中で確かめる）。お客様のほうから折り返すお約束（theirs）の時刻の言葉は、この理由で読まない（戻りの読み＝
+        judge.THEIRS_READ の1か所）。"""
         if self.reason in UNTIL_BY_REASON:
             return UNTIL_BY_REASON[self.reason]
-        return THEIRS_UNTIL if self.theirs and self.until_why is None else self.until_why
+        return self.until_why
 
     @property
     def number_e164(self) -> str | None:

@@ -1303,19 +1303,41 @@ class TheirsBackTime1114(unittest.TestCase):
         self.assertEqual((plain["at"], plain["until"], plain["back_at"], plain["back_until"]), (jst(16).isoformat(), jst(18).isoformat(), None, None))
         self.assertIsNone(self.judged(self.okada("15時")).detail["callback"]["back_until"])   # 1つの時点は、いちばん早い戻りと同じ
 
+    def test_by_a_day_means_the_end_of_that_day(self):
+        """「〇日まで」（「9日までには出社します」）は、その日のうちに戻る＝いちばん遅い戻りはその日の終わり（「明日」と同じ＝その日の終わりの1時間後、
+        依頼者の時間の外なら、その日のかけてよい時間の最後の方。✅ 2026-11-15 ユーザー）。理由・契約者の設定によらない（judge.THEIRS_READ）。
+        ⛔ 2026-11-15 の見直しまで：理由がそれまでは出られない（初め）のとき、その日から終わり無しと読んでずらさず、9日の時間帯の始まりにかけた。"""
+        now_rules = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "now")))
+        for callee in (CALLEE, now_rules):
+            with self.subTest(callee=callee.until_rules):
+                raw = self.okada("9日までに")
+                raw["facts"]["callback"][0]["why"] = "day_off"
+                self.assertEqual(self.promise(raw, callee=callee), (jst(1, d=10), None, False, True, jst(0, d=9)))
+                self.assertEqual(self.judged(raw, callee=callee).detail["callback"]["back_until"], jst(0, d=10).isoformat())
+
+    def test_a_by_time_without_a_day_is_not_moved_to_now(self):
+        """日の決まらない「〇時まで」（「平日の4時までに」＝日の種類だけ）は、いまを戻りとみなさない（ずらさない＝読みの幅のまま。⏳ ユーザーに伺う：CL-2 の
+        連絡帳 4-405）。⛔ 2026-11-15 の見直しまで：読みの始まり（いま）を戻りの時刻とみなし、いまの1時間後にかけた。"""
+        cb = self.judged(self.okada("平日の4時までに")).detail["callback"]
+        self.assertIsNone(cb["back_at"])
+        self.assertGreaterEqual(datetime.fromisoformat(cb["at"]), MORNING)
+
     def test_by_a_time_means_back_by_then(self):
         """「〇時まで」（「3時までには戻ります」・あとで「3時までにはお電話できると思います」）は、いちばん遅い戻りがその時刻＝その1時間後から（✅ 2026-11-15
         ユーザー「1時間後にかける（お勧め）」）。不在のほかの理由（お休み・長期の不在・ご事情・あとで＝CL-1 の連絡帳 4-161）でも同じ。あとでの「〇時まで」の
         理由は「それまでは出られない」（call_report.THEIRS_UNTIL。会話の側は伺い直さない）。⛔ 2026-11-15 まで：「3時までに」を「3時以降」と同じ幅に読んで
         ずらさず、あとでは理由が無く判定できなかった。印の無いあとでの「〇時まで」は、今までどおり理由を通話の中で確かめる（判定できない）。"""
         unreached = {"absent": "absent", "day_off": "absent", "long_absent": "absent", "unavailable": "not_transferred", "later": None}
+        # 読み方は、いま電話を続けられなかった理由と、その理由ごとの契約者の設定（callback.until_*）によらない1か所（judge.THEIRS_READ）：設定を「今から」
+        # にした業務でも、戻ると言った時刻より前にかけない（⛔ 2026-11-15 の見直しまで：設定 now の業務では「いま〜3時」と読み、14時55分にかけえた）
+        now_rules = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "now")))
         for why, nr in unreached.items():
-            with self.subTest(why=why):
-                raw = self.okada("3時までに")
-                raw["facts"]["callback"][0]["why"], raw["not_reached"] = why, nr
-                self.assertEqual(self.promise(raw), (jst(16), None, False, True, jst(15)))
-                self.assertIsNone(self.judged(raw).detail["callback"]["back_until"])
-                self.assertEqual(from_json(raw).callback.until_reason, "unavailable")
+            for callee in (CALLEE, now_rules):
+                with self.subTest(why=why, callee=callee.until_rules):
+                    raw = self.okada("3時までに")
+                    raw["facts"]["callback"][0]["why"], raw["not_reached"] = why, nr
+                    self.assertEqual(self.promise(raw, callee=callee), (jst(16), None, False, True, jst(15)))
+                    self.assertIsNone(self.judged(raw, callee=callee).detail["callback"]["back_until"])
         raw = self.okada("3時までに", theirs=False)
         raw["facts"]["callback"][0]["why"], raw["not_reached"] = "later", None
         self.assertEqual((from_json(raw).callback.until_reason, self.judged(raw).state), (None, "unknown"))

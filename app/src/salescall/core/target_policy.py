@@ -17,11 +17,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from uuid import UUID
 
 from salescall.core import dnc, settings
 from salescall.core.access import Tx
-from salescall.core.phone import PhoneNumber
+from salescall.core.phone import PhoneNumber, normalize
 
 _KIND_SETTING = {"toll_free": "calling.allow_toll_free", "navi_dial": "calling.allow_navi_dial"}
 _KIND_NAME = {"toll_free": "フリーダイヤル", "navi_dial": "ナビダイヤル"}
@@ -50,12 +51,44 @@ def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_
     return None
 
 
+def row_block_reason(tx: Tx, dial: PhoneNumber, others: Iterable[PhoneNumber], *, client_ref: str | None, tenant_id: UUID,
+                     client_id: UUID, business_id: UUID | None) -> tuple[str, str, PhoneNumber | None] | None:
+    """行（お客様）へかけない理由（1か所。取込と門と、発信禁止を取り消した行を戻す処理が読む）：かける番号の理由（`block_reason`）か、
+    行のほかの番号（記録だけの番号・お客様が言った別の番号など＝かけない番号）のどれかにある、お客様の側の理由（`customer_block_reason`。
+    そのお客様が断っていれば、どの番号でかけても同じお客様＝原則14）。ほかの番号のその番号だけの発信禁止（番号違い・FAX の回線＝
+    dnc.NUMBER_ONLY）は、お客様を止めない。答え：(理由の名前, 日本語の説明, 当たったほかの番号＝かける番号の理由なら None)。
+    ⛔ 2026-11-15 の見直しまで：ほかの番号は取込のときだけ確かめ、門はかける番号だけを見た＝取込のあとに同じ業務・同じ依頼者のほかの業務で
+    断られたお客様（記録だけの携帯電話番号が、断られた行の番号）や、手で発信禁止にした記録だけの番号の行へ、門が電話を通した。"""
+    scope = dict(client_ref=client_ref, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+    hit = block_reason(tx, dial, **scope)
+    if hit is not None:
+        return (*hit, None)
+    for other in others:
+        if other.e164 == dial.e164:
+            continue
+        hit = customer_block_reason(tx, other, customer_only=True, **scope)
+        if hit is not None:
+            return (*hit, other)
+    return None
+
+
+def task_block_reason(tx: Tx, task_id: UUID, dial: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
+                      business_id: UUID | None) -> tuple[str, str, PhoneNumber | None] | None:
+    """登録した行へ、その番号でかけない理由（`row_block_reason` を、行の番号の表 task_numbers のほかの番号で）。門と、発信禁止を取り消した
+    行を戻す処理が読む。"""
+    others = [normalize(r["phone_e164"]) for r in tx.all(
+        "SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND phone_e164 <> %s ORDER BY added_at, contact_id",
+        (task_id, dial.e164))]
+    return row_block_reason(tx, dial, others, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
+                            business_id=business_id)
+
+
 def customer_block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
-                          business_id: UUID | None) -> tuple[str, str] | None:
+                          business_id: UUID | None, customer_only: bool = False) -> tuple[str, str] | None:
     """お客様の側の「かけない理由」（発信禁止の番号・管理番号・同じ業務で断られたお客様）。かけてよければ None。`block_reason` の
-    一部で、かけない番号（記録だけの番号＝お客様が指定していない携帯電話番号など。0175）にも当てる（取込が、その行のほかの番号を
-    確かめるとき。そのお客様が断っていれば、どの番号でかけても同じお客様＝原則14）。番号の種類の決まりは当てない（かけない番号なので）。"""
-    hit = dnc.lookup(tx, number.e164, client_ref=client_ref)
+    一部で、行のかけない番号（記録だけの番号＝お客様が指定していない携帯電話番号など。0175）にも当てる（`row_block_reason`。
+    customer_only＝その番号だけの発信禁止は見ない）。番号の種類の決まりは当てない（かけない番号なので）。"""
+    hit = dnc.lookup(tx, number.e164, client_ref=client_ref, customer_only=customer_only)
     if hit is not None:
         return {
             "client": ("dnc_client", "発信禁止に登録されている番号です"),

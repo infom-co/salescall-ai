@@ -161,7 +161,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
     if j is not None and j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     refused = j is not None and j.state == "do_not_call"
-    stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else None
+    stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in dnc.NUMBER_ONLY else None   # 番号のせいの理由の1か所
     _notice_forbidden(tx, a, prepare=False)
     # 途中で切れたかを試行に残す（ふつうの通話と同じ1か所。すぐかけ直してよいかは、残したものをデータベースの resume_allowed が読む）
     _cut_off(tx, a, classify_cut(inp.facts, report), report)

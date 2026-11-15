@@ -163,6 +163,9 @@ REASONS: dict[str, Reason] = {
     "voice_not_ready": Reason("この業務の、承認した録音のある声がありません", "wait", "run"),
     "name_recording_missing": Reason("この行のお客様のお名前の録音（名前の録音の台帳の名前の部分・続く言葉）が、どの声でもまだ承認されて"
                                      "いません", "wait", "unoffered"),
+    # お詫びを伝える電話（core/apology.carries）で、お詫びの録音の声が、いま話してよい声でない（その声の共通の一言・業務の録音の録り直しがまだ など。
+    # 2026-11-15 の見直し）。その声がそろうまで待つ（お詫びの録音はその声でしか流せない＝0131）
+    "apology_voice_not_ready": Reason("お詫びの録音の声が、いま話してよい声ではありません（その声の録音がそろうまで待ちます）", "wait", "unoffered"),
     "voice_used_by_other_client": Reason("ほかの依頼者・この依頼者のほかの業務や実施回が、この番号へ同じ声でかけています（別の声の録音が"
                                          "ありません）", "wait", "unoffered"),
     "client_concurrency": Reason("この依頼者の同時の本数の上限です", "wait", "client"),
@@ -297,8 +300,7 @@ def next_opening(tx: Tx, after: datetime, *, tenant_id: UUID, client_id: UUID, b
     断り、予定は書き直さない＝1日に1回まで）。back_to＝after に始められないとき、先に after より前（予約から予約証の期限までが back_to
     から after までの間に重なる、最も遅い始まり。期限を置いてよいのは、NG時間を引く前の依頼者の時間帯の終わりだけ）を探す
     （`calling_hours.next_opening` の back_to・ends。お客様のほうから折り返すお約束のこちらからかける時＝next_action._theirs_at だけが渡す）。"""
-    lifetime = timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", tenant_id=tenant_id, client_id=client_id,
-                                                      business_id=business_id)))
+    lifetime = claim_lifetime(tx, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
     local = calling_hours.local(after)
     own, usable = _usable_hours(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))
     try:
@@ -308,6 +310,18 @@ def next_opening(tx: Tx, after: datetime, *, tenant_id: UUID, client_id: UUID, b
         day = datetime.combine(local.date(), datetime.min.time())
         found = day if day == local else day + timedelta(days=1)
     return None if found is None else calling_hours.from_local(found)
+
+
+def claim_lifetime(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> timedelta:
+    """予約から予約証の期限までの長さ（設定 gate.claim_lifetime）。"""
+    return timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", tenant_id=tenant_id, client_id=client_id,
+                                                  business_id=business_id)))
+
+
+def earliest_claim(tx: Tx, back_to: datetime, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> datetime:
+    """予約証の期限が back_to 以後になる、いちばん早い予約の時刻（1か所）：`next_opening` の back_to で探す予約の始まりは、これより前にならない
+    （お客様のほうから折り返すお約束の約束の始まり＝next_action._theirs_at が、門の幅の始まり＝calling_hours.in_window の since に置く）。"""
+    return back_to - claim_lifetime(tx, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
 
 
 def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> dict:
@@ -673,6 +687,8 @@ VOICE_PARTS_MISSING = ("システムの録音（どの契約者にも同じ、�
                        "録音を入れた組を作り、聞いて承認するまで、その声ではかけません。")
 NAME_RECORDING_MISSING = ("お名前の録音（名前の録音の台帳）がそろっていない行があります（例：{}）。台帳の録音を作り、聞いて承認して"
                           "ください（それまで、その行はかけません）。")
+APOLOGY_VOICE_NOT_READY = ("お詫びを伝える電話（お詫びだけの電話・約束の電話の頭のお詫び）は、お詫びの録音の声（{}）で話しますが、その声がいま話してよい声"
+                           "ではありません（その声の共通の一言・業務の録音の録り直しや承認がまだ など）。その声の録音がそろうまで、この行にはかけません。")
 OTHER_VOICE_MISSING = ("別の声の録音がありません。ほかの依頼者や、この依頼者のほかの業務・実施回がかけた番号へは、同じ声ではかけません。"
                        "別の声の録音を承認してください。")
 
@@ -696,13 +712,21 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     お名前の入る一言は、名前の録音の台帳の、その行の役職の部分・名前の部分・続く言葉が承認されている声だけで話す
     （`recordings.name_needs`・`name_missing`。0132・0134）。どの声でもそろわなければ name_recording_missing で待つ（行ごとに要るものが違うので、実施回をまとめて
     飛ばさず、その行を候補に出さない）。"""
+    from salescall.core import apology   # お詫びの部品が次の動き（門を読む）を読むので、ここで読む（読み合いにしない）
     ready = recordings.ready_voices(tx, version_id)
     types = {r["code"]: r for r in tx.all("SELECT code, voice_name, default_for_voice FROM salescall.voice_types")}
-    # お詫びの電話は、契約者が聞いて承認した録音と同じ声だけ（録音の文を流すので、声がまじらない。0131）。その声で話せなければ待つ
-    sorry = tx.one("SELECT purpose = 'apology' AS yes FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
-    must = recordings.apology_voice(tx, task["task_id"]) if sorry is not None and sorry["yes"] else None
+    # お詫びを伝える電話（お詫びだけの電話・約束の電話などの頭のお詫び＝apology.carries の1か所）は、契約者が聞いて承認した録音と同じ声だけ（録音の文を
+    # 流すので、声がまじらない。0131）。その声で話せなければ待ち、その理由を知らせる（⛔ 2026-11-15 の見直しまで：お詫びだけの電話でしか声を限らず、
+    # 約束の電話の頭のお詫びは別の声で続きえた・その声が話せないときは、事情と違う「録音が承認されていない」を知らせた）
+    sorry = tx.one("SELECT purpose, apology_reasons FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
+    must = apology.voice(tx, task["task_id"]) if sorry is not None and apology.carries(sorry["purpose"], tuple(sorry["apology_reasons"])) else None
     if must is not None:
-        ready = [v for v in ready if v == must]
+        if must not in ready:
+            notify.emit(tx, "setting_missing", key=f"apology_voice_not_ready:{task['task_id']}:{today}",
+                        summary=APOLOGY_VOICE_NOT_READY.format(must), refs={"client_id": task["client_id"], "task_id": task["task_id"],
+                                                                        "version_id": version_id}, admin=True)
+            return _deny("apology_voice_not_ready")
+        ready = [must]
     # お名前の入る一言の録音（名前の録音の台帳）が、その行の分そろっている声だけ（recordings.name_needs・name_missing の1か所。0132）。
     # どの声でもそろわなければ待たせ、契約者に知らせる（行ごとに知らせを増やさない＝依頼者ごと・1日に1つ。止めない）
     needs = recordings.name_needs(tx, task["task_id"]) if ready else None
@@ -914,10 +938,12 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if not tx.one("SELECT salescall.client_active(%s) AS a", (task["client_id"],))["a"]:
         return _deny("client_inactive")
 
-    # (2) データで決まる「かけない理由」（番号の種類・発信禁止の番号と管理番号。取込と同じ1か所）
-    blocked = target_policy.block_reason(tx, normalize(task["phone_e164"]), client_ref=task["client_ref"],
-                                         tenant_id=task["tenant_id"], client_id=task["client_id"],
-                                         business_id=task["business_id"])
+    # (2) データで決まる「かけない理由」（番号の種類・発信禁止の番号と管理番号・断られたお客様。かける番号と、行のほかの番号＝記録だけの
+    #     番号・お客様が言った別の番号のお客様の側の理由。取込と同じ1か所＝target_policy.row_block_reason。⛔ 2026-11-15 の見直しまで：
+    #     かける番号だけを見て、取込のあとに記録だけの番号で断られたお客様の行を通した）
+    blocked = target_policy.task_block_reason(tx, task["task_id"], normalize(task["phone_e164"]), client_ref=task["client_ref"],
+                                              tenant_id=task["tenant_id"], client_id=task["client_id"],
+                                              business_id=task["business_id"])
     if blocked is not None:
         return _deny(blocked[0])
     # 発信に失敗（回線の部品が番号を受け付けない）が、決まった数だけ続いた番号（同じ番号のほかの行も、それぞれ失敗するまでかけない。

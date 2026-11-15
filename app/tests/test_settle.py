@@ -2743,6 +2743,20 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual(self.plan(s), self.handed_over(s["contact"]))
         self.assertEqual(dict(values()), {"target_name": "鈴木", "target_department": "総務部"})
 
+    def test_a_version_is_not_assigned_while_a_former_persons_call_cannot_be_made_with_it(self):
+        """版の割り当ての確かめ（business_settings.assign_problems）は、行のいまの値と、これからかける通話の担当の期の値（門・会話が読む1か所＝
+        salescall.task_call_values）の両方を見る：名前の無い前の担当の方（役職だけ）との約束を守る行に、名前でお呼びする版は割り当てない（門が、その約束の
+        電話を目的のお客様の名前が無いと止め続ける）。⛔ 2026-11-15 の見直しまで：いまの値（新しい担当の方の名前）だけを見て割り当てた。"""
+        from salescall.core import business_settings
+        from tests.support import full_version
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.promise_on_another_number(s)                                       # 役職だけでお呼びした方が、携帯を言って約束した
+        self.person_fix(s, "target_name", "鈴木", "すずき", keep=True, same=False)   # 違う方・約束も守る（いまの値には名前がある）
+        vid = full_version(self.w, s, {"kind": "name", "role": None})
+        problems = self.tx(s, lambda tx: business_settings.assign_problems(tx, s["run"], vid))
+        self.assertTrue(problems and "名前がありません" in problems[0], problems)
+
     def test_a_result_held_while_the_person_changes_settles_after_the_change(self):
         """締めた時刻（salescall.settled_at）は、行の結果が決まった最初の版（判定できない・取り消せない決定の保留の版は入らない＝salescall.result_decided）：
         取り消せない決定（断り）の保留のあいだに「違う」で直し、そのあと契約者が承認して断りと決まると、その通話は前の担当の方への通話（計画書 7-1 (22)：止める
@@ -4842,6 +4856,7 @@ class CallbackWindow(SettleBase):
         締め、次の予定（日本時間）と予約証の期限までの長さを返す。依頼者の時間帯・NG時間は、かけたあと・締める前に入れる（いまの時刻に関わらず
         かけられるように。締めの処理が読むのは締めの時）。"""
         x = self.ready()
+        self.their_x = x
         cb = replace(callback("absent", time=words), theirs=theirs)
         aid = self.call(x, report=rep(("reception",), callback=cb, not_reached="absent"))
         self.put_client(x, "calling.hours", {k: [list(hours)] for k in KEYS})
@@ -4864,10 +4879,12 @@ class CallbackWindow(SettleBase):
         day = self.local_now(self.ready()).date() + timedelta(days=2)
         words = f"{day.month}月{day.day}日の"
         at = lambda h, m=0, d=day: datetime.combine(d, datetime.min.time()) + timedelta(hours=h, minutes=m)   # noqa: E731
-        nxt, _ = self.their_promise(words + "15時")
+        nxt, self.their_life = self.their_promise(words + "15時")
         self.assertEqual((nxt["kind"], nxt["promised"], nxt["at"], nxt["callee"]), ("call", True, at(16), None))
+        # 幅の始まりは、30分後に期限が来る予約の時刻（それより前にはかけない＝門の幅の確かめ。gate.earliest_claim の1か所。⛔ 2026-11-15 の見直しまで：
+        # その日の始まりで、確かめ直し・番号を直したあとのかけ始めが戻る前にかけえた）
         self.assertEqual((nxt["since"], nxt["until"], nxt["daily"], nxt["day_said"], nxt["repeat"]),
-                         (at(0), at(0, d=day + timedelta(days=1)), None, False, "day"))
+                         (at(15, 30) - self.their_life, at(0, d=day + timedelta(days=1)), None, False, "day"))
         plain, _ = self.their_promise(words + "15時", theirs=False)
         self.assertEqual((plain["at"], plain["callee"]), (at(15), at(15)))
         s = self.ready()
@@ -4927,6 +4944,19 @@ class CallbackWindow(SettleBase):
                 self.assertEqual((nxt["promised"], nxt["callee"], nxt["daily"]), (True, None, None))
                 self.assertEqual(nxt["at"], want - life if edge == "end" else want)
 
+    def test_their_callback_beyond_the_calendar_is_not_called_before_the_return(self):
+        """戻りが暦の外（「来年戻ります」＝いちばん遅い戻りの1時間後が、祝日の暦がまだ無い再来年の1月1日）でも、戻る前にはかけない：約束の幅の始まり（30分後に期限が来る予約の時刻＝
+        next_action._theirs_at）を予定に持ち、1日後に確かめ直しても、門が幅の外で断る（⛔ 2026-11-15 の見直しまで：幅に始まりが無く、明日の電話を門が
+        通した）。"""
+        nxt, _ = self.their_promise("来年", hours=("09:00", "18:30"))
+        local = self.local_now(self.ready())
+        self.assertEqual(nxt["promised"], True)
+        self.assertGreater(nxt["since"], local + timedelta(days=31))
+        self.assertLess(nxt["at"], nxt["since"])   # 暦の外：1日後に確かめ直す予定（かけるのは門が幅の中と認めてから）
+        x = self.their_x   # 予定を読み直しても、始まりのある幅（番号を直したあとのかけ始めなどが読む＝next_action.window_of）
+        w = self.tx(x, lambda tx: next_action.window_of(next_action.current(tx, x["task"])))
+        self.assertEqual((w.until, w.repeat, calling_hours.local(w.since)), (None, None, nxt["since"]))
+
     def test_the_designated_limit_is_one_day_and_per_business(self):
         """お客様指定の歯止め時間（callee.designated_limit）は、業務ごとに選べる1日の中の [始まり, 終わり)（日をまたがない。
         2026-10-23 ユーザー：「『営業時間』と『お客様指定の歯止め時間』も業務ごとに選択できるようにした方がいいね」）。"""
@@ -4982,7 +5012,8 @@ class CallbackWindow(SettleBase):
                                                  until=None, periods=support.CALLEE.period_table()).day_said)
         asap = next_action.Window(None, None, None, at(saturday, 10), "day", day_said=True)
         self.assertEqual(self.opening(s, at(saturday, 10), asap, now=at(saturday, 10)),
-                         (at(saturday, 10), replace(asap, until=at(saturday, 24), since=at(saturday, 0))))   # 休みの土曜でも今日
+                         (at(saturday, 10), replace(asap, until=at(saturday, 24), since=at(saturday, 10))))   # 休みの土曜でも今日
+        # （今日の回の始まりは、約束の幅の始まり＝いまより前にしない。次の日からの回は1日まるごと＝spoken_time.next_occurrence。2026-11-15 の見直し）
         from salescall.core.calendar import holiday_checker
         is_holiday = self.tx(s, holiday_checker)
         monday = saturday + timedelta(days=2)

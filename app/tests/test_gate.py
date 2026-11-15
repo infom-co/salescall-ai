@@ -15,7 +15,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from unittest import mock
 
-from salescall.core import (approval, common_phrases, attempts, business_rules, calendar, call_report, calling_hours, dial_exit, dnc, fix_requests,
+from salescall.core import (approval, common_phrases, attempts, customer_contacts, business_rules, calendar, call_report, calling_hours, dial_exit, dnc, fix_requests,
                             gate, health,
                             next_action, quality_stage, recordings, scheduler, settings, settle, stops, target_policy, tasks)
 from salescall.core.call_report import Cut
@@ -300,6 +300,36 @@ class DataReasons(Base):
         self.put_client(u, "dnc.client_ref_is_stable_id", False)                 # 管理番号でお客様を表さない業務は、番号だけで決める
         self.assertIsNone(self.tx(u, lambda tx: target_policy.block_reason(
             tx, normalize(other), client_ref="K-001", tenant_id=u["tenant"], client_id=u["client"], business_id=u["business"])))
+
+    def test_a_customer_who_declined_on_another_number_of_the_row_is_not_called(self):
+        """行のほかの番号（記録だけの番号）が、同じ業務で断られた行の番号・お客様を止める発信禁止なら、取込のあとでも門はかけない（取込と同じ
+        1か所 target_policy.row_block_reason。そのお客様が断っていれば、どの番号でかけても同じお客様＝原則14）。ほかの番号のその番号だけの
+        発信禁止（番号違い・FAX の回線＝dnc.NUMBER_ONLY）は、お客様を止めない。⛔ 2026-11-15 の見直しまで：門はかける番号だけを見て、
+        断ったお客様の別の番号へかけた。"""
+        s = self.ready()
+        run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        t2 = self.w.task(s["tenant"], s["client"], run2, self.w.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164))
+        self.tx(s, lambda tx: customer_contacts.add_number(tx, t2, normalize(s["phone"]), "mobile", origin="list"))   # 断った行の番号を記録だけで
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験：次の実施回の最初の予定"))
+        row = lambda: self.tx(s, lambda tx: target_policy.task_block_reason(   # noqa: E731
+            tx, t2, normalize(tasks.dial_number(tx, t2)["phone_e164"]), client_ref=None, tenant_id=s["tenant"], client_id=s["client"],
+            business_id=s["business"]))
+        self.assertIsNone(row())
+        self.tx(s, lambda tx: next_action.end(tx, s["task"], "declined", cause="試験：用件を断られた"))
+        got = row()
+        self.assertEqual((got[0], got[2].e164), ("declined_in_business", s["phone"]))
+        self.assertEqual(self.reason(s, task=t2), "declined_in_business")
+        # 記録だけの番号の発信禁止：その番号だけの理由ならかける・お客様を止める理由ならかけない
+        u = self.ready()
+        mobile = normalize(fictional_jp_fixed())
+        self.tx(u, lambda tx: customer_contacts.add_number(tx, u["task"], mobile, "mobile", origin="list"))
+        self.tx(u, lambda tx: dnc.register(tx, mobile, "wrong_party"), OPERATOR)
+        self.assertIsInstance(self.claim(u), gate.Claim)
+        v = self.ready()
+        mobile = normalize(fictional_jp_fixed())
+        self.tx(v, lambda tx: customer_contacts.add_number(tx, v["task"], mobile, "mobile", origin="list"))
+        self.tx(v, lambda tx: dnc.register(tx, mobile, "manual"), OPERATOR)
+        self.assertEqual(self.reason(v), "dnc_client")
 
     def test_max_attempts_counts_only_dialed(self):
         s = self.ready()
@@ -1055,9 +1085,21 @@ class CallerNumberAndVoice(Base):
                               [recordings.Part("intro", "ご予約の確認でお電話いたしました。", "test://Leda/intro", "5" * 64)]):   # 共通の一言の外
                     with self.subTest(wrong=wrong[0].part), self.assertRaises(ValueError):
                         self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(tx, unit="contractor", voice_name="Leda", parts=wrong))
-                self.w.approve_common(("Leda",))                                       # 管理者が新しい文で録って承認した
+                old_hai = self.w.a.in_system(ADMIN, lambda tx: tx.one(
+                    "SELECT r.audio_ref FROM salescall.current_recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
+                    " WHERE s.unit = 'contractor' AND s.tenant_id IS NULL AND s.voice_name = 'Leda' AND r.part = 'hai'"))["audio_ref"]
+                # 録り直した1本だけの組は作れない（いまの組になり、残りの部分が使われなくなる＝足りない組は作らない）。録り直した部分だけを渡すのは
+                # complete_common（残りは同じ声・同じ名前・同じ文の承認済みの録音を使い回す。聞いていただくのは録り直した部分だけ）
+                with self.assertRaises(ValueError):
+                    self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(
+                        tx, unit="contractor", voice_name="Leda", parts=[recordings.Part(part, new, "test://Leda/new", "6" * 64)]))
+                sid = self.w.a.in_system(ADMIN, lambda tx: recordings.complete_common(
+                    tx, "Leda", [recordings.Part(part, new, "test://Leda/new", "6" * 64)]))
+                self.assertEqual(self.w.a.in_system(ADMIN, lambda tx: recordings.unapproved_parts(tx, sid)), [part])
+                self.w.a.in_system(ADMIN, lambda tx: recordings.approve(tx, sid))          # 管理者が新しい文で録って承認した
                 self.assertEqual(self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"])), ["Leda"])
-                self.assertEqual(self.tx(a, lambda tx: recordings.play_parts(tx, a["version"], "Leda"))[part].spoken_text, new)
+                got = self.tx(a, lambda tx: recordings.play_parts(tx, a["version"], "Leda"))
+                self.assertEqual((got[part].spoken_text, got["hai"].audio_ref, len(got) >= len(common_phrases.TEXTS)), (new, old_hai, True))
         finally:
             self.w.approve_common(("Leda",))                                           # システムの組はほかの試験も読むので、もとの文に戻す
         self.assertEqual(self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"])), voices)

@@ -6,11 +6,13 @@ tests/test_life.py の `CallsNotUnwelcome`。(5)(6) は test_apology・test_alte
 from __future__ import annotations
 
 import unittest
+import uuid
 from dataclasses import replace
 from datetime import timedelta
+from unittest import mock
 
-from salescall.core import apology, attempts, business_rules, gate, next_action, notify, quality_stage, registry, scheduler
-from tests.support import ADMIN, OPERATOR, callback, make_report, rules_raw, said
+from salescall.core import apology, attempts, business_rules, gate, next_action, notify, quality_stage, recordings, registry, scheduler
+from tests.support import ADMIN, OPERATOR, SYSTEM, callback, make_report, rules_raw, said
 from tests.test_apology import ApologyBase
 from tests.test_gate import ALL_DAY
 from tests.test_judge import goal_refused
@@ -216,6 +218,47 @@ class PromiseAndApology(ApologyBase):
         self.assertEqual(len(notes), 1)
         self.assertIn("約束した電話の頭で、お詫びを伝えました", notes[0]["summary"])
         self.assertIn("apology", notify.KINDS)
+
+    def test_the_head_apology_is_spoken_in_the_apology_recordings_voice(self):
+        """約束の電話の頭のお詫び（お詫びの理由 forbidden_speech）も、お詫びだけの電話と同じく、承認したお詫びの録音の声だけで話す（録音の文を流すので声が
+        まじらない＝0131。お詫びを伝える電話かは core/apology.carries の1か所）。その声が話してよい声でなければ、事情どおりの理由で待ち、知らせる。
+        ⛔ 2026-11-15 の見直しまで：お詫びだけの電話でしか声を限らず、業務の声で続けた・その声が話せないと「録音が承認されていない」と知らせた。"""
+        s = self.fresh(stage_cap=20)
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '1 day')::date AS d")["d"])
+        aid, _ = self.promise_call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の15時")))
+        self.order(s, aid)
+        self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=tx.one("SELECT now() AS t")["t"], end_reason=None,
+                                                  cause="試験：約束の時刻", promised=True, target=next_action.Target(s["contact"]),
+                                                  apology="forbidden_speech"))
+        must = self.tx(s, lambda tx: apology.voice(tx, s["task"]))
+        types = self.tx(s, lambda tx: {r["voice_name"]: r["code"] for r in tx.all(
+            "SELECT voice_name, code FROM salescall.voice_types WHERE default_for_voice ORDER BY voice_name")})
+        other = next(v for v in types if v != must)
+        choose = lambda: self.tx(s, lambda tx: gate.choose_voice(   # noqa: E731
+            tx, gate._task(tx, s["task"]), s["version"], types[other], tx.one("SELECT salescall.jst(now())::date AS d")["d"]))
+        with mock.patch.object(recordings, "ready_voices", return_value=[other, must]):
+            self.assertEqual(choose(), types[must])                       # 業務の声（other）でなく、お詫びの録音の声
+            # この行で前に話した声（予約のあとにお客様が聞いた声）がほかの声でも、お詫びの録音の声（前に話した声の決まりより、お詫びの録音の声が先）
+            aid2 = uuid.uuid4()
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.attempts (tenant_id, client_id, attempt_id, task_id, contact_id, phone_e164, line_id, version_id, state,"
+                " claimed_at, claim_expires_at, purpose, voice_type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'claimed', now(),"
+                " now() + interval '1 minute', 'normal', %s)", (s["tenant"], s["client"], aid2, s["task"], s["contact"], s["phone"], s["line"],
+                                                                 s["version"], types[other])), SYSTEM)
+            for state in ("dialing", "ringing", "no_answer"):
+                self.w.move(s, aid2, state)
+            self.assertEqual(self.tx(s, lambda tx: tx.one(
+                f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {attempts.DIALED}"
+                " ORDER BY claimed_at DESC LIMIT 1", (s["task"],)))["voice_type"], types[other])
+            self.assertEqual(choose(), types[must])
+        with mock.patch.object(recordings, "ready_voices", return_value=[other]):
+            got = choose()
+            self.assertEqual(got.reason, "apology_voice_not_ready")
+            self.assertEqual(self.tx(s, lambda tx: gate.waits_unknown(tx, s["task"])), "apology_voice_not_ready")   # 候補に出さない
+        notes = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE event_key LIKE %s",
+                                             (f"apology_voice_not_ready:{s['task']}:%",)))
+        self.assertEqual(len(notes), 1)
+        self.assertIn(must, notes[0]["summary"])
 
     def call_claimed(self, s, c, *, delivered, taken=True, report=None):
         """予約した電話をかけ、目的のお客様と話して（taken なら Q1 が取れた。締めはまだ）、会話の報告に、お詫びの文面を伝えたか（delivered）を書く。"""

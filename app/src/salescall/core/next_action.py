@@ -146,7 +146,7 @@ class Window:
 
     @property
     def empty(self) -> bool:
-        return self.until is None and self.daily is None and self.days is None and self.repeat is None
+        return self.until is None and self.daily is None and self.days is None and self.repeat is None and self.since is None
 
     @property
     def callee(self) -> calling_hours.CalleeWindow:
@@ -256,8 +256,9 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
         window = None
     if window is not None and window.until is None:
         # 終わりの無い幅（「平日なら」「すぐ」）は、まだ回が決まっていない：次の回の決め方は、回を決めるとき（`_window_opening`）に
-        # 次の日にする。回の無い幅は、次の回の決め方を持たない（表の作り 0089 の約束）
-        window = replace(window, repeat=None, since=None)
+        # 次の日にする。回の無い幅は、次の回の決め方を持たない（表の作り 0089 の約束）。始まり（これより前にはかけない＝お客様のほうから折り返す
+        # お約束の戻りのあと・「〇日以降」の日）は持つ（門の幅の確かめが読む。⛔ 0222 の前：捨てて書き、確かめ直しの予定で戻る前にかけえた）
+        window = replace(window, repeat=None)
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     prev = current(tx, task_id)
     since, origin = _plan_person(tx, task_id, origin or prev, target if calls else None, after, former_promise=former_promise,
@@ -722,7 +723,7 @@ FORMER_ANSWERS: dict[str, str] = {
     "open": "continue", "not_reached": "continue", "incomplete": "continue",
     "unknown": "undecided",
 }
-FORMER_NUMBER_ANSWERS = frozenset({"wrong_party", "fax_line"})
+FORMER_NUMBER_ANSWERS = judge.NUMBER_ONLY   # 番号違い・FAX（判定の中身 out_of_scope）＝番号のせいの理由の1か所
 # その方個人の答えで行を終える決定の、終わりの理由（`FORMER_ANSWERS` から作る。言ってはいけないこと・苦情など、ほかの理由で終える決定は変えない）
 _PERSONAL_ENDS = frozenset(s for s, a in FORMER_ANSWERS.items() if a == "personal") | business_rules.SYSTEM_ENDS
 
@@ -1134,7 +1135,7 @@ def reopen_revoked(tx: Tx, *, cause: str) -> list[UUID]:
     """発信禁止で門が終えた行のうち、その行の番号・管理番号の登録（依頼者の台帳・契約者の共通の台帳）が取り消され、いまはもう発信禁止で
     止まっていないものを、終える前の予定に戻す（どの行を戻すかの1か所。2026-10-30 管理者のご決定 (7)）。戻す予定は、終える前のいちばん
     新しい「かけ直す」の予定（かける先・目的・約束の印・お客様の時刻・幅・お詫びの印のまま、時刻はいま）。まだ止まっているかは、門と同じ
-    かけない理由の1か所（target_policy.block_reason）で、戻す予定の番号と行の管理番号を見る（⛔ 見直し24b の (C)：前は、取り消した時刻と
+    かけない理由の1か所（target_policy.task_block_reason）で、戻す予定の番号・行のほかの番号と行の管理番号を見る（⛔ 見直し24b の (C)：前は、取り消した時刻と
     終えた時刻を比べて自分で決め、まだほかの登録で止まっている行も「戻した」にした）。呼ぶのは、依頼者の台帳の取り消しの1か所（core/dnc の
     `_revoke`。その場で）と、見守り役の決まった間隔の仕事（依頼者ごと。契約者の共通の台帳は、その契約者のすべての依頼者の行に効くので、
     取り消しの取引からは行を読めない）。戻した行を返す。"""
@@ -1154,8 +1155,8 @@ def reopen_revoked(tx: Tx, *, cause: str) -> list[UUID]:
         row = _last_call_plan(tx, r["task_id"], r["seq"])
         if row is None:
             continue
-        blocked = target_policy.block_reason(tx, normalize(row["phone_e164"]), client_ref=r["client_ref"],
-                                             **tasks.scope(tx, r["task_id"]))
+        blocked = target_policy.task_block_reason(tx, r["task_id"], normalize(row["phone_e164"]), client_ref=r["client_ref"],
+                                                  **tasks.scope(tx, r["task_id"]))
         if blocked is not None and blocked[0] in DNC_ENDS:
             continue                           # まだ発信禁止で止まっている（ほかの登録）：戻さない
         # いまの番号へ向ける（番号を直したときと同じ1か所＝`_point`。⛔ 見直し (A) の7：前は約束の電話も、すぐ新しい番号へ替え、
@@ -1831,7 +1832,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
         if cb["at"] is None:
             kept = _unspecified_next(tx, task_id, target, now=now, base=now, tried=dialed_at)
         elif cb.get("back_at") is not None:   # お客様のほうから折り返すお約束：戻る時刻のあと、こちらからかける時（`_theirs_at` の1か所）
-            kept = _keep_promise(tx, task_id, _theirs_at(tx, task_id, cb, now=now), window_said(cb), target, now=now)
+            at, since = _theirs_at(tx, task_id, cb, now=now)
+            kept = _keep_promise(tx, task_id, at, replace(window_said(cb), since=since), target, now=now)
         elif cb.get("exact", True):
             said = datetime.fromisoformat(cb["at"])
             kept = _keep_promise(tx, task_id, said, _exact_window(tx, task_id, said, day_said=bool(cb.get("day_said")),
@@ -1910,7 +1912,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     return d
 
 
-def _theirs_at(tx: Tx, task_id: UUID, cb: dict[str, Any], *, now: datetime) -> datetime:
+def _theirs_at(tx: Tx, task_id: UUID, cb: dict[str, Any], *, now: datetime) -> tuple[datetime, datetime]:
     """お客様のほうから折り返すお約束（判定の中身 callback の back_at＝お客様が言った戻る時刻がある約束）で、こちらからかける時（1か所。
     `after_call` だけが呼ぶ）。✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで
     待つ」・「「18時に戻ります」（依頼者の時間帯が18時半まで）：18時半でOK　「21時半に戻ります」（歯止めの時間が22時まで）：22時でOK」・
@@ -1926,11 +1928,15 @@ def _theirs_at(tx: Tx, task_id: UUID, cb: dict[str, Any], *, now: datetime) -> d
       終わりには置かない（✅ 2026-11-14 ユーザー「13時にかける（おすすめ）」＝「岡田は11時半に戻ります」で12時〜13時がNG時間 ⇒ 12時でなく13時。
       見分けるのは gate.next_opening の1か所）。それも無ければ、1時間後のあとの、次にかけてよい始まり（NG時間の明け・次の日の時間帯の始まり など）。
     - いまが1時間後より後（判定し直し）なら、いまから探す。31日のうちに無ければ、1時間後（約束の幅の次の動き `_keep_promise` が、かけてよい
-      時間帯の無いときの道へ）。"""
+      時間帯の無いときの道へ）。
+    答え：(かける時刻, 約束の幅の始まり＝これより前にはかけない)。幅の始まりは、30分後に期限が来る予約の時刻（gate.earliest_claim の1か所）＝門の幅の
+    確かめ（calling_hours.in_window の since）と、かけてよい時間帯の見つからないときの確かめ直し・番号を直したあとのかけ始め（幅のまま）が読む。
+    ⛔ 2026-11-15 の見直しまで：約束の幅に始まりが無く、暦の外に当たって1日後に確かめ直すと（「来年戻ります」）、門が戻る前の明日の電話を通した。"""
     until = cb.get("back_until")
     earliest, want = judge.theirs_span(datetime.fromisoformat(cb["back_at"]), None if until is None else datetime.fromisoformat(until))
-    found = gate.next_opening(tx, max(want, now), **tasks.scope(tx, task_id), back_to=earliest if now < want else None)
-    return max(found or want, now)
+    scope = tasks.scope(tx, task_id)
+    found = gate.next_opening(tx, max(want, now), **scope, back_to=earliest if now < want else None)
+    return max(found or want, now), gate.earliest_claim(tx, earliest, **scope)
 
 
 def _notice_old_promise(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
@@ -2206,7 +2212,9 @@ def _window_opening(tx: Tx, task_id: UUID, after: datetime, window: Window, *,
             if upcoming is None:
                 return none_left(local)
             day = datetime.combine(upcoming.date(), datetime.min.time())
-            return from_jst(upcoming), replace(first, until=from_jst(day + timedelta(days=1)), since=from_jst(day),
+            # その日の回の始まりは、約束の幅の始まりより前にしない（お客様のほうから折り返すお約束の始まり＝`_theirs_at`。2026-11-15 の見直し）
+            start = from_jst(day) if window.since is None else max(from_jst(day), window.since)
+            return from_jst(upcoming), replace(first, until=from_jst(day + timedelta(days=1)), since=start,
                                                repeat=window.repeat or spoken_time.DAY_REPEAT)
         if upcoming is not None and upcoming < now_end:
             return from_jst(upcoming), window

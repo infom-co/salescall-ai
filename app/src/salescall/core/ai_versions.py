@@ -82,20 +82,30 @@ def record(tx: Tx, rows: Any, *, now: datetime | None = None) -> dict[str, int]:
         raise BadRows(f"確かめの部品の答えは、行の並びです（{type(rows).__name__}）")
     found = [(r, got) for r in rows if (got := outcome(r)) is not None]
     period = int((now or datetime.now(timezone.utc)).timestamp() // 86400) // UNCHECKED_EVERY_DAYS
-    counts = dict.fromkeys(KIND, 0)
+    # 同じ知らせかの鍵（1か所）：新しい版・一覧に無いは、使っている版（と新しい版）ごと＝同じ版を2つの役目・名前で使っていても（「Claude Sonnet 5.5」と
+    # 「Claude Sonnet 5.5（考える）」など）、知らせと修正依頼は1つ（置き換えは版を持つ1か所で1回）。読めなかったは AI の名前ごと・10日ごと（版が分からない
+    # こともある）。⛔ 2026-11-15 の見直しまで：名前ごとの鍵で、同じ版の知らせと修正依頼が2つずつ出た
+    groups: dict[str, list[tuple[dict[str, Any], str, str]]] = {}
     for row, (kind, version) in found:
-        role, name = row["役目"].strip(), row["名前"].strip()
-        refs = {"役目": role, "名前": name, "使っている版": row.get("使っている版") or row.get("id") or row.get("display")}
+        current = row.get("使っている版") or row.get("id") or row.get("display")
+        key = f"ai_version:{kind}:" + (f"{current}:{version}" if kind == NEWER else str(current) if kind == MISSING
+                                       else f"{row['名前'].strip()}:{period}")
+        groups.setdefault(key, []).append((row, kind, version))
+    counts = dict.fromkeys(KIND, 0)
+    for key, members in groups.items():
+        row, kind, version = members[0]
+        who = "・".join(dict.fromkeys(f"{r['役目'].strip()}の {r['名前'].strip()}" for r, _, _ in members))
+        refs = {"役目": [r["役目"].strip() for r, _, _ in members], "名前": [r["名前"].strip() for r, _, _ in members],
+                "使っている版": row.get("使っている版") or row.get("id") or row.get("display")}
         if kind == NEWER:
-            summary = f"使っている AI に新しい版が出ています：{role}の {name}（{refs['使っている版']} → {version}）。CL-1 が新しい版で測ってから置き換えます"
+            summary = f"使っている AI に新しい版が出ています：{who}（{refs['使っている版']} → {version}）。CL-1 が新しい版で測ってから置き換えます"
             refs |= {k: row.get(k, []) for k in ("新しい版", "別の系統で後から出たもの", "見送った版")}
         elif kind == MISSING:
-            summary = f"使っている AI の版が作り手の一覧にありません（もう無い・名前が変わった）：{role}の {name}（{version}）。CL-1 が確かめます"
+            summary = f"使っている AI の版が作り手の一覧にありません（もう無い・名前が変わった）：{who}（{version}）。CL-1 が確かめます"
         else:
-            summary = f"使っている AI の新しい版を、作り手の一覧で確かめられませんでした：{role}の {name}（{version}）。作り手の頁で確かめてください"
-        key = f"ai_version:{kind}:{name}:" + (version if kind != UNCHECKED else str(period))
+            summary = f"使っている AI の新しい版を、作り手の一覧で確かめられませんでした：{who}（{version}）。作り手の頁で確かめてください"
         notify.emit(tx, KIND[kind], key=key, summary=summary, refs=refs, admin=True, contractor=False)
         if kind != UNCHECKED:
             fix_requests.request(tx, "CL-1", KIND[kind], key=key, summary=summary, refs=refs)
-        counts[kind] += 1
+        counts[kind] += len(members)
     return counts

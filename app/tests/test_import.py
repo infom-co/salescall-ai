@@ -11,6 +11,7 @@ import csv
 import io
 import threading
 import unittest
+import uuid
 from datetime import timedelta
 from unittest import mock
 
@@ -360,6 +361,14 @@ class CustomerContacts(Base):
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, b)), {"mobile": e(mobile2).e164})
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, c)), {"mobile": e("090-0000-0103").e164})
 
+    def test_a_designated_fmc_number_is_the_mobile_number(self):
+        """お客様が指定した番号が FMC（060）でも、SMS の届く携帯電話の番号として会話の側へ渡す（SMS の届く種類は phone.SMS_KINDS の1か所＝会話の側の
+        flowctl.SMS_KINDS と同じ。⛔ 2026-11-15 の見直しまで：mobile だけを見て渡さず、会話の側が携帯電話の番号を重ねて伺った）。"""
+        fmc = "060-1234-0161"
+        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), fmc, None, None, None, None, None, None, None)],
+                                   header=self.HEADER), mapping=self.MAP)
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, r["rows"][0]["task_id"])), {"mobile": normalize(fmc).e164})
+
     def test_the_same_number_twice_is_one_number(self):
         """指定の番号と携帯が同じなら、番号は1つ（かける番号として）。"""
         mobile = "090-0000-0111"
@@ -375,6 +384,15 @@ class CustomerContacts(Base):
                                    header=self.HEADER), mapping=self.MAP)
         self.assertEqual(self.outcomes(r), [(2, "stopped", "dnc_client")])
         self.assertIn("「携帯」の番号", r["rows"][0]["reason"])
+
+    def test_a_number_only_refusal_on_a_recorded_number_does_not_stop_the_row(self):
+        """記録だけの番号の発信禁止が、その番号だけの理由（番号違い・FAX の回線＝dnc.NUMBER_ONLY）なら、行は登録する（お客様の断りではない。
+        門と同じ1か所 target_policy.row_block_reason）。"""
+        mobile = "090-0000-0122"
+        self.tx(lambda tx: dnc.register(tx, mobile, "wrong_party"))
+        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), None, mobile, None, None, None, None, None, None)],
+                                   header=self.HEADER), mapping=self.MAP)
+        self.assertEqual(self.outcomes(r), [(2, "registered", None)])
 
     def test_a_recorded_number_is_never_dialed(self):
         """記録だけの番号は、次の予定にも試行にもならない（処理に誤りがあってもデータベースが断る）。"""
@@ -551,7 +569,7 @@ class Targets(Base):
         vid, _ = self.run_with({"kind": "name", "role": None})
         with self.assertRaises(business_settings.SettingsInvalid) as e:
             self.tx(lambda tx: business_settings.assign(tx, self.s["run"], vid, reason="試験：名前を使う版へ"))
-        self.assertIn("2 行に、その列がありません", e.exception.problems[0])   # setup の行と取り込んだ行
+        self.assertIn("2 行：目的のお客様の名前がありません", e.exception.problems[0])   # setup の行と取り込んだ行
 
     def test_an_undecided_reading_is_registered_and_confirmed_in_the_call(self):
         """読みが決まらない名前でも止めない（2026-10-16 ユーザー：会話の中で確かめる）。考えられる読みとまず言ってみる読みを持って
@@ -675,6 +693,26 @@ class RowFixes(Targets):
         got = self.tx(lambda tx: business_settings.target_of(tx, task))
         self.assertNotEqual(got["person"]["reading"], "なかしま")
         self.assertEqual(got["company"]["reading"], "かくうしょうじ")
+
+    def test_a_role_in_a_run_without_a_version_is_fixed_and_checked_at_assignment(self):
+        """版のまだ無い実施回の行も、役職を直せる（取込と同じく、「ご担当者」だけかは版を割り当てるときに、門・取込と同じ1か所で確かめる）。割り当てられない
+        理由は、本当の理由（「ご担当者」だけの役職）と、ダッシュボードで直せること（⛔ 2026-11-15 の見直しまで：直すと「業務設定の中身がありません：None」で
+        落ち、割り当ては「その列がありません」と言って、行き詰まった）。"""
+        rid = uuid.uuid4()
+        self.tx(lambda tx: tx.execute("INSERT INTO salescall.runs (tenant_id, client_id, business_id, run_id, name, created_by)"
+                                      " VALUES (%s, %s, %s, %s, '版の無い実施回', 'operator')",
+                                      (self.s["tenant"], self.s["client"], self.s["business"], rid)))
+        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), None, None, "部長")], header=self.HEADER),
+                          mapping=self.MAP, run=rid)
+        task = r["rows"][0]["task_id"]
+        self.assertEqual(self.tx(lambda tx: row_fix(tx, task, "target_role", "ご担当者"))["value"], "ご担当者")
+        vid, _ = self.run_with({"kind": "role", "role": None})
+        with self.assertRaises(business_settings.SettingsInvalid) as e:
+            self.tx(lambda tx: business_settings.assign(tx, rid, vid, reason="試験：役職でお呼びする版"))
+        self.assertIn(business_settings.ROLE_UNCLEAR, e.exception.problems[0])
+        self.assertIn("ダッシュボードで行を直す", e.exception.problems[0])
+        self.tx(lambda tx: row_fix(tx, task, "target_role", "経理のご担当者様"))
+        self.tx(lambda tx: business_settings.assign(tx, rid, vid, reason="試験：役職でお呼びする版"))
 
     def test_full_name_department_and_role_fixes_and_clears(self):
         """フルネーム・部署・役職も直せる。空にすると、その欄を消す（取込の値に戻さない）。直した値を、依頼者に埋めていただく欄の決め方

@@ -1068,6 +1068,15 @@ class Check(unittest.TestCase):
         self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[1].unit, "名")
 
 
+class MeansNames(unittest.TestCase):
+    def test_means_words_are_the_report_means(self):
+        """ご連絡の方法の言葉（業務設定の MEANS_WORDS。CL-1 の比べる試験が文字のまま読むので式にしない）の鍵は、会話の報告の方法の名前の1か所
+        （call_report.OTHER_WISH_MEANS）と同じ並び（⛔ 2026-11-15 の見直しまで：どちらも、ほかと比べていなかった＝片方だけ足すと、業務の方法の名前が
+        会話の報告で受け取れない方法を指しえた）。"""
+        from salescall.core import call_report
+        self.assertEqual(tuple(bs.MEANS_WORDS), call_report.OTHER_WISH_MEANS)
+
+
 class BranchFlow(unittest.TestCase):
     """分岐のシートの置き換え（`business_settings._branch_flow`。CL-1 の連絡帳 4-78・CL-2 の連絡帳 4-206）：会話は分岐の表を読まないので、
     取込も画面も置いた版も、確かめの1か所で、管理者が決めた形（ここで終える答え・この答えのときだけ伺う・最終目的の断り）に置き換える。

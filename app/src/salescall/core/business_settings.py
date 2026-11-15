@@ -224,6 +224,8 @@ WORD_FORMS = {"do": do_words_ok, "doubt": doubt_words_ok}
 MEANS_WORDS = {"line": ("LINE", "ライン"), "email": ("メール", "MAIL"), "fax": ("ファクス", "ファックス", "FAX"), "post": ("郵送", "郵便"),
                "phone": ("電話", "TEL"),
                "online": ("オンライン", "ZOOM", "ズーム", "TEAMS", "チームズ", "GOOGLE MEET", "WEB会議", "ウェブ会議", "ビデオ通話")}
+# ⚠️ 鍵の並びは会話の報告の方法の名前（call_report.OTHER_WISH_MEANS）と同じ（試験 test_business_settings の test_means_words_are_the_report_means が比べる。
+# ここは CL-1 の比べる試験が文字のまま読むので、式にしない）
 
 
 def means_in(text: str) -> list[str]:
@@ -2004,25 +2006,31 @@ def anyone_target(tx: Tx, version_id: UUID) -> bool:
     return row["kind"] == ANYONE
 
 
-def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:
-    """その実施回の、まだ終えていない行のうち、目的のお客様を呼ぶ材料が足りない行の数。"""
-    rows = tx.all("SELECT t.target_name, t.target_role FROM salescall.tasks_now t WHERE t.run_id = %s"
+def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> dict[str, int]:
+    """その実施回の、まだ終えていない行のうち、目的のお客様を呼ぶ材料が足りない行の数（足りない理由＝TargetNeeds.missing の文 → 行の数）。見る値は、行の
+    いまの値（tasks_now）と、これからかける通話の担当の期の値（門・会話が読む1か所＝salescall.task_call_values。前の担当の方との約束の電話なら、その方の
+    値）の両方（どちらの電話も、この版で呼ぶ。⛔ 2026-11-15 の見直しまで：いまの値だけを見て、門が呼べない前の担当の方の電話を残したまま割り当てえた）。"""
+    rows = tx.all("SELECT t.target_name, t.target_role, p.target_name AS call_name, p.target_role AS call_role"
+                  " FROM salescall.tasks_now t CROSS JOIN LATERAL salescall.task_call_values(t.task_id) p WHERE t.run_id = %s"
                   " AND salescall.task_open(t.task_id)",   # まだ終えていない行（0192 の1か所）
                   (run_id,))
-    return sum(1 for r in rows if needs.missing(name=r["target_name"], role=r["target_role"]) is not None)
+    out: dict[str, int] = {}
+    for r in rows:
+        got = needs.missing(name=r["target_name"], role=r["target_role"]) or needs.missing(name=r["call_name"], role=r["call_role"])
+        if got is not None:
+            why = ROLE_UNCLEAR if got[0] == "target_role_unclear" else got[1]   # 役職ごとの文でなく、同じ理由は1つにまとめる
+            out[why] = out.get(why, 0) + 1
+    return out
 
 
 def assign_problems(tx: Tx, run_id: UUID, version_id: UUID) -> list[str]:
     """その実施回にその版を割り当てられない理由（割り当てられれば空。決めるのはここだけ＝`assign` と、版を自動で替える `adopt_ready`）。
-    中身・業務の決まりが確かめに通らない版は、読むとき（`load`）に SettingsInvalid。"""
+    中身・業務の決まりが確かめに通らない版は、読むとき（`load`）に SettingsInvalid。足りない理由は、門・取込と同じ1か所（TargetNeeds.missing）の文
+    （⛔ 2026-11-15 の見直しまで：「ご担当者」だけの役職の行も「その列がありません」と言い、行はダッシュボードで直せるのに「取り込み直しても足せません」と言った）。"""
     s = load(tx, version_id)                         # 中身・業務の決まりが確かめに通る版だけ
     missing = _open_tasks_missing(tx, run_id, s.target_needs())
-    if not missing:
-        return []
-    return [f"この版は、目的のお客様を{'名前' if s.target_needs().name else '役職'}で呼びますが、"
-            f"この実施回のまだ終えていない行のうち {missing} 行に、その列がありません。"
-            "この版は、その列のある一覧を取り込んだ新しい実施回に割り当ててください（取り込んだ行は変えないため、"
-            "同じ実施回に取り込み直しても足せません）"]
+    return [f"この実施回のまだ終えていない行のうち {n} 行：{why}。ダッシュボードで行を直すか、この版は、目的のお客様を呼ぶ材料のある一覧を取り込んだ"
+            "新しい実施回に割り当ててください" for why, n in missing.items()]
 
 
 # ── 版を足して、そろったら自動で替える（1か所。DESIGN.md 3-8-3 の (5)・0183）

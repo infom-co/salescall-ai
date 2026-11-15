@@ -221,6 +221,10 @@ class Versions(Base):
             dict(a, text=new_text) if a["name"] == "駐車場" else a for a in r["answers"]]), cause="solution", note="駐車場の答え"), OPERATOR)
         self.tx(s, lambda tx: support.send_list(tx, v2), OPERATOR)
         self.assertEqual(self.tx(s, lambda tx: recordings.version_needs(tx, v2)).parts, {v: {part: new_text} for v in voices})
+        # 録り直した部分だけの組は、create_set では作れない（足りない組がいまの組になり、残りの部分が使われなくなる＝2026-11-15 の見直し）。complete が使い回す
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name=voices[0], version_id=v2,
+                                                        parts=[recordings.Part(part, new_text, "test://new", "2" * 64)]), OPERATOR)
         sid = self.tx(s, lambda tx: recordings.complete(tx, v2, voices[0], [recordings.Part(part, new_text, "test://new", "2" * 64)]),
                       OPERATOR)
         got = self.tx(s, lambda tx: recordings.parts(tx, sid))

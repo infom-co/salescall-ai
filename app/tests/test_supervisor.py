@@ -2725,8 +2725,8 @@ class AIVersions(SupervisorBase):
     def told(self, name):
         """その AI の、管理者あての知らせ（種類・要約）と、CL-1 へのまだ直していない修正依頼（種類）。"""
         notes = self.w.a.in_system(ADMIN, lambda tx: tx.all(
-            "SELECT kind, summary FROM salescall.notification_events WHERE for_admin AND refs->>'名前' = %s ORDER BY event_id", (name,)))
-        asked = self.w.a.in_system(SYSTEM, lambda tx: [r["kind"] for r in fix_requests.open_requests(tx, "CL-1") if r["refs"].get("名前") == name])
+            "SELECT kind, summary FROM salescall.notification_events WHERE for_admin AND refs->'名前' ? %s ORDER BY event_id", (name,)))
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r["kind"] for r in fix_requests.open_requests(tx, "CL-1") if name in r["refs"].get("名前", [])])
         return [n["kind"] for n in notes], [n["summary"] for n in notes], asked
 
     def run_check(self, s, rows):
@@ -2752,14 +2752,27 @@ class AIVersions(SupervisorBase):
         fresh = f"jev-{uuid.uuid4().hex[:6]}"
         self.run_check(s, [self.row(fresh, 新しい版=["typesafe/jev-2"], 見送った版=declined)])
         refs = self.w.a.in_system(ADMIN, lambda tx: tx.one(
-            "SELECT refs FROM salescall.notification_events WHERE for_admin AND refs->>'名前' = %s", (fresh,)))["refs"]
+            "SELECT refs FROM salescall.notification_events WHERE for_admin AND refs->'名前' ? %s", (fresh,)))["refs"]
         self.assertEqual(refs["見送った版"], declined)            # 見送った版を知らせの記録に添える（管理者が読む）
         self.assertEqual(self.told(quiet), ([], [], []))         # 新しい版の無い AI は知らせない
         others = self.w.a.in_system(ADMIN, lambda tx: tx.one(    # 管理者あてだけ（契約者の台帳・全体の出来事には入れない）
-            "SELECT count(*) AS n FROM salescall.notification_events WHERE NOT for_admin AND refs->>'名前' = %s", (name,)))["n"]
+            "SELECT count(*) AS n FROM salescall.notification_events WHERE NOT for_admin AND refs->'名前' ? %s", (name,)))["n"]
         self.assertEqual(others, 0)
         self.run_check(s, [self.row(name, 新しい版=["typesafe/jev-1.15", "typesafe/jev-1.16", "typesafe/jev-1.17"])])   # もっと新しい版 ⇒ もう1つ
         self.assertEqual(self.told(name)[0], ["ai_newer_version"] * 2)
+
+    def test_one_version_used_under_two_names_is_told_once(self):
+        """同じ版を2つの名前・役目で使っていても（「Claude Sonnet 5.5」と「Claude Sonnet 5.5（考える）」など）、新しい版の知らせと修正依頼は1つ
+        （同じ知らせかの鍵は使っている版ごと＝置き換えは版を持つ1か所で1回）。知らせには両方の名前を書く。⛔ 2026-11-15 の見直しまで：名前ごとに2つずつ出た。"""
+        s = self.ready()
+        a, b = f"jev-{uuid.uuid4().hex[:6]}", f"jev-{uuid.uuid4().hex[:6]}"
+        same = f"typesafe/{a}"
+        rows = [self.row(a, 新しい版=[same + "-2"]), self.row(b, 役目="緊急の道", id=same, 使っている版=same, 新しい版=[same + "-2"])]
+        self.run_check(s, rows)
+        kinds, summaries, asked = self.told(a)
+        self.assertEqual((kinds, asked, self.told(b)[0]), (["ai_newer_version"], ["ai_newer_version"], ["ai_newer_version"]))
+        self.assertIn(a, summaries[0])
+        self.assertIn(b, summaries[0])
 
     def test_the_check_runs_every_day_for_the_whole_system(self):
         """毎日1回・全体の仕事（契約者ごとでない）・確かめの部品の設定があるときだけ（電話をかけるなら設定は必ず＝main.serve）。"""

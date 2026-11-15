@@ -36,7 +36,7 @@ from uuid import UUID
 
 from salescall.core import approval, attempts, next_action, settings, tasks
 from salescall.core.access import Tx
-from salescall.core.judge import DNC_PARTS
+from salescall.core.judge import DNC_PARTS, NUMBER_ONLY
 from salescall.core.phone import PhoneNumber, normalize
 
 Reason = Literal["refused_in_call", "refused_unclear_checked", "wrong_party", "fax_line", "manual", "client_list"]
@@ -50,7 +50,7 @@ REFUSALS = frozenset(r for r, part in DNC_PARTS.items() if part == "refusal")
 CUSTOMER_WIDE = REFUSALS | {"client_list"}
 # その番号のせいの理由（番号違い＝その番号の持ち主が別のお客様・FAX の回線）：かける番号を直したら、その番号で門が終えた行は戻す
 # （next_action.reopens_on_fix。2026-11-06 ユーザー「番号のせいで終えた行…は、新しい番号へすぐかけてよい予定に戻します」）
-NUMBER_ONLY = frozenset({"wrong_party", "fax_line"})
+# NUMBER_ONLY（上で読む）は判定の表の1か所（judge.NUMBER_ONLY＝DNC_PARTS の断りでない理由。⛔ 2026-11-15 の見直しまで：ここに同じ組を書いていた）
 
 
 class DncEntryNotFound(Exception):
@@ -350,16 +350,21 @@ def revoke_contractor(tx: Tx, entry_id: UUID, reason: str) -> None:
         raise DncEntryNotFound(str(entry_id))
 
 
-def lookup(tx: Tx, e164: str, *, client_ref: str | None = None) -> dict[str, Any] | None:
+def lookup(tx: Tx, e164: str, *, client_ref: str | None = None, customer_only: bool = False) -> dict[str, Any] | None:
     """その番号（または、その行の管理番号）が発信禁止なら、どの台帳か（client / contractor / client_ref）と理由。
 
     管理番号の登録は、設定を「いいえ」に戻しても効く（止める側に倒す。取り消しは契約者が。DESIGN.md 3-6）。
+    customer_only：その番号だけの理由（`NUMBER_ONLY`＝番号違い・FAX の回線）の番号の登録は見ない＝お客様を止める登録だけ（行のかける番号
+    でない番号を確かめるとき。target_policy.row_block_reason。その番号だけの登録はその番号へかけないだけで、お客様の断りではない＝
+    next_action._blocked_by_number と同じ決まり）。
     """
-    row = tx.one("SELECT reason::text AS reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
-                 (e164,))
+    skip = list(NUMBER_ONLY) if customer_only else []
+    row = tx.one("SELECT reason::text AS reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL"
+                 " AND NOT reason::text = ANY(%s)", (e164, skip))
     if row is not None:
         return {"ledger": "client", "reason": row["reason"]}
-    row = tx.one("SELECT reason FROM salescall.contractor_dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL", (e164,))
+    row = tx.one("SELECT reason FROM salescall.contractor_dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL"
+                 " AND NOT reason = ANY(%s)", (e164, skip))
     if row is not None:
         return {"ledger": "contractor", "reason": row["reason"]}
     if client_ref is not None:

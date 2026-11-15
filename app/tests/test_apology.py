@@ -140,7 +140,7 @@ class Apology(ApologyBase):
         self.order(s, aid)
         got = self.tx(s, lambda tx: apology.for_task(tx, s["task"]))
         self.assertEqual(got["recording"]["part"], apology.PARTS[True])
-        voice = self.tx(s, lambda tx: recordings.apology_voice(tx, s["task"]))
+        voice = self.tx(s, lambda tx: apology.voice(tx, s["task"]))
         self.assertEqual(voice, half["voice_name"])                   # お詫びの電話は、録音と同じ声で話す（門の choose_voice）
         checked = self.w.a.in_system(SYSTEM, lambda tx: {r["conname"]: r["convalidated"] for r in tx.all(
             "SELECT conname, convalidated FROM pg_constraint WHERE conname IN ('apology_orders_texts', 'apology_approvals_recorded')")})

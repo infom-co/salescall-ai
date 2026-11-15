@@ -104,10 +104,12 @@ def fix(tx: Tx, task_id: UUID, field: str, value: str | None, *, reading: str | 
         # 「ご担当者」だけの役職は、取込・版の割り当て・門と同じ1か所（業務設定の TargetNeeds.role_unclear＝その行の実施回のいまの版が
         # 一覧の役職でお呼びするときだけ）で断る（⛔ 2026-11-07 の第三者の見直し (2) の7：前はここだけ通していた／その直しのあとは、
         # ここだけ業務によらず断っていた）。あとで版が替わって役職でお呼びするようになれば、門と版の割り当てが同じ1か所で見る
+        # 実施回に版がまだ無ければ、ここでは確かめない（取込と同じ＝版を割り当てるときに、同じ1か所で確かめる。⛔ 2026-11-15 の見直しまで：版の無い実施回で
+        # 役職を直すと「業務設定の中身がありません：None」で落ち、「ご担当者」の行を直せず、版も割り当てられず行き詰まった）
         version = tx.one("SELECT salescall.run_current_version(t.run_id) AS v FROM salescall.tasks t WHERE t.task_id = %s", (task_id,))
         if version is None:
             raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
-        why = business_settings.load(tx, version["v"]).target_needs().role_unclear(text)
+        why = None if version["v"] is None else business_settings.load(tx, version["v"]).target_needs().role_unclear(text)
         if why is not None:
             raise FixInvalid(why)
     # 担当の方は同じか・違うかの選びと、お呼びする方が替わるか（欄の値そのものの確かめ＝読み・役職のあと。1か所＝`_person_fix`）

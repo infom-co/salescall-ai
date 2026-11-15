@@ -157,15 +157,43 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology", "na
 
 
 def _on_common(parts: list[Part]) -> None:
-    """共通の一言の組の部分が、共通の一言の部分（`common_phrases.TEXTS`）で、文が同じかの確かめ（1か所。`create_set` が呼ぶ。業務の録音の
-    `_on_list` と同じ決まり＝一覧の外・文が違うは作らない。部分の足りない組は作れる＝話してよい声にならないだけ。✅ 2026-11-15 ユーザー
-    「同じ決まりにする」）。"""
+    """共通の一言の組の部分が、共通の一言の部分（`common_phrases.TEXTS`）の全部で、文が同じかの確かめ（1か所。`create_set` が呼ぶ。業務の録音の
+    `_on_list` と同じ決まり＝一覧の外・文が違う・足りないは作らない。✅ 2026-11-15 ユーザー「同じ決まりにする」）。足りない組を作らないのは、その声の
+    いまの組が、そろった（承認済みの）いちばん新しい組だから（表の作り 0172・0174 の current_recording_sets）：1本だけ録り直した組を承認すると、それが
+    いまの組になり、前の組の残りの部分が使われなくなる（⛔ 2026-11-15 の見直しまで：作れた）。録り直した部分だけを渡すのは `complete_common`。"""
     names, texts = _common_args()
     want = dict(zip(names, texts))
     outside = sorted(p.part for p in parts if p.part not in want)
     wrong = sorted(p.part for p in parts if p.part in want and p.spoken_text != want[p.part])
-    if outside or wrong:
-        raise ValueError(f"共通の一言の組の部分は、共通の一言の部分と、名前・文が同じものです（共通の一言の外：{outside}・文が違う：{wrong}）")
+    missing = sorted(set(want) - {p.part for p in parts})
+    if outside or wrong or missing:
+        raise ValueError(f"共通の一言の組の部分は、共通の一言の部分の全部で、名前・文が同じものです（共通の一言の外：{outside}・文が違う：{wrong}・"
+                         f"足りない：{missing}。録り直した部分だけなら complete_common）")
+
+
+def complete_common(tx: Tx, voice_name: str, recorded: list[Part]) -> UUID:
+    """録った部分（recorded）と、使い回せる承認済みの共通の一言の録音（同じ声・同じ名前・同じ文。いちばん新しく作った組の部分）を合わせて、その声の
+    共通の一言の組を作る（管理者の録音の道具が呼ぶ。業務の録音の `complete` と同じ決まり）。使い回せる録音が無い部分は、すべて録ってあること（足りなければ
+    `_on_common` が断る）。承認は中身に付くので、聞いていただくのは録った部分だけ（`unapproved_parts`）。"""
+    names, texts = _common_args()
+    got = {p.part: p for p in recorded}
+    if len(got) != len(recorded):
+        raise ValueError("同じ名前の部分が2つあります")
+    rest = [(n, t) for n, t in zip(names, texts) if n not in got]
+    reuse: dict[str, Part] = {}
+    if rest:
+        for r in tx.all(
+                "SELECT r.part, r.spoken_text, r.audio_ref, r.audio_sha256 FROM salescall.recording_sets s"
+                " JOIN salescall.recordings r ON r.set_id = s.set_id"
+                " JOIN salescall.part_states k ON k.set_id = r.set_id AND k.part = r.part AND k.approved"
+                " JOIN unnest(%s::text[], %s::text[]) w(part, spoken) ON w.part = r.part AND w.spoken = r.spoken_text"
+                f" WHERE {_COMMON} AND s.voice_name = %s ORDER BY s.created_at DESC, s.set_id",
+                ([n for n, _ in rest], [t for _, t in rest], voice_name)):
+            reuse.setdefault(r["part"], Part(r["part"], r["spoken_text"], r["audio_ref"], r["audio_sha256"]))
+    # 名前の順に、録った部分か使い回せる部分（どちらも無い部分は入らない＝`_on_common` が「足りない」で断る）。共通の一言の外の部分も渡す（断られる）
+    return create_set(tx, unit="contractor", voice_name=voice_name,
+                      parts=[got[n] if n in got else reuse[n] for n in names if n in got or n in reuse]
+                      + [p for p in recorded if p.part not in set(names)])
 
 
 def _standard_parts(tx: Tx, standard_id: UUID, parts: list[Part]) -> None:
@@ -384,12 +412,15 @@ COMMON_PARTS: tuple[str, ...] = tuple(common_phrases.TEXTS)
 
 # 共通の一言の組 s に、共通の一言の部分（%s＝名前・%s＝文＝`_common_args`）が、同じ文ですべてあるか（SQL。話してよい声・足りない部分が組 s ごとに見る。
 # 業務の録音の `_COVERS` と同じ決まり＝文の違う承認済みの録音は使わない。✅ 2026-11-15 ユーザー「同じ決まりにする」。⛔ それまでは名前だけを見ていた）
-_HAS_TEXTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[], %s::text[]) p(part, spoken_text) WHERE NOT EXISTS (SELECT 1"
-              " FROM salescall.recordings r WHERE r.set_id = s.set_id AND r.part = p.part AND r.spoken_text = p.spoken_text))")
-# 標準の録音の組 s に、その版が標準から流す部分（%s）がすべてあるか（SQL。文は組を作るときに、その標準の版の答えと同じかを確かめる＝`_standard_parts`。
-# 標準の版は変えられないので、組の文が古くなることは無い）
-_HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
-              " WHERE r.set_id = s.set_id AND r.part = p.part))")
+# 組 s に、部分 p（名前 p.part・文 p.spoken_text）が同じ文であるか（SQL。共通の一言の、話してよい声＝`_HAS_TEXTS` と足りない部分＝`missing_parts` が
+# 読む1か所。⛔ 2026-11-15 の見直しまで：同じ条件を2か所に書いていた）
+_TEXT_IN_SET = ("EXISTS (SELECT 1 FROM salescall.recordings r WHERE r.set_id = s.set_id AND r.part = p.part"
+                " AND r.spoken_text = p.spoken_text)")
+_HAS_TEXTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[], %s::text[]) p(part, spoken_text) WHERE NOT " + _TEXT_IN_SET + ")")
+# 組 s に、部分 p（名前 p.part）があるか（標準の録音。文は組を作るときに、その標準の版の答えと同じかを確かめる＝`_standard_parts`。標準の版は変えられない
+# ので、組の文が古くなることは無い。話してよい声＝`_HAS_PARTS` と足りない部分＝`missing_parts` が読む1か所）
+_PART_IN_SET = "EXISTS (SELECT 1 FROM salescall.recordings r WHERE r.set_id = s.set_id AND r.part = p.part)"
+_HAS_PARTS = "NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT " + _PART_IN_SET + ")"
 # 業務の録音の組 s に、その版のいまの録音の部分の一覧（%s＝一覧。`_current_list`）の部分が、同じ文ですべてあるか（SQL。0212。読みは
 # 組がそろったかの1か所＝salescall.set_ready が、その版のいまの読みと比べる）
 _COVERS = ("NOT EXISTS (SELECT 1 FROM salescall.recording_list_parts l WHERE l.list_id = %s AND NOT EXISTS (SELECT 1"
@@ -430,13 +461,13 @@ def missing_parts(tx: Tx, version_id: UUID) -> list[str]:
     return [r["part"] for r in tx.all(
         "SELECT DISTINCT p.part FROM unnest(%s::text[], %s::text[]) p(part, spoken_text), salescall.voices v"
         " WHERE v.retired_at IS NULL AND " + _CURRENT.format(where=_BUSINESS) +
-        "   AND NOT EXISTS (SELECT 1 FROM salescall.current_recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
-        "                   WHERE s.voice_name = v.voice_name AND " + _COMMON + " AND r.part = p.part AND r.spoken_text = p.spoken_text)"
+        "   AND NOT EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
+        "                   WHERE s.voice_name = v.voice_name AND " + _COMMON + " AND " + _TEXT_IN_SET + ")"
         " UNION "
         "SELECT DISTINCT p.part FROM unnest(%s::text[]) p(part), salescall.voices v"
         " WHERE v.retired_at IS NULL AND " + _CURRENT.format(where=_BUSINESS) +
-        "   AND NOT EXISTS (SELECT 1 FROM salescall.current_recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
-        "                   WHERE s.voice_name = v.voice_name AND " + _STANDARD + " AND r.part = p.part)"
+        "   AND NOT EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
+        "                   WHERE s.voice_name = v.voice_name AND " + _STANDARD + " AND " + _PART_IN_SET + ")"
         " ORDER BY part", (*_common_args(), version_id, list(business_settings.standard_parts_of(tx, version_id)),
                            version_id, version_id))]
 
@@ -724,13 +755,7 @@ def play_parts(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, Part] | N
     return out
 
 
-def apology_voice(tx: Tx, task_id: UUID) -> str | None:
-    """その行の、承認されたいちばん新しいお詫びの案に結んだ録音の声（承認が無ければ None。どの承認にも録音の組がある＝0131・0137）。
-    お詫びの電話は、この声で話す（録音と同じ声。決めるのは門の gate.choose_voice）。"""
-    row = tx.one("SELECT s.voice_name FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
-                 " JOIN salescall.recording_sets s ON s.set_id = p.set_id"
-                 " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
-    return None if row is None else row["voice_name"]
+# ⛔ 2026-11-15 の見直しまで：お詫びの録音の声を apology_voice で別に選んでいた（core/apology.voice の1か所へ）
 
 
 # ═════════ 版の録音の部分の一覧と、要る部分だけの録音（1か所。0212。✅ 2026-11-06 ユーザー＝計画書 6-1 (4)：「録音が必要な部分がある場合のみ
@@ -949,9 +974,12 @@ def _on_list(tx: Tx, version_id: UUID, parts: list[Part]) -> None:
     heard = sorted(p.part for p in parts if p.part in want and p.spoken_text == want[p.part].spoken_text
                    and {n: readings_mod.required(r, f"録音「{p.part}」の名前「{n}」の読み「{r}」") for n, r in p.readings.items()}
                    != want[p.part].readings)
-    if outside or wrong or heard:
-        raise ValueError(f"業務の録音の部分は、その版の録音の部分の一覧の部分と、名前・文・読みが同じものです（一覧の外：{outside}・"
-                         f"文が違う：{wrong}・読みが違う：{heard}）")
+    # 足りない組は作らない（その声のいまの組は、そろった＝承認済みのいちばん新しい組なので、足りない組がいまの組になり、前の組の残りが使われなくなる。
+    # 共通の一言の `_on_common` と同じ決まり。⛔ 2026-11-15 の見直しまで：作れた。録り直した部分だけを渡すのは `complete`）
+    missing = sorted(set(want) - {p.part for p in parts})
+    if outside or wrong or heard or missing:
+        raise ValueError(f"業務の録音の部分は、その版の録音の部分の一覧の部分の全部で、名前・文・読みが同じものです（一覧の外：{outside}・"
+                         f"文が違う：{wrong}・読みが違う：{heard}・足りない：{missing}。録り直した部分だけなら complete）")
 
 
 def parts(tx: Tx, set_id: UUID) -> dict[str, Part]:

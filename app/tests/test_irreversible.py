@@ -1120,6 +1120,24 @@ class ByPart(Helpers):
         self.assertEqual(out["reopened"], [])
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
 
+    def test_a_revoke_of_the_dialed_number_keeps_a_row_stopped_by_another_number(self):
+        """今かける番号の登録を取り消しても、行のほかの番号（お客様が言った別の番号）に、お客様を止める登録が残っていれば戻さない（門と同じ
+        行のかけない理由の1か所 target_policy.task_block_reason。⛔ 2026-11-15 の見直しまで：かける番号だけを見て戻し、門もそれを通した）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(), items=[("Q1", "confirmed", None)])
+        extra = normalize(fictional_jp_fixed()).e164
+        self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], normalize(extra), source_attempt_id=aid))
+        self.settle(s, aid)
+        self.tx(s, lambda tx: dnc.register(tx, extra, "manual"), OPERATOR)
+        e_dial = self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"), OPERATOR)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：いま"))
+        denied = self.claim(s)
+        self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        out = self.tx(s, lambda tx: dnc.revoke(tx, e_dial["entry_id"], "試験：かける番号だけ取り消す"), OPERATOR)
+        self.assertEqual(out["reopened"], [])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
+
     def test_a_check_call_that_hit_power_off_or_busy_did_not_ring(self):
         """確かめのかけ直しが、電源オフ・圏外のお知らせ・話し中で終わった：お客様の電話は鳴っていない＝営業拒否にしない（15分おいて、
         お詫びからかけ直す。2026-10-30 管理者のご決定 (3)。⛔ 見直し24c の A1：前は「鳴った」として営業拒否にした）。"""

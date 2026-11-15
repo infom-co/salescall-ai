@@ -326,13 +326,8 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
                      list_label=customer_contacts.dial_label(designated=dial_field == "designated_phone"),
                      contact_values=tuple(values))
         scope = dict(client_ref=ref, tenant_id=run["tenant_id"], client_id=run["client_id"], business_id=run["business_id"])
-        blocked = target_policy.block_reason(tx, number, **scope)
-        if blocked is not None:
-            rows.append(stop(blocked[0], blocked[1], **found))
-            continue
-        # かけない番号（会社の番号のうち、かける番号でないもの・携帯電話番号）：読めなければ止める・そのお客様が断っていれば止める
-        # （どの番号でかけても同じお客様＝原則14。番号の種類の決まりは当てない＝かけない番号）
-        records, bad_record = [], None
+        # かけない番号（会社の番号のうち、かける番号でないもの・携帯電話番号）：読めなければ止める（読めた番号までを確かめる）
+        records, fields, bad_record = [], {}, None
         for field, label in (("phone", "company"), ("mobile", "mobile")):
             if field == dial_field or field not in raw:
                 continue
@@ -342,11 +337,15 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
                 break
             if other.e164 == number.e164 or any(x.e164 == other.e164 for x, _ in records):
                 continue
-            hit = target_policy.customer_block_reason(tx, other, **scope)
-            if hit is not None:
-                bad_record = (hit[0], f"「{title(field)}」の番号：{hit[1]}")
-                break
             records.append((other, label))
+            fields[other.e164] = field
+        # 行へかけない理由（かける番号の理由・ほかの番号のお客様の側の理由＝門と同じ1か所 target_policy.row_block_reason。そのお客様が
+        # 断っていれば、どの番号でかけても同じお客様＝原則14）
+        blocked = target_policy.row_block_reason(tx, number, [x for x, _ in records], **scope)
+        if blocked is not None:
+            code, why, other = blocked
+            rows.append(stop(code, why if other is None else f"「{title(fields[other.e164])}」の番号：{why}", **found))
+            continue
         if bad_record is not None:
             rows.append(stop(bad_record[0], bad_record[1], **found))
             continue
