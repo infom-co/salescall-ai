@@ -432,7 +432,14 @@ class Later1022(unittest.TestCase):
                     self.assertEqual((own.answer, [(d.text, d.problem) for d in own.drafts], own.checked),
                                      (extra.get("answer"), [(d["text"], d["problem"]) for d in extra.get("drafts", [])],
                                       extra.get("checked")))
-        for bad in ({"answer": ""}, {"problem": "前の形"}, {"drafts": [{"text": "文"}]}, {"drafts": "文"}, {"checked": ""}):
+        # AI が書くはずの言葉を書かなかった（申し出の方法が無い）確かめに通らなかった文は、文が空・理由あり（CL-1 の受け答えの確かめが書く形。⛔ 2026-11-15 に
+        # CL-1 の試験の報告をすべてこちらの読み手に通して見つけた：空の文を断り、報告ごと受け付けなかった）
+        empty = {"drafts": [{"text": "", "problem": "申し出の方法がありません"}], "terms_dropped": {"text": "", "problem": "申し出の方法がありません"}}
+        r = from_json(self.raw({"talk": [{**rec, "answer": "さようでございますか。", **empty}]}, None))
+        self.assertEqual(([(d.text, d.problem) for d in r.talks[0].own.drafts], r.talks[0].terms_dropped.text, from_json(r.to_json())),
+                         ([("", "申し出の方法がありません")], "", r))
+        for bad in ({"answer": ""}, {"problem": "前の形"}, {"drafts": [{"text": "文"}]}, {"drafts": "文"}, {"checked": ""},
+                    {"drafts": [{"text": "文", "problem": ""}]}, {"drafts": [{"text": None, "problem": "理由"}]}):
             with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
                 from_json(self.raw({"callee_question": [{**rec, "answered": True, **bad}]}, None))
             with self.subTest(bad=bad, kind="talk"), self.assertRaises(ReportInvalid):

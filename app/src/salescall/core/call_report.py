@@ -420,7 +420,8 @@ class Departed:
 
 @dataclass(frozen=True)
 class Draft:
-    """AI が書いたが、中身の確かめに通らなかった文（声に出していない。通話後の検証用。記録だけ）。"""
+    """AI が書いたが、中身の確かめに通らなかった文（声に出していない。通話後の検証用。記録だけ）。AI が書くはずの言葉を書かなかった（申し出の方法が無い
+    など）ときは、文が空で、理由がそれを言う（CL-1 の Flow の受け答えの確かめが書く形）。"""
     text: str
     problem: str                 # 通らなかった理由（「中身を確かめられませんでした」＝判定が2秒に届かなかった文）
 
@@ -1402,9 +1403,9 @@ def _own_words(r: dict[str, Any], where: str) -> OwnWords:
 def _draft(d: Any, where: str) -> Draft:
     """確かめに通らなかった（声に出さなかった）会話AIの文と理由（drafts の1つ・受け答えの terms_dropped。読むのはここだけ）。"""
     d = _keys(d, {"text", "problem"}, where)
-    text, problem = _text(d.get("text"), f"{where}.text"), _text(d.get("problem"), f"{where}.problem")
-    if text is None or problem is None:
-        raise ReportInvalid(f"{where} には、文（text）と通らなかった理由（problem）が要ります")
+    text, problem = d.get("text"), _text(d.get("problem"), f"{where}.problem")
+    if not isinstance(text, str) or problem is None:   # 文は空でもよい（AI が書かなかった）。理由は要る
+        raise ReportInvalid(f"{where} には、文（text。AI が書かなかったら空）と通らなかった理由（problem）が要ります")
     return Draft(text, problem)
 
 
