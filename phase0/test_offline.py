@@ -165,6 +165,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          "announce_recheck_unheard", *__import__("phrases").AGAIN_FIT})
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
 CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
+# 共通の一言の録音の文を替えて、CL-2 が名前と文の写し（common_phrases.TEXTS）を作り直すまで、文だけを比べない名前（CL-2 の 4-403 の (1)）。
+# CL-2 の文がそろったら落ちる＝外す
+CL2_TEXT_PENDING: frozenset[str] = frozenset()
 
 
 def without_cl2_pending(case: unittest.TestCase, mine: set, theirs: set) -> set:
@@ -14915,8 +14918,13 @@ class TargetTest(unittest.TestCase):
         # CONTRACTOR_PARTS）が、共通の一言の録音の名前の正本（phrases.RECORDED）と同じか。足りなければ、CL-2 はその声で話させない（待たせる）。
         # 名前を足したら CL-2 の連絡帳への返事で知らせる。CL-2 の 4-194 の (2)：一覧の名前を改める日は決めない＝新しい名前があればそれ、無ければ
         # 前の名前を読む（どちらの日に改めても通る）。CL-2 の部品（app/）が無い所では飛ばす（CL-2 の部品は読み込まない＝cl2_names の ast）
+        # CL-2 の 4-403 の (1)（✅ 2026-11-15 日本時間15時01分47秒 管理者（CL-2 の会話。原文は CL-2 の会話の記録で確かめた）「同じ決まりにする（お勧め）」
+        # ＝共通の一言の録音も、文の違う承認済みの録音は使わない）：CL-2 の名前と文の
+        # 1か所は common_phrases.TEXTS（こちらの RECORDED から CL-2 の道具で作る写し・recordings.COMMON_PARTS はその名前）＝名前と文の両方を比べる。
+        # CL-2 の部品が前の形（COMMON_PARTS が名前の並び）なら名前だけ。文を替えたら CL-2 の連絡帳へ知らせ、CL-2 が作り直すまでは CL2_TEXT_PENDING
         from phrases import RECORDED
-        parts = self.cl2_names("recordings.py", "COMMON_PARTS")
+        texts = self.cl2_value("common_phrases.py", "TEXTS")
+        parts = set(texts) if texts is not None else self.cl2_names("recordings.py", "COMMON_PARTS")
         if parts is None:
             parts = self.cl2_names("recordings.py", "CONTRACTOR_PARTS")
         if parts is None:
@@ -14925,19 +14933,39 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(sorted(CL2_RETIRED & set(RECORDED)), [], "使わなくなった名前は、こちらの表に残さない")
         self.assertEqual((sorted(without_cl2_pending(self, set(RECORDED), parts) - parts), sorted(parts - set(RECORDED) - CL2_RETIRED)), ([], []),
                          "（こちらだけにある名前, CL-2 の一覧だけにある名前）")
+        if texts is None:
+            return
+        both = set(texts) & set(RECORDED)
+        self.assertEqual(sorted(n for n in CL2_TEXT_PENDING if n not in both or texts[n] == RECORDED[n]), [],
+                         "CL-2 の文がそろった名前（と、どちらかに無い名前）は、CL2_TEXT_PENDING から外す")
+        self.assertEqual(sorted(n for n in both - CL2_TEXT_PENDING if texts[n] != RECORDED[n]), [],
+                         "名前は同じで文が違う（文を替えたら CL-2 の連絡帳へ知らせ、作り直すまで CL2_TEXT_PENDING に）")
 
     @staticmethod
-    def cl2_names(path: str, var: str) -> set[str] | None:
-        """CL-2 の部品（app/src/salescall/core/ の path）の var（文字の並び・組）の名前を ast で読む（CL-2 の部品は読み込まない）。無ければ None。"""
+    def _cl2_node(path: str, var: str):
+        """CL-2 の部品（app/src/salescall/core/ の path）の var の代入の値の ast（CL-2 の部品は読み込まない）。無ければ None。"""
         import ast
         import pathlib
         src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / path
         if not src.is_file():
             return None
         tree = ast.parse(src.read_text(encoding="utf-8"))
-        node = next((n.value for n in tree.body if isinstance(n, (ast.Assign, ast.AnnAssign))
+        return next((n.value for n in tree.body if isinstance(n, (ast.Assign, ast.AnnAssign))
                      and any(getattr(t, "id", None) == var for t in (n.targets if isinstance(n, ast.Assign) else [n.target]))), None)
+
+    @classmethod
+    def cl2_names(cls, path: str, var: str) -> set[str] | None:
+        """CL-2 の部品の var（文字の並び・組）の名前を ast で読む。無ければ None。"""
+        import ast
+        node = cls._cl2_node(path, var)
         return None if node is None else {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)}
+
+    @classmethod
+    def cl2_value(cls, path: str, var: str):
+        """CL-2 の部品の var の値（文字だけの dict など）を ast.literal_eval で読む。無ければ None（CL-2 の 4-403 の (1)）。"""
+        import ast
+        node = cls._cl2_node(path, var)
+        return None if node is None else ast.literal_eval(node)
 
     def test_callback_reasons_match_cl2_report(self):
         # CL-2 の 4-188 の (d)：かけ直しの記録の理由の一覧（こちら CALLBACK_REASONS・CL-2 の call_report.CALLBACK_REASONS）が同じ
