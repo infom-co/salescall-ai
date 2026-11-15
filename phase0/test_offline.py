@@ -2374,6 +2374,17 @@ class EarsTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             open_ear("no-such-ear")
 
+    def test_soniox_version_is_chosen_at_the_one_entry(self):
+        """Soniox の版を比べる測り（✅ 2026-11-15 日本時間13時51分37秒「伺い20・21もアで進めてください」＝v5 と v6 を G-15 の同じ音で）も、
+        耳を作る1か所 open_ear で版を選ぶ。版を言わなければ版を持つ1か所 ears.SONIOX_MODEL。版を選べるのは版のある耳（Soniox）だけ。"""
+        from unittest import mock
+        import ears
+        with mock.patch.object(ears, "load_secret", lambda name, env=None: "dummy"):
+            self.assertEqual(ears.open_ear("soniox").model, ears.SONIOX_MODEL)
+            self.assertEqual(ears.open_ear("soniox", model="stt-rt-v6").model, "stt-rt-v6")
+            with self.assertRaises(SystemExit):
+                ears.open_ear("transcribe35", model="stt-rt-v6")
+
     def test_key_is_hidden(self):
         import os
         from common import load_secret, redact
@@ -7019,7 +7030,8 @@ class JudgeSetupTest(unittest.TestCase):
         names = [n for n, _, _ in options(q, asked)]
         self.assertEqual({n for n in OTHER_JUDGES if decision_model(n)}, {"Jev 1.14", "d1 Ultra（Liquid）", "d1.1（Liquid）", "GPT-6 Luna Decisions",
                                                                          "Mercury Decide（Inception）", "Solar Decide（Upstage）",
-                                                                         "SubQ Snap 1.2", "Drex Max（Nace.AI）"})
+                                                                         "SubQ Snap 1.2", "Drex Max（Nace.AI）",
+                                                                         "Gemini Decision 1", "Perplexity Decider v1.3"})
         for name in OTHER_JUDGES:
             body = other_request(name, q, text, asked)
             sent = json.dumps(body, ensure_ascii=False)
@@ -28451,7 +28463,7 @@ class LatestAITest(unittest.TestCase):
         self.assertTrue({mj.EMERGENCY["model"], common.DEFAULT_MODEL, ears.SONIOX_MODEL, ears.AMIVOICE_ENGINE, "nace-ai/drex-max"} <= ids)
         lists = {"openrouter": [{"id": "liquid/d1-ultra", "slug": "liquid/d1-ultra-20261015", "created": 1, "display": ""},
                                 {"id": "liquid/d1.1-ultra", "slug": "liquid/d1.1-ultra-20261201", "created": 9, "display": ""}],
-                 "anthropic": "HTTPStatusError: 401", "gemini": [], "soniox": [{"id": "stt-rt-v5", "slug": "stt-rt-v5", "created": 0, "display": ""}]}
+                 "anthropic": "HTTPStatusError: 401", "gemini": [], "soniox": [{"id": ears.SONIOX_MODEL, "slug": ears.SONIOX_MODEL, "created": 0, "display": ""}]}
         out = {r["名前"]: r for r in la.check(rows, lists)}
         self.assertEqual(out["d1 Ultra（Liquid）"]["新しい版"], ["liquid/d1.1-ultra-20261201"])
         self.assertIn("一覧を読めない", out["Claude Sonnet 5.5"]["結果"])     # 1つの作り手が読めなくても、ほかは確かめる

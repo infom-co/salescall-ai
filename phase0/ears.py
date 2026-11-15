@@ -44,7 +44,11 @@ AMIVOICE_ENGINE = "-a-general"   # 汎用エンジン
 # 「%えー%してます。」と返る＝はい／いいえの答えでは、まさにこの言葉が要る）。
 AMIVOICE_KEEP_FILLER = "keepFillerToken=1"
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
-SONIOX_MODEL = "stt-rt-v5"        # リアルタイムの最新（2026-10-17 に Soniox のモデルの一覧で確かめた：stt-rt-v3・v4・v5。ears_try が毎回一覧を出す）
+# リアルタイムの最新。2026-11-15 に v5 から替えた（✅ 日本時間13時51分37秒「伺い20・21もアで進めてください」＝替える前に G-15 の同じ165本の音で
+# 比べた：台本どおり v5 159・v6 161（違いはどれも「いえ」と「いいえ」の書き分け）・会話AIが誤ったことのある21本は v6 が21本とも台本どおり（v5 18）・
+# 文字が届くまで中央 v5 0.43秒・v6 0.41秒＝PHASE0 G-15 の 11-15 の段）。版の確かめは latest_ai（10日に1回＝帳面 0-2 の「AIの最新版」）。
+# 名前の録音を切る道具の言葉ごとの時刻（soniox_word_times）も同じ1か所の版を使う
+SONIOX_MODEL = "stt-rt-v6"
 REAZON_DIR = HERE / "models" / "reazonspeech"
 GEMINI_EAR_MODEL = "gemini-3.5-transcribe-live"   # Gemini の書き起こしの耳（キーは common.KeyRing で選ぶ：上限・止められたキーは飛ばす）
 
@@ -385,15 +389,19 @@ class ReazonEar(Ear):
         return None
 
 
-def open_ear(kind: str, client=None, env_path: str | None = None) -> Ear:
-    """別の耳を1本作る唯一の入口（つなぐのは async with のとき）。キーは環境（.env か環境変数）から読み、値は伏せる一覧に入れる。"""
+def open_ear(kind: str, client=None, env_path: str | None = None, model: str | None = None) -> Ear:
+    """別の耳を1本作る唯一の入口（つなぐのは async with のとき）。キーは環境（.env か環境変数）から読み、値は伏せる一覧に入れる。
+    model＝版（言わなければ版を持つ1か所 SONIOX_MODEL）。版を選べるのは Soniox だけ＝新しい版を同じ音で比べる測り（G-15 の --ear-model。
+    ✅ 2026-11-15 日本時間13時51分37秒「伺い20・21もアで進めてください」＝v5 と v6）。本番は版を言わずに呼ぶ。"""
+    if model is not None and kind != "soniox":
+        raise SystemExit(f"版を選べる別の耳は soniox だけです（「{kind}」に版「{model}」は渡せません）")
     if kind == "transcribe35":
         return GeminiEar(client)
     if kind == "reazon":
         return ReazonEar()
     if kind in SECRETS:
         key = load_secret(SECRETS[kind], env_path)
-        return AmiVoiceEar(key) if kind == "amivoice" else SonioxEar(key)
+        return AmiVoiceEar(key) if kind == "amivoice" else SonioxEar(key, model=model or SONIOX_MODEL)
     raise SystemExit(f"別の耳「{kind}」はありません（選べるのは {', '.join(EAR_KINDS)}）")
 
 

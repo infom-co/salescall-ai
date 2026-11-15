@@ -103,11 +103,12 @@ async def run(args) -> dict:
 
     async def one_voice(client, rep: int, voice: str) -> list[dict]:
         out = []
-        async with open_ear(args.ear, client, args.env) as ear:
+        async with open_ear(args.ear, client, args.env, model=args.ear_model) as ear:
             for m in (m for m in items if m["voice"] == voice):
                 wav = m["wav"]
                 pcm, rate = read_wav_pcm16_mono(OUT.parent / wav)
-                row = {"rep": rep, "ear_kind": args.ear, "voice": m["voice"], "id": m["id"], "wav": wav, "text": m["text"]}
+                # 版は耳を作った1か所が持つ値をそのまま残す（言わなければ ears.SONIOX_MODEL）＝版を比べる測りの行が、どの版で聞いたかを持つ
+                row = {"rep": rep, "ear_kind": args.ear, "ear_model": getattr(ear, "model", None), "voice": m["voice"], "id": m["id"], "wav": wav, "text": m["text"]}
                 tail = callee_speech(wav)[2]
                 speech_end = loop.time() + len(pcm) / 2 / rate - tail  # 声の終わり（声のあとの無音を引く）
                 seen = len(ear.errors)
@@ -135,7 +136,7 @@ async def run(args) -> dict:
             else:
                 got, _ = await ring.acall(GEMINI_EAR_MODEL, lambda client: one_voice(client, rep, voice))
                 rows += got
-    return {"ear_kind": args.ear, "rows": rows, "summary": tally(rows)}
+    return {"ear_kind": args.ear, "ear_model": rows[0]["ear_model"] if rows else args.ear_model, "rows": rows, "summary": tally(rows)}
 
 
 def merge(paths: list[str]) -> dict:
@@ -151,6 +152,8 @@ def main() -> None:
     p.add_argument("--repeat", type=int, default=1)
     p.add_argument("--tag", default="")
     p.add_argument("--ear", default="transcribe35", choices=EAR_KINDS, help="別の耳の名前（ears.EAR_KINDS）")
+    p.add_argument("--ear-model", help="別の耳の版（版のある耳＝soniox だけ。言わなければ ears.SONIOX_MODEL。新しい版を同じ音で比べるとき＝"
+                                       "✅ 2026-11-15 日本時間13時51分37秒「伺い20・21もアで進めてください」の伺い21）")
     p.add_argument("--wait", type=float, default=5.0, help="話し終わりから、文字を待つ秒（速さを測るので、通話の中の待ち 2.0秒より長くする）")
     p.add_argument("--gap", type=float, default=1.0, help="次の声を流すまでの秒")
     p.add_argument("--merge", nargs="+", help="保存した結果をまとめて数え直す（問い合わせはしない）")

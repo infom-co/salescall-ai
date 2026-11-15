@@ -887,6 +887,18 @@ OTHER_JUDGES = {
                       "path": "/v1/systemone", "firm_min": 0.2, "yen_per_char": 7.24e-6},
     "Drex Max（Nace.AI）": {"maker": "nace-ai", "api": "decision", "model": "nace-ai/drex-max-20261016", "key": "OPENROUTER_JUDGE_KEY",
                           "host": "openrouter.ai", "firm_min": 0.2, "yen_per_char": 1.09e-5},
+    # 11月に出た判断のモデルの試しの候補（✅ 2026-11-15 日本時間13時51分37秒 ユーザー「伺い20・21もアで進めてください」＝同じ200行に足す・上限は
+    # 試しの帳簿の円の和で約55円）。どちらも OpenRouter の判断の窓口・線は測ってから・組には入れない・送り先は Intent.md 13章にまだ無い。版は
+    # 11-15 に OpenRouter の判断のモデルの一覧で確かめた（同じ系統でいちばん新しい版）。
+    # Gemini Decision 1（Google）＝11-11 の版。一覧の料金は入力100万トークンあたり0.10ドル・返す側0。1文字あたりの見込みは、11-15 の小さな試しの
+    #    200行で鍵の額から測った約8.3×10⁻⁶ 円（約11.3円）を少し上に丸めた値（はじめは Jev の実測を料金の比で移した1.81×10⁻⁵ 円＝2倍余りの見込み
+    #    だったので、上限20円で155行のところで道具が止めた）。受け口は Google AI Studio だけ（11-15 の受け口の一覧）。
+    # Perplexity Decider v1.3＝11-12 の版の無料の受け口（「:free」＝料金0・受け口は Perplexity だけ。有料の受け口は一覧に無い）。送った文の扱いと
+    #    回数の上限は受け口の一覧に書かれていない（11-15 に確かめた）＝試しで送るのは作った言葉だけ。本番で使うなら、送り先と一緒に伺う。
+    "Gemini Decision 1": {"maker": "google", "api": "decision", "model": "google/gemini-decision-1-20261111", "key": "OPENROUTER_JUDGE_KEY",
+                          "host": "openrouter.ai", "firm_min": 0.2, "yen_per_char": 9.0e-6},
+    "Perplexity Decider v1.3": {"maker": "perplexity", "api": "decision", "model": "perplexity/pplx-decider-v1.3-20261112:free",
+                                "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai", "firm_min": 0.2, "yen_per_char": 0.0},
 }
 # モデルの名前ごとの1文字あたりの円（KeySpend の見込み。OTHER_JUDGES の yen_per_char から作る1か所）
 YEN_PER_CHAR = {j["model"]: j["yen_per_char"] for j in OTHER_JUDGES.values() if "yen_per_char" in j}
