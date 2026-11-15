@@ -39,6 +39,10 @@ import re
 #    あるので、『ご希望の日時をお聞かせいただけますでしょうか？』とすらっと読めると自然（人っぽい）」「『、』が悪影響で読み方が不自然」
 #    ⇒ 決まった言い方・録音の文には、言葉の途中に読点を入れない（文の終わりの「。」「？」だけ）。問いかけは「？」で終える
 ASK_BACK = "お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"
+# 聞き取れなかった項目を聞く最後の1回（締めの前の念のための確認）の頭（✅ 2026-10-14 ユーザー「お声が聞き取れませんでしたので、ご希望の日時を、もう一度だけ…」。
+# 読点は外した＝10-15）。業務の質問の最後の1回（ask_again の last）。⛔ ca665f3e までは、聞き取れないまま「-」にしたお知らせの最終の確かめ（unheard_form）も
+# この言葉で始めた（11-15 11時59分07秒の (3) で「（句）件のお返事のお声が聞き取れなかったのですが…」＝UNHEARD_ACCEPTED に替わった）
+UNHEARD_LEAD = "お声が聞き取れませんでしたので"
 
 
 def ask_again(n: int, reason: str, topic: str = "", last: bool = False) -> str:
@@ -52,7 +56,14 @@ def ask_again(n: int, reason: str, topic: str = "", last: bool = False) -> str:
        締めの前の念のための確認1回）では、締めの前の念のための確認がこれにあたる。「もう一度だけ」は、最後の1回にしか使わない"""
     what = f"{topic}を" if topic else ""
     if last:
-        return f"お声が聞き取れませんでしたので{what}もう一度だけお聞かせいただいてもよろしいでしょうか？"
+        # お声は聞き取れていた（reason "form"＝答えが質問に合わない・別のお話・意味が決まらない答えで「-」にした＝flowctl.Flow._ask_kind・Item.dash_heard）：電話の
+        # せいにせず、聞き取れていたときの聞き直しの文（「恐れ入ります。（聞くこと）をもう一度…」＝本書 9-5 の (3)）に、最後の1回だけの「もう一度だけ」（10-14）
+        # ✅ 2026-11-14 日本時間20時05分14秒 ユーザー「「ありがとうございます。恐れ入ります。お支払いの方法をもう一度だけ…」ありがとうございます。恐れ入ります。は
+        # おかしい。⇒恐れ入りますが、など」＝締めの前の確認は頭に受けの一文（受け取った答えで選ぶ相づち＝Flow._ack）が来るので、「恐れ入ります。」の一文を重ねず
+        # 「恐れ入りますが」でお願いにつなぐ（決まった言い方なので読点は入れない＝10-15。その場の聞き直し（下の n<=1）は頭が「はい、」だけなので今のまま）
+        if reason == "form":
+            return f"恐れ入りますが{what}もう一度だけお聞かせいただいてもよろしいでしょうか？"
+        return f"{UNHEARD_LEAD}{what}もう一度だけお聞かせいただいてもよろしいでしょうか？"
     if n <= 1:
         return ASK_BACK if reason == "unclear" else f"恐れ入ります。{what}もう一度お聞かせいただいてもよろしいでしょうか？"
     return "もう一回よろしいでしょうか？"
@@ -217,6 +228,19 @@ CLOSE_DECLINED = "お忙しいところ申し訳ございませんでした。�
 # ✅ 2026-10-19 ユーザー：残りの3つも、下の言い方（不在は「お戻りになられますでしょうか」）。決まった言い方なので、言葉の途中に読点を入れない（10-15）
 CALLBACK_ASK = {
     "back_time": "恐れ入りますが何時ごろお戻りになられますでしょうか？",                  # 不在：戻られる時刻（✅ 必ず聞く＝ユーザーの指示）
+    # 不在で、受付の方の重ねての折り返しの申し出をお言葉に甘えて受けたあと（OFFER_ACCEPTED のあと＝flowctl.THEIRS_PLAN）：戻られる時刻。✅ 2026-11-14 日本時間
+    # 20時11分41秒 ユーザー（CL-2 の伺いへのお返事・CL-2 の会話の記録で原文を確かめた）「お言葉に甘えた電話の時に、『お電話をいただいた際に出られないことがない
+    # ように、お戻りになられる時間はお分かりになるでしょうか？』のような確認をしておいた方がいいんじゃないでしょうか。」（決まった言い方なので言葉の途中の読点は
+    # 外した＝10-15。頭の「恐れ入りますが」は足さない＝お言葉の「お電話をいただいた際に…ように」が頭のクッションになっている）。伺えた時刻は折り返しのお約束
+    # （theirs）と同じかけ直しの記録の time（CL-2 が戻る時刻の1時間後からかける＝CL-2 の 4-391・4-393）
+    "theirs_time": "お電話をいただいた際に出られないことがないようにお戻りになられる時間はお分かりになるでしょうか？",
+    # 不在のほかの理由でも、お言葉に甘えて受けたあとに同じ理由（お電話をいただいた際に出られないことがないように）で伺う（理由ごとの役目は flowctl.THEIRS_PLAN）。
+    # ✅ 2026-11-15 日本時間11時59分07秒 ユーザー「伺い17はアでOK」（11-15 1時01分34秒のご報告の伺い17 のアの文。決まった言い方なので読点を入れない・頭に
+    # 「恐れ入りますが」を付けない＝上の不在の文と同じ）。同じ文の理由は同じ役目・同じ録音（会議中などいまはお電話に出られない方＝お電話に出られないご事情・
+    # 呼んでいる段のあとでと、答えの段のお客様ご本人の「こちらから連絡します」＝あとで）。伺えた時刻は上と同じかけ直しの記録の time
+    "theirs_workday": "お電話をいただいた際に出られないことがないように次のご出社はいつかお分かりになりますでしょうか？",   # お休み
+    "theirs_date": "お電話をいただいた際に出られないことがないようにいつごろお戻りのご予定かお分かりでしょうか？",           # 出張など長期の不在
+    "theirs_later": "お電話をいただいた際に出られないことがないようにいつ頃お電話をいただけそうかお分かりになりますでしょうか？",   # ご事情・あとで
     "later_time": "恐れ入りますが何時ごろでしたらご都合よろしいでしょうか？",             # あとで：かけ直してよい時刻
     # 別の番号へ：番号。「おかけ直しする番号」とは言わない（かけ直すかは門と次の動きが決める＝約束しない。G-22）
     "number": "恐れ入りますがお電話番号をお伺いしてもよろしいでしょうか？",
@@ -460,19 +484,27 @@ def sense_ask(said: str | None, words: str) -> str:
     return SENSE_ASK.format(said=s, words=words) if s and len(s) <= SENSE_SAID_MAX else SENSE_ASK_NOW.format(words=words)
 
 
+def of_matter(noun: str) -> str:
+    """「（名詞）の件」の「件」の前まで（唯一の作り方＝組む所は「{t}件」の形：決まった伝言 standard_message・続きの電話で切れた所から伺う一言
+    flowctl._wish_text・申し伝える一言 TOLD_AGAIN・連絡先を伺う前に切れた続き CONTACT_RESUMED）：名詞が「件」で終わる（取込で決めた用件の名詞「先日お送りした
+    お見積りの件」・業務の聞くこと「ご連絡の件」）なら、その「件」の前まで（「…の件の件」と重ねない）・ほかは名詞＋「の」・名詞が無ければ空（「前回お伺いした件で」）。
+    ✅ 2026-11-13 まとめ役の決め（分身 D の伺いC＝ア。日本語の誤り）"""
+    return noun[:-1] if noun.endswith("件") else f"{noun}の" if noun else ""
+
+
 CALLBACK_ASK_ANSWERING = {"later_time": "いつ頃おかけ直しさせていただきましょうか？"}
 CALLBACK_ASK_RESUMED = {"not_agreed": "前回お伺いした件で" + CALLBACK_ASK["not_agreed"]}
 # ほかのご希望でご連絡の方法までは伺えて、その連絡先を伺う前に切れた電話の続き（前の通話の答えの "wish_means"＝flowctl.resumed_step）。✅ 2026-11-04 日本時間19時26分
 # ユーザー：「前回、選択いただいたLINEでのご連絡の件でLINEの連絡先を伺う前に切れてしまいましたので、恐れ入りますがLINEのIDをお伺いするか、SMSかメールからご招待する
 # 方法で対応させていただいてもよろしいでしょうか？」（決まった言い方なので読点は外した＝10-15）。同じ場面のメール・ファクス・郵送も、同じ形で（ご連絡の方法・
 # 伺う連絡先・伺う一言の「それでは恐れ入りますが」のあと）。役目 → (ご連絡の方法の言葉, 伺う連絡先の言葉)
-CONTACT_RESUMED = "前回選択いただいた{means}の件で{what}を伺う前に切れてしまいましたので恐れ入りますが{ask}"
+CONTACT_RESUMED = "前回選択いただいた{means}件で{what}を伺う前に切れてしまいましたので恐れ入りますが{ask}"   # {means}＝of_matter（方法の名前）
 # 鍵＝flowctl.contact_again_key（連絡先の役目、同じ役目を後ろの方法も使うときは「役目_方法」）→ (伺う一言の役目, 方法の名前, 伺う連絡先)。
 # オンライン（ZOOM など）は、ご案内の URL をお送りするメールアドレス（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK」）
 _CONTACT_RESUMED = {"line_how": ("line_how", "LINEでのご連絡", "LINEの連絡先"), "email": ("email", "メールでのご連絡", "メールアドレス"),
                     "fax": ("fax", "ファクスでのご連絡", "ファクス番号"), "address": ("address", "郵送でのご案内", "ご住所"),
                     "email_online": ("email", "オンラインでのご案内", "メールアドレス")}
-CALLBACK_ASK_RESUMED.update({k: CONTACT_RESUMED.format(means=m, what=w, ask=CALLBACK_ASK[r].removeprefix("それでは恐れ入りますが"))
+CALLBACK_ASK_RESUMED.update({k: CONTACT_RESUMED.format(means=of_matter(m), what=w, ask=CALLBACK_ASK[r].removeprefix("それでは恐れ入りますが"))
                              for k, (r, m, w) in _CONTACT_RESUMED.items()})
 # 選ぶ質問（「どちら」）に「どれも要らない」と言われたとき、ほかのご希望を1回だけ伺う（flowctl.Flow._wish_step。{c}＝その質問の選択肢を「と」でつないだもの。
 # 質問ごとに文が変わるので、依頼主の単位の録音＝flowctl.other_wish_recording_id）。✅ 2026-11-03 日本時間19時54分 ユーザー：「この質問に入ったという
@@ -485,7 +517,8 @@ OTHER_WISH_ASK = "それでは{c}のほかにご希望はございますでし�
 # 最終目的の質問に、言い切っていないお断りをいただいた場合は、(1) ほかのご希望を1回だけ伺う。ということですよね？それならOKですよ」）。申し出（パンフレット・
 # お電話・ご訪問）にもご意向（今月中のご導入）にも合うよう「ご希望など」（「方法」「時期」と決めると、どちらかに合わない）
 OTHER_WISH_ASK_PLAIN = "それではほかにご希望などはございますでしょうか？"
-# ほかのご希望を伺っている途中で電話が切れたときの、続きの電話（お詫びのすぐあと）で切れた所から伺う一言（{t}＝元の質問の聞くこと＋「の」・無ければ空。
+# ほかのご希望を伺っている途中で電話が切れたときの、続きの電話（お詫びのすぐあと）で切れた所から伺う一言（{t}＝元の質問の聞くことの of_matter＝「件」で終われば
+# その前まで・ほかは＋「の」・無ければ空。
 # {c} と並べるかは上の2つと同じ決まり＝flowctl._wish_text）。✅ 2026-11-03 日本時間23時52分36秒 ユーザー：「(ア)」（お見せした案：「前回はお電話が
 # 途中で切れてしまい大変失礼いたしました。」→「前回お伺いしたご連絡の方法の件で」＋「電話とメールのほかにご希望はございますでしょうか？」＝10-17 の
 # 「続きから聞く」と同じ形）。決まった言い方なので、言葉の途中に読点を入れない（✅ 2026-10-15）。依頼主の単位の録音（（番号）_other_again）
@@ -711,9 +744,30 @@ def announce_check(line: str) -> str:
 
 # お知らせのあと黙られて電話接続側が流した一言（THINKING_PROMPT）へのお返事だけ（「あ、はい、分かりました。」＝一言に答えているかもしれない）のときの最終の確かめ
 # （共通の一言の録音 announce_recheck。了承として受け取らない＝✅ 2026-11-13 日本時間20時06分19秒 ユーザー「「あ、はい、分かりました。」は、こちら：「何か気になる
-# 点がございましたらお気軽にお聞かせくださいね。」に対して答えてる可能性があるので、気をつけないといけないよ。」）。⏳ 言い方は伺い中（ほかの形：お知らせの文を
-# 「それでは」で言い直す・「念のため、先ほどの内容でご了承いただけますでしょうか？」）。「ご承認」は使わない（19時32分21秒「警戒してしまう」）
-ANNOUNCE_RECHECK = "それでは先ほどの内容でよろしいでしょうか？"
+# 点がございましたらお気軽にお聞かせくださいね。」に対して答えてる可能性があるので、気をつけないといけないよ。」）。言い方＝✅ 2026-11-14 日本時間14時31分38秒
+# ユーザー（伺い10）：「はい、それでは、キャンセルの件はご了承ということでよろしかったでしょうか？」（決まった言い方なので読点は外した＝10-15。「はい、」は受けの
+# 相づちの録音）。（名詞）＝取込で決めたお知らせの中身の名詞（Question.matter）。決まらなかったお知らせは名詞の所を「先ほどの内容」にする（共通の一言の録音
+# announce_recheck）。名詞のあるお知らせは業務の録音「（番号）_accepted」（make_ack_clips.script_table）。組む所は1か所＝flowctl.accepted_line。
+# 「ご承認」は使わない（11-13 19時32分21秒「警戒してしまう」）
+ANNOUNCE_ACCEPTED = "それでは{t}件はご了承ということでよろしかったでしょうか？"   # {t}＝of_matter（お知らせの中身の名詞）
+ANNOUNCE_RECHECK = "それでは先ほどの内容はご了承ということでよろしかったでしょうか？"
+
+
+# 聞き取れないまま「-」にしたご承認のお知らせの、締めの前の最終の確かめ（見直し (12) の B-1・まとめ役の決め (f)）の言い方＝✅ 2026-11-15 日本時間11時59分07秒
+# ユーザー「・(3)今：こちら「ありがとうございます。申し訳ございません、お声が聞き取れませんでしたのでキャンセルの件はご了承ということでよろしかったでしょうか？」
+# ⇒こちら「ありがとうございます。申し訳ございません、キャンセルは前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承ということで
+# よろしかったでしょうか？」」（何へのお返事が聞き取れなかったのかを言う。決まった言い方なので読点を入れない＝10-15）。{t}＝「件」の前の言葉：取込で決めたお知らせの
+# 中身を常体にした句（Question.matter_clause）・句が無ければ名詞の of_matter（「キャンセルの」）・名詞も無ければ「先ほどの」（UNHEARD_EARLIER＝共通の一言の録音
+# announce_recheck_unheard）。⛔ ca665f3e まで「お声が聞き取れませんでしたので（名詞）の件は…」（最終の確かめの頭「それでは」を UNHEARD_LEAD に替えた形）
+UNHEARD_ACCEPTED = "{t}件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"
+UNHEARD_EARLIER = "先ほどの"
+
+
+def unheard_form(t: str) -> str:
+    """聞き取れないまま「-」にしたご承認のお知らせの、締めの前の最終の確かめの文（唯一の作り方＝flowctl.accepted_line の heard=False・取込の問い MATTER_PROMPT が
+    例に引く）：UNHEARD_ACCEPTED の「件」の前に t（句・名詞の of_matter。空なら「先ほどの」）。お詫び「申し訳ございません、」は確認を作る所
+    （flowctl.Flow._advance_to）が前に置く（聞き取れなかった質問の締めの前の確認と同じ1か所）。"""
+    return UNHEARD_ACCEPTED.format(t=t or UNHEARD_EARLIER)
 
 
 # 同じ所（同じ質問・同じ言い直し）へ3回目から戻るときの一言＝続く質問の頭（✅ 2026-11-07 日本時間4時40分35秒 ユーザー：「たびたび失礼いたしました。はおかしい
@@ -792,7 +846,7 @@ MESSAGE_AGAIN = MESSAGE_STANDARD.format(who="", about="")
 
 def standard_message(company: str, caller: str, noun: str = "") -> str:
     """決まった伝言の文を作る唯一の場所（instruction.Business.replay_parts の message）。company・caller は名乗りと同じ声に出す形（Business._said）。"""
-    return MESSAGE_STANDARD.format(who=f"{company}の{caller}から", about=f"{noun}の件で" if noun else "")
+    return MESSAGE_STANDARD.format(who=f"{company}の{caller}から", about=f"{of_matter(noun)}件で" if noun else "")
 
 
 def message_again(text: str) -> str | None:
@@ -920,7 +974,7 @@ POINT_FALLBACK = {point_fallback_id(k, a): point_fallback(k, a) for k in POINT_K
 # 「先ほど」「前回」はお詫び（APOLOGY_CUT_END）と同じ＝同じ日は先ほど・あとの日は前回（同じ返事の中で混ぜない。⛔ 2026-11-06 日本時間23時22分41秒の
 # ご質問の見直し H10：いつも「前回お伺いした…」で、同じ日は「先ほどは…切れてしまい…」のすぐあとに「前回お伺いした…」と混ざった）
 EARLIER_CALL_WORD = {"same_day": "先ほど", "later": "前回"}
-TOLD_AGAIN = {f"{k}_{when}": f"{at}お伺いした{noun}の件は担当の者に申し伝えさせていただきますね。"
+TOLD_AGAIN = {f"{k}_{when}": f"{at}お伺いした{of_matter(noun)}件は担当の者に申し伝えさせていただきますね。"
               for when, at in EARLIER_CALL_WORD.items() for k, (noun, _) in POINT_KINDS.items()}
 OWN_FALLBACK_POINT = POINT_FALLBACK["own_fallback_point"]
 OWN_FALLBACK_POINT_AGAIN = POINT_FALLBACK["own_fallback_point_again"]
@@ -1026,6 +1080,13 @@ def closes(text: str) -> bool:
     return text.endswith(("。", "？", "！", "?", "!"))
 
 
+# もう伺った質問を伺い直すときの頭（唯一の言葉＝flowctl.spoken_question・restated_again・Flow._continue・決まった文の質問の again_fit）。戻る一言・「失礼
+# いたしました。」のあと・尋ねられて答えたあとに最終の確かめの向きが決まらない質問（✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(2) イ」＝11時台のご報告の
+# (イ)「進む向きが1つに決まらない選ぶ質問は (ウ) の形」＝「はい、それではパンフレットをお送りしてもよろしいでしょうか？」）。同じ理由（次の項目ではない＝
+# 「続きまして」は合わない）で、もう伺った質問へ戻るとき全部に当てる。⛔ 2e5986f5 まで flowctl にあり、決まった文の質問（システムの質問）の録音の形を作れなかった
+AGAIN_LEAD = "それでは"
+
+
 def head_word(text: str) -> str | None:
     """文の頭のつなぎの言葉（LEAD_IN の「次の質問」の言葉。長いものから見る＝「それでは」を「では」と読まない）。無ければ None。"""
     return next((w for w in sorted(LEAD_IN["次の質問"], key=len, reverse=True) if text.startswith(w)), None)
@@ -1070,6 +1131,18 @@ def back_fit(rid: str, text: str, before: str) -> tuple[str, str]:
     if w and any(a.endswith(w) or w.endswith(a) for a in heads_said(before)):
         return f"{rid}_bare", text[len(w):]
     return rid, text
+
+
+def again_fit(rid: str, text: str) -> tuple[str, str]:
+    """決まった文の質問（システムの質問・ほかのご希望を伺う一言など）を、戻る一言なしに伺い直すときの録音の名前と文（唯一の決まり＝流す flowctl.question_play・
+    録音の表 RECORDED・make_ack_clips.script_table）：もう伺った質問へ戻る頭「それでは」（AGAIN_LEAD）＋文（1本の録音。名前は業務の質問と同じ組み方＝
+    question_clip の「_lead_soredeha」）。文がもうつなぎの言葉で始まれば、そのまま（「それではそれでは」と重ねない）。問いでない一言（振り返りの一言など）は、
+    そのまま（もう伺った「質問」へ戻る頭＝問いだけ。3回目からの戻る一言をつながないのと同じ見分け＝back_fit）。見直し (12) の B-9・まとめ役の決め (g)：
+    受付の方の伝言の申し出をお礼で断ったあとの「お気遣いありがとうございます。…お電話させていただきます。それでは恐れ入りますが何時ごろお戻りになられます
+    でしょうか？」（⛔ 2e5986f5 まで、直前に伺った文を同じ言い方でくり返した＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）"""
+    if head_word(text) or not text.endswith(("？", "?")):
+        return rid, text
+    return question_clip(rid, AGAIN_LEAD), AGAIN_LEAD + text
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             STANDARD_PARTS["ai"]: AI_ANSWER, "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
@@ -1082,7 +1155,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK,
+            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(""),
             "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
@@ -1100,6 +1173,11 @@ RESUMED_IDS = {f"callback_{k}_again" for k in CALLBACK_ASK_RESUMED}
 BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS]
             for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY) for rid, t in [back_fit(base, text, b)] if rid != base}
 RECORDED.update(BACK_FIT)
+# システムの質問を、戻る一言なしに伺い直す形（again_fit の1か所。もう伺った質問へ戻る頭「それでは」＝見直し (12) の B-9）。続きの電話の前置きつきの一言
+# （RESUMED_IDS）は、伺い直すときは前置きを言い直さない形（flowctl.Question.plain）なので作らない
+AGAIN_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS and k not in BACK_FIT]
+             for rid, t in [again_fit(base, text)] if rid != base}
+RECORDED.update(AGAIN_FIT)
 
 
 def lead_in(kind: str, n: int) -> str:

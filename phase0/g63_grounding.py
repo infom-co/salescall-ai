@@ -177,9 +177,27 @@ def overall(rows: list[dict]) -> dict:
     return out
 
 
+def touch_cases() -> list[tuple]:
+    """触れたかの試し（見直し (12) の D-8・試しの言葉の表 review_words.GROUND_WORDS）：(知っていること, お客様の言葉, 返す文, 正解, 一覧の名前, いま伺っている質問,
+    選択肢, 触れたかの正解)。同じ行を、質問と選択肢を添えない形でも並べる（添えたときと添えないときで、通す・止めるが変わらないかを数える＝帳面 1 の (1)）。"""
+    from review_words import GROUND_WORDS, KNOW
+    out = []
+    for r in GROUND_WORDS:
+        want = OK if r["want"] else NG
+        out.append((KNOW, r["said"], r["draft"], want, "触れたか", r["asking"], tuple(r["options"]), r["touch"]))
+        out.append((KNOW, r["said"], r["draft"], want, "触れたか（選択肢を添えない）", r["asking"], (), r["touch_plain"]))
+        out.append((KNOW, r["said"], r["draft"], want, "触れたか（質問を添えない）", "", (), None))
+    return out
+
+
 async def run(args) -> dict:
-    # (業務の知っていること, お客様の言葉, 返す文, 正解, 一覧の名前)
-    cases = [(b.knowledge(), s, d, w, k) for b, s, d, w, k in all_cases()]
+    # (業務の知っていること, お客様の言葉, 返す文, 正解, 一覧の名前, いま伺っている質問, 選択肢, 触れたかの正解)
+    cases = [(b.knowledge(), s, d, w, k, "", (), None) for b, s, d, w, k in all_cases()]
+    if args.touch:
+        # 添える質問・選択肢は、通話と同じ make_grounder の ground(…, asking, options) にだけ渡せる（--race で流す）
+        if not args.race:
+            raise SystemExit("--touch は --race（通話と同じ make_grounder）と一緒に流します")
+        cases += touch_cases()
     rows = []
     names = args.judge or ("3.5 Flash Lite", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
     if args.race:
@@ -187,9 +205,9 @@ async def run(args) -> dict:
         from grounding import make_grounder
         race, label = make_grounder(args, tuple(names)), "同時に出して早いほう（" + "・".join(names) + "）"
 
-        async def timed_race(know, said, draft):
+        async def timed_race(know, said, draft, asking="", options=()):
             t = time.monotonic()
-            v = await race(know, said, draft)
+            v = await race(know, said, draft, asking, options)
             if v is not None:
                 v.seconds = round(time.monotonic() - t, 2)
             return v
@@ -199,9 +217,9 @@ async def run(args) -> dict:
     for name in names:
         reader = readers.get(name) or make_reader(args, name, wait_s=args.wait, attempt_s=args.attempt)
         for rep in range(args.repeat):
-            for know, said, draft, want, kind in cases:
+            for know, said, draft, want, kind, asking, options, touch in cases:
                 try:
-                    v = await reader(know, said, draft)
+                    v = await (reader(know, said, draft, asking, options) if asking else reader(know, said, draft))
                 except Exception as exc:
                     rows.append({"judge": name, "rep": rep, "said": said, "draft": draft, "want": want, "error": repr(exc)[:200], "set": kind})
                     say(f"{name} {rep} 誤り {draft[:20]} {repr(exc)[:120]}")
@@ -210,7 +228,8 @@ async def run(args) -> dict:
                 got = None if v is None else (OK if v in PASSES else NG)
                 rows.append({"judge": name, "rep": rep, "said": said, "draft": draft, "want": want, "choice": v, "part": getattr(v, "part", ""),
                              "seconds": getattr(v, "seconds", None), "got": got, "set": kind, "by": getattr(v, "by", None),
-                             "sure": getattr(v, "sure", None)})
+                             "sure": getattr(v, "sure", None), "asking": asking, "options": list(options),
+                             "touch": getattr(v, "touch", ""), "touch_truth": touch})
                 if got != want:
                     say(f"[{name} {rep}] 外れ：正解{want}・読み{v}（{getattr(v, 'part', '')}）「{draft}」")
                 # ⛔ 2026-10-23：3.8 Flash の測りが途中で処理ごと消え、それまでの読みが残らなかった ⇒ 1文ごとに途中の結果を残す
@@ -238,6 +257,7 @@ def main() -> None:
     p.add_argument("--wait", type=float, default=0.0, help="Gemini のどのキーも1分の上限のとき待つ秒（測るときだけ）")
     p.add_argument("--attempt", type=float, default=None, help="1回の問い合わせの上限の秒（Gemini。超えたら時間切れの誤りとして数える）")
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため）")
+    p.add_argument("--touch", action="store_true", help="触れたかの試し（review_words.GROUND_WORDS・質問を添えた形と添えない形）も流す（--race と一緒に）")
     p.add_argument("--race", action="store_true", help="選んだ判定を同時に出し、先に届いた読みで決める形（通話と同じ make_grounder）で測る")
     p.add_argument("--tally", nargs="+", help="保存した記録を、問い合わせずに、いまの決まりで数え直す（確かめ全体）")
     args = p.parse_args()

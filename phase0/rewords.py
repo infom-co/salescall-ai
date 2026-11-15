@@ -11,8 +11,7 @@
 """
 from __future__ import annotations
 
-from announces import keeps_facts
-from phrases import ASIDE_LEAD, head_word
+from phrases import ASIDE_LEAD
 
 # 頭に付けない言葉（「ところで」はプログラムが付ける・ほかの頭は「ところで」に続かない）
 LEADS = (ASIDE_LEAD, "それでは", "では", "恐れ入りますが", "続きまして", "さて")
@@ -40,13 +39,9 @@ def _answers(conditions: tuple, qtype: str) -> str:
 def fits(text: str, conditions: tuple, qtype: str, line: str | None) -> bool:
     """言い換えた質問として使えるか（形の決まりの唯一の場所）：「？」で終わる1つの問いの文・読点が無い（10-15）・元の文と同じでない・頭につなぎの言葉が無い
     （「ところで」に続けて自然）・数と期限の言葉を落としていない（announces.keeps_facts）・選ぶ質問は元の文にある選択肢の言葉を落としていない。"""
-    if not line or line == text or not line.endswith("？") or line.count("？") != 1 or any(m in line for m in ("?", "。", "、", "，")):
-        return False
-    if line.startswith(LEADS) or head_word(line):
-        return False
-    if not keeps_facts(text, line):
-        return False
-    return qtype != "choice" or all(c in line for c in conditions if c in text)
+    from askitems import question_line_fits
+
+    return question_line_fits(text, line, LEADS) and (qtype != "choice" or all(c in line for c in conditions if c in text))
 
 
 def by_model(client, model: str, items: list[tuple[str, tuple, str]], think: bool = False) -> list[str | None]:
@@ -72,4 +67,4 @@ def grounded(client, model: str, text: str, conditions: tuple, qtype: str, line:
     """言い換えた質問が、元の質問（選択肢・答え方も）に無い事実を足していないか（中身の判定の1か所＝askitems.grounded）。通ったときだけ True。"""
     from askitems import grounded as check
 
-    return check(client, model, [text, _answers(conditions, qtype)], line, ("grounding", "言い換えた質問の中身"))
+    return check(client, model, [text, _answers(conditions, qtype)], line, ("grounding", "言い換えた質問の中身"), same=True)

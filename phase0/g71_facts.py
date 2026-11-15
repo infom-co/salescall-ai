@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from common import KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from facts import by_model, decide
+from import_ai import ASKERS
 
-MODELS = ("3.8 Flash", "3.7 Flash")
+MODELS = ASKERS   # 本番の取込の組の1か所（import_ai.ASKERS）
 # ⛔ 取り違え（CL-1 が1つずつ見て書く）：質問の文
 WRONG: set[str] = set()
 

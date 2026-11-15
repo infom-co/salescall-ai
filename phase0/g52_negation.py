@@ -19,8 +19,9 @@ from common import KeyRing, base_parser, describe_error, drop_partial, require_p
 from flowctl import Question
 from g48_meanings import QUESTIONS
 from meanings import clean, decide, negated
+from import_ai import ASKERS
 
-MODELS = ("3.8 Flash", "3.7 Flash")
+MODELS = ASKERS   # 本番の取込の組の1か所（import_ai.ASKERS）
 
 
 def negation_conflict(q: Question, cond: str | None, said: str | None) -> bool:

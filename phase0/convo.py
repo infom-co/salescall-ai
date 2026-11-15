@@ -365,7 +365,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         if task in done and task.exception() is None and task.result() is not None:
             v = task.result()
             flow.on_grounded(draft, v)
-            row |= {"verdict": str(v), "part": v.part, "by": v.by, "seconds": v.seconds}
+            # 触れたかの読み（grounding.TOUCH＝いま伺っている質問を添えた仕事だけ）も残す＝「ところで」と「それでは」・先に並べたかの理由を追える（見直し (12) の D-8）
+            row |= {"verdict": str(v), "part": v.part, "by": v.by, "seconds": v.seconds, "touch": getattr(v, "touch", "")}
         elif task in done:
             row["error"] = repr(task.exception()) if task.exception() is not None else "読めなかった"  # どの判定も答えなかった
         else:

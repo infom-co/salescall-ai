@@ -4,21 +4,25 @@
 - 測る：いまの判定（3.5 Flash Lite）を測った G-53 の答えと同じ答えで、使える判定ぜんぶに聞く（言い直しへの返事を先に・決め手の15個を先頭に）
 使い方：
     python judge_try.py --check   （確かめだけ）
-    python judge_try.py           （確かめてから測る。結果は results/G-53-others_*.json）"""
+    python judge_try.py --check --name "Drex Max（Nace.AI）" --budget-yen 1   （その判定だけを確かめる＝1回の問い合わせ）
+    python judge_try.py           （確かめてから測る。結果は results/G-53-others_*.json）
+確かめの1回も、試しの上限（--budget-yen）つきの料金の帳簿を通し、結果（results/JUDGE-CHECK_*.json）に料金が入る（帳面 0-3 の (8)「上限は道具が
+守る」。⛔ 2026-11-15 まで、確かめは帳簿を通らず、名前でも絞れなかった＝表の全部の判定に1回ずつ送る作りだった）"""
 from __future__ import annotations
 
 import subprocess
 import sys
 import time
 
-from common import HERE, base_parser, describe_error, has_secret, load_secret, require_python, say
+from common import HERE, base_parser, describe_error, has_secret, load_secret, require_python, save_result, say
 from meaning_judge import OTHER_JUDGES, OtherJudgeError, judge_other, other_client
 
 # いまの判定を、いまの問い合わせの文で測った答え（2回目。C の組は判定し直していないので使わない）
 BASE_RESULT = "results/G-53_20261018_105658.json"
 
 
-def check(name: str, env) -> bool:
+def check(name: str, env, budget: float | None = None) -> dict | None:
+    """1個だけ判定できるかを確かめ、できれば {"model", "秒", "読み"} を返す（できなければ None）。budget＝試しの上限（料金の帳簿を通す）。"""
     import httpx
 
     from g53_meaning import g48_questions
@@ -26,33 +30,38 @@ def check(name: str, env) -> bool:
     j = OTHER_JUDGES[name]
     if not has_secret(j["key"], env):
         say(f"⛔ {name}：キー {j['key']} が入っていません（docs/JUDGE_SETUP.md の (2)）")
-        return False
+        return None
     try:
         httpx.get(f"https://{j['host']}/", timeout=15)
     except Exception as exc:
         say(f"⛔ {name}：{j['host']} に届きません（docs/JUDGE_SETUP.md の (1)）：{describe_error(exc).get('message', '')[:120]}")
-        return False
+        return None
     q = next(q for q in g48_questions() if q.id == "G17")  # ご連絡はお電話とメールのどちらがよろしいでしょうか？
     key = load_secret(j["key"], env)
     t = time.monotonic()
     try:
-        got = judge_other(other_client(name, key), name, q, "メールのほうが助かりますが…", "念のためご連絡はメールでよろしいでしょうか？")
+        got = judge_other(other_client(name, key, budget=budget), name, q, "メールのほうが助かりますが…",
+                          "念のためご連絡はメールでよろしいでしょうか？")
     except OtherJudgeError as exc:
         say(f"⛔ {name}：{exc}")
         if j["maker"] == "openai" and exc.status in (400, 404):
             ids = [m["id"] for m in other_client(name, key).get("/v1/models").json().get("data", [])]
             say("使えるモデル（gpt-6 を含む名前）：", sorted(i for i in ids if "gpt-6" in i))
-        return False
-    say(f"✅ {name}（{j['model']}）：{time.monotonic() - t:.2f}秒で「{got}」（正解は「決められない」）")
-    return True
+        return None
+    s = round(time.monotonic() - t, 2)
+    say(f"✅ {name}（{j['model']}）：{s:.2f}秒で「{got}」（正解は「決められない」）")
+    return {"model": j["model"], "秒": s, "読み": str(got)}
 
 
 def main() -> None:
     require_python()
     p = base_parser(__doc__)
     p.add_argument("--check", action="store_true", help="確かめだけ")
+    p.add_argument("--name", action="append", choices=tuple(OTHER_JUDGES), help="確かめる判定（いくつでも。既定は表の全部）")
     args = p.parse_args()
-    ok = [n for n in OTHER_JUDGES if check(n, args.env)]
+    got = {n: check(n, args.env, args.budget_yen) for n in (args.name or OTHER_JUDGES)}
+    save_result("JUDGE-CHECK", {"確かめ": got})   # 料金の帳簿（common.LEDGERS）も記録に入る
+    ok = [n for n, g in got.items() if g]
     if args.check or not ok:
         return
     cmd = [sys.executable, "g53_meaning.py", "--reuse", BASE_RESULT, "--sets", "DABE", "--tag=-others"]

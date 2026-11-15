@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items)
 
@@ -32,7 +32,13 @@ from flowctl import (ABOUT, ANY, NONE, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONF
 #    1か所）＝説明の「事実を聞く質問には無い」は外した（⛔ 2026-10-31 の夜：説明で言いながら選べるものに出していた＝d1-ultra は9つのうち8つを選んだ）。
 #    事実を伺う質問の「答えたくない」は、控える・断る返事も入れる（system_desc。申し出の質問では今のまま断る側の答え）
 SYSTEM_DESC = {ANY: "こちらに任せた・どれでもよい・希望は無い、と言った（選ぶのを頼んだときも。選ぶのを避けただけの言葉は入れない）",
-               "unknown": "わからない・覚えていない・確かめていない・まだ決めていない、と言った（選ぶ前の状態。言ったことそのものが選べるものにあれば、そちら）",
+               # ⛔ 2026-11-15（F4 の (c)・帳面 1 の (1)）：「確かめていない」をここに、「確かめる・調べる・人に聞く、と言っただけ」を「決められない」の説明に
+               #    書いていて、同じ場面が2つの説明に入っていた（正解の表は 924行で両方を正解にした＝流れの制御は、ご希望の質問の最初の答えで「わからない」なら
+               #    選ぶ助け・「決められない」なら聞き直す、と動きが違う）⇒ ご自分がいまは答えを持っていないと言った場面は、この1か所に書く（あとで確かめる、は
+               #    ANSWER_KINDS の頭の 11-06 の分かれ目のとおり「わからない」）。言い直しの値への返事（選べるものに「わからない」が無い）では「決められない」の中
+               "unknown": ("わからない・覚えていない・まだ確かめていない・まだ決めていない、と、ご自分がいまは答えを持っていないことを言った（あとで確かめる・"
+                           f"調べる・ほかの方に聞く、と言ったのも。選ぶ前の状態。これに当たるときは「{UNDECIDED}」ではなく、こちら。言ったことそのものが"
+                           "選べるものにあれば、そちら）"),
                "refused": "この質問に答えることそのものを、はっきり拒んだ（知らないとは言わずに、答えを言わない・言えない、と言ったのも。どの答えを選んでも"
                           "要ることを言うのを拒んだのも。申し出を断ったのは、断る側の答え。選ぶこと・指定することを避けただけの言葉は入れない）",
                # ✅ 2026-11-02 日本時間4時36分 ユーザー：(a)「OK」（選ぶ質問の「連絡自体控えてほしいです」＝電話もメールも控える・最終目的なら営業拒否）
@@ -98,10 +104,11 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
 #    前の分との流れの回答として会話になっていないだけです。それを分かるようにしないと！」）：言葉の意味と、前の流れへの返事として会話になって
 #    いるかの2つの軸を、この「決められない」1つに混ぜていた（10-29 の「不在」と「別の方」と同じ形）＝判定は、正しく意味のほうを選んでいた
 #    ⇒「意味がつながらない・聞き違い」と「控えたのが答えか利用か」はここから外し、会話になっているかは別の項目で答えさせる（FITS・答えの段だけ。⛔ 同じ日の夜に外した＝下の FITS の記録）
+# ⛔ 2026-11-15（F4 の (c)）：「確かめる・調べる・人に聞く、と言っただけ（いま確かめてくるので待つように、とは言っていない）」は、ここから「わからない」の
+#    説明（SYSTEM_DESC の unknown）へ移した＝境目は向こうの1か所
              UNDECIDED: "この言葉と、前の質問・前の会話からは決められない（受け入れにも断りにも取れる・どの答えも指していない・選ぶのを避けた・"
                         "どの答えがよいかを、こちらの考えとして尋ねた（自分の考えは言っていない）・"
-                        "話すことを終える言葉とも、質問への答えとも取れる・確かめる・調べる・人に聞く、と言っただけ（いま確かめてくるので待つように、"
-                        "とは言っていない）。待つように言った・代わった人が話し始めた、に当たるときは、そちら）"}
+                        "話すことを終える言葉とも、質問への答えとも取れる。待つように言った・代わった人が話し始めた、に当たるときは、そちら）"}
 # 電話のやり取りを読む問い合わせ（尋ねているか・待たせた方が戻ったか＝TALK_KINDS）の「決められない」：お客様の答えの説明（上）は入れない
 #    （✅ 2026-10-31 ユーザー：(4) の案「OK」＝答えの段の説明を直すたびに、この2つの問い合わせの文が変わっていた・文の約30%が答え用だった）
 TALK_UNDECIDED = ("この言葉と、前の会話からは決められない（聞き違いもありうるので、近い言葉に読み替えない。待つように言った・代わった人が"
@@ -300,9 +307,11 @@ MEANING_RULE = "- 言葉の意味で選びます。言葉の頭の「はい」�
 MAYBE_RULE = "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 RULES = (
     ASK_HEAD +
-    "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）も答えてください。さらに、答えとは別に、お客様の言葉が"
-    + "・".join(f"{SIDE_ITEMS[k][0]}（{k}）" for k in side_items(False)) + "を、それぞれの選べるものから1つずつ選んでください（答えを言っていても、"
+    "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）も答えてください。さらに、答えとは別に読む項目（選べるものに見出しのある項目。"
+    "どの項目を読むかは質問ごとに違います）を、それぞれの選べるものから1つずつ選んでください（答えを言っていても、"
     "電話を終える言葉が入っていれば、それを選びます。どれも" + NOW_ONLY + "）。\n"
+    # ⛔ 0c55c4e7 まで、ここに読む項目の名前を side_items(False) の4つで並べていた＝質問ごとに読ませる「別のお話か」「声かけへのお返事だけか」（answer_items の
+    #    1か所が決める）が抜け、並びが2か所になっていた（見直し (12) の D-12）。読む項目と見出しは、質問ごとの選べるもの（answer_items）の1か所から
     "決まり：\n" +
     MEANING_RULE + "（「いいえ、もう済ませてあります」は、済ませた側）。\n"
     "- 打ち消しを重ねた言い方は、意味で読みます（「していないわけではない」は、している側）。\n"
@@ -537,7 +546,7 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
         called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
         return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
-    head, tail = rules(q) + items_text(q) + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
+    head, tail = rules(q) + items_text(q, asked) + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
         return head + choices, before + said + tail
     return head, before + said + choices + tail
@@ -564,8 +573,8 @@ def _config(q, asked: str | None):
     names = [n for n, _, _ in options(q, asked)]
     schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names)}
                           | {m: types.Schema(type=types.Type.BOOLEAN) for m in answer_marks(q)}
-                          | {k: types.Schema(type=types.Type.STRING, enum=list(c)) for k, c in answer_items(q).items()},
-                          required=["choice", *answer_marks(q), *answer_items(q)])
+                          | {k: types.Schema(type=types.Type.STRING, enum=list(c)) for k, c in answer_items(q, asked).items()},
+                          required=["choice", *answer_marks(q), *answer_items(q, asked)])
     # ⚠️ 考える量（thinking_budget）は指定しない：3.5 Flash Lite は指定すると断る（400）。3.8 Flash は0にしても約3.3秒（2026-10-17 に測った）
     return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
 
@@ -595,10 +604,15 @@ def used_sure(confs: dict | None, cond: str) -> float | None:
     （Flow._why_of）・声が届いていない様子（HEAR）は確からしさに関係なく切れ方の材料に使う（確かでない読みも数える＝Flow.cut）ので入れない・
     答えと電話を終える言葉か（END）と項目ごとの答えは、いつも使う。✅ 2026-11-07 日本時間11時29分43秒 ユーザー「違うなら、抜けている部分を
     洗い出して、直しに入れてください」（途中のご報告の (ア)）。⛔ それまでは返した問いの全部のいちばん低いもので、G-53d1base では確かでない読みの
-    約6割に、答えが わからない でないのに使わない分からない理由の問いが入っていた"""
+    約6割に、答えが わからない でないのに使わない分からない理由の問いが入っていた。
+    質問の答えの話か・別のお話か（AWAY）は、答えが「決められない」のときだけ使う（Flow._offer_unlinked・_resume_due＝そろって決められない読みだけで分ける）。
+    黙ったあとの一言へのお返事だけか（PROMPT_REPLY）は、読んだとき（一言を流したあとの言葉）はいつも使う（そろって「お返事だけ」なら答えの読みにかかわらず最終の
+    確かめ＝flowctl.prompt_replied・Flow._prompt_due。見直し (12) の B-4）。⛔ 0c55c4e7 まで AWAY をいつも数えていたので、答えの確からしさが高くても、使わない
+    項目の確からしさが線より下なら読み全体が「確かでない」になった（見直し (12) の D-3。⛔ 2e5986f5 まで PROMPT_REPLY は答えが「決められない」かご承認の
+    お知らせのときだけ数えた＝流れの制御もそのときだけ使い、資料の申し出への「いえ、大丈夫です。」を「いいえ」と読むとお断りで締めた）"""
     if not confs:
         return None
-    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused"))]
+    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)]
     return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 
@@ -619,11 +633,11 @@ def _read_one(q, got: dict, name, firm, sure, asked) -> "Reading | None":
     cond = next((c for n, _, c in options(q, asked) if n == name), None)
     if cond is None:
         return None
-    if any(got.get(k) is not None and got.get(k) not in c for k, c in answer_items(q).items()):
+    if any(got.get(k) is not None and got.get(k) not in c for k, c in answer_items(q, asked).items()):
         return None   # 答えとは別の項目に、選べるものに無い名前（読めない返事）。項目が無い返事（足す前の記録）は、読んでいない＝None
     r = Reading(cond, firm is not False, sure)
     r.firm_p = got.get("firm_p") if isinstance(got.get("firm_p"), (int, float)) else None
-    items = answer_items(q)
+    items = answer_items(q, asked)
     for k in SIDE_ITEMS:
         setattr(r, k, got.get(k) if k in items else None)
     return r
@@ -635,11 +649,11 @@ def _schema(q, asked: str | None) -> dict:
         return {"type": "object", "properties": {f.key: {"type": "string", "enum": list(f.choices)} for f in q.facets},
                 "required": [f.key for f in q.facets], "additionalProperties": False}
     return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]}}
-            | {m: {"type": "boolean"} for m in answer_marks(q)} | {k: {"type": "string", "enum": list(c)} for k, c in answer_items(q).items()},
-            "required": ["choice", *answer_marks(q), *answer_items(q)], "additionalProperties": False}
+            | {m: {"type": "boolean"} for m in answer_marks(q)} | {k: {"type": "string", "enum": list(c)} for k, c in answer_items(q, asked).items()},
+            "required": ["choice", *answer_marks(q), *answer_items(q, asked)], "additionalProperties": False}
 
 
-def answer_items(q) -> dict:
+def answer_items(q, asked: str | None = None) -> dict:
     """答えとは別に、選べるものから選ばせる項目（{項目の名前: {中の名前: 説明}}。唯一の場所＝返事の形 _config・_schema・判断のモデルの問い
     jev_request・問い合わせの文 prompt_parts・読み取り read）：お客様の答えを読む問い合わせ（答えの段）は、電話を終える言葉か（flowctl.END・
     end_choices の1か所。✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」）。電話のやり取りを読む問い合わせ（talk_question）・
@@ -647,17 +661,19 @@ def answer_items(q) -> dict:
     if q.facets or talk_question(q):
         return {}
     # 電話を終える言葉か・こちらの声が届いていない様子か など（flowctl.SIDE_ITEMS の段ごとの項目）。黙ったあとの一言を流したときだけ、その一言へのお返事だけか
-    # （PROMPT_REPLY）も（流していない場面の文・返事の形は変わらない）
-    # ⏳ 質問の答えの話か・別のお話か（AWAY＝flowctl.asks_away の質問だけ・伺い9＝flowctl.talked_away）は、まだ問い合わせに入れていない：入れると答えの段の
-    # 業務の質問の判定の文がすべて変わる（測りの指紋が変わる＝測り直しが要る）ので、まとめ役のご判断を待つ（分身 D の報告・帳面 1 の (6)）。入れる所はここだけ
-    # （`| ({AWAY: away_choices(False, True)} if asks_away(q) else {})`）
-    return side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
+    # （PROMPT_REPLY）も（流していない場面の文・返事の形は変わらない）。流れの制御が別のお話の番を分ける問い合わせ（flowctl.away_fits の1か所＝「ところで」で
+    # 伺い直しうる業務の質問への答え・その言い直しと最終の確かめ・ご承認のお知らせと申し出の質問の言い直しと最終の確かめ）だけ、質問の答えの話か・別のお話か（AWAY。
+    # 読みを組み合わせるのは flowctl.talked_away の1か所）も。✅ 2026-11-13 日本時間22時17分01秒「9は…」を本番で働かせる（意味は判定が読む＝11-08 12時11分40秒。
+    # ⛔ 分身 D の f5fa2a9c までは、流れの制御は読みを使うのに問い合わせに入れていなかった＝本番の判定は読まず、伺い9 が働かなかった。⛔ 0c55c4e7 までは言い直しの
+    # 確かめに読ませなかった＝見直し (12) の A-9・B-3）。答えの段の業務の質問・言い直しの判定の文が変わる＝整理が済んでからの1回の測りで測る（帳面 1 の (1)）
+    return (side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
+            | ({AWAY: away_choices(False, True)} if away_fits(q, bool(asked)) else {}))
 
 
-def items_text(q) -> str:
+def items_text(q, asked: str | None = None) -> str:
     """答えとは別の項目の、選べるものの文（毎回同じ前の部分に入れる＝prompt_parts）。"""
     return "".join(f"{SIDE_ITEMS[k][0] if k in SIDE_ITEMS else k}（{k}）の選べるもの（名前：説明）：\n" + "".join(f"- {n}：{d}\n" for n, d in c.items())
-                   for k, c in answer_items(q).items())
+                   for k, c in answer_items(q, asked).items())
 
 
 def answer_marks(q) -> tuple[str, ...]:
@@ -862,6 +878,34 @@ OTHER_JUDGES = {
                                   "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai", "firm_min": 0.2},
     "Solar Decide（Upstage）": {"maker": "upstage", "api": "decision", "model": "upstage/solar-decide-20260928", "key": "OPENROUTER_JUDGE_KEY",
                               "host": "openrouter.ai", "firm_min": 0.2},
+    # 試しの候補（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「伺い18、最新の判定AIで、Jevよりも性能の良いものが出ています。SubQ Snap 1.2とDrex Max
+    # をJevに変えて使って性能アップするかを測ってください。…」・12時39分31秒「伺い19はアでOK」＝上限45円の小さな試し）。どちらも Jev と同じ問いの形
+    # （state・questions・choice／noul）で答える判断のモデル。線は測ってから決める（firm_min は d1.1 などと同じ仮の値）・組には入れない・送り先は
+    # Intent.md 13章にまだ無い（本番で使うなら、測りの結果と一緒に伺う）。
+    # SubQ Snap 1.2＝SubQ の判断の窓口（api.subq.ai の /v1/systemone・鍵は SubQ_JUDGE_KEY）。料金は入力100万トークンあたり0.04ドル・返す側0＝返事の
+    #    使った量（usage）で数える（PRICE の1か所・SPEND）。新しい方には1億トークンの無料の枠がある（SubQ の料金の頁・表紙「Free 100M tokens for
+    #    new users」＝11-15 日本時間13時51分37秒のご指摘で確かめた。⛔ 前は説明の頁「始め方」の「残高の無い問い合わせは402」だけから「無料の枠は無い」と
+    #    書いていた）。帳簿は料金表の円で数える＝無料の枠の中でも多めに見込む側で上限を守る。送った文は
+    #    60日以内に消える・1回ごとに残さない指定は判断の窓口には無い（SubQ の頁「データの保持」）
+    # Drex Max（Nace.AI）＝OpenRouter の判断の窓口（10-16 の版・受け口は DeepInfra の米国だけ・無料の受け口は無い）。一覧の料金は入力100万トークン
+    #    あたり0.06ドル（11-15 は半額）。1文字あたりの見込み（KeySpend）は、Jev の実測（7.6×10⁻⁶ 円・0.042ドル）を料金の比で移した値（半額の前の
+    #    料金＝多めに見込む側。SubQ の値も同じ移し方＝見込みの道具 judge_cost が使う）
+    "SubQ Snap 1.2": {"maker": "subq", "api": "decision", "model": "subq-snap-1.2", "key": "SubQ_JUDGE_KEY", "host": "api.subq.ai",
+                      "path": "/v1/systemone", "firm_min": 0.2, "yen_per_char": 7.24e-6},
+    "Drex Max（Nace.AI）": {"maker": "nace-ai", "api": "decision", "model": "nace-ai/drex-max-20261016", "key": "OPENROUTER_JUDGE_KEY",
+                          "host": "openrouter.ai", "firm_min": 0.2, "yen_per_char": 1.09e-5},
+    # 11月に出た判断のモデルの試しの候補（✅ 2026-11-15 日本時間13時51分37秒 ユーザー「伺い20・21もアで進めてください」＝同じ200行に足す・上限は
+    # 試しの帳簿の円の和で約55円）。どちらも OpenRouter の判断の窓口・線は測ってから・組には入れない・送り先は Intent.md 13章にまだ無い。版は
+    # 11-15 に OpenRouter の判断のモデルの一覧で確かめた（同じ系統でいちばん新しい版）。
+    # Gemini Decision 1（Google）＝11-11 の版。一覧の料金は入力100万トークンあたり0.10ドル・返す側0。1文字あたりの見込みは、11-15 の小さな試しの
+    #    200行で鍵の額から測った約8.3×10⁻⁶ 円（約11.3円）を少し上に丸めた値（はじめは Jev の実測を料金の比で移した1.81×10⁻⁵ 円＝2倍余りの見込み
+    #    だったので、上限20円で155行のところで道具が止めた）。受け口は Google AI Studio だけ（11-15 の受け口の一覧）。
+    # Perplexity Decider v1.3＝11-12 の版の無料の受け口（「:free」＝料金0・受け口は Perplexity だけ。有料の受け口は一覧に無い）。送った文の扱いと
+    #    回数の上限は受け口の一覧に書かれていない（11-15 に確かめた）＝試しで送るのは作った言葉だけ。本番で使うなら、送り先と一緒に伺う。
+    "Gemini Decision 1": {"maker": "google", "api": "decision", "model": "google/gemini-decision-1-20261111", "key": "OPENROUTER_JUDGE_KEY",
+                          "host": "openrouter.ai", "firm_min": 0.2, "yen_per_char": 9.0e-6},
+    "Perplexity Decider v1.3": {"maker": "perplexity", "api": "decision", "model": "perplexity/pplx-decider-v1.3-20261112:free",
+                                "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai", "firm_min": 0.2, "yen_per_char": 0.0},
 }
 # モデルの名前ごとの1文字あたりの円（KeySpend の見込み。OTHER_JUDGES の yen_per_char から作る1か所）
 YEN_PER_CHAR = {j["model"]: j["yen_per_char"] for j in OTHER_JUDGES.values() if "yen_per_char" in j}
@@ -1101,8 +1145,8 @@ JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当�
              # 黙ったあとの一言を流したときだけ（flowctl.PROMPT_REPLY・prompt_replied）
              PROMPT_REPLY: "お客様の言葉は、こちらの声かけ（お客様が黙っていたので言った一言）へのお返事だけですか？（気になる点は無い・分かった、と言った"
                            "だけで、質問への答えも、ほかのお話・気がかりも言っていないか。答えとは別に読みます。" + NOW_ONLY + "）"}
-JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、それとも答えの話ではない別のお話（ご事情・世間話・ほかの話題など）ですか？（どれとも決められない答え・"
-                   "答えの一部・迷い・分からない、も答えの話です。答えとは別に読みます。" + NOW_ONLY + "）")   # ✅ 2026-11-13 日本時間22時17分01秒「9は…」（flowctl.AWAY）
+JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、それとも答えの話ではない別のお話ですか？（答えとは別に読みます。" + NOW_ONLY
+                   + "。境目は選べるものの説明＝flowctl.away_choices の1か所）")   # ✅ 2026-11-13 日本時間22時17分01秒「9は…」（flowctl.AWAY）
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 
@@ -1134,7 +1178,7 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
     return {"model": model, "state": scene(q, text, asked, before),
             "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)}}
             | {m: {"type": "noul", "instructions": JEV_MARKS[m][0], "criteria": JEV_MARKS[m][1]} for m in answer_marks(q)}
-            | {k: {"type": "choice", "instructions": JEV_ITEMS[k], "criteria": c} for k, c in answer_items(q).items()}}
+            | {k: {"type": "choice", "instructions": JEV_ITEMS[k], "criteria": c} for k, c in answer_items(q, asked).items()}}
 
 
 def jev_prior_request(model: str, q, before: str) -> dict:
@@ -1187,14 +1231,17 @@ def other_text(name: str, data: dict) -> str | None:
 #       儲けより、API料金の方が高いことになりますよ」＝使った量をどこにも残しておらず、測りの料金が積み上がっても気づけなかった
 #       （10-18 の午後だけで、同じ答え 2,259件を Sonnet に約1万1千回送り、同じ測りを2分おいて2回流した回もあった）
 #    料金：100万トークンあたりのドル（入力・出力・まとめて送った分の読み・書き。考える量は出力に入る）。1ドル＝150円（Intent.md 12-2）
-PRICE = {"claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50), "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125)}
+#    返事に使った量（usage）が入るほかの窓口も、料金をここに置けば同じ帳簿で数える（判断のモデルの SubQ＝入力だけ・返す側0＝SubQ の頁「判断の窓口」。
+#    ✅ 2026-11-15 日本時間12時39分31秒「伺い19はアでOK」の上限45円の試しに入れるため＝other_client の _UsageMetered）
+PRICE = {"claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50), "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125), "subq-snap-1.2": (0.04, 0.0, 0.0, 0.0)}
 YEN_PER_USD = 150.0
 
 
 class Spend:
-    """送った回数・量・円。limit＝この試しで使ってよい円（common.base_parser の --budget-yen。通話の本番では渡さない＝上限なし）：超えたら、
-    それより後は送らずに失敗にする（判定は止まった扱い＝通話は止まらない。測りは、それ以上お金を使わない）。"""
-    name = "Anthropic の判定"
+    """返事に使った量（usage）が入る判定（Anthropic・SubQ）の、送った回数・量・円。limit＝この試しで使ってよい円（common.base_parser の
+    --budget-yen。通話の本番では渡さない＝上限なし）：超えたら、それより後は送らずに失敗にする（判定は止まった扱い＝通話は止まらない。測りは、
+    それ以上お金を使わない）。"""
+    name = "返事の使った量で数える判定"
 
     # 返事を待たずに止めた問い合わせ（先に届いた答えで決めたあと、first_of が止めた分）は、使った量が返らないが料金はかかりうる ⇒
     # 同じモデルの返事のあった問い合わせの、まとめて送った分を書いた料金を除いた平均の円で見込む（書くのは1回目だけ。返事が1つも無ければ、
@@ -1219,8 +1266,10 @@ class Spend:
         return (self.TYPICAL_TOKENS[0] * p_in + self.TYPICAL_TOKENS[1] * p_out) / 1e6 * YEN_PER_USD
 
     def check(self) -> None:
-        if self.limit is not None and self.yen >= self.limit:
-            raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.0f}円）に達したので送りません（--budget-yen）")
+        from common import trial_yen
+
+        if self.limit is not None and trial_yen(self) >= self.limit:
+            raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.0f}円）に達したので送りません（--budget-yen・この試しの帳簿の和）")
 
     def add(self, model: str, usage, factor: float = 1.0) -> None:
         """返事の使った量を数える。factor＝料金の掛け目（まとめて送る測り＝BATCH_FACTOR。書き込み・読み出しも同じく半分）。1時間もつ形の
@@ -1310,11 +1359,13 @@ class KeySpend:
         """送る前に上限を確かめ、この回の見込みの円（yen。無ければ PRIOR_YEN）を数える。"""
         if self.limit is None:
             return
+        from common import trial_yen
+
         self.refresh()
         cost = self.PRIOR_YEN if yen is None else yen
         with self._lock:
-            if self.yen + cost > self.limit:
-                raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.1f}円）に達するので送りません（--budget-yen・鍵の使った額の見込み）")
+            if trial_yen(self) + cost > self.limit:
+                raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.1f}円）に達するので送りません（--budget-yen・この試しの帳簿の和）")
             self.calls[model] += 1
             self.est += cost
 
@@ -1347,6 +1398,45 @@ class _KeyMetered:
         model = (json or {}).get("model", "?")
         KEY_SPEND.check(model, len(_json.dumps(json or {}, ensure_ascii=False)) * YEN_PER_CHAR.get(model, DEFAULT_YEN_PER_CHAR))
         return self._client.post(path, json=json, **kw)
+
+
+class _UsageMetered:
+    """返事に使った量（usage）が入る httpx の窓口（料金が PRICE にある窓口＝判断のモデルの SubQ）を包む：送る前に上限を確かめ（SPEND.check）、
+    返事の使った量を Anthropic と同じ帳簿（SPEND）に数えてから返す。返事を待たずに止められたら（first_of が先に届いた答えで決めた）、止めた回数に
+    数える（_Metered と同じ）。"""
+
+    def __init__(self, client, aio: bool):
+        self._client, self._aio = client, aio
+
+    def __getattr__(self, attr):
+        return getattr(self._client, attr)
+
+    @staticmethod
+    def _count(model: str, r) -> None:
+        try:
+            usage = (r.json() or {}).get("usage")
+        except Exception:   # 読めない返事（誤りの返事など）には使った量が無い＝数えない（誤りは送る所 _send_other が上げる）
+            return
+        if usage:
+            SPEND.add(model, usage)
+
+    def post(self, path, json=None, **kw):
+        model = (json or {}).get("model", "?")
+        SPEND.check()
+        if self._aio:
+            async def go():
+                import asyncio
+                try:
+                    r = await self._client.post(path, json=json, **kw)
+                except asyncio.CancelledError:
+                    SPEND.stopped[model] += 1
+                    raise
+                self._count(model, r)
+                return r
+            return go()
+        r = self._client.post(path, json=json, **kw)
+        self._count(model, r)
+        return r
 
 
 # 判断のモデルの1回の見込みの円＝送る文の長さ × 1文字あたりの円（KeySpend の見込み。返す側も含めた実際の料金から決めた＝多めに見込む側）。
@@ -1445,10 +1535,15 @@ def other_client(name: str, key: str, aio: bool = False, budget: float | None = 
                                                         limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S))
     if budget is None:
         return http
-    if OTHER_JUDGES[name]["host"] != "openrouter.ai":   # 使った額を数える道が無い窓口に、上限つきでは送らない
-        raise OtherJudgeError(None, f"{name} は使った額を数えられないので、--budget-yen つきでは送りません")
     from common import LEDGERS
 
+    if OTHER_JUDGES[name]["model"] in PRICE:   # 返事に使った量が入る窓口（SubQ）＝Anthropic と同じ帳簿で数える
+        SPEND.limit = budget
+        if SPEND not in LEDGERS:
+            LEDGERS.append(SPEND)
+        return _UsageMetered(http, aio)
+    if OTHER_JUDGES[name]["host"] != "openrouter.ai":   # 使った額を数える道が無い窓口に、上限つきでは送らない
+        raise OtherJudgeError(None, f"{name} は使った額を数えられないので、--budget-yen つきでは送りません")
     KEY_SPEND.bind(key, budget)
     if KEY_SPEND not in LEDGERS:
         LEDGERS.append(KEY_SPEND)
@@ -1645,7 +1740,9 @@ def batch_judge(name: str, key: str, items: list, budget: float | None = None, p
         #    見込み、実際は約30トークンの返事を1回約3円と数えて、上限の10円で止まった（先に送った2回の分は使った）
         n_out = 2 * max(outs) if outs else sample["max_tokens"]
         worst = len(rest) * (n_in * p_in + n_out * p_out) / 1e6 * BATCH_FACTOR * YEN_PER_USD
-        if SPEND.yen + worst > SPEND.limit:
+        from common import trial_yen
+
+        if trial_yen(SPEND) + worst > SPEND.limit:
             raise OtherJudgeError(None, f"まとめて送る {len(rest)}回は、前の部分が効かないと約{worst:.0f}円かかり、この試しで使ってよい料金"
                                         f"（{SPEND.limit:.0f}円）を超えるので送りません（--budget-yen）")
         say(f"まとめて送ります：{len(rest)}回（前の部分が1つも効かなくても約{worst:.0f}円まで）")

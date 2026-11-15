@@ -18,8 +18,9 @@ import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
 from flowctl import CHOICE_TYPES
+from import_ai import ASKERS
 
-MODELS = ("3.8 Flash", "3.7 Flash")
+MODELS = ASKERS   # 本番の取込の組の1か所（import_ai.ASKERS）
 KINDS = ("doubt", "do")
 # 作り手が混んでいる間の代わり（--stand-in。G-73 と同じ考え）。✅ 2026-11-03 ユーザー：「3.8 Flash の分の一部の場面もHaikuで作らせたらいいんじゃない？
 # 何度も言わせるな！」・同じ朝（G-72 で Gemini の Flash 2つが時間切れ 504 を続けたのに待ち続けた）「Haikuでもいいと言いましたよね。」

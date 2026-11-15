@@ -36,8 +36,13 @@ def by_model(client, model: str, texts: list[str], think: bool = False) -> list[
 
 
 def fits(text: str, noun: str | None) -> bool:
-    """用件の名詞として使えるか（唯一の決まり）：空でない・その文の中の言葉。"""
-    return bool(noun) and noun in text
+    """用件の名詞として使えるか（唯一の決まり）：名詞の形の1か所（askitems.noun_fits）を、その文の中の言葉として通す・用件の一文の決まった言葉（「でお電話
+    いたしました」＝phrases.PURPOSE_AGAIN の名詞のあと）を重ねない。⛔ 0c55c4e7 まで「文の中の言葉か」だけを見て、文ごとの答え（「ご予約の確認でお電話いたしました。」）
+    を通し、続きの電話の用件が「…でお電話いたしました。でお電話いたしました。」になった（見直し (12) の C-5）"""
+    from askitems import noun_fits
+    from phrases import PURPOSE_AGAIN
+
+    return noun_fits(noun, (text,), tuple({t.split("{p}")[1].rstrip("。") for t in PURPOSE_AGAIN.values()}))
 
 
 def decide(text: str, model_nouns: list[str | None]) -> str | None:

@@ -21,7 +21,8 @@
 """
 from __future__ import annotations
 
-from flowctl import END_ANGRY, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_WHO, LATER, UNDECIDED
+from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_WHO,
+                     LATER, QUERY, QUERY_NO, REFUSED_LABEL, THINKING, UNDECIDED, WHY_NOT_SAID)
 
 YES_NO = ("はい", "いいえ")
 HEDGED = "（言い切っていない）"   # 答えの正解の印：その答えに寄っているが言い切っていない（判定の firm＝偽）
@@ -75,7 +76,8 @@ ANSWER = [
     (PAY, "さっきから何なんですか、失礼じゃないですか。", (END_ANGRY,), (UNDECIDED,), False, "怒っている"),
     (PAMPHLET, "もういいです。", (UNDECIDED,), ("いいえ",), False, "20時56分・22時31分＝いまの話の向きを先に伺う"),
     (PAMPHLET, "んーん。", (END_NONE,), ("いいえ",), False, "22時31分＝「んーん」は「いいえ」"),
-    (PAMPHLET, "うーん。", (END_NONE,), (UNDECIDED,), False, "22時31分＝悩んでいる最中（待って伺う）"),
+    (PAMPHLET, "うーん。", (END_NONE,), (UNDECIDED, THINKING), False,
+     "22時31分＝悩んでいる最中（待って伺う）。言い終えていない言いよどみ＝考えている途中も正解（11-06 11時19分55秒「(1) ア」で足した選べるもの・F5 の 11-15）"),
     (PAMPHLET, "うーん、送ってもらおうかな…。", (END_NONE,), ("はい" + HEDGED,), False, "言い切っていないが向きは決まった答え（20時56分・23時59分）"),
     (PAMPHLET, "うーん、今回はいいかなあ…。", (END_NONE,), ("いいえ" + HEDGED,), False, "同じ（送らない向き）"),
     (PAY, "たぶんカードかなと思います。", (END_NONE,), ("カード" + HEDGED,), False, "同じ形を、希望を伺う選ぶ質問にも（11-02 1時22分 (c)）"),
@@ -83,6 +85,40 @@ ANSWER = [
     (RESERVED, "そういうお電話はちょっと……。", (UNDECIDED,), (UNDECIDED,), False, "電話を断っていそうだが言い切っていない・答えでもない"),
     (RESERVED, "結構です。", (UNDECIDED, END_NONE), (UNDECIDED,), False, "10-17「その言葉だけで通話の断りとして締めない」"),
 ]
+
+# 答えとは別に読む項目（こちらへ尋ねた問いか・別のお話か）と、わからない・答えたくない理由の正解（g53_labels.json の行と同じ欄・同じ決め方＝F5 の 11-15：
+# 2人の読み手が全部の行を読み、問いがある・別のお話と書かなかった行は「問いは無い」「答えの話」。別のお話かは、その項目を読む質問（flowctl.away_fits）の
+# 行だけ。理由は、答えが「決められない」を含む行（流れの制御が理由の読みを使う＝Flow._not_deciding）だけ、流れの制御で同じ動きになる名前を並べる＝理由を
+# 言っていない言葉は「とは言っていない」「理由を言わなかった」「決められない」のどれでも同じ動き。頼みの形（「〜もらえますか」）・怒りの言い回しは問いではない）
+_WHY_UNSAID = [WHY_NOT_SAID, DONT_KNOW_LABEL["unspecified"], UNDECIDED]
+_WHY_REFUSED = [WHY_NOT_SAID, REFUSED_LABEL["unwilling"], UNDECIDED]
+_Q, _A = {QUERY: [QUERY_NO]}, {QUERY: [QUERY_NO], AWAY: [AWAY_NO]}
+SIDE = {
+    (OFFER, "いま時間がないので結構です。"): {**_Q, "reason": _WHY_UNSAID},
+    (OFFER, "かけてこないでください。"): _Q,
+    (SEMINAR, "こういう営業の電話、迷惑なんですけど。"): {**_Q, "reason": _WHY_UNSAID},
+    (SEMINAR, "そういった案内はお断りします。"): _A,
+    (DOCS, "そういう確認はお断りします。"): {**_A, "reason": _WHY_REFUSED},
+    (DOCS, "もう電話しないでもらえますか。"): {**_A, "reason": _WHY_UNSAID},
+    (HURRY_Q, "はい、急いでます。"): {**_A, "reason": _WHY_UNSAID},
+    (VISIT, "訪問自体お断りします。"): _Q,
+    (CONTACT, "今ちょっと立て込んでるので、手短にお願いできますか。"): {**_Q, "reason": _WHY_UNSAID},
+    (CONTACT, "あとでかけ直してもらえますか。"): _A,
+    (CONTACT, "今ちょっと忙しいので、あとでかけ直してもらえますか。"): _A,
+    (PAY, "さっきから何なんですか、失礼じゃないですか。"): {**_Q, AWAY: [AWAY_YES, AWAY_NO], "reason": _WHY_UNSAID},
+    (PAY, "たぶんカードかなと思います。"): _A,
+    (RESERVED, "ごめんなさい、今から出かけるので切りますね。"): {**_Q, "reason": _WHY_UNSAID},
+    (RESERVED, "忙しいんで。"): {**_Q, "reason": _WHY_UNSAID},
+    (RESERVED, "そういうお電話はちょっと……。"): {**_Q, "reason": _WHY_UNSAID},
+    (RESERVED, "結構です。"): {**_A, "reason": _WHY_UNSAID},
+    (RESERVED, "たぶん予約してると思います。"): _A,
+    (PAMPHLET, "うーん。"): {**_Q, "reason": _WHY_UNSAID},
+    (PAMPHLET, "結構です。もうかけてこないでください。"): _Q,
+    (PAMPHLET, "もういいです。"): _Q,
+    (PAMPHLET, "んーん。"): _Q,
+    (PAMPHLET, "うーん、送ってもらおうかな…。"): _Q,
+    (PAMPHLET, "うーん、今回はいいかなあ…。"): _Q,
+}
 
 # お呼びする段：(電話口の方, お客様の言葉, 電話を終える言葉かの正解, 理由, 項目ごとの正解の字)。項目ごとの正解の字は、お呼びする段の測り（g59_calling_judge
 # の F と同じ字＝前と同じ方か・誰か・電話のやり取り・お呼びした方の事情。並べた字のどれでもよい）。正解は、判定に見せる言葉（呼ぶ一言・その前に相手が
@@ -106,13 +142,17 @@ CALLING = [
 
 def answer_truths() -> dict:
     """答えの段の行の正解（唯一の場所。答えの段の測り G-53 の組 F が読む＝g53_meaning._label）：(質問の文, お客様の言葉) ⇒ {accept：受け取ってよい
-    答え・hedged：寄っているが言い切っていないか・end：電話を終える言葉かの正解・why}。「決められない」は「わからない」と同じに数える（g53_meaning.accept）。
-    同じ質問・同じ言葉の行（業務の最終目的かだけが違う）は、正解も同じでなければならない（違えば止める）。"""
+    答え・hedged：寄っているが言い切っていないか・end：電話を終える言葉かの正解・why・こちらへ尋ねた問いか・別のお話か・わからない理由＝SIDE}。
+    答えは書いたとおり（⛔ 2026-11-15 F4 の (c) まで「決められない」に「わからない」を足していた＝お客様に聞こえる次の一言が違う2つを同じに数え、
+    外れを見落とした。11 行は 2 人の読み手が読み直し、どれも「わからない」とは言っていない）。同じ質問・同じ言葉の行（業務の最終目的かだけが違う）は、正解も同じで
+    なければならない（違えば止める）。SIDE に表の行に無い言葉があれば止める（書き違えた足しの正解を黙って捨てない）。"""
+    missing = set(SIDE) - {(qtext, words) for qtext, words, *_ in ANSWER}
+    if missing:
+        raise ValueError(f"足しの正解（SIDE）に、表の行に無い言葉がある：{sorted(missing)}")
     out: dict = {}
     for qtext, words, ends, answers, _, why in ANSWER:
         acc = [a.removesuffix(HEDGED) for a in answers]
-        acc += ["unknown"] if UNDECIDED in acc and "unknown" not in acc else []
-        got = {"accept": acc, "hedged": any(a.endswith(HEDGED) for a in answers), "end": list(ends), "why": why}
+        got = {"accept": acc, "hedged": any(a.endswith(HEDGED) for a in answers), "end": list(ends), "why": why, **SIDE.get((qtext, words), {})}
         old = out.setdefault((qtext, words), got)
         if any(old[k] != got[k] for k in ("accept", "hedged", "end")):
             raise ValueError(f"同じ質問・同じ言葉の行で正解が違う：{qtext}「{words}」")

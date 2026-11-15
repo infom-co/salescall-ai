@@ -23,15 +23,15 @@ from dataclasses import dataclass, field
 from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
-from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again
-from phrases import LEAD_PIECES, OTHERS_HEAD, back_fit, closes, drop_receipt, head_join, head_word, heads_said
+from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
+from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
 from phrases import OFFER_ACCEPTED, APOLOGY_FIRST, APOLOGY_SAME_DAY, OFFER_TAKEN, WISH_WAY_TOPIC, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OFFER_THANKS_AGAIN, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, THINKING_PROMPT, ack_pause_s, ask_again as ask_again_phrase
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
 from phrases import HANDOFF_DO, OFFER_DO_END, WISH_DO, offer_words
-from phrases import ANNOUNCE_RECHECK, ESTIMATE_ASK, HESITATE_POINT, HOW_NOW, announce_check
+from phrases import ANNOUNCE_ACCEPTED, ANNOUNCE_RECHECK, ESTIMATE_ASK, unheard_form, HESITATE_POINT, HOW_NOW, announce_check
 from units import supply_unit
 
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
@@ -532,6 +532,36 @@ def day_recording_id(qid: str, words: str) -> str:
     return f"{qid}_d{DAY_VARIANTS.index(words) + 1}"
 
 
+# 声に出す文の欄（業務設定の質問の文・入る一言・お知らせの文と、取込で決めた言い換え・選択肢を並べた文・その後の文の中身・お知らせの中身の名詞と、中身を常体に
+# した句）と、文の並びの欄（先に並べた文 alternatives_led）。{最短の日} を置き換えるのは、この2つの一覧の1か所（day_question・fill_day。CL-2 の
+# business_settings.DAY_FIELDS と同じ集まり＝比べる試験 test_day_fields_match_cl2。CL-2 の連絡帳 4-397 の (2)）
+DAY_FIELDS = ("text", "intro", "announce", "reworded", "alternatives", "since", "matter", "matter_clause")
+DAY_LISTS = ("alternatives_led",)
+
+
+def day_question(q: "Question") -> bool:
+    """日によって変わる言い方（{最短の日}）の入った質問か（唯一の決まり＝流れの制御が言い方を置き換える Flow.__init__・録音の表 make_ack_clips.script_table）：
+    声に出す文の欄（DAY_FIELDS・先に並べた文）のどれかにある。どの形（「ところで」・選択肢を並べた形・その後の形・お知らせの最終の確かめ）も、録音の名前は
+    その言い方の録音の名前（day_recording_id）から作る。⛔ 0c55c4e7 まで、流れの制御は文・入る一言・お知らせだけを見て置き換え（取込で決めた言い換え・並べた文に
+    {最短の日} が残った）、録音の表は形の文ごとに見た（入る一言だけにある質問の「番号_d3_aside」などが表に無い）＝見直し (12) の C-2・C-3"""
+    return any(DAY_SLOT in (getattr(q, f, "") or "") for f in DAY_FIELDS) or any(DAY_SLOT in t for f in DAY_LISTS for t in getattr(q, f))
+
+
+def fill_day(q: "Question", words: str, recording: str | None = None) -> "Question":
+    """{最短の日} を言い方 words に置き換えた質問（唯一の作り方＝Flow.__init__・make_ack_clips.script_table）。recording＝その言い方の録音の名前（録音で流す電話・
+    録音の表。無ければ今の名前のまま）。"""
+    out = dataclasses.replace(q, **{f: getattr(q, f).replace(DAY_SLOT, words) for f in DAY_FIELDS},
+                              **{f: tuple(t.replace(DAY_SLOT, words) for t in getattr(q, f)) for f in DAY_LISTS})
+    return dataclasses.replace(out, recording=recording) if recording is not None else out
+
+
+def recording_base(q: "Question") -> str:
+    """質問の録音の名前のもと（唯一の読み＝その後の形 since_form・お知らせの最終の確かめ accepted_line）：番号と、日によって変わる言い方の印（day_recording_id
+    の「_d番号」）まで。お知らせの形（「_announce」）・「ところで」の形などの終わりは含めない。"""
+    m = re.match(re.escape(q.id) + r"(_d\d+)?(?![^_])", str(q.recording or ""))
+    return m.group(0) if m else q.id
+
+
 def merge_ampm(pending: str | None, answer: str | None) -> str | None:
     """午前・午後を聞いたあとの答え（「午後です」⇒「午後」）を、前の値（「15日の10時」）に入れる。答えに時刻があれば、答えのほうを使う。"""
     if not pending or not answer or _HOUR.search(answer) or not (w := AMPM_WORDS.search(answer)):
@@ -678,10 +708,10 @@ def recap_recording_id(q: "Question") -> str:
     return f"{q.id}_recap"
 
 
-def question_play(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False) -> dict:
+def question_play(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False, soft: bool = False) -> dict:
     """その質問を録音で流すときの1つ（電話接続側が流すもの）。業務の質問＝依頼主の単位の録音（つなぎの言葉＋質問の文）、かけ直しで足す質問＝
     共通の一言の録音（phrases.RECORDED の callback_〜。どの業務でも同じ文）。読みの確かめは録音にしない（相手ごとの名前を含む＝AIが言う）。
-    before・again・resumed は、つなぎの言葉を決める1か所（spoken_question）へ渡す。入る一言の頭のつなぎの言葉を替えた形は、入る一言の録音（番号だけ）とは別の録音
+    before・again・resumed・soft は、つなぎの言葉を決める1か所（spoken_question）へ渡す。入る一言の頭のつなぎの言葉を替えた形は、入る一言の録音（番号だけ）とは別の録音
     （名前は「番号_intro」＋つなぎの言葉＝phrases.question_clip）。"""
     q = next(x for x in questions if x.id == qid)
     if (part := opening_part(q)) is not None:
@@ -697,11 +727,18 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
         # 一言の録音。直前に流す一言 before（2回目・3回目からの戻る一言）に続ける形は phrases.back_fit の1か所。戻る一言のあと（again で before がある＝
         # Flow._continue）は、初めて伺ったときの前置きを言い直さない形（Question.plain＝B-5）。もう一度言ってほしいと頼まれた（before が無い）ときは、
         # お客様は聞き取れていないので伺った文のまま
-        rid, text = q.plain if again and before and q.plain else (q.recording or f"callback_{q.callback}", q.text)
-        rid, text = back_fit(rid, text, before)
+        # もう伺った質問を伺い直す（again）ときは、前置きを言い直さない形（Question.plain）から（戻る一言の有無にかかわらず、前置きはお客様に届いている。もう一度
+        # 言ってほしいと頼まれたときは呼ぶ所＝Flow._continue が again を渡さない＝伺った文のまま）
+        rid, text = q.plain if again and q.plain else (q.recording or f"callback_{q.callback}", q.text)
+        # もう伺った質問を伺い直す（again）ときの頭は、業務の質問と同じ決まり（spoken_question の again）：戻る一言のあと（3回目からの文を終えない一言・頭が
+        # 「それでは」の一言）はその一言に続ける形（back_fit）、ほか（戻る一言なし・お礼の一言のあと）は「それでは」から（again_fit＝見直し (12) の B-9）
+        if again and not (before and (not closes(before) or AGAIN_LEAD in heads_said(before))):
+            rid, text = again_fit(rid, text)
+        else:
+            rid, text = back_fit(rid, text, before)
         # 業務設定から文を作ったシステムの質問（改めてのお話の方法を選んでいただく一言＝BUSINESS_ROLES）も依頼主の単位の録音
         return {"kind": "question", "id": rid, "text": text, "lead": ""} if q.of or q.callback in BUSINESS_ROLES else {"kind": "recorded", "id": rid, "text": text}
-    text, lead = spoken_question(questions, qid, before, again, resumed)
+    text, lead = spoken_question(questions, qid, before, again, resumed, soft)
     # 日によって変わる言い方の入った質問は、その言い方の録音（Question.recording＝day_recording_id。名前の組み方は今と同じ「番号＋つなぎの言葉」）
     rid = q.recording or q.id
     if again and not lead:
@@ -721,10 +758,16 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
 # 次の項目の質問に入るときの頭（✅ 2026-11-06 日本時間12時54分30秒 ユーザー：「次の項目の質問に入る前は、すべて「続きまして」でいいんじゃないですか。」。
 # ⛔ それまでは質問の順番で「それでは」「続きまして」「では」を回していた＝2026-10-13 の「短い受けの言葉を順番に回して置く」（G-27 の W1）から）
 NEXT_LEAD = "続きまして"
-# もう伺った質問を伺い直すときの頭（戻る一言・「失礼いたしました。」のあと・尋ねられて答えたあとに最終の確かめの向きが決まらない質問＝Flow._continue）。
-# ✅ 2026-11-06 日本時間11時55分13秒 ユーザー「(2) イ」＝11時台のご報告の (イ)「進む向きが1つに決まらない選ぶ質問は (ウ) の形」＝「はい、それでは
-# パンフレットをお送りしてもよろしいでしょうか？」。同じ理由（次の項目ではない＝「続きまして」は合わない）で、もう伺った質問へ戻るとき全部に当てる
-AGAIN_LEAD = "それでは"
+# もう伺った質問を伺い直すときの頭 AGAIN_LEAD（「それでは」）は phrases の1か所（決まった文の質問の録音の形＝phrases.again_fit も同じ言葉で作る）
+# 伺い直したあとも続く別のお話にひとこと応える番の、会話AIへの知らせの終わり（ひとことのあとにプログラムがすること＝Flow._talk_then の1か所）。「-」にして
+# 先へ進むときは、そのあと締めることがあるので、お礼・締めのあいさつはひとことに入れない（すぐあとのプログラムのお礼と重なる。見直し (12) の 15）
+TALK_THEN = {"again": "続けてプログラムが、もう一度伺います。",
+             "next": "続けてプログラムが、次へ進みます（お時間をいただいたお礼・締めのあいさつは、ひとことに入れません）。",
+             "close": "続けてプログラムがお礼を言って電話を締めます（お時間をいただいたお礼・締めのあいさつは、ひとことに入れません）。"}
+# 別のお話への伺い直しを、その場で伺える回数（唯一の値＝Flow._on_spot_left の talk）。依頼主の聞き返しの回数（Limits.ask_back）とは別：別のお話を続けるお客様に、
+# その場で同じことを3回続けて伺わない（✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い13 3回目は最後に回したほうがよくないですか？」＝3回目は締めの前の
+# 念のための確認へ回す。見直し (12) の A-6＝まとめ役が決まりで決めた）
+TALK_ON_SPOT = 2
 
 
 def restated_again(say: str, back: str = "") -> str:
@@ -804,7 +847,8 @@ def before_lines(questions: list["Question"]) -> list[str]:
 def question_forms(questions: list["Question"], qid: str) -> list[dict]:
     """業務の質問を録音で流しうる形（唯一の一覧＝録音を作る make_ack_clips.script_table。流す形は question_play の1か所が作る）：次の項目として初めて伺う形・
     直前に流しうる一言（before_lines）の頭と重なってつなぎの言葉を替えた形・もう伺った質問を伺い直す形（頭は AGAIN_LEAD＝Flow._continue。戻る一言のあと・
-    「失礼いたしました。」のあと・尋ねられて答えたあと）・続きの電話で最初に伺う形（頭は QUESTION_RESUME_LEAD）。同じ録音の名前は1つ。"""
+    「失礼いたしました。」のあと）・お客様の意向がまだ分からないまま戻る形（頭は無い＝soft_form。尋ねられて答えたあと・お話に沿った受け答えで待ったあと）・
+    続きの電話で最初に伺う形（頭は QUESTION_RESUME_LEAD）。同じ録音の名前は1つ。"""
     q = next(x for x in questions if x.id == qid)
     if q.approval and q.announce and not in_announce_form(q):
         # お知らせの文のある質問（Question.announce）は、質問の文では流さない＝お知らせの2つの形（「ご了承ください。」・資料がお手元にある方の「ご確認ください。」）の一覧
@@ -818,6 +862,13 @@ def question_forms(questions: list["Question"], qid: str) -> list[dict]:
         forms += [question_play(questions, qid, again=True), question_play(questions, qid, resumed=True)]
         # 戻る一言のあとに伺い直す形（頭が戻る一言の頭と重なれば外す＝spoken_question の again）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」
         forms += [question_play(questions, qid, again=True, before=text) for _, text in BACK_LINES]
+    if soft_fits(q) and not (in_aside_form(q) or in_since_form(q) or in_alternatives_form(q)):
+        # お客様の意向がまだ分からないまま戻る形（soft_form・頭のつなぎの言葉は無い）。新しい録音は選択肢を並べた文の「番号_alternatives」だけ（言い換えた質問・元の
+        # 質問の頭の無い形は、2回目に戻る一言のあとの形と同じ録音）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー
+        forms.append(question_play([soft_form(x) if x.id == qid else x for x in questions], qid, again=True, soft=True))
+        # 先に並べた文（伺い16）：その選択肢に触れたひとことのあとの形ごとに1本（「番号_alternatives_（選択肢の番号）」。✅ 2026-11-14 日本時間23時45分00秒）
+        forms += [question_play([soft_form(x, lead) if x.id == qid else x for x in questions], qid, again=True, soft=True)
+                  for lead in _led_leads(q)]
     if q.since and not in_since_form(q) and not (q.reading_of or q.callback or q.of):
         # 続きの電話でその後の形で伺いうる質問（since_due）：その形でも同じ一覧（「番号_since」の録音）
         forms += question_forms([since_form(x) if x.id == qid else x for x in questions], qid)
@@ -931,7 +982,7 @@ def since_form(q: "Question") -> "Question":
     """その後の形で伺う質問（since_due が真のとき、その電話だけ元の質問に代える＝Flow._resume_cut・instruction.Business.first_ask）：文は phrases.since_ask の1か所・
     入る一言は言わない（前の電話で伺った質問の伺い直し）・録音は依頼主の単位の「番号_since」（作る形は question_forms）。結びは事実を伺う質問（asks_fact）だけ
     「お分かりになりましたでしょうか？」（✅ 2026-11-13 日本時間22時17分01秒 ユーザー「8はイ」）。"""
-    return dataclasses.replace(q, text=since_ask(q.since, q.asks_fact), intro="", recording=f"{q.id}_since")
+    return dataclasses.replace(q, text=since_ask(q.since, q.asks_fact), intro="", recording=f"{recording_base(q)}_since")
 
 
 def at_hand(questions, got: dict) -> bool:
@@ -955,6 +1006,24 @@ def in_announce_form(q: "Question | None") -> bool:
     return q is not None and bool(getattr(q, "approval", False) and getattr(q, "announce", "")) and q.text in (q.announce, announce_check(q.announce))
 
 
+def accepted_line(q: "Question", heard: bool = True) -> tuple[str, str]:
+    """ご承認のお知らせのあとの最終の確かめの一言（唯一の作り方＝伺う所 Flow._accepted_ask・録音の表 make_ack_clips.script_table）：(録音の名前, 文)。
+    お知らせの中身の名詞（Question.matter）があれば「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」（「の件」は phrases.of_matter の1か所・
+    依頼主の単位の録音「番号_accepted」）、無ければ「それでは先ほどの内容は…」（共通の一言の録音 announce_recheck）。お知らせの文はくり返さない。
+    ✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承ということでよろしかったでしょうか？」」
+    heard＝お知らせへのお客様のお声が聞き取れていたか（締めの前の念のための確認の Item.dash_heard）：聞き取れないまま「-」にしたお知らせは、何へのお返事が聞き取れ
+    なかったのかを言う形「（お知らせの中身を常体にした句）件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」（phrases.unheard_form。
+    句は取込で決めた Question.matter_clause・句が無ければ名詞の「（名詞）の件のお返事の…」・どちらも無ければ「先ほどの件のお返事の…」）。録音は、句か名詞が
+    あれば依頼主の単位の「番号_accepted_unheard」・どちらも無ければ共通の一言 announce_recheck_unheard。お詫びは確認を作る所 Flow._advance_to が前に置く。
+    見直し (12) の B-1・まとめ役の決め (f)・✅ 2026-11-15 日本時間11時59分07秒 ユーザー「・(3)今：…⇒こちら「ありがとうございます。申し訳ございません、キャンセルは
+    前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」」"""
+    matter = getattr(q, "matter", "")
+    if heard:
+        return (f"{recording_base(q)}_accepted", ANNOUNCE_ACCEPTED.format(t=of_matter(matter))) if matter else ("announce_recheck", ANNOUNCE_RECHECK)
+    t = getattr(q, "matter_clause", "") or of_matter(matter)
+    return (f"{recording_base(q)}_accepted_unheard", unheard_form(t)) if t else ("announce_recheck_unheard", unheard_form(""))
+
+
 def announce_forms(questions: list["Question"], got: dict) -> list["Question"]:
     """お知らせの文のある質問を、お知らせの形にした並び（名乗りの録音の文・AIへの指示文 instruction.Business.first_ask が読む。流れの制御は Flow._announce_refresh＝
     同じ at_hand・announce_form）。got は at_hand と同じ。"""
@@ -973,9 +1042,21 @@ ASIDE_SUFFIX = "_aside"   # 「ところで」の形の録音の名前の終わ�
 
 def aside_fits(q: "Question") -> bool:
     """会話が繋がらないお返事に、会話AIのひとこと＋「ところで」＋言い換えた質問で伺い直す質問か（唯一の決まり＝流れの制御 Flow._unlinked_kind・録音を作る形
-    question_forms・取込で言い換えを作る質問 import_ai.decide_rewords を渡す呼ぶ側）：業務の質問（読みの確かめ・かけ直しの質問・業務の質問から文を作ったシステムの
+    question_forms・取込で言い換えを作る質問 import_ai.decide_rewords を渡す呼ぶ側・判定に「質問の答えの話か、別のお話か」AWAY を読ませる問い合わせの
+    決まり away_fits＝伺い直したあとの形・その後の形も読む）：業務の質問（読みの確かめ・かけ直しの質問・業務の質問から文を作ったシステムの
     質問でない）で、申し出の質問（Question.offered＝提案で伺い直す）・ご承認のお知らせの形（伝え直す）でないもの。✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」"""
     return not (q.reading_of or q.callback or q.of) and q.offered is None and not in_announce_form(q)
+
+
+def away_fits(q: "Question", asked: bool) -> bool:
+    """判定に「質問の答えの話か、別のお話か」（AWAY）を読ませる問い合わせか（唯一の決まり＝meaning_judge.answer_items）：流れの制御が、この読みで別のお話の番
+    （Flow._offer_unlinked＝talked_away）か、決められない答えの話の道かを分ける所の質問。質問への答えを読む問い合わせは「ところで」で伺い直しうる業務の質問
+    （aside_fits＝伺い直したあとの形・続きの電話のその後の形も。申し出の質問・ご承認のお知らせは、そろって決められない読みがそのまま繋がらないお返事＝読ませない）。
+    言い直し・最終の確かめのお返事を読む問い合わせ（asked）は、それに加えて、ご承認のお知らせ（最終の確かめ Flow._accepted_ask）と申し出の質問（最終の確かめ
+    Flow._final_check・提案の伺い直し）：決められない答えの話は確かめの道（いかがなさいますか・保留）・別のお話はひとことの番で、読みが要る。⛔ 0c55c4e7 まで
+    言い直しの確かめには読ませず（伺いD）、言い直しや最終の確かめへの別のお話を、会話AIの報告しだいで「はい、いかがなさいますか？」・保留を伺う・ひとことも無く
+    次へ進んでいた（見直し (12) の A-9・B-3。会話AIは判定に加えない＝11-08 12時11分40秒）"""
+    return aside_fits(q) or (asked and (in_announce_form(q) or q.offered is not None))
 
 
 def aside_form(q: "Question") -> "Question":
@@ -985,18 +1066,99 @@ def aside_form(q: "Question") -> "Question":
     return dataclasses.replace(q, text=q.reworded or q.text, intro="", recording=f"{q.recording or q.id}{ASIDE_SUFFIX}")
 
 
-def asks_away(q: "Question") -> bool:
-    """判定に「質問の答えの話か、別のお話か」（AWAY）を読ませる質問か（唯一の決まり＝meaning_judge.answer_items）：「ところで」で伺い直しうる業務の質問
-    （aside_fits）で、まだ伺い直していない形（「ところで」の形・その後の形は読まない）。"""
-    return aside_fits(q) and not in_aside_form(q) and not in_since_form(q)
-
-
 def in_aside_form(q: "Question | None") -> bool:
     """「ところで」の形（aside_form）の質問か（唯一の見分け＝頭のつなぎの言葉 spoken_question・録音の一覧 question_forms）。"""
     return q is not None and str(getattr(q, "recording", "") or "").endswith(ASIDE_SUFFIX)
 
 
-def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False) -> tuple[str, str]:
+def aside_play(questions: list["Question"], qid: str) -> dict:
+    """会話AIのひとことのあとに伺い直す質問の1つ（唯一の場所＝Flow._aside_again）：「ところで」＋言い換えた質問（aside_form）。
+    ✅ 2026-11-14 日本時間20時05分14秒 ユーザー（伺い15）：「ア（お勧め）：ひとことが質問の話に触れたら「それでは」、触れていなければ「ところで」。でOKですが、
+    伺い15の例の場合は、直前が、お支払いの日程の話をしていて、カードと振込のどちらかの話では全くないので、「ところで」…のようなひとことで大丈夫です。」
+    ひとことが質問の話に触れたときは、伺い直しを続けずにお客様のお返事を待つ（Flow._waits_after。21時04分53秒と同じ理由＝見直し (12) の D-10・まとめ役が決まりで
+    決めた）＝伺い直すのは触れていないひとこと・受け答えの録音のあとだけなので、頭はいつも「ところで」。⛔ 393f474b まで、触れたひとことのあとに「それでは」＋
+    言い換えた質問を続けた（「それでは」の形は伺い直したあとに戻る形と同じ録音だった＝録音の一覧は変わらない）"""
+    return question_play([aside_form(x) if x.id == qid else x for x in questions], qid)
+
+
+# お客様の意向がまだ分からないまま戻るときの形（soft_form）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー「・お客様：そうなんですね。こちら：はい、それではお支払いの方は
+# カードと振込のどちらにされますか？⇒まだ、どちらの意向なのか分からない状況で、「それでは」は、あたかも強制的に決められたかのように受け止められてしまいます。しかし、
+# 否定的な返事でもないときは、「はい、振り込みになさいますか、それともカードの方がよろしいでしょうか？」のような聞き方の方が流れが自然ではないでしょうか？」
+ALTERNATIVES_SUFFIX = "_alternatives"   # 選択肢を並べた形の録音の名前の終わり（依頼主の単位の録音「番号_alternatives」）
+
+
+def soft_fits(q: "Question") -> bool:
+    """お客様の意向がまだ分からないまま戻るとき（Flow._continue の soft）に、頭に「それでは」を付けずに伺い直す質問か（唯一の決まり＝流れの制御・録音を作る形
+    question_forms）：業務の質問（読みの確かめ・かけ直しの質問・業務の質問から文を作ったシステムの質問でない）で、ご承認のお知らせの形でないもの。システムの質問の頭の
+    「それでは」（「それでは恐れ入りますがメールアドレスを…」）はお客様が選んだ答えを受ける言葉・ご承認のお知らせの最終の確かめ「それでは（中身）の件はご了承という
+    ことで…」はお言葉の形（11-14 14時31分38秒「●伺い10」）なので当たらない。"""
+    return not (q.reading_of or q.callback or q.of) and not in_announce_form(q)
+
+
+def alternatives_fits(q: "Question") -> bool:
+    """取込で選択肢を並べた文（Question.alternatives）を作る質問か（唯一の決まり＝取込で作る import_ai.decide_alternatives を渡す呼ぶ側）：意向が分からないまま戻る質問
+    （soft_fits）のうち、選択肢から選んでいただく質問（Question.chooses の1か所。宣言した選択肢が2つ以上）。はい／いいえ・事実・値を伺う質問は「はい、」＋
+    言い換えた質問（soft_form もこの1か所を通る＝取込で作ってしまった文も流さない）。"""
+    return soft_fits(q) and q.chooses and len(q.conditions) >= 2
+
+
+def leads_fit(q: "Question") -> bool:
+    """選択肢を先に並べた文（Question.alternatives_led）を作り・流す質問か（唯一の決まり＝取込で作る import_ai.decide_alternatives に渡す印・録音の一覧
+    question_forms・流れの制御が選択肢に触れたかを読む Flow._led_options）：選択肢を並べて伺い直す質問（alternatives_fits）のうち、直前のこちらのひとことが選択肢に
+    触れうる質問＝別のお話へのひとことのあとに伺い直す質問（aside_fits）。申し出の質問は提案で伺い直すので、先に並べる番が来ない。⛔ 0c55c4e7 まで、申し出の選ぶ
+    質問にも先に並べた文を作り「番号_alternatives_2・_3」を録音の一覧に載せていた（流れない録音＝見直し (12) の C-6）"""
+    return alternatives_fits(q) and aside_fits(q)
+
+
+def _led_leads(q: "Question") -> list[str]:
+    """先に並べた文のある選択肢（録音の一覧 question_forms）：先に並べる番に来る質問（leads_fit）で、選択肢を並べた文と、その選択肢を先に並べた文がある
+    もの（並びは alternatives.orders の1か所）。"""
+    from alternatives import orders
+
+    if not (q.alternatives and leads_fit(q)):
+        return []
+    return [order[0] for order, text in zip(orders(q.conditions), q.alternatives_led) if text]
+
+
+def alternatives_form(q: "Question", lead: str = "") -> "Question":
+    """選択肢を並べた形（唯一の作り方＝soft_form）：文は取込で決めた選択肢を並べた文（Question.alternatives）・入る一言は言わない（もう伺った質問）・録音は
+    「番号_alternatives」（頭のつなぎの言葉の無い1本＝spoken_question。日によって変わる言い方の質問は、その言い方の録音の名前から＝「ところで」の形と同じ）。
+    lead＝直前のこちらのひとことが1つだけに触れた選択肢（Flow._touched_option）：その選択肢を先に並べた文（Question.alternatives_led。並びは alternatives.orders）が
+    あれば、その文・録音「番号_alternatives_（その選択肢の番号＝1から）」。最初の選択肢・選択肢に無い名前・先に並べた文が無ければ質問の順。
+    ✅ 2026-11-14 日本時間23時45分00秒 ユーザー「伺い16はイでOK」"""
+    from alternatives import orders
+
+    base = str(q.recording or q.id).removesuffix(ASIDE_SUFFIX)
+    # 先に並べた文の番目は、取込で作った並び（alternatives.orders の1か所＝その k 番目が alternatives_led の k 番目）から読む（⛔ 0c55c4e7 まで、ここで「選択肢の
+    # 番号−1」と書き直していた＝並べ方の決まりが2か所。見直し (12) の C-7）。録音の名前の番号は、先に並べた選択肢の番号（1から）
+    k = next((n for n, order in enumerate(orders(q.conditions)) if lead and order[0] == lead), None)
+    led = q.alternatives_led[k] if k is not None and k < len(q.alternatives_led) else ""
+    if led:
+        return dataclasses.replace(q, text=led, intro="", recording=f"{base}{ALTERNATIVES_SUFFIX}_{q.conditions.index(lead) + 1}")
+    return dataclasses.replace(q, text=q.alternatives, intro="", recording=f"{base}{ALTERNATIVES_SUFFIX}")
+
+
+def in_alternatives_form(q: "Question | None") -> bool:
+    """選択肢を並べた形（alternatives_form。先に並べた形も）の質問か（唯一の見分け＝頭のつなぎの言葉 spoken_question・録音の一覧 question_forms）。"""
+    rec = str(getattr(q, "recording", "") or "") if q is not None else ""
+    return re.search(re.escape(ALTERNATIVES_SUFFIX) + r"(_\d+)?$", rec) is not None
+
+
+def soft_form(q: "Question", lead: str = "") -> "Question":
+    """お客様の意向がまだ分からないまま戻るとき（Flow._continue の soft）に伺う形（唯一の決まり＝流れの制御が替える Flow._soften・録音を作る形 question_forms）：
+    選択肢を並べた文（Question.alternatives）があればその形（alternatives_form）・無ければ言い換えた質問（aside_form）・それも無ければいまの形のまま。その後の形
+    （since_form）はそのまま（「その後…かお決まりになりましたでしょうか？」のお返事を伺う前に、選択肢を並べない）。頭のつなぎの言葉は付けない（spoken_question の
+    soft）。頭の「はい、」は相づちの録音（Flow._ack）。lead＝直前のこちらのひとことが1つだけに触れた選択肢（alternatives_form。お話に沿った受け答えで待った
+    あとの戻りだけ＝Flow._resume）。"""
+    if in_since_form(q) or in_alternatives_form(q):
+        return q
+    if q.alternatives and alternatives_fits(q):
+        return alternatives_form(q, lead)
+    return aside_form(q) if q.reworded and not in_aside_form(q) else q
+
+
+def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False,
+                    soft: bool = False) -> tuple[str, str]:
     """録音で流す質問の文（つなぎの言葉＋質問の文）と、そのつなぎの言葉（唯一の場所）。次の項目の質問に入るときは「続きまして」（NEXT_LEAD。
     ✅ 2026-11-06 日本時間12時54分30秒 ユーザー。⛔ それまでは質問の順番で「それでは」「続きまして」「では」を回していた）。最初の質問は名乗りと一緒に
     流すので、つなぎの言葉は付けない。
@@ -1006,9 +1168,17 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     「。」で終わらない一言（3回目に戻る一言）なら、質問をその文に続ける。頭の言葉だけを渡さない（文として読む＝B-3。録音の形の一覧も before_lines の文を渡す）。
     again＝尋ねられて答えたあとに伺い直す形（頭は AGAIN_LEAD。入る一言はもう流したので付けない。✅ 同じ時「(2) イ」）。
     resumed＝続きの電話で、お詫び（＋用件の一文）のすぐあとに最初に伺う（次の項目のつなぎの言葉の代わりに QUESTION_RESUME_LEAD。✅ 2026-11-06 日本時間
-    15時20分30秒 ユーザー「続きまして、も、それではも繋がりがおかしい」。前の答えで伺う質問も同じ。入る一言は業務の言葉のまま）。"""
+    15時20分30秒 ユーザー「続きまして、も、それではも繋がりがおかしい」。前の答えで伺う質問も同じ。入る一言は業務の言葉のまま）。
+    soft＝お客様の意向がまだ分からないまま戻る形（Flow._continue の soft・形は soft_form）：頭に「それでは」を付けない（ほかに分からない点を伺う質問の「ほかに」は
+    残す）。選択肢を並べた形（alternatives_form）はこの戻りだけの形（次の項目として伺うことは無い）なので、いつも頭を付けない。✅ 2026-11-14 日本時間22時15分15秒
+    ユーザー（お言葉は soft_form の上）。"""
     q = next(x for x in questions if x.id == qid)
-    if q.reading_of or q.callback:  # プログラムが足す質問（読みの確かめ・かけ直し）：つなぎの言葉は付けない
+    if q.reading_of or q.callback:
+        # プログラムが足す質問（読みの確かめ・かけ直し）：つなぎの言葉は付けない。もう伺ったかけ直しの質問を伺い直す（again）ときは、流す形と同じ文（question_play
+        # の again_fit＝「それでは」から。見直し (12) の B-9）
+        if q.callback and again:
+            text = question_play(questions, qid, before, again=True)["text"]
+            return text, text[: len(text) - len(q.text)] if text.endswith(q.text) else ""
         return q.text, ""
     if in_aside_form(q) and not again:
         # 会話AIのひとことのあとに「ところで」＋言い換えた質問（Flow._aside_again）。もう伺ったあとに戻る（again）は、ほかの質問と同じ「それでは」から
@@ -1016,6 +1186,8 @@ def spoken_question(questions: list["Question"], qid: str, before: str = "", aga
     # ⛔ 見直しで見つけた漏れ：読みの確かめを挟むと、そのあとの質問のつなぎの言葉（＝録音の名前）が1つずれた（「それでは」⇒「続きまして」）
     i = [x.id for x in questions if not x.reading_of and not x.callback].index(qid)
     others = others_head(q)
+    if soft or in_alternatives_form(q):
+        return head_join(others, q.text), others
     if before and not closes(before):
         # 3回目から戻るときの一言（phrases.BACK_TO_MIDWAY「確認の途中でしたのでもう一度お伺いさせていただきますが」＝文を終えない）は、質問の頭として1本で
         # 録音する（✅ 2026-11-07 日本時間4時40分35秒 ユーザー「…「確認の途中でしたのでもう一度お伺いさせていただきますが、ご予約は～」」）
@@ -1242,7 +1414,10 @@ def queries_us(readings) -> bool:
 def prompt_replied(readings) -> bool:
     """お客様の言葉が、黙ったあとの一言へのお返事だけか（唯一の決まり＝Flow._prompt_only）：届いた意味の判定の読みのうち、この項目（PROMPT_REPLY）を読んだものが
     そろって「お返事だけ」。項目を読んでいない読み（届いていない・一言を流していない）は数えず、1つも無ければお返事だけとしない（言葉の形で補わない）。割れたら
-    お返事だけとしない（お話の側＝ひとこと応える側。聞き流さない）。"""
+    お返事だけとしない（お話の側＝ひとこと応える側。聞き流さない）。そろって「お返事だけ」なら、答えの読みにかかわらず最終の確かめ（Flow._prompt_due）＝この項目の
+    読みは、読んだときはいつも流れの制御が使う（読みの確からしさ meaning_judge.used_sure もいつも数える）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「…一言に
+    対して答えてる可能性があるので、気をつけないといけないよ」・559036d5 の決め。⛔ 2e5986f5 まで、答えの読みが「決められない」かご承認のお知らせのときだけ使い
+    （prompt_used）、資料の申し出への「いえ、大丈夫です。」を判定が「いいえ」とも読むとお断りで締めた（見直し (12) の B-4）"""
     got = [q for r in readings if r is not None and (q := getattr(r, PROMPT_REPLY, None)) is not None]
     return bool(got) and all(q == PROMPT_REPLY_YES for q in got)
 
@@ -1592,8 +1767,8 @@ END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急い�
 #    それ以外の事情で取り次いでいただけなかった＝not_transferred（時刻が取れたかは通話の事実 callback が持つ＝約束の時刻は CL-2 が決める）
 # ✅ 2026-10-22 ユーザーの決定（相手の申し出）で足した理由：在籍していない（退職・異動。後任の方にも繋がらなかった・終える業務）／ほかの手段を
 # 望まれた（メールで送って など。電話ではなく、その手段で）。どちらも、次にどうするかは CL-2 が決める
-NOT_REACHED_LABEL = {"absent": "不在", "not_transferred": "取り次いでいただけなかった", "departed": "在籍していない",
-                     "other_means": "ほかの手段を望まれた", "who_unclear": "お名前だけではどの方か分からなかった"}
+# ⇒ 理由の名前は absent（不在）・not_transferred（取り次いでいただけなかった）・departed（在籍していない）・other_means（ほかの手段を望まれた）・
+#    who_unclear（お名前だけではどの方か分からなかった）。⛔ 0c55c4e7 まで、どこからも読まない名前の表 NOT_REACHED_LABEL を置いていた（見直し (12) の 14）
 # 最終目的の果たし方（業務設定＝CL-2。Flow の goal_mode）：any＝最終目的のどれか1つが果たせれば業務の目的が果たせる（1つ断られても、ほかが残れば
 # 質問を続ける）／all＝全部が要る（1つ断られたら果たせない）。✅ 2026-11-01 日本時間22時31分 ユーザー：「片方だけでも目的が達成できるときは、
 # 質問を続け、片方断られたら、目的は達成できない場合は、途中で締めるという形になるんではないでしょうか。」
@@ -1741,6 +1916,14 @@ OFFER_LABEL = {"callback": "折り返し", "message": "伝言", "email": "メー
 # 受け答えの文が使えないときに流す一言（phrases.TALK_FALLBACK の録音。AIは言い方そのものを選ぶ。同じ言葉の別の調子は、名前に調子を添えて分ける）
 TALK_LABEL = {k: f"{w}（{tone}）" if tone else w for k, (w, tone, _) in TALK_FALLBACK.items()}
 TALK_CHOICES = "、".join(f"{TALK_LABEL[k]}＝{scene}" for k, (_, _, scene) in TALK_FALLBACK.items())  # AIに見せる、選び方の説明（1か所）
+# お客様のお話への受け答えの決まり（会話AIに見せる唯一の文＝会話の始めの受け答えの決まり instruction.system_rules・別のお話にひとこと応える番のどの知らせ
+# Flow._asked_note（業務の質問の「ところで」・2回目から・お知らせ・申し出と方法の提案））。言い方の並びで縛らない（例は1つだけ）。
+# ✅ 2026-11-14 日本時間14時31分38秒 ユーザー：「●お客様：うちは月曜が定休日なんですよ。こちら：さようでございますか。⇒これだと軽くあしらったように思われ感じが
+# 悪いので、例えば、「さようでございますか。お支払いは、月曜日以外(以降)でも問題ございませんよ。」など、相手の話を受けた受けごたえを入れたほうがいいんじゃない
+# ですか！？」（⛔ 0bde71ec まで、知らせが「ご事情のお話には「さようでございますか。」…など、短く1文」と相づちだけの返事を例に挙げていた）
+TALK_RECEIVE = ("お話には、相づち（「さようでございますか。」など）だけで終えず、お話の中身を受けた受け答えにします（例：「うちは月曜が定休日なんですよ。」に"
+                "「さようでございますか。お支払いは月曜日以外でも問題ございませんよ。」）。お話がいまの質問・お知らせに関わるときは、業務の情報にあることの範囲で、"
+                "差し支えないことを伝えてかまいません。問いかけ・約束は入れません。")
 # ご説明できない点の種類（phrases.POINT_KINDS。答えを持っていない応え方で、ご説明する段のときだけ。AIが答えの文と一緒に選ぶ＝受け答えの一言と同じ形）
 POINT_KIND_LABEL = {k: noun for k, (noun, _) in POINT_KINDS.items()}
 POINT_KIND_CHOICES = ("「ご質問」＝分からない点・確かめたいことを言った、「ご要望」＝こうしてほしいという望みを言った、"
@@ -1755,13 +1938,23 @@ OFFER_REPLIES = (("offer_thanks", OFFER_THANKS), ("offer_thanks_again", OFFER_TH
 CALLBACK_PLAN = {"absent": ("back_time",), "day_off": ("next_workday",), "long_absent": ("back_date",),
                  "other_number": ("number", "reachable_time"), "later": ("later_time",), "other_means": (), "unavailable": ("transfer_time",)}
 MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほかの手段で、聞くこと（手段の申し出が無ければ、聞かずに締める）
+# 2回目の好意（お客様のほうから折り返すという重ねての申し出）をお言葉に甘えて受けたあと（Flow._callback の1か所）に伺うこと（理由 → 役目）。伺い方・受け方は
+# ふつうのかけ直しの質問と同じ1か所。伺えた時刻は折り返しのお約束（theirs）と同じかけ直しの記録の time。✅ 2026-11-14 日本時間20時11分41秒 ユーザー
+# （CL-2 の伺いへのお返事。お言葉は phrases.CALLBACK_ASK の theirs_time）・CL-2 の 4-391 の (1)＝不在。✅ 2026-11-15 日本時間11時59分07秒 ユーザー
+# 「伺い17はアでOK」＝不在のほかの理由でも、同じ理由（お電話をいただいた際に出られないことがないように）で伺う：お休み・出張など長期の不在・会議中などいまは
+# お電話に出られない方（お電話に出られないご事情・呼んでいる段のあとで）・答えの段のお客様ご本人の「こちらから連絡します」（あとで）。同じ文の理由は同じ役目
+# （＝同じ録音 callback_（役目）。ご事情とあとでは theirs_later）。表に無い理由（別の番号へ。ほかの手段は折り返しの申し出にならない）は今までどおり伺わずに
+# お礼の締め（お言葉の場面の外）
+THEIRS_PLAN = {"absent": ("theirs_time",), "day_off": ("theirs_workday",), "long_absent": ("theirs_date",),
+               "unavailable": ("theirs_later",), "later": ("theirs_later",)}
+THEIRS_ROLES = {r for rs in THEIRS_PLAN.values() for r in rs}   # お言葉に甘えたあとに伺う役目（Flow._callback・_follow_ups）
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
                 "when": "C9", "message": "M1", "promise_again": "P1",
                 "refusal": "D1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3", "line": "C10", "other_wish": "W1",
                 "line_how": "C11", "mobile": "C12", "wait_or_later": "H2", "concern": "D2", "handoff": "N4", "handoff_way": "N5",
                 "close_offer": "N6", "carried": "HC"}
-ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
+ROLE_KEY = {"back_time": "time", **{r: "time" for rs in THEIRS_PLAN.values() for r in rs}, "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
             "number": "number",
             "email": "email",
             "fax": "fax", "address": "address", "message": "message", "back_today": "back_today", "call_again": "again",
@@ -2011,9 +2204,11 @@ def prompt_reply_choices(calling: bool, prompted: bool = False) -> dict:
             UNDECIDED: "この言葉からは、声かけへのお返事だけかどうか決められない"}
 
 
-# 業務の質問への言葉が、質問の答えの話か、別のお話か（「うちは月曜が定休日なんですよ。」）。「ところで」＋言い換えた質問で伺い直す質問（asks_away＝aside_fits）
-# の答えの段だけ読む項目（meaning_judge.answer_items。段ごとの項目 side_items には出ない＝お呼びする段・システムの質問の文は変わらない）。読みを組み合わせるのは
-# talked_away の1か所（Flow._unlinked_kind）：そろって「別のお話」のときだけ「ところで」で伺い直す。答えの話（どれとも決められない答え・答えの一部・迷い・
+# 業務の質問への言葉が、質問の答えの話か、別のお話か（「うちは月曜が定休日なんですよ。」）。「ところで」＋言い換えた質問で伺い直す質問（aside_fits＝伺い直した
+# あとの形・続きの電話のその後の形も）の答えの段と、その言い直し・最終の確かめ（ご承認のお知らせ・申し出の質問の言い直し・最終の確かめも）だけ読む項目（読ませる
+# 問い合わせの決まりは away_fits の1か所＝meaning_judge.answer_items。段ごとの項目 side_items には出ない＝お呼びする段・システムの質問の文は変わらない）。読みを
+# 組み合わせるのは talked_away の1か所（Flow._unlinked_kind・_offer_unlinked・_resume_due）：そろって「別のお話」のときだけ、会話AIのひとことのあと
+# 「ところで」で伺い直す（伺い直したあとも続く別のお話にも、何回目でもひとこと＝Flow._talk_again）。答えの話（どれとも決められない答え・答えの一部・迷い・
 # 分からない）・割れた・項目が届いていないときは今の道（質問から聞き直す・目的に進む向きで確かめる＝11-03）。✅ 2026-11-13 日本時間22時17分01秒 ユーザー
 # 「9は「さようでございますか。ところで、お支払いの方はカードと振込のどちらにされますか？」」（⛔ 入れる途中で見つけた：判定の「決められない」には「そうですね。」
 # 「振込じゃないほうがいいかなとは思いますけど」のような答えの話も入る＝それだけで「ところで」にすると、決まった道（G-55・11-08 12時11分40秒・G-14）を壊した）
@@ -2025,9 +2220,37 @@ def away_choices(calling: bool, asked: bool = False) -> dict:
     """質問の答えの話か、別のお話かの選べるもの（{中の名前: 説明}）。「ところで」で伺い直す業務の質問の答えの段だけ（ほかは {}）。"""
     if calling or not asked:
         return {}
-    return {AWAY_YES: "質問の答えの話ではなく、別のお話をした（お客様のご事情・世間話・ほかの話題など）。答え・答えの一部・迷い・分からない、は言っていない",
-            AWAY_NO: "質問の答えの話をした（はっきりした答えのほか、どれとも決められない答え・答えの一部・迷い・分からない・答えたくない、も含む）",
+    # 説明はお客様の様子として思い浮かぶ言葉で書く（試しの言葉そのものは書かない＝混入の試験）。✅ 2026-11-13 まとめ役の決め（分身 E）
+    # 境目（答えの話に入るもの）は「答えの話」の説明の1か所だけに書く（Jev への問い meaning_judge.JEV_ITEMS は問うだけ）。⛔ 0c55c4e7 まで、「別のお話」の説明・
+    # 「答えの話」の説明・Jev への問いの3か所に違う並びで書いていた（見直し (12) の D-12）
+    return {AWAY_YES: "質問の答えの話ではなく、別のお話をした（お店やお仕事の休みの日・天気や季節・ご家族やご近所のことなど、聞かれたことと関わりのない"
+                      "ご事情・世間話・ほかの話題）",
+            AWAY_NO: "質問の答えの話をした（はっきりした答えのほか、相づちだけの返事・どれかに寄った考え・答えの一部・迷い・分からない・要らない・答えたくない、"
+                     "も答えの話。ご事情のお話でも、聞かれたこと（日にち・曜日・方法など）の答えや答えの手がかりになっていれば答えの話）",
             UNDECIDED: "この言葉からは、どちらか決められない"}
+
+
+# 決められない読みの道（Flow._undecided_way）のうち、別のお話の番になりうる道（取込で意味が決まった言葉・前の話を指す言葉・判定が割れて名指しした答え・
+# ご承認いただけなかったときの手順は、言葉で決まる特別な道＝別のお話にしない）
+AWAY_WAYS = ("since", "dash", "toward", "again_restate", "again_check", "again_ask")
+
+
+def plain_way(q: "Question") -> str:
+    """決められない読みの道のうち、言葉で決まる特別な道（取込で意味が決まった言葉・その後の形・ご承認の手順・前の話を指す言葉・名指し）でない道（唯一の決まり＝
+    Flow._undecided_way の終わり・測りの数え g53_meaning.undecided_act）："dash"（必須でない）・"toward"・"again_restate"・"again_check"・"again_ask"。"""
+    if not q.checks_now:
+        return "dash"
+    if q.type in CHOICE_TYPES and restates(q):
+        return "toward" if len(q.toward) == 1 else "again_restate"
+    return "again_check" if q.type in CHOICE_TYPES else "again_ask"
+
+
+def away_turn(q: "Question", readings, way: str) -> bool:
+    """決められないお返事が、別のお話にひとこと応えて「ところで」で伺い直す番（申し出でない業務の質問の別のお話）か（唯一の決まり＝流れの制御
+    Flow._unlinked_base・測りの数え g53_meaning.flow_act・正解の動き flow_wants）：「ところで」で伺い直しうる業務の質問（aside_fits）で、判定がそろって
+    「別のお話」と読み（talked_away）、決められない読みの道 way（Flow._undecided_way）が言葉で決まる特別な道でない（AWAY_WAYS）。⛔ 0c55c4e7 まで、
+    測りの数えはこの読みを見ず、「そうですね。」を判定が「別のお話」と読み違えても「正しい動き（聞き直す）」と数えていた（見直し (12) の D-2）"""
+    return aside_fits(q) and talked_away(readings) and way in AWAY_WAYS
 
 
 def talked_away(readings) -> bool:
@@ -2673,6 +2896,17 @@ class Question:
     # 説明と質問の文から作る＝announces.py・import_ai.decide_announces。空＝取込で決まらなかった＝今の形のまま）。流すのは流す形の1か所（announce_form＝question_play）。
     # 資料がお手元にある方には終わりを「ご確認ください。」に替えた文（phrases.announce_check）。✅ 2026-11-12 日本時間19時32分21秒・11-13 20時06分19秒 ユーザー「伺い1の(1)はウ…(2)ウ (3)b」
     announce: str = ""
+    # ご承認のお知らせの中身を表す名詞（「キャンセル」。取込の文字のAI2つがそろって説明と質問の文の中の言葉のとき・そろわなければ考える Sonnet＝import_ai.decide_matters
+    # ・announces.matter_decide。決まらなければ空）。お知らせのあと黙られて、気になる点の一言へのお返事だけのとき（_final_check）と、別のお話が続いて締めの前の念のための
+    # 確認で伺うとき（_advance_to）の最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」に入れる（組むのは accepted_line の1か所。空なら
+    # 「先ほどの内容」）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承ということでよろしかったでしょうか？」」
+    matter: str = ""
+    # お知らせの中身を常体にした句（「キャンセルは前日までにご連絡いただく必要がある」。取込で名詞と同じ1回の問い合わせ＝import_ai.decide_matters の答えの組の2つ目・
+    # 形の確かめは announces.clause_fits。決まらなければ空）。聞き取れないまま「-」にしたお知らせの締めの前の念のための確認「（句）件のお返事のお声が聞き取れなかった
+    # のですがご了承ということでよろしかったでしょうか？」に入れる（組むのは accepted_line の1か所の heard=False。空なら名詞の形・名詞も無ければ「先ほどの件」）。
+    # ✅ 2026-11-15 日本時間11時59分07秒 ユーザー「・(3)今：…⇒こちら「ありがとうございます。申し訳ございません、キャンセルは前日までにご連絡いただく必要がある件の
+    # お返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」」
+    matter_clause: str = ""
     # 資料がお手元に届いているかを伺う質問の、「届いている」にあたる選択肢の名前（取込の文字のAI2つが決める＝import_ai.decide_at_hand。伺う質問でなければ空）。
     # この答え（この電話・前の電話）なら、お知らせは「ご確認ください。」の文（at_hand の1か所。11-13 20時06分19秒「(3)b」）
     at_hand: str = ""
@@ -2730,6 +2964,15 @@ class Question:
     # 考える Sonnet・中身の判定を通った文＝import_ai.decide_rewords。決まらなければ空＝「ところで」＋元の質問の文）。流す形は aside_form の1か所。
     # ✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は「さようでございますか。ところで、お支払いの方はカードと振込のどちらにされますか？」」
     reworded: str = ""
+    # お客様の意向がまだ分からないまま戻るとき（Flow._continue の soft）に「はい、」に続けて伺う、選択肢を並べた質問の文（「カードになさいますかそれともお振込の方が
+    # よろしいでしょうか？」。選ぶ質問だけ＝alternatives_fits。取込で文字のAI2つがそろう・そろわなければ考える Sonnet・中身の判定を通った文＝
+    # import_ai.decide_alternatives。決まらなければ空＝「はい、」＋言い換えた質問）。流す形は soft_form の1か所。✅ 2026-11-14 日本時間22時15分15秒 ユーザー
+    # 「…「はい、振り込みになさいますか、それともカードの方がよろしいでしょうか？」のような聞き方の方が流れが自然ではないでしょうか？」
+    alternatives: str = ""
+    # 先に並べる選択肢ごとの、選択肢を並べた質問の文（並びは alternatives.orders の順＝2つ目からの選択肢ごとに、その選択肢を先に並べた文。「お振込になさいますか
+    # それともカードの方がよろしいでしょうか？」。取込は alternatives と同じ問い合わせ＝import_ai.decide_alternatives。空の文はその選択肢でも質問の順）。直前の
+    # こちらのひとことが1つだけに触れた選択肢のとき、その文で伺う（alternatives_form の1か所）。✅ 2026-11-14 日本時間23時45分00秒 ユーザー「伺い16はイでOK」
+    alternatives_led: tuple = ()
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -2774,14 +3017,21 @@ class Question:
         return offers[0] if len(offers) == 1 else None
 
     @property
+    def chooses(self) -> bool:
+        """選択肢から選んでいただく業務の質問か（唯一の決まり＝「どちらでも」「どれも要らない」を出す all_conditions・選択肢を並べて伺い直す形を作る
+        alternatives_fits）：型が選ぶ質問で、事実を伺う質問（asks_fact＝「現在のお支払いはカードと振込のどちらでしょうか？」）でもシステムの質問でもない。
+        事実を伺う質問はお客様に選んでいただくのではない＝「はい、」＋言い換えた質問で伺い直す（11-14 22時15分15秒の段）。⛔ 0c55c4e7 まで、2か所が別々に書き、
+        選択肢を並べた文（「カードになさいますかそれとも…」）は事実を伺う質問にも作って流していた（見直し (12) の C-1）"""
+        return self.type == "choice" and not self.asks_fact and not self.callback
+
+    @property
     def all_conditions(self) -> tuple:
         # 「どちらでも」「どれも要らない」は、業務の選ぶ質問で事実を伺わない質問だけ（システムの質問＝お立場・ご承認いただけなかったときの手順には足さない。
         # ⛔ 2026-11-02 に見つけた：お立場の質問 S1 にも「どちらでも」を出していた）。申し出た方法を並べて伺い直す質問（lists_ways）は「どちらでも」だけ
         # （「どれも要らない」は、その質問の断る答え＝WISH_NONE がある）
         # どちらの場合もありうるときに確かめる答えのある質問（maybe）も「どちらでも」だけ（はい／いいえ・事実を伺う質問でも出す＝「どちらでも」を答えとしては
         # 受け取らず、その可能性を確かめる＝Flow._ask_confirm の maybe。11-01 1時50分「お任せしますは答えになっていない」と食い違わない。✅ 11-09 4時36分49秒）
-        business = self.type == "choice" and not self.asks_fact and not self.callback
-        return tuple(self.conditions) + ((ANY, NONE) if business else (ANY,) if self.lists_ways or self.maybe else ()) + SYSTEM_CONDITIONS
+        return tuple(self.conditions) + ((ANY, NONE) if self.chooses else (ANY,) if self.lists_ways or self.maybe else ()) + SYSTEM_CONDITIONS
 
     def offers(self, condition: str | None) -> bool:
         """condition が、この質問でお客様が選べる答え（宣言した選択肢と、この質問が出す「どちらでも」「どれも要らない」＝all_conditions のうち、わからない・
@@ -2928,8 +3178,11 @@ def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) ->
     return untried[0] if untried else None
 
 
-CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "transfer_time": "お取り次ぎいただけそうな時期", "number": "お電話番号",
+# 聞き返しで伺い直すことの名前。お言葉に甘えたあとの伺い（THEIRS_PLAN の役目）は、同じことを伺うふつうのかけ直しの質問と同じ言葉（theirs_time＝back_time・
+# theirs_workday＝next_workday・theirs_date＝back_date・theirs_later＝later_time）
+CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "theirs_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "transfer_time": "お取り次ぎいただけそうな時期", "number": "お電話番号",
                   "reachable_time": "お電話に出られるお時間", "back_date": "お戻りのご予定", "next_workday": "次のご出社のご予定",
+                  "theirs_workday": "次のご出社のご予定", "theirs_date": "お戻りのご予定", "theirs_later": "ご都合のよろしいお時間",
                   "email": "メールアドレス", "fax": "ファクス番号",
                   "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言", "back_today": "本日のお戻りのご予定",
                   "call_again": "改めてのお電話", "promise_again": "改めてのお電話", "ask_who": "お分かりになる方", "ask_when": "お分かりになる時期",
@@ -3025,9 +3278,11 @@ _ROLE_MEANINGS = {
     "carried": {CARRIED_YES: "これまでのお話を聞いている・引き継いでいるということ",
                 "聞いていない": "これまでのお話を聞いていない・引き継いでいないということ"}}
 POINT_UNSAID = "点は言っていない"   # 「ほかに…」（N2）への、分からない点があるとだけ言った答え（_ROLE_MEANINGS の other_point・Flow._point_step）
-# システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）
+# システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）。決まった伝言のお願い（M1）の
+# 「いいえ」（伝言は伝えられない）もお断り＝締めの頭は「はい、承知いたしました。お忙しいところ…」（Question.turned_down の1か所。見直し (12) の B-8。⛔ 2e5986f5
+# まで入れておらず、「あ、いや、それはちょっと…。」に「はい、お忙しいところ…」＝お断りを受け止めずに締めた）
 _ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("断ろうとしている",), "agreed_now": ("いいえ",), "concern": ("断ろうとしている",),
-                  "handoff": ("いいえ",), "close_offer": ("いいえ",)}
+                  "handoff": ("いいえ",), "close_offer": ("いいえ",), "message": ("いいえ",)}
 # ご承認いただけなかったときの手順の段と、その段で伺うシステムの質問の役目（唯一の表＝Flow._point_step・
 # 手順の質問の作り callback_question。⛔ 23時22分41秒のご質問の見直し A9：4か所が役目を手で並べていた）。
 # ご説明する段（explain・explained）と申し伝え直す段（told）は、伺う質問が無い
@@ -3090,7 +3345,8 @@ CONTACT_ROLES = tuple(dict.fromkeys(r for _, _, r in WISH_MEANS.values() if r))
 # 提案へのお返事が聞き取れたのに決まらない）：断られたとはしない（Flow._goals_lost）。none は「無い」と言っていただいたときだけ（✅ 2026-11-12 まとめ役の (L1)。
 # ⛔ それまでは聞き取れないまま終えたときも none＝RemainingNineTest の (4)）。
 # ✅ 11-01「わからない・答えたくないは断られたとはしない」・11-05 4時48分13秒（もうかけないの印は付けない）。⛔ 2026-11-09 日本時間7時台まで「無い」と同じ none だった
-WISH_OUTCOMES = ("none", "option", "means", "other", "unresolved")
+# ⇒ 結びの名前は none・option・means・other・unresolved（CL-2 の call_report.OTHER_WISH_OUTCOMES と同じ並び。⛔ 0c55c4e7 まで、どこからも読まない
+#    写しの並び WISH_OUTCOMES を置いていた＝見直し (12) の 14）
 # ご承認いただけなかったときの手順（ご納得いただけなかった点を伺う＝Flow._point_step）を、前の通話でどこまで伺えたか（前の通話で取れた答えの "point" の値＝
 # earlier_point）：heard＝ご納得いただけなかった点を伺った（ご説明の途中で切れたものも）／agreed・declined・unresolved＝手順の終わり（Flow._point_end）。
 # 無ければ、ご納得いただけなかった点の答えをいただく前に切れた＝続きの電話の始めに、切れた所から伺う（resumed_step。✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」）
@@ -3131,7 +3387,7 @@ def earlier_fact(entry: dict | None, key: str) -> dict | None:
 
 
 def earlier_wish_of(entry: dict | None) -> str | None:
-    """前の通話で取れた答えに伺ったほかのご希望の結果（WISH_OUTCOMES の1つ。W1 の答えをいただく前に切れた・伺っていなければ None）＝earlier_wish の読み方。"""
+    """前の通話で取れた答えに伺ったほかのご希望の結果（none・option・means・other・unresolved の1つ。W1 の答えをいただく前に切れた・伺っていなければ None）＝earlier_wish の読み方。"""
     f = earlier_fact(entry, "wish_fact")
     return earlier_wish(f) if f is not None else None
 
@@ -3167,7 +3423,7 @@ def earlier_said_of(entry: dict | None) -> str | None:
 
 
 def earlier_wish(entry: dict) -> str | None:
-    """通話の事実 other_wish の1つ（その質問に伺った最後のもの）から、ほかのご希望の結果（WISH_OUTCOMES の1つ。前の通話で取れた答えの "wish" に入れる値。
+    """通話の事実 other_wish の1つ（その質問に伺った最後のもの）から、ほかのご希望の結果（none・option・means・other・unresolved の1つ。前の通話で取れた答えの "wish" に入れる値。
     W1 の答えをいただく前に切れたら None＝次の通話で伺う）を決める唯一の読み方：結果があればそれ・連絡先を伺う途中で切れた（ご連絡の方法を言って
     いただいた）なら means。流れの制御もこの読み方で決める（Flow._wish_outcome）。"""
     return entry.get("outcome") or ("means" if entry.get("means") else None)
@@ -3690,8 +3946,7 @@ def _wish_text(q: "Question", again: bool = False, which: bool = False) -> str:
     （聞くこと）の件で（選択肢）のほかに…」。並べるかは同じ決まり。✅ 2026-11-03 日本時間23時52分36秒 ユーザー「(ア)」）。"""
     # 聞くことの頭の「ご希望の」は言わない（「前回お伺いしたご希望のお支払い方法の件で…ほかにご希望は…」と、1つの文に「ご希望」を2回言わないため。
     # 20時48分のご承認の言い方を選択肢で伺う形にそろえたのと同じ理由＝phrases.OTHER_WISH_ASK の注）
-    topic = q.topic.removeprefix("ご希望の")
-    t = f"{topic}の" if topic else ""
+    t = of_matter(q.topic.removeprefix("ご希望の"))   # 「（聞くこと）の件」の組み方は phrases.of_matter の1か所（「件」で終わる聞くことに「の件」を重ねない）
     if (ways := way_offer(q)) is not None:
         # はい／いいえで伺う、ご案内の方法を伺う質問（Question.asks_way）：業務でご案内できる方法を申し出る（1つなら「メールで」・2つから「メールやLINE、ZOOMなどで」）。
         # 申し出る方法が無ければ、連絡の方法だと分かる形で伺う（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」）。選ぶ質問は今までどおり選択肢を並べる。
@@ -3952,6 +4207,14 @@ class Item:
     value: str | None = None
     condition: str | None = None
     ask_backs: int = 0
+    # 別のお話（会話が繋がらないお返事）にひとこと応えてから、その場で伺い直した回数（「ところで」の伺い直し・お知らせの伝え直し・「それではもう一度確認させて
+    # いただきますね。」の伺い直し＝_aside_again・_announce_again・_talk_again）。聞き返しの回数 ask_backs とは別に数える（ask_backs は聞き返しの言い方・確かめの
+    # 言い方の段も選ぶ＝お客様の言葉は聞き取れているのに「（値）とおっしゃいましたでしょうか？」にしない）。その場の回数の上限は2つの合わせた数（_on_spot の1か所）
+    talk_backs: int = 0
+    # 別のお話にお話に沿った受け答え（_waits_after）で応えて、伺い直さずにお返事を待った印（Flow._wait_after_word が付ける）：(応えた発話の番号, その場ではもう
+    # 伺い直さないときの「-」にする理由＝相づちだけなら「-」にして次へ。伺い直せるときは空)。いまの待ちがこの印のものか（応えた発話が自分の言葉で応えた発話＝own_turn と同じ）は Flow._talk_waiting の1か所が読む
+    talk_waited: tuple | None = None
+    led_by: str = ""                  # こちらの直前のひとこと・答えが1つだけに触れた選択肢（Flow._lead_after。戻るときに先に並べる＝伺い16）
     rechecks: int = 0
     corrections: int = 0
     history: list = field(default_factory=list)
@@ -3987,6 +4250,8 @@ class Item:
     offer_stated: str | None = None   # 条件つきの受けの言い切りで、お伝えした方法（申し伝える一言の1回として数える＝Flow._told_said。Flow._taken_on_terms の1か所）
     offer_added: str | None = None    # その伺い直しに、こちらから足した条件（お客様の言っていないご都合。お客様の条件 offer_terms とは別の欄＝依頼者へ別に渡す）
     offer_way: str | None = None      # その伺い直しに入れた、ご希望の方法（業務の方法の名前。受けていただいたら方法を重ねて伺わない＝Flow._handoff_step）
+    dash_heard: bool = False          # 「-」にしたとき、お客様のお声は聞き取れていたか（別のお話・意味が決まらない答え＝Flow._dash の1か所が _heard_clearly で覚える）。締めの前の
+                                      # 念のための確認の言い方を選ぶ（聞き取れていた＝電話のせいにしない「恐れ入ります。…もう一度だけ…」＝9-5 の (3)・10-14）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -4255,14 +4520,13 @@ class Flow:
         # その言い方の録音の名前・day_recording_id）。⏳ 日付の言い方（〇日以降）は、名前と同じつなぎ方で組む（まだ作っていない＝止める）
         filled = []
         for q in questions:
-            if DAY_SLOT in q.text or DAY_SLOT in q.intro or DAY_SLOT in q.announce:
+            if day_question(q):
                 if earliest_day is None or today is None:
                     raise ValueError(f"質問 {q.id} の {DAY_SLOT} には、最短で対応できる日と電話の日が要ります（業務設定・CL-2 の暦）")
                 w = day_words(earliest_day, today)
                 if play_recordings and w not in DAY_VARIANTS:
                     raise ValueError(f"質問 {q.id} の {DAY_SLOT}「{w}」（日付の言い方）は、録音で流す電話ではまだ使えません（名前と同じつなぎ方は、まだ作っていない）")
-                q = dataclasses.replace(q, text=q.text.replace(DAY_SLOT, w), intro=q.intro.replace(DAY_SLOT, w), announce=q.announce.replace(DAY_SLOT, w),
-                                        recording=day_recording_id(q.id, w) if play_recordings else q.recording)
+                q = fill_day(q, w, day_recording_id(q.id, w) if play_recordings else None)
             filled.append(q)
         questions = filled
         self.questions = {q.id: q for q in questions}
@@ -4338,7 +4602,7 @@ class Flow:
         self.hesitating: dict[str, dict] = {}
         self.pending_wait: str | None = None    # 保留にしてよいかを伺い、お返事を待っている質問（Flow._ask_pending・_pending_reply）
         self.repeat_turn: int | None = None   # もう一度言ってほしいと読んで、伺ったことを流し直した発話（_repeat_now。同じ発話に流し直しを重ねない）
-        self._asked_next: tuple[dict, dict | None] | None = None   # 次の質問を伺う返事とその中の質問の録音（_next_question。替えるのは _relead_next）
+        self._asked_next: tuple[dict, dict | None, bool] | None = None   # 次の質問を伺う返事とその中の質問の録音・もう伺った質問か（_next_question。替えるのは _relead_next）
         self.end_doubt: int | None = None         # 電話を終える言葉か判定でも決まらず、いまの話への返事として受け取る発話（_topic_first。答えは向きを確かめる＝_checks）
         # 通話の事実（種類 → 起きた順の記録。_note だけが書く）。業務の判定（DESIGN.md 7-1。CL-2 の judge_task）へ渡す、会話の側が決めるもの：
         # do_not_call＝発信禁止の申告（原則14）／complaint＝怒り・苦情（人へ知らせる印）／end＝通話を終えた理由。どれも根拠の発話つき
@@ -4470,6 +4734,8 @@ class Flow:
         self.resume_due = not (apology_call or number_again)
         # その後の形（since_form）で伺っている質問の、元の質問（番号 → 質問。_resume_cut が代え、値の無い「決まりました」で _undecided_answer が戻す）
         self.since_plain: dict = {}
+        # お客様の意向がまだ分からないまま戻る形（soft_form）に替えた質問の、替える前の形（番号 → 質問。替えるのも戻すのも Flow._soften の1か所）
+        self.soft_plain: dict = {}
         if not target:
             self._resume_cut()
 
@@ -5030,10 +5296,9 @@ class Flow:
         1か所（_asked_now）が受け持つ（ここでは当てない）。⛔ 2026-11-12 まとめ役の (1)：「はい、恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」と
         聞き直していた（ap2/hole.out）"""
         got = [self.heard_check[k] for k in JUDGMENTS if k in self.heard_check]
-        # ご承認のお知らせ（in_announce_form）のあとは、お返事だけなら答えの読みが何でも了承・お断りとして受け取らない（「あ、はい、分かりました。」は一言への
-        # お返事かもしれない＝✅ 2026-11-13 日本時間20時06分19秒 ユーザー）
-        q = self.questions.get(self.current) if self.current and self.awaiting_confirm is None else None
-        return (self._prompt_only(got) and (all(g == UNDECIDED for g in got) or in_announce_form(q)) and not self.judged and self._asked_now() is None)
+        # 判定がそろって一言へのお返事だけと読んだら、答えの読みが何でも了承・お断りとして受け取らない（「あ、はい、分かりました。」「いえ、大丈夫です。」は一言への
+        # お返事かもしれない＝✅ 2026-11-13 日本時間20時06分19秒 ユーザー・559036d5 の決め）。どの質問も同じ（ご承認のお知らせだけの特例にしない＝見直し (12) の B-4）
+        return self._prompt_only(got) and not self.judged and self._asked_now() is None
 
     def _prompt_only(self, readings) -> bool:
         """いまのお客様の言葉が、黙ったあとの一言（_prompt_now）へのお返事だけか（唯一の決まり＝最終の確かめへ進む _prompt_due・申し出の伺い直しの番にしない
@@ -5326,7 +5591,7 @@ class Flow:
             # 尋ねられた問いに答えたあとの「質問に戻る」：お客様の返事が答えなら、戻らずに答えとして報告し直させる（_resume。判定の読みで決める）
             return (a.get("part") == "handover"
                     or (a.get("part") not in ("resume", "handover") and self._answer_may_come_first())
-                    or (a.get("part") == "resume" and self.own_pending == ASKED_REPLY)
+                    or (a.get("part") == "resume" and self._reply_may_answer())
                     or self._opening_answer(a.get("part")))
         if name == "report_party":
             # 呼んでいる段の「目的の人」「受付の方」の報告は、判定に当ててから決める（_calling_reported。⛔ 2026-10-21 の見直し：受付の方の報告は
@@ -5480,10 +5745,7 @@ class Flow:
             # もらったほうがいいですかね？や、送ってもらったほうがいいですかねー？だった場合は、こちらは「そうですね、お読みになられるとより理解が深まるかと
             # 思います。」のような返答が自然です。」⛔ それまでは、判定の「決められない」で言い直し・確かめの一言を繰り返していた
             # 迷っているお客様に選ぶ助けを伝える番（_hesitation の help）も同じ道で、言葉はその番に合わせる（迷っているのは問いではない）
-            kind = self._asked_kind()
-            what = ("どれにするか迷っている・まだ決めていない言葉" if kind == "help" else
-                    "申し出への、はい・いいえではないお話" if kind == "offer" else "こちらへの問い")
-            reply = self._reject(f"いまの相手の言葉は、答えではなく、{what}です（報告は受け付けません）。")
+            reply = self._reject(f"いまの相手の言葉は、答えではなく、{self._asked_name()}です（報告は受け付けません）。")
         elif (left := self._wait_left(name, args)) is not None:
             reply = left   # 待つかかけ直すかを伺っている間に、伺う前の話に答えた：伺う前の位置へ戻し、その言葉を戻した位置について読み直してから受ける
         else:
@@ -5565,6 +5827,12 @@ class Flow:
         if reply["result"] != "rejected" and self.reply_started and (self.own_pending or self.ai_pending):
             # この操作で応えて、お客様の返事を待ち始めた：お客様に聞こえた中身を覚える（もう一度言ってほしいと頼まれたら言い直す＝_repeat_now）
             self.reply_said = {k: reply[k] for k in ("play", "say", "speak", "silent", "message") if reply.get(k)}
+            if self._reply_may_answer():
+                # 話がいまの質問から移らないままお返事を待つ（尋ねられて答えた・別のお話にお話に沿った受け答えで応えた＝_reply_may_answer）：黙られたら、ご承認の
+                # お知らせ・考えている方と同じ見張り（流し終えて5秒で「何か気になる点が…」＝call.silence_prompt_after。そのあとのお返事だけは _judged_first が
+                # 戻り _resume へ）。印は返事に付ける（会話AIの声で応えた返事には流す録音が無い）。見直し (12) の A-4（⛔ 393f474b まで待つ返事に印が無く、黙られると
+                # 何も言わずに待ち続けた）
+                reply = reply | {"silence_prompt": True}
         if reply["result"] != "rejected" and not self.reply_started:
             # 決まった言い方・自分の言葉の答えへの返事を待つのは、その次の報告まで（答え・ほかの報告が来たら、もう待っていない）。この報告で応えて、
             # いま待ち始めた（_await_reply の1か所）ときは残す。差し戻した報告は、何も変えない（受け付けていない）。⛔ 2026-11-06 日本時間5時56分55秒の
@@ -5728,8 +5996,12 @@ class Flow:
         - 言い直した値が違っていた ⇒「失礼いたしました。」／聞き取れなかった ⇒「申し訳ございません、」（お詫びの決まり。6-11）
           「申し訳ございません、」は2本：1回目の聞き返し＝軽いお詫び（moushiwake）／同じ項目を2回目以降に聞く・最後の1回＝重いお詫び
           （moushiwake_heavy）。✅ 2026-10-16 ユーザー：「02だと軽薄に聞こえる」場面（こちらの誤り・クレーム・かけ直し）は重いほう
-        - 差し戻し ⇒ 流さない（AIはまだ受け付けられていない報告を出し直す）"""
+        - 差し戻し ⇒ 流さない（AIはまだ受け付けられていない報告を出し直す）
+        - 答えを受け取ったすぐあとの締めの前の念のための確認（印 receipt＝_advance_to。業務の質問の確認も、お知らせの最終の確かめ＝_accepted_ask も）⇒ 次の質問へ
+          進む返事と同じ決まりで、受け取った答えで選ぶ（確認の頭の「はい、」「申し訳ございません、」は決め打ちしない＝お詫びは確認を作る所が相づちのあとに置く）"""
         result = reply["result"]
+        if reply.get("ask_reason") and result == "confirm_required":
+            result = "recheck"   # 締めの前の念のための確認のお知らせの最終の確かめ（_advance_to の印 ask_reason）も、締めの前の確認として読む
         if result == "callee_asked":
             # 答えに添えられた質問に先に答える番（_question_first）：相づちは流さない（答える操作の頭が「はい、」）。取っておいた返事の相づちの印（ご承認の手順の
             # お礼 など）は、その返事を流す時に読む（_take_after_answer が印を流す時の発話に付け直す）＝ここでは読まない（⛔ 2026-11-08 日本時間11時台：下の印を
@@ -5813,7 +6085,9 @@ class Flow:
             # 聞き取れなかったとき・2回目からは、申し訳なさそうに読んだ「申し訳ございません、」（✅ 2026-10-14 ユーザー）
             # 最後の1回（「お声が聞き取れませんでしたので、…もう一度だけ…」）は、何回目でも「申し訳ございません、」
             # 理由を添えて伺い直す一言（_ask_again の form_reason。「恐れ入りますがSMSは…」）も、何回目でも「はい、」（お詫びを重ねない）
-            first_form = (reply.get("ask_reason") == "form" and reply.get("ask_n") == 1 and not reply.get("ask_last")) or reply.get("form_reason")
+            # 最後の1回でも、答えが質問に合わない（お声は聞き取れている＝"form"）なら「はい、」（「恐れ入りますが…もう一度だけ…」＝phrases.ask_again の last。締めの前の
+            # 念のための確認の recheck と同じ）
+            first_form = (reply.get("ask_reason") == "form" and (reply.get("ask_n") == 1 or reply.get("ask_last"))) or reply.get("form_reason")
             # 午前・午後を聞く：お詫びではなく「はい、」（続けてAIが「恐れ入ります、午前と午後、どちらになりますでしょうか？」）
             if first_form or reply.get("ask_reason") == "ampm":
                 return "hai"
@@ -5874,10 +6148,13 @@ class Flow:
             return "shouchi"
         if reply.get("told") and result in ("next", "end", "recheck"):
             return "hai"  # 受け取った答えのあとに業務の一言を伝える（「はい、○○駐車場をご利用いただけますので…」＝Flow._advance）
-        if result == "recheck":
-            # 締めの前の念のための確認（最後の1回）：重いお詫び＋「お声が聞き取れませんでしたので…もう一度だけ…」。聞き返しを使い切ったすぐあとに入るときも
-            # （最後の質問・先へ進むかを決める質問＝gate_of）。⛔ 2026-11-04 まで、下の「聞き取れないまま先へ進む」の「はい、」が先に当たっていた
-            return "moushiwake_heavy"
+        if result == "recheck" and not reply.get("receipt"):
+            # 締めの前の念のための確認（最後の1回）で、この報告で答えを受け取っていない（聞き返しを使い切ったすぐあと・聞き取れないお返事のあと＝最後の質問・先へ進むかを
+            # 決める質問＝gate_of も）：お声が聞き取れていた質問（ask_reason "form"＝Item.dash_heard）は、聞き取れていたときの聞き直しと同じ「はい、」（下の ask_back の
+            # first_form と同じ）。聞き取れなかった質問は相づちを付けない＝確認を作る所（_advance_to）が頭に置いたお詫び「申し訳ございません、」から（お詫びを置く所は
+            # その1か所＝見直し (12) の B-2。⛔ 2e5986f5 まで、ここで重いお詫びを相づちとして流し、会話AIのひとことのあと＝quiet で消えた）。⛔ 2026-11-04 まで、下の
+            # 「聞き取れないまま先へ進む」の「はい、」が先に当たっていた
+            return "hai" if reply.get("ask_reason") == "form" else None
         follow = "".join(x.get("text", "") for x in reply.get("play") or []) + (reply.get("say") or "")
         if result == "end" and follow.startswith(CLOSING_AFTER_DECLINE[:len("承知いたしました。")]):
             # お断りのあとの締め（「承知いたしました。お忙しいところ…」）の頭は「はい、」（✅ 11-02 6時33分「はい、承知いたしました。お忙しいところお時間を
@@ -5905,12 +6182,13 @@ class Flow:
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない（曖昧な言葉の意味で答えが決まったら、下の答えの決まり）
         if result == "next" and self._hedged_next(reply):
             return "hai"  # 言い切っていない答えのあとに、業務設定の追って伺う質問で伺う（「はい、」＋「それでは、キャンセルになさいますか？…」＝_hedged_next）
-        if result == "next" and reply.get("turned_down"):
+        if (result == "next" or reply.get("receipt")) and reply.get("turned_down"):
             # お断り・目的から遠ざかる向きの答え（Question.turned_down の1か所）を受け取って次へ進む：「承知しました。」（お礼は場面に合わない＝上の
             # 「通話を断られた」と同じ。⛔ 2026-11-02 日本時間6時台の見直しで見つけた：「いえ、登録は結構です。」「どちらも要らないです。」にも、順番で
             # 「ありがとうございます。」を返していた。⛔ 2026-11-04 日本時間7時台：言い切った遠ざかる答えにも、同じく返していた）
             return "shouchi"
-        if result == "next":
+        if result == "next" or reply.get("receipt"):
+            # 次の質問へ進む・答えを受け取ったすぐあとの締めの前の確認（receipt）：「承知しました。」「ありがとうございます。」を順番に
             self.ack_count += 1
             return ("shouchi", "arigatou")[(self.ack_count - 1) % 2]
         # 締めの相づちは、締めた理由（判定が決めた理由＝end_reason）で選ぶ。⛔ 2026-11-01 夜の見直しで見つけた穴：会話AIが報告した理由で選んでいたので、
@@ -6010,6 +6288,12 @@ class Flow:
                 return self._ask_again(qid, self._ask_kind(), "意味の判定は値を言ったと読んだが、会話AIが値を報告しない")
             it.set(it.state, f"会話AIの報告「{label(cond)}」は使わず、意味の判定の読み「{label(judged)}」で決める")
             cond = judged
+        if judged in SYSTEM_CONDITIONS and (decided := self._word_choice(qid)) is not None:
+            # 前の質問から意味が決まる言葉だけのお返事（「結構です。」）を、判定の組が「わからない」「答えたくない」と読んだ：選択肢を名指ししない読みでは、取込で決めた
+            # 意味で受け取る（判定の「決められない」と同じ＝下の UNDECIDED の道。確かめるのは取込で決めた意味と違う選択肢を判定が読んだときだけ＝_names_other。✅ 2026-10-17
+            # ユーザー「人でも前の質問や会話から判断する言葉です」・11-07 9時台）。⛔ F1（測りの数えを本番の流れの制御に通す）で見つけた：判定の「わからない」のまま
+            # 受け取り、ご希望を伺う質問では保留を伺っていた
+            cond = decided
         answered = cond not in SYSTEM_CONDITIONS and cond != UNDECIDED
         value = normalize_value(q.type, a.get("value"), q.unit) if answered or cond == reported else None
         if answered and (bad := kana_number(q.type, value)):
@@ -6263,7 +6547,7 @@ class Flow:
             # その後の形（「その後ご予算はおいくらほどかお決まりになりましたでしょうか？」）への、中身を言わない「はい、決まりました。」：元の質問に戻し、「それでは」から
             # 伺い直す（もう伺った質問へ戻る頭＝AGAIN_LEAD・_continue の1か所。判定も元の質問の文で読む）。「まだ決まっていない」は「わからない」の道（判定の読み）。
             # ✅ 2026-11-13 日本時間20時06分19秒「伺い6は…」の続き（伺い6 の作りの (b)）
-            self.questions[qid] = self.since_plain.pop(qid)
+            self._asked_plain(qid, restore=True)
             it.set(it.state, f"{why}（「{said}」）・その後の形への中身の無いお返事＝元の質問で伺い直す")
             return self._continue([], "")
         if way == "point":
@@ -6323,9 +6607,7 @@ class Flow:
         named = {str(v) for k in JUDGMENTS if (v := self.heard_check.get(k)) is not None and q.offers(str(v))}
         if q.type in CHOICE_TYPES and len(named) == 1:
             return "named"
-        if q.type in CHOICE_TYPES and restates(q):
-            return "toward" if len(q.toward) == 1 else "again_restate"
-        return "again_check" if q.type in CHOICE_TYPES else "again_ask"
+        return plain_way(q)
 
     def _not_an_answer(self) -> dict | None:
         """意味の判定が、相手の言葉は答えではないと決めた（DESIGN.md 6-8）：答え・言い直しへの返事としては受け取らない（唯一の場所。
@@ -6367,9 +6649,27 @@ class Flow:
         if self._hesitation() is not None and (r := self._hesitate_now(voiced)) is not None:
             return r
         if self._prompt_due():
-            # お客様が黙ったあとの一言（「何か気になる点が…」）に、気になる点は無いとお返事された：同じ質問・言い直しへは戻らず、最終の確かめ（_continue の final）
-            return self._continue([], "", final=True)
+            # お客様が黙ったあとの一言（「何か気になる点が…」）に、気になる点は無いとお返事された：同じ質問・言い直しへは戻らず、最終の確かめ（_continue の final）。
+            # お客様に応えてお返事を待っている間（_reply_may_answer）なら、相づちだけのお返事と同じ戻り（_resume＝待った印・尋ねられて答えた印で戻る形を選ぶ）
+            return self._resume() if self._reply_may_answer() else self._continue([], "", final=True)
+        if self._resume_due():
+            # お客様に応えてお返事を待っている間の、答えを選んでいない答えの話（「そうですねえ。」）：会話AIがどの操作で報告しても・報告しなくても、質問に戻る1か所
+            # （_resume＝意向が分からないまま戻る形・最終の確かめ）
+            return self._resume()
         return self._repeat_now(voiced)   # もう一度言ってほしいと頼まれた：「失礼いたしました。」のあと、伺ったことを流し直す
+
+    def _resume_due(self) -> bool:
+        """お客様に応えてお返事を待っている間（_reply_may_answer＝尋ねられて答えたあと・別のお話にお話に沿った受け答えで応えて待っている）の、お客様の言葉が、
+        答えを選んでいない答えの話か（唯一の決まり＝先に判定の読みで応じる1か所 _judged_first・_judged_due）：判定の読みがそろって「決められない」・別のお話では
+        ない（talked_away の1か所。そろって「別のお話」なら別のお話の番＝_offer_unlinked）・迷っていない（_hesitation）・電話を終える言葉に寄っていない・聞き取れて
+        いる・こちらへの問いではない（_plain_reply）。当たれば、会話AIの報告（答えの報告・質問に戻る・報告しない）にかかわらず、質問に戻る1か所（_resume）。
+        ⛔ 0c55c4e7 まで、会話AIが答えを報告すると「はい、恐れ入ります。…もう一度お聞かせいただいてもよろしいでしょうか？」、質問に戻るを選ぶと「はい、」＋選択肢を
+        並べた文、報告しないと黙った＝会話AIの報告でお客様に聞こえる言葉が変わった（会話AIは判定に加えない＝11-08 12時11分40秒。見直し (12) の D-6）"""
+        if not self._reply_may_answer():
+            return False
+        readings = [self.check.get(k) for k in JUDGMENTS]
+        return ({str(r) for r in readings if r is not None} == {UNDECIDED} and not talked_away(readings) and self._plain_reply(readings)
+                and self._hesitation() is None)
 
     def _judged_due(self) -> bool:
         """先に判定の読みで応じる1か所（_judged_first）が、いまの言葉に応じるか（唯一の決まり＝電話を終える言葉か判定で決まらないときに、決まらないときの場面
@@ -6380,7 +6680,7 @@ class Flow:
         日本時間13時台の見直しで見つけた：電話を終える言葉かの項目が「決められない」だと、待つ・考えている途中の読みより先にご遠慮の一言を伺っていた（「はい」と
         言われると発信禁止）。⛔ 23時22分41秒のご質問の見直し（W4）：もう一度言ってほしいの読みが、この決まりに入っていなかった（前の名前 _waits_not_end）"""
         return (self._wait_handles(self._wait_now()) or self._kept_on() or self._repeat_due() or self._hesitation() is not None
-                or self._prompt_due())
+                or self._prompt_due() or self._resume_due())
 
     def _thinking(self) -> dict:
         """お客様がまだ答えを考えている途中（判定の読み THINKING＝wait_reading）：「はい。」の相づち（_ack の1か所＝phrases.ACK の aizuchi。落ち着いた声で、
@@ -6440,7 +6740,7 @@ class Flow:
         # 値を伺う質問（日時・数・金額）の言い直し（ひとまずの形・承っておく一言も）への返事を待っている：「まだ決まっていない」は、確定で確かめ直さずに、確定で
         # ない値を受ける1か所へ（tentative＝_tentative。事実を伺う質問も同じ理由＝✅ 2026-11-08 日本時間3時48分03秒「確定で確認するのはあいての意思に反します」）
         restating_value = q.type in ESTIMATE_TYPES and self.awaiting_confirm == qid and not q.callback and self.items[qid].value is not None
-        if not (hears_hesitation(q) or restating_value):
+        if not (hears_hesitation(q) or restating_value) or self._word_reply(qid):
             return None
         h = self.hesitating.get(qid, {})
         point, helped, estimate, tentative = h.get("point"), h.get("helped"), h.get("estimate"), h.get("tentative")
@@ -6589,9 +6889,7 @@ class Flow:
         - そうでなければ、会話AIに、聞かれたことに答える番・選ぶ助けを伝える番だと知らせる（会話AIが話す＝speak。相づちは会話AIの答えのほう）
         ⛔ 2026-11-08 日本時間0時台（11-07 23時26分13秒のご質問の見直しの A-6・H-7・H-11）：報告の無いターンは選ぶ助けの番を受け持たず、良い点のある業務では
         無言だった・会話AIの声のあとの印を立てる所（unreported_note）が、迷っている言葉を依頼者へ渡すお客様の質問に残した"""
-        helping = self._hesitation() == "help"
-        what = "どれにするか迷っている・まだ決めていない言葉" if helping else "こちらへの問い"
-        head = f"いまの相手の言葉は、答えではなく、{what}です（報告は要りません）。"
+        head = f"いまの相手の言葉は、答えではなく、{self._asked_name()}です（報告は要りません）。"
         if voiced:
             self._question_note({"answered": True, "checked": None})   # お客様の問いのときだけ残る（_question_note の1か所）
             self._await_reply("own")
@@ -6657,7 +6955,7 @@ class Flow:
             return ({"result": "replayed", "repeat": True} | {k: said[k] for k in ("play", "say", "speak", "silent") if k in said}
                     | {"message": "相手に、直前のこちらの言葉をもう一度言ってほしいと頼まれました（「失礼いたしました。」はプログラムが流します）。"
                                   + said.get("message", "")})
-        return self._continue([], "") | {"repeat": True}
+        return self._continue([], "", repeat=True) | {"repeat": True}
 
     def _repeat_due(self) -> bool:
         """もう一度言ってほしいと頼まれ、直前にこちらが言ったことを言い直す場面か（唯一の決まり＝_repeat_now・_judged_due）：伺ったこと（いまの質問・言い直しの
@@ -6741,14 +7039,9 @@ class Flow:
         日本時間11時55分13秒 ユーザー「(2) イ」。お断り・決められないは、言い直しの返事待ちと同じく、その答え・保留で受ける）。"""
         it, q = self.items[qid], self.questions[qid]
         if in_announce_form(q):
-            # ご承認のお知らせのあと、黙ったあとの一言へのお返事だけ（_prompt_due）：了承として受け取らず、決まった一言の最終の確かめ（共通の一言の録音
-            # announce_recheck＝「それでは先ほどの内容でよろしいでしょうか？」。お知らせの文はくり返さない・「ご承認」は言わない＝11-12 19時32分21秒「警戒」）。
-            # お返事は言い直しへのお返事と同じ受け方（合っている＝ご承認いただける・違う＝ご承認いただけない）
-            it.condition, it.value, it.final = q.conditions[0], None, True
-            it.set("checking", "ご承認のお知らせのあと、黙ったあとの一言へのお返事だけ：最終の確かめ")
-            self.awaiting_confirm, self.confirm_requested_at, self.awaiting_say = qid, self.callee_turns, ANNOUNCE_RECHECK
-            return self._fixed_ask(qid, [{"kind": "recorded", "id": "announce_recheck", "text": ANNOUNCE_RECHECK}], "settle",
-                                   "ご承認のお知らせのあと、黙ったあとの一言へのお返事だけでした（意味の判定）。先ほどの内容でよいかを伺いました。")
+            # ご承認のお知らせのあと、黙ったあとの一言へのお返事だけ（_prompt_due）：了承として受け取らず、最終の確かめ（_accepted_ask の1か所）
+            return self._accepted_ask(qid, "ご承認のお知らせのあと、黙ったあとの一言へのお返事だけ：最終の確かめ",
+                                      "ご承認のお知らせのあと、黙ったあとの一言へのお返事だけでした（意味の判定）。")
         if toward is not None:
             it.condition, it.value = toward, None
         # ⛔ 2026-11-06 日本時間12時台に見つけた：はじめは確かめの回数（corrections）を使い切らせて印にしていた＝最終の確かめへの、はっきり違う答え
@@ -6766,6 +7059,23 @@ class Flow:
         self.awaiting_confirm, self.confirm_requested_at = qid, self.callee_turns
         return self._fixed_ask(qid, [{"kind": "recorded", "id": "how_now", "text": HOW_NOW}], "how",
                                f"まだ決めていないお返事です（意味の判定）。いまの言い直し「{self.awaiting_say}」について、どうなさるかを伺いました。")
+
+    def _accepted_ask(self, qid: str, why: str, asked: str, heard: bool = True) -> dict:
+        """ご承認のお知らせ（in_announce_form）の最終の確かめを伺う唯一の場所（お知らせのあと黙られ、気になる点の一言へのお返事だけ＝_final_check・別のお話が
+        続いて「-」にし、締めの前の念のための確認で伺う＝_advance_to）：了承として受け取らず、「はい、」（AFTER の settle）＋最終の確かめの一言（accepted_line の
+        1か所＝「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」。お知らせの文はくり返さない・「ご承認」は言わない＝11-12 19時32分21秒「警戒」）。
+        判定に見せる文は、お客様が聞いたこの一言（awaiting_say）。お返事は言い直しへのお返事と同じ受け方（合っている＝ご承認いただける・違う＝ご承認いただけない）。
+        最終の確かめなので同じ確かめはもう言い直さない（Item.final）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10」「●伺い13 3回目は最後に回したほうが
+        よくないですか？」。heard＝お知らせへのお声が聞き取れていたか（締めの前の念のための確認＝Item.dash_heard。聞き取れないまま「-」にしたお知らせも、この1か所で
+        「（お知らせの中身を常体にした句）件のお返事のお声が聞き取れなかったのですがご了承ということで…」＝accepted_line。見直し (12) の B-1・まとめ役の決め (f)・
+        11-15 11時59分07秒の (3)）。会話AIへの知らせの「お知らせの中身」か「先ほどの内容」かは、文に中身があるか（共通の一言の録音でないか）で選ぶ"""
+        it, q = self.items[qid], self.questions[qid]
+        rid, text = accepted_line(q, heard)
+        it.condition, it.value, it.final = q.conditions[0], None, True
+        it.set("checking", why)
+        self.awaiting_confirm, self.confirm_requested_at, self.awaiting_say = qid, self.callee_turns, text
+        named = rid not in ("announce_recheck", "announce_recheck_unheard")
+        return self._fixed_ask(qid, [line_play(rid, text)], "settle", f"{asked}{'お知らせの中身' if named else '先ほどの内容'}をご了承いただけるかを伺いました。")
 
     def _fixed_ask(self, qid: str, line: list[dict], after: str, asked: str) -> dict:
         """言い直しを作らずに、決まった一言 line（録音1つ）で伺ってお返事を待つ返事（唯一の作り方＝_how_now・_ask_pending）：録音で流せる通話は録音、流せなければ
@@ -7362,8 +7672,14 @@ class Flow:
         it = self.items[qid]
         # 提案（_offer_again）へのお返事が聞き取れたのに決まらないまま「-」にした（はっきりしない・訂正のあとも合わない・形が合わない）：締めの前の念のための確認でも
         # 伺わない（_will_ask_again）。聞き取れないまま（_unheard_now）なら、ほかの質問と同じに締めの前にもう1回（✅ 2026-11-12 まとめ役の (K1)）
-        it.offer_settled = it.offer_settled or (it.offer_again and not self._unheard_now())
-        return self._advance(f"{shown}「-」にします。" + self._reading_note(qid))
+        # 提案は申し出と方法を選んでいただく質問だけ（_proposal_of）。同じ伺い直しの1回の印（Item.offer_again）を使う「ところで」の伺い直し・ご承認のお知らせの伝え直しは
+        # 提案ではない＝必須なら締めの前にもう1回（10-14）。⛔ 分身 E が入れる途中、流れの制御から出した例で見つけた：「ところで」で伺い直した必須の質問を「-」にすると、
+        # 締めの前の念のための確認を伺わずに締めた（分身 D の f5fa2a9c から）
+        it.offer_settled = it.offer_settled or (it.offer_again and self._proposal_of(qid) is not None and not self._unheard_now())
+        # 締めの前の念のための確認の言い方を選ぶために、いまのお客様のお声が聞き取れていたかを覚える（聞き取れないお返事かの1か所 _unheard_now＝聞き取れない報告・
+        # 聞き返し・言い直しへの「答えなかった」と、聞き直しの種類を決める _ask_kind と同じ決まり _heard_clearly の両方で、聞き取れていたときだけ）
+        it.dash_heard = self._heard_clearly() and not self._unheard_now()
+        return self._advance(f"{shown}{qid} は、この電話ではもうお客様に伺わずに先へ進みます（答えは「-」）。" + self._reading_note(qid))
 
     def _reading_note(self, qid: str) -> str:
         """名前の読みの確かめが済んだ（または確かめられなかった）ときに、AIへ伝えること。それ以外の質問では空。"""
@@ -7775,8 +8091,9 @@ class Flow:
         offer = self._asked_kind() == "offer"
         # 同じ番の3つ（_unlinked_kind の1か所）：ご承認のお知らせ＝決まりを伝え直す文だけ（_announce_again）・申し出でない業務の質問＝ひとことのあと「ところで」＋
         # 言い換えた質問（_aside_again）・申し出と方法を選んでいただく質問＝提案（_offer_again）。提案の言葉を書くのは提案の番だけ
-        unlinked = self._unlinked_kind(self.current) if offer else None
-        announcing, aside = unlinked == "announce", unlinked == "aside"
+        # 伺い直したあとも続く繋がらないお返事（again）は、どの質問もひとことのあと今の回数の決まりの次の一歩（_talk_again）
+        unlinked = self._unlinked_now()
+        announcing, aside, again = unlinked == "announce", unlinked == "aside", unlinked == "again"
         proposal = {k: (v or "").strip() or None for k, v in zip(PROPOSAL_ARGS, (terms, added, topic, way))}
         given = [k for k in PROPOSAL_ARGS if proposal[k] is not None]
         if given and unlinked != "offer":
@@ -7800,6 +8117,8 @@ class Flow:
             if pick is not None:
                 # 一言だけを選んだ：その一言で応える（決まった言い方・知っていることの文そのまま＝確かめなくてよい。AIの選んだ言い方）
                 self.own_turn = self.callee_turns
+                if again:
+                    return self._talk_again(None, pick, {}, {"checked": "fallback"})
                 if announcing:
                     return self._announce_again(None, pick, {}, {"checked": "fallback"})
                 if aside:
@@ -7809,9 +8128,9 @@ class Flow:
                 return self._own_fallback(kind, pick, None, {}, {"checked": "fallback"})
             return self._reject(f"言う文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書いて、もう一度呼んでください（声に出すのは、"
                                 "プログラムの返事のあとです）。")
-        from grounding import DEFERRED, GROUNDED, Verdict, verbatim
+        from grounding import DEFERRED
         answer = answer.strip()
-        verdict = Verdict(GROUNDED) if verbatim(answer, self.knowledge) else self._grounded(answer)
+        verdict = self._content(answer)
         problem = own_answer_problem(answer, self.names, may_follow_up=self._may_follow_up(kind), verdict=verdict,
                                      name_readings=self.name_readings)
         tried = self.own_tried[1] if self.own_tried[0] == self.callee_turns else []
@@ -7841,6 +8160,8 @@ class Flow:
             kind, pick = "own", line
         if problem and asked and kind == "own" and pick is None:
             return self._asked_skip(problem, drafts, checked)   # 尋ねられた考えの答えが使えない：尋ねられる前の流れのとおりに進める
+        if again:
+            return self._talk_again(None if problem else answer, pick if problem else None, drafts, checked)
         if announcing:
             return self._announce_again(None if problem else answer, pick if problem else None, drafts, checked)
         if aside:
@@ -7853,6 +8174,8 @@ class Flow:
         # ⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの読み直しで見つけた：自分の言葉でご説明すると「はい、前回お伺いした料金の件ですが、…」になった
         lead = self._resumed_explaining()
         self._await_reply(kind)
+        if self.own_pending == ASKED_REPLY:
+            self._lead_after(self.current, answer)   # 尋ねられて答えた答えが1つだけに触れた選択肢（戻るとき先に並べる＝_resume・伺い16）
         self._point_said(kind)
         if kind == "talk":
             self._note("talk", answer=answer, **drafts, **checked)
@@ -7868,11 +8191,18 @@ class Flow:
         ✅ 2026-11-13 日本時間20時06分19秒 ユーザー「(2)ウ」（会話AIが自分の言葉で、お客様のお話に寄せて伝え直す。使えなければア＝ひとこと＋「それでは」＋お知らせ）"""
         qid = self.current
         self.items[qid].offer_again = True
+        self.items[qid].talk_backs += 1   # その場の回数（_on_spot_left）の1回目（「ところで」の伺い直し _aside_again と同じ）
+        # 伝え直しは、このお知らせの所への1回目の戻り（「ところで」の伺い直し _aside_again と同じ＝このあとの別のお話は _talk_again の2回目の一言から）
+        self._back_count()
         if said is not None:
-            self._await_reply("talk")   # お返事が答えなら、質問に戻らずに受け取る（ASKED_REPLY＝_answer_in_reply）
+            # 伝え直しはお知らせそのものの伺い直し（「ところで」の伺い直しと同じ）＝お返事は、いまのお知らせ（ご承認の質問）へのお返事として読む。会話AIの受け答えの
+            # お返事を待つ印（_await_reply）は立てない：⛔ 092f2317 まで立てていたので、2回目の別のお話が受け答えへの返事として扱われ、別のお話の番
+            # （_offer_unlinked）から外れて「はい、恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」（聞くことが空・お話に応えない＝9-3・
+            # 11-09 4時36分49秒の (g)）になり、会話AIへの知らせも「返事があったら質問に戻る」だった
+            self._mark_answered()
             self._note("talk", answer=said, **drafts, **checked)
             # 相づち「はい、」は付けない（会話AIのひとことから始まる＝申し出の伺い直し _offer_again と同じ。✅ 11-09 7時57分50秒の例「さようでございますか。…」）
-            return {"result": "own_answer", "say": said, "quiet": True, "message": f"{say_note(said)}{self._own_then()}"}
+            return {"result": "own_answer", "say": said, "quiet": True, "message": f"{say_note(said)}相手の答えを待ってください。{answer_wait()}"}
         fb = TALK_FALLBACK[pick][0]
         self._note("talk", answer=fb, fallback=pick, **drafts, **checked)
         self._mark_answered()
@@ -7893,19 +8223,34 @@ class Flow:
         どちらにされますか？」」（11-01 3時45分「会話が成り立たない返事はもう一度伺う」は、この形で伺う。⛔ それまでは「はい、恐れ入ります。もう一度お聞かせ
         いただいてもよろしいでしょうか？」＝聞くことが空・お客様のお話に応えない＝9-3）"""
         qid = self.current
-        q, it = self.questions[qid], self.items[qid]
+        # 意向が分からないまま戻る形（soft_form）・続きの電話のその後の形（since_form）で伺っていた質問は、替える前の質問から言い換える（元の形は、中身の判定に添えた
+        # 文 _aside_asking と同じ1か所 _asked_plain から取り、いまの質問をその形に戻す）
+        q, it = self._asked_plain(qid, restore=True), self.items[qid]
         fb = TALK_FALLBACK[pick][0] if said is None else None
         self._note("talk", answer=said or fb, **({"fallback": pick} if said is None else {}), **drafts, **checked)
         self._mark_answered()
-        # 伺い直しは1項目1回。聞き返しの回数（10-14 の3回まで＝Item.ask_backs）には数えない：お客様の言葉は聞き取れている（数えると、伺い直しへの答えを
+        # 伺い直しは1項目1回。数えるのは別のお話の伺い直しの回数（Item.talk_backs）：その場の回数（10-14）は聞き返しと合わせた数（_on_spot_left の1か所。
+        # ✅ 2026-11-14 日本時間14時31分38秒「●伺い13」）。聞き返しの回数（Item.ask_backs）には数えない：お客様の言葉は聞き取れている（数えると、伺い直しへの答えを
         # 聞き取れなかったあとの言い方「（値）とおっしゃいましたでしょうか？」で確かめる＝お言葉の外の選べる形は ie/ に出した）。このあとのお返事は今の道
+        it.talk_backs += 1
+        if self._waits_after(said):
+            # ひとことがお話に沿った受け答え（業務の情報にあるこちらの事実でお話に応えた・質問の尋ねていることに触れた＝_waits_after）：伺い直しを続けずにお返事を
+            # 待つ（_wait_after_word。相づちだけのお返事のあとは、同じ所への1回目の戻り＝「はい、」＋意向が分からないまま戻る形）。✅ 2026-11-14 日本時間21時04分53秒
+            # ユーザー（お言葉は _informs）。⛔ 717f6fbe まで、「お支払いは月曜日以外でも問題ございませんよ。」のあとに続けて「ところで」＋質問を言った。
+            # 待つときは、まだ質問を伺い直していない＝戻りに数えない（数えるのは伺い直す所＝戻る1か所 _continue）
+            return self._wait_after_word(qid, said)
+        # 「ところで」の伺い直しは、この質問の所への1回目の戻り（戻る一言「話を戻させていただきますね。」の代わり＝11-13 22時17分01秒）。このあとの別のお話は
+        # _talk_again が戻る一言の1か所の2回目・3回目からの一言で伺い直す。伺い直した印（Item.offer_again＝_unlinked_kind の again）は伺い直すときだけ立てる
+        # （待っただけでは、お客様は質問をもう一度聞いていない。⛔ 2e5986f5 まで待つ前に立てていたので、待ったあとの別のお話への1回目の伺い直しが
+        # 「話を戻させていただきますね。それでは…」になった＝見直し (12) の組 O1 の残り）
         it.offer_again = True
-        # 判定と会話AIへの知らせはお客様が聞いた文（言い換えた文）で読む＝その形に替える。言い換えが決まらなかった質問は元の質問のまま（文は同じ・戻る形の録音は
-        # 元の質問の録音＝question_forms）
-        aq = aside_form(q)
-        line = question_play([aq if x.id == qid else x for x in self._plays()], qid)
+        self._back_count()
+        # 判定と会話AIへの知らせはお客様が聞いた文（言い換えた文）で読む＝その形に替える（伺い直すときだけ＝待つときはお客様はまだ聞いていない。⛔ 393f474b まで
+        # 待つ前に替えていたので、待ったあとの戻りが、お客様の聞いていない言い換えを「いま伺っている形」と読んだ）。言い換えが決まらなかった質問は元の質問のまま
+        # （文は同じ・戻る形の録音は元の質問の録音＝question_forms）
+        line = aside_play(self._plays(), qid)
         if q.reworded:
-            self.questions[qid] = aq
+            self.questions[qid] = aside_form(q)
         how = answer_wait()
         if said is not None:
             return {"result": "replayed", "say": said + line["text"], "speak": True, "quiet": True,
@@ -7915,6 +8260,151 @@ class Flow:
                     "message": played_note(fb + line["text"]) + "何も言わずに、相手の答えを待ってください。" + how}
         return {"result": "replayed", "say": fb + line["text"], "speak": True, "quiet": True,
                 "message": f"{say_note(fb + line['text'])}相手の答えを待ってください。{how}"}
+
+    def _unlinked_now(self) -> str | None:
+        """この発話が、会話が繋がらないお返事にひとこと応える番（_asked_kind の offer）なら、ひとことのあとにすること（_unlinked_kind）。番でなければ None
+        （唯一の読み＝自分の言葉の答え _own_answer・中身の判定に添える質問 _aside_asking。会話AIのひとことは、この番の知らせ _asked_note のあとに届く＝そのときには
+        意味の判定の読みがそろっている）。"""
+        return self._unlinked_kind(self.current) if self.current is not None and self._asked_kind() == "offer" else None
+
+    def _aside_asking(self) -> tuple:
+        """会話AIのひとこと・答えの中身の判定に一緒に読ませる、いま伺っている質問の文と選択肢（唯一の場所＝grounding_jobs の4つ目・5つ目。空なら読ませない）：
+        - ひとことのあとに「ところで」の形で伺い直す番（_unlinked_now の aside＝_aside_again へ進む番）：このあと伺い直す文（aside_form＝言い換えた文）。
+        - 申し出でない業務の質問への2回目からの別のお話の番（again・_unlinked_base の aside＝_talk_again）：いま伺っている質問の文（触れたひとことのあとも待つ＝
+          _waits_after。見直し (12) の D-10＝まとめ役が決まりで決めた）。
+        - 尋ねられて答える番・選ぶ助けを伝える番（_asked_now）で、先に並べた文のある質問：いま伺っている質問の文（答えが1つだけに触れた選択肢を、戻るとき先に
+          並べる＝_lead_after。見直し (12) の C の外2）。
+        ほかの受け答え・申し出・ご承認のお知らせ・自分で答える文には添えない（問い合わせの文は今のまま）。選択肢は、先に並べた文（Question.alternatives_led）の
+        ある質問だけ添える（触れた選択肢の名前まで読む＝grounding.touches・_touched_option。✅ 2026-11-14 日本時間23時45分00秒 ユーザー「伺い16はイでOK」）。"""
+        qid = self.current
+        if qid is None:
+            return ()
+        kind = self._unlinked_now()
+        q = self._asked_plain(qid)   # 伺い直す元の形は、お客様が聞く文を作る _aside_again と同じ1か所
+        led = (q.conditions,) if self._led_options(q) else ()
+        if kind == "aside":
+            return (aside_form(q).text,) + led
+        if kind == "again" and self._unlinked_base(qid) == "aside":
+            return (q.text,) + led
+        return (q.text,) + led if kind is None and led and self._asked_now() is not None else ()
+
+    def _asked_plain(self, qid: str, restore: bool = False) -> "Question":
+        """「ところで」の形で伺い直すときの元の質問（唯一の読み＝中身の判定に添える文 _aside_asking・お客様が聞く文を作る _aside_again・その後の形への中身の無い
+        お返事の伺い直し _undecided_answer）：いま替えて伺っている形（意向が分からないまま戻る形＝soft_plain・続きの電話のその後の形＝since_plain）を戻した、替える
+        前の質問。restore なら、いまの質問をその形に戻す（替えた印を消す。意向が分からないまま戻る形は _soften の1か所で戻す）。⛔ 0c55c4e7 まで、判定に添える文は
+        いまの形から、お客様が聞く文は替える前の形から作っていたので、選択肢を並べた形で伺っていると、判定は「カードになさいますかそれとも…」を読み、お客様は
+        「ところでお支払いは…」を聞いた（見直し (12) の D-11）"""
+        q = self.soft_plain.get(qid) or self.since_plain.get(qid) or self.questions[qid]
+        if restore:
+            self._soften(qid, False)
+            self.since_plain.pop(qid, None)
+            self.questions[qid] = q
+        return q
+
+    def _led_options(self, q: "Question") -> tuple:
+        """先に並べた文で伺いうる質問の選択肢（唯一の読み＝判定に添える _aside_asking・触れた選択肢の読み _touched_option）：選択肢を並べた文と、先に並べた文の
+        どれかがある質問だけ。ほかは空。"""
+        return q.conditions if q.alternatives and any(q.alternatives_led) and leads_fit(q) else ()
+
+    def _touched_option(self, said: str | None) -> str:
+        """会話AIのひとこと said が、いま伺っている質問の選択肢の1つだけに触れたなら、その選択肢（唯一の読み＝お話に沿った受け答えで待った印 _wait_after_word）。
+        中身の判定が一緒に読んだ読み（grounding.touched_option）のとき。2つ以上・触れていない・読みが無い・ひとことが使えなかった（said が None）・先に並べた文の
+        無い質問は空（質問の順）。"""
+        from grounding import touched_option
+        v = self._grounded(said) if said else None
+        return touched_option(getattr(v, "touch", ""), self._led_options(self.questions[self.current]))
+
+    def _touches(self, said: str | None) -> bool:
+        """会話AIのひとこと said が、いま伺っている質問の尋ねていることに触れたか（唯一の読み＝お話に沿った受け答えで待つか _waits_after）：ひとことの中身の判定が一緒に読んだ読み
+        （grounding.TOUCH＝_aside_asking を添えた仕事）が「触れている」のときだけ。読みが無い（判定が届かない・添えていない・確かでない・知っていることの文を
+        そのまま言った）・受け答えの録音で応えた（said が None）は触れていない。"""
+        from grounding import touched
+        v = self._grounded(said) if said else None
+        return touched(getattr(v, "touch", ""), self._led_options(self.questions[self.current]))
+
+    def _talk_again(self, said: str | None, pick: str | None, drafts: dict, checked: dict) -> dict:
+        """伺い直したあと（1項目1回＝Item.offer_again）も続く繋がらないお返事に応える唯一の返事（_own_answer から。番は _asked_kind の offer＝_offer_unlinked・
+        形は _unlinked_kind の again。申し出でない業務の質問・申し出と方法の提案・ご承認のお知らせのどれも同じ）：(1) 会話AIのひとこと（said＝受け答えと同じ
+        確かめを通った自分の言葉。使えなければ pick＝受け答えの録音 TALK_FALLBACK）、(2) 次の一歩は回数の決まりのまま：必須の質問は、その場の回数
+        （10-14＝聞き返しと別のお話の伺い直しを合わせた数＝_on_spot_left の1か所・Limits.ask_back）の中で戻る一言の1か所（_continue）＋もう伺った質問
+        （1回目は「ところで」＋言い換え・2回目は「それではもう一度確認させていただきますね。」＝同じ問いを同じ言い方で2度言わない＝11-01）。使い切った・必須でない
+        （6-11）・申し出と方法の提案へのお返事（伺い直しは1回＝_confirm_again と同じ）・念のための確認の最中は「-」にして次へ（_dash。必須なら締めの前の念のための
+        確認で1回＝3回目は最後に回す＝11-14 14時31分38秒「●伺い13」）。相づちは付けない（ひとことから始まる）。
+        ✅ 2026-11-13 日本時間22時17分01秒「9は…」の続き（まとめ役の決め：9-3「質問ではない言葉・お客様のお話にも、AIが自分の言葉でひとこと返す」・11-09
+        9時48分09秒「お言葉を無視している」。⛔ 分身 D の f5fa2a9c までは、2回目の別のお話に「はい、恐れ入ります。お支払いの方法をもう一度お聞かせいただいても
+        よろしいでしょうか？」・必須でない質問は「かしこまりました。」で次へ＝お話にひとことも応えなかった）"""
+        qid = self.current
+        q, it = self.questions[qid], self.items[qid]
+        fb = TALK_FALLBACK[pick][0] if said is None else None
+        self._note("talk", answer=said or fb, **({"fallback": pick} if said is None else {}), **drafts, **checked)
+        self._mark_answered()
+        plays = [{"kind": "said", "text": said}] if said is not None else [{"kind": "recorded", "id": pick, "text": fb}]
+        why = f"伺い直したあとも繋がらないお返事（「{(self.heard_said or '')[:20]}」）にひとこと応えた"
+        # 言い直し・最終の確かめのお返事を待っていた（_offer_unlinked）：最終の確かめ（Item.final）・申し出と方法の提案の伺い直し（1回）は、同じ確かめをもう言い直さない
+        # （_confirm_again と同じ）＝「-」にして次へ。ほかの言い直しは、質問と同じ回数の決まりで、戻る一言のあとにもう一度確かめる（_continue の言い直しの枝）
+        settled, again = self._talk_settled(qid), self._talk_then(qid) == "again"
+        if self.awaiting_confirm != qid or settled:
+            self.awaiting_confirm = None
+        # 申し出でない業務の質問で、ひとことがお話に沿った受け答え（こちらの事実でお話に応えた・質問の尋ねていることに触れた＝_waits_after）：伺い直しも「-」にして
+        # 次へ進むのも続けずに、お返事を待つ（_wait_after_word）。申し出・方法の提案・ご承認のお知らせは今のまま（✅ 2026-11-14 日本時間21時04分53秒＝お言葉は
+        # _informs）
+        waits = self._unlinked_base(qid) == "aside" and self._waits_after(said)
+        if again:
+            it.talk_backs += 1
+            if waits:
+                # その場の回数の1回に数えた。相づちだけのお返事のあとは、戻る一言の1か所（_continue＝同じ所への戻りの回数で一言を選ぶ）で伺い直す
+                it.set("unclear", f"{why}・お返事を待つ（別のお話の{it.talk_backs}回目）")
+                return self._wait_after_word(qid, said)
+            it.set("unclear", f"{why}・伺い直す（別のお話の{it.talk_backs}回目）")
+            # もう伺った質問・お知らせへ戻る1か所（_continue）：お客様のお話に応えたあとの戻り（digressed）＝戻る一言の1か所（_back_play・数える単位 _place）が、
+            # 「ところで」・伝え直しを1回目と数えた回数で、2回目は「それではもう一度確認させていただきますね。」・3回目からは「確認の途中でしたのでもう一度お伺い
+            # させていただきますが」＋質問（問いでない一言＝お知らせは2回目の一言のまま）。✅ 2026-11-07 日本時間3時14分01秒 H7・4時40分35秒（同じ問いを同じ言い方で
+            # 2度言わない＝11-01）。⛔ 092f2317 までは何回目も「それでは」＋同じ質問だった
+            self.digressed = True
+            return self._led(plays, "", self._continue([], "")) | {"quiet": True}
+        # その場の回数を使い切った必須の質問は「-」にして次へ（_dash がお声は聞き取れていた印 dash_heard を覚える）＝締めの前の念のための確認で1回伺う
+        # （「はい、恐れ入ります。（聞くこと）をもう一度だけ…」・お知らせは最終の確かめ _accepted_ask。✅ 2026-11-14 日本時間14時31分38秒「●伺い13 3回目は最後に
+        # 回したほうがよくないですか？」。⛔ 0bde71ec まで、3回目の別のお話にも、その場で「確認の途中でしたのでもう一度お伺いさせていただきますが」＋質問で伺った）
+        self.awaiting_confirm = None
+        dash = f"{why}・" + ("最終の確かめ・申し出の伺い直しへのお返事（同じ確かめは言い直さない）" if settled else "必須でない・その場の回数を使い切った（伺い直さない）")
+        if waits:
+            # その場の回数を使い切った・念のための確認の最中・必須でない・最終の確かめへのお返事でも、お話に沿った受け答えのあとは、続けて「-」にして次へ進まずに
+            # お返事を待つ（同じ理由＝21時04分53秒）。待ったあと相づちだけなら、待つ前の決まりのまま「-」にして次へ（_resume が待った印の dash＝「-」にする理由を読む）。
+            # ⛔ 393f474b まで、ひとことのすぐあとに「続きまして」＋次の質問・締めへ進んだ（見直し (12) の B-7）
+            it.set("unclear", f"{why}・お返事を待つ（その場ではもう伺い直さない）")
+            return self._wait_after_word(qid, said, dash=dash)
+        return self._led(plays, "", self._talk_dash(qid, dash)) | {"quiet": True}
+
+    def _talk_settled(self, qid: str) -> bool:
+        """別のお話にひとこと応えたとき、言い直し・最終の確かめのお返事を待っていた質問で、同じ確かめをもう言い直さないか（唯一の決まり＝_talk_again・_talk_then）：
+        最終の確かめ（Item.final）・申し出と方法の提案の伺い直し（1回＝_confirm_again と同じ）。"""
+        it = self.items[qid]
+        return self.awaiting_confirm == qid and (it.final or (it.offer_again and self._proposal_of(qid) is not None))
+
+    def _talk_then(self, qid: str) -> str:
+        """伺い直したあとも続く別のお話にひとこと応えたあとに、プログラムがすること（唯一の決まり＝その一歩を行う _talk_again・会話AIへの知らせの終わり
+        _asked_note）："again"＝戻る一言の1か所でもう一度伺う（必須の質問で、その場の回数が残り、同じ確かめを言い直さないお返事でない）・"close"＝「-」にして、
+        ほかに伺うこと（残りの質問・締めの前の念のための確認）が無いので、お礼を言って締める（業務の質問と決まった伝言のお願い M1。かけ直し・ご承認の手順などの
+        システムの質問は、そのあとの手順があるので "next"）・"next"＝「-」にして次へ。お話に沿った受け答えのあと待つか（_waits_after）は、ひとことの中身で決まる
+        （知らせはその決まりも伝える）。⛔ 0c55c4e7 まで、知らせは「もう一度伺うか、次へ進みます」のまま＝締めの番でも会話AIがひとことにお礼を入れ、すぐあとの
+        「お忙しいところお時間をいただきましてありがとうございました。」と重なりえた（M1 への「岡田は最近ずっと忙しくてねえ。」。見直し (12) の 15）"""
+        q = self.questions[qid]
+        if not self._talk_settled(qid) and q.required and self._on_spot_left(qid, talk=True):
+            return "again"
+        if (q.callback and q.callback != "message") or [x for x in self._remaining() if x != qid]:
+            return "next"
+        # 「-」にしたあと伺う、締めの前の念のための確認（_advance_to が並びを作る _will_ask_again の1か所。この質問は「-」にしたとして読む）
+        due = (any(self._will_ask_again(x, dashing=x == qid) for x in self.order) if self.phase == "asking"
+               else self.phase == "rechecking" and bool(self.recheck_queue))
+        return "next" if due and not self.hurried else "close"
+
+    def _talk_dash(self, qid: str, why: str) -> dict:
+        """別のお話にひとこと応えたあと、その場ではもう伺い直さない質問を「-」にして次へ進む返事（唯一の場所＝_talk_again・お話に沿った受け答えで待ったあとの相づち
+        だけのお返事 _resume）：必須なら締めの前の念のための確認で1回（_dash がお声は聞き取れていた印 dash_heard を覚える＝「はい、恐れ入りますが（聞くこと）を
+        もう一度だけ…」）。why＝「-」にする理由（Item の記録）。"""
+        self.awaiting_confirm = None
+        self.items[qid].set("unresolved", why)
+        return self._dash(qid)
 
     def _offer_again(self, said: str | None, pick: str | None, drafts: dict, checked: dict, proposal: dict, dropped: tuple | None = None) -> dict:
         """申し出（詳しい者より改めて N4・締める前の申し出 N6）への会話が繋がらないお返事に応える唯一の返事（_own_answer から。番は _asked_kind の offer＝
@@ -8397,7 +8887,7 @@ class Flow:
         尋ねられて答えたあとも「質問に戻る」だけで、そのとおりに動くと、答えたお客様に質問を流し直した"""
         if self.awaiting_confirm is not None:
             return f"いまも、言い直し「{self.awaiting_say}」への返事を待っています。相手の言葉がその返事なら、{self._confirm_how(self.awaiting_confirm)}"
-        if self.own_pending == ASKED_REPLY and self.current is not None:
+        if self._reply_may_answer() and self.current is not None:
             q = self.questions[self.current]
             return (f"相手の返事が、いまの質問 {q.id}「{q.text}」への答えなら、質問には戻らずに、何も言わずに record_answer で、聞いた答えの"
                     "とおりに報告します。" + choices_note(q))
@@ -8408,11 +8898,69 @@ class Flow:
         turn, got = self.grounded
         return got.get(answer.strip()) if turn == self.callee_turns else None
 
-    def grounding_jobs(self, name: str, args: dict | None = None) -> list[tuple[list[str], str, str]]:
+    def _content(self, answer: str):
+        """会話AIが自分の言葉で言う文の中身の読み（唯一の読み＝声に出してよいかの確かめ _own_answer・お話に沿った受け答えか _informs）：知っていることの文を
+        そのまま言った文は「知っていることだけ」（判定に聞かない＝grounding.verbatim）、ほかは中身の判定の読み（_grounded。無ければ None）。"""
+        from grounding import GROUNDED, Verdict, verbatim
+        return Verdict(GROUNDED) if verbatim(answer, self.knowledge) else self._grounded(answer)
+
+    def _informs(self, said: str | None) -> bool:
+        """会話AIのひとこと said が、業務の情報にあるこちらの事実でお客様のお話に応えたか（お話に沿った受け答え。唯一の読み＝お返事を待つかの決まり
+        _waits_after）：ひとことの中身の読み（_content）が「知っていることだけ」。気持ちを受け止めるだけのひとこと（「事実を言っていない」）・読みが無い・
+        受け答えの録音で応えた（said が None）は当たらない（判定の項目は足さない＝ひとことを声に出す前の今の読みで決める）。
+        ✅ 2026-11-14 日本時間21時04分53秒 ユーザー「…この例だと、どちらも話に沿っていますよね。その場合、「ご対応いただけますよ。」「問題ございませんよ。」の後で、
+        お客様の返答を待つのが一般的じゃないですか？」"""
+        from grounding import GROUNDED
+        return said is not None and self._content(said) == GROUNDED
+
+    def _waits_after(self, said: str | None) -> bool:
+        """別のお話への会話AIのひとこと said のあと、伺い直しを続けずにお客様のお返事を待つか（唯一の決まり＝「ところで」の番 _aside_again・2回目からの番
+        _talk_again。会話AIへの知らせ _asked_note は、この決まりを文で先に伝える）：ひとことがお話に沿った受け答え＝業務の情報にあるこちらの事実でお話に応えた（_informs）か、
+        いま伺っている質問が尋ねていることに触れた（_touches＝中身の判定の読み）。
+        ✅ 2026-11-14 日本時間21時04分53秒 ユーザー（お言葉は _informs）。触れたひとこと（「さようでございますか。お振込ですね。」＝事実は言っていない）も、同じ
+        理由（お話に沿っている＝お客様の返答を待つのが一般的）で待つ（見直し (12) の D-10＝まとめ役が決まりで決めた。⛔ 393f474b まで「それでは」＋質問を続けた）"""
+        return self._informs(said) or self._touches(said)
+
+    def _wait_after_word(self, qid: str, said: str, dash: str = "") -> dict:
+        """別のお話にお話に沿った受け答え（_waits_after）で応えた：伺い直しを続けずに、ひとことだけ言ってお客様のお返事を待つ返事（唯一の場所＝_aside_again・
+        _talk_again）。待ったあとは、お客様に尋ねられて答えたあとと同じ1か所：答えなら受け取る（_reply_may_answer）・相づちだけなら質問に戻る（_resume＝戻る
+        1か所 _continue が、同じ所への戻りの回数で一言を選ぶ＝1回目は「はい、」＋意向が分からないまま戻る形・2回目からは戻る一言）・また別のお話なら次の別のお話の番
+        （_offer_unlinked が、この待ちの間も当てる＝_talk_waiting）。dash＝その場ではもう伺い直さないときの「-」にする理由（使い切った・念のための確認の最中など＝
+        _talk_again）：相づちだけなら「-」にして次へ（_talk_dash）。相づちは付けない（ひとことから始まる＝伺い直すときと同じ）。ひとことが1つだけに触れた選択肢は、戻るときに先に並べる
+        （_lead_after・伺い16）。黙られたら、電話接続側が見張る（_turn_done の silence_prompt＝お知らせ・考えている方と同じ一言）"""
+        self.items[qid].talk_waited = (self.callee_turns, dash)
+        self._lead_after(qid, said)
+        self._await_reply("talk")
+        return {"result": "own_answer", "say": said, "quiet": True, "message": f"{say_note(said)}{self._own_then()}"}
+
+    def _lead_after(self, qid: str, said: str | None) -> None:
+        """こちらがお客様に応えたひとこと・答え said が、いまの質問の選択肢の1つだけに触れたなら、その選択肢を覚える（唯一の場所＝お話に沿った受け答えで待つ
+        _wait_after_word・尋ねられて答えた・選ぶ助けを伝えた _own_answer）。お返事を待ったあと相づちだけで戻るとき（_resume）、その選択肢を先に並べて伺う
+        （soft_form・伺い16）。触れていない・2つ以上・読みが無いときは空（質問の順）。✅ 2026-11-14 日本時間23時45分00秒「伺い16はイでOK」＝直前にこちらが話した
+        選択肢を先に。尋ねられて答えたあと・選ぶ助けのあとの戻りにも同じ理由が当たる（見直し (12) の C の外2＝まとめ役が決まりで決めた。⛔ 393f474b まで質問の順）"""
+        self.items[qid].led_by = self._touched_option(said)
+
+    def _talk_waiting(self) -> tuple | None:
+        """いまのお返事待ちが、別のお話へのお話に沿った受け答えのあとの待ち（_wait_after_word）なら、その印（Item.talk_waited）。そうでなければ None（唯一の読み＝
+        別のお話の番 _offer_unlinked・質問に戻る _resume・お返事が答えになりうるか _reply_may_answer）。待ちのあとにほかのお話へ自分の言葉で応えた（own_turn が
+        替わった）・待ちが終わった（own_pending が消えた）ら当たらない。"""
+        if self.current is None or self.own_pending != "talk":
+            return None
+        w = self.items[self.current].talk_waited
+        return w if w is not None and w[0] == self.own_turn else None
+
+    def _reply_may_answer(self) -> bool:
+        """お客様に応えてお返事を待っている間の、お客様の次の言葉が、いまの質問の答えになりうるか（唯一の決まり＝知らせ _answer_in_reply・質問に戻るかの確かめ
+        _resume・判定を待つか wants_checks）：答えの段で尋ねられた問いに答えた（ASKED_REPLY）・別のお話にお話に沿った受け答えで応えて伺い直さずに待っている
+        （_talk_waiting）。どちらも話はいまの質問から移っていない＝答えなら質問に戻らずに受け取る。"""
+        return self.own_pending == ASKED_REPLY or self._talk_waiting() is not None
+
+    def grounding_jobs(self, name: str, args: dict | None = None) -> list[tuple]:
         """電話接続側が、この操作を流れの制御に渡す前に、中身の判定（grounding）に聞く文の並び（唯一の場所。無ければ空）：(知っていること, お客様の言葉,
-        確かめる文) の並び。電話接続側は、どれも同時に出して、届いた読みを1つずつ on_grounded へ渡す。
+        確かめる文[, いま伺っている質問]) の並び。電話接続側は、どれも同時に出して、届いた読みを1つずつ on_grounded へ渡す。
         - 会話AIが自分の言葉で言う文（答えの文）。機械の確かめで止まる文・知っていることの文をそのまま言った文・もう答えた発話は聞かない（判定の分の待ちを
-          無駄にしない）。
+          無駄にしない）。会話が繋がらないお返事へのひとこと（受け答え）のあとに「ところで」の形で質問を伺い直す番は、伺い直す文を4つ目に添える（_aside_asking。
+          ひとことが質問の尋ねていることに触れたかも同じ問い合わせで読む＝_touches・伺い15）。
         - 申し出へのお話にひとこと応える受け答えの提案の言葉（ご都合の条件 terms・申し出に含める中身 topic＝_offer_again の伺い直しに入れる言葉）。自分の言葉と
           全く同じ決まりで確かめる（_proposal_problem。✅ 2026-11-09 日本時間9時48分09秒＝「事実を言っていない」だけを通す別の決まりは外した）。形の合わない
           条件（offer_terms_problem）は聞かない。⛔ 2026-11-09 日本時間8時台（7時57分50秒のご判断を入れたあとの見直し）：条件の文字は形しか確かめず、
@@ -8427,9 +8975,14 @@ class Flow:
         jobs, answer = [], (a.get("answer") or "").strip()
         # 機械の確かめで止まる文（名前・断り・許されていない約束・読みで渡した地名の漢字・知らせの言葉・長すぎる）は、判定に聞かずに書き直させる
         # （⛔ 2026-10-23 G-57 tc40：約束を見ていなかったので、約束で止まる文まで判定を待ち、相手を約1.5秒余計に待たせた）
-        if (answer and not verbatim(answer, self.knowledge) and self._grounded(answer) is None
-                and own_answer_problem(answer, self.names, may_follow_up=self._may_follow_up(a.get("part")), name_readings=self.name_readings) is None):
-            jobs.append((self.knowledge, self._answered_words(), answer))
+        # この番の受け答えは「受け答え」だけ（_own_answer が差し戻す）。尋ねられて答える番は業務の情報で答える文だけ（own）
+        asking = self._aside_asking() if a.get("part") in ("talk", "own") else ()
+        # 知っていることの文をそのまま言った文（verbatim）は中身の判定に聞かない。ただし添える質問があれば、触れたかを読むために同じ1回の問い合わせで聞く（読みの
+        # 中身の項目は使わない＝_content は知っていることだけ。見直し (12) の D-7）
+        known = verbatim(answer, self.knowledge)
+        if (answer and (asking or not known) and self._grounded(answer) is None
+                and (known or own_answer_problem(answer, self.names, may_follow_up=self._may_follow_up(a.get("part")), name_readings=self.name_readings) is None)):
+            jobs.append((self.knowledge, self._answered_words(), answer) + asking)
         for k in ("terms", "added", "topic"):
             # 申し出の伺い直しに入れる提案の言葉（ご都合の条件・こちらから足した条件・申し出に含める中身）も、自分の言葉と同じ中身の判定に聞く（形の合わない言葉は聞かない）
             t = (a.get(k) or "").strip()
@@ -8519,8 +9072,9 @@ class Flow:
                 # ✅ 2026-10-22 ユーザー（5回目）：「世間話のような対応や設定にない無難な対応はライブAIにしかできないよ！」
                 f"・質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）に、ひとこと返すとき＝「{PART_LABEL['talk']}」（自分の言葉で）")
 
-    def _back_play(self, digressed: bool, asks: bool = True) -> list[dict]:
-        """もう伺った質問（呼んでいる段なら、お呼びするお願い）へ戻る前に流す一言（相手のお話・ご質問に応えたあと＝digressed のときだけ。無ければ空）。
+    def _back_play(self, digressed: bool, asks: bool = True, plain: bool = False, stuck: bool = False) -> list[dict]:
+        """もう伺った質問（呼んでいる段なら、お呼びするお願い）へ戻る前に流す一言（相手のお話・ご質問に応えたあと＝digressed のときと、お話に応えたあとでない
+        戻り＝plain の2回目から（下）。無ければ空）。
         ✅ 2026-10-23 ユーザー：「お客様『そうですよね。』の会話の後に、『はい、ご予約はされていますでしょうか？』だと会話が繋がっていないですよね。
         同じことを繰り返すな！！」⛔ 前は、お話に応えたあと、話を戻すことを言わずに、もう伺った質問をそのまま流していた。録音で流せない通話では、
         AIが同じ一言を言う（_continue）。同じ所（質問・言い直しの番号／お呼びするお願い）へ2回目に戻るときは「それではもう一度確認させていただきますね。」、
@@ -8530,11 +9084,20 @@ class Flow:
         asks＝戻った先が、続けて1本にできる問い（質問・言い直し）か：問いでない一言（ご案内の申し出・振り返りの一言）と、名前の録音を組んで流すお呼びするお願い
         には、文を終えない一言（3回目からの形）をつながない（その手前の一言のまま。⏳ 問いでない一言へ3回目に戻るときの言い方は伺う）。
         お呼びする段は電話口の方ごとに数える（同じ方にお呼びする一言は2回まで＝_calls_to_speaker）：⛔ 3時台に入れた形は段の全体で数えていたので、取り次がれた
-        新しい方に、初めて聞く「それではもう一度確認させていただきますね。」を流しうる形だった"""
-        if not digressed:
+        新しい方に、初めて聞く「それではもう一度確認させていただきますね。」を流しうる形だった
+        plain＝お話に応えたあとではない戻り（尋ねられて答えたあと・お話に沿った受け答えで待ったあとの相づちだけのお返事＝_continue の final・soft）も、同じ所への
+        戻りに数える（お客様が直前に聞いた質問の文を覚える1か所＝この回数。同じ所に戻るたびに言い方を変える＝11-01「全く同じ質問を2度したら、機械だと思われて
+        しまいませんか？」）：1回目は一言を付けない（意向が分からないまま戻る形で言い方を変える＝soft_form）・2回目からは同じ一言の並び。stuck＝1回目でも言い方を
+        変えられない（言い換えも選択肢を並べた文も無い＝いま伺ったばかりの文をすぐくり返す）：2回目の一言から（見直し (12) の A-3・C の外1・B の外＝まとめ役が
+        決まりで決めた。⛔ 393f474b まで、言い換えた文で戻った直後の別のお話に「ところで」＋同じ言い換え・尋ねられて答えたあとの相づちが続くと「はい、カードに
+        なさいますか…」を3回・言い換えの無い質問は伺ったばかりの文をすぐくり返した）"""
+        if not (digressed or plain):
             return []
-        key = self._place()
-        n = self.back_counts[key] = self.back_counts.get(key, 0) + 1
+        n = self._back_count()
+        if not digressed and n == 1:
+            if not stuck:
+                return []
+            n = self._back_count()
         lines = BACK_LINES if asks else [x for x in BACK_LINES if closes(x[1])]
         rid, text = lines[min(n, len(lines)) - 1]
         return [{"kind": "recorded", "id": rid, "text": text}]
@@ -8551,15 +9114,45 @@ class Flow:
         if self.awaiting_confirm is not None:
             return f"言い直し@{self.awaiting_confirm}@{drop_receipt(self.awaiting_say or '')}"
         q = self.questions.get(self.current) if self.current is not None else None
-        return "" if q is None else f"{q.id}@{q.of or ''}@{q.text}"
+        # 業務の質問は番号だけで同じ所（「ところで」の言い換えた形 aside_form・続きの電話のその後の形 since_form に替えても同じ質問＝戻りを数え続ける）。文で分けるのは
+        # 番号が役目ごとに1つのシステムの質問だけ（of・callback）
+        return "" if q is None else f"{q.id}@{q.of or ''}@{q.text if (q.of or q.callback) else ''}"
 
-    def _continue(self, play: list, shown: str, final: bool = False) -> dict:
+    def _back_count(self) -> int:
+        """いまお返事を待っている所（_place）へ戻った回数を1つ足して返す唯一の場所（戻る一言を選ぶ _back_play と、戻る一言の代わりに決まった伺い直しで戻る所＝
+        会話が繋がらないお返事への「ところで」の伺い直し _aside_again・ご承認のお知らせの伝え直し _announce_again が呼ぶ。そのあとの別のお話への伺い直し
+        _talk_again は、ここで数えた回数で _back_play の2回目・3回目からの一言＝✅ 2026-11-07 日本時間3時14分01秒 H7・4時40分35秒）"""
+        key = self._place()
+        n = self.back_counts[key] = self.back_counts.get(key, 0) + 1
+        return n
+
+    def _soften(self, qid: str, soft: bool, lead: str = "") -> None:
+        """お客様の意向がまだ分からないまま戻る形（soft_form）に替えるか、替える前の形に戻すかの唯一の場所（戻る1か所 _continue・「ところで」の伺い直し
+        _aside_again）：soft なら、判定と会話AIへの知らせがお客様の聞く文を読むよう、その形に替える（替える前の形は soft_plain）。soft でなければ替える前の形に
+        戻す（選択肢を並べた形は意向が分からないまま戻るときだけの形＝戻る一言のあと・もう一度言ってほしいと頼まれたとき・代わった方へ・「ところで」の伺い直しは、
+        替える前の形で伺う。話の続きを聞いていない方に選択肢だけを並べない）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー（お言葉は soft_form の上）"""
+        q = self.questions[qid]
+        if soft and (s := soft_form(q, lead)) is not q:
+            self.soft_plain.setdefault(qid, q)
+            self.questions[qid] = s
+        elif not soft and qid in self.soft_plain:
+            self.questions[qid] = self.soft_plain.pop(qid)
+
+    def _continue(self, play: list, shown: str, final: bool = False, soft: bool = False, lead: str = "", repeat: bool = False) -> dict:
         """録音（名乗りの流し直し・お詫びの相づち）を流したあと、いまの位置へ戻る返事（唯一の場所。_op_replay_opening・_resume）。
         いまの位置＝目的の人を呼んでいる段（もう一度だけ呼ぶ）／言い直しの返事待ち（AIが言い直しをもう一度言う）／答えを待っている質問
         （その質問の録音）／聞いている質問が無い（相手が話すのを待つ）。shown＝流した録音の文（空なら、流したのはお詫びの相づちだけ）。
         final＝いまの質問・言い直しについて尋ねられて答えたあと、お客様が相づちだけを返した（_resume の ASKED_REPLY）：話はいまの質問から移っていないので
         戻る一言は付けず、同じ言い直し・同じ質問へは戻らずに、最終の確かめで締めにいく（_final_check。言い直しの返事待ちは言い直した向き・質問の返事待ちは
-        こちらが勧めた向き＝final_toward。向きが決まらない質問は、頭に「それでは」を付けて伺い直す）。✅ 2026-11-06 日本時間11時19分55秒・11時55分13秒 ユーザー"""
+        こちらが勧めた向き＝final_toward。向きが決まらない質問は伺い直す）。✅ 2026-11-06 日本時間11時19分55秒・11時55分13秒 ユーザー
+        soft＝別のお話にお話に沿った受け答えで応えて待ったあと、お客様が相づちだけを返した（_resume の待った印）。final で向きが決まらないときと同じく、お客様の意向が
+        まだ分からないまま戻る＝戻る一言の無い伺い直しは、頭に「それでは」を付けず、意向が分からないまま戻る形（soft_form）で伺う（_soften の1か所）。✅ 2026-11-14
+        日本時間22時15分15秒 ユーザー（お言葉は soft_form の上）。lead＝待つ前のひとこと・尋ねられて答えた答えが1つだけに触れた選択肢（soft・final の戻り。先に
+        並べて伺う＝soft_form・伺い16。✅ 23時45分00秒。尋ねられて答えたあとの戻りにも同じ理由が当たる＝見直し (12) の C の外2）。
+        お話に応えたあとでない戻り（final・soft）も、同じ所への戻りに数える（戻る一言の1か所 _back_play の plain＝お客様が直前に聞いた質問の文を覚える1か所。
+        2回目からは戻る一言＋替える前の形＝同じ文を続けて言わない＝11-01）。
+        repeat＝もう一度言ってほしいと頼まれた（_repeat_now）：お客様が直前に聞いた文のまま（意向が分からないまま戻る形で伺っていれば、その形のまま＝頭に
+        「それでは」を付けない）。戻りには数えない（こちらから戻ったのではない）。✅ 11-14 22時15分15秒（選択肢を並べた文は「それでは」を付けない）・見直し (12) の A-7"""
         if self.after_answer is not None:
             # 答えに添えられた相手の質問に答えた：先に作っておいた返事（次の質問・言い直し・聞き返し・念のための確認・締め＝_question_first）を、答えのあとに流す
             # （取り出す1か所 _take_after_answer＝その返事の「この発話で言った」印を、いま流すこの発話に付け直す）
@@ -8597,7 +9190,8 @@ class Flow:
             # もう一度言う文は、伺ったときの頭の受けの言葉を外して「それでは」から（restated_again の1か所＝戻る一言のあとの形も質問と同じ back_fit）。3回目からの
             # 一言（文を終えない「…お伺いさせていただきますが」）は言い直しの頭＝言い直しと1つの文で会話AIが言う（言い直しは値を含むので会話AIの声＝録音のあとに
             # 「改めまして（値）で大丈夫でしょうか？」と言うのと同じ形）。問いでない言い直し（「…承っておきますね。」）には文を終えない一言をつながない（asks）
-            back = self._back_play(digressed, asks=self.awaiting_say.endswith(("？", "?")))
+            # お話に沿った受け答えで待ったあとの相づちだけのお返事（soft）も、お話に応えたあとの戻り（言い直しには意向が分からないまま戻る形が無い＝戻る一言から）
+            back = self._back_play(digressed or soft, asks=self.awaiting_say.endswith(("？", "?")))
             btext = "".join(p["text"] for p in back)
             joined = bool(back) and not closes(btext)
             say, then = restated_again(self.awaiting_say, btext), ""
@@ -8608,7 +9202,7 @@ class Flow:
             elif back and not joined:
                 say, then = btext + say, say_note(btext) + "続けて、"
             return {"result": "replayed", "play": play, "speak": True, "say": say,
-                    "message": f"{done}続けて、{then}{note}相手の返事を待ってください。"} | ({"bridged": True} if back else {})
+                    "message": f"{self._then_note(done)}{then}{note}相手の返事を待ってください。"} | ({"bridged": True} if back else {})
         q = self.questions.get(self.current) if self.current else None
         if self._held_now() is not None:
             # 応える前の相手の言葉を、判定のどれかがいまの質問の答えと読んだ（_keep_answer_reading）：質問を流す前に、その言葉の答えの報告か、
@@ -8618,7 +9212,7 @@ class Flow:
             return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._return_note()}"}
         if final and q is not None and not q.reading_of and (toward := final_toward(q)) is not None:
             return self._final_check(q.id, toward)   # 質問について尋ねられて答えた：同じ質問には戻らず、こちらが勧めた向きで最終の確かめ
-        # もう流した質問へ戻る（戻る一言・「失礼いたしました。」のあと・尋ねられて答えたあと）＝頭は「それでは」（AGAIN_LEAD）。まだ流していない質問（先に
+        # もう流した質問へ戻る（戻る一言・「失礼いたしました。」のあと）＝頭は「それでは」（AGAIN_LEAD）。まだ流していない質問（先に
         # 言われた答えを受け取らずに、初めて流す＝_offer_ahead のあと）は、次の項目として「続きまして」（✅ 2026-11-06 日本時間12時54分30秒 ユーザー：「次の
         # 項目の質問に入る前は、すべて「続きまして」でいいんじゃないですか。」＝戻るときは次の項目ではない）
         again = q is not None and not q.reading_of and (final or self.items[q.id].played)
@@ -8627,14 +9221,35 @@ class Flow:
         qs = self._plays()
         # 戻った先が問いか（3回目からの一言を続けて1本にできるか＝_back_play の asks）：流す形の文が「？」で終わる（ご案内の申し出・振り返りの一言は問いでない）
         asks = q is not None and (q.text if q.reading_of else question_play(qs, q.id)["text"]).endswith(("？", "?"))
-        back = self._back_play(digressed, asks=asks)
+        # お話に応えたあとでない戻り（尋ねられて答えたあと・待ったあとの相づちだけ＝final・soft）も同じ所への戻りに数える（plain）。1回目でも意向が分からないまま
+        # 戻る形で言い方を変えられない質問（言い換えも選択肢を並べた文も無い・もうその形で伺っている）は、今伺った文をすぐくり返さない＝2回目の一言から（stuck）
+        plain = (final or soft) and again and not digressed and not repeat
+        base = self.soft_plain.get(q.id, q) if q is not None else None
+        stuck = plain and soft_fits(q) and soft_form(base, lead) is base
+        back = self._back_play(digressed, asks=asks, plain=plain, stuck=stuck)
         btext = "".join(p["text"] for p in back)   # 戻る一言の頭のつなぎの言葉と、質問の頭を重ねない（spoken_question・phrases.back_fit の before）
         joined = bool(back) and not closes(btext)   # 3回目からの一言は質問の頭（質問と1本の録音・会話AIの1つの文）
-        bridged = {"bridged": True} if back and q is not None else {}
+        # お客様の意向がまだ分からないまま戻る（尋ねられて答えたあと・黙ったあとの一言へのお返事で最終の確かめの向きが決まらない＝final・お話に沿った受け答えで
+        # 待ったあとの相づちだけのお返事＝soft）：戻る一言の無い伺い直しは、頭に「それでは」を付けず、その形（soft_form＝選択肢を並べた文・言い換えた質問）で伺う。
+        # 戻る一言のあと・もう一度言ってほしいと頼まれたとき・代わった方へは、替える前の形と「それでは」（_soften の1か所）。✅ 2026-11-14 日本時間22時15分15秒
+        if repeat:
+            # もう一度言ってほしい：いま伺っている形のまま（替えない）
+            soft = q is not None and q.id in self.soft_plain
+        else:
+            soft = (final or soft) and again and not back and soft_fits(q)
+            if q is not None and not q.reading_of:
+                self._soften(q.id, soft, lead if soft else "")
+                q, qs = self.questions[q.id], self._plays()
+        # 戻る一言から始まる：お話に応えたあとでない戻り（plain＝相づちだけのお返事・黙ったあとの一言へのお返事だけ）は、その一言が相手のお返事を受ける＝相づちを
+        # 重ねない（quiet。_resume が戻る一言から始まる返事に付けるのと同じ決まり＝黙ったあとの一言へのお返事 _judged_first もここを通る）
+        bridged = ({"bridged": True} | ({"quiet": True} if plain else {})) if back and q is not None else {}
         # 名乗りの部分で伺う質問（伝言の文＝opening_part）には、同じ返事で直前に流した名乗りの文も渡す（名前と用件を言い直さない短い形＝question_play）
         prior = btext or (shown if q is not None and opening_part(q) is not None else "")
+        # もう一度言ってほしいと頼まれた決まった文の質問（システムの質問）は、お客様が直前に聞いた文のまま（前置きも「それでは」も足さない＝question_play の
+        # 前置きを言い直さない形 B-5 と同じ理由。業務の質問は「失礼いたしました。」＋「それでは（質問）」＝11-06 15時20分30秒のまま）
+        fixed_again = again and not (repeat and (q.callback or q.of)) if q is not None else again
         if q is not None and self.play_recordings and not q.reading_of:
-            qp = question_play(qs, q.id, again=again, before=prior)
+            qp = question_play(qs, q.id, again=fixed_again, before=prior, soft=soft)
             play += ([] if joined else back) + [qp]
             return {"result": "replayed", "play": play,
                     "message": played_note(shown + ("" if joined else btext) + qp["text"]) + "何も言わずに、相手の答えを待ってください。"
@@ -8642,18 +9257,25 @@ class Flow:
         if q is not None:
             then = f"{say_note(btext)}続けて、" if back and not joined else ""
             if q.callback or q.of:
-                # 決まった文の質問：流す形と同じ文（phrases.back_fit）をそのまま言う
-                lead, quoted = "", question_play(qs, q.id, again=again, before=prior)["text"]
+                # 決まった文の質問：流す形と同じ文（phrases.back_fit・again_fit）をそのまま言う
+                lead, quoted = "", question_play(qs, q.id, again=fixed_again, before=prior)["text"]
             else:
-                lead = btext if joined and q.reading_of else spoken_question(qs, q.id, again=again, before=btext)[1]
+                lead = btext if joined and q.reading_of else spoken_question(qs, q.id, again=again, before=btext, soft=soft)[1]
                 quoted = q.text
             return {"result": "replayed", "play": play, "speak": True,
-                    "message": f"{done}続けて、{then}いまの質問 {q.id}「{quoted}」を聞いてください（名乗りは繰り返しません）。"
+                    "message": f"{self._then_note(done)}{then}いまの質問 {q.id}「{quoted}」を聞いてください（名乗りは繰り返しません）。"
                                + (start_with(lead) if lead and (again or q.intro or self.lead_ins or joined) else "")} | bridged
         # 聞いている質問が無い（質問が全部済んで締めの最中など）。⛔ 2026-10-17 の見直しで見つけた漏れ：前は、どの場面でも
         #    「相手の答えを待って record_answer で報告」と返していた＝答える質問が無いのに、報告を求めていた
         return {"result": "replayed", "play": play, "silent": True,
                 "message": f"{done}何も言わずに、相手が話すのを待ちます。相手が話したら、それに答えます（名乗りは繰り返しません）。"}
+
+    @staticmethod
+    def _then_note(done: str) -> str:
+        """戻る1か所（_continue）の知らせの頭（唯一の場所）：先に流した録音・言った言葉の知らせ done があれば、そのあとに「続けて、」。無ければ空（決まった言葉を
+        頭に足す _led が「まず、…続けて、」を付ける＝「続けて、」を重ねない。⛔ 393f474b まで、別のお話の2回目からの伺い直しの知らせが「まず、「…」と言って
+        続けて、続けて、いまの質問…」だった＝見直し (12) の A-10）"""
+        return f"{done}続けて、" if done else ""
 
     def _ai_question(self) -> dict:
         """「AIですか？」「機械ですか？」「人間ですか？」と聞かれたとき（Intent.md 9-4。唯一の場所）。
@@ -8719,15 +9341,16 @@ class Flow:
         kept = self.answer_held if self.after_answer is not None and (self.answer_held or {}).get("offered") == self.after_answer[2] else None
         held = self._held_now() is not None and kept is None   # （先に言われたことを持ち続けるかは、報告の入口の _take_rest の1か所で決める）
         ahead = held and bool(self._held_now().get("ahead"))   # 先に言われたことに、次に伺う質問の答えは無かった
-        if (self.own_pending == ASKED_REPLY and (qid := self.awaiting_confirm or self.current) is not None
+        if (self._reply_may_answer() and (qid := self.awaiting_confirm or self.current) is not None
                 and self.meaning_said in self.questions[qid].all_conditions):
             # いまの質問について尋ねられて答えたあとの、お客様の返事（「じゃあ、お願いします。」）が、判定の読みでいまの質問の答え：質問に戻らずに、答えとして
             # 報告し直させる（判定が届いてから決める＝wants_checks）。⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの読み直しで見つけた：会話AIが「質問に
-            # 戻る」を選ぶと、答えたお客様に質問を流し直した
+            # 戻る」を選ぶと、答えたお客様に質問を流し直した。別のお話にお話に沿った受け答えで応えて待ったあとも同じ（_reply_may_answer の1か所）
             return self._reject("相手の言葉は、いまの質問への答えです（意味の判定）。質問には戻らずに、答えとして報告します。")
         if not (self.ai_pending or self.own_pending or held):
             return self._reject(f"「{PART_LABEL['resume']}」は、エーアイかと聞かれて決まった言い方を流したあと・相手の質問に自分の言葉で答えたあとの、"
                                 "相手の返事にだけ使います。")
+        waited = self._talk_waiting()   # 別のお話へのお話に沿った受け答えのあとの待ち（印は待つ印を消す前に読む）
         own, ai, self.ai_pending, self.own_pending, self.answer_held = self.own_pending, self.ai_pending, False, False, kept
         w = next((p for p in (self.wish, self.handoff) if p is not None and p.get("detail") == self.current), None)
         if ahead and w is not None and w.get("known") is not None and self.items[self.current].state == "empty":
@@ -8735,7 +9358,19 @@ class Flow:
             self._drop_unasked(self.current)
             self._wish_known(w.pop("known"), w)
             return self._advance("", handled=True) | {"quiet": True, "ahead_closed": True}
-        r = self._continue([], "", final=own == ASKED_REPLY)
+        if waited is not None and waited[1]:
+            # その場ではもう伺い直さない質問（使い切った・念のための確認の最中など＝_talk_again）へのお話に沿った受け答えで待ったあとの相づちだけのお返事：待つ前の
+            # 決まりのまま「-」にして次へ（_talk_dash。見直し (12) の B-7）
+            self.items[self.current].led_by = ""
+            return self._talk_dash(self.current, waited[1]) | {"talked": True}
+        # 別のお話にお話に沿った受け答えで応えて待ったあと（_wait_after_word）・尋ねられて答えたあと（ASKED_REPLY）の相づちだけのお返事：話はいまの質問から移って
+        # いない＝その質問へ戻る（戻る1か所 _continue が同じ所への戻りの回数で一言を選ぶ＝1回目は一言を付けずに意向が分からないまま戻る形・2回目からは戻る一言）。
+        # お客様の意向はまだ分からないので、戻る一言の無い戻りは「それでは」を付けない（_continue の soft）。待つ前のひとこと・答えが1つだけに触れた選択肢を先に並べる
+        # （led_by・伺い16）。✅ 2026-11-14 日本時間21時04分53秒・22時15分15秒・23時45分00秒 ユーザー
+        lead = self.items[self.current].led_by if self.current is not None else ""
+        if self.current is not None:
+            self.items[self.current].led_by = ""
+        r = self._continue([], "", final=own == ASKED_REPLY, soft=waited is not None, lead=lead)
         if r["result"] == "confirm_required":
             return r   # 最終の確かめ（_final_check）：相づちは確かめの一言の頭（_ack）
         if r["result"] == "end":
@@ -9106,27 +9741,88 @@ class Flow:
             return "offer"
         return None
 
+    def _asked_name(self) -> str:
+        """報告より先に会話AIが応える番（_asked_kind）の、会話AIへの知らせの頭で言う、いまのお客様の言葉の名前（唯一の場所＝報告を差し戻す入口 _apply_one・
+        報告の無いターン _asked_turn）：番の種類から作る（help＝迷っている言葉・offer＝別のお話・concern＝気になる点・asked＝こちらへの問い）。⛔ 393f474b まで
+        2か所で別々に作り、別のお話の番を、報告の無いターンは「こちらへの問い」、差し戻しは「申し出への、はい・いいえではないお話」（申し出でない業務の質問・
+        ご承認のお知らせ・方法を選んでいただく質問にも）と言っていた（見直し (12) の D-4）"""
+        return {"help": "どれにするか迷っている・まだ決めていない言葉", "offer": "別のお話（いまの質問に答えていないお話）",
+                "concern": "こちらの話し方・進め方・ご案内についての気になる点"}.get(self._asked_kind() or "", "こちらへの問い")
+
+    def _on_spot_left(self, qid: str, talk: bool = False) -> bool:
+        """必須の質問を、その場でまだ伺い直せるか（唯一の決まり＝聞き返し _ask_again・別のお話の伺い直し _talk_again・別のお話の形 _unlinked_kind）：答えの段で、
+        聞き返した回数（Item.ask_backs）と別のお話に応えて伺い直した回数（Item.talk_backs）を合わせた数が、その場の上限（Limits.ask_back＝初めは2回）に届いて
+        いない。使い切ったら「-」にして、締めの前の念のための確認で1回（最初の質問のほかに最大3回＝10-14）。
+        ✅ 2026-10-14 ユーザー「必須の項目を聞く回数が、最初の質問のほかに最大3回（その場2回＋締めの前の念のための確認1回）」・2026-11-14 日本時間14時31分38秒
+        ユーザー「●伺い13 3回目は最後に回したほうがよくないですか？ただし、通話が聞き取れないなどは、これに当てはまらない。」（別のお話が続いたときの3回目は、その場で
+        伺わずに最後へ。聞き取れないお返事の聞き返しは今のまま＝言い方は聞き返しの回数 ask_backs で選ぶ）"""
+        it = self.items[qid]
+        left = self.phase == "asking" and it.ask_backs + it.talk_backs < self.limits.ask_back
+        # talk＝別のお話への伺い直しを数える所（_talk_again・_unlinked_kind）：依頼主がその場の回数を増やした業務でも、別のお話への伺い直しはその場で
+        # TALK_ON_SPOT 回まで（伺い13 の理由＝別のお話を続けるお客様に、その場で同じことを3回続けて伺わない。見直し (12) の A-6。⛔ 393f474b まで、依頼主が3回に
+        # すると3回目の別のお話にも「確認の途中でしたので…」でその場で伺った）。聞き取れないお返事の聞き返しは依頼主の回数のまま
+        return left and (not talk or it.talk_backs < TALK_ON_SPOT)
+
     def _unlinked_kind(self, qid: str) -> str | None:
         """会話が繋がらないお返事にひとこと応える番（_offer_unlinked）で、ひとことのあとに何をするかの唯一の決まり（_offer_unlinked・自分の言葉の答え
         _own_answer・知らせ _asked_note が読む）："announce"＝ご承認のお知らせを伝え直す（_announce_again）・"offer"＝申し出と方法を選んでいただく質問の提案
         （_proposal_of がある＝_offer_again）・"aside"＝申し出でない業務の質問を「ところで」＋言い換えた質問で伺い直す（aside_fits＝_aside_again）。どれでもなければ
-        None（今の聞き直しの道）。✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」（⛔ それまで、申し出でない業務の質問は「はい、恐れ入ります。もう一度
-        お聞かせいただいてもよろしいでしょうか？」＝お客様のお話に応えずに同じことを伺う形）"""
+        None（今の聞き直しの道）。伺い直したあと（1項目1回＝Item.offer_again）も続く繋がらないお返事は、どの質問も "again"＝ひとことのあと今の回数の決まりの
+        次の一歩（_talk_again）。✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」（⛔ それまで、申し出でない業務の質問は「はい、恐れ入ります。もう一度
+        お聞かせいただいてもよろしいでしょうか？」＝お客様のお話に応えずに同じことを伺う形。⛔ 分身 D の f5fa2a9c までは、伺い直したあとの2回目の別のお話に
+        また同じ形で応えず伺った＝9-3「お客様のお話にも、AIが自分の言葉でひとこと返す」・11-09 9時48分09秒「お言葉を無視している」に反する）"""
+        kind = self._unlinked_base(qid)
+        if kind is None:
+            return None
+        # 伺い直したあと（1項目1回）・その場の回数（聞き返しと合わせた数）を使い切った必須の質問は、ひとことのあと今の回数の決まりの次の一歩（_talk_again＝
+        # 「-」にして締めの前の念のための確認で1回）。✅ 2026-11-14 日本時間14時31分38秒「●伺い13」（聞き返しと別のお話はその場の回数を分け合う）
+        spent = self.questions[qid].required and kind in ("aside", "announce") and not self._on_spot_left(qid, talk=True)
+        # 言い直し・最終の確かめのお返事を待っている間の別のお話（_offer_unlinked）も、ひとことのあと今の回数の決まりの次の一歩（_talk_again＝もう一度確かめる
+        # か「-」にして次へ。質問の伺い直しの形にはしない＝確かめているのは質問ではなく言い直した中身）
+        # この質問の所へもう戻った（尋ねられて答えたあと・待ったあとの戻り＝_back_play の数え）：「ところで」の伺い直しは1回目の戻りの形なので、2回目の戻りの形
+        # （_talk_again＝「それではもう一度確認させていただきますね。」＋質問）。⛔ 393f474b まで、言い換えた質問で戻った直後の別のお話に「ところで」＋同じ言い換え
+        # （同じ文を続けて言う＝11-01・見直し (12) の A-3）
+        returned = kind == "aside" and self.back_counts.get(self._place(), 0) > 0
+        # 決まった伝言のお願い（"message"）は伺い直さない道：ひとことのあと、今の回数の決まりの次の一歩（_talk_again＝必須でない質問は「-」にして次へ＝締め）
+        return "again" if self.items[qid].offer_again or spent or returned or self.awaiting_confirm == qid or kind == "message" else kind
+
+    def _unlinked_base(self, qid: str) -> str | None:
+        """会話が繋がらないお返事にひとこと応える番の、質問の種類ごとの形（唯一の決まり＝_unlinked_kind・伺い直したあとの _talk_again が、お話に沿った受け答えの
+        あと待つのは申し出でない業務の質問だけ＝_informs）："announce"・"offer"・"aside"・"message"（決まった伝言のお願い M1＝伺い直さない道）・None
+        （_unlinked_kind の説明のとおり。伺い直したあとかは見ない）。"""
         q = self.questions[qid]
         if in_announce_form(q):
             return "announce"
         if self._proposal_of(qid) is not None:
             return "offer"
-        # 申し出でない業務の質問は、判定がそろって「別のお話」と読み（AWAY）、決められない読みの道（_undecided_way の1か所）が特別な決まりのある道（取込で意味が
-        # 決まった言葉・その後の形への「決まりました」・前の話を指す言葉・判定が割れて名指しした答え）でないときだけ
-        # 判定がそろって「別のお話」と読んだとき（talked_away の1か所）だけ。どれとも決められない答え・答えの一部・迷い・分からないは今の道
-        return ("aside" if aside_fits(q) and talked_away([self.check.get(k) for k in JUDGMENTS])
-                and self._undecided_way(qid) in ("dash", "toward", "again_restate", "again_check", "again_ask") else None)
+        if q.callback == "message":
+            # 決まった伝言のお願い（M1）：はっきりしないお返事は伺い直さずに締める決まった道（必須でない伺い）。会話が繋がらないお返事にも、9-3「お客様のお話にも、
+            # AIが自分の言葉でひとこと返す」を、その道のまま当てる＝会話AIのひとこと＋今の締め（_unlinked_kind の again→_talk_again）。見直し (12) の B-8・
+            # まとめ役が決まりで決めた。⛔ 2e5986f5 まで、「岡田は最近ずっと忙しくてねえ。」に「承知しました。お忙しいところ…」（ひとことも無く締めた）
+            return "message"
+        if away_turn(q, [self.check.get(k) for k in JUDGMENTS], self._undecided_way(qid)):
+            # 申し出でない業務の質問は、判定がそろって「別のお話」と読み（AWAY・talked_away の1か所）、決められない読みの道（_undecided_way の1か所）が言葉で決まる
+            # 特別な道（取込で意味が決まった言葉・前の話を指す言葉・判定が割れて名指しした答え）でないときだけ。どれとも決められない答え・答えの一部・迷い・分からないは
+            # 今の道。続きの電話のその後の形（"since"＝その形で伺っているという状態で決まる道）も、そろって「別のお話」なら同じ番（伺い直すのは元の質問＝_asked_plain）。
+            # その後の形への中身の無い「はい、決まりました。」（答えの話）は今のまま（_undecided_answer）。⛔ 0c55c4e7 まで "since" を外していたので、その後の形への
+            # 別のお話に、ひとことも無く「はい、それでは（元の質問）」と伺い直した（見直し (12) の A-1・D-1）
+            return "aside"
+        return None
+
+    def _word_reply(self, qid: str) -> bool:
+        """受け入れにも断りにも取れる言葉だけの最初のお返事（「結構です。」「大丈夫です。」＝AMBIGUOUS）か（唯一の決まり＝迷っているお客様への応じ方 _hesitation・
+        会話が繋がらないお返事の番 _offer_unlinked が外す）：質問へのお返事で、迷い・別のお話ではない。判定がそろって決められない・わからないと読んでも、受け取る所
+        （_op_record_answer）が曖昧な言葉の決まりで受ける＝前の質問から意味が決まればその意味（_word_choice）・決まらなければ確かめる（✅ 2026-10-17 ユーザー
+        「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」）。言い直し・最終の確かめへのお返事（awaiting_confirm）は当てない（言い直した
+        意味を認める返事＝_compare の policy と同じ）。申し出でない業務の質問の別のお話の道（away_turn）は、決められない読みの道の "word" で同じく外れる。
+        ⛔ F1（測りの数えを本番の流れの制御に通す）で見つけた：申し出の質問の「結構です。」に、会話AIのひとことのあと「それでは…パンフレットをお送りするということで
+        よろしいでしょうか？」と申し出を伺い直し、ご希望を伺う質問の「結構です。」を判定が「わからない」と読むと「はい、どういった点でお迷いでしょうか？」と伺っていた"""
+        return self.awaiting_confirm != qid and bool(AMBIGUOUS.fullmatch((self.heard_said or "").strip()))
 
     def _offer_unlinked(self) -> bool:
         """申し出のシステムの質問（OFFER_ROLES＝詳しい者より改めて N4・締める前の申し出 N6）に、会話が繋がらないお返事（「うちは月曜が定休日なんですよ。」）を
-        いただいたか（唯一の決まり＝応える番の種類 _asked_kind の offer）：いまの質問の最初の答えの番（言い直しの返事待ちではない）で、まだ伺い直していなくて
-        （Item.offer_again。聞き取れないお返事への聞き直しのあとでも1回）、伺い直す申し出の中身（こちらがすることの言葉 Question.do_words の「はい」）があり、
+        いただいたか（唯一の決まり＝応える番の種類 _asked_kind の offer）：いまの質問の答えの番（言い直しの返事待ちではない。伺い直した申し出・方法の提案への
+        お返事は当てる）で、伺い直す申し出の中身（こちらがすることの言葉 Question.do_words の「はい」）があり、
         判定の読みがそろって決められない（どの答えも指していない。「わからない」は入れない＝答えたくない・分からないの道）・迷っていない（_hesitation）・電話を
         終える言葉に寄っていない・聞き取れている・こちらへの問いではない（_plain_reply）。
         ✅ 2026-11-09 日本時間7時57分50秒 ユーザー：「1.(a)（お勧め）会話AIがお客様の言葉にひとこと応えてから、申し出を伺い直す。例：「さようでございますか。
@@ -9135,17 +9831,33 @@ class Flow:
         応えずに、同じことをもう一度伺う形。⛔ 6時33分57秒のご指摘のあと、私は帳面に「(1) 会話AIがひとこと応え (2) 申し出を「…させていただいてもよろしいで
         しょうか？」で伺い直す」と書き、最初の申し出と同じ終わりをくり返す例を出していた）"""
         qid = self.current
-        if not self._may_ask_back() or self.awaiting_confirm is not None or qid is None or self.check_for not in (None, qid):
+        if not self._may_ask_back() or qid is None or self.check_for not in (None, qid) or self.awaiting_confirm not in (None, qid):
             return False
-        # こちらが応えたあと（選ぶ助け・ご質問への答え・受け答え）のお返事と、迷っているお客様への応じ方の途中（_hesitation）は当てない（それぞれの道＝_resume の
-        # 最終の確かめ・質問に戻る）。⛔ 入れる途中、流れの制御から出したお返事の種類ごとの表で見つけた：選ぶ助けのあとの「なるほど。」（判定は決められない）にも
-        # この番を当て、会話AIに申し出の伺い直しをさせていた。
+        readings = [self.check.get(k) for k in JUDGMENTS]
+        # 判定がそろって「別のお話」と読んだ（AWAY・talked_away の1か所）：こちらの直前の状態（応えてお返事を待っている・迷いの印が残っている・言い直しや最終の
+        # 確かめのお返事を待っている）にかかわらず、別のお話の番（ひとことのあとは _unlinked_kind の1か所）。迷っているお客様への応じ方の途中（選ぶ助けを伝える番＝
+        # _asked_kind の help・_hesitation）だけは今のまま（下の _hesitation）。⛔ 0c55c4e7 まで、ご質問に答えたあと・選ぶ助けのあとに戻った質問・言い直しや最終の
+        # 確かめへの別のお話を、ひとことも無く聞き直した・保留を伺った・次へ進んだ（見直し (12) の A-2・A-9・B-3）
+        away = talked_away(readings)
+        # 伺い直したあと（Item.offer_again）の申し出・方法の提案（言い直しの返事待ち＝_offer_again）へのお返事は、判定が別のお話と読まなくても同じ番（申し出・方法の
+        # 質問は判定に「別のお話か」を読ませない最初の伺い方と同じ＝そろって決められない読みが繋がらないお返事。何回目でもひとこと＝_talk_again）。ほかの言い直し・
+        # 最終の確かめのお返事待ちは、判定がそろって「別のお話」と読んだときだけ（決められない答えの話は確かめの道＝_confirm_again）
+        reproposal = self.items[qid].offer_again and self._proposal_of(qid) is not None
+        if self.awaiting_confirm == qid and not (reproposal or away):
+            return False
+        if self._word_reply(qid):
+            return False   # 受け入れにも断りにも取れる言葉だけの最初のお返事は、会話が繋がらないお返事ではない（_word_reply の1か所）
+        # こちらが応えたあと（選ぶ助け・ご質問への答え・受け答え）のお返事と、迷いの印が残っている質問へのお返事は、判定がそろって「別のお話」と読んだときのほかは
+        # 当てない（相づち・決められない答えの話は、それぞれの道＝_resume の最終の確かめ・質問に戻る）。⛔ 入れる途中、流れの制御から出したお返事の種類ごとの表で
+        # 見つけた：選ぶ助けのあとの「なるほど。」（判定は決められない）にもこの番を当て、会話AIに申し出の伺い直しをさせていた。
         # お客様が黙ったあとにこちらが言った一言（「何か気になる点が…」＝_prompt_now）へのお返事だけ（判定の項目がそろって読んだ＝_prompt_only）も当てない：最終の
         # 確かめの1か所（_prompt_due）。お話・気がかり（「うちは月曜が定休日なんですよ。」）は、一言を流していないときと同じく、この番（ひとこと応えて伺い直す）。
         # ✅ 2026-11-13 日本時間20時06分19秒 ユーザー「「あ、はい、分かりました。」は、こちら：「何か気になる点がございましたらお気軽にお聞かせくださいね。」に
         # 対して答えてる可能性があるので、気をつけないといけないよ。」。⛔ 20349614（分身 A1）は、一言のあとはお話にもこの番を当てず、ひとこと応えずに最終の
         # 確かめで押した（9-3・11-09 9時48分09秒に反する。11-12 にまとめ役がご報告した決め事＝申し出の質問はこの番、を覆した）
-        if self.own_pending or self.ai_pending or self.hesitating.get(qid) or self._prompt_only([self.check.get(k) for k in JUDGMENTS]):
+        # 別のお話にお話に沿った受け答えで応えて、伺い直さずにお返事を待っている間（_talk_waiting）は当てる：また別のお話なら次の別のお話の番（✅ 2026-11-14 日本時間
+        # 21時04分53秒＝お言葉は _informs。相づちだけ・答えは、判定の「答えの話か別のお話か」の読みで、この番に当たらない＝_resume・答えの報告）
+        if (((self.own_pending and self._talk_waiting() is None) or self.hesitating.get(qid)) and not away) or self.ai_pending or self._prompt_only(readings):
             return False
         it = self.items[qid]
         # 申し出の質問（Question.offered）か、方法を選んでいただく質問（N5・C11・W1）で、提案できる方法がある（決まりは _proposal_of の1か所）。方法を選んで
@@ -9153,11 +9865,10 @@ class Flow:
         # お聞かせいただいてもよろしいでしょうか？」）
         # ご承認のお知らせ（in_announce_form）も同じ番：会話AIがひとこと応え、お客様のお話に寄せて決まりを自分の言葉で伝え直す（_announce_again。✅ 2026-11-13
         # 日本時間20時06分19秒 ユーザー「(2)ウ」）
-        # 申し出でない業務の質問（aside_fits）も同じ番・同じ伺い直しの1回（✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」＝_aside_again）。どの形かは
-        # _unlinked_kind の1か所
-        if it.offer_again or self._unlinked_kind(qid) is None:
+        # 申し出でない業務の質問（aside_fits）も同じ番・同じ伺い直しの1回（✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」＝_aside_again）。伺い直したあと
+        # （Item.offer_again）も同じ番＝ひとことのあとは今の回数の決まり（_talk_again）。どの形かは _unlinked_kind の1か所
+        if self._unlinked_kind(qid) is None:
             return False
-        readings = [self.check.get(k) for k in JUDGMENTS]
         return {str(r) for r in readings if r is not None} == {UNDECIDED} and self._plain_reply(readings) and self._hesitation() is None
 
     @staticmethod
@@ -9209,32 +9920,38 @@ class Flow:
         away = "・".join(f"「{m}」" for c in q.away if (m := q.meanings.get(c)))
         avoid = f"{away}のほうはすすめません。" if away else ""
         kind = self._asked_kind()
-        if kind == "offer" and in_announce_form(q):
+        unlinked = self._unlinked_kind(q.id) if kind == "offer" else None
+        if unlinked in ("aside", "again"):
+            # 会話が繋がらないお返事にひとこと応える番で、ひとことのあとをプログラムが組む形：申し出でない業務の質問の「ところで」＋言い換えた質問（_aside_again）・
+            # 伺い直したあとも続くお話（どの質問も＝_talk_again：もう一度伺うか、次へ進む）。✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」
+            # ひとことが質問の話に触れた・業務の情報でお話に応えたときは待つ（_waits_after の1か所）＝伺い直すときの頭は「ところで」（aside_play）
+            then = "続けてプログラムが、同じことを別の言い方で伺い直します。" if unlinked == "aside" else TALK_THEN[self._talk_then(q.id)]
+            if self._unlinked_base(q.id) == "aside":
+                # お話に沿った受け答えのあとは伺い直さずに待つ（決めるのは _waits_after の1か所）：会話AIに、待つときのことも伝える（⛔ 393f474b まで「続けて
+                # プログラムが…伺い直します」とだけ伝え、待つときと食い違った＝見直し (12) の D-5）
+                then = (f"ひとことが、業務の情報にあることでお話に応えた・{now}が尋ねていることに触れたときは、プログラムは伺い直さずに相手の返事を待ちます"
+                        f"（相手の返事が答えなら、いつもどおり報告します）。そうでなければ、{then}")
+            return (f"いまは、相手のお話（「{asked[:40]}」）に、ひとこと応える番です。相手は、{now}に答えずに、{'また' if unlinked == 'again' and self.items[q.id].offer_again else ''}別のお話をしました"
+                    f"（意味の判定）。報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、相手のお話に応えるひとことを「{ARG_LABEL['answer']}」に書きます"
+                    f"（短く1〜2文。{TALK_RECEIVE}質問や申し出の言い直し・お知らせの伝え直しは入れません。返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から"
+                    f"選びます：{TALK_CHOICES}）。{then}")
+        if unlinked == "announce":
             # ご承認のお知らせへの会話が繋がらないお返事にひとこと応える番（_announce_again）。伝え直しの文は会話AIが書く（受け答えと同じ確かめ＝こちらが知って
             # いることの範囲だけ。問いかけは入れない）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「(2)ウ」
             return (f"いまは、相手のお話（「{asked[:40]}」）に応える番です。相手は、{now}（こちらがお伝えしたお知らせ）に、別のお話をしました（意味の判定）。"
-                    f"報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、「{ARG_LABEL['answer']}」に、相手のお話を受け止める短いひとことに続けて、"
-                    f"相手のお話に寄せて、お知らせの決まり（「{q.text}」）を自分の言葉で短く伝え直す文を書きます（1〜2文。こちらが知っていることの範囲だけ。数・日にち・"
-                    f"期限は変えません。問いかけ・約束・「ご承認」という言葉は入れません。お知らせの文をそのままくり返しません）。プログラムはそのあとに何も足しません。"
+                    f"報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、「{ARG_LABEL['answer']}」に、相手のお話に応える短いひとことに続けて、"
+                    f"相手のお話に寄せて、お知らせの決まり（「{q.text}」）を自分の言葉で短く伝え直す文を書きます（1〜2文。{TALK_RECEIVE}こちらが知っていることの範囲だけ。"
+                    f"数・日にち・期限は変えません。「ご承認」という言葉は入れません。お知らせの文をそのままくり返しません）。プログラムはそのあとに何も足しません。"
                     f"返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から選びます：{TALK_CHOICES}（使えないときは、その一言のあとにプログラムがお知らせを"
                     f"もう一度流します）。")
-        if kind == "offer" and self._unlinked_kind(q.id) == "aside":
-            # 申し出でない業務の質問への会話が繋がらないお返事にひとこと応える番（_aside_again）。ひとことのあとの「ところで」＋言い換えた質問はプログラムが足す。
-            # ✅ 2026-11-13 日本時間22時17分01秒 ユーザー「9は…」
-            return (f"いまは、相手のお話（「{asked[:40]}」）に、ひとこと応える番です。相手は、{now}に答えずに、別のお話をしました（意味の判定）。"
-                    f"報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、相手のお話を受け止めるひとことを「{ARG_LABEL['answer']}」に書きます（ご事情の"
-                    f"お話には「さようでございますか。」、ご要望・気にかかっていることには「かしこまりました。」など、短く1文。問いかけ・約束・質問の言い直しは入れません。"
-                    f"返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から選びます：{TALK_CHOICES}）。続けてプログラムが「{ASIDE_LEAD}」に続けて、同じことを"
-                    f"別の言い方で伺い直します。")
         if kind == "offer":
             # 申し出への会話が繋がらないお返事にひとこと応える番（_offer_unlinked）。ひとことのあとの申し出の伺い直しはプログラムが組む（_offer_again）。条件の文字は
             # 会話AIが書く（値の文字と同じ＝伺い直しへのお客様の「はい」で確かめる）
             # 方法を選んでいただく質問（N5・C11・W1）は、方法を必ず業務の方法から選ぶ（_proposal_of の1か所。✅ 2026-11-12 日本時間14時58分17秒「アで！」）
             ways, method = "・".join(self._proposal_of(q.id)[1]) or "なし", q.offered is None
             return (f"いまは、相手のお話（「{asked[:40]}」）に、ひとこと応える番です。相手は、{now}に、{'どの方法とも言わずに' if method else 'はい・いいえではない'}別のお話をしました（意味の判定）。"
-                    f"報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、相手のお話を受け止めるひとことを「{ARG_LABEL['answer']}」に書きます（ご要望・"
-                    f"気にかかっていることには「かしこまりました。」、ご事情のお話には「さようでございますか。」など、短く1文。問いかけ・約束・申し出の言い直しは入れません。"
-                    f"返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から選びます：{TALK_CHOICES}）。続けてプログラムが、相手のお話に{'業務の方法' if method else '申し出'}で応える提案"
+                    f"報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、相手のお話に応えるひとことを「{ARG_LABEL['answer']}」に書きます（短く1〜2文。"
+                    f"{TALK_RECEIVE}申し出の言い直しは入れません。返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から選びます：{TALK_CHOICES}）。続けてプログラムが、相手のお話に{'業務の方法' if method else '申し出'}で応える提案"
                     f"「それでは（{ARG_LABEL['terms']}、{ARG_LABEL['added']}、）（{ARG_LABEL['topic']}）（申し出の中身。{ARG_LABEL['way']}はその中に入ります）ということでよろしいでしょうか？」"
                     f"（こちらから足したものがあれば「ということではいかがでしょうか？」）を組みます。相手のお話にあることだけから、次を書きます（無いものは書きません）："
                     f"「{ARG_LABEL['terms']}」＝相手が言ったご都合（曜日・日にち・時間帯など。例：定休日のお話なら「月曜日を避けて」。「〜て」「〜で」「〜に」で終える）。"
@@ -9717,11 +10434,15 @@ class Flow:
     def _spoken_all(self, r: dict, before: str, note: str = "") -> dict:
         """返事 r の録音（play）を、先に言う言葉 before に続けて会話AIがその文のとおりに言う形に替える（唯一の場所＝_led）。録音で流したと知らせる文
         （played_note の1か所の書き方）は外し、会話AIへの続きの知らせ（相手の答えを待つ・続けて話す など）は残す。"""
-        text = before + "".join(p["text"] for p in r.pop("play")) + (r.pop("say", None) or "")
+        said = r.pop("say", None) or ""
+        text = before + "".join(p["text"] for p in r.pop("play")) + said
         r.pop("silent", None)
         r.pop("speak", None)
         r["say"] = text
-        r["message"] = f"{note}{say_note(text)}そのあと、" + PLAYED_SENTENCE.sub("", r["message"])
+        # 返事がもともと会話AIに言わせていた文（録音のあとに続けて言う say＝聞き取れなかった質問の締めの前の確認など）も、言う文に入った＝その知らせは外す（同じ文を
+        # 2回言わせない。⛔ 見直し (12) の B-2 を入れる途中に見つけた：会話AIのひとことのあとの確認で「「…お声が…」とだけ言います」が2回入った）
+        rest = PLAYED_SENTENCE.sub("", r["message"])
+        r["message"] = f"{note}{say_note(text)}そのあと、" + (rest.replace(say_note(said), "", 1) if said else rest)
         return r
 
     def _speak_lines(self, plays: list[dict], result: str, note: str) -> dict:
@@ -9768,17 +10489,37 @@ class Flow:
         relay = (offer == "message" and self.policies["message"] != "leave" and bool(self.message_text)
                  and not (resume and message_id in self.callback_ids))
         if self.offers_thanked >= 1 and (offer == "callback" or relay):
+            if offer == "callback" and resume and cur is not None and self.questions[cur].callback in THEIRS_ROLES:
+                # お言葉に甘えて戻る時刻を伺っている途中に、また折り返しを重ねて申し出られた（時刻は言っていただけない）：お言葉に甘える一言はもう言わず、
+                # 伺っている時刻は「分からない」と同じ道（_follow_ups は折り返しのお約束のあとは本日のお戻りのご予定を伺わない＝お礼の締め）
+                self.offers_thanked += 1
+                self.awaiting_confirm = self.awaiting_say = None
+                return self._take_system(cur, "unknown", "unspecified", settled=True)
             if not resume:
                 self.callback_why, self.callback_means = why, None
                 self._note("callback", why=why, read=sorted(read), offer=offer)
             self.offers_thanked += 1
             self.awaiting_confirm = self.awaiting_say = None
             if offer == "callback":
-                # 折り返し：お礼の締めで終える。折り返しのお約束（theirs）を通話の事実に残す＝折り返しが無ければ再度かける（いつかけるかは CL-2 の次の動き）。
+                # 折り返し：折り返しのお約束（theirs）を通話の事実に残す＝折り返しが無ければ再度かける（いつかけるかは CL-2 の次の動き）。お言葉に甘える一言の
+                # あと、理由の表（THEIRS_PLAN）に伺うことがあり、その答えをまだいただいていなければ、ふつうのかけ直しの質問と同じ1か所（callback_question・
+                # _advance＝聞き返し・言い直し・締めの前の念のための確認）で伺う。伺えた時刻は同じかけ直しの記録の time（_callback_fields）。もう伺って答えを
+                # いただいた時刻は重ねて伺わない（9-3「取得済みのことを重ねて聞かない」）。表に無い理由・もう伺ったときはお礼の締めで終える（11-13 の伺い5 の形）。
+                # ✅ 2026-11-14 日本時間20時11分41秒 ユーザー（CL-2 の伺いへのお返事＝CL-2 の 4-391 の (1)）「お言葉に甘えた電話の時に、『お電話をいただいた際に
+                # 出られないことがないように、お戻りになられる時間はお分かりになるでしょうか？』のような確認をしておいた方がいいんじゃないでしょうか。」
                 # お礼の一言から始まる返事＝相づち「はい、」を重ねない（最初のお礼の一言と同じ led）
                 self.facts["callback"][-1]["theirs"] = True
-                return self._led(intro + [{"kind": "recorded", "id": "offer_accepted", "text": OFFER_ACCEPTED}], prefix + (NOT_INTRODUCED if intro else ""),
-                                 self._close("callback")) | {"led": True} | ({"renamed": True} if intro else {})
+                plays = intro + [{"kind": "recorded", "id": "offer_accepted", "text": OFFER_ACCEPTED}]
+                note = prefix + (NOT_INTRODUCED if intro else "")
+                qs = [callback_question(r, answering=self.in_answer_stage) for r in THEIRS_PLAN.get(why, ())
+                      if (it := self.items.get(CALLBACK_IDS[ROLE_KEY[r]])) is None or it.state == "empty"]
+                if not qs:
+                    return self._led(plays, note, self._close("callback")) | {"led": True} | ({"renamed": True} if intro else {})
+                for q in qs:
+                    self._new_item(q)
+                self.order = self.callback_ids = [q.id for q in qs]
+                self.phase, self.recheck_queue, self.callback_held = "asking", [], False
+                return self._led(plays, note, self._advance("", handled=True)) | {"led": True} | ({"renamed": True} if intro else {})
             # 伝言：相づち「ありがとうございます。」（伝言を残す業務と同じ thanks）のあと、業務の名乗りと用件から作る決まった伝言（伝言の文の1か所＝名乗りの部分 message＝
             # instruction.Business.replay_parts・phrases.standard_message）をはい／いいえで伺い（M1）、お返事を待って締める（伺うのはこの1つだけ＝お返事のあとは
             # _advance が締める。聞き取れなければ聞き返さない＝必須でない伺い。名前・番号を聞かれたら今ある1か所で答えて、お返事を待つ）。伝言をお願いした印
@@ -10667,7 +11408,7 @@ class Flow:
 
     @property
     def not_reached(self) -> str | None:
-        """目的の人のある通話が、目的の人に繋がらずに終わった（いま終わったら）ときの理由（NOT_REACHED_LABEL の中の名前）。会話の報告の
+        """目的の人のある通話が、目的の人に繋がらずに終わった（いま終わったら）ときの理由（上の注の理由の名前）。会話の報告の
         not_reached に入れる唯一の場所（電話接続側が、通話の終わりに読む＝相手が切った通話も）。繋がった・目的の人の無い業務・人と話して
         いない（留守番電話・自動音声・ファクス・だれも話さない）・番号違い・通話を断られた（発信の拒否）なら None。
         かけ直しの申し出で終えた ⇒ 不在（戻る時刻が取れたかは、通話の事実 callback が持つ。長期の不在・あとで・別の番号へ・後任の方の不在も）／
@@ -10797,7 +11538,8 @@ class Flow:
         # そのまま締めになる。✅ 2026-11-09 日本時間6時33分57秒のご指摘を受けた帳面の伺い。⛔ 直す前は N6 への聞き取れないお返事で、伺い直さずに締めていた＝流れの
         # 制御から出したお返事の種類ごとの表で見つけた）。会話が繋がらないお返事は、ここで「もう一度お聞かせ…」と伺い直さず、ひとこと応えてから申し出を伺い直す
         # （応える番 _asked_kind の offer → _offer_again。✅ 7時57分50秒）
-        here = self.phase == "asking" and (it.ask_backs < self.limits.ask_back if q.required else
+        # 必須の質問のその場の回数は、別のお話の伺い直しと合わせた数（_on_spot_left の1か所。✅ 2026-11-14 日本時間14時31分38秒「●伺い13」）
+        here = self.phase == "asking" and (self._on_spot_left(qid) if q.required else
                                            q.asks_once and (reason == "form" or q.callback in OFFER_ROLES) and it.ask_backs < 1)
         spare = bool(form_reason) and not it.form_asked and not here and self.phase == "asking" and q.required and it.rechecks < self.limits.recheck
         if form_reason and (it.form_asked or not (here or spare)):
@@ -10817,7 +11559,7 @@ class Flow:
             it.ask_backs += 1
             it.set("checking" if confirming else "unclear", f"{why}・聞き返す（{it.ask_backs}回目）")
             # 最後の1回か：その場の回数を使い切り、締めの前の念のための確認も無いとき（依頼主の設定で確認を0回にしたとき）
-            last = it.ask_backs == self.limits.ask_back and self.limits.recheck == 0
+            last = not self._on_spot_left(qid) and self.limits.recheck == 0
             say = form_reason or ask_again_phrase(it.ask_backs, reason, q.topic, last=last)
             if confirming:
                 # 言い直し（提案）へのお返事の聞き返し：お返事は、同じ言い直しへの返事として受ける（confirm_field。言い方は答えの質問の聞き返しと同じ1か所）
@@ -10825,6 +11567,12 @@ class Flow:
                 return {"result": "ask_back", "question_id": q.id, "say": say, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": last,
                         "message": f"{shown}{say_note(say)}相手の返事を待ってください。{self._confirm_how(qid)}"}
             it.form_asked = it.form_asked or bool(form_reason)
+            if reason == "unclear" and self._reply_may_answer():
+                # こちらが応えて、話はいまの質問から移っていないお返事待ち（尋ねられて答えたあと・別のお話へのお話に沿った受け答えのあと＝_reply_may_answer の1か所）の
+                # 聞き取れないお返事：聞き返したあとのお客様の言葉も、こちらが応えたことへのお返事として受ける（待つ印を残す＝_turn_done。相づちだけなら質問に戻る
+                # ＝_resume）。⛔ 11-14 21時04分53秒のご判断を入れる途中、流れの制御に通して見つけた：待つ印を消していたので、お話に沿った受け答えのあとの聞き返しに
+                # 相づち「そうなんですね。」を返されると、質問を伺い直さずに「承知しました。続きまして…」で次へ進んだ
+                self.reply_started = True
             return ({"result": "ask_back", "question_id": q.id, "say": say, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": last and not form_reason,
                      "message": f"{shown}{say_note(say)}相手の答えを待ってください。" + answer_wait()}
                     | ({"form_reason": True} if form_reason else {}))
@@ -10911,9 +11659,11 @@ class Flow:
         self.confirm_requested_at = self.callee_turns
         # 場面：その項目を聞き返した・念のため確かめた・訂正されたあとは「聞き取りにくかったあと」、それ以外は「ふつう」（phrases.CONFIRM・設計書 6-11 の表）。
         # 念のための確認の段の中で初めて伺った質問（ほかの方法・その連絡先・聞き足し）は「ふつう」（⛔ 11-05 2時05分37秒のご質問のあとに見つけた：段の中なら
-        # 全部「…とおっしゃいましたでしょうか？」にしていた）
+        # 全部「…とおっしゃいましたでしょうか？」にしていた）。同じ読み（聞き取りにくかったか）で、締めの前の念のための確認で伺った質問も、「-」にしたときにお声が
+        # 聞き取れていた（別のお話・意味が決まらない答え＝Item.dash_heard）なら「ふつう」（「100万円でよろしいでしょうか？」。見直し (12) の B-6・A-5。⛔ 2e5986f5 まで
+        # 「100万円とおっしゃいましたでしょうか？」＝聞き取れていたのに聞き取りにくかったあとの言い方）
         situation = AFTER[after][0] if after else (
-            "聞き取りにくかったあと" if (it.ask_backs or it.corrections or it.rechecks) else "ふつう")
+            "聞き取りにくかったあと" if (it.ask_backs or it.corrections or (it.rechecks and not it.dash_heard)) else "ふつう")
         n = self.confirm_counts.get(situation, 0)
         self.confirm_counts[situation] = n + 1
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
@@ -11063,7 +11813,9 @@ class Flow:
         self._point_step()
         self._handoff_step()        # あとに：ご承認の手順を点を言っていただけないまま終えた（上で決まる）ら、営業に引き継ぐ架電は詳しい者からのお話を伺う
         self._no_doubts_step()      # あとに：ご承認の手順で「分かった」と伺ったあとの、ほかに分からない点が無いかを伺う質問（上で決まる）
-        if self.callback_why != "absent":
+        if self.callback_why != "absent" or self.facts["callback"][-1].get("theirs"):
+            # 折り返しのお約束（お客様のほうから折り返していただく）をお言葉に甘えて受けたあと：戻る時刻が分からなくても、本日のお戻りのご予定・後ほど改めて
+            # お掛けしてよいか（こちらからかける約束）は伺わない（お礼の締め＝THEIRS_PLAN。CL-2 は時刻の無い折り返しのお約束をふつうの不在として扱う＝4-391 の (2)）
             return
         time_q, today_q = CALLBACK_IDS["time"], CALLBACK_IDS["back_today"]
         if today_q not in self.items:
@@ -11869,7 +12621,7 @@ class Flow:
         return wish_trigger(q, it.state, it.condition, bool(it.hedged), self.questions.values())
 
     def _wish_outcome(self, qid: str) -> str | None:
-        """質問 qid に伺ったほかのご希望の結果（WISH_OUTCOMES の1つ。伺っていなければ None）：この通話で伺った最後のもの（通話の事実 other_wish）、無ければ
+        """質問 qid に伺ったほかのご希望の結果（none・option・means・other・unresolved の1つ。伺っていなければ None）：この通話で伺った最後のもの（通話の事実 other_wish）、無ければ
         前の通話の答えの "wish"（どちらも earlier_wish の1か所の読み方）。ご連絡の方法・ほかのご希望なら、その質問は断られていない（_goals_lost）。"""
         f = self._wish_fact(qid)
         return earlier_wish(f) if f is not None else None
@@ -12195,16 +12947,13 @@ class Flow:
                 plays.append(line_play(line[1], line[0]))
         if not plays:
             return r
-        if r.get("result") == "recheck":
-            # 締めの前の念のための確認の頭のお詫び（_ack の moushiwake_heavy）は、相づちの位置を一言に譲るので、一言のあとに流す（「承知しました。そのご希望を
-            # 担当の者に申し伝えます。」＋「申し訳ございません、」＋「お声が聞き取れませんでしたので…」。⛔ 11-03 の /clear のあとの見直しで見つけた：
-            # 相づちの直しで、確かめの前のお詫びが抜けていた＝「…申し伝えます。お声が聞き取れませんでしたので…」）
-            plays.append({"kind": "recorded", "id": "moushiwake_heavy", "text": ACK["moushiwake_heavy"]})
+        # 締めの前の念のための確認の頭のお詫び（聞き取れなかった質問）は、確認を作る所（_advance_to）がもう確認の前に置いた＝一言はその前に流す（「承知しました。そのご
+        # 希望を担当の者に申し伝えます。」＋「申し訳ございません、」＋「お声が聞き取れませんでしたので…」。⛔ 2e5986f5 まで、ここでもお詫びを足していた＝置く所が3か所）
         out = self._led(plays, "", r) | ({"point_open": opened[0]} if opened else {"wish_told": True} if wish
                                          else {"anytime_told": True} if anytime
                                          else {"told": True} if told else {})
         if (m := self._asked_next) is not None and m[0] is r:
-            self._asked_next = (out, m[1])   # 外でさらに言葉を前に足されても、質問のつなぎの言葉を同じ1か所（_relead_next）で決める
+            self._asked_next = (out, *m[1:])   # 外でさらに言葉を前に足されても、質問のつなぎの言葉を同じ1か所（_relead_next）で決める
         return out
 
     def _tell_due(self, qid: str, ending: bool) -> str | None:
@@ -12236,11 +12985,15 @@ class Flow:
 
     def _next_question(self, q: "Question", prefix: str) -> dict:
         """次の質問を伺う返事（唯一の場所＝_advance_to）。作った返事と、その中の質問の録音を覚えておく（_asked_next）：前に決まった言葉を足すとき、
-        質問の頭のつなぎの言葉をその言葉と重ねないように替える（_relead_next）。"""
+        質問の頭のつなぎの言葉をその言葉と重ねないように替える（_relead_next）。この電話でもう伺った質問（Item.played＝受付の方の申し出をお礼で断ったあとに、伺って
+        いたかけ直しの質問へ戻る など）は、もう伺った質問へ戻る頭「それでは」（AGAIN_LEAD＝question_play・spoken_question の again）。見直し (12) の B-9・まとめ役の
+        決め (g)：「お気遣いありがとうございます。…お電話させていただきます。それでは恐れ入りますが何時ごろお戻りになられますでしょうか？」（⛔ 2e5986f5 まで、直前に
+        伺った「恐れ入りますが何時ごろ…」を同じ言い方でくり返した）"""
+        again = self.items[q.id].played
         if self.play_recordings:
             # かけ直しで足す質問も録音（⛔ 2026-10-19 G-57：AIに言わせると、3本中1本で「私の方では折り返しのお電話ができかねますので」と
             # 足し、もう1本でも「かしこまりました。」を足した＝決まった文は録音にする決まり（6-13）に戻した）
-            play = question_play(self._plays(), q.id)
+            play = question_play(self._plays(), q.id, again=again)
             text = play["text"]
             r = {"result": "next", "question_id": q.id, "question": q.text, "play": [play],
                  "message": prefix + played_note(text, f"次の質問 {q.id}") + "何も言わずに、相手の答えを待ってください。" + answer_wait()
@@ -12248,13 +13001,13 @@ class Flow:
         else:
             # つなぎの言葉は、録音の形と同じ1か所（spoken_question：入る一言・前の答えで伺う質問は「それでは」・それ以外は「続きまして」＝NEXT_LEAD）。⛔ 2026-11-04 まで、
             # AIが話す形だけ、つなぎの言葉を流した回数で回していて、前の答えで伺う質問にも「続きまして」、伺わなかった質問を挟むと順番の言葉がずれた
-            play, lead = None, spoken_question(self._plays(), q.id)[1]
+            play, lead = None, spoken_question(self._plays(), q.id, again=again)[1]
             r = {"result": "next", "question_id": q.id, "question": q.text,
                  "message": f"{prefix}次の質問は {q.id}「{q.text}」です。"
-                            + (start_with(lead) if lead and (q.intro or self.lead_ins) else "")
+                            + (start_with(lead) if lead and (again or q.intro or self.lead_ins) else "")
                             + choices_note(q)}
         self.items[q.id].played = True
-        self._asked_next = (r, play)
+        self._asked_next = (r, play, again)
         return r
 
     def _purpose_play(self, who: str | None = None) -> dict:
@@ -12283,20 +13036,23 @@ class Flow:
         qs = self._plays()
         qid = r["question_id"]
         plays = r.get("play") or []
+        # 同じ回に、こちらの名乗り（intro）を先に流す＝まだ名乗りを聞いていなかった方（取り次がれて代わった方＝_reception_lead）：この方にはまだ伺っていない質問
+        # なので、もう伺った質問へ戻る頭「それでは」は付けない（初めて伺う形。見直し (12) の B-9 を入れる途中に見つけた：「…と申します。それでは恐れ入りますが…」）
+        again = m[2] and not any(p.get("part") == "intro" for p in [*before, *plays])
         if m[1] is not None:   # 録音で流す通話：質問の録音を替える
             at = next((i for i, p in enumerate(plays) if p is m[1]), None)
             if at is None:
                 return r
-            new = question_play(qs, qid, "".join(p["text"] for p in [*before, *plays[:at]]), resumed=resumed)
+            new = question_play(qs, qid, "".join(p["text"] for p in [*before, *plays[:at]]), again=again, resumed=resumed)
             if new != plays[at]:
                 r["message"] = r["message"].replace(plays[at]["text"], new["text"], 1)
                 plays[at] = new
-                self._asked_next = (r, new)
+                self._asked_next = (r, new, m[2])
             return r
-        old = spoken_question(qs, qid)[1]   # AIが話す通話：AIに渡す話し始めの言葉を替える
-        new = spoken_question(qs, qid, "".join(p["text"] for p in before), resumed=resumed)[1]
+        old = spoken_question(qs, qid, again=m[2])[1]   # AIが話す通話：AIに渡す話し始めの言葉を替える
+        new = spoken_question(qs, qid, "".join(p["text"] for p in before), again=again, resumed=resumed)[1]
         if old and new != old:
-            r["message"] = r["message"].replace(start_with(old), start_with(new), 1)
+            r["message"] = r["message"].replace(start_with(old), start_with(new) if new else "", 1)
         return r
 
     def _advance_to(self, prefix: str, handled: bool = False) -> dict:
@@ -12361,14 +13117,41 @@ class Flow:
             self.items[self.current].rechecks += 1
             q = self.questions[self.current]
             # 締めの前の念のための確認＝その項目を聞く最後の1回（✅ 2026-10-14 ユーザー：最初の質問のほかに最大3回＝その場2回＋この1回）。
-            # 言い方は聞き返しと同じ表（phrases.ask_again）の、最後の1回の言い方。相づちは「申し訳ございません、」（_ack）
-            say = ask_again_phrase(self.items[self.current].ask_backs + 1, "unclear", q.topic, last=True)
-            return {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,
-                    "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ伺います。{say_note(say)}相手の答えを待ってください。" + answer_wait()}
+            # 言い方は聞き返しと同じ表（phrases.ask_again）の、最後の1回の言い方。「-」にしたときにお客様のお声が聞き取れていた（別のお話・意味が決まらない答え＝
+            # Item.dash_heard）なら、聞き取れていたときの聞き直しと同じ種類 "form"（電話のせいにしない「恐れ入りますが…もう一度だけ…」。本書 9-5 の (3)＝_ask_kind と
+            # 同じ決まり）・聞き取れなかったなら "unclear"（「申し訳ございません、」＋「お声が聞き取れませんでしたので…」）。
+            # ⛔ 092f2317 まで、どの「-」も "unclear" だった＝別のお話で「-」にした質問に「お声が聞き取れませんでしたので」と言った
+            reason = "form" if self.items[self.current].dash_heard else "unclear"
+            # この報告で答えを受け取ったすぐあとの確認（ほかの質問の答え・確認への返事＝前の念のための確認へのお返事も）：頭の相づちは、ほかの返事と同じく受け取った
+            # 答えで選ぶ（印 receipt＝相づちの1か所 _ack_choice が、次の質問へ進む返事と同じ決まりで選ぶ。本書 9-7「相づちは受け取った答えで選ぶ」・申し出のお受けには
+            # 「ありがとうございます。」＝11-12 13時40分05秒の (5)）。確認の頭の「はい、」はその相づちに譲る（同じ発話に相づちを2つ重ねない）。⛔ d3db377f まで、受け取った
+            # 答えを見ずに「はい、」か「申し訳ございません、」を頭に置いた。⛔ 2e5986f5 まで、確認の段に入る報告だけに当て、確認が2つ続くと2つ目の頭の受けの言葉が抜けた
+            # （「はい、大丈夫です。」→「はい、恐れ入りますがご予算を…」＝見直し (12) の B-5）
+            receipt = bool(self._received_now())
+            if in_announce_form(q):
+                # ご承認のお知らせ（別のお話が続いた・聞き取れなかったで「-」にした）：お知らせの文はくり返さず、最終の確かめの1か所（_accepted_ask＝「（相づち）それでは
+                # （名詞）の件はご了承ということでよろしかったでしょうか？」・聞き取れなかったときは「（お知らせの中身を常体にした句）件のお返事のお声が聞き取れなかった
+                # のですが…」＝11-15 11時59分07秒の (3)。⛔ ca665f3e まで「お声が聞き取れませんでしたので（名詞）の件は…」）で伺う。判定は
+                # この確かめの文へのお返事として読む（awaiting_say）。✅ 2026-11-14 日本時間14時31分38秒「●伺い13 3回目は最後に回したほうがよくないですか？」・
+                # 「●伺い10」・見直し (12) の B-1・まとめ役の決め (f)。⛔ 2e5986f5 まで、聞き取れないまま「-」にしたお知らせは「申し訳ございません、お声が聞き取れません
+                # でしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？」（聞くことが無い）・判定はお知らせの文で読み「はい、どうぞ。」をご了承と記録しえた
+                r = self._accepted_ask(q.id, "締めの前の念のための確認：「-」にしたお知らせの最終の確かめ",
+                                       f"{prefix}念のための確認です。{q.id} の{'別のお話が続いた' if reason == 'form' else '聞き取れなかった'}お知らせについて、",
+                                       heard=reason == "form")
+            else:
+                say = ask_again_phrase(self.items[self.current].ask_backs + 1, reason, q.topic, last=True)
+                r = {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,
+                     "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ伺います。{say_note(say)}相手の答えを待ってください。" + answer_wait()}
+            # 印 ask_reason＝締めの前の念のための確認（_ack_choice が確認の頭の相づちを選ぶ。お知らせの最終の確かめも同じ）・receipt＝答えを受け取ったすぐあと
+            r |= {"ask_reason": reason} | ({"receipt": True} if receipt else {})
+            # 聞き取れなかった質問のお詫び「申し訳ございません、」は、ここ1か所で確認の前に置く（相づちのあと・前に足す一言＝_advance のあと・会話AIのひとこと＝
+            # _talk_again のあとの、どれでも同じ）。⛔ 2e5986f5 まで、相づち（_ack_choice）・ここ（受け取ったすぐあと）・一言のあと（_advance）の3か所で置き、会話AIの
+            # ひとことのすぐあと（相づちを付けない quiet）だと消えた（見直し (12) の B-2）
+            return r if reason == "form" else self._led([{"kind": "recorded", "id": "moushiwake_heavy", "text": ACK["moushiwake_heavy"]}], "", r)
         reason = self.close_after or (("other_means" if self.callback_why == "other_means" else "callback") if self.callback_why else "done")
         return self._close(reason, prefix=f"{prefix}質問は終わりです。")
 
-    def _will_ask_again(self, qid: str) -> bool:
+    def _will_ask_again(self, qid: str, dashing: bool = False) -> bool:
         """「-」にした項目を、締めの前の念のための確認でまた伺うか（唯一の決まり＝その並びを作る所 _advance_to・伺い終えるまで決めない所 _wish_step）：必須の
         項目で、その確認の回数が残り、急いでいる方ではない（答えの段なら並びにある・確認の段なら確認の並びにある）。かけ直しを頼まれた方には、業務の質問は
         伺わない（残りの質問は次の電話で）が、かけ直しの手順の必須の質問（時刻・番号・ほかの手段の連絡先＝callback_ids）は、業務の必須の質問と同じに伺う
@@ -12376,12 +13159,13 @@ class Flow:
         お返事が1回聞き取れないだけで「はい、お忙しいところ…」と締め、時刻を捨てていた＝業務の必須の日時の質問なら締めの前にもう1回伺う場面）。急いでいる方
         （また改めてお掛けしてよいかを伺った方＝hurry_asked）には、かけ直しの日時でも伺わない（Intent.md 9-5「お客様が急いでいる・切ろうとしているときは、
         念のための確認をしない」）"""
+        # dashing＝いま「-」にしようとしている項目として読む（ひとことのあとにすることの知らせ _talk_then。「-」にしたときの提案の印は _dash と同じ）
         q, it = self.questions.get(qid), self.items.get(qid)
-        if q is None or it.state != "unresolved" or not q.required:
+        if q is None or (it.state != "unresolved" and not dashing) or not q.required:
             return False
         if self.callback_why and (qid not in self.callback_ids or self.hurry_asked):
             return False
-        if it.offer_settled:
+        if it.offer_settled or (dashing and it.offer_again and self._proposal_of(qid) is not None):
             # 会話が繋がらないお返事のあとの提案（申し出・方法を選んでいただく質問＝_offer_again）へのお返事が、聞き取れたのに決まらない（_dash の1か所）：伺い直しは
             # 1回（7時57分50秒のご判断を入れた帳面の伺い「また繋がらない・はっきりしない ⇒ 伺い直さず今の道」）。提案へのお返事が聞き取れないだけなら、ほかの質問と
             # 同じに締めの前にもう1回（✅ 2026-11-12 まとめ役の (K1)）。⛔ 2026-11-12 日本時間14時58分17秒の
@@ -12544,10 +13328,6 @@ class Flow:
         n = self.lead_counts.get(kind, 0)
         self.lead_counts[kind] = n + 1
         return lead_in_phrase(kind, n)
-
-    def _lead_note(self, kind: str) -> str:
-        lead = self._lead(kind)
-        return start_with(lead) if lead else ""
 
     def _reject(self, why: str) -> dict:
         """差し戻す唯一の場所。理由が何であっても、いま求めていること（_now）を必ず添える。"""
