@@ -24,6 +24,7 @@ import meanings
 import purposes
 import rewords
 import since
+import summaries
 import target_asks
 import topics
 import unclear
@@ -285,6 +286,16 @@ def decide_announces(askers: list[Asker], pairs: list[tuple[str, str]], on_error
     return _drafted(askers, pairs, announces.by_model, announces.decide, announces.fits, announces.grounded, on_error, referee)
 
 
+def decide_summaries(askers: list[Asker], items: list[tuple[str, tuple]], on_error: Callable | None = None,
+                     referee: Asker | None = None) -> list[str]:
+    """業務の (用件の一文, 質問の文の並び) の並び → 同じ並びで、急いでいるが手短になら聞くと言われたときに「ありがとうございます。」のあとに流す営業の要約（1〜2文。
+    答えは instruction.Business.summary＝CL-2 の取込が業務設定へ・依頼主の単位の録音 summary）。決め方はお知らせの文と同じ1か所（_drafted）：2つの文字のAIがそろって
+    形に合う（summaries.fits）文、そろわない業務は考える Sonnet（referee）にまとめて1回書かせて形に合う文。どちらも考える Sonnet の中身の判定（summaries.grounded）を
+    通ったときだけ使う。決まらなければ空＝用件の一文の録音。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30。お言葉は summaries の頭）"""
+    items = [(str(p or ""), tuple(str(t or "") for t in texts)) for p, texts in items]
+    return _drafted(askers, items, summaries.by_model, summaries.decide, summaries.fits, summaries.grounded, on_error, referee)
+
+
 def decide_matters(askers: list[Asker], pairs: list[tuple[str, str]], on_error: Callable | None = None,
                    referee: Asker | None = None) -> list[tuple[str, str]]:
     """ご承認を伺う質問の (説明＝入る一言, 質問の文) の並び（decide_announces と同じ質問だけを渡すのは呼ぶ側）→ 同じ並びで、(お知らせの中身を表す名詞, 中身を
@@ -357,6 +368,8 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # ご承認のお知らせの文と、資料が届いているかを伺う質問（✅ 2026-11-13 日本時間20時06分19秒「伺い1…」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-150）。
             # お知らせの文は考える Sonnet が referee（書く・中身の判定）
             "decide_announces": decide_announces, "decide_at_hand": decide_at_hand,
+            # 営業の要約（✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30）。⏳ CL-2 の受け口ができるまで CL2_PENDING）。考える Sonnet は referee
+            "decide_summaries": decide_summaries,
             # お知らせの中身の名詞（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-154）と、中身を常体にした句
             # （同じ問い合わせ・答えは (名詞, 句) の組。✅ 2026-11-15 日本時間11時59分07秒「・(3)」。⏳ CL2_PENDING＝帳面 4-162）。考える Sonnet は referee
             "decide_matters": decide_matters,
@@ -367,7 +380,7 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # 考える Sonnet は referee（書く・中身の判定）
             "decide_alternatives": decide_alternatives}
 # 2つの文字のAIがそろわない文を、考える Sonnet（deciders の referee）に聞く決める処理（唯一の一覧）
-REFEREED = frozenset({"decide_since", "decide_announces", "decide_purposes", "decide_rewords", "decide_matters", "decide_alternatives", "decide_topics"})
+REFEREED = frozenset({"decide_since", "decide_announces", "decide_summaries", "decide_purposes", "decide_rewords", "decide_matters", "decide_alternatives", "decide_topics"})
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, Callable]:

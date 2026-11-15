@@ -315,8 +315,14 @@ CALLBACK_ASK = {
     # 答えの段で、ほかの会社に頼んでいる・使っていると言われたとき（判定が読む＝flowctl.ELSEWHERE）、そのお返事への応じ方の前に1通話1回伺う（flowctl.Flow._elsewhere_ask。
     # 頭に相づちは付けない＝「そうだったんですね。」が受けの言葉）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25）：「…超一流の営業マンなら、「そうだったんですね。
     # もし、そちらの会社の方で解決できないような問題や心配事はございませんか？」などの質問を入れ込むんじゃないですか？」（決まった言い方なので、言葉の途中の読点は
-    # 外した＝10-15。⏳ 録音は声の型ごとに作って聞いていただく）
-    "elsewhere": "そうだったんですね。もしそちらの会社の方で解決できないような問題や心配事はございませんか？",
+    # 外した＝10-15。⏳ 録音は声の型ごとに作って聞いていただく）。✅ 2026-11-16 日本時間0時42分38秒 ユーザー「もしはいらないですね。「そちらの会社の方で解決できない
+    # ような問題や心配事はございませんか？」もしくは、…」＝お言葉の1つ目の形（「もし」を外した。⏳ 録り直しは CL-2 の段取り＝0-4）
+    "elsewhere": "そうだったんですね。そちらの会社の方で解決できないような問題や心配事はございませんか？",
+    # ほかの会社のことを伺った一言（E1）に問題を言っていただき、会話AIが応えたあとのお返事で、1通話1回深めて伺う一言（システムの質問 E2＝flowctl.Flow._deepen_ask）の、
+    # 困りごとの言葉を入れない形（会話AIが困りごとの言葉を書けない・確かめに通らないとき。共通の一言の録音 callback_deepen）。言葉を入れる形は DEEPEN_ASK（会話AIが言う）。
+    # ✅ 2026-11-16 日本時間0時42分38秒 ユーザー「伺い29：「これまでに、○○(対応の遅さのせい)で、問題や不都合が発生したことが何度かおありなのでしょうか？」…」
+    # （決まった言い方なので言葉の途中の読点は外した＝10-15）
+    "deepen": "これまでに問題や不都合が発生したことが何度かおありなのでしょうか？",
     # 相手が急いでいる・いまは話せないとき（判定が読んだ）：締める前に1回だけ伺う（flowctl.Flow._hurry_ask）。はい＝ご都合のいい日時を伺って締める・
     # いいえ＝締めて、もうかけない（営業拒否）。✅ 2026-11-01 日本時間20時56分 ユーザー：「こちら：「それでは、後ほど改めてお掛けしてもよろしいでしょうか？」
     # それではがないと繋がりがおかしい。お客様が OK なら：「ご都合のいい日時はいつ頃でしょうか？」→ 時刻でなく日時を伺って締める お客様が NO なら：
@@ -434,6 +440,20 @@ PURPOSE_AGAIN = {"cut_later": "前回のお電話で途中になっておりま�
                  "cut_same_day": "先ほどのお電話で途中になっておりました{p}でお電話いたしました。",
                  "unasked_later": "前回お伺いすることができませんでした{p}でお電話いたしました。",
                  "unasked_same_day": "先ほどお伺いすることができませんでした{p}でお電話いたしました。"}
+
+
+# 深める一言（CALLBACK_ASK の deepen）の、困りごとの言葉を入れる形（{t}＝会話AIが書いた、お客様の言った困りごとの言葉。確かめは提案の言葉と同じ1か所＝
+# flowctl.Flow._proposal_problem。値の入る文なので会話AIが言う＝flowctl.Flow._deepen_ask）。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い29。お言葉は CALLBACK_ASK の deepen）
+DEEPEN_ASK = "これまでに{t}で問題や不都合が発生したことが何度かおありなのでしょうか？"
+# 深める一言に、これまでに問題や不都合は無かったとお返事いただいたとき、会話AIが先を見た受け止めの言葉を使えない（書かない・確かめに通らない）ときに流すお言葉の文
+# （共通の一言の録音 deepen_ahead。問いかけ・約束・こちらの事実を入れない＝flowctl.Flow._own_answer の ahead の番）。✅ 2026-11-16 日本時間0時42分38秒 ユーザー
+# 「⇒その後の返事次第で、「今は問題が起こっていなくても、今後大きな問題に発展することも懸念されますものね。」などの展開」（決まった言い方なので読点は外した＝10-15）
+DEEPEN_AHEAD = "今は問題が起こっていなくても今後大きな問題に発展することも懸念されますものね。"
+
+
+def deepen_line(word: str | None) -> str:
+    """深める一言の文を作る唯一の場所（flowctl.Flow._deepen_ask）：困りごとの言葉があれば DEEPEN_ASK・無ければ言葉を入れない形（CALLBACK_ASK の deepen＝録音）。"""
+    return DEEPEN_ASK.format(t=word) if word else CALLBACK_ASK["deepen"]
 
 
 def purpose_again_parts(noun: str) -> dict[str, str]:
@@ -772,6 +792,15 @@ def since_ask(words: str, fact: bool = False) -> str:
 # 文字のAIが説明と質問の文から作る（announces.py＝flowctl.Question.announce）。「ご確認ください。」の文は、その文の終わりだけを替えてプログラムが作る（announce_check）
 ANNOUNCE_END = "のでご了承ください。"
 ANNOUNCE_CHECK_END = "のでご確認ください。"
+# お知らせを、決まり・規則として言わず、お客様にとっての良い点（「〜いただければ…」）と気をつけていただくこと（「…のでお気を付けください。」）の形で伝える文の
+# 終わり（✅ 2026-11-16 日本時間0時42分38秒 ユーザー「・ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく決まりになっております。：決まりになっております。
+# だと相手の印象が悪いので、「ご予約の内容ですがキャンセルや変更は前日までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料
+# （変更料）がかかってしまうのでお気を付けください。」の方がいいんじゃないですか？」）。「〜ください」はお言葉の3つだけ（10-15。ほかへ広げない）
+ANNOUNCE_CAUTION_END = "のでお気を付けください。"
+# お知らせの文の終わり → 文の数の上限（唯一の表＝取込の形の確かめ announces.fits・問い合わせ announces.PROMPT）：「ご了承ください。」は1つの文（11-12 19時32分21秒
+# 「すらっと」）・「お気を付けください。」は良い点の文と気をつけていただく文の2つまで（お言葉の文が2つの文）。「ご確認ください。」は「ご了承ください。」の文から
+# プログラムが作る（announce_check）
+ANNOUNCE_ENDS = {ANNOUNCE_END: 1, ANNOUNCE_CAUTION_END: 2}
 
 
 def announce_check(line: str) -> str:
@@ -1199,7 +1228,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
-            "told_follow_up": TOLD_FOLLOW_UP,
+            "told_follow_up": TOLD_FOLLOW_UP, "deepen_ahead": DEEPEN_AHEAD,
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
             "moshimoshi": MOSHIMOSHI, **{f"callback_{k}_pending": PENDING_LINE.format(t=t) for k, t in CALLBACK_PENDING.items()},
