@@ -532,9 +532,9 @@ def day_recording_id(qid: str, words: str) -> str:
     return f"{qid}_d{DAY_VARIANTS.index(words) + 1}"
 
 
-# 声に出す文の欄（業務設定の質問の文・入る一言・お知らせの文と、取込で決めた言い換え・選択肢を並べた文・その後の文の中身・お知らせの中身の名詞。
-# 先に並べた文 alternatives_led は文の並び）。{最短の日} を置き換えるのは、この一覧の1か所（day_question・fill_day）
-DAY_FIELDS = ("text", "intro", "announce", "reworded", "alternatives", "since", "matter")
+# 声に出す文の欄（業務設定の質問の文・入る一言・お知らせの文と、取込で決めた言い換え・選択肢を並べた文・その後の文の中身・お知らせの中身の名詞と、中身を常体に
+# した句。先に並べた文 alternatives_led は文の並び）。{最短の日} を置き換えるのは、この一覧の1か所（day_question・fill_day）
+DAY_FIELDS = ("text", "intro", "announce", "reworded", "alternatives", "since", "matter", "matter_clause")
 
 
 def day_question(q: "Question") -> bool:
@@ -1009,11 +1009,17 @@ def accepted_line(q: "Question", heard: bool = True) -> tuple[str, str]:
     お知らせの中身の名詞（Question.matter）があれば「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」（「の件」は phrases.of_matter の1か所・
     依頼主の単位の録音「番号_accepted」）、無ければ「それでは先ほどの内容は…」（共通の一言の録音 announce_recheck）。お知らせの文はくり返さない。
     ✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承ということでよろしかったでしょうか？」」
-    heard＝お知らせへのお客様のお声が聞き取れていたか（締めの前の念のための確認の Item.dash_heard）：聞き取れないまま「-」にしたお知らせは、頭を「お声が聞き取れません
-    でしたので」にした形（phrases.unheard_form・録音は「（名前）_unheard」。お詫びは確認を作る所 Flow._advance_to が前に置く）。見直し (12) の B-1・まとめ役の決め (f)"""
+    heard＝お知らせへのお客様のお声が聞き取れていたか（締めの前の念のための確認の Item.dash_heard）：聞き取れないまま「-」にしたお知らせは、何へのお返事が聞き取れ
+    なかったのかを言う形「（お知らせの中身を常体にした句）件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」（phrases.unheard_form。
+    句は取込で決めた Question.matter_clause・句が無ければ名詞の「（名詞）の件のお返事の…」・どちらも無ければ「先ほどの件のお返事の…」）。録音は、句か名詞が
+    あれば依頼主の単位の「番号_accepted_unheard」・どちらも無ければ共通の一言 announce_recheck_unheard。お詫びは確認を作る所 Flow._advance_to が前に置く。
+    見直し (12) の B-1・まとめ役の決め (f)・✅ 2026-11-15 日本時間11時59分07秒 ユーザー「・(3)今：…⇒こちら「ありがとうございます。申し訳ございません、キャンセルは
+    前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」」"""
     matter = getattr(q, "matter", "")
-    rid, text = (f"{recording_base(q)}_accepted", ANNOUNCE_ACCEPTED.format(t=of_matter(matter))) if matter else ("announce_recheck", ANNOUNCE_RECHECK)
-    return (rid, text) if heard else (f"{rid}_unheard", unheard_form(text))
+    if heard:
+        return (f"{recording_base(q)}_accepted", ANNOUNCE_ACCEPTED.format(t=of_matter(matter))) if matter else ("announce_recheck", ANNOUNCE_RECHECK)
+    t = getattr(q, "matter_clause", "") or of_matter(matter)
+    return (f"{recording_base(q)}_accepted_unheard", unheard_form(t)) if t else ("announce_recheck_unheard", unheard_form(""))
 
 
 def announce_forms(questions: list["Question"], got: dict) -> list["Question"]:
@@ -2893,6 +2899,12 @@ class Question:
     # 確認で伺うとき（_advance_to）の最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」に入れる（組むのは accepted_line の1か所。空なら
     # 「先ほどの内容」）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承ということでよろしかったでしょうか？」」
     matter: str = ""
+    # お知らせの中身を常体にした句（「キャンセルは前日までにご連絡いただく必要がある」。取込で名詞と同じ1回の問い合わせ＝import_ai.decide_matters の答えの組の2つ目・
+    # 形の確かめは announces.clause_fits。決まらなければ空）。聞き取れないまま「-」にしたお知らせの締めの前の念のための確認「（句）件のお返事のお声が聞き取れなかった
+    # のですがご了承ということでよろしかったでしょうか？」に入れる（組むのは accepted_line の1か所の heard=False。空なら名詞の形・名詞も無ければ「先ほどの件」）。
+    # ✅ 2026-11-15 日本時間11時59分07秒 ユーザー「・(3)今：…⇒こちら「ありがとうございます。申し訳ございません、キャンセルは前日までにご連絡いただく必要がある件の
+    # お返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」」
+    matter_clause: str = ""
     # 資料がお手元に届いているかを伺う質問の、「届いている」にあたる選択肢の名前（取込の文字のAI2つが決める＝import_ai.decide_at_hand。伺う質問でなければ空）。
     # この答え（この電話・前の電話）なら、お知らせは「ご確認ください。」の文（at_hand の1か所。11-13 20時06分19秒「(3)b」）
     at_hand: str = ""
@@ -7047,13 +7059,15 @@ class Flow:
         判定に見せる文は、お客様が聞いたこの一言（awaiting_say）。お返事は言い直しへのお返事と同じ受け方（合っている＝ご承認いただける・違う＝ご承認いただけない）。
         最終の確かめなので同じ確かめはもう言い直さない（Item.final）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10」「●伺い13 3回目は最後に回したほうが
         よくないですか？」。heard＝お知らせへのお声が聞き取れていたか（締めの前の念のための確認＝Item.dash_heard。聞き取れないまま「-」にしたお知らせも、この1か所で
-        「お声が聞き取れませんでしたので（名詞）の件はご了承ということで…」＝accepted_line。見直し (12) の B-1・まとめ役の決め (f)）"""
+        「（お知らせの中身を常体にした句）件のお返事のお声が聞き取れなかったのですがご了承ということで…」＝accepted_line。見直し (12) の B-1・まとめ役の決め (f)・
+        11-15 11時59分07秒の (3)）。会話AIへの知らせの「お知らせの中身」か「先ほどの内容」かは、文に中身があるか（共通の一言の録音でないか）で選ぶ"""
         it, q = self.items[qid], self.questions[qid]
         rid, text = accepted_line(q, heard)
         it.condition, it.value, it.final = q.conditions[0], None, True
         it.set("checking", why)
         self.awaiting_confirm, self.confirm_requested_at, self.awaiting_say = qid, self.callee_turns, text
-        return self._fixed_ask(qid, [line_play(rid, text)], "settle", f"{asked}{'お知らせの中身' if q.matter else '先ほどの内容'}をご了承いただけるかを伺いました。")
+        named = rid not in ("announce_recheck", "announce_recheck_unheard")
+        return self._fixed_ask(qid, [line_play(rid, text)], "settle", f"{asked}{'お知らせの中身' if named else '先ほどの内容'}をご了承いただけるかを伺いました。")
 
     def _fixed_ask(self, qid: str, line: list[dict], after: str, asked: str) -> dict:
         """言い直しを作らずに、決まった一言 line（録音1つ）で伺ってお返事を待つ返事（唯一の作り方＝_how_now・_ask_pending）：録音で流せる通話は録音、流せなければ
@@ -13096,7 +13110,8 @@ class Flow:
             receipt = bool(self._received_now())
             if in_announce_form(q):
                 # ご承認のお知らせ（別のお話が続いた・聞き取れなかったで「-」にした）：お知らせの文はくり返さず、最終の確かめの1か所（_accepted_ask＝「（相づち）それでは
-                # （名詞）の件はご了承ということでよろしかったでしょうか？」・聞き取れなかったときは「お声が聞き取れませんでしたので（名詞）の件は…」）で伺う。判定は
+                # （名詞）の件はご了承ということでよろしかったでしょうか？」・聞き取れなかったときは「（お知らせの中身を常体にした句）件のお返事のお声が聞き取れなかった
+                # のですが…」＝11-15 11時59分07秒の (3)。⛔ ca665f3e まで「お声が聞き取れませんでしたので（名詞）の件は…」）で伺う。判定は
                 # この確かめの文へのお返事として読む（awaiting_say）。✅ 2026-11-14 日本時間14時31分38秒「●伺い13 3回目は最後に回したほうがよくないですか？」・
                 # 「●伺い10」・見直し (12) の B-1・まとめ役の決め (f)。⛔ 2e5986f5 まで、聞き取れないまま「-」にしたお知らせは「申し訳ございません、お声が聞き取れません
                 # でしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？」（聞くことが無い）・判定はお知らせの文で読み「はい、どうぞ。」をご了承と記録しえた

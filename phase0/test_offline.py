@@ -50,6 +50,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          # ご承認のお知らせの中身の名詞（業務設定の質問の欄 matter・取込の決める処理 decide_matters と考える Sonnet の referee。11-14 14時31分38秒
                          # 「●伺い10」。CL-1.md 4-154）
                          "decide_matters", "matter",
+                         # お知らせの中身を常体にした句（業務設定の質問の欄 matter_clause・取込は decide_matters の同じ問い合わせ＝答えは (名詞, 句) の組。
+                         # 11-15 11時59分07秒の (3)。CL-1.md 4-162）
+                         "matter_clause",
                          # 続きの電話の判断いただける代わりの方への引き継ぎを確かめる一言の名乗りの部分（お名前が入る。11-13 22時17分01秒「11はイ」。CL-1.md 4-151）
                          "carried_target",
                          # その後の文の中身（業務設定の質問の欄 since・取込の決める処理 decide_since と考える Sonnet の referee。11-13 20時06分19秒「伺い6は…」。CL-1.md 4-149）
@@ -27069,17 +27072,19 @@ class TalkAndAcceptedTest(unittest.TestCase):
                                            stop_reason="end_turn")
             return SimpleNamespace(messages=Messages())
 
+        # 11-15 日本時間11時59分07秒の (3) で、同じ1回の問い合わせでお知らせの中身を常体にした句（clause）も聞き、答えは (名詞, 句) の組になった（意図した変わり。
+        # 句の決め方は UnheardClauseTest）。ここでは名詞の決め方だけを見る＝文字のAIは句をそろって空と答える（⛔ ca665f3e までは名詞の並びだけを返した）
         fee = ("料金のご案内ですが月額3,000円となります。", "こちらの内容でご承認いただけますでしょうか？")
         pairs = [(AnnounceTest.EXPL, AnnounceTest.ASK), fee]
-        a = gemini([{"no": 1, "matter": "キャンセル"}, {"no": 2, "matter": "料金"}])
-        b = gemini([{"no": 1, "matter": "キャンセル"}, {"no": 2, "matter": "月額"}])
-        self.assertEqual(import_ai.decide_matters([(a, "m1"), (b, "m2")], pairs), ["キャンセル", ""])
-        ref = claude([{"no": 1, "matter": "料金"}])
-        self.assertEqual(import_ai.decide_matters([(a, "m1"), (b, "m2")], pairs, referee=(ref, "claude-sonnet-5-5")), ["キャンセル", "料金"])
-        ref = claude([{"no": 1, "matter": "お支払い"}])   # 文に無い言葉は使わない
-        self.assertEqual(import_ai.decide_matters([(a, "m1"), (b, "m2")], pairs, referee=(ref, "claude-sonnet-5-5")), ["キャンセル", ""])
+        a = gemini([{"no": 1, "matter": "キャンセル", "clause": ""}, {"no": 2, "matter": "料金", "clause": ""}])
+        b = gemini([{"no": 1, "matter": "キャンセル", "clause": ""}, {"no": 2, "matter": "月額", "clause": ""}])
+        self.assertEqual(import_ai.decide_matters([(a, "m1"), (b, "m2")], pairs), [("キャンセル", ""), ("", "")])
+        ref = claude([{"no": 1, "matter": "料金", "clause": ""}])
+        self.assertEqual(import_ai.decide_matters([(a, "m1"), (b, "m2")], pairs, referee=(ref, "claude-sonnet-5-5")), [("キャンセル", ""), ("料金", "")])
+        ref = claude([{"no": 1, "matter": "お支払い", "clause": ""}])   # 文に無い言葉は使わない
+        self.assertEqual(import_ai.decide_matters([(a, "m1"), (b, "m2")], pairs, referee=(ref, "claude-sonnet-5-5")), [("キャンセル", ""), ("", "")])
         fns = import_ai.deciders([(a, "m1"), (a, "m2")])
-        self.assertEqual(fns["decide_matters"](pairs), ["キャンセル", "料金"])
+        self.assertEqual(fns["decide_matters"](pairs), [("キャンセル", ""), ("料金", "")])
         self.assertIn("decide_matters", import_ai.REFEREED)
 
 
@@ -27524,12 +27529,13 @@ class RecheckAckTest(unittest.TestCase):
         f.on_callee(); f.on_heard("……")
         return f.apply("report_unclear", {"question_id": qid})
 
-    def announce_flow(self, matter="キャンセル", play=True):
-        """ご承認のお知らせ（Q2）を聞き取れないまま「-」にし、次の質問（Q3）を伺っているところ。"""
+    def announce_flow(self, matter="キャンセル", play=True, clause=None):
+        """ご承認のお知らせ（Q2）を聞き取れないまま「-」にし、次の質問（Q3）を伺っているところ。clause＝取込で決めたお知らせの中身を常体にした句
+        （Question.matter_clause。None なら欄を渡さない）。"""
         import dataclasses
         from flowctl import Flow
         qs = AnnounceTest().questions()
-        qs[1] = dataclasses.replace(qs[1], matter=matter)
+        qs[1] = dataclasses.replace(qs[1], matter=matter, **({} if clause is None else {"matter_clause": clause}))
         f = Flow(qs, play_recordings=play)
         f.use_checks("judge")
         AnnounceTest.say(f, "届いていないです。", "record_answer", "いいえ", question_id="Q1", condition_id="いいえ")
@@ -27543,9 +27549,12 @@ class RecheckAckTest(unittest.TestCase):
         # 「もう一度だけお聞かせいただいても」は使わない）。聞き取れたかに関わらず最終の確かめの1か所（_accepted_ask）：聞き取れなかったときは、お詫びのあとに
         # 「お声が聞き取れませんでしたので（名詞）の件はご了承ということでよろしかったでしょうか？」。判定はこの確かめの文へのお返事として読む（awaiting_say）。
         # ⛔ 2e5986f5 まで「ありがとうございます。申し訳ございません、お声が聞き取れませんでしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？」・判定は
-        # お知らせの文で読み、「はい、どうぞ。」（もう一度話してよい）をご了承と記録しえた
+        # お知らせの文で読み、「はい、どうぞ。」（もう一度話してよい）をご了承と記録しえた。
+        # 確かめの文は、2026-11-15 日本時間11時59分07秒のお言葉「・(3)…」で、何へのお返事が聞き取れなかったのかを言う形に替わった（意図した変わり＝この試験は
+        # 句の決まっていないお知らせの形を見る。句のある形は UnheardClauseTest）：名詞だけなら「（名詞）の件のお返事のお声が聞き取れなかったのですが…」。
+        # ⛔ ca665f3e まで「お声が聞き取れませんでしたのでキャンセルの件はご了承ということでよろしかったでしょうか？」
         from phrases import ACK
-        line = "お声が聞き取れませんでしたのでキャンセルの件はご了承ということでよろしかったでしょうか？"
+        line = "キャンセルの件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"
         for play in (True, False):
             f = self.announce_flow(play=play)
             r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
@@ -27559,12 +27568,12 @@ class RecheckAckTest(unittest.TestCase):
                 self.assertEqual(r["say"], line)
                 self.assertIn(f"まず、「{ACK['moushiwake_heavy']}」", r["message"])
             self.assertEqual(f.judge_context()[1], line, play)
-        # 名詞の決まらないお知らせは共通の一言の録音（「先ほどの内容は」）
+        # 名詞の決まらないお知らせは共通の一言の録音（「先ほどの件のお返事の…」。⛔ ca665f3e まで「お声が聞き取れませんでしたので先ほどの内容は…」＝上と同じ理由で替わった）
         f = self.announce_flow(matter="")
         r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
         self.assertEqual([(p["id"], p["text"]) for p in r["play"]],
                          [("moushiwake_heavy", ACK["moushiwake_heavy"]),
-                          ("announce_recheck_unheard", "お声が聞き取れませんでしたので先ほどの内容はご了承ということでよろしかったでしょうか？")])
+                          ("announce_recheck_unheard", "先ほどの件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？")])
         # お返事は最終の確かめへのお返事と同じ受け方（合っている＝ご了承いただける）
         f = self.announce_flow()
         AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
@@ -27586,16 +27595,18 @@ class RecheckAckTest(unittest.TestCase):
             r = o.talk(f, w)
         self.assertEqual((f.phase, f.current, r.get("ack")), ("rechecking", "Q2", None))
         self.assertEqual(r["say"], word + ACK["moushiwake_heavy"] + "お声が聞き取れませんでしたのでもう一度だけお聞かせいただいてもよろしいでしょうか？")
-        # ご承認のお知らせを聞き取れないまま「-」にしたときも同じ1か所（最終の確かめの形＝B-1）
-        g = self.announce_flow()
+        # ご承認のお知らせを聞き取れないまま「-」にしたときも同じ1か所（最終の確かめの形＝B-1。文は 11-15 11時59分07秒の (3) で、何へのお返事が聞き取れなかった
+        # のかを言う形に替わった＝意図した変わり。⛔ ca665f3e まで「お声が聞き取れませんでしたのでキャンセルの件は…」）
+        line = "キャンセルは前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"
+        g = self.announce_flow(clause=UnheardClauseTest.CLAUSE)
         for w in (o.FEEL, self.HOT, word):
             self.a.unlinked(g, "Q3")
             grounded(g, w)
             r = g.apply("replay_opening", {"part": "talk", "answer": w, "fallback": "talk_heard_nod"})
         self.assertEqual((g.phase, g.awaiting_confirm, r.get("ack")), ("rechecking", "Q2", None))
-        self.assertEqual(r["say"], word + ACK["moushiwake_heavy"] + "お声が聞き取れませんでしたのでキャンセルの件はご了承ということでよろしかったでしょうか？")
+        self.assertEqual(r["say"], word + ACK["moushiwake_heavy"] + line)
         # 会話AIへの知らせ：お詫びと確認の文を1つの文で言う（確認の文の知らせを2回入れない＝_spoken_all）
-        self.assertEqual(r["message"].count("お声が聞き取れませんでしたので"), 1)
+        self.assertEqual(r["message"].count("お声が聞き取れなかったのですが"), 1)
 
     def test_each_closing_recheck_in_a_row_starts_with_the_receipt(self):
         # B-5：締めの前の確認が2つ続くとき、2つ目の頭も、前の確認へのお返事で受け取った答えで選ぶ受けの言葉（9-7「相づちは受け取った答えで選ぶ」・9-5 の最後の1回＝
@@ -27708,6 +27719,191 @@ class RecheckAckTest(unittest.TestCase):
         r = f.apply("request_callback", {"why": "absent", "offer": "message"})
         self.assertEqual(f.current, CALLBACK_IDS[ROLE_KEY["back_time"]])
         self.assertIn("「それでは」から話し始めてください。", r["message"])
+
+
+class UnheardClauseTest(unittest.TestCase):
+    """(3)（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「・(3)今：こちら「ありがとうございます。申し訳ございません、お声が聞き取れませんでしたのでキャンセルの件は
+    ご了承ということでよろしかったでしょうか？」⇒こちら「ありがとうございます。申し訳ございません、キャンセルは前日までにご連絡いただく必要がある件のお返事の
+    お声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？」」）：聞き取れないまま「-」にしたご承認のお知らせの締めの前の念のための確認では、何への
+    お返事が聞き取れなかったのかを、お知らせの中身を常体にした句（Question.matter_clause）で言う。句は取込で、お知らせの中身の名詞と同じ1回の問い合わせで決める
+    （import_ai.decide_matters・形の確かめは announces.clause_fits の1か所）。文を組むのは flowctl.accepted_line の1か所（heard=False）。⛔ ca665f3e まで
+    「お声が聞き取れませんでしたのでキャンセルの件は…」（何へのお返事が聞き取れなかったのかが分からない）"""
+    CLAUSE = "キャンセルは前日までにご連絡いただく必要がある"
+    TAIL = "件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"
+    USER = ("ありがとうございます。申し訳ございません、キャンセルは前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承ということで"
+            "よろしかったでしょうか？")
+    EXPL = "ご予約の内容ですがキャンセルは前日までにご連絡いただく必要がございます。"   # お言葉の例の句のもとになる説明
+
+    def test_the_unheard_recheck_says_what_the_reply_was_for(self):
+        # 句がある（名詞もある・名詞が無い）・名詞だけ（「（名詞）の件のお返事の…」＝「の件」は phrases.of_matter）・どちらも無い（「先ほどの件のお返事の…」＝
+        # 共通の一言の録音 announce_recheck_unheard）。句と名詞のどちらかがあれば依頼主の単位の録音「番号_accepted_unheard」。お詫び「申し訳ございません、」は今の
+        # まま確認を作る所（_advance_to）が前に置く。判定は、お客様が聞いたこの確かめの文へのお返事として読む（awaiting_say）。決まった言い方なので読点を入れない（10-15）
+        from phrases import ACK
+        o = RecheckAckTest()
+        cases = ((self.CLAUSE, "キャンセル", "Q2_accepted_unheard", self.CLAUSE + self.TAIL),
+                 (self.CLAUSE, "", "Q2_accepted_unheard", self.CLAUSE + self.TAIL),
+                 ("", "キャンセル", "Q2_accepted_unheard", "キャンセルの" + self.TAIL),
+                 ("", "", "announce_recheck_unheard", "先ほどの" + self.TAIL))
+        for clause, matter, rid, line in cases:
+            self.assertNotIn("、", line)
+            for play in (True, False):
+                at = (clause, matter, play)
+                f = o.announce_flow(matter=matter, play=play, clause=clause)
+                r = AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+                self.assertEqual((f.phase, f.awaiting_confirm, f.items["Q2"].final), ("rechecking", "Q2", True), at)
+                if play:
+                    self.assertEqual([(p["id"], p["text"]) for p in r["play"]], [("moushiwake_heavy", ACK["moushiwake_heavy"]), (rid, line)], at)
+                    self.assertEqual(o.heard(r), ACK[r["ack"]] + ACK["moushiwake_heavy"] + line, at)
+                else:
+                    self.assertEqual(r["say"], line, at)
+                    self.assertIn(f"まず、「{ACK['moushiwake_heavy']}」", r["message"], at)
+                self.assertEqual(f.judge_context()[1], line, at)
+        # お言葉の文そのもの（受け取った答えの相づちが「ありがとうございます。」のとき）
+        self.assertEqual(ACK["arigatou"] + ACK["moushiwake_heavy"] + self.CLAUSE + self.TAIL, self.USER)
+        # お返事は今までどおり最終の確かめへのお返事として受ける（合っている＝ご了承いただける）
+        f = o.announce_flow(clause=self.CLAUSE)
+        AnnounceTest.say(f, "カードでお願いします。", "record_answer", "カード", question_id="Q3", condition_id="カード")
+        r = AnnounceTest.say(f, "はい、大丈夫です。", "confirm_field", "affirmed", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], f.export()["Q2"]), ("end", "はい"))
+
+    def test_the_heard_final_check_is_unchanged(self):
+        # 聞き取れていたときの最終の確かめ（伺い10＝heard=True）は今のまま：句があっても「それでは（名詞）の件は…」・名詞が無ければ「それでは先ほどの内容は…」
+        import dataclasses
+        from flowctl import accepted_line
+        from phrases import ANNOUNCE_RECHECK
+        q = AnnounceTest().questions()[1]
+        self.assertEqual(accepted_line(dataclasses.replace(q, matter="キャンセル", matter_clause=self.CLAUSE)),
+                         ("Q2_accepted", "それではキャンセルの件はご了承ということでよろしかったでしょうか？"))
+        self.assertEqual(accepted_line(dataclasses.replace(q, matter_clause=self.CLAUSE)), ("announce_recheck", ANNOUNCE_RECHECK))
+
+    def test_the_recording_table_has_the_clause_form(self):
+        # 録音の表（make_ack_clips.script_table）：句のある形も依頼主の単位の録音「番号_accepted_unheard」（文は accepted_line の1か所）。句だけで名詞の無いお知らせは
+        # 「番号_accepted」を作らない（聞き取れていたときは共通の一言の録音 announce_recheck）。共通の一言の録音 announce_recheck_unheard の文は「先ほどの件のお返事の…」
+        import dataclasses
+        from instruction import Business
+        from make_ack_clips import script_table
+        from phrases import RECORDED
+
+        def table(**kw):
+            qs = AnnounceTest().questions()
+            qs[1] = dataclasses.replace(qs[1], **kw)
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=qs,
+                         purpose_line="ご予約の確認でお電話いたしました。", purpose_noun="ご予約の確認")
+            return script_table(b)[0]
+        t = table(matter="キャンセル", matter_clause=self.CLAUSE)
+        self.assertEqual((t["Q2_accepted_unheard"][0], t["Q2_accepted"][0]),
+                         (self.CLAUSE + self.TAIL, "それではキャンセルの件はご了承ということでよろしかったでしょうか？"))
+        t = table(matter_clause=self.CLAUSE)
+        self.assertEqual(t["Q2_accepted_unheard"][0], self.CLAUSE + self.TAIL)
+        self.assertNotIn("Q2_accepted", t)
+        self.assertEqual(table(matter="キャンセル")["Q2_accepted_unheard"][0], "キャンセルの" + self.TAIL)
+        self.assertFalse({"Q2_accepted", "Q2_accepted_unheard"} & set(table()))
+        self.assertEqual(RECORDED["announce_recheck_unheard"], "先ほどの" + self.TAIL)
+
+    def test_the_day_words_are_filled_in_the_clause(self):
+        # 句も声に出す文の欄（flowctl.DAY_FIELDS）：{最短の日} を流れの制御の1か所（fill_day）で置き換え、録音はその言い方の録音の名前から
+        # （「番号_d番号_accepted_unheard」＝録音の表にも同じ名前と文）
+        import dataclasses
+        from datetime import date
+        from flowctl import Flow, Question, accepted_line, day_recording_id
+        from g22_opening import BUSINESS
+        from make_ack_clips import script_table
+        a = Question("Q2", "ご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True, approval=True,
+                     announce="{最短の日}のご訪問になりますのでご了承ください。", matter_clause="{最短の日}のご訪問になる")
+        f = Flow([a], earliest_day=date(2026, 11, 9), today=date(2026, 11, 3), play_recordings=True)
+        rid, text = accepted_line(f.questions["Q2"], heard=False)
+        self.assertEqual((rid, text), (day_recording_id("Q2", "来週以降") + "_accepted_unheard", "来週以降のご訪問になる" + self.TAIL))
+        self.assertEqual(script_table(dataclasses.replace(BUSINESS, questions=[a]))[0][rid][0], text)
+
+    def test_the_clause_shape_is_checked_in_one_place(self):
+        # 句の形の確かめ（announces.clause_fits の1か所）：空でない・読点も句点も無い・問いでない（askitems.noun_fits の1か所）・常体（「ございます」「です」「ます」
+        # で終わらない）・「件」の前に置ける終わり・説明と質問の文に無い事実を足さない（数と期限の言葉＝announces.keeps_facts を逆向きに・言葉＝漢字・カタカナ・
+        # 英字のまとまりが説明か質問の文にある）・数と期限の言葉を落とさない（announces.keeps_facts）
+        import announces
+        ask = AnnounceTest.ASK
+        self.assertTrue(announces.clause_fits(self.EXPL, ask, self.CLAUSE))
+        self.assertTrue(announces.clause_fits(AnnounceTest.EXPL, ask, "当日のキャンセルは前日までにご連絡いただく決まりになっている"))
+        bad = {"": "空", None: "答えが無い",
+               "キャンセルは、前日までにご連絡いただく必要がある": "読点",
+               "キャンセルは前日までにご連絡いただく必要がある。": "句点",
+               "キャンセルは前日までにご連絡いただく必要があるか？": "問い",
+               "キャンセルは前日までにご連絡いただく必要がございます": "常体でない（ございます）",
+               "キャンセルは前日までにご連絡いただく必要があります": "常体でない（ます）",
+               "キャンセルは前日までのご連絡が必要です": "常体でない（です）",
+               "キャンセルは前日までにご連絡いただく必要がある件": "「件」を重ねる",
+               "前日までのキャンセルのご連絡": "「件」の前に置けない終わり（名詞で終わる）",
+               "キャンセル料は前日までにご連絡いただく必要がある": "説明に無い言葉を足した（料）",
+               "キャンセルは翌日ではなく前日までにご連絡いただく必要がある": "説明に無い期限の言葉を足した（翌日）",
+               "キャンセルはご連絡いただく必要がある": "期限の言葉を落とした（前日）"}
+        for clause, why in bad.items():
+            self.assertFalse(announces.clause_fits(self.EXPL, ask, clause), why)
+        # 期限の言葉が2つある説明（当日・前日）は、どちらも落とさない（お言葉の例の句は、説明に「当日」があれば「当日」を落とした句になる）
+        self.assertFalse(announces.clause_fits(AnnounceTest.EXPL, ask, self.CLAUSE))
+        # 数：説明の数を落とさない・説明に無い数を足さない
+        fee = "料金のご案内ですが月額3,000円となります。"
+        self.assertTrue(announces.clause_fits(fee, ask, "料金は月額3,000円となる"))
+        self.assertFalse(announces.clause_fits(fee, ask, "料金は月額となる"))
+        self.assertFalse(announces.clause_fits(fee, ask, "料金は月額3,000円と500円となる"))
+
+    def test_the_clause_is_decided_in_the_same_import_ask_as_the_matter(self):
+        # 句は取込で、お知らせの中身の名詞と同じ1回の問い合わせ（announces.MATTER_PROMPT に項目 clause を足した＝問い合わせの数は増えない）で決める。決め方は名詞と
+        # 同じ1か所（import_ai._settled の項目の組＝文字のAI2つがそろって形に合えばその句・そろって空なら空・どれかの項目がそろわない文だけを考える Sonnet＝referee
+        # にまとめて1回）。項目ごとに決める＝そろった名詞・句を考える Sonnet の答えで替えない。答えは (名詞, 句) の組（CL-2 の取込が業務設定の質問の欄 matter と
+        # matter_clause へ。CL-1.md 4-162）
+        import dataclasses
+        import json
+        from types import SimpleNamespace
+        import import_ai
+        from flowctl import Question
+        from phrases import unheard_form
+        sent = []
+
+        def gemini(got):
+            class Models:
+                def generate_content(self, model, contents, config):
+                    sent.append((model, contents))
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models())
+
+        def claude(got):
+            class Messages:
+                def create(self, **body):
+                    sent.append((body["model"], body["messages"][0]["content"]))
+                    return SimpleNamespace(content=[SimpleNamespace(type="text", text=json.dumps({"items": got}))],
+                                           usage=SimpleNamespace(input_tokens=500, output_tokens=200, cache_read_input_tokens=0, cache_creation_input_tokens=0),
+                                           stop_reason="end_turn")
+            return SimpleNamespace(messages=Messages())
+
+        fee = ("料金のご案内ですが月額3,000円となります。", AnnounceTest.ASK)
+        pairs = [(self.EXPL, AnnounceTest.ASK), fee]
+        a = gemini([{"no": 1, "matter": "キャンセル", "clause": self.CLAUSE}, {"no": 2, "matter": "料金", "clause": "料金は月額3,000円となる"}])
+        b = gemini([{"no": 1, "matter": "キャンセル", "clause": self.CLAUSE}, {"no": 2, "matter": "料金", "clause": "月額3,000円の料金となる"}])
+        askers = [(a, "m1"), (b, "m2")]
+        self.assertEqual(import_ai.decide_matters(askers, pairs), [("キャンセル", self.CLAUSE), ("料金", "")])
+        self.assertEqual([m for m, _ in sent], ["m1", "m2"])   # 文字のAIごとに1回（名詞と句を同じ問い合わせで）
+        self.assertIn("clause", sent[0][1])
+        self.assertIn(unheard_form("（句）"), sent[0][1])
+        # そろわない句の文だけを考える Sonnet にまとめて1回聞く（名詞はそろった「料金」のまま＝考える Sonnet の名詞では替えない）
+        sent.clear()
+        ref = claude([{"no": 1, "matter": "月額", "clause": "料金は月額3,000円となる"}])
+        self.assertEqual(import_ai.decide_matters(askers, pairs, referee=(ref, "claude-sonnet-5-5")),
+                         [("キャンセル", self.CLAUSE), ("料金", "料金は月額3,000円となる")])
+        self.assertEqual([m for m, _ in sent], ["m1", "m2", "claude-sonnet-5-5"])
+        self.assertIn("1：料金のご案内", sent[-1][1])
+        self.assertNotIn("2：", sent[-1][1])
+        # 考える Sonnet の句も形の確かめを通らなければ使わない（説明に無い事実を足した・常体でない）
+        for bad in ("料金は月額3,000円で初期費用もかかる", "料金は月額3,000円となります"):
+            ref = claude([{"no": 1, "matter": "料金", "clause": bad}])
+            self.assertEqual(import_ai.decide_matters(askers, pairs, referee=(ref, "claude-sonnet-5-5"))[1], ("料金", ""), bad)
+        # そろわない名詞は今までどおり考える Sonnet（句がそろった文の句は替えない）
+        c = gemini([{"no": 1, "matter": "ご連絡", "clause": self.CLAUSE}, {"no": 2, "matter": "料金", "clause": "料金は月額3,000円となる"}])
+        ref = claude([{"no": 1, "matter": "キャンセル", "clause": "キャンセルは前日までにご連絡いただく"}])
+        self.assertEqual(import_ai.decide_matters([(a, "m1"), (c, "m3")], pairs, referee=(ref, "claude-sonnet-5-5")),
+                         [("キャンセル", self.CLAUSE), ("料金", "料金は月額3,000円となる")])
+        # CL-2 の取込に渡す処理（deciders）も同じ形。業務設定の質問の欄（Question.matter_clause）は、CL-2 の業務設定に入るまで CL2_PENDING（名詞 matter と同じ）
+        self.assertEqual(import_ai.deciders(askers)["decide_matters"](pairs), [("キャンセル", self.CLAUSE), ("料金", "")])
+        self.assertIn("matter_clause", {x.name for x in dataclasses.fields(Question)})
+        self.assertIn("matter_clause", CL2_PENDING)
 
 
 class ImportFormsReviewTest(unittest.TestCase):

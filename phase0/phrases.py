@@ -40,7 +40,8 @@ import re
 #    ⇒ 決まった言い方・録音の文には、言葉の途中に読点を入れない（文の終わりの「。」「？」だけ）。問いかけは「？」で終える
 ASK_BACK = "お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"
 # 聞き取れなかった項目を聞く最後の1回（締めの前の念のための確認）の頭（✅ 2026-10-14 ユーザー「お声が聞き取れませんでしたので、ご希望の日時を、もう一度だけ…」。
-# 読点は外した＝10-15）。業務の質問の最後の1回（ask_again の last）と、聞き取れないまま「-」にしたお知らせの最終の確かめ（unheard_form）が同じ言葉で始まる
+# 読点は外した＝10-15）。業務の質問の最後の1回（ask_again の last）。⛔ ca665f3e までは、聞き取れないまま「-」にしたお知らせの最終の確かめ（unheard_form）も
+# この言葉で始めた（11-15 11時59分07秒の (3) で「（句）件のお返事のお声が聞き取れなかったのですが…」＝UNHEARD_ACCEPTED に替わった）
 UNHEARD_LEAD = "お声が聞き取れませんでしたので"
 
 
@@ -752,12 +753,21 @@ ANNOUNCE_ACCEPTED = "それでは{t}件はご了承ということでよろし�
 ANNOUNCE_RECHECK = "それでは先ほどの内容はご了承ということでよろしかったでしょうか？"
 
 
-def unheard_form(text: str) -> str:
-    """聞き取れないまま「-」にしたご承認のお知らせの、締めの前の最終の確かめの文（唯一の作り方＝flowctl.accepted_line の heard=False）：最終の確かめの文の頭の
-    つなぎの言葉（「それでは」）の代わりに「お声が聞き取れませんでしたので」（UNHEARD_LEAD＝業務の質問の最後の1回と同じ頭）。お詫び「申し訳ございません、」は
-    確認を作る所（flowctl.Flow._advance_to）が前に置く（聞き取れなかった質問の締めの前の確認と同じ1か所）。見直し (12) の B-1・まとめ役の決め (f)：「ありがとう
-    ございます。申し訳ございません、お声が聞き取れませんでしたのでキャンセルの件はご了承ということでよろしかったでしょうか？」（伺い10 の形）"""
-    return UNHEARD_LEAD + text[len(head_word(text) or ""):]
+# 聞き取れないまま「-」にしたご承認のお知らせの、締めの前の最終の確かめ（見直し (12) の B-1・まとめ役の決め (f)）の言い方＝✅ 2026-11-15 日本時間11時59分07秒
+# ユーザー「・(3)今：こちら「ありがとうございます。申し訳ございません、お声が聞き取れませんでしたのでキャンセルの件はご了承ということでよろしかったでしょうか？」
+# ⇒こちら「ありがとうございます。申し訳ございません、キャンセルは前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承ということで
+# よろしかったでしょうか？」」（何へのお返事が聞き取れなかったのかを言う。決まった言い方なので読点を入れない＝10-15）。{t}＝「件」の前の言葉：取込で決めたお知らせの
+# 中身を常体にした句（Question.matter_clause）・句が無ければ名詞の of_matter（「キャンセルの」）・名詞も無ければ「先ほどの」（UNHEARD_EARLIER＝共通の一言の録音
+# announce_recheck_unheard）。⛔ ca665f3e まで「お声が聞き取れませんでしたので（名詞）の件は…」（最終の確かめの頭「それでは」を UNHEARD_LEAD に替えた形）
+UNHEARD_ACCEPTED = "{t}件のお返事のお声が聞き取れなかったのですがご了承ということでよろしかったでしょうか？"
+UNHEARD_EARLIER = "先ほどの"
+
+
+def unheard_form(t: str) -> str:
+    """聞き取れないまま「-」にしたご承認のお知らせの、締めの前の最終の確かめの文（唯一の作り方＝flowctl.accepted_line の heard=False・取込の問い MATTER_PROMPT が
+    例に引く）：UNHEARD_ACCEPTED の「件」の前に t（句・名詞の of_matter。空なら「先ほどの」）。お詫び「申し訳ございません、」は確認を作る所
+    （flowctl.Flow._advance_to）が前に置く（聞き取れなかった質問の締めの前の確認と同じ1か所）。"""
+    return UNHEARD_ACCEPTED.format(t=t or UNHEARD_EARLIER)
 
 
 # 同じ所（同じ質問・同じ言い直し）へ3回目から戻るときの一言＝続く質問の頭（✅ 2026-11-07 日本時間4時40分35秒 ユーザー：「たびたび失礼いたしました。はおかしい
@@ -1145,7 +1155,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
-            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(ANNOUNCE_RECHECK),
+            "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(""),
             "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},

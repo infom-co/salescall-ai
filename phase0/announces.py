@@ -19,12 +19,18 @@ flowctl.at_hand の1か所）。「ご確認ください。」の文は、お知
   （import_ai.decide_matters の referee）に、その文だけを聞き、文の中の言葉ならその言葉（考える Sonnet に聞く所は import_ai._settled の1か所）。ほかは空＝
   「先ほどの内容」（違う中身を言うことはない側へ倒す）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承という
   ことでよろしかったでしょうか？」」
+- お知らせの中身を常体にした句（flowctl.Question.matter_clause。聞き取れないまま「-」にしたお知らせの締めの前の確かめ「（句）件のお返事のお声が聞き取れなかった
+  のですがご了承ということでよろしかったでしょうか？」＝flowctl.accepted_line の1か所）：名詞と同じ1回の問い合わせに項目 clause を足した（MATTER_PROMPT・
+  matter_by_model。問い合わせの数は増えない）。決め方も名詞と同じ1か所（import_ai._settled の項目の組）＝2つの文字のAIがそろって形に合う（clause_fits）句・
+  そろわない文は考える Sonnet に聞き、形に合えばその句。ほかは空＝名詞の形（「キャンセルの件のお返事の…」）。✅ 2026-11-15 日本時間11時59分07秒 ユーザー
+  「・(3)今：…⇒こちら「ありがとうございます。申し訳ございません、キャンセルは前日までにご連絡いただく必要がある件のお返事のお声が聞き取れなかったのですがご了承
+  ということでよろしかったでしょうか？」」
 """
 from __future__ import annotations
 
 import re
 
-from phrases import ANNOUNCE_ACCEPTED, ANNOUNCE_END
+from phrases import ANNOUNCE_ACCEPTED, ANNOUNCE_END, unheard_form
 
 PROMPT = (
     "電話でお客様に、こちらの決まり（説明）をお伝えしてから、その内容でよいかを伺う質問の一覧です。伺う形は、お客様が身構えてしまうので、説明の内容を1つの文で"
@@ -132,29 +138,46 @@ def decide_hand(conditions: tuple, model_rows: list[dict | None]) -> str:
     return next(iter(yes)) if len(yes) == 1 and next(iter(yes)) in conditions else ""
 
 
-# お知らせの中身の名詞を聞く問い（例の最終の確かめの文は、言い方の表の1か所 phrases.ANNOUNCE_ACCEPTED から作る）
+# お知らせの中身の名詞と、中身を常体にした句を聞く問い（1回の問い合わせで2つの項目。例の確かめの文は、言い方の表の1か所 phrases.ANNOUNCE_ACCEPTED・
+# phrases.unheard_form から作る）
 MATTER_PROMPT = (
     "電話でお客様に、こちらの決まり（説明）をお伝えしてから、その内容でよいかを伺う質問の一覧です。お伝えしたあと、最後に"
-    f"「{ANNOUNCE_ACCEPTED.format(t='（中身）の')}」と確かめます。質問ごとに、（中身）に入る、お伝えする決まりの中身を表す短い言葉を、説明と質問の文の中の"
-    "文字のまま matter に答えてください。\n"
+    f"「{ANNOUNCE_ACCEPTED.format(t='（中身）の')}」と確かめます。お返事が聞き取れなかったときは「{unheard_form('（句）')}」と確かめます。"
+    "質問ごとに、次の2つを答えてください。\n"
+    "- matter：（中身）に入る、お伝えする決まりの中身を表す短い言葉を、説明と質問の文の中の文字のまま。\n"
+    "- clause：（句）に入る、お伝えする決まりの中身を1つの句にしたもの。説明の文の言葉のまま、終わりだけを「です」「ます」「ございます」を使わない言い切りの形"
+    "（「必要がございます」なら「必要がある」・「決まりになっております」なら「決まりになっている」）にします。\n"
     "決まり：\n"
-    "- 例：説明「ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく決まりになっております。」なら「キャンセル」。\n"
-    "- 「の件」は入れません。説明と質問の文の中に無い言葉・言い換えた言葉は書きません。中身を短い言葉で表せなければ空にします。\n"
+    "- 例：説明「ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく決まりになっております。」なら、matter は「キャンセル」、clause は"
+    "「当日のキャンセルは前日までにご連絡いただく決まりになっている」。\n"
+    "- matter に「の件」は入れません。説明と質問の文の中に無い言葉・言い換えた言葉は書きません。中身を短い言葉で表せなければ空にします。\n"
+    "- clause には、説明の頭の「（何々）の内容ですが」のような前置きと「件」を入れません。数・金額・日にち・期限・回数は書いてあるとおりに入れます。説明と質問の文に"
+    "無い言葉・事実は足しません。「、」「。」「？」は入れません。1つの句にできなければ空にします。\n"
     "質問（番号：説明／質問の文）：\n"
 )
 MATTER_FIELD, MATTER_DESC = "matter", "お伝えする決まりの中身を表す短い言葉（説明と質問の文の中の文字のまま）"
-MATTER_TOOL = ("announce_matters", "質問ごとの、お知らせの中身を表す言葉")
+CLAUSE_FIELD, CLAUSE_DESC = "clause", "お伝えする決まりの中身を、説明の文の言葉のまま終わりだけ言い切りの形にした句（「、」「。」「件」を入れない）"
+MATTER_TOOL = ("announce_matters", "質問ごとの、お知らせの中身を表す言葉と、中身を常体にした句")
+
+# お知らせの中身を常体にした句の終わり（「件」の前に置ける形＝言い切りの形）：う段のかな（「ある」「いただく」）・「ない」・「た」で終わる。丁寧な言い方の
+# 終わり（「ございます」「です」「ます」…）は常体でない
+CLAUSE_ENDS = (*"うくぐすつぬぶむる", "ない", "た")
+POLITE_ENDS = ("ます", "です", "ました", "でした", "ません", "でしょう", "ましょう", "ください")
+# 句の中の言葉（漢字・カタカナ・英字のまとまり）：どれも説明か質問の文にあること（説明に無い言葉・事実を足さない）
+_WORDS = re.compile(r"[一-鿿々〆]+|[ァ-ヺー]+|[A-Za-zＡ-Ｚａ-ｚ]+")
 
 
-def matter_by_model(client, model: str, pairs: list[tuple[str, str]], think: bool = False) -> list[str | None]:
-    """1回の問い合わせでまとめて答えさせる（by_model と同じ形）。pairs（(説明, 質問の文)）と同じ並びの答え（無ければ None）を返す（think＝考える形で聞く＝
-    決まらなかった文だけを聞く referee）。"""
+def matter_by_model(client, model: str, pairs: list[tuple[str, str]], think: bool = False) -> list[tuple[str | None, str | None]]:
+    """1回の問い合わせでまとめて答えさせる（by_model と同じ形）。pairs（(説明, 質問の文)）と同じ並びの (名詞, 句)（無い項目は None）を返す（think＝考える形で
+    聞く＝決まらなかった文だけを聞く referee）。名詞と句は同じ1回の問い合わせ（項目を足しても問い合わせの数は同じ）。"""
     from askitems import ask
 
     body = "\n".join(f"{n}：{intro}／{text}" for n, (intro, text) in enumerate(pairs, 1))
-    items = ask(client, model, MATTER_PROMPT + body, {"no": ("integer", "質問の番号"), MATTER_FIELD: ("string", MATTER_DESC)}, tool=MATTER_TOOL, think=think)
-    got = {x.get("no"): x.get(MATTER_FIELD) for x in items or [] if isinstance(x, dict)}
-    return [got[n].strip() if isinstance(got.get(n), str) else None for n in range(1, len(pairs) + 1)]
+    fields = {"no": ("integer", "質問の番号"), MATTER_FIELD: ("string", MATTER_DESC), CLAUSE_FIELD: ("string", CLAUSE_DESC)}
+    items = ask(client, model, MATTER_PROMPT + body, fields, tool=MATTER_TOOL, think=think)
+    got = {x.get("no"): x for x in items or [] if isinstance(x, dict)}
+    word = lambda x, k: x[k].strip() if isinstance(x, dict) and isinstance(x.get(k), str) else None   # noqa: E731
+    return [(word(got.get(n), MATTER_FIELD), word(got.get(n), CLAUSE_FIELD)) for n in range(1, len(pairs) + 1)]
 
 
 def matter_fits(intro: str, text: str, matter: str | None) -> bool:
@@ -164,12 +187,37 @@ def matter_fits(intro: str, text: str, matter: str | None) -> bool:
     return noun_fits(matter, (intro, text))
 
 
-def matter_decide(intro: str, text: str, model_matters: list[str | None]) -> str | None:
-    """2つの文字のAIの答えから決める（取込のとき）：そろって形に合えばその言葉・そろって空なら空（中身を短い言葉で表せない）・ほかは None（考える Sonnet に聞く＝
-    import_ai.decide_matters）。"""
+def clause_fits(intro: str, text: str, clause: str | None) -> bool:
+    """お知らせの中身を常体にした句として使えるか（形の決まりの唯一の場所＝取込の clause_decide・import_ai.decide_matters の考える Sonnet の答え）：空でない・読点も
+    句点も問いも含まない（askitems.noun_fits の1か所）・常体（終わりが POLITE_ENDS でない）・「件」の前に置ける終わり（CLAUSE_ENDS）・説明と質問の文の数と期限の
+    言葉を落とさない・説明と質問の文に無い数と期限の言葉を足さない（どちらも keeps_facts の1か所を両向きに）・説明と質問の文に無い言葉（漢字・カタカナ・英字の
+    まとまり）を足さない。"""
+    from askitems import noun_fits
+
+    if not noun_fits(clause) or clause.endswith(POLITE_ENDS) or not clause.endswith(CLAUSE_ENDS):
+        return False
+    source = f"{intro}{text}"
+    return keeps_facts(source, clause) and keeps_facts(clause, source) and all(w in source for w in _WORDS.findall(clause))
+
+
+def _decided(model_words: list[str | None], fits) -> str | None:
+    """2つの文字のAIの答えから1つの項目を決める（名詞 matter_decide・句 clause_decide の1か所）：そろって形に合えばその言葉・そろって空なら空・ほかは None
+    （考える Sonnet に聞く＝import_ai.decide_matters）。"""
     from askitems import agreed
 
-    got = agreed(model_matters, None)
+    got = agreed(model_words, None)
     if got is None:
         return None
-    return got if got == "" or matter_fits(intro, text, got) else None
+    return got if got == "" or fits(got) else None
+
+
+def matter_decide(intro: str, text: str, model_matters: list[str | None]) -> str | None:
+    """2つの文字のAIの名詞の答えから決める（取込のとき）：そろって形に合えばその言葉・そろって空なら空（中身を短い言葉で表せない）・ほかは None（考える Sonnet に
+    聞く＝import_ai.decide_matters）。"""
+    return _decided(model_matters, lambda w: matter_fits(intro, text, w))
+
+
+def clause_decide(intro: str, text: str, model_clauses: list[str | None]) -> str | None:
+    """2つの文字のAIの句の答えから決める（名詞と同じ形）：そろって形に合えば（clause_fits）その句・そろって空なら空（1つの句にできない）・ほかは None（考える
+    Sonnet に聞く）。"""
+    return _decided(model_clauses, lambda w: clause_fits(intro, text, w))

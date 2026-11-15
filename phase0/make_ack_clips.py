@@ -185,8 +185,8 @@ def question_how(text: str) -> str:
 from phrases import AGAIN_FIT, BACK_FIT, RECORDED as _RECORDED, THINKING_PROMPT_IDS  # noqa: E402
 HOW_OF.update({k: question_how(t) for k, t in BACK_FIT.items()})
 # システムの質問を戻る一言なしに伺い直す形（phrases.AGAIN_FIT＝頭「それでは」。見直し (12) の B-9）：元の一言の読み方（決まった読み方のある一言はそのまま）で、
-# 長さの上限は文の長さで選ぶ。聞き取れないまま「-」にしたお知らせの締めの前の最終の確かめ（phrases.unheard_form＝「お声が聞き取れませんでしたので先ほどの内容は…」。
-# 見直し (12) の B-1）も、伺う質問の読み方で長さの上限は文の長さで選ぶ
+# 長さの上限は文の長さで選ぶ。聞き取れないまま「-」にしたお知らせの締めの前の最終の確かめ（phrases.unheard_form＝「先ほどの件のお返事のお声が聞き取れなかった
+# のですが…」。見直し (12) の B-1・11-15 11時59分07秒の (3)）も、伺う質問の読み方で長さの上限は文の長さで選ぶ
 HOW_OF.update({k: question_how(t) if HOW_OF.get(k.removesuffix("_lead_soredeha"), "question").startswith("question") else HOW_OF[k.removesuffix("_lead_soredeha")]
                for k, t in AGAIN_FIT.items()})
 HOW_OF["announce_recheck_unheard"] = question_how(_RECORDED["announce_recheck_unheard"])
@@ -391,13 +391,15 @@ def script_table(business) -> tuple[dict, dict]:
             # 続きの電話の始めに、ご納得いただけなかった点を言っていただけなかったときの振り返りの一言（文は callback_question の recap＝phrases.recap_line の1か所。
             # 名前は flowctl.recap_recording_id）。説明の文の無いご承認の質問には作らない（振り返らずにご納得を伺う＝Flow._point_step）
             items.append((recap_recording_id(q), callback_question("other_point", recap=q).text, "recap"))
-        for dq in days if q.approval and q.announce and q.matter else ():
-            # ご承認のお知らせの最終の確かめ（文と名前は flowctl.accepted_line の1か所＝「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」・
-            # 「番号_accepted」・日によって変わる言い方の質問は「番号_d番号_accepted」。名詞の決まらないお知らせは共通の一言の録音 announce_recheck）。
-            # ✅ 2026-11-14 日本時間14時31分38秒「●伺い10」
-            items.append((*accepted_line(dq), "question"))
-            # 聞き取れないまま「-」にしたお知らせの締めの前の最終の確かめ（accepted_line の heard=False＝「お声が聞き取れませんでしたので（名詞）の件は…」・
-            # 「番号_accepted_unheard」。見直し (12) の B-1）
+        for dq in days if q.approval and q.announce and (q.matter or q.matter_clause) else ():
+            if q.matter:
+                # ご承認のお知らせの最終の確かめ（文と名前は flowctl.accepted_line の1か所＝「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」・
+                # 「番号_accepted」・日によって変わる言い方の質問は「番号_d番号_accepted」。名詞の決まらないお知らせは共通の一言の録音 announce_recheck）。
+                # ✅ 2026-11-14 日本時間14時31分38秒「●伺い10」
+                items.append((*accepted_line(dq), "question"))
+            # 聞き取れないまま「-」にしたお知らせの締めの前の最終の確かめ（accepted_line の heard=False＝「（お知らせの中身を常体にした句）件のお返事のお声が聞き取れ
+            # なかったのですが…」・句が無ければ「（名詞）の件のお返事の…」・「番号_accepted_unheard」。句も名詞も無いお知らせは共通の一言の録音
+            # announce_recheck_unheard。見直し (12) の B-1・11-15 11時59分07秒の (3)）
             line = accepted_line(dq, heard=False)
             items.append((*line, question_how(line[1])))
     # 業務設定で決まる申し出（締める前の申し出 N6＝依頼主の単位の文・方法を選んでいただく N5。文と名前は flowctl.offer_questions・callback_question の1か所）と、
