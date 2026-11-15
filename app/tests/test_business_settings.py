@@ -365,12 +365,24 @@ class Check(unittest.TestCase):
     def test_ways_questions_and_the_ways_the_business_can_offer(self):
         """CL-1 の連絡帳 4-91：ご案内の方法を伺う質問か（asks_way。真偽）と、業務の「ご案内できる方法」（offer_ways。業務で1つ・無くてもよい）。
         どの名前も、ご連絡の方法がちょうど1つに当たり（means_in＝会話の側の flowctl.means_in と同じ決まり）、同じ方法を2つ書かない。質問ごとに
-        渡すのは `offer_ways_of` の1か所（ご案内の方法を伺う質問だけ）。"""
+        渡すのは `offer_ways_of` の1か所（ご案内の方法を伺う質問と、答えのあとにほかのご希望 W1 を伺いうる質問＝CL-1 の連絡帳 4-168 の (4)・
+        ✅ 2026-11-15 ユーザー（伺い27）。決まりは会話の側の flowctl.may_wish と同じ `wish_may_follow`：選ぶ質問の「どれも要らない」・最終目的の断る答え）。"""
+        ways = ("メール", "LINE", "Zoom")
         r = raw()
         r["questions"][1]["asks_way"] = True
-        r["offer_ways"] = ["メール", "LINE", "Zoom"]
+        r["offer_ways"] = list(ways)
         s = bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
-        self.assertEqual([s.offer_ways_of(q) for q in s.questions], [(), ("メール", "LINE", "Zoom")])
+        self.assertEqual([s.offer_ways_of(q) for q in s.questions], [ways, ways])   # Q1＝選ぶ質問（「どれも要らない」が返りうる）・Q2＝方法を伺う質問
+        for asks_fact, goal, got in ((True, True, ways), (True, False, ()), (False, False, ways)):
+            with self.subTest(asks_fact=asks_fact, final_goal=goal):   # 事実を伺う質問には「どれも要らない」が無い＝最終目的の断る答えのときだけ
+                r2 = raw()
+                r2["questions"][0].update(asks_fact=asks_fact, final_goal=goal, declines=["しない"] if goal else [])
+                r2["offer_ways"] = list(ways)
+                s2 = bs.check(r2, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+                self.assertEqual(s2.offer_ways_of(s2.questions[0]), got)
+        # ご承認の質問（説明した内容のご承認。いいえはご承認いただけない＝断る答え）は、ご納得いただけなかった点を伺う道で、ほかのご希望を伺わない
+        approval = bs.Question("Q9", "以上でよろしいでしょうか？", None, "yes_no", True, bs.YES_NO_CHOICES, approval=True, final_goal=True)
+        self.assertEqual((bs.wish_may_follow(approval), s.offer_ways_of(approval)), (False, ()))
         self.assertEqual(bs.means_in("ｚｏｏｍ"), ["online"])                     # 大文字・半角にそろえて見る
         for ways, word in ((["パンフレット"], "どれか1つ"), (["メールかLINE"], "2つ以上"), (["メール", "MAIL"], "同じ方法"),
                            ("メール", "名前の並び"), ([" "], "名前の並び")):

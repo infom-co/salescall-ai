@@ -593,7 +593,7 @@ class Settings:
     # 最短の日（「N営業日以降」）。質問の `DAY_FIELDS` に `DAY_SLOT` がある業務だけ書く（必ず書く）。ほかは None
     earliest: Earliest | None = None
     # ご案内できる方法（お客様に言う名前のまま。例 ("メール", "LINE", "ZOOM")。業務で1つ。無くてもよい。CL-1 の連絡帳 4-91 の (1)＝✅ 2026-11-05
-    # 日本時間23時19分06秒 ユーザー「案でOK」）。どの名前も、ご連絡の方法がちょうど1つに当たる（`means_in`）。質問ごとに渡すのは `offer_ways_of`
+    # 日本時間23時19分06秒 ユーザー「案でOK」）。どの名前も、ご連絡の方法がちょうど1つに当たる（`means_in`）。質問ごとに渡すのは `offer_ways_of`（ご案内の方法を伺う質問と、ほかのご希望を伺いうる質問）
     offer_ways: tuple[str, ...] = ()
     # 営業に引き継ぐ架電の、詳しい者からの改めてのお話の方法（名前の並び。例 ("訪問", "オンラインでのご説明", "お電話", "セミナーへのご参加")。空＝営業に引き継がない
     # 架電。会話の側の instruction.Business.handoff_ways。CL-1 の連絡帳 4-122＝✅ 2026-11-09 日本時間4時36分49秒 ユーザー）。ご承認が最終目的のご承認の手順を
@@ -626,9 +626,11 @@ class Settings:
                            role=kind in ("role", "role_and_name") and role is None)
 
     def offer_ways_of(self, question: Question) -> tuple[str, ...]:
-        """その質問で申し出るご案内の方法（会話の側の Question.offer_ways に渡すもの。決めるのはここだけ）：ご案内の方法を伺う質問なら業務の
-        「ご案内できる方法」、ほかの質問は無し（業務の欄は業務で1つ＝質問ごとに写して持たない）。"""
-        return self.offer_ways if question.asks_way else ()
+        """その質問で申し出る・並べて伺うご案内の方法（会話の側の Question.offer_ways に渡すもの。決めるのはここだけ）：ご案内の方法を伺う質問と、
+        答えのあとにほかのご希望（W1）を伺いうる質問（`wish_may_follow`）なら業務の「ご案内できる方法」、ほかの質問は無し（業務の欄は業務で1つ＝
+        質問ごとに写して持たない）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い27）「業務上、対応できるものであれば、ア」＝W1 で方法を言わずに
+        「送ってほしい」と言われたら、業務の方法を並べて1回伺う（CL-1 の連絡帳 4-168 の (4)）。⛔ それまでは、ご案内の方法を伺う質問にだけ渡していた"""
+        return self.offer_ways if question.asks_way or wish_may_follow(question) else ()
 
 
 KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voicemail_message", "ai_answer", "answers", "voice",
@@ -907,6 +909,14 @@ def possible_answers(q: Question) -> tuple[str, ...]:
     可能性を確かめる＝通話の答えには残らないが、判定の選べるもの・会話AIの宣言に出る）。"""
     business = q.type == "choice" and not q.asks_fact
     return q.choices + ((ANY_CHOICE, NONE_CHOICE) if business else (ANY_CHOICE,) if q.maybe else ()) + SYSTEM_CHOICES
+
+
+def wish_may_follow(q: Question) -> bool:
+    """その質問の答えのあとに、ほかのご希望（W1）を伺いうるか（1か所。会話の側の同じ決まりは CL-1 の `flowctl.may_wish`）：選択肢で答える業務の
+    質問（ご承認の質問を除く）で、「どれも要らない」が返りうるもの・最終目的の申し出で、選択肢に断る答えのあるもの（はい／いいえも）。"""
+    if q.approval or q.type not in CHOICE_TYPES:
+        return False
+    return NONE_CHOICE in possible_answers(q) or (q.final_goal and bool(declined_answers(q) & set(q.choices)))
 
 
 def declined_answers(q: Question) -> frozenset[str]:
