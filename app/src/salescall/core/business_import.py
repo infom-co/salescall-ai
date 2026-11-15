@@ -650,11 +650,12 @@ RewordItems = Callable[[dict[str, Any]], list[tuple[str, tuple[str, ...], str]]]
 言葉の種類で決まる＝こちらでは決めない）。こちらは選び方を持たない（2か所にしない。`WayPairs` と同じ形）。決める処理と一緒に、つなぐ所が渡す。"""
 
 
-MatterDecider = Callable[[list[tuple[str, str]]], list[str]]
-"""ご承認のお知らせの中身の名詞を決める処理（(説明＝入る一言, 質問の文) の並び → 同じ並びで名詞か空。空＝「先ほどの内容」）。決め方は CL-1 の1か所
-（`import_ai.decide_matters`＝2つのモデルがそろって説明と質問の文の中の言葉・そろわなければ考える Sonnet。考える Sonnet は referee＝つなぐ所が渡す）。渡すのは
+MatterDecider = Callable[[list[tuple[str, str]]], list[tuple[str, str]]]
+"""ご承認のお知らせの中身の名詞と、中身を常体にした句を決める処理（(説明＝入る一言, 質問の文) の並び → 同じ並びで組 (名詞, 句)。空の文＝決まらなかった。名詞が空＝
+「先ほどの内容」・句が空＝名詞の形）。名詞と句は同じ1回の問い合わせ（CL-1 の連絡帳 4-162。⛔ 2026-11-15 まで答えは名詞だけの並びだった）。決め方は CL-1 の1か所
+（`import_ai.decide_matters`＝項目ごとに2つのモデルがそろって形に合えばその言葉・そろわなければ考える Sonnet。考える Sonnet は referee＝つなぐ所が渡す）。渡すのは
 お知らせの文と同じご承認を伺う質問だけ（`_decided_approvals` の1か所）。管理者も契約者も確かめない。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10」
-（CL-1 の連絡帳 4-154）"""
+（CL-1 の連絡帳 4-154）・2026-11-15 日本時間11時59分07秒「・(3)今：…」（4-162）"""
 
 
 AlternativesDecider = Callable[[list[tuple[Any, ...]]], list[tuple[str, tuple[str, ...]]]]
@@ -698,20 +699,31 @@ def _announce_key(intro: str, text: str) -> str:
     return json.dumps([intro, text], ensure_ascii=False)
 
 
-def _decided_approvals(raw: dict[str, Any], key: str, decide: AnnounceDecider | MatterDecider | None) -> dict[str, str]:
-    """ご承認を伺う質問ごとに、その欄（key＝business_settings.APPROVAL_ONLY_KEYS のお知らせの文 announce・お知らせの中身の名詞 matter）を決める処理に1回だけ
-    聞く（1か所。答え＝入る一言と質問の文 → 文。決まらない・形の違う答えは入れない＝今の形）。聞くのは、ご承認を伺う質問（approval が真）で、その欄がまだ
-    入口から来ていないもの（CL-1 の連絡帳 4-150・4-154：「(説明, 質問の文) の並び」。渡すのは approval の質問だけ）。"""
+def _decided_approvals(raw: dict[str, Any], keys: tuple[str, ...], decide: AnnounceDecider | MatterDecider | None,
+                       read: Callable[[Any], Any]) -> dict[str, Any]:
+    """ご承認を伺う質問ごとに、その欄（keys＝business_settings.APPROVAL_ONLY_KEYS のお知らせの文 announce・同じ1回の問い合わせで決まるお知らせの中身の名詞
+    matter と句 matter_clause）を決める処理に1回だけ聞く（1か所。答え＝入る一言と質問の文 → read で読んだ答え。決まらない・形の違う答えは入れない＝今の形）。
+    聞くのは、ご承認を伺う質問（approval が真）で、その欄がどれもまだ入口から来ていないもの（`_decided_items` と同じ決まり。CL-1 の連絡帳 4-150・4-154・4-162：
+    「(説明, 質問の文) の並び」。渡すのは approval の質問だけ）。"""
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     pairs = list(dict.fromkeys((q.get("intro") if isinstance(q.get("intro"), str) else "", q["text"]) for q in qs
-                               if isinstance(q, dict) and q.get("approval") is True and _ai_empty(q, key)
+                               if isinstance(q, dict) and q.get("approval") is True and all(_ai_empty(q, k) for k in keys)
                                and isinstance(q.get("text"), str) and q["text"].strip()))
     if not pairs or decide is None:
         return {}
     got = decide(pairs)
     if not isinstance(got, list) or len(got) != len(pairs):
         return {}
-    return {_announce_key(i, t): s.strip() for (i, t), s in zip(pairs, got) if isinstance(s, str) and s.strip()}
+    return {_announce_key(i, t): x for (i, t), a in zip(pairs, got) if (x := read(a)) is not None}
+
+
+def _matter(answer: Any) -> list[str] | None:
+    """お知らせの中身の決める処理の答えの1つ＝組 (名詞, 句) を読む（[名詞, 句] か None＝決まらない・形が違う）。片方だけ決まったときは、もう片方は空の文
+    （会話の側は句が空なら名詞の形・名詞が空なら「先ほどの内容」＝CL-1 の flowctl.accepted_line）。どちらも空なら決まらない。"""
+    if not (isinstance(answer, (tuple, list)) and len(answer) == 2 and all(isinstance(x, str) for x in answer)):
+        return None
+    noun, clause = answer[0].strip(), answer[1].strip()
+    return [noun, clause] if noun or clause else None
 
 
 def _decided_since(s: business_settings.Settings, decide: SinceDecider | None) -> dict[str, str]:
@@ -725,7 +737,8 @@ def _decided_since(s: business_settings.Settings, decide: SinceDecider | None) -
 
 
 def _reworded(answer: Any) -> str | None:
-    """言い換えた質問の決める処理の答えの1つを読む（文か None＝決まらない・形が違う＝「ところで」＋元の質問の文）。"""
+    """文1つを答える決める処理（言い換えた質問・お知らせの文）の答えの1つを読む（文か None＝決まらない・形が違う＝今の形。言い換えた質問なら「ところで」＋元の
+    質問の文・お知らせの文ならそのまま伺う形）。"""
     return answer.strip() if isinstance(answer, str) and answer.strip() else None
 
 
@@ -1066,7 +1079,7 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
     "unclear": 質問の文と選択肢 → ほかに分からない点は無いにあたる選択肢か空（選ぶ質問すべて）, "ways": 質問の文 → ご案内の方法を伺う質問か,
     "maybes": 質問の文と選択肢 → どちらの場合もありうるときに確かめる [選択肢, 言葉] か空（選ぶ質問すべて）, "purposes": 用件の一文 → 用件の名詞,
     "announces": 入る一言と質問の文 → ご承認のお知らせの文（ご承認を伺う質問だけ）, "at_hand": 質問の文と選択肢 → 資料がお手元に届いているにあたる選択肢か空
-    （選ぶ質問すべて）, "matters": 入る一言と質問の文 → ご承認のお知らせの中身の名詞（お知らせの文と同じ質問）}。確かめに通った中身から決めるもの（方法を
+    （選ぶ質問すべて）, "matters": 入る一言と質問の文 → ご承認のお知らせの中身の [名詞, 句]（お知らせの文と同じ質問）}。確かめに通った中身から決めるもの（方法を
     申し出の中身に入れる言い方・その後の文の中身・言い換えた質問・選択肢を並べた文）は `_decided_later`。
     締める前の申し出（入口がこちらがすることを書いていないとき）は、会話の側が N6 で使う意味の言葉（offer_question）を持つはい／いいえの質問として、
     こちらがすることの言葉の聞く並びに入れる（`_with_offer`。同じ1回の問い合わせで、業務の選ぶ質問と同じ決め方。意味の言葉は聞かない）。方法を申し出の
@@ -1088,9 +1101,9 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
             "ways": _decided_ways(sorted({q["text"] for q in _undecided(raw, "asks_way")}), decide_ways),
             "maybes": _decided_maybes(raw, decide_maybes),
             "purposes": _decided_purposes(raw, decide_purposes),
-            "announces": _decided_approvals(raw, "announce", decide_announces),
+            "announces": _decided_approvals(raw, ("announce",), decide_announces, _reworded),
             "at_hand": _decided_choice(raw, "at_hand", decide_at_hand),
-            "matters": _decided_approvals(raw, "matter", decide_matters)}
+            "matters": _decided_approvals(raw, ("matter", "matter_clause"), decide_matters, _matter)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -1209,8 +1222,9 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         text = q.get("text") if isinstance(q.get("text"), str) else None
         approval = _announce_key(q.get("intro") if isinstance(q.get("intro"), str) else "", text) if q.get("approval") is True and text else None
         listed = (ai.get("alternatives") or {}).get(text) or [None, None]
+        matter = (ai.get("matters") or {}).get(approval) or [None, None]
         found = {"since": (ai.get("since") or {}).get(text), "reworded": (ai.get("rewords") or {}).get(text),
-                 "announce": (ai.get("announces") or {}).get(approval), "matter": (ai.get("matters") or {}).get(approval),
+                 "announce": (ai.get("announces") or {}).get(approval), "matter": matter[0], "matter_clause": matter[1],
                  "alternatives": listed[0], "alternatives_led": listed[1]}
         for key in business_settings.AI_ONLY_KEYS:
             if _ai_empty(q, key) and found.get(key):

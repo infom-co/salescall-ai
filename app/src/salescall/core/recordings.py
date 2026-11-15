@@ -429,7 +429,14 @@ COMMON_PARTS: tuple[str, ...] = (
     "callback_number_lead_soredeha", "callback_other_point_2_lead_soredeha", "callback_other_point_lead_soredeha",
     "callback_other_point_which_lead_soredeha", "callback_other_point_which_recap_lead_soredeha", "callback_reachable_time_lead_soredeha",
     "callback_refusal_lead_soredeha", "callback_theirs_time_lead_soredeha", "callback_transfer_time_lead_soredeha",
-    "callback_wait_or_later_lead_soredeha")
+    "callback_wait_or_later_lead_soredeha",
+    # CL-1 の連絡帳 4-161（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「伺い17はアでOK」）：お言葉に甘えて受けたあと、不在のほかの理由でも伺う一言（文の正本は
+    # CL-1 の phrases.CALLBACK_ASK の同じ名前の役目）＝お休みの「次のご出社はいつか」theirs_workday・長期の不在の「いつごろお戻りのご予定か」theirs_date・今は
+    # お電話に出られないご事情とあとでの「いつ頃お電話をいただけそうか」theirs_later（同じ文なので1本）。ほかのかけ直しの質問と同じく、3回目から戻るときの形
+    # （_midway＝phrases.BACK_FIT）と頭「それでは」の形（_lead_soredeha＝phrases.AGAIN_FIT）も付く（9本）
+    "callback_theirs_workday", "callback_theirs_date", "callback_theirs_later",
+    "callback_theirs_workday_midway", "callback_theirs_date_midway", "callback_theirs_later_midway",
+    "callback_theirs_workday_lead_soredeha", "callback_theirs_date_lead_soredeha", "callback_theirs_later_lead_soredeha")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

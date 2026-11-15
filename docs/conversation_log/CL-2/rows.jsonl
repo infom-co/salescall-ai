@@ -3423,3 +3423,26 @@
 {"at": "2026-11-15T12:32:02+09:00", "who": "CL-2", "text": "28本を足し、取込の受け口と「{最短の日}」の確かめも直しました。いまは、新しい試験と壊し試しで、守りが効いているかを確かめています。"}
 {"at": "2026-11-15T12:36:39+09:00", "who": "CL-2", "text": "試験と壊し試しは、どれも合格です。CL-1 の比べる試験で落ちたのも、前からの1件だけでした。いまから、設計書と連絡帳に記録を書きます。"}
 {"at": "2026-11-15T12:36:45+09:00", "who": "CL-2", "text": "Now writing the design rows, the 3-7 section, the version and the notebook entry."}
+{"at": "2026-11-15T12:37:55+09:00", "who": "CL-2", "text": "CL-1 の返事を読み、新しい連絡 4-159・4-160 をこちらの作りに取り込みました。その途中で、こちらの穴を2つ見つけて直しました。ブランチに上げてあります（49045f1b）。\n\n**CL-1 の返事**\n- 新しい連絡は2つです。4-159 は共通の一言の録音が28本増えたこと、4-160 は録音の名前と取込の渡し方が変わったことです。\n- こちらから送った次の2つには、まだ返事がありません。\n  - 計画書 9-4 に、戻る時刻を伺うことを書いてもらうお願い。\n  - 「それでは先ほどの内容は…」の一言の文が変わった件。\n\n**見つけて直した穴（2つ）**\n1. **業務設定を登録できないことがあった**\n   - 業務設定の質問には「{最短の日}」と書けます。電話の日に合わせて、会話の側が「明日以降」などの言い方に置き換える場所です。\n   - CL-1 の取込の AI は、お知らせの文などを作るとき、この「{最短の日}」を残します。ところが、こちらの確かめは「質問の文と入る一言にしか書けない」としていました。そのため、AI が作った文に「{最短の日}」が残ると、業務設定の登録が止まっていました。\n   - これは今回の変更より前からあった穴で、お知らせの文ができたとき（版 1.45）からありました。\n   - 直し方：置き換える欄の一覧を、CL-1 と同じ1か所（`DAY_FIELDS`）に持たせました。書いてよいかの確かめと、「最短の日」の設定が要るかの確かめの両方が、この一覧を読みます。\n2. **取込が止まるところだった**\n   - CL-1 は、選択肢を並べた文を決める処理に渡す並びへ、4つ目の印「先に並べた文を作るか」を足しました。\n   - こちらの受け口は並びを3つに切り詰めて読むので、4つ目が来ると止まります。\n   - 直し方：4つ目は読まずに、そのまま渡すようにしました。どの質問で作るかを決めるのは CL-1 の1か所だけで、こちらには同じ決まりを写していません。\n\n**取り込んだもの**\n- 共通の一言の録音28本：聞き取れなかったお知らせを締めの前に確かめる一言と、かけ直しの質問の頭に「それでは」を付けた形27本です。そろうまで、その声では話しません。\n- 業務ごとの録音の名前の変わりは、CL-1 の一覧からそのまま入ります。こちらは変える所がありません。\n\n**確かめた結果**\n- 新しい試験3つを含む関係の試験40件は合格しました。\n- 関係する壊し試し33個は、すべて試験で落ちました。守りが効いています。\n- 見張りの決まりにも問題はありません。\n- CL-1 の最新の試験と突き合わせると、落ちたのは前からの1件だけでした。合意のとおり、こちらで作っていない受け口の分です。\n- 全部の試験は、いま3つの組で流しています。2時間近くかかる見込みで、結果はまだ出ていません。\n\n**CL-1 への連絡（連絡帳 4-397）**\n今回の穴（1）は、こちらと CL-1 で欄の一覧がずれたことが原因です。こちらの試験は CL-1 のコードを読まないので、またずれても気づけるのは CL-1 の比べる試験だけです。そこで、2つの一覧が同じかを確かめる試験を足してもらうよう頼みました。\n\n全部の試験の結果が出たら、お知らせします。"}
+{"at": "2026-11-15T14:01:53+09:00", "who": "CL-2", "text": "全部の試験が合格しました。区切りなので、CL-1 の連絡帳に新しい返事が来ていないか確かめます。"}
+{"at": "2026-11-15T14:02:03+09:00", "who": "CL-2", "text": "CL-1 から新しい連絡が3つ届いています（4-161・4-162・4-163）。順に、こちらの受け口がどうなっているかを確かめます。"}
+{"at": "2026-11-15T14:02:50+09:00", "who": "CL-2", "text": "全部の試験は3組とも合格でした。いま、CL-1 から新しく届いた連絡3つ（4-161〜4-163）を、こちらの作りと突き合わせています。"}
+{"at": "2026-11-15T14:02:59+09:00", "who": "CL-2", "text": "Now let me look at my receiving side for decide_matters and the alternatives pair handling, which already reads a pair."}
+{"at": "2026-11-15T14:03:45+09:00", "who": "CL-2", "text": "Let me check the actual behavior for the new reasons (お休み・長期の不在・ご事情・あとで) with a quick script."}
+{"at": "2026-11-15T14:05:14+09:00", "who": "CL-2", "text": "Now the import receiving side."}
+{"at": "2026-11-15T14:05:47+09:00", "who": "CL-2", "text": "Now the 9 recording names (4-161)."}
+{"at": "2026-11-15T14:05:56+09:00", "who": "CL-2", "text": "Next, the tests. Let me read the existing matter tests to extend them."}
+{"at": "2026-11-15T14:06:07+09:00", "who": "CL-2", "text": "Fixtures must list every question key exactly, so I'll add the new key to them in one pass."}
+{"at": "2026-11-15T14:06:11+09:00", "who": "CL-2", "text": "Now update the business_settings tests (DAY_FIELDS equality, approval-only check, old-version read) and the import test."}
+{"at": "2026-11-15T14:06:36+09:00", "who": "CL-2", "text": "Now the import test: update the old matters fixture to the pair form and add a pair-specific test."}
+{"at": "2026-11-15T14:06:56+09:00", "who": "CL-2", "text": "Now the recordings test for the 9 names (4-161)."}
+{"at": "2026-11-15T14:07:08+09:00", "who": "CL-2", "text": "Now run the related tests."}
+{"at": "2026-11-15T14:10:24+09:00", "who": "CL-2", "text": "Test bug only (my test's dict construction). Fixing."}
+{"at": "2026-11-15T14:10:40+09:00", "who": "CL-2", "text": "Now the comparison against CL-1's latest code (CL-1's test, with the pending lists emptied)."}
+{"at": "2026-11-15T14:12:21+09:00", "who": "CL-2", "text": "Only the two expected ones remain: `matter_clause` is no longer pending on my side (CL-1 should now remove it), and the long-standing `decide_target_asks`. Let me also run CL-1's unmodified test."}
+{"at": "2026-11-15T14:14:14+09:00", "who": "CL-2", "text": "Several old break-tests point at text I changed. I'll repoint them and add new ones for the new code."}
+{"at": "2026-11-15T14:15:14+09:00", "who": "CL-2", "text": "Quick checks pass. Now run the related tests, then the related break-tests."}
+{"at": "2026-11-15T14:19:17+09:00", "who": "CL-2", "text": "22 caught. My filter skipped 4 new/changed ones; running those too."}
+{"at": "2026-11-15T14:19:52+09:00", "who": "CL-2", "text": "All 28 related break-tests are caught. Next I'll look at CL-1's 4-163 request (checking for new AI versions) and how the import's AI names are held on my side."}
+{"at": "2026-11-15T14:21:02+09:00", "who": "CL-2", "text": "Now the design notes and my notebook for this part (version 1.49), then commit."}
+{"at": "2026-11-15T14:21:48+09:00", "who": "CL-2", "text": "Now commit and push this part."}

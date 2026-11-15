@@ -853,7 +853,7 @@ class Import(unittest.TestCase):
     def test_the_matter_and_the_alternatives_are_asked_once_and_kept_at_registration(self):
         """CL-1 の連絡帳 4-154・4-156・4-157（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」・22時15分15秒・23時45分00秒「伺い16はイでOK」）：
         - お知らせの中身の名詞（matter）：ご承認を伺う質問の (入る一言, 質問の文) を decide_matters（CL-1 の import_ai.decide_matters）に1回だけ（お知らせの文
-          announce と同じ並べ方の1か所）。答えは同じ並びの名詞（空＝「先ほどの内容」）。
+          announce と同じ並べ方の1か所）。答えは同じ並びの組 (名詞, 句)（空＝「先ほどの内容」。句＝matter_clause は 4-162＝下の試験）。
         - 選択肢を並べた文（alternatives）と先に並べた文の並び（alternatives_led）：会話の側が並べた (質問の文, 選択肢, 型)（alternatives_items＝CL-1 の
           flowctl.alternatives_fits。つなぐ所が渡す）を decide_alternatives に、確かめに通った中身から1回だけ（言い換えた質問 reworded と同じ1か所）。答えは
           質問ごとの組 (質問の順の文, 先に並べた文の並び)：1つ目を alternatives、2つ目をそのまま alternatives_led へ（決まらなかった選択肢の空の文も番目のまま）。
@@ -867,7 +867,7 @@ class Import(unittest.TestCase):
 
         def matters(pairs):
             asked["matters"].append(pairs)
-            return ["前日までのお支払い" for _ in pairs]
+            return [("前日までのお支払い", "") for _ in pairs]
 
         def items_of(content):
             asked["items"].append([q["id"] for q in content["questions"]])
@@ -893,9 +893,9 @@ class Import(unittest.TestCase):
                 p = self.preview(data, decide_alternatives=lambda items, a=answer: [a for _ in items], alternatives_items=items_of)
                 self.assertEqual((p.problems, (p.raw["questions"][0]["alternatives"], p.raw["questions"][0]["alternatives_led"])), ([], kept))
         # 決まらない・形の違う答え・決める処理が無い＝空
-        for bad_m, bad_a in ((lambda p: [""], lambda i: [("", ("",))]), (lambda p: None, lambda i: None), (lambda p: [1], lambda i: [listed]),
-                             (lambda p: ["a", "b"], lambda i: [(listed, led)]), (lambda p: [], lambda i: [(listed, (led,)), (listed, (led,))]),
-                             (lambda p: [" "], lambda i: [(listed, (1,))]), (lambda p: [None], lambda i: [(1, (led,))])):
+        for bad_m, bad_a in ((lambda p: [("", "")], lambda i: [("", ("",))]), (lambda p: None, lambda i: None), (lambda p: [1], lambda i: [listed]),
+                             (lambda p: [("a", "b"), ("c", "d")], lambda i: [(listed, led)]), (lambda p: [], lambda i: [(listed, (led,)), (listed, (led,))]),
+                             (lambda p: [(" ", " ")], lambda i: [(listed, (1,))]), (lambda p: [None], lambda i: [(1, (led,))])):
             with self.subTest(bad=(bad_m, bad_a)):
                 p = self.preview(data, decide_matters=bad_m, decide_alternatives=bad_a, alternatives_items=items_of)
                 self.assertEqual((p.problems, [(q["matter"], q["alternatives"], q["alternatives_led"]) for q in p.raw["questions"]]),
@@ -916,6 +916,44 @@ class Import(unittest.TestCase):
                                                    alternatives_items=items_of))
         self.assertEqual((got.problems, len(asked["matters"]), len(asked["alternatives"])), ([], 1, 1))
         self.assertEqual([(q["matter"], q["alternatives"], q["alternatives_led"]) for q in got.raw["questions"]], want)
+
+    def test_the_matter_and_its_clause_are_decided_by_one_question(self):
+        """CL-1 の連絡帳 4-162（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「・(3)今：…」）：decide_matters（CL-1 の import_ai.decide_matters）の答えは、ご承認を伺う
+        質問ごとの組 (お知らせの中身の名詞, 中身を常体にした句)。1つ目を matter、2つ目を matter_clause へ（同じ1回の問い合わせ＝こちらも1回だけ聞く）。片方だけ
+        決まったときは、もう片方は空（会話の側は句が空なら名詞の形・名詞が空なら「先ほどの内容」）。どちらも空・形の違う答え（名詞だけの文・3つの組・文字でない）は
+        入れない。入口がどちらかを持ってきた質問は聞かない（`_decided_items` と同じ決まり）。登録はプレビューの答えのまま。⛔ 2026-11-15 まで答えは名詞の文の並びで、
+        組が来ると名詞も句も入らなかった。"""
+        clause = "キャンセルは前日までにご連絡いただく必要がある"
+        q3, intro = self.APPROVAL_QUESTIONS[3][1], self.APPROVAL_QUESTIONS[3][8]
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        for answer, want in ((("キャンセル", clause), ("キャンセル", clause)), (("キャンセル", ""), ("キャンセル", "")),
+                             (("", f" {clause} "), ("", clause)), (("", ""), ("", "")), ("キャンセル", ("", "")),
+                             (("キャンセル", clause, "x"), ("", "")), (("キャンセル", 1), ("", "")), (["キャンセル", clause], ("キャンセル", clause))):
+            with self.subTest(answer=answer):
+                asked = []
+
+                def matters(pairs, a=answer):
+                    asked.append(pairs)
+                    return [a for _ in pairs]
+                p = self.preview(data, decide_matters=matters)
+                self.assertEqual((p.problems, asked), ([], [[(intro, q3)]]))
+                self.assertEqual([(q["matter"], q["matter_clause"]) for q in p.raw["questions"]], [("", "")] * 2 + [want])
+                if answer == ("キャンセル", clause):
+                    v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+                    got = self.tx(lambda tx: bs.load(tx, v))
+                    self.assertEqual([(q.matter, q.matter_clause) for q in got.questions], [("", "")] * 2 + [want])
+                    self.assertEqual(len(asked), 1)   # 登録は聞き直さない
+        # 入口が名詞か句のどちらかを持ってきた質問は聞かない（持ってきたほうはそのまま・無いほうは空）
+        p = self.preview(data, decide_matters=lambda pairs: [("キャンセル", clause) for _ in pairs])
+        for given in ({"matter": "お支払い"}, {"matter_clause": "お支払いは前日までになる"}):
+            with self.subTest(given=given):
+                asked = []
+                raw = dict(p.raw, questions=[{**q, "matter": "", "matter_clause": "", **(given if q["id"] == "Q3" else {})} for q in p.raw["questions"]])
+                got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], raw,
+                                                           decide_matters=lambda pairs: asked.append(pairs) or [("キャンセル", clause) for _ in pairs]))
+                self.assertEqual((got.problems, asked), ([], []))
+                self.assertEqual((got.raw["questions"][2]["matter"], got.raw["questions"][2]["matter_clause"]),
+                                 (given.get("matter", ""), given.get("matter_clause", "")))
 
     def test_the_alternatives_items_pass_the_fourth_mark_through(self):
         """CL-1 の連絡帳 4-160：会話の側が並べる (質問の文, 選択肢, 型) に、4つ目「先に並べた文を作るか」（CL-1 の flowctl.leads_fit の1か所）が付きうる。
