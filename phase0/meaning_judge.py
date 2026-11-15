@@ -1245,8 +1245,10 @@ class Spend:
         return (self.TYPICAL_TOKENS[0] * p_in + self.TYPICAL_TOKENS[1] * p_out) / 1e6 * YEN_PER_USD
 
     def check(self) -> None:
-        if self.limit is not None and self.yen >= self.limit:
-            raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.0f}円）に達したので送りません（--budget-yen）")
+        from common import trial_yen
+
+        if self.limit is not None and trial_yen(self) >= self.limit:
+            raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.0f}円）に達したので送りません（--budget-yen・この試しの帳簿の和）")
 
     def add(self, model: str, usage, factor: float = 1.0) -> None:
         """返事の使った量を数える。factor＝料金の掛け目（まとめて送る測り＝BATCH_FACTOR。書き込み・読み出しも同じく半分）。1時間もつ形の
@@ -1336,11 +1338,13 @@ class KeySpend:
         """送る前に上限を確かめ、この回の見込みの円（yen。無ければ PRIOR_YEN）を数える。"""
         if self.limit is None:
             return
+        from common import trial_yen
+
         self.refresh()
         cost = self.PRIOR_YEN if yen is None else yen
         with self._lock:
-            if self.yen + cost > self.limit:
-                raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.1f}円）に達するので送りません（--budget-yen・鍵の使った額の見込み）")
+            if trial_yen(self) + cost > self.limit:
+                raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.1f}円）に達するので送りません（--budget-yen・この試しの帳簿の和）")
             self.calls[model] += 1
             self.est += cost
 
@@ -1715,7 +1719,9 @@ def batch_judge(name: str, key: str, items: list, budget: float | None = None, p
         #    見込み、実際は約30トークンの返事を1回約3円と数えて、上限の10円で止まった（先に送った2回の分は使った）
         n_out = 2 * max(outs) if outs else sample["max_tokens"]
         worst = len(rest) * (n_in * p_in + n_out * p_out) / 1e6 * BATCH_FACTOR * YEN_PER_USD
-        if SPEND.yen + worst > SPEND.limit:
+        from common import trial_yen
+
+        if trial_yen(SPEND) + worst > SPEND.limit:
             raise OtherJudgeError(None, f"まとめて送る {len(rest)}回は、前の部分が効かないと約{worst:.0f}円かかり、この試しで使ってよい料金"
                                         f"（{SPEND.limit:.0f}円）を超えるので送りません（--budget-yen）")
         say(f"まとめて送ります：{len(rest)}回（前の部分が1つも効かなくても約{worst:.0f}円まで）")

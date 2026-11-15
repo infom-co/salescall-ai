@@ -187,6 +187,15 @@ LEDGERS: list = []
 DEV_BUDGET_YEN = 100.0   # 試しで有料の判定に使ってよい円の初めの値（--budget-yen）。大きな測りは、見込みの円を出してから上げる
 
 
+def trial_yen(ledger) -> float:
+    """この試しで使った円（唯一の数え方）＝帳簿の並び（LEDGERS）にある帳簿すべての円の和。上限（--budget-yen）は1つの試しに1つなので、どの帳簿も
+    送る前にこの和で上限を確かめる（⛔ 2026-11-15：帳簿ごとに自分の円だけで上限を見ていたので、返事の使った量の帳簿（Anthropic・SubQ）と鍵の帳簿
+    （OpenRouter）を同じ試しで使うと、合わせて上限の2倍まで使えた）。並びに入っていない帳簿は、その帳簿の円だけ（ほかの試しの帳簿を数えない）。"""
+    if not any(ledger is other for other in LEDGERS):
+        return ledger.yen
+    return sum(other.yen for other in LEDGERS)
+
+
 # 料金の帳簿の、見込みの円の項目名（唯一の場所。meaning_judge.KeySpend.summary が入れ、save_result が表示する）
 EST_YEN = "見込みの円（送った回の見込みの和と額の差の大きいほう）"
 

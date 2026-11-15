@@ -4198,6 +4198,39 @@ class AmbiguousAnswerTest(unittest.TestCase):
         with self.assertRaises(OtherJudgeError):   # 読めなければ送らない
             ks.check("m")
 
+    def test_budget_is_kept_over_all_ledgers_of_the_trial(self):
+        # ⛔ 2026-11-15（伺い19 ア の小さな試しの前に見つけた）：--budget-yen は1つの試しに1つなのに、返事の使った量の帳簿（SPEND＝Anthropic・
+        #    SubQ）と鍵の帳簿（KEY_SPEND＝OpenRouter）が、それぞれ自分の円だけで上限を見ていた＝同じ試しで両方を使うと、合わせて上限の2倍まで
+        #    使えた ⇒ どの帳簿も、同じ試しの帳簿の並び（common.LEDGERS）の円の和で上限を確かめる（common.trial_yen の1か所）
+        import common
+        import meaning_judge as mj
+
+        old = list(common.LEDGERS)
+        try:
+            usage = mj.Spend()
+            usage.limit = 1.0
+            usage.add("subq-snap-1.2", {"input_tokens": 100_000, "output_tokens": 0})   # 0.6円
+            keys = mj.KeySpend(read=lambda: 1.0)
+            keys.EVERY_S = 0.0
+            keys.bind("dummy", 1.0)
+            common.LEDGERS[:] = [usage, keys]
+            keys.check("m", 0.3)   # 0.6＋0.3＝0.9円：送る
+            with self.assertRaises(mj.OtherJudgeError):   # 0.9＋0.35＝1.25円：鍵の帳簿の側でも送らない（自分の円は 0.65円）
+                keys.check("m", 0.35)
+            self.assertEqual(keys.calls["m"], 1)
+            usage.check()   # 合わせて 0.9円：送る
+            usage.add("subq-snap-1.2", {"input_tokens": 50_000, "output_tokens": 0})   # 合わせて 1.2円
+            with self.assertRaises(mj.OtherJudgeError):   # 返事の使った量の帳簿の側でも送らない（自分の円は 0.9円）
+                usage.check()
+            self.assertAlmostEqual(common.trial_yen(usage), 1.2, places=9)
+            # 帳簿の並びに入っていない帳簿は、自分の円だけで見る（ほかの試しの帳簿を数えない）
+            alone = mj.Spend()
+            alone.limit = 1.0
+            alone.check()
+            self.assertEqual(common.trial_yen(alone), 0.0)
+        finally:
+            common.LEDGERS[:] = old
+
     def test_usage_priced_decision_judge_is_metered_by_the_tokens_in_its_reply(self):
         # ✅ 2026-11-15 日本時間12時39分31秒「伺い19はアでOK」：上限45円の小さな試しに SubQ Snap 1.2（SubQ の判断の窓口＝OpenRouter ではない）を
         #    入れる。⛔ それまでは、OpenRouter のほかの判断の窓口は使った額を数える道が無く、--budget-yen つきでは送れなかった ⇒ 返事に使った量
