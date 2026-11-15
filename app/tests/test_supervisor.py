@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from dataclasses import replace
 
-from salescall.core import (attempts, backup, business_rules, call_report, calling_hours, conversation_io, fix_requests, gate,
+from salescall.core import (ai_versions, attempts, backup, business_rules, call_report, calling_hours, conversation_io, fix_requests, gate,
                             health, help_texts, leases, migrate, next_action, notify, quality_stage, registry, ring_test, scheduler,
                             settings, stops)
 from salescall.core import health_rules as hr
@@ -111,6 +111,18 @@ class Prober:
 
 def make_prober():
     return Prober()
+
+
+VERSION_ROWS: list = []   # 試験の AI の版の確かめの部品が返す行（CL-1 の latest_ai.check の行の形）
+
+
+class VersionChecker:
+    def check(self):
+        return [dict(r) for r in VERSION_ROWS]
+
+
+def make_version_checker():
+    return VersionChecker()
 
 
 class FakeLinks(NoLinks):
@@ -2467,9 +2479,9 @@ class Main(SupervisorBase):
         bare = here(self.cfg(s))
         self.assertTrue({"recover", "settle", "backups", "backup_watch", "whole_backup_watch", "lasting_stops",
                          "system_lasting_stops", "pc_watch", "budget", "holidays", "fixed_stops", "month_ahead_notices"} <= bare)   # fixed_stops＝直した版で解く（0139）・month_ahead_notices＝1か月以上先のかけ直しの5分前の緊急の知らせ
-        self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks"} & bare)
+        self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks", "ai_versions"} & bare)
         full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_ADMIN_TENANT=str(uuid.uuid4()),
-                             SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p"))
+                             SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p", SALESCALL_VERSION_CHECKER="m:c"))
         self.assertEqual(full, {j.name for j in jobs.JOBS})
 
     def test_tenant_jobs_run_once_for_every_tenant_and_system_jobs_once(self):
@@ -2525,6 +2537,11 @@ class Main(SupervisorBase):
             main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1",   # 無いと、回線・会話AIの停止が自動
                                         "SALESCALL_CALL_RUNNER": "m:r", "SALESCALL_VERIFIER": "m:v"}))   # では解けない）
         self.assertIn("SALESCALL_PROBER", str(got.exception))
+        with self.assertRaises(config.ConfigMissing) as got:                   # 電話をかけるなら、使っている AI の新しい版を確かめる部品も要る
+            main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1",   # （✅ 2026-11-15 ユーザー「本番に入っても
+                                        "SALESCALL_CALL_RUNNER": "m:r", "SALESCALL_VERIFIER": "m:v",   # 10日に一回は」＝CL-1 の連絡帳 4-163）
+                                        "SALESCALL_PROBER": "m:p"}))
+        self.assertIn("SALESCALL_VERSION_CHECKER", str(got.exception))
         with self.assertRaises(config.ConfigMissing):                          # 移る間の形（この機械の中だけで待つ）は、この機械の PC の
             main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1"}))   # 部品の契約者が要る（見直し13）
 
@@ -2693,6 +2710,85 @@ class Drain(SupervisorBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AIVersions(SupervisorBase):
+    """✅ 2026-11-15 ユーザー「本番に入っても10日に一回は最新版が出ていないかを確認して、最新版が出れば置き換えてください。」（CL-1 の連絡帳 4-163。DESIGN.md 9-3）：
+    中央の見守り役が毎日1回、CL-1 の確かめの部品（`plugins.VersionChecker`）に聞き、何を知らせるかは core/ai_versions の1か所が決める。
+    新しい版・一覧に無い版＝管理者あての知らせと CL-1 への修正依頼（同じ AI の同じ版は1つ）／一覧を読めない・一覧の口が無い＝管理者あての知らせだけ
+    （同じ AI について10日ごとに1つ）／何も無い行は知らせない。"""
+
+    def row(self, name, **kw):
+        return {"役目": "判定", "名前": name, "一覧": "openrouter", "id": f"typesafe/{name}", "使っている版": f"typesafe/{name}",
+                "一覧にある": True, "新しい版": [], "別の系統で後から出たもの": [], **kw}
+
+    def told(self, name):
+        """その AI の、管理者あての知らせ（種類・要約）と、CL-1 へのまだ直していない修正依頼（種類）。"""
+        notes = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT kind, summary FROM salescall.notification_events WHERE for_admin AND refs->>'名前' = %s ORDER BY event_id", (name,)))
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r["kind"] for r in fix_requests.open_requests(tx, "CL-1") if r["refs"].get("名前") == name])
+        return [n["kind"] for n in notes], [n["summary"] for n in notes], asked
+
+    def run_check(self, s, rows):
+        VERSION_ROWS[:] = rows
+        jobs.ai_version_check(jobs.Context(self.w.a, self.cfg(s, SALESCALL_VERSION_CHECKER="tests.test_supervisor:make_version_checker"),
+                                           HOLDER, NoLinks()))
+
+    def test_a_newer_version_is_told_to_the_admin_and_asked_of_cl1_once(self):
+        s = self.ready()
+        name, quiet = f"jev-{uuid.uuid4().hex[:6]}", f"d1-{uuid.uuid4().hex[:6]}"
+        rows = [self.row(name, 新しい版=["typesafe/jev-1.15", "typesafe/jev-1.16"], 別の系統で後から出たもの=["typesafe/kev-1.0"]), self.row(quiet)]
+        self.run_check(s, rows)
+        self.run_check(s, rows)   # 次の日も同じ版 ⇒ 知らせも修正依頼も増えない
+        kinds, summaries, asked = self.told(name)
+        self.assertEqual((kinds, asked), (["ai_newer_version"], ["ai_newer_version"]))
+        self.assertIn("typesafe/jev-1.16", summaries[0])        # いちばん新しい版を知らせる
+        self.assertEqual(self.told(quiet), ([], [], []))         # 新しい版の無い AI は知らせない
+        others = self.w.a.in_system(ADMIN, lambda tx: tx.one(    # 管理者あてだけ（契約者の台帳・全体の出来事には入れない）
+            "SELECT count(*) AS n FROM salescall.notification_events WHERE NOT for_admin AND refs->>'名前' = %s", (name,)))["n"]
+        self.assertEqual(others, 0)
+        self.run_check(s, [self.row(name, 新しい版=["typesafe/jev-1.15", "typesafe/jev-1.16", "typesafe/jev-1.17"])])   # もっと新しい版 ⇒ もう1つ
+        self.assertEqual(self.told(name)[0], ["ai_newer_version"] * 2)
+
+    def test_the_check_runs_every_day_for_the_whole_system(self):
+        """毎日1回・全体の仕事（契約者ごとでない）・確かめの部品の設定があるときだけ（電話をかけるなら設定は必ず＝main.serve）。"""
+        job = next(j for j in jobs.JOBS if j.name == "ai_versions")
+        self.assertEqual((job.every, job.scope, job.work, job.parts), (86400, "system", jobs.ai_version_check, True))
+        self.assertEqual((job.wanted(config.load({"SALESCALL_DSN": "x"})), job.wanted(config.load({"SALESCALL_DSN": "x", "SALESCALL_VERSION_CHECKER": "m:c"}))),
+                         (False, True))
+
+    def test_a_version_gone_from_the_list_is_also_asked_of_cl1(self):
+        s = self.ready()
+        name = f"jev-{uuid.uuid4().hex[:6]}"
+        self.run_check(s, [self.row(name, 一覧にある=False)])
+        kinds, summaries, asked = self.told(name)
+        self.assertEqual((kinds, asked), (["ai_version_missing"], ["ai_version_missing"]))
+        self.assertIn(f"typesafe/{name}", summaries[0])
+
+    def test_an_unchecked_maker_is_told_to_the_admin_every_ten_days(self):
+        s = self.ready()
+        name = f"amivoice-{uuid.uuid4().hex[:6]}"
+        row = {"役目": "別の耳", "名前": name, "一覧": "amivoice", "id": "-a-general", "結果": "一覧の口が無い＝作り手の頁で確かめる"}
+        start = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        for day in range(0, 25):
+            self.w.a.in_system(SYSTEM, lambda tx, d=day: ai_versions.record(tx, [row], now=start + timedelta(days=d)))
+        kinds, summaries, asked = self.told(name)
+        self.assertEqual(kinds, ["ai_version_unchecked"] * len({int((start + timedelta(days=d)).timestamp() // 86400) // 10 for d in range(25)}))
+        self.assertEqual(asked, [])                                # 修正依頼にはしない（手で確かめていただく）
+        self.assertIn("作り手の頁で確かめる", summaries[0])
+
+    def test_rows_in_another_shape_tell_nothing(self):
+        """形の違う行が1つでもあれば、どれも知らせずに止める（半分だけ知らせない。見守り役の誤りとして記録＝次の回にまたする）。"""
+        s = self.ready()
+        name = f"jev-{uuid.uuid4().hex[:6]}"
+        good = self.row(name, 新しい版=["typesafe/jev-9"])
+        for bad in ("行でない", {"役目": "判定"}, self.row("x", 新しい版="typesafe/jev-9"), self.row("x", 一覧にある="はい"),
+                    {**self.row("x"), "使っている版": ""}, self.row("x", 別の系統で後から出たもの=[1])):
+            with self.subTest(bad=bad), self.assertRaises(ai_versions.BadRows):
+                self.w.a.in_system(SYSTEM, lambda tx, b=bad: ai_versions.record(tx, [good, b]))
+        with self.assertRaises(ai_versions.BadRows):
+            self.w.a.in_system(SYSTEM, lambda tx: ai_versions.record(tx, {"rows": [good]}))
+        self.assertEqual(self.told(name), ([], [], []))
 
 
 class Watchdog(unittest.TestCase):

@@ -15,7 +15,7 @@ from salescall.core.access import Access, Actor, Tx
 from salescall.core.gate import Claim
 from salescall.link.basics import load   # 部品の作り方は link.basics の1か所（PC の部品と同じ）
 
-__all__ = ["CallControl", "CallRunner", "Prober", "Verifier", "WriteFailed", "load"]
+__all__ = ["CallControl", "CallRunner", "Prober", "Verifier", "VersionChecker", "WriteFailed", "load"]
 
 
 class WriteFailed(Exception):
@@ -124,4 +124,13 @@ class Prober(Protocol):
     """停止を解く確かめの部品（会話AI＝CL-1・回線＝電話接続）。確かめた結果（うまくいったか・根拠の短い文）を返す。"""
 
     def probe(self, stop: dict[str, Any]) -> tuple[bool, str]: ...
+
+
+class VersionChecker(Protocol):
+    """使っている AI に新しい版が出ていないかを確かめる部品（CL-1。CL-1 の latest_ai と同じ1か所：使っている名前は版まで決めて持つ所から読み、
+    作り手の公開のモデルの一覧だけを読む＝料金0円）。答えは、使っている AI ごとの行の並び（CL-1 の `latest_ai.check` の行のまま＝役目・名前と、
+    使っている版・一覧にある・新しい版（古い順）・別の系統で後から出たもの、または一覧を読めなかった理由の 結果）。何を知らせるかは
+    core/ai_versions の1か所。測って見送った版は、新しい版として返さない（CL-1 の連絡帳 4-163・CL-2 の 4-400）。"""
+
+    def check(self) -> list[dict[str, Any]]: ...
 

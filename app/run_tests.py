@@ -3011,6 +3011,7 @@ _THEIRS = "tests.test_call_report_cl1.Theirs1113.test_their_callback_is_received
 _PARTS_1113 = "tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_13_are_received"
 _PARTS_1114 = "tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_14_are_received"
 _PARTS_1115 = "tests.test_gate.NameLedger.test_the_parts_cl1_added_on_11_15_are_received"
+_AIV = "tests.test_supervisor.AIVersions."
 _PARTS_THEIRS_OTHER = "tests.test_gate.NameLedger.test_the_parts_cl1_added_for_their_callback_on_other_reasons_are_received"
 _CLAUSE = "tests.test_business_settings.Check.test_the_matter_clause_only_the_import_ai_decides"
 _CLAUSE_IMPORT = "tests.test_business_import.Import.test_the_matter_and_its_clause_are_decided_by_one_question"
@@ -7308,6 +7309,41 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '    "callback_theirs_time", "callback_theirs_time_midway",\n', '    "callback_theirs_time_midway",\n', (_PARTS_1114,)),
     ("お言葉に甘えたあとに戻る時刻を伺う一言の、3回目から戻るときの形の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
      '    "callback_theirs_time", "callback_theirs_time_midway",\n', '    "callback_theirs_time",\n', (_PARTS_1114,)),
+    # 使っている AI の新しい版の見張り（✅ 2026-11-15 ユーザー「本番に入っても10日に一回は」＝CL-1 の連絡帳 4-163。DESIGN.md 9-3）
+    ("AI の新しい版の知らせに、いちばん古い新しい版を書く", "src/salescall/core/ai_versions.py",
+     '        return NEWER, newer[-1]', '        return NEWER, newer[0]', (_AIV + "test_a_newer_version_is_told_to_the_admin_and_asked_of_cl1_once",)),
+    ("使っている AI の版が作り手の一覧に無くても知らせない", "src/salescall/core/ai_versions.py",
+     '    if not row["一覧にある"]:', '    if False:', (_AIV + "test_a_version_gone_from_the_list_is_also_asked_of_cl1",)),
+    ("作り手の一覧を読めなかった AI を、確かめたことにする（知らせない）", "src/salescall/core/ai_versions.py",
+     '        return UNCHECKED, _text(row, "結果")', '        return None', (_AIV + "test_an_unchecked_maker_is_told_to_the_admin_every_ten_days",)),
+    ("作り手の一覧を読めなかった AI の知らせを、10日ごとにせず1回きりにする", "src/salescall/core/ai_versions.py",
+     '(version if kind != UNCHECKED else str(period))', '(version if kind != UNCHECKED else "")',
+     (_AIV + "test_an_unchecked_maker_is_told_to_the_admin_every_ten_days",)),
+    ("作り手の一覧を読めなかった AI も、CL-1 への修正依頼にする", "src/salescall/core/ai_versions.py",
+     '        if kind != UNCHECKED:', '        if True:', (_AIV + "test_an_unchecked_maker_is_told_to_the_admin_every_ten_days",)),
+    ("AI の新しい版を、CL-1 への修正依頼にしない（知らせだけ）", "src/salescall/core/ai_versions.py",
+     '        if kind != UNCHECKED:', '        if kind == MISSING:', (_AIV + "test_a_newer_version_is_told_to_the_admin_and_asked_of_cl1_once",)),
+    ("AI の新しい版の知らせを、契約者の台帳（全体の出来事）にも入れる", "src/salescall/core/ai_versions.py",
+     'admin=True, contractor=False)', 'admin=True, contractor=True)', (_AIV + "test_a_newer_version_is_told_to_the_admin_and_asked_of_cl1_once",)),
+    ("確かめの部品の行の「一覧にある」の形を確かめない", "src/salescall/core/ai_versions.py",
+     '    if not isinstance(row.get("一覧にある"), bool):', '    if False:', (_AIV + "test_rows_in_another_shape_tell_nothing",)),
+    ("確かめの部品の行の版の名前の並びの形を確かめない", "src/salescall/core/ai_versions.py",
+     '    if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v):', '    if False:',
+     (_AIV + "test_rows_in_another_shape_tell_nothing",)),
+    ("見守り役の仕事の表に、AI の新しい版の見張りを入れない", "src/salescall/supervisor/jobs.py",
+     '    Job("ai_versions", 86400, "system", 600, ai_version_check, wanted=lambda cfg: cfg.version_checker is not None, parts=True),\n', "",
+     (_AIV + "test_the_check_runs_every_day_for_the_whole_system",)),
+    ("AI の新しい版の見張りを、確かめの部品が無くてもする（無い部品を呼んで毎日落ちる）", "src/salescall/supervisor/jobs.py",
+     'ai_version_check, wanted=lambda cfg: cfg.version_checker is not None,', 'ai_version_check,',
+     (_AIV + "test_the_check_runs_every_day_for_the_whole_system", "tests.test_supervisor.Main.test_which_jobs_run")),
+    ("AI の新しい版の見張りの答えを記録しない", "src/salescall/supervisor/jobs.py",
+     '    ctx.access.in_system(ACTOR, lambda tx: ai_versions.record(tx, rows))', '    pass',
+     (_AIV + "test_a_newer_version_is_told_to_the_admin_and_asked_of_cl1_once",)),
+    ("AI の新しい版を確かめる部品の設定を読まない", "src/salescall/supervisor/config.py",
+     'version_checker=maybe("SALESCALL_VERSION_CHECKER"))', 'version_checker=None)',
+     (_AIV + "test_the_check_runs_every_day_for_the_whole_system",)),
+    ("電話をかけるのに、AI の新しい版を確かめる部品が無くても動く（本番で新しい版に気づかない）", "src/salescall/supervisor/main.py",
+     '    if cfg.call_runner and not cfg.version_checker:', '    if False:', ("tests.test_supervisor.Main.test_settings_are_reported_without_values",)),
     ("聞き取れなかったご承認のお知らせを締めの前に確かめる一言の録音を、話してよい声に求めない", "src/salescall/core/recordings.py",
      '    "announce_recheck_unheard",\n', "", (_PARTS_1115,)),
     ("かけ直しの質問の頭に「それでは」を付けた形の録音（の1つ）を、話してよい声に求めない", "src/salescall/core/recordings.py",

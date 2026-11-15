@@ -3446,3 +3446,22 @@
 {"at": "2026-11-15T14:19:52+09:00", "who": "CL-2", "text": "All 28 related break-tests are caught. Next I'll look at CL-1's 4-163 request (checking for new AI versions) and how the import's AI names are held on my side."}
 {"at": "2026-11-15T14:21:02+09:00", "who": "CL-2", "text": "Now the design notes and my notebook for this part (version 1.49), then commit."}
 {"at": "2026-11-15T14:21:48+09:00", "who": "CL-2", "text": "Now commit and push this part."}
+{"at": "2026-11-15T14:22:01+09:00", "who": "CL-2", "text": "Committed and pushed (ee48982b). Starting the full test suite in the background while I work on 4-163."}
+{"at": "2026-11-15T14:22:12+09:00", "who": "CL-2", "text": "Meanwhile, 4-163. Let me read the plan's monitoring section (12-1) and who owns it."}
+{"at": "2026-11-15T14:22:28+09:00", "who": "CL-2", "text": "DESIGN.md 12-1 (monitoring) is in my area. Let me check how notifications to the administrator and fix requests to CL-1 are sent today, to reuse that one path."}
+{"at": "2026-11-15T14:23:09+09:00", "who": "CL-2", "text": "The checker returns one row per AI in use, with its newer versions. Before building, let me check `notify.emit`'s signature and how the supervisor config names other teams' parts."}
+{"at": "2026-11-15T14:23:18+09:00", "who": "CL-2", "text": "I have the plan. Checking two constraints first: whether the database restricts the notification kinds, and whether the code rules restrict who may send notifications or fix requests."}
+{"at": "2026-11-15T14:23:34+09:00", "who": "CL-2", "text": "No database restriction on kinds, so no table change is needed. Let me read CL-1's `check()` to match its row shape exactly (especially the unreadable case)."}
+{"at": "2026-11-15T14:23:55+09:00", "who": "CL-2", "text": "Writing the new module `core/ai_versions.py` (my side: when to check, how to record, whom to notify; CL-1's part decides what counts as newer)."}
+{"at": "2026-11-15T14:24:29+09:00", "who": "CL-2", "text": "Adding the three notification kinds, the part's shape, the config entry, and the daily job."}
+{"at": "2026-11-15T14:24:54+09:00", "who": "CL-2", "text": "When calls are configured, the supervisor refuses to start without the stop-check part. Production must not run without the version check either, so I'll apply the same rule. Let me read that spot."}
+{"at": "2026-11-15T14:25:09+09:00", "who": "CL-2", "text": "I'll make the supervisor refuse to start production (calls configured) without the version-check part, the same as for the other two required parts."}
+{"at": "2026-11-15T14:25:37+09:00", "who": "CL-2", "text": "Before writing tests: admin notices from a system-wide job have no source contractor. Let me make sure the database's de-duplication still works when that is empty."}
+{"at": "2026-11-15T14:25:42+09:00", "who": "CL-2", "text": "De-duplication works for system-wide notices (`NULLS NOT DISTINCT`). Writing the tests."}
+{"at": "2026-11-15T14:27:20+09:00", "who": "CL-2", "text": "Passing. Checking that the full-suite groups pick up the new test class, then adding break-tests."}
+{"at": "2026-11-15T14:27:38+09:00", "who": "CL-2", "text": "Adding one test for the job entry itself and one check that only the administrator copy is written, then the break-tests."}
+{"at": "2026-11-15T14:28:39+09:00", "who": "CL-2", "text": "My earlier edit split the holidays job line: its trailing comment ended up on the new line. Fixing that."}
+{"at": "2026-11-15T14:28:50+09:00", "who": "CL-2", "text": "Now running all the new break-tests."}
+{"at": "2026-11-15T14:29:29+09:00", "who": "CL-2", "text": "All 14 new break-tests are caught. Now the design section 12-1-3 and the notebook reply to CL-1 (4-400) and CL-3 (4-401). Let me look at how 12-1 is laid out in the design doc."}
+{"at": "2026-11-15T14:29:41+09:00", "who": "CL-2", "text": "I'll put it in chapter 9 (errors and monitoring) as a new 9-3, and fix the section number in the code comments."}
+{"at": "2026-11-15T14:30:19+09:00", "who": "CL-2", "text": "Now the notebook replies: 4-400 to CL-1 (answer to 4-163) and 4-401 to CL-3 (new notification kinds)."}

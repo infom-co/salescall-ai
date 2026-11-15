@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import (agents, answer_rate, attempts, backup, business_settings, calendar, conversation_io, gate, health, leases,
-                            measure, next_action, recordings, settle, usage, watch)
+from salescall.core import (agents, ai_versions, answer_rate, attempts, backup, business_settings, calendar, conversation_io, gate, health,
+                            leases, measure, next_action, recordings, settle, usage, watch)
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, line, plugins, report
 from salescall.supervisor.links import Links
@@ -245,6 +245,14 @@ def trusted_names(ctx: Context) -> None:
     ctx.access.in_system(ACTOR, recordings.admit_unreviewed_names)
 
 
+def ai_version_check(ctx: Context) -> None:
+    """使っている AI に新しい版が出ていないか（確かめるのは CL-1 の部品・何を知らせるかは core/ai_versions の1か所。全体の取引）。✅ 2026-11-15
+    ユーザー「本番に入っても10日に一回は最新版が出ていないかを確認して」＝CL-1 の連絡帳 4-163。作り手の一覧を読むのは取引の外（待つ間、
+    データベースのつなぎを持たない）。"""
+    rows = ctx.part(ctx.cfg.version_checker).check()
+    ctx.access.in_system(ACTOR, lambda tx: ai_versions.record(tx, rows))
+
+
 def holidays(ctx: Context) -> None:
     """祝日の暦（要るときだけ公式の一覧を取りに行く。取りに行くかは calendar の1か所が決める）。"""
     calendar.sync_official(ctx.access, ACTOR)
@@ -307,6 +315,8 @@ def pc_watch(ctx: Context) -> None:
 #   出る。出しそびれても、門が通すときに同じ1か所で出す）
 # - trusted_names：管理者のチェックを要らないとした契約者の名前の録音を、システムの共通の録音に入れるまでの遅れ（5分。その業務では、
 #   契約者が承認したときから使っている＝遅れるのは、ほかの契約者の電話で使えるまでだけ）
+# - ai_versions：使っている AI の新しい版の見張り（1日。✅ 2026-11-15 ユーザー「10日に一回は」を毎日で満たす＝作り手の公開の一覧を読むだけで
+#   料金0円・前の確かめの時刻を持たないので、見守り役が止まっても1回落ちても次の回に確かめる。同じ知らせは鍵で1回＝core/ai_versions）
 JOBS: tuple[Job, ...] = (
     Job("recover", 60, "tenant", 300, recover_expired),
     Job("settle", 15, "tenant", 600, settle_ready),
@@ -324,6 +334,7 @@ JOBS: tuple[Job, ...] = (
     Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None, parts=True),
     Job("trusted_names", 300, "system", 600, trusted_names),   # 管理者のチェック不要の契約者の名前の録音（0173）
     Job("holidays", 86400, "system", 600, holidays),   # 1日1回（⛔ 2026-10-22 の見直し：1時間ごとで、翌年の分が載るまで毎時間取りに行った）
+    Job("ai_versions", 86400, "system", 600, ai_version_check, wanted=lambda cfg: cfg.version_checker is not None, parts=True),
     Job("backups", 300, "tenant", 4 * 3600, backups, heavy=True),
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),
     Job("backup_watch", 3600, "tenant", 600, backup_watch),

@@ -11,6 +11,7 @@
 | SALESCALL_CALL_RUNNER | 通話を最後まで進める部品を作る関数（`モジュール:名前`。会話＝CL-1。回線の ID と、その回線の電話の部品を受け取る） | 電話をかけるとき |
 | SALESCALL_VERIFIER | 通話後の検証の部品を作る関数（CL-1） | 検証をするとき |
 | SALESCALL_PROBER | 停止を解く確かめの部品を作る関数（CL-1・電話接続） | 確かめをするとき |
+| SALESCALL_VERSION_CHECKER | 使っている AI に新しい版が出ていないかを確かめる部品を作る関数（CL-1） | 本番（毎日1回確かめる＝✅ 2026-11-15 ユーザー「本番に入っても10日に一回は」） |
 | SALESCALL_OWNER_DSN | データベースへの接続（表の持ち主。データベース全体の控えの中身を書き出す） | 全体の控え |
 | SALESCALL_RESTORE_DSN | 戻せるかを確かめる、空のデータベース（本番と別） | 全体の控え |
 | SALESCALL_ADMIN_TENANT | 管理者自身の契約者の番号（データベース全体の控えを書く PC の契約者＝すべての契約者のデータが入るので、この契約者の PC にだけ送る。PC で決めないのは、ログインし直すと PC の番号が変わるため。移る間の形では、この機械の PC の部品の契約者） | 全体の控え・移る間の形 |
@@ -24,7 +25,7 @@ from uuid import UUID
 from salescall.link.basics import Env
 
 NAMES = ("SALESCALL_DSN", "SALESCALL_LISTEN", "SALESCALL_CALL_RUNNER", "SALESCALL_VERIFIER", "SALESCALL_PROBER",
-         "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_ADMIN_TENANT")
+         "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_ADMIN_TENANT", "SALESCALL_VERSION_CHECKER")
 
 
 class ConfigMissing(Exception):
@@ -41,6 +42,7 @@ class Config:
     owner_dsn: str | None = field(repr=False)
     restore_dsn: str | None = field(repr=False)
     admin_tenant: UUID | None = None
+    version_checker: str | None = None
 
     @property
     def calls(self) -> bool:
@@ -81,7 +83,7 @@ def load(environ: dict[str, str] | None = None) -> Config:
         raise ConfigMissing("SALESCALL_ADMIN_TENANT は契約者の番号（例 0a1b…）で書きます") from None
     return Config(dsn=dsn, listen=where, call_runner=maybe("SALESCALL_CALL_RUNNER"), verifier=maybe("SALESCALL_VERIFIER"),
                   prober=maybe("SALESCALL_PROBER"), owner_dsn=maybe("SALESCALL_OWNER_DSN"),
-                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), admin_tenant=whole)
+                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), admin_tenant=whole, version_checker=maybe("SALESCALL_VERSION_CHECKER"))
 
 
 def status(environ: dict[str, str] | None = None) -> list[str]:
