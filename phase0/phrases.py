@@ -21,8 +21,9 @@
   こちらの方が自然な間」。基本は「はい、」。違和感のある場面や「はい」が続くときは、別の相づち）。声の型ごとに録音を作り
   （make_ack_clips）、運営者が聞いて承認する。どの場面でどれを流すかは、流れの制御（flowctl.Flow._ack）の1か所が決める。
   ⛔ G-33：AIに受けの言葉を先に言わせる形（返事を待たない報告）は、AIが先に言わなかったので採らない
-- THINKING_PROMPT：考えている相手に「はい。」と相づちを打ったあと、さらに間があいたときに聞く一言の順（✅ 2026-11-01 ユーザー。前は SILENCE_PROMPT＝2026-10-14。1つ目は 2026-11-07 から急かさない一言）。
-  ⏳ 何秒で言うかは、ユーザーに確かめる。電話接続側が録音で流す（AIは時間を数えられない）
+- THINKING_PROMPT：考えている相手に「はい。」と相づちを打ったあと、さらに間があいたときに聞く一言の順（✅ 2026-11-01 ユーザー。前は SILENCE_PROMPT＝2026-10-14。1つ目は 2026-11-07 から急かさない一言・
+  2026-11-15 から「何か疑問や…」）。どの場面で・何秒で・どの一言を流すかは流れの制御の1か所（flowctl.QUIET_STEPS・Flow.on_silence）。電話接続側は返事の silence_s の秒で
+  Flow.on_silence を呼び、返った録音を流す（AIは時間を数えられない）
 - APOLOGY：相手が聞き取れなかったとき・相手に不快な思いをさせたかもしれないときに、話し始めに付けるお詫びの言葉
   （✅ 2026-10-13 ユーザー：「失礼いたしました」「申し訳ございません、○○」のように、お詫び語を挟んだ方が自然で丁寧）
   ⛔ 2026-10-13 G-16・G-24：AIがプログラムの返事を受けてから話すと、声の頭の1〜3音が崩れる（言い直しの「15日」が「5日」に）。
@@ -292,6 +293,11 @@ CALLBACK_ASK = {
     # ✅ 2026-11-01 日本時間17時04分 ユーザー：(b)「OK」（はい＝もうかけない・いいえ＝今の質問へ戻る＝7時10分の案。⏳ 録音は声の型ごとに作って聞いていただく）
     # 頭の「失礼いたしました。」は、報告が届いた瞬間の相づちの録音（ACK の shitsurei）で流す（1本の録音は6秒まで＝試験。flowctl.Flow._ack）
     "refusal": "今後このようなお電話はご遠慮したほうがよろしいでしょうか？",
+    # 答えの段で、ほかの会社に頼んでいる・使っていると言われたとき（判定が読む＝flowctl.ELSEWHERE）、そのお返事への応じ方の前に1通話1回伺う（flowctl.Flow._elsewhere_ask。
+    # 頭に相づちは付けない＝「そうだったんですね。」が受けの言葉）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25）：「…超一流の営業マンなら、「そうだったんですね。
+    # もし、そちらの会社の方で解決できないような問題や心配事はございませんか？」などの質問を入れ込むんじゃないですか？」（決まった言い方なので、言葉の途中の読点は
+    # 外した＝10-15。⏳ 録音は声の型ごとに作って聞いていただく）
+    "elsewhere": "そうだったんですね。もしそちらの会社の方で解決できないような問題や心配事はございませんか？",
     # 相手が急いでいる・いまは話せないとき（判定が読んだ）：締める前に1回だけ伺う（flowctl.Flow._hurry_ask）。はい＝ご都合のいい日時を伺って締める・
     # いいえ＝締めて、もうかけない（営業拒否）。✅ 2026-11-01 日本時間20時56分 ユーザー：「こちら：「それでは、後ほど改めてお掛けしてもよろしいでしょうか？」
     # それではがないと繋がりがおかしい。お客様が OK なら：「ご都合のいい日時はいつ頃でしょうか？」→ 時刻でなく日時を伺って締める お客様が NO なら：
@@ -676,8 +682,21 @@ SILENCE_PROMPT_IDS = ("ikaga", "dou")  # 録音の中の名前（共通の一言
 # ⇒ ✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(2) イ」：1つ目は急かさない一言「何か気になる点がございましたらお気軽にお聞かせくださいね。」（13時05分06秒
 #    「迷っていると言っているのに途中で話を終わらしたりどうなさいましたか と 急かすのは最悪な手ですよ。」と同じ理由。決まった言い方なので読点は入れない＝10-15）。
 #    ⛔ 前の「どうなさいますか？」（録音 dounasaimasu）は使わない。2つ目は今のまま
-THINKING_PROMPT = ("何か気になる点がございましたらお気軽にお聞かせくださいね。", SILENCE_PROMPT[0])
-THINKING_PROMPT_IDS = ("concern_anytime", SILENCE_PROMPT_IDS[0])   # 録音の中の名前（「いかがなさいましたか？」は上と同じ録音＝文も名前も上の1か所から）
+CONCERN_ANYTIME = "何か気になる点がございましたらお気軽にお聞かせくださいね。"   # 共通の一言の録音 concern_anytime
+# ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い23）：「会話の途中に悩んでいて、事後にするという流れではないので、「はい。」と言って黙って待つ。黙ったまま5秒
+#    たつと「何か疑問や気になる点がございましたらお気軽にお聞かせくださいね。」」＝考えている途中のときだけ、1つ目をこの一言にする（新しい共通の一言の録音
+#    doubt_anytime。決まった言い方なので読点は入れない＝10-15）。2つ目は今のまま。お知らせのあと・お返事を待つ間・理由を言わずに待つ間の一言は CONCERN_ANYTIME のまま
+DOUBT_ANYTIME = "何か疑問や気になる点がございましたらお気軽にお聞かせくださいね。"
+THINKING_PROMPT = (DOUBT_ANYTIME, SILENCE_PROMPT[0])
+THINKING_PROMPT_IDS = ("doubt_anytime", SILENCE_PROMPT_IDS[0])   # 録音の中の名前（「いかがなさいましたか？」は上と同じ録音＝文も名前も上の1か所から）
+# ご承認のお知らせのあと・お客様に応えてお返事を待つ間に黙られたときの一言の順（今のまま＝11-13 20時06分19秒「(2)ウ」・見直し (12) の A-4）
+CONCERN_PROMPT = (CONCERN_ANYTIME, SILENCE_PROMPT[0])
+CONCERN_PROMPT_IDS = ("concern_anytime", SILENCE_PROMPT_IDS[0])
+# 理由を言わずに待つように言われ、黙ったまましばらくたったときに伺う、待つかかけ直すかの伺い（頭の「かしこまりました。」を付けない＝相づちのあとに続けて
+# 読んだ録音 callback_wait_or_later とは別の、新しい共通の一言の録音。文は同じ CALLBACK_ASK["wait_or_later"]）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い24）
+WAIT_ASK_PLAIN_ID = "callback_wait_or_later_plain"
+# 黙ったときに流れの制御が流す一言のすべて（流し終えた知らせ Flow.on_played で「質問のあとにこちらが言った一言」として覚える唯一の並び）
+QUIET_LINES = frozenset((*THINKING_PROMPT, *CONCERN_PROMPT))
 LEAD_IN = {
     "言い直し": ("ありがとうございます。", "かしこまりました。", "承知いたしました。"),
     # お詫びの相づち（「失礼いたしました。」）のあとの言い直しの頭。⛔ 2026-10-14 ユーザー：「失礼いたしました。」のあとの
@@ -1145,6 +1164,7 @@ def again_fit(rid: str, text: str) -> tuple[str, str]:
     return question_clip(rid, AGAIN_LEAD), AGAIN_LEAD + text
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             STANDARD_PARTS["ai"]: AI_ANSWER, "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
+            **dict(zip(CONCERN_PROMPT_IDS, CONCERN_PROMPT)), WAIT_ASK_PLAIN_ID: CALLBACK_ASK["wait_or_later"],
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
             **{f"callback_{k}_{i}": v for k, vs in CALLBACK_ASK_AGAIN.items() for i, v in enumerate(vs, 2)},
             **{f"callback_{k}_which": v for k, v in CALLBACK_ASK_WHICH.items()},

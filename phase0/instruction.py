@@ -208,6 +208,11 @@ class Business:
     # 取り次ぎ・保留で待つ長さ（秒。業務ごとに選べる。✅ 2026-10-24 ユーザー：「デフォルト、相手から長く待つ必要がある理由がなければ5分、理由があれば
     # それまで待つ」＝相手が長さを言えば、その長さ。flowctl.Flow の hold_wait_s）
     hold_wait_s: int = 300
+    # 黙ったときの一言の秒（流れの制御が、場面ごとの一言と一緒に決める＝flowctl.QUIET_STEPS・Flow.on_silence）：1つ目の一言までの秒（契約者が変えられる設定
+    # call.silence_prompt_after。初め5秒＝✅ 2026-10-14 ユーザー）と、理由を言わずに待つように言われ、1つ目の一言のあとも黙られたときに待つかかけ直すかを伺うまでの秒
+    # （同じ置き場の形の設定＝CL-2 に足していただく。初め20秒。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い24）「それでもしばらく黙られていたら」。⏳ 秒はユーザーに確かめる）
+    silence_prompt_after: float = 5
+    wait_ask_after: float = 20
     # お詫びの電話（予約証の目的 apology）：伝える文（CL-2 の apology.for_task の text。承認したときに聞いていただいた録音で流す）。業務の質問はしない
     apology_call: str | None = None
     # その文が、いつの電話のことか（same_day＝同じ日「先ほど」・later＝あとの日「先日」。CL-2 の apology.for_task が選んだ文の部分
@@ -328,7 +333,7 @@ class Business:
                     name_readings=self.name_readings(), judge_names=self.judge_names(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か・担当の方が替わった電話か
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again, handover=self.handover,
-                    hold_wait_s=self.hold_wait_s, apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
+                    hold_wait_s=self.hold_wait_s, silence_prompt_after=self.silence_prompt_after, wait_ask_after=self.wait_ask_after, apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
                     opening=self.replay_parts() if recorded else None, **kw)

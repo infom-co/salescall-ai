@@ -26,9 +26,9 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import (ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
+from flowctl import (ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, ELSEWHERE, ELSEWHERE_YES, ELSEWHERE_NO, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
                      END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
-                     WAIT_OR_LATER, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading)
+                     WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, Reading, judge, judge_other
 
@@ -212,7 +212,7 @@ def either(it: dict) -> bool:
 
 # 答えとは別に読む項目（flowctl.SIDE_ITEMS）の読みを記録する見出し（{項目の名前: 判定の名前のあとに付ける語}。唯一の表＝記録 side_record・使い回すときに
 # 外す語）。⛔ 2026-11-06 日本時間15時台まで、記録する3か所と外す語の並びが2つの項目を名前で手書きしていた（項目を足すと、記録の漏れで数えなくなる）
-SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由", QUERY: "問い", PROMPT_REPLY: "声かけ", AWAY: "別の話"}
+SIDE_SUFFIX = {END: "終わり", HEAR: "聞こえ", WHY: "理由", QUERY: "問い", PROMPT_REPLY: "声かけ", AWAY: "別の話", ELSEWHERE: "他社"}
 assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えとは別に読む項目の表と同じ項目"
 # 判定の確からしさの広がりを記録する見出し（{判定の名前のあとに付ける語: 読みの属性}。唯一の表＝記録と、使い回すときに外す語）。
 # ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
@@ -621,8 +621,10 @@ SENSE = "意味合いを尋ねる："
 # 待つ・かけ直すの読み（答えの段だけ＝flowctl.WAIT_KINDS）で流れの制御がすること（Flow._wait_route の1か所と同じ。✅ 2026-11-05 日本時間23時19分06秒・
 # 23時56分48秒 ユーザー（会話2）。取り次ぎを待つも「はい、」のあと待つ＝✅ 2026-11-06 日本時間2時28分41秒 ユーザー「「はい、」のような相づちがないと失礼です。」）
 # まだ考えている途中（✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」＝Flow._thinking）：「はい。」のあと待つ
-WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言のあと待つ", LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う",
-            THINKING: "「はい。」のあと待つ"}
+# 理由を言わずに待つ（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い24）＝Flow._hold の plain）：「はい、」のあと待ち、黙られたら一言・しばらくして待つかかけ直すかを伺う
+# （黙ったときの場面 "wait"＝flowctl.QUIET_STEPS）
+WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言のあと待つ", WAIT_PLAIN: "「はい、」のあと待つ（黙られたら一言のあと待つかかけ直すかを伺う）",
+            LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う", THINKING: "「はい。」のあと待つ"}
 # お客様のほうから折り返すと申し出られた（お礼の一言を言うかは flowctl.later_offer の1か所）：「お気遣いありがとうございます。…」のあとかけ直しを伺う
 THANKED = "お礼の一言のあと"
 
@@ -656,6 +658,15 @@ def away_truths(it: dict) -> tuple:
     """正解の表の行の、別のお話か（flowctl.AWAY）の正解（中の名前の並び）。付けていない行は、どちらの読みも正解（query_truths と同じ形）。"""
     got = _label(it)
     return tuple((got or {}).get(AWAY) or (AWAY_YES, AWAY_NO))
+
+
+def elsewhere_truths(it: dict) -> tuple:
+    """正解の表の行の、ほかの会社に頼んでいる・使っていると言ったか（flowctl.ELSEWHERE）の正解（中の名前の並び）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー
+    （伺い25）で足した項目。付けていない行は「言っていない」（⚠️ 一括で付けた既定＝帳面 0-3 の (2) の外。ほかの会社のことを言いうる行は候補の一覧にして、答えを伏せた
+    読み手2人の読み直しのあとに正解を付ける＝それまでの測りでは、候補の行の「伺う」を外れと数えうる。どちらの読みも正解にすると、ほかの会社のことを言っていない
+    行にも「伺う」が正しい動きに入る）。"""
+    got = _label(it)
+    return tuple((got or {}).get(ELSEWHERE) or (ELSEWHERE_NO,))
 
 
 # ── F1：測りの数えは、行の場面を本番の流れの制御（Flow）に組み、判定の読みを本番と同じ入口で渡し、返事から動きの名前を作る1か所（唯一の数え）。
@@ -807,7 +818,9 @@ def flow_reply(it: dict, q: Question, r, report: str = "neutral") -> tuple[Flow,
 
 # 返事から動きの名前を作る1か所の表（唯一の名前）。お客様に聞こえる一言（録音の名前の頭）で決まる動き：{録音の名前の頭: 動きの名前}
 WHICH_ACT, ESTIMATE_ACT, HOW_NOW_ACT, TROUBLE_ACT = "どのあたりかを伺う", "目安を伺う", "いかがなさいますかと伺う", "何か問題があったかを伺う"
+ELSEWHERE_ACT = "ほかの会社で解決できない問題や心配事を伺う"   # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.Flow._elsewhere_ask）
 PLAY_ACTS = (("callback_hurry", END_ACTS[END_HURRY]), ("callback_refusal", END_ASK), ("callback_topic", END_TOPIC), ("callback_concern", TROUBLE_ACT), ("ai_answer", TROUBLE_ACT),
+             ("callback_elsewhere", ELSEWHERE_ACT),
              ("callback_wait_or_later", WAIT_ACT[WAIT_OR_LATER]), ("callback_later_time", WAIT_ACT[LATER]), ("callback_not_agreed_which", WHICH_ACT),
              ("callback_other_point_which", WHICH_ACT), ("estimate_ask", ESTIMATE_ACT), ("how_now", HOW_NOW_ACT), ("hesitate_point", HESITATE_ACT[False]))
 PENDING_ACT = "保留でよいかを伺う"
@@ -837,7 +850,7 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
             return HANDOVER_ACT
         return ASKED_ACTS.get(asked or "", REJECT_ACT)
     if res == "hold":
-        return WAIT_ACT[HOLD_BACK] if "wait_reply" in plays else WAIT_ACT[HOLD]
+        return WAIT_ACT[HOLD_BACK] if "wait_reply" in plays else WAIT_ACT[WAIT_PLAIN] if rep.get("silence_scene") == "wait" else WAIT_ACT[HOLD]
     if res == "thinking":
         return WAIT_ACT[THINKING]
     if res == "replayed":
@@ -937,14 +950,15 @@ def label_readings(it: dict, q: Question, has_end: bool) -> list:
         for firm in firms:
             for qv in query_truths(it):   # 問いの正解を付けていない行は、どちらの読みも正解（query_truths の決まり＝11-08 8時55分08秒）
                 for av in away_truths(it):
-                    for e in ends:
-                        for w in whys:
-                            for p in priors or (None,):
-                                r = Reading(a, firm)
-                                for k, v in ((QUERY, qv), (AWAY, av), (END, e), (WHY, w), (HEAR, hear_truth(it))):
-                                    setattr(r, k, v)
-                                r.prior = p
-                                out.append(r)
+                    for ev in elsewhere_truths(it):
+                        for e in ends:
+                            for w in whys:
+                                for p in priors or (None,):
+                                    r = Reading(a, firm)
+                                    for k, v in ((QUERY, qv), (AWAY, av), (ELSEWHERE, ev), (END, e), (WHY, w), (HEAR, hear_truth(it))):
+                                        setattr(r, k, v)
+                                    r.prior = p
+                                    out.append(r)
     return out
 
 
@@ -992,6 +1006,10 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
         return "⛔伺わずに「-」にして次へ"
     if act in (HANDOVER_ACT, REJECT_ACT):
         return "代わった方の言葉ではないのに、名乗りから伺い直す・差し戻す"
+    if act == ELSEWHERE_ACT:
+        return "ほかの会社のことを言っていないのに、解決できない問題や心配事を伺う"
+    if ELSEWHERE_ACT in want:
+        return "⛔ほかの会社に頼んでいると言われたのに、解決できない問題や心配事を伺わない"
     asks = {PENDING_ACT, HOW_NOW_ACT, ESTIMATE_ACT, WHICH_ACT, WISH_ACT, CONCERN_ACT, TROUBLE_ACT}   # 答えを受け取らずに伺う一言（保留・いかがなさいますか など）
     if act in asks or act.startswith(MAYBE_ACT):
         return "違う伺い（保留・いかがなさいますか・目安・どのあたり・ほかのご希望・可能性）" if want & asks or any(
