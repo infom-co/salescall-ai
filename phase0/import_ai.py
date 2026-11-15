@@ -296,22 +296,27 @@ def decide_summaries(askers: list[Asker], items: list[tuple[str, tuple]], on_err
     return _drafted(askers, items, summaries.by_model, summaries.decide, summaries.fits, summaries.grounded, on_error, referee)
 
 
-def decide_matters(askers: list[Asker], pairs: list[tuple[str, str]], on_error: Callable | None = None,
+def decide_matters(askers: list[Asker], items: list[tuple[str, str, str]], on_error: Callable | None = None,
                    referee: Asker | None = None) -> list[tuple[str, str]]:
-    """ご承認を伺う質問の (説明＝入る一言, 質問の文) の並び（decide_announces と同じ質問だけを渡すのは呼ぶ側）→ 同じ並びで、(お知らせの中身を表す名詞, 中身を
-    常体にした句) の組（「キャンセル」「キャンセルは前日までにご連絡いただく必要がある」。答えは flowctl.Question.matter と matter_clause＝CL-2 の取込が業務設定の
-    質問の欄 matter・matter_clause へ）。名詞は最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」・句は聞き取れないまま「-」にした
-    お知らせの締めの前の確かめ「（句）件のお返事のお声が聞き取れなかったのですが…」（どちらも flowctl.accepted_line）。名詞と句は同じ1回の問い合わせ
-    （announces.matter_by_model）。決め方は用件の名詞と同じ1か所（_settled の項目の組：項目ごとに2つの文字のAIがそろって形に合えば（名詞＝説明と質問の文の中の
-    言葉＝announces.matter_fits・句＝announces.clause_fits）その言葉・どれかの項目がそろわない文は考える Sonnet＝referee にまとめて1回・決まった項目は替えない）。
-    決まらなければ空＝名詞は「先ほどの内容」・句は名詞の形。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承という
-    ことでよろしかったでしょうか？」」・11-15 日本時間11時59分07秒「・(3)今：…」"""
-    pairs = [(str(i or ""), str(t or "")) for i, t in pairs]
-    src = {f"{i}／{t}": (i, t) for i, t in pairs}   # 文ごとに決める1か所（_settled）の鍵＝説明と質問の文
+    """ご承認を伺う質問の (説明＝入る一言, 質問の文, お知らせの文＝同じ質問の decide_announces の答え。決まらなければ空) の並び（decide_announces と同じ質問だけを
+    渡すのは呼ぶ側。取込は decide_announces を先に呼ぶ）→ 同じ並びで、(お知らせの中身を表す名詞, 中身を常体にした句) の組（「キャンセル」「キャンセルは前日までに
+    ご連絡いただく必要がある」。答えは flowctl.Question.matter と matter_clause＝CL-2 の取込が業務設定の質問の欄 matter・matter_clause へ。お知らせの文は
+    decide_announces の答えのまま＝Question.announce）。名詞は最終の確かめ「それでは（名詞）の件はご了承ということでよろしかったでしょうか？」・句は聞き取れないまま
+    「-」にしたお知らせの締めの前の確かめ「（句）件のお返事のお声が聞き取れなかったのですが…」（どちらも flowctl.accepted_line）。名詞と句は同じ1回の問い合わせ
+    （announces.matter_by_model）。句はお客様が聞いた文（announces.heard＝お知らせの文、無ければ入る一言＋質問の文）から、決まり・規則として言わない形で作る
+    （11-16 0時42分38秒のお言葉）。決め方は用件の名詞と同じ1か所（_settled の項目の組：項目ごとに2つの文字のAIがそろって形に合えば（名詞＝説明と質問の文の中の
+    言葉＝announces.matter_fits・句＝説明と質問の文とお客様が聞いた文の言葉＝announces.clause_fits）その言葉・どれかの項目がそろわない文は考える Sonnet＝referee に
+    まとめて1回・決まった項目は替えない）。決まらなければ空＝名詞は「先ほどの内容」・句は名詞の形。お知らせの文を渡さない並び（(説明, 質問の文) の組）は止める
+    （お客様が聞いていない文から句を作らない）。✅ 2026-11-14 日本時間14時31分38秒 ユーザー「●伺い10 「はい、それでは、キャンセルの件はご了承という
+    ことでよろしかったでしょうか？」」・11-15 日本時間11時59分07秒「・(3)今：…」・11-16 日本時間0時42分38秒「…決まりになっております。だと相手の印象が悪いので…」"""
+    if any(not isinstance(x, (tuple, list)) or len(x) != 3 for x in items):
+        raise TypeError("お知らせの中身は (説明, 質問の文, お知らせの文＝decide_announces の答え。決まらなければ空) の並びで渡す（句はお客様が聞いた文から作る）")
+    items = [(str(i or ""), str(t or ""), str(a or "")) for i, t, a in items]
+    src = {"／".join(x): x for x in items}   # 文ごとに決める1か所（_settled）の鍵＝説明と質問の文とお知らせの文
     got = _settled(askers, list(src), lambda c, m, keys, think=False: announces.matter_by_model(c, m, [src[k] for k in keys], think),
-                   (lambda k, words: announces.matter_decide(*src[k], words), lambda k, words: announces.clause_decide(*src[k], words)),
-                   (lambda k, w: announces.matter_fits(*src[k], w), lambda k, w: announces.clause_fits(*src[k], w)), on_error, referee)
-    return [got[f"{i}／{t}"] for i, t in pairs]
+                   (lambda k, words: announces.matter_decide(*src[k][:2], words), lambda k, words: announces.clause_decide(*src[k][:2], words, src[k][2])),
+                   (lambda k, w: announces.matter_fits(*src[k][:2], w), lambda k, w: announces.clause_fits(*src[k][:2], w, src[k][2])), on_error, referee)
+    return [got["／".join(x)] for x in items]
 
 
 def decide_rewords(askers: list[Asker], items: list[tuple[str, tuple, str]], on_error: Callable | None = None, referee: Asker | None = None) -> list[str]:
@@ -371,7 +376,8 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # 営業の要約（✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30）。⏳ CL-2 の受け口ができるまで CL2_PENDING）。考える Sonnet は referee
             "decide_summaries": decide_summaries,
             # お知らせの中身の名詞（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-154）と、中身を常体にした句
-            # （同じ問い合わせ・答えは (名詞, 句) の組。✅ 2026-11-15 日本時間11時59分07秒「・(3)」。⏳ CL2_PENDING＝帳面 4-162）。考える Sonnet は referee
+            # （同じ問い合わせ・答えは (名詞, 句) の組。✅ 2026-11-15 日本時間11時59分07秒「・(3)」。⏳ CL2_PENDING＝帳面 4-162）。考える Sonnet は referee。
+            # 渡すのは (説明, 質問の文, お知らせの文＝decide_announces の答え) の並び＝取込は decide_announces を先に呼ぶ（句はお客様が聞いた文から作る＝11-16 0時42分38秒）
             "decide_matters": decide_matters,
             # 会話が繋がらないお返事のあとに「ところで」に続けて伺い直す、言い換えた質問（✅ 2026-11-13 日本時間22時17分01秒「9は…」。⏳ CL-2 の受け口ができるまで
             # CL2_PENDING＝帳面 4-152）。考える Sonnet は referee（書く・中身の判定）

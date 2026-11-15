@@ -27623,9 +27623,10 @@ class TalkAndAcceptedTest(unittest.TestCase):
             return SimpleNamespace(messages=Messages())
 
         # 11-15 日本時間11時59分07秒の (3) で、同じ1回の問い合わせでお知らせの中身を常体にした句（clause）も聞き、答えは (名詞, 句) の組になった（意図した変わり。
-        # 句の決め方は UnheardClauseTest）。ここでは名詞の決め方だけを見る＝文字のAIは句をそろって空と答える（⛔ ca665f3e までは名詞の並びだけを返した）
-        fee = ("料金のご案内ですが月額3,000円となります。", "こちらの内容でご承認いただけますでしょうか？")
-        pairs = [(AnnounceTest.EXPL, AnnounceTest.ASK), fee]
+        # 句の決め方は UnheardClauseTest）。ここでは名詞の決め方だけを見る＝文字のAIは句をそろって空と答える（⛔ ca665f3e までは名詞の並びだけを返した）。
+        # 受け口は (説明, 質問の文, お知らせの文) の並び（11-16 0時42分38秒のお言葉を句に当てた＝HeardLineClauseTest。ここはお知らせの文が決まらない業務＝空）
+        fee = ("料金のご案内ですが月額3,000円となります。", "こちらの内容でご承認いただけますでしょうか？", "")
+        pairs = [(AnnounceTest.EXPL, AnnounceTest.ASK, ""), fee]
         a = gemini([{"no": 1, "matter": "キャンセル", "clause": ""}, {"no": 2, "matter": "料金", "clause": ""}])
         b = gemini([{"no": 1, "matter": "キャンセル", "clause": ""}, {"no": 2, "matter": "月額", "clause": ""}])
         self.assertEqual(import_ai.decide_matters([(a, "m1"), (b, "m2")], pairs), [("キャンセル", ""), ("", "")])
@@ -28468,8 +28469,9 @@ class UnheardClauseTest(unittest.TestCase):
                                            stop_reason="end_turn")
             return SimpleNamespace(messages=Messages())
 
-        fee = ("料金のご案内ですが月額3,000円となります。", AnnounceTest.ASK)
-        pairs = [(self.EXPL, AnnounceTest.ASK), fee]
+        # 受け口は (説明, 質問の文, お知らせの文) の並び（句はお客様が聞いた文から作る＝HeardLineClauseTest。ここはお知らせの文が決まらない業務＝空）
+        fee = ("料金のご案内ですが月額3,000円となります。", AnnounceTest.ASK, "")
+        pairs = [(self.EXPL, AnnounceTest.ASK, ""), fee]
         a = gemini([{"no": 1, "matter": "キャンセル", "clause": self.CLAUSE}, {"no": 2, "matter": "料金", "clause": "料金は月額3,000円となる"}])
         b = gemini([{"no": 1, "matter": "キャンセル", "clause": self.CLAUSE}, {"no": 2, "matter": "料金", "clause": "月額3,000円の料金となる"}])
         askers = [(a, "m1"), (b, "m2")]
@@ -28498,6 +28500,115 @@ class UnheardClauseTest(unittest.TestCase):
         self.assertEqual(import_ai.deciders(askers)["decide_matters"](pairs), [("キャンセル", self.CLAUSE), ("料金", "")])
         self.assertIn("matter_clause", {x.name for x in dataclasses.fields(Question)})
         self.assertIn("matter_clause", CL2_PENDING)
+
+
+class HeardLineClauseTest(unittest.TestCase):
+    """聞き取れないまま「-」にしたお知らせの締めの前の確かめ「（句）件のお返事のお声が聞き取れなかったのですが…」の句を、お客様が聞いたお知らせの文から作る
+    （✅ 2026-11-16 日本時間0時42分38秒 ユーザー「・ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく決まりになっております。：決まりになっております。
+    だと相手の印象が悪いので、「ご予約の内容ですがキャンセルや変更は前日までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料
+    （変更料）がかかってしまうのでお気を付けください。」の方がいいんじゃないですか？」を、句の問い合わせにも当てた）。お客様が聞いたのは、取込で決まったお知らせの文
+    （import_ai.decide_announces の答え）があればその文、無ければ入る一言＋質問の文（announces.heard の1か所）。句の言葉の出どころ（announces.clause_fits の言葉・
+    数と期限の言葉の確かめ）に、その文を入れる（お知らせの文は、説明に無い事実を足さない中身の判定を通った文）。説明と質問の文に無く、お客様が聞いた文にも無い言葉は
+    今までどおり足さない。⛔ bcdf81a4 まで、句の問い合わせ（announces.MATTER_PROMPT）の例が「当日のキャンセルは前日までにご連絡いただく決まりになっている」で、
+    説明が「決まりになっております」だけの業務では、決まりとして言わない句（「…必要がある」）を作れなかった（「必要」が説明に無い）"""
+    RULE = "ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく決まりになっております。"   # お言葉が「印象が悪い」とした説明
+    LINE = "ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく必要がございますのでご了承ください。"   # その説明から取込で決まったお知らせの文
+    CLAUSE = "当日のキャンセルは前日までにご連絡いただく必要がある"
+    ASK = AnnounceTest.ASK
+
+    def test_the_matter_prompt_does_not_teach_saying_it_is_a_rule(self):
+        import re
+        import announces
+        p = announces.MATTER_PROMPT
+        # 前の例（「決まりになっている」の句・言い切りの例）は教えない
+        for old in ("当日のキャンセルは前日までにご連絡いただく決まりになっている", "「決まりになっております」なら「決まりになっている」"):
+            self.assertNotIn(old, p)
+        # 「決まり・規則として言わない（お客様にとっての形で）」は、お知らせの文の問い合わせ（announces.PROMPT）と同じ1か所の言葉
+        self.assertIn(announces.NOT_A_RULE, p)
+        self.assertIn(announces.NOT_A_RULE, announces.PROMPT)
+        # 例は、お知らせの文の問い合わせの例と同じ文（説明・質問の文・お客様が聞いたお知らせの文＝お言葉の文）。例の句は「決まり」と言わず、形の確かめを通る
+        for s in (announces.EXAMPLE_EXPL, announces.EXAMPLE_ASK, announces.EXAMPLE_LINE):
+            self.assertIn(s, p)
+            self.assertIn(s, announces.PROMPT)
+        clauses = re.findall(r"clause は「([^」]*)」", p)
+        self.assertTrue(clauses, p)
+        for c in clauses:
+            self.assertNotIn("決まり", c)
+            self.assertTrue(announces.clause_fits(announces.EXAMPLE_EXPL, announces.EXAMPLE_ASK, c, announces.EXAMPLE_LINE), c)
+        # 問い合わせの並びに、お客様が聞いた文がある
+        self.assertIn("お客様が聞いた文）：\n", p)
+
+    def test_the_clause_may_use_the_words_of_the_line_the_customer_heard(self):
+        import announces
+        # お客様が聞いた文は1か所（announces.heard）：お知らせの文があればその文・無ければ入る一言＋質問の文
+        self.assertEqual(announces.heard(self.RULE, self.ASK, self.LINE), self.LINE)
+        self.assertEqual(announces.heard(self.RULE, self.ASK, ""), self.RULE + self.ASK)
+        # お知らせの文が決まった業務：お客様が聞いた文の言葉（「必要」）は句に使える。決まらない業務は今までどおり説明と質問の文だけ
+        self.assertTrue(announces.clause_fits(self.RULE, self.ASK, self.CLAUSE, self.LINE))
+        self.assertFalse(announces.clause_fits(self.RULE, self.ASK, self.CLAUSE, ""))
+        self.assertFalse(announces.clause_fits(self.RULE, self.ASK, self.CLAUSE))
+        # 説明と質問の文に無く、お客様が聞いた文にも無い言葉・数・期限の言葉は足さない。お客様が聞いた文の期限の言葉は落とさない
+        bad = {"当日のキャンセルは前日までにご連絡いただく義務がある": "どちらにも無い言葉（義務）",
+               "当日のキャンセルは前日までに2回ご連絡いただく必要がある": "どちらにも無い数",
+               "当日のキャンセルは翌日までにご連絡いただく必要がある": "どちらにも無い期限の言葉（翌日）",
+               "キャンセルはご連絡いただく必要がある": "期限の言葉を落とした（当日・前日）",
+               "当日のキャンセルは前日までにご連絡いただく必要がございます": "常体でない"}
+        for clause, why in bad.items():
+            self.assertFalse(announces.clause_fits(self.RULE, self.ASK, clause, self.LINE), why)
+        # 良い点と気をつけていただくことの2つの文のお知らせ（お言葉の文）：句も、お客様が聞いた文の期限の言葉（前日・以降）を落とさない（keeps_facts の1か所）
+        ex, ask, line = announces.EXAMPLE_EXPL, announces.EXAMPLE_ASK, announces.EXAMPLE_LINE
+        self.assertTrue(announces.clause_fits(ex, ask, "キャンセルや変更は前日までにご連絡いただければ料金がかからずそれ以降はキャンセル料がかかる", line))
+        self.assertFalse(announces.clause_fits(ex, ask, "キャンセルや変更は前日までにご連絡いただければ料金がかからない", line))   # 以降を落とした
+
+    def test_the_import_asks_with_the_line_the_customer_heard(self):
+        # 取込の受け口は1か所（import_ai.decide_matters）：(説明, 質問の文, お知らせの文＝decide_announces の答え。決まらなければ空) の並び。名詞と句は同じ1回の
+        # 問い合わせ（announces.matter_by_model）で、並びにお客様が聞いた文を入れる。答えは今までどおり (名詞, 句) の組（お知らせの文は decide_announces が持つ）
+        import json
+        from types import SimpleNamespace
+        import import_ai
+        sent = []
+
+        def gemini(got):
+            class Models:
+                def generate_content(self, model, contents, config):
+                    sent.append((model, contents))
+                    return SimpleNamespace(text=json.dumps({"items": got}))
+            return SimpleNamespace(models=Models())
+
+        def claude(got):
+            class Messages:
+                def create(self, **body):
+                    sent.append((body["model"], body["messages"][0]["content"]))
+                    return SimpleNamespace(content=[SimpleNamespace(type="text", text=json.dumps({"items": got}))],
+                                           usage=SimpleNamespace(input_tokens=500, output_tokens=200, cache_read_input_tokens=0, cache_creation_input_tokens=0),
+                                           stop_reason="end_turn")
+            return SimpleNamespace(messages=Messages())
+
+        fee = "料金のご案内ですが月額3,000円となります。"
+        items = [(self.RULE, self.ASK, self.LINE), (fee, self.ASK, "")]
+        got = [{"no": 1, "matter": "キャンセル", "clause": self.CLAUSE}, {"no": 2, "matter": "料金", "clause": "料金は月額3,000円となる"}]
+        askers = [(gemini(got), "m1"), (gemini(got), "m2")]
+        self.assertEqual(import_ai.decide_matters(askers, items), [("キャンセル", self.CLAUSE), ("料金", "料金は月額3,000円となる")])
+        self.assertEqual([m for m, _ in sent], ["m1", "m2"])   # 文字のAIごとに1回（問い合わせの数は同じ）
+        self.assertIn(f"1：{self.RULE}／{self.ASK}／{self.LINE}\n", sent[0][1])
+        self.assertTrue(sent[0][1].endswith(f"2：{fee}／{self.ASK}／{fee}{self.ASK}"), sent[0][1])
+        # 答えの数が質問の数と違っても、質問の並びのまま（答えの無い質問は決まらない）
+        self.assertEqual(import_ai.decide_matters([(gemini(got), "m1"), (gemini(got[:1]), "m2")], items), [("キャンセル", self.CLAUSE), ("", "")])
+        # お知らせの文が決まらない業務は、今までどおり説明と質問の文の言葉だけ（「必要」の句は使わない）
+        self.assertEqual(import_ai.decide_matters(askers, [(self.RULE, self.ASK, "")]), [("キャンセル", "")])
+        # そろわない句を考える Sonnet に聞いたときも、同じ確かめ（お客様が聞いた文の言葉は使える）
+        sent.clear()
+        other = [{"no": 1, "matter": "キャンセル", "clause": ""}, got[1]]
+        ref = claude([{"no": 1, "matter": "キャンセル", "clause": self.CLAUSE}])
+        self.assertEqual(import_ai.decide_matters([(gemini(got), "m1"), (gemini(other), "m2")], items, referee=(ref, "claude-sonnet-5-5"))[0],
+                         ("キャンセル", self.CLAUSE))
+        self.assertIn(f"1：{self.RULE}／{self.ASK}／{self.LINE}", sent[-1][1])
+        self.assertNotIn("2：", sent[-1][1])
+        # お知らせの文を渡さない形（(説明, 質問の文) の組）は止める（お客様が聞いていない文から句を作らない）
+        with self.assertRaises(TypeError):
+            import_ai.decide_matters(askers, [(self.RULE, self.ASK)])
+        # CL-2 の取込に渡す処理（deciders）も同じ形
+        self.assertEqual(import_ai.deciders(askers)["decide_matters"](items), [("キャンセル", self.CLAUSE), ("料金", "料金は月額3,000円となる")])
 
 
 class ImportFormsReviewTest(unittest.TestCase):
