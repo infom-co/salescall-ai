@@ -1064,6 +1064,23 @@ class CallerNumberAndVoice(Base):
                     parts=[recordings.Part(p, t, f"test://Sadachbia/{p}", "0" * 64) for p, t in common_phrases.TEXTS.items()]))
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")    # 管理者が足りない部分を入れた組を承認すれば話す
 
+    def test_an_approval_belongs_to_the_part_name_too(self):
+        """✅ 2026-11-15 ユーザー「部分の名前ごとにする（お勧め）」（0223）：承認は中身（文・音声・読み）と部分の名前に付く。言い方だけ違う同じ文の部分（例：明るい
+        相づちと悲しい話への相づち）で、録音の道具が音声を取り違えても、聞かずに承認済みにしない（その部分を聞いていただく）。部分の名前の同じ使い回しは、
+        今までどおり聞かずにそろう。⛔ 0172〜0222：名前を見ず、取り違えた部分が聞かずに承認済みになった。"""
+        s = self.ready()
+        text = "そうでしたか。"
+        glad, sad = recordings.Part("talk_glad", text, "test://Leda/glad", "7" * 64), recordings.Part("talk_sad", text, "test://Leda/sad", "8" * 64)
+        sid = self.tx(s, lambda tx: support.make_business_set(tx, "Leda", s["version"], [glad, sad]))
+        self.assertEqual(self.tx(s, lambda tx: recordings.unapproved_parts(tx, sid)), ["talk_glad", "talk_sad"])
+        self.tx(s, lambda tx: recordings.approve(tx, sid), OPERATOR)
+        swapped = recordings.Part("talk_sad", text, "test://Leda/glad2", "7" * 64)   # 悲しい相づちの部分に、明るい相づちの音声
+        sid2 = self.tx(s, lambda tx: recordings.complete(tx, s["version"], "Leda", [swapped]), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.unapproved_parts(tx, sid2)), ["talk_sad"])   # 聞いていただく
+        same = recordings.Part("talk_sad", text, "test://Leda/sad2", "8" * 64)       # 同じ部分の同じ音声の録り直し：聞かずにそろう
+        sid3 = self.tx(s, lambda tx: recordings.complete(tx, s["version"], "Leda", [same]), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: recordings.unapproved_parts(tx, sid3)), [])
+
     def test_a_common_part_recorded_with_another_text_is_not_used(self):
         """共通の一言の文が替わったら（会話の担当が phrases.RECORDED の文を替え、core/common_phrases.TEXTS を作り直した）、前の文で録った
         承認済みの録音は使わない（✅ 2026-11-15 ユーザー「同じ決まりにする」＝業務の録音・標準の録音と同じ。⛔ それまでは名前だけを見たので、
@@ -1495,7 +1512,8 @@ class CallerNumberAndVoice(Base):
         with self.assertRaises(ValueError):                                        # 共通の一言の録音には付けない
             self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(
                 tx, unit="contractor", voice_name="Leda",
-                parts=[recordings.Part("hai", common_phrases.TEXTS["hai"], "test://Leda/hai", "4" * 64, readings={"中島": "なかじま"})]))
+                parts=[recordings.Part(n, t, f"test://Leda/{n}", "4" * 64, readings={"中島": "なかじま"} if n == "hai" else {})
+                       for n, t in common_phrases.TEXTS.items()]))   # そろった組でも（足りない組は別の理由で断る）
 
     def test_a_chosen_reading_is_carried_to_a_restored_or_copied_version(self):
         """以前の版へ戻した版・業務を複製した版にも、契約者が録音を聞いて選んだ名前の読みが引き継がれる（1か所＝

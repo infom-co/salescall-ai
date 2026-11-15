@@ -1831,7 +1831,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     if target.contact_id is not None and cb is not None:
         if cb["at"] is None:
             kept = _unspecified_next(tx, task_id, target, now=now, base=now, tried=dialed_at)
-        elif cb.get("back_at") is not None:   # お客様のほうから折り返すお約束：戻る時刻のあと、こちらからかける時（`_theirs_at` の1か所）
+        elif cb.get("back_at") is not None or cb.get("back_days") is not None:   # お客様のほうから折り返すお約束：戻る時刻のあと、こちらからかける時（`_theirs_at` の1か所）
             at, since = _theirs_at(tx, task_id, cb, now=now)
             kept = _keep_promise(tx, task_id, at, replace(window_said(cb), since=since), target, now=now)
         elif cb.get("exact", True):
@@ -1932,11 +1932,37 @@ def _theirs_at(tx: Tx, task_id: UUID, cb: dict[str, Any], *, now: datetime) -> t
     答え：(かける時刻, 約束の幅の始まり＝これより前にはかけない)。幅の始まりは、30分後に期限が来る予約の時刻（gate.earliest_claim の1か所）＝門の幅の
     確かめ（calling_hours.in_window の since）と、かけてよい時間帯の見つからないときの確かめ直し・番号を直したあとのかけ始め（幅のまま）が読む。
     ⛔ 2026-11-15 の見直しまで：約束の幅に始まりが無く、暦の外に当たって1日後に確かめ直すと（「来年戻ります」）、門が戻る前の明日の電話を通した。"""
-    until = cb.get("back_until")
-    earliest, want = judge.theirs_span(datetime.fromisoformat(cb["back_at"]), None if until is None else datetime.fromisoformat(until))
+    earliest, want = judge.theirs_span(*_theirs_back(tx, cb, now=now))
     scope = tasks.scope(tx, task_id)
     found = gate.next_opening(tx, max(want, now), **scope, back_to=earliest if now < want else None)
     return max(found or want, now), gate.earliest_claim(tx, earliest, **scope)
+
+
+# 日の種類だけの戻り（「平日の4時までに」）で、次のその種類の日を探す日数（その中に無ければ、いまを戻りとみなす＝依頼者の時間・暦の形がおかしいとき）
+_THEIRS_DAYS_SEARCHED = 31
+
+
+def _theirs_back(tx: Tx, cb: dict[str, Any], *, now: datetime) -> tuple[datetime, datetime | None]:
+    """お客様のほうから折り返すお約束の戻り（いちばん早い戻り, いちばん遅い戻り＝時点なら None）（1か所。`_theirs_at` だけが呼ぶ）：判定の中身の back_at・
+    back_until。日の種類だけの戻り（back_days・back_clock＝judge._theirs_days）は、暦で次のその種類の日のうち、いちばん遅い戻り（その日の back_clock）が
+    まだ来ていない日（その日の始まりから、いちばん遅い戻りまで＝✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」：「平日の4時までに」⇒次の平日の
+    16時の1時間後）。日の種類の決め方は門と同じ1か所（calling_hours.day_key・暦）。"""
+    if cb.get("back_at") is not None:
+        until = cb.get("back_until")
+        return datetime.fromisoformat(cb["back_at"]), None if until is None else datetime.fromisoformat(until)
+    days, clock, holiday = set(cb["back_days"]), int(cb["back_clock"]), holiday_checker(tx)
+    today = calling_hours.local(now).date()
+    for i in range(_THEIRS_DAYS_SEARCHED):
+        d = today + timedelta(days=i)
+        try:
+            if calling_hours.day_key(d, holiday) not in days:
+                continue
+        except CalendarOutOfRange:
+            break
+        start = calling_hours.from_local(datetime.combine(d, datetime.min.time()))
+        if start + timedelta(seconds=clock) > now:
+            return start, start + timedelta(seconds=clock)
+    return now, None
 
 
 def _notice_old_promise(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:

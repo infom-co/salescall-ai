@@ -75,7 +75,7 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-15.2+time-{spoken_time.VERSION}"   # 2026-11-15.2（2026-11-15 の見直し。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束の「〇時まで」「〇日まで」を、いま電話を続けられなかった理由と契約者の設定（callback.until_*）で読まず、口にした時刻・日をいちばん遅い戻りと読む1か所（THEIRS_READ）にした（前は設定 now の業務で戻る前にかけえた・「18日までには出社します」で18日の始まりにかけた）。「平日の4時までに」（日の決まらない「〇時まで」）は、いまを戻りとみなさず、ずらさない。2026-11-15.1（✅ 2026-11-15 ユーザー「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方。」・「1時間後にかける（お勧め）」。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束で伺った戻りが幅の言葉なら、いちばん遅い戻り（幅の終わり）の1時間後から・「〇時まで」はその時刻の1時間後から（判定の中身 callback に back_until）。あとで・ご事情の「〇時まで」も読む（前は判定できなかった）。2026-11-14.2（✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで待つ」。DESIGN.md 2章 Q248）：ずらした時刻は、お客様が指定した時刻でない（時刻ちょうどの約束にしない＝NG時間の枠・依頼者の時間帯の外でかけてよい例外を使わない）。お客様のほうから折り返すお約束の約束は、こちらからかけたい時刻（戻る時刻の1時間後）から終わり無しの幅（日を言っていない＝依頼者のかける日・ふつうの電話の時間）にする。かける時刻は、次の動きがふつうの電話の決まりで選ぶ（next_action._theirs_at）。歯止め時間の外・日をまたぐときも、ずらさない例外を外した
+JUDGE_VERSION = f"judge-2026-11-15.3+time-{spoken_time.VERSION}"   # 2026-11-15.3（✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」）：お客様のほうから折り返すお約束の終わりの無い戻り（「16日以降に出社します」）はその始まりの日のうち・日の種類だけの戻り（「平日の4時までに」）は判定の中身 callback の back_days・back_clock（日は次の動きが暦で決める）。2026-11-15.2（2026-11-15 の見直し。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束の「〇時まで」「〇日まで」を、いま電話を続けられなかった理由と契約者の設定（callback.until_*）で読まず、口にした時刻・日をいちばん遅い戻りと読む1か所（THEIRS_READ）にした（前は設定 now の業務で戻る前にかけえた・「18日までには出社します」で18日の始まりにかけた）。「平日の4時までに」（日の決まらない「〇時まで」）は、いまを戻りとみなさず、ずらさない。2026-11-15.1（✅ 2026-11-15 ユーザー「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方。」・「1時間後にかける（お勧め）」。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束で伺った戻りが幅の言葉なら、いちばん遅い戻り（幅の終わり）の1時間後から・「〇時まで」はその時刻の1時間後から（判定の中身 callback に back_until）。あとで・ご事情の「〇時まで」も読む（前は判定できなかった）。2026-11-14.2（✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで待つ」。DESIGN.md 2章 Q248）：ずらした時刻は、お客様が指定した時刻でない（時刻ちょうどの約束にしない＝NG時間の枠・依頼者の時間帯の外でかけてよい例外を使わない）。お客様のほうから折り返すお約束の約束は、こちらからかけたい時刻（戻る時刻の1時間後）から終わり無しの幅（日を言っていない＝依頼者のかける日・ふつうの電話の時間）にする。かける時刻は、次の動きがふつうの電話の決まりで選ぶ（next_action._theirs_at）。歯止め時間の外・日をまたぐときも、ずらさない例外を外した
 # 前の版：   # 2026-11-14.1（✅ 2026-11-14 ユーザー。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束（会話の報告の Callback.theirs）で戻る時刻を伺えた申し出は、戻る時刻の1時間後（THEIRS_WAIT）からかける約束にする（ちょうどの時刻・「すぐ」「30分後」だけ。`_after_theirs` の1か所）。判定の中身 callback に theirs・back_at（お客様が言った戻る時刻）を足す。戻る時刻の取れなかった申し出は今までどおり
 # 前の版：   # 2026-11-13.1（CL-1 の連絡帳 4-131・4-135・4-141・4-142）：判定の中身で依頼者へ返す申し出・ほかのご希望に、こちらから足した条件 added（お客様のご都合 terms と分ける）・ほかのご希望の W1 の答えの状態 wish_state と提案の terms・topic を足し、新しい担当の方に引き継ぎを確かめた答え（会話の報告の事実 carried）を carried で返す（引き継いだと言った前の方の答え＝carried_answers。判定の結果は変えない）
 # 前の版：   # 2026-11-12.1（CL-1 の連絡帳 4-122〜4-129）：業務の申し出の答え（会話の報告の事実 handoff・close_offer）と、条件つきで受けていただいた申し出（事実 offer_terms）を判定の中身で依頼者へ返す（判定の結果は変えない。handoff のはっきりしたお断りは会話の側が残す事実 goal_refused で今までどおり読む）
@@ -483,6 +483,19 @@ def theirs_span(back: datetime, until: datetime | None = None) -> tuple[datetime
     return back + THEIRS_EARLIEST, (until or back) + THEIRS_WAIT
 
 
+def _day_end(day: Any, daily: tuple[int, int] | None, *, until_point: bool = False) -> datetime:
+    """その日のうちの、いちばん遅い戻り（1か所。`_theirs_back`・next_action の日の種類だけの戻りが読む＝秒は `theirs_clock`）。"""
+    return datetime.combine(day, datetime.min.time(), tzinfo=calling_hours.JST) + timedelta(seconds=theirs_clock(daily, until_point))
+
+
+def theirs_clock(daily: tuple[int, int] | None, until_point: bool) -> int:
+    """その日のうちの、いちばん遅い戻りの、0時からの秒（1か所）：「〇時まで」は口にした時刻（1日の中の幅の始まり）・時間の言葉は幅の終わり・
+    時間の言葉が無ければ、その日の終わり（翌日の0時）。"""
+    if daily is None:
+        return spoken_time.DAY
+    return daily[0] if until_point else daily[1]
+
+
 def _theirs_back(when: spoken_time.Reading) -> tuple[datetime, datetime] | None:
     """お客様のほうから折り返すお約束で伺った時刻の言葉の、戻りの幅（いちばん早い戻り, いちばん遅い戻り）（1か所。`_after_theirs` だけが呼ぶ）。
     - 1つの時点（spoken_time.Reading.moment＝「15時」「3時ごろ」「明日の15時」「すぐ」「30分後」）⇒ その時点（早い・遅いとも同じ）。
@@ -491,16 +504,23 @@ def _theirs_back(when: spoken_time.Reading) -> tuple[datetime, datetime] | None:
     - 幅の言葉（「夕方」「3時から5時」「3時以降」「明日」「来週中」など）⇒ 幅の始まりから終わりまで（✅ 2026-11-15 ユーザー「幅の終わりの1時間後、
       ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方。」。「3時以降」
       「午後」の終わりは、その日の終わり＝言葉の読みの幅の終わり）。
-    - 終わりの無い幅（「16日以降」「平日の夕方なら」）・日の決まらない「〇時まで」（「平日の4時までに」＝日の種類だけ）・始まりの無い読み ⇒ None
-      （決まりが無いのでずらさない＝読みの幅のまま。⏳ ユーザーに伺う：CL-2 の連絡帳 4-405）。⛔ 2026-11-15 の見直しまで：「平日の4時までに」は
-      読みの始まり（いま）を戻りの時刻とみなし、いまの1時間後にかけた。"""
+    - 終わりの無い幅（「16日以降に出社します」）⇒ その始まりの日のうち（その日の時間の言葉の終わり・無ければその日の終わり）＝その日のかけてよい時間の
+      最後の方（✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」）。
+    - 日の種類だけの読み（「平日の4時までに」「平日の夕方なら」＝どの日か決まらない）⇒ None（判定は暦を読まない。日を決めるのは次の動き
+      next_action._theirs_days＝暦で次のその種類の日。`_after_theirs` が日の種類と時刻を判定の中身に残す）。
+    - 始まりの無い読み ⇒ None（ずらさない）。"""
     if when.start is None or when.kind not in (spoken_time.AT, spoken_time.WINDOW):
         return None
+    if when.since is None and when.days is not None and not when.moment:
+        return None                                   # 日の種類だけ（次の動きが暦で日を決める）
     if when.until_point:
         return None if when.since is None else (when.since, when.since)
     if when.moment:
         return when.start, when.start
-    return None if when.end is None else (when.start, when.end)
+    if when.end is None:                              # 終わりの無い幅：その始まりの日のうち
+        start = when.since or when.start
+        return start, _day_end(start.astimezone(calling_hours.JST).date(), when.daily)
+    return when.start, when.end
 
 
 def _after_theirs(cb: Any, when: spoken_time.Reading) -> tuple[spoken_time.Reading, datetime | None, datetime | None]:
@@ -519,11 +539,24 @@ def _after_theirs(cb: Any, when: spoken_time.Reading) -> tuple[spoken_time.Readi
       ⛔ 2026-11-15 まで：幅の言葉はずらさず、幅のまま（「明日戻ります」⇒明日の時間帯の始まりにかけ、折り返しの前にかけえた）・あとでの「〇時まで」は
       理由が無く判定できなかった。"""
     back = _theirs_back(when) if cb.theirs else None
+    if back is None and _theirs_days(cb, when) is not None:
+        # 日の種類だけの戻り：日と時刻は次の動きが暦で決める（back_days・back_clock）。約束は、時点の戻りと同じく、日を言っていない終わり無しの幅
+        # （ふつうの電話の時間。1日の中の幅・日の種類の幅にしない＝いちばん遅い戻りの1時間後が、読みの幅の外にならない）
+        return spoken_time.Reading(spoken_time.WINDOW, when.start, None, repeat=spoken_time.DAY_REPEAT), None, None
     if back is None:
         return when, None, None
     want = theirs_span(*back)[1]
     return (spoken_time.Reading(spoken_time.WINDOW, want, None, repeat=spoken_time.DAY_REPEAT), back[0],
             None if back[1] == back[0] else back[1])
+
+
+def _theirs_days(cb: Any, when: spoken_time.Reading) -> dict[str, Any] | None:
+    """お客様のほうから折り返すお約束で伺った戻りが、日の種類だけ（「平日の4時までに」「平日の夕方なら」）のときの、戻りの日の種類といちばん遅い戻りの
+    時刻（判定の中身 callback の back_days・back_clock。1か所）。日は次の動き（next_action._theirs_days）が暦で決める＝次のその種類の日のうち、
+    いちばん遅い戻りがまだ来ていない日（✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」＝「平日の4時までに」⇒次の平日の17時）。"""
+    if not cb.theirs or when.kind != spoken_time.WINDOW or when.since is not None or when.days is None or when.moment:
+        return None
+    return {"back_days": list(when.days), "back_clock": theirs_clock(when.daily, when.until_point)}
 
 
 def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
@@ -536,15 +569,18 @@ def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
     （時刻ちょうどの約束の回を、歯止めの外で1回分使ってよいか＝next_action._exact_window が読む）・theirs＝お客様のほうから折り返すお約束
     （会話の報告の Callback.theirs）・back_at＝その戻り（お客様が言った時刻・幅のいちばん早い戻り。こちらからかける時をずらしたときだけ）・
     back_until＝幅の言葉のいちばん遅い戻り（時点・「〇時まで」は無し）。at・until などは、ずらしたあとの約束＝`_after_theirs` の1か所。at はかけたい
-    時刻＝いちばん遅い戻りの1時間後。実際にかける時刻は次の予定）。"""
+    時刻＝いちばん遅い戻りの1時間後。実際にかける時刻は次の予定）・back_days／back_clock＝日の種類だけの戻り（「平日の4時までに」）の日の種類と、
+    その日のいちばん遅い戻りの0時からの秒（`_theirs_days`。日は次の動きが暦で決める）。"""
     iso = lambda t: None if t is None else t.isoformat()   # noqa: E731
+    days = _theirs_days(cb, when)
     when, back, back_until = _after_theirs(cb, when)
     return {"reason": cb.reason, "at": iso(when.start), "until": iso(when.end), "since": iso(when.since), "repeat": when.repeat,
             "cycle": cb.cycle, "daily": None if when.daily is None else list(when.daily),
             "days": None if when.days is None else list(when.days), "exact": when.exact, "said": list(when.said),
             "day_said": when.day_said, "time_said": cb.time_said, "number_said": cb.number_said,
             "number_e164": cb.number_e164, "person": cb.person, "until_why": cb.until_reason,
-            "beyond_ok": cb.beyond_limit_ok, "intent": cb.intent, "theirs": cb.theirs, "back_at": iso(back), "back_until": iso(back_until)}
+            "beyond_ok": cb.beyond_limit_ok, "intent": cb.intent, "theirs": cb.theirs, "back_at": iso(back), "back_until": iso(back_until),
+            "back_days": None if days is None else days["back_days"], "back_clock": None if days is None else days["back_clock"]}
 
 
 def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:

@@ -68,7 +68,7 @@ class Guards(Base):
         theirs = self.tx(other, lambda tx: support.make_business_set(tx, "Leda", other_version, [PART]), OPERATOR)
         shared = self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(   # 承認しない（システムの組はほかの試験も読む）
             tx, unit="contractor", voice_name="Leda",
-            parts=[recordings.Part("hai", common_phrases.TEXTS["hai"], "test://Leda/hai", "1" * 64)]))
+            parts=[recordings.Part(n, t, f"test://Leda/{n}", "1" * 64) for n, t in common_phrases.TEXTS.items()]))   # 足りない組は作れない
         add = ("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q1', 'お世話になっております。',"
                " 'test://Leda/Q1', %s)")

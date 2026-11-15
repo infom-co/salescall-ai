@@ -4944,6 +4944,32 @@ class CallbackWindow(SettleBase):
                 self.assertEqual((nxt["promised"], nxt["callee"], nxt["daily"]), (True, None, None))
                 self.assertEqual(nxt["at"], want - life if edge == "end" else want)
 
+    def test_their_callback_with_only_day_kinds_or_no_end_is_called_at_that_days_end(self):
+        """✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」：日の種類だけの戻り（「平日の16時までに」）は、暦で次の平日のうち、16時がまだ来ていない日の
+        17時（4時の1時間後＝next_action._theirs_back の1か所）。終わりの無い戻り（「〇日以降」）は、その日のかけてよい時間の最後の方（「明日」と同じ）。"""
+        from salescall.core.calendar import holiday_checker
+        local = self.local_now(self.ready())
+        is_holiday = self.tx(self.ready(), holiday_checker)
+        d = local.date()
+        while calling_hours.day_key(d, is_holiday) not in ("mon", "tue", "wed", "thu", "fri") or (d == local.date() and local.hour >= 16):
+            d += timedelta(days=1)
+        nxt, _ = self.their_promise("平日の16時までに", hours=("09:00", "20:00"))   # 試験の土台は歯止め時間が1日じゅう（「4時」は午前か午後か決まらない）
+        self.assertEqual((nxt["promised"], nxt["at"], nxt["callee"], nxt["daily"]),
+                         (True, datetime.combine(d, datetime.min.time()) + timedelta(hours=17), None, None))
+        # 時刻によらない確かめ：土曜の朝に「平日の16時までに」⇒ 土曜ではなく、次の平日（祝日なら、その次）の0時から16時
+        saturday = local.date() + timedelta(days=(5 - local.weekday()) % 7 + 7)
+        at10 = calling_hours.from_local(datetime.combine(saturday, datetime.min.time()) + timedelta(hours=10))
+        back = self.tx(self.ready(), lambda tx: next_action._theirs_back(
+            tx, {"back_days": ["mon", "tue", "wed", "thu", "fri"], "back_clock": 16 * 3600}, now=at10))
+        w = saturday + timedelta(days=2)
+        while calling_hours.day_key(w, is_holiday) not in ("mon", "tue", "wed", "thu", "fri"):
+            w += timedelta(days=1)
+        start = calling_hours.from_local(datetime.combine(w, datetime.min.time()))
+        self.assertEqual(back, (start, start + timedelta(hours=16)))
+        day = local.date() + timedelta(days=2)
+        nxt, life = self.their_promise(f"{day.month}月{day.day}日以降", hours=("09:00", "18:30"))
+        self.assertEqual(nxt["at"], datetime.combine(day, datetime.min.time()) + timedelta(hours=18, minutes=30) - life)
+
     def test_their_callback_beyond_the_calendar_is_not_called_before_the_return(self):
         """戻りが暦の外（「来年戻ります」＝いちばん遅い戻りの1時間後が、祝日の暦がまだ無い再来年の1月1日）でも、戻る前にはかけない：約束の幅の始まり（30分後に期限が来る予約の時刻＝
         next_action._theirs_at）を予定に持ち、1日後に確かめ直しても、門が幅の外で断る（⛔ 2026-11-15 の見直しまで：幅に始まりが無く、明日の電話を門が

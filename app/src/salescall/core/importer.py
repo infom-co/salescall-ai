@@ -192,6 +192,12 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
                 customer_contacts.add(tx, task_id, kind, value, service=service, origin="list", import_id=import_id,
                                       source_row=r.row_no)
             next_action.schedule_now(tx, task_id, cause="取込")
+        if r.outcome == "already":   # もう登録した行：一覧で新しく増えた連絡先だけを足す（`_plan` が選んだもの。2026-11-15 ユーザー「足す」）
+            for number, label in r.record_numbers:
+                customer_contacts.add_number(tx, task_id, number, label, origin="list")
+            for kind, value, service in r.contact_values:
+                customer_contacts.add(tx, task_id, kind, value, service=service, origin="list", import_id=import_id,
+                                      source_row=r.row_no)
         if r.exclusion != "call" and r.outcome in ("registered", "already"):
             exclusions.mark(tx, [task_id], r.exclusion, reason=exclusions.IMPORT_REASON, source="import", import_id=import_id)
         tx.execute(
@@ -342,6 +348,29 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         # 行へかけない理由（かける番号の理由・ほかの番号のお客様の側の理由＝門と同じ1か所 target_policy.row_block_reason。そのお客様が
         # 断っていれば、どの番号でかけても同じお客様＝原則14）
         blocked = target_policy.row_block_reason(tx, number, [x for x, _ in records], **scope)
+        # この実施回にもう登録した行（同じ番号・同じ管理番号）：行は変えず、一覧で新しく増えた連絡先（記録だけの番号・番号ではない連絡先）だけを足す
+        # （✅ 2026-11-15 ユーザー「足す（お勧め）」＝連絡先は記録を足していく。足した番号でお客様が断っていれば、門が行へかけない理由の1か所で止める）。
+        # ⛔ それまで：足さず、プレビューにも出なかった（かけない理由に当たると「止める」と出たが、登録済みの行はそのままかかり続けた）
+        existing = in_run_by_number.get(number.e164)
+        if existing is not None and existing["client_ref"] == ref and number.e164 not in taken_number \
+                and (ref is None or ref not in taken_ref):
+            have = customer_contacts.now(tx, existing["task_id"])
+            known = {n["phone"] for n in have["numbers"]}
+            current = {(c["kind"], c["service"]): c["value"] for c in have["contacts"]}
+            new_records = tuple((x, label) for x, label in records if x.e164 not in known)
+            new_values = tuple(v for v in found["contact_values"] if current.get((v[0], v[2])) != v[1])
+            added = [title(fields[x.e164]) for x, _ in new_records] + [title({kind: f for f, kind in _CONTACT_FIELDS.items()}[k]) for k, _, _ in new_values]
+            note = "この実施回に、もう登録されています" + (f"（一覧で増えた連絡先を足します：{'・'.join(added)}）" if added else "")
+            if bad_record is not None:
+                note += f"（{bad_record[1]}。その番号は足しません）"
+            if blocked is not None:
+                note += f"（{blocked[1]}。この行には、門がかけません）"
+            rows.append(RowPlan(row.row_no, "already", "already_in_run", note, task_id=existing["task_id"],
+                                **dict(found, record_numbers=new_records, contact_values=new_values)))
+            taken_number[number.e164] = row.row_no
+            if ref is not None:
+                taken_ref[ref] = row.row_no
+            continue
         if blocked is not None:
             code, why, other = blocked
             rows.append(stop(code, why if other is None else f"「{title(fields[other.e164])}」の番号：{why}", **found))

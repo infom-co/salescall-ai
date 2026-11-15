@@ -15,7 +15,7 @@ import uuid
 from datetime import timedelta
 from unittest import mock
 
-from salescall.core import business_settings, conversation_io, customer_contacts, dnc, importer, next_action, row_fixes, settings, tasks
+from salescall.core import business_settings, conversation_io, customer_contacts, dnc, importer, next_action, row_fixes, settings, target_policy, tasks
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
@@ -384,6 +384,38 @@ class CustomerContacts(Base):
                                    header=self.HEADER), mapping=self.MAP)
         self.assertEqual(self.outcomes(r), [(2, "stopped", "dnc_client")])
         self.assertIn("「携帯」の番号", r["rows"][0]["reason"])
+
+    def test_a_reimport_adds_new_contacts_to_registered_rows(self):
+        """✅ 2026-11-15 ユーザー「足す（お勧め）」：同じ一覧を同じ実施回へ取り込み直したとき、もう登録した行は変えず、一覧で新しく増えた連絡先（記録だけの
+        番号・番号ではない連絡先）だけを足す（プレビューに出す。同じ連絡先は足し直さない）。足した番号でお客様が断っていれば、行へかけない理由の1か所で門が
+        止める（プレビューにも出す）。⛔ それまで：足さず、プレビューにも出なかった。"""
+        company = fictional_jp_fixed()
+        first = self.register(csv_file([("A", "架空商事", company, None, None, None, None, None, None, None, None)],
+                                       header=self.HEADER), mapping=self.MAP)
+        task = first["rows"][0]["task_id"]
+        mobile = "090-0000-0171"
+        data = csv_file([("A", "架空商事", company, None, mobile, "a@example.com", None, None, None, None, None)], header=self.HEADER)
+        sheet, plan = self.preview(data, self.MAP)
+        self.assertEqual(self.outcomes(plan), [(2, "already", "already_in_run")])
+        self.assertIn("一覧で増えた連絡先を足します：携帯・メール", plan.rows[0].reason)
+        self.register(data, mapping=self.MAP)
+        self.assertIn((normalize(mobile).e164, "record", "mobile"), self.numbers(task))
+        got = self.tx(lambda tx: customer_contacts.now(tx, task))["contacts"]
+        self.assertEqual([(c["kind"], c["value"]) for c in got], [("email", "a@example.com")])
+        again = self.register(data, mapping=self.MAP)                        # 同じ連絡先は足し直さない
+        self.assertEqual(self.outcomes(again), [(2, "already", "already_in_run")])
+        self.assertEqual(self.tx(lambda tx: tx.one("SELECT count(*) AS n FROM salescall.task_contacts WHERE task_id = %s", (task,)))["n"], 1)
+        refused = "090-0000-0172"                                            # 足す番号でお客様が断っている：足して、門が止める
+        self.tx(lambda tx: dnc.register(tx, refused, "manual"))
+        data = csv_file([("A", "架空商事", company, None, refused, None, None, None, None, None, None)], header=self.HEADER)
+        sheet, plan = self.preview(data, self.MAP)
+        self.assertIn("この行には、門がかけません", plan.rows[0].reason)
+        self.register(data, mapping=self.MAP)
+        self.assertIn((normalize(refused).e164, "record", "mobile"), self.numbers(task))
+        dial = self.tx(lambda tx: tasks.dial_number(tx, task))["phone_e164"]
+        got = self.tx(lambda tx: target_policy.task_block_reason(tx, task, normalize(dial), client_ref="A", tenant_id=self.s["tenant"],
+                                                                  client_id=self.s["client"], business_id=self.s["business"]))
+        self.assertEqual(got[0], "dnc_client")
 
     def test_a_number_only_refusal_on_a_recorded_number_does_not_stop_the_row(self):
         """記録だけの番号の発信禁止が、その番号だけの理由（番号違い・FAX の回線＝dnc.NUMBER_ONLY）なら、行は登録する（お客様の断りではない。

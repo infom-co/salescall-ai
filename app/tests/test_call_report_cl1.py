@@ -1315,12 +1315,21 @@ class TheirsBackTime1114(unittest.TestCase):
                 self.assertEqual(self.promise(raw, callee=callee), (jst(1, d=10), None, False, True, jst(0, d=9)))
                 self.assertEqual(self.judged(raw, callee=callee).detail["callback"]["back_until"], jst(0, d=10).isoformat())
 
-    def test_a_by_time_without_a_day_is_not_moved_to_now(self):
-        """日の決まらない「〇時まで」（「平日の4時までに」＝日の種類だけ）は、いまを戻りとみなさない（ずらさない＝読みの幅のまま。⏳ ユーザーに伺う：CL-2 の
-        連絡帳 4-405）。⛔ 2026-11-15 の見直しまで：読みの始まり（いま）を戻りの時刻とみなし、いまの1時間後にかけた。"""
+    def test_a_return_without_a_day_or_an_end_is_that_days_end(self):
+        """✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」：終わりの無い戻り（「9日以降に出社します」）は、その始まりの日のうち（その日の終わりの1時間後
+        ＝依頼者の時間の外なら、その日のかけてよい時間の最後の方。「明日」と同じ）。日の種類だけの戻り（「平日の4時までに」）は、判定の中身に日の種類と
+        いちばん遅い戻りの時刻（back_days・back_clock）を残し、日は次の動きが暦で決める（約束は日を言っていない終わり無しの幅）。⛔ 2026-11-15 の見直し
+        まで：「平日の4時までに」はいまの1時間後にかけた・「9日以降」はずらさず9日の始まりにかけた。"""
+        raw = self.okada("9日以降")
+        raw["facts"]["callback"][0]["why"] = "day_off"
+        self.assertEqual(self.promise(raw), (jst(1, d=10), None, False, True, jst(0, d=9)))
         cb = self.judged(self.okada("平日の4時までに")).detail["callback"]
-        self.assertIsNone(cb["back_at"])
+        self.assertEqual({k: cb[k] for k in ("back_at", "back_days", "back_clock", "until", "daily", "days", "exact", "day_said")},
+                         {"back_at": None, "back_days": ["mon", "tue", "wed", "thu", "fri"], "back_clock": 16 * 3600, "until": None,
+                          "daily": None, "days": None, "exact": False, "day_said": False})
         self.assertGreaterEqual(datetime.fromisoformat(cb["at"]), MORNING)
+        plain = self.judged(self.okada("平日の4時までに", theirs=False))   # 印の無いふつうの不在は今までどおり（理由の決まりで読む）
+        self.assertIsNone(plain.detail.get("callback", {}).get("back_days") if plain.detail.get("callback") else None)
 
     def test_by_a_time_means_back_by_then(self):
         """「〇時まで」（「3時までには戻ります」・あとで「3時までにはお電話できると思います」）は、いちばん遅い戻りがその時刻＝その1時間後から（✅ 2026-11-15
