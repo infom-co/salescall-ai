@@ -1930,6 +1930,15 @@ class NameLedger(Content):
         無いと、その一言を流せないまま声を「話してよい」にする。"""
         self.assertLessEqual({"callback_theirs_time", "callback_theirs_time_midway"}, set(recordings.COMMON_PARTS))
 
+    def test_the_parts_cl1_added_on_11_15_are_received(self):
+        """CL-1 の連絡帳 4-159（見直し (12) の組 O2）の共通の一言の録音も、話してよい声が求める（`COMMON_PARTS`）：聞き取れないまま「-」にしたご承認のお知らせの
+        締めの前の確かめ（announce_recheck_unheard）と、かけ直しの質問の頭に「それでは」を付けた形（_lead_soredeha。27本。名前の正本は CL-1 の
+        phrases.AGAIN_FIT）。名前の一覧が CL-1 の正本とそっくり同じかは、CL-1 の試験 test_recorded_names_match_cl2_common_parts が見る。"""
+        lead = {c for c in recordings.COMMON_PARTS if c.endswith("_lead_soredeha")}
+        self.assertIn("announce_recheck_unheard", recordings.COMMON_PARTS)
+        self.assertEqual(len(lead), 27)
+        self.assertLessEqual({c.removesuffix("_lead_soredeha") for c in lead}, set(recordings.COMMON_PARTS))   # どれも、もとの質問の録音がある
+
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、
         どれも話してよい声が求める（`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）：並べて伺ったご案内の方法を言って

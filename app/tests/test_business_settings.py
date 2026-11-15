@@ -868,6 +868,26 @@ class Check(unittest.TestCase):
         extra_question("Q2x")(r)                                           # 「_」で続かなければ取り違えない
         bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
+    def test_the_day_slot_in_texts_the_import_ai_decides(self):
+        """CL-1 の連絡帳 4-160：会話の側は {最短の日} を、質問の文・入る一言のほか、取込のときの AI が決める声に出す文（お知らせの文・言い換えた質問・
+        選択肢を並べた文・その後の文の中身・お知らせの中身の名詞・先に並べた文の並び）でも言い方に置き換える（flowctl.DAY_FIELDS・day_question）。
+        CL-1 の取込の AI は {最短の日} を残す（announces.KEEP_WORDS）。その文のある業務設定は登録でき、その文だけにあっても最短の日が要る。
+        ⛔ 2026-11-15 まで、こちらは質問の文・入る一言のほかを「書けない所」として止めた（{最短の日} のある質問でお知らせの文が決まると登録できなかった）。"""
+        earliest = {"business_days": 3, "closed_weekdays": ["sat", "sun"], "closed_on_holidays": True, "closed_dates": []}
+        texts = {"reworded": f"{bs.DAY_SLOT}以降でご希望の日時はございますか？", "alternatives": f"{bs.DAY_SLOT}の午前と午後のどちらがよろしいでしょうか？",
+                 "since": f"{bs.DAY_SLOT}のご訪問の日時", "alternatives_led": ["", f"{bs.DAY_SLOT}の午後と午前のどちらがよろしいでしょうか？"]}
+        self.assertEqual(set(bs.DAY_FIELDS), {"text", "intro", "announce", "reworded", "alternatives", "since", "matter", "alternatives_led"})
+        for key, text in texts.items():
+            with self.subTest(key):
+                r = raw()
+                r["questions"][1]["text"] = f"{bs.DAY_SLOT}であれば承れますが、ご希望の日時をお聞かせください。"
+                r["questions"][1][key] = text
+                r["earliest"] = dict(earliest)
+                self.assertEqual(bs.check(r, standard=bs.NO_STANDARD, field_types=FIELD_TYPES, ai_reading_needs_person=True).earliest.business_days, 3)
+                r = raw()                                                      # その文だけにあっても、最短の日が要る（会話の側の day_question と同じ読み）
+                r["questions"][1][key] = text
+                self.assertTrue(any("最短の日（earliest：「N営業日以降」）を書きます" in x for x in problems_of(r)), problems_of(r))
+
     def test_earliest_day_counts_business_days(self):
         """最短の日の数え方（`Earliest.day` の1か所）：電話の日の次の日から数えて N 番目の営業日（0 なら、電話の日から数えて最初の営業日）。
         営業日は、休みの曜日・休業日・（休みにするなら）祝日でない日。1年先までに無ければ ValueError。"""

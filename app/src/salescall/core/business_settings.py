@@ -153,6 +153,13 @@ ASK_IF_KEYS = {"after", "answers", "hedged"}      # 前の答えで伺う質問�
 # ＝CL-1 の flowctl.day_words の1か所。名前の正本は会話の側の flowctl.DAY_SLOT。CL-1 の連絡帳 4-71 の (c)）。日にちを決めるのは
 # 業務設定の「最短の日」（`Earliest`）の1か所
 DAY_SLOT = "{最短の日}"
+# DAY_SLOT を書ける（会話の側が言い方に置き換える）質問の欄（1か所＝CL-1 の flowctl.DAY_FIELDS と先に並べた文 alternatives_led。CL-1 の連絡帳 4-160）：
+# 人が書く質問の文・入る一言と、取込のときの AI が質問の文から決める声に出す文（お知らせの文・言い換えた質問・選択肢を並べた文・その後の文の中身・お知らせの
+# 中身の名詞・先に並べた文の並び。CL-1 の取込の AI は {最短の日} を残す＝announces.KEEP_WORDS）。資料が届いているかの選択肢の名前 at_hand は声に出す文でない。
+# ⛔ 2026-11-15 まで、ここは質問の文・入る一言だけで、AI が {最短の日} を残した文のある業務設定を「書けない所に書いた」として登録できなかった（お知らせの文は 1.45 から）。
+# この欄のどれかにあれば最短の日（earliest）が要る（会話の側の flowctl.day_question と同じ読み）
+DAY_FIELDS = ("text", "intro", "announce", "reworded", "alternatives", "since", "matter", "alternatives_led")
+assert set(DAY_FIELDS) <= QUESTION_KEYS and set(DAY_FIELDS) - {"text", "intro"} <= set(AI_ONLY_KEYS)
 # 質問の文の頭に書かない言葉（1か所）：2つ目からの質問の頭には、会話の側がつなぎの言葉か入る一言を付けて流す（CL-1 の flowctl.spoken_question の
 # 1か所。作る録音の形の一覧は flowctl.question_forms の1か所）。つなぎの言葉は、次の項目として初めて伺う質問は「続きまして」・もう伺った質問を伺い直す
 # とき（戻る一言・「失礼いたしました。」・名乗り直し・尋ねられて答えたあと）と前の答えで伺う質問は「それでは」・言い切っていないときだけ伺う質問は
@@ -449,7 +456,7 @@ class AskIf:
 
 @dataclass(frozen=True)
 class Earliest:
-    """業務設定の「最短の日」（「N営業日以降」。CL-1 の連絡帳 4-71 の (c)）：質問の文・入る一言の `DAY_SLOT` を、電話の日から見た最短で対応
+    """業務設定の「最短の日」（「N営業日以降」。CL-1 の連絡帳 4-71 の (c)）：質問の `DAY_FIELDS` の `DAY_SLOT` を、電話の日から見た最短で対応
     できる日にする材料。営業日は、休みの曜日（`calling_hours.DAY_KEYS` の名前）・祝日（休みにするか。祝日は暦＝core/calendar.py）・休業日
     （日にち）でない日。✅ 2026-11-03 ユーザー：「業務設定では「3営業日以降」などの設定になるので、それを自動で置き換える仕組みが必要です。」"""
     business_days: int                           # N（0＝当日から。電話の日が休みなら、次の営業日から）
@@ -570,7 +577,7 @@ class Settings:
     # 最終目的の果たし方（`GOAL_MODES`：any＝最終目的のどれか1つで果たせる／all＝全部が要る。会話の側の instruction.Business.goal_mode）。
     # 最終目的の質問が2つ以上の業務だけ書く（必ず書く＝こちらで推し量らない）。1つ以下なら None（どちらでも同じ）
     goal_mode: str | None = None
-    # 最短の日（「N営業日以降」）。質問の文か入る一言に `DAY_SLOT` を書いた業務だけ書く（必ず書く）。ほかは None
+    # 最短の日（「N営業日以降」）。質問の `DAY_FIELDS` に `DAY_SLOT` がある業務だけ書く（必ず書く）。ほかは None
     earliest: Earliest | None = None
     # ご案内できる方法（お客様に言う名前のまま。例 ("メール", "LINE", "ZOOM")。業務で1つ。無くてもよい。CL-1 の連絡帳 4-91 の (1)＝✅ 2026-11-05
     # 日本時間23時19分06秒 ユーザー「案でOK」）。どの名前も、ご連絡の方法がちょうど1つに当たる（`means_in`）。質問ごとに渡すのは `offer_ways_of`
@@ -1449,17 +1456,19 @@ def _earliest(raw: Any, problems: list[str]) -> Earliest | None:
 
 
 def _day_slot_problems(raw: dict[str, Any], has_earliest: bool) -> list[str]:
-    """最短の日の場所（`DAY_SLOT`）の確かめ（1か所）：書けるのは質問の文と入る一言だけ（会話の側が置き換えるのはそこだけ＝ほかに書くと、
+    """最短の日の場所（`DAY_SLOT`）の確かめ（1か所）：書けるのは質問の `DAY_FIELDS` だけ（会話の側が置き換えるのはそこだけ＝ほかに書くと、
     そのまま声になる）。書いた質問があれば最短の日（earliest）が要り（無いと会話の側が通話を始めない＝ValueError）、無ければ最短の日は
     書かない（使われない値）。言い方ごとの録音の部分「質問の番号_d番号」との取り違えは `_derived_part_problems` の1か所。"""
     problems: list[str] = []
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
-    slotted = [q.get("id") for q in qs if isinstance(q, dict)
-               and any(isinstance(q.get(k), str) and DAY_SLOT in q[k] for k in ("text", "intro"))]
+
+    def has_slot(v: Any) -> bool:   # 文か、文の並び（先に並べた文）の中に
+        return DAY_SLOT in v if isinstance(v, str) else isinstance(v, list | tuple) and any(isinstance(x, str) and DAY_SLOT in x for x in v)
+    slotted = [q.get("id") for q in qs if isinstance(q, dict) and any(has_slot(q.get(k)) for k in DAY_FIELDS)]
 
     def walk(v: Any, path: str) -> None:
         if isinstance(v, str) and DAY_SLOT in v:
-            problems.append(f"{path} に {DAY_SLOT} があります（{DAY_SLOT} を書けるのは、質問の文と入る一言だけです）")
+            problems.append(f"{path} に {DAY_SLOT} があります（{DAY_SLOT} を書けるのは、質問の文・入る一言と、取込で決める声に出す文だけです）")
         elif isinstance(v, dict):
             for k, x in v.items():
                 walk(k, path)
@@ -1471,7 +1480,7 @@ def _day_slot_problems(raw: dict[str, Any], has_earliest: bool) -> list[str]:
         if k == "questions" and isinstance(v, list):
             for n, q in enumerate(v, 1):
                 if isinstance(q, dict):
-                    walk({x: y for x, y in q.items() if x not in ("text", "intro")}, f"質問 {q.get('id') or n}")
+                    walk({x: y for x, y in q.items() if x not in DAY_FIELDS}, f"質問 {q.get('id') or n}")
                 else:
                     walk(q, f"質問 {n} 番目")
         else:

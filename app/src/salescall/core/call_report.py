@@ -248,7 +248,7 @@ END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint"
 NEVER_CLOSES = frozenset({"transfer_unclear", "who_unclear"})
 HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
 NOT_REACHED_REASONS = ("absent", "not_transferred", "departed", "other_means", "who_unclear")   # 目的のお客様に繋がらなかった理由（7-1。CL-1 の
-#   NOT_REACHED_LABEL：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5。
+#   Flow.not_reached の1か所と flowctl の注の名前。⛔ 前は CL-1 の表 NOT_REACHED_LABEL を指していたが、CL-1 の連絡帳 4-160 で外された）：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5。
 #   お名前だけではどの方か分からなかった＝who_unclear。CL-1 の連絡帳 4-65 の (e)。かけ直さずに終える＝business_rules.SYSTEM_POLICIES）
 HUMAN_PARTIES = frozenset({"reception", "target", "substitute", "successor", "wrong_party", "person"})   # お客様と話した区間（person＝役がまだ分からない）
 # ── 「お客様と話したか」（CallReport.talked）の材料の表（どの事実が人の証かは、ここだけで決める。⛔ 見直し18b の (2)：前は電話口の

@@ -917,6 +917,28 @@ class Import(unittest.TestCase):
         self.assertEqual((got.problems, len(asked["matters"]), len(asked["alternatives"])), ([], 1, 1))
         self.assertEqual([(q["matter"], q["alternatives"], q["alternatives_led"]) for q in got.raw["questions"]], want)
 
+    def test_the_alternatives_items_pass_the_fourth_mark_through(self):
+        """CL-1 の連絡帳 4-160：会話の側が並べる (質問の文, 選択肢, 型) に、4つ目「先に並べた文を作るか」（CL-1 の flowctl.leads_fit の1か所）が付きうる。
+        こちらは読まずに、そのまま決める処理（CL-1 の import_ai.decide_alternatives）へ渡す（4つ目の無い並びも今のまま）。偽の質問の答えの先に並べた文は空の文
+        （並べ方の数だけ）で、質問の順の文だけが入る。⛔ 2026-11-15 まで3つに切り詰めて読み、4つ目が来ると並びを読めずに止まった。"""
+        q1 = self.APPROVAL_QUESTIONS[1][1]
+        listed = "するになさいますかそれともしないの方がよろしいでしょうか？"
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        for mark in (False, True):
+            with self.subTest(mark=mark):
+                asked = []
+
+                def alternatives(items):
+                    asked.append(items)
+                    return [(listed, ("",) if not it[3] else ("しないになさいますかそれともするの方がよろしいでしょうか？",)) for it in items]
+
+                def items_of(content):
+                    return [(q["text"], tuple(q.get("choices") or ()), q["type"], mark) for q in content["questions"] if q["id"] == "Q1"]
+                p = self.preview(data, decide_alternatives=alternatives, alternatives_items=items_of)
+                self.assertEqual((p.problems, asked), ([], [[(q1, ("する", "しない"), "choice", mark)]]))
+                self.assertEqual(p.raw["questions"][0]["alternatives"], listed)
+                self.assertEqual(any(p.raw["questions"][0]["alternatives_led"]), mark)
+
     def test_unclear_none_is_decided_by_the_ai_for_choice_questions(self):
         """CL-1 の連絡帳 4-82（✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」）：ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢は、
         業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う質問も）だけ、取込のときに AI（CL-1 の import_ai.decide_unclear）に1回だけ聞いて入れる。

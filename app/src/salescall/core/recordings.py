@@ -414,7 +414,22 @@ COMMON_PARTS: tuple[str, ...] = (
     # 不在の電話で、戻る時刻を伺う「お電話をいただいた際に出られないことがないようにお戻りになられる時間はお分かりになるでしょうか？」（文の正本は CL-1 の
     # phrases.CALLBACK_ASK の theirs_time。伺えた時刻は theirs の記録の time に入り、かける時刻は Intent.md 7-3 の決定 2026-11-14 のとおり）と、ほかのかけ直しの
     # 質問と同じく、3回目から戻るときの形（_midway。名前の決まりは CL-1 の phrases.BACK_FIT のまま。4-158 には書かれていないが、CL-1 の比べる試験で見つけた）
-    "callback_theirs_time", "callback_theirs_time_midway")
+    "callback_theirs_time", "callback_theirs_time_midway",
+    # CL-1 の連絡帳 4-159（見直し (12) の組 O2）：聞き取れないまま「-」にしたご承認のお知らせを、締めの前に最終の確かめの形で伺う「お声が聞き取れませんでしたので
+    # 先ほどの内容はご了承ということでよろしかったでしょうか？」（中身の名詞が決まらないお知らせのとき。名詞のある質問は依頼主の単位の録音「番号_accepted_unheard」＝
+    # 業務の録音）
+    "announce_recheck_unheard",
+    # 同じ 4-159：お客様がもう聞いた質問へ、戻る一言を挟まずに戻るとき（伝言の申し出をお礼で断ったあとなど）の、かけ直しの質問の頭に「それでは」を付けた形
+    # （27本。名前の正本は CL-1 の phrases.AGAIN_FIT＝文がつなぎの言葉で始まる質問・質問でない一言・続きの電話の形には無い）
+    "callback_agreed_now_lead_soredeha", "callback_ask_when_lead_soredeha", "callback_ask_who_lead_soredeha", "callback_authority_lead_soredeha",
+    "callback_back_date_lead_soredeha", "callback_back_time_lead_soredeha", "callback_back_today_lead_soredeha", "callback_call_again_lead_soredeha",
+    "callback_carried_lead_soredeha", "callback_carried_talked_later_lead_soredeha", "callback_carried_talked_same_day_lead_soredeha",
+    "callback_hurry_when_lead_soredeha", "callback_later_time_answering_lead_soredeha", "callback_later_time_lead_soredeha",
+    "callback_next_workday_lead_soredeha", "callback_not_agreed_lead_soredeha", "callback_not_agreed_which_lead_soredeha",
+    "callback_number_lead_soredeha", "callback_other_point_2_lead_soredeha", "callback_other_point_lead_soredeha",
+    "callback_other_point_which_lead_soredeha", "callback_other_point_which_recap_lead_soredeha", "callback_reachable_time_lead_soredeha",
+    "callback_refusal_lead_soredeha", "callback_theirs_time_lead_soredeha", "callback_transfer_time_lead_soredeha",
+    "callback_wait_or_later_lead_soredeha")
 
 # その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"

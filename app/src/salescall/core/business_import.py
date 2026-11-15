@@ -657,18 +657,19 @@ MatterDecider = Callable[[list[tuple[str, str]]], list[str]]
 （CL-1 の連絡帳 4-154）"""
 
 
-AlternativesDecider = Callable[[list[tuple[str, tuple[str, ...], str]]], list[tuple[str, tuple[str, ...]]]]
-"""お客様の意向がまだ分からないまま戻るときの、選択肢を並べた質問の文を決める処理（(質問の文, 選択肢の並び, 型) の並び → 同じ並びで、質問ごとの組
+AlternativesDecider = Callable[[list[tuple[Any, ...]]], list[tuple[str, tuple[str, ...]]]]
+"""お客様の意向がまだ分からないまま戻るときの、選択肢を並べた質問の文を決める処理（(質問の文, 選択肢の並び, 型, 先に並べた文を作るか) の並び → 同じ並びで、質問ごとの組
 (質問の順の文, 先に並べた文の並び)。空の文＝決まらなかった）。決め方は CL-1 の1か所（`import_ai.decide_alternatives`＝2つのモデルがそろう・そろわなければ
 考える Sonnet・中身の判定。考える Sonnet は referee＝つなぐ所が渡す。先に並べた文の並びの番目は CL-1 の alternatives.orders＝こちらは並べ方を持たない）。
 渡す質問は会話の側の決まり（flowctl.alternatives_fits）で並べたもの（`AlternativesItems`）。管理者も契約者も確かめない。✅ 2026-11-14 日本時間22時15分15秒・
 23時45分00秒「伺い16はイでOK」（CL-1 の連絡帳 4-156・4-157）"""
 
 
-AlternativesItems = Callable[[dict[str, Any]], list[tuple[str, tuple[str, ...], str]]]
-"""選択肢を並べた質問の文を決めるために、業務設定から (質問の文, 選択肢の並び, 型) の並びを作る処理（確かめに通った業務設定の中身 → 並び）。どの質問を渡すかは
-会話の側の1か所（CL-1 の `flowctl.alternatives_fits`＝意向が分からないまま戻る質問のうち、業務の選ぶ質問で選択肢が2つ以上）。こちらは選び方を持たない
-（`RewordItems` と同じ形）。決める処理と一緒に、つなぐ所が渡す。"""
+AlternativesItems = Callable[[dict[str, Any]], list[tuple[Any, ...]]]
+"""選択肢を並べた質問の文を決めるために、業務設定から (質問の文, 選択肢の並び, 型, 先に並べた文を作るか) の並びを作る処理（確かめに通った業務設定の中身 → 並び）。
+どの質問を渡すかは会話の側の1か所（CL-1 の `flowctl.alternatives_fits`＝意向が分からないまま戻る質問のうち、選択肢から選んでいただく質問＝事実を伺う質問は
+入らない）、4つ目は会話の側の1か所（`flowctl.leads_fit`。無ければ会話の側は作る＝真。CL-1 の連絡帳 4-160）。こちらは選び方を持たず、4つ目も読まずに
+決める処理へそのまま渡す（`RewordItems` と同じ形）。決める処理と一緒に、つなぐ所が渡す。"""
 
 
 def _decided_maybes(raw: dict[str, Any], decide: MaybeDecider | None) -> dict[str, list[str]]:
@@ -740,25 +741,26 @@ def _alternatives(answer: Any) -> list[Any] | None:
 
 def _decided_items(raw: dict[str, Any], keys: tuple[str, ...], decide: RewordDecider | AlternativesDecider | None,
                    items_of: RewordItems | AlternativesItems | None, read: Callable[[Any], Any]) -> dict[str, Any]:
-    """会話の側が並べた質問（(質問の文, 選択肢, 型)）ごとに、その欄（keys）を決める処理に1回だけ聞く（1か所＝言い換えた質問 reworded・選択肢を並べた文
+    """会話の側が並べた質問（(質問の文, 選択肢, 型) と、選択肢を並べた文なら4つ目の「先に並べた文を作るか」）ごとに、その欄（keys）を決める処理に1回だけ聞く（1か所＝言い換えた質問 reworded・選択肢を並べた文
     alternatives と先に並べた文の並び alternatives_led。答え＝質問の文 → read で読んだ答え。決まらない・形の違う答えは入れない＝今の形）。聞く並びは会話の側の
     決まりで並べたもの（items_of＝つなぐ所が渡す。確かめに通った中身から）のうち、その欄がまだ入口から来ていない質問の文だけ（同じ文は1回）。答えは質問の文で
-    引く（選択肢の並びの書き方が、こちらと会話の側で違っても当たるように）。決める処理か並べる処理が渡されないときは聞かない。"""
+    引く（選択肢の並びの書き方が、こちらと会話の側で違っても当たるように）。3つ目より後ろ（4つ目）は読まずにそのまま渡す（決めるのは会話の側の1か所。⛔ 2026-11-15
+    まで3つに切り詰めていた＝CL-1 の連絡帳 4-160 の4つ目が来ると、並びを読めずに止まった）。決める処理か並べる処理が渡されないときは聞かない。"""
     if decide is None or items_of is None:
         return {}
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     given = {q.get("text") for q in qs if isinstance(q, dict) and not all(_ai_empty(q, k) for k in keys)}
     items, seen = [], set()
-    for text, choices, kind in items_of(raw):
+    for text, choices, kind, *rest in items_of(raw):
         if isinstance(text, str) and text.strip() and text not in given and text not in seen:
             seen.add(text)
-            items.append((text, tuple(choices), kind))
+            items.append((text, tuple(choices), kind, *rest))
     if not items:
         return {}
     got = decide(items)
     if not isinstance(got, list) or len(got) != len(items):
         return {}
-    return {text: x for (text, _, _), a in zip(items, got) if (x := read(a)) is not None}
+    return {item[0]: x for item, a in zip(items, got) if (x := read(a)) is not None}
 
 
 def _decided_later(p: Preview, *, decide_way_words: WayWordsDecider | None, way_pairs: WayPairs | None, decide_since: SinceDecider | None,
