@@ -28518,6 +28518,24 @@ class MeasureReviewTest(unittest.TestCase):
         for k in SIDE_ITEMS:
             self.assertNotIn(f"（{k}）", head)
 
+    def test_unknown_and_undecided_have_one_boundary(self):
+        # F4 の (c)（11-15・帳面 1 の (1)）：「わからない」と「決められない」の境目は「わからない」の説明の1か所だけ。ご自分がいま答えを言えないと言った
+        # （あとで確かめる・調べる・ほかの方に聞く、と言ったのも＝ANSWER_KINDS の頭の 11-06 の分かれ目）は「わからない」で、「決められない」の説明に
+        # 同じ場面を書かない（⛔ 直す前は両方の説明に「確かめていない」「確かめる・調べる・人に聞く、と言っただけ」があり、正解の表は 924行で両方を正解にした
+        # ＝流れの制御は、ご希望の質問の最初の答えで「わからない」なら選ぶ助け・「決められない」なら聞き直す、と動きが違う）。2つの説明に14字以上の同じ
+        # 言い回しを置かない（帳面 0-3 の (a)）
+        from flowctl import UNDECIDED, Question
+        from meaning_judge import options
+        q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        desc = {c: d for _, d, c in options(q)}
+        unknown, undecided = desc["unknown"], desc[UNDECIDED]
+        for words in ("あとで確かめる", "ほかの方に聞く", f"「{UNDECIDED}」ではなく"):
+            self.assertIn(words, unknown)
+        for words in ("確かめる", "調べる", "聞く", "確かめていない"):
+            self.assertNotIn(words, undecided)
+        N = 14
+        self.assertEqual([unknown[i:i + N] for i in range(len(unknown) - N + 1) if unknown[i:i + N] in undecided], [])
+
     def test_the_fingerprint_names_the_g73_file_and_stops_without_it(self):
         # D-14：お呼びする段の指紋は試しの言葉（G-73）の結果のファイルで変わる＝ファイルの名前を出し、無ければ指紋を出さずに止める
         import subprocess
