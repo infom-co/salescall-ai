@@ -66,6 +66,10 @@ FLIP = {("G26", None), ("G27", None), ("G28", "3.8 Flash")}
 
 
 def truth(it: dict) -> str:
+    """答えの正解の1つ（数えの群の名前・付け直した正解の無い行の正解）。正解を行の label に持つ組（組 R など）は、その受け取ってよい読みの1つ目。
+    ⛔ 2026-11-15 日本時間13時台：組 R の行で it["truth"] を読んで止まった（小さな試しの数え）"""
+    if "truth" not in it and "label" in it:
+        return it["label"]["accept"][0]
     if it["set"] == "B" and ((it["qid"], None) in FLIP or (it["qid"], it["maker"]) in FLIP):
         return {"はい": "いいえ", "いいえ": "はい"}[it["truth"]]
     return it["truth"]
@@ -138,15 +142,21 @@ def step_act(it: dict, q: Question, key: str) -> str | None:
     end = it.get(f"{key}終わり")
     if end is not None and end != END_NONE:
         return end_act(q, it.get(key), end)
-    return flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), prior_of(it, key), it.get(f"{key}{SIDE_SUFFIX[AWAY]}"))
+    return flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), prior_of(it, key, q), it.get(f"{key}{SIDE_SUFFIX[AWAY]}"))
 
 
 # 前の話の答えを、組の1か所で1回読んで入れる欄（read_priors。本番の判定の組 JudgePanel.ask と同じく、どの判定の読みにも同じものを添える）
 PRIOR_KEY = "前の話"
 
 
-def prior_of(it: dict, key: str) -> str | None:
-    """判定 key の読みに添える前の話の答え（唯一の読み口）：判定ごとに読んだもの（G-70 の行）が無ければ、組の1か所で読んだもの（read_priors）。"""
+def prior_of(it: dict, key: str, q: Question) -> str | None:
+    """判定 key の読みに添える前の話の答え（唯一の読み口）：判定ごとに読んだもの（G-70 の行）が無ければ、組の1か所で読んだもの（read_priors）。
+    本番が前の話を問う答え（meaning_judge.prior_asked の1か所＝前の言葉があり、選択肢の質問の最初の答え）のときだけ。⛔ 2026-11-15 日本時間13時台：
+    前の言葉のあった頃（11-07 の基準の記録）に読んだ「無い」が、前の言葉の無くなった W1（F3＝システムの質問に前の話を渡さない）に残り、
+    正しい読みを「違う答えで確かめる」と数えていた"""
+    from meaning_judge import prior_asked
+    if not prior_asked(q, it.get("asked"), it.get("before")):
+        return None
     return it[f"{key}前の話"] if f"{key}前の話" in it else it.get(PRIOR_KEY)
 
 
@@ -182,6 +192,8 @@ def reading(it: dict, key: str):
     r = Reading(got, it.get(f"{key}言い切り") is not False)
     for k, suffix in SIDE_SUFFIX.items():
         setattr(r, k, it.get(f"{key}{suffix}"))   # 答えとは別に読む項目の読み（記録の見出しの1か所 SIDE_SUFFIX。項目を足す前の記録は None＝読んでいない）
+    # 確からしさ（返す判定だけ）：確かな読みかを本番と同じ決まり（meaning_judge.sure_reading）で数えるため。流れの制御は読まない
+    r.sure, r.firm_p = it.get(f"{key}確からしさ"), it.get(f"{key}言い切りの確からしさ")
     return r
 
 
@@ -841,7 +853,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
         pool = (sample if sample and key not in (BASE, *OTHER_JUDGES)
                 else [it for it in items if it.get("見本")] if key == BASE and any(it.get("見本") for it in items) else items)
         for it in sorted(pool, key=lambda it: (not first(it), order.get(it["set"], 0))):
-            if key not in it and it.get("maker") != key and (not args.sets or it["set"] in args.sets):
+            if key not in it and it.get("maker") != key and in_scope(args, it, qmap):
                 (others if key in OTHER_JUDGES else jobs).put((key, it))
     lock = threading.Lock()
     done = Counter()
@@ -949,7 +961,7 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
 
     fns = tuple((m, make_judge(args, m)) for m in members(name))   # 送る道具は1つずつ（つながりを保つ）
     todo = [it for it in sorted(items, key=lambda it: (not first(it), it["set"])) if name not in it and it["qid"] in qmap
-            and (not args.sets or it["set"] in args.sets)][:args.limit or None]
+            and in_scope(args, it, qmap)][:args.limit or None]
     sem, done = asyncio.Semaphore(lanes), Counter()
 
     async def one(it):
@@ -974,7 +986,7 @@ def prior_todo(args, items: list[dict], qmap: dict) -> list[dict]:
     """前の話の答えを読む答え（read_priors が読む・組み立てだけ＝--dry-run が数える）：前の言葉があり、本番でも前の話を問う（meaning_judge.prior_asked の
     1か所）、まだ読んでいない答え。"""
     from meaning_judge import prior_asked
-    return [it for it in items if it.get("before") and PRIOR_KEY not in it and it["qid"] in qmap and (not args.sets or it["set"] in args.sets)
+    return [it for it in items if it.get("before") and PRIOR_KEY not in it and it["qid"] in qmap and in_scope(args, it, qmap)
             and prior_asked(qmap[it["qid"]], it.get("asked"), it["before"])]
 
 
@@ -1104,6 +1116,21 @@ def chosen_sets(spec: str | None, names) -> tuple | None:
     return tuple(dict.fromkeys(out))
 
 
+def in_scope(args, it: dict, qmap: dict) -> bool:
+    """この測りで判定を送る答えか（唯一の場所。判定を送る所 run_judges・run_group・前の話の答え prior_todo・組み立てだけの数えが同じ1つ）：--sets の組の
+    答えで、--after（本番で先に読む判定の名前）を渡したときは、その判定の記録の読みで本番の組が決めきれない答え（読みが無い・失敗・確かでない＝
+    meaning_judge.sure_reading・会話の側の待つ長さ＝Limits.judge_wait_s に遅れた）だけ＝2つ目の判定が本番で使われる答え（伺い19 ア）。"""
+    if args.sets and it["set"] not in args.sets:
+        return False
+    lead = getattr(args, "after", None)
+    if not lead:
+        return True
+    from flowctl import Limits
+    from meaning_judge import sure_reading
+    r, q = reading(it, lead), qmap.get(it["qid"])   # 質問の表に無い答えは、確かかを決められない＝判定する側
+    return r is None or q is None or (it.get(f"{lead}秒") or 0) > Limits().judge_wait_s() or not sure_reading(lead, q, r)
+
+
 def main() -> None:
     require_python()
     p = base_parser(__doc__)
@@ -1111,6 +1138,7 @@ def main() -> None:
     p.add_argument("--reuse", help="前の結果のファイル（作った答え・判定済みの分を使い回す）")
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため）")
     p.add_argument("--sets", help="判定する組だけ（組の名前を並べる：例 N1,W1,HEAR・前からの DE も読める＝chosen_sets）。ほかの組は判定しない（数えには入る）")
+    p.add_argument("--after", choices=JUDGES, help="2つ目の判定の測り：本番で先に読むこの判定の記録の読みで、組が決めきれない答えだけを判定する（in_scope）")
     p.add_argument("--rejudge", action="store_true", help="--reuse の、--judge で渡した判定の読みを捨てて測り直す（判定の文・選べるものを変えたとき）")
     p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
     p.add_argument("--g73-partial", action="store_true", help="試しの言葉（G-73）がそろっていなくても測る（ユーザーがその形で測ると選んだときだけ）")
@@ -1165,7 +1193,7 @@ def main() -> None:
     from g73_system_words import require_complete
     if args.dry_run:
         # 組み立てだけ：判定を送る数だけ出して止める（⛔ 2026-11-02 日本時間7時29分：ここで止まらず、2,840回送った）
-        todo = [it for it in items if not args.sets or it["set"] in args.sets]
+        todo = [it for it in items if in_scope(args, it, qmap)]
         say("組み立てだけ（--dry-run）：判定は送りません。送る数", {j: sum(1 for it in todo if j not in it) for j in args.judge},
             "前の話の答え", len(prior_todo(args, items, qmap)))
         require_complete(args, "組み立てだけ", stop=False)   # 試しの言葉がそろっているかも出す（止めない）
@@ -1174,6 +1202,8 @@ def main() -> None:
     require_complete(args, "答えの段の測り（G-53）")
     say("前の話の答えを読んだ数", read_priors(args, items, qmap))
     run_judges(args, items, qmap, ids)
+    # 料金をかけた読みは、数える前に残す（⛔ 2026-11-15 日本時間13時台：数えで止まり、判定し終えた最後の46行の読みが写しに残らなかった）
+    save_partial(f"G-53{args.tag}", {"items": items})
     summary = tally(items, args.judge, qmap)
     summary["前の話の答え（組の1か所）"] = dict(Counter(f"{it['set']}・{it['qid']}・{it[PRIOR_KEY]}" for it in items if PRIOR_KEY in it))
     summary["記録の通話に当てた見込み"] = {k: predict_calls(items, k) for k in args.judge}

@@ -28301,6 +28301,66 @@ class MeasureReviewTest(unittest.TestCase):
         self.assertTrue(calls)
         self.assertIs(g53_meaning.away_turn, real)
 
+    def test_tally_counts_the_rows_that_carry_their_own_label(self):
+        # ⛔ 2026-11-15 日本時間13時台：小さな試し（伺い19 ア）で d1-ultra の読みを数える所（tally）が、正解を行の label に持つ組 R の行で止まった
+        #    （群の名前を作るのに行の truth を読んでいた＝組 R の行には無い）。止まったので、判定し終えた最後の46行の読みも残らなかった
+        import g53_meaning
+        import review_words
+        key = "判定"
+        rows = [{**it, key: it["label"]["accept"][0]} for it in g53_meaning.set_r()]
+        out = g53_meaning.tally(rows, [key], review_words.questions())
+        self.assertEqual(out[key]["数え"]["全体"]["正しい"], len(rows))
+        self.assertEqual(g53_meaning.truth(rows[0]), rows[0]["label"]["accept"][0])
+
+    def test_stale_prior_reading_is_not_counted_where_production_does_not_ask_it(self):
+        # ⛔ 2026-11-15 日本時間13時台：小さな試しの d1-ultra の確かな読みの外れ11行（W1「LINEで連絡もらえますか？」＝「LINEでの連絡」など）は、
+        #    11-07 の基準の記録に残っていた前の話の答え「無い」（前の言葉のあった頃に読んだもの）を、数えが今の答えと食い違うと読んだもの。
+        #    本番は前の言葉の無い答え（システムの質問＝F3）に前の話を問わない（meaning_judge.prior_asked）＝数えも同じ決まりのときだけ読む
+        import g53_meaning as g
+        key = "判定"
+        q = g.question_map()["W1@G17"]
+        row = [it for it in g.set_n() if it["qid"] == "W1@G17" and it["text"] == "LINEで連絡もらえますか？"][0]
+        self.assertFalse(row.get("before"))
+        it = {**row, key: "LINEでの連絡", f"{key}言い切り": True, g.PRIOR_KEY: "無い"}
+        self.assertIsNone(g.flow_miss(it, q, key))
+        self.assertIsNone(g.prior_of(it, key, q))
+
+    def test_second_judges_are_sent_only_where_the_lead_judge_leaves_it_open(self):
+        # 伺い19 ア：2つ目の判定（Jev・SubQ・Drex）は、本番の組で2つ目が使われる答え（先に読む d1-ultra の読みが無い・失敗・確かでない・
+        # 待つ長さに遅れた）だけに送る（ほかの答えは本番で2つ目の読みを使わない＝送っても数えに入らない）。選ぶのは1か所 in_scope
+        # （判定を送る所・組み立てだけの数え・前の話の答えが同じ1つ＝前は組の選び方を3か所に同じ式で書いていた）
+        import argparse
+        import g53_meaning as g
+        from flowctl import Limits
+        from meaning_judge import sure_line
+        from review_words import questions as rq
+        qmap = g.question_map() | rq()
+        K = "d1 Ultra（Liquid）"
+        row = [it for it in g.set_r() if it["qid"] == "R1"][0]
+        sure = {**row, K: "決められない", f"{K}言い切り": False, f"{K}確からしさ": 0.99, f"{K}言い切りの確からしさ": 0.02, f"{K}秒": 0.3}
+        unsure = {**sure, f"{K}確からしさ": sure_line(K, qmap["R1"]) - 0.01}
+        late = {**sure, f"{K}秒": Limits().judge_wait_s() + 0.1}
+        failed = {**{k: v for k, v in sure.items() if not k.startswith(K)}, f"{K}誤り": "時間切れ"}
+        after = argparse.Namespace(sets=("R",), after=K)
+        self.assertEqual([g.in_scope(after, it, qmap) for it in (sure, unsure, late, failed)], [False, True, True, True])
+        self.assertFalse(g.in_scope(argparse.Namespace(sets=("N1",), after=None), sure, qmap))
+        self.assertTrue(g.in_scope(argparse.Namespace(sets=None, after=None), sure, qmap))
+
+    def test_recorded_reading_carries_the_sure_values(self):
+        # 小さな試し（伺い19 ア）で d1-ultra が確かな行・確かでない行を、記録から本番と同じ決まり（sure_reading）で分ける＝記録から読みを戻す
+        # 1か所（reading）が確からしさも戻す（⛔ 2026-11-15 日本時間13時台：戻していなかった＝記録の読みはどれも確かでない形に見えた）
+        import g53_meaning
+        import review_words
+        from meaning_judge import sure_line, sure_reading
+        key = "d1 Ultra（Liquid）"
+        q = review_words.questions()["R1"]
+        row = [it for it in g53_meaning.set_r() if it["qid"] == "R1"][0]
+        it = {**row, key: "決められない", f"{key}言い切り": False, f"{key}確からしさ": 0.99, f"{key}言い切りの確からしさ": 0.02}
+        r = g53_meaning.reading(it, key)
+        self.assertEqual((r.sure, r.firm_p), (0.99, 0.02))
+        self.assertTrue(sure_reading(key, q, r))
+        self.assertFalse(sure_reading(key, q, g53_meaning.reading({**it, f"{key}確からしさ": sure_line(key, q) - 0.01}, key)))
+
     def test_the_review_words_are_in_the_tables(self):
         # 試しの言葉（流さない）：G-53 は組 R の読み口（set_r）・G-63 は質問と選択肢を添えた形・選択肢だけ外した形・質問を添えない形の3つ
         import g53_meaning

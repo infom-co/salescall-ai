@@ -47,8 +47,10 @@ def judged(case: tuple, q: Question, got) -> tuple[str | None, bool]:
     """1つの行の判定の読み got で、流れの制御がすること（g53_meaning.step_act）と、それが正しいか（答えの段の数える1か所 g53_meaning.flow_miss）。
     正解は行に書いたもの（label＝受け取ってよい読み・言い切りはどちらでもよいか・会話になっているか。電話を終える言葉ではない）。⛔ 2026-11-05 に
     直した：前は正解の動きの決め方（wants）を g53_meaning.flow_wants から写して持ち、電話を終える読みを数えていなかった。"""
-    _, _, qid, text, accept, either, talk, _ = case
-    it = {"set": "C", "qid": qid, "text": text, "r": str(got), "r言い切り": got.firm, "r前の話": got.prior, "r終わり": getattr(got, "end", None),
+    _, before, qid, text, accept, either, talk, _ = case
+    # 前の言葉も行に入れる（数えは、本番が前の話を問う答え＝前の言葉のある答えでだけ、前の話の答えを読む＝g53_meaning.prior_of）
+    it = {"set": "C", "qid": qid, "text": text, "before": before, "r": str(got), "r言い切り": got.firm, "r前の話": got.prior,
+          "r終わり": getattr(got, "end", None),
           "label": {"accept": list(accept), "either": either, "talk": talk, "hedged": False, "end": [END_NONE]}}
     return step_act(it, q, "r"), flow_miss(it, q, "r") is None
 
