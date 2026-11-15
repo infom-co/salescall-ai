@@ -841,6 +841,11 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
     確かめ・受け取って次へ・待つ）で付ける。どの名前にも当たらない返事は「その他：」（数え漏れを黙って出さない）。"""
     res, item = rep.get("result"), f.items.get(qid)
     plays = [str(p.get("id") or "") for p in rep.get("play") or []]
+    from flowctl import CALLBACK_IDS
+    if rep.get("ahead_offer") and rep.get("question_id") == CALLBACK_IDS["time"]:
+        # かけ直しの時刻・日の質問を、かけ直しを頼んだお話の中の時刻・日の読み直しのあとに流す番（flowctl.Flow._callback_ahead）：動きは、その質問を伺うのと同じ
+        # （その質問の録音で名前を付ける＝かけ直しを伺う動き。お話に時刻・日があれば言い直し、無ければその質問＝どちらも同じ申し出の受け方）
+        plays.append(str(f.questions[rep["question_id"]].recording or ""))
     if f.end_reason is not None:
         by_reason = {v: k for k, v in END_REASON.items()}
         return END_ACTS.get(by_reason.get(f.end_reason), f"締める（{f.end_reason}）")

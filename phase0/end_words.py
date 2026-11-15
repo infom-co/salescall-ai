@@ -195,7 +195,21 @@ def answer_flow(row: tuple):
     r = f.judged_turn(voiced=False)   # 会話AIは声を出していない（判定の読みだけで動く報告の無いターン）
     if r is None and answers[0].removesuffix(HEDGED) in choices + ("unknown", "refused"):
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": answers[0].removesuffix(HEDGED)})
-    return f, _spoken(r), _marks(f)
+    return f, _spoken(r) + _ahead_spoken(f, r), _marks(f)
+
+
+def _ahead_spoken(f, reply: dict | None) -> str:
+    """返事が、かけ直しの時刻・日の質問を伺う番（かけ直しを頼んだお話を、判定が時刻・日の質問について読み直す＝flowctl.Flow._callback_ahead・決まりで直す (3)）なら、
+    読み直しのあとにお客様に聞こえる言葉（表の言葉には時刻・日が無い＝判定は「決められない」と読み、会話AIが質問へ戻る＝流れの制御が時刻・日の質問を流す）。
+    ほかは空。"""
+    from flowctl import AHEAD_CHECKS, CALLBACK_IDS
+    if not (reply and reply.get("ahead_offer") and reply.get("question_id") == CALLBACK_IDS["time"]):
+        return ""
+    f.ahead_context()
+    for k in AHEAD_CHECKS:
+        if k.split("@")[0] in f.checks_used:
+            f.on_check(k, UNDECIDED, f.callee_turns)
+    return _spoken(f.apply("replay_opening", {"part": "resume"}))
 
 
 def calling_flow(row: tuple):

@@ -69,17 +69,15 @@ def decide_units(askers: list[Asker], questions: list[tuple[str, str]], on_error
     return out
 
 
-def decide_topics(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, str]:
-    """質問の文の並び → 文ごとの聞くこと（決まらない文は入れない）。CL-2 の TopicDecider の形。"""
-    ask = [t for t in texts if not topics.by_rule(t)]
-    rows = _each(askers, lambda c, m: topics.by_model(c, m, ask), [""] * len(ask), on_error) if ask else []
-    at = {t: i for i, t in enumerate(ask)}
-    out = {}
-    for t in texts:
-        got = topics.decide(t, [r[at[t]] for r in rows] if t in at else [])
-        if got:
-            out[t] = got
-    return out
+def decide_topics(askers: list[Asker], texts: list[str], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, str]:
+    """質問の文の並び → 文ごとの聞くこと（決まらない文は入れない）。CL-2 の TopicDecider の形。質問の文の決まりで決まる文（topics.by_rule）はモデルに聞かない。
+    ほかは用件の名詞などと同じ1か所（_settled）：2つの文字のAIがそろって形に合えばその言葉（そろって空なら空）・そろわない文だけを、まとめて1回、考える
+    Sonnet（referee）に聞き、形に合えば（topics.fits）その言葉。referee が無い・答えない・形に合わなければ決まらない（空＝聞き返しは質問の文から作る＝
+    flowctl.ask_again_text）。✅ 帳面 0-2「そろわないときは、考える Sonnet で決め」・2026-11-09 日本時間4時36分49秒の残り「聞くことも取込で決める＝
+    そろわないときに空にしない」。⛔ 58fb6c7f まで、そろわなければ考える Sonnet に聞かずに空にしていた"""
+    ruled = {t: r for t in texts if (r := topics.by_rule(t))}
+    got = _settled(askers, [t for t in texts if t not in ruled], topics.by_model, topics.models_decide, topics.fits, on_error, referee)
+    return {t: w for t in texts if (w := ruled.get(t) or got.get(t))}
 
 
 def decide_facts(askers: list[Asker], texts: list[str], on_error: Callable | None = None) -> dict[str, bool]:
@@ -369,7 +367,7 @@ DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decid
             # 考える Sonnet は referee（書く・中身の判定）
             "decide_alternatives": decide_alternatives}
 # 2つの文字のAIがそろわない文を、考える Sonnet（deciders の referee）に聞く決める処理（唯一の一覧）
-REFEREED = frozenset({"decide_since", "decide_announces", "decide_purposes", "decide_rewords", "decide_matters", "decide_alternatives"})
+REFEREED = frozenset({"decide_since", "decide_announces", "decide_purposes", "decide_rewords", "decide_matters", "decide_alternatives", "decide_topics"})
 
 
 def deciders(askers: list[Asker], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, Callable]:

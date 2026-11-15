@@ -1158,6 +1158,27 @@ def soft_form(q: "Question", lead: str = "") -> "Question":
     return aside_form(q) if q.reworded and not in_aside_form(q) else q
 
 
+def rereads(q: "Question") -> bool:
+    """先に言われた答え（Flow._offer_ahead）を、判定にその質問について読み直してもらう質問か（唯一の決まり＝Flow.ahead_context）：選ぶ質問と、かけ直しの手順の時刻・日の
+    質問（C1）。ほかの値を伺う質問は、会話AIの報告した値を言い直して確かめる（お客様ご本人の「はい」が独立した確かめ）ので読み直さない。かけ直しの時刻・日は、そのお話
+    （「明日の午後にまた電話もらえますか。」）に時刻・日があるかを判定が読む（会話AIの報告の有る無しで、伺うか・言い直すかを変えない＝Flow._callback_ahead。
+    決まりで直す (3)）"""
+    return q.type in CHOICE_TYPES or q.id == CALLBACK_IDS["time"]
+
+
+def ask_again_text(q: "Question", heard: str) -> str:
+    """聞くこと（Question.topic）が空の質問を伺い直す文（唯一の決まり＝聞き返しの言い方 phrases.ask_again の question に渡す Flow._ask_again_say）：その質問を
+    違う言い方で伺う、取込で決めた文（意向が分からないまま戻る形 soft_form と同じ並び＝選択肢を並べた文 Question.alternatives・言い換えた質問 Question.reworded）の
+    うち、お客様が直前に聞いた文（heard）と違うもの（同じ問いを同じ言い方で2度言わない＝11-01）。どれも無ければ元の質問の文（違う言い方の文が取込で決まらなかった
+    質問・締める前の申し出 N6 など業務設定の文だけの質問は、元の文に今の伺い直しの頭を付けて伺う＝「ところで」の伺い直しで言い換えが決まらなかったときに元の文で
+    伺うのと同じ）。q＝替える前の質問（Flow.given：「ところで」の形・選択肢を並べた形で伺っていても、元の質問の文と取込で決めた文を持つ）。聞くことの空な
+    「恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」はお客様に流さない（11-15 日本時間21時55分35秒のご決定のあとの決まりで直す (2) の (b)）"""
+    for text in ((q.alternatives if q.alternatives and alternatives_fits(q) else ""), q.reworded, q.text):
+        if text and text != heard:
+            return text
+    return q.text
+
+
 def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False,
                     soft: bool = False) -> tuple[str, str]:
     """録音で流す質問の文（つなぎの言葉＋質問の文）と、そのつなぎの言葉（唯一の場所）。次の項目の質問に入るときは「続きまして」（NEXT_LEAD。
@@ -3904,26 +3925,44 @@ def wish_repick(q: "Question", cond: str | None) -> str | None:
     return next((c for c in _wish_picks(q) if _wish_pick_label(q, c) == cond), None)
 
 
-def _wish_same_means(q: "Question", means: str) -> str | None:
+def _wish_same_means(q: "Question", means: str, which: bool = False) -> str | None:
     """元の質問の選び直せる選択肢のうち、ご連絡の方法 means（WISH_MEANS の鍵）と同じもの（無ければ None。唯一の場所）。同じ方法が選択肢にあれば、
     その方法のご希望は、その選択肢を選び直した答え（W1 の選択肢にその方法を出さない＝_wish_choices・その方法の答えの名前＝wish_option）。
     見るのは、W1 に出す選び直しの選択肢の名前（_wish_pick_label）：選ぶ質問は選択肢の名前（電話・メール）、はい／いいえは「やはり（意味の言葉）」。
     ⛔ 2026-11-05 日本時間20時台に見つけた：選択肢の名前（「はい」）だけを見ていたので、「担当者から詳しいご案内のお電話を差し上げてもよろしいでしょうか？」の
-    W1 に「やはり…お電話を差し上げてよろしいということ」と「お電話での連絡」が並び、「やっぱり電話でいいです」の読みが2つに割れえた"""
+    W1 に「やはり…お電話を差し上げてよろしいということ」と「お電話での連絡」が並び、「やっぱり電話でいいです」の読みが2つに割れえた。
+    which＝方法を並べて伺い直した W1（Flow._wish_step の which）：並べた方法（_wish_listed）は、選び直しではなく、その方法でのご案内・お送り（None）。"""
+    if means in _wish_listed(q, which):
+        return None
     return next((c for c in _wish_picks(q) if means in means_in(_wish_pick_label(q, c))), None)
 
 
-def _wish_senses(of: "Question") -> dict:
+def _wish_listed(q: "Question", which: bool) -> set[str]:
+    """方法を並べて伺い直した W1（which）で並べた方法（WISH_MEANS の鍵。並べて伺う方法の1か所 wish_ways から）。並べていなければ空。並べた方法を選んで
+    いただいたら、その方法の連絡先を伺って申し伝える（元の質問の選択肢と同じ方法でも＝選び直しにしない）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー
+    「伺い27：業務上、対応できるものであれば、ア」（ア＝1回だけ方法を並べて伺う → 連絡先 → 申し伝え）"""
+    return {m for w in wish_ways(q) for m in means_in(w)} if which else set()
+
+
+def _wish_repicks(q: "Question", which: bool = False) -> list[str]:
+    """W1 に選び直しとして出す元の質問の選択肢（唯一の場所＝選択肢 _wish_choices・意味合いの候補 _wish_senses）：選び直せる選択肢（_wish_picks）のうち、方法を
+    並べて伺い直した W1 で並べた方法（_wish_listed）と同じ方法のものを除いたもの（その方法は、ご案内・お送りの方法として出す＝読みを2つに割らない）。"""
+    listed = _wish_listed(q, which)
+    return [c for c in _wish_picks(q) if not listed & set(means_in(_wish_pick_label(q, c)))]
+
+
+def _wish_senses(of: "Question", which: bool = False) -> dict:
     """ほかのご希望（W1）の選択肢ごとの、意味合いを尋ねる一言の候補の言葉（お客様に言う言葉。W1 を作る callback_question が Question.senses に入れる唯一の
     場所）：元の質問 of の選び直し（選ぶ質問の名詞の選択肢は「（選択肢）で大丈夫」、ほかは元の質問の意味の言葉）・ご連絡の方法（「（方法）で大丈夫」）・
-    無い（「ほかにご希望は特に無い」）。ほかの希望は中身が要るので入れない（尋ねずに質問から聞き直す）。"""
+    無い（「ほかにご希望は特に無い」）。ほかの希望は中身が要るので入れない（尋ねずに質問から聞き直す）。which＝方法を並べて伺い直した W1（選択肢と同じ
+    _wish_repicks・_wish_same_means）。"""
     out = {}
-    for c in _wish_picks(of):
+    for c in _wish_repicks(of, which):
         m = of.meanings.get(c)
         words = f"{c}で大丈夫" if of.type == "choice" and _listable(c) else (m.removesuffix("ということ") if m else None)
         if words:
             out[_wish_pick_label(of, c)] = words
-    out.update({wish_label(k): f"{WISH_MEANS[k][0]}で大丈夫" for k in WISH_MEANS if _wish_same_means(of, k) is None})
+    out.update({wish_label(k): f"{WISH_MEANS[k][0]}で大丈夫" for k in WISH_MEANS if _wish_same_means(of, k, which) is None})
     out[WISH_NONE] = SENSE_NONE
     return out
 
@@ -3941,19 +3980,21 @@ def asks_sense(q: "Question", c: str | None) -> bool:
     return not restates(q) and c in q.conditions and sense_words(q, c) is not None
 
 
-def wish_option(q: "Question", means: str) -> str:
+def wish_option(q: "Question", means: str, which: bool = False) -> str:
     """元の質問 q の W1 で、ご連絡の方法 means のご希望にあたる選択肢の名前（元の質問に同じ方法の選択肢があれば、それを選び直した名前・無ければ
-    「（方法）での連絡」）。W1 を伺っているときのほかの手段の申し出（request_callback）を、W1 の答えとして受ける所（Flow._wish_reported）が使う。"""
-    same = _wish_same_means(q, means)
+    「（方法）での連絡」）。W1 を伺っているときのほかの手段の申し出（request_callback）を、W1 の答えとして受ける所（Flow._wish_reported）が使う。
+    which＝方法を並べて伺い直した W1（並べた方法は、その方法でのご案内・お送り＝_wish_same_means）。"""
+    same = _wish_same_means(q, means, which)
     return _wish_pick_label(q, same) if same is not None else wish_label(means)
 
 
-def _wish_choices(q: "Question") -> tuple[tuple, dict]:
+def _wish_choices(q: "Question", which: bool = False) -> tuple[tuple, dict]:
     """ほかのご希望を伺う質問（W1）の選択肢と意味の言葉（唯一の場所。会話AIへの意味の言葉も、判定の選べるもの＝meaning_judge.options も、ここから）：
     元の質問の選択肢（考え直して、そのどれかを選んだ。お断りの答えは除く。名前は _wish_pick_label）・ご連絡の方法（元の質問の選択肢に同じ方法が無い
-    もの。同じ方法が選択肢にあれば、その選択肢を選んだことになる＝元の質問の答え）・ほかのご希望・無い。"""
-    picks = _wish_picks(q)
-    means = other_means(k for k in WISH_MEANS if _wish_same_means(q, k) is not None)
+    もの。同じ方法が選択肢にあれば、その選択肢を選んだことになる＝元の質問の答え）・ほかのご希望・無い。which＝方法を並べて伺い直した W1：並べた方法は、
+    元の質問の選択肢と同じ方法でも、ご連絡の方法として出す（選び直しには出さない＝_wish_repicks・_wish_same_means）。"""
+    picks = _wish_repicks(q, which)
+    means = other_means(k for k in WISH_MEANS if _wish_same_means(q, k, which) is not None)
 
     def picked(c: str) -> str:
         # 選び直した答えの意味の言葉：選ぶ質問の選択肢も、はい／いいえ（名前は「やはり…」）も、元の質問を考え直したことを言う（W1 は「どれも要らない」・
@@ -3990,17 +4031,22 @@ def _listable(text: str) -> bool:
     return (f.pos1 == "名詞" or (f.pos1 == "接尾辞" and f.pos2 == "名詞的")) and getattr(f, "lemma", "") not in _STATE_LEMMAS
 
 
-def _offered_ways(q: "Question") -> list[str]:
-    """ご案内の方法を伺う質問 q の W1 で申し出る方法の名前（業務設定の名前のまま・並びのまま。唯一の場所＝_wish_text）：ご連絡の方法に当たる名前（means_in が
-    1つに決まるもの）のうち、断られた方法（元の質問の選び直しと同じ方法＝_wish_same_means）でないもの。同じ方法の名前が2つあれば初めのものだけ。
-    方法に当たらない名前は言わない（その方法の連絡先を伺えない＝取込で確かめる＝CL-2）。"""
+def _business_ways(q: "Question") -> list[str]:
+    """質問 q の業務設定のご案内・お送りできる方法（Question.offer_ways）のうち、ご連絡の方法に当たる名前（means_in が1つに決まるもの。業務設定の名前のまま・
+    並びのまま。同じ方法の名前が2つあれば初めのものだけ）。方法に当たらない名前は言わない（その方法の連絡先を伺えない＝取込で確かめる＝CL-2）。"""
     out, seen = [], set()
     for name in q.offer_ways:
         ms = means_in(name)
-        if len(ms) == 1 and ms[0] not in seen and _wish_same_means(q, ms[0]) is None:
+        if len(ms) == 1 and ms[0] not in seen:
             seen.add(ms[0])
             out.append(name)
     return out
+
+
+def _offered_ways(q: "Question") -> list[str]:
+    """ご案内の方法を伺う質問 q の W1 で申し出る方法の名前（唯一の場所＝_wish_text）：業務でご案内できる方法（_business_ways）のうち、断られた方法（元の質問の
+    選び直しと同じ方法＝_wish_same_means）でないもの。✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」（業務でご案内できる方法（断られた方法は除く））"""
+    return [w for w in _business_ways(q) if _wish_same_means(q, means_in(w)[0]) is None]
 
 
 def wish_ways(q: "Question") -> list[str]:
@@ -4010,9 +4056,14 @@ def wish_ways(q: "Question") -> list[str]:
     伺えない＝今までどおり、そのご希望を申し伝える）。ご案内の方法の申し出（way_offer）の W1 も、選ぶ質問・はい／いいえの質問の W1 も同じ。
     ✅ 2026-11-06 日本時間9時05分17秒 ユーザー（申し出の W1）・2026-11-15 日本時間21時55分35秒 ユーザー（伺い27）「業務上、対応できるものであれば、ア」（ア＝「営業の方
     じゃなくて、説明書を送ってほしいです。」に「承知しました。それではメールと郵送のどちらがよろしいでしょうか？」と1回だけ伺い、その連絡先を伺って申し伝える）。
+    並べる方法：ご案内の方法の申し出（way_offer）の W1 は、申し出る方法（_offered_ways＝断られた方法を除く＝2026-11-05 日本時間23時19分06秒のご決定）。それ以外の
+    W1（選ぶ質問の「どれも要らない」・最終目的のはい／いいえ）は、業務でお送りできる方法（_business_ways＝その質問の Question.offer_ways の方法・同じ方法は1つ）を
+    除かずに並べる（ご承認の例＝元の質問「ご連絡はお電話とメールのどちらが…」で選ばれなかったメールも並べる）。並べるのは2つ以上のときだけ。
     ⛔ それまで、並べて伺えるのはご案内の方法の申し出の W1 だけで、ほかの W1 の「送ってほしい」は送り方も送り先も伺わずに「承知しました。そのご希望を担当の者に
-    申し伝えます。」（11-03 20時48分「また、電話をかけて伺わないといけなくなりますよ。」の形）"""
-    ways = _offered_ways(q)
+    申し伝えます。」（11-03 20時48分「また、電話をかけて伺わないといけなくなりますよ。」の形）。⛔ 58fb6c7f は、ほかの W1 も申し出と同じ _offered_ways で並べ、
+    ご承認の例の「メールと郵送」が「郵送とファクス」になった"""
+    ways = way_offer(q)
+    ways = _business_ways(q) if ways is None else ways
     return ways if len(ways) > 1 else []
 
 
@@ -4095,7 +4146,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
                         meanings={**{w: f"ご希望の方法は「{w}」ということ" for w in ways}, **extra}, recording=OFFER_WAY_RECORDING,
                         topic=CALLBACK_TOPIC[role], callback=role, firm_not_needed=True)
     if role == "other_wish":
-        conds, meanings = _wish_choices(of)
+        conds, meanings = _wish_choices(of, which)
         # again＝伺っている途中で切れた電話の続きで、切れた所から伺う（Flow の始め＝_wish_begin。文と録音だけが違い、選択肢と答えの受け方は同じ）
         # 必須（聞き取れない・判定が食い違うと聞き返し、締めの前の念のための確認でもう1回）：取れないまま先へ進むと、ご連絡の方法を伺わずに終わり、最終目的
         # なら元の答え（どれも要らない）で締めて、その業務をかけない印が付く（取り消せない）＝伺い方（line_how）を必須にしたのと同じ理由（10-19 の決まり）。
@@ -4108,7 +4159,7 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
         return Question(qid, _wish_text(of, again, which), qtype, required=True, conditions=conds, meanings=meanings,
                         recording=other_wish_recording_id(of, again, which), topic="ご案内の方法" if way_offer(of) or which else CALLBACK_TOPIC[role],
                         callback=role, declines=(WISH_NONE,),
-                        firm_not_needed=True, of=of.id, senses=_wish_senses(of),
+                        firm_not_needed=True, of=of.id, senses=_wish_senses(of, which),
                         lists_ways=which and way_any_line(of) is not None,
                         # 戻るときは「前回お伺いした件で」を言い直さない（Question.plain＝B-5）
                         plain=(other_wish_recording_id(of), _wish_text(of)) if again else ())
@@ -4558,6 +4609,8 @@ class Flow:
         # （_offer_ahead）。選ぶ質問は、その言葉を次の質問について読み直す判定（ahead_context）とそろったときだけ受け取る
         self.ahead: dict | None = None
         self.ahead_asked: dict | None = None
+        # かけ直しを頼んだお話の言葉（発話の番号と言葉。_callback が置き、かけ直しの時刻・日の質問へ進むときに、その質問の先に言われた答えにする＝_callback_ahead）
+        self.callback_words: dict | None = None
         self.follow_noted: set[str] = set()
         self.follow_asked: set[str] = set()       # この通話で伺った聞き足しの役目（ask_who・ask_when。1通話1回＝_take_system）
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
@@ -4641,6 +4694,9 @@ class Flow:
             filled.append(q)
         questions = filled
         self.questions = {q.id: q for q in questions}
+        # 業務の質問の、替える前の形（流す形は self.questions が替える＝「ところで」の形・選択肢を並べた形・お知らせの形・その後の形）。聞くことの空な質問を伺い直す文を
+        # 選ぶ1か所（ask_again_text）が、元の質問の文と取込で決めた文を読む
+        self.given = dict(self.questions)
         # お知らせの文のあるご承認の質問の、元の質問（番号 → 質問。流す形はお客様の答えで決まる＝_announce_refresh が self.questions を替える）
         self.announce_plain = {q.id: q for q in questions if q.approval and q.announce}
         self.order = [q.id for q in questions if not q.ask_if]   # 前の答えで伺うかが決まる質問は、その答えのあとに入れる（_follow_ups）
@@ -6205,8 +6261,9 @@ class Flow:
                                   self._thanks_barred(reply))
             # 先に言われたことを伺う（_offer_ahead）間は「はい、」だけ（ご承認の手順の「はい、」＝上の hai も、ここで流したもの＝伺い直すときに重ねない。
             # ⛔ 2026-11-05 日本時間2時台、(a) を入れる途中で流して見つけた：ご説明のあとの「そうなんですね。」に、伺った報告の「はい、」と、ご納得の質問の前の
-            # 「はい、」を2回流した）
-            return "hai"
+            # 「はい、」を2回流した）。返事の録音がお礼・お詫びの一言から始まる（led）・まだ名乗りを聞いていない方へのあいさつ・名乗りから始まる（renamed）なら重ねない
+            # （下の led・renamed と同じ決まり。かけ直しの時刻の質問を伺う番＝_callback_ahead は、その録音のあとに開く）
+            return None if reply.get("led") or reply.get("renamed") else "hai"
         if result == "hold":
             # 待つように言われた（取り次ぐ・代わる・理由を言わずに待つ・確かめて戻る。どの段・どの報告から来ても同じ＝Flow._hold の1か所）：「はい、」を
             # 返してから待つ（確かめて戻る方には、続けて「それではこのままお返事を待っております。」＝_hold の back）。✅ 2026-11-06 日本時間2時28分41秒
@@ -6457,7 +6514,8 @@ class Flow:
                     self.value_asked_at = (qid, self.callee_turns)
                     return self._reject(f"相手は答えの値を言っています（意味の判定）。相手が言った値を「{ARG_LABEL['value']}」に入れて、{qid} の答えとして、"
                                         "すぐ record_answer で報告してください。")
-                return self._ask_again(qid, self._ask_kind(), "意味の判定は値を言ったと読んだが、会話AIが値を報告しない")
+                why = "意味の判定は値を言ったと読んだが、会話AIが値を報告しない"
+                return self._ahead_unanswered(qid, why) or self._ask_again(qid, self._ask_kind(), why)
             it.set(it.state, f"会話AIの報告「{label(cond)}」は使わず、意味の判定の読み「{label(judged)}」で決める")
             cond = judged
         if judged in SYSTEM_CONDITIONS and (decided := self._word_choice(qid)) is not None:
@@ -6714,6 +6772,10 @@ class Flow:
         q, it = self.questions[qid], self.items[qid]
         why = f"意味の判定（「{UNDECIDED}」）：どの答えも指していない"
         said = (self.heard_said or "")[:20]
+        if (r := self._ahead_unanswered(qid, why)) is not None:
+            # 先に言われた答え（まだ伺っていない質問＝_offer_ahead）を判定が読み直して、その質問の答えは無いと読んだ：質問を流す（聞き返さない・言い直さない・「-」に
+            # しない。会話AIが何を報告しても同じ＝会話AIは判定に加えない）。かけ直しを頼んだお話に時刻・日が無い（_callback_ahead。決まりで直す (3)）もここ
+            return r
         way = self._undecided_way(qid, words=False)   # 曖昧な言葉の答えは、この前に受け取る所（_op_record_answer）が受け持つ
         if way == "since":
             # その後の形（「その後ご予算はおいくらほどかお決まりになりましたでしょうか？」）への、中身を言わない「はい、決まりました。」：元の質問に戻し、「それでは」から
@@ -6811,6 +6873,12 @@ class Flow:
         読みだけ、電話口の方の報告は何も当てずに「受け付けました」だった（前から）。⛔ 23時22分41秒のご質問の見直し（W1・W4・W8）で見つけた：名乗りの流し直しは
         「代わった方へ」の部分だけ・電話を終える報告は待つ読みだけ・報告の無いターンは自前の写しでここを通り、ほかの部分（質問に戻る・受け答え）で待つように言われても
         「話を戻させていただきますね。」を流し、もう一度言ってほしいと頼まれてもご遠慮の一言を伺っていた"""
+        if (h := self.answer_held) is not None and h.get("ahead") and h.get("offered") == self.callee_turns and not h.get("back"):
+            # この発話には、もう応じた（その言葉で先に言われた答えを伺う番を開いた＝_offer_ahead。かけ直しを頼んだお話の言葉で、時刻・日の質問を伺う番＝_callback_ahead
+            # も）：同じ発話のこのあとの報告は、その答えの報告か質問へ戻る操作だけ＝同じ言葉の判定の読み（かけ直す・お客様から折り返す など）で、もう一度応じない。
+            # ⛔ 入れる途中、流れの制御に通して見つけた：お言葉に甘えて戻る時刻を伺う番を開いたあと、会話AIの「質問へ戻る」に、同じ発話の「お客様から折り返す」の
+            # 読みで、もう一度お言葉に甘える道（3回目の重ね＝「分からない」と同じ道）へ進み、お礼を言って締めていた
+            return None
         if (w := self._wait_now()) is not None and (routed := self._wait_route(w, self._wait_read())) is not None:
             return routed
         if self._kept_on():
@@ -7377,13 +7445,10 @@ class Flow:
             # （"form"＝「はい、」＋「恐れ入ります。（聞くこと）をもう一度…」。2026-10-17 の G-14「お客様ははっきり話しているので、電話のせいにする聞き返しは
             # 合わない」）。⛔ 2026-11-05 日本時間2時45分39秒のご指示で直す途中、流れの制御に通して見つけた：
             # 伺い方 C11 を必須にした 21時04分から、判定が食い違うと「念のためメールでLINEに招待してほしいということでよろしいでしょうか？」と言っていた
-            if (h := self.answer_held) is not None and h.get("ahead") and h["qid"] == qid:
+            if (r := self._ahead_unanswered(qid, why, back=True)) is not None:
                 # 先に言われた答え（質問はまだ流していない＝_offer_ahead）：その言葉に答えが無かったときと同じく、受け取らずに質問を流す（_resume の決まり）。
                 # ⛔ 同じ流しで見つけた：まだ伺っていない質問に「お電話が少し遠いようでしてもう一度お聞かせ…」と聞き返すことになった
-                it.condition = it.value = None
-                it.set("empty", f"{why}・先に言われた答えなので受け取らず、質問を流す")
-                self.answer_held = None
-                return self._continue([], "")
+                return r
             # 判定がいちばん近いと読んだ選択肢（back＝宣言した選択肢）があれば、聞き直さずに、その選択肢で意味合いを尋ねる（1つの答えに1回。候補の言葉が
             # 作れなければ聞き直す）。✅ 2026-11-05 日本時間23時19分06秒 ユーザー（会話1）・23時56分48秒「ア」（お言葉は phrases.SENSE_ASK）
             # 候補は判定自身が選んだ選択肢だけ（判定が決められない・待つと読んだときの back は会話AIの報告＝判定の読みではない。⛔ 入れる途中、流れの制御に
@@ -8144,11 +8209,45 @@ class Flow:
         伺っていない質問だけ。"""
         if self.ahead is not None and self.ahead.get("only") not in (None, q.id):
             self.ahead = None   # ある質問だけの材料（ご承認のお断りの言葉＝N1 だけ＝_point_ahead）は、ほかの質問へ持ち越さない
+        self._callback_ahead(q)
         a = self._ahead_now()
         if a is None or a["qid"] == q.id or self.items[q.id].state != "empty":
             return None
         self._hold_ahead(q.id)
         return {"result": "next", "question_id": q.id, "question": q.text, "message": f"{prefix}{self._return_note()}", "ahead_offer": True}
+
+    def _callback_ahead(self, q: "Question") -> None:
+        """かけ直しを頼んだお話の言葉（callback_words＝_callback が置く）を、かけ直しの手順の時刻・日の質問（C1）の先に言われた答えとして持つ唯一の場所（_offer_ahead）：
+        その質問へ進むとき、先に言われた答えの1か所（_offer_ahead）が質問を流さずに、判定にその言葉を時刻・日の質問について読み直してもらい（ahead_context）、時刻・日を
+        言っていれば、ふつうの答えと同じく値を言い直して確かめ（値の文字は会話AIの報告から）・言っていなければ質問を流す（_resume・_ahead_unanswered）。会話AIが
+        「ほかに言われたこと」を添えていれば、同じ発話の先に言われた答えがもうある（_take_rest）＝そのまま使う（どちらでも判定が同じ言葉を読み直す＝会話AIの報告の
+        有無で道を変えない＝2026-11-08 日本時間12時11分40秒）。判定を使う通話だけ（_point_ahead と同じ）。この言葉は時刻・日の質問だけの材料（only）。
+        決まりで直す (3)：「明日の午後にまた電話もらえますか。」に「いつ頃おかけ直しさせていただきましょうか？」と重ねて伺わない（9-3「取得済みのことを重ねて聞かない」）。
+        ⛔ 58fb6c7f まで、会話AIがその時刻を「ほかに言われたこと」に添えたときだけ、この形になった（会話AIの報告で聞こえ方が変わった）"""
+        cw = self.callback_words
+        if cw is None or q.id != CALLBACK_IDS["time"] or q.id not in self.callback_ids:
+            return
+        self.callback_words = None
+        if not self.judging or not cw["said"]:
+            return
+        a = self.ahead
+        if a is not None and a.get("qid") is None and a["turn"] == cw["turn"]:
+            return   # 会話AIが添えた「ほかに言われたこと」から、同じ発話の先に言われた答えをもう持っている
+        self.ahead = {"turn": cw["turn"], "said": cw["said"], "rest": cw["said"], "qid": None, "check": {}, "asked": False, "only": q.id}
+
+    def _ahead_unanswered(self, qid: str, why: str, back: bool = False) -> dict | None:
+        """先に言われた答え（質問はまだ流していない＝_offer_ahead）への報告で、その言葉にその質問の答えが無かった（判定が読み直して決められないと読んだ・値を言ったと
+        読んだのに会話AIが値を報告しない）：受け取らずに、その質問を流す唯一の場所（言葉に答えが無かったとき＝_resume と同じ。まだ伺っていない質問に聞き返さない・
+        「-」にしない）。先に言われた答えへの報告でなければ None（ふつうの答えの決まりのまま）。back＝伺う前の話へ戻した言葉（もう伺った質問＝_hold_ahead の back）
+        にも当てる（言い直さない質問の確かめがそろわないとき＝_check_again。ほかは、もう伺った質問なので、ふつうの答えの決まり）。"""
+        h = self.answer_held
+        if h is None or not h.get("ahead") or h["qid"] != qid or (h.get("back") and not back):
+            return None
+        it = self.items[qid]
+        it.condition = it.value = None
+        it.set("empty", f"{why}・先に言われた答えなので受け取らず、質問を流す")
+        self.answer_held = None
+        return self._continue([], "")
 
     def _hold_ahead(self, qid: str, back: str | None = None, head: str = "") -> None:
         """先に言われた答え（ahead）を、質問 qid について判定に読み直してもらい（ahead_context）、会話AIの報告をその言葉に当てる（_held_words）印を立てる唯一の場所
@@ -8173,11 +8272,11 @@ class Flow:
         """先に言われた答えを、次に伺う選ぶ質問について読み直す判定（電話接続側が、報告の返事を作ったあとに呼ぶ。確かめの名前 judge@ahead・judge2@ahead
         ＝AHEAD_CHECKS）：(質問, こちらが言い直して確かめた言葉, その前に相手が言ったこと, 読み直す相手の言葉)＝はじめの3つは、いまの発話の判定に渡すもの
         （judge_context）と同じ形。判定の読みは、伺ったときの発話の番号で返す（_ahead_check）。1つの先に言われた答えにつき1回だけ（2回目からは None）。
-        値を伺う質問は言い直して確かめるので読み直さない（None）。ただし、伺う前の言い直しへの返事（待つかかけ直すかを伺っている間に返事をした＝_wait_left の
+        値を伺う質問は言い直して確かめるので読み直さない（None。かけ直しの時刻・日の質問は読み直す＝rereads の1か所）。ただし、伺う前の言い直しへの返事（待つかかけ直すかを伺っている間に返事をした＝_wait_left の
         confirm）は、その返事が言い直しの確かめそのものなので、どの型でも、言い直した言葉と一緒に読み直す。判定を使わない通話も None。"""
         a, h = self.ahead, self.answer_held
         if (a is None or h is None or not h.get("ahead") or a.get("qid") != h["qid"] or h["qid"] != self.current or a["asked"] or not self.judging
-                or (self.questions[h["qid"]].type not in CHOICE_TYPES and not h.get("confirm"))):
+                or not (rereads(self.questions[h["qid"]]) or h.get("confirm"))):
             return None
         a["asked"], a["judge_turn"], self.ahead_asked = True, self.callee_turns, a
         q = self.questions[h["qid"]]
@@ -8803,7 +8902,7 @@ class Flow:
         if q.callback == "handoff_way":
             return it.offer_way
         if q.callback == "other_wish":
-            return wish_option(self.questions[q.of], means_in(it.offer_way)[0])
+            return self._wish_option(self.questions[q.of], means_in(it.offer_way)[0])
         return WAY_SWITCH.format(way=it.offer_way)
 
     def _offer_taken(self, qid: str) -> bool:
@@ -8876,11 +8975,11 @@ class Flow:
             return self._handoff_way(way)
         q, wid, means = self.questions[proc["q"]], CALLBACK_IDS["other_wish"], means_in(way)[0]
         if wid in self.items:
-            self._retake(wid, wish_option(q, means), hid, why)
+            self._retake(wid, self._wish_option(q, means), hid, why)
         proc["means"] = means
         e = next((e for e in reversed(self.facts.get("other_wish", [])) if e["question"] == q.id), None)
         if e is not None:
-            e.update(wish=wish_option(q, means), means=means, **self._proposal_terms(hid))
+            e.update(wish=self._wish_option(q, means), means=means, **self._proposal_terms(hid))
         if (role := WISH_MEANS[means][2]) is None:
             return self._wish_end("means", None)
         self._wish_contact(role, after=wid if wid in self.items else q.id)
@@ -9542,6 +9641,8 @@ class Flow:
         kept = self.answer_held if self.after_answer is not None and (self.answer_held or {}).get("offered") == self.after_answer[2] else None
         held = self._held_now() is not None and kept is None   # （先に言われたことを持ち続けるかは、報告の入口の _take_rest の1か所で決める）
         ahead = held and bool(self._held_now().get("ahead"))   # 先に言われたことに、次に伺う質問の答えは無かった
+        if ahead and (told := self._ahead_answered()) is not None:
+            return told
         if (self._reply_may_answer() and (qid := self.awaiting_confirm or self.current) is not None
                 and self.meaning_said in self.questions[qid].all_conditions):
             # いまの質問について尋ねられて答えたあとの、お客様の返事（「じゃあ、お願いします。」）が、判定の読みでいまの質問の答え：質問に戻らずに、答えとして
@@ -9587,6 +9688,21 @@ class Flow:
         # 「そうなんですね。」のあとの「ありがとうございます、それでは…」は「こちらも同様（会話が繋がっていない）」⇒ ⛔ 前は、質問に答えたあとの
         # 返事にお礼の相づちを流していた（お礼を言われていないのに、お礼で受けていた）
         return r | {"talked": True}
+
+    def _ahead_answered(self) -> dict | None:
+        """先に言われた答え（まだ伺っていない質問＝_offer_ahead）を判定が読み直して、その質問の答えがあると読んだのに、会話AIが質問へ戻る（resume）を選んだ：1回だけ、
+        答えの報告を頼む（差し戻し。ふつうの答えの「判定は値を言ったと読んだのに会話AIが値を報告しない」と同じ＝会話AIは判定に加えない・値の文字は会話AIが渡す）。
+        2回目は質問を流す（_resume の今の道）。読み直しが届いていない・答えが無いと読んだ・伺う前の話へ戻した言葉（back）は None。かけ直しを頼んだお話の時刻・日
+        （_callback_ahead。決まりで直す (3)）も、ほかの先に言われた答えも同じ1か所。"""
+        h = self._held_now()
+        q = self.questions[h["qid"]]
+        got = Flow._meaning_of(h["check"])
+        if h.get("back") or h.get("told") or got is None or got == UNDECIDED or got not in q.all_conditions:
+            return None
+        h["told"] = True
+        value = "" if q.type in CHOICE_TYPES else f"相手が言った値を「{ARG_LABEL['value']}」に入れて、"
+        return self._reject(f"相手の言葉（「{(h['said'] or '').strip()[:40]}」）には、次に伺う質問 {q.id}「{q.text}」への答えが入っています（意味の判定）。"
+                            f"質問には戻らずに、{value}聞いた答えのとおりに record_answer で報告します。" + choices_note(q))
 
     def _op_report_party(self, a: dict) -> dict:
         """相手の種別の報告（DESIGN.md 4-3・6-2）。人ではない相手（留守番電話・自動音声の案内・FAX）には話さずに切る（留守番電話は、業務設定の
@@ -10474,7 +10590,7 @@ class Flow:
         offer = args.get("offer")
         if offer not in MEANS and args.get("why") != "other_means":
             return name, args
-        cond = wish_option(self.questions[w["q"]], offer) if offer in MEANS else WISH_OTHER
+        cond = self._wish_option(self.questions[w["q"]], offer) if offer in MEANS else WISH_OTHER
         return "record_answer", {"question_id": wid, "condition_id": cond}
 
     def _op_request_callback(self, a: dict) -> dict:
@@ -10701,6 +10817,11 @@ class Flow:
         # 待つかかけ直すかなど）：その質問はもう伺わない
         self._drop_pending()
         resume = self._same_offer(why, offer) and self.callback_ids
+        # かけ直しを頼んだお話の言葉（会話AIが「ほかに言われたこと」を添えても添えなくても同じ＝_callback_ahead が時刻・日の質問について判定に読み直してもらう）。
+        # 時刻・日の質問を新しく伺うとき（新しい申し出・お言葉に甘えたあと）だけ使う
+        words = {"turn": self.judged["turn"] if self.judged else self.callee_turns, "said": (self.heard_said or "").strip()}
+        if not resume:
+            self.callback_words = words
         message_id = CALLBACK_IDS["message"]
         # 2回目の好意（この電話でお礼の一言・伝言を断るお礼をもう言ったあとの、お客様のほうから折り返す・伝言をお伝えいただくという申し出）：無下にせず、お言葉に
         # 甘える。どの段でも同じ（受付の方の重ね・答えの段のお客様ご本人の重ね＝同じ理由）。伝言は、伝言を残さない業務で、伝言をまだお願いしていないとき（伝言を残す
@@ -10736,6 +10857,7 @@ class Flow:
                       if (it := self.items.get(CALLBACK_IDS[ROLE_KEY[r]])) is None or it.state == "empty"]
                 if not qs:
                     return self._led(plays, note, self._close("callback")) | {"led": True} | ({"renamed": True} if intro else {})
+                self.callback_words = words   # お言葉に甘えた申し出の言葉（「3時には戻りますので…」）も、戻る時刻の質問の先に言われた答え（_callback_ahead）
                 for q in qs:
                     self._new_item(q)
                 self.order = self.callback_ids = [q.id for q in qs]
@@ -11890,7 +12012,7 @@ class Flow:
             it.set("checking" if confirming else "unclear", f"{why}・聞き返す（{it.ask_backs}回目）")
             # 最後の1回か：その場の回数を使い切り、締めの前の念のための確認も無いとき（依頼主の設定で確認を0回にしたとき）
             last = not self._on_spot_left(qid) and self.limits.recheck == 0
-            say = form_reason or ask_again_phrase(it.ask_backs, reason, q.topic, last=last)
+            say = form_reason or self._ask_again_say(qid, it.ask_backs, reason, last)
             if confirming:
                 # 言い直し（提案）へのお返事の聞き返し：お返事は、同じ言い直しへの返事として受ける（confirm_field。言い方は答えの質問の聞き返しと同じ1か所）
                 self.awaiting_confirm, self.confirm_requested_at = qid, self.callee_turns
@@ -11919,6 +12041,14 @@ class Flow:
                 return self._trouble("poor_audio", f"聞き返しを使い切っても聞き取れないまま「-」にした質問が、答えを受け取らないまま"
                                                    f"{len(self.unclear_qids)}つ続いた（{'・'.join(sorted(self.unclear_qids))}）")
         return self._dash(qid, shown)
+
+    def _ask_again_say(self, qid: str, n: int, reason: str, last: bool) -> str:
+        """聞き返しの文を組む唯一の場所（その場の聞き返し _ask_again・締めの前の念のための確認 _advance_to）：言い方は phrases.ask_again の1か所。聞くこと（Question.topic）が
+        空の質問は、聞くことの代わりに、その質問を伺い直す文（ask_again_text の1か所＝お客様が直前に聞いた文＝いま伺っている形の文と違う、取込で決めた文。無ければ
+        元の質問の文）。"""
+        q = self.questions[qid]
+        question = "" if q.topic else ask_again_text(self.given.get(qid, q), q.text)
+        return ask_again_phrase(n, reason, q.topic, last=last, question=question)
 
     def _enter_reading(self, qid: str, prefix: str = "") -> dict:
         """名前の読みの確かめを始める（reading_question）。まず言ってみる読みを値にして、言い直しの返事待ちにする。言い方は質問の文。"""
@@ -12726,7 +12856,7 @@ class Flow:
         if cond == ANY and self.questions[wid].lists_ways:
             # 並べて伺ったあとの「どれでも」：答え（どちらでも）＝業務設定で最初に並ぶ方法でご案内し、その方法の連絡先を伺う（こちらでお伝えする一言は次の返事の頭＝
             # _advance・連絡先の一言は頭の「それでは」を重ねない＝_wish_contact の announced）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」
-            cond = wish_option(q, means_in(wish_ways(q)[0])[0])
+            cond = self._wish_option(q, means_in(wish_ways(q)[0])[0])
             # こちらで方法をお伝えした一言を、申し伝える一言の1回として数える（told_said）：お客様はその方法を望んだとは言っていないので、「メールでのご連絡の
             # ご希望を担当の者に申し伝えます。」は重ねない（「そのご希望」を直したのと同じ理由＝お客様の言っていない希望を指さない）
             w["announce"], w["told_said"] = way_any_line(q), True
@@ -12769,6 +12899,12 @@ class Flow:
             return self._wish_end("means", None)   # お電話：いまかけている番号がある
         # その方法の連絡先を、その場で伺う（「承知しました。」＋「それでは恐れ入りますがメールアドレスを…」＝_ack。LINE は伺い方を選んでいただく）
         self._wish_contact(role, after=wid)
+
+    def _wish_option(self, q: "Question", means: str) -> str:
+        """いまのほかのご希望の手順（self.wish）の W1 で、ご連絡の方法 means のご希望にあたる選択肢の名前（唯一の読み口＝並べて伺った「どれでも」・W1 を伺っている
+        ときのほかの手段の申し出 _wish_reported・方法の提案 _offer_answer・LINE をやめる提案 _way_switch）：方法を並べて伺い直した W1 なら、並べた方法はその方法での
+        ご案内・お送り（wish_option の which＝選択肢を作る callback_question と同じ決まり）。"""
+        return wish_option(q, means, bool((self.wish or {}).get("which")))
 
     def _wish_contact(self, role: str, after: str, again: bool = False, proc: dict | None = None) -> None:
         """ご希望の方法の連絡先を伺う唯一の場所（ほかのご希望で言っていただいたご連絡の方法＝W1 の答えのあと _wish_step・詳しい者からの改めてのお話の方法＝
@@ -13471,7 +13607,7 @@ class Flow:
                                        f"{prefix}念のための確認です。{q.id} の{'別のお話が続いた' if reason == 'form' else '聞き取れなかった'}お知らせについて、",
                                        heard=reason == "form")
             else:
-                say = ask_again_phrase(self.items[self.current].ask_backs + 1, reason, q.topic, last=True)
+                say = self._ask_again_say(q.id, self.items[self.current].ask_backs + 1, reason, last=True)
                 r = {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,
                      "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ伺います。{say_note(say)}相手の答えを待ってください。" + answer_wait()}
             # 印 ask_reason＝締めの前の念のための確認（_ack_choice が確認の頭の相づちを選ぶ。お知らせの最終の確かめも同じ）・receipt＝答えを受け取ったすぐあと

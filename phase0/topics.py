@@ -5,11 +5,13 @@
 空なら「恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」の形になる（聞き返しはできる＝止まらない）。
 ✅ 2026-10-16 ユーザー：「人は基本的に介在しないと何度も言っているよね！」⇒ 取込のプレビューで人が確かめる形（CL-1.md 4-10 の前の案）はやめる。
 
-決め方（units.decide と同じ形）：
+決め方（units.decide と同じ形・そろわないときは取込のほかの決め方と同じ1か所 import_ai._settled）：
 - by_rule：質問の文が「（聞くこと）を ＋ 聞く言葉（お聞かせ・お伺い・教えて・お知らせ・お尋ね・頂戴・確認させて）」の形なら、
   を の前の言葉そのもの（質問の文の中の文字だけ。AIを使わない＝言葉を作り出さない）。
 - by_model：それ以外の形（「何名様でお越しになりますでしょうか？」など）は、文字のモデルに答えさせる。
-- decide：決まりで決まればそれ。決まらなければ、2つのモデルの答えが同じで、確かめ（check）に通るときだけ。どれでもなければ空。
+- decide：決まりで決まればそれ。決まらなければ、2つのモデルの答えが同じで、確かめ（check）に通るときだけ。どれでもなければ空（測りの道具 g43・試験の業務 g22 の
+  決め方）。取込（import_ai.decide_topics）は、そろわない文だけを考える Sonnet に1回聞き、形に合えば（fits）その言葉（models_decide が None＝そろわない）。
+  ✅ 帳面 0-2「そろわないときは、考える Sonnet で決め」・2026-11-09 日本時間4時36分49秒の残り「聞くことも取込で決める＝そろわないときに空にしない」
 """
 from __future__ import annotations
 
@@ -100,25 +102,41 @@ PROMPT = (
 FIELDS = {"no": ("integer", "質問の番号"), "topic": ("string", "聞いていることの名前。自然な名前にならなければ空")}
 
 
-def by_model(client, model: str, questions: list[str]) -> list[str]:
-    """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの topic（そろえたもの）を返す。"""
+def by_model(client, model: str, questions: list[str], think: bool = False) -> list[str | None]:
+    """1回の問い合わせでまとめて答えさせる（取込は業務の版ごとに1回）。questions と同じ並びの topic（そろえたもの。答えが無ければ None）を返す（問い合わせは
+    askitems.ask の1か所。think＝考える形で聞く＝決まらなかった文だけを聞く referee）。"""
     from askitems import ask
 
     body = "\n".join(f"{n}：{q}" for n, q in enumerate(questions, 1))
-    got = {x.get("no"): x.get("topic", "") for x in ask(client, model, PROMPT + body, FIELDS, tool=("topics", "質問ごとの、聞いていること"))
+    got = {x.get("no"): x.get("topic") for x in ask(client, model, PROMPT + body, FIELDS, tool=("topics", "質問ごとの、聞いていること"), think=think)
            if isinstance(x, dict)}
-    return [clean(got.get(n, "")) for n in range(1, len(questions) + 1)]
+    return [clean(got[n]) if isinstance(got.get(n), str) else None for n in range(1, len(questions) + 1)]
 
 
 def clean(topic: str | None) -> str:
     return unicodedata.normalize("NFKC", (topic or "").strip().strip("「」『』"))
 
 
+def fits(question: str, topic: str | None) -> bool:
+    """モデルの答えを聞くことに使えるか（唯一の形の決まり＝check。考える Sonnet の答えも同じ＝import_ai._settled の fits）。"""
+    return bool(topic) and check(topic)
+
+
+def models_decide(question: str, model_topics: list[str | None]) -> str | None:
+    """モデル2つの答えから決める（取込の1か所 import_ai._settled の decide）：そろって形に合えばその言葉・そろって空なら空（はい／いいえの質問など＝自然な名前に
+    ならない）・ほかは None（そろわない・答えが無い・形に合わない＝考える Sonnet に聞く）。"""
+    from askitems import agreed
+
+    got = agreed([None if t is None else clean(t) for t in model_topics], None)
+    if got is None:
+        return None
+    return got if got == "" or fits(question, got) else None
+
+
 def decide(question: str, model_topics: list[str]) -> str:
-    """聞くことを1つに決める（取込のとき。人は確かめない）。(1) 決まり (2) モデル2つの答えが同じで、確かめに通るとき (3) 空。"""
+    """聞くことを1つに決める（測りの道具 g43・試験の業務 g22。人は確かめない）。(1) 決まり (2) モデル2つの答えが同じで、確かめに通るとき (3) 空。
+    取込は import_ai.decide_topics（そろわない文は考える Sonnet）。"""
     rule = by_rule(question)
     if rule:
         return rule
-    if len(model_topics) < 2 or not model_topics[0] or any(t != model_topics[0] for t in model_topics[1:]):
-        return ""
-    return model_topics[0] if check(model_topics[0]) else ""
+    return models_decide(question, list(model_topics)) or "" if len(model_topics) >= 2 else ""
