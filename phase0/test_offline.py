@@ -28357,13 +28357,17 @@ class MeasureReviewTest(unittest.TestCase):
         import g53_meaning
         import review_words
         from flowctl import AWAY_NO, AWAY_YES
-        from g53_meaning import ASK_AGAIN, AWAY_ACT, flow_act, flow_miss, step_wants
+        from flowctl import THINKING
+        from g53_meaning import ASK_AGAIN, AWAY_ACT, WAIT_ACT, flow_act, flow_miss, step_wants
         from meaning_judge import UNDECIDED
         qs = review_words.questions()
         rows = {it["text"]: it for it in review_words.answer_words() if it["qid"] == "R1"}
         away, plain = rows["うちは月曜が定休日なんですよ。"], rows["そうですね。"]
         self.assertEqual(step_wants(away, qs["R1"], False), {AWAY_ACT})
-        self.assertEqual(step_wants(plain, qs["R1"], False), {ASK_AGAIN})
+        # 答えの話（別のお話ではない）の決められない読みは、ひとこと＋「ところで」に行かない。「そうですね。」は F5（11-15）で言いよどみなら考えている途中も正解
+        # にした（流れの制御では「はい。」で待つ）＝正しい動きは2つ。答えの手がかりのご事情は聞き直すだけ
+        self.assertEqual(step_wants(plain, qs["R1"], False), {ASK_AGAIN, WAIT_ACT[THINKING]})
+        self.assertEqual(step_wants(rows["うちは振込だと手間なんですよね。"], qs["R1"], False), {ASK_AGAIN})
         self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, AWAY_YES), AWAY_ACT)
         self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, AWAY_NO), ASK_AGAIN)
         self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, None), ASK_AGAIN)   # 読んでいない＝今の道
@@ -28500,6 +28504,29 @@ class MeasureReviewTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("指紋を出しません", r.stderr)
         self.assertNotIn("指紋 ", r.stdout)
+
+    def test_review_and_end_rows_carry_selectable_names_and_their_reasons(self):
+        # F5（11-15）：組 R（review_words）・組 F（end_words）の正解は、その行で判定が選べる名前だけ（R7 の「affirmed」「denied」は選べない名前だった）。
+        # わからない・決められないを正解に含む行は理由の正解（reason）を持ち、組 F の行は問い・別のお話の正解も持つ（g53_labels.json の行と同じ欄・同じ決め方）
+        import g53_meaning as G
+        import meaning_judge as M
+        from flowctl import AWAY, QUERY, QUERY_NO, UNDECIDED, WHY
+        from review_words import questions as review_questions
+        qmap = G.question_map() | review_questions()
+        for it in G.set_r() + G.set_f():
+            q, label = qmap[it["qid"]], G._label(it)
+            names = {c for _, _, c in M.options(q, it.get("asked"))}
+            names |= {"unknown", UNDECIDED} if names & {"unknown", UNDECIDED} else set()
+            self.assertLessEqual(set(label["accept"]), names, (it["qid"], it["text"]))
+            items = M.answer_items(q, it.get("asked"))
+            for lkey, ikey in ((QUERY, QUERY), (AWAY, AWAY), ("reason", WHY)):
+                if lkey in label:
+                    self.assertLessEqual(set(label[lkey]), set(items.get(ikey, {})), (it["qid"], it["text"], lkey))
+        f_row = next(it for it in G.set_f() if it["text"] == "いま時間がないので結構です。")
+        self.assertIsNotNone(G.why_accept(f_row))
+        self.assertEqual(G.query_truths(f_row), (QUERY_NO,))
+        r_row = next(it for it in G.set_r() if it["qid"] == "R5" and it["text"] == "そうなんですね。")
+        self.assertIsNotNone(G.why_accept(r_row))
 
 
 class LatestAITest(unittest.TestCase):

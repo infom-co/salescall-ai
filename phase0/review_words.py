@@ -11,8 +11,8 @@
 """
 from __future__ import annotations
 
-from flowctl import (AWAY, AWAY_NO, AWAY_YES, HESITATING, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES, Question,
-                     accepted_line, alternatives_form, aside_form, since_form)
+from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, HESITATING, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_YES, QUERY, QUERY_NO,
+                     QUERY_YES, THINKING, WHY_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, since_form)
 from grounding import TOUCHED, UNTOUCHED, one_touched
 from meaning_judge import UNDECIDED
 
@@ -42,10 +42,20 @@ def questions() -> dict[str, Question]:
             "R3": since_form(budget), "R4": since_form(person), "R5": aside_form(pay), "R6": alternatives_form(pay), "R7": approval}
 
 
-def _row(qid: str, text: str, accept, away=None, query=QUERY_NO, prompt=None, hedged=False, asked: str | None = None, why: str = "") -> dict:
+# わからない・答えたくない理由の正解（label の reason＝g53_labels.json の行と同じ欄・同じ決め方＝F5 の 11-15）：答えが「決められない」を含む行は、流れの制御が
+# 理由の読みを使う（Flow._not_deciding）＝理由も正解を持つ。流れの制御で同じ動きになる理由の名前を並べる（理由を言っていない言葉＝相づち・別のお話・ほかのことを
+# 話した・答えた、は「とは言っていない」「理由を言わなかった」「決められない」のどれでも同じ動き。迷っている言葉は「まだ決まっていない」との境目）
+WHY_OTHER = (WHY_NOT_SAID, DONT_KNOW_LABEL["unspecified"], UNDECIDED)
+WHY_HESITATING = (DONT_KNOW_LABEL["undecided"], *WHY_OTHER)
+
+
+def _row(qid: str, text: str, accept, away=None, query=QUERY_NO, prompt=None, hedged=False, asked: str | None = None, why: str = "",
+         reason=None) -> dict:
     label = {"accept": list(accept), "why": why}
     if hedged:
         label["hedged"] = True
+    if reason:
+        label["reason"] = list(reason)
     for key, value in ((AWAY, away), (QUERY, query), (PROMPT_REPLY, prompt)):
         if value is not None:
             label[key] = [value]
@@ -59,32 +69,39 @@ def answer_words() -> list[dict]:
     unheard = accepted_line(qs["R7"], heard=False)[1]
     return [
         # 担当 D の表（基本の質問）
-        _row("R1", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, why="聞かれたことと関わりのないご事情"),
-        _row("R1", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, why="世間話"),
-        _row("R1", "そういえばこの前の台風、大変だったんですよ。", [UNDECIDED], AWAY_YES, why="世間話"),
-        _row("R1", "そうですね。", [UNDECIDED], AWAY_NO, why="相づちだけ＝答えの話"),
+        _row("R1", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, why="聞かれたことと関わりのないご事情", reason=WHY_OTHER),
+        _row("R1", "いやあ最近は暑くてねえ。", [UNDECIDED], AWAY_YES, why="世間話", reason=WHY_OTHER),
+        _row("R1", "そういえばこの前の台風、大変だったんですよ。", [UNDECIDED], AWAY_YES, why="世間話", reason=WHY_OTHER),
+        _row("R1", "そうですね。", [UNDECIDED, THINKING], AWAY_NO, reason=WHY_OTHER,
+             why="相づちだけ＝答えの話。言いよどみ・言い終えていない言葉＝考えている途中も正解（11-06 11時19分55秒「(1) ア」で足した選べるもの・F5 の 11-15）。"
+                 "「わからない」（unknown）は、わからない・まだ決めていない、とは言っていないので入れない（選べるものの説明のとおり）"),
         _row("R1", "振込じゃないほうがいいかなとは思いますけど", ["カード"], AWAY_NO, hedged=True, why="寄った考え（言い切っていない）"),
-        _row("R1", "うーん、どっちがいいですかねえ。", [HESITATING], AWAY_NO, why="迷っている"),
-        _row("R1", "振込だと手数料はどちら持ちですか？", [UNDECIDED], AWAY_NO, QUERY_YES, why="こちらへ尋ねた問い"),
-        _row("R1", "うちは振込だと手間なんですよね。", [UNDECIDED], AWAY_NO, why="答えの手がかりになるご事情"),
+        _row("R1", "うーん、どっちがいいですかねえ。", [HESITATING, THINKING, UNDECIDED, "unknown"], AWAY_NO, None, reason=WHY_HESITATING,
+             why="迷っている・考えている途中・こちらの考えを尋ねた（「〜ですかね」＝11-06 4時11分28秒の2つの意味）の境目（F5 の 11-15）。問いは付けない"
+                 "＝どちらの読みも正解（正解の表の「〜のほうがいいですかね」の行と同じ）"),
+        _row("R1", "振込だと手数料はどちら持ちですか？", [UNDECIDED], AWAY_NO, QUERY_YES, why="こちらへ尋ねた問い", reason=WHY_OTHER),
+        _row("R1", "うちは振込だと手間なんですよね。", [UNDECIDED], AWAY_NO, why="答えの手がかりになるご事情", reason=WHY_OTHER),
         # ほかの形の質問（いちばん大事な境目＝日にちの質問へのご事情は答えの手がかり）
-        _row("R2", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_NO, why="日にちの答えの手がかり"),
-        _row("R3", "はい、決まりました。", [UNDECIDED], AWAY_NO, why="その後の形に、値の無い「決まりました」"),
-        _row("R3", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, why="その後の形への別のお話"),
-        _row("R4", "はい、分かりました。", [UNDECIDED], why="事実を伺うその後の形に、値の無い「分かりました」"),
+        _row("R2", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_NO, why="日にちの答えの手がかり", reason=WHY_OTHER),
+        _row("R3", "はい、決まりました。", [UNDECIDED], AWAY_NO, why="その後の形に、値の無い「決まりました」", reason=WHY_OTHER),
+        _row("R3", "うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, why="その後の形への別のお話", reason=WHY_OTHER),
+        _row("R4", "はい、分かりました。", [UNDECIDED], why="事実を伺うその後の形に、値の無い「分かりました」", reason=WHY_OTHER),
         _row("R4", "はい、田中です。", ["答えた"], why="事実を言った"),
-        _row("R5", "そうなんですね。", [UNDECIDED], AWAY_NO, why="お話に沿ったひとことのあとの相づちだけ"),
+        _row("R5", "そうなんですね。", [UNDECIDED], AWAY_NO, why="お話に沿ったひとことのあとの相づちだけ", reason=WHY_OTHER),
         _row("R5", "じゃあ振込で。", ["振込"], AWAY_NO),
-        _row("R6", "はい。", [UNDECIDED], AWAY_NO, why="並べた文への「はい」はどれも選んでいない"),
+        _row("R6", "はい。", [UNDECIDED], AWAY_NO, why="並べた文への「はい」はどれも選んでいない", reason=WHY_OTHER),
         _row("R6", "お振込で。", ["振込"], AWAY_NO),
         _row("R6", "カードかなあ。", ["カード"], AWAY_NO, hedged=True),
         # 言い直し・最終の確かめ（分身 O2・N の行）
-        {**_row("R7", "はい、大丈夫です。", ["affirmed"], asked=accepted, why="最終の確かめへのご了承"), "set": "D"},
-        {**_row("R7", "いや、それはちょっと困るんですけど。", ["denied"], asked=accepted, why="ご了承いただけない"), "set": "D"},
-        {**_row("R7", "はい、大丈夫ですよ。", ["affirmed"], asked=unheard, why="聞き取れなかったお知らせの最終の確かめへのご了承（分身 O2）"), "set": "D"},
+        # ご承認の質問（はい／いいえ）の最終の確かめは、判定の選べるものが「はい」「いいえ」（⛔ F5 の 11-15 まで、値の言い直しへの返事の名前 affirmed・denied で
+        # 書いていた＝判定が選べない名前＝正しい読みも外れと数えた）
+        {**_row("R7", "はい、大丈夫です。", ["はい"], asked=accepted, why="最終の確かめへのご了承"), "set": "D"},
+        {**_row("R7", "いや、それはちょっと困るんですけど。", ["いいえ"], asked=accepted, why="ご了承いただけない"), "set": "D"},
+        {**_row("R7", "はい、大丈夫ですよ。", ["はい"], asked=unheard, why="聞き取れなかったお知らせの最終の確かめへのご了承（分身 O2）"), "set": "D"},
         # 黙ったあとの一言のあと（分身 N・O2）
-        _row("R7", "あ、それとですね、うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, prompt=PROMPT_REPLY_NO, why="声かけへのお返事だけではない別のお話"),
-        _row("R7", "いえ、大丈夫です。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, why="声かけへのお返事だけ"),
+        _row("R7", "あ、それとですね、うちは月曜が定休日なんですよ。", [UNDECIDED], AWAY_YES, prompt=PROMPT_REPLY_NO, why="声かけへのお返事だけではない別のお話",
+             reason=WHY_OTHER),
+        _row("R7", "いえ、大丈夫です。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, why="声かけへのお返事だけ", reason=WHY_OTHER),
     ]
 
 
