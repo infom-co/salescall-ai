@@ -1380,6 +1380,9 @@ class TheirsBackTime1114(unittest.TestCase):
                          {"back_at": None, "back_days": ["mon", "tue", "wed", "thu", "fri"], "back_clock": 16 * 3600, "until": None,
                           "daily": None, "days": None, "exact": False, "day_said": False})
         self.assertGreaterEqual(datetime.fromisoformat(cb["at"]), MORNING)
+        evening = self.judged(self.okada("平日の夕方")).detail["callback"]   # 時刻の幅の日の種類だけ：いちばん遅い戻りは幅の終わり（日は次の動きが暦で）
+        self.assertEqual({k: evening[k] for k in ("back_at", "back_days", "back_clock", "until")},
+                         {"back_at": None, "back_days": ["mon", "tue", "wed", "thu", "fri"], "back_clock": 18 * 3600, "until": None})
         plain = self.judged(self.okada("平日の4時までに", theirs=False))   # 印の無いふつうの不在は今までどおり（理由の決まりで読む）
         self.assertIsNone(plain.detail.get("callback", {}).get("back_days") if plain.detail.get("callback") else None)
 

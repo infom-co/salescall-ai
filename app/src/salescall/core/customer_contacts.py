@@ -112,6 +112,14 @@ def now(tx: Tx, task_id: UUID) -> dict[str, Any]:
     return {"numbers": numbers, "contacts": [dict(r) for r in rows]}
 
 
+def ever(tx: Tx, task_id: UUID) -> frozenset[tuple[str, str | None, str]]:
+    """その行に一度でも記録した番号ではない連絡先（(種類, サービス, 値)。いまの値でなくなったものも入る。読むのはここだけ）。取り込み直しで
+    「一覧で新しく増えた連絡先」を決める所（importer の登録済みの行）が読む：いまの値とだけ比べると、お客様が通話で言い直した・ダッシュボードで
+    直した連絡先を、一覧の前の値で戻してしまう（いまの値は新しい記録が勝つ＝0175）。"""
+    return frozenset((r["kind"], r["service"], r["value"]) for r in tx.all(
+        "SELECT DISTINCT kind, service, value FROM salescall.task_contacts WHERE task_id = %s", (task_id,)))
+
+
 # 連絡先の種類 → 会話の側の連絡先の役目（flowctl.CONTACT_ROLES・LINE_HOW の役目。重ねて伺わない＝flowctl.known_contact。CL-1 の連絡帳 4-92 の (5)）
 _ROLE_OF_KIND = {"email": "email", "fax": "fax", "address": "address", "line_id": "line"}
 _MOBILE_LABELS = ("mobile", "line")   # 携帯電話の番号の役目（SMS でご招待する番号）に当たる記録だけの番号の名札

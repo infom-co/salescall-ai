@@ -407,22 +407,19 @@ def _blocked_by_number(tx: Tx, task_id: UUID, reason: str) -> bool:
     """「かけない」とした理由（target_policy.block_reason の名前。門が終えた行の終わりの理由と、お客様が言った番号が止まった
     `ALTERNATE_BLOCKED` の後ろ）が、お客様の断りでなく番号のせいか（1か所。番号を直したときに戻すか＝`reopens_on_fix` が読む）。
     - 番号そのもののせい（`BLOCKED_BY_NUMBER`）⇒ 番号のせい。
-    - 発信禁止（依頼者・契約者の共通）⇒ その行のどの番号の登録も、その番号だけの理由（番号違い・FAX の回線＝dnc.NUMBER_ONLY）なら
-      番号のせい。お客様が断った・手で登録した登録が1つでもあれば、お客様の断り（原則14：そのお客様が断っていれば、どの番号でかけても
-      同じお客様。⛔ 見直し (A) の8 (3) の前は発信禁止で終えた行をすべて戻さず、そのあとは門の番号の登録だけを見ていた）。
+    - 発信禁止（依頼者・契約者の共通）⇒ 直したあとのいまかける番号で、門が行へかけない理由（`target_policy.task_block_reason`＝門と同じ1か所。
+      いまかける番号と同じ方の番号のお客様の断り。番号違い・FAX の回線＝dnc.NUMBER_ONLY は、その番号だけ）が無ければ番号のせい。お客様が断っていれば、
+      どの番号でかけても同じお客様（原則14）。「担当の方は違う」で直した行では、前の担当の方の断りで新しい担当の方を止めない（✅ 2026-11-07 ユーザー＝
+      計画書 7-1 (22)。⛔ 2026-11-15 の見直しまで：ここだけ行のすべての番号の登録を見て、門は新しい担当の方へかけるのに、直した行を戻さなかった）。
     - それ以外（管理番号の発信禁止・同じ業務で断られたお客様）⇒ お客様の断り（戻さない）。"""
     if reason in BLOCKED_BY_NUMBER:
         return True
     if reason not in ("dnc_client", "dnc_contractor"):
         return False
-    from salescall.core import dnc   # 発信禁止の部品が次の動きを読むので、ここで読む（読み合いにしない）
-    return tx.one(   # 依頼者の台帳と契約者の共通の台帳の、その行の番号の登録（取り消していないもの）
-        "SELECT bool_and(x.reason = ANY(%s)) AS only FROM ("
-        "  SELECT e.reason::text FROM salescall.dnc_entries e JOIN salescall.task_numbers n ON n.phone_e164 = e.phone_e164"
-        "   WHERE n.task_id = %s AND e.revoked_at IS NULL"
-        "  UNION ALL SELECT c.reason FROM salescall.contractor_dnc_entries c JOIN salescall.task_numbers n ON n.phone_e164 = c.phone_e164"
-        "   WHERE n.task_id = %s AND c.revoked_at IS NULL) x",
-        (list(dnc.NUMBER_ONLY), task_id, task_id))["only"] is True
+    t = tx.one("SELECT client_ref FROM salescall.tasks WHERE task_id = %s", (task_id,))
+    dial = tasks.dial_number(tx, task_id)
+    return target_policy.task_block_reason(tx, task_id, normalize(dial["phone_e164"]), client_ref=t["client_ref"],
+                                           **tasks.scope(tx, task_id)) is None
 
 
 def _laters(tx: Tx, task_id: UUID) -> list[str | None]:

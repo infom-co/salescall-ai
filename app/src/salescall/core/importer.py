@@ -356,9 +356,10 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
                 and (ref is None or ref not in taken_ref):
             have = customer_contacts.now(tx, existing["task_id"])
             known = {n["phone"] for n in have["numbers"]}
-            current = {(c["kind"], c["service"]): c["value"] for c in have["contacts"]}
-            new_records = tuple((x, label) for x, label in records if x.e164 not in known)
-            new_values = tuple(v for v in found["contact_values"] if current.get((v[0], v[2])) != v[1])
+            ever = customer_contacts.ever(tx, existing["task_id"])   # 一度でも記録した値（いまの値とだけ比べると、言い直した連絡先を前の値で戻す）
+            new_records = tuple((x, label) for x, label in records if x.e164 not in known)   # 番号は消さずに残る＝いまの番号がすべての記録
+            new_values = tuple(v for v in found["contact_values"]
+                               if (v[0], v[2].strip() if v[2] else None, v[1].strip()) not in ever)
             added = [title(fields[x.e164]) for x, _ in new_records] + [title({kind: f for f, kind in _CONTACT_FIELDS.items()}[k]) for k, _, _ in new_values]
             note = "この実施回に、もう登録されています" + (f"（一覧で増えた連絡先を足します：{'・'.join(added)}）" if added else "")
             if bad_record is not None:
@@ -387,14 +388,11 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         if ref is not None and ref in taken_ref:
             rows.append(stop("duplicate_ref_in_file", f"行 {taken_ref[ref]} と同じ管理番号です", **found))
             continue
-        same_number = in_run_by_number.get(e164)
-        if same_number is not None:
-            if same_number["client_ref"] != ref:
-                rows.append(stop("number_in_run_other_ref", "この番号は、この実施回に、別の管理番号で登録されています", **found))
-                continue
-            plan = RowPlan(row.row_no, "already", "already_in_run", "この実施回に、もう登録されています",
-                           task_id=same_number["task_id"], **found)
-        elif ref is not None and ref in in_run_by_ref:
+        # 同じ番号・同じ管理番号の登録済みの行は、上の1か所（一覧で増えた連絡先を足す）で決めた。ここに来る登録済みの番号は、別の管理番号のもの
+        if in_run_by_number.get(e164) is not None:
+            rows.append(stop("number_in_run_other_ref", "この番号は、この実施回に、別の管理番号で登録されています", **found))
+            continue
+        if ref is not None and ref in in_run_by_ref:
             rows.append(stop("ref_in_run", "この管理番号は、この実施回に、別の番号で登録されています", **found))
             continue
         else:

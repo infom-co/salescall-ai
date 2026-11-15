@@ -46,7 +46,7 @@ from uuid import UUID
 
 from salescall.core import approval, business_settings, next_action, readings, target_policy, tasks
 from salescall.core.access import Rejected, Tx
-from salescall.core.phone import normalize
+from salescall.core.phone import SMS_KINDS, normalize
 
 FIELDS = ("source_name", "target_name", "target_full_name", "target_role", "target_department")   # 0178 の CHECK と同じ
 NAME_FIELDS = ("source_name", "target_name", "target_full_name")                                  # 読みを持つ欄
@@ -311,7 +311,7 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, kee
     if blocked is not None:
         raise FixInvalid(f"この番号にはかけられません：{blocked[1]}")
     try:
-        tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind == "mobile" else "company", same_person=same_person,
+        tasks.fix_dial_number(tx, task_id, number, "mobile" if number.kind in SMS_KINDS else "company", same_person=same_person,
                               keep_old_promise=keep_old_promise, back_to=back)
     except Rejected as e:
         if e.constraint != "task_dial_fix_one_row_per_number":   # 同じ実施回のほかの行がかけうる番号（データベースの1か所＝0193 の task_dialable）

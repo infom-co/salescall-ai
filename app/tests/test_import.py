@@ -368,6 +368,13 @@ class CustomerContacts(Base):
         r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), fmc, None, None, None, None, None, None, None)],
                                    header=self.HEADER), mapping=self.MAP)
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, r["rows"][0]["task_id"])), {"mobile": normalize(fmc).e164})
+        # ダッシュボードで、かける番号を FMC の番号に直したときも、携帯電話の番号の名札（SMS の届く種類の同じ1か所。⛔ 2026-11-15 の見直しまで：直した
+        # 番号だけ mobile の種類しか見ず、会社の番号の名札にしていた）
+        other = self.register(csv_file([("B", "架空物産", fictional_jp_fixed(), None, None, None, None, None, None, None, None)],
+                                       header=self.HEADER), mapping=self.MAP)["rows"][0]["task_id"]
+        fixed = "060-1234-0162"
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, other, fixed, same_person=True))
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, other)), {"mobile": normalize(fixed).e164})
 
     def test_the_same_number_twice_is_one_number(self):
         """指定の番号と携帯が同じなら、番号は1つ（かける番号として）。"""
@@ -405,6 +412,14 @@ class CustomerContacts(Base):
         again = self.register(data, mapping=self.MAP)                        # 同じ連絡先は足し直さない
         self.assertEqual(self.outcomes(again), [(2, "already", "already_in_run")])
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT count(*) AS n FROM salescall.task_contacts WHERE task_id = %s", (task,)))["n"], 1)
+        # 直した連絡先を、同じ一覧の前の値で戻さない（足すのは、その行に一度も記録していない値だけ＝customer_contacts.ever の1か所。⛔ 2026-11-15 の
+        # 見直しで見つけた：いまの値とだけ比べ、ダッシュボードで b@ に直したあとの取り込み直しで a@ を足し直し、いまの値を a@ に戻していた）
+        self.tx(lambda tx: customer_contacts.add(tx, task, "email", "b@example.com", origin="dashboard"))
+        sheet, plan = self.preview(data, self.MAP)
+        self.assertNotIn("一覧で増えた連絡先", plan.rows[0].reason)
+        self.register(data, mapping=self.MAP)
+        got = self.tx(lambda tx: customer_contacts.now(tx, task))["contacts"]
+        self.assertEqual([(c["kind"], c["value"]) for c in got], [("email", "b@example.com")])
         refused = "090-0000-0172"                                            # 足す番号でお客様が断っている：足して、門が止める
         self.tx(lambda tx: dnc.register(tx, refused, "manual"))
         data = csv_file([("A", "架空商事", company, None, refused, None, None, None, None, None, None)], header=self.HEADER)
@@ -910,6 +925,12 @@ class DialFixes(CustomerContacts):
         for n, reason in enumerate(back + stay):
             with self.subTest(reason=reason):
                 task = self.row(ref=f"R{n}")
+                # 発信禁止で終えた行には、その登録がある（お客様の断り。戻すかは、直したあとの番号で門と同じ1か所が決める＝next_action._blocked_by_number）
+                dial = self.tx(lambda tx: tasks.dial_number(tx, task))["phone_e164"]
+                if reason.removeprefix("alternate_blocked:") == "dnc_client":
+                    self.tx(lambda tx: dnc.register(tx, dial, "manual"))
+                if reason.removeprefix("alternate_blocked:") == "dnc_contractor":
+                    self.tx(lambda tx: dnc.register_contractor(tx, dial, "manual"))
                 self.tx(lambda tx: next_action.end(tx, task, reason, cause="試験"))
                 got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
                 p = self.plan(task)
@@ -994,7 +1015,26 @@ class DialFixes(CustomerContacts):
                 self.tx(lambda tx: dnc.register(tx, old["phone_e164"], "wrong_party"))
                 self.tx(lambda tx: dnc.register_contractor(tx, mobile, theirs))
                 self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：発信禁止で止めて終えた"))
-                self.assertEqual(self.tx(lambda tx: next_action.reopens_on_fix(tx, task, "dnc_client")), back)
+                got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))   # 戻すかは、直したあとの番号で決める
+                p = self.plan(task)
+                self.assertEqual((p["kind"], p["contact_id"] if back else p["end_reason"]), ("call", got["contact_id"]) if back else ("end", "dnc_client"))
+
+    def test_the_former_persons_refusal_does_not_keep_the_new_persons_row_ended(self):
+        """「担当の方は違う」で番号を直したとき、前の担当の方の断り（前の担当の方の番号の発信禁止）で終えた行は、新しい担当の方の番号へ戻す（前の担当の方の
+        断りは前の担当の方の番号だけ＝✅ 2026-11-07 ユーザー＝計画書 7-1 (22)）。戻すかは門と同じ1か所（target_policy.task_block_reason）が決める。
+        ⛔ 2026-11-15 の見直しまで：戻すかだけ行のすべての番号の登録を見て、門は新しい担当の方へかけるのに、直した行を戻さなかった。同じ方の直しなら
+        戻さない（同じ方が断っている）。"""
+        for n, same in enumerate((False, True)):
+            with self.subTest(same_person=same):
+                mobile = normalize(f"090-0003-{n:04d}").e164
+                task = self.row(mobile=mobile, ref=f"F{n}")
+                old = self.tx(lambda tx: tasks.dial_number(tx, task))
+                self.tx(lambda tx: dnc.register(tx, old["phone_e164"], "refused_in_call"))
+                self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：前の担当の方が断って終えた"))
+                got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=same))
+                p = self.plan(task)
+                self.assertEqual((p["kind"], p["contact_id"] if not same else p["end_reason"]),
+                                 ("call", got["contact_id"]) if not same else ("end", "dnc_client"))
 
     def test_the_standing_of_a_number_is_read_at_that_time(self):
         """番号の立場（前にかける番号だったか）は、その時刻で読む（いまかける番号も、その時刻までの直しで＝salescall.task_dial_contact_at・
