@@ -4198,6 +4198,84 @@ class AmbiguousAnswerTest(unittest.TestCase):
         with self.assertRaises(OtherJudgeError):   # 読めなければ送らない
             ks.check("m")
 
+    def test_usage_priced_decision_judge_is_metered_by_the_tokens_in_its_reply(self):
+        # ✅ 2026-11-15 日本時間12時39分31秒「伺い19はアでOK」：上限45円の小さな試しに SubQ Snap 1.2（SubQ の判断の窓口＝OpenRouter ではない）を
+        #    入れる。⛔ それまでは、OpenRouter のほかの判断の窓口は使った額を数える道が無く、--budget-yen つきでは送れなかった ⇒ 返事に使った量
+        #    （usage の input_tokens）が入る窓口は、Anthropic と同じ「返事の使った量で数える帳簿」（SPEND）で数える。料金は PRICE の1か所（SubQ は
+        #    入力100万トークンあたり0.04ドル・返す側0）。料金の分からない窓口（GPT-6 Luna の直接の窓口）は、今までどおり上限つきでは送らない
+        import asyncio
+        import unittest.mock as m
+
+        import common
+        import meaning_judge as mj
+
+        name = "SubQ Snap 1.2"
+        model = mj.OTHER_JUDGES[name]["model"]
+        body = {"model": model, "state": "x", "questions": {}}
+        sent = []
+
+        class Reply:
+            def __init__(self, data):
+                self.data = data
+
+            def json(self):
+                return self.data
+
+        class Http:
+            def post(self, path, json=None, **kw):
+                sent.append((path, json["model"]))
+                return Reply({"model": model, "answers": {}, "usage": {"input_tokens": 477, "output_tokens": 0}})
+
+        class AioHttp:
+            async def post(self, path, json=None, **kw):
+                return Http().post(path, json=json, **kw)
+
+        class Slow:
+            async def post(self, path, json=None, **kw):
+                await asyncio.sleep(1.0)
+
+        old_ledgers = list(common.LEDGERS)
+        try:
+            with m.patch.object(mj, "SPEND", mj.Spend()):
+                c = mj.other_client(name, "dummy", budget=1.0)
+                self.assertEqual(mj.SPEND.limit, 1.0)
+                self.assertIn(mj.SPEND, common.LEDGERS)   # 結果を保存するとき、この帳簿の料金も記録に入る
+                c._client = Http()
+                c.post(mj.other_path(name), json=body)
+                self.assertAlmostEqual(mj.SPEND.yen, 477 * 0.04 / 1e6 * 150, places=9)   # 1回＝477トークン×0.04ドル＝約0.003円
+                a = mj.other_client(name, "dummy", aio=True, budget=1.0)
+                a._client = AioHttp()
+                asyncio.run(a.post(mj.other_path(name), json=body))
+                self.assertEqual(dict(mj.SPEND.calls), {model: 2})
+
+                async def stop_one():   # 先に届いた答えで決めて、返事を待たずに止めた問い合わせも、料金の見込みに入れる
+                    a._client = Slow()
+                    job = asyncio.ensure_future(a.post(mj.other_path(name), json=body))
+                    await asyncio.sleep(0.01)
+                    job.cancel()
+                    await asyncio.gather(job, return_exceptions=True)
+                before = mj.SPEND.yen
+                asyncio.run(stop_one())
+                self.assertEqual(dict(mj.SPEND.stopped), {model: 1})
+                self.assertAlmostEqual(mj.SPEND.yen - before, 477 * 0.04 / 1e6 * 150, places=9)   # 返事のあった回の平均
+                mj.SPEND.limit = mj.SPEND.yen   # 上限に達した：それより後は送らない
+                with self.assertRaises(mj.OtherJudgeError):
+                    c.post(mj.other_path(name), json=body)
+                self.assertEqual(len(sent), 2)
+                self.assertIn(model, mj.SPEND.summary()["回数"])
+        finally:
+            common.LEDGERS[:] = old_ledgers
+        with self.assertRaises(mj.OtherJudgeError):   # 料金の分からない、OpenRouter のほかの窓口には、上限つきでは送らない（今までどおり）
+            mj.other_client("GPT-6 Luna", "dummy", budget=1.0)
+        # Drex Max は OpenRouter の判断の窓口（鍵の使った額で数える帳簿＝KeySpend。見込みの1文字あたりの円を持つ）
+        drex = mj.OTHER_JUDGES["Drex Max（Nace.AI）"]
+        self.assertEqual((drex["host"], drex["api"]), ("openrouter.ai", "decision"))
+        self.assertIn(drex["model"], mj.YEN_PER_CHAR)
+        self.assertEqual((mj.OTHER_JUDGES[name]["host"], mj.other_path(name)), ("api.subq.ai", "/v1/systemone"))
+        for n in (name, "Drex Max（Nace.AI）"):   # 試しの候補：線を測るまで、組には入らない
+            self.assertTrue(mj.decision_model(n))
+            self.assertNotIn(n, mj.RACE + tuple(mj.STOP_ONLY))
+
     def test_unsure_first_answer_is_confirmed(self):
         # 最初の答えは、意味の判定が言い切っていないと読めば、言い直して確かめる（言い切っていない答えの決まりと同じ）
         from meaning_judge import Reading
@@ -6870,7 +6948,7 @@ class JudgeSetupTest(unittest.TestCase):
                     got = json.loads(common.save_result("TEST", {}).read_text(encoding="utf-8"))
                 finally:
                     common.RESULTS_DIR, common.LEDGERS[:] = old_dir, old_ledgers
-            self.assertEqual(got["有料の窓口の料金"]["Anthropic の判定"]["回数"], {"claude-sonnet-5-5": 1, "claude-haiku-5-5": 1})
+            self.assertEqual(got["有料の窓口の料金"][mj.Spend.name]["回数"], {"claude-sonnet-5-5": 1, "claude-haiku-5-5": 1})
             self.assertEqual(common.base_parser("").parse_args([]).budget_yen, common.DEV_BUDGET_YEN)   # 試しには初めから上限がある
         finally:
             mj.SPEND = old
@@ -6895,12 +6973,14 @@ class JudgeSetupTest(unittest.TestCase):
         q, asked, text = self.q(), "念のためご連絡はメールでよろしいでしょうか？", "メールのほうが助かりますが…"
         names = [n for n, _, _ in options(q, asked)]
         self.assertEqual({n for n in OTHER_JUDGES if decision_model(n)}, {"Jev 1.14", "d1 Ultra（Liquid）", "d1.1（Liquid）", "GPT-6 Luna Decisions",
-                                                                         "Mercury Decide（Inception）", "Solar Decide（Upstage）"})
+                                                                         "Mercury Decide（Inception）", "Solar Decide（Upstage）",
+                                                                         "SubQ Snap 1.2", "Drex Max（Nace.AI）"})
         for name in OTHER_JUDGES:
             body = other_request(name, q, text, asked)
             sent = json.dumps(body, ensure_ascii=False)
             if decision_model(name):  # 判断のモデル（Jev・d1）：問いは短く・選択肢は同じ名前で同じ並び（定義は意味で読む書き方）・同じ場面・同じ窓口
-                self.assertEqual(other_path(name), "/api/v1/systemone")
+                # 窓口は接続先ごと（OpenRouter の判断の窓口と、SubQ の判断の窓口＝SubQ の頁「判断の窓口」の POST /v1/systemone）
+                self.assertEqual(other_path(name), "/v1/systemone" if OTHER_JUDGES[name]["host"] == "api.subq.ai" else "/api/v1/systemone")
                 ask = body["questions"]["choice"]
                 self.assertEqual((list(ask["criteria"]), body["state"]), (names, scene(q, text, asked)))
                 self.assertLess(len(ask["instructions"]), 120)

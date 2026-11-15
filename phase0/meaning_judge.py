@@ -871,6 +871,20 @@ OTHER_JUDGES = {
                                   "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai", "firm_min": 0.2},
     "Solar Decide（Upstage）": {"maker": "upstage", "api": "decision", "model": "upstage/solar-decide-20260928", "key": "OPENROUTER_JUDGE_KEY",
                               "host": "openrouter.ai", "firm_min": 0.2},
+    # 試しの候補（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「伺い18、最新の判定AIで、Jevよりも性能の良いものが出ています。SubQ Snap 1.2とDrex Max
+    # をJevに変えて使って性能アップするかを測ってください。…」・12時39分31秒「伺い19はアでOK」＝上限45円の小さな試し）。どちらも Jev と同じ問いの形
+    # （state・questions・choice／noul）で答える判断のモデル。線は測ってから決める（firm_min は d1.1 などと同じ仮の値）・組には入れない・送り先は
+    # Intent.md 13章にまだ無い（本番で使うなら、測りの結果と一緒に伺う）。
+    # SubQ Snap 1.2＝SubQ の判断の窓口（api.subq.ai の /v1/systemone・鍵は SubQ_JUDGE_KEY）。料金は入力100万トークンあたり0.04ドル・返す側0＝返事の
+    #    使った量（usage）で数える（PRICE の1か所・SPEND）。無料の枠は無い（SubQ の頁「始め方」＝送る前に残高が要る・402＝残高不足）。送った文は
+    #    60日以内に消える・1回ごとに残さない指定は判断の窓口には無い（SubQ の頁「データの保持」）
+    # Drex Max（Nace.AI）＝OpenRouter の判断の窓口（10-16 の版・受け口は DeepInfra の米国だけ・無料の受け口は無い）。一覧の料金は入力100万トークン
+    #    あたり0.06ドル（11-15 は半額）。1文字あたりの見込み（KeySpend）は、Jev の実測（7.6×10⁻⁶ 円・0.042ドル）を料金の比で移した値（半額の前の
+    #    料金＝多めに見込む側。SubQ の値も同じ移し方＝見込みの道具 judge_cost が使う）
+    "SubQ Snap 1.2": {"maker": "subq", "api": "decision", "model": "subq-snap-1.2", "key": "SubQ_JUDGE_KEY", "host": "api.subq.ai",
+                      "path": "/v1/systemone", "firm_min": 0.2, "yen_per_char": 7.24e-6},
+    "Drex Max（Nace.AI）": {"maker": "nace-ai", "api": "decision", "model": "nace-ai/drex-max-20261016", "key": "OPENROUTER_JUDGE_KEY",
+                          "host": "openrouter.ai", "firm_min": 0.2, "yen_per_char": 1.09e-5},
 }
 # モデルの名前ごとの1文字あたりの円（KeySpend の見込み。OTHER_JUDGES の yen_per_char から作る1か所）
 YEN_PER_CHAR = {j["model"]: j["yen_per_char"] for j in OTHER_JUDGES.values() if "yen_per_char" in j}
@@ -1196,14 +1210,17 @@ def other_text(name: str, data: dict) -> str | None:
 #       儲けより、API料金の方が高いことになりますよ」＝使った量をどこにも残しておらず、測りの料金が積み上がっても気づけなかった
 #       （10-18 の午後だけで、同じ答え 2,259件を Sonnet に約1万1千回送り、同じ測りを2分おいて2回流した回もあった）
 #    料金：100万トークンあたりのドル（入力・出力・まとめて送った分の読み・書き。考える量は出力に入る）。1ドル＝150円（Intent.md 12-2）
-PRICE = {"claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50), "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125)}
+#    返事に使った量（usage）が入るほかの窓口も、料金をここに置けば同じ帳簿で数える（判断のモデルの SubQ＝入力だけ・返す側0＝SubQ の頁「判断の窓口」。
+#    ✅ 2026-11-15 日本時間12時39分31秒「伺い19はアでOK」の上限45円の試しに入れるため＝other_client の _UsageMetered）
+PRICE = {"claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50), "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125), "subq-snap-1.2": (0.04, 0.0, 0.0, 0.0)}
 YEN_PER_USD = 150.0
 
 
 class Spend:
-    """送った回数・量・円。limit＝この試しで使ってよい円（common.base_parser の --budget-yen。通話の本番では渡さない＝上限なし）：超えたら、
-    それより後は送らずに失敗にする（判定は止まった扱い＝通話は止まらない。測りは、それ以上お金を使わない）。"""
-    name = "Anthropic の判定"
+    """返事に使った量（usage）が入る判定（Anthropic・SubQ）の、送った回数・量・円。limit＝この試しで使ってよい円（common.base_parser の
+    --budget-yen。通話の本番では渡さない＝上限なし）：超えたら、それより後は送らずに失敗にする（判定は止まった扱い＝通話は止まらない。測りは、
+    それ以上お金を使わない）。"""
+    name = "返事の使った量で数える判定"
 
     # 返事を待たずに止めた問い合わせ（先に届いた答えで決めたあと、first_of が止めた分）は、使った量が返らないが料金はかかりうる ⇒
     # 同じモデルの返事のあった問い合わせの、まとめて送った分を書いた料金を除いた平均の円で見込む（書くのは1回目だけ。返事が1つも無ければ、
@@ -1358,6 +1375,45 @@ class _KeyMetered:
         return self._client.post(path, json=json, **kw)
 
 
+class _UsageMetered:
+    """返事に使った量（usage）が入る httpx の窓口（料金が PRICE にある窓口＝判断のモデルの SubQ）を包む：送る前に上限を確かめ（SPEND.check）、
+    返事の使った量を Anthropic と同じ帳簿（SPEND）に数えてから返す。返事を待たずに止められたら（first_of が先に届いた答えで決めた）、止めた回数に
+    数える（_Metered と同じ）。"""
+
+    def __init__(self, client, aio: bool):
+        self._client, self._aio = client, aio
+
+    def __getattr__(self, attr):
+        return getattr(self._client, attr)
+
+    @staticmethod
+    def _count(model: str, r) -> None:
+        try:
+            usage = (r.json() or {}).get("usage")
+        except Exception:   # 読めない返事（誤りの返事など）には使った量が無い＝数えない（誤りは送る所 _send_other が上げる）
+            return
+        if usage:
+            SPEND.add(model, usage)
+
+    def post(self, path, json=None, **kw):
+        model = (json or {}).get("model", "?")
+        SPEND.check()
+        if self._aio:
+            async def go():
+                import asyncio
+                try:
+                    r = await self._client.post(path, json=json, **kw)
+                except asyncio.CancelledError:
+                    SPEND.stopped[model] += 1
+                    raise
+                self._count(model, r)
+                return r
+            return go()
+        r = self._client.post(path, json=json, **kw)
+        self._count(model, r)
+        return r
+
+
 # 判断のモデルの1回の見込みの円＝送る文の長さ × 1文字あたりの円（KeySpend の見込み。返す側も含めた実際の料金から決めた＝多めに見込む側）。
 #    ⛔ 2026-10-31 の昼：1回の見込みを回数で数えていたので、短い問い合わせ（前の話の答え）が増えた G-70 を、実際の約0.7円で上限の1.5円に達したと
 #    止めた ⇒ 送る文の長さで見込む。1文字あたりは、同じ日の尋ねているかの測り（213回・約19.8万字）の鍵の使った額の差から：d1-ultra 約0.6円・
@@ -1454,10 +1510,15 @@ def other_client(name: str, key: str, aio: bool = False, budget: float | None = 
                                                         limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S))
     if budget is None:
         return http
-    if OTHER_JUDGES[name]["host"] != "openrouter.ai":   # 使った額を数える道が無い窓口に、上限つきでは送らない
-        raise OtherJudgeError(None, f"{name} は使った額を数えられないので、--budget-yen つきでは送りません")
     from common import LEDGERS
 
+    if OTHER_JUDGES[name]["model"] in PRICE:   # 返事に使った量が入る窓口（SubQ）＝Anthropic と同じ帳簿で数える
+        SPEND.limit = budget
+        if SPEND not in LEDGERS:
+            LEDGERS.append(SPEND)
+        return _UsageMetered(http, aio)
+    if OTHER_JUDGES[name]["host"] != "openrouter.ai":   # 使った額を数える道が無い窓口に、上限つきでは送らない
+        raise OtherJudgeError(None, f"{name} は使った額を数えられないので、--budget-yen つきでは送りません")
     KEY_SPEND.bind(key, budget)
     if KEY_SPEND not in LEDGERS:
         LEDGERS.append(KEY_SPEND)
