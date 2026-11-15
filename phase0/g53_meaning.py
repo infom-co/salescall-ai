@@ -1084,13 +1084,33 @@ def predict_calls(items: list[dict], key: str) -> dict:
     return out
 
 
+def chosen_sets(spec: str | None, names) -> tuple | None:
+    """--sets の組の名前を、いまある組の名前（names）で読み分ける唯一の所（書いた順のまま。無ければ None＝全部の組）。区切りは「,」「、」・空白で、
+    無くてもよい（前からの「DABE」）。長い名前から当てる（「HEAR」を H・E・A・R に分けない）。当たる組の無い名前は止める（黙って0行にしない）。
+    ⛔ 2026-11-15：文字の含まれ方で選んでいた（it["set"] in args.sets）ので、組 HEAR を選ぶと1文字の組 A・E も選ばれた（伺い19 ア の小さな試しの
+    つもりで、答えの段の全部の行へ送るところだった）"""
+    import re
+
+    if not spec:
+        return None
+    longest, out = sorted(names, key=len, reverse=True), []
+    for token in re.split(r"[,、\s]+", spec.strip()):
+        while token:
+            hit = next((n for n in longest if token.startswith(n)), None)
+            if hit is None:
+                raise SystemExit(f"--sets の「{token}」に当たる組がありません（いまある組：{'・'.join(sorted(names))}）")
+            out.append(hit)
+            token = token[len(hit):]
+    return tuple(dict.fromkeys(out))
+
+
 def main() -> None:
     require_python()
     p = base_parser(__doc__)
     p.add_argument("--judge", action="append", choices=JUDGES, help="判定のモデル（既定は2つとも）")
     p.add_argument("--reuse", help="前の結果のファイル（作った答え・判定済みの分を使い回す）")
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため）")
-    p.add_argument("--sets", help="判定する組だけ（例 E、DE）。ほかの組は判定しない（数えには入る）")
+    p.add_argument("--sets", help="判定する組だけ（組の名前を並べる：例 N1,W1,HEAR・前からの DE も読める＝chosen_sets）。ほかの組は判定しない（数えには入る）")
     p.add_argument("--rejudge", action="store_true", help="--reuse の、--judge で渡した判定の読みを捨てて測り直す（判定の文・選べるものを変えたとき）")
     p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
     p.add_argument("--g73-partial", action="store_true", help="試しの言葉（G-73）がそろっていなくても測る（ユーザーがその形で測ると選んだときだけ）")
@@ -1141,6 +1161,7 @@ def main() -> None:
             say(m, "が作った答え", len(got))
             items += got
     say("答えの数", dict(Counter(it["set"] for it in items)))
+    args.sets = chosen_sets(args.sets, {it["set"] for it in items})   # 組を選ぶ所（判定・前の話・組み立てだけの数え）はどれもこれを読む
     from g73_system_words import require_complete
     if args.dry_run:
         # 組み立てだけ：判定を送る数だけ出して止める（⛔ 2026-11-02 日本時間7時29分：ここで止まらず、2,840回送った）

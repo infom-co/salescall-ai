@@ -2966,6 +2966,18 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
     """意味の判定に見せる選べるもの（meaning_judge.options）：選択肢は意味の言葉を名前にする。⛔ G-53 の2回目：名前の「いいえ」と相手の
     「違います」を言葉で結びつけ、言い直しを認めていないのに認めたと読んだ（2回）。"""
 
+    def test_g53_sets_are_read_by_group_name(self):
+        # ⛔ 2026-11-15（伺い19 ア の小さな試しの前に見つけた）：--sets を文字の含まれ方で選んでいた（it["set"] in "N1N2…HEAR"）＝組 HEAR を選ぶと
+        #    1文字の組 A・E も選ばれ、小さな試しのつもりで答えの段の全部の行へ送るところだった ⇒ 組の名前を1か所（g53_meaning.chosen_sets）で読み分ける
+        import g53_meaning as g
+        names = {"A", "B", "C", "D", "E", "F", "N1", "N2", "N3", "W1", "R", "HEAR"}
+        self.assertEqual(g.chosen_sets("N1,N2,N3,W1,R,D,HEAR", names), ("N1", "N2", "N3", "W1", "R", "D", "HEAR"))
+        self.assertEqual(g.chosen_sets("HEAR", names), ("HEAR",))   # A・E を選ばない
+        self.assertEqual(g.chosen_sets("DABE", names), ("D", "A", "B", "E"))   # 前からの書き方（1文字の組の並び＝judge_try も使う）
+        self.assertIsNone(g.chosen_sets(None, names))
+        with self.assertRaises(SystemExit):   # 当たる組の無い名前は止める（黙って0行にしない）
+            g.chosen_sets("N1,X9", names)
+
     def test_choices_are_named_by_meaning(self):
         import json
         from flowctl import ANY, HOLD, Question
