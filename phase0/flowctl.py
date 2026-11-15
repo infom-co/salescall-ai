@@ -4772,20 +4772,20 @@ class Flow:
         self.concern_asked = False
         self.concern_q: str | None = None
         # ほかの会社に頼んでいる・使っていると言われ、そのお返事への応じ方の前に「そうだったんですね。そちらの会社の方で…」を伺った（_elsewhere_ask。1通話1回）・
-        # その質問の番号（答えが決まったら _elsewhere_decided）・伺う前のお客様の言葉（その発話の番号と言葉＝無い・はっきりしないなら、伺う前の位置で読み直す）
+        # その質問の番号（答えが決まったら _elsewhere_decided）・伺う前の位置とお客様の言葉（その発話の番号と言葉＝無い・はっきりしないとき・困りごとに応えたあと
+        # （深めて伺ったあとも）の戻りで、伺う前の位置で読み直す＝_elsewhere_back。戻る・次へ進むまで残す＝_elsewhere_pending）
         self.elsewhere_asked = False
         self.elsewhere_q: str | None = None
         self.elsewhere_from: dict | None = None
         # 深める一言（_deepen_ask。1通話1回）：伺った印・その質問の番号（答えが決まったら _deepen_decided）・伺う前の位置・伺う番（E1 の困りごとに会話AIが応えた発話の
         # 番号＝そのお返事で伺う）・会話AIが書いた困りごとの言葉（確かめを通ったもの）・E1 で言っていただいた困りごと（(値, 根拠の発話)＝ご承認の手順の点として残す）・
-        # 深めたあとの続け方の番（会話AIが応えた発話の番号＝そのお返事で _deepen_then）・無かったと言われて先を見た受け止めの言葉で応える番（_asked_kind の ahead）
+        # 無かったと言われて先を見た受け止めの言葉で応える番（_asked_kind の ahead）
         self.deepen_asked = False
         self.deepen_q: str | None = None
         self.deepen_from: dict | None = None
         self.deepen_wait: int | None = None
         self.trouble_word: str | None = None
         self.trouble_said: tuple | None = None
-        self.deepen_then: int | None = None
         self.ahead_turn: int | None = None
         # 急いでいるが手短になら聞くと言われ、営業の要約を伝えた（_brief_say。1通話1回）
         self.brief_said = False
@@ -8758,7 +8758,7 @@ class Flow:
         # 「-」にしたあと伺う、締めの前の念のための確認（_advance_to が並びを作る _will_ask_again の1か所。この質問は「-」にしたとして読む）
         due = (any(self._will_ask_again(x, dashing=x == qid) for x in self.order) if self.phase == "asking"
                else self.phase == "rechecking" and bool(self.recheck_queue))
-        return "next" if due and not self.hurried else "close"
+        return "next" if due and not self._no_recheck() else "close"
 
     def _talk_dash(self, qid: str, why: str) -> dict:
         """別のお話にひとこと応えたあと、その場ではもう伺い直さない質問を「-」にして次へ進む返事（唯一の場所＝_talk_again・お話に沿った受け答えで待ったあとの相づち
@@ -9727,10 +9727,11 @@ class Flow:
                                 "相手の返事にだけ使います。")
         waited = self._talk_waiting()   # 別のお話へのお話に沿った受け答えのあとの待ち（印は待つ印を消す前に読む）
         own, ai, self.ai_pending, self.own_pending, self.answer_held = self.own_pending, self.ai_pending, False, False, kept
-        if own and self.deepen_wait is not None and self.deepen_wait == self.callee_turns - 1:
-            return self._deepen_ask()   # ほかの会社の困りごとに応えたあとのお返事：1通話1回、深めて伺う（伺い29）
-        if own and self.deepen_then is not None and self.deepen_then == self.callee_turns - 1:
-            # 深めて伺い、応えたあとのお返事：続け方（伺い29・お言葉の外）。お返事（「そうなんですね。」）は「はい、」で受ける（下の talked と同じ）
+        if own and self._elsewhere_pending() and self.deepen_wait is not None and self.deepen_wait == self.callee_turns - 1:
+            return self._deepen_ask()   # ほかの会社の困りごとに応えたすぐあとのお返事：1通話1回、深めて伺う（伺い29）
+        if own and self._elsewhere_pending():
+            # ほかの会社の困りごとに応え（深めて伺ったあとも・深めずに、尋ねられて答えたあとも）、まだ伺う前の位置へ戻っていないお返事：続け方の1か所（伺い29・
+            # 伺い25 の入れた形）。お返事（「そうなんですね。」）は「はい、」で受ける（下の talked と同じ）
             return self._deepen_then("") | {"talked": True}
         w = next((p for p in (self.wish, self.handoff) if p is not None and p.get("detail") == self.current), None)
         if ahead and w is not None and w.get("known") is not None and self.items[self.current].state == "empty":
@@ -10305,13 +10306,10 @@ class Flow:
         答えたと分かったとき）。kind＝応えた部分（OWN_PARTS の中の名前・「AIですか」は ai）。答えの段で尋ねられた問い（_asked_now）に答えたなら、
         印は ASKED_REPLY（お客様の返事が答えなら、質問に戻らずに受け取る＝_resume・_answer_in_reply）。この操作で待ち始めたこと（reply_started）は、
         操作のあとに待つ印を消すかの決まり（_apply_one）が読む。"""
-        now = self._asked_kind() if kind != "ai" else None
-        if now == "ahead" or (now == "concern" and self.concern_kind == "elsewhere"):
-            # ほかの会社の困りごとに応えた：そのお返事で深める一言（まだ伺っていなければ＝_deepen_ask）か、深めたあとの続け方（_deepen_then）。印は応えた発話の番号
-            if self.deepen_asked:
-                self.deepen_then = self.callee_turns
-            else:
-                self.deepen_wait = self.callee_turns
+        if kind != "ai" and self._trouble_turn():
+            # ほかの会社の困りごとに応えた（まだ深めて伺っていない）：そのすぐあとのお返事で深める一言（_deepen_ask）。印は応えた発話の番号。深めて伺ったあと・
+            # 深めずに戻るときの続け方は、伺う前の位置へまだ戻っていないか（_elsewhere_pending）で決める（_resume）
+            self.deepen_wait = self.callee_turns
         if kind == "ai":
             self.ai_pending = True
         else:
@@ -11593,12 +11591,11 @@ class Flow:
     def _elsewhere_decided(self, prefix: str) -> dict:
         """ほかの会社のことを伺った一言（E1）への答えが決まった（唯一の入口＝_advance）：
         - 問題を言った（「今のところは対応が遅くて困っているんですよ。」）：本心を伺った一言の「問題を言った」と同じ1か所（_concern_heard）＝伺う前の質問の位置へ戻し、
-          会話AIが業務の情報の範囲で応える。言っていただいた中身は通話の事実 elsewhere（依頼者へ返す）
-        - 無い・はっきりしない・聞き取れない：伺い直さず、もとのお返事の今の応じ方で続ける＝伺う前の位置へ戻り、伺う前のお客様の言葉を、その位置について判定に読み
-          直してもらってから受け取る（待つかかけ直すかを伺っている間にお話を続けた方と同じ1か所＝_hold_ahead・ahead_context。その質問だけのお断りか営業全体か
-          は、流れの制御が質問の役目と業務の最終目的で知っている＝今の決まりのまま）。返事の頭は「はい、」だけ（ahead_offer）"""
+          会話AIが業務の情報の範囲で応える。言っていただいた中身は通話の事実 elsewhere（依頼者へ返す）。伺う前の位置とお客様の言葉（elsewhere_from）は、応えた
+          あと（深めて伺ったあとも）の戻り（_deepen_then）まで覚えておく
+        - 無い・はっきりしない・聞き取れない：伺い直さず、もとのお返事の今の応じ方で続ける（_elsewhere_back の1か所）"""
         qid, self.elsewhere_q = self.elsewhere_q, None
-        frm, self.elsewhere_from = self.elsewhere_from, None
+        frm = self.elsewhere_from
         it = self.items[qid]
         if self.refusal_back is not None and (self.refusal_back == frm["back"] or self.refusal_back[0] == qid):
             # E1 を伺うときに _ask_aside が覚えた位置・伺っている間に別の一言（本心を伺う一言など）が覚えた E1 の位置は、もう使わない（戻るのは E1 が覚えた位置）
@@ -11608,6 +11605,20 @@ class Flow:
             # 言っていただいた困りごと（深めたあとにご承認の手順の点と同じに扱うとき＝_deepen_then）
             self.trouble_said = (it.value, fact_said(self.heard_said))
             return self._concern_heard(prefix, "elsewhere", frm["back"])
+        return self._elsewhere_back(prefix)
+
+    def _elsewhere_back(self, prefix: str) -> dict:
+        """ほかの会社のことを伺った一言（E1）のあと、伺う前の位置へ戻り、伺う前のお客様の言葉（もとのお返事）を今の決まりで受ける唯一の場所：E1 に無い・はっきり
+        しない・聞き取れない（_elsewhere_decided）と、E1 で言っていただいた困りごとに会話AIが応えたあと・深めて伺った一言（E2）のあと（_deepen_then の、ご承認の手順
+        の外）。伺い直さず（本書 9-3「取得済みのことを重ねて聞かない」）、伺う前のお客様の言葉を、その位置について判定に読み直してもらってから受け取る（待つかかけ直すか
+        を伺っている間にお話を続けた方と同じ1か所＝_hold_ahead・ahead_context。その質問だけのお断りか営業全体かは、流れの制御が質問の役目と業務の最終目的で知って
+        いる＝今の決まりのまま。選ぶ質問の「どれも要らない」なら、ほかのご希望を1回伺う＝W1）。返事の頭は「はい、」だけ（ahead_offer）。応えたあとのお返事が、伺う前の
+        質問への新しい答え（「じゃあメールでお願いします。」）なら、ここへは来ずに、その答えで受け取る（_resume の1つ目の決まり＝尋ねられて答えたあとと同じ）。
+        ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。お言葉は ELSEWHERE）・2026-11-03 日本時間19時54分 ユーザー（W1。お言葉は _wish_step）。
+        ⛔ b586025f まで、E1 の困りごとに応えたあと・深めて伺ったあとは「それではもう一度確認させていただきますね。ご連絡はお電話とメールのどちらがよろしいでしょうか？」
+        と、もう答えていただいた質問を伺い直した"""
+        frm, self.elsewhere_from = self.elsewhere_from, None
+        self.deepen_wait = None   # 深める一言を伺う番（_resume）は、もう来ない（戻ったあとは伺わない）
         self._restore_aside(frm["back"])
         back = self.awaiting_confirm or self.current
         self.ahead = {"turn": frm["turn"], "said": frm["said"], "rest": (frm["said"] or "").strip(), "qid": None, "check": {}, "asked": False}
@@ -11615,6 +11626,12 @@ class Flow:
                          head=f"相手は、ほかの会社のことを伺う前に、こう言いました（「{(frm['said'] or '').strip()}」）。")
         return {"result": "next", "question_id": back, "question": self.questions[back].text, "ahead_offer": True,
                 "message": f"{prefix}受け付けました。{self._return_note()}"}
+
+    def _elsewhere_pending(self) -> bool:
+        """E1 で困りごとを言っていただき、会話AIが応えたあと（深めて伺ったあとも）、まだ伺う前の位置へ戻っていないか（唯一の決まり＝応えたあとのお返事で戻る所
+        _resume）：伺う前の位置とお客様の言葉（elsewhere_from）が残り、E1・E2 を伺っている途中ではない（伺っている途中の戻りは _continue の1か所）。次へ進んだら
+        （_advance_to）もう戻らない（新しい答えを受け取った・ほかの一言を伺った など）。"""
+        return self.elsewhere_from is not None and self.elsewhere_q is None and self.deepen_q is None
 
     def _trouble_turn(self) -> bool:
         """会話AIが困りごとの言葉（ARG_LABEL の trouble）を書く番か（唯一の決まり＝受け取る入口 _op_replay_opening・会話AIへの知らせ _asked_note）：ほかの会社の
@@ -11657,7 +11674,7 @@ class Flow:
         - 無かった：伺う前の位置へ戻し、会話AIが先を見た受け止めの言葉で応える番（_asked_kind の ahead。問いかけ・約束・こちらの事実を入れない。使えなければ
           お言葉の文の録音 deepen_ahead＝_ahead_said）
         - はっきりしない・聞き取れない：伺い直さず、そのあとの続け方へ（_deepen_then）
-        どれも、応えたあとのお返事で _deepen_then（_resume の deepen_then）。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い29。お言葉は _deepen_ask）"""
+        どれも、応えたあとのお返事で _deepen_then（_resume の _elsewhere_pending）。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い29。お言葉は _deepen_ask）"""
         qid, self.deepen_q = self.deepen_q, None
         frm, self.deepen_from = self.deepen_from, None
         it = self.items[qid]
@@ -11673,13 +11690,16 @@ class Flow:
         return self._deepen_then(prefix)
 
     def _deepen_then(self, prefix: str) -> dict:
-        """深めて伺ったあとの続け方の唯一の場所（お言葉の外＝報告に書く）：ご承認の手順の1つ目（N1）の位置なら、E1 で言っていただいた困りごとを、ご納得いただけ
-        なかった点と同じに扱い（N1 の答え「点を言った」・通話の事実 not_agreed に点として残す・ご説明は会話AIが応えた文）、手順の次の一言「ほかにご納得いただけない点は
-        ございますでしょうか？」（N2＝_point_step）へ。ほかの位置なら、尋ねられて答えたあとと同じ戻り（_continue の final）。"""
-        self.deepen_then = None
+        """E1 で言っていただいた困りごとに会話AIが応えたあとのお返事・深めて伺った一言（E2）のあと（はっきりしない答え・応えたあとのお返事）の続け方の唯一の場所
+        （深めて伺わずに戻るときも＝_resume の _elsewhere_pending）：ご承認の手順の1つ目（N1）の位置なら、E1 で言っていただいた困りごとを、ご納得いただけなかった点と
+        同じに扱い（N1 の答え「点を言った」・通話の事実 not_agreed に点として残す・ご説明は会話AIが応えた文）、手順の次の一言「ほかにご納得いただけない点は
+        ございますでしょうか？」（N2＝_point_step。ご承認の手順の決まり＝11-02 日本時間5時56分のまま）へ。ほかの位置なら、E1 の「問題は無い」と同じ1か所（_elsewhere_back）で、もとの
+        お返事を読み直して今の決まりで受ける（伺い25 の入れた形 58fb6c7f）。⛔ b586025f まで、ほかの位置は尋ねられて答えたあとと同じ戻り（_continue の final）＝もう答えて
+        いただいた質問を伺い直していた・深めて伺わずに戻ると、N1 でも「ご納得いただけなかった点はどの部分に…」を伺い直していた"""
         p, nid = self.point, CALLBACK_IDS["not_agreed"]
         if (p is not None and p["outcome"] is None and p["stage"] == "ask" and self.current == nid and self.awaiting_confirm is None
                 and self.items[nid].state == "empty"):
+            self.elsewhere_from = None   # もとのお返事（N1 へのお断り）は、もう読み直さない（困りごとを点として受けた）
             value, said = self.trouble_said or (None, None)
             it = self.items[nid]
             it.condition, it.value = POINT_SAID["not_agreed"], value
@@ -11687,7 +11707,7 @@ class Flow:
             self._point_record(point=value or said, **({"said": said} if said else {}), explained=True)
             p.update(stage="explained", explained=True, turn=self.callee_turns)
             return self._advance(prefix, handled=True)
-        return self._continue([], prefix, final=True)
+        return self._elsewhere_back(prefix)
 
     def _ahead_said(self, said: str | None, drafts: dict, checked: dict) -> dict:
         """深めて伺った一言にこれまでに問題は無かったと言われ、会話AIが先を見た受け止めの言葉で応える返事（唯一の場所＝_own_answer の ahead の番）：said＝確かめを
@@ -13749,6 +13769,8 @@ class Flow:
 
     def _advance_to(self, prefix: str, handled: bool = False) -> dict:
         self.digressed = False  # 次へ進む（もう伺ったことへは戻らない）
+        if self.elsewhere_q is None and self.deepen_q is None:
+            self.elsewhere_from = None   # ほかの会社のことを伺う前のもとのお返事へも、もう戻らない（_elsewhere_pending。E1・E2 を伺う・答えが決まる時は残す）
         if handled:
             # handled＝相手の言葉そのものを、いまの操作が受けた（かけ直しの申し出「あとでかけてもらえますか？」・目的の人の名乗り・ご遠慮の一言などの
             # きっかけの言葉）＝答えに添えた質問ではない。この印を読むのは、判定を使わない通話の言葉の形の見方だけ（_question_to_us。判定を使う通話は、
@@ -13808,7 +13830,7 @@ class Flow:
             # 締めの前に、「-」の必須項目を1回だけ念のため確かめる（6-11）。どの項目かは _will_ask_again の1か所
             self.recheck_queue = [qid for qid in self.order if self._will_ask_again(qid)]
             self.phase = "rechecking"
-        if self.phase == "rechecking" and self.recheck_queue and not self.hurried:
+        if self.phase == "rechecking" and self.recheck_queue and not self._no_recheck():
             self.current = self.recheck_queue.pop(0)
             self.items[self.current].rechecks += 1
             q = self.questions[self.current]
@@ -13849,17 +13871,17 @@ class Flow:
 
     def _will_ask_again(self, qid: str, dashing: bool = False) -> bool:
         """「-」にした項目を、締めの前の念のための確認でまた伺うか（唯一の決まり＝その並びを作る所 _advance_to・伺い終えるまで決めない所 _wish_step）：必須の
-        項目で、その確認の回数が残り、急いでいる方ではない（答えの段なら並びにある・確認の段なら確認の並びにある）。かけ直しを頼まれた方には、業務の質問は
-        伺わない（残りの質問は次の電話で）が、かけ直しの手順の必須の質問（時刻・番号・ほかの手段の連絡先＝callback_ids）は、業務の必須の質問と同じに伺う
+        項目で、その確認の回数が残り、念のための確認をしない方ではない（_no_recheck＝急いでいる方。答えの段なら並びにある・確認の段なら確認の並びにある）。
+        かけ直しを頼まれた方には、業務の質問は伺わない（残りの質問は次の電話で）が、かけ直しの手順の必須の質問（時刻・番号・ほかの手段の連絡先＝
+        callback_ids）は、業務の必須の質問と同じに伺う
         （最初の質問のほかに最大3回＝10-14。✅ 2026-11-12 まとめ役の (M1)。⛔ それまでは、かけ直しを頼まれた方には念のための確認を一切せず、時刻の言い直しへの
         お返事が1回聞き取れないだけで「はい、お忙しいところ…」と締め、時刻を捨てていた＝業務の必須の日時の質問なら締めの前にもう1回伺う場面）。急いでいる方
-        （また改めてお掛けしてよいかを伺った方＝hurry_asked）には、かけ直しの日時でも伺わない（Intent.md 9-5「お客様が急いでいる・切ろうとしているときは、
-        念のための確認をしない」）"""
+        （また改めてお掛けしてよいかを伺った方＝hurry_asked）には、かけ直しの日時でも伺わない（_no_recheck の1か所）"""
         # dashing＝いま「-」にしようとしている項目として読む（ひとことのあとにすることの知らせ _talk_then。「-」にしたときの提案の印は _dash と同じ）
         q, it = self.questions.get(qid), self.items.get(qid)
-        if q is None or (it.state != "unresolved" and not dashing) or not q.required:
+        if q is None or (it.state != "unresolved" and not dashing) or not q.required or self._no_recheck():
             return False
-        if self.callback_why and (qid not in self.callback_ids or self.hurry_asked):
+        if self.callback_why and qid not in self.callback_ids:
             return False
         if it.offer_settled or (dashing and it.offer_again and self._proposal_of(qid) is not None):
             # 会話が繋がらないお返事のあとの提案（申し出・方法を選んでいただく質問＝_offer_again）へのお返事が、聞き取れたのに決まらない（_dash の1か所）：伺い直しは
@@ -13887,8 +13909,18 @@ class Flow:
 
     @property
     def hurried(self) -> bool:
-        """相手が急いでいる・通話を断られた・怒っている、で締めたか（念のための確認をしない・締めは断られたときの言い方）。"""
+        """相手が急いでいる・通話を断られた・怒っている、で締めたか（締めは断られたときの言い方。念のための確認をしないかは、これも入れて _no_recheck の1か所）。"""
         return self.end_reason in DECLINED_ENDS
+
+    def _no_recheck(self) -> bool:
+        """締めの前の念のための確認をしないか（唯一の決まり＝伺うかを決める所 _will_ask_again・確認の並びから伺う所 _advance_to・ひとことのあとにすることの知らせ
+        _talk_then）：お客様が急いでいる・切ろうとしている（本書 9-5「お客様が急いでいる・切ろうとしているときは、念のための確認をしない」）＝急いでいる・通話を
+        断られた・怒っている、で締めた（hurried）・急いでいる方に、また改めてお掛けしてよいかを伺った（hurry_asked＝かけ直しの日時でも伺わない。2026-11-12 まとめ役の
+        (M1)）・急いでいるが手短になら聞くと言われ、営業の要約を伝えた（brief_said＝急いでいるお客様）。手短にと言われた電話も、業務の質問は今までどおり伺い（✅ 2026-10-24
+        ユーザー「何を言っているの！？それだと業務を果たせずに終わることになるでしょ！」）、締めの言い方・終わりの理由・もうかけない印は今のまま（hurried の1か所＝
+        手短には断りではない＝ふつうのお礼の締め）。その場の聞き返しは今までどおり（_on_spot_left）。⛔ b586025f まで、手短にと言われた電話でも、聞き取れずに「-」に
+        した必須の質問を締めの前に「申し訳ございません、お声が聞き取れませんでしたので…もう一度だけ…」と伺い直した"""
+        return self.hurried or self.hurry_asked or self.brief_said
 
     def _asked(self, qid: str) -> bool:
         """その質問を、もう伺ったか（答えが届いた・いま伺っている＝返事で流した。相手がその途中で切っても伺った）。"""
