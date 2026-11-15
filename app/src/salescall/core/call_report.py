@@ -560,6 +560,18 @@ class NotAgreed:
 
 
 @dataclass(frozen=True)
+class BeforeWays:
+    """方法を並べて伺う前に、方法を言わずに言っていただいたご希望（other_wish の before_ways。「営業の方じゃなくて、説明書を送ってほしいです。」。
+    CL-1 の連絡帳 4-169）。依頼者へ返すご希望の中身。根拠の発話が取れなかったときは turn が None で said が空（会話の側の `_evidence` が無いとき）。"""
+    turn: int | None             # その発話の番号
+    said: str                    # そのときのお客様の言葉（said と同じ形）
+    value: str | None            # 会話AIが聞き取った値（無ければ None）
+
+    def to_json(self) -> dict[str, Any]:
+        return {"turn": self.turn, "said": self.said, "value": self.value}
+
+
+@dataclass(frozen=True)
 class OtherWish:
     """ほかのご希望を伺った答え（事実 other_wish。CL-1 の 4-72 の (k)）。依頼者へ返す。"""
     evidence: Said               # 根拠の発話（W1 への答え）
@@ -574,6 +586,7 @@ class OtherWish:
     terms: str | None = None     # W1 の提案に入れた、お客様の条件（伺い直したときから。CL-1 の連絡帳 4-131・4-133）
     topic: str | None = None     # W1 の提案に入れた中身（同じ）
     added: str | None = None     # W1 の提案に、こちらから足した条件（受けていただいたときだけ。同じ）
+    before_ways: BeforeWays | None = None   # 方法を並べて伺う前のご希望（並べて伺っていなければ・前の形の報告は None。CL-1 の連絡帳 4-169）
 
     def to_json(self) -> dict[str, Any]:
         """報告に書く形（唯一の場所。報告の書き出し `CallReport.to_json` と、次の通話へ渡す前の通話の答えの "wish_fact"＝`conversation_io.earlier`
@@ -581,7 +594,8 @@ class OtherWish:
         4-142）。"""
         return {"turn": self.evidence.turn, "said": self.evidence.said, "question": self.question, "wish": self.wish, "value": self.value,
                 "means": self.means, "contact": self.contact, "via": self.via, "outcome": self.outcome, "wish_state": self.wish_state,
-                "terms": self.terms, "topic": self.topic, "added": self.added}
+                "terms": self.terms, "topic": self.topic, "added": self.added,
+                "before_ways": None if self.before_ways is None else self.before_ways.to_json()}
 
 
 @dataclass(frozen=True)
@@ -1019,13 +1033,19 @@ def _records(facts: dict, kind: str, extra: set[str]) -> list[tuple[dict, Said]]
     for i, r in enumerate(rows):
         where = f"facts.{kind}[{i}]"
         r = _keys(r, {"turn", "said"} | extra, where)
-        turn, said = r.get("turn"), r.get("said")
-        if not isinstance(turn, int) or isinstance(turn, bool) or turn < 0:
-            raise ReportInvalid(f"{where}.turn は相手の発話の番号（0 以上の整数）です")
-        if not isinstance(said, str) or len(said) > SAID_MAX:
-            raise ReportInvalid(f"{where}.said は根拠の発話の文字（{SAID_MAX} 字まで）です")
-        out.append((r, Said(turn, said)))
+        out.append((r, _said(r, where)))
     return out
+
+
+def _said(r: dict, where: str, *, unknown: bool = False) -> Said:
+    """根拠の発話（turn・said）を確かめて読む1か所（記録の並び `_records`・止めた質問 ended_on・ほかのご希望の並べる前のご希望 before_ways）。unknown＝
+    この通話の発話でないこと（前の通話の答えで止めた ended_on・発話が取れなかった before_ways）を、turn が null・said が空で書いてよい。"""
+    turn, said = r.get("turn"), r.get("said")
+    if not (unknown and turn is None) and (not isinstance(turn, int) or isinstance(turn, bool) or turn < 0):
+        raise ReportInvalid(f"{where}.turn は相手の発話の番号（0 以上の整数）です")
+    if not isinstance(said, str) or len(said) > SAID_MAX or (turn is None and said):
+        raise ReportInvalid(f"{where}.said は根拠の発話の文字（{SAID_MAX} 字まで。発話の番号が null なら空）です")
+    return Said(turn, said)
 
 
 def _not_agreed(facts: dict) -> tuple[NotAgreed, ...]:
@@ -1081,7 +1101,18 @@ def _other_wish(r: dict, s: Said, i: int) -> OtherWish:
     terms, topic, added = _proposal(r, where)
     return OtherWish(s, question, texts["wish"], texts["value"], means, texts["contact"],
                      _choice(r.get("outcome"), OTHER_WISH_OUTCOMES, f"{where}.outcome", optional=True), via,
-                     _choice(r.get("wish_state"), WISH_STATES, f"{where}.wish_state", optional=True), terms, topic, added)
+                     _choice(r.get("wish_state"), WISH_STATES, f"{where}.wish_state", optional=True), terms, topic, added,
+                     _before_ways(r.get("before_ways"), f"{where}.before_ways"))
+
+
+def _before_ways(raw: Any, where: str) -> BeforeWays | None:
+    """方法を並べて伺う前のご希望（other_wish の before_ways。CL-1 の連絡帳 4-169）を確かめて読む1か所：null（並べて伺っていない・前の形の報告）か、
+    {turn, said, value}（said は根拠の発話と同じ確かめ＝`_said`。value は文字か null）。"""
+    if raw is None:
+        return None
+    r = _keys(raw, {"turn", "said", "value"}, where)
+    s = _said(r, where, unknown=True)
+    return BeforeWays(s.turn, s.said, _optional_text(r, "value", where))
 
 
 # 申し出の提案に入れた条件と中身の鍵（会話の側の flowctl.PROPOSAL_TERMS。申し出 handoff・close_offer・業務の申し出 offer_terms・ほかのご希望 other_wish の同じ欄＝
@@ -1181,11 +1212,9 @@ def _ended_on(facts: dict) -> EndedOn | None:
     if not rows:
         return None
     r = _keys(rows[0], {"turn", "said", "question", "answer", "skipped"}, "facts.ended_on[0]")
-    turn, said, question, answer, skipped = (r.get(k) for k in ("turn", "said", "question", "answer", "skipped"))
-    if turn is not None and (not isinstance(turn, int) or isinstance(turn, bool) or turn < 0):
-        raise ReportInvalid("facts.ended_on[0].turn は相手の発話の番号（0 以上の整数）か null です")
-    if not isinstance(said, str) or len(said) > SAID_MAX or (turn is None and said):
-        raise ReportInvalid(f"facts.ended_on[0].said は根拠の発話の文字（{SAID_MAX} 字まで。前の通話の答え＝turn が null なら空）です")
+    question, answer, skipped = (r.get(k) for k in ("question", "answer", "skipped"))
+    s = _said(r, "facts.ended_on[0]", unknown=True)   # turn が null＝前の通話の答えで止めた（said は空）
+    turn, said = s.turn, s.said
     for key, v in (("question", question), ("answer", answer)):
         if not isinstance(v, str) or not v.strip():
             raise ReportInvalid(f"facts.ended_on[0].{key} は文字です")
@@ -1315,7 +1344,8 @@ def from_json(raw: Any) -> CallReport:
     who_unclears = tuple(WhoUnclear(s, _bool(r, "recalled")) for r, s in _records(facts, "who_unclear", {"recalled"}))
     not_agreed = _not_agreed(facts)
     other_wishes = tuple(_other_wish(r, s, i) for i, (r, s) in enumerate(
-        _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome", "via", "wish_state", "terms", "topic", "added"})))
+        _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome", "via", "wish_state", "terms", "topic", "added",
+                                       "before_ways"})))
     ended_on = _ended_on(facts)
     concerns = _concerns(facts)
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」

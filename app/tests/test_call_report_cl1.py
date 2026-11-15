@@ -741,7 +741,7 @@ class OtherWish1103(unittest.TestCase):
         self.assertEqual(([(w.question, w.means, w.contact, w.outcome) for w in r.other_wishes], from_json(r.to_json())),
                          ([("Q3", "line", "test_line_id", "means"), ("Q4", None, None, None)], r))
         j = run(self.raw(line, cut))
-        keys = ("question", "wish", "value", "means", "contact", "via", "outcome", "wish_state", "terms", "topic", "added", "said")
+        keys = ("question", "wish", "value", "means", "contact", "via", "outcome", "wish_state", "terms", "topic", "added", "said", "before_ways")
         self.assertEqual(j.detail["other_wish"], [{k: line.get(k) for k in keys}, {k: cut.get(k) for k in keys}])
         self.assertIsNone(r.other_wishes[1].via)                             # 無い鍵は null と同じ
         self.assertNotIn("other_wish", run(self.raw()).detail)                # 伺っていなければ中身に出さない
@@ -760,10 +760,11 @@ class OtherWish1103(unittest.TestCase):
         added が入り、結び outcome に unresolved（「-」のまま終えた）が来る。どれも読んで、置いて読み直しても同じ・前の通話の答えに書いた形のまま渡る（to_json）・
         依頼者へ返す（お客様のご都合 terms とこちらの提案 added を分けて）。⛔ 足すまで、この鍵・結びのある報告は丸ごと断っていた（知らない鍵＝報告ごと断る）。"""
         unresolved = {"turn": 6, "said": "うーん、どうでしょう。", "question": "Q3", "wish": None, "value": None, "means": None, "contact": None,
-                      "outcome": "unresolved", "via": None, "wish_state": "unresolved", "terms": "月曜日を避けて", "topic": None, "added": None}
+                      "outcome": "unresolved", "via": None, "wish_state": "unresolved", "terms": "月曜日を避けて", "topic": None, "added": None,
+                      "before_ways": None}
         taken = {"turn": 8, "said": "夕方ならメールでいいですよ。", "question": "Q4", "wish": "メールでの連絡", "value": "メール", "means": "email",
                  "contact": "taro@example.com", "outcome": "means", "via": None, "wish_state": "confirmed", "terms": "月曜日を避けて",
-                 "topic": "料金の面も含めて", "added": "夕方以降に"}
+                 "topic": "料金の面も含めて", "added": "夕方以降に", "before_ways": None}
         means_only = {**taken, "turn": 9, "question": "Q5", "wish_state": None, "terms": None, "topic": None, "added": None}   # W1 を伺わずに方法から
         r = from_json(self.raw(unresolved, taken, means_only))
         self.assertEqual([(w.outcome, w.wish_state, w.terms, w.topic, w.added) for w in r.other_wishes],
@@ -777,6 +778,28 @@ class OtherWish1103(unittest.TestCase):
                     {**taken, "topic": ["x"]}, {**taken, "outcome": "unclear"}):
             with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
                 from_json(self.raw(bad))
+
+
+    def test_the_wish_said_before_the_ways_were_listed_is_received_and_returned(self):
+        """CL-1 の連絡帳 4-169（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い27））：方法を言わずにご希望を言っていただき（「営業の方じゃなくて、説明書を
+        送ってほしいです。」）、方法を並べて伺って選んでいただいたとき、同じ1件の before_ways に、そのときの発話・言葉・会話AIが聞き取った値が入る（並べて
+        いなければ null）。読んで、置いて読み直しても同じ・依頼者へ返すご希望の中身（判定の中身 other_wish の before_ways）。根拠の発話が取れなかったときは
+        turn が null で said が空。⛔ 足すまで、どの other_wish にもある欄を知らない鍵として、ほかのご希望を伺った通話の報告を丸ごと断っていた。"""
+        before = {"turn": 4, "said": "営業の方じゃなくて、説明書を送ってほしいです。", "value": "説明書を送ってほしい"}
+        chosen = {"turn": 6, "said": "メールでお願いします。", "question": "Q3", "wish": "メールでの連絡", "value": "メール", "means": "email",
+                  "contact": "taro@example.com", "outcome": "means", "via": None, "wish_state": "confirmed", "terms": None, "topic": None,
+                  "added": None, "before_ways": before}
+        r = from_json(self.raw(chosen))
+        self.assertEqual((r.other_wishes[0].before_ways.said, r.other_wishes[0].before_ways.value, r.other_wishes[0].to_json(), from_json(r.to_json())),
+                         (before["said"], before["value"], chosen, r))
+        self.assertEqual(run(self.raw(chosen)).detail["other_wish"][0]["before_ways"], {"said": before["said"], "value": before["value"]})
+        self.assertIsNone(run(self.raw({**chosen, "before_ways": None})).detail["other_wish"][0]["before_ways"])
+        unknown = {"turn": None, "said": "", "value": None}   # 根拠の発話が取れなかった
+        self.assertEqual(from_json(self.raw({**chosen, "before_ways": unknown})).other_wishes[0].before_ways.to_json(), unknown)
+        for bad in ({"turn": 4, "said": "x"}.__or__({"x": 1}), {"turn": -1, "said": "x", "value": None}, {"turn": None, "said": "x", "value": None},
+                    {"turn": 4, "said": "x" * 81, "value": None}, {"turn": 4, "said": "x", "value": ""}, {"turn": 4, "said": 3, "value": None}, "説明書"):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({**chosen, "before_ways": bad}))
 
 
 class Offers1109(unittest.TestCase):
