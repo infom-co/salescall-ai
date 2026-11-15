@@ -1915,7 +1915,9 @@ def _theirs_at(tx: Tx, task_id: UUID, cb: dict[str, Any], *, now: datetime) -> d
     `after_call` だけが呼ぶ）。✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで
     待つ」・「「18時に戻ります」（依頼者の時間帯が18時半まで）：18時半でOK　「21時半に戻ります」（歯止めの時間が22時まで）：22時でOK」・
     「こちらの都合でなく、相手に問題がなければ、その時間を多少過ぎてもOK」。
-    - 探す間は判定の1か所（judge.theirs_span＝戻る時刻の30分後から1時間後）。かけてよいかは、ふつうの電話の決まりの1か所（gate.next_opening＝
+    - 探す間は判定の1か所（judge.theirs_span＝いちばん早い戻りの30分後から、いちばん遅い戻りの1時間後まで。時点なら30分後から1時間後。幅の言葉
+      （判定の中身 callback の back_until がある）なら、かけたい時刻が依頼者の時間帯の外のとき、幅の中のかけてよい時間の最後の方＝✅ 2026-11-15
+      ユーザー「依頼者のかける時間の外なら、かけて良い時間の最後の方」。「明日」⇒明日の時間帯の終わりに期限が来る予約）。かけてよいかは、ふつうの電話の決まりの1か所（gate.next_opening＝
       依頼者の時間帯から NG時間を引いた残り・休みの日。予約から予約証の期限までが、まるごと内側）。ずらした時刻はお客様が指定した時刻ではないので、
       NG時間の枠・依頼者の時間帯の外でかけてよい例外は使わない。
     - 1時間後にかけてよければ1時間後。いけなければ、予約から予約証の期限までが30分後から1時間後の間に重なる（予約が1時間後以前・期限が30分後
@@ -1925,7 +1927,8 @@ def _theirs_at(tx: Tx, task_id: UUID, cb: dict[str, Any], *, now: datetime) -> d
       見分けるのは gate.next_opening の1か所）。それも無ければ、1時間後のあとの、次にかけてよい始まり（NG時間の明け・次の日の時間帯の始まり など）。
     - いまが1時間後より後（判定し直し）なら、いまから探す。31日のうちに無ければ、1時間後（約束の幅の次の動き `_keep_promise` が、かけてよい
       時間帯の無いときの道へ）。"""
-    earliest, want = judge.theirs_span(datetime.fromisoformat(cb["back_at"]))
+    until = cb.get("back_until")
+    earliest, want = judge.theirs_span(datetime.fromisoformat(cb["back_at"]), None if until is None else datetime.fromisoformat(until))
     found = gate.next_opening(tx, max(want, now), **tasks.scope(tx, task_id), back_to=earliest if now < want else None)
     return max(found or want, now)
 

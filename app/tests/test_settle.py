@@ -4907,6 +4907,26 @@ class CallbackWindow(SettleBase):
                 self.assertEqual((nxt["promised"], nxt["callee"], nxt["daily"]), (True, None, None))
                 self.assertEqual(nxt["at"], want - life if edge == "end" else want)
 
+    def test_their_callback_with_a_window_is_called_an_hour_after_its_end(self):
+        """幅の言葉の戻り（「夕方戻ります」「明日戻ります」）は、幅の終わりの1時間後。依頼者のかける時間の外なら、かけて良い時間の最後の方（✅ 2026-11-15 ユーザー
+        「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方。」）。
+        最後の方は、予約証の期限が依頼者の時間帯の終わりに来る予約（時点の「18時に戻ります」⇒18時半と同じ1か所＝next_action._theirs_at・gate.next_opening）。
+        「〇時まで」はその時刻の1時間後（「3時までには戻ります」⇒16時）。"""
+        day = self.local_now(self.ready()).date() + timedelta(days=2)
+        words = f"{day.month}月{day.day}日"
+        at = lambda h, m=0, d=day: datetime.combine(d, datetime.min.time()) + timedelta(hours=h, minutes=m)   # noqa: E731
+        cases = (   # (戻りの言葉, 依頼者の時間帯, 期限の来る時刻 or 予約の時刻)
+            ("夕方・依頼者の時間帯が18時半まで ⇒ 19時は外なので、18時半に期限が来る予約", "の夕方", ("09:00", "18:30"), "end", at(18, 30)),
+            ("夕方・依頼者の時間帯が20時まで ⇒ 19時", "の夕方", ("09:00", "20:00"), "start", at(19)),
+            ("その日だけ ⇒ その日のかけて良い時間の最後の方", "", ("09:00", "18:30"), "end", at(18, 30)),
+            ("3時までに ⇒ 16時", "の15時までに", ("09:00", "18:30"), "start", at(16)),
+        )
+        for title, back, hours, edge, want in cases:
+            with self.subTest(title):
+                nxt, life = self.their_promise(words + back, hours=hours)
+                self.assertEqual((nxt["promised"], nxt["callee"], nxt["daily"]), (True, None, None))
+                self.assertEqual(nxt["at"], want - life if edge == "end" else want)
+
     def test_the_designated_limit_is_one_day_and_per_business(self):
         """お客様指定の歯止め時間（callee.designated_limit）は、業務ごとに選べる1日の中の [始まり, 終わり)（日をまたがない。
         2026-10-23 ユーザー：「『営業時間』と『お客様指定の歯止め時間』も業務ごとに選択できるようにした方がいいね」）。"""

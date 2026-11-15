@@ -188,6 +188,9 @@ class Reading:
     #                                      言っていない（依頼者のかける日だけ＝next_action の Window.later）
     point: bool = False                  # WINDOW：1つの時点から終わり無し（「すぐ」「30分後」「1時間後」＝言葉が言うのは1つの時点。
     #                                      幅の形は「すぐ」と同じ。読み方は変えない＝お客様のほうから折り返すお約束の待ち＝judge._after_theirs が読む）
+    until_point: bool = False            # WINDOW：幅の始まりが「〇時まで」の時刻（終わりだけを口にした幅を、いま電話を続けられなかった理由で、その時刻から・
+    #                                      その時刻から1回分にした＝「3時までには戻ります」の3時）。幅の形は「3時以降」と同じで、読み方は変えない。お客様のほうから
+    #                                      折り返すお約束で、その時刻を「いちばん遅い戻り」と読む（judge._theirs_back が読む。2026-11-15）
 
     @property
     def exact(self) -> bool:
@@ -637,6 +640,7 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
     daily = (s0, s1) if kind == "window" else None
     said = said if daily is not None else NOT_SAID
     made = False                                      # 幅の終わりを、口にした時刻からこちらが作った（1回分。callee_range の made）
+    until_point = False                               # 幅の始まりが「〇時まで」の時刻（Reading.until_point）
     if daily is not None and said == UNTIL_SAID:      # 「〇時まで」：いま電話を続けられなかった理由で、かけてよい時間を決める
         if until is None:
             return _confirm("「〇時まで」は、いま電話を続けられない理由で、かけてよい時間が変わります（別の番号・別の方へ＝今から・"
@@ -648,6 +652,7 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
             daily, said, made = (s1, min(s1 + slot, DAY)), (True, False), True
         elif until != "now":
             raise ValueError(f"「〇時まで」の決め方が違います：{until!r}")
+        until_point = until != "now"
         s0, s1 = daily
     got = None if daily is None else callee_range(daily, said, limit, made=made, business=business_hours)
     if made and got is not None:                      # 作った終わりは歯止め時間で切る（「21時45分までに確認」＝21:45〜22:00）
@@ -661,16 +666,16 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
         daily, said = slotted, (True, True)            # 確かめ済み：口にした端から1回分（両方の端をお客様が認めた幅）
         s0, s1 = daily
     if days is None:                                  # 「平日の夕方」「土日祝ならいつでも」：日の種類だけ（終わり無し）
-        return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT, said=said, day_said=day_said)
+        return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT, said=said, day_said=day_said, until_point=until_point)
     start = _at(days[0], s0)
     if days[1] is None:                               # 「〇日以降」：その日から終わり無し（「すぐ」と同じく、話せなければ次の日）
         return Reading(WINDOW, max(start, local), None, daily, days=kinds, repeat=DAY_REPEAT, since=start, said=said,
-                       day_said=day_said)
+                       day_said=day_said, until_point=until_point)
     end_at = _at(days[1], s1)
     if end_at <= local:
         return _confirm("その頃はもう過ぎています（今日のことか、明日以降か決まりません）")
     return Reading(WINDOW, max(start, local), end_at, daily, days=kinds, repeat=_repeat(cycle, daily, monthly), since=start,
-                   said=said, day_said=day_said)
+                   said=said, day_said=day_said, until_point=until_point)
 
 
 def _named_day(days: tuple[date | None, date | None] | None, kinds: tuple[str, ...] | None, cycle: str | None) -> bool:

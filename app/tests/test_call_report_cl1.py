@@ -1286,11 +1286,36 @@ class TheirsBackTime1114(unittest.TestCase):
         self.assertEqual(self.promise(self.okada("すぐ")), (jst(11), None, False, True, jst(10)))
         self.assertEqual(self.promise(self.okada("30分後", theirs=False)), (jst(10, 30), None, False, False, None))
 
-    def test_window_words_are_not_moved(self):
-        """幅の言葉（「夕方」「3時から5時」「3時以降」・日だけの「明日」）は、ずらし方が決まっていないので、今のまま（ずらさない。CL-2 の連絡帳 4-391 の
-        (3)(b)）。"""
-        for time in ("夕方", "3時から5時", "3時以降", "明日"):
+    def test_window_words_are_called_an_hour_after_their_end(self):
+        """✅ 2026-11-15 ユーザー「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日の
+        かけて良い時間の最後の方。」（CL-2 の連絡帳 4-391 の (3)(b)）：幅の言葉は、いちばん遅い戻り（幅の終わり）の1時間後から、終わり無しの幅の約束
+        （back_at＝幅の始まり・back_until＝幅の終わり。時刻ちょうどでない・日を言っていない＝ふつうの電話の時間）。かける時刻を選ぶのは次の動き
+        （next_action._theirs_at＝試験 test_settle.CallbackWindow）。「3時以降」の終わりは、その日の終わり。印の無いふつうの不在は、幅のまま。
+        ⛔ 2026-11-15 まで：ずらさず、幅のまま（「明日戻ります」⇒明日の時間帯の始まりにかけ、折り返しの前にかけえた）。"""
+        for time, back, until in (("夕方", jst(16), jst(18)), ("3時から5時", jst(15), jst(17)), ("3時以降", jst(15), jst(0, d=8)),
+                                  ("明日", jst(0, d=8), jst(0, d=9)), ("来週中", jst(0, d=14), jst(0, d=21))):
             with self.subTest(time=time):
-                got, plain = self.judged(self.okada(time)), self.judged(self.okada(time, theirs=False))
-                self.assertEqual({**got.detail["callback"], "theirs": False}, plain.detail["callback"])
-                self.assertIsNone(got.detail["callback"]["back_at"])
+                cb = self.judged(self.okada(time)).detail["callback"]
+                self.assertEqual({k: cb[k] for k in ("at", "until", "exact", "daily", "days", "day_said", "repeat", "back_at", "back_until")},
+                                 {"at": (until + timedelta(hours=1)).isoformat(), "until": None, "exact": False, "daily": None, "days": None,
+                                  "day_said": False, "repeat": "day", "back_at": back.isoformat(), "back_until": until.isoformat()})
+        plain = self.judged(self.okada("夕方", theirs=False)).detail["callback"]
+        self.assertEqual((plain["at"], plain["until"], plain["back_at"], plain["back_until"]), (jst(16).isoformat(), jst(18).isoformat(), None, None))
+        self.assertIsNone(self.judged(self.okada("15時")).detail["callback"]["back_until"])   # 1つの時点は、いちばん早い戻りと同じ
+
+    def test_by_a_time_means_back_by_then(self):
+        """「〇時まで」（「3時までには戻ります」・あとで「3時までにはお電話できると思います」）は、いちばん遅い戻りがその時刻＝その1時間後から（✅ 2026-11-15
+        ユーザー「1時間後にかける（お勧め）」）。不在のほかの理由（お休み・長期の不在・ご事情・あとで＝CL-1 の連絡帳 4-161）でも同じ。あとでの「〇時まで」の
+        理由は「それまでは出られない」（call_report.THEIRS_UNTIL。会話の側は伺い直さない）。⛔ 2026-11-15 まで：「3時までに」を「3時以降」と同じ幅に読んで
+        ずらさず、あとでは理由が無く判定できなかった。印の無いあとでの「〇時まで」は、今までどおり理由を通話の中で確かめる（判定できない）。"""
+        unreached = {"absent": "absent", "day_off": "absent", "long_absent": "absent", "unavailable": "not_transferred", "later": None}
+        for why, nr in unreached.items():
+            with self.subTest(why=why):
+                raw = self.okada("3時までに")
+                raw["facts"]["callback"][0]["why"], raw["not_reached"] = why, nr
+                self.assertEqual(self.promise(raw), (jst(16), None, False, True, jst(15)))
+                self.assertIsNone(self.judged(raw).detail["callback"]["back_until"])
+                self.assertEqual(from_json(raw).callback.until_reason, "unavailable")
+        raw = self.okada("3時までに", theirs=False)
+        raw["facts"]["callback"][0]["why"], raw["not_reached"] = "later", None
+        self.assertEqual((from_json(raw).callback.until_reason, self.judged(raw).state), (None, "unknown"))

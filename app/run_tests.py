@@ -3018,6 +3018,7 @@ _CLAUSE_IMPORT = "tests.test_business_import.Import.test_the_matter_and_its_clau
 _EARLIER_WHEN = "tests.test_settle.DialFixAfterCalls.test_the_handover_call_tells_whether_the_earlier_answers_were_taken_today"
 # お言葉に甘えたお客様のほうから折り返すお約束の戻る時刻（2026-11-14 ユーザー。DESIGN.md 2章 Q248）
 _BACK_1114 = "tests.test_call_report_cl1.TheirsBackTime1114."
+_BACK_WINDOW = "tests.test_settle.CallbackWindow.test_their_callback_with_a_window_is_called_an_hour_after_its_end"
 _BACK_SETTLE = "tests.test_settle.CallbackWindow.test_their_callback_with_a_return_time_is_called_an_hour_after_it"
 _BACK_MOVE = "tests.test_settle.CallbackWindow.test_their_callback_an_hour_after_that_cannot_be_called_moves_within_half_an_hour"
 # CL-1 の連絡帳 4-153〜4-157 の受け口（2026-11-14）：お知らせの中身の名詞 matter・選択肢を並べた文 alternatives・先に並べた文の並び alternatives_led
@@ -7376,29 +7377,49 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "THEIRS_WAIT = timedelta(hours=1)", "THEIRS_WAIT = timedelta(0)",
      (_BACK_1114 + "test_okada_back_at_three_is_called_from_four", _BACK_SETTLE)),
     ("折り返しのお約束（theirs）を見ずに、ふつうの不在の「15時に戻ります」も1時間ずらす", "src/salescall/core/judge.py",
-     "    if not cb.theirs or not when.moment or when.start is None:", "    if not when.moment or when.start is None:",
+     "    back = _theirs_back(when) if cb.theirs else None", "    back = _theirs_back(when)",
      (_BACK_1114 + "test_okada_back_at_three_is_called_from_four", _BACK_SETTLE)),
-    ("折り返しのお約束で、幅の言葉（「夕方」「3時以降」）の始まりもずらす（ずらし方が決まっていない）", "src/salescall/core/judge.py",
-     "    if not cb.theirs or not when.moment or when.start is None:", "    if not cb.theirs or when.start is None:",
-     (_BACK_1114 + "test_window_words_are_not_moved",)),
+    # 2026-11-15 ユーザー：「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）」・「1時間後にかける（お勧め）」
+    ("折り返しのお約束で、幅の言葉を、幅の終わりでなく始まりの1時間後からにする", "src/salescall/core/judge.py",
+     "    return None if when.end is None else (when.start, when.end)", "    return None if when.end is None else (when.start, when.start)",
+     (_BACK_1114 + "test_window_words_are_called_an_hour_after_their_end", _BACK_WINDOW)),
+    ("折り返しのお約束で、幅の言葉をずらさない（前のとおり幅のまま）", "src/salescall/core/judge.py",
+     "    return None if when.end is None else (when.start, when.end)", "    return None",
+     (_BACK_1114 + "test_window_words_are_called_an_hour_after_their_end", _BACK_WINDOW)),
+    ("折り返しのお約束で、「〇時まで」をいちばん遅い戻りと読まない（「3時以降」と同じ幅の終わりにする）", "src/salescall/core/judge.py",
+     "    if when.moment or when.until_point:", "    if when.moment:",
+     (_BACK_1114 + "test_by_a_time_means_back_by_then", _BACK_WINDOW)),
+    ("時刻の読みで、幅の始まりが「〇時まで」の時刻だという印を残さない", "src/salescall/core/spoken_time.py",
+     '        until_point = until != "now"', "        until_point = False",
+     (_BACK_1114 + "test_by_a_time_means_back_by_then",)),
+    ("折り返しのお約束のあとでの「〇時まで」の理由を決めない（判定できない）", "src/salescall/core/call_report.py",
+     "        return THEIRS_UNTIL if self.theirs and self.until_why is None else self.until_why", "        return self.until_why",
+     (_BACK_1114 + "test_by_a_time_means_back_by_then",)),
+    ("折り返しのお約束で探す間の終わりを、いちばん遅い戻りでなく早い戻りから数える", "src/salescall/core/judge.py",
+     "    return back + THEIRS_EARLIEST, (until or back) + THEIRS_WAIT", "    return back + THEIRS_EARLIEST, back + THEIRS_WAIT",
+     (_BACK_1114 + "test_window_words_are_called_an_hour_after_their_end", _BACK_WINDOW)),
+    ("次の動きが、折り返しのお約束のいちばん遅い戻りを読まない", "src/salescall/core/next_action.py",
+     "None if until is None else datetime.fromisoformat(until))", "None)", (_BACK_WINDOW,)),
+    ("判定の中身に、折り返しのお約束のいちばん遅い戻り（back_until）を残さない", "src/salescall/core/judge.py",
+     '"back_at": iso(back), "back_until": iso(back_until)}', '"back_at": iso(back), "back_until": None}',
+     (_BACK_1114 + "test_window_words_are_called_an_hour_after_their_end", _BACK_WINDOW)),
     ("「30分後」を1つの時点と読まない（折り返しのお約束でずらさない）", "src/salescall/core/spoken_time.py",
      "        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True, point=True)",
      "        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True)",
      (_BACK_1114 + "test_a_moment_from_now_moves_its_start", "tests.test_spoken_time.Moment.test_points_in_time_and_windows")),
     ("判定の中身に、折り返しのお約束の戻る時刻（back_at）を残さない", "src/salescall/core/judge.py",
-     '"theirs": cb.theirs, "back_at": iso(back)}', '"theirs": cb.theirs, "back_at": None}',
+     '"theirs": cb.theirs, "back_at": iso(back), "back_until"', '"theirs": cb.theirs, "back_at": None, "back_until"',
      (_BACK_1114 + "test_okada_back_at_three_is_called_from_four",)),
     # 2026-11-14 ユーザー：「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで待つ」・「18時半でOK」「22時でOK」
     # （ずらした時刻はお客様が指定した時刻でない。judge._after_theirs・judge.theirs_span・next_action._theirs_at・calling_hours.next_opening の back_to）
     ("折り返しのお約束のずらした時刻を、前のとおり時刻ちょうどの約束にする（NG時間の枠・依頼者の時間帯の外でかける例外が戻る）", "src/salescall/core/judge.py",
-     "    return spoken_time.Reading(spoken_time.WINDOW, theirs_span(when.start)[1], None, repeat=spoken_time.DAY_REPEAT), when.start",
-     "    return spoken_time.Reading(spoken_time.AT, theirs_span(when.start)[1], None, repeat=spoken_time.DAY_REPEAT), when.start",
+     "    return (spoken_time.Reading(spoken_time.WINDOW, want, None, repeat=spoken_time.DAY_REPEAT), back[0],",
+     "    return (spoken_time.Reading(spoken_time.AT, want, None, repeat=spoken_time.DAY_REPEAT), back[0],",
      (_BACK_1114 + "test_the_moved_time_is_an_open_window_on_the_usual_days_and_hours", _BACK_1114 + "test_the_old_exceptions_are_gone",
       _BACK_SETTLE, _BACK_MOVE)),
     ("折り返しのお約束のずらした時刻を、お客様が日を言った回にする（依頼者の休みの日でもかける）", "src/salescall/core/judge.py",
-     "    return spoken_time.Reading(spoken_time.WINDOW, theirs_span(when.start)[1], None, repeat=spoken_time.DAY_REPEAT), when.start",
-     "    return spoken_time.Reading(spoken_time.WINDOW, theirs_span(when.start)[1], None, repeat=spoken_time.DAY_REPEAT, day_said=True),"
-     " when.start",
+     "    return (spoken_time.Reading(spoken_time.WINDOW, want, None, repeat=spoken_time.DAY_REPEAT), back[0],",
+     "    return (spoken_time.Reading(spoken_time.WINDOW, want, None, repeat=spoken_time.DAY_REPEAT, day_said=True), back[0],",
      (_BACK_1114 + "test_the_moved_time_is_an_open_window_on_the_usual_days_and_hours", _BACK_SETTLE)),
     ("折り返しのお約束で、1時間後がかけてはいけない時間のとき、30分後まで早めない（次のかけてよい時刻まで待つだけ）", "src/salescall/core/judge.py",
      "THEIRS_EARLIEST = timedelta(minutes=30)", "THEIRS_EARLIEST = timedelta(hours=1)",
