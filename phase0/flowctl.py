@@ -1931,10 +1931,14 @@ CALLBACK_PLAN = {"absent": ("back_time",), "day_off": ("next_workday",), "long_a
                  "other_number": ("number", "reachable_time"), "later": ("later_time",), "other_means": (), "unavailable": ("transfer_time",)}
 MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほかの手段で、聞くこと（手段の申し出が無ければ、聞かずに締める）
 # 2回目の好意（お客様のほうから折り返すという重ねての申し出）をお言葉に甘えて受けたあと（Flow._callback の1か所）に伺うこと（理由 → 役目）。伺い方・受け方は
-# ふつうのかけ直しの質問と同じ1か所。伺えた時刻は折り返しのお約束（theirs）と同じかけ直しの記録の time。表に無い理由（お休み・出張・ご事情・答えの段の
-# お客様ご本人の「あとで」）は今までどおり伺わずにお礼の締め（お言葉の場面＝不在の受付の方の外は、言い方をいただいてから足す）。✅ 2026-11-14 日本時間
-# 20時11分41秒 ユーザー（CL-2 の伺いへのお返事。お言葉は phrases.CALLBACK_ASK の theirs_time）・CL-2 の 4-391 の (1)
-THEIRS_PLAN = {"absent": ("theirs_time",)}
+# ふつうのかけ直しの質問と同じ1か所。伺えた時刻は折り返しのお約束（theirs）と同じかけ直しの記録の time。✅ 2026-11-14 日本時間20時11分41秒 ユーザー
+# （CL-2 の伺いへのお返事。お言葉は phrases.CALLBACK_ASK の theirs_time）・CL-2 の 4-391 の (1)＝不在。✅ 2026-11-15 日本時間11時59分07秒 ユーザー
+# 「伺い17はアでOK」＝不在のほかの理由でも、同じ理由（お電話をいただいた際に出られないことがないように）で伺う：お休み・出張など長期の不在・会議中などいまは
+# お電話に出られない方（お電話に出られないご事情・呼んでいる段のあとで）・答えの段のお客様ご本人の「こちらから連絡します」（あとで）。同じ文の理由は同じ役目
+# （＝同じ録音 callback_（役目）。ご事情とあとでは theirs_later）。表に無い理由（別の番号へ。ほかの手段は折り返しの申し出にならない）は今までどおり伺わずに
+# お礼の締め（お言葉の場面の外）
+THEIRS_PLAN = {"absent": ("theirs_time",), "day_off": ("theirs_workday",), "long_absent": ("theirs_date",),
+               "unavailable": ("theirs_later",), "later": ("theirs_later",)}
 THEIRS_ROLES = {r for rs in THEIRS_PLAN.values() for r in rs}   # お言葉に甘えたあとに伺う役目（Flow._callback・_follow_ups）
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
@@ -1942,7 +1946,7 @@ CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "addre
                 "refusal": "D1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3", "line": "C10", "other_wish": "W1",
                 "line_how": "C11", "mobile": "C12", "wait_or_later": "H2", "concern": "D2", "handoff": "N4", "handoff_way": "N5",
                 "close_offer": "N6", "carried": "HC"}
-ROLE_KEY = {"back_time": "time", "theirs_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
+ROLE_KEY = {"back_time": "time", **{r: "time" for rs in THEIRS_PLAN.values() for r in rs}, "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
             "number": "number",
             "email": "email",
             "fax": "fax", "address": "address", "message": "message", "back_today": "back_today", "call_again": "again",
@@ -3160,8 +3164,11 @@ def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) ->
     return untried[0] if untried else None
 
 
+# 聞き返しで伺い直すことの名前。お言葉に甘えたあとの伺い（THEIRS_PLAN の役目）は、同じことを伺うふつうのかけ直しの質問と同じ言葉（theirs_time＝back_time・
+# theirs_workday＝next_workday・theirs_date＝back_date・theirs_later＝later_time）
 CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "theirs_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "transfer_time": "お取り次ぎいただけそうな時期", "number": "お電話番号",
                   "reachable_time": "お電話に出られるお時間", "back_date": "お戻りのご予定", "next_workday": "次のご出社のご予定",
+                  "theirs_workday": "次のご出社のご予定", "theirs_date": "お戻りのご予定", "theirs_later": "ご都合のよろしいお時間",
                   "email": "メールアドレス", "fax": "ファクス番号",
                   "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言", "back_today": "本日のお戻りのご予定",
                   "call_again": "改めてのお電話", "promise_again": "改めてのお電話", "ask_who": "お分かりになる方", "ask_when": "お分かりになる時期",

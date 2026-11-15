@@ -44,6 +44,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          # お言葉に甘えたあとに戻る時刻を伺う一言の共通の一言の録音（phrases.CALLBACK_ASK の theirs_time。✅ 11-14 20時11分41秒＝CL-2 の
                          # 4-391 の (1)。CL-1.md 4-158）
                          "callback_theirs_time",
+                         # 不在のほかの理由でお言葉に甘えたあとに伺う一言の共通の一言の録音（theirs_workday・theirs_date・theirs_later。✅ 11-15 11時59分07秒
+                         # 「伺い17はアでOK」。CL-1.md 4-161）
+                         "callback_theirs_workday", "callback_theirs_date", "callback_theirs_later",
                          # ご承認のお知らせの中身の名詞（業務設定の質問の欄 matter・取込の決める処理 decide_matters と考える Sonnet の referee。11-14 14時31分38秒
                          # 「●伺い10」。CL-1.md 4-154）
                          "decide_matters", "matter",
@@ -17497,11 +17500,13 @@ class NoneOfThemTest(unittest.TestCase):
         r = said(f, "あとでこちらからかけ直しますね。", LATER_THEIRS, "request_callback", why="later", offer="callback")
         self.assertIn(OFFER_THANKS, json.dumps(r, ensure_ascii=False))
         # お客様ご本人が重ねてお客様のほうから連絡すると申し出た：受付の方の重ねと同じ1か所（_callback）・同じ理由（相手の好意を2回目は無下にしない＝✅ 11-13
-        # 日本時間20時06分19秒「伺い5はイ」）＝お言葉に甘えて締め、折り返しのお約束を残す（お言葉の場面＝受付の方の外に当てた）
-        from phrases import CLOSING, OFFER_ACCEPTED
+        # 日本時間20時06分19秒「伺い5はイ」）＝お言葉に甘えて受け、折り返しのお約束を残す（お言葉の場面＝受付の方の外に当てた）。そのあと、いつ頃お電話を
+        # いただけそうかを伺う（✅ 11-15 日本時間11時59分07秒「伺い17はアでOK」＝OfferTest.test_their_callback_accepted_asks_when_for_every_reason。
+        # ⛔ 7b821caf までは伺わずにお礼の締め）
+        from phrases import CALLBACK_ASK, OFFER_ACCEPTED
         r = said(f, "いえいえ、こちらから連絡しますので大丈夫ですよ。", LATER_THEIRS, "request_callback", why="later", offer="callback")
-        self.assertEqual((r["result"], r.get("say"), OFFER_ACCEPTED in r["message"], f.facts["callback"][-1].get("theirs"), r.get("ack")),
-                         ("end", CLOSING, True, True, None))
+        self.assertEqual((r["result"], r.get("question"), OFFER_ACCEPTED in r["message"], f.facts["callback"][-1].get("theirs"), r.get("ack")),
+                         ("next", CALLBACK_ASK["theirs_later"], True, True, None))
         # (3) 待つのか、かけ直すのか、言葉から決まらない：1回だけ伺う
         f, _ = self.wished(False)
         r = said(f, WORDS, WAIT_OR_LATER, "request_callback", why="later")
@@ -19576,6 +19581,93 @@ class OfferTest(unittest.TestCase):
         r = f.apply("request_callback", {"why": "absent", "offer": "callback"})
         self.assertEqual((r["result"], self.played(r), f.end_reason), ("end", ["offer_accepted", "closing"], "callback"))
         self.assertEqual(f.facts["callback"][-1].get("theirs"), True)
+
+    def test_their_callback_accepted_asks_when_for_every_reason(self):
+        # 伺い17＝ア（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「伺い17はアでOK」）：お言葉に甘えて受けたあとに伺うのを、外出中（不在）のほかの理由にも
+        # 広げる。同じ理由（お電話をいただいた際に出られないことがないように）で、お休み「…次のご出社はいつかお分かりになりますでしょうか？」・出張など長期の不在
+        # 「…いつごろお戻りのご予定かお分かりでしょうか？」・会議中などいまはお電話に出られない方（理由 unavailable・呼んでいる段の later）と答えの段の
+        # お客様ご本人の「こちらから連絡します」（理由 later）「…いつ頃お電話をいただけそうかお分かりになりますでしょうか？」（決まった言い方なので読点を入れない・
+        # 頭に「恐れ入りますが」を付けない＝不在の文と同じ）。同じ文は同じ録音（共通の一言の録音は3本）。伺い方・受け方は不在のときと同じ1か所
+        # （test_their_callback_accepted_asks_the_return_time）。⛔ 7b821caf までは、不在のほかの理由では伺わずにお礼の締めだった
+        import json
+        from flowctl import LATER_THEIRS, NONE, TARGET_IS_AWAY, Flow, Limits, Question
+        from meaning_judge import Reading
+        from phrases import CALLBACK_ASK, CLOSING, OFFER_ACCEPTED
+        lead = "お電話をいただいた際に出られないことがないように"
+        workday, date, call = (lead + "次のご出社はいつかお分かりになりますでしょうか？", lead + "いつごろお戻りのご予定かお分かりでしょうか？",
+                               lead + "いつ頃お電話をいただけそうかお分かりになりますでしょうか？")
+        self.assertEqual(sorted(t for t in CALLBACK_ASK.values() if t in (workday, date, call)), sorted((workday, date, call)))   # 同じ文は1つの役目・1本の録音
+
+        def calling(why, first, again, before=None):
+            f, b = self.flow()
+            if before:
+                self.heard(f, before)
+                f.apply("request_end", {"reason": "transfer_unclear"})
+            self.heard(f, first, TARGET_IS_AWAY)
+            f.apply("request_callback", {"why": why, "offer": "callback"})
+            self.heard(f, again, LATER_THEIRS)
+            return f, f.apply("request_callback", {"why": why, "offer": "callback"})
+
+        def answering():
+            f = Flow([Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("電話", "メール")),
+                      Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+            f.use_checks("judge")
+            self.heard(f, "そもそも要りません。", Reading(NONE))
+            f.apply("record_answer", {"question_id": "Q1", "condition_id": NONE})
+            self.heard(f, "あとでこちらからかけ直しますね。", Reading(LATER_THEIRS))
+            f.apply("request_callback", {"why": "later", "offer": "callback"})
+            self.heard(f, "いえいえ、こちらから連絡しますので大丈夫ですよ。", Reading(LATER_THEIRS))
+            return f, f.apply("request_callback", {"why": "later", "offer": "callback"})
+        # 場面 → (お言葉に甘えるまで, 理由, 伺う文, 言っていただく時刻, 言い直して確かめたあとの記録の時刻)
+        scenes = {
+            "お休み": (lambda: calling("day_off", "あいにく岡田は本日休みでして、出社しましたら折り返させますが。",
+                                    "いえいえ、出社しましたらこちらから折り返させますので。"), "day_off", workday, "明日", "明日"),
+            "出張": (lambda: calling("long_absent", "あいにく岡田は出張中でして、戻りましたら折り返させますが。",
+                                   "いえいえ、戻りましたらこちらから折り返させますので。"), "long_absent", date, "来週の月曜日", "来週の月曜日"),
+            "会議中（呼んでいる段のあとで）": (lambda: calling("later", "あいにく岡田は会議中でして、終わりましたら折り返させますが。",
+                                                  "いえいえ、終わりましたらこちらから折り返させますので。"), "later", call, "4時ごろ", "午後4時ごろ"),
+            "会議中（お電話に出られないご事情）": (lambda: calling("unavailable", "はい、会議が続いておりまして。終わりましたら折り返させますが。",
+                                                     "いえいえ、こちらから折り返させますので。", before="申し訳ございません、取り次ぐことはできません。"),
+                                          "unavailable", call, "4時ごろ", "午後4時ごろ"),
+            "答えの段のお客様ご本人": (answering, "later", call, "4時ごろ", "午後4時ごろ"),
+        }
+        for name, (accepted, why, text, said, time) in scenes.items():
+            f, r = accepted()
+            role = f.questions["C1"].callback
+            self.assertEqual((r["result"], self.played(r), [p["text"] for p in r["play"]], f.current, r.get("ack")),
+                             ("next", ["offer_accepted", f"callback_{role}"], [OFFER_ACCEPTED, text], "C1", None), name)
+            self.assertEqual(CALLBACK_ASK.get(role), text, name)   # 録音は共通の一言（callback_（役目））＝答えの段の形も同じ
+            self.assertEqual([(c["why"], c.get("offer"), c.get("theirs")) for c in f.facts["callback"]], [(why, "callback", True)], name)
+            # (1) 時刻を伺えた：言い直して確かめ、お礼の締め。時刻は折り返しのお約束と同じ記録に
+            f, r = accepted()
+            self.heard(f, f"{said}には大丈夫だと思います。")
+            f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": said})
+            self.heard(f, "はい。")
+            r = f.apply("confirm_field", {"question_id": "C1", "result": "affirmed"})
+            self.assertEqual((r["result"], r["play"][0]["text"], f.end_reason), ("end", CLOSING, "callback"), name)
+            self.assertEqual([(c["why"], c.get("theirs"), c.get("time")) for c in f.facts["callback"]], [(why, True, time)], name)
+            # (2) 分からない：ほかの質問（本日のお戻りのご予定・後ほど改めてお掛けしてよいか）は足さずにお礼の締め（記録は theirs だけ）
+            f, r = accepted()
+            self.heard(f, "ちょっと分からないですね。")
+            r = f.apply("record_answer", {"question_id": "C1", "condition_id": "unknown"})
+            self.assertEqual((r["result"], f.end_reason, "C6" in f.items, "C7" in f.items), ("end", "callback", False, False), name)
+            self.assertEqual([(c.get("theirs"), c.get("time")) for c in f.facts["callback"]], [(True, None)], name)
+            # (3) 聞き取れない：その場の聞き返し（2回）・締めの前の念のための確認で1回、それでも聞き取れなければお礼の締め
+            f, r = accepted()
+            for _ in range(Limits().ask_back):
+                self.heard(f, "（雑音）……")
+                self.assertEqual(f.apply("report_unclear", {"question_id": "C1"})["result"], "ask_back", name)
+            self.heard(f, "（雑音）……")
+            self.assertEqual(f.apply("report_unclear", {"question_id": "C1"})["result"], "recheck", name)
+            self.heard(f, "（雑音）……")
+            r = f.apply("report_unclear", {"question_id": "C1"})
+            self.assertEqual((r["result"], f.end_reason, [(c.get("theirs"), c.get("time")) for c in f.facts["callback"]]),
+                             ("end", "callback", [(True, None)]), name)
+            # (4) 伺っている途中に、また折り返しを重ねて申し出られた：お言葉に甘える一言をもう言わず、「分からない」と同じ道（お礼の締め）
+            f, r = accepted()
+            self.heard(f, "いえ、本当にこちらから折り返させますので。", Reading(LATER_THEIRS))
+            r = f.apply("request_callback", {"why": why, "offer": "callback"})
+            self.assertEqual((r["result"], OFFER_ACCEPTED in json.dumps(r, ensure_ascii=False), f.end_reason), ("end", False, "callback"), name)
 
     def test_message_offer_follows_the_business_setting(self):
         # 伝言の申し出：✅ ユーザー「業務ごとに選べるようにし、選んでいなければ (a)」＝(a) お礼を言って断り、戻る時刻を聞く／(b) 伝言を残す

@@ -194,8 +194,10 @@ HOW_OF["announce_recheck_unheard"] = question_how(_RECORDED["announce_recheck_un
 # 前の担当の方へ伺う文（callback_carried＝質問の読み方）と同じ読み方で、長さの上限は文の長さで選ぶ
 from phrases import CARRIED_TALKED  # noqa: E402
 HOW_OF.update({f"callback_carried_talked_{k}": question_how(t) for k, t in CARRIED_TALKED.items()})
-# お言葉に甘えたあとに戻る時刻を伺う一言（phrases.CALLBACK_ASK の theirs_time・48字。✅ 2026-11-14 日本時間20時11分41秒）：質問の読み方で、長さの上限は文の長さで選ぶ
-HOW_OF["callback_theirs_time"] = question_how(CALLBACK_ASK["theirs_time"])
+# お言葉に甘えたあとに伺う一言（phrases.CALLBACK_ASK の theirs_time・48字。✅ 2026-11-14 日本時間20時11分41秒。不在のほかの理由の theirs_workday・theirs_date・
+# theirs_later＝✅ 2026-11-15 日本時間11時59分07秒「伺い17はアでOK」。役目は理由の表 flowctl.THEIRS_PLAN の1か所）：質問の読み方で、長さの上限は文の長さで選ぶ
+from flowctl import THEIRS_PLAN  # noqa: E402
+HOW_OF.update({f"callback_{r}": question_how(CALLBACK_ASK[r]) for rs in THEIRS_PLAN.values() for r in rs})
 # 引き継ぎを確かめる一言のあと最初から伺うときの一言（phrases.START_OVER「それでは改めて確認させていただきますね。」。✅ 同じ時「伺い2はア」）：2回目の戻る一言
 # 「それではもう一度確認させていただきますね。」（back_again）と同じ形・同じ長さの一言なので、同じ読み方と上限
 HOW_OF["start_over"] = "back_again"
