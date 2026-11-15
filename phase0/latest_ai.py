@@ -3,8 +3,9 @@
 置き換えてください。」＝帳面 0-2 の「AIの最新版」・Intent.md 9-5 の判定の顔ぶれ・12-1）。
 
 - 使っている名前は、版まで決めて持つ所から読む（ここに書き写さない）：判定＝meaning_judge の組 RACE・その場の判定 STOP_ONLY・緊急の道
-  EMERGENCY（名前と版は OTHER_JUDGES）／会話AI＝common.DEFAULT_MODEL／別の耳＝ears.SONIOX_MODEL・AMIVOICE_ENGINE／Gemini の文字のモデル
-  （取込の文字のAI・その場の判定）＝g23_names.MODELS の表示名。試しの候補は --also で足す（例 --also openrouter:nace-ai/drex-max）。
+  EMERGENCY（名前と版は OTHER_JUDGES）／会話AI＝common.DEFAULT_MODEL／別の耳＝ears.SONIOX_MODEL・AMIVOICE_ENGINE／取込の文字のAI 2つ・
+  そろわないときの考える判定＝import_ai.ASKERS・REFEREE（文字のAI とその場の判定の Gemini の表示名は g23_names.MODELS）。試しの候補は
+  --also で足す（例 --also openrouter:nace-ai/drex-max）。
 - 新しい版を探すのは、作り手の公開のモデルの一覧だけ（問い合わせではない＝料金はかからない）：OpenRouter（判断のモデルとふつうのモデル。
   鍵は要らない）・SubQ（鍵は要らない）・Anthropic（ANTHROPIC_JUDGE_KEY）・Gemini（common.KeyRing）・Soniox（SONIOX_API_KEY）。
   AmiVoice は一覧の口が無い＝作り手の頁で確かめる（結果にそう書く）。キーの値は画面にも結果にも出さない（common.load_secret）。
@@ -12,6 +13,9 @@
   数の並び（日付の8けたは後ろ）で比べる。「最新」の別名（latest を含む名前）は版ではないので比べない（測ったあとに中身が黙って替わる）。
   系統の違う新しいもの（同じ作り手で、使っているものより後に出た・番号が大きい）は「別の系統」として並べる＝替えるかは測りで決める。
 - 置き換えるときは、線（sure_min など）を新しい版で、決まった決め方で決め直す（線は版ごとの測りの値）。
+- 新しい版で測って替えないと決めた版は DECLINED の1か所に覚え（版の名前 → 決めた日・理由・測りの記録の名前）、次の確かめでは「新しい版」
+  にも「別の系統」にも並べない（測った結果がもうある＝並べると、同じ測りと同じ修正依頼を繰り返す。CL-2 の連絡帳 4-400 の (2)）。黙って
+  捨てずに、行の「見送った版」に並べる。
 """
 from __future__ import annotations
 
@@ -26,6 +30,9 @@ SUBQ_LIST = "https://api.subq.ai/v1/models"
 ANTHROPIC_LIST = "https://api.anthropic.com/v1/models?limit=1000"
 SONIOX_LIST = "https://api.soniox.com/v1/models"
 NO_LIST = "一覧の口が無い＝作り手の頁で確かめる"
+# 新しい版で測って替えないと決めた版（作り手の一覧の id か、版まで決めた名前 slug → {"日", "理由", "記録"（測りの結果のファイルの名前）}）。
+# 今は無い。決めたら、ここに1行足す（替えると決めた版は、版を持つ1か所を直すので、ここには書かない）
+DECLINED: dict[str, dict] = {}
 
 
 def bare(model_id: str) -> str:
@@ -54,15 +61,19 @@ def is_alias(model_id: str) -> bool:
 
 def compare(current: str, listed: list[dict]) -> dict:
     """listed＝作り手の一覧（{"id", "slug"（版まで決めた名前・無ければ id）, "created"（秒・無ければ0）}）。返すのは、同じ系統の新しい版
-    （newer）と、同じ作り手の別の系統で後から出たもの（others）。作り手は一覧を作り手ごとに渡す側が分ける。"""
+    （newer）と、同じ作り手の別の系統で後から出たもの（others）と、測って替えないと決めた版（DECLINED にあるもの＝newer・others には入れない）。
+    作り手は一覧を作り手ごとに渡す側が分ける。"""
     cur = next((m for m in listed if current in (m["id"], m["slug"])), None)
     if cur is None:  # 一覧に無い名前（もう無い・名前が変わった）＝何と比べるかが決まらないので、比べずにそうと返す
-        return {"使っている版": current, "一覧にある": False, "新しい版": [], "別の系統で後から出たもの": []}
+        return {"使っている版": current, "一覧にある": False, "新しい版": [], "別の系統で後から出たもの": [], "見送った版": []}
     cur_slug = cur["slug"]
     fam, key, words = family(cur_slug), version_key(cur_slug), set(re.findall(r"[a-z]+", family(cur_slug)))
-    newer, others = [], []
+    newer, others, declined = [], [], []
     for m in listed:
         if is_alias(m["id"]) or m["slug"] == cur_slug or m["id"] == current:
+            continue
+        if m["id"] in DECLINED or m["slug"] in DECLINED:   # 測って替えないと決めた版（DECLINED）
+            declined.append(m["slug"])
             continue
         if family(m["slug"]) == fam:
             if version_key(m["slug"]) > key:
@@ -72,14 +83,14 @@ def compare(current: str, listed: list[dict]) -> dict:
         elif not (cur and cur["created"]) and words <= set(re.findall(r"[a-z]+", family(m["slug"]))) and version_key(m["slug"])[0] > key[0]:
             others.append(m["slug"])
     return {"使っている版": cur_slug, "一覧にある": bool(cur), "新しい版": sorted(set(newer), key=version_key),
-            "別の系統で後から出たもの": sorted(set(others))}
+            "別の系統で後から出たもの": sorted(set(others)), "見送った版": sorted(set(declined))}
 
 
 def in_use(also: tuple = ()) -> list[dict]:
     """使っている AI（役目・名前・作り手の一覧の種類・名前）を、版まで決めて持つ所から並べる。"""
-    import common, ears, g23_names, meaning_judge as mj
+    import common, ears, g23_names, import_ai, meaning_judge as mj
     rows = []
-    for name in dict.fromkeys(mj.RACE + tuple(mj.STOP_ONLY)):
+    for name in dict.fromkeys(mj.RACE + tuple(mj.STOP_ONLY) + (import_ai.REFEREE,)):
         j = mj.OTHER_JUDGES.get(name)
         if j:
             where = {"openrouter.ai": "openrouter", "api.anthropic.com": "anthropic", "api.subq.ai": "subq"}.get(j.get("host", ""), j.get("host", ""))
@@ -89,9 +100,8 @@ def in_use(also: tuple = ()) -> list[dict]:
     rows.append({"役目": "判定（緊急の道）", "名前": "EMERGENCY", "一覧": "openrouter", "id": mj.EMERGENCY["model"],
                  "maker": mj.EMERGENCY["model"].split("/")[0]})
     rows.append({"役目": "会話AI", "名前": "DEFAULT_MODEL", "一覧": "gemini", "id": common.DEFAULT_MODEL})
-    for key, disp in g23_names.MODELS.items():
-        if key not in mj.STOP_ONLY:
-            rows.append({"役目": "取込の文字のAI（表の名前）", "名前": key, "一覧": "gemini", "display": disp})
+    for key in import_ai.ASKERS:
+        rows.append({"役目": "取込の文字のAI", "名前": key, "一覧": "gemini", "display": g23_names.MODELS[key]})
     rows.append({"役目": "別の耳", "名前": "SONIOX_MODEL", "一覧": "soniox", "id": ears.SONIOX_MODEL})
     rows.append({"役目": "別の耳", "名前": "AMIVOICE_ENGINE", "一覧": "amivoice", "id": ears.AMIVOICE_ENGINE})
     for a in also:
@@ -171,7 +181,8 @@ def main(argv=None) -> int:
     for r in result:
         gone = "" if r.get("一覧にある", True) else "（作り手の一覧に無い）"
         say(f"{r['役目']}｜{r['名前']}｜{r.get('使っている版', r.get('id', r.get('display', '')))}{gone}｜"
-            f"新しい版：{r.get('新しい版', r.get('結果'))}｜別の系統：{r.get('別の系統で後から出たもの', '')}")
+            f"新しい版：{r.get('新しい版', r.get('結果'))}｜別の系統：{r.get('別の系統で後から出たもの', '')}"
+            + (f"｜見送った版：{r['見送った版']}" if r.get("見送った版") else ""))
     newer = [r for r in result if r.get("新しい版")]
     say(f"新しい版が出ているもの：{len(newer)} 個" + ("（替える前に、新しい版で線を決め直す測りをする）" if newer else ""))
     if args.out:

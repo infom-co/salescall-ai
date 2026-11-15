@@ -6,7 +6,7 @@
    取込の側で by_model と decide を呼ぶように頼んだ＝合わせ方を取込の側に書くことになり、決め方が2か所に分かれる）。⇒ 6つとも、ここで作る。
 - 決め方そのものは、それぞれの1か所（units.decide・topics.decide・meanings.decide・meanings.decide_replies・facts.decide）。ここは
   「どのモデルに・どの並びで聞き・どう合わせるか」だけ（質問の文の決まりで決まるもの＝units・topics の by_rule は、モデルに聞かない）。
-- askers＝[(client, モデルの名前)]（2つ以上）。測った組は 3.8 Flash・3.7 Flash（G-41・G-43・G-48・G-71・G-72）。
+- askers＝[(client, モデルの名前)]（2つ以上）。本番で聞く組の名前は ASKERS・考える判定は REFEREE（下の1か所）。
   ⛔ 本番では無料の枠を使わない（依頼者のトークスクリプトは依頼者のデータ）＝呼ぶ側が有料のキーの client を渡す。
 - 問い合わせが誤りで答えなければ、そのモデルの答えは無いとして決める（決まらない側＝単位・聞くこと・言葉は空、事実を伺う質問か
   は「伺う質問」。会話は止まらない＝4-14）。誤りは on_error(誤り, モデルの名前) に渡す（本番では CL-2 の watch.after_error へ渡す所＝
@@ -31,6 +31,13 @@ import units
 import ways
 
 Asker = tuple   # (client, モデルの名前)
+
+# 本番の取込で聞く文字のAI 2つ（測りの表 g23_names.MODELS の表の名前。つなぐ所は、作り手の一覧でこの名前のモデルを引いて askers の client と
+# モデルの名前にする）と、そろわない文を聞く考える判定（meaning_judge.OTHER_JUDGES の名前＝referee）。名前を持つのはここ1か所（新しい版の確かめ
+# latest_ai.in_use もここを読む＝CL-2 の連絡帳 4-400 の (c)・CL-1.md 4-163 の (c)）。測った組（G-41・G-43・G-48・G-71・G-72）のまま。
+# ⚠️ 3.7 Flash を 3.8 Flash の次の版へ替えるかは、ユーザーに伺う前（替えるときは、ここと測りを一緒に直す）
+ASKERS = ("3.8 Flash", "3.7 Flash")
+REFEREE = "Claude Sonnet 5.5（考える）"
 
 
 def _each(askers: list[Asker], ask: Callable, empty, on_error: Callable | None) -> list:

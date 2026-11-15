@@ -14923,6 +14923,24 @@ class TargetTest(unittest.TestCase):
         mine = without_cl2_pending(self, set(QUESTION_HEADS), theirs)   # K-3 で足した2つは CL-2 が足すまで待つ（CL-1.md 4-118）
         self.assertEqual((sorted(mine - theirs), sorted(theirs - set(QUESTION_HEADS))), ([], []), "（こちらだけ, CL-2 だけ）")
 
+    def test_day_fields_match_cl2(self):
+        # CL-2 の 4-397 の (2)：{最短の日} を書ける（会話の側が言い方に置き換える）質問の欄の一覧（こちら＝流れの制御が置き換える1か所
+        # flowctl.DAY_FIELDS（文の欄）と DAY_LISTS（文の並びの欄＝先に並べた文）・CL-2 の business_settings.DAY_FIELDS）が同じ。⛔ 2026-11-15 に
+        # CL-2 の一覧が質問の文・入る一言だけで、取込の AI が {最短の日} を残した文（お知らせの文など）の業務を「書けない所に書いた」として登録
+        # できなかった＝2か所の一覧のずれ（CL-2 の試験は試作を読まないので、ずれを見つけられるのはこの比べだけ）。CL-2 の版が main に入るまでは
+        # CL-2 の一覧が無いので飛ばす。欄を足したら、CL-2 が足すまで CL2_PENDING に入れる。待つのは、CL-2 の質問の欄（QUESTION_KEYS）にまだ
+        # 無い名前だけ（⛔ CL2_PENDING の名前をそのまま許すと、CL-2 が欄を持っているのに一覧に入れていない 4-397 のずれを見逃した＝写しで確かめた）
+        import dataclasses
+        from flowctl import DAY_FIELDS, DAY_LISTS, Question
+        names = {f.name: f.type for f in dataclasses.fields(Question)}
+        self.assertEqual(sorted(n for n in (*DAY_FIELDS, *DAY_LISTS) if n not in names), [], "質問の欄に無い名前")
+        theirs = self.cl2_names("business_settings.py", "DAY_FIELDS")
+        if theirs is None:
+            self.skipTest("CL-2 の business_settings.DAY_FIELDS が、まだ main に無い")
+        mine = set(DAY_FIELDS) | set(DAY_LISTS)
+        waiting = mine - without_cl2_pending(self, mine, theirs) - (self.cl2_names("business_settings.py", "QUESTION_KEYS") or set())
+        self.assertEqual((sorted(mine - waiting - theirs), sorted(theirs - mine)), ([], []), "（こちらだけ, CL-2 だけ）")
+
     def test_told_kinds_offers_and_reasons_match_cl2(self):
         # K-2（11-08 日本時間8時台。CL-2 の 4-229・4-234 の (a)・4-236／4-250 の頼み）：CL-2 の写しと比べる試験が無かった4つ＝申し伝える一言の種類（CL-2 の
         # call_report.TOLD_KINDS＝phrases.POINT_KINDS の鍵）・お客様の申し出（call_report.CALLBACK_OFFERS＝flowctl.OFFER_LABEL の鍵）・「わからない」「答えたくない」の
@@ -28469,6 +28487,50 @@ class LatestAITest(unittest.TestCase):
         self.assertIn("一覧を読めない", out["Claude Sonnet 5.5"]["結果"])     # 1つの作り手が読めなくても、ほかは確かめる
         self.assertEqual(out["AMIVOICE_ENGINE"]["結果"], la.NO_LIST)
         self.assertEqual(out["SONIOX_MODEL"]["新しい版"], [])
+
+    def test_versions_measured_and_declined_are_not_listed_as_newer(self):
+        # CL-2 の 4-400 の (2)：新しい版で測って替えないと決めた版は、次の確かめでまた「新しい版」として返さない（返すと、本番の見守り役が、
+        # 直したと報告したあとの次の日にまた同じ修正依頼を出す）。覚えるのは1か所（latest_ai.DECLINED＝版の名前 → 決めた日・理由・測りの記録）。
+        # 「別の系統で後から出たもの」も同じ理由（測った結果がもうある）で外す。外した版は行の「見送った版」に残す（黙って捨てない）
+        import latest_ai as la
+        self.assertEqual(la.DECLINED, {})   # 今は見送った版は無い
+        for slug, why in la.DECLINED.items():
+            self.assertEqual(sorted(k for k in ("日", "理由", "記録") if not why.get(k)), [], slug)
+        listed = [{"id": "typesafe/jev-1.14", "slug": "typesafe/jev-1.14-20261014", "created": 1},
+                  {"id": "typesafe/jev-1.15", "slug": "typesafe/jev-1.15-20261120", "created": 2},
+                  {"id": "typesafe/jev-1.16", "slug": "typesafe/jev-1.16-20261201", "created": 3},
+                  {"id": "typesafe/kev-1", "slug": "typesafe/kev-1-20261101", "created": 4}]
+        seen = {"日": "2026-11-21", "理由": "線を決め直した測りで外れが増えた", "記録": "results/G-53_jev115.json"}
+        with unittest.mock.patch.dict(la.DECLINED, {"typesafe/jev-1.15-20261120": seen, "typesafe/kev-1": seen}):
+            got = la.compare("typesafe/jev-1.14", listed)
+        self.assertEqual((got["新しい版"], got["別の系統で後から出たもの"]), (["typesafe/jev-1.16-20261201"], []))
+        self.assertEqual(got["見送った版"], ["typesafe/jev-1.15-20261120", "typesafe/kev-1-20261101"])
+        self.assertEqual(la.compare("typesafe/jev-1.14", listed)["見送った版"], [])
+
+    def test_import_models_are_read_from_their_one_place(self):
+        # CL-2 の 4-400 の (c)・CL-1.md 4-163 の (c)：本番の取込が使う文字のAI 2つと、そろわないときの考える判定の名前は1か所（import_ai.ASKERS・
+        # REFEREE）に置き、確かめの道具はその名前だけを読む（測りの表 g23_names.MODELS のほかの名前は確かめない）
+        import g23_names, import_ai, latest_ai as la, meaning_judge as mj
+        self.assertEqual(len(set(import_ai.ASKERS)), 2)
+        self.assertTrue(set(import_ai.ASKERS) <= set(g23_names.MODELS))
+        self.assertIn(import_ai.REFEREE, mj.OTHER_JUDGES)
+        rows = la.in_use()
+        self.assertEqual([r["名前"] for r in rows if r["役目"] == "取込の文字のAI"], list(import_ai.ASKERS))
+        names = {r["名前"] for r in rows}
+        self.assertIn(import_ai.REFEREE, names)
+        self.assertEqual(sorted((set(g23_names.MODELS) - set(import_ai.ASKERS) - set(mj.STOP_ONLY)) & names), [])
+
+    def test_measurements_of_the_import_ask_the_import_pair(self):
+        # 取込と同じ決め方を測る道具（G-52・G-71・G-72）と、保存した答えから取込と同じ決め方で決める所（g14_listen._decide_one＝G-48・G-49
+        # の3つのモデルの答えから）も、本番の取込の組の1か所（import_ai.ASKERS）を読む（名前を書き写すと、組を替えたときに測りだけ古い組のまま残る）
+        import types
+        import g14_listen, g52_negation, g71_facts, g72_choice_words, import_ai
+        for mod in (g52_negation, g71_facts, g72_choice_words):
+            self.assertIs(mod.MODELS, import_ai.ASKERS, mod.__name__)
+        q = types.SimpleNamespace(text="質問", conditions=[])
+        saved = {k: {("質問", ()): k} for k in ("3.6 Flash", "3.7 Flash", "3.8 Flash")}
+        with unittest.mock.patch.dict(g14_listen._ROWS, {"G-試し": saved}), unittest.mock.patch.object(import_ai, "ASKERS", ("3.6 Flash", "3.8 Flash")):
+            self.assertEqual(g14_listen._decide_one("G-試し", lambda q, answers: answers, q), ["3.6 Flash", "3.8 Flash"])
 
 
 if __name__ == "__main__":

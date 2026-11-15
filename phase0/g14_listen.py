@@ -25,6 +25,7 @@ from flowctl import Question
 from g22_opening import BUSINESS as BASE
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
+import import_ai   # 本番の取込の組の1か所（import_ai.ASKERS＝保存した答えから取込と同じ組で決める）
 from instruction import Business
 from meaning_judge import add_judge_args
 
@@ -61,7 +62,7 @@ def _decide_one(name: str, decide, q) -> dict:
     rows = _ROWS[name]
     if not rows:
         return {}
-    return decide(q, [rows[k].get((q.text, tuple(q.conditions)), {}) for k in ("3.8 Flash", "3.7 Flash") if k in rows])
+    return decide(q, [rows[k].get((q.text, tuple(q.conditions)), {}) for k in import_ai.ASKERS if k in rows])
 
 
 def meanings() -> dict:

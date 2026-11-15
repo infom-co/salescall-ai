@@ -533,8 +533,10 @@ def day_recording_id(qid: str, words: str) -> str:
 
 
 # 声に出す文の欄（業務設定の質問の文・入る一言・お知らせの文と、取込で決めた言い換え・選択肢を並べた文・その後の文の中身・お知らせの中身の名詞と、中身を常体に
-# した句。先に並べた文 alternatives_led は文の並び）。{最短の日} を置き換えるのは、この一覧の1か所（day_question・fill_day）
+# した句）と、文の並びの欄（先に並べた文 alternatives_led）。{最短の日} を置き換えるのは、この2つの一覧の1か所（day_question・fill_day。CL-2 の
+# business_settings.DAY_FIELDS と同じ集まり＝比べる試験 test_day_fields_match_cl2。CL-2 の連絡帳 4-397 の (2)）
 DAY_FIELDS = ("text", "intro", "announce", "reworded", "alternatives", "since", "matter", "matter_clause")
+DAY_LISTS = ("alternatives_led",)
 
 
 def day_question(q: "Question") -> bool:
@@ -542,14 +544,14 @@ def day_question(q: "Question") -> bool:
     声に出す文の欄（DAY_FIELDS・先に並べた文）のどれかにある。どの形（「ところで」・選択肢を並べた形・その後の形・お知らせの最終の確かめ）も、録音の名前は
     その言い方の録音の名前（day_recording_id）から作る。⛔ 0c55c4e7 まで、流れの制御は文・入る一言・お知らせだけを見て置き換え（取込で決めた言い換え・並べた文に
     {最短の日} が残った）、録音の表は形の文ごとに見た（入る一言だけにある質問の「番号_d3_aside」などが表に無い）＝見直し (12) の C-2・C-3"""
-    return any(DAY_SLOT in (getattr(q, f, "") or "") for f in DAY_FIELDS) or any(DAY_SLOT in t for t in q.alternatives_led)
+    return any(DAY_SLOT in (getattr(q, f, "") or "") for f in DAY_FIELDS) or any(DAY_SLOT in t for f in DAY_LISTS for t in getattr(q, f))
 
 
 def fill_day(q: "Question", words: str, recording: str | None = None) -> "Question":
     """{最短の日} を言い方 words に置き換えた質問（唯一の作り方＝Flow.__init__・make_ack_clips.script_table）。recording＝その言い方の録音の名前（録音で流す電話・
     録音の表。無ければ今の名前のまま）。"""
     out = dataclasses.replace(q, **{f: getattr(q, f).replace(DAY_SLOT, words) for f in DAY_FIELDS},
-                              alternatives_led=tuple(t.replace(DAY_SLOT, words) for t in q.alternatives_led))
+                              **{f: tuple(t.replace(DAY_SLOT, words) for t in getattr(q, f)) for f in DAY_LISTS})
     return dataclasses.replace(out, recording=recording) if recording is not None else out
 
 
