@@ -28225,5 +28225,54 @@ class MeasureReviewTest(unittest.TestCase):
         self.assertNotIn("指紋 ", r.stdout)
 
 
+class LatestAITest(unittest.TestCase):
+    """使っている AI の新しい版の確かめ（latest_ai の1か所。✅ 2026-11-15 日本時間12時43分22秒 ユーザー「AIは全て、最新版が大きく進化するため、テストを
+    する場合は必ず、最新版が出ていないかを確認してください。…」）。ネットには出ない（作り手の一覧は試験の中で作る）。"""
+
+    def test_family_and_version_tell_a_newer_version_of_the_same_line(self):
+        import latest_ai as la
+        same = [("typesafe/jev-1.13-20260917", "typesafe/jev-1.14-20261014"), ("claude-sonnet-5-5", "claude-sonnet-6"),
+                ("gemini-3.8-live", "gemini-3.9-live"), ("stt-rt-v5", "stt-rt-v6"), ("liquid/d1-ultra-20261015", "liquid/d1.1-ultra-20261201"),
+                ("subq-snap-1.1", "subq-snap-1.2")]
+        for old, new in same:
+            self.assertEqual(la.family(old), la.family(new), (old, new))
+            self.assertGreater(la.version_key(new), la.version_key(old), (old, new))
+        # 系統の違うもの（小さい d1 と d1-ultra・お金の用途向けの Drex・Flash と Flash Lite）は同じ系統にしない
+        for a, b in [("liquid/d1-ultra-20261015", "liquid/d1.1-20261027"), ("nace-ai/drex-max-20261016", "nace-ai/drex-max-finance-20261110"),
+                     ("gemini-3.8-flash", "gemini-3.8-flash-lite")]:
+            self.assertNotEqual(la.family(a), la.family(b), (a, b))
+        # 版まで決めた名前（日付つき）と、日付の無い名前は同じ系統
+        self.assertEqual(la.family("liquid/d1-ultra"), la.family("liquid/d1-ultra-20261015"))
+
+    def test_compare_lists_newer_versions_and_leaves_aliases_out(self):
+        import latest_ai as la
+        listed = [{"id": "typesafe/jev-1.14", "slug": "typesafe/jev-1.14-20261014", "created": 2},
+                  {"id": "typesafe/jev-1.13", "slug": "typesafe/jev-1.13-20260917", "created": 1},
+                  {"id": "~typesafe/jev-latest", "slug": "~typesafe/jev-latest", "created": 3},
+                  {"id": "typesafe/kev-1", "slug": "typesafe/kev-1-20261101", "created": 4}]
+        now = la.compare("typesafe/jev-1.14", listed)
+        self.assertEqual((now["使っている版"], now["新しい版"]), ("typesafe/jev-1.14-20261014", []))
+        self.assertEqual(now["別の系統で後から出たもの"], ["typesafe/kev-1-20261101"])  # 「最新」の別名は版ではないので並べない
+        self.assertEqual(la.compare("typesafe/jev-1.13", listed)["新しい版"], ["typesafe/jev-1.14-20261014"])
+        gone = la.compare("gemini-3-flash", [{"id": "gemini-3.8-flash", "slug": "gemini-3.8-flash", "created": 0}])
+        self.assertEqual((gone["一覧にある"], gone["新しい版"], gone["別の系統で後から出たもの"]), (False, [], []))
+
+    def test_in_use_reads_the_names_from_their_one_place_and_check_reports_each(self):
+        import common, ears, latest_ai as la, meaning_judge as mj
+        rows = la.in_use(("openrouter:nace-ai/drex-max",))
+        ids = {r.get("id") for r in rows}
+        for name in mj.RACE:
+            self.assertIn(mj.OTHER_JUDGES[name]["model"], ids)
+        self.assertTrue({mj.EMERGENCY["model"], common.DEFAULT_MODEL, ears.SONIOX_MODEL, ears.AMIVOICE_ENGINE, "nace-ai/drex-max"} <= ids)
+        lists = {"openrouter": [{"id": "liquid/d1-ultra", "slug": "liquid/d1-ultra-20261015", "created": 1, "display": ""},
+                                {"id": "liquid/d1.1-ultra", "slug": "liquid/d1.1-ultra-20261201", "created": 9, "display": ""}],
+                 "anthropic": "HTTPStatusError: 401", "gemini": [], "soniox": [{"id": "stt-rt-v5", "slug": "stt-rt-v5", "created": 0, "display": ""}]}
+        out = {r["名前"]: r for r in la.check(rows, lists)}
+        self.assertEqual(out["d1 Ultra（Liquid）"]["新しい版"], ["liquid/d1.1-ultra-20261201"])
+        self.assertIn("一覧を読めない", out["Claude Sonnet 5.5"]["結果"])     # 1つの作り手が読めなくても、ほかは確かめる
+        self.assertEqual(out["AMIVOICE_ENGINE"]["結果"], la.NO_LIST)
+        self.assertEqual(out["SONIOX_MODEL"]["新しい版"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
