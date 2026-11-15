@@ -75,7 +75,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-15.3+time-{spoken_time.VERSION}"   # 2026-11-15.3（✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」）：お客様のほうから折り返すお約束の終わりの無い戻り（「16日以降に出社します」）はその始まりの日のうち・日の種類だけの戻り（「平日の4時までに」）は判定の中身 callback の back_days・back_clock（日は次の動きが暦で決める）。2026-11-15.2（2026-11-15 の見直し。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束の「〇時まで」「〇日まで」を、いま電話を続けられなかった理由と契約者の設定（callback.until_*）で読まず、口にした時刻・日をいちばん遅い戻りと読む1か所（THEIRS_READ）にした（前は設定 now の業務で戻る前にかけえた・「18日までには出社します」で18日の始まりにかけた）。「平日の4時までに」（日の決まらない「〇時まで」）は、いまを戻りとみなさず、ずらさない。2026-11-15.1（✅ 2026-11-15 ユーザー「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方。」・「1時間後にかける（お勧め）」。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束で伺った戻りが幅の言葉なら、いちばん遅い戻り（幅の終わり）の1時間後から・「〇時まで」はその時刻の1時間後から（判定の中身 callback に back_until）。あとで・ご事情の「〇時まで」も読む（前は判定できなかった）。2026-11-14.2（✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで待つ」。DESIGN.md 2章 Q248）：ずらした時刻は、お客様が指定した時刻でない（時刻ちょうどの約束にしない＝NG時間の枠・依頼者の時間帯の外でかけてよい例外を使わない）。お客様のほうから折り返すお約束の約束は、こちらからかけたい時刻（戻る時刻の1時間後）から終わり無しの幅（日を言っていない＝依頼者のかける日・ふつうの電話の時間）にする。かける時刻は、次の動きがふつうの電話の決まりで選ぶ（next_action._theirs_at）。歯止め時間の外・日をまたぐときも、ずらさない例外を外した
+JUDGE_VERSION = f"judge-2026-11-15.4+time-{spoken_time.VERSION}"   # 2026-11-15.4（CL-1 の 58fb6c7f。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25））：ほかの会社に頼んでいる・使っていると言われて伺い、言っていただいた問題・心配事（会話の報告の事実 elsewhere）を、判定の中身 elsewhere で依頼者へ返す（concern と同じ形・同じ1か所。判定の結果は変わらない）
+# 前の版：   # 2026-11-15.3（✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」）：お客様のほうから折り返すお約束の終わりの無い戻り（「16日以降に出社します」）はその始まりの日のうち・日の種類だけの戻り（「平日の4時までに」）は判定の中身 callback の back_days・back_clock（日は次の動きが暦で決める）。2026-11-15.2（2026-11-15 の見直し。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束の「〇時まで」「〇日まで」を、いま電話を続けられなかった理由と契約者の設定（callback.until_*）で読まず、口にした時刻・日をいちばん遅い戻りと読む1か所（THEIRS_READ）にした（前は設定 now の業務で戻る前にかけえた・「18日までには出社します」で18日の始まりにかけた）。「平日の4時までに」（日の決まらない「〇時まで」）は、いまを戻りとみなさず、ずらさない。2026-11-15.1（✅ 2026-11-15 ユーザー「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方。」・「1時間後にかける（お勧め）」。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束で伺った戻りが幅の言葉なら、いちばん遅い戻り（幅の終わり）の1時間後から・「〇時まで」はその時刻の1時間後から（判定の中身 callback に back_until）。あとで・ご事情の「〇時まで」も読む（前は判定できなかった）。2026-11-14.2（✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで待つ」。DESIGN.md 2章 Q248）：ずらした時刻は、お客様が指定した時刻でない（時刻ちょうどの約束にしない＝NG時間の枠・依頼者の時間帯の外でかけてよい例外を使わない）。お客様のほうから折り返すお約束の約束は、こちらからかけたい時刻（戻る時刻の1時間後）から終わり無しの幅（日を言っていない＝依頼者のかける日・ふつうの電話の時間）にする。かける時刻は、次の動きがふつうの電話の決まりで選ぶ（next_action._theirs_at）。歯止め時間の外・日をまたぐときも、ずらさない例外を外した
 # 前の版：   # 2026-11-14.1（✅ 2026-11-14 ユーザー。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束（会話の報告の Callback.theirs）で戻る時刻を伺えた申し出は、戻る時刻の1時間後（THEIRS_WAIT）からかける約束にする（ちょうどの時刻・「すぐ」「30分後」だけ。`_after_theirs` の1か所）。判定の中身 callback に theirs・back_at（お客様が言った戻る時刻）を足す。戻る時刻の取れなかった申し出は今までどおり
 # 前の版：   # 2026-11-13.1（CL-1 の連絡帳 4-131・4-135・4-141・4-142）：判定の中身で依頼者へ返す申し出・ほかのご希望に、こちらから足した条件 added（お客様のご都合 terms と分ける）・ほかのご希望の W1 の答えの状態 wish_state と提案の terms・topic を足し、新しい担当の方に引き継ぎを確かめた答え（会話の報告の事実 carried）を carried で返す（引き継いだと言った前の方の答え＝carried_answers。判定の結果は変えない）
 # 前の版：   # 2026-11-12.1（CL-1 の連絡帳 4-122〜4-129）：業務の申し出の答え（会話の報告の事実 handoff・close_offer）と、条件つきで受けていただいた申し出（事実 offer_terms）を判定の中身で依頼者へ返す（判定の結果は変えない。handoff のはっきりしたお断りは会話の側が残す事実 goal_refused で今までどおり読む）
@@ -646,13 +647,13 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallRep
 def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, Any]:
     """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか・伺っていない（対象外）の質問・ご納得いただけなかった点・
     ほかのご希望を伺った答え・手順を伺い終えていない質問・本題で本心を伺って言っていただいた気になる点＝concern（question＝そのとき伺っていた
-    業務の質問・said＝お客様の言葉・answer＝会話AIが応えた文か None）・業務の申し出の答え＝handoff・close_offer（事実の項目のまま＋お客様の言葉 said）・
+    業務の質問・said＝お客様の言葉・answer＝会話AIが応えた文か None）・ほかの会社に頼んでいると言われて伺い、言っていただいた問題・心配事＝elsewhere（同じ形）・業務の申し出の答え＝handoff・close_offer（事実の項目のまま＋お客様の言葉 said）・
     条件つきで受けていただいた申し出＝offer_terms。1か所。どの結果でも依頼者へ返す）。"""
     skipped = not_asked(inp.ask_if, inp.answers, inp.report)
     agreed = inp.report.not_agreed if inp.report is not None else ()
     wishes = inp.report.other_wishes if inp.report is not None else ()
     unfinished = inp.report.unfinished if inp.report is not None else ()   # 手順を伺い終えていない質問（依頼者へ返す答えはまだ途中＝`JudgeInput.answers`）
-    concerns = inp.report.concerns if inp.report is not None else ()       # 本題で本心を伺い、言っていただいた気になる点（今後の改善。CL-1 の連絡帳 4-113）
+    concerns = inp.report.concerns if inp.report is not None else ()       # 言っていただいた気になる点・問題（concern・elsewhere。今後の改善。CL-1 の連絡帳 4-113）
     offers = inp.report.offers if inp.report is not None else ()           # 業務の申し出の答え（事実 handoff・close_offer。CL-1 の連絡帳 4-122〜4-128）
     terms = inp.report.offer_terms if inp.report is not None else ()       # 条件つきで受けていただいた申し出（事実 offer_terms。CL-1 の連絡帳 4-129）
     carried = inp.report.carried if inp.report is not None else ()         # 新しい担当の方に引き継ぎを確かめた答え（事実 carried。CL-1 の連絡帳 4-141）
@@ -665,7 +666,8 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
                                 "via": w.via, "outcome": w.outcome, "wish_state": w.wish_state, "terms": w.terms, "topic": w.topic,
                                 "added": w.added, "said": w.evidence.said} for w in wishes]} if wishes else {}),
             **({"unfinished": list(unfinished)} if unfinished else {}),
-            **({"concern": [{"question": c.question, "said": c.evidence.said, "answer": c.own.answer} for c in concerns]} if concerns else {}),
+            **{kind: rows for kind in call_report.CONCERN_KINDS
+               if (rows := [{"question": c.question, "said": c.evidence.said, "answer": c.own.answer} for c in concerns if c.kind == kind])},
             **{kind: rows for kind in call_report.OFFER_KINDS
                if (rows := [{"question": o.question, "agreed": o.agreed, "way": o.way, "means": o.means, "via": o.via, "contact": o.contact,
                              "outcome": o.outcome, "terms": o.terms, "topic": o.topic, "added": o.added, "said": o.evidence.said}

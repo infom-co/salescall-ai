@@ -65,7 +65,7 @@ VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
               "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern",
-              "handoff", "close_offer", "offer_terms", "carried")
+              "handoff", "close_offer", "offer_terms", "carried", "elsewhere")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -125,6 +125,9 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   会話AIが応えた文は callee_question と同じ形（answered・answer・drafts・checked。AI の自分の言葉は `_own_words` の1か所。応える前に切れたら answered も
 #   答えの文も無い）。お客様の質問ではないので callee_question には入れない。依頼者へ返す（今後の改善＝お言葉「今後の改善にもつながりません」。判定の中身
 #   concern＝judge._detail の1か所）。判定の結果は変えない（電話を終えるかは、そのあとのご遠慮の一言・締めた理由で今までどおり読む）
+# elsewhere：ほかの会社に頼んでいる・使っていると言われ、1通話1回「そちらの会社の方で解決できないような問題や心配事はございませんか？」（システムの質問 E1）と
+#   伺い、問題・心配事を言っていただいた（CL-1 の 58fb6c7f・flowctl.FACT_KINDS の説明。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25））。concern と同じ形
+#   （CL-1：「concern と同じ形」）＝読むのも書くのも同じ1か所（`CONCERN_KINDS`・`Concern.kind`）。依頼者へ返す（判定の中身 elsewhere）。判定の結果は変えない
 # handoff・close_offer：業務の申し出の答え（1つのご承認に1つ。CL-1 の連絡帳 4-122〜4-125・4-127・4-128）。ご承認が最終目的のご承認の手順を、点を言って
 #   いただけないまま終えたときに伺う申し出：handoff＝営業に引き継ぐ架電の「詳しい者からの改めてのお話」（システムの質問 N4・方法を選んでいただく N5。
 #   ✅ 2026-11-09 日本時間4時36分49秒 ユーザー）／close_offer＝営業に引き継がない架電の締める前の申し出（業務設定の close_offer の文＝N6。✅ 同 6時33分57秒）。
@@ -281,10 +284,12 @@ MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # 留守番電話に伝言を残した・締めた理由（上の表で見る）・電話口の種別（HUMAN_PARTIES で見る）。
 # 取れた答え（項目の値）は会話の報告に入れ物が無い（行の項目は通話をまたいでたまる）ので、報告の中で人の答えと分かる事実
 # （お客様からの質問・受け答え・録音で答えた質問）で見る
+# 気になる点・問題を言っていただいた事実の種類（同じ形。読むのは `_concerns`・書くのは CallReport.to_json・依頼者へ返すのは judge._detail の、どれも1か所）
+CONCERN_KINDS = ("concern", "elsewhere")
 HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
                "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts",
                "unjudged_ends", "goal_refusals", "who_unclears", "not_agreed", "other_wishes",   # other_wishes＝ほかのご希望への答え（人の言葉でしか起きない）
-               "concerns",   # concerns＝本心を伺った一言に言っていただいた気になる点（人の言葉でしか起きない。CL-1 の連絡帳 4-113）
+               "concerns",   # concerns＝本心を伺った一言・ほかの会社のことを伺った一言に言っていただいた点（人の言葉でしか起きない。CL-1 の連絡帳 4-113）
                "offers", "offer_terms",   # 申し出への答え・条件つきで受けていただいた申し出（人の言葉でしか起きない。CL-1 の連絡帳 4-122〜4-129）
                "carried")   # 引き継ぎを確かめる一言への答え（人の言葉でしか起きない。CL-1 の連絡帳 4-141）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
@@ -443,7 +448,9 @@ class CalleeQuestion:
 
 @dataclass(frozen=True)
 class Concern:
-    """本題で本心を伺った一言に、言っていただいた気になる点（事実 concern。CL-1 の連絡帳 4-113）。依頼者へ返す（judge._detail）。"""
+    """本題で本心を伺った一言に、言っていただいた気になる点（事実 concern。CL-1 の連絡帳 4-113）と、ほかの会社に頼んでいると言われて伺った一言に、言って
+    いただいた問題・心配事（事実 elsewhere。同じ形）。依頼者へ返す（judge._detail）。"""
+    kind: str                    # 事実の種類（`CONCERN_KINDS` のどれか）
     evidence: Said
     question: str | None         # そのとき伺っていた業務の質問の番号（無ければ None）
     answered: bool | None        # 会話AIが業務の情報で応えた true／応える答えを持っていなかった false／まだ応えていない None
@@ -708,7 +715,7 @@ class CallReport:
     who_unclears: tuple[WhoUnclear, ...] = ()     # 事実 who_unclear：お名前だけではどの方か分からず、取り次いでいただけなかった
     not_agreed: tuple[NotAgreed, ...] = ()        # 事実 not_agreed：ご承認いただけず、ご納得いただけなかった点を伺った答え
     other_wishes: tuple[OtherWish, ...] = ()      # 事実 other_wish：ほかのご希望を伺った答え
-    concerns: tuple[Concern, ...] = ()            # 事実 concern：本題で本心を伺い、言っていただいた気になる点（依頼者へ返す）
+    concerns: tuple[Concern, ...] = ()            # 事実 concern・elsewhere：言っていただいた気になる点・問題（依頼者へ返す。種類は Concern.kind）
     ended_on: EndedOn | None = None               # 事実 ended_on：ここで終える答えで、残りを伺わなかった（1通話に1つまで）
     offers: tuple[Offer, ...] = ()                # 事実 handoff・close_offer：業務の申し出の答え（起きた順。種類は Offer.kind）
     offer_terms: tuple[OfferTerms, ...] = ()      # 事実 offer_terms：業務の申し出の質問を条件つきで受けていただいた
@@ -909,8 +916,8 @@ class CallReport:
             "who_unclear": [{**said(w.evidence), "recalled": w.recalled} for w in self.who_unclears],
             "not_agreed": [n.to_json() for n in self.not_agreed],
             "other_wish": [w.to_json() for w in self.other_wishes],
-            "concern": [{**said(c.evidence), "question": c.question, **({} if c.answered is None else {"answered": c.answered}),
-                         **c.own.to_json()} for c in self.concerns],
+            **{k: [{**said(c.evidence), "question": c.question, **({} if c.answered is None else {"answered": c.answered}),
+                    **c.own.to_json()} for c in self.concerns if c.kind == k] for k in CONCERN_KINDS},
             **{k: [o.to_json() for o in self.offers if o.kind == k] for k in OFFER_KINDS},
             "offer_terms": [{**said(t.evidence), "question": t.question, "terms": t.terms, "topic": t.topic, "added": t.added} for t in self.offer_terms],
             "carried": [{**said(c.evidence), "answer": c.answer, "kept": c.kept, "dropped": list(c.dropped)} for c in self.carried],
@@ -1310,14 +1317,7 @@ def from_json(raw: Any) -> CallReport:
     other_wishes = tuple(_other_wish(r, s, i) for i, (r, s) in enumerate(
         _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome", "via", "wish_state", "terms", "topic", "added"})))
     ended_on = _ended_on(facts)
-    concerns = []
-    for r, s in _records(facts, "concern", {"question", "answered"} | OWN_WORDS_KEYS):
-        question, replied = r.get("question"), r.get("answered")
-        if question is not None and (not isinstance(question, str) or not question.strip()):
-            raise ReportInvalid("facts.concern.question は、そのとき伺っていた業務の質問の番号か null です")
-        if replied is not None and not isinstance(replied, bool):
-            raise ReportInvalid("facts.concern.answered は true / false / null（まだ応えていない）です")
-        concerns.append(Concern(s, question, replied, _own_words(r, "facts.concern")))
+    concerns = _concerns(facts)
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \
         _choice(d["irreversible_check"], IRREVERSIBLE_CHECKS, "irreversible_check")
@@ -1344,6 +1344,20 @@ def from_json(raw: Any) -> CallReport:
 
 
 OWN_WORDS_KEYS = {"answer", "drafts", "checked"}
+
+
+def _concerns(facts: dict) -> tuple[Concern, ...]:
+    """気になる点・問題を言っていただいた事実（`CONCERN_KINDS`。どれも同じ形＝読むのはここだけ）。"""
+    out = []
+    for kind in CONCERN_KINDS:
+        for r, s in _records(facts, kind, {"question", "answered"} | OWN_WORDS_KEYS):
+            question, replied = r.get("question"), r.get("answered")
+            if question is not None and (not isinstance(question, str) or not question.strip()):
+                raise ReportInvalid(f"facts.{kind}.question は、そのとき伺っていた業務の質問の番号か null です")
+            if replied is not None and not isinstance(replied, bool):
+                raise ReportInvalid(f"facts.{kind}.answered は true / false / null（まだ応えていない）です")
+            out.append(Concern(kind, s, question, replied, _own_words(r, f"facts.{kind}")))
+    return tuple(out)
 
 
 def _own_words(r: dict[str, Any], where: str) -> OwnWords:

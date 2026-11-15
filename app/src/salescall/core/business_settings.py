@@ -78,6 +78,7 @@ END = "END"                                       # 分岐の行き先「終わ�
 RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", "M1", "S1", "P1", "R1", "D1", "D2", "H1", "H2", "N1", "N2", "N3", "W1",
                           "N4", "N5", "N6",   # 申し出のシステムの質問（詳しい者からのお話・その方法・締める前の申し出。CL-1 の連絡帳 4-122・4-124）
                           "HC",   # 新しい担当の方に、前の担当の方からお話を聞いているかを伺うシステムの質問（CL-1 の連絡帳 4-141）
+                          "E1",   # ほかの会社に頼んでいると言われたときに、解決できない問題・心配事を伺うシステムの質問（CL-1 の 58fb6c7f・伺い25）
                           "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",

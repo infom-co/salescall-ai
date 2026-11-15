@@ -213,6 +213,9 @@ class UserDecisions(unittest.TestCase):
                           v("callback.call_alternate_number")), (7, 20, True))
         # 2026-10-24：受付の保留を待つ長さ（業務ごと・初め5分）・1日の上限のキーを休ませる長さ（30分。0131）
         self.assertEqual((v("call.hold_wait"), v("stop.ai_quota.rest")), (300, 1800))
+        # 2026-11-15：理由を言わずに待つ方へ、待つかかけ直すかを伺うまでの秒（業務ごと・初め20秒＝ユーザー「伺い28：ア」。0224。CL-1 の連絡帳 4-167 の (3)）
+        self.assertEqual(v("call.wait_ask_after"), 20)
+        self.assertNotIn("call.wait_ask_after", decided)   # 仮の値ではない（決まった値）
 
 
 class PerClientSettings(unittest.TestCase):

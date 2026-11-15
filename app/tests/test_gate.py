@@ -2025,7 +2025,7 @@ class NameLedger(Content):
         phrases.AGAIN_FIT）。名前の一覧が CL-1 の正本とそっくり同じかは、CL-1 の試験 test_recorded_names_match_cl2_common_parts が見る。"""
         lead = {c for c in recordings.COMMON_PARTS if c.endswith("_lead_soredeha")}
         self.assertIn("announce_recheck_unheard", recordings.COMMON_PARTS)
-        self.assertEqual(len(lead), 27 + 3)   # 4-159 の27本と、4-161 の3本（下の試験）
+        self.assertEqual(len(lead), 27 + 3 + 2)   # 4-159 の27本と、4-161 の3本・4-167 などの2本（下の試験）
         self.assertLessEqual({c.removesuffix("_lead_soredeha") for c in lead}, set(recordings.COMMON_PARTS))   # どれも、もとの質問の録音がある
 
     def test_the_parts_cl1_added_for_their_callback_on_other_reasons_are_received(self):
@@ -2034,6 +2034,15 @@ class NameLedger(Content):
         9本も、話してよい声が求める（`COMMON_PARTS`。無いと、その一言を流せないまま声を「話してよい」にする）。"""
         bases = ("callback_theirs_workday", "callback_theirs_date", "callback_theirs_later")
         self.assertLessEqual({f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")}, set(recordings.COMMON_PARTS))
+
+    def test_the_parts_cl1_added_for_quiet_lines_and_other_companies_are_received(self):
+        """CL-1 の連絡帳 4-167 の (2)（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い23・24））と 58fb6c7f（伺い25）の共通の一言の録音も、話してよい声が
+        求める（`COMMON_PARTS`）：考えている途中の方に黙られたときの1つ目の一言（doubt_anytime）・理由を言わずに待つ方に黙られたままのときの頭の無い
+        待つかかけ直すかの伺い（callback_wait_or_later_plain）・ほかの会社に頼んでいると言われたときに伺う一言（callback_elsewhere）と、それぞれの
+        3回目から戻る形（_midway）・頭「それでは」の形（_lead_soredeha）。無いと、その一言を流せないまま声を「話してよい」にする。"""
+        bases = ("callback_wait_or_later_plain", "callback_elsewhere")
+        self.assertLessEqual({"doubt_anytime"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")},
+                             set(recordings.COMMON_PARTS))
 
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、

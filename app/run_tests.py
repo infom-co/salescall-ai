@@ -2069,6 +2069,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " FROM salescall.recording_readings x WHERE x.set_id = r.set_id AND x.part = r.part), ''))"
      " FROM salescall.recordings r WHERE r.set_id = p_set AND r.part = p_part $$",
      ("tests.test_gate.CallerNumberAndVoice.test_an_approval_belongs_to_the_part_name_too",)),
+    ("理由を言わずに待つ方へ待つかかけ直すかを伺うまでの秒の初めの値を、ユーザーの決めた20秒でなくする（0224。伺い28：ア）",
+     "ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_frozen;"
+     " UPDATE salescall.setting_values SET value = '5' WHERE key = 'call.wait_ask_after' AND scope = 'system';"
+     " ALTER TABLE salescall.setting_values ENABLE TRIGGER setting_values_frozen",
+     ("tests.test_settings.UserDecisions.test_values",)),
     ("終わりの無い幅の約束に、始まりを持たせない（0222 の前の形：暦の外の確かめ直しで、戻る前の電話を門が通した）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_from;"
      " ALTER TABLE salescall.task_next_actions ADD CONSTRAINT task_next_actions_window_from CHECK ("
@@ -6433,9 +6438,9 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '               "concerns",   #', '               #',
      ("tests.test_call_report_cl1.Concern1108.test_concerns_are_received_and_returned_to_the_client",)),
     ("気になる点の、伺っていた質問の番号の形を確かめない（11-08 の受け）", "src/salescall/core/call_report.py",
-     '        if question is not None and (not isinstance(question, str) or not question.strip()):\n'
-     '            raise ReportInvalid("facts.concern.question',
-     '        if False:\n            raise ReportInvalid("facts.concern.question',
+     '            if question is not None and (not isinstance(question, str) or not question.strip()):\n'
+     '                raise ReportInvalid(f"facts.{kind}.question',
+     '            if False:\n                raise ReportInvalid(f"facts.{kind}.question',
      ("tests.test_call_report_cl1.Concern1108.test_concerns_are_received_and_returned_to_the_client",)),
     ("本題の始まりを業務設定の欄にしない（11-08 の受け）", "src/salescall/core/call_report.py",
      '"departed": ("successor", "end"), "main_talk": ("asked", "answered")}', '"departed": ("successor", "end")}',
@@ -7075,7 +7080,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      (_MONTH_URGENT, _MONTH_BOUNDARY)),
     # ── CL-1 の連絡帳 4-122〜4-130 の受け口（2026-11-12）：申し出の答え・申し出の業務設定・どちらでもの確かめ・続きの電話の用件の名詞・前の電話が同じ日か
     ("通話の事実 handoff・close_offer・offer_terms を知らない名前として報告ごと断る（4-122〜4-129 の受け）", "src/salescall/core/call_report.py",
-     '              "handoff", "close_offer", "offer_terms", "carried")', '              "carried")',
+     '              "handoff", "close_offer", "offer_terms", "carried", "elsewhere")', '              "carried", "elsewhere")',
      (_OFFERS + "test_offers_are_received_and_returned_to_the_client",)),
     ("申し出の答えを、1つのご承認に2つでも受ける（4-122 の受け）", "src/salescall/core/call_report.py",
      '            if question in seen:\n', '            if False:\n',
@@ -7167,7 +7172,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      ("tests.test_apology.Apology.test_the_claim_tells_whether_the_wrong_call_was_today_by_the_same_rule_as_the_text",)),
     # 2026-11-13 CL-1 の連絡帳 4-130〜4-146 の受け口（データの形 版 1.44）
     ("通話の事実 carried を知らない名前として報告ごと断る（4-141 の受け）", _CR,
-     '              "handoff", "close_offer", "offer_terms", "carried")', '              "handoff", "close_offer", "offer_terms")',
+     '              "handoff", "close_offer", "offer_terms", "carried", "elsewhere")', '              "handoff", "close_offer", "offer_terms", "elsewhere")',
      (_CARRIED + "test_the_answer_is_received_and_returned_to_the_client",)),
     ("引き継ぎを確かめた答えを、人の言葉の事実に数えない（4-141 の受け）", _CR,
      '               "carried")   # 引き継ぎを確かめる一言への答え', '               )   # 引き継ぎを確かめる一言への答え',
@@ -7538,6 +7543,10 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "    return (spoken_time.Reading(spoken_time.AT, want, None, repeat=spoken_time.DAY_REPEAT), back[0],",
      (_BACK_1114 + "test_the_moved_time_is_an_open_window_on_the_usual_days_and_hours", _BACK_1114 + "test_the_old_exceptions_are_gone",
       _BACK_SETTLE, _BACK_MOVE)),
+    ("ほかの会社に頼んでいると言われて伺った問題・心配事（事実 elsewhere）を読まない（concern だけ）", "src/salescall/core/call_report.py",
+     'CONCERN_KINDS = ("concern", "elsewhere")', 'CONCERN_KINDS = ("concern",)', ("tests.test_call_report_cl1.Concern1108.test_elsewhere_is_read_in_the_same_shape_and_returned_separately",)),
+    ("判定の中身で、ほかの会社の問題・心配事を気になる点とまぜて返す（種類を見ない）", "src/salescall/core/judge.py",
+     "for c in concerns if c.kind == kind])", "for c in concerns])", ("tests.test_call_report_cl1.Concern1108.test_elsewhere_is_read_in_the_same_shape_and_returned_separately",)),
     ("折り返しのお約束のずらした時刻を、お客様が日を言った回にする（依頼者の休みの日でもかける）", "src/salescall/core/judge.py",
      "    return (spoken_time.Reading(spoken_time.WINDOW, want, None, repeat=spoken_time.DAY_REPEAT), back[0],",
      "    return (spoken_time.Reading(spoken_time.WINDOW, want, None, repeat=spoken_time.DAY_REPEAT, day_said=True), back[0],",

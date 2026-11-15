@@ -976,6 +976,28 @@ class Concern1108(unittest.TestCase):
                 from_json(self.raw(bad))
 
 
+    def test_elsewhere_is_read_in_the_same_shape_and_returned_separately(self):
+        """CL-1 の 58fb6c7f（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25））：ほかの会社に頼んでいる・使っていると言われ、システムの質問 E1 で伺って
+        言っていただいた問題・心配事（事実 elsewhere）は、concern と同じ形（CL-1：「concern と同じ形」）で同じ1か所が読み、判定の中身 elsewhere で依頼者へ
+        返す（concern とまぜない）。判定の結果は変えない。人の言葉でしか起きない。E1 は業務の質問の番号に使えない。"""
+        from salescall.core import business_settings
+        told = {"turn": 5, "said": "今のところは対応が遅くて困っているんですよ。", "question": "Q3", "answered": True, "answer": "さようでございますか。"}
+        mine = {"turn": 3, "said": "説明が長いんですよ。", "question": "Q2"}
+        raw = {**self.raw(mine), "facts": {"concern": [mine], "elsewhere": [told], "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+        r = from_json(raw)
+        self.assertEqual(([(c.kind, c.question, c.evidence.said) for c in r.concerns], from_json(r.to_json())),
+                         ([("concern", "Q2", mine["said"]), ("elsewhere", "Q3", told["said"])], r))
+        j = run(raw)
+        self.assertEqual((j.detail["elsewhere"], j.detail["concern"]),
+                         ([{"question": "Q3", "said": told["said"], "answer": told["answer"]}],
+                          [{"question": "Q2", "said": mine["said"], "answer": None}]))
+        self.assertNotIn("elsewhere", run(self.raw(mine)).detail)
+        self.assertEqual(j.state, run(self.raw()).state)
+        self.assertTrue(from_json({**self.raw(), "facts": {"elsewhere": [told]}}).talked)
+        with self.assertRaises(ReportInvalid):
+            from_json({**self.raw(), "facts": {"elsewhere": [{**told, "question": 3}]}})
+        self.assertIn("E1", business_settings.RESERVED_IDS)
+
 class Unfinished1105(unittest.TestCase):
     """CL-2 の連絡帳 4-213（データの形 版 1.18）：手順を伺い終えていない業務の質問（報告の unfinished）。ほかのご希望 W1・その連絡先と伺い方・
     ご納得いただけなかった点の手順の途中で切れた答えは、判定ではまだ受け取っていない答え（`JudgeInput.answers` の1か所）＝必須なら「完了」に

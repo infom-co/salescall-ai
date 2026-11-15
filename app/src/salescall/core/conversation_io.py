@@ -399,7 +399,8 @@ CALL_SETTING_PREFIXES = ("call.", "conversation.")
 def call_setting(tx: Tx, attempt_id: UUID, key: str) -> Any:
     """その通話の業務で、会話の決まりの設定がいくつか（settings.resolve の1か所。業務 → 依頼者 → 契約者 → システムの順で、細かい
     ほうが勝つ）。読めるのは会話の決まりの設定だけ（`CALL_SETTING_PREFIXES`）。例：受付で保留になったときに待つ長さ
-    `call.hold_wait`（秒。初め300。お客様が長く待つ理由を言ったら、その時まで待つのは会話の側で決める）・`call.silence_prompt_after`。"""
+    `call.hold_wait`（秒。初め300。お客様が長く待つ理由を言ったら、その時まで待つのは会話の側で決める）・`call.silence_prompt_after`・
+    `call.wait_ask_after`（黙ったときの一言の秒。何を流すかは会話の側の flowctl.QUIET_STEPS の1か所）。"""
     if not key.startswith(CALL_SETTING_PREFIXES):
         raise ValueError(f"会話の処理が読む設定ではありません：{key}")
     row = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
