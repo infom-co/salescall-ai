@@ -143,7 +143,8 @@ CALLING = [
 def answer_truths() -> dict:
     """答えの段の行の正解（唯一の場所。答えの段の測り G-53 の組 F が読む＝g53_meaning._label）：(質問の文, お客様の言葉) ⇒ {accept：受け取ってよい
     答え・hedged：寄っているが言い切っていないか・end：電話を終える言葉かの正解・why・こちらへ尋ねた問いか・別のお話か・わからない理由＝SIDE}。
-    「決められない」は「わからない」と同じに数える（g53_meaning.accept）。同じ質問・同じ言葉の行（業務の最終目的かだけが違う）は、正解も同じで
+    答えは書いたとおり（⛔ 2026-11-15 F4 の (c) まで「決められない」に「わからない」を足していた＝お客様に聞こえる次の一言が違う2つを同じに数え、
+    外れを見落とした。11 行は 2 人の読み手が読み直し、どれも「わからない」とは言っていない）。同じ質問・同じ言葉の行（業務の最終目的かだけが違う）は、正解も同じで
     なければならない（違えば止める）。SIDE に表の行に無い言葉があれば止める（書き違えた足しの正解を黙って捨てない）。"""
     missing = set(SIDE) - {(qtext, words) for qtext, words, *_ in ANSWER}
     if missing:
@@ -151,7 +152,6 @@ def answer_truths() -> dict:
     out: dict = {}
     for qtext, words, ends, answers, _, why in ANSWER:
         acc = [a.removesuffix(HEDGED) for a in answers]
-        acc += ["unknown"] if UNDECIDED in acc and "unknown" not in acc else []
         got = {"accept": acc, "hedged": any(a.endswith(HEDGED) for a in answers), "end": list(ends), "why": why, **SIDE.get((qtext, words), {})}
         old = out.setdefault((qtext, words), got)
         if any(old[k] != got[k] for k in ("accept", "hedged", "end")):

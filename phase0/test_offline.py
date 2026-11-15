@@ -12872,7 +12872,8 @@ class EndWordsTest(unittest.TestCase):
         from end_words import ANSWER, answer_truths
         got = answer_truths()
         self.assertEqual(len(got), len({(r[0], r[1]) for r in ANSWER}))
-        self.assertEqual(got[(ANSWER[0][0], ANSWER[0][1])]["accept"], ["いいえ", "決められない", "unknown"])
+        # ⛔ 2026-11-15 F4 の (c)：前は「決められない」に「わからない」（unknown）を足していた＝書いたとおりの正解だけ
+        self.assertEqual(got[(ANSWER[0][0], ANSWER[0][1])]["accept"], ["いいえ", "決められない"])
 
     def test_ack_follows_the_decided_reason(self):
         # ⛔ 2026-11-01 夜（表を作りから出して見つけた穴）：締めの相づちを会話AIの理由で選んでいた＝判定が「怒っている」と決めても、
@@ -16118,16 +16119,24 @@ class OffScriptTest(unittest.TestCase):
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
 
-    def test_relabel_wins_and_undecided_equals_unknown(self):
+    def test_relabel_wins_and_undecided_is_not_unknown(self):
+        import end_words
+        from flowctl import UNDECIDED
         from g53_meaning import accept, misread_as_affirmed
         # ユーザー：「メールのほうが助かりますが…」は決められないではない＝言い直したメールを認めた（作らせた正解は決められない）
         it = {"set": "D", "qid": "G17", "text": "メールのほうが助かりますが…", "asked": "念のためご連絡はメールでよろしいでしょうか？",
               "truth": "決められない", "kind": "迷う", "asked_choice": "メール", "j": "メール"}
         self.assertEqual(accept(it), ["メール"])
         self.assertFalse(misread_as_affirmed(it, "j"))
-        # 付け直していない答え：「決められない」と「わからない」は同じに数える（どちらでも値は渡らない）
-        plain = {"set": "D", "qid": "G1", "text": "（付け直していない答え）", "asked": "x", "truth": "unknown"}
-        self.assertEqual(set(accept(plain)), {"決められない", "unknown"})
+        # ⛔ 2026-11-15 F4 の (c)：付け直していない答えも「決められない」と「わからない」を同じに数えない（流れの制御の動きが違う＝ご希望を伺う
+        #    質問の最初の答えで「わからない」は迷いの点・分かる時を伺い、「決められない」は聞き直す。2つの説明の境目は meaning_judge の1か所）
+        for want in ("unknown", UNDECIDED):
+            plain = {"set": "D", "qid": "G1", "text": "（付け直していない答え）", "asked": "x", "truth": want}
+            self.assertEqual(accept(plain), [want])
+        # 電話を終える言葉の表の正解も、表に書いたとおり（「決められない」に「わからない」を足さない）
+        written = {(q, w): [a.removesuffix(end_words.HEDGED) for a in answers] for q, w, _, answers, *_ in end_words.ANSWER}
+        for k, got in end_words.answer_truths().items():
+            self.assertEqual(got["accept"], written[k], k)
 
 
 class G70CountTest(unittest.TestCase):

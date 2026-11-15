@@ -81,15 +81,16 @@ _LABELS: dict | None = None
 
 def accept(it: dict) -> list[str]:
     """受け取ってよい読み（正解。数えるのはすべてここ）。付け直した正解（g53_labels.json）があればそれ、無ければ truth の1つ。
-    「決められない」と「わからない」は、どちらで受け取っても誤った値は渡らないので、同じに数える。
+    ⛔ 2026-11-15 F4 の (c)：「決められない」と「わからない」を同じに数えていた（どちらでも誤った値は渡らない、として）＝流れの制御の動きが違う
+       （ご希望を伺う質問の最初の答えで「わからない」は迷いの点・分かる時を伺い、「決められない」は聞き直す）ので、正解は書いたとおりの名前だけ。
+       2つの説明の境目は meaning_judge の1か所（SYSTEM_DESC["unknown"]・KIND_DESC[UNDECIDED]）・正解の表は境目の行だけ両方を持つ。
     ⛔ 2026-10-18 ユーザー：「『メールのほうが助かりますが、電話でも大丈夫です』なら…決まらないではないですよね」＝作らせたモデルの付けた
        正解を、中身を見ずに使っていた ⇒ CL-1 が1つずつ読んで付け直した（望みが言えていれば答え・事実がはっきりしなければ確かめる・
        どちらとも言っていなければ決められない。境目は、どちらの読みも正解）"""
     got = _label(it)
     if got:
         return got["accept"]
-    want = truth(it)
-    return [UNDECIDED, "unknown"] if want in (UNDECIDED, "unknown") else [want]
+    return [truth(it)]
 
 
 def _label(it: dict) -> dict | None:
