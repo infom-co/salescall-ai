@@ -46,9 +46,14 @@ ASK_BACK = "お電話が少し遠いようでしてもう一度お聞かせい�
 UNHEARD_LEAD = "お声が聞き取れませんでしたので"
 
 
-def ask_again(n: int, reason: str, topic: str = "", last: bool = False) -> str:
+def ask_again(n: int, reason: str, topic: str = "", last: bool = False, question: str = "") -> str:
     """聞き返しの言い方（DESIGN.md 6-11。n＝その項目で何回目の聞き返しか、reason＝"unclear"（聞き取れない・曖昧）か
     "form"（答えが質問に合わない＝日時を聞いたのに「3人です」など。6-2））。topic＝聞くこと（「ご希望の日時」など。業務設定）。
+    question＝聞くことが空のとき、聞くことの代わりに言う、その質問を伺い直す文（flowctl.ask_again_text の1か所が選ぶ）：聞くことを入れる言い方（聞き取れていた
+    その場の聞き直し・最後の1回）は、「（聞くこと）を…もう一度…」の代わりに、今の頭（「恐れ入ります。」・「恐れ入りますが」・「お声が聞き取れませんでしたので」）＋
+    その文（頭のつなぎの言葉・「恐れ入りますが」は重ねない＝question_body）。聞くことの空な「恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」は
+    お客様に流さない（11-15 日本時間21時55分35秒のご決定のあとの決まりで直す (2) の (b)。11-09 4時36分49秒「効くことが空だとこの言葉になるということですよね！？」）。
+    聞くことを使わない言い方（聞き取れないその場の聞き返し ASK_BACK・2回目からの「もう一回…」）は今のまま。
     ✅ 2026-10-14 ユーザー：聞き直しは「恐れ入ります。ご希望の日時を、もう一度、お聞かせいただいてもよろしいでしょうか？」。
        それでも駄目なら「申し訳ございません。もう一回、よろしいでしょうか？」と申し訳なさそうに（「申し訳ございません、」は、
        流れの制御が選ぶ相づちの録音＝申し訳なさそうに読んだもの。AIの言葉はそのあとから）。
@@ -56,6 +61,9 @@ def ask_again(n: int, reason: str, topic: str = "", last: bool = False) -> str:
        お聞かせいただいてもよろしいでしょうか？」。last＝その項目を聞く最後の1回か（流れの制御が決める）。初めの設定（その場で2回＋
        締めの前の念のための確認1回）では、締めの前の念のための確認がこれにあたる。「もう一度だけ」は、最後の1回にしか使わない"""
     what = f"{topic}を" if topic else ""
+    if not topic and question and (last or (n <= 1 and reason == "form")):
+        body = question_body(question)
+        return f"恐れ入りますが{body}" if last and reason == "form" else f"{UNHEARD_LEAD}{body}" if last else f"恐れ入ります。{body}"
     if last:
         # お声は聞き取れていた（reason "form"＝答えが質問に合わない・別のお話・意味が決まらない答えで「-」にした＝flowctl.Flow._ask_kind・Item.dash_heard）：電話の
         # せいにせず、聞き取れていたときの聞き直しの文（「恐れ入ります。（聞くこと）をもう一度…」＝本書 9-5 の (3)）に、最後の1回だけの「もう一度だけ」（10-14）
@@ -68,6 +76,17 @@ def ask_again(n: int, reason: str, topic: str = "", last: bool = False) -> str:
     if n <= 1:
         return ASK_BACK if reason == "unclear" else f"恐れ入ります。{what}もう一度お聞かせいただいてもよろしいでしょうか？"
     return "もう一回よろしいでしょうか？"
+
+
+def question_body(text: str) -> str:
+    """質問の文を、伺い直しの頭（ask_again の「恐れ入ります。」など）に続ける形にする唯一の場所：文の頭のつなぎの言葉（「それでは」「続きまして」「では」＝head_word）と
+    ていねいの言葉（「恐れ入りますが」＝POLITE_HEAD）を外す（「恐れ入りますがそれでは…」「恐れ入ります。恐れ入りますが…」にしない）。"""
+    body = text.strip()
+    while (w := head_word(body) or (POLITE_HEAD if body.startswith(POLITE_HEAD) else None)) and len(body) > len(w):
+        body = body[len(w):].lstrip("、")
+    return body
+
+
 CONFIRM = {
     "ふつう": ("{v}{de}よろしいでしょうか？", "{v}{de}大丈夫でしょうか？"),                       # その場ではっきり聞けた値
     "聞き取りにくかったあと": ("{v}とおっしゃいましたでしょうか？", "{v}{de}よろしかったでしょうか？"),  # 聞き返し・念のための確認のあと
