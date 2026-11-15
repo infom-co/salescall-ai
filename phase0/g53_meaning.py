@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import (ANY, END_DOUBT_WHY, before_words, CHOICE_TYPES, END, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, AWAY, QUERY_YES, QUERY_NO, END_ANGRY, END_HURRY, END_NONE,
                      END_REASON, END_REFUSED, HANDOVER, HOLD, HOLD_BACK, LATER, NONE, NOT_ANSWERS, REPEAT, SYSTEM_CONDITIONS, THINKING, WAIT_KINDS,
-                     WAIT_OR_LATER, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading)
+                     WAIT_OR_LATER, WAIT_PLAIN, Flow, Question, JUDGMENTS, AWAY_NO, AWAY_YES, later_offer, off_talk, wait_reading)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, Reading, judge, judge_other
 
@@ -621,8 +621,10 @@ SENSE = "意味合いを尋ねる："
 # 待つ・かけ直すの読み（答えの段だけ＝flowctl.WAIT_KINDS）で流れの制御がすること（Flow._wait_route の1か所と同じ。✅ 2026-11-05 日本時間23時19分06秒・
 # 23時56分48秒 ユーザー（会話2）。取り次ぎを待つも「はい、」のあと待つ＝✅ 2026-11-06 日本時間2時28分41秒 ユーザー「「はい、」のような相づちがないと失礼です。」）
 # まだ考えている途中（✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」＝Flow._thinking）：「はい。」のあと待つ
-WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言のあと待つ", LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う",
-            THINKING: "「はい。」のあと待つ"}
+# 理由を言わずに待つ（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い24）＝Flow._hold の plain）：「はい、」のあと待ち、黙られたら一言・しばらくして待つかかけ直すかを伺う
+# （黙ったときの場面 "wait"＝flowctl.QUIET_STEPS）
+WAIT_ACT = {HOLD: "「はい、」のあと待つ", HOLD_BACK: "待つ一言のあと待つ", WAIT_PLAIN: "「はい、」のあと待つ（黙られたら一言のあと待つかかけ直すかを伺う）",
+            LATER: "かけ直しを伺う", WAIT_OR_LATER: "待つかかけ直すかを1回伺う", THINKING: "「はい。」のあと待つ"}
 # お客様のほうから折り返すと申し出られた（お礼の一言を言うかは flowctl.later_offer の1か所）：「お気遣いありがとうございます。…」のあとかけ直しを伺う
 THANKED = "お礼の一言のあと"
 
@@ -837,7 +839,7 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
             return HANDOVER_ACT
         return ASKED_ACTS.get(asked or "", REJECT_ACT)
     if res == "hold":
-        return WAIT_ACT[HOLD_BACK] if "wait_reply" in plays else WAIT_ACT[HOLD]
+        return WAIT_ACT[HOLD_BACK] if "wait_reply" in plays else WAIT_ACT[WAIT_PLAIN] if rep.get("silence_scene") == "wait" else WAIT_ACT[HOLD]
     if res == "thinking":
         return WAIT_ACT[THINKING]
     if res == "replayed":

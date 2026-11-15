@@ -182,7 +182,7 @@ def question_how(text: str) -> str:
     return next((k for k in ("question", "question_long") if need <= MAX_S[k]), "question_xl")
 # システムの質問を2回目・3回目からの戻る一言に続けて流す形（phrases.BACK_FIT＝back_fit の1か所。方法をお伝えしたあとの連絡先の一言も同じ形）：質問の読み方で、
 # 長さの上限は文の長さで選ぶ（3回目からの形は頭が27字長い）
-from phrases import AGAIN_FIT, BACK_FIT, RECORDED as _RECORDED, THINKING_PROMPT_IDS  # noqa: E402
+from phrases import AGAIN_FIT, BACK_FIT, CONCERN_PROMPT_IDS, RECORDED as _RECORDED, THINKING_PROMPT_IDS, WAIT_ASK_PLAIN_ID  # noqa: E402
 HOW_OF.update({k: question_how(t) for k, t in BACK_FIT.items()})
 # システムの質問を戻る一言なしに伺い直す形（phrases.AGAIN_FIT＝頭「それでは」。見直し (12) の B-9）：元の一言の読み方（決まった読み方のある一言はそのまま）で、
 # 長さの上限は文の長さで選ぶ。聞き取れないまま「-」にしたお知らせの締めの前の最終の確かめ（phrases.unheard_form＝「先ほどの件のお返事のお声が聞き取れなかった
@@ -209,6 +209,9 @@ HOW_OF["callback_authority"] = "authority"
 # 待つか、かけ直すかを1回伺う一言（phrases.CALLBACK_ASK["wait_or_later"]・約59字）：判断いただけるお立場かの一言と同じ「2つから選んでいただく問い」の形なので、
 # 同じ読み方と長さの上限（✅ 2026-11-05 日本時間23時56分48秒 ユーザー「(ア)」）
 HOW_OF["callback_wait_or_later"] = "authority"
+# 同じ伺いの頭の無い形（phrases.WAIT_ASK_PLAIN_ID＝理由を言わずに待つように言われ、黙ったまましばらくたったときに相づちなしで伺う。✅ 2026-11-15 日本時間21時55分35秒
+# ユーザー（伺い24））：同じ問いの形なので同じ読み方と長さの上限（相づちのあとに続けて読まない＝別の録音）
+HOW_OF[WAIT_ASK_PLAIN_ID] = "authority"
 # 確かめて戻るお客様を待つ一言（phrases.WAIT_REPLY。頭の「はい、」は相づちの録音）：こちらはこのまま待っていると、落ち着いて伝える
 HOW["wait_reply"] = "電話で、お客様が確かめてくるあいだ、こちらはこのまま電話口で待っていると、落ち着いて丁寧に伝えるように"
 MAX_S["wait_reply"] = 4.0  # 判断いただけるお立場か・お取次ぎのみかを聞く一言は長い（76字）ので、読み方と長さの上限は別  # 後任の方をお呼びする・確かめる一言（phrases.SUCCESSOR）も質問の読み方
@@ -217,8 +220,11 @@ MAX_S["wait_reply"] = 4.0  # 判断いただけるお立場か・お取次ぎの
 HOW_OF.update({"ikaga": "ai", "dou": "ai"})
 # 「AIですか？」への標準の答え（phrases.STANDARD_PARTS。業務が書かないときに流す共通の一言）：業務の答え（依頼主の単位の ai）と同じ読み方
 HOW_OF[STANDARD_PARTS["ai"]] = "ai"
-# 「何か気になる点がございましたらお気軽にお聞かせくださいね。」（phrases.THINKING_PROMPT の1回目）：悩んで黙った方に、急かさずにお尋ねをお受けする一言
+# 「何か気になる点がございましたらお気軽にお聞かせくださいね。」（phrases.CONCERN_PROMPT の1回目。11-15 までは THINKING_PROMPT の1回目）：悩んで黙った方に、急かさずにお尋ねをお受けする一言
 # （✅ 2026-11-07 日本時間18時03分49秒 ユーザー「(2) イ」。前の「どうなさいますか？」＝質問の読み方は使わない）＝いつでもお尋ねをお受けする一言（point_anytime）と同じ読み方
+HOW_OF[CONCERN_PROMPT_IDS[0]] = "own_fallback"
+# 考えている途中の方に5秒黙られたときの「何か疑問や気になる点がございましたらお気軽にお聞かせくださいね。」（phrases.THINKING_PROMPT の1回目。✅ 2026-11-15 日本時間
+# 21時55分35秒 ユーザー（伺い23））：上の一言と同じく、急かさずにお尋ねをお受けする一言の読み方
 HOW_OF[THINKING_PROMPT_IDS[0]] = "own_fallback"
 HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})
 HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST} | {f"apology_{k}_same_day": "apology_first" for k in APOLOGY_SAME_DAY})  # 調子ごとの録音は、名前そのものが読み方の鍵

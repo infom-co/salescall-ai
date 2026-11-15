@@ -799,7 +799,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         async with silence_while(s):
                             turn = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle_call, timeout_s=line["silence_s"],
                                                      on_heard=flow.on_heard)
-                        if (r := flow.on_start_silence()) is not None:
+                        if (r := flow.on_silence()) is not None:   # 黙ったときの唯一の入口（第一声を待つ段は「もしもし」）
                             await send_note(s, r["message"])  # 第一声が無いまま黙っている：「もしもし」の録音を流した（電話接続側の知らせ）
                         await add_turn(turn, line, log_start, i, voice)
                         i += 1
