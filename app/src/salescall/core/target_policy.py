@@ -20,7 +20,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from uuid import UUID
 
-from salescall.core import dnc, settings
+from salescall.core import dnc, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.phone import PhoneNumber, normalize
 
@@ -74,11 +74,14 @@ def row_block_reason(tx: Tx, dial: PhoneNumber, others: Iterable[PhoneNumber], *
 
 def task_block_reason(tx: Tx, task_id: UUID, dial: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
                       business_id: UUID | None) -> tuple[str, str, PhoneNumber | None] | None:
-    """登録した行へ、その番号でかけない理由（`row_block_reason` を、行の番号の表 task_numbers のほかの番号で）。門と、発信禁止を取り消した
-    行を戻す処理が読む。"""
-    others = [normalize(r["phone_e164"]) for r in tx.all(
-        "SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND phone_e164 <> %s ORDER BY added_at, contact_id",
-        (task_id, dial.e164))]
+    """登録した行へ、その番号でかけない理由（`row_block_reason` を、行のほかの番号のうち、かける番号と同じ方の番号で）。門と、発信禁止を取り消した
+    行を戻す処理が読む。同じ方の番号：「担当の方は違う」で直した行では、前の担当の方の番号（tasks.former_numbers＝断りの範囲 dnc.refusal_reach と
+    同じ1か所）と、いまの担当の方の番号は別の方の番号（前の担当の方が断っても、新しい担当の方へはかける・その逆も＝✅ 2026-11-07 ユーザー＝計画書 7-1 (22)）。
+    かける番号が前の担当の方の番号なら前の担当の方の番号、ほかはいまの担当の方の番号。"""
+    numbers = tasks.numbers(tx, task_id)
+    former = set(tasks.former_numbers(tx, task_id))
+    same = (lambda n: n in former) if dial.e164 in former else (lambda n: n not in former)
+    others = [normalize(n) for n in numbers if n != dial.e164 and same(n)]
     return row_block_reason(tx, dial, others, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
                             business_id=business_id)
 

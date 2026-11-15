@@ -230,8 +230,9 @@ class World:
         この声はまだ＝足りない組はもう作れないので、この形で試す。2026-11-15）。終わったら文を戻し、ほかの声の組を元の文で作り直す（システムの組は
         ほかの試験も読むので、必ず戻す）。⚠️ この中で契約者を作らない（World.tenant が共通の一言をそろえ直す）。"""
         others = tuple(r["voice_name"] for r in self.a.in_system(ADMIN, lambda tx: tx.all(
-            "SELECT DISTINCT voice_name FROM salescall.current_recording_sets WHERE unit = 'contractor' AND tenant_id IS NULL"
-            " AND voice_name <> %s ORDER BY voice_name", (voice,))))
+            "SELECT DISTINCT s.voice_name FROM salescall.current_recording_sets s JOIN salescall.voices v ON v.voice_name = s.voice_name"
+            " WHERE s.unit = 'contractor' AND s.tenant_id IS NULL AND v.retired_at IS NULL AND s.voice_name <> %s ORDER BY s.voice_name",
+            (voice,))))   # 使わない声（retired）の組は作れない
         try:
             with mock.patch.dict(common_phrases.TEXTS, {missing: common_phrases.TEXTS[missing] + "（試験で替えた文）"}):
                 self.approve_common(others)
