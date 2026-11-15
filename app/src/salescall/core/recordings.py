@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
-from salescall.core import business_settings, readings as readings_mod
+from salescall.core import business_settings, common_phrases, readings as readings_mod
 from salescall.core.access import Tx
 
 
@@ -132,6 +132,8 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology", "na
                          "標準の録音の組には標準の版を渡します（共通の一言の組には、どれも渡しません）")
     if unit == "standard":
         _standard_parts(tx, standard_id, parts)
+    if unit == "contractor":
+        _on_common(parts)   # 共通の一言の組の部分は、共通の一言の部分で、文が同じものだけ（2026-11-15）
     if unit == "business":
         _on_list(tx, version_id, parts)   # 業務の組の部分は、その版の録音の部分の一覧の部分だけ（0212）
     chosen = _chosen_readings(tx, parts, version_id)
@@ -152,6 +154,18 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology", "na
                    " SELECT tenant_id, client_id, set_id, %s, %s, %s FROM salescall.recording_sets WHERE set_id = %s",
                    (part, name, reading, set_id))
     return set_id
+
+
+def _on_common(parts: list[Part]) -> None:
+    """共通の一言の組の部分が、共通の一言の部分（`common_phrases.TEXTS`）で、文が同じかの確かめ（1か所。`create_set` が呼ぶ。業務の録音の
+    `_on_list` と同じ決まり＝一覧の外・文が違うは作らない。部分の足りない組は作れる＝話してよい声にならないだけ。✅ 2026-11-15 ユーザー
+    「同じ決まりにする」）。"""
+    names, texts = _common_args()
+    want = dict(zip(names, texts))
+    outside = sorted(p.part for p in parts if p.part not in want)
+    wrong = sorted(p.part for p in parts if p.part in want and p.spoken_text != want[p.part])
+    if outside or wrong:
+        raise ValueError(f"共通の一言の組の部分は、共通の一言の部分と、名前・文が同じものです（共通の一言の外：{outside}・文が違う：{wrong}）")
 
 
 def _standard_parts(tx: Tx, standard_id: UUID, parts: list[Part]) -> None:
@@ -261,9 +275,9 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
              " AND s.standard_id = (SELECT b.standard_id FROM salescall.business_versions b WHERE b.version_id = %s)")
 
 
-# 共通の一言の録音の部分の名前（判断はここだけ。話してよい声＝`ready_voices` が、共通の一言の組＝システムの持ち物（0171）にこれが全部
-# そろっているかを見る。⇒ 2026-11-06 名前を CONTRACTOR_PARTS から改めた＝CL-2 の連絡帳 4-230。下の経過の「契約者の単位」「契約者の組」は、
-# 0171 より前の呼び方）。名前の正本は CL-1 の phrases.RECORDED（いまは 117。経過：origin/main 6364c51 の58。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41、4-42・4-43 の
+# 共通の一言の録音の部分の名前（名前と文の1か所は core/common_phrases.TEXTS。話してよい声＝`ready_voices` が、共通の一言の組＝システムの持ち物（0171）に
+# これが全部、同じ文でそろっているかを見る。⇒ 2026-11-06 名前を CONTRACTOR_PARTS から改めた＝CL-2 の連絡帳 4-230。下の経過の「契約者の単位」「契約者の組」は、
+# 0171 より前の呼び方）。名前の正本は CL-1 の phrases.RECORDED（2026-11-15 に 237。経過：origin/main 6364c51 の58。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41、4-42・4-43 の
 # hold_timeout＝保留で待ちきったときの締め、4-45 の moshimoshi＝電話に出た方が黙っているときの「もしもし？」、4-49 の
 # apology_purpose_same_day・apology_purpose_later＝お詫びの電話で受付の方に用件を聞かれたときの一言、4-55 の
 # callback_next_workday＝お休みのお客様に「次のご出社はいつか」を伺う一言、4-63 (a) の callback_refusal＝ご本人へのご遠慮の確かめ
@@ -304,141 +318,76 @@ _STANDARD = ("s.unit = 'standard' AND s.tenant_id IS NULL"
 # お名前の入る一言の確かめ（その行の名前の部分と、その声の続く言葉が承認されているか）は、名前の録音の台帳の1か所（`name_needs`・
 # `name_missing`。0132）。
 # 業務の組の部分（名乗り・質問など）は、組を作るときに CL-1 の一覧（make_ack_clips.script_table）から作られるので、ここでは見ない。
-COMMON_PARTS: tuple[str, ...] = (
-    "ai_again", "apology_cut_off", "apology_missed_promise", "apology_purpose_later", "apology_purpose_same_day", "arigatou", "back", "callback_address", "callback_ask_when",
-    "callback_ask_who", "callback_authority", "callback_back_date", "callback_back_time", "callback_back_today",
-    "callback_call_again", "callback_email", "callback_hurry_again", "callback_hurry_when", "callback_next_workday", "callback_fax", "callback_later_time", "callback_not_agreed", "callback_number",
-    "callback_agreed_now", "callback_other_point", "callback_other_point_2", "closing_after_decline", "own_fallback_point",
-    "callback_reachable_time", "callback_refusal", "callback_transfer_time", "closing", "closing_declined", "departed", "dou", "greeting", "hai", "hold_timeout", "ikaga", "kashikomari",
-    "line_trouble_ask", "line_trouble_bye", "moshimoshi", "moushiwake", "moushiwake_heavy", "number_again_unreachable",
-    "number_again_wrong_party", "offer_thanks", "own_fallback", "shitsurei", "shouchi", "successor_call",
-    "successor_confirm", "successor_reconfirm", "successor_unavailable", "talk_agree_deep", "talk_agree_high", "talk_agree_light", "talk_cared",
-    "talk_hard_bright", "talk_hard_sad", "talk_heard_glad", "talk_heard_nod", "talk_heard_sad", "talk_osewa",
-    "talk_praised", "talk_welcome", "talk_yoroshiku", "wait", "wait_heavy",
-    "ai_answer", "callback_line", "wish_told_email", "wish_told_fax", "wish_told_line", "wish_told_other", "wish_told_phone", "wish_told_post",
-    "callback_not_agreed_again",
-    "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
-    "callback_email_again", "callback_fax_again", "callback_address_again", "callback_email_chosen",
-    "callback_line_how_without_id", "callback_line_how_without_id_2", "callback_line_how_without_sms",
-    "callback_line_how_without_sms_2", "callback_line_how_without_email", "callback_line_how_without_email_2",
-    "resumed_fallback_lead", "own_fallback_point_again", "gomottomo",
-    "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request", "own_fallback_point_again_opinion",
-    "point_anytime", "point_anytime_plain",
-    "wish_told_online", "callback_email_online_again", "callback_later_time_answering",
-    "wait_reply", "callback_wait_or_later",
+# ⇒ 2026-11-15 名前の手の写しをやめ、名前と文を core/common_phrases.TEXTS（CL-1 の phrases.RECORDED から作る1か所）から読む（CL-2 の連絡帳 4-403。
+# 文も比べる＝✅ 2026-11-15 ユーザー「同じ決まりにする」）。下の経過は、手で写していたころの、足した名前の出どころ（消さずに残す）。
     # CL-1 の連絡帳 4-97・4-99（✅ 2026-11-06 9時05分17秒 ユーザー）：「ほかに…」で点を言っていただけないときの一言・申し伝える一言まで言って
     # 切れた電話の続きの、お詫び（同じ日か）と申し伝え直す一言（種類ごと）と、担当から連絡すると申し出てよい業務の一言。申し伝え直す一言は、
     # CL-1 の連絡帳 4-105 で、いつの電話か（同じ日＝「先ほどお伺いした」・あとの日＝「前回お伺いした」）でも分けた（3本 → 6本。いつの印は
     # お詫びと同じ。⛔ それまでは同じ日でも「前回」で、お詫びの「先ほどは…」と食い違った）
-    "callback_other_point_which", "apology_cut_end_same_day", "apology_cut_end_later",
-    "told_again_question_same_day", "told_again_question_later", "told_again_request_same_day", "told_again_request_later",
-    "told_again_opinion_same_day", "told_again_opinion_later", "told_follow_up",
     # CL-1 の連絡帳 4-97 の追記（✅ 2026-11-06 10時12分44秒 ユーザー「(イ)…OK」）：続きの電話の振り返りの一言への返事で点を言って
     # いただけないときの一言（まだ点を伺っていないので「ほかに」を外す）
-    "callback_other_point_which_recap",
     # CL-1 の連絡帳 4-100（✅ 2026-11-06 11時19分55秒 ユーザー「(1) ア」）：まだ答えを考えている途中のお客様への相づち「はい。」（判定が「考えている
     # 途中」と読んだら、会話AIが報告してもしなくてもプログラムが流して待つ）。保留で締める一言（質問の番号_pending）は依頼者の単位の録音（業務の組）なので、ここには入れない
-    "aizuchi",
     # CL-1 の連絡帳 4-106・4-107（✅ 2026-11-07 3時14分01秒・4時40分35秒 ユーザー）：並べて伺ったご案内の方法を言っていただけないときの申し伝える
     # 一言 wish_told_way・同じ所へ2回目に戻るときの「それではもう一度確認させていただきますね。」back_again。⛔ 4-106 の back_often（「たびたび失礼
     # いたしました。」）は取り下げ（ご指摘）・callback_（役目）_announced は名前を _bare に替えた（4-107）
-    "wish_told_way", "back_again",
     # CL-1 の連絡帳 4-107：システムの質問を、2回目の戻る一言・方法をお伝えした一言に続けて頭の「それでは」を外して流す形（_bare）と、3回目から戻るときの
     # 「確認の途中でしたのでもう一度お伺いさせていただきますが」＋質問を1本にした形（_midway）。名前の正本は CL-1 の phrases.BACK_FIT（back_fit の1か所）
     # ⇒ CL-1 の連絡帳 4-117 の (1)(2)：続きの電話で切れた所から伺う一言（callback_（役目）_again・callback_not_agreed_again）と番号を伺い直す電話の一言
     # （number_again_*）へ戻るときは、前置きを言い直さず同じ役目の形（callback_email・_bare・_midway など）を流すので、その _midway（6つ）は外した（もう流さない）。
     # 番号を伺い直す電話の一言の _midway は、もともと無い
-    "callback_address_bare", "callback_email_bare", "callback_email_chosen_bare", "callback_fax_bare", "callback_hurry_again_bare",
-    "callback_line_bare", "callback_line_how_bare", "callback_line_how_2_bare", "callback_line_how_without_email_bare",
-    "callback_line_how_without_email_2_bare", "callback_line_how_without_id_bare", "callback_line_how_without_id_2_bare",
-    "callback_line_how_without_sms_bare", "callback_line_how_without_sms_2_bare", "callback_mobile_bare",
-    "callback_address_midway", "callback_agreed_now_midway", "callback_ask_when_midway",
-    "callback_ask_who_midway", "callback_authority_midway", "callback_back_date_midway", "callback_back_time_midway",
-    "callback_back_today_midway", "callback_call_again_midway", "callback_email_midway",
-    "callback_email_chosen_midway", "callback_fax_midway",
-    "callback_hurry_again_midway", "callback_hurry_when_midway", "callback_later_time_midway", "callback_later_time_answering_midway",
-    "callback_line_midway", "callback_line_how_midway", "callback_line_how_2_midway",
-    "callback_line_how_without_email_midway", "callback_line_how_without_email_2_midway", "callback_line_how_without_id_midway",
-    "callback_line_how_without_id_2_midway", "callback_line_how_without_sms_midway", "callback_line_how_without_sms_2_midway",
-    "callback_mobile_midway", "callback_next_workday_midway", "callback_not_agreed_midway",
-    "callback_number_midway", "callback_other_point_midway", "callback_other_point_2_midway", "callback_other_point_which_midway",
-    "callback_other_point_which_recap_midway", "callback_reachable_time_midway", "callback_refusal_midway",
-    "callback_transfer_time_midway", "callback_wait_or_later_midway",
     # CL-1 の連絡帳 4-108（✅ 2026-11-07 13時05分06秒 ユーザー）：ほかに分からない点は今のところ無いと言われたときに添える「何かわからないことが
     # ございましたらいつでもご遠慮なくおっしゃってくださいね。」
-    "unclear_anytime",
     # CL-1 の連絡帳 4-109（✅ 2026-11-07 18時03分49秒 ユーザー「(2) イ」）：考えている方に5秒黙られたときの「何か気になる点がございましたらお気軽に
     # お聞かせくださいね。」（急かさない一言）。⛔ それまでの「どうなさいますか？」（dounasaimasu）は使わなくなったので外した
-    "concern_anytime",
     # CL-1 の連絡帳 4-110（✅ 2026-11-07 13時05分06秒・18時03分49秒 ユーザー「(1) ア」）：迷っていると言い終えたお客様に、業務設定に選択肢ごとの
     # 良い点・気をつける点（`business_settings.Question.option_notes`）が無いときに1回伺う「どういった点でお迷いでしょうか？」
-    "hesitate_point",
     # CL-1 の連絡帳 4-112（✅ 2026-11-08 日本時間2時21分15秒 ユーザー「(1)〜(4)ともイでOK」の (1)）：値を伺う質問（日時・数・金額）の最初の答えの
     # 「まだ決まってないんですよね。」に、すぐ保留で締めずに1回だけ流す「それではおおよその目安だけでもお伺いしてもよろしいでしょうか？」（文の正本は
     # CL-1 の phrases.ESTIMATE_ASK・名前の一覧は phrases.RECORDED。頭の「はい、」は相づちの録音 hai）
-    "estimate_ask",
     # CL-1 の連絡帳 4-122（✅ 2026-11-09 日本時間3時06分51秒・3時46分53秒・4時36分49秒 ユーザー）：言い直しへのお返事がまだ決めていないときの2回目
     # 「いかがなさいますか？」（how_now）・ご承認の手順の N1 に点を言っていただけなかったときに1回伺う「その中でもどのあたりが特に気になっていらっしゃいますで
     # しょうか？」（callback_not_agreed_which）・営業に引き継ぐ架電の「それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？」（システムの質問 N4＝
     # callback_handoff）と、その戻る一言に続ける形（_bare・_midway。名前は CL-1 の phrases.BACK_FIT の決まりのまま）
-    "how_now", "callback_not_agreed_which", "callback_not_agreed_which_midway",
-    "callback_handoff", "callback_handoff_bare", "callback_handoff_midway",
     # CL-1 の連絡帳 4-124（✅ 2026-11-09 日本時間6時33分57秒）：詳しい者からのお話を保留でよいかを伺う「それでは詳しい者からのお話は保留ということで
     # よろしいでしょうか？」と、その戻る一言に続ける形
-    "callback_handoff_pending", "callback_handoff_pending_bare", "callback_handoff_pending_midway",
     # CL-1 の連絡帳 4-129（✅ 2026-11-12 日本時間13時40分05秒 の (4)）：同じ日の続きの電話の、途中で切れたお詫び「先ほどはお電話が途中で切れてしまい大変失礼
     # いたしました。」（予約証の apology_when が same_day のとき。あとの日は今の apology_cut_off）
-    "apology_cut_off_same_day",
     # CL-1 の連絡帳 4-141（✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」）：担当の方が替わった電話・後任の方に、前の担当の方からお話を
     # 聞いているかを伺う「恐れ入りますが前のご担当者様からこれまでのお話はお聞き及びでしょうか？」（システムの質問 HC）と、3回目からの戻る一言に続ける形
     # （_midway。名前は CL-1 の phrases.BACK_FIT の決まりのまま）
-    "callback_carried", "callback_carried_midway",
     # CL-1 の連絡帳 4-144 の (1)（2026-11-12 まとめ役の指示。⏳ 言い方はユーザーに伺い中＝お勧めの形）：かけ直しの質問の途中に、お礼の一言（offer_thanks）のあとで
     # また折り返し・伝言を申し出られたときの「重ねてお気遣いありがとうございます。お手数をおかけしてはいけませんのでこちらからご連絡させていただきますね。」
-    "offer_thanks_again",
     # CL-1 の連絡帳 4-148（✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い2はア」「伺い3はア（候補2）」）：前の通話の答えにお呼びした方の答えが無いときの
     # 引き継ぎを確かめる一言「恐れ入りますが先日（先ほど）お話しさせていただいた方からこれまでのお話はお聞き及びでしょうか？」（いつの電話かで2つ。3回目からの戻る
     # 一言に続ける形 _midway は、名前の決まりが CL-1 の phrases.BACK_FIT のまま）と、そのあと最初から伺うときの「それでは改めて確認させていただきますね。」
-    "callback_carried_talked_later", "callback_carried_talked_same_day",
-    "callback_carried_talked_later_midway", "callback_carried_talked_same_day_midway", "start_over",
     # CL-1 の連絡帳 4-149（✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い5はイ」）：重ねての折り返しの申し出をお言葉に甘えて受ける「ありがとうございます。
     # それではお言葉に甘えさせていただきます。」
-    "offer_accepted",
     # CL-1 の連絡帳 4-150（ご承認をお知らせの形で伝える＝伺い1）：お知らせの中身の名詞（業務設定の質問の matter）が決まらなかったお知らせの最終の確かめ。文は
     # CL-1 の連絡帳 4-154（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」）で「それでは先ほどの内容はご了承ということでよろしかったでしょうか？」に変わった（文の
     # 正本は CL-1 の phrases.ANNOUNCE_RECHECK。名前は同じ）。名詞のある質問は依頼主の単位の録音「番号_accepted」（業務の録音＝会話の側の一覧から。ここには無い）
-    "announce_recheck",
     # CL-1 の連絡帳 4-152（伺い9・分身 D の (b)）：名前を聞き返されたあとの伝言の短い形「それではお電話があったとお伝えいただけますでしょうか？」
-    "message_again",
     # CL-1 の連絡帳 4-158（CL-2 の 4-391 の (1)・✅ 2026-11-14 日本時間20時11分41秒 ユーザー）：お客様のほうから折り返すとおっしゃり、お言葉に甘えて受けた
     # 不在の電話で、戻る時刻を伺う「お電話をいただいた際に出られないことがないようにお戻りになられる時間はお分かりになるでしょうか？」（文の正本は CL-1 の
     # phrases.CALLBACK_ASK の theirs_time。伺えた時刻は theirs の記録の time に入り、かける時刻は Intent.md 7-3 の決定 2026-11-14 のとおり）と、ほかのかけ直しの
     # 質問と同じく、3回目から戻るときの形（_midway。名前の決まりは CL-1 の phrases.BACK_FIT のまま。4-158 には書かれていないが、CL-1 の比べる試験で見つけた）
-    "callback_theirs_time", "callback_theirs_time_midway",
     # CL-1 の連絡帳 4-159（見直し (12) の組 O2）：聞き取れないまま「-」にしたご承認のお知らせを、締めの前に最終の確かめの形で伺う「お声が聞き取れませんでしたので
     # 先ほどの内容はご了承ということでよろしかったでしょうか？」（中身の名詞が決まらないお知らせのとき。名詞のある質問は依頼主の単位の録音「番号_accepted_unheard」＝
     # 業務の録音）
-    "announce_recheck_unheard",
     # 同じ 4-159：お客様がもう聞いた質問へ、戻る一言を挟まずに戻るとき（伝言の申し出をお礼で断ったあとなど）の、かけ直しの質問の頭に「それでは」を付けた形
     # （27本。名前の正本は CL-1 の phrases.AGAIN_FIT＝文がつなぎの言葉で始まる質問・質問でない一言・続きの電話の形には無い）
-    "callback_agreed_now_lead_soredeha", "callback_ask_when_lead_soredeha", "callback_ask_who_lead_soredeha", "callback_authority_lead_soredeha",
-    "callback_back_date_lead_soredeha", "callback_back_time_lead_soredeha", "callback_back_today_lead_soredeha", "callback_call_again_lead_soredeha",
-    "callback_carried_lead_soredeha", "callback_carried_talked_later_lead_soredeha", "callback_carried_talked_same_day_lead_soredeha",
-    "callback_hurry_when_lead_soredeha", "callback_later_time_answering_lead_soredeha", "callback_later_time_lead_soredeha",
-    "callback_next_workday_lead_soredeha", "callback_not_agreed_lead_soredeha", "callback_not_agreed_which_lead_soredeha",
-    "callback_number_lead_soredeha", "callback_other_point_2_lead_soredeha", "callback_other_point_lead_soredeha",
-    "callback_other_point_which_lead_soredeha", "callback_other_point_which_recap_lead_soredeha", "callback_reachable_time_lead_soredeha",
-    "callback_refusal_lead_soredeha", "callback_theirs_time_lead_soredeha", "callback_transfer_time_lead_soredeha",
-    "callback_wait_or_later_lead_soredeha",
     # CL-1 の連絡帳 4-161（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「伺い17はアでOK」）：お言葉に甘えて受けたあと、不在のほかの理由でも伺う一言（文の正本は
     # CL-1 の phrases.CALLBACK_ASK の同じ名前の役目）＝お休みの「次のご出社はいつか」theirs_workday・長期の不在の「いつごろお戻りのご予定か」theirs_date・今は
     # お電話に出られないご事情とあとでの「いつ頃お電話をいただけそうか」theirs_later（同じ文なので1本）。ほかのかけ直しの質問と同じく、3回目から戻るときの形
     # （_midway＝phrases.BACK_FIT）と頭「それでは」の形（_lead_soredeha＝phrases.AGAIN_FIT）も付く（9本）
-    "callback_theirs_workday", "callback_theirs_date", "callback_theirs_later",
-    "callback_theirs_workday_midway", "callback_theirs_date_midway", "callback_theirs_later_midway",
-    "callback_theirs_workday_lead_soredeha", "callback_theirs_date_lead_soredeha", "callback_theirs_later_lead_soredeha")
+COMMON_PARTS: tuple[str, ...] = tuple(common_phrases.TEXTS)
 
-# その組に、共通の一言の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
+# 共通の一言の組 s に、共通の一言の部分（%s＝名前・%s＝文＝`_common_args`）が、同じ文ですべてあるか（SQL。話してよい声・足りない部分が組 s ごとに見る。
+# 業務の録音の `_COVERS` と同じ決まり＝文の違う承認済みの録音は使わない。✅ 2026-11-15 ユーザー「同じ決まりにする」。⛔ それまでは名前だけを見ていた）
+_HAS_TEXTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[], %s::text[]) p(part, spoken_text) WHERE NOT EXISTS (SELECT 1"
+              " FROM salescall.recordings r WHERE r.set_id = s.set_id AND r.part = p.part AND r.spoken_text = p.spoken_text))")
+# 標準の録音の組 s に、その版が標準から流す部分（%s）がすべてあるか（SQL。文は組を作るときに、その標準の版の答えと同じかを確かめる＝`_standard_parts`。
+# 標準の版は変えられないので、組の文が古くなることは無い）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
               " WHERE r.set_id = s.set_id AND r.part = p.part))")
 # 業務の録音の組 s に、その版のいまの録音の部分の一覧（%s＝一覧。`_current_list`）の部分が、同じ文ですべてあるか（SQL。0212。読みは
@@ -447,9 +396,15 @@ _COVERS = ("NOT EXISTS (SELECT 1 FROM salescall.recording_list_parts l WHERE l.l
            " FROM salescall.recordings r WHERE r.set_id = s.set_id AND r.part = l.part AND r.spoken_text = l.spoken_text))")
 
 
+def _common_args() -> tuple[list[str], list[str]]:
+    """共通の一言の部分の名前と文（SQL に渡す並び。`_HAS_TEXTS`・`missing_parts`・`_on_common` が読む1か所＝common_phrases.TEXTS）。"""
+    return list(common_phrases.TEXTS), list(common_phrases.TEXTS.values())
+
+
 def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
     """その版で話してよい声の名前（名前の順）。決まりはここだけ（上の説明）。使う組は、流す組と同じ見方 current_recording_sets
-    （そろった組＝部分がすべて承認済みで、その版のいまの名前の読みと合うもの。0172）。共通の一言の組（システム）には、その部分（`COMMON_PARTS`）がすべて要る。
+    （そろった組＝部分がすべて承認済みで、その版のいまの名前の読みと合うもの。0172）。共通の一言の組（システム）には、その部分（`COMMON_PARTS`）がすべて、
+    その文（`common_phrases.TEXTS`）で要る（`_HAS_TEXTS`）。
     その版が標準から流す部分（標準の想定問答の答え。0174）があれば、その版が指す標準の版の、標準の録音の組（システム）に、その部分がすべて要る。
     業務の録音の組（その版）には、その版のいまの録音の部分の一覧（`_current_list`）の部分が、同じ文ですべて要る（一覧がまだの版では、どの声も
     話さない＝0212。録音の要るものの1か所は `version_needs`）。"""
@@ -461,27 +416,28 @@ def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
         "SELECT v.voice_name FROM salescall.voices v"
         " WHERE v.retired_at IS NULL"
         "   AND EXISTS (SELECT 1 FROM salescall.voice_types t WHERE t.voice_name = v.voice_name AND t.default_for_voice)"
-        "  AND " + _CURRENT.format(where=_COMMON + " AND " + _HAS_PARTS) +
+        "  AND " + _CURRENT.format(where=_COMMON + " AND " + _HAS_TEXTS) +
         "  AND " + _CURRENT.format(where=_BUSINESS + " AND " + _COVERS) +
         "  AND (cardinality(%s::text[]) = 0 OR " + _CURRENT.format(where=_STANDARD + " AND " + _HAS_PARTS) + ")"
-        " ORDER BY v.voice_name", (list(COMMON_PARTS), version_id, listed[0], needs, version_id, needs))]
+        " ORDER BY v.voice_name", (*_common_args(), version_id, listed[0], needs, version_id, needs))]
 
 
 def missing_parts(tx: Tx, version_id: UUID) -> list[str]:
     """その版で業務の録音（承認済み）はあるのに、システムの組（共通の一言の組・その版が指す標準の版の標準の録音の組）に足りない部分が
     ある声の、足りない部分の名前（名前の順。知らせに使う。直すのは管理者＝どちらもシステムの持ち物）。組が無い声の部分は、全部が足りない。
+    共通の一言は、文が `common_phrases.TEXTS` と違う部分も足りない（話してよい声と同じ決まり `_HAS_TEXTS`＝録り直しが要る）。
     ⛔ 0171 まで：取引の契約者の組の足りない部分を、版を問わず並べた。"""
     return [r["part"] for r in tx.all(
-        "SELECT DISTINCT p.part FROM unnest(%s::text[]) p(part), salescall.voices v"
+        "SELECT DISTINCT p.part FROM unnest(%s::text[], %s::text[]) p(part, spoken_text), salescall.voices v"
         " WHERE v.retired_at IS NULL AND " + _CURRENT.format(where=_BUSINESS) +
         "   AND NOT EXISTS (SELECT 1 FROM salescall.current_recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
-        "                   WHERE s.voice_name = v.voice_name AND " + _COMMON + " AND r.part = p.part)"
+        "                   WHERE s.voice_name = v.voice_name AND " + _COMMON + " AND r.part = p.part AND r.spoken_text = p.spoken_text)"
         " UNION "
         "SELECT DISTINCT p.part FROM unnest(%s::text[]) p(part), salescall.voices v"
         " WHERE v.retired_at IS NULL AND " + _CURRENT.format(where=_BUSINESS) +
         "   AND NOT EXISTS (SELECT 1 FROM salescall.current_recording_sets s JOIN salescall.recordings r ON r.set_id = s.set_id"
         "                   WHERE s.voice_name = v.voice_name AND " + _STANDARD + " AND r.part = p.part)"
-        " ORDER BY part", (list(COMMON_PARTS), version_id, list(business_settings.standard_parts_of(tx, version_id)),
+        " ORDER BY part", (*_common_args(), version_id, list(business_settings.standard_parts_of(tx, version_id)),
                            version_id, version_id))]
 
 

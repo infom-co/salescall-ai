@@ -2720,7 +2720,7 @@ class AIVersions(SupervisorBase):
 
     def row(self, name, **kw):
         return {"役目": "判定", "名前": name, "一覧": "openrouter", "id": f"typesafe/{name}", "使っている版": f"typesafe/{name}",
-                "一覧にある": True, "新しい版": [], "別の系統で後から出たもの": [], **kw}
+                "一覧にある": True, "新しい版": [], "別の系統で後から出たもの": [], "見送った版": [], **kw}
 
     def told(self, name):
         """その AI の、管理者あての知らせ（種類・要約）と、CL-1 へのまだ直していない修正依頼（種類）。"""
@@ -2743,6 +2743,17 @@ class AIVersions(SupervisorBase):
         kinds, summaries, asked = self.told(name)
         self.assertEqual((kinds, asked), (["ai_newer_version"], ["ai_newer_version"]))
         self.assertIn("typesafe/jev-1.16", summaries[0])        # いちばん新しい版を知らせる
+        declined = [name + "-measured", "typesafe/jev-1.14"]
+        self.run_check(s, [self.row(name, 新しい版=["typesafe/jev-1.15", "typesafe/jev-1.16"], 見送った版=declined)])
+        self.assertEqual(self.told(name)[0], ["ai_newer_version"])   # 見送った版が添わっても、同じ新しい版は1つ（CL-1 の連絡帳 4-164）
+        old = {k: v for k, v in self.row(quiet).items() if k != "見送った版"}
+        self.run_check(s, [old])                                  # 見送った版の無い古い形の行も読む
+        self.assertEqual(self.told(quiet), ([], [], []))
+        fresh = f"jev-{uuid.uuid4().hex[:6]}"
+        self.run_check(s, [self.row(fresh, 新しい版=["typesafe/jev-2"], 見送った版=declined)])
+        refs = self.w.a.in_system(ADMIN, lambda tx: tx.one(
+            "SELECT refs FROM salescall.notification_events WHERE for_admin AND refs->>'名前' = %s", (fresh,)))["refs"]
+        self.assertEqual(refs["見送った版"], declined)            # 見送った版を知らせの記録に添える（管理者が読む）
         self.assertEqual(self.told(quiet), ([], [], []))         # 新しい版の無い AI は知らせない
         others = self.w.a.in_system(ADMIN, lambda tx: tx.one(    # 管理者あてだけ（契約者の台帳・全体の出来事には入れない）
             "SELECT count(*) AS n FROM salescall.notification_events WHERE NOT for_admin AND refs->>'名前' = %s", (name,)))["n"]
@@ -2783,7 +2794,7 @@ class AIVersions(SupervisorBase):
         name = f"jev-{uuid.uuid4().hex[:6]}"
         good = self.row(name, 新しい版=["typesafe/jev-9"])
         for bad in ("行でない", {"役目": "判定"}, self.row("x", 新しい版="typesafe/jev-9"), self.row("x", 一覧にある="はい"),
-                    {**self.row("x"), "使っている版": ""}, self.row("x", 別の系統で後から出たもの=[1])):
+                    {**self.row("x"), "使っている版": ""}, self.row("x", 別の系統で後から出たもの=[1]), self.row("x", 見送った版="typesafe/x-2")):
             with self.subTest(bad=bad), self.assertRaises(ai_versions.BadRows):
                 self.w.a.in_system(SYSTEM, lambda tx, b=bad: ai_versions.record(tx, [good, b]))
         with self.assertRaises(ai_versions.BadRows):

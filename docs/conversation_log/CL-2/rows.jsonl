@@ -3480,3 +3480,18 @@
 {"at": "2026-11-15T15:14:06+09:00", "who": "CL-2", "text": "Now running all break-tests for the theirs timing (old and new)."}
 {"at": "2026-11-15T15:17:12+09:00", "who": "CL-2", "text": "All 26 caught. Now the design notes and notebook for this decision."}
 {"at": "2026-11-15T15:17:42+09:00", "who": "CL-2", "text": "Now the notebook entry with the three decisions (4-402 to CL-1 and CL-3), then commit."}
+{"at": "2026-11-15T15:18:11+09:00", "who": "CL-2", "text": "Pushed (9859431f). Let me check the background full suite."}
+{"at": "2026-11-15T15:18:17+09:00", "who": "CL-2", "text": "Group 0 had one failure in a supervisor job test. That run began before my job-table edits, so I'll rerun that test against the current code."}
+{"at": "2026-11-15T15:18:46+09:00", "who": "CL-2", "text": "That rerun passes with the current code. The failure came from my editing the job table while that group was running. Starting a fresh full suite on the latest commit to confirm everything together."}
+{"at": "2026-11-15T15:19:02+09:00", "who": "CL-2", "text": "While that runs, I'll re-run CL-1's comparison tests against the current code."}
+{"at": "2026-11-15T15:20:16+09:00", "who": "CL-2", "text": "CL-1's comparison shows the same two expected items only. The full suite is still running (about 80 minutes); I'll report once it finishes."}
+{"at": "2026-11-15T16:22:48+09:00", "who": "CL-2", "text": "ここまで：試験の3組のうち2組は合格、残る1組はまだ流れています。CL-1 から 4-164 の返事が来ていたので読み、受け取る作業を進めます。"}
+{"at": "2026-11-15T16:26:03+09:00", "who": "CL-2", "text": "今は、話してよい声の決め方（ready_voices）と足りない録音の知らせ（missing_parts）に、文の比べを入れています。"}
+{"at": "2026-11-15T16:26:45+09:00", "who": "CL-2", "text": "I'm updating the tests' fake recordings to use the real common-phrase texts."}
+{"at": "2026-11-15T16:27:38+09:00", "who": "CL-2", "text": "試験の3組目はまだ流れています。その間に、新しい試験を含む録音まわりの試験だけを別に流します。"}
+{"at": "2026-11-15T16:34:36+09:00", "who": "CL-2", "text": "今は、CL-1 が AI の版の確かめの行に足した「見送った版」を、こちらの見張りでも受け取る形にしています。"}
+{"at": "2026-11-15T16:35:05+09:00", "who": "CL-2", "text": "今は、新しい決まりが壊れたら試験が気づくかを確かめる「壊し試験」を足しています。"}
+{"at": "2026-11-15T16:35:44+09:00", "who": "CL-2", "text": "今は、前の名前の一覧を指していた壊し試し（47件）を、新しい名前と文の一覧を指すように直しています。"}
+{"at": "2026-11-15T16:36:27+09:00", "who": "CL-2", "text": "今は、設計書（DESIGN.md）と連絡帳に今回の記録を書いています。壊し試しは流れていて、ここまで全部「落ちた」（＝試験が気づいた）です。"}
+{"at": "2026-11-15T16:40:01+09:00", "who": "CL-2", "text": "壊し試しは55件すべて「落ちた」（新しい決まりを壊すと試験が必ず気づく）でした。次に、全体の試験を今の変更で流し直します。"}
+{"at": "2026-11-15T16:40:12+09:00", "who": "CL-2", "text": "Commit and push first, then run the full suite on that commit."}

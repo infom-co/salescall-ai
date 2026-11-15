@@ -14,7 +14,7 @@ import uuid
 from datetime import timedelta
 from uuid import UUID
 
-from salescall.core import calling_hours, recordings, spoken_time
+from salescall.core import calling_hours, common_phrases, recordings, spoken_time
 from salescall.core.access import Access, Actor
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
@@ -206,19 +206,22 @@ class World:
     def approve_common(self, voices: tuple[str, ...], *, parts: tuple[str, ...] | None = None) -> None:
         """声ごとに、共通の一言の組（システムの持ち物＝管理者がシステムの取引で作って承認する。0171）を承認する（架空の録音）。
         parts が無ければ、部分のすべて（recordings.COMMON_PARTS）がそろった組が、いまの組でない声にだけ作る（システムの組は、すべての
-        契約者と試験が読む）。parts を渡すと、その部分だけの組を、いまの組として作る（足りない部分を試す。`common_missing` で戻す）。"""
+        契約者と試験が読む）。parts を渡すと、その部分だけの組を、いまの組として作る（足りない部分を試す。`common_missing` で戻す）。
+        文は共通の一言の文（common_phrases.TEXTS。文の違う部分は組に入れられない＝2026-11-15）。"""
         names = parts if parts is not None else recordings.COMMON_PARTS
+        texts = [common_phrases.TEXTS[n] for n in names]
 
         def work(tx):
             for v in voices:
                 if parts is None and tx.one(
                         "SELECT 1 FROM salescall.current_recording_sets s WHERE s.voice_name = %s AND s.unit = 'contractor'"
-                        " AND s.tenant_id IS NULL AND (SELECT count(*) FROM salescall.recordings r"
-                        " WHERE r.set_id = s.set_id AND r.part = ANY(%s)) = %s", (v, list(names), len(names))) is not None:
+                        " AND s.tenant_id IS NULL AND (SELECT count(*) FROM salescall.recordings r JOIN unnest(%s::text[], %s::text[]) p(part, t)"
+                        " ON r.part = p.part AND r.spoken_text = p.t WHERE r.set_id = s.set_id) = %s",
+                        (v, list(names), texts, len(names))) is not None:
                     continue
                 recordings.approve(tx, recordings.create_set(
                     tx, unit="contractor", voice_name=v,
-                    parts=[recordings.Part(n, f"架空の録音（{n}）。", f"test://{v}/{n}", "0" * 64) for n in names]))
+                    parts=[recordings.Part(n, t, f"test://{v}/{n}", "0" * 64) for n, t in zip(names, texts)]))
         self.a.in_system(ADMIN, work)
 
     @contextlib.contextmanager

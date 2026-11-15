@@ -15,7 +15,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from unittest import mock
 
-from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, dial_exit, dnc, fix_requests,
+from salescall.core import (approval, common_phrases, attempts, business_rules, calendar, call_report, calling_hours, dial_exit, dnc, fix_requests,
                             gate, health,
                             next_action, quality_stage, recordings, scheduler, settings, settle, stops, target_policy, tasks)
 from salescall.core.call_report import Cut
@@ -1031,8 +1031,36 @@ class CallerNumberAndVoice(Base):
             with self.assertRaises(Rejected):                                      # 契約者は共通の一言の組を作れない（0171）
                 self.w.a.in_tenant(OPERATOR, u, lambda tx: recordings.create_set(
                     tx, unit="contractor", voice_name="Sadachbia",
-                    parts=[recordings.Part(p, "架空の録音。", f"test://Sadachbia/{p}", "0" * 64) for p in recordings.COMMON_PARTS]))
+                    parts=[recordings.Part(p, t, f"test://Sadachbia/{p}", "0" * 64) for p, t in common_phrases.TEXTS.items()]))
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")    # 管理者が足りない部分を入れた組を承認すれば話す
+
+    def test_a_common_part_recorded_with_another_text_is_not_used(self):
+        """共通の一言の文が替わったら（会話の担当が phrases.RECORDED の文を替え、core/common_phrases.TEXTS を作り直した）、前の文で録った
+        承認済みの録音は使わない（✅ 2026-11-15 ユーザー「同じ決まりにする」＝業務の録音・標準の録音と同じ。⛔ それまでは名前だけを見たので、
+        前の文の録音が流れ、お客様に聞こえる文と、判定がお返事を読む文が食い違いえた＝CL-1 の連絡帳 4-164 の例 announce_recheck）。その部分は
+        足りない部分として知らせ（録り直しが要る）、管理者が新しい文で録って承認すれば、その声で話す。共通の一言の組には、共通の一言の外の
+        名前・文の違う部分を入れられない（組を作るときにも断る）。"""
+        part, new = "announce_recheck", "それでは先ほどの内容でよろしいでしょうか？（試験の新しい文）"
+        a = self.ready()
+        voices = self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"]))
+        self.assertIn("Leda", voices)
+        try:
+            with mock.patch.dict(common_phrases.TEXTS, {part: new}):
+                self.assertEqual(self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"])), [])   # 前の文の録音の声では話さない
+                self.assertEqual(self.tx(a, lambda tx: recordings.missing_parts(tx, a["version"])), [part])
+                got = self.tx(a, lambda tx: self.voice(tx, a, "L4"))
+                self.assertIsInstance(got, gate.Denied)
+                self.assertEqual(got.reason, "voice_not_ready")
+                for wrong in ([recordings.Part(part, "前の文。", "test://Leda/old", "5" * 64)],         # 文が違う
+                              [recordings.Part("intro", "ご予約の確認でお電話いたしました。", "test://Leda/intro", "5" * 64)]):   # 共通の一言の外
+                    with self.subTest(wrong=wrong[0].part), self.assertRaises(ValueError):
+                        self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(tx, unit="contractor", voice_name="Leda", parts=wrong))
+                self.w.approve_common(("Leda",))                                       # 管理者が新しい文で録って承認した
+                self.assertEqual(self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"])), ["Leda"])
+                self.assertEqual(self.tx(a, lambda tx: recordings.play_parts(tx, a["version"], "Leda"))[part].spoken_text, new)
+        finally:
+            self.w.approve_common(("Leda",))                                           # システムの組はほかの試験も読むので、もとの文に戻す
+        self.assertEqual(self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"])), voices)
 
     def test_a_promised_call_needs_no_name_part_in_the_business_set(self):
         """約束の電話も、お詫びの電話も、業務の組にお名前の入る一言が無くても予約できる（⛔ 2026-10-24 CL-1 の連絡帳 4-39。お名前の入る一言は名前の録音の台帳＝NameLedger）。"""
@@ -1424,7 +1452,8 @@ class CallerNumberAndVoice(Base):
         make("Leda", part("Leda", "なかじま"))                                     # 読みの重なる「中嶋」の読みは求めない
         with self.assertRaises(ValueError):                                        # 共通の一言の録音には付けない
             self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(
-                tx, unit="contractor", voice_name="Leda", parts=[part("Leda", "なかじま")]))
+                tx, unit="contractor", voice_name="Leda",
+                parts=[recordings.Part("hai", common_phrases.TEXTS["hai"], "test://Leda/hai", "4" * 64, readings={"中島": "なかじま"})]))
 
     def test_a_chosen_reading_is_carried_to_a_restored_or_copied_version(self):
         """以前の版へ戻した版・業務を複製した版にも、契約者が録音を聞いて選んだ名前の読みが引き継がれる（1か所＝

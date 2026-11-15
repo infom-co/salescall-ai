@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from salescall.core import apology, attempts, next_action, recordings, registry, stops
+from salescall.core import apology, common_phrases, attempts, next_action, recordings, registry, stops
 from salescall.core.access import Rejected
 from tests import support
 from tests.support import ADMIN, OPERATOR, SYSTEM, said
@@ -67,7 +67,8 @@ class Guards(Base):
         _, other_version = self.w.business_with_version(other["tenant"], other["client"])
         theirs = self.tx(other, lambda tx: support.make_business_set(tx, "Leda", other_version, [PART]), OPERATOR)
         shared = self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(   # 承認しない（システムの組はほかの試験も読む）
-            tx, unit="contractor", voice_name="Leda", parts=[PART]))
+            tx, unit="contractor", voice_name="Leda",
+            parts=[recordings.Part("hai", common_phrases.TEXTS["hai"], "test://Leda/hai", "1" * 64)]))
         add = ("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q1', 'お世話になっております。',"
                " 'test://Leda/Q1', %s)")

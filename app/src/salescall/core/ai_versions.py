@@ -5,8 +5,10 @@
 
 - **確かめるのは CL-1 の部品**（`supervisor.plugins.VersionChecker`。CL-1 の latest_ai と同じ1か所：使っている名前は、版まで決めて持つ所から
   読み、作り手の公開のモデルの一覧だけを読む＝問い合わせではないので料金0円）。こちらはモデルの名前も、新しい版かの決め方も持たない。
-  答えの行は CL-1 の `latest_ai.check` の行のまま（役目・名前・使っている版・一覧にある・新しい版・別の系統で後から出たもの、または
-  一覧を読めなかった理由＝結果）。
+  答えの行は CL-1 の `latest_ai.check` の行のまま（役目・名前・使っている版・一覧にある・新しい版・別の系統で後から出たもの・見送った版、
+  または一覧を読めなかった理由＝結果）。見送った版（CL-1 が新しい版で測って替えないと決めた版＝CL-1 の latest_ai.DECLINED の1か所）は、
+  CL-1 の部品が「新しい版」にも「別の系統」にも並べない（CL-1 の連絡帳 4-164）＝同じ版の知らせ・修正依頼をくり返さない。こちらは新しい版の
+  知らせの記録に添えるだけ（管理者が、見送ったことを知って読む）。古い形の行（見送った版の無い行）も読む。
 - **いつ**：中央の見守り役の毎日1回の仕事（`supervisor.jobs.ai_versions`）。「10日に一回は」を毎日で満たす（料金0円なので回数を減らす
   得が無い・前の確かめの時刻を持たない＝見守り役が止まっても、1回落ちても、次の回にまた確かめる）。
 - **何を知らせるか**は、行ごとに `outcome` の1か所：
@@ -63,7 +65,7 @@ def outcome(row: Any) -> tuple[str, str] | None:
         return UNCHECKED, _text(row, "結果")
     current = _text(row, "使っている版")
     newer = _names(row, "新しい版")
-    _names(row, "別の系統で後から出たもの")
+    _names(row, "別の系統で後から出たもの"), _names(row, "見送った版")
     if not isinstance(row.get("一覧にある"), bool):
         raise BadRows(f"確かめの部品の行の 一覧にある は、真か偽です（{row.get('一覧にある')!r}）")
     if newer:
@@ -86,7 +88,7 @@ def record(tx: Tx, rows: Any, *, now: datetime | None = None) -> dict[str, int]:
         refs = {"役目": role, "名前": name, "使っている版": row.get("使っている版") or row.get("id") or row.get("display")}
         if kind == NEWER:
             summary = f"使っている AI に新しい版が出ています：{role}の {name}（{refs['使っている版']} → {version}）。CL-1 が新しい版で測ってから置き換えます"
-            refs |= {"新しい版": row["新しい版"], "別の系統で後から出たもの": row.get("別の系統で後から出たもの", [])}
+            refs |= {k: row.get(k, []) for k in ("新しい版", "別の系統で後から出たもの", "見送った版")}
         elif kind == MISSING:
             summary = f"使っている AI の版が作り手の一覧にありません（もう無い・名前が変わった）：{role}の {name}（{version}）。CL-1 が確かめます"
         else:
