@@ -635,6 +635,15 @@ def customer_said(text: str | None) -> str:
     return (text or "").strip()[:CUSTOMER_WORDS_MAX]
 
 
+FACT_SAID_MAX = 80   # 通話の事実に残す根拠の発話の言葉の長さの上限（fact_said の1か所）
+
+
+def fact_said(text: str | None) -> str:
+    """通話の事実に残す根拠の発話の言葉の形（唯一の場所＝事実を残す Flow._note・ここで終える答え ended_on・目的が果たせなくなった断り goal_refused・
+    ご納得いただけなかった点の言い足し _point_heard・並べて伺う前のご希望 other_wish の before_ways）：前後の空白を外し、FACT_SAID_MAX 字まで。"""
+    return (text or "").strip()[:FACT_SAID_MAX]
+
+
 def approx_value(value: str | None, said: str | None) -> tuple[str, str] | None:
     """値を伺う質問の答えが確定でない言い方か（唯一の決まり＝言い直しを作る Flow._ask_confirm の頭・受ける1か所 Flow._tentative）。確定でなければ
     （値の芯, お客様の言い方の値）＝（「15日」, 「15日あたり」）、確定なら None。見るのは、値そのもの（会話AIが言葉のまま報告した＝道具の宣言「相手の言葉のとおり」）
@@ -1921,7 +1930,8 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 # question＝止めた質問・answer＝その答え（日本語の名前）・skipped＝伺わなかった業務の質問。CL-2 の判定は skipped を「伺っていない（対象外）」と数える）
 # other_wish：選ぶ質問に「どれも要らない」と言われ、ほかのご希望を伺った答え（Flow._wish_step。question＝その質問・wish＝ほかのご希望の選択肢の名前
 # ・value＝お客様が言ったご希望・means＝ご連絡の方法（WISH_MEANS の鍵）・contact＝その方法の連絡先・outcome＝option（元の質問の選択肢を選び直した）／
-# means（ご連絡の方法）／other（ほかのご希望）／none（無い）。依頼者へ返す）
+# means（ご連絡の方法）／other（ほかのご希望）／none（無い）・before_ways＝方法を並べて伺う前に、方法を言わずにご希望を言っていただいた答え（turn・said・value。
+# 並べて伺っていなければ None。書くのは Flow._wish_note の1か所）。依頼者へ返す）
 # who_unclear：受付の方に、お名前だけではどの方か分からないと言われ、部署・フルネームでお呼びし直しても（recalled）・お伝えすることが無くて（発信対象データに
 # フルネームが無い）、取り次いでいただけなかった（Flow._who_unclear。日を改めて同じお名前でかけても同じになる＝CL-2 の次の動きが読む）
 # 気になる点・問題を言っていただき会話AIが応える番（Flow._concern_heard）で、会話AIへの知らせが言う、言っていただいたことの名前（通話の事実の種類 → 名前。唯一の表＝
@@ -12576,7 +12586,7 @@ class Flow:
         if explain:
             p.update(stage="explain", turn=self.callee_turns, explained=None, src=(by, self.items[by], len(self.items[by].history)))
         if e is not None:
-            said = (self.heard_said or "").strip()[:80]   # 根拠の発話は答えを当てている言葉（_note と同じ決まり）
+            said = fact_said(self.heard_said)   # 根拠の発話は答えを当てている言葉（_note と同じ決まり）
             for key, new in (("point", point), ("said", said)):
                 have = [x for x in (e.get(key) or "").split("／") if x]
                 if new and new not in have:
@@ -12873,15 +12883,17 @@ class Flow:
                 # ご案内の方法の申し出を受けていただいたが、どの方法かは言っていない（「はい、お願いします。」）：申し出た方法を並べて1回だけ伺う（LINE の伺い方の
                 # 「はい」だけ＝_line_how と同じ形）。✅ 2026-11-06 日本時間9時05分17秒 ユーザー：「(3) ご案内の方法の申し出に「はい、お願いします。」とだけ
                 # 言われる：「それではメールとLINEとZOOMのどちらがよろしいでしょうか？」と伺うOK」。⛔ それまでは「恐れ入ります。ほかのご希望をもう一度…」と聞き直した
-                w["which"] = True
+                # この答え（方法を言わずに言っていただいたご希望）は、並べたあとの答えの記録に一緒に残す（_wish_note の before_ways。根拠の発話は答えの材料の
+                # 1か所 _evidence＝いまこの答えを受けている言葉。値は会話AIが聞き取った値）
+                ev = self._evidence(wid) or {}
+                w["which"], w["before_ways"] = True, {"turn": ev.get("turn"), "said": fact_said(ev.get("said")), "value": it.value}
                 self._new_item(callback_question("other_wish", of=q, which=True))
                 self._insert_after(wid, wid)
                 return
         means = next((k for k in WISH_MEANS if wish_label(k) == cond), None)
-        wish = self.facts.get("other_wish", [])
         # wish_state＝W1 の答えの状態（業務の質問の答えの state と同じ名前。「-」のまま終えた W1 を次の電話で伺い直すか＝earlier_wish_open が読む）
-        self._note("other_wish", question=q.id, wish=cond, value=it.value if cond == WISH_OTHER or means else None, means=means,
-                   contact=None, outcome=None, via=None, wish_state=it.state, **self._proposal_terms(wid))
+        self._wish_note(q, wish=cond, value=it.value if cond == WISH_OTHER or means else None, means=means,
+                        contact=None, outcome=None, via=None, wish_state=it.state, **self._proposal_terms(wid))
         if (picked := wish_repick(q, cond)) is not None:
             # 選択肢を選び直していただいた：元の質問の答えにする（この通話で決め直す1か所＝_retake。決め手は W1 の答え＝遅れて届いた確かめは W1 の
             # 答えに当て、食い違えば元の質問の答えも渡さない）
@@ -12899,6 +12911,15 @@ class Flow:
             return self._wish_end("means", None)   # お電話：いまかけている番号がある
         # その方法の連絡先を、その場で伺う（「承知しました。」＋「それでは恐れ入りますがメールアドレスを…」＝_ack。LINE は伺い方を選んでいただく）
         self._wish_contact(role, after=wid)
+
+    def _wish_note(self, q: "Question", **fields) -> None:
+        """通話の事実 other_wish を書く唯一の場所（W1 の答え＝_wish_step・W1 を伺わずにご連絡の方法から始める＝_wish_means）。before_ways＝方法を並べて伺う前に、
+        方法を言わずにご希望を言っていただいた答え（{turn＝その発話の番号, said＝その言葉, value＝会話AIが聞き取った値}。並べて伺っていなければ None。いまの
+        ほかのご希望の手順 self.wish が持つ＝_wish_step）：並べたあとに選ばれた方法の記録と一緒に、依頼者へ渡す（依頼者へ渡す記録には、お客様のご希望の中身を残す＝
+        本書 9-4「範囲外の質問」の「お客様の質問は、依頼者へ渡す記録に残す」・9-5 の W1 の段と同じ理由）。⛔ 8765c1a1（伺い27）で、方法を言わない「説明書を送って
+        ほしいです。」に方法を並べて伺う形にしたとき、記録が並べたあとの答え（「メールでお願いします。」＝wish「メールでの連絡」）だけになり、ご希望の中身が依頼者へ
+        渡らなくなった（並べる前の作りでは value に残っていた）。"""
+        self._note("other_wish", question=q.id, **fields, before_ways=(self.wish or {}).get("before_ways"))
 
     def _wish_option(self, q: "Question", means: str) -> str:
         """いまのほかのご希望の手順（self.wish）の W1 で、ご連絡の方法 means のご希望にあたる選択肢の名前（唯一の読み口＝並べて伺った「どれでも」・W1 を伺っている
@@ -13035,8 +13056,8 @@ class Flow:
         self.wished.add(q.id)
         # told_said＝その申し出の条件つきの受けの言い切りでお伝えした方法（_offer_wish。申し伝える一言の1回として数える＝_told_said）
         self.wish = {"q": q.id, "stage": "detail", "detail": None, "means": means, "outcome": None, "told": None, "told_said": told_said}
-        self._note("other_wish", question=q.id, wish=wish_label(means), value=None, means=means, contact=None, outcome=None, via=None,
-                   wish_state=None, **dict.fromkeys(PROPOSAL_TERMS))   # W1 を伺っていない（方法はほかの答え・前の通話から）
+        self._wish_note(q, wish=wish_label(means), value=None, means=means, contact=None, outcome=None, via=None,
+                        wish_state=None, **dict.fromkeys(PROPOSAL_TERMS))   # W1 を伺っていない（方法はほかの答え・前の通話から）
         self.items[q.id].told = False
         role = role or WISH_MEANS[means][2]
         if role is None:
@@ -13348,7 +13369,7 @@ class Flow:
             if q.ask_if and q.id not in order and q.ask_if[0] in skipped:
                 skipped.add(q.id)
         qid, t = g[0], self._evidence(g[0]) or {}
-        return {"turn": t.get("turn"), "said": (t.get("said") or "").strip()[:80], "question": qid, "answer": label(self.items[qid].condition),
+        return {"turn": t.get("turn"), "said": fact_said(t.get("said")), "question": qid, "answer": label(self.items[qid].condition),
                 "skipped": [x for x in self.questions if x in skipped and self.items[x].state == "empty"]}
 
     def _question_to_us(self) -> str | None:
@@ -13554,7 +13575,7 @@ class Flow:
             # 読み直しで見つけた：締めたときの発話を入れていた＝ほかの質問への「いいえ、ないです。」が根拠になった）
             ev = max((e for e in (self._evidence(x) for x in lost) if e is not None and e.get("turn") is not None), key=lambda e: e["turn"], default=None)
             self._note("goal_refused", goals=lost, mode=self.goal_mode,
-                       **({"turn": ev["turn"], "said": (ev.get("said") or "").strip()[:80]} if ev is not None else {}))
+                       **({"turn": ev["turn"], "said": fact_said(ev.get("said"))} if ev is not None else {}))
             return self._close("goal_refused", prefix=f"{prefix}業務の目的が果たせなくなったので、質問はここまでです。")
         # ⛔ 2026-11-09 日本時間4時36分49秒まで、最終目的のご承認で点を言っていただけない・ご説明できなかったときは、お礼を言って締めていた（ご判断に無い道を
         # CL-1 が足していた）。✅ 3時06分51秒 ユーザー：「なぜ断ってるわけじゃないのに、そこで失礼しましたと切るんですか？超一流の営業マンが、断られてもいないのに、
@@ -13711,7 +13732,7 @@ class Flow:
         # 待たずに続けた言葉＝_wait_continue・先に言われた答え＝_offer_ahead）の答えなら、その言葉と発話（⛔ 2026-11-15 伺い25 を入れる途中、例の会話で見つけた：
         # いまの発話（「いえ、特にないです。」）を、ご納得いただけなかった点の記録の根拠にしていた）
         turn = self.judged["turn"] if self.judged else self.callee_turns
-        self.facts.setdefault(kind, []).append({"turn": turn, "said": (self.heard_said or "").strip()[:80], **extra})
+        self.facts.setdefault(kind, []).append({"turn": turn, "said": fact_said(self.heard_said), **extra})
 
     def _note_irreversible(self, kind: str, check: str) -> None:
         """取り消せない決定（発信の拒否 do_not_call・怒っていた complaint・番号違い）を残す唯一の場所：事実と、会話AIの読みと2つ目の判定

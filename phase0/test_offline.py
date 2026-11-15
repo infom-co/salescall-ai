@@ -61,6 +61,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          # ほかの会社に頼んでいる・使っていると言われたときに伺う一言の共通の一言の録音と、言っていただいた問題・心配事の通話の事実（✅ 2026-11-15
                          # 日本時間21時55分35秒 ユーザー（伺い25）。CL-2 への知らせはまとめ役）
                          "callback_elsewhere", "elsewhere", "E1",
+                         # 通話の事実 other_wish の、方法を並べて伺う前に方法を言わずにご希望を言っていただいた答え（伺い27 のあとに直した。flowctl.Flow._wish_note。
+                         # CL-2 への知らせはまとめ役）
+                         "before_ways",
                          "way_words",   # その答えの業務設定の欄（instruction.Business.way_words。CL-1.md 4-132）
                          "added",   # こちらから足した条件の欄（14時58分17秒「アで！」。CL-1.md 4-131）
                          "offer_terms",   # 業務の申し出の質問を条件つきで受けていただいた通話の事実（11-12 日本時間13時40分05秒の (2)。CL-1.md 4-129）
@@ -29445,6 +29448,65 @@ class OtherCompanyClueSendWayTest(unittest.TestCase):
             self.assertNotIn(WAY_UNSAID, g.questions[w1].conditions, ways)
             r = self.turn(g, words, self.rd(WISH_OTHER), "record_answer", question_id=w1, condition_id=WISH_OTHER)
             self.assertTrue(self.heard(r).startswith("承知しました。そのご希望を担当の者に申し伝えます。"), (ways, self.heard(r)))
+
+    def test_wish_said_before_the_ways_are_listed_stays_in_the_record(self):
+        # 依頼者へ渡す記録には、お客様のご希望の中身を残す（本書 9-4「範囲外の質問」の「お客様の質問は、依頼者へ渡す記録に残す」・9-5 の W1 の段と同じ理由）。
+        # 方法を言わずに「説明書を送ってほしいです。」と言っていただき（判定の読み「方法は言っていない」）、方法を並べて伺って「メールでお願いします。」と選んで
+        # いただいたら、通話の事実 other_wish の1つに、選ばれた方法の記録と一緒に、並べて伺う前の答え（その発話の番号・言葉・会話AIが聞き取った値）を残す
+        # （before_ways。書くのは other_wish を書く1か所）。⛔ 8765c1a1（伺い27）で並べて伺う形にしたとき、記録が並べたあとの答え（said「メールでお願いします。」・
+        # wish「メールでの連絡」）だけになり、「説明書を送ってほしい」が依頼者へ渡らなくなった（並べる前の作りでは value に残っていた）。お客様に聞こえる言葉は変えない
+        from flowctl import ANY, CALLBACK_IDS, NONE, WAY_UNSAID, WISH_OTHER, Flow, Question, wish_label
+        w1, mail, post = CALLBACK_IDS["other_wish"], CALLBACK_IDS["email"], CALLBACK_IDS["address"]
+        words = "営業の方じゃなくて、説明書を送ってほしいです。"
+
+        def listed(ways=("メール", "郵送"), **value):
+            f = self.flow(offer_ways=ways)
+            self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+            self.turn(f, "どちらも要らないです。", self.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+            r = self.turn(f, words, self.rd(WAY_UNSAID), "record_answer", question_id=w1, condition_id=WAY_UNSAID, **value)
+            self.assertEqual((f.current, self.heard(r)), (w1, f"承知しました。それでは{'と'.join(ways)}のどちらがよろしいでしょうか？"))
+            self.assertNotIn("other_wish", f.facts)   # 並べて伺う前には書かない（書くのは並べたあとの答えの1か所）
+            return f, {"turn": f.callee_turns, "said": words, "value": value.get("value")}
+
+        def record(f):
+            e, = f.facts["other_wish"]
+            return {k: e.get(k) for k in ("said", "wish", "means", "contact", "outcome", "before_ways")}
+        # メール：メールアドレスを伺って確かめ、申し伝える（お客様に聞こえる言葉は今のまま）
+        f, before = listed()
+        r = self.turn(f, "メールでお願いします。", self.rd(wish_label("email")), "record_answer", question_id=w1, condition_id=wish_label("email"))
+        self.assertEqual((f.current, self.heard(r)), (mail, "かしこまりました。それでは恐れ入りますがメールアドレスをお伺いしてもよろしいでしょうか？"))
+        self.turn(f, "abc@example.co.jp です。", self.rd("答えた"), "record_answer", question_id=mail, condition_id="答えた", value="abc@example.co.jp")
+        r = self.turn(f, "はい。", self.rd("affirmed"), "confirm_field", question_id=mail, result="affirmed")
+        self.assertTrue(self.heard(r).startswith("承知しました。メールでのご連絡のご希望を担当の者に申し伝えます。"), self.heard(r))
+        self.assertEqual(record(f), {"said": "メールでお願いします。", "wish": wish_label("email"), "means": "email", "contact": "abc@example.co.jp",
+                                     "outcome": "means", "before_ways": before})
+        # 会話AIが聞き取った値（「説明書を送ってほしい」）を添えていれば、それも残す
+        f, before = listed(value="説明書を送ってほしい")
+        self.turn(f, "郵送でお願いします。", self.rd(wish_label("post")), "record_answer", question_id=w1, condition_id=wish_label("post"))
+        self.assertEqual((f.current, record(f)["before_ways"]), (post, before))
+        self.assertEqual(before["value"], "説明書を送ってほしい")
+        # 「どちらでも」（最初に並ぶ方法でご案内する）・それでも方法を言っていただけない・答えたくない（申し伝える）も、並べて伺う前のご希望を残す
+        for reply, cond, outcome in (("どちらでも大丈夫です。", ANY, None), ("とにかく送ってほしいんですけど。", WAY_UNSAID, "other"),
+                                     ("それはちょっと言えないです。", "refused", "other")):
+            f, before = listed(("メール", "郵送", "ファクス"))
+            self.turn(f, reply, self.rd(cond), "record_answer", question_id=w1, condition_id=cond)
+            self.assertEqual((record(f)["outcome"], record(f)["before_ways"]), (outcome, before), reply)
+        # 並べて伺っていない W1 は今のまま（ご希望の中身は value。before_ways は無し）
+        f = self.flow(offer_ways=("郵送",))
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        self.turn(f, "どちらも要らないです。", self.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+        self.turn(f, words, self.rd(WISH_OTHER), "record_answer", question_id=w1, condition_id=WISH_OTHER, value="説明書を送ってほしい")
+        self.assertEqual(record(f), {"said": words, "wish": WISH_OTHER, "means": None, "contact": None, "outcome": "other", "before_ways": None})
+        self.assertEqual(f.facts["other_wish"][0]["value"], "説明書を送ってほしい")
+        # ご案内の方法の申し出に、方法を言わずに受けていただいた（「はい、お願いします。」）あとに並べて伺ったときも、同じ1か所（並べる前の答えを残す）
+        say = AmbiguousAnswerTest.say
+        g = Flow([NoneOfThemTest("test_way_offer_accepted_without_saying_which_asks_once").way_question(),
+                  Question("Q2", "ご不明な点はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        HedgedSalesTest.hedged(g, "Q1", "いいえ", "うーん、お電話はちょっと…。")
+        say(g, "はい、お願いします。", "record_answer", question_id=w1, condition_id=WAY_UNSAID)
+        turn = g.callee_turns
+        say(g, "じゃあメールで。", "record_answer", question_id=w1, condition_id=wish_label("email"))
+        self.assertEqual(record(g)["before_ways"], {"turn": turn, "said": "はい、お願いします。", "value": None})
 
     # ── (2) の (b)
     def test_undecided_end_on_n1_n2_takes_the_judged_answer_without_asking_again(self):
