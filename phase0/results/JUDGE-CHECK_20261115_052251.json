@@ -1,0 +1,29 @@
+{
+  "item": "JUDGE-CHECK",
+  "saved_at": "2026-11-15T05:22:51",
+  "確かめ": {
+    "SubQ Snap 1.2": {
+      "model": "subq-snap-1.2",
+      "秒": 0.74,
+      "読み": "メール"
+    }
+  },
+  "有料の窓口の料金": {
+    "返事の使った量で数える判定": {
+      "円": 0.0,
+      "回数": {
+        "subq-snap-1.2": 1
+      },
+      "返事を待たずに止めた回数（円は見込み）": {},
+      "トークン": {
+        "subq-snap-1.2": {
+          "input_tokens": 3180,
+          "output_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0
+        }
+      },
+      "上限の円": 1.0
+    }
+  }
+}
