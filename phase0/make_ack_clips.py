@@ -198,6 +198,9 @@ HOW_OF.update({f"callback_carried_talked_{k}": question_how(t) for k, t in CARRI
 # theirs_later＝✅ 2026-11-15 日本時間11時59分07秒「伺い17はアでOK」。役目は理由の表 flowctl.THEIRS_PLAN の1か所）：質問の読み方で、長さの上限は文の長さで選ぶ
 from flowctl import THEIRS_PLAN  # noqa: E402
 HOW_OF.update({f"callback_{r}": question_how(CALLBACK_ASK[r]) for rs in THEIRS_PLAN.values() for r in rs})
+# ほかの会社に頼んでいる・使っていると言われたときに伺う一言（phrases.CALLBACK_ASK の elsewhere・約45字。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25））：質問の
+# 読み方で、長さの上限は文の長さで選ぶ（お言葉に甘えたあとに伺う一言と同じ決め方）
+HOW_OF["callback_elsewhere"] = question_how(CALLBACK_ASK["elsewhere"])
 # 引き継ぎを確かめる一言のあと最初から伺うときの一言（phrases.START_OVER「それでは改めて確認させていただきますね。」。✅ 同じ時「伺い2はア」）：2回目の戻る一言
 # 「それではもう一度確認させていただきますね。」（back_again）と同じ形・同じ長さの一言なので、同じ読み方と上限
 HOW_OF["start_over"] = "back_again"
@@ -339,7 +342,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer,
+    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
                          tell_recording_id)
     from instruction import reading_variants
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, again_fit, back_fit, question_clip
@@ -380,8 +383,9 @@ def script_table(business) -> tuple[dict, dict]:
             # 「どれも要らない」・最終目的への言い切っていないお断りのあと、ほかのご希望を伺う一言（文は flowctl._wish_text の1か所＝W1 の質問の文。
             # 名前は flowctl.other_wish_recording_id）。伺っている途中で切れた電話の続きで、切れた所から伺う一言（again＝「前回お伺いした…の件で…」）も
             variants = [callback_question("other_wish", of=q, again=again) for again in (False, True)]
-            if len(way_offer(q) or ()) > 1:
-                # ご案内の方法の申し出に、どの方法かは言わずに受けていただいたときの1回の伺い直し（「それではメールとLINEとZOOMのどちらが…」＝flowctl の Flow._wish_step）
+            if wish_ways(q):
+                # どの方法かは言わずにご案内・お送りを望まれたときの1回の伺い直し（「それではメールとLINEとZOOMのどちらが…」＝flowctl の Flow._wish_step。並べる方法は
+                # flowctl.wish_ways の1か所＝申し出の W1 も、ほかの W1 も）
                 variants.append(callback_question("other_wish", of=q, which=True))
             wishes = [(v.recording, v.text) for v in variants]
             # 2回目・3回目からの戻る一言に続けて流す形（phrases.back_fit の1か所＝流す flowctl.question_play と同じ。システムの質問は phrases.BACK_FIT）。
@@ -390,7 +394,7 @@ def script_table(business) -> tuple[dict, dict]:
             # 戻る一言なしに・頭が「それでは」でない一言のあとに伺い直す形（phrases.again_fit＝頭「それでは」。流す flowctl.question_play と同じ。見直し (12) の B-9）
             fitted += [again_fit(*(v.plain or (v.recording, v.text))) for v in variants]
             items += [(rid, text, question_how(text)) for rid, text in dict(wishes + fitted).items()]
-            if len(way_offer(q) or ()) > 1:
+            if wish_ways(q):
                 # 並べて伺ったあとの「どれでも」に、こちらで方法をお伝えする一言（flowctl.way_any_line の1か所。2026-11-07 3時14分01秒 H3 イ）
                 items.append((*way_any_line(q), "own_fallback"))
         if approval_explanation(q):
