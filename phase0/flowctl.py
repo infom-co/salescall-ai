@@ -2158,11 +2158,11 @@ NO_BEFORE = "無し（こちらがはじめにお呼びしたあとに、お客�
 END = "end"
 END_NONE, END_REFUSED, END_HURRY, END_ANGRY = "言っていない", "通話・営業を断った", "急いでいる・いまは話せない", "怒っている・苦情"
 END_REASONED, END_UNCLEAR = "事情を言って取り次げない", "理由を言わずに取り次げない"
-END_WHO = "どの方か分からず取り次げない"
+END_WHO = "どの方か分からず取り次げない"   # ✅ 2026-11-01 日本時間23時59分 ユーザー（お名前だけでは分からない＝部署・フルネームでお呼びし直す＝Flow._who_unclear）
 # 急いでいるが、手短になら話を聞く（答えの段だけの選べるもの＝end_choices。電話を終える読みではない＝END_REASON に入れない。応じ方は Flow._brief_say の1か所）。
 # ✅ 2026-11-16 日本時間0時42分38秒 ユーザー「伺い30：「ありがとうございます。～（営業の要約）」手短にと言っているのに、いきなり、「お電話とメール」を伺うなんて
 # ありえないでしょ。」
-END_BRIEF = "急いでいるが手短になら聞く"   # ✅ 2026-11-01 日本時間23時59分 ユーザー（お名前だけでは分からない＝部署・フルネームでお呼びし直す＝Flow._who_unclear）
+END_BRIEF = "急いでいるが手短になら聞く"
 END_REASON = {END_REFUSED: "callee_refused_call", END_HURRY: "callee_hurry", END_ANGRY: "callee_complaint",
               END_REASONED: "not_transferred", END_UNCLEAR: "transfer_unclear", END_WHO: "who_unclear"}   # 電話を終える読み ⇒ 終わりの理由（END_LABEL の中の名前）
 END_HEADING = "電話を終える言葉か"

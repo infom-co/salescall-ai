@@ -28863,14 +28863,17 @@ class MeasureReviewTest(unittest.TestCase):
         away, plain = rows["うちは月曜が定休日なんですよ。"], rows["そうですね。"]
         self.assertEqual(step_wants(away, qs["R1"], False), {AWAY_ACT})
         # 答えの話（別のお話ではない）の決められない読みは、ひとこと＋「ところで」に行かない。「そうですね。」は F5（11-15）で言いよどみなら考えている途中も正解
-        # にした（流れの制御では「はい。」で待つ）＝正しい動きは2つ。答えの手がかりのご事情は聞き直すだけ
+        # にした（流れの制御では「はい。」で待つ）＝正しい動きは2つ。答えの手がかりだけのご事情は別のお話（✅ 2026-11-15 日本時間21時55分35秒「伺い26：ア」
+        # ＝2026-11-16 rv38 で試しの言葉の表を直した。前の期待は伺い26 の前の「聞き直すだけ」）。「振込だと手間」は振込を避ける向きの寄った考え（カード・
+        # 言い切っていない）とも読める＝どちらの動きも正解
         self.assertEqual(step_wants(plain, qs["R1"], False), {ASK_AGAIN, WAIT_ACT[THINKING]})
-        self.assertEqual(step_wants(rows["うちは振込だと手間なんですよね。"], qs["R1"], False), {ASK_AGAIN})
+        self.assertEqual(step_wants(rows["うちは振込だと手間なんですよね。"], qs["R1"], False), {AWAY_ACT, "念のため確かめる：カード"})
         self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, AWAY_YES), AWAY_ACT)
         self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, AWAY_NO), ASK_AGAIN)
         self.assertEqual(flow_act(away, qs["R1"], UNDECIDED, True, None, None), ASK_AGAIN)   # 読んでいない＝今の道
-        # 日にちの質問へのご事情は答えの手がかり（いちばん大事な境目）・申し出の質問は「ところで」の番に来ない（aside_fits）
-        self.assertEqual(step_wants([it for it in review_words.answer_words() if it["qid"] == "R2"][0], qs["R2"], False), {ASK_AGAIN})
+        # 日にちの質問への答えの手がかりだけのご事情も別のお話（伺い26 ア はこの言葉そのもの＝前の期待は伺い26 の前の「聞き直す」）・申し出の質問は
+        # 「ところで」の番に来ない（aside_fits）
+        self.assertEqual(step_wants([it for it in review_words.answer_words() if it["qid"] == "R2"][0], qs["R2"], False), {AWAY_ACT})
         # 外れの種類：別のお話をひとことも無く聞き直す・答えの話に「ところで」
         key = "判定"
         self.assertEqual(flow_miss({**away, key: UNDECIDED, f"{key}別の話": AWAY_NO}, qs["R1"], key), "⛔別のお話なのに、ひとことも無く聞き直す")
