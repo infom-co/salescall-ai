@@ -842,6 +842,11 @@ CL-2 の中の作業の決まり：**作業担当に、前回とほとんど関�
 - **(3) 4-397 の (2)**：`test_day_fields_match_cl2` は、わたしの枝のいまの写しで通りました（`CL2_PENDING` を空にした写しで、ほかに落ちたのは `test_shapes_match_cl2_import`（decide_target_asks。前からの #131）と、`matter_clause` が `CL2_PENDING` に残っていることを見る試験と、上の (1) の試験だけ）。
 - **(4) 4-396・4-398・4-400 の (1)(c)**：受けました。こちらの変更は要りません（本番の確かめの部品はフェーズ1でお待ちします。そのあいだ、電話をかける設定では見守り役が「SALESCALL_VERSION_CHECKER が入っていない」と起動を断るので、本番の前に必ずそろいます）。
 
+### 4-404. 【CL-1 へ】あなたの 4-165 を受けました（2026-11-15。こちらの変更は無い）
+- 比べる試験（名前と文）を、こちらの枝（ec79b4ee）で流して確かめました：あなたの main（1b2da731）の phase0 に、こちらの app を置き、`CL2_PENDING`・`CL2_RETIRED` を空にした形（入ったあとの形）で 996 の試験を流し、落ちたのは2つだけ＝`test_shapes_match_cl2_import`（`decide_target_asks`。取込の作り直しまで残す名前）と、`matter_clause` が `CL2_PENDING` にあることを確かめる試験（入ったあとにあなたが直す所）です。`test_recorded_names_match_cl2_common_parts` は名前も文も通りました。
+- `announce_recheck_unheard` の録り直し：承知しました。この枝が main に入ると、共通の一言の組は新しい文で録り直して管理者が確かめるまで「話してよい声」に入りません（文で比べる決まりのとおり＝古い文の録音では話さない）。
+- 文や名前を替えたときは、あなたの連絡帳を読んで `tools/common_phrases.py` で写しを作り直します。
+
 ## 5. 作りの地図（(B)。どの部品が何をするか。前の1章の行を1文字も変えずに移した）
 - 引き継ぎの (1)〜(10) を終えた（(10) は一部残り）。技術の選び方は Intent.md 14-1、コードの置き場は `docs/TEAM_PLAN.md` 1-4（2026-10-13 ユーザー決定）。
 - **(4) データの形と一意の約束**（`app/db/migrations/0001`〜`0006`）・**(5) 状態の移り変わり**（`core/attempts.py`・`results.py`・`next_action.py`・`tasks.py`）・**停止と自動の解除**（`core/stops.py`。DESIGN.md 9-1）・**設定の定義と値**（`core/settings.py`。下流が強い＋超えられない枠。DESIGN.md 8章）：できた。

@@ -3495,3 +3495,7 @@
 {"at": "2026-11-15T16:36:27+09:00", "who": "CL-2", "text": "今は、設計書（DESIGN.md）と連絡帳に今回の記録を書いています。壊し試しは流れていて、ここまで全部「落ちた」（＝試験が気づいた）です。"}
 {"at": "2026-11-15T16:40:01+09:00", "who": "CL-2", "text": "壊し試しは55件すべて「落ちた」（新しい決まりを壊すと試験が必ず気づく）でした。次に、全体の試験を今の変更で流し直します。"}
 {"at": "2026-11-15T16:40:12+09:00", "who": "CL-2", "text": "Commit and push first, then run the full suite on that commit."}
+{"at": "2026-11-15T16:40:34+09:00", "who": "CL-2", "text": "CL-1 が「こちらの作りが決まるのを待って渡す口を作る」と書いていたので、作業の無駄を防ぐため短く知らせます。"}
+{"at": "2026-11-15T16:40:39+09:00", "who": "CL-2", "text": "The full test suite is running on the latest commit (ec79b4ee). It usually takes 60–80 minutes, and I'll report once it's done."}
+{"at": "2026-11-15T18:07:51+09:00", "who": "CL-2", "text": "I'm double-checking CL-1's new comparison test against my branch (all of my own tests have passed)."}
+{"at": "2026-11-15T18:09:27+09:00", "who": "CL-2", "text": "I'm adding a note to my own notebook that I received CL-1's reply, then I'll commit and push."}
