@@ -18090,6 +18090,63 @@ class NoneOfThemTest(unittest.TestCase):
             r = f.apply("request_callback", {"why": "later", "offer": "callback"})
             self.assertEqual((r["result"], f.facts.get("callback")), ("rejected", None), readings)
 
+    def test_busy_words_that_already_say_how_to_go_on_are_not_asked_the_busy_question(self):
+        # ✅ 2026-11-15 日本時間18時25分14秒 ユーザー：「「今日はもう無理なので、改めて連絡ください。」だけなら、「急いでいる」と読んでもおかしくないと思います。
+        # その前の流れなどが分からないとこの文だけなら私でもそう読めてしまいます。」＝電話を終える言葉か（急いでいる・いまは話せない）と、待つ・かけ直すの答えは
+        # 別々の評価軸（10-29「別々の評価軸は1つの選びに混ぜない」）。同じ言葉で、どう続けるか（待つ・あとでかけ直す・お客様から折り返す・待つかかけ直すか
+        # 決められない）をもう言っていれば、急いでいる方への伺い（「それではまた改めてお掛けしてもよろしいでしょうか？」）は重ねて伺わず（9-3「取得済みのことを
+        # 重ねて聞かない」）、その答えの1か所（_wait_route）で応じる＝判定がどちらの項目をどう読んでも、お客様に聞こえる言葉は同じ。報告の無いターンでも、会話AIの
+        # 終わりの報告でも同じ。⛔ それまでは、判定が「急いでいる」と読むと、頼まれたかけ直し・待つお願いの前に、また改めてお掛けしてよいかを伺った
+        from flowctl import END, END_HURRY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, THINKING, WAIT_OR_LATER
+        from meaning_judge import Reading
+        from phrases import ACK, CALLBACK_ASK
+
+        def busy(answer):
+            r = Reading(answer)
+            setattr(r, END, END_HURRY)
+            return r
+
+        def heard(r):
+            return (ACK[r["ack"]] if r.get("ack") else "") + r.get("say", "") + r.get("question", "")
+
+        def scene(stage):
+            f = self.wished(False)[0] if stage == "W1" else self.flow(False)   # ほかのご希望を伺う番・業務の質問を伺う番
+            f.use_checks("judge")
+            return f
+
+        def turn(f, words, reading, path):
+            f.on_callee(); f.on_heard(words); f.on_check("judge", reading)
+            if path == "報告の無いターン":
+                return f.judged_turn(voiced=False)
+            if path == "会話AIの答えの報告":
+                return f.apply("record_answer", {"question_id": f.current, "condition_id": "unknown"})
+            return f.apply("request_end", {"reason": "callee_hurry"})
+        for words, answer, want in (("今日はもう無理なので、改めて連絡ください。", LATER, "いつ頃おかけ直しさせていただきましょうか？"),
+                                    ("いまちょっと席を外すので、待ってもらえますか。", HOLD, "はい、"),
+                                    ("少し調べてくるので、待っていてください。", HOLD_BACK, "はい、それではこのままお返事を待っております。"),
+                                    ("いま手が離せないので、あとでこちらからかけ直しますね。", LATER_THEIRS, "いつ頃おかけ直しさせていただきましょうか？"),
+                                    ("いま立て込んでいて、少し考えさせてください。", WAIT_OR_LATER,
+                                     "このままお待ちしていた方がよろしいでしょうか？それとも改めておかけ直しさせていただいた方がよろしいでしょうか？")):
+            for stage in ("W1", "Q1"):
+                for path in ("報告の無いターン", "会話AIの終わりの報告", "会話AIの答えの報告"):
+                    f = scene(stage)
+                    r = turn(f, words, busy(answer), path)
+                    self.assertTrue(heard(r).endswith(want), (words, stage, path, heard(r)))
+                    self.assertNotIn(CALLBACK_ASK["hurry_again"], heard(r), (words, stage, path))
+                    self.assertFalse(f.hurry_asked, (words, stage, path))
+                    if answer == LATER:
+                        # 次の発話（かけ直しの日時への答え）で、前の発話の急いでいる読みをあとから当てない（次の発話の始め on_callee の同じ決まり）
+                        f.on_callee(); f.on_heard("明日の午後3時でお願いします。")
+                        r = f.apply("record_answer", {"question_id": f.current, "condition_id": "答えた", "value": "明日の午後3時"})
+                        self.assertEqual((f.hurry_asked, f.end_reason, r["result"]), (False, None, "confirm_required"), (words, stage, path))
+        # どう続けるかを言っていない（いまの質問への答え・考えている途中だけ）なら、今までどおり急いでいる方への伺い（✅ 2026-11-01 日本時間20時56分）
+        for answer in ("unknown", THINKING):
+            for path in ("報告の無いターン", "会話AIの終わりの報告"):
+                f = scene("Q1")
+                r = turn(f, "いま時間がないんですよ。", busy(answer), path)
+                self.assertTrue(f.hurry_asked, (answer, path))
+                self.assertIn(CALLBACK_ASK["hurry_again"], heard(r), (answer, path))
+
     def test_callback_in_the_answer_stage_asks_when_to_call_again(self):
         # ✅ 2026-11-06 日本時間0時44分31秒 ユーザー：「「いつ頃おかけ直しさせていただきましょうか？」：この例なら、(イ) 答えの段のかけ直しすべてで大丈夫」
         # ⇒ 答えの段でかけ直しを申し出られたら、理由にかかわらず「承知しました。」＋「いつ頃おかけ直しさせていただきましょうか？」（共通の一言の録音

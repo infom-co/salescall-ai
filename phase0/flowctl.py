@@ -4934,7 +4934,7 @@ class Flow:
     # ── 相手の発話が届いた（本番では、相手の音声の発話の検出で数える）
     def on_callee(self) -> None:
         if (self.judging and self.end_reason is None and self.end_due is None and self.end_used_turn != self.callee_turns
-                and (end := self._end_now()) in END_REASON):
+                and (end := self._end_now()) in END_REASON and not self._hurry_told(end, self._wait_now())):
             self.end_due = END_REASON[end]   # この発話の判定が電話を終える言葉と読んだのに、まだ当てていない（次の報告で締める＝_end_due_now）
         if self.phase == "calling":
             self._keep_calling_turn()
@@ -5166,7 +5166,8 @@ class Flow:
         if current:
             self.check[kind], self.check_said[kind] = value, said
         elif (kind in JUDGMENTS and turn < self.callee_turns and self.end_reason is None and self.end_due is None
-              and self.end_used_turn != turn and getattr(value, "end", None) in END_REASON):
+              and self.end_used_turn != turn and getattr(value, "end", None) in END_REASON
+              and not self._hurry_told(value.end, wait_reading({kind: as_wait(value, self.wait_q is not None)}))):
             self.end_due = END_REASON[value.end]   # 前の発話の判定が、あとから届いて電話を終える言葉と読んだ（届いた時点で同じ決まりで当てる）
         if (self.phase == "calling" and kind in JUDGMENTS and self.target_from <= turn < self.callee_turns
                 and said in (None, self.calling_words.get(turn))):
@@ -10833,6 +10834,17 @@ class Flow:
         向きを確かめずに受け取って次の質問を流していた"""
         return end == UNDECIDED or (end is None and not self._end_pending() and bool(self._end_lean()))
 
+    def _hurry_told(self, end: str | None, w: str | None) -> bool:
+        """電話を終える読み end が「急いでいる・いまは話せない」で、同じ言葉の待つ・かけ直すの読み w（wait_reading）が、どう続けるかをもう言っているか（唯一の決まり＝
+        電話を終える読みを当てる4か所：次の発話の始め on_callee・あとから届いた読み on_check・報告の無いターン _end_due_now・会話AIの終わりの報告 _end_judged）：
+        待つ・あとでかけ直す・お客様から折り返す・待つかかけ直すか決められないのうち、待つ読みの1か所 _wait_route が応じる読み（_wait_handles）。そのときは急いでいる方への
+        伺い（_hurry_ask＝「それではまた改めてお掛けしてもよろしいでしょうか？」）を重ねず、その読みで応じる（_judged_first）。考えている途中（THINKING）は、どう続けるかを
+        言っていないので今までどおり。✅ 2026-11-15 日本時間18時25分14秒 ユーザー：「「今日はもう無理なので、改めて連絡ください。」だけなら、「急いでいる」と読んでも
+        おかしくないと思います。」＝電話を終える言葉か（急いでいる）と待つ・かけ直すの答えは別々の評価軸（10-29）で、どちらも同じ言葉の正しい読み。急いでいると読まれても、
+        お客様がもう言った続け方（改めて連絡してほしい）を重ねて伺わない（9-3「取得済みのことを重ねて聞かない」）＝判定がどちらの項目をどう読んでも、お客様に聞こえる
+        言葉は同じ。⛔ それまでは、頼まれたかけ直し・待つお願いの前に、また改めてお掛けしてよいかを伺った"""
+        return end == END_HURRY and w not in (None, THINKING) and self._wait_handles(w)
+
     def _end_due_now(self) -> str | None:
         """会話AIの報告より先に当てる、判定が読んだ電話を終える言葉（終わりの理由）：あとから届いた判定の読み（end_due）か、いまの発話の言葉が
         出揃ったあとの読み。判定を使わない通話・もう締めた通話は None。"""
@@ -10844,6 +10856,9 @@ class Flow:
         if self.end_used_turn == self.callee_turns or self.midway or not self.words_complete:
             return None
         end = self._end_now()
+        if self._hurry_told(end, self._wait_now()):
+            self.end_used_turn = self.callee_turns   # 急いでいる読みは、同じ言葉の待つ・かけ直すの読みで当てた（報告の無いターンは _judged_first が応じる）
+            return None
         unsure = self._end_unsure_now(end)
         if unsure and self._judged_due():
             return None   # 待つ・考えている途中・もう一度言ってほしいの読み：電話を終える言葉か決まらないときの場面にしない（報告の無いターンは _judged_first が応じる）
@@ -10933,7 +10948,7 @@ class Flow:
             return self._wait_for_words()
         self.end_used_turn = self.callee_turns   # この発話の読みは、ここで当てた（2回当てない）
         end = self._end_now()
-        if end in END_REASON:
+        if end in END_REASON and not self._hurry_told(end, self._wait_now()):
             return END_REASON[end]
         if (r := self._judged_first()) is not None:
             # 待つ・かけ直す・考えている途中・もう一度言ってほしいの読み：会話AIがどの操作で報告しても先に応じる1か所（電話を終える言葉と言い切った読みのほか。
