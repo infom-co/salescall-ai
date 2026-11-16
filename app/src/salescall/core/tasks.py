@@ -115,19 +115,19 @@ def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_atte
 
 
 def add_record_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, origin: str,
-                      attempt_id: UUID | None = None) -> UUID:
+                      attempt_id: UUID | None = None, owner_period: str | None = None) -> UUID:
     """記録だけの番号（かけない番号。0175）を、その行の番号に足す（足すのはここだけ。決め方・呼ぶ所は core/customer_contacts.py）。
     同じ番号がもう行にあれば何もしない（かける番号と同じ番号を書いた・伺った場合も）。その番号の連絡先を返す。そのお客様が断ったら、
     この番号も止める（発信禁止は `numbers` の1か所を読む）。試行・次の予定にはならない（データベースが断る）。"""
     contact_id = contacts.get_or_create(tx, number)
     tx.execute(
         "INSERT INTO salescall.task_numbers (tenant_id, client_id, task_id, contact_id, phone_e164, source, label, record_origin,"
-        "                                    source_attempt_id, recorded_by)"
+        "                                    source_attempt_id, recorded_by, owner_period)"
         " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, 'record', %s, %s, %s,"
-        "        CASE WHEN %s = 'dashboard' THEN salescall.cur_actor() END"
+        "        CASE WHEN %s = 'dashboard' THEN salescall.cur_actor() END, %s::timestamptz"
         " FROM salescall.tasks t WHERE t.task_id = %s"
         " ON CONFLICT (task_id, contact_id) DO NOTHING",
-        (contact_id, number.e164, label, origin, attempt_id if origin == "call" else None, origin, task_id))
+        (contact_id, number.e164, label, origin, attempt_id if origin == "call" else None, origin, owner_period, task_id))
     return contact_id
 
 

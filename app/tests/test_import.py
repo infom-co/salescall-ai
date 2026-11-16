@@ -547,6 +547,29 @@ class Targets(Base):
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT target_name FROM salescall.tasks_now WHERE task_id = %s", (task,)))["target_name"],
                          "佐藤")                                                               # 行は変えない
 
+    def test_a_reimport_keeps_the_list_contacts_as_the_former_persons_when_the_person_was_changed(self):
+        """✅ 2026-11-16 ユーザー「前の方の連絡先として残す（お勧め）」：お呼びする方を「別の方に替わった」で直した行に、一覧の方（名前が、いまの方と違う）の
+        行を取り込み直したとき、一覧で増えた番号・連絡先は一覧の方＝前の担当の方のものとして残す（持ち主の期の欄 owner_period・決めるのは importer._list_owner の
+        1か所。0230）。会話の側へ渡す分かっている連絡先（いまの方のもの）には入らない。一覧の名前がいまの方と同じなら、いまの方のもの。"""
+        from salescall.core import conversation_io
+        header = self.HEADER + ("携帯", "メール")
+        mapping = dict(self.MAP, mobile="携帯", email="メール")
+        _, run = self.run_with({"kind": "name", "role": None})
+        phone = fictional_jp_fixed()
+        first = csv_file([("A", "架空商事", phone, "岡田", "おかだ", "部長", None, None)], header=header)
+        task = self.register(first, mapping=mapping, run=run)["rows"][0]["task_id"]
+        self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "佐藤", reading="さとう", same_person=False))
+        again = csv_file([("A", "架空商事", phone, "岡田", "おかだ", "部長", "090-0000-0194", "okada@example.com")], header=header)
+        _, plan = self.preview(again, mapping, run=run)
+        self.assertIn("一覧の方（前の担当の方）の連絡先として残します", plan.rows[0].reason)
+        self.register(again, mapping=mapping, run=run)
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task)), {})      # いまの方（佐藤様）には渡さない
+        self.assertIn(normalize("090-0000-0194").e164, self.tx(lambda tx: tasks.former_numbers(tx, task)))   # 前の担当の方の番号
+        mine = csv_file([("A", "架空商事", phone, "佐藤", "さとう", "部長", "090-0000-0195", "sato@example.com")], header=header)
+        self.register(mine, mapping=mapping, run=run)                             # 一覧の名前がいまの方と同じ＝いまの方のもの
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task)),
+                         {"email": "sato@example.com", "mobile": normalize("090-0000-0195").e164})
+
     def test_a_business_that_calls_by_name_needs_the_name_and_its_reading(self):
         _, run = self.run_with({"kind": "name", "role": None})
         with self.assertRaises(importer.ImportRejected):                  # 名前の列を選んでいなければ始めない

@@ -76,6 +76,21 @@ _COMPARED = (("name", "source_name"), ("person_name", "target_name"), ("person_r
              ("person_full_name", "target_full_name"), ("person_department", "target_department"))
 
 
+FIRST_PERIOD = "-infinity"   # 最初の担当の方の期（データベースの salescall.back_period と同じ値）
+_PERSON_COMPARED = (("person_name", "target_name"), ("person_full_name", "target_full_name"))   # 一覧の方がいまの方かを見る欄
+
+
+def _list_owner(tx: Tx, task_id: UUID, found: dict[str, Any]) -> str | None:
+    """取り込み直しで登録済みの行に足す番号・連絡先の持ち主の期（1か所）：お呼びする方が「別の方に替わった」で直した行で、一覧のお呼びする方の名前
+    （名前・フルネームの書いてある欄）が、いまの方と違えば、一覧の方＝最初の担当の方の期（`FIRST_PERIOD`）。ほかは None（いまの担当の方）。
+    ✅ 2026-11-16 ユーザー「前の方の連絡先として残す（お勧め）」（0230。会話の側へ渡す・SMS のご招待には使わない＝customer_contacts.by_role）。"""
+    if next_action.person_now(tx, task_id) is None:
+        return None
+    now = tx.one("SELECT * FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
+    differs = [mine for mine, theirs in _PERSON_COMPARED if found[mine] and found[mine] != now[theirs]]
+    return FIRST_PERIOD if differs else None
+
+
 def _changes_note(tx: Tx, task_id: UUID, found: dict[str, Any], columns: dict[str, str]) -> str:
     """取り込み直しで、登録済みの行について、一覧と行のいまの値の違いと、前回の取込のあとにお呼びする方が替わったことを、プレビューの理由に書く1か所
     （✅ 2026-11-16 ユーザー：「再取り込み時に、変更がある部分を一覧で出し、担当者が前回から代わっている点も一覧に記載する」）。行は変えない（取り込んだ
@@ -87,8 +102,10 @@ def _changes_note(tx: Tx, task_id: UUID, found: dict[str, Any], columns: dict[st
     since = next_action.person_now(tx, task_id)
     out = f"（一覧と違う所。行は変えません：{'・'.join(diffs)}）" if diffs else ""
     if since is not None:
+        whose = "一覧の方（前の担当の方）の連絡先として残します（いまの方へのご案内には使いません）" if _list_owner(tx, task_id, found) \
+            else "いまの方の連絡先として足します"
         out += (f"（お呼びする方は、{since.astimezone(JST):%Y-%m-%d %H:%M} に「別の方に替わった」で直しています。いまの方："
-                f"{now['target_full_name'] or now['target_name'] or now['target_role'] or '（名前なし）'}様。一覧で増えた連絡先は、いまの方の連絡先として足します）")
+                f"{now['target_full_name'] or now['target_name'] or now['target_role'] or '（名前なし）'}様。一覧で増えた連絡先は、{whose}）")
     return out
 
 
@@ -114,6 +131,8 @@ class RowPlan:
     list_label: str = "company"   # かける番号の名札（customer_contacts.dial_label）
     record_numbers: tuple[tuple[PhoneNumber, str], ...] = ()      # 記録だけの番号（番号, 名札）
     contact_values: tuple[tuple[str, str, str | None], ...] = ()  # 番号ではない連絡先（種類, 値, サービス名）
+    # 登録済みの行に足す番号・連絡先の持ち主の期（`_list_owner`。None＝いまの担当の方／FIRST_PERIOD＝一覧の方＝最初の担当の方）
+    owner_period: str | None = None
 
     def key(self) -> list[Any]:
         """指紋に入れるもの（この行で、何が登録されるか・なぜ止めるか）。"""
@@ -122,7 +141,7 @@ class RowPlan:
                 self.client_ref, self.name, self.source_phone, str(self.task_id) if self.task_id else None,
                 self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role, self.exclusion,
                 self.person_full_name, self.person_full_reading.as_json(), self.person_department, self.list_label,
-                [[x.e164, label] for x, label in self.record_numbers], [list(c) for c in self.contact_values]]
+                [[x.e164, label] for x, label in self.record_numbers], [list(c) for c in self.contact_values], self.owner_period]
 
 
 @dataclass(frozen=True)
@@ -216,10 +235,10 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
             next_action.schedule_now(tx, task_id, cause="取込")
         if r.outcome == "already":   # もう登録した行：一覧で新しく増えた連絡先だけを足す（`_plan` が選んだもの。2026-11-15 ユーザー「足す」）
             for number, label in r.record_numbers:
-                customer_contacts.add_number(tx, task_id, number, label, origin="list")
+                customer_contacts.add_number(tx, task_id, number, label, origin="list", owner_period=r.owner_period)
             for kind, value, service in r.contact_values:
                 customer_contacts.add(tx, task_id, kind, value, service=service, origin="list", import_id=import_id,
-                                      source_row=r.row_no)
+                                      source_row=r.row_no, owner_period=r.owner_period)
         if r.exclusion != "call" and r.outcome in ("registered", "already"):
             exclusions.mark(tx, [task_id], r.exclusion, reason=exclusions.IMPORT_REASON, source="import", import_id=import_id)
         tx.execute(
@@ -391,7 +410,8 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             if blocked is not None:
                 note += f"（{blocked[1]}。この行には、門がかけません）"
             rows.append(RowPlan(row.row_no, "already", "already_in_run", note, task_id=existing["task_id"],
-                                **dict(found, record_numbers=new_records, contact_values=new_values)))
+                                **dict(found, record_numbers=new_records, contact_values=new_values,
+                                       owner_period=_list_owner(tx, existing["task_id"], found))))
             taken_number[number.e164] = row.row_no
             if ref is not None:
                 taken_ref[ref] = row.row_no

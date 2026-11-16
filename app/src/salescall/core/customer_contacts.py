@@ -68,7 +68,7 @@ def problem(kind: str, value: str | None, service: str | None = None) -> str | N
 
 def add(tx: Tx, task_id: UUID, kind: str, value: str, *, origin: str, service: str | None = None,
         import_id: UUID | None = None, source_row: int | None = None, attempt_id: UUID | None = None,
-        turn: int | None = None) -> None:
+        turn: int | None = None, owner_period: str | None = None) -> None:
     """番号ではない連絡先を、その行に足す（書くのはここだけ）。値の形が合わなければ ContactInvalid（何も書かない）。
     ダッシュボードからは、記録した方＝いま操作している方（データベースが守る）。"""
     why = problem(kind, value, service)
@@ -78,23 +78,23 @@ def add(tx: Tx, task_id: UUID, kind: str, value: str, *, origin: str, service: s
         raise ValueError(f"出どころは {list(ORIGINS)} のどれかです（{origin!r}）")
     tx.execute(
         "INSERT INTO salescall.task_contacts (tenant_id, client_id, task_id, kind, value, service, origin, import_id, source_row,"
-        "                                     attempt_id, turn, recorded_by)"
+        "                                     attempt_id, turn, recorded_by, owner_period)"
         " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, %s, %s, %s, %s, %s, %s,"
-        "        CASE WHEN %s = 'dashboard' THEN salescall.cur_actor() END"
+        "        CASE WHEN %s = 'dashboard' THEN salescall.cur_actor() END, %s::timestamptz"
         " FROM salescall.tasks t WHERE t.task_id = %s",
         (kind, value.strip(), service.strip() if service else None, origin, import_id, source_row, attempt_id, turn,
-         origin, task_id))
+         origin, owner_period, task_id))
 
 
 def add_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, origin: str,
-               attempt_id: UUID | None = None) -> UUID:
+               attempt_id: UUID | None = None, owner_period: str | None = None) -> UUID:
     """記録だけの番号を、その行の番号に足す（足すのはここだけ。かける番号は取込の一覧の番号と、お客様が言った別の番号＝tasks）。
     同じ番号がもう行にあれば何もしない（かける番号と同じ番号を書いた・伺った場合も）。その番号の連絡先を返す。"""
     if label not in RECORD_LABELS:
         raise ValueError(f"記録だけの番号の名札は {list(RECORD_LABELS)} のどれかです（{label!r}）")
     if origin not in ORIGINS:
         raise ValueError(f"出どころは {list(ORIGINS)} のどれかです（{origin!r}）")
-    return tasks.add_record_number(tx, task_id, number, label, origin=origin, attempt_id=attempt_id)
+    return tasks.add_record_number(tx, task_id, number, label, origin=origin, attempt_id=attempt_id, owner_period=owner_period)
 
 
 def now(tx: Tx, task_id: UUID) -> dict[str, Any]:
