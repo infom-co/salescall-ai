@@ -237,7 +237,6 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "number_rechecks": {"INSERT": frozenset({_CORE + "number_recheck.py"})},   # 番号の確かめ（3-5。検証 Q21 が入口を呼ぶ）
     # 目的のお客様の確かめ直し（6-12 の (e)。検証 Q21 が入口を呼ぶ。答えを「-」にするのは 0108 の仕掛けの1か所）
     "target_rechecks": {"INSERT": frozenset({_CORE + "target_recheck.py"})},
-    "item_value_history": {"INSERT": frozenset()},   # 前の通話の答えを残すのは、データベースの仕掛けだけ（0108 の item_value_guard）
     # 2026-10-22 の見直し：書く権限があるのに一覧に無く、core のどこからでも書けた表
     "attempt_state_history": {"INSERT": frozenset()},   # 状態の移り変わりを残すのは、データベースの仕掛けだけ（attempt_after_write）
     "name_changes": {"INSERT": frozenset()},            # 名前の変更を残すのは、データベースの仕掛けだけ（only_name_changes など）

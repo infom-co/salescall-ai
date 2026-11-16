@@ -7,8 +7,8 @@
 - 取引は呼ぶ側が持つ（`access.in_client(actor, 契約者, 依頼者, lambda tx: conversation_io.write_item(tx, …))`。ほかの書く部品
   ＝target_recheck.record・attempts.record_verification と同じ形）。1つの取引に、状態の移り・答え・報告をまとめてもよい。
 - **項目の値を1つ書く**（`write_item`）：通話の途中で答えが決まるたびに呼べる（会話の処理が落ちても、取れた答えは残る）。同じ
-  質問をもう一度書けば、いまの値を書き換える。どの通話で取ったか（attempt_id）は必ず入る。前の通話の答えを上書きするときは、
-  前の答えをデータベースが残す（0108）。書けるのは、次のときだけ（確かめは、それぞれ今の1か所を使う。2つ目を作らない）：
+  通話で同じ質問をもう一度書けば、その通話の値を書き換える。答えは通話ごとに残る（どの通話で取ったか＝attempt_id は必ず入る。前の通話の
+  答えは、その通話の答えのまま残る＝0231）。どの担当の方にどの答えを使うかは `answers`・`earlier` の1か所が決める。書けるのは、次のときだけ（確かめは、それぞれ今の1か所を使う。2つ目を作らない）：
   - お客様が出た通話（`salescall.reached_answer`。発信禁止の申告 dnc.register_declared と同じ見方）で、通話中か通話後の検証が
     済む前（`verification` が無い・pending。検証が済むと締めが答えを読むので、そのあとは書き換えない）。
   - そのタスクのいちばん新しい通話（データベースの守り item_values_from_newest_call＝0108）。
@@ -53,11 +53,12 @@ from __future__ import annotations
 import json
 import typing
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, customer_contacts, dnc, judge, settings, tasks
+from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, customer_contacts, dnc, judge, settings, target_recheck, tasks
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.attempts import AttemptNotFound
 
@@ -227,7 +228,7 @@ def ai_trouble_work(attempt_id: UUID, raw: Any) -> AiTroubleWork:
 
 
 def write_item(tx: Tx, attempt_id: UUID, item: ItemValue) -> None:
-    """その通話で取った答えを1つ書く（同じ質問なら書き換える）。書けなければ ItemInvalid。"""
+    """その通話で取った答えを1つ書く（その通話で同じ質問なら書き換える。前の通話の答えは残る）。書けなければ ItemInvalid。"""
     check_item(item)
     a = tx.one("SELECT task_id, version_id, verification::text AS verification,"
                " salescall.reached_answer(attempt_id) AS reached FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
@@ -248,9 +249,9 @@ def write_item(tx: Tx, attempt_id: UUID, item: ItemValue) -> None:
         "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, value, condition,"
         "                                   reason, hedged, attempt_id)"
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        " ON CONFLICT (task_id, question_id) DO UPDATE SET version_id = EXCLUDED.version_id, state = EXCLUDED.state,"
+        " ON CONFLICT (task_id, question_id, attempt_id) DO UPDATE SET version_id = EXCLUDED.version_id, state = EXCLUDED.state,"
         "   value = EXCLUDED.value, condition = EXCLUDED.condition, reason = EXCLUDED.reason, hedged = EXCLUDED.hedged,"
-        "   attempt_id = EXCLUDED.attempt_id, updated_at = now()",
+        "   updated_at = now()",
         (a["task_id"], a["version_id"], item.question_id, item.state,
          None if item.value is None else json.dumps(item.value, ensure_ascii=False), item.condition, item.reason, item.hedged, attempt_id))
 
@@ -300,7 +301,7 @@ _EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who", "offer_fact")
 def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None, took_by: dict[str, UUID] | None = None) -> dict[str, dict[str, Any]]:
     """その行で、前の通話までに取れた答え（質問の番号 → 会話の側の flowctl.EARLIER_KEYS の形）。続きから聞く電話（目的 resume）で、取れた答えの
     質問を伺わないため・切れた所から伺うために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の
-    番号のまま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。
+    番号のまま残す＝write_item は、この通話で取った答えだけ）。どの答えを渡すか（その通話の担当の方に使う答え）は `_in_force` の1か所（判定の材料 `answers` と同じ）。
     - "state"・"value"・"condition"：項目の値のまま。
     - "hedged"：言い切っていない答えのお客様の言葉（項目の値の hedged。言い切っていれば入れない。CL-1 の連絡帳 4-73 の (2)）。項目の値の hedged には
       「-」「✕」の答えに添えたお客様の言葉も入る（CL-1 の連絡帳 4-115 の (2)）ので、取れた答えのときだけ入れる（judge.hedged_words の1か所）。
@@ -318,11 +319,10 @@ def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None, took_by: dict[
       （`Offer.to_json`。種類は入れない）。無ければ入れない。申し出で伺った連絡先を、続きの電話で重ねて伺わないため（読み方は会話の側の
       flowctl.earlier_records の1か所。CL-2 の連絡帳 4-370 の (4)・CL-1 の連絡帳 4-138 の (4)）。
     **担当の方が替わった電話で、前の担当の方の答えを使わないことにした答えは入れない**（CL-1 の連絡帳 4-141 の (a)＝✅ 2026-11-12 日本時間19時32分21秒
-    ユーザー「1はウ（候補(1)）」）：その答えを取った通話のあとの通話の報告に、新しい担当の方に引き継ぎを確かめた事実 carried があれば、引き継がなかった
-    （kept が偽）ときは、その通話より前に取った答えを全部、引き継いだ（kept が真）ときは、その事実の dropped の質問の答えを入れない（決めるのは、ここの
-    1か所＝`_dropped_by_carried`。その通話かあとの通話で取り直した答えは、取った通話が新しいので入る）。外さないと、その電話が途中で切れたとき、次の電話で
-    新しい方に前の方の答えのまま伺う（「前回お伺いした件でご納得いただけなかった点は…」）。
-    before＝その通話（試行）より前の通話だけを読む（その通話を始めたときに会話へ渡した前の通話の答えと同じもの）。依頼者へ「新しい担当の方が引き継いだと
+    ユーザー「1はウ（候補(1)）」）・**ほかの担当の方の答えは入れない**（✅ 2026-11-16 ユーザー「担当の方ごとに持つ（お勧め）」）：決まりは `_in_force` の1か所。
+    外さないと、その電話が途中で切れたとき、次の電話で新しい方に前の方の答えのまま伺う（「前回お伺いした件でご納得いただけなかった点は…」）。
+    before＝その通話（試行）より前の通話だけを読み、その通話の担当の期の答えを返す（その通話を始めたときに会話へ渡した前の通話の答えと同じもの）。
+    無ければ、いまの担当の期の答え。依頼者へ「新しい担当の方が引き継いだと
     言った前の方の答え」を返す所（settle._earlier_answers）が読む。took_by＝渡せば、入れた答えごとに、その答えを取った通話を入れる（質問の番号 → 通話。`earlier_call` が読む）。⛔ 2026-11-13 の見直し：はじめはそこで項目の値を通話の順だけで拾い、ここの「使わない
     ことにした答え」を見ていなかった＝前の通話の答えの決まりが2か所になり、3人目の担当の方の電話で、会話へ渡していない答えを引き継いだと返しえた。
     ⛔ 2026-11-03 の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
@@ -330,40 +330,92 @@ def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None, took_by: dict[
     取った通話より前の通話は読まない）。⛔ 2026-11-06 の見直し (C) の1：その答えを取った通話の報告だけを読んでいたので、続きの電話で
     申し伝え直した事実（not_agreed の outcome unresolved・told＝答えは取り直さない）が次の電話に伝わらず、また切れると3回目を言った
     （CL-1 の連絡帳 4-99「また切れても3回目は言いません」）。続きの電話で伺い直したほかのご希望も同じ。"""
-    calls = [c["attempt_id"] for c in tx.all("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s"
-                                             " ORDER BY claimed_at, attempt_id", (task_id,))]
-    if before is not None:
-        calls = calls[:calls.index(before)] if before in calls else []
-    since = {a: i for i, a in enumerate(calls)}
-    reports: dict[UUID, call_report.CallReport | None] = {}
+    held = _in_force(tx, task_id, before=before)
     out: dict[str, dict[str, Any]] = {}
-    for r in tx.all("SELECT question_id, state::text AS state, value, condition, hedged, attempt_id FROM salescall.item_values"
-                    " WHERE task_id = %s ORDER BY question_id", (task_id,)):
-        if before is not None and r["attempt_id"] not in since:   # その通話か、そのあとの通話で取った答え（その通話の前には無かった）
-            continue
-        q, w, n, o, gone = r["question_id"], None, None, None, False
-        for i, a in enumerate(calls[since[r["attempt_id"]]:] if r["attempt_id"] in since else ()):   # その答えを取った通話と、そのあとの通話（古い順）
-            if a not in reports:
-                reports[a] = call_report.load(tx, a)
-            report = reports[a]
-            if report is None:
-                continue
-            gone = gone or (i > 0 and _dropped_by_carried(report, q))
-            w = next((x for x in reversed(report.other_wishes) if x.question == q), w)
-            n = next((x for x in reversed(report.not_agreed) if x.question == q), n)
-            o = next((x for x in reversed(report.offers) if x.question == q), o)
-        if gone:
-            continue
-        took = reports.get(r["attempt_id"])   # その答えを取った通話の報告（上で読んだ。行の通話に無い答え＝None）
+    for q, h in sorted(held.items()):
+        r = h.row
         item = {"state": r["state"], "value": r["value"], "condition": r["condition"],
                 "hedged": judge.hedged_words(r["state"], r["hedged"]),
-                "wish_fact": w.to_json() if w is not None else None, "point_fact": n.to_json() if n is not None else None,
-                "who": took.connected_who if took is not None else None,
-                "offer_fact": o.to_json() if o is not None else None}
+                "wish_fact": h.wish.to_json() if h.wish is not None else None,
+                "point_fact": h.point.to_json() if h.point is not None else None,
+                "who": h.who, "offer_fact": h.offer.to_json() if h.offer is not None else None}
         out[q] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
         if took_by is not None:
             took_by[q] = r["attempt_id"]
     return out
+
+
+def answers(tx: Tx, task_id: UUID, attempt_id: UUID) -> dict[str, dict[str, Any]]:
+    """その通話（attempt_id）の担当の方に使う答え（質問の番号 → 項目の値の行。判定の材料＝settle._items が読む）：その通話の担当の期で、いままでの
+    通話から決まる答え（決まりは `_in_force` の1か所。前の通話の答え `earlier` と同じ決まり）。"""
+    return {q: h.row for q, h in _in_force(tx, task_id, period_of=attempt_id).items()}
+
+
+@dataclass(frozen=True)
+class _Held:
+    """ある担当の期に使う答え1つ（`_in_force`）：項目の値の行（取った通話 attempt_id を含む）と、その答えを取った通話で繋いだ方（who）・その答えを取った
+    通話とそのあとの同じ期の通話の、その質問の最後の事実（ほかのご希望・ご納得いただけなかった点・業務の申し出）。"""
+    row: dict[str, Any]
+    who: str | None
+    wish: call_report.OtherWish | None = None
+    point: call_report.NotAgreed | None = None
+    offer: call_report.Offer | None = None
+
+
+def _in_force(tx: Tx, task_id: UUID, *, before: UUID | None = None, period_of: UUID | None = None) -> dict[str, _Held]:
+    """ある担当の方（担当の期）に使う答えを決める唯一の場所（✅ 2026-11-16 ユーザー「担当の方ごとに持つ（お勧め）」＝DESIGN.md 3-5-9。0231）。
+    答えは通話ごと（項目の値の表の鍵＝行・質問・通話）。その行の「担当の方が替わった」直し（salescall.task_person_changes）と通話を、起きた順にたどる：
+    - 新しい期が始まった：すぐ前の期（そのときのいまの期）で使っていた答えを、その期の答えとして引き継ぐ（前の期のその後の通話は、引き継いだ答えを変えない）。
+    - 前の期に戻した（back_to）：その期の答え（その期がはじめに引き継いだものを含む）を、そのまま使う（ほかの期の通話の答えは入らない＝計画書 7-1 (30)
+      「戻すと、前の担当の方のそのときの答えも戻る」）。
+    - 通話（その通話の担当の期＝attempts.person_since の答えに入れる）：その通話で引き継ぎを確かめた答え（通話の事実 carried）で使わないことにした答え
+      （`_dropped_by_carried`＝引き継がなければ、それより前の答え全部・引き継いだら dropped の質問）を外し、その通話の答えを入れ、その期の答えごとに、
+      その通話のその質問の事実（ほかのご希望・ご納得いただけなかった点・業務の申し出）を最後のものにする。目的のお客様だと確かめられなかった通話
+      （target_recheck.UNCONFIRMED）は、何も入れず何も外さない（別の方の答え・確かめていない答えを使わない）。
+    before＝その通話より前の通話だけをたどり、その通話の期の答えを返す（その通話を始めたときに会話へ渡す答え）。
+    period_of＝その通話の期の答えを、いままでのすべての通話から返す（判定の材料）。どちらも無ければ、いまの期（salescall.task_person_since）。
+    ⛔ 0108〜0230：答えは行と質問ごとに1つで、あとの通話が上書きした（前の担当の方に戻しても答えが戻らない・判定の材料に、新しい担当の方が
+    引き継いでいないと答えた前の方の答えや、ほかの方の答えが入った）。"""
+    calls = tx.all("SELECT a.attempt_id, a.claimed_at, a.person_since,"
+                   "       EXISTS (SELECT 1 FROM salescall.target_rechecks x WHERE x.attempt_id = a.attempt_id AND x.outcome = ANY(%s)) AS unconfirmed"
+                   " FROM salescall.attempts a WHERE a.task_id = %s ORDER BY a.claimed_at, a.attempt_id",
+                   (list(target_recheck.UNCONFIRMED), task_id))
+    if before is not None:
+        at = next((i for i, c in enumerate(calls) if c["attempt_id"] == before), None)
+        period = None if at is None else calls[at]["person_since"]
+        calls = calls[:at] if at is not None else []
+    elif period_of is not None:
+        period = next((c["person_since"] for c in calls if c["attempt_id"] == period_of), None)
+    else:
+        period = tx.one("SELECT salescall.task_person_since(%s, now()) AS s", (task_id,))["s"]
+    rows: dict[UUID, list[dict[str, Any]]] = {}
+    for r in tx.all("SELECT question_id, state::text AS state, value, condition, reason, hedged, attempt_id, version_id FROM salescall.item_values"
+                    " WHERE task_id = %s ORDER BY question_id", (task_id,)):
+        rows.setdefault(r["attempt_id"], []).append(r)
+    events = [(c["at"], 0, c["since"]) for c in tx.all("SELECT at, since FROM salescall.task_person_changes(%s)", (task_id,))]
+    events += [(c["claimed_at"], 1, c) for c in calls]
+    held: dict[datetime | None, dict[str, _Held]] = {None: {}}
+    now: datetime | None = None
+    for _, kind, e in sorted(events, key=lambda x: (x[0], x[1])):
+        if kind == 0:                                   # 担当の方が替わった（新しい期は、すぐ前の期の答えを引き継ぐ・戻した期は、その期の答えのまま）
+            held.setdefault(e, dict(held[now]))
+            now = e
+            continue
+        state = held.setdefault(e["person_since"], dict(held[now]))
+        if e["unconfirmed"]:
+            continue
+        report = call_report.load(tx, e["attempt_id"])
+        if report is not None:
+            for q in [q for q in state if _dropped_by_carried(report, q)]:
+                del state[q]
+        for r in rows.get(e["attempt_id"], ()):
+            state[r["question_id"]] = _Held(r, report.connected_who if report is not None else None)
+        if report is not None:
+            for q, h in state.items():
+                state[q] = replace(h, wish=next((x for x in reversed(report.other_wishes) if x.question == q), h.wish),
+                                   point=next((x for x in reversed(report.not_agreed) if x.question == q), h.point),
+                                   offer=next((x for x in reversed(report.offers) if x.question == q), h.offer))
+    return held.get(period, {})
 
 
 def earlier_call(tx: Tx, task_id: UUID, *, before: UUID) -> UUID | None:
@@ -379,7 +431,7 @@ def earlier_call(tx: Tx, task_id: UUID, *, before: UUID) -> UUID | None:
 
 def _dropped_by_carried(report: call_report.CallReport, question_id: str) -> bool:
     """あとの通話（report）で、新しい担当の方に引き継ぎを確かめた答え（事実 carried）により、それより前に取った質問 question_id の答えを使わないことに
-    したか（1か所＝`earlier`）：引き継がなかった（kept が偽）なら前の答えは全部・引き継いだなら dropped の質問だけ。1つの通話に carried は1つ（会話の側が
+    したか（1か所＝`_in_force`）：引き継がなかった（kept が偽）なら前の答えは全部・引き継いだなら dropped の質問だけ。1つの通話に carried は1つ（会話の側が
     1通話1回伺う）なので、いちばん新しいものを読む。"""
     c = report.carried[-1] if report.carried else None
     return c is not None and (not c.kept or question_id in c.dropped)

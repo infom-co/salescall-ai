@@ -12,8 +12,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from salescall.core import (approval, attempts, backup, business_rules, calling_hours, call_report, dnc, exclusions, fix_requests, gate,
-                            next_action, quality_stage, recordings, results, scheduler, settings, settle, stops, target_recheck, tasks,
+from salescall.core import (approval, attempts, backup, business_rules, calling_hours, call_report, conversation_io, dnc, exclusions,
+                            fix_requests, gate, next_action, quality_stage, recordings, results, scheduler, settings, settle, stops, target_recheck, tasks,
                             watch)
 from salescall.core.errors import ErrorReport
 from salescall.core import health
@@ -396,9 +396,16 @@ class TargetRecheck(SettleBase):
     def connected(self, s, read=("ai",), *, items=(("Q1", "confirmed", None),)):
         return self.call(s, report=self.connected_report(read), items=items, verify=None)
 
-    def item(self, s, q="Q1"):
-        return self.tx(s, lambda tx: tx.one("SELECT state::text AS state, condition, value, attempt_id, version_id FROM salescall.item_values"
-                                            " WHERE task_id = %s AND question_id = %s", (s["task"], q)))
+    def item(self, s, aid, q="Q1"):
+        """その通話の担当の方に使う答え（使う答えの1か所 conversation_io.answers。無ければ None＝依頼者へは「-」）。"""
+        return self.tx(s, lambda tx: conversation_io.answers(tx, s["task"], aid)).get(q)
+
+    def answer_in(self, s, aid, q, state, condition, version=None):
+        """その通話の答えを書く（通話ごとの答え。門を通らずに作った通話の答えを置く）。"""
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s)",
+            (s["task"], version or s["version"], q, state, condition, aid)))
 
     def later_call(self, s, report):
         """同じ行の、あとの通話（門を通らずに作る。データベースの守りを試すため）。"""
@@ -409,8 +416,8 @@ class TargetRecheck(SettleBase):
         return aid
 
     def test_another_person_answers_become_dashes_and_the_call_does_not_count_as_reaching_the_target(self):
-        """確かめ直すまで通話後の検証を済ませられない。別の方だったら、その通話の答えを「-」にし（前の答えが無いとき。別の方の答えを
-        依頼者へ渡さない）、目的のお客様と話せたと数えない（約束の日のお詫びの印を外さない）。結果の中身にも残す。"""
+        """確かめ直すまで通話後の検証を済ませられない。別の方だったら、その通話の答えを使わず（前の答えが無ければ答えの無い質問＝「-」。
+        別の方の答えを依頼者へ渡さない）、目的のお客様と話せたと数えない（約束の日のお詫びの印を外さない）。結果の中身にも残す。"""
         s = self.ready()
         aid = self.connected(s, items=(("Q1", "confirmed", "はい"),))
         with self.assertRaises(attempts.RecheckMissing):
@@ -419,8 +426,7 @@ class TargetRecheck(SettleBase):
             self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence=" ", checked_by="試験"))
         self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence="試験：別の耳で「いえ、山本です」",
                                                     checked_by="試験"))
-        got = self.item(s)
-        self.assertEqual((got["state"], got["condition"], got["value"]), ("unresolved", None, None))
+        self.assertIsNone(self.item(s, aid))                                       # 別の方の答えは使わない（依頼者へは「-」）
         with self.assertRaises(Rejected):                                          # 記録は、表の持ち主でも変えられない
             owner_access().in_system(OPERATOR, lambda tx: tx.execute(
                 "UPDATE salescall.target_rechecks SET outcome = 'target' WHERE attempt_id = %s", (aid,)))
@@ -434,49 +440,52 @@ class TargetRecheck(SettleBase):
         self.assertEqual((inp.report.reached(inp.anyone_target), inp.reached_target), (True, False))
 
     def test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers(self):
-        """目的のお客様だったら答えはそのまま。後の通話（判定なしで繋いだ）が上書きした答えは、その通話が別の方だったら、前の通話で
-        目的のお客様から取った答えに戻す（後の通話が上書きするとき、前の答えを残す）。前の通話の番号のまま上書きすることはできない
-        （戻す答えを取り違えるため）。"""
+        """目的のお客様だったら答えはそのまま。後の通話（判定なしで繋いだ）の答えは、その通話が別の方だったら使わず、前の通話で目的の
+        お客様から取った答えを使う（答えは通話ごとに残る＝0231）。前の通話の答えは書き換えられず、答えを別の通話へ付け替えることもできない
+        （どの通話の答えかを取り違えるため）。"""
         s = self.ready()
         aid = self.connected(s, items=(("Q1", "confirmed", "はい"),))
         self.tx(s, lambda tx: target_recheck.record(tx, aid, "target", evidence="試験：録音で「はい、岡田です」", checked_by="試験"))
-        self.assertEqual(self.item(s)["state"], "confirmed")
+        self.assertEqual(self.item(s, aid)["state"], "confirmed")
         inp = self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"])[0])
         self.assertTrue(inp.reached_target)
         later = self.later_call(s, self.connected_report())
-        with self.assertRaises(Rejected):                                          # 前の通話の番号のまま書き換えない
+        with self.assertRaises(Rejected):                                          # 前の通話の答えは書き換えない
             self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET condition = 'いいえ' WHERE task_id = %s",
                                              (s["task"],)))
+        with self.assertRaises(Rejected):                                          # 答えを別の通話へ付け替えない
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET attempt_id = %s WHERE task_id = %s",
+                                             (later, s["task"])))
         newer = support.full_version(self.w, s)                                  # 後の通話は、新しい業務設定の版で書く
-        self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET condition = 'いいえ', attempt_id = %s, version_id = %s"
-                                         " WHERE task_id = %s", (later, newer, s["task"])))
+        self.answer_in(s, later, "Q1", "confirmed", "いいえ", newer)
+        got = self.item(s, later)
+        self.assertEqual((got["condition"], got["attempt_id"], got["version_id"]), ("いいえ", later, newer))
         self.tx(s, lambda tx: target_recheck.record(tx, later, "not_target", evidence="試験：別の方", checked_by="試験"))
-        got = self.item(s)
+        got = self.item(s, later)
         self.assertEqual((got["state"], got["condition"], got["attempt_id"], got["version_id"]),
-                         ("confirmed", "はい", aid, s["version"]))                 # 前の答えに戻る（その答えを取った版も）
+                         ("confirmed", "はい", aid, s["version"]))                 # 前の答えを使う（その答えを取った版も）
 
-    def test_the_guard_cannot_be_switched_off_by_a_setting_and_unconfirmed_answers_are_never_given_back(self):
-        """答えの守りは、戻す仕掛けの中からの書き込みだけを通す（設定の値を自分で立てても通さない＝2026-10-22 の見直し）。戻すのは、
-        目的のお客様だと確かめられなかった通話の答え以外（その通話のあとの通話も確かめられなかったら「-」のまま）。"""
+    def test_unconfirmed_answers_are_never_used(self):
+        """目的のお客様だと確かめられなかった通話の答えは、どれも使わない（その通話のあとの通話も確かめられなかったら、答えの無い質問のまま。
+        別の方の答えに戻さない）。前の通話の答えは、設定の値を自分で立てても書き換えられない（2026-10-22 の見直し）。"""
         s = self.ready()
         first = self.connected(s, items=(("Q1", "confirmed", "はい"),))
         self.tx(s, lambda tx: target_recheck.record(tx, first, "not_target", evidence="試験：別の方", checked_by="試験"))
-        self.assertEqual((self.item(s)["state"], self.item(s)["attempt_id"]), ("unresolved", first))
+        self.assertIsNone(self.item(s, first))
         later = self.later_call(s, self.connected_report())
 
         def sneak(tx):
             tx.execute("SET LOCAL salescall.item_restore = 'x'")             # 前の形の見分け（設定の値）を自分で立てる
             tx.execute("UPDATE salescall.item_values SET state = 'confirmed', condition = 'いいえ' WHERE task_id = %s", (s["task"],))
-        with self.assertRaises(Rejected):                                          # 前の通話の番号のまま書き換えない
+        with self.assertRaises(Rejected):                                          # 前の通話の答えは書き換えない
             self.tx(s, sneak)
-        self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET state = 'confirmed', condition = 'いいえ', attempt_id = %s"
-                                         " WHERE task_id = %s", (later, s["task"])))
+        self.answer_in(s, later, "Q1", "confirmed", "いいえ")
         self.tx(s, lambda tx: target_recheck.record(tx, later, "cannot_check", evidence="試験：録音が無い", checked_by="試験"))
-        got = self.item(s)
-        self.assertEqual((got["state"], got["condition"], got["attempt_id"]), ("unresolved", None, later))   # 別の方の「-」に戻さない
+        self.assertIsNone(self.item(s, later))                                    # 別の方の答えに戻さない
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])), {})   # 会話へも渡さない
 
     def test_a_recheck_is_only_for_calls_connected_without_the_judges_and_a_missing_recording_blanks_the_answers(self):
-        """確かめ直しを記録できるのは、要る通話だけ。録音が届かずに済ませた通話は「確かめられなかった」＝答えは「-」で、目的の
+        """確かめ直しを記録できるのは、要る通話だけ。録音が届かずに済ませた通話は「確かめられなかった」＝答えは使わず（「-」）、目的の
         お客様と話せたと数えない。"""
         s = self.ready()
         plain = self.call(s, items=(("Q1", "confirmed", None),), verify=None)
@@ -489,8 +498,7 @@ class TargetRecheck(SettleBase):
         self.override("verification.recording_wait", 1)
         time.sleep(1.1)
         self.tx(u, lambda tx: attempts.finish_without_recording(tx, aid))
-        self.assertEqual((self.tx(u, lambda tx: target_recheck.load(tx, aid)), self.item(u)["state"]),
-                         ("cannot_check", "unresolved"))
+        self.assertEqual((self.tx(u, lambda tx: target_recheck.load(tx, aid)), self.item(u, aid)), ("cannot_check", None))
         inp = self.tx(u, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), u["version"])[0])
         self.assertFalse(inp.reached_target)
 
@@ -529,7 +537,7 @@ class TargetRecheck(SettleBase):
 
     def test_answers_from_a_call_whose_report_was_never_written_are_rechecked(self):
         """会話の処理が報告を書く前に落ちた通話で答えを取っていた：どう目的のお客様だと決めたかが分からないので、確かめ直すまで検証を
-        済ませない。確かめられなければ答えは「-」（⛔ 2026-10-22 の見直し：前は確かめていない答えが「完了」で渡りえた）。"""
+        済ませない。確かめられなければ答えは使わない＝「-」（⛔ 2026-10-22 の見直し：前は確かめていない答えが「完了」で渡りえた）。"""
         s = self.ready()
         aid = self.call(s, ("dialing", "ringing"), verify=None)
         for st in ("answered", "in_conversation", "technical_error"):
@@ -540,7 +548,7 @@ class TargetRecheck(SettleBase):
         with self.assertRaises(attempts.RecheckMissing):
             self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
         self.tx(s, lambda tx: target_recheck.record(tx, aid, "cannot_check", evidence="試験：録音で確かめられない", checked_by="試験"))
-        self.assertEqual(self.item(s)["state"], "unresolved")
+        self.assertIsNone(self.item(s, aid))
 
     def test_a_report_with_an_unchecked_connect_arriving_after_verification_asks_cl1(self):
         """会話の報告が通話後の検証より後に届き、判定なしの繋ぎが入っていた：締めずに待ち、CL-1 へ修正依頼を出す（待つだけにしない。
@@ -3411,6 +3419,90 @@ class DialFixAfterCalls(SettleBase):
             self.tx(s, lambda tx: attempts.record_reached_target(tx, aid, True))
         self.assertEqual(e.exception.constraint, "attempt_reached_target_by_settle")
         self.tx(s, lambda tx: attempts.record_reached_target(tx, aid, False))   # 変わらない書き直しは、通す（締め直しと同じ値）
+
+
+class PersonAnswers(SettleBase):
+    """担当の方ごとの答え（✅ 2026-11-16 ユーザー「担当の方ごとに持つ（お勧め）」。DESIGN.md 3-5-9・0231）：答えは通話ごと。ある担当の方に使う答え
+    （判定の材料・会話へ渡す前の通話の答え）は、使う答えの1か所 conversation_io._in_force が決める。"""
+    fixed_as = DialFixAfterCalls.fixed_as
+    promise_window = DialFixAfterCalls.promise_window
+    at = DialFixAfterCalls.at
+    phone_of = DialFixAfterCalls.phone_of
+
+    def talk(self, s, items=(), report=None):
+        """同じ行の通話（門を通らずに作る。担当の期は、予約のときのいまの予定の期をデータベースが入れる）と、その通話の答え・報告。"""
+        aid = self.w.insert_claim(s)
+        for st in TALK:
+            self.w.move(s, aid, st)
+        for q, state, cond in items:
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s)",
+                (s["task"], s["version"], q, state, cond, aid)))
+        self.tx(s, lambda tx: call_report.save(tx, aid, report or rep()))
+        return aid
+
+    def earlier(self, s, before=None):
+        return {q: (v["state"], v["condition"]) for q, v in
+                self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"], before=before)).items()}
+
+    def used(self, s, aid):
+        return {q: (r["condition"], r["attempt_id"]) for q, r in self.tx(s, lambda tx: conversation_io.answers(tx, s["task"], aid)).items()}
+
+    def judged_items(self, s, aid):
+        inp = self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"])[0])
+        return {q: i.condition for q, i in inp.items.items()}, inp.earlier_answers
+
+    def test_going_back_to_the_former_person_gives_back_their_answers(self):
+        """田中様の答え →「違う」で鈴木様に直す（鈴木様の電話の会話へは、田中様の答えを引き継ぐかを伺うために渡す）→ 鈴木様が同じ質問に答える
+        → 田中様に戻す ⇒ 田中様の答えが戻る（計画書 7-1 (30)「戻すと、前の担当の方のそのときの答えも戻る」）。もう一度鈴木様に戻せば、鈴木様の答え。
+        田中様への通話の判定の材料に、鈴木様の答えは入らない。"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        tanaka = self.talk(s, [("Q1", "confirmed", "はい")])
+        first = self.phone_of(s, s["contact"])
+        self.fixed_as(s, False)
+        self.assertEqual(self.earlier(s), {"Q1": ("confirmed", "はい")})            # 新しい方の期は、すぐ前の期の答えを引き継ぐ
+        suzuki = self.talk(s, [("Q1", "confirmed", "いいえ")])
+        self.assertEqual(self.earlier(s, before=suzuki), {"Q1": ("confirmed", "はい")})
+        self.assertEqual((self.earlier(s), self.used(s, suzuki), self.used(s, tanaka)),
+                         ({"Q1": ("confirmed", "いいえ")}, {"Q1": ("いいえ", suzuki)}, {"Q1": ("はい", tanaka)}))
+        self.assertEqual(self.judged_items(s, tanaka)[0], {"Q1": "はい"})
+        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], first, same_person=False, back_to=row_fixes.FIRST_PERIOD), OPERATOR)
+        self.assertEqual(self.earlier(s), {"Q1": ("confirmed", "はい")})            # 田中様の答えが戻る
+        back = self.tx(s, lambda tx: row_fixes.back_choices(tx, s["task"]))
+        self.assertEqual(len(back), 1)
+        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=False,
+                                                         back_to=back[0]["back_to"]), OPERATOR)
+        self.assertEqual(self.earlier(s), {"Q1": ("confirmed", "いいえ")})          # 鈴木様に戻せば鈴木様の答え（田中様の期の答えは入らない）
+
+    def test_the_new_person_uses_only_what_they_carried(self):
+        """新しい担当の方（鈴木様）が引き継ぎを確かめる一言に「聞いていない」⇒ 田中様の答えは、鈴木様の判定の材料にも、次の電話の会話にも使わない。
+        「聞いている」⇒ 使う（判定は、引き継いだ答えで「完了」になりうる。依頼者へは引き継いだ答えとして返す＝判定の中身 carried）。dropped の質問は
+        使わない。田中様への通話の判定の材料は、田中様の答えのまま。"""
+        cases = (("聞いていない", False, (), {}), ("聞いている", True, (), {"Q1": "はい"}), ("聞いている", True, ("Q1",), {}))
+        for answer, kept, dropped, want in cases:
+            with self.subTest(answer=answer, dropped=dropped):
+                s = self.ready()
+                tanaka = self.talk(s, [("Q1", "confirmed", "はい")])
+                self.fixed_as(s, False)
+                carried = call_report.Carried(call_report.Said(2, answer), answer, kept, dropped)
+                suzuki = self.talk(s, report=replace(rep(), carried=(carried,)))
+                self.assertEqual(self.judged_items(s, suzuki), (want, frozenset({"Q1"})))
+                self.assertEqual({q: c for q, (_, c) in self.earlier(s).items()}, want)
+                self.assertEqual(self.judged_items(s, tanaka)[0], {"Q1": "はい"})
+
+    def test_a_call_to_the_former_person_after_the_fix_is_theirs(self):
+        """「約束も守る」で直したあと、前の担当の方（田中様）との約束の電話で取れた答えは、田中様の答え（その通話の担当の期）。新しい担当の方（鈴木様）の
+        期は、田中様の答えを、鈴木様の期が始まったときの分だけ引き継ぐ（あとの田中様の答えは入らない）。"""
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 20)
+        self.promise_window(s)
+        self.fixed_as(s, False, True)
+        aid = self.call(s, items=[("Q1", "confirmed", "はい")])
+        self.assertTrue(self.tx(s, lambda tx: tasks.former_person_call(tx, aid)))
+        self.assertEqual((self.used(s, aid), self.earlier(s)), ({"Q1": ("はい", aid)}, {}))
 
 
 class CompareForm(unittest.TestCase):

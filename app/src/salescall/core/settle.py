@@ -218,11 +218,11 @@ def _after(tx: Tx, a: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _items(tx: Tx, task_id: UUID) -> dict[str, Item]:
-    """行の項目（判定の入力。読むのはここだけ）。"""
-    return {r["question_id"]: Item(r["state"], r["condition"], r["reason"], hedged_words(r["state"], r["hedged"]) is not None)
-            for r in tx.all("SELECT question_id, state::text AS state, condition, reason, hedged"
-                            " FROM salescall.item_values WHERE task_id = %s", (task_id,))}
+def _items(tx: Tx, a: dict[str, Any]) -> dict[str, Item]:
+    """行の項目（判定の入力。読むのはここだけ）：その通話の担当の方に使う答え（conversation_io.answers＝前の通話の答えと同じ1か所。ほかの担当の方の
+    答え・新しい担当の方が引き継いでいないと答えた前の方の答え・目的のお客様だと確かめられなかった通話の答えは入らない＝0231）。"""
+    return {q: Item(r["state"], r["condition"], r["reason"], hedged_words(r["state"], r["hedged"]) is not None)
+            for q, r in conversation_io.answers(tx, a["task_id"], a["attempt_id"]).items()}
 
 
 def _items_snapshot(items: dict[str, Item]) -> dict[str, dict[str, Any]]:
@@ -243,7 +243,7 @@ def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     version = tx.one("SELECT salescall.run_current_version(%s) AS v", (a["run_id"],))["v"]
     return {"judge_version": JUDGE_VERSION, "rules_version": str(version),
             "report_source": call_report.load_with_source(tx, a["attempt_id"])[1],
-            "items": _items_snapshot(_items(tx, a["task_id"])),
+            "items": _items_snapshot(_items(tx, a)),
             "declared_in_call": dnc.declared_in(tx, a["attempt_id"]),   # 通話の途中の申告（2026-10-19 の見直し。申告の入口の登録だけ＝見直し(3)の5）
             "target_recheck": target_recheck.load(tx, a["attempt_id"]),   # 目的のお客様の確かめ直し（0108）
             # お客様の時間の設定（歯止め時間・1回分の長さ・営業時間。直したら判定し直す＝⛔ 見直し17b：前は比べていなかった）
@@ -380,7 +380,7 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
         report = report.without(gone)
     dialed = number_recheck.dialed(tx, attempt_id)
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["spoken_at"]),
-                     report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version),
+                     report, _items(tx, a), business_rules.load(tx, rules_version),
                      # 通話の途中の申告（申告の入口が入れた登録だけ＝dnc.declared_in。断りを外すと答えたら見ない）
                      dnc.declared_in(tx, attempt_id) and "refusal" not in gone,
                      target_recheck.unconfirmed(tx, attempt_id),

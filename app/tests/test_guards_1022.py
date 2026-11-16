@@ -225,9 +225,9 @@ class Guards(Base):
 
     # ── (9) 仕掛けだけが書く記録には、サーバーの役が直接書けない（仕掛けからは書ける）
     def test_records_written_only_by_the_database_cannot_be_written_directly(self):
-        """状態の移り変わり・前の答え・名前の変更の記録は、仕掛け（持ち主の権限で動く）だけが書く（⛔ 2026-10-22 の見直し：
-        サーバーの役が直接足せ、予約のままの試行に「つながった」を足すと「お客様が出た」になり、取っていない値を「前の答え」に
-        足すと、確かめ直しが「確かめた答え」として戻した）。"""
+        """状態の移り変わり・名前の変更の記録は、仕掛け（持ち主の権限で動く）だけが書く（⛔ 2026-10-22 の見直し：
+        サーバーの役が直接足せ、予約のままの試行に「つながった」を足すと「お客様が出た」になった。前の答えの記録＝0108 の item_value_history は、
+        0231 で答えを通話ごとに持つ形にして無くした）。"""
         s = self.w.setup()
         first = self.attempt_in(s, ["dialing", "no_answer"])
         self.tx(s, lambda tx: tx.execute(
@@ -235,21 +235,15 @@ class Guards(Base):
             " attempt_id) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, 'Q1', 'confirmed', 'はい', %s)",
             (s["task"], s["version"], first)))
         second = self.w.insert_claim(s)
-        self.tx(s, lambda tx: tx.execute(                                         # 後の通話が上書き ⇒ 前の答えを仕掛けが残す
-            "UPDATE salescall.item_values SET attempt_id = %s, condition = 'いいえ' WHERE task_id = %s", (second, s["task"])))
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: registry.rename_client(tx, s["client"], "架空の依頼者（新）"))
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: registry.rename_line(tx, s["line"], "架空の回線（新）"))
         self.assertEqual(self.tx(s, lambda tx: tx.one(
             "SELECT (SELECT count(*) FROM salescall.attempt_state_history WHERE attempt_id = %s) AS moves,"
-            "       (SELECT count(*) FROM salescall.item_value_history WHERE task_id = %s) AS answers,"
             "       (SELECT count(*) FROM salescall.name_changes WHERE target_id IN (%s, %s)) AS names",
-            (first, s["task"], s["client"], s["line"]))), {"moves": 3, "answers": 1, "names": 2})
+            (first, s["client"], s["line"]))), {"moves": 3, "names": 2})
         direct = {
             "状態の移り変わり": ("INSERT INTO salescall.attempt_state_history (tenant_id, client_id, attempt_id, from_state, to_state)"
                          " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'claimed', 'answered')", (second,)),
-            "前の答え": ("INSERT INTO salescall.item_value_history (tenant_id, client_id, task_id, question_id, attempt_id,"
-                     " version_id, state, value) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q1', %s, %s,"
-                     " 'confirmed', '\"2026-11-01T10:00\"')", (s["task"], second, s["version"])),
             "名前の変更": ("INSERT INTO salescall.name_changes (tenant_id, client_id, kind, target_id, old_name, new_name, changed_by)"
                       " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'client', %s, '前', '後', '試験')", (uuid.uuid4(),)),
         }

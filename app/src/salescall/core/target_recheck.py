@@ -6,10 +6,10 @@
 - 要るのは、会話の報告が `target_unverified` の通話だけ（`needed`。判断は core/call_report.py の1か所）。
 - 結果をここで記録する（`record`。書くのはここだけ。変更不可）：target＝目的のお客様だった／not_target＝別の方だった／
   cannot_check＝確かめられなかった（録音が届かない など）。
-- **target 以外なら、その通話で取った答えを全部、前の通話の答え（後の通話が上書きしたときに残したもの。目的のお客様だと確かめられ
-  なかった通話のもの以外）に戻し、無ければ「-」にする**（データベースが記録と同じ取引でする＝0108 の仕掛けの1か所）。別の方の答え・
-  確かめていない答えを依頼者へ渡さない（依頼者へ渡るのは、確かめた値か「-」だけ）。答えを書けるのは、そのタスクのいちばん新しい
-  通話の番号でだけ（前の通話の番号のまま上書きすると、戻す答えを取り違える。データベースが守る）。
+- **target 以外なら、その通話で取った答え・伺った事実を、どの担当の方の答えにも使わない**（使う答えを決める1か所＝
+  core/conversation_io.answers・earlier が、その通話を飛ばす＝前の通話の答えのまま・無ければ答えの無い質問）。別の方の答え・確かめていない
+  答えを依頼者へ渡さない（依頼者へ渡るのは、確かめた値か「-」だけ）。⛔ 0108〜0230：データベースの仕掛けが答えを前の通話の答えに戻すか
+  「-」にした（いまの答え・控えの答え・戻す仕掛けに、どの答えを使うかが分かれていた＝0231 で1か所に）。
 - 要る通話は、記録が無いと通話後の検証を済ませられない（core/attempts.py の `record_verification` が守る）。
   ⇒ 締めの処理は必ず記録を読める（`unconfirmed`：目的のお客様と話せたと数えない＝約束の日のお詫びの印を外さない）。
 """
@@ -24,7 +24,7 @@ from salescall.core.access import Tx
 
 Outcome = Literal["target", "not_target", "cannot_check"]
 OUTCOMES = ("target", "not_target", "cannot_check")
-UNCONFIRMED = tuple(o for o in OUTCOMES if o != "target")   # 目的のお客様だと確かめられなかった（target 以外。0108 の仕掛けも同じ見方）
+UNCONFIRMED = tuple(o for o in OUTCOMES if o != "target")   # 目的のお客様だと確かめられなかった（target 以外。使う答えの1か所 conversation_io._in_force も読む）
 
 
 class RecheckInvalid(Exception):

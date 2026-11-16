@@ -76,7 +76,7 @@ class Write(SettleBase):
             self.write(t, bid, ItemValue("Q1", "confirmed", None, "答えた"))
 
     def test_only_the_newest_call_of_the_row_writes(self):
-        """答えは、その行のいちばん新しい通話の番号でだけ書く（前の通話の番号では、データベースが断る＝0108）。前の答えは残る。"""
+        """答えは、その行のいちばん新しい通話の番号でだけ書く（前の通話の番号では、データベースが断る＝0108）。前の通話の答えは残る。"""
         s = self.ready()
         first = self.answered(s)
         self.write(s, first, ItemValue("Q1", "dont_know", None, "わからない"))
@@ -89,9 +89,8 @@ class Write(SettleBase):
             self.write(s, first, ItemValue("Q1", "dont_know", None, "わからない", reason="undecided"))
         self.assertEqual(e.exception.constraint, "item_values_from_newest_call")
         self.write(s, second, ItemValue("Q1", "confirmed", None, "答えた"))
-        kept = self.tx(s, lambda tx: tx.all("SELECT attempt_id, state::text AS state FROM salescall.item_value_history"
-                                            " WHERE task_id = %s", (s["task"],)))
-        self.assertEqual([(r["attempt_id"], r["state"]) for r in kept], [(first, "dont_know")])
+        kept = self.items(s)                                # 前の通話の答えは、その通話の答えのまま残る（答えは通話ごと＝0231）
+        self.assertEqual(sorted((r["attempt_id"] == first, r["state"]) for r in kept), [(False, "confirmed"), (True, "dont_know")])
 
     def test_reports_and_declarations_go_through_the_same_one_place(self):
         """報告の形の確かめは call_report.from_json の1か所（合わない報告は断る）。「もうかけないで」は dnc.register_declared の
@@ -336,7 +335,9 @@ class Materials(SettleBase):
                 got = self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"]))
                 self.assertEqual("Q1" in got, stays)
                 if stays and retaken:
-                    self.assertEqual(Write.items(self, s)[0]["attempt_id"], new)
+                    took: dict = {}
+                    self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"], took_by=took))
+                    self.assertEqual(took["Q1"], new)
                 # さらに次の電話（同じ新しい方）でも、外した答えは外れたまま（引き継ぎを確かめる事実は、その答えを取った通話のあとの通話にある）
                 third = self.next_call(s, new)
                 self.tx(s, lambda tx: conversation_io.save_report(tx, third, rep().to_json()))
@@ -388,8 +389,9 @@ class Materials(SettleBase):
             calls.append(self.call(s, report=dataclasses.replace(rep(), carried=(carried,))))
             if carried is yes:   # 3人目の方に、その電話で伺い直して取れた答え（新しい方の答え＝引き継いだ答えではない）
                 self.assertNotIn("Q1", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"], before=calls[1])))   # 3つ目の電話の会話へは渡していない
-                self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET attempt_id = %s WHERE task_id = %s AND question_id = 'Q1'",
-                                                 (calls[1], s["task"])))
+                self.tx(s, lambda tx: tx.execute(
+                    "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
+                    " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', NULL, %s)", (s["tenant"], s["client"], s["task"], s["version"], calls[1])))
             self.settle(s, calls[-1])
             if carried is no:
                 self.assertIn("Q1", self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"], before=calls[0])))   # 2つ目の電話の会話へは渡した
