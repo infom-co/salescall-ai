@@ -5760,14 +5760,15 @@ class Flow:
                       "何も言わずに、record_answer で報告してください。", quiet=True)
 
     def _leave_open(self, head: str, rid: str) -> None:
-        if self._offer_due():
-            return   # この一言の代わりに申し出を伺う（営業に引き継ぐ架電の詳しい者からのお話・締める前の申し出＝_handoff_step。✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒）
-        """点を言っていただけないまま手順を終えたときに、次へ進む前に挟む一言（「ご不満な点がございましたらいつでもお申し出ください。」など）の印を立てる唯一の
-        場所（head＝頭の相づち・rid＝一言の録音の名前。流すのは _advance の1か所）。このご承認の質問でもう言っていれば立てない（同じ一言を2回言わない）。
+        """点を言っていただけないまま手順を終えたときに、次へ進む前に挟む一言（「ご不満な点がございましたらいつでもお申し出ください。」など）と、その返事の頭の相づちの
+        印を立てる唯一の場所（head＝頭の相づち・rid＝一言の録音の名前。一言を流すのは _advance の1か所・頭を読むのは _ack_choice の point_open）。一言は、このご承認の
+        質問でもう言っていれば立てない（同じ一言を2回言わない）・申し出を伺う業務（_offer_due＝営業に引き継ぐ架電の詳しい者からのお話・締める前の申し出）では、一言の
+        代わりに申し出を伺う（_handoff_step。✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒）。どちらのときも頭の相づちは同じ（一言の録音は流さず、言った印も
+        立てない）＝点の無いまま手順を終えるときの頭に答える所は1つ（まとめ役の 7d62954b の確かめ。⛔ 7d62954b まで、申し出を伺うときは印を立てずに返し、頭は一般の
+        相づちの決まりだった＝N1 への「そうでしたっけ。」で「はい、ご不満な点が…」と「かしこまりました。それでは詳しい者より…」に割れた）。
         ⛔ 2026-11-06 日本時間13時台の見直し（B2）：遅れた判定で取り消して段を戻す（_point_taken_back）と印だけ外し、言った印が無かったので、段が戻ったあとの
         答えでもう一度挟んだ"""
-        if not self._point_marks()["anytime_said"]:
-            self.point["open"] = (head, rid)
+        self.point["open"] = (head, None if self._offer_due() or self._point_marks()["anytime_said"] else rid)
 
     def _point_marks(self) -> dict:
         """いまのご承認の質問（point の q）の、この通話でお客様にもう言った印を読む・書く唯一の場所（asked・anytime_said・n1＝Flow.__init__ の point_marks）。
@@ -11840,8 +11841,13 @@ class Flow:
         p, nid = self.point, CALLBACK_IDS["not_agreed"]
         if (p is not None and p["outcome"] is None and p["stage"] == "ask" and self.current == nid and self.awaiting_confirm is None
                 and self.items[nid].state == "empty"):
-            self.elsewhere_from = None   # もとのお返事（N1 へのお断り）は、もう読み直さない（手順を終える）
+            frm, self.elsewhere_from = self.elsewhere_from, None   # もとのお返事（N1 へのお断り）は、もう読み直さない（手順を終える）
             self.items[nid].set("unresolved", "ほかの会社では解決できない困りごとを伺い・深めた（点は言っていただけなかった＝伺い直さずに手順を終える）")
+            # 通話の事実 not_agreed の根拠の発話（said・turn）は、手順の質問 N1 に答えた言葉（E1 を伺う前のお客様の言葉＝elsewhere_from。N1 の答えは受け取らずに E1 を
+            # 伺ったので、受け取りの記録 taken・_evidence には無い）。本書 9-5「各項目には、根拠になった発話（時刻つき）を保存する。依頼者への説明と、誤判定の調査に
+            # 使う」。⛔ 7d62954b まで、手順を終えた発話の言葉（会話AIの応えへの相づち「そうなんですね。」）を、ご承認へのお客様の言葉のように依頼者へ渡していた
+            # （まとめ役の確かめ）。手順を終える1か所（_point_end）は、この記録に終わり方（outcome）を書く
+            self._point_record(turn=frm["turn"], said=fact_said(frm["said"]))
             self._point_unsaid(nid)
             return self._advance(prefix, handled=True)
         qid = self.current
@@ -12885,15 +12891,28 @@ class Flow:
         self._point_end("unresolved", by=nid)
 
     def _unsaid_head(self, qid: str) -> str:
-        """点を言っていただけずに手順を終えるとき、挟む一言（「ご不満な点が…」）の頭の相づちを決める唯一の場所：聞き取れた言葉で点を言っていただけなかった
-        （わからない・答えたくない・どの点かは言っていない）＝「承知しました。」（答えの決まり＝_ack_choice の「わからない」「答えたくない」と同じ）、
-        聞き取れない・どちらとも取れない＝「はい、」（聞き返しを使い切って先へ進むときと同じ）。✅ 2026-11-05 日本時間5時45分 ユーザー：「（「承知しました。
-        ご不満な点がございましたらいつでもお申し出ください。続きまして…」のような形）その形でOK、進めてください」"""
-        it = self.items[qid]
-        # わからない（dont_know）は、判定も「決められない」と読んでいなければ（_unknown_agreed＝わからないかどちらとも取れないかを決める1か所）「承知しました。」。
-        # ⛔ 2026-11-06 日本時間13時台の見直しで見つけた：項目の状態だけで決め、どちらとも取れない言葉にも「承知しました。」だった
-        return ("shouchi" if it.state == "refused" or (it.state == "dont_know" and self._unknown_agreed(qid))
-                or (it.state in GOT and it.condition == POINT_UNSAID) else "hai")
+        """点を言っていただけずに手順を終えるとき、その返事の頭の相づち（挟む一言「ご不満な点が…」の頭も、申し出 N4・N6 を伺う頭も＝_leave_open）を決める唯一の
+        場所：その発話で受け取った答え（_received_now＝本書 9-7「相づちは受け取った答えで選ぶ」）で選ぶ。qid＝手順の質問（N1・N2）。
+        - 聞き取れた言葉で点を言っていただけなかった（答えたくない・わからない＝判定も「決められない」と読んでいない・どの点かは言っていない）＝「承知しました。」
+          （答えの決まり＝_ack_choice の「わからない」「答えたくない」と同じ）
+        - どちらとも取れない（判定が「決められない」と読んだ「わからない」）・受け取った答えが無い（聞き取れない・相づちだけ・会話AIの応えへのお返事）＝「はい、」
+          （聞き返しを使い切って先へ進むとき・受け答えのあとと同じ）。ただし、お声は聞き取れていたのに答えをいただけないまま手順の質問 qid を「-」にした（Item.dash_heard）
+          ＝「承知しました。」（まとめ役の 11-12 の (K2)「聞き取れない・どちらとも取れない＝「はい、」・聞き取れたがはっきりしない＝「承知しました。」」＝_ack_choice の
+          同じ決まり）
+        手順の質問へのお返事で終える（_point_step）ときは、その答え（N1・N2）で決まる。ほかの会社の困りごとを伺い・深めたあとに終える（_deepen_then）ときは、そのとき
+        お客様が答えた深める一言（E2・E3・E4）か、会話AIの応えへのお返事で決まる（N1 の項目は、この発話で受け取った答えではない）。
+        ✅ 2026-11-05 日本時間5時45分 ユーザー：「（「承知しました。ご不満な点がございましたらいつでもお申し出ください。続きまして…」のような形）その形でOK、進めて
+        ください」。⛔ 2026-11-06 日本時間13時台の見直しで見つけた：項目の状態だけで決め、どちらとも取れない言葉にも「承知しました。」だった。⛔ 7d62954b まで、手順の
+        質問 qid の項目の状態だけを読んでいた＝深めたあとの E2 への「うーん、どうでしたかね。」（判定「わからない」）に「はい、ご不満な点が…」（まとめ役の確かめ）"""
+        received = self._received_now()
+        # わからない（dont_know）は、判定も「決められない」と読んでいなければ（_unknown_agreed＝わからないかどちらとも取れないかを決める1か所）「承知しました。」
+        if any(it.state == "refused" or (it.state == "dont_know" and self._unknown_agreed(q)) or (it.state in GOT and it.condition == POINT_UNSAID)
+               for q, it in received):
+            return "shouchi"
+        it, b = self.items[qid], self.report_before or {}
+        if not received and it.state == "unresolved" and it.dash_heard and b.get(qid) != "unresolved":
+            return "shouchi"   # (K2) 聞き取れたが答えをいただけないまま「-」
+        return "hai"
 
     def _unknown_agreed(self, qid: str) -> bool:
         """受け取った「わからない」（dont_know）を、判定も「決められない」と読んでいないか＝覚えていない・分からないと言った（「ごもっともです。」で受ける）の唯一の
@@ -13131,7 +13150,9 @@ class Flow:
 
     def _handoff_step(self) -> None:
         """営業に引き継ぐ架電で、ご承認が最終目的のご承認の手順を点を言っていただけないまま終えたときの手順（唯一の場所。_follow_ups から）：
-        - 「承知しました。」＋「それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？」（システムの質問 N4＝共通の一言の録音 callback_handoff）
+        - 頭の相づち＋「それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？」（システムの質問 N4＝共通の一言の録音 callback_handoff）。頭の相づちは、
+          挟む一言（「ご不満な点が…」）を挟む業務と同じ1か所（_leave_open に置いた頭＝_unsaid_head など。点を言いたくない・わからない＝「承知しました。」・どちらとも
+          取れない・聞き取れない＝「はい、」。まとめ役の 7d62954b の確かめ。⛔ 7d62954b まで、ここは一般の相づちの決まりで、挟む一言の業務と割れた）
         - はい ⇒ 改めてのお話の方法を選んでいただく（N5＝「それでは（方法）と（方法）のどちらがよろしいでしょうか？」。方法が1つならその方法）⇒ その方法の
           連絡先を、ほかのご希望と同じ1か所で伺い（_wish_contact・_contact_step。役目＝WISH_MEANS。オンラインはメールアドレス・LINE は伺い方 C11 から＝ID か
           SMS かメールからご招待。この通話か前の通話で取れていれば伺わない・お電話はいまの番号）、ほかのご希望と同じ申し伝える一言（WISH_TOLD。業務の方法の名前に
@@ -13854,9 +13875,10 @@ class Flow:
         # 1回だけ。✅ 2026-11-05 日本時間5時20分56秒・5時45分 ユーザー
         opened = (p := self.point) is not None and p.get("open")
         if opened:
-            plays.append({"kind": "recorded", "id": opened[1], "text": RECORDED[opened[1]]})
             p["open"] = None
-            self._point_marks()["anytime_said"] = True   # 言った印（ご承認の質問ごとに通話で1つ＝取り消しで段を戻しても・手順をやめても残す）
+            if opened[1] is not None:
+                plays.append({"kind": "recorded", "id": opened[1], "text": RECORDED[opened[1]]})
+                self._point_marks()["anytime_said"] = True   # 言った印（ご承認の質問ごとに通話で1つ＝取り消しで段を戻しても・手順をやめても残す）
         if (w := self.wish) is not None and w.get("announce"):
             # 並べて伺ったあとの「どれでも」に、こちらで方法をお伝えする一言（way_any_line の1か所）。連絡先の一言より先（1回だけ）
             aid, atext = w.pop("announce")
@@ -13879,6 +13901,9 @@ class Flow:
             # 次の質問を流す返事：手短にお伺いする一言（_brief_go の1か所）は、ほかの一言のあと・質問のすぐ前（質問の頭は _led の _relead_next が、この一言を前の言葉として決める）
             plays += self._brief_go(self.questions.get(r.get("question_id")), "".join(p["text"] for p in plays))
         if not plays:
+            if opened:
+                # 一言を挟まない（申し出を伺う・もう言った＝_leave_open）ときも、返事の頭の相づちは同じ1か所（_unsaid_head）の決まり（_ack_choice の point_open）
+                r["point_open"] = opened[0]
             return r
         # 締めの前の念のための確認の頭のお詫び（聞き取れなかった質問）は、確認を作る所（_advance_to）がもう確認の前に置いた＝一言はその前に流す（「承知しました。そのご
         # 希望を担当の者に申し伝えます。」＋「申し訳ございません、」＋「お声が聞き取れませんでしたので…」。⛔ 2e5986f5 まで、ここでもお詫びを足していた＝置く所が3か所）
