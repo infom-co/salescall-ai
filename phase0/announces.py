@@ -11,6 +11,14 @@
 かかってしまうのでお気を付けください。」の方がいいんじゃないですか？」＝お知らせの文は、決まり・規則として言わず、説明にあるお客様にとっての良い点（「〜いただければ…」）
 と気をつけていただくこと（「…のでお気を付けください。」）の形で書く（説明に無い事実は足さない決まりは今のまま。終わりと文の数は phrases.ANNOUNCE_ENDS の1か所）。
 
+✅ 2026-11-16 日本時間12時48分22秒 ユーザー：「・(a) お知らせ：「ありがとうございます。ご予約の内容ですがキャンセルや変更は前日までにご連絡いただければ料金はかかりません。
+それ以降になってしまいますとキャンセル料（変更料）がかかってしまうのでお気を付けください。」片方しか無いときは、今の「…必要がございますのでご了承ください。」の1つの
+文です。⇒良い方のみの場合は、良い方のみの方がいいでしょ。」「・伺い33：業務によって、キャンセル料がかかるかかからない、変更料もかかるかかからないが変わってくるので、
+片方ならどちらかで、両方なら、「キャンセル料や変更料が」になります。」＝説明に良い点だけがあれば良い点の1つの文だけ（「〜いただければ…」。「ご了承ください。」「お気を
+付けください。」を付けない）・気をつけていただくことだけ・どちらも無ければ今の「…のでご了承ください。」の1つの文・両方なら今の2つの文（表は phrases.ANNOUNCE_ENDS の
+1か所）。声で言う文にかっこを使わず、説明にある料金だけを言う（2つあれば「キャンセル料や変更料」）＝問い合わせ PROMPT が頼み、形の確かめ fits・句の確かめ clause_fits は
+かっこの入った文を通さない（決まりは spoken の1か所）。
+
 使う所：flowctl.Question.announce（お知らせの文。流す形は flowctl.announce_form の1か所）・flowctl.Question.at_hand（「届いている」の選択肢の名前。読むのは
 flowctl.at_hand の1か所）。「ご確認ください。」の文は、お知らせの文の終わりを替えてプログラムが作る（phrases.announce_check＝お言葉の決まった言い方）。
 
@@ -39,7 +47,8 @@ from __future__ import annotations
 
 import re
 
-from phrases import ANNOUNCE_ACCEPTED, ANNOUNCE_CAUTION_END, ANNOUNCE_END, ANNOUNCE_ENDS, unheard_form
+from phrases import (ANNOUNCE_ACCEPTED, ANNOUNCE_BENEFIT, ANNOUNCE_BENEFIT_END, ANNOUNCE_CAUTION_END, ANNOUNCE_END, ANNOUNCE_ENDS,
+                     unheard_form)
 
 # 決まり・規則として言わない（お客様にとっての形で）言い方の決まり（唯一の言葉＝お知らせの文の問い PROMPT・お知らせの中身を常体にした句の問い MATTER_PROMPT。
 # ✅ 2026-11-16 日本時間0時42分38秒 ユーザー「…決まりになっております。だと相手の印象が悪いので…」）
@@ -48,6 +57,20 @@ NOT_A_RULE = "決まり・規則として言わず（「決まりになってお
 EXAMPLE_EXPL = "キャンセルや変更は前日までのご連絡でしたら料金はかからない決まりになっております。それ以降のご連絡ですとキャンセル料がかかる決まりになっております。"
 EXAMPLE_ASK = "こちらの内容でご承認いただけますでしょうか？"
 EXAMPLE_LINE = f"キャンセルや変更は前日までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料がかかってしまう{ANNOUNCE_CAUTION_END}"
+# 良い点だけの説明の例（お知らせの文は良い点の1つの文だけ＝✅ 2026-11-16 日本時間12時48分22秒「⇒良い方のみの場合は、良い方のみの方がいいでしょ。」）
+EXAMPLE_BENEFIT_EXPL = "キャンセルは前日までのご連絡でしたら料金はかからない決まりになっております。"
+EXAMPLE_BENEFIT_LINE = "キャンセルは前日までにご連絡いただければ料金はかかりません。"
+# 声で言う文に使わないかっこ（唯一の表＝spoken）と、料金の言い方の決まり（唯一の言葉＝お知らせの文の問い PROMPT・句の問い MATTER_PROMPT）。✅ 2026-11-16 日本時間
+# 12時48分22秒 ユーザー「・伺い33：業務によって、キャンセル料がかかるかかからない、変更料もかかるかかからないが変わってくるので、片方ならどちらかで、両方なら、
+# 「キャンセル料や変更料が」になります。」
+BRACKETS = "（）()"
+NO_BRACKETS = ("声で言う文なので、かっこ（「（」「）」）は使いません。料金は説明にあるものだけを言い、2つあれば「キャンセル料や変更料」のように「や」でつなぎます"
+               "（説明に無い料金は足しません）")
+
+
+def spoken(text: str) -> bool:
+    """声で言う文として使えるか（唯一の決まり＝お知らせの文の形の確かめ fits・お知らせの中身を常体にした句の確かめ clause_fits）：かっこ（BRACKETS）を含まない。"""
+    return not any(c in (text or "") for c in BRACKETS)
 
 PROMPT = (
     "電話でお客様に、こちらの決まり（説明）をお伝えしてから、その内容でよいかを伺う質問の一覧です。伺う形は、お客様が身構えてしまうので、説明の内容をすらっと"
@@ -56,15 +79,18 @@ PROMPT = (
     f"- {NOT_A_RULE}伝えます。\n"
     "- 説明に、お客様がそうしていただいたときの良い点と、そうでないときに気をつけていただくことの両方があれば、良い点を「〜いただければ…」の形の1つの文で、"
     f"気をつけていただくことを「{ANNOUNCE_CAUTION_END}」で終える1つの文で書きます（2つの文）。\n"
-    f"- 説明に良い点と気をつけていただくことの両方が無ければ、説明の内容を1つの文でお伝えし「{ANNOUNCE_END}」で終えます。\n"
+    f"- 説明に良い点だけがあれば、良い点を「〜{ANNOUNCE_BENEFIT}…」の形の1つの文だけで書きます（「{ANNOUNCE_END}」「{ANNOUNCE_CAUTION_END}」は付けません）。\n"
+    f"- 説明に気をつけていただくことだけがあるとき・どちらも無いときは、説明の内容を1つの文でお伝えし「{ANNOUNCE_END}」で終えます。\n"
+    f"- {NO_BRACKETS}。\n"
     f"- 例：説明「{EXAMPLE_EXPL}」・質問「{EXAMPLE_ASK}」なら「{EXAMPLE_LINE}」。\n"
+    f"- 例：説明「{EXAMPLE_BENEFIT_EXPL}」・質問「{EXAMPLE_ASK}」なら「{EXAMPLE_BENEFIT_LINE}」（気をつけていただくことが説明に無いので、良い点の文だけ）。\n"
     f"- 例：説明「ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく決まりになっております。」・質問「{EXAMPLE_ASK}」なら、"
     f"「ご予約の内容ですが当日のキャンセルは前日までにご連絡いただく必要がございます{ANNOUNCE_END}」（説明に料金の話が無いので料金は言いません）。\n"
     "- 説明と質問の文にある内容だけを使います。数・金額・日にち・期限・回数は、書いてあるとおりに入れます。無い事実は足しません。\n"
-    f"- 問いかけ（「？」）にしません。終わりは必ず「{ANNOUNCE_CAUTION_END}」か「{ANNOUNCE_END}」です。「ご承認」という言葉は使いません。\n"
+    f"- 問いかけ（「？」）にしません。良い点だけの文のほかは、終わりは必ず「{ANNOUNCE_CAUTION_END}」か「{ANNOUNCE_END}」です。「ご承認」という言葉は使いません。\n"
     "質問（番号：説明／質問の文）：\n"
 )
-FIELD, DESC = "line", f"説明の内容をすらっとお伝えし「{ANNOUNCE_CAUTION_END}」か「{ANNOUNCE_END}」で終える文"
+FIELD, DESC = "line", f"説明の内容をすらっとお伝えする文（「{ANNOUNCE_CAUTION_END}」か「{ANNOUNCE_END}」で終える。説明に良い点だけなら良い点の1つの文だけ）"
 TOOL = ("announce_lines", "質問ごとの、お知らせの文")
 
 HAND_PROMPT = (
@@ -91,12 +117,19 @@ def _digits(text: str) -> list[str]:
 
 
 def fits(intro: str, text: str, line: str | None) -> bool:
-    """お知らせの文として使えるか（形の決まりの唯一の場所）：終わりがお言葉の終わり（phrases.ANNOUNCE_ENDS＝「…のでご了承ください。」は1つの文・「…のでお気を付け
-    ください。」は良い点の文と気をつけていただく文の2つまで。「。」は文の終わりだけ）・問いでない・「ご承認」を言わない・説明と質問の文の数と期限の言葉を落として
-    いない（数は同じ字で・期限の言葉はそのまま）。決まり・規則として言わない形は問い合わせ（PROMPT）が頼む（言葉の形では止めない）。"""
+    """お知らせの文として使えるか（形の決まりの唯一の場所）：終わりと文の数がお言葉の形（phrases.ANNOUNCE_ENDS の1か所＝「…のでご了承ください。」は1つの文・「…のでお気を
+    付けください。」は良い点の文と気をつけていただく文の2つ・良い点だけは良い点の1つの文。「。」は文の終わりだけ）・良い点の文（「お気を付けください。」の形の1つ目の文・
+    良い点だけの文）は「〜いただければ…」（ANNOUNCE_BENEFIT）・良い点だけの文に「〜ください」を付けない（ほかの「〜ください」に広げない＝10-15）・問いでない・「ご承認」を
+    言わない・かっこを使わない（spoken の1か所）・説明と質問の文の数と期限の言葉を落としていない（数は同じ字で・期限の言葉はそのまま）。決まり・規則として言わない形と、
+    説明のどの形かは問い合わせ（PROMPT）が頼む（言葉の形では止めない）。"""
     end = next((e for e in ANNOUNCE_ENDS if line and line.endswith(e)), None)
-    if end is None or line.count("。") > ANNOUNCE_ENDS[end] or "。。" in line or any(m in line for m in ("？", "?", "ご承認")):
+    if (end is None or line.count("。") != ANNOUNCE_ENDS[end] or "。。" in line or any(m in line for m in ("？", "?", "ご承認"))
+            or not spoken(line)):
         return False
+    if end != ANNOUNCE_END and ANNOUNCE_BENEFIT not in line.split("。")[0]:
+        return False   # 良い点の文は「〜いただければ…」
+    if end == ANNOUNCE_BENEFIT_END and "ください" in line:
+        return False   # 良い点だけの文に「〜ください」を付けない
     return keeps_facts(f"{intro}{text}", line)
 
 
@@ -181,6 +214,7 @@ MATTER_PROMPT = (
     "- matter に「の件」は入れません。説明と質問の文の中に無い言葉・言い換えた言葉は書きません。中身を短い言葉で表せなければ空にします。\n"
     "- clause には、頭の「（何々）の内容ですが」のような前置きと「件」を入れません。数・金額・日にち・期限・回数は、お客様が聞いた文にあるものを全部、書いてある"
     "とおりに入れます。説明と質問の文にも、お客様が聞いた文にも無い言葉・事実は足しません。「、」「。」「？」は入れません。1つの句にできなければ空にします。\n"
+    f"- clause も、{NO_BRACKETS}。\n"
     "質問（番号：説明／質問の文／お客様が聞いた文）：\n"
 )
 MATTER_FIELD, MATTER_DESC = "matter", "お伝えする決まりの中身を表す短い言葉（説明と質問の文の中の文字のまま）"
@@ -224,14 +258,14 @@ def matter_fits(intro: str, text: str, matter: str | None) -> bool:
 
 def clause_fits(intro: str, text: str, clause: str | None, announce: str = "") -> bool:
     """お知らせの中身を常体にした句として使えるか（形の決まりの唯一の場所＝取込の clause_decide・import_ai.decide_matters の考える Sonnet の答え）：空でない・読点も
-    句点も問いも含まない（askitems.noun_fits の1か所）・常体（終わりが POLITE_ENDS でない）・「件」の前に置ける終わり（CLAUSE_ENDS）・言葉の出どころの数と期限の
+    句点も問いも含まない（askitems.noun_fits の1か所）・かっこを含まない（spoken の1か所＝お知らせの文と同じ決まり）・常体（終わりが POLITE_ENDS でない）・「件」の前に置ける終わり（CLAUSE_ENDS）・言葉の出どころの数と期限の
     言葉を落とさない・出どころに無い数と期限の言葉を足さない（どちらも keeps_facts の1か所を両向きに）・出どころに無い言葉（漢字・カタカナ・英字のまとまり）を
     足さない。言葉の出どころ＝説明と質問の文と、お客様が聞いた文（heard の1か所＝取込で決まったお知らせの文 announce・無ければ入る一言＋質問の文。お知らせの文は
     説明に無い事実を足さない中身の判定を通った文）。決まり・規則として言わない形は問い合わせ（MATTER_PROMPT）が頼む（言葉の形では止めない＝fits と同じ）。"""
     from askitems import noun_fits
 
-    if not noun_fits(clause) or clause.endswith(POLITE_ENDS) or not clause.endswith(CLAUSE_ENDS):
-        return False
+    if not noun_fits(clause) or clause.endswith(POLITE_ENDS) or not clause.endswith(CLAUSE_ENDS) or not spoken(clause):
+        return False   # かっこは使わない（声で言う句＝spoken の1か所。✅ 2026-11-16 日本時間12時48分22秒「・伺い33：…」）
     source = "\n".join((intro, text, heard(intro, text, announce)))   # お知らせの文が無いとき heard は入る一言＋質問の文（重なりは確かめに効かない）
     return keeps_facts(source, clause) and keeps_facts(clause, source) and all(w in source for w in _WORDS.findall(clause))
 

@@ -288,10 +288,11 @@ def decide_announces(askers: list[Asker], pairs: list[tuple[str, str]], on_error
 
 def decide_summaries(askers: list[Asker], items: list[tuple[str, tuple]], on_error: Callable | None = None,
                      referee: Asker | None = None) -> list[str]:
-    """業務の (用件の一文, 質問の文の並び) の並び → 同じ並びで、急いでいるが手短になら聞くと言われたときに「ありがとうございます。」のあとに流す営業の要約（1〜2文。
-    答えは instruction.Business.summary＝CL-2 の取込が業務設定へ・依頼主の単位の録音 summary）。決め方はお知らせの文と同じ1か所（_drafted）：2つの文字のAIがそろって
-    形に合う（summaries.fits）文、そろわない業務は考える Sonnet（referee）にまとめて1回書かせて形に合う文。どちらも考える Sonnet の中身の判定（summaries.grounded）を
-    通ったときだけ使う。決まらなければ空＝用件の一文の録音。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30。お言葉は summaries の頭）"""
+    """業務の (用件の一文, 質問の文の並び) の並び → 同じ並びで、急いでいるが手短になら聞くと言われたときに「ありがとうございます。（要約）の件でお電話させていただき
+    ましたが…」と伺う営業の要約（「〜の件」の前に置ける名詞の形。答えは instruction.Business.summary＝CL-2 の取込が業務設定へ・依頼主の単位の録音 brief＝
+    phrases.brief_line）。決め方はお知らせの文と同じ1か所（_drafted）：2つの文字のAIがそろって形に合う（summaries.fits）言葉、そろわない業務は考える Sonnet
+    （referee）にまとめて1回書かせて形に合う言葉。どちらも考える Sonnet の中身の判定（summaries.grounded）を通ったときだけ使う。決まらなければ空＝用件の名詞で同じ
+    文。✅ 2026-11-16 日本時間0時42分38秒・12時48分22秒 ユーザー（伺い30・伺い31。お言葉は summaries の頭）"""
     items = [(str(p or ""), tuple(str(t or "") for t in texts)) for p, texts in items]
     return _drafted(askers, items, summaries.by_model, summaries.decide, summaries.fits, summaries.grounded, on_error, referee)
 
