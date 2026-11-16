@@ -3651,3 +3651,12 @@
 {"at": "2026-11-17T02:04:54+09:00", "who": "CL-2", "text": "One break-test was missed: \"the row's other numbers aren't limited to numbers of the same contact as the number being dialled\". I'm checking what it changes."}
 {"at": "2026-11-17T02:05:51+09:00", "who": "CL-2", "text": "Fixed. One more break-test produced code that doesn't even run (a syntax error), so it \"passed\" without testing anything. Checking it."}
 {"at": "2026-11-17T02:06:09+09:00", "who": "CL-2", "text": "All break-tests are caught now. I'll save and push what's done so far."}
+{"at": "2026-11-17T02:07:44+09:00", "who": "CL-2", "text": "While that runs, I'll start the full test suite on what's saved so far, in the background (about an hour and a half)."}
+{"at": "2026-11-17T02:08:47+09:00", "who": "CL-2", "text": "The query that finds \"the newest call to close again\" was now in two places, so I'll merge it into one."}
+{"at": "2026-11-17T02:08:56+09:00", "who": "CL-2", "text": "Now giving the contractor's correction its call, and having it go through the shared step."}
+{"at": "2026-11-17T02:09:46+09:00", "who": "CL-2", "text": "The core of the correction change is done. Now tests: after a correction, the row's next schedule follows it, and the correction is tied to the right call."}
+{"at": "2026-11-17T02:10:49+09:00", "who": "CL-2", "text": "The new tests pass. Next I'll run the existing tests that use corrections (approval, accuracy measurement, irreversible decisions, stopping other rows)."}
+{"at": "2026-11-17T02:15:57+09:00", "who": "CL-2", "text": "Now the Python readers: switch them to the current result, and make re-closing keep the correction."}
+{"at": "2026-11-17T02:16:36+09:00", "who": "CL-2", "text": "Next, a test that re-closing a call keeps the contractor's correction, plus break-tests for the main pieces."}
+{"at": "2026-11-17T02:17:11+09:00", "who": "CL-2", "text": "While those run, I'll write the design doc and notebook entries for the correction change."}
+{"at": "2026-11-17T02:17:48+09:00", "who": "CL-2", "text": "The full test run has restarted on the latest code. It takes about an hour and a half. The break-tests for the correction change are also still running. I'll report when both finish."}

@@ -124,7 +124,7 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
     if tx.one("SELECT 1 AS x FROM salescall.task_next_actions WHERE task_id = %s AND purpose = 'apology' AND decided_at >= %s",
               (task_id, row["approved_at"])) is not None:
         return False   # もう書いた（そのあとの動きは、お詫びの電話の締めが決める）
-    judged = tx.one("SELECT business_state::text AS state FROM salescall.call_judgements WHERE attempt_id = %s",
+    judged = tx.one("SELECT business_state::text AS state FROM salescall.call_results WHERE attempt_id = %s",
                     (row["source_attempt_id"],))
     current = next_action.current(tx, task_id)
     if judged is None or judged["state"] in ("unknown", "do_not_call") or (current is not None and current["kind"] == "hold"):
@@ -159,7 +159,7 @@ def source_call(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
         return None
     return tx.one("SELECT a.attempt_id, a.claimed_at, j.business_state::text AS state, j.detail ->> 'policy_key' AS policy_key,"
                   "       j.detail ->> 'out_of_scope' AS out_of_scope FROM salescall.attempts a"
-                  " LEFT JOIN salescall.call_judgements j ON j.attempt_id = a.attempt_id WHERE a.attempt_id = %s",
+                  " LEFT JOIN salescall.call_results j ON j.attempt_id = a.attempt_id WHERE a.attempt_id = %s",
                   (o["source_attempt_id"],))
 
 

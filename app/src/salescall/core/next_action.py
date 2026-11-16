@@ -425,14 +425,14 @@ def _blocked_by_number(tx: Tx, task_id: UUID, reason: str) -> bool:
 def _laters(tx: Tx, task_id: UUID) -> list[str | None]:
     """数え始め以降にお客様が「あとで」と言った通話の、約束の一環か（判定の中身 callback.intent。promise か None＝まだ分からない）の並び
     （1か所。読むのは「あとで」と言われた回数＝`_unspecified_next`＝その数で行を終える）。「あとで」＝判定が時刻の決まっていない約束（再発信の方針
-    callback_unspecified_time）にした通話（通話ごとに最新の判定の版＝見方 call_judgements）。範囲は数え始め以降の、どの番号への電話も
+    callback_unspecified_time）にした通話（通話ごとのいまの結果＝見方 call_results。契約者の直しを含む＝0233）。範囲は数え始め以降の、どの番号への電話も
     （attempts.count_start。番号を直したあと前の番号へかけた電話で言われた「あとで」も入る：お客様の言葉は、どの番号で言われても同じお客様の言葉）。
     いまの担当の方の期の通話だけ（前の担当の方の「あとで」は、新しい担当の方の言葉ではない。その通話が、いまの期のものかはデータベースの1か所
     salescall.attempt_in_period。0203・0210）。
     ⛔ 0209 まで：「あとで」を回数より多く言って終えた行を番号の直しで戻すか（`_later_refused`）も、この並びの意味（intent）を読み、まだ分からない
     「あとで」があれば戻さなかった ⇒ 計画書 7-1 (27) で、回数で終えた行の「あとで」は約束の一環とみなす（`reopens_on_fix`）ので、読むのは回数だけ。"""
     rows = tx.all(
-        "SELECT j.detail -> 'callback' ->> 'intent' AS intent FROM salescall.call_judgements j"
+        "SELECT j.detail -> 'callback' ->> 'intent' AS intent FROM salescall.call_results j"
         " JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
         " WHERE j.task_id = %s AND j.detail ->> 'policy_key' = 'callback_unspecified_time'"
         f" AND {attempts.count_start('a')}"
@@ -995,7 +995,7 @@ def _period_ends(tx: Tx, task_id: UUID) -> tuple[str, UUID] | None:
     会社としての答え（目的を果たした・対象外）は、もともと行を終えたまま（戻していない）。新しいかけ直しの約束・まだ続く答えは None
     （いまの予定を決め直す＝`_repoint`）。苦情で終えた行も、もともと戻していない。"""
     r = tx.one("SELECT j.attempt_id, j.business_state::text AS state, j.detail ->> 'policy_key' AS policy_key,"
-               "       j.detail ->> 'out_of_scope' AS out_of_scope FROM salescall.call_judgements j"
+               "       j.detail ->> 'out_of_scope' AS out_of_scope FROM salescall.call_results j"
                " JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
                " WHERE j.task_id = %s AND salescall.attempt_in_period(a.attempt_id, now())"
                " ORDER BY a.claimed_at DESC, a.attempt_id DESC LIMIT 1", (task_id,))
@@ -2140,10 +2140,10 @@ def _apologised(d: Decision, reached_target: bool, *, forbidden_kept: bool) -> D
 def _times(tx: Tx, task_id: UUID, key: str) -> int:
     """この行で、その再発信の方針の鍵の結果が出た通話のうち、行の回数に数える発信の数（1か所。数える発信の決まりは門と同じ
     `attempts.counts_as_try`＝お客様の意思と関係なく繋がらなかった・切れた発信と、お客様と約束したかけ直しは数えない。通話ごとに
-    最新の判定の版＝見方 call_judgements で数える＝判定し直しを二重に数えない）。⛔ 2026-10-22 の見直し14：前は、その結果の出た
+    いまの結果＝見方 call_results で数える（契約者の直しを含む＝0233）＝判定し直しを二重に数えない）。⛔ 2026-10-22 の見直し14：前は、その結果の出た
     通話をすべて数え、回線の側の失敗・切れた通話・約束の電話で、お客様に一度も繋がらないまま行が終わった。"""
     return tx.one(
-        "SELECT count(*) AS n FROM salescall.call_judgements j JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
+        "SELECT count(*) AS n FROM salescall.call_results j JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
         f" WHERE j.task_id = %s AND j.detail ->> 'policy_key' = %s AND {attempts.counts_as_try('a')} AND {attempts.in_row_count('a')}",
         (task_id, key))["n"]
 
@@ -2800,7 +2800,7 @@ def _served_unspecified(tx: Tx, task_id: UUID, at: datetime, purpose: str) -> bo
         if cut is None:
             return False
         said = tx.one("SELECT business_state::text AS state, detail -> 'callback' ->> 'at' AS at, detail ? 'callback' AS cb"
-                      " FROM salescall.call_judgements WHERE attempt_id = %s", (cut["attempt_id"],))
+                      " FROM salescall.call_results WHERE attempt_id = %s", (cut["attempt_id"],))
         if said is not None and said["state"] == "callback_scheduled" and said["cb"] and said["at"] is None:
             return True
         return _served_unspecified(tx, task_id, cut["claimed_at"], cut["purpose"])
@@ -2820,7 +2820,7 @@ def _unspecified_calls(tx: Tx, task_id: UUID) -> int:
         f"SELECT a.claimed_at, a.purpose FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.reached('a')}"
         f" AND {attempts.in_promise_count('a')}"   # 前の担当の方との「守る」約束の電話は、その方の番号で数える（0214）
         " AND a.claimed_at > coalesce((SELECT max(c.claimed_at) FROM salescall.attempts c"
-        "   JOIN salescall.call_judgements r ON r.attempt_id = c.attempt_id"
+        "   JOIN salescall.call_results r ON r.attempt_id = c.attempt_id"
         "   WHERE c.task_id = %s AND r.business_state = 'callback_scheduled'), '-infinity')",
         (task_id, task_id))
     return sum(_served_unspecified(tx, task_id, r["claimed_at"], r["purpose"]) for r in rows)

@@ -242,6 +242,31 @@ class Judgement:
     detail: dict[str, Any]       # 判定の中身（依頼者への報告・次の動きが読む。policy_key＝再発信の方針の鍵）
 
 
+# 契約者が直した結果を、その通話の判定として読む形（1か所。✅ 2026-11-16 ユーザー「直しに従う（お勧め）」＝検証モードで契約者が結果を直したら、
+# 次に電話をかけるかも直しに従う。締めの settle.follow_correction が、ふつうの締めと同じ次の動きの道に渡す）。
+CORRECTABLE_STATES = ("open", "completed", "callback_scheduled", "incomplete", "declined", "do_not_call", "out_of_scope", "not_reached",
+                      "concluded")   # 直せる業務の状態（「判定できない」には直さない）
+_CORRECTION_KEEPS = ("cut", "cut_recorded", "target_unconfirmed")   # 状態を替えた直しでも、もとの判定から残す中身（切れ方・確かめ直し）
+
+
+def corrected(state: str, complaint: bool, detail: dict[str, Any] | None, *, base_state: str,
+              base_detail: dict[str, Any]) -> Judgement:
+    """契約者の直し（業務の状態・苦情・中身）を、その通話の判定として読む（1か所）：同じ状態への直し（苦情の印・中身だけ）は、もとの判定の中身に直しの
+    中身を重ねる。状態を替えた直しは、直しの中身と、もとの判定の切れ方・確かめ直しだけ。次にいつかけるかの鍵（policy_key）は、未決・必須項目不足なら
+    その状態の名前。目的のお客様に繋がらなかった・折り返し予定へ直すなら、直しの中身に policy_key か callback が要る（どの理由・いつかけるかは
+    契約者が決める＝こちらで推し量らない）。「もうかけないで」への直しは、発信禁止に登録する（refused_in_call。自動では取り消さない＝もとが
+    「もうかけないで」なら登録し直さない）。"""
+    if state not in CORRECTABLE_STATES:
+        raise ValueError(f"直せる業務の状態は {CORRECTABLE_STATES} のどれかです：{state!r}")
+    given = dict(detail or {})
+    out = {**base_detail, **given} if state == base_state else {**{k: base_detail[k] for k in _CORRECTION_KEEPS if k in base_detail}, **given}
+    if state in ("open", "incomplete"):
+        out.setdefault("policy_key", state)
+    elif state in ("not_reached", "callback_scheduled") and not (out.get("policy_key") or out.get("callback")):
+        raise ValueError(f"「{state}」に直すときは、次にいつかけるかの中身（policy_key か callback）も要ります")
+    return Judgement(state, complaint, None, "refused_in_call" if state == "do_not_call" and base_state != "do_not_call" else None, out)
+
+
 @dataclass(frozen=True)
 class Irreversible:
     """その通話の判定のうち、取り消せない決定（発信禁止・行の終わりになる、お客様の断り・番号違い・怒っていた）と、2つ目の判定が

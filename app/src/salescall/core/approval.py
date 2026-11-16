@@ -131,9 +131,15 @@ def approve_result(tx: Tx, task_id: UUID, version_no: int) -> None:
 def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_state: str, wrong_items: list[str],
                    complaint: bool, snapshot: dict[str, Any], detail: dict[str, Any] | None = None) -> int:
     """契約者の承認：契約者が、システムが判定した版（checked_version）を確かめて直す。契約者の版を足して（システムが判定した版は
-    残す）、その版を送ってよいにする。直した中身（正しい業務の状態・違っていた項目＝質問の番号）は、その版の正解になる。"""
-    v = tx.one("SELECT kind::text AS kind FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
-               (task_id, checked_version))
+    残す）、その版を送ってよいにする。直した中身（正しい業務の状態・違っていた項目＝質問の番号）は、その版の正解になる。
+    契約者の版は、直した通話の結果（attempt_id＝直した版の通話。その通話のいまの結果＝データベースの salescall.call_result の1か所が読む）。
+    直した結果に従って、発信禁止・行の次の動きも決め直す（✅ 2026-11-16 ユーザー「直しに従う（お勧め）」＝「完了」を「断られた」に直せば、その
+    お客様へもうかけない。締めの settle.follow_correction の1か所。直した結果を判定として読む形は judge.corrected の1か所）。
+    ⛔ 2026-11-16 の4回目の見直しまで：契約者の版はどの通話の直しかを持たず（データベースが版の番号の並びから推し量り、前の通話の直しを、あとの
+    通話の結果として読みえた）、行の次の動きも変えなかった（「断られた」に直しても、そのお客様へかけ続けた）。"""
+    from salescall.core import judge, settle   # 締めの部品がこの部品を読むので、ここで読む（読み合いにしない）
+    v = tx.one("SELECT kind::text AS kind, attempt_id, business_state::text AS business_state, complaint, detail, snapshot"
+               " FROM salescall.task_results WHERE task_id = %s AND version_no = %s", (task_id, checked_version))
     if v is None or v["kind"] not in measure.SYSTEM_KINDS:   # システムが判定した版（決まりは measure の1か所）
         raise LookupError(f"直すのは、システムが判定した結果の版です：{task_id} の版 {checked_version}")
     if _blocked(tx, task_id, checked_version):
@@ -141,11 +147,13 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
         # 確定しない（保留を、結果を直す道で越えない＝承認・差し戻しで答える。古い画面の版を直して、新しい結果を上書きしない＝0161）
         raise ValueError(f"その版は直して確定できません（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版が"
                          f"ある）：{task_id} の版 {checked_version}")
-    version_no = results.append(tx, task_id, kind="human", business_state=business_state, attempt_id=None,
+    j = judge.corrected(business_state, complaint, detail, base_state=v["business_state"], base_detail=v["detail"])
+    version_no = results.append(tx, task_id, kind="human", business_state=business_state, attempt_id=v["attempt_id"],
                                 judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="契約者",
-                                detail=detail)
+                                detail=j.detail)
     _release(tx, task_id, version_no)
     measure.record_check(tx, task_id, checked_version, truth_state=business_state, wrong_items=wrong_items)
+    settle.follow_correction(tx, v["attempt_id"], j, base=v)
     return version_no
 
 

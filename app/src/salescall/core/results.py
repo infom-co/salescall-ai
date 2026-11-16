@@ -30,12 +30,18 @@ def latest(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     )
 
 
-def latest_of_attempt(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
-    """その通話の、いちばん新しいシステムの判定の版（judged・rejudged。無ければ None）。"""
+def of_call(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
+    """その通話のいまの結果（判定・判定し直し・契約者の直しのいちばん新しい版。無ければ None）。決めるのはデータベースの見方 call_results の1か所（0233）。"""
     return tx.one(
         "SELECT task_id, version_no, kind::text AS kind, business_state::text AS business_state, attempt_id, complaint, detail"
-        " FROM salescall.task_results WHERE attempt_id = %s AND kind IN ('judged', 'rejudged') ORDER BY version_no DESC LIMIT 1",
-        (attempt_id,))
+        " FROM salescall.call_results WHERE attempt_id = %s", (attempt_id,))
+
+
+def correction_of(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
+    """その通話を契約者が直した、いちばん新しい契約者の版（無ければ None。締め直しが直しを保つ＝settle._judge_and_write）。"""
+    return tx.one(
+        "SELECT business_state::text AS business_state, complaint, detail FROM salescall.task_results"
+        " WHERE attempt_id = %s AND kind = 'human' ORDER BY version_no DESC LIMIT 1", (attempt_id,))
 
 
 def current_state(tx: Tx, task_id: UUID) -> str:

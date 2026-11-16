@@ -3583,6 +3583,77 @@ class PersonAnswers(SettleBase):
         self.assertEqual((self.earlier(s), self.used(s, other)), ({"Q1": ("confirmed", "はい")}, {}))
 
 
+class Corrections(SettleBase):
+    """契約者が結果を直したら、直しに従う（✅ 2026-11-16 ユーザー「直しに従う（お勧め）」）：直しは、直した通話の結果（契約者の版の attempt_id＝その
+    通話。いまの結果＝salescall.call_result の1か所）。発信禁止・行の次の動き・ほかの行の止めも、ふつうの締めと同じ道で直しに従う
+    （settle.follow_correction・judge.corrected の1か所）。⛔ 4回目の見直しまで：直しても結果の表示が変わるだけで、そのお客様へかけ続けた。"""
+
+    def correct(self, s, version, state, **more):
+        return self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=version, business_state=state, wrong_items=[],
+                                                             complaint=more.pop("complaint", False), snapshot={"理由": "試験：契約者が直した"},
+                                                             **more), OPERATOR)
+
+    def now(self, s):
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        return p["kind"], p["end_reason"]
+
+    def call_result(self, s, aid):
+        return self.tx(s, lambda tx: tx.one("SELECT kind::text AS kind, business_state::text AS state FROM salescall.call_result(%s)", (aid,)))
+
+    def test_a_correction_to_declined_stops_calling_and_a_correction_from_declined_calls_again(self):
+        """必須項目不足（かけ直す）を「断られた」に直す ⇒ その行は終え、同じお客様の次の実施回の行も止める。「断られた」（行を終えた）を必須項目不足に
+        直す ⇒ 行はまたかける（方針の鍵は必須項目不足）。"""
+        from tests.test_judge import goal_refused
+        from tests.test_unwelcome import SameNumberOtherRows
+        s = self.ready()
+        got = self.settle(s, self.call(s))
+        self.assertEqual((got["state"], self.now(s)[0]), ("incomplete", "call"))
+        self.correct(s, got["version_no"], "declined")
+        self.assertEqual(self.now(s), ("end", "declined"))
+        run = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        other = dict(s, run=run, task=self.w.task(s["tenant"], s["client"], run, s["contact"]))
+        self.assertEqual(SameNumberOtherRows.blocked(self, other), "declined_in_business")
+        t = self.ready()
+        got = self.settle(t, self.call(t, report=goal_refused(rep())))
+        self.assertEqual((got["state"], self.now(t)), ("declined", ("end", "declined")))
+        self.correct(t, got["version_no"], "incomplete")
+        self.assertEqual(self.now(t)[0], "call")
+        with self.assertRaises(ValueError):                                    # 繋がらなかったへ直すなら、理由（次にいつかけるか）も要る
+            self.correct(t, got["version_no"], "not_reached")
+
+    def test_settling_the_call_again_keeps_the_correction(self):
+        """直したあとに同じ通話を締め直しても（取り消せない決定の答え・発信禁止の取り消し）、通話の結果は契約者の直しのまま（判定し直しの版も直しの状態）。"""
+        s = self.ready()
+        aid = self.call(s)
+        got = self.settle(s, aid)
+        self.correct(s, got["version_no"], "declined")
+        self.tx(s, lambda tx: settle.resettle(tx, aid))
+        self.assertEqual((self.call_result(s, aid), self.now(s)), ({"kind": "rejudged", "state": "declined"}, ("end", "declined")))
+
+    def test_a_correction_to_do_not_call_registers_the_refusal(self):
+        """「もうかけないで」に直す ⇒ 発信禁止に登録し、行を終える（ふつうの締めと同じ道）。"""
+        s = self.ready()
+        got = self.settle(s, self.call(s))
+        self.correct(s, got["version_no"], "do_not_call")
+        self.assertIsNotNone(self.tx(s, lambda tx: dnc.lookup(tx, s["phone"])))
+        self.assertEqual(self.now(s)[0], "end")
+
+    def test_a_correction_is_the_result_of_the_call_it_corrects(self):
+        """直しは、直した通話の結果（あとの通話の結果にしない）：出なかった通話 A のあとに、判定できない通話 B がある ⇒ A を直しても、B のいまの結果は
+        判定できないのまま。⛔ 0233 まで：契約者の版は通話を持たず、版の並びから推し量って B の直しと読んだ。"""
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        a = self.call(s, ["dialing", "no_answer"])
+        va = self.settle(s, a)["version_no"]
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：次の電話をいまかける"))
+        time.sleep(1.1)
+        b = self.call(s, items=[("Q1", "dont_know", None)])                   # 理由の無い「わからない」＝判定できない
+        self.assertEqual(self.settle(s, b)["state"], "unknown")
+        self.correct(s, va, "declined")
+        self.assertEqual((self.call_result(s, a), self.call_result(s, b)),
+                         ({"kind": "human", "state": "declined"}, {"kind": "judged", "state": "unknown"}))
+
+
 class CompareForm(unittest.TestCase):
     def test_the_compare_form_is_the_same_as_the_source_check(self):
         """お呼びする方が替わるかで値を比べる形（データベースの salescall.compare_form。0209）は、出典の照らしの1か所
