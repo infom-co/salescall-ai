@@ -439,6 +439,22 @@ class TargetRecheck(SettleBase):
         inp = self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"])[0])
         self.assertEqual((inp.report.reached(inp.anyone_target), inp.reached_target), (True, False))
 
+    def test_the_facts_of_an_unconfirmed_call_are_not_used(self):
+        """目的のお客様だと確かめられなかった通話で伺った事実（最終目的のお断り・ほかのご希望など）も、答えと同じく使わない（DESIGN.md 7-1e＝判定は
+        「取り次いでもらえなかった」・依頼者へも返さない）。⛔ 2026-11-16 の4回目の見直しまで：答えだけを外し、別の方の「うちは要らない」で「用件を
+        断られた」になり行を終えた。"""
+        from tests.test_judge import goal_refused
+        s = self.ready()
+        report = replace(goal_refused(self.connected_report()),
+                         other_wishes=(call_report.OtherWish(call_report.Said(4, "特に無いです。"), "Q1", "無い", None, None, None, "none"),))
+        aid = self.call(s, report=report, items=(), verify=None)
+        self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence="試験：別の耳で「いえ、山本です」", checked_by="試験"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.assertEqual(self.settle(s, aid)["state"], "not_reached")
+        r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+        self.assertEqual((r["detail"].get("not_reached"), "other_wish" in r["detail"], "declined_by" in r["detail"]),
+                         ("not_transferred", False, False))
+
     def test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers(self):
         """目的のお客様だったら答えはそのまま。後の通話（判定なしで繋いだ）の答えは、その通話が別の方だったら使わず、前の通話で目的の
         お客様から取った答えを使う（答えは通話ごとに残る＝0231）。前の通話の答えは書き換えられず、答えを別の通話へ付け替えることもできない
@@ -1825,6 +1841,13 @@ class DialFixAfterCalls(SettleBase):
         d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
         self.assertEqual((d.kind, d.target.contact_id, self.handover_now(s)), ("call", new, True))
         self.assertNotIn("お呼びする方が替わった", d.rule)
+        # 業務の設定で、前の担当の方の「もうかけないで」の番号をいまの担当の方にも当てる（0229 の「いいえ」）ときも、前の担当の方のほかの番号の
+        # 断りで、新しい担当の方の番号は止めない（行のほかの番号は、かける番号と同じ方の番号だけ＝target_policy.task_block_reason）
+        from salescall.core import target_policy
+        self.put_client(s, "dnc.former_refusal_calls_new_person", False)
+        self.assertIsNone(self.tx(s, lambda tx: target_policy.task_block_reason(
+            tx, s["task"], normalize(self.phone_of(s, new)), client_ref=None, tenant_id=s["tenant"], client_id=s["client"],
+            business_id=s["business"])))
 
     def phone_of(self, s, contact):
         return self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s", (contact,)))["phone_e164"]
@@ -3503,6 +3526,61 @@ class PersonAnswers(SettleBase):
         aid = self.call(s, items=[("Q1", "confirmed", "はい")])
         self.assertTrue(self.tx(s, lambda tx: tasks.former_person_call(tx, aid)))
         self.assertEqual((self.used(s, aid), self.earlier(s)), ({"Q1": ("はい", aid)}, {}))
+
+
+    def test_the_former_persons_answers_are_not_the_new_persons_until_they_say_they_heard(self):
+        """田中様が必須の質問に答えたあと最終目的を断る（用件を断られた）→「担当の方は違う」で鈴木様に直す（行は戻る＝計画書 7-1 (26)）→ 鈴木様への最初の
+        電話に出ない ⇒ 田中様の答えで「完了」にしない（鈴木様はまだ引き継ぎを確かめていない＝鈴木様の答えではない）。会話へは前の通話の答えとして渡す
+        （引き継ぎを確かめる一言を伺うため）。⛔ 2026-11-16 の4回目の見直しまで：田中様の答えのまま「完了」で行を終え、鈴木様に一度もかからなかった。"""
+        from tests.test_judge import goal_refused
+        s = self.ready()
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 20)
+        got = self.settle(s, self.call(s, items=[("Q1", "confirmed", "はい")], report=goal_refused(rep())))
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "declined"))
+        self.fixed_as(s, False)
+        time.sleep(1.1)
+        aid = self.call(s, ["dialing", "no_answer"])
+        self.assertEqual((self.judged_items(s, aid)[0], self.earlier(s)), ({}, {"Q1": ("confirmed", "はい")}))
+        got = self.settle(s, aid)
+        self.assertNotEqual(got["state"], "completed")
+        self.assertNotEqual(got["decision"].kind, "end")
+
+    def test_the_answers_of_a_call_are_those_up_to_that_call(self):
+        """その通話の判定の材料は、その通話までの通話の答え（あとの同じ担当の方の通話の答えは入れない＝締め直しても、もとの判定と同じ答え）。"""
+        s = self.ready()
+        first = self.talk(s, [("Q1", "confirmed", "はい")])
+        second = self.talk(s, [("Q1", "confirmed", "いいえ")])
+        self.assertEqual((self.used(s, first), self.used(s, second)), ({"Q1": ("はい", first)}, {"Q1": ("いいえ", second)}))
+
+    def test_a_period_brought_back_grows_and_is_handed_on_and_a_call_reads_its_own_period(self):
+        """田中様 → 鈴木様 → 田中様に戻し、田中様の通話で答えが変わる → 佐藤様（3人目）に直す ⇒ その田中様の通話を始めたときの前の通話の答えは、
+        田中様の期の答え（いまの佐藤様の期ではない）。佐藤様の期は、戻した田中様の期のいまの答え（戻したあとの通話の分も）を引き継ぐ（まだ佐藤様の答えではない）。"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        self.talk(s, [("Q1", "confirmed", "はい")])
+        first = self.phone_of(s, s["contact"])
+        self.fixed_as(s, False)
+        self.talk(s, [("Q1", "confirmed", "いいえ")])
+        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], first, same_person=False, back_to=row_fixes.FIRST_PERIOD), OPERATOR)
+        tanaka = self.talk(s, [("Q1", "dont_know", None)])                     # 戻した田中様の期の通話で、答えが変わる
+        self.fixed_as(s, False)
+        sato = self.talk(s)
+        self.assertEqual(self.earlier(s, before=tanaka), {"Q1": ("confirmed", "はい")})
+        self.assertEqual(self.used(s, tanaka), {"Q1": (None, tanaka)})
+        self.assertEqual((self.earlier(s), self.used(s, sato)), ({"Q1": ("dont_know", None)}, {}))
+
+    def test_an_unconfirmed_call_to_a_new_person_adds_and_drops_nothing(self):
+        """新しい担当の方（鈴木様）の期の、目的のお客様だと確かめられなかった通話（引き継ぎに「聞いていない」と答え、別の答えも言った）は、何も外さず
+        何も入れない（田中様の答えは引き継いだまま＝次の電話で引き継ぎを伺う）。"""
+        s = self.ready()
+        self.talk(s, [("Q1", "confirmed", "はい")])
+        self.fixed_as(s, False)
+        carried = call_report.Carried(call_report.Said(2, "聞いていない"), "聞いていない", False, ())
+        report = replace(TargetRecheck.connected_report(self), carried=(carried,))   # 判定なしで繋いだ通話
+        other = self.talk(s, [("Q1", "confirmed", "いいえ")], report=report)
+        self.tx(s, lambda tx: target_recheck.record(tx, other, "not_target", evidence="試験：別の耳で「いえ、山本です」", checked_by="試験"))
+        self.assertEqual((self.earlier(s), self.used(s, other)), ({"Q1": ("confirmed", "はい")}, {}))
 
 
 class CompareForm(unittest.TestCase):

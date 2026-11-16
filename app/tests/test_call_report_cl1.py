@@ -1107,6 +1107,45 @@ class EndedOn1104(unittest.TestCase):
         self.assertEqual(not_asked({}, {}, from_json(self.raw())), frozenset())
 
 
+
+class Brief1116(unittest.TestCase):
+    """CL-1 の連絡帳 4-173 の (3)（✅ 2026-11-16 日本時間12時48分22秒 ユーザー「伺い31」）：手短になら聞くと言われ、かけ直しを伺い（H3）、かけ直さずに続けた
+    （事実 brief。1通話に1つまで）。skipped＝伺わなかった必須でも最終目的でもない質問は、ended_on の skipped と同じく「伺っていない（対象外）」（会話の側が
+    伺わなかった質問の1か所＝CallReport.not_asked_by_talk）。答えは判定の中身 brief で依頼者へ返す。お客様の言葉への伺いなので人の証。答えの発話が取れな
+    ければ turn・said は無い。"""
+
+    def raw(self, *rows, ended=()):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "brief": list(rows), **({"ended_on": list(ended)} if ended else {})}}
+
+    def test_brief_is_received_and_the_skipped_questions_are_not_asked(self):
+        row = {"turn": 3, "said": "いえ、このままで大丈夫です。", "answer": "いいえ", "skipped": ["Q2"]}
+        r = from_json(self.raw(row))
+        self.assertEqual((r.brief.answer, r.brief.skipped, r.brief.evidence.turn, from_json(r.to_json())), ("いいえ", ("Q2",), 3, r))
+        unheard = from_json(self.raw({"answer": "-", "skipped": []}))       # 聞き取れない＝答えの発話が無い
+        self.assertEqual((unheard.brief.evidence.turn, unheard.brief.evidence.said, from_json(unheard.to_json())), (None, "", unheard))
+        self.assertTrue(r.talked and unheard.talked)                        # 人の証
+        for bad in ([row, row], [{**row, "turn": None}], [{**row, "skipped": ["Q2", "Q2"]}], [{**row, "skipped": "Q2"}],
+                    [{**row, "answer": ""}], [{**row, "question": "Q1"}], {"answer": "いいえ"}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**self.raw(), "facts": {"brief": bad}})
+        from salescall.core.judge import not_asked
+        self.assertEqual(not_asked({}, {}, r), frozenset({"Q2"}))
+        ended = {"turn": 5, "said": "いいえ。", "question": "Q3", "answer": "いいえ", "skipped": ["Q4"]}
+        self.assertEqual(not_asked({}, {}, from_json(self.raw(row, ended=(ended,)))), frozenset({"Q2", "Q4"}))   # 両方の事実を1か所で
+
+    def test_the_brief_answer_is_returned_to_the_client_and_skipped_questions_are_not_missing(self):
+        rules = check(V, ("Q1",), rules_raw(("Q1",)))   # 必須は Q1 だけ（Q2・Q3 は必須でも最終目的でもない）
+        items = {"Q1": Item("confirmed", None, None)}
+        brief = from_json(self.raw({"turn": 3, "said": "いえ、このままで。", "answer": "いいえ", "skipped": ["Q2", "Q3"]})).brief
+        got = judge(JudgeInput(TALKED, replace(make_report(("target",), cut=CLOSED), brief=brief), items, rules,
+                               callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
+        self.assertEqual((got.state, got.detail["not_asked"], got.detail["brief"]),
+                         ("completed", ["Q2", "Q3"], {"answer": "いいえ", "skipped": ["Q2", "Q3"], "said": "いえ、このままで。"}))
+        plain = judge(JudgeInput(TALKED, make_report(("target",), cut=CLOSED), items, rules,
+                                 callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
+        self.assertEqual(("brief" in plain.detail, "not_asked" in plain.detail), (False, False))
+
 class NotAgreedEnd1102(unittest.TestCase):
     """CL-1 の連絡帳 4-66 のあとの (f)(g)（2026-11-02 5時56分・6時21分 ✅ ユーザー：「最終目的のご承認なら、お礼を言って締め、依頼者へ不満点を
     返します。ただし『もうかけない』の印は付けず、改めてご案内するかは依頼者が決めます」）：ご納得いただけなかった点は点ごとに1件（何回目

@@ -120,6 +120,44 @@ class SameNumberOtherRows(SettleBase):
         self.tx(s, lambda tx: next_action.schedule_now(tx, task, cause="試験：鈴木様の番号の次の実施回の行"))
         self.assertEqual((self.blocked(old), self.blocked(dict(s, run=run, task=task))), ("declined_in_business", None))
 
+    def test_a_decline_by_client_ref_stops_only_while_the_decliner_is_the_rows_person(self):
+        """管理番号でお客様を表す依頼者（設定 dnc.client_ref_is_stable_id）で、断りが管理番号で止めるのは、断った方がいまもその行の担当の方のときだけ（0232。
+        番号の道と同じく「いま」で決める）：田中様が断る ⇒ 同じ管理番号のほかの番号も止まる。「担当の方は違う」で鈴木様に直す ⇒ 管理番号では止めない（田中様の
+        番号は止めたまま＝計画書 7-1 (22)(26)）。前の担当の方に戻す ⇒ また止まる（7-1 (30)）。⛔ 0225 まで：管理番号の道だけ締めたときの期で決めた＝直す前の
+        断りは直したあとも管理番号で止め、直したあとの断りは止めなかった。"""
+        from salescall.core import row_fixes, target_policy
+        from salescall.core.phone import normalize
+        from tests.support import fictional_jp_fixed
+        base = self.ready()
+        self.put_client(base, "dnc.client_ref_is_stable_id", True)
+        task = uuid.uuid4()                                                       # 管理番号の付いた行（取込と同じく、行を作るときに持つ）
+        run = self.w.run(base["tenant"], base["client"], base["business"], base["version"])
+        self.tx(base, lambda tx: tx.execute("INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id, client_ref)"
+                                            " VALUES (%s, %s, %s, %s, %s, 'K-001')",
+                                            (base["tenant"], base["client"], task, run, base["contact"])), OPERATOR)
+        self.tx(base, lambda tx: next_action.schedule_now(tx, task, cause="試験：管理番号の付いた行の最初の予定"))
+        s = dict(base, run=run, task=task, line=self.w.line(base["tenant"]))
+        self.lease(s)
+        tanaka = s["phone"]
+        other = normalize(fictional_jp_fixed())
+
+        def by_ref():
+            got = self.tx(s, lambda tx: target_policy.block_reason(tx, other, client_ref="K-001", tenant_id=s["tenant"], client_id=s["client"],
+                                                                  business_id=s["business"], task_id=None))
+            return None if got is None else got[0]
+
+        def by_number():
+            got = self.tx(s, lambda tx: target_policy.block_reason(tx, normalize(tanaka), client_ref=None, tenant_id=s["tenant"],
+                                                                  client_id=s["client"], business_id=s["business"], task_id=None))
+            return None if got is None else got[0]
+        self.settle(s, self.call(s, report=goal_refused(rep())))                 # 田中様が「うちは要らない」
+        self.assertEqual((by_ref(), by_number()), ("declined_in_business", "declined_in_business"))
+        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=False), OPERATOR)   # 鈴木様に直した
+        self.assertEqual((by_ref(), by_number()), (None, "declined_in_business"))
+        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], tanaka, same_person=False, back_to=row_fixes.FIRST_PERIOD),
+                OPERATOR)                                                         # 前の担当の方（田中様）に戻した
+        self.assertEqual(by_ref(), "declined_in_business")
+
     def test_after_a_complaint_no_business_or_run_of_the_client_calls_again(self):
         """苦情のあとは、その依頼者のどの業務・どの実施回からもかけない（同じ業務の次の実施回も。用件の断りの同じ業務の次の実施回は、業務の設定
         business.call_declined_again が受け持つ）。"""

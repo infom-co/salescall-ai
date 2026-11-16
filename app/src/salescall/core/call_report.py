@@ -65,7 +65,7 @@ VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
               "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern",
-              "handoff", "close_offer", "offer_terms", "carried", "elsewhere")
+              "handoff", "close_offer", "offer_terms", "carried", "elsewhere", "brief")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -118,6 +118,13 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   判定は skipped を「伺っていない（対象外）」と数える（どの質問を伺わなかったかは、この事実だけで読む＝会話の側の決まり flowctl.gate_of・held を
 #   こちらで持たない。`judge.not_asked` の1か所）。締めた理由は今までどおり（断りではない）。前の通話の答えで止めたときは人の証にならないので、
 #   人の証の表（HUMAN_FACTS）には入れない
+# brief：急いでいるが手短になら聞くと言われ、「（要約）の件でお電話させていただきましたが後ほどお時間のある時にかけ直しさせていただきましょうか？」（システムの
+#   質問 H3）と伺い、かけ直さずに続けることになった（いいえ・はっきりしない・聞き取れない。CL-1 の連絡帳 4-173 の (3)。✅ 2026-11-16 日本時間12時48分22秒
+#   ユーザー「伺い31」）。1通話に1つまで。answer＝その答え（日本語の名前。聞き取れなければ「-」）・skipped＝伺わなかった業務の質問（必須でも最終目的でもない
+#   質問。どれを伺わないかは会話の側の1か所＝CL-1 の flowctl.brief_asks）・turn・said＝答えの発話（取れなければ turn が null・said が空）。判定は skipped を
+#   ended_on の skipped と同じく「伺っていない（対象外）」と数える（会話の側が伺わなかった質問＝`CallReport.not_asked_by_talk` の1か所）。依頼者へ返す
+#   （判定の中身 brief＝judge._detail）。「はい」（かけ直す）は今までどおり答えの段のかけ直しの記録（callback）で、この事実は無い。お客様の言葉への伺いなので
+#   人の証（HUMAN_FACTS）
 # concern：本題に入ったあとの「もういいです。」に、ご遠慮の一言（D1）より先に1通話1回「何か問題でもございましたでしょうか？」（システムの質問 D2）と
 #   本心を伺い、こちらの話し方・進め方・ご案内についての気になる点を言っていただいた（CL-1 の連絡帳 4-113。✅ 2026-11-08 日本時間2時21分15秒 ユーザー：
 #   「本題に入った状況での「もういいです。」に…「何か問題でもございましたでしょうか？（別の言い回しでもOK）」などで相手の本心を伺った方がいいんじゃない
@@ -291,7 +298,8 @@ HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "
                "unjudged_ends", "goal_refusals", "who_unclears", "not_agreed", "other_wishes",   # other_wishes＝ほかのご希望への答え（人の言葉でしか起きない）
                "concerns",   # concerns＝本心を伺った一言・ほかの会社のことを伺った一言に言っていただいた点（人の言葉でしか起きない。CL-1 の連絡帳 4-113）
                "offers", "offer_terms",   # 申し出への答え・条件つきで受けていただいた申し出（人の言葉でしか起きない。CL-1 の連絡帳 4-122〜4-129）
-               "carried")   # 引き継ぎを確かめる一言への答え（人の言葉でしか起きない。CL-1 の連絡帳 4-141）
+               "carried",   # 引き継ぎを確かめる一言への答え（人の言葉でしか起きない。CL-1 の連絡帳 4-141）
+               "brief")   # 手短になら聞くと言っていただいた（人の言葉でしか起きない。CL-1 の連絡帳 4-173）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 # 取り消せない決定について、会話AIの報告と2つ目の判定（意味の判定）がそろったか（報告ごとに1つ。データの形 版 1.07）：
 # agreed＝そろった（その場で決める）／disagreed＝食い違った／none＝判定が無い（無い・古い報告もこれ）。そろわなければ録音の確かめまで保留
@@ -657,6 +665,14 @@ class EndedOn:
 
 
 @dataclass(frozen=True)
+class Brief:
+    """手短になら聞くと言われ、かけ直さずに続けた（事実 brief。CL-1 の 4-173 の (3)）。"""
+    evidence: Said               # かけ直しの伺い（H3）への答えの発話（取れなければ turn が None・said が空）
+    answer: str                  # その答え（日本語の名前。聞き取れなければ「-」）
+    skipped: tuple[str, ...]     # 伺わなかった業務の質問の番号（必須でも最終目的でもない質問）
+
+
+@dataclass(frozen=True)
 class HoldTimeout:
     """保留を頼まれ、待ちきった（事実 hold_timeout。CL-1 の 4-42）。記録だけ。"""
     evidence: Said               # 保留を頼まれた発話
@@ -732,6 +748,7 @@ class CallReport:
     other_wishes: tuple[OtherWish, ...] = ()      # 事実 other_wish：ほかのご希望を伺った答え
     concerns: tuple[Concern, ...] = ()            # 事実 concern・elsewhere：言っていただいた気になる点・問題（依頼者へ返す。種類は Concern.kind）
     ended_on: EndedOn | None = None               # 事実 ended_on：ここで終える答えで、残りを伺わなかった（1通話に1つまで）
+    brief: Brief | None = None                    # 事実 brief：手短になら聞くと言われ、必須・最終目的の質問だけを伺った（1通話に1つまで）
     offers: tuple[Offer, ...] = ()                # 事実 handoff・close_offer：業務の申し出の答え（起きた順。種類は Offer.kind）
     offer_terms: tuple[OfferTerms, ...] = ()      # 事実 offer_terms：業務の申し出の質問を条件つきで受けていただいた
     carried: tuple[Carried, ...] = ()             # 事実 carried：新しい担当の方に、前の担当の方からお話を聞いているかを伺った答え
@@ -772,6 +789,14 @@ class CallReport:
     @property
     def parties(self) -> tuple[str, ...]:
         return tuple(p.party for p in self.party_reports)
+
+    @property
+    def not_asked_by_talk(self) -> frozenset[str]:
+        """会話の側が伺わなかった業務の質問（1か所。判定は「伺っていない（対象外）」と数える＝judge.not_asked）：ここで電話を終える答えで残りを
+        伺わなかった（事実 ended_on の skipped）と、手短になら聞くと言われ、必須でも最終目的でもない質問を伺わなかった（事実 brief の skipped）。
+        どの質問を伺わないかの決まりは会話の側（CL-1 の flowctl.gate_of・held・brief_asks）で、こちらは事実だけを読む。"""
+        return frozenset((self.ended_on.skipped if self.ended_on is not None else ())
+                         + (self.brief.skipped if self.brief is not None else ()))
 
     @property
     def talked(self) -> bool:
@@ -938,7 +963,9 @@ class CallReport:
             "carried": [{**said(c.evidence), "answer": c.answer, "kept": c.kept, "dropped": list(c.dropped)} for c in self.carried],
             "ended_on": [] if self.ended_on is None else [
                 {"turn": self.ended_on.turn, "said": self.ended_on.said, "question": self.ended_on.question,
-                 "answer": self.ended_on.answer, "skipped": list(self.ended_on.skipped)}]}
+                 "answer": self.ended_on.answer, "skipped": list(self.ended_on.skipped)}],
+            "brief": [] if self.brief is None else [
+                {**said(self.brief.evidence), "answer": self.brief.answer, "skipped": list(self.brief.skipped)}]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last,
@@ -1205,24 +1232,46 @@ def _carried(facts: dict) -> tuple[Carried, ...]:
     return tuple(out)
 
 
-def _ended_on(facts: dict) -> EndedOn | None:
-    """事実 ended_on（形は CL-1 の Flow.ended_on が決めるもの。確かめはここだけ）：0か1つの並び。turn は相手の発話の番号か null（前の通話の答え）。"""
-    rows = facts.get("ended_on", [])
+def _skip_record(facts: dict, kind: str, keys: set[str]) -> tuple[dict, Said, str, tuple[str, ...]] | None:
+    """会話の側が業務の質問を伺わなかった事実（ended_on・brief）を確かめて読む1か所：0か1つの並び（1通話に1つまで）・answer＝答えの日本語の名前（文字）・
+    skipped＝伺わなかった業務の質問の番号の並び（重ならない）・turn・said＝答えの発話（unknown＝turn が null・said が空でもよい。said の無い記録は空と同じ）。
+    返すもの＝(記録, 発話, answer, skipped)。無ければ None。"""
+    rows = facts.get(kind, [])
     if not isinstance(rows, list) or len(rows) > 1:
-        raise ReportInvalid("facts.ended_on は、0か1つの記録の並びです（1通話に1つまで）")
+        raise ReportInvalid(f"facts.{kind} は、0か1つの記録の並びです（1通話に1つまで）")
     if not rows:
         return None
-    r = _keys(rows[0], {"turn", "said", "question", "answer", "skipped"}, "facts.ended_on[0]")
-    question, answer, skipped = (r.get(k) for k in ("question", "answer", "skipped"))
-    s = _said(r, "facts.ended_on[0]", unknown=True)   # turn が null＝前の通話の答えで止めた（said は空）
-    turn, said = s.turn, s.said
-    for key, v in (("question", question), ("answer", answer)):
-        if not isinstance(v, str) or not v.strip():
-            raise ReportInvalid(f"facts.ended_on[0].{key} は文字です")
-    if not isinstance(skipped, list) or not all(isinstance(x, str) and x for x in skipped) or len(set(skipped)) != len(skipped) \
-            or question in skipped:
-        raise ReportInvalid("facts.ended_on[0].skipped は、伺わなかった業務の質問の番号の並び（重ならない・止めた質問は入らない）です")
-    return EndedOn(turn, said, question, answer, tuple(skipped))
+    where = f"facts.{kind}[0]"
+    r = _keys(rows[0], keys | {"turn", "said", "answer", "skipped"}, where)
+    s = _said({"turn": r.get("turn"), "said": r.get("said", "")}, where, unknown=True)
+    answer, skipped = r.get("answer"), r.get("skipped")
+    if not isinstance(answer, str) or not answer.strip():
+        raise ReportInvalid(f"{where}.answer は文字です")
+    if not isinstance(skipped, list) or not all(isinstance(x, str) and x for x in skipped) or len(set(skipped)) != len(skipped):
+        raise ReportInvalid(f"{where}.skipped は、伺わなかった業務の質問の番号の並び（重ならない）です")
+    return r, s, answer, tuple(skipped)
+
+
+def _ended_on(facts: dict) -> EndedOn | None:
+    """事実 ended_on（形は CL-1 の Flow.ended_on が決めるもの）：`_skip_record` に、止めた質問 question（文字・skipped に入らない）。turn が null＝前の通話の
+    答えで止めた（said は空）。"""
+    got = _skip_record(facts, "ended_on", {"question"})
+    if got is None:
+        return None
+    r, s, answer, skipped = got
+    question = r.get("question")
+    if not isinstance(question, str) or not question.strip():
+        raise ReportInvalid("facts.ended_on[0].question は文字です")
+    if question in skipped:
+        raise ReportInvalid("facts.ended_on[0].skipped に、止めた質問は入りません")
+    return EndedOn(s.turn, s.said, question, answer, skipped)
+
+
+def _brief(facts: dict) -> Brief | None:
+    """事実 brief（形は CL-1 の Flow._brief_decided が書くもの。確かめはここだけ）：0か1つの並び。turn・said は答えの発話が取れたときだけ
+    （無ければ turn が null・said が空と同じ）。"""
+    got = _skip_record(facts, "brief", set())
+    return None if got is None else Brief(got[1], got[2], got[3])
 
 
 def from_json(raw: Any) -> CallReport:
@@ -1348,6 +1397,7 @@ def from_json(raw: Any) -> CallReport:
         _records(facts, "other_wish", {"question", "wish", "value", "means", "contact", "outcome", "via", "wish_state", "terms", "topic", "added",
                                        "before_ways"})))
     ended_on = _ended_on(facts)
+    brief = _brief(facts)
     concerns = _concerns(facts)
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \
@@ -1369,7 +1419,7 @@ def from_json(raw: Any) -> CallReport:
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions), talks, tuple(holds), unjudged_ends=unjudged, goal_refusals=tuple(goals),
-                      who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes, ended_on=ended_on,
+                      who_unclears=who_unclears, not_agreed=not_agreed, other_wishes=other_wishes, ended_on=ended_on, brief=brief,
                       concerns=tuple(concerns), offers=_offers(facts), offer_terms=_offer_terms(facts), carried=_carried(facts),
                       irreversible_check=check, ai_troubles=troubles, unfinished=tuple(sorted(unfinished)))
 
