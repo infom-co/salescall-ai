@@ -31488,6 +31488,19 @@ class CallbackOfferRulesTest(unittest.TestCase):
         r = self.say(f, "急いでいるので失礼します。", self.rd(UNDECIDED, end=END_HURRY), "request_end", reason="callee_hurry")
         self.assertEqual((r["result"], f.end_reason, f.facts.get("callback", [])), ("end", "callee_hurry", []))
 
+    def test_no_to_our_callback_offers_is_received_as_a_decline(self):
+        # こちらの申し出へのお断りも同じ1か所（ASKED_OFFER_ROLES）から：受付の方の C7・約束の電話の P1 の「いいえ」で締めるときも、お断りを受けてからお礼の締め
+        # （✅ 2026-11-02 日本時間6時33分 ユーザー：「…「はい、お忙しいところ…」だと唐突なので、こちら「はい、承知いたしました。お忙しいところ…」の方がいいんじゃない
+        # でしょうか？」＝Question.turned_down の1か所）。⛔ 25edde95 まで、お断りの表 _ROLE_DECLINES が N4・N6・H3 を手で並べていて、H1・C7・P1 が無く、
+        # C7・P1 の「いいえ」は「はい、お忙しいところ…」（まとめ役の確かめで見つけた）
+        from flowctl import ASKED_OFFER_ROLES, _ROLE_DECLINES
+        from phrases import CLOSING_AFTER_DECLINE
+        self.assertEqual({r: _ROLE_DECLINES.get(r) for r in ASKED_OFFER_ROLES}, {r: ("いいえ",) for r in ASKED_OFFER_ROLES})
+        for kind, fact in (("again", "callback"), ("promise", "not_transferred")):
+            f, qid = self.asked(kind)
+            r = self.say(f, "いえ、それは結構です。", self.rd("いいえ"), "record_answer", question_id=qid, condition_id="いいえ")
+            self.assertEqual((r["result"], self.heard(r), f.facts[fact][-1].get("again")), ("end", "はい、" + CLOSING_AFTER_DECLINE, False), kind)
+
 
 class SameReceiptTest(unittest.TestCase):
     """前の返事の頭の受けの言葉を、次の返事の頭に続けない（相づちでも言い直しの頭でも同じ1か所＝Flow._fresh_receipt。まとめ役の決まりで直す）：直前の返事の頭の受けの
