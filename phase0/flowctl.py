@@ -3444,9 +3444,11 @@ _ROLE_MEANINGS = {
 POINT_UNSAID = "点は言っていない"   # 「ほかに…」（N2）への、分からない点があるとだけ言った答え（_ROLE_MEANINGS の other_point・Flow._point_step）
 # システムの質問のお断りの答え（Question.declines。ご承認いただけなかったときの手順：お断りしようとしている・ご納得いただけない）。決まった伝言のお願い（M1）の
 # 「いいえ」（伝言は伝えられない）もお断り＝締めの頭は「はい、承知いたしました。お忙しいところ…」（Question.turned_down の1か所。見直し (12) の B-8。⛔ 2e5986f5
-# まで入れておらず、「あ、いや、それはちょっと…。」に「はい、お忙しいところ…」＝お断りを受け止めずに締めた）
+# まで入れておらず、「あ、いや、それはちょっと…。」に「はい、お忙しいところ…」＝お断りを受け止めずに締めた）。手短になら聞くと言われたときのかけ直しの伺い（H3＝
+# こちらがすることの申し出「…かけ直しさせていただきましょうか？」）の「いいえ」もお断り＝相づちは「承知しました。」（本書 9-7「相づちは受け取った答えで選ぶ」。
+# まとめ役の 37b5e5e8 の確かめ。⛔ 37b5e5e8 まで入れておらず「はい、それではご連絡は…」）
 _ROLE_DECLINES = {"not_agreed": ("断ろうとしている",), "other_point": ("断ろうとしている",), "agreed_now": ("いいえ",), "concern": ("断ろうとしている",),
-                  "handoff": ("いいえ",), "close_offer": ("いいえ",), "message": ("いいえ",)}
+                  "handoff": ("いいえ",), "close_offer": ("いいえ",), "message": ("いいえ",), "brief": ("いいえ",)}
 # ご承認いただけなかったときの手順の段と、その段で伺うシステムの質問の役目（唯一の表＝Flow._point_step・
 # 手順の質問の作り callback_question。⛔ 23時22分41秒のご質問の見直し A9：4か所が役目を手で並べていた）。
 # ご説明する段（explain・explained）と申し伝え直す段（told）は、伺う質問が無い
@@ -11426,7 +11428,10 @@ class Flow:
                 # なら重ねない（お客様は無言ではない・同じ言葉に2つ応じない＝考えている方の「はい。」・流し直しと同じ決まり）
                 reply = self._apply_one(*report)
                 self.log[-1]["unreported"] = True
-                self.unreported_turn = self.callee_turns
+                # 応じた返事が、その言葉を戻る位置・次の質問について判定に読み直してもらう番（ahead_offer＝先に言われた答えの1か所 _hold_ahead）なら、そのあとの会話AIの
+                # 答えの報告は読み直した言葉へのもの（_held_words）＝遅れて届いた報告として止めない。⛔ 37b5e5e8 まで止めていて、手短になら聞くと言われたときの伺い（H3）・
+                # ほかの会社のことを伺う一言（E1）への判定が決められないお返事に答えが入っていても、読み直しの報告を「もう応じました」で受けなかった（BriefNoReadAgainTest）
+                self.unreported_turn = None if reply.get("ahead_offer") else self.callee_turns
                 return reply
             if got is None:
                 self._record_received(before, None)
@@ -11878,8 +11883,14 @@ class Flow:
           伺わない＝_callback_ahead）→ 今のかけ直しの締め
         - いいえ・はっきりしない・聞き取れない（お言葉の外＝お客様は手短なら聞くと言った・10-24「時間で業務を打ち切らない」）：伺う前の位置へ戻り、必須か最終目的の
           質問だけを伺う（決まりは brief_asks の1か所。ほかの残りの質問は伺わない＝_remaining。伺わなかった質問は通話の事実 brief の skipped＝ended_on の skipped と同じ
-          形）。いま伺っていた質問が伺う質問ならそこへ戻る（戻る1か所 _continue）・違えば次の伺う質問へ。締めの前の念のための確認はしない（_no_recheck のまま）
-        ✅ 2026-11-16 日本時間12時48分22秒 ユーザー（お言葉は _brief_ask）"""
+          形）。締めの前の念のための確認はしない（_no_recheck のまま）。H3 へのお返事（「いえ、メールでお願いします。」）は、伺い直さずに（本書 9-3「取得済みのことを
+          重ねて聞かない」）先に言われた答えとして持ち、戻る位置（いま伺っていた質問・言い直しの返事待ちが伺う質問なら、そこ）について判定に読み直してもらう（待つか
+          かけ直すかの H2 の _wait_continue・E1 のあとの _elsewhere_back と同じ読み直しの1か所＝_hold_ahead・ahead_context。返事の頭は「はい、」だけ＝ahead_offer）。
+          答えが入っていれば受け取り（言い直して確かめる型は今の決まりどおり）、入っていなければ質問を流す（_resume。「いいえ」はお断り＝_ROLE_DECLINES の brief なので、
+          質問の頭の相づちは「承知しました。」＝_ack_choice の turned_down）。いま伺っていた質問が伺わない質問なら、次の伺う質問へ進み、同じお返事をその質問について
+          読み直す（先に言われた答えの1か所＝_offer_ahead）。聞き取れないお返事は読み直さない（読み直す言葉が無い＝今のとおり _continue で「はい、」＋質問）
+        ✅ 2026-11-16 日本時間12時48分22秒 ユーザー（お言葉は _brief_ask）・まとめ役の 37b5e5e8 の確かめ（9-3・9-7 で直した。⛔ 37b5e5e8 まで、お返事に答えが入って
+        いても _continue で質問を伺い直し、「いいえ」の頭は「はい、」）"""
         qid, self.brief_q = self.brief_q, None
         yes = self._yes_no(qid)
         if yes:
@@ -11893,11 +11904,22 @@ class Flow:
         ev = self._evidence(qid) or {}
         self._note("brief", answer="いいえ" if yes is False else label(self.items[qid].condition) if self.items[qid].state in GOT else "-",
                    skipped=skipped, **({"turn": ev["turn"], "said": fact_said(ev.get("said"))} if ev.get("turn") is not None else {}))
-        cur = self.current
-        if cur is not None and cur in self.business_ids and brief_asks(self.questions[cur]) and self.items[cur].state == "empty":
-            r = self._continue([], "")
-            return r | {"message": prefix + r["message"]}
-        return self._advance(prefix, handled=True)
+        cur, confirm = self.awaiting_confirm or self.current, self.awaiting_confirm is not None
+        back = cur is not None and cur in self.business_ids and brief_asks(self.questions[cur]) and (confirm or self.items[cur].state == "empty")
+        said = (self.callee_said or "").strip()
+        if self._unheard_now() or not said:
+            if back:
+                r = self._continue([], "")
+                return r | {"message": prefix + r["message"]}
+            return self._advance(prefix, handled=True)
+        # 先に言われた答え（H3 へのお返事の言葉）：戻る位置か、次に伺う質問について読み直す（_hold_ahead・_offer_ahead の1か所）
+        self.ahead = {"turn": self.callee_turns, "said": self.callee_said, "rest": said, "qid": None, "check": {}, "asked": False}
+        if not back:
+            return self._advance(prefix, handled=True)
+        self._hold_ahead(cur, back="confirm" if confirm else "answer",
+                         head=f"相手は、後ほどかけ直してよいかの伺いに、こう答えました（「{said}」）。")
+        return {"result": "next", "question_id": cur, "question": self.questions[cur].text, "ahead_offer": True,
+                "message": f"{prefix}受け付けました。{self._return_note()}"}
 
     def _refusal_decided(self, prefix: str) -> dict:
         """ご本人への確かめの答えが決まった（唯一の入口＝_advance）：はい＝もうかけない（発信の拒否＝原則14）／それ以外（いいえ・はっきりしない）＝
