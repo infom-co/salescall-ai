@@ -369,7 +369,7 @@ def reopens_on_fix(tx: Tx, task_id: UUID, end_reason: str, *, dial: bool = True,
         # 引き継ぎを確かめる電話＝`_restart` が `_onto_dial` を通る）。決めるのは、その答えで終えた行が、いまも終わったままかの1か所
         # （`answer_still_ends`。「もうかけないで」と会社としての答えは戻さない）。✅ 2026-11-07 ユーザーの新しい決定（計画書 7-1 (24) にそろえる）。
         # 番号の直しでも名前などの直しでも、ここを通る（0208）
-        r = tx.one("SELECT attempt_id, business_state::text AS state, detail ->> 'policy_key' AS policy_key,"
+        r = tx.one("SELECT attempt_id, business_state::text AS state, complaint, detail ->> 'policy_key' AS policy_key,"
                    "       detail ->> 'out_of_scope' AS out_of_scope FROM salescall.latest_task_results WHERE task_id = %s", (task_id,))
         return r is not None and r["attempt_id"] is not None and not answer_still_ends(tx, r)
     if same_person:
@@ -722,13 +722,17 @@ FORMER_ANSWERS: dict[str, str] = {
 }
 FORMER_NUMBER_ANSWERS = judge.NUMBER_ONLY   # 番号違い・FAX（判定の中身 out_of_scope）＝番号のせいの理由の1か所
 # その方個人の答えで行を終える決定の、終わりの理由（`FORMER_ANSWERS` から作る。言ってはいけないこと・苦情など、ほかの理由で終える決定は変えない）
-_PERSONAL_ENDS = frozenset(s for s, a in FORMER_ANSWERS.items() if a == "personal") | business_rules.SYSTEM_ENDS
+_PERSONAL_ENDS = frozenset(s for s, a in FORMER_ANSWERS.items() if a == "personal") | business_rules.SYSTEM_ENDS | {"complaint"}   # complaint＝苦情で終えた（`former_answer`）
 
 
-def former_answer(state: str, *, key: str | None = None, out_of_scope: str | None = None) -> str:
+def former_answer(state: str, *, key: str | None = None, out_of_scope: str | None = None, complaint: bool = False) -> str:
     """前の担当の方への通話の答えの種類（`FORMER_ANSWERS` の1か所）。key＝再発信の方針の鍵（判定の中身 policy_key）：繋がらなかった・取れて
     いない結果でも、その方の側の事情で電話ではかけ直さない結果（`business_rules.SYSTEM_ENDS`＝ほかの手段を望まれた・在籍していない・お名前
-    だけではどの方か分からない）は、その方個人の答え。out_of_scope＝判定の中身の out_of_scope（番号違い・FAX は番号の答え）。"""
+    だけではどの方か分からない）は、その方個人の答え。out_of_scope＝判定の中身の out_of_scope（番号違い・FAX は番号の答え）。
+    complaint＝その通話でお客様が怒っていた（苦情）：その方個人の答え（✅ 2026-11-16 ユーザー：前の担当の方が怒ったあと「担当の方は違う」で直したら
+    「鈴木様へはかける」＝用件の断りと同じ。行を終えるのは、怒った方がいまもお呼びする方のときだけ。⛔ それまで：苦情で終えた行は、直しても戻さなかった）。"""
+    if complaint:
+        return "personal"
     if state == "out_of_scope" and out_of_scope in FORMER_NUMBER_ANSWERS:
         return "number"
     if state in ("not_reached", "incomplete") and key in business_rules.SYSTEM_ENDS:
@@ -738,7 +742,7 @@ def former_answer(state: str, *, key: str | None = None, out_of_scope: str | Non
 
 def judged_answer(j: Judgement) -> str:
     """判定から、前の担当の方への通話の答えの種類（`former_answer` に判定の中身を渡す1か所。通話のあと・締めの結果の版の印が読む）。"""
-    return former_answer(j.state, key=j.detail.get("policy_key"), out_of_scope=j.detail.get("out_of_scope"))
+    return former_answer(j.state, key=j.detail.get("policy_key"), out_of_scope=j.detail.get("out_of_scope"), complaint=j.complaint)
 
 
 def answer_ends_row(tx: Tx, attempt_id: UUID, answer: str) -> bool:
@@ -762,7 +766,7 @@ def answer_still_ends(tx: Tx, call: dict[str, Any]) -> bool:
       （その通話を締めたときに空いていたフルネーム・部署＝business_settings.who_unclear_blanks の1か所）の、どれかが埋まっていれば、終わったままに
       しない（✅ 2026-11-08 ユーザー＝計画書 7-1 (29)「埋めたらかけ直す」。担当の方は「同じ」の直しでも＝`reopens_on_fix` の same_person。0213）。
       両方あってもまた分からないと言われた行（お呼びし直した＝recalled）は、埋める欄が無いので、終わったまま。"""
-    answer = former_answer(call["state"], key=call["policy_key"], out_of_scope=call["out_of_scope"])
+    answer = former_answer(call["state"], key=call["policy_key"], out_of_scope=call["out_of_scope"], complaint=bool(call.get("complaint")))
     if answer != "personal" or call["state"] == "do_not_call":
         return True
     if call["policy_key"] == business_rules.WHO_UNCLEAR and _blanks_filled(tx, call["attempt_id"]):
@@ -792,7 +796,7 @@ def source_ends_row(tx: Tx, src: dict[str, Any] | None) -> bool:
 
 
 def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None, *, attempt_id: UUID | None = None,
-                  answer: str | None = None, apology: bool = False, complaint: bool = False, kept: bool = False, reached: bool = False,
+                  answer: str | None = None, apology: bool = False, kept: bool = False, reached: bool = False,
                   now: datetime) -> Decision:
     """前の担当の方への通話（tasks.former_person_call の1か所）のあと・前の担当の方の期の予定（row の期が、いまの期と違う）を門が止めたあとの決定（d＝同じ方の
     ときの決まりで決めたもの）を、行を終えずに新しい担当の方への形（`_to_new_person`）にするか（1か所。通話のあと＝`after_call`・お詫びの電話のあと＝
@@ -809,9 +813,10 @@ def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None
       `FORMER_ANSWERS` の continue）⇒ 新しい担当の方へ（約束でない答えになったので、約束はそこまで。⛔ 0213 まで：番号の直しでは新しい番号へ移って
       引き継ぎ、前の担当の方の携帯・名前などの直しの会社の番号では、前の担当の方への約束が続いた）。
     新しい担当の方へかけない（言ってはいけないことのあとのお詫びで、業務を終えた結果＝`_to_new_person` が None）なら d のまま。前の担当の方が怒っていた
-    （complaint）ときも d のまま（苦情は契約者が対応する特例で、行を終える＝締めの `_ends_row` と同じ）。会社としての答え（目的を果たした・対象外）は
+    （苦情）ときは、その方個人の答えと同じく新しい担当の方へ（✅ 2026-11-16 ユーザー「鈴木様へはかける」。答えの種類は `former_answer` の1か所。⛔ それまで：
+    d のまま＝行を終え、新しい担当の方に一度もかからなかった）。会社としての答え（目的を果たした・対象外）は
     d のまま（行を終える）。新しい約束（promise）は契約者の選び（`after_call` の former_promise）。"""
-    if complaint or d.kind == "hold":
+    if d.kind == "hold":
         return d
     if attempt_id is not None:
         if not tasks.former_person_call(tx, attempt_id):
@@ -993,16 +998,17 @@ def _period_ends(tx: Tx, task_id: UUID) -> tuple[str, UUID] | None:
     いまも終わったまま（`answer_still_ends` の1か所。いまの期の通話なので、ふつうは終わったまま。依頼者に埋めていただく欄を埋めていれば
     終わったままにしない）なら、（終わりの理由, その通話）を返す。終わりの理由は、その答えで行を終えた決定と同じ（判定の状態か、方針の鍵）。
     会社としての答え（目的を果たした・対象外）は、もともと行を終えたまま（戻していない）。新しいかけ直しの約束・まだ続く答えは None
-    （いまの予定を決め直す＝`_repoint`）。苦情で終えた行も、もともと戻していない。"""
-    r = tx.one("SELECT j.attempt_id, j.business_state::text AS state, j.detail ->> 'policy_key' AS policy_key,"
+    （いまの予定を決め直す＝`_repoint`）。苦情（怒っていた）もその方個人の答え（`former_answer`。戻した期の方が怒っていれば、苦情で終える）。"""
+    r = tx.one("SELECT j.attempt_id, j.business_state::text AS state, j.complaint, j.detail ->> 'policy_key' AS policy_key,"
                "       j.detail ->> 'out_of_scope' AS out_of_scope FROM salescall.call_results j"
                " JOIN salescall.attempts a ON a.attempt_id = j.attempt_id"
                " WHERE j.task_id = %s AND salescall.attempt_in_period(a.attempt_id, now())"
                " ORDER BY a.claimed_at DESC, a.attempt_id DESC LIMIT 1", (task_id,))
-    if r is None or former_answer(r["state"], key=r["policy_key"], out_of_scope=r["out_of_scope"]) != "personal" \
+    if r is None or former_answer(r["state"], key=r["policy_key"], out_of_scope=r["out_of_scope"], complaint=r["complaint"]) != "personal" \
             or not answer_still_ends(tx, r):
         return None
-    return (r["state"] if FORMER_ANSWERS[r["state"]] == "personal" else r["policy_key"]), r["attempt_id"]
+    reason = "complaint" if r["complaint"] else r["state"] if FORMER_ANSWERS[r["state"]] == "personal" else r["policy_key"]
+    return reason, r["attempt_id"]
 
 
 def _period_promise(tx: Tx, task_id: UUID, cur: dict[str, Any], *, cause: str, now: datetime) -> Decision | None:
@@ -1894,7 +1900,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
         d = replace(d, former_promise=True)
     # 前の担当の方への通話のあと：その方個人の答え・その方への用を使い切った・「守る」約束でその方と話した ⇒ 行を終えず、新しい担当の方へ
     # （`_after_former` の1か所。計画書 7-1 (22)(24)(32)。番号の直しの「前の番号へは1回」＝`_moved_on_fix` より先に決める）
-    d = _after_former(tx, task_id, d, dialed_row, attempt_id=attempt_id, answer=judged_answer(j), complaint=j.complaint,
+    d = _after_former(tx, task_id, d, dialed_row, attempt_id=attempt_id, answer=judged_answer(j),
                       kept=kept_old, reached=reached_target, now=now)
     d = _moved_on_fix(tx, task_id, d, dialed_row, was_replaced, now=now)   # 前の番号でかからなかった ⇒ いまかける番号で
     _write(tx, task_id, d, after=attempt_id)

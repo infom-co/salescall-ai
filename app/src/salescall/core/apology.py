@@ -157,7 +157,7 @@ def source_call(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     o = _order(tx, task_id)
     if o is None:
         return None
-    return tx.one("SELECT a.attempt_id, a.claimed_at, j.business_state::text AS state, j.detail ->> 'policy_key' AS policy_key,"
+    return tx.one("SELECT a.attempt_id, a.claimed_at, j.business_state::text AS state, j.complaint, j.detail ->> 'policy_key' AS policy_key,"
                   "       j.detail ->> 'out_of_scope' AS out_of_scope FROM salescall.attempts a"
                   " LEFT JOIN salescall.call_results j ON j.attempt_id = a.attempt_id WHERE a.attempt_id = %s",
                   (o["source_attempt_id"],))

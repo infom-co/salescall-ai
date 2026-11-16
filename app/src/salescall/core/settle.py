@@ -558,8 +558,8 @@ def _ends_row(tx: Tx, a: dict[str, Any], state: str, complaint: bool, waiting: b
     """この通話の決定で、あとに発信のある行を終えるか（1か所。締め・締め直しが読む）：断り・怒っていたが決まり（保留でない）、あとでお客様と
     話していない（話していれば、その通話の結果が行の結果）。断りで行を終えるかは次の動きの1か所（next_action.answer_ends_row：「担当の方は
     違う」を選んだ直しのあとの、前の担当の方個人の答えは行を終えない＝計画書 7-1 (22)(24)。0202）。"""
-    return not waiting and ((state == "do_not_call" and next_action.answer_ends_row(tx, a["attempt_id"], next_action.former_answer(state)))
-                            or complaint) \
+    return not waiting and (state == "do_not_call" or complaint) \
+        and next_action.answer_ends_row(tx, a["attempt_id"], next_action.former_answer(state, complaint=complaint)) \
         and not _later_talk(tx, a)
 
 

@@ -2082,6 +2082,26 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual(self.plan(s), self.handed_over(new))
         self.assertEqual([self.stopped(s, p) for p in (s["phone"], self.phone_of(s, new))], [True, False])
 
+    def test_a_complaint_is_the_old_persons_own_and_the_new_person_is_called(self):
+        """✅ 2026-11-16 ユーザー（伺い「前の担当の方（田中様）が怒った（苦情）あと、『担当の方は違う』で鈴木様に直したら」へ）：「鈴木様へはかける」＝苦情も
+        その方個人の答え（next_action.former_answer の1か所）：(1) 苦情で終えた行を「違う」で直す ⇒ 行を戻し、新しい担当の方へ引き継ぎを確かめる電話
+        (2) 「約束も守る」で直したあと、前の担当の方への約束の電話で怒られた ⇒ 行を終えず、新しい担当の方へ。苦情の知らせは今までどおり契約者へ届く。
+        ⛔ それまで：苦情で終えた行は戻さず、前の担当の方への電話での苦情でも行を終えた（新しい担当の方に一度もかからなかった）。"""
+        s = self.ready()
+        got = self.settle(s, self.call(s, report=make_report(complaint=True)))
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "complaint"))
+        new = self.fixed_as(s, False)
+        self.assertEqual(self.plan(s), self.handed_over(new))
+        t = self.ready()
+        self.promise_window(t)
+        newer = self.fixed_as(t, False, True)                                   # 違う方・前の担当の方との約束も守る
+        aid = self.call(t, report=make_report(complaint=True))                  # 約束の電話で、前の担当の方が怒った
+        got = self.settle(t, aid)
+        self.assertTrue(got["decision"].kind != "end")
+        self.assertEqual(self.plan(t), self.handed_over(newer))
+        self.assertEqual([r["kind"] for r in self.tx(t, lambda tx: tx.all(
+            "SELECT kind FROM salescall.notification_events WHERE event_key = %s", (f"complaint:{aid}",)))], ["complaint"])
+
     def test_the_old_persons_refusal_on_a_shared_number_follows_the_business_setting(self):
         """✅ 2026-11-16 ユーザー（伺い「名前だけ『別の方』に直した行で、前の方が代表番号で『もうかけないで』と言ったとき」へ）：「契約者が業務ごとに選択できる。
         デフォルトは佐藤様へはその番号でかける」：名前などの直し（会社の番号は同じ）の前にかけて、直したあとに締めた前の担当の方の「もうかけないで」は、
