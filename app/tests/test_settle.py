@@ -4118,10 +4118,10 @@ class NotAskedSettle(SettleBase):
         「言い切っていないときだけ伺う」が、わからない答えのあとの質問を伺うはずの質問と読み、取れていない質問に数える。"""
         s = self.ready()
         aid = self.call(s, items=(("Q1", "dont_know", "わからない", "まだ決まってないんですよね。"),))
-        self.assertFalse(self.tx(s, lambda tx: settle._items(tx, s["task"]))["Q1"].hedged)
+        self.assertFalse(self.tx(s, lambda tx: settle._items(tx, {"task_id": s["task"], "attempt_id": aid}))["Q1"].hedged)
         self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET state = 'accepted', condition = '答えた'"
                                          " WHERE task_id = %s AND attempt_id = %s", (s["task"], aid)))
-        self.assertTrue(self.tx(s, lambda tx: settle._items(tx, s["task"]))["Q1"].hedged)
+        self.assertTrue(self.tx(s, lambda tx: settle._items(tx, {"task_id": s["task"], "attempt_id": aid}))["Q1"].hedged)
 
 
 class StuckVerification(SettleBase):
