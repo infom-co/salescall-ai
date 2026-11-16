@@ -483,6 +483,12 @@ def deepen_ahead_line(clause: str | None) -> str:
 # instruction.Business.summary・決まらなければ用件の名詞 purpose_noun）。業務ごとの録音＝名乗りの部分 brief＝instruction.Business.replay_parts）。
 # ✅ 2026-11-16 日本時間12時48分22秒 ユーザー（お言葉は CALLBACK_ASK の brief）
 BRIEF_ASK = "{t}件でお電話させていただきましたが" + CALLBACK_ASK["brief"]
+# 手短になら聞くと言われて伺った一言（H3）に「いいえ」・はっきりしない・聞き取れないお返事をいただき、伺い続けるとき（flowctl.Flow._brief_decided）、その発話への返事で
+# 質問を流す前に、受けの相づちに続けて流す一言（共通の一言の録音 brief_go。システムの質問ではない＝CALLBACK_ASK ではない。流すかの決まりは flowctl.Flow._brief_go の
+# 1か所）。頭が「それでは」なので、続くもう伺った質問の頭の「それでは」は重ねない（2回目の戻る一言 BACK_TO_AGAIN のあとと同じ形＝flowctl.spoken_question・back_fit）。
+# ✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」（ア「はい、承知しました。それでは手短にお伺いいたしますね。ご連絡はお電話とメールのどちらがよろしい
+# でしょうか？」）。決まった言い方なので読点は入れない（10-15）
+BRIEF_GO = "それでは手短にお伺いいたしますね。"
 
 
 def brief_line(noun: str | None) -> str:
@@ -1280,7 +1286,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
             "moshimoshi": MOSHIMOSHI, **{f"callback_{k}_pending": PENDING_LINE.format(t=t) for k, t in CALLBACK_PENDING.items()},
-            **{f"callback_carried_talked_{k}": v for k, v in CARRIED_TALKED.items()}, "start_over": START_OVER}
+            **{f"callback_carried_talked_{k}": v for k, v in CARRIED_TALKED.items()}, "start_over": START_OVER, "brief_go": BRIEF_GO}
 # システムの質問（callback_〜）を、2回目・3回目からの戻る一言のあとに流す形（決まりは back_fit の1か所。方法をお伝えした一言のあとの連絡先の一言も、2回目と同じ
 # 「それでは」を外した形＝flowctl.callback_question の announced）。⛔ 2026-11-07 日本時間4時台に見つけた：3時台に足した方法をお伺いしたあとの形（_announced）は
 # 読み方の表にだけあり、この表に無かった＝録音が作られない形だった。続きの電話で切れた所から伺う一言（callback_〜_again＝前置き「前回…」つき）へ戻るときは、

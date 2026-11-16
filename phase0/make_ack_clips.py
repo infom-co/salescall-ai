@@ -210,6 +210,9 @@ HOW_OF.update({f"callback_{r}": question_how(CALLBACK_ASK[r]) for r in ("deepen_
 # 引き継ぎを確かめる一言のあと最初から伺うときの一言（phrases.START_OVER「それでは改めて確認させていただきますね。」。✅ 同じ時「伺い2はア」）：2回目の戻る一言
 # 「それではもう一度確認させていただきますね。」（back_again）と同じ形・同じ長さの一言なので、同じ読み方と上限
 HOW_OF["start_over"] = "back_again"
+# 手短になら聞くと言われて伺った一言（H3）に「いいえ」などをいただいたあと、質問の前に流す一言（phrases.BRIEF_GO「それでは手短にお伺いいたしますね。」。✅ 2026-11-16
+# 日本時間14時46分34秒 ユーザー「伺い34：ア」）：同じ理由（2回目の戻る一言と同じ形・同じ長さの一言）で、同じ読み方と上限
+HOW_OF["brief_go"] = "back_again"
 # 連絡先の一言の鍵は言い方の表の1か所（phrases._CONTACT_RESUMED＝flowctl.contact_again_key。⛔ 2026-11-05 まで役目を手で並べていた＝オンラインの一言を足すと漏れる）
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})

@@ -181,7 +181,10 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          # kept）と、手短になら聞くと言われたときに後ほどかけ直してよいかを伺う一言（システムの質問 H3・名乗りの部分 brief・要約の入らない共通の一言の録音
                          # callback_brief・通話の事実 brief）（✅ 2026-11-16 日本時間12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）。問題は無かったと言われたときの
                          # お言葉の文の録音 deepen_ahead は使わなくなった（同じ時。CL-2 の部品には入っていない＝ここから外した）
-                         "E3", "E4", "H3", "callback_deepen_measures", "callback_deepen_ahead", "kept", "brief", "callback_brief"})
+                         "E3", "E4", "H3", "callback_deepen_measures", "callback_deepen_ahead", "kept", "brief", "callback_brief",
+                         # 手短になら聞くと言われて伺った一言（H3）に「いいえ」などをいただき伺い続けるとき、質問の前に流す一言の共通の一言の録音（「それでは手短に
+                         # お伺いいたしますね。」。✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」。CL-2 への知らせはまとめ役）
+                         "brief_go"})
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
 CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
 # 共通の一言の録音の文を替えて、CL-2 が名前と文の写し（common_phrases.TEXTS）を作り直すまで、文だけを比べない名前（CL-2 の 4-403 の (1)）。
@@ -23795,7 +23798,12 @@ class HedgedSalesTest(unittest.TestCase):
         # 最初の質問は頭のつなぎの言葉を付けない形（spoken_question のはじめ）なので重ならず、録音の形の一覧（question_forms）は最初の質問にだけ、この一言の
         # あとの形を入れる（形は初めて伺う形と同じ）。✅ 2026-11-13 日本時間20時06分19秒「伺い2はア」
         before_first = {"start_over"}
-        self.assertEqual({k for k, v in RECORDED.items() if isinstance(v, str) and heads_said(v) and not v.endswith("？")}, ends_reply | before_first)
+        # 手短になら聞くと言われて伺った一言（H3）のあと伺い続けるときに質問の前に流す一言（phrases.BRIEF_GO＝頭が「それでは」）は、そのあとの質問の頭を今の1か所が
+        # この一言を前の言葉として決める（もう伺った質問＝2回目の戻る一言のあとと同じ again の形・まだ伺っていない質問＝relead で重なる頭だけ替える）。録音の形の
+        # 一覧（question_forms）は、この一言のあとの形も入れる（✅ 2026-11-16 日本時間14時46分34秒「伺い34：ア」＝BriefGoAheadTest）
+        before_brief = {"brief_go"}
+        self.assertEqual({k for k, v in RECORDED.items() if isinstance(v, str) and heads_said(v) and not v.endswith("？")},
+                         ends_reply | before_first | before_brief)
         # 保留でよいかを伺う一言（頭が「それでは」）は、お返事を待つ伺いの一言＝同じ返事でそのあとに業務の質問を流さないので、質問の直前に流しうる一言の一覧
         # （before_lines）に入れない（✅ 2026-11-09 日本時間3時46分53秒で、言い渡す一言から伺う一言になった）
         q = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
@@ -25711,7 +25719,17 @@ class BackLineReviewTest(unittest.TestCase):
         got = [(p["id"], p.get("lead") or "", p["text"]) for p in r["play"] if p["id"].startswith("Q2")]
         self.assertEqual(got, [("Q2", q2.intro, q2.intro + pay["text"])])
         self.assertLessEqual(set(got), table([q1, q2]))
-        self.assertNotIn(("Q2_intro", "続きまして", "続きましてお支払いの確認からさせていただきます。" + pay["text"]), table([q1, q2]))
+        # 「続きまして」に替えた形（（番号）_intro）は、手短になら聞くと言われて伺い続けるときの一言（頭が「それでは」＝phrases.BRIEF_GO）のあとに、まだ伺っていない
+        # この質問を流すときだけ流れる（✅ 2026-11-16 日本時間14時46分34秒「伺い34：ア」＝BriefGoAheadTest）＝その一言のあとでも伺う質問（必須か最終目的＝brief_asks）
+        # だけ一覧に入れる。伺わない質問の一覧には作らない
+        import dataclasses
+        from flowctl import question_play
+        from phrases import BRIEF_GO
+        relead_form = ("Q2_intro", "続きまして", "続きましてお支払いの確認からさせていただきます。" + pay["text"])
+        p = question_play([q1, q2], "Q2", before=BRIEF_GO)
+        self.assertEqual((p["id"], p.get("lead") or "", p["text"]), relead_form)
+        self.assertIn(relead_form, table([q1, q2]))
+        self.assertNotIn(relead_form, table([q1, dataclasses.replace(q2, required=False)]))
         # (b) 業務の「答えのあとに伝える一言」の頭が「では」：次の質問の頭は「続きまして」のまま（重ならない）＝「では…」の形は流れない・作らない
         q1t = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=YN,
                        tell_words={"はい": "では3日以内にお送りいたします。"})
@@ -29721,7 +29739,9 @@ class DeepenTroubleTest(unittest.TestCase):
     ご納得いただけなかった点と同じに扱い「ほかに…」（N2）へ・ほかの質問なら尋ねられて答えたあとと同じ戻り。
     ✅ 2026-11-16 日本時間12時48分22秒 ユーザーのお答え（(c)・伺い32 場面1）で直した所：E2 のお返事は、問題があった＝E3「そうだったんですね。…何か手をお打ちですか？」・
     無かった＝E4「それは何よりです。しかし（句）…懸念されそうですね？」を伺い（DeepenReplyTest）、提案で伺える質問（Q2）の戻りは困りごとに応える提案の番
-    （TroubleOfferTest。会話AIが提案の言葉を書かなければ今までどおり読み直す）"""
+    （TroubleOfferTest。会話AIが提案の言葉を書かなければ今までどおり読み直す）。
+    ✅ 2026-11-16 日本時間14時46分34秒 ユーザーのお答え（伺い32 場面2 はウの向き）で直した所：ご承認の手順の中は、困りごとを点として「ほかに…」（N2）へ進めず、点の無い
+    まま手順を終える（DeepenApprovalEndTest）"""
     flow = OtherCompanyClueSendWayTest.flow
     business = OtherCompanyClueSendWayTest.business
     rd = staticmethod(OtherCompanyClueSendWayTest.rd)
@@ -29735,6 +29755,8 @@ class DeepenTroubleTest(unittest.TestCase):
     DEEPEN = "これまでに問題や不都合が発生したことが何度かおありなのでしょうか？"
     WORD = "対応の遅さのせい"
     N2_LINE = "ほかにご納得いただけない点はございますでしょうか？"
+    # ご承認の手順の中（N1 の位置）で困りごとを伺い・深めたあと：点の無いまま手順を終える（✅ 2026-11-16 日本時間14時46分34秒＝DeepenApprovalEndTest）
+    ENDED = "ご不満な点がございましたらいつでもお申し出ください。続きましてお支払いはカードと振込のどちらがよろしいでしょうか？"
 
     def to_trouble(self, f, word=WORD, verdict="事実を言っていない"):
         from flowctl import CALLBACK_IDS, ELSEWHERE_YES
@@ -29807,10 +29829,11 @@ class DeepenTroubleTest(unittest.TestCase):
         grounded(f, line, "知っていることだけ")
         self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": line})["result"], "own_answer")
         r = self.turn(f, "そうなんですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
-        # ご承認の手順の中：困りごとをご納得いただけなかった点と同じに扱い「ほかに…」へ（お言葉の外）
-        self.assertEqual((f.current, self.heard(r).endswith(self.N2_LINE)), (n2, True), self.heard(r))
-        self.assertTrue(any("対応が遅くて" in (e.get("said") or "") or "対応が遅くて" in (e.get("point") or "") for e in f.facts["not_agreed"]),
-                        f.facts["not_agreed"])
+        # ご承認の手順の中：困りごとを点として「ほかに…」へは進めず、点の無いまま手順を終える（✅ 2026-11-16 日本時間14時46分34秒 ユーザー（伺い32 場面2 はウの向き）
+        # ＝DeepenApprovalEndTest。⛔ 9c577835 まで、困りごとをご納得いただけなかった点と同じに扱い「ほかに…」（N2）へ進め、not_agreed に点として残した）
+        self.assertEqual((f.current, self.heard(r).endswith(self.ENDED)), ("Q4", True), self.heard(r))
+        self.assertNotIn(n2, f.questions)
+        self.assertEqual([e.get("point") for e in f.facts["not_agreed"]], [None])
         self.assertEqual(len(f.facts.get("elsewhere", [])), 2)   # 言っていただいた問題は2つとも依頼者へ
 
     def test_no_trouble_gets_a_forward_looking_word(self):
@@ -29830,14 +29853,16 @@ class DeepenTroubleTest(unittest.TestCase):
         grounded(f, mine, "知っていることだけ")
         self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": mine})["say"], mine)
         r = self.turn(f, "そうですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
-        self.assertEqual((f.current, self.heard(r).endswith(self.N2_LINE)), (n2, True), self.heard(r))
+        # 点の無いまま手順を終える（✅ 2026-11-16 日本時間14時46分34秒＝DeepenApprovalEndTest。⛔ 9c577835 まで「ほかに…」（N2）へ）
+        self.assertEqual((f.current, self.heard(r).endswith(self.ENDED), n2 in f.questions), ("Q4", True, False), self.heard(r))
 
     def test_unclear_answers_are_not_asked_again(self):
         from flowctl import CALLBACK_IDS
         e2, n2 = CALLBACK_IDS["deepen"], CALLBACK_IDS["other_point"]
         f, r = self.to_deepen()
         r = self.turn(f, "うーん、どうでしたかね。", self.rd("unknown"), "record_answer", question_id=e2, condition_id="unknown")
-        self.assertEqual((f.current, self.heard(r).endswith(self.N2_LINE)), (n2, True), self.heard(r))
+        # 伺い直さずに、点の無いまま手順を終える（✅ 2026-11-16 日本時間14時46分34秒＝DeepenApprovalEndTest。⛔ 9c577835 まで「ほかに…」（N2）へ）
+        self.assertEqual((f.current, self.heard(r).endswith(self.ENDED), n2 in f.questions), ("Q4", True, False), self.heard(r))
         self.assertNotIn(self.DEEPEN[:8], self.heard(r))
 
     def test_the_concern_question_d2_is_not_deepened(self):
@@ -29955,8 +29980,9 @@ class DeepenTroubleTest(unittest.TestCase):
             r = self.turn(f, "なるほど。", self.rd(UNDECIDED), "replay_opening", part="resume")
             self.assertEqual((f.current, r.get("ahead_offer")), ("Q3", None), deepen)
 
-    def test_without_deepening_at_n1_the_trouble_is_the_point(self):
-        # ご承認の手順の中（N1 から E1）は、深めたあとと同じく、困りごとをご納得いただけなかった点として「ほかに…」（N2）へ（同じ1か所＝_deepen_then）。
+    def test_without_deepening_at_n1_the_procedure_ends(self):
+        # ご承認の手順の中（N1 から E1）は、深めたあとと同じく、点の無いまま手順を終える（同じ1か所＝_deepen_then。✅ 2026-11-16 日本時間14時46分34秒＝
+        # DeepenApprovalEndTest。⛔ 9c577835 まで、困りごとをご納得いただけなかった点として「ほかに…」（N2）へ進めた）。
         # ⛔ b586025f まで、E2 を伺わずに戻ると「はい、それではご納得いただけなかった点はどの部分になりますでしょうか？」と N1 を伺い直した
         from flowctl import CALLBACK_IDS, ELSEWHERE_YES, QUERY, QUERY_YES, UNDECIDED
         e1, n1, n2 = CALLBACK_IDS["elsewhere"], CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
@@ -29974,8 +30000,8 @@ class DeepenTroubleTest(unittest.TestCase):
         grounded(f, line, "知っていることだけ")
         f.apply("replay_opening", {"part": "own", "answer": line})
         r = self.turn(f, "なるほど。", self.rd(UNDECIDED), "replay_opening", part="resume")
-        self.assertEqual((f.current, self.heard(r).endswith(self.N2_LINE)), (n2, True), self.heard(r))
-        self.assertTrue(any("対応が遅くて" in (e.get("said") or "") or "対応が遅くて" in (e.get("point") or "") for e in f.facts["not_agreed"]))
+        self.assertEqual((f.current, self.heard(r), n2 in f.questions), ("Q4", "はい、" + self.ENDED, False), self.heard(r))
+        self.assertEqual([e.get("point") for e in f.facts["not_agreed"]], [None])
 
 
 class BriefHurryTest(unittest.TestCase):
@@ -30044,7 +30070,9 @@ class BriefHurryTest(unittest.TestCase):
             self.assertEqual((r.get("ahead_offer"), self.heard(r)), (True, "はい、"), words)
             OtherCompanyClueSendWayTest().reread(f, self.rd(UNDECIDED))
             r = f.apply("replay_opening", {"part": "resume"})
-            self.assertEqual((f.current, self.heard(r)), ("Q2", "承知しました。それでは" + self.CONTACT), words)
+            # ✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」：質問の前に「それでは手短にお伺いいたしますね。」（質問の頭の「それでは」は重ねない＝
+            # BriefGoAheadTest）。⛔ 9c577835 まで「承知しました。それではご連絡は…」
+            self.assertEqual((f.current, self.heard(r)), ("Q2", "承知しました。それでは手短にお伺いいたしますね。" + self.CONTACT), words)
             r = self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
             self.assertEqual((f.items["Q2"].condition, f.current), ("メール", "Q3"))
 
@@ -30295,8 +30323,9 @@ class DeepenReplyTest(unittest.TestCase):
         self.assertEqual(f.current, CALLBACK_IDS["deepen"], self.heard(r))
         return f
 
-    def answered_then_n2(self, f, qid, words, cond):
-        """E3・E4 への聞き取れたお返事 → 会話AIが応える（通話の事実 elsewhere）→ お返事 → ご承認の手順の「ほかに…」（N2）。"""
+    def answered_then_ends(self, f, qid, words, cond):
+        """E3・E4 への聞き取れたお返事 → 会話AIが応える（通話の事実 elsewhere）→ お返事 → ご承認の手順を点の無いまま終える（「はい、」＋「ご不満な点が…」＋次の質問）。
+        ✅ 2026-11-16 日本時間14時46分34秒 ユーザー（伺い32 場面2 はウの向き＝DeepenApprovalEndTest）。⛔ 9c577835 まで「ほかに…」（N2）へ進めた"""
         from flowctl import CALLBACK_IDS, UNDECIDED
         n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
         r = self.turn(f, words, self.rd(cond), "record_answer", question_id=qid, condition_id=cond)
@@ -30307,7 +30336,8 @@ class DeepenReplyTest(unittest.TestCase):
         self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": line})["result"], "own_answer")
         self.assertEqual([e["said"] for e in f.facts["elsewhere"]][-1], words)   # お返事は依頼者へ渡す通話の事実 elsewhere
         r = self.turn(f, "そうなんですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
-        self.assertEqual((f.current, self.heard(r).endswith(self.N2_LINE)), (n2, True), self.heard(r))
+        self.assertEqual((f.current, self.heard(r)), ("Q4", "はい、" + DeepenApprovalEndTest.PLAIN + "続きまして" + DeepenApprovalEndTest.PAY))
+        self.assertNotIn(n2, f.questions)
 
     def test_trouble_that_happened_gets_the_measures_question(self):
         from flowctl import CALLBACK_IDS
@@ -30319,7 +30349,7 @@ class DeepenReplyTest(unittest.TestCase):
         # 頭に相づちは付けない（「そうだったんですね。」が受けの言葉）
         self.assertEqual((f.current, self.heard(r), [p["id"] for p in r["play"]], r.get("ack")), (e3, self.MEASURES, ["callback_deepen_measures"], None))
         self.assertEqual(set(f.questions[e3].conditions), {"打っている", "打っていない"})
-        self.answered_then_n2(f, e3, "いえ、特に何もしていないですね。", "打っていない")
+        self.answered_then_ends(f, e3, "いえ、特に何もしていないですね。", "打っていない")
 
     def test_no_trouble_gets_the_ahead_question_with_the_kept_clause(self):
         from flowctl import CALLBACK_IDS
@@ -30331,7 +30361,7 @@ class DeepenReplyTest(unittest.TestCase):
         r = self.turn(f, "いえ、今のところは特にないです。", self.rd("問題は無かった"), "record_answer", question_id=e2, condition_id="問題は無かった")
         said = f"それは何よりです。しかし{self.KEPT}今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？"
         self.assertEqual((f.current, r.get("say"), r.get("play") or [], self.heard(r), r.get("ack")), (e4, said, [], said, None))
-        self.answered_then_n2(f, e4, "そうですね、それは心配です。", "懸念がある")
+        self.answered_then_ends(f, e4, "そうですね、それは心配です。", "懸念がある")
         # 句なし・中身を確かめられなかった：句を外した共通の一言の録音
         for kept, verdict in ((None, None), (self.KEPT, None)):
             g = self.to_deepen(kept, verdict)
@@ -30370,7 +30400,8 @@ class DeepenReplyTest(unittest.TestCase):
             qid = CALLBACK_IDS[qkey]
             self.assertEqual(f.current, qid)
             r = self.turn(f, words, self.rd("unknown"), "record_answer", question_id=qid, condition_id="unknown")
-            self.assertTrue(self.heard(r).endswith(self.N2_LINE), self.heard(r))
+            # 伺い直さずに、ご承認の手順を点の無いまま終える（✅ 2026-11-16 日本時間14時46分34秒＝DeepenApprovalEndTest。⛔ 9c577835 まで「ほかに…」（N2）へ）
+            self.assertTrue(self.heard(r).endswith(DeepenApprovalEndTest.PLAIN + "続きまして" + DeepenApprovalEndTest.PAY), self.heard(r))
             self.assertNotIn(qid, [x for x in f.order if f.items[x].state == "empty"])
             self.assertEqual(len(f.facts["elsewhere"]), 1)   # はっきりしないお返事は依頼者へ渡す通話の事実にしない
 
@@ -30717,7 +30748,9 @@ class BriefNoReadAgainTest(unittest.TestCase):
         ctx = self.reread(f, self.rd(UNDECIDED))
         self.assertEqual((ctx[0].id, ctx[3]), ("Q2", "いえ、このままで大丈夫です。"))
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual((f.current, self.heard(r)), ("Q2", "承知しました。それでは" + self.CONTACT))
+        # 相づちのあと「それでは手短にお伺いいたしますね。」（✅ 2026-11-16 日本時間14時46分34秒「伺い34：ア」＝BriefGoAheadTest。⛔ 9c577835 まで「承知しました。
+        # それではご連絡は…」）
+        self.assertEqual((f.current, self.heard(r)), ("Q2", "承知しました。" + BriefGoAheadTest.GO + self.CONTACT))
 
     def test_unclear_keeps_hai(self):
         from flowctl import CALLBACK_IDS, UNDECIDED
@@ -30730,12 +30763,14 @@ class BriefNoReadAgainTest(unittest.TestCase):
         self.assertEqual((r.get("ahead_offer"), f.current, self.heard(r)), (True, "Q2", "はい、"))
         self.reread(f, self.rd(UNDECIDED))
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual((f.current, self.heard(r)), ("Q2", "承知しました。それでは" + self.CONTACT))
-        # 聞き取れない：読み直さずに、今のとおり「はい、」＋質問
+        # 相づちのあと「それでは手短にお伺いいたしますね。」（✅ 2026-11-16 日本時間14時46分34秒「伺い34：ア」＝BriefGoAheadTest。⛔ 9c577835 まで「承知しました。
+        # それではご連絡は…」・聞き取れないときは「はい、それではご連絡は…」）
+        self.assertEqual((f.current, self.heard(r)), ("Q2", "承知しました。" + BriefGoAheadTest.GO + self.CONTACT))
+        # 聞き取れない：読み直さずに、今のとおり「はい、」＋質問（その前に同じ一言）
         g = self.flow()
         self.asked(g)
         r = self.turn(g, "（雑音）……", self.rd(UNDECIDED), "report_unclear", question_id=h3)
-        self.assertEqual((r.get("ahead_offer"), g.current, self.heard(r)), (None, "Q2", "はい、それでは" + self.CONTACT))
+        self.assertEqual((r.get("ahead_offer"), g.current, self.heard(r)), (None, "Q2", "はい、" + BriefGoAheadTest.GO + self.CONTACT))
 
     def test_an_answer_in_the_reply_is_taken_without_asking_again(self):
         from flowctl import CALLBACK_IDS, UNDECIDED
@@ -30764,6 +30799,292 @@ class BriefNoReadAgainTest(unittest.TestCase):
         r = self.turn(f, "いえ、このままで大丈夫です。", self.rd("いいえ"), "record_answer", question_id=h3, condition_id="いいえ")
         self.assertEqual((r.get("ahead_offer"), f.current), (True, "Q3"))
         self.assertEqual(f.items["Q2"].state, "empty")
+
+
+class BriefGoAheadTest(unittest.TestCase):
+    """伺い34（✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」＝ア「はい、承知しました。それでは手短にお伺いいたしますね。ご連絡はお電話とメールのどちらが
+    よろしいでしょうか？」）：「手短に」のかけ直しの伺い（H3）へのお返事（いいえ・はっきりしない・聞き取れない＝伺い続ける道 Flow._brief_decided）のあと、その発話への
+    返事で質問を流すときは、受けの相づちのあとに共通の一言の録音「それでは手短にお伺いいたしますね。」（phrases.BRIEF_GO・録音 brief_go。CALLBACK_ASK ではない一言）を
+    流し、続けて質問を伺う。質問の頭のつなぎの言葉は今の1か所のまま（一言の頭の「それでは」と重ねない＝もう伺った質問は「それでは」を付けない＝2回目の戻る一言の
+    あとと同じ形・まだ伺っていない次の項目は重ならない「続きまして」のまま＝11-06 12時54分30秒「次の項目の質問に入る前は、すべて「続きまして」」）。
+    お言葉の外（まとめ役が分身に任せた決め）：1通話1回・H3 のすぐあとの返事で質問を流すときだけ（答えが入っていて次がお知らせ・締め・言い直しの確かめなら流さない）・
+    同じ返事で前に流す一言の頭が「それでは」なら流さない（つなぎの言葉を重ねない＝(1) ウ と同じ理由。この一言は頭を替えた録音を持たない）。
+    ⛔ 9c577835 まで「はい、承知しました。それではご連絡はお電話とメールのどちらがよろしいでしょうか？」（「手短に」に応える一言が無いまま伺った）"""
+    WORDS = BriefHurryTest.WORDS
+    GO = "それでは手短にお伺いいたしますね。"
+    CONTACT = OtherCompanyClueSendWayTest.CONTACT
+    PAY = "お支払いはカードと振込のどちらがよろしいでしょうか？"
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    reread = OtherCompanyClueSendWayTest.reread
+
+    def flow(self, questions=None, play=True):
+        import dataclasses
+        from flowctl import JUDGMENTS
+        b = dataclasses.replace(OtherCompanyClueSendWayTest().business(), summary=BriefCallbackAskTest.SUMMARY,
+                                questions=questions if questions is not None else BriefCallbackAskTest().brief_questions())
+        f = b.flow(play_recordings=play)
+        f.use_checks(*JUDGMENTS)
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        self.assertEqual(f.current, "Q2")
+        return f
+
+    def asked(self, f):
+        from flowctl import CALLBACK_IDS
+        BriefCallbackAskTest().asked(f)
+        self.assertEqual(f.current, CALLBACK_IDS["brief"])
+
+    def replied(self, f, kind, words=None):
+        """H3 へのお返事（kind＝no：「いいえ」・unclear：はっきりしない・unheard：聞き取れない）。読み直しの返事（ahead_offer）なら、答えは無いと読んで質問へ戻る。"""
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        h3 = CALLBACK_IDS["brief"]
+        if kind == "no":
+            r = self.turn(f, words or "いえ、このままで大丈夫です。", self.rd("いいえ"), "record_answer", question_id=h3, condition_id="いいえ")
+        elif kind == "unclear":
+            r = self.turn(f, words or "はい、どうぞ。", self.rd(UNDECIDED))
+        else:
+            r = self.turn(f, "（雑音）……", self.rd(UNDECIDED), "report_unclear", question_id=h3)
+        if r.get("ahead_offer"):
+            self.assertEqual(self.heard(r), "はい、", kind)
+            self.reread(f, self.rd(UNDECIDED))
+            r = f.apply("replay_opening", {"part": "resume"})
+        return r
+
+    def test_the_line_is_one_common_recording(self):
+        from phrases import BRIEF_GO, CALLBACK_ASK, RECORDED
+        self.assertEqual((BRIEF_GO, RECORDED["brief_go"]), (self.GO, self.GO))
+        self.assertNotIn(self.GO, CALLBACK_ASK.values())
+        from make_ack_clips import HOW_OF
+        self.assertEqual(HOW_OF["brief_go"], "back_again")   # 「それではもう一度確認させていただきますね。」と同じ形・同じ長さの一言
+
+    def test_after_no_unclear_or_unheard_the_line_comes_before_the_question(self):
+        # いま伺っていた質問（もう伺った Q2）へ戻る：一言の頭の「それでは」と重ねない（もう伺った質問の頭「それでは」を付けない）
+        for kind, head in (("no", "承知しました。"), ("unclear", "承知しました。"), ("unheard", "はい、")):
+            f = self.flow()
+            self.asked(f)
+            r = self.replied(f, kind)
+            self.assertEqual((f.current, self.heard(r)), ("Q2", head + self.GO + self.CONTACT), kind)
+            self.assertEqual([p["id"] for p in r["play"]][0], "brief_go", kind)
+            # 1通話1回：次の質問の前には流さない
+            r = self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
+            self.assertEqual(f.current, "Q3", kind)
+            self.assertNotIn("手短に", self.heard(r), kind)
+
+    def test_the_form_after_the_line_is_the_form_after_the_second_back_line(self):
+        # もう伺った質問をこの一言のあとに伺う形は、2回目の戻る一言（頭が「それでは」）のあとの形と同じ録音（新しい業務の録音は増えない）
+        import dataclasses
+        from flowctl import question_forms, question_play
+        from phrases import BACK_TO_AGAIN, BRIEF_GO
+        qs = BriefCallbackAskTest().brief_questions()
+        qs = [*qs, dataclasses.replace(qs[3], id="Q5", ask_if=("Q4", ("カード",)), intro="", required=True),
+              dataclasses.replace(qs[3], id="Q6", intro="それではお支払いについて伺います。", required=True)]
+        for q in qs:
+            forms = {(p["id"], p.get("lead") or "") for p in question_forms(qs, q.id)}
+            self.assertEqual(question_play(qs, q.id, before=BRIEF_GO, again=True), question_play(qs, q.id, before=BACK_TO_AGAIN, again=True), q.id)
+            for again in (False, True):
+                p = question_play(qs, q.id, before=BRIEF_GO, again=again)
+                self.assertIn((p["id"], p.get("lead") or ""), forms, (q.id, again))
+                self.assertFalse(p["text"].startswith("それでは"), (q.id, again, p["text"]))
+
+    def test_an_answer_in_the_reply_then_the_line_before_the_next_question(self):
+        # お返事に答えが入っていた（「いえ、このままで大丈夫です。メールでお願いします。」）：答えを受け取り、次に質問を流すなら、その前に一言（次の項目の頭は
+        # 入る一言のまま。入る一言の無い質問は「続きまして」＝下の test_a_new_question_keeps_its_next_lead）
+        from flowctl import CALLBACK_IDS
+        h3 = CALLBACK_IDS["brief"]
+        f = self.flow()
+        self.asked(f)
+        words = "いえ、このままで大丈夫です。メールでお願いします。"
+        r = self.turn(f, words, self.rd("いいえ"), "record_answer", question_id=h3, condition_id="いいえ")
+        self.assertEqual((r.get("ahead_offer"), self.heard(r)), (True, "はい、"))
+        self.reread(f, self.rd("メール"))
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "メール"})
+        intro = f.questions["Q3"].intro
+        self.assertEqual((f.current, self.heard(r)), ("Q3", "承知しました。" + self.GO + intro + f.questions["Q3"].text))
+        # 次が締め（伺う質問が残っていない）なら流さない
+        import dataclasses
+        qs = BriefCallbackAskTest().brief_questions()
+        g = self.flow(questions=[qs[0], qs[1], dataclasses.replace(qs[2], final_goal=False, declines=()), qs[3]])
+        self.asked(g)
+        r = self.turn(g, words, self.rd("いいえ"), "record_answer", question_id=h3, condition_id="いいえ")
+        self.reread(g, self.rd("メール"))
+        r = g.apply("record_answer", {"question_id": "Q2", "condition_id": "メール"})
+        self.assertEqual((r["result"], g.end_reason), ("end", "done"))
+        self.assertNotIn("手短に", self.heard(r))
+
+    def test_a_new_question_keeps_its_next_lead(self):
+        # いま伺っていた質問が伺わない質問なら、次の伺う質問（まだ伺っていない）へ：頭は「続きまして」のまま（一言の頭と重ならない＝relead の1か所のまま）
+        import dataclasses
+        qs = BriefCallbackAskTest().brief_questions()
+        qs = [qs[0], dataclasses.replace(qs[1], required=False), dataclasses.replace(qs[3], required=True)]
+        for kind, head in (("no", "承知しました。"), ("unheard", "はい、")):
+            f = self.flow(questions=qs)
+            self.asked(f)
+            r = self.replied(f, kind)
+            self.assertEqual((f.current, self.heard(r)), ("Q4", head + self.GO + "続きまして" + self.PAY), kind)
+
+    def test_a_read_back_to_return_to_is_led_too_but_not_a_new_read_back(self):
+        # 言い直しの返事を待っている所で「手短に」と言われた：H3 のあと、いまの位置（言い直しの確かめ）へ戻るときも同じ（こちらから伺う一言の前＝_continue の
+        # 言い直しの枝。言い直しの頭の「それでは」は重ねない＝restated_again の1か所）。お返事に入っていた答えを受け取って言い直して確かめる一言（頭が受けの
+        # 言葉＝お返事を受ける一言）の前には流さない
+        from flowctl import CALLBACK_IDS, Question
+        h3 = CALLBACK_IDS["brief"]
+        qs = BriefCallbackAskTest().brief_questions()
+        q2 = Question("Q2", "ご訪問のご希望の日時はいつ頃がよろしいでしょうか？", "datetime", conditions=("答えた",), required=True, topic="ご訪問の日時")
+        say = "明日の19時、午後7時でよろしいでしょうか？"
+        f = self.flow(questions=[qs[0], q2, *qs[2:]])
+        r = self.turn(f, "明日の19時でお願いします。", self.rd("答えた"), "record_answer", question_id="Q2", condition_id="答えた", value="明日の19時")
+        self.assertEqual((f.awaiting_confirm, self.heard(r)), ("Q2", "はい、ありがとうございます。" + say))
+        self.asked(f)
+        r = self.replied(f, "no")
+        self.assertEqual((f.awaiting_confirm, self.heard(r)), ("Q2", "承知しました。" + self.GO + say))
+        g = self.flow(questions=[qs[0], q2, *qs[2:]])
+        self.asked(g)
+        r = self.turn(g, "いえ、このままで大丈夫です。明日の19時でお願いします。", self.rd("いいえ"), "record_answer", question_id=h3, condition_id="いいえ")
+        self.assertEqual((r.get("ahead_offer"), g.current), (True, "Q2"))
+        r = g.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "明日の19時"})
+        self.assertEqual((r["result"], g.awaiting_confirm), ("confirm_required", "Q2"))
+        self.assertTrue(self.heard(r).endswith(say), self.heard(r))
+        self.assertNotIn("手短に", self.heard(r))
+
+    def test_not_after_a_line_that_starts_with_soredeha(self):
+        # 同じ返事で前に流す一言（業務の「答えのあとに伝える一言」）の頭が「それでは」なら流さない（つなぎの言葉を重ねない＝(1) ウ と同じ理由）
+        import dataclasses
+        from flowctl import CALLBACK_IDS
+        h3 = CALLBACK_IDS["brief"]
+        told = "それではメールでご連絡させていただきますね。"
+        qs = BriefCallbackAskTest().brief_questions()
+        f = self.flow(questions=[qs[0], dataclasses.replace(qs[1], tell_words={"メール": told}), *qs[2:]])
+        self.asked(f)
+        self.turn(f, "いえ、このままで大丈夫です。メールでお願いします。", self.rd("いいえ"), "record_answer", question_id=h3, condition_id="いいえ")
+        self.reread(f, self.rd("メール"))
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "メール"})
+        self.assertEqual(f.current, "Q3")
+        self.assertIn(told, self.heard(r))
+        self.assertNotIn("手短に", self.heard(r))
+
+    def test_the_ai_says_the_line_when_nothing_is_recorded(self):
+        # 録音で流せない通話（会話AIが話す形）：会話AIが一言を言ってから、頭の「それでは」を付けずに質問を言う（流し方は今の1か所＝_continue・_led）
+        from flowctl import start_with
+        f = self.flow(play=False)
+        self.asked(f)
+        r = self.replied(f, "unheard")
+        self.assertIn(self.GO, r["message"])
+        self.assertNotIn(start_with("それでは"), r["message"])
+
+
+class DeepenApprovalEndTest(unittest.TestCase):
+    """伺い32 場面2（✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い32：「はい、それではキャンセルの件はご了承ということでよろしかったでしょうか？」は、キャンセルの
+    不満に対して何もお答えしていないのに、おすすめのイでがおかしい。キャンセルの不満をお申し出でもう結構と言っているのに、この展開は通常ありえない。もしこんな展開が
+    ありえたとしたら、ウの対応が良いかもしれない。」）：ご承認の手順の1つ目（N1）の位置で、ほかの会社の困りごとを伺い・深めたあと（E2・E3・E4 へのお返事・深めずに
+    戻るときも＝_deepen_then のご承認の枝）は、困りごとを点として「ほかに…」（N2）へ進めない。点を言っていただけないまま手順を終える今の1か所（_point_step の
+    点を言っていただけなかったとき＝_point_end の unresolved・_offer_due）に乗せる＝営業に引き継ぐ業務でご承認が最終目的なら「それでは詳しい者より改めてお話しさせて
+    いただいてもよろしいでしょうか？」（N4）・そうでない業務は「ご不満な点がございましたらいつでもお申し出ください。」を挟んで残りの質問へ（残りが無ければ、締める前の
+    申し出 N6 か、お礼の締め）。頭の相づちも今の1か所（_unsaid_head・_ack）。ご承認は「はい」に決め直さない（「いいえ」のまま）・困りごとは通話の事実 elsewhere に残る・
+    not_agreed は点の無いまま outcome unresolved。⛔ 9c577835 まで、困りごとを点として N2「ほかにご納得いただけない点はございますでしょうか？」へ進めた"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    to_n1 = OtherCompanyClueSendWayTest.to_n1
+    reread = OtherCompanyClueSendWayTest.reread
+    TROUBLE, REPLY, WORD = DeepenTroubleTest.TROUBLE, DeepenTroubleTest.REPLY, DeepenTroubleTest.WORD
+    PLAIN = "ご不満な点がございましたらいつでもお申し出ください。"
+    PAY = "お支払いはカードと振込のどちらがよろしいでしょうか？"
+    N4_LINE = "それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？"
+    MINE = "さようでございますか。弊社ではご連絡は前日までにいただければキャンセル料はかかりません。"
+
+    def flow(self, goal=False, handoff=(), close=None, rest=True):
+        import dataclasses
+        from flowctl import JUDGMENTS
+        b = OtherCompanyClueSendWayTest().business(goal)
+        b = dataclasses.replace(b, handoff_ways=handoff, close_offer=close, questions=b.questions if rest else b.questions[:3])
+        f = b.flow(play_recordings=True)
+        f.use_checks(*JUDGMENTS)
+        return f
+
+    def to_trouble(self, f):
+        """N1 →「もう別の会社に頼んでいるので結構です。」→ E1 → 困りごと → 会話AIが応える（困りごとの言葉を書く）。"""
+        from flowctl import CALLBACK_IDS, ELSEWHERE_YES
+        self.to_n1(f)
+        self.turn(f, "もう別の会社に頼んでいるので結構です。", self.rd("断ろうとしている", elsewhere=ELSEWHERE_YES), "record_answer",
+                  question_id=CALLBACK_IDS["not_agreed"], condition_id="断ろうとしている")
+        self.turn(f, self.TROUBLE, self.rd("問題を言った"), "record_answer", question_id=CALLBACK_IDS["elsewhere"], condition_id="問題を言った",
+                  value="対応が遅くて困っている")
+        grounded(f, self.REPLY, "知っていることだけ")
+        grounded(f, self.WORD, "事実を言っていない")
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": self.REPLY, "trouble": self.WORD})["result"], "own_answer")
+
+    def deepened(self, f, kind):
+        """深める一言（E2）へのお返事の種類ごとに、手順の続け方（_deepen_then）まで進めた返事。"""
+        from flowctl import CALLBACK_IDS, QUERY, QUERY_YES, UNDECIDED
+        e2 = CALLBACK_IDS["deepen"]
+        self.to_trouble(f)
+        if kind == "none":
+            # 深めずに戻る（応えたあとにお客様が尋ね、こちらが答えたあとのお返事）
+            asked = self.rd(UNDECIDED)
+            setattr(asked, QUERY, QUERY_YES)
+            self.turn(f, "ちなみに御社だとキャンセル料はどうなるんですか？", asked)
+            grounded(f, self.MINE, "知っていることだけ")
+            f.apply("replay_opening", {"part": "own", "answer": self.MINE})
+            return self.turn(f, "なるほど。", self.rd(UNDECIDED), "replay_opening", part="resume")
+        r = self.turn(f, "へえ、そうなんですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
+        self.assertEqual(f.current, e2, self.heard(r))
+        if kind == "unknown":
+            return self.turn(f, "うーん、どうでしたかね。", self.rd("unknown"), "record_answer", question_id=e2, condition_id="unknown")
+        had = kind == "had"
+        self.turn(f, "はい、何度か返事が遅れて困りました。" if had else "いえ、今のところは特にないです。", self.rd("問題があった" if had else "問題は無かった"),
+                  "record_answer", question_id=e2, condition_id="問題があった" if had else "問題は無かった")
+        q, cond = (CALLBACK_IDS["deepen_measures"], "打っていない") if had else (CALLBACK_IDS["deepen_ahead"], "懸念がある")
+        self.assertEqual(f.current, q)
+        self.turn(f, "いえ、特には。" if had else "そうですね。", self.rd(cond), "record_answer", question_id=q, condition_id=cond)
+        grounded(f, self.MINE, "知っていることだけ")
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": self.MINE})["result"], "own_answer")
+        return self.turn(f, "そうなんですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
+
+    def ended(self, f, why):
+        """手順を点の無いまま終えた：N2 を伺わない・ご承認は「いいえ」のまま・not_agreed は点の無いまま unresolved・困りごとは elsewhere に残る。"""
+        from flowctl import CALLBACK_IDS
+        self.assertNotIn(CALLBACK_IDS["other_point"], f.questions, why)
+        self.assertEqual((f.items["Q3"].condition, f.export()["Q3"]), ("いいえ", "いいえ"), why)
+        self.assertEqual([(e.get("question"), e.get("point"), e.get("outcome")) for e in f.facts["not_agreed"]], [("Q3", None, "unresolved")], why)
+        self.assertIn(self.TROUBLE, [e.get("said") for e in f.facts["elsewhere"]], why)
+
+    def test_the_procedure_ends_and_the_remaining_question_follows(self):
+        # 営業に引き継がない業務（ご承認が最終目的でも、そうでなくても）で残りの質問がある：「はい、」＋「ご不満な点が…」＋次の質問（頭は「続きまして」）
+        for goal in (False, True):
+            for kind in ("had", "no", "unknown", "none"):
+                f = self.flow(goal)
+                r = self.deepened(f, kind)
+                self.assertEqual((f.current, self.heard(r)), ("Q4", "はい、" + self.PLAIN + "続きまして" + self.PAY), (goal, kind))
+                self.ended(f, (goal, kind))
+
+    def test_a_handoff_business_offers_the_detailed_talk(self):
+        # 営業に引き継ぐ業務でご承認が最終目的：一言は挟まず、詳しい者からのお話を伺う（N4。残りの質問があっても先に）
+        from flowctl import CALLBACK_IDS
+        for kind in ("had", "unknown"):
+            f = self.flow(True, handoff=("訪問", "お電話"))
+            r = self.deepened(f, kind)
+            self.assertEqual(f.current, CALLBACK_IDS["handoff"], self.heard(r))
+            self.assertTrue(self.heard(r).endswith(self.N4_LINE), self.heard(r))
+            self.assertNotIn(self.PLAIN, self.heard(r))
+            self.ended(f, kind)
+
+    def test_without_remaining_questions_it_closes_or_offers(self):
+        # 残りの質問が無い：締める前の申し出が無ければ「ご不満な点が…」のあとお礼の締め・あれば締める前の申し出（N6）
+        from flowctl import CALLBACK_IDS, CloseOffer
+        from phrases import CLOSING
+        f = self.flow(True, rest=False)
+        r = self.deepened(f, "unknown")
+        self.assertEqual(r["result"], "end", self.heard(r))
+        self.assertTrue(self.heard(r).startswith("はい、" + self.PLAIN), self.heard(r))
+        self.ended(f, "close")
+        offer = CloseOffer("それでは改めて資料をお送りさせていただいてもよろしいでしょうか？", "資料のお送りのご希望", ("メール", "郵送"),
+                           do="改めて資料をお送りさせていただきます")
+        g = self.flow(True, close=offer, rest=False)
+        r = self.deepened(g, "unknown")
+        self.assertEqual(g.current, CALLBACK_IDS["close_offer"], self.heard(r))
+        self.assertTrue(self.heard(r).endswith(offer.text), self.heard(r))
+        self.ended(g, "close_offer")
 
 
 if __name__ == "__main__":
