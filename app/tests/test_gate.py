@@ -2033,7 +2033,7 @@ class NameLedger(Content):
         phrases.AGAIN_FIT）。名前の一覧が CL-1 の正本とそっくり同じかは、CL-1 の試験 test_recorded_names_match_cl2_common_parts が見る。"""
         lead = {c for c in recordings.COMMON_PARTS if c.endswith("_lead_soredeha")}
         self.assertIn("announce_recheck_unheard", recordings.COMMON_PARTS)
-        self.assertEqual(len(lead), 27 + 3 + 2 + 1)   # 4-159 の27本と、4-161 の3本・4-167 などの2本・4-170 の1本（下の試験）
+        self.assertEqual(len(lead), 27 + 3 + 2 + 1 + 3)   # 4-159 の27本と、4-161 の3本・4-167 などの2本・4-170 の1本・4-173 の3本（下の試験）
         self.assertLessEqual({c.removesuffix("_lead_soredeha") for c in lead}, set(recordings.COMMON_PARTS))   # どれも、もとの質問の録音がある
 
     def test_the_parts_cl1_added_for_their_callback_on_other_reasons_are_received(self):
@@ -2049,8 +2049,17 @@ class NameLedger(Content):
         待つかかけ直すかの伺い（callback_wait_or_later_plain）・ほかの会社に頼んでいると言われたときに伺う一言（callback_elsewhere）と、それぞれの
         3回目から戻る形（_midway）・頭「それでは」の形（_lead_soredeha）。無いと、その一言を流せないまま声を「話してよい」にする。"""
         bases = ("callback_wait_or_later_plain", "callback_elsewhere", "callback_deepen")   # callback_deepen＝深める一言 E2（4-170）
-        self.assertLessEqual({"doubt_anytime", "deepen_ahead"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")},
+        self.assertLessEqual({"doubt_anytime"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")},
                              set(recordings.COMMON_PARTS))
+
+    def test_the_parts_cl1_added_for_brief_calls_and_deepening_are_received(self):
+        """CL-1 の連絡帳 4-173・4-174（✅ 2026-11-16 日本時間12時48分22秒・14時46分34秒 ユーザー）の共通の一言の録音も、話してよい声が求める（`COMMON_PARTS`）：
+        深める一言へのお返事を受けて伺う一言（callback_deepen_measures・callback_deepen_ahead）・要約も用件の名詞も無い業務の手短にのかけ直しの伺い
+        （callback_brief）と、それぞれの3回目から戻る形・頭「それでは」の形、手短にお伺いする一言（brief_go）。4-170 の deepen_ahead（受け止めの言葉が
+        使えないときの録音）は使わなくなったので求めない（求めると、使わない録音が無いだけで声を「話せない」にする）。"""
+        bases = ("callback_deepen_measures", "callback_deepen_ahead", "callback_brief")
+        self.assertLessEqual({"brief_go"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")}, set(recordings.COMMON_PARTS))
+        self.assertNotIn("deepen_ahead", recordings.COMMON_PARTS)
 
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、
