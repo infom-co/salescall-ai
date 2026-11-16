@@ -3673,3 +3673,10 @@
 {"at": "2026-11-17T02:24:11+09:00", "who": "CL-2", "text": "While those run, I'll write the complaint tests."}
 {"at": "2026-11-17T02:25:17+09:00", "who": "CL-2", "text": "I'm writing the complaint change into the design doc and notebook. Two background jobs are still running: the related test groups and the break-tests for corrections."}
 {"at": "2026-11-17T02:35:33+09:00", "who": "CL-2", "text": "Commit now so nothing is lost while tests run."}
+{"at": "2026-11-17T02:35:47+09:00", "who": "CL-2", "text": "The complaint change is in and saved. Still running:\n- the test groups for the complaint change\n- the break-tests for corrections\n- the full test run\n\nWhen they finish, I'll run the full suite once more on the very latest code and report the results."}
+{"at": "2026-11-17T02:46:29+09:00", "who": "CL-2", "text": "The test groups for the complaint change all passed (369 tests). Now I'll restart the full test run on the latest code, so one run covers everything."}
+{"at": "2026-11-17T02:46:41+09:00", "who": "CL-2", "text": "The previous full run finished two of its three groups with no failures before I stopped it. The new full run on the latest code has started. I'll report when it finishes, together with the correction break-test results."}
+{"at": "2026-11-17T02:57:13+09:00", "who": "CL-2", "text": "One break-test slipped through: \"the promise round recount is decided by the number's current status instead of its status at dial time\". I'll check whether today's changes caused it."}
+{"at": "2026-11-17T02:57:49+09:00", "who": "CL-2", "text": "This miss was already there before today's changes. I'll find the situation it should catch and add a test."}
+{"at": "2026-11-17T03:06:12+09:00", "who": "CL-2", "text": "The test still fails, so I'm looking at why."}
+{"at": "2026-11-17T03:14:52+09:00", "who": "CL-2", "text": "All caught now. I'll write this into the design doc and notebook, save, and restart the full test run on this latest code."}

@@ -945,6 +945,21 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual(self.tx(s, lambda tx: next_action.numbers_of(tx, s["task"])).sub, s["contact"])   # サブにはなる
         self.assertEqual(self.tx(s, lambda tx: next_action._round_calls(tx, s["task"], w, 9, None)), 0)
 
+    def test_a_promise_call_on_the_old_number_settled_after_the_fix_counts_again_on_the_new_number(self):
+        """約束の電話を前の番号でかけている途中に、番号を直した（担当の方は同じ）。その電話に出ないまま締めた ⇒ 次は新しい番号へ、約束の回は0から
+        （計画書 7-1 (6)「約束の電話の途中で新しい番号へ移ったら、かけた日数（回数）は数え直す」・(17) と同じ）。"""
+        from salescall.core import row_fixes
+        s = self.ready()
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        w = next_action.Window(now + timedelta(hours=1), None, None, now - timedelta(hours=1), "week", round=1)
+        self.at(s, s["contact"], window=w)
+        aid = self.call(s, ["dialing", "no_answer"])                             # 前の番号で約束の電話（まだ締めていない）
+        new = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)["contact_id"]
+        self.settle(s, aid)
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["contact_id"], p["promised"]), (new, True))
+        self.assertLessEqual(p["window_round"], 1)                             # 数え直した（続きなら2回目の回＝2。かけたときに前の番号だった電話と同じ）
+
     def test_a_promise_already_tried_on_the_old_number_moves_at_the_fix(self):
         """約束の電話を前の番号でもうかけていた（鳴った）なら、番号を直したときに新しい番号へ移し、約束の回を0から数え直す（「まだ約束の
         電話をかけていない場合は、旧番号で」の外。⛔ 見直し (A) の8 (2)）。"""

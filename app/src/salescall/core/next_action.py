@@ -1810,7 +1810,10 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     kept_old = attempt_id is not None and _kept_old_promise(tx, task_id, dialed_row)
     target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off, numbers=numbers,
                            connected=connected, keep_former=former_promise or (kept_old and not reached_target))
-    dialed_window = recount_on_switch(dialed_window, was_replaced, target, numbers)   # 新しい番号へ移る約束は0から数え直す
+    # 新しい番号へ移る約束は0から数え直す：かけた番号が、かけたときに前の番号だった（0188）か、かけている途中に番号を直した（いま前の番号＝
+    # numbers.superseded。計画書 7-1 (6)「約束の電話の途中で新しい番号へ移ったら、数え直す」・(17)「新しい番号の回数は0から」。⛔ 2026-11-16 の
+    # 4回目の見直しまで：かけたときの立場だけを見て、前の番号でかけている途中に直して締めた約束は、新しい番号でも前の回の続きで数えた）
+    dialed_window = recount_on_switch(dialed_window, was_replaced or dialed.contact_id in numbers.superseded, target, numbers)
     count_at = target.contact_id or dialed.contact_id     # 終えるときは数え方を使わない（いまの番号で数えておく）
     promised = gate.pacing(tx, task_id, contact_id=count_at, promised=True)
     normal = gate.pacing(tx, task_id, contact_id=count_at, promised=False)
