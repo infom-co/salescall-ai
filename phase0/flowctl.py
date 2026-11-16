@@ -3357,6 +3357,10 @@ OFFER_WAY_RECORDING = "offer_which"   # 申し出の方法を選んでいただ�
 CLOSE_OFFER_RECORDING = "close_offer"   # 締める前の申し出の一言の依頼主の単位の録音（同じ2か所）
 # 申し出の役目（通話の事実の名前も同じ＝Flow._handoff_step の1か所）：営業に引き継ぐ架電の詳しい者からのお話（N4）・そうでない架電の締める前の申し出（N6）
 OFFER_ROLES = ("handoff", "close_offer")
+# こちらの申し出をはい／いいえで伺うシステムの質問の役目（唯一の表＝asked_offer）：申し出の手順を持つ OFFER_ROLES（詳しい者より改めて N4・締める前の申し出 N6）と、
+# 手短になら聞くと言われたときの後ほどのかけ直し H3（「…後ほどお時間のある時にかけ直しさせていただきましょうか？」＝✅ 2026-11-16 日本時間12時48分22秒の伺い31）。
+# 申し出の手順（方法・条件・連絡先・_offer_due など）は OFFER_ROLES のまま（H3 は手順を持たない）
+ASKED_OFFER_ROLES = (*OFFER_ROLES, "brief")
 # ほかの会社の困りごとを深めて伺う一言（Flow.deepen_q が指す質問）：E2「これまでに（困りごと）で…何度かおありなのでしょうか？」・E2 に問題があったときの E3「そうだったんですね。
 # …何か手をお打ちですか？」・無かったときの E4「それは何よりです。しかし…懸念されそうですね？」（✅ 2026-11-16 日本時間0時42分38秒・12時48分22秒 ユーザー）
 DEEPEN_ROLES = ("deepen", "deepen_measures", "deepen_ahead")
@@ -3647,6 +3651,17 @@ def brief_asks(q: "Question") -> bool:
     伺う。」（「必須の項目」を業務に欠かせない質問と読んだ＝お言葉の外。最終目的の印は必須の印と別に持つので、必須でない最終目的の質問を伺わずに終えると業務を果たせずに
     終わる＝本書 2章・10-24「時間で業務を打ち切らない」。まとめ役の決め）"""
     return bool(q.required or getattr(q, "final_goal", False))
+
+
+def asked_offer(q: "Question") -> str | None:
+    """こちらの申し出をはい／いいえで伺うシステムの質問（ASKED_OFFER_ROLES）なら、受けていただく答え（はい＝選択肢の1つ目）。違えば None。「こちらの申し出の
+    システムの質問か」を読む唯一の場所＝申し出の決まり2つ：
+    - 聞き取れないお返事も、その場で1回だけ伺い直す（取りこぼすと申し出が無くなる＝本書 9-4 の 11-09 日本時間6時33分57秒の段。Flow._ask_again の here）
+    - 受けていただいたお返事の頭は「ありがとうございます。」（✅ 2026-11-12 日本時間13時40分05秒 (5)「申し出を受けていただいたお返事には、必ず「ありがとうござい
+      ます。」」。受けていただいた答えの1か所 Flow._offer_answer → 相づち _ack_choice）
+    業務の申し出の質問（こちらがすることの言葉の種類で決まる＝Question.offered）は、その1か所のまま。⛔ 323cf618 まで、H3 は申し出なのにこの2つから漏れていた
+    （聞き取れないお返事を伺い直さずに続け・「はい」に「承知しました。」）＝聞き取れないときの1回は OFFER_ROLES・お礼は Question.offered と別々に読んでいた"""
+    return q.conditions[0] if q.callback in ASKED_OFFER_ROLES and q.conditions else None
 
 
 def way_choice(q: "Question") -> bool:
@@ -8907,7 +8922,9 @@ class Flow:
         if not given:
             return None
         q, it = self.questions[qid], self.items[qid]
-        if (accept := self._offer_answer(qid)) is None or cond != accept:
+        # 条件を受けられるのは、こちらがすることの言葉のある申し出だけ（提案の言葉の1か所 _proposal_of。手短のかけ直し H3 は申し出でも、こちらがすることの言葉・
+        # 方法を持たない＝かけ直しの時刻は時刻の質問 C1 が読み直す）
+        if (accept := self._offer_answer(qid)) is None or cond != accept or self._proposal_of(qid) is None:
             return self._reject(f"「{ARG_LABEL[given[0]]}」は、申し出を受けていただいた答えにだけ書きます。外して、もう一度呼んでください。")
         if (w := proposal["way"]) is not None and (q.asks_way or q.callback in WAY_ROLES):
             return self._reject(f"「{ARG_LABEL['way']}」は、この質問には書きません（方法を伺う質問なので、別の方法は「{ARG_LABEL['rest']}」に、相手の言ったとおりに書きます）。")
@@ -9041,6 +9058,8 @@ class Flow:
         q, it = self.questions[qid], self.items[qid]
         if q.offered is not None:
             return q.offered
+        if (a := asked_offer(q)) is not None:
+            return a   # こちらの申し出のシステムの質問（N4・N6 は上の offered と同じ「はい」・手短のかけ直し H3）
         if it.offer_again and it.offer_way and self.trouble_offer_q == qid and way_choice(q):
             return it.offer_way if it.offer_way in q.conditions else None   # 困りごとに応える提案（_deepen_then）：提案した方法の選択肢
         if not (it.offer_again and it.offer_way) or q.callback not in WAY_ROLES:
@@ -12440,8 +12459,9 @@ class Flow:
         # 制御から出したお返事の種類ごとの表で見つけた）。会話が繋がらないお返事は、ここで「もう一度お聞かせ…」と伺い直さず、ひとこと応えてから申し出を伺い直す
         # （応える番 _asked_kind の offer → _offer_again。✅ 7時57分50秒）
         # 必須の質問のその場の回数は、別のお話の伺い直しと合わせた数（_on_spot_left の1か所。✅ 2026-11-14 日本時間14時31分38秒「●伺い13」）
+        # こちらの申し出（asked_offer＝N4・N6・手短のかけ直し H3）は、聞き取れないときも1回（答えが質問に合わない＝form の1回は asks_once の決まり＝N4・N6）
         here = self.phase == "asking" and (self._on_spot_left(qid) if q.required else
-                                           q.asks_once and (reason == "form" or q.callback in OFFER_ROLES) and it.ask_backs < 1)
+                                           ((q.asks_once and reason == "form") or (reason != "form" and asked_offer(q) is not None)) and it.ask_backs < 1)
         spare = bool(form_reason) and not it.form_asked and not here and self.phase == "asking" and q.required and it.rechecks < self.limits.recheck
         if form_reason and (it.form_asked or not (here or spare)):
             # 理由を添えて伺っても形が合わない・もう伺えない（締めの前の念のための確認でも固定電話の番号だった）：その形の答えは無い（聞き取れている＝

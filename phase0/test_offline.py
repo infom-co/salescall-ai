@@ -30478,7 +30478,8 @@ class BriefCallbackAskTest(unittest.TestCase):
         # 時刻をもう言っていないか、判定に読み直してもらってから伺う（答えの段のかけ直しと同じ1か所＝_callback_ahead）
         self.assertEqual((r["result"], r.get("question_id"), bool(r.get("ahead_offer"))), ("next", c1, True))
         r = CallbackTimeAheadTest.time_asked(f, UNDECIDED)
-        self.assertEqual((f.current, self.heard(r)), (c1, "承知しました。いつ頃おかけ直しさせていただきましょうか？"))
+        # 受けていただいた申し出のお礼「ありがとうございます。」（11-12 日本時間13時40分05秒 (5)＝BriefOfferRulesTest。⛔ 323cf618 まで「承知しました。」）
+        self.assertEqual((f.current, self.heard(r)), (c1, "ありがとうございます。いつ頃おかけ直しさせていただきましょうか？"))
         self.assertEqual(f.facts["callback"][-1]["why"], "later")
         # 時刻を言っていれば重ねて伺わない
         g = self.flow()
@@ -30506,6 +30507,10 @@ class BriefCallbackAskTest(unittest.TestCase):
             self.asked(f)
             args = {"question_id": h3} | ({"condition_id": reading} if op == "record_answer" else {})
             r = self.turn(f, words, self.rd(reading), op, **(args if op else {}))
+            if op == "report_unclear":
+                # 聞き取れないお返事は、こちらの申し出なので1回だけ伺い直す（BriefOfferRulesTest。⛔ 323cf618 まで伺い直さずに続けた）。2回目も聞き取れなければ続ける
+                self.assertEqual((f.current, r["result"]), (h3, "ask_back"))
+                r = self.turn(f, words, self.rd(reading), op, **args)
             if r.get("ahead_offer"):
                 # お返事に Q2 の答えが無いかを読み直してから（本書 9-3。まとめ役の 37b5e5e8 の確かめ＝BriefNoReadAgainTest）、無ければ質問を流す
                 OtherCompanyClueSendWayTest().reread(f, self.rd(UNDECIDED))
@@ -30766,9 +30771,12 @@ class BriefNoReadAgainTest(unittest.TestCase):
         # 相づちのあと「それでは手短にお伺いいたしますね。」（✅ 2026-11-16 日本時間14時46分34秒「伺い34：ア」＝BriefGoAheadTest。⛔ 9c577835 まで「承知しました。
         # それではご連絡は…」・聞き取れないときは「はい、それではご連絡は…」）
         self.assertEqual((f.current, self.heard(r)), ("Q2", "承知しました。" + BriefGoAheadTest.GO + self.CONTACT))
-        # 聞き取れない：読み直さずに、今のとおり「はい、」＋質問（その前に同じ一言）
+        # 聞き取れない：1回だけ伺い直し（こちらの申し出＝BriefOfferRulesTest。⛔ 323cf618 まで伺い直さずに続けた）、また聞き取れなければ読み直さずに、今のとおり
+        # 「はい、」＋質問（その前に同じ一言）
         g = self.flow()
         self.asked(g)
+        r = self.turn(g, "（雑音）……", self.rd(UNDECIDED), "report_unclear", question_id=h3)
+        self.assertEqual((g.current, r["result"]), (h3, "ask_back"))
         r = self.turn(g, "（雑音）……", self.rd(UNDECIDED), "report_unclear", question_id=h3)
         self.assertEqual((r.get("ahead_offer"), g.current, self.heard(r)), (None, "Q2", "はい、" + BriefGoAheadTest.GO + self.CONTACT))
 
@@ -30844,6 +30852,9 @@ class BriefGoAheadTest(unittest.TestCase):
         elif kind == "unclear":
             r = self.turn(f, words or "はい、どうぞ。", self.rd(UNDECIDED))
         else:
+            # 聞き取れない：1回だけ伺い直す（こちらの申し出＝BriefOfferRulesTest。⛔ 323cf618 まで伺い直さずに続けた）。2回目も聞き取れないお返事で続ける
+            r = self.turn(f, "（雑音）……", self.rd(UNDECIDED), "report_unclear", question_id=h3)
+            self.assertEqual((f.current, r["result"]), (h3, "ask_back"))
             r = self.turn(f, "（雑音）……", self.rd(UNDECIDED), "report_unclear", question_id=h3)
         if r.get("ahead_offer"):
             self.assertEqual(self.heard(r), "はい、", kind)
@@ -31240,6 +31251,91 @@ class PointEndHeadTest(unittest.TestCase):
         t.to_n1(f)
         t.turn(f, "それはちょっと言いたくないですね。", self.rd("refused"), "record_answer", question_id=CALLBACK_IDS["not_agreed"], condition_id="refused")
         self.assertEqual([(e["said"], e["turn"]) for e in f.facts["not_agreed"]], [("それはちょっと言いたくないですね。", f.callee_turns)])
+
+
+class BriefOfferRulesTest(unittest.TestCase):
+    """手短になら聞くと言われたときの後ほどのかけ直しの伺い（H3「…後ほどお時間のある時にかけ直しさせていただきましょうか？」）は、こちらの申し出＝申し出の決まり2つに通す
+    （まとめ役の決まりで直す。こちらの申し出をはい／いいえで伺うシステムの質問かは1か所＝flowctl.ASKED_OFFER_ROLES・asked_offer）：
+    (1) 聞き取れないお返事は、その場で1回だけ伺い直す（「申し訳ございません、お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？」）。2回目も聞き取れ
+        なければ今のまま（伺い続ける）。本書 9-4 の 11-09 日本時間6時33分57秒の段「申し出 N4・N6 は聞き取れないときも1回伺い直す（取りこぼすと申し出が無くなる）」・9-5「急いで
+        いる方は、その場の聞き返しはして締めの前の確認はしない」。聞き取れているがはっきりしないお返事は今のまま（伺い直さずに読み直す＝BriefNoReadAgainTest）
+    (2) 「はい」（受けていただいた）の頭は「ありがとうございます。」（11-12 日本時間13時40分05秒 (5)「申し出を受けていただいたお返事には、必ず「ありがとうございます。」」）。
+        読み直しの「はい、」のあとの受けの言葉も同じ。お客様のほうから頼まれたかけ直し（答えの段の later）は今のまま「承知しました。」。
+    ⛔ 323cf618 まで、H3 への聞き取れないお返事は伺い直さずに続け（申し出を取りこぼす）、「はい」には「承知しました。いつ頃おかけ直し…」（お礼を返さない）"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    reread = OtherCompanyClueSendWayTest.reread
+    CONTACT = OtherCompanyClueSendWayTest.CONTACT
+    ASK_BACK = "申し訳ございません、お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"
+    WHEN = "いつ頃おかけ直しさせていただきましょうか？"
+
+    def asked(self):
+        from flowctl import CALLBACK_IDS
+        t = BriefGoAheadTest()
+        f = t.flow()
+        t.asked(f)
+        self.assertEqual(f.current, CALLBACK_IDS["brief"])
+        return f
+
+    def unheard(self, f):
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        return self.turn(f, "（雑音）……", self.rd(UNDECIDED), "report_unclear", question_id=CALLBACK_IDS["brief"])
+
+    def yes(self, f):
+        """「はい、お願いします。」→ かけ直しの時刻を言っていないかを読み直して（言っていない）→ 時刻を伺う返事。"""
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        r = self.turn(f, "はい、お願いします。", self.rd("はい"), "record_answer", question_id=CALLBACK_IDS["brief"], condition_id="はい")
+        self.assertEqual((r.get("ahead_offer"), self.heard(r)), (True, "はい、"))
+        return CallbackTimeAheadTest.time_asked(f, UNDECIDED)
+
+    def test_an_unheard_reply_is_asked_once_more(self):
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        h3 = CALLBACK_IDS["brief"]
+        f = self.asked()
+        r = self.unheard(f)
+        self.assertEqual((f.current, self.heard(r)), (h3, self.ASK_BACK))
+        # 伺い直したあとの「はい」：お礼で受けて時刻を伺う
+        r = self.yes(f)
+        self.assertEqual((f.current, self.heard(r)), (CALLBACK_IDS["time"], "ありがとうございます。" + self.WHEN))
+        # 「いいえ」：今のまま（読み直して、手短にお伺いする一言から）
+        g = self.asked()
+        self.unheard(g)
+        r = self.turn(g, "いえ、このままで大丈夫です。", self.rd("いいえ"), "record_answer", question_id=h3, condition_id="いいえ")
+        self.assertEqual((r.get("ahead_offer"), self.heard(r)), (True, "はい、"))
+        self.reread(g, self.rd(UNDECIDED))
+        r = g.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((g.current, self.heard(r)), ("Q2", "承知しました。" + BriefGoAheadTest.GO + self.CONTACT))
+        # また聞き取れない：伺い直さずに、今のまま伺い続ける（1回だけ）
+        h = self.asked()
+        self.unheard(h)
+        r = self.unheard(h)
+        self.assertEqual((h.current, self.heard(r)), ("Q2", "はい、" + BriefGoAheadTest.GO + self.CONTACT))
+        self.assertEqual([e["answer"] for e in h.facts["brief"]], ["-"])
+
+    def test_yes_is_thanked_but_a_callback_they_asked_for_is_not(self):
+        from flowctl import CALLBACK_IDS
+        f = self.asked()
+        r = self.yes(f)
+        self.assertEqual((f.current, self.heard(r)), (CALLBACK_IDS["time"], "ありがとうございます。" + self.WHEN))
+        # お客様のほうから頼まれたかけ直し（答えの段の later）：今のまま「承知しました。」
+        g, r = CallbackTimeAheadTest().ask("あとでまたかけてもらえますか。", True)
+        r = CallbackTimeAheadTest.time_asked(g)
+        self.assertEqual(self.heard(r), "承知しました。" + self.WHEN)
+
+    def test_one_place_says_which_system_questions_are_our_offers(self):
+        # こちらの申し出をはい／いいえで伺うシステムの質問は1か所（ASKED_OFFER_ROLES・asked_offer）＝詳しい者より改めて N4・締める前の申し出 N6・手短のかけ直し H3。
+        # 申し出の手順（方法・条件・連絡先・_offer_due など）の役目 OFFER_ROLES は N4・N6 のまま。H3 は判定と食い違うときの1回の伺い直し（asks_once）を持たない
+        # （はっきりしないお返事は伺い直さずに読み直す）・提案の言葉（条件）を添えた「はい」は受けない（伺い直しの提案の道が無い）
+        from flowctl import ASKED_OFFER_ROLES, CALLBACK_IDS, OFFER_ROLES, asked_offer, callback_question
+        self.assertEqual((OFFER_ROLES, ASKED_OFFER_ROLES), (("handoff", "close_offer"), ("handoff", "close_offer", "brief")))
+        self.assertEqual({r: asked_offer(callback_question(r)) for r in ("handoff", "brief", "hurry_again", "wait_or_later", "not_agreed", "elsewhere")},
+                         {"handoff": "はい", "brief": "はい", "hurry_again": None, "wait_or_later": None, "not_agreed": None, "elsewhere": None})
+        self.assertEqual((callback_question("brief").asks_once, callback_question("handoff").asks_once), (False, True))
+        f = self.asked()
+        f.on_callee(); f.on_heard("はい、明日の午後なら。")
+        r = f.apply("record_answer", {"question_id": CALLBACK_IDS["brief"], "condition_id": "はい", "terms": "明日の午後なら"})
+        self.assertEqual(r["result"], "rejected", r.get("message"))
 
 
 if __name__ == "__main__":
