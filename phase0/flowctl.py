@@ -793,9 +793,15 @@ def restated_again(say: str, back: str = "") -> str:
 # その回に直前に流す一言の文の頭のつなぎの言葉と、次の質問の頭のつなぎの言葉が重なったときに替える言葉の順（✅ 同じ時「(1) ウ」＝11時台のご報告の
 # 「(ウ) 次の質問の頭を「続きまして」にする」。「続きまして」と重なるときは、残りのつなぎの言葉から）
 RELEAD_ORDER = ("続きまして", *(w for w in LEAD_IN["次の質問"] if w != "続きまして"))
-# 同じ受けの言葉が続くときに替える相づち（唯一の表＝Flow._ack）：「承知しました。」が続けば「かしこまりました。」（✅ 2026-11-02 日本時間7時12分 ユーザー）・
-# 「かしこまりました。」が続けば「承知しました。」（同じ理由。23時22分41秒のご質問の見直し H9）
-SAME_RECEIPT = {"shouchi": "kashikomari", "kashikomari": "shouchi"}
+# 返事の頭に言う受けの言葉が、直前の返事の頭の受けの言葉と同じときに替える言葉（唯一の表＝Flow._fresh_receipt。回す順の次）：
+# - 相づち（phrases.ACK の名前）：「承知しました。」が続けば「かしこまりました。」（✅ 2026-11-02 日本時間7時12分 ユーザー）・「かしこまりました。」が続けば「承知しました。」
+#   （同じ理由。23時22分41秒のご質問の見直し H9）・順番に回す「ありがとうございます。」が続けば順番の次の「承知しました。」（10-14「はい」が続くときは他の相づち・
+#   11-02 7時12分と同じ理由＝まとめ役の決まりで直す）
+# - 言い直しの頭（phrases.LEAD_IN の「言い直し」の文）：その順の次（「ありがとうございます。」→「かしこまりました。」→「承知いたしました。」→…）
+# 決まったお礼（申し出を受けていただいたお礼＝11-12 13時40分05秒 (5)「必ず「ありがとうございます。」」・ご納得のお礼・要約の伺いの頭など、お言葉で決まった
+# 「ありがとうございます。」）は替えない＝相づちの「ありがとうございます。」を替えるのは順番に回す所だけ（_ack_choice）
+SAME_RECEIPT = {"shouchi": "kashikomari", "kashikomari": "shouchi", "arigatou": "shouchi",
+                **{w: LEAD_IN["言い直し"][(i + 1) % len(LEAD_IN["言い直し"])] for i, w in enumerate(LEAD_IN["言い直し"])}}
 # 受けの言葉の相づち（答えを受け取ったことを言う一言＝次の質問・申し伝える一言の頭。唯一の表＝Flow._ack の same_turn）
 RECEIPTS = ("shouchi", "arigatou", "kashikomari")
 
@@ -3358,9 +3364,12 @@ CLOSE_OFFER_RECORDING = "close_offer"   # 締める前の申し出の一言の�
 # 申し出の役目（通話の事実の名前も同じ＝Flow._handoff_step の1か所）：営業に引き継ぐ架電の詳しい者からのお話（N4）・そうでない架電の締める前の申し出（N6）
 OFFER_ROLES = ("handoff", "close_offer")
 # こちらの申し出をはい／いいえで伺うシステムの質問の役目（唯一の表＝asked_offer）：申し出の手順を持つ OFFER_ROLES（詳しい者より改めて N4・締める前の申し出 N6）と、
-# 手短になら聞くと言われたときの後ほどのかけ直し H3（「…後ほどお時間のある時にかけ直しさせていただきましょうか？」＝✅ 2026-11-16 日本時間12時48分22秒の伺い31）。
-# 申し出の手順（方法・条件・連絡先・_offer_due など）は OFFER_ROLES のまま（H3 は手順を持たない）
-ASKED_OFFER_ROLES = (*OFFER_ROLES, "brief")
+# こちらがかけ直す申し出＝手短になら聞くと言われたときの後ほどのかけ直し H3（「…後ほどお時間のある時にかけ直しさせていただきましょうか？」＝✅ 2026-11-16 日本時間12時
+# 48分22秒の伺い31）・急いでいる方への H1（「それではまた改めてお掛けしてもよろしいでしょうか？」＝11-01 20時56分）・受付の方への C7（「後ほど改めてお掛けしても
+# よろしいでしょうか？」＝10-24）・約束の電話の P1（「…後ほど改めてお掛けしてもよろしいでしょうか？」＝10-22・10-24）。⛔ 8aa3b4ef まで H1・C7・P1 が漏れていた
+# （聞き取れないお返事を伺い直さずに締め・H1 の「はい」にお礼を返さない＝まとめ役の確かめ）。申し出の手順（方法・条件・連絡先・_offer_due など）は OFFER_ROLES のまま
+# （かけ直しの申し出は手順を持たない）
+ASKED_OFFER_ROLES = (*OFFER_ROLES, "brief", "hurry_again", "call_again", "promise_again")
 # ほかの会社の困りごとを深めて伺う一言（Flow.deepen_q が指す質問）：E2「これまでに（困りごと）で…何度かおありなのでしょうか？」・E2 に問題があったときの E3「そうだったんですね。
 # …何か手をお打ちですか？」・無かったときの E4「それは何よりです。しかし…懸念されそうですね？」（✅ 2026-11-16 日本時間0時42分38秒・12時48分22秒 ユーザー）
 DEEPEN_ROLES = ("deepen", "deepen_measures", "deepen_ahead")
@@ -4354,8 +4363,11 @@ def callback_question(role: str, text: str | None = None, nth: int = 0, of: "Que
                         # 20時03分09秒のお言葉のとおり）。振り返りの一言（質問ではない）・どの点かを伺う一言（何の点かを尋ねる）には当てない（⛔ 23時22分41秒のご質問の
                         # 見直し A2：当てていて、振り返りへの「結構です。」でご承認を「はい」で渡した）
                         reply_meanings={} if first or which else {w: c for w, c in ROLE_REPLIES.get(role, {}).items() if c in meanings},
-                        firm_not_needed=role in (*POINT_STAGES.values(), "line_how", "wait_or_later", "concern", "carried", "elsewhere", *DEEPEN_ROLES, "brief",
-                                                 *OFFER_ROLES),
+                        # こちらの申し出（ASKED_OFFER_ROLES＝N4・N6・H3・H1・C7・P1）は言い直さない（聞き返したあとの「はい」も、そのまま受ける）＝申し出の決まりの
+                        # 1か所の表から（⛔ 8aa3b4ef までは brief・OFFER_ROLES を並べていた。H1・C7・P1 を表に入れて聞き取れないときに伺い直すようにしたので、
+                        # 伺い直したあとの「はい」を「…ということでよろしかったでしょうか？」と言い直さないよう、同じ表を読む）
+                        firm_not_needed=role in (*POINT_STAGES.values(), "line_how", "wait_or_later", "concern", "carried", "elsewhere", *DEEPEN_ROLES,
+                                                 *ASKED_OFFER_ROLES),
                         # その場で1回だけ伺い直す：ご承認いただけなかったときの手順（N1〜N3）と、詳しい者からの改めてのお話を伺う N4（ご承認を伺い終える所＝受けて
                         # いただけたかを取りこぼさない。11-02 6時21分「契約を断ろうとしているのか、本当に分からないのかをしっかりと見分けないといけない」と同じ理由。
                         # ⛔ 2026-11-09 日本時間5時台に N4 を入れた形は伺い直さずに次へ進んだ）
@@ -4718,7 +4730,8 @@ class Flow:
         self.designated_limit = designated_limit  # お客様指定の歯止め時間（営業時間と合わせて、午前・午後を決める。業務ごとの設定）
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack）
-        self.last_ack: str | None = None # 最後に流した相づち（同じ「承知しました。」が続かないように＝_ack）
+        # 直前の返事の頭の受けの言葉の文（相づち・言い直しの頭。同じ受けの言葉を続けないように＝_fresh_receipt。書くのは返事の相づちを決める1か所 _ack）
+        self.last_receipt: str | None = None
         # 先に言われた答えを伺う番（_offer_ahead）を開いた報告が、ふつうなら流した相づち（受け取った答えで選んだもの）と、その発話の番号。伺った報告は待ちの言葉
         # 「はい、」だけを流すので、同じ発話の最後の返事の頭に受けの言葉が要るとき、これを流す（Flow._ack の1か所）
         # （3つ目＝その報告で、お礼を返さない答えを受け取ったか＝_thanks_barred）
@@ -6289,7 +6302,8 @@ class Flow:
         return "さきほどのあなたの声は、相手に流していません（録音と、操作の返事で渡した言い方だけを流します）。" if muted and not heard else ""
 
     def _ack(self, name: str, args: dict, reply: dict, same_turn: bool = False) -> str | None:
-        """流す相づち（唯一の入口）：場面で選んだ相づち（_ack_choice）が、前に流した相づちと同じ「承知しました。」なら「かしこまりました。」に替える
+        """流す相づち（唯一の入口）：場面で選んだ相づち（_ack_choice）が、直前の返事の頭の受けの言葉（相づち・言い直しの頭＝last_receipt。同じ受けの言葉を
+        続けない1か所 _fresh_receipt）と同じ「承知しました。」なら「かしこまりました。」に替える
         （✅ 2026-11-02 日本時間7時12分 ユーザー：「「かしこまりました」も使えばいいんじゃないですか」＝「はい、あります。」→「承知しました。」・
         「いえ、登録は結構です。」→「承知しました。」と続いていた）。どの場面から来ても同じ（次の質問の順番・お断り・わからない・かけ直しの申し出）。
         同じ理由（同じ受けの言葉を続けない）で、「かしこまりました。」が続くときは「承知しました。」に替える（⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し
@@ -6316,11 +6330,30 @@ class Flow:
                 ack = "arigatou"
             elif carried in RECEIPTS:
                 ack = carried
-        if ack in SAME_RECEIPT and ack == self.last_ack:
-            ack = SAME_RECEIPT[ack]
-        if ack is not None:
-            self.last_ack = ack
+        if ack is not None and ack != "arigatou":
+            ack = self._fresh_receipt(ack)   # お礼の相づちは、順番に回すものだけ替える（_ack_choice）
+        if reply.get("result") != "rejected" and (ack is not None or reply.get("play") or reply.get("say")):
+            self.last_receipt = self._head_receipt(ack, reply)   # お客様に何か聞こえる返事だけ（差し戻し・黙っている返事は、直前の返事を替えない）
         return ack
+
+    def _fresh_receipt(self, word: str) -> str:
+        """返事の頭に言う受けの言葉 word（相づちの名前・言い直しの頭の文）を、直前の返事の頭の受けの言葉（last_receipt）と続けない唯一の決まり（相づち _ack・順番の
+        相づち _ack_choice・言い直しの頭 _lead が呼ぶ）：同じ言葉なら、替える言葉（SAME_RECEIPT＝回す順の次）。表に無い言葉・違う言葉はそのまま。
+        理由は 10-14（「はい」が続くときは他の相づち）・2026-11-02 日本時間7時12分（「承知しました。」が続くときは「かしこまりました。」）と同じ（同じ受けの言葉を続けない）。
+        ⛔ 8aa3b4ef まで、相づち（直前の相づちだけと比べる SAME_RECEIPT）と言い直しの頭（LEAD_IN を別に順番で回す）が別々で、「ありがとうございます。いつ頃
+        おかけ直し…」→「はい、ありがとうございます。17時以降…」とお礼が続いた（まとめ役の確かめ）"""
+        return SAME_RECEIPT.get(word, word) if ACK.get(word, word) == self.last_receipt else word
+
+    @staticmethod
+    def _head_receipt(ack: str | None, reply: dict) -> str | None:
+        """返事の頭の受けの言葉の文（無ければ None。唯一の読み方＝_ack が last_receipt に書く）：受けの言葉の相づち（RECEIPTS）ならその文、相づちが無い・「はい、」なら
+        返事の言葉の頭の言い直しの受けの言葉（LEAD_IN の「言い直し」＝「はい、ありがとうございます。（値）でよろしいでしょうか？」の「ありがとうございます。」）。"""
+        if ack in RECEIPTS:
+            return ACK[ack]
+        if ack not in (None, "hai"):
+            return None
+        said = "".join(p.get("text", "") for p in reply.get("play") or []) + (reply.get("say") or "")
+        return next((w for w in LEAD_IN["言い直し"] if said.startswith(w)), None)
 
     def _ack_choice(self, name: str, args: dict, reply: dict) -> str | None:
         """報告が届いた瞬間に、電話接続側が流す相づち（phrases.ACK の中の名前。流さないなら None）。DESIGN.md 6-15。
@@ -6440,11 +6473,19 @@ class Flow:
             return "moushiwake" if reply.get("ask_n") == 1 and not reply.get("ask_last") else "moushiwake_heavy"
         if result == "confirm_required":
             return AFTER[reply["after"]][2] if reply.get("after") else "hai"  # 何のあとの言い直しかは、言い直しを作る所（_ask_confirm）が決めたもの
-        if result in ("next", "end", "recheck") and any(self._offer_taken(qid) for qid, _ in self._received_now()):
+        taken = [qid for qid, _ in self._received_now() if self._offer_taken(qid)]
+        follow = "".join(x.get("text", "") for x in reply.get("play") or []) + (reply.get("say") or "")
+        if (result == "end" and follow.startswith(CLOSING) and taken and all(asked_offer(self.questions[q]) is not None for q in taken)):
+            # こちらの申し出のシステムの質問（asked_offer）を受けていただいて、そのまま締めのお礼（CLOSING「お忙しいところお時間をいただきましてありがとうございま
+            # した。…」）で締める返事（受付の方へのかけ直しの申し出 C7・約束の電話の P1 の「はい」）：受けのお礼「ありがとうございます。」を重ねず、今の頭のまま（下の
+            # 締めの決まり＝「はい、」）。お礼が締めのお礼と重なるので、まとめ役がユーザーに例を付けて伺う（お言葉の外。⏳）。業務の申し出の質問の「はい」で締めるときは
+            # 今のまま（「ありがとうございます。お忙しいところ…」）
+            taken = []
+        if result in ("next", "end", "recheck") and taken:
             # 順番に回す相づち（下の next）も、お礼を言った番に合わせる＝次の順番は「承知しました。」（お礼を2回続けない。⛔ 入れる途中、例の会話で見つけた：
             # 申し出のお礼を数えに入れていなかったので、次の申し出でない質問にも「ありがとうございます。」が続き、そのあとの順番も前とずれた）
             self.ack_count += 2 - self.ack_count % 2
-            return "arigatou"   # 申し出（Question.offered）を受けていただいた。✅ 2026-11-12 日本時間13時40分05秒 ユーザー「(5) (ウ) は a」
+            return "arigatou"   # 申し出（Question.offered・こちらの申し出のシステムの質問＝asked_offer）を受けていただいた。✅ 2026-11-12 日本時間13時40分05秒 ユーザー「(5) (ウ) は a」
         if result == "next" and reply.get("sorry"):
             return "shitsurei"  # 確かめに「いいえ」と言われたあと、かけ直しの質問の続きへ戻る（_call_target）
         if result == "next" and reply.get("question_id") in (CALLBACK_IDS["refusal"], CALLBACK_IDS["concern"]):
@@ -6543,7 +6584,12 @@ class Flow:
         if result == "next" or reply.get("receipt"):
             # 次の質問へ進む・答えを受け取ったすぐあとの締めの前の確認（receipt）：「承知しました。」「ありがとうございます。」を順番に
             self.ack_count += 1
-            return ("shouchi", "arigatou")[(self.ack_count - 1) % 2]
+            pick = ("shouchi", "arigatou")[(self.ack_count - 1) % 2]
+            if pick == "arigatou" and (fresh := self._fresh_receipt(pick)) != pick:
+                # 直前の返事の頭が「ありがとうございます。」（言い直しの頭など）：順番の次の「承知しました。」から（_fresh_receipt。順番はそこから続ける）
+                self.ack_count += 1
+                pick = fresh
+            return pick
         # 締めの相づちは、締めた理由（判定が決めた理由＝end_reason）で選ぶ。⛔ 2026-11-01 夜の見直しで見つけた穴：会話AIが報告した理由で選んでいたので、
         # 判定が「怒っている」と決めても、会話AIの報告が「取り次いでいただけなかった」なら「はい、」を流していた
         if result == "end" and self.end_reason == "callee_refused_call":
@@ -14326,8 +14372,11 @@ class Flow:
         if not self.lead_ins:
             return ""
         n = self.lead_counts.get(kind, 0)
-        self.lead_counts[kind] = n + 1
-        return lead_in_phrase(kind, n)
+        word = lead_in_phrase(kind, n)
+        # 直前の返事の頭の受けの言葉と同じなら、回す順の次（_fresh_receipt の1か所。順番は替えた言葉から続ける）
+        fresh = self._fresh_receipt(word)
+        self.lead_counts[kind] = n + 1 + (fresh != word)
+        return fresh
 
     def _reject(self, why: str) -> dict:
         """差し戻す唯一の場所。理由が何であっても、いま求めていること（_now）を必ず添える。"""
