@@ -367,15 +367,16 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
                 continue
             records.append((other, label))
             fields[other.e164] = field
-        # 行へかけない理由（かける番号の理由・ほかの番号のお客様の側の理由＝門と同じ1か所 target_policy.row_block_reason。そのお客様が
-        # 断っていれば、どの番号でかけても同じお客様＝原則14）
-        blocked = target_policy.row_block_reason(tx, number, [x for x, _ in records], **scope)
         # この実施回にもう登録した行（同じ番号・同じ管理番号）：行は変えず、一覧で新しく増えた連絡先（記録だけの番号・番号ではない連絡先）だけを足す
         # （✅ 2026-11-15 ユーザー「足す（お勧め）」＝連絡先は記録を足していく。足した番号でお客様が断っていれば、門が行へかけない理由の1か所で止める）。
         # ⛔ それまで：足さず、プレビューにも出なかった（かけない理由に当たると「止める」と出たが、登録済みの行はそのままかかり続けた）
         existing = in_run_by_number.get(number.e164)
-        if existing is not None and existing["client_ref"] == ref and number.e164 not in taken_number \
-                and (ref is None or ref not in taken_ref):
+        same_row = existing is not None and existing["client_ref"] == ref and number.e164 not in taken_number \
+            and (ref is None or ref not in taken_ref)
+        # 行へかけない理由（かける番号の理由・ほかの番号のお客様の側の理由＝門と同じ1か所 target_policy.row_block_reason。そのお客様が
+        # 断っていれば、どの番号でかけても同じお客様＝原則14）。登録済みの行は、その行そのものの通話を数えない（門と同じ＝task_id）
+        blocked = target_policy.row_block_reason(tx, number, [x for x, _ in records], task_id=existing["task_id"] if same_row else None, **scope)
+        if same_row:
             have = customer_contacts.now(tx, existing["task_id"])
             known = {n["phone"] for n in have["numbers"]}
             ever = customer_contacts.ever(tx, existing["task_id"])   # 一度でも記録した値（いまの値とだけ比べると、言い直した連絡先を前の値で戻す）

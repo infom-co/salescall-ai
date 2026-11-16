@@ -29,8 +29,9 @@ _KIND_NAME = {"toll_free": "フリーダイヤル", "navi_dial": "ナビダイ�
 
 
 def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
-                 business_id: UUID | None) -> tuple[str, str] | None:
-    """かけない理由（理由の名前, 日本語の説明）。かけてよければ None。client_ref：その行の依頼者の管理番号（無ければ None）。"""
+                 business_id: UUID | None, task_id: UUID | None) -> tuple[str, str] | None:
+    """かけない理由（理由の名前, 日本語の説明）。かけてよければ None。client_ref：その行の依頼者の管理番号（無ければ None）。task_id：その行
+    （まだ登録していない取込の行は None。同じ業務・同じ依頼者で断られたお客様かは、その行そのものの通話を数えない＝`customer_block_reason`）。"""
     if number.kind == "unknown":
         return ("number_unknown", number.reason or "番号が不明です")
     if number.system_forbidden:
@@ -40,7 +41,7 @@ def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_
                                                 business_id=business_id):
         return ("number_kind_not_allowed", f"{_KIND_NAME[number.kind]}へは、この業務の設定でかけません")
     customer = customer_block_reason(tx, number, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
-                                     business_id=business_id)
+                                     business_id=business_id, task_id=task_id)
     if customer is not None:
         return customer
     # ほかの契約者がかけた番号に「かけない」と、契約者が決めていれば（2026-10-16 ユーザー。間隔のときは門が見る）
@@ -52,14 +53,14 @@ def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_
 
 
 def row_block_reason(tx: Tx, dial: PhoneNumber, others: Iterable[PhoneNumber], *, client_ref: str | None, tenant_id: UUID,
-                     client_id: UUID, business_id: UUID | None) -> tuple[str, str, PhoneNumber | None] | None:
+                     client_id: UUID, business_id: UUID | None, task_id: UUID | None) -> tuple[str, str, PhoneNumber | None] | None:
     """行（お客様）へかけない理由（1か所。取込と門と、発信禁止を取り消した行を戻す処理が読む）：かける番号の理由（`block_reason`）か、
     行のほかの番号（記録だけの番号・お客様が言った別の番号など＝かけない番号）のどれかにある、お客様の側の理由（`customer_block_reason`。
     そのお客様が断っていれば、どの番号でかけても同じお客様＝原則14）。ほかの番号のその番号だけの発信禁止（番号違い・FAX の回線＝
     dnc.NUMBER_ONLY）は、お客様を止めない。答え：(理由の名前, 日本語の説明, 当たったほかの番号＝かける番号の理由なら None)。
     ⛔ 2026-11-15 の見直しまで：ほかの番号は取込のときだけ確かめ、門はかける番号だけを見た＝取込のあとに同じ業務・同じ依頼者のほかの業務で
     断られたお客様（記録だけの携帯電話番号が、断られた行の番号）や、手で発信禁止にした記録だけの番号の行へ、門が電話を通した。"""
-    scope = dict(client_ref=client_ref, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+    scope = dict(client_ref=client_ref, tenant_id=tenant_id, client_id=client_id, business_id=business_id, task_id=task_id)
     hit = block_reason(tx, dial, **scope)
     if hit is not None:
         return (*hit, None)
@@ -83,11 +84,11 @@ def task_block_reason(tx: Tx, task_id: UUID, dial: PhoneNumber, *, client_ref: s
     same = (lambda n: n in former) if dial.e164 in former else (lambda n: n not in former)
     others = [normalize(n) for n in numbers if n != dial.e164 and same(n)]
     return row_block_reason(tx, dial, others, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
-                            business_id=business_id)
+                            business_id=business_id, task_id=task_id)
 
 
 def customer_block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
-                          business_id: UUID | None, customer_only: bool = False) -> tuple[str, str] | None:
+                          business_id: UUID | None, task_id: UUID | None, customer_only: bool = False) -> tuple[str, str] | None:
     """お客様の側の「かけない理由」（発信禁止の番号・管理番号・同じ業務で断られたお客様）。かけてよければ None。`block_reason` の
     一部で、行のかけない番号（記録だけの番号＝お客様が指定していない携帯電話番号など。0175）にも当てる（`row_block_reason`。
     customer_only＝その番号だけの発信禁止は見ない）。番号の種類の決まりは当てない（かけない番号なので）。"""
@@ -98,17 +99,17 @@ def customer_block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None
             "contractor": ("dnc_contractor", "契約者の共通の発信禁止に登録されている番号です"),
             "client_ref": ("dnc_client_ref", "この管理番号のお客様は、発信禁止です（もうかけないでと言われたお客様）"),
         }[hit["ledger"]]
-    if business_id is not None and _declined_in_business(tx, number, client_ref=client_ref, tenant_id=tenant_id,
+    if business_id is not None and _declined_in_business(tx, number, client_ref=client_ref, tenant_id=tenant_id, task_id=task_id,
                                                          client_id=client_id, business_id=business_id):
         return ("declined_in_business", "同じ業務で、用件か最終目的を断られたお客様です（業務の設定で、次の実施回でもかけない）")
-    if business_id is not None and _declined_in_client(tx, number, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id,
+    if business_id is not None and _declined_in_client(tx, number, client_ref=client_ref, tenant_id=tenant_id, client_id=client_id, task_id=task_id,
                                                        business_id=business_id):
         return ("declined_in_client", "同じ依頼者のほかの業務で、用件を断られた・苦情があったお客様です（依頼者の設定で、その依頼者からはかけない）")
     return None
 
 
 def _declined_in_client(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
-                        business_id: UUID) -> bool:
+                        business_id: UUID, task_id: UUID | None) -> bool:
     """同じ依頼者のほかの業務で用件・最終目的を断られた・どの業務でも苦情があったお客様か（依頼者の設定 calling.call_after_refusal が「はい」なら、
     いつも いいえ）。同じ業務で用件を断られたお客様は、業務の設定（`_declined_in_business`）が受け持つ。同じお客様かは、データベースの1か所
     salescall.declined_in_client（断られた・苦情で終わった行の番号のどれか・依頼者が管理番号をお客様を表す変わらない番号としたときは管理番号＝
@@ -118,11 +119,11 @@ def _declined_in_client(tx: Tx, number: PhoneNumber, *, client_ref: str | None, 
     if settings.resolve(tx, "calling.call_after_refusal", **scope):
         return False
     ref = client_ref if client_ref is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", **scope) else None
-    return tx.one("SELECT salescall.declined_in_client(%s, %s, %s, %s) AS d", (client_id, business_id, number.e164, ref))["d"]
+    return tx.one("SELECT salescall.declined_in_client(%s, %s, %s, %s, %s) AS d", (client_id, business_id, number.e164, ref, task_id))["d"]
 
 
 def _declined_in_business(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_id: UUID, client_id: UUID,
-                          business_id: UUID) -> bool:
+                          business_id: UUID, task_id: UUID | None) -> bool:
     """同じ業務で、用件・最終目的を断られたお客様か（業務の設定 business.call_declined_again が「はい」なら、いつも いいえ）。同じお客様かは
     データベースの1か所 salescall.declined_in_business（断られて終わった行の番号のどれか・依頼者が管理番号をお客様を表す変わらない番号と
     したときは管理番号＝発信禁止を広げるときと同じ設定 dnc.client_ref_is_stable_id）。2026-11-01 管理者：伺い8「業務ごとに選択できるように
@@ -131,4 +132,4 @@ def _declined_in_business(tx: Tx, number: PhoneNumber, *, client_ref: str | None
     if settings.resolve(tx, "business.call_declined_again", **scope):
         return False
     ref = client_ref if client_ref is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", **scope) else None
-    return tx.one("SELECT salescall.declined_in_business(%s, %s, %s) AS d", (business_id, number.e164, ref))["d"]
+    return tx.one("SELECT salescall.declined_in_business(%s, %s, %s, %s) AS d", (business_id, number.e164, ref, task_id))["d"]

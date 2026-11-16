@@ -103,7 +103,11 @@ def in_row_count(table: str = "") -> str:
     あとから新しい番号の回数に数えた）。"""
     t = table + "." if table else ""
     return (f"{count_start(table)}"
-            f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)")
+            f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)"
+            # いまの担当の方の期の発信だけ（「担当の方は違う」で直したら、新しい担当の方で数え直す。前の担当の方に戻したら、その方の期の発信をまた数える。
+            # ✅ 2026-11-07 ユーザー＝計画書 7-1 (8)「新しい担当の方には、まだかけていない」・(30)。⛔ 2026-11-16 の3回目の見直しまで：番号の直しでしか
+            # 数え直さず、名前などの「違う」の直しで戻した行を、門が前の担当の方の回数で「回数の上限」にして、新しい担当の方へ一度もかけなかった）
+            f" AND {t}person_since IS NOT DISTINCT FROM salescall.task_person_since({t}task_id, now())")
 
 
 def in_purpose_count(table: str = "") -> str:

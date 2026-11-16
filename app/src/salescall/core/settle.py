@@ -572,7 +572,7 @@ def _number_material(tx: Tx, a: dict[str, Any], e164: str | None, *, source_atte
         return next_action.Alternate(None, allowed, "number_unknown")
     number = normalize(e164)
     contact_id = tasks.add_callee_number(tx, a["task_id"], number, source_attempt_id=source_attempt_id)
-    blocked = target_policy.block_reason(tx, number, client_ref=a["client_ref"], **scope)
+    blocked = target_policy.block_reason(tx, number, client_ref=a["client_ref"], task_id=a["task_id"], **scope)
     return next_action.Alternate(contact_id, allowed, None if blocked is None else blocked[0])
 
 

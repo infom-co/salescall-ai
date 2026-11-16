@@ -307,7 +307,7 @@ def fix_dial_number(tx: Tx, task_id: UUID, phone: str, *, same_person: bool, kee
     # 選びが要るか・選べるか（名前などの直しと同じ1か所。「担当の方は違う」なら、いま直す番号は新しい担当の方だけの番号。直す番号が約束の
     # 番号なら、前の担当の方へかける道が無いので「守る」は選べない＝本体の決定。0202・0213）
     _old_promise_choice(tx, task_id, not same_person, number.e164, back, keep_old_promise)
-    blocked = target_policy.block_reason(tx, number, client_ref=t["client_ref"], **tasks.scope(tx, task_id))
+    blocked = target_policy.block_reason(tx, number, client_ref=t["client_ref"], task_id=task_id, **tasks.scope(tx, task_id))
     if blocked is not None:
         raise FixInvalid(f"この番号にはかけられません：{blocked[1]}")
     try:

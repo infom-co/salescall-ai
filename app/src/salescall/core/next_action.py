@@ -2013,7 +2013,7 @@ def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
     # 「担当の方は違う」を選んだ直しのあとは、前の担当の方の番号（tasks.former_numbers と同じ1か所＝salescall.task_former_number）を、新しい
     # 担当の方への代わりの番号にしない（0202。本体の指示 (2)）
     said = tuple(r["contact_id"] for r in rows if r["source"] == "callee" and not r["former"] and r["contact_id"] not in unusable
-                 and target_policy.block_reason(tx, normalize(r["phone_e164"]), client_ref=r["client_ref"], **scope) is None)
+                 and target_policy.block_reason(tx, normalize(r["phone_e164"]), client_ref=r["client_ref"], task_id=task_id, **scope) is None)
     sources = tuple((r["contact_id"], r["source_contact"]) for r in rows
                     if r["source_contact"] is not None and r["source_contact"] != r["contact_id"])
     dial = tasks.dial_number(tx, task_id)["contact_id"]

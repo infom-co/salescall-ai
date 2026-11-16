@@ -361,6 +361,25 @@ class CustomerContacts(Base):
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, b)), {"mobile": e(mobile2).e164})
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, c)), {"mobile": e("090-0000-0103").e164})
 
+    def test_known_contacts_are_the_current_persons_and_mobile_is_decided_by_the_number_kind(self):
+        """会話の側へ渡す分かっている連絡先（conversation_io.known_contacts＝customer_contacts.by_role の1か所）は、いまお呼びする方のものだけ（連絡先の持ち主の期＝
+        salescall.task_person_contacts・番号は tasks.former_numbers を除く。0226）。携帯電話かは番号の種類（phone.SMS_KINDS）で決める（一覧の「携帯」の列の
+        固定電話は渡さない）。⛔ 2026-11-16 の3回目の見直しまで：「担当の方は違う」で直したあとも前の担当の方の携帯・メール・LINE の ID を渡し、携帯の列の
+        固定電話も携帯電話として渡した。"""
+        landline = "03-0000-0191"
+        r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), None, landline, "a@example.com", None, None, "abc_123", None, None)],
+                                   header=self.HEADER), mapping=self.MAP)
+        task = r["rows"][0]["task_id"]
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task)), {"email": "a@example.com", "line": "abc_123"})   # 固定電話は渡さない
+        self.tx(lambda tx: customer_contacts.add_number(tx, task, normalize("090-0000-0192"), "mobile", origin="list"))
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task))["mobile"], normalize("090-0000-0192").e164)
+        self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=False))   # 担当の方は違う（鈴木様）
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task)), {})                 # 前の担当の方の連絡先は渡さない
+        self.tx(lambda tx: customer_contacts.add(tx, task, "email", "suzuki@example.com", origin="dashboard"))
+        self.tx(lambda tx: customer_contacts.add_number(tx, task, normalize("090-0000-0193"), "mobile", origin="list"))
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task)),
+                         {"email": "suzuki@example.com", "mobile": normalize("090-0000-0193").e164})
+
     def test_a_designated_fmc_number_is_the_mobile_number(self):
         """お客様が指定した番号が FMC（060）でも、SMS の届く携帯電話の番号として会話の側へ渡す（SMS の届く種類は phone.SMS_KINDS の1か所＝会話の側の
         flowctl.SMS_KINDS と同じ。⛔ 2026-11-15 の見直しまで：mobile だけを見て渡さず、会話の側が携帯電話の番号を重ねて伺った）。"""

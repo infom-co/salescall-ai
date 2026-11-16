@@ -2425,12 +2425,18 @@ class DialFixAfterCalls(SettleBase):
                 else:
                     got = self.settle(s, self.call(s, **call))
                     self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", end))
+                counted = lambda: self.tx(s, lambda tx: gate.pacing(tx, s["task"])).remaining   # noqa: E731  門の行の回数の残り
+                before = counted()
                 self.name_fix(s)
                 p = self.plan(s)
                 if back:
                     self.assertEqual(p, self.handed_over(s["contact"]))
                 else:
                     self.assertEqual((p[0], self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"]), ("end", end))
+                if end == "max_attempts":
+                    # 決めた回数で戻した行は、門も新しい担当の方で数え直す（行の回数の1か所＝attempts.in_row_count。⛔ 2026-11-16 の見直しまで：
+                    # 前の担当の方の回数のまま「回数の上限」で止め、新しい担当の方へ一度もかけなかった）
+                    self.assertEqual(counted(), before + 1)
 
     # ── 表記の揺れだけの直しは、お呼びする方の替わりにしない（0209。比べる形の1か所＝データベースの salescall.compare_form。替わるかの1か所＝
     #    salescall.person_fix_changes。値の整え方と替わるかを Python で決めるのは row_fixes._person_fix の1か所＝fix と画面の入口が通る）

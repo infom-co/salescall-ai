@@ -33,7 +33,7 @@ def state_of(w, s, aid):
 
 def blocked(w, s, raw):
     return in_client(w, s, lambda tx: target_policy.block_reason(
-        tx, normalize(raw), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
+        tx, normalize(raw), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"], task_id=None))
 
 
 class Register(unittest.TestCase):
@@ -226,7 +226,7 @@ class RefusalScope(unittest.TestCase):
         got = import_rows(self.w, self.s, run, [("B-1", "架空商事", number)])
         self.assertEqual([r["outcome"] for r in got["rows"]], ["stopped"])
         hit = lambda s, b: in_client(self.w, s, lambda tx: target_policy.block_reason(   # noqa: E731
-            tx, normalize(number), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=b))
+            tx, normalize(number), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=b, task_id=None))
         self.assertEqual(hit(self.s, business)[0], "dnc_client")
         other = World().setup(tenant=self.s["tenant"])                       # 同じ契約者のほかの依頼者は止めない
         self.assertIsNone(hit(other, other["business"]))
@@ -250,7 +250,7 @@ class RefusalScope(unittest.TestCase):
         number = normalize(fictional_jp_fixed())
         hit = in_client(self.w, self.s, lambda tx: target_policy.block_reason(
             tx, number, client_ref="A-1", tenant_id=self.s["tenant"], client_id=self.s["client"],
-            business_id=self.s["business"]))
+            business_id=self.s["business"], task_id=None))
         self.assertEqual(hit[0], "dnc_client_ref")
 
     def test_turning_the_setting_off_keeps_existing_ref_entries_until_a_person_revokes(self):

@@ -126,13 +126,18 @@ _MOBILE_LABELS = ("mobile", "line")   # 携帯電話の番号の役目（SMS で
 
 
 def by_role(tx: Tx, task_id: UUID) -> dict[str, str]:
-    """その行のいまの連絡先を、会話の側の連絡先の役目の名前で（line＝LINE の ID・mobile＝携帯電話の番号・email・fax・address）。会話の側が、
-    分かっている連絡先を重ねて伺わないために読む（読み方は `now` の1か所。携帯電話の番号は、かけない番号のうち携帯電話・LINE のご招待の番号の
-    いちばん新しいもの、無ければ、お客様が指定した番号が携帯電話の番号のとき、その番号）。オンライン面談用の ID は、会話で伺う連絡先ではない。"""
-    got = now(tx, task_id)
-    out = {_ROLE_OF_KIND[c["kind"]]: c["value"] for c in got["contacts"] if c["kind"] in _ROLE_OF_KIND}
-    phones = [n for n in got["numbers"] if n["label"] in _MOBILE_LABELS] or \
-             [n for n in got["numbers"] if n["label"] == "designated" and normalize(n["phone"]).kind in SMS_KINDS]
+    """いまお呼びする方の連絡先を、会話の側の連絡先の役目の名前で（line＝LINE の ID・mobile＝携帯電話の番号・email・fax・address）。会話の側が、
+    分かっている連絡先を重ねて伺わないために読む。
+    - 番号ではない連絡先：いまの担当の方の連絡先（持ち主の期の1か所＝データベースの salescall.task_person_contacts。0226）。
+    - 携帯電話の番号：いまの担当の方の番号（前の担当の方の番号＝tasks.former_numbers の1か所を除く）で、SMS の届く種類（phone.SMS_KINDS の1か所）
+      のもの。かけない番号のうち携帯電話・LINE のご招待の番号の名札のいちばん新しいもの、無ければ、お客様が指定した番号。
+    オンライン面談用の ID は、会話で伺う連絡先ではない。⛔ 2026-11-16 の3回目の見直しまで：担当の期を見ず、前の担当の方の携帯・メール・LINE の ID を
+    新しい担当の方の連絡先として渡し（SMS のご招待・資料が前の担当の方へ）、携帯かを一覧の列の名札で決めて、固定電話を携帯電話として渡しえた。"""
+    out = {_ROLE_OF_KIND[c["kind"]]: c["value"]
+           for c in tx.all("SELECT kind, value, service FROM salescall.task_person_contacts(%s)", (task_id,)) if c["kind"] in _ROLE_OF_KIND}
+    former = set(tasks.former_numbers(tx, task_id))
+    mine = [n for n in now(tx, task_id)["numbers"] if n["phone"] not in former and normalize(n["phone"]).kind in SMS_KINDS]
+    phones = [n for n in mine if n["label"] in _MOBILE_LABELS] or [n for n in mine if n["label"] == "designated"]
     if phones:
         out["mobile"] = phones[-1]["phone"]
     return out

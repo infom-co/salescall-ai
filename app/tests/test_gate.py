@@ -253,19 +253,24 @@ class DataReasons(Base):
     def test_a_customer_who_declined_is_not_called_again_in_the_same_business(self):
         """2026-11-01 管理者：伺い8「業務ごとに選択できるようにする。デフォルトは案1。ただし、再度、同じよう圏でかけ直したい業務の場合は、
         非推奨で案2も選べるように」。用件・最終目的を断られて終わった行のお客様（同じ番号）には、同じ業務の次の実施回でもかけない（行を
-        終える＝待っても変わらない）。決めるのは取込と門が読むかけない理由の1か所（target_policy.block_reason）。ほかの業務からはかかる。
-        断りが外れて行が予定に戻れば、かける。業務の設定 business.call_declined_again を「はい」にすれば、かける。依頼者が管理番号を
-        お客様を表す変わらない番号とした業務では、番号が替わっても、同じ管理番号ならかけない。"""
+        終える＝待っても変わらない）。決めるのは取込と門が読むかけない理由の1か所（target_policy.block_reason）。断りは断られた通話のいまの
+        結果から読む（salescall.call_result。0225。行に予定が足されても外れない＝test_unwelcome の SameNumberOtherRows）。業務の設定
+        business.call_declined_again を「はい」にすれば、かける。依頼者が管理番号をお客様を表す変わらない番号とした業務では、番号が替わっても、
+        同じ管理番号ならかけない。"""
+        from tests.test_judge import goal_refused
+        from tests.test_settle import TALK
+        declined = lambda u: self.past_attempt(u, TALK, verify=True, report=goal_refused(make_report()))   # noqa: E731  本物の通話で断られる
         s = self.ready()
         run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
         t2 = self.w.task(s["tenant"], s["client"], run2, s["contact"])
         self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験：次の実施回の最初の予定"))
         why = lambda task, business=None, ref=None, phone=None: self.tx(s, lambda tx: target_policy.block_reason(   # noqa: E731
             tx, normalize(phone or s["phone"]), client_ref=ref, tenant_id=s["tenant"], client_id=s["client"],
-            business_id=business or s["business"]))
+            business_id=business or s["business"], task_id=task))
         self.assertIsNone(why(t2))
-        self.tx(s, lambda tx: next_action.end(tx, s["task"], "declined", cause="試験：用件を断られた"))
+        declined(s)
         self.assertEqual(why(t2)[0], "declined_in_business")
+        self.assertIsNone(why(s["task"]))                                        # 断られた行そのものは数えない
         # 同じ依頼者のほかの業務からも、初めはかけない（依頼者の設定 calling.call_after_refusal。✅ 2026-11-08 ユーザー＝計画書 7-3 (1)。0216。
         # ⛔ 0215 まで：ほかの業務からはかかった）。依頼者の設定を「はい」にすれば、ほかの業務からはかかる
         self.assertEqual(why(t2, business=uuid.uuid4())[0], "declined_in_client")
@@ -276,9 +281,8 @@ class DataReasons(Base):
         self.tx(s, lambda tx: next_action.after_denial(tx, t2, denied, tenant_id=s["tenant"], client_id=s["client"],
                                                        business_id=s["business"]))   # 門の答えを受けた所と同じく
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, t2))["end_reason"], "declined_in_business")   # 行を終える
-        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：断りが外れて予定に戻った"))
-        self.assertIsNone(why(t2))                                               # いちばん新しい予定で決める
-        self.tx(s, lambda tx: next_action.end(tx, s["task"], "declined", cause="試験：また断られた"))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：断られた行に予定が足された"))
+        self.assertEqual(why(t2)[0], "declined_in_business")                     # 予定では外れない（通話の結果で決める＝0225）
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale, review_when,"
             " set_by) VALUES ('business.call_declined_again', 'business', %s, %s, %s, 'true', 'decided', '試験', '試験', '試験')",
@@ -288,18 +292,20 @@ class DataReasons(Base):
         self.put_client(u, "dnc.client_ref_is_stable_id", True)
         ref_task = uuid.uuid4()                                                   # 管理番号の付いた行（取込と同じく、行を作るときに持つ）
         ref_run = self.w.run(u["tenant"], u["client"], u["business"], u["version"])
-        ref_contact = self.w.contact(u["tenant"], u["client"], normalize(fictional_jp_fixed()).e164)
+        ref_phone = normalize(fictional_jp_fixed()).e164
+        ref_contact = self.w.contact(u["tenant"], u["client"], ref_phone)
         self.tx(u, lambda tx: tx.execute(
             "INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id, client_ref) VALUES (%s, %s, %s, %s, %s,"
             " 'K-001')", (u["tenant"], u["client"], ref_task, ref_run, ref_contact)), OPERATOR)
-        self.tx(u, lambda tx: next_action.end(tx, ref_task, "declined", cause="試験：用件を断られた"))
+        declined(dict(u, task=ref_task, run=ref_run, contact=ref_contact, phone=ref_phone))   # 管理番号の付いた行で断られた
         other = normalize(fictional_jp_fixed()).e164
         got = self.tx(u, lambda tx: target_policy.block_reason(tx, normalize(other), client_ref="K-001", tenant_id=u["tenant"],
-                                                              client_id=u["client"], business_id=u["business"]))
+                                                              client_id=u["client"], business_id=u["business"], task_id=None))
         self.assertEqual(got[0], "declined_in_business")
         self.put_client(u, "dnc.client_ref_is_stable_id", False)                 # 管理番号でお客様を表さない業務は、番号だけで決める
         self.assertIsNone(self.tx(u, lambda tx: target_policy.block_reason(
-            tx, normalize(other), client_ref="K-001", tenant_id=u["tenant"], client_id=u["client"], business_id=u["business"])))
+            tx, normalize(other), client_ref="K-001", tenant_id=u["tenant"], client_id=u["client"], business_id=u["business"],
+            task_id=None)))
 
     def test_a_customer_who_declined_on_another_number_of_the_row_is_not_called(self):
         """行のほかの番号（記録だけの番号）が、同じ業務で断られた行の番号・お客様を止める発信禁止なら、取込のあとでも門はかけない（取込と同じ
@@ -315,7 +321,9 @@ class DataReasons(Base):
             tx, t2, normalize(tasks.dial_number(tx, t2)["phone_e164"]), client_ref=None, tenant_id=s["tenant"], client_id=s["client"],
             business_id=s["business"]))
         self.assertIsNone(row())
-        self.tx(s, lambda tx: next_action.end(tx, s["task"], "declined", cause="試験：用件を断られた"))
+        from tests.test_judge import goal_refused
+        from tests.test_settle import TALK
+        self.past_attempt(s, TALK, verify=True, report=goal_refused(make_report()))   # 本物の通話で断られた（0225）
         got = row()
         self.assertEqual((got[0], got[2].e164), ("declined_in_business", s["phone"]))
         self.assertEqual(self.reason(s, task=t2), "declined_in_business")
@@ -756,7 +764,7 @@ class Pacing(Base):
         self.assertIsInstance(self.claim(b), gate.Claim)
         blocked = self.tx(b, lambda tx: target_policy.block_reason(tx, normalize(b["phone"]), client_ref=None,
                                                                    tenant_id=b["tenant"], client_id=b["client"],
-                                                                   business_id=b["business"]))
+                                                                   business_id=b["business"], task_id=b["task"]))
         self.assertIsNone(blocked)                                              # 取込（データで決まる理由）では止めない
 
     def test_another_contractors_promise_time_is_not_shown(self):

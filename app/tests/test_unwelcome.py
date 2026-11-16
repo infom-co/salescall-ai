@@ -74,6 +74,52 @@ class SameNumberOtherRows(SettleBase):
         p = self.tx(z, lambda tx: gate.pacing(tx, z["task"]))
         self.assertEqual((p.binding, p.earliest), ("same_number_interval", self.tomorrow(s)))   # 試験の時間帯は1日じゅう：次の日の0時
 
+    def blocked(self, y):
+        """門と同じ1か所（target_policy.task_block_reason）で、その行へかけない理由の名前（無ければ None）。"""
+        from salescall.core import target_policy, tasks
+        from salescall.core.phone import normalize
+        got = self.tx(y, lambda tx: target_policy.task_block_reason(
+            tx, y["task"], normalize(tasks.dial_number(tx, y["task"])["phone_e164"]), client_ref=None, tenant_id=y["tenant"],
+            client_id=y["client"], business_id=y["business"]))
+        return None if got is None else got[0]
+
+    def test_a_decline_is_read_from_the_call_result_and_does_not_vanish(self):
+        """同じ業務・同じ依頼者で断られたお客様かは、通話のいまの結果（判定・判定し直し・契約者の直しのいちばん新しいもの＝salescall.call_result）から
+        決める（0225）。断られた行に、あとで予定が足されても（お詫びの電話・行の戻し）止めは外れない。契約者が「断りではない」と直せば外れる。その行
+        そのものは数えない（その行の扱いは行の決まりの1か所）。⛔ 0224 まで：断られた行の「いちばん新しい予定」が「断られた」で終わっているかで決めた
+        ので、そのあと予定が足されると、同じお客様の次の実施回の行からかかった（2026-11-16 の3回目の見直し）。"""
+        from salescall.core import approval
+        s = self.ready()
+        again, other = self.sibling(s, business=False), self.sibling(s)
+        got = self.settle(s, self.call(s, report=goal_refused(rep())))          # 「うちは要らない」
+        self.assertEqual((got["decision"].end_reason, self.blocked(again), self.blocked(other)),
+                         ("declined", "declined_in_business", "declined_in_client"))
+        self.assertIsNone(self.blocked(s))                                       # 断られた行そのものは数えない（行の決まりが終えている）
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：お詫びの電話・行の戻しで予定が足された"))
+        self.assertEqual((self.blocked(again), self.blocked(other)), ("declined_in_business", "declined_in_client"))   # 外れない
+        # 契約者が判定を「断りではない」と直した（人の版）：外れる
+        v = self.tx(s, lambda tx: tx.one("SELECT version_no, snapshot FROM salescall.task_results WHERE task_id = %s"
+                                         " ORDER BY version_no DESC LIMIT 1", (s["task"],)))
+        self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=v["version_no"], business_state="incomplete",
+                                                      wrong_items=[], complaint=False, snapshot=v["snapshot"]), OPERATOR)
+        self.assertEqual((self.blocked(again), self.blocked(other)), (None, None))
+
+    def test_a_former_persons_decline_stops_only_the_former_persons_numbers(self):
+        """前の担当の方の断りで止めるのは、その方の番号だけ（✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(24)「鈴木様へはかける」。0225＝断りの範囲は、その通話の担当の
+        期の方の番号＝salescall.task_number_reaches）：断られたあと「担当の方は違う」で新しい番号に直した行の、新しい番号を持つ次の実施回の行は止めない。
+        前の番号を持つ行は止める。⛔ 0224 まで：断られた行の番号すべてで止めた。"""
+        from salescall.core import row_fixes
+        from tests.support import fictional_jp_fixed
+        s = self.ready()
+        old = self.sibling(s, business=False)
+        self.settle(s, self.call(s, report=goal_refused(rep())))                 # 田中様が「うちは要らない」
+        new_phone = fictional_jp_fixed()
+        fixed = self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], new_phone, same_person=False), OPERATOR)   # 鈴木様の番号に直した
+        run = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        task = self.w.task(s["tenant"], s["client"], run, fixed["contact_id"])
+        self.tx(s, lambda tx: next_action.schedule_now(tx, task, cause="試験：鈴木様の番号の次の実施回の行"))
+        self.assertEqual((self.blocked(old), self.blocked(dict(s, run=run, task=task))), ("declined_in_business", None))
+
     def test_after_a_complaint_no_business_or_run_of_the_client_calls_again(self):
         """苦情のあとは、その依頼者のどの業務・どの実施回からもかけない（同じ業務の次の実施回も。用件の断りの同じ業務の次の実施回は、業務の設定
         business.call_declined_again が受け持つ）。"""
@@ -126,6 +172,29 @@ class SameNumberOtherRows(SettleBase):
         second = self.claim(y)                                                    # ほかの回線（発信番号）で
         self.assertIsInstance(second, gate.Claim, second)
         self.assertNotEqual(second.voice_type, first["voice_type"])               # 前に聞いた声と替える
+
+    def test_the_same_row_keeps_the_voice_the_customer_heard_not_one_that_was_not_answered(self):
+        """同じ行で、お客様が出た通話の声（A）のあと、出なかった通話を別の声（B）でかけても、次の電話は A（お客様が聞いた声）。お客様がその声を聞いたかは、
+        ほかの行の声と同じ1か所（salescall.voice_heard＝発信まで進み、相手が出た。0227）。⛔ 2026-11-16 の3回目の見直しまで：同じ行は発信した通話の声を
+        見て、出なかった B で続け、お客様が聞いたことの無い声になった。"""
+        s = self.ready()
+        aid = self.call(s)                                                        # お客様が出て話した（声 A）
+        self.settle(s, aid)
+        heard = self.tx(s, lambda tx: tx.one("SELECT voice_type FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["voice_type"]
+        types = self.tx(s, lambda tx: {r["code"]: r["voice_name"] for r in tx.all("SELECT code, voice_name FROM salescall.voice_types WHERE default_for_voice")})
+        other = next(c for c in types if types[c] != types[heard])
+        aid2 = uuid.uuid4()
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.attempts (tenant_id, client_id, attempt_id, task_id, contact_id, phone_e164, line_id, version_id, state,"
+            " claimed_at, claim_expires_at, purpose, voice_type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'claimed', now(),"
+            " now() + interval '1 minute', 'normal', %s)", (s["tenant"], s["client"], aid2, s["task"], s["contact"], s["phone"], s["line"],
+                                                             s["version"], other)), SYSTEM)
+        for state in ("dialing", "ringing", "no_answer"):                        # 声 B でかけたが、出なかった（お客様は B を聞いていない）
+            self.w.move(s, aid2, state)
+        with mock.patch.object(recordings, "ready_voices", return_value=[types[other], types[heard]]):
+            got = self.tx(s, lambda tx: gate.choose_voice(tx, gate._task(tx, s["task"]), s["version"], other,
+                                                          tx.one("SELECT salescall.jst(now())::date AS d")["d"]))
+        self.assertEqual(got, heard)
 
     def test_a_client_whose_lines_all_were_seen_tells_the_contractor_and_a_new_line_calls(self):
         """依頼者の専用の回線が1本（L）で、ほかの回線が無い：業務X が L でかけた番号へ、業務Y は発信番号を替えられないので待ち、契約者に1回
@@ -245,10 +314,10 @@ class PromiseAndApology(ApologyBase):
                 " claimed_at, claim_expires_at, purpose, voice_type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'claimed', now(),"
                 " now() + interval '1 minute', 'normal', %s)", (s["tenant"], s["client"], aid2, s["task"], s["contact"], s["phone"], s["line"],
                                                                  s["version"], types[other])), SYSTEM)
-            for state in ("dialing", "ringing", "no_answer"):
+            for state in ("dialing", "answered", "ending", "ended"):        # お客様が出て、その声を聞いた（salescall.voice_heard の1か所。0227）
                 self.w.move(s, aid2, state)
             self.assertEqual(self.tx(s, lambda tx: tx.one(
-                f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {attempts.DIALED}"
+                "SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND salescall.voice_heard(attempt_id)"
                 " ORDER BY claimed_at DESC LIMIT 1", (s["task"],)))["voice_type"], types[other])
             self.assertEqual(choose(), types[must])
         with mock.patch.object(recordings, "ready_voices", return_value=[other]):

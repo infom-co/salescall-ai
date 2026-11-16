@@ -738,8 +738,8 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
                         refs={"client_id": task["client_id"]})
             return _deny("name_recording_missing")
         ready = named
-    mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {attempts.DIALED}"
-                  " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
+    mine = tx.one("SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND salescall.voice_heard(attempt_id)"
+                  " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（ほかの行の声と同じ1か所＝0227。出なかった通話は入れない）
     if mine is not None and types[mine["voice_type"]]["voice_name"] in ready:
         return mine["voice_type"]
     before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s, %s) AS v", (task["phone_e164"], task["task_id"]))["v"]
