@@ -65,6 +65,10 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "greeting": "電話に出てくださったお客様に、最初のごあいさつをするように、丁寧に、落ち着いた調子で",
        "intro": "電話で、お客様に会社名と自分の名前を名乗るように、丁寧に、落ち着いた調子で。名前ははっきりと",
        "purpose": "電話で、お客様にお電話の用件を伝えるように、丁寧に、柔らかく",
+       # 営業の要約（instruction.Business.summary。手短になら聞くと言われたとき＝伺い30）：お急ぎのお客様に、用件を短く分かりやすく
+       "summary": "電話で、お急ぎのお客様に、お電話の用件を短く分かりやすく伝えるように、丁寧に、柔らかく、落ち着いた調子で。言葉の途中で区切らずに",
+       # 深めて伺った一言に問題は無かったと言われたときの受け止めの言葉（phrases.DEEPEN_AHEAD＝伺い29）：先々を気づかい、共感して
+       "deepen_ahead": "電話で、お客様のお話に、先々のことを気づかうように、共感を込めて、柔らかく、落ち着いた調子で。言葉の途中で区切らずに",
        # 「AIですか？」への決まった言い方（✅ 2026-10-19 ユーザー「何か問題でもございましたでしょうか？」）：問い詰める・身構える調子にしない
        "ai": "電話で、お客様に、何か気になる点があったかを、心配するように、丁寧に、柔らかくお聞きするように",
        "voicemail": "留守番電話に伝言を残すように、丁寧に、落ち着いた調子で、はっきりと",
@@ -111,7 +115,7 @@ MAX_S = {"hai": 1.0, "shouchi": 1.4, "kashikomari": 1.6, "arigatou": 1.6, "shits
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
          "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 9.0, "back": 3.0, "back_again": 4.0, "aizuchi": 1.0,
-         "talk": 3.5, "apology_first": 6.5, "line_trouble": 9.5, "number_again": 12.0}
+         "talk": 3.5, "apology_first": 6.5, "line_trouble": 9.5, "number_again": 12.0, "summary": 12.0, "deepen_ahead": 7.0}
 MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if tone})
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
 # ✅ 2026-10-22 ユーザー（4回目）の言い方で、ほかの手段の質問（「それでは恐れ入りますが…」）・お立場を伺う一言（2つから選んでいただく形）・
@@ -354,7 +358,7 @@ def script_table(business) -> tuple[dict, dict]:
     # （DESIGN.md 6-13 の3）。業務が書かなかった「AIですか？」の答えは標準＝共通の一言の録音（phrases.STANDARD_PARTS）なので、ここには入らない。
     # 目的の人を呼ぶ一言・確かめる一言は、電話をかける相手ごとに名前が変わるので、ここではなく名前の録音の台帳（DESIGN.md 4-3）
     parts = business.replay_parts()
-    items += [(k, parts[k], k) for k in ("ai", "voicemail", "message", "busy") if parts.get(k)]
+    items += [(k, parts[k], k) for k in ("ai", "voicemail", "message", "busy", "summary") if parts.get(k)]
     # 想定問答の答え（Business.answers）。システムの標準から来た答え（Business.standard_answers）は標準の録音の組（standard_table）から流すので、業務の録音には
     # 入れない（CL-2 の連絡帳 4-211。⛔ それまで、標準の答えまで業務の録音に入れていた）
     items += [(k, text, "answer") for k, text in parts.items()

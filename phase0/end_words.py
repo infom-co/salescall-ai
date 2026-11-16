@@ -21,7 +21,7 @@
 """
 from __future__ import annotations
 
-from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_WHO,
+from flowctl import (AWAY, AWAY_NO, AWAY_YES, DONT_KNOW_LABEL, END_ANGRY, END_BRIEF, END_HURRY, END_NONE, END_REASONED, END_REFUSED, END_UNCLEAR, END_WHO,
                      LATER, QUERY, QUERY_NO, REFUSED_LABEL, THINKING, UNDECIDED, WHY_NOT_SAID)
 
 YES_NO = ("はい", "いいえ")
@@ -65,7 +65,9 @@ ANSWER = [
     (DOCS, "もう電話しないでもらえますか。", (END_REFUSED,), (UNDECIDED,), False, "電話を断った"),
     (RESERVED, "ごめんなさい、今から出かけるので切りますね。", (END_HURRY,), (UNDECIDED,), False, "急いでいる"),
     (RESERVED, "忙しいんで。", (END_HURRY,), (UNDECIDED,), False, "10-13「忙しい」とだけ＝急いでいる"),
-    (CONTACT, "今ちょっと立て込んでるので、手短にお願いできますか。", (END_NONE,), (UNDECIDED,), False, "続けてよい（急ぎの印にしない）"),
+    # ✅ 2026-11-16 日本時間0時42分38秒 ユーザー「伺い30：「ありがとうございます。～（営業の要約）」手短にと言っているのに、いきなり、「お電話とメール」を伺うなんて
+    # ありえないでしょ。」＝急いでいるが手短になら聞く（電話を終える言葉の答えの段だけの選べるもの END_BRIEF）
+    (CONTACT, "今ちょっと立て込んでるので、手短にお願いできますか。", (END_BRIEF,), (UNDECIDED,), False, "伺い30＝急いでいるが手短になら聞く（お礼と営業の要約）"),
     # ⛔ 11-06 3時台に直した：正解を「決められない」だけで持っていた（答えの段に「あとでかけ直す」が無かった頃の正解。表を当てる道具が、言葉に「あとで」が
     #    あればかけ直しの報告で当てる言葉の形の特別扱いで補っていた）＝答えの段の選べるもの（meaning_judge.ANSWER_KINDS）の「あとでかけ直す」
     (CONTACT, "あとでかけ直してもらえますか。", (END_NONE,), (LATER,), False, "あとでかけ直してほしい＝あとでかけ直す（答えではない・電話を終える言葉でもない）"),

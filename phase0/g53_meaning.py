@@ -818,7 +818,8 @@ def flow_reply(it: dict, q: Question, r, report: str = "neutral") -> tuple[Flow,
 
 # 返事から動きの名前を作る1か所の表（唯一の名前）。お客様に聞こえる一言（録音の名前の頭）で決まる動き：{録音の名前の頭: 動きの名前}
 WHICH_ACT, ESTIMATE_ACT, HOW_NOW_ACT, TROUBLE_ACT = "どのあたりかを伺う", "目安を伺う", "いかがなさいますかと伺う", "何か問題があったかを伺う"
-ELSEWHERE_ACT = "ほかの会社で解決できない問題や心配事を伺う"   # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.Flow._elsewhere_ask）
+ELSEWHERE_ACT = "ほかの会社で解決できない問題や心配事を伺う"
+BRIEF_ACT = "お礼と営業の要約を伝える"   # ✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30。flowctl.Flow._brief_say）   # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.Flow._elsewhere_ask）
 PLAY_ACTS = (("callback_hurry", END_ACTS[END_HURRY]), ("callback_refusal", END_ASK), ("callback_topic", END_TOPIC), ("callback_concern", TROUBLE_ACT), ("ai_answer", TROUBLE_ACT),
              ("callback_elsewhere", ELSEWHERE_ACT),
              ("callback_wait_or_later", WAIT_ACT[WAIT_OR_LATER]), ("callback_later_time", WAIT_ACT[LATER]), ("callback_not_agreed_which", WHICH_ACT),
@@ -858,6 +859,8 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
         return WAIT_ACT[HOLD_BACK] if "wait_reply" in plays else WAIT_ACT[WAIT_PLAIN] if rep.get("silence_scene") == "wait" else WAIT_ACT[HOLD]
     if res == "thinking":
         return WAIT_ACT[THINKING]
+    if res == "brief":
+        return BRIEF_ACT
     if res == "replayed":
         return REPEAT_ACT
     if res == "callee_asked":
@@ -1013,6 +1016,10 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
         return "代わった方の言葉ではないのに、名乗りから伺い直す・差し戻す"
     if act == ELSEWHERE_ACT:
         return "ほかの会社のことを言っていないのに、解決できない問題や心配事を伺う"
+    if act == BRIEF_ACT:
+        return "手短にとは言っていないのに、お礼と営業の要約を伝える"
+    if BRIEF_ACT in want:
+        return "⛔手短になら聞くと言われたのに、お礼と営業の要約を伝えずに伺う・締める"
     if ELSEWHERE_ACT in want:
         return "⛔ほかの会社に頼んでいると言われたのに、解決できない問題や心配事を伺わない"
     asks = {PENDING_ACT, HOW_NOW_ACT, ESTIMATE_ACT, WHICH_ACT, WISH_ACT, CONCERN_ACT, TROUBLE_ACT}   # 答えを受け取らずに伺う一言（保留・いかがなさいますか など）
