@@ -323,6 +323,22 @@ CALLBACK_ASK = {
     # ✅ 2026-11-16 日本時間0時42分38秒 ユーザー「伺い29：「これまでに、○○(対応の遅さのせい)で、問題や不都合が発生したことが何度かおありなのでしょうか？」…」
     # （決まった言い方なので言葉の途中の読点は外した＝10-15）
     "deepen": "これまでに問題や不都合が発生したことが何度かおありなのでしょうか？",
+    # 深める一言（E2）に、これまでに問題や不都合があったとお返事いただいたときに伺う一言（システムの質問 E3＝flowctl.Flow._deepen_decided。頭に相づちは付けない＝
+    # 「そうだったんですね。」が受けの言葉）。✅ 2026-11-16 日本時間12時48分22秒 ユーザー「「何度かあった」の場合に、「そうだったんですね。今後大きな問題に発展する懸念も
+    # ございますが、何か手をお打ちですか？」で受けます。でしょ。」（決まった言い方なので言葉の途中の読点は外した＝10-15。⏳ 録音は声の型ごとに作って聞いていただく）
+    "deepen_measures": "そうだったんですね。今後大きな問題に発展する懸念もございますが何か手をお打ちですか？",
+    # 深める一言（E2）に、これまでに問題は無かったとお返事いただいたときに伺う一言（システムの質問 E4）の、困りごとが続く形の句を入れない形（会話AIが句を書けない・
+    # 確かめに通らないとき。共通の一言の録音 callback_deepen_ahead）。句を入れる形は DEEPEN_AHEAD_ASK（会話AIが言う）。✅ 2026-11-16 日本時間12時48分22秒 ユーザー
+    # 「「特に無い」には「それは何よりです。しかし、（対応が遅いままだと）今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？」」（決まった
+    # 言い方なので読点は外した＝10-15。⛔ 96579d84 まで、会話AIの受け止めの言葉・使えなければ録音 deepen_ahead「今は問題が起こっていなくても今後大きな問題に発展する
+    # ことも懸念されますものね。」＝問いではなかった）
+    "deepen_ahead": "それは何よりです。しかし今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？",
+    # 急いでいるが手短になら聞くと言われたとき（flowctl.END_BRIEF）に「ありがとうございます。」のあとに伺う一言（システムの質問 H3＝flowctl.Flow._brief_ask）の、要約の
+    # 入らない形（営業の要約も用件の名詞も無い業務。共通の一言の録音 callback_brief）。要約の入る形は BRIEF_ASK（業務ごとの録音＝名乗りの部分 brief）。✅ 2026-11-16
+    # 日本時間12時48分22秒 ユーザー「・伺い31：お客様：今ちょっと立て込んでるので、手短にお願いできますか。こちら：ありがとうございます。（要約）の件でお電話させて
+    # いただきましたが、後ほど、お時間のある時にかけ直しさせていただきましょうか？yesなら、かけ直しの時間を伺う。noなら、必須の項目を伺う。」（決まった言い方なので
+    # 読点は外した＝10-15。要約の無い形はお言葉の外＝お言葉の文から「（要約）の件でお電話させていただきましたが」を外した）
+    "brief": "後ほどお時間のある時にかけ直しさせていただきましょうか？",
     # 相手が急いでいる・いまは話せないとき（判定が読んだ）：締める前に1回だけ伺う（flowctl.Flow._hurry_ask）。はい＝ご都合のいい日時を伺って締める・
     # いいえ＝締めて、もうかけない（営業拒否）。✅ 2026-11-01 日本時間20時56分 ユーザー：「こちら：「それでは、後ほど改めてお掛けしてもよろしいでしょうか？」
     # それではがないと繋がりがおかしい。お客様が OK なら：「ご都合のいい日時はいつ頃でしょうか？」→ 時刻でなく日時を伺って締める お客様が NO なら：
@@ -445,15 +461,46 @@ PURPOSE_AGAIN = {"cut_later": "前回のお電話で途中になっておりま�
 # 深める一言（CALLBACK_ASK の deepen）の、困りごとの言葉を入れる形（{t}＝会話AIが書いた、お客様の言った困りごとの言葉。確かめは提案の言葉と同じ1か所＝
 # flowctl.Flow._proposal_problem。値の入る文なので会話AIが言う＝flowctl.Flow._deepen_ask）。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い29。お言葉は CALLBACK_ASK の deepen）
 DEEPEN_ASK = "これまでに{t}で問題や不都合が発生したことが何度かおありなのでしょうか？"
-# 深める一言に、これまでに問題や不都合は無かったとお返事いただいたとき、会話AIが先を見た受け止めの言葉を使えない（書かない・確かめに通らない）ときに流すお言葉の文
-# （共通の一言の録音 deepen_ahead。問いかけ・約束・こちらの事実を入れない＝flowctl.Flow._own_answer の ahead の番）。✅ 2026-11-16 日本時間0時42分38秒 ユーザー
-# 「⇒その後の返事次第で、「今は問題が起こっていなくても、今後大きな問題に発展することも懸念されますものね。」などの展開」（決まった言い方なので読点は外した＝10-15）
-DEEPEN_AHEAD = "今は問題が起こっていなくても今後大きな問題に発展することも懸念されますものね。"
+# 深める一言に、これまでに問題や不都合は無かったとお返事いただいたときに伺う一言（CALLBACK_ASK の deepen_ahead＝システムの質問 E4）の、困りごとが今のまま続くと
+# したらの句（{c}＝会話AIが書いた「対応が遅いままだと」のような「〜と」で終える句。確かめは困りごとの言葉と同じ1か所＝flowctl.Flow._proposal_problem。値の入る文なので
+# 会話AIが言う＝flowctl.Flow._deepen_put）を入れる形。✅ 2026-11-16 日本時間12時48分22秒 ユーザー（お言葉は CALLBACK_ASK の deepen_ahead）
+DEEPEN_AHEAD_ASK = "それは何よりです。しかし{c}今は問題が起こっていなくても今後大きな問題に発展することが懸念されそうですね？"
+assert DEEPEN_AHEAD_ASK.format(c="") == CALLBACK_ASK["deepen_ahead"]
 
 
 def deepen_line(word: str | None) -> str:
     """深める一言の文を作る唯一の場所（flowctl.Flow._deepen_ask）：困りごとの言葉があれば DEEPEN_ASK・無ければ言葉を入れない形（CALLBACK_ASK の deepen＝録音）。"""
     return DEEPEN_ASK.format(t=word) if word else CALLBACK_ASK["deepen"]
+
+
+def deepen_ahead_line(clause: str | None) -> str:
+    """深める一言に問題は無かったとお返事いただいたときに伺う一言（E4）の文を作る唯一の場所（flowctl.Flow._deepen_decided）：困りごとが続く形の句があれば
+    DEEPEN_AHEAD_ASK に入れた文（会話AIが言う）・無ければ句を入れない形（CALLBACK_ASK の deepen_ahead＝録音）。"""
+    return DEEPEN_AHEAD_ASK.format(c=clause) if clause else CALLBACK_ASK["deepen_ahead"]
+
+
+# 急いでいるが手短になら聞くと言われたときに伺う一言（CALLBACK_ASK の brief＝システムの質問 H3）の、要約の入る形（{t}＝of_matter（取込で決めた営業の要約の名詞
+# instruction.Business.summary・決まらなければ用件の名詞 purpose_noun）。業務ごとの録音＝名乗りの部分 brief＝instruction.Business.replay_parts）。
+# ✅ 2026-11-16 日本時間12時48分22秒 ユーザー（お言葉は CALLBACK_ASK の brief）
+BRIEF_ASK = "{t}件でお電話させていただきましたが" + CALLBACK_ASK["brief"]
+# 手短になら聞くと言われて伺った一言（H3）に「いいえ」・はっきりしない・聞き取れないお返事をいただき、伺い続けるとき（flowctl.Flow._brief_decided）、その発話への返事で
+# 質問を流す前に、受けの相づちに続けて流す一言（共通の一言の録音 brief_go。システムの質問ではない＝CALLBACK_ASK ではない。流すかの決まりは flowctl.Flow._brief_go の
+# 1か所）。頭が「それでは」なので、続くもう伺った質問の頭の「それでは」は重ねない（2回目の戻る一言 BACK_TO_AGAIN のあとと同じ形＝flowctl.spoken_question・back_fit）。
+# ✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」（ア「はい、承知しました。それでは手短にお伺いいたしますね。ご連絡はお電話とメールのどちらがよろしい
+# でしょうか？」）。決まった言い方なので読点は入れない（10-15）
+BRIEF_GO = "それでは手短にお伺いいたしますね。"
+
+
+def brief_line(noun: str | None) -> str:
+    """手短になら聞くと言われたときに伺う一言の文を作る唯一の場所（instruction.Business.replay_parts の brief・flowctl.Flow._brief_ask）：要約の名詞（無ければ
+    用件の名詞）があれば BRIEF_ASK（「件」を重ねないのは of_matter の1か所）・無ければ要約の入らない形（CALLBACK_ASK の brief＝共通の一言の録音）。"""
+    return BRIEF_ASK.format(t=of_matter(noun)) if noun else CALLBACK_ASK["brief"]
+
+
+# ほかの会社の困りごとを伺い・深めたあとに、選択肢がどれもご連絡の方法の名前の業務の選ぶ質問（flowctl.way_choice）を提案で伺い直すときの、こちらがすることの言葉
+# （flowctl.Flow._proposal_of の1か所。方法は offer_words が終わりの動詞の前に「（方法）で」で入れる）。✅ 2026-11-16 日本時間12時48分22秒 ユーザー「・伺い32 場面1：ア」
+# ＝伺いの例「それでは対応の面も含めてメールでご連絡させていただくということではいかがでしょうか？」の「ご連絡させていただく」
+TROUBLE_WAY_DO = "ご連絡させていただきます"
 
 
 def purpose_again_parts(noun: str) -> dict[str, str]:
@@ -797,10 +844,17 @@ ANNOUNCE_CHECK_END = "のでご確認ください。"
 # だと相手の印象が悪いので、「ご予約の内容ですがキャンセルや変更は前日までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料
 # （変更料）がかかってしまうのでお気を付けください。」の方がいいんじゃないですか？」）。「〜ください」はお言葉の3つだけ（10-15。ほかへ広げない）
 ANNOUNCE_CAUTION_END = "のでお気を付けください。"
-# お知らせの文の終わり → 文の数の上限（唯一の表＝取込の形の確かめ announces.fits・問い合わせ announces.PROMPT）：「ご了承ください。」は1つの文（11-12 19時32分21秒
-# 「すらっと」）・「お気を付けください。」は良い点の文と気をつけていただく文の2つまで（お言葉の文が2つの文）。「ご確認ください。」は「ご了承ください。」の文から
-# プログラムが作る（announce_check）
-ANNOUNCE_ENDS = {ANNOUNCE_END: 1, ANNOUNCE_CAUTION_END: 2}
+# お知らせの良い点の文の形（「〜いただければ…」）の言葉（唯一の言葉＝取込の問い合わせ announces.PROMPT・形の確かめ announces.fits）
+ANNOUNCE_BENEFIT = "いただければ"
+# 説明に良い点だけがあるときのお知らせの文の終わり＝決まった終わりは無い（良い点の1つの文だけ。「ご了承ください。」「お気を付けください。」を付けない）。✅ 2026-11-16
+# 日本時間12時48分22秒 ユーザー「片方しか無いときは、今の「…必要がございますのでご了承ください。」の1つの文です。⇒良い方のみの場合は、良い方のみの方がいいでしょ。」
+ANNOUNCE_BENEFIT_END = "。"
+# お知らせの文の終わり → 文の数（唯一の表＝取込の形の確かめ announces.fits・問い合わせ announces.PROMPT。上から順に当てる＝良い点だけの終わり「。」は最後）：
+# 「ご了承ください。」は1つの文（11-12 19時32分21秒「すらっと」。説明に気をつけていただくことだけがあるとき・どちらも無いとき）・「お気を付けください。」は良い点の文と
+# 気をつけていただく文の2つ（説明に両方があるとき＝お言葉の文が2つの文）・良い点だけは良い点の1つの文（12時48分22秒）。良い点の文は「〜いただければ…」（ANNOUNCE_BENEFIT）。
+# 「ご確認ください。」は「ご了承ください。」の文からプログラムが作る（announce_check）。⛔ 96579d84 まで「お気を付けください。」は「2つまで」で、気をつけていただくこと
+# だけの1つの文も通り、良い点だけの形は無かった（説明に良い点だけがあっても「…必要がございますのでご了承ください。」）
+ANNOUNCE_ENDS = {ANNOUNCE_END: 1, ANNOUNCE_CAUTION_END: 2, ANNOUNCE_BENEFIT_END: 1}
 
 
 def announce_check(line: str) -> str:
@@ -1228,11 +1282,11 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
-            "told_follow_up": TOLD_FOLLOW_UP, "deepen_ahead": DEEPEN_AHEAD,
+            "told_follow_up": TOLD_FOLLOW_UP,
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
             "moshimoshi": MOSHIMOSHI, **{f"callback_{k}_pending": PENDING_LINE.format(t=t) for k, t in CALLBACK_PENDING.items()},
-            **{f"callback_carried_talked_{k}": v for k, v in CARRIED_TALKED.items()}, "start_over": START_OVER}
+            **{f"callback_carried_talked_{k}": v for k, v in CARRIED_TALKED.items()}, "start_over": START_OVER, "brief_go": BRIEF_GO}
 # システムの質問（callback_〜）を、2回目・3回目からの戻る一言のあとに流す形（決まりは back_fit の1か所。方法をお伝えした一言のあとの連絡先の一言も、2回目と同じ
 # 「それでは」を外した形＝flowctl.callback_question の announced）。⛔ 2026-11-07 日本時間4時台に見つけた：3時台に足した方法をお伺いしたあとの形（_announced）は
 # 読み方の表にだけあり、この表に無かった＝録音が作られない形だった。続きの電話で切れた所から伺う一言（callback_〜_again＝前置き「前回…」つき）へ戻るときは、
