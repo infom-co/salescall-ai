@@ -2051,6 +2051,29 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual(self.plan(s), self.handed_over(new))
         self.assertEqual([self.stopped(s, p) for p in (s["phone"], self.phone_of(s, new))], [True, False])
 
+    def test_the_old_persons_refusal_on_a_shared_number_follows_the_business_setting(self):
+        """✅ 2026-11-16 ユーザー（伺い「名前だけ『別の方』に直した行で、前の方が代表番号で『もうかけないで』と言ったとき」へ）：「契約者が業務ごとに選択できる。
+        デフォルトは佐藤様へはその番号でかける」：名前などの直し（会社の番号は同じ）の前にかけて、直したあとに締めた前の担当の方の「もうかけないで」は、
+        発信禁止の台帳には書く（ほかの行の前の担当の方は止める）が、その行のいまの担当の方へは、業務の設定 dnc.former_refusal_calls_new_person（初め：はい）
+        なら、その番号でかける（core/dnc.lookup の former_of＝core/target_policy の1か所。0229）。いいえなら、その番号ではかけない。"""
+        from salescall.core import target_policy
+        block = lambda s: self.tx(s, lambda tx: target_policy.task_block_reason(   # noqa: E731
+            tx, s["task"], normalize(s["phone"]), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
+        for calls in (True, False):
+            with self.subTest(calls=calls):
+                s = self.ready()
+                if not calls:
+                    self.put_client(s, "dnc.former_refusal_calls_new_person", False)
+                aid = self.call(s, report=rep(dnc_=True))                       # 直す前の通話（まだ締めていない）：山田様
+                self.name_fix(s, field="target_name", value="佐藤")              # 名前だけ「別の方」に直した（代表番号のまま）
+                self.settle(s, aid)                                             # 山田様の「もうかけないで」
+                self.assertTrue(self.stopped(s, s["phone"]))                    # 台帳には書く
+                self.assertEqual(self.plan(s), self.handed_over(s["contact"]))    # 行は佐藤様へ引き継ぎ（代表番号）
+                self.assertEqual(None if block(s) is None else block(s)[0], None if calls else "dnc_client")
+                run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+                t2 = self.w.task(s["tenant"], s["client"], run2, s["contact"])   # ほかの行（山田様の次の実施回）は、どちらでも止める
+                self.assertEqual(block(dict(s, task=t2))[0], "dnc_client")
+
     def test_the_old_persons_numbers_are_not_alternatives_for_the_new_person(self):
         """番号が使えないときの代わり（`usable`・`numbers_of` の said）に、「違う」を選んだ直しのあとは、前の担当の方が言った番号を入れない
         （新しい担当の方への代わりにしない。salescall.task_former_number の1か所。0202 の本体の指示 (2)）。直したあとに言われた番号は入る。"""

@@ -216,6 +216,8 @@ class UserDecisions(unittest.TestCase):
         # 2026-11-15：理由を言わずに待つ方へ、待つかかけ直すかを伺うまでの秒（業務ごと・初め20秒＝ユーザー「伺い28：ア」。0224。CL-1 の連絡帳 4-167 の (3)）
         self.assertEqual(v("call.wait_ask_after"), 20)
         self.assertNotIn("call.wait_ask_after", decided)   # 仮の値ではない（決まった値）
+        # 2026-11-16：前の担当の方の「もうかけないで」の番号を、いまの担当の方へかけるか（業務ごと・初め：はい＝ユーザー「デフォルトは佐藤様へはその番号でかける」。0229）
+        self.assertEqual((v("dnc.former_refusal_calls_new_person"), "dnc.former_refusal_calls_new_person" in decided), (True, False))
 
 
 class PerClientSettings(unittest.TestCase):

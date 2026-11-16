@@ -92,7 +92,10 @@ def customer_block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None
     """お客様の側の「かけない理由」（発信禁止の番号・管理番号・同じ業務で断られたお客様）。かけてよければ None。`block_reason` の
     一部で、行のかけない番号（記録だけの番号＝お客様が指定していない携帯電話番号など。0175）にも当てる（`row_block_reason`。
     customer_only＝その番号だけの発信禁止は見ない）。番号の種類の決まりは当てない（かけない番号なので）。"""
-    hit = dnc.lookup(tx, number.e164, client_ref=client_ref, customer_only=customer_only)
+    # その行の前の担当の方の「もうかけないで」の番号を、いまの担当の方へかけるか（業務の設定。0229。✅ 2026-11-16 ユーザー「デフォルトは…その番号でかける」）
+    former_of = task_id if task_id is not None and business_id is not None and settings.resolve(
+        tx, "dnc.former_refusal_calls_new_person", tenant_id=tenant_id, client_id=client_id, business_id=business_id) else None
+    hit = dnc.lookup(tx, number.e164, client_ref=client_ref, customer_only=customer_only, former_of=former_of)
     if hit is not None:
         return {
             "client": ("dnc_client", "発信禁止に登録されている番号です"),

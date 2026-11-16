@@ -350,17 +350,23 @@ def revoke_contractor(tx: Tx, entry_id: UUID, reason: str) -> None:
         raise DncEntryNotFound(str(entry_id))
 
 
-def lookup(tx: Tx, e164: str, *, client_ref: str | None = None, customer_only: bool = False) -> dict[str, Any] | None:
+def lookup(tx: Tx, e164: str, *, client_ref: str | None = None, customer_only: bool = False,
+           former_of: UUID | None = None) -> dict[str, Any] | None:
     """その番号（または、その行の管理番号）が発信禁止なら、どの台帳か（client / contractor / client_ref）と理由。
 
     管理番号の登録は、設定を「いいえ」に戻しても効く（止める側に倒す。取り消しは契約者が。DESIGN.md 3-6）。
     customer_only：その番号だけの理由（`NUMBER_ONLY`＝番号違い・FAX の回線）の番号の登録は見ない＝お客様を止める登録だけ（行のかける番号
     でない番号を確かめるとき。target_policy.row_block_reason。その番号だけの登録はその番号へかけないだけで、お客様の断りではない＝
     next_action._blocked_by_number と同じ決まり）。
+    former_of＝その行（task_id）の前の担当の方への通話（salescall.former_person_call）から書いた登録は見ない（その行のいまの担当の方へかけるとき、業務の
+    設定 dnc.former_refusal_calls_new_person が「はい」なら＝target_policy が渡す。0229。✅ 2026-11-16 ユーザー）。ほかの行・ほかの通話からの登録は見る。
     """
     skip = list(NUMBER_ONLY) if customer_only else []
-    row = tx.one("SELECT reason::text AS reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL"
-                 " AND NOT reason::text = ANY(%s)", (e164, skip))
+    row = tx.one("SELECT reason::text AS reason FROM salescall.dnc_entries e WHERE phone_e164 = %s AND revoked_at IS NULL"
+                 " AND NOT reason::text = ANY(%s)"
+                 " AND NOT (%s::uuid IS NOT NULL AND e.source_attempt_id IS NOT NULL"
+                 "          AND EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.attempt_id = e.source_attempt_id AND a.task_id = %s::uuid)"
+                 "          AND salescall.former_person_call(e.source_attempt_id))", (e164, skip, former_of, former_of))
     if row is not None:
         return {"ledger": "client", "reason": row["reason"]}
     row = tx.one("SELECT reason FROM salescall.contractor_dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL"
