@@ -509,6 +509,25 @@ class Targets(Base):
         vid = full_version(self.w, self.s, target_person)
         return vid, self.w.run(self.s["tenant"], self.s["client"], self.s["business"], vid)
 
+    def test_a_reimport_lists_what_differs_and_that_the_person_was_changed(self):
+        """✅ 2026-11-16 ユーザー：「再取り込み時に、変更がある部分を一覧で出し、担当者が前回から代わっている点も一覧に記載する」：取り込み直しで、登録済みの
+        行について、一覧と行のいまの値の違い（行は変えない＝ダッシュボードの直しが正）と、前回の取込のあとに「別の方に替わった」で直したことを、プレビューの
+        理由に書く（importer._changes_note の1か所）。違いも替わりも無ければ書かない。一覧に無い欄は比べない。"""
+        _, run = self.run_with({"kind": "name", "role": None})
+        data = csv_file([("A", "架空商事", fictional_jp_fixed(), "岡田", "おかだ", "部長")], header=self.HEADER)
+        task = self.register(data, mapping=self.MAP, run=run)["rows"][0]["task_id"]
+        _, plan = self.preview(data, self.MAP, run=run)
+        self.assertEqual(plan.rows[0].reason, "この実施回に、もう登録されています")                # 違いも替わりも無い
+        self.tx(lambda tx: row_fixes.fix(tx, task, "target_name", "佐藤", reading="さとう", same_person=False))
+        _, plan = self.preview(data, self.MAP, run=run)
+        reason = plan.rows[0].reason
+        self.assertIn("一覧と違う所。行は変えません：担当者名（一覧：岡田／いま：佐藤）", reason)
+        self.assertIn("「別の方に替わった」で直しています。いまの方：佐藤様", reason)
+        self.assertNotIn("役職（", reason)                                                    # 同じ欄は出さない
+        self.register(data, mapping=self.MAP, run=run)
+        self.assertEqual(self.tx(lambda tx: tx.one("SELECT target_name FROM salescall.tasks_now WHERE task_id = %s", (task,)))["target_name"],
+                         "佐藤")                                                               # 行は変えない
+
     def test_a_business_that_calls_by_name_needs_the_name_and_its_reading(self):
         _, run = self.run_with({"kind": "name", "role": None})
         with self.assertRaises(importer.ImportRejected):                  # 名前の列を選んでいなければ始めない

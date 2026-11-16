@@ -49,6 +49,7 @@ from salescall.core.access import Tx
 from salescall.core.import_columns import ImportRejected
 from salescall.core.import_files import Cell, Sheet
 from salescall.core.phone import PhoneNumber, normalize
+from salescall.link.jst import JST
 
 FIELDS = ("phone", "client_ref", "name", "name_reading", "person_name", "person_name_reading", "person_role",
           "person_full_name", "person_full_name_reading", "person_department", "exclude",
@@ -68,6 +69,27 @@ _READING_OF = {"name": "name_reading", "person_name": "person_name_reading",
 
 class PlanChanged(Exception):
     """プレビューのあとで結果が変わった（発信禁止・設定・ほかの取込）。何も登録していない。もう一度プレビューを見る。"""
+
+
+# 取り込み直しで、登録済みの行と一覧の違いを見る欄（一覧の欄＝found の鍵, 行のいまの値の欄＝tasks_now）。行は変えない（直すのはダッシュボード）
+_COMPARED = (("name", "source_name"), ("person_name", "target_name"), ("person_role", "target_role"),
+             ("person_full_name", "target_full_name"), ("person_department", "target_department"))
+
+
+def _changes_note(tx: Tx, task_id: UUID, found: dict[str, Any], columns: dict[str, str]) -> str:
+    """取り込み直しで、登録済みの行について、一覧と行のいまの値の違いと、前回の取込のあとにお呼びする方が替わったことを、プレビューの理由に書く1か所
+    （✅ 2026-11-16 ユーザー：「再取り込み時に、変更がある部分を一覧で出し、担当者が前回から代わっている点も一覧に記載する」）。行は変えない（取り込んだ
+    あとの直しはダッシュボードの直しが正＝一覧の値で戻さない）。お呼びする方が替わったか・いつかは、担当の期の1か所（next_action.person_now＝
+    データベースの salescall.task_person_since）。違いを読む行の値は、行のいまの値の1か所（tasks_now）。"""
+    now = tx.one("SELECT * FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
+    diffs = [f"{columns[mine]}（一覧：{found[mine] or '空'}／いま：{now[theirs] or '空'}）"
+             for mine, theirs in _COMPARED if mine in columns and (found[mine] or None) != (now[theirs] or None)]   # 一覧に無い欄は比べない
+    since = next_action.person_now(tx, task_id)
+    out = f"（一覧と違う所。行は変えません：{'・'.join(diffs)}）" if diffs else ""
+    if since is not None:
+        out += (f"（お呼びする方は、{since.astimezone(JST):%Y-%m-%d %H:%M} に「別の方に替わった」で直しています。いまの方："
+                f"{now['target_full_name'] or now['target_name'] or now['target_role'] or '（名前なし）'}様。一覧で増えた連絡先は、いまの方の連絡先として足します）")
+    return out
 
 
 @dataclass(frozen=True)
@@ -361,7 +383,8 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             new_values = tuple(v for v in found["contact_values"]
                                if (v[0], v[2].strip() if v[2] else None, v[1].strip()) not in ever)
             added = [title(fields[x.e164]) for x, _ in new_records] + [title({kind: f for f, kind in _CONTACT_FIELDS.items()}[k]) for k, _, _ in new_values]
-            note = "この実施回に、もう登録されています" + (f"（一覧で増えた連絡先を足します：{'・'.join(added)}）" if added else "")
+            note = "この実施回に、もう登録されています" + (f"（一覧で増えた連絡先を足します：{'・'.join(added)}）" if added else "") \
+                + _changes_note(tx, existing["task_id"], found, {f: title(f) for f, _ in _COMPARED if f in cols})
             if bad_record is not None:
                 note += f"（{bad_record[1]}。その番号は足しません）"
             if blocked is not None:
