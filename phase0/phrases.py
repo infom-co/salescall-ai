@@ -1264,6 +1264,17 @@ def again_fit(rid: str, text: str) -> tuple[str, str]:
     if head_word(text) or not text.endswith(("？", "?")):
         return rid, text
     return question_clip(rid, AGAIN_LEAD), AGAIN_LEAD + text
+
+
+# こちらの申し出に「はい」をいただいて、そのお返事でそのまま締めるときの、こちらがすることの言い切り（「ありがとうございます。」の相づちと締めの間。言い切りを決める
+# のは flowctl.Flow._taken_plays の1か所・録音の名前と文は flowctl.taken_line の1か所）：受けの言い切り OFFER_TAKEN（「それでは{v}ね。」）の頭のつなぎの言葉を
+# 付けない形（締めの「それでは失礼いたします。」と重なる）。{v}＝こちらがすることの言葉（offer_words の polite）。条件つきで受けていただいた言い切りを締めの直前に
+# 言うときも同じ形（お言葉の外に当てた＝同じ理由）。決まった言い方なので読点は入れない（10-15）。✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」
+# （イ「…言い切りの頭の「それでは」は、締めの「それでは失礼いたします。」と重なるので付けない。録音が増える＝共通の一言1本・業務の申し出の質問ごとに1本」）
+OFFER_DONE = OFFER_TAKEN.removeprefix(head_word(OFFER_TAKEN) or "")
+# こちらがかけ直す申し出（受付の方の「後ほど改めてお掛けしてもよろしいでしょうか？」・約束の電話の「…後ほど改めてお掛けしてもよろしいでしょうか？」）を受けて
+# いただいたときの言い切りの共通の一言の録音の名前と文（同じお言葉の文。流すのは flowctl.taken_line の1か所）
+CALL_AGAIN_TAKEN, CALL_AGAIN_DONE = "call_again_taken", "後ほど改めてお掛けいたしますね。"
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             STANDARD_PARTS["ai"]: AI_ANSWER, "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **dict(zip(CONCERN_PROMPT_IDS, CONCERN_PROMPT)), WAIT_ASK_PLAIN_ID: CALLBACK_ASK["wait_or_later"],
@@ -1286,7 +1297,8 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
             "moshimoshi": MOSHIMOSHI, **{f"callback_{k}_pending": PENDING_LINE.format(t=t) for k, t in CALLBACK_PENDING.items()},
-            **{f"callback_carried_talked_{k}": v for k, v in CARRIED_TALKED.items()}, "start_over": START_OVER, "brief_go": BRIEF_GO}
+            **{f"callback_carried_talked_{k}": v for k, v in CARRIED_TALKED.items()}, "start_over": START_OVER, "brief_go": BRIEF_GO,
+            CALL_AGAIN_TAKEN: CALL_AGAIN_DONE}
 # システムの質問（callback_〜）を、2回目・3回目からの戻る一言のあとに流す形（決まりは back_fit の1か所。方法をお伝えした一言のあとの連絡先の一言も、2回目と同じ
 # 「それでは」を外した形＝flowctl.callback_question の announced）。⛔ 2026-11-07 日本時間4時台に見つけた：3時台に足した方法をお伺いしたあとの形（_announced）は
 # 読み方の表にだけあり、この表に無かった＝録音が作られない形だった。続きの電話で切れた所から伺う一言（callback_〜_again＝前置き「前回…」つき）へ戻るときは、

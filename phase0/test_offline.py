@@ -184,7 +184,10 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          "E3", "E4", "H3", "callback_deepen_measures", "callback_deepen_ahead", "kept", "brief", "callback_brief",
                          # 手短になら聞くと言われて伺った一言（H3）に「いいえ」などをいただき伺い続けるとき、質問の前に流す一言の共通の一言の録音（「それでは手短に
                          # お伺いいたしますね。」。✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」。CL-2 への知らせはまとめ役）
-                         "brief_go"})
+                         "brief_go",
+                         # 受付の方・約束の電話の「…後ほど改めてお掛けしてもよろしいでしょうか？」に「はい」をいただいて、そのまま締めるときの言い切りの共通の一言の録音
+                         # （「後ほど改めてお掛けいたしますね。」＝flowctl.taken_line。✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」。CL-2 への知らせはまとめ役）
+                         "call_again_taken"})
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
 CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
 # 共通の一言の録音の文を替えて、CL-2 が名前と文の写し（common_phrases.TEXTS）を作り直すまで、文だけを比べない名前（CL-2 の 4-403 の (1)）。
@@ -12152,7 +12155,8 @@ class EndJudgedTest(unittest.TestCase):
         r = talk(f, "さようでございますか。", way="訪問")
         self.assertEqual(heard(r), "さようでございますか。それでは詳しい者がご訪問のうえお話しさせていただくということではいかがでしょうか？")
         r = say(f, "来週以降ならお願いします。", "confirm_field", "affirmed", terms="来週以降に", question_id=n5, result="affirmed")
-        self.assertTrue(heard(r).startswith("ありがとうございます。それでは来週以降に、詳しい者がご訪問のうえお話しさせていただきますね。"), heard(r))
+        # 締めに直結する言い切りは頭の「それでは」を付けない（伺い37 のイ＝OfferTakenClosingTest。⛔ a2e80cfd まで「それでは来週以降に、…ますね。お忙しいところ…」）
+        self.assertTrue(heard(r).startswith("ありがとうございます。来週以降に、詳しい者がご訪問のうえお話しさせていただきますね。お忙しいところ"), heard(r))
 
         # (2) 業務の申し出の質問：伺い直しに入れた条件を「はい」だけで受けていただいても、通話の事実 offer_terms に残る（同じ質問に2つ作らない）
         f = Flow([pamph, Question("Q9", "ご訪問の日時のご希望はございますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
@@ -12279,7 +12283,8 @@ class EndJudgedTest(unittest.TestCase):
         say(f, "うちは電話だと落ち着いて話せないんですよ。", "record_answer", UNDECIDED, question_id=n5, condition_id="訪問")
         talk(f, "さようでございますか。", way="訪問")
         r = say(f, "来週以降ならお願いします。", "confirm_field", "affirmed", terms="来週以降に", question_id=n5, result="affirmed")
-        self.assertTrue(heard(r).startswith("ありがとうございます。それでは来週以降に、詳しい者より訪問でお話しさせていただきますね。お忙しいところ"), heard(r))
+        # 締めに直結する言い切りは頭の「それでは」を付けない（伺い37 のイ＝OfferTakenClosingTest。⛔ a2e80cfd まで「それでは来週以降に、…ますね。お忙しいところ…」）
+        self.assertTrue(heard(r).startswith("ありがとうございます。来週以降に、詳しい者より訪問でお話しさせていただきますね。お忙しいところ"), heard(r))
         # (J1) 締める前の申し出 N6 を方法（メール）と条件つきで受けていただく：メールアドレスを伺い終えたあとも「メールでのご連絡のご希望を…」を重ねない
         offer = CloseOffer("それでは改めて資料をお送りさせていただいてもよろしいでしょうか？", "資料のお送りのご希望", ("メール", "郵送"),
                            do="改めて資料をお送りさせていただきます")
@@ -31358,6 +31363,8 @@ class CallbackOfferRulesTest(unittest.TestCase):
     (b) H1 の「はい」の頭は「ありがとうございます。」（11-12 日本時間13時40分05秒 (5)）
     (c) C7・P1 の「はい」は、お客様に聞こえる言葉を変えない（「はい、お忙しいところお時間をいただきましてありがとうございました。…」）。お礼の相づちを足すと締めのお礼と
         重なる＝まとめ役がユーザーに例を付けて伺う（お言葉の外）。申し出を受けていただいたお返事が、そのまま締めのお礼（CLOSING）から始まるときは受けのお礼を重ねない
+        ⇒ ✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」で決まった：「ありがとうございます。後ほど改めてお掛けいたしますね。お忙しいところ…」
+        （OfferTakenClosingTest。(c) の例外は外した）
     ⛔ 8aa3b4ef まで、3つとも聞き取れないお返事を伺い直さずに締め（H1 はかけ直しの記録も残らない）、H1 の「はい」は「はい、ご都合のいい日時は…」"""
     ASK_BACK = "申し訳ございません、お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"
 
@@ -31447,7 +31454,9 @@ class CallbackOfferRulesTest(unittest.TestCase):
         self.assertEqual((r.get("ahead_offer"), self.heard(r)), (True, "はい、"))
         return CallbackTimeAheadTest.time_asked(f)
 
-    def test_yes_to_h1_is_thanked_and_c7_p1_keep_their_closing(self):
+    def test_yes_to_h1_is_thanked_and_c7_p1_close_with_what_we_do(self):
+        # C7・P1 の「はい」で締める返事は、伺い37 のイ（OfferTakenClosingTest）：「ありがとうございます。後ほど改めてお掛けいたしますね。お忙しいところ…」。
+        # ⛔ a2e80cfd まで (c) の例外で「はい、お忙しいところ…」
         from phrases import CLOSING
         f, qid = self.asked("hurry")
         self.assertEqual(self.heard(self.yes(f, qid)), "ありがとうございます。ご都合のいい日時はいつ頃でしょうか？")
@@ -31458,7 +31467,7 @@ class CallbackOfferRulesTest(unittest.TestCase):
         for kind in ("again", "promise"):
             f, qid = self.asked(kind)
             r = self.say(f, "はい、お願いします。", self.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
-            self.assertEqual((r["result"], self.heard(r)), ("end", "はい、" + CLOSING), kind)
+            self.assertEqual((r["result"], self.heard(r)), ("end", "ありがとうございます。後ほど改めてお掛けいたしますね。" + CLOSING), kind)
 
     def test_a_hedged_yes_is_taken_like_the_other_offers(self):
         # こちらの申し出は言い直さない・言い切っていない「はい」も確かめずに受け取る（Question.firm_not_needed。N4・N6・H3 と同じ1か所の表＝ASKED_OFFER_ROLES。
@@ -31473,12 +31482,14 @@ class CallbackOfferRulesTest(unittest.TestCase):
         self.assertEqual([e["why"] for e in f.facts["callback"]], ["later"])
         f, qid = self.asked("again")
         r = self.say(f, "たぶん大丈夫だと思います。", self.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
-        self.assertEqual((self.heard(r), f.facts["callback"][-1].get("again")), ("はい、" + CLOSING, True))
+        # 締める返事は伺い37 のイ（OfferTakenClosingTest。⛔ a2e80cfd まで「はい、お忙しいところ…」）
+        taken = "ありがとうございます。後ほど改めてお掛けいたしますね。" + CLOSING
+        self.assertEqual((self.heard(r), f.facts["callback"][-1].get("again")), (taken, True))
         # 伺い直したあとの「はい」も言い直さない
         f, qid = self.asked("promise")
         self.unheard(f, qid)
         r = self.say(f, "はい、お願いします。", self.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
-        self.assertEqual((r["result"], self.heard(r), f.facts["not_transferred"][-1].get("again")), ("end", "はい、" + CLOSING, True))
+        self.assertEqual((r["result"], self.heard(r), f.facts["not_transferred"][-1].get("again")), ("end", taken, True))
 
     def test_hurry_again_while_asking_once_more_closes(self):
         # H1 を伺い直している途中にまた「急いでいる」と言われたら、今のまま伺わずに締める（2回目の「急いでいる」）
@@ -31500,6 +31511,191 @@ class CallbackOfferRulesTest(unittest.TestCase):
             f, qid = self.asked(kind)
             r = self.say(f, "いえ、それは結構です。", self.rd("いいえ"), "record_answer", question_id=qid, condition_id="いいえ")
             self.assertEqual((r["result"], self.heard(r), f.facts[fact][-1].get("again")), ("end", "はい、" + CLOSING_AFTER_DECLINE, False), kind)
+
+
+class OfferTakenClosingTest(unittest.TestCase):
+    """✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」：こちらの申し出に「はい」をいただいて、そのまま締めるときは「ありがとうございます。」＋こちらが
+    することの言い切り＋今の締め。受付の方（C7）・約束の電話（P1）の「…後ほど改めてお掛けしてもよろしいでしょうか？」＝「ありがとうございます。後ほど改めてお掛け
+    いたしますね。お忙しいところ…それでは失礼いたします。」・業務の申し出の質問「パンフレットをお送りしてもよろしいでしょうか？」＝「ありがとうございます。パンフレットを
+    お送りさせていただきますね。お忙しいところ…」。言い切りの頭の「それでは」は、締めの「それでは失礼いたします。」と重なるので付けない（録音が増える＝共通の一言1本・
+    業務の申し出の質問ごとに1本）。言い切りを決める所は1か所（Flow._taken_plays）で、締めに直結する道（その場の答え・先に言われた答えの同じ発話・締めの前の念のための
+    確認・会話AIが話す通話）はどれもそこを通る：
+    - 条件つきで受けていただいた言い切り（会話AIの声）も、締めに直結するときは頭の「それでは」を付けない・条件の無い言い切りを重ねない（お言葉の外に当てた）
+    - 申し伝える一言（WISH_TOLD）を同じ返事で言うときは、それがこちらがすることの言い切り（重ねない＝お言葉の外。申し出の手順 N4・N6 はいつもこの形＝今のまま）
+    - 締めない返事（次の質問へ）は今のまま（「ありがとうございます。続きまして…」）
+    ⛔ a2e80cfd まで、C7・P1 は「はい、お忙しいところ…」（お礼を重ねない例外）、業務の申し出の質問は「ありがとうございます。お忙しいところ…」（言い切りが無い）、
+    先に言われた申し出の「はい」で締めると「はい、お忙しいところ…」（お礼も無い）"""
+    CALL_AGAIN = "後ほど改めてお掛けいたしますね。"
+    PAMPH = "パンフレットをお送りさせていただきますね。"
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+
+    @staticmethod
+    def questions(required=False, last=True):
+        from flowctl import Question
+        qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+              Question("Q2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=required,
+                       do_words={"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"})]
+        return qs if last else [*qs, Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))]
+
+    def flow(self, play=True, **kw):
+        from flowctl import Flow
+        return Flow(self.questions(**kw), play_recordings=play)
+
+    @staticmethod
+    def say(f, words, op, **a):
+        f.on_callee(); f.on_heard(words)
+        return f.apply(op, a)
+
+    def test_our_callback_offers_close_with_thanks_and_what_we_do(self):
+        # 受付の方の C7・約束の電話の P1 の「はい」：「ありがとうございます。」（相づち）＋共通の一言の録音「後ほど改めてお掛けいたしますね。」＋締めの録音
+        from flowctl import say_note
+        from phrases import CLOSING, RECORDED
+        t = CallbackOfferRulesTest()
+        for kind, fact in (("again", "callback"), ("promise", "not_transferred")):
+            f, qid = t.asked(kind)
+            r = t.say(f, "はい、お願いします。", t.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
+            self.assertEqual((r["result"], r["ack"], [(p["kind"], p["id"]) for p in r["play"]], self.heard(r)),
+                             ("end", "arigatou", [("recorded", "call_again_taken"), ("closing", "closing")],
+                              "ありがとうございます。" + self.CALL_AGAIN + CLOSING), kind)
+            self.assertIs(f.facts[fact][-1].get("again"), True, kind)
+        self.assertEqual(RECORDED["call_again_taken"], self.CALL_AGAIN)
+        # 会話AIが話す通話（録音を流さない）：同じ文を、締めの前に会話AIが言う
+        f = CallbackTest.flow(self)
+        self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        self.say(f, "戻りの時間はちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
+        self.say(f, "はい、今日中には戻ると思います。", "record_answer", question_id="C6", condition_id="はい")
+        r = self.say(f, "はい、お願いします。", "record_answer", question_id="C7", condition_id="はい")
+        self.assertEqual((r["result"], r["ack"], r["say"], f.end_reason), ("end", "arigatou", CLOSING, "callback"))
+        self.assertIn("まず、" + say_note(self.CALL_AGAIN) + "続けて、", r["message"])
+
+    def test_the_last_business_offer_closes_with_what_we_do(self):
+        # 業務の申し出の質問（最後の質問）の「はい」：「ありがとうございます。」＋依頼主の単位の録音「（番号）_taken」＝こちらがすることの言葉の言い切り＋締め。
+        # 録音の表（make_ack_clips.script_table）と流す形は同じ1か所（flowctl.taken_line）から
+        from flowctl import say_note
+        from instruction import Business
+        from make_ack_clips import script_table
+        from phrases import CLOSING
+        for play in (True, False):
+            f = self.flow(play)
+            self.say(f, "はい。", "record_answer", question_id="Q1", condition_id="はい")
+            r = self.say(f, "はい、お願いします。", "record_answer", question_id="Q2", condition_id="はい")
+            self.assertEqual((r["result"], r["ack"], f.end_reason), ("end", "arigatou", "done"), play)
+            if play:
+                self.assertEqual(r["play"], [{"kind": "question", "id": "Q2_taken", "text": self.PAMPH, "lead": ""},
+                                             {"kind": "closing", "id": "closing", "text": CLOSING}])
+                self.assertEqual(self.heard(r), "ありがとうございます。" + self.PAMPH + CLOSING)
+            else:
+                self.assertEqual(r["say"], CLOSING)
+                self.assertIn("まず、" + say_note(self.PAMPH) + "続けて、", r["message"])
+        from flowctl import taken_line
+        qs = self.questions()
+        self.assertEqual([taken_line(q) for q in qs], [None, ("Q2_taken", self.PAMPH)])
+        b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=qs,
+                     purpose_line="ご予約の確認でお電話いたしました。")
+        table = script_table(b)[0]
+        self.assertEqual((table["Q2_taken"], "Q1_taken" in table), ((self.PAMPH, "own_fallback"), False))
+
+    def test_a_reply_that_does_not_close_is_as_before(self):
+        # 締めない返事（次の質問）には言い切りを足さない（今のまま「ありがとうございます。続きまして…」）
+        f = self.flow(last=False)
+        self.say(f, "はい。", "record_answer", question_id="Q1", condition_id="はい")
+        r = self.say(f, "はい、お願いします。", "record_answer", question_id="Q2", condition_id="はい")
+        self.assertEqual((r["result"], self.heard(r)), ("next", "ありがとうございます。続きましてご来店の人数をお聞かせください。"))
+
+    def test_a_conditional_yes_that_closes_does_not_lead_with_soredeha(self):
+        # 条件つきで受けていただいた言い切り（会話AIの声）も、締めに直結するときは頭の「それでは」を付けない（同じ理由＝お言葉の外に当てた）。条件の無い言い切りの
+        # 録音は重ねない（言い切りは1回）。締めない返事は今のまま「それでは…ね。」（EndJudgedTest.test_an_unlinked_reply_to_an_offer_is_answered_then_the_offer_is_put_again の Q4）
+        from flowctl import QUERY, QUERY_NO, say_note
+        from grounding import GROUNDED
+        from meaning_judge import Reading
+        from phrases import CLOSING
+        line = "来週以降に、パンフレットをお送りさせていただきますね。"
+        for play in (True, False):
+            f = self.flow(play)
+            f.use_checks("judge")
+            for words, qid, kw in (("はい、しています。", "Q1", {}), ("来週以降なら送ってもらっていいですよ。", "Q2", {"terms": "来週以降に"})):
+                f.on_callee(); f.on_heard(words)
+                rd = Reading("はい", firm=True)
+                setattr(rd, QUERY, QUERY_NO)
+                f.on_check("judge", rd)
+                if kw:
+                    grounded(f, kw["terms"], GROUNDED)
+                r = f.apply("record_answer", {"question_id": qid, "condition_id": "はい", **kw})
+            self.assertEqual((r["result"], r["ack"]), ("end", "arigatou"), play)
+            if play:
+                self.assertEqual((self.heard(r), r.get("play")), ("ありがとうございます。" + line + CLOSING, None))
+            else:
+                self.assertIn("まず、" + say_note(line) + "続けて、", r["message"])
+                self.assertEqual(r["message"].count(self.PAMPH), 1)
+
+    def test_an_offer_said_ahead_closes_with_thanks_and_what_we_do(self):
+        # 先に言われた答え（同じ発話のうちに、次に伺う申し出の質問の答え＝_offer_ahead）で締める：伺う間の「はい、」のあと、締めの返事の頭にお礼（同じ発話のうちの
+        # 相づち＝Flow._ack の same_turn。申し出を受けていただいた締めはお礼を流す）＋言い切り＋締め。⛔ a2e80cfd まで「はい、お忙しいところ…」
+        from phrases import ACK, CLOSING
+        f = self.flow()
+        r = self.say(f, "はい、予約しています。パンフレットもお願いします。", "record_answer", question_id="Q1", condition_id="はい",
+                     rest="パンフレットもお願いします")
+        self.assertEqual((r["question_id"], r.get("ahead_offer"), r["ack"]), ("Q2", True, "hai"))
+        r2 = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"})
+        self.assertEqual((r2["result"], ACK[r["ack"]] + self.heard(r2)), ("end", "はい、ありがとうございます。" + self.PAMPH + CLOSING))
+        # 同じ発話で締めても、申し出でない答え（お礼を返さない向きでもない）なら今のまま（相づちを重ねない）
+        from flowctl import Flow, Question
+        g = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  Question("Q2", "お支払いはお済みでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+        self.say(g, "はい、予約しています。支払いも済んでいます。", "record_answer", question_id="Q1", condition_id="はい", rest="支払いも済んでいます")
+        r2 = g.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"})
+        self.assertEqual((r2["result"], r2["ack"], self.heard(r2)), ("end", None, CLOSING))
+
+    def test_an_offer_put_in_our_words_is_not_said_again(self):
+        # こちらがすることの言葉で伺った言い直し（言い切っていない「はい」への「それではパンフレットをお送りさせていただきますね？」）に「はい」をいただいて締める：
+        # その伺いが言い切り＝同じ言葉をくり返さない（お言葉の外に当てた。11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」と同じ理由）
+        from flowctl import QUERY, QUERY_NO
+        from meaning_judge import Reading
+        from phrases import CLOSING
+
+        def rd(v, firm=True):
+            r = Reading(v, firm=firm)
+            setattr(r, QUERY, QUERY_NO)
+            return r
+        f = self.flow(required=True)   # 言い切っていない答えを確かめるのは必須の質問（Question.checks_now）
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("はい。"); f.on_check("judge", rd("はい"))
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        f.on_callee(); f.on_heard("まあ、送ってもらってもいいかなあ。"); f.on_check("judge", rd("はい", firm=False))
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"})
+        self.assertEqual((r["result"], self.heard(r)), ("confirm_required", "はい、それでは" + self.PAMPH.removesuffix("。") + "？"))
+        f.on_callee(); f.on_heard("はい、お願いします。"); f.on_check("judge", rd("はい"))
+        r = f.apply("confirm_field", {"question_id": "Q2", "result": "affirmed"})
+        self.assertEqual((r["result"], self.heard(r)), ("end", "ありがとうございます。" + CLOSING))
+
+    def test_a_recheck_yes_that_closes_has_the_same_words(self):
+        # 締めの前の念のための確認（聞き取れないまま「-」にした必須の申し出の質問）への「はい」で締めるときも同じ1か所
+        from phrases import CLOSING
+        f = self.flow(required=True)
+        self.say(f, "はい。", "record_answer", question_id="Q1", condition_id="はい")
+        r = None
+        while r is None or r["result"] != "recheck":
+            r = self.say(f, "（雑音）", "report_unclear", question_id="Q2")
+        r = self.say(f, "はい、お願いします。", "record_answer", question_id="Q2", condition_id="はい")
+        self.assertEqual((r["result"], self.heard(r)), ("end", "ありがとうございます。" + self.PAMPH + CLOSING))
+
+    def test_a_told_line_is_what_we_do(self):
+        # 締める前の申し出（N6）の「はい」で、申し伝える一言を言って締める：その一言がこちらがすることの言い切り（重ねない＝今のまま）
+        from flowctl import CALLBACK_IDS, CloseOffer, Flow, Question
+        from phrases import CLOSING, WISH_TOLD
+        n1, n6 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["close_offer"]
+        say = EndJudgedTest._say
+        f = Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  Question("Q2", "以上の内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                           intro="こちらのプランは月額3,000円で初月は無料となっております。", final_goal=True, declines=("いいえ",))],
+                 play_recordings=True, close_offer=CloseOffer("それでは改めて資料をお送りさせていただいてもよろしいでしょうか？", "資料のお送りのご希望",
+                                                               do="改めて資料をお送りさせていただきます"))
+        say(f, "はい、届いています。", "record_answer", question_id="Q1", condition_id="はい")
+        say(f, "いいえ、ちょっと考えさせてください。", "record_answer", question_id="Q2", condition_id="いいえ")
+        say(f, "うーん、なんとなくですかね。", "record_answer", question_id=n1, condition_id="unknown")
+        say(f, "うーん、特にこれというのは…。", "record_answer", question_id=n1, condition_id="unknown")
+        r = say(f, "はい。", "record_answer", question_id=n6, condition_id="はい")
+        self.assertEqual((r["result"], self.heard(r)), ("end", "ありがとうございます。" + WISH_TOLD["other"] + CLOSING))
 
 
 class SameReceiptTest(unittest.TestCase):
