@@ -706,6 +706,34 @@ class Import(unittest.TestCase):
         p = self.preview(data)                                      # 決める処理が渡されない＝空・入れない
         self.assertEqual((p.raw["questions"][0]["maybe"], "purpose_noun" in p.raw), ([], False))
 
+    def test_the_summary_is_decided_by_the_ai_once(self):
+        """CL-1 の連絡帳 4-170 の (3)(4)（✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30））：営業の要約（summary。急いでいるが手短になら聞くと言われたとき
+        「ありがとうございます。」のあとに流す）は、業務の (用件の一文, 質問の文の並び) を AI（import_ai.decide_summaries）に1回だけ聞き、要約を入れる（決まらない・
+        形の違う答えは入れない＝用件の一文の録音）。登録では聞き直さない。入口が書いた要約は聞かない。"""
+        asked = []
+        line = "ご予約の確認とお支払いの方法をお伺いしたくお電話いたしました。"
+
+        def summaries(items):
+            asked.append(items)
+            return [line for _ in items]
+
+        data = book()
+        p = self.preview(data, decide_summaries=summaries)
+        texts = tuple(q["text"] for q in p.raw["questions"])
+        self.assertEqual((p.problems, asked, p.raw["summary"]), ([], [[("ご予約の確認でお電話いたしました。", texts)]], line))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual((self.tx(lambda tx: bs.load(tx, v)).summary, len(asked)), (line, 1))   # 登録は聞き直さない
+        for bad in ([""], [" "], [], None, [3], [line, line]):            # 決まらない・形の違う答え＝入れない
+            with self.subTest(bad=bad):
+                self.assertNotIn("summary", self.preview(data, decide_summaries=lambda items: bad).raw)
+        self.assertNotIn("summary", self.preview(data).raw)              # 決める処理が渡されない
+        asked.clear()
+        got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], dict(p.raw, summary="入口の要約です。"), decide_summaries=summaries))
+        self.assertEqual((got.problems, asked, got.raw["summary"]), ([], [], "入口の要約です。"))   # 入口が書いた要約は聞かない
+        # AI の答えがあっても、入口が書いた要約が勝つ（AI の答えを中身に入れる1か所＝review）
+        got = self.tx(lambda tx: bi.review(tx, self.s["business"], dict(p.raw, summary="入口の要約です。"), ai=dict(p.ai, summary=line)))
+        self.assertEqual(got.raw["summary"], "入口の要約です。")
+
     def test_the_offers_come_from_the_basic_sheet_and_the_close_offer_needs_its_do_words(self):
         """CL-1 の連絡帳 4-122・4-124・4-125・4-138 の (3)：詳しい者からのお話の方法（handoff_ways）と締める前の申し出（close_offer）は「基本」のシートの行。
         締める前の申し出でこちらがすること（do）を書いていなければ、業務の選ぶ質問のこちらがすることの言葉と同じ道（意味の言葉を添えて AI に1回だけ聞く）で、
@@ -880,7 +908,7 @@ class Import(unittest.TestCase):
         data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
         p = self.preview(data, decide_matters=matters, decide_alternatives=alternatives, alternatives_items=items_of)
         self.assertEqual(p.problems, [])
-        self.assertEqual(asked, {"matters": [[(intro, q3)]], "alternatives": [[(q1, ("する", "しない"), "choice")]], "items": [["Q1", "Q2", "Q3"]]})
+        self.assertEqual(asked, {"matters": [[(intro, q3, "")]], "alternatives": [[(q1, ("する", "しない"), "choice")]], "items": [["Q1", "Q2", "Q3"]]})
         want = [("", listed, [led]), ("", "", []), ("前日までのお支払い", "", [])]
         self.assertEqual([(q["matter"], q["alternatives"], q["alternatives_led"]) for q in p.raw["questions"]], want)
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
@@ -936,7 +964,7 @@ class Import(unittest.TestCase):
                     asked.append(pairs)
                     return [a for _ in pairs]
                 p = self.preview(data, decide_matters=matters)
-                self.assertEqual((p.problems, asked), ([], [[(intro, q3)]]))
+                self.assertEqual((p.problems, asked), ([], [[(intro, q3, "")]]))
                 self.assertEqual([(q["matter"], q["matter_clause"]) for q in p.raw["questions"]], [("", "")] * 2 + [want])
                 if answer == ("キャンセル", clause):
                     v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
@@ -954,6 +982,25 @@ class Import(unittest.TestCase):
                 self.assertEqual((got.problems, asked), ([], []))
                 self.assertEqual((got.raw["questions"][2]["matter"], got.raw["questions"][2]["matter_clause"]),
                                  (given.get("matter", ""), given.get("matter_clause", "")))
+
+    def test_the_clause_is_made_from_the_announce_the_customer_hears(self):
+        """CL-1 の連絡帳 4-171：お知らせの中身の句は、お客様が聞いたお知らせの文から作る＝decide_matters に (入る一言, 質問の文, お知らせの文) を渡す。お知らせの文は、
+        入口が書いた文、無ければ同じ取込で decide_announces が決めた文（先に聞く）、どちらも無ければ空。⛔ 2026-11-16 まで (入る一言, 質問の文) の2つ組＝会話の側の
+        新しい決める処理は止まった。"""
+        q3, intro = self.APPROVAL_QUESTIONS[3][1], self.APPROVAL_QUESTIONS[3][8]
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        said = "キャンセルは前日までにご連絡いただければ料金はかかりませんのでお気を付けください。"
+        order, asked = [], []
+        p = self.preview(data, decide_announces=lambda pairs: order.append("announce") or [said for _ in pairs],
+                         decide_matters=lambda items: order.append("matter") or asked.append(items) or [("キャンセル", "") for _ in items])
+        self.assertEqual((p.problems, order, asked), ([], ["announce", "matter"], [[(intro, q3, said)]]))
+        # 入口がお知らせの文を書いた質問は、その文を渡す（お知らせの文は聞かない）
+        asked = []
+        raw = dict(p.raw, questions=[{**q, "announce": "入口の文です。" if q["id"] == "Q3" else q.get("announce", ""), "matter": "",
+                                      "matter_clause": ""} for q in p.raw["questions"]])
+        got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], raw,
+                                                   decide_matters=lambda items: asked.append(items) or [("キャンセル", "") for _ in items]))
+        self.assertEqual((got.problems, asked), ([], [[(intro, q3, "入口の文です。")]]))
 
     def test_the_alternatives_items_pass_the_fourth_mark_through(self):
         """CL-1 の連絡帳 4-160：会話の側が並べる (質問の文, 選択肢, 型) に、4つ目「先に並べた文を作るか」（CL-1 の flowctl.leads_fit の1か所）が付きうる。

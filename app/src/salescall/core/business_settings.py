@@ -79,6 +79,7 @@ RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "
                           "N4", "N5", "N6",   # 申し出のシステムの質問（詳しい者からのお話・その方法・締める前の申し出。CL-1 の連絡帳 4-122・4-124）
                           "HC",   # 新しい担当の方に、前の担当の方からお話を聞いているかを伺うシステムの質問（CL-1 の連絡帳 4-141）
                           "E1",   # ほかの会社に頼んでいると言われたときに、解決できない問題・心配事を伺うシステムの質問（CL-1 の 58fb6c7f・伺い25）
+                          "E2",   # E1 で言っていただいた困りごとを深める一言のシステムの質問（CL-1 の連絡帳 4-170 の (5)）
                           "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
@@ -86,6 +87,7 @@ RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "
                           # 台帳から＝target と同じ。CL-1 の連絡帳 4-151 の伺い11）
                           "carried_target",
                           "voicemail", "message", "busy",   # busy＝引き止めの一言の業務の録音の部分（CL-1 の連絡帳 4-75。ai・voicemail・message と同じ）
+                          "summary",   # 営業の要約の業務の録音の部分（手短になら聞くと言われたとき。CL-1 の連絡帳 4-170 の (3)。busy と同じ）
                           # 申し出の業務の録音の部分（申し出の方法を選んでいただく一言・締める前の申し出の文。CL-1 の連絡帳 4-122・4-124）。続きの電話の用件の
                           # 一文 purpose_again_*（4-128）は purpose に「_」を続けた形なので、上の purpose で断られる（`_derived_part_problems`）
                           "offer_which", "close_offer"})
@@ -607,6 +609,10 @@ class Settings:
     # instruction.Business.purpose_noun・業務の録音 purpose_again_*。CL-1 の連絡帳 4-128＝✅ 2026-11-09 日本時間9時48分09秒の (4)）。決めるのは取込のときの
     # 文字の AI 2つ（CL-1 の import_ai.decide_purposes。そろって、文の中の言葉のときだけ。人は確かめない）
     purpose_noun: str = ""
+    # 営業の要約（1〜2文。急いでいるが手短になら聞くと言われたとき「ありがとうございます。」のあとに流す＝会話の側の instruction.Business.summary・業務の録音
+    # summary。空＝用件の一文の録音を流す）。決めるのは取込のときの文字の AI（CL-1 の import_ai.decide_summaries＝形の決まり summaries.fits もそちらの1か所）。
+    # 管理者・契約者は確かめない。✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30。CL-1 の連絡帳 4-170 の (3)(4)）
+    summary: str = ""
     # 方法を申し出の中身に入れる言い方（{こちらがすることの言葉: {方法: その方法を入れた言葉}}。例 {"詳しい者より改めてお話しさせていただきます": {"訪問":
     # "詳しい者がご訪問のうえお話しさせていただきます"}}。空＝無い＝会話の側は「（方法）で」を終わりの動詞の前に入れる今の形）。会話の側の
     # instruction.Business.way_words（CL-1 の連絡帳 4-132＝2026-11-12 まとめ役の (1)）。決めるのは取込のときの文字の AI 2つ（CL-1 の import_ai.decide_way_words。
@@ -640,7 +646,7 @@ KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voic
 POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
 OPTIONAL_KEYS = RESPONSE_KEYS | {"client_does", "goal_mode", "earliest", "answers_off", "offer_ways", "handoff_ways", "close_offer", "purpose_noun",
-                                 "way_words"}   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
+                                 "way_words", "summary"}   # summary＝営業の要約（CL-1 の連絡帳 4-170）   # 無くてもよい項目（書かなければ既定。client_does＝依頼者がすること。
 #                                                                 4-65 の (c)。goal_mode＝最終目的の果たし方。最終目的が2つ以上の業務だけ書く。
 #                                                                 earliest＝最短の日。DAY_SLOT を書いた業務だけ書く。4-71 の (c)。answers_off＝使わない
 #                                                                 標準の想定問答の問いの名前＝業務の上書き。0174。handoff_ways・close_offer・purpose_noun＝
@@ -1175,13 +1181,14 @@ def check(raw: Any, *, standard: Standard, field_types: frozenset[str], ai_readi
         problems.append("営業に引き継ぐ架電（詳しい者からのお話の方法 handoff_ways のある業務）には、締める前の申し出（close_offer）は書きません"
                         "（会話の側は詳しい者からのお話を伺い、締める前の申し出は使いません）")
     purpose_noun = _purpose_noun(raw.get("purpose_noun"), purpose_line, problems)
+    summary = "" if raw.get("summary") in (None, "") else (_text(raw["summary"], "営業の要約（summary）", problems) or "")   # 空＝無い（用件の一文の録音）
     way_words = _way_words(raw.get("way_words"), {*offer_ways, *handoff_ways, *(close_offer.ways if close_offer is not None else ())}, problems)
     problems += _day_slot_problems(raw, earliest is not None or raw.get("earliest") is not None)
     problems += _derived_part_problems(raw)
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
                  **responses, client_does=client_does, goal_mode=goal_mode if goal_mode in GOAL_MODES else None, earliest=earliest,
-                 offer_ways=offer_ways, handoff_ways=handoff_ways, close_offer=close_offer, purpose_noun=purpose_noun, way_words=way_words,
+                 offer_ways=offer_ways, handoff_ways=handoff_ways, close_offer=close_offer, purpose_noun=purpose_noun, way_words=way_words, summary=summary,
                  standard_id=standard.standard_id, standard_answers=from_standard)
     if flowed:
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
