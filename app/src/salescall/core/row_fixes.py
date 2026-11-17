@@ -149,11 +149,17 @@ def back_choices(tx: Tx, task_id: UUID) -> list[dict[str, Any]]:
     データベースの salescall.task_back_periods の1か所（直す入口の確かめ `_back` と守りも同じ）。"""
     if tx.one("SELECT 1 AS x FROM salescall.tasks WHERE task_id = %s", (task_id,)) is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    return [{"back_to": FIRST_PERIOD if p["since"] is None else p["since"].isoformat(), **p} for p in former_periods(tx, task_id)]
+
+
+def former_periods(tx: Tx, task_id: UUID) -> list[dict[str, Any]]:
+    """その行の前の担当の方の期（いまの期は入らない）と、その期のお呼びする方の値（新しく終わった期の順。{since（最初の期は None）, values}）。決めるのは
+    データベースの salescall.task_back_periods・task_person_values の1か所。画面の戻す選び `back_choices` と、取り込み直しの一覧の方の見分け
+    （core/importer._list_owner）が読む。"""
     rows = tx.all("SELECT b.since, " + ", ".join(f"v.{f}" for f in PERSON_FIELDS) +
                   " FROM salescall.task_back_periods(%s) b CROSS JOIN LATERAL salescall.task_person_values(%s, b.since) v"
                   " ORDER BY b.last_until DESC", (task_id, task_id))
-    return [{"back_to": FIRST_PERIOD if r["since"] is None else r["since"].isoformat(), "since": r["since"],
-             "values": {f: r[f] for f in PERSON_FIELDS}} for r in rows]
+    return [{"since": r["since"], "values": {f: r[f] for f in PERSON_FIELDS}} for r in rows]
 
 
 def _back(tx: Tx, task_id: UUID, back_to: str | None, same_person: bool | None) -> str | None:

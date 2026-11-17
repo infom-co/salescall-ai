@@ -3712,3 +3712,10 @@
 {"at": "2026-11-17T14:11:17+09:00", "who": "CL-2", "text": "Next, (4): stop fax numbers too. First I'll check how fax numbers are stored."}
 {"at": "2026-11-17T14:11:27+09:00", "who": "CL-2", "text": "I'll also record fax numbers among the row's numbers (record-only numbers, never dialled). That way the shared stop and re-stop logic covers them as it is."}
 {"at": "2026-11-17T14:12:15+09:00", "who": "CL-2", "text": "(4) is in as well. Next I'll write the design doc and notebook entries for this round, including the request to CL-1 (asking the time for \"後ほど\")."}
+{"at": "2026-11-17T14:13:07+09:00", "who": "CL-2", "text": "I've saved and pushed the changes from your four answers and the fixes found in this round. The full test run has started on the latest code (about an hour and a half). I'll report the results, including anything that fails, when it finishes."}
+{"at": "2026-11-17T15:36:18+09:00", "who": "CL-2", "text": "The full run had failures in 9 tests. I'll check the causes one by one."}
+{"at": "2026-11-17T15:36:38+09:00", "who": "CL-2", "text": "Some failures are expected changes in behavior, and others need investigating. First I'll re-run the failures individually to see whether they depend on the time of day."}
+{"at": "2026-11-17T15:37:49+09:00", "who": "CL-2", "text": "The two time-related failures pass on re-run. They depend on the time of day: both compare against a time near the edge of the calling hours. Next I'll look at the rule-check message."}
+{"at": "2026-11-17T15:37:54+09:00", "who": "CL-2", "text": "`back_choices` is the entry point for the screen, and a rule says only the screen may call it. I'll move the shared part into a function the import may also use."}
+{"at": "2026-11-17T15:44:48+09:00", "who": "CL-2", "text": "The correction-related tests all pass (282). Next, the two remaining failures. Both come from the change to \"decide 'former contact' by the current state\"."}
+{"at": "2026-11-17T15:55:28+09:00", "who": "CL-2", "text": "I'm running the affected tests in the background, including the remaining apology test. I'll check the results as soon as they finish."}

@@ -343,7 +343,8 @@ class CustomerContacts(Base):
                                             (9, "stopped", "contact_invalid")])
         a, b, c = (r["rows"][i]["task_id"] for i in range(3))
         e = normalize
-        self.assertEqual(self.numbers(a), sorted([(e(mobile).e164, "list", "designated"), (e(company).e164, "record", "company")],
+        self.assertEqual(self.numbers(a), sorted([(e(mobile).e164, "list", "designated"), (e(company).e164, "record", "company"),
+                                                  (e(fax).e164, "record", "fax")],   # ファクス番号も記録だけの番号（断ったら止める＝0237）
                                                  key=lambda x: (x[1], x[0])))
         self.assertEqual(self.numbers(b), sorted([(e(rows[1][2]).e164, "list", "company"), (e(mobile2).e164, "record", "mobile")],
                                                  key=lambda x: (x[1], x[0])))

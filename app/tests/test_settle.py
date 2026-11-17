@@ -3752,7 +3752,7 @@ class Corrections(SettleBase):
         self.assertEqual(self.settle(s, b)["state"], "unknown")
         self.correct(s, va, "declined")
         self.assertEqual((self.call_result(s, a), self.call_result(s, b)),
-                         ({"kind": "rejudged", "state": "declined"}, {"kind": "judged", "state": "unknown"}))   # 直しのあとの締め直しの版も直しのまま
+                         ({"kind": "human", "state": "declined"}, {"kind": "judged", "state": "unknown"}))   # 直しは契約者の版1つ（判定の版を足さない）
 
 
 class CompareForm(unittest.TestCase):

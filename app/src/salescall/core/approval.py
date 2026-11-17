@@ -48,7 +48,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import call_report, fix_requests, measure, notify, results, settings, tasks
+from salescall.core import fix_requests, measure, notify, results, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.judge import Irreversible
 
@@ -147,13 +147,11 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
         # 確定しない（保留を、結果を直す道で越えない＝承認・差し戻しで答える。古い画面の版を直して、新しい結果を上書きしない＝0161）
         raise ValueError(f"その版は直して確定できません（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版が"
                          f"ある）：{task_id} の版 {checked_version}")
-    j = judge.corrected(business_state, complaint, detail, base_state=v["business_state"], base_detail=v["detail"])
-    version_no = results.append(tx, task_id, kind="human", business_state=business_state, attempt_id=v["attempt_id"],
-                                judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="契約者",
-                                detail=j.detail)
+    judge.corrected(business_state, complaint, detail, base_state=v["business_state"], base_detail=v["detail"])   # 直しの形を先に確かめる（何も書かない）
+    version_no = settle.follow_correction(tx, v["attempt_id"], {"business_state": business_state, "complaint": complaint,
+                                                                "detail": detail or {}, "snapshot": snapshot})["version_no"]
     _release(tx, task_id, version_no)
     measure.record_check(tx, task_id, checked_version, truth_state=business_state, wrong_items=wrong_items)
-    settle.follow_correction(tx, v["attempt_id"])
     return version_no
 
 
@@ -241,10 +239,7 @@ def _settled(tx: Tx, attempt_id: UUID) -> frozenset[str]:
     契約者に答えを求め直した。"""
     assumed = frozenset(p for r in tx.all("SELECT parts FROM salescall.decision_waits WHERE attempt_id = %s AND checked = %s",
                                           (attempt_id, ASSUMED)) for p in r["parts"])
-    # 契約者がその通話の結果を直した（correct_result）＝その通話の決定は、契約者が決めた（直しのあとの締め直しで、承認を求め直さない。⛔ 2026-11-17 の
-    # 5回目の見直しまで：苦情などへ直した通話を締め直すと、また承認待ちの保留を作った）
-    corrected = frozenset(call_report.DECISION_PARTS) if results.correction_of(tx, attempt_id) is not None else frozenset()
-    return _answered(tx, attempt_id, "confirmed") | assumed | corrected
+    return _answered(tx, attempt_id, "confirmed") | assumed
 
 
 def withdrawn(tx: Tx, attempt_id: UUID) -> frozenset[str]:

@@ -746,17 +746,20 @@ def judged_answer(j: Judgement) -> str:
     return former_answer(j.state, key=j.detail.get("policy_key"), out_of_scope=j.detail.get("out_of_scope"), complaint=j.complaint)
 
 
-def answer_ends_row(tx: Tx, attempt_id: UUID, answer: str) -> bool:
-    """その通話の答え（`former_answer` の種類）で行を終えるか（1か所。締めの処理 core/settle の `_ends_row`・`_after_former`・お詫びの元の
-    通話の `source_ends_row` が読む）。その通話が前の担当の方への通話（tasks.former_person_call の1か所＝通話の担当の期が、締めたときの期と
-    違う。0203）で、その方個人の答え（personal）なら終えない：新しい担当の方へは引き継ぎを確かめる電話をかける（✅ 2026-11-07 ユーザー＝
-    計画書 7-1 (22)(24)。断りで止める番号は同じ1か所を読む core/dnc.refusal_reach）。ほかは、いままでどおり。
-    前の担当の方への通話かは「いま」の期で見る（通話の担当の期が、いまの期でない＝salescall.attempt_in_period(通話, now())。締めたときは、締めたときの
-    期と同じ）：締め直し（取り消せない決定の答え・契約者の直し）が「担当の方は違う」の直しのあとなら、直す前の断りも、新しい担当の方へかける行の
-    答え（7-1 (26)「直す前の断り」＝直したあとの断りとそろえる。`answer_still_ends` と同じ時点）。⛔ 2026-11-17 の5回目の見直しまで：締めたときの
-    期で見て、直したあとの締め直しが、新しい担当の方への予定を「断られた」で終えて上書きした。"""
-    return answer != "personal" or not former_now(tx, attempt_id)
-
+def answer_ends_row(tx: Tx, attempt_id: UUID, answer: str, state: str | None = None) -> bool:
+    """その通話の答え（`former_answer` の種類。state＝その通話の業務の状態）で行を終えるか（1か所。締めの処理 core/settle の `_ends_row`・`_after_former` が読む）：
+    - その方個人の答えでない ⇒ 終える。
+    - その通話が、締めたときに前の担当の方への通話（tasks.former_person_call の1か所＝通話の担当の期が、締めたときの期と違う。0203）⇒ 終えない：新しい担当の方
+      へは引き継ぎを確かめる電話をかける（✅ 2026-11-07 ユーザー＝計画書 7-1 (22)(24)。断りで止める番号は同じ1か所を読む core/dnc.refusal_reach）。
+    - 締めたあとに「担当の方は違う」で直した（いまから見て前の担当の方への通話＝`former_now`。締め直し・契約者の直し）⇒ 直す前の答えで終えた行を直したとき
+      と同じ（`answer_still_ends` と同じ決まり＝7-1 (26)）：「もうかけないで」は終えたまま、ほか（用件の断り・苦情など）は新しい担当の方へ。
+      ⛔ 2026-11-17 の5回目の見直しまで：締めたときの期だけで見て、直したあとの締め直しが、新しい担当の方への予定を「断られた」で終えて上書きした。
+    - ほか ⇒ 終える。"""
+    if answer != "personal":
+        return True
+    if tasks.former_person_call(tx, attempt_id):
+        return False
+    return not former_now(tx, attempt_id) or state == "do_not_call"
 
 def former_now(tx: Tx, attempt_id: UUID) -> bool:
     """その通話が、いまから見て前の担当の方への通話か（通話の担当の期が、いまの期でない＝salescall.attempt_in_period(通話, now()) の1か所）。
@@ -808,7 +811,7 @@ def source_ends_row(tx: Tx, src: dict[str, Any] | None) -> bool:
 
 
 def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None, *, attempt_id: UUID | None = None,
-                  answer: str | None = None, apology: bool = False, kept: bool = False, reached: bool = False,
+                  answer: str | None = None, state: str | None = None, apology: bool = False, kept: bool = False, reached: bool = False,
                   now: datetime) -> Decision:
     """前の担当の方への通話（tasks.former_person_call の1か所）のあと・前の担当の方の期の予定（row の期が、いまの期と違う）を門が止めたあとの決定（d＝同じ方の
     ときの決まりで決めたもの）を、行を終えずに新しい担当の方への形（`_to_new_person`）にするか（1か所。通話のあと＝`after_call`・お詫びの電話のあと＝
@@ -836,7 +839,7 @@ def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None
     elif answer is not None or apology or row is None or row["kind"] != "call" or row["person_since"] == person_now(tx, task_id):
         return d   # 通話が無い（門のあとでない）・門のあと：止めた予定が、いまの担当の方の期の予定
     if d.kind == "end":
-        own = apology or (answer is not None and d.end_reason in _PERSONAL_ENDS and not answer_ends_row(tx, attempt_id, answer))
+        own = apology or (answer is not None and d.end_reason in _PERSONAL_ENDS and not answer_ends_row(tx, attempt_id, answer, state))
         used = _count_end(tx, task_id, d.end_reason) or d.end_reason in NUMBER_ENDS
         if not (own or used):
             return d
@@ -1915,7 +1918,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
         d = replace(d, former_promise=True)
     # 前の担当の方への通話のあと：その方個人の答え・その方への用を使い切った・「守る」約束でその方と話した ⇒ 行を終えず、新しい担当の方へ
     # （`_after_former` の1か所。計画書 7-1 (22)(24)(32)。番号の直しの「前の番号へは1回」＝`_moved_on_fix` より先に決める）
-    d = _after_former(tx, task_id, d, dialed_row, attempt_id=attempt_id, answer=judged_answer(j),
+    d = _after_former(tx, task_id, d, dialed_row, attempt_id=attempt_id, answer=judged_answer(j), state=j.state,
                       kept=kept_old, reached=reached_target, now=now)
     d = _moved_on_fix(tx, task_id, d, dialed_row, was_replaced, now=now)   # 前の番号でかからなかった ⇒ いまかける番号で
     _write(tx, task_id, d, after=attempt_id)

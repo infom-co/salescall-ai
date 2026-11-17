@@ -90,7 +90,7 @@ def _same(tx: Tx, a: str | None, b: str | None) -> bool:
 
 def _list_owner(tx: Tx, task_id: UUID, found: dict[str, Any]) -> str | None:
     """取り込み直しで登録済みの行に足す番号・連絡先の持ち主の期（1か所）：お呼びする方が「別の方に替わった」で直した行で、一覧のお呼びする方（書いてある
-    欄だけ）が、いまの方と同じなら None（いまの担当の方）、前の担当の方のどなたかと同じなら、その方の期（期の一覧は row_fixes.back_choices の1か所。
+    欄だけ）が、いまの方と同じなら None（いまの担当の方）、前の担当の方のどなたかと同じなら、その方の期（期の一覧は row_fixes.former_periods の1か所。
     その期の値はデータベースの salescall.task_person_values の1か所）、どなたとも違えば最初の担当の方の期（`FIRST_PERIOD`。いまの方へのご案内には
     使わない側）。比べ方は表記をそろえた形（`_same`）。
     ✅ 2026-11-16 ユーザー「前の方の連絡先として残す（お勧め）」（0230。会話の側へ渡す・SMS のご招待には使わない＝customer_contacts.by_role）。
@@ -102,7 +102,7 @@ def _list_owner(tx: Tx, task_id: UUID, found: dict[str, Any]) -> str | None:
     now = tx.one("SELECT * FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
     if all(_same(tx, v, now[theirs]) for theirs, v in given):
         return None
-    for b in row_fixes.back_choices(tx, task_id):   # 新しく終わった期の順
+    for b in row_fixes.former_periods(tx, task_id):   # 新しく終わった期の順
         if all(_same(tx, v, b["values"][theirs]) for theirs, v in given):
             return FIRST_PERIOD if b["since"] is None else b["since"].isoformat()
     return FIRST_PERIOD
