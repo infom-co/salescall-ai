@@ -2060,6 +2060,7 @@ class NameLedger(Content):
         bases = ("callback_deepen_measures", "callback_deepen_ahead", "callback_brief")
         self.assertLessEqual({"brief_go"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")}, set(recordings.COMMON_PARTS))
         self.assertNotIn("deepen_ahead", recordings.COMMON_PARTS)
+        self.assertIn("call_again_taken", recordings.COMMON_PARTS)   # 4-175：かけ直しの伺いに「はい」をいただいて締めるときの言い切り
 
     def test_the_parts_cl1_added_on_11_07_are_received(self):
         """CL-1 の連絡帳 4-106〜4-110（✅ 2026-11-07 3時14分01秒・4時40分35秒・13時05分06秒・18時03分49秒 ユーザー）の共通の一言の録音は、
