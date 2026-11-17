@@ -160,8 +160,9 @@ HOW_OF["announce_recheck"] = "question"
 HOW_OF["message_again"] = "question"
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
-# こちらがかけ直す申し出を受けていただいて、そのまま締めるときの言い切り（phrases.CALL_AGAIN_DONE「後ほど改めてお掛けいたしますね。」＝flowctl.taken_line）：確かに
-# することを言う一言＝申し伝える一言と同じ読み方（業務の申し出の質問の言い切り「（番号）_taken」も同じ＝script_table）。✅ 2026-11-17 日本時間2時14分44秒「伺い37はイでOK」
+# こちらがかけ直す申し出（C7・P1・H1・H3）を受けていただき、かけ直す時刻を伺えないまま締めるときの言い切り（phrases.CALL_AGAIN_DONE「また改めてお掛け
+# いたしますね。」＝flowctl.taken_line）：確かにすることを言う一言＝申し伝える一言と同じ読み方（業務の申し出の質問の言い切り「（番号）_taken」も同じ＝script_table）。
+# ✅ 2026-11-17 日本時間2時14分44秒「伺い37はイでOK」・✅ 2026-11-18 日本時間3時31分56秒「伺い39 ア」（文が「後ほど…」から替わった＝録り直し）
 from phrases import CALL_AGAIN_TAKEN  # noqa: E402
 HOW_OF[CALL_AGAIN_TAKEN] = "own_fallback"
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
