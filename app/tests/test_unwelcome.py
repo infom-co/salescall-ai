@@ -559,6 +559,19 @@ class MonthAhead(SettleBase):
                 self.assertIsNone(self.asking(s))
                 self.assertEqual(self.notices(s, "month_ahead_approval"), [])
 
+    def test_a_monthly_round_goes_to_another_day_even_when_the_policy_allows_one_call(self):
+        """時刻の決まっていない約束の方針の回数が1回の業務でも、「月末なら」などの回に話せなければ、次の回（1か月以上先）へは回さずに別の日に（範囲の中の
+        回数と別の日の回数は別々に数える＝✅ 2026-11-13 ユーザー「いまの作り（ア）のまま」。1か月以上先の決まりは、範囲の中の回数の上限より先に決める）。
+        ⛔ 2026-11-17 の5回目の見直しまで：範囲の中の1回で上限に届き、別の日に1本もかけずに行を終えた。"""
+        once = rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}}
+                                for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")})
+        words, first, last, repeat = self.monthly_rounds()[0]
+        s = self.ready(rules=once)
+        with mock.patch.object(next_action, "_missed", return_value=False):   # 試験：その回に1本かけて話せなかった（かけた回＝1＝方針の回数）
+            w, d, p = self.passed(s, first(s), last(s), repeat)
+        self.assertEqual((d.kind, d.promised, d.window), ("call", True, None), words)
+        self.assertIn("1か月以上先のため、次の回へは回さずに別の日に", d.rule)
+
     def test_a_weekly_round_unanswered_goes_to_the_next_week_as_before(self):
         """(4)「金曜なら」（週ごとの理由）の回に話せないまま過ぎた ⇒ いまどおり次の金曜（1か月より手前）。業務の設定に関係なく、伺わない。"""
         for setting in (None, "with_approval"):

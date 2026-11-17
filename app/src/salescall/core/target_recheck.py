@@ -24,7 +24,7 @@ from salescall.core.access import Tx
 
 Outcome = Literal["target", "not_target", "cannot_check"]
 OUTCOMES = ("target", "not_target", "cannot_check")
-UNCONFIRMED = tuple(o for o in OUTCOMES if o != "target")   # 目的のお客様だと確かめられなかった（target 以外。使う答えの1か所 conversation_io._in_force も読む）
+UNCONFIRMED = tuple(o for o in OUTCOMES if o != "target")   # 目的のお客様だと確かめられなかった（target 以外。決めるのはデータベースの salescall.call_unconfirmed の1か所＝0234）
 
 
 class RecheckInvalid(Exception):
@@ -71,5 +71,6 @@ def load(tx: Tx, attempt_id: UUID) -> str | None:
 
 
 def unconfirmed(tx: Tx, attempt_id: UUID) -> bool:
-    """確かめ直して、目的のお客様だと確かめられなかった通話か（別の方だった・確かめられなかった）。"""
-    return load(tx, attempt_id) in UNCONFIRMED
+    """確かめ直して、目的のお客様だと確かめられなかった通話か（別の方だった・確かめられなかった）。決めるのはデータベースの1か所
+    salescall.call_unconfirmed（使う答え conversation_io._in_force・いまの連絡先・解決策を求める点・携帯の番号も同じものを読む＝0234）。"""
+    return tx.one("SELECT salescall.call_unconfirmed(%s) AS u", (attempt_id,))["u"]

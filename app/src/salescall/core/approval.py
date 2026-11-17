@@ -48,7 +48,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import fix_requests, measure, notify, results, settings, tasks
+from salescall.core import call_report, fix_requests, measure, notify, results, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.judge import Irreversible
 
@@ -153,7 +153,7 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
                                 detail=j.detail)
     _release(tx, task_id, version_no)
     measure.record_check(tx, task_id, checked_version, truth_state=business_state, wrong_items=wrong_items)
-    settle.follow_correction(tx, v["attempt_id"], j, base=v)
+    settle.follow_correction(tx, v["attempt_id"])
     return version_no
 
 
@@ -241,7 +241,10 @@ def _settled(tx: Tx, attempt_id: UUID) -> frozenset[str]:
     契約者に答えを求め直した。"""
     assumed = frozenset(p for r in tx.all("SELECT parts FROM salescall.decision_waits WHERE attempt_id = %s AND checked = %s",
                                           (attempt_id, ASSUMED)) for p in r["parts"])
-    return _answered(tx, attempt_id, "confirmed") | assumed
+    # 契約者がその通話の結果を直した（correct_result）＝その通話の決定は、契約者が決めた（直しのあとの締め直しで、承認を求め直さない。⛔ 2026-11-17 の
+    # 5回目の見直しまで：苦情などへ直した通話を締め直すと、また承認待ちの保留を作った）
+    corrected = frozenset(call_report.DECISION_PARTS) if results.correction_of(tx, attempt_id) is not None else frozenset()
+    return _answered(tx, attempt_id, "confirmed") | assumed | corrected
 
 
 def withdrawn(tx: Tx, attempt_id: UUID) -> frozenset[str]:

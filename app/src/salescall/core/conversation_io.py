@@ -380,16 +380,15 @@ def _in_force(tx: Tx, task_id: UUID, *, call: UUID | None = None, including: boo
       （`_dropped_by_carried`＝引き継がなければ、それより前の答え全部・引き継いだら dropped の質問）を外し、残った答えをその方の答えにし（引き継いだ）、
       その通話の答えを入れ、その期の答えごとに、
       その通話のその質問の事実（ほかのご希望・ご納得いただけなかった点・業務の申し出）を最後のものにする。目的のお客様だと確かめられなかった通話
-      （target_recheck.UNCONFIRMED）は、何も入れず何も外さない（別の方の答え・確かめていない答えを使わない）。
+      （データベースの salescall.call_unconfirmed の1か所）は、何も入れず何も外さない（別の方の答え・確かめていない答えを使わない）。
     call＝その通話の期の答えを、その通話より前の通話（including が真なら、その通話まで）だけをたどって返す（その通話を始めたときに会話へ渡す答え＝
     `earlier`・その通話の判定の材料＝`answers`。あとで締め直しても、もとの判定と同じ答え）。無ければ、いまの期（salescall.task_person_since）の、いままでの
     すべての通話からの答え。
     ⛔ 0108〜0230：答えは行と質問ごとに1つで、あとの通話が上書きした（前の担当の方に戻しても答えが戻らない・判定の材料に、新しい担当の方が
     引き継いでいないと答えた前の方の答えや、ほかの方の答えが入った）。"""
     calls = tx.all("SELECT a.attempt_id, a.claimed_at, a.person_since,"
-                   "       EXISTS (SELECT 1 FROM salescall.target_rechecks x WHERE x.attempt_id = a.attempt_id AND x.outcome = ANY(%s)) AS unconfirmed"
-                   " FROM salescall.attempts a WHERE a.task_id = %s ORDER BY a.claimed_at, a.attempt_id",
-                   (list(target_recheck.UNCONFIRMED), task_id))
+                   "       salescall.call_unconfirmed(a.attempt_id) AS unconfirmed"
+                   " FROM salescall.attempts a WHERE a.task_id = %s ORDER BY a.claimed_at, a.attempt_id", (task_id,))
     if call is not None:
         at = next((i for i, c in enumerate(calls) if c["attempt_id"] == call), None)
         period = None if at is None else calls[at]["person_since"]

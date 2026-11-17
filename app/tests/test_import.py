@@ -375,6 +375,8 @@ class CustomerContacts(Base):
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task))["mobile"], normalize("090-0000-0192").e164)
         self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=False))   # 担当の方は違う（鈴木様）
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task)), {})                 # 前の担当の方の連絡先は渡さない
+        # 画面のいまの連絡先も、会話へ渡すものと同じ1か所（見方 task_contacts_now。0234。⛔ それまで：前の担当の方のメールを画面ではいまのメールとして出した）
+        self.assertEqual(self.tx(lambda tx: customer_contacts.now(tx, task))["contacts"], [])
         self.tx(lambda tx: customer_contacts.add(tx, task, "email", "suzuki@example.com", origin="dashboard"))
         self.tx(lambda tx: customer_contacts.add_number(tx, task, normalize("090-0000-0193"), "mobile", origin="list"))
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task)),
@@ -546,6 +548,10 @@ class Targets(Base):
         self.register(data, mapping=self.MAP, run=run)
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT target_name FROM salescall.tasks_now WHERE task_id = %s", (task,)))["target_name"],
                          "佐藤")                                                               # 行は変えない
+        fixed = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))   # かける番号をダッシュボードで直した
+        _, plan = self.preview(data, self.MAP, run=run)
+        self.assertIn("かける番号は、ダッシュボードで直した番号のままです", plan.rows[0].reason)    # 一覧の番号との違いも出す（5回目の見直し）
+        self.assertEqual(plan.rows[0].task_id, task)
 
     def test_a_reimport_keeps_the_list_contacts_as_the_former_persons_when_the_person_was_changed(self):
         """✅ 2026-11-16 ユーザー「前の方の連絡先として残す（お勧め）」：お呼びする方を「別の方に替わった」で直した行に、一覧の方（名前が、いまの方と違う）の
@@ -569,6 +575,11 @@ class Targets(Base):
         self.register(mine, mapping=mapping, run=run)                             # 一覧の名前がいまの方と同じ＝いまの方のもの
         self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task)),
                          {"email": "sato@example.com", "mobile": normalize("090-0000-0195").e164})
+        # 表記の揺れだけの違い（全角の空白）は同じ方（行の直しと同じ比べ方＝salescall.compare_form。⛔ 2026-11-17 の5回目の見直しまで：文字のまま比べ、
+        # 前の担当の方の連絡先にした）
+        spaced = csv_file([("A", "架空商事", phone, "佐　藤", "さとう", "部長", None, "sato2@example.com")], header=header)
+        self.register(spaced, mapping=mapping, run=run)
+        self.assertEqual(self.tx(lambda tx: conversation_io.known_contacts(tx, task))["email"], "sato2@example.com")
 
     def test_a_business_that_calls_by_name_needs_the_name_and_its_reading(self):
         _, run = self.run_with({"kind": "name", "role": None})

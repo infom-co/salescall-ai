@@ -30,6 +30,7 @@ from salescall.core import approval, attempts
 from salescall.core.access import Tx
 
 LEVELS = ("call", "exclude", "force")   # かける・かけない・強制かけない
+LEVEL_NAMES = {"call": "かける", "exclude": "かけない", "force": "強制かけない"}   # 画面・取込のプレビューに出す名前
 # 「かけない」の列の値（文字の形をそろえ、大文字・小文字を区別しない形で比べる）。空はかける
 FORCE = frozenset({"強制かけない", "強制"})
 YES = frozenset({"かけない", "除外", "はい", "1", "true", "○", "◯", "●", "✓", "✔", "レ", "x", "×", "✕", "✖"})

@@ -253,7 +253,7 @@ def corrected(state: str, complaint: bool, detail: dict[str, Any] | None, *, bas
               base_detail: dict[str, Any]) -> Judgement:
     """契約者の直し（業務の状態・苦情・中身）を、その通話の判定として読む（1か所）：同じ状態への直し（苦情の印・中身だけ）は、もとの判定の中身に直しの
     中身を重ねる。状態を替えた直しは、直しの中身と、もとの判定の切れ方・確かめ直しだけ。次にいつかけるかの鍵（policy_key）は、未決・必須項目不足なら
-    その状態の名前。目的のお客様に繋がらなかった・折り返し予定へ直すなら、直しの中身に policy_key か callback が要る（どの理由・いつかけるかは
+    その状態の名前。目的のお客様に繋がらなかったへ直すなら policy_key、折り返し予定へ直すなら callback が要る（どの理由・いつかけるかは
     契約者が決める＝こちらで推し量らない）。「もうかけないで」への直しは、発信禁止に登録する（refused_in_call。自動では取り消さない＝もとが
     「もうかけないで」なら登録し直さない）。"""
     if state not in CORRECTABLE_STATES:
@@ -262,8 +262,10 @@ def corrected(state: str, complaint: bool, detail: dict[str, Any] | None, *, bas
     out = {**base_detail, **given} if state == base_state else {**{k: base_detail[k] for k in _CORRECTION_KEEPS if k in base_detail}, **given}
     if state in ("open", "incomplete"):
         out.setdefault("policy_key", state)
-    elif state in ("not_reached", "callback_scheduled") and not (out.get("policy_key") or out.get("callback")):
-        raise ValueError(f"「{state}」に直すときは、次にいつかけるかの中身（policy_key か callback）も要ります")
+    elif state == "not_reached" and not out.get("policy_key"):
+        raise ValueError("「目的のお客様に繋がらなかった」に直すときは、どの理由の方針でかけ直すか（policy_key）も要ります")
+    elif state == "callback_scheduled" and not isinstance(out.get("callback"), dict):
+        raise ValueError("「折り返し予定」に直すときは、いつかけるか（callback）も要ります")
     return Judgement(state, complaint, None, "refused_in_call" if state == "do_not_call" and base_state != "do_not_call" else None, out)
 
 

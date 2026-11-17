@@ -32,7 +32,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 from uuid import UUID
 
@@ -429,12 +428,12 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     inp, report_source, dialed = _judge_input(tx, a, rules_version)
     report, rules, items = inp.report, inp.rules, inp.items
     j = judge(inp)
-    # 契約者がこの通話の結果を直していれば、締め直しても直しのまま（直しが通話の結果＝✅ 2026-11-16 ユーザー「直しに従う」。直したときに発信禁止は
-    # 登録済み＝ここでは登録し直さない。発信禁止を依頼者の正式な求めで取り消したあとも、取り消したものを戻さない）
+    # 契約者がこの通話の結果を直していれば、その直しが通話の結果（✅ 2026-11-16 ユーザー「直しに従う」。直したときも、締め直しても、同じこの1か所。
+    # 発信禁止の登録は、すでにあれば台帳は同じまま＝dnc._put）
     corr = results.correction_of(tx, attempt_id)
-    if corr is not None:
-        j = replace(corrected(corr["business_state"], corr["complaint"], corr["detail"], base_state=j.state, base_detail=j.detail),
-                    dnc_reason=None)
+    if corr is not None and not (corr["business_state"] == "do_not_call" and "refusal" in approval.withdrawn(tx, attempt_id)):
+        # 「もうかけないで」への直しのあと、依頼者の正式な求めで発信禁止を取り消したら、取り消しが勝つ（2026-10-30 (7)。直しを読まない）
+        j = corrected(corr["business_state"], corr["complaint"], corr["detail"], base_state=j.state, base_detail=j.detail)
     decided = j.state != "unknown"
     # 取り消せない決定（断り・番号違い・怒っていた）を、その場で決めるか、決まるまで保留にするか（判定の1か所 judge.irreversible と、
     # 承認の部分の1か所 approval.decision_wait。2026-10-30 管理者のご決定 (6)）
@@ -531,28 +530,13 @@ def _decide(tx: Tx, a: dict[str, Any], j: Judgement, *, rules: Any, alternate: A
     return decision
 
 
-def follow_correction(tx: Tx, attempt_id: UUID, j: Judgement, *, base: dict[str, Any]) -> Any:
-    """契約者がその通話の結果を直した（approval.correct_result の1か所が呼ぶ。✅ 2026-11-16 ユーザー「直しに従う（お勧め）」）：直した結果（j＝
-    judge.corrected）に従って、ふつうの締めと同じ道で発信禁止・苦情の知らせ・行の次の動きを書く。base＝直したシステムの判定の版。
-    この通話のあとに同じ行で発信していれば、行の予定は、あとの発信の締めが決める（`_judge_and_write` と同じ決まり。断り・怒っていたで行を終える
-    直しは除く＝`_ends_row`）。もとの判定で行を終えていて、直しで終えなくなったら、いちばん新しい通話を締め直す（`resettle` と同じ）。
-    言ってはいけないことのお詫びの印・途中で切れた印・目的のお客様と話せたかは、もとの締めのまま。"""
-    a = _attempt(tx, attempt_id)
-    if j.dnc_reason is not None:
-        dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
-    if j.complaint and not base["complaint"]:
-        notify.emit(tx, "complaint", key=f"complaint:{attempt_id}", summary="苦情があった通話がありました。",
-                    refs={"attempt_id": attempt_id, "task_id": a["task_id"]})
-    if _later_dial(tx, a) and not _ends_row(tx, a, j.state, j.complaint, False):
-        if _ends(tx, a, base):
-            _resettle_last(tx, a)
-        return None
-    snap = base["snapshot"]
-    return _decide(tx, a, j, rules=business_rules.load(tx, UUID(snap["rules_version"])), alternate=None, recheck=None,
-                   forbidden=bool(snap.get("forbidden")), cut_off=bool(a["cut_off"]),
-                   reached_target=bool(tx.one("SELECT reached_target FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["reached_target"]),
-                   waiting=None, apology_delivered=False)
-
+def follow_correction(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
+    """契約者がその通話の結果を直した（approval.correct_result の1か所が呼ぶ。✅ 2026-11-16 ユーザー「直しに従う（お勧め）」）：ふつうの締め直しと
+    同じ1つの道（`resettle`）で締め直す。判定は直しを通話の結果として読み（`_judge_and_write`＝judge.corrected の1か所）、発信禁止・苦情の知らせ・
+    行の次の動き・別の番号の材料・言ってはいけないことのお詫びの印・あとの発信の扱いは、締めがいつも読む材料のまま決まる。
+    ⛔ 2026-11-17 の5回目の見直しまで：締めとは別の道で次の動きだけを書き直し、別の番号へのかけ直しの直しで落ち・お詫びを伝えた印を落とし・
+    言ってはいけないことの印を締めと別の値から読んでいた（同じ判断が2か所）。"""
+    return resettle(tx, attempt_id)
 
 def _ends_row(tx: Tx, a: dict[str, Any], state: str, complaint: bool, waiting: bool) -> bool:
     """この通話の決定で、あとに発信のある行を終えるか（1か所。締め・締め直しが読む）：断り・怒っていたが決まり（保留でない）、あとでお客様と

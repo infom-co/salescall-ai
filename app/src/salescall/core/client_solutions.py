@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_import, business_settings, call_report, notify
+from salescall.core import business_import, business_settings, call_report, notify, target_recheck
 from salescall.core.access import Tx
 from salescall.core.readings import NameFinder
 
@@ -72,11 +72,12 @@ def points(tx: Tx, attempt_id: UUID) -> list[dict[str, Any]]:
     入れない（⛔ 2026-11-06 の見直し (C) の2：申し伝える一言まで言って切れた電話の続きで申し伝え直した点＝CL-1 の連絡帳 4-99 の
     outcome unresolved・told が、前の通話と2回、解決策を求める点になった。点は文字の形をそろえて比べる＝readings の NFKC と同じ）。"""
     report = call_report.load(tx, attempt_id)
-    if report is None:
+    if report is None or target_recheck.unconfirmed(tx, attempt_id):   # 目的のお客様だと確かめられなかった通話の点は使わない（0234・DESIGN.md 7-1e）
         return []
     asked = set()
     for e in tx.all("SELECT e.attempt_id FROM salescall.attempts a JOIN salescall.attempts e ON e.task_id = a.task_id"
-                    " WHERE a.attempt_id = %s AND (e.claimed_at, e.attempt_id) < (a.claimed_at, a.attempt_id)", (attempt_id,)):
+                    " WHERE a.attempt_id = %s AND (e.claimed_at, e.attempt_id) < (a.claimed_at, a.attempt_id)"
+                    "   AND NOT salescall.call_unconfirmed(e.attempt_id)", (attempt_id,)):
         before = call_report.load(tx, e["attempt_id"])
         asked |= {(n.question, unicodedata.normalize("NFKC", _point_text(n))) for n in (before.not_agreed if before else ())
                   if n.explained is False and _point_text(n)}

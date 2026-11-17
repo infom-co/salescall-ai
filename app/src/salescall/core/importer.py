@@ -44,7 +44,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import (approval, business_settings, contacts, customer_contacts, exclusions, import_columns, next_action,
-                            readings, target_policy)
+                            readings, row_fixes, target_policy, tasks)
 from salescall.core.access import Tx
 from salescall.core.import_columns import ImportRejected
 from salescall.core.import_files import Cell, Sheet
@@ -77,18 +77,35 @@ _COMPARED = (("name", "source_name"), ("person_name", "target_name"), ("person_r
 
 
 FIRST_PERIOD = "-infinity"   # 最初の担当の方の期（データベースの salescall.back_period と同じ値）
-_PERSON_COMPARED = (("person_name", "target_name"), ("person_full_name", "target_full_name"))   # 一覧の方がいまの方かを見る欄
+# 一覧の方がどの担当の方かを見る欄（一覧の欄, 行の欄）：お呼びする方が替わる欄のすべて（名前・フルネーム・役職・部署＝row_fixes.PERSON_FIELDS と同じ。
+# 計画書 7-1 (19)「名前・役職・部署を直したときは違う相手」）
+_PERSON_COMPARED = (("person_name", "target_name"), ("person_full_name", "target_full_name"), ("person_role", "target_role"),
+                    ("person_department", "target_department"))
+
+
+def _same(tx: Tx, a: str | None, b: str | None) -> bool:
+    """2つの値が同じか（表記をそろえて比べる1か所＝データベースの salescall.compare_form。行の直しの salescall.person_fix_differs と同じ比べ方）。"""
+    return tx.one("SELECT salescall.compare_form(%s) IS NOT DISTINCT FROM salescall.compare_form(%s) AS s", (a, b))["s"]
 
 
 def _list_owner(tx: Tx, task_id: UUID, found: dict[str, Any]) -> str | None:
-    """取り込み直しで登録済みの行に足す番号・連絡先の持ち主の期（1か所）：お呼びする方が「別の方に替わった」で直した行で、一覧のお呼びする方の名前
-    （名前・フルネームの書いてある欄）が、いまの方と違えば、一覧の方＝最初の担当の方の期（`FIRST_PERIOD`）。ほかは None（いまの担当の方）。
-    ✅ 2026-11-16 ユーザー「前の方の連絡先として残す（お勧め）」（0230。会話の側へ渡す・SMS のご招待には使わない＝customer_contacts.by_role）。"""
+    """取り込み直しで登録済みの行に足す番号・連絡先の持ち主の期（1か所）：お呼びする方が「別の方に替わった」で直した行で、一覧のお呼びする方（書いてある
+    欄だけ）が、いまの方と同じなら None（いまの担当の方）、前の担当の方のどなたかと同じなら、その方の期（期の一覧は row_fixes.back_choices の1か所。
+    その期の値はデータベースの salescall.task_person_values の1か所）、どなたとも違えば最初の担当の方の期（`FIRST_PERIOD`。いまの方へのご案内には
+    使わない側）。比べ方は表記をそろえた形（`_same`）。
+    ✅ 2026-11-16 ユーザー「前の方の連絡先として残す（お勧め）」（0230。会話の側へ渡す・SMS のご招待には使わない＝customer_contacts.by_role）。
+    ⛔ 2026-11-17 の5回目の見直しまで：名前・フルネームだけを、文字のまま比べた＝役職・部署で「違う方」に直した行の一覧の連絡先をいまの方のものにし、
+    空白の違いだけで「違う方」とし、3人目のときも、いつも最初の方の期にした。"""
     if next_action.person_now(tx, task_id) is None:
         return None
+    given = [(theirs, found[mine]) for mine, theirs in _PERSON_COMPARED if found.get(mine)]
     now = tx.one("SELECT * FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
-    differs = [mine for mine, theirs in _PERSON_COMPARED if found[mine] and found[mine] != now[theirs]]
-    return FIRST_PERIOD if differs else None
+    if all(_same(tx, v, now[theirs]) for theirs, v in given):
+        return None
+    for b in row_fixes.back_choices(tx, task_id):   # 新しく終わった期の順
+        if all(_same(tx, v, b["values"][theirs]) for theirs, v in given):
+            return FIRST_PERIOD if b["since"] is None else b["since"].isoformat()
+    return FIRST_PERIOD
 
 
 def _changes_note(tx: Tx, task_id: UUID, found: dict[str, Any], columns: dict[str, str]) -> str:
@@ -98,7 +115,7 @@ def _changes_note(tx: Tx, task_id: UUID, found: dict[str, Any], columns: dict[st
     データベースの salescall.task_person_since）。違いを読む行の値は、行のいまの値の1か所（tasks_now）。"""
     now = tx.one("SELECT * FROM salescall.tasks_now WHERE task_id = %s", (task_id,))
     diffs = [f"{columns[mine]}（一覧：{found[mine] or '空'}／いま：{now[theirs] or '空'}）"
-             for mine, theirs in _COMPARED if mine in columns and (found[mine] or None) != (now[theirs] or None)]   # 一覧に無い欄は比べない
+             for mine, theirs in _COMPARED if mine in columns and not _same(tx, found[mine] or None, now[theirs] or None)]   # 一覧に無い欄は比べない
     since = next_action.person_now(tx, task_id)
     out = f"（一覧と違う所。行は変えません：{'・'.join(diffs)}）" if diffs else ""
     if since is not None:
@@ -394,10 +411,18 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             and (ref is None or ref not in taken_ref)
         # 行へかけない理由（かける番号の理由・ほかの番号のお客様の側の理由＝門と同じ1か所 target_policy.row_block_reason。そのお客様が
         # 断っていれば、どの番号でかけても同じお客様＝原則14）。登録済みの行は、その行そのものの通話を数えない（門と同じ＝task_id）
-        blocked = target_policy.row_block_reason(tx, number, [x for x, _ in records], task_id=existing["task_id"] if same_row else None, **scope)
         if same_row:
-            have = customer_contacts.now(tx, existing["task_id"])
-            known = {n["phone"] for n in have["numbers"]}
+            # 登録済みの行：門と同じ1か所（target_policy.task_block_reason＝いまかける番号と、その番号と同じ方の番号で見る。⛔ 2026-11-17 の5回目の見直しまで：
+            # 一覧の番号で見て、ダッシュボードで番号・担当の方を直した行では、プレビューの答えと門の答えが違いえた）
+            dial = tasks.dial_number(tx, existing["task_id"])["phone_e164"]
+            owner = _list_owner(tx, existing["task_id"], found)
+            known = {n["phone"] for n in customer_contacts.now(tx, existing["task_id"])["numbers"]}
+            adding = [x for x, _ in records if x.e164 not in known] if owner is None else []   # 足すと、いまの方の番号になる番号（門が見る）
+            blocked = target_policy.task_block_reason(tx, existing["task_id"], normalize(dial), **scope) \
+                or (target_policy.row_block_reason(tx, normalize(dial), adding, task_id=existing["task_id"], **scope) if adding else None)
+        else:
+            blocked = target_policy.row_block_reason(tx, number, [x for x, _ in records], task_id=None, **scope)
+        if same_row:
             ever = customer_contacts.ever(tx, existing["task_id"])   # 一度でも記録した値（いまの値とだけ比べると、言い直した連絡先を前の値で戻す）
             new_records = tuple((x, label) for x, label in records if x.e164 not in known)   # 番号は消さずに残る＝いまの番号がすべての記録
             new_values = tuple(v for v in found["contact_values"]
@@ -405,13 +430,19 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             added = [title(fields[x.e164]) for x, _ in new_records] + [title({kind: f for f, kind in _CONTACT_FIELDS.items()}[k]) for k, _, _ in new_values]
             note = "この実施回に、もう登録されています" + (f"（一覧で増えた連絡先を足します：{'・'.join(added)}）" if added else "") \
                 + _changes_note(tx, existing["task_id"], found, {f: title(f) for f, _ in _COMPARED if f in cols})
+            if dial != number.e164:   # ダッシュボードで直した、かける番号（行は変えない＝直したあとはダッシュボードが正）
+                note += f"（かける番号は、ダッシュボードで直した番号のままです：一覧 {number.e164}／いま {dial}）"
+            now_level = exclusions.level(tx, existing["task_id"])
+            if exclusions.LEVELS.index(found["exclusion"]) > exclusions.LEVELS.index(now_level):   # 取込は印を強めるだけ（exclusions.mark）
+                note += f"（一覧の「かけない」の列で、この行を「{exclusions.LEVEL_NAMES[found['exclusion']]}」にします。いまは"\
+                        f"「{exclusions.LEVEL_NAMES[now_level]}」）"
             if bad_record is not None:
                 note += f"（{bad_record[1]}。その番号は足しません）"
             if blocked is not None:
                 note += f"（{blocked[1]}。この行には、門がかけません）"
             rows.append(RowPlan(row.row_no, "already", "already_in_run", note, task_id=existing["task_id"],
                                 **dict(found, record_numbers=new_records, contact_values=new_values,
-                                       owner_period=_list_owner(tx, existing["task_id"], found))))
+                                       owner_period=owner)))
             taken_number[number.e164] = row.row_no
             if ref is not None:
                 taken_ref[ref] = row.row_no

@@ -427,19 +427,25 @@ def _revoke(tx: Tx, entry_ids: list[UUID], reason: str) -> dict[str, Any]:
         if parts:
             approval.withdraw_revoked(tx, source, parts, reason)
             resettled.append(source)
-    _restop(tx, rows)
+    restop(tx, sorted({r["phone_e164"] for r in rows if r["phone_e164"] is not None}),
+           sorted({r["client_ref"] for r in rows if r["client_ref"] is not None}))
     reopened = next_action.reopen_revoked(tx, cause=f"発信禁止の取り消し（{reason}）：終える前の予定に戻す")
     return {"revoked": [r["entry_id"] for r in rows], "resettled": resettled, "reopened": reopened}
 
 
-def _restop(tx: Tx, rows: list[dict[str, Any]]) -> None:
-    """取り消した番号・管理番号を、止める範囲に持つ、まだ有効なほかの決定（ほかの通話の断り・依頼者の一覧）で止め直す（1か所。見直し24a の
+def restop(tx: Tx, numbers: list[str], refs: list[str]) -> None:
+    """その番号・管理番号を、止める範囲に持つ、まだ有効な決定（通話の断り・依頼者の一覧）で止め直す（1か所。止める範囲は `stop_set` の1か所＝
+    いまの行の番号から求め直す）。呼ぶのは2つ：
+    (1) 行に番号を足したとき（core/tasks.add_callee_number・add_record_number＝行に番号を足すのはこの2つだけ。取り込み直し・ダッシュボードの直し・
+        通話で言われた番号）：断ったお客様の行に、あとから番号が増えても止める（✅ 原則14「そのお客様の行の番号すべて」・2026-10-17「同じ依頼者、同じ
+        番号でかけ直しは絶対にNG」。前の担当の方の断りなら、新しい担当の方の番号は止めない＝`refusal_reach`）。⛔ 2026-11-16 の5回目の見直しまで：
+        断りを登録したときの番号だけを止め、あとで足した番号（取り込み直しの携帯など）と、その番号を持つほかの行へかけた。
+    (2) 発信禁止を取り消したとき（`revoke` の1か所。下の見直し24a）。
+    取り消した番号・管理番号を、止める範囲に持つ、まだ有効なほかの決定（ほかの通話の断り・依頼者の一覧）で止め直す（見直し24a の
     (1)：台帳は番号ごとに1つなので、番号違いの登録の番号が、あとの通話の断りの止める範囲にも入っていると、断りの登録は書かれていなかった。
     番号違いの登録を取り消すと、断ったお客様の番号が止まらなくなった）。止める範囲は `stop_set` の1か所。同じ出どころ（同じ通話・同じ一覧の
     取込）の、取り消した番号・管理番号は止め直さない（その出どころの、その番号の取り消しは、依頼者からの正式な求め）。
     調べるのは、取り消した番号・管理番号を持つ行と、それと番号を共有する行（止める範囲が届きうる行＝`reach` の1段）の決定だけ。"""
-    numbers = sorted({r["phone_e164"] for r in rows if r["phone_e164"] is not None})
-    refs = sorted({r["client_ref"] for r in rows if r["client_ref"] is not None})
     near = [r["task_id"] for r in tx.all(
         "WITH hit AS (SELECT task_id FROM salescall.task_numbers WHERE phone_e164 = ANY(%s)"
         "             UNION SELECT task_id FROM salescall.tasks WHERE client_ref = ANY(%s))"

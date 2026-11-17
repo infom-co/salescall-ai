@@ -731,13 +731,14 @@ def former_answer(state: str, *, key: str | None = None, out_of_scope: str | Non
     だけではどの方か分からない）は、その方個人の答え。out_of_scope＝判定の中身の out_of_scope（番号違い・FAX は番号の答え）。
     complaint＝その通話でお客様が怒っていた（苦情）：その方個人の答え（✅ 2026-11-16 ユーザー：前の担当の方が怒ったあと「担当の方は違う」で直したら
     「鈴木様へはかける」＝用件の断りと同じ。行を終えるのは、怒った方がいまもお呼びする方のときだけ。⛔ それまで：苦情で終えた行は、直しても戻さなかった）。"""
-    if complaint:
-        return "personal"
     if state == "out_of_scope" and out_of_scope in FORMER_NUMBER_ANSWERS:
         return "number"
     if state in ("not_reached", "incomplete") and key in business_rules.SYSTEM_ENDS:
         return "personal"
-    return FORMER_ANSWERS[state]
+    answer = FORMER_ANSWERS[state]
+    # 苦情は、会社としての答え（目的を果たした・対象外）・番号の答えより弱い（それらは行を終える・番号で決まる）。ほか（まだ続く・新しい約束・判定待ち）は、
+    # その方個人の答え（⛔ 2026-11-17 の5回目の見直しまで：苦情をいちばん先に見て、「目的を果たした＋苦情」まで、その方個人の答えにした）
+    return "personal" if complaint and answer not in ("company", "number") else answer
 
 
 def judged_answer(j: Judgement) -> str:
@@ -749,8 +750,19 @@ def answer_ends_row(tx: Tx, attempt_id: UUID, answer: str) -> bool:
     """その通話の答え（`former_answer` の種類）で行を終えるか（1か所。締めの処理 core/settle の `_ends_row`・`_after_former`・お詫びの元の
     通話の `source_ends_row` が読む）。その通話が前の担当の方への通話（tasks.former_person_call の1か所＝通話の担当の期が、締めたときの期と
     違う。0203）で、その方個人の答え（personal）なら終えない：新しい担当の方へは引き継ぎを確かめる電話をかける（✅ 2026-11-07 ユーザー＝
-    計画書 7-1 (22)(24)。断りで止める番号は同じ1か所を読む core/dnc.refusal_reach）。ほかは、いままでどおり。"""
-    return answer != "personal" or not tasks.former_person_call(tx, attempt_id)
+    計画書 7-1 (22)(24)。断りで止める番号は同じ1か所を読む core/dnc.refusal_reach）。ほかは、いままでどおり。
+    前の担当の方への通話かは「いま」の期で見る（通話の担当の期が、いまの期でない＝salescall.attempt_in_period(通話, now())。締めたときは、締めたときの
+    期と同じ）：締め直し（取り消せない決定の答え・契約者の直し）が「担当の方は違う」の直しのあとなら、直す前の断りも、新しい担当の方へかける行の
+    答え（7-1 (26)「直す前の断り」＝直したあとの断りとそろえる。`answer_still_ends` と同じ時点）。⛔ 2026-11-17 の5回目の見直しまで：締めたときの
+    期で見て、直したあとの締め直しが、新しい担当の方への予定を「断られた」で終えて上書きした。"""
+    return answer != "personal" or not former_now(tx, attempt_id)
+
+
+def former_now(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話が、いまから見て前の担当の方への通話か（通話の担当の期が、いまの期でない＝salescall.attempt_in_period(通話, now()) の1か所）。
+    行の次の動きを決めるとき（締め・締め直し・契約者の直し）に読む：締めるときは締めたときの期と同じ。締め直しが「担当の方は違う」の直しのあとなら、
+    直す前の通話も前の担当の方への通話（7-1 (26)）。止める範囲・依頼者へ返す印は、締めたときの期のまま（tasks.former_person_call）。"""
+    return not tx.one("SELECT salescall.attempt_in_period(%s, now()) AS p", (attempt_id,))["p"]
 
 
 def answer_still_ends(tx: Tx, call: dict[str, Any]) -> bool:
@@ -819,7 +831,7 @@ def _after_former(tx: Tx, task_id: UUID, d: Decision, row: dict[str, Any] | None
     if d.kind == "hold":
         return d
     if attempt_id is not None:
-        if not tasks.former_person_call(tx, attempt_id):
+        if not former_now(tx, attempt_id):
             return d
     elif answer is not None or apology or row is None or row["kind"] != "call" or row["person_since"] == person_now(tx, task_id):
         return d   # 通話が無い（門のあとでない）・門のあと：止めた予定が、いまの担当の方の期の予定
@@ -2340,6 +2352,14 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
     if w2.round > window.round:
         w2 = replace(w2, missed=window.missed + int(missed_now) + skipped)
         called = w2.round - w2.missed                                    # こちらがかけた回の数
+        far_next = _next_round_far(window, w2)
+        if far_next and settings.resolve(tx, "callback.month_ahead", **tasks.scope(tx, task_id)) != "with_approval":
+            # 1か月以上先の次の回へは回さず、別の日に（別の日の回数は、範囲の中の回数と別に数える＝✅ 2026-11-13 ユーザー「いまの作り（ア）のまま」。
+            # 範囲の中の回数の上限より先に決める＝⛔ 2026-11-17 の5回目の見直しまで：方針の回数が1の業務で「月末に」の回に話せないと、範囲の中の
+            # 上限で行を終え、別の日に1本もかけなかった）
+            d = _window_over(tx, task_id, now, target, window, apology=apology)
+            return replace(d, rule=f"{d.rule}（お客様がその日を選んだ理由に合わせた次の回（{_round_days(w2)}）は1か月以上先のため、次の回へは"
+                                   "回さずに別の日に＝業務の設定「1か月以上先のかけ直し」がかけない）")
         limit = _promise_used_up(tx, task_id, called, exact=exact)
         if limit is not None and exact:
             return replace(_end("callback_exact_unreached",
@@ -2348,11 +2368,7 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
             return replace(_end("callback_unspecified_time",
                                 f"お客様が選んだ日（回）に {called} 回かけて話せなかった：時刻の決まっていない約束の方針の回数（{limit} 回）に"
                                 "届いた"), apology=apology)
-        if _next_round_far(window, w2):
-            if settings.resolve(tx, "callback.month_ahead", **tasks.scope(tx, task_id)) != "with_approval":
-                d = _window_over(tx, task_id, now, target, window, apology=apology)
-                return replace(d, rule=f"{d.rule}（お客様がその日を選んだ理由に合わせた次の回（{_round_days(w2)}）は1か月以上先のため、次の回へは"
-                                       "回さずに別の日に＝業務の設定「1か月以上先のかけ直し」がかけない）")
+        if far_next:
             far = window
     callee = _slot_of(w2)[0] if exact else None   # その回の約束の時刻
     if at is None:

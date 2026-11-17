@@ -97,6 +97,20 @@ class Apology(ApologyBase):
         self.assertEqual(got["text"], TEXT)
         self.assertEqual((got["recording"]["part"], got["recording"]["audio_ref"]), ("apology_same_day", "test://sorry/same"))
 
+    def test_an_approved_apology_is_still_called_after_the_call_is_settled_again(self):
+        """承認したお詫びの予定は、そのあと誤った通話を締め直しても（契約者の直し・取り消せない決定の答え）、まだお詫びの電話をかけていなければ書き直す
+        （apology.schedule_if_ready の1か所）。⛔ 2026-11-17 の5回目の見直しまで：お詫びの予定を一度書いていれば書かなかった＝締め直しが予定を上書きすると、
+        承認したお詫びの電話が一度もかからなかった。"""
+        from salescall.core import approval, next_action, results
+        s = self.fresh(stage_cap=20)
+        aid = self.incident(s)
+        self.order(s, aid)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["purpose"], "apology")
+        v = self.tx(s, lambda tx: results.of_call(tx, aid))
+        self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=v["version_no"], business_state=v["business_state"],
+                                                      wrong_items=[], complaint=False, snapshot={"理由": "試験"}), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["purpose"], "apology")
+
     def test_the_apology_is_recorded_and_the_approval_binds_the_recording(self):
         """お詫びの電話の文は録音で流し、契約者は録音を聞いて承認する（CL-1 の連絡帳 4-40 の 4。ユーザー「OK」。0131）：
         録音の文は案の文と同じだけ・声は誤った通話の声だけ・2つそろってから承認・承認には承認した録音の組を必ず結ぶ。"""

@@ -121,12 +121,16 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
                  " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
     if row is None:
         return False
-    if tx.one("SELECT 1 AS x FROM salescall.task_next_actions WHERE task_id = %s AND purpose = 'apology' AND decided_at >= %s",
-              (task_id, row["approved_at"])) is not None:
-        return False   # もう書いた（そのあとの動きは、お詫びの電話の締めが決める）
+    current = next_action.current(tx, task_id)
+    if (current is not None and current["purpose"] == "apology") or tx.one(
+            "SELECT 1 AS x FROM salescall.attempts WHERE task_id = %s AND purpose = 'apology' AND claimed_at >= %s",
+            (task_id, row["approved_at"])) is not None:
+        # いまの予定がお詫びの電話・承認のあとにお詫びの電話をもうかけた（そのあとの動きは、お詫びの電話の締めが決める）。⛔ 2026-11-17 の5回目の
+        # 見直しまで：お詫びの予定を一度でも書いていれば書かなかった＝締め直し（契約者の直しなど）がお詫びの予定を上書きすると、承認したお詫びの
+        # 電話が一度もかからなかった
+        return False
     judged = tx.one("SELECT business_state::text AS state FROM salescall.call_results WHERE attempt_id = %s",
                     (row["source_attempt_id"],))
-    current = next_action.current(tx, task_id)
     if judged is None or judged["state"] in ("unknown", "do_not_call") or (current is not None and current["kind"] == "hold"):
         return False
     if current is not None and "forbidden_speech" in (current["apology_reasons"] or ()):

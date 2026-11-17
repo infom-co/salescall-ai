@@ -106,6 +106,7 @@ def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_atte
         (contact_id, number.e164, source_attempt_id, task_id))
     if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
         raise TaskNotFound(str(task_id))
+    _restop(tx, number)
     # お客様がこの番号を指定した記録（行にもうあった番号でも書く。いちばん新しい直しより後の指定は、直した番号より先にかける＝
     # salescall.task_designated_contact・next_action.current_dial。2026-11-06 ユーザー：「お客様の言った番号へ」。0188）
     tx.execute("INSERT INTO salescall.task_designations (tenant_id, client_id, task_id, contact_id, attempt_id)"
@@ -128,7 +129,14 @@ def add_record_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *,
         " FROM salescall.tasks t WHERE t.task_id = %s"
         " ON CONFLICT (task_id, contact_id) DO NOTHING",
         (contact_id, number.e164, label, origin, attempt_id if origin == "call" else None, origin, owner_period, task_id))
+    _restop(tx, number)
     return contact_id
+
+
+def _restop(tx: Tx, number: PhoneNumber) -> None:
+    """行に足した番号を、まだ有効な断り・依頼者の一覧の止める範囲で止め直す（足す2つの関数が呼ぶ。止め方の1か所は core/dnc.restop）。"""
+    from salescall.core import dnc   # 発信禁止の部品が行の部品を読むので、ここで読む（読み合いにしない）
+    dnc.restop(tx, [number.e164], [])
 
 
 def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:

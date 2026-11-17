@@ -455,6 +455,24 @@ class TargetRecheck(SettleBase):
         self.assertEqual((r["detail"].get("not_reached"), "other_wish" in r["detail"], "declined_by" in r["detail"]),
                          ("not_transferred", False, False))
 
+    def test_contacts_and_points_from_an_unconfirmed_call_are_not_used(self):
+        """目的のお客様だと確かめられなかった通話で伺った連絡先（メール・携帯）と、ご納得いただけなかった点は、会話へ渡す連絡先・画面のいまの連絡先・解決策を
+        求める点に使わない（確かめられなかった通話の1か所＝データベースの salescall.call_unconfirmed。0234）。目的のお客様だったら使う。"""
+        from salescall.core import client_solutions, customer_contacts
+        for outcome, used in (("not_target", False), ("target", True)):
+            with self.subTest(outcome=outcome):
+                s = self.ready()
+                agreed = call_report.NotAgreed(4, "Q1", "料金が高いと思います", 1, False, "unresolved", point="料金")
+                aid = self.call(s, report=replace(self.connected_report(), not_agreed=(agreed,)), items=(), verify=None)
+                self.tx(s, lambda tx: customer_contacts.add(tx, s["task"], "email", "other@example.com", origin="call", attempt_id=aid, turn=5))
+                self.tx(s, lambda tx: customer_contacts.add_number(tx, s["task"], normalize("090-0000-0291"), "mobile", origin="call",
+                                                                   attempt_id=aid))
+                self.tx(s, lambda tx: target_recheck.record(tx, aid, outcome, evidence="試験：別の耳で確かめた", checked_by="試験"))
+                known = self.tx(s, lambda tx: conversation_io.known_contacts(tx, s["task"]))
+                shown = [c["value"] for c in self.tx(s, lambda tx: customer_contacts.now(tx, s["task"]))["contacts"]]
+                points = self.tx(s, lambda tx: client_solutions.points(tx, aid))
+                self.assertEqual(("email" in known, "mobile" in known, "other@example.com" in shown, bool(points)), (used,) * 4)
+
     def test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers(self):
         """目的のお客様だったら答えはそのまま。後の通話（判定なしで繋いだ）の答えは、その通話が別の方だったら使わず、前の通話で目的の
         お客様から取った答えを使う（答えは通話ごとに残る＝0231）。前の通話の答えは書き換えられず、答えを別の通話へ付け替えることもできない
@@ -2097,6 +2115,26 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual(self.plan(s), self.handed_over(new))
         self.assertEqual([self.stopped(s, p) for p in (s["phone"], self.phone_of(s, new))], [True, False])
 
+    def test_a_number_added_after_a_refusal_is_stopped_too(self):
+        """「もうかけないで」と断られた行に、あとから番号を足しても（取り込み直しの携帯・ダッシュボードの記録・通話で言われた番号）、その番号も止める
+        （原則14「そのお客様の行の番号すべて」・止め直しの1か所 dnc.restop）。その番号をかける番号に持つ、同じ依頼者のほかの行にもかけない。前の担当の方の
+        断りなら、そのあとに足した新しい担当の方の番号は止めない（7-1 (22)）。⛔ 2026-11-16 の5回目の見直しまで：断りを登録したときの番号だけを止めた。"""
+        from salescall.core import target_policy
+        s = self.ready()
+        self.settle(s, self.call(s, report=rep(dnc_=True)))                    # いまの担当の方の「もうかけないで」
+        later = self.record_number(s)                                          # 断られたあとに足した番号
+        self.assertTrue(self.stopped(s, later))
+        run = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        cid = self.tx(s, lambda tx: tx.one("SELECT contact_id FROM salescall.contacts WHERE phone_e164 = %s", (later,)))["contact_id"]
+        other = self.w.task(s["tenant"], s["client"], run, cid)                # その番号をかける番号に持つ行
+        self.assertIsNotNone(self.tx(s, lambda tx: target_policy.task_block_reason(
+            tx, other, normalize(later), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"])))
+        t = self.ready()
+        self.promise_window(t)
+        self.fixed_as(t, False, True)                                          # 違う方・前の担当の方との約束も守る
+        self.settle(t, self.call(t, report=rep(dnc_=True)))                    # 前の担当の方の「もうかけないで」
+        self.assertFalse(self.stopped(t, self.record_number(t)))              # そのあとに足した新しい担当の方の番号は止めない
+
     def test_a_complaint_is_the_old_persons_own_and_the_new_person_is_called(self):
         """✅ 2026-11-16 ユーザー（伺い「前の担当の方（田中様）が怒った（苦情）あと、『担当の方は違う』で鈴木様に直したら」へ）：「鈴木様へはかける」＝苦情も
         その方個人の答え（next_action.former_answer の1か所）：(1) 苦情で終えた行を「違う」で直す ⇒ 行を戻し、新しい担当の方へ引き継ぎを確かめる電話
@@ -2116,6 +2154,9 @@ class DialFixAfterCalls(SettleBase):
         self.assertEqual(self.plan(t), self.handed_over(newer))
         self.assertEqual([r["kind"] for r in self.tx(t, lambda tx: tx.all(
             "SELECT kind FROM salescall.notification_events WHERE event_key = %s", (f"complaint:{aid}",)))], ["complaint"])
+        # 苦情は、会社としての答え（目的を果たした）・番号の答えより弱い（それらは今までどおり行を終える・番号で決まる）
+        self.assertEqual([next_action.former_answer(st, complaint=True) for st in ("completed", "incomplete", "declined")],
+                         ["company", "personal", "personal"])
 
     def test_the_old_persons_refusal_on_a_shared_number_follows_the_business_setting(self):
         """✅ 2026-11-16 ユーザー（伺い「名前だけ『別の方』に直した行で、前の方が代表番号で『もうかけないで』と言ったとき」へ）：「契約者が業務ごとに選択できる。
@@ -3665,6 +3706,24 @@ class Corrections(SettleBase):
         self.tx(s, lambda tx: settle.resettle(tx, aid))
         self.assertEqual((self.call_result(s, aid), self.now(s)), ({"kind": "rejudged", "state": "declined"}, ("end", "declined")))
 
+    def test_a_correction_after_a_change_of_person_keeps_the_new_persons_call(self):
+        """田中様の「うちは要らない」で行を終える →「担当の方は違う」で鈴木様に直す（行は戻り、鈴木様へ引き継ぎを確かめる電話）→ 契約者が田中様の通話を
+        直す（断りのまま） ⇒ 鈴木様への予定はそのまま（直す前の断りも、新しい担当の方へかける行の答え＝計画書 7-1 (26)。行を終えるかは「いま」の期で
+        見る＝next_action.answer_ends_row）。⛔ 2026-11-17 の5回目の見直しまで：締め直しが「断られた」で行を終え、鈴木様に一度もかからなかった。
+        「折り返し予定」へ直すなら、いつかけるか（callback）が要る。"""
+        from tests.test_judge import goal_refused
+        s = self.ready()
+        got = self.settle(s, self.call(s, report=goal_refused(rep())))
+        new = DialFixAfterCalls.fixed_as(self, s, False)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["contact_id"], new)
+        self.correct(s, got["version_no"], "declined")
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["contact_id"], p["handover"]), ("call", new, True))
+        t = self.ready()
+        v = self.settle(t, self.call(t))["version_no"]
+        with self.assertRaises(ValueError):
+            self.correct(t, v, "callback_scheduled", detail={"policy_key": "callback_unspecified_time"})
+
     def test_a_correction_to_do_not_call_registers_the_refusal(self):
         """「もうかけないで」に直す ⇒ 発信禁止に登録し、行を終える（ふつうの締めと同じ道）。"""
         s = self.ready()
@@ -3686,7 +3745,7 @@ class Corrections(SettleBase):
         self.assertEqual(self.settle(s, b)["state"], "unknown")
         self.correct(s, va, "declined")
         self.assertEqual((self.call_result(s, a), self.call_result(s, b)),
-                         ({"kind": "human", "state": "declined"}, {"kind": "judged", "state": "unknown"}))
+                         ({"kind": "rejudged", "state": "declined"}, {"kind": "judged", "state": "unknown"}))   # 直しのあとの締め直しの版も直しのまま
 
 
 class CompareForm(unittest.TestCase):

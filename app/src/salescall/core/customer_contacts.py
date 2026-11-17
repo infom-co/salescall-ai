@@ -136,7 +136,11 @@ def by_role(tx: Tx, task_id: UUID) -> dict[str, str]:
     out = {_ROLE_OF_KIND[c["kind"]]: c["value"]
            for c in tx.all("SELECT kind, value, service FROM salescall.task_person_contacts(%s)", (task_id,)) if c["kind"] in _ROLE_OF_KIND}
     former = set(tasks.former_numbers(tx, task_id))
-    mine = [n for n in now(tx, task_id)["numbers"] if n["phone"] not in former and normalize(n["phone"]).kind in SMS_KINDS]
+    unconfirmed = {r["phone_e164"] for r in tx.all(   # 目的のお客様だと確かめられなかった通話で伺った番号（別の方の番号かもしれない。0234）
+        "SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND source_attempt_id IS NOT NULL"
+        " AND salescall.call_unconfirmed(source_attempt_id)", (task_id,))}
+    mine = [n for n in now(tx, task_id)["numbers"]
+            if n["phone"] not in former | unconfirmed and normalize(n["phone"]).kind in SMS_KINDS]
     phones = [n for n in mine if n["label"] in _MOBILE_LABELS] or [n for n in mine if n["label"] == "designated"]
     if phones:
         out["mobile"] = phones[-1]["phone"]
