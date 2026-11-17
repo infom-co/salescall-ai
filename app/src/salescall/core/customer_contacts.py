@@ -28,7 +28,7 @@ from salescall.core.phone import SMS_KINDS, PhoneNumber, normalize
 KINDS = ("email", "fax", "address", "line_id", "meeting")          # 番号ではない連絡先の種類（0175 の CHECK と同じ）
 KIND_NAMES = {"email": "メールアドレス", "fax": "ファクス番号", "address": "住所", "line_id": "LINE ID",
               "meeting": "オンライン面談用の ID"}
-NUMBER_LABELS = ("company", "designated", "mobile", "line", "said")  # 行の番号の名札（0175 の CHECK と同じ）
+NUMBER_LABELS = ("company", "designated", "mobile", "line", "said", "fax")  # 行の番号の名札（0175・0237 の CHECK と同じ。fax＝ファクス番号の連絡先と同じ番号）
 DIAL_LABELS = ("company", "designated")                            # かける番号（一覧の番号）になれる名札
 RECORD_LABELS = ("company", "mobile", "line", "said")               # 記録だけの番号の名札
 ORIGINS = ("list", "call", "dashboard")
@@ -84,6 +84,10 @@ def add(tx: Tx, task_id: UUID, kind: str, value: str, *, origin: str, service: s
         " FROM salescall.tasks t WHERE t.task_id = %s",
         (kind, value.strip(), service.strip() if service else None, origin, import_id, source_row, attempt_id, turn,
          origin, owner_period, task_id))
+    if kind == "fax":
+        # ファクス番号も行の番号（記録だけ・かけない）：断ったお客様のファクス番号も止め、ほかの行と番号を共有するかにも入る（✅ 2026-11-17 ユーザー「止める」。0237。
+        # 止める範囲・止め直し・門は行の番号の1か所＝tasks.numbers・dnc.restop。⛔ それまで：ファクス番号は止める範囲に入らなかった）
+        tasks.add_record_number(tx, task_id, normalize(value), "fax", origin=origin, attempt_id=attempt_id, owner_period=owner_period)
 
 
 def add_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, origin: str,

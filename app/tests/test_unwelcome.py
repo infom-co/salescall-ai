@@ -120,7 +120,7 @@ class SameNumberOtherRows(SettleBase):
         self.tx(s, lambda tx: next_action.schedule_now(tx, task, cause="試験：鈴木様の番号の次の実施回の行"))
         self.assertEqual((self.blocked(old), self.blocked(dict(s, run=run, task=task))), ("declined_in_business", None))
 
-    def test_a_decline_by_client_ref_stops_only_while_the_decliner_is_the_rows_person(self):
+    def test_a_decline_by_client_ref_stops_only_while_the_decliner_is_the_rows_person_or_has_the_same_name(self):
         """管理番号でお客様を表す依頼者（設定 dnc.client_ref_is_stable_id）で、断りが管理番号で止めるのは、断った方がいまもその行の担当の方のときだけ（0232。
         番号の道と同じく「いま」で決める）：田中様が断る ⇒ 同じ管理番号のほかの番号も止まる。「担当の方は違う」で鈴木様に直す ⇒ 管理番号では止めない（田中様の
         番号は止めたまま＝計画書 7-1 (22)(26)）。前の担当の方に戻す ⇒ また止まる（7-1 (30)）。⛔ 0225 まで：管理番号の道だけ締めたときの期で決めた＝直す前の
@@ -132,14 +132,30 @@ class SameNumberOtherRows(SettleBase):
         self.put_client(base, "dnc.client_ref_is_stable_id", True)
         task = uuid.uuid4()                                                       # 管理番号の付いた行（取込と同じく、行を作るときに持つ）
         run = self.w.run(base["tenant"], base["client"], base["business"], base["version"])
-        self.tx(base, lambda tx: tx.execute("INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id, client_ref)"
-                                            " VALUES (%s, %s, %s, %s, %s, 'K-001')",
+        self.tx(base, lambda tx: tx.execute("INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id, client_ref, target_name)"
+                                            " VALUES (%s, %s, %s, %s, %s, 'K-001', '田中')",
                                             (base["tenant"], base["client"], task, run, base["contact"])), OPERATOR)
         self.tx(base, lambda tx: next_action.schedule_now(tx, task, cause="試験：管理番号の付いた行の最初の予定"))
         s = dict(base, run=run, task=task, line=self.w.line(base["tenant"]))
         self.lease(s)
         tanaka = s["phone"]
         other = normalize(fictional_jp_fixed())
+
+        def row(name):   # 次の実施回の、同じ管理番号の行（会社の別の番号。お呼びする方 name）
+            t2, r2 = uuid.uuid4(), self.w.run(base["tenant"], base["client"], base["business"], base["version"])
+            c2 = self.w.contact(base["tenant"], base["client"], normalize(fictional_jp_fixed()).e164)
+            self.tx(base, lambda tx: tx.execute("INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id, client_ref,"
+                                                " target_name) VALUES (%s, %s, %s, %s, %s, 'K-001', %s)",
+                                                (base["tenant"], base["client"], t2, r2, c2, name)), OPERATOR)
+            return t2
+
+        def gate_of(t2):   # 門と同じ1か所（その行のいまかける番号で）
+            from salescall.core import tasks as tasks_mod
+            got = self.tx(s, lambda tx: target_policy.task_block_reason(
+                tx, t2, normalize(tasks_mod.dial_number(tx, t2)["phone_e164"]), client_ref="K-001", tenant_id=s["tenant"],
+                client_id=s["client"], business_id=s["business"]))
+            return None if got is None else got[0]
+        old_list, new_list = row("田　中"), row("鈴木")
 
         def by_ref():
             got = self.tx(s, lambda tx: target_policy.block_reason(tx, other, client_ref="K-001", tenant_id=s["tenant"], client_id=s["client"],
@@ -154,6 +170,9 @@ class SameNumberOtherRows(SettleBase):
         self.assertEqual((by_ref(), by_number()), ("declined_in_business", "declined_in_business"))
         self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=False), OPERATOR)   # 鈴木様に直した
         self.assertEqual((by_ref(), by_number()), (None, "declined_in_business"))
+        # ✅ 2026-11-17 ユーザー「名前が同じなら止める」：同じ管理番号で、まだ田中様あての行（一覧が古い）は止める・鈴木様あての行はかける（0236。表記の揺れは
+        # そろえて比べる）
+        self.assertEqual((gate_of(old_list), gate_of(new_list)), ("declined_in_business", None))
         self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], tanaka, same_person=False, back_to=row_fixes.FIRST_PERIOD),
                 OPERATOR)                                                         # 前の担当の方（田中様）に戻した
         self.assertEqual(by_ref(), "declined_in_business")
@@ -210,6 +229,45 @@ class SameNumberOtherRows(SettleBase):
         second = self.claim(y)                                                    # ほかの回線（発信番号）で
         self.assertIsInstance(second, gate.Claim, second)
         self.assertNotEqual(second.voice_type, first["voice_type"])               # 前に聞いた声と替える
+
+    def test_each_business_keeps_its_own_voice_and_never_uses_another_businesss(self):
+        """✅ 2026-11-17 ユーザー：「業務が違えば、同じ人に同じ声や同じ電話番号でかけるのは絶対禁止です。…同じ業務であれば、同じ人には同じ声で」：業務 X・Y が
+        それぞれの声・発信番号でかけたあと、業務 Z は X の声も Y の声も、X・Y の発信番号も使わない（使える声・発信番号が無ければかけずに待つ）。X の次の
+        電話は X の声のまま（0235）。⛔ 2026-11-17 の5回目の見直しまで：いちばん新しい電話（Y）の声だけを避け、Z が X の声でかけた。"""
+        now = lambda u: self.tx(u, lambda tx: tx.one("SELECT now() AS t")["t"])   # noqa: E731
+
+        def promised_now(u):   # 試験：お客様と約束したかけ直し（同じ番号の間を待たない）
+            self.tx(u, lambda tx: next_action._append(tx, u["task"], call_at=now(u), end_reason=None, cause="試験：約束したかけ直し",
+                                                      promised=True, target=next_action.Target(u["contact"])))
+
+        def heard(u, aid):
+            return self.tx(u, lambda tx: tx.one("SELECT voice_type, line_id FROM salescall.attempts WHERE attempt_id = %s", (aid,)))
+        s = self.ready()
+        y, z = self.sibling(s), self.sibling(s)
+        xa = self.call(s)
+        self.settle(s, xa)
+        x1 = heard(s, xa)
+        promised_now(y)
+        ya = self.call(y)
+        self.settle(y, ya)
+        y1 = heard(y, ya)
+        self.assertNotEqual((y1["voice_type"], y1["line_id"]), (x1["voice_type"], x1["line_id"]))
+        types = self.tx(s, lambda tx: {r["code"]: r["voice_name"] for r in tx.all("SELECT code, voice_name FROM salescall.voice_types")})
+        promised_now(z)
+        self.lease(z, line=x1["line_id"])                                         # X の発信番号の回線では、Z はかけない（いちばん新しい電話は Y でも）
+        self.assertEqual(self.reason(z, line=x1["line_id"]), "line_used_by_other_client")
+        self.lease(z)
+        got = self.claim(z)
+        if isinstance(got, gate.Claim):
+            self.assertNotIn(types[got.voice_type], {types[x1["voice_type"]], types[y1["voice_type"]]})
+            self.assertNotIn(z["line"], {x1["line_id"], y1["line_id"]})
+            self.tx(z, lambda tx: attempts.release(tx, [got.attempt_id]))
+        else:
+            self.assertIn(got.reason, ("voice_used_by_other_client", "line_used_by_other_client"))
+        promised_now(s)
+        again = self.claim(s)
+        self.assertIsInstance(again, gate.Claim, again)
+        self.assertEqual(types[again.voice_type], types[x1["voice_type"]])         # 同じ業務は同じ声
 
     def test_the_same_row_keeps_the_voice_the_customer_heard_not_one_that_was_not_answered(self):
         """同じ行で、お客様が出た通話の声（A）のあと、出なかった通話を別の声（B）でかけても、次の電話は A（お客様が聞いた声）。お客様がその声を聞いたかは、

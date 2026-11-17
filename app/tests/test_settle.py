@@ -2120,10 +2120,17 @@ class DialFixAfterCalls(SettleBase):
         （原則14「そのお客様の行の番号すべて」・止め直しの1か所 dnc.restop）。その番号をかける番号に持つ、同じ依頼者のほかの行にもかけない。前の担当の方の
         断りなら、そのあとに足した新しい担当の方の番号は止めない（7-1 (22)）。⛔ 2026-11-16 の5回目の見直しまで：断りを登録したときの番号だけを止めた。"""
         from salescall.core import target_policy
+        from salescall.core import customer_contacts
         s = self.ready()
+        fax = normalize(fictional_jp_fixed())
+        self.tx(s, lambda tx: customer_contacts.add(tx, s["task"], "fax", fax.e164, origin="dashboard"), OPERATOR)   # ファクス番号（0237）
         self.settle(s, self.call(s, report=rep(dnc_=True)))                    # いまの担当の方の「もうかけないで」
+        self.assertTrue(self.stopped(s, fax.e164))                             # ファクス番号も止める（✅ 2026-11-17 ユーザー「止める」）
         later = self.record_number(s)                                          # 断られたあとに足した番号
         self.assertTrue(self.stopped(s, later))
+        later_fax = normalize(fictional_jp_fixed())
+        self.tx(s, lambda tx: customer_contacts.add(tx, s["task"], "fax", later_fax.e164, origin="dashboard"), OPERATOR)
+        self.assertTrue(self.stopped(s, later_fax.e164))                       # 断られたあとに足したファクス番号も
         run = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
         cid = self.tx(s, lambda tx: tx.one("SELECT contact_id FROM salescall.contacts WHERE phone_e164 = %s", (later,)))["contact_id"]
         other = self.w.task(s["tenant"], s["client"], run, cid)                # その番号をかける番号に持つ行

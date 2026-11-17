@@ -738,12 +738,16 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
                         refs={"client_id": task["client_id"]})
             return _deny("name_recording_missing")
         ready = named
-    mine = tx.one("SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND salescall.voice_heard(attempt_id)"
-                  " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（ほかの行の声と同じ1か所＝0227。出なかった通話は入れない）
-    if mine is not None and types[mine["voice_type"]]["voice_name"] in ready:
-        return mine["voice_type"]
+    # 声は業務ごと（✅ 2026-11-17 ユーザー：「業務が違えば、同じ人に同じ声や同じ電話番号でかけるのは絶対禁止です。…同じ業務であれば、同じ人には同じ声で
+    # かけないとおかしいでしょ。」。0235）：お客様（その番号）が同じ依頼者のほかの業務の電話で聞いた声は、どれも使わない。同じ業務（ほかの実施回を含む）が
+    # その番号で前に使った声（お客様が聞いた声だけ＝0227）は、続けて使う。⛔ 2026-11-17 の5回目の見直しまで：その行の声をいちばん先に使い、ほかの業務と
+    # 比べるのは、いちばん新しい電話の声だけだった（別の業務の電話を続けて同じ声で聞きえた）
+    taken = set(tx.one("SELECT salescall.number_voices_of_other_businesses(%s, %s) AS v", (task["phone_e164"], task["task_id"]))["v"])
+    mine = tx.one("SELECT salescall.number_business_voice(%s, %s) AS v", (task["phone_e164"], task["task_id"]))["v"]
+    if mine is not None and types[mine]["voice_name"] in ready:
+        return mine
     before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s, %s) AS v", (task["phone_e164"], task["task_id"]))["v"]
-    usable = [v for v in ready if v != before]
+    usable = [v for v in ready if v not in taken and v != before]
     if before is not None:
         # お客様が前に聞いた声と、別の性別の声があれば、それだけにする（2026-10-17 ユーザー：「同じ男性ならサービスを聞く前に嫌悪感を
         # 持たれるので、Ledaが対応するなど」。性別は声の一覧の表示名＝0118。分からない声は、別の性別とはみなさない）
