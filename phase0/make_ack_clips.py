@@ -160,6 +160,10 @@ HOW_OF["announce_recheck"] = "question"
 HOW_OF["message_again"] = "question"
 # ほかのご希望を担当の者に申し伝える一言（phrases.WISH_TOLD。2026-11-03）：確かにお伝えすることを言う一言＝断らない一言と同じ読み方
 HOW_OF.update({f"wish_told_{k}": "own_fallback" for k in WISH_TOLD})
+# こちらがかけ直す申し出を受けていただいて、そのまま締めるときの言い切り（phrases.CALL_AGAIN_DONE「後ほど改めてお掛けいたしますね。」＝flowctl.taken_line）：確かに
+# することを言う一言＝申し伝える一言と同じ読み方（業務の申し出の質問の言い切り「（番号）_taken」も同じ＝script_table）。✅ 2026-11-17 日本時間2時14分44秒「伺い37はイでOK」
+from phrases import CALL_AGAIN_TAKEN  # noqa: E402
+HOW_OF[CALL_AGAIN_TAKEN] = "own_fallback"
 # お断りのあとの締め：お断りを受け止めてからお礼（長さの見込み 約8.3秒＝締めの上限 8.0 に届かない）ので、読み方と上限は別（2026-11-02）
 HOW["closing_after_decline"] = ("電話の最後に、お客様のお断りを丁寧に受け止めてから、お時間をいただいたことへの感謝を伝えるように、前向きに、心を込めて、"
                                 "落ち着いた調子で。言葉の途中で区切らずに、なめらかに、ひと続きで")
@@ -352,7 +356,7 @@ def script_table(business) -> tuple[dict, dict]:
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
     from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
-                         tell_recording_id)
+                         taken_line, tell_recording_id)
     from instruction import reading_variants
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, again_fit, back_fit, question_clip
 
@@ -384,6 +388,11 @@ def script_table(business) -> tuple[dict, dict]:
             items += [(question_clip(p["id"], p["lead"]), p["text"], question_how(p["text"])) for p in question_forms(qs, q.id)]
         # その答えのあとに伝える一言（業務設定。名前は flowctl.tell_recording_id）
         items += [(tell_recording_id(q, c), line, "question") for c, line in q.tell_words.items()]
+        if (taken := taken_line(q)) is not None:
+            # 業務の申し出の質問を受けていただいて、そのまま締めるときの、こちらがすることの言い切り（名前と文は flowctl.taken_line の1か所＝「（番号）_taken」・
+            # 「パンフレットをお送りさせていただきますね。」）：確かにすることを言う一言＝申し伝える一言（wish_told_）と同じ読み方。✅ 2026-11-17 日本時間2時14分44秒
+            # ユーザー「伺い37はイでOK」
+            items.append((*taken, "own_fallback"))
         if asks_wish(q):
             # 決められないのがお客様の最終の決定のとき、その質問を締める一言（文は flowctl.pending_line・名前は flowctl.pending_recording_id。✅ 2026-11-06
             # 日本時間11時19分55秒 ユーザー「(2) …「承知しました。それではパンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」）
