@@ -504,8 +504,10 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     # まだ分からない電話（番号のせいか回線のせいか。試行のせいの欄が pending のまま）を、ほかの回線の予約で待たずに締めるとき（表の R-4）も、
     # 行の予定は書かない（予約に使った、いまの予定のまま。⛔ 見直し26a の 3：ほかの回線の予約が、かける前に取り消されると「あとの発信」が
     # 無いので、鳴っていない電話を出なかった電話として、再発信の決まりで予定を書き直していた）
-    if (_later_dial(tx, a) or health.blame_of(tx, attempt_id) == "pending") \
+    if (_later_dial(tx, a) or health.blame_of(tx, attempt_id) == "pending" or apology.waits_on(tx, a["task_id"], attempt_id)) \
             and not _ends_row(tx, a, j.state, j.complaint, wait is not None):
+        # いまの予定が、この通話のお詫びの電話（承認したお詫び＝apology.waits_on。⛔ 2026-11-17 の5回目の見直しまで：もとの通話の締め直し（契約者の直しなど）が
+        # お詫びの予定を上書きし、承認したお詫びの電話が一度もかからなかった）も同じく、行の予定は書き直さない。
         # この通話のあとに、この行でもう発信している（判定し直した通話・ほかの回線がかけたあとに締めた、まだ分からなかった電話＝
         # 見直し22 の 5）：行の予定は、あとの発信の締めが決める（結果の版と発信禁止だけを足し、予定は書き直さない＝判断はここの1か所。
         # お詫びの電話も同じ＝`_settle_apology`）。⛔ 見直し16：前は、何日も前に途中で切れた通話を判定し直すと、終えた行が

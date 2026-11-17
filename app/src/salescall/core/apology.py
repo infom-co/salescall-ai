@@ -105,6 +105,14 @@ def approve(tx: Tx, order_id: int, set_id: UUID) -> None:
     schedule_if_ready(tx, o["task_id"])
 
 
+def waits_on(tx: Tx, task_id: UUID, attempt_id: UUID) -> bool:
+    """いまの予定が、その通話（言ってはいけないことを言った通話）の承認したお詫びの電話か（1か所。その通話を締め直しても、行の予定を書き直さない＝
+    settle._judge_and_write。お詫びの電話のあとの動きは、お詫びの電話の締めが決める）。"""
+    o = _order(tx, task_id)
+    cur = next_action.current(tx, task_id)
+    return o is not None and o["source_attempt_id"] == attempt_id and cur is not None and cur["purpose"] == "apology"
+
+
 def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
     """承認されたお詫びの案があれば、お詫びの電話の予定を書く（1回だけ。書いたら True）。予定を書くのはここの1か所：承認したとき
     と、誤った通話の締め・判定し直しのあと（core/settle.py）。書かないのは次のとき（⛔ 2026-10-22 の見直し：前は承認したときに
@@ -121,14 +129,10 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
                  " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
     if row is None:
         return False
+    if tx.one("SELECT 1 AS x FROM salescall.task_next_actions WHERE task_id = %s AND purpose = 'apology' AND decided_at >= %s",
+              (task_id, row["approved_at"])) is not None:
+        return False   # もう書いた（そのあとの動きは、お詫びの電話の締めが決める。もとの通話の締め直しは、お詫びの予定を書き直さない＝settle._judge_and_write）
     current = next_action.current(tx, task_id)
-    if (current is not None and current["purpose"] == "apology") or tx.one(
-            "SELECT 1 AS x FROM salescall.attempts WHERE task_id = %s AND purpose = 'apology' AND claimed_at >= %s",
-            (task_id, row["approved_at"])) is not None:
-        # いまの予定がお詫びの電話・承認のあとにお詫びの電話をもうかけた（そのあとの動きは、お詫びの電話の締めが決める）。⛔ 2026-11-17 の5回目の
-        # 見直しまで：お詫びの予定を一度でも書いていれば書かなかった＝締め直し（契約者の直しなど）がお詫びの予定を上書きすると、承認したお詫びの
-        # 電話が一度もかからなかった
-        return False
     judged = tx.one("SELECT business_state::text AS state FROM salescall.call_results WHERE attempt_id = %s",
                     (row["source_attempt_id"],))
     if judged is None or judged["state"] in ("unknown", "do_not_call") or (current is not None and current["kind"] == "hold"):

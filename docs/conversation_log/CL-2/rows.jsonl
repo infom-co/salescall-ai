@@ -3719,3 +3719,6 @@
 {"at": "2026-11-17T15:37:54+09:00", "who": "CL-2", "text": "`back_choices` is the entry point for the screen, and a rule says only the screen may call it. I'll move the shared part into a function the import may also use."}
 {"at": "2026-11-17T15:44:48+09:00", "who": "CL-2", "text": "The correction-related tests all pass (282). Next, the two remaining failures. Both come from the change to \"decide 'former contact' by the current state\"."}
 {"at": "2026-11-17T15:55:28+09:00", "who": "CL-2", "text": "I'm running the affected tests in the background, including the remaining apology test. I'll check the results as soon as they finish."}
+{"at": "2026-11-17T15:55:40+09:00", "who": "CL-2", "text": "The fixes are saved and pushed to my branch. The affected test groups (including the remaining apology test) are still running in the background; I'll report when they finish."}
+{"at": "2026-11-17T15:56:03+09:00", "who": "CL-2", "text": "The one remaining failure is \"the handover-check mark stays on the next call\". I'll temporarily undo one of today's changes at a time to see which one caused it."}
+{"at": "2026-11-17T16:01:24+09:00", "who": "CL-2", "text": "Every break-test is caught. I'll correct the design doc's wording for this item, save, and run the full suite again."}
