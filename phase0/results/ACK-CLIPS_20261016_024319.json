@@ -1,0 +1,67 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-16T02:43:19",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "moushiwake",
+      "text": "申し訳ございません、",
+      "heard": {
+        "0.0": "申し訳ございません。",
+        "1.0": "申し訳ございません。"
+      },
+      "ok": true,
+      "seconds": 1.16,
+      "try": 1,
+      "wav": "S4_moushiwake_1.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "moushiwake",
+      "text": "申し訳ございません、",
+      "heard": {
+        "0.0": "申し訳ございません。",
+        "1.0": "申し訳ございません。"
+      },
+      "ok": true,
+      "seconds": 1.08,
+      "try": 2,
+      "wav": "S4_moushiwake_2.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "wait",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+      },
+      "ok": true,
+      "seconds": 2.42,
+      "try": 1,
+      "wav": "S4_wait_1.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "wait",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.5,
+      "try": 2,
+      "wav": "S4_wait_2.wav"
+    }
+  ],
+  "kept": {
+    "S4_moushiwake": 2,
+    "S4_wait": 2
+  }
+}

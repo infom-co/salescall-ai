@@ -1,0 +1,773 @@
+"""データの土台の試験（DESIGN.md 3章・3-0・3-1・4-2・10章・11章）。
+
+どの試験も「約束を、わざと破ろうとすると、データベースが本当に拒む」ことを確かめる（DESIGN.md 14章）。
+"""
+
+from __future__ import annotations
+
+import re
+import threading
+import time
+import unittest
+import uuid
+from datetime import timedelta
+
+from salescall.core.access import Rejected
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, fictional_phone, kindless, owner_access
+
+
+class OneContactPerNumber(unittest.TestCase):
+    """3-1：同じ依頼者の中で、同じ番号は1つの連絡先。"""
+
+    def test_same_client_same_number_is_rejected(self):
+        w = World()
+        t = w.tenant(); c = w.client(t); p = fictional_phone()
+        w.contact(t, c, p)
+        with self.assertRaises(Rejected) as e:
+            w.contact(t, c, p)
+        self.assertEqual(e.exception.constraint, "contacts_client_id_phone_e164_key")
+
+    def test_other_client_same_number_is_allowed(self):
+        w = World()
+        t = w.tenant(); p = fictional_phone()
+        w.contact(t, w.client(t), p)
+        w.contact(t, w.client(t), p)  # 依頼者が違えば別の連絡先
+
+    def test_number_must_be_normalized(self):
+        w = World()
+        t = w.tenant(); c = w.client(t)
+        for bad in ("090-0000-0000", "+81 90 0000 0000", "", "+0123456789"):
+            with self.subTest(bad=bad), self.assertRaises(Rejected):
+                w.contact(t, c, bad)
+
+
+class OneTaskPerRunAndContact(unittest.TestCase):
+    """3-1：1つの実施回で、同じ連絡先は1タスク（同じファイルを2回取り込んでも二重にならない）。"""
+
+    def test_second_task_is_rejected(self):
+        w = World(); s = w.setup()
+        with self.assertRaises(Rejected) as e:
+            w.task(s["tenant"], s["client"], s["run"], s["contact"])
+        self.assertEqual(e.exception.constraint, "tasks_run_id_contact_id_key")
+
+
+class ClientIsolation(unittest.TestCase):
+    """3-0 の1・11章：別の依頼者のデータは、見えない・変えられない・指せない（3重の守り）。"""
+
+    def setUp(self):
+        self.w = World()
+        self.a = self.w.setup()
+        self.b = self.w.setup(tenant=self.a["tenant"])  # 同じ契約者の、別の依頼者
+
+    def test_cannot_see_other_clients_rows(self):
+        a, b = self.a, self.b
+        rows = self.w.a.in_client(OPERATOR, a["tenant"], a["client"], lambda tx: tx.all(
+            "SELECT client_id FROM salescall.contacts"))
+        self.assertEqual({r["client_id"] for r in rows}, {a["client"]})
+        seen = self.w.a.in_client(OPERATOR, a["tenant"], a["client"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.tasks WHERE task_id = %s", (b["task"],)))
+        self.assertEqual(seen["n"], 0)
+
+    def test_cannot_update_other_clients_rows(self):
+        a, b = self.a, self.b
+        n = self.w.a.in_client(SYSTEM, a["tenant"], a["client"], lambda tx: tx.execute(
+            "UPDATE salescall.item_values SET state = 'confirmed' WHERE task_id = %s", (b["task"],)).rowcount)
+        self.assertEqual(n, 0)
+
+    def test_cannot_write_row_for_other_client(self):
+        a, b = self.a, self.b
+        with self.assertRaises(Rejected):  # 行ごとの制限（書く行の依頼者が、取引の依頼者と違う）
+            self.w.a.in_client(OPERATOR, a["tenant"], a["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.contacts (tenant_id, client_id, phone_e164) VALUES (%s, %s, %s)",
+                (b["tenant"], b["client"], fictional_phone())))
+
+    def test_cannot_point_to_other_clients_parent(self):
+        a, b = self.a, self.b
+        with self.assertRaises(Rejected) as e:  # 組の参照（自分の依頼者の行として、別の依頼者の連絡先を指す）
+            self.w.task(a["tenant"], a["client"], a["run"], b["contact"])
+        self.assertEqual(e.exception.sqlstate, "23503")
+
+    def test_tenant_and_system_scopes_see_no_client_rows(self):
+        a = self.a
+        n1 = self.w.a.in_tenant(OPERATOR, a["tenant"], lambda tx: tx.one("SELECT count(*) AS n FROM salescall.tasks"))
+        n2 = self.w.a.in_system(SYSTEM, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.tasks"))
+        self.assertEqual((n1["n"], n2["n"]), (0, 0))
+
+    def test_other_tenant_sees_nothing(self):
+        other = self.w.tenant()
+        rows = self.w.a.in_tenant(OPERATOR, other, lambda tx: tx.all("SELECT client_id FROM salescall.clients"))
+        self.assertEqual(rows, [])
+
+    def test_attempt_number_must_match_contact(self):
+        a = self.a
+        with self.assertRaises(Rejected):  # 試行の番号は、連絡先の番号と食い違えない（組の参照）
+            self.w.insert_claim(dict(a, phone=fictional_phone()))
+
+
+class FrozenRecords(unittest.TestCase):
+    """3-0 の3：変えてはいけない記録は、書き換え・消しを拒む（権限と仕掛けの2重）。"""
+
+    def test_app_role_cannot_change_frozen_records(self):
+        w = World(); s = w.setup()
+        for sql, params in [
+            ("UPDATE salescall.business_versions SET version_no = 9 WHERE version_id = %s", (s["version"],)),
+            ("DELETE FROM salescall.business_versions WHERE version_id = %s", (s["version"],)),
+            ("UPDATE salescall.questions SET required = false WHERE version_id = %s", (s["version"],)),
+            ("UPDATE salescall.run_versions SET reason = 'x' WHERE run_id = %s", (s["run"],)),
+            ("DELETE FROM salescall.tasks WHERE task_id = %s", (s["task"],)),
+        ]:
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql, params))
+
+    def test_triggers_refuse_even_the_owner(self):
+        """権限を持つ役（表の持ち主）でも、仕掛けが拒む（権限の付け間違いがあっても守れる）。"""
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        w.move(s, aid, "released")
+        own = owner_access()
+        for sql, params in [
+            ("UPDATE salescall.business_versions SET version_no = 9 WHERE version_id = %s", (s["version"],)),
+            ("DELETE FROM salescall.questions WHERE version_id = %s", (s["version"],)),
+            ("DELETE FROM salescall.run_versions WHERE run_id = %s", (s["run"],)),
+            ("UPDATE salescall.attempt_state_history SET to_state = 'ended' WHERE attempt_id = %s", (aid,)),
+            ("DELETE FROM salescall.attempts WHERE attempt_id = %s", (aid,)),
+            ("UPDATE salescall.attempt_transitions SET to_state = 'ended' WHERE from_state = 'claimed'", ()),
+            ("UPDATE salescall.field_types SET readback = false WHERE type_name = 'date'", ()),
+        ]:
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                own.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql, params))
+
+    def test_results_and_next_actions_are_append_only(self):
+        w = World(); s = w.setup()
+
+        def add(tx):
+            tx.execute("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
+                       " judge_version, complaint, detail, snapshot, decided_by)"
+                       " VALUES (%s, %s, %s, 1, 'judged', 'incomplete', 'judge-1', false, '{}', '{}', 'judge')",
+                       (s["tenant"], s["client"], s["task"]))
+            tx.execute("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause,"
+                       " promised, contact_id, purpose) VALUES (%s, %s, %s, 1, 'call', now(), '取り込み', false, %s, 'normal')",
+                       (s["tenant"], s["client"], s["task"], s["contact"]))
+        w.a.in_client(SYSTEM, s["tenant"], s["client"], add)
+        own = owner_access()
+        for sql in ("UPDATE salescall.task_results SET business_state = 'completed' WHERE task_id = %s",
+                    "UPDATE salescall.task_next_actions SET call_at = now() WHERE task_id = %s",
+                    "DELETE FROM salescall.task_results WHERE task_id = %s"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                own.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql, (s["task"],)))
+
+    def test_result_and_setting_version_numbers_are_decided_by_the_database(self):
+        """結果の版・業務設定の版の番号は、データベースが決める（最大＋1。渡した番号は使わない＝ほかの記録と同じ next_seq。⛔ 見直し
+        17b：前はこの2つだけ、書く側が「最大＋1」を書いていた。重なった番号・大きな番号を渡しても、番号は重ならず、桁あふれもしない）。"""
+        w = World(); s = w.setup()
+        sql = ("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
+               " judge_version, complaint, detail, snapshot, decided_by)"
+               " VALUES (%s, %s, %s, %s, 'judged', 'open', 'judge-1', false, '{}', '{}', 'judge')")
+        for no in (2147483647, 1, 1):
+            w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"], no)))
+        self.assertEqual(w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: [r["version_no"] for r in tx.all(
+            "SELECT version_no FROM salescall.task_results WHERE task_id = %s ORDER BY version_no", (s["task"],))]), [1, 2, 3])
+        w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_no, created_by)"
+            " VALUES (%s, %s, %s, 2147483647, %s)", (s["tenant"], s["client"], s["business"], OPERATOR.name)))
+        w.add_version(s["tenant"], s["client"], s["business"])
+        self.assertEqual(w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: [r["version_no"] for r in tx.all(
+            "SELECT version_no FROM salescall.business_versions WHERE business_id = %s ORDER BY version_no", (s["business"],))]),
+            [1, 2, 3])
+
+    def test_human_version_has_no_judge_version_and_judged_must_have_one(self):
+        w = World(); s = w.setup()
+        base = ("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
+                " judge_version, complaint, detail, snapshot, decided_by) VALUES (%s, %s, %s, %s, %s, 'open', %s, false, '{}', '{}', 'x')")
+        for no, kind, jv in [(1, "judged", None), (2, "human", "judge-1")]:
+            with self.subTest(kind=kind), self.assertRaises(Rejected):
+                w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+                    base, (s["tenant"], s["client"], s["task"], no, kind, jv)))
+
+
+class DefinerFunctions(unittest.TestCase):
+    """3-0：読める範囲の決まりを越えて読む関数（SECURITY DEFINER）は、アプリの役だけが呼べる（誰でも呼べると、取引の契約者を好きに
+    置いて、ほかの契約者の様子が分かる。見直し7：error_lasting だけ外し忘れていた）。"""
+
+    def test_no_definer_function_is_open_to_everyone(self):
+        w = World(); s = w.setup()
+        open_ = w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(
+            "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'salescall' AND p.prosecdef"
+            "   AND (p.proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) a"
+            "                                    WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'))"
+            " ORDER BY 1"))
+        self.assertEqual([r["proname"] for r in open_], [])
+
+    def test_lists_of_other_clients_promises_are_used_only_inside(self):
+        """約束の一覧・回線の一覧は、ほかの依頼者の行も返すので、関数の中だけで使う（門は、いちばん近い時刻だけを受け取る）。"""
+        w = World(); s = w.setup()
+        can = w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT has_function_privilege('salescall_app', 'salescall.promises_waiting()', 'EXECUTE') AS p,"
+            "       has_function_privilege('salescall_app', 'salescall.lines_serving()', 'EXECUTE') AS l,"
+            "       has_function_privilege('salescall_app', 'salescall.next_customer_promise_at(uuid)', 'EXECUTE') AS n"))
+        self.assertEqual((can["p"], can["l"], can["n"]), (False, False, True))
+
+    def test_the_old_pc_key_roles_hold_nothing(self):
+        """PC はデータベースにつながない（5-5・0107）：前の PC の鍵の仕組みの役（払い出し専用の役・鍵を作る役）は、つなげず、
+        何の権限も持たない。鍵を作る関数・払い出しの記録の表も無い。"""
+        w = World()
+        got = w.a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT r.rolname, r.rolcanlogin, has_schema_privilege(r.rolname, 'salescall', 'USAGE') AS usage"
+            " FROM pg_roles r WHERE r.rolname IN ('salescall_provisioner', 'salescall_login_maker')"
+            "    OR r.rolname LIKE 'salescall\\_t\\_%' ORDER BY 1"))
+        self.assertEqual([(r["rolname"], r["rolcanlogin"], r["usage"]) for r in got],
+                         [("salescall_login_maker", False, False), ("salescall_provisioner", False, False)])
+        left = w.a.in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT to_regprocedure('salescall.make_pc_login(text, text)') AS m, to_regclass('salescall.tenant_login_events') AS t"))
+        self.assertEqual((left["m"], left["t"]), (None, None))
+        powers = w.a.in_system(SYSTEM, lambda tx: tx.one(   # 表の作りを流し終えたあとは、役を作る・システムの役を配る・接続を切る力も無い
+            "SELECT r.rolcreaterole AS create_role, pg_has_role('salescall_login_maker', 'salescall_app', 'USAGE') AS app,"
+            "       pg_has_role('salescall_login_maker', 'pg_signal_backend', 'USAGE') AS signal,"
+            "       pg_has_role('salescall_owner', 'salescall_login_maker', 'SET') AS owner_can_become"
+            " FROM pg_roles r WHERE r.rolname = 'salescall_login_maker'"))
+        self.assertEqual(dict(powers), {"create_role": False, "app": False, "signal": False, "owner_can_become": False})
+
+
+class PersonKinds(unittest.TestCase):
+    """管理者か契約者か（人か）は、誰が、の種類から1か所（salescall.is_person_kind。0205）で決める。いま操作している方の判断
+    （cur_is_person）も、それを要る CHECK も、これを読む。種類の無い取引は人でない（断る側。0201・0205）。"""
+
+    def test_only_the_admin_and_the_contractor_are_persons(self):
+        got = owner_access().in_system(SYSTEM, lambda tx: {r["k"]: r["p"] for r in tx.all(
+            "SELECT k, salescall.is_person_kind(k) AS p FROM unnest(enum_range(NULL::salescall.actor_kind)::text[] || '{\"\"}'"
+            "                                                     || ARRAY[NULL::text]) k")})
+        self.assertEqual(got, {"operator": True, "admin": True, "system": False, "": False, None: False})
+        w = World(); t = w.tenant()
+        for actor, person in ((OPERATOR, True), (ADMIN, True), (SYSTEM, False), (kindless(), False)):
+            with self.subTest(kind=actor.kind):
+                self.assertIs(w.a.in_tenant(actor, t, lambda tx: tx.one("SELECT salescall.cur_is_person() AS p"))["p"], person)
+
+    def test_the_person_kinds_are_written_only_in_the_one_place(self):
+        """データベースの関数・CHECK・行の見え方の決まり・見方のどれにも、管理者と契約者だけの組（IN (…)・ARRAY[…]）を書き写さない
+        （⛔ 0205 の前は、CHECK 2つが組を書き写していた）。人かを要る CHECK は、1か所を読む。"""
+        def lists(text):
+            return [set(re.findall(r"'([^']*)'", m.group(1) or m.group(2)))
+                    for m in re.finditer(r"\bIN\s*\(([^()]*)\)|\bARRAY\s*\[([^\]]*)\]", text or "", re.IGNORECASE)]
+
+        defs = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT 'function ' || p.oid::regprocedure::text AS what, pg_get_functiondef(p.oid) AS body FROM pg_proc p"
+            " WHERE p.pronamespace = 'salescall'::regnamespace AND p.prokind = 'f' AND p.proname <> 'is_person_kind'"
+            " UNION ALL SELECT 'check ' || c.conname, pg_get_constraintdef(c.oid) FROM pg_constraint c"
+            "  WHERE c.connamespace = 'salescall'::regnamespace AND c.contype = 'c'"
+            " UNION ALL SELECT 'policy ' || p.tablename || '.' || p.policyname, concat_ws(' ', p.qual, p.with_check) FROM pg_policies p"
+            "  WHERE p.schemaname = 'salescall'"
+            " UNION ALL SELECT 'view ' || v.viewname, v.definition FROM pg_views v WHERE v.schemaname = 'salescall'"))
+        copies = sorted(d["what"] for d in defs if {"operator", "admin"} in lists(d["body"]))
+        self.assertEqual(copies, [])
+        readers = {d["what"] for d in defs if "salescall.is_person_kind(" in (d["body"] or "")}
+        self.assertLessEqual({"check stop_events_manual_by_person", "check task_trouble_restores_actor_kind_check",
+                              "function salescall.cur_is_person()", "function salescall.stop_event_before_insert()"}, readers)
+
+
+class ServerOnly(unittest.TestCase):
+    """データベースが受け付けるのは、サーバーの役と表の持ち主だけ（0107。2026-10-21 ユーザー：「人に頼るシステムは極力作るな」）：
+    前の PC の鍵の役が消せずに残っても、つないで何もできない。守りの1か所は salescall.server_session。"""
+
+    GUARDS = ("cur_tenant", "cur_client", "cur_actor", "hub_only", "only_backup_system", "job_key_allowed", "server_only")
+    HARMLESS = {"schema_version", "schema_fingerprint"}   # 表の作りの版だけを返す（中身を返さない）
+
+    def test_every_table_and_every_definer_function_is_guarded(self):
+        """これから足す表・関数も漏れないよう、データベースの中を全部見る（行ごとの制限の無い表・守りを呼ばない関数を作らない）。"""
+        w = World()
+        bare = w.a.in_system(SYSTEM, lambda tx: [r["t"] for r in tx.all(
+            "SELECT c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
+            " WHERE n.nspname = 'salescall' AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity ORDER BY 1")])
+        self.assertEqual(bare, [])
+        views = w.a.in_system(SYSTEM, lambda tx: [r["v"] for r in tx.all(
+            "SELECT c.relname AS v FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'salescall'"
+            " AND c.relkind = 'v' AND NOT coalesce('security_invoker=true' = ANY(c.reloptions), false) ORDER BY 1")])
+        self.assertEqual(views, [])                                           # 見え方は、呼んだ役の制限を通る
+        funcs = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT p.proname AS name, pg_get_functiondef(p.oid) AS body FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'salescall' AND p.prosecdef AND has_function_privilege('salescall_app', p.oid, 'EXECUTE')"))
+        unguarded = sorted(f["name"] for f in funcs if f["name"] not in self.HARMLESS
+                           and not any(g + "(" in f["body"] for g in self.GUARDS))
+        self.assertEqual(unguarded, [])
+
+    def test_every_function_that_writes_has_its_place_in_the_rules(self):
+        """サーバーの役が呼べる、データベースの中で書き換える関数（volatile）は、すべて決まりの機械の表（checks/rules.py の
+        WRITE_FUNCTIONS）に、呼んでよい部品とともに載っている（新しく足した関数が見張りから漏れない）。"""
+        from checks import rules
+        writes = owner_access().in_system(SYSTEM, lambda tx: sorted(r["f"] for r in tx.all(
+            "SELECT p.proname AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'salescall' AND p.provolatile = 'v' AND pg_get_function_result(p.oid) <> 'trigger'"
+            " AND has_function_privilege('salescall_app', p.oid, 'EXECUTE')")))
+        self.assertEqual(writes, sorted(rules.WRITE_FUNCTIONS))
+
+    def test_a_delivery_record_keeps_which_row_it_was_sent_for(self):
+        """連携の台帳で書き換えられるのは、送った状態だけ（2026-10-22 の見直し：「送った」記録を、送っていない別のお客様の行へ
+        付け替えられた）。"""
+        cols = owner_access().in_system(SYSTEM, lambda tx: {r["c"]: r["ok"] for r in tx.all(
+            "SELECT a.attname AS c, has_column_privilege('salescall_app', 'salescall.deliveries', a.attname, 'UPDATE') AS ok"
+            " FROM pg_attribute a WHERE a.attrelid = 'salescall.deliveries'::regclass AND a.attnum > 0 AND NOT a.attisdropped")})
+        self.assertEqual(sorted(c for c, ok in cols.items() if ok),
+                         ["last_error", "remote_ref", "send_count", "state", "updated_at"])
+
+    def test_a_leftover_login_role_can_do_nothing(self):
+        """消せずに残った前の PC の鍵の役（システムの役の権限を受け継ぐ）でつないでも、契約者のデータ・共通の表・関数のどれも使えない。"""
+        import os
+        from salescall.core.access import Access
+        w = World()
+        s = w.setup()
+        role = f"salescall_t_{uuid.uuid4()}_deadbeef"
+        admin = Access(os.environ["SALESCALL_TEST_ADMIN_DSN"], max_attempts=1)
+
+        def make(sql):   # 前の仕組みで作られて残った役を、データベースの管理者が作ったことにする（いまは表の持ち主からは作れない）
+            admin.in_system(SYSTEM, lambda tx: tx.execute(sql))
+        make(f'CREATE ROLE "{role}" LOGIN IN ROLE salescall_app')
+        self.addCleanup(make, f'DROP ROLE "{role}"')
+        d = dict(p.split("=", 1) for p in os.environ["SALESCALL_TEST_APP_DSN"].split())   # 試験の接続の文字は「名前=値」を空白で並べた形
+        d.update(user=role)
+        left = Access(" ".join(f"{k}={v}" for k, v in d.items()), max_attempts=1)
+        for name, work in (
+                ("契約者のデータ", lambda: left.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(
+                    "SELECT 1 FROM salescall.tasks"))),
+                ("持ち主の権限で動く関数", lambda: left.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.one(
+                    "SELECT salescall.next_customer_promise_at(gen_random_uuid())"))),
+                ("共通の表に書く", lambda: left.in_system(SYSTEM, lambda tx: tx.execute(
+                    "INSERT INTO salescall.line_methods (method, label) VALUES ('試験の方式', '試験')")))):
+            with self.subTest(name), self.assertRaises(Rejected):
+                work()
+        self.assertEqual(left.in_system(SYSTEM, lambda tx: tx.all("SELECT 1 FROM salescall.setting_definitions")), [])   # 見えない
+
+
+class SharedConnections(unittest.TestCase):
+    """データベースへのつなぎは、接続先ごとに1つの共有のつなぎから借りる（core/access.py の `_pool`）。取引の「どの契約者か」は返した
+    つなぎに残らない。データベースの側で切れたつなぎは使わない。届かないときは決めた長さで「届かない」。"""
+
+    def test_one_pool_per_place_and_nothing_is_left_on_a_returned_connection(self):
+        from salescall.core import access
+        w = World()
+        s = w.setup()
+        mine = access.Access(w.a._conninfo + " application_name=salescall-pool-test")   # この試験だけの接続先（ほかの試験と混ざらない）
+        self.assertIs(access._pool(mine._conninfo), access._pool(access.Access(mine._conninfo)._conninfo))   # 接続先ごとに1つ
+        pids = set()
+        for _ in range(5):   # 契約者の取引のあとに全体の取引：同じつなぎでも、前の契約者は見えない
+            pids.add(mine.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT pg_backend_pid() AS p")["p"]))
+            left = mine.in_system(SYSTEM, lambda tx: tx.one(
+                "SELECT salescall.cur_tenant() AS t, salescall.cur_client() AS c, pg_backend_pid() AS p"))
+            self.assertEqual((left["t"], left["c"]), (None, None))
+            pids.add(left["p"])
+        self.assertEqual(len(pids), 1)                                        # つなぎ直していない（1本を借りて返している）
+
+    def test_a_connection_closed_by_the_database_is_not_used(self):
+        w = World()
+        pid = lambda tx: tx.one("SELECT pg_backend_pid() AS p")["p"]   # noqa: E731
+        held = w.a.in_system(SYSTEM, lambda tx: (pid(tx), w.a.in_system(SYSTEM, pid)))   # 2本を同時に借りて返す
+
+        def kill(tx):
+            me = pid(tx)
+            victim = held[0] if held[0] != me else held[1]
+            return tx.one("SELECT pg_terminate_backend(%s) AS ok", (victim,))["ok"]
+        self.assertTrue(w.a.in_system(SYSTEM, kill))                           # データベースの側で1本を切った
+        for _ in range(4):                                                     # どちらのつなぎを借りても、取引は通る
+            self.assertEqual(w.a.in_system(SYSTEM, lambda tx: w.a.in_system(SYSTEM, lambda t2: t2.one("SELECT 1 AS x")))["x"], 1)
+
+    def test_an_unreachable_database_is_reported_after_the_wait(self):
+        from unittest import mock
+        from salescall.core import access
+        with mock.patch.object(access, "POOL_WAIT", 1.0):
+            far = access.Access("host=127.0.0.1 port=1 dbname=none user=none connect_timeout=1", max_attempts=1)
+            started = time.monotonic()
+            with self.assertRaises(access.psycopg.OperationalError):   # 届かない（読み書きの層が使う種類）
+                far.in_system(SYSTEM, lambda tx: tx.one("SELECT 1"))
+        self.assertLess(time.monotonic() - started, 5)
+
+
+class TenantTransactions(unittest.TestCase):
+    """契約者の取引（種類が「システムの処理」でも）から、ほかの契約者・すべての契約者に効くものに触れない（0077・0084 で塞いだ所。
+    サーバーだけがつなぐ形＝5-5 になっても、どの接続にも効く守りとして残す）。"""
+
+    def setUp(self):
+        self.w = World()
+        self.s, self.other = self.w.setup(), World().setup()
+
+    def test_other_contractors_and_shared_things_are_out_of_reach(self):
+        a, s, o = self.w.a, self.s, self.other
+        theirs = self.w.insert_claim(o)                                      # ほかの契約者の、終わった通話
+        for state in ("dialing", "no_answer"):
+            self.w.move(o, theirs, state)
+        self.assertEqual(a.in_client(OPERATOR, s["tenant"], o["client"], lambda tx: tx.all(
+            "SELECT * FROM salescall.work_seconds(now() - interval '1 day', now())")), [])   # 時給の数え方は契約者も見る
+        with self.assertRaises(Rejected):                                    # 祝日の暦は全体の取引だけ
+            a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(
+                "INSERT INTO salescall.calendar_loads (file_sha256, first_year, last_year, loaded_by)"
+                " VALUES (repeat('0', 64), 2026, 2026, 'x')"))
+        from salescall.core import notify, stops
+        a.in_tenant(SYSTEM, o["tenant"], lambda tx: notify.emit(tx, "backup_failed", key="試験:管理者あて", summary="試験",
+                                                                admin=True, contractor=False))
+        self.assertEqual(a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT 1 FROM salescall.notification_events WHERE for_admin")), [])   # 管理者あての知らせは全体の取引だけ
+        stop = a.in_tenant(SYSTEM, o["tenant"], lambda tx: stops.stop(tx, cause="ai_connection", reason="試験", tenant_id=o["tenant"],
+                                                                      scope="tenant"))
+        with self.assertRaises(Rejected):                                    # ほかの契約者の停止で、予約を取り消せない
+            a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT salescall.release_claims_for_stop(%s)",
+                                                                (stop["event_id"],)))
+
+
+class OnlyCorporateForNow(unittest.TestCase):
+    """Intent.md 3-1：個人を対象にした業務は、13章の確かめが済むまで作れない。"""
+
+    def test_individual_target_is_rejected(self):
+        # 守りは、法人／個人の正本（業務設定の中身の target_class）に置く（2026-10-17：前は業務の表に2つ目の持ち場所があった）
+        w = World(); t = w.tenant(); c = w.client(t)
+        b, _ = w.business_with_version(t, c)
+        v = uuid.uuid4()
+
+        def individual(tx):
+            tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no,"
+                       " created_by) VALUES (%s, %s, %s, %s, 2, 'x')", (t, c, b, v))
+            tx.execute("INSERT INTO salescall.business_contents (tenant_id, client_id, version_id, content, saved_by)"
+                       " VALUES (%s, %s, %s, '{\"target_class\": \"individual\"}', 'x')", (t, c, v))
+        with self.assertRaises(Rejected) as e:
+            w.a.in_client(OPERATOR, t, c, individual)
+        self.assertEqual(e.exception.constraint, "business_contents_corporate_only")
+
+
+class NamesMatchTheDesign(unittest.TestCase):
+    """データベースが持つ名前の写しが、設計書の正本（DESIGN.md 4-4。持ち主 CL-1）と同じであること。
+    正本が変わったのに写しを直し忘れたら、ここが落ちる。"""
+
+    def test_item_states(self):
+        rows = World().a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT unnest(enum_range(NULL::salescall.item_state))::text AS s"))
+        self.assertEqual([r["s"] for r in rows], ["empty", "heard", "unclear", "checking", "confirmed", "accepted",
+                                                  "dont_know", "unresolved", "refused"])
+
+    def test_field_types(self):
+        rows = World().a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT type_name, readback FROM salescall.field_types ORDER BY type_name"))
+        self.assertEqual({r["type_name"]: r["readback"] for r in rows}, {
+            "date": True, "time": True, "datetime": True, "number": True, "amount": True, "name": True,
+            "phone": True, "email": True, "address": True, "yes_no": False, "choice": False, "free_text": False})
+
+    def test_dont_know_can_be_stored(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
+            " VALUES (%s, %s, %s, %s, 'Q1', 'dont_know', 'unknown', %s)", (s["tenant"], s["client"], s["task"], s["version"], aid)))
+
+
+class UnknownFieldTypeIsRejected(unittest.TestCase):
+    """I-16：型の一覧に無い型の質問は作れない。"""
+
+    def test_unknown_type(self):
+        w = World(); t = w.tenant(); c = w.client(t)
+        b, v = w.business_with_version(t, c)
+        with self.assertRaises(Rejected):
+            w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
+                "INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
+                " VALUES (%s, %s, %s, 'Q2', 2, 'mystery', true)", (t, c, v)))
+
+
+class AttemptTransitions(unittest.TestCase):
+    """4-2・I-27：試行の状態は、決まった組でしか移らない。履歴は自動で残る。"""
+
+    def test_happy_path_and_history(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        for st in ("dialing", "ringing", "answered", "in_conversation", "ending", "ended"):
+            w.move(s, aid, st)
+        row = w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT state, verification, ended_at IS NOT NULL AS ended FROM salescall.attempts WHERE attempt_id = %s", (aid,)))
+        self.assertEqual((row["state"], row["verification"], row["ended"]), ("ended", "pending", True))
+        hist = w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.all(
+            "SELECT from_state, to_state FROM salescall.attempt_state_history WHERE attempt_id = %s ORDER BY seq", (aid,)))
+        self.assertEqual([h["to_state"] for h in hist],
+                         ["claimed", "dialing", "ringing", "answered", "in_conversation", "ending", "ended"])
+        self.assertIsNone(hist[0]["from_state"])
+
+    def test_forbidden_moves(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        # 同じ状態への書き込み（claimed → claimed）は、データベースからは「何も変わらない」としか見えないので数えない（害は無い）
+        for bad in ("ended", "answered", "in_conversation"):
+            with self.subTest(bad=bad), self.assertRaises(Rejected):
+                w.move(s, aid, bad)
+        w.move(s, aid, "released")
+        for bad in ("dialing", "claimed", "ended"):
+            with self.subTest(after="released", bad=bad), self.assertRaises(Rejected):
+                w.move(s, aid, bad)
+
+    def test_must_start_as_claimed(self):
+        w = World(); s = w.setup()
+        with self.assertRaises(Rejected):
+            w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"
+                " state, claimed_at, claim_expires_at, purpose)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, 'dialing', now(), now() + interval '1 minute', 'normal')",
+                (s["tenant"], s["client"], s["task"], s["contact"], s["phone"], s["line"], s["version"])))
+
+    def test_verification_rule_by_how_it_ended(self):
+        w = World()
+        for end, path, expected in [
+            ("released", [], "not_needed"), ("no_answer", ["dialing"], "not_needed"),
+            ("busy", ["dialing"], "not_needed"), ("call_failed", ["dialing"], "not_needed"),
+            ("technical_error", ["dialing", "answered"], "pending"), ("dropped", ["dialing", "answered"], "pending"),
+            ("technical_error", ["dialing"], "not_needed"),   # お客様が出る前の結果不明は、誰とも話していない（2026-10-14）
+        ]:
+            with self.subTest(end=end):
+                s = w.setup()
+                aid = w.insert_claim(s)
+                for st in path:
+                    w.move(s, aid, st)
+                w.move(s, aid, end, "unknown" if end == "dropped" else None)
+                v = w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+                    "SELECT verification FROM salescall.attempts WHERE attempt_id = %s", (aid,)))
+                self.assertEqual(v["verification"], expected)
+
+    def test_dropped_needs_hangup_side_and_nothing_else_may_have_it(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        w.move(s, aid, "dialing"); w.move(s, aid, "answered")
+        with self.assertRaises(Rejected):
+            w.move(s, aid, "dropped")            # 切れ方が無い（「不明」も値として要る）
+        with self.assertRaises(Rejected):
+            w.move(s, aid, "in_conversation", "callee")  # dropped でないのに切れ方を持つ
+        w.move(s, aid, "dropped", "callee")
+
+    def test_verification_only_pending_to_done(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        w.move(s, aid, "released")  # not_needed
+        set_v = lambda v: w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+            "UPDATE salescall.attempts SET verification = %s WHERE attempt_id = %s", (v, aid)))
+        with self.assertRaises(Rejected):
+            set_v("done")
+        s2 = w.setup(); a2 = w.insert_claim(s2)
+        w.move(s2, a2, "dialing"); w.move(s2, a2, "answered"); w.move(s2, a2, "technical_error")  # pending
+        with self.assertRaises(Rejected):   # 「確かめられなかった」で諦めない（2026-10-17）
+            w.a.in_client(SYSTEM, s2["tenant"], s2["client"], lambda tx: tx.execute(
+                "UPDATE salescall.attempts SET verification = 'failed' WHERE attempt_id = %s", (a2,)))
+
+    def test_attempt_identity_cannot_change(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        with self.assertRaises(Rejected):
+            w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+                "UPDATE salescall.attempts SET claim_expires_at = now() + interval '1 hour' WHERE attempt_id = %s", (aid,)))
+
+
+class ExpiredClaimCannotDial(unittest.TestCase):
+    """5-3・I-29：期限が過ぎた予約証では、発信へ進めない（データベースの時刻で決める）。"""
+
+    def test_expired(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s, expires_in=timedelta(milliseconds=300))
+        time.sleep(0.5)
+        with self.assertRaises(Rejected):
+            w.move(s, aid, "dialing")
+        w.move(s, aid, "released")  # 期限切れの予約は戻せる
+
+    def test_within_time(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        w.move(s, aid, "dialing")
+
+
+class VersionMustBeRunsCurrent(unittest.TestCase):
+    """3-2：試行の版は、予約のときの実施回の版でなければならない。"""
+
+    def test_old_version_after_switch(self):
+        w = World(); s = w.setup()
+        v2 = w.add_version(s["tenant"], s["client"], s["business"])
+        w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
+            " VALUES (%s, %s, %s, %s, 2, %s, %s, '版2へ切り替え')",
+            (s["tenant"], s["client"], s["run"], s["business"], v2, OPERATOR.name)))
+        with self.assertRaises(Rejected):
+            w.insert_claim(s)                 # 古い版（1）で予約しようとする
+        w.insert_claim(s, version=v2)         # いまの版（2）なら通る
+
+    def test_cannot_assign_version_of_another_business(self):
+        w = World(); s = w.setup()
+        _, other_v = w.business_with_version(s["tenant"], s["client"])
+        with self.assertRaises(Rejected):
+            w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
+                " VALUES (%s, %s, %s, %s, 2, %s, %s, 'x')",
+                (s["tenant"], s["client"], s["run"], s["business"], other_v, OPERATOR.name)))
+
+
+class OneActiveAttempt(unittest.TestCase):
+    """3-1・I-2・I-21：進行中の試行は、連絡先・番号（依頼者・契約者をまたいで）・回線ごとに1つだけ。"""
+
+    def test_per_contact(self):
+        w = World(); s = w.setup()
+        w.insert_claim(s)
+        with self.assertRaises(Rejected) as e:
+            w.insert_claim(s, line=w.line(s["tenant"]))
+        self.assertIn(e.exception.constraint, ("attempts_one_active_per_contact", "attempts_one_active_per_number"))
+
+    def test_per_number_across_clients_and_tenants(self):
+        w = World(); p = fictional_phone()
+        s1 = w.setup(phone=p)
+        s2 = w.setup(phone=p, tenant=s1["tenant"])  # 同じ契約者の別の依頼者
+        s3 = w.setup(phone=p)                       # 別の契約者
+        w.insert_claim(s1)
+        for other in (s2, s3):
+            with self.subTest(other=other is s3 and "契約者の外" or "同じ契約者"), self.assertRaises(Rejected) as e:
+                w.insert_claim(other)
+            self.assertEqual(e.exception.constraint, "attempts_one_active_per_number")
+
+    def test_per_line(self):
+        w = World(); s1 = w.setup()
+        s2 = w.setup(tenant=s1["tenant"])
+        w.insert_claim(s1)
+        with self.assertRaises(Rejected) as e:
+            w.insert_claim(s2, line=s1["line"])
+        self.assertEqual(e.exception.constraint, "attempts_one_active_per_line")
+
+    def test_line_of_another_tenant_cannot_be_used(self):
+        w = World(); s1 = w.setup(); s2 = w.setup()
+        with self.assertRaises(Rejected):
+            w.insert_claim(s1, line=s2["line"])
+
+    def test_after_ending_a_new_claim_is_allowed(self):
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        w.move(s, aid, "released")
+        w.insert_claim(s)
+
+    def test_concurrent_claims_on_one_number_only_one_wins(self):
+        """別々の依頼者・契約者の処理が、同じ番号を同時に予約しても、通るのは1つだけ（わざと同時に動かす）。"""
+        w = World(); p = fictional_phone()
+        setups = [w.setup(phone=p) for _ in range(4)] + [w.setup(phone=p, tenant=None) for _ in range(4)]
+        start = threading.Barrier(len(setups))
+        ok, rejected, errors = [], [], []
+
+        def claim(s):
+            start.wait()
+            try:
+                ok.append(w.insert_claim(s))
+            except Rejected:
+                rejected.append(s)
+            except Exception as e:  # 想定外の失敗は、試験を落とす
+                errors.append(e)
+        threads = [threading.Thread(target=claim, args=(s,)) for s in setups]
+        for th in threads: th.start()
+        for th in threads: th.join()
+        self.assertEqual(errors, [])
+        self.assertEqual((len(ok), len(rejected)), (1, len(setups) - 1))
+
+
+class ConflictsAreRetried(unittest.TestCase):
+    """5-2-1 の2：直列化の水準でぶつかった取引は、読み書きの層がやり直し、結果は1つずつ順に行ったのと同じになる。"""
+
+    def test_concurrent_appends_get_distinct_numbers_from_the_database(self):
+        """同時に足しても、番号（データベースが決める＝next_seq）は重ならない。ぶつかった取引は読み書きの層がやり直す。"""
+        w = World(); s = w.setup()
+        versions = [w.add_version(s["tenant"], s["client"], s["business"]) for _ in range(2, 10)]
+        start = threading.Barrier(len(versions))
+        errors = []
+
+        def append(v):
+            def work(tx):
+                tx.execute("INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id,"
+                           " assigned_by, reason) VALUES (%s, %s, %s, %s, %s, %s, '切り替え')",
+                           (s["tenant"], s["client"], s["run"], s["business"], v, OPERATOR.name))
+            start.wait()
+            try:
+                w.a.in_client(OPERATOR, s["tenant"], s["client"], work)
+            except Exception as e:
+                errors.append(e)
+        threads = [threading.Thread(target=append, args=(v,)) for v in versions]
+        for th in threads: th.start()
+        for th in threads: th.join()
+        self.assertEqual(errors, [])
+        seqs = w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: [r["seq"] for r in tx.all(
+            "SELECT seq FROM salescall.run_versions WHERE run_id = %s ORDER BY seq", (s["run"],))])
+        self.assertEqual(seqs, list(range(1, 10)))
+
+
+class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
+    """10章・3-1：送れるのは「送ってよい印」の付いた版だけ。同じ版を同じ送り先へ2回は作れない。"""
+
+    def test_results_confirmed_in_verification_never_reach_the_requester(self):
+        """検証の段階で確定した結果には、送り先への連携（依頼者へ渡す道）を作れない（2026-10-16 ユーザー：「依頼者に途中作業
+        していることは絶対に知らせてはいけない」。データベースが守る）。"""
+        w = World(); s = w.setup(); dest = uuid.uuid4()
+        aid = w.insert_claim(s)   # 検証モードでかけた通話（検証の印。確定の印の段は、かけたときのモードで決まる＝0161）
+
+        def prepare(tx):
+            tx.execute("INSERT INTO salescall.recording_holds (tenant_id, client_id, attempt_id, reason)"
+                       " VALUES (%s, %s, %s, 'verification')", (s["tenant"], s["client"], aid))
+            tx.execute("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state, attempt_id,"
+                       " judge_version, complaint, detail, snapshot, decided_by)"
+                       " VALUES (%s, %s, %s, 1, 'judged', 'completed', %s, 'judge-1', false, '{}', '{}', 'judge')",
+                       (s["tenant"], s["client"], s["task"], aid))
+            tx.execute("INSERT INTO salescall.destinations (tenant_id, client_id, destination_id, name, method, upsert_capable)"
+                       " VALUES (%s, %s, %s, '架空の送り先', 'mock', true)", (s["tenant"], s["client"], dest))
+            tx.execute("INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+                       " VALUES (%s, %s, %s, 1, '契約者', 'verification')", (s["tenant"], s["client"], s["task"]))
+        w.a.in_client(OPERATOR, s["tenant"], s["client"], prepare)
+        with self.assertRaises(Rejected):
+            w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.deliveries (tenant_id, client_id, task_id, destination_id, version_no, state, send_count)"
+                " VALUES (%s, %s, %s, %s, 1, 'pending', 0)", (s["tenant"], s["client"], s["task"], dest)))
+
+    def test_release_then_deliver_once(self):
+        w = World(); s = w.setup(); dest = uuid.uuid4()
+
+        def prepare(tx):
+            tx.execute("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
+                       " judge_version, complaint, detail, snapshot, decided_by)"
+                       " VALUES (%s, %s, %s, 1, 'judged', 'completed', 'judge-1', false, '{}', '{}', 'judge')",
+                       (s["tenant"], s["client"], s["task"]))
+            tx.execute("INSERT INTO salescall.destinations (tenant_id, client_id, destination_id, name, method, upsert_capable)"
+                       " VALUES (%s, %s, %s, '架空の送り先', 'mock', true)", (s["tenant"], s["client"], dest))
+        w.a.in_client(OPERATOR, s["tenant"], s["client"], prepare)
+        deliver = lambda: w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.deliveries (tenant_id, client_id, task_id, destination_id, version_no, state, send_count)"
+            " VALUES (%s, %s, %s, %s, 1, 'pending', 0)", (s["tenant"], s["client"], s["task"], dest)))
+        with self.assertRaises(Rejected):
+            deliver()  # 印が無い
+        w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+            " VALUES (%s, %s, %s, 1, '承認の部分', 'production')", (s["tenant"], s["client"], s["task"])))
+        deliver()
+        with self.assertRaises(Rejected):
+            deliver()  # 同じ版を同じ送り先へ2回
+
+
+class DoNotCallLedger(unittest.TestCase):
+    """Q3：発信禁止の登録は消せない。取り消しは契約者だけが、記録つきで1回。有効な登録は番号ごとに1つ。"""
+
+    def _register(self, w, s):
+        eid = uuid.uuid4()
+        w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.dnc_entries (tenant_id, client_id, entry_id, phone_e164, reason, registered_by)"
+            " VALUES (%s, %s, %s, %s, 'refused_in_call', 'conversation')", (s["tenant"], s["client"], eid, s["phone"])))
+        return eid
+
+    def test_rules(self):
+        w = World(); s = w.setup()
+        eid = self._register(w, s)
+        with self.assertRaises(Rejected):
+            self._register(w, s)  # 有効な登録が2つになる
+        revoke = lambda actor: w.a.in_client(actor, s["tenant"], s["client"], lambda tx: tx.execute(
+            "UPDATE salescall.dnc_entries SET revoked_at = now(), revoked_by = %s, revoke_reason = '本人の申し出の取り消し'"
+            " WHERE entry_id = %s", (actor.name, eid)))
+        with self.assertRaises(Rejected):
+            revoke(SYSTEM)  # システムの処理は取り消せない
+        with self.assertRaises(Rejected):
+            w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+                "UPDATE salescall.dnc_entries SET phone_e164 = %s WHERE entry_id = %s", (fictional_phone(), eid)))
+        with self.assertRaises(Rejected):
+            w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+                "DELETE FROM salescall.dnc_entries WHERE entry_id = %s", (eid,)))
+        revoke(OPERATOR)
+        with self.assertRaises(Rejected):
+            revoke(OPERATOR)  # 取り消しは1回だけ
+        self._register(w, s)  # 取り消したあとは、また登録できる
+
+
+if __name__ == "__main__":
+    unittest.main()

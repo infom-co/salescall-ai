@@ -1,0 +1,2608 @@
+{
+  "item": "G-59facets2_r1",
+  "saved_at": "2026-10-29T12:27:27",
+  "question": "営業部部長の「おかだ」様はいらっしゃいますでしょうか？",
+  "summary": {
+    "judge2": "60/60",
+    "judge2（事実ごとに全部）": "60/60",
+    "judge2（電話に出ている方）": "60/60",
+    "judge2（電話のやり取り）": "60/60",
+    "judge2（お呼びした方の事情）": "60/60",
+    "judge2（2つの事実の言葉：読み・事実ごと）": [
+      "11/11",
+      "11/11"
+    ],
+    "judge2（尋ねているか）": "60/60",
+    "judge2（何を聞かれたか）": "9/9",
+    "名乗り・用件の質問を、どの判定もほかと読んだ（差し戻しうる）": "0/5",
+    "ほかの質問を差し戻せた（ほかの読みがあり、名乗り・用件の読みが無い）": "4/4",
+    "judge2（前の言葉つき）": "24/24",
+    "取り次ぎの言葉に、どれかの読みが取り次ぎ": "5/14",
+    "取り次ぎでない言葉に、尋ねているかが取り次ぎ": "0/92",
+    "judge2（答えまでの秒：中央・遅いほうから1割・最長）": [
+      1.471,
+      1.804,
+      2.578
+    ]
+  },
+  "rows": [
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.784,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.905,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.385,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.714,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.229,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.467,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.204,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.451,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.173,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 2.108,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.522,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.586,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.463,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.603,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.371,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.464,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.186,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 1.76,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ",
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.28,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.42,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.229,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.452,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.216,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.528,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.18,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 1.599,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.175,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.299,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "accept": [
+        "不在",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.461,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.575,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.212,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.536,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "失礼ですが、御社はどちらにある会社なんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.57,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.622,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "キャンセル料ってかかるんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.423,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.212,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.189,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.97,
+      "judge2_s": 1.471,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.531,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.611,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.179,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.97,
+      "judge2_s": 1.347,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "それでは岡田にお繋ぎします。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.219,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 1.272,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.41,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.449,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.528,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.804,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人",
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.392,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.713,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない",
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在",
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.188,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.97,
+      "judge2_s": 1.499,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.193,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.569,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.176,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.97,
+      "judge2_s": 2.578,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.194,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 1.408,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.196,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 1.587,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.352,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.473,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.387,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.468,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.172,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.97,
+      "judge2_asks_s": 1.457,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山田です。",
+      "accept": [
+        "不在",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在",
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.387,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.45,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.193,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 1.378,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.192,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 1.366,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.177,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 1.386,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.421,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.448,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "お電話代わりました。担当の山田です。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.22,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 1.567,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.224,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 1.684,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.437,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.478,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.211,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 1.336,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.415,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.428,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない",
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.168,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "judge2_asks_s": 0.191,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.409,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.465,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "公認は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.358,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.798,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.173,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 1.345,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.209,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.471,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "田中はただいま席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.258,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.438,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、受付の田中です。岡田はただいま外出しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.415,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.422,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "違います。岡田は会議中です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.197,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.411,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.362,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.605,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "受付の田中と申します。あいにく岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.198,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 1.393,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。ただいま外出しておりまして、戻りは3時ごろの予定です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.216,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 1.537,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": null,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.441,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.76,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、山田です。岡田に代わりますので少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 1.435,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.708,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、鈴木です。岡田は本日お休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.419,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.545,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。佐藤と申します。岡田は席を外しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 1.443,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.956,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうですが、いまちょっと手が離せないので後でかけ直してもらえますか。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 1.305,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.569,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.395,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.409,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Sonnet 5.5（考える）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    }
+  ],
+  "有料の窓口の料金": {
+    "Anthropic の判定": {
+      "円": 23.3,
+      "回数": {
+        "claude-sonnet-5-5": 90
+      },
+      "返事を待たずに止めた回数（円は見込み）": {
+        "claude-sonnet-5-5": 90
+      },
+      "トークン": {
+        "claude-sonnet-5-5": {
+          "input_tokens": 4042,
+          "output_tokens": 2459,
+          "cache_read_input_tokens": 147349,
+          "cache_creation_input_tokens": 12386
+        }
+      },
+      "上限の円": 30.0
+    }
+  }
+}

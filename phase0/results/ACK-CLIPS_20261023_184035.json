@@ -1,0 +1,125 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-23T18:40:35",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "talk_agree_high",
+      "text": "本当にそうですよね！",
+      "heard": {
+        "0.0": "本当にそうですよね。",
+        "1.0": "本当にそうですよね。"
+      },
+      "ok": true,
+      "seconds": 1.38,
+      "try": 1,
+      "wav": "L4_talk_agree_high_1.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "talk_agree_high",
+      "text": "本当にそうですよね！",
+      "heard": {
+        "0.0": "本当にそうですよね。",
+        "1.0": "本当にそうですよね。"
+      },
+      "ok": true,
+      "seconds": 1.78,
+      "try": 2,
+      "wav": "L4_talk_agree_high_2.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "talk_heard_glad",
+      "text": "そうでしたか！",
+      "heard": {
+        "0.0": "そうでしたか。",
+        "1.0": "そうでしたか。"
+      },
+      "ok": true,
+      "seconds": 0.92,
+      "try": 1,
+      "wav": "L4_talk_heard_glad_1.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "talk_heard_glad",
+      "text": "そうでしたか！",
+      "heard": {
+        "0.0": "そうでしたか。",
+        "1.0": "そうでしたか。"
+      },
+      "ok": true,
+      "seconds": 1.24,
+      "try": 2,
+      "wav": "L4_talk_heard_glad_2.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "talk_hard_sad",
+      "text": "それは大変でしたね。",
+      "heard": {
+        "0.0": "それは大変でしたね。",
+        "1.0": "それは大変でしたね。"
+      },
+      "ok": true,
+      "seconds": 1.58,
+      "try": 1,
+      "wav": "L4_talk_hard_sad_1.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "talk_hard_sad",
+      "text": "それは大変でしたね。",
+      "heard": {
+        "0.0": "それは大変でしたね。",
+        "1.0": "それは大変でしたね。"
+      },
+      "ok": true,
+      "seconds": 1.68,
+      "try": 2,
+      "wav": "L4_talk_hard_sad_2.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "talk_hard_bright",
+      "text": "それは大変でしたね。",
+      "heard": {
+        "0.0": "それは大変でしたね。",
+        "1.0": "それは大変でしたね。"
+      },
+      "ok": true,
+      "seconds": 1.8,
+      "try": 1,
+      "wav": "L4_talk_hard_bright_1.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "talk_hard_bright",
+      "text": "それは大変でしたね。",
+      "heard": {
+        "0.0": "それは大変でしたね。",
+        "1.0": "それは大変でしたね。"
+      },
+      "ok": true,
+      "seconds": 1.86,
+      "try": 2,
+      "wav": "L4_talk_hard_bright_2.wav"
+    }
+  ],
+  "kept": {
+    "L4_talk_agree_high": 2,
+    "L4_talk_heard_glad": 2,
+    "L4_talk_hard_sad": 2,
+    "L4_talk_hard_bright": 2
+  }
+}

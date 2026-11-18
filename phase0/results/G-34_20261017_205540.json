@@ -1,0 +1,288 @@
+{
+  "item": "G-34",
+  "saved_at": "2026-10-17T20:55:40",
+  "model": "gemini-3.8-live",
+  "variant": {
+    "thinking_budget": 0,
+    "speech_end": {
+      "sensitivity": "HIGH",
+      "silence_ms": 400
+    }
+  },
+  "long_silence_s": 6.0,
+  "summary": {
+    "ふつう": {
+      "calls": 0,
+      "errors": 0,
+      "values_ok": 0,
+      "values": 0,
+      "q1_ok": 0,
+      "rejected": 0,
+      "first_heard": null,
+      "ai_voice": null,
+      "ai_held": null,
+      "ack_to_ai": null,
+      "no_ack_turns": 0,
+      "spoke_before_report": 0,
+      "ai_starts_with_hai": 0,
+      "thinking_said": [],
+      "thinking_waited": 0,
+      "thinking_cut_in": 0,
+      "spoke_in_silence": 0,
+      "acks": [],
+      "readbacks": 0,
+      "readback_value_missed": 0,
+      "readback_lead_missed": []
+    },
+    "考える間": {
+      "calls": 0,
+      "errors": 6,
+      "values_ok": 0,
+      "values": 0,
+      "q1_ok": 0,
+      "rejected": 0,
+      "first_heard": null,
+      "ai_voice": null,
+      "ai_held": null,
+      "ack_to_ai": null,
+      "no_ack_turns": 0,
+      "spoke_before_report": 0,
+      "ai_starts_with_hai": 0,
+      "thinking_said": [],
+      "thinking_waited": 0,
+      "thinking_cut_in": 0,
+      "spoke_in_silence": 0,
+      "acks": [],
+      "readbacks": 0,
+      "readback_value_missed": 0,
+      "readback_lead_missed": []
+    },
+    "長い間": {
+      "calls": 0,
+      "errors": 6,
+      "values_ok": 0,
+      "values": 0,
+      "q1_ok": 0,
+      "rejected": 0,
+      "first_heard": null,
+      "ai_voice": null,
+      "ai_held": null,
+      "ack_to_ai": null,
+      "no_ack_turns": 0,
+      "spoke_before_report": 0,
+      "ai_starts_with_hai": 0,
+      "thinking_said": [],
+      "thinking_waited": 0,
+      "thinking_cut_in": 0,
+      "spoke_in_silence": 0,
+      "acks": [],
+      "readbacks": 0,
+      "readback_value_missed": 0,
+      "readback_lead_missed": []
+    },
+    "訂正": {
+      "calls": 0,
+      "errors": 0,
+      "values_ok": 0,
+      "values": 0,
+      "q1_ok": 0,
+      "rejected": 0,
+      "first_heard": null,
+      "ai_voice": null,
+      "ai_held": null,
+      "ack_to_ai": null,
+      "no_ack_turns": 0,
+      "spoke_before_report": 0,
+      "ai_starts_with_hai": 0,
+      "thinking_said": [],
+      "thinking_waited": 0,
+      "thinking_cut_in": 0,
+      "spoke_in_silence": 0,
+      "acks": [],
+      "readbacks": 0,
+      "readback_value_missed": 0,
+      "readback_lead_missed": []
+    },
+    "聞き取りにくい": {
+      "calls": 0,
+      "errors": 0,
+      "values_ok": 0,
+      "values": 0,
+      "q1_ok": 0,
+      "rejected": 0,
+      "first_heard": null,
+      "ai_voice": null,
+      "ai_held": null,
+      "ack_to_ai": null,
+      "no_ack_turns": 0,
+      "spoke_before_report": 0,
+      "ai_starts_with_hai": 0,
+      "thinking_said": [],
+      "thinking_waited": 0,
+      "thinking_cut_in": 0,
+      "spoke_in_silence": 0,
+      "acks": [],
+      "readbacks": 0,
+      "readback_value_missed": 0,
+      "readback_lead_missed": []
+    }
+  },
+  "rows": [
+    {
+      "rep": 0,
+      "type": "S2",
+      "scene": "考える間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 0,
+      "type": "S2",
+      "scene": "長い間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 0,
+      "type": "S4",
+      "scene": "考える間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 0,
+      "type": "S4",
+      "scene": "長い間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 0,
+      "type": "L4",
+      "scene": "考える間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 0,
+      "type": "L4",
+      "scene": "長い間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 1,
+      "type": "S2",
+      "scene": "考える間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 1,
+      "type": "S2",
+      "scene": "長い間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 1,
+      "type": "S4",
+      "scene": "考える間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 1,
+      "type": "S4",
+      "scene": "長い間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 1,
+      "type": "L4",
+      "scene": "考える間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    },
+    {
+      "rep": 1,
+      "type": "L4",
+      "scene": "長い間",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1008 None. Your project has been denied access. Please contact support.",
+        "code": "1008",
+        "status": "None",
+        "details": "Your project has been denied access. Please contact support."
+      }
+    }
+  ]
+}

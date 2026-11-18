@@ -1,0 +1,36 @@
+{
+  "item": "VOICING-RECHECK",
+  "saved_at": "2026-10-16T18:43:27",
+  "models": {
+    "3.5 Flash Lite": "gemini-3.5-flash-lite",
+    "3.6 Flash": "gemini-3.6-flash",
+    "3.7 Flash": "gemini-3.7-flash",
+    "3.8 Flash": "gemini-3.8-flash"
+  },
+  "rows": {
+    "G44_10_K_0.wav": {
+      "3.7 Flash": "ひまわりがくいんのやまざきでございます",
+      "3.6 Flash": "ひまわりがくいんのやまざきでございます"
+    },
+    "G44_10_KN_0.wav": {
+      "3.7 Flash": "ひまわりがくいんのやまざきでございます",
+      "3.6 Flash": "ひまわりがくいんのやまざきでございます"
+    },
+    "G44_10_P_0.wav": {
+      "3.7 Flash": "ひまわりがくいんのやまさきでございます"
+    },
+    "G44_10_KATA_0.wav": {},
+    "G44_10_HIRA_0.wav": {},
+    "G44_10_K_1.wav": {},
+    "G44_10_KN_1.wav": {},
+    "G44_10_P_1.wav": {},
+    "G44_10_KATA_1.wav": {},
+    "G44_10_HIRA_1.wav": {},
+    "G44_09_HIRA_0.wav": {},
+    "G44_09_HIRA_1.wav": {},
+    "VOICING_なかしま.wav": {},
+    "VOICING_なかじま.wav": {},
+    "VOICING_やまさき.wav": {},
+    "VOICING_やまざき.wav": {}
+  }
+}

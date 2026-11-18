@@ -1,0 +1,396 @@
+"""依頼者のファイル（CSV・xlsx）を、行と欄に読む。業務の資料（文章・CSV・xlsx・Word・PDF）を文字に読む（`read_document`）。持ち主 CL-2。
+DESIGN.md 3-4・6-5。
+
+ファイルを読むのは、この部品だけ（発信対象の取込も、発信禁止の一覧の取込も、業務の資料の取込も、ここを通す）。
+読むだけで、値の意味（番号か・管理番号か）は判断しない（番号の判断は Q1、行の合否は取込の1か所）。
+
+決まり（推測で読まない。読めないものは、理由をつけて断る）：
+- 1行目が見出し。行番号は、表計算ソフトで見える行番号（1行目＝見出し。値の中の改行は1行のまま）。
+- CSV の文字の決まり：先頭に BOM があれば UTF-8。無ければ UTF-8・Shift_JIS（cp932）・EUC-JP のどれでも厳密に読み、
+  1つだけ読めればそれ、どれで読んでも中身が同じ（英数字だけ）なら UTF-8。
+  **2つ以上で読めて中身が違うときは、推測で選ばない**（2026-10-16 の見直し I12：前は EUC-JP を確かめず、EUC-JP の
+  ファイルが Shift_JIS として「読めて」しまい、化けた社名のまま通りえた）（`EncodingAmbiguous`。両方の読み方の先頭の数行を返すので、
+  画面で見せて契約者が選び、`encoding` を指定して読み直す）。
+  測った結果（2026-10-14）：日本語が2文字だけの UTF-8 は約5割が Shift_JIS としても読め、Shift_JIS の2文字は約2%が
+  UTF-8 としても読める。⇒「UTF-8 を先に試す」では、短いファイルで名前が化ける（会話で化けた社名を読み上げうる）。
+  日本語が100文字を超えると、ほぼ両方では読めなくなるので、ふつうの一覧では選ぶ場面は出ない。
+- CSV で、列の数が見出しと合わない行は、その行に印をつける（値の中の「,」が囲まれていないと列がずれ、
+  別の列の番号を電話番号として読む恐れがあるため。取込がその行を止める）。
+- xlsx：シートが1つならそれ。2つ以上なら、どのシートかを名前で指定しないと断る（黙って1枚目を選ばない）。
+  数の型の欄は「数」の印をつける（数は先頭の 0 を持てないので、番号の先頭の 0 が消えた確かな証拠。DESIGN.md 3-4）。
+  エラーの値（#N/A など）・結果が保存されていない式・15桁を超える数（表計算ソフトで桁が失われる）は、欄に「問題」をつける。
+- 末尾の空の行は読まない（書式だけ残った行）。途中の空の行は、空の行として残す（行番号をずらさない）。
+"""
+
+from __future__ import annotations
+
+import codecs
+import csv
+import hashlib
+import io
+import zipfile
+from dataclasses import dataclass
+from datetime import date, datetime, time
+
+import openpyxl
+import pypdf
+from defusedxml import ElementTree
+
+
+class FileRejected(Exception):
+    """ファイルを読めない（理由は日本語）。何も登録しない。"""
+
+
+class EncodingAmbiguous(FileRejected):
+    """2つ以上の文字の決まり（ENCODINGS）で読めて、中身が違う。samples：読み方ごとの先頭の数行（画面で見せて選んでもらう）。"""
+
+    def __init__(self, samples: dict[str, list[str]]) -> None:
+        super().__init__(f"文字の決まり（{' か '.join(_NAMES[e] for e in samples)}）を決められません。正しく読める方を選んでください")
+        self.samples = samples
+
+
+@dataclass(frozen=True)
+class Cell:
+    text: str | None              # 欄の文字（空・空白だけなら None）
+    numeric: bool = False         # xlsx で数の型だった
+    problem: str | None = None    # 値を信じてはいけない理由（エラーの値・結果の無い式・桁が失われた数・TRUE/FALSE）
+    flag: bool | None = None      # xlsx で TRUE・FALSE の値だった（チェックの列。どの欄で使えるかは取込が決める）
+
+
+@dataclass(frozen=True)
+class Row:
+    row_no: int
+    cells: tuple[Cell, ...]
+    width_ok: bool = True         # CSV で、列の数が見出しと同じ
+
+    def cell(self, index: int) -> Cell:
+        return self.cells[index] if index < len(self.cells) else Cell(None)
+
+    @property
+    def is_empty(self) -> bool:
+        """中身の無い行（チェックの列の外れ＝FALSE も中身ではない。表計算ソフトのチェックの列は、下の空の行まで FALSE が入るので、
+        数えると末尾の空の行が「番号の無い行」として並ぶ＝2026-10-18 の見直し）。"""
+        return all(c.text is None and (c.problem is None or c.flag is False) for c in self.cells)
+
+
+@dataclass(frozen=True)
+class Sheet:
+    file_name: str
+    file_kind: str                # csv / xlsx
+    file_sha256: str
+    encoding: str | None          # CSV の文字の決まり
+    sheet_name: str | None        # xlsx のシートの名前
+    header: tuple[str | None, ...]
+    rows: tuple[Row, ...]
+
+
+_EMPTY = Cell(None)
+_MAX_EXACT = 10 ** 15             # 表計算ソフトの数は15桁まで正確（それより大きい数は、桁が失われている）
+
+
+ENCODINGS = ("utf-8", "cp932", "euc_jp")
+_NAMES = {"utf-8": "UTF-8", "cp932": "Shift_JIS", "euc_jp": "EUC-JP"}   # 画面・知らせに出す名前（ENCODINGS と組）
+
+
+def file_kind(file_name: str) -> str | None:
+    """ファイルの種類を名前の拡張子で決める（1か所。表の取込 `read` と業務の資料 `read_document` の両方。見直し(B) の9）。"""
+    return DOCUMENT_KINDS.get("." + file_name.lower().rsplit(".", 1)[-1]) if "." in file_name else None
+
+
+def read(file_name: str, data: bytes, *, sheet_name: str | None = None, encoding: str | None = None) -> Sheet:
+    """ファイルを読む。種類は名前の拡張子で決める（.csv / .xlsx＝`file_kind`）。読めなければ FileRejected。
+    encoding：CSV の文字の決まりを契約者が選んだとき（EncodingAmbiguous のあと）だけ渡す。"""
+    kind = file_kind(file_name)
+    digest = hashlib.sha256(data).hexdigest()
+    if kind == "csv":
+        if sheet_name is not None:
+            raise FileRejected("CSV にはシートがありません")
+        text, encoding = _decode(data, encoding)
+        header, rows = _csv_rows(text)
+        return Sheet(file_name, "csv", digest, encoding, None, header, rows)
+    if kind == "xlsx":
+        if encoding is not None:
+            raise FileRejected("Excel のファイルには、文字の決まりの指定は要りません")
+        name, header, rows = _xlsx_rows(data, sheet_name)
+        return Sheet(file_name, "xlsx", digest, None, name, header, rows)
+    raise FileRejected("読めるのは CSV（.csv）と Excel（.xlsx）だけです（古い .xls は .xlsx で保存し直してください）")
+
+
+@dataclass(frozen=True)
+class Document:
+    """業務の資料1つを文字にしたもの（組む AI に渡す文字と、出典の確かめ＝core/source_check.py が照らす文字は、同じこれ）。"""
+    file_name: str
+    file_kind: str                # text / csv / xlsx / docx / pdf
+    file_sha256: str
+    text: str
+    problems: tuple[str, ...] = ()   # 文字にできなかった所（xlsx の結果の無い式・PDF の文字の無いページ。その所の文字は text に入っていない）
+
+
+DOCUMENT_KINDS = {".txt": "text", ".md": "text", ".csv": "csv", ".xlsx": "xlsx", ".docx": "docx", ".pdf": "pdf"}
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"   # Word の文書の名前空間
+
+
+def read_document(file_name: str, data: bytes, *, encoding: str | None = None) -> Document:
+    """業務の資料（依頼者の資料一式の1つ）を、文字に読む（1か所）。種類は名前の拡張子で決める（DOCUMENT_KINDS）。読めなければ
+    FileRejected（文章・CSV の文字の決まりが決められなければ EncodingAmbiguous。決まりは発信対象の CSV と同じ `_decode`）。
+    xlsx はすべてのシートを「【シート名】」のあとに、行ごと（欄はタブで区切る）に並べる。Word（.docx）は段落ごと（表の欄の段落も、
+    文書の中の順に）。PDF はページごと（文字の入った PDF だけ。2026-11-06 ユーザー：「文字の PDF を読む部品を足す」）。推し量らない：
+    読めない所（結果の無い式・エラーの値・文字の無いページ）は文字にせず、problems に理由を残す。どのページにも文字が無い PDF（紙を
+    スキャンした画像だけの PDF など）・鍵のかかった PDF は断る。"""
+    kind = file_kind(file_name)
+    if kind is None:
+        raise FileRejected(f"業務の資料として読めるのは {'・'.join(DOCUMENT_KINDS)} です（{file_name}）")
+    if encoding is not None and kind not in ("text", "csv"):
+        raise FileRejected("文字の決まりの指定が要るのは、文章（.txt・.md）と CSV だけです")
+    digest = hashlib.sha256(data).hexdigest()
+    if kind in ("text", "csv"):
+        text, _ = _decode(data, encoding)
+        return Document(file_name, kind, digest, text)
+    if kind == "xlsx":
+        parts, problems = [], []
+        for name in _xlsx_sheet_names(data):
+            parts.append(f"【{name}】")                    # 空のシートも名前だけ並べる（見出しの行を決めない＝行は全部同じに読む）
+            for row_no, cells in enumerate(_xlsx_cells(data, name), start=1):
+                parts.append("\t".join(_document_cell(c) for c in cells))
+                problems += [f"{name} の {row_no} 行目：{c.problem}" for c in cells if c.problem is not None and c.flag is None]
+        return Document(file_name, kind, digest, "\n".join(parts), tuple(problems))
+    if kind == "pdf":
+        text, problems = _pdf_text(data)
+        return Document(file_name, kind, digest, text, problems)
+    text, problems = _docx_text(data)
+    return Document(file_name, kind, digest, text, problems)
+
+
+def _document_cell(c: Cell) -> str:
+    """業務の資料の表の欄を文字にする（TRUE・FALSE の欄は、その文字のまま＝見直し(B) の7：前は空になり、値だけが消えた）。"""
+    if c.flag is not None:
+        return "TRUE" if c.flag else "FALSE"
+    return c.text or ""
+
+
+class _Unreadable:
+    """ファイルの部品が読めないときに、処理を落とさずに理由をつけて断る（1か所。壊れたファイルは、部品の中のどこで落ちるかが
+    決まらない＝見直し(B) の7：前は zlib.error・NotImplementedError・AttributeError などで処理が落ちた）。"""
+
+    def __init__(self, what: str) -> None:
+        self.what = what
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, kind, error, _tb) -> bool:
+        if error is None or isinstance(error, FileRejected):
+            return False
+        if not isinstance(error, Exception):
+            return False
+        raise FileRejected(f"{self.what}として読めません（{type(error).__name__}）") from None
+
+
+def _pdf_text(data: bytes) -> tuple[str, tuple[str, ...]]:
+    with _Unreadable("PDF のファイル"):
+        reader = pypdf.PdfReader(io.BytesIO(data))
+        # 開く鍵の無い PDF（権限の鍵だけ＝どのソフトでも鍵なしで開けるもの）は、空の鍵で開いて読む。開く鍵が要る PDF は断る
+        if reader.is_encrypted and not reader.decrypt(""):
+            raise FileRejected("鍵のかかった PDF は読めません（鍵を外して保存し直してください）")
+        pages = [page.extract_text() or "" for page in reader.pages]
+    if not any(p.strip() for p in pages):
+        raise FileRejected("この PDF には文字が入っていません（紙をスキャンした画像だけの PDF など）。文字の入った資料"
+                           "（Word・テキスト・文字の入った PDF）を付けてください")
+    problems = tuple(f"{i} ページ目に文字がありません（画像だけのページ）" for i, p in enumerate(pages, start=1) if not p.strip())
+    return "\n".join(pages), problems
+
+
+_MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
+# Word の文書のうち、本文のほかに文字を読む部品（名前の頭 → 文字の前に付ける見出し）。見直し(B) の7：前は本文だけで、ヘッダー・
+# フッター・脚注・文末脚注・コメントの文字が、problems にも残らずに抜け落ちた
+_DOCX_PARTS = (("word/header", "【ヘッダー】"), ("word/footer", "【フッター】"), ("word/footnotes", "【脚注】"),
+               ("word/endnotes", "【文末脚注】"), ("word/comments", "【コメント】"))
+
+
+def _docx_text(data: bytes) -> tuple[str, tuple[str, ...]]:
+    with _Unreadable("Word のファイル（.docx）"):
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            parts = {n: z.read(n) for n in z.namelist() if n.endswith(".xml")}
+    if "word/document.xml" not in parts:
+        raise FileRejected("Word のファイル（.docx）として読めません（本文がありません）")
+    with _Unreadable("Word のファイル（.docx）"):
+        lines = _docx_lines(ElementTree.fromstring(parts["word/document.xml"]))
+    problems = []
+    for head, title in _DOCX_PARTS:
+        for name in sorted(n for n in parts if n.startswith(head) and n.endswith(".xml")):
+            try:
+                more = _docx_lines(ElementTree.fromstring(parts[name]))
+            except Exception as e:  # noqa: BLE001  部品1つが壊れていても、ほかは読む（読めなかった所は理由を残す）
+                problems.append(f"{title} の部品（{name}）を読めません（{type(e).__name__}）")
+                continue
+            if any(x.strip() for x in more):
+                lines += [title] + more
+    return "\n".join(lines), tuple(problems)
+
+
+def _docx_lines(root) -> list[str]:
+    """Word の部品の段落を、文書の中の順に1行ずつ（表の欄の段落も）。テキストボックスの段落は、外の段落に混ぜず、その段落のあとに
+    1回だけ並べる（同じ箱の写し＝互換のための mc:Fallback は読まない。見直し(B) の7：前は外の段落の途中に差し込まれ、2回出た）。"""
+    def paragraph(p) -> list[str]:
+        pieces: list[str] = []
+        boxes: list[str] = []
+
+        def visit(el) -> None:
+            for ch in el:
+                if ch.tag == f"{_MC}Fallback":
+                    continue
+                if ch.tag == f"{_W}txbxContent":
+                    boxes.extend(container(ch))
+                    continue
+                if ch.tag == f"{_W}p":
+                    boxes.extend(paragraph(ch))
+                    continue
+                if ch.tag == f"{_W}t":
+                    pieces.append(ch.text or "")
+                elif ch.tag == f"{_W}tab":
+                    pieces.append("\t")
+                elif ch.tag in (f"{_W}br", f"{_W}cr"):
+                    pieces.append("\n")
+                visit(ch)
+        visit(p)
+        return ["".join(pieces)] + boxes
+
+    def container(el) -> list[str]:
+        out: list[str] = []
+        for ch in el:
+            if ch.tag == f"{_MC}Fallback":
+                continue
+            out += paragraph(ch) if ch.tag == f"{_W}p" else container(ch)
+        return out
+    return container(root)
+
+
+def _xlsx_sheet_names(data: bytes) -> list[str]:
+    with _Unreadable("Excel のファイル"):
+        book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        try:
+            return [ws.title for ws in book.worksheets if hasattr(ws, "iter_rows")]
+        finally:
+            book.close()
+
+
+def _text(value: str | None) -> str | None:
+    return value if value is not None and value.strip() != "" else None
+
+
+# ── CSV ──
+def _decode(data: bytes, chosen: str | None) -> tuple[str, str]:
+    if chosen is not None and chosen not in ENCODINGS:
+        raise FileRejected(f"文字の決まりは {' か '.join(_NAMES[e] for e in ENCODINGS)} のどれかです")
+    if data.startswith(codecs.BOM_UTF8):
+        if chosen not in (None, "utf-8"):
+            raise FileRejected("UTF-8 の印（BOM）があるファイルです")
+        try:
+            text, encoding = data[len(codecs.BOM_UTF8):].decode("utf-8"), "utf-8"
+        except UnicodeDecodeError:
+            raise FileRejected("UTF-8 の印（BOM）があるのに、UTF-8 として読めません") from None
+    else:
+        read_as: dict[str, str] = {}
+        for enc in ((chosen,) if chosen else ENCODINGS):
+            try:
+                read_as[enc] = data.decode(enc)
+            except UnicodeDecodeError:
+                pass
+        if not read_as:
+            raise FileRejected("選んだ文字の決まりでは読めません" if chosen else
+                               f"文字の決まりが {'・'.join(_NAMES[e] for e in ENCODINGS)} のどれでもありません"
+                               "（UTF-8 で保存し直してください）")
+        if len(set(read_as.values())) > 1:   # 2つ以上の読み方で読めて、中身が違う：推測で選ばない
+            raise EncodingAmbiguous({enc: [ln for ln in t.splitlines() if ln.strip()][:5] for enc, t in read_as.items()})
+        encoding = next(enc for enc in ENCODINGS if enc in read_as)   # どれで読んでも同じ（英数字だけ）なら、並びの先
+        text = read_as[encoding]
+    if "\x00" in text:
+        raise FileRejected("CSV の中に、文字ではないデータがあります（別の種類のファイルではありませんか）")
+    return text, encoding
+
+
+def _csv_rows(text: str) -> tuple[tuple[str | None, ...], tuple[Row, ...]]:
+    try:
+        records = list(csv.reader(io.StringIO(text, newline=""), strict=True))
+    except csv.Error as e:
+        raise FileRejected(f"CSV の書き方が正しくありません（{e}）") from None
+    if not records:
+        raise FileRejected("ファイルが空です")
+    header = tuple(_text(h.strip()) for h in records[0])
+    rows = []
+    for i, rec in enumerate(records[1:], start=2):
+        cells = tuple(Cell(_text(v)) for v in rec)
+        row = Row(i, cells, width_ok=len(rec) == len(header))
+        if row.is_empty:
+            row = Row(i, cells, width_ok=True)   # 空の行（何も無い行）は列の数を問わない
+        rows.append(row)
+    return header, _trim(rows)
+
+
+# ── xlsx ──
+def _xlsx_rows(data: bytes, sheet_name: str | None) -> tuple[str, tuple[str | None, ...], tuple[Row, ...]]:
+    if sheet_name is None:
+        names = _xlsx_sheet_names(data)
+        if len(names) != 1:
+            raise FileRejected(f"シートが {len(names)} 枚あります。どのシートを読むかを選んでください")
+        sheet_name = names[0]
+    all_rows = _xlsx_cells(data, sheet_name)
+    if not all_rows:
+        raise FileRejected("シートが空です")
+    header = tuple(_text(c.text.strip()) if c.text is not None else None for c in all_rows[0])
+    rows = [Row(i, cells) for i, cells in enumerate(all_rows[1:], start=2)]
+    return sheet_name, header, _trim(rows)
+
+
+def _xlsx_cells(data: bytes, sheet_name: str) -> list[tuple[Cell, ...]]:
+    """そのシートの行ごとの欄（1行目から。読むのはここだけ＝発信対象の表と業務の資料の両方）。"""
+    with _Unreadable("Excel のファイル"):
+        return _xlsx_cells_of(data, sheet_name)
+
+
+def _xlsx_cells_of(data: bytes, sheet_name: str) -> list[tuple[Cell, ...]]:
+    values = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    formulas = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=False)
+    try:
+        names = [ws.title for ws in values.worksheets if hasattr(ws, "iter_rows")]
+        if sheet_name not in names:
+            raise FileRejected("指定のシートがありません")
+        ws_v, ws_f = values[sheet_name], formulas[sheet_name]
+        ws_v.reset_dimensions()   # ファイルに書かれた範囲を信じない（範囲が誤っているファイルで、行を読み落とさない）
+        ws_f.reset_dimensions()
+        all_rows = []
+        for vr, fr in zip(ws_v.iter_rows(min_row=1, min_col=1), ws_f.iter_rows(min_row=1, min_col=1), strict=True):
+            width = max(len(vr), len(fr))
+            all_rows.append(tuple(_xlsx_cell(vr[i] if i < len(vr) else None, fr[i] if i < len(fr) else None)
+                                  for i in range(width)))
+    finally:
+        values.close()
+        formulas.close()
+    return all_rows
+
+
+def _xlsx_cell(v, f) -> Cell:
+    value = getattr(v, "value", None)
+    if getattr(v, "data_type", None) == "e":
+        return Cell(None, problem="表計算ソフトのエラーの値です（#N/A など）")
+    if value is None:
+        if getattr(f, "data_type", None) == "f":
+            return Cell(None, problem="式の結果が保存されていません（表計算ソフトで開いて保存し直してください）")
+        return _EMPTY
+    if isinstance(value, bool):
+        return Cell(None, problem="TRUE・FALSE の値です", flag=value)
+    if isinstance(value, int | float):
+        if abs(value) >= _MAX_EXACT:
+            return Cell(None, numeric=True, problem="15桁を超える数で、表計算ソフトで桁が失われています。列を文字にして保存し直してください")
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return Cell(str(value), numeric=True)
+    if isinstance(value, datetime | date | time):
+        return Cell(value.isoformat())
+    return Cell(_text(str(value)))
+
+
+def _trim(rows: list[Row]) -> tuple[Row, ...]:
+    while rows and rows[-1].is_empty:
+        rows.pop()
+    return tuple(rows)

@@ -1,0 +1,185 @@
+{
+  "item": "G-15-tail5-Aoede",
+  "saved_at": "2026-10-17T10:58:51",
+  "rows": [
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "y1",
+      "wav": "g14/Aoede_y1.wav",
+      "text": "はい、予約しています。",
+      "ear": "はい、予約しています。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.611,
+      "after_s": 1.611,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "y2",
+      "wav": "g14/Aoede_y2.wav",
+      "text": "はい。",
+      "ear": "はい。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.997,
+      "after_s": 1.997,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "y5",
+      "wav": "g14/Aoede_y5.wav",
+      "text": "予約済みです。",
+      "ear": "予約済みです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.742,
+      "after_s": 1.742,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "y6",
+      "wav": "g14/Aoede_y6.wav",
+      "text": "一応、予約はしてあります。",
+      "ear": "一応予約はしてあります。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.642,
+      "after_s": 1.642,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "n1",
+      "wav": "g14/Aoede_n1.wav",
+      "text": "いいえ、まだです。",
+      "ear": "いいえ、まだです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.455,
+      "after_s": 1.455,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "n3",
+      "wav": "g14/Aoede_n3.wav",
+      "text": "してないです。",
+      "ear": "してないです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.608,
+      "after_s": 1.608,
+      "live_n": 6,
+      "live_ok": 0,
+      "live_wrong": [
+        "捨てないです。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "n4",
+      "wav": "g14/Aoede_n4.wav",
+      "text": "いや、これからなんです。",
+      "ear": "いや、これからなんです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.372,
+      "after_s": 1.372,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "n5",
+      "wav": "g14/Aoede_n5.wav",
+      "text": "予約はしてないですね。",
+      "ear": "予約はしてないですね。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.455,
+      "after_s": 1.455,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "y3",
+      "wav": "g14/Aoede_y3.wav",
+      "text": "はい、先週しました。",
+      "ear": "はい、専攻しました。",
+      "ear_ok": false,
+      "diffs": [
+        {
+          "kind": "replace",
+          "script": "はいせん[しゅ]うしまし",
+          "heard": "こ",
+          "at": 4
+        }
+      ],
+      "first_s": 1.453,
+      "after_s": 1.453,
+      "live_n": 4,
+      "live_ok": 3,
+      "live_wrong": [
+        "はい、清掃しました。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Aoede",
+      "id": "n2",
+      "wav": "g14/Aoede_n2.wav",
+      "text": "いえ、まだしていません。",
+      "ear": "いえ、まだしていません。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.503,
+      "after_s": 1.503,
+      "live_n": 4,
+      "live_ok": 4,
+      "live_wrong": []
+    }
+  ],
+  "summary": {
+    "声": 10,
+    "別の耳が台本どおり": 9,
+    "会話AIが誤ったことのある声": 2,
+    "そのうち別の耳は台本どおり": 1,
+    "会話AIがいつも正しかった声で、別の耳が誤った": 0,
+    "最後の文字が届くまで（中央・遅いほうから1割・最大）": [
+      1.608,
+      1.997,
+      1.997
+    ],
+    "最初の文字が届くまで（中央・遅いほうから1割・最大）": [
+      1.608,
+      1.997,
+      1.997
+    ],
+    "誤り": []
+  }
+}

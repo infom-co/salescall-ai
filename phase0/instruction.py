@@ -9,11 +9,16 @@
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
-from flowctl import ARG_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
+from flowctl import notice  # AIへの知らせの枠の唯一の場所
+from flowctl import approval_explanation, CloseOffer, KNOWN_HEADS, TALK_RECEIVE, label, offer_questions
+from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
+                     check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
+from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, standard_message, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -22,6 +27,11 @@ CUES = {
     "restate": "直前のあなたの発言は、途中で途切れて、相手に届いていません。「失礼いたしました。」と言ってから、同じ内容を最初から、もう一度だけ言ってください。",
 }
 VOICE_TYPES = {"S2": ("Sadachbia", "warm_business"), "S4": ("Sadachbia", "smile"), "L4": ("Leda", "humble_business")}
+# お呼びする方の名前と読みを判定AIへ送るか（判定に見せる名前の1か所 Business.judge_names が読む）。本書 18-3 の 10-30 の (5)「案A（ただし、送らなくても
+# 正確な判定ができるなら送らない）」：送らない形（HIDDEN_TARGET に置き換える）と今の形を測りで比べ、送らなくても正確なら False にする（CL-1.md 4-165）。
+# 決まるまでは今の形（True）。お客様の言葉は聞き取りの文字のまま送る（お客様が名前を言えば、その文字は届く）
+JUDGE_SEES_TARGET_NAME = True
+HIDDEN_TARGET = "（お呼びしている方のお名前）"
 # 見本の試験（台本の読み上げ）のための一文。会話では「言い回しは自然に」と矛盾するので、声の型には入れない
 _READING_ONLY = "言葉は1文字も変えないでください。"
 
@@ -38,6 +48,85 @@ def voice_style(voice_type: str) -> tuple[str, str]:
 
 
 @dataclass
+class Target:
+    """目的の人（話すべき相手。DESIGN.md 4-3）。業務設定の「目的の人」と、発信対象データの部署・役職・名前（Intent.md 6-8 の3）から作る。
+    ✅ 2026-10-13 ユーザー承認（CL-2 経由）：指定のしかたで4種類＝役職のみ／役職（部署）＋名前／名前のみ／その店・会社の人なら誰でも。
+    「誰でも」の業務は Target を持たない（最初に出た人が目的の人＝呼ばずに最初の質問から）。
+    呼び方（✅ 2026-10-16 ユーザー）：法人「（部署、役職）の（相手の名前）様はいらっしゃいますでしょうか？」・個人「（相手の名前）様のお電話で
+    お間違えないでしょうか？」（phrases.target_call）。名前は読み（ひらがな。決まらなければ、まず言ってみる読み）で言う（G-44）"""
+    kind: str = "法人"   # 発信対象の区分（法人／個人）
+    name: str = ""       # 相手の名前の表記（役職のみなら空）
+    reading: str = ""    # 名前の読み（ひらがな）。読みが決まらない名前は、まず言ってみる読み（確かめは業務の質問に reading_question を足す）
+    role: str = ""       # 部署・役職（「営業部部長」「社長」）。名前のみなら空
+    # フルネームの表記と読み（発信対象データにあれば＝CL-2。「岡田太郎」「おかだたろう」）。ふだんは name（お名字）でお呼びし、受付の方にお名前だけでは
+    # どの方か分からないと言われたときだけ、部署・役職とフルネームでお呼びし直す（full_call・flowctl.Flow._who_unclear。✅ 2026-11-01 日本時間23時59分
+    # ユーザー：「名前以外に部署やフルネームを伝えて、取り次いでもらう努力をするべきじゃないでしょうか。」）
+    full_name: str = ""
+    full_reading: str = ""
+    # 部署（発信対象データにあり、呼ぶ一言の役職 role には入っていないもの＝名前のみの指定の行など。CL-2）。お名前だけではどの方か分からないと言われたときに、
+    # フルネームと同じく足して言う（full_call）。✅ 2026-11-02 日本時間1時22分 ユーザー：(a)「フルネームか部署かどちらかが分かれば、言い直す。」
+    department: str = ""
+    # この方の後任のご担当者様をお呼びする（前の電話で、この方が在籍していないと言われた＝門の予約証 Claim.successor）。呼ぶ一言は
+    # 「（この方）様の後任のご担当者様はいらっしゃいますでしょうか？」、確かめる一言・聞き返しは後任の方の言い方（✅ 2026-10-24 ユーザー）
+    successor: bool = False
+
+    def __post_init__(self):
+        assert self.kind in ("法人", "個人"), self.kind
+        assert not (self.successor and self.kind != "法人"), "後任の方をお呼びするのは法人だけです"
+        assert self.name or self.role, "目的の人には、名前か役職が要ります（どちらも無ければ「誰でも」＝Target を持たない）"
+        assert not self.name or self.reading, f"目的の人「{self.name}」の読みが要ります（決まらなければ、まず言ってみる読み）"
+        assert not self.full_name or self.full_reading, f"目的の人のフルネーム「{self.full_name}」の読みが要ります"
+
+    def _name(self) -> str:
+        return quote(hira(self.reading)) if self.name else ""
+
+    def who(self) -> str:
+        who = target_who(self.kind, self._name(), self.role)
+        return f"{who}の後任のご担当者様" if self.successor else who
+
+    def call(self) -> str:
+        return self.successor_call() if self.successor else target_call(self.kind, self._name(), self.role)
+
+    def successor_call(self) -> str:
+        """この方の後任のご担当者様をお呼びする一言（法人だけ。業務の録音の部分 target_successor＝Business.replay_parts）。"""
+        return SUCCESSOR_OF.format(who=target_who(self.kind, self._name(), self.role))
+
+    def confirm(self) -> str:
+        return SUCCESSOR["target_confirm"] if self.successor else target_confirm(self._name(), self.role)
+
+    def reconfirm(self) -> str:
+        return SUCCESSOR["target_reconfirm"] if self.successor else target_reconfirm(self._name(), self.role)
+
+    def promise_again(self) -> str:
+        """約束の電話で取り次げないと言われたときに伺う一言（お名前は確かめる一言と同じ呼び方）。"""
+        return PROMISE_AGAIN.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
+
+    def carried_from(self) -> str:
+        """続きの電話で判断いただける代わりの方に、この方からお話を聞いているかを伺う一言（phrases.CARRIED_FROM。お名前は確かめる一言と同じ呼び方＝お名前の無い
+        業務は呼ぶ一言と同じ呼び名「採用のご担当者様」。名前の録音の台帳の「〇〇様」＋続く言葉「のほうからこれまでのお話はお聞き及びでしょうか？」）。
+        ✅ 2026-11-13 日本時間22時17分01秒 ユーザー「11はイ」"""
+        return CARRIED_FROM.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
+
+    def full_call(self) -> str:
+        """お名前だけではどの方か分からないと言われた・どなたをお呼びかを聞かれたときにお呼びし直す一言（まだお伝えしていない部署とフルネームの、
+        分かるほうを足す。呼ぶ一言と同じ言い方＝phrases.target_call・後任の方は SUCCESSOR_OF）。お伝えすることが増えない（フルネームも部署も無い・
+        いつもの呼ぶ一言と同じになる）なら空（flowctl.Flow._who_unclear は締め、繋がらなかった理由は「お名前だけではどの方か分からなかった」）。"""
+        name = quote(hira(self.full_reading)) if self.full_name and self.full_name != self.name else self._name()
+        role = self.department + self.role if self.department and self.department not in self.role else self.role
+        said = SUCCESSOR_OF.format(who=target_who(self.kind, name, role)) if self.successor else target_call(self.kind, name, role)
+        return "" if said == (self.successor_call() if self.successor else target_call(self.kind, self._name(), self.role)) else said
+
+    def successor_full_call(self) -> str:
+        """後任の方をお呼びする電話で、お名前だけでは分からないと言われたときの一言（「（前任の方の部署・役職とフルネーム）様の後任のご担当者様は
+        いらっしゃいますでしょうか？」。業務の録音の部分 target_successor_full。法人だけ）。"""
+        return dataclasses.replace(self, successor=True).full_call() if self.kind == "法人" else ""
+
+    def unavailable_confirm(self) -> str:
+        """理由を言わずに取り次げないと言われたときに、お呼びした方のご事情かを伺う一言（お名前は確かめる一言と同じ呼び方。flowctl.Flow._transfer_unclear）。"""
+        return SUCCESSOR["unavailable_confirm"] if self.successor else unavailable_confirm(self._name(), self.role)
+
+
+@dataclass
 class Business:
     company: str                 # 自社名（名前の項目。表記）
     caller: str                  # 担当者名（名前の項目。表記）
@@ -45,32 +134,404 @@ class Business:
     questions: list[Question]
     forbidden: list[str] = field(default_factory=list)   # 言ってはいけないこと
     purpose_line: str = ""      # 名乗りのあとに言う用件の一文（例：「ご予約の確認でお電話いたしました。」）
+    # 用件の一文の中の用件の名詞（例：「ご予約の確認」。取込で文字のAI 2つが用件の一文から決める＝import_ai.decide_purposes。そろわなければ空）。続きの電話で、
+    # 用件の一文を前の電話とつなげる（「前回のお電話で途中になっておりましたご予約の確認でお電話いたしました。」＝phrases.PURPOSE_AGAIN・flowctl.purpose_part）
+    purpose_noun: str = ""
     # 相手が「忙しい」と言ったときの一言（Intent.md 9-4）。空なら丁寧に終える（既定＝安全側）。文があれば、1回だけそれで聞く
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
+    # 営業の要約（「〜の件」の前に置ける名詞の形。何の用件で・何をお伺いしたいか／何をご案内したいかを短く。説明に無い事実を足さない・決まった言い方なので読点を
+    # 入れない）。取込で文字のAI2つが業務の台本（用件の一文と質問の文）から作り、そろわなければ考える Sonnet（import_ai.decide_summaries）。急いでいるが手短になら
+    # 聞くと言われたとき「ありがとうございます。」のあとに「（要約）の件でお電話させていただきましたが後ほどお時間のある時にかけ直しさせていただきましょうか？」と
+    # 伺う（phrases.brief_line＝依頼主の単位の録音＝名乗りの部分 brief。流す所は flowctl.Flow._brief_ask）。空なら用件の名詞（purpose_noun）で同じ文・それも無ければ
+    # 要約の入らない共通の一言の録音。✅ 2026-11-16 日本時間0時42分38秒 ユーザー「伺い30：「ありがとうございます。～（営業の要約）」手短にと言っているのに、いきなり、
+    # 「お電話とメール」を伺うなんてありえないでしょ。」・12時48分22秒 ユーザー「・伺い31：…こちら：ありがとうございます。（要約）の件でお電話させていただきましたが、
+    # 後ほど、お時間のある時にかけ直しさせていただきましょうか？…」。⛔ 96579d84 まで、1〜2文の要約の文（名乗りの部分 summary）を流してお返事を待った
+    summary: str = ""
+    goal_mode: str = "any"   # 最終目的の果たし方（flowctl.GOAL_MODES。最終目的は質問の final_goal・断る答えは declines＝業務設定＝CL-2）
+    # 営業に引き継ぐ架電の、詳しい者からの改めてのお話の方法（名前の並び。例：("訪問", "オンラインでのご説明", "お電話", "セミナーへのご参加")。業務設定＝取込＝CL-2）。
+    # あれば、ご承認が最終目的のご承認の手順を点を言っていただけないまま終えるとき、締めずに「それでは詳しい者より改めてお話しさせていただいてもよろしいでしょうか？」
+    # と伺い、はいならこの中から選んでいただく（flowctl.Flow._handoff_step）。空なら営業に引き継がない架電（一言を挟んで残りの質問へ）。✅ 2026-11-09 日本時間
+    # 4時36分49秒 ユーザー
+    handoff_ways: tuple = ()
+    # 営業に引き継がない架電の、締める前の申し出（flowctl.CloseOffer＝申し出の文・聞くこと・方法。業務設定＝取込＝CL-2）。あれば、ご承認が最終目的のご承認の手順を
+    # 点を言っていただけないまま終え、残りの質問が無いとき、締める前に営業に引き継ぐ架電の申し出と同じ1か所で伺う（flowctl.Flow._handoff_step）。None なら今の
+    # お礼の締め。✅ 2026-11-09 日本時間6時33分57秒 ユーザー「・(ア) 営業に引き継がない架電で、ご承認が最終目的で、残りの質問が無いとき：ｂ」
+    close_offer: CloseOffer | None = None
+    # 方法を申し出の中身に入れる言い方（取込で決めたもの＝import_ai.decide_way_words。{こちらがすることの言葉: {方法: 言葉}}。無ければ「（方法）で」）
+    way_words: dict = field(default_factory=dict)
+    # 依頼者がすること（登録・手配など。業務設定＝CL-2）。事実を伺う質問の、言い切っていない最初の答えの確かめ「それでは（意味の言葉）ということで（依頼者が
+    # すること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01 日本時間6時05分・6時27分 ユーザー）。空なら「…ということで承っておいて大丈夫でしょうか？」
+    # （phrases.client_does_words の1か所。✅ 2026-11-08 日本時間5時33分05秒 ユーザー：「…「～で承っておいて」に変更しましょうか。こちらの方が自然だし汎用的です。」）
+    client_does: str = ""
+    # 留守番電話に残す伝言（Intent.md 9-4「伝言を残すか残さないかを設定で選ぶ。残す場合の文面も設定で持つ」。⏳ 残すかは 18-2 の14 で
+    # ユーザーが決める）。空なら残さずに切る（安全側）
+    voicemail_message: str | None = None
+    # 想定問答（Intent.md 5-3 (2)「AIが答えてよいこと」）：(問いの名前, 答えの文)。答えは名乗りと同じく依頼主の単位の録音（replay_parts の
+    # 「answer_問いの名前」）。AIは問いの名前を選ぶだけ（flowctl.Flow._op_replay_opening）。想定問答に無い問いは、下の業務の情報の範囲で、
+    # AIが自分の言葉で答える（flowctl.Flow._own_answer）
+    answers: list = field(default_factory=list)
+    # 想定問答のうち、システムの標準から来た答えの問いの名前（CL-2 の business_settings.load の Settings.standard_answers。業務が上書きした・業務だけの問答は
+    # 入らない）。標準の答えは標準の録音の組から流す（CL-2 の recordings.current_sets の "standard"＝流す部分の名前 answer_問いの名前は同じ）ので、業務の録音の
+    # 表（make_ack_clips.script_table）には入れない。標準の組の表は make_ack_clips.standard_table。✅ 2026-11-02 管理者 伺い2（CL-2 の連絡帳 4-211）
+    standard_answers: frozenset = frozenset()
+    # 業務の情報（Intent.md 5-3 (2) の事業内容・所在地・営業時間・AIが答えてよいこと）：想定問答に無い問いに、AIが自分の言葉で答えるときの
+    # 材料（1行に1つ）。ここに無いことは、AIは答えを作らない（「答えを持っていない質問」）。✅ 2026-10-22 ユーザー：「想定外の時はどうするのかを
+    # 聞いているんですよ。…人以上の仕組みを作ることが私たちの目的ではないのですか？」
+    info: list[str] = field(default_factory=list)
+    # 答えを持っていない問いに、「確認のうえ担当の者から改めてご連絡いたします」と申し出てよいか（Intent.md 9-4「範囲外の質問」：約束できるかは
+    # 業務設定で決める）。既定は申し出ない（AIは約束しない）
+    follow_up: bool = False
+    # 相手の申し出への応じ方（✅ 2026-10-22 ユーザー：業務ごとに選べる。中の名前は flowctl.POLICIES。既定はユーザーが決めた形）：
+    # 代わりの方の申し出＝判断いただけるお立場の方なら話す（decision_maker）／目的の人だけと話す（target_only）／どなたでも話す（anyone）
+    substitute_policy: str = "decision_maker"
+    # 伝言の申し出＝お礼を言って断り、戻る時刻を聞く（decline）／伝言を残す（leave。文は message＝依頼主の単位の録音。そのあと戻る時刻を聞く）
+    message_policy: str = "decline"
+    message: str | None = None
+    # お呼びした方が在籍していない（退職・異動）＝後任の方をお呼びする（successor）／お礼を言って終える（end）
+    departed_policy: str = "successor"
+    # 本題の始まり（電話を終える言葉か決まらない「もういいです。」に、ご遠慮の一言より先に本心を伺う＝flowctl.Flow._main_talk）＝最初の業務の質問を流した
+    # あと（asked＝既定）／この電話で業務の答えを1つ以上いただいたあと（answered）。続きの電話はどちらでも本題。✅ 2026-11-08 日本時間3時15分04秒 ユーザー
+    # 「(ア)業務ごとに選択できるようにしてください。」・3時48分03秒「(ア)既定は「最初の質問を流したあと」」
+    main_talk_policy: str = "asked"
+    # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら標準の文（phrases.AI_ANSWER＝共通の一言の録音 ai_answer）
+    ai_answer: str | None = None
+    # 目的の人（DESIGN.md 4-3）。None＝「誰でも」（最初に出た人が目的の人）。目的の人のある業務では、名乗りの終わりは目的の人を呼ぶ一言で、
+    # 目的の人に繋がるまで最初の質問を聞かない（流れの制御 Flow の calling の段）
+    target: Target | None = None
+    # この電話の門の予約証から（CL-2 の gate.Claim）：お客様と約束したかけ直しの電話か（promised）・まずお詫びすること（apology＝理由の並び
+    # missed_promise・cut_off）。どちらも会話の処理が読む（flowctl.Flow の promised・apology）
+    promised: bool = False
+    apology: tuple = ()
+    # 担当の方が替わった電話か（予約証の handover＝CL-2 の gate.Claim.handover：前の電話でお話しした方と、お呼びする方が替わった。お詫び・約束の無い営業の
+    # 電話）。新しい担当の方は前の電話でお話ししていない方なので、用件の一文を前の電話とつなげない（決まりは flowctl.purpose_part の1か所。CL-2 の 4-370 の (5)）
+    handover: bool = False
+    # 前の通話で取れた答え（質問の番号 → {"state", "value", "condition"}。途中で切れた通話の、お詫びしてすぐのかけ直し＝予約証の目的 resume など。
+    # CL-2 の行の項目の記録から）。もう伺わない答え（決まりは flowctl.earlier_kept の1か所＝取れた答え。CL-2 がかけ直す「わからない」は除く）の質問は、伺わずに
+    # 続きから聞く（CL-2 の 4-77）。流れの制御 Flow の earlier。続きの電話か（用件の一文・質問の頭）は、このまま（earlier_kept の前＝Flow.earlier_all と同じ材料）で読む
+    earlier: dict = field(default_factory=dict)
+    # 番号を伺い直す電話（予約証の目的 ask_number_again）：前の電話で伺った番号がどうだったか（phrases.NUMBER_AGAIN の鍵＝wrong_party・unreachable）。
+    # 名乗りのあとに伺い直す一言で番号を伺い、答えはかけ直しの申し出（別の番号）として残す（CL-2 の 4-42）。流れの制御 Flow の number_again
+    number_again: str | None = None
+    # 取り次ぎ・保留で待つ長さ（秒。業務ごとに選べる。✅ 2026-10-24 ユーザー：「デフォルト、相手から長く待つ必要がある理由がなければ5分、理由があれば
+    # それまで待つ」＝相手が長さを言えば、その長さ。flowctl.Flow の hold_wait_s）
+    hold_wait_s: int = 300
+    # 黙ったときの一言の秒（流れの制御が、場面ごとの一言と一緒に決める＝flowctl.QUIET_STEPS・Flow.on_silence）：1つ目の一言までの秒（契約者が変えられる設定
+    # call.silence_prompt_after。初め5秒＝✅ 2026-10-14 ユーザー）と、理由を言わずに待つように言われ、1つ目の一言のあとも黙られたときに待つかかけ直すかを伺うまでの秒
+    # （同じ置き場の形の設定＝CL-2 に足していただく。初め20秒。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い24）「それでもしばらく黙られていたら」。⏳ 秒はユーザーに確かめる）
+    silence_prompt_after: float = 5
+    wait_ask_after: float = 20
+    # お詫びの電話（予約証の目的 apology）：伝える文（CL-2 の apology.for_task の text。承認したときに聞いていただいた録音で流す）。業務の質問はしない
+    apology_call: str | None = None
+    # その文が、いつの電話のことか（same_day＝同じ日「先ほど」・later＝あとの日「先日」。CL-2 の apology.for_task が選んだ文の部分
+    # apology_same_day・apology_later）。繋がる前に用件を聞かれたときの一言も、これで選ぶ（phrases.APOLOGY_PURPOSE）
+    apology_when: str | None = "later"   # None＝この電話と同じ担当の期に話せた電話が無い（CL-2 の 4-382）＝前の電話でお話ししていない方（flowctl.earlier_talked）
+    # 約束の電話などの頭で流す、承認したお詫びの文（予約証のお詫びの理由 forbidden_speech のとき要る＝CL-2 の apology.for_task の text。承認したときに聞いて
+    # いただいた録音で流す＝お詫びだけの電話の apology_call と同じ流し方。並べる順は flowctl.apology_order の1か所）。✅ CL-2 の 4-350 の (2)
+    apology_text: str | None = None
+    # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
+    # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
+    #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
+    # 声に出す文には読みのほうを入れる（G-44：漢字のままだと読み違える。instruction.quote_in_text と同じ決まり）
+    company_reading: str = ""
+    caller_reading: str = ""
+    # こちら側の名前で、読みが決まらないもの（台本の中の、名乗る担当者以外の人の名前など。表記）。指示文で、声に出さずに言い換える決まりを渡す（unread_rule）。
+    # ⚠️ お客様側の名前（目的の人）は入れない：まず言ってみる読みで呼び、つながってから確かめる（flowctl.reading_question。✅ 2026-10-16 ユーザー）
+    unread_names: list[str] = field(default_factory=list)
+    # 台本の名前（names.decide の戻り値）。質問の文・目的・用件の一文・忙しいときの一言の中の名前を、作るときに1回だけ quote_in_text に通す
+    # （⛔ 見直しで見つけた漏れ：読みのひらがなへの置き換えが名乗りにしか効かず、質問の文の名前は漢字のまま・読みがなは2回読まれた）
+    names: list = field(default_factory=list)
+
+    def __post_init__(self):
+        # 担当者名は名乗りで必ず声に出すので、「声に出さずに言い換える名前」には入れられない（指示が矛盾する。案C＝読みは設定に必須）
+        assert self.caller not in self.unread_names, f"担当者名「{self.caller}」は、読みを設定に入れてください（unread_names には入れられません）"
+        check_policies(self.policies(), self.message)
+        if not self.names:
+            return
+        import dataclasses
+        import unicodedata
+        # 名乗りの社名の読みも、名前の一覧から取る（設定に読みが入っていれば、そちらを先に使う）
+        # ⛔ 見直し（2026-10-16 の2回目）：前は名乗りだけが company_reading を見て、一覧の読みを見ていなかった
+        # ＝一覧に読みがあっても、名乗りは漢字・質問の文はひらがな、と食い違いうる形だった
+        # ✅ 担当者名は一覧から取らない：読みは設定に必ず入れる（2026-10-16 ユーザー決定＝案C。取込で決める決め方は使わない）
+        got = {unicodedata.normalize("NFKC", n["surface"]): n.get("reading") or "" for n in self.names if isinstance(n, dict) and n.get("surface")}
+        self.company_reading = self.company_reading or got.get(unicodedata.normalize("NFKC", self.company), "") \
+            or got.get(self.company_name, "")
+        self.questions = [q if q.reading_of else dataclasses.replace(q, text=quote_in_text(q.text, self.names)) for q in self.questions]
+        self.purpose = quote_in_text(self.purpose, self.names) if self.purpose else self.purpose  # AIに渡す目的の中の名前も（AIが口にしうる）
+        self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
+        self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask
+        # ⛔ 2026-10-22 の4回目の見直しで見つけた漏れ：声に出す文・指示文のうち、下の項目は名前の読みへの置き換えを通っていなかった（6-8 の
+        #    「声に出す文は、すべてここを通す」に反する）。⛔ G-57 tc36〜tc38・OWN-ANSWER-EARS（10-22）：業務の情報の「東京都港区」をAIが自分の声で
+        #    言うと、独立した2つの耳とも 3本中1本しか「港区」と聞こえなかった（S2・L4 は「東京ま特に」「東京もきく」・港区が抜ける）。読み
+        #    （ひらがな）で渡すと 6本中6本
+        q = lambda x: quote_in_text(x, self.names) if x else x
+        self.info = [q(x) for x in self.info]
+        self.answers = [(n, q(t)) for n, t in self.answers]
+        self.forbidden = [q(x) for x in self.forbidden]
+        self.voicemail_message, self.message, self.ai_answer = q(self.voicemail_message), q(self.message), q(self.ai_answer)
+
+    def knowledge(self) -> list[str]:
+        """こちらが知っていること（AIに渡した事実の全部。1行に1つ）：AIが自分の言葉で言う文の中身を確かめる材料（grounding の1か所。
+        ここに無い、こちらの会社・業務・用件・担当者についての事実は、言えば作り話）。名前は名乗りの録音と同じ書き方（読み）。"""
+        # 人の名前（こちらの担当者名・お呼びする方の名前と読み・読みの決まらない名前）は入れない（判定の会社へ送らない＝Intent.md 13章。
+        # AIの文の名前は、判定より先に機械の確かめが止める＝flowctl.own_answer_problem）
+        company, _ = self._said()
+        t = self.target
+        people = sorted({x for x in (self.caller, self.caller_reading, *(self.unread_names or []),
+                                     *((t.name, t.reading) if t is not None else ())) if x}, key=len, reverse=True)
+
+        def masked(line: str) -> str:
+            for n in people:
+                line = line.replace(f"「{n}」", "（お名前）").replace(n, "（お名前）")
+            return line
+        return [masked(x) for x in
+                [f"こちらの会社：{company}", f"電話の用件：{self.purpose}"]
+                + ([f"電話の用件の一文：{self.purpose_line}"] if self.purpose_line else [])
+                + ([f"お呼びする方：{t.who()}"] if t is not None else [])
+                + [f"お客様に伺うこと（{len(self.questions)}つ）：" + "／".join(q.text for q in self.questions)]
+                + [f"{KNOWN_HEADS['info']}：{x}" for x in self.info] + [f"{KNOWN_HEADS['answer']}（{n}）：{a}" for n, a in self.answers]
+                # ご承認いただく内容の説明（ご承認を伺う質問に入る一言＝トークスクリプトの説明。点をご説明するときの材料と受け皿＝flowctl.approval_explanation
+                # の1か所。✅ 2026-11-05 日本時間3時49分00秒 ユーザーのご指摘で足した）
+                + [f"{KNOWN_HEADS['approval']}（{q.id}）：{approval_explanation(q)}" for q in self.questions if approval_explanation(q)]
+                # 選択肢ごとの良い点・気をつける点（迷っているお客様に選ぶ助けを伝える材料と受け皿＝flowctl.Flow._hesitation。✅ 2026-11-07 日本時間
+                # 13時05分06秒・18時03分49秒 ユーザー）
+                # 申し出の質問（詳しい者からのお話の良い点＝flowctl.offer_questions の1か所）も同じ
+                + [f"{KNOWN_HEADS['option']}（{q.id}「{label(c)}」）：{n}" for q in [*self.questions, *offer_questions(self.handoff_ways, self.close_offer)]
+                   for c, n in q.option_notes.items()]
+                # 業務設定で許された申し出（flowctl.own_answer_problem の may_follow_up）も、こちらがしてよいことの事実（無いと、判定が止める）
+                + (["こちらがしてよいこと：業務の情報に無いご質問には、確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってよい"]
+                   if self.follow_up else [])]
+
+    def name_readings(self) -> dict[str, str]:
+        """読みの決まった名前（台本の名前 names）の表記 -> 読み。声に出す文では読みに置き換えてある（quote_in_text）＝AIが自分の言葉の文に
+        表記（漢字）のまま書いたら、書き直させる（flowctl.own_answer_problem。⛔ OWN-ANSWER-EARS：漢字の「港区」は3本中1本しか聞こえなかった）。"""
+        import unicodedata
+        return {unicodedata.normalize("NFKC", n["surface"]): n["reading"] for n in self.names  # 置き換えと同じ読み（quote_in_text）
+                if isinstance(n, dict) and n.get("surface") and n.get("reading")}
+
+    def judge_names(self, sees_target: bool | None = None) -> dict[str, str]:
+        """判定（意味の判定・目的のお客様の判定）に見せる名前の形を決める唯一の場所：声で読ませる形（「」でくくった読み＝quote_in_text・
+        Target._name）⇒ 書いてあるとおり＋読み（「岡田（おかだ）」）。お客様の言葉は聞き取りの文字（漢字）で届くので、判定には名前を書いて
+        あるとおりに見せる（読みも添える）。当てるのは、流れの制御が判定へ質問を渡す1か所（flowctl.Flow.for_judge）。声で流す文は変えない。
+        ⛔ 2026-10-29 G-59：判定に見せる質問の文が声の形のまま（「営業部部長の「おかだ」様はいらっしゃいますでしょうか？」）で、Claude Haiku 5.5
+           （考えない）は「はい、岡田です。」を3回とも「決められない」、取り次ぎのあとの「お電話代わりました。」を3回とも「決められない」と読んだ
+           （質問の文を「岡田（おかだ）」にすると、どちらも「ご本人」）
+        sees_target：お呼びする方の名前と読みを見せるか（既定は JUDGE_SEES_TARGET_NAME）。見せない形は、お呼びする方の声の形（ひらがなのお名前も）を
+        HIDDEN_TARGET に置き換える（呼ぶ一言・確かめる一言・後任の方の一言のどれも、for_judge のこの表で置き換わる）＝名前を伏せる形と今の形の比べ
+        （CL-1.md 4-165）も、この1か所で切り替える"""
+        from names import hira, quote
+        sees_target = JUDGE_SEES_TARGET_NAME if sees_target is None else sees_target
+        out = {quote(r): f"{s}（{r}）" for s, r in self.name_readings().items() if s != r}
+        t = self.target
+        if t is not None and t.name and not sees_target:
+            out[quote(hira(t.reading))] = HIDDEN_TARGET
+        elif t is not None and t.name and t.name != hira(t.reading):
+            out[quote(hira(t.reading))] = f"{t.name}（{hira(t.reading)}）"
+        return out
+
+    def flow(self, recorded: bool = True, play_recordings: bool = False, **kw) -> "Flow":
+        """この業務・この電話の流れの制御（flowctl.Flow）を作る唯一の場所（通話の駆動側・試験の両方）。recorded＝名乗りを録音で流す形（本番の形＝
+        DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
+        AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
+        from flowctl import Flow
+        return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does, handoff_ways=tuple(self.handoff_ways),
+                    close_offer=self.close_offer, way_words=self.way_words, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
+                    answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
+                    name_readings=self.name_readings(), judge_names=self.judge_names(),
+                    # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か・担当の方が替わった電話か
+                    promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again, handover=self.handover,
+                    hold_wait_s=self.hold_wait_s, silence_prompt_after=self.silence_prompt_after, wait_ask_after=self.wait_ask_after, apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
+                    successor=self.target is not None and self.target.successor,
+                    target=self.replay_parts() if self.target is not None else None,
+                    opening=self.replay_parts() if recorded else None, **kw)
+
+    def spoken_names(self) -> list[str]:
+        """声に出す名前（表記と読み）：社名・担当者名・お呼びした方の名前・読みの決まらない名前。名前は録音だけで言い、AIの自分の言葉には入れない
+        （flowctl.own_answer_problem。⛔ G-57 tc18：AIの声で目的の人の名前を言い崩した）。"""
+        t = self.target
+        return [x for x in (self.company, self.company_name, self.company_reading and self._company_reading(), self.caller, self.caller_reading,
+                            *(self.unread_names or []), *((t.name, t.reading) if t is not None else ())) if x]
+
+    def policies(self) -> dict:
+        """相手の申し出への応じ方（流れの制御 Flow の policies。中の名前は flowctl.POLICIES）。"""
+        return {"substitute": self.substitute_policy, "message": self.message_policy, "departed": self.departed_policy,
+                "main_talk": self.main_talk_policy, "follow_up": self.follow_up}
+
+    @property
+    def company_name(self) -> str:
+        """自社名のうち、会社の種類（株式会社など）を除いた名前の部分（names.legal_form_split の1か所）。"""
+        return legal_form_split(self.company)[1]
+
+    def _company_reading(self) -> str:
+        return legal_form_reading_off(self.company_reading, self.company)
+
+    def _said(self) -> tuple[str, str]:
+        """名乗りで言う自社名・担当者名（声に出す文の書き方）。自社名は書いてあるまま（会社の種類は前でも後ろでも書いてある所に。略した書き方は
+        正式に）、名前の印と読みへの置き換えは名前の部分だけ（names.legal_form_split）。"""
+        head, name, tail = legal_form_split(self.company)
+        return f"{head}{quote(self._company_reading() or name)}{tail}", quote(self.caller_reading or self.caller)
 
     def opening(self) -> str:
-        return f"お忙しいところ恐れ入ります。株式会社{quote(self.company)}の{quote(self.caller)}と申します。"
+        company, caller = self._said()
+        return f"{GREETING}{company}の{caller}と申します。"
 
     def opening_parts(self) -> list[str]:
-        """名乗りの録音を、文ごとに分けたもの（DESIGN.md 6-13 の案）。最後は最初の質問。"""
-        parts = ["お忙しいところ恐れ入ります。", f"株式会社{quote(self.company)}の{quote(self.caller)}と申します。"]
-        if self.purpose_line:
-            parts.append(self.purpose_line)
-        parts.append(self.questions[0].text)
+        """名乗りの録音を、文ごとに分けたもの（DESIGN.md 6-13 の案）。最後は最初の質問。
+        目的の人のある業務では、最後は目的の人を呼ぶ一言（用件と最初の質問は、目的の人に繋がってから＝DESIGN.md 4-3 の ⚠️）。"""
+        company, caller = self._said()
+        parts = [GREETING, f"{company}の{caller}と申します。"]
+        if self.target is not None and not self.number_again:
+            return parts + [self.target.call()]   # お詫び（apology）は、目的の方に繋がってから（flowctl.Flow._connect）
+        if self.apology_call:
+            return parts + [self.apology_call]   # お詫びの電話（目的の人の無い業務）：名乗りのあとにお詫び（用件・質問は無い）
+        if not self.number_again:
+            # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び。前の電話で申し伝える一言まで言って切れた続きの電話は、お詫びのあとに申し伝える
+            # 一言を言い直し、用件の一文は流さない（流れの制御と同じ1か所 flowctl.sorry_texts・told_kind。⛔ 2026-11-08 日本時間8時台（(10) の H2 の残り）まで
+            # 途中で切れたお詫び＋用件の一文を並べていた）
+            # 前の電話のお詫びを流すかも、流れの制御と同じ1か所（flowctl.earlier_talked＝前の電話でお話しした方か。目的の人の無い業務は who を持たない＝
+            # 目的の方と読む・担当の方が替わった電話の新しい方には流さない）
+            from flowctl import earlier_talked, resumed_step, sorry_texts, told_kind
+            step = resumed_step(self.questions, self.earlier)
+            told = told_kind((self.earlier or {}).get(step[1].id)) if step is not None and step[0] == "told" else None
+            at_end = told is not None and (step[1].final_goal or self.first_ask() is None)
+            parts += [text for _, text in sorry_texts(self.apology, told, at_end, self.apology_when, self.follow_up, self.apology_text,
+                                                      earlier_talked(self.earlier, None, self.handover, self.apology_when))]
+            if self.purpose_line and told is None:
+                from flowctl import purpose_part
+                parts.append(self.replay_parts().get(purpose_part(self.earlier, self.apology, self.apology_when, handover=self.handover)) or self.purpose_line)
+        if (first := self.first_ask()) is not None:
+            parts.append(first[1])   # 番号を伺い直す一言・前の通話の続きなら、まだ取れていない最初の質問（つなぎの言葉ごと）
+        return parts
+
+    def first_question(self) -> Question | None:
+        """この電話で、名乗りのあとに最初に伺う質問（業務の質問か、続きの電話のほかのご希望。番号を伺い直す電話・お詫びの電話・伺う質問が無いときは
+        None）。流れの制御 Flow も同じ earlier で、同じ質問から始める（順は flowctl.opening_question の1か所：名前の読みの確かめが先）：ほかのご希望を伺っている途中で切れた電話の続きは、切れた所からのほかのご希望
+        （「前回お伺いした…の件で…」。どの質問かは flowctl.resumed_step の1か所＝Flow の始めと同じ決まり。ご承認いただけなかったときの手順の途中で切れた電話の続きの「前回お伺いした件でご納得いただけなかった点は…」も同じ1か所。✅ 2026-11-03 日本時間23時52分36秒 ユーザー
+        「(ア)」）／それ以外は flowctl.first_open の1か所（前の通話で取れた答えの質問を飛ばし、伺う条件の質問は前の通話の答えで当たるときだけ・ここで
+        終える答えのあとの質問は伺わない＝Flow の始めと同じ決まり）。⛔ 2026-11-04 まで、ここは伺う条件を見ずに探していた（前の通話の答えで伺わない
+        質問を、名乗りの録音の最後に流しうる＝流れの制御は別の質問を待つ）。"""
+        if self.number_again or self.apology_call:
+            return None   # 番号を伺い直す電話は伺い直す一言だけ（first_ask）・お詫びの電話は業務の質問をしない
+        return opening_question(self.questions, self.earlier)   # 名前の読みの確かめが先・続きのほかのご希望はそのあと（流れの制御の始めと同じ1か所）
+
+    def explains_first(self) -> bool:
+        """この電話で、名乗りのあとに、前の電話で伺ったご納得いただけなかった点を、AIがご説明から始めるか（伺う質問は無い）。決まりは flowctl.resumed_step の
+        1か所（前の通話の答えの "point" が heard＝ご説明の途中で切れた。✅ 2026-11-04 日本時間19時26分 ユーザー「(A)…OK」）。AIへの指示文が読む。"""
+        from flowctl import resumed_step
+        if self.number_again or self.apology_call or self.first_question() is not None:
+            return False
+        step = resumed_step(self.questions, self.earlier)
+        return step is not None and step[0] == "explain"
+
+    def first_ask(self) -> tuple[str, str] | None:
+        """この電話で、名乗りのあとに最初に伺うこと（質問の番号, 声に出す文。無ければ None）を決める唯一の場所（名乗りの録音・AIへの指示文が読む）：
+        番号を伺い直す電話は伺い直す一言（かけ直しの番号の質問）／それ以外は first_question の質問の、声に出す文（業務の質問はつなぎの言葉ごと＝
+        spoken_question・システムの質問は文そのまま。続きの電話の業務の質問の頭は「確認させていただきたい内容なのですが」＝resumed_call・✅ 11-06 15時20分30秒）。"""
+        if self.number_again:
+            return CALLBACK_IDS["number"], NUMBER_AGAIN[self.number_again]
+        if (q := self.first_question()) is None:
+            return None
+        if q.callback:
+            return q.id, q.text
+        # CL-2 がかけ直す「わからない」を前の電話でお話しした方に伺い直す質問は、その後の形（決まりは flowctl.since_due の1か所＝流れの制御 Flow._resume_cut と同じ）
+        # ご承認のお知らせの文（決まりは flowctl.announce_forms の1か所＝流れの制御 Flow._announce_refresh と同じ。前の電話で資料がお手元にあると答えていただいていれば
+        # 「ご確認ください。」の形）
+        from flowctl import announce_forms, condition, since_due, since_form
+        got = {k: condition(v["condition"]) for k, v in (self.earlier or {}).items() if v.get("condition") and v.get("state") in ("accepted", "confirmed")}
+        qs = [since_form(x) if x.id == q.id and since_due(x, self.earlier, None, self.handover, self.apology_when) else x for x in announce_forms(self.questions, got)]
+        return q.id, spoken_question(qs, q.id, resumed=resumed_call(self.earlier, self.apology_call, self.number_again))[0]
+
+    def replay_parts(self) -> dict:
+        """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
+        文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
+        その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
+        法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
+        お名前の入る7つ（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・target_successor・target_full＝フルネームのあるときだけ）は、業務の録音の組ではなく、名前の録音の
+        台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
+        分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
+        この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
+        company, caller = self._said()
+        parts = {"greeting": GREETING, "intro": f"{company}の{caller}と申します。", "purpose": self.purpose_line or ""}
+        if self.purpose_line and self.purpose_noun:
+            from phrases import purpose_again_parts
+            parts.update(purpose_again_parts(self.purpose_noun))   # 続きの電話の用件の一文（どれを流すかは flowctl.purpose_part）
+        if self.ai_answer:
+            # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）。業務が書いたときだけ業務の録音。書かなければ
+            # 標準（phrases.AI_ANSWER）を共通の一言の録音から流す（phrases.STANDARD_PARTS・flowctl.Flow._part_play。✅ 2026-11-02 管理者＝CL-2 の 4-188）
+            parts["ai"] = self.ai_answer
+        if self.summary or self.purpose_noun:
+            from phrases import brief_line
+            # 手短になら聞くと言われたときに伺う一言（営業の要約の名詞・無ければ用件の名詞で＝phrases.brief_line。依頼主の単位の録音＝flowctl.BRIEF_PART・
+            # flowctl.Flow._brief_ask。どちらも無い業務は共通の一言の録音 callback_brief）
+            parts["brief"] = brief_line(self.summary or self.purpose_noun)
+        if self.busy_ask:
+            # 「忙しい」と言われたときの引き止めの一言（業務で「引き止める」を選んだ業務だけ。業務の文＝業務の録音。お客様に伺う文はプログラムが流す＝9-3。
+            # ⛔ 前は録音の組に入れず、会話AIに言わせていた＝flowctl.Flow の request_end の callee_hurry）
+            parts["busy"] = self.busy_ask
+        if self.target is not None:
+            t = dataclasses.replace(self.target, successor=False)
+            parts.update(target=t.call(), target_confirm=t.confirm(), target_reconfirm=t.reconfirm(),
+                         promise_again=t.promise_again(),  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
+                         unavailable_confirm=t.unavailable_confirm(),  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
+                         carried_target=t.carried_from())  # 続きの電話の判断いただける代わりの方への引き継ぎの確かめ（flowctl.carried_ask の "target"）
+            if t.full_call():
+                parts["target_full"] = t.full_call()   # お名前だけでは分からないと言われたとき（部署・フルネーム。flowctl.Flow._who_unclear）
+                if t.successor_full_call():
+                    parts["target_successor_full"] = t.successor_full_call()   # 後任の方の電話で、同じとき（flowctl.Flow の successor が差し替える）
+            if t.kind == "法人":
+                parts["target_successor"] = t.successor_call()
+        if self.voicemail_message:
+            parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
+        if self.message or self.target is not None:
+            # 伝言の申し出に残す伝言（依頼主の単位の録音。flowctl.Flow._callback）＝伝言の文の1か所：業務が書いた伝言の文（伝言を残す業務）か、無ければ業務の名乗りと
+            # 用件から作る決まった伝言（phrases.standard_message。伝言を残さない業務で、お礼の一言のあとに伝言の申し出を重ねられたときにお願いする＝✅ 2026-11-13
+            # 日本時間22時17分01秒 ユーザー「伺い7はイ」）。伝言は、お呼びした方がいらっしゃらないときの申し出なので、目的のお客様のいる業務だけ
+            company, caller = self._said()
+            parts["message"] = self.message or standard_message(company, caller, self.purpose_noun if self.purpose_line else "")
+        parts.update({f"answer_{name}": text for name, text in self.answers})  # 想定問答の答え（依頼主の単位の録音。flowctl.ANSWER_PREFIX）
         return parts
 
 
-def quote(name: str) -> str:
-    """名前を「」でくくる唯一の場所。"""
-    return f"「{name}」"
+
+
+MAX_VARIANTS = 6  # 1つの文から作る、読みの候補ごとの録音の数の上限（読みが決まらない名前が2つ以上ある文でも、増えすぎないように）
+
+
+def reading_variants(text: str, names: list) -> list[tuple[dict, str]]:
+    """録音にする文（名乗り・用件・質問）の中の、読みが決まらない名前を、読みの候補ごとの文にする。依頼主ごとの録音で、人が聞いて
+    正しい読みの録音を選ぶ（✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」）。
+    選ばれた録音の読みが、その名前の読みになる（録音にした文は、録音のとおりに読まれるので、言い換えの決まり＝unread_rule は効かない。G-47）。
+    戻り値：[(その文で読む読み {表記: 読み}, 文)]。読みが決まらない名前が無ければ [({}, text)]。まず言ってみる読みを先に並べる。"""
+    from names import hira
+
+    out = [({}, text)]
+    for n in names:
+        if not (isinstance(n, dict) and n.get("surface") and not n.get("reading")):
+            continue
+        mark = f"「{n['surface']}」"
+        if mark not in text:
+            continue
+        cands = list(dict.fromkeys(hira(r) for r in [n.get("likely"), *(n.get("candidates") or [])] if r))
+        if not cands:
+            continue
+        out = [({**m, n["surface"]: c}, t.replace(mark, f"「{c}」")) for m, t in out for c in cands]
+    return out[:MAX_VARIANTS]
 
 
 _OPEN, _CLOSE = "「『", "」』"
 
 
-def quote_in_text(text: str, names: list[str]) -> str:
+def quote_in_text(text: str, names: list) -> str:
     """台本などの文の中の名前を、「」でくくる（名前の位置にだけ付け、ほかの文字は1文字も変えない）。
+    names＝名前の表記（文字）か、names.decide の名前（{"surface", "reading"}）。**読みが決まっている名前は、くくった中身を読み（ひらがな）に
+    置き換える**（「大阪の「にっぽんばし」店」）。読みが決まらない名前（reading が空）は、表記のままくくる。もとからかっこの中にある名前も
+    中身を読みにし、名前のすぐあとの読みがな（「（しょうじ）」）は外す。声に出す文（指示文・質問・録音の文）は、すべてここを通す（Business）。
+    ✅ G-44（2026-10-16）：読み違えやすい名前12を、録音と同じ形で読ませた。漢字のまま「」でくくる形は24本中8本しか正しく読まず（「枚方」⇒
+       まいかた・「中島」⇒なかじま（正しくは なかしま）・「東海林」⇒とうかいりん など）、ひらがなで渡す形は23本中21本（読めなかったと
+       見えたのは「山崎」＝やまさき の2本だけ ⇒ ⛔ 2026-10-16 訂正：1本ずつ書き起こし直すと、2本とも「やまさき」と言えていた。まとめて
+       書き起こしたため、隣の音声に引きずられていた＝23本中23本）。読みを指示に添える形は20本、文に「（読み）」を添える形は13本で、
+       「とうかいりんしょうじ」と2回言った回もあった。カタカナで渡す形は「アオバ物流」を2本とも「おおば」と読んだ。
     - 長い名前から先に当てる（「川崎市中原区」と「中原区」が重なれば、長いほうを1回だけくくる）
     - 同じ名前が何回出ても、全部くくる
     - もともと「」『』の中にある所は、くくらない（二重にしない）
@@ -79,12 +540,24 @@ def quote_in_text(text: str, names: list[str]) -> str:
       （「上野原」は1つの単語なので、中の「上野」には付けない。「株式会社ＡＢＣホールディングス営業部」は
        「株式／会社／ＡＢＣ／ホールディングス／営業／部」と分かれるので、「ＡＢＣホールディングス」に付けられる）
     ⚠️ 限界：単語に分ける処理が、1つの名前を2つに分けることがある（「神田川」＝「神田／川」）。名前の一覧に「神田」だけがあると、
-       「「神田」川」になる。名前の一覧に長いほうの名前があれば、長いほうが先に当たる。取込のプレビューで人が確かめる（Intent.md 6-8）。
+       「「神田」川」になる。名前の一覧に長いほうの名前があれば、長いほうが先に当たる（取込の文字のモデルは「兵庫県三田市」のように
+       まとまりで出す。G-42）。
     """
+    import re
     import unicodedata
 
     from jtext import word_edges
+    from names import hira
 
+    readings = {}
+    for n in names:
+        if isinstance(n, dict) and n.get("surface"):
+            readings[unicodedata.normalize("NFKC", n["surface"])] = n.get("reading") or ""
+        elif isinstance(n, str) and n:
+            readings.setdefault(unicodedata.normalize("NFKC", n), "")
+    # もとから「」『』でくくってある名前（「大和ハウス工業」様）も、読みが決まっていれば中身を読みにする（かっこはそのまま）
+    text = re.sub(r"([「『])([^「」『』]+)([」』])",
+                  lambda m: m.group(1) + (readings.get(unicodedata.normalize("NFKC", m.group(2))) or m.group(2)) + m.group(3), text)
     normed = "".join(unicodedata.normalize("NFKC", ch) if len(unicodedata.normalize("NFKC", ch)) == 1 else ch for ch in text)
     edges = word_edges(text)
     taken = [False] * len(text)
@@ -97,49 +570,163 @@ def quote_in_text(text: str, names: list[str]) -> str:
         if depth or ch in _CLOSE:
             taken[i] = True
     spans = []
-    for name in sorted({unicodedata.normalize("NFKC", n) for n in names if n}, key=len, reverse=True):
+    for name in sorted(readings, key=len, reverse=True):
         start = 0
         while (i := normed.find(name, start)) != -1:
             j = i + len(name)
             start = i + 1
             if any(taken[i:j]) or i not in edges or j not in edges:
                 continue
-            spans.append((i, j))
+            spans.append((i, j, readings[name]))
             for k in range(i, j):
                 taken[k] = True
     out, pos = [], 0
-    for i, j in sorted(spans):
-        out.append(text[pos:i] + quote(text[i:j]))
+    for i, j, r in sorted(spans):
+        out.append(text[pos:i] + quote(r or text[i:j]))
         pos = j
+        # 名前のすぐあとの読みがな（「東海林（しょうじ）」の「（しょうじ）」）が読みと同じなら外す（そのまま読ませると2回言う）
+        if r and (m := re.match(r"\s*[（(]\s*([ぁ-ゖァ-ヶー]+)\s*[）)]", text[j:])) and hira(m.group(1)) == r:
+            pos = j + m.end()
     out.append(text[pos:])
     return "".join(out)
 
 
-def system_rules() -> str:
-    """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。"""
+# 相手が考えている（「えー」「その」など）ときの決まり（1か所）。G-16：考えている相手に質問を聞き直した誤りから足した。
+# ⛔ 2026-10-14 G-30〜G-32：前の「『ごゆっくりどうぞ』とだけ言って待つ」は、相手が「えーとですね、」のあと 0.7〜1秒あけると、
+#    相手の続きの言葉にかぶった。「何も言わずに待つ」にしても、AIは黙らず「お待ちしております」や相手の言葉の真似を言った。
+# ✅ 2026-10-14 ユーザー承認：短い「はい。」の相づちだけにする（少しかぶっても失礼になりにくい）。さらに間があいたときの一言
+#    （phrases.SILENCE_PROMPT）は、電話接続側が流す（AIは時間を数えられない）
+# ⚠️ 2026-10-14 ユーザー：S2・S4 の「えーとですね」のあとの「はい」が、物欲しそう・期待しているように聞こえる（L4 は問題なし）。
+#    相づち風の「はい」に ⇒ 2つの形を G-36 で比べた：A＝言い方を足す（下）／B＝AIは黙って報告し、相づちはプログラムが録音で流す。
+# ✅ 2026-10-14 ユーザー（G-36 を聞いて）：「これまでより、良くなりました」「形 A が良い」⇒ A にした（B の決まりと操作は外した）
+# ✅ 2026-11-01 日本時間23時04分・11-06 11時19分55秒 ユーザー：「うーん。」と悩んで黙る方も考えている方（9-4）。録音で流す通話では、この「はい。」は流さず、判定が
+#    「まだ考えている途中」と読んだらプログラムが録音の「はい。」を流す（flowctl.Flow._thinking）＝報告しないのは同じ
+# ✅ 2026-11-07 日本時間13時05分06秒・18時03分49秒 ユーザー：言い終えた「迷っています。」は考えている途中ではない（待って急かさず、選ぶ助けを伝えて促す＝
+#    プログラムが応じ方を決める flowctl.Flow._hesitation）＝ここから「迷っている最中」を外し、言い終えた迷いは報告すると書いた
+THINKING_RULE = ("相手が考えている（「えー」「えーと」「その」「うーん」など、まだ答え終わっていない・言いよどんでいる最中の）ときは、「はい。」とだけ、軽い相づちとして、"
+                 "落ち着いた声で、語尾を上げずに短く言って、相手が話し終えるまで待ちます（相手の答えを期待するような言い方にしません）。"
+                 "何も報告しません。相手の言葉を真似しません。質問を聞き直してはいけません。"
+                 "どれにするか迷っている・決めかねている、と言い終えたときは、考えている途中ではないので、いつものとおり報告します（どう応じるかは、"
+                 "プログラムが知らせます）。")
+
+
+def system_rules(play_recordings: bool = False, target: bool = False, follow_up: bool = False) -> str:
+    """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。play_recordings：次の質問と締めを、電話接続側が録音で流す形（G-37）。
+    target：目的の人のある業務か（代わりの方・後任の方の報告）。follow_up：答えを持っていない問いに、担当から改めて連絡すると申し出てよいか（業務設定）。"""
     return (
-        "会話の決まり：\n"
+        "会話の決まり：\n" +
+        ("- 返事に「プログラムが録音で流しました」とあれば、その言葉は相手にもう聞こえています。同じことを言わずに、何も言わないで、"
+         "相手が話すのを待ちます。\n" if play_recordings else "") +
+        # ✅ 2026-10-15 ユーザー：「（文章の）多くが、文語や強制的な冷たい言い回しが多いので気を付けて。言い方ひとつで、お客様の機嫌を損ねたり、
+        #    機嫌を良くでき、契約にも影響する」（DESIGN.md 6-11）
+        "- お客様には、命令の形（「〜してください」）や硬い言い方を使わず、「〜いただいてもよろしいでしょうか」「〜いただけますでしょうか」"
+        "のように、柔らかく、同意をいただく言い方で話します。\n"
+        # ⚠️ 2026-10-15 ユーザー（G-37 の2回目）：「『かしこまりました。3人で大丈夫でしょうか』が早回しのように聞こえる」（読点を外してから、
+        #    言い直しの速さが S2 で約1割速くなった）・「『ありがとうございます。』が暗く怖い」
+        "- 言い直しは、急がずに、落ち着いた速さで、はっきり言います。受けの言葉（「ありがとうございます。」「かしこまりました。」など）は、"
+        "前向きに、心を込めて言います。\n"
+        # ⛔ 2026-10-15：ここに「明るく」を入れていた。✅ 2026-10-12 ユーザー：「『明るく』や『ハキハキ』だと営業には不向きな強引そうな詐欺師の
+        #    ような怪しいニュアンスになっているので、『前向き』とか別の表現を試してください」（g03_voices にも書いてある）。⇒ 外した。
+        #    この決まりは test_offline.WordingTest が見張る
         "- 質問は、プログラムから渡されたものだけを、1つずつ聞きます。言い回しは自然にしてかまいませんが、意味を変えてはいけません。"
         "プログラムの返事に書かれていない質問や話題を、自分から出してはいけません（締めの前に「ほかに何かございますか」と聞くことも含みます）。\n"
-        "- 相手が答えたら、必ず record_answer を呼びます。返事に次にすることが書いてあるので、それに従います。\n"
+        # ✅ 2026-10-14 ユーザー承認：答えが質問に合うかの判断は、プログラムの1か所（flowctl.form_problem）にまとめる。⛔ G-35：AIが「いつでも」を
+        #    曖昧として報告し、「聞き取りにくかったので…」と聞き返した（相手ははっきり話している）
+        "- 相手が答えたら、必ず record_answer を呼びます。聞き取れた答えは、いまの質問に合わないように思えても（ほかの質問の答え・"
+        "「いつでも」など）、聞いたとおりの値で報告します。合うかどうかはプログラムが決めて、返事で知らせます（自分で聞き直してはいけません）。"
+        "返事に次にすることが書いてあるので、それに従います。"
+        # ⛔ 2026-10-23 G-57 tc48（答えに添えられた質問の S2・S4）：答えと質問を一緒に言われたときの順が、どこにも書いていなかった（AIは3本中2本で
+        #    先に質問へ答え、答えを報告しなかった）。先に答えを受け取る道は流れの制御にある（Flow._advance の after_answer）
+        "答えと一緒に質問もされたとき（「はい、お願いします。ところで料金はかかりますか？」など）は、先に record_answer で答えを報告します"
+        "（声に出さずに。質問に答える番は、プログラムが返事で伝えます）。\n"
         f"- 相手が「わからない」と答えたら{ARG_LABEL['condition_id']}を「{SYSTEM_LABEL['unknown']}」に、答えたくないと言ったら"
         f"「{SYSTEM_LABEL['refused']}」にして record_answer を呼びます。"
         "答えたくないと言われた質問は、二度と聞きません。\n"
+        # ✅ 2026-10-17 ユーザー：選択肢の質問の「どちらでも大丈夫です」は答え（「いつでも」と同じ）。⛔ G-14：合う選択肢が無く、AIは
+        #    「わからない」「カード」「答えたくない」に分けた
+        # ⛔ G-14 の続き：この決まりを足した1回目、「まだ決めてないです」を 6本中5本「どちらでも」にした ⇒ 任せた・まだ決めていない、を分けて書く
+        f"- 選択肢から選ぶ質問で、相手が、どれを選んでもよいとこちらに任せたときだけ（「どちらでも大丈夫です」「どれでもいいです」など）、"
+        f"{ARG_LABEL['condition_id']}を「{ANY_LABEL}」にして record_answer を呼びます。まだ決めていない・分からないとき（「まだ決めてないです」"
+        f"「ちょっと分からないです」）は「{SYSTEM_LABEL['unknown']}」です。\n"
+        # ✅ 2026-11-02 日本時間4時36分 ユーザー：(a)「OK」＝選ぶ質問で、どの選択肢も要らないと言われたら「どれも要らない」（最終目的なら断る答え＝flowctl.NONE）
+        f"- 選択肢から選ぶ質問で、どの選択肢も要らない・どれもしないでほしいと言われたとき（「どちらも必要ありません」「そもそも要りません」など）は、"
+        f"{ARG_LABEL['condition_id']}を「{NONE_LABEL}」にして record_answer を呼びます。答えることだけを拒んだときは「{SYSTEM_LABEL['refused']}」です。\n"
         "- 日付・時刻・数・金額・名前・電話番号・メール・住所は、返事に「言い直して」とあれば、返事に書いてある確認の言い方のとおりに言って、"
         "相手の返事を待ちます。相手が返事をしてから confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。\n"
-        "- 時刻は、午前か午後かを必ずはっきりさせます。相手が言わなかったら「午前と午後、どちらでしょうか」と聞きます。自分で決めてはいけません。\n"
-        f"- 相手の答えが聞き取れない・曖昧なときは report_unclear を呼びます。返事が「聞き返す」のときだけ、「{ASK_BACK}」と1回だけ聞き返します。"
-        "この言い方だけを使い、言葉を足したり、言い換えたりしません。返事が「-にします」なら、聞き返さずに、返事に書いてある次の質問へ進みます。\n"
-        "- 相手が考えている（「えー」「その」など、まだ答えていない）ときは、何も報告せず、「ごゆっくりどうぞ」とだけ言って待ちます。質問を聞き直してはいけません。\n"
-        "- 言い直した値に相手が返事をしたら、record_answer ではなく confirm_field で報告します。\n"
-        f"- 返事に「念のための確認」とあれば、「{RECHECK}」と言ってから、その質問をもう1回だけ聞きます。\n"
+        # ✅ 2026-10-15 ユーザー：午前・午後の確かめは、AIからプログラムへ移す（営業時間から決める。flowctl.fill_ampm）。⛔ G-37：AIが「32 です」を
+        #    時刻と思い込み、自分で午前・午後を聞いて、相手の言っていない「3時の午後」を報告した
+        "- 時刻に午前・午後が無くても、聞いたとおりの値で報告します。午前か午後かは、プログラムが決めるか、聞き方を返事で知らせます"
+        "（自分で聞いたり、自分で決めたりしてはいけません）。\n"
+        "- 相手の答えが聞き取れない（何と言ったか分からない）ときだけ report_unclear を呼びます。返事が「聞き返す」のときは、返事に書いてある言い方のとおりに聞き返して、"
+        "相手の答えを待ちます。この言い方だけを使い、言葉を足したり、言い換えたりしません。返事が「-にします」なら、聞き返さずに、返事に書いてある次の質問へ進みます。\n"
+        f"- {THINKING_RULE}\n"
+        # ✅ 2026-10-14 ユーザー決定：値を直されたとき、こちらの聞き違いか相手の言い間違いかは、プログラムが相手の言葉から決める
+        #    （⛔ G-36：AIに選ばせると、12本中12本「相手が言い直した」を選んだ）⇒ AIには、どちらでも「違う値を言われた」で報告させる
+        "- 言い直した値に相手が返事をしたら、record_answer ではなく confirm_field で報告します。合っていれば返事の種類「合っている」。"
+        f"値を直されたら（こちらの聞き違いでも、相手の言い間違いでも）「{CONFIRM_LABEL['corrected']}」にして、直したあとの値を"
+        f"「{ARG_LABEL['correction']}」に全部入れます（相手が一部だけ直したときは、直していない部分も足します。"
+        "例：「15日の午後2時」に「いや、16日です」と言われたら「16日の午後2時」）。値を直されたら、自分で言い直さずに、すぐ報告します"
+        "（言い直しの言い方は、プログラムの返事のとおりにします）。\n"
+        # ⛔ 2026-10-14 G-36 の3回目：AIが、プログラムの言い方の前に、自分で「失礼いたしました。」を足した（録音の相づちと重なった）
+        "- プログラムの返事に言い方が書いてあるときは、その言い方から話し始めます。前に「失礼いたしました」「ありがとうございます」"
+        "「かしこまりました」などを足しません（相づち・お詫びは、プログラムが録音で流します）。\n"
+        "- 返事に「念のための確認」とあれば、返事に書いてある言い方のとおりに、その質問をもう1回だけ聞きます（言い方を足したり変えたりしません）。\n"
+        # かけ直しの申し出（DESIGN.md 6-2）：「かけ直して」と言われたときだけ。忙しいとだけ言われたときは request_end（引き止めるかは業務設定）。
+        # ✅ 2026-10-22 ユーザー：折り返し・伝言・長期の不在・ほかの手段も、決まった録音で応じる（報告の仕方は flowctl.offers_rule の1か所）
+        f"- {offers_rule(target)}プログラムが、次に聞くこと（戻られる時刻など）を返事で渡します。かけ直すことは、自分では約束しません。\n"
         f"- 相手が急いでいる・切ろうとしているときは、request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼びます。"
-        f"通話そのものを断られたら「{END_LABEL['callee_refused_call']}」で呼びます。\n"
-        "- 返事に「締めの言葉」とあれば、お礼を言って終えます。\n"
+        f"通話そのものを断られたら（「営業はお断りしています」「もうかけないで」など）「{END_LABEL['callee_refused_call']}」で呼びます。"
+        # 怒り・苦情（Intent.md 9-4）：弁明や約束をせず、謝意を伝えて終える。人へ知らせる印は流れの制御が残す（Flow._note）
+        f"相手が怒っている・苦情を言っているときは、言い訳・説明・約束をせずに、すぐ「{END_LABEL['callee_complaint']}」で呼びます"
+        "（締めの言い方は、プログラムが返事で渡します）。\n"
+        # 相手の種別（DESIGN.md 4-3・Intent.md 9-4）：人ではない相手には話さない。伝言を残すかは業務設定（流れの制御が返事で決める）
+        "- 電話に出たのが人ではないとき（留守番電話の案内「ただいま電話に出ることができません」「発信音のあとに」・自動音声の案内"
+        "「〜の方は1番を押してください」・ファクスの音）は、何も言わずに report_party で知らせます（伝言を残すかは、プログラムが返事で決めます）。"
+        f"こちらがかけた先ではないと言われたとき（「うちは〇〇ではありません」「番号をお間違えでは」）も、report_party を「{PARTY_LABEL['wrong_party']}」"
+        "で呼びます。\n"
+        # ⛔ 2026-10-17 の見直し：前は「お礼を言って終えます」と書いていた＝AIが締めの文を自分で作り、「お気軽にお問い合わせください」
+        #    「お気をつけてお越しくださいませ」（命令の形）を足した（G-45）。締めの言い方は流れの制御の1か所（flowctl.Flow._close）が決める
+        "- 締めは、返事に書いてある締めの言い方のとおりに言って終えます。言葉を足しません。録音で流したとあれば、何も言いません。\n"
+        # ⛔ 2026-10-17 の見直し：雑音で「はい、転送しました」と聞き違えたAIが、自分で「少々お待ちくださいませ」と言った（G-14。命令の形。
+        #    ✅ 2026-10-15 ユーザー：「『少々お待ちください。』は、電話での接客では強制的で不向き」）。間のつなぎはプログラムの仕事（DESIGN.md 6-15）
+        "- 相手にお待ちいただく言葉（「少々お待ちください」など）は、自分では言いません。間があいたときのつなぎの言葉は、プログラムが録音で流します。\n"
+        # ⛔ G-47：相手の質問（「当日はどなたが担当されるんですか？」）が、10本中10本聞き流された（Intent.md 9-4「範囲外の質問」）
+        # ✅ 2026-10-22 ユーザー：「録音や想定にない質問だった場合は？」「必ずどんな営業トークにも出てくるパターンはシステム側に録音しておいた方が
+        #    よくない？」⇒ 決まった答えのある問いは録音（名乗り・用件・想定問答）。⛔ G-57 tc18：AIが自分の言葉で答えると、目的の人の名前をAIの声で言った
+        # ✅ 2026-10-22 ユーザー（2回目）：「想定外の時はどうするのかを聞いているんですよ。…人以上の仕組みを作ることが私たちの目的ではないのですか？」
+        #    ⇒ 録音の無い問いは「分かりかねます」の録音ではなく、AIが業務の情報の範囲で自分の言葉で答える（名前は言わない・作らない・断らない・
+        #    約束しない）
+        f"- 相手から質問されたら、聞き流さずに replay_opening で答え方を選びます（誰からの電話か＝「{PART_LABEL['intro']}」・"
+        f"何の用件か・こちらとの関係・営業の電話か＝「{PART_LABEL['purpose']}」・想定問答にある問い＝その問いの名前。この3つはプログラムが録音を"
+        # ⛔ G-57 tc19・tc30：例を書かないと、番号の出どころの問いに「用件」を選んだ（tc30 は S2 で1本）
+        f"流します）。用件の録音で答えるのは、何の用件か・こちらとの関係・営業の電話かを聞かれたときだけです（番号をどこで知ったか・金額・"
+        "会社のことなどは、用件では答えません）。"
+        f"それ以外の問いは、業務の情報にあることなら「{PART_LABEL['own']}」、業務の情報にも無いことなら「{PART_LABEL['no_answer']}」を"
+        f"選び、自分の言葉で短く（1〜2文）答える文を「{ARG_LABEL['answer']}」に書いて呼びます。声に出すのは、プログラムの返事のあとです"
+        "（返事の言い方のとおりに言います）。業務の情報に無いことは、答えを作りません。社名・人の名前は入れずに「弊社」「こちら」"
+        "「担当の者」のように言い換えます。\n"
+        # ✅ 2026-10-22 ユーザー（4回目）：「『そちらにつきましてはこの場ではお答えいたしかねます。』こういう回答をするから、機械っぽいとかAIぽいと
+        #    思われるんでしょ！電話で営業する人がそんなことはまず言わない（契約がその時点で終わる）」⇒ 断らない（確かめ＝flowctl.refusal_in も止める）
+        "- お客様の質問を断りません。「お答えできません」「お答えいたしかねます」「分かりかねます」「控えさせていただきます」のような"
+        "断りの言い方は使いません。業務の情報に無いことを聞かれたら、そのご質問を受け止めて、担当の者に申し伝えることを伝えます"
+        "（ご質問は、プログラムが依頼主へ渡します）。\n"
+        # ✅ 2026-10-22 ユーザー（5回目）：「世間話のような対応や設定にない無難な対応はライブAIにしかできないよ！」（Intent.md 9-3「AIが柔軟にやること：
+        #    …想定外の発話への受け答え」）⛔ 前は質問への答えの道しか無く、録音で流す通話の答えの段では、世間話・お礼に返す道が無かった
+        # ✅ 2026-11-14 日本時間14時31分38秒 ユーザー（お話には相づちだけで終えず、中身を受けた受け答え）：別のお話にひとこと応える番の知らせと同じ1つの文
+        #    （flowctl.TALK_RECEIVE）
+        f"- 答え・申し出・質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）には、聞き流さずに、ひとこと受け答えします。お客様の{TALK_RECEIVE}"
+        f"replay_opening を「{PART_LABEL['talk']}」で選び、返す文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書き、"
+        f"返す文が使えないときに流す一言を「{ARG_LABEL['fallback']}」から選んで呼びます。"
+        "言葉の選び方は自由ですが、こちらの会社・業務についての事実は、業務の情報にあることだけを言います。\n"
+        + ("- 業務の情報に無い問いには、その点は確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってかまいません。それ以外の"
+           "約束（またお電話します、など）はしません（かけ直すかは、プログラムが決めます）。\n" if follow_up else
+           "- 「またお電話します」「改めてご連絡します」など、かけ直すことや連絡することを約束してはいけません（かけ直すかは、プログラムが決めます）。\n") +
+        f"- 相手が聞き取れなかったとき（「もう一度」「え？」「はい？」など）や、相手に不快な思いをさせたかもしれないとき（話がかぶった・待たせた・相手が困っている）は、"
+        f"話し始めに「{APOLOGY[0]}」か「{APOLOGY[1]}」を付けてから話します。\n"
     )
 
 
-def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai") -> tuple[str, str]:
+def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai", play_recordings: bool = False) -> tuple[str, str]:
     """(声の名前, 指示文) を返す。
 
     resume：張り替え・つなぎ直しのとき、流れの制御（flowctl.Flow）を渡す。名乗りの代わりに「いまの位置」を書く（DESIGN.md 6-6）。
@@ -147,32 +734,137 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     いまの位置は流れの制御が持っているので、AIが前のセッションを覚えていなくても続きから話せる。
     """
     voice, style_text = voice_style(voice_type)
-    first = business.questions[0]
+    ask = business.first_ask()   # 名乗りのあとに最初に伺うこと（番号を伺い直す一言・前の通話の続き＝Business.first_question の1か所）
+    first = business.first_question()   # システムの質問（続きの電話のほかのご希望など）の選択肢も、AIに知らせる
+    calls_target = business.target is not None and not business.number_again   # 番号を伺い直す電話は、電話に出た方に伺う
+    explains = business.explains_first()   # 名乗りのあと、前の電話で伺ったご納得いただけなかった点のご説明から始める（流れの制御の返事が知らせる）
+    first_note = ((f"最初の質問は {ask[0]} です。" + (choices_note(first) if first else "")) if ask else
+                  "名乗りの録音のあと、前回お伺いしたご納得いただけなかった点のご説明から始めます（何をどう言うかは、プログラムの返事に書いてあります）。"
+                  if explains else "伺う質問は、もうありません。")
     parts = [
-        f"あなたは株式会社{quote(business.company)}の{quote(business.caller)}として、電話をかけています。日本語で、丁寧に短く話します。",
+        "あなたは{}の{}として、電話をかけています。日本語で、丁寧に短く話します。".format(*business._said()),
         f"目的：{business.purpose}",
     ]
-    if resume is None and opening_mode == "recorded":
+    if resume is None and calls_target and opening_mode == "recorded":
+        # 目的の人のある業務（DESIGN.md 4-3）：名乗りの終わりは呼ぶ一言。用件と最初の質問は、目的の人に繋がってから流れの制御が渡す
         parts.append(
-            f"相手が電話に出たら、名乗りと最初の質問（「{''.join(business.opening_parts())}」）を、録音で相手に流します。あなたは言いません。"
-            "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
-            "相手が聞き返したら、聞き返されたことに答えてから、最初の質問 "
-            f"{first.id} を聞き直します。聞き取れなかった様子のとき（「もう一度お願いします」「はい？」など）は、録音の文を最初から"
-            "もう一度言います。誰からの電話かを聞かれたとき（「どちら様ですか」など）は、社名と名前を言います。用件を聞かれたとき"
-            "（「何のご用件ですか」など）は、用件を言います（名乗り直しません）。"
-            "相手が別の人に代わったら、代わった人に、あらためて短く名乗って用件を伝えます。"
-            "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。")
+            first_words_rule(business) +
+            "あなたは言いません。録音が最後まで流れたら、あなたは相手の返事から会話を続けます。もう一度名乗ったり、お呼びする一言を"
+            "繰り返したりしてはいけません。" + replay_rule() + BARGE_TOLD + target_rule(business))
+    elif resume is None and calls_target:
+        parts.append(f"相手が電話に出たら、まず「{business.opening()}{business.target.call()}」と言い、相手の返事を待ちます（質問は、"
+                     "目的の人に繋がってから、プログラムが返事で渡します）。" + target_rule(business))
+    elif resume is None and opening_mode == "recorded":
+        parts.append(
+            first_words_rule(business) + "あなたは言いません。"
+            + ("録音が最後まで流れたら、プログラムの返事のとおりに、あなたが続けて話します。" if explains else
+               "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。")
+            + "もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
+            + replay_rule() + BARGE_TOLD + first_note)
     elif resume is None:
-        parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。")
+        parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、" +
+                     (f"続けて最初の質問 {ask[0]}「{ask[1]}」を聞きます。" + (choices_note(first) if first else "") if ask else "相手の返事を待ちます。"))
     else:
         parts.append(position_text(business, resume))
-    parts.append(system_rules())
+    if business.apology_call:
+        # お詫びの電話（予約証の目的 apology）：業務の質問はしない。お詫びは承認した録音（AIは言わない）
+        parts.append("この電話は、前のお電話のことをお詫びするお電話です。業務の質問はしません。お詫びの言葉は、プログラムが録音で流します"
+                     f"（あなたは言いません）。お詫びのあと、相手のお返事を聞いたら request_end を{ARG_LABEL['reason']}「{END_LABEL['done']}」で呼びます。")
+    parts.append(system_rules(play_recordings, target=business.target is not None, follow_up=business.follow_up)
+                 + ai_rule(business, recorded=opening_mode == "recorded" or bool(resume and resume.opening)))
+    if business.answers:
+        parts.append("想定問答にある問い（相手に聞かれたら、replay_opening でこの名前を選びます。答えはプログラムが流します）："
+                     + "・".join(f"「{n}」" for n, _ in business.answers))
+    # 業務の情報（Intent.md 5-3 (2)）：想定問答に無い問いに、自分の言葉で答えるときの材料（ここに無いことは「答えを持っていない質問」）
+    parts.append("業務の情報（聞かれたら、自分の言葉で答えてよいこと）：\n" + "".join(f"- {x}\n" for x in business.info) if business.info else
+                 "業務の情報：ありません（想定問答と名乗り・用件のほかの問いは、どれも「答えを持っていない質問」です）。")
+    if business.unread_names:
+        parts.append(unread_rule(business.unread_names))
     if business.forbidden:
         parts.append("言ってはいけないこと（どんなに求められても、言いません。約束もしません）：\n"
                      + "".join(f"- {x}\n" for x in business.forbidden)
-                     + "求められたら、「私からはお答えできかねます」と丁寧に断ります。")
+                     # ⛔ 2026-10-22 の4回目の見直しで見つけた残り：ここだけ「私からはお答えできかねます」と断らせていた（✅ ユーザー：電話で営業する人は
+                     #    断りの言い方をまず言わない）⇒ 想定外の質問と同じ受け止め方（そのご質問を担当の者に申し伝える）
+                     + "求められても、断りの言い方は使わずに、そのご質問を受け止めて、担当の者に申し伝えることを伝えます。")
     parts.append(style_text)
     return voice, "\n".join(parts)
+
+
+def first_words_rule(business: Business) -> str:
+    """通話の始めの決まり（名乗りを録音で流す通話の指示文の1か所。最初のセッションにも、第一声を聞いている間の張り替えの「いまの位置」にも）：
+    電話に出た方の第一声を聞いてから、プログラムが名乗りを流す（flowctl.Flow の on_connect・_opening_when_ready。✅ 2026-10-24 ユーザー。
+    CL-1.md 4-45）。AIは声を出さずに、出た方が人かを知らせるだけ。"""
+    calls_target = business.target is not None and not business.number_again
+    what = ("名乗りと目的の人をお呼びする一言" if calls_target else "名乗りとお詫び" if business.apology_call
+            else "名乗りと最初の質問" if business.first_ask() else "名乗り")
+    own = (f"お呼びする方ご本人が名乗ったら（「はい、{business.target.name or business.target.role}です」など）「{PARTY_LABEL['target']}」、"
+           if business.target is not None else "")
+    return (f"電話が繋がったら、あなたは何も言わずに、電話に出た方の最初の言葉を聞きます。最初の言葉を聞いたら、すぐに report_party で、"
+            f"出た方が人か（{own}そのほかの人は「{PARTY_LABEL['person']}」）・留守番電話の案内・自動音声の案内かを知らせます（声は出しません）。"
+            f"人なら、相手の言葉が終わったところで、プログラムが{what}（「{''.join(business.opening_parts())}」"
+            + ("。お呼びする方ご本人が名乗ったときは、お呼びする一言の代わりに、ご本人かを確かめる一言" if calls_target else "")
+            + "）を、録音で相手に流します。留守番電話の案内のあとに人が出ることがあるので、案内が流れても黙って聞き続けます"
+            "（切るかはプログラムが決めます）。")
+
+
+def target_rule(business: Business) -> str:
+    """目的の人のある業務の決まり（指示文の1か所。DESIGN.md 4-3）。目的の人かは、AIが相手の言葉から報告し（report_party）、繋がったあとの
+    名乗り・用件・最初の質問は流れの制御が渡す（Flow._connect）。取り次ぎ・不在・用件を聞かれたときの扱いも、ここにまとめる。"""
+    t = business.target
+    who = t.name or t.role
+    return (f"目的の人は「{t.who()}」です。"
+            f"電話に出た方が目的の人だと分かったら（「私です」「{who}は私です」「お電話代わりました、{who}です」など）、report_party を"
+            f"「{PARTY_LABEL['target']}」で呼びます（用件と最初の質問は、プログラムが返事で渡します）。代わった方が名乗らないとき（「お電話"
+            "代わりました」だけ）・違うお名前を名乗ったとき・目的の人かを聞いて「いいえ」と言われたときは、replay_opening を"
+            f"「{PART_LABEL['handover']}」で呼びます（目的の人かを確かめる言い方・お呼びし直す言い方は、プログラムが流します）。"
+            # ✅ 2026-11-02 日本時間1時22分 ユーザー：(b)「OK」＝どなたをお呼びかを聞かれたら、部署・フルネームの入った呼ぶ一言で答える（flowctl.Flow._asked_target）
+            "どなたをお呼びかを聞かれたとき（「どちらの" + who + "でしょうか？」「どの" + who + "ですか？」など）は、自分では答えずに replay_opening を"
+            f"「{PART_LABEL['target']}」で呼びます（お呼びする言い方は、プログラムが流します）。"
+            "お取り次ぎいただくとき（「少々お待ちください」"
+            f"「代わります」）は、report_party を「{PARTY_LABEL['reception']}」で呼んで、何も言わずに待ちます。目的の人がいないとき・いまは"
+            "出られないとき（「席を外しております」「本日は休みです」「ただいま電話に出られません」）も、次の決まりで request_callback を呼びます。"
+            f"{offers_rule()}"
+            f"営業のお断りではない事情で取り次げないと言われたとき（「担当が分からないのでお繋ぎできません」「個人宛のお電話はお繋ぎして"
+            f"おりません」など。戻る時刻やかけ直しの話が無い）は、request_end を「{END_LABEL['not_transferred']}」で呼びます。営業のお電話だから"
+            f"取り次がない（「営業のお電話はお繋ぎできない決まりです」も）は、「{END_LABEL['callee_refused_call']}」です。"
+            f"理由を言わずに取り次げないとだけ言われたとき（事情か営業のお断りか分からない）は、request_end を「{END_LABEL['transfer_unclear']}」で呼びます"
+            "（ご事情かを伺う一言は、プログラムが流します）。")
+
+
+def ai_rule(business: Business, recorded: bool = False) -> str:
+    """「AIですか？」と聞かれたときの決まり（指示文の1か所。どのセッションにも入る）。Intent.md 原則8：冒頭でAIだとは名乗らない
+    （2026-10-12 ユーザー確定）。人間だとは答えない（Intent.md 9-4）。⛔ 2026-10-18 の見直しで見つけた漏れ：前は指示文にこの決まりが無く、聞かれたときに
+    AIが何と答えるかは決めていなかった（9-4 の「答える文面は業務設定で持つ」に届いていない）。
+    ✅ 2026-10-19 ユーザー：AIだとは伝えない・人だと言い切らない ⇒ AIは自分では答えず、決まった言い方とそのあとは流れの制御が決める
+    （flowctl.Flow._ai_question。録音で流す形も、AIが話す形も、同じ操作）。recorded は、呼び出し側の形をそろえるために残す。
+    ⛔ 2026-10-19 G-57（三度聞かれる）：3回目の「本当に人ですか？」で、AIが操作を呼ばず、2回目に流れた言い方をまねて自分で答えた（6本中6本）
+    ⇒ 何回聞かれても毎回呼ぶことを、この決まりと、2回目の操作の返事（_ai_question）の両方に書く。"""
+    return (f"- 相手に「エーアイですか？」「機械ですか？」「人間ですか？」などと聞かれたら、自分では答えずに replay_opening を"
+            f"「{PART_LABEL['ai']}」で呼びます（何と言うか・そのあとにすることは、プログラムが返事で渡します）。人間だとも、エーアイだとも、"
+            "自分では言いません。何回聞かれても（「本当に人ですか？」など）、毎回この操作を呼びます（前に流れた言い方を、自分でくり返しません）。")
+
+
+def replay_rule() -> str:
+    """名乗りを録音で流す通話で、聞き返されたときの決まり（指示文の1か所。最初のセッションと、張り替えのあとの「いまの位置」の両方で使う）。
+    ✅ 2026-10-13 ユーザー：名乗り直しも録音で流す（「間が大丈夫ならOK」）。⛔ G-22・G-29：AIが自分で名乗り直すと、社名が正しく
+    聞こえない（24本中、2通りの耳の両方で正しく聞こえたのは3本）⇒ AIは部分を選ぶだけ（flowctl.Flow._op_replay_opening）。
+    何を流すか（お詫びの録音・質問の録音の有無・まだ届いていない部分）は場面で変わるので、ここには書かず、操作の返事が伝える。
+    ⛔ 2026-10-17 の見直しで見つけた漏れ：前は最初のセッションの文にだけ書いていた＝張り替えのあとのAIは、この決まりを知らなかった。"""
+    return ("名乗りや用件を聞き返されたら、自分では言わずに replay_opening を呼びます（プログラムが名乗りの録音を流します。そのあとに"
+            f"することは、返事に書いてあります）。誰からの電話かを聞かれた（「どちら様ですか」など）＝「{PART_LABEL['intro']}」、用件を聞かれた"
+            f"（「何のご用件ですか」など）＝「{PART_LABEL['purpose']}」、聞き取れなかった様子（「もう一度お願いします」「はい？」「え？」など）＝"
+            f"「{PART_LABEL['all']}」、相手が別の人に代わった（「お電話代わりました」）＝「{PART_LABEL['handover']}」、エーアイかと聞かれた"
+            f"＝「{PART_LABEL['ai']}」。")
+
+
+def unread_rule(names: list[str]) -> str:
+    """こちら側の、読みが決まらない名前の扱い（指示文の1か所）。✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。
+    それは会話の中で失礼のないように語るか、場合によっては聞き出す」。⇒ こちら側の名前は、相手に聞いても分からないので、声に出さずに言い換える。
+    お客様側の名前（目的の人）は、ここには入れない（まず言ってみる読みで呼び、つながってから確かめる＝flowctl.reading_question）。
+    ⛔ 見直しで直した：前は「お客様側の名前は確かめるまで使わない」とも書いていた＝承認いただいた形（言ってみる読みで呼ぶ）と食い違っていた。"""
+    shown = "".join(quote(n) for n in names)
+    return (f"こちら側の人の名前のうち、{shown}は読み方が決まっていません。この名前は声に出さずに、「担当の者」のように言い換えて話します。"
+            "読み方を自分で決めて言ってはいけません。")
 
 
 def position_text(business: Business, flow) -> str:
@@ -181,29 +873,59 @@ def position_text(business: Business, flow) -> str:
     for q in business.questions:
         it = flow.items[q.id]
         if it.state in GOT:
-            done.append(f"{q.id}「{q.text}」⇒ {it.value or it.condition}（済み）")
+            # 答えは依頼主へ渡すものと同じ（flow.answer_of）。⛔ 2026-10-17 の見直しで見つけた漏れ：選択肢の質問でも相手の言葉（「大丈夫です」）や、
+            #    中の名前（英字の any）をそのまま見せていた
+            done.append(f"{q.id}「{q.text}」⇒ {flow.answer_of(q.id)}（済み）")
         elif it.state == "dont_know":
             # ⛔ 直す前は「取れた」と同じ行で、選択肢の中の名前（英字の unknown）をそのままAIに見せていた
             done.append(f"{q.id}「{q.text}」⇒ わからないと言われた（聞き直さない）")
         elif it.state == "refused":
             done.append(f"{q.id}「{q.text}」⇒ 答えたくないと言われた（二度と聞かない）")
-    lines = ["これは通話の続きです。回線の都合で、つなぎ直しました。名乗りはもう済んでいます。もう一度名乗ってはいけません。"]
+    if flow.answering:
+        # 電話に出た方の第一声を聞いている間につなぎ直した：まだ名乗っていない（名乗りはプログラムが流す）。⛔ 2026-10-24 の見直しで見つけた漏れ：
+        #    「名乗りはもう済んでいます」「次に聞くのは…」を渡す形だった
+        return ("これは通話の続きです。回線の都合で、つなぎ直しました。まだ名乗っていません（名乗りは、プログラムが録音で流します）。"
+                + first_words_rule(business)
+                + ("いまは、留守番電話の案内を黙って聞いているところです。" if flow.voicemail_waiting else ""))
+    lines = ["これは通話の続きです。回線の都合で、つなぎ直しました。名乗りはもう済んでいます。もう一度名乗ってはいけません。"
+             + (replay_rule() if flow.opening else "")]
+    if flow.phase == "calling":
+        # 目的の人に繋がる前（DESIGN.md 4-3）：いま求めていることは流れの制御の1か所（Flow._now）から
+        lines.append(flow._now() + target_rule(business))
+        if flow.successor:
+            # 後任の方へ切り替えたあと（Flow._to_successor）：指示の「目的の人」（前にお呼びした方）は、もう在籍していない
+            lines.append("お呼びした方は在籍していないと伺い、いまは後任のご担当者様を目的の人としてお呼びしています（呼ぶ一言・確かめる一言は、"
+                         "プログラムが流します）。後任の方が電話に出たら、目的の人として報告します。")
     if done:
         lines.append("ここまでに聞けたこと：" + "／".join(done))
     if flow.awaiting_confirm:
-        it = flow.items[flow.awaiting_confirm]
-        lines.append(f"いまは {flow.awaiting_confirm} の値「{it.value}」を言い直して、相手の返事を待っているところです。")
+        # 言い直しの言い方は流れの制御が持っている（awaiting_say）。⛔ 2026-10-17 の見直しで見つけた漏れ：値そのものを渡していたので、
+        #    選択肢の確かめ（「念のため…ということでよろしいでしょうか？」）では、相手の言葉（「大丈夫です」）を言い直す形になっていた
+        lines.append(f"いまは {flow.awaiting_confirm} を「{flow.awaiting_say}」と確かめて、相手の返事を待っているところです。"
+                     + flow._confirm_how(flow.awaiting_confirm))
     elif flow.current:
-        q = business.questions[[x.id for x in business.questions].index(flow.current)]
-        lines.append(f"次に聞くのは {q.id}「{q.text}」です。相手が話したら、それに答えてから、この質問を聞きます。")
+        # ⛔ 2026-10-18 の見直しで見つけた漏れ：業務の質問の一覧から探していた＝プログラムが足した質問（かけ直しの C1 など）が
+        #    いまの質問のときに、張り替えで落ちる形だった ⇒ 流れの制御が持つ質問から取る
+        q = flow.questions[flow.current]
+        lines.append(f"次に聞くのは {q.id}「{q.text}」です。相手が話したら、それに答えてから、この質問を聞きます。" + choices_note(q))
     return "\n".join(lines)
+
+
+# 名乗りの録音の途中で相手が話し始めたときに知らせることを、AIに先に伝える一文（唯一の書き方。目的の人のある業務と、ない業務の名乗りの決まり）
+BARGE_TOLD = "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。"
 
 
 def barge_in_note(business: Business, done: list[str], rest: list[str]) -> str:
     """名乗りの録音の途中で相手が話し始めて止めたとき、AIへ知らせる文（DESIGN.md 6-13 の案。文面はここだけ）。"""
     heard = "".join(done) if done else "（まだ何も届いていません）"
-    return (f"［プログラムからのお知らせ］名乗りの録音は「{heard}」まで相手に届いたところで、相手が話し始めたので止めました。"
+    # 名乗り・用件を伝え直すときは、自分で言わずに replay_opening（録音。頭の「失礼いたしました。」もプログラムが流す）。⛔ G-29：AIが自分で
+    # 名乗り直した社名は、6本中、2通りの耳の両方で正しく聞こえたのは0本
+    return notice(f"名乗りの録音は「{heard}」まで相手に届いたところで、相手が話し始めたので止めました。"
             f"まだ相手に伝えていないこと：「{''.join(rest)}」。"
-            "このあとの相手の話に答えてから、まだ伝えていないことを、会話の流れの中で短く伝えてください。"
-            "相手に届いたことは、繰り返さなくてかまいません。")
+            "相手の話に答えるのに名乗りや用件が要るとき（「どちら様？」「何でしょう？」など）は、自分では言わずに replay_opening を呼びます"
+            # まだ届いていない名乗り・用件は、流れの制御が足して流す（Flow.on_opening_cut。⛔ G-50：AIは「名乗り」だけを選び、用件が届かなかった）
+            f"（誰かを聞かれた＝「{PART_LABEL['intro']}」、用件を聞かれた＝「{PART_LABEL['purpose']}」、聞き取れなかった様子＝「{PART_LABEL['all']}」。"
+            "まだ届いていない名乗り・用件は、プログラムが一緒に流します）。"
+            f"相手がもう質問に答えているときは、そのまま答えを報告します。相手に届いたことは、繰り返さなくてかまいません。"
+            f"相手の話にかぶせてしまったので、自分で話すときは、話し始めに「{APOLOGY[0]}」を添えます（replay_opening のときは、プログラムが流します）。")
 

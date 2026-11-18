@@ -1,0 +1,59 @@
+{
+  "item": "G-44-ALNUM-SINGLE",
+  "saved_at": "2026-10-16T19:16:44",
+  "source": "/home/user/salescall-ai/phase0/results/G-44_20261016_165533.json",
+  "model": "gemini-3.8-flash",
+  "rows": [
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_00_K_0.wav",
+      "kana": "すでにえーびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "正しい",
+      "key": 0
+    },
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_00_KATA_0.wav",
+      "kana": "すでにえーびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "正しい",
+      "key": 0
+    },
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_00_HIRA_0.wav",
+      "kana": "すでにえーびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_01_K_0.wav",
+      "kana": "あたらしいさーびすのすまーとりんくぷろのごあんないです",
+      "verdict": "正しい",
+      "key": 3
+    }
+  ],
+  "summary": {
+    "K": {
+      "正しい": 2
+    },
+    "KATA": {
+      "正しい": 1
+    },
+    "HIRA": {
+      "正しい": 1
+    }
+  }
+}

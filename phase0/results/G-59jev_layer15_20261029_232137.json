@@ -1,0 +1,3343 @@
+{
+  "item": "G-59jev_layer15",
+  "saved_at": "2026-10-29T23:21:37",
+  "question": "後任のご担当者様でいらっしゃいますでしょうか？",
+  "summary": {
+    "judge2": "20/71",
+    "judge2（事実ごとに全部）": "5/71",
+    "judge2（前と同じ方か）": "5/71",
+    "judge2（話している方は誰か）": "8/71",
+    "judge2（電話のやり取り）": "8/71",
+    "judge2（いまお呼びしている方の事情）": "8/71",
+    "judge2（2つの事実の言葉：読み・事実ごと）": [
+      "2/11",
+      "0/11"
+    ],
+    "judge2（尋ねているか）": "71/71",
+    "judge2（何を聞かれたか）": "9/9",
+    "名乗り・用件の質問を、どの判定もほかと読んだ（差し戻しうる）": "0/5",
+    "ほかの質問を差し戻せた（ほかの読みがあり、名乗り・用件の読みが無い）": "4/4",
+    "judge2（前の言葉つき）": "11/45",
+    "取り次ぎの言葉に、どれかの読みが取り次ぎ": "7/7",
+    "取り次ぎでない言葉に、尋ねているかが取り次ぎ": "0/128",
+    "judge2（答えまでの秒：中央・遅いほうから1割・最長）": [
+      0.135,
+      0.181,
+      0.531
+    ]
+  },
+  "rows": [
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.531,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.61,
+          "s": 0.505
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.531,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.26,
+          "s": 0.531
+        }
+      ],
+      "judge2": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.126,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.33,
+          "s": 0.126
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.182,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.54,
+          "s": 0.181
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.108,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.32,
+          "s": 0.108
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.149,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.14,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 0.155,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.26,
+          "s": 0.155
+        }
+      ],
+      "judge2": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.118,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.18,
+          "s": 0.118
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.153,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "別の方（どなたかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.135,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.97,
+      "judge2_s": 0.135,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.37,
+          "s": 0.135
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "取り次ぎを待つ"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.133,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.78,
+          "s": 0.133
+        }
+      ],
+      "judge2": "取り次ぎを待つ",
+      "judge2_asks_s": 0.158,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.87,
+          "s": 0.158
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "取り次ぎを待つ"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.131,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.49,
+          "s": 0.131
+        }
+      ],
+      "judge2": "取り次ぎを待つ",
+      "judge2_asks_s": 0.139,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.76,
+          "s": 0.138
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.133,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.38,
+          "s": 0.131
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.133,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.183,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.55,
+          "s": 0.181
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.183,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.9,
+          "s": 0.182
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.112,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.45,
+          "s": 0.112
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.204,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "accept": [
+        "決められない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.181,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "speaker": "前と同じ方",
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.8,
+      "judge2_asks_s": 0.193,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "accept": [
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.148,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.64,
+          "s": 0.148
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.189,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.12,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 0.164,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.26,
+          "s": 0.164
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "取り次ぎを待つ"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.147,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.06,
+          "s": 0.146
+        }
+      ],
+      "judge2": "取り次ぎを待つ",
+      "judge2_asks_s": 0.191,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.84,
+          "s": 0.19
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "決められない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.129,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.75,
+          "s": 0.129
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.176,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "失礼ですが、御社はどちらにある会社なんですか？",
+      "accept": [
+        "決められない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.134,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "speaker": "前と同じ方",
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.83,
+      "judge2_asks_s": 0.148,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ほかのことを尋ねている",
+          "sure": 0.92,
+          "s": 0.147
+        }
+      ],
+      "judge2_asks": "ほかのことを尋ねている",
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "キャンセル料ってかかるんですか？",
+      "accept": [
+        "決められない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.135,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.74,
+          "s": 0.135
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.152,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ほかのことを尋ねている",
+          "sure": 0.94,
+          "s": 0.152
+        }
+      ],
+      "judge2_asks": "ほかのことを尋ねている",
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.14,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.97,
+      "judge2_s": 0.182,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.55,
+          "s": 0.182
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.154,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.54,
+          "s": 0.154
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.157,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.93,
+          "s": 0.155
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.146,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 0.156,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.35,
+          "s": 0.156
+        }
+      ],
+      "judge2": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "それでは岡田にお繋ぎします。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.123,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.94,
+          "s": 0.122
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.133,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.5,
+          "s": 0.133
+        }
+      ],
+      "judge2": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.14,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.73,
+          "s": 0.139
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.145,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.34,
+          "s": 0.144
+        }
+      ],
+      "judge2": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "別の方（どなたかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.144,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.25,
+          "s": 0.142
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.144,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.94,
+          "s": 0.143
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人",
+          "代理の方（どれかは分からない）",
+          "別の方（どなたかは分からない）",
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.158,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.93,
+          "s": 0.157
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.166,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.04,
+          "s": 0.166
+        }
+      ],
+      "judge2": "決められない",
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "不在",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "代理の方（どれかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.162,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 0.186,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.52,
+          "s": 0.186
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.137,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.06,
+          "s": 0.137
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.153,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.129,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.24,
+          "s": 0.129
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.136,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.97,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.143,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.44,
+          "s": 0.143
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.232,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.123,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 0.124,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.12,
+          "s": 0.124
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.109,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.61,
+          "s": 0.109
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.114,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.33,
+          "s": 0.113
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "別の方（どなたかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.137,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.44,
+          "s": 0.137
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.163,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.81,
+          "s": 0.162
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "別の方（どなたかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.125,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.61,
+          "s": 0.123
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.126,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.51,
+          "s": 0.126
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。山田です。",
+      "accept": [
+        "不在",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "代理の方（どれかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.127,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.93,
+          "s": 0.126
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.164,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "speaker": "前と違う方",
+        "who": "代理の方（どれかは分からない）",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.88,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.123,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "speaker": "前と同じ方",
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.92,
+      "judge2_asks_s": 0.212,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.135,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "judge2_s": 0.373,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "speaker": "前と同じ方",
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.86,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.123,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方",
+          "sure": 0.4,
+          "s": 0.123
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.15,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.121,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.76,
+          "s": 0.121
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.138,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.9,
+          "s": 0.137
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "お電話代わりました。担当の山田です。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "別の方（どなたかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.116,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.3,
+          "s": 0.116
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.165,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いえ、違います。",
+      "accept": [
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.115,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.58,
+          "s": 0.115
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.148,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "取り次ぎを待つ"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.131,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.4,
+          "s": 0.131
+        }
+      ],
+      "judge2": "取り次ぎを待つ",
+      "judge2_asks_s": 0.15,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.71,
+          "s": 0.149
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.141,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "judge2_s": 0.217,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.72,
+          "s": 0.217
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.122,
+      "judge2": "不在",
+      "judge2_facts": {
+        "speaker": "前と違う方",
+        "who": "受付・取次ぎの方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.9,
+      "judge2_asks_s": 0.125,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.91,
+          "s": 0.124
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "accept": [
+        "決められない"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.133,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねている",
+          "sure": 0.92,
+          "s": 0.132
+        }
+      ],
+      "judge2_asks": "尋ねている",
+      "judge2_s": 0.139,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.45,
+          "s": 0.139
+        }
+      ],
+      "judge2": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いいえ、受付の田中です。岡田はただいま外出しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_asks_s": 0.131,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.92,
+          "s": 0.13
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.161,
+      "judge2": "不在",
+      "judge2_facts": {
+        "speaker": "前と違う方",
+        "who": "受付・取次ぎの方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.88,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "違います。岡田は会議中です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_asks_s": 0.143,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 0.15,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.78,
+          "s": 0.15
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_s": 0.12,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.71,
+          "s": 0.12
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.133,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.82,
+          "s": 0.132
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "受付の田中と申します。あいにく岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_s": 0.145,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.3,
+          "s": 0.145
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.166,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田ですね。ただいま外出しておりまして、戻りは3時ごろの予定です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_s": 0.147,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.28,
+          "s": 0.146
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.148,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 1,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": null,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "代理の方（どれかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_s": 0.146,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.2,
+          "s": 0.146
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.192,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.67,
+          "s": 0.19
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いいえ、山田です。岡田に代わりますので少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "取り次ぎを待つ"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": true,
+      "judge2_s": 0.118,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.34,
+          "s": 0.118
+        }
+      ],
+      "judge2": "取り次ぎを待つ",
+      "judge2_asks_s": 0.144,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.41,
+          "s": 0.143
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました、鈴木です。岡田は本日お休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "別の方（どなたかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_s": 0.134,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.3,
+          "s": 0.134
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.157,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.71,
+          "s": 0.154
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。佐藤と申します。岡田は席を外しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "別の方（どなたかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_asks_s": 0.172,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.5,
+          "s": 0.171
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.202,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.2,
+          "s": 0.202
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、そうですが、いまちょっと手が離せないので後でかけ直してもらえますか。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_s": 0.145,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.78,
+          "s": 0.145
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.187,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.85,
+          "s": 0.186
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "ご本人"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": true,
+      "judge2_asks_s": 0.126,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.9,
+          "s": 0.125
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.146,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.04,
+          "s": 0.146
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は異動になりまして、今は私が担当しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "代理の方（後任）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "在籍していない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.113,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.18,
+          "s": 0.113
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.21,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.86,
+          "s": 0.209
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は退職いたしまして、後任の田中に代わりますので、少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "取り次ぎを待つ"
+        ],
+        "target": [
+          "在籍していない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.133,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.62,
+          "s": 0.133
+        }
+      ],
+      "judge2": "取り次ぎを待つ",
+      "judge2_asks_s": 0.139,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.81,
+          "s": 0.138
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は退職いたしまして、後任の田中に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "代理の方（後任）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.128,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 0.13,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.58,
+          "s": 0.129
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は退職しておりますので、後任の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "代理の方（後任）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.121,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 0.144,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.52,
+          "s": 0.144
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いえ、岡田は退職しまして、私が後任の田中です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "はい。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "代理の方（後任）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "在籍していない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.121,
+      "judge2": "不在",
+      "judge2_facts": {
+        "speaker": "前と違う方",
+        "who": "代理の方（後任）",
+        "phone": "何もない",
+        "target": "在籍していない"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.87,
+      "judge2_asks_s": 0.149,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.54,
+          "s": 0.148
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は本日休みでして、本日は私が代わりに担当しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "代理の方（どれかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.14,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.87,
+          "s": 0.139
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.15,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.26,
+          "s": 0.15
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "代理の方（後任）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.134,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.66,
+          "s": 0.134
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.144,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.71,
+          "s": 0.143
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "公認は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "代理の方（後任）",
+          "決められない"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.133,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.4,
+          "s": 0.129
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.133,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.6,
+          "s": 0.133
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "代理の方（後任）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.128,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.95,
+      "judge2_s": 0.159,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.3,
+          "s": 0.159
+        }
+      ],
+      "judge2": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と違う方"
+        ],
+        "who": [
+          "別の方（どなたかは分からない）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.161,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.89,
+          "s": 0.16
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.174,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.31,
+          "s": 0.174
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "田中はただいま席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "不在"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.158,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.9,
+          "s": 0.157
+        }
+      ],
+      "judge2_asks": null,
+      "judge2_s": 0.171,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.32,
+          "s": 0.171
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、私が後任の田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は先月退職いたしました。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "代理の方（後任）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.126,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.7,
+          "s": 0.125
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.186,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "尋ねていない",
+          "sure": 0.78,
+          "s": 0.185
+        }
+      ],
+      "judge2_asks": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "後任は田中になります。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は先月退職いたしました。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "取り次ぎを待つ"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.128,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.62,
+          "s": 0.128
+        }
+      ],
+      "judge2": "取り次ぎを待つ",
+      "judge2_asks_s": 0.147,
+      "judge2_asks_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.58,
+          "s": 0.146
+        }
+      ],
+      "judge2_asks": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "後任はおりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は先月退職いたしました。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "在籍していない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.123,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "不在",
+          "sure": 0.76,
+          "s": 0.123
+        }
+      ],
+      "judge2": "決められない",
+      "judge2_asks_s": 0.164,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は先月退職いたしました。／はい。",
+      "asked": "後任のご担当者様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "代理の方（後任）"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_s": 0.134,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "ご本人",
+          "sure": 0.26,
+          "s": 0.134
+        }
+      ],
+      "judge2": null,
+      "judge2_asks_s": 0.16,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.99,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "いえ、私は受付の者です。",
+      "accept": [
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は先月退職いたしました。／はい。",
+      "asked": "後任のご担当者様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": true,
+      "facts_accept": {
+        "speaker": [
+          "前と同じ方"
+        ],
+        "who": [
+          "受付・取次ぎの方"
+        ],
+        "phone": [
+          "何もない"
+        ],
+        "target": [
+          "言っていない"
+        ]
+      },
+      "both": false,
+      "judge2_asks_s": 0.124,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Jev 1.14",
+      "judge2_asks_sure": 0.98,
+      "judge2_s": 0.14,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.64,
+          "s": 0.139
+        }
+      ],
+      "judge2": "決められない",
+      "ok": false,
+      "facts_ok": false
+    }
+  ]
+}

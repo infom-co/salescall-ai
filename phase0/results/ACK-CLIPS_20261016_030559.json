@@ -1,0 +1,38 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-16T03:05:59",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "Q2_lead_soredeha",
+      "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+      "heard": {
+        "0.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。",
+        "1.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。"
+      },
+      "ok": true,
+      "seconds": 3.36,
+      "try": 1,
+      "wav": "S4_Q2_lead_soredeha_1.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "Q2_lead_soredeha",
+      "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+      "heard": {
+        "0.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。",
+        "1.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。"
+      },
+      "ok": true,
+      "seconds": 3.28,
+      "try": 2,
+      "wav": "S4_Q2_lead_soredeha_2.wav"
+    }
+  ],
+  "kept": {
+    "S4_Q2_lead_soredeha": 2
+  }
+}

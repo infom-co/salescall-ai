@@ -24,7 +24,7 @@ from live_util import build_config
 
 # 試験の業務設定（名前は「」でくくらずに書く。くくるのは instruction.py だけ）
 BUSINESS = Business(
-    company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
+    company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認",
     questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
                Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",))],
 )

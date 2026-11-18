@@ -1,0 +1,1446 @@
+"""会話の担当 CL-1 がいま出している会話の報告（main の会話の試作 flowctl が作る報告。CL-1 の連絡帳 2-2・4-26・4-27）を、
+受け口（core/call_report.py）が受け取り、判定（core/judge.py）がユーザーの決定どおりに読むかの試験。
+
+場面の報告は、main の flowctl で通話を流して出た JSON をそのまま写したもの（架空のデータ。切れ方の材料 cut は CL-1 が
+出す＝2026-10-24 ユーザー決定・CL-2 の連絡帳 4-151。いまの main の報告にはまだ無いので、判定の試験では足して渡す）。ユーザーの決定（2026-10-22。Intent.md・DESIGN.md 7-1・7-1e）：取り次いでもらえなかったとき、
+営業拒否＝発信の拒否（もうかけない）／事情があり取り次げなかった（not_reached=not_transferred）＝システムが日を改めて1回／
+約束した時刻のかけ直し＝約束の時刻。
+"""
+
+from __future__ import annotations
+
+import copy
+import unittest
+import uuid
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+
+from salescall.core import gate
+from salescall.core import judge as judge_mod
+from salescall.core.business_rules import check
+from salescall.core.call_report import Cut, ReportInvalid, from_json
+from salescall.core.judge import Facts, Item, JudgeInput, judge
+from salescall.core.next_action import Target, decide_after_call
+from tests.support import CALLEE, NO_OPENING_RECHECK, make_report, rules_raw
+
+V = uuid.uuid4()
+RULES = check(V, ("Q1", "Q2"), rules_raw(("Q1", "Q2")))
+NOW = datetime(2030, 1, 7, 10, 0, tzinfo=timezone.utc)      # 日本の 2030-01-07（月）19:00
+TALKED = Facts("ended", None, True, False, NOW)
+CLOSED = Cut("ai", True, False)                             # 締めの言葉に入っていた（ふつうに締めた）
+P_NONE = gate.Pacing(3, NOW, None, False)
+
+# ── main の flowctl が出した報告（場面ごと）
+NOT_TRANSFERRED = {   # (1) 受付の方が、電話口の種別の報告なしに「取り次げない」と言った
+    "version": 3, "facts": {
+        "not_transferred": [{"turn": 1, "said": "担当が分からないのでお繋ぎできかねます。"}],
+        "end": [{"turn": 1, "said": "担当が分からないのでお繋ぎできかねます。", "reason": "not_transferred"}]},
+    "not_reached": "not_transferred", "cut": None, "apology_delivered": None}
+ABSENT_CUT = {   # (2) 「席を外しております」（種別の報告なし）・かけ直しの質問の途中で切れた
+    "version": 3, "facts": {
+        "callback": [{"turn": 1, "said": "あいにく岡田は席を外しております。", "why": "absent", "read": ["ai", "judge", "judge2"],
+                      "time": None, "number": None}]},
+    "not_reached": "absent", "cut": None, "apology_delivered": None}
+BACK_NOT_TARGET = {   # (3) かけ直しの質問の途中で「戻った」・確かめたら別の方だった・かけ直しの続きへ
+    "version": 3, "facts": {
+        "callback": [{"turn": 1, "said": "あいにく岡田は席を外しております。", "why": "absent", "read": ["ai", "judge", "judge2"],
+                      "time": None, "number": None}],
+        "party": [{"turn": 2, "said": "あ、ちょうど戻ってまいりました。少々お待ちください。", "party": "reception", "by": "ai"},
+                  {"turn": 3, "said": "お電話代わりました。岡田です。", "party": "target", "by": "ai"}],
+        "target_back": [{"turn": 3, "said": "お電話代わりました。岡田です。", "why": "absent"}],
+        "callback_resume": [{"turn": 4, "said": "いえ、山田です。", "why": "absent", "read": ["judge", "judge2"]}]},
+    "not_reached": "absent", "cut": None, "apology_delivered": None}
+BACK_CONNECTED = {   # (4) かけ直しの質問の途中で戻ってきたご本人に繋いだ（そのかけ直しは要らない）
+    "version": 3, "facts": {
+        "callback": [{"turn": 1, "said": "あいにく岡田は席を外しております。", "why": "absent", "read": ["ai", "judge", "judge2"],
+                      "time": None, "number": None, "connected": True}],
+        "party": [{"turn": 2, "said": "あ、ちょうど戻ってまいりました。少々お待ちください。", "party": "reception", "by": "ai"},
+                  {"turn": 3, "said": "お電話代わりました。岡田です。", "party": "target", "by": "ai"},
+                  {"turn": 4, "said": "はい、そうです。", "party": "target", "by": "ai"}],
+        "target_back": [{"turn": 3, "said": "お電話代わりました。岡田です。", "why": "absent"}],
+        "connect": [{"turn": 4, "said": "はい、そうです。", "read": ["ai", "judge", "judge2"], "judging": True}]},
+    "not_reached": None, "cut": None, "apology_delivered": None}
+AI_SAID_TARGET = {   # (5) AIは「目的の人」と報告・判定は別の方（繋がない）・そのまま「取り次げない」
+    "version": 3, "facts": {
+        "party": [{"turn": 1, "said": "はい、営業部です。", "party": "target", "by": "ai"}],
+        "not_transferred": [{"turn": 2, "said": "申し訳ございません、お繋ぎできかねます。"}],
+        "end": [{"turn": 2, "said": "申し訳ございません、お繋ぎできかねます。", "reason": "not_transferred"}]},
+    "not_reached": "not_transferred", "cut": None, "apology_delivered": None}
+VOICEMAIL = {   # (6) 留守番電話（業務設定に伝言の文がある通話。CL-1 は事実 voicemail_message をまだ出さない）
+    "version": 3, "facts": {
+        "party": [{"turn": 1, "said": "ただいま電話に出ることができません。", "party": "voicemail", "by": "ai"}],
+        "end": [{"turn": 1, "said": "ただいま電話に出ることができません。", "reason": "voicemail"}]},
+    "not_reached": None, "cut": None, "apology_delivered": None}
+ANSWERED = {   # (7) 受付の方の質問に「答えられない質問」の録音で答えた・そのあと「取り次げない」
+    "version": 3, "facts": {
+        "answered": [{"turn": 1, "said": "この番号はどちらでお知りになりましたか？", "part": "unknown"}],
+        "not_transferred": [{"turn": 2, "said": "そうですか。担当が分からないのでお繋ぎできかねます。"}],
+        "end": [{"turn": 2, "said": "そうですか。担当が分からないのでお繋ぎできかねます。", "reason": "not_transferred"}]},
+    "not_reached": "not_transferred", "cut": None, "apology_delivered": None}
+SCENES = {"取り次げない": NOT_TRANSFERRED, "不在・途中で切れた": ABSENT_CUT, "戻ったが別の方": BACK_NOT_TARGET,
+          "戻ってご本人に繋いだ": BACK_CONNECTED, "AIは目的の人・判定は別の方": AI_SAID_TARGET, "留守番電話": VOICEMAIL,
+          "答えられない質問に答えた": ANSWERED}
+
+
+def run(raw, *, items=None, facts=TALKED, cut=CLOSED):
+    rep = replace(from_json(raw), cut=cut)
+    return judge(JudgeInput(facts, rep, items or {}, RULES, callee=CALLEE, anyone_target=False,
+                            check_rang=False, forbidden=False, ask_if={}))
+
+
+class Accepted(unittest.TestCase):
+    def test_every_report_from_the_conversation_is_accepted(self):
+        """どの場面の報告も受け取り、置いて読み直しても同じ（save・load は from_json(to_json) を通る）。"""
+        for name, raw in SCENES.items():
+            with self.subTest(name):
+                r = from_json(raw)
+                self.assertEqual(from_json(r.to_json()), r)
+
+    def test_what_the_report_says(self):
+        """繋がったか・話したか・判定が読むかけ直しは、call_report の1か所で読む。新しい事実は受けて残す（判定には使わない）。"""
+        cases = {   # 名前 → (目的のお客様のいる業務で繋がった, 話した, 判定が読むかけ直しの理由)
+            "取り次げない": (False, True, None),
+            "不在・途中で切れた": (False, True, "absent"),
+            "戻ったが別の方": (False, True, "absent"),
+            "戻ってご本人に繋いだ": (True, True, None),           # 繋がったかけ直しは、もう要らない
+            "AIは目的の人・判定は別の方": (False, True, None),   # 電話口の種別の target は AI の報告。繋いだ事実が無い
+            "留守番電話": (False, False, None),
+            "答えられない質問に答えた": (False, True, None)}
+        for name, (reached, talked, cb) in cases.items():
+            with self.subTest(name):
+                r = from_json(SCENES[name])
+                self.assertEqual((r.reached(False), r.talked, r.callback and r.callback.reason), (reached, talked, cb))
+                self.assertEqual(r.reached(True), talked)          # 「誰でも」の業務：話した＝繋がった（見直し18b の (3)）
+        r = from_json(BACK_NOT_TARGET)
+        self.assertEqual(([b.reason for b in r.target_backs], [(b.reason, b.read) for b in r.callback_resumes]),
+                         (["absent"], [("absent", ("judge", "judge2"))]))
+        self.assertEqual((r.callbacks[0].read, r.callbacks[0].connected), (("ai", "judge", "judge2"), False))
+        self.assertTrue(from_json(BACK_CONNECTED).callbacks[0].connected)
+        r = from_json(ANSWERED)
+        self.assertEqual(([a.part for a in r.answered], len(r.not_transferred), r.end_reason, r.hurried),
+                         (["unknown"], 1, "not_transferred", False))
+        # 「誰でも」の業務（目的のお客様のいない業務）：繋いだ事実が無くても、話していれば繋がった（業務設定から判定の入力に入れる。
+        # ⛔ 見直し18b の (3)：前は報告の印だけで推し、種別 target が無いと「繋がらなかった」になった）
+        anyone = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "party": [{"turn": 1, "said": "はい、私です。", "party": "person", "by": "ai"}]}})
+        self.assertEqual((anyone.reached(True), anyone.reached(False), anyone.talked), (True, False, True))
+        # 種別の報告なしに「あとでかけて」：かけ直しの申し出があれば話した（「誰でも」の業務なら繋がった）
+        later = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "callback": [{"turn": 1, "said": "いま手が離せないので、あとでかけてください。", "why": "later", "read": ["ai"],
+                          "time": None, "number": None}]}})
+        self.assertEqual((later.reached(True), later.reached(False), later.talked), (True, False, True))
+        # 確かめに戻った方が「もうかけないで」（発信の拒否＝not_reached は無い）：繋いだ事実が無いので繋がっていない
+        refused = copy.deepcopy(BACK_NOT_TARGET)
+        refused["not_reached"] = None
+        refused["facts"]["do_not_call"] = [{"turn": 5, "said": "もうかけてこないでください。"}]
+        r = from_json(refused)
+        self.assertEqual((r.reached(False), r.talked, r.do_not_call), (False, True, True))
+
+class Judged(unittest.TestCase):
+    def test_could_not_be_put_through_means_one_more_call_on_another_day(self):
+        """事情があり取り次げなかった ⇒ 日を改めて1回（システムの方針 not_reached_not_transferred）。受付の方の種別の報告が無くても、
+        AIが「目的の人」と報告して繋がずに終わっても、答えられない質問に答えたあとでも同じ。"""
+        tomorrow = NOW + timedelta(days=1, hours=2)
+        for name in ("取り次げない", "AIは目的の人・判定は別の方", "答えられない質問に答えた"):
+            with self.subTest(name):
+                j = run(SCENES[name])
+                self.assertEqual((j.state, j.detail["not_reached"], j.detail["policy_key"], j.dnc_reason),
+                                 ("not_reached", "not_transferred", "not_reached_not_transferred", None))
+                d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
+                                      retry_at=tomorrow, target=Target(uuid.UUID(int=1)))
+                self.assertEqual((d.kind, d.at), ("call", tomorrow))
+                d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=2, now=NOW,
+                                      retry_at=tomorrow, target=Target(uuid.UUID(int=1)))
+                self.assertEqual((d.kind, d.end_reason), ("end", "policy_max:not_reached_not_transferred"))
+
+    def test_absent_without_a_time_is_absent_and_a_said_time_is_kept(self):
+        """不在のかけ直しの申し出：戻る時刻が取れなかった ⇒ 約束ではなく「不在」（再発信の方針 not_reached_absent＝かけ直しの回数の
+        上限まで。2026-10-13 ユーザー：「『不在』のときは、かけ直しの回数の上限までかけ直す案です。⇒OK」）。「いつでも」など時刻を任せる
+        言葉も同じ。時刻が取れた ⇒ 約束の時刻（「戻る時刻が聞けたときは『折り返し予定』…⇒はい」）。確かめに戻って別の方だった通話も、
+        同じ（電話口の種別に target があっても繋がっていない）。"""
+        for name in ("不在・途中で切れた", "戻ったが別の方"):
+            with self.subTest(name):
+                j = run(SCENES[name])
+                self.assertEqual((j.state, j.detail.get("not_reached"), j.detail["policy_key"], j.detail.get("callback")),
+                                 ("not_reached", "absent", "not_reached_absent", None))
+        anytime = copy.deepcopy(ABSENT_CUT)
+        anytime["facts"]["callback"][0]["time"] = "いつでも大丈夫です"
+        self.assertEqual((run(anytime).state, run(anytime).detail["policy_key"]), ("not_reached", "not_reached_absent"))
+        timed = copy.deepcopy(ABSENT_CUT)
+        timed["facts"]["callback"][0]["time"] = "明日の午後3時"   # 受付の方が戻る時刻を言った（callback の time に入る。CL-1 の 4-27）
+        j = run(timed)
+        self.assertEqual((j.state, j.detail["callback"]["at"], j.detail["callback"]["exact"], j.detail["policy_key"]),
+                         ("callback_scheduled", "2030-01-08T15:00:00+09:00", True, None))
+        later = copy.deepcopy(ABSENT_CUT)   # お客様ご自身の「あとで」（時刻なし）は、これまでどおり時刻の決まっていない約束
+        later["facts"]["callback"][0]["why"] = "later"
+        self.assertEqual((run(later).state, run(later).detail["policy_key"]), ("callback_scheduled", "callback_unspecified_time"))
+
+    def test_a_callback_that_reached_the_target_is_not_used(self):
+        """かけ直しの質問の途中で目的のお客様に繋がった（connected）：そのかけ直しは使わず、繋がった通話として業務の質問で決める。"""
+        self.assertEqual(run(BACK_CONNECTED).state, "incomplete")
+        taken = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "はい", None)}
+        self.assertEqual(run(BACK_CONNECTED, items=taken).state, "completed")
+
+    def test_a_silent_hang_up_at_the_reception_is_a_refusal(self):
+        """種別の報告が無い受付の方の通話も「話した」なので、切れ方を見る（7-1c。種別があった通話と同じ）：断りの言葉のあとに切った ⇒
+        発信の拒否（原則14）。AIが話している途中に黙って切った ⇒ 決められない切れ方（2026-10-30 管理者の決定：すぐ確かめのかけ直し。
+        判定は営業拒否にしない）。お客様の言葉の途中で切れた ⇒ 途中で切れた（戻る時刻が取れていないので不在のまま）。"""
+        dropped = Facts("dropped", "callee", True, False, NOW)
+        j = run(ABSENT_CUT, facts=dropped, cut=Cut("ai", False, True))
+        self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("do_not_call", "refused_in_call", "refused"))
+        j = run(ABSENT_CUT, facts=dropped, cut=Cut("ai", False, False))   # 断りの言葉が無い：決められない（確かめのかけ直しで決まる）
+        self.assertEqual((j.state, j.dnc_reason, j.disconnect, j.detail["cut"]), ("not_reached", None, None, "unclear"))
+        j = run(ABSENT_CUT, facts=dropped, cut=Cut("callee", False, False))
+        self.assertEqual((j.state, j.disconnect), ("not_reached", "interrupted"))
+        # 切れ方の材料が無い：話した通話なので、決めつけずに判定できない（出すのは CL-1＝2026-10-24 ユーザー決定）
+        self.assertEqual(run(NOT_TRANSFERRED, cut=None).detail["unknown_cause"], "cut_missing")
+
+    def test_voicemail_is_open(self):
+        self.assertEqual(run(VOICEMAIL, cut=None).state, "open")
+
+
+class Rejected(unittest.TestCase):
+    def test_wrong_shapes_of_the_new_facts(self):
+        rec = {"turn": 1, "said": "あいにく岡田は席を外しております。"}
+        cb = {**rec, "why": "absent", "time": None, "number": None}
+
+        def facts(**kinds):
+            return {**ABSENT_CUT, "facts": {"callback": [cb], **kinds}}
+        for name, raw in [
+                ("かけ直しの知らない読み", facts(callback=[{**cb, "read": ["jev"]}])),
+                ("かけ直しの読みが重なる", facts(callback=[{**cb, "read": ["ai", "ai"]}])),
+                ("かけ直しの読みが並びでない", facts(callback=[{**cb, "read": "ai"}])),
+                ("繋がったかが真偽でない", facts(callback=[{**cb, "connected": 1}])),
+                ("繋がったのに繋いだ事実が無い", {**ABSENT_CUT, "not_reached": None,
+                                                  "facts": {"callback": [{**cb, "connected": True}]}}),
+                ("知らない確かめに戻った理由", facts(target_back=[{**rec, "why": "soon"}])),
+                ("続きへ戻った読みが無い", facts(callback_resume=[{**rec, "why": "absent"}])),
+                ("答えた部分が空", facts(answered=[{**rec, "part": " "}])),
+                ("答えた部分が無い", facts(answered=[rec])),
+                ("取り次げないの記録に知らない項目", facts(not_transferred=[{**rec, "why": "absent"}])),
+                ("知らない繋がらなかった理由", {**NOT_TRANSFERRED, "not_reached": "busy"})]:
+            with self.subTest(name), self.assertRaises(ReportInvalid):
+                from_json(raw)
+        self.assertEqual(from_json(facts(callback=[{**cb, "read": []}])).callbacks[0].read, ())   # 空＝プログラムが進めた
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# ── main の flowctl（2026-10-22 の3回目。CL-1 の連絡帳 4-28・2-2 の版 0.5）で通話を流して出た報告。相手の申し出（代わりの方・後任の方・
+# 在籍していない・ほかの手段・長期の不在・伝言）と、相手からの質問
+SCENES_428 = {'相手からの質問': {'version': 3,
+             'facts': {'callee_question': [{'turn': 1, 'said': 'はい、予約しています。当日はどなたが担当されるんですか？', 'answered': None}]},
+             'not_reached': None,
+             'cut': None,
+             'apology_delivered': None},
+ '後任の方に繋いだ': {'version': 3,
+              'facts': {'departed': [{'turn': 1,
+                                      'said': '岡田は先月退職いたしました。',
+                                      'policy': 'successor',
+                                      'read': ['ai', 'judge'],
+                                      'successor': False}],
+                        'party': [{'turn': 1, 'said': '岡田は先月退職いたしました。', 'party': 'target', 'by': 'ai'},
+                                  {'turn': 2, 'said': '後任は田中になります。少々お待ちください。', 'party': 'reception', 'by': 'ai'},
+                                  {'turn': 3, 'said': 'お電話代わりました。田中です。', 'party': 'target', 'by': 'ai'}],
+                        'connect': [{'turn': 3,
+                                     'said': 'お電話代わりました。田中です。',
+                                     'read': ['ai', 'judge', 'judge2'],
+                                     'judging': True,
+                                     'who': 'successor'}]},
+              'not_reached': None,
+              'cut': None,
+              'apology_delivered': None},
+ '在籍していない（終える）': {'version': 3,
+                  'facts': {'departed': [{'turn': 1,
+                                          'said': '岡田は退職いたしました。',
+                                          'policy': 'successor',
+                                          'read': ['ai', 'judge'],
+                                          'successor': False},
+                                         {'turn': 2,
+                                          'said': '後任はおりません。',
+                                          'policy': 'successor',
+                                          'read': ['ai', 'judge'],
+                                          'successor': True}],
+                            'end': [{'turn': 2, 'said': '後任はおりません。', 'reason': 'departed'}]},
+                  'not_reached': 'departed',
+                  'cut': None,
+                  'apology_delivered': None},
+ '長期の不在': {'version': 3,
+           'facts': {'callback': [{'turn': 1,
+                                   'said': '岡田は来週いっぱい出張で不在にしております。',
+                                   'why': 'long_absent',
+                                   'read': ['ai', 'judge'],
+                                   'time': '再来週の月曜',
+                                   'number': None}],
+                     'end': [{'turn': 3, 'said': 'はい。', 'reason': 'callback'}]},
+           'not_reached': 'absent',
+           'cut': None,
+           'apology_delivered': None},
+ '伝言を残した': {'version': 3,
+            'facts': {'callback': [{'turn': 1,
+                                    'said': '岡田はただいま外出しております。ご伝言を承りましょうか？',
+                                    'why': 'absent',
+                                    'read': ['ai', 'judge'],
+                                    'offer': 'message',
+                                    'message_left': True,
+                                    'time': None,
+                                    'number': None,
+                                    'message': 'はい'}]},
+            'not_reached': 'absent',
+            'cut': None,
+            'apology_delivered': None},
+ 'ほかの手段（メール）': {'version': 3,
+                'facts': {'callback': [{'turn': 1,
+                                        'said': '営業のお電話はすべてメールでお願いしております。',
+                                        'why': 'other_means',
+                                        'read': ['ai', 'judge'],
+                                        'offer': 'email',
+                                        'email': 'info@example.co.jp'}],
+                          'end': [{'turn': 3, 'said': 'はい。', 'reason': 'other_means'}]},
+                'not_reached': 'other_means',
+                'cut': None,
+                'apology_delivered': None},
+ '代わりの方（お立場を伺って繋いだ）': {'version': 3,
+                       'facts': {'party': [{'turn': 1,
+                                            'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                            'party': 'substitute',
+                                            'by': 'ai'}],
+                                 'substitute': [{'turn': 1,
+                                                 'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                                 'policy': 'anyone',
+                                                 'read': ['ai', 'judge']}],
+                                 'connect': [{'turn': 1,
+                                              'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                              'read': ['ai', 'judge'],
+                                              'judging': False,
+                                              'who': 'substitute'}]},
+                       'not_reached': None,
+                       'cut': None,
+                       'apology_delivered': None},
+ '代わりの方（目的のお客様だけ・戻る時刻）': {'version': 3,
+                          'facts': {'party': [{'turn': 1,
+                                               'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                               'party': 'substitute',
+                                               'by': 'ai'}],
+                                    'substitute': [{'turn': 1,
+                                                    'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                                    'policy': 'target_only',
+                                                    'read': ['ai', 'judge']}],
+                                    'callback': [{'turn': 1,
+                                                  'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                                  'why': 'absent',
+                                                  'read': ['ai', 'judge'],
+                                                  'time': None,
+                                                  'number': None}]},
+                          'not_reached': 'absent',
+                          'cut': None,
+                          'apology_delivered': None}}
+
+
+class Offers428(unittest.TestCase):
+    """CL-1 の連絡帳 4-28 の報告を受け取り、ユーザーの決定（2026-10-22）どおりに読む。"""
+
+    def test_every_report_is_accepted_and_kept(self):
+        for name, raw in SCENES_428.items():
+            with self.subTest(name):
+                r = from_json(raw)
+                self.assertEqual(from_json(r.to_json()), r)
+                kept = r.to_json()["facts"]                                    # 受けた事実の項目と値を落とさない
+                self.assertEqual(set(kept), set(raw["facts"]))
+                for kind, rows in raw["facts"].items():
+                    for got, sent in zip(kept[kind], rows, strict=True):
+                        self.assertEqual({k: got.get(k) for k in sent}, {k: sorted(v) if k == "read" else v for k, v in sent.items()})
+
+    def test_what_the_report_says(self):
+        r = from_json(SCENES_428["代わりの方（お立場を伺って繋いだ）"])
+        self.assertEqual((r.reached(False), r.talked, r.connects[0].who, r.substitutes[0].policy), (True, True, "substitute", "anyone"))
+        r = from_json(SCENES_428["後任の方に繋いだ"])
+        self.assertEqual((r.reached(False), r.connects[0].who, r.departures[0].successor), (True, "successor", False))
+        r = from_json(SCENES_428["ほかの手段（メール）"])
+        self.assertEqual((r.callback.reason, r.callback.offer, dict(r.callback.means)), ("other_means", "email", {"email": "info@example.co.jp"}))
+        r = from_json(SCENES_428["伝言を残した"])
+        self.assertEqual((r.callback.offer, r.callback.message_left, dict(r.callback.means)), ("message", True, {"message": "はい"}))
+        r = from_json(SCENES_428["相手からの質問"])
+        self.assertEqual([q.answered for q in r.callee_questions], [None])
+
+    def test_shapes_that_are_still_refused(self):
+        base = SCENES_428["ほかの手段（メール）"]
+        for name, change in (("申し出の名前が違う", lambda f: f["callback"][0].update(offer="sms")),
+                             ("宛先が文字でない", lambda f: f["callback"][0].update(email=1)),
+                             ("伝言の印が true でない", lambda f: f["callback"][0].update(message_left=False)),
+                             ("代わりの方の応じ方が違う", lambda f: f.update(substitute=[{"turn": 1, "said": "x", "policy": "boss", "read": ["ai"]}])),
+                             ("在籍していないの後任の印が無い", lambda f: f.update(departed=[{"turn": 1, "said": "x", "policy": "end", "read": ["ai"]}])),
+                             ("質問の答えた印が無い", lambda f: f.update(callee_question=[{"turn": 1, "said": "x"}])),
+                             ("繋いだ方の名前が違う", lambda f: f.update(connect=[{"turn": 1, "said": "x", "read": ["ai"], "judging": False,
+                                                                                  "who": "boss"}]))):
+            with self.subTest(name):
+                raw = copy.deepcopy(base)
+                change(raw["facts"])
+                with self.assertRaises(ReportInvalid):
+                    from_json(raw)
+
+    def test_judged_as_decided(self):
+        """長期の不在は不在の仲間（戻る日が取れたら約束・取れなければ不在の方針）。ほかの手段・在籍していないは、電話ではかけ直さず
+        終える（約束の電話でも先に終える）。代わりの方・後任の方に繋いだ通話は、繋がった通話として業務の質問で決める。"""
+        self.assertEqual(run(SCENES_428["長期の不在"]).state, "callback_scheduled")
+        j = run(SCENES_428["伝言を残した"])
+        self.assertEqual((j.state, j.detail["policy_key"]), ("not_reached", "not_reached_absent"))
+        j = run(SCENES_428["代わりの方（目的のお客様だけ・戻る時刻）"])
+        self.assertEqual((j.state, j.detail["policy_key"]), ("not_reached", "not_reached_absent"))
+        for name in ("代わりの方（お立場を伺って繋いだ）", "後任の方に繋いだ"):
+            with self.subTest(name):
+                self.assertEqual(run(SCENES_428[name]).state, "incomplete")
+        for name, key in (("ほかの手段（メール）", "other_means"), ("在籍していない（終える）", "not_reached_departed")):
+            with self.subTest(name):
+                j = run(SCENES_428[name])
+                self.assertEqual((j.state, j.detail["policy_key"]), ("not_reached", key))
+                promise = decide_after_call(run(SCENES_428["伝言を残した"]), recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES,
+                                            times_with_key=1, now=NOW, retry_at=NOW, target=Target(uuid.UUID(int=1)))
+                for k in (None, promise):                                 # 約束の電話（約束を守る次の動きがある）でも先に終える
+                    d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
+                                          retry_at=NOW, target=Target(uuid.UUID(int=1)), kept=k)
+                    self.assertEqual((d.kind, d.end_reason), ("end", key))
+        # 目的のお客様に繋がっていて、ほかの手段を望まれた：取れていない質問があっても、電話ではかけ直さず終える
+        reached = copy.deepcopy(SCENES_428["代わりの方（お立場を伺って繋いだ）"])
+        reached["facts"]["callback"] = copy.deepcopy(SCENES_428["ほかの手段（メール）"]["facts"]["callback"])
+        j = run(reached)
+        self.assertEqual((j.state, j.detail["policy_key"]), ("incomplete", "other_means"))
+
+
+class Later1022(unittest.TestCase):
+    """main の会話の 10-22 夜の直し（自分の言葉で答えた文・代わりの方のあとの確かめ）を受け取る。"""
+
+    def raw(self, facts, not_reached="not_transferred"):
+        return {"version": 3, "facts": facts, "not_reached": not_reached, "cut": None, "apology_delivered": None}
+
+    def test_own_words_are_kept_in_one_shape(self):
+        """お客様からの質問（callee_question）と受け答えの一言（talk。CL-1 の 4-30）の、AI の自分の言葉（相手に言った文 answer・
+        確かめに通らなかった文と理由 drafts・中身を確かめた判定 checked）を、同じ1つの形で受け取り、落とさない。"""
+        rec = {"turn": 2, "said": "御社はどちらにあるんですか？"}
+        draft = [{"text": "東京目黒でございます。", "problem": "業務の情報に無い言葉"}]
+        for extra in ({"answer": "東京の品川でございます。", "checked": "Claude Sonnet 5.5（考える）"},
+                      {"answer": "かしこまりました。いただいたご質問は担当の者に申し伝えます。", "drafts": draft, "checked": None},
+                      {"checked": None}, {}):
+            with self.subTest(extra=extra):
+                r = from_json(self.raw({"party": [{**rec, "party": "target", "by": "ai"}],
+                                        "callee_question": [{**rec, "answered": "drafts" not in extra and "answer" in extra, **extra}],
+                                        "talk": [{**rec, **extra}]}, None))
+                self.assertEqual(from_json(r.to_json()), r)
+                for own in (r.callee_questions[0].own, r.talks[0].own):
+                    self.assertEqual((own.answer, [(d.text, d.problem) for d in own.drafts], own.checked),
+                                     (extra.get("answer"), [(d["text"], d["problem"]) for d in extra.get("drafts", [])],
+                                      extra.get("checked")))
+        # AI が書くはずの言葉を書かなかった（申し出の方法が無い）確かめに通らなかった文は、文が空・理由あり（CL-1 の受け答えの確かめが書く形。⛔ 2026-11-15 に
+        # CL-1 の試験の報告をすべてこちらの読み手に通して見つけた：空の文を断り、報告ごと受け付けなかった）
+        empty = {"drafts": [{"text": "", "problem": "申し出の方法がありません"}], "terms_dropped": {"text": "", "problem": "申し出の方法がありません"}}
+        r = from_json(self.raw({"talk": [{**rec, "answer": "さようでございますか。", **empty}]}, None))
+        self.assertEqual(([(d.text, d.problem) for d in r.talks[0].own.drafts], r.talks[0].terms_dropped.text, from_json(r.to_json())),
+                         ([("", "申し出の方法がありません")], "", r))
+        for bad in ({"answer": ""}, {"problem": "前の形"}, {"drafts": [{"text": "文"}]}, {"drafts": "文"}, {"checked": ""},
+                    {"drafts": [{"text": "文", "problem": ""}]}, {"drafts": [{"text": None, "problem": "理由"}]}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"callee_question": [{**rec, "answered": True, **bad}]}, None))
+            with self.subTest(bad=bad, kind="talk"), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"talk": [{**rec, **bad}]}, None))
+
+    def test_a_talk_answered_with_a_recorded_line_keeps_its_name(self):
+        """受け答えの一言で AI の文が使えず、AI が選んだ録音の一言を流した（talk の fallback＝録音の名前。main の fda54b8。記録だけ）。
+        受け取って書き戻しても落とさない。無くてもよい。文字でなければ断る。前は「知らない項目」として報告ごと断り、取れた答えも発信禁止の
+        申告も読めなかった（見直し17d）。"""
+        rec = {"turn": 1, "said": "いつもお世話になってます。", "answer": "こちらこそお世話になっております。", "checked": None,
+               "drafts": [{"text": "こちらこそ、先日はご来店いただきありがとうございました。", "problem": "知らない事実"}]}
+        for given, expected in (({"fallback": "talk_osewa"}, "talk_osewa"), ({}, None)):
+            with self.subTest(given=given):
+                r = from_json(self.raw({"talk": [{**rec, **given}]}, None))
+                self.assertEqual(r.talks[0].fallback, expected)
+                self.assertEqual(from_json(r.to_json()), r)
+        for bad in ("", 1):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"talk": [{**rec, "fallback": bad}]}, None))
+
+    def test_a_time_beyond_the_limit_agreed_in_the_call_is_kept(self):
+        """お客様指定の歯止め時間の外の時刻（「23時以降なら」）を通話の中で確かめて「はい」と言われた印 callback.beyond_limit_ok（2026-10-23
+        ユーザー：「案B＆案A(確かめたうえで案A)」）。受け取って書き戻しても落とさない。無ければ確かめていない。真偽でなければ断る。"""
+        rec = {"turn": 2, "said": "今日の23時以降なら大丈夫です。", "why": "later", "time": "今日の23時以降"}
+        for given, expected in (({}, False), ({"beyond_limit_ok": True}, True), ({"beyond_limit_ok": False}, False)):
+            with self.subTest(given=given):
+                r = from_json(self.raw({"callback": [{**rec, **given}]}, None))
+                self.assertEqual(r.callbacks[0].beyond_limit_ok, expected)
+                self.assertEqual(from_json(r.to_json()), r)
+        with self.assertRaises(ReportInvalid):
+            from_json(self.raw({"callback": [{**rec, "beyond_limit_ok": "はい"}]}, None))
+
+    def test_the_reason_behind_until_is_kept_in_one_place(self):
+        """「〇時まで」の言い方の、いま電話を続けられなかった理由（2026-10-23 ユーザー）。かけ直しの理由だけで決まるもの（別の番号へ・
+        分かるお客様＝別の方へ／不在・長期の不在・お休み＝それまでは出られない／分かる時＝それまでに確かめておく）には until_why を書かせない
+        （同じことを2つの項目で表さない）。あとで などは until_why（無ければ分からない）。書き戻しても落とさない。"""
+        rec = {"turn": 2, "said": "3時までなら大丈夫です。", "time": "3時まで"}
+        for why, extra, expected in (("later", {"until_why": "unavailable"}, "unavailable"),
+                                     ("later", {"until_why": "preparing"}, "preparing"), ("later", {}, None),
+                                     ("other_number", {"number": "03-1234-5678"}, "other_party"), ("absent", {}, "unavailable"),
+                                     ("long_absent", {}, "unavailable"), ("day_off", {}, "unavailable"),
+                                     ("ask_when", {}, "preparing")):
+            with self.subTest(why=why, extra=extra):
+                r = from_json(self.raw({"callback": [{**rec, "why": why, **extra}]}, None))
+                self.assertEqual(r.callbacks[0].until_reason, expected)
+                self.assertEqual(from_json(r.to_json()), r)
+        for why, bad in (("absent", "unavailable"), ("other_number", "other_party"), ("later", "soon"), ("later", None)):
+            with self.subTest(why=why, bad=bad), self.assertRaises(ReportInvalid):
+                extra = {"number": "03-1234-5678"} if why == "other_number" else {}
+                from_json(self.raw({"callback": [{**rec, "why": why, "until_why": bad, **extra}]}, None))
+
+    def test_a_check_is_accepted_whatever_the_conversation_side_was_asking(self):
+        """代わりの方と話している途中にご本人が出て確かめに戻った（target_back。かけ直しの理由はまだ無い＝why が null）は受け取る。
+        急いでいる方への伺いの途中に取り次がれて確かめに戻った（ほかの申し出の記録が無い）も受け取る（いつ戻るかは会話の側の決まり。
+        ⛔ 見直し29c の 3：前は、ほかの申し出の記録の無い確かめを断り、正しい報告が丸ごと断られた）。"""
+        sub = {"turn": 2, "said": "お電話代わりました。山田です。", "policy": "decision_maker", "read": ["judge2"]}
+        back = {"turn": 4, "said": "お電話代わりました。岡田です。", "why": None}
+        r = from_json(self.raw({"substitute": [sub], "target_back": [back]}))
+        self.assertEqual((r.target_backs[0].reason, from_json(r.to_json())), (None, r))
+        alone = from_json(self.raw({"target_back": [back]}))
+        self.assertEqual((alone.target_backs[0].reason, from_json(alone.to_json())), (None, alone))
+
+
+# ── 「誰でも」の業務の報告（main の flowctl：目的のお客様のいない業務では電話口の種別を残さない。見直し18b）
+ANYONE_DONE = {   # 質問に答えて「質問が終わった」で締めた（お客様からの質問と受け答えもある）
+    "version": 3, "facts": {
+        "callee_question": [{"turn": 2, "said": "それはいくらですか？", "answered": True, "answer": "初月は半額です。",
+                             "checked": "judge"}],
+        "end": [{"turn": 4, "said": "はい、ありがとうございます。", "reason": "done"}]},
+    "not_reached": None, "cut": None, "apology_delivered": None}
+ANYONE_REFUSED = {   # 「結構です」で通話を断られて締めた
+    "version": 3, "facts": {"end": [{"turn": 1, "said": "結構です。", "reason": "callee_refused_call"}]},
+    "not_reached": None, "cut": None, "apology_delivered": None}
+ANYONE_SILENT = {   # 名乗りのあと、何も言わずに切られた（締めた理由も無い）
+    "version": 3, "facts": {}, "not_reached": None, "cut": None, "apology_delivered": None}
+
+
+def judged(raw, *, anyone: bool, items=None, cut=CLOSED):
+    return judge(JudgeInput(TALKED, replace(from_json(raw), cut=cut), items or {}, RULES, callee=CALLEE,
+                            anyone_target=anyone, check_rang=False, forbidden=False, ask_if={}))
+
+
+class Anyone18b(unittest.TestCase):
+    def test_which_facts_show_a_person_is_decided_in_one_table(self):
+        """人の証の表（call_report の HUMAN_ENDS・HUMAN_FACTS）：締めた理由は、人の言葉の締めと機械の締めにちょうど分かれる。
+        人の締め・お客様からの質問・受け答えだけの報告も「話した」。留守番電話・自動音声・FAX の締めだけでは話していない。"""
+        from salescall.core import call_report as cr
+        # 締めに来る理由（その理由のまま締めない NEVER_CLOSES を除く）は、人の締めと機械の締めにちょうど分かれる（CL-1 の 4-65 の (e)）
+        self.assertEqual((cr.HUMAN_ENDS | cr.MACHINE_ENDS, cr.HUMAN_ENDS & cr.MACHINE_ENDS),
+                         (set(cr.END_REASONS) - cr.NEVER_CLOSES, set()))
+        self.assertEqual(cr.NEVER_CLOSES - set(cr.END_REASONS), set())
+        base = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None}
+        rec = {"turn": 1, "said": "試験の発話"}
+        for reason in cr.END_REASONS:
+            with self.subTest(reason):
+                if reason in cr.NEVER_CLOSES:   # その理由のまま締めることは無い＝報告の誤り
+                    with self.assertRaises(cr.ReportInvalid):
+                        from_json({**base, "facts": {"end": [{**rec, "reason": reason}]}})
+                    continue
+                r = from_json({**base, "facts": {"end": [{**rec, "reason": reason}]}})
+                self.assertEqual(r.talked, reason in cr.HUMAN_ENDS)
+        for kind, record in [("callee_question", {"answered": None, "checked": None}), ("talk", {"answer": "恐れ入ります。",
+                                                                                                  "checked": "judge"}),
+                             ("answered", {"part": "unknown"}), ("ai_question", {}), ("complaint", {})]:
+            with self.subTest(kind):
+                self.assertTrue(from_json({**base, "facts": {kind: [{**rec, **record}]}}).talked)
+        self.assertFalse(from_json({**base, "facts": {"do_not_call": [rec]}}).talked)   # 自動音声の「お断り」もありうる
+        self.assertFalse(from_json(ANYONE_SILENT).talked)
+
+    def test_a_talk_in_an_anyone_business_is_judged_as_a_conversation(self):
+        """「誰でも」の業務で話した通話は「会話に至らなかった」にならない（⛔ 見直し18b：main の報告 685 件のうち、締めまで進んだ
+        「誰でも」の通話がすべて open＝会話に至らなかった、だった）。取れていれば完了・取れていなければ一部だけ取れた。"""
+        taken = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "はい", None)}
+        self.assertEqual(judged(ANYONE_DONE, anyone=True, items=taken).state, "completed")
+        self.assertEqual(judged(ANYONE_DONE, anyone=True, items={"Q1": taken["Q1"]}).state, "incomplete")
+        self.assertEqual(judged(ANYONE_REFUSED, anyone=True).state, "incomplete")
+        self.assertEqual(judged(ANYONE_SILENT, anyone=True).state, "open")     # 何も起きていない＝会話に至らなかった
+        # 目的のお客様のいる業務で、繋がらずに締めた（繋がらなかった理由が無い）は判定できない（繋がったとは読まない）
+        self.assertEqual(judged(ANYONE_DONE, anyone=False, items={"Q1": taken["Q1"]}).detail.get("unknown_cause"),
+                         "not_reached_reason_missing")
+
+    def test_a_silent_hang_up_in_an_anyone_business_follows_the_cut_rules(self):
+        """「誰でも」の業務でも、切れ方の決まりは同じ（7-1c）：断りの言葉のあとに切ったら拒否、AI の話の途中・話し終えたあとの間に黙って
+        切ったら決められない切れ方（2026-10-30 管理者の決定：すぐ確かめのかけ直し）。切れ方の材料が
+        無ければ判定できない（cut_missing。⛔ 前は「話していない」と読み、材料が無くても拒否も見なかった）。"""
+        j = judged(ANYONE_DONE, anyone=True, cut=Cut("ai", False, True))
+        self.assertEqual((j.state, j.dnc_reason, j.detail.get("refusal")), ("do_not_call", "refused_in_call", "cut"))
+        j = judged(ANYONE_DONE, anyone=True, cut=Cut("ai", False, False))   # 断りの言葉が無い：決められない（確かめのかけ直し）
+        self.assertEqual((j.dnc_reason, j.detail.get("cut")), (None, "unclear"))
+        self.assertEqual(judged(ANYONE_DONE, anyone=True, cut=None).detail.get("unknown_cause"), "cut_missing")
+
+    def test_a_person_of_unknown_role_in_an_anyone_business_is_the_target(self):
+        """「誰でも」の業務で、CL-1 が役の分からないお客様（person）を出しても、繋がった（判定待ちにならない）。目的のお客様のいる
+        業務では、繋いだ事実が無ければ繋がっていない。"""
+        raw = copy.deepcopy(ANYONE_DONE)
+        raw["facts"]["party"] = [{"turn": 1, "said": "はい、テスト商店です。", "party": "person", "by": "ai"}]
+        self.assertEqual(judged(raw, anyone=True, items={"Q1": Item("confirmed", None, None)}).state, "incomplete")
+        self.assertEqual(judged(raw, anyone=False, items={"Q1": Item("confirmed", None, None)}).state, "unknown")
+
+
+# ── 保留で待ちきった（CL-1 の連絡帳 4-42・4-44）・取り次げなかったあとの確かめ（4-47）
+HOLD = {"turn": 2, "said": "少々お待ちください。", "waited_s": 300}
+HOLD_BEFORE_TARGET = {   # 目的のお客様に繋がる前の保留で待ちきった：繋がらなかった理由は「取り次げなかった」
+    "version": 3, "facts": {"hold_timeout": [HOLD], "end": [{"turn": 2, "said": "少々お待ちください。", "reason": "hold_timeout"}]},
+    "not_reached": "not_transferred", "cut": None, "apology_delivered": None}
+
+
+class Hold1024(unittest.TestCase):
+    def test_a_hold_timeout_is_accepted_and_read_by_the_judgement_already_there(self):
+        """保留で待ちきった（締めた理由・事実 hold_timeout）を受け取る。判定は今の1か所のまま：目的のお客様に繋がる前なら、繋がらなかった
+        理由 not_transferred（日を改めて1回）。繋がったあと・「誰でも」の業務なら「取れていない」（2026-10-24 CL-1 の 4-44）。
+        保留を頼むのは人の言葉なので「話した」（人の証の表）。"""
+        r = from_json(HOLD_BEFORE_TARGET)
+        self.assertEqual((r.end_reason, r.hold_timeouts[0].waited_s, r.talked, from_json(r.to_json())),
+                         ("hold_timeout", 300.0, True, r))
+        j = run(HOLD_BEFORE_TARGET)
+        self.assertEqual((j.state, j.detail["not_reached"], j.detail["policy_key"]),
+                         ("not_reached", "not_transferred", "not_reached_not_transferred"))
+        after = copy.deepcopy(HOLD_BEFORE_TARGET)   # 繋がったあとの「確認しますので少々お待ちください」
+        after["not_reached"] = None
+        after["facts"]["connect"] = [{"turn": 1, "said": "はい、岡田です。", "read": ["ai", "judge"], "judging": True}]
+        self.assertEqual(run(after).state, "incomplete")
+        anyone = copy.deepcopy(HOLD_BEFORE_TARGET)   # 目的のお客様のいない業務の保留
+        anyone["not_reached"] = None
+        self.assertEqual(judged(anyone, anyone=True).state, "incomplete")
+        for bad in (0, -5, "300", True, None):
+            with self.subTest(waited_s=bad), self.assertRaises(ReportInvalid):
+                from_json({**HOLD_BEFORE_TARGET, "facts": {"hold_timeout": [{**HOLD, "waited_s": bad}]}})
+
+    def test_a_check_after_could_not_be_put_through_is_accepted(self):
+        """約束の電話で「取り次げない」と言われ、約束の一言を伺っている間に取り次がれて確かめに戻った（target_back のあと connect）を
+        受け取り、繋いだ事実で「繋がった」と読む（CL-1 の連絡帳 4-47）。"""
+        raw = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "not_transferred": [{"turn": 2, "said": "あいにく本日はお繋ぎできかねます。"}],
+            "target_back": [{"turn": 4, "said": "あ、いま戻りました。代わります。", "why": None}],
+            "connect": [{"turn": 5, "said": "お電話代わりました。岡田です。", "read": ["ai", "judge"], "judging": True}]}}
+        r = from_json(raw)
+        self.assertEqual((r.reached(False), from_json(r.to_json())), (True, r))
+        self.assertEqual(run(raw).state, "incomplete")
+
+
+class Hurry1101(unittest.TestCase):
+    """CL-1 の連絡帳 4-64（2026-11-01 ✅ ユーザー）：判定が届かず会話AIの読みで締めた（事実 end_unjudged）・最終目的を断られて締めた
+    （締めた理由・事実 goal_refused）を受け取り、判定はいまの1か所で読む。"""
+    SAID = "いや、もうけっこうです。"
+
+    def unjudged(self, reason, *, check="agreed"):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "irreversible_check": check, "facts": {
+            "end_unjudged": [{"turn": 3, "said": self.SAID, "reason": reason}],
+            "end": [{"turn": 3, "said": self.SAID,
+                     "reason": reason if reason in ("callee_refused_call", "callee_complaint") else "callee_hurry"}]}}
+
+    def test_an_unjudged_refusal_waits_for_the_recording_check(self):
+        """判定が読んでいない「通話を断られた」は、取り消せない決定の候補（断り）で、報告の irreversible_check がそろっていても「判定が
+        無い」＝録音の確かめまで保留（もうかけない印は、通話のあとの確かめで判定が読んだときだけ＝11時56分のご判断 (エ)）。"""
+        from salescall.core.judge import irreversible
+        raw = self.unjudged("callee_refused_call")
+        r = from_json(raw)
+        self.assertEqual((r.unjudged_refusal, r.do_not_call, r.refusals, r.talked, from_json(r.to_json())),
+                         (True, True, (), True, r))
+        inp = JudgeInput(TALKED, replace(r, cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False, check_rang=False,
+                         forbidden=False, ask_if={})
+        j = judge(inp)
+        self.assertEqual((j.state, j.dnc_reason, j.detail["refusal"]), ("do_not_call", "refused_in_call", "unjudged"))
+        irr = irreversible(inp, j)
+        self.assertEqual((irr.parts, irr.unsure, irr.check), (frozenset({"refusal"}), frozenset({"refusal"}), "none"))
+        # 怒っていたも同じ（苦情の候補・判定が無い）
+        k = run(self.unjudged("callee_complaint"))
+        self.assertTrue(k.complaint)
+        # 差し戻し・取り消しで断りを外すと、その報告は断りを持たない（締め直しで決まり直す＝CallReport.without の1か所）
+        self.assertFalse(r.without({"refusal"}).do_not_call)
+        self.assertFalse(from_json(self.unjudged("callee_complaint")).without({"complaint"}).complaint)
+        # 急いでいる・取り次げないだけは、取り消せない決定ではない
+        for reason in ("callee_hurry", "not_transferred", "transfer_unclear"):
+            with self.subTest(reason=reason):
+                x = from_json(self.unjudged(reason))
+                self.assertFalse(x.do_not_call or x.complaint)
+        for bad in ("done", "wrong_party", None, 3):
+            with self.subTest(reason=bad), self.assertRaises(ReportInvalid):
+                from_json(self.unjudged(bad))
+
+    def test_a_refused_final_goal_ends_the_row_without_a_do_not_call(self):
+        """最終目的の申し出を断られ、目的が果たせなくなって締めた：用件を断られた（declined）＝その行を終える。発信禁止にはしない
+        （「その業務だけかけない（依頼者全体ではない）」）。お客様の言葉で締めた＝話した。"""
+        raw = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "goal_refused": [{"turn": 4, "said": "パンフレットは結構です。", "goals": ["Q2"], "mode": "all"}],
+            "end": [{"turn": 4, "said": "パンフレットは結構です。", "reason": "goal_refused"}]}}
+        r = from_json(raw)
+        self.assertEqual((r.end_reason, r.goal_refusals[0].goals, r.talked, from_json(r.to_json())),
+                         ("goal_refused", ("Q2",), True, r))
+        j = run(raw)
+        self.assertEqual((j.state, j.dnc_reason, j.detail["declined_by"], j.detail["goals"]), ("declined", None, "goal", ["Q2"]))
+        for bad in ({"goals": [], "mode": "all"}, {"goals": ["Q2", "Q2"], "mode": "all"}, {"goals": ["Q2"], "mode": "some"},
+                    {"goals": "Q2", "mode": "any"}, {"goals": ["Q2"]}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**raw, "facts": {"goal_refused": [{"turn": 4, "said": "x", **bad}]}})
+
+
+class Approval1102(unittest.TestCase):
+    """CL-1 の連絡帳 4-66 の (c)（2026-11-02 ✅ ユーザー）：説明した内容をご承認いただけず、ご納得いただけなかった点を伺った答え（事実
+    not_agreed）。said＝根拠の発話・point＝ご納得いただけなかった点の値（CL-1 の連絡帳 4-69 の 4-185 の (1)。お答えいただけなければ
+    null）。point の鍵の無い前の形の報告は said が値（null も長い文字もありうる）なので、said を値として読む。依頼者へ「ご納得
+    いただけなかった点」として返す（判定の中身 not_agreed）。人の言葉でしか起きない＝話した。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "not_agreed": list(rows), "end": [{"turn": 6, "said": "はい。", "reason": "done"}]}}
+
+    def test_the_kind_of_told_words_is_received(self):
+        """申し伝える一言の種類（told。CL-1 の連絡帳 4-99・✅ 2026-11-06 9時05分17秒 ユーザー）を受けて、読み戻しても同じ。種類は
+        question・request・opinion のどれか（ほかは断る）。前の形の報告には無い（None）。"""
+        from salescall.core.call_report import TOLD_KINDS
+        self.assertEqual(TOLD_KINDS, ("question", "request", "opinion"))
+        for kind in TOLD_KINDS:
+            with self.subTest(kind=kind):
+                r = from_json(self.raw({"turn": 5, "question": "Q2", "said": "料金は？", "point": "料金", "explained": False,
+                                        "told": kind}))
+                self.assertEqual((r.not_agreed[0].told, from_json(r.to_json())), (kind, r))
+        self.assertIsNone(from_json(self.raw({"turn": 5, "question": "Q2", "said": "x"})).not_agreed[0].told)
+        for bad in ("other", "", 1):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"turn": 5, "question": "Q2", "said": "x", "explained": False, "told": bad}))
+        for explained in (True, None):   # 申し伝える一言は、ご説明できなかった点にだけ流す（2026-11-06 の見直し (C) の7）
+            with self.subTest(explained=explained), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"turn": 5, "question": "Q2", "said": "x", "explained": explained, "told": "request"}))
+
+    def test_points_not_agreed_are_received_and_returned(self):
+        long = "料金のところと、" * 20   # 根拠の発話の上限（80字）より長い答えも受ける
+        raw = self.raw({"turn": 5, "question": "Q2", "said": long}, {"turn": 7, "question": "Q4", "said": None})
+        r = from_json(raw)
+        self.assertEqual((r.not_agreed[0].said, r.not_agreed[1].said, r.talked, from_json(r.to_json())), (long, None, True, r))
+        none4 = {"round": None, "explained": None, "outcome": None}   # 前の形（11-02 5時56分より前）の報告には無い項目
+        self.assertEqual(run(raw).detail["not_agreed"], [{"question": "Q2", "point": long, "said": long, **none4},
+                                                         {"question": "Q4", "point": None, "said": None, **none4}])
+        # 新しい形：根拠の発話と値を分けて受け、読み戻しても同じ（前の形の読み替えは、point の鍵が無いときだけ）
+        new = self.raw({"turn": 5, "question": "Q2", "said": "料金のところがちょっと高いかなと。", "point": "料金"},
+                       {"turn": 7, "question": "Q4", "said": "うーん。", "point": None})
+        n = from_json(new)
+        self.assertEqual([(x.said, x.point) for x in n.not_agreed], [("料金のところがちょっと高いかなと。", "料金"), ("うーん。", None)])
+        self.assertEqual(from_json(n.to_json()), n)
+        self.assertEqual([x["point"] for x in run(new).detail["not_agreed"]], ["料金", None])
+        self.assertTrue(from_json({**raw, "facts": {"not_agreed": raw["facts"]["not_agreed"]}}).talked)
+        for bad in ({"turn": -1, "question": "Q2", "said": "x"}, {"turn": 5, "question": "", "said": "x"},
+                    {"turn": 5, "question": "Q2", "said": 3}, {"turn": 5, "said": "x"}, {"turn": 5, "question": "Q2", "said": "x", "x": 1},
+                    {"turn": True, "question": "Q2", "said": "x"}, {"turn": 5, "question": "Q2", "said": "x", "point": 3}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(bad))
+        with self.assertRaises(ReportInvalid):
+            from_json({**raw, "facts": {"not_agreed": {"turn": 5}}})
+
+
+class OtherWish1103(unittest.TestCase):
+    """CL-1 の連絡帳 4-72 の (k)（✅ 2026-11-03 日本時間19時54分・20時48分・21時38分 ユーザー）：選ぶ質問の「どれも要らない」・最終目的の質問への
+    言い切っていないお断りのあとに、ほかのご希望を1回伺った答え（事実 other_wish）。依頼者へ返す（判定の中身 other_wish）。判定の結果は変えない
+    （選び直した答えは元の質問の項目・最終目的を断られたかは事実 goal_refused で読む）。伺っている途中で切れたら結びは null。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "other_wish": list(rows), "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+
+    def test_other_wishes_are_received_and_returned(self):
+        line = {"turn": 5, "said": "LINEならいいです。", "question": "Q3", "wish": "LINEでの連絡", "value": "LINE", "means": "line",
+                "contact": "test_line_id", "via": "id", "outcome": "means"}   # via＝LINE の伺い方（CL-1 の 4-81 の (3)）
+        cut = {"turn": 7, "said": "うーん。", "question": "Q4", "wish": None, "value": None, "means": None, "contact": None, "outcome": None}
+        r = from_json(self.raw(line, cut))
+        self.assertEqual(([(w.question, w.means, w.contact, w.outcome) for w in r.other_wishes], from_json(r.to_json())),
+                         ([("Q3", "line", "test_line_id", "means"), ("Q4", None, None, None)], r))
+        j = run(self.raw(line, cut))
+        keys = ("question", "wish", "value", "means", "contact", "via", "outcome", "wish_state", "terms", "topic", "added", "said", "before_ways")
+        self.assertEqual(j.detail["other_wish"], [{k: line.get(k) for k in keys}, {k: cut.get(k) for k in keys}])
+        self.assertIsNone(r.other_wishes[1].via)                             # 無い鍵は null と同じ
+        self.assertNotIn("other_wish", run(self.raw()).detail)                # 伺っていなければ中身に出さない
+        self.assertTrue(from_json({**self.raw(line), "facts": {"other_wish": [line]}}).talked)   # 人の言葉でしか起きない＝話した
+        # 無い鍵は null と同じに読む（報告の読み手の決まりの1か所 `_keys`。会話の側はいつも全部の鍵を書く）
+        self.assertIsNone(from_json(self.raw({k: v for k, v in line.items() if k != "outcome"})).other_wishes[0].outcome)
+        self.assertEqual(j.state, run(self.raw()).state)                       # 判定の結果は変えない
+        for bad in ({**line, "means": "sms"}, {**line, "means": "sms", "via": None}, {**line, "outcome": "maybe"}, {**line, "question": ""}, {**line, "contact": 3},
+                    {**line, "wish": ["x"]}, {**line, "x": 1}, {**line, "via": "fax"}, {**line, "means": "email"}):   # via は LINE のときだけ
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(bad))
+
+    def test_the_wish_state_the_proposal_and_unresolved_are_received(self):
+        """CL-1 の連絡帳 4-131・4-133・4-135・4-142（✅ 2026-11-12 日本時間14時58分17秒「アで！」・19時32分21秒「3はイ」）：ほかのご希望の記録には、W1 の答えの状態
+        wish_state（業務の質問の答えの state と同じ名前・W1 を伺わずに方法から始めた記録は null）と、W1 の提案に入れた条件 terms・中身 topic・こちらから足した条件
+        added が入り、結び outcome に unresolved（「-」のまま終えた）が来る。どれも読んで、置いて読み直しても同じ・前の通話の答えに書いた形のまま渡る（to_json）・
+        依頼者へ返す（お客様のご都合 terms とこちらの提案 added を分けて）。⛔ 足すまで、この鍵・結びのある報告は丸ごと断っていた（知らない鍵＝報告ごと断る）。"""
+        unresolved = {"turn": 6, "said": "うーん、どうでしょう。", "question": "Q3", "wish": None, "value": None, "means": None, "contact": None,
+                      "outcome": "unresolved", "via": None, "wish_state": "unresolved", "terms": "月曜日を避けて", "topic": None, "added": None,
+                      "before_ways": None}
+        taken = {"turn": 8, "said": "夕方ならメールでいいですよ。", "question": "Q4", "wish": "メールでの連絡", "value": "メール", "means": "email",
+                 "contact": "taro@example.com", "outcome": "means", "via": None, "wish_state": "confirmed", "terms": "月曜日を避けて",
+                 "topic": "料金の面も含めて", "added": "夕方以降に", "before_ways": None}
+        means_only = {**taken, "turn": 9, "question": "Q5", "wish_state": None, "terms": None, "topic": None, "added": None}   # W1 を伺わずに方法から
+        r = from_json(self.raw(unresolved, taken, means_only))
+        self.assertEqual([(w.outcome, w.wish_state, w.terms, w.topic, w.added) for w in r.other_wishes],
+                         [("unresolved", "unresolved", "月曜日を避けて", None, None), ("means", "confirmed", "月曜日を避けて", "料金の面も含めて", "夕方以降に"),
+                          ("means", None, None, None, None)])
+        self.assertEqual((from_json(r.to_json()), [w.to_json() for w in r.other_wishes]), (r, [unresolved, taken, means_only]))
+        got = run(self.raw(unresolved, taken)).detail["other_wish"]
+        self.assertEqual([(x["wish_state"], x["terms"], x["topic"], x["added"]) for x in got],
+                         [("unresolved", "月曜日を避けて", None, None), ("confirmed", "月曜日を避けて", "料金の面も含めて", "夕方以降に")])
+        for bad in ({**taken, "wish_state": "heard"}, {**taken, "wish_state": "empty"}, {**taken, "terms": ""}, {**taken, "added": 3},
+                    {**taken, "topic": ["x"]}, {**taken, "outcome": "unclear"}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(bad))
+
+
+    def test_the_wish_said_before_the_ways_were_listed_is_received_and_returned(self):
+        """CL-1 の連絡帳 4-169（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い27））：方法を言わずにご希望を言っていただき（「営業の方じゃなくて、説明書を
+        送ってほしいです。」）、方法を並べて伺って選んでいただいたとき、同じ1件の before_ways に、そのときの発話・言葉・会話AIが聞き取った値が入る（並べて
+        いなければ null）。読んで、置いて読み直しても同じ・依頼者へ返すご希望の中身（判定の中身 other_wish の before_ways）。根拠の発話が取れなかったときは
+        turn が null で said が空。⛔ 足すまで、どの other_wish にもある欄を知らない鍵として、ほかのご希望を伺った通話の報告を丸ごと断っていた。"""
+        before = {"turn": 4, "said": "営業の方じゃなくて、説明書を送ってほしいです。", "value": "説明書を送ってほしい"}
+        chosen = {"turn": 6, "said": "メールでお願いします。", "question": "Q3", "wish": "メールでの連絡", "value": "メール", "means": "email",
+                  "contact": "taro@example.com", "outcome": "means", "via": None, "wish_state": "confirmed", "terms": None, "topic": None,
+                  "added": None, "before_ways": before}
+        r = from_json(self.raw(chosen))
+        self.assertEqual((r.other_wishes[0].before_ways.said, r.other_wishes[0].before_ways.value, r.other_wishes[0].to_json(), from_json(r.to_json())),
+                         (before["said"], before["value"], chosen, r))
+        self.assertEqual(run(self.raw(chosen)).detail["other_wish"][0]["before_ways"], {"said": before["said"], "value": before["value"]})
+        self.assertIsNone(run(self.raw({**chosen, "before_ways": None})).detail["other_wish"][0]["before_ways"])
+        unknown = {"turn": None, "said": "", "value": None}   # 根拠の発話が取れなかった
+        self.assertEqual(from_json(self.raw({**chosen, "before_ways": unknown})).other_wishes[0].before_ways.to_json(), unknown)
+        for bad in ({"turn": 4, "said": "x"}.__or__({"x": 1}), {"turn": -1, "said": "x", "value": None}, {"turn": None, "said": "x", "value": None},
+                    {"turn": 4, "said": "x" * 81, "value": None}, {"turn": 4, "said": "x", "value": ""}, {"turn": 4, "said": 3, "value": None}, "説明書"):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({**chosen, "before_ways": bad}))
+
+
+class Offers1109(unittest.TestCase):
+    """CL-1 の連絡帳 4-122〜4-129（✅ 2026-11-09 日本時間4時36分49秒・6時33分57秒・7時57分50秒・9時48分09秒・11-12 13時40分05秒 ユーザー）：業務の申し出の
+    答え（事実 handoff＝詳しい者からの改めてのお話・close_offer＝締める前の申し出。1つのご承認に1つ）と、条件つきで受けていただいた業務の申し出（事実 offer_terms）。
+    依頼者へ返す（判定の中身 handoff・close_offer・offer_terms）。判定の結果は変えない：handoff のはっきりしたお断りは会話の側が残す goal_refused で読み、
+    close_offer のお断りはご承認のお断りにしない。way は業務の方法と突き合わせない（業務の方法に無い方法の名前も入る＝4-127）。人の言葉でしか起きない（話した）。"""
+
+    def raw(self, **facts):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            **{k: list(v) for k, v in facts.items()}, "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+
+    HANDOFF = {"turn": 5, "said": "オンラインならいいですよ。", "question": "Q3", "agreed": True, "way": "オンラインでのご説明", "means": "online",
+               "via": None, "contact": "taro@example.com", "outcome": "agreed", "terms": "月曜日を避けて", "topic": "料金の面も含めて"}
+    OFFER = {"turn": 6, "said": "いえ、要らないです。", "question": "Q3", "agreed": False, "way": None, "means": None, "via": None,
+             "contact": None, "outcome": "declined", "terms": None, "topic": None}
+
+    def test_offers_are_received_and_returned_to_the_client(self):
+        other = {**self.HANDOFF, "way": "LINEでの連絡", "means": "line", "via": "sms", "contact": "09012345678", "terms": None, "topic": None,
+                 "question": "Q4"}   # 業務の方法に無い方法（会話の側の wish_label の形）もそのまま受ける
+        midway = {"turn": 7, "said": "うーん。", "question": "Q5", "agreed": None, "way": None, "means": None, "via": None, "contact": None,
+                  "outcome": None, "terms": None, "topic": None}   # 伺っている途中で切れた
+        terms = {"turn": 3, "said": "月曜以外なら大丈夫です。", "question": "Q2", "terms": "月曜日を避けて", "topic": None}
+        raw = self.raw(handoff=[self.HANDOFF, other, midway], close_offer=[self.OFFER], offer_terms=[terms])
+        r = from_json(raw)
+        self.assertEqual(([(o.kind, o.question, o.agreed, o.way, o.means, o.outcome) for o in r.offers], from_json(r.to_json())),
+                         ([("handoff", "Q3", True, "オンラインでのご説明", "online", "agreed"), ("handoff", "Q4", True, "LINEでの連絡", "line", "agreed"),
+                           ("handoff", "Q5", None, None, None, None), ("close_offer", "Q3", False, None, None, "declined")], r))
+        self.assertEqual([(t.question, t.terms, t.topic) for t in r.offer_terms], [("Q2", "月曜日を避けて", None)])
+        j = run(raw)
+        keys = ("question", "agreed", "way", "means", "via", "contact", "outcome", "terms", "topic", "added", "said")
+        self.assertEqual((j.detail["handoff"], j.detail["close_offer"], j.detail["offer_terms"]),
+                         ([{k: x.get(k) for k in keys} for x in (self.HANDOFF, other, midway)], [{k: self.OFFER.get(k) for k in keys}],
+                          [{"question": "Q2", "terms": "月曜日を避けて", "topic": None, "added": None, "said": terms["said"]}]))
+        self.assertEqual((j.state, j.detail.get("declined_by")), (run(self.raw()).state, None))   # 判定の結果は変えない（締める前の申し出のお断りも）
+        for k in ("handoff", "close_offer", "offer_terms"):
+            self.assertNotIn(k, run(self.raw()).detail)                                # 伺っていなければ中身に出さない
+        for kind, row in (("handoff", self.HANDOFF), ("close_offer", self.OFFER), ("offer_terms", terms)):
+            self.assertTrue(from_json({**self.raw(), "facts": {kind: [row]}}).talked)   # 人の言葉でしか起きない＝話した
+        # 無い鍵は null と同じに読む（読み手の決まりの1か所 `_keys`）
+        self.assertIsNone(from_json(self.raw(handoff=[{k: v for k, v in self.HANDOFF.items() if k not in ("terms", "topic")}])).offers[0].terms)
+
+    def test_a_handoff_refused_is_read_from_goal_refused_and_a_close_offer_refused_is_not_a_refusal(self):
+        """handoff をはっきり断られたら、会話の側が goal_refused も残す（その業務はかけない＝今の判定の1か所が読む）。close_offer の declined だけでは
+        用件のお断りにならない。"""
+        refused = {**self.OFFER, "turn": 6}
+        j = run({**self.raw(handoff=[refused]), "facts": {"handoff": [refused],
+                                                           "goal_refused": [{"turn": 6, "said": refused["said"], "goals": ["Q3"], "mode": "any"}],
+                                                           "end": [{"turn": 6, "said": refused["said"], "reason": "goal_refused"}]}})
+        self.assertEqual((j.state, j.detail["declined_by"], j.detail["handoff"][0]["outcome"]), ("declined", "goal", "declined"))
+        self.assertNotEqual(run(self.raw(close_offer=[self.OFFER])).state, "declined")
+
+    def test_wrong_shapes_are_refused(self):
+        for kind, bad in (("handoff", {**self.HANDOFF, "question": ""}), ("handoff", {**self.HANDOFF, "agreed": "はい"}),
+                          ("handoff", {**self.HANDOFF, "means": "sms"}), ("handoff", {**self.HANDOFF, "via": "id"}),   # via は LINE のときだけ
+                          ("handoff", {**self.HANDOFF, "outcome": "maybe"}), ("handoff", {**self.HANDOFF, "way": ""}),
+                          ("handoff", {**self.HANDOFF, "contact": 3}), ("handoff", {**self.HANDOFF, "terms": ["x"]}),
+                          ("close_offer", {**self.OFFER, "x": 1}), ("offer_terms", {"turn": 1, "said": "x", "question": "", "terms": None, "topic": None}),
+                          ("offer_terms", {"turn": 1, "said": "x", "question": "Q1", "terms": 3, "topic": None})):
+            with self.subTest(kind=kind, bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(**{kind: [bad]}))
+        with self.assertRaises(ReportInvalid):   # 1つのご承認に1つ
+            from_json(self.raw(handoff=[self.HANDOFF, {**self.HANDOFF, "turn": 8}]))
+        self.assertEqual(len(from_json(self.raw(handoff=[self.HANDOFF], close_offer=[self.OFFER])).offers), 2)   # 種類が違えば別
+
+    def test_what_we_added_is_kept_apart_from_the_customer_terms(self):
+        """CL-1 の連絡帳 4-131・4-133（✅ 2026-11-12 日本時間14時58分17秒「アで！」・まとめ役の (J1)(J2)）：申し出の事実 handoff・close_offer・業務の申し出の事実
+        offer_terms には、こちらから足した条件 added（受けていただいたときだけ。断られたら null）が入る。お客様の条件 terms とは別の欄のまま読み、置いて読み直しても
+        同じで、依頼者へも分けて返す。offer_terms は伺い直しに入れた条件（受けていただいたかは答えで読む）で、同じ質問に1つ。⛔ 足すまで、added の鍵のある報告は
+        丸ごと断っていた。"""
+        taken = {**self.HANDOFF, "added": "夕方以降に"}
+        terms = {"turn": 3, "said": "月曜以外なら大丈夫です。", "question": "Q2", "terms": "月曜日を避けて", "added": "夕方以降に", "topic": None}
+        declined = {"turn": 4, "said": "やっぱりいいです。", "question": "Q6", "terms": "月曜日を避けて", "added": None, "topic": "料金の面も含めて"}
+        r = from_json(self.raw(handoff=[taken], close_offer=[{**self.OFFER, "added": None}], offer_terms=[terms, declined]))
+        self.assertEqual(([(o.terms, o.added) for o in r.offers], [(t.question, t.terms, t.added, t.topic) for t in r.offer_terms]),
+                         ([("月曜日を避けて", "夕方以降に"), (None, None)],
+                          [("Q2", "月曜日を避けて", "夕方以降に", None), ("Q6", "月曜日を避けて", None, "料金の面も含めて")]))
+        self.assertEqual(from_json(r.to_json()), r)
+        self.assertEqual(r.offers[0].to_json()["added"], "夕方以降に")   # 前の通話の答えの offer_fact も同じ形（conversation_io.earlier）
+        d = run(self.raw(handoff=[taken], offer_terms=[terms])).detail
+        self.assertEqual(((d["handoff"][0]["terms"], d["handoff"][0]["added"]), (d["offer_terms"][0]["terms"], d["offer_terms"][0]["added"])),
+                         (("月曜日を避けて", "夕方以降に"), ("月曜日を避けて", "夕方以降に")))
+        for kind, bad in (("handoff", {**taken, "added": ""}), ("offer_terms", {**terms, "added": 3}),
+                          ("offer_terms", {**terms, "x": 1})):
+            with self.subTest(kind=kind, bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(**{kind: [bad]}))
+        with self.assertRaises(ReportInvalid):   # 業務の申し出の質問の条件は、同じ質問に1つ（CL-1 の連絡帳 4-132）
+            from_json(self.raw(offer_terms=[terms, {**terms, "turn": 5}]))
+
+
+class Carried1112(unittest.TestCase):
+    """CL-1 の連絡帳 4-141（✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」）：担当の方が替わった電話・後任の方に、前の担当の方からお話を聞いて
+    いるかを伺った答え（事実 carried：answer＝「聞いている」「聞いていない」「わからない」「答えたくない」か null・kept＝前の方の答えを引き継いだか・dropped＝この電話で
+    使わないことにした前の通話の答えの質問）。依頼者へ返す（判定の中身 carried。引き継いだときは、新しい方が引き継いだと言った前の方の答え＝carried_answers）。
+    判定の結果は変えない。人の言葉でしか起きない（話した）。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "carried": list(rows), "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+
+    KEPT = {"turn": 2, "said": "はい、聞いております。", "answer": "聞いている", "kept": True, "dropped": ["Q2"]}
+    FRESH = {"turn": 2, "said": "いえ、何も聞いていないです。", "answer": "聞いていない", "kept": False, "dropped": ["Q1", "Q2", "Q3"]}
+
+    def judged(self, raw, earlier=frozenset()):
+        return judge(JudgeInput(TALKED, replace(from_json(raw), cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False,
+                                check_rang=False, forbidden=False, ask_if={}, earlier_answers=frozenset(earlier)))
+
+    def test_the_answer_is_received_and_returned_to_the_client(self):
+        r = from_json(self.raw(self.KEPT))
+        self.assertEqual([(c.answer, c.kept, c.dropped) for c in r.carried], [("聞いている", True, ("Q2",))])
+        self.assertEqual(from_json(r.to_json()), r)
+        self.assertTrue(from_json({**self.raw(), "facts": {"carried": [self.KEPT]}}).talked)   # 人の言葉でしか起きない（締めた理由が無くても話した）
+        unheard = {"turn": 2, "said": "…", "answer": None, "kept": False, "dropped": []}   # 聞き取れない・前の答えが無い
+        self.assertEqual(from_json(self.raw(unheard)).carried[0].answer, None)
+        # 依頼者へ：引き継いだときは、この通話より前に取った答えのうち、使わないことにした質問を除いたもの＝新しい方が引き継いだと言った答え
+        d = self.judged(self.raw(self.KEPT), earlier={"Q1", "Q2", "Q3"}).detail["carried"]
+        self.assertEqual(d, [{"answer": "聞いている", "kept": True, "carried_answers": ["Q1", "Q3"], "dropped": ["Q2"], "said": "はい、聞いております。"}])
+        # 引き継がなかったときは、前の方の答えはこの電話では使っていない（引き継いだ答えは無い。dropped に無い答えがあっても＝引き継ぎの印で決める）
+        d = self.judged(self.raw(self.FRESH), earlier={"Q1", "Q2", "Q3", "Q4"}).detail["carried"]
+        self.assertEqual((d[0]["kept"], d[0]["carried_answers"], d[0]["dropped"]), (False, [], ["Q1", "Q2", "Q3"]))
+        self.assertNotIn("carried", self.judged(self.raw()).detail)                              # 伺っていなければ中身に出さない
+        self.assertEqual(self.judged(self.raw(self.KEPT)).state, self.judged(self.raw()).state)   # 判定の結果は変えない
+
+    def test_wrong_shapes_are_refused(self):
+        for bad in ({**self.KEPT, "answer": "聞いていない"},          # 引き継いだのは「聞いている」のときだけ
+                    {**self.KEPT, "answer": None},
+                    {**self.KEPT, "answer": "はい"}, {**self.KEPT, "kept": "true"}, {**self.KEPT, "kept": None},
+                    {**self.KEPT, "dropped": ["Q2", "Q2"]}, {**self.KEPT, "dropped": "Q2"}, {**self.KEPT, "dropped": [""]},
+                    {**self.KEPT, "x": 1}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(bad))
+        self.assertEqual(from_json(self.raw({k: v for k, v in self.KEPT.items() if k != "dropped"})).carried[0].dropped, ())   # 無い＝空
+
+
+class TermsDropped1112(unittest.TestCase):
+    def test_the_proposal_words_not_said_are_kept_in_the_talk_record(self):
+        """CL-1 の連絡帳 4-126 の「ついでの知らせ」：受け答えの事実 talk に、申し出の伺い直しのひとことに添えて会話AIが書いたが声に出さなかった提案の言葉と理由
+        （terms_dropped＝text・problem）が入ることがある（記録だけ。依頼者へは渡さない）。受けて、置いて読み直しても同じ。⛔ 2026-11-13 まで受けていなかった＝この鍵の
+        ある報告を丸ごと断っていた（CL-1 の試験で作られる報告を全部この読み手に通して見つけた）。"""
+        talk = {"turn": 6, "said": "うちは平日の昼間はほとんど外に出てるんですよ。", "answer": "さようでございますか。", "checked": "judge",
+                "terms_dropped": {"text": "無料で使える範囲を", "problem": "こちらについて知らない事実が入っています"}}
+        raw = {"version": 3, "facts": {"talk": [talk]}, "not_reached": None, "cut": None, "apology_delivered": None}
+        r = from_json(raw)
+        self.assertEqual((r.talks[0].terms_dropped.text, r.talks[0].terms_dropped.problem), ("無料で使える範囲を", "こちらについて知らない事実が入っています"))
+        self.assertEqual((from_json(r.to_json()), r.to_json()["facts"]["talk"][0]["terms_dropped"]), (r, talk["terms_dropped"]))
+        self.assertIsNone(from_json({**raw, "facts": {"talk": [{k: v for k, v in talk.items() if k != "terms_dropped"}]}}).talks[0].terms_dropped)
+        for bad in ({"text": "x"}, {"text": "x", "problem": "y", "z": 1}, "x"):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**raw, "facts": {"talk": [{**talk, "terms_dropped": bad}]}})
+
+
+class TwoCallbacks1112(unittest.TestCase):
+    def test_the_newest_callback_of_a_call_is_the_one_that_counts(self):
+        """CL-1 の連絡帳 4-144 の (2)（2026-11-12 まとめ役の指示）：かけ直しの質問の途中の、理由の替わった申し出は新しい callback の事実になる（1つの通話に
+        2つ以上）。判定・次の動きが読むのは、いちばん新しい申し出（`CallReport.callback` の1か所＝callbacks の最後）。例：不在で戻る時刻を伺っている途中に
+        「携帯の方に」＝absent のあと other_number ⇒ 別の番号へのかけ直しとして読む（不在の申し出は効かない）。その逆の順なら不在。"""
+        absent = {"turn": 1, "said": "あいにく岡田は席を外しております。", "why": "absent", "read": ["ai", "judge", "judge2"], "time": None, "number": None}
+        mobile = {"turn": 3, "said": "あ、携帯の方にかけてもらえますか。090-1234-5678です。", "why": "other_number", "read": ["ai", "judge", "judge2"],
+                  "time": "明日の15時に", "number": "090-1234-5678"}
+        raw = {"version": 3, "facts": {"callback": [absent, mobile]}, "not_reached": "absent", "cut": None, "apology_delivered": None}
+        r = from_json(raw)
+        self.assertEqual((len(r.callbacks), r.callback.reason, r.callback.number_e164), (2, "other_number", "+819012345678"))
+        j = run(raw)
+        self.assertEqual((j.state, j.detail["callback"]["reason"]), ("callback_scheduled", "other_number"))
+        back = from_json({**raw, "facts": {"callback": [{**mobile, "turn": 1}, {**absent, "turn": 3}]}})
+        self.assertEqual(back.callback.reason, "absent")
+
+
+class Concern1108(unittest.TestCase):
+    """CL-1 の連絡帳 4-113（✅ 2026-11-08 日本時間2時21分15秒 ユーザー）：本題に入ったあとの「もういいです。」に、ご遠慮の一言より先に「何か問題でも
+    ございましたでしょうか？」（システムの質問 D2）と本心を伺い、言っていただいた気になる点（事実 concern）。鍵は turn・said・question（そのとき
+    伺っていた業務の質問）と、会話AIが応えた文＝callee_question と同じ answered・answer・drafts・checked（応える前に切れたら無い）。依頼者へ返す
+    （判定の中身 concern＝今後の改善）。判定の結果は変えない。人の言葉でしか起きない（話した）。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "concern": list(rows), "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+
+    def test_concerns_are_received_and_returned_to_the_client(self):
+        told = {"turn": 4, "said": "説明が長くてよく分からないんですよ。", "question": "Q2", "answered": True,
+                "answer": "失礼いたしました。要点だけお伝えいたしますね。", "drafts": [{"text": "x", "problem": "中身を確かめられませんでした"}],
+                "checked": "judge"}
+        cut = {"turn": 6, "said": "電話が多すぎるんですよ。", "question": None}   # 応える前に切れた・伺う前の位置が質問でなかった
+        r = from_json(self.raw(told, cut))
+        self.assertEqual(([(c.question, c.answered, c.own.answer, c.evidence.said) for c in r.concerns], from_json(r.to_json())),
+                         ([("Q2", True, told["answer"], told["said"]), (None, None, None, cut["said"])], r))
+        self.assertEqual(r.callee_questions, ())                                   # お客様の質問ではない
+        j = run(self.raw(told, cut))
+        self.assertEqual(j.detail["concern"], [{"question": "Q2", "said": told["said"], "answer": told["answer"]},
+                                               {"question": None, "said": cut["said"], "answer": None}])
+        self.assertNotIn("concern", run(self.raw()).detail)                         # 言っていただいていなければ中身に出さない
+        self.assertEqual(j.state, run(self.raw()).state)                             # 判定の結果は変えない
+        self.assertTrue(from_json({**self.raw(told), "facts": {"concern": [told]}}).talked)   # 人の言葉でしか起きない＝話した
+        for bad in ({**told, "question": ""}, {**told, "question": 3}, {**told, "answered": "はい"}, {**told, "x": 1},
+                    {**told, "drafts": [{"text": "x"}]}, {**told, "said": 3}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(bad))
+
+
+    def test_elsewhere_is_read_in_the_same_shape_and_returned_separately(self):
+        """CL-1 の 58fb6c7f（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25））：ほかの会社に頼んでいる・使っていると言われ、システムの質問 E1 で伺って
+        言っていただいた問題・心配事（事実 elsewhere）は、concern と同じ形（CL-1：「concern と同じ形」）で同じ1か所が読み、判定の中身 elsewhere で依頼者へ
+        返す（concern とまぜない）。判定の結果は変えない。人の言葉でしか起きない。E1 は業務の質問の番号に使えない。"""
+        from salescall.core import business_settings
+        told = {"turn": 5, "said": "今のところは対応が遅くて困っているんですよ。", "question": "Q3", "answered": True, "answer": "さようでございますか。"}
+        mine = {"turn": 3, "said": "説明が長いんですよ。", "question": "Q2"}
+        raw = {**self.raw(mine), "facts": {"concern": [mine], "elsewhere": [told], "end": [{"turn": 9, "said": "はい。", "reason": "done"}]}}
+        r = from_json(raw)
+        self.assertEqual(([(c.kind, c.question, c.evidence.said) for c in r.concerns], from_json(r.to_json())),
+                         ([("concern", "Q2", mine["said"]), ("elsewhere", "Q3", told["said"])], r))
+        j = run(raw)
+        self.assertEqual((j.detail["elsewhere"], j.detail["concern"]),
+                         ([{"question": "Q3", "said": told["said"], "answer": told["answer"]}],
+                          [{"question": "Q2", "said": mine["said"], "answer": None}]))
+        self.assertNotIn("elsewhere", run(self.raw(mine)).detail)
+        self.assertEqual(j.state, run(self.raw()).state)
+        self.assertTrue(from_json({**self.raw(), "facts": {"elsewhere": [told]}}).talked)
+        with self.assertRaises(ReportInvalid):
+            from_json({**self.raw(), "facts": {"elsewhere": [{**told, "question": 3}]}})
+        self.assertIn("E1", business_settings.RESERVED_IDS)
+
+class Unfinished1105(unittest.TestCase):
+    """CL-2 の連絡帳 4-213（データの形 版 1.18）：手順を伺い終えていない業務の質問（報告の unfinished）。ほかのご希望 W1・その連絡先と伺い方・
+    ご納得いただけなかった点の手順の途中で切れた答えは、判定ではまだ受け取っていない答え（`JudgeInput.answers` の1か所）＝必須なら「完了」に
+    しない（CL-1 の続きの電話がかかる。✅ 2026-11-03 日本時間23時52分36秒・11-04 18時16分・19時26分 ユーザー）。その答えのときだけ伺う質問も
+    「伺っていない」にしない（W1 で元の質問の選択肢を選び直していただけば、伺う質問になる）。⛔ 前は、最後の必須の質問の「どれも要らない」の
+    あとの W1 の途中で切れても「完了」にし、続きの電話が1本もかからなかった。"""
+
+    def raw(self, *unfinished, key=True):
+        d = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {}}
+        return {**d, "unfinished": list(unfinished)} if key else d
+
+    def test_unfinished_is_received_and_the_answer_is_not_yet_taken(self):
+        r = from_json(self.raw("Q2", "Q1"))
+        self.assertEqual((r.unfinished, from_json(r.to_json())), (("Q1", "Q2"), r))
+        for old in (self.raw(key=False), {**self.raw(key=False), "unfinished": None}):   # 無い・null（古い報告）は空
+            with self.subTest(old=old):
+                self.assertEqual(from_json(old).unfinished, ())
+        for bad in ("Q1", [""], [" Q1"], ["Q1", "Q1"], [1], {"Q1": 1}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**self.raw(), "unfinished": bad})
+        taken = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "どれも要らない", None)}
+
+        def talked(*unfinished):   # 目的のお客様と話した通話（試験の共通の報告）に、手順を伺い終えていない質問を足して、置いて読み直したもの
+            rep = from_json(replace(make_report(("target",), cut=CLOSED), unfinished=unfinished).to_json())
+            return judge(JudgeInput(TALKED, rep, taken, RULES, callee=CALLEE, anyone_target=False, check_rang=False,
+                                    forbidden=False, ask_if={}))
+        done, cut = talked(), talked("Q2")
+        self.assertEqual((done.state, "unfinished" in done.detail), ("completed", False))
+        self.assertEqual((cut.state, cut.detail["unfinished"]), ("incomplete", ["Q2"]))   # 依頼者へも返す（答えはまだ途中）
+        self.assertEqual(talked("Q9").state, "completed")                                 # 行の項目に無い質問は、何も変えない
+
+    def test_a_question_asked_after_an_unfinished_answer_is_not_counted_as_not_asked(self):
+        from salescall.core.business_settings import AskIf
+        rules = check(V, ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2", "Q3")))
+        items = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "どれも要らない", None)}
+
+        def judged3(*unfinished):
+            inp = JudgeInput(TALKED, replace(make_report(("target",), cut=CLOSED), unfinished=unfinished), items, rules,
+                             callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False,
+                             ask_if={"Q3": AskIf("Q2", ("はい",))})
+            return inp, judge(inp)
+        _, settled = judged3()
+        self.assertEqual((settled.state, settled.detail["not_asked"]), ("completed", ["Q3"]))
+        inp, pending = judged3("Q2")
+        self.assertEqual((pending.state, "not_asked" in pending.detail), ("incomplete", False))
+        self.assertIn("Q2", inp.items)   # 行の項目そのものは変えない（判定の入力の控えには元の答えが残る）
+        # 手順の途中の質問（Q2）が必須でなくても、その答えのときだけ伺う必須の質問（Q3）は、伺うかがまだ決まっていない＝取れていない（完了にしない）
+        rules = check(V, ("Q1", "Q3"), rules_raw(("Q1", "Q3")))
+        _, settled = judged3()
+        _, pending = judged3("Q2")
+        self.assertEqual((settled.state, pending.state), ("completed", "incomplete"))
+
+
+class EndedOn1104(unittest.TestCase):
+    """CL-1 の連絡帳 4-74（✅ 2026-11-04 日本時間2時10分54秒 管理者「OK」）：ここで終える答えで、残りの業務の質問を伺わなかった（事実 ended_on。1通話に1つまで）。
+    判定は skipped を「伺っていない（対象外）」と数える（取れていない必須の質問に数えない＝終える答えで「すべて取れた」になる）。前の通話の答えで止めたときは
+    turn が null・said が空。人の証の表には入れない（前の通話の答えで止めたときも出るため）。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "ended_on": list(rows), "end": [{"turn": 6, "said": "はい。", "reason": "done"}]}}
+
+    def test_ended_on_is_received_and_the_skipped_questions_are_not_asked(self):
+        row = {"turn": 4, "said": "いいえ、していません。", "question": "Q1", "answer": "いいえ", "skipped": ["Q2"]}
+        r = from_json(self.raw(row))
+        self.assertEqual((r.ended_on.question, r.ended_on.skipped, from_json(r.to_json())), ("Q1", ("Q2",), r))
+        earlier = from_json(self.raw({**row, "turn": None, "said": ""}))     # 前の通話の答えで止めた
+        self.assertIsNone(earlier.ended_on.turn)
+        self.assertFalse(from_json({**self.raw({**row, "turn": None, "said": ""}), "facts": {
+            "ended_on": [{**row, "turn": None, "said": ""}]}}).talked)       # 人の証にしない
+        for bad in ([row, row], [{**row, "turn": None}], [{**row, "skipped": ["Q2", "Q2"]}], [{**row, "skipped": ["Q1"]}],
+                    [{**row, "question": ""}], [{**row, "turn": -1}], [{**row, "x": 1}], {"turn": 4}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**self.raw(), "facts": {"ended_on": bad}})
+        from salescall.core.judge import not_asked
+        self.assertEqual(not_asked({}, {}, r), frozenset({"Q2"}))
+        self.assertEqual(not_asked({}, {}, from_json(self.raw())), frozenset())
+
+
+
+class Brief1116(unittest.TestCase):
+    """CL-1 の連絡帳 4-173 の (3)（✅ 2026-11-16 日本時間12時48分22秒 ユーザー「伺い31」）：手短になら聞くと言われ、かけ直しを伺い（H3）、かけ直さずに続けた
+    （事実 brief。1通話に1つまで）。skipped＝伺わなかった必須でも最終目的でもない質問は、ended_on の skipped と同じく「伺っていない（対象外）」（会話の側が
+    伺わなかった質問の1か所＝CallReport.not_asked_by_talk）。答えは判定の中身 brief で依頼者へ返す。お客様の言葉への伺いなので人の証。答えの発話が取れな
+    ければ turn・said は無い。"""
+
+    def raw(self, *rows, ended=()):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "brief": list(rows), **({"ended_on": list(ended)} if ended else {})}}
+
+    def test_brief_is_received_and_the_skipped_questions_are_not_asked(self):
+        row = {"turn": 3, "said": "いえ、このままで大丈夫です。", "answer": "いいえ", "skipped": ["Q2"]}
+        r = from_json(self.raw(row))
+        self.assertEqual((r.brief.answer, r.brief.skipped, r.brief.evidence.turn, from_json(r.to_json())), ("いいえ", ("Q2",), 3, r))
+        unheard = from_json(self.raw({"answer": "-", "skipped": []}))       # 聞き取れない＝答えの発話が無い
+        self.assertEqual((unheard.brief.evidence.turn, unheard.brief.evidence.said, from_json(unheard.to_json())), (None, "", unheard))
+        self.assertTrue(r.talked and unheard.talked)                        # 人の証
+        for bad in ([row, row], [{**row, "turn": None}], [{**row, "skipped": ["Q2", "Q2"]}], [{**row, "skipped": "Q2"}],
+                    [{**row, "answer": ""}], [{**row, "question": "Q1"}], {"answer": "いいえ"}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**self.raw(), "facts": {"brief": bad}})
+        from salescall.core.judge import not_asked
+        self.assertEqual(not_asked({}, {}, r), frozenset({"Q2"}))
+        ended = {"turn": 5, "said": "いいえ。", "question": "Q3", "answer": "いいえ", "skipped": ["Q4"]}
+        self.assertEqual(not_asked({}, {}, from_json(self.raw(row, ended=(ended,)))), frozenset({"Q2", "Q4"}))   # 両方の事実を1か所で
+
+    def test_the_brief_answer_is_returned_to_the_client_and_skipped_questions_are_not_missing(self):
+        rules = check(V, ("Q1",), rules_raw(("Q1",)))   # 必須は Q1 だけ（Q2・Q3 は必須でも最終目的でもない）
+        items = {"Q1": Item("confirmed", None, None)}
+        brief = from_json(self.raw({"turn": 3, "said": "いえ、このままで。", "answer": "いいえ", "skipped": ["Q2", "Q3"]})).brief
+        got = judge(JudgeInput(TALKED, replace(make_report(("target",), cut=CLOSED), brief=brief), items, rules,
+                               callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
+        self.assertEqual((got.state, got.detail["not_asked"], got.detail["brief"]),
+                         ("completed", ["Q2", "Q3"], {"answer": "いいえ", "skipped": ["Q2", "Q3"], "said": "いえ、このままで。"}))
+        plain = judge(JudgeInput(TALKED, make_report(("target",), cut=CLOSED), items, rules,
+                                 callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
+        self.assertEqual(("brief" in plain.detail, "not_asked" in plain.detail), (False, False))
+
+class NotAgreedEnd1102(unittest.TestCase):
+    """CL-1 の連絡帳 4-66 のあとの (f)(g)（2026-11-02 5時56分・6時21分 ✅ ユーザー：「最終目的のご承認なら、お礼を言って締め、依頼者へ不満点を
+    返します。ただし『もうかけない』の印は付けず、改めてご案内するかは依頼者が決めます」）：ご納得いただけなかった点は点ごとに1件（何回目
+    のご説明か・ご説明できたか・結び・お断りの理由か）。締めた理由 not_agreed は「結論として終えた」（用件を断られたにしない＝同じ業務の
+    次の実施回でもかけうる）。"""
+
+    def raw(self, *rows, end="not_agreed"):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "not_agreed": list(rows), "end": [{"turn": 9, "said": "はい。", "reason": end}]}}
+
+    def test_the_points_carry_round_explained_and_outcome_and_the_end_concludes(self):
+        point = {"turn": 5, "question": "Q4", "said": "解約の方法", "round": 1, "explained": False, "outcome": "unresolved"}
+        raw = self.raw(point, {**point, "turn": 7, "said": "料金", "round": 2, "explained": True, "outcome": "declined",
+                                "declining": True})
+        r = from_json(raw)
+        self.assertEqual((r.end_reason, r.talked, r.not_agreed[1].declining, r.not_agreed[0].declining, from_json(r.to_json())),
+                         ("not_agreed", True, True, False, r))
+        j = run(raw)
+        self.assertEqual((j.state, j.detail["conclusion"], j.dnc_reason), ("concluded", "not_agreed", None))
+        self.assertEqual(j.detail["not_agreed"][0], {"question": "Q4", "point": "解約の方法", "said": "解約の方法", "round": 1, "explained": False,
+                                                     "outcome": "unresolved"})
+        self.assertNotEqual(run(self.raw(point, end="done")).detail.get("conclusion"), "not_agreed")
+        for bad in ({"round": 0}, {"round": True}, {"explained": "no"}, {"outcome": "maybe"}, {"declining": 1}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({**point, **bad}))
+
+
+class Untimed1101(unittest.TestCase):
+    def test_an_absence_with_words_but_no_time_may_be_called_again_today(self):
+        """不在で戻る時刻が取れなかったかは判定の1か所（judge._untimed_offer＝時刻の言葉を読んで「時刻の決まっていない」）。「後ほど」の
+        ような言葉のある不在も、同じ日にまたかけてよいと言われていれば、その材料になる（⛔ 見直し29c の 7：前は同じ日の材料だけ「言葉が
+        無い」で決め、判定は不在・同じ日の材料には数えない、と食い違った）。"""
+        from salescall.core.judge import unreached_today
+        raw = {"version": 3, "not_reached": "absent", "cut": None, "apology_delivered": None, "facts": {
+            "callback": [{"turn": 1, "said": "あいにく岡田は席を外しております。", "why": "absent", "read": ["ai", "judge", "judge2"],
+                          "time": "後ほど", "number": None, "again": True}]}}
+        inp = JudgeInput(TALKED, replace(from_json(raw), cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False,
+                         check_rang=False, forbidden=False, ask_if={})
+        self.assertEqual(unreached_today(inp), ("absent", True))
+        self.assertEqual(judge(inp).state, "not_reached")
+
+
+    def test_unavailable_with_a_time_is_a_promise_and_without_one_is_one_more_day(self):
+        """CL-1 の連絡帳 4-69（✅ 2026-10-31 日本時間5時48分・2026-10-22 ユーザー）：理由を言わずに取り次げないと言われ、確かめると
+        今はお電話に出られないご事情（かけ直しの理由 unavailable）。(1) お取り次ぎいただける日時が取れれば、その日時にかける約束 (2) 取れ
+        なければ「事情があり取り次げなかった」＝日を改めて1回（不在の方針に入れない＝お呼びした方はいらっしゃる） (3) 「〇時まで」は、
+        それまでは出られない。⛔ 前は理由 unavailable を受けられず、通話の報告が丸ごと断られた。"""
+        from salescall.core.judge import unreached_today
+
+        def inp(time, again=None):
+            raw = {"version": 3, "not_reached": "not_transferred", "cut": None, "apology_delivered": None, "facts": {
+                "callback": [{"turn": 1, "said": "今はお繋ぎできない事情がございまして。", "why": "unavailable",
+                              "read": ["ai", "judge", "judge2"], "time": time, "number": None,
+                              **({} if again is None else {"again": again})}]}}
+            return JudgeInput(TALKED, replace(from_json(raw), cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False,
+                              check_rang=False, forbidden=False, ask_if={})
+        timed = judge(inp("明日の15時"))
+        self.assertEqual((timed.state, timed.detail["callback"]["reason"]), ("callback_scheduled", "unavailable"))
+        untimed = judge(inp(None))
+        self.assertEqual((untimed.state, untimed.detail["not_reached"], untimed.detail["policy_key"]),
+                         ("not_reached", "not_transferred", "not_reached_not_transferred"))
+        self.assertEqual(unreached_today(inp(None, again=True)), ("not_transferred", True))
+        self.assertEqual(from_json(inp("3時まで").report.to_json()).callback.until_reason, "unavailable")
+
+
+    def test_departed_and_our_promise_are_not_callback_reasons(self):
+        """CL-1 の連絡帳 4-69 の 4-182 の (5)：在籍していない（departed）はかけ直しの申し出ではなく通話の事実 departed で、こちらが約束した
+        （our_promise）はどこにも書かれない＝かけ直しの理由に来れば報告の誤り（受けると、判定に使われない道が残る）。"""
+        for why in ("departed", "our_promise"):
+            raw = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+                "callback": [{"turn": 1, "said": "岡田は退職いたしました。", "why": why, "read": ["ai"], "time": None, "number": None}]}}
+            with self.subTest(why=why), self.assertRaises(ReportInvalid):
+                from_json(raw)
+
+
+# ── main の flowctl（2026-11-06。CL-1 の連絡帳 4-104）で通話を流して出た報告：答えの段で、お客様のほうからあとで連絡すると言った（判定が
+#    「お客様から折り返す」）。会話の側はお礼の一言のあと、こちらからかけ直す形で伺う（C1）。その途中の報告（ほかのご希望を伺う W1 の答えの段
+#    ＝取り終えていない質問 Q1）
+THEIR_CALLBACK = {"version": 3, "unfinished": ["Q1"], "facts": {
+    "callback": [{"turn": 2, "said": "あとでこちらからかけ直しますね。", "why": "later", "read": ["ai", "judge"], "offer": "callback",
+                  "time": None, "number": None}]},
+    "not_reached": None, "cut": None, "apology_delivered": None, "irreversible_check": "agreed", "ai_trouble": []}
+
+
+class TheirCallback1106(unittest.TestCase):
+    def test_a_callback_the_customer_offers_in_the_answer_stage_is_received(self):
+        """CL-1 の連絡帳 4-104：答えの段の判定の選べるもの「お客様から折り返す」と読んだかけ直しは、かけ直しの記録の申し出 offer が "callback"
+        （折り返し。お客様の申し出の一覧 `call_report.CALLBACK_OFFERS`＝会話の側の OFFER_LABEL の鍵）。報告を受けて残し（記録だけ）、判定は
+        今までのこちらからかけ直す約束と同じ（時刻を言っていただければその時刻・言っていただけなければ時刻の決まっていない約束）。"""
+        r = from_json(THEIR_CALLBACK)
+        self.assertEqual(from_json(r.to_json()), r)
+        self.assertEqual((r.callback.reason, r.callback.offer, r.to_json()["facts"]["callback"][0]["offer"]), ("later", "callback", "callback"))
+        untimed = run(THEIR_CALLBACK)
+        self.assertEqual((untimed.state, untimed.detail["callback"]["reason"], untimed.detail["policy_key"]),
+                         ("callback_scheduled", "later", "callback_unspecified_time"))
+        timed = copy.deepcopy(THEIR_CALLBACK)
+        timed["facts"]["callback"][0]["time"] = "明日の15時"
+        got = run(timed)
+        self.assertEqual((got.state, got.detail["callback"]["exact"]), ("callback_scheduled", True))
+
+
+class Theirs1113(unittest.TestCase):
+    """CL-1 の連絡帳 4-149 の伺い5（✅ 2026-11-13 日本時間20時06分19秒 ユーザー「イ（相手の好意を2回目は無下にしない）（折り返しかからなければ、再度かける）」）と
+    4-151 の伺い7（22時17分01秒）：お礼の一言のあとに重ねて折り返しを申し出られ、お言葉に甘えて受けたかけ直しの記録は theirs（お客様のほうから折り返すお約束）、
+    伝言を残さない業務で伝言の申し出を重ねられて伝言をお願いしたかけ直しの記録は message_left（伝言を残す業務と同じ印）。どちらも記録だけ：判定・次の動きは、
+    同じかけ直しの印の無い記録と同じ（戻る時刻の取れなかった不在＝不在の方針・時刻の決まらない申し出＝時刻の決まっていない約束。⏳ 待つ長さ・折り返しが
+    あったかの知り方は未決＝CL-2 の連絡帳 4-389）。"""
+
+    ABSENT = {"version": 3, "facts": {
+        "callback": [{"turn": 1, "said": "あいにく岡田は外出しておりまして、戻りましたら折り返させますが。", "why": "absent", "read": ["ai", "judge"],
+                      "offer": "callback", "time": None, "number": None, "theirs": True}],
+        "end": [{"turn": 2, "said": "いえいえ、戻りましたらこちらから折り返させますので。", "reason": "callback"}]},
+        "not_reached": "absent", "cut": None, "apology_delivered": None}
+
+    def test_their_callback_is_received_and_kept(self):
+        r = from_json(self.ABSENT)
+        self.assertEqual(from_json(r.to_json()), r)
+        self.assertEqual((r.callback.theirs, r.to_json()["facts"]["callback"][0]["theirs"]), (True, True))
+        plain = copy.deepcopy(self.ABSENT)
+        del plain["facts"]["callback"][0]["theirs"]
+        self.assertFalse(from_json(plain).callback.theirs)
+        self.assertNotIn("theirs", from_json(plain).to_json()["facts"]["callback"][0])
+        got, same = run(self.ABSENT), run(plain)
+        self.assertEqual((got.state, got.detail.get("policy_key")), (same.state, same.detail.get("policy_key")))
+        later = copy.deepcopy(THEIR_CALLBACK)
+        later["facts"]["callback"][0]["theirs"] = True
+        self.assertEqual((run(later).state, run(later).detail["policy_key"]), ("callback_scheduled", "callback_unspecified_time"))
+        for bad in (False, "true", 1):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**self.ABSENT, "facts": {**self.ABSENT["facts"], "callback": [{**self.ABSENT["facts"]["callback"][0], "theirs": bad}]}})
+
+    def test_a_message_left_without_a_message_business_is_received(self):
+        raw = copy.deepcopy(self.ABSENT)
+        cb = raw["facts"]["callback"][0]
+        del cb["theirs"], cb["offer"]
+        cb.update(message_left=True, message=None)
+        r = from_json(raw)
+        self.assertEqual((r.callback.message_left, r.callback.theirs, dict(r.callback.means)), (True, False, {"message": None}))
+
+
+MORNING = datetime(2030, 1, 7, 1, 0, tzinfo=timezone.utc)   # 日本の 2030-01-07（月）10:00（戻る時刻の15時が、まだ来ていない）
+JST9 = timezone(timedelta(hours=9))
+
+
+def jst(h, m=0, d=7):
+    return datetime(2030, 1, d, h, m, tzinfo=JST9)
+
+
+class TheirsBackTime1114(unittest.TestCase):
+    """✅ 2026-11-14 ユーザー（DESIGN.md 2章 Q248）：お言葉に甘えて受けた、お客様のほうから折り返すお約束（theirs）の電話で、戻る時刻を伺えたら
+    （「お電話をいただいた際に出られないことがないように、お戻りになられる時間はお分かりになるでしょうか？」）、こちらからかけるのは戻る時刻の1時間後
+    （15時なら16時）。決めるのは判定の約束の中身の1か所（judge._after_theirs・待つ長さ judge.THEIRS_WAIT）。戻る時刻が分からないお言葉に甘えた電話は、
+    今までどおり不在の方針。印の無いふつうの不在の「15時に戻ります」は15時のまま。"""
+
+    def okada(self, time, *, theirs=True):
+        """受付の方「あいにく岡田は外出しておりまして、戻りましたら折り返させますが。」・お言葉に甘え、戻る時刻を伺った報告（time＝伺えた言葉）。"""
+        raw = copy.deepcopy(Theirs1113.ABSENT)
+        raw["facts"]["callback"][0]["time"] = time
+        if not theirs:
+            del raw["facts"]["callback"][0]["theirs"]
+        return raw
+
+    def judged(self, raw, *, callee=CALLEE, cut=CLOSED):
+        rep = replace(from_json(raw), cut=cut)
+        return judge(JudgeInput(Facts("ended", None, True, False, MORNING), rep, {}, RULES, callee=callee, anyone_target=False,
+                                check_rang=False, forbidden=False, ask_if={}))
+
+    def promise(self, raw, **kw):
+        j = self.judged(raw, **kw)
+        self.assertEqual(j.state, "callback_scheduled")
+        cb = j.detail["callback"]
+        return (datetime.fromisoformat(cb["at"]), cb["until"], cb["exact"], cb["theirs"],
+                None if cb["back_at"] is None else datetime.fromisoformat(cb["back_at"]))
+
+    def test_the_report_carries_their_callback_and_the_return_time_together(self):
+        """会話の報告の受け口は、theirs と戻る時刻の言葉（time）を一緒に受け、置いて読み直しても同じ（CL-1 の流れの制御が作る形のまま）。"""
+        r = from_json(self.okada("15時"))
+        self.assertEqual((r.callback.theirs, r.callback.time_said, r.callback.reason), (True, "15時", "absent"))
+        self.assertEqual(from_json(r.to_json()), r)
+        self.assertEqual({k: r.to_json()["facts"]["callback"][0][k] for k in ("theirs", "time")}, {"theirs": True, "time": "15時"})
+
+    def test_okada_back_at_three_is_called_from_four(self):
+        """岡田様が15時に戻られる・折り返しのお約束 ⇒ 16時から終わり無しの幅の約束（戻る時刻は back_at に残す）。✅ 2026-11-14 ユーザー：ずらした
+        時刻はお客様が指定した時刻でない ⇒ 時刻ちょうどの約束にしない（exact 偽）。ふつうの不在の「15時に戻ります」は15時の時刻ちょうどの約束のまま。"""
+        self.assertEqual(self.promise(self.okada("15時")), (jst(16), None, False, True, jst(15)))
+        self.assertEqual(self.promise(self.okada("3時ごろ")), (jst(16), None, False, True, jst(15)))
+        self.assertEqual(self.promise(self.okada("明日の15時")), (jst(16, d=8), None, False, True, jst(15, d=8)))
+        self.assertEqual(self.promise(self.okada("15時", theirs=False)), (jst(15), None, True, False, None))
+        # 途中で切れて判定できなかった通話に残す約束の申し出（promise_offer）も、同じ1か所
+        cut = self.judged(self.okada("15時"), cut=None)
+        self.assertEqual((cut.state, cut.detail["promise_offer"]["at"], cut.detail["promise_offer"]["back_at"],
+                          cut.detail["promise_offer"]["exact"]), ("unknown", jst(16).isoformat(), jst(15).isoformat(), False))
+
+    def test_the_moved_time_is_an_open_window_on_the_usual_days_and_hours(self):
+        """ずらした時刻（✅ 2026-11-14 ユーザー）はお客様が指定した時刻でないので、お客様が指定した時刻にだけ認めている例外（NG時間の枠・依頼者の時間帯の
+        外・依頼者の休みの日でもかけてよい）を使わない形：時刻ちょうどでない・1日の中の幅が無い（日だけの幅＝依頼者のいつもの時間）・日を言っていない
+        （依頼者のかける日だけ）・終わり無し・話せなければ「すぐ」と同じく次の日の回へ。かける時刻そのものは次の動きが選ぶ（next_action._theirs_at）。"""
+        for time, back in (("15時", jst(15)), ("11時半", jst(11, 30)), ("18時", jst(18)), ("21時半", jst(21, 30)), ("すぐ", jst(10))):
+            with self.subTest(time=time):
+                cb = self.judged(self.okada(time)).detail["callback"]
+                self.assertEqual({k: cb[k] for k in ("at", "until", "exact", "daily", "days", "said", "day_said", "repeat", "since", "back_at")},
+                                 {"at": (back + timedelta(hours=1)).isoformat(), "until": None, "exact": False, "daily": None, "days": None,
+                                  "said": [False, False], "day_said": False, "repeat": "day", "since": None, "back_at": back.isoformat()})
+
+    def test_the_old_exceptions_are_gone(self):
+        """前の決め方が残っていない：「18時に戻ります」を、依頼者の時間帯の外の19時の時刻ちょうどの約束にしない（例外で19時にかけない）。「21時半に
+        戻ります」を、ずらさずに21時半の時刻ちょうどの約束にしない。日をまたぐ「23時半」（歯止め時間が1日じゅうの業務）も、ずらさずに残さない。"""
+        self.assertEqual(self.promise(self.okada("18時")), (jst(19), None, False, True, jst(18)))
+        self.assertEqual(self.promise(self.okada("21時半")), (jst(22, 30), None, False, True, jst(21, 30)))
+        whole_day = replace(CALLEE, designated_limit=(0, 24 * 3600))
+        self.assertEqual(self.promise(self.okada("23時半"), callee=whole_day), (jst(0, 30, d=8), None, False, True, jst(23, 30)))
+
+    def test_the_span_to_search_is_from_half_an_hour_to_an_hour(self):
+        """探す間の1か所（judge.theirs_span）：戻る時刻の30分後から1時間後（✅ 2026-11-14 ユーザー「30分から1時間の間で調整してもOK」）。"""
+        self.assertEqual(judge_mod.theirs_span(jst(15)), (jst(15, 30), jst(16)))
+
+    def test_an_unknown_return_time_stays_the_absent_policy(self):
+        """お戻りの時間が「分からない」（時刻の言葉が無い・「後ほど」）お言葉に甘えた電話は、ふつうの不在と同じ（不在の方針。約束にしない）。"""
+        for time in (None, "後ほど"):
+            with self.subTest(time=time):
+                got, plain = self.judged(self.okada(time)), self.judged(self.okada(time, theirs=False))
+                self.assertEqual((got.state, got.detail["not_reached"], got.detail["policy_key"]), ("not_reached", "absent", "not_reached_absent"))
+                self.assertEqual((got.state, got.detail["policy_key"], got.detail["again"]),
+                                 (plain.state, plain.detail["policy_key"], plain.detail["again"]))
+
+    def test_a_moment_from_now_moves_its_start(self):
+        """「30分後」「すぐ」（その時点から終わり無しの幅）も同じ決まり：始まりを戻る時刻の1時間後へ（終わり無しのまま。日を言っていない）。"""
+        self.assertEqual(self.promise(self.okada("30分後")), (jst(11, 30), None, False, True, jst(10, 30)))
+        self.assertEqual(self.promise(self.okada("すぐ")), (jst(11), None, False, True, jst(10)))
+        self.assertEqual(self.promise(self.okada("30分後", theirs=False)), (jst(10, 30), None, False, False, None))
+
+    def test_window_words_are_called_an_hour_after_their_end(self):
+        """✅ 2026-11-15 ユーザー「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日の
+        かけて良い時間の最後の方。」（CL-2 の連絡帳 4-391 の (3)(b)）：幅の言葉は、いちばん遅い戻り（幅の終わり）の1時間後から、終わり無しの幅の約束
+        （back_at＝幅の始まり・back_until＝幅の終わり。時刻ちょうどでない・日を言っていない＝ふつうの電話の時間）。かける時刻を選ぶのは次の動き
+        （next_action._theirs_at＝試験 test_settle.CallbackWindow）。「3時以降」の終わりは、その日の終わり。印の無いふつうの不在は、幅のまま。
+        ⛔ 2026-11-15 まで：ずらさず、幅のまま（「明日戻ります」⇒明日の時間帯の始まりにかけ、折り返しの前にかけえた）。"""
+        for time, back, until in (("夕方", jst(16), jst(18)), ("3時から5時", jst(15), jst(17)), ("3時以降", jst(15), jst(0, d=8)),
+                                  ("明日", jst(0, d=8), jst(0, d=9)), ("来週中", jst(0, d=14), jst(0, d=21))):
+            with self.subTest(time=time):
+                cb = self.judged(self.okada(time)).detail["callback"]
+                self.assertEqual({k: cb[k] for k in ("at", "until", "exact", "daily", "days", "day_said", "repeat", "back_at", "back_until")},
+                                 {"at": (until + timedelta(hours=1)).isoformat(), "until": None, "exact": False, "daily": None, "days": None,
+                                  "day_said": False, "repeat": "day", "back_at": back.isoformat(), "back_until": until.isoformat()})
+        plain = self.judged(self.okada("夕方", theirs=False)).detail["callback"]
+        self.assertEqual((plain["at"], plain["until"], plain["back_at"], plain["back_until"]), (jst(16).isoformat(), jst(18).isoformat(), None, None))
+        self.assertIsNone(self.judged(self.okada("15時")).detail["callback"]["back_until"])   # 1つの時点は、いちばん早い戻りと同じ
+
+    def test_by_a_day_means_the_end_of_that_day(self):
+        """「〇日まで」（「9日までには出社します」）は、その日のうちに戻る＝いちばん遅い戻りはその日の終わり（「明日」と同じ＝その日の終わりの1時間後、
+        依頼者の時間の外なら、その日のかけてよい時間の最後の方。✅ 2026-11-15 ユーザー）。理由・契約者の設定によらない（judge.THEIRS_READ）。
+        ⛔ 2026-11-15 の見直しまで：理由がそれまでは出られない（初め）のとき、その日から終わり無しと読んでずらさず、9日の時間帯の始まりにかけた。"""
+        now_rules = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "now")))
+        for callee in (CALLEE, now_rules):
+            with self.subTest(callee=callee.until_rules):
+                raw = self.okada("9日までに")
+                raw["facts"]["callback"][0]["why"] = "day_off"
+                self.assertEqual(self.promise(raw, callee=callee), (jst(1, d=10), None, False, True, jst(0, d=9)))
+                self.assertEqual(self.judged(raw, callee=callee).detail["callback"]["back_until"], jst(0, d=10).isoformat())
+
+    def test_a_return_without_a_day_or_an_end_is_that_days_end(self):
+        """✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」：終わりの無い戻り（「9日以降に出社します」）は、その始まりの日のうち（その日の終わりの1時間後
+        ＝依頼者の時間の外なら、その日のかけてよい時間の最後の方。「明日」と同じ）。日の種類だけの戻り（「平日の4時までに」）は、判定の中身に日の種類と
+        いちばん遅い戻りの時刻（back_days・back_clock）を残し、日は次の動きが暦で決める（約束は日を言っていない終わり無しの幅）。⛔ 2026-11-15 の見直し
+        まで：「平日の4時までに」はいまの1時間後にかけた・「9日以降」はずらさず9日の始まりにかけた。"""
+        raw = self.okada("9日以降")
+        raw["facts"]["callback"][0]["why"] = "day_off"
+        self.assertEqual(self.promise(raw), (jst(1, d=10), None, False, True, jst(0, d=9)))
+        cb = self.judged(self.okada("平日の4時までに")).detail["callback"]
+        self.assertEqual({k: cb[k] for k in ("back_at", "back_days", "back_clock", "until", "daily", "days", "exact", "day_said")},
+                         {"back_at": None, "back_days": ["mon", "tue", "wed", "thu", "fri"], "back_clock": 16 * 3600, "until": None,
+                          "daily": None, "days": None, "exact": False, "day_said": False})
+        self.assertGreaterEqual(datetime.fromisoformat(cb["at"]), MORNING)
+        evening = self.judged(self.okada("平日の夕方")).detail["callback"]   # 時刻の幅の日の種類だけ：いちばん遅い戻りは幅の終わり（日は次の動きが暦で）
+        self.assertEqual({k: evening[k] for k in ("back_at", "back_days", "back_clock", "until")},
+                         {"back_at": None, "back_days": ["mon", "tue", "wed", "thu", "fri"], "back_clock": 18 * 3600, "until": None})
+        plain = self.judged(self.okada("平日の4時までに", theirs=False))   # 印の無いふつうの不在は今までどおり（理由の決まりで読む）
+        self.assertIsNone(plain.detail.get("callback", {}).get("back_days") if plain.detail.get("callback") else None)
+
+    def test_by_a_time_means_back_by_then(self):
+        """「〇時まで」（「3時までには戻ります」・あとで「3時までにはお電話できると思います」）は、いちばん遅い戻りがその時刻＝その1時間後から（✅ 2026-11-15
+        ユーザー「1時間後にかける（お勧め）」）。不在のほかの理由（お休み・長期の不在・ご事情・あとで＝CL-1 の連絡帳 4-161）でも同じ。あとでの「〇時まで」の
+        理由は「それまでは出られない」（call_report.THEIRS_UNTIL。会話の側は伺い直さない）。⛔ 2026-11-15 まで：「3時までに」を「3時以降」と同じ幅に読んで
+        ずらさず、あとでは理由が無く判定できなかった。印の無いあとでの「〇時まで」は、今までどおり理由を通話の中で確かめる（判定できない）。"""
+        unreached = {"absent": "absent", "day_off": "absent", "long_absent": "absent", "unavailable": "not_transferred", "later": None}
+        # 読み方は、いま電話を続けられなかった理由と、その理由ごとの契約者の設定（callback.until_*）によらない1か所（judge.THEIRS_READ）：設定を「今から」
+        # にした業務でも、戻ると言った時刻より前にかけない（⛔ 2026-11-15 の見直しまで：設定 now の業務では「いま〜3時」と読み、14時55分にかけえた）
+        now_rules = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "now")))
+        for why, nr in unreached.items():
+            for callee in (CALLEE, now_rules):
+                with self.subTest(why=why, callee=callee.until_rules):
+                    raw = self.okada("3時までに")
+                    raw["facts"]["callback"][0]["why"], raw["not_reached"] = why, nr
+                    self.assertEqual(self.promise(raw, callee=callee), (jst(16), None, False, True, jst(15)))
+                    self.assertIsNone(self.judged(raw, callee=callee).detail["callback"]["back_until"])
+        raw = self.okada("3時までに", theirs=False)
+        raw["facts"]["callback"][0]["why"], raw["not_reached"] = "later", None
+        self.assertEqual((from_json(raw).callback.until_reason, self.judged(raw).state), (None, "unknown"))

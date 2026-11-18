@@ -26,7 +26,7 @@ from listen import hear_feeds, in_any
 from phrases import confirm
 
 VARIANTS = {
-    "W0_言い直しだけ": {"confirm": lambda v, s="ふつう", n=0: "ありがとうございます。" + confirm(v, s, n)},
+    "W0_言い直しだけ": {"confirm": lambda v, s="ふつう", n=0: "ありがとうございます。" + confirm(v, s, n), "lead_ins": False},
     "W1_両方に回して": {"lead_ins": True},
 }
 QUESTION_TEXTS = {q.id: q.text.rstrip("。") for q in BUSINESS.questions[1:]}  # Q1 は録音の名乗りの中で聞くので除く

@@ -1,0 +1,426 @@
+"""試行（1回の発信）の状態を移す処理（DESIGN.md 4-2）。持ち主 CL-2。
+
+試行の行を書き換えるのは、この部品だけ（I-12・I-27。app/checks が見張る）。呼ぶ側と、使ってよい処理：
+- 回線の部品（呼び出し中・応答・会話中・締め・終わり）と復旧（結果不明）  ⇒ `move`
+- 回線の部品（お客様の番号へかけて、電話網のお知らせの声が返った）          ⇒ `end_by_notice`（0151）
+- 発信の出口（予約 → 発信）                                              ⇒ `start_dialing`
+- 門（期限切れの予約を戻す・門の前提が変わった予約を取り消す）           ⇒ `release`
+- 通話後の検証（Q21。待ち → 済み）                                        ⇒ `record_verification`
+- 締めの処理（core/settle.py。判定が決めた切れ方・途中で切れたかを1回だけ）  ⇒ `record_disconnect`・`record_cut_off`
+- 発信の出口（PC の部品がかけなかった＝お客様の電話は鳴っていない）          ⇒ `withheld`
+移ってよい組・期限・時刻・検証の状態の決まりは、データベースが持つ（ここで2つ目の決まりを作らない）。
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Any, Literal
+from uuid import UUID
+
+from salescall.core import business_rules, errors, fix_requests, number_recheck, settings, target_recheck, watch
+from salescall.core.access import Tx
+from salescall.core.errors import ErrorReport
+from salescall.link.phone import NOTICES
+
+def dialed(table: str = "") -> str:
+    """発信まで進んだ試行の条件（SQL。予約のまま・かけずに取り消した予約は入れない）。決まりはデータベースの salescall.is_dialed の
+    1か所（データベースの関数も同じものを使う）。table＝表の別名（無ければ state）。回数・間隔・「その回にかけたか」・続けて何回
+    かけたか などは、どれもこれを使う。"""
+    return f"salescall.is_dialed({table + '.' if table else ''}state)"
+
+
+DIALED = dialed()
+
+
+def placed(table: str = "") -> str:
+    """発信まで進み、回線の部品が番号を受け付けなかった（call_failed）ものを除いた試行の条件（SQL。1か所）。回線を使った電話：
+    回線の1日の上限・報酬の「かけた1本」が使う。番号の続き（番号の欄＝core/health）・約束の回に「かけたか」・その回にかけた数は
+    これでなく、数え方の種類（`reached`・`rang`）で決める（⛔ 見直し17c）。"""
+    return f"salescall.is_placed({table + '.' if table else ''}state)"   # 決まりはデータベースの1か所（0109）
+
+
+def kind(table: str = "") -> str:
+    """発信の数え方の種類（SQL。決まりはデータベースの salescall.dial_kind の1か所＝0116）：NULL＝発信まで進んでいない／
+    not_placed＝発信に失敗（鳴っていない）／line_failure＝お客様が出る前に回線・こちらの側で終わった／cut_off＝お客様が出たあと、
+    お客様の意思と関係なく途中で切れた／reached＝お客様に届いた1回。"""
+    t = table + "." if table else ""
+    return f"salescall.dial_kind({t}state, {t}cut_off, {t}attempt_id)"
+
+
+def kind_of(tx: Tx, attempt_id: UUID) -> str | None:
+    """その試行の数え方の種類（`kind` と同じ決まり＝salescall.dial_kind）。"""
+    return tx.one(f"SELECT {kind()} AS k FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["k"]
+
+
+def resume_allowed(tx: Tx, task_id: UUID) -> bool:
+    """その行のいちばん新しい発信のあと、お詫びしてすぐかけ直してよいか（決まりはデータベースの1か所 salescall.resume_allowed＝
+    その発信が途中で切れた通話で、続けて切れた数が salescall.resume_in_a_row() 回まで。2026-10-18 ユーザー 案A。数え方の dial_kind も
+    同じ数を読む＝すぐかけ直す回を超えて切れた通話は、ふつうの電話の回数に数える）。こちらのプログラムの不具合で終えた通話（is_ours）は、
+    いつもお詫びとともにかけ直すが、いつかけるか（復旧次第）は、行の欄の「復旧待ち」（DESIGN.md 17-1-2。core/health）を門と候補を出す
+    処理が読んで待たせる。"""
+    row = tx.one(f"SELECT salescall.resume_allowed(attempt_id) AS ok FROM salescall.attempts WHERE task_id = %s AND {DIALED}"
+                 " ORDER BY claimed_at DESC LIMIT 1", (task_id,))
+    return bool(row and row["ok"])
+
+
+# 番号のせいでないと分かった鳴らなかった発信（試行のせいの欄を次の動きが読む名前＝core/health.blame_of の値。回線のせい line・
+# こちらのせい ours）：かけた予定のまま、どの数にも数えずにかけ直す（next_action の1か所）。⛔ 4段目まで：だれのせいかを、読むたびに
+# データベースの salescall.unrung_blame で導き直した（5段目＝0147 で外した）
+REDO_AS_PLANNED = ("line", "ours")
+
+
+def reached(table: str = "") -> str:
+    """お客様に届いた1回の条件（SQL。1か所）：同じお客様への最小の間隔・番号の聞き直しとお詫びの電話の回数・業務ごとの1日の
+    上限が数える（お客様の意思と関係なく繋がらなかった・切れた発信と、発信に失敗は数えない）。"""
+    return f"{kind(table)} = 'reached'"
+
+
+def rang(table: str = "") -> str:
+    """お客様のところで電話が鳴った試行の条件（SQL。1か所）：数え方の種類 dial_kind が「お客様に届いた1回」か「途中で切れた」
+    （発信に失敗・お客様が出る前の回線の失敗は、かけられなかったのと同じ）。約束の回に、一度もかけられなかったか（お詫びの印）を
+    決めるのに使う（next_action._missed）。本数を方針と比べる所は `reached`（同じ決まりの、数える側）。"""
+    t = table + "." if table else ""
+    return f"salescall.rang({t}state, {t}cut_off, {t}attempt_id)"   # 決まりはデータベースの1か所（0124）。状態の表へ渡す出来事（core/health）も同じ
+
+
+def counts_as_try(table: str = "") -> str:
+    """行の回数に数える発信の条件（SQL。1か所）：お客様に届いた1回（`reached`）で、お客様と約束したかけ直しでないもの。門（行の
+    回数の上限・同じお客様の1日の回数）と、次の動きの再発信の方針の回数の両方が読む（2026-10-14 ユーザー：「統一した方がよくない？」）。
+    決まりはデータベースの salescall.counts_as_try の1か所（0116）。"""
+    t = table + "." if table else ""
+    return f"salescall.counts_as_try({t}state, {t}cut_off, {t}promised, {t}attempt_id)"
+
+
+def in_row_count(table: str = "") -> str:
+    """行の回数を数える範囲（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信のうち、前にかける番号だった番号へ
+    かけたもの（直したあと、まず前の番号でかけた約束の電話）でないもの（直していなければ、すべて）。行の回数の上限・再発信の方針の回数・
+    時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で数え直す」。お客様が「あとで」と
+    言った回数は、こちらがかけた回数ではなくお客様の言葉なので、どの番号への電話も入る `count_start` で数える＝next_action._laters。
+    数え始めの時刻は salescall.task_count_from＝0180、前にかける番号だった番号は salescall.task_number_replaced_at＝0188 の1か所。
+    番号の立場は、かけたときの立場で見る＝⛔ 2026-11-06 の見直し (A) の2：前は「いま」の立場で見て、前の番号で話せてサブになった電話を、
+    あとから新しい番号の回数に数えた）。"""
+    t = table + "." if table else ""
+    return (f"{count_start(table)}"
+            f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)"
+            # いまの担当の方の期の発信だけ（「担当の方は違う」で直したら、新しい担当の方で数え直す。前の担当の方に戻したら、その方の期の発信をまた数える。
+            # ✅ 2026-11-07 ユーザー＝計画書 7-1 (8)「新しい担当の方には、まだかけていない」・(30)。⛔ 2026-11-16 の3回目の見直しまで：番号の直しでしか
+            # 数え直さず、名前などの「違う」の直しで戻した行を、門が前の担当の方の回数で「回数の上限」にして、新しい担当の方へ一度もかけなかった）
+            f" AND {t}person_since IS NOT DISTINCT FROM salescall.task_person_since({t}task_id, now())")
+
+
+def in_purpose_count(table: str = "") -> str:
+    """その番号へかける電話（番号の聞き直し・お詫び）の回数を数える範囲（SQL。1か所。gate.purpose_dials が読む）：
+    - いまの担当の方の期の通話は、回数の数え始めのあと（`count_start`＝番号を直したら、新しい番号で数え直す＝計画書 7-1 (15)）。
+    - 前の担当の方の期の通話（「担当の方は違う」を選んで直す前の期）は、すべて（前の担当の方へのお詫び・番号の聞き直しは、決めた回数まで、その方へ
+      かける＝✅ 2026-11-08 本体の決定。計画書 7-1 (32) にそろえる。番号の直しで数え直すのは、いまの担当の方の決まり。⛔ 0201〜0215：「違う」で番号を
+      直すと、前の番号への回数も0から数え直していた（前の番号へは1回で移っていたので困らなかった）。0216）。"""
+    t = table + "." if table else ""
+    return f"({count_start(table)} OR {t}person_since IS DISTINCT FROM salescall.task_person_since({t}task_id, now()))"
+
+
+def in_promise_count(table: str = "", period: str | None = None) -> str:
+    """お客様と約束したかけ直しの回数を数える範囲（SQL。1か所。next_action の約束の回の数え＝`_round_calls`・`_exact_next_try`・
+    `_unspecified_calls`・`_missed` が読む）。period＝その約束の担当の期（SQL の式。None＝その通話の期）：
+    - その約束の担当の期の通話だけ（担当の期の比べ＝試行の person_since）。前の担当の方に戻したとき、やめていたあいだにかけた電話は、ほかの期の
+      方（新しい担当の方）への電話なので、戻した約束の回に数えない（✅ 2026-11-08 ユーザー＝計画書 7-1 (31)。0214）。
+    - いまの担当の方の期の約束なら、行の回数の範囲（`in_row_count`＝番号を直したら、新しい番号で数え直す＝7-1 (4)）。
+    - 前の担当の方の期の約束（契約者が「守る」を選んだ約束）なら、その期の通話すべて（前の担当の方の番号で、約束の決まりいっぱいまでかける＝
+      ✅ 2026-11-08 ユーザー＝計画書 7-1 (32)。新しい番号での数え直しは、いまの担当の方への番号の直しの決まりなので当てない。⛔ 0213 まで：
+      前の番号へは1回で新しい番号へ移っていたので、前の番号への電話を数えなくても困らなかった）。"""
+    t = table + "." if table else ""
+    p = period or f"{t}person_since"
+    return (f"({t}person_since IS NOT DISTINCT FROM {p} AND ({in_row_count(table)}"
+            f" OR {p} IS DISTINCT FROM salescall.task_person_since({t}task_id, now())))")
+
+
+def count_start(table: str = "") -> str:
+    """回数を数え始めてからの発信の条件（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信（直していなければ、すべて）。
+    数え始めの時刻はデータベースの salescall.task_count_from（0180）。行の回数（`in_row_count`）と、その番号へかける電話の回数（番号の
+    聞き直し・お詫び＝gate.purpose_dials）の両方が読む（✅ 2026-11-06 ユーザー＝計画書 7-1 (3)・(15)：「新しい番号で数え直す」。0195）。
+    ⛔ 0209 まで：その時刻で読む形（at）も持っていた（「あとで」を回数より多く言って終えた行を戻すかが、終えた時刻の「あとで」を読んだ）。
+    計画書 7-1 (27) で、戻すかは「あとで」の意味を読まなくなったので消した（0210）。"""
+    t = table + "." if table else ""
+    return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
+
+
+# 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
+LineState = Literal["ringing", "answered", "in_conversation", "ending", "ended",
+                    "busy", "no_answer", "call_failed", "dropped", "technical_error"]
+HangupSide = Literal["callee", "line", "unknown"]
+
+
+class AttemptNotFound(Exception):
+    """その試行は無い（または、取引の依頼者の範囲の外）。"""
+
+
+def move(tx: Tx, attempt_id: UUID, to_state: LineState, *, hangup_side: HangupSide | None = None) -> dict[str, Any]:
+    """回線の部品・復旧が、試行の状態を移す。移れない組なら、データベースが拒む（Rejected）。"""
+    if to_state in ("claimed", "dialing", "released"):
+        raise ValueError(f"{to_state} へは、この処理では移せません（予約は門、発信は出口、取り消しは門の処理）")
+    row = tx.one(
+        "UPDATE salescall.attempts SET state = %s, hangup_side = %s WHERE attempt_id = %s"
+        " RETURNING attempt_id, state, verification, hangup_side, ended_at",
+        (to_state, hangup_side, attempt_id),
+    )
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+    return row
+
+
+# お知らせの種類ごとの、試行の終わり方（決めるのはここの1か所。0151）。2026-10-25 夜 管理者のご決定（テスト番号の話し中・電源オフ・圏外は、
+# こちらの回線から発信できた証拠）と同じ当てはめ：電源オフ・圏外＝こちらの回線は元気で、番号のせいにも数えない＝「お客様が出なかった」と
+# 同じ（no_answer。ふつうの再発信の方針）／「この番号は現在使われておりません」だけが番号のせい（call_failed。試行のせいは番号＝
+# 状態の表の入口 core/health.after_call が、テスト番号を待たずに決める）／見分けられない（None）＝今までどおり発信に失敗（だれのせいかは
+# 証拠で決める）
+NOTICE_ENDS: dict[str | None, str] = {"power_off": "no_answer", "out_of_range": "no_answer", "not_in_use": "call_failed", None: "call_failed"}
+
+
+def end_by_notice(tx: Tx, attempt_id: UUID, notice: str | None) -> dict[str, Any]:
+    """お客様の番号へかけて、電話網のお知らせの声が返った（または、お客様の電話が鳴らないまま終わった）試行を終える（1か所）。
+    notice＝お知らせの種類（link/phone.NOTICES のどれか。見分けられなければ None）。終わり方は `NOTICE_ENDS`。お知らせの種類は試行に
+    1回だけ残る（データベースが守る）。"""
+    if notice not in NOTICE_ENDS:
+        raise ValueError(f"お知らせの種類は {NOTICES} のどれか（見分けられなければ None）です：{notice!r}")
+    row = tx.one(
+        "UPDATE salescall.attempts SET state = %s, notice = %s WHERE attempt_id = %s"
+        " RETURNING attempt_id, state, verification, hangup_side, ended_at, notice",
+        (NOTICE_ENDS[notice], notice, attempt_id),
+    )
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+    return row
+
+
+def start_dialing(tx: Tx, attempt_id: UUID) -> bool:
+    """発信の出口だけが呼ぶ。予約が「まだ予約のまま・期限内」なら発信中にし True。それ以外は False（発信しない）。
+
+    確かめと書き換えを1つの書き換えで行う（間に、ほかの処理が割り込めない。DESIGN.md 5-3）。
+    """
+    row = tx.one(
+        "UPDATE salescall.attempts SET state = 'dialing'"
+        " WHERE attempt_id = %s AND state = 'claimed' AND claim_expires_at > now() RETURNING attempt_id",
+        (attempt_id,),
+    )
+    return row is not None
+
+
+def release(tx: Tx, attempt_ids: list[UUID]) -> int:
+    """まだ発信していない予約を取り消す（期限切れ・門の前提が変わった＝停止・発信禁止・行を終えた・版を替えた・緊急停止の印。
+    DESIGN.md 5-2-1 の2・3）。"""
+    if not attempt_ids:
+        return 0
+    return tx.execute(
+        "UPDATE salescall.attempts SET state = 'released' WHERE attempt_id = ANY(%s) AND state = 'claimed'",
+        (list(attempt_ids),),
+    ).rowcount
+
+
+# 使ったキーの種類（試行の keys_used。CL-1 の連絡帳 4-34 の 4-67。形の守りはデータベースの salescall.keys_used_ok）
+KEY_SERVICES = ("live", "judge", "ear", "own_check")
+
+
+def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:
+    """その通話で使ったキーの識別名を足す（書き込む入口 conversation_io.record_keys から。前に残したものは消さず、同じものは
+    重ねない）。形は {"service": KEY_SERVICES のどれか, "key": "名前#指紋8桁"}。値は残さない（形の確かめはデータベース）。"""
+    if tx.one("UPDATE salescall.attempts SET keys_used ="
+              " (SELECT coalesce(jsonb_agg(DISTINCT k), '[]'::jsonb)"
+              "  FROM jsonb_array_elements(coalesce(keys_used, '[]'::jsonb) || %s::jsonb) k)"
+              " WHERE attempt_id = %s RETURNING attempt_id", (json.dumps(keys), attempt_id)) is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+# 通話をお詫びして終えた理由（一覧の正本は core/errors.ENDS の1か所）。どれがこちらのプログラムの不具合か（こちらのせい＝試行のせいの欄の
+# ours。番号・回線・行の回数のどれにも数えない。同じ行で続けば、その行を休ませる＝core/troubles）は、データベースの salescall.trouble_ours の
+# 1か所（`is_ours`。0141：「声が聞き取れない」は、こちらの不具合に数えない）
+TROUBLES = errors.ENDS
+
+
+def is_ours(tx: Tx, attempt_id: UUID) -> bool:
+    """その試行が、こちらのプログラムの不具合で終えた電話か（決まりはデータベースの1か所 salescall.is_ours→trouble_ours。0141）。"""
+    return tx.one("SELECT salescall.is_ours(%s) AS o", (attempt_id,))["o"]
+
+
+WHY_MAX = 200   # 通話を終えた根拠の文の長さの上限（データベースの守り attempts_trouble_why と同じ）
+
+
+def end_for_trouble(tx: Tx, attempt_id: UUID, reason: str, why: str | None = None) -> bool:
+    """甚大な問題で、進行中の通話を「結果不明」（technical_error）にし、なぜ終えたか（理由と根拠の短い文 why。お客様の言葉・名前は
+    入れない＝CL-1 の連絡帳 4-59）を残す（1か所。0143。お詫びして切るのは回線ごとの処理＝supervisor/line.py の `_Call`。お客様が出た
+    あとなら、判定は「途中で切れた」と読み＝judge.cut_off、復旧次第お詫びとともにかけ直す）。もう終わっていれば何もしない（False）。"""
+    if reason not in TROUBLES:
+        raise ValueError(f"通話を終えた理由は {TROUBLES} のどれかです：{reason!r}")
+    why = None if why is None else why.strip()[:WHY_MAX] or None
+    return tx.one("UPDATE salescall.attempts SET state = 'technical_error', trouble = %s, trouble_why = %s"
+                  " WHERE attempt_id = %s AND salescall.is_active(state) AND salescall.is_dialed(state)"
+                  " RETURNING attempt_id", (reason, why, attempt_id)) is not None
+
+
+def withheld(tx: Tx, attempt_id: UUID) -> None:
+    """発信の出口だけが呼ぶ。PC の部品が電話をかけようとしなかった（PC の上の緊急停止・PC がつながっていない・前の頼みを待つうちに
+    答えの期限を過ぎた＝お客様の電話は鳴っていないし、番号も回線も試していない。かけようとして、かけられなかったものは「発信に失敗」
+    にして、だれのせいかを証拠で決める＝状態の表の試行のせいの欄＝DESIGN.md 17-1-5。⛔ 0129：前は「回線のせいか分からない」もここで取り消し、番号には数えず回線の異常と
+    して数えたので、1つの番号だけが続けてかけられないと回線が止まり続けた）：発信まで進まなかった予約と同じく取り消す（判定しない・どの数にも入らない。行の予定はそのまま＝いまの予定のまま、
+    ほかの回線か、少しあとにかけ直す）。⛔ 2026-10-22 の見直し14：前は「発信に失敗」にして、締めが「会話に至らなかった」と判定し、
+    再発信の方針の回数を使い、続き・番号の聞き直しの目的も消えた。"""
+    if tx.one("UPDATE salescall.attempts SET state = 'released' WHERE attempt_id = %s AND state = 'dialing'"
+              " RETURNING attempt_id", (attempt_id,)) is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+class RecheckMissing(Exception):
+    """番号の確かめ（DESIGN.md 3-5）・目的のお客様の確かめ直し（6-12 の (e)）が要る通話なのに、記録が無い。"""
+
+
+@dataclass(frozen=True)
+class ForbiddenFinding:
+    """言ってしまった、言ってはいけないこと（2つの耳で確かめたもの）。"""
+    item: str                 # 業務の決まりの、言ってはいけないことの名前（core/business_rules.py の forbidden）
+    said: str                 # AI が実際に言ったこと（AI の発話だけ。お客様の発話は入れない）
+
+
+@dataclass(frozen=True)
+class VerificationSummary:
+    """通話後の検証の結果の数（品質の段の指標になる。DESIGN.md 10-1）。"""
+    items_checked: int        # 2つの耳で確かめた項目の数
+    items_disagreed: int      # そのうち、2つの耳が食い違った項目の数
+    forbidden_speech: int     # 言ってはいけないこと（2つの耳で確かめたもの）の数
+    findings: tuple[ForbiddenFinding, ...] = ()   # その中身（数と同じだけ。お詫びの電話の文面を作るのに使う）
+    recording_missing: bool = False  # 録音が届かないまま待つ時間を過ぎ、確かめずに済ませた（`finish_without_recording` だけが付ける）
+
+    def __post_init__(self) -> None:
+        if len(self.findings) != self.forbidden_speech:
+            raise ValueError("言ってはいけないことの数と、その中身（findings）の数が合いません")
+        if self.recording_missing and (self.items_checked or self.items_disagreed or self.forbidden_speech):
+            raise ValueError("録音なしで済ませた確かめは、確かめた数を持ちません")
+
+
+def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummary) -> None:
+    """通話後の検証（Q21）だけが呼ぶ。「待ち」から「済み」へ。検証の結果の数（summary）を必ず一緒に残す（データベースも守る）。
+    - 確かめができないときは、ここを呼ばない（「待ち」のまま）。できない原因は仕組みの不具合（別の耳につながらない・誤り・録音が
+      無い）なので、エラーの入口（core/watch.py の `after_error`）に渡し、直ってからやり直す（2026-10-17 ユーザー：「そんな状態自体が
+      問題では？」。前は「確かめられなかった」で、その行を終えていた）。
+    - お客様が言った番号へかけて番号違いだった通話は、番号の確かめ（core/number_recheck.py）を記録してからでないと済ませられない
+      （付け合わせられなかったときも cannot_check として記録する）。
+    - 判定なしで目的のお客様に繋いだ通話は、目的のお客様の確かめ直し（core/target_recheck.py）を記録してからでないと済ませられない
+      （確かめられなかったときも cannot_check。どちらも、その通話の答えは「-」になる）。"""
+    if summary is None:
+        raise ValueError("検証の結果の数を、必ず渡します")
+    if number_recheck.needed(tx, attempt_id) and number_recheck.load(tx, attempt_id) is None:
+        raise RecheckMissing("番号違いだった番号の確かめ（証拠との付け合わせ）を、先に記録してください")
+    if target_recheck.missing(tx, attempt_id):
+        raise RecheckMissing("判定なしで繋いだ目的のお客様の確かめ直し（録音から）を、先に記録してください")
+    tx.execute(
+        "INSERT INTO salescall.verification_summaries (tenant_id, client_id, attempt_id, items_checked, items_disagreed,"
+        " forbidden_speech, recording_missing) SELECT tenant_id, client_id, attempt_id, %s, %s, %s, %s FROM salescall.attempts"
+        " WHERE attempt_id = %s",
+        (summary.items_checked, summary.items_disagreed, summary.forbidden_speech, summary.recording_missing, attempt_id))
+    if summary.findings:
+        version = tx.one("SELECT version_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["version_id"]
+        known = business_rules.load(tx, version).forbidden
+        for n, f in enumerate(summary.findings, 1):
+            if f.item not in known:
+                raise ValueError(f"言ってはいけないことの名前 {f.item!r} は、この版の業務の決まりにありません")
+            if not f.said.strip():
+                raise ValueError("言ってしまったこと（said）が空です")
+            tx.execute("INSERT INTO salescall.forbidden_findings (tenant_id, client_id, attempt_id, seq, item, said)"
+                       " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)",
+                       (attempt_id, n, f.item, f.said.strip()))
+    row = tx.one(
+        "UPDATE salescall.attempts SET verification = 'done' WHERE attempt_id = %s RETURNING attempt_id",
+        (attempt_id,),
+    )
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+STUCK_AFTER = timedelta(hours=1)   # 通話の終わりから、録音を待つ時間にこれを足しても検証が済まなければ「止まっている」
+
+
+def watch_stuck_verifications(tx: Tx) -> int:
+    """取引の依頼者の通話で、通話後の検証が止まっているもの（録音を待つ時間＋1時間たっても「待ち」）を数え、あれば CL-1 へ修正依頼を
+    出す（同じ不具合は直したと報告するまで1つ。⛔ 2026-10-22 の見直し：検証の部品が動かないと、行もお客様も待ち続け、だれも
+    気づかなかった）。数を返す。"""
+    wait = timedelta(seconds=int(settings.system_value(tx, "verification.recording_wait"))) + STUCK_AFTER
+    row = tx.one("SELECT count(*) AS n, min(ended_at) AS oldest FROM salescall.attempts"
+                 " WHERE verification = 'pending' AND ended_at < now() - %s", (wait,))
+    if row["n"]:
+        fix_requests.request(tx, "CL-1", "verification_stuck", key="verification_stuck",
+                             summary="通話後の検証が終わらない通話があります。その行とお客様は、検証が済むまでかけられません",
+                             refs={"count": row["n"], "oldest_ended_at": row["oldest"]})
+    return row["n"]
+
+
+class RecordingWaitNotOver(Exception):
+    """まだ録音を待つ時間の中（録音なしでは済ませない）。"""
+
+
+def finish_without_recording(tx: Tx, attempt_id: UUID) -> None:
+    """録音が届かないまま、通話の終わりから待つ時間（設定 verification.recording_wait＝10分）を過ぎた通話の確かめを、「録音なし」で
+    済ませる（通話後の検証が呼ぶ。2026-10-18 ユーザー決定）。そのあと締めの処理が、通話中の報告だけで結果を決める。
+    - 待つ時間を過ぎたかを決めるのは、ここの1か所。まだなら RecordingWaitNotOver（待ちのまま）。
+    - 番号違いの確かめが要る通話は、付け合わせられないので cannot_check として記録する。
+    - 録音が残らないこと自体は仕組みの不具合なので、エラーの入口に渡す（修正依頼。その通話は待たない）。"""
+    wait = int(settings.system_value(tx, "verification.recording_wait"))
+    row = tx.one("SELECT verification, ended_at IS NOT NULL AND ended_at + make_interval(secs => %s) <= now() AS over"
+                 " FROM salescall.attempts WHERE attempt_id = %s", (wait, attempt_id))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+    if row["verification"] != "pending":
+        raise ValueError(f"確かめが待ちの通話ではありません（{row['verification']}）")
+    if not row["over"]:
+        raise RecordingWaitNotOver(f"通話の終わりから {wait} 秒たっていません（録音を待ちます）")
+    if number_recheck.needed(tx, attempt_id) and number_recheck.load(tx, attempt_id) is None:
+        number_recheck.record(tx, attempt_id, "cannot_check", corrected=None, evidence="録音が届かなかった（付け合わせられない）",
+                              checked_by="通話後の検証（録音なし）")
+    if target_recheck.missing(tx, attempt_id):   # 確かめられない＝その通話の答えは戻す・「-」
+        target_recheck.record(tx, attempt_id, "cannot_check", evidence="録音が届かなかった（確かめ直せない）",
+                              checked_by="通話後の検証（録音なし）")
+    watch.record_error(tx, ErrorReport("recording", None, "録音が届かないまま、待つ時間を過ぎた"), attempt_id=attempt_id)
+    record_verification(tx, attempt_id, summary=VerificationSummary(0, 0, 0, recording_missing=True))
+
+
+def forbidden_speech(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話で、言ってはいけないことを言ったか（通話後の検証の数。判断はデータベースの1か所 salescall.said_forbidden）。"""
+    return tx.one("SELECT salescall.said_forbidden(%s) AS f", (attempt_id,))["f"]
+
+
+def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "refused", "interrupted"]) -> None:
+    """締めの処理（core/settle.py）だけが呼ぶ。判定が決めた切れ方（DESIGN.md 7-1c）を、終わった試行に1回だけ記録する。"""
+    row = tx.one("UPDATE salescall.attempts SET disconnect = %s WHERE attempt_id = %s RETURNING attempt_id",
+                 (disconnect, attempt_id))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+def record_reached_target(tx: Tx, attempt_id: UUID, reached: bool) -> None:
+    """締めの処理（core/settle.py）だけが呼ぶ。その通話で目的のお客様と話せたか（判定の入力の1か所 judge.JudgeInput.reached_target）を、
+    終わった試行に記録する（判定し直しでは書き直す）。読むのは、その担当の期で目的のお客様と話せた電話の1か所（`last_talk`。受付の方とだけ話した
+    通話は入らない＝call_report.talked_in とは別。0203）。書き換えられるのは、
+    その通話の締めの記録（結果の版・お詫びの電話の結び）を書いた同じ取引の中だけ（データベースの守り attempt_reached_target_guard。0211）。"""
+    row = tx.one("UPDATE salescall.attempts SET reached_target = %s WHERE attempt_id = %s RETURNING attempt_id", (reached, attempt_id))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+def last_talk(tx: Tx, task_id: UUID, period: Any, *, besides: UUID | None = None) -> UUID | None:
+    """その行の、その担当の期（period＝試行の person_since。最初の期は None）で、目的のお客様と話せた、いちばん新しい電話（1か所。無ければ None）。
+    besides＝数えない電話（いまかける電話）。話せたかは締めの処理が試行に写した attempts.reached_target（`record_reached_target`＝
+    judge.JudgeInput.reached_target）。担当の期の比べは試行の person_since（データベースの salescall.task_person_since で決まる期）。読むのは：
+    - 引き継ぎを確かめる印（core/next_action の `_handover_due`：いまの期で、目的のお客様とまだ話していないか）。
+    - 予約証の「前の電話が今日か」（core/apology.when：この電話の期の前の電話。✅ 2026-11-12 ユーザー：「案Bでお願いします」＝担当の方ごとに
+      数える。例：昨日田中様と話したあと、契約者がお呼びする方を鈴木様に直したら、今日の鈴木様への電話に「前の電話」は無い。⛔ 前は担当の期を
+      見ず、行でいちばん新しい話せた電話＝田中様との電話を「前の電話」とし、会話の側が鈴木様に「前回のお電話で…」と言いうる形だった）。"""
+    row = tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND person_since IS NOT DISTINCT FROM %s AND reached_target"
+                 " AND attempt_id IS DISTINCT FROM %s ORDER BY coalesce(ended_at, claimed_at) DESC, attempt_id DESC LIMIT 1",
+                 (task_id, period, besides))
+    return None if row is None else row["attempt_id"]
+
+
+def record_cut_off(tx: Tx, attempt_id: UUID, cut_off: bool) -> None:
+    """締めの処理（core/settle.py）だけが呼ぶ。途中で切れたか（決めるのは judge.cut_off の1か所）を、終わった試行に1回だけ
+    記録する（続けて何回、途中で切れたかを数える＝データベースの salescall.cuts_in_a_row）。"""
+    row = tx.one("UPDATE salescall.attempts SET cut_off = %s WHERE attempt_id = %s RETURNING attempt_id", (cut_off, attempt_id))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))

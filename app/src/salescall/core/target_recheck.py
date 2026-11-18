@@ -1,0 +1,76 @@
+"""目的のお客様の確かめ直し（意味の判定なしで繋いだ通話。DESIGN.md 6-12 の (e)・CL-1 の連絡帳 4-25。0108）。持ち主 CL-2。
+
+目的のお客様に繋ぐのは「ご本人」の読みが2つそろったときだけ。ただし判定が止まっていたときは、確かめへの「はい」をAIの読みだけで
+受け取って繋ぐ（止まらない）。その通話は、通話後の検証（Q21。CL-1）が、繋いだ発話の録音を別の耳と判定で確かめ直す。
+
+- 要るのは、会話の報告が `target_unverified` の通話だけ（`needed`。判断は core/call_report.py の1か所）。
+- 結果をここで記録する（`record`。書くのはここだけ。変更不可）：target＝目的のお客様だった／not_target＝別の方だった／
+  cannot_check＝確かめられなかった（録音が届かない など）。
+- **target 以外なら、その通話で取った答え・伺った事実を、どの担当の方の答えにも使わない**（使う答えを決める1か所＝
+  core/conversation_io.answers・earlier が、その通話を飛ばす＝前の通話の答えのまま・無ければ答えの無い質問）。別の方の答え・確かめていない
+  答えを依頼者へ渡さない（依頼者へ渡るのは、確かめた値か「-」だけ）。⛔ 0108〜0230：データベースの仕掛けが答えを前の通話の答えに戻すか
+  「-」にした（いまの答え・控えの答え・戻す仕掛けに、どの答えを使うかが分かれていた＝0231 で1か所に）。
+- 要る通話は、記録が無いと通話後の検証を済ませられない（core/attempts.py の `record_verification` が守る）。
+  ⇒ 締めの処理は必ず記録を読める（`unconfirmed`：目的のお客様と話せたと数えない＝約束の日のお詫びの印を外さない）。
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+from uuid import UUID
+
+from salescall.core import call_report
+from salescall.core.access import Tx
+
+Outcome = Literal["target", "not_target", "cannot_check"]
+OUTCOMES = ("target", "not_target", "cannot_check")
+UNCONFIRMED = tuple(o for o in OUTCOMES if o != "target")   # 目的のお客様だと確かめられなかった（target 以外。決めるのはデータベースの salescall.call_unconfirmed の1か所＝0234）
+
+
+class RecheckInvalid(Exception):
+    """記録できない確かめ直し（理由は日本語）。"""
+
+
+def needed(tx: Tx, attempt_id: UUID) -> bool:
+    """確かめ直しが要る通話か（判定はこの1か所）：
+    - 会話の報告がある：判定を使う通話で、判定なしで繋いだ・繋いだあとの判定が「ご本人」でない（`CallReport.target_unverified`）
+    - 会話の報告が無い（会話の処理が報告を書く前に落ちた）のに、その通話で取った答えがある：どう目的のお客様だと決めたかの材料が
+      無いので、確かめ直す（⛔ 2026-10-22 の見直し：前は繋いだ記録ごと消え、確かめていない答えが「完了」で依頼者へ渡りえた）"""
+    report = call_report.load(tx, attempt_id)
+    if report is not None:
+        return report.target_unverified
+    return tx.one("SELECT EXISTS (SELECT 1 FROM salescall.item_values WHERE attempt_id = %s) AS taken",
+                  (attempt_id,))["taken"]
+
+
+def missing(tx: Tx, attempt_id: UUID) -> bool:
+    """確かめ直しが要るのに、まだ記録が無い（通話後の検証を済ませない・締めない・判定し直さない。判断はこの1か所）。
+    録音から作り直した報告（call_report.save_rebuilt）に判定なしの繋ぎが入ったときも、ここで分かる。"""
+    return needed(tx, attempt_id) and load(tx, attempt_id) is None
+
+
+def record(tx: Tx, attempt_id: UUID, outcome: Outcome, *, evidence: str, checked_by: str) -> None:
+    """確かめ直した結果を記録する（通話後の検証 Q21 だけが呼ぶ。1回だけ）。target 以外なら、その通話の答えは、前の通話の答え
+    （目的のお客様だと確かめられなかった通話のもの以外）に戻り、無ければ「-」になる（データベースの1か所＝0108）。"""
+    if not needed(tx, attempt_id):
+        raise RecheckInvalid("目的のお客様の確かめ直しが要る通話ではありません（判定なしで繋いだ通話だけ）")
+    if outcome not in OUTCOMES:
+        raise RecheckInvalid(f"結果は {OUTCOMES} のどれかです（{outcome!r}）")
+    if not evidence or not evidence.strip():
+        raise RecheckInvalid("何で確かめたか（証拠）が要ります")
+    tx.execute(
+        "INSERT INTO salescall.target_rechecks (tenant_id, client_id, attempt_id, outcome, evidence, checked_by)"
+        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)",
+        (attempt_id, outcome, evidence, checked_by))
+
+
+def load(tx: Tx, attempt_id: UUID) -> str | None:
+    """記録した結果（無ければ None）。"""
+    row = tx.one("SELECT outcome FROM salescall.target_rechecks WHERE attempt_id = %s", (attempt_id,))
+    return None if row is None else row["outcome"]
+
+
+def unconfirmed(tx: Tx, attempt_id: UUID) -> bool:
+    """確かめ直して、目的のお客様だと確かめられなかった通話か（別の方だった・確かめられなかった）。決めるのはデータベースの1か所
+    salescall.call_unconfirmed（使う答え conversation_io._in_force・いまの連絡先・解決策を求める点・携帯の番号も同じものを読む＝0234）。"""
+    return tx.one("SELECT salescall.call_unconfirmed(%s) AS u", (attempt_id,))["u"]

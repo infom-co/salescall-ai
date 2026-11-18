@@ -1,0 +1,79 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-15T19:05:12",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.74,
+      "try": 1,
+      "wav": "S2_shouchi_1.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "そうしました。",
+        "1.0": "そうしました。"
+      },
+      "ok": false,
+      "seconds": 0.76,
+      "try": 2
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 1.04,
+      "try": 3,
+      "wav": "S2_shouchi_2.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.88,
+      "try": 4,
+      "wav": "S2_shouchi_3.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.84,
+      "try": 5,
+      "wav": "S2_shouchi_4.wav"
+    }
+  ],
+  "kept": {
+    "S2_shouchi": 4
+  }
+}

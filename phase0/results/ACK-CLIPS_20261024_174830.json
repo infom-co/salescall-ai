@@ -1,0 +1,134 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-24T17:48:30",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "musmusi",
+        "1.0": "mosmusi"
+      },
+      "ok": false,
+      "seconds": 0.62,
+      "try": 1
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "もしもし",
+        "1.0": "もしもし?"
+      },
+      "ok": false,
+      "seconds": 0.7,
+      "try": 2
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "もしもし",
+        "1.0": "もしもし"
+      },
+      "ok": true,
+      "seconds": 0.76,
+      "try": 3,
+      "wav": "S2_moshimoshi_1.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "もしもし",
+        "1.0": "もしもし。"
+      },
+      "ok": true,
+      "seconds": 0.54,
+      "try": 4,
+      "wav": "S2_moshimoshi_2.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "moshi moshi",
+        "1.0": "もしもし?"
+      },
+      "ok": false,
+      "seconds": 0.58,
+      "try": 5
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "もしもし。",
+        "1.0": "もしもし。"
+      },
+      "ok": true,
+      "seconds": 0.58,
+      "try": 6,
+      "wav": "S2_moshimoshi_3.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "もしもし。",
+        "1.0": "もしもし"
+      },
+      "ok": true,
+      "seconds": 0.68,
+      "try": 1,
+      "wav": "L4_moshimoshi_1.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "もしもし",
+        "1.0": "もしもし。"
+      },
+      "ok": true,
+      "seconds": 0.76,
+      "try": 2,
+      "wav": "L4_moshimoshi_2.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "moshimoshi",
+      "text": "もしもし？",
+      "heard": {
+        "0.0": "もしもし。",
+        "1.0": "もしもし。"
+      },
+      "ok": true,
+      "seconds": 0.66,
+      "try": 3,
+      "wav": "L4_moshimoshi_3.wav"
+    }
+  ],
+  "kept": {
+    "S2_moshimoshi": 3,
+    "L4_moshimoshi": 3
+  }
+}

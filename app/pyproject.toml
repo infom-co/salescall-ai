@@ -1,0 +1,32 @@
+# 共通のファイル（持ち主 CL-2。docs/TEAM_PLAN.md 1-4）。部品を足したい担当は、連絡帳で CL-2 に頼む（部品の一覧を2つにしない）。
+[project]
+name = "salescall"
+version = "0.1.0"
+description = "SalesCall AI の本番のコード（設計：Intent.md・docs/DESIGN.md）"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "psycopg[binary]==3.2.10",   # PostgreSQL へつなぐ部品（使ってよいのは読み書きの層だけ。DESIGN.md 11章・I-31）
+    "psycopg-pool==3.2.6",       # データベースへのつなぎを共有にする部品（psycopg の公式。使ってよいのは読み書きの層だけ）
+    "openpyxl==3.1.5",           # xlsx（Excel）の読み込み（発信対象・業務の資料の取込。core/import_files.py だけが使う＝機械が見張る）
+    "defusedxml==0.7.1",         # openpyxl が xlsx の中の XML を安全に読むために使う（悪意のある XML で止まらない）。業務の資料の Word（.docx）も、これで読む
+    "pypdf==5.1.0",              # 業務の資料の PDF の文字を読む（core/import_files.py だけが使う＝機械が見張る。2026-11-06 ユーザー：文字の PDF を読む部品を足す）
+    "cryptography==44.0.0",      # 控えの暗号化（PC の部品の salescall/link/sealing.py だけが使う。Intent.md 14-1。鍵はサーバーに置かない＝DESIGN.md 5-5）
+    "websockets==15.0.1",        # サーバーと PC の部品のつなぎ口（salescall/supervisor/channel.py と salescall/agent/ だけが使う。DESIGN.md 5-5。2025-03）
+    # 画面（持ち主 CL-3。CL-3 の連絡帳 4-1d の1。使ってよいのは src/salescall/web/ だけ＝機械が見張る）。版は出てから2週間より前のもの
+    "fastapi==0.142.2",          # 画面の裏側（2026-09-30）
+    "jinja2==3.1.6",             # 画面のひな形
+    "uvicorn==0.54.0",           # 画面を動かすサーバー（2026-09-25）
+    "python-multipart==0.0.32",  # 画面からの送信（ファイル・入力）を読む
+]
+
+[project.optional-dependencies]
+test = [
+    "httpx==0.28.1",             # 画面を通した試験（試験だけで使う）
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

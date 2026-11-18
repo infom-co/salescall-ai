@@ -1,0 +1,294 @@
+"""時間帯の決まり（Q12。データベースを使わない部品）の試験：境目・24:00・日をまたぐ区間・祝日・次の始まり。"""
+
+from __future__ import annotations
+
+import unittest
+from datetime import date, datetime, timedelta
+
+from salescall.core.calendar import CalendarOutOfRange
+from salescall.core.calling_hours import (CalleeWindow, allowed, band_of, callee_hours, covers, daily_seconds, day_key, in_daily,
+                                          next_opening,
+                                          next_opening_in_new_band, subtract)
+
+KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
+WEEKDAY_9_18 = {k: ([["09:00", "18:00"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
+MON = date(2030, 1, 7)     # 架空の日付（月曜）
+no_holiday = lambda d: False
+
+
+def at(d: date, hh: int, mm: int = 0, ss: int = 0) -> datetime:
+    return datetime(d.year, d.month, d.day, hh, mm, ss)
+
+
+class Covers(unittest.TestCase):
+    def test_start_inclusive_end_exclusive(self):
+        self.assertTrue(covers(WEEKDAY_9_18, no_holiday, at(MON, 9), at(MON, 9)))
+        self.assertFalse(covers(WEEKDAY_9_18, no_holiday, at(MON, 8, 59, 59), at(MON, 8, 59, 59)))
+        self.assertFalse(covers(WEEKDAY_9_18, no_holiday, at(MON, 18), at(MON, 18)))
+        self.assertTrue(covers(WEEKDAY_9_18, no_holiday, at(MON, 17, 59, 30), at(MON, 18)))     # 区間の終わりは 18:00 ちょうどまで
+        self.assertFalse(covers(WEEKDAY_9_18, no_holiday, at(MON, 17, 59, 45), at(MON, 18, 0, 15)))  # 予約証の期限が外へ出る
+
+    def test_weekend_and_holiday(self):
+        sat = MON + timedelta(days=5)
+        self.assertFalse(covers(WEEKDAY_9_18, no_holiday, at(sat, 10), at(sat, 10, 0, 30)))
+        self.assertFalse(covers(WEEKDAY_9_18, lambda d: d == MON, at(MON, 10), at(MON, 10, 0, 30)))  # 祝日は holiday の時間帯
+        shop = dict(WEEKDAY_9_18, holiday=[["10:00", "20:00"]])
+        self.assertTrue(covers(shop, lambda d: d == MON, at(MON, 19), at(MON, 19, 0, 30)))
+        self.assertEqual(day_key(MON, no_holiday), "mon")
+
+    def test_until_midnight_and_crossing_days(self):
+        all_day = {k: [["00:00", "24:00"]] for k in KEYS}
+        self.assertTrue(covers(all_day, no_holiday, at(MON, 23, 59, 50), at(MON + timedelta(days=1), 0, 0, 20)))
+        evening = {k: [["20:00", "24:00"]] for k in KEYS}
+        self.assertFalse(covers(evening, no_holiday, at(MON, 23, 59, 50), at(MON + timedelta(days=1), 0, 0, 20)))  # 翌日の 0:00 は外
+
+    def test_two_ranges_in_a_day_do_not_bridge_the_gap(self):
+        split = dict(WEEKDAY_9_18, mon=[["09:00", "12:00"], ["13:00", "18:00"]])
+        self.assertTrue(covers(split, no_holiday, at(MON, 11, 59), at(MON, 12)))
+        self.assertFalse(covers(split, no_holiday, at(MON, 11, 59, 50), at(MON, 12, 0, 20)))
+        self.assertFalse(covers(split, no_holiday, at(MON, 12, 30), at(MON, 12, 30)))
+
+    def test_unknown_calendar_is_not_guessed(self):
+        def is_holiday(d):
+            raise CalendarOutOfRange("試験")
+        with self.assertRaises(CalendarOutOfRange):
+            covers(WEEKDAY_9_18, is_holiday, at(MON, 10), at(MON, 10, 0, 30))
+
+    def test_bad_input(self):
+        with self.assertRaises(ValueError):
+            covers(WEEKDAY_9_18, no_holiday, at(MON, 10), at(MON, 9))
+
+
+class Daily(unittest.TestCase):
+    """1日の中の時刻の範囲の並び（設定の値の形 daily_ranges。テスト番号を鳴らしてよい時間 line.test_ring_hours が使う。決まりは
+    calling_hours.daily_spans の1か所。2026-10-25 ユーザー：「止める回線を2択だけじゃなく、こちらが決められるようにして。昼間に私は
+    寝ていることがあるし、夜中でも起きていることがある。0～24時の選択は残したうえで。」）。"""
+    H = 3600
+
+    def test_inside_a_daily_range_including_one_that_crosses_midnight(self):
+        day = [(7 * self.H, 22 * self.H)]
+        self.assertTrue(in_daily(at(MON, 7), day))
+        self.assertTrue(in_daily(at(MON, 21, 59, 59), day))
+        self.assertFalse(in_daily(at(MON, 22), day))                      # 終わりは含まない
+        self.assertFalse(in_daily(at(MON, 3), day))
+        night = [(18 * self.H, 3 * self.H)]                                # 18時から翌3時まで
+        self.assertTrue(in_daily(at(MON, 23), night))
+        self.assertTrue(in_daily(at(MON, 2, 59), night))
+        self.assertFalse(in_daily(at(MON, 3), night))
+        self.assertFalse(in_daily(at(MON, 12), night))
+        self.assertTrue(all(in_daily(at(MON, h), [(0, 24 * self.H)]) for h in range(24)))   # 1日じゅう（0〜24時は残す）
+
+    def test_several_ranges_in_a_day(self):
+        """1日に何か所でも：昼に寝ている契約者の 0〜9時と14〜24時（管理者の例）・日をまたぐ範囲とほかの範囲の組。"""
+        awake = [(0, 9 * self.H), (14 * self.H, 24 * self.H)]
+        self.assertEqual([h for h in range(24) if in_daily(at(MON, h), awake)], [*range(0, 9), *range(14, 24)])
+        self.assertEqual(daily_seconds(at(MON, 0), at(MON + timedelta(days=1), 0), awake), 19 * self.H)
+        self.assertEqual(daily_seconds(at(MON, 8), at(MON, 15), awake), 2 * self.H)   # 8〜9時と14〜15時
+        mixed = [(22 * self.H, 2 * self.H), (12 * self.H, 13 * self.H)]   # 夜10時〜翌2時と、昼の1時間
+        self.assertEqual([h for h in range(24) if in_daily(at(MON, h), mixed)], [0, 1, 12, 22, 23])
+        self.assertEqual(daily_seconds(at(MON, 0), at(MON + timedelta(days=1), 0), mixed), 5 * self.H)
+        self.assertFalse(in_daily(at(MON, 12), []))                         # 並びが空なら、どこも外（データベースが空を断る）
+
+    def test_seconds_inside_a_daily_range(self):
+        day = [(7 * self.H, 22 * self.H)]
+        self.assertEqual(daily_seconds(at(MON, 21, 30), at(MON + timedelta(days=1), 7, 30), day), 3600)   # 夜は数えない
+        self.assertEqual(daily_seconds(at(MON, 23), at(MON + timedelta(days=1), 6), day), 0)
+        self.assertEqual(daily_seconds(at(MON, 8), at(MON + timedelta(days=2), 8), day), 2 * 15 * self.H)
+        self.assertEqual(daily_seconds(at(MON, 23), at(MON + timedelta(days=1), 1), [(0, 24 * self.H)]), 2 * self.H)
+        self.assertEqual(daily_seconds(at(MON, 1), at(MON, 4), [(18 * self.H, 3 * self.H)]), 2 * self.H)   # 日をまたぐ範囲
+        self.assertEqual(daily_seconds(at(MON, 5), at(MON, 4), day), 0)                                    # 逆の区間
+
+
+class NextOpening(unittest.TestCase):
+    def test_next_start(self):
+        length = timedelta(seconds=30)
+        self.assertEqual(next_opening(WEEKDAY_9_18, no_holiday, at(MON, 10), length), at(MON, 10))
+        self.assertEqual(next_opening(WEEKDAY_9_18, no_holiday, at(MON, 7), length), at(MON, 9))
+        self.assertEqual(next_opening(WEEKDAY_9_18, no_holiday, at(MON, 18), length), at(MON + timedelta(days=1), 9))
+        fri = MON + timedelta(days=4)
+        self.assertEqual(next_opening(WEEKDAY_9_18, no_holiday, at(fri, 17, 59, 45), length), at(MON + timedelta(days=7), 9))
+        never = {k: [] for k in KEYS}
+        self.assertIsNone(next_opening(never, no_holiday, at(MON, 10), length))
+
+    def test_back_to_finds_the_latest_start_that_reaches_it(self):
+        """back_to（お客様のほうから折り返すお約束の、戻る時刻の30分後＝next_action._theirs_at）：after に始められなければ、予約から予約証の期限
+        までが back_to〜after に重なる、after にいちばん近い始まり。期限を置いてよいのは、ends（NG時間を引く前の依頼者の時間帯）の終わり＝こちらの
+        都合の終わりだけ（✅ 2026-11-14 ユーザー「13時にかける（おすすめ）」）。無ければ after のあとの次の始まり。区間を時間帯で見る決まりは covers の1か所。"""
+        length = timedelta(seconds=30)
+        until_1830 = {k: ([["09:00", "18:30"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
+        until_22 = {k: ([["09:00", "22:00"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
+        lunch = subtract(until_1830, {k: [["12:00", "13:00"]] for k in KEYS})
+        tea = subtract(until_1830, {k: [["15:45", "16:15"]] for k in KEYS})
+        find = lambda hours, own, after, back: next_opening(hours, no_holiday, after, length, back_to=back, ends=own)   # noqa: E731
+        # 1時間後（after）に始められる ⇒ after のまま（前を探さない）：「15時に戻ります」⇒16時
+        self.assertEqual(find(lunch, until_1830, at(MON, 16), at(MON, 15, 30)), at(MON, 16))
+        # 例 (2)「18時に戻ります」で依頼者の時間帯が18時半まで ⇒ 期限が18時半ちょうどの予約（✅ 2026-11-14 ユーザー「18時半でOK」）
+        self.assertEqual(find(until_1830, until_1830, at(MON, 19), at(MON, 18, 30)), at(MON, 18, 29, 30))
+        # 例 (3)「21時半に戻ります」で時間帯が22時まで ⇒ 期限が22時ちょうどの予約（✅「22時でOK」）
+        self.assertEqual(find(until_22, until_22, at(MON, 22, 30), at(MON, 22)), at(MON, 21, 59, 30))
+        # 例 (1)「11時半に戻ります」で12時〜13時がNG時間 ⇒ 12時はNG時間で切れた終わり（後ろがNG時間）なので使わず、NG時間の明けの13時
+        self.assertEqual(find(lunch, until_1830, at(MON, 12, 30), at(MON, 12)), at(MON, 13))
+        # 「15時に戻ります」で 15:45〜16:15 がNG時間 ⇒ 15:45 も後ろがNG時間なので使わず、16:15
+        self.assertEqual(find(tea, until_1830, at(MON, 16), at(MON, 15, 30)), at(MON, 16, 15))
+        # 依頼者の時間帯そのものの終わり（昼休みを時間帯で空けている依頼者の12時）は、こちらの都合の終わりなので使える
+        split = {k: ([["09:00", "12:00"], ["13:00", "18:30"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
+        self.assertEqual(find(split, split, at(MON, 12, 30), at(MON, 12)), at(MON, 11, 59, 30))
+        # 依頼者の時間帯の終わりでも、その前がNG時間なら（18:20〜18:30 がNG時間）、予約から期限までが入らないので使わない（covers の1か所）
+        late_ng = subtract(until_1830, {k: [["18:20", "18:30"]] for k in KEYS})
+        self.assertEqual(find(late_ng, until_1830, at(MON, 19), at(MON, 18, 30)), at(MON + timedelta(days=1), 9))
+        # 30分後から1時間後までが、まるごとかけてはいけない時間 ⇒ 次の日の時間帯の始まり
+        self.assertEqual(find(until_1830, until_1830, at(MON, 22, 30), at(MON, 22)), at(MON + timedelta(days=1), 9))
+        # 前は探さない所まで（back_to より前に期限が来る始まりは使わない）
+        self.assertEqual(find(until_1830, until_1830, at(MON, 19, 30), at(MON, 19)), at(MON + timedelta(days=1), 9))
+        # 前を探すのに、NG時間を引く前の時間帯が無いのは呼ぶ側の誤り（黙って全部の終わりを使わない）
+        with self.assertRaises(ValueError):
+            next_opening(lunch, no_holiday, at(MON, 12, 30), length, back_to=at(MON, 12))
+
+
+class OtherBand(unittest.TestCase):
+    """出なかったお客様へ、前と別の時間帯にかけ直す（2026-10-15 ユーザー）。区切り [12, 15]＝午前・昼過ぎ・夕方。"""
+    B = [12, 15]
+    L = timedelta(seconds=30)
+
+    def find(self, hours, after, tried):
+        return next_opening_in_new_band(hours, no_holiday, after, self.L, self.B, tried)
+
+    def test_band_of(self):
+        self.assertEqual([band_of(at(MON, h, m), self.B) for h, m in ((9, 0), (11, 59), (12, 0), (14, 59), (15, 0), (23, 0))],
+                         [0, 0, 1, 1, 2, 2])
+
+    def test_moves_to_a_band_not_tried_yet(self):
+        self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 10, 30), {0}), at(MON, 12))           # 午前に出なかった ⇒ 昼過ぎ
+        self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 12, 30), {0, 1}), at(MON, 15))        # ⇒ 夕方
+        self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 16), {1, 2}), at(MON + timedelta(days=1), 9))   # 翌日の午前
+        self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 13), {0}), at(MON, 13))               # いまが試していない時間帯
+
+    def test_fractional_seconds_do_not_skip_the_current_band(self):
+        """いまの時刻に秒の端数があっても、いまの時間帯を飛ばさない（データベースの now() には端数がある。2026-10-16 の見直し）。"""
+        after = at(MON, 14) + timedelta(microseconds=500000)
+        self.assertEqual(self.find(WEEKDAY_9_18, after, {0}), after)
+
+    def test_no_other_band_means_another_day(self):
+        night = {k: [["18:00", "22:00"]] for k in KEYS}                                         # 夜だけ開くお店
+        self.assertIsNone(self.find(night, at(MON, 19), {2}))       # 試していない時間帯が無い（どうするかは呼ぶ側：翌日の同じ頃）
+        self.assertIsNone(self.find(WEEKDAY_9_18, at(MON, 16), {0, 1, 2}))
+
+    def test_ng_hours_are_skipped(self):
+        """NG時間（昼休み 12〜13時）を引いた時間帯では、昼過ぎの時間帯は 13時から。"""
+        hours = subtract(WEEKDAY_9_18, {k: [["12:00", "13:00"]] for k in KEYS})
+        self.assertEqual(self.find(hours, at(MON, 10, 30), {0}), at(MON, 13))
+        self.assertFalse(covers(hours, no_holiday, at(MON, 12, 30), at(MON, 12, 30)))
+
+
+class CalleeTime(unittest.TestCase):
+    """NG時間は通常は控えるが、お客様が自分で指定した時刻なら、かけてよい（2026-10-15 ユーザー）。"""
+    NG = {k: [["12:00", "13:00"]] for k in KEYS}
+    L = timedelta(seconds=30)
+
+    def ok(self, start, callee_at=None):
+        return allowed(WEEKDAY_9_18, self.NG, no_holiday, start, start + self.L, callee_at=callee_at)
+
+    def test_ng_is_avoided_unless_the_callee_named_the_time(self):
+        self.assertTrue(self.ok(at(MON, 10)))
+        self.assertFalse(self.ok(at(MON, 12, 30)))                                     # こちらからは控える
+        self.assertTrue(self.ok(at(MON, 12, 30), at(MON, 12, 30)))                     # お客様が指定した
+        self.assertTrue(self.ok(at(MON, 12, 45), at(MON, 12, 30)))                     # 同じ日の同じ枠の中（少し遅れた）
+        self.assertTrue(self.ok(at(MON, 11, 59, 50), at(MON, 12, 30)))                 # 枠の手前から枠へ入る
+        self.assertFalse(self.ok(at(MON + timedelta(days=1), 12, 30), at(MON, 12, 30)))   # 日がずれたら控える
+        self.assertFalse(self.ok(at(MON, 19), at(MON, 19)))                            # かけてよい時間帯はいつも守る
+        self.assertFalse(self.ok(at(MON, 12, 30), at(MON, 10)))                        # 指定がNG時間の外：例外にならない
+
+    def test_only_the_frame_with_the_named_time_is_excused(self):
+        """NG時間の枠が2つあるとき、お客様が指定した時刻を含む枠だけかけてよい（ほかの枠は控える。見直し7で試験を足した）。"""
+        ng = {k: [["12:00", "13:00"], ["15:00", "16:00"]] for k in KEYS}
+        ok = lambda start: allowed(WEEKDAY_9_18, ng, no_holiday, start, start + self.L, callee_at=at(MON, 12, 30))   # noqa: E731
+        self.assertEqual((ok(at(MON, 12, 40)), ok(at(MON, 15, 30))), (True, False))
+
+
+class CalleeHours(unittest.TestCase):
+    """お客様が言った幅の約束でかける時間帯（`callee_hours`・`callee_range` の1か所。門と次の動きが同じものを読む）。幅はすべてお客様の
+    指定で、依頼者の時間帯・NG時間・依頼者の深夜早朝の歯止めの外でもかける。端の決まっていない側（0時・24時）は、お客様の営業時間
+    （callee.business_hours。お客様指定の歯止め時間 callee.designated_limit の中に絞る）で切り、営業時間で切ると空になるときだけ歯止め時間で
+    埋める（お客様が口にした端は切らない。言葉の表の端は歯止め時間でだけ切る）。2026-10-23 ユーザー：「『朝』も時間帯が決まっているでしょ」
+    「お客様の日時指定の場合は、『お客様指定の歯止め時間』で見る」。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回・営業時間内」（端が言葉で
+    決まっていない側は営業時間で切る）。⛔ 0118〜0215：歯止め時間で埋め、「3時以降」に夜21時半までかけた（見直し15 の「言葉の表の端は依頼者の
+    時間で切る」は、「夜なら」を依頼者が18時までなら次の日の昼に回していた。営業時間で埋めて空になるお店の「朝」は、歯止め時間で埋める）。"""
+
+    NG = {k: [["12:00", "13:00"]] for k in KEYS}
+    GUARD = {k: [["07:00", "22:00"]] for k in KEYS}
+    LIMIT = (7 * 3600, 22 * 3600)   # お客様指定の歯止め時間（callee.designated_limit の初めの値）
+    BUSINESS = (9 * 3600, 19 * 3600)   # お客様の営業時間（callee.business_hours の初めの値）
+    H = 3600
+
+    def hours(self, daily, said=None, day_said=False, days=None, hours=WEEKDAY_9_18, limit=None, guard=None, business=None,
+              recover=False):
+        return callee_hours(hours, self.NG, guard or self.GUARD, limit or self.LIMIT, CalleeWindow(daily, days, said, day_said, recover),
+                            business=business or self.BUSINESS)
+
+    def test_words_are_the_callees_own_hours(self):
+        H = self.H
+        self.assertEqual(self.hours((18 * H, 20 * H))["mon"], [["18:00", "20:00"]])            # 「夜なら」：依頼者が18時までも（言葉の表の端）
+        self.assertEqual(self.hours((16 * H, 18 * H))["mon"], [["16:00", "18:00"]])            # 「夕方」
+        self.assertEqual(self.hours((0, 12 * H + 30 * 60))["mon"], [["09:00", "12:30"]])       # NG時間でもかける・始まりは営業時間
+        self.assertEqual(self.hours((0, 10 * H))["mon"], [["09:00", "10:00"]])                 # 「朝」：始まりは営業時間の9時
+        self.assertEqual(self.hours((0, 10 * H), business=(12 * H, 20 * H))["mon"],
+                         [["07:00", "10:00"]])                                                  # 営業時間が12時からのお店：歯止め時間で
+        self.assertEqual(self.hours((0, 10 * H), hours={k: [["10:00", "19:00"]] for k in KEYS})["mon"],
+                         [["09:00", "10:00"]])                                                  # 依頼者が10時からでも
+        self.assertEqual(self.hours((13 * H, 24 * H))["mon"], [["13:00", "19:00"]])            # 「午後」：終わりは営業時間の19時
+        self.assertEqual(self.hours((13 * H, 24 * H), business=(18 * H, 3 * H))["mon"],
+                         [["13:00", "22:00"]])                                                  # 夜のお店（日をまたぐ営業時間）：終わりは歯止め時間の中
+
+    def test_the_designated_limit_cuts_only_the_unsaid_edges(self):
+        H = self.H
+        wide = (6 * H, 23 * H)   # 歯止め時間より広い営業時間：歯止め時間の中に絞る
+        self.assertEqual(self.hours((0, 10 * H), limit=(8 * H, 21 * H), business=wide)["mon"], [["08:00", "10:00"]])   # 業務ごとの歯止め時間
+        self.assertEqual(self.hours((13 * H, 24 * H), limit=(8 * H, 21 * H), business=wide)["mon"], [["13:00", "21:00"]])
+        self.assertEqual(self.hours((0, 10 * H), guard={k: [] for k in KEYS})["mon"], [["09:00", "10:00"]])   # 依頼者の歯止めは見ない
+        self.assertEqual(self.hours((15 * H, 24 * H), said=(True, False))["mon"], [["15:00", "19:00"]])      # 「3時以降」：営業時間の19時まで
+        self.assertEqual(self.hours((19 * H, 24 * H), said=(True, False))["mon"], [["19:00", "22:00"]])      # 「7時以降」：営業時間で空＝歯止め時間
+        self.assertEqual(self.hours((0, 15 * H), said=(False, True))["mon"], [["09:00", "15:00"]])           # 「3時まで」：営業時間の9時から
+        self.assertEqual(self.hours((6 * H, 24 * H), said=(True, False))["mon"], [["06:00", "19:00"]])       # 口にした6時：歯止め時間の外でも
+        self.assertEqual(self.hours((3 * H, 4 * H), said=(True, True))["mon"], [["03:00", "04:00"]])         # 時刻ちょうど：歯止めなし
+        self.assertEqual(self.hours((22 * H, 24 * H))["mon"], [])                                           # 口にしていない深夜は空
+
+    def test_a_recovering_call_is_inside_the_designated_limit(self):
+        """こちらの止めで約束の時刻にかけられなかった時刻ちょうどの約束の回を、その日のうちに取り戻す電話（recover）は、お客様指定の歯止め時間の
+        中（約束の1回分の外でも。✅ 2026-11-08 ユーザー＝計画書 7-3 (4)。0216）。"""
+        H = self.H
+        self.assertEqual(self.hours((15 * H, 15 * H + 2100), said=(True, False), day_said=True, recover=True)["sat"],
+                         [["07:00", "22:00"]])
+        self.assertEqual(self.hours((15 * H, 15 * H + 2100), said=(True, False), day_said=True)["sat"], [["15:00", "15:35"]])
+
+    def test_days_the_callee_did_not_name_follow_the_client(self):
+        H = self.H
+        self.assertEqual(self.hours((16 * H, 18 * H))["sat"], [])                                # 「夕方なら」の次の日の土曜：依頼者は休み
+        self.assertEqual(self.hours((16 * H, 18 * H), said=(True, True))["sat"], [])             # 口にした時刻も、その日でなければかけない
+        self.assertEqual(self.hours((16 * H, 18 * H), day_said=True)["sat"], [["16:00", "18:00"]])   # 「土曜の夕方」・今日の回
+        self.assertEqual(self.hours(None, day_said=True, days=("sat",))["sat"], [["09:00", "12:00"], ["13:00", "18:00"]])
+        self.assertEqual(self.hours(None, day_said=True, days=("sat",))["mon"], [])
+
+    def test_without_client_hours_the_guard_is_the_usual_time(self):
+        closed = {k: [] for k in KEYS}
+        self.assertEqual(self.hours(None, day_said=True, hours=closed)["sun"], [["07:00", "12:00"], ["13:00", "22:00"]])
+
+    def test_the_gate_reads_the_same_hours(self):
+        H = self.H
+        w = self.hours((13 * H, 24 * H))
+        ok = lambda h: allowed(WEEKDAY_9_18, self.NG, no_holiday, at(MON, h), at(MON, h, 1), window=w)   # noqa: E731
+        self.assertEqual((ok(14), ok(18), ok(19), ok(21), ok(23)), (True, True, False, False, False))   # 「午後」は 13〜19時（依頼者の18時を越えて営業時間まで）
+
+
+class Subtract(unittest.TestCase):
+    def test_cuts(self):
+        restaurant = {k: [["11:00", "14:00"], ["17:00", "21:00"]] for k in KEYS}     # ご飯時
+        got = subtract({k: [["10:00", "22:00"]] for k in KEYS}, restaurant)
+        self.assertEqual(got["mon"], [["10:00", "11:00"], ["14:00", "17:00"], ["21:00", "22:00"]])
+        self.assertEqual(subtract(WEEKDAY_9_18, {k: [] for k in KEYS}), WEEKDAY_9_18)
+        self.assertEqual(subtract(WEEKDAY_9_18, {k: [["00:00", "24:00"]] for k in KEYS})["mon"], [])
+        self.assertEqual(subtract({k: [["00:00", "24:00"]] for k in KEYS}, {k: [["12:00", "13:00"]] for k in KEYS})["sun"],
+                         [["00:00", "12:00"], ["13:00", "24:00"]])
+
+
+if __name__ == "__main__":
+    unittest.main()

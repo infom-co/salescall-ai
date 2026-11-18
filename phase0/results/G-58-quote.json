@@ -1,0 +1,98 @@
+{
+ "かぎあり": [
+  {
+   "heard": true,
+   "pauses": false,
+   "gaps": [
+    0.18
+   ]
+  },
+  {
+   "heard": false,
+   "pauses": false,
+   "gaps": [
+    0.26,
+    0.06
+   ]
+  },
+  {
+   "heard": false,
+   "pauses": false,
+   "gaps": [
+    0.18
+   ]
+  },
+  {
+   "heard": true,
+   "pauses": false,
+   "gaps": [
+    0.14,
+    0.06
+   ]
+  },
+  {
+   "heard": true,
+   "pauses": true,
+   "gaps": [
+    0.08,
+    0.06,
+    0.1,
+    0.06
+   ]
+  },
+  {
+   "heard": true,
+   "pauses": false,
+   "gaps": [
+    0.18,
+    0.06
+   ]
+  }
+ ],
+ "かぎなし": [
+  {
+   "heard": true,
+   "pauses": false,
+   "gaps": [
+    0.18,
+    0.06
+   ]
+  },
+  {
+   "heard": false,
+   "pauses": false,
+   "gaps": [
+    0.2
+   ]
+  },
+  {
+   "heard": false,
+   "pauses": false,
+   "gaps": [
+    0.12,
+    0.1
+   ]
+  },
+  {
+   "heard": false,
+   "pauses": false,
+   "gaps": [
+    0.12
+   ]
+  },
+  {
+   "heard": true,
+   "pauses": false,
+   "gaps": [
+    0.16
+   ]
+  },
+  {
+   "heard": false,
+   "pauses": false,
+   "gaps": [
+    0.14
+   ]
+  }
+ ]
+}

@@ -1,0 +1,4257 @@
+{
+  "item": "G-41",
+  "saved_at": "2026-10-16T11:45:33",
+  "rescored_from": "results/G-41_20261016_114341.json",
+  "questions": [
+    {
+      "business": "飲食",
+      "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "数の言葉",
+      "rule": "人"
+    },
+    {
+      "business": "飲食",
+      "question": "何名様でお越しになりますでしょうか？",
+      "ok": [
+        "名",
+        "人"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "名"
+    },
+    {
+      "business": "飲食",
+      "question": "お子様は何名いらっしゃいますでしょうか？",
+      "ok": [
+        "名",
+        "人"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "名"
+    },
+    {
+      "business": "飲食",
+      "question": "お子様用の椅子はいくつご用意いたしましょうか？",
+      "ok": [
+        "つ",
+        "脚",
+        "個"
+      ],
+      "form": "いくつ",
+      "rule": ""
+    },
+    {
+      "business": "飲食",
+      "question": "何時間のご利用をお考えでしょうか？",
+      "ok": [
+        "時間"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "時間"
+    },
+    {
+      "business": "飲食",
+      "question": "コースは何名様分ご用意いたしましょうか？",
+      "ok": [
+        "名分",
+        "人分",
+        "名",
+        "人"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "名分"
+    },
+    {
+      "business": "宿泊",
+      "question": "ご宿泊は何泊のご予定でしょうか？",
+      "ok": [
+        "泊"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "泊"
+    },
+    {
+      "business": "宿泊",
+      "question": "お部屋はいくつご用意すればよろしいでしょうか？",
+      "ok": [
+        "部屋",
+        "室",
+        "つ"
+      ],
+      "form": "いくつ",
+      "rule": ""
+    },
+    {
+      "business": "宿泊",
+      "question": "ご宿泊される大人の方の人数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "数の言葉",
+      "rule": "人"
+    },
+    {
+      "business": "宿泊",
+      "question": "お車は何台でお越しでしょうか？",
+      "ok": [
+        "台"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "台"
+    },
+    {
+      "business": "宿泊",
+      "question": "ご滞在の日数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "日",
+        "日間"
+      ],
+      "form": "数の言葉",
+      "rule": "日"
+    },
+    {
+      "business": "宿泊",
+      "question": "ご宿泊は何泊何日のご予定でしょうか？",
+      "ok": [],
+      "form": "決まらない",
+      "rule": ""
+    },
+    {
+      "business": "リース",
+      "question": "現在お使いの複合機は何台でしょうか？",
+      "ok": [
+        "台"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "台"
+    },
+    {
+      "business": "リース",
+      "question": "社員の方は何名くらいいらっしゃいますでしょうか？",
+      "ok": [
+        "名",
+        "人"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "名"
+    },
+    {
+      "business": "リース",
+      "question": "従業員数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "名",
+        "人"
+      ],
+      "form": "文の言葉に無い",
+      "rule": ""
+    },
+    {
+      "business": "リース",
+      "question": "月に何枚くらい印刷されていますでしょうか？",
+      "ok": [
+        "枚"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "枚"
+    },
+    {
+      "business": "リース",
+      "question": "拠点の数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "か所",
+        "ヶ所",
+        "カ所",
+        "箇所",
+        "拠点",
+        "つ"
+      ],
+      "form": "文の言葉に無い",
+      "rule": ""
+    },
+    {
+      "business": "リース",
+      "question": "今のリースのご契約は残り何か月でしょうか？",
+      "ok": [
+        "か月",
+        "ヶ月",
+        "カ月",
+        "ヵ月"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "か月"
+    },
+    {
+      "business": "リース",
+      "question": "今の複合機はお使いになって何年目でしょうか？",
+      "ok": [
+        "年目"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "年目"
+    },
+    {
+      "business": "リース",
+      "question": "ほかに何社ほど比べていらっしゃいますでしょうか？",
+      "ok": [
+        "社"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "社"
+    },
+    {
+      "business": "リース",
+      "question": "今のご契約の残りの期間をお伺いしてもよろしいでしょうか？",
+      "ok": [],
+      "form": "決まらない",
+      "rule": ""
+    },
+    {
+      "business": "不動産",
+      "question": "築年数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "年"
+      ],
+      "form": "数の言葉",
+      "rule": "年"
+    },
+    {
+      "business": "不動産",
+      "question": "お部屋の広さはどのくらいでしょうか？",
+      "ok": [],
+      "form": "決まらない",
+      "rule": ""
+    },
+    {
+      "business": "不動産",
+      "question": "建物は何階建てでしょうか？",
+      "ok": [
+        "階建て",
+        "階"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "階建て"
+    },
+    {
+      "business": "不動産",
+      "question": "お住まいは何階でしょうか？",
+      "ok": [
+        "階"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "階"
+    },
+    {
+      "business": "不動産",
+      "question": "ご家族は何人でお住まいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "人"
+    },
+    {
+      "business": "不動産",
+      "question": "駅から歩いて何分くらいでしょうか？",
+      "ok": [
+        "分"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "分"
+    },
+    {
+      "business": "不動産",
+      "question": "駐車場は何台分ございますでしょうか？",
+      "ok": [
+        "台分",
+        "台"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "台分"
+    },
+    {
+      "business": "不動産",
+      "question": "土地は何坪でしょうか？",
+      "ok": [
+        "坪"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "坪"
+    },
+    {
+      "business": "不動産",
+      "question": "間取りのお部屋の数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "部屋",
+        "室",
+        "つ"
+      ],
+      "form": "文の言葉に無い",
+      "rule": ""
+    },
+    {
+      "business": "不動産",
+      "question": "駅からの距離をお伺いしてもよろしいでしょうか？",
+      "ok": [],
+      "form": "決まらない",
+      "rule": ""
+    },
+    {
+      "business": "塾",
+      "question": "お子様の年齢をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "歳",
+        "才"
+      ],
+      "form": "文の言葉に無い",
+      "rule": ""
+    },
+    {
+      "business": "塾",
+      "question": "お子様は何年生でしょうか？",
+      "ok": [
+        "年生"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "年生"
+    },
+    {
+      "business": "塾",
+      "question": "週に何回の通塾をご希望でしょうか？",
+      "ok": [
+        "回"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "回"
+    },
+    {
+      "business": "塾",
+      "question": "1回あたり何分の授業をご希望でしょうか？",
+      "ok": [
+        "分"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "分"
+    },
+    {
+      "business": "塾",
+      "question": "ご兄弟は何人いらっしゃいますでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "人"
+    },
+    {
+      "business": "塾",
+      "question": "お子様はおいくつでいらっしゃいますでしょうか？",
+      "ok": [
+        "歳",
+        "才"
+      ],
+      "form": "いくつ",
+      "rule": ""
+    },
+    {
+      "business": "塾",
+      "question": "通塾にかかるお時間はどのくらいでしょうか？",
+      "ok": [],
+      "form": "決まらない",
+      "rule": ""
+    },
+    {
+      "business": "セミナー",
+      "question": "ご参加の人数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "数の言葉",
+      "rule": "人"
+    },
+    {
+      "business": "セミナー",
+      "question": "参加者数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "文の言葉に無い",
+      "rule": ""
+    },
+    {
+      "business": "セミナー",
+      "question": "資料は何部ご用意いたしましょうか？",
+      "ok": [
+        "部"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "部"
+    },
+    {
+      "business": "セミナー",
+      "question": "お弁当はいくつご用意いたしましょうか？",
+      "ok": [
+        "つ",
+        "個",
+        "食"
+      ],
+      "form": "いくつ",
+      "rule": ""
+    },
+    {
+      "business": "セミナー",
+      "question": "懇親会には何人ほど参加されますでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "人"
+    },
+    {
+      "business": "セミナー",
+      "question": "何日間のご参加をお考えでしょうか？",
+      "ok": [
+        "日間",
+        "日"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "日間"
+    },
+    {
+      "business": "配送",
+      "question": "お水のボトルは月に何本ご利用でしょうか？",
+      "ok": [
+        "本"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "本"
+    },
+    {
+      "business": "配送",
+      "question": "コピー用紙は何箱ご注文されますでしょうか？",
+      "ok": [
+        "箱"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "箱"
+    },
+    {
+      "business": "配送",
+      "question": "ご注文の数量をお伺いしてもよろしいでしょうか？",
+      "ok": [],
+      "form": "決まらない",
+      "rule": ""
+    },
+    {
+      "business": "配送",
+      "question": "ウォーターサーバーは何台お使いでしょうか？",
+      "ok": [
+        "台"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "台"
+    },
+    {
+      "business": "配送",
+      "question": "ウォーターサーバーはいくつお使いでしょうか？",
+      "ok": [
+        "台",
+        "つ"
+      ],
+      "form": "いくつ",
+      "rule": ""
+    },
+    {
+      "business": "配送",
+      "question": "オフィスで働いていらっしゃる方の人数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "数の言葉",
+      "rule": "人"
+    },
+    {
+      "business": "車",
+      "question": "お車の走行距離をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "キロ",
+        "km",
+        "キロメートル"
+      ],
+      "form": "文の言葉に無い",
+      "rule": ""
+    },
+    {
+      "business": "車",
+      "question": "タイヤは何本の交換をご希望でしょうか？",
+      "ok": [
+        "本"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "本"
+    },
+    {
+      "business": "車",
+      "question": "ご家族でお車を何台お持ちでしょうか？",
+      "ok": [
+        "台"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "台"
+    },
+    {
+      "business": "車",
+      "question": "車検まで残り何か月でしょうか？",
+      "ok": [
+        "か月",
+        "ヶ月",
+        "カ月",
+        "ヵ月"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "か月"
+    },
+    {
+      "business": "車",
+      "question": "お車の台数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "台"
+      ],
+      "form": "数の言葉",
+      "rule": "台"
+    },
+    {
+      "business": "介護",
+      "question": "ご利用者様の年齢をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "歳",
+        "才"
+      ],
+      "form": "文の言葉に無い",
+      "rule": ""
+    },
+    {
+      "business": "介護",
+      "question": "週に何日のご利用をお考えでしょうか？",
+      "ok": [
+        "日"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "日"
+    },
+    {
+      "business": "介護",
+      "question": "1日に何時間ほどのご利用をお考えでしょうか？",
+      "ok": [
+        "時間"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "時間"
+    },
+    {
+      "business": "介護",
+      "question": "お薬は1日に何回お飲みになりますでしょうか？",
+      "ok": [
+        "回"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "回"
+    },
+    {
+      "business": "介護",
+      "question": "ご同居のご家族の人数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "数の言葉",
+      "rule": "人"
+    },
+    {
+      "business": "農業",
+      "question": "牛は何頭飼っていらっしゃいますでしょうか？",
+      "ok": [
+        "頭"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "頭"
+    },
+    {
+      "business": "農業",
+      "question": "田んぼの広さはどのくらいでしょうか？",
+      "ok": [],
+      "form": "決まらない",
+      "rule": ""
+    },
+    {
+      "business": "農業",
+      "question": "ビニールハウスは何棟お持ちでしょうか？",
+      "ok": [
+        "棟"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "棟"
+    },
+    {
+      "business": "農業",
+      "question": "トラクターはいくつお持ちでしょうか？",
+      "ok": [
+        "台",
+        "つ"
+      ],
+      "form": "いくつ",
+      "rule": ""
+    },
+    {
+      "business": "農業",
+      "question": "出荷は年に何回でしょうか？",
+      "ok": [
+        "回"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "回"
+    },
+    {
+      "business": "そのほか",
+      "question": "ご来店は何回目でしょうか？",
+      "ok": [
+        "回目"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "回目"
+    },
+    {
+      "business": "そのほか",
+      "question": "パソコンは何台お使いでしょうか？",
+      "ok": [
+        "台"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "台"
+    },
+    {
+      "business": "そのほか",
+      "question": "パソコンはいくつお使いでしょうか？",
+      "ok": [
+        "台",
+        "つ"
+      ],
+      "form": "いくつ",
+      "rule": ""
+    },
+    {
+      "business": "そのほか",
+      "question": "現在の店舗数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "店舗",
+        "店"
+      ],
+      "form": "数の言葉",
+      "rule": "店舗"
+    },
+    {
+      "business": "そのほか",
+      "question": "スタッフの方の人数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "数の言葉",
+      "rule": "人"
+    },
+    {
+      "business": "そのほか",
+      "question": "会議室はいくつございますでしょうか？",
+      "ok": [
+        "部屋",
+        "室",
+        "つ"
+      ],
+      "form": "いくつ",
+      "rule": ""
+    },
+    {
+      "business": "そのほか",
+      "question": "犬は何匹飼っていらっしゃいますでしょうか？",
+      "ok": [
+        "匹",
+        "頭"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "匹"
+    },
+    {
+      "business": "そのほか",
+      "question": "何口のお申し込みをご希望でしょうか？",
+      "ok": [
+        "口"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "口"
+    },
+    {
+      "business": "そのほか",
+      "question": "シャツは何着お持ちでしょうか？",
+      "ok": [
+        "着",
+        "枚"
+      ],
+      "form": "何＋数える言葉",
+      "rule": "着"
+    },
+    {
+      "business": "そのほか",
+      "question": "ホームページの月の訪問者数をお伺いしてもよろしいでしょうか？",
+      "ok": [
+        "人",
+        "名"
+      ],
+      "form": "文の言葉に無い",
+      "rule": ""
+    },
+    {
+      "business": "そのほか",
+      "question": "ご利用の期間をお伺いしてもよろしいでしょうか？",
+      "ok": [],
+      "form": "決まらない",
+      "rule": ""
+    }
+  ],
+  "model_ids": {
+    "3.5 Flash Lite": "gemini-3.5-flash-lite",
+    "3.6 Flash": "gemini-3.6-flash",
+    "3.7 Flash": "gemini-3.7-flash",
+    "3.8 Flash": "gemini-3.8-flash"
+  },
+  "raw": {
+    "3.8 Flash#0": {
+      "rows": [
+        {
+          "counted": "来店する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "来店する人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "子供",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "子供用の椅子",
+          "raw_unit": "脚",
+          "unit": "脚",
+          "reason": ""
+        },
+        {
+          "counted": "利用する時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "コースを食べる人数分",
+          "raw_unit": "名分",
+          "unit": "名分",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する泊数",
+          "raw_unit": "泊",
+          "unit": "泊",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する部屋",
+          "raw_unit": "部屋",
+          "unit": "部屋",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する大人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "乗ってくる車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "滞在する日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する泊数と日数",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "「泊」と「日」の2つの単位が必要なため"
+        },
+        {
+          "counted": "使っている複合機",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "社員",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "従業員",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "印刷する紙",
+          "raw_unit": "枚",
+          "unit": "枚",
+          "reason": ""
+        },
+        {
+          "counted": "拠点",
+          "raw_unit": "か所",
+          "unit": "か所",
+          "reason": ""
+        },
+        {
+          "counted": "リースの残り月数",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "複合機を使っている年数",
+          "raw_unit": "年目",
+          "unit": "年目",
+          "reason": ""
+        },
+        {
+          "counted": "比較している会社",
+          "raw_unit": "社",
+          "unit": "社",
+          "reason": ""
+        },
+        {
+          "counted": "契約の残り期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間を表す単位（日、か月、年など）が複数考えられるため"
+        },
+        {
+          "counted": "建築後の年数",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "部屋の広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "広さを表す単位（平米、畳、坪など）が複数考えられるため"
+        },
+        {
+          "counted": "建物の階数",
+          "raw_unit": "階建て",
+          "unit": "階建て",
+          "reason": ""
+        },
+        {
+          "counted": "住んでいる階",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "同居している家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "駅から歩く時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "駐車できる車の数",
+          "raw_unit": "台分",
+          "unit": "台分",
+          "reason": ""
+        },
+        {
+          "counted": "土地の広さ",
+          "raw_unit": "坪",
+          "unit": "坪",
+          "reason": ""
+        },
+        {
+          "counted": "間取りの部屋",
+          "raw_unit": "部屋",
+          "unit": "部屋",
+          "reason": ""
+        },
+        {
+          "counted": "駅からの距離",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "距離を表す単位（メートル、キロメートル、徒歩分数など）が複数考えられるため"
+        },
+        {
+          "counted": "子供の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "子供の学年",
+          "raw_unit": "年生",
+          "unit": "年生",
+          "reason": ""
+        },
+        {
+          "counted": "週に通塾する回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "1回の授業時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "兄弟姉妹",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "子供の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "通塾にかかる時間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "時間を表す単位（分、時間など）が複数考えられるため"
+        },
+        {
+          "counted": "参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "資料の部数",
+          "raw_unit": "部",
+          "unit": "部",
+          "reason": ""
+        },
+        {
+          "counted": "弁当",
+          "raw_unit": "個",
+          "unit": "個",
+          "reason": ""
+        },
+        {
+          "counted": "懇親会に参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加する日数",
+          "raw_unit": "日間",
+          "unit": "日間",
+          "reason": ""
+        },
+        {
+          "counted": "水のボトル",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "コピー用紙の箱",
+          "raw_unit": "箱",
+          "unit": "箱",
+          "reason": ""
+        },
+        {
+          "counted": "注文する商品の数量",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "商品によって数える単位（個、本、箱など）が複数考えられるため"
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "オフィスで働く人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "車の走行距離",
+          "raw_unit": "キロ",
+          "unit": "キロ",
+          "reason": ""
+        },
+        {
+          "counted": "交換するタイヤ",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "所有している車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "車検までの残り月数",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "利用者の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "週に利用する日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "1日に利用する時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "1日に薬を飲む回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "同居している家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "飼育している牛",
+          "raw_unit": "頭",
+          "unit": "頭",
+          "reason": ""
+        },
+        {
+          "counted": "田んぼの広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "広さを表す単位（反、町、平米、坪など）が複数考えられるため"
+        },
+        {
+          "counted": "ビニールハウス",
+          "raw_unit": "棟",
+          "unit": "棟",
+          "reason": ""
+        },
+        {
+          "counted": "所有しているトラクター",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "年に出荷する回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "来店する回数",
+          "raw_unit": "回目",
+          "unit": "回目",
+          "reason": ""
+        },
+        {
+          "counted": "使用しているパソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "使用しているパソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "店舗",
+          "raw_unit": "店舗",
+          "unit": "店舗",
+          "reason": ""
+        },
+        {
+          "counted": "スタッフ",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "会議室",
+          "raw_unit": "室",
+          "unit": "室",
+          "reason": ""
+        },
+        {
+          "counted": "飼っている犬",
+          "raw_unit": "匹",
+          "unit": "匹",
+          "reason": ""
+        },
+        {
+          "counted": "申し込みの口数",
+          "raw_unit": "口",
+          "unit": "口",
+          "reason": ""
+        },
+        {
+          "counted": "持っているシャツ",
+          "raw_unit": "着",
+          "unit": "着",
+          "reason": ""
+        },
+        {
+          "counted": "ホームページの月間訪問者",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "利用する期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間を表す単位（日、か月、年など）が複数考えられるため"
+        }
+      ],
+      "retries": 0
+    },
+    "3.7 Flash#0": {
+      "rows": [
+        {
+          "counted": "来店する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "来店する人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "子ども",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "子ども用の椅子",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "利用する時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "用意するコース",
+          "raw_unit": "名分",
+          "unit": "名分",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する泊数",
+          "raw_unit": "泊",
+          "unit": "泊",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する部屋",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する大人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "滞在する日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する泊数と日数",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "泊と日の2つの数える言葉が必要なため"
+        },
+        {
+          "counted": "使っている複合機",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "社員",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "従業員",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "印刷する用紙",
+          "raw_unit": "枚",
+          "unit": "枚",
+          "reason": ""
+        },
+        {
+          "counted": "拠点",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "拠点、か所など数える言葉が複数考えられるため"
+        },
+        {
+          "counted": "リースの残り月数",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "複合機を使っている年数",
+          "raw_unit": "年目",
+          "unit": "年目",
+          "reason": ""
+        },
+        {
+          "counted": "比較している他社",
+          "raw_unit": "社",
+          "unit": "社",
+          "reason": ""
+        },
+        {
+          "counted": "契約の残り期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "日、か月、年など期間を表す言葉が複数考えられるため"
+        },
+        {
+          "counted": "建築されてからの年数",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "部屋の広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "平米、畳、坪など広さを表す言葉が複数考えられるため"
+        },
+        {
+          "counted": "建物の階数",
+          "raw_unit": "階建て",
+          "unit": "階建て",
+          "reason": ""
+        },
+        {
+          "counted": "住んでいる階",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "住んでいる家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "駅から歩く時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "駐車場の収容数",
+          "raw_unit": "台分",
+          "unit": "台分",
+          "reason": ""
+        },
+        {
+          "counted": "土地の広さ",
+          "raw_unit": "坪",
+          "unit": "坪",
+          "reason": ""
+        },
+        {
+          "counted": "間取りの部屋",
+          "raw_unit": "部屋",
+          "unit": "部屋",
+          "reason": ""
+        },
+        {
+          "counted": "駅からの距離",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "メートル、キロメートルなど距離を表す言葉が複数考えられるため"
+        },
+        {
+          "counted": "子どもの年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "子どもの学年",
+          "raw_unit": "年生",
+          "unit": "年生",
+          "reason": ""
+        },
+        {
+          "counted": "週に通塾する回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "1回の授業時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "兄弟",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "子どもの年齢",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "通塾にかかる時間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "分、時間など時間を表す言葉が複数考えられるため"
+        },
+        {
+          "counted": "参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "用意する資料",
+          "raw_unit": "部",
+          "unit": "部",
+          "reason": ""
+        },
+        {
+          "counted": "用意する弁当",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "懇親会に参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加する日数",
+          "raw_unit": "日間",
+          "unit": "日間",
+          "reason": ""
+        },
+        {
+          "counted": "利用する水のボトル",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "注文するコピー用紙の箱",
+          "raw_unit": "箱",
+          "unit": "箱",
+          "reason": ""
+        },
+        {
+          "counted": "注文する数量",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "商品によって個、本、箱など数える言葉が複数考えられるため"
+        },
+        {
+          "counted": "使っているウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "使っているウォーターサーバー",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "オフィスで働く人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "車の走行距離",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "キロ、キロメートルなど距離を表す言葉が複数考えられるため"
+        },
+        {
+          "counted": "交換するタイヤ",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "所有している車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "車検までの残り月数",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "所有している車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "利用者の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "週に利用する日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "1日に利用する時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "1日に薬を飲む回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "同居している家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "飼っている牛",
+          "raw_unit": "頭",
+          "unit": "頭",
+          "reason": ""
+        },
+        {
+          "counted": "田んぼの広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "反、町、平米、坪など広さを表す言葉が複数考えられるため"
+        },
+        {
+          "counted": "所有しているビニールハウス",
+          "raw_unit": "棟",
+          "unit": "棟",
+          "reason": ""
+        },
+        {
+          "counted": "所有しているトラクター",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "年に出荷する回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "来店する回数",
+          "raw_unit": "回目",
+          "unit": "回目",
+          "reason": ""
+        },
+        {
+          "counted": "使っているパソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "使っているパソコン",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "店舗",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "店舗、店、か所など数える言葉が複数考えられるため"
+        },
+        {
+          "counted": "スタッフ",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "会議室",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "飼っている犬",
+          "raw_unit": "匹",
+          "unit": "匹",
+          "reason": ""
+        },
+        {
+          "counted": "申し込む口数",
+          "raw_unit": "口",
+          "unit": "口",
+          "reason": ""
+        },
+        {
+          "counted": "持っているシャツ",
+          "raw_unit": "着",
+          "unit": "着",
+          "reason": ""
+        },
+        {
+          "counted": "ホームページの月間訪問者",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "利用する期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "日、か月、年など期間を表す言葉が複数考えられるため"
+        }
+      ],
+      "retries": 0
+    },
+    "3.6 Flash#0": {
+      "error": {
+        "type": "ServerError",
+        "module": "google.genai.errors",
+        "message": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}",
+        "code": "503",
+        "status": "UNAVAILABLE",
+        "details": "{'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+      }
+    },
+    "3.5 Flash Lite#0": {
+      "rows": [
+        {
+          "counted": "来店する人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お越しになる人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お子様",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お子様用の椅子",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "コース",
+          "raw_unit": "名分",
+          "unit": "名分",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊",
+          "raw_unit": "泊",
+          "unit": "泊",
+          "reason": ""
+        },
+        {
+          "counted": "お部屋",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊される大人の方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ご滞在の日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊の期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "何泊何日というように数える言葉が2つ要るため1つに決まらない"
+        },
+        {
+          "counted": "複合機",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "社員の方",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "従業員",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "印刷する枚数",
+          "raw_unit": "枚",
+          "unit": "枚",
+          "reason": ""
+        },
+        {
+          "counted": "拠点",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "リースのご契約の残り",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "今の複合機をお使いになってからの期間",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "ほかに比べていらっしゃる会社",
+          "raw_unit": "社",
+          "unit": "社",
+          "reason": ""
+        },
+        {
+          "counted": "今のご契約の残りの期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間を示す言葉が日、か月、年など複数考えられ1つに決まらないため"
+        },
+        {
+          "counted": "築年数",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "お部屋の広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "平米、畳、坪など広さを表す単位が複数あり1つに決まらないため"
+        },
+        {
+          "counted": "建物",
+          "raw_unit": "階建て",
+          "unit": "階建て",
+          "reason": ""
+        },
+        {
+          "counted": "お住まいの階",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "ご家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "駅から歩いてかかる時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "駐車場",
+          "raw_unit": "台分",
+          "unit": "台分",
+          "reason": ""
+        },
+        {
+          "counted": "土地",
+          "raw_unit": "坪",
+          "unit": "坪",
+          "reason": ""
+        },
+        {
+          "counted": "間取りのお部屋",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "駅からの距離",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "メートルや分など距離を表す単位が複数考えられ1つに決まらないため"
+        },
+        {
+          "counted": "お子様の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "お子様の学年",
+          "raw_unit": "年生",
+          "unit": "年生",
+          "reason": ""
+        },
+        {
+          "counted": "通塾",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "授業",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "ご兄弟",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お子様のご年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "通塾にかかる時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "ご参加の人数",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加者",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "資料",
+          "raw_unit": "部",
+          "unit": "部",
+          "reason": ""
+        },
+        {
+          "counted": "お弁当",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "懇親会に参加される方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "ご参加の日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "お水のボトル",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "コピー用紙",
+          "raw_unit": "箱",
+          "unit": "箱",
+          "reason": ""
+        },
+        {
+          "counted": "ご注文の数量",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "商品によって数える単位が異なるため1つに決まらない"
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "オフィスで働いていらっしゃる方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お車の走行距離",
+          "raw_unit": "キロメートル",
+          "unit": "",
+          "reason": ""
+        },
+        {
+          "counted": "タイヤ",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "車検までの残り",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用者様のご年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "お薬をお飲みになる回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "ご同居のご家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "牛",
+          "raw_unit": "頭",
+          "unit": "頭",
+          "reason": ""
+        },
+        {
+          "counted": "田んぼの広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "アール、ヘクタール、坪など広さを表す単位が複数あり1つに決まらないため"
+        },
+        {
+          "counted": "ビニールハウス",
+          "raw_unit": "棟",
+          "unit": "棟",
+          "reason": ""
+        },
+        {
+          "counted": "トラクター",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "出荷の回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "ご来店",
+          "raw_unit": "回目",
+          "unit": "回目",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "店舗",
+          "raw_unit": "店舗",
+          "unit": "店舗",
+          "reason": ""
+        },
+        {
+          "counted": "スタッフの方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "会議室",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "犬",
+          "raw_unit": "匹",
+          "unit": "匹",
+          "reason": ""
+        },
+        {
+          "counted": "お申し込み",
+          "raw_unit": "口",
+          "unit": "口",
+          "reason": ""
+        },
+        {
+          "counted": "シャツ",
+          "raw_unit": "着",
+          "unit": "着",
+          "reason": ""
+        },
+        {
+          "counted": "ホームページの訪問者数",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "日、か月、年など期間を表す単位が複数考えられ1つに決まらないため"
+        }
+      ],
+      "retries": 0
+    },
+    "3.8 Flash#1": {
+      "rows": [
+        {
+          "counted": "来店する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "来店する人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "子ども",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "子ども用の椅子",
+          "raw_unit": "脚",
+          "unit": "脚",
+          "reason": ""
+        },
+        {
+          "counted": "利用する時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "コース料理の分量",
+          "raw_unit": "名分",
+          "unit": "名分",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する日数（泊数）",
+          "raw_unit": "泊",
+          "unit": "泊",
+          "reason": ""
+        },
+        {
+          "counted": "部屋",
+          "raw_unit": "部屋",
+          "unit": "部屋",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する大人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "滞在する日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する泊数と日数",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "「泊」と「日」の2つの数える言葉が必要なため"
+        },
+        {
+          "counted": "複合機",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "社員",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "従業員",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "印刷する枚数",
+          "raw_unit": "枚",
+          "unit": "枚",
+          "reason": ""
+        },
+        {
+          "counted": "拠点",
+          "raw_unit": "拠点",
+          "unit": "拠点",
+          "reason": ""
+        },
+        {
+          "counted": "リースの残りの月数",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "複合機を使用している年数",
+          "raw_unit": "年目",
+          "unit": "年目",
+          "reason": ""
+        },
+        {
+          "counted": "比較している会社",
+          "raw_unit": "社",
+          "unit": "社",
+          "reason": ""
+        },
+        {
+          "counted": "契約の残り期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間の単位として日・か月・年などが考えられ1つに決まらないため"
+        },
+        {
+          "counted": "築年数",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "部屋の広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "広さの単位として平米・畳・坪などが考えられ1つに決まらないため"
+        },
+        {
+          "counted": "建物の階数",
+          "raw_unit": "階建て",
+          "unit": "階建て",
+          "reason": ""
+        },
+        {
+          "counted": "居住している階数",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "駅から歩いてかかる時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "駐車場の収容可能数",
+          "raw_unit": "台分",
+          "unit": "台分",
+          "reason": ""
+        },
+        {
+          "counted": "土地の広さ",
+          "raw_unit": "坪",
+          "unit": "坪",
+          "reason": ""
+        },
+        {
+          "counted": "間取りの部屋数",
+          "raw_unit": "部屋",
+          "unit": "部屋",
+          "reason": ""
+        },
+        {
+          "counted": "駅からの距離",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "距離の単位としてメートル・キロメートルや、所要時間の分などが考えられ1つに決まらないため"
+        },
+        {
+          "counted": "年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "学年",
+          "raw_unit": "年生",
+          "unit": "年生",
+          "reason": ""
+        },
+        {
+          "counted": "通塾の頻度",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "授業の時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "兄弟姉妹",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "通塾にかかる時間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "時間の単位として分や時間などが考えられ1つに決まらないため"
+        },
+        {
+          "counted": "参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加者",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "資料",
+          "raw_unit": "部",
+          "unit": "部",
+          "reason": ""
+        },
+        {
+          "counted": "弁当",
+          "raw_unit": "個",
+          "unit": "個",
+          "reason": ""
+        },
+        {
+          "counted": "懇親会に参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加する日数",
+          "raw_unit": "日間",
+          "unit": "日間",
+          "reason": ""
+        },
+        {
+          "counted": "水ボトル",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "コピー用紙の箱",
+          "raw_unit": "箱",
+          "unit": "箱",
+          "reason": ""
+        },
+        {
+          "counted": "注文する商品",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "注文対象の商品によって個・本・箱・枚・台など数える言葉が異なり1つに決まらないため"
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "オフィスで働く人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "走行距離",
+          "raw_unit": "キロ",
+          "unit": "キロ",
+          "reason": ""
+        },
+        {
+          "counted": "交換するタイヤ",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "車検までの残り月数",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "利用する日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "利用する時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "薬を飲む頻度",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "同居している家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "牛",
+          "raw_unit": "頭",
+          "unit": "頭",
+          "reason": ""
+        },
+        {
+          "counted": "田んぼの広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "広さの単位として反・町・坪・平米・アール・ヘクタールなどが考えられ1つに決まらないため"
+        },
+        {
+          "counted": "ビニールハウス",
+          "raw_unit": "棟",
+          "unit": "棟",
+          "reason": ""
+        },
+        {
+          "counted": "トラクター",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "出荷の頻度",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "来店する回数",
+          "raw_unit": "回目",
+          "unit": "回目",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "店舗",
+          "raw_unit": "店舗",
+          "unit": "店舗",
+          "reason": ""
+        },
+        {
+          "counted": "スタッフ",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "会議室",
+          "raw_unit": "部屋",
+          "unit": "部屋",
+          "reason": ""
+        },
+        {
+          "counted": "犬",
+          "raw_unit": "匹",
+          "unit": "匹",
+          "reason": ""
+        },
+        {
+          "counted": "申し込みの口数",
+          "raw_unit": "口",
+          "unit": "口",
+          "reason": ""
+        },
+        {
+          "counted": "シャツ",
+          "raw_unit": "着",
+          "unit": "着",
+          "reason": ""
+        },
+        {
+          "counted": "ホームページの訪問者",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "利用する期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間の単位として日・週間・か月・年などが考えられ1つに決まらないため"
+        }
+      ],
+      "retries": 0
+    },
+    "3.7 Flash#1": {
+      "rows": [
+        {
+          "counted": "来店する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "来店する人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "子ども",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "子ども用の椅子",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "利用する時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "コース料理の人数分",
+          "raw_unit": "名分",
+          "unit": "名分",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する泊数",
+          "raw_unit": "泊",
+          "unit": "泊",
+          "reason": ""
+        },
+        {
+          "counted": "部屋",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する大人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "滞在する日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "宿泊する泊数と日数",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "泊と日の2つの数える言葉が必要なため"
+        },
+        {
+          "counted": "使っている複合機",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "社員",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "従業員",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "印刷する枚数",
+          "raw_unit": "枚",
+          "unit": "枚",
+          "reason": ""
+        },
+        {
+          "counted": "拠点",
+          "raw_unit": "拠点",
+          "unit": "拠点",
+          "reason": ""
+        },
+        {
+          "counted": "契約の残り月数",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "複合機を使っている年数",
+          "raw_unit": "年目",
+          "unit": "年目",
+          "reason": ""
+        },
+        {
+          "counted": "比較している会社",
+          "raw_unit": "社",
+          "unit": "社",
+          "reason": ""
+        },
+        {
+          "counted": "契約の残りの期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間の単位として日、か月、年などが考えられ1つに決まらないため"
+        },
+        {
+          "counted": "築年数",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "部屋の広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "平米、畳、坪など複数の単位が考えられ1つに決まらないため"
+        },
+        {
+          "counted": "建物の階数",
+          "raw_unit": "階建て",
+          "unit": "階建て",
+          "reason": ""
+        },
+        {
+          "counted": "住まいの階",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "住んでいる家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "駅から歩く時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "駐車場",
+          "raw_unit": "台分",
+          "unit": "台分",
+          "reason": ""
+        },
+        {
+          "counted": "土地の広さ",
+          "raw_unit": "坪",
+          "unit": "坪",
+          "reason": ""
+        },
+        {
+          "counted": "間取りの部屋",
+          "raw_unit": "部屋",
+          "unit": "部屋",
+          "reason": ""
+        },
+        {
+          "counted": "駅からの距離",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "メートル、キロメートル、徒歩分数など複数の単位が考えられ1つに決まらないため"
+        },
+        {
+          "counted": "子どもの年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "子どもの学年",
+          "raw_unit": "年生",
+          "unit": "年生",
+          "reason": ""
+        },
+        {
+          "counted": "通塾する回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "授業の時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "兄弟",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "子どもの年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "通塾にかかる時間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "分、時間など複数の単位が考えられ1つに決まらないため"
+        },
+        {
+          "counted": "参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加者",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "資料",
+          "raw_unit": "部",
+          "unit": "部",
+          "reason": ""
+        },
+        {
+          "counted": "お弁当",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "懇親会に参加する人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "参加する日数",
+          "raw_unit": "日間",
+          "unit": "日間",
+          "reason": ""
+        },
+        {
+          "counted": "水のボトル",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "コピー用紙",
+          "raw_unit": "箱",
+          "unit": "箱",
+          "reason": ""
+        },
+        {
+          "counted": "注文する数量",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "商品の種類によって個、箱、本など単位が異なり1つに決まらないため"
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "オフィスで働く人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "車の走行距離",
+          "raw_unit": "キロ",
+          "unit": "キロ",
+          "reason": ""
+        },
+        {
+          "counted": "交換するタイヤ",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "所有している車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "車検までの残り月数",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "利用者",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "利用する日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "利用する時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "薬を飲む回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "同居する家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "牛",
+          "raw_unit": "頭",
+          "unit": "頭",
+          "reason": ""
+        },
+        {
+          "counted": "田んぼの広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "反、町、平米、坪など複数の単位が考えられ1つに決まらないため"
+        },
+        {
+          "counted": "ビニールハウス",
+          "raw_unit": "棟",
+          "unit": "棟",
+          "reason": ""
+        },
+        {
+          "counted": "トラクター",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "出荷する回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "来店する回数",
+          "raw_unit": "回目",
+          "unit": "回目",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "店舗",
+          "raw_unit": "店舗",
+          "unit": "店舗",
+          "reason": ""
+        },
+        {
+          "counted": "スタッフ",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "会議室",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "犬",
+          "raw_unit": "匹",
+          "unit": "匹",
+          "reason": ""
+        },
+        {
+          "counted": "申し込む口数",
+          "raw_unit": "口",
+          "unit": "口",
+          "reason": ""
+        },
+        {
+          "counted": "シャツ",
+          "raw_unit": "着",
+          "unit": "着",
+          "reason": ""
+        },
+        {
+          "counted": "訪問者",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "利用する期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "日、週間、か月、年など複数の単位が考えられ1つに決まらないため"
+        }
+      ],
+      "retries": 2
+    },
+    "3.6 Flash#1": {
+      "error": {
+        "type": "ServerError",
+        "module": "google.genai.errors",
+        "message": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}",
+        "code": "503",
+        "status": "UNAVAILABLE",
+        "details": "{'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+      }
+    },
+    "3.5 Flash Lite#1": {
+      "rows": [
+        {
+          "counted": "来店する人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お越しになる人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お子様",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お子様用の椅子",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "コース",
+          "raw_unit": "名様分",
+          "unit": "名様分",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊",
+          "raw_unit": "泊",
+          "unit": "泊",
+          "reason": ""
+        },
+        {
+          "counted": "お部屋",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊される大人の方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ご滞在の日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "「何泊何日」と数える言葉が2つ要る質問であるため"
+        },
+        {
+          "counted": "複合機",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "社員の方",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "従業員",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "印刷する枚数",
+          "raw_unit": "枚",
+          "unit": "枚",
+          "reason": ""
+        },
+        {
+          "counted": "拠点",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "ご契約の残り",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "お使いになってからの期間",
+          "raw_unit": "年目",
+          "unit": "年目",
+          "reason": ""
+        },
+        {
+          "counted": "比べていらっしゃる会社",
+          "raw_unit": "社",
+          "unit": "社",
+          "reason": ""
+        },
+        {
+          "counted": "ご契約の残りの期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間を表す言葉が日、か月、年など複数考えられ1つに決まらないため"
+        },
+        {
+          "counted": "築年数",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "お部屋の広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "広さを表す言葉が平米、畳、坪など複数考えられ1つに決まらないため"
+        },
+        {
+          "counted": "建物",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "お住まい",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "お住まいのご家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "駅から歩く時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "駐車場",
+          "raw_unit": "台分",
+          "unit": "台分",
+          "reason": ""
+        },
+        {
+          "counted": "土地",
+          "raw_unit": "坪",
+          "unit": "坪",
+          "reason": ""
+        },
+        {
+          "counted": "間取りのお部屋",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "駅からの距離",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "距離を表す言葉がメートルやキロメートル、分など複数考えられ1つに決まらないため"
+        },
+        {
+          "counted": "お子様の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "お子様の学年",
+          "raw_unit": "年生",
+          "unit": "年生",
+          "reason": ""
+        },
+        {
+          "counted": "通塾の回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "授業の時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "ご兄弟",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お子様の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "通塾にかかる時間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "時間を表す言葉が分、時間など複数考えられ1つに決まらないため"
+        },
+        {
+          "counted": "ご参加の人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "参加者",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "資料",
+          "raw_unit": "部",
+          "unit": "部",
+          "reason": ""
+        },
+        {
+          "counted": "お弁当",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "懇親会に参加される方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "ご参加の日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "お水のボトル",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "コピー用紙",
+          "raw_unit": "箱",
+          "unit": "箱",
+          "reason": ""
+        },
+        {
+          "counted": "ご注文の数量",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "商品によって数える言葉が異なるため"
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "オフィスで働いていらっしゃる方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お車の走行距離",
+          "raw_unit": "キロ",
+          "unit": "キロ",
+          "reason": ""
+        },
+        {
+          "counted": "タイヤ",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "車検までの残り",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用者様の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "お薬をお飲みになる回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "ご同居のご家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "牛",
+          "raw_unit": "頭",
+          "unit": "頭",
+          "reason": ""
+        },
+        {
+          "counted": "田んぼの広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "広さを表す言葉が平米、反、町、坪など複数考えられ1つに決まらないため"
+        },
+        {
+          "counted": "ビニールハウス",
+          "raw_unit": "棟",
+          "unit": "棟",
+          "reason": ""
+        },
+        {
+          "counted": "トラクター",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "出荷の回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "ご来店",
+          "raw_unit": "回目",
+          "unit": "回目",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "店舗",
+          "raw_unit": "店",
+          "unit": "店",
+          "reason": ""
+        },
+        {
+          "counted": "スタッフの方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "会議室",
+          "raw_unit": "室",
+          "unit": "室",
+          "reason": ""
+        },
+        {
+          "counted": "犬",
+          "raw_unit": "匹",
+          "unit": "匹",
+          "reason": ""
+        },
+        {
+          "counted": "お申し込み",
+          "raw_unit": "口",
+          "unit": "口",
+          "reason": ""
+        },
+        {
+          "counted": "シャツ",
+          "raw_unit": "着",
+          "unit": "着",
+          "reason": ""
+        },
+        {
+          "counted": "ホームページの訪問者数",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間を表す言葉が日、か月、年など複数考えられ1つに決まらないため"
+        }
+      ],
+      "retries": 0
+    },
+    "3.5 Flash Lite#2": {
+      "rows": [
+        {
+          "counted": "来店する人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お越しになる人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お子様",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "お子様用の椅子",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "コース",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊",
+          "raw_unit": "泊",
+          "unit": "泊",
+          "reason": ""
+        },
+        {
+          "counted": "お部屋",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊される大人の方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ご滞在の日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "ご宿泊",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "何泊何日と数える言葉が2つ要る質問であるため"
+        },
+        {
+          "counted": "複合機",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "社員の方",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "従業員数",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "印刷する枚数",
+          "raw_unit": "枚",
+          "unit": "枚",
+          "reason": ""
+        },
+        {
+          "counted": "拠点",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "ご契約の残り",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "今の複合機をお使いになってからの期間",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "比べていらっしゃる会社",
+          "raw_unit": "社",
+          "unit": "社",
+          "reason": ""
+        },
+        {
+          "counted": "今のご契約の残りの期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間は日、か月、年など複数の数える言葉が考えられて1つに決まらないため"
+        },
+        {
+          "counted": "築年数",
+          "raw_unit": "年",
+          "unit": "年",
+          "reason": ""
+        },
+        {
+          "counted": "お部屋の広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "広さは平米、畳、坪など複数の数える言葉が考えられて1つに決まらないため"
+        },
+        {
+          "counted": "建物",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "お住まい",
+          "raw_unit": "階",
+          "unit": "階",
+          "reason": ""
+        },
+        {
+          "counted": "お住まいのご家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "駅から歩く時間",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "駐車場",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "土地",
+          "raw_unit": "坪",
+          "unit": "坪",
+          "reason": ""
+        },
+        {
+          "counted": "間取りのお部屋",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "駅からの距離",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "距離はメートル、キロメートルなど複数の数える言葉が考えられて1つに決まらないため"
+        },
+        {
+          "counted": "お子様の年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "お子様の学年",
+          "raw_unit": "年生",
+          "unit": "年生",
+          "reason": ""
+        },
+        {
+          "counted": "通塾",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "授業",
+          "raw_unit": "分",
+          "unit": "分",
+          "reason": ""
+        },
+        {
+          "counted": "ご兄弟",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お子様",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "通塾にかかるお時間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "時間は分、時間など複数の数える言葉が考えられて1つに決まらないため"
+        },
+        {
+          "counted": "ご参加の人",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "参加者",
+          "raw_unit": "名",
+          "unit": "名",
+          "reason": ""
+        },
+        {
+          "counted": "資料",
+          "raw_unit": "部",
+          "unit": "部",
+          "reason": ""
+        },
+        {
+          "counted": "お弁当",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "懇親会に参加される人",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "ご参加の日数",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "お水のボトル",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "コピー用紙",
+          "raw_unit": "箱",
+          "unit": "箱",
+          "reason": ""
+        },
+        {
+          "counted": "ご注文の数量",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "数量だけでは数える言葉が1つに決まらないため"
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ウォーターサーバー",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "オフィスで働いていらっしゃる方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "お車の走行距離",
+          "raw_unit": "キロメートル",
+          "unit": "",
+          "reason": ""
+        },
+        {
+          "counted": "タイヤ",
+          "raw_unit": "本",
+          "unit": "本",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "車検までの残り",
+          "raw_unit": "か月",
+          "unit": "か月",
+          "reason": ""
+        },
+        {
+          "counted": "お車",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用者様のお年齢",
+          "raw_unit": "歳",
+          "unit": "歳",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用",
+          "raw_unit": "日",
+          "unit": "日",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の時間",
+          "raw_unit": "時間",
+          "unit": "時間",
+          "reason": ""
+        },
+        {
+          "counted": "お薬をお飲みになる回数",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "ご同居のご家族",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "牛",
+          "raw_unit": "頭",
+          "unit": "頭",
+          "reason": ""
+        },
+        {
+          "counted": "田んぼの広さ",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "広さは平米、畳、坪など複数の数える言葉が考えられて1つに決まらないため"
+        },
+        {
+          "counted": "ビニールハウス",
+          "raw_unit": "棟",
+          "unit": "棟",
+          "reason": ""
+        },
+        {
+          "counted": "トラクター",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "出荷",
+          "raw_unit": "回",
+          "unit": "回",
+          "reason": ""
+        },
+        {
+          "counted": "ご来店",
+          "raw_unit": "回目",
+          "unit": "回目",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "台",
+          "unit": "台",
+          "reason": ""
+        },
+        {
+          "counted": "パソコン",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "店舗",
+          "raw_unit": "店",
+          "unit": "店",
+          "reason": ""
+        },
+        {
+          "counted": "スタッフの方",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "会議室",
+          "raw_unit": "つ",
+          "unit": "つ",
+          "reason": ""
+        },
+        {
+          "counted": "犬",
+          "raw_unit": "匹",
+          "unit": "匹",
+          "reason": ""
+        },
+        {
+          "counted": "お申し込み",
+          "raw_unit": "口",
+          "unit": "口",
+          "reason": ""
+        },
+        {
+          "counted": "シャツ",
+          "raw_unit": "着",
+          "unit": "着",
+          "reason": ""
+        },
+        {
+          "counted": "ホームページの訪問者数",
+          "raw_unit": "人",
+          "unit": "人",
+          "reason": ""
+        },
+        {
+          "counted": "ご利用の期間",
+          "raw_unit": "",
+          "unit": "",
+          "reason": "期間は日、か月、年など複数の数える言葉が考えられて1つに決まらないため"
+        }
+      ],
+      "retries": 0
+    }
+  },
+  "compare": {
+    "決まりだけ": {
+      "正しい": 60,
+      "補わない": 16,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お子様用の椅子はいくつご用意いたしましょうか？",
+        "お部屋はいくつご用意すればよろしいでしょうか？",
+        "従業員数をお伺いしてもよろしいでしょうか？",
+        "拠点の数をお伺いしてもよろしいでしょうか？",
+        "間取りのお部屋の数をお伺いしてもよろしいでしょうか？",
+        "お子様の年齢をお伺いしてもよろしいでしょうか？",
+        "お子様はおいくつでいらっしゃいますでしょうか？",
+        "参加者数をお伺いしてもよろしいでしょうか？",
+        "お弁当はいくつご用意いたしましょうか？",
+        "ウォーターサーバーはいくつお使いでしょうか？",
+        "お車の走行距離をお伺いしてもよろしいでしょうか？",
+        "ご利用者様の年齢をお伺いしてもよろしいでしょうか？",
+        "トラクターはいくつお持ちでしょうか？",
+        "パソコンはいくつお使いでしょうか？",
+        "会議室はいくつございますでしょうか？",
+        "ホームページの月の訪問者数をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.8 Flash#0だけ": {
+      "正しい": 76,
+      "補わない": 0,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": []
+    },
+    "決まり→3.7 Flash#0だけ": {
+      "正しい": 73,
+      "補わない": 2,
+      "誤り": 1,
+      "誤りの例": [
+        "お子様はおいくつでいらっしゃいますでしょうか？ ⇒ 「つ」（正解：歳・才）"
+      ],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？",
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.5 Flash Lite#0だけ": {
+      "正しい": 74,
+      "補わない": 1,
+      "誤り": 1,
+      "誤りの例": [
+        "通塾にかかるお時間はどのくらいでしょうか？ ⇒ 「分」（正解：空）"
+      ],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.8 Flash#1だけ": {
+      "正しい": 76,
+      "補わない": 0,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": []
+    },
+    "決まり→3.7 Flash#1だけ": {
+      "正しい": 76,
+      "補わない": 0,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": []
+    },
+    "決まり→3.5 Flash Lite#1だけ": {
+      "正しい": 76,
+      "補わない": 0,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": []
+    },
+    "決まり→3.5 Flash Lite#2だけ": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.8 Flash#0×3.7 Flash#0": {
+      "正しい": 74,
+      "補わない": 2,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？",
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.8 Flash#0×3.5 Flash Lite#0": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.8 Flash#0×3.8 Flash#1": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.8 Flash#0×3.7 Flash#1": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.8 Flash#0×3.5 Flash Lite#1": {
+      "正しい": 76,
+      "補わない": 0,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": []
+    },
+    "決まり→3.8 Flash#0×3.5 Flash Lite#2": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.7 Flash#0×3.5 Flash Lite#0": {
+      "正しい": 74,
+      "補わない": 2,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？",
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.7 Flash#0×3.8 Flash#1": {
+      "正しい": 74,
+      "補わない": 2,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？",
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.7 Flash#0×3.7 Flash#1": {
+      "正しい": 74,
+      "補わない": 2,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？",
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.7 Flash#0×3.5 Flash Lite#1": {
+      "正しい": 74,
+      "補わない": 2,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？",
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.7 Flash#0×3.5 Flash Lite#2": {
+      "正しい": 74,
+      "補わない": 2,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "拠点の数をお伺いしてもよろしいでしょうか？",
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.5 Flash Lite#0×3.8 Flash#1": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.5 Flash Lite#0×3.7 Flash#1": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.5 Flash Lite#0×3.5 Flash Lite#1": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.5 Flash Lite#0×3.5 Flash Lite#2": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.8 Flash#1×3.7 Flash#1": {
+      "正しい": 76,
+      "補わない": 0,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": []
+    },
+    "決まり→3.8 Flash#1×3.5 Flash Lite#1": {
+      "正しい": 76,
+      "補わない": 0,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": []
+    },
+    "決まり→3.8 Flash#1×3.5 Flash Lite#2": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.7 Flash#1×3.5 Flash Lite#1": {
+      "正しい": 76,
+      "補わない": 0,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": []
+    },
+    "決まり→3.7 Flash#1×3.5 Flash Lite#2": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    },
+    "決まり→3.5 Flash Lite#1×3.5 Flash Lite#2": {
+      "正しい": 75,
+      "補わない": 1,
+      "誤り": 0,
+      "誤りの例": [],
+      "補わない例": [
+        "お車の走行距離をお伺いしてもよろしいでしょうか？"
+      ]
+    }
+  }
+}

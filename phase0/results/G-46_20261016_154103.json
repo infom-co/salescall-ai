@@ -1,0 +1,137 @@
+{
+  "item": "G-46",
+  "saved_at": "2026-10-16T15:41:03",
+  "rescored_from": "results/G-46_20261016_154057.json",
+  "rows": {
+    "A 読みを直す": [
+      {
+        "ai": null,
+        "then": [
+          "なかしま"
+        ],
+        "now": "なかしま",
+        "ok_now": true
+      },
+      {
+        "ai": null,
+        "then": [
+          "なかしま"
+        ],
+        "now": "なかしま",
+        "ok_now": true
+      },
+      {
+        "ai": null,
+        "then": [
+          "なかしま"
+        ],
+        "now": "なかしま",
+        "ok_now": true
+      }
+    ],
+    "A 名前だけ言い直す": [
+      {
+        "ai": null,
+        "then": [
+          "なかしま"
+        ],
+        "now": "なかしま",
+        "ok_now": true
+      },
+      {
+        "ai": null,
+        "then": [
+          "なかしま"
+        ],
+        "now": "なかしま",
+        "ok_now": true
+      },
+      {
+        "ai": null,
+        "then": [
+          "なかしま"
+        ],
+        "now": "なかしま",
+        "ok_now": true
+      }
+    ],
+    "B かくたに直す": [
+      {
+        "ai": "かくだ",
+        "then": [
+          "かくだ"
+        ],
+        "now": "かくた",
+        "ok_now": true
+      },
+      {
+        "ai": null,
+        "then": [
+          "かくた"
+        ],
+        "now": "（AIに選ばせる）",
+        "ok_now": false
+      },
+      {
+        "ai": "かくた",
+        "then": [
+          "かくた"
+        ],
+        "now": "かくた",
+        "ok_now": true
+      }
+    ],
+    "B かどたに直す": [
+      {
+        "ai": null,
+        "then": [
+          "かくた"
+        ],
+        "now": "（AIに選ばせる）",
+        "ok_now": false
+      },
+      {
+        "ai": "かどだ",
+        "then": [
+          "かどだ"
+        ],
+        "now": "かどた",
+        "ok_now": true
+      },
+      {
+        "ai": "かどた",
+        "then": [
+          "かどた"
+        ],
+        "now": "かどた",
+        "ok_now": true
+      }
+    ],
+    "B 名前だけかどた": [
+      {
+        "ai": null,
+        "then": [
+          "かくた"
+        ],
+        "now": "（AIに選ばせる）",
+        "ok_now": false
+      },
+      {
+        "ai": null,
+        "then": [
+          "かくた"
+        ],
+        "now": "（AIに選ばせる）",
+        "ok_now": false
+      },
+      {
+        "ai": null,
+        "then": [
+          "かくた"
+        ],
+        "now": "（AIに選ばせる）",
+        "ok_now": false
+      }
+    ]
+  }
+}

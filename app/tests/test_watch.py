@@ -1,0 +1,586 @@
+"""エラーの分類と処置（Q9）・見守り（止める・解く。9-1）の試験。"""
+
+from __future__ import annotations
+
+import json
+import time
+import unittest
+import uuid
+from datetime import timedelta
+from unittest import mock
+
+from salescall.core import errors, fix_requests, settings, stops, watch
+from salescall.core.access import Rejected
+from salescall.core.errors import ErrorReport
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, owner_access
+
+
+class Classify(unittest.TestCase):
+    def test_only_observed_pairs_have_a_kind(self):
+        c = lambda *a, **k: errors.classify(ErrorReport(*a, **k))
+        self.assertEqual(c("ai", 1007, "API key not valid. Please pass a valid API key."), "key_specific")
+        self.assertEqual(c("ai", 1008, "Your project has been denied access."), "project_denied")
+        self.assertEqual(c("ai", 1007, "thinking_level is not supported for this model"), "config_error")
+        self.assertEqual(c("ai", 1011, "You exceeded your current quota"), "project_quota")
+        self.assertEqual(c("ai", 1007, "見たことのない文面"), "unknown_ai")          # 番号だけでは決めない
+        self.assertEqual(c("ai", None, None, unreachable=True), "ai_unreachable")
+        self.assertEqual(c("ear", None, None, unreachable=True), "ear_unreachable")
+        self.assertEqual(c("ear", 1099, "x"), "ear_error")                 # 別の耳の不明：止めない（CL-1 に修正依頼）
+        self.assertEqual(c("ear", 503, "UNAVAILABLE"), "ear_unreachable")    # 別の耳の一時的な誤り：止めない
+        self.assertEqual(c("ear", 1007, "thinking_level is not supported for this model"), "ear_error")
+        self.assertEqual((c("line", None, "x"), c("storage", None, "x"), c("delivery", 500, "x")),
+                         ("line", "storage", "delivery"))
+        with self.assertRaises(ValueError):
+            c("phone", None, None)
+
+    def test_catalog_official_and_observed_decide_reported_only_explains(self):
+        c = lambda *a, **k: errors.classify(ErrorReport(*a, **k))
+        self.assertEqual(c("ai", 503, "UNAVAILABLE: The model is overloaded."), "ai_server_error")
+        self.assertEqual(c("ai", None, "status: DEADLINE_EXCEEDED"), "ai_server_error")
+        self.assertEqual(c("ai", 429, "Resource has been exhausted"), "project_denied")
+        self.assertEqual(c("ai", 400, "FAILED_PRECONDITION: free tier is not available"), "config_error")
+        self.assertEqual(c("ai", 1011, "You exceeded your current quota"), "project_quota")   # 実測の組が先に当たる
+        # フェーズ0で実測した、通話の途中の切断（1011 の内部の誤り・1006）：1回だけつなぎ直す
+        self.assertEqual(c("ai", 1011, "Internal error encountered."), "session_drop")
+        self.assertEqual(c("ear", 1006, None), "session_drop")
+        self.assertEqual(c("ai", 1006, None, unreachable=True), "ai_unreachable")   # 開けなかった＝つながらない
+        # 報告の行（公式ではない）：意味は引けるが、種類は決めない（不明として記録し、CL-1 へ修正依頼。止めない）
+        msg = "Operation is not implemented, or supported, or enabled."
+        self.assertEqual(c("ai", 1008, msg), "unknown_ai")
+        got = errors.lookup(ErrorReport("ai", 1008, msg))
+        self.assertEqual((got.origin, got.kind), ("reported", None))
+        for e in errors.CATALOG:
+            with self.subTest(e.meaning):
+                self.assertIn(e.origin, ("official", "observed", "reported"))
+                self.assertEqual(e.kind is None, e.origin == "reported")
+                self.assertTrue(e.kind is None or e.kind in errors.ACTIONS)
+                self.assertTrue(e.code is not None or e.text is not None)
+                self.assertTrue(e.meaning and e.ref)
+
+    def test_only_stopped_ais_stop_and_raw_conversation_errors_never_do(self):
+        # エラーで止める種類（止める原因が状態の表の原因でないもの）は、会話の側が「止まった」と決めたAIだけ（1回で止める）。会話AIの
+        # 生の誤り（つながらない・Google の側の誤り・不明・設定の誤り）では止めない（CL-1 の連絡帳 4-69 の 4-179 の (a)。⛔ 2026-11-02 まで：
+        # 設定 stop.ai.stop_after_failures の数・設定の誤りは1回で止めていた＝止まったかを2か所で決めていた）
+        stopping = {k for k, a in errors.ACTIONS.items() if a.stop_cause is not None and a.stop_cause not in errors.TABLE_CAUSES}
+        self.assertEqual(stopping, {"ai_stopped", "judge_stopped", "ear_stopped", "convo_stopped", "emergency_stopped"})
+        self.assertEqual(set(errors.COUNTED_FOR["ai_connection"]), stopping)
+        self.assertEqual({a.stop_cause for a in errors.ACTIONS.values() if a.stop_cause in errors.TABLE_CAUSES}, {"program_trouble"})
+        for k in errors.CONVO_RAW:
+            with self.subTest(k):
+                a = errors.ACTIONS[k]
+                self.assertEqual((a.stop_cause, a.stop_scope), (None, None))
+                self.assertIsNotNone(a.fixer or a.lasting_fixer)        # 止めなくても、直す担当へは届く（すぐ・1時間以上続いたら）
+                self.assertEqual("CL-1", a.fixer or a.lasting_fixer)
+        # 会話AIの生の誤りの種類は、一覧で会話AIの種類として出てくるものと同じ（別の耳の言い換えも、この1か所を読む）
+        self.assertEqual(set(errors.CONVO_RAW),
+                         {e.kind for e in errors.CATALOG if e.kind in errors.ACTIONS and e.kind not in
+                          ("session_drop", "key_specific", "project_denied", "project_quota")} | {"ai_unreachable", "unknown_ai"})
+
+    def test_every_temporary_stop_has_someone_to_fix_it_when_it_lasts(self):
+        # 一時的なもので止める種類は、止まったまま続いたら修正依頼を出す担当がある（見直し8：前は、止まると新しいエラーが起きないので、
+        # 何時間止まっても修正依頼が出なかった）。根源的なもの（fixer）は、起きたときに出している
+        for k, a in errors.ACTIONS.items():
+            if a.stop_cause is not None:
+                with self.subTest(k):
+                    self.assertIsNotNone(a.fixer or a.lasting_fixer)
+
+    def test_every_kind_has_a_short_label(self):
+        self.assertEqual(set(errors.LABELS), set(errors.ACTIONS))           # 知らせは短い名前（2026-10-17）
+        self.assertTrue(all(len(v) <= 25 for v in errors.LABELS.values()))
+
+    def test_the_table_is_complete_and_never_switches_keys_on_unknown(self):
+        for kind, a in errors.ACTIONS.items():
+            with self.subTest(kind):
+                self.assertIn(a.key, ("keep", "mark_key_unusable", "next_key"))
+                self.assertEqual(a.stop_cause is None, a.stop_scope is None)
+                self.assertIn(a.stop_scope, (None, "tenant"))     # エラーで全体は止めない（会話AIの枠は契約者ごと）。回線はエラーで止めない
+                if kind.startswith("unknown") or kind == "config_error":
+                    self.assertEqual(a.key, "keep")
+
+
+def resume_open_system_stops():
+    """全体の停止を残さない（ほかの試験の門を止めない）。"""
+    a = app_access()
+    for row in a.in_system(SYSTEM, lambda tx: stops.open_stops(tx, tenant_id=None, client_id=None, business_id=None)):
+        if row["scope"] == "system":
+            a.in_system(SYSTEM, lambda tx: stops.resume(tx, row["event_id"], reason="試験のあと解く"))
+
+
+def override(test, key, value):
+    own = owner_access()
+    orig = own.in_system(SYSTEM, lambda tx: tx.one(
+        "SELECT value, status, rationale, review_when, set_by FROM salescall.setting_values"
+        " WHERE key = %s AND scope = 'system' ORDER BY value_id DESC LIMIT 1", (key,)))
+    put = lambda v, st, ra, rw, by: own.in_system(SYSTEM, lambda tx: tx.execute(
+        "INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by)"
+        " VALUES (%s, 'system', %s, %s, %s, %s, %s)", (key, json.dumps(v), st, ra, rw, by)))
+    put(value, "provisional", "試験の一時的な値", "試験のあと戻す", "試験")
+    test.addCleanup(put, orig["value"], orig["status"], orig["rationale"], orig["review_when"], orig["set_by"])
+
+
+class LineStops(unittest.TestCase):
+    """回線の異常で回線を止めるか・解くかは、回線の状態の表（DESIGN.md 17章。core/health）が決める（回線の欄の休み）。エラーの入口
+    （watch.after_error）は記録・知らせ・修正依頼だけをし、回線の異常の数で止めない（⛔ 4段目の前：consecutive_errors と仮の値
+    stop.line.stop_after_failures＝3件で止め、テスト番号が鳴らなかった回線へも記録が3件に届くまでかけ続けた＝17-8 の (1)(2)。17-6 で外す
+    仮の値）。前の作りで回線の異常で止めた停止の記録は、何で止まったかを確かめられ、管理者か契約者が解ける（E12 として表へ渡す）。"""
+
+    def setUp(self):
+        self.w = World()
+        self.a = app_access()
+        self.s = self.w.setup()
+
+    def line_error(self):
+        return watch.after_error(self.a, SYSTEM, ErrorReport("line", None, "試験：端末が応答しない"),
+                                 tenant_id=self.s["tenant"], client_id=self.s["client"], line_id=self.s["line"])
+
+    def line_stops(self):
+        return [r for r in self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=self.s["tenant"], client_id=None, business_id=None, line_id=self.s["line"]))
+            if r["scope"] == "line"]
+
+    def test_line_errors_are_recorded_but_never_stop_the_line(self):
+        """回線の異常のエラーは記録し（何が起きたかの記録・1時間以上続けば修正依頼）、回線は止めない（休ませるかは回線の状態の表。処置の表の
+        回線の種類は、止める原因を持たない）。「何回で止めるか」の仮の設定（stop.line.*）は、5段目（0147）で外した（17-6）。"""
+        for _ in range(5):
+            self.assertEqual(self.line_error(), "line")
+        self.assertEqual(self.line_stops(), [])
+        for kind in ("line", "unknown_line"):
+            self.assertEqual((errors.ACTIONS[kind].stop_cause, errors.ACTIONS[kind].stop_scope), (None, None))
+        recorded = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.error_events WHERE source = 'line'"))["n"]
+        self.assertEqual(recorded, 5)
+        gone = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT key FROM salescall.setting_definitions WHERE key LIKE 'stop.line.%%'"))
+        self.assertEqual(gone, [])
+
+    def test_a_person_resume_of_an_old_line_stop_explains_why_and_goes_to_the_line_column(self):
+        """前の作りで回線の異常で止めた停止の記録：何で止まったか（原因の意味）を確かめられ、管理者か契約者が理由を書いて解ける。回線の
+        エラーは、もう回線の停止に数えない（数えたエラーは無い）。解いたことは、手で再開した（E12）として回線の状態の表へ渡す（元気の回線は
+        記録だけ＝L-32）。"""
+        for _ in range(2):
+            self.line_error()
+        sid = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.stop(
+            tx, scope="line", cause="line_failure", reason="試験：前の作りの停止", evidence=watch.STOPPED_BY + "line",
+            tenant_id=self.s["tenant"], line_id=self.s["line"]))["event_id"]
+        why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
+        self.assertEqual(why["cause"]["meaning"], stops.CAUSES["line_failure"].meaning)
+        self.assertEqual(why["errors"], [])                           # 回線のエラーは、回線の停止に数えない
+        self.assertIsNone(why["resolved"])
+        self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験：端末を入れ直した"))
+        self.assertEqual(self.line_stops(), [])
+        why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
+        self.assertEqual((why["resolved"]["actor_kind"], why["resolved"]["reason"]), ("operator", "試験：端末を入れ直した"))
+        moved = owner_access().in_tenant(SYSTEM, self.s["tenant"], lambda tx: [tuple(r["table_rows"]) for r in tx.all(
+            "SELECT table_rows FROM salescall.state_moves WHERE subject = 'line' AND key = %s AND event = 'E12'", (self.s["line"],))])
+        self.assertEqual(moved, [("L-32",)])
+
+
+CONVO_STOPPED = ErrorReport("ai_trouble", None, "試験：会話AIのつながりを開けない", ai=errors.CONVO_AI, route=errors.DIRECT)
+
+
+class TenantAiStopsAndChecks(unittest.TestCase):
+    """AIの不具合で止めるのは、その契約者だけ（会話AIの枠は契約者ごと＝キー・プロジェクトは契約者のもの。2026-10-16 ユーザー。
+    2026-10-17 見直し：前は全体で数えて全体を止めていた）。止めるのは会話の側が「止まった」と決めたAIだけで、会話AIの生の誤りでは
+    止めない（CL-1 の連絡帳 4-69 の 4-179 の (a)）。"""
+    def setUp(self):
+        self.a = app_access()
+        self.s = World().setup()
+        override(self, "stop.ai.probe_interval", 1)
+
+    def ai_error(self, report, s=None):
+        s = s or self.s
+        return watch.after_error(self.a, SYSTEM, report, tenant_id=s["tenant"], client_id=s["client"])
+
+    def ai_stops(self, s=None):
+        s = s or self.s
+        return [r for r in self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=None, business_id=None)) if r["cause"] == "ai_connection"]
+
+    def convo_stop(self):
+        """会話AIが止まった（会話の側が、電話の前に会話AIのつながりを開けないと決めた）で、システムが止めた契約者の停止を作る。"""
+        self.ai_error(CONVO_STOPPED)
+        rows = self.ai_stops()
+        self.assertEqual([r["scope"] for r in rows], ["tenant"])
+        return rows[0]["event_id"]
+
+    def check(self, sid, ok):
+        begun = self.a.in_tenant(SYSTEM, self.s["tenant"], watch.check_begins)
+        return self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: watch.record_check(tx, sid, ok, evidence="試験：試しのセッション",
+                                                                                          begun_at=begun))
+
+    def wait_until_due(self, got):
+        now = self.a.in_system(SYSTEM, lambda tx: tx.one("SELECT now() AS t")["t"])
+        time.sleep(max(0.0, (got["next_check_at"] - now).total_seconds()) + 0.05)
+
+    def test_one_contractors_stopped_ai_stops_only_that_contractor(self):
+        other = World().setup()
+        self.ai_error(CONVO_STOPPED)
+        self.assertEqual(len(self.ai_stops()), 1)                      # 1回で止める
+        self.assertEqual(self.ai_stops(other), [])                     # ほかの契約者は止めない
+        claim = self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=other["tenant"], client_id=other["client"], business_id=None))
+        self.assertEqual(claim, [])
+
+    def test_a_stop_kind_needs_its_contractor(self):
+        with self.assertRaises(ValueError):                            # どの契約者のキーで起きたか分からなければ数えられない
+            watch.after_error(self.a, SYSTEM, CONVO_STOPPED)
+
+    def test_raw_conversation_ai_errors_never_stop_but_reach_cl1(self):
+        """会話AIの生の誤り（つながらない・Google の側の誤り・不明・設定の誤り）は、何回起きても止めない（止まったかを決めるのは会話の
+        側の1か所＝止まったAI。CL-1 の連絡帳 4-69 の 4-179 の (a)）。記録し、根源的なもの（設定の誤り・不明）はすぐ CL-1 へ修正依頼、
+        管理者に知らせる。⛔ 2026-11-02 まで：設定 stop.ai.stop_after_failures（仮の3）の数・設定の誤りは1回で、その契約者を止めていた。"""
+        # 根源的なもの（設定の誤り・不明）の文面は、この試験だけのものにする（同じ不具合の修正依頼は契約者をまたいで1つ＝管理者へ知らせるのは
+        # 修正依頼を新しく出したときだけ。ほかの試験が同じ文面で先に修正依頼を出していると、ここでは知らせが出ない＝⛔ 2026-11-03 夜、全部の
+        # 試験を流すと test_ai_troubles のあとで落ちた。作りの決まりどおりで、試験どうしが1つのデータベースを分け合うことによる落ち方）
+        only_here = f"（試験 {uuid.uuid4().hex[:8]}）"
+        reports = (ErrorReport("ai", 503, "UNAVAILABLE: The model is overloaded."), ErrorReport("ai", None, None, unreachable=True),
+                   ErrorReport("ai", 1007, "thinking_level is not supported for this model" + only_here),
+                   ErrorReport("ai", 1099, "x" + only_here))
+        self.assertEqual({errors.classify(r) for r in reports}, set(errors.CONVO_RAW))
+        for report in reports:
+            for _ in range(4):
+                self.ai_error(report)
+        self.assertEqual(self.ai_stops(), [])
+        recorded = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.error_events WHERE source = 'ai'"))["n"]
+        self.assertEqual(recorded, 16)
+        asked = self.a.in_system(SYSTEM, lambda tx: {r["kind"] for r in tx.all(
+            "SELECT refs ->> 'kind' AS kind FROM salescall.notification_events WHERE for_admin AND kind = 'error_notice'"
+            " AND event_key LIKE %s", (f"admin:error:%:{self.s['tenant']}:%",))})
+        self.assertLessEqual(set(errors.CONVO_RAW), asked)
+        gone = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT key FROM salescall.setting_definitions WHERE key = 'stop.ai.stop_after_failures'"))
+        self.assertEqual(gone, [])
+
+    def test_an_ai_stop_resumes_after_successful_checks(self):
+        sid = self.convo_stop()
+        self.assertIn(sid, [r["event_id"] for r in self.a.in_tenant(SYSTEM, self.s["tenant"], watch.due_checks)])
+        got = self.check(sid, False)                              # 失敗：まだ解かない
+        self.assertEqual((got["streak"], got["resumed"]), (0, None))
+        with self.assertRaises(watch.NotDue):                      # 待ちの途中の確かめは受け付けない
+            self.check(sid, True)
+        # 確かめが通れば再開（2026-10-31 管理者：「確かめが通れば自動で再開します」。0165 で 2 回から 1 回に＝見直し28）
+        self.assertEqual(got["need"], 1)
+        for n in range(1, got["need"] + 1):
+            self.wait_until_due(got)
+            got = self.check(sid, True)
+            self.assertEqual(got["streak"], n)
+        self.assertIsNotNone(got["resumed"])
+        self.assertEqual(self.ai_stops(), [])
+
+    def test_a_stop_again_soon_does_not_lengthen_the_wait(self):
+        """同じ日に同じ原因でまた止まっても、次に確かめてよいまでの長さは、確かめの間隔 stop.ai.probe_interval の1つだけ（2026-10-31
+        管理者：「確かめが通れば自動で再開します」）。⛔ 見直し29b の 6：前は止まった回数に応じて倍々に延ばし（最長4時間）、AI がすぐ戻っても
+        新しい電話を長く止めた（CL-2 が仮に足した「ばたつき」の待ち）。"""
+        interval = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: settings.resolve(
+            tx, "stop.ai.probe_interval", tenant_id=self.s["tenant"], client_id=None, business_id=None))
+        waits = []
+        for _ in range(3):                                          # 止まる・解けるを短い間に3回くり返す
+            sid = self.convo_stop()
+            got = self.check(sid, False)                            # 通らない確かめ
+            at = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
+                "SELECT checked_at FROM salescall.stop_checks WHERE stop_event_id = %s ORDER BY check_id DESC LIMIT 1",
+                (sid,)))["checked_at"]
+            waits.append((got["next_check_at"] - at).total_seconds())
+            self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験"))
+        self.assertEqual(waits, [float(interval)] * 3)
+
+    def test_manual_stop_is_not_resumed_by_checks(self):
+        with self.assertRaises(Rejected):                    # 全体の緊急停止は、管理者だけ（契約者は押せない）
+            self.a.in_system(OPERATOR, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))
+        sid = self.a.in_system(ADMIN, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))["event_id"]
+        with self.assertRaises(watch.NotProbeable):
+            self.a.in_system(SYSTEM, lambda tx: watch.record_check(tx, sid, True, evidence="試験", begun_at=None))
+        with self.assertRaises(Rejected):
+            self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
+        self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験"))
+
+    def test_the_contractor_can_resume(self):
+        sid = self.convo_stop()                                       # システムが止めた契約者の停止
+        why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
+        self.assertEqual(why["who_can_resume"], "その契約者・管理者")
+        self.assertEqual((why["errors"][0]["kind"], why["errors"][0]["meaning"]), ("convo_stopped", errors.ACTIONS["convo_stopped"].meaning))
+        self.assertEqual(why["stop"]["reason"], errors.ACTIONS["convo_stopped"].meaning)
+        told = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE event_key = %s", (f"stop:{sid}",)))
+        self.assertEqual([a["summary"] for a in told], ["発信を止めました（契約者：AIの不具合）。"])   # 0155：原因の名前を広げた
+        self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験：設定を直した"))
+        why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
+        self.assertEqual(why["resolved"]["actor_kind"], "operator")
+
+
+    def test_every_cause_has_an_explanation(self):
+        own = owner_access()
+        causes = own.in_system(SYSTEM, lambda tx: [r["c"] for r in tx.all(
+            "SELECT unnest(enum_range(NULL::salescall.stop_cause))::text AS c")])
+        self.assertEqual(sorted(causes), sorted(stops.CAUSES))
+
+    def test_checks_are_frozen(self):
+        sid = self.convo_stop()
+        self.check(sid, False)
+        own = owner_access()
+        for sql in ("UPDATE salescall.stop_checks SET ok = true WHERE stop_event_id = %s",
+                    "DELETE FROM salescall.stop_checks WHERE stop_event_id = %s"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                own.in_system(OPERATOR, lambda tx: tx.execute(sql, (sid,)))
+
+    def test_ear_errors_never_stop_calling_but_tell_the_administrator(self):
+        """別の耳（通話後の検証）につながらなくても、発信は止めない（2026-10-17：止めるのはお客様に影響が出るときだけ。
+        検証が済むまで、その行と同じお客様には門がかけない）。管理者に知らせる。"""
+        ear = ErrorReport("ear", None, None, unreachable=True)
+        for _ in range(5):
+            self.ai_error(ear)
+        self.assertEqual(self.ai_stops(), [])
+        n = self.a.in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.notification_events WHERE for_admin AND kind = 'error_notice'"
+            " AND refs ->> 'kind' = 'ear_unreachable'"))["n"]
+        self.assertGreaterEqual(n, 1)
+
+    def test_no_ear_error_ever_stops_calling(self):
+        """別の耳（通話後の検証）のエラーは、どの種類でも発信を止めない（2026-10-17 の計画書との突き合わせ：前は別の耳の
+        Google の側の誤り 503 が続く・設定の誤り 1007 が1回で、その契約者の発信を止めていた）。"""
+        reports = (ErrorReport("ear", 503, "UNAVAILABLE"), ErrorReport("ear", 1007, "thinking_level is not supported"),
+                   ErrorReport("ear", 1099, "x"), ErrorReport("ear", None, None, unreachable=True))
+        for report in reports:
+            for _ in range(3):
+                self.ai_error(report)
+        self.assertEqual(self.ai_stops(), [])
+        # 生のエラーが分けられる種類は、どれも止めない（止めるのは、会話の側が「止まった」と決めた別の耳＝止まったAIの ear_stopped。
+        # 2026-10-31 管理者のご決定・0158）
+        for k in {errors.classify(r) for r in reports}:
+            self.assertIsNone(errors.ACTIONS[k].stop_cause, k)
+
+    def test_counting_needs_the_transaction_of_that_scope(self):
+        other = World().setup()
+        with self.assertRaises(PermissionError):                     # AIの不具合のエラーの数は、その契約者の取引だけ
+            self.a.in_system(SYSTEM, lambda tx: watch.decide_stop(tx, "convo_stopped"))
+        self.ai_error(CONVO_STOPPED, other)
+        count = "SELECT salescall.errors_since(%s, 'ai_connection') AS n"
+        n = self.a.in_system(SYSTEM, lambda tx: tx.one(count, (["convo_stopped"],))["n"])
+        self.assertIsNone(n)                                         # 全体の取引では、どの契約者のエラーも数えない
+        n = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(count, (["convo_stopped"],))["n"])
+        self.assertEqual(n, 0)                                       # ほかの契約者のエラーは数えない
+        n = self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: tx.one(count, (["convo_stopped"],))["n"])
+        self.assertEqual(n, 1)
+        spent = self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: tx.one(
+            "SELECT salescall.spent_today_tenant() AS y")["y"])
+        self.assertIsNone(spent)                                     # 契約者の今日の費用は、その契約者の取引だけ（0064）
+
+    def test_checks_only_from_that_contractor(self):
+        sid = self.convo_stop()
+        other = World().setup()
+        due = self.a.in_tenant(SYSTEM, other["tenant"], watch.due_checks)
+        self.assertNotIn(sid, [r["event_id"] for r in due])          # ほかの契約者の取引からは、確かめない
+        with self.assertRaises((LookupError, Rejected)):
+            self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: watch.record_check(tx, sid, True, evidence="試験", begun_at=None))
+        with self.assertRaises(Rejected):                            # データベースも守る（処理の確かめを通らない書き方でも）
+            self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: tx.execute(
+                "INSERT INTO salescall.stop_checks (stop_event_id, ok, streak, next_check_at, evidence)"
+                " VALUES (%s, true, 1, now() + interval '1 hour', '試験')", (sid,)))
+        due = self.a.in_system(SYSTEM, watch.due_checks)
+        self.assertNotIn(sid, [r["event_id"] for r in due])          # 全体の取引からも、契約者の停止は確かめない
+
+    def test_every_error_reaches_the_admin_and_contractors_only_by_the_table(self):
+        # 2026-10-16 見直し：キーの無効化（直せるのは管理者だけ）が、管理者に届いていなかった
+        s = World().setup()
+        watch.after_error(self.a, SYSTEM, ErrorReport("ai", 1007, "API key not valid. Please pass a valid API key."),
+                          tenant_id=s["tenant"], client_id=s["client"])
+        like = f"error:key_specific:{s['tenant']}:{s['client']}:%"
+        sql = "SELECT for_admin FROM salescall.notification_events WHERE event_key LIKE %s"
+        self.assertEqual([r["for_admin"] for r in self.a.in_system(ADMIN, lambda tx: tx.all(sql, ("admin:" + like,)))],
+                         [True])
+        self.assertEqual(self.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(sql, (like,))), [])
+
+    def test_a_storage_failure_does_not_stop_and_asks_cl2_to_fix_it(self):
+        """保存の失敗は止めない：CL-2 に修正依頼を出し、ほかの行は続ける。管理者は確かめ・承認だけ（2026-10-16 ユーザー：「理由を記載とあなたへの
+        修正依頼をして、次の行に進んだらいいでしょ」）。保存できなかった通話は締めが済まないので、門がその行と同じお客様を守る。
+        2026-10-17：前は行に「判定待ち」を別に付けていたが、締めのあとに付くと解く道が無く、止まり続けたので外した。"""
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        w.move(s, aid, "dialing")
+        watch.after_error(self.a, SYSTEM, ErrorReport("storage", None, "試験：書き込めない"),
+                          tenant_id=s["tenant"], client_id=s["client"], attempt_id=aid)
+        self.assertEqual([r for r in self.a.in_system(SYSTEM, lambda tx: stops.open_stops(
+            tx, tenant_id=None, client_id=None, business_id=None)) if r["cause"] == "storage_failure"], [])
+        nxt = self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT kind FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (s["task"],)))
+        self.assertNotEqual(nxt and nxt["kind"], "hold")
+        undecided = self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT salescall.refusal_undecided(%s) AS u", (aid,)))["u"]
+        self.assertTrue(undecided)                                           # 締めが済むまで、同じお客様は守られる
+        admin = self.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE event_key LIKE %s",
+            (f"admin:error:storage:{s['tenant']}:{s['client']}:%",)))
+        self.assertEqual([a["summary"] for a in admin], ["CL-2 に修正依頼：保存に失敗しました"])   # 注意は短く
+        got = [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
+               if r["refs"].get("tenant_id") == str(s["tenant"])]
+        self.assertEqual([(r["kind"], r["summary"]) for r in got], [("storage", "保存に失敗しました")])
+
+    def test_a_missing_recording_does_not_stop_the_line_and_asks_for_a_fix(self):
+        """録音が残らない通話があっても、回線を止めない。修正依頼を出し、ほかの行は続ける（2026-10-17 ユーザー：「また止めて人に
+        介在してもらってるじゃないか…止めずに CL1 か CL2 に修正依頼を出さないといけないだろ」）。"""
+        w = World(); s = w.setup()
+        for _ in range(5):
+            watch.after_error(self.a, SYSTEM, ErrorReport("recording", None, "試験：録音のファイルが無い"),
+                              tenant_id=s["tenant"], client_id=s["client"], line_id=s["line"])
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=None, business_id=None, line_id=s["line"])), [])
+        got = self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
+        self.assertIn("recording", [r["kind"] for r in got])
+
+    def test_a_meaning_judge_failure_never_stops_and_is_split_by_what_failed(self):
+        """意味の判定が答えなかった（CL-1 の連絡帳 4-24）：止まっている（時間切れ・つながらない・上限・キーが止められた・混雑）と、
+        問い合わせの中身が断られた（400 など）に分ける。どちらも発信は止めない（代わりの判定と通話後の検証がある）。分け方は表の1か所。"""
+        kinds = {(code, unreachable): errors.classify(ErrorReport("judge", code, None, unreachable=unreachable))
+                 for code, unreachable in ((None, True), (None, False), (500, False), (503, False), (401, False),
+                                           (403, False), (408, False), (429, False), (400, False), (404, False), (422, False))}
+        self.assertEqual({k for k, v in kinds.items() if v == "judge_rejected"}, {(400, False), (404, False), (422, False)})
+        self.assertEqual({k for k, v in kinds.items() if v == "judge_key"}, {(401, False), (403, False)})
+        self.assertEqual(errors.classify(ErrorReport("judge", 400, "API key not valid. Please pass a valid API key.")),
+                         "judge_key")                                   # Google のキーの誤りは 400（会話AIと同じ決まり。見直し6）
+        same = lambda a: (a.key, a.retry, a.stop_cause, a.stop_scope, a.notify)   # noqa: E731
+        self.assertEqual(same(errors.ACTIONS["judge_key"]), same(errors.ACTIONS["key_specific"]))   # 会話AIのキーの誤りと同じ
+        for kind in ("judge_outage", "judge_rejected"):
+            a = errors.ACTIONS[kind]
+            self.assertEqual((a.stop_cause, a.fundamental, a.lasting_fixer), (None, False, "CL-1"))
+        s = World().setup()
+        got = watch.after_error(self.a, SYSTEM, ErrorReport("judge", 503, "試験：混雑"), tenant_id=s["tenant"],
+                                client_id=s["client"])
+        self.assertEqual(got, "judge_outage")
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=s["client"], business_id=None)), [])
+        self.assertEqual(owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "judge.outage_bypass")), 60)
+
+    def test_the_spend_limit_is_told_to_the_admin_not_asked_to_a_fixer(self):
+        """API の使用額の上限（管理者が決めた支払いの上限。2026-10-28 の Anthropic の「You have reached your specified API usage limits」）は、
+        管理者の支払いの件：直す担当への修正依頼でなく、管理者への知らせ（1時間以上続いても修正依頼にしない）。見分けるのは返事の文の1か所
+        （errors.spend_limit）で、番号（400・429）では見分けない（同じ番号の、ほかの誤りは今までどおり）。止めない。"""
+        said = "Error code: 400 - You have reached your specified API usage limits. You will regain access on 2026-11-01."
+        for code in (400, 429, None):
+            with self.subTest(code=code):
+                self.assertEqual(errors.classify(ErrorReport("judge", code, said)), "spend_limit")
+        self.assertEqual(errors.classify(ErrorReport("judge", 400, "試験：中身の形が違う")), "judge_rejected")   # 文が無ければ今までどおり
+        # 残高不足（402＝支払いの件だけの番号。2026-10-31 の夜の実測：OpenRouter の「402 残高不足」）も、文を問わず管理者の支払いの件。
+        # ⛔ 前は意味の判定の 400 番台として「中身が断られた」に入り、1時間続くと CL-1 へ修正依頼になった
+        for source in ("judge", "ai", "ear"):
+            with self.subTest(source=source):
+                self.assertEqual(errors.classify(ErrorReport(source, 402, "試験：Insufficient credits")), "spend_limit")
+        self.assertEqual(errors.classify(ErrorReport("delivery", 402, None)), "delivery")   # 依頼者の側の支払いの件（管理者の AI ではない）
+        self.assertEqual(errors.classify(ErrorReport("judge", 402, None)), "spend_limit")
+        self.assertEqual(errors.classify(ErrorReport("judge", 403, None)), "judge_key")                  # ほかの番号は今までどおり
+        self.assertEqual(errors.classify(ErrorReport("judge", 429, None)), "judge_outage")
+        a = errors.ACTIONS["spend_limit"]
+        self.assertEqual((a.fixer, a.lasting_fixer, a.stop_cause, a.notify), (None, None, None, False))
+        s = World().setup()
+        before = len(self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1")))
+        with mock.patch.object(watch, "_lasting", lambda tx, kind: True):   # 1時間以上続いていても
+            got = watch.after_error(self.a, SYSTEM, ErrorReport("judge", 400, said), tenant_id=s["tenant"], client_id=s["client"])
+        self.assertEqual(got, "spend_limit")
+        self.assertEqual(len(self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))), before)   # 修正依頼は出さない
+        told = self.a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE for_admin AND kind = 'error_notice' AND origin_tenant = %s",
+            (s["tenant"],)))
+        self.assertEqual([r["summary"] for r in told], ["エラー：" + errors.LABELS["spend_limit"]])   # 管理者へ知らせる
+        mine = self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'error_notice' AND NOT for_admin AND tenant_id = %s",
+            (s["tenant"],)))
+        self.assertEqual(mine, [])                                       # 契約者の支払いの件ではない
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=s["client"], business_id=None)), [])
+
+    def test_a_lasting_temporary_error_becomes_a_fix_request(self):
+        """一時的なもの（別の耳につながらない）でも、1時間以上続いたら担当（CL-1）へ修正依頼を出す。続いていなければ出さない
+        （2026-10-18 の見直し：前は何日続いても修正依頼にならず、その間お客様の行が待ち続けた）。"""
+        ear = ErrorReport("ear", None, None, unreachable=True)
+        def asked(t=None):
+            return [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))
+                    if r["kind"] == "ear_unreachable"]
+        for r in asked():   # 同じ不具合は契約者をまたいで1つ（2026-10-22 の見直し）：ほかの試験が出した依頼を、直したことにしておく
+            self.a.in_system(SYSTEM, lambda tx, r=r: fix_requests.report_fixed(tx, r["request_id"], "試験：前の依頼を閉じる"))
+        short = World().setup()
+        watch.after_error(self.a, SYSTEM, ear, tenant_id=short["tenant"], client_id=short["client"])
+        self.assertEqual(asked(short["tenant"]), [])
+        long = World().setup()
+        for minutes in (110, 70, 30):                                   # 30〜40分おきに、2時間近く続いている
+            self.a.in_client(SYSTEM, long["tenant"], long["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.error_events (tenant_id, client_id, source, kind, occurred_at)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'ear', 'ear_unreachable', now() - %s)",
+                (timedelta(minutes=minutes),)))
+        watch.after_error(self.a, SYSTEM, ear, tenant_id=long["tenant"], client_id=long["client"])
+        self.assertEqual(len(asked(long["tenant"])), 1)
+        for r in asked():
+            self.a.in_system(SYSTEM, lambda tx, r=r: fix_requests.report_fixed(tx, r["request_id"], "試験：直した"))
+        apart = World().setup()
+        for minutes in (180, 10):                                       # 3時間前と10分前：間が1時間より空いたら数え直す
+            self.a.in_client(SYSTEM, apart["tenant"], apart["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.error_events (tenant_id, client_id, source, kind, occurred_at)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'ear', 'ear_unreachable', now() - %s)",
+                (timedelta(minutes=minutes),)))
+        watch.after_error(self.a, SYSTEM, ear, tenant_id=apart["tenant"], client_id=apart["client"])
+        self.assertEqual(asked(apart["tenant"]), [])
+
+    def test_a_stop_that_lasts_becomes_a_fix_request_even_without_checks(self):
+        """一時的なもので止めたまま1時間以上たったら、担当（会話AI＝CL-1）へ修正依頼を出す（Intent.md 10-3。同じ不具合は1つ）。解く確かめ
+        の部品が無い PC でも出す（⚠️ 見直し8では確かめの中で出していたので、確かめが動かないと出なかった＝見直し9）。止めたばかりには
+        出さない。見張りの長さを短くして確かめる（試験で1時間待たない）。"""
+        self.ai_error(CONVO_STOPPED)
+        sid = self.ai_stops()[0]["event_id"]
+        lasting = lambda: self.a.in_tenant(SYSTEM, self.s["tenant"], watch.lasting_stops)   # noqa: E731
+        asked = lambda: [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))   # noqa: E731
+                         if r["kind"] == "convo_stopped" and r["refs"].get("stop_event_id") == sid]
+        self.assertEqual((lasting(), asked()), ([], []))                 # 止めたばかり
+        with mock.patch.object(errors, "LASTING", timedelta(0)):
+            self.assertEqual(lasting(), [sid])                          # 確かめを1度もしていなくても出す
+            self.assertEqual(len(asked()), 1)                           # 何度見ても1つ（同じ不具合は直すまで1つ）
+
+    def test_a_lasting_error_is_counted_across_the_clients_of_the_contractor(self):
+        """「1時間以上続いた」は、契約者のすべての依頼者のエラーで数える（修正依頼の重なりを防ぐ鍵と同じ範囲。⚠️ 前は記録した依頼者の
+        取引のまま数え、ほかの依頼者のエラーが見えず、契約者全体で続いていても修正依頼が出なかった＝見直し6）。"""
+        w = World()
+        a = w.setup()
+        b = w.setup(tenant=a["tenant"])                                 # 同じ契約者のほかの依頼者
+        for minutes in (110, 70):                                       # 依頼者A で、2時間近く前から
+            self.a.in_client(SYSTEM, a["tenant"], a["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.error_events (tenant_id, client_id, source, kind, occurred_at)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'ear', 'ear_unreachable', now() - %s)",
+                (timedelta(minutes=minutes),)))
+        self.a.in_client(SYSTEM, b["tenant"], b["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.error_events (tenant_id, client_id, source, kind, occurred_at)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'ear', 'ear_unreachable', now() - interval '30 minutes')"))
+        watch.after_error(self.a, SYSTEM, ErrorReport("ear", None, None, unreachable=True), tenant_id=b["tenant"],
+                          client_id=b["client"])                        # 依頼者B の取引で記録する
+        asked = [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))
+                 if r["kind"] == "ear_unreachable" and r["refs"].get("tenant_id") == str(a["tenant"])]
+        self.assertEqual(len(asked), 1)
+
+    def test_the_assignee_reports_the_fix_and_only_the_admin_approves(self):
+        """担当が「直した」を書き、管理者が確かめて承認する（人は承認だけ）。契約者には修正依頼は見えない。"""
+        w = World(); s = w.setup()
+        watch.after_error(self.a, SYSTEM, ErrorReport("storage", None, f"試験：書き込めない（{s['tenant']}）"),
+                          tenant_id=s["tenant"], client_id=s["client"])   # 不具合ごとに1つ（試験ごとに別の不具合にする）
+        rid = [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
+               if r["refs"].get("tenant_id") == str(s["tenant"])][0]["request_id"]
+        self.assertEqual(self.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(
+            "SELECT 1 FROM salescall.fix_requests")), [])
+        with self.assertRaises(Rejected):                                       # 承認を先に書けない・システムは承認できない
+            self.a.in_system(SYSTEM, lambda tx: fix_requests.approve(tx, rid))
+        with self.assertRaises(Rejected):                                       # 「直した」は人が書かない
+            self.a.in_system(ADMIN, lambda tx: fix_requests.report_fixed(tx, rid, "試験"))
+        self.a.in_system(SYSTEM, lambda tx: fix_requests.report_fixed(tx, rid, "試験：書き込みの誤りを直した"))
+        with self.assertRaises(Rejected):
+            self.a.in_system(SYSTEM, lambda tx: fix_requests.approve(tx, rid))
+        self.a.in_system(ADMIN, lambda tx: fix_requests.approve(tx, rid))
+        self.assertNotIn(rid, [r["request_id"] for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(
+            tx, "CL-2"))])
+
+    def test_notify_once_an_hour(self):
+        for _ in range(2):
+            watch.after_error(self.a, SYSTEM, ErrorReport("ai", 1008, "Your project has been denied access"))
+        rows = self.a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT event_key FROM salescall.notification_events WHERE event_key LIKE 'error:project_denied:None:None:%'"
+            " AND occurred_at > now() - interval '1 minute'"))
+        self.assertEqual(len(rows), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

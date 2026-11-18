@@ -1,0 +1,229 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-24T09:21:09",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "callback_back_today",
+      "text": "本日お戻りのご予定はございますでしょうか？",
+      "heard": {
+        "0.0": "本日お戻りのご予定はございますでしょうか？",
+        "1.0": "本日お戻りのご予定はございますでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.88,
+      "try": 1,
+      "wav": "S2_callback_back_today_1.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "callback_back_today",
+      "text": "本日お戻りのご予定はございますでしょうか？",
+      "heard": {
+        "0.0": "本日、お戻りのご予定はございますでしょうか？",
+        "1.0": "本日、お戻りのご予定はございますでしょうか？"
+      },
+      "ok": false,
+      "seconds": 2.76,
+      "try": 2
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "callback_back_today",
+      "text": "本日お戻りのご予定はございますでしょうか？",
+      "heard": {
+        "0.0": "本日お戻りのご予定はございますでしょうか？",
+        "1.0": "本日お戻りのご予定はございますでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.6,
+      "try": 3,
+      "wav": "S2_callback_back_today_2.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "後ほど改めてお掛けしてもよろしいでしょうか？",
+        "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+      },
+      "ok": false,
+      "seconds": 3.14,
+      "try": 1
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "ほかの地、改めておかけしてもよろしいでしょうか。",
+        "1.0": "他の日改めてお掛けしてもよろしいでしょうか？"
+      },
+      "ok": false,
+      "seconds": 3.48,
+      "try": 2
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "後ほど改めてお掛けしてもよろしいでしょうか？",
+        "1.0": "後ほど改めてお掛けしてもよろしいでしょうか？"
+      },
+      "ok": false,
+      "seconds": 2.92,
+      "try": 3
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "後ほど改めてお掛けしてもよろしいでしょうか？",
+        "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.64,
+      "try": 4,
+      "wav": "S2_callback_call_again_1.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "後ほど改めてお掛けしてもよろしいでしょうか。",
+        "1.0": "後ほど改めてお掛けしてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.84,
+      "try": 5,
+      "wav": "S2_callback_call_again_2.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "callback_back_today",
+      "text": "本日お戻りのご予定はございますでしょうか？",
+      "heard": {
+        "0.0": "本日、お戻りのご予定はございますでしょうか？",
+        "1.0": "本日、お戻りのご予定はございますでしょうか？"
+      },
+      "ok": false,
+      "seconds": 3.28,
+      "try": 1
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "callback_back_today",
+      "text": "本日お戻りのご予定はございますでしょうか？",
+      "heard": {
+        "0.0": "本日お戻りのご予定はございますでしょうか？",
+        "1.0": "本日お戻りのご予定はございますでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.84,
+      "try": 2,
+      "wav": "L4_callback_back_today_1.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "callback_back_today",
+      "text": "本日お戻りのご予定はございますでしょうか？",
+      "heard": {
+        "0.0": "本日、お戻りのご予定はございますでしょうか？",
+        "1.0": "本日、お戻りのご予定はございますでしょうか？"
+      },
+      "ok": false,
+      "seconds": 3.02,
+      "try": 3
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "callback_back_today",
+      "text": "本日お戻りのご予定はございますでしょうか？",
+      "heard": {
+        "0.0": "本日お戻りのご予定はございますでしょうか？",
+        "1.0": "本日お戻りのご予定はございますでしょうか？"
+      },
+      "ok": true,
+      "seconds": 3.24,
+      "try": 4,
+      "wav": "L4_callback_back_today_2.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "後ほど改めておかけしてもよろしいでしょうか。",
+        "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 3.26,
+      "try": 1,
+      "wav": "L4_callback_call_again_1.wav"
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "後ほど改めておかけしてもよろしいでしょうか？",
+        "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+      },
+      "ok": false,
+      "seconds": 3.24,
+      "try": 2
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "後ほど改めてお掛けしてもよろしいでしょうか？",
+        "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+      },
+      "ok": false,
+      "seconds": 2.98,
+      "try": 3
+    },
+    {
+      "type": "L4",
+      "voice": "Leda",
+      "id": "callback_call_again",
+      "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "後ほど改めておかけしてもよろしいでしょうか？",
+        "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 3.2,
+      "try": 4,
+      "wav": "L4_callback_call_again_2.wav"
+    }
+  ],
+  "kept": {
+    "S2_callback_back_today": 2,
+    "S2_callback_call_again": 2,
+    "L4_callback_back_today": 2,
+    "L4_callback_call_again": 2
+  }
+}

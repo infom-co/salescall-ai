@@ -1,0 +1,7722 @@
+{
+  "item": "G-59haikuj_names_r123",
+  "saved_at": "2026-10-29T14:40:54",
+  "question": "営業部部長の岡田（おかだ）様はいらっしゃいますでしょうか？",
+  "summary": {
+    "judge2": "178/180",
+    "judge2（事実ごとに全部）": "172/180",
+    "judge2（電話に出ている方）": "178/180",
+    "judge2（電話のやり取り）": "174/180",
+    "judge2（お呼びした方の事情）": "180/180",
+    "judge2（2つの事実の言葉：読み・事実ごと）": [
+      "31/33",
+      "28/33"
+    ],
+    "judge2（尋ねているか）": "157/180",
+    "judge2（何を聞かれたか）": "22/27",
+    "名乗り・用件の質問を、どの判定もほかと読んだ（差し戻しうる）": "2/15",
+    "ほかの質問を差し戻せた（ほかの読みがあり、名乗り・用件の読みが無い）": "12/12",
+    "judge2（前の言葉つき）": "72/72",
+    "取り次ぎの言葉に、どれかの読みが取り次ぎ": "15/42",
+    "取り次ぎでない言葉に、尋ねているかが取り次ぎ": "5/276",
+    "judge2（答えまでの秒：中央・遅いほうから1割・最長）": [
+      1.538,
+      3.114,
+      6.405
+    ]
+  },
+  "rows": [
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.334,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.462,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.813,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.109,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.818,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.159,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.857,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.017,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.899,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 0.934,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.715,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.141,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.806,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.396,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.83,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.063,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.844,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.136,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.646,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.263,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.773,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.084,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.76,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.1,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.838,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.895,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.724,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.04,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.8,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.805,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.805,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.628,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.888,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.368,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.806,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.137,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.744,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.33,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.71,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.404,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.692,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.839,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.732,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 0.788,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.69,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.73,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.737,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.805,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.751,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.117,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.755,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.624,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.759,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.526,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ",
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.277,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.701,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ",
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.288,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.705,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ",
+        "別の方"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.802,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.014,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.128,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.844,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.416,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.487,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.057,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.552,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.92,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.343,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.82,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 0.876,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.97,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.343,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.335,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.451,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.345,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.798,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.323,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.393,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.904,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.035,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.88,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.236,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.946,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.6,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "accept": [
+        "不在",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.94,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.453,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "accept": [
+        "不在",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.512,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 2.168,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "accept": [
+        "不在",
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.355,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 2.601,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.308,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.563,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.485,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.727,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.734,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.595,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "失礼ですが、御社はどちらにある会社なんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.194,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.132,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "失礼ですが、御社はどちらにある会社なんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.086,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.189,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "失礼ですが、御社はどちらにある会社なんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.172,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.079,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "キャンセル料ってかかるんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.636,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.842,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "キャンセル料ってかかるんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.833,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.043,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "キャンセル料ってかかるんですか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.658,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 0.704,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.061,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.16,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.158,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.352,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？",
+      "accept": [
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "ほかのことを尋ねている",
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.945,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.114,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.628,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.14,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.273,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.538,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.419,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.688,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.081,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.721,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.152,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.786,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.122,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.591,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "それでは岡田にお繋ぎします。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.771,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.938,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "それでは岡田にお繋ぎします。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.128,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.358,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "それでは岡田にお繋ぎします。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.712,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.148,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.816,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.905,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.694,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 0.874,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.779,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.82,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.913,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.542,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.779,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.574,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.725,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.585,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人",
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.419,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 4.298,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人",
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.292,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 4.035,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人",
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.36,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 4.811,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない",
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在",
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.738,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.813,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない",
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在",
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.794,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.894,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない",
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在",
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.782,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.527,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.169,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.224,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.951,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.188,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 2.416,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 3.143,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 2.817,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 5.547,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 2.167,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 4.984,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 3.14,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 5.691,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.775,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.658,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.821,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.315,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.81,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.143,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.98,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 4.047,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 2.137,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.233,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.866,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.572,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.624,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.851,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.879,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.08,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.693,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.577,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.685,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.729,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.778,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.118,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.82,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.975,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.004,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.776,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.649,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.478,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.738,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.69,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山田です。",
+      "accept": [
+        "不在",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在",
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.829,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.036,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山田です。",
+      "accept": [
+        "不在",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在",
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.914,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.109,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山田です。",
+      "accept": [
+        "不在",
+        "代わった人が話し始めた"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田は外出しておりますので、別の者に代わります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在",
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.848,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.566,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.863,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.204,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.97,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.115,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.746,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.054,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.827,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.3,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.347,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.447,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.78,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.396,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.332,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.694,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.341,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.382,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.353,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.384,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.762,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 0.97,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.752,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 0.79,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.679,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.721,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "お電話代わりました。担当の山田です。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.87,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.345,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "お電話代わりました。担当の山田です。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.34,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 3.148,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "お電話代わりました。担当の山田です。",
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.365,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 4.644,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.781,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.377,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.781,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.076,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.919,
+      "judge2": "別の方",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.969,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.642,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.773,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.222,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.514,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.733,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.213,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.643,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.515,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 1.444,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 2.476,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.72,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.396,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.974,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.331,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.873,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 4.371,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.073,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.358,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない",
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 0.747,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.694,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない",
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.783,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 0.825,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "accept": [
+        "別の方",
+        "代わった人が話し始めた",
+        "決められない",
+        "取り次ぎを待つ",
+        "代わった人が話し始めた",
+        "決められない",
+        "わからない",
+        "別の方"
+      ],
+      "asks_accept": true,
+      "asks_kind": "尋ねている",
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない",
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.777,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.515,
+      "judge2": "決められない",
+      "judge2_facts": {
+        "who": "決められない",
+        "phone": "何もない",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.901,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.323,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.801,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.343,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.736,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.386,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "公認は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.695,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.471,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "公認は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.825,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.669,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。田中です。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "公認は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.815,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.662,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.828,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.328,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.055,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.418,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任の者に代わりますので、少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.815,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.373,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.23,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.971,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 2.499,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 4.667,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 0.664,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.821,
+      "judge2": "代わった人が話し始めた",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "田中はただいま席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": true,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 2.933,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 3.781,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "田中はただいま席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": true,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_asks_s": 1.524,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.035,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "田中はただいま席を外しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "後任は田中になります。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": true,
+      "facts_accept": [
+        [
+          "別の方",
+          "決められない"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": false,
+      "judge2_s": 3.459,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 5.056,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、受付の田中です。岡田はただいま外出しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.031,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 5.872,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、受付の田中です。岡田はただいま外出しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.725,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 7.639,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、受付の田中です。岡田はただいま外出しております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.84,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 4.298,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "違います。岡田は会議中です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.785,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.379,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "違います。岡田は会議中です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.768,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.366,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "違います。岡田は会議中です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.823,
+      "judge2_asks": "ほかのことを尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.84,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": false,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.051,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 2.448,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 1.869,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.907,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.728,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 4.346,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "受付の田中と申します。あいにく岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.783,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.535,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "受付の田中と申します。あいにく岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.77,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.158,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "受付の田中と申します。あいにく岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.685,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.913,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。ただいま外出しておりまして、戻りは3時ごろの予定です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.784,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.787,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田ですね。ただいま外出しておりまして、戻りは3時ごろの予定です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.901,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.531,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "岡田ですね。ただいま外出しておりまして、戻りは3時ごろの予定です。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.732,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.791,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": false,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": null,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.086,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.831,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": null,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.242,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.321,
+      "judge2_asks": "尋ねている",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "岡田はただいま外出しておりますので、私が代わりにご用件をお伺いします。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": null,
+      "asks_kind": null,
+      "before": null,
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.18,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.523,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": false
+    },
+    {
+      "text": "いいえ、山田です。岡田に代わりますので少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.769,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.725,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、山田です。岡田に代わりますので少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.797,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.888,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "いいえ、山田です。岡田に代わりますので少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "取り次ぎを待つ"
+        ],
+        [
+          "言っていない"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.884,
+      "judge2_asks": "取り次ぎを待つ",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.364,
+      "judge2": "取り次ぎを待つ",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "取り次ぎを待つ",
+        "target": "言っていない"
+      },
+      "judge2_away": false,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、鈴木です。岡田は本日お休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 1.788,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.507,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、鈴木です。岡田は本日お休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.814,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.87,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました、鈴木です。岡田は本日お休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.897,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 1.97,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。佐藤と申します。岡田は席を外しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 0.88,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 2.384,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。佐藤と申します。岡田は席を外しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.518,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 2.4,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "お電話代わりました。佐藤と申します。岡田は席を外しておりまして。",
+      "accept": [
+        "不在"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "別の方"
+        ],
+        [
+          "代わった人が話し始めた"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 1.41,
+      "judge2": "不在",
+      "judge2_facts": {
+        "who": "別の方",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.918,
+      "judge2_asks": "代わった人が話し始めた",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうですが、いまちょっと手が離せないので後でかけ直してもらえますか。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.729,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.196,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうですが、いまちょっと手が離せないので後でかけ直してもらえますか。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.87,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 1.295,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、そうですが、いまちょっと手が離せないので後でかけ直してもらえますか。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": null,
+      "asked": "「おかだ」様でいらっしゃいますでしょうか？",
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 0.819,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 0.866,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 0,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_s": 3.94,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "judge2_asks_s": 4.057,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 1,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 3.718,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 6.405,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "代わった人が話し始めた",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": true,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    },
+    {
+      "text": "はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "asks_accept": false,
+      "asks_kind": null,
+      "before": "岡田ですね。少々お待ちください。",
+      "asked": null,
+      "rep": 2,
+      "successor": false,
+      "facts_accept": [
+        [
+          "ご本人"
+        ],
+        [
+          "代わった人が話し始めた",
+          "何もない"
+        ],
+        [
+          "不在"
+        ]
+      ],
+      "both": true,
+      "judge2_asks_s": 2.772,
+      "judge2_asks": "尋ねていない",
+      "judge2_asks_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_asks_sure": null,
+      "judge2_s": 3.58,
+      "judge2": "ご本人",
+      "judge2_facts": {
+        "who": "ご本人",
+        "phone": "何もない",
+        "target": "不在"
+      },
+      "judge2_away": true,
+      "judge2_new": false,
+      "judge2_by": "Claude Haiku 5.5（考える・形）",
+      "judge2_sure": null,
+      "ok": true,
+      "facts_ok": true
+    }
+  ],
+  "有料の窓口の料金": {
+    "Anthropic の判定": {
+      "円": 5.1,
+      "回数": {
+        "claude-haiku-5-5": 360
+      },
+      "返事を待たずに止めた回数（円は見込み）": {},
+      "トークン": {
+        "claude-haiku-5-5": {
+          "input_tokens": 15738,
+          "output_tokens": 49855,
+          "cache_read_input_tokens": 631336,
+          "cache_creation_input_tokens": 10589
+        }
+      },
+      "上限の円": 9.0
+    }
+  }
+}

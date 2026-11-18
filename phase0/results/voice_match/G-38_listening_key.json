@@ -1,0 +1,72 @@
+[
+  {
+    "file": "01_承知しました→続きまして.wav",
+    "cond": "B",
+    "take": 4,
+    "st_from_ref": -3.9,
+    "low_ratio": 0.004
+  },
+  {
+    "file": "02_承知しました→続きまして.wav",
+    "cond": "B",
+    "take": 6,
+    "st_from_ref": -0.46,
+    "low_ratio": 0.172
+  },
+  {
+    "file": "03_承知しました→続きまして.wav",
+    "cond": "A",
+    "take": 3,
+    "st_from_ref": -2.26,
+    "low_ratio": 0.138
+  },
+  {
+    "file": "04_承知しました→続きまして.wav",
+    "cond": "A",
+    "take": 4,
+    "st_from_ref": 2.48,
+    "low_ratio": 0.231
+  },
+  {
+    "file": "05_承知しました→続きまして.wav",
+    "cond": "B",
+    "take": 5,
+    "st_from_ref": -0.9,
+    "low_ratio": 0.146
+  },
+  {
+    "file": "06_承知しました→続きまして.wav",
+    "cond": "A",
+    "take": 5,
+    "st_from_ref": 0.95,
+    "low_ratio": 0.121
+  },
+  {
+    "file": "07_承知しました→続きまして.wav",
+    "cond": "B",
+    "take": 2,
+    "st_from_ref": 0.47,
+    "low_ratio": 0.133
+  },
+  {
+    "file": "08_承知しました→続きまして.wav",
+    "cond": "A",
+    "take": 6,
+    "st_from_ref": 1.32,
+    "low_ratio": 0.266
+  },
+  {
+    "file": "09_承知しました→続きまして.wav",
+    "cond": "A",
+    "take": 2,
+    "st_from_ref": -2.86,
+    "low_ratio": 0.271
+  },
+  {
+    "file": "10_承知しました→続きまして.wav",
+    "cond": "B",
+    "take": 3,
+    "st_from_ref": -4.45,
+    "low_ratio": 0.031
+  }
+]

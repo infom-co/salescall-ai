@@ -1,0 +1,1366 @@
+"""業務設定の取込（引き継ぎの (10)。core/business_import.py）の試験。架空の業務。"""
+
+from __future__ import annotations
+
+import copy
+import io
+import unittest
+
+import openpyxl
+
+from salescall.core import business_import as bi
+from salescall.core import business_settings as bs
+from salescall.core import settings
+from tests.support import OPERATOR, World
+
+REASONS = ("担当ではない", "まだ決まっていない", "いまは分からない", "理由を言わなかった")
+
+
+def book(*, sheets=None, drop=(), rename=None) -> bytes:
+    """標準のひな形どおりの、架空の業務設定のファイル。sheets で中身を差し替え、drop でシートを外す。"""
+    content = {
+        "基本": [("項目", "値"), ("業務の目的", "予約の希望日時を伺う"), ("お客様の区分", "法人"), ("自社名", "株式会社テスト物流"),
+               ("自社名の読み", "かぶしきがいしゃてすとぶつりゅう"), ("担当者名", "山田"), ("担当者名の読み", "やまだ"),
+               ("用件の一文", "ご予約の確認でお電話いたしました。"), ("目的のお客様", "誰でも"), ("目的のお客様の役職", None),
+               ("忙しいと言われたときの一言", None), ("声の型", "S2")],
+        "質問": [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的"),
+               ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい"),
+               ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None)],
+        "分岐": [("質問ID", "回答条件", "次の質問ID"), ("Q1", "しない", "終わり"), ("Q1", "その他", "Q2")],
+        "わからない・答えたくない": [("質問ID", "答え", "理由", "扱い", "結論の名前")]
+        + [("全部", "わからない", r, "日を改める", None) for r in REASONS]
+        + [("全部", "答えたくない", r, "結論として終える", "回答不可") for r in ("決まりで言えない", "答えたくない")],
+        "かけ直し": [("結果", "かけ直すか", "回数", "間隔")]
+        + [(k, "かける", "3", "2時間おき") for k in ("会話に至らなかった", "一部だけ取れた", "不在")]
+        + [("かけ直しの時刻が決まっていない", "かける", "2", "1日後")],
+        "言ってはいけないこと": [("名前", "言ってはいけないこと", "正しい案内"), ("F1", "初月は無料です", "初月は半額です")],
+        "名前": [("表記", "読み"), ("テスト便", "てすとびん")],
+        "想定問答": [("問いの名前", "答え"), ("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。")],
+    }
+    content.update(sheets or {})
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for name, rows in content.items():
+        if name in drop:
+            continue
+        ws = wb.create_sheet((rename or {}).get(name, name))
+        for r in rows:
+            ws.append(list(r))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def book_rows(sheet: str) -> list[tuple]:
+    """標準のひな形の、そのシートの行（試験で書き換えるため）。"""
+    wb = openpyxl.load_workbook(io.BytesIO(book()))
+    return [tuple(c.value for c in r) for r in wb[sheet].iter_rows()]
+
+
+def finder(*items: dict):
+    """名前を洗い出す処理の代わり（CL-1 の names.decide の戻り値の形を返す。聞かれた台本を残す）。"""
+    def find(text: str) -> list[dict]:
+        find.asked.append(text)
+        return [dict(x) for x in items]
+    find.asked = []
+    return find
+
+
+class Import(unittest.TestCase):
+    def setUp(self):
+        self.w = World()
+        self.s = self.w.setup()
+
+    def tx(self, work):
+        return self.w.a.in_client(OPERATOR, self.s["tenant"], self.s["client"], work)
+
+    def preview(self, data, **kw):
+        return self.tx(lambda tx: bi.preview(tx, self.s["business"], "業務設定.xlsx", data, **kw))
+
+    def start_verification(self):
+        """検証モードの業務（AI の読みの案を契約者が確かめる。切り替えは契約者の承認と同じ1つ）。"""
+        self.tx(lambda tx: settings.set_value(tx, "approval.human", True, scope="business", status="decided",
+                                              rationale="試験：検証モード", review_when="試験",
+                                              tenant_id=self.s["tenant"], client_id=self.s["client"],
+                                              business_id=self.s["business"]))
+
+    def test_preview_and_register(self):
+        """入口が持ってきた読みは、契約者が確かめずに使う（管理者も契約者も介在しない。確かめるのは検証モードの AI の案だけ）。"""
+        data = book()
+        p = self.preview(data)
+        self.assertEqual((p.problems, p.names_to_confirm), ([], []))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual((got.questions[0].ends_on, got.questions[0].declines, got.rules.retry["callback_unspecified_time"].interval),
+                         (("しない",), ("しない",), ("days", 1)))
+        self.assertEqual(got.rules.handling[("Q2", "refused", "policy")].conclusion, "回答不可")   # 「全部」の行が効く
+        self.assertIn(bs.Name("テスト便", "てすとびん", "script", "given"), got.names)
+        self.assertEqual(got.answers, (("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。"),))   # 想定問答
+
+    def test_the_sheet_overrides_or_turns_off_the_standard_answers_and_registers_the_standard_it_showed(self):
+        """シート「想定問答」で、システムの標準の想定問答を上書きできる（同じ名前に答えを書く＝その業務の録音）・使わないにできる
+        （列「標準を使わない」が「はい」の行。答えは書かない）。書かない問いは標準の答えのまま（設計書 3-8-3 の作る順の (4)・0174。
+        ✅ 2026-11-02 管理者 伺い2「上書きが必要な業務は、トークスクリプト設定画面か、エクセルなどのシートで上書きし、その分の録音を
+        実施する。」）。登録は、プレビューで重ねた標準の版で作る：プレビューのあとで管理者が標準を新しくしたら、もう一度プレビューを
+        確かめる（契約者が見ていない標準で版を作らない）。"""
+        rows = [("問いの名前", "答え", "標準を使わない"), ("会社の場所", "大阪府にございます。", None), ("番号の出どころ", None, "はい")]
+        data = book(sheets={"想定問答": rows})
+        std = (("番号の出どころ", "以前お問い合わせいただいた際のお電話番号にお掛けしております。"),
+               ("会社の場所", "東京都港区にございます。"), ("営業時間", "平日の9時から18時まででございます。"))
+        with self.w.standard(std) as sid:
+            p = self.preview(data)
+            self.assertEqual((p.problems, p.standard_id, p.raw["answers_off"]), ([], sid, ["番号の出どころ"]))
+            v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest))
+            got = self.tx(lambda tx: bs.load(tx, v))
+            self.assertEqual((got.standard_id, got.answers), (sid, (("会社の場所", "大阪府にございます。"), std[2])))
+            p = self.preview(data)
+            with self.w.standard(std[1:]):
+                with self.assertRaises(bi.PreviewChanged):   # ファイルから登録し直す入口：いまの標準で確かめ直すので、指紋が違う
+                    self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest))
+                forged = bi.Preview(p.raw, p.problems, p.names_to_confirm, p.digest, p.ai, standard_id=None)
+                with self.assertRaises(bi.PreviewChanged):   # 重ねた標準の版を書き換えたプレビューも通さない（指紋に入る）
+                    self.tx(lambda tx: bi.register_reviewed(tx, self.s["business"], forged, expected_digest=p.digest))
+                # 画面がプレビューを持って登録する入口：契約者が見た標準の版で作る（いまの標準ではない）
+                kept = self.tx(lambda tx: bs.load(tx, bi.register_reviewed(tx, self.s["business"], p, expected_digest=p.digest)))
+                self.assertEqual(kept.standard_id, sid)
+            bad = book(sheets={"想定問答": rows + [("営業時間", "土日もやっております。", "はい"), ("無い問い", None, "はい")]})
+            problems = self.preview(bad).problems
+            self.assertTrue(any("シート「想定問答」の 4 行目" in x and "上書き" in x for x in problems), problems)
+            self.assertTrue(any("「無い問い」は、標準の想定問答にありません" in x for x in problems), problems)
+
+    def test_register_refuses_a_changed_preview(self):
+        p = self.preview(book())
+        other = book(sheets={"基本": [("項目", "値"), ("業務の目的", "目的を書き換えた"), ("お客様の区分", "法人"), ("自社名", "株式会社テスト物流"),
+                                     ("自社名の読み", "かぶしきがいしゃてすとぶつりゅう"), ("担当者名", "山田"),
+                                     ("担当者名の読み", "やまだ"), ("目的のお客様", "誰でも"), ("声の型", "S2")]})
+        with self.assertRaises(bi.PreviewChanged):
+            self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", other, expected_digest=p.digest))
+
+    def test_problems_name_the_sheet_and_row(self):
+        bad = book(sheets={"質問": [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え"),
+                                   ("Q1", "ご予約はなさいますか。", None, "色", "はい", None, None)]}, drop=("分岐",))
+        p = self.preview(bad)
+        self.assertTrue(any("シート「質問」の 2 行目の型" in x for x in p.problems), p.problems)
+
+    def test_missing_required_sheet_and_mapping(self):
+        p = self.preview(book(drop=("かけ直し",)))
+        self.assertTrue(any("かけ直し" in x for x in p.problems), p.problems)
+        renamed = book(rename={"質問": "質問一覧"})
+        p = self.preview(renamed, mapping={"sheets": {"questions": "質問一覧"}})
+        self.assertEqual(p.problems, [])                                  # 依頼者の形を対応付けて読む
+
+    def test_names_found_in_the_script_are_added(self):
+        """台本の名前は、名前を洗い出す処理（CL-1 の names.decide）が見つける。入口の名前に無いものも、名前の一覧に入る。"""
+        found = finder({"surface": "テスト便", "reading": "てすとびん", "source": "モデル2つ", "candidates": []},
+                       {"surface": "中島倉庫", "reading": "", "source": "", "candidates": ["なかじまそうこ", "なかしまそうこ"],
+                        "likely": "なかじまそうこ"})
+        p = self.preview(book(sheets={"名前": [("表記", "読み")]}), find_names=found)
+        self.assertEqual(p.problems, [])
+        self.assertIn("テスト便", found.asked[0])                      # 台本（質問の文など）をまとめて1回
+        got = {n["text"]: n for n in p.raw["names"]}
+        self.assertEqual((got["テスト便"]["reading"], got["テスト便"]["reading_by"]), ("てすとびん", "ai"))
+        self.assertEqual((got["中島倉庫"]["reading"], got["中島倉庫"]["likely"]), (None, "なかじまそうこ"))
+
+    def test_an_undecided_reading_does_not_stop_the_import(self):
+        """読みが決まらない名前でも止めない。考えられる読みとまず言ってみる読みを持って登録し、会話の中で確かめる（2026-10-16
+        ユーザー：「なかじまとなかしまなどは人が見ても判断できません」）。検証モードでも、契約者の確かめの対象にしない。"""
+        self.start_verification()
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        found = finder({"surface": "テスト便", "reading": "", "source": "", "candidates": ["てすとびん", "てすとべん"],
+                        "likely": "てすとびん"})
+        p = self.preview(data, find_names=found)
+        self.assertEqual((p.problems, p.names_to_confirm), ([], []))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertIn(bs.Name("テスト便", None, "script", None, ("てすとびん", "てすとべん"), "てすとびん"),
+                      self.tx(lambda tx: bs.load(tx, v)).names)
+        p = self.preview(data)                                            # 名前を洗い出す処理が答えなくても止めない
+        self.assertEqual(p.problems, [])
+
+    def test_during_verification_a_person_confirms_the_ai_reading(self):
+        """検証モードでは、AI が決めた読みを契約者が確かめてから（直してもよい）。2026-10-16 ユーザー：「検証中は
+        AIが認識したものを私が確認します」。"""
+        self.start_verification()
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        found = finder({"surface": "テスト便", "reading": "てすとべん", "source": "モデル2つ", "candidates": []})   # AI（誤り）
+        p = self.preview(data, find_names=found)
+        self.assertEqual(p.names_to_confirm, [{"text": "テスト便", "reading": "てすとべん", "source": "script"}])
+        self.assertTrue(any("AI が決めた読みです" in x for x in p.problems), p.problems)
+        fixed = [("テスト便", "てすとびん")]                                # 契約者が「てすとびん」に直して確かめた
+        p = self.preview(data, find_names=found, confirmed_names=fixed)
+        self.assertEqual((p.problems, p.names_to_confirm), ([], []))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
+                                           confirmed_names=fixed, ai=p.ai))
+        self.assertIn(bs.Name("テスト便", "てすとびん", "script", "person"), self.tx(lambda tx: bs.load(tx, v)).names)
+
+    def test_reviewing_a_preview_again_keeps_who_decided_the_reading(self):
+        """プレビューの形を、もう一度確かめても（画面で別の所を直して出し直すなど）、AI の読みは AI の読みのまま。
+        検証モードの確かめは抜けない（2026-10-16 の見直し I1：前は入口の読みに化けて、確かめなしで登録できた）。"""
+        self.start_verification()
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        found = finder({"surface": "テスト便", "reading": "てすとべん", "source": "モデル2つ", "candidates": []})
+        p1 = self.preview(data, find_names=found)
+        p2 = self.tx(lambda tx: bi.review(tx, self.s["business"], p1.raw))          # AI の答えを渡さずに出し直す
+        self.assertEqual(p2.names_to_confirm, [{"text": "テスト便", "reading": "てすとべん", "source": "script"}])
+        self.assertTrue(any("AI が決めた読みです" in x for x in p2.problems), p2.problems)
+        by = {n["text"]: n["reading_by"] for n in p2.raw["names"]}
+        self.assertEqual(by["テスト便"], "ai")
+
+    def test_the_entrance_reading_of_the_caller_is_not_replaced_by_the_ai(self):
+        """名乗りの自社名に入口の読みがあれば、名前の一覧の同じ表記も、その読み（AI の読みで上書きしない。2026-10-16 の見直し I3）。
+        名乗りと名前の一覧で入口の読みが食い違えば、問題に出す。"""
+        from tests.test_business_settings import raw
+        r = raw()
+        r["caller"]["company"] = {"text": "東海", "reading": "とうみ"}
+        r["names"] = [n for n in r["names"] if n["text"] != "株式会社テスト物流"] + [
+            {"text": "東海", "reading": None, "source": "script"}]
+        ai = {"names": {"東海": {"reading": "とうかい", "reading_by": "ai", "candidates": [], "likely": None}}}
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai))
+        got = {n["text"]: (n["reading"], n["reading_by"]) for n in p.raw["names"]}
+        self.assertEqual((got["東海"], p.raw["caller"]["company"]["reading"]), (("とうみ", "given"), "とうみ"))
+        r["names"][-1]["reading"] = "とうかい"
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai))
+        self.assertTrue(any("名乗りと名前の一覧で違います" in x for x in p.problems), p.problems)
+
+    def test_after_verification_the_ai_reading_is_used_without_a_person(self):
+        """フルオート（検証モードでない業務）では、AI が決めた読みをそのまま使う（管理者も契約者も介在しない）。台本の読みがなは
+        入口の読み。どれで決めたかは残る。"""
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        found = finder({"surface": "テスト便", "reading": "てすとびん", "source": "モデル2つ", "candidates": []},
+                       {"surface": "東海林", "reading": "しょうじ", "source": "台本の読みがな", "candidates": []})
+        p = self.preview(data, find_names=found)
+        self.assertEqual((p.problems, p.names_to_confirm), ([], []))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
+                                           ai=p.ai))
+        names = self.tx(lambda tx: bs.load(tx, v)).names
+        self.assertIn(bs.Name("テスト便", "てすとびん", "script", "ai"), names)
+        self.assertIn(bs.Name("東海林", "しょうじ", "script", "given"), names)
+
+    def test_the_callers_name_needs_its_reading_from_the_entrance(self):
+        """担当者名の読みは、入口で必ず入れる（2026-10-16 ユーザー決定＝案C）。AI が読みを決めても使わない。"""
+        rows = [r for r in book_rows("基本") if r[0] != "担当者名の読み"]
+        found = finder({"surface": "山田", "reading": "やまだ", "source": "モデル2つ", "candidates": []})
+        p = self.preview(book(sheets={"基本": rows}), find_names=found)
+        self.assertTrue(any("担当者名の読みは必ず入れます" in x for x in p.problems), p.problems)
+
+    def test_reviewing_again_does_not_make_the_callers_ai_reading_an_entrance_reading(self):
+        """名乗りの読みは、名前の一覧の読みの写し。もう一度確かめたとき、写した AI の読みを入口の読みにしない（2026-10-17 の見直し：
+        前は担当者名の読みが無くても、2回目の確かめで問題が消え、AI の読みが入口の読みとして登録できた）。"""
+        rows = [r for r in book_rows("基本") if r[0] != "担当者名の読み"]
+        found = finder({"surface": "山田", "reading": "やまだ", "source": "モデル2つ", "candidates": []})
+        p1 = self.preview(book(sheets={"基本": rows}), find_names=found)
+        p2 = self.tx(lambda tx: bi.review(tx, self.s["business"], p1.raw, ai=p1.ai))
+        self.assertTrue(any("担当者名の読みは必ず入れます" in x for x in p2.problems), p2.problems)
+        self.assertEqual({n["text"]: n["reading_by"] for n in p2.raw["names"]}["山田"], "ai")
+        self.start_verification()                                       # 検証モード：自社名の AI の読みの確かめも抜けない
+        from tests.test_business_settings import raw
+        r = raw()
+        r["caller"]["company"]["reading"] = None
+        r["names"] = [dict(n, reading=None) if n["text"] == "株式会社テスト物流" else n for n in r["names"]]
+        ai = {"names": {"株式会社テスト物流": {"reading": "かぶしきがいしゃてすとぶつりゅう", "reading_by": "ai",
+                                          "candidates": [], "likely": None}}}
+        q1 = self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai))
+        q2 = self.tx(lambda tx: bi.review(tx, self.s["business"], q1.raw))
+        self.assertEqual([n["text"] for n in q2.names_to_confirm], ["株式会社テスト物流"])
+
+    def test_malformed_input_is_a_problem_not_a_crash(self):
+        """画面・抜き出しの入口から崩れた形が来ても、落ちずに問題として出す（2026-10-17 の見直し）。"""
+        from tests.test_business_settings import raw
+        for decline in (5, "しない", ["やめる"]):
+            with self.subTest(decline=decline):
+                r = raw()
+                r["questions"][0]["declines"] = decline
+                r["questions"][0]["asks_fact"] = True   # 「どれも要らない」が返らない質問＝断る答えは書いたものだけ（読めないと、断る答えが無いと見える）
+                p = self.tx(lambda tx: bi.review(tx, self.s["business"], r))
+                self.assertTrue(any("断る答え" in x for x in p.problems), p.problems)
+                # うその理由を足さない（読めなかった質問を、断る答えの無い最終目的や、分岐の置き換えの理由に数えない）
+                self.assertFalse(any(w in x for x in p.problems for w in ("断る答えがありません", "どこからも", "表せません", "前へ戻る")), p.problems)
+        r = raw()
+        r["names"].append({"text": 123, "reading": "いち", "source": "script"})
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], r))
+        self.assertTrue(any("表記" in x for x in p.problems), p.problems)
+        retry = [("結果", "かけ直すか", "回数", "間隔")] + [
+            (k, "かける", "²", "2時間おき") for k in ("会話に至らなかった", "一部だけ取れた", "不在")
+        ] + [("かけ直しの時刻が決まっていない", "かける", "2", "1日後")]
+        p = self.preview(book(sheets={"かけ直し": retry}))
+        self.assertTrue(any("回数（1以上の数）" in x for x in p.problems), p.problems)
+
+    def test_the_old_not_transferred_retry_row_is_skipped_with_a_note(self):
+        """前のひな形の「取り次いでもらえなかった」の行は、システムが決める（日を改めて1回）ので、問題にせず読み飛ばして知らせる
+        （⛔ 2026-10-22 の見直し13：前は「使えない結果」として登録を止めた）。"""
+        from salescall.core import business_rules
+        retry = book_rows("かけ直し") + [("取り次いでもらえなかった", "かける", "5", "2時間おき")]
+        p = self.preview(book(sheets={"かけ直し": retry}))
+        self.assertEqual(p.problems, [])
+        self.assertTrue(any("取り次いでもらえなかった" in x and "システムが決めるので読み飛ばしました（日を改めて1回）" in x
+                            for x in p.notes), p.notes)
+        self.assertNotIn("not_reached_not_transferred", p.raw["rules"]["retry"])
+        self.assertEqual(business_rules.SYSTEM_POLICIES["not_reached_not_transferred"],
+                         business_rules.Policy("call", 1, ("days", 1)))        # 知らせの「日を改めて1回」と同じ
+        retry = book_rows("かけ直し") + [("取り次いでもらえない", "かける", "1", "1日後")]
+        p = self.preview(book(sheets={"かけ直し": retry}))
+        self.assertTrue(any("取り次いでもらえない" in x for x in p.problems), p.problems)   # 打ち違いは、これまでどおり問題
+
+    def test_a_missing_absent_row_takes_the_first_value(self):
+        """「不在」（つながったが目的のお客様が不在で、戻る時刻が取れなかった）の行が無ければ、初めの値（かける・3回）で入れ、
+        知らせに出す（2026-10-22 ユーザー：「つながったけど不在だった場合は、依頼者ごとに選択できるようにしておき、デフォルトは
+        3回ぐらい」）。書いてあれば、その値。初めの値の無い結果（会話に至らなかった＝電話がつながらなかった など）は、これまで
+        どおり書かないと問題になる。行があって形が違えば、初めの値で埋めずに問題に出す。"""
+        from salescall.core import business_rules
+        rows = [r for r in book_rows("かけ直し") if r[0] != "不在"]
+        p = self.preview(book(sheets={"かけ直し": rows}))
+        self.assertEqual(p.problems, [])
+        self.assertEqual(p.raw["rules"]["retry"]["not_reached_absent"],
+                         business_rules.policy_raw(business_rules.DEFAULT_POLICIES["not_reached_absent"]))
+        self.assertEqual(business_rules.DEFAULT_POLICIES["not_reached_absent"].max_times, 3)
+        self.assertTrue(any("「不在」の行が無いので、初めの値（かける・3回・3時間おき）で入れました" in x for x in p.notes), p.notes)
+        p = self.preview(book())                                   # 書いてあればその値（3回・2時間おき）で、知らせも出さない
+        self.assertEqual(p.raw["rules"]["retry"]["not_reached_absent"],
+                         {"action": "call", "max_times": 3, "interval": {"hours": 2}})
+        self.assertFalse(any("初めの値" in x for x in p.notes), p.notes)
+        rows = [r for r in book_rows("かけ直し") if r[0] != "会話に至らなかった"]
+        p = self.preview(book(sheets={"かけ直し": rows}))
+        self.assertTrue(any("再発信の方針" in x for x in p.problems), p.problems)
+        rows = [r if r[0] != "不在" else ("不在", "かける", "x", "2時間おき") for r in book_rows("かけ直し")]
+        p = self.preview(book(sheets={"かけ直し": rows}))
+        self.assertTrue(any("回数（1以上の数）" in x for x in p.problems), p.problems)
+        self.assertFalse(any("初めの値" in x for x in p.notes), p.notes)
+
+    def test_responses_to_callee_offers_are_read_from_the_basic_sheet(self):
+        """シート「基本」の、相手の申し出への応じ方・伝言の文・業務の情報（1行に1つ）・改めて連絡すると申し出てよいか（CL-1 の連絡帳
+        4-28）。書かなければ入れない（業務設定の確かめが既定にする）。選べない言葉は問題。伝言の文と業務の情報は、名前を洗い出す
+        台本に入る（地名・商品名の読みを決める。CL-1 の連絡帳 4-29）。"""
+        p = self.preview(book())
+        self.assertEqual(p.problems, [])
+        self.assertFalse(set(p.raw) & {"substitute_policy", "message_policy", "message", "departed_policy", "info", "follow_up"})
+        basic = book_rows("基本") + [("代わりの方への応じ方", "目的のお客様だけと話す"), ("伝言への応じ方", "伝言を残す"),
+                                     ("伝言の文", "山田からお電話があったとお伝えいただけますでしょうか？"),
+                                     ("在籍していないときの応じ方", "お礼を言って終える"), ("業務の情報", "営業時間は9時から18時です\n所在地は東京都です"),
+                                     ("担当から改めて連絡すると申し出てよいか", "はい")]
+        p = self.preview(book(sheets={"基本": basic}))
+        self.assertEqual(p.problems, [])
+        self.assertEqual({k: p.raw[k] for k in ("substitute_policy", "message_policy", "message", "departed_policy", "info", "follow_up")},
+                         {"substitute_policy": "target_only", "message_policy": "leave",
+                          "message": "山田からお電話があったとお伝えいただけますでしょうか？", "departed_policy": "end",
+                          "info": ["営業時間は9時から18時です", "所在地は東京都です"], "follow_up": True})
+        self.assertIn("山田からお電話があった", bi.script(p.raw))
+        self.assertIn("所在地は東京都です", bi.script(p.raw))
+        # 業務の情報が無ければ知らせる（登録は止めない）。書けば知らせない（CL-1 の連絡帳 4-30：業務設定に無いこちらの事実は AI が言わない）
+        self.assertFalse(any("業務の情報がありません" in x for x in p.notes), p.notes)
+        self.assertTrue(any("業務の情報がありません" in x for x in self.preview(book()).notes))
+        self.assertEqual(self.preview(book()).problems, [])
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("代わりの方への応じ方", "上司なら話す")]}))
+        self.assertTrue(any("代わりの方への応じ方" in x for x in p.problems), p.problems)
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("伝言への応じ方", "伝言を残す")]}))
+        self.assertTrue(any("伝言の文" in x for x in p.problems), p.problems)
+
+    def test_problems_found_outside_the_check_are_in_the_digest(self):
+        """確かめ（check）の外で見つかった問題（重なった行など。中身には残らない）は指紋に入る：プレビューから問題を消しても
+        登録できない（2026-10-17 の見直し）。"""
+        rows = book_rows("名前") + [("テスト便", "てすとびん")]                 # 同じ名前の行が2つ
+        p = self.preview(book(sheets={"名前": rows}))
+        self.assertTrue(p.problems)
+        p.problems = []
+        with self.assertRaises(bi.PreviewChanged):
+            self.tx(lambda tx: bi.register_reviewed(tx, self.s["business"], p, expected_digest=p.digest))
+
+    def test_a_version_with_an_unconfirmed_ai_reading_is_refused_in_verification_mode(self):
+        """プレビューを通さずに版を作っても、同じ確かめ（業務設定の1か所）が止める。"""
+        from tests.test_business_settings import raw
+        r = raw()
+        r["names"][2]["reading_by"] = "ai"
+        self.assertIsNotNone(self.tx(lambda tx: bs.save_version(tx, self.s["business"], r)))   # フルオート
+        self.start_verification()
+        with self.assertRaises(bs.SettingsInvalid):
+            self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+
+    def test_the_ai_is_asked_once_and_registration_uses_the_previewed_answer(self):
+        """AI は同じ問いに毎回同じ答えを返すとは限らない。プレビューで1回だけ聞き、登録はその答えを使う（聞き直すと、契約者が
+        見たものと違う中身になり、登録できなくなる。2026-10-16 に見つけた穴）。"""
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        answers = iter(["てすとびん", "てすとべん"])                 # 2回目は違う答え
+        asked = []
+
+        def ai(text):
+            asked.append(text)
+            return [{"surface": "テスト便", "reading": next(answers), "source": "モデル2つ", "candidates": []}]
+        p = self.preview(data, find_names=ai)
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual(len(asked), 1)                                   # 登録では聞かない
+        self.assertIn(bs.Name("テスト便", "てすとびん", "script", "ai"), self.tx(lambda tx: bs.load(tx, v)).names)
+
+    def test_a_reading_must_be_kana(self):
+        """AI が漢字やローマ字を返したら、読みとして使わない（読みが決まらない側に倒す）。入口の読みが使えなければ問題に出す。
+        読みはひらがなで持つ（カタカナはひらがなに直す）。"""
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        p = self.preview(data, find_names=finder({"surface": "テスト便", "reading": "test bin", "source": "モデル2つ",
+                                                  "candidates": []}))
+        self.assertEqual(p.problems, [])
+        self.assertEqual({n["text"]: n["reading"] for n in p.raw["names"]}["テスト便"], None)
+        bad = book(sheets={"名前": [("表記", "読み"), ("テスト便", "手素都便")]})
+        p = self.preview(bad)
+        self.assertTrue(any("ひらがなかカタカナ" in x for x in p.problems), p.problems)
+        kata = book(sheets={"名前": [("表記", "読み"), ("テスト便", "テストビン")]})
+        self.assertEqual({n["text"]: n["reading"] for n in self.preview(kata).raw["names"]}["テスト便"], "てすとびん")
+
+    def test_missing_optional_sheet_is_noted_and_a_mapped_one_is_a_problem(self):
+        """無くてもよいシートが無いときは、プレビューに知らせる（黙って読み飛ばさない）。対応付けで名前を指定したシートが
+        無ければ問題（2026-10-16 の見直し I5）。"""
+        p = self.preview(book(rename={"言ってはいけないこと": "禁止事項"}))
+        self.assertEqual(p.problems, [])
+        self.assertIn("シート「言ってはいけないこと」がありません（無いものとして読みました。シートの名前を確かめてください）", p.notes)
+        p = self.preview(book(drop=("名前",)), mapping={"sheets": {"names": "名前の一覧"}})
+        self.assertTrue(any("シート「名前の一覧」" in x for x in p.problems), p.problems)
+
+    def test_a_choice_named_other_can_be_branched_and_the_star_is_the_catch_all(self):
+        """選択肢に「その他」があれば、分岐の「その他」はその選択肢。受け皿は「＊」（2026-10-16 の見直し I6）。"""
+        q = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え"),
+             ("Q1", "どちらになさいますか。", "ご希望", "選択肢", "はい", "A／B／その他", None),
+             ("Q2", "詳しくお聞かせください。", "詳しく", "自由な意見", "いいえ", None, None),
+             ("Q3", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None)]
+        b = [("質問ID", "回答条件", "次の質問ID"), ("Q1", "その他", "Q2"), ("Q1", "＊", "Q3")]
+        p = self.preview(book(sheets={"質問": q, "分岐": b}))
+        nxt = {x["id"]: x["next"] for x in p.raw["questions"]}
+        self.assertEqual(nxt["Q1"], {"その他": "Q2", bs.ANY: "Q3"})
+
+    def test_duplicate_rows_are_problems_not_silently_overwritten(self):
+        """同じ結果のかけ直し・同じ言ってはいけないこと・同じ質問×答え×理由の行が2つあれば、問題に出す（2026-10-16 の見直し I7）。"""
+        retry = book_rows("かけ直し") + [("不在", "終える", None, None)]
+        forbidden = book_rows("言ってはいけないこと") + [("F1", "必ず安くなります", None)]
+        handling = book_rows("わからない・答えたくない") + [("全部", "わからない", REASONS[0], "結論として終える", "不明")]
+        p = self.preview(book(sheets={"かけ直し": retry, "言ってはいけないこと": forbidden, "わからない・答えたくない": handling}))
+        for text in ("結果「不在」の行が2つあります", "名前「F1」が2つあります", "の行が2つあります（"):
+            self.assertTrue(any(text in x for x in p.problems), (text, p.problems))
+
+    def test_problems_point_to_the_sheet_and_row(self):
+        """名前・質問の問題は、ファイルのシートと行で出す（前は自社名・担当者名の分ずれて「名前 3 番目」と出た。I10）。"""
+        q = book_rows("質問")
+        q.insert(2, (None, None, None, None, None, None, None))                # 空の行（数えない）
+        q[3] = (None,) + q[3][1:]                                               # 4行目＝2つ目の質問の番号が無い
+        p = self.preview(book(sheets={"質問": q}))
+        self.assertTrue(any(x.startswith("シート「質問」の 4 行目の番号") for x in p.problems), p.problems)
+        names = {"名前": ["シート「基本」の自社名", "シート「基本」の担当者名", "シート「名前」の 2 行目"]}
+        self.assertEqual(bi._placed(["名前 3 番目の表記 が空です", "名前 4 番目の読み"], names),
+                         ["シート「名前」の 2 行目の表記 が空です", "名前 4 番目の読み"])   # ファイルに無い名前（AI が足した）はそのまま
+
+    def test_answer_problems_point_to_the_sheet_and_row(self):
+        """想定問答の問題も、シートと行で出す。想定問答のシートは無くてもよい（CL-1 の連絡帳 4-26）。"""
+        rows = book_rows("想定問答") + [("番号:出どころ", "以前お電話いただいた番号です。")]
+        p = self.preview(book(sheets={"想定問答": rows}))
+        self.assertTrue(any(x.startswith("シート「想定問答」の 3 行目の問いの名前") for x in p.problems), p.problems)
+        self.assertEqual(self.preview(book(drop=("想定問答",))).problems, [])
+
+    def test_registration_recomputes_the_digest_and_includes_the_business(self):
+        """登録は、プレビューの指紋を信じず中身から出し直す。別の業務の指紋では登録できない（2026-10-16 の見直し I8）。"""
+        p = self.preview(book())
+        p.raw["purpose"] = "書き換えた目的"                                  # プレビューを書き換えても
+        with self.assertRaises(bi.PreviewChanged):
+            self.tx(lambda tx: bi.register_reviewed(tx, self.s["business"], p, expected_digest=p.digest))
+        other, _ = self.w.business_with_version(self.s["tenant"], self.s["client"])
+        q = self.preview(book())
+        with self.assertRaises(bi.PreviewChanged):
+            self.tx(lambda tx: bi.register_reviewed(tx, other, q, expected_digest=q.digest))
+
+    def test_units_of_number_questions_are_decided_without_a_person(self):
+        """数の質問の単位は、単位を決める処理（CL-1 の1か所）の答えを入れる。管理者も契約者も確かめない。決まらなければ空。
+        聞くのは (業務の目的, 質問の文) の並び（CL-1 の import_ai.decide_units の形）。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None),
+                ("Q3", "ご利用は何名様でしょうか。", "人数", "数", "はい", None, None, None),
+                ("Q4", "拠点の数を教えていただけますか。", "拠点の数", "数", "いいえ", None, None, None)]
+        data = book(sheets={"質問": rows, "分岐": [("質問ID", "回答条件", "次の質問ID"), ("Q1", "しない", "終わり"),
+                                                  ("Q1", "その他", "Q2")]})
+        asked = []
+
+        def decide(pairs):
+            asked.extend(pairs)
+            return {"ご利用は何名様でしょうか。": "名", "拠点の数を教えていただけますか。": ""}   # 2つ目は決まらない
+        p = self.preview(data, decide_units=decide)
+        self.assertEqual(p.problems, [])
+        # 数の質問だけ、業務の目的と一緒に（CL-1 の連絡帳 4-69 の 4-184 の (a)：単位は目的と一緒に聞いて測った）
+        self.assertEqual(asked, [("予約の希望日時を伺う", "ご利用は何名様でしょうか。"), ("予約の希望日時を伺う", "拠点の数を教えていただけますか。")])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
+                                           ai=p.ai))
+        got = {q.id: q.unit for q in self.tx(lambda tx: bs.load(tx, v)).questions}
+        self.assertEqual(got, {"Q1": None, "Q2": None, "Q3": "名", "Q4": None})
+
+    def test_what_to_ask_about_is_decided_without_a_person(self):
+        """質問の「聞くこと」は、入口に無ければ CL-1 の決め方（topics.decide）の答えを入れる。決まらなければ空。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい"),
+                ("Q2", "ご希望の日時をお聞かせください。", None, "日時", "はい", None, None, None)]
+        data = book(sheets={"質問": rows})
+        asked = []
+
+        def decide(texts):
+            asked.extend(texts)
+            return {"ご希望の日時をお聞かせください。": "ご希望の日時"}
+        p = self.preview(data, decide_topics=decide)
+        self.assertEqual((p.problems, asked), ([], ["ご希望の日時をお聞かせください。"]))   # 入口に無い質問だけ
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = {q.id: q.ask_about for q in self.tx(lambda tx: bs.load(tx, v)).questions}
+        self.assertEqual(got, {"Q1": "ご予約", "Q2": "ご希望の日時"})
+
+    def test_meanings_and_replies_are_decided_without_a_person(self):
+        """はい／いいえ・選択肢の質問の意味の言葉と曖昧な言葉の意味は、取込のときに AI（CL-1 の決め方）に1回ずつだけ聞いて入れる
+        （管理者も契約者も確かめない）。使えない組（宣言に無い選択肢・決まった一覧に無い言葉）は入れない。答えが無い・形が違うときは
+        空のまま登録できる（会話は止まらない。CL-1 の連絡帳 4-17）。登録では聞き直さない。"""
+        asked = []
+
+        def meanings(pairs):
+            asked.append(("meanings", pairs))
+            return [{"する": "ご予約なさるということ", "しない": "ご予約はなさらないということ", "わからない": "x"} for _ in pairs]
+
+        def replies(pairs):
+            asked.append(("replies", pairs))
+            return [{"結構": "しない", "たぶん": "する"} for _ in pairs]
+
+        data = book()
+        p = self.preview(data, decide_meanings=meanings, decide_replies=replies)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [("meanings", [("「テスト便」のご予約はなさいますか。", ("する", "しない"))]),
+                                 ("replies", [("「テスト便」のご予約はなさいますか。", ("する", "しない"))])])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        q1 = self.tx(lambda tx: bs.load(tx, v)).questions[0]
+        self.assertEqual((q1.meanings, q1.replies),
+                         ({"する": "ご予約なさるということ", "しない": "ご予約はなさらないということ"}, {"結構": "しない"}))
+        self.assertEqual(len(asked), 2)                                   # 登録では聞き直さない
+        p = self.preview(data, decide_meanings=lambda pairs: [], decide_replies=None)   # 形の違う答え・聞けない
+        self.assertEqual((p.problems, p.raw["questions"][0]["meanings"], p.raw["questions"][0]["replies"]), ([], None, None))
+
+    def test_whether_a_question_asks_a_fact_is_decided_without_a_person(self):
+        """質問ごとに「お客様に事実を伺う質問か」は、取込のときに AI（CL-1 の決め方＝facts.decide）に1回だけ聞いて入れる（管理者も
+        契約者も確かめない。CL-1 の連絡帳 2-1 の版 0.6。✅ 2026-11-01 ユーザー：(a)「OK」）。決まらない・答えが無い・形が違うときは
+        「事実を伺う質問」（真）で登録する（CL-1 の決め方と同じ側）。登録では聞き直さない。"""
+        asked = []
+
+        def facts(texts):
+            asked.append(texts)
+            return {t: False for t in texts if "ご予約" in t}
+
+        data = book()
+        p = self.preview(data, decide_facts=facts)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [sorted(q["text"] for q in p.raw["questions"])])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = {q.id: q.asks_fact for q in self.tx(lambda tx: bs.load(tx, v)).questions}
+        self.assertEqual(got, {"Q1": False, "Q2": True})                    # 決まらなかった Q2 は真
+        self.assertEqual(len(asked), 1)                                   # 登録では聞き直さない
+        for decide in (None, lambda texts: {t: "いいえ" for t in texts}, lambda texts: [False]):   # 聞けない・形が違う
+            with self.subTest(decide=decide):
+                p = self.preview(data, decide_facts=decide)
+                self.assertEqual((p.problems, [q["asks_fact"] for q in p.raw["questions"]]), ([], [True, True]))
+        from tests.test_business_settings import raw            # 文が空の質問：AI には聞かず真で埋め、問題は「文」の1つだけ
+        r = raw()
+        r["questions"][1].update(text="", asks_fact=None)
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], r))
+        self.assertEqual(p.raw["questions"][1]["asks_fact"], True)
+        self.assertEqual([x for x in p.problems if "Q2" in x], [next(x for x in p.problems if "Q2" in x and "文" in x)])
+        self.assertFalse([x for x in p.problems if "事実を伺う質問か" in x])
+
+    def test_do_words_intro_and_client_does_come_in(self):
+        """CL-1 の連絡帳 4-65 の (a)(b)(c)：選択肢ごとの「こちらがすること」の言葉は、事実を伺う質問ではない選択肢の質問だけ、取込のときに
+        AI（CL-1 の決め方）に1回だけ聞いて入れる（事実を伺う質問かが決まってから聞く。使えない組は入れない。登録では聞き直さない）。
+        質問に入る一言は「質問」のシートの無くてもよい列「入る一言」（前のひな形にはこの列が無いので、無ければ空）、依頼者がすることは
+        「基本」の項目。最初の質問の入る一言は通さない（名乗りと一緒に流すので使われない）。"""
+        asked = []
+
+        def do_words(pairs):
+            asked.append(pairs)
+            return [{"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます", "わからない": "x"} for _ in pairs]
+
+        def cut_short(pairs):   # 文の終わりまで持たない言葉（「…お取り」）は受けない（`business_settings.do_words_ok`。会話の側の決まりと同じ）
+            return [{"する": "ご予約をお取り", "しない": "ご予約は控えさせていただきます"} for _ in pairs]
+
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "入る一言", "最終目的"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", None, "はい"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None,
+                 "それではご希望の日時の確認からさせていただきます。", None)]
+        basic = book_rows("基本") + [("依頼者がすること", "手配")]
+        data = book(sheets={"質問": rows, "基本": basic})
+        p = self.preview(data, decide_facts=lambda texts: {t: "ご予約" not in t for t in texts}, decide_do_words=do_words)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"), {})]])   # 事実を伺う質問ではない選択肢の質問だけ
+        self.assertIn("それではご希望の日時の確認からさせていただきます。", bi.script(p.raw))   # 入る一言も録音で話す＝名前を洗い出す台本に入る
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual([(q.do_words, q.intro) for q in got.questions],
+                         [({"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"}, None),
+                          ({}, "それではご希望の日時の確認からさせていただきます。")])
+        self.assertEqual((got.client_does, len(asked)), ("手配", 1))           # 登録では聞き直さない
+        p = self.preview(data, decide_facts=lambda texts: {t: "ご予約" not in t for t in texts}, decide_do_words=cut_short)
+        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"]), ([], {"しない": "ご予約は控えさせていただきます"}))
+        p = self.preview(data, decide_facts=lambda texts: {t: True for t in texts}, decide_do_words=do_words)   # どれも事実を伺う質問
+        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"], len(asked)), ([], None, 1))   # 聞かない
+        first = [rows[0], rows[1][:-2] + ("それではご予約の確認からさせていただきます。", "はい"), rows[2]]
+        p = self.preview(book(sheets={"質問": first}))
+        self.assertTrue(any("最初の質問" in x and "入る一言" in x for x in p.problems), p.problems)
+        p = self.preview(book(), decide_do_words=do_words)                      # 前のひな形（入る一言の列が無い）も読める
+        self.assertEqual((p.problems, [q["intro"] for q in p.raw["questions"]]), ([], [None, None]))
+
+    def test_do_words_are_decided_with_the_meanings(self):
+        """CL-1 の連絡帳 4-65 の (a) の 11-02 2時台の追記：こちらがすることの言葉は、その質問の意味の言葉と向きがそろうときだけ決まる（CL-1 の
+        `meanings.decide(…, kind="do", meanings=…)`）ので、決める処理に質問ごとの意味の言葉を渡す。意味の言葉は、入口が持ってきたもの
+        か、同じ取込で先に決めたもの（使えない組は渡さない）。"""
+        asked = []
+
+        def do_words(items):
+            asked.append(items)
+            return [{} for _ in items]
+
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None)]
+        meanings = lambda pairs: [{"する": "ご予約をされるということ", "しない": "ご予約はされないということ", "x": "y"}   # noqa: E731
+                                  for _ in pairs]
+        self.preview(book(sheets={"質問": rows}), decide_facts=lambda texts: {t: "ご予約" not in t for t in texts},
+                     decide_meanings=meanings, decide_do_words=do_words)
+        self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"),
+                                   {"する": "ご予約をされるということ", "しない": "ご予約はされないということ"})]])
+        from tests.test_business_settings import raw            # 入口が持ってきた意味の言葉は、AI の答えより先
+        r = raw()
+        r["questions"][0].update(meanings={"する": "ご予約をなさるということ"})
+        asked.clear()
+        bi.ask_ai(r, decide_meanings=meanings, decide_do_words=do_words)
+        self.assertEqual(asked, [[("ご予約はなさいますか。", ("する", "しない"), {"する": "ご予約をなさるということ"})]])
+
+    def test_doubt_words_are_decided_with_the_meanings_for_wish_questions(self):
+        """CL-1 の連絡帳 4-90：いまの話の向きを伺う言葉は、こちらがすることの言葉と同じ1本の道で決める（事実を伺う質問ではない選ぶ質問だけ・その質問の
+        意味の言葉を添えて AI に1回だけ聞く・形の合う言葉だけ受ける・入口が書いた選択肢は入口の言葉が先）。"""
+        asked = []
+
+        def doubt(items):
+            asked.append(items)
+            return [{"する": "ご予約をなさるということ", "しない": "ご予約はされない方がいい"} for _ in items]   # 1つ目は形が合わない
+
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None)]
+        meanings = lambda pairs: [{"する": "ご予約をされるということ", "しない": "ご予約はされないということ"} for _ in pairs]   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=lambda texts: {t: "ご予約" not in t for t in texts},
+                         decide_meanings=meanings, decide_doubt_words=doubt)
+        self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"),
+                                   {"する": "ご予約をされるということ", "しない": "ご予約はされないということ"})]])
+        self.assertEqual(([q["doubt_words"] for q in p.raw["questions"]], p.problems), ([{"しない": "ご予約はされない方がいい"}, None], []))
+        asked.clear()                                              # 事実を伺う質問には聞かない
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=lambda texts: {t: True for t in texts},
+                         decide_meanings=meanings, decide_doubt_words=doubt)
+        self.assertEqual((asked, [q["doubt_words"] for q in p.raw["questions"]]), ([], [None, None]))
+        from tests.test_business_settings import raw            # 入口が書いた選択肢は入口の言葉が先・書いていない選択肢は AI の言葉
+        r = raw()
+        r["questions"][0]["doubt_words"] = {"しない": "ご予約は控えた方がいい"}
+        ai = bi.ask_ai(r, decide_meanings=meanings, decide_doubt_words=lambda items: [{"する": "ご予約をなさる方がいい",
+                                                                                      "しない": "ご予約はされない方がいい"} for _ in items])
+        self.assertEqual(self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai)).raw["questions"][0]["doubt_words"],
+                         {"する": "ご予約をなさる方がいい", "しない": "ご予約は控えた方がいい"})
+
+    def test_ways_questions_are_decided_by_the_ai_and_the_ways_come_from_the_basic_sheet(self):
+        """CL-1 の連絡帳 4-91（✅ 2026-11-05 日本時間23時19分06秒 ユーザー「案でOK」）：ご案内の方法を伺う質問か（asks_way）は、取込のときに AI
+        （CL-1 の import_ai.decide_ways）に質問の文の並びで1回だけ聞き、真と答えた文だけ真（形の違う答え・答えの無い文・決める処理が渡されない
+        ときは偽）。業務の「ご案内できる方法」は「基本」のシートの1行（「／」で区切る）で、質問ごとに渡すのは Settings.offer_ways_of の1か所。"""
+        asked = []
+
+        def ways(texts):
+            asked.append(texts)
+            return {texts[0]: True, texts[1]: "はい"}            # 2つ目は形が違う＝偽
+
+        basic = book_rows("基本") + [("ご案内できる方法", "メール／LINE／ZOOM")]
+        p = self.preview(book(sheets={"基本": basic}), decide_ways=ways)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [sorted(["「テスト便」のご予約はなさいますか。", "ご希望の日時をお聞かせください。"])])
+        got = {q["id"]: q["asks_way"] for q in p.raw["questions"]}
+        self.assertEqual((got, p.raw["offer_ways"]), ({"Q1": True, "Q2": False}, ["メール", "LINE", "ZOOM"]))   # 並べ替えた1つ目＝Q1 の文
+        self.assertEqual(self.preview(book()).raw["questions"][0]["asks_way"], False)           # 決める処理が無ければ偽
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("ご案内できる方法", "メール／パンフレット")]}))
+        self.assertTrue(any("パンフレット" in x for x in p.problems), p.problems)   # 方法に当たらない名前は止める（会話が言えない）
+
+    def test_maybes_and_the_purpose_noun_are_decided_by_the_ai(self):
+        """CL-1 の連絡帳 4-123・4-128：どちらの場合もありうるときに確かめる (答え, 言葉)（maybe）は、業務の選ぶ質問（事実を伺う質問も）だけ AI
+        （import_ai.decide_maybes）に1回だけ聞く。選択肢に無い名前・空の言葉・形の違う答え・決める処理が無いときは空。用件の名詞（purpose_noun）は用件の一文を
+        AI（import_ai.decide_purposes）に1回だけ聞き、文の中の言葉だけ入れる（決まらなければ入れない）。登録では聞き直さない。"""
+        asked = {"maybes": [], "purposes": []}
+
+        def maybes(items):
+            asked["maybes"].append(items)
+            return [("する", "ご予約をされる") for _ in items]
+
+        def purposes(texts):
+            asked["purposes"].append(texts)
+            return {t: "ご予約の確認" for t in texts}
+
+        data = book()
+        p = self.preview(data, decide_maybes=maybes, decide_purposes=purposes)
+        self.assertEqual((p.problems, asked), ([], {"maybes": [[("「テスト便」のご予約はなさいますか。", ("する", "しない"))]],
+                                                     "purposes": [["ご予約の確認でお電話いたしました。"]]}))   # 日時の質問は聞かない
+        self.assertEqual(([q["maybe"] for q in p.raw["questions"]], p.raw["purpose_noun"]), ([["する", "ご予約をされる"], None], "ご予約の確認"))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual(([q.maybe for q in got.questions], got.purpose_noun, len(asked["maybes"]), len(asked["purposes"])),
+                         ([("する", "ご予約をされる"), ()], "ご予約の確認", 1, 1))
+        for bad in ([("どちらでも", "x")], [("する", " ")], [("する",)], [], None, ["する"]):   # 選択肢に無い名前・空の言葉・形の違う答え＝空
+            with self.subTest(bad=bad):
+                self.assertEqual(self.preview(data, decide_maybes=lambda items: bad).raw["questions"][0]["maybe"], [])
+        for bad in ({"ご予約の確認でお電話いたしました。": "ご注文の確認"}, {}, None, {"ご予約の確認でお電話いたしました。": 3}):   # 文に無い言葉は入れない
+            with self.subTest(bad=bad):
+                self.assertNotIn("purpose_noun", self.preview(data, decide_purposes=lambda texts: bad).raw)
+        p = self.preview(data)                                      # 決める処理が渡されない＝空・入れない
+        self.assertEqual((p.raw["questions"][0]["maybe"], "purpose_noun" in p.raw), ([], False))
+
+    def test_the_summary_is_decided_by_the_ai_once(self):
+        """CL-1 の連絡帳 4-170 の (3)(4)（✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30））：営業の要約（summary。急いでいるが手短になら聞くと言われたとき
+        「ありがとうございます。」のあとに流す）は、業務の (用件の一文, 質問の文の並び) を AI（import_ai.decide_summaries）に1回だけ聞き、要約を入れる（決まらない・
+        形の違う答えは入れない＝用件の一文の録音）。登録では聞き直さない。入口が書いた要約は聞かない。"""
+        asked = []
+        line = "ご予約の確認とお支払いの方法をお伺いしたくお電話いたしました。"
+
+        def summaries(items):
+            asked.append(items)
+            return [line for _ in items]
+
+        data = book()
+        p = self.preview(data, decide_summaries=summaries)
+        texts = tuple(q["text"] for q in p.raw["questions"])
+        self.assertEqual((p.problems, asked, p.raw["summary"]), ([], [[("ご予約の確認でお電話いたしました。", texts)]], line))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual((self.tx(lambda tx: bs.load(tx, v)).summary, len(asked)), (line, 1))   # 登録は聞き直さない
+        for bad in ([""], [" "], [], None, [3], [line, line]):            # 決まらない・形の違う答え＝入れない
+            with self.subTest(bad=bad):
+                self.assertNotIn("summary", self.preview(data, decide_summaries=lambda items: bad).raw)
+        self.assertNotIn("summary", self.preview(data).raw)              # 決める処理が渡されない
+        asked.clear()
+        got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], dict(p.raw, summary="入口の要約です。"), decide_summaries=summaries))
+        self.assertEqual((got.problems, asked, got.raw["summary"]), ([], [], "入口の要約です。"))   # 入口が書いた要約は聞かない
+        # AI の答えがあっても、入口が書いた要約が勝つ（AI の答えを中身に入れる1か所＝review）
+        got = self.tx(lambda tx: bi.review(tx, self.s["business"], dict(p.raw, summary="入口の要約です。"), ai=dict(p.ai, summary=line)))
+        self.assertEqual(got.raw["summary"], "入口の要約です。")
+
+    def test_the_offers_come_from_the_basic_sheet_and_the_close_offer_needs_its_do_words(self):
+        """CL-1 の連絡帳 4-122・4-124・4-125・4-138 の (3)：詳しい者からのお話の方法（handoff_ways）と締める前の申し出（close_offer）は「基本」のシートの行。
+        締める前の申し出でこちらがすること（do）を書いていなければ、業務の選ぶ質問のこちらがすることの言葉と同じ道（意味の言葉を添えて AI に1回だけ聞く）で、
+        申し出の文をはい／いいえの質問として「はい」の言葉を決める。意味の言葉は会話の側が N6 で使う言葉（offer_question＝CL-1 の flowctl.close_offer_do_question。
+        つなぐ所が渡す）で、意味の言葉を決める処理には渡さない（同じ質問の意味の言葉を2か所に置かない）。offer_question が無い・形が違うときは決めない。
+        「…させていただきます」の形で決まらなければ、締める前の申し出は入れない（知らせを出す）。"""
+        text = "それでは改めて資料をお送りさせていただいてもよろしいでしょうか？"
+        asked, meant = [], []
+        flow_meanings = {"はい": "申し出のとおりにしてよいということ", "いいえ": "申し出は要らないということ"}   # 会話の側が N6 で使う意味の言葉（写しの例）
+        offer_question = lambda t: (t, ("はい", "いいえ"), dict(flow_meanings))   # noqa: E731
+
+        def do_words(items):
+            asked.append(items)
+            return [{"はい": "改めて資料をお送りさせていただきます"} if t == text else {} for t, _, _ in items]
+
+        def meanings(pairs):
+            meant.extend(t for t, _ in pairs)
+            return [{"はい": "資料を送ってよいということ", "いいえ": "資料は要らないということ"} if t == text else {} for t, _ in pairs]
+        basic = book_rows("基本") + [("締める前の申し出の文", text), ("締める前の申し出の聞くこと", "資料のお送りのご希望"),
+                                     ("締める前の申し出の方法", "メール／郵送")]
+        data = book(sheets={"基本": basic})
+        p = self.preview(data, decide_meanings=meanings, decide_do_words=do_words, offer_question=offer_question)
+        self.assertEqual((p.problems, p.raw["close_offer"]), ([], {"text": text, "topic": "資料のお送りのご希望", "ways": ["メール", "郵送"],
+                                                                    "do": "改めて資料をお送りさせていただきます"}))
+        self.assertEqual(asked, [[(text, ("はい", "いいえ"), flow_meanings)]])   # 会話の側の意味の言葉を添えて
+        self.assertNotIn(text, meant)                                            # 申し出の文の意味の言葉は、取込で決めない
+        for bad in (None, lambda t: (t, ("はい", "いいえ", "どちらでも"), dict(flow_meanings)), lambda t: (t, ("はい", "いいえ"), {"はい": "x"})):
+            with self.subTest(offer_question=bad):   # 会話の側の問いが渡されない・形が違う＝決めない（入れない・知らせ）
+                asked.clear()
+                q = self.preview(data, decide_meanings=meanings, decide_do_words=do_words, offer_question=bad)
+                self.assertEqual(("close_offer" in q.raw, any("締める前の申し出" in n for n in q.notes), [i for a in asked for i in a if i[0] == text]),
+                                 (False, True, []))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual(self.tx(lambda tx: bs.load(tx, v)).close_offer,
+                         bs.CloseOffer(text, "資料のお送りのご希望", ("メール", "郵送"), "改めて資料をお送りさせていただきます"))
+        for got in ([{"はい": "改めて資料をお送り承ります"}], [{}], None):   # 申し出の形で決まらない＝入れない（知らせ）
+            with self.subTest(got=got):
+                p = self.preview(data, decide_meanings=meanings, decide_do_words=lambda items: got, offer_question=offer_question)
+                self.assertEqual(("close_offer" in p.raw, p.problems, any("締める前の申し出" in n for n in p.notes)), (False, [], True), p.notes)
+        asked.clear()                                               # 書いたこちらがすることは聞かない
+        p = self.preview(book(sheets={"基本": basic + [("締める前の申し出でこちらがすること", "資料をお送りさせていただきます")]}),
+                         decide_meanings=meanings, decide_do_words=do_words, offer_question=offer_question)
+        self.assertEqual((asked, p.raw["close_offer"]["do"], p.problems), ([], "資料をお送りさせていただきます", []))
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("詳しい者からのお話の方法", "訪問／オンラインでのご説明／お電話")]}))
+        self.assertEqual((p.problems, p.raw["handoff_ways"]), ([], ["訪問", "オンラインでのご説明", "お電話"]))
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("締める前の申し出の方法", "メール")]}))
+        self.assertTrue(any("締める前の申し出の文が無い" in x for x in p.problems), p.problems)
+
+    def test_way_words_are_decided_once_from_the_pairs_the_conversation_side_lists(self):
+        """CL-1 の連絡帳 4-132（2026-11-12 まとめ役の (1)）：方法を申し出の中身に入れる言い方（業務設定 way_words）は、確かめに通った中身から会話の側が並べた
+        (こちらがすることの言葉, 方法の並び)（way_pairs＝CL-1 の flowctl.way_word_pairs の1か所。つなぐ所が渡す。こちらは並べ方を持たない）を、決める処理
+        （decide_way_words＝CL-1 の import_ai.decide_way_words）に1回だけ聞いて入れる。並びの方法でない名前・空の言葉は落とす。登録はプレビューの答えのまま
+        （聞き直さない）。入口に言い方があれば聞かない。決める処理・並べる処理が無い・決まらないなら入れない（会話の側は「（方法）で」）。"""
+        do = "詳しい者より改めてお話しさせていただきます"
+        data = book(sheets={"基本": book_rows("基本") + [("詳しい者からのお話の方法", "訪問／オンラインでのご説明")]})
+        seen, asked = [], []
+
+        def pairs_of(content):
+            seen.append(content.get("handoff_ways"))
+            return [(do, tuple(content["handoff_ways"]))]
+
+        def decide(pairs):
+            asked.append(pairs)
+            return [{"訪問": "詳しい者がご訪問のうえお話しさせていただきます", "郵送": "x", "オンラインでのご説明": " "}]
+        p = self.preview(data, decide_way_words=decide, way_pairs=pairs_of)
+        want = {do: {"訪問": "詳しい者がご訪問のうえお話しさせていただきます"}}
+        self.assertEqual((p.problems, p.raw["way_words"], seen, asked), ([], want, [["訪問", "オンラインでのご説明"]], [[(do, ("訪問", "オンラインでのご説明"))]]))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual((self.tx(lambda tx: bs.load(tx, v)).way_words, len(asked)), (want, 1))   # 登録は聞き直さない
+        for kw in ({}, {"decide_way_words": decide}, {"way_pairs": pairs_of}, {"decide_way_words": lambda pairs: [{}], "way_pairs": pairs_of},
+                   {"decide_way_words": lambda pairs: None, "way_pairs": pairs_of}, {"decide_way_words": decide, "way_pairs": lambda c: []}):
+            with self.subTest(kw=sorted(kw)):
+                self.assertNotIn("way_words", self.preview(data, **kw).raw)
+
+    APPROVAL_QUESTIONS = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "入る一言", "ご承認を伺う"),
+                          ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", None, None),
+                          ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None, None),
+                          ("Q3", "ご了承いただけますでしょうか？", "ご了承", "はい／いいえ", "はい", None, None, None,
+                           "ご予約の際は前日までのお支払いが必要になります。", "はい")]
+
+    def test_the_fields_only_the_ai_decides_are_asked_once_and_kept_at_registration(self):
+        """CL-1 の連絡帳 4-149・4-150・4-152（✅ 2026-11-13 日本時間20時06分19秒・22時17分01秒 ユーザー）：取込のときの AI だけが決める質問の欄。
+        - お知らせの文（announce）：ご承認を伺う質問の (入る一言, 質問の文) を decide_announces（CL-1 の import_ai.decide_announces）に1回だけ。
+        - 資料がお手元に届いているにあたる答え（at_hand）：業務の選ぶ質問の (質問の文, 選択肢) を decide_at_hand に1回だけ（unclear_none と同じ1か所）。
+        - その後の文の中身（since）：確かめに通った中身の、こちらが「わからない」でかけ直しうる必須の質問（`Rules.calls_back`）の文を decide_since に1回だけ。
+        - 言い換えた質問（reworded）：会話の側が並べた (質問の文, 選択肢, 型)（reword_items＝CL-1 の flowctl.aside_fits。つなぐ所が渡す）を decide_rewords に1回だけ。
+        考える Sonnet（referee）は、つなぐ所が CL-1 の deciders に渡して決める処理に入っている（こちらは受け取るだけ）。登録はプレビューの答えのまま（聞き直さない）。
+        決まらない・形の違う答え・決める処理が無いときは空（会話の側は今の形）。"""
+        asked = {"since": [], "announces": [], "at_hand": [], "rewords": [], "items": []}
+        q1, q2, q3 = (r[1] for r in self.APPROVAL_QUESTIONS[1:])
+        intro = self.APPROVAL_QUESTIONS[3][8]
+        notice = "ご予約の際は前日までのお支払いが必要になりますのでご了承ください。"
+
+        def since(texts):
+            asked["since"].append(texts)
+            return {t: "ご希望の日時" if t == q2 else "ご予約のご意向" for t in texts}
+
+        def announces(pairs):
+            asked["announces"].append(pairs)
+            return [notice for _ in pairs]
+
+        def at_hand(items):
+            asked["at_hand"].append(items)
+            return ["はい" if t == q3 else "" for t, _ in items]
+
+        def items_of(content):
+            asked["items"].append([q["id"] for q in content["questions"]])
+            return [(q["text"], tuple(q.get("choices") or ()), q["type"]) for q in content["questions"] if q["id"] == "Q2"]
+
+        def rewords(items):
+            asked["rewords"].append(items)
+            return ["ところでご希望の日時はいつ頃になりますか？" for _ in items]
+
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        kw = dict(decide_since=since, decide_announces=announces, decide_at_hand=at_hand, decide_rewords=rewords, reword_items=items_of)
+        p = self.preview(data, **kw)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, {"since": [sorted([q1, q2, q3])], "announces": [[(intro, q3)]],
+                                 "at_hand": [[(q1, ("する", "しない")), (q3, ("はい", "いいえ"))]],
+                                 "rewords": [[(q2, (), "datetime")]], "items": [["Q1", "Q2", "Q3"]]})
+        want = [("ご予約のご意向", "", "", ""), ("ご希望の日時", "", "", "ところでご希望の日時はいつ頃になりますか？"), ("ご予約のご意向", notice, "はい", "")]
+        self.assertEqual([(q["since"], q["announce"], q["at_hand"], q["reworded"]) for q in p.raw["questions"]], want)
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual([(q.since, q.announce, q.at_hand, q.reworded) for q in got.questions], want)
+        self.assertEqual([len(x) for x in asked.values()], [1] * 5)   # 登録は聞き直さない
+        # 「わからない」でかけ直さない質問（Q2 の「わからない」はどの理由でも結論として終える）には、その後の文の中身を聞かない
+        handling = book_rows("わからない・答えたくない") + [("Q2", "わからない", r, "結論として終える", "未定") for r in REASONS]
+        asked["since"].clear()
+        p = self.preview(book(sheets={"質問": self.APPROVAL_QUESTIONS, "わからない・答えたくない": handling}), decide_since=since)
+        self.assertEqual((p.problems, asked["since"], p.raw["questions"][1]["since"]), ([], [sorted([q1, q3])], ""))
+        # 決まらない・形の違う答え・決める処理が無い＝空
+        for bad in ({"since": lambda t: None, "announces": lambda p: [" "], "at_hand": lambda i: ["届いている", "x"], "rewords": lambda i: None},
+                    {"since": lambda t: {q1: 3}, "announces": lambda p: None, "at_hand": lambda i: None, "rewords": lambda i: [1]},
+                    {"since": lambda t: {}, "announces": lambda p: [notice, notice], "at_hand": lambda i: [], "rewords": lambda i: []}):
+            with self.subTest(bad=sorted(bad)):
+                p = self.preview(data, decide_since=bad["since"], decide_announces=bad["announces"], decide_at_hand=bad["at_hand"],
+                                 decide_rewords=bad["rewords"], reword_items=items_of)
+                self.assertEqual((p.problems, [tuple(q[k] for k in bs.AI_ONLY_KEYS) for q in p.raw["questions"]]),
+                                 ([], [tuple(bs.ai_only_empty(k) for k in bs.AI_ONLY_KEYS)] * 3))
+        for kw2 in ({}, {"decide_rewords": rewords}, {"reword_items": items_of}):   # 決める処理か並べる処理が無い＝聞かない
+            with self.subTest(kw=sorted(kw2)):
+                self.assertEqual([q["reworded"] for q in self.preview(data, **kw2).raw["questions"]], [""] * 3)
+
+    def test_the_matter_and_the_alternatives_are_asked_once_and_kept_at_registration(self):
+        """CL-1 の連絡帳 4-154・4-156・4-157（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」・22時15分15秒・23時45分00秒「伺い16はイでOK」）：
+        - お知らせの中身の名詞（matter）：ご承認を伺う質問の (入る一言, 質問の文) を decide_matters（CL-1 の import_ai.decide_matters）に1回だけ（お知らせの文
+          announce と同じ並べ方の1か所）。答えは同じ並びの組 (名詞, 句)（空＝「先ほどの内容」。句＝matter_clause は 4-162＝下の試験）。
+        - 選択肢を並べた文（alternatives）と先に並べた文の並び（alternatives_led）：会話の側が並べた (質問の文, 選択肢, 型)（alternatives_items＝CL-1 の
+          flowctl.alternatives_fits。つなぐ所が渡す）を decide_alternatives に、確かめに通った中身から1回だけ（言い換えた質問 reworded と同じ1か所）。答えは
+          質問ごとの組 (質問の順の文, 先に並べた文の並び)：1つ目を alternatives、2つ目をそのまま alternatives_led へ（決まらなかった選択肢の空の文も番目のまま）。
+        考える Sonnet（referee）は、つなぐ所が CL-1 の deciders に渡して決める処理に入っている（こちらは受け取るだけ）。登録はプレビューの答えのまま（聞き直さない）。
+        決まらない・形の違う答え・決める処理が無いときは空（会話の側は今の形）。"""
+        asked = {"matters": [], "alternatives": [], "items": []}
+        q1, q3 = self.APPROVAL_QUESTIONS[1][1], self.APPROVAL_QUESTIONS[3][1]
+        intro = self.APPROVAL_QUESTIONS[3][8]
+        listed = "するになさいますかそれともしないの方がよろしいでしょうか？"
+        led = "しないになさいますかそれともするの方がよろしいでしょうか？"
+
+        def matters(pairs):
+            asked["matters"].append(pairs)
+            return [("前日までのお支払い", "") for _ in pairs]
+
+        def items_of(content):
+            asked["items"].append([q["id"] for q in content["questions"]])
+            return [(q["text"], tuple(q.get("choices") or ()), q["type"]) for q in content["questions"] if q["id"] == "Q1"]
+
+        def alternatives(items):
+            asked["alternatives"].append(items)
+            return [(listed, (led,)) for _ in items]
+
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        p = self.preview(data, decide_matters=matters, decide_alternatives=alternatives, alternatives_items=items_of)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, {"matters": [[(intro, q3, "")]], "alternatives": [[(q1, ("する", "しない"), "choice")]], "items": [["Q1", "Q2", "Q3"]]})
+        want = [("", listed, [led]), ("", "", []), ("前日までのお支払い", "", [])]
+        self.assertEqual([(q["matter"], q["alternatives"], q["alternatives_led"]) for q in p.raw["questions"]], want)
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual([(q.matter, q.alternatives, list(q.alternatives_led)) for q in got.questions], want)
+        self.assertEqual([len(x) for x in asked.values()], [1] * 3)   # 登録は聞き直さない
+        # 先に並べた文が決まらなかった選択肢は空の文のまま番目に残す（質問の順の文だけ決まった・先に並べた文だけ決まった）
+        for answer, kept in (((listed, ("",)), (listed, [""])), (("", (led,)), ("", [led]))):
+            with self.subTest(answer=answer):
+                p = self.preview(data, decide_alternatives=lambda items, a=answer: [a for _ in items], alternatives_items=items_of)
+                self.assertEqual((p.problems, (p.raw["questions"][0]["alternatives"], p.raw["questions"][0]["alternatives_led"])), ([], kept))
+        # 決まらない・形の違う答え・決める処理が無い＝空
+        for bad_m, bad_a in ((lambda p: [("", "")], lambda i: [("", ("",))]), (lambda p: None, lambda i: None), (lambda p: [1], lambda i: [listed]),
+                             (lambda p: [("a", "b"), ("c", "d")], lambda i: [(listed, led)]), (lambda p: [], lambda i: [(listed, (led,)), (listed, (led,))]),
+                             (lambda p: [(" ", " ")], lambda i: [(listed, (1,))]), (lambda p: [None], lambda i: [(1, (led,))])):
+            with self.subTest(bad=(bad_m, bad_a)):
+                p = self.preview(data, decide_matters=bad_m, decide_alternatives=bad_a, alternatives_items=items_of)
+                self.assertEqual((p.problems, [(q["matter"], q["alternatives"], q["alternatives_led"]) for q in p.raw["questions"]]),
+                                 ([], [("", "", [])] * 3))
+        for kw in ({}, {"decide_alternatives": alternatives}, {"alternatives_items": items_of}):   # 決める処理か並べる処理が無い＝聞かない
+            with self.subTest(kw=sorted(kw)):
+                self.assertEqual([(q["alternatives"], q["alternatives_led"]) for q in self.preview(data, **kw).raw["questions"]], [("", [])] * 3)
+        # 入口が持ってきた中身（前の版から作り直すときなど）は聞かない（同じ並べ方の1か所＝お知らせの文・言い換えた質問と同じ）
+        asked = {"matters": [], "alternatives": [], "items": []}
+        raw = dict(p.raw, questions=[dict(q, matter="お支払い" if q["id"] == "Q3" else "", alternatives=listed if q["id"] == "Q1" else "")
+                                     for q in p.raw["questions"]])
+        got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], raw, decide_matters=matters, decide_alternatives=alternatives,
+                                                   alternatives_items=items_of))
+        self.assertEqual((got.problems, asked["matters"], asked["alternatives"]), ([], [], []))
+        # 空の文・空の並び（前の版から作り直した中身の、決まらなかった欄）は、まだ来ていない＝聞く
+        raw = dict(p.raw, questions=[dict(q, matter="", alternatives="", alternatives_led=[]) for q in p.raw["questions"]])
+        got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], raw, decide_matters=matters, decide_alternatives=alternatives,
+                                                   alternatives_items=items_of))
+        self.assertEqual((got.problems, len(asked["matters"]), len(asked["alternatives"])), ([], 1, 1))
+        self.assertEqual([(q["matter"], q["alternatives"], q["alternatives_led"]) for q in got.raw["questions"]], want)
+
+    def test_the_matter_and_its_clause_are_decided_by_one_question(self):
+        """CL-1 の連絡帳 4-162（✅ 2026-11-15 日本時間11時59分07秒 ユーザー「・(3)今：…」）：decide_matters（CL-1 の import_ai.decide_matters）の答えは、ご承認を伺う
+        質問ごとの組 (お知らせの中身の名詞, 中身を常体にした句)。1つ目を matter、2つ目を matter_clause へ（同じ1回の問い合わせ＝こちらも1回だけ聞く）。片方だけ
+        決まったときは、もう片方は空（会話の側は句が空なら名詞の形・名詞が空なら「先ほどの内容」）。どちらも空・形の違う答え（名詞だけの文・3つの組・文字でない）は
+        入れない。入口がどちらかを持ってきた質問は聞かない（`_decided_items` と同じ決まり）。登録はプレビューの答えのまま。⛔ 2026-11-15 まで答えは名詞の文の並びで、
+        組が来ると名詞も句も入らなかった。"""
+        clause = "キャンセルは前日までにご連絡いただく必要がある"
+        q3, intro = self.APPROVAL_QUESTIONS[3][1], self.APPROVAL_QUESTIONS[3][8]
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        for answer, want in ((("キャンセル", clause), ("キャンセル", clause)), (("キャンセル", ""), ("キャンセル", "")),
+                             (("", f" {clause} "), ("", clause)), (("", ""), ("", "")), ("キャンセル", ("", "")),
+                             (("キャンセル", clause, "x"), ("", "")), (("キャンセル", 1), ("", "")), (["キャンセル", clause], ("キャンセル", clause))):
+            with self.subTest(answer=answer):
+                asked = []
+
+                def matters(pairs, a=answer):
+                    asked.append(pairs)
+                    return [a for _ in pairs]
+                p = self.preview(data, decide_matters=matters)
+                self.assertEqual((p.problems, asked), ([], [[(intro, q3, "")]]))
+                self.assertEqual([(q["matter"], q["matter_clause"]) for q in p.raw["questions"]], [("", "")] * 2 + [want])
+                if answer == ("キャンセル", clause):
+                    v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+                    got = self.tx(lambda tx: bs.load(tx, v))
+                    self.assertEqual([(q.matter, q.matter_clause) for q in got.questions], [("", "")] * 2 + [want])
+                    self.assertEqual(len(asked), 1)   # 登録は聞き直さない
+        # 入口が名詞か句のどちらかを持ってきた質問は聞かない（持ってきたほうはそのまま・無いほうは空）
+        p = self.preview(data, decide_matters=lambda pairs: [("キャンセル", clause) for _ in pairs])
+        for given in ({"matter": "お支払い"}, {"matter_clause": "お支払いは前日までになる"}):
+            with self.subTest(given=given):
+                asked = []
+                raw = dict(p.raw, questions=[{**q, "matter": "", "matter_clause": "", **(given if q["id"] == "Q3" else {})} for q in p.raw["questions"]])
+                got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], raw,
+                                                           decide_matters=lambda pairs: asked.append(pairs) or [("キャンセル", clause) for _ in pairs]))
+                self.assertEqual((got.problems, asked), ([], []))
+                self.assertEqual((got.raw["questions"][2]["matter"], got.raw["questions"][2]["matter_clause"]),
+                                 (given.get("matter", ""), given.get("matter_clause", "")))
+
+    def test_the_clause_is_made_from_the_announce_the_customer_hears(self):
+        """CL-1 の連絡帳 4-171：お知らせの中身の句は、お客様が聞いたお知らせの文から作る＝decide_matters に (入る一言, 質問の文, お知らせの文) を渡す。お知らせの文は、
+        入口が書いた文、無ければ同じ取込で decide_announces が決めた文（先に聞く）、どちらも無ければ空。⛔ 2026-11-16 まで (入る一言, 質問の文) の2つ組＝会話の側の
+        新しい決める処理は止まった。"""
+        q3, intro = self.APPROVAL_QUESTIONS[3][1], self.APPROVAL_QUESTIONS[3][8]
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        said = "キャンセルは前日までにご連絡いただければ料金はかかりませんのでお気を付けください。"
+        order, asked = [], []
+        p = self.preview(data, decide_announces=lambda pairs: order.append("announce") or [said for _ in pairs],
+                         decide_matters=lambda items: order.append("matter") or asked.append(items) or [("キャンセル", "") for _ in items])
+        self.assertEqual((p.problems, order, asked), ([], ["announce", "matter"], [[(intro, q3, said)]]))
+        # 入口がお知らせの文を書いた質問は、その文を渡す（お知らせの文は聞かない）
+        asked = []
+        raw = dict(p.raw, questions=[{**q, "announce": "入口の文です。" if q["id"] == "Q3" else q.get("announce", ""), "matter": "",
+                                      "matter_clause": ""} for q in p.raw["questions"]])
+        got = self.tx(lambda tx: bi.preview_shaped(tx, self.s["business"], raw,
+                                                   decide_matters=lambda items: asked.append(items) or [("キャンセル", "") for _ in items]))
+        self.assertEqual((got.problems, asked), ([], [[(intro, q3, "入口の文です。")]]))
+
+    def test_the_alternatives_items_pass_the_fourth_mark_through(self):
+        """CL-1 の連絡帳 4-160：会話の側が並べる (質問の文, 選択肢, 型) に、4つ目「先に並べた文を作るか」（CL-1 の flowctl.leads_fit の1か所）が付きうる。
+        こちらは読まずに、そのまま決める処理（CL-1 の import_ai.decide_alternatives）へ渡す（4つ目の無い並びも今のまま）。偽の質問の答えの先に並べた文は空の文
+        （並べ方の数だけ）で、質問の順の文だけが入る。⛔ 2026-11-15 まで3つに切り詰めて読み、4つ目が来ると並びを読めずに止まった。"""
+        q1 = self.APPROVAL_QUESTIONS[1][1]
+        listed = "するになさいますかそれともしないの方がよろしいでしょうか？"
+        data = book(sheets={"質問": self.APPROVAL_QUESTIONS})
+        for mark in (False, True):
+            with self.subTest(mark=mark):
+                asked = []
+
+                def alternatives(items):
+                    asked.append(items)
+                    return [(listed, ("",) if not it[3] else ("しないになさいますかそれともするの方がよろしいでしょうか？",)) for it in items]
+
+                def items_of(content):
+                    return [(q["text"], tuple(q.get("choices") or ()), q["type"], mark) for q in content["questions"] if q["id"] == "Q1"]
+                p = self.preview(data, decide_alternatives=alternatives, alternatives_items=items_of)
+                self.assertEqual((p.problems, asked), ([], [[(q1, ("する", "しない"), "choice", mark)]]))
+                self.assertEqual(p.raw["questions"][0]["alternatives"], listed)
+                self.assertEqual(any(p.raw["questions"][0]["alternatives_led"]), mark)
+
+    def test_unclear_none_is_decided_by_the_ai_for_choice_questions(self):
+        """CL-1 の連絡帳 4-82（✅ 2026-11-04 日本時間20時27分 管理者「(1)…OK」）：ほかに分からない点が無いかを伺う質問の「無い」にあたる選択肢は、
+        業務の選ぶ質問（はい／いいえ・選択肢。事実を伺う質問も）だけ、取込のときに AI（CL-1 の import_ai.decide_unclear）に1回だけ聞いて入れる。
+        選択肢に無い名前・形の違う答え・決める処理が渡されないときは空（伺う＝重ねて伺うだけで答えは正しい側）。登録では聞き直さない。"""
+        asked = []
+
+        def unclear(items):
+            asked.append(items)
+            return ["しない" for _ in items]
+
+        data = book()
+        p = self.preview(data, decide_unclear=unclear)
+        self.assertEqual((p.problems, asked), ([], [[("「テスト便」のご予約はなさいますか。", ("する", "しない"))]]))   # 日時の質問は聞かない
+        self.assertEqual([q["unclear_none"] for q in p.raw["questions"]], ["しない", None])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual(([q.unclear_none for q in self.tx(lambda tx: bs.load(tx, v)).questions], len(asked)), (["しない", ""], 1))
+        for bad in (["x"], [], None, [1], ["しない", "しない"]):          # 選択肢に無い名前・形の違う答え＝空
+            with self.subTest(bad=bad):
+                self.assertEqual(self.preview(data, decide_unclear=lambda items: bad).raw["questions"][0]["unclear_none"], "")
+        self.assertEqual(self.preview(data).raw["questions"][0]["unclear_none"], "")   # 決める処理が渡されない＝空
+
+    def test_away_choices_are_decided_by_the_ai_with_the_meanings(self):
+        """CL-1 の連絡帳 4-72 の (a)：目的から遠ざかる向きの選択肢は、事実を伺う質問ではない選択肢の質問だけ、取込のときに AI（CL-1 の
+        import_ai.decide_away）に1回だけ聞いて入れる。質問ごとに意味の言葉を添えて聞く（打ち消しの問いの「はい」を取り違えない）。選択肢に無い
+        名前は落とし、形の違う答えは、すべての選択肢を遠ざかる向きにする（読めない＝安全側）。登録では聞き直さない。入口が持ってきた質問は聞かない。"""
+        asked = []
+
+        def away(items):
+            asked.append(items)
+            return [("しない", "x", "しない") for _ in items]
+
+        meanings = lambda pairs: [{"する": "ご予約をされるということ", "しない": "ご予約はされないということ"} for _ in pairs]   # noqa: E731
+        data = book()
+        p = self.preview(data, decide_facts=lambda texts: {t: "ご予約" not in t for t in texts}, decide_meanings=meanings,
+                         decide_away=away)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [[("「テスト便」のご予約はなさいますか。", ("する", "しない"),
+                                   {"する": "ご予約をされるということ", "しない": "ご予約はされないということ"})]])
+        self.assertEqual(p.raw["questions"][0]["away"], ["しない"])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual((self.tx(lambda tx: bs.load(tx, v)).questions[0].away, len(asked)), (("しない",), 1))
+        p = self.preview(data, decide_facts=lambda texts: {t: True for t in texts}, decide_away=away)   # どれも事実を伺う質問
+        self.assertEqual((p.problems, p.raw["questions"][0]["away"], len(asked)), ([], None, 1))   # 聞かない
+        p = self.preview(data, decide_facts=lambda texts: {t: False for t in texts}, decide_away=lambda items: [() for _ in items])
+        self.assertEqual((p.problems, p.raw["questions"][0]["away"]), ([], None))   # 遠ざかる向きが無い
+        for bad in ([], None, [None], [{"しない": 1}], [[1]]):              # 形の違う答え＝読めない＝すべての選択肢を遠ざかる向きに
+            with self.subTest(bad=bad):
+                p = self.preview(data, decide_facts=lambda texts: {t: False for t in texts}, decide_away=lambda items: bad)
+                self.assertEqual((p.problems, p.raw["questions"][0]["away"]), ([], ["する", "しない"]))
+        p = self.preview(data, decide_facts=lambda texts: {t: False for t in texts})   # 決める処理が渡されない＝答えが無いのと同じ（安全側）
+        self.assertEqual((p.problems, p.raw["questions"][0]["away"]), ([], ["する", "しない"]))
+        from tests.test_business_settings import raw            # 入口が持ってきた遠ざかる向きは、AI に聞かない
+        r = raw()
+        r["questions"][0].update(away=["しない"])
+        asked.clear()
+        bi.ask_ai(r, decide_away=away)
+        self.assertEqual(asked, [])
+        r["questions"][0].update(away=None, do_words={"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"})   # こちらがすることの言葉があっても聞く
+        bi.ask_ai(r, decide_away=away)
+        self.assertEqual(asked, [[("ご予約はなさいますか。", ("する", "しない"), {})]])
+
+    def test_do_words_written_in_the_settings_come_first(self):
+        """CL-1 の連絡帳 4-72 の (d)：こちらがすることの言葉は、業務設定（依頼者のトークスクリプト）に書いた選択肢の言葉を、取込の AI の言葉より
+        先に使う（選択肢ごと。全部の選択肢に書いてあれば AI に聞かない）。ファイルは「質問」のシートの無くてもよい列「こちらがすることの言葉」
+        （「選択肢：言葉」を「／」か改行で区切る）。"""
+        asked = []
+
+        def do_words(items):
+            asked.append(items)
+            return [{"する": "ご予約をお取りさせていただきます", "しない": "ご予約は控えさせていただきます"} for _ in items]
+
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "こちらがすることの言葉"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", "する：ご予約を承ります"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None)]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts, decide_do_words=do_words)
+        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"]), ([], {"する": "ご予約を承ります", "しない": "ご予約は控えさせていただきます"}))
+        both = [rows[0], rows[1][:-1] + ("する：ご予約を承ります\nしない：ご予約は見送りとさせていただきます",), rows[2]]
+        asked.clear()
+        p = self.preview(book(sheets={"質問": both}), decide_facts=facts, decide_do_words=do_words)
+        self.assertEqual((p.problems, p.raw["questions"][0]["do_words"], asked), ([], {"する": "ご予約を承ります", "しない": "ご予約は見送りとさせていただきます"}, []))
+        for name, cell, words in (("区切りが無い", "ご予約を承ります", "「選択肢：言葉」の形"),
+                                  ("選択肢に無い", "検討中：ご検討させていただきます", "こちらがすることの言葉"),
+                                  ("文の終わりまで書いていない", "する：ご予約を承り", "「させていただきます」か「承ります」")):
+            with self.subTest(name):
+                p = self.preview(book(sheets={"質問": [rows[0], rows[1][:-1] + (cell,), rows[2]]}), decide_facts=facts, decide_do_words=do_words)
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
+    def test_written_words_the_conversation_will_not_use_are_noted(self):
+        """書いてあるが決まりで使わないものは、登録は止めずに知らせる（`business_settings.notices`・`unused_do_words`）：分岐のシートの「わからない」
+        「答えたくない」の行き先（答えが決まらないうちは先へ進まない）と、依頼者が目的から遠ざかる向きの選択肢に書いた、こちらがすることの言葉
+        （その向きの言葉では言い直さない＝CL-1 の連絡帳 4-78 の 4-199 の (2) 案B）。取込の AI が作った言葉は知らせない。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "こちらがすることの言葉"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい",
+                 "する：ご予約を承ります\nしない：ご予約は見送りとさせていただきます"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None)]
+        branches = [("質問ID", "回答条件", "次の質問ID"), ("Q1", "しない", "終わり"), ("Q1", "わからない", "Q2"), ("Q1", "その他", "Q2")]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows, "分岐": branches}), decide_facts=facts,
+                         decide_away=lambda items: [("しない",) for _ in items],
+                         decide_do_words=lambda items: [{"しない": "ご予約は控えさせていただきます"} for _ in items])
+        self.assertEqual(p.problems, [])
+        self.assertTrue(any("分岐の「わからない」の行き先は使いません" in n for n in p.notes), p.notes)
+        self.assertTrue(any("選択肢「しない」は目的から遠ざかる向きなので" in n and "見送り" in n for n in p.notes), p.notes)
+        self.assertFalse(any("「する」" in n for n in p.notes), p.notes)   # 進める向きの言葉は使う
+        # 依頼者が書いていない（取込の AI が作った）遠ざかる向きの言葉は知らせない
+        p = self.preview(book(sheets={"質問": [rows[0][:-1], rows[1][:-1], rows[2][:-1]]}), decide_facts=facts,
+                         decide_away=lambda items: [("しない",) for _ in items],
+                         decide_do_words=lambda items: [{"しない": "ご予約は控えさせていただきます"} for _ in items])
+        self.assertEqual((p.problems, [n for n in p.notes if "遠ざかる" in n]), ([], []))
+
+    def test_tell_words_come_in_and_spoken_words_are_in_the_script(self):
+        """CL-1 の連絡帳 4-72 の (i)：その答えのあとに伝える一言は「質問」のシートの無くてもよい列「その答えのあとに伝える一言」（「選択肢：一言」を
+        「／」か改行で区切る。取込の AI は作らない。前のひな形には無いので、無ければ空）。依頼者が書いた選択肢ごとの言葉（意味の言葉・こちらが
+        することの言葉・その答えのあとに伝える一言）は声になるので、名前を洗い出す台本に入る（⛔ 2026-11-03 まで入っていなかった）。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "こちらがすることの言葉",
+                 "その答えのあとに伝える一言"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい",
+                 "する：青葉ホールでのご予約を承ります", "する：「緑川駐車場」をご利用いただけますのでどうぞご利用ください。"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None, None)]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [q["tell_words"] for q in p.raw["questions"]]),
+                         ([], [{"する": "「緑川駐車場」をご利用いただけますのでどうぞご利用ください。"}, {}]))
+        script = bi.script(p.raw)
+        self.assertIn("緑川駐車場", script)
+        self.assertIn("青葉ホール", script)
+        r = copy.deepcopy(p.raw)
+        r["questions"][0]["meanings"] = {"する": "「白川会館」でご予約をなさるということ"}
+        self.assertIn("白川会館", bi.script(r))
+        p = self.preview(book(), decide_facts=facts)                        # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["tell_words"] for q in p.raw["questions"]]), ([], [{}, {}]))
+        for name, cell, words in (("区切りが無い", "駐車場をご利用ください。", "「選択肢：言葉」の形"),
+                                  ("選択肢に無い", "検討中：x", "その答えのあとに伝える一言")):
+            with self.subTest(name):
+                bad = [rows[0], rows[1][:-1] + (cell,), rows[2]]
+                p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
+    def test_ends_on_comes_in(self):
+        """CL-1 の連絡帳 4-74：ここで終える答えは「質問」のシートの無くてもよい列「ここで終える答え」（「／」か改行で区切る。前のひな形には無いので、
+        無ければ空）。必須でない質問に書けば、業務設定の確かめが止める。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "ここで終える答え"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", "しない"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None)]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [q["ends_on"] for q in p.raw["questions"]]), ([], [["しない"], []]))
+        p = self.preview(book(), decide_facts=facts)                         # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["ends_on"] for q in p.raw["questions"]]), ([], [[], []]))
+        not_required = [rows[0], rows[1][:4] + ("いいえ",) + rows[1][5:], rows[2]]
+        p = self.preview(book(sheets={"質問": not_required}), decide_facts=facts)
+        self.assertTrue(any("ここで終える答え" in x for x in p.problems), p.problems)
+
+    def test_option_notes_come_in_and_are_in_the_script(self):
+        """CL-1 の連絡帳 4-110：選択肢ごとの良い点・気をつける点は「質問」のシートの無くてもよい列「選択肢ごとの良い点・気をつける点」（「選択肢：文」を
+        「／」か改行で区切る。依頼者のトークスクリプト・資料から入る。前のひな形には無いので、無ければ空）。会話AIが自分の言葉で話す材料だが、名前の
+        読みが要るので、名前を洗い出す台本に入る。宣言した選択肢に無い名前は、業務設定の確かめが止める（1か所）。"""
+        rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "選択肢ごとの良い点・気をつける点"),
+                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい",
+                 "する：ご予約いただくと「紫野ラウンジ」をご利用いただけます。／しない：当日のお席はご用意できないことがございます。"),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, None)]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [q["option_notes"] for q in p.raw["questions"]]),
+                         ([], [{"する": "ご予約いただくと「紫野ラウンジ」をご利用いただけます。",
+                                "しない": "当日のお席はご用意できないことがございます。"}, {}]))
+        self.assertIn("紫野ラウンジ", bi.script(p.raw))
+        p = self.preview(book(), decide_facts=facts)                         # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["option_notes"] for q in p.raw["questions"]]), ([], [{}, {}]))
+        for name, cell, words in (("区切りが無い", "ポイントがつきます。", "「選択肢：言葉」の形"),
+                                  ("選択肢に無い", "検討中：x", "選択肢ごとの良い点・気をつける点")):
+            with self.subTest(name):
+                bad = [rows[0], rows[1][:-1] + (cell,), rows[2]]
+                p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
+    def test_change_by_comes_in_only_for_value_questions(self):
+        """CL-1 の連絡帳 4-115 の (1)：変更の受付の期限は「質問」のシートの無くてもよい列「変更の受付の期限（日時・数・金額の質問だけ。例：前日）」
+        （依頼者のトークスクリプトから入る。前のひな形には無いので、無ければ空）。値を伺う質問でない質問に書いたら、取込で断る（業務設定の確かめの1か所）。"""
+        head = ("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的", "変更の受付の期限（日時・数・金額の質問だけ。例：前日）")
+        rows = [head, ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", None),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, "前日")]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [q["change_by"] for q in p.raw["questions"]]), ([], ["", "前日"]))
+        p = self.preview(book(), decide_facts=facts)                         # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["change_by"] for q in p.raw["questions"]]), ([], ["", ""]))
+        bad = [head, rows[1][:-1] + ("前日",), rows[2]]                       # 選ぶ質問に書いた
+        p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
+        self.assertTrue(any("値を伺う質問" in x for x in p.problems), p.problems)
+
+    def test_definite_value_comes_in_from_its_column_only_for_value_questions(self):
+        """CL-1 の連絡帳 4-116 の (1)：確定した値で登録するかは「質問」のシートの無くてもよい列「確定した値で登録する（日時・数・金額の質問だけ。例：予約の日付）」
+        （「はい」「○」で真・空か「いいえ」で偽。依頼者のトークスクリプトから入る。前のひな形には無いので、無ければ偽）。変更の受付の期限が空でも書ける。
+        値を伺う質問でない質問に「はい」と書いたら、取込で断る（業務設定の確かめの1か所＝変更の受付の期限と同じ）。使えない言葉も断る。"""
+        head = ("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的",
+                "確定した値で登録する（日時・数・金額の質問だけ。例：予約の日付）")
+        self.assertEqual(bi.SHEETS["questions"][1]["definite_value"], head[-1])
+        rows = [head, ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい", None),
+                ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None, None, "はい")]
+        facts = lambda texts: {t: "ご予約" not in t for t in texts}   # noqa: E731
+        p = self.preview(book(sheets={"質問": rows}), decide_facts=facts)
+        self.assertEqual((p.problems, [(q["definite_value"], q["change_by"]) for q in p.raw["questions"]]), ([], [(False, ""), (True, "")]))
+        p = self.preview(book(), decide_facts=facts)                         # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [q["definite_value"] for q in p.raw["questions"]]), ([], [False, False]))
+        for name, bad, words in (("選ぶ質問", [head, rows[1][:-1] + ("はい",), rows[2]], "値を伺う質問"),
+                                 ("使えない言葉", [head, rows[1], rows[2][:-1] + ("たぶん",)], "確定した値で登録する")):
+            with self.subTest(name):
+                p = self.preview(book(sheets={"質問": bad}), decide_facts=facts)
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
+    def test_main_talk_policy_is_read_from_the_basic_sheet(self):
+        """CL-1 の連絡帳 4-114・4-115 の (4)：シート「基本」の項目「本題の始まり」＝「最初の質問を流したあと」（asked）／「業務の答えを1ついただいたあと」
+        （answered）。書かなければ入れない（業務設定の確かめが既定＝最初の質問を流したあと、にする）。選べない言葉は問題。"""
+        p = self.preview(book())
+        self.assertEqual((p.problems, "main_talk_policy" in p.raw), ([], False))
+        for label, value in (("最初の質問を流したあと", "asked"), ("業務の答えを1ついただいたあと", "answered")):
+            p = self.preview(book(sheets={"基本": book_rows("基本") + [("本題の始まり", label)]}))
+            self.assertEqual((p.problems, p.raw.get("main_talk_policy")), ([], value))
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("本題の始まり", "名乗りのあと")]}))
+        self.assertTrue(any("本題の始まり" in x for x in p.problems), p.problems)
+
+    def test_hedged_condition_and_earliest_day_come_in(self):
+        """CL-1 の連絡帳 4-71 の (b)(c)：前の答えが言い切っていないときだけ伺う（「質問」のシートの無くてもよい列「言い切っていないときだけ
+        伺う」。前のひな形には無いので、無ければ偽）。最短の日は「基本」の項目（営業日の数・休みの曜日・祝日は休みか・休業日。休みの曜日を
+        書かなければ土と日、祝日は書かなければ休み、休みの曜日「なし」は休みの曜日が無い）。"""
+        from datetime import date
+        head = ("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "入る一言", "伺う条件の質問ID", "伺う条件の答え",
+                "言い切っていないときだけ伺う")
+        q1 = ("Q1", "当日のキャンセルはございませんか？", "キャンセル", "はい／いいえ", "はい", None, None, None, None, None, None)
+        q2 = ("Q2", f"（{bs.DAY_SLOT}なら対応できますが、）いつ頃がよろしいでしょうか？", "ご希望の時期", "日時", "いいえ", None, None, None,
+              "Q1", "いいえ", "はい")
+        no_branch = [("質問ID", "回答条件", "次の質問ID")]
+        basic = book_rows("基本") + [("最短の日（営業日の数）", "3"), ("休業日", "2026/12/30／2026-12-31")]
+        data = book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": basic})
+        p = self.preview(data)
+        self.assertEqual(p.problems, [])
+        self.assertNotIn(bs.DAY_SLOT, bi.script(p.raw))                   # 名前を洗い出す台本に、最短の日の場所は入れない（名前ではない）
+        self.assertIn("なら対応できますが、）いつ頃がよろしいでしょうか？", bi.script(p.raw))
+        self.assertEqual((p.raw["questions"][1]["ask_if"], p.raw["earliest"]),
+                         ({"after": "Q1", "answers": ["いいえ"], "hedged": True},
+                          {"business_days": 3, "closed_weekdays": ["sat", "sun"], "closed_on_holidays": True,
+                           "closed_dates": ["2026-12-30", "2026-12-31"]}))
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual((got.questions[1].ask_if, got.earliest),
+                         (bs.AskIf("Q1", ("いいえ",), True), bs.Earliest(3, ("sat", "sun"), True, (date(2026, 12, 30), date(2026, 12, 31)))))
+        more = book_rows("基本") + [("最短の日（営業日の数）", "0"), ("休みの曜日", "日曜日／水"), ("祝日は休みか", "いいえ")]
+        p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": more}))
+        self.assertEqual((p.problems, p.raw["earliest"]),
+                         ([], {"business_days": 0, "closed_weekdays": ["sun", "wed"], "closed_on_holidays": False, "closed_dates": []}))
+        cell = book_rows("基本") + [("最短の日（営業日の数）", 2), ("休業日", date(2026, 12, 30))]   # 数と日付のセル
+        p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": cell}))
+        self.assertEqual((p.problems, p.raw["earliest"]["business_days"], p.raw["earliest"]["closed_dates"]), ([], 2, ["2026-12-30"]))
+        none = book_rows("基本") + [("最短の日（営業日の数）", "2"), ("休みの曜日", "なし")]
+        p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch, "基本": none}))
+        self.assertEqual((p.problems, p.raw["earliest"]["closed_weekdays"]), ([], []))
+        for name, qrow, extra, words in (
+                ("言い切っていないが読めない", q2[:10] + ("たぶん",), [("最短の日（営業日の数）", "3")], "言い切っていないときだけ伺う"),
+                ("伺う条件が無い", q2[:8] + (None, None, "はい"), [("最短の日（営業日の数）", "3")], "伺う条件"),
+                ("最短の日が無い", q2, [], "最短の日"),
+                ("営業日の数が読めない", q2, [("最短の日（営業日の数）", "三")], "営業日の数"),
+                ("曜日が読めない", q2, [("最短の日（営業日の数）", "3"), ("休みの曜日", "土日")], "休みの曜日"),
+                ("祝日が読めない", q2, [("最短の日（営業日の数）", "3"), ("祝日は休みか", "たぶん")], "祝日は休みか"),
+                ("休業日が読めない", q2, [("最短の日（営業日の数）", "3"), ("休業日", "12月30日")], "日にち（YYYY-MM-DD）ではありません"),
+                ("数が無いのに休み", q2[:1] + ("いつ頃がよろしいでしょうか？",) + q2[2:], [("休みの曜日", "土")], "最短の日（営業日の数）を書いた業務だけ")):
+            with self.subTest(name):
+                p = self.preview(book(sheets={"質問": [head, q1, qrow], "分岐": no_branch, "基本": book_rows("基本") + extra}))
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+
+    def test_ask_if_and_approval_come_in_from_the_question_sheet(self):
+        """CL-1 の連絡帳 4-66 の (b)：前の質問のこの答えのときだけ伺う（「伺う条件の質問ID」「伺う条件の答え」。答えは「／」で区切る）と、
+        説明した内容のご承認を伺う質問か（「ご承認を伺う」）は、「質問」のシートの無くてもよい列（前のひな形には無いので、無ければいつも
+        伺う・ご承認の質問ではない）。片方だけ・前に無い質問・その質問の答えに無い答えは通さない。"""
+        head = ("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "入る一言", "伺う条件の質問ID", "伺う条件の答え",
+                "ご承認を伺う")
+        q1 = ("Q1", "資料はお手元に届いていますでしょうか？", "資料", "はい／いいえ", "はい", None, None, None, None, None, None)
+        q2 = ("Q2", "以上の内容でよろしいでしょうか？", "ご承認", "はい／いいえ", "はい", None, None,
+              "それでは重要な点だけご説明させていただきます。", "Q1", "いいえ／わからない", "はい")
+        no_branch = [("質問ID", "回答条件", "次の質問ID")]
+        p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch}))
+        self.assertEqual(p.problems, [])
+        self.assertEqual([(q["ask_if"], q["approval"]) for q in p.raw["questions"]],
+                         [(None, False), ({"after": "Q1", "answers": ["いいえ", "わからない"], "hedged": False}, True)])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", book(sheets={"質問": [head, q1, q2], "分岐": no_branch}),
+                                           expected_digest=p.digest, ai=p.ai))
+        self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {"Q2": bs.AskIf("Q1", ("いいえ", "わからない"))})
+        for name, row, words in (("片方だけ", q2[:8] + ("Q1", None, "はい"), "伺う条件"),
+                                 ("前に無い質問", q2[:8] + ("Q3", "いいえ", "はい"), "前に並ぶ質問ではありません"),
+                                 ("答えに無い", q2[:8] + ("Q1", "する", "はい"), "答えにありません"),
+                                 ("ご承認が読めない", q2[:10] + ("たぶん",), "ご承認を伺う")):
+            with self.subTest(name):
+                p = self.preview(book(sheets={"質問": [head, q1, row], "分岐": no_branch}))
+                self.assertTrue(any(words in x for x in p.problems), p.problems)
+        old = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え"), q1[:7], q2[:7]]
+        p = self.preview(book(sheets={"質問": old, "分岐": no_branch}))         # 前のひな形（列が無い）も読める
+        self.assertEqual((p.problems, [(q["ask_if"], q["approval"], q["final_goal"]) for q in p.raw["questions"]]),
+                         ([], [(None, False, False), (None, False, False)]))
+
+    def test_final_goals_and_how_they_are_met_come_in_from_the_sheets(self):
+        """最終目的の申し出か（「質問」のシートの無くてもよい列「最終目的」）と、最終目的の果たし方（「基本」の項目「最終目的の果たし方」：
+        どれか1つで果たせる／全部が要る。最終目的が2つ以上のときだけ書く）。断りの答えの列は、その質問の断る答え（CL-1 の連絡帳 4-69 の
+        4-182 の (e)）。"""
+        head = ("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え", "最終目的")
+        q1 = ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない", "はい")
+        q2 = ("Q2", "ご案内の資料をお送りしてもよろしいでしょうか？", "資料の送付", "はい／いいえ", "はい", None, "いいえ", "○")
+        no_branch = [("質問ID", "回答条件", "次の質問ID")]
+        p = self.preview(book(sheets={"質問": [head, q1, q2], "分岐": no_branch}))
+        self.assertTrue(any("最終目的の果たし方（goal_mode）を書きます" in x for x in p.problems), p.problems)
+        basic = [("項目", "値"), ("業務の目的", "予約の希望日時を伺う"), ("お客様の区分", "法人"), ("自社名", "株式会社テスト物流"),
+                 ("自社名の読み", "かぶしきがいしゃてすとぶつりゅう"), ("担当者名", "山田"), ("担当者名の読み", "やまだ"),
+                 ("目的のお客様", "誰でも"), ("声の型", "S2")]
+        for words, mode in (("どれか1つで果たせる", "any"), ("全部が要る", "all")):
+            with self.subTest(mode):
+                p = self.preview(book(sheets={"基本": basic + [("最終目的の果たし方", words)], "質問": [head, q1, q2], "分岐": no_branch}))
+                self.assertEqual((p.problems, p.raw["goal_mode"], [(q["final_goal"], q["declines"]) for q in p.raw["questions"]]),
+                                 ([], mode, [(True, ["しない"]), (True, ["いいえ"])]))
+        p = self.preview(book(sheets={"基本": basic + [("最終目的の果たし方", "半分")], "質問": [head, q1, q2], "分岐": no_branch}))
+        self.assertTrue(any("最終目的の果たし方" in x and "半分" in x for x in p.problems), p.problems)
+
+    def test_other_entrances_go_the_same_way(self):
+        """依頼者の画面から抜き出した中身（同じ形）も、同じ確かめと登録の道を通る。"""
+        from tests.test_business_settings import raw
+        extracted = raw()
+        extracted["names"].append({"text": "テスト便", "reading": None, "source": "script"})
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], extracted))
+        self.assertEqual(p.problems, [])                                   # 読みが決まらなくても止めない（会話で確かめる）
+        v = self.tx(lambda tx: bi.register_reviewed(tx, self.s["business"], p, expected_digest=p.digest))
+        self.assertEqual(self.tx(lambda tx: bs.load(tx, v)).company.text, "株式会社テスト物流")
+
+    def test_nothing_is_written_on_problems(self):
+        bad = book(drop=("かけ直し",))
+        p = self.preview(bad)
+        with self.assertRaises(bs.SettingsInvalid):
+            self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", bad, expected_digest=p.digest))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,4372 @@
+{
+  "item": "G-42",
+  "saved_at": "2026-10-16T12:46:33",
+  "rescored_from": "results/G-42_20261016_123716.json",
+  "scripts": [
+    {
+      "business": "飲食の予約の確認",
+      "sentences": [
+        "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。",
+        "先日は大阪の日本橋店にお越しいただきありがとうございました。",
+        "本日はご予約の内容の確認でお電話いたしました。"
+      ],
+      "gold": [
+        {
+          "alts": [
+            "アオバ物流"
+          ],
+          "readings": [
+            "あおばぶつりゅう"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "佐藤"
+          ],
+          "readings": [
+            "さとう"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "大阪"
+          ],
+          "readings": [
+            "おおさか"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "日本橋",
+            "日本橋店"
+          ],
+          "readings": [
+            "にっぽんばし",
+            "にっぽんばしてん"
+          ],
+          "fixed": true
+        }
+      ]
+    },
+    {
+      "business": "勤怠サービスの法人営業",
+      "sentences": [
+        "株式会社ＡＢＣホールディングス営業部の小鳥遊と申します。",
+        "弊社のクラウド勤怠サービス『スマートリンクPro』についてご案内させていただきたくお電話いたしました。",
+        "すでに大和ハウス工業様や三井住友銀行様にもご導入いただいております。",
+        "ご担当の長谷川様はいらっしゃいますでしょうか。"
+      ],
+      "gold": [
+        {
+          "alts": [
+            "ABCホールディングス"
+          ],
+          "readings": [
+            "えーびーしーほーるでぃんぐす",
+            "えいびいしいほーるでぃんぐす"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "小鳥遊"
+          ],
+          "readings": [
+            "たかなし"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "スマートリンクPro"
+          ],
+          "readings": [
+            "すまーとりんくぷろ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "大和ハウス工業",
+            "大和ハウス"
+          ],
+          "readings": [
+            "だいわはうすこうぎょう",
+            "だいわはうす"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "三井住友銀行",
+            "三井住友"
+          ],
+          "readings": [
+            "みついすみともぎんこう",
+            "みついすみとも"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "長谷川"
+          ],
+          "readings": [
+            "はせがわ"
+          ],
+          "fixed": true
+        }
+      ]
+    },
+    {
+      "business": "不動産のご案内",
+      "sentences": [
+        "みらい不動産の中島と申します。",
+        "川崎市中原区の物件についてご連絡いたしました。",
+        "上野原の土地もあわせてご紹介できます。",
+        "三田の本社から担当の角田が改めてご連絡いたします。"
+      ],
+      "gold": [
+        {
+          "alts": [
+            "みらい不動産"
+          ],
+          "readings": [
+            "みらいふどうさん"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "中島"
+          ],
+          "readings": [
+            "なかじま",
+            "なかしま"
+          ],
+          "fixed": false
+        },
+        {
+          "alts": [
+            "川崎市中原区",
+            "川崎市",
+            "川崎"
+          ],
+          "readings": [
+            "かわさきしなかはらく",
+            "かわさきし",
+            "かわさき"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "川崎市中原区",
+            "中原区",
+            "中原"
+          ],
+          "readings": [
+            "かわさきしなかはらく",
+            "なかはらく",
+            "なかはら"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "上野原"
+          ],
+          "readings": [
+            "うえのはら"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "三田"
+          ],
+          "readings": [
+            "みた",
+            "さんだ"
+          ],
+          "fixed": false
+        },
+        {
+          "alts": [
+            "角田"
+          ],
+          "readings": [
+            "かくた",
+            "つのだ",
+            "すみだ",
+            "かどた"
+          ],
+          "fixed": false
+        }
+      ]
+    },
+    {
+      "business": "学習塾の体験授業",
+      "sentences": [
+        "ひまわり学院の山崎でございます。",
+        "吹田校と枚方校で体験授業を行っております。",
+        "講師の東海林（しょうじ）が担当いたします。",
+        "新しい英語コース「エーゴ・ステップ」のご案内です。"
+      ],
+      "gold": [
+        {
+          "alts": [
+            "ひまわり学院"
+          ],
+          "readings": [
+            "ひまわりがくいん"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "山崎"
+          ],
+          "readings": [
+            "やまざき",
+            "やまさき"
+          ],
+          "fixed": false
+        },
+        {
+          "alts": [
+            "吹田",
+            "吹田校"
+          ],
+          "readings": [
+            "すいた",
+            "すいたこう"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "枚方",
+            "枚方校"
+          ],
+          "readings": [
+            "ひらかた",
+            "ひらかたこう"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "東海林"
+          ],
+          "readings": [
+            "しょうじ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "エーゴ・ステップ",
+            "エーゴステップ"
+          ],
+          "readings": [
+            "えーごすてっぷ"
+          ],
+          "fixed": true
+        }
+      ]
+    },
+    {
+      "business": "設備の点検",
+      "sentences": [
+        "有限会社グリーン・テック設備の渡辺と申します。",
+        "御徒町と神田の事務所で点検をしております。",
+        "河野様から、こちらの番号をお伺いしました。",
+        "点検の日程を確認させていただけますでしょうか。"
+      ],
+      "gold": [
+        {
+          "alts": [
+            "グリーン・テック設備",
+            "グリーンテック設備"
+          ],
+          "readings": [
+            "ぐりーんてっくせつび"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "渡辺"
+          ],
+          "readings": [
+            "わたなべ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "御徒町"
+          ],
+          "readings": [
+            "おかちまち"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "神田"
+          ],
+          "readings": [
+            "かんだ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "河野"
+          ],
+          "readings": [
+            "こうの",
+            "かわの"
+          ],
+          "fixed": false
+        }
+      ]
+    },
+    {
+      "business": "光回線のご案内",
+      "sentences": [
+        "NTT東日本の代理店、ネクストリンク株式会社の高橋です。",
+        "光回線「光プラスＷｉｄｅ」のご案内でお電話いたしました。",
+        "品川と京橋に窓口がございます。"
+      ],
+      "gold": [
+        {
+          "alts": [
+            "NTT東日本"
+          ],
+          "readings": [
+            "えぬてぃーてぃーひがしにほん",
+            "えぬてぃてぃひがしにほん",
+            "えぬてぃーてぃーひがしにっぽん"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "ネクストリンク"
+          ],
+          "readings": [
+            "ねくすとりんく"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "高橋"
+          ],
+          "readings": [
+            "たかはし"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "光プラスWide"
+          ],
+          "readings": [
+            "ひかりぷらすわいど"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "品川"
+          ],
+          "readings": [
+            "しながわ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "京橋"
+          ],
+          "readings": [
+            "きょうばし"
+          ],
+          "fixed": true
+        }
+      ]
+    },
+    {
+      "business": "セミナーのご案内",
+      "sentences": [
+        "渋谷ヒカリエで開催するセミナーのご案内です。",
+        "講師は株式会社たくみ工房の新垣が務めます。",
+        "兵庫県三田市の会場でも同じ内容で行います。",
+        "お申し込みは来週の金曜日までにお願いいたします。"
+      ],
+      "gold": [
+        {
+          "alts": [
+            "渋谷ヒカリエ",
+            "ヒカリエ"
+          ],
+          "readings": [
+            "しぶやひかりえ",
+            "ひかりえ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "たくみ工房"
+          ],
+          "readings": [
+            "たくみこうぼう"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "新垣"
+          ],
+          "readings": [
+            "あらがき",
+            "しんがき",
+            "にいがき"
+          ],
+          "fixed": false
+        },
+        {
+          "alts": [
+            "兵庫県三田市",
+            "兵庫県",
+            "兵庫"
+          ],
+          "readings": [
+            "ひょうごけんさんだし",
+            "ひょうごけん",
+            "ひょうご"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "兵庫県三田市",
+            "三田市",
+            "三田"
+          ],
+          "readings": [
+            "ひょうごけんさんだし",
+            "さんだし",
+            "さんだ"
+          ],
+          "fixed": true
+        }
+      ]
+    },
+    {
+      "business": "訪問介護のご相談",
+      "sentences": [
+        "ケアサポートつばさの菅原と申します。",
+        "札幌市内でご利用の林様のご紹介でお電話いたしました。",
+        "訪問は看護師の一ノ瀬が伺います。",
+        "大阪の放出にも事業所がございます。"
+      ],
+      "gold": [
+        {
+          "alts": [
+            "ケアサポートつばさ"
+          ],
+          "readings": [
+            "けあさぽーとつばさ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "菅原"
+          ],
+          "readings": [
+            "すがわら"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "札幌市",
+            "札幌"
+          ],
+          "readings": [
+            "さっぽろし",
+            "さっぽろ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "林"
+          ],
+          "readings": [
+            "はやし"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "一ノ瀬"
+          ],
+          "readings": [
+            "いちのせ"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "大阪"
+          ],
+          "readings": [
+            "おおさか"
+          ],
+          "fixed": true
+        },
+        {
+          "alts": [
+            "放出"
+          ],
+          "readings": [
+            "はなてん"
+          ],
+          "fixed": true
+        }
+      ]
+    }
+  ],
+  "model_ids": {
+    "3.5 Flash Lite": "gemini-3.5-flash-lite",
+    "3.6 Flash": "gemini-3.6-flash",
+    "3.7 Flash": "gemini-3.7-flash",
+    "3.8 Flash": "gemini-3.8-flash"
+  },
+  "raw": {
+    "3.8 Flash#0": {
+      "rows": [
+        [
+          {
+            "script": 1,
+            "surface": "アオバ物流",
+            "reading": "あおばぶつりゅう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "佐藤",
+            "reading": "さとう",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "日本橋",
+            "reading": "にっぽんばし",
+            "kind": "店名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 2,
+            "surface": "ＡＢＣホールディングス",
+            "reading": "えーびーしーほーるでぃんぐす",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "小鳥遊",
+            "reading": "たかなし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "スマートリンクPro",
+            "reading": "すまーとりんくぷろ",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "大和ハウス工業",
+            "reading": "だいわはうすこうぎょう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "三井住友銀行",
+            "reading": "みついすみともぎんこう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "長谷川",
+            "reading": "はせがわ",
+            "kind": "人名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 3,
+            "surface": "みらい不動産",
+            "reading": "みらいふどうさん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "中島",
+            "reading": "なかじま",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "なかじま",
+              "なかしま"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "川崎市中原区",
+            "reading": "かわさきしなかはらく",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "上野原",
+            "reading": "うえのはら",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "三田",
+            "reading": "みた",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "みた",
+              "さんだ"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "角田",
+            "reading": "つのだ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "つのだ",
+              "かくた",
+              "かくだ"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 4,
+            "surface": "ひまわり学院",
+            "reading": "ひまわりがくいん",
+            "kind": "団体名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "山崎",
+            "reading": "やまざき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "やまざき",
+              "やまさき"
+            ]
+          },
+          {
+            "script": 4,
+            "surface": "吹田",
+            "reading": "すいた",
+            "kind": "店名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "枚方",
+            "reading": "ひらかた",
+            "kind": "店名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "東海林",
+            "reading": "しょうじ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "エーゴ・ステップ",
+            "reading": "えーごすてっぷ",
+            "kind": "サービス名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 5,
+            "surface": "グリーン・テック設備",
+            "reading": "ぐりーんてっくせつび",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "渡辺",
+            "reading": "わたなべ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "わたなべ",
+              "わたべ"
+            ]
+          },
+          {
+            "script": 5,
+            "surface": "御徒町",
+            "reading": "おかちまち",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "神田",
+            "reading": "かんだ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "河野",
+            "reading": "こうの",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "こうの",
+              "かわの"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 6,
+            "surface": "NTT東日本",
+            "reading": "えぬてぃーてぃーひがしにっぽん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "ネクストリンク",
+            "reading": "ねくすとりんく",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "高橋",
+            "reading": "たかはし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "光プラスＷｉｄｅ",
+            "reading": "ひかりぷらすわいど",
+            "kind": "商品名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "品川",
+            "reading": "しながわ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "京橋",
+            "reading": "きょうばし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 7,
+            "surface": "渋谷ヒカリエ",
+            "reading": "しぶやひかりえ",
+            "kind": "建物名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "たくみ工房",
+            "reading": "たくみこうぼう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "新垣",
+            "reading": "あらがき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "あらがき",
+              "にいがき",
+              "しんがき"
+            ]
+          },
+          {
+            "script": 7,
+            "surface": "兵庫県三田市",
+            "reading": "ひょうごけんさんだし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 8,
+            "surface": "ケアサポートつばさ",
+            "reading": "けあさぽーとつばさ",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "菅原",
+            "reading": "すがわら",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "すがわら",
+              "すがはら"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "札幌市",
+            "reading": "さっぽろし",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "林",
+            "reading": "はやし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "一ノ瀬",
+            "reading": "いちのせ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "放出",
+            "reading": "はなてん",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ]
+      ],
+      "retries": 1
+    },
+    "3.7 Flash#0": {
+      "rows": [
+        [
+          {
+            "script": 1,
+            "surface": "アオバ物流",
+            "reading": "あおばぶつりゅう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "佐藤",
+            "reading": "さとう",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "日本橋",
+            "reading": "にっぽんばし",
+            "kind": "店名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 2,
+            "surface": "ＡＢＣホールディングス",
+            "reading": "えーびーしーほーるでぃんぐす",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "小鳥遊",
+            "reading": "たかなし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "スマートリンクPro",
+            "reading": "すまーとりんくぷろ",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "大和ハウス工業",
+            "reading": "だいわはうすこうぎょう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "三井住友銀行",
+            "reading": "みついすみともぎんこう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "長谷川",
+            "reading": "はせがわ",
+            "kind": "人名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 3,
+            "surface": "みらい不動産",
+            "reading": "みらいふどうさん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "中島",
+            "reading": "なかじま",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "なかじま",
+              "なかしま"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "川崎市中原区",
+            "reading": "かわさきしなかはらく",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "上野原",
+            "reading": "うえのはら",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "三田",
+            "reading": "みた",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "みた",
+              "さんだ"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "角田",
+            "reading": "つのだ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "つのだ",
+              "かくだ"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 4,
+            "surface": "ひまわり学院",
+            "reading": "ひまわりがくいん",
+            "kind": "団体名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "山崎",
+            "reading": "やまざき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "やまざき",
+              "やまさき"
+            ]
+          },
+          {
+            "script": 4,
+            "surface": "吹田",
+            "reading": "すいた",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "枚方",
+            "reading": "ひらかた",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "東海林",
+            "reading": "しょうじ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "エーゴ・ステップ",
+            "reading": "えーごすてっぷ",
+            "kind": "サービス名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 5,
+            "surface": "グリーン・テック設備",
+            "reading": "ぐりーんてっくせつび",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "渡辺",
+            "reading": "わたなべ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "御徒町",
+            "reading": "おかちまち",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "神田",
+            "reading": "かんだ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "河野",
+            "reading": "こうの",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "こうの",
+              "かわの"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 6,
+            "surface": "NTT東日本",
+            "reading": "えぬてぃーてぃーひがしにほん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "ネクストリンク",
+            "reading": "ねくすとりんく",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "高橋",
+            "reading": "たかはし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "光プラスＷｉｄｅ",
+            "reading": "ひかりぷらすわいど",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "品川",
+            "reading": "しながわ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "京橋",
+            "reading": "きょうばし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 7,
+            "surface": "渋谷ヒカリエ",
+            "reading": "しぶやひかりえ",
+            "kind": "建物名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "たくみ工房",
+            "reading": "たくみこうぼう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "新垣",
+            "reading": "あらがき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "あらがき",
+              "あらかき",
+              "にいがき",
+              "しんがき"
+            ]
+          },
+          {
+            "script": 7,
+            "surface": "兵庫県三田市",
+            "reading": "ひょうごけんさんだし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 8,
+            "surface": "ケアサポートつばさ",
+            "reading": "けあさぽーとつばさ",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "菅原",
+            "reading": "すがわら",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "すがわら",
+              "すがはら"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "札幌市",
+            "reading": "さっぽろし",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "林",
+            "reading": "はやし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "一ノ瀬",
+            "reading": "いちのせ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "放出",
+            "reading": "はなてん",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ]
+      ],
+      "retries": 1
+    },
+    "3.6 Flash#0": {
+      "error": {
+        "type": "ServerError",
+        "module": "google.genai.errors",
+        "message": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}",
+        "code": "503",
+        "status": "UNAVAILABLE",
+        "details": "{'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+      }
+    },
+    "3.5 Flash Lite#0": {
+      "rows": [
+        [
+          {
+            "script": 1,
+            "surface": "アオバ物流",
+            "reading": "あおばぶつりゅう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "佐藤",
+            "reading": "さとう",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "さとう",
+              "さどう"
+            ]
+          },
+          {
+            "script": 1,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "日本橋店",
+            "reading": "にっぽんばしてん",
+            "kind": "店名",
+            "uncertain": true,
+            "candidates": [
+              "にっぽんばしてん",
+              "にほんばしてん"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 2,
+            "surface": "ＡＢＣホールディングス",
+            "reading": "えーびーしーほーるでぃんぐす",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "小鳥遊",
+            "reading": "たかなし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "スマートリンクPro",
+            "reading": "すまーとりんくぷろ",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "大和ハウス工業",
+            "reading": "だいわはうすこうぎょう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "三井住友銀行",
+            "reading": "みついすみともぎんこう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "長谷川",
+            "reading": "はせがわ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "はせがわ",
+              "はせかわ"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 3,
+            "surface": "みらい不動産",
+            "reading": "みらいふどうさん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "中島",
+            "reading": "なかじま",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "なかじま",
+              "なかしま"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "川崎市中原区",
+            "reading": "かわさきしなかはらく",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "上野原",
+            "reading": "うえのはら",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "うえのはら",
+              "うえのはばら"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "三田",
+            "reading": "みた",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "みた",
+              "さんだ"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "角田",
+            "reading": "つのだ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "つのだ",
+              "かどた",
+              "かどだ"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 4,
+            "surface": "ひまわり学院",
+            "reading": "ひまわりがくいん",
+            "kind": "団体名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "山崎",
+            "reading": "やまざき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "やまざき",
+              "やまさき"
+            ]
+          },
+          {
+            "script": 4,
+            "surface": "吹田校",
+            "reading": "すいたこう",
+            "kind": "建物名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "枚方校",
+            "reading": "ひらかたこう",
+            "kind": "建物名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "東海林",
+            "reading": "しょうじ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "エーゴ・ステップ",
+            "reading": "えーごすてっぷ",
+            "kind": "サービス名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 5,
+            "surface": "グリーン・テック設備",
+            "reading": "ぐりーんてっくせつび",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "渡辺",
+            "reading": "わたなべ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "わたなべ",
+              "わたべ"
+            ]
+          },
+          {
+            "script": 5,
+            "surface": "御徒町",
+            "reading": "おかちまち",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "神田",
+            "reading": "かんだ",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "かんだ",
+              "かみた"
+            ]
+          },
+          {
+            "script": 5,
+            "surface": "河野",
+            "reading": "こうの",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "こうの",
+              "かわの"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 6,
+            "surface": "NTT東日本",
+            "reading": "えﾇﾃｨﾃｨひがしにほん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "ネクストリンク",
+            "reading": "ねくすとりんく",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "高橋",
+            "reading": "たかはし",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "たかはし",
+              "たかはし"
+            ]
+          },
+          {
+            "script": 6,
+            "surface": "光プラスＷｉｄｅ",
+            "reading": "ひかりぷらすわいど",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "品川",
+            "reading": "しながわ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "京橋",
+            "reading": "きょうばし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 7,
+            "surface": "渋谷ヒカリエ",
+            "reading": "しぶやひかりえ",
+            "kind": "建物名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "たくみ工房",
+            "reading": "たくみこうぼう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "新垣",
+            "reading": "あらがき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "あらがき",
+              "にイがき"
+            ]
+          },
+          {
+            "script": 7,
+            "surface": "兵庫県三田市",
+            "reading": "ひょうごけんさんだし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 8,
+            "surface": "ケアサポートつばさ",
+            "reading": "けあさぽーとつばさ",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "菅原",
+            "reading": "すがわら",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "すがわら",
+              "すがばら"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "札幌市",
+            "reading": "さっぽろし",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "林",
+            "reading": "はやし",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "はやし",
+              "りん"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "一ノ瀬",
+            "reading": "いちのせ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "いちのせ",
+              "いちのぜ"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "放出",
+            "reading": "はなてん",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "はなてん",
+              "ほうだし"
+            ]
+          }
+        ]
+      ],
+      "retries": 0
+    },
+    "3.8 Flash#1": {
+      "rows": [
+        [
+          {
+            "script": 1,
+            "surface": "アオバ物流",
+            "reading": "あおばぶつりゅう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "佐藤",
+            "reading": "さとう",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "日本橋",
+            "reading": "にっぽんばし",
+            "kind": "店名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 2,
+            "surface": "ＡＢＣホールディングス",
+            "reading": "えーびーしーほーるでぃんぐす",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "小鳥遊",
+            "reading": "たかなし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "スマートリンクPro",
+            "reading": "すまーとりんくぷろ",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "大和ハウス工業",
+            "reading": "だいわはうすこうぎょう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "三井住友銀行",
+            "reading": "みついすみともぎんこう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "長谷川",
+            "reading": "はせがわ",
+            "kind": "人名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 3,
+            "surface": "みらい不動産",
+            "reading": "みらいふどうさん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "中島",
+            "reading": "なかじま",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "なかじま",
+              "なかしま"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "川崎市中原区",
+            "reading": "かわさきしなかはらく",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "上野原",
+            "reading": "うえのはら",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "三田",
+            "reading": "みた",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "みた",
+              "さんだ"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "角田",
+            "reading": "つのだ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "つのだ",
+              "かくだ",
+              "すみた"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 4,
+            "surface": "ひまわり学院",
+            "reading": "ひまわりがくいん",
+            "kind": "団体名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "山崎",
+            "reading": "やまざき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "やまざき",
+              "やまさき"
+            ]
+          },
+          {
+            "script": 4,
+            "surface": "吹田",
+            "reading": "すいた",
+            "kind": "店名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "枚方",
+            "reading": "ひらかた",
+            "kind": "店名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "東海林",
+            "reading": "しょうじ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "エーゴ・ステップ",
+            "reading": "えーごすてっぷ",
+            "kind": "商品名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 5,
+            "surface": "グリーン・テック設備",
+            "reading": "ぐりーんてっくせつび",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "渡辺",
+            "reading": "わたなべ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "御徒町",
+            "reading": "おかちまち",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "神田",
+            "reading": "かんだ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "河野",
+            "reading": "こうの",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "こうの",
+              "かわの"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 6,
+            "surface": "NTT東日本",
+            "reading": "えぬてぃーてぃーひがしにほん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "ネクストリンク",
+            "reading": "ねくすとりんく",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "高橋",
+            "reading": "たかはし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "光プラスＷｉｄｅ",
+            "reading": "ひかりぷらすわいど",
+            "kind": "商品名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "品川",
+            "reading": "しながわ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "京橋",
+            "reading": "きょうばし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 7,
+            "surface": "渋谷ヒカリエ",
+            "reading": "しぶやひかりえ",
+            "kind": "建物名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "たくみ工房",
+            "reading": "たくみこうぼう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "新垣",
+            "reading": "あらがき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "あらがき",
+              "あらかき",
+              "にいがき",
+              "しんがき"
+            ]
+          },
+          {
+            "script": 7,
+            "surface": "兵庫県三田市",
+            "reading": "ひょうごけんさんだし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 8,
+            "surface": "ケアサポートつばさ",
+            "reading": "けあさぽーとつばさ",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "菅原",
+            "reading": "すがわら",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "すがわら",
+              "すがはら"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "札幌市",
+            "reading": "さっぽろし",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "林",
+            "reading": "はやし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "一ノ瀬",
+            "reading": "いちのせ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "放出",
+            "reading": "はなてん",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ]
+      ],
+      "retries": 0
+    },
+    "3.7 Flash#1": {
+      "error": {
+        "type": "ServerError",
+        "module": "google.genai.errors",
+        "message": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}",
+        "code": "503",
+        "status": "UNAVAILABLE",
+        "details": "{'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+      }
+    },
+    "3.6 Flash#1": {
+      "rows": [
+        [
+          {
+            "script": 1,
+            "surface": "アオバ物流",
+            "reading": "あおばぶくりゅう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "佐藤",
+            "reading": "さとう",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "日本橋",
+            "reading": "にっぽんばし",
+            "kind": "店名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 2,
+            "surface": "ＡＢＣホールディングス",
+            "reading": "えーびーしーほーるでぃんぐす",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "小鳥遊",
+            "reading": "たかなし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "スマートリンクPro",
+            "reading": "すまーとりんくぷろ",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "大和ハウス工業",
+            "reading": "やまとはうすこうぎょう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "三井住友銀行",
+            "reading": "みついすみともぎんこう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "長谷川",
+            "reading": "はせがわ",
+            "kind": "人名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 3,
+            "surface": "みらい不動産",
+            "reading": "みらいふどうさん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "中島",
+            "reading": "なかじま",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "なかじま",
+              "なかしま"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "川崎市中原区",
+            "reading": "かわさきしなかはらく",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "上野原",
+            "reading": "うえのはら",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "三田",
+            "reading": "みた",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "みた",
+              "さんだ"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "角田",
+            "reading": "つのだ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "つのだ",
+              "かくだ",
+              "すみだ"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 4,
+            "surface": "ひまわり学院",
+            "reading": "ひまわりがくいん",
+            "kind": "団体名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "山崎",
+            "reading": "やまざき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "やまざき",
+              "やまさき"
+            ]
+          },
+          {
+            "script": 4,
+            "surface": "吹田",
+            "reading": "すいた",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "枚方",
+            "reading": "ひらかた",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "東海林",
+            "reading": "しょうじ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "エーゴ・ステップ",
+            "reading": "えーご・すてっぷ",
+            "kind": "サービス名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 5,
+            "surface": "グリーン・テック設備",
+            "reading": "ぐりーん・てっくせつび",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "渡辺",
+            "reading": "わたなべ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "御徒町",
+            "reading": "おかちまち",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "神田",
+            "reading": "かんだ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "河野",
+            "reading": "こうの",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "こうの",
+              "かわの"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 6,
+            "surface": "NTT東日本",
+            "reading": "えぬてぃーてぃーひがしにほん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "ネクストリンク",
+            "reading": "ねくすとりんく",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "高橋",
+            "reading": "たかはし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "光プラスＷｉｄｅ",
+            "reading": "ひかりぷらすわいど",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "品川",
+            "reading": "しながわ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "京橋",
+            "reading": "きょうばし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 7,
+            "surface": "渋谷ヒカリエ",
+            "reading": "しぶやひかりえ",
+            "kind": "建物名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "たくみ工房",
+            "reading": "たくみこうぼう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "新垣",
+            "reading": "あらかき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "あらかき",
+              "あらがき",
+              "にいがき"
+            ]
+          },
+          {
+            "script": 7,
+            "surface": "兵庫県三田市",
+            "reading": "ひょうごけんさんだし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 8,
+            "surface": "ケアサポートつばさ",
+            "reading": "けあさぽーとつばさ",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "菅原",
+            "reading": "すがわら",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "すがわら",
+              "すがはら"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "札幌市",
+            "reading": "さっぽろし",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "林",
+            "reading": "はやし",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "一ノ瀬",
+            "reading": "いちのせ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "放出",
+            "reading": "はなてん",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ]
+      ],
+      "retries": 2
+    },
+    "3.5 Flash Lite#1": {
+      "rows": [
+        [
+          {
+            "script": 1,
+            "surface": "アオバ物流",
+            "reading": "あおばぶつりゅう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "佐藤",
+            "reading": "さとう",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "さとう",
+              "さどう"
+            ]
+          },
+          {
+            "script": 1,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 1,
+            "surface": "日本橋",
+            "reading": "にっぽんばし",
+            "kind": "店名",
+            "uncertain": true,
+            "candidates": [
+              "にっぽんばし",
+              "にほんばし"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 2,
+            "surface": "ＡＢＣホールディングス",
+            "reading": "えーびーしーほーるでぃんぐす",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "小鳥遊",
+            "reading": "たかなし",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "たかなし",
+              "ことりあそび"
+            ]
+          },
+          {
+            "script": 2,
+            "surface": "スマートリンクPro",
+            "reading": "すまーとりんくぷろ",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "大和ハウス工業",
+            "reading": "だいわはうすこうぎょう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "三井住友銀行",
+            "reading": "みついすみともぎんこう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 2,
+            "surface": "長谷川",
+            "reading": "はせがわ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "はせがわ",
+              "はせかわ"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 3,
+            "surface": "みらい不動産",
+            "reading": "みらいふどうさん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "中島",
+            "reading": "なかじま",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "なかじま",
+              "なかしま"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "川崎市",
+            "reading": "かわさきし",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "中原区",
+            "reading": "なかはらく",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 3,
+            "surface": "上野原",
+            "reading": "うえのはら",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "うえのはら",
+              "うえのはばら"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "三田",
+            "reading": "みた",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "みた",
+              "さんだ"
+            ]
+          },
+          {
+            "script": 3,
+            "surface": "角田",
+            "reading": "つのだ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "つのだ",
+              "かくた",
+              "つのた"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 4,
+            "surface": "ひまわり学院",
+            "reading": "ひまわりがくいん",
+            "kind": "団体名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "山崎",
+            "reading": "やまざき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "やまざき",
+              "やまさき"
+            ]
+          },
+          {
+            "script": 4,
+            "surface": "吹田",
+            "reading": "すいた",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "枚方",
+            "reading": "ひらかた",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "東海林",
+            "reading": "しょうじ",
+            "kind": "人名",
+            "uncertain": false
+          },
+          {
+            "script": 4,
+            "surface": "エーゴ・ステップ",
+            "reading": "えーごすてっぷ",
+            "kind": "サービス名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 5,
+            "surface": "グリーン・テック設備",
+            "reading": "ぐりーんてっくせつび",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "渡辺",
+            "reading": "わたなべ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "わたなべ",
+              "わたべ"
+            ]
+          },
+          {
+            "script": 5,
+            "surface": "御徒町",
+            "reading": "おかちまち",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 5,
+            "surface": "神田",
+            "reading": "かんだ",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "かんだ",
+              "かた",
+              "こうだ"
+            ]
+          },
+          {
+            "script": 5,
+            "surface": "河野",
+            "reading": "こうの",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "こうの",
+              "かわの"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 6,
+            "surface": "NTT東日本",
+            "reading": "えﾇﾃｨﾃｨひがしにほん",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "ネクストリンク",
+            "reading": "ねくすとりんく",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "高橋",
+            "reading": "たかはし",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "たかはし",
+              "たかはさい"
+            ]
+          },
+          {
+            "script": 6,
+            "surface": "光プラスＷｉｄｅ",
+            "reading": "ひかりぷらすわいど",
+            "kind": "サービス名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "品川",
+            "reading": "しながわ",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 6,
+            "surface": "京橋",
+            "reading": "きょうばし",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "きょうばし",
+              "きょうはし"
+            ]
+          }
+        ],
+        [
+          {
+            "script": 7,
+            "surface": "渋谷ヒカリエ",
+            "reading": "しぶやひかりえ",
+            "kind": "建物名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "たくみ工房",
+            "reading": "たくみこうぼう",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "新垣",
+            "reading": "あらがき",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "あらがき",
+              "にイがき",
+              "しんがき"
+            ]
+          },
+          {
+            "script": 7,
+            "surface": "兵庫県",
+            "reading": "ひょうごけん",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 7,
+            "surface": "三田市",
+            "reading": "さんだし",
+            "kind": "地名",
+            "uncertain": false
+          }
+        ],
+        [
+          {
+            "script": 8,
+            "surface": "ケアサポートつばさ",
+            "reading": "けあさぽーとつばさ",
+            "kind": "会社名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "菅原",
+            "reading": "すがわら",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "すがわら",
+              "すがばら"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "札幌市",
+            "reading": "さっぽろし",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "林",
+            "reading": "はやし",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "はやし",
+              "りん"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "一ノ瀬",
+            "reading": "いちのせ",
+            "kind": "人名",
+            "uncertain": true,
+            "candidates": [
+              "いちのせ",
+              "いちのぜ"
+            ]
+          },
+          {
+            "script": 8,
+            "surface": "大阪",
+            "reading": "おおさか",
+            "kind": "地名",
+            "uncertain": false
+          },
+          {
+            "script": 8,
+            "surface": "放出",
+            "reading": "はなてん",
+            "kind": "地名",
+            "uncertain": true,
+            "candidates": [
+              "はなてん",
+              "ほうしゅつ"
+            ]
+          }
+        ]
+      ],
+      "retries": 0
+    }
+  },
+  "compare": {
+    "単語分けだけ": {
+      "名前": 46,
+      "見落とし": 17,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 8,
+      "決まらないとした_正しい": 0,
+      "決まらないとした_決められた": 0,
+      "余分": 6,
+      "誤りの例": [
+        "日本橋＝にほんばし（正解：にっぽんばし・にっぽんばしてん）",
+        "中島＝なかじま（正解：なかじま・なかしま＝決まらない）",
+        "三田＝みた（正解：みた・さんだ＝決まらない）",
+        "角田＝つのだ（正解：かくた・つのだ・すみだ・かどた＝決まらない）",
+        "山崎＝やまざき（正解：やまざき・やまさき＝決まらない）",
+        "河野＝こうの（正解：こうの・かわの＝決まらない）",
+        "新垣＝あらがき（正解：あらがき・しんがき・にいがき＝決まらない）",
+        "三田＝みた（正解：ひょうごけんさんだし・さんだし・さんだ）"
+      ],
+      "余分の例": [
+        "ＡＢＣ",
+        "大和",
+        "三井",
+        "住友",
+        "日本",
+        "渋谷"
+      ],
+      "見落としの例": [
+        "アオバ物流",
+        "ABCホールディングス",
+        "スマートリンクPro",
+        "大和ハウス工業",
+        "三井住友銀行",
+        "みらい不動産",
+        "ひまわり学院",
+        "エーゴ・ステップ",
+        "グリーン・テック設備",
+        "NTT東日本",
+        "ネクストリンク",
+        "光プラスWide",
+        "渋谷ヒカリエ",
+        "たくみ工房",
+        "ケアサポートつばさ",
+        "林",
+        "放出"
+      ]
+    },
+    "3.8 Flash#0だけ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 38,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 2,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0だけ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 39,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 1,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0だけ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 29,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#1だけ": {
+      "名前": 46,
+      "見落とし": 1,
+      "読みが正しい": 38,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 1,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "大阪"
+      ]
+    },
+    "3.6 Flash#1だけ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 2,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 1,
+      "余分": 0,
+      "誤りの例": [
+        "アオバ物流＝あおばぶくりゅう（正解：あおばぶつりゅう）",
+        "大和ハウス工業＝やまとはうすこうぎょう（正解：だいわはうすこうぎょう・だいわはうす）"
+      ],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#1だけ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 27,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 13,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.8 Flash#0×3.7 Flash#0": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.8 Flash#0×3.5 Flash Lite#0": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 26,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.8 Flash#0×3.8 Flash#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 36,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 4,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.8 Flash#0×3.6 Flash#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 35,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 5,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.8 Flash#0×3.5 Flash Lite#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 22,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 18,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.7 Flash#0×3.5 Flash Lite#0": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 26,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.7 Flash#0×3.8 Flash#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 38,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 2,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.7 Flash#0×3.6 Flash#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.7 Flash#0×3.5 Flash Lite#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 22,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 18,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.5 Flash Lite#0×3.8 Flash#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 25,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 15,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.5 Flash Lite#0×3.6 Flash#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 24,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.5 Flash Lite#0×3.5 Flash Lite#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.8 Flash#1×3.6 Flash#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 36,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 4,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.8 Flash#1×3.5 Flash Lite#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "決め方（names.decide）3.6 Flash#1×3.5 Flash Lite#1": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 20,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 20,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.7 Flash#0／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.7 Flash#0／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 30,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 10,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.7 Flash#0／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.7 Flash#0／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 30,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 10,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.7 Flash#0／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.7 Flash#0／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 30,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 10,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.5 Flash Lite#0／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 3,
+      "読みが正しい": 26,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "吹田",
+        "枚方"
+      ]
+    },
+    "3.8 Flash#0×3.5 Flash Lite#0／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 3,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "吹田",
+        "枚方"
+      ]
+    },
+    "3.8 Flash#0×3.5 Flash Lite#0／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 26,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.5 Flash Lite#0／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.5 Flash Lite#0／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 26,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.5 Flash Lite#0／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.8 Flash#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 1,
+      "読みが正しい": 36,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "大阪"
+      ]
+    },
+    "3.8 Flash#0×3.8 Flash#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 1,
+      "読みが正しい": 29,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 10,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "大阪"
+      ]
+    },
+    "3.8 Flash#0×3.8 Flash#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 36,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 4,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.8 Flash#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 29,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.8 Flash#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 36,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 4,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.8 Flash#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 29,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.6 Flash#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 35,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 5,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.6 Flash#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 28,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 12,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.6 Flash#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 35,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 5,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.6 Flash#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 28,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 12,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.6 Flash#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 35,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 5,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.6 Flash#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 28,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 12,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 22,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.8 Flash#0×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 17,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.8 Flash#0×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 22,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.8 Flash#0×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 17,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.8 Flash#0×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 22,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 18,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#0×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 21,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.5 Flash Lite#0／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 3,
+      "読みが正しい": 26,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "吹田",
+        "枚方"
+      ]
+    },
+    "3.7 Flash#0×3.5 Flash Lite#0／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 3,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "吹田",
+        "枚方"
+      ]
+    },
+    "3.7 Flash#0×3.5 Flash Lite#0／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 26,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.5 Flash Lite#0／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.5 Flash Lite#0／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 26,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.5 Flash Lite#0／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.8 Flash#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 1,
+      "読みが正しい": 38,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 1,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "大阪"
+      ]
+    },
+    "3.7 Flash#0×3.8 Flash#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 1,
+      "読みが正しい": 30,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 9,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "大阪"
+      ]
+    },
+    "3.7 Flash#0×3.8 Flash#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 38,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 2,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.8 Flash#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 30,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 10,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.8 Flash#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 38,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 2,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.8 Flash#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 30,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 10,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.6 Flash#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.6 Flash#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 29,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.6 Flash#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.6 Flash#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 29,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.6 Flash#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 37,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.6 Flash#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 29,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 22,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.7 Flash#0×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 17,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.7 Flash#0×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 22,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.7 Flash#0×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 17,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.7 Flash#0×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 22,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 18,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.7 Flash#0×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 21,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.8 Flash#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 25,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "吹田",
+        "枚方",
+        "大阪"
+      ]
+    },
+    "3.5 Flash Lite#0×3.8 Flash#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 20,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "吹田",
+        "枚方",
+        "大阪"
+      ]
+    },
+    "3.5 Flash Lite#0×3.8 Flash#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 25,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 15,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.8 Flash#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 20,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 20,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.8 Flash#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 25,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 15,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.8 Flash#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 20,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 20,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.6 Flash#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 3,
+      "読みが正しい": 24,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 13,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "吹田",
+        "枚方"
+      ]
+    },
+    "3.5 Flash Lite#0×3.6 Flash#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 3,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 18,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "吹田",
+        "枚方"
+      ]
+    },
+    "3.5 Flash Lite#0×3.6 Flash#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 24,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.6 Flash#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 21,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.6 Flash#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 24,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.6 Flash#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 19,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 21,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 7,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 12,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "川崎市中原区",
+        "川崎市中原区",
+        "吹田",
+        "枚方",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.5 Flash Lite#0×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 7,
+      "読みが正しい": 17,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "日本橋",
+        "川崎市中原区",
+        "川崎市中原区",
+        "吹田",
+        "枚方",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.5 Flash Lite#0×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 15,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.5 Flash Lite#0×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 17,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.5 Flash Lite#0×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.5 Flash Lite#0×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 17,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 23,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#1×3.6 Flash#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 1,
+      "読みが正しい": 36,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 3,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "大阪"
+      ]
+    },
+    "3.8 Flash#1×3.6 Flash#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 1,
+      "読みが正しい": 28,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 11,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "大阪"
+      ]
+    },
+    "3.8 Flash#1×3.6 Flash#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 36,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 4,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#1×3.6 Flash#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 28,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 12,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#1×3.6 Flash#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 36,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 4,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#1×3.6 Flash#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 28,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 12,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#1×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 5,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 14,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市",
+        "大阪"
+      ]
+    },
+    "3.8 Flash#1×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 5,
+      "読みが正しい": 18,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 17,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市",
+        "大阪"
+      ]
+    },
+    "3.8 Flash#1×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 15,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.8 Flash#1×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 18,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 18,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.8 Flash#1×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 21,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.8 Flash#1×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 18,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 22,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.6 Flash#1×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 20,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.6 Flash#1×3.5 Flash Lite#1／名前＝両方のモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 17,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.6 Flash#1×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 20,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 16,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.6 Flash#1×3.5 Flash Lite#1／名前＝モデルと単語分け／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 4,
+      "読みが正しい": 17,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 19,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": [
+        "川崎市中原区",
+        "川崎市中原区",
+        "兵庫県三田市",
+        "兵庫県三田市"
+      ]
+    },
+    "3.6 Flash#1×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 20,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 20,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    },
+    "3.6 Flash#1×3.5 Flash Lite#1／名前＝どれかのモデル／読み＝モデル2つと単語分けが同じ": {
+      "名前": 46,
+      "見落とし": 0,
+      "読みが正しい": 17,
+      "⛔読みを誤って決めた": 0,
+      "決まらないとした_正しい": 6,
+      "決まらないとした_決められた": 23,
+      "余分": 0,
+      "誤りの例": [],
+      "余分の例": [],
+      "見落としの例": []
+    }
+  }
+}

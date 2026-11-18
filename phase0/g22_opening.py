@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
 from common import drop_partial, read_wav_pcm16_mono, save_partial
@@ -24,12 +25,23 @@ from listen import differences, hear_feeds, in_all, in_any
 from make_callee_samples import verified
 from live_util import build_config
 from turn_check import bad_kinds
+from topics import decide as decide_topic
+from units import decide
 
+Q1_TEXT = "ご予約はされていますでしょうか？"
+Q2_TEXT = "ご希望の日時をお聞かせいただけますでしょうか？"
+Q3_TEXT = "ご来店の人数をお伺いしてもよろしいでしょうか？"
 BUSINESS = Business(
-    company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
-    questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("はい", "いいえ")),
-               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",)),
-               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))],
+    company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
+    # 聞くこと（topic）は取込と同じ決め方で（topics.decide。G-43）。試験の業務ではモデルを呼ばないので、決まりだけで決まる分になる
+    # （Q1 は「（聞くこと）を＋聞く言葉」の形ではないので空＝聞くことを言わずに聞き返す。前は手で「ご予約の有無」と書いていた）
+    questions=[Question("Q1", Q1_TEXT, "yes_no", conditions=("はい", "いいえ"), topic=decide_topic(Q1_TEXT, [])),
+               # ✅ 2026-10-15 ユーザー：お客様に向ける言い方は、命令の形（「〜ください」）や冷たい言い回しを避け、柔らかく同意をいただく
+               #    接客の話し方に ⇒ 試験の業務設定（トークスクリプト）の質問も直した（前は「ご希望の日時をお聞かせください。」など。G-36 まで）
+               # ✅ 2026-10-15 ユーザー（G-37 を聞いて）：言葉の途中の読点で不自然な間が入る ⇒ 読点を外した
+               Question("Q2", Q2_TEXT, "datetime", conditions=("答えた",), topic=decide_topic(Q2_TEXT, [])),
+               Question("Q3", Q3_TEXT, "number", conditions=("答えた",), topic=decide_topic(Q3_TEXT, []),
+                        unit=decide(Q3_TEXT, []))],  # 単位は取込と同じ決め方で（units.decide。G-41。この文は決まりだけで「人」に決まる）
 )
 PARTS = BUSINESS.opening_parts()  # [あいさつ, 名乗り, 用件, 最初の質問]
 NAME = ["アオバ", "青葉", "あおば", "大場", "オーバ", "オオバ"]  # 社名（「ア」がオ寄りに聞こえるものも、言えたとみなす）
@@ -84,6 +96,9 @@ def judge(scene: dict, call: dict) -> dict:
         c["reintro_ok"] = not c["reintroduced"]
     if scene.get("hurried"):
         c["hurried_ok"] = call["hurried"]  # 「急いでいる」として終わりを報告した（request_end の callee_hurry）
+        # ⛔ 2026-10-13 G-22 の2回目：6本中5本で「また改めてご連絡いたします」と約束していたのに、採点が見ていなかった
+        c["no_promise"] = not any(re.search(r"改めて|またお電話|ご連絡いたします|かけ直", s or "") for s in
+                                  [t.get("intended") for t in turns] + [t.get("ear") for t in turns])
     if scene.get("no_question_first"):
         c["no_question_ok"] = not any(w in first for w in ("予約", "日時", "人数"))
     if "second_need_any" in scene and len(turns) > 1:
@@ -102,7 +117,7 @@ def judge(scene: dict, call: dict) -> dict:
     if scene.get("q1_answered_first"):
         c["asked_q2"] = c["need_ok"]
     c["bad_turns"] = bad_kinds(turns)
-    keys = [k for k in ("need_ok", "no_question_ok", "second_ok", "asked_q2", "hurried_ok") if k in c]
+    keys = [k for k in ("need_ok", "no_question_ok", "second_ok", "asked_q2", "hurried_ok", "no_promise") if k in c]
     if scene.get("then_q2") or "then_q2_at" in scene or scene.get("q1_answered_first"):
         keys.append("q1_yes")
     c["passed"] = all(c[k] for k in keys) and not c.get("head_broken") and not c["bad_turns"]

@@ -1,0 +1,216 @@
+{
+ "variants": {
+  "V0_いまの読み方": "電話の最後に、お客様に感謝を伝えるように、前向きに、心を込めて、落ち着いた調子で。言葉の途中で区切らずに、なめらかに、ひと続きで",
+  "V1_つなぎ目を名指し": "電話の最後に、お客様に感謝を伝えるように、前向きに、心を込めて。「お忙しいところお時間をいただきまして」は途中で止まらずにひと息で言い、そのまま止まらずに「ありがとうございました」まで続けて",
+  "V2_少し速めにひと息で": "電話の最後に、お客様に感謝を伝えるように、前向きに、心を込めて。少し速めのテンポで、1つ目の文はひと息で、言葉と言葉の間をあけずに",
+  "V3_落ち着いたを外す": "電話の最後に、お客様に感謝を伝えるように、前向きに、心を込めて。言葉の途中で区切らずに、なめらかに、ひと続きで"
+ },
+ "summary": {
+  "V0_いまの読み方": "0/8",
+  "V1_つなぎ目を名指し": "0/8",
+  "V2_少し速めにひと息で": "1/8",
+  "V3_落ち着いたを外す": "0/8"
+ },
+ "rows": {
+  "V0_いまの読み方": [
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.92
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 6.04
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.2
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 6.26
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.52
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 6.06
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 6.08
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.74
+   }
+  ],
+  "V1_つなぎ目を名指し": [
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.9
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.48
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.46
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 6.1
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.2
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.42
+   },
+   {
+    "ok": false,
+    "heard_ok": false,
+    "pauses_ok": false,
+    "seconds": 5.46
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.68
+   }
+  ],
+  "V2_少し速めにひと息で": [
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.84
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.62
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.38
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.44
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 4.96
+   },
+   {
+    "ok": true,
+    "heard_ok": true,
+    "pauses_ok": true,
+    "seconds": 5.14
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.3
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.42
+   }
+  ],
+  "V3_落ち着いたを外す": [
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 6.38
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 6.12
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 6.36
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.2
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.84
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 4.84
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 5.2
+   },
+   {
+    "ok": false,
+    "heard_ok": true,
+    "pauses_ok": false,
+    "seconds": 4.9
+   }
+  ]
+ }
+}

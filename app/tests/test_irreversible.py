@@ -1,0 +1,1365 @@
+"""取り消せない決定の確かめと、発信禁止の取り消しの試験（2026-10-30 管理者のご決定 (6)(7)。表の作り 0152。データベースを通した場面）。
+
+管理者 (6)「案A　検証モードでは、人が録音を確認し、承認を押した場合だけ営業拒否と確定。人が録音やその場のやり取りを確認できる状態に
+する必要があります。」(7)「案A」（誤って入れた発信禁止を取り消したら、その発信禁止で終えた行を予定に戻し、依頼者へ渡す結果の
+「営業拒否」も外す）。試験のデータは架空のものだけ。
+"""
+
+from __future__ import annotations
+
+import time
+import unittest
+
+from salescall.core import (approval, attempts, backup, call_report, conversation_io, dnc, fix_requests, gate, measure, next_action, results,
+                            settle, tasks)
+from salescall.core.access import Rejected
+from salescall.core.call_report import Cut, ReportInvalid
+from salescall.core.conversation_io import Utterance, UtteranceInvalid
+from salescall.core.phone import normalize
+from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, app_access, fictional_jp_fixed, make_report, owner_access
+from tests.test_gate import FakeDriver, dial_exit
+from tests.test_settle import TALK, SettleBase
+
+
+def rep(parties=("target",), **kw):
+    return make_report(parties, **kw)
+
+
+class Helpers(SettleBase):
+    """取り消せない決定の試験の土台（試験は持たない）。"""
+
+    def answered_call(self, s, path=TALK[1:3]):
+        """本物の門・出口でかけ、お客様が出た所まで進める（締めはまだ）。"""
+        c = self.claim(s)
+        self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+        for st in path:
+            self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st))
+        return c.attempt_id
+
+    def other_row(self, s):
+        run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])   # 同じお客様の、ほかの一覧の行（番号を共有する）
+        return self.w.task(s["tenant"], s["client"], run2, s["contact"])
+
+    def dnc_reasons(self, s):
+        return sorted(r["r"] for r in self.tx(s, lambda tx: tx.all(
+            "SELECT reason::text AS r FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL", (s["phone"],))))
+
+    def released(self, s, aid):
+        return self.tx(s, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.result_releases l JOIN salescall.task_results r"
+            " ON r.task_id = l.task_id AND r.version_no = l.version_no WHERE r.attempt_id = %s", (aid,)))["n"]
+
+    def pending(self, s, aid):
+        return self.tx(s, lambda tx: tx.one("SELECT salescall.decision_pending(%s) AS p, salescall.refusal_undecided(%s) AS u",
+                                            (aid, aid)))
+
+    def seq(self, s, aid):
+        """いまの保留の版（承認と差し戻しに渡す）。"""
+        return self.tx(s, lambda tx: tx.one("SELECT salescall.decision_wait_seq(%s) AS s", (aid,)))["s"]
+
+    def approve(self, s, aid, actor=OPERATOR):
+        return self.tx(s, lambda tx: approval.approve_decision(tx, aid, self.seq(s, aid)), actor)
+
+    def send_back(self, s, aid, actor=OPERATOR):
+        return self.tx(s, lambda tx: approval.send_back_decision(tx, aid, self.seq(s, aid)), actor)
+
+    def asks(self, s):
+        return [(w["ask"], w["ask_why"]) for w in self.tx(s, approval.pending_decisions)]
+
+    def notices(self, s, kind):
+        return self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.notification_events WHERE kind = %s", (kind,)))["n"]
+
+    def held(self, s, aid, kind, other=None):
+        """保留のあいだ：発信禁止を登録しない・行を終えない（判定待ち）・結果を確定しない・同じお客様のほかの行も待たせる。"""
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "hold")
+        self.assertEqual(self.released(s, aid), 0)
+        self.assertEqual(dict(self.pending(s, aid)), {"p": True, "u": True})
+        self.assertEqual([(w["attempt_id"], w["kind"]) for w in self.tx(s, approval.pending_decisions)], [(aid, kind)])
+        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"]["decision_wait"], kind)
+        self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT disconnect FROM salescall.attempts WHERE attempt_id = %s",
+                                                       (aid,)))["disconnect"])
+        if other is not None:
+            self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, "related_decision_pending")
+        self.assertEqual(self.reason(s), "judge_pending")
+
+
+class Irreversible(Helpers):
+    """会話AIの報告と2つ目の判定（意味の判定）がそろったときだけ、その場で決める。そろわなければ、録音の確かめで決まるまで保留。"""
+
+    def test_an_agreed_refusal_is_decided_on_the_spot(self):
+        s = self.ready()
+        aid = self.call(s, report=rep(dnc=True, check="agreed"))
+        got = self.settle(s, aid)
+        self.assertEqual((got["state"], got["decision"].end_reason), ("do_not_call", "do_not_call"))
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
+        self.assertEqual(self.released(s, aid), 1)
+        self.assertEqual(self.tx(s, approval.pending_decisions), [])
+
+    def test_a_disagreed_refusal_waits_for_the_recording_check_which_confirms_it(self):
+        """食い違った断り × 録音から作り直した報告で断りとそろった ⇒ 決まりどおり（発信禁止・行を終える・確定）。締めは通話後の検証の
+        あとなので、検証が作り直さずに済んでいれば、会話の担当に確かめ直しを頼む（録音から作り直した報告で返してもらう）。AI がまだ
+        確かめ直していないので、契約者には求めない（2026-11-01 管理者：伺い9 案1）。作り直してもそろわなければ（AI でも決められない）、
+        新しい版で契約者に求める（設定が初めの「いいえ」）。"""
+        s = self.ready()
+        other = self.other_row(s)
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"))
+        got = self.settle(s, aid)
+        self.assertEqual((got["state"], got["decision"].kind), ("do_not_call", "hold"))
+        self.held(s, aid, "recording", other)
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r["kind"] for r in fix_requests.open_requests(tx, "CL-1")])
+        self.assertIn("irreversible_unchecked", asked)
+        self.assertEqual(self.asks(s), [(False, None)])                          # 人には求めない
+        self.assertEqual([(w["attempt_id"], w["why"]) for w in self.tx(s, approval.awaiting_ai_recheck)],
+                         [(aid, "recording_unchecked")])                         # 会話の担当が確かめ直す一覧
+        folder = backup.client_folder(self.w.a, s["tenant"], s["client"])          # 決まるまで、その通話の録音を消さない
+        self.assertIn(str(aid), backup.prune_rules(self.w.a, s["tenant"])[folder]["held"])
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])                   # まだ録音の確かめが無い：待ったまま
+        self.assertEqual(self.notices(s, "decision_approval"), 0)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"), evidence="試験：録音から"))
+        self.assertEqual([d["state"] for d in self.tx(s, settle.rejudge_held)], ["do_not_call"])   # 締め直した：まだそろわない
+        self.assertTrue(self.pending(s, aid)["p"])
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])          # AI でも決められない：新しい版で、契約者に求める
+        self.assertEqual(self.tx(s, approval.awaiting_ai_recheck), [])
+        self.assertEqual(self.notices(s, "decision_approval"), 1)
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])                   # 新しい作り直しが届くまで、読み直さない
+        self.assertEqual(self.notices(s, "decision_approval"), 1)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="agreed"), evidence="試験：録音から"))
+        done = self.tx(s, settle.rejudge_held)
+        self.assertEqual([d["state"] for d in done], ["do_not_call"])
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "do_not_call")
+        self.assertEqual(dict(self.pending(s, aid)), {"p": False, "u": False})
+        self.assertEqual(self.released(s, aid), 1)                               # 決まった締め直しの版が確定する
+        self.assertNotIn(str(aid), backup.prune_rules(self.w.a, s["tenant"])[folder]["held"])
+        self.tx(s, lambda tx: next_action.schedule_now(tx, other, cause="試験：ほかの行の最初の予定"))
+        self.assertEqual(self.reason(s, task=other), "dnc_client")               # 広げ方は、ふつうの断りと同じ
+
+    def test_a_refusal_the_recording_check_did_not_find_is_settled_as_usual(self):
+        """判定が無い（古い形の報告）断り × 録音の確かめで断りが報告から消えた ⇒ 元に戻す（その報告のまま、ふつうに締める）。"""
+        s = self.ready()
+        raw = rep(dnc=True).to_json()
+        del raw["irreversible_check"]                                            # 古い形の報告（項目が無い）
+        aid = self.call(s, report=call_report.from_json(raw), items=[("Q1", "confirmed", None)])
+        self.assertEqual(self.settle(s, aid)["decision"].kind, "hold")
+        self.held(s, aid, "recording")
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(check="none"), evidence="試験：録音から"))
+        done = self.tx(s, settle.rejudge_held)
+        self.assertEqual([d["state"] for d in done], ["completed"])
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "completed")
+        self.assertEqual(self.released(s, aid), 1)
+        self.assertEqual(self.tx(s, lambda tx: tx.all("SELECT seq, parts FROM salescall.decision_waits WHERE attempt_id = %s"
+                                                      " ORDER BY seq", (aid,))), [{"seq": 1, "parts": ["refusal"]},
+                                                                                   {"seq": 2, "parts": []}])   # 待たなくなった版
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.decision_answers WHERE attempt_id = %s",
+                                                      (aid,)))["n"], 0)
+
+    def test_wrong_party_and_anger_wait_too_when_not_agreed(self):
+        for kw, part in ((dict(parties=("wrong_party",)), "wrong_party"), (dict(complaint=True), "complaint")):
+            with self.subTest(part):
+                s = self.ready()
+                aid = self.call(s, report=rep(check="disagreed", **kw))
+                self.assertEqual(self.settle(s, aid)["decision"].kind, "hold")
+                self.assertEqual([w["parts"] for w in self.tx(s, approval.pending_decisions)], [[part]])
+                self.assertEqual(self.dnc_reasons(s), [])
+                self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.notification_events"
+                                                              " WHERE kind = 'complaint'"))["n"], 0)   # 苦情も、決まるまで知らせない
+
+    def test_a_declared_refusal_is_sure_but_the_report_check_is_read_for_the_rest(self):
+        """通話の途中の申告（会話の側は、そろったときだけ入れる）は、報告の項目によらず、その場で決める。"""
+        s = self.ready()
+        aid = self.answered_call(s, TALK[1:])
+        self.assertFalse(self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))["held"])
+        self.tx(s, lambda tx: call_report.save(tx, aid, rep(dnc=True, check="none")))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.assertEqual(self.settle(s, aid)["decision"].end_reason, "do_not_call")
+        self.assertEqual(self.tx(s, approval.pending_decisions), [])
+
+
+    def test_the_waits_and_answers_are_never_changed(self):
+        """保留と答えは、書き換えない・消さない（表の持ち主でも。引き金が守る）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"))
+        self.settle(s, aid)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="none"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)                                          # 作り直してもそろわない：契約者に求め直す
+        self.send_back(s, aid)
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.decision_asks WHERE attempt_id = %s",
+                                                      (aid,)))["n"], 1)   # 求めたのは作り直しのあとだけ（伺い9）
+        for sql in ("UPDATE salescall.decision_waits SET kind = 'approval' WHERE attempt_id = %s",
+                    "DELETE FROM salescall.decision_waits WHERE attempt_id = %s",
+                    "UPDATE salescall.decision_answers SET outcome = 'confirmed' WHERE attempt_id = %s",
+                    "DELETE FROM salescall.decision_answers WHERE attempt_id = %s",
+                    "UPDATE salescall.decision_asks SET why = 'recording_missing' WHERE attempt_id = %s",
+                    "DELETE FROM salescall.decision_asks WHERE attempt_id = %s"):
+            with self.subTest(sql=sql[:30]), self.assertRaises(Rejected):
+                owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(sql, (aid,)))
+
+
+class VerificationMode(Helpers):
+    """検証モードの業務：断り・番号違い・怒っていたは、そろっていても、契約者が録音とやり取りを確かめて承認を押したときだけ確定する。"""
+
+    def human(self, s):
+        self.put_client(s, "approval.human", True)
+        self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
+
+    def test_an_agreed_refusal_waits_for_the_contractor_and_is_confirmed_by_the_button(self):
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, report=rep(dnc=True, check="agreed"), items=[("Q1", "confirmed", None)])
+        self.assertEqual(self.settle(s, aid)["decision"].kind, "hold")
+        self.held(s, aid, "approval")
+        self.assertEqual(self.notices(s, "decision_approval"), 1)
+        put = ("INSERT INTO salescall.decision_answers (tenant_id, client_id, attempt_id, outcome, parts, by_kind, answered_by, wait_seq)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'confirmed', %s, %s, salescall.cur_actor(), %s)")
+        for kind, actor, parts, seq in (("approval", SYSTEM, ["refusal"], 1), ("recording", OPERATOR, ["refusal"], None),
+                                        ("approval", OPERATOR, ["refusal"], 2), ("approval", OPERATOR, ["refusal", "complaint"], 1)):
+            # 承認は契約者か管理者だけ・録音の確かめの答えは外した（0154）・いまの版の、まだ答えの無い中身すべてにだけ（データベースが守る）
+            with self.subTest(kind=kind, actor=actor.kind, parts=parts, seq=seq), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute(put, (aid, parts, kind, seq)), actor)
+        out = self.approve(s, aid, ADMIN)                                       # 管理者も押せる（ほかの承認とそろえる）
+        self.assertEqual(out["state"], "do_not_call")
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "do_not_call")
+        self.assertEqual(self.released(s, aid), 0)            # 承認したのは断りだけ：締め直した版は、ほかの結果と同じく確かめる
+        with self.assertRaises(LookupError):                                     # もう答えを求めていない
+            self.send_back(s, aid)
+        latest = self.tx(s, lambda tx: results.latest(tx, s["task"]))["version_no"]
+        self.tx(s, lambda tx: approval.approve_result(tx, s["task"], latest), OPERATOR)
+        self.assertEqual(self.released(s, aid), 1)
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT wrong_items FROM salescall.judgement_checks WHERE attempt_id = %s",
+                                                      (aid,)))["wrong_items"], [])      # 承認した断りは、判定どおり
+
+    def test_a_sent_back_refusal_is_taken_out_of_the_report_and_settled_as_usual(self):
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, report=rep(dnc=True, check="agreed"), items=[("Q1", "confirmed", None)])
+        self.settle(s, aid)
+        out = self.send_back(s, aid)
+        self.assertEqual((out["state"], out["decision"].end_reason), ("completed", "completed"))
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.released(s, aid), 0)                               # 締め直した版も、ほかの結果と同じく契約者が確かめる
+        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["snapshot"]["withdrawn"], ["refusal"])
+        # その場で決めていたはずの断り（2つ目の判定とそろっていた）を差し戻した：締め直した版を契約者が承認しても、その通話の正解には
+        # 「違っていた」として入る（入れないと、システムの誤りが誤判定率から黙って落ちる。0153）
+        latest = self.tx(s, lambda tx: results.latest(tx, s["task"]))["version_no"]
+        self.tx(s, lambda tx: approval.approve_result(tx, s["task"], latest), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT source, wrong_items FROM salescall.judgement_checks WHERE attempt_id = %s",
+                                                      (aid,))), {"source": "verification", "wrong_items": ["decision:refusal"]})
+        got = self.tx(s, lambda tx: measure.rates(tx, s["business"], source="verification"))
+        self.assertEqual((got["checked"], got["wrong"], got["items_wrong"]), (1, 1, 1))
+
+    def test_a_sent_back_refusal_the_judges_did_not_agree_on_is_not_counted_as_wrong(self):
+        """2つ目の判定とそろわなかった断りは、フルオートでも、その場では決めない（保留）。差し戻しても、システムの誤りに数えない（その場で
+        決めていたはずのものだけ）。"""
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"), items=[("Q1", "confirmed", None)])
+        self.settle(s, aid)
+        self.send_back(s, aid)
+        latest = self.tx(s, lambda tx: results.latest(tx, s["task"]))["version_no"]
+        self.tx(s, lambda tx: approval.approve_result(tx, s["task"], latest), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT wrong_items FROM salescall.judgement_checks WHERE attempt_id = %s",
+                                                      (aid,)))["wrong_items"], [])
+
+    def test_the_held_version_cannot_be_released_or_corrected_before_the_decision(self):
+        """保留の版を、結果の承認・直す道で確定できない（見直し24a の (7)。データベースの守り release_blocked も）。"""
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, report=rep(dnc=True, check="agreed"), items=[("Q1", "confirmed", None)])
+        self.settle(s, aid)
+        v = self.tx(s, lambda tx: results.latest(tx, s["task"]))["version_no"]
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: approval.approve_result(tx, s["task"], v), OPERATOR)
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=v, business_state="completed",
+                                                          wrong_items=[], complaint=False, snapshot={}), OPERATOR)
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor(), 'verification')",
+                (s["task"], v)), OPERATOR)
+        self.assertEqual(self.released(s, aid), 0)
+
+    def test_the_declaration_in_the_call_is_not_put_in_the_ledger(self):
+        s = self.ready()
+        self.human(s)
+        aid = self.answered_call(s)
+        got = self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))
+        self.assertEqual((got["entry_id"], got["held"]), (None, True))
+        self.assertEqual(self.dnc_reasons(s), [])
+
+    def test_a_changed_report_makes_a_new_wait_and_an_old_button_is_refused(self):
+        """承認待ちのあいだに、録音から作り直した報告で中身が変わった（怒っていた → 断り）：決まった間隔の仕事が締め直して、新しい版で
+        求め直す。前の版への押し下げは断る。差し戻しで外れるのは、契約者が見た版の中身だけ（見直し24a の (4)・24b の (B)）。"""
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, report=rep(complaint=True, check="agreed"), items=[("Q1", "confirmed", None)])
+        self.settle(s, aid)
+        old = self.seq(s, aid)
+        self.assertEqual([w["parts"] for w in self.tx(s, approval.pending_decisions)], [["complaint"]])
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="agreed"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)
+        self.assertEqual([(w["parts"], w["seq"]) for w in self.tx(s, approval.pending_decisions)], [(["refusal"], old + 1)])
+        with self.assertRaises(LookupError):
+            self.tx(s, lambda tx: approval.send_back_decision(tx, aid, old), OPERATOR)
+        self.assertEqual(self.notices(s, "decision_approval"), 2)
+        self.send_back(s, aid)
+        self.assertEqual(self.dnc_reasons(s), [])                                # 契約者が見て差し戻した断りは入らない
+        self.assertFalse(self.pending(s, aid)["p"])
+
+
+class RecordingCannotDecide(Helpers):
+    """決められない保留：AI がまだ確かめ直していない（録音が届かなかった・検証が録音で確かめないまま済んだ）なら、人には求めず、会話の
+    担当の確かめ直しを待つ（2026-11-01 管理者：伺い9 案1「人は甚大な問題以外で介入しない」）。AI が確かめ直しても決められなかった
+    ときだけ、契約者に録音とやり取りを確かめてもらう（0153・0154・2026-10-31 伺い3）。どちらも、それまでは保留のまま（かけない）。"""
+
+    def unchecked_requests(self, kind="irreversible_unchecked"):
+        """会話の担当への頼み（kind）のうち、まだ直していないもの（同じ不具合は1つなので、ほかの試験の分は「直した」にしてから数える）。"""
+        return self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1") if r["kind"] == kind])
+
+    def close_unchecked(self):
+        for kind in ("irreversible_unchecked", "irreversible_no_recording"):
+            for r in self.unchecked_requests(kind):
+                self.w.a.in_system(SYSTEM, lambda tx: fix_requests.report_fixed(tx, r["request_id"], "試験：ほかの試験の分"))
+
+    def missing(self, s):
+        """録音が届かないまま通話後の検証が済んだ、食い違った断りの通話（フルオートの業務）を締める。"""
+        self.close_unchecked()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"), verify=None, items=[("Q1", "confirmed", None)])
+        self.tx(s, lambda tx: attempts.record_verification(
+            tx, aid, summary=attempts.VerificationSummary(0, 0, 0, recording_missing=True)))
+        self.settle(s, aid)
+        return aid
+
+    def test_an_unchecked_wait_asks_only_the_conversation_side(self):
+        """録音はあるのに、検証が作り直した報告を返さないまま済んだ：会話の担当へ修正依頼する（だれにも知らせずに待たない＝見直し24c の
+        A3）。契約者には求めず、設定が「はい」でも決まったとみなさない（AI が確かめていない＝伺い9）。会話の担当が直して作り直した報告が
+        届けば、締め直しで決まる。"""
+        s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
+        self.close_unchecked()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"))
+        self.settle(s, aid)
+        self.held(s, aid, "recording")
+        self.assertEqual(len(self.unchecked_requests()), 1)
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.assertEqual((self.notices(s, "decision_approval"), self.notices(s, "decision_assumed")), (0, 0))
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])                   # 何度見直しても、人に求めず待つ
+        self.assertEqual(self.asks(s), [(False, None)])
+        with self.assertRaises(LookupError):
+            self.approve(s, aid)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="agreed"), evidence="試験：録音から"))
+        self.assertEqual([d["state"] for d in self.tx(s, settle.rejudge_held)], ["do_not_call"])
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
+
+    def test_a_rebuilt_report_that_still_disagrees_asks_the_contractor_at_once(self):
+        """検証が録音から作り直した報告でも、そろわなかった（保留にした報告がもう作り直しだった）：すぐ契約者に求める。"""
+        s = self.ready()
+        self.close_unchecked()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"), verify=None)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"), evidence="試験：録音から"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.settle(s, aid)
+        self.held(s, aid, "recording")
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])
+        self.assertEqual(self.unchecked_requests(), [])
+
+    def test_a_missing_recording_waits_for_the_ai_to_recheck_from_the_call_text(self):
+        """録音が届かなかった：人には求めず、設定が「はい」でも決まったとみなさない（AI がまだ確かめ直していない＝伺い9）。会話の担当に、
+        通話中の別の耳の文字から作り直した報告を頼み、その一覧に出す。作り直した報告が届いて断りとそろえば、決まりどおり。"""
+        s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
+        aid = self.missing(s)
+        self.held(s, aid, "recording")
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.assertEqual((self.notices(s, "decision_approval"), self.notices(s, "decision_assumed")), (0, 0))
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertEqual(self.unchecked_requests(), [])                         # 録音で確かめ直す頼みではない
+        self.assertEqual(len(self.unchecked_requests("irreversible_no_recording")), 1)   # 通話中の文字から確かめ直す頼み
+        self.assertEqual([(w["attempt_id"], w["why"]) for w in self.tx(s, approval.awaiting_ai_recheck)],
+                         [(aid, "recording_missing")])
+        with self.assertRaises(LookupError):
+            self.approve(s, aid)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="agreed"),
+                                                       evidence="試験：通話中の別の耳の文字から"))
+        out = self.tx(s, settle.rejudge_held)[0]
+        self.assertEqual(out["state"], "do_not_call")
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "do_not_call")
+        self.assertEqual(self.released(s, aid), 1)                               # フルオート：締め直した版が確定する
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.judgement_checks WHERE attempt_id = %s",
+                                                      (aid,)))["n"], 0)          # 結果の承認（正解）ではない
+
+    def test_the_contractor_is_never_asked_while_the_ai_has_not_rechecked(self):
+        """契約者に求める入口（approval._ask_contractor の1か所）は、AI がまだ確かめ直していない理由を断る（呼び手が誤っても、人に求めない＝
+        伺い9）。AI が確かめ直しても決められなかった理由だけを受け付ける。"""
+        s = self.ready()
+        self.close_unchecked()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"))
+        self.settle(s, aid)
+        for why in approval.AI_RECHECK:
+            with self.subTest(why=why), self.assertRaises(ValueError):
+                self.tx(s, lambda tx: approval._ask_contractor(tx, aid, why))
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.tx(s, lambda tx: approval._ask_contractor(tx, aid, "recording_undecided"))
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])
+
+    def test_a_missing_recording_the_ai_cannot_decide_from_the_call_text_asks_the_contractor(self):
+        """録音が届かず、通話中の文字から作り直しても、そろわない（AI でも決められない）：設定（初め「いいえ」）のとおり契約者に求める。
+        差し戻せば、断りではないとしてふつうに締める。"""
+        s = self.ready()
+        aid = self.missing(s)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"),
+                                                       evidence="試験：通話中の別の耳の文字から"))
+        self.tx(s, settle.rejudge_held)
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])
+        out = self.send_back(s, aid)
+        self.assertEqual(out["state"], "completed")
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.released(s, aid), 1)
+
+    def test_marks_only_on_the_current_recording_wait(self):
+        """契約者に確かめてもらう印は、答えの無い中身のある、いまの録音の確かめ待ちの版にだけ（データベースが守る）。理由は、AI が確かめ
+        直しても決められなかった（recording_undecided）だけ（0168。AI がまだ確かめ直していない理由では、人に求めない＝伺い9）。"""
+        s = self.ready()
+        aid = self.missing(s)
+        for why in approval.AI_RECHECK:                                          # いまの待ちの版でも、AI が確かめ直していない理由は断る
+            with self.subTest(why=why), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute(
+                    "INSERT INTO salescall.decision_asks (tenant_id, client_id, attempt_id, seq, why)"
+                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)", (aid, self.seq(s, aid), why)), SYSTEM)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"),
+                                                       evidence="試験：通話中の別の耳の文字から"))
+        self.tx(s, settle.rejudge_held)                                          # AI でも決められない：契約者に求めた
+        put = ("INSERT INTO salescall.decision_asks (tenant_id, client_id, attempt_id, seq, why)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, 'recording_undecided')")
+        self.send_back(s, aid)                                                   # 答えた：もう待たない（中身が空の版）
+        for seq in (1, 2, 3):
+            with self.subTest(seq=seq), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute(put, (aid, seq)), SYSTEM)
+        s2 = self.ready()
+        self.put_client(s2, "approval.human", True)
+        self.tx(s2, lambda tx: approval.approve_task(tx, s2["task"]), OPERATOR)
+        aid2 = self.call(s2, report=rep(dnc=True, check="agreed"))
+        self.settle(s2, aid2)
+        with self.assertRaises(Rejected):                                        # 検証モードの承認待ちには付かない
+            self.tx(s2, lambda tx: tx.execute(put, (aid2, 1)))
+
+
+class Review26(Helpers):
+    """見直し26b（0161）：取り消しで、あとに発信のある行も戻る・差し戻した古い版を確定できない・確定の印の段とだれが付けるか・取り消しの
+    答えの中身・保留の版は締めの入口だけ。"""
+
+    def human(self, s):
+        self.put_client(s, "approval.human", True)
+        self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
+
+    def releases(self, s):
+        return self.tx(s, lambda tx: [(r["v"], r["b"], r["stage"]) for r in tx.all(
+            "SELECT l.version_no AS v, r.business_state::text AS b, l.stage FROM salescall.result_releases l JOIN salescall.task_results r"
+            " ON r.task_id = l.task_id AND r.version_no = l.version_no WHERE l.task_id = %s ORDER BY 1", (s["task"],))])
+
+    def test_revoking_a_refusal_that_ended_a_row_with_a_later_dial_puts_the_row_back(self):
+        """断りで行を終えた通話のあとに、同じ行の発信（出なかった）があっても、取り消せば行は予定に戻り、依頼者へ渡す結果も「営業拒否」で
+        なくなる（2026-10-30 (7)。⛔ 見直し26b の 1：あとに発信があるので予定を書き直さず、行も結果も「営業拒否」のままだった）。"""
+        s = self.ready()
+        self.override("gate.same_contact_min_interval", 1)
+        aid = self.call(s, CUT, report=rep(cut=None), items=(("Q1", "dont_know", None),))
+        self.settle(s, aid)
+        later = self.call(s, ["dialing", "no_answer"])
+        self.settle(s, later)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)
+        self.approve(s, aid)
+        cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((cur["kind"], cur["end_reason"]), ("end", "do_not_call"))
+        self.assertEqual(self.releases(s)[-1][1], "do_not_call")
+        self.tx(s, lambda tx: dnc.revoke_source(tx, aid, "依頼者からの正式な求め（試験）"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "call")   # 行は予定に戻る
+        self.assertNotEqual(self.releases(s)[-1][1], "do_not_call")                                   # 渡す結果も外れる
+        self.assertEqual(self.dnc_reasons(s), [])
+
+    def test_an_old_version_cannot_be_released_after_sending_back(self):
+        """差し戻したあとに、画面に残っていた前の断りの版を、結果の承認・直す入口・直接の印で確定できない（0161。⛔ 見直し26b の 2）。"""
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, report=rep(dnc=True, check="agreed"), items=[("Q1", "confirmed", None)])
+        v1 = self.settle(s, aid)["version_no"]
+        self.send_back(s, aid)
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT salescall.release_blocked(%s, %s) AS b", (s["task"], v1)))["b"])
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: approval.approve_result(tx, s["task"], v1), OPERATOR)
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=v1, business_state="do_not_call",
+                                                          wrong_items=[], complaint=False, snapshot={}), OPERATOR)
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor(), 'verification')",
+                (s["task"], v1)), OPERATOR)
+        self.assertEqual(self.releases(s), [])
+
+    def test_the_stage_of_a_release_follows_the_mode_when_called_and_only_people_confirm_verification(self):
+        """確定の印の段は、その版の通話をかけたときのモード（データベースの1か所）。検証の段を確定するのは契約者か管理者だけ（0161。⛔
+        見直し26b の 3：検証モードの業務の版に「本番」の印を付けられ、システムの処理が承認で確定できた）。"""
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, ["dialing", "no_answer"])
+        v = self.settle(s, aid)["version_no"]
+        put = ("INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor(), %s)")
+        for actor, stage in ((OPERATOR, "production"), (SYSTEM, "production"), (SYSTEM, "verification")):
+            with self.subTest(actor=actor.kind, stage=stage), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute(put, (s["task"], v, stage)), actor)
+        with self.assertRaises(Rejected):                                        # システムの処理は、承認の入口でも確定できない
+            self.tx(s, lambda tx: approval.approve_result(tx, s["task"], v), SYSTEM)
+        self.put_client(s, "approval.human", False)                             # かけたあとにモードを替えても、かけたときのモードのまま
+        self.assertEqual(self.tx(s, lambda tx: approval.after_judged(tx, s["task"], v, None)), [])
+        self.tx(s, lambda tx: approval.approve_result(tx, s["task"], v), OPERATOR)
+        self.assertEqual(self.releases(s), [(v, self.tx(s, lambda tx: results.latest(tx, s["task"]))["business_state"], "verification")])
+
+    def test_a_revoke_answer_carries_only_the_revoked_entries_parts(self):
+        """取り消しの答えの中身は、その通話から入れた発信禁止をすべて取り消したときの、その登録の理由から決まる中身だけ（0161。⛔ 見直し26b
+        の 4：取り消していない「怒っていた」を答えに入れられ、その保留が確かめないまま閉じた）。"""
+        s = self.ready()
+        aid = self.answered_call(s, TALK[1:])
+        self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))
+        self.tx(s, lambda tx: call_report.save(tx, aid, rep(dnc=True, complaint=True, check="disagreed")))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.settle(s, aid)
+        self.tx(s, lambda tx: dnc.revoke_source(tx, aid, "依頼者からの正式な求め（試験）"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.revoked_parts(%s) AS p", (aid,)))["p"], ["refusal"])
+        put = ("INSERT INTO salescall.decision_answers (tenant_id, client_id, attempt_id, outcome, parts, by_kind, why, answered_by)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'withdrawn', '{complaint}', 'revoke', '試験',"
+               " salescall.cur_actor())")
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute(put, (aid,)), OPERATOR)
+        self.assertTrue(self.pending(s, aid)["p"])                                # 怒っていたの保留は、まだ決まっていない
+
+    def test_a_sent_back_check_call_refusal_does_not_come_back(self):
+        """検証モード：確かめのかけ直しが鳴って出なかった（断りとみなす）通話を差し戻したら、締め直しで断りが出直さない・前の断りの版を
+        確定できない（見直し26b の 2・M1）。"""
+        s = self.ready()
+        self.human(s)
+        self.override("gate.same_contact_min_interval", 1)
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="callee",
+                        report=rep(cut=Cut("ai", False, False)))
+        self.settle(s, aid)
+        time.sleep(1.2)
+        check = self.call(s, ("dialing", "ringing", "no_answer"))
+        got = self.settle(s, check)
+        self.assertEqual(got["state"], "do_not_call")
+        v1 = got["version_no"]
+        out = self.send_back(s, check)
+        self.assertNotEqual(out["state"], "do_not_call")
+        self.assertFalse(self.pending(s, check)["p"])                          # 断りは出直さない（保留が繰り返さない）
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: approval.approve_result(tx, s["task"], v1), OPERATOR)
+
+    def test_a_refusal_decided_after_a_later_call_talked_keeps_the_later_calls_plan(self):
+        """前の通話の断りが、あとでお客様と話した通話のあとに決まったら、発信禁止は入れるが、行の予定はあとの通話のまま（見直し24a の (1)(9)・
+        見直し26b の M4）。"""
+        s = self.ready()
+        self.override("gate.same_contact_min_interval", 1)
+        aid = self.call(s, CUT, report=rep(cut=None), items=(("Q1", "dont_know", None),))
+        self.settle(s, aid)
+        later = self.call(s, report=rep())                                    # あとで、お客様と話した
+        self.settle(s, later)
+        before = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"), evidence="試験：録音から"))
+        self.tx(s, lambda tx: settle.resettle(tx, aid))                       # 録音から作り直した報告で締め直す（断りは保留）
+        self.approve(s, aid)
+        after = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((after["seq"], after["kind"]), (before["seq"], before["kind"]))   # 行の予定は、あとの通話のまま
+        self.assertIn("refused_in_call", self.dnc_reasons(s))                              # 発信禁止は入る
+
+    def test_an_answer_is_by_the_person_of_the_transaction(self):
+        """答えた者は取引の管理者か契約者（名前を偽れない。見直し26b の M2）。"""
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, report=rep(dnc=True, check="agreed"), items=[("Q1", "confirmed", None)])
+        self.settle(s, aid)
+        put = ("INSERT INTO salescall.decision_answers (tenant_id, client_id, attempt_id, wait_seq, outcome, parts, by_kind, why,"
+               " answered_by) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, 'confirmed', '{refusal}', 'approval',"
+               " '試験', 'ほかの契約者')")
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute(put, (aid, self.seq(s, aid))), OPERATOR)
+
+    def test_only_the_settling_entry_writes_a_wait(self):
+        """保留の版を書くのは、その通話を締めている締めの入口だけ（0161。⛔ 見直し26b の 5：契約者が中身の空の版を直接書け、承認を通らずに
+        保留が閉じた）。"""
+        s = self.ready()
+        self.human(s)
+        aid = self.call(s, report=rep(dnc=True, check="agreed"), items=[("Q1", "confirmed", None)])
+        self.settle(s, aid)
+        put = ("INSERT INTO salescall.decision_waits (tenant_id, client_id, attempt_id, seq, task_id, kind, parts, checked)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 2, %s, 'approval', '{}', 'agreed')")
+        for actor in (OPERATOR, SYSTEM):
+            with self.subTest(actor=actor.kind), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute(put, (aid, s["task"])), actor)
+        self.assertTrue(self.pending(s, aid)["p"])
+
+
+class Revoke(Helpers):
+    """誤って入れた発信禁止を取り消したら、その発信禁止で終えた行を予定に戻し、依頼者へ渡す結果の「営業拒否」も外す（(7)「案A」）。"""
+
+    def refused(self, s, *, extra=None):
+        """断りの通話を締める（extra＝締める前に、その通話でお客様が言った別の番号として行に足す番号＝広げた登録が2つになる）。"""
+        aid = self.call(s, report=rep(dnc=True), items=[("Q1", "confirmed", None)])
+        if extra is not None:
+            self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], normalize(extra), source_attempt_id=aid))
+        self.assertEqual(self.settle(s, aid)["state"], "do_not_call")
+        return aid
+
+    def test_revoking_by_the_source_call_puts_the_rows_back_and_takes_the_refusal_out(self):
+        s = self.ready()
+        other = self.other_row(s)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, other, cause="試験：ほかの行の最初の予定"))
+        aid = self.refused(s)
+        denied = self.claim(s, task=other)
+        self.assertEqual(denied.reason, "dnc_client")
+        self.tx(s, lambda tx: next_action.after_denial(tx, other, denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, other))["end_reason"], "dnc_client")
+        with self.assertRaises(Rejected):                                        # システムの処理は取り消せない（今の守りのまま）
+            self.tx(s, lambda tx: dnc.revoke_source(tx, aid, "試験"), SYSTEM)
+        got = self.tx(s, lambda tx: dnc.revoke_source(tx, aid, "依頼者からの正式な求め（試験）"), OPERATOR)
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertEqual((got["resettled"], got["reopened"]), ([aid], [other]))
+        latest = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+        self.assertEqual((latest["kind"], latest["business_state"]), ("rejudged", "completed"))   # 結果の「営業拒否」を外した
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, other))["kind"], "call")   # 予定に戻した
+        self.assertNotIn(getattr(self.claim(s, task=other), "reason", None), ("dnc_client", "task_ended"))   # 門は、もう終えない
+
+    def test_revoking_one_of_the_spread_entries_keeps_the_refusal(self):
+        """広げた登録の一部だけを取り消しても、断りそのものは誤りではない（ほかの番号は止めたまま。締め直さない）。1件ずつの取り消しで
+        残りも取り消したら、そこで締め直す（どちらの入口も同じ1か所）。"""
+        s = self.ready()
+        extra = normalize(fictional_jp_fixed()).e164
+        aid = self.refused(s, extra=extra)
+        entries = self.tx(s, lambda tx: {r["phone_e164"]: r["entry_id"] for r in tx.all(
+            "SELECT phone_e164, entry_id FROM salescall.dnc_entries WHERE source_attempt_id = %s", (aid,))})
+        self.assertEqual(set(entries), {s["phone"], extra})
+        got = self.tx(s, lambda tx: dnc.revoke(tx, entries[extra], "試験"), ADMIN)
+        self.assertEqual(got["resettled"], [])
+        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["business_state"], "do_not_call")
+        got = self.tx(s, lambda tx: dnc.revoke(tx, entries[s["phone"]], "試験"), ADMIN)
+        self.assertEqual(got["resettled"], [aid])
+        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["business_state"], "completed")
+
+
+    def test_revoking_a_contractor_entry_puts_the_rows_back_by_the_job(self):
+        """契約者の共通の発信禁止を取り消したら、その登録で門が終えた行も予定に戻す（依頼者の台帳と同じ1か所 next_action.reopen_revoked。
+        契約者の範囲の取り消しの取引からは依頼者の行を読めないので、見守り役の決まった間隔の仕事が、依頼者ごとに呼ぶ）。"""
+        s = self.ready()
+        mine = lambda work: self.w.a.in_tenant(OPERATOR, s["tenant"], work)   # noqa: E731
+        got = mine(lambda tx: dnc.register_contractor(tx, s["phone"], "誤って登録した（試験）"))
+        denied = self.claim(s)
+        self.assertEqual(denied.reason, "dnc_contractor")
+        self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "dnc_contractor")
+        back = lambda: self.tx(s, lambda tx: next_action.reopen_revoked(tx, cause="試験：取り消しのあと"))   # noqa: E731
+        self.assertEqual(back(), [])                                              # まだ取り消していない：戻さない
+        mine(lambda tx: dnc.revoke_contractor(tx, got["entry_id"], "依頼者からの正式な求め（試験）"))
+        self.assertEqual(back(), [s["task"]])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "call")
+        self.assertEqual(back(), [])                                              # 同じ取り消しで、何度も戻さない
+        mine(lambda tx: dnc.register_contractor(tx, s["phone"], "また登録した（試験）"))
+        denied = self.claim(s)
+        self.assertEqual(denied.reason, "dnc_contractor")
+        self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        self.assertEqual(back(), [])                                              # 終えたあとの取り消しが無い：門がまた終えたまま
+
+
+class EndedWithoutCheck(Helpers):
+    """前の作業担当が残した問い (8)：切れ方の分からない通話のあと、確かめのかけ直しが一度もかからないまま行が終わった（門が終えた など）。
+    決まっていない＝営業拒否の証拠が無いので、営業拒否にせず、その通話の結果どおりで確定する（approval の1か所）。"""
+
+    def test_the_unclear_call_result_is_confirmed_as_it_is_when_the_row_ends(self):
+        s = self.ready()
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="callee",
+                        report=rep(cut=Cut("ai", False, False)))
+        self.assertEqual(self.settle(s, aid)["state"], "incomplete")
+        self.assertEqual(self.released(s, aid), 0)                               # 確かめのかけ直しを待つあいだは確定しない
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"), OPERATOR)  # 契約者が止めた：門が終える
+        denied = self.claim(s)
+        self.assertEqual(denied.reason, "dnc_client")
+        self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
+        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.decision_pending(%s) AS p", (aid,)))["p"])
+        self.assertEqual(self.released(s, aid), 1)
+        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["business_state"], "incomplete")
+
+
+class ForbiddenUnclearCut(Helpers):
+    """言ってはいけないことを言った通話で、切れ方が分からない（営業拒否の言葉も、声が届かなかった証拠も無いまま、お客様が切った）とき
+    （2026-10-31 管理者：伺い3「案2だが、確かめるのは人でなくAI、どうしてもAIでは判断できない場合のみ、契約者に判断をゆだねる。AIが
+    どうしても判断できない場合の設定も選択できるようにしておくこと」。⛔ 見直し26a の 2：前は行を終えるだけで、断ったかが分からない
+    お客様を「断っていない」扱いにし、ほかの行からかけた）。確かめのかけ直しはしない。断ったかは取り消せない決定の保留（どの AI も
+    そうだと読んでいない＝judge.Irreversible.undecided）で、通話後の録音の確かめ（録音から作り直した報告の切れ方）が決め、決まらなければ
+    設定 decision.undecided_as_decided（初め：契約者に委ねる）。"""
+
+    UNCLEAR = Cut("ai", False, False)   # AI が話している途中に、お客様が何も言わずに切った
+
+    def forbidden_call(self, s, *, rebuilt=None):
+        """言ってはいけないことを言い、切れ方が分からないまま切れた通話（フルオートの業務）を締める。rebuilt＝通話後の検証が録音から作り
+        直した報告（無ければ、検証が作り直さないまま済んだ）。"""
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="callee",
+                        report=rep(cut=self.UNCLEAR), verify=None)
+        if rebuilt is not None:
+            self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rebuilt, evidence="試験：録音から"))
+        summary = attempts.VerificationSummary(0, 0, 1, findings=(attempts.ForbiddenFinding("F1", "初月は無料です"),))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=summary))
+        self.settle(s, aid)
+        return aid
+
+    unchecked_requests = RecordingCannotDecide.unchecked_requests
+    close_unchecked = RecordingCannotDecide.close_unchecked
+
+    def last_wait(self, s, aid):
+        return self.tx(s, lambda tx: tx.one("SELECT kind, parts, checked FROM salescall.decision_waits WHERE attempt_id = %s"
+                                            " ORDER BY seq DESC LIMIT 1", (aid,)))
+
+    def test_it_is_held_and_not_called_again_until_the_ai_rechecks_when_the_ai_did_not_check(self):
+        """検証が録音で確かめないまま済んだ：断りの候補は保留（発信禁止に入れない・行はかけずに保留・ほかの行も待つ・確かめのかけ直しの
+        電話をかけない）。人には求めず、会話の担当へ確かめ直しを頼む（伺い9）。録音から作り直しても切れ方が決まらなければ（AI でも
+        決められない）、設定が「いいえ」（初め）なので契約者に求め、承認すれば断り（確かめて断りと決めた断り）として登録し、行を終える。"""
+        s = self.ready()
+        self.close_unchecked()
+        other = self.other_row(s)
+        aid = self.forbidden_call(s)
+        self.held(s, aid, "recording", other)
+        self.assertEqual(self.last_wait(s, aid), {"kind": "recording", "parts": ["refusal"], "checked": "none"})
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.assertEqual(len(self.unchecked_requests()), 1)
+        self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT 1 AS x FROM salescall.unclear_checks WHERE task_id = %s",
+                                                       (s["task"],))))          # 確かめのかけ直しはしない
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])                    # AI の確かめ直しを待つ
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(cut=self.UNCLEAR, check="none"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])          # AI でも決められない：契約者に求める
+        out = self.approve(s, aid)
+        self.assertEqual(out["state"], "do_not_call")
+        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
+        self.assertFalse(self.pending(s, aid)["p"])
+
+    def test_the_setting_does_not_cover_a_wait_the_ai_did_not_recheck(self):
+        """会話の担当が録音で確かめないまま済んだ保留は、設定 decision.undecided_as_decided が「はい」でも、決まったとみなさない（確かめずに
+        発信禁止に入れない。2026-11-01 管理者：伺い9「確かめずに、発信禁止に入れる判断を私がするとは思えません」・案1「OK」）。人にも
+        求めず、会話の担当の確かめ直しを待つ。⛔ c369bbf：CL-2 が自分の文「すべてに同じく効く」をご決定と読み違え、決まったとみなしていた。"""
+        s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
+        self.close_unchecked()
+        before = self.notices(s, "decision_assumed")
+        aid = self.forbidden_call(s)
+        self.assertTrue(self.pending(s, aid)["p"])
+        self.assertEqual(self.asks(s), [(False, None)])
+        self.assertEqual(self.last_wait(s, aid), {"kind": "recording", "parts": ["refusal"], "checked": "none"})
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertEqual(self.notices(s, "decision_assumed"), before)
+        self.assertEqual(len(self.unchecked_requests()), 1)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "hold")
+
+    def test_sent_back_it_is_not_a_refusal_the_row_ends_and_other_rows_are_free(self):
+        s = self.ready()
+        self.close_unchecked()
+        other = self.other_row(s)
+        aid = self.forbidden_call(s, rebuilt=rep(cut=self.UNCLEAR, check="none"))   # AI でも決められず、契約者に求めた
+        out = self.send_back(s, aid)
+        self.assertNotEqual(out["state"], "do_not_call")
+        self.assertEqual(self.dnc_reasons(s), [])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "forbidden_speech")
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertNotEqual(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, "related_decision_pending")
+        self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT 1 AS x FROM salescall.unclear_checks WHERE task_id = %s",
+                                                       (s["task"],))))          # 差し戻したあとも、確かめのかけ直しはしない
+
+    def test_the_recording_check_decides_when_it_finds_refusal_words_or_lost_voices(self):
+        """通話後の録音の確かめ（AI）が、切れ方を決められた：断りの言葉のあとに切れた（2つ目の判定とそろった）＝その場で断り／声が
+        届いていなかった＝断りではない（行は言ってはいけないことで終える）。どちらも保留にしない。"""
+        s = self.ready()
+        aid = self.forbidden_call(s, rebuilt=rep(cut=Cut("callee", False, True), check="agreed"))
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
+        t = self.ready()
+        aid = self.forbidden_call(t, rebuilt=rep(cut=Cut("ai", False, False, callee_cannot_hear=True)))
+        self.assertFalse(self.pending(t, aid)["p"])
+        self.assertEqual(self.dnc_reasons(t), [])
+        self.assertEqual(self.tx(t, lambda tx: next_action.current(tx, t["task"]))["end_reason"], "forbidden_speech")
+
+    def test_when_the_ai_cannot_decide_the_setting_chooses(self):
+        """録音から作り直しても切れ方が決まらない（AI が判断できない）：設定が「いいえ」（初め）なら契約者に求める。あとで「はい」にすると、
+        保留を見直す決まった間隔の仕事が締め直し、決まったとみなす（断りとして登録・行を終える・契約者と管理者に知らせる。答えは求めない。
+        保留の版に、決まったとみなした中身を残す）。"""
+        s = self.ready()
+        before = self.notices(s, "decision_assumed")
+        aid = self.forbidden_call(s, rebuilt=rep(cut=self.UNCLEAR, check="none"))
+        self.held(s, aid, "recording")
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])
+        self.put_client(s, "decision.undecided_as_decided", True)
+        self.assertEqual([d["state"] for d in self.tx(s, settle.rejudge_held)], ["do_not_call"])
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.asks(s), [])
+        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
+        self.assertEqual(self.last_wait(s, aid), {"kind": "recording", "parts": ["refusal"], "checked": "assumed"})
+        self.assertEqual(self.notices(s, "decision_assumed"), before + 1)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])                    # もう待っていない（繰り返さない）
+        with self.assertRaises(LookupError):                                    # 答えを求めていない
+            self.approve(s, aid)
+        # 決まったとみなした中身は、承認と同じく決まった扱い：設定を戻して締め直しても、契約者に答えを求め直さず、知らせも重ねない
+        # （⛔ 見直し28：前は待つ中身から外さず、もう発信禁止と行の終わりを書いたお客様について答えを求め直しえた）
+        self.put_client(s, "decision.undecided_as_decided", False)
+        self.tx(s, lambda tx: settle.resettle(tx, aid))
+        self.assertEqual((self.asks(s), self.notices(s, "decision_assumed")), ([], before + 1))
+        self.assertEqual(self.last_wait(s, aid)["checked"], "assumed")
+        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
+        t = self.ready()                                                          # はじめから「はい」：締めた時に決まったとみなす
+        self.put_client(t, "decision.undecided_as_decided", True)
+        aid = self.forbidden_call(t, rebuilt=rep(cut=self.UNCLEAR, check="none"))
+        self.assertFalse(self.pending(t, aid)["p"])
+        self.assertEqual(self.dnc_reasons(t), ["refused_unclear_checked"])
+        self.assertEqual(self.tx(t, lambda tx: results.latest(tx, t["task"]))["detail"].get("decision_assumed"),
+                         "recording_undecided")
+
+    def test_an_assumed_part_stays_settled_after_newer_waits(self):
+        """決まったとみなした中身は、そのあとに別の中身の待ちの版が足されても、もう待たない（approval._settled が、決まったとみなした
+        全部の版を合わせる）：断りを決まったとみなした → 設定を「いいえ」に戻した → 録音から作り直した2つ目の報告で、怒っていたが
+        2つ目の判定とそろわず待ちになった → 契約者が怒っていたを承認した。断りを、もう一度契約者に求めない。⛔ 見直し29a の 2：前は、
+        いちばん新しい版だけを見たので、承認のあとに断りがまた待ちの版になり、もう発信禁止に入れたお客様について答えを求め直した。"""
+        s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
+        aid = self.forbidden_call(s, rebuilt=rep(cut=self.UNCLEAR, check="none"))
+        self.assertEqual(self.last_wait(s, aid)["checked"], "assumed")
+        self.put_client(s, "decision.undecided_as_decided", False)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(cut=self.UNCLEAR, complaint=True, check="disagreed"),
+                                                       evidence="試験：録音から（2回目）"))
+        self.tx(s, lambda tx: settle.resettle(tx, aid))
+        self.assertEqual(self.last_wait(s, aid)["parts"], ["complaint"])        # 待つのは怒っていただけ（断りは、もう決まった扱い）
+        asked = self.notices(s, "decision_approval")
+        self.approve(s, aid)
+        waits = self.tx(s, lambda tx: [(r["parts"], r["checked"]) for r in tx.all(
+            "SELECT parts, checked FROM salescall.decision_waits WHERE attempt_id = %s ORDER BY seq", (aid,))])
+        self.assertNotIn((["refusal"], "none"), waits)                          # 断りがまた待ちの版にならない
+        self.assertEqual((self.asks(s), self.notices(s, "decision_approval")), ([], asked))   # 契約者に求め直さない
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
+
+    def test_the_setting_also_covers_a_disagreed_refusal_the_recording_could_not_decide(self):
+        """設定は、AI が確かめ直しても決められない取り消せない決定のどれにも効く（1か所＝approval.assumable）：2つ目の判定とそろわず、録音から
+        作り直してもそろわない断り。"""
+        s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"), verify=None)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"), evidence="試験：録音から"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.settle(s, aid)
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
+        self.assertEqual(self.last_wait(s, aid)["checked"], "assumed")
+
+    def test_verification_mode_always_waits_for_the_contractor_and_a_send_back_is_not_counted_as_wrong(self):
+        """検証モードでかけた通話は、設定が「はい」でも、いつも契約者の承認（2026-10-30 (6)）。どの AI もそうだと読んでいなかった断りの
+        候補を差し戻しても、システムがその場で決めた誤りには数えない（approval.sent_back_on_spot）。"""
+        s = self.ready()
+        self.put_client(s, "approval.human", True)
+        self.put_client(s, "decision.undecided_as_decided", True)
+        self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
+        aid = self.forbidden_call(s, rebuilt=rep(cut=self.UNCLEAR, check="none"))
+        self.assertEqual(self.last_wait(s, aid), {"kind": "approval", "parts": ["refusal"], "checked": "none"})
+        self.assertTrue(self.pending(s, aid)["p"])
+        self.send_back(s, aid)
+        self.assertEqual(self.tx(s, lambda tx: approval.sent_back_on_spot(tx, aid)), frozenset())
+        t = self.ready()                       # 2つ目の判定とそろった中身（怒っていた）と同じ版で待っても、断りの候補は数えない
+        self.put_client(t, "approval.human", True)
+        self.tx(t, lambda tx: approval.approve_task(tx, t["task"]), OPERATOR)
+        aid = self.forbidden_call(t, rebuilt=rep(cut=self.UNCLEAR, complaint=True, check="agreed"))
+        self.assertEqual(self.last_wait(t, aid), {"kind": "approval", "parts": ["complaint", "refusal"], "checked": "agreed"})
+        self.send_back(t, aid)
+        self.assertEqual(self.tx(t, lambda tx: approval.sent_back_on_spot(tx, aid)), frozenset({"complaint"}))
+
+    def test_assumed_waits_are_only_recording_waits_with_parts(self):
+        """決まったとみなした版の印は、録音の確かめ待ちで、中身があるときだけ（データベースが守る）。"""
+        s = self.ready()
+        self.close_unchecked()
+        aid = self.forbidden_call(s)
+        put = ("INSERT INTO salescall.decision_waits (tenant_id, client_id, attempt_id, seq, task_id, kind, parts, checked)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'assumed')")
+        nxt = self.seq(s, aid) + 1
+
+        def write(tx, kind, parts):
+            tx.execute("SELECT salescall.settling(%s)", (aid,))   # 締めの入口の印は立てる（守りは印でなく、中身で断る）
+            tx.execute(put, (aid, nxt, s["task"], kind, parts))
+        for kind, parts in (("approval", ["refusal"]), ("recording", [])):
+            with self.subTest(kind=kind, parts=parts), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: write(tx, kind, parts))
+        self.tx(s, lambda tx: write(tx, "recording", ["refusal"]))               # 録音の確かめ待ちで中身があれば書ける
+        self.assertFalse(self.pending(s, aid)["p"])                               # その版は、もう待たない
+
+
+class Utterances(Helpers):
+    """その場のやり取りの文字（お客様と AI の発話・時刻。計画書 11-1）：通話ごとに起きた順に残し、書き換えない・消さない。"""
+
+    def test_the_words_are_kept_in_order_and_never_changed(self):
+        s = self.ready()
+        c = self.claim(s)
+        self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+        with self.assertRaises(UtteranceInvalid):                                # お客様が出ていない
+            self.tx(s, lambda tx: conversation_io.write_utterance(tx, c.attempt_id, Utterance("callee", 1, "もしもし", 1.0)))
+        for st in TALK[1:3]:
+            self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st))
+        work = conversation_io.utterance_work(c.attempt_id, Utterance("ai", 0, "お世話になっております。試験の会社です。", 0.5))
+        self.assertEqual(self.tx(s, work), 1)
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.write_utterance(
+            tx, c.attempt_id, Utterance("callee", 1, "営業の電話はお断りです", 3.2))), 2)
+        for bad in (Utterance("person", 1, "x", 1.0), Utterance("callee", -1, "x", 1.0), Utterance("callee", 1, " ", 1.0),
+                    Utterance("callee", 1, "x", -1)):
+            with self.subTest(bad=bad), self.assertRaises(UtteranceInvalid):
+                conversation_io.utterance_work(c.attempt_id, bad)
+        got = self.tx(s, lambda tx: conversation_io.utterances(tx, c.attempt_id))
+        self.assertEqual([(r["seq"], r["speaker"], r["turn"]) for r in got], [(1, "ai", 0), (2, "callee", 1)])
+        for sql in ("UPDATE salescall.call_utterances SET said = 'x' WHERE attempt_id = %s",
+                    "DELETE FROM salescall.call_utterances WHERE attempt_id = %s"):
+            with self.subTest(sql=sql[:6]), self.assertRaises(Rejected):   # 表の持ち主でも（権限ではなく、引き金が守る）
+                owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(sql, (c.attempt_id,)))
+        other = self.ready()                                                     # ほかの依頼者からは見えない
+        self.assertEqual(app_access().in_client(SYSTEM, other["tenant"], other["client"], lambda tx: conversation_io.utterances(
+            tx, c.attempt_id)), [])
+        for st in TALK[3:]:
+            self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st))
+        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, rep()))
+        self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, summary=CLEAN))
+        with self.assertRaises(UtteranceInvalid):                                # 検証が済んだら足さない
+            self.tx(s, lambda tx: conversation_io.write_utterance(tx, c.attempt_id, Utterance("ai", 1, "失礼いたします", 9.0)))
+
+    def test_the_words_go_with_the_recording_days_but_held_calls_are_kept(self):
+        """やり取りの文字は、録音と同じ「Fly.io に残す日数」（契約者ごと。初め7日）を過ぎたら消える（計画書 11-4。0157）。消さないのは録音と
+        同じ（測り終わるまで・まだ決まっていない取り消せない決定）。消すのは、その入口だけ。"""
+        worlds, calls = [self.ready(), self.ready()], []
+        for s in worlds:
+            aid = self.answered_call(s)
+            self.tx(s, lambda tx, aid=aid: conversation_io.write_utterance(tx, aid, Utterance("callee", 1, "はい", 1.0)))
+            for st in TALK[3:]:
+                self.tx(s, lambda tx, aid=aid: attempts.move(tx, aid, st))
+            calls.append(aid)
+        (s, s2), (old, held) = worlds, calls
+        self.tx(s2, lambda tx: tx.execute("INSERT INTO salescall.recording_holds (tenant_id, client_id, attempt_id, reason)"
+                                          " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'verification')", (held,)))
+        purge = lambda w: app_access().in_tenant(SYSTEM, w["tenant"], conversation_io.purge_utterances)   # noqa: E731
+        self.assertEqual((purge(s), purge(s2)), (0, 0))                              # まだ7日たっていない
+        owner_access().in_system(SYSTEM, lambda tx: (   # 8日前の通話にする（試験の場面を作るため、この取引の中だけ守りを外す）
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER"),
+            tx.execute("UPDATE salescall.attempts SET ended_at = ended_at - interval '8 days',"
+                       " claimed_at = claimed_at - interval '8 days' WHERE attempt_id = ANY(%s)", (calls,)),
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")))
+        self.assertEqual((purge(s), purge(s2)), (1, 0))                              # 測り終わるまで消さない通話の分は残る
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.utterances(tx, old)), [])
+        self.assertEqual(len(self.tx(s2, lambda tx: conversation_io.utterances(tx, held))), 1)
+        with self.assertRaises(Rejected):                                          # 表の持ち主でも、入口の外からは消せない
+            owner_access().in_tenant(SYSTEM, s2["tenant"], lambda tx: tx.execute(
+                "DELETE FROM salescall.call_utterances WHERE attempt_id = %s", (held,)))
+        with self.assertRaises(Rejected):                                          # 契約者の取引のシステムの処理だけ
+            app_access().in_tenant(OPERATOR, s["tenant"], conversation_io.purge_utterances)
+
+    def test_a_call_waiting_for_the_unclear_cut_check_and_an_unended_call_are_kept(self):
+        """消さない通話は1か所（salescall.attempt_kept。0159）：切れ方の確かめのかけ直しを待つ通話（保留の表には無い）も、録音の片付け・
+        やり取りの文字を消す入口・その守りの3つで同じに残す。⛔ 見直し25a の D：前は、その1件で、契約者のやり取りの文字を消す仕事が毎日
+        まるごと失敗し、録音の片付けはその通話の録音を消してよいとしていた。終わっていない通話の文字は、日数に数えない（E）。"""
+        s = self.ready()
+        waiting, open_call = self.answered_call(s), None
+        self.tx(s, lambda tx: conversation_io.write_utterance(tx, waiting, Utterance("callee", 1, "はい", 1.0)))
+        for st in TALK[3:]:
+            self.tx(s, lambda tx: attempts.move(tx, waiting, st))
+        self.tx(s, lambda tx: tx.execute("INSERT INTO salescall.unclear_checks (tenant_id, client_id, task_id, attempt_id)"
+                                         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s)", (s["task"], waiting)))
+        s2 = self.ready()
+        open_call = self.answered_call(s2)                                      # 終わっていない（固まった）通話
+        self.tx(s2, lambda tx: conversation_io.write_utterance(tx, open_call, Utterance("callee", 1, "はい", 1.0)))
+        owner_access().in_system(SYSTEM, lambda tx: (
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER"),
+            tx.execute("UPDATE salescall.attempts SET ended_at = ended_at - interval '8 days',"
+                       " claimed_at = claimed_at - interval '8 days' WHERE attempt_id = ANY(%s)", ([waiting, open_call],)),
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")))
+        purge = lambda w: app_access().in_tenant(SYSTEM, w["tenant"], conversation_io.purge_utterances)   # noqa: E731
+        self.assertEqual((purge(s), purge(s2)), (0, 0))                          # どちらも残る（仕事も落ちない）
+        folder = backup.client_folder(self.w.a, s["tenant"], s["client"])          # 録音の片付けも、同じく消さない
+        self.assertIn(str(waiting), backup.prune_rules(self.w.a, s["tenant"])[folder]["held"])
+        with self.assertRaises(Rejected):                                        # 守りも同じ1か所（消す印を立てても消せない）
+            owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: (
+                tx.execute("SET LOCAL salescall.purging_utterances = 'on'"),   # 消す処理の印（契約者・誰が、の印ではない）
+                tx.execute("DELETE FROM salescall.call_utterances WHERE attempt_id = %s", (waiting,))))
+
+
+class ReportShape(unittest.TestCase):
+    """会話の報告の項目 irreversible_check（データの形 版 1.07）：無い・null は「判定が無い」、決まった値だけを受ける。"""
+
+    def test_the_check_is_read_and_old_reports_have_none(self):
+        raw = make_report(dnc=True).to_json()
+        self.assertEqual(call_report.from_json(raw).irreversible_check, "agreed")
+        for v in (None, "missing"):
+            r = dict(raw)
+            if v is None:
+                del r["irreversible_check"]
+            else:
+                r["irreversible_check"] = None
+            self.assertEqual(call_report.from_json(r).irreversible_check, "none")
+        with self.assertRaises(ReportInvalid):
+            call_report.from_json({**raw, "irreversible_check": "maybe"})
+
+    def test_without_takes_the_decisions_out(self):
+        r = make_report(("wrong_party",), dnc=True, complaint=True, cut=Cut("ai", False, True))
+        w = r.without({"refusal", "wrong_party"})
+        self.assertEqual((w.refusals, w.parties, w.cut.callee_refused_last, bool(w.complaints)), ((), (), False, True))
+        self.assertEqual(r.without(()), r)
+        with self.assertRaises(ValueError):
+            r.without({"other"})
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+CUT = ("dialing", "ringing", "answered", "in_conversation", "technical_error")
+
+
+class ByPart(Helpers):
+    """見直し24 の a・b・c で見つかった場面（保留と答えは中身ごと・報告が変われば決め直す・同じ行も止める・取り消しの重なり・守り）。"""
+
+    def test_revoking_the_declaration_does_not_close_the_complaint_wait(self):
+        """通話の途中の申告（台帳にその場で入る）＋そろわない怒っていた ⇒ 怒っていたは保留。申告の発信禁止を取り消しても、怒っていたの
+        保留は閉じない（答えは中身ごと。⛔ 見直し24a の (3)・24b の (A)：前は、取り消しの答えで保留が閉じ、確かめないまま苦情で行を終えた）。"""
+        s = self.ready()
+        aid = self.answered_call(s, TALK[1:])
+        self.assertFalse(self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))["held"])
+        self.tx(s, lambda tx: call_report.save(tx, aid, rep(dnc=True, complaint=True, check="disagreed")))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.assertEqual(self.settle(s, aid)["decision"].kind, "hold")
+        self.assertEqual([w["parts"] for w in self.tx(s, approval.pending_decisions)], [["complaint"]])
+        self.tx(s, lambda tx: dnc.revoke_source(tx, aid, "依頼者からの正式な求め（試験）"), OPERATOR)
+        self.assertTrue(self.pending(s, aid)["p"])
+        self.assertEqual([w["parts"] for w in self.tx(s, approval.pending_decisions)], [["complaint"]])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "hold")
+        self.assertEqual(self.notices(s, "complaint"), 0)
+
+    def test_a_wait_found_by_rejudging_an_earlier_call_stops_the_same_row(self):
+        """途中で切れて判定できなかった通話 → かけ直しに出なかった → 録音から作り直した報告で前の通話に「そろわない断り」⇒ 保留。あとの発信が
+        あっても、同じ行からそのお客様にかけない（門。⛔ 見直し24a の (2)）。"""
+        s = self.ready()
+        self.override("gate.same_contact_min_interval", 1)
+        aid = self.call(s, CUT, report=rep(cut=None), items=(("Q1", "dont_know", None),))
+        self.assertEqual(self.settle(s, aid)["state"], "unknown")
+        later = self.call(s, ["dialing", "no_answer"])
+        self.settle(s, later)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, cut=None, check="disagreed"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)
+        self.assertTrue(self.pending(s, aid)["p"])
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：予定の時刻が来た"))
+        self.assertEqual(self.reason(s), "related_decision_pending")
+        # 契約者が録音とやり取りを確かめて承認した：あとの発信は出なかっただけなので、前の通話の断りで行を終える（行の結果も断り）
+        self.assertEqual(self.asks(s), [(True, "recording_undecided")])
+        self.approve(s, aid)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "do_not_call")
+        self.assertEqual(self.released(s, aid), 1)
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])
+
+    def test_revoking_an_overlapping_entry_keeps_the_later_refusal(self):
+        """お客様が言った別の番号 A が番号違い（A を止めた。出どころはその通話）→ 一覧の番号へ聞き直し → 断った（止める範囲に A も入る）。
+        番号違いの登録を取り消しても、断りで A は止まったまま。行の結果も「営業拒否」のまま（⛔ 見直し24a の (1)）。"""
+        from salescall.core import number_recheck
+        from tests.test_alternate import other as other_report
+        s = self.ready(phone=fictional_jp_fixed())
+        self.override("gate.same_contact_min_interval", 1)
+        said = fictional_jp_fixed()
+        alt = normalize(said).e164
+        first = self.call(s, report=other_report(said))
+        self.settle(s, first)
+        wrong = self.call(s, report=rep(("wrong_party",)), verify=None)
+        self.tx(s, lambda tx: number_recheck.record(tx, wrong, "as_said", corrected=None, evidence="試験：付け合わせた",
+                                                    checked_by="試験"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, wrong, summary=CLEAN))
+        self.assertEqual(self.settle(s, wrong)["state"], "not_reached")
+        refused = self.call(s, report=rep(dnc=True, check="agreed"))
+        self.assertEqual(self.settle(s, refused)["state"], "do_not_call")
+        self.tx(s, lambda tx: dnc.revoke_source(tx, wrong, "依頼者からの正式な求め（試験）：番号違いではなかった"), OPERATOR)
+        hit = self.tx(s, lambda tx: tx.one("SELECT reason::text AS r, source_attempt_id FROM salescall.dnc_entries"
+                                           " WHERE phone_e164 = %s AND revoked_at IS NULL", (alt,)))
+        self.assertEqual((hit["r"], hit["source_attempt_id"]), ("refused_in_call", refused))
+        latest = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+        released = self.tx(s, lambda tx: tx.one("SELECT max(version_no) AS v FROM salescall.result_releases WHERE task_id = %s",
+                                                (s["task"],)))["v"]
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT business_state::text AS b FROM salescall.task_results"
+                                                      " WHERE task_id = %s AND version_no = %s", (s["task"], released)))["b"],
+                         "do_not_call")                                          # 依頼者へ渡す結果は、断りのまま
+        self.assertNotEqual(latest["attempt_id"], refused)                       # 前の通話を締め直した版は足すが、確定しない
+
+    def test_a_revoke_does_not_report_a_row_still_stopped(self):
+        """行の番号のうち、今かける番号でない番号の登録だけを取り消した：まだ止まっている行を戻さない（門と同じかけない理由の1か所で
+        確かめる。⛔ 見直し24b の (C)）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(), items=[("Q1", "confirmed", None)])
+        extra = normalize(fictional_jp_fixed()).e164
+        self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], normalize(extra), source_attempt_id=aid))
+        self.settle(s, aid)
+        e_extra = self.tx(s, lambda tx: dnc.register(tx, extra, "manual"), OPERATOR)
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"), OPERATOR)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：いま"))
+        denied = self.claim(s)
+        self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        out = self.tx(s, lambda tx: dnc.revoke(tx, e_extra["entry_id"], "試験：別の番号だけ取り消す"), OPERATOR)
+        self.assertEqual(out["reopened"], [])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
+
+    def test_a_revoke_of_the_dialed_number_keeps_a_row_stopped_by_another_number(self):
+        """今かける番号の登録を取り消しても、行のほかの番号（お客様が言った別の番号）に、お客様を止める登録が残っていれば戻さない（門と同じ
+        行のかけない理由の1か所 target_policy.task_block_reason。⛔ 2026-11-15 の見直しまで：かける番号だけを見て戻し、門もそれを通した）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(), items=[("Q1", "confirmed", None)])
+        extra = normalize(fictional_jp_fixed()).e164
+        self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], normalize(extra), source_attempt_id=aid))
+        self.settle(s, aid)
+        self.tx(s, lambda tx: dnc.register(tx, extra, "manual"), OPERATOR)
+        e_dial = self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"), OPERATOR)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：いま"))
+        denied = self.claim(s)
+        self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        out = self.tx(s, lambda tx: dnc.revoke(tx, e_dial["entry_id"], "試験：かける番号だけ取り消す"), OPERATOR)
+        self.assertEqual(out["reopened"], [])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
+
+    def test_a_check_call_that_hit_power_off_or_busy_did_not_ring(self):
+        """確かめのかけ直しが、電源オフ・圏外のお知らせ・話し中で終わった：お客様の電話は鳴っていない＝営業拒否にしない（15分おいて、
+        お詫びからかけ直す。2026-10-30 管理者のご決定 (3)。⛔ 見直し24c の A1：前は「鳴った」として営業拒否にした）。"""
+        for how in ("power_off", "out_of_range", "busy"):
+            with self.subTest(how):
+                s = self.ready()
+                self.override("gate.same_contact_min_interval", 1)
+                aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="callee",
+                                report=rep(cut=Cut("ai", False, False)))
+                self.settle(s, aid)
+                time.sleep(1.2)                                                  # 同じお客様への最短の間隔（試験では1秒）
+                c = self.claim(s)
+                self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+                if how == "busy":
+                    self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, "busy"))
+                else:
+                    self.tx(s, lambda tx: attempts.end_by_notice(tx, c.attempt_id, how))
+                got = self.settle(s, c.attempt_id)
+                self.assertEqual(self.dnc_reasons(s), [])
+                self.assertEqual(self.tx(s, lambda tx: next_action.check_outcome(tx, c.attempt_id)).outcome, "unrung")
+                self.assertNotEqual(got["state"], "do_not_call")
+
+    def test_a_rebuilt_report_that_cannot_be_judged_is_told(self):
+        """保留のあとに作り直した報告が判定できない：判定できない知らせ（だれにも知らせずに待たない。⛔ 見直し24a の (6)）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"), items=[("Q1", "dont_know", None)])
+        self.settle(s, aid)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(check="agreed"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)
+        self.assertGreaterEqual(self.notices(s, "judge_unknown"), 1)
+        self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["business_state"], "unknown")   # 判定し直しを待つ
+        self.assertFalse(self.pending(s, aid)["p"])                               # 断りは報告から消えた：保留は閉じた
+
+    def test_guards(self):
+        """データベースの守り（見直し24a の (8)）：取り消しの答えは発信禁止をすべて取り消したときだけ・保留はその通話の行で、版は順に・
+        やり取りの文字は通話後の検証が済む前だけ。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"))
+        self.settle(s, aid)
+        revoke = ("INSERT INTO salescall.decision_answers (tenant_id, client_id, attempt_id, outcome, parts, by_kind, why, answered_by)"
+                  " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'withdrawn', '{refusal}', 'revoke', '試験',"
+                  " salescall.cur_actor())")
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute(revoke, (aid,)), OPERATOR)
+        wait = ("INSERT INTO salescall.decision_waits (tenant_id, client_id, attempt_id, seq, task_id, kind, parts, checked)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, 'recording', '{refusal}', 'none')")
+        other = self.other_row(s)
+        for seq, task in ((2, other), (5, s["task"])):   # 締めの入口の印を立てても（ほかの守りが断る）
+            with self.subTest(seq=seq), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: (tx.execute("SELECT salescall.settling(%s)", (aid,)), tx.execute(wait, (aid, seq, task))))
+        words = ("INSERT INTO salescall.call_utterances (tenant_id, client_id, attempt_id, seq, speaker, turn, said, at_s)"
+                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 99, 'callee', 1, 'またかけてください（試験）', 1.0)")
+        with self.assertRaises(Rejected):                                        # 検証が済んだあと
+            self.tx(s, lambda tx: tx.execute(words, (aid,)))
+
+
+class Declared(Helpers):
+    """通話の途中の申告かは、申告の入口（dnc.register_declared）が入れた登録だけで見る（dnc.declared_in の1か所。登録の印 in_call＝0198）。
+    ⛔ 2026-11-07 見直し(3)の5：前は、その通話の締めが自分で入れた発信禁止（理由 refused_in_call・出どころ＝その通話）も申告と読み、締め直しで
+    判定の中身の断りの名前が in_call に変わり、取り消せない決定の控えの unsure から断りが消えた。"""
+
+    def latest(self, s):
+        r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+        return r["detail"]["refusal"], r["snapshot"]["declared_in_call"], r["snapshot"]["irreversible"]["unsure"]
+
+    def test_the_settles_own_entry_is_not_read_as_a_declaration(self):
+        s = self.ready()
+        aid = self.call(s, report=rep(cut=Cut("ai", False, True)))     # 断りの言葉のあとに切れた（2つ目の判定とそろった）
+        self.assertEqual(self.settle(s, aid)["state"], "do_not_call")
+        self.assertEqual(self.dnc_reasons(s), ["refused_in_call"])     # 締めが自分で入れた登録
+        self.assertEqual(self.latest(s), ("cut", False, ["refusal"]))
+        self.tx(s, lambda tx: settle.resettle(tx, aid))
+        self.assertEqual(self.latest(s), ("cut", False, ["refusal"]))   # 締め直しても、申告とは読まない
+        self.assertFalse(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
+
+    def test_a_declaration_is_read_from_the_entry_the_declaration_put(self):
+        s = self.ready()
+        aid = self.answered_call(s, TALK[1:])
+        self.assertFalse(self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))["held"])
+        self.assertTrue(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
+        self.tx(s, lambda tx: call_report.save(tx, aid, rep(dnc=True, check="none")))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.settle(s, aid)
+        self.assertEqual(self.latest(s), ("in_call", True, []))
+        self.tx(s, lambda tx: settle.resettle(tx, aid))
+        self.assertEqual(self.latest(s), ("in_call", True, []))
+
+    def test_a_declaration_after_the_refusal_was_sent_back_is_not_read(self):
+        """断りを差し戻した（外すと答えた）通話は、あとから申告の登録が入っても、締め直しで断りにしない（外した断りの材料は読まない＝
+        settle._judge_input）。⛔ 2026-11-07 見直し(3)の8（M4）：外しても落ちる試験が無かった。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(dnc=True, check="disagreed"))
+        self.settle(s, aid)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc=True, check="disagreed"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)                                  # 作り直してもそろわない：契約者に求める
+        self.assertNotEqual(self.send_back(s, aid)["state"], "do_not_call")
+        self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))   # 遅れて届いた申告
+        self.assertNotEqual(self.tx(s, lambda tx: settle.resettle(tx, aid))["state"], "do_not_call")
+
+    def test_a_declaration_after_the_call_was_settled_is_put_and_reported_as_a_conversation_fault(self):
+        """2026-11-07 ユーザーとのやり取りで決めた備え：申告は通話の最中に会話の担当の部品から届く。締めのあとに届くのは、部品の不具合（落ちて
+        送り直した など）のときだけ。⇒ 締めのあとに届いた申告も、今までどおり受けて発信禁止にし（かけない側。原則14）、そのうえで「会話の部品の
+        不具合の疑い」として管理者と契約者に知らせ、会話の担当（CL-1）へ修正依頼を出す（同じ通話で何度届いても1つ）。締めのあとかは、締めの
+        記録の1か所（salescall.is_settled）で決める。通話の最中に届いた申告は、知らせも修正依頼も出さない。"""
+        def asked():
+            return [q for q in self.w.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))
+                    if q["kind"] == "declared_after_settle"]
+
+        def faults(s):
+            admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+                "SELECT 1 FROM salescall.notification_events WHERE kind = 'declared_after_settle' AND for_admin"
+                " AND refs ->> 'client_id' = %s", (str(s["client"]),)))
+            return self.notices(s, "declared_after_settle"), len(admin), [q["refs"]["attempt_id"] for q in asked()]
+
+        for q in asked():   # ほかの試験が出した修正依頼は、直したことにしておく（同じ不具合の依頼は、直したと報告するまで1つ）
+            self.w.a.in_system(SYSTEM, lambda tx, q=q: fix_requests.report_fixed(tx, q["request_id"], "試験：前の試験の分"))
+        s = self.ready()
+        aid = self.answered_call(s, TALK[1:])
+        self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))       # 通話の最中
+        self.assertEqual(faults(s), (0, 0, []))
+        s2 = self.ready()
+        late = self.call(s2, report=rep())
+        self.settle(s2, late)
+        self.assertEqual(self.dnc_reasons(s2), [])
+        for _ in range(2):                                                         # 送り直しで2回届いても、知らせと修正依頼は1つ
+            got = self.tx(s2, lambda tx: conversation_io.declare_do_not_call(tx, late))
+            self.assertFalse(got["held"])
+        self.assertEqual(self.dnc_reasons(s2), ["refused_in_call"])                # かけない側（原則14）
+        self.assertEqual(faults(s2), (1, 1, [str(late)]))
+        refs = self.tx(s2, lambda tx: tx.one("SELECT refs FROM salescall.notification_events WHERE kind = 'declared_after_settle'"))["refs"]
+        self.assertEqual((refs["attempt_id"], refs["task_id"]), (str(late), str(s2["task"])))
+
+    def test_only_the_declaration_puts_an_in_call_entry(self):
+        """申告の印の付いた登録は、理由 refused_in_call・出どころの通話・番号つきだけ（データベースの守り。0198）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(cut=Cut("ai", False, True)))
+        put = ("INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, client_ref, reason, source_attempt_id, registered_by,"
+               " in_call) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, salescall.cur_actor(), true)")
+        for phone, ref, reason, source in ((normalize(fictional_jp_fixed()).e164, None, "wrong_party", aid),
+                                           (normalize(fictional_jp_fixed()).e164, None, "refused_in_call", None),
+                                           (None, "REF-in-call", "refused_in_call", aid)):
+            with self.subTest(reason=reason, source=source, ref=ref):
+                with self.assertRaises(Rejected) as e:
+                    self.tx(s, lambda tx: tx.execute(put, (phone, ref, reason, source)))
+                self.assertEqual(e.exception.constraint, "dnc_entries_in_call_declared")
+
+    def test_a_revoked_declaration_is_no_longer_read_as_a_declaration(self):
+        """取り消した申告の登録は、申告と読まない（dnc.declared_in の revoked_at の決まり。第三者の見直し (2) の6：外しても試験が落ちなかった。
+        数えると、判定し直しで「発信の拒否」に戻り、取り消した番号を締めがまた止めた）。"""
+        s = self.ready()
+        aid = self.answered_call(s, TALK[1:])
+        self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))
+        self.tx(s, lambda tx: call_report.save(tx, aid, rep(dnc=True, check="none")))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.settle(s, aid)
+        self.assertTrue(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
+        entry = self.tx(s, lambda tx: tx.one("SELECT entry_id FROM salescall.dnc_entries WHERE source_attempt_id = %s AND in_call",
+                                             (aid,)))["entry_id"]
+        self.tx(s, lambda tx: dnc.revoke(tx, entry, "試験：申告の誤りと確かめた"), OPERATOR)
+        self.assertFalse(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
+
+    def test_the_in_call_mark_cannot_be_changed_or_put_on_another_call(self):
+        """申告の印 in_call は、あとから変えられない（締めが入れた登録を申告に見せかけない・申告を申告でない登録にしない）。印を付けられるのは、
+        その通話でかけた番号の、お客様が出た通話からの登録だけ（契約者の取引が直接書いても。0201。⛔ 第三者の見直し (2) の4：前は、締めが
+        入れた登録の印をあとから真にでき、契約者の取引が別の番号に印つきの登録を書けた）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(cut=Cut("ai", False, True)))
+        self.assertEqual(self.settle(s, aid)["state"], "do_not_call")              # 締めが入れた登録（印は無い）
+        for actor in (SYSTEM, OPERATOR):
+            with self.subTest(actor=actor), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute("UPDATE salescall.dnc_entries SET in_call = true WHERE source_attempt_id = %s",
+                                                 (aid,)), actor)
+        self.assertFalse(self.tx(s, lambda tx: dnc.declared_in(tx, aid)))
+        put = ("INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, source_attempt_id, registered_by, in_call)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'refused_in_call', %s, salescall.cur_actor(), true)")
+        other = self.ready()
+        unanswered = self.call(other, ["dialing", "no_answer"])
+        for at, phone, source in ((s, normalize(fictional_jp_fixed()).e164, aid),          # その通話の番号でない
+                                  (other, other["phone"], unanswered)):                    # お客様が出ていない通話
+            with self.subTest(source=source), self.assertRaises(Rejected) as e:
+                self.tx(at, lambda tx: tx.execute(put, (phone, source)), OPERATOR)
+            self.assertEqual(e.exception.constraint, "dnc_entries_in_call_of_call")
+
+    def test_the_parts_of_a_revoked_reason_are_one_table(self):
+        """発信禁止の理由から、その通話の報告から外す決定の中身への読み替えは、judge.DNC_PARTS の1つの表（dnc.REFUSALS・judge.irreversible が
+        読む）。データベースの salescall.revoked_parts の読み替えも、この表と同じ（⛔ 2026-11-07 見直し(3)の7：3か所に別々にあった）。"""
+        import re
+        import typing
+        from salescall.core import judge
+        body = owner_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT pg_get_functiondef('salescall.revoked_parts(uuid)'::regprocedure) AS b"))["b"]
+        self.assertEqual(dict(re.findall(r"WHEN '(\w+)' THEN '(\w+)'", body)), judge.DNC_PARTS)
+        self.assertEqual(dnc.REFUSALS, frozenset(r for r, p in judge.DNC_PARTS.items() if p == "refusal"))
+        self.assertLessEqual(set(judge.DNC_PARTS), set(typing.get_args(dnc.Reason)))
+        self.assertLessEqual(set(judge.DNC_PARTS.values()), set(call_report.DECISION_PARTS))
+
+
+class LaterAfterRefusalWithdrawn(Helpers):
+    """「あとで」を営業拒否と読んで断りにした通話で、契約者の差し戻し・依頼者の正式な取り消しで「断りではなかった」と決まったら、その通話の
+    「あとで」は約束の一環とみなす（✅ 2026-11-07 ユーザー：「約束の一環とみなす」。断りを外した報告＝call_report.CallReport.without の1か所）。
+    締め直した判定の中身の callback.intent が promise になり、番号を直したときに戻す側になる（next_action._later_refused）。"""
+
+    def later_refusal(self, check):
+        from tests.support import callback
+        return rep(dnc=True, check=check, callback=callback("later", time="あとで"))
+
+    def intent(self, s):
+        r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+        return r["business_state"], r["detail"]["callback"]["intent"]
+
+    def test_a_sent_back_later_refusal_is_part_of_a_promise(self):
+        s = self.ready()
+        aid = self.call(s, report=self.later_refusal("disagreed"))
+        self.settle(s, aid)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, self.later_refusal("disagreed"), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)                                  # 作り直してもそろわない：契約者に求める
+        self.send_back(s, aid)
+        self.assertEqual(self.intent(s), ("callback_scheduled", "promise"))
+
+    def test_a_revoked_later_refusal_is_part_of_a_promise(self):
+        s = self.ready()
+        aid = self.call(s, report=self.later_refusal("agreed"))
+        self.assertEqual(self.settle(s, aid)["state"], "do_not_call")
+        self.tx(s, lambda tx: dnc.revoke_source(tx, aid, "依頼者からの正式な求め（試験）"), OPERATOR)
+        self.assertEqual(self.intent(s), ("callback_scheduled", "promise"))

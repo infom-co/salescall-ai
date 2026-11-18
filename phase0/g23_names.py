@@ -8,7 +8,7 @@
 - 設計の形（pipeline）：洗い出した名前の一覧を、プログラム（instruction.quote_in_text）が文に当てて「」を付ける。問い合わせは増えない
 - 比べる形（ai_quote）：AIに、文へ直接「」を付けさせる（names.quote_by_model）。QUOTE_SCRIPTS の文だけ
 - 見ること：くくった名前（拾えた・余分）と、⛔「」以外の文字が1文字でも変わっていないか（変わった回は、変わった所を残す）
-1日の上限（Flash は各20回）に収まるよう、1回の問い合わせで1つの文を見させる（洗い出し11回＋直接くくる6回＝17回）。1つのキーで1回ずつ順番に。
+1日の上限（Flash は各20回）に収まるよう、1回の問い合わせで1つの文を見させる（洗い出し11回＋直接くくる6回＝17回）。上限に当たったら次のキーで続ける（common.KeyRing）。
 """
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ import json
 import re
 import time
 
-from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
+from common import (base_parser, call_with_retry, describe_error, drop_partial, make_client, pick_key, require_python, save_partial,
+                    save_result, say)
 from jtext import compare_reading
 from instruction import quote_in_text
 from names import by_model, by_tokenizer, norm_surface, quote_by_model
@@ -187,24 +188,26 @@ def run(args) -> dict:
     for n, (s, g) in enumerate(SCRIPTS):  # 文ごとに、モデルを順に回す（同じモデルへの問い合わせの間を空ける＝1分あたりの上限）
         for k, rep in plan:
             try:
-                got = by_model(client, ids[k], s)
-                row = {"script": s, "got": got, "score": score(g, got)}
+                got, retries = call_with_retry(lambda: by_model(client, ids[k], s))
+                row = {"script": s, "got": got, "score": score(g, got), "retries": retries}
             except Exception as exc:
                 row = {"script": s, "error": describe_error(exc)}
             results[f"{k}#{rep}"].append(row)
             say(f"{k}#{rep} {s[:16]} 拾えた={row.get('score', {}).get('found')}/{len(g)} 読み={row.get('score', {}).get('reading_ok')} "
                 f"余分={row.get('score', {}).get('extras')} {row.get('error', '')}")
+            save_partial("G-23", {"model_ids": ids, "results": results, "quoted": quoted})
             time.sleep(args.pause)
             if n not in QUOTE_SCRIPTS or args.no_ai_quote:
                 continue
             try:
-                q = quote_by_model(client, ids[k], s)
-                qrow = {"script": s, "quote": quote_score(g, s, q)}
+                q, retries = call_with_retry(lambda: quote_by_model(client, ids[k], s))
+                qrow = {"script": s, "quote": quote_score(g, s, q), "retries": retries}
             except Exception as exc:
                 qrow = {"script": s, "error": describe_error(exc)}
             quoted[f"{k}#{rep}"].append(qrow)
             qq = qrow.get("quote", {})
             say(f"{k}#{rep} 直接くくる：{qq.get('quoted', '')} 変わった={qq.get('changed_other')} {qrow.get('error', '')}")
+            save_partial("G-23", {"model_ids": ids, "results": results, "quoted": quoted})
             time.sleep(args.pause)
     out["models"] = {k: {"total": total(v), "rows": v, "pipeline": pipeline(v),
                          "ai_quote": {"total": quote_total(quoted[k]), "rows": quoted[k]}} for k, v in results.items()}
@@ -224,6 +227,7 @@ def main() -> None:
     p.add_argument("--no-ai-quote", action="store_true", help="AIに直接「」を付けさせる比べをしない（問い合わせを減らす）")
     args = p.parse_args()
     save_result("G-23", run(args))
+    drop_partial("G-23")
 
 
 if __name__ == "__main__":

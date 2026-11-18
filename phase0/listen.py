@@ -35,10 +35,41 @@ def _config(ear: str):
     return build_config(voice=None, system_instruction="相手の話を聞いてください。返事は「はい」だけにしてください。")
 
 
-async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, lead_s: float = LEAD_S) -> str:
-    """声を 16kHz にして、前に lead_s 秒の無音を置いてから 0.1秒ずつ送り、確定した文字起こしをつなげて返す。"""
+def _cut_off(exc: BaseException | None) -> bool:
+    """接続が向こうの都合で切れたか（1006 abnormal closure・接続のリセット・接続が閉じられた）。誤りの原因のつながりもたどる。
+    ⛔ 2026-10-13 G-27：受け取りで 1006 が出たあと、送る側でも接続のリセットが出て、そちらが先に上がり、聞き直しに入らなかった。"""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if getattr(exc, "code", None) == 1006 or isinstance(exc, ConnectionResetError) or type(exc).__name__.startswith("ConnectionClosed"):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, lead_s: float = LEAD_S,
+               retry_wait_s: float = 10.0, timing: dict | None = None, tail_s: float = 1.5, on_final=None) -> str:
+    """声を 16kHz にして、前に lead_s 秒の無音を置いてから 0.1秒ずつ送り、確定した文字起こしをつなげて返す。
+    接続が途中で切れたら、間を空けて1回だけ聞き直す。それでも切れたら誤りを上げる（聞けた途中までを、聞けた結果として返さない）。
+    ⛔ 2026-10-13 G-22：別の耳の接続が途中で切れ（1006）、受け取りの処理だけが黙って止まり、途中までの文字を全部聞いた結果として返していた。"""
+    try:
+        return await _hear_once(client, pcm16, rate, ear, idle_s, lead_s, timing, tail_s, on_final)
+    except Exception as exc:
+        if not _cut_off(exc):
+            raise
+    await asyncio.sleep(retry_wait_s)
+    return await _hear_once(client, pcm16, rate, ear, idle_s, lead_s, timing, tail_s, on_final)
+
+
+async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, lead_s: float, timing: dict | None = None,
+                     tail_s: float = 1.5, on_final=None) -> str:
+    """on_final を渡すと、確定した文字が届くたびに、それまでの文字（つなげたもの）で呼ぶ（通話の中で、届いた瞬間に使うため。G-15）。
+    timing を渡すと、声を送り終えてから、最後の文字起こしが届くまでの秒（after_s）と、最初の文字起こしが届くまでの秒（first_s）を入れる
+    （声の終わりから数える。声のあとの無音は呼ぶ側が足す。G-15：通話の中で別の耳を使えるかの見積もり）。"""
     pcm = resample(pcm16, rate, 16000)
     finals: list[str] = []
+    times: list[float] = []
+    loop = asyncio.get_running_loop()
     async with client.aio.live.connect(model=_MODEL[ear], config=_config(ear)) as s:
         async def receiver():
             while True:
@@ -46,20 +77,36 @@ async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, l
                     sc = m.server_content
                     if sc and sc.input_transcription and sc.input_transcription.text and getattr(sc.input_transcription, "finished", True) is not False:
                         finals.append(sc.input_transcription.text)
+                        times.append(loop.time())
+                        if on_final:
+                            on_final("".join(finals))
 
         rx = asyncio.create_task(receiver())
-        if lead_s > 0:
-            async with silence_while(s, 16000):  # 声の前の無音（話し始めの音を聞き落とさないため）
-                await asyncio.sleep(lead_s)
-        await stream_audio(s, pcm, 16000)
-        async with silence_while(s, 16000):  # 話し終わりに気づかせる無音 1.5秒
-            await asyncio.sleep(1.5)
-        await s.send_realtime_input(audio_stream_end=True)
-        last = -1
-        while len(finals) != last:  # 新しい文字起こしが idle_s 秒届かなくなるまで待つ
-            last = len(finals)
-            await asyncio.sleep(idle_s)
-        rx.cancel()
+
+        def rx_error():
+            return rx.exception() if rx.done() and not rx.cancelled() else None
+        try:
+            if lead_s > 0:
+                async with silence_while(s, 16000):  # 声の前の無音（話し始めの音を聞き落とさないため）
+                    await asyncio.sleep(lead_s)
+            await stream_audio(s, pcm, 16000)
+            sent_at = loop.time()
+            async with silence_while(s, 16000):  # 話し終わりに気づかせる無音（tail_s 秒。そのあとに送り終わりを伝える）
+                await asyncio.sleep(tail_s)
+            await s.send_realtime_input(audio_stream_end=True)
+            last = -1
+            while len(finals) != last and not rx.done():  # 新しい文字起こしが idle_s 秒届かなくなるまで待つ
+                last = len(finals)
+                await asyncio.sleep(idle_s)
+        except Exception as exc:
+            raise (rx_error() or exc) from exc  # 受け取りが先に止まっていたら、そちらが本当の原因
+        finally:
+            if not rx.done():
+                rx.cancel()
+        if rx_error() is not None:
+            raise rx_error()  # 受け取りが途中で止まった（接続が切れたなど）
+    if timing is not None and times:
+        timing.update(first_s=round(times[0] - sent_at, 3), after_s=round(times[-1] - sent_at, 3))
     return "".join(finals)
 
 
@@ -75,13 +122,18 @@ def differences(expected: str, heard: str) -> list[dict]:
 
 
 async def hear_feeds(client, pcm16: bytes, rate: int, ear: str = "transcribe35") -> dict[str, str | None]:
-    """同じ声を、2通りの聞かせ方（FEEDS）で聞く。聞けなかったほうは None。"""
+    """同じ声を、2通りの聞かせ方（FEEDS）で聞く。聞けなかったほうは None。聞けなかった・空の返事だった聞き方は、1回だけ聞き直す
+    （⛔ 2026-10-25 G-69 の3回目：片方の耳が2秒の声に空の返事をし、「読みが合わない」として組を落とした＝耳の問い合わせの失敗を、
+    聞こえ方の違いと数えていた）。"""
     out: dict[str, str | None] = {}
     for lead in FEEDS:
-        try:
-            out[str(lead)] = await hear(client, pcm16, rate, ear, lead_s=lead)
-        except Exception:
-            out[str(lead)] = None
+        for _ in range(2):
+            try:
+                out[str(lead)] = await hear(client, pcm16, rate, ear, lead_s=lead)
+            except Exception:
+                out[str(lead)] = None
+            if out[str(lead)]:
+                break
     return out
 
 
