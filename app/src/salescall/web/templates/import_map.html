@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "parts.html" import csrf %}
+{% set active = "client" %}
+{% block title %}列を確かめる{% endblock %}
+{% block main %}
+{% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
+<p><a href="{{ base }}/import">← ファイルを選び直す</a></p>
+<h1>列を確かめる</h1>
+<ol class="steps"><li>ファイルを選ぶ</li><li aria-current="step">列を確かめる</li><li>行ごとの結果を確かめて登録</li></ol>
+{% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
+<p class="lead">それぞれの欄に、ファイルのどの列を使うかを選んでください。見出しから案を入れてあります。電話番号の列（会社の電話番号か、お客様が指定した電話番号）は必ず選びます。</p>
+<form method="post" action="{{ base }}/import/{{ key }}/preview">
+  {{ csrf(token) }}
+  <div class="card">
+    <table class="list map">
+      <thead><tr><th>欄</th><th>ファイルの列</th><th class="wide">はじめの行の値</th></tr></thead>
+      <tbody>
+      {% for f, label in field_words.items() %}
+        {% set chosen = mapping.get(f, "") %}
+        <tr class="{{ 'on' if chosen }}">
+          <td class="nowrap"><b>{{ label }}</b></td>
+          <td><select name="map_{{ f }}" aria-label="{{ label }}の列"><option value="">使わない</option>
+            {% for h in sheet.header if h %}<option value="{{ h }}" {% if h == chosen %}selected{% endif %}>{{ h }}</option>{% endfor %}</select></td>
+          <td class="wide muted">{% if chosen %}{% set i = sheet.header.index(chosen) %}{% for r in sample %}{{ r.cell(i).text or "（空）" }}{% if not loop.last %} ／ {% endif %}{% endfor %}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="actions" style="margin-top:16px"><button class="btn main" type="submit">次へ（行ごとの結果を見る）</button></div>
+</form>
+{% endblock %}

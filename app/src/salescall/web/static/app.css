@@ -228,6 +228,7 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .tenant, .who { display: none; }
   .content { padding: 16px; }
   .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+  .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   dl.facts { grid-template-columns: 1fr; }
   table.list .wide { display: none; }
   .grid.cols-3.stats { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -264,3 +265,22 @@ tr.excluded td { color: var(--muted); }
 .table-scroll table.list thead th { position: static; }
 table.list td.co, table.list th.co { min-width: 10em; }
 table.list td.person, table.list th.person { min-width: 8em; }
+/* 取込 */
+.title-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+ol.steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 4px 0 20px; counter-reset: step; flex-wrap: wrap; }
+ol.steps li { counter-increment: step; display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 8px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted); font-weight: 600; font-size: 13px; }
+ol.steps li::before { content: counter(step); display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--line); color: var(--text); font-size: 12px; }
+ol.steps li[aria-current="step"] { background: var(--primary-soft); color: var(--primary); }
+ol.steps li[aria-current="step"]::before { background: var(--primary); color: var(--primary-ink); }
+.drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 20px; border: 2px dashed var(--line);
+  border-radius: var(--radius); text-align: center; cursor: pointer; background: var(--surface-2); }
+.drop:hover, .drop:focus-within { border-color: var(--primary); background: var(--primary-soft); }
+.drop input[type=file] { font: inherit; }
+.drop-title { font-weight: 700; font-size: 15px; }
+details.more { margin-top: 14px; }
+details.more summary { cursor: pointer; color: var(--muted); }
+.grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+table.map tr.on td:first-child { color: var(--primary); }
+table.map select { max-width: 280px; }

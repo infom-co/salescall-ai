@@ -4,7 +4,8 @@
 {% block title %}お客様リスト{% endblock %}
 {% block main %}
 <p><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}">← {{ business.name }}</a></p>
-<h1>お客様リスト：{{ run.name }}</h1>
+<div class="title-row"><h1>お客様リスト：{{ run.name }}</h1>
+  <a class="btn main" href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/import">お客様リストを取り込む</a></div>
 <p class="lead">いまの状態は、次の予定と結果から出しています（画面では決め直しません）。</p>
 {{ flash(done, ok) }}
 {% if rows %}

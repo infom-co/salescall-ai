@@ -24,10 +24,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
-from salescall.core import calling_hours, customer_contacts, customer_rows, exclusions, phone, stops
+from salescall.core import calling_hours, customer_contacts, customer_rows, exclusions, import_files, importer, phone, stops
 from salescall.core.access import Access
 from salescall.output import notices, words
-from salescall.web import actions, context, counts, inbox, rowfix
+from salescall.web import actions, context, counts, importing, inbox, rowfix, uploads
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
@@ -358,6 +358,126 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         """実施回の行ごとの「かけない」の印（どの印かはデータベースの1か所 task_exclusion_level を読むだけ）。"""
         return {r["task_id"]: r["level"] for r in tx.all(
             "SELECT task_id, salescall.task_exclusion_level(task_id) AS level FROM salescall.tasks WHERE run_id = %s", (run_id,))}
+
+    # ── お客様リストの取込（docs/DASHBOARD.md 5-8）：ファイル → 列と欄の対応付け → プレビュー（行ごとの合否）→ 登録 ──────
+    def _run_in(tx: Any, business_id: UUID, run_id: UUID) -> dict[str, Any]:
+        """住所の業務・実施回が、住所の依頼者の中でつながっているか（違えば NotFound）。実施回を返す。"""
+        context.business(tx, business_id)
+        run = tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s AND business_id = %s", (run_id, business_id))
+        if run is None:
+            raise NotFound()
+        return run
+
+    def _import_page(request: Request, name: str, client_id: UUID, business_id: UUID, run_id: UUID, *,
+                     extra: Any = None, **values: Any) -> HTMLResponse:
+        """取込の画面を出す1か所。extra＝ログインした人から足す値（置き場のファイルなど。見つからなければ NotFound）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if extra is not None:
+                values.update(extra(person))
+            def read(tx: Any) -> dict[str, Any]:
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "business": context.business(tx, business_id), "businesses": context.businesses(tx),
+                        "run": _run_in(tx, business_id, run_id)}
+            return page(request, name, person, ctx, field_words=words.IMPORT_FIELD_WORDS, encodings=import_files.ENCODINGS,
+                        **values, **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
+    def _sheet(u: uploads.Upload) -> import_files.Sheet:
+        return import_files.read(u.file_name, u.data, sheet_name=u.sheet_name, encoding=u.encoding)
+
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/import")
+    def import_start(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, done: str | None = None,
+                     ok: int = 1) -> HTMLResponse:
+        return _import_page(request, "import.html", client_id, business_id, run_id, done=done, ok=bool(ok))
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/import")
+    async def import_upload(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
+        """ファイルを受け、読めるかを確かめて一時置き場に置く（書くのは手元の記憶だけ）。"""
+        form = await request.form()
+        f = form.get("file")
+        data = await f.read() if hasattr(f, "read") else b""
+        file_name = getattr(f, "filename", "") or ""
+        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}/import"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            ctx.client(client_id, lambda tx: _run_in(tx, business_id, run_id), read_only=True)
+            def do() -> str:
+                if not data:
+                    raise actions.Refused("ファイルを選んでください")
+                u = uploads.Upload(person.login_id, client_id, run_id, file_name, data,
+                                   sheet_name=str(form.get("sheet_name") or "").strip() or None,
+                                   encoding=str(form.get("encoding") or "") or None)
+                _sheet(u)   # 読めるか（読めなければ理由の文つきで断る）
+                try:
+                    return uploads.put(u)
+                except uploads.TooLarge as e:
+                    raise actions.Refused(str(e)) from None
+            out = actions.act(secret, person.login_id, dict(form), do, done="")
+            if not out.ok:
+                return _back(base, out)
+            return RedirectResponse(f"{base}/{out.value}", status_code=303)
+        return handle(request, render)
+
+    def _upload_or_missing(request: Request, person: Person, client_id: UUID, run_id: UUID, key: str) -> uploads.Upload:
+        u = uploads.get(key, person.login_id, client_id, run_id)
+        if u is None:
+            raise NotFound()
+        return u
+
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/import/{key}")
+    def import_map(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, key: str) -> HTMLResponse:
+        """列と欄の対応付け（はじめの案つき）と、ファイルの最初の数行。"""
+        def extra(person: Person) -> dict[str, Any]:
+            u = _upload_or_missing(request, person, client_id, run_id, key)
+            sheet = _sheet(u)
+            return {"sheet": sheet, "sample": sheet.rows[:3], "mapping": u.mapping or importing.guess(sheet)}
+        return _import_page(request, "import_map.html", client_id, business_id, run_id, key=key, extra=extra)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/import/{key}/preview")
+    async def import_preview(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, key: str) -> HTMLResponse:
+        """行ごとの合否（何も書かない）。指紋・AI の読み・確かめた読みは置き場に残し、登録はそれと同じときだけ受ける。"""
+        form = await request.form()
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            u = _upload_or_missing(request, person, client_id, run_id, key)
+            sheet = _sheet(u)
+            if any(k.startswith("map_") for k in form.keys()):   # 対応付けの画面から来たときだけ、対応付けを置き直す
+                u.mapping = importing.mapping_from_form(form, sheet)
+            confirmed = importing.confirmed_from_form(form) or u.preview.get("confirmed", [])
+            def read(tx: Any) -> Any:
+                _run_in(tx, business_id, run_id)
+                return importer.preview(tx, run_id, sheet, u.mapping, confirmed_names=confirmed)
+            try:
+                plan = ctx.client(client_id, read, read_only=True)
+            except actions.REFUSALS as e:
+                return _import_page(request, "import_map.html", client_id, business_id, run_id, key=key, sheet=sheet,
+                                    sample=sheet.rows[:3], mapping=u.mapping, error=str(e))
+            u.preview = {"digest": plan.digest, "ai": plan.ai_readings, "confirmed": confirmed}
+            return _import_page(request, "import_preview.html", client_id, business_id, run_id, key=key, plan=plan,
+                                counts=plan.counts(), stopped=[r for r in plan.rows if r.outcome == "stopped"],
+                                row_names=importing.row_names(sheet, u.mapping),
+                                mapping=u.mapping, file_name=u.file_name)
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/import/{key}/register")
+    async def import_register(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, key: str) -> HTMLResponse:
+        """登録（core の importer.register。プレビューと同じでなければ core が断る＝何も登録しない）。"""
+        form = dict(await request.form())
+        rows_url = f"/c/{client_id}/b/{business_id}/runs/{run_id}"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            u = _upload_or_missing(request, person, client_id, run_id, key)
+            if not u.preview:
+                raise NotFound()
+            def do(tx: Any) -> dict[str, Any]:
+                _run_in(tx, business_id, run_id)
+                return importer.register(tx, run_id, _sheet(u), u.mapping, expected_digest=u.preview["digest"],
+                                         confirmed_names=u.preview["confirmed"], ai_readings=u.preview["ai"])
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), done="")
+            if not out.ok:
+                return _back(f"{rows_url}/import", out)
+            uploads.drop(key)
+            c = out.value["counts"]
+            return _back(rows_url, actions.Outcome(True, f"取り込みました：登録 {c['registered']}行・止めた行 {c['stopped']}行・"
+                                                         f"登録済み {c['already']}行・空の行 {c['empty']}行。"))
+        return handle(request, render)
 
     # ── お客様の行（1行の中身と直し。docs/DASHBOARD.md 5-7） ──────────────────
     def _row_in(tx: Any, business_id: UUID, run_id: UUID, task_id: UUID) -> None:

@@ -180,6 +180,17 @@ NUMBER_LABEL_WORDS: dict[str, str] = {"company": "会社の番号", "designated"
 ORIGIN_WORDS: dict[str, str] = {"list": "お客様リスト", "call": "お電話で伺った", "dashboard": "ダッシュボードで足した"}
 
 
+# お客様リストの取込の欄の画面の言葉（core の importer.FIELDS のすべてを書く。試験が突き合わせる。CL-2 4-217「見出しの文字は画面の言葉で」）
+IMPORT_FIELD_WORDS: dict[str, str] = {
+    "phone": "会社の電話番号", "client_ref": "管理番号", "name": "会社名", "name_reading": "会社名の読み",
+    "person_name": "お呼びする方の名前", "person_name_reading": "お呼びする方の名前の読み", "person_role": "お呼びする方の役職",
+    "person_full_name": "お呼びする方のフルネーム", "person_full_name_reading": "フルネームの読み", "person_department": "お呼びする方の部署",
+    "exclude": "かけない", "designated_phone": "お客様が指定した電話番号", "mobile": "携帯電話番号", "email": "メールアドレス",
+    "fax": "ファクス番号", "address": "住所", "line_id": "LINE ID", "meeting_id": "オンライン面談用の ID",
+    "meeting_service": "オンライン面談のサービス名",
+}
+
+
 def stop_scope(name: str) -> str:
     """停止の範囲の名前（正本は stops.SCOPE_NAMES）。"""
     return stops.SCOPE_NAMES.get(name, NO_WORD)

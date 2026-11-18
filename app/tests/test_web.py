@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from salescall.core import stops
 from salescall.web.app import create_app
 from salescall.web.context import Person
-from tests.support import OPERATOR, SYSTEM, World, app_access
+from tests.support import OPERATOR, SYSTEM, World, app_access, ensure_rules, fictional_jp_fixed
 
 SECRET = b"test-only-secret"
 
@@ -235,6 +235,52 @@ class Web(_World):
                 self.assertEqual(r.status_code, 404)
         self.assertEqual(self._level(), "call")                                 # 混ぜた行の印も付けない（全部か、何もしないか）
 
+    # ── お客様リストの取込（docs/DASHBOARD.md 5-8） ──
+    def _import_base(self):
+        return f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/import"
+
+    def _upload(self, who="A", body=None):
+        body = body or ("会社名,電話番号,管理番号\n架空取込商事,%s,T-%s\n番号なし商事,,T-x\n" % (fictional_jp_fixed(), uuid4().hex[:6])).encode()
+        return self.http.post(self._import_base(), data={"form_token": self.token(who)}, files={"file": ("一覧.csv", body, "text/csv")},
+                              headers={"x-test-person": who}, follow_redirects=False)
+
+    def _count_rows(self):
+        return app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.tasks WHERE run_id = %s", (self.a["run"],))["n"])
+
+    def test_a_list_is_imported_through_mapping_and_preview(self):
+        ensure_rules(World(), self.a)                                          # 業務設定の中身（CL-2 の取込の試験と同じ準備）
+        r = self._upload()
+        self.assertEqual(r.status_code, 303, r.text[:300])
+        key_url = r.headers["location"]
+        page = self.get("A", key_url).text
+        self.assertIn('<option value="会社名" selected>', page)                 # 見出しからの案
+        self.assertIn('<option value="電話番号" selected>', page)
+        before = self._count_rows()
+        tok = self.token("A")
+        prev = self.post("A", key_url + "/preview", {"form_token": tok, "map_name": "会社名", "map_phone": "電話番号",
+                                                     "map_client_ref": "管理番号"})
+        self.assertEqual(prev.status_code, 200, prev.text[:300])
+        self.assertIn("止める行と理由", prev.text)                               # 番号の無い行は止める（理由は core の文）
+        self.assertEqual(self._count_rows(), before)                            # プレビューでは何も書かない
+        reg = self.post("A", key_url + "/register", {"form_token": tok})
+        self.assertIn("ok=1", reg.headers["location"])
+        self.assertEqual(self._count_rows(), before + 1)
+        self.assertEqual(self.post("A", key_url + "/register", {"form_token": tok}).status_code, 404)   # 置き場から消えた（二度登録しない）
+
+    def test_an_upload_is_only_for_the_person_and_the_run_that_put_it(self):
+        key_url = self._upload().headers["location"]
+        self.assertEqual(self.get("ADMIN", key_url).status_code, 404)           # 置いた人でない
+        other_run = key_url.replace(str(self.a["run"]), str(self.y["run"]))
+        self.assertEqual(self.get("A", other_run).status_code, 404)
+        self.assertEqual(self.post("A", key_url + "/register", {"form_token": self.token("A")}).status_code, 404)   # プレビュー前
+        self.assertEqual(self.get("B", key_url).status_code, 404)
+
+    def test_an_unreadable_file_is_refused_with_the_reason(self):
+        r = self.http.post(self._import_base(), data={"form_token": self.token("A")}, files={"file": ("一覧.pdf", b"%PDF", "application/pdf")},
+                           headers={"x-test-person": "A"}, follow_redirects=False)
+        self.assertIn("ok=0", r.headers["location"])
+
     # ── 停止と再開 ──
     def test_a_stop_of_another_contractor_is_not_seen(self):   # S-18
         eid = self._stop(self.b["tenant"], "契約者Bの試験の停止")
@@ -300,7 +346,7 @@ class Web(_World):
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",
-                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url()):
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(), self._import_base()):
             with self.subTest(path=path):
                 r = self.get("A", path)
                 self.assertEqual(r.status_code, 200, r.text[:300])

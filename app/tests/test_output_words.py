@@ -66,6 +66,10 @@ class EveryNameHasAWord(unittest.TestCase):
                     self.assertNotIn(name, words.CALL_ENDS_NOT_OURS)   # 正本を写さない
         self.assertEqual(words.call_end("worker_lost"), "回線の処理が通話の途中で止まりました")
 
+    def test_every_import_field_has_a_word(self):
+        from salescall.core import importer
+        self.assertEqual(set(words.IMPORT_FIELD_WORDS), set(importer.FIELDS))
+
     def test_every_number_label_and_origin_has_a_word(self):
         from salescall.core import customer_contacts
         self.assertEqual(set(words.NUMBER_LABEL_WORDS), set(customer_contacts.NUMBER_LABELS))
