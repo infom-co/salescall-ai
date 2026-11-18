@@ -12824,7 +12824,9 @@ class Flow:
     def _trouble_offer_due(self, qid: str | None) -> bool:
         """その質問を、困りごとに応える提案で伺えるか（唯一の決まり＝提案の番を決める _deepen_then・困りごとに応える番の知らせの終わり _asked_note）：まだ提案して
         おらず（1通話1回）、その質問の位置にいて（言い直しの返事待ちではない）、答えをいただいておらず、提案で伺える質問（_proposal_of の trouble）。"""
-        return (self.trouble_offer_q is None and qid is not None and self.awaiting_confirm is None and self.items[qid].state == "empty"
+        # 答えをいただいていない＝状態が空（empty）か、前に聞き取れないお返事などで聞き返している（unclear）。⛔ 60ae5a42 まで empty だけ＝もとの質問に前に聞き返して
+        # いると、困りごとを伺い深めたあとに提案せず、もとのお返事の読み直しへ進んだ（分身 L が確かめの途中で見つけた・TroubleOfferAfterAskBackTest）
+        return (self.trouble_offer_q is None and qid is not None and self.awaiting_confirm is None and self.items[qid].state in ("empty", "unclear")
                 and self._proposal_of(qid, trouble=True) is not None)
 
     def _deepen_ask(self) -> dict:

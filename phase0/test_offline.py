@@ -35516,5 +35516,33 @@ class OfferAskLastTest(unittest.TestCase):
             self.assertEqual((b.heard(r), r.get("ack"), r.get("ask_last")), (b.ASK_BACK, "moushiwake", False), (ask_back, recheck))
 
 
+class TroubleOfferAfterAskBackTest(unittest.TestCase):
+    """困りごとに応える提案で伺えるか（Flow._trouble_offer_due の「答えをいただいておらず」）は、もとの質問に前に聞き取れないお返事があって聞き返していても
+    同じ（聞き返した質問の状態は「聞き返している」unclear＝まだ答えをいただいていない）。⛔ 60ae5a42 まで、状態が「空」empty のときだけ提案し、聞き返したあとの
+    「どちらも要らない」には、困りごとを伺い深めたあとに提案せず、もとのお返事の読み直しへ進んだ（分身 L が確かめの途中で見つけた）"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+
+    def test_the_trouble_offer_is_made_after_an_earlier_ask_back(self):
+        from flowctl import CALLBACK_IDS, ELSEWHERE_YES, JUDGMENTS, NONE, UNDECIDED
+        for unheard in (False, True):
+            f = OtherCompanyClueSendWayTest().business().flow(play_recordings=True)
+            f.use_checks(*JUDGMENTS)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、株式会社〇〇でございます。")
+            f.apply("report_party", {"party": "person"})
+            self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+            if unheard:
+                f.on_callee(); f.on_heard("（雑音）……"); f.on_decided()
+                self.assertEqual(f.apply("report_unclear", {"question_id": "Q2"})["result"], "ask_back")
+            self.turn(f, "どちらも要らないです。うちは別のところに頼んでますので。", self.rd(NONE, elsewhere=ELSEWHERE_YES), "record_answer",
+                      question_id="Q2", condition_id=NONE)
+            self.turn(f, DeepenTroubleTest.TROUBLE, self.rd("問題を言った"), "record_answer", question_id=CALLBACK_IDS["elsewhere"], condition_id="問題を言った")
+            grounded(f, DeepenTroubleTest.REPLY, "知っていることだけ")
+            f.apply("replay_opening", {"part": "own", "answer": DeepenTroubleTest.REPLY})
+            self.turn(f, "へえ、そうなんですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
+            r = self.turn(f, "うーん、どうでしたかね。", self.rd("unknown"), "record_answer", question_id=CALLBACK_IDS["deepen"], condition_id="unknown")
+            self.assertEqual((r["result"], f.current, f.trouble_offer_q), ("callee_asked", "Q2", "Q2"), unheard)
+
+
 if __name__ == "__main__":
     unittest.main()
