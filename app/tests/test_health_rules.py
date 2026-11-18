@@ -295,7 +295,7 @@ class Exhaustive(unittest.TestCase):
 
     def test_the_table_holds_the_rows_of_chapter_17_once_each(self):
         ids = [r.id for r in h.TABLE]
-        expected = ([f"L-{i}" for i in range(1, 35)] + [f"R-{i}" for i in range(1, 23)] +
+        expected = ([f"L-{i}" for i in range(1, 37)] + [f"R-{i}" for i in range(1, 23)] +
                     [f"N-{i}" for i in range(1, 10)] + [f"C-{i}" for i in range(1, 11)] + [f"V-{i}" for i in range(1, 6)])
         self.assertEqual(sorted(ids), sorted(expected))   # 17章の60行と、2026-10-29 に穴を埋めた【当】の行
 
@@ -624,7 +624,7 @@ class Decisions(unittest.TestCase):
         """2026-10-22 深夜 管理者：「数えない分の歯止めは、回線の異常が続いたら回線を止める仕組み：OK」（L-10・L-17）"""
         out = ok(self, h.apply(checking_c(), ev("E7"), R))
         self.assertEqual((out.state.stage, out.state.t, out.state.next_at), (LS.LINE_REST, 1, T0 + GAP[0]))
-        for code in ("E1", "E2", "E4"):   # 休みの回線はお客様へかけない（お客様の電話の出来事は来ない）
+        for code in ("E1", "E2", "E4"):   # 回線のせいの休みは、お客様へかけていない段からしか入らない（お客様の電話の出来事は来ない）
             self.assertEqual(h.apply(out.state, ev(code, T0 + MIN), R).gap, "G-L7")
         again = ok(self, h.apply(out.state, ev("E7", T0 + GAP[0]), R))
         self.assertEqual((again.state.stage, again.state.t, again.state.next_at), (LS.LINE_REST, 2, T0 + GAP[0] + GAP[1]))
@@ -709,7 +709,9 @@ class Decisions(unittest.TestCase):
             back = ok(self, h.apply(ring.state, ev("E6", T0 + MIN), R))
             self.assertEqual(back.state.stage, LS.HEALTHY)
             self.assertEqual([a.get("to") for a in back.actions if a.what == h.NOTIFY], [("契約者",)])
-        self.assertNotIn("E1", {e for r in h.TABLE if r.stages & h.RESTS for e in r.events})   # ほかの道では再開しない
+        # ほかの道では再開しない（休みの段に来るお客様の電話の終わり＝休みに入る前からかけていた電話は、何もしない＝L-36）
+        self.assertEqual({r.id for r in h.TABLE if r.stages & h.RESTS and r.events & {"E1", "E5"}}, {"L-36"})
+        self.assertTrue(next(r for r in h.TABLE if r.id == "L-36").nothing)
 
     def test_1024_night_wait_until_the_ringing_hours_begin(self):
         """2026-10-24 夜 管理者：「私の電話です。軌道に乗れば、新しい電話をもうひとつ契約予定なのでその後に考えます。この仕事専用なら
@@ -967,6 +969,22 @@ class Decided1029(unittest.TestCase):
         moved = ok(self, h.apply(before, ev("E20", number="n1"), R))
         self.assertEqual((moved.state.m, moved.state.suspect, moved.rows), (0, 1, ("L-34",)))
         self.assertEqual(ok(self, h.apply(Line(LS.HEALTHY, suspect=2), ev("E20", number="n4"), R)).state.stage, LS.AUDIO_REST)
+        # ほかの回線の出来事（E20）で休みに入った回線は、話している途中だった電話の終わりを受ける（L-35・L-36）：鳴らずに終わった電話は続きに
+        # 入れ、再開のテスト番号が鳴れば番号のせい（L-24）・鳴らなければ回線のせい（L-25）・手の再開なら確かめ中 (a) で次の電話を待つ（L-21）。
+        # ⛔ 2026-11-18 の6回目の見直しまで：「起きない」穴として誤りにし、試行のせいがどこでも決まらず、番号の「まだ分からない」が残り続けた
+        rest = ok(self, h.apply(Line(LS.HEALTHY, suspect=2), ev("E20", number="n4"), R)).state
+        for code in ("E1", "E3", "E4", "E5"):
+            self.assertEqual(ok(self, h.apply(rest, ev(code, T0 + MIN), R)).rows, ("L-36",))
+        held = ok(self, h.apply(rest, ev("E2", T0 + MIN, attempt="a5", number="n5"), R))
+        self.assertEqual((held.rows, held.state.stage, held.state.run), (("L-35",), LS.AUDIO_REST, (("a5", "n5"),)))
+        due = held.state.next_at
+        decided = lambda out: [(a.get("attempt"), a.get("blame")) for a in out.actions if a.what == h.DECIDED]   # noqa: E731
+        rang = ok(self, h.apply(replace(held.state, wait=Wait.ANSWER), ev("E6", due), R))
+        self.assertEqual((rang.state.stage, decided(rang)), (LS.HEALTHY, [("a5", "番号")]))
+        silent = ok(self, h.apply(replace(held.state, wait=Wait.ANSWER), ev("E7", due), R))
+        self.assertEqual((silent.state.stage, decided(silent), silent.state.run), (LS.LINE_REST, [("a5", "回線")], ()))
+        by_hand = ok(self, h.apply(held.state, ev("E12", due), R))
+        self.assertEqual((by_hand.state.stage, by_hand.state.run, decided(by_hand)), (LS.CHECK_A, (("a5", "n5"),), []))
         # 話し終えた電話（E5）だけが数え直す（⛔ 見直し24c の A5：前は出なかった電話でも0に戻し、声の壊れた回線が止まらなかった）
         kept = ok(self, h.apply(Line(LS.HEALTHY, audio=frozenset({"n1"}), suspect=2), ev("E1"), R)).state
         self.assertEqual((kept.m, kept.suspect), (1, 2))

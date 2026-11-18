@@ -84,9 +84,9 @@ def add(tx: Tx, task_id: UUID, kind: str, value: str, *, origin: str, service: s
         " FROM salescall.tasks t WHERE t.task_id = %s",
         (kind, value.strip(), service.strip() if service else None, origin, import_id, source_row, attempt_id, turn,
          origin, owner_period, task_id))
-    if kind == "fax":
+    if kind == "fax" and normalize(value).e164 is not None:   # そろえられない番号（海外の番号など）は番号として持てない（連絡先だけ）
         # ファクス番号も行の番号（記録だけ・かけない）：断ったお客様のファクス番号も止め、ほかの行と番号を共有するかにも入る（✅ 2026-11-17 ユーザー「止める」。0237。
-        # 止める範囲・止め直し・門は行の番号の1か所＝tasks.numbers・dnc.restop。⛔ それまで：ファクス番号は止める範囲に入らなかった）
+        # 止める範囲・足した番号を止める・門は行の番号の1か所＝tasks.numbers・dnc.stop_added。⛔ それまで：ファクス番号は止める範囲に入らなかった）
         tasks.add_record_number(tx, task_id, normalize(value), "fax", origin=origin, attempt_id=attempt_id, owner_period=owner_period)
 
 

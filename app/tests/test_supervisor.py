@@ -161,6 +161,9 @@ class SupervisorBase(Base):
         return self.tx(s, lambda tx: tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s",
                                             (attempt_id,)))["s"]
 
+    def trouble(self, s, attempt_id):
+        return self.tx(s, lambda tx: tx.one("SELECT trouble FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,)))["trouble"]
+
     def numbered(self, s):
         """その契約者にテスト番号を入れる（架空の番号。返すのは、その番号）。鳴らしてよい時間は 0:00〜24:00（この仕事専用の電話の形＝
         時刻しだいで試験が変わらない。時間の外の試験は `ring_hours` で決める）。鳴らす間は1秒（続けて試すときは `next_ring` で待つ）。"""
@@ -260,6 +263,27 @@ class Recovery(SupervisorBase):
         got = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.recover(tx, HOLDER))
         self.assertEqual((got[0]["line_id"], got[0]["ended"]), (s["line"], 1))
         self.assertEqual(self.state(s, c.attempt_id), "technical_error")
+        # 終えた理由は、こちらの不具合（回線の処理が止まった）：お客様が出る前でも「鳴らなかった」（E2＝回線の確かめ・番号の4回）に読まない
+        # （原則6。⛔ 0238 の前は理由を残さず、回線のせい・番号の4回に数えた）
+        self.assertEqual((self.trouble(s, c.attempt_id), self.tx(s, lambda tx: health.call_event(tx, c.attempt_id))),
+                         ("worker_lost", "E3"))
+
+    def test_a_flow_that_stops_while_dialing_leaves_the_call_to_the_cleanup(self):
+        """発信の出口で、回線ごとの処理そのものが止まる合図（例外でない終わり）が来たら、おわびして切ってもらい、試行は後始末の1か所が、こちらの
+        不具合（worker_lost）として終える（回線の部品の失敗＝例外は、今までどおり結果不明にして、だれのせいかは証拠で）。0238。"""
+        s = self.ready()
+        c = self.claim(s)
+        driver = FakeDriver(fail=KeyboardInterrupt())
+        with self.assertRaises(KeyboardInterrupt):
+            line.dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, driver)
+        self.assertEqual((self.state(s, c.attempt_id), driver.apologized), ("dialing", 1))   # 試行は残す（後始末が終える）
+        self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.recover(tx, HOLDER, s["line"]))
+        self.assertEqual((self.state(s, c.attempt_id), self.trouble(s, c.attempt_id)), ("technical_error", "worker_lost"))
+        t = self.ready()
+        d = self.claim(t)
+        with self.assertRaises(RuntimeError):                                  # 回線の部品の失敗：結果不明（理由は残さない＝証拠で決める）
+            line.dial_exit.dial(self.w.a, SYSTEM, t["tenant"], t["client"], d.attempt_id, FakeDriver(fail=RuntimeError("試験")))
+        self.assertEqual((self.state(t, d.attempt_id), self.trouble(t, d.attempt_id)), ("technical_error", None))
 
     def test_only_expired_lines_of_a_former_hub_are_cleaned_up(self):
         s = self.ready()
@@ -303,6 +327,20 @@ class Candidates(SupervisorBase):
         self.tx(s, lambda tx: stops.resume(tx, e["event_id"], reason="試験"))
         self.tx(s, lambda tx: registry.set_client_active(tx, False, reason="試験"), OPERATOR)
         self.assertEqual(lines(), [])                                          # 無効の依頼者
+
+
+    def test_a_row_that_cannot_be_judged_is_handed_to_the_gate(self):
+        """設定の値が決まっていない・祝日の暦が無い日で、候補を出す処理（gate.waits_unknown）が決められない行は、門に渡す（門が同じ例外を
+        実施回の理由にして、その実施回をこの回だけ飛ばす＝gate.claim の1か所）。⛔ 2026-11-18 の6回目の見直しまで：候補を出す処理では受けず、
+        回線の1回分の処理ごと落ちた（前の依頼者で落ちると、後ろの依頼者の約束の電話まで毎回かからなかった）。"""
+        from salescall.core.calendar import CalendarOutOfRange
+        s = self.ready()
+        for error in (settings.SettingMissing("試験"), CalendarOutOfRange("試験")):
+            with self.subTest(error=type(error).__name__), mock.patch.object(gate, "_pacing", side_effect=error):
+                self.assertEqual([r["task_id"] for r in self.tx(s, lambda tx: scheduler.due_tasks(tx, 10))], [s["task"]])
+                got = self.claim(s)
+                self.assertEqual(got.reason, "setting_missing" if isinstance(error, settings.SettingMissing) else "calendar_out_of_range")
+                self.assertIn(got.reason, gate.RUN_REASONS)                       # その実施回を、この回だけ飛ばす
 
 
 class Rounds(SupervisorBase):
@@ -2478,7 +2516,8 @@ class Main(SupervisorBase):
         here = lambda cfg: {j.name for j in jobs.JOBS if j.wanted(cfg)}   # noqa: E731
         bare = here(self.cfg(s))
         self.assertTrue({"recover", "settle", "backups", "backup_watch", "whole_backup_watch", "lasting_stops",
-                         "system_lasting_stops", "pc_watch", "budget", "holidays", "fixed_stops", "month_ahead_notices"} <= bare)   # fixed_stops＝直した版で解く（0139）・month_ahead_notices＝1か月以上先のかけ直しの5分前の緊急の知らせ
+                         "system_lasting_stops", "pc_watch", "budget", "holidays", "fixed_stops", "month_ahead_notices",
+                         "quality_production"} <= bare)   # quality_production＝本番になった業務の品質の停止を解く（原則9）   # fixed_stops＝直した版で解く（0139）・month_ahead_notices＝1か月以上先のかけ直しの5分前の緊急の知らせ
         self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks", "ai_versions"} & bare)
         full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_ADMIN_TENANT=str(uuid.uuid4()),
                              SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p", SALESCALL_VERSION_CHECKER="m:c"))
@@ -2901,6 +2940,7 @@ class Review26c(SupervisorBase):
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
         self.assertIsNotNone(got.called, got)                                # 次の行へかけた
         self.assertEqual(self.state(s, first.called), "technical_error")     # 残った試行は後始末した
+        self.assertEqual(self.trouble(s, first.called), "storage_stuck")     # 書き込みが進まなかった（違う行の数に数えない＝伺い5）
 
     def test_a_call_that_could_not_be_written_is_the_storages_fault(self):
         """話し終えた通話の最後の書き込みがデータベースの誤りで書けずに戻ったら、会話の部品の不具合でなく保存のせい（⛔ 見直し26c の 4：

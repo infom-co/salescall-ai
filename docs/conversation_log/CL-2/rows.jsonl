@@ -3728,3 +3728,54 @@
 {"at": "2026-11-18T15:08:56+09:00", "who": "CL-2", "text": "6回目の見直しを始めます。まず、ほかの担当の新しい動きを確かめます。"}
 {"at": "2026-11-18T15:09:28+09:00", "who": "CL-2", "text": "CL-1 から新しい連絡が2つ（4-176・4-177）届いていました。先に取り込んでから、手分けした見直しに入ります。"}
 {"at": "2026-11-18T15:10:16+09:00", "who": "CL-2", "text": "Meanwhile, I'll run CL-1's comparison test and save the intake."}
+{"at": "2026-11-18T15:11:57+09:00", "who": "CL-2", "text": "CL-1's comparison test fails only the two failures we already know about. The intake is saved and pushed. The three reviews are running in the background; I'll check each finding against the code when they report."}
+{"at": "2026-11-18T15:16:24+09:00", "who": "CL-2", "text": "Review (B), the gate and stopping rules, came back with four findings. I'll check each in the code, starting with the smallest: (2) our own crashes are counted as line or number faults."}
+{"at": "2026-11-18T15:16:44+09:00", "who": "CL-2", "text": "Reviews (B) and (C) are both in, and there are many findings. I'll track them as tasks and work through them in order."}
+{"at": "2026-11-18T15:17:23+09:00", "who": "CL-2", "text": "Three places read the callback request, so I'll fold them into one shared place and make that place ignore calls where we couldn't confirm the right customer (C4)."}
+{"at": "2026-11-18T15:17:35+09:00", "who": "CL-2", "text": "Next, C5: if a required question shows up among the questions skipped after \"keep it short\", it is no longer counted as \"not applicable\"."}
+{"at": "2026-11-18T15:17:46+09:00", "who": "CL-2", "text": "Next, tests for these three (C2, C4, C5)."}
+{"at": "2026-11-18T15:20:16+09:00", "who": "CL-2", "text": "I've been rebuilding the \"stop numbers added after a refusal\" part so the decision rests on who owns the number. Next, I'll add tests for the cases the review pointed out."}
+{"at": "2026-11-18T15:20:39+09:00", "who": "CL-2", "text": "Passes. Next:\n- A (5): if the same business's voice can't be used, wait instead of switching voice.\n- A (10): re-closing a call that the contractor corrected also writes a \"contractor's version\"."}
+{"at": "2026-11-18T15:21:02+09:00", "who": "CL-2", "text": "While that runs, I'll start on the gate and stop items from review (B). First, B (2): when our own processing crashes, the cleanup doesn't record that it was our fault."}
+{"at": "2026-11-18T15:22:33+09:00", "who": "CL-2", "text": "調べ直しの6回目の続きです。いま、異常終了した電話を片付ける処理が、それを「回線・番号の不具合」と数えてしまう件（B2）を直しています。"}
+{"at": "2026-11-18T15:22:40+09:00", "who": "管理者（CL-2 の作業中に）", "text": "あなたが、もし自動コンパクトしてしまっていたら、コンパクト前のあなたのやり取りや処理に必要な部分をきっちりと確認して記憶を取り戻してください。"}
+{"at": "2026-11-18T15:22:42+09:00", "who": "CL-2", "text": "自動コンパクト（会話の要約）が起きていました。要約の前のやり取りを、記録のファイルから読み直して確かめます。"}
+{"at": "2026-11-18T15:23:05+09:00", "who": "CL-2", "text": "要約の前の記録から、6回目の見直しで受けた指摘の本文を読み直しています。"}
+{"at": "2026-11-18T15:23:28+09:00", "who": "CL-2", "text": "記憶を戻すため、見直し担当Aの報告も記録から読み直しています。"}
+{"at": "2026-11-18T15:25:11+09:00", "who": "管理者", "text": "本当にintent.mdの必要部分をしっかりと読み込んで、ここまでのやりとりをしっかりと理解できていますか？"}
+{"at": "2026-11-18T15:25:56+09:00", "who": "CL-2", "text": "回線の処理が落ちたときの新しい理由「worker_lost」（回線の処理が通話の途中で止まった）を足すために、理由の一覧を使う所を確かめています。"}
+{"at": "2026-11-18T15:26:39+09:00", "who": "CL-2", "text": "後始末の関数を直す準備として、それを使う試験と壊す試験を確かめています。"}
+{"at": "2026-11-18T15:27:12+09:00", "who": "CL-2", "text": "会話の側の試験は「会話の側の理由が CL-2 の一覧に入っているか」だけを見るので、理由を足しても困りません。直しを書きます。"}
+{"at": "2026-11-18T15:28:15+09:00", "who": "CL-2", "text": "後始末の直しを書き終えました。次に、試験と壊す試験（直しを外すと試験が落ちるかの確かめ）を合わせます。"}
+{"at": "2026-11-18T15:28:22+09:00", "who": "CL-2", "text": "試験に「後始末した試行が、こちらの不具合の理由で終わり、状態の表で E3（こちらの不具合）に数えられる」ことを書き足します。"}
+{"at": "2026-11-18T15:28:50+09:00", "who": "CL-2", "text": "背景の試験はまだ動いています。並行して、いま直した後始末に関わる試験の組を別に流します。"}
+{"at": "2026-11-18T15:29:34+09:00", "who": "CL-2", "text": "背景の試験で落ちたものがありました。(1) 直した通話を締め直したときの版の種類の試験、(2) 時刻に左右される試験です。まず (1) を読みます。"}
+{"at": "2026-11-18T15:30:37+09:00", "who": "CL-2", "text": "B3（本番に切り替えたあとも品質の止めが残る件）の直し方を決めるため、設定を変えたときの処理の作りを調べています。"}
+{"at": "2026-11-18T15:31:16+09:00", "who": "CL-2", "text": "Ձ品質の段の部品に「本番になった業務の品質の止めを解く」1か所を足し、決まった間隔の仕事から呼びます。"}
+{"at": "2026-11-18T15:31:31+09:00", "who": "CL-2", "text": "Use `_each` for consistency instead of the hand-written try."}
+{"at": "2026-11-18T15:31:42+09:00", "who": "CL-2", "text": "Write a test in Stages: stop in verification, then switch to production → job releases, new version opens, call claims."}
+{"at": "2026-11-18T15:31:55+09:00", "who": "CL-2", "text": "Add Python mutations for B3 and the dial_exit split."}
+{"at": "2026-11-18T15:32:16+09:00", "who": "CL-2", "text": "Add the new job to that \"always runs\" list so a test sees it."}
+{"at": "2026-11-18T15:32:20+09:00", "who": "CL-2", "text": "並行して B4（候補を出す処理が、設定の抜け・暦の範囲外で回線の1回分ごと落ちる件）を読みます。"}
+{"at": "2026-11-18T15:35:05+09:00", "who": "CL-2", "text": "B1 の直し（声の休みの段で、話している途中だった電話の終わりを受ける行 L-35・L-36）を書きました。状態の表の試験を合わせています。"}
+{"at": "2026-11-18T15:35:58+09:00", "who": "CL-2", "text": "表の試験は通りました。設計書 17章の表にも L-35・L-36 と G-L7 の直しを書きます。"}
+{"at": "2026-11-18T15:36:20+09:00", "who": "CL-2", "text": "設計書の表を直しました。背景で流していた試験の結果を見ます。"}
+{"at": "2026-11-18T15:36:30+09:00", "who": "CL-2", "text": "次に、ほかの担当への連絡（CL-1 への「told」の食い違い）と記録を書く準備をします。データの形の版の場所を確かめます。"}
+{"at": "2026-11-18T15:42:12+09:00", "who": "CL-2", "text": "並行して、CL-1 への連絡（「told」の食い違い）を書く前に、会話の側のコードを自分でも確かめます。"}
+{"at": "2026-11-18T15:42:31+09:00", "who": "CL-2", "text": "main に CL-1 の新しい記録が入っています（「CL-2 の 4-417〜4-419 に答えていなかった」など）。こちらあての連絡が無いか読みます。"}
+{"at": "2026-11-18T15:43:06+09:00", "who": "CL-2", "text": "台帳の列があることを確かめました。次に、判定の決まりを変えたので、判定の版の書き方の決まりを確かめます。"}
+{"at": "2026-11-18T15:43:14+09:00", "who": "CL-2", "text": "判定の版を上げました。設計書 15-2（直した経緯の表）に6回目の行を書きます。"}
+{"at": "2026-11-18T15:43:56+09:00", "who": "CL-2", "text": "連絡帳（docs/team/CL-2.md）に、6回目の直しと CL-1・CL-3 へのお知らせを書きます。"}
+{"at": "2026-11-18T15:44:16+09:00", "who": "CL-2", "text": "連絡帳を書きました。次に、壊す試験（直しを外すと試験が落ちるかの確かめ）を流します。道具の使い方を確かめます。"}
+{"at": "2026-11-18T15:45:39+09:00", "who": "CL-2", "text": "Only the 2 known pre-existing failures. Now wait for b4."}
+{"at": "2026-11-18T15:45:46+09:00", "who": "CL-2", "text": "関わる試験の組はすべて合格しました。会話の側の比べる試験も、前からの2つ（既知）のほかは合格です。main の新しい記録を取り込みます。"}
+{"at": "2026-11-18T15:46:28+09:00", "who": "CL-2", "text": "壊す試験は全部「落ちた」（＝直しを外すと試験が気づく）でした。6回目に足した壊す試験がすべて流れたかを、差分から確かめます。"}
+{"at": "2026-11-18T15:46:45+09:00", "who": "CL-2", "text": "止める処理の差分を読み直しました。足りない試験を書きます。まず、取り消した番号の試験の道具を探します。"}
+{"at": "2026-11-18T15:46:49+09:00", "who": "CL-2", "text": "Add a test: after revoking one spread entry, re-settling the call doesn't re-stop the revoked number."}
+{"at": "2026-11-18T15:46:58+09:00", "who": "CL-2", "text": "次に、海外のファクス番号の試験です。ファクス番号の試験の場所を探します。"}
+{"at": "2026-11-18T15:47:04+09:00", "who": "CL-2", "text": "Add a foreign-fax test into test_import's dashboard test class."}
+{"at": "2026-11-18T15:47:57+09:00", "who": "CL-2", "text": "試験の道具を確かめ、発信の出口で処理が止まる場合の試験も足します。"}
+{"at": "2026-11-18T15:48:07+09:00", "who": "CL-2", "text": "Now add the break-tests for these items."}
+{"at": "2026-11-18T15:48:24+09:00", "who": "CL-2", "text": "既にあった壊す試験2つが、直した行の文字を探せなくなっていました（L-21 と声の選びの行）。合わせます。"}
+{"at": "2026-11-18T15:52:24+09:00", "who": "CL-2", "text": "Update task list to reflect status."}
+{"at": "2026-11-18T15:53:31+09:00", "who": "CL-2", "text": "All break-tests catch now. Update DESIGN row 854 (d) wording to mention the specific notice, then export log, commit, push."}

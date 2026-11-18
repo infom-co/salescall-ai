@@ -166,8 +166,10 @@ LASTING = timedelta(hours=1)   # 一時的なものが「続いている」と�
 # 関係のない文を話し続ける・声が出ない など）／poor_audio＝声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まり
 # どおりの会話が進められない（2026-10-24 ユーザー決定）／runner_error＝通話を進める部品が例外で落ちた・終えずに戻った（回線ごとの見張りが
 # 決める。0136）／storage_stuck＝データベースへの書き込みが進まない（書き込み1つが call.frozen_after より長く終わらない。回線ごとの見張りが
-# 決める。0143）
-ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error", "storage_stuck")
+# 決める。0143）／worker_lost＝回線ごとの処理・見守り役そのものが、通話を終えないまま止まった（落ちた・借用の期限が切れた。後始末の1か所
+# salescall.recover_lines が決める。0238。⛔ 0238 の前は理由を残さず、お客様が出る前なら「回線のせい（鳴らなかった）」と読まれ、回線の確かめと
+# 番号の4回に数えられた＝原則6「こちらの不具合は番号・回線・行の回数に数えない」に反した）
+ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error", "storage_stuck", "worker_lost")
 # そのうち、こちらのプログラムの不具合の理由 → エラーの種類（理由ごとの直す担当・止め方は ACTIONS の行）。どの理由がこちらの不具合かを決める
 # のはデータベースの salescall.trouble_ours の1か所（0141。通話ごとの口は、終えた電話をこちらの不具合として伝えるかを、そこに聞く）。ここは
 # その種類の名前の表だけ（種類の名前は salescall.trouble_kind と同じ形＝試験が確かめる）。2026-10-25 夜 管理者：「声が聞き取れない」は
@@ -175,6 +177,7 @@ ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proce
 TROUBLES: dict[str, str] = {
     "frozen": "call_frozen", "ai_malfunction": "call_ai_malfunction",
     "cannot_proceed": "call_cannot_proceed", "runner_error": "call_runner_error", "storage_stuck": "call_storage_stuck",
+    "worker_lost": "call_worker_lost",
 }
 # 理由ごとのエラーの出どころ（無ければ「通話」。0143）：データベースへの書き込みが進まないのは「保存」（直す担当 CL-2）
 TROUBLE_SOURCES: dict[str, str] = {"storage_stuck": "storage"}
@@ -240,6 +243,7 @@ LABELS: dict[str, str] = {
     "call_cannot_proceed": "会話を決まりどおり進められませんでした",
     "call_runner_error": "通話の部品が落ちました（お詫びして終えた）",
     "call_storage_stuck": "記録の書き込みが進みません（お詫びして終えた）",
+    "call_worker_lost": "回線の処理が通話の途中で止まりました",
     "runner_stuck": "通話の部品が戻りません",
     "ai_stopped": "Sonnet（意味の判定のAI）が止まりました",
     "judge_stopped": "判定のAI（緊急の道で代われない）が止まりました",
@@ -394,6 +398,9 @@ ACTIONS: dict[str, Action] = {
     # （supervisor/line.loop が、止まりで終えた回線の次の電話の前に、書き込みが戻ったかを確かめる）
     "call_storage_stuck": _trouble("データベースへの書き込みが進まなかった（書き込み1つが call.frozen_after より長く終わらない）",
                                    "CL-2", rows=False),
+    # 回線ごとの処理・見守り役そのものが、通話を終えないまま止まった（後始末 salescall.recover_lines が決める。0238）：こちらのプログラムの
+    # 不具合（原則6）。違う行の数には数える（数えない例外は、管理者が決めたデータベースの一時的な止まりだけ＝伺い5。ここへ広げない）
+    "call_worker_lost": _trouble("回線ごとの処理・見守り役が、通話を終えないまま止まった（落ちた・借用の期限が切れた）", "CL-2"),
     # 通話を進める部品が、こちらの不具合でおわびして終えたあとも戻らない（0141。見直し20a）：その電話は、もう call_frozen などとして伝えて
     # ある。ここで伝えるのは「その回線の処理が止まっていた」こと（回線ごとの処理を立て直したので、電話は止まらない）。戻らない長さは、
     # おわびを流し終えるまでの長さ（protocol.APOLOGY_WAIT）と call.frozen_after から決める（0143。仮の設定 call.stuck_after は外した）

@@ -51,7 +51,7 @@ class CallControl(Protocol):
         """その電話そのものに甚大な問題があるとき、その電話をお詫びして終える（2026-10-24 ユーザー決定：「プログラムやAIがこちらの意図しない
         相手がおかしいと思うような状況に陥った場合全般や、回線が悪く、声がお互いや片方がほとんど聞き取れない場合など規定通りの会話が
         進められない状態です。」）。reason＝core.attempts.TROUBLES のどれか（ai_malfunction・poor_audio・cannot_proceed。frozen・
-        runner_error・storage_stuck は回線ごとの処理だけが使う）。why＝根拠の短い文（例「流せない声のあと、知らせても報告が無い」。お客様の
+        runner_error・storage_stuck・worker_lost は回線ごとの処理だけが使う）。why＝根拠の短い文（例「流せない声のあと、知らせても報告が無い」。お客様の
         言葉・名前は入れない。CL-1 の連絡帳 4-59。試行の trouble_why に、理由と同じ書き換えで1回だけ残る＝attempts.end_for_trouble。0143）。通話を途中で切るときの2つの一言（line_trouble_ask→お客様の返事→line_trouble_bye）を流して切り、試行を
         結果不明にして理由を残す（1回だけ。2回目からは何もしない）。呼んだら、通話を進める部品は、その通話の処理を終えて戻る。
         poor_audio のほかは、こちらのせい（番号にも回線にも数えない）。お客様へは、復旧次第すぐ、かけた予定のままかけ直す（お客様が出た

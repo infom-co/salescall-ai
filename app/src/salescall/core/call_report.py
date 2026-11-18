@@ -174,7 +174,9 @@ CARRIED_ANSWERS = (CARRIED_YES, "聞いていない", "わからない", "答え
 # ✅ 2026-11-04 日本時間19時26分 ユーザー：「LINE IDでは友達追加できないことが多い。」・11-05 1時29分06秒「招待はメールとSMSだけだよ。」。CL-1 の連絡帳 4-81 の (3)）
 OTHER_WISH_VIA = ("id", "sms", "email")
 OFFER_OUTCOMES = ("agreed", "declined", "unresolved")   # 申し出の結び（方法・連絡先まで伺えた・はっきり断られた・はっきりしない。CL-1 の Flow._handoff_end）
-UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear", "who_unclear")
+# 判定が届かずに会話AIの読みで締めた理由（事実 end_unjudged の reason）＝会話AIが終わりを報告できる理由（CL-1 の flowctl.END_LABEL）のうち「質問が終わった」の
+# ほか。not_agreed（ご納得いただけなかった点を申し伝える）も来る（⛔ 2026-11-18 の6回目の見直しまで：入れておらず、その報告をまるごと断った）
+UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear", "who_unclear", "not_agreed")
 GOAL_MODES = ("any", "all")                              # どれか1つで目的が果たせる／全部が要る（CL-1 の instruction.Business.goal_mode）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
 CONNECT_READS = ("ai",) + JUDGES                         # 繋いだ読み：会話AIの報告と、判定の受け持ち

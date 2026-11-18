@@ -26,6 +26,7 @@
   合格したら、自動で再開する。ほかの原因（言ってはいけないこと・品質の基準）で止めた業務でも、止めた版の測りの中に判定できなかった
   通話があれば、その場面を入れることを求める（すでに止まっているあいだの判定できないを、見落として再開しない）。原因は業務設定とは限らない（会話の処理・判定の処理）ので、同じ版でも再開する。どの場面を入れたかは
   模擬通話の記録（scenes）で確かめる（入れていなければ再開しない）。
+- **本番になった業務の品質の停止は、システムが解く**（`release_production`。決まった間隔の仕事が呼ぶ。品質の門は検証モードの業務だけ＝原則9）。
 - **管理者か契約者が品質の停止を解いたら、その版を測り直す**（2026-10-15 ユーザー：「人の判断で再開できる仕組みは？」）。段の件数と指標は、
   その版の通話のうち「人が解いた時刻に、まだ締めていなかった通話」から数える（数える通話の範囲は `_WINDOW` の1か所）。
   ⚠️ いままでは版の通話をすべて数えたので、管理者か契約者が解いても、前の数（言ってはいけないこと 1件など）で、次の通話の締めでまた止まった。
@@ -323,6 +324,29 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
         " RETURNING eval_id",
         (version_id, stage["stage_no"], stage["cap"], n_used, json.dumps(m, default=str), outcome, stop_id))
     return {"eval_id": row["eval_id"], "outcome": outcome, "metrics": m, "stop_event_id": stop_id}
+
+
+OUT_OF_VERIFICATION = "本番の業務は品質では止めない（原則9：品質の門と段階的な立ち上げは、検証モードの業務だけ）"
+
+
+def release_production(tx: Tx) -> list[int]:
+    """品質の停止は、検証モードの業務だけに効く（原則9）：取引の依頼者の、まだ解かれていない品質の停止のうち、業務が本番（検証モードを
+    使わない＝承認の部分の1か所 approval.human_for_business）になったものを解き、その業務の実施回のいまの版で、まだ段の無い版を始める
+    （`prepare` の1か所。止まっていたあいだに割り当てた版は、模擬通話の合格を待っていた）。解いた記録の番号を返す。決まった間隔の仕事が
+    呼ぶ（止めるのも解くのも、原因ごとに決めた条件でシステムが行う＝計画書 10-3）。⛔ 2026-11-18 の6回目の見直しまで：検証モードで品質で
+    止めた業務は、本番に切り替えても止まったまま（解く道は新しい版の模擬通話の合格だけ）で、お詫びのほかの電話がかからなかった。"""
+    done: list[int] = []
+    for s in tx.all("SELECT event_id, business_id FROM salescall.open_stop_events"
+                    " WHERE scope = 'business' AND client_id = salescall.cur_client() AND cause::text = ANY(%s) ORDER BY event_id",
+                    (list(STOP_CAUSES),)):
+        if approval.human_for_business(tx, s["business_id"]):
+            continue
+        done.append(stops.resume(tx, s["event_id"], reason=OUT_OF_VERIFICATION, evidence="業務の設定 approval.human が本番"))
+        for r in tx.all("SELECT DISTINCT salescall.run_current_version(run_id) AS version_id FROM salescall.runs"
+                        " WHERE business_id = %s ORDER BY 1", (s["business_id"],)):
+            if r["version_id"] is not None:
+                prepare(tx, r["version_id"])
+    return done
 
 
 def _stop(tx: Tx, v: dict[str, Any], version_id: UUID, cause: str, reason: str, *, unknown_cause: str | None) -> int:

@@ -83,13 +83,16 @@ def fix_dial_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, s
     との約束が残っているときに選んだ「その約束も守るか」（計画書 7-1 (21)・0201。要らなければ None）。back_to＝「違う」で、前の担当の方に戻す
     ときの戻す先の期（計画書 7-1 (30)・0213。データベースの値の形＝'-infinity' は最初の担当の方の期。戻さなければ None）。直した番号の連絡先を返す。"""
     contact_id = contacts.get_or_create(tx, number)
-    if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
-        add_record_number(tx, task_id, number, label, origin="dashboard")
+    added = tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None
+    if added:
+        add_record_number(tx, task_id, number, label, origin="dashboard", stop=False)   # 止めるかは、直しを書いて持ち主が決まってから（下）
     tx.execute("INSERT INTO salescall.task_dial_fixes (tenant_id, client_id, task_id, contact_id, recorded_by, same_person, keep_old_promise,"
                "                                      back_to)"
                " SELECT t.tenant_id, t.client_id, t.task_id, %s, salescall.cur_actor(), %s, %s, %s::timestamptz FROM salescall.tasks t"
                " WHERE t.task_id = %s",
                (contact_id, same_person, keep_old_promise, back_to, task_id))
+    if added:
+        _stop_added(tx, task_id, contact_id, None)
     return contact_id
 
 
@@ -106,7 +109,7 @@ def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_atte
         (contact_id, number.e164, source_attempt_id, task_id))
     if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
         raise TaskNotFound(str(task_id))
-    _restop(tx, number)
+    _stop_added(tx, task_id, contact_id, None)
     # お客様がこの番号を指定した記録（行にもうあった番号でも書く。いちばん新しい直しより後の指定は、直した番号より先にかける＝
     # salescall.task_designated_contact・next_action.current_dial。2026-11-06 ユーザー：「お客様の言った番号へ」。0188）
     tx.execute("INSERT INTO salescall.task_designations (tenant_id, client_id, task_id, contact_id, attempt_id)"
@@ -116,7 +119,7 @@ def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_atte
 
 
 def add_record_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, origin: str,
-                      attempt_id: UUID | None = None, owner_period: str | None = None) -> UUID:
+                      attempt_id: UUID | None = None, owner_period: str | None = None, stop: bool = True) -> UUID:
     """記録だけの番号（かけない番号。0175）を、その行の番号に足す（足すのはここだけ。決め方・呼ぶ所は core/customer_contacts.py）。
     同じ番号がもう行にあれば何もしない（かける番号と同じ番号を書いた・伺った場合も）。その番号の連絡先を返す。そのお客様が断ったら、
     この番号も止める（発信禁止は `numbers` の1か所を読む）。試行・次の予定にはならない（データベースが断る）。"""
@@ -129,14 +132,15 @@ def add_record_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *,
         " FROM salescall.tasks t WHERE t.task_id = %s"
         " ON CONFLICT (task_id, contact_id) DO NOTHING",
         (contact_id, number.e164, label, origin, attempt_id if origin == "call" else None, origin, owner_period, task_id))
-    _restop(tx, number)
+    if stop:
+        _stop_added(tx, task_id, contact_id, owner_period)
     return contact_id
 
 
-def _restop(tx: Tx, number: PhoneNumber) -> None:
-    """行に足した番号を、まだ有効な断り・依頼者の一覧の止める範囲で止め直す（足す2つの関数が呼ぶ。止め方の1か所は core/dnc.restop）。"""
+def _stop_added(tx: Tx, task_id: UUID, contact_id: UUID, owner_period: str | None) -> None:
+    """行に足した番号を、まだ有効な断りと依頼者の一覧で止める（足す関数が呼ぶ。持ち主で決める1か所は core/dnc.stop_added）。"""
     from salescall.core import dnc   # 発信禁止の部品が行の部品を読むので、ここで読む（読み合いにしない）
-    dnc.restop(tx, [number.e164], [])
+    dnc.stop_added(tx, task_id, contact_id, owner_period)
 
 
 def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:

@@ -1057,8 +1057,13 @@ class DialFixAfterCalls(SettleBase):
                 self.assertEqual((p["kind"], p["contact_id"], p["promised"]), ("call", new, not changed))
                 if not changed:
                     self.assertEqual((calling_hours.local(p["callee_at"]).hour, p["window_round"]), (15, 0))
-                    self.assertGreaterEqual(p["callee_at"], now)
-                    self.assertEqual(p["call_at"], max(p["callee_at"], now))   # 約束の時刻ちょうど（いまがその回の中なら、いま）
+                    # まだ終わっていない回（今日の15時の回の中＝試験を流す時刻しだいで今日の15時・過ぎていれば明日の15時。⛔ 2026-11-18：
+                    # 約束の時刻がいまより後と比べていたので、日本時間の15時〜15時35分に流すと落ちた）
+                    self.assertGreater(self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], p["callee_at"], day_said=True)).until, now)
+                    if p["callee_at"] > now:
+                        self.assertEqual(p["call_at"], p["callee_at"])         # 約束の時刻ちょうど
+                    else:
+                        self.assertGreaterEqual(p["call_at"], now)             # いまがその回の中なら、いま（直したときの時刻）
 
     def test_a_sub_from_before_the_latest_fix_does_not_count(self):
         """前の番号で話せてサブになったあと、もう一度直したら、そのサブは効かない（salescall.task_sub_contact_at＝いちばん新しい直しより
@@ -2141,6 +2146,15 @@ class DialFixAfterCalls(SettleBase):
         self.fixed_as(t, False, True)                                          # 違う方・前の担当の方との約束も守る
         self.settle(t, self.call(t, report=rep(dnc_=True)))                    # 前の担当の方の「もうかけないで」
         self.assertFalse(self.stopped(t, self.record_number(t)))              # そのあとに足した新しい担当の方の番号は止めない
+        # 田中様（そのときの担当の方）が断ったあとに「担当の方は違う」で鈴木様の番号に直す ⇒ 鈴木様の番号は止めない。あとで足した田中様の番号
+        # （持ち主の期が田中様の期＝取り込み直しの前の担当の方の連絡先）は止める（持ち主で決める1か所＝dnc.stop_added。6回目の見直し）
+        u = self.ready()
+        self.settle(u, self.call(u, report=rep(dnc_=True)))                    # 田中様の「もうかけないで」
+        new = self.fixed_as(u, False)
+        self.assertFalse(self.stopped(u, self.phone_of(u, new)))
+        tanakas = normalize(fictional_jp_fixed())
+        self.tx(u, lambda tx: tasks.add_record_number(tx, u["task"], tanakas, "mobile", origin="list", owner_period="-infinity"))
+        self.assertTrue(self.stopped(u, tanakas.e164))
 
     def test_a_complaint_is_the_old_persons_own_and_the_new_person_is_called(self):
         """✅ 2026-11-16 ユーザー（伺い「前の担当の方（田中様）が怒った（苦情）あと、『担当の方は違う』で鈴木様に直したら」へ）：「鈴木様へはかける」＝苦情も
@@ -3337,7 +3351,9 @@ class DialFixAfterCalls(SettleBase):
                 self.assertEqual((p["kind"], p["contact_id"], p["purpose"], p["promised"], (local_at.hour, local_at.minute),
                                   p["window_recover_until"], p["person_since"]),
                                  ("call", s["contact"], "normal", True, (local_said.hour, local_said.minute), None, None))
-                self.assertGreater(p["callee_at"], now)                          # 次の回（今日か明日の約束の時刻）
+                # 次の回（まだ終わっていない回＝今日か明日の約束の時刻。⛔ 2026-11-18：約束の時刻がいまより後と比べていたので、今日のその回の
+                # 中に流すと落ちた）
+                self.assertGreater(self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], p["callee_at"], day_said=True)).until, now)
                 self.assertIn(p["window_round"], (1, 2))
                 self.assertIn("missed_promise", p["apology_reasons"])           # 約束の日にかけられなかったお詫び
 
@@ -3705,13 +3721,17 @@ class Corrections(SettleBase):
             self.correct(t, got["version_no"], "not_reached")
 
     def test_settling_the_call_again_keeps_the_correction(self):
-        """直したあとに同じ通話を締め直しても（取り消せない決定の答え・発信禁止の取り消し）、通話の結果は契約者の直しのまま（判定し直しの版も直しの状態）。"""
+        """直したあとに同じ通話を締め直しても（取り消せない決定の答え・発信禁止の取り消し）、通話の結果は契約者の直しのまま。直しを読んだ版は
+        契約者の版（判定の版にしない）：判定の正しさの正解を付ける相手は、判定が決めた版のまま（⛔ 2026-11-18 の6回目の見直しまで：締め直しの版を
+        判定し直しの版として書き、正解を付ける相手が「直しの中身の版」になった＝直しと直しを比べた）。"""
         s = self.ready()
         aid = self.call(s)
         got = self.settle(s, aid)
         self.correct(s, got["version_no"], "declined")
         self.tx(s, lambda tx: settle.resettle(tx, aid))
-        self.assertEqual((self.call_result(s, aid), self.now(s)), ({"kind": "rejudged", "state": "declined"}, ("end", "declined")))
+        self.assertEqual((self.call_result(s, aid), self.now(s)), ({"kind": "human", "state": "declined"}, ("end", "declined")))
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT version_no FROM salescall.call_judgements WHERE attempt_id = %s",
+                                                      (aid,)))["version_no"], got["version_no"])   # 正解を付ける相手は判定の版のまま
 
     def test_a_correction_after_a_change_of_person_keeps_the_new_persons_call(self):
         """田中様の「うちは要らない」で行を終える →「担当の方は違う」で鈴木様に直す（行は戻り、鈴木様へ引き継ぎを確かめる電話）→ 契約者が田中様の通話を
