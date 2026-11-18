@@ -112,8 +112,9 @@ def until_logged_in(server_url: str, *, stop: Any = None, login_once: Callable[.
             continue
         reopen = opened_at is None or now() - opened_at >= REOPEN_AFTER
         try:
-            got = login_once(server_url, previous=load(path), open_browser=open_browser if reopen else _quiet,
-                             say=say if reopen else _quiet)
+            # 新しい確かめのコードは毎回 PC の画面に出す（開いておいたページのコードは期限切れ。⛔ 2026-11-18 の8回目の見直しまで：開き直さない回は案内も出さず、
+            # 最長30分、契約者が新しいコードを知る道が無かった）。ブラウザを開き直すのは REOPEN_AFTER ごとまで
+            got = login_once(server_url, previous=load(path), open_browser=open_browser if reopen else _quiet, say=say)
         except LoginFailed as e:
             if reopen:
                 opened_at = now()
@@ -129,7 +130,7 @@ def until_logged_in(server_url: str, *, stop: Any = None, login_once: Callable[.
 
 
 def _quiet(_: str) -> None:
-    """開き直さない回は、ブラウザも案内も出さない（前に開いたページで待っている）。"""
+    """開き直さない回は、ブラウザを開かない（前に開いたページで待っている。新しいコードの案内は出す）。"""
 
 
 def _post(url: str, body: dict[str, Any]) -> dict[str, Any]:

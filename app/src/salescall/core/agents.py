@@ -14,7 +14,7 @@
 - **PC のログイン（RFC 8628 の機器のログイン）の待ちは、データベースの1か所**（表の作り 0241。画面のサーバーが2台以上でも同じ記録が
   見える＝✅ 2026-11-18 ユーザー「契約者が増えたら、2台以上は確実なんじゃないの？」）：PC が始める `login_start`→ 契約者がページで
   確かめて許可する・断る `login_waiting`・`login_decide`→ PC が受け取る `login_take`（許可済みなら、待ちを消すのと払い出しが同じ取引＝
-  1回だけ）。画面のサーバー（CL-3）の入口 `/pc-login/start`・`/pc-login/token`・`/pc-login` は、これらを呼ぶだけ。
+  払い出した答えが届かなければ、同じ待ちで払い出し直す＝生きている通行証はいつも1つ）。画面のサーバー（CL-3）の入口 `/pc-login/start`・`/pc-login/token`・`/pc-login` は、これらを呼ぶだけ。
 - **PC が止まったら知らせる**（`watch_down`。中央の見守り役の契約者ごとの仕事）：合図が設定 `pc.down_after` より途切れた PC を、
   その契約者と管理者へ知らせる（1回の途切れに1回。止めない＝その PC の回線は借用の期限で門が通さない。PC はいつも動いている
   前提＝Intent.md 14-4）。
@@ -124,8 +124,10 @@ def login_decide(tx: Tx, code: str, *, approve: bool) -> str | None:
 
 
 def login_take(app: Access, device_code: str) -> tuple[str, Pass | None]:
-    """PC が受け取りを聞く。許可済みなら通行証を払い出して ("ok", 通行証)（待ちを消すのと払い出しが同じ取引＝1回だけ。前の PC の通行証は
-    止める）。ほかは (PENDING／SLOW_DOWN／DENIED／EXPIRED, None)。誰が許可したかは、払い出した処理の名前に残す。"""
+    """PC が受け取りを聞く。許可済みなら通行証を払い出して ("ok", 通行証)（前の PC の通行証は止める）。ほかは (PENDING／SLOW_DOWN／DENIED／EXPIRED, None)。
+    誰が許可したかは、払い出した処理の名前に残す。待ちは期限まで残り、同じ待ちの印でまた聞かれたら（払い出した答えが PC に届かなかった）、前に払い出した
+    PC を止めてから払い出し直す（待ちを押さえて払い出すのが同じ取引＝生きている通行証は、いつも1つ。0243。⛔ 0241：受け取りで待ちを消し、答えが届かないと、
+    払い出した PC の記録が、だれも持たないまま残った）。"""
     sha = fingerprint(device_code or "")
     got = app.in_system(LOGIN, lambda tx: tx.one("SELECT state, tenant_id, decided_by FROM salescall.pc_login_poll(%s)", (sha,)))
     if got["state"] != "approved":
@@ -133,8 +135,14 @@ def login_take(app: Access, device_code: str) -> tuple[str, Pass | None]:
     token = secrets.token_urlsafe(32)
 
     def work(tx: Tx) -> UUID | None:
-        row = tx.one("SELECT pc_label, replaces FROM salescall.pc_login_take(%s)", (sha,))
-        return None if row is None else _put(tx, row["pc_label"], token, row["replaces"])
+        row = tx.one("SELECT pc_label, replaces, issued_pc FROM salescall.pc_login_take(%s)", (sha,))
+        if row is None:
+            return None
+        if row["issued_pc"] is not None:   # 前に払い出した答えが届かなかった：その通行証を止めてから払い出し直す
+            revoke(tx, row["issued_pc"], missing_ok=True)
+        pc = _put(tx, row["pc_label"], token, row["replaces"])
+        tx.execute("SELECT salescall.pc_login_issued(%s, %s)", (sha, pc))
+        return pc
     pc = app.in_tenant(Actor(f"{LOGIN.name}（許可：{got['decided_by']}）", "system"), got["tenant_id"], work)
     return (EXPIRED, None) if pc is None else ("ok", Pass(got["tenant_id"], pc, token))
 

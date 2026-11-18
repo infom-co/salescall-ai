@@ -2950,6 +2950,17 @@ class Review26c(SupervisorBase):
         self.assertIsNotNone(got.called, got)                                # 次の行へかけた
         self.assertEqual(self.state(s, first.called), "technical_error")     # 残った試行は後始末した
         self.assertEqual(self.trouble(s, first.called), "storage_stuck")     # 書き込みが進まなかった（違う行の数に数えない＝伺い5）
+        # 前の回が、データベースの止まりでなく、こちらのプログラムの誤りで落ちて残った試行は runner_error（違う3行で同じ誤りなら新しい電話を止める＝原則6。
+        # 終える理由は core/leases.left_why の1か所。⛔ 2026-11-18 の8回目の見直しまで：どんな誤りでも storage_stuck にし、「違う3行」の数えから外していた）
+        t = self.ready()
+        self.another_row(t)
+        n["k"] = 0
+        with mock.patch.object(attempts, "end_for_trouble", flaky):
+            left = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(), _NoEnd())
+        line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(), Runner(), fell=ValueError("試験：プログラムの誤り"))
+        self.assertEqual(self.trouble(t, left.called), "runner_error")
+        self.assertEqual(leases.left_why(access_mod.RetryExhausted("試験")), leases.LEFT)
+        self.assertEqual(leases.left_why(None), leases.LEFT)                 # 流れを立ち上げ直した（誤りが分からない）
 
     def test_a_call_that_could_not_be_written_is_the_storages_fault(self):
         """話し終えた通話の最後の書き込みがデータベースの誤りで書けずに戻ったら、会話の部品の不具合でなく保存のせい（⛔ 見直し26c の 4：

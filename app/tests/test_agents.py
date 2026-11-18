@@ -32,7 +32,7 @@ class Logins(unittest.TestCase):
 
     def test_a_login_started_on_one_server_is_approved_and_taken_on_another_once(self):
         """始めたサーバー・許可したページのサーバー・受け取りを聞くサーバーが違っても、ログインできる。待ちの印は指紋だけを置く。
-        許可した契約者の PC になり、前の PC（その契約者の PC）は止まる。受け取れるのは1回だけ。"""
+        許可した契約者の PC になり、前の PC（その契約者の PC）は止まる。生きている通行証は、いつも1つ（払い出し直したら前のものは止まる）。"""
         t = self.w.tenant()
         old = agents.issue(self.a, SYSTEM, t, label="前の PC")
         s = agents.login_start(self.a, label="  事務所の PC  ", replaces=str(old.pc_id))
@@ -54,7 +54,14 @@ class Logins(unittest.TestCase):
         issued = self.a.in_tenant(OPERATOR, t, lambda tx: tx.one("SELECT issued_by FROM salescall.pc_agents WHERE pc_id = %s",
                                                                  (got.pc_id,)))["issued_by"]
         self.assertIn(OPERATOR.name, issued)                                             # 誰が許可したかが残る
-        self.assertEqual(agents.login_take(self.b, s.device_code), (agents.EXPIRED, None))   # 1回だけ
+        # 払い出した答えが PC に届かず、同じ待ちの印でまた聞かれた ⇒ 前に払い出した PC を止めて払い出し直す（生きている通行証は、いつも1つ。0243）
+        state, again = agents.login_take(self.b, s.device_code)
+        self.assertEqual(state, "ok")
+        self.assertNotEqual(again.pc_id, got.pc_id)
+        self.assertIsNone(self.who(got.token))
+        self.assertEqual(self.who(again.token), agents.Who(t, again.pc_id, "事務所の PC"))
+        live = self.a.in_tenant(OPERATOR, t, lambda tx: [p["pc_id"] for p in agents.pcs(tx) if p["revoked_at"] is None])
+        self.assertEqual(live, [again.pc_id])
 
     def test_asking_too_fast_slows_down_and_the_wait_ends(self):
         """間隔より早く聞けば「遅く」と答え、その待ちの間隔を5秒延ばす（RFC 8628 3.5）。断られたら1回だけ「断られた」。期限が切れたら、

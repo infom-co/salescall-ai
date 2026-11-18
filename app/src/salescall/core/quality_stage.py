@@ -144,7 +144,7 @@ def _quality_stop(tx: Tx, business_id: UUID) -> dict[str, Any] | None:
 
 
 def _stopped_version(tx: Tx, stop: dict[str, Any] | None, version_id: UUID) -> bool:
-    """その版が、品質で止まった版そのもの（中身の同じ版）か（1か所。`start_kind` と `record_mock` が読む）。判定できないで止めた停止は
+    """その版が、品質で止まった版そのもの（中身の同じ版）か（1か所。`start_kind`・`record_mock`・`_released_stopped` が読む）。判定できないで止めた停止は
     当てはまらない（原因が業務設定とは限らないので、同じ版でも再開する）。止まった版の写し（以前の版へ戻す・手で前の版に戻す・業務の複製＝
     business_settings.save_from）も、止まった版そのもの：写しの元をたどった、中身の同じいちばん元の版（データベースの salescall.
     version_copy_root＝版の元の1か所。0197）で比べる（⛔ 2026-11-07 の第三者の見直し (2) の5：前は版の番号で比べたので、止まった版の写しで
@@ -335,15 +335,13 @@ OUT_OF_VERIFICATION = "本番の業務は品質では止めない（原則9：�
 
 
 def _released_stopped(tx: Tx, version_id: UUID) -> bool:
-    """その版が、本番への切り替えで品質の停止を解いた（`release_production`）、止まった版そのもの（写しの元をたどった、中身の同じいちばん元の版＝
-    salescall.version_copy_root で比べる。`_stopped_version` と同じ比べ方）か（1か所。`allowance` が読む）。判定できないで止めた停止は当てはまらない
-    （原因が業務設定とは限らないので、同じ版でも再開する＝`_stopped_version` と同じ）。"""
-    return tx.one(
-        "SELECT EXISTS (SELECT 1 FROM salescall.quality_evaluations q JOIN salescall.stop_events s ON s.event_id = q.stop_event_id"
-        "               JOIN salescall.stop_events r ON r.resolves_event_id = s.event_id AND r.reason = %s"
-        "               WHERE s.cause::text <> 'judge_unknown'"
-        "                 AND salescall.version_copy_root(q.version_id) = salescall.version_copy_root(%s)) AS x",
-        (OUT_OF_VERIFICATION, version_id))["x"]
+    """その版が、本番への切り替えで品質の停止を解いた（`release_production`）停止の、止まった版そのものか（1か所。`allowance` が読む）。止まった版そのものかは
+    `_stopped_version` の1か所（写しの元をたどった中身の同じ版・判定できないで止めた停止は当てはまらない）。⛔ 2026-11-18 の8回目の見直しまで：同じ比べ方を
+    別の文で書いていた（片方を直すと、もう片方とずれた）。"""
+    return any(_stopped_version(tx, stop, version_id) for stop in tx.all(
+        "SELECT s.event_id, s.cause::text AS cause, q.version_id FROM salescall.quality_evaluations q"
+        " JOIN salescall.stop_events s ON s.event_id = q.stop_event_id"
+        " JOIN salescall.stop_events r ON r.resolves_event_id = s.event_id AND r.reason = %s ORDER BY s.event_id", (OUT_OF_VERIFICATION,)))
 
 
 def release_production(tx: Tx) -> list[int]:

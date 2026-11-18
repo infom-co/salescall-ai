@@ -959,6 +959,24 @@ class CallsNotUnwelcome(SupervisorBase):
         mon = [t for t in self.times(s) if t.date() == monday.date()]
         self.assertEqual([t.hour for t in mon], [9, 12, 15], mon)
 
+    def test_after_the_day_the_other_days_start_the_next_day_from_the_last_call(self):
+        """「今日に」と言われた日に方針の回数（3回）かけて話せず、その日が過ぎた ⇒ 別の日は、時刻の決まっていない約束の方針の間隔（「1日後」）を、その日の最後の
+        電話（15時・夕方）から数え、次の日（火曜）の、最後の電話と別の時間帯（午前）からかける（next_action._window_over の1か所）。✅ 2026-11-12 ユーザー：
+        「どうしても、その日に繋がらなければ制限回数の範囲で、別の日にかけてもOK」。⛔ 2026-11-18 の8回目の見直しまで：その日の終わり（火曜の0時）から数え、
+        別の日の1本目が水曜になり、前の時間帯も0時（午前）として選んだ。"""
+        monday = self.next_monday_9()
+        self.jump(monday.replace(hour=8, minute=50))
+        daily = {"action": "call", "max_times": 3, "interval": {"days": 1}}
+        s = self.ready(rules=rules_raw(retry={k: daily for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")}))
+        self.put_client(s, "calling.hours", WEEKDAY_9_18)
+        self.give_test_number(s)
+        midnight = monday.replace(hour=0)
+        self.promise(s, next_action.Window(midnight + timedelta(days=1), None, None, midnight, None, day_said=True))   # 「今日に」（日だけ）
+        self.run_until(s, Phone(), Script(default="no_answer"), monday.replace(hour=18) + timedelta(days=1), step=timedelta(minutes=30),
+                       night=timedelta(hours=2))
+        tue = [t for t in self.times(s) if t.date() == (monday + timedelta(days=1)).date()]
+        self.assertEqual([t.hour for t in tue][:1], [9], self.times(s))
+
     def test_the_daily_count_is_the_business_setting_and_the_end_is_the_business_hours(self):
         """1日の回数を業務ごとに増やしても（10回）、言葉で決まっていない終わりは営業時間の19時（19時からはかけない＝次の日の回）。"""
         monday, calls = self.range_day(10)
@@ -978,6 +996,22 @@ class CallsNotUnwelcome(SupervisorBase):
                        step=timedelta(minutes=30), night=timedelta(hours=2))
         days = [(t.date() - monday.date()).days for t in self.times(s)]
         self.assertEqual([days.count(d) for d in range(4)], [3, 1, 0, 0], self.times(s))
+
+    def test_a_range_with_a_time_word_keeps_the_time_on_other_days_up_to_the_policy_times(self):
+        """「来週の夕方なら」（その週の月曜〜日曜の夕方16〜18時）で出ない・方針3回 ⇒ 範囲の中で合計3本（1日3回まで）、範囲が過ぎたら別の日も
+        お客様が言った「夕方」に、範囲の中と別に方針の回数ちょうど（3本）まで（合計6本）。✅ 2026-11-18 ユーザー：伺い「範囲＋時間」に
+        「案イ：別の日も夕方に」（「来週なら」の 11-13 のお答え＝範囲の中3本＋別の日3本と同じ数。夕方の2時間に1時間おきなので1日2本まで入る）。範囲が過ぎたあとかは next_action._range_end の1か所。
+        ⛔ 8回目の見直しまで：範囲が過ぎたあとも回（日）の数を方針の回数まで・1日3回まで続け、最大9本（次の月曜3本・火曜3本も）かけた。"""
+        monday = self.next_monday_9()
+        s = self.row(monday.replace(hour=15, minute=50), times=3)
+        self.promise(s, next_action.Window(monday.replace(hour=0) + timedelta(days=7), (16 * 3600, 18 * 3600), None, monday.replace(hour=0),
+                                           "day"))   # 「来週の夕方なら」（先週に言われた。終わりは次の月曜の0時）
+        self.run_until(s, Phone(), Script(default="no_answer"), monday.replace(hour=19) + timedelta(days=9),
+                       step=timedelta(minutes=30), night=timedelta(hours=2))
+        days = [(t.date() - monday.date()).days for t in self.times(s)]
+        self.assertEqual((sum(d < 7 for d in days), sum(d >= 7 for d in days)), (3, 3), self.times(s))   # 範囲の中3本・別の日3本
+        self.assertTrue(all(16 <= t.hour < 18 for t in self.times(s)), self.times(s))
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "callback_unspecified_time")
 
     def test_an_evening_promise_unanswered_is_called_on_exactly_the_policy_days(self):
         """「夕方なら」（毎日16〜18時の回）で出ない・再発信の方針3回 ⇒ 3日分（月・火・水）で終える（終わりの理由 callback_unspecified_time）。約束の

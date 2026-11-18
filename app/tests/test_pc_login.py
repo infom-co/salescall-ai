@@ -120,14 +120,16 @@ class Login(unittest.TestCase):
 class Automatic(unittest.TestCase):
     def test_the_agent_opens_the_login_page_by_itself_and_waits(self):
         """契約者は命令を打たない：PC の部品が、まだログインしていなければ自動でログインのページを開き、済むまで待つ。期限が切れたら
-        新しいコードで待ち直すが、ブラウザを開き直すのは REOPEN_AFTER ごとまで。ネットに届かないあいだも待ち直す。"""
+        新しいコードで待ち直すが、ブラウザを開き直すのは REOPEN_AFTER ごとまで（新しいコードの案内は毎回 PC の画面に出す。⛔ 2026-11-18 の8回目の見直しまで：
+        開き直さない回は案内も出さず、最長30分、契約者が新しいコードを知る道が無かった）。ネットに届かないあいだも待ち直す。"""
         path = Path(tempfile.mkdtemp(prefix="salescall-pc-")) / "pc-pass.bin"
-        clock, opened, tries = Clock(), [], []
+        clock, opened, tries, shown = Clock(), [], [], []
         got = pc_login.PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証")
 
         def login_once(server, *, previous, open_browser, say):   # 1回分のログイン（10分待って期限切れ、を4回のあとに済む）
             tries.append(previous)
             open_browser(SERVER + "/pc")
+            say("確かめのコード")
             clock.t += 600
             if len(tries) == 1:
                 raise OSError("試験：まだネットにつながっていない")
@@ -135,10 +137,11 @@ class Automatic(unittest.TestCase):
                 raise pc_login.LoginFailed("時間切れです")
             return got
 
-        kept = pc_login.until_logged_in(SERVER, login_once=login_once, open_browser=opened.append, say=lambda t: None,
+        kept = pc_login.until_logged_in(SERVER, login_once=login_once, open_browser=opened.append, say=shown.append,
                                         sleep=clock.sleep, now=clock.now, path=path)
         self.assertEqual((kept, pc_login.load(path), len(tries)), (got, got, 5))  # しまってから返す
         self.assertEqual(len(opened), 2)                                         # 初めてと、30分たったときだけ開く
+        self.assertEqual(shown.count("確かめのコード"), 5)                        # 新しいコードは毎回見せる
 
 
 if __name__ == "__main__":

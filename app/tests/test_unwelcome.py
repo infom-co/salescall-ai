@@ -631,7 +631,9 @@ class MonthAhead(SettleBase):
                 s = self.ready()
                 w, d, p = self.passed(s, first(s), last(s), repeat)
                 self.assertEqual((d.kind, d.promised, d.window, d.month_ahead_after), ("call", True, None, None))
-                self.assertEqual(d.at, w.until + timedelta(hours=1))             # 回の終わりから、方針の間隔（1時間）
+                # 回が過ぎてから、方針の間隔で別の日に（範囲の中の最後の電話から数え、同じ日にはかけ直さない＝その日のあと＝next_action._window_over。
+                # ⛔ 2026-11-18 の8回目の見直しまで：回の終わり（0時）から数え、0時から間隔ぶんの夜中の時刻にしていた）
+                self.assertTrue(w.until <= d.at < w.until + timedelta(days=1), (d.at, w.until))
                 self.assertIn("1か月以上先のため、次の回へは回さずに別の日に", d.rule)
                 self.assertEqual((p["kind"], p["promised"], p["window_until"], p["month_ahead_ask"]), ("call", True, None, False))
                 self.assertEqual(tuple(p["apology_reasons"]), ("missed_promise",))
@@ -846,6 +848,12 @@ class MonthAhead(SettleBase):
         self.assertTrue(got[0][1])                                               # 緊急
         self.assertIsInstance(self.claim(s), gate.Denied)                        # 約束の時刻の前はかけない
         self.refused_goes_to_another_day(s)                                      # 知らせを見て止めた
+        # 契約者の承認を待つ行（検証モード）は約束の時刻にもかけないので、「約束の時刻におかけします」と知らせない（承認の1か所 approval.uncleared。
+        # ⛔ 2026-11-18 の8回目の見直しまで：かけない行にも知らせた）
+        held, _ = self.due_and_asked(timedelta(minutes=4))
+        self.put_client(held, "approval.human", True)
+        self.assertFalse(self.tx(held, lambda tx: gate.month_ahead_unanswered(tx, held["task"])))
+        self.assertEqual(self.notices(held, "month_ahead_unanswered"), [])
         self.assertEqual(self.tx(s, gate.month_ahead_notice_rows), [])          # 伺っていない予定は候補に入らない
 
     def test_after_the_time_a_refusal_goes_to_another_day_only_before_it_is_called(self):
@@ -886,21 +894,23 @@ class UrgentNotices(SettleBase):
 class Guards(SettleBase):
     """0216 のデータベースの守り。"""
 
-    def test_a_recovering_deadline_is_only_on_an_exact_promise(self):
-        """取り戻す電話の期限（次の予定の列 window_recover_until）は、時刻ちょうどの約束（お客様が指定した時刻と幅を持つ、かけ直す予定）にだけ
-        付けられる（データベースの守り task_next_actions_window_recover）。"""
+    def test_a_recovering_deadline_is_only_on_a_call_with_a_window(self):
+        """回の期限（次の予定の列 window_recover_until＝取り戻す電話・途中で切れた約束の電話のすぐのかけ直し）は、終わりのある幅を持つ、かけ直す予定に
+        だけ付けられる（データベースの守り task_next_actions_window_recover）。時刻の無い幅の約束（「3時以降」）にも付けられる（0244。⛔ 0216〜8回目の
+        見直しまで：時刻ちょうどの約束にだけ付けられ、時刻の無い幅の約束の電話が回の終わりのあとに切れると、締めが落ちた）。"""
         from salescall.core.access import Rejected
         s = self.ready()
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         w = next_action.Window(now + timedelta(hours=1), (0, 24 * 3600), None, now - timedelta(hours=1), "day",
                                recover_until=now + timedelta(hours=2))
-        write = lambda callee: self.tx(s, lambda tx: next_action._append(   # noqa: E731
-            tx, s["task"], call_at=now, end_reason=None, cause="試験：取り戻す電話", promised=True,
-            target=next_action.Target(s["contact"]), callee_at=callee, window=w))
+        write = lambda callee, window: self.tx(s, lambda tx: next_action._append(   # noqa: E731
+            tx, s["task"], call_at=now, end_reason=None, cause="試験：回の期限", promised=True,
+            target=next_action.Target(s["contact"]), callee_at=callee, window=window))
         with self.assertRaises(Rejected):
-            write(None)                                                          # 時刻ちょうどの約束でない
-        write(now)
+            write(None, replace(w, until=None))                                  # 終わりの無い幅
+        write(None, w)                                                           # 時刻の無い幅の約束
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["window_recover_until"], w.recover_until)
+        write(now, w)                                                            # 時刻ちょうどの約束
 
     def test_the_ask_mark_is_only_on_a_call(self):
         """契約者に伺う印（次の予定の列 month_ahead_ask。0219）は、かけ直す予定にだけ付けられる（データベースの守り task_next_actions_month_ahead_ask）。"""

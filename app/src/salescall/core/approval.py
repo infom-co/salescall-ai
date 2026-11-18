@@ -5,7 +5,7 @@
   読みの案を契約者が確かめるか（検証モードのあいだだけ。2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」）も、
   ここに問い合わせる（`human_for_business`。検証の切り替えは1つ）。
 - 発信の前（`uncleared`。門が呼ぶ）：契約者の承認を使う業務では、契約者が承認した行だけを通す（承認の記録は `approve_task`）。契約者が直した結果で
-  かける電話は、直した契約者が確かめるまで通さない（`confirm_correction_call`。0240）。
+  かける電話は、直した方が確かめるまで通さない（`confirm_correction_call`。確かめ待ちを書くのは締めの `correction_decided`。0240・0242）。
 - 「確定した」の印（result_releases。名前は前のまま「送ってよい印」）を付けるのも、ここだけ。**この印は、依頼者へ送ることでは
   ない**：依頼者へ渡すのは、依頼者ごとの形に整えた最終のもの（報告・依頼者のシステムへの書き込み）だけで、いつ・どの形で渡すかは
   出力の型（CL-3。DESIGN.md 7-3）が決める。印の付いた版だけが、その最終のものに入る。検証の段階では、依頼者へは何も渡さない。
@@ -49,7 +49,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import fix_requests, measure, notify, results, settings, tasks
+from salescall.core import attempts, fix_requests, measure, notify, results, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.judge import Irreversible
 
@@ -81,7 +81,7 @@ def uncleared(tx: Tx, task_id: UUID) -> str | None:
 
 
 def confirm_correction_call(tx: Tx, task_id: UUID) -> int:
-    """契約者が、直した結果でかける電話を「かけてよい」と確かめる（管理者か契約者だけ・いま確かめ待ちの直しだけ＝データベースが守る。0240）。
+    """直した方が、直した結果でかける電話を「かけてよい」と確かめる（直した管理者か契約者ご本人だけ・いま確かめ待ちの直しだけ＝データベースが守る。0240・0242）。
     確かめた直しの版を返す。確かめ待ちが無ければ LookupError（何も書かない）。"""
     version = tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (task_id,))["v"]
     if version is None:
@@ -91,18 +91,28 @@ def confirm_correction_call(tx: Tx, task_id: UUID) -> int:
     return version
 
 
-def _ask_correction_call(tx: Tx, task_id: UUID, version_no: int) -> None:
-    """直しに従った行の次の予定が「かける」なら、その直しを確かめ待ちにし、直した契約者に知らせる（1か所。`correct_result` だけが呼ぶ。0240）。"""
+def correction_decided(tx: Tx, task_id: UUID, origin: dict[str, Any], version_no: int, *, calls: bool) -> None:
+    """契約者の直しに従って、行の予定を書いた（締めの1か所＝settle._judge_and_write が、直しを読んで予定を書いたときだけ呼ぶ。0242）：その直し（origin＝
+    results.corrected_by の形。version が None なら、いま書いた版 version_no そのもの）の記録を1つ書く（直しごとに1つ。締め直しの写しは書き足さない）。
+    予定が「かける」なら、その行のまだ発信していない予約を取り消し（直す前の門で取った予約でかけない）、直した方に知らせる（管理者が直したなら管理者に）。
+    確かめられるのは直した方だけ（データベースが守る）。直し直して「かけない」にしたら、その記録がいちばん新しくなり、もう待たない
+    （salescall.task_correction_unconfirmed の1か所）。✅ 2026-11-18 ユーザー：伺い2「承認なく勝手にかけたらクレームになる可能性があるため」・続き(1)
+    「直した契約者（お勧め）」。⛔ 0240〜8回目の見直しまで：直した時点の予定だけで決め（直しが予定を書かなかったときも、別の理由の「かける」予定に待ちが
+    付いた）、直す前に取った予約は残り、どの管理者・契約者でも確かめられた。"""
     from salescall.core import calling_hours, next_action
-    plan = next_action.current(tx, task_id)
-    if plan is None or plan["kind"] != "call":
+    version = origin["version"] or version_no
+    row = tx.one("INSERT INTO salescall.correction_calls (tenant_id, client_id, task_id, version_no, asked_by, calls)"
+                 " SELECT tenant_id, client_id, task_id, %s, %s, %s FROM salescall.tasks WHERE task_id = %s"
+                 " ON CONFLICT (task_id, version_no) DO NOTHING RETURNING seq", (version, origin["by"], calls, task_id))
+    if row is None or not calls:
         return
-    tx.execute("INSERT INTO salescall.correction_calls (tenant_id, client_id, task_id, version_no)"
-               " SELECT tenant_id, client_id, task_id, %s FROM salescall.tasks WHERE task_id = %s", (version_no, task_id))
-    when = "すぐ" if plan["call_at"] is None else f"{calling_hours.label(plan['call_at'])}から"
-    notify.emit(tx, "correction_call", key=f"correction_call:{task_id}:{version_no}", refs={"task_id": task_id, "version_no": version_no},
-                summary=f"直していただいた結果に従うと、この行のお客様に{when}おかけします。本当におかけしてよいかを、ダッシュボードで確かめてください"
-                        "（確かめていただくまで、おかけしません）。")
+    attempts.release_task(tx, task_id)
+    plan = next_action.current(tx, task_id)
+    when = "すぐ" if plan is None or plan["call_at"] is None else f"{calling_hours.label(plan['call_at'])}から"
+    admin = origin["kind"] == "admin"
+    notify.emit(tx, "correction_call", key=f"correction_call:{task_id}:{version}", refs={"task_id": task_id, "version_no": version, "by": origin["by"]},
+                summary=f"{origin['by']}様が直した結果に従うと、この行のお客様に{when}おかけします。本当におかけしてよいかを、直した方がダッシュボードで"
+                        "確かめてください（確かめていただくまで、おかけしません）。", admin=admin, contractor=not admin)
 
 
 def approve_task(tx: Tx, task_id: UUID) -> None:
@@ -181,11 +191,12 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
         raise ValueError(f"その版は直して確定できません（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版が"
                          f"ある）：{task_id} の版 {checked_version}")
     judge.corrected(business_state, complaint, detail, base_state=v["business_state"], base_detail=v["detail"])   # 直しの形を先に確かめる（何も書かない）
+    # 違っていた項目（質問の番号）は、直しの元として版に残す（その答えは使わず、次の電話で伺い直す＝conversation_io._dropped_by_correction。正解の測りにも）
     version_no = settle.follow_correction(tx, v["attempt_id"], {"business_state": business_state, "complaint": complaint,
-                                                                "detail": detail or {}, "snapshot": snapshot})["version_no"]
+                                                                "detail": detail or {}, "snapshot": snapshot,
+                                                                "wrong_items": wrong_items})["version_no"]
     _release(tx, task_id, version_no)
     measure.record_check(tx, task_id, checked_version, truth_state=business_state, wrong_items=wrong_items)
-    _ask_correction_call(tx, task_id, version_no)   # 直しで電話をかけることになるなら、直した契約者が確かめるまでかけない（0240）
     return version_no
 
 

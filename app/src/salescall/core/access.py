@@ -225,6 +225,12 @@ def conflict(error: BaseException) -> bool:
     return isinstance(error, _CONFLICTS)
 
 
+def storage_failed(error: BaseException) -> bool:
+    """データベースが書き込みを受けなかった誤りか（データベースの誤り・届かない・混雑・ぶつかりのやり直しが続いた。判断はこの1か所）。こちらのプログラムの
+    誤り（データベースの外の誤り）と分ける（落ちて残った通話を終える理由＝core/leases.left_why）。"""
+    return isinstance(error, (psycopg.Error, RetryExhausted, PoolBusy))
+
+
 def busy(error: BaseException) -> bool:
     """共有のつなぎの空き待ちの時間切れか（混雑。データベースには届いている。判断はこの1か所）。"""
     return isinstance(error, PoolBusy)
