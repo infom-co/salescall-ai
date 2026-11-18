@@ -11,7 +11,8 @@ import time
 from common import base_parser, require_python, save_result, say
 from convo import answers
 from flowctl import ABOUT, END, END_HURRY, END_NONE, HEAR, HEAR_LOST, HEAR_OK, PHONE, SPEAKER, WHO
-from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, make_judges
+from g53_meaning import spread_record
+from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, measured_judges
 
 # ── 正解の表（言葉ごとに、項目ごとの正解＝flowctl.target_facets の項目）。正解は、判定に見せた言葉（質問・はじめにお呼びした言葉・その前に相手が
 #    言ったこと・お客様の言葉）と項目の説明の文だけから決める。受け取ってよい読み（流れの制御の読み）は、正解の組み合わせを流れの制御の1か所
@@ -198,6 +199,27 @@ def lines_end() -> list[tuple[str, str | None, dict[str, set]]]:
     return [(t, BEFORE_TARGET if who == "ご本人" else None, F(*codes) | {END: set(ends)}) for who, t, ends, _, codes in CALLING]
 
 
+def fill(row, k, col, got, s, tried=None):
+    """1行の判定 col の答えを書く（ふつうに送る測り・まとめて送る測りの1か所）。got が None＝答えにならなかった（Jev の確からしさが線より下・
+    止まっている・読めない返事）：どれも選ばなかったと数え、確からしさが線より下の読みは本番と同じに数える（flowctl.unsure_counts＝Flow.on_unsure
+    と同じ決まり）。s＝答えが届くまでの秒（まとめて送る測りは None）。"""
+    row[f"{col}_s"] = s
+    if got is None:
+        row[f"{col}_tried"] = (tried.tried if isinstance(tried, NoJudgment) else tried) or []
+        row[col] = unsure_of(col == k, tried) if isinstance(tried, NoJudgment) else None   # 確かでない読みは本番と同じ優先の順（unsure_of の1か所）
+        return
+    from flowctl import label
+
+    row[col] = label(got) if got else None
+    if getattr(got, "facts", None) is not None:   # 項目ごとの答え（目的のお客様の判定）
+        row[f"{col}_facts"], row[f"{col}_away"], row[f"{col}_new"] = got.facts, got.away, got.new
+    if got.by:
+        row[f"{col}_by"], row[f"{col}_sure"] = got.by, got.sure
+    spread_record(row, col, got)   # 問いごとの確からしさ（G-53 と同じ1か所＝今の決まり meaning_judge.settle_sure で出し直せる。見直し (13) の D10）
+    if getattr(got, "weak", None) is not None:   # 代わりが答えたときの、受け持ちの組の確かでない読み（本番は Flow.on_unsure で数える）
+        row[f"{col}_weak"] = got.weak
+
+
 def unsure_of(target: bool, exc: NoJudgment) -> str | None:
     """答えが無かった行（組も代わりも答えなかった＝NoJudgment）で、本番と同じに数える確かでない読み（唯一の場所）：本番の組が優先の順に並べた確かでない読み
     （exc.unsure＝meaning_judge.unsure_order）の最初を、本番と同じ決まり（flowctl.unsure_counts＝Flow.on_unsure）で数えた名前。target＝目的のお客様の判定か
@@ -243,12 +265,28 @@ def facts_whole(got: dict | None, facts: dict) -> bool:
     return bool(got) and all(k in got for k in facts if k not in ADDED)
 
 
+def successor_before(text: str, before: str | None, asked: bool) -> str | None:
+    """後任の方をお呼びしたあとの行（LINES_SUCCESSOR）の「その前に相手が言ったこと」を、本番の流れの制御が同じ場面で判定に渡す前の言葉
+    （Flow.judge_context）で作る（唯一の作り。場面は g59_flow_check.scene＝退職の言葉 → 後任の方へ切り替え → 行の前の言葉 → 行の言葉）。
+    ⛔ 2026-11-18 日本時間15時台（見直し (13) の D6）：行の前の言葉を手で書き、後任の方へ切り替えた退職の言葉（DEPARTED_SAID）が5行で抜けていた
+    （本番は「岡田は先月退職いたしました。／後任は田中になります。…」）。正解は読み直して変えていない（足した言葉は前の方の退職の事実だけ＝いまの言葉の
+    話している方・電話のやり取り・いまお呼びしている後任の方の事情は変わらない）。"""
+    from g59_flow_check import scene
+    confirm = lambda p: asked and p == ASKED_AFTER
+    steps = [(p, "同不xx" if confirm(p) else "同受待x", ("report_party", {"party": "target" if confirm(p) else "reception"}))
+             for p in (before or "").split("／") if p and p != DEPARTED_SAID]
+    f, _, _ = scene(steps, successor=True)
+    f.on_callee(); f.on_heard(text)
+    return f.judge_context()[2]
+
+
 def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bool, dict]]:
     """測る言葉の全部：(相手の言葉, 受け取ってよい読み, その前に相手が言ったこと, 確かめた言い方, 後任の方をお呼びしたあとか, 正解)。"""
     from phrases import SUCCESSOR
     rows = ([(t, None, False, False, f) for t, f in LINES] + [(t, b, False, False, f) for t, b, f in LINES_AFTER]
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
-            + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED] + [(t, b, c, True, f) for t, b, c, f in LINES_SUCCESSOR]
+            + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED]
+            + [(t, successor_before(t, b, c), c, True, f) for t, b, c, f in LINES_SUCCESSOR]
             + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, None, a, False, f) for t, a, f in lines_hear()])
     # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉の正解は、行に END を書いたもの（ご本人の「…会議中で手が離せないのですが。」＝
     #    急いでいる）のほかは「言っていない」（断り・取り次げない・急ぎ・怒りの言葉は無い。⛔ 11-01 は1つずつ読まずに全部を「言っていない」にしていた＝
@@ -285,16 +323,18 @@ def prompts_fingerprint(sees_target: bool | None = None) -> dict[str, tuple[int,
     1文字も違わず戻したか・文を変えていないかを確かめる（⛔ 2026-10-30：文をいくつも直して測りが悪くなり、測った中でいちばん良い形に戻すとき、
     その形の写しが作業の場所の外にしか無かった）。
     ⛔ 2026-10-31：目的のお客様の判定の文だけを見ていた＝答えの段の説明の文（1か所）を直したとき、同じ文が入る尋ねているかの文が変わったのに
-       「お呼びする段の文は変わらない」と記録した ⇒ 尋ねているかの文も出す"""
+       「お呼びする段の文は変わらない」と記録した ⇒ 尋ねているかの文も出す
+    ⛔ 2026-11-18 日本時間15時台（見直し (13) の D5）：prompt_parts の文だけを指紋にしていた＝先に出す d1-ultra・Jev へ送る中身が変わっても指紋が
+       同じ ⇒ 本番の2つ目の判定の組のうち、その質問に答える判定それぞれへ送る中身（meaning_judge.sent_text＝送る1か所 other_request）から作る"""
     import hashlib
-    from meaning_judge import prompt_parts
+    from meaning_judge import sent_text
     b, f, fs = flows(sees_target)
     target = asks = ""
     for text, _, before, asked, succ, _ in cases(b.target.confirm()):
         fl = fs if succ else f
         q = question_of(fl, asked)
-        target += "".join(prompt_parts(q, text, None, before))
-        asks += "".join(prompt_parts(fl.for_judge(fl.asks_questions[q.id]), text, None, before))
+        target += sent_text(q, text, None, before)
+        asks += sent_text(fl.for_judge(fl.asks_questions[q.id]), text, None, before)
     return {name: (len(s), hashlib.sha256(s.encode()).hexdigest()[:16]) for name, s in (("目的のお客様の判定", target), ("尋ねているか", asks))}
 
 
@@ -308,26 +348,9 @@ async def run(args) -> dict:
             raise SystemExit("--batch は、--judge2 に Anthropic の判定を1つだけ選んだときに使えます（組・その場の判定とは一緒に使えません）")
         judges = {"judge": None, "judge2": name}
     else:
-        judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
+        judges = measured_judges(args)   # 測るのは選んだ意味の判定だけ（中身の判定は g63_grounding。選んでいなければ止める）
     rows, items, where = [], [], {}
     hear_only = {(t, a) for t, a, _ in lines_hear()}   # 聞こえ方だけを数える行（試しの言葉 G-73）
-
-    def fill(row, k, col, got, s, tried=None):
-        """1行の判定 col の答えを書く（ふつうに送る測り・まとめて送る測りの1か所）。got が None＝答えにならなかった（Jev の確からしさが線より下・
-        止まっている・読めない返事）：どれも選ばなかったと数え、確からしさが線より下の読みは本番と同じに数える（flowctl.unsure_counts＝Flow.on_unsure
-        と同じ決まり）。s＝答えが届くまでの秒（まとめて送る測りは None）。"""
-        row[f"{col}_s"] = s
-        if got is None:
-            row[f"{col}_tried"] = (tried.tried if isinstance(tried, NoJudgment) else tried) or []
-            row[col] = unsure_of(col == k, tried) if isinstance(tried, NoJudgment) else None   # 確かでない読みは本番と同じ優先の順（unsure_of の1か所）
-            return
-        row[col] = label(got) if got else None
-        if getattr(got, "facts", None) is not None:   # 項目ごとの答え（目的のお客様の判定）
-            row[f"{col}_facts"], row[f"{col}_away"], row[f"{col}_new"] = got.facts, got.away, got.new
-        if got.by:
-            row[f"{col}_by"], row[f"{col}_sure"] = got.by, got.sure
-        if getattr(got, "weak", None) is not None:   # 代わりが答えたときの、受け持ちの組の確かでない読み（本番は Flow.on_unsure で数える）
-            row[f"{col}_weak"] = got.weak
 
     def finish(row) -> None:
         # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える

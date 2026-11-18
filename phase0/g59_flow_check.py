@@ -26,10 +26,11 @@ def heard(f, text, code):
 def shown(r):
     return r.get("result"), [p.get("part", p.get("kind")) for p in r.get("play") or []], (r.get("say") or "")[:30]
 
-def run(steps, successor=False):
-    """steps：[(相手の言葉, 読みの字, AIの報告 (op, args) か None)]。最後の報告の返事と、流れの制御の状態を返す。"""
+def scene(steps, successor=False, checks=("judge",)):
+    """お呼びする段の場面を、本番の流れの制御（Flow）に組む唯一の所（会話の試し run・G-68 の測り g68_returned が通る）。steps：[(相手の言葉, 読みの字,
+    AIの報告 (op, args) か None)]。checks＝流れの制御が待つ確かめの名前（Flow.use_checks）。返す：(流れの制御, 報告の返事の並び, 最後の言葉の場面)。"""
     f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
-    f.use_checks("judge")
+    f.use_checks(*checks)
     if successor:
         heard(f, "岡田は先月退職いたしました。", "同受x籍")
         f.apply("request_callback", {"why": "departed"})
@@ -39,6 +40,12 @@ def run(steps, successor=False):
         ctx = {"asked": f.asked_target is not None, "before": f.judge_context()[2], "successor": successor}   # 最後の言葉の場面（g59_tally の行と同じ形）
         if op:
             out.append(shown(f.apply(*op)))
+    return f, out, ctx
+
+
+def run(steps, successor=False):
+    """steps：[(相手の言葉, 読みの字, AIの報告 (op, args) か None)]。最後の報告の返事と、流れの制御の状態を返す。"""
+    f, out, ctx = scene(steps, successor)
     return out, (f.phase, f.speaker_from, f.passed_on), ctx
 
 T, H, R, S = (("report_party", {"party": "target"}), ("replay_opening", {"part": "handover"}), ("report_party", {"party": "reception"}),

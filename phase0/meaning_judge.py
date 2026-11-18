@@ -602,10 +602,17 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
     if r is not None:   # 測りの記録だけが使う確からしさの広がり（どの問いの読みでも同じ1か所）
         r.probs = got.get("probs") if isinstance(got.get("probs"), dict) else None
         r.confs = got.get("confs") if isinstance(got.get("confs"), dict) else None
-        used = used_sure(r.confs, str(r))
-        if used is not None:
-            r.sure = used
+        settle_sure(r)
     return r
+
+
+def settle_sure(r) -> None:
+    """読みの確からしさを、その読みで流れの制御が使う問いだけから出し直す唯一の所（used_sure の決まり。問いごとの確からしさ confs の無い読みは
+    返事の sure のまま）。本番の read と、記録から読みを戻す測りの数え（g53_meaning.reading）が通る。⛔ 2026-11-18 日本時間15時台（見直し (13) の
+    D10）まで、測りの数えは記録したときの確からしさのまま＝今の決まりなら確かな読みを確かでないと数え、2つ目の判定へ送る行が本番と食い違った"""
+    used = used_sure(getattr(r, "confs", None), str(r))
+    if used is not None:
+        r.sure = used
 
 
 def used_sure(confs: dict | None, cond: str) -> float | None:
@@ -899,7 +906,7 @@ OTHER_JUDGES = {
     #    60日以内に消える・1回ごとに残さない指定は判断の窓口には無い（SubQ の頁「データの保持」）
     # Drex Max（Nace.AI）＝OpenRouter の判断の窓口（10-16 の版・受け口は DeepInfra の米国だけ・無料の受け口は無い）。一覧の料金は入力100万トークン
     #    あたり0.06ドル（11-15 は半額）。1文字あたりの見込み（KeySpend）は、Jev の実測（7.6×10⁻⁶ 円・0.042ドル）を料金の比で移した値（半額の前の
-    #    料金＝多めに見込む側。SubQ の値も同じ移し方＝見込みの道具 judge_cost が使う）
+    #    料金＝多めに見込む側。SubQ の値も同じ移し方＝料金の帳簿 KeySpend が使う）
     "SubQ Snap 1.2": {"maker": "subq", "api": "decision", "model": "subq-snap-1.2", "key": "SubQ_JUDGE_KEY", "host": "api.subq.ai",
                       "path": "/v1/systemone", "firm_min": 0.2, "yen_per_char": 7.24e-6},
     "Drex Max（Nace.AI）": {"maker": "nace-ai", "api": "decision", "model": "nace-ai/drex-max-20261016", "key": "OPENROUTER_JUDGE_KEY",
@@ -1629,6 +1636,16 @@ async def ajudge_other(client, name: str, q, text: str, asked: str | None = None
                 asked)
 
 
+def sent_text(q, text: str, asked: str | None = None, before: str | None = None, names=None) -> str:
+    """組 names（既定は本番の2つ目の判定 JUDGE2）のうち、質問 q に答える判定（members_for）それぞれへ送る中身を、送る1か所（other_request・前の話は
+    ajudge_other と同じ main_before）から作って並べた文（測りの道具の指紋の唯一の材料＝G-59・G-68 の prompts_fingerprint）。組に入る Google の判定は、
+    送る文（prompt）。⛔ 2026-11-18 日本時間15時台（見直し (13) の持ち場 D の D5）：指紋は prompt_parts の文だけ＝先に出す d1-ultra・Jev へ送る中身
+    （jev_request の問いの指示 JEV_ASK・言葉の決まりの項目 TERM_FACETS）を替えても指紋が変わらなかった。"""
+    before = main_before(q, asked, before)
+    return "".join(json.dumps(other_request(n, q, text, asked, before), ensure_ascii=False, sort_keys=True) if n in OTHER_JUDGES
+                   else prompt(q, text, asked, before) for n in members_for(members(JUDGE2) if names is None else names, question_kind(q)))
+
+
 # 前の話の答えを読む判定の順（唯一の場所。✅ 2026-10-31 の夜 ユーザー：「(a) OK」＝前の話の答えは、いまの言葉と関わりなく前の話と質問だけで
 #    決まるので、どの判定がいまの言葉を読んでも、前の話の答えは d1-ultra 1つが読んだものを使う。答えられないときだけ Jev＝答えの段の組の
 #    顔ぶれと同じ向き＝takes_part の stands_in）。
@@ -1869,7 +1886,7 @@ class NoJudgment(RuntimeError):
 # 組の中で先に出す判定と、その確かな読みを待つ秒（first_of の lead）。✅ 2026-10-29 ユーザー：「(1) では、Jev が『確かでない』と返したら、
 #    その時点で Sonnet を出します。OK」＝⛔ 3つを同時に出すと、Jev が確かな読みで先に答えた発話（意味の判定で6割）でも、2つの Sonnet の料金を
 #    払っていた（送った問い合わせは、止めても料金がかかる）。記録の読みと秒で数えると、正しさは1件も変わらず、Sonnet は意味の判定で 58%・
-#    中身の判定で 70% 減る（PHASE0 G-59 の 10-29・phase0/judge_cost.py）。Jev の答えまでは中央 0.16秒
+#    中身の判定で 70% 減る（PHASE0 G-59 の 10-29。比べた道具 judge_cost の送り方の比べは、組を手で書いていたので 11-18 に外した＝見直し (13) の D13）。Jev の答えまでは中央 0.16秒
 #    ✅ 2026-10-30：先に出すのは組の中の判断のモデル全部（decision_model＝Jev・d1-ultra。同時に出す。d1-ultra の答えまでは中央 0.19秒）。
 #    G-59 の6回りで、2つがどちらも確かなときに読みが食い違った回は0（目的のお客様の判定21回・尋ねているか243回）。10-31 の同じ文を事実ごとの
 #    読み（facts_reading）で数えても、2つとも確かな行の流れの制御の動きはどれも同じ（目的のお客様の判定7行・尋ねているか117行）。それでも、
@@ -2442,6 +2459,16 @@ def make_judges(args) -> dict:
     chosen = tuple(getattr(args, "grounder", None) or GROUNDERS)
     grounder = None if NO_GROUNDER in chosen else make_grounder(args, chosen, state=panel)   # 道の状態は意味の判定と同じもの（RouteState）
     return {k: panel.slot(k) if k in used else None for k in names} | {"grounder": grounder}
+
+
+def measured_judges(args) -> dict:
+    """測りの道具（G-59・G-68）が測る判定＝make_judges のうち選ばれた意味の判定だけ（中身の判定 grounder は入れない＝g63_grounding が測る）。
+    1つも選ばれていなければ、何も数えずに止める唯一の所（⛔ 2026-11-18 日本時間15時台・見直し (13) の D11：判定を選ばずに流すと、g68 は1つも
+    読まないまま全部の行を「そろって戻った」と数え（害 28/28）、g59 も読みの無い行を数えて結果を保存した）。"""
+    judges = {k: j for k, j in make_judges(args).items() if k != "grounder" and j is not None}
+    if not judges:
+        raise SystemExit("測る判定が1つも選ばれていません（--judge か --judge2 で選んでください）。何も数えずに止めます")
+    return judges
 
 
 def make_prior(args):

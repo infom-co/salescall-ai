@@ -16,9 +16,9 @@ import asyncio
 import json
 
 from common import base_parser, require_python, save_result, say
-from meaning_judge import NoJudgment, add_judge_args, make_judges
+from meaning_judge import NoJudgment, add_judge_args, measured_judges
 
-from flowctl import RETURN_MEANINGS as MEANINGS, RETURNED_OTHER as OTHER, RETURNED_SAME as SAME  # 説明の文の正本（G-68 で測った文）
+from flowctl import RETURN_CHECKS, RETURN_MEANINGS as MEANINGS, RETURNED_OTHER as OTHER, RETURNED_SAME as SAME  # 説明の文の正本（G-68 で測った文）
 HOLD_TARGET, HOLD_OTHER = "岡田ですね。少々お待ちください。", "担当の者に代わりますので、少々お待ちください。"
 ANY = None  # どちらとも言えない（数えない）
 # (待たせた方の言葉, 戻ってきた方の言葉, 正解)
@@ -56,44 +56,69 @@ NEW_CASES = [
 ]
 
 
-def question():
-    """測る問い合わせの質問（測る所 run と、送る文の指紋 prompts_fingerprint の1か所）。"""
-    from flowctl import Question
-    from phrases import target_call
-    return Question("R1", target_call("法人", "おかだ", "営業部部長"), "yes_no", required=False, conditions=tuple(MEANINGS), meanings=dict(MEANINGS))
+HOLD_CODE = "同受待x"   # 待たせた方の言葉の読み（受付・取次ぎの方が、取り次ぎを待つように言った＝g59_flow_check の読みの字）
+# 判定の受け持ち ⇒ 流れの制御が待つ確かめの名前（本番の電話接続側＝convo.check_handler：1つ目の判定が returned・2つ目が returned2）
+CHECK_OF = dict(zip(("judge", "judge2"), RETURN_CHECKS))
+
+
+def scene(before: str, text: str):
+    """待たせた方の言葉 before のあとに話した方の言葉 text を、本番の流れの制御が、待たせた方が戻ったかの問い合わせに出す所まで組む（測る所 run と、
+    送る文の指紋 prompts_fingerprint の唯一の場面＝g59_flow_check.scene）。返す：(流れの制御, 判定に見せる質問, その前に相手が言ったこと)＝Flow.returned_context。
+    ⛔ 2026-11-18 日本時間15時台（見直し (13) の D4）：質問を手で組んでいた（「おかだ様」named=False。本番は Flow.for_judge の「岡田（おかだ）様」named=True）"""
+    from g59_flow_check import scene as flow_scene
+    f, _, _ = flow_scene([(before, HOLD_CODE, ("report_party", {"party": "reception"}))], checks=("judge", *RETURN_CHECKS))
+    f.on_callee(); f.on_heard(text)
+    ctx = f.returned_context()
+    if ctx is None:
+        raise SystemExit(f"待たせた方が戻ったかの問い合わせの場面にならない（{before}｜{text}）")
+    return f, *ctx
+
+
+def decided(f, readings: dict) -> bool:
+    """受け持ちごとの読み readings（{受け持ち: 読み}）を、本番の流れの制御へ渡し、待たせた方が戻ったと決めたか（Flow.on_check ⇒ returned_same_at。
+    唯一の数え）。⛔ 2026-11-18 日本時間15時台（見直し (13) の D3）：受け持ちの読みがどれも「戻った」なら「そろって戻った」と数えていた＝判定1つ・
+    判定を選ばない測りでも数えた（本番は RETURN_CHECKS の2つがそろったときだけ名乗りを省く）"""
+    for k, v in readings.items():
+        f.on_check(CHECK_OF[k], v)
+    return f.returned_same_at == f.speaker_from
 
 
 def prompts_fingerprint() -> tuple[int, str]:
-    """判定に送る文（CASES の全部）の長さと指紋（0円）。⛔ 2026-10-31：答えの段の説明の文（1か所）を直したとき、この文も変わったのに
-    確かめていなかった（指紋の道具が無かった）＝測った文と同じかを、ここで確かめる"""
+    """判定に送る文（CASES と NEW_CASES の全部）の長さと指紋（0円）。⛔ 2026-10-31：答えの段の説明の文（1か所）を直したとき、この文も変わったのに
+    確かめていなかった（指紋の道具が無かった）＝測った文と同じかを、ここで確かめる。⛔ 2026-11-18 日本時間15時台（見直し (13) の D4・D5）：手で組んだ
+    質問の prompt_parts の文だけ・CASES だけだった ⇒ 本番の場面（scene）の質問で、本番の組のうちこの質問に答える判定へ送る中身（meaning_judge.sent_text）"""
     import hashlib
-    from meaning_judge import prompt_parts
-    q = question()
-    s = "".join("".join(prompt_parts(q, text, None, before)) for before, text, _ in CASES)
+    from meaning_judge import sent_text
+    s = ""
+    for before, text, _ in CASES + NEW_CASES:
+        _, q, seen = scene(before, text)
+        s += sent_text(q, text, None, seen)
     return len(s), hashlib.sha256(s.encode()).hexdigest()[:16]
 
 
 async def run(args) -> dict:
-    q = question()
-    judges = {k: j for k, j in make_judges(args).items() if k != "grounder" and j is not None}
+    judges = measured_judges(args)
     rows = []
     for before, text, want in (NEW_CASES if args.only_new else CASES + NEW_CASES):
         for rep in range(args.repeat):
             for j in {j.panel for j in judges.values()}:
                 j.reset()
+            f, q, seen = scene(before, text)   # 本番の流れの制御が、この言葉で出す問い合わせ（質問・前の言葉）
             row = {"before": before, "text": text, "want": want, "rep": rep, "new": (before, text, want) in NEW_CASES}
+            got_of = {}
 
             async def one(k, j):
                 try:
-                    got = await j(q, text, None, before=before)
+                    got = await j(q, text, None, before=seen)
                 except NoJudgment as exc:
                     row[k], row[f"{k}_tried"] = None, exc.tried
                     return
+                got_of[k] = got
                 row[k] = str(got) if got else None
                 if got is not None and got.by:
                     row[f"{k}_by"], row[f"{k}_sure"] = got.by, got.sure
             await asyncio.gather(*(one(k, j) for k, j in judges.items()))
-            row["both_same"] = all(row.get(k) == SAME for k in judges)
+            row["both_same"] = decided(f, got_of)   # 本番の流れの制御が、待たせた方が戻ったと決めたか（2つがそろったときだけ）
             rows.append(row)
             say(text[:40], {k: row.get(k) for k in judges}, "そろって戻った" if row["both_same"] else "")
     harm = [r for r in rows if r["want"] == OTHER and r["both_same"]]

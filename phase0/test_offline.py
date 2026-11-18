@@ -3176,26 +3176,16 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         # どちらの回でも決まる判定が同じ行は、今までどおり1つ（d1-ultra が2秒の前に届く）
         self.assertEqual({w for w, *_ in g59_tally.outcomes([(1.0, True, "d1"), (0.5, True, "jev")], (0, 1), new=True)}, {0})
 
-    def test_cost_tool_decides_with_the_production_race_and_sure_rule(self):
-        # ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（判定の組の持ち場の J6）：料金の道具（judge_cost）は、組の決め方（first＝先に届いた確かな
-        # 読み）と確かな読みの決まり（usable＝中身の判定は確からしさの無い読みも確か）を手で写していた＝11-05 の「d1-ultra（先に出すもの）の判定が優先」
-        # と、確からしさの無い読みは確かでない（sure_reading）の前の形のまま。送り始めを変えた比べも、本番の1か所（race_recorded＝Race・sure_reading）で決める
-        from types import SimpleNamespace
-
+    def test_cost_tool_holds_no_group_of_its_own(self):
+        # ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（判定の組の持ち場の J6）：料金の道具（judge_cost）は、組の決め方と確かな読みの決まりを手で
+        # 写していた。⛔ 2026-11-18 日本時間15時台（見直し (13) の持ち場 D の D13）：決め方を本番の1か所にしたあとも、組の顔ぶれ（Jev を先頭に考えない Sonnet）と
+        # 先に出すもの（並びの最初）を手で書いていた＝本番は members_for（答えの段は d1-ultra・Jev・考える Sonnet）・leads_of（d1-ultra と Jev）。
+        # 記録（10-25 の G-53race・10-24 の G-63G67each）に d1-ultra の読みが無く、本番の組では数えられない ⇒ 送り方の比べは外した。本番の組で決める数えは、
+        # お呼びする段が g59_tally.cascade（記録の無い判定で決まりうる行は数えない）・答えの段は G-53 の組の測り（本番の JudgePanel で送る＝g53_meaning.run_group）
         import judge_cost as jc
-        from meaning_judge import race_recorded, sure_reading
-        self.assertFalse(hasattr(jc, "first") or hasattr(jc, "usable"))   # 手の写しを持たない
-        # (1) 先に出す Jev の確かな読みが待つ秒（0.3）のあとに届き、あとから出した Sonnet が先に届く：本番は先に出すもの（Jev）を待つ長さの中で優先
-        rd = {jc.J: ("通す", 0.5, 0.95, jc.J), jc.T: ("止める", 0.1, None, jc.T)}
-        got, at, sent = jc.decide(rd, (jc.J, jc.T), 0.3, "ground")
-        runs = [(0.5, sure_reading(jc.J, "ground", SimpleNamespace(sure=0.95, firm_p=None))), (0.1, True)]
-        won, won_at, started = race_recorded(runs, (0,), 0.3)
-        self.assertEqual((got, at, sent), (rd[(jc.J, jc.T)[won]], won_at, sum(1 for i in started if i)))
-        self.assertEqual(got[3], jc.J)
-        # (2) 中身の判定で Jev が確からしさを返さなかった：確かな読みではない（sure_reading）＝ Sonnet の読みで決める
-        rd = {jc.J: ("通す", 0.1, None, jc.J), jc.T: ("止める", 0.4, None, jc.T)}
-        got, _, sent = jc.decide(rd, (jc.J, jc.T), 0.3, "ground")
-        self.assertEqual((got[3], sent), (jc.T, 1))
+        for name in ("decide", "compare_meaning", "compare_grounding", "WAITS", "J"):
+            self.assertFalse(hasattr(jc, name), name)
+        self.assertTrue(callable(jc.paid_calls))   # 送った回数の数え（組を持たない）は残す
 
     def test_g59_tally_cascade_decides_with_the_production_race(self):
         # 測りの数え（g59_tally.cascade）は、どの判定で決めるかを本番の組の1か所で決める：顔ぶれ（members_for）・確かな読み（sure_reading）・
@@ -6992,6 +6982,160 @@ class ClosedNetworkTest(unittest.TestCase):
                 "except OSError as e:\n"
                 "    print('CLOSED' if '組み立てだけ' in str(e) else 'OTHER')\n")
         self.assertEqual(self._run(code), ["OTHER"])   # 名前は引けない（.invalid）が、止めたのは作りではない
+
+
+class DryRunResultTest(unittest.TestCase):
+    """組み立てだけ（--dry-run）の命令は測りの結果を results/ に保存しない（common.save_result の1か所）・判定を1つも選んでいない測りは
+    何も数えずに止める（meaning_judge.measured_judges の1か所）。⛔ 2026-11-18 日本時間15時台（見直し (13) の持ち場 D の D11）：g59・g68 の
+    --dry-run が止まらずに空の結果を保存し、g68 は1つも読まないまま全部の行を「そろって戻った」と数えた（害 28/28）。"""
+
+    def test_dry_run_saves_no_result(self):
+        import subprocess
+        import sys
+        code = ("import common, pathlib, tempfile\n"
+                "d = pathlib.Path(tempfile.mkdtemp()); common.RESULTS_DIR = d\n"
+                "common.base_parser('x').parse_args(['--dry-run'])\n"
+                "common.save_result('X', {'a': 1})\n"
+                "print(len(list(d.iterdir())))\n")
+        done = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.stdout.split()[-1:], ["0"], done.stdout + done.stderr)
+
+    def test_a_measure_without_a_judge_stops_before_counting(self):
+        import asyncio
+
+        import g59_calling_judge
+        import g68_returned
+        from meaning_judge import add_judge_args
+        p = common.base_parser("x")
+        add_judge_args(p)
+        args = p.parse_args([])
+        args.only_new, args.repeat = False, 1
+        with self.assertRaises(SystemExit):
+            asyncio.run(g68_returned.run(args))
+        args.batch, args.hide_names, args.only, args.repeat, args.pace_s, args.asks_only = False, False, None, 1, 0.0, False
+        with self.assertRaises(SystemExit):
+            asyncio.run(g59_calling_judge.run(args))
+
+
+class MeasureSureTest(unittest.TestCase):
+    """測りの数えが記録から読みを戻すときも、確からしさは本番と同じ1か所（meaning_judge.settle_sure＝流れの制御が使う問いだけのいちばん低いもの）で
+    出し直す・G-59 も G-53 と同じ1か所（g53_meaning.spread_record）で問いごとの確からしさを残す。⛔ 2026-11-18 日本時間15時台（見直し (13) の
+    持ち場 D の D10）：g53_meaning.reading は記録したときの確からしさのまま（G-53d1base で225行が今の決まりなら確か）＝in_scope が2つ目の判定へ
+    送る行が本番と食い違い、G-59 の書き込みは問いごとの確からしさを残さなかった（あとから今の決まりで出し直せない）。"""
+
+    K = "d1 Ultra（Liquid）"
+
+    def test_recorded_reading_is_settled_by_the_items_the_flow_uses(self):
+        import g53_meaning as m
+        from flowctl import WHY
+        it = {self.K: "カード", f"{self.K}確からしさ": 0.6, f"{self.K}問いごとの確からしさ": {"choice": 0.95, WHY: 0.6}}
+        self.assertEqual(m.reading(it, self.K).sure, 0.95)   # 答えがわからない・答えたくない でなければ、理由の問いは使わない
+        it[self.K] = "unknown"
+        self.assertEqual(m.reading(it, self.K).sure, 0.6)
+        del it[f"{self.K}問いごとの確からしさ"]   # 問いごとの確からしさの無い記録（返さない判定・前の記録）は記録の値のまま
+        self.assertEqual(m.reading(it, self.K).sure, 0.6)
+
+    def test_g59_rows_keep_the_spread_like_g53(self):
+        import g53_meaning as m
+        import g59_calling_judge as g
+        from meaning_judge import Reading
+        got = Reading("ご本人", True, 0.9)
+        got.by, got.probs, got.confs = "d1", {"ご本人": 0.9}, {"who": 0.9, "phone": 0.95}
+        row = {}
+        g.fill(row, "judge", "judge", got, 0.4)
+        self.assertEqual({s: row.get(f"judge{s}") for s in m.SPREAD_RECORD}, {s: getattr(got, a) for s, a in m.SPREAD_RECORD.items()})
+
+
+class MeasureSentTest(unittest.TestCase):
+    """測りの道具（G-59・G-68）の指紋と問い合わせは、本番が送る中身から作る：組のうちその質問に答える判定（members_for）それぞれへ送る1か所
+    （meaning_judge.other_request）・判定に見せる質問は本番の流れの制御（Flow.for_judge）・G-68 の「そろって戻った」は本番の流れの制御の決め方
+    （Flow.on_check の returned・returned2 ⇒ returned_same_at）。⛔ 2026-11-18 日本時間15時台（見直し (13) の持ち場 D の D3〜D5）：指紋は
+    prompt_parts の文だけ（先に出す d1-ultra・Jev へ送る中身を替えても同じ）・G-68 は質問を手で組み（「おかだ様」named=False。本番は「岡田（おかだ）様」）、
+    指紋に足した言葉（NEW_CASES）を入れず、判定1つでも「そろって戻った」と数えた（本番は2つがそろったときだけ）。"""
+
+    class Fake:
+        """決まった読みを返す判定（0円）。見た質問と前の言葉を残す。"""
+
+        def __init__(self, value):
+            self.value, self.seen, self.panel = value, [], self
+
+        def reset(self):
+            pass
+
+        async def __call__(self, q, text, asked=None, before=None):
+            from meaning_judge import Reading
+            self.seen.append((q, before))
+            return Reading(self.value, True, 0.99)
+
+    def _g68(self, judges):
+        import asyncio
+        import g68_returned as g68
+        args = SimpleNamespace(only_new=False, repeat=1)
+        with unittest.mock.patch("meaning_judge.make_judges", lambda a: judges):   # 測る判定の作り（1か所）だけを替える
+            return asyncio.run(g68.run(args))
+
+    def test_g59_fingerprint_follows_what_the_leads_receive(self):
+        import g59_calling_judge as g
+        import meaning_judge as mj
+        before = g.prompts_fingerprint()
+        with unittest.mock.patch.object(mj, "TERM_FACETS", ()):   # 先に出す d1-ultra・Jev へ送る目的のお客様の判定の問いの指示だけにある言葉
+            self.assertNotEqual(g.prompts_fingerprint()["目的のお客様の判定"], before["目的のお客様の判定"])
+        with unittest.mock.patch.object(mj, "JEV_ASK", mj.JEV_ASK + "（試し）"):   # 先に出す d1-ultra・Jev へ送る尋ねているかの問いの指示だけにある言葉
+            self.assertNotEqual(g.prompts_fingerprint()["尋ねているか"], before["尋ねているか"])
+
+    def test_g68_says_returned_only_when_the_flow_decides_it(self):
+        import g68_returned as g68
+        from flowctl import RETURNED_OTHER, RETURNED_SAME
+        others = sum(1 for _, _, w in g68.CASES + g68.NEW_CASES if w == RETURNED_OTHER)
+        one = self._g68({"judge2": self.Fake(RETURNED_SAME)})["summary"]
+        self.assertEqual(one["別の方をそろって戻ったと読んだ（害）"], f"0/{others}")   # 本番は判定1つの「戻った」では名乗りを省かない
+        two = self._g68({"judge": self.Fake(RETURNED_SAME), "judge2": self.Fake(RETURNED_SAME)})["summary"]
+        self.assertEqual(two["別の方をそろって戻ったと読んだ（害）"], f"{others}/{others}")
+
+    def test_g68_shows_the_production_question_and_fingerprints_every_case(self):
+        import g59_calling_judge as g59
+        import g68_returned as g68
+        fake = self.Fake(g68.SAME)
+        self._g68({"judge2": fake})
+        _, f, _ = g59.flows()
+        want = f.for_judge(f.return_question)
+        self.assertEqual({(q.text, q.named) for q, _ in fake.seen}, {(want.text, True)})
+        self.assertEqual(len(fake.seen), len(g68.CASES) + len(g68.NEW_CASES))
+        before = g68.prompts_fingerprint()
+        with unittest.mock.patch.object(g68, "NEW_CASES", g68.NEW_CASES[:-1]):   # 足した言葉も送る文に入る
+            self.assertNotEqual(g68.prompts_fingerprint(), before)
+
+
+class MeasureSceneTest(unittest.TestCase):
+    """測りの数えが行の場面を組む所（g53_meaning.flow_scene）は、言い直しへの返事の行を、どの組でも同じ1か所で言い直しの場面に組む。⛔ 2026-11-18
+    日本時間15時台（見直し (13) の持ち場 D の D9）：組 E（取り次ぐ・代わった言葉）の言い直しのある32行を、言い直しの無い最初の答えの場面で数えていた
+    （判定は言い直しを見て読んだのに、流れの制御は最初の答えとして動かした）。"""
+
+    def test_set_e_rows_with_a_restatement_are_built_like_set_d(self):
+        import g53_meaning as m
+        from flowctl import CHOICE_TYPES, HOLD
+        qmap = m.question_map()
+        q = next(q for q in qmap.values() if q.type in CHOICE_TYPES and m.asked_of(q, q.conditions[0]))
+        it = {"set": "E", "qid": q.id, "text": "少々お待ちください。", "truth": HOLD, "asked": m.asked_of(q, q.conditions[0])}
+        f, qid = m.flow_scene(it, q)
+        self.assertEqual(f.items[qid].state, "checking")   # 言い直しへの返事を待つ場面（組 D と同じ）
+        d = dict(it, set="D", asked_choice=q.conditions[0])
+        g, _ = m.flow_scene(d, q)
+        self.assertEqual((f.items[qid].condition, f.awaiting_confirm), (g.items[qid].condition, g.awaiting_confirm))
+
+    def test_g59_successor_rows_show_the_words_production_shows(self):
+        # ⛔ 見直し (13) の D6：後任の方の場面の5行の前の言葉に退職の言葉が無かった（本番は Flow.judge_context が「岡田は先月退職いたしました。／後任は…」を渡す）
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        for text, _, before, asked, succ, _ in g.cases("x"):
+            if not succ:
+                continue
+            steps = [(p, "同不xx" if asked and p == g.ASKED_AFTER else "同受待x",
+                      ("report_party", {"party": "target" if asked and p == g.ASKED_AFTER else "reception"}))
+                     for p in (before or "").split("／") if p and p != g.DEPARTED_SAID]
+            f, _, _ = fc.scene(steps, successor=True)
+            f.on_callee(); f.on_heard(text)
+            self.assertEqual(before, f.judge_context()[2], text)
 
 
 class EnglishLineTest(unittest.TestCase):
@@ -14531,8 +14675,10 @@ class TargetTest(unittest.TestCase):
         k.on_unsure("asks", ASKS_NO)
         self.assertNotIn("asks", k.check)
         import g59_calling_judge
-        # 試し台も同じ決まりで数える（答えが無かった行の確かでない読みは unsure_of の1か所＝優先の順の最初を unsure_counts で）
-        self.assertIn("unsure_of(", inspect.getsource(g59_calling_judge.run))
+        # 試し台も同じ決まりで数える（答えが無かった行の確かでない読みは unsure_of の1か所＝優先の順の最初を unsure_counts で）。1行の書き込みは
+        # fill の1か所（見直し (13) の D10 で run の中から外へ出した＝問いごとの確からしさも G-53 と同じ1か所で残す）
+        self.assertIn("fill(", inspect.getsource(g59_calling_judge.run))
+        self.assertIn("unsure_of(", inspect.getsource(g59_calling_judge.fill))
         self.assertIn("unsure_counts(", inspect.getsource(g59_calling_judge.unsure_of))
 
     def test_waited_report_is_asked_again_once_the_words_are_complete(self):

@@ -182,7 +182,7 @@ def hedged(it: dict) -> bool:
 
 def reading(it: dict, key: str):
     """記録した判定の答えを、流れの制御に渡す形（言い切っているかを添える）に戻す。"""
-    from meaning_judge import Reading
+    from meaning_judge import Reading, settle_sure
 
     got = it.get(key)
     if got is None:
@@ -192,6 +192,9 @@ def reading(it: dict, key: str):
         setattr(r, k, it.get(f"{key}{suffix}"))   # 答えとは別に読む項目の読み（記録の見出しの1か所 SIDE_SUFFIX。項目を足す前の記録は None＝読んでいない）
     # 確からしさ（返す判定だけ）：確かな読みかを本番と同じ決まり（meaning_judge.sure_reading）で数えるため。流れの制御は読まない
     r.sure, r.firm_p = it.get(f"{key}確からしさ"), it.get(f"{key}言い切りの確からしさ")
+    for suffix, attr in SPREAD_RECORD.items():
+        setattr(r, attr, it.get(f"{key}{suffix}"))
+    settle_sure(r)   # 問いごとの確からしさがあれば、本番と同じ1か所で出し直す（見直し (13) の D10）
     return r
 
 
@@ -218,6 +221,13 @@ assert set(SIDE_SUFFIX) == set(SIDE_ITEMS), "記録の見出しは、答えと�
 # ✅ 2026-11-07 日本時間10時29分25秒 ユーザー「d1-ultraの確からしさが低いのは、こちらの設問か選択肢、説明の問題ということでしょ！」＝
 # どの選べるものの間で割れたか・どの問いが低かったかを、記録から読めるようにする（決め方には使わない）
 SPREAD_RECORD = {"選べるものの確からしさ": "probs", "問いごとの確からしさ": "confs"}
+
+
+def spread_record(it: dict, key: str, got) -> None:
+    """判定 key の読み got の確からしさの広がり（SPREAD_RECORD）を、行 it に記録する唯一の所（G-53 と G-59 の書き込み。見直し (13) の D10：G-59 は
+    残さず、今の決まり（meaning_judge.settle_sure）で出し直せなかった）。"""
+    for suffix, attr in SPREAD_RECORD.items():
+        it[f"{key}{suffix}"] = getattr(got, attr, None)
 
 
 def side_record(it: dict, key: str, got) -> None:
@@ -480,6 +490,17 @@ def asked_of(q: Question, cond: str | None, value: str | None = None) -> str | N
     return r.get("say") if r.get("result") == "confirm_required" else None
 
 
+def asked_choice(it: dict, q: Question) -> str | None:
+    """言い直しへの返事の行 it で、こちらが言い直した答え（唯一の読み口＝場面の組み立て flow_scene・動きの名前 flow_name）：記録の asked_choice。組 E
+    （取り次ぐ・代わった言葉）の言い直しのある行で asked_choice を書いていない記録（11-18 より前）は、作った所（set_e）と同じ最初の選択肢。言い直しの無い
+    行は None。⛔ 2026-11-18 日本時間15時台（見直し (13) の D9）：組 E の言い直しのある行を、言い直しの無い最初の答えの場面で数えていた"""
+    if "asked_choice" in it:
+        return it["asked_choice"]
+    if not it.get("asked"):
+        return None
+    return q.conditions[0] if it.get("set") == "E" and q.type in CHOICE_TYPES and q.conditions else None
+
+
 DE_PROMPT = (
     "電話でお客様に質問をして、お客様の答えを、こちらが言い直して確かめました。確かめごとに、お客様が次の返し方をするときの、自然な一言の返事を、"
     "返し方ごとに2つずつ書いてください。\n"
@@ -571,7 +592,8 @@ def make_e(client, model: str, qs: list[Question]) -> list[dict]:
         q = choice_qs[i % len(choice_qs)]
         out.append({"set": "E", "maker": model, "qid": q.id, "text": text, "truth": want, "asked": None})
         q2 = choice_qs[(i + 7) % len(choice_qs)]
-        out.append({"set": "E", "maker": model, "qid": q2.id, "text": text, "truth": want, "asked": asked_of(q2, q2.conditions[0])})
+        out.append({"set": "E", "maker": model, "qid": q2.id, "text": text, "truth": want, "asked": asked_of(q2, q2.conditions[0]),
+                    "asked_choice": q2.conditions[0]})   # 言い直した答え（場面を組む所 flow_scene が組 D と同じ1か所で読む＝asked_choice）
     return out
 
 
@@ -747,16 +769,17 @@ def flow_scene(it: dict, q: Question) -> tuple[Flow, str]:
         raise NoScene(f"見直し (12) の形の質問（{it.get('qid')}）")
     else:
         f = Flow([q, SCENE_NEXT], play_recordings=True)
-        if s == "D":
+        if s == "D" or it.get("asked"):   # 言い直しへの返事の行は、どの組でも同じ1か所で言い直しの場面に組む（見直し (13) の D9：組 E の言い直しのある行）
             if it.get("qid") == "R7":
                 raise NoScene("ご承認のお知らせの最終の確かめ（R7）")
-            said = restated(q, it.get("asked_choice") if q.type in CHOICE_TYPES else "答えた", None if q.type in CHOICE_TYPES else _scene_value(q), f)[1]
+            choice = asked_choice(it, q)
+            said = restated(q, choice if q.type in CHOICE_TYPES else "答えた", None if q.type in CHOICE_TYPES else _scene_value(q), f)[1]
             if said.get("result") != "confirm_required":
-                raise NoScene(f"言い直せない答え（{it.get('asked_choice')}）")
-            if q.type in CHOICE_TYPES and f.items[q.id].condition != it.get("asked_choice"):
+                raise NoScene(f"言い直せない答え（{choice}）")
+            if q.type in CHOICE_TYPES and f.items[q.id].condition != choice:
                 # 今の本番は、この答えを目的に進む向きの別の答えで言い直す（「それでは予定通りの方向で…」）＝判定が読んだ記録の言い直し（「念のため…変更が
                 # おありということで…」）と向きが違う場面は組めない（数えない。次の測りの前に組 D の言い直しの文を今の本番で作り直す＝帳面 1 の (1) の F1）
-                raise NoScene(f"記録の言い直しと今の本番の言い直しの向きが違う（{it.get('asked_choice')}→{f.items[q.id].condition}）")
+                raise NoScene(f"記録の言い直しと今の本番の言い直しの向きが違う（{choice}→{f.items[q.id].condition}）")
             return f, q.id
     cur = f.current
     if cur is None or f.questions[cur].text != q.text:
@@ -889,7 +912,7 @@ def flow_name(f: Flow, qid: str, rep: dict, it: dict, asked: str | None = None) 
         return OTHER_ACT + f"{res}|{','.join(plays)}"
     cond = {"dont_know": "unknown", "refused": "refused"}.get(item.state, item.condition)
     q = f.questions[qid]
-    asked = (it.get("asked_choice") if q.type in CHOICE_TYPES else "答えた") if it.get("set") == "D" else None
+    asked = (asked_choice(it, q) if q.type in CHOICE_TYPES else "答えた") if it.get("set") == "D" or it.get("asked") else None
     same = asked is not None and cond == asked and (q.type in CHOICE_TYPES or item.value == _scene_value(q))
     if res == "confirm_required":
         if rep.get("after") == "sense":
@@ -1164,8 +1187,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     side_record(it, key, it[key])
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
                     it[f"{key}言い切りの確からしさ"] = getattr(it[key], "firm_p", None)   # 言い切りの線と、どちらとも言えない幅を決めるため
-                    for suffix, attr in SPREAD_RECORD.items():   # どの選べるものの間で割れたか・どの問いが低かったか（11-07 10時29分25秒）
-                        it[f"{key}{suffix}"] = getattr(it[key], attr, None)
+                    spread_record(it, key, it[key])   # どの選べるものの間で割れたか・どの問いが低かったか（11-07 10時29分25秒）
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
                     break
                 except OtherJudgeError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
