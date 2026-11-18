@@ -262,12 +262,19 @@ def clause_fits(intro: str, text: str, clause: str | None, announce: str = "") -
     言葉を落とさない・出どころに無い数と期限の言葉を足さない（どちらも keeps_facts の1か所を両向きに）・出どころに無い言葉（漢字・カタカナ・英字のまとまり）を
     足さない。言葉の出どころ＝説明と質問の文と、お客様が聞いた文（heard の1か所＝取込で決まったお知らせの文 announce・無ければ入る一言＋質問の文。お知らせの文は
     説明に無い事実を足さない中身の判定を通った文）。決まり・規則として言わない形は問い合わせ（MATTER_PROMPT）が頼む（言葉の形では止めない＝fits と同じ）。"""
-    from askitems import noun_fits
+    from askitems import spoken_noun_fits
 
-    if not noun_fits(clause) or clause.endswith(POLITE_ENDS) or not clause.endswith(CLAUSE_ENDS) or not spoken(clause):
-        return False   # かっこは使わない（声で言う句＝spoken の1か所。✅ 2026-11-16 日本時間12時48分22秒「・伺い33：…」）
+    # 名詞の形・常体・かっこを使わない（声で言う句＝spoken_noun_fits の1か所。かっこは ✅ 2026-11-16 日本時間12時48分22秒「・伺い33：…」）
+    if not spoken_noun_fits(clause) or not clause.endswith(CLAUSE_ENDS):
+        return False
     source = "\n".join((intro, text, heard(intro, text, announce)))   # お知らせの文が無いとき heard は入る一言＋質問の文（重なりは確かめに効かない）
-    return keeps_facts(source, clause) and keeps_facts(clause, source) and all(w in source for w in _WORDS.findall(clause))
+    return from_source(source, clause)
+
+
+def from_source(source: str, words: str) -> bool:
+    """取込で作った言葉 words が、言葉の出どころ source から作ったものか（唯一の決まり＝お知らせの中身の句 clause_fits・その後の文の中身 since.fits）：出どころの数と
+    期限の言葉を落とさない・出どころに無い数と期限の言葉を足さない（keeps_facts の1か所を両向きに）・出どころに無い言葉（漢字・カタカナ・英字のまとまり）を足さない。"""
+    return keeps_facts(source, words) and keeps_facts(words, source) and all(w in source for w in _WORDS.findall(words))
 
 
 def _decided(model_words: list[str | None], fits) -> str | None:

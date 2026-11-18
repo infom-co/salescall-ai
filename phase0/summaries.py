@@ -42,10 +42,10 @@ def fits(purpose: str, texts: tuple, line: str | None) -> bool:
     """営業の要約として使えるか（形の決まりの唯一の場所）：「〜の件」の前に置ける名詞の形（文の終わり・問い・読点を含まない＝askitems.noun_fits の1か所・丁寧な
     言い方の文の終わりで終わらない＝announces.POLITE_ENDS・かっこを含まない＝announces.spoken）・業務の台本に無い数と期限の言葉を足していない（announces.keeps_facts を、
     要約から台本へ向けて当てる＝要約は短くするので、台本の数を全部は求めない）。「件」で終わる要約は phrases.of_matter が「件」を重ねない。"""
-    from announces import POLITE_ENDS, keeps_facts, spoken
-    from askitems import noun_fits
+    from announces import keeps_facts
+    from askitems import spoken_noun_fits
 
-    if not noun_fits(line) or line.endswith(POLITE_ENDS) or not spoken(line):
+    if not spoken_noun_fits(line):   # 名詞の形・常体・かっこを使わない（声で言う名詞の1か所）
         return False
     return keeps_facts(line, _body(purpose, texts))
 
