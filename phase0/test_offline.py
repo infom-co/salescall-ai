@@ -5323,11 +5323,12 @@ class HollowAskAgainTest(unittest.TestCase):
         hollow = "もう一度お聞かせいただいてもよろしいでしょうか？"
         q = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"),
                      reworded="お支払いの方はカードと振込のどちらにされますか？", alternatives="振込になさいますかそれともカードの方がよろしいでしょうか？")
-        self.assertEqual(ask_again_text(q, q.text), q.alternatives)
-        self.assertEqual(ask_again_text(q, q.alternatives), q.reworded)
+        # 渡すのは、その所でお客様がもう聞いた文と最後に聞いた順（Flow._heard_last。⛔ 126e9814 まで直前に聞いた文1つ＝AskAgainHeardTest）
+        self.assertEqual(ask_again_text(q, {q.text: 0}), q.alternatives)
+        self.assertEqual(ask_again_text(q, {q.alternatives: 0}), q.reworded)
         n6 = callback_question("close_offer", "それでは改めて資料をお送りさせていただいてもよろしいでしょうか？", do="改めて資料をお送りさせていただきます")
-        self.assertEqual((n6.id, n6.topic, ask_again_text(n6, n6.text)), (CALLBACK_IDS["close_offer"], "", n6.text))
-        self.assertNotIn(hollow, "恐れ入ります。" + ask_again_text(n6, n6.text))
+        self.assertEqual((n6.id, n6.topic, ask_again_text(n6, {n6.text: 0})), (CALLBACK_IDS["close_offer"], "", n6.text))
+        self.assertNotIn(hollow, "恐れ入ります。" + ask_again_text(n6, {n6.text: 0}))
 
 
 class SpokenTextTest(unittest.TestCase):
@@ -34482,6 +34483,205 @@ class TroubleOfferFollowTest(unittest.TestCase):
         r = self.turn(f, DeepenTroubleTest.TROUBLE, self.rd("問題を言った"), "record_answer", question_id=CALLBACK_IDS["elsewhere"], condition_id="問題を言った",
                       value="対応が遅くて困っている")
         self.assertIn("へは、そのあとプログラムが戻ります", r["message"])
+
+
+class AckHeardRotationTest(unittest.TestCase):
+    """同じ言葉への相づちが道で違わない（分身 F の書き置きの「見つけたこと」2・まとめ役の頼み・決まりで直す＝本書 9-7）：次の質問へ進む返事の頭の
+    「承知しました。」「ありがとうございます。」を順番に回す数（Flow.ack_count）は、お客様に聞こえた相づちの分だけ進める（数を進めるのは、流す相づちを決める
+    唯一の入口 Flow._ack）。先に言われた答えを伺う番（ahead_offer）で取っておいた相づち（ahead_ack）・同じ発話の続きの返事で選んだが流さなかった相づちは、
+    流したときだけ数える。⛔ 4e94ba37 まで、取っておいた相づちを選んだ時に数を進めていたので、困りごとに応える提案へのお返事が「いいえ」のときと
+    「聞き取れない」「はっきりしない」のときで（後の2つは、もとのお返事を読み直す番＝取っておいた相づちを流さない）、そのあとのご承認への「はい、大丈夫です。」の
+    相づちが「ありがとうございます。」と「かしこまりました。」に割れ、お支払いの「カードでお願いします。」の相づちも割れた（聞こえた順番は同じなのに、
+    聞こえていない相づちで順番がずれ、「承知しました。」が続くのを替える決まり＝_fresh_receipt で替わっていた）"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    reread = OtherCompanyClueSendWayTest.reread
+
+    def flow(self):
+        import dataclasses
+        from flowctl import JUDGMENTS, Question
+        b = OtherCompanyClueSendWayTest().business()
+        q5 = Question("Q5", "ご連絡のつきやすい時間帯は午前と午後のどちらがよろしいでしょうか？", "choice", conditions=("午前", "午後"), required=True,
+                      topic="ご連絡のつきやすい時間帯")
+        f = dataclasses.replace(b, questions=[*b.questions, q5]).flow(play_recordings=True)
+        f.use_checks(*JUDGMENTS)
+        return f
+
+    def after_offer(self, kind):
+        """困りごとに応える提案（TroubleOfferTest）へのお返事 kind のあと、ほかのご希望 W1 →「無い」→ ご承認 →「はい」→ お支払い →「カード」と進めて、
+        W1 のお返事から先の返事の聞こえ方を返す。"""
+        from flowctl import CALLBACK_IDS, NONE, UNDECIDED, WISH_NONE
+        t = TroubleOfferTest()
+        f, _ = t.to_offer(f=self.flow())
+        t.proposed(f)
+        if kind == "いいえ":
+            r = self.turn(f, "いえ、それも結構です。", self.rd(NONE), "confirm_field", question_id="Q2", result="corrected", correction="どれも要らない")
+        else:
+            words, res = {"聞き取れない": ("（雑音）……", "no_answer"), "はっきりしない": ("うーん。", "affirmed")}[kind]
+            r = self.turn(f, words, self.rd(UNDECIDED), "confirm_field", question_id="Q2", result=res)
+            self.assertEqual((r.get("ahead_offer"), self.heard(r)), (True, "はい、"), kind)
+            self.reread(f, self.rd(NONE))
+            r = f.apply("record_answer", {"question_id": "Q2", "condition_id": NONE})
+        self.assertEqual(f.current, CALLBACK_IDS["other_wish"], kind)
+        out = []
+        for qid, words, cond in ((CALLBACK_IDS["other_wish"], "いえ、特にないです。", WISH_NONE), ("Q3", "はい、大丈夫です。", "はい"),
+                                 ("Q4", "カードでお願いします。", "カード")):
+            r = self.turn(f, words, self.rd(cond), "record_answer", question_id=qid, condition_id=cond)
+            out.append(self.heard(r))
+        return out
+
+    def test_the_same_words_get_the_same_ack_on_every_path(self):
+        from phrases import ACK
+        got = {kind: self.after_offer(kind) for kind in ("いいえ", "聞き取れない", "はっきりしない")}
+        # 聞こえた順番で回す：W1 の「無い」＝承り（お断りの向き）・ご承認の「はい」＝順番の「ありがとうございます。」・お支払い＝順番の「承知しました。」
+        heads = [ACK["shouchi"], ACK["arigatou"] + "続きまして", ACK["shouchi"] + "続きまして"]
+        for kind, lines in got.items():
+            self.assertEqual([x[:len(h)] for x, h in zip(lines, heads)], heads, (kind, lines))
+        self.assertEqual(got["聞き取れない"], got["いいえ"])
+        self.assertEqual(got["はっきりしない"], got["いいえ"])
+
+
+class HeardFormsTest(unittest.TestCase):
+    """分身 E の書き置きの穴 (b)(c)(e) を、同じ所で直前と同じ文を続けて言わない1か所（意向が分からないまま戻る形 flowctl.soft_form の heard・その所でお客様が
+    もう聞いた文を記録から読む Flow._heard_last）に通したもの（まとめ役の頼み・決まりで直す＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」・
+    11-19 日本時間3時17分22秒「伺い46：…3回目の「本当に手短に」が来たとき：イ」）：
+    (b) 意向が分からないまま戻る1回目の戻り（戻る1か所 Flow._continue の soft）も、その所でまだ言っていない形から選ぶ。⛔ 4e94ba37 まで、いまの形のまま
+        （3回目の急かしで選択肢の文を言ったあと、尋ねられて答えて相づちだけのお返事が来ると、また選択肢の文）
+    (c) お客様に応えてお返事を待つ間に、その所で重ねて急かされたのが2回目からのとき（全体の3回目から）も、伺っている間の3回目からと同じ＝「承知しました。」＋その所で
+        まだ言っていない形（戻りに数えない・戻る一言を付けない）。⛔ 4e94ba37 まで、相づちだけのお返事の戻り（戻る一言の回数で決まる形）のまま「承知しました。それでは
+        もう一度確認させていただきますね。ご連絡は…」
+    (e) 会話AIが話す通話で、もう聞いた文を知らせから読むのは、会話AIに質問を伺わせる知らせの文だけ（録音で流す通話の流した録音の文と同じ所）。⛔ 4e94ba37 まで、知らせの
+        どこに書いた文も読み、待つ返事の知らせの「相手の返事が、いまの質問 Q2「…」への答えなら…」（お客様には聞こえていない）を、その時に聞いた文と読んでいた"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    OWN = "メールでしたら、ご予約の内容をまとめたものをお送りしております。"
+    OWN2 = "お電話でしたら、担当よりご連絡を差し上げております。"
+
+    def briefed(self, play=True):
+        """BriefAgainTest.briefed（H3 に「いいえ」→「承知しました。それでは手短にお伺いいたしますね。」＋Q2）の、会話AIが話す通話も作れる形。"""
+        b = BriefAgainTest()
+        g = BriefGoAheadTest()
+        f = g.flow(b.forms(), play=play)
+        g.asked(f)
+        g.replied(f, "no")
+        self.assertEqual(f.current, "Q2")
+        return f
+
+    def ask(self, f, words, own):
+        from flowctl import QUERY, QUERY_YES, UNDECIDED
+        from grounding import GROUNDED
+        q = self.rd(UNDECIDED)
+        setattr(q, QUERY, QUERY_YES)
+        self.turn(f, words, q, "record_answer", question_id="Q2", condition_id="unknown")
+        grounded(f, own, GROUNDED)
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": own})["result"], "own_answer")
+
+    def test_b_the_first_soft_return_takes_a_form_not_yet_said_at_the_place(self):
+        from flowctl import UNDECIDED
+        b = BriefAgainTest()
+        for play in (True, False):
+            f = self.briefed(play)
+            b.again(f)
+            r = b.again(f)   # 3回目：選択肢を並べた文
+            self.assertEqual(f.questions["Q2"].text, b.ALT, play)
+            self.ask(f, "メールだと、何か届くんですか？", self.OWN)
+            r = self.turn(f, "そうですねえ。", self.rd(UNDECIDED))   # 相づちだけのお返事＝1回目の戻り（意向が分からないまま戻る形）
+            self.assertEqual((r.get("ack"), f.questions["Q2"].text), ("hai", b.REWORD), play)
+            if play:
+                self.assertEqual(([p["id"] for p in r["play"]], self.heard(r)), (["Q2_aside_again"], "はい、" + b.REWORD))
+            else:
+                self.assertIn(f"「{b.REWORD}」", r["message"])
+        # その所で何も言い換えていなければ今のまま（選択肢を並べた文。BriefAgainTest・AsideTest の今の試験）
+
+    def test_c_hurried_again_while_awaiting_a_reply_after_a_hurry_at_the_place(self):
+        b = BriefAgainTest()
+        for play in (True, False):
+            f = self.briefed(play)
+            self.ask(f, "メールだと、何か届くんですか？", self.OWN)
+            r = b.again(f)   # お返事を待つ間の1回目の重ねての急かし（全体の2回目）：今のまま相づちだけのお返事と同じ戻り（選択肢を並べた文）
+            self.assertEqual((r.get("ack"), f.questions["Q2"].text), ("shouchi_hurried", b.ALT), play)
+            self.ask(f, "電話だとどうなるんですか？", self.OWN2)
+            counts = dict(f.back_counts)
+            r = b.again(f)   # 全体の3回目：その所でまだ言っていない形（言い換えた質問）
+            self.assertEqual((r.get("ack"), f.questions["Q2"].text, (f.own_pending, f.ai_pending)), ("shouchi_hurried", b.REWORD, (False, False)), play)
+            self.assertEqual(f.back_counts, counts, play)   # 戻りに数えない
+            if play:
+                self.assertEqual(([p["id"] for p in r["play"]], self.heard(r)), (["Q2_aside_again"], "承知しました。" + b.REWORD))
+            else:
+                self.assertIn(f"「{b.REWORD}」", r["message"])
+                self.assertNotIn("それでは", r["message"].split(f"「{b.REWORD}」")[0][-40:])
+            r = b.again(f)   # 4回目：どれも言った＝いちばん前に聞いた形
+            self.assertEqual(f.questions["Q2"].text, b.CONTACT, play)
+            if play:
+                self.assertEqual(self.heard(r), "承知しました。" + b.CONTACT)
+            r = self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
+            self.assertEqual((f.export()["Q2"], f.current), ("メール", "Q3"), play)
+        # 言い直しの確かめ（形が1つ）について尋ねられて答えたあとの3回目からの急かし：待ちを終える戻りの決まりはそのまま（同じ言い直しへ戻らずに最終の確かめ＝
+        # 11-06 日本時間11時19分55秒）。戻る一言は付けない（⛔ 入れる途中の作り e6cdffa0 は、3回目からを伺っている間と同じ戻りにしたので、同じ言い直し
+        # 「承知しました。明日の午後でよろしいでしょうか？」をくり返した）
+        from flowctl import CALLBACK_IDS
+        from grounding import GROUNDED
+        o = BriefOfferRulesTest()
+        c1 = CALLBACK_IDS["time"]
+        f = o.asked()
+        o.yes(f)
+        r = self.turn(f, "じゃあ、明日の午後で。", self.rd("答えた"), "record_answer", question_id=c1, condition_id="答えた", value="明日の午後")
+        self.assertEqual(f.awaiting_confirm, c1)
+        from flowctl import drop_receipt
+        said = drop_receipt(f.awaiting_say)   # 伺ったときの頭の受けの言葉（「かしこまりました。」）は外す
+        r = b.again(f)   # 全体の2回目：伺っていた形のまま（今のまま）
+        self.assertEqual(self.heard(r), "承知しました。" + said)
+        from flowctl import QUERY, QUERY_YES, UNDECIDED
+        q = self.rd(UNDECIDED)
+        setattr(q, QUERY, QUERY_YES)
+        self.turn(f, "午後って何時ごろになりますか？", q, "confirm_field", question_id=c1, result="no_answer")
+        own = "午後の早い時間にお電話させていただく予定でございます。"
+        grounded(f, own, GROUNDED)
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": own})["result"], "own_answer")
+        r = b.again(f)   # 全体の3回目（お返事を待つ間）：最終の確かめ（同じ言い直しをくり返さない）
+        self.assertEqual((r.get("ack"), r["result"]), ("shouchi_hurried", "confirm_required"))
+        self.assertNotEqual(self.heard(r), "承知しました。" + said)
+        self.assertNotIn("それではもう一度確認させていただきますね。", self.heard(r))
+
+    def test_e_the_ai_voice_call_reads_only_what_the_customer_was_asked(self):
+        from grounding import GROUNDED
+        a = AsideTest()
+        date = "さようでございますか。お支払いは月曜日以外でも問題ございませんよ。"
+        got = {}
+        for play in (True, False):
+            f = a.flow(alternatives=a.ALT, play=play)
+            a.unlinked(f)
+            grounded(f, date, GROUNDED)
+            r = f.apply("replay_opening", {"part": "talk", "answer": date, "fallback": "talk_heard_nod"})
+            self.assertEqual(f.own_pending, "talk", play)   # お話に沿った受け答えで待つ（質問はまだ伺い直していない）
+            got[play] = f._heard_last("Q2")
+        # 待つ返事の知らせ（「相手の返事が、いまの質問 Q2「…」への答えなら…」）の文は、お客様が聞いた文ではない＝録音で流す通話と同じ読み
+        self.assertEqual(got[False], got[True])
+        # 重ねて急かされた所でも、どちらの通話も同じ形を選ぶ（(c) の会話を会話AIが話す通話で＝test_c）
+
+
+class AskAgainHeardTest(unittest.TestCase):
+    """同じ理由が当たる所（分身 I が HeardFormsTest のあとに探したもの・決まりで直す＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）：
+    聞くことの空な質問を伺い直す文（flowctl.ask_again_text＝聞き返し・締めの前の念のための確認の最後の1回）も、その所でお客様がもう聞いた文（Flow._heard_last）を
+    意向が分からないまま戻る形の1か所（soft_form の heard）に渡す＝まだ言っていない形・どれも言っていれば、いちばん前に聞いた形。⛔ 126e9814 まで、いまの形の文
+    だけを「直前に聞いた文」として渡していたので、その場の聞き返しで言い換えた質問を伺ったあと、締めの前の念のための確認でも同じ言い換えた質問をくり返した
+    （「恐れ入ります。ご来店はいつ頃がご都合よろしいでしょうか？」→ …「恐れ入りますがご来店はいつ頃がご都合よろしいでしょうか？」）"""
+
+    def test_the_last_ask_again_does_not_repeat_the_form_heard_at_the_place(self):
+        t = HollowAskAgainTest()
+        do = AskLadderTest.do
+        f = t.flow(t.REWORDED)
+        r = do(f, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
+        self.assertEqual(r["say"], "恐れ入ります。" + t.REWORDED)   # 1回目の伺い直し：まだ言っていない形（今のまま）
+        do(f, "record_answer", question_id="Q1", condition_id="答えた", value="4人")
+        do(f, "record_answer", question_id="Q1", condition_id="答えた", value="5人")
+        do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
+        r = do(f, "confirm_field", question_id="Q2", result="affirmed")
+        # 締めの前の念のための確認：その所で元の文も言い換えた文ももう聞いた＝いちばん前に聞いた形（元の質問の文）
+        self.assertEqual((r["result"], r["say"]), ("recheck", "恐れ入りますがご来店の日時はいつがよろしいでしょうか？"))
+        # その所でまだ言い換えていなければ今のまま（言い換えた質問＝HollowAskAgainTest の今の試験）
 
 
 if __name__ == "__main__":
