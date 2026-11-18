@@ -36,9 +36,10 @@ from uuid import UUID
 from salescall.link.basics import PcPass
 from salescall.link.pass_file import load, logout, pass_path, save  # noqa: F401（しまう場所の決まりは link の1か所）
 
-START = "/pc-login/start"    # 機器のログインを始める（返す：device_code・user_code・verification_uri(_complete)・interval・expires_in）
-TOKEN = "/pc-login/token"    # 通行証を受け取る（返す：待って authorization_pending／遅く slow_down／断られた access_denied／時間切れ
-                             #   expired_token、または tenant_id・pc・token。サーバーは core.agents.issue を呼ぶ）
+START = "/pc-login/start"    # 機器のログインを始める（送る：pc_label・前の PC の番号 replaces。返す：device_code・user_code・
+                             #   verification_uri(_complete)・interval・expires_in。サーバーは core.agents.login_start を呼ぶ）
+TOKEN = "/pc-login/token"    # 通行証を受け取る（送る：device_code。返す：待って authorization_pending／遅く slow_down／断られた
+                             #   access_denied／時間切れ expired_token、または tenant_id・pc・token。サーバーは core.agents.login_take を呼ぶ）
 
 
 REOPEN_AFTER = 30 * 60      # ログインしないまま期限が切れたとき、ブラウザを開き直すまでの秒数（その間は、開いたページで待つ）
@@ -60,7 +61,8 @@ def login(server_url: str, *, previous: PcPass | None = None, post: Callable[[st
     post = post or _post
     base = server_url.rstrip("/")
     try:   # サーバーの答えの形が違えば、ログインできなかったとして扱う（PC の部品を終わらせない）
-        start = post(base + START, {"pc_label": socket.gethostname()})
+        # 前の PC の番号は始めるときに渡す（待ちに残り、契約者が許可のページで「入れ替わる PC」を見て決める＝0241）
+        start = post(base + START, {"pc_label": socket.gethostname(), **({"replaces": str(previous.pc_id)} if previous else {})})
         page = start.get("verification_uri_complete") or start["verification_uri"]
         code, device = str(start["user_code"]), str(start["device_code"])
         interval, deadline = float(start.get("interval", 5)), now() + float(start.get("expires_in", 600))
@@ -70,7 +72,7 @@ def login(server_url: str, *, previous: PcPass | None = None, post: Callable[[st
         f"ページに出る確かめのコードが「{code}」と同じかを確かめてから、ログインしてください"
         "（ID とパスワード・Google・パスキーのどれでも）。")
     open_browser(page)
-    body = {"device_code": device, **({"replaces": str(previous.pc_id)} if previous else {})}
+    body = {"device_code": device}
     while now() < deadline:
         sleep(interval)
         got = post(base + TOKEN, body)
