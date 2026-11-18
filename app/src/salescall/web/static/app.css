@@ -112,7 +112,7 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 .reading-box[hidden] { display: none; }
 
 /* ── 左の道しるべと中身 ── */
-.shell { display: grid; grid-template-columns: 232px 1fr; min-height: calc(100vh - 98px); }
+.shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: calc(100vh - 98px); }
 .nav { border-right: 1px solid var(--line); padding: 16px 10px; background: var(--surface); }
 .nav .group { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .08em; padding: 14px 10px 6px; }
 .nav a { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px; border-radius: 8px; color: var(--text); }
@@ -247,3 +247,20 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
 }
 .question label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 .fix-card { scroll-margin-top: 120px; }
+/* お客様リストのレ点と一括の印 */
+.bulk { position: sticky; top: 108px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; margin-bottom: 12px; }
+.bulk select, .bulk input[type=text], .inline-mark select, .inline-mark input[type=text] { height: 34px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--text); font: inherit; padding: 0 8px; }
+.bulk input[type=text] { flex: 1; min-width: 180px; }
+.bulk-hint { flex-basis: 100%; font-size: 12px; }
+th.check, td.check { width: 36px; text-align: center; }
+td.check input, th.check input { width: 16px; height: 16px; }
+tr.excluded td { color: var(--muted); }
+.inline-mark { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.inline-mark input[type=text] { flex: 1; min-width: 140px; }
+.bulk select { width: auto; flex: 0 0 auto; }
+.table-scroll { overflow-x: auto; border-radius: var(--radius); }
+.table-scroll > table.list { min-width: 100%; }
+.table-scroll table.list thead th { position: static; }
+table.list td.co, table.list th.co { min-width: 10em; }
+table.list td.person, table.list th.person { min-width: 8em; }

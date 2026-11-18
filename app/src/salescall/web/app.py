@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
-from salescall.core import calling_hours, customer_contacts, customer_rows, phone, stops
+from salescall.core import calling_hours, customer_contacts, customer_rows, exclusions, phone, stops
 from salescall.core.access import Access
 from salescall.output import notices, words
 from salescall.web import actions, context, counts, inbox, rowfix
@@ -307,7 +307,8 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         return _client_or_business(request, client_id, business_id)
 
     @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}")
-    def rows_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
+    def rows_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, done: str | None = None,
+                  ok: int = 1) -> HTMLResponse:
         """お客様リスト（実施回ごと）。住所の依頼者の取引で、業務がその依頼者のもの・実施回がその業務のものかを確かめる。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
@@ -317,9 +318,46 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 if run is None:
                     raise NotFound()
                 return {"client": c, "business": b, "businesses": context.businesses(tx), "run": run,
-                        "rows": customer_rows.progress(tx, run_id)}
-            return page(request, "rows.html", person, ctx, **ctx.client(client_id, read, read_only=True))
+                        "rows": customer_rows.progress(tx, run_id), "levels": _levels(tx, run_id)}
+            return page(request, "rows.html", person, ctx, done=done, ok=bool(ok), level_names=exclusions.LEVEL_NAMES,
+                        **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/exclude")
+    async def rows_exclude(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
+        """「かけない」の印（レ点・一括。1行の画面からも同じ所）。付けるのは core の1か所（exclusions.mark）。選んだ行がすべて、住所の
+        実施回の行でなければ、何も書かない（「見つかりません」）。理由は必ず。"""
+        form = await request.form()
+        ids = [str(v) for v in form.getlist("task_id")]
+        level = str(form.get("level") or "")
+        back = str(form.get("back") or "")
+        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> int:
+                if level not in exclusions.LEVELS:
+                    raise NotFound()
+                if not ids:
+                    raise actions.Refused("印を付ける行を選んでください")
+                context.business(tx, business_id)
+                try:
+                    tasks_ = [UUID(i) for i in ids]
+                except ValueError:
+                    raise NotFound() from None
+                found = tx.one("SELECT count(*) AS n FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id"
+                               " WHERE t.task_id = ANY(%s) AND r.run_id = %s AND r.business_id = %s", (tasks_, run_id, business_id))["n"]
+                if found != len(set(tasks_)):
+                    raise NotFound()
+                return len(exclusions.mark(tx, tasks_, level, reason=str(form.get("reason") or "").strip()))
+            out = actions.act(secret, person.login_id, dict(form), lambda: ctx.client(client_id, do), done="", reason_field="reason")
+            msg = f"{out.value}行を「{exclusions.LEVEL_NAMES[level]}」にしました（同じ印だった行は、そのままです）。" if out.ok else out.message
+            target = f"{base}/rows/{ids[0]}" if back == "row" and len(ids) == 1 else base
+            return _back(target, actions.Outcome(out.ok, msg))
+        return handle(request, render)
+
+    def _levels(tx: Any, run_id: UUID) -> dict[UUID, str]:
+        """実施回の行ごとの「かけない」の印（どの印かはデータベースの1か所 task_exclusion_level を読むだけ）。"""
+        return {r["task_id"]: r["level"] for r in tx.all(
+            "SELECT task_id, salescall.task_exclusion_level(task_id) AS level FROM salescall.tasks WHERE run_id = %s", (run_id,))}
 
     # ── お客様の行（1行の中身と直し。docs/DASHBOARD.md 5-7） ──────────────────
     def _row_in(tx: Any, business_id: UUID, run_id: UUID, task_id: UUID) -> None:
@@ -346,12 +384,13 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                         step = {"question": q} if q else {"confirm": rowfix.summary(tx, task_id, draft)}
                     except actions.REFUSALS as e:
                         step = {"error": str(e)}
-                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                return {"level": exclusions.level(tx, task_id),
+                        "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
                         "run": tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s", (run_id,)),
                         "row": row, "calls": calls, **step}
             values = ctx.client(client_id, read, read_only=True)
-            return page(request, "row.html", person, ctx, draft=draft, fields=[(f, rowfix.field_name(f)) for f in rowfix.FIELDS],
+            return page(request, "row.html", person, ctx, draft=draft, level_names=exclusions.LEVEL_NAMES, fields=[(f, rowfix.field_name(f)) for f in rowfix.FIELDS],
                         name_fields=list(rowfix.NAME_FIELDS), kind_names=customer_contacts.KIND_NAMES, done=done, ok=bool(ok), **values)
         return handle(request, render)
 

@@ -23,7 +23,11 @@ from salescall.core import access, client_solutions, customer_contacts, row_fixe
 
 # core が「理由の文つきで断った（何も書いていない）」ときの例外（1か所）。画面は、その文をそのまま出す。
 # ⏳ core に共通の元が無いので、画面が呼ぶ部品の断りをここに並べている（CL-2 へのお願い 21：共通の元を作ってもらえば、この一覧は要らない）。
-REFUSALS: tuple[type[Exception], ...] = (row_fixes.FixInvalid, client_solutions.SolutionInvalid, customer_contacts.ContactInvalid,
+class Refused(ValueError):
+    """画面の側の理由つきの断り（何も書いていない）。"""
+
+
+REFUSALS: tuple[type[Exception], ...] = (Refused, row_fixes.FixInvalid, client_solutions.SolutionInvalid, customer_contacts.ContactInvalid,
                                          stops.EmergencyNotAllowed)
 
 TOKEN_FIELD = "form_token"

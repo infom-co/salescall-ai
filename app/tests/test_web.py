@@ -205,6 +205,36 @@ class Web(_World):
                                                      "same": "1", "go": "1"})
         self.assertIn("ok=0", r.headers["location"])                           # core の断りの文が出る（500 にならない）
 
+    def _level(self):
+        from salescall.core import exclusions
+        return app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: exclusions.level(tx, self.a["task"]))
+
+    def test_rows_are_marked_not_to_call_with_a_reason_and_can_be_put_back(self):   # 計画書 7-2（レ点・一括）
+        url = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/exclude"
+        tok = self.token("A")
+        no_reason = self.post("A", url, {"form_token": tok, "task_id": str(self.a["task"]), "level": "exclude", "reason": " "})
+        self.assertIn("ok=0", no_reason.headers["location"])
+        self.assertEqual(self._level(), "call")
+        try:
+            r = self.post("A", url, {"form_token": tok, "task_id": str(self.a["task"]), "level": "force", "reason": "試験（架空）"})
+            self.assertIn("ok=1", r.headers["location"])
+            self.assertEqual(self._level(), "force")
+            self.assertIn("強制かけない", self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}").text)
+        finally:
+            back = self.post("A", url, {"form_token": tok, "task_id": str(self.a["task"]), "level": "call", "reason": "試験の片付け",
+                                        "back": "row"})
+        self.assertIn(f"/rows/{self.a['task']}", back.headers["location"])        # 1行の画面から付けたら、1行の画面へ戻る
+        self.assertEqual(self._level(), "call")
+
+    def test_rows_of_another_run_or_client_cannot_be_marked_here(self):
+        url = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/exclude"
+        for bad in (self.y["task"], self.b["task"], "これは行の番号ではない"):
+            with self.subTest(task=bad):
+                r = self.post("A", url, {"form_token": self.token("A"), "task_id": [str(self.a["task"]), str(bad)],
+                                         "level": "exclude", "reason": "試験（架空）"})
+                self.assertEqual(r.status_code, 404)
+        self.assertEqual(self._level(), "call")                                 # 混ぜた行の印も付けない（全部か、何もしないか）
+
     # ── 停止と再開 ──
     def test_a_stop_of_another_contractor_is_not_seen(self):   # S-18
         eid = self._stop(self.b["tenant"], "契約者Bの試験の停止")

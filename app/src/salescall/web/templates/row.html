@@ -15,8 +15,15 @@
       <dt>次の予定</dt><dd>{{ next_tag(row.next_kind, row.next_call_at, row.next_end_reason) }}</dd>
       <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}</dd>
       <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
-      {% if row.excluded %}<dt>かけない</dt><dd>{{ tag(words.exclusion_level(row.excluded if row.excluded is string else "exclude")) }}</dd>{% endif %}
+      <dt>印</dt><dd>{{ tag(words.exclusion_level(level), "stop" if level == "force" else ("" if level != "call" else "ok")) }}</dd>
     </dl>
+    <form class="inline-mark" method="post" action="{{ base }}/exclude" data-needs-reason>
+      {{ csrf(token) }}
+      <input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="row">
+      <select name="level" aria-label="付ける印">{% for k, label in level_names.items() %}<option value="{{ k }}" {% if k == level %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+      <input type="text" name="reason" placeholder="理由（記録に残ります）" aria-label="理由">
+      <button class="btn small" type="submit" data-submit disabled>印を変える</button>
+    </form>
     <h3 style="margin-top:18px">電話番号</h3>
     <ul class="numbers">
       {% for n in row.contacts.numbers %}

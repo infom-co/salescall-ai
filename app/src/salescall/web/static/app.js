@@ -61,6 +61,26 @@
   document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll("[data-reading-fields]").forEach(readingBox);
   });
+  // レ点：すべて選ぶ・選んだ数（選んでいないあいだは一括のボタンを押せない。理由が空でも押せない）
+  function bulkState(form) {
+    var n = form.querySelectorAll("input[name=task_id]:checked").length;
+    var c = form.querySelector("[data-checked-count]"); if (c) c.textContent = n;
+    var btn = form.querySelector("[data-submit]");
+    var reason = form.querySelector("[name=reason]");
+    if (btn) btn.disabled = n === 0 || !(reason && reason.value.trim());
+  }
+  document.addEventListener("change", function (e) {
+    var form = e.target.closest && e.target.closest(".bulk-form");
+    if (!form) return;
+    if (e.target.matches("[data-check-all]")) {
+      form.querySelectorAll("input[name=task_id]").forEach(function (b) { b.checked = e.target.checked; });
+    }
+    bulkState(form);
+  });
+  document.addEventListener("input", function (e) {
+    var form = e.target.closest && e.target.closest(".bulk-form");
+    if (form) bulkState(form);
+  });
   // 送っている間は二度押しできない
   document.addEventListener("submit", function (e) {
     if ((e.target.method || "").toLowerCase() !== "post") return;
