@@ -1197,15 +1197,17 @@ def rereads(q: "Question") -> bool:
     return q.type in CHOICE_TYPES or q.id == CALLBACK_IDS["time"]
 
 
-def ask_again_text(q: "Question", heard: str) -> str:
+def ask_again_text(q: "Question", heard: "dict[str, int]") -> str:
     """聞くこと（Question.topic）が空の質問を伺い直す文（唯一の決まり＝聞き返しの言い方 phrases.ask_again の question に渡す Flow._ask_again_say）：その質問を
     違う言い方で伺う、取込で決めた文（意向が分からないまま戻る形 soft_form と同じ並び＝選択肢を並べた文 Question.alternatives・言い換えた質問 Question.reworded）の
-    うち、お客様が直前に聞いた文（heard）と違うもの（同じ問いを同じ言い方で2度言わない＝11-01）。どれも無ければ元の質問の文（違う言い方の文が取込で決まらなかった
+    うち、その所でお客様がまだ聞いていない文（heard＝その所でお客様がもう聞いた文と最後に聞いた順＝Flow._heard_last。同じ問いを同じ言い方で2度言わない＝11-01）。
+    どれももう聞いていれば、いちばん前に聞いた文（直前と同じ文を続けて言わない）。どれも無ければ元の質問の文（違う言い方の文が取込で決まらなかった
     質問・締める前の申し出 N6 など業務設定の文だけの質問は、元の文に今の伺い直しの頭を付けて伺う＝「ところで」の伺い直しで言い換えが決まらなかったときに元の文で
     伺うのと同じ）。q＝替える前の質問（Flow.given：「ところで」の形・選択肢を並べた形で伺っていても、元の質問の文と取込で決めた文を持つ）。聞くことの空な
     「恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」はお客様に流さない（11-15 日本時間21時55分35秒のご決定のあとの決まりで直す (2) の (b)）。
-    選ぶのは意向が分からないまま戻る形の1か所（soft_form の heard に直前に聞いた文だけを渡す。⛔ 9e707d0a まで、同じ並びをここにも書いていた＝決まりが2か所）"""
-    return soft_form(q, heard={heard: 0}).text
+    選ぶのは意向が分からないまま戻る形の1か所（soft_form の heard。⛔ 9e707d0a まで、同じ並びをここにも書いていた＝決まりが2か所。⛔ 126e9814 まで、いまの形の
+    文だけを直前に聞いた文として渡していたので、その場の聞き返しで言い換えた質問を伺ったあと、締めの前の念のための確認でも同じ言い換えた質問をくり返した）"""
+    return soft_form(q, heard=heard).text
 
 
 def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False,
@@ -13378,10 +13380,10 @@ class Flow:
 
     def _ask_again_say(self, qid: str, n: int, reason: str, last: bool) -> str:
         """聞き返しの文を組む唯一の場所（その場の聞き返し _ask_again・締めの前の念のための確認 _advance_to）：言い方は phrases.ask_again の1か所。聞くこと（Question.topic）が
-        空の質問は、聞くことの代わりに、その質問を伺い直す文（ask_again_text の1か所＝お客様が直前に聞いた文＝いま伺っている形の文と違う、取込で決めた文。無ければ
-        元の質問の文）。"""
+        空の質問は、聞くことの代わりに、その質問を伺い直す文（ask_again_text の1か所＝その所でお客様がまだ聞いていない、取込で決めた文。どれも聞いていれば、いちばん
+        前に聞いた文。無ければ元の質問の文。その所でもう聞いた文は _heard_last の1か所から）。"""
         q = self.questions[qid]
-        question = "" if q.topic else ask_again_text(self.given.get(qid, q), q.text)
+        question = "" if q.topic else ask_again_text(self.given.get(qid, q), self._heard_last(qid))
         return ask_again_phrase(n, reason, q.topic, last=last, question=question)
 
     def _enter_reading(self, qid: str, prefix: str = "") -> dict:

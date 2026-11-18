@@ -5323,11 +5323,12 @@ class HollowAskAgainTest(unittest.TestCase):
         hollow = "もう一度お聞かせいただいてもよろしいでしょうか？"
         q = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"),
                      reworded="お支払いの方はカードと振込のどちらにされますか？", alternatives="振込になさいますかそれともカードの方がよろしいでしょうか？")
-        self.assertEqual(ask_again_text(q, q.text), q.alternatives)
-        self.assertEqual(ask_again_text(q, q.alternatives), q.reworded)
+        # 渡すのは、その所でお客様がもう聞いた文と最後に聞いた順（Flow._heard_last。⛔ 126e9814 まで直前に聞いた文1つ＝AskAgainHeardTest）
+        self.assertEqual(ask_again_text(q, {q.text: 0}), q.alternatives)
+        self.assertEqual(ask_again_text(q, {q.alternatives: 0}), q.reworded)
         n6 = callback_question("close_offer", "それでは改めて資料をお送りさせていただいてもよろしいでしょうか？", do="改めて資料をお送りさせていただきます")
-        self.assertEqual((n6.id, n6.topic, ask_again_text(n6, n6.text)), (CALLBACK_IDS["close_offer"], "", n6.text))
-        self.assertNotIn(hollow, "恐れ入ります。" + ask_again_text(n6, n6.text))
+        self.assertEqual((n6.id, n6.topic, ask_again_text(n6, {n6.text: 0})), (CALLBACK_IDS["close_offer"], "", n6.text))
+        self.assertNotIn(hollow, "恐れ入ります。" + ask_again_text(n6, {n6.text: 0}))
 
 
 class SpokenTextTest(unittest.TestCase):
@@ -34633,6 +34634,28 @@ class HeardFormsTest(unittest.TestCase):
         # 待つ返事の知らせ（「相手の返事が、いまの質問 Q2「…」への答えなら…」）の文は、お客様が聞いた文ではない＝録音で流す通話と同じ読み
         self.assertEqual(got[False], got[True])
         # 重ねて急かされた所でも、どちらの通話も同じ形を選ぶ（(c) の会話を会話AIが話す通話で＝test_c）
+
+
+class AskAgainHeardTest(unittest.TestCase):
+    """同じ理由が当たる所（分身 I が HeardFormsTest のあとに探したもの・決まりで直す＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」）：
+    聞くことの空な質問を伺い直す文（flowctl.ask_again_text＝聞き返し・締めの前の念のための確認の最後の1回）も、その所でお客様がもう聞いた文（Flow._heard_last）を
+    意向が分からないまま戻る形の1か所（soft_form の heard）に渡す＝まだ言っていない形・どれも言っていれば、いちばん前に聞いた形。⛔ 126e9814 まで、いまの形の文
+    だけを「直前に聞いた文」として渡していたので、その場の聞き返しで言い換えた質問を伺ったあと、締めの前の念のための確認でも同じ言い換えた質問をくり返した
+    （「恐れ入ります。ご来店はいつ頃がご都合よろしいでしょうか？」→ …「恐れ入りますがご来店はいつ頃がご都合よろしいでしょうか？」）"""
+
+    def test_the_last_ask_again_does_not_repeat_the_form_heard_at_the_place(self):
+        t = HollowAskAgainTest()
+        do = AskLadderTest.do
+        f = t.flow(t.REWORDED)
+        r = do(f, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
+        self.assertEqual(r["say"], "恐れ入ります。" + t.REWORDED)   # 1回目の伺い直し：まだ言っていない形（今のまま）
+        do(f, "record_answer", question_id="Q1", condition_id="答えた", value="4人")
+        do(f, "record_answer", question_id="Q1", condition_id="答えた", value="5人")
+        do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
+        r = do(f, "confirm_field", question_id="Q2", result="affirmed")
+        # 締めの前の念のための確認：その所で元の文も言い換えた文ももう聞いた＝いちばん前に聞いた形（元の質問の文）
+        self.assertEqual((r["result"], r["say"]), ("recheck", "恐れ入りますがご来店の日時はいつがよろしいでしょうか？"))
+        # その所でまだ言い換えていなければ今のまま（言い換えた質問＝HollowAskAgainTest の今の試験）
 
 
 if __name__ == "__main__":
