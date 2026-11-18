@@ -222,7 +222,11 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
 /* 狭い画面（スマホ。docs/DASHBOARD.md 7-6） */
 .menu-toggle { display: none; }
 @media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .bulk { position: static; }
+  .bulk select, .bulk input[type=text], .bulk button { flex: 1 1 100%; max-width: none; }
+  .title-row .btn-row, .title-row .adder.inline { width: 100%; }
+  .adder .panel { position: fixed; left: 8px; right: 8px; top: 110px; width: auto; }
   .nav { display: none; position: fixed; inset: 56px 0 0 0; z-index: 11; overflow: auto; }
   body.nav-open .nav { display: block; }
   .menu-toggle { display: inline-flex; }
