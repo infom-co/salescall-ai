@@ -268,11 +268,106 @@ class CallErrorsOnlyThroughTroubles(Planted):
                          [("src/salescall/core/settle.py", 2), ("src/salescall/supervisor/jobs.py", 2),
                           ("src/salescall/supervisor/line.py", 2)])
 
+    def test_the_settings_review_and_registration_are_called_only_from_the_import(self):
+        """業務設定の形の確かめ（business_import.review）と、確かめた中身の登録（register_reviewed）は、取込の部品の中だけ（2026-11-07 の
+        第三者の見直し (2) の8。取込の入口は解決策を残す1か所を通る）。依頼者の解決策を足す道は review_solution だけ。"""
+        root = self._app({
+            "src/salescall/core/business_import.py": "def go(tx, b, r):\n    return register_reviewed(tx, b, review(tx, b, r), expected_digest='x')\n",
+            "src/salescall/core/client_solutions.py": "def go(tx, b, r):\n    business_import.review_solution(tx, b, r)\n"
+                                                      "def bad(tx, b, r):\n    business_import.review(tx, b, r)\n",
+            "src/salescall/web/imports.py": "from salescall.core.business_import import register_reviewed\n",
+            "src/salescall/core/registry.py": "def go(tx, b, r):\n    business_import.review_solution(tx, b, r)\n",
+        })
+        found = rules.entries_called_from_their_places(root)
+        self.assertEqual(sorted((v.path, v.rule) for v in found),
+                         [("src/salescall/core/client_solutions.py", "一本化"), ("src/salescall/core/registry.py", "一本化"),
+                          ("src/salescall/web/imports.py", "一本化")])
+
+    def test_the_old_promise_choices_are_written_only_with_their_plans(self):
+        """前の担当の方との約束の選び（かける番号の直しの記録・新しい約束の選び）を書くのは、同じ取引で予定を決め直す入口の部品だけ（見直し H の
+        (B2)）：かける番号の直しの記録の下の層（tasks.fix_dial_number）を呼ぶのは row_fixes だけ。表へ直に書くのも、その部品だけ。"""
+        root = self._app({
+            "src/salescall/core/row_fixes.py": "def go(tx, t, n):\n    tasks.fix_dial_number(tx, t, n, 'company', same_person=False)\n"
+                                               "    tx.execute('INSERT INTO salescall.task_old_promise_choices (task_id) VALUES (1)')\n",
+            "src/salescall/web/rows.py": "def go(tx, t, n):\n    tasks.fix_dial_number(tx, t, n, 'company', same_person=False)\n",
+            "src/salescall/core/settle.py": "def go(tx):\n    tx.execute('INSERT INTO salescall.task_old_promise_choices (task_id) VALUES (1)')\n"
+                                            "    tx.execute('INSERT INTO salescall.task_dial_fixes (task_id) VALUES (1)')\n",
+        })
+        self.assertEqual([(v.path, v.rule) for v in rules.entries_called_from_their_places(root)], [("src/salescall/web/rows.py", "一本化")])
+        self.assertEqual(sorted((v.path, v.rule) for v in rules.single_writers(root)),
+                         [("src/salescall/core/settle.py", "I-12"), ("src/salescall/core/settle.py", "I-12")])
+
+    def test_the_row_fix_entries_are_for_the_screens_and_their_plans_for_row_fixes_only(self):
+        """お客様リストの行の直しの入口（欄の直し・かける番号の直し・前の担当の方の新しい約束の選び・2つ目の選びが要るかの読み）は、画面だけが
+        呼ぶ。直したあと・選んだあとの予定の決め直し（next_action.after_dial_fix・after_person_fix・after_old_promise_choice）は、その入口の部品
+        row_fixes だけが呼ぶ（記録だけ・予定だけを書く2つ目の道を作らない。0206）。欄の直しの記録へ書くのも row_fixes だけ。"""
+        fixes = ("    row_fixes.fix(tx, t, 'target_role', '部長', same_person=True, keep_old_promise=None)\n"
+                 "    row_fixes.fix_dial_number(tx, t, '0', same_person=True)\n"
+                 "    row_fixes.choose_old_promise(tx, t, keep_old_promise=True)\n"
+                 "    row_fixes.old_promise_choice_needed(tx, t, field='target_role', value='部長', same_person=False)\n"
+                 "    row_fixes.same_person_choice_needed(tx, t, field='target_role', value='部長')\n")
+        plans = ("    next_action.after_dial_fix(tx, t, cause='x')\n"
+                 "    next_action.after_person_fix(tx, t, cause='x')\n"
+                 "    next_action.after_old_promise_choice(tx, t, keep_old_promise=False, cause='x')\n")
+        write = "    tx.execute('INSERT INTO salescall.task_fixes (task_id) VALUES (1)')\n"
+        root = self._app({"src/salescall/web/rows.py": "def go(tx, t):\n" + fixes,
+                          "src/salescall/core/row_fixes.py": "def go(tx, t):\n" + plans + write,
+                          "src/salescall/core/settle.py": "def go(tx, t):\n" + fixes + plans + write,
+                          "src/salescall/web/plans.py": "def go(tx, t):\n" + plans})
+        found = rules.entries_called_from_their_places(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/core/settle.py", n) for n in range(2, 10)] + [("src/salescall/web/plans.py", n) for n in range(2, 5)])
+        self.assertEqual([(v.path, v.rule) for v in rules.single_writers(root)], [("src/salescall/core/settle.py", "I-12")])
+
+    def test_whether_the_target_was_reached_is_written_only_by_settle(self):
+        """目的のお客様と話せたか（attempts.record_reached_target）を書くのは締めの処理だけ（データベースの監査 K の (d)。データベースの守りも、締めの
+        記録を書く取引の中だけ＝0211 の attempt_reached_target_guard）。"""
+        call = "def go(tx, a):\n    attempts.record_reached_target(tx, a, True)\n"
+        root = self._app({"src/salescall/core/settle.py": call, "src/salescall/core/next_action.py": call})
+        self.assertEqual([(v.path, v.line) for v in rules.entries_called_from_their_places(root)],
+                         [("src/salescall/core/next_action.py", 2)])
+
+    def test_the_tables_added_to_the_writers_are_written_only_from_their_places(self):
+        """書く表の一覧に 0206 で足した表：一覧に書いた部品のほかから書けない（アプリの役が読むだけの表は、どこからも書かない）。"""
+        tables = {"task_contacts": "customer_contacts", "task_designations": "tasks", "task_sub_numbers": "tasks",
+                  "version_copies": "business_settings", "version_successions": "business_settings"}
+        system = ("approved_contents", "attempt_transitions", "field_types", "fix_requests", "job_leases", "name_recording_reviews",
+                  "name_review_skips", "part_contents", "setting_definitions", "stop_lets_through")
+        files = {f"src/salescall/core/{home}.py": f"def go(tx):\n    tx.execute('INSERT INTO salescall.{t} (x) VALUES (1)')\n"
+                 for t, home in tables.items() if home not in ("tasks", "business_settings")}
+        files["src/salescall/core/tasks.py"] = "".join(f"tx.execute('INSERT INTO salescall.{t} (x) VALUES (1)')\n"
+                                                       for t, home in tables.items() if home == "tasks")
+        files["src/salescall/core/business_settings.py"] = "".join(f"tx.execute('INSERT INTO salescall.{t} (x) VALUES (1)')\n"
+                                                                   for t, home in tables.items() if home == "business_settings")
+        files["src/salescall/core/settle.py"] = "".join(f"tx.execute('INSERT INTO salescall.{t} (x) VALUES (1)')\n"
+                                                        for t in (*tables, *system))
+        files["src/salescall/core/watch.py"] = "".join(f"tx.execute('UPDATE salescall.{t} SET x = 1')\n" for t in system)
+        found = rules.single_writers(self._app(files))
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/core/settle.py", n) for n in range(1, len(tables) + len(system) + 1)]
+                         + [("src/salescall/core/watch.py", n) for n in range(1, len(system) + 1)])
+
     def test_restoring_a_resting_row_is_for_the_screens_only(self):
         root = self._app({"src/salescall/web/rows.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='直した')\n",
                           "src/salescall/supervisor/jobs.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='x')\n"})
         found = rules.entries_called_from_their_places(root)
         self.assertEqual([(v.path, v.rule) for v in found], [("src/salescall/supervisor/jobs.py", "一本化")])
+
+
+
+class NoShadowedDefinitions(Planted):
+    """同じ場所に同じ名前の関数・クラスを2つ書かない（⛔ 2026-11-06：test_gate.py の同じ名前の試験2つで、前の試験が流れていなかった）。
+    クラスの中と部品のいちばん上を見る。属性の setter など、上書きが決まりの形はよい。別のクラスの同じ名前はよい。"""
+
+    def test_a_second_definition_with_the_same_name_is_caught(self):
+        root = self._app({
+            "tests/test_x.py": ("class A:\n    def test_a(self):\n        pass\n\n    def test_a(self):\n        pass\n\n\n"
+                                "class B:\n    def test_a(self):\n        pass\n"),
+            "src/salescall/core/x.py": ("def f():\n    pass\n\n\ndef f():\n    pass\n\n\nclass C:\n    @property\n    def v(self):\n"
+                                        "        return 1\n\n    @v.setter\n    def v(self, x):\n        pass\n"),
+        })
+        found = rules.no_shadowed_definitions(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found), [("src/salescall/core/x.py", 5), ("tests/test_x.py", 5)])
 
 
 class PcSideStaysOffTheServer(Planted):
@@ -295,6 +390,19 @@ class PcSideStaysOffTheServer(Planted):
                           ("src/salescall/agent/phones/rakuten.py", 1),
                           ("src/salescall/core/c.py", 1), ("src/salescall/core/e.py", 3), ("src/salescall/link/b.py", 1),
                           ("src/salescall/link/d.py", 2)])
+
+
+class FileReadersInOnePlace(Planted):
+    def test_only_the_file_reader_reads_files(self):
+        """ファイルの中身を読む部品（Excel・XML・PDF）を使ってよいのは core/import_files.py だけ（ファイルを読むのは1か所）。"""
+        root = self._app({"src/salescall/core/import_files.py": "import openpyxl\nfrom defusedxml import ElementTree\nimport pypdf\n",
+                          "src/salescall/core/a.py": "import openpyxl\n",
+                          "src/salescall/web/b.py": "\nfrom pypdf import PdfReader\n",
+                          "src/salescall/core/c.py": "import defusedxml.ElementTree\n",
+                          "tests/test_x.py": "import openpyxl\n"})
+        found = rules.file_readers_in_one_place(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/core/a.py", 1), ("src/salescall/core/c.py", 1), ("src/salescall/web/b.py", 2)])
 
 
 class SettingsReadInOnePlace(Planted):
@@ -325,6 +433,27 @@ class ValueTypesStaysPure(Planted):
     def test_pure_checks_are_fine(self):
         root = self._app({"src/salescall/core/value_types.py": "import datetime\nfrom salescall.core.phone import normalize\n"})
         self.assertEqual(rules.value_types_stays_pure(root), [])
+
+
+class PersonKindsOnlyInTheDatabase(Planted):
+    """管理者か契約者か（人か）の種類の組を、Python に書き写さない（データベースの salescall.cur_is_person に問い合わせる。0205）。"""
+
+    def test_a_copied_pair_of_person_kinds(self):
+        for body in ('BY = {"admin": "管理者", "operator": "契約者"}\n',
+                     'PEOPLE = ("operator", "admin")\n',
+                     'def f(kind):\n    return kind in {"admin", "operator"}\n',
+                     'SQL = "SELECT salescall.cur_actor_kind() IN (\'operator\', \'admin\')"\n',
+                     'SQL = "SELECT k = ANY(ARRAY[\'admin\'::text, \'operator\'::text])"\n'):
+            with self.subTest(body=body):
+                root = self._app({"src/salescall/core/x.py": body})
+                self.assertEqual([v.rule for v in rules.person_kinds_only_in_the_database(root)], ["一本化"])
+
+    def test_names_of_every_kind_and_tests_are_fine(self):
+        root = self._app({"src/salescall/core/x.py": 'NAMES = {"admin": "管理者", "operator": "契約者", "system": "システム"}\n'
+                                                     'KINDS = ("operator", "system", "admin")\n'
+                                                     'SQL = "SELECT k IN (\'system\', \'admin\')"\n',
+                          "tests/test_x.py": 'PEOPLE = ("operator", "admin")\n'})
+        self.assertEqual(rules.person_kinds_only_in_the_database(root), [])
 
 
 class CurrentCodePasses(unittest.TestCase):

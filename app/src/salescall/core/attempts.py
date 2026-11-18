@@ -93,6 +93,58 @@ def counts_as_try(table: str = "") -> str:
     return f"salescall.counts_as_try({t}state, {t}cut_off, {t}promised, {t}attempt_id)"
 
 
+def in_row_count(table: str = "") -> str:
+    """行の回数を数える範囲（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信のうち、前にかける番号だった番号へ
+    かけたもの（直したあと、まず前の番号でかけた約束の電話）でないもの（直していなければ、すべて）。行の回数の上限・再発信の方針の回数・
+    時刻の決まっていない約束の回数は、どれもこれを付けて数える（2026-11-06 ユーザー：「新しい番号で数え直す」。お客様が「あとで」と
+    言った回数は、こちらがかけた回数ではなくお客様の言葉なので、どの番号への電話も入る `count_start` で数える＝next_action._laters。
+    数え始めの時刻は salescall.task_count_from＝0180、前にかける番号だった番号は salescall.task_number_replaced_at＝0188 の1か所。
+    番号の立場は、かけたときの立場で見る＝⛔ 2026-11-06 の見直し (A) の2：前は「いま」の立場で見て、前の番号で話せてサブになった電話を、
+    あとから新しい番号の回数に数えた）。"""
+    t = table + "." if table else ""
+    return (f"{count_start(table)}"
+            f" AND NOT salescall.task_number_replaced_at({t}task_id, {t}contact_id, {t}claimed_at)"
+            # いまの担当の方の期の発信だけ（「担当の方は違う」で直したら、新しい担当の方で数え直す。前の担当の方に戻したら、その方の期の発信をまた数える。
+            # ✅ 2026-11-07 ユーザー＝計画書 7-1 (8)「新しい担当の方には、まだかけていない」・(30)。⛔ 2026-11-16 の3回目の見直しまで：番号の直しでしか
+            # 数え直さず、名前などの「違う」の直しで戻した行を、門が前の担当の方の回数で「回数の上限」にして、新しい担当の方へ一度もかけなかった）
+            f" AND {t}person_since IS NOT DISTINCT FROM salescall.task_person_since({t}task_id, now())")
+
+
+def in_purpose_count(table: str = "") -> str:
+    """その番号へかける電話（番号の聞き直し・お詫び）の回数を数える範囲（SQL。1か所。gate.purpose_dials が読む）：
+    - いまの担当の方の期の通話は、回数の数え始めのあと（`count_start`＝番号を直したら、新しい番号で数え直す＝計画書 7-1 (15)）。
+    - 前の担当の方の期の通話（「担当の方は違う」を選んで直す前の期）は、すべて（前の担当の方へのお詫び・番号の聞き直しは、決めた回数まで、その方へ
+      かける＝✅ 2026-11-08 本体の決定。計画書 7-1 (32) にそろえる。番号の直しで数え直すのは、いまの担当の方の決まり。⛔ 0201〜0215：「違う」で番号を
+      直すと、前の番号への回数も0から数え直していた（前の番号へは1回で移っていたので困らなかった）。0216）。"""
+    t = table + "." if table else ""
+    return f"({count_start(table)} OR {t}person_since IS DISTINCT FROM salescall.task_person_since({t}task_id, now()))"
+
+
+def in_promise_count(table: str = "", period: str | None = None) -> str:
+    """お客様と約束したかけ直しの回数を数える範囲（SQL。1か所。next_action の約束の回の数え＝`_round_calls`・`_exact_next_try`・
+    `_unspecified_calls`・`_missed` が読む）。period＝その約束の担当の期（SQL の式。None＝その通話の期）：
+    - その約束の担当の期の通話だけ（担当の期の比べ＝試行の person_since）。前の担当の方に戻したとき、やめていたあいだにかけた電話は、ほかの期の
+      方（新しい担当の方）への電話なので、戻した約束の回に数えない（✅ 2026-11-08 ユーザー＝計画書 7-1 (31)。0214）。
+    - いまの担当の方の期の約束なら、行の回数の範囲（`in_row_count`＝番号を直したら、新しい番号で数え直す＝7-1 (4)）。
+    - 前の担当の方の期の約束（契約者が「守る」を選んだ約束）なら、その期の通話すべて（前の担当の方の番号で、約束の決まりいっぱいまでかける＝
+      ✅ 2026-11-08 ユーザー＝計画書 7-1 (32)。新しい番号での数え直しは、いまの担当の方への番号の直しの決まりなので当てない。⛔ 0213 まで：
+      前の番号へは1回で新しい番号へ移っていたので、前の番号への電話を数えなくても困らなかった）。"""
+    t = table + "." if table else ""
+    p = period or f"{t}person_since"
+    return (f"({t}person_since IS NOT DISTINCT FROM {p} AND ({in_row_count(table)}"
+            f" OR {p} IS DISTINCT FROM salescall.task_person_since({t}task_id, now())))")
+
+
+def count_start(table: str = "") -> str:
+    """回数を数え始めてからの発信の条件（SQL。1か所）：かける番号をダッシュボードで直したあとに予約した発信（直していなければ、すべて）。
+    数え始めの時刻はデータベースの salescall.task_count_from（0180）。行の回数（`in_row_count`）と、その番号へかける電話の回数（番号の
+    聞き直し・お詫び＝gate.purpose_dials）の両方が読む（✅ 2026-11-06 ユーザー＝計画書 7-1 (3)・(15)：「新しい番号で数え直す」。0195）。
+    ⛔ 0209 まで：その時刻で読む形（at）も持っていた（「あとで」を回数より多く言って終えた行を戻すかが、終えた時刻の「あとで」を読んだ）。
+    計画書 7-1 (27) で、戻すかは「あとで」の意味を読まなくなったので消した（0210）。"""
+    t = table + "." if table else ""
+    return f"{t}claimed_at >= salescall.task_count_from({t}task_id)"
+
+
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
 LineState = Literal["ringing", "answered", "in_conversation", "ending", "ended",
                     "busy", "no_answer", "call_failed", "dropped", "technical_error"]
@@ -340,6 +392,30 @@ def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "r
                  (disconnect, attempt_id))
     if row is None:
         raise AttemptNotFound(str(attempt_id))
+
+
+def record_reached_target(tx: Tx, attempt_id: UUID, reached: bool) -> None:
+    """締めの処理（core/settle.py）だけが呼ぶ。その通話で目的のお客様と話せたか（判定の入力の1か所 judge.JudgeInput.reached_target）を、
+    終わった試行に記録する（判定し直しでは書き直す）。読むのは、その担当の期で目的のお客様と話せた電話の1か所（`last_talk`。受付の方とだけ話した
+    通話は入らない＝call_report.talked_in とは別。0203）。書き換えられるのは、
+    その通話の締めの記録（結果の版・お詫びの電話の結び）を書いた同じ取引の中だけ（データベースの守り attempt_reached_target_guard。0211）。"""
+    row = tx.one("UPDATE salescall.attempts SET reached_target = %s WHERE attempt_id = %s RETURNING attempt_id", (reached, attempt_id))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+def last_talk(tx: Tx, task_id: UUID, period: Any, *, besides: UUID | None = None) -> UUID | None:
+    """その行の、その担当の期（period＝試行の person_since。最初の期は None）で、目的のお客様と話せた、いちばん新しい電話（1か所。無ければ None）。
+    besides＝数えない電話（いまかける電話）。話せたかは締めの処理が試行に写した attempts.reached_target（`record_reached_target`＝
+    judge.JudgeInput.reached_target）。担当の期の比べは試行の person_since（データベースの salescall.task_person_since で決まる期）。読むのは：
+    - 引き継ぎを確かめる印（core/next_action の `_handover_due`：いまの期で、目的のお客様とまだ話していないか）。
+    - 予約証の「前の電話が今日か」（core/apology.when：この電話の期の前の電話。✅ 2026-11-12 ユーザー：「案Bでお願いします」＝担当の方ごとに
+      数える。例：昨日田中様と話したあと、契約者がお呼びする方を鈴木様に直したら、今日の鈴木様への電話に「前の電話」は無い。⛔ 前は担当の期を
+      見ず、行でいちばん新しい話せた電話＝田中様との電話を「前の電話」とし、会話の側が鈴木様に「前回のお電話で…」と言いうる形だった）。"""
+    row = tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND person_since IS NOT DISTINCT FROM %s AND reached_target"
+                 " AND attempt_id IS DISTINCT FROM %s ORDER BY coalesce(ended_at, claimed_at) DESC, attempt_id DESC LIMIT 1",
+                 (task_id, period, besides))
+    return None if row is None else row["attempt_id"]
 
 
 def record_cut_off(tx: Tx, attempt_id: UUID, cut_off: bool) -> None:

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from dataclasses import replace
 
-from salescall.core import (attempts, backup, business_rules, call_report, calling_hours, conversation_io, fix_requests, gate,
+from salescall.core import (ai_versions, attempts, backup, business_rules, call_report, calling_hours, conversation_io, fix_requests, gate,
                             health, help_texts, leases, migrate, next_action, notify, quality_stage, registry, ring_test, scheduler,
                             settings, stops)
 from salescall.core import health_rules as hr
@@ -113,6 +113,18 @@ def make_prober():
     return Prober()
 
 
+VERSION_ROWS: list = []   # 試験の AI の版の確かめの部品が返す行（CL-1 の latest_ai.check の行の形）
+
+
+class VersionChecker:
+    def check(self):
+        return [dict(r) for r in VERSION_ROWS]
+
+
+def make_version_checker():
+    return VersionChecker()
+
+
 class FakeLinks(NoLinks):
     """PC の部品のつなぎの代わり（どの回線が、どの契約者のどの PC につながっているか）。"""
 
@@ -148,6 +160,9 @@ class SupervisorBase(Base):
     def state(self, s, attempt_id):
         return self.tx(s, lambda tx: tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s",
                                             (attempt_id,)))["s"]
+
+    def trouble(self, s, attempt_id):
+        return self.tx(s, lambda tx: tx.one("SELECT trouble FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,)))["trouble"]
 
     def numbered(self, s):
         """その契約者にテスト番号を入れる（架空の番号。返すのは、その番号）。鳴らしてよい時間は 0:00〜24:00（この仕事専用の電話の形＝
@@ -248,6 +263,27 @@ class Recovery(SupervisorBase):
         got = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.recover(tx, HOLDER))
         self.assertEqual((got[0]["line_id"], got[0]["ended"]), (s["line"], 1))
         self.assertEqual(self.state(s, c.attempt_id), "technical_error")
+        # 終えた理由は、こちらの不具合（回線の処理が止まった）：お客様が出る前でも「鳴らなかった」（E2＝回線の確かめ・番号の4回）に読まない
+        # （原則6。⛔ 0238 の前は理由を残さず、回線のせい・番号の4回に数えた）
+        self.assertEqual((self.trouble(s, c.attempt_id), self.tx(s, lambda tx: health.call_event(tx, c.attempt_id))),
+                         ("worker_lost", "E3"))
+
+    def test_a_flow_that_stops_while_dialing_leaves_the_call_to_the_cleanup(self):
+        """発信の出口で、回線ごとの処理そのものが止まる合図（例外でない終わり）が来たら、おわびして切ってもらい、試行は後始末の1か所が、こちらの
+        不具合（worker_lost）として終える（回線の部品の失敗＝例外は、今までどおり結果不明にして、だれのせいかは証拠で）。0238。"""
+        s = self.ready()
+        c = self.claim(s)
+        driver = FakeDriver(fail=KeyboardInterrupt())
+        with self.assertRaises(KeyboardInterrupt):
+            line.dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, driver)
+        self.assertEqual((self.state(s, c.attempt_id), driver.apologized), ("dialing", 1))   # 試行は残す（後始末が終える）
+        self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.recover(tx, HOLDER, s["line"]))
+        self.assertEqual((self.state(s, c.attempt_id), self.trouble(s, c.attempt_id)), ("technical_error", "worker_lost"))
+        t = self.ready()
+        d = self.claim(t)
+        with self.assertRaises(RuntimeError):                                  # 回線の部品の失敗：結果不明（理由は残さない＝証拠で決める）
+            line.dial_exit.dial(self.w.a, SYSTEM, t["tenant"], t["client"], d.attempt_id, FakeDriver(fail=RuntimeError("試験")))
+        self.assertEqual((self.state(t, d.attempt_id), self.trouble(t, d.attempt_id)), ("technical_error", None))
 
     def test_only_expired_lines_of_a_former_hub_are_cleaned_up(self):
         s = self.ready()
@@ -291,6 +327,20 @@ class Candidates(SupervisorBase):
         self.tx(s, lambda tx: stops.resume(tx, e["event_id"], reason="試験"))
         self.tx(s, lambda tx: registry.set_client_active(tx, False, reason="試験"), OPERATOR)
         self.assertEqual(lines(), [])                                          # 無効の依頼者
+
+
+    def test_a_row_that_cannot_be_judged_is_handed_to_the_gate(self):
+        """設定の値が決まっていない・祝日の暦が無い日で、候補を出す処理（gate.waits_unknown）が決められない行は、門に渡す（門が同じ例外を
+        実施回の理由にして、その実施回をこの回だけ飛ばす＝gate.claim の1か所）。⛔ 2026-11-18 の6回目の見直しまで：候補を出す処理では受けず、
+        回線の1回分の処理ごと落ちた（前の依頼者で落ちると、後ろの依頼者の約束の電話まで毎回かからなかった）。"""
+        from salescall.core.calendar import CalendarOutOfRange
+        s = self.ready()
+        for error in (settings.SettingMissing("試験"), CalendarOutOfRange("試験")):
+            with self.subTest(error=type(error).__name__), mock.patch.object(gate, "_pacing", side_effect=error):
+                self.assertEqual([r["task_id"] for r in self.tx(s, lambda tx: scheduler.due_tasks(tx, 10))], [s["task"]])
+                got = self.claim(s)
+                self.assertEqual(got.reason, "setting_missing" if isinstance(error, settings.SettingMissing) else "calendar_out_of_range")
+                self.assertIn(got.reason, gate.RUN_REASONS)                       # その実施回を、この回だけ飛ばす
 
 
 class Rounds(SupervisorBase):
@@ -2466,10 +2516,11 @@ class Main(SupervisorBase):
         here = lambda cfg: {j.name for j in jobs.JOBS if j.wanted(cfg)}   # noqa: E731
         bare = here(self.cfg(s))
         self.assertTrue({"recover", "settle", "backups", "backup_watch", "whole_backup_watch", "lasting_stops",
-                         "system_lasting_stops", "pc_watch", "budget", "holidays", "fixed_stops"} <= bare)   # fixed_stops＝直した版で解く（0139）
-        self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks"} & bare)
+                         "system_lasting_stops", "pc_watch", "budget", "holidays", "fixed_stops", "month_ahead_notices",
+                         "quality_production"} <= bare)   # quality_production＝本番になった業務の品質の停止を解く（原則9）   # fixed_stops＝直した版で解く（0139）・month_ahead_notices＝1か月以上先のかけ直しの5分前の緊急の知らせ
+        self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks", "ai_versions"} & bare)
         full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_ADMIN_TENANT=str(uuid.uuid4()),
-                             SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p"))
+                             SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p", SALESCALL_VERSION_CHECKER="m:c"))
         self.assertEqual(full, {j.name for j in jobs.JOBS})
 
     def test_tenant_jobs_run_once_for_every_tenant_and_system_jobs_once(self):
@@ -2525,6 +2576,11 @@ class Main(SupervisorBase):
             main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1",   # 無いと、回線・会話AIの停止が自動
                                         "SALESCALL_CALL_RUNNER": "m:r", "SALESCALL_VERIFIER": "m:v"}))   # では解けない）
         self.assertIn("SALESCALL_PROBER", str(got.exception))
+        with self.assertRaises(config.ConfigMissing) as got:                   # 電話をかけるなら、使っている AI の新しい版を確かめる部品も要る
+            main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1",   # （✅ 2026-11-15 ユーザー「本番に入っても
+                                        "SALESCALL_CALL_RUNNER": "m:r", "SALESCALL_VERIFIER": "m:v",   # 10日に一回は」＝CL-1 の連絡帳 4-163）
+                                        "SALESCALL_PROBER": "m:p"}))
+        self.assertIn("SALESCALL_VERSION_CHECKER", str(got.exception))
         with self.assertRaises(config.ConfigMissing):                          # 移る間の形（この機械の中だけで待つ）は、この機械の PC の
             main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1"}))   # 部品の契約者が要る（見直し13）
 
@@ -2695,6 +2751,109 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class AIVersions(SupervisorBase):
+    """✅ 2026-11-15 ユーザー「本番に入っても10日に一回は最新版が出ていないかを確認して、最新版が出れば置き換えてください。」（CL-1 の連絡帳 4-163。DESIGN.md 9-3）：
+    中央の見守り役が毎日1回、CL-1 の確かめの部品（`plugins.VersionChecker`）に聞き、何を知らせるかは core/ai_versions の1か所が決める。
+    新しい版・一覧に無い版＝管理者あての知らせと CL-1 への修正依頼（同じ AI の同じ版は1つ）／一覧を読めない・一覧の口が無い＝管理者あての知らせだけ
+    （同じ AI について10日ごとに1つ）／何も無い行は知らせない。"""
+
+    def row(self, name, **kw):
+        return {"役目": "判定", "名前": name, "一覧": "openrouter", "id": f"typesafe/{name}", "使っている版": f"typesafe/{name}",
+                "一覧にある": True, "新しい版": [], "別の系統で後から出たもの": [], "見送った版": [], **kw}
+
+    def told(self, name):
+        """その AI の、管理者あての知らせ（種類・要約）と、CL-1 へのまだ直していない修正依頼（種類）。"""
+        notes = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT kind, summary FROM salescall.notification_events WHERE for_admin AND refs->'名前' ? %s ORDER BY event_id", (name,)))
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r["kind"] for r in fix_requests.open_requests(tx, "CL-1") if name in r["refs"].get("名前", [])])
+        return [n["kind"] for n in notes], [n["summary"] for n in notes], asked
+
+    def run_check(self, s, rows):
+        VERSION_ROWS[:] = rows
+        jobs.ai_version_check(jobs.Context(self.w.a, self.cfg(s, SALESCALL_VERSION_CHECKER="tests.test_supervisor:make_version_checker"),
+                                           HOLDER, NoLinks()))
+
+    def test_a_newer_version_is_told_to_the_admin_and_asked_of_cl1_once(self):
+        s = self.ready()
+        name, quiet = f"jev-{uuid.uuid4().hex[:6]}", f"d1-{uuid.uuid4().hex[:6]}"
+        rows = [self.row(name, 新しい版=["typesafe/jev-1.15", "typesafe/jev-1.16"], 別の系統で後から出たもの=["typesafe/kev-1.0"]), self.row(quiet)]
+        self.run_check(s, rows)
+        self.run_check(s, rows)   # 次の日も同じ版 ⇒ 知らせも修正依頼も増えない
+        kinds, summaries, asked = self.told(name)
+        self.assertEqual((kinds, asked), (["ai_newer_version"], ["ai_newer_version"]))
+        self.assertIn("typesafe/jev-1.16", summaries[0])        # いちばん新しい版を知らせる
+        declined = [name + "-measured", "typesafe/jev-1.14"]
+        self.run_check(s, [self.row(name, 新しい版=["typesafe/jev-1.15", "typesafe/jev-1.16"], 見送った版=declined)])
+        self.assertEqual(self.told(name)[0], ["ai_newer_version"])   # 見送った版が添わっても、同じ新しい版は1つ（CL-1 の連絡帳 4-164）
+        old = {k: v for k, v in self.row(quiet).items() if k != "見送った版"}
+        self.run_check(s, [old])                                  # 見送った版の無い古い形の行も読む
+        self.assertEqual(self.told(quiet), ([], [], []))
+        fresh = f"jev-{uuid.uuid4().hex[:6]}"
+        self.run_check(s, [self.row(fresh, 新しい版=["typesafe/jev-2"], 見送った版=declined)])
+        refs = self.w.a.in_system(ADMIN, lambda tx: tx.one(
+            "SELECT refs FROM salescall.notification_events WHERE for_admin AND refs->'名前' ? %s", (fresh,)))["refs"]
+        self.assertEqual(refs["見送った版"], declined)            # 見送った版を知らせの記録に添える（管理者が読む）
+        self.assertEqual(self.told(quiet), ([], [], []))         # 新しい版の無い AI は知らせない
+        others = self.w.a.in_system(ADMIN, lambda tx: tx.one(    # 管理者あてだけ（契約者の台帳・全体の出来事には入れない）
+            "SELECT count(*) AS n FROM salescall.notification_events WHERE NOT for_admin AND refs->'名前' ? %s", (name,)))["n"]
+        self.assertEqual(others, 0)
+        self.run_check(s, [self.row(name, 新しい版=["typesafe/jev-1.15", "typesafe/jev-1.16", "typesafe/jev-1.17"])])   # もっと新しい版 ⇒ もう1つ
+        self.assertEqual(self.told(name)[0], ["ai_newer_version"] * 2)
+
+    def test_one_version_used_under_two_names_is_told_once(self):
+        """同じ版を2つの名前・役目で使っていても（「Claude Sonnet 5.5」と「Claude Sonnet 5.5（考える）」など）、新しい版の知らせと修正依頼は1つ
+        （同じ知らせかの鍵は使っている版ごと＝置き換えは版を持つ1か所で1回）。知らせには両方の名前を書く。⛔ 2026-11-15 の見直しまで：名前ごとに2つずつ出た。"""
+        s = self.ready()
+        a, b = f"jev-{uuid.uuid4().hex[:6]}", f"jev-{uuid.uuid4().hex[:6]}"
+        same = f"typesafe/{a}"
+        rows = [self.row(a, 新しい版=[same + "-2"]), self.row(b, 役目="緊急の道", id=same, 使っている版=same, 新しい版=[same + "-2"])]
+        self.run_check(s, rows)
+        kinds, summaries, asked = self.told(a)
+        self.assertEqual((kinds, asked, self.told(b)[0]), (["ai_newer_version"], ["ai_newer_version"], ["ai_newer_version"]))
+        self.assertIn(a, summaries[0])
+        self.assertIn(b, summaries[0])
+
+    def test_the_check_runs_every_day_for_the_whole_system(self):
+        """毎日1回・全体の仕事（契約者ごとでない）・確かめの部品の設定があるときだけ（電話をかけるなら設定は必ず＝main.serve）。"""
+        job = next(j for j in jobs.JOBS if j.name == "ai_versions")
+        self.assertEqual((job.every, job.scope, job.work, job.parts), (86400, "system", jobs.ai_version_check, True))
+        self.assertEqual((job.wanted(config.load({"SALESCALL_DSN": "x"})), job.wanted(config.load({"SALESCALL_DSN": "x", "SALESCALL_VERSION_CHECKER": "m:c"}))),
+                         (False, True))
+
+    def test_a_version_gone_from_the_list_is_also_asked_of_cl1(self):
+        s = self.ready()
+        name = f"jev-{uuid.uuid4().hex[:6]}"
+        self.run_check(s, [self.row(name, 一覧にある=False)])
+        kinds, summaries, asked = self.told(name)
+        self.assertEqual((kinds, asked), (["ai_version_missing"], ["ai_version_missing"]))
+        self.assertIn(f"typesafe/{name}", summaries[0])
+
+    def test_an_unchecked_maker_is_told_to_the_admin_every_ten_days(self):
+        s = self.ready()
+        name = f"amivoice-{uuid.uuid4().hex[:6]}"
+        row = {"役目": "別の耳", "名前": name, "一覧": "amivoice", "id": "-a-general", "結果": "一覧の口が無い＝作り手の頁で確かめる"}
+        start = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        for day in range(0, 25):
+            self.w.a.in_system(SYSTEM, lambda tx, d=day: ai_versions.record(tx, [row], now=start + timedelta(days=d)))
+        kinds, summaries, asked = self.told(name)
+        self.assertEqual(kinds, ["ai_version_unchecked"] * len({int((start + timedelta(days=d)).timestamp() // 86400) // 10 for d in range(25)}))
+        self.assertEqual(asked, [])                                # 修正依頼にはしない（手で確かめていただく）
+        self.assertIn("作り手の頁で確かめる", summaries[0])
+
+    def test_rows_in_another_shape_tell_nothing(self):
+        """形の違う行が1つでもあれば、どれも知らせずに止める（半分だけ知らせない。見守り役の誤りとして記録＝次の回にまたする）。"""
+        s = self.ready()
+        name = f"jev-{uuid.uuid4().hex[:6]}"
+        good = self.row(name, 新しい版=["typesafe/jev-9"])
+        for bad in ("行でない", {"役目": "判定"}, self.row("x", 新しい版="typesafe/jev-9"), self.row("x", 一覧にある="はい"),
+                    {**self.row("x"), "使っている版": ""}, self.row("x", 別の系統で後から出たもの=[1]), self.row("x", 見送った版="typesafe/x-2")):
+            with self.subTest(bad=bad), self.assertRaises(ai_versions.BadRows):
+                self.w.a.in_system(SYSTEM, lambda tx, b=bad: ai_versions.record(tx, [good, b]))
+        with self.assertRaises(ai_versions.BadRows):
+            self.w.a.in_system(SYSTEM, lambda tx: ai_versions.record(tx, {"rows": [good]}))
+        self.assertEqual(self.told(name), ([], [], []))
+
+
 class Watchdog(unittest.TestCase):
     """見守り役の本体が固まったら、自分で気づいて処理を終える（動かす所の仕組みが立ち上げ直す。2026-10-22 ユーザー承認）。"""
 
@@ -2781,6 +2940,7 @@ class Review26c(SupervisorBase):
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
         self.assertIsNotNone(got.called, got)                                # 次の行へかけた
         self.assertEqual(self.state(s, first.called), "technical_error")     # 残った試行は後始末した
+        self.assertEqual(self.trouble(s, first.called), "storage_stuck")     # 書き込みが進まなかった（違う行の数に数えない＝伺い5）
 
     def test_a_call_that_could_not_be_written_is_the_storages_fault(self):
         """話し終えた通話の最後の書き込みがデータベースの誤りで書けずに戻ったら、会話の部品の不具合でなく保存のせい（⛔ 見直し26c の 4：

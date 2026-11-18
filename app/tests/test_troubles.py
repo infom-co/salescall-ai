@@ -463,7 +463,7 @@ class OurTroubles(SupervisorBase):
         self.assertTrue(self.requests("CL-1", "call_runner_error"))           # 修正依頼は直す担当へ（ほかの試験の依頼と同じ1つ）
         self.assertEqual({r: errors.ACTIONS[k].fixer for r, k in errors.TROUBLES.items()},
                          {"frozen": "CL-1", "ai_malfunction": "CL-1", "cannot_proceed": "CL-1", "runner_error": "CL-1",
-                          "storage_stuck": "CL-2"})
+                          "storage_stuck": "CL-2", "worker_lost": "CL-2"})   # 回線の処理・見守り役が止まった＝CL-2（0238）
         self.trouble(s, "ai_malfunction", task=self.row(s)["task"], again=False)   # 同じ理由は2行：まだ止めない
         self.assertEqual(self.tenant_stops(s), [])
         for source, trouble in (("call", "storage_stuck"), ("storage", "frozen")):   # 理由と出どころが合わない伝え方は断る

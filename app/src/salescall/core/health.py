@@ -79,7 +79,8 @@ INITIAL: dict[str, Any] = {   # 欄が無いときの初めの状態（17-1 の�
     LINE: hr.Line(hr.LineStage.HEALTHY), TENANT: hr.Tenant(hr.TenantStage.NORMAL), TASK: hr.Task(hr.TaskStage.ON_PLAN),
     NUMBER: hr.Number(hr.NumberStage.NONE), ATTEMPT: hr.Attempt(hr.Blame.EMPTY)}
 TEST_RESULTS = {"rang": "E6", "silent": "E7", "unknown": "E8", "withheld": "E9"}   # テスト番号の答え → 出来事（`tested`）
-BY = {"admin": "管理者", "operator": "契約者"}   # 手で再開・戻す・解く・外す（E12・E13）のは、管理者か契約者だけ
+KIND_NAMES = {"admin": "管理者", "operator": "契約者", "system": "システム"}   # 誰が、の種類の呼び名（core/access.ACTOR_KINDS のそれぞれ）。
+# 手で再開・戻す・解く・外す（E12・E13）のは管理者か契約者だけ。人かどうかは、ここで決めない（データベースの1か所＝`_by`。0205）
 STOP_CAUSE = "program_trouble"   # 契約者の表が「新しい電話を止める」ときの停止の原因（core/stops の CAUSES の名前）
 
 
@@ -618,9 +619,11 @@ def fixed(tx: Tx) -> None:
 
 
 def _by(tx: Tx) -> tuple[str | None, str]:
-    """手で動かしたのは管理者か契約者か（`BY`。システムの処理なら None）と、その名前。"""
-    row = tx.one("SELECT salescall.cur_actor_kind() AS k, salescall.cur_actor() AS a")
-    return BY.get(row["k"]), row["a"]
+    """手で動かしたのが管理者か契約者なら、その呼び名（`KIND_NAMES`。人でなければ None）と、その名前。人か（管理者か契約者か）は、
+    データベースの1か所 salescall.cur_is_person（種類から決めるのは salescall.is_person_kind。0205）に問い合わせる（⛔ 0205 の前は、
+    ここに管理者と契約者の組を書き写していた）。"""
+    row = tx.one("SELECT salescall.cur_is_person() AS p, salescall.cur_actor_kind() AS k, salescall.cur_actor() AS a")
+    return (KIND_NAMES[row["k"]] if row["p"] else None), row["a"]
 
 
 def by_hand_task(tx: Tx, task_id: UUID, reason: str) -> None:
@@ -674,7 +677,7 @@ def removed(tx: Tx, line_id: UUID, reason: str) -> None:
     who, name = _by(tx)
     run = _Run(tx, "removed")
     (line,) = run.take((LINE, line_id))
-    run.give(line, hr.Event("E13", run.now, by=f"{who or 'システム'}（{name}）", reason=reason))
+    run.give(line, hr.Event("E13", run.now, by=f"{who or KIND_NAMES['system']}（{name}）", reason=reason))
     run.save()
 
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 import unittest
@@ -12,7 +13,7 @@ import uuid
 from datetime import timedelta
 
 from salescall.core.access import Rejected
-from tests.support import OPERATOR, SYSTEM, World, fictional_phone, owner_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, fictional_phone, kindless, owner_access
 
 
 class OneContactPerNumber(unittest.TestCase):
@@ -226,6 +227,42 @@ class DefinerFunctions(unittest.TestCase):
             "       pg_has_role('salescall_owner', 'salescall_login_maker', 'SET') AS owner_can_become"
             " FROM pg_roles r WHERE r.rolname = 'salescall_login_maker'"))
         self.assertEqual(dict(powers), {"create_role": False, "app": False, "signal": False, "owner_can_become": False})
+
+
+class PersonKinds(unittest.TestCase):
+    """管理者か契約者か（人か）は、誰が、の種類から1か所（salescall.is_person_kind。0205）で決める。いま操作している方の判断
+    （cur_is_person）も、それを要る CHECK も、これを読む。種類の無い取引は人でない（断る側。0201・0205）。"""
+
+    def test_only_the_admin_and_the_contractor_are_persons(self):
+        got = owner_access().in_system(SYSTEM, lambda tx: {r["k"]: r["p"] for r in tx.all(
+            "SELECT k, salescall.is_person_kind(k) AS p FROM unnest(enum_range(NULL::salescall.actor_kind)::text[] || '{\"\"}'"
+            "                                                     || ARRAY[NULL::text]) k")})
+        self.assertEqual(got, {"operator": True, "admin": True, "system": False, "": False, None: False})
+        w = World(); t = w.tenant()
+        for actor, person in ((OPERATOR, True), (ADMIN, True), (SYSTEM, False), (kindless(), False)):
+            with self.subTest(kind=actor.kind):
+                self.assertIs(w.a.in_tenant(actor, t, lambda tx: tx.one("SELECT salescall.cur_is_person() AS p"))["p"], person)
+
+    def test_the_person_kinds_are_written_only_in_the_one_place(self):
+        """データベースの関数・CHECK・行の見え方の決まり・見方のどれにも、管理者と契約者だけの組（IN (…)・ARRAY[…]）を書き写さない
+        （⛔ 0205 の前は、CHECK 2つが組を書き写していた）。人かを要る CHECK は、1か所を読む。"""
+        def lists(text):
+            return [set(re.findall(r"'([^']*)'", m.group(1) or m.group(2)))
+                    for m in re.finditer(r"\bIN\s*\(([^()]*)\)|\bARRAY\s*\[([^\]]*)\]", text or "", re.IGNORECASE)]
+
+        defs = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT 'function ' || p.oid::regprocedure::text AS what, pg_get_functiondef(p.oid) AS body FROM pg_proc p"
+            " WHERE p.pronamespace = 'salescall'::regnamespace AND p.prokind = 'f' AND p.proname <> 'is_person_kind'"
+            " UNION ALL SELECT 'check ' || c.conname, pg_get_constraintdef(c.oid) FROM pg_constraint c"
+            "  WHERE c.connamespace = 'salescall'::regnamespace AND c.contype = 'c'"
+            " UNION ALL SELECT 'policy ' || p.tablename || '.' || p.policyname, concat_ws(' ', p.qual, p.with_check) FROM pg_policies p"
+            "  WHERE p.schemaname = 'salescall'"
+            " UNION ALL SELECT 'view ' || v.viewname, v.definition FROM pg_views v WHERE v.schemaname = 'salescall'"))
+        copies = sorted(d["what"] for d in defs if {"operator", "admin"} in lists(d["body"]))
+        self.assertEqual(copies, [])
+        readers = {d["what"] for d in defs if "salescall.is_person_kind(" in (d["body"] or "")}
+        self.assertLessEqual({"check stop_events_manual_by_person", "check task_trouble_restores_actor_kind_check",
+                              "function salescall.cur_is_person()", "function salescall.stop_event_before_insert()"}, readers)
 
 
 class ServerOnly(unittest.TestCase):

@@ -15,7 +15,7 @@ from salescall.core.access import Access, Actor, Tx
 from salescall.core.gate import Claim
 from salescall.link.basics import load   # 部品の作り方は link.basics の1か所（PC の部品と同じ）
 
-__all__ = ["CallControl", "CallRunner", "Prober", "Verifier", "WriteFailed", "load"]
+__all__ = ["CallControl", "CallRunner", "Prober", "Verifier", "VersionChecker", "WriteFailed", "load"]
 
 
 class WriteFailed(Exception):
@@ -51,7 +51,7 @@ class CallControl(Protocol):
         """その電話そのものに甚大な問題があるとき、その電話をお詫びして終える（2026-10-24 ユーザー決定：「プログラムやAIがこちらの意図しない
         相手がおかしいと思うような状況に陥った場合全般や、回線が悪く、声がお互いや片方がほとんど聞き取れない場合など規定通りの会話が
         進められない状態です。」）。reason＝core.attempts.TROUBLES のどれか（ai_malfunction・poor_audio・cannot_proceed。frozen・
-        runner_error・storage_stuck は回線ごとの処理だけが使う）。why＝根拠の短い文（例「流せない声のあと、知らせても報告が無い」。お客様の
+        runner_error・storage_stuck・worker_lost は回線ごとの処理だけが使う）。why＝根拠の短い文（例「流せない声のあと、知らせても報告が無い」。お客様の
         言葉・名前は入れない。CL-1 の連絡帳 4-59。試行の trouble_why に、理由と同じ書き換えで1回だけ残る＝attempts.end_for_trouble。0143）。通話を途中で切るときの2つの一言（line_trouble_ask→お客様の返事→line_trouble_bye）を流して切り、試行を
         結果不明にして理由を残す（1回だけ。2回目からは何もしない）。呼んだら、通話を進める部品は、その通話の処理を終えて戻る。
         poor_audio のほかは、こちらのせい（番号にも回線にも数えない）。お客様へは、復旧次第すぐ、かけた予定のままかけ直す（お客様が出た
@@ -124,4 +124,13 @@ class Prober(Protocol):
     """停止を解く確かめの部品（会話AI＝CL-1・回線＝電話接続）。確かめた結果（うまくいったか・根拠の短い文）を返す。"""
 
     def probe(self, stop: dict[str, Any]) -> tuple[bool, str]: ...
+
+
+class VersionChecker(Protocol):
+    """使っている AI に新しい版が出ていないかを確かめる部品（CL-1。CL-1 の latest_ai と同じ1か所：使っている名前は版まで決めて持つ所から読み、
+    作り手の公開のモデルの一覧だけを読む＝料金0円）。答えは、使っている AI ごとの行の並び（CL-1 の `latest_ai.check` の行のまま＝役目・名前と、
+    使っている版・一覧にある・新しい版（古い順）・別の系統で後から出たもの、または一覧を読めなかった理由の 結果）。何を知らせるかは
+    core/ai_versions の1か所。測って見送った版は、新しい版として返さない（CL-1 の連絡帳 4-163・CL-2 の 4-400）。"""
+
+    def check(self) -> list[dict[str, Any]]: ...
 

@@ -6,14 +6,14 @@ from __future__ import annotations
 import json
 import uuid
 
-from salescall.core import apology, attempts, next_action, recordings, registry, stops
+from salescall.core import apology, common_phrases, attempts, next_action, recordings, registry, stops
 from salescall.core.access import Rejected
 from tests import support
-from tests.support import OPERATOR, SYSTEM, said
+from tests.support import ADMIN, OPERATOR, SYSTEM, said
 from tests.test_approval import TAKEN
 from tests.test_quality import Base
 
-PART = recordings.Part("closing", "失礼いたします。", "test://Leda/closing", "1" * 64)
+PART = recordings.Part("intro", "ご予約の確認でお電話いたしました。", "test://Leda/intro", "1" * 64)   # 業務の組の部分（共通の一言の名前は業務の組に入れない）
 
 
 class Guards(Base):
@@ -46,7 +46,7 @@ class Guards(Base):
                 f"SELECT count(*) AS n FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.placed('a')}",
                 (s["task"],)))["n"]
             elsewhere = self.tx(near, lambda tx: [r["relation"] for r in tx.all(
-                "SELECT relation FROM salescall.number_dial_wait_elsewhere(%s, interval '1 day', interval '1 day')",
+                "SELECT relation FROM salescall.number_dial_wait_elsewhere(%s, NULL, interval '1 day', interval '1 day')",
                 (s["phone"],))])
             other = self.tx(far, lambda tx: tx.one(
                 "SELECT salescall.number_dialed_by_other_tenant(%s) AS d", (s["phone"],)))["d"]
@@ -59,26 +59,33 @@ class Guards(Base):
 
     # ── (6) 録音の組の部分・承認は、取引から見える組に、組と同じ依頼者で
     def test_a_recording_set_cannot_be_added_to_or_approved_from_another_client(self):
-        """依頼者Aの取引から、依頼者Bの組に部分を足せない。契約者の単位の組に、依頼者Aの名で部分を足したり承認したりできない
-        （⛔ 2026-10-22 の見直し：ほかの依頼者の組は「見えない」と読まれ、同じ依頼者と判断されて、部分を足して承認できた）。"""
+        """依頼者Aの取引から、依頼者Bの組に部分を足せない。共通の一言の組（システムの持ち物＝0171）に、依頼者Aの名で部分を足したり
+        承認したりできない（⛔ 2026-10-22 の見直し：ほかの依頼者の組は「見えない」と読まれ、同じ依頼者と判断されて、部分を足して承認
+        できた）。"""
         s = self.w.setup()
         other = self.other_client(s)
         _, other_version = self.w.business_with_version(other["tenant"], other["client"])
-        theirs = self.tx(other, lambda tx: recordings.create_set(
-            tx, unit="business", voice_name="Leda", version_id=other_version, parts=[PART]), OPERATOR)
-        shared = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
-            tx, unit="contractor", voice_name="Leda", parts=[PART]))
+        theirs = self.tx(other, lambda tx: support.make_business_set(tx, "Leda", other_version, [PART]), OPERATOR)
+        shared = self.w.a.in_system(ADMIN, lambda tx: recordings.create_set(   # 承認しない（システムの組はほかの試験も読む）
+            tx, unit="contractor", voice_name="Leda",
+            parts=[recordings.Part(n, t, f"test://Leda/{n}", "1" * 64) for n, t in common_phrases.TEXTS.items()]))   # 足りない組は作れない
         add = ("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q1', 'お世話になっております。',"
                " 'test://Leda/Q1', %s)")
         for sid in (theirs, shared):
             with self.subTest(set=sid), self.assertRaises(Rejected):
                 self.tx(s, lambda tx: tx.execute(add, (sid, "2" * 64)), OPERATOR)
-        with self.assertRaises(Rejected):                                         # 依頼者Aの名で、契約者の組を承認できない
+        with self.assertRaises(Rejected):                                         # 依頼者Aの名で、共通の一言の組を承認できない
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.recording_approvals (tenant_id, client_id, set_id, approved_by)"
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor())", (shared,)), OPERATOR)
-        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.approve(tx, shared))   # 契約者の取引からは承認できる
+        with self.assertRaises(Rejected):                                         # 契約者の取引からも承認できない（管理者だけ）
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.approve(tx, shared))
+        with self.assertRaises(Rejected) as e:                                    # 依頼者Aの取引・Aの名で、依頼者Bの組を承認できない
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.recording_approvals (tenant_id, client_id, set_id, approved_by)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor())", (theirs,)), OPERATOR)
+        self.assertIn("取引から見える組", e.exception.message)                    # 0109 の守りで断る（ほかの決まりでなく）
         self.tx(other, lambda tx: recordings.approve(tx, theirs), OPERATOR)
 
     # ── (7) 「最新が正本」の記録の順番と、承認の時刻は、データベースが決める
@@ -111,13 +118,12 @@ class Guards(Base):
         self.assertEqual(self.tx(s, lambda tx: [r["seq"] for r in tx.all(
             "SELECT seq FROM salescall.client_states WHERE client_id = %s ORDER BY seq", (s["client"],))]), [1, 2])
 
-        shared = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
-            tx, unit="contractor", voice_name="Leda", parts=[PART]))
-        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
+        own = self.tx(s, lambda tx: support.make_business_set(tx, "Leda", s["version"], [PART]), OPERATOR)
+        self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.recording_approvals (tenant_id, client_id, set_id, approved_by, approved_at)"
-            f" VALUES (salescall.cur_tenant(), NULL, %s, salescall.cur_actor(), {future})", (shared,)))
-        self.assertTrue(self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.one(
-            "SELECT approved_at <= now() AS ok FROM salescall.recording_approvals WHERE set_id = %s", (shared,)))["ok"])
+            f" VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor(), {future})", (own,)), OPERATOR)
+        self.assertTrue(self.tx(s, lambda tx: tx.one(
+            "SELECT approved_at <= now() AS ok FROM salescall.recording_approvals WHERE set_id = %s", (own,)))["ok"])
 
     def test_only_readings_chosen_by_listening_get_an_order_number(self):
         """名前の読みは、録音を聞いて選んだ読みだけが番号（最大＋1）を持つ。版の中身に書いた読みは 0 のまま（2026-10-22 の
@@ -219,9 +225,9 @@ class Guards(Base):
 
     # ── (9) 仕掛けだけが書く記録には、サーバーの役が直接書けない（仕掛けからは書ける）
     def test_records_written_only_by_the_database_cannot_be_written_directly(self):
-        """状態の移り変わり・前の答え・名前の変更の記録は、仕掛け（持ち主の権限で動く）だけが書く（⛔ 2026-10-22 の見直し：
-        サーバーの役が直接足せ、予約のままの試行に「つながった」を足すと「お客様が出た」になり、取っていない値を「前の答え」に
-        足すと、確かめ直しが「確かめた答え」として戻した）。"""
+        """状態の移り変わり・名前の変更の記録は、仕掛け（持ち主の権限で動く）だけが書く（⛔ 2026-10-22 の見直し：
+        サーバーの役が直接足せ、予約のままの試行に「つながった」を足すと「お客様が出た」になった。前の答えの記録＝0108 の item_value_history は、
+        0231 で答えを通話ごとに持つ形にして無くした）。"""
         s = self.w.setup()
         first = self.attempt_in(s, ["dialing", "no_answer"])
         self.tx(s, lambda tx: tx.execute(
@@ -229,21 +235,15 @@ class Guards(Base):
             " attempt_id) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, 'Q1', 'confirmed', 'はい', %s)",
             (s["task"], s["version"], first)))
         second = self.w.insert_claim(s)
-        self.tx(s, lambda tx: tx.execute(                                         # 後の通話が上書き ⇒ 前の答えを仕掛けが残す
-            "UPDATE salescall.item_values SET attempt_id = %s, condition = 'いいえ' WHERE task_id = %s", (second, s["task"])))
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: registry.rename_client(tx, s["client"], "架空の依頼者（新）"))
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: registry.rename_line(tx, s["line"], "架空の回線（新）"))
         self.assertEqual(self.tx(s, lambda tx: tx.one(
             "SELECT (SELECT count(*) FROM salescall.attempt_state_history WHERE attempt_id = %s) AS moves,"
-            "       (SELECT count(*) FROM salescall.item_value_history WHERE task_id = %s) AS answers,"
             "       (SELECT count(*) FROM salescall.name_changes WHERE target_id IN (%s, %s)) AS names",
-            (first, s["task"], s["client"], s["line"]))), {"moves": 3, "answers": 1, "names": 2})
+            (first, s["client"], s["line"]))), {"moves": 3, "names": 2})
         direct = {
             "状態の移り変わり": ("INSERT INTO salescall.attempt_state_history (tenant_id, client_id, attempt_id, from_state, to_state)"
                          " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'claimed', 'answered')", (second,)),
-            "前の答え": ("INSERT INTO salescall.item_value_history (tenant_id, client_id, task_id, question_id, attempt_id,"
-                     " version_id, state, value) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'Q1', %s, %s,"
-                     " 'confirmed', '\"2026-11-01T10:00\"')", (s["task"], second, s["version"])),
             "名前の変更": ("INSERT INTO salescall.name_changes (tenant_id, client_id, kind, target_id, old_name, new_name, changed_by)"
                       " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'client', %s, '前', '後', '試験')", (uuid.uuid4(),)),
         }

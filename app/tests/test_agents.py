@@ -8,7 +8,7 @@ from unittest import mock
 
 from salescall.core import agents, settings
 from salescall.core.access import Rejected
-from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, fictional_caller, owner_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, fictional_caller, kindless, owner_access
 from salescall.core import registry
 
 
@@ -95,6 +95,16 @@ class Passes(unittest.TestCase):
                 self.a.in_tenant(SYSTEM, t, lambda tx, call=call: tx.all(call))
             with self.subTest(call=call, by="admin"), self.assertRaises(Rejected):
                 self.a.in_system(ADMIN, lambda tx, call=call: tx.all(call))
+
+    def test_a_transaction_without_a_kind_cannot_issue_or_stop_a_pass(self):
+        """誰が、の種類の無い取引は、払い出せない・止められない（0205。⛔ 前は NOT IN で比べたので、種類が無いと断らなかった）。"""
+        t = self.w.tenant()
+        with self.assertRaises(Rejected):
+            agents.issue(self.a, kindless(), t, label="種類の無い取引が払い出す")
+        p = agents.issue(self.a, ADMIN, t, label="架空の PC")
+        with self.assertRaises(Rejected):
+            self.a.in_tenant(kindless(), t, lambda tx: agents.revoke(tx, p.pc_id))
+        self.assertTrue(self.a.in_tenant(OPERATOR, t, lambda tx: agents.revoke(tx, p.pc_id)))
 
     def test_a_beat_keeps_only_the_tenants_lines_in_use(self):
         """合図で伝えた回線は、その契約者の、使っている回線だけが残る（ほかの契約者の回線を名乗って、その電話をかけさせない）。"""

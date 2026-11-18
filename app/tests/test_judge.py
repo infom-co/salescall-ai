@@ -129,6 +129,70 @@ class Order(unittest.TestCase):
         self.assertEqual((j.state, j.dnc_reason, j.detail["out_of_scope"]), ("out_of_scope", "fax_line", "fax_line"))
         self.assertNotEqual(run(rep=report(("reception", "fax")), items={}).dnc_reason, "fax_line")
 
+    def test_a_later_read_as_a_refusal_is_the_do_not_call_fact(self):
+        """✅ 2026-11-06 ユーザー＝計画書 7-1 (16)：会話の担当がお客様の「あとで」を営業拒否と読んだ通話は、判定でも断り（もうかけない・
+        発信禁止に登録＝原則14）。表すのは、受付で営業拒否を言われたときと同じ事実 do_not_call の1本（2つ目の判定がそろったかは
+        irreversible_check。判定の (2) の1か所）。⛔ 2026-11-07 見直し(3)の1：前はかけ直しの申し出の intent＝refusal という2つ目の道があり、
+        2つ目の判定がその「あとで」を読んだかに関係なく、報告の irreversible_check が agreed なら、その場で発信禁止に登録しえた。
+        ⇒ intent に書けるのは約束の一環（promise）だけ（書かない＝まだ分からない）。"refusal" は報告の誤り（ReportInvalid）。"""
+        from salescall.core.call_report import LATER_INTENTS
+        from salescall.core.judge import irreversible
+        self.assertEqual(LATER_INTENTS, ("promise",))
+        later = lambda intent: replace(callback("later", time="あとで"), intent=intent)   # noqa: E731
+        for intent in (None, "promise"):
+            with self.subTest(intent=intent):
+                j = run(items={}, rep=report(callback=later(intent)))
+                self.assertEqual((j.state, j.dnc_reason, j.detail["policy_key"], j.detail["callback"]["intent"]),
+                                 ("callback_scheduled", None, "callback_unspecified_time", intent))
+                self.assertEqual(from_json(report(callback=later(intent)).to_json()).callbacks[0].intent, intent)
+        for bad in ("refusal", "maybe", ""):   # 営業拒否の「あとで」は事実 do_not_call で書く（intent では受けない）
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(report(callback=later(bad)).to_json())
+        # 営業拒否と読んだ「あとで」＝かけ直しの申し出（intent は書かない）＋事実 do_not_call（受付の営業拒否と同じ1本）
+        r = replace(report(callback=later(None), dnc=True), irreversible_check="disagreed")
+        inp = JudgeInput(TALKED, r, {}, RULES, callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={})
+        j = judge(inp)
+        self.assertEqual((j.state, j.dnc_reason, j.detail["refusal"]), ("do_not_call", "refused_in_call", "in_call"))
+        self.assertEqual((irreversible(inp, j).unsure, irreversible(inp, j).check), (frozenset({"refusal"}), "disagreed"))
+        # 断りではなかったと決まった（差し戻し・取り消し＝断りを外した報告）：同じ通話の「あとで」は約束の一環とみなす（✅ 2026-11-07
+        # ユーザー：「約束の一環とみなす」）。時刻の決まった申し出・断りでない中身を外したときは変えない
+        undone = r.without({"refusal"})
+        j = run(items={}, rep=undone)
+        self.assertEqual((undone.do_not_call, j.state, j.detail["callback"]["intent"]), (False, "callback_scheduled", "promise"))
+        self.assertIsNone(r.without({"complaint"}).callbacks[0].intent)
+        timed = replace(r, callbacks=(callback("later", time="明日の15時"),))
+        self.assertIsNone(timed.without({"refusal"}).callbacks[0].intent)
+
+    def test_only_a_later_without_a_time_carries_an_intent(self):
+        """会話の報告のかけ直しの申し出に、約束の一環か（intent）を書けるのは、時刻の決まらない申し出（「あとで」）だけ（1か所＝
+        call_report.Callback.later。判定が再発信の方針 callback_unspecified_time にする申し出と同じ条件）。⛔ 2026-11-07 見直し(3)の3：前は
+        不在・時刻つき・別の番号の申し出にも受け、値の確かめを外しても落ちる試験が無かった。"""
+        from salescall.core.call_report import CALLBACK_REASONS
+        seen = set()
+        for reason in CALLBACK_REASONS:
+            for time in (None, "あとで", "そちらのご都合で", "明日の15時"):
+                cb = callback(reason, number="0312345678" if reason == "other_number" else None, time=time)
+                with self.subTest(reason=reason, time=time):
+                    later = run(items={}, rep=report(callback=cb)).detail.get("policy_key") == "callback_unspecified_time"
+                    self.assertIs(cb.later, later)
+                    seen.add(later)
+                    raw = report(callback=replace(cb, intent="promise")).to_json()
+                    if later:
+                        self.assertEqual(from_json(raw).callbacks[0].intent, "promise")
+                    else:
+                        with self.assertRaises(ReportInvalid):
+                            from_json(raw)
+        self.assertEqual(seen, {True, False})
+
+    def test_without_takes_each_decision_out(self):
+        """取り消せない決定を報告から外す形（`CallReport.without` の1か所）：外した中身だけが消え、判定もそれに従う（怒っていた＝苦情。
+        ⛔ 2026-11-07 見直し(3)の8：苦情を外す所を外しても落ちる試験が無かった）。"""
+        r = report(complaint=True, dnc=True)
+        self.assertTrue(run(rep=r).complaint)
+        w = r.without({"complaint"})
+        self.assertEqual((w.complaint, bool(w.refusals), run(rep=w).complaint, run(rep=w).state), (False, True, False, "do_not_call"))
+        self.assertEqual((run(rep=r.without({"refusal"})).complaint, run(rep=r.without({"refusal"})).state), (True, "completed"))
+
     def test_policy_keys(self):
         self.assertEqual(run(items={"Q1": TAKEN["Q1"]}).detail["policy_key"], "incomplete")
         self.assertEqual(run(items={}, rep=report(("reception",), not_reached="not_transferred")).detail["policy_key"],
@@ -163,6 +227,24 @@ class NotAsked(unittest.TestCase):
         # 答えを受け取った「答えたくない」は、伺う答えに無ければ対象外（会話の側も、受け取った答えで伺うかを決める＝flowctl.TAKEN）
         refused = {"Q1": Item("refused", None, "unwilling")}
         self.assertEqual(run(items=refused, ask_if={"Q2": AskIf("Q1", ("いいえ",))}).detail["not_asked"], ["Q2"])
+
+    def test_a_question_asked_only_after_a_hedged_answer(self):
+        """言い切っていないときだけ伺う質問（`AskIf.hedged`。CL-1 の連絡帳 4-71 の (b)・会話の側の Flow._ask_if_follow_ups と同じ決まり）：前の質問の
+        答えが伺う答えでも、言い切っていた（「曖昧」の印が無い）なら伺っていない（対象外）。言い切っていなければ伺う（伺えていなければ取れて
+        いない）。伺う答えでなければ、印があっても対象外。"""
+        from salescall.core.business_settings import AskIf
+        cond = {"Q2": AskIf("Q1", ("いいえ",), True)}
+        j = run(items={"Q1": Item("accepted", "いいえ", None)}, ask_if=cond)
+        self.assertEqual((j.state, j.detail["not_asked"]), ("completed", ["Q2"]))
+        j = run(items={"Q1": Item("accepted", "いいえ", None, True)}, ask_if=cond)
+        self.assertEqual((j.state, j.detail["missing"], "not_asked" in j.detail), ("incomplete", ["Q2"], False))
+        j = run(items={"Q1": Item("accepted", "はい", None, True)}, ask_if=cond)
+        self.assertEqual(j.detail["not_asked"], ["Q2"])
+        j = run(items={"Q1": Item("accepted", "いいえ", None)}, ask_if={"Q2": AskIf("Q1", ("いいえ",))})   # 印を問わない条件は今までどおり
+        self.assertEqual(j.detail["missing"], ["Q2"])
+        j = run(items={"Q1": Item("accepted", "いいえ", None), "Q3": Item("empty", None, None)},   # 対象外の質問のあとの質問も対象外
+                ask_if={**cond, "Q3": AskIf("Q2", ("はい",))})
+        self.assertEqual(j.detail["not_asked"], ["Q2", "Q3"])
 
     def test_a_question_after_a_question_that_was_not_asked_is_not_asked_either(self):
         from salescall.core.business_settings import AskIf
@@ -323,6 +405,35 @@ class AfterCall(unittest.TestCase):
                                 current=Target(MAIN), pacing=P_NONE, now=NOW, opening=None, retry_wait=300,
                                 current_callee_at=at)
         self.assertEqual(d.callee_at, at)
+
+    def test_a_next_round_a_month_ahead_is_seen_by_the_last_days_of_the_rounds(self):
+        """1か月以上先の次の回か（next_action._next_round_far の1か所。0220）：次の回の最後の日（日本時間）が、話せないまま過ぎた回の最後の日の翌月の
+        同じ日（その月に無ければ月の終わり）以上。月ぎめの理由の「月末」⇒次の月末（10月29〜31日 ⇒ 11月28〜30日：始まりどうしでは1か月より手前）・
+        「31日」⇒翌月の終わりの日・「下旬」・2月をまたぐ回は1か月以上先。週ごと・日ごとの次の回は手前。⛔ 0217 の salescall.month_ahead（次の回の
+        始まりを、回が過ぎた日から数える）では、「月末」の次の回が28日先で「1か月より手前」になった。"""
+        from salescall.core.calling_hours import JST
+        from salescall.core.next_action import Window, _next_round_far
+        day = lambda y, m, d: datetime(y, m, d, tzinfo=JST)   # noqa: E731
+        rnd = lambda a, b: Window(b + timedelta(days=1), None, None, a, "month:part:月末")   # noqa: E731  [a, b] の日の回
+        far = {
+            "月末 ⇒ 次の月末": (rnd(day(2026, 10, 29), day(2026, 10, 31)), rnd(day(2026, 11, 28), day(2026, 11, 30)), True),
+            "31日 ⇒ 翌月の終わりの日": (rnd(day(2026, 10, 31), day(2026, 10, 31)), rnd(day(2026, 11, 30), day(2026, 11, 30)), True),
+            "30日 ⇒ 翌月の30日": (rnd(day(2026, 11, 30), day(2026, 11, 30)), rnd(day(2026, 12, 30), day(2026, 12, 30)), True),
+            "1月31日 ⇒ 2月28日": (rnd(day(2027, 1, 31), day(2027, 1, 31)), rnd(day(2027, 2, 28), day(2027, 2, 28)), True),
+            "下旬 ⇒ 次の下旬": (rnd(day(2026, 10, 21), day(2026, 10, 31)), rnd(day(2026, 11, 21), day(2026, 11, 30)), True),
+            "12月の月末 ⇒ 1月の月末": (rnd(day(2026, 12, 29), day(2026, 12, 31)), rnd(day(2027, 1, 29), day(2027, 1, 31)), True),
+            "金曜 ⇒ 次の金曜": (rnd(day(2026, 11, 13), day(2026, 11, 13)), rnd(day(2026, 11, 20), day(2026, 11, 20)), False),
+            "夕方 ⇒ 次の日": (rnd(day(2026, 11, 30), day(2026, 11, 30)), rnd(day(2026, 12, 1), day(2026, 12, 1)), False),
+            "翌月の同じ日の前の日": (rnd(day(2026, 10, 15), day(2026, 10, 15)), rnd(day(2026, 11, 14), day(2026, 11, 14)), False),
+        }
+        for name, (passed, nxt, want) in far.items():
+            with self.subTest(name):
+                self.assertIs(_next_round_far(passed, nxt), want)
+        # 門で止められたあとの決め直しは、いまの予定の幅を引き継ぐだけで、次の回へは移らない（契約者に伺う決定の値を持たない）
+        w = Window(NOW + timedelta(days=40, hours=1), None, None, NOW + timedelta(days=40), None)
+        d = decide_after_denial(gate.denied("outside_hours"), current_window=w, recheck=NO_OPENING_RECHECK, current_promised=True,
+                                current=Target(MAIN), pacing=P_NONE, now=NOW, opening=NOW + timedelta(days=40), retry_wait=300)
+        self.assertEqual((d.kind, d.window, d.month_ahead_after), ("call", w, None))
 
     def test_a_reception_that_could_not_put_us_through_means_one_more_call_on_another_day(self):
         """受付が事情があり取り次げなかった（と、確かめ直しで目的のお客様だと確かめられなかった）通話は、日を改めて1回だけかけ直す。
@@ -502,7 +613,7 @@ class AfterDenial(unittest.TestCase):
         known = NOW + timedelta(hours=5)
         opening = NOW + timedelta(hours=14)
         # 間隔の待ち（門の pacing が、待つ時刻とともに答える理由）。ほかの理由では pacing は待つ時刻を持たない（いまかけられる）
-        paced = {"same_contact_interval", "daily_attempts", "cross_client_interval_same_tenant", "cross_client_interval_other_tenant",
+        paced = {"same_contact_interval", "daily_attempts", "same_number_interval", "cross_client_interval_other_tenant",
                  "other_client_promise", "number_promise_soon"}
         for reason, r in gate.REASONS.items():
             with self.subTest(reason):
@@ -750,6 +861,30 @@ class Causes(unittest.TestCase):
         self.assertEqual(run(facts=Facts("ended", None, True, False, NOW), rep=report(("voicemail",), cut=None),
                              items=old).state, "open")
         self.assertEqual(run(items=old).detail["unknown_cause"], "reason_missing")   # 話した通話では、これまでどおり
+
+
+class DontKnowEnough1113(unittest.TestCase):
+    def test_a_dont_know_on_a_question_that_is_not_required_goes_on_and_is_not_called_back(self):
+        """CL-1 の連絡帳 4-144 の (4) への答え（✅ 2026-11-13 ユーザー：「一例のパンフレットが、もし、必須なら、これについてもっと深掘りしないといけないし、
+        必須でなく、説明だけで何とかなる業務なら、次へ進む形でいいんじゃないですか！」）：「わからない」でも先へ進んでよい質問は、業務設定で必須にしない
+        （扱いの一覧 business_rules.HANDLINGS に新しい扱いは足さない）。必須でない質問の「わからない」は、取れていない必須の質問に数えない（judge の missing は
+        rules.required だけを見る）＝ほかの必須の質問が取れていれば完了で行を終え、かけ直さない（理由が無くても判定待ちにしない）。必須の質問の「わからない」は、
+        今の扱い（理由×扱い）どおり深掘りする（ここでは日を改める）。作りは変えていない（確かめの試験）。"""
+        rules = check(V, ("Q2",), rules_raw(("Q2",)))   # Q1（資料は届いているか）は必須でない・Q2（ご承認）は必須
+
+        def judged(q1, q2):
+            return judge(JudgeInput(TALKED, report(), {"Q1": q1, "Q2": q2}, rules, callee=CALLEE, anyone_target=False,
+                                    check_rang=False, forbidden=False, ask_if={}))
+        for reason in ("undecided", None):   # 必須でない質問の「わからない」は、理由が無くても先へ進む
+            with self.subTest(reason=reason):
+                j = judged(Item("dont_know", "わからない", reason), Item("accepted", "はい", None))
+                self.assertEqual((j.state, j.detail.get("missing"), j.detail.get("unknown_cause")), ("completed", None, None))
+                d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=gate.Pacing(3, NOW, None, True), rules=rules,
+                                      times_with_key=1, now=NOW, retry_at=NOW + HOUR, target=Target(MAIN))
+                self.assertEqual((d.kind, d.end_reason), ("end", "completed"))   # かけ直さない（次の電話は無い＝伺い直さない）
+        # 必須の質問の「わからない」は、今の扱いで深掘りする（理由×扱い＝日を改める）
+        j = judged(Item("accepted", "はい", None), Item("dont_know", "わからない", "undecided"))
+        self.assertEqual((j.state, j.detail.get("missing")), ("incomplete", ["Q2"]))
 
 
 if __name__ == "__main__":

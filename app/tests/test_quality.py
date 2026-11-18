@@ -115,6 +115,43 @@ class Stages(Base):
         self.assertEqual(self.business_stops(s), [])                   # 新しい版の合格で、自動で再開
         self.assertIsNotNone(got)
 
+    def test_switching_to_production_releases_the_quality_stop(self):
+        """検証モードで品質で止めた業務を本番に切り替えたら、システムが品質の停止を解き、止まっていたあいだに割り当てた版も始める（品質の門は
+        検証モードの業務だけ＝原則9。決まった間隔の仕事が quality_stage.release_production の1か所を呼ぶ）。検証モードのままなら解かない。
+        ⛔ 2026-11-18 の6回目の見直しまで：本番に切り替えても止まったまま（解く道は新しい版の模擬通話の合格だけ）で、お詫びのほかの電話が
+        かからなかった。"""
+        s = self.fresh()
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.record_mock(tx, s["version"], GOOD))["outcome"], "opened")   # 依頼者の最初の合格
+        self.verified_call(s, said(3))      # 言ってはいけないことが1件
+        self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])
+        newer = self.newer_version(s)
+        self.assertEqual(self.tx(newer, lambda tx: quality_stage.prepare(tx, newer["version"])), "mock_needed")
+        self.assertEqual(self.tx(s, quality_stage.release_production), [])       # 検証モードのあいだは解かない
+        self.assertEqual(len(self.business_stops(s)), 1)
+        self.put_client(s, "approval.human", False)                             # 本番に切り替えた
+        got = self.tx(s, quality_stage.release_production)
+        self.assertEqual((len(got), self.business_stops(s)), (1, []))
+        self.assertIsNotNone(self.tx(s, lambda tx: quality_stage.current(tx, newer["version"])))   # 待っていた版も始めた
+        self.assertEqual(self.tx(s, quality_stage.release_production), [])       # 1回だけ
+        self.assertIsInstance(self.claim(Base.second_row(self, s)), gate.Claim)   # 業務はまたかけられる（本番なので承認は要らない）
+
+    def test_a_copy_of_the_stopped_version_is_the_stopped_version(self):
+        """止まった版の写し（以前の版へ戻す・手で前の版に戻す＝business_settings.save_from）も、止まった版そのもの（中身が同じ）：模擬通話に
+        合格しても再開しない（品質の段の1か所 `_stopped_version` が、写しの元をたどった版＝salescall.version_copy_root で比べる。0197）。
+        ⛔ 2026-11-07 の第三者の見直し (2) の5：前は版の番号で比べたので、写しで同じ中身のまま再開できた。"""
+        from salescall.core import business_settings
+        s = self.fresh(stage_cap=20)
+        self.verified_call(s, said(3))      # 言ってはいけないことが1件
+        self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])
+        copy = self.tx(s, lambda tx: business_settings.restore(tx, s["version"]), OPERATOR)
+        again = self.tx(s, lambda tx: business_settings.restore(tx, copy), OPERATOR)          # 写しの写しも
+        for v in (copy, again):
+            with self.subTest(version=v):
+                self.assertEqual(self.tx(s, lambda tx, v=v: quality_stage.start_kind(tx, v)), "stopped_version")
+        got = self.tx(s, lambda tx: quality_stage.record_mock(tx, again, GOOD))
+        self.assertEqual(got["outcome"], "stopped_version")
+        self.assertEqual(len(self.business_stops(s)), 1)
+
     def test_a_person_resume_measures_the_version_again(self):
         s = self.fresh(stage_cap=2)
         self.verified_call(s, said(3), items=[("Q1", "confirmed", None)])

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 import unittest
+import uuid
 from datetime import timedelta
 from unittest import mock
 
@@ -228,8 +229,13 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         """会話AIの生の誤り（つながらない・Google の側の誤り・不明・設定の誤り）は、何回起きても止めない（止まったかを決めるのは会話の
         側の1か所＝止まったAI。CL-1 の連絡帳 4-69 の 4-179 の (a)）。記録し、根源的なもの（設定の誤り・不明）はすぐ CL-1 へ修正依頼、
         管理者に知らせる。⛔ 2026-11-02 まで：設定 stop.ai.stop_after_failures（仮の3）の数・設定の誤りは1回で、その契約者を止めていた。"""
+        # 根源的なもの（設定の誤り・不明）の文面は、この試験だけのものにする（同じ不具合の修正依頼は契約者をまたいで1つ＝管理者へ知らせるのは
+        # 修正依頼を新しく出したときだけ。ほかの試験が同じ文面で先に修正依頼を出していると、ここでは知らせが出ない＝⛔ 2026-11-03 夜、全部の
+        # 試験を流すと test_ai_troubles のあとで落ちた。作りの決まりどおりで、試験どうしが1つのデータベースを分け合うことによる落ち方）
+        only_here = f"（試験 {uuid.uuid4().hex[:8]}）"
         reports = (ErrorReport("ai", 503, "UNAVAILABLE: The model is overloaded."), ErrorReport("ai", None, None, unreachable=True),
-                   ErrorReport("ai", 1007, "thinking_level is not supported for this model"), ErrorReport("ai", 1099, "x"))
+                   ErrorReport("ai", 1007, "thinking_level is not supported for this model" + only_here),
+                   ErrorReport("ai", 1099, "x" + only_here))
         self.assertEqual({errors.classify(r) for r in reports}, set(errors.CONVO_RAW))
         for report in reports:
             for _ in range(4):
