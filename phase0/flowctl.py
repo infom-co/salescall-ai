@@ -884,12 +884,19 @@ def question_forms(questions: list["Question"], qid: str) -> list[dict]:
     forms = [question_play(questions, qid)] + [question_play(questions, qid, before=line) for line in (*before_lines(questions), *first, *brief)]
     if not (q.reading_of or q.callback or q.of):
         forms += [question_play(questions, qid, again=True), question_play(questions, qid, resumed=True)]
-        # 戻る一言のあとに伺い直す形（頭が戻る一言の頭と重なれば外す＝spoken_question の again）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」
-        forms += [question_play(questions, qid, again=True, before=text) for _, text in BACK_LINES]
+        # 戻る一言のあとに伺い直す形（頭が戻る一言の頭と重なれば外す＝spoken_question の again）。✅ 2026-11-07 日本時間3時14分01秒 ユーザー「(4) H7」。
+        # 「ところで」の言い換えた形は、戻る一言のあとには流れない（戻る一言のあとは元の質問＝Flow._soften の back）。⛔ 06661192 まで、言い換えた形の
+        # 「確認の途中でしたので…」の形（「番号_aside」）も載せていた（そのころは3回目からの戻りで流れた）
+        if not in_aside_form(q):
+            forms += [question_play(questions, qid, again=True, before=text) for _, text in BACK_LINES]
     if soft_fits(q) and not (in_aside_form(q) or in_since_form(q) or in_alternatives_form(q)):
         # お客様の意向がまだ分からないまま戻る形（soft_form・頭のつなぎの言葉は無い）。新しい録音は選択肢を並べた文の「番号_alternatives」だけ（言い換えた質問・元の
         # 質問の頭の無い形は、2回目に戻る一言のあとの形と同じ録音）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー
         forms.append(question_play([soft_form(x) if x.id == qid else x for x in questions], qid, again=True, soft=True))
+        # その所でまだ言っていない形を選ぶとき（soft_form の heard＝重ねて急かされた3回目から・意向が分からないまま戻る1回目）は、選択肢を並べた文のある質問でも
+        # 言い換えた質問の頭の無い形（「番号_aside_again」）を流しうる（前は言い換えた形の戻る一言のあとの形として一覧にあった＝同じ録音）
+        if q.reworded:
+            forms.append(question_play([aside_form(x) if x.id == qid else x for x in questions], qid, again=True, soft=True))
         # 先に並べた文（伺い16）：その選択肢に触れたひとことのあとの形ごとに1本（「番号_alternatives_（選択肢の番号）」。✅ 2026-11-14 日本時間23時45分00秒）
         forms += [question_play([soft_form(x, lead) if x.id == qid else x for x in questions], qid, again=True, soft=True)
                   for lead in _led_leads(q)]
@@ -10078,17 +10085,21 @@ class Flow:
         n = self.back_counts[key] = self.back_counts.get(key, 0) + 1
         return n
 
-    def _soften(self, qid: str, soft: bool, lead: str = "", heard: "dict[str, int] | None" = None) -> None:
+    def _soften(self, qid: str, soft: bool, lead: str = "", heard: "dict[str, int] | None" = None, back: bool = False) -> None:
         """お客様の意向がまだ分からないまま戻る形（soft_form）に替えるか、替える前の形に戻すかの唯一の場所（戻る1か所 _continue・「ところで」の伺い直し
         _aside_again・重ねて急かされた3回目から _brief_again）：soft なら、判定と会話AIへの知らせがお客様の聞く文を読むよう、その形に替える（替える前の形は
         soft_plain）。soft でなければ替える前の形に戻す（選択肢を並べた形は意向が分からないまま戻るときだけの形＝戻る一言のあと・もう一度言ってほしいと頼まれた
         とき・代わった方へ・「ところで」の伺い直しは、替える前の形で伺う。話の続きを聞いていない方に選択肢だけを並べない）。✅ 2026-11-14 日本時間22時15分15秒
         ユーザー（お言葉は soft_form の上）。
         heard＝その所でお客様がもう聞いた文（_heard_last）：いまの形からではなく替える前の形（soft_plain。「ところで」の伺い直し _aside_again は soft_plain を使わずに
-        替えるので、その形なら元の質問 given）から、まだ言っていない形を選ぶ（soft_form の heard）。元の形を選べば、替える前の形に戻す（伺い46 イ）"""
+        替えるので、その形なら元の質問 given）から、まだ言っていない形を選ぶ（soft_form の heard）。元の形を選べば、替える前の形に戻す（伺い46 イ）。
+        back＝戻る一言のあとに伺う（その所への2回目からの戻り＝戻る1か所 _continue の back）：「ところで」の言い換えた形も、その1回目の戻りだけの形（選択肢を並べた形が
+        意向が分からないまま戻る1回目だけの形なのと同じ）＝元の質問 given に戻す。2回目は「それではもう一度確認させていただきますね。」＋元の質問・3回目からは
+        「確認の途中でしたので…」＋元の質問（9-4 の「範囲外の質問」の見直し (12)＝分身 O1 の段・11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」。
+        ⛔ 06661192 まで、「ところで」の伺い直しのあとの戻りは、戻る一言＋「ところで」で言ったのと同じ言い換えた質問だった＝分身 I の書き置き (5) の1）"""
         q = self.questions[qid]
         base = self.soft_plain.get(qid, q)
-        if heard is not None and in_aside_form(base):
+        if (heard is not None or back) and in_aside_form(base):
             base = self.given.get(qid, base)
         s = soft_form(base if heard is not None else q, lead, heard) if soft else base
         if s is base:
@@ -10220,8 +10231,9 @@ class Flow:
             if q is not None and not q.reading_of:
                 # 意向が分からないまま戻る1回目の戻りも、その所でお客様がもう聞いた文（_heard_last）を見て、まだ言っていない形から選ぶ（soft_form の heard の1か所＝
                 # 直前と同じ文を続けて言わない＝11-01。⛔ 4e94ba37 まで、いまの形のままだったので、3回目の急かしで選択肢の文を言ったあと、尋ねられて答えて相づちだけの
-                # お返事が来ると、また選択肢の文＝分身 E の書き置きの穴 (b)）
-                self._soften(q.id, soft, lead if soft else "", heard=self._heard_last(q.id) if soft else None)
+                # お返事が来ると、また選択肢の文＝分身 E の書き置きの穴 (b)）。戻る一言のあと（2回目からの戻り）は、「ところで」の言い換えた形も元の質問に戻す
+                # （_soften の back＝見直し (12) の分身 O1 の段「2回目は…＋元の質問」）
+                self._soften(q.id, soft, lead if soft else "", heard=self._heard_last(q.id) if soft else None, back=bool(back))
                 q, qs = self.questions[q.id], self._plays()
         # 戻る一言から始まる：お話に応えたあとでない戻り（plain＝相づちだけのお返事・黙ったあとの一言へのお返事だけ）は、その一言が相手のお返事を受ける＝相づちを
         # 重ねない（quiet。_resume が戻る一言から始まる返事に付けるのと同じ決まり＝黙ったあとの一言へのお返事 _judged_first もここを通る）
@@ -12812,7 +12824,9 @@ class Flow:
     def _trouble_offer_due(self, qid: str | None) -> bool:
         """その質問を、困りごとに応える提案で伺えるか（唯一の決まり＝提案の番を決める _deepen_then・困りごとに応える番の知らせの終わり _asked_note）：まだ提案して
         おらず（1通話1回）、その質問の位置にいて（言い直しの返事待ちではない）、答えをいただいておらず、提案で伺える質問（_proposal_of の trouble）。"""
-        return (self.trouble_offer_q is None and qid is not None and self.awaiting_confirm is None and self.items[qid].state == "empty"
+        # 答えをいただいていない＝状態が空（empty）か、前に聞き取れないお返事などで聞き返している（unclear）。⛔ 60ae5a42 まで empty だけ＝もとの質問に前に聞き返して
+        # いると、困りごとを伺い深めたあとに提案せず、もとのお返事の読み直しへ進んだ（分身 L が確かめの途中で見つけた・TroubleOfferAfterAskBackTest）
+        return (self.trouble_offer_q is None and qid is not None and self.awaiting_confirm is None and self.items[qid].state in ("empty", "unclear")
                 and self._proposal_of(qid, trouble=True) is not None)
 
     def _deepen_ask(self) -> dict:
@@ -13628,13 +13642,18 @@ class Flow:
                 it.ask_backs += 1
             n = it.ask_backs if offer is None else self._offer_backs(qid)
             it.set("checking" if confirming else "unclear", f"{why}・聞き返す（{n}回目）")
-            # 最後の1回か：その場の回数を使い切り、締めの前の念のための確認も無いとき（依頼主の設定で確認を0回にしたとき）
-            last = not self._on_spot_left(qid) and self.limits.recheck == 0
+            # 最後の1回か：その場の回数を使い切り、締めの前の念のための確認も無いとき（依頼主の設定で確認を0回にしたとき）。こちらの申し出への伺い直し（offer＝
+            # _offer_backs の1か所）は、いつも申し出の1回＝1回目の言い方（「申し訳ございません、」＋「お電話が少し遠いようでして…」＝本書 9-4 の 11-09 日本時間6時33分
+            # 57秒の段）。何回目か（ask_n＝相づちの録音を選ぶ）も申し出の回数 n。もとの質問・依頼主のその場の回数と締めの前の確認の回数では決めない（⛔ 06661192 まで、
+            # 締めの前の確認を0回にした設定で、もとの質問をその場で使い切ったあとの困りごとに応える提案・必須でない質問の提案・その場の回数を1回以下にした申し出の
+            # システムの質問は「お声が聞き取れませんでしたので…もう一度だけ…」、困りごとに応える提案の相づちは、もとの質問の聞き返しの回数で重いほうの録音
+            # moushiwake_heavy＝分身 J の書き置き (5) の2）
+            last = offer is None and not self._on_spot_left(qid) and self.limits.recheck == 0
             say = form_reason or self._ask_again_say(qid, n, reason, last)
             if confirming:
                 # 言い直し（提案）へのお返事の聞き返し：お返事は、同じ言い直しへの返事として受ける（confirm_field。言い方は答えの質問の聞き返しと同じ1か所）
                 self.awaiting_confirm, self.confirm_requested_at = qid, self.callee_turns
-                return {"result": "ask_back", "question_id": q.id, "say": say, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": last,
+                return {"result": "ask_back", "question_id": q.id, "say": say, "ask_n": n, "ask_reason": reason, "ask_last": last,
                         "message": f"{shown}{say_note(say)}相手の返事を待ってください。{self._confirm_how(qid)}"}
             it.form_asked = it.form_asked or bool(form_reason)
             if reason == "unclear" and self._reply_may_answer():
