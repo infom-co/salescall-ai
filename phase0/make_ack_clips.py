@@ -468,7 +468,7 @@ def listed_parts(business) -> list[ListedPart]:
 
 def hand_list(business, tx, version_id) -> object:
     """業務の版の録音の部分の一覧を CL-2 へ渡す口（唯一の場所。CL-2 の salescall.core.recordings.list_parts を呼び、答え＝VersionNeeds をそのまま返す）。
-    ⏳ CL-2 の枝（4-350）が main に入るまで、CL-2 の list_parts はこちらから呼べない（比べる試験は CL2_PENDING）。"""
+    CL-2 の枝（4-350）は 2026-11-18 に main に入った（b295499f）＝ListedPart の形は比べる試験 test_offline の ListedPart の段が CL-2 と比べる。"""
     from salescall.core import recordings
     return recordings.list_parts(tx, version_id, [recordings.ListedPart(p.part, p.spoken_text, p.readings) for p in listed_parts(business)])
 

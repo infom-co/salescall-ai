@@ -244,8 +244,13 @@ def trial_yen(ledger) -> float:
 EST_YEN = "見込みの円（送った回の見込みの和と額の差の大きいほう）"
 
 
-def save_result(item: str, data: dict) -> Path:
-    """結果を results/<項目>_<日時>.json に保存する。中身も必ず伏せる。有料の窓口を使っていれば、その料金も入れる。"""
+def save_result(item: str, data: dict) -> Path | None:
+    """結果を results/<項目>_<日時>.json に保存する。中身も必ず伏せる。有料の窓口を使っていれば、その料金も入れる。組み立てだけ（--dry-run）の
+    処理は保存しない（None を返す。⛔ 2026-11-18 日本時間15時台・見直し (13) の D11：g59・g68 の --dry-run が止まらずに空の結果を保存した＝
+    測りの記録と見分けのつかない「結果」が results/ に残る）。"""
+    if DRY_RUN:
+        say(f"組み立てだけ（--dry-run）なので、結果（{item}）は保存しません")
+        return None
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     path = RESULTS_DIR / f"{item}_{stamp}.json"
