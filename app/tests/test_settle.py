@@ -2190,8 +2190,9 @@ class DialFixAfterCalls(SettleBase):
         # 取り消し、その番号へかけようとしていたほかの行の予約まで取り消した）
         x = self.ready()
         claimed = self.claim(x)
-        y = self.ready()
-        self.tx(y, lambda tx: tasks.add_record_number(tx, y["task"], normalize(x["phone"]), "company", origin="dashboard"), OPERATOR)
+        other = self.w.task(x["tenant"], x["client"], self.w.run(x["tenant"], x["client"], x["business"], x["version"]),
+                            self.w.contact(x["tenant"], x["client"], normalize(fictional_jp_fixed()).e164))   # 同じ依頼者のほかの行
+        self.tx(x, lambda tx: tasks.add_record_number(tx, other, normalize(x["phone"]), "company", origin="dashboard"), OPERATOR)
         self.assertEqual(self.tx(x, lambda tx: tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s",
                                                      (claimed.attempt_id,)))["s"], "claimed")
 
