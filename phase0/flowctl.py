@@ -135,7 +135,7 @@ _TEN_MINUTES = re.compile(r"(?<![〇一二三四五六七八九十百時])十分
 
 
 def wait_seconds(text: str | None) -> int | None:
-    """相手の言葉の中の、待ってほしい長さ（秒。無ければ None）。保留の待ちの長さを決める唯一の場所（Flow._hold）。いくつか言われたら長いほう。"""
+    """相手の言葉の中の、待ってほしい長さ（秒。無ければ None）。待つ上限の長さを決める唯一の場所（Flow._wait_limit）。いくつか言われたら長いほう。"""
     t = _TEN_MINUTES.sub("10分", unicodedata.normalize("NFKC", text or ""))
     t = _kanji_to_digits(t)
     found = []
@@ -1395,6 +1395,10 @@ WAIT_ANSWERS = {WAIT_NOW: HOLD_BACK, CALL_LATER: LATER}
 # どの場面の並びも、最後は「しばらく」の秒（wait_ask_after）で待つかかけ直すかの伺い（QUIET_ASK・1通話1回＝on_silence）：同じ所の一言を全部言い終えたあとも黙られたら
 # 伺う（✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い43）「ウ」。秒は理由を言わずに待つ方の伺い24・28 と同じ理由）。⛔ 57b89d93 まで、考えている途中・お知らせの
 # あと・お返事を待つ間は一言を2つ言い終えると何も流さず、考えている方には待つ上限も無いので、お客様が話すまで無言が続いた（rv72/r13c/ask.md の C5）
+# 伺いのあとも黙られたら、どの場面も、理由を言わずに待つ方と同じ待つ上限（業務設定 hold_wait_s・初め5分＝10-24。場面を始めた返事から数える）で、同じ締め（共通の一言の
+# 録音 hold_timeout＝Flow.on_hold_timeout。上限の秒は Flow._wait_limit・付けるのは Flow._silence_watch の1か所。お客様の言葉から伺った H2 のあとも同じ）。
+# (H1) 10-14「止まらない」・11-04 日本時間4時54分「会話の側の待つ所すべてに上限」。⛔ f7a0b81b まで、待つ上限は理由を言わずに待つ方（保留）だけで、ほかの場面は
+# 伺いのあとも無言が続いた
 QUIET_ASK = "wait_or_later"
 QUIET_LAST = ("wait_ask_after", QUIET_ASK)
 QUIET_STEPS = {"thinking": (("silence_prompt_after", THINKING_PROMPT_IDS[0]), ("silence_prompt_after", THINKING_PROMPT_IDS[1]), QUIET_LAST),
@@ -4672,8 +4676,9 @@ class Flow:
         # ✅ 2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ…同じ依頼者のすべての一覧で、同じお客様（同じ番号）」＝CL-2 の 4-106）
         self.voicemail_left = voicemail_left
         self.voicemail_sending: str | None = None   # 流すように頼んだ、留守番電話の伝言（最後まで流れたら通話の事実 voicemail_message＝on_played）
-        # 取り次ぎ・保留で待つ長さ（秒。業務設定。✅ 2026-10-24 ユーザー：「業務ごとに選べる：デフォルト、相手から長く待つ必要がある理由がなければ5分、
-        # 理由があればそれまで待つ」）。相手が長さを言えば、その長さ（_hold の1か所で決め、返事の hold_wait_s で電話接続側へ渡す）
+        # 待つ上限の秒（業務設定。✅ 2026-10-24 ユーザー：「業務ごとに選べる：デフォルト、相手から長く待つ必要がある理由がなければ5分、
+        # 理由があればそれまで待つ」）。取り次ぎ・保留も、黙ったときの場面（QUIET_STEPS）も同じ。相手が長さを言えば、その長さ（_wait_limit の1か所で決め、
+        # 返事の hold_wait_s で電話接続側へ渡す）
         self.hold_wait_s = hold_wait_s
         # 黙ったときの一言の秒（QUIET_STEPS の秒の名前）：考えている方・お知らせのあと・お返事を待つ間・理由を言わずに待つ方の1つ目の一言までの秒（契約者が変えられる
         # call.silence_prompt_after・初め5秒＝✅ 2026-10-14 ユーザー）と、理由を言わずに待つ方に1つ目の一言のあとも黙られたときに伺うまでの秒（初め20秒。⏳ ユーザーに
@@ -4868,7 +4873,8 @@ class Flow:
         # 相手が取り次いでいる最中か（意味の判定が HOLD と決め、AIに黙って待たせた。次の相手の発話で解く）。電話接続側は、この間、
         # 相手が黙っている秒を数える見張り（6-7・6-15 のつなぎの一言・張り替え）を止める（相手はいま電話口にいない。DESIGN.md 6-8）
         self.holding = False
-        self.hold_wait: int | None = None  # いまの保留で待つ長さ（秒。_hold が決め、待ちきったら通話の事実 hold_timeout の waited_s に残す）
+        # いま待っている上限の秒（_wait_limit が決め、待ちきったら通話の事実 hold_timeout の waited_s に残す。お客様が話したら None＝待ちきったかの印＝on_hold_timeout）
+        self.hold_wait: int | None = None
         self.nudged_turn = -1            # 報告を促す知らせを出した相手の発話の番号（unreported_note。1つの発話に1回まで）
         # こちらの不具合で電話を途中で終えた（_trouble の1か所）：理由と根拠（None＝終えていない）。聞き返しを使い切っても聞き取れないまま「-」に
         # なった必須の質問のうち、答えを受け取らないまま続いているもの（答えを1つ受け取ったら空）。張り替えて相手の発話を送り直した、相手の発話の
@@ -5251,8 +5257,9 @@ class Flow:
         数えるのをやめる。None なら何もしない（見張りを終える）。どの場面で・何秒で・何を流すかは流れの制御が決める（電話接続側は秒を数えて呼ぶだけ）：
         第一声を待つ段＝「もしもし」で確かめる（_start_silence）／答えの段＝黙ったときの一言の表 QUIET_STEPS のいまの場面の次の一言（流すのは共通の一言の録音・
         伺いは待つかかけ直すかの質問 H2 を頭の無い形で＝_wait_or_later の plain）。流した一言は、ほかの録音と同じく流し終えたら on_played で知らせる（判定に渡り、
-        そのあとのお返事の受け方が決まる＝_prompt_now）。保留で待つ上限（返事の hold_wait_s → on_hold_timeout）は別の見張りのまま（黙ったときの一言を流しても
-        数え直さない＝待つ上限は待つと応えた時から）。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い23・24）。⛔ それまでは、考えている方の返事・お知らせの印
+        そのあとのお返事の受け方が決まる＝_prompt_now）。待つ上限（返事の hold_wait_s → on_hold_timeout）は別の見張りのまま（黙ったときの一言・伺いを流しても
+        数え直さない＝待つ上限は、場面を始めた返事＝待つと応えた・考えている方に「はい。」と応えた・お知らせした・応えた時から。どの場面も同じ＝_silence_watch）。
+        ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い23・24）。⛔ それまでは、考えている方の返事・お知らせの印
         （silence_prompt）を見て、電話接続側が一言（phrases.THINKING_PROMPT）を選んで流していた"""
         if self.answering:
             return self._log_signal({"start_silence": True}, self._start_silence())
@@ -5267,7 +5274,8 @@ class Flow:
         q["step"] = at + 1
         if do == QUIET_ASK:
             if self.wait_asked or self.wait_q is not None:
-                # 待つかかけ直すかは、この通話でもう伺った（1回だけ＝✅ 2026-11-05 日本時間23時56分48秒「(ア)」）：言葉どおり待ち続ける（待つ上限まで）
+                # 待つかかけ直すかは、この通話でもう伺った（1回だけ＝✅ 2026-11-05 日本時間23時56分48秒「(ア)」）：言葉どおり待ち続ける（待つ上限まで＝場面を始めた
+                # 返事の hold_wait_s・on_hold_timeout）
                 self.silence = None
                 return None
             reply = self._wait_or_later(plain=True)   # 伺う前のお返事待ち・黙ったあとの一言は、伺う1か所が下ろす
@@ -5408,6 +5416,7 @@ class Flow:
         self.check, self.check_said = {}, {}
         self.check_for = self.current   # この発話の判定は、いまの質問について読む（judge_context と同じ時点）
         self.holding = False
+        self.hold_wait = None   # お客様が話した：待つ上限の見張りも終わり（電話接続側も数えるのをやめる。この発話への返事で決め直す＝_wait_limit）
         self.silence = None   # お客様が話した：黙ったときの場面は終わり（この発話への返事で決め直す＝_silence_watch）
 
     def _judged_now(self) -> dict[str, str]:
@@ -7242,7 +7251,16 @@ class Flow:
             # 急いでいるが手短になら聞く：いきなり質問を伺わず「ありがとうございます。」＋「（要約）の件でお電話させていただきましたが後ほど…かけ直しさせていただき
             # ましょうか？」（✅ 2026-11-16 日本時間0時42分38秒・12時48分22秒 ユーザー（伺い30・伺い31））。もう伺って手短に伺っている途中に重ねて急かされたら、
             # 「承知しました。」（少し焦った感じ）＋伺っていた形のまま（✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41））
-            return self._brief_again(voiced) if self.brief_said else self._brief_ask()
+            if self.hurried_turn == self.callee_turns or voiced:
+                # この発話にもう応じた（同じ言葉への遅れた報告）・会話AIが話す通話で会話AIの声がもう流れた（voiced＝報告の無いターン）：同じ発話に応じる声を重ねない
+                # （印だけ立てる＝もう一度言ってほしい _repeat_now・迷っている _hesitate_now・尋ねられて答える _asked_turn と同じ決まり。1回目の H3 も受け直しも、
+                # この1か所）。H3 は1通話1回の伺い：伺いは使わずに残す（brief_said を立てない＝次に「手短に」と言われたら伺う。位置も変えない＝迷っている方の
+                # 保留で締める・ご承認の手順を、声が流れたターンで当てないのと同じ。⛔ f7a0b81b まで、1回目の H3 は voiced を見ず、会話AIの声のあとに
+                # 「ありがとうございます。」＋H3 を会話AIに言わせた＝rv78/B の (5-e)）
+                self.hurried_turn = self.callee_turns
+                head = "あなたの声が相手に流れました。" if voiced else "この言葉には、もう応えました。"
+                return {"result": "replayed", "silent": True, "again": True, "message": f"{head}何も言わずに、相手の答えを待ってください。{self._now()}"}
+            return self._brief_again() if self.brief_said else self._brief_ask()
         # 迷っている（_hesitation の1か所）：どういった点でお迷いかを伺う（何回迷っても保留で締めない＝22時02分54秒）・同じ発話にもう応じていれば重ねない。
         # 報告で来ても報告の無いターンでも同じ返事の1か所（_hesitate_now）。選ぶ助けを伝える番は、尋ねられて答える番の1か所（_asked_now）が受け持つ
         if self._hesitation() is not None and (r := self._hesitate_now(voiced)) is not None:
@@ -7599,12 +7617,9 @@ class Flow:
         self.holding = True
         if self.asking_reception and self.phase != "calling":
             self.callback_held = True  # かけ直し・お立場の質問の途中の取り次ぎ：このあと出る方は、新しい方かもしれない（_op_replay_opening）
-        # 待つ長さ：業務設定（初め5分）。相手がそれより長く待つ理由（長さ）を言えば、その長さ（✅ 2026-10-24 ユーザー：「相手から長く待つ必要がある
-        # 理由がなければ5分、理由があればそれまで待つ」＝短い長さ「1分ほど」は、5分より早く締める理由にしない。⛔ 2026-10-24 の見直し（調べ役）：
-        # 言われた長さをそのまま使い、「1分ほど」で1分後に締めていた）。電話接続側は、この長さのあいだ黙って待ち（その間も、会話を進める流れから
+        # 待つ長さ：待つ上限の1か所（_wait_limit＝業務設定・相手が言った長いほう）。電話接続側は、この長さのあいだ黙って待ち（その間も、会話を進める流れから
         # 1秒より短い間ごとに call.beat を呼びながら＝DESIGN.md 6-8・CL-2 の 4-156）、誰も話さなければ on_hold_timeout を呼ぶ（相手がまた話せば、その言葉で決め直す）
-        wait = self.hold_wait = max(wait_seconds(self.callee_said) or 0, self.hold_wait_s)
-        reply = {"result": "hold", "silent": True, "hold_wait_s": wait,
+        reply = {"result": "hold", "silent": True, "hold_wait_s": self._wait_limit(self.callee_said),
                  "message": f"{away}（「{said}」）。答えではありません。何も言わずに、相手がまた話し始めるのを待ってください。{then}"}
         if plain:
             reply["silence_scene"] = "wait"
@@ -7623,18 +7638,32 @@ class Flow:
                 reply["acked"] = True   # 「はい。」はもう流した：「それではこのままお返事を待っております。」だけ（_ack_choice）
         return reply
 
-    # ── 取り次ぎ・保留のあと、待つ長さ（_hold の返事の hold_wait_s）のあいだ誰も話さなかった（電話接続側が呼ぶ）
+    def _wait_limit(self, said: str | None) -> int:
+        """待つ上限の秒（唯一の決まり＝取り次ぎ・保留・理由を言わずに待つ・確かめて戻る方 _hold と、黙ったときの場面を始めた返事 _silence_watch）：業務設定
+        （hold_wait_s・初め5分・契約者が変えられる）。待つきっかけになったお客様の言葉 said（待つ・考えている途中と読んだ言葉。お知らせ・お客様に応えた答えの場面は
+        None）にそれより長い長さがあれば、その長さ（✅ 2026-10-24 ユーザー：「相手から長く待つ必要がある理由がなければ5分、理由があればそれまで待つ」＝短い長さ
+        「1分ほど」は、5分より早く締める理由にしない。⛔ 2026-10-24 の見直し（調べ役）：言われた長さをそのまま使い、「1分ほど」で1分後に締めていた）。決めた秒を
+        覚える（待ちきったら通話の事実 hold_timeout の waited_s）。お客様が話したら下ろす（on_callee）＝待ちきったかの印も、この秒（on_hold_timeout）。"""
+        self.hold_wait = max(wait_seconds(said) or 0, self.hold_wait_s)
+        return self.hold_wait
+
+    # ── 待つ上限の秒（返事の hold_wait_s）のあいだ誰も話さなかった（電話接続側が呼ぶ。取り次ぎ・保留のあとも、黙ったときの場面のあとも同じ1つの入口）
     def on_hold_timeout(self) -> dict | None:
-        """保留で待ちきった：決まった締め（phrases.HOLD_TIMEOUT＝✅ 2026-10-24 ユーザーの言い方「お返事がないようですので、また、あらためて、
+        """待ちきった：決まった締め（phrases.HOLD_TIMEOUT＝✅ 2026-10-24 ユーザーの言い方「お返事がないようですので、また、あらためて、
         かけ直させていただきます。それでは、いったん失礼いたします。」）で終える（かけ直しは CL-2 の決まりのまま＝日を改めて1回）。
-        締めた理由は「保留で待ちきった」（hold_timeout）。目的のお客様に繋がる前（呼んでいる段）の保留なら、
+        締めた理由は「待ちきった」（hold_timeout）。目的のお客様に繋がる前（呼んでいる段）の保留なら、
         繋がらなかった理由は取り次いでいただけなかった（Flow.not_reached の1か所。繋がったあと・目的のお客様のいない業務の保留は、繋がらなかった
-        理由を持たない）。待った長さは通話の事実 hold_timeout（waited_s＝待った秒。根拠の発話＝保留を頼まれた発話）に残す（CL-1.md 4-42）。
-        保留でなければ None（何もしない）。"""
-        if not self.holding or self.phase == "closing":
+        理由を持たない）。待った長さは通話の事実 hold_timeout（waited_s＝待った秒。根拠の発話＝待つきっかけの発話・黙る前のいちばん新しい発話）に残す（CL-1.md 4-42）。
+        待つのは、取り次ぎ・保留（_hold）と、黙ったときの場面（考えている途中・理由を言わずに待つ・お知らせのあと・お返事を待つ間＝QUIET_STEPS。場面を始めた返事
+        から数え、一言・待つかかけ直すかの伺い H2 を流しても数え直さない）と、お客様の言葉から伺った H2（伺った返事から。付けるのは _silence_watch）。どれも上限の秒は
+        _wait_limit の1か所。(H1) 10-14「止まらない」・11-04 日本時間4時54分「会話の側の待つ所すべてに上限」（まとめ役の決め）。⛔ f7a0b81b まで、待つ上限は保留
+        だけで、考えている途中・お知らせのあと・お返事を待つ間は、伺い（H2）のあともお客様が話すまで無言が続いた。待っていなければ（上限の秒を付けた返事のあとに
+        お客様が話した）None（何もしない）。"""
+        if self.hold_wait is None or self.phase == "closing":
             return None
         self._note("hold_timeout", waited_s=self.hold_wait)
-        reply = self._close("hold_timeout", prefix="保留のまま、待つ長さが過ぎました。", text=(HOLD_TIMEOUT, "hold_timeout"))
+        reply = self._close("hold_timeout", prefix="保留のまま、待つ長さが過ぎました。" if self.holding else "お客様が黙ったまま、待つ長さが過ぎました。",
+                            text=(HOLD_TIMEOUT, "hold_timeout"))
         # 電話接続側からの知らせ（AIの操作ではない）も、操作の記録に残す（on_signal と同じ形。流した締めの録音を、ほかの返事と同じく扱う）
         return self._log_signal({"hold_timeout": True}, reply)
 
@@ -10175,7 +10204,9 @@ class Flow:
     def _silence_watch(self, reply: dict) -> None:
         """返事に、黙ったときの見張りの秒（silence_s）を付ける唯一の場所（返事を記録に残す3つの入口＝報告 _apply_one・報告の無いターン judged_turn・電話接続側からの
         知らせ _log_signal が通る）：返事がお客様を待つ場面（返事の印 silence_scene：考えている途中 _thinking・理由を言わずに待つ _hold の plain・お返事を待つ間
-        _turn_done。お知らせの形の質問の答えを待つことになった返事は、いまの質問でここが決める）を始めたら、その場面の1つ目の秒（QUIET_STEPS）を付けて覚える。同じ発話への重ねた返事
+        _turn_done。お知らせの形の質問の答えを待つことになった返事は、いまの質問でここが決める）を始めたら、その場面の1つ目の秒（QUIET_STEPS）と、待つ上限の秒
+        （hold_wait_s＝_wait_limit。理由を言わずに待つ方は _hold が付けたまま）を付けて覚える。お客様の言葉から待つかかけ直すか（H2）を伺った返事にも、待つ上限の秒
+        （上限を数えていないとき）。同じ発話への重ねた返事
         （again＝同じ場面）は、見張りを始め直さない（電話接続側は前の数えのまま）。もう秒の付いた返事（第一声を待つ段・on_silence の次の一言）は、そのまま。
         場面の無い返事で、お客様に何かを流した・待つ（取り次ぎ・確かめて戻る）・締めたなら、見張りを終える（もう、その場面の一言は流さない）。音の無い返事（差し戻し・
         受け付けた知らせ）は、見張りを変えない。"""
@@ -10189,16 +10220,26 @@ class Flow:
                       and self.awaiting_confirm is None and self.current is not None and in_announce_form(self.questions[self.current]))
         scene = reply.get("silence_scene") or ("announce" if announcing else None)
         q = self.silence
+        limit = False   # この返事から待つ上限を数え始めるか（下の1か所で付ける）
         if scene is not None and self.phase != "closing":
             if not (reply.get("again") and q is not None and q["scene"] == scene and q["turn"] == self.callee_turns):
                 # 1つ目の段は、同じ所でまだ流していない一言（_quiet_step の1か所）。流す一言が残っていなければ見張らない
                 if (step := self._quiet_step(scene, 0)) < len(QUIET_STEPS[scene]):
                     self.silence = {"scene": scene, "step": step, "turn": self.callee_turns}
                     reply["silence_s"] = getattr(self, QUIET_STEPS[scene][step][0])
+                    limit = True
                 else:
                     self.silence = None
         elif talked or reply.get("result") in ("hold", "end") or self.phase == "closing":
             self.silence = None
+        # 待つ上限（(H1)＝待つかかけ直すかの伺い H2 のあとも黙られたら、どこで伺っても、理由を言わずに待つ方と同じ上限・同じ締め＝on_hold_timeout）：場面を始めた返事
+        # （黙ったときの一言の表の最後が H2）と、お客様の言葉から H2 を伺った返事（上限を数えていないとき＝黙ったあとの伺いは場面の上限のまま）から数える＝理由を
+        # 言わずに待つ方の「はい、」（_hold が付けた上限）と同じ「待ち始めた返事」の時点。一言・黙ったあとの伺いでは数え直さない。お客様の言葉の長さは、待つきっかけの
+        # 言葉（考えている途中・待つかかけ直すか決められない など、判定が待つ読みと読んだ言葉）のときだけ数える（秒は _wait_limit の1か所）。止まらない＝10-14・
+        # 会話の側の待つ所すべてに上限＝11-04 日本時間4時54分。⛔ f7a0b81b まで、上限は保留（_hold）だけで、ほかの H2 のあとは無言が続いた
+        limit = limit or (reply.get("question_id") == CALLBACK_IDS["wait_or_later"] and self.hold_wait is None and self.phase != "closing")
+        if limit and "hold_wait_s" not in reply:
+            reply["hold_wait_s"] = self._wait_limit(self.callee_said if self._wait_now() is not None else None)
 
     def _party(self, party: str, by: str) -> dict:
         """相手の種別が分かったときの扱いの唯一の場所（AIの報告 report_party と、音・回線の信号 on_signal の両方）。by＝どちらで分かったか。"""
@@ -12444,33 +12485,37 @@ class Flow:
     def _brief_due(self) -> bool:
         """急いでいるが手短になら聞く、と判定がそろって読んだ言葉に応じるか（唯一の決まり＝先に判定の読みで応じる1か所 _judged_first・_judged_due）：答えの段で、
         いまの質問があり、言葉が出揃い、聞き取れていて、この発話にまだ返事をしていない。この電話でまだ伺っていなければ、後ほどかけ直してよいかを伺う（_brief_ask。
-        ✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30。お言葉は END_BRIEF））。もう伺い、手短に伺っている途中（brief_only＝H3 に「いいえ」・はっきりしない・
-        聞き取れない）に、いまの質問の答えを言わずに（判定の読みがどの答えも選んでいない＝undecided）重ねて急かされ、こちらが最後に言ったのが伺ったこと（いまの質問・
-        言い直しの確かめ＝_asked_last）なら、伺っていた形のまま受け直す（_brief_again。✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41））。ほかの2回目（H3・
-        かけ直しを伺っている間・答えも言った・お客様に応えてお返事を待っている間）は今のまま＝電話を終える言葉ではない読みとして続ける"""
+        ✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30。お言葉は END_BRIEF））。もう伺い、H3 を伺い終えたあと（brief_q が無い＝H3 に「いいえ」・はっきりしない・
+        聞き取れないで手短に伺っている途中 brief_only も、「はい」でかけ直しの時刻を伺っている間も）に、いまの質問の答えを言わずに（判定の読みがどの答えも選んで
+        いない＝undecided）重ねて急かされ、こちらが最後に言ったのが伺ったこと（いまの質問・言い直しの確かめ＝_asked_last）か、お客様に応えてお返事を待っている
+        （尋ねられて答えた・お話に沿った受け答えで待っている＝_reply_may_answer）なら、受け直す（_brief_again。✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41）
+        と同じ理由＝お客様が急いでいることを重ねて言ったのに、聞き返し・相づちだけの戻りで応えると、お客様の言葉を聞いていなかったように聞こえる＝(S1)(S2) は
+        まとめ役の決め）。H3 を伺っている間（S3）・答えも言った、は今のまま＝電話を終える言葉ではない読みとして続ける（H3 の間は「いいえ」と同じ道＝手短に伺い続ける）。
+        この発話にもう応じた（受け直した・会話AIの声がもう応えた＝hurried_turn）なら、同じ言葉への遅れた報告も、重ねない1か所（_judged_first の手短にの枝）へ"""
         if (self.phase not in ("asking", "rechecking") or self.current is None or self.end_reason is not None or self.answering
                 or self.midway or not self.words_complete or self._end_now() != END_BRIEF or not self._heard_clearly()):
             return False
-        if self.brief_said and self.hurried_turn == self.callee_turns:
-            return True   # この発話にもう受け直した：同じ言葉への遅れた報告は、受け直しの1か所が重ねずに受ける（_brief_again の again）
-        if self.brief_said and not (self.brief_only and undecided(self.heard_check.get(k) for k in JUDGMENTS) and self._asked_last()):
+        if self.hurried_turn == self.callee_turns:
+            return True   # この発話にもう応じた：同じ言葉への遅れた報告は、重ねない1か所（_judged_first）が受ける
+        if self.brief_said and not (self.brief_q is None and undecided(self.heard_check.get(k) for k in JUDGMENTS)
+                                    and (self._asked_last() or self._reply_may_answer())):
             return False
         return not any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait") for x in self.log)
 
-    def _brief_again(self, voiced: bool = False) -> dict:
-        """手短に伺っている途中に、重ねて急かされた（_brief_due の2回目＝「すみません、本当に手短にお願いしますね。」）唯一の返事：「承知しました。」（少し焦った感じの
-        録音＝phrases.ACK の shouchi_hurried。_ack_choice の hurried）のあと、いまの位置で伺っていた形のまま（質問・言い直しの確かめ・お知らせ。頭の「それでは」と戻る
-        一言は付けない＝戻る1か所 _continue の bare）。戻る一言の回数には数えない（こちらから戻ったのではない＝もう一度言ってほしいと頼まれたときと同じ）。
-        急かされるたびに同じ受け方（お言葉の外＝まとめ役の決め）。同じ発話への遅れた報告・会話AIが話す通話で会話AIの声がもう流れた（voiced＝報告の無いターン）
-        には重ねない（もう一度言ってほしいの _repeat_now と同じ決まり）。✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41）「アでいいが、少し焦った感じで！」＝
-        「承知しました。ご連絡はお電話とメールのどちらがよろしいでしょうか？」。⛔ 57b89d93 まで聞き返し「はい、恐れ入ります。ご連絡の方法をもう一度お聞かせ
-        いただいてもよろしいでしょうか？」（お客様の「このままで」を聞いていなかったように聞こえた）"""
-        if self.hurried_turn == self.callee_turns or voiced:
-            # 同じ発話への遅れた報告（報告の無いターンの入口のあと）・会話AIの声がもう流れた：重ねない（もう一度言ってほしいの _repeat_now の again・voiced と同じ）
-            self.hurried_turn = self.callee_turns
-            return {"result": "replayed", "silent": True, "again": True,
-                    "message": f"この言葉には、もう応えました。何も言わずに、相手の答えを待ってください。{self._now()}"}
+    def _brief_again(self) -> dict:
+        """H3 を伺い終えたあとに、重ねて急かされた（_brief_due の2回目＝「すみません、本当に手短にお願いしますね。」）唯一の返事：「承知しました。」（少し焦った感じの
+        録音＝phrases.ACK の shouchi_hurried。_ack_choice の hurried）のあと、
+        - 伺っている間（いまの質問・言い直しの確かめ・お知らせ・かけ直しの時刻の質問）：いまの位置で伺っていた形のまま（頭の「それでは」と戻る一言は付けない＝
+          戻る1か所 _continue の bare）。戻る一言の回数には数えない（こちらから戻ったのではない＝もう一度言ってほしいと頼まれたときと同じ）
+        - お客様に応えてお返事を待っている間（_reply_may_answer）：相づちだけのお返事と同じ戻り（_resume の1か所＝戻る形・回数も同じ。相づちだけを替える）
+        急かされるたびに同じ受け方（お言葉の外＝まとめ役の決め）。同じ発話への遅れた報告・会話AIの声がもう流れた（voiced）には重ねない（_judged_first の手短にの
+        枝の1か所）。✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41）「アでいいが、少し焦った感じで！」＝「承知しました。ご連絡はお電話とメールのどちらが
+        よろしいでしょうか？」。⛔ 57b89d93 まで聞き返し「はい、恐れ入ります。ご連絡の方法をもう一度お聞かせいただいてもよろしいでしょうか？」（お客様の「このままで」を
+        聞いていなかったように聞こえた）。同じ理由で (S1)(S2)（まとめ役の決め）：⛔ f7a0b81b まで、かけ直しの時刻を伺っている間は聞き返し「はい、恐れ入ります。ご都合の
+        よろしいお時間をもう一度…」・お客様に応えてお返事を待つ間は「はい、」＋戻りの形"""
         self.hurried_turn = self.callee_turns
+        if self._reply_may_answer():
+            return self._resume() | {"hurried": True}
         return self._continue([], "", repeat=True, bare=True) | {"hurried": True}
 
     def _brief_ask(self) -> dict:
