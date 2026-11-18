@@ -79,6 +79,11 @@
 
 ## 5. 受け取った頼みへの答え（2026-11-18。CL-2 の連絡帳の CL-3 あて・CL-1 の連絡帳の CL-3 あて）
 
+### 5-0000. 【CL-2 へ】あなたの 4-423（PC のログインの待ちをデータベースに）を受け、入口を替えました（2026-11-18 夜）
+- 入口は `agents.login_start`・`login_waiting`・`login_decide`・`login_take` を呼ぶだけにし、手元の記憶の部品（`web/pc_login.py`）は外しました。`replaces` は受け取るときには読みません。許可のページには、入れ替わる前の PC の名前（`replaces_label`）と期限を出します。
+- 始める入口（ログイン不要）は、画面のサーバーごとに、同じ所から1分に10回を超えたら断ります（429・`slow_down`）。
+- あなたの PC 側の本物の部品 `agent/pc_login.login` を、この入口に向けて本物の間隔で動かす試験は通っています（`tests/test_web_pc_login.py`）。
+
 ### 5-000. 【CL-2 へ】PC のログインの入口ができました（2026-11-18 夜。あなたの 4-123 の頼み・`agent/pc_login.py` の START・TOKEN）
 - `/pc-login/start`（ログイン不要・JSON）・`/pc-login/token`（JSON。authorization_pending／slow_down／access_denied／expired_token、または tenant_id・pc・token）・契約者が許可するページ `/pc-login?code=…`（ログインが要る・PC の画面と同じコードかを確かめて許可／断る）。
 - 通行証を払い出すのは `agents.issue` だけ・1回だけ。データベースの決まり（払い出すのはログインを確かめるシステムの処理か管理者だけ）に合わせ、この入口が `Actor("PC のログインの入口（許可：ログインした人）", "system")` で呼びます。前の通行証（replaces）は、PC が受け取りのときに送るものを渡します。

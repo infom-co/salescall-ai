@@ -51,8 +51,7 @@ class PcLogin(unittest.TestCase):
         import socket
         from unittest import mock
         with mock.patch.object(socket, "gethostname", return_value="架空の PC"):
-            got = agent_login.login("https://testserver", post=self._post, open_browser=browser, say=lambda s: None,
-                                    sleep=lambda s: __import__("time").sleep(0), now=iter(range(0, 10_000, 1)).__next__)
+            got = agent_login.login("https://testserver", post=self._post, open_browser=browser, say=lambda s: None)   # 本物の間隔で待つ
         self.assertEqual(got.tenant_id, self.a["tenant"])
         self.assertEqual(len(self._pcs(self.a["tenant"])), before + 1)
         self.assertEqual(self._pcs(self.b["tenant"]), [])                      # 別の契約者の PC にはならない
@@ -62,10 +61,17 @@ class PcLogin(unittest.TestCase):
         self.assertEqual(self._post("https://testserver/pc-login/token", {"device_code": start["device_code"]})["error"], "authorization_pending")
         self.assertEqual(self._post("https://testserver/pc-login/token", {"device_code": start["device_code"]})["error"], "slow_down")
         self.assertIn("ok=0", self._decide("B", "ZZZZ-ZZZZ", "approve").headers["location"])   # 無いコード
+        self.assertIn(start["user_code"], self.http.get(f"/pc-login?code={start['user_code'].lower().replace('-', '')}",
+                                                         headers={"x-test-person": "B"}).text)   # 小文字・区切り無しでも同じコード
         self.assertIn("ok=1", self._decide("B", start["user_code"], "deny").headers["location"])
         self.assertEqual(self._post("https://testserver/pc-login/token", {"device_code": start["device_code"]})["error"], "access_denied")
         self.assertEqual(self._post("https://testserver/pc-login/token", {"device_code": start["device_code"]})["error"], "expired_token")
         self.assertEqual(self._post("https://testserver/pc-login/token", {"device_code": "でたらめ"})["error"], "expired_token")
+
+    def test_starting_too_often_from_one_place_is_slowed(self):
+        own = TestClient(create_app(app_access(), lambda r: None, SECRET), base_url="https://testserver")   # 絞りは画面のサーバーごと
+        got = [own.post("/pc-login/start", json={"pc_label": "架空の PC"}).status_code for _ in range(12)]
+        self.assertIn(429, got)                                                  # ログイン不要の入口なので、同じ所から続けたら断る
 
     def test_the_approval_page_needs_a_login(self):
         r = self.http.get("/pc-login?code=BCDF-GHJK", follow_redirects=False)

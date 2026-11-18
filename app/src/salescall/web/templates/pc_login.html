@@ -9,7 +9,9 @@
 <form class="card pc-card" method="post" action="/pc-login">
   {{ csrf(token) }}<input type="hidden" name="code" value="{{ pending.user_code }}">
   <div class="pc-code" aria-label="確かめのコード">{{ pending.user_code }}</div>
-  <dl class="facts"><dt>PC の名前</dt><dd>{{ pending.pc_label }}</dd><dt>使う契約者</dt><dd>{{ ctx.tenant_name }}</dd></dl>
+  <dl class="facts"><dt>PC の名前</dt><dd>{{ pending.pc_label }}</dd><dt>使う契約者</dt><dd>{{ ctx.tenant_name }}</dd>
+    {% if pending.replaces_label %}<dt>入れ替え</dt><dd>前の PC「{{ pending.replaces_label }}」のログインは外れます</dd>{% endif %}
+    <dt>期限</dt><dd>{{ time(pending.expires_at) }}まで</dd></dl>
   <p class="muted">コードが違う・覚えのない PC なら、「断る」を押してください（ほかの人がログインしようとしている恐れがあります）。</p>
   <div class="actions">
     <button class="btn" type="submit" name="decision" value="deny">断る</button>
