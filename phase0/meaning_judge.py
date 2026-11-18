@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items)
 
@@ -658,12 +658,12 @@ def settle_sure(r) -> None:
     """読みの確からしさを、その読みで流れの制御が使う問いだけから出し直す唯一の所（used_sure の決まり。問いごとの確からしさ confs の無い読みは
     返事の sure のまま）。本番の read と、記録から読みを戻す測りの数え（g53_meaning.reading）が通る。⛔ 2026-11-18 日本時間15時台（見直し (13) の
     D10）まで、測りの数えは記録したときの確からしさのまま＝今の決まりなら確かな読みを確かでないと数え、2つ目の判定へ送る行が本番と食い違った"""
-    used = used_sure(getattr(r, "confs", None), str(r))
+    used = used_sure(getattr(r, "confs", None), str(r), bool(getattr(r, "away", False)))
     if used is not None:
         r.sure = used
 
 
-def used_sure(confs: dict | None, cond: str) -> float | None:
+def used_sure(confs: dict | None, cond: str, away: bool = False) -> float | None:
     """読みの確からしさ＝その読みで流れの制御が使う問いの、選んだものの確からしさのいちばん低いもの（唯一の決まり。問いごとの確からしさを返す
     判定だけ＝判断のモデル。返さなければ None＝返事の sure のまま）。分からない理由（WHY）は答えが わからない・答えたくない のときだけ使う
     （Flow._why_of）・声が届いていない様子（HEAR）は確からしさに関係なく切れ方の材料に使う（確かでない読みも数える＝Flow.cut）ので入れない・
@@ -674,10 +674,14 @@ def used_sure(confs: dict | None, cond: str) -> float | None:
     黙ったあとの一言へのお返事だけか（PROMPT_REPLY）は、読んだとき（一言を流したあとの言葉）はいつも使う（そろって「お返事だけ」なら答えの読みにかかわらず最終の
     確かめ＝flowctl.prompt_replied・Flow._prompt_due。見直し (12) の B-4）。⛔ 0c55c4e7 まで AWAY をいつも数えていたので、答えの確からしさが高くても、使わない
     項目の確からしさが線より下なら読み全体が「確かでない」になった（見直し (12) の D-3。⛔ 2e5986f5 まで PROMPT_REPLY は答えが「決められない」かご承認の
-    お知らせのときだけ数えた＝流れの制御もそのときだけ使い、資料の申し出への「いえ、大丈夫です。」を「いいえ」と読むとお断りで締めた）"""
+    お知らせのときだけ数えた＝流れの制御もそのときだけ使い、資料の申し出への「いえ、大丈夫です。」を「いいえ」と読むとお断りで締めた）
+    お呼びする段の相手の申し出（OFFER）はいつも使う（申し出があれば応じ方が替わる＝電話を終える言葉かと同じ）・お呼びした方が出られない理由（ABSENT_WHY）は、
+    その読みがお呼びした方は出られない・ご本人がいまは話せないと読んだとき（away＝読みの印 Reading.away）だけ使う（流れの制御が理由を読むのはそのときだけ＝
+    Flow._absent_why）。"""
     if not confs:
         return None
-    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)]
+    vals = [c for k, c in confs.items() if k != HEAR and (k != WHY or cond in ("unknown", "refused")) and (k != AWAY or cond == UNDECIDED)
+            and (k != ABSENT_WHY or away)]
     return min(vals) if vals and all(isinstance(c, (int, float)) for c in vals) else None
 
 
@@ -1215,6 +1219,9 @@ JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、そ
 # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.ELSEWHERE・said_elsewhere）
 JEV_ITEMS[ELSEWHERE] = ("お客様は、こちらがご案内している事柄を、ほかの会社に頼んでいる・ほかの会社のものを使っていると言いましたか？（答えとは別に読みます。"
                         + NOW_ONLY + "）")
+# お呼びする段だけの2つ（flowctl.offer_choices・absent_why_choices。項目ごとに答える質問の Jev の問いは見出しから作る＝jev_request。表をそろえるための問い）
+JEV_ITEMS[OFFER] = "電話に出ている方は、こちらに何か申し出ましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
+JEV_ITEMS[ABSENT_WHY] = "いまお呼びしている方が電話に出られないなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）"
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 
