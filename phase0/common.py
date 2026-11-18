@@ -118,16 +118,60 @@ def _secret_value(name: str, env_path: str | os.PathLike | None) -> str | None:
 
 
 DRY_RUN = False   # 組み立てだけの印（--dry-run）を受け取ったか（base_parser の _DryRun が立てる。load_secret・pick_key が見る1か所）
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+_OUT_EVENTS = {"socket.connect", "socket.getaddrinfo", "socket.sendto", "socket.sendmsg"}
+_RELAY_PORTS: set[int] = set()   # 手元にある外への中継所の口（作業環境の proxy の変数が指す 127.0.0.1 の口。close_network が読む）
+
+
+def _target_of(event: str, args: tuple) -> tuple[str, int | None]:
+    """監査の知らせから、つなぐ先（名前・口）を取り出す（connect・sendto・sendmsg は (socket, 宛先)・getaddrinfo は (名前, 口, …)）。"""
+    if event == "socket.getaddrinfo":
+        return str(args[0] or ""), None
+    where = args[1] if len(args) > 1 else None
+    if isinstance(where, tuple) and where:
+        return str(where[0]), where[1] if len(where) > 1 and isinstance(where[1], int) else None
+    return str(where or ""), None
+
+
+def _refuse_outbound(event: str, args: tuple) -> None:
+    if event in _OUT_EVENTS:
+        host, port = _target_of(event, args)
+        local = host in _LOOPBACK or host.startswith("/")   # 手元の口・手元のファイルの口（AF_UNIX）
+        if not local or (host in _LOOPBACK and port in _RELAY_PORTS):   # 手元でも、外への中継所の口は止める
+            raise ConnectionRefusedError(f"組み立てだけ（--dry-run）なので外へはつなぎません（{event} {host}:{port or ''}）")
+
+
+def close_network() -> None:
+    """この処理から外へのつなぎ（名前引き・接続・送り）を全部止める唯一の口（組み立てだけの印が立った所が呼ぶ）。どの道具・どの部品
+    （httpx・urllib・websockets・判定AIの窓口）も、つなぐ前に Python の監査の知らせ（socket.connect など）を通るので、ここで止めれば漏れない。
+    手元の口（127.0.0.1）と処理の中の仕組み（asyncio）は止めないが、手元にある外への中継所（作業環境の proxy の変数が大文字・小文字のどちらで
+    指していても）の口は止める。⛔ 2026-11-18 日本時間15時台（見直し (13) の D12）：鍵の要らない一覧の読み（latest_ai --dry-run）・形の確かめ
+    （judge_try --dry-run --check）が外へつながった。帳面の「HTTPS_PROXY=http://127.0.0.1:9 を付けて流す」は、作業環境の小文字の https_proxy と
+    no_proxy（api.anthropic.com）が先に効いて閉じていなかった。"""
+    from urllib.parse import urlsplit
+
+    for name in ("https_proxy", "http_proxy", "all_proxy"):
+        for value in (os.environ.get(name), os.environ.get(name.upper())):
+            try:
+                where = urlsplit(value) if value else None
+                if where and where.hostname in _LOOPBACK and where.port:
+                    _RELAY_PORTS.add(where.port)
+            except ValueError:
+                continue
+    sys.addaudithook(_refuse_outbound)
 
 
 class _DryRun(argparse.Action):
-    """--dry-run：引数を読んだ時点で、この処理の中の鍵を読む所（load_secret）に知らせる（道具ごとに見るのを忘れても送らない）。"""
+    """--dry-run：引数を読んだ時点で、この処理の中の鍵を読む所（load_secret）に知らせ、外へのつなぎを全部止める（close_network。
+    道具ごとに見るのを忘れても送らない・鍵の要らない窓口へもつながない）。"""
 
     def __init__(self, option_strings, dest, **kwargs):
         super().__init__(option_strings, dest, nargs=0, default=False, **kwargs)
 
     def __call__(self, parser, namespace, values, option_string=None):
         global DRY_RUN
+        if not DRY_RUN:
+            close_network()   # 監査の知らせは外せないので、1つの処理で1回だけ足す
         DRY_RUN = True
         setattr(namespace, self.dest, True)
 
