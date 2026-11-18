@@ -4646,8 +4646,9 @@ class Flow:
         # 黙ったときの一言（QUIET_STEPS の録音の名前）を流した所（(名前, (言い直しの返事待ち, いまの質問))）：同じ所で同じ一言を2度流さない（_quiet_step）
         self.quiet_said: set[tuple] = set()
         # 報告の無いターンで、判定が「決められない」と読んだ言葉に、報告があったときと同じ1か所で応じた発話の番号（_undecided_report。同じ言葉への会話AIの報告が
-        # 遅れて届いても重ねない＝_apply_one）
+        # 遅れて届いても重ねない＝_apply_one）。unreported_aloud＝その応じ方でお客様に声を出したか（出したなら、会話AIのどの報告も重ねない）
         self.unreported_turn: int | None = None
+        self.unreported_aloud = False
         # 想定問答（業務設定。Intent.md 5-3 (2)「AIが答えてよいこと」）：問いの名前 → 答えの文。答えは録音（名乗りを録音で流す通話）か、
         # AIがその文のとおりに言う（AIが話す通話）。AIは自分の言葉では答えない（_answer）
         self.answers: dict[str, str] = dict(answers or {})
@@ -6145,8 +6146,10 @@ class Flow:
             reply = self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
         elif why := self._check_args(name, args, {ANSWER_PREFIX + k for k in self.answers}, set(self.known_lines())):
             reply = self._reject(why)
-        elif name in ANSWER_OPS and self.unreported_turn == self.callee_turns:
-            # 報告の無いターンで、判定の「決められない」に報告があったときと同じ1か所で応じた言葉への、遅れて届いた会話AIの答えの報告：重ねて応じない（_undecided_report）
+        elif self.unreported_turn == self.callee_turns and (name in ANSWER_OPS or self.unreported_aloud):
+            # 報告の無いターンで、判定の「決められない」に報告があったときと同じ1か所で応じた言葉への、遅れて届いた会話AIの報告：重ねて応じない（_undecided_report）。
+            # 答えの報告はいつも・お客様に声を出して応じたなら受け答えなどどの報告も（同じ言葉に2つ応じない）。声で応じず、会話AIにひとこと応える番を渡したときの
+            # 受け答えは受ける。⛔ acc96f16 まで答えの報告だけを止め、最終の確かめ・聞き直しのあとに会話AIの受け答え「そうでしたか！」を重ねた（業務の質問は前から）
             said = (self.callee_said or "").strip()[:30]
             reply = {"result": "noted", "silent": True, "again": True,
                      "message": f"この言葉（「{said}」）には、もう応じました（意味の判定）。何も言わずに、相手のお返事を待ってください。{self._now()}"}
@@ -11754,7 +11757,12 @@ class Flow:
                 # 応じた返事が、その言葉を戻る位置・次の質問について判定に読み直してもらう番（ahead_offer＝先に言われた答えの1か所 _hold_ahead）なら、そのあとの会話AIの
                 # 答えの報告は読み直した言葉へのもの（_held_words）＝遅れて届いた報告として止めない。⛔ 37b5e5e8 まで止めていて、手短になら聞くと言われたときの伺い（H3）・
                 # ほかの会社のことを伺う一言（E1）への判定が決められないお返事に答えが入っていても、読み直しの報告を「もう応じました」で受けなかった（BriefNoReadAgainTest）
-                self.unreported_turn = None if reply.get("ahead_offer") else self.callee_turns
+                # 会話AIに報告を頼んだ差し戻し（rejected＝言い直しへの「違う値を言われた」で直した値の文字を頼んだ＝_judged_reply）も、そのあとの報告は頼んだもの＝止めない
+                # （⛔ acc96f16 まで止めていて、「いえ、16日です。」に何も言わず「-」のままだった）。声を出して応じたかは返事の流す録音・言う文（unreported_aloud。
+                # 会話AIが話す番の印 speak だけの返事＝会話AIにひとこと応える番を渡した返事は、声を出していない＝会話AIの受け答えを受ける）
+                answered = not reply.get("ahead_offer") and reply.get("result") != "rejected"
+                self.unreported_turn = self.callee_turns if answered else None
+                self.unreported_aloud = answered and bool(reply.get("play") or reply.get("say"))
                 return reply
             if got is None:
                 self._record_received(before, None)

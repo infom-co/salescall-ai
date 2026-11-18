@@ -32860,6 +32860,51 @@ class Review13CTest(unittest.TestCase):
         self.assertEqual(calls, [False, True])
         self.assertEqual(asked, ["m1", "m2"])   # 文は、考える Sonnet が無ければ2つの文字のAIにも聞かない（今のまま）
 
+    def test_c1_a_corrected_value_read_first_is_taken_from_the_ai_report_that_follows(self):
+        # (C1 の確かめで見つけた) 値の言い直し（「15日の14時、午後2時でよろしいでしょうか？」）への「いえ、16日です。」を判定が先に「違う値を言われた」と読み、
+        # 報告の無いターン（judged_turn）で会話AIに直した値の報告を頼んだ（差し戻し＝お客様には何も聞こえない）：そのあとに届く会話AIの値の報告は受けて言い直す。
+        # ⛔ acc96f16 まで、頼んだ報告を重ねない印（unreported_turn）が「もう応じました」で止め、お客様には何も聞こえず「-」のままだった
+        from flowctl import Flow, Question
+        qs = [Question("Q1", "ご希望の日時はいつ頃がよろしいでしょうか？", "datetime", conditions=("答えた",), required=True),
+              Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))]
+        f = Flow(qs, play_recordings=True)
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("15日の14時でお願いします。"); f.on_check("judge", self.reading("答えた"))
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の午後2時"})
+        f.on_callee(); f.on_heard("いえ、16日です。"); f.on_check("judge", self.reading("corrected"))
+        self.assertEqual(f.judged_turn(voiced=False)["result"], "rejected")   # 会話AIに直した値の報告を頼む（声は出さない）
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
+        self.assertEqual((r["result"], r["say"]), ("confirm_required", "改めまして16日の14時、午後2時で大丈夫でしょうか？"))
+
+    def test_one_reply_to_a_word_the_judges_already_answered_aloud(self):
+        # (C3・C4 の確かめで見つけた) 判定が「決められない」と読み、報告の無いターンでお客様に声を出して応じた言葉（お知らせへの「なるほど。」に最終の確かめ・
+        # 業務の質問への「うーん、そうですねえ。」に聞き直し）への、遅れて届いた会話AIのどの報告（受け答え・答え）も重ねない＝同じ言葉に2つ応じない（声で応じず
+        # 会話AIにひとこと応える番を渡したときは、今までどおり会話AIの受け答えを受ける）。⛔ acc96f16 まで（業務の質問は前から）、答えの報告だけを止め、受け答えは
+        # 「はい、それではキャンセルの件は…よろしかったでしょうか？」「恐れ入ります。お支払いは…？」のあとに「そうでしたか！」と重ねた
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, UNDECIDED
+        a = AnnounceTest()
+        for words, at_q3 in (("なるほど。", False), ("うーん、そうですねえ。", True)):
+            f, r = a.announced()
+            f.on_played([a.LINE])
+            if at_q3:
+                a.say(f, "はい、分かりました。", "record_answer", "はい", question_id="Q2", condition_id="はい")
+            f.on_callee(); f.on_heard(words); f.on_check("judge", self.reading(UNDECIDED, **{AWAY: AWAY_NO}))
+            r1 = f.judged_turn(voiced=False)
+            self.assertTrue(r1.get("play") or r1.get("say"), words)
+            for op, args in (("replay_opening", {"part": "talk", "answer": "そうでしたか。", "fallback": "talk_heard_nod"}),
+                             ("record_answer", {"question_id": f.current, "condition_id": "unknown"})):
+                r2 = f.apply(op, args)
+                self.assertEqual((r2["result"], r2.get("play"), r2.get("say")), ("noted", None, None), (words, op))
+            # 別のお話と読んで、会話AIにひとこと応える番を渡した（声は出していない）：会話AIの受け答えは今までどおり受ける
+            f, r = a.announced()
+            f.on_played([a.LINE])
+            if at_q3:
+                a.say(f, "はい、分かりました。", "record_answer", "はい", question_id="Q2", condition_id="はい")
+            f.on_callee(); f.on_heard(words); f.on_check("judge", self.reading(UNDECIDED, **{AWAY: AWAY_YES}))
+            self.assertEqual(f.judged_turn(voiced=False)["result"], "callee_asked", words)
+            r2 = f.apply("replay_opening", {"part": "talk", "answer": "そうでしたか。", "fallback": "talk_heard_nod"})
+            self.assertNotEqual(r2["result"], "noted", words)
+
 
 if __name__ == "__main__":
     unittest.main()
