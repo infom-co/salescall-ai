@@ -64,6 +64,13 @@ def _business_of(tx: Tx, task_id: Any) -> dict[str, Any]:
     return {"business_id": bid, "business_name": name["name"] if name else ""}
 
 
+def _call_link(tx: Tx, task_id: Any, attempt_id: Any) -> str:
+    """その電話のやり取りの全文の画面（決める前に、その場のやり取りを確かめる＝2026-10-30 管理者）。"""
+    r = tx.one("SELECT t.run_id, r.business_id FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id WHERE t.task_id = %s",
+               (task_id,))
+    return f"/c/{_client(tx)}/b/{r['business_id']}/runs/{r['run_id']}/rows/{task_id}/calls/{attempt_id}" if r else ""
+
+
 def _decisions(tx: Tx, task: Any = None) -> list[Item]:
     items = []
     for d in approval.pending_decisions(tx):
@@ -78,7 +85,7 @@ def _decisions(tx: Tx, task: Any = None) -> list[Item]:
             kind="decision", key={"task_id": str(d["task_id"]), "attempt_id": str(d["attempt_id"]), "seq": str(d["seq"])},
             title="取り消せない決定の確かめ", decide=f"「{parts}」として確定してよいか",
             evidence=ev, if_not="決まるまで、このお客様にはかけません。",
-            at=d["waited_at"], **_business_of(tx, d["task_id"]),
+            at=d["waited_at"], **_business_of(tx, d["task_id"]), link=_call_link(tx, d["task_id"], d["attempt_id"]),
             buttons=(Button("send_back", "差し戻す"), Button("approve", "承認する", main=True)) if d["ask"] else (),
             waiting_why="" if d["ask"] else (approval.ASK_WHY.get(d["ask_why"] or "", "") or "AI が確かめています")))
     return items

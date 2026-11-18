@@ -167,3 +167,8 @@ class DncImportFields(unittest.TestCase):
         from salescall.output import words as w
         self.assertEqual(set(w.DNC_IMPORT_FIELD_WORDS), set(dnc_import.FIELDS))
 
+    def test_every_speaker_has_a_word(self):
+        from salescall.core import conversation_io
+        from salescall.output import words as w
+        self.assertEqual(set(w.SPEAKER_WORDS), set(conversation_io.SPEAKERS))
+

@@ -32,7 +32,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, dnc_import, exclusions, health,
+from salescall.core import (agents, calling_hours, conversation_io, customer_contacts, customer_rows, dnc, dnc_import, exclusions, health,
                             health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results, reward,
                             settings, stops, usage)
 from salescall.core import approval as approval_core
@@ -1236,7 +1236,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 row = next((r for r in customer_rows.progress(tx, run_id) if r["task_id"] == task_id), None)
                 if row is None:
                     raise NotFound()
-                calls = tx.all("SELECT state::text AS state, claimed_at, ended_at, trouble FROM salescall.attempts"
+                calls = tx.all("SELECT attempt_id, state::text AS state, claimed_at, ended_at, trouble FROM salescall.attempts"
                                " WHERE task_id = %s AND state <> 'released' ORDER BY claimed_at DESC LIMIT 30", (task_id,))
                 step: dict[str, Any] = {}
                 if draft is not None:
@@ -1256,6 +1256,27 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             values = ctx.client(client_id, read, read_only=True)
             return page(request, "row.html", person, ctx, draft=draft, level_names=exclusions.LEVEL_NAMES, fields=[(f, rowfix.field_name(f)) for f in rowfix.FIELDS],
                         name_fields=list(rowfix.NAME_FIELDS), kind_names=customer_contacts.KIND_NAMES, done=done, ok=bool(ok), **values)
+        return handle(request, render)
+
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}/calls/{attempt_id}")
+    def call_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, task_id: UUID, attempt_id: UUID) -> HTMLResponse:
+        """1本の電話のやり取りの全文（お客様とこちらの言葉。起きた順＝core の conversation_io.utterances の1か所）。取り消せない決定などを
+        承認する前に、その場のやり取りを確かめる（✅ 2026-10-30 管理者「人が録音やその場のやり取りを確認できる状態にする必要があります」）。
+        ⏳ 録音を聞く仕組み（CL-1・CL-2）ができたら、同じ画面に録音を置く。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                _row_in(tx, business_id, run_id, task_id)
+                call = tx.one("SELECT attempt_id, state::text AS state, claimed_at, ended_at, trouble FROM salescall.attempts"
+                              " WHERE attempt_id = %s AND task_id = %s", (attempt_id, task_id))
+                if call is None:
+                    raise NotFound()
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "business": context.business(tx, business_id), "businesses": context.businesses(tx),
+                        "run": tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s", (run_id,)),
+                        "row": tx.one("SELECT task_id, source_name, target_name, target_role FROM salescall.tasks WHERE task_id = %s",
+                                      (task_id,)),
+                        "call": call, "said": conversation_io.utterances(tx, attempt_id)}
+            return page(request, "call.html", person, ctx, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
     @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}/result")

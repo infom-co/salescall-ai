@@ -192,6 +192,10 @@ IMPORT_FIELD_WORDS: dict[str, str] = {
 }
 
 
+# 通話のやり取りで、話した側の名前（正本は core の conversation_io.SPEAKERS。試験が突き合わせる。契約者の画面だけ）
+SPEAKER_WORDS: dict[str, str] = {"callee": "お客様", "ai": "こちら（AI）"}
+
+
 # 発信禁止の一覧の取り込みの欄の名前（欄の正本は core の dnc_import.FIELDS。試験が突き合わせる）
 DNC_IMPORT_FIELD_WORDS: dict[str, str] = {"phone": "電話番号", "client_ref": "依頼者の管理番号"}
 

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty %}
+{% set active = "client" %}
+{% block title %}電話のやり取り{% endblock %}
+{% block main %}
+{% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
+<p><a href="{{ base }}/rows/{{ row.task_id }}">← {{ row.source_name or "お客様" }}</a></p>
+<h1>電話のやり取り</h1>
+<p class="lead">{{ row.source_name or "（会社名なし）" }}{% if row.target_name %}・{{ row.target_name }}{% if row.target_role %}（{{ row.target_role }}）{% endif %}{% endif %}・{{ time(call.claimed_at) }}にかけた電話（{{ words.word(words.ATTEMPT_STATES, call.state).screen }}）</p>
+<div class="card attention-wait notice-link"><b>録音は準備中です</b><span class="muted">録音を画面で聞く仕組みができたら、ここで一緒に聞けます。いまは、その場のやり取りの文字で確かめてください。</span></div>
+{% if said %}
+<ol class="talk" style="margin-top:16px">
+  {% for u in said %}
+  <li class="{{ 'callee' if u.speaker == 'callee' else 'ours' }}">
+    <span class="who">{{ words.SPEAKER_WORDS.get(u.speaker, words.NO_WORD) }}{% if u.at_s is not none %}<span class="muted">（{{ "%d:%02d"|format((u.at_s // 60)|int, (u.at_s % 60)|int) }}）</span>{% endif %}</span>
+    <span class="said">{{ u.said }}</span>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<div class="card" style="margin-top:16px">{{ empty("やり取りの文字はありません", "お客様が出なかった電話や、文字を残す期間を過ぎた電話です。") }}</div>
+{% endif %}
+{% endblock %}

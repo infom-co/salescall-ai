@@ -330,3 +330,10 @@ details.need { margin: 0 0 12px; } details.need > summary { cursor: pointer; dis
 details.need b { color: var(--wait); } ul.need-list { margin: 6px 0 0; padding-left: 1.2em; } ul.need-list li { margin: 4px 0; }
 .item .see { display: inline-block; margin-top: 8px; font-weight: 600; }
 .search-inline input { height: 34px; min-width: 260px; } .search-inline.big input { max-width: 560px; height: 42px; font-size: 15px; } @media (max-width: 900px) { .search-inline input { min-width: 0; width: 100%; } }
+
+/* 電話のやり取り（お客様は左・こちらは右。色だけで分けず、話した側の名前を必ず添える） */
+ol.talk { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+ol.talk li { max-width: min(640px, 92%); padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); }
+ol.talk li.ours { align-self: flex-end; background: var(--primary-soft); }
+ol.talk .who { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 2px; }
+ol.talk .said { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -105,13 +105,14 @@
 <h2 style="margin-top:28px">電話の記録</h2>
 {% if calls %}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>かけた時刻</th><th>どうなったか</th><th class="wide">途中で終えた理由</th></tr></thead>
+  <thead><tr><th>かけた時刻</th><th>どうなったか</th><th class="wide">途中で終えた理由</th><th></th></tr></thead>
   <tbody>
   {% for c in calls %}
     <tr>
       <td class="nowrap">{{ time(c.claimed_at) }}</td>
       <td>{{ words.word(words.ATTEMPT_STATES, c.state).screen }}</td>
       <td class="wide">{{ words.call_end(c.trouble) }}</td>
+      <td class="nowrap"><a href="{{ base }}/rows/{{ row.task_id }}/calls/{{ c.attempt_id }}">やり取りを見る</a></td>
     </tr>
   {% endfor %}
   </tbody>
