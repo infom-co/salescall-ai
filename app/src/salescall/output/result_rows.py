@@ -16,13 +16,21 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import calling_hours, customer_rows, phone
+from salescall.core import business_rules, business_settings, calling_hours, customer_rows, phone
 from salescall.core.access import Tx
 from salescall.output import words
 
 DELIVERABLE_STAGES: tuple[str, ...] = ("verification", "production")
 
-COLUMNS: tuple[str, ...] = ("管理番号", "会社名", "お呼びした方", "電話番号", "処理", "結果", "通話の終わり方", "かけた回数", "最後にかけた日時")
+COLUMNS: tuple[str, ...] = ("管理番号", "会社名", "お呼びした方", "お呼びする方のフルネーム", "お呼びする方の部署", "電話番号", "処理", "結果",
+                            "通話の終わり方", "かけた回数", "最後にかけた日時")
+
+# 依頼者に埋めていただく欄（「お名前だけではどの方か分からなかった」行。どの行のどの欄かは core の business_settings.who_unclear_blanks の
+# 1か所）。✅ 2026-11-18 管理者「(ア)でOK」：結果のファイルに「フルネーム」「部署」の欄を足し、色の付かない形（CSV）では空欄に
+# 「（ご記入ください）」と書き、色の付く形（Excel・画面の見本）では、その欄だけを赤い背景にする（✅ 2026-11-02 管理者「一覧の入れるべき
+# 空欄部分が、その行だけ赤背景になると分かりやすいですね」）。欄の名前 → 列の名前の組はここ1か所。
+TO_FILL_COLUMNS: dict[str, str] = {"full_name": "お呼びする方のフルネーム", "department": "お呼びする方の部署"}
+PLEASE_FILL = "（ご記入ください）"
 
 
 @dataclass(frozen=True)
@@ -30,20 +38,28 @@ class ResultRow:
     client_ref: str
     company: str
     person: str
+    full_name: str
+    department: str
     phone: str
     handling: str          # 処理（済み／対応中）
     result: str            # 結果（確定した版の業務の状態の、依頼者へ出す言葉。まだ無ければ空）
     call_end: str          # 通話の終わり方（7-3-4）
     dialed: int            # かけた回数（発信まで進んだ電話）
     last_at: str           # 最後にかけた日時（日本時間）
+    to_fill: tuple[str, ...] = ()   # 依頼者に埋めていただく欄の列の名前（TO_FILL_COLUMNS の値）
+
+    def values(self) -> list[str]:
+        """列の順の値（そのまま。埋めていただく欄は空）。"""
+        return [self.client_ref, self.company, self.person, self.full_name, self.department, self.phone, self.handling, self.result,
+                self.call_end, str(self.dialed), self.last_at]
 
     def cells(self) -> list[str]:
-        return [self.client_ref, self.company, self.person, self.phone, self.handling, self.result, self.call_end,
-                str(self.dialed), self.last_at]
+        """色の付かない形（CSV）の値：埋めていただく欄には PLEASE_FILL を書く。"""
+        return [PLEASE_FILL if c in self.to_fill else v for c, v in zip(COLUMNS, self.values())]
 
     def our_words(self) -> list[str]:
         """こちらが作った言葉（依頼者へ出さない言葉の確かめに通すもの。お客様・依頼者のデータ＝会社名などは入れない）。"""
-        return [self.handling, self.result, self.call_end]
+        return [self.handling, self.result, self.call_end] + ([PLEASE_FILL] if self.to_fill else [])
 
 
 def call_end(last: dict[str, Any] | None, next_kind: str | None) -> str:
@@ -74,6 +90,8 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
         "       count(*) OVER (PARTITION BY a.task_id) AS dialed"
         " FROM salescall.attempts a JOIN salescall.tasks k ON k.task_id = a.task_id"
         " WHERE k.run_id = %s AND salescall.is_dialed(a.state) ORDER BY a.task_id, a.claimed_at DESC", (run_id,))}
+    full_names = {r["task_id"]: r["target_full_name"] for r in tx.all(
+        "SELECT task_id, target_full_name FROM salescall.tasks_now WHERE run_id = %s", (run_id,))}
     out = []
     for r in customer_rows.progress(tx, run_id):
         kind = r["next_kind"]
@@ -86,6 +104,9 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
         person = (r["target_name"] or "") + (f"（{r['target_role']}）" if r["target_role"] else "")
         out.append(ResultRow(
             client_ref=r["client_ref"] or "", company=r["source_name"] or "", person=person,
+            full_name=full_names.get(r["task_id"]) or "", department=r["target_department"] or "",
+            to_fill=tuple(TO_FILL_COLUMNS[f] for f in business_settings.who_unclear_blanks(tx, r["task_id"]))
+            if kind == "end" and r["next_end_reason"] == business_rules.WHO_UNCLEAR else (),
             phone=(phone.normalize(r["dial_phone"]).national or r["dial_phone"]) if r["dial_phone"] else "",
             handling=words.NEXT_KINDS["end"].client if kind == "end" else words.NEXT_KINDS["call"].client,
             result=result, call_end=call_end(last, kind), dialed=int(last["dialed"]) if last else 0,

@@ -1060,7 +1060,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx), "run": run,
                         "rows": got, "leak": leak}
-            return page(request, "results.html", person, ctx, columns=result_rows.COLUMNS, **ctx.client(client_id, read, read_only=True))
+            return page(request, "results.html", person, ctx, columns=result_rows.COLUMNS, please_fill=result_rows.PLEASE_FILL, zip=zip,
+                        **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
     @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/results.csv")

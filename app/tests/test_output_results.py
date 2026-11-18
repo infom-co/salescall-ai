@@ -45,7 +45,8 @@ class CallEnd(unittest.TestCase):
 
 class Csv(unittest.TestCase):
     def _row(self, **kw):
-        base = dict(client_ref="A-1", company="架空商事", person="山田様（部長）", phone="03-0000-0001", handling="済み", result="完了",
+        base = dict(client_ref="A-1", company="架空商事", person="山田様（部長）", full_name="", department="", phone="03-0000-0001",
+                    handling="済み", result="完了",
                     call_end="最後までお話しできました", dialed=2, last_at="11月18日15時")
         return result_rows.ResultRow(**{**base, **kw})
 
@@ -63,7 +64,17 @@ class Csv(unittest.TestCase):
     def test_a_cell_that_looks_like_a_formula_stays_text(self):
         got = list(csv.reader(io.StringIO(files.to_csv([self._row(company="=HYPERLINK(\"x\")", client_ref="@1", person="+1", phone="-2")])
                                           .decode("utf-8-sig"))))[1]
-        self.assertEqual(got[:4], ["'@1", "'=HYPERLINK(\"x\")", "'+1", "'-2"])   # 管理番号・会社名・お呼びした方・電話番号
+        row = dict(zip(result_rows.COLUMNS, got))
+        self.assertEqual([row["管理番号"], row["会社名"], row["お呼びした方"], row["電話番号"]], ["'@1", "'=HYPERLINK(\"x\")", "'+1", "'-2"])
+
+    def test_the_blanks_to_fill_say_so_in_the_csv(self):   # ✅ 2026-11-18 管理者「(ア)でOK」
+        r = self._row(full_name="", department="営業部", to_fill=("お呼びする方のフルネーム",))
+        got = dict(zip(result_rows.COLUMNS, list(csv.reader(io.StringIO(files.to_csv([r]).decode("utf-8-sig"))))[1]))
+        self.assertEqual(got["お呼びする方のフルネーム"], result_rows.PLEASE_FILL)
+        self.assertEqual(got["お呼びする方の部署"], "営業部")
+        self.assertTrue(set(result_rows.TO_FILL_COLUMNS.values()) <= set(result_rows.COLUMNS))
+        from salescall.core import business_settings
+        self.assertEqual(set(result_rows.TO_FILL_COLUMNS), set(business_settings.WHO_UNCLEAR_FIELDS))   # 欄の正本と突き合わせる
 
     def test_the_file_name_is_checked_and_safe(self):
         from datetime import date
