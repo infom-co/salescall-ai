@@ -112,7 +112,8 @@ def calling_acts(r: dict, got: dict) -> tuple:
                 if res is None:
                     raise Unreadable(f"今の問いで読めない判定の読み：{got}")
                 f.on_check("judge", res)
-                f.on_check("asks", read(f.for_judge(f.asks_questions[q.id]), json.dumps({"choice": asks}, ensure_ascii=False)))
+                # 尋ねているかの質問も本番と同じ1か所（Flow.asks_context＝_calling_asked。⛔ a13eb002 まで、ここで呼ぶ一言・確かめる一言の質問を組み直していた）
+                f.on_check("asks", read(f.asks_context()[0], json.dumps({"choice": asks}, ensure_ascii=False)))
                 acts.append(act_name(f, f.apply(*op) if op else f.judged_turn(voiced=False)))
             out.append(tuple(acts))
         _ACTS[k] = tuple(out)
