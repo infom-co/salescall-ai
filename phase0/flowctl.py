@@ -10223,11 +10223,11 @@ class Flow:
         何もしなかった知らせ（None）は残さない。"""
         if reply is not None:
             self._note_said()
-            self._silence_watch(reply)
+            self._silence_watch(reply, quiet="silence" in args)
             self.log.append({"op": "signal", "args": args, "reply": reply, "callee_turns": self.callee_turns})
         return reply
 
-    def _silence_watch(self, reply: dict) -> None:
+    def _silence_watch(self, reply: dict, quiet: bool = False) -> None:
         """返事に、黙ったときの見張りの秒（silence_s）を付ける唯一の場所（返事を記録に残す3つの入口＝報告 _apply_one・報告の無いターン judged_turn・電話接続側からの
         知らせ _log_signal が通る）：返事がお客様を待つ場面（返事の印 silence_scene：考えている途中 _thinking・理由を言わずに待つ _hold の plain・お返事を待つ間
         _turn_done。お知らせの形の質問の答えを待つことになった返事は、いまの質問でここが決める）を始めたら、その場面の1つ目の秒（QUIET_STEPS）と、待つ上限の秒
@@ -10235,7 +10235,11 @@ class Flow:
         （上限を数えていないとき）。同じ発話への重ねた返事
         （again＝同じ場面）は、見張りを始め直さない（電話接続側は前の数えのまま）。もう秒の付いた返事（第一声を待つ段・on_silence の次の一言）は、そのまま。
         場面の無い返事で、お客様に何かを流した・待つ（取り次ぎ・確かめて戻る）・締めたなら、見張りを終える（もう、その場面の一言は流さない）。音の無い返事（差し戻し・
-        受け付けた知らせ）は、見張りを変えない。"""
+        受け付けた知らせ）は、見張りを変えない。
+        伺ったことのお返事を待つ返事（答えの段・念のための確認で、お客様に何かを流し、待つ・締めではない＝ふつうの質問・言い直しの確かめ・手短にの伺い H3・
+        かけ直しの時刻の質問など、どの伺いも。黙ったときの一言の場面の無い所も）にも、待つ上限の秒を付ける（返事のたびに、その音を流し終えてから数え直す）。
+        quiet＝黙ったときの一言・伺いの返事（on_silence から _log_signal）：数え直さない。会話の側の待つ所すべてに上限＝11-04 日本時間4時54分・止まらない＝10-14。
+        ⛔ 9e707d0a まで、伺ったあと何も言わずに黙られると、上限も一言も無く無言が続いた（帳面 1 の (6) の (B)）"""
         if "silence_s" in reply:
             return
         talked = reply.get("play") or reply.get("say") or reply.get("speak") or reply.get("ack")
@@ -10264,6 +10268,10 @@ class Flow:
         # 言葉（考えている途中・待つかかけ直すか決められない など、判定が待つ読みと読んだ言葉）のときだけ数える（秒は _wait_limit の1か所）。止まらない＝10-14・
         # 会話の側の待つ所すべてに上限＝11-04 日本時間4時54分。⛔ f7a0b81b まで、上限は保留（_hold）だけで、ほかの H2 のあとは無言が続いた
         limit = limit or (reply.get("question_id") == CALLBACK_IDS["wait_or_later"] and self.hold_wait is None and self.phase != "closing")
+        # 伺ったことのお返事を待つ返事（上の docstring の最後の段）：答えの段・念のための確認で、お客様に何かを流して待つ（待つ・締めは除く。第一声を待つ段は「もしもし」の
+        # 1か所）。黙ったときの一言・伺いの返事（quiet）では数え直さない
+        limit = limit or (bool(talked) and not quiet and reply.get("result") not in ("hold", "end") and self.phase in ("asking", "rechecking")
+                          and not self.answering and self.end_reason is None)
         if limit and "hold_wait_s" not in reply:
             reply["hold_wait_s"] = self._wait_limit(self.callee_said if self._wait_now() is not None else None)
 

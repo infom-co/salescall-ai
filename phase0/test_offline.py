@@ -29876,6 +29876,58 @@ class QuietLinesTest(unittest.TestCase):
             r = f.judged_turn(voiced=False)
             self.assertEqual((r["result"], r.get("hold_wait_s"), f.on_hold_timeout()["result"]), ("hold", f.hold_wait_s, "end"), name)
 
+    def test_silence_after_a_question_ends_at_the_wait_limit(self):
+        # 帳面 1 の (6) の (B)：ふつうの質問・手短にの伺い（H3）・かけ直しの時刻の質問（C1）を伺ったあと、お客様が何も言わずに黙ったまま＝黙ったときの一言の場面
+        # （QUIET_STEPS）のどれでもない待つ所。待つ上限は決まり（会話の側の待つ所すべてに上限＝11-04 日本時間4時54分・止まらない＝10-14・初め5分＝10-24）で、
+        # 黙ったときの場面と同じ1か所（上限の秒 Flow._wait_limit・付けるのは Flow._silence_watch・締めは Flow.on_hold_timeout の hold_timeout）。数え始めは伺った返事の
+        # 音を流し終えてから（電話接続側＝帳面 4-181 の (6)(a)）。黙ったときの一言は、お言葉が無い（11-01 日本時間23時04分のお答えは「うーん。」と悩んで黙る方＝考えて
+        # いる途中の場面）＝流さない（rv87/E/ask_quiet.md で伺う）。⛔ 9e707d0a まで、伺ったあと黙られると、上限も一言も無く無言が続いた
+        from flowctl import CALLBACK_IDS
+        from phrases import HOLD_TIMEOUT
+
+        def ordinary():
+            f = self.flow()
+            self.hear(f, "はい、しています。", "はい")
+            return f, f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+
+        def brief():
+            g = BriefGoAheadTest()
+            f = g.flow()
+            g.asked(f)
+            return f, f.log[-1]["reply"]
+
+        def time_asked():
+            o = BriefOfferRulesTest()
+            f = o.asked()
+            o.yes(f)
+            return f, f.log[-1]["reply"]
+        for name, make, qid in (("ふつうの質問", ordinary, "Q2"), ("H3", brief, CALLBACK_IDS["brief"]), ("C1", time_asked, CALLBACK_IDS["time"])):
+            f, r = make()
+            self.assertEqual((f.current, r.get("hold_wait_s"), r.get("silence_s")), (qid, f.hold_wait_s, None), name)   # 一言は流さない・上限だけ
+            self.assertIsNone(f.on_silence(), name)
+            r = f.on_hold_timeout()   # 電話接続側：伺った返事の音のあと、誰も話さないまま上限が過ぎた
+            self.assertEqual((r["result"], f.end_reason, [(p["id"], p["text"]) for p in r["play"]]),
+                             ("end", "hold_timeout", [("hold_timeout", HOLD_TIMEOUT)]), name)
+            self.assertEqual(f.facts["hold_timeout"][-1]["waited_s"], f.hold_wait_s, name)
+            # お客様が話せば止まる（その言葉への返事で決め直す）
+            f, r = make()
+            f.on_callee(); f.on_heard("えっと、")
+            self.assertIsNone(f.on_hold_timeout(), name)
+        # 待つ上限の秒は業務設定（契約者が変えられる）
+        f = self.flow(hold_wait_s=120)
+        self.hear(f, "はい、しています。", "はい")
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"}).get("hold_wait_s"), 120)
+        # 言い直しの確かめ（かけ直しの時刻を言い直して確かめる）を伺った返事も同じ所（伺ったことのお返事を待つ）
+        f, r = time_asked()
+        a = BriefAgainTest()
+        r = a.turn(f, "じゃあ、明日の午後で。", a.rd("答えた"), "record_answer", question_id=CALLBACK_IDS["time"], condition_id="答えた", value="明日の午後")
+        self.assertEqual((r["result"], f.awaiting_confirm, r.get("hold_wait_s")), ("confirm_required", CALLBACK_IDS["time"], f.hold_wait_s))
+        # 締める返事には付けない（今のまま）
+        f, r = ordinary()
+        self.hear(f, "カードでお願いします。", "カード")
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "カード"})
+        self.assertEqual((r["result"], r.get("hold_wait_s"), f.on_hold_timeout()), ("end", None, None))
+
     def test_finished_thinking_words_are_read_as_thinking_in_one_place(self):
         # 言い終えた「考えてみます」も、この電話の中で考えている＝考えている途中。境目（この電話の中で考える／あとで考えて連絡する・かけ直す）は考えている途中の
         # 説明の1か所だけに書き、待つかかけ直すか決められない（WAIT_OR_LATER）からは「考えたい」を外す（ほかの方への相談・確認だけ）
