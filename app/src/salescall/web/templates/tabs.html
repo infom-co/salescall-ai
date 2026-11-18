@@ -8,6 +8,15 @@
       {% for c in clients %}<a class="tab" href="/c/{{ c.client_id }}" {% if client and client.client_id == c.client_id %}aria-current="page"{% endif %}>{{ c.name }}</a>{% endfor %}
       {% if not clients %}<span class="tab empty">依頼者はまだいません</span>{% endif %}
     </div>
+    <details class="adder">
+      <summary aria-label="依頼者を作る">＋ 依頼者</summary>
+      <form class="panel" method="post" action="/t/clients">
+        <input type="hidden" name="{{ token_field }}" value="{{ token }}">
+        <label class="field" for="new-client">新しい依頼者の名前</label>
+        <input id="new-client" type="text" name="name" required placeholder="例：〇〇株式会社">
+        <button class="btn main small" type="submit">作る</button>
+      </form>
+    </details>
     <details class="finder">
       <summary aria-label="依頼者を名前で探す"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>探す</summary>
       <div class="panel">
@@ -18,9 +27,20 @@
   </div>
   {% if client %}
   <div class="tabrow businesses">
+    <div class="scroller">
     <a class="tab" href="/c/{{ client.client_id }}" {% if not business %}aria-current="page"{% endif %}>概要（全業務）</a>
     {% for b in businesses %}<a class="tab" href="/c/{{ client.client_id }}/b/{{ b.business_id }}" {% if business and business.business_id == b.business_id %}aria-current="page"{% endif %}>{{ b.name }}</a>{% endfor %}
     {% if not businesses %}<span class="tab empty">業務はまだありません</span>{% endif %}
+    </div>
+    <details class="adder">
+      <summary aria-label="業務を作る">＋ 業務</summary>
+      <form class="panel" method="post" action="/c/{{ client.client_id }}/businesses">
+        <input type="hidden" name="{{ token_field }}" value="{{ token }}">
+        <label class="field" for="new-business">「{{ client.name }}」の新しい業務の名前</label>
+        <input id="new-business" type="text" name="name" required placeholder="例：予約の確かめ">
+        <button class="btn main small" type="submit">作る</button>
+      </form>
+    </details>
   </div>
   {% endif %}
 </nav>

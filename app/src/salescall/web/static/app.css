@@ -60,7 +60,8 @@ h3 { font-size: 14px; margin: 0 0 8px; font-weight: 700; color: var(--muted); }
                                    background: var(--primary); }
 .tab.home { border-right: 1px solid var(--line); padding-right: 16px; margin-right: 4px; color: var(--text); }
 .tab.empty { color: var(--muted); font-weight: 400; }
-.tabrow.businesses { background: var(--surface-2); border-top: 1px solid var(--line); padding-left: 24px; overflow-x: auto; }
+.tabrow.businesses { background: var(--surface-2); border-top: 1px solid var(--line); padding-left: 24px; }
+.tabrow.businesses .scroller { flex: 0 1 auto; mask-image: none; }
 .tabrow.businesses .tab { height: 38px; font-weight: 500; }
 .tabrow.businesses .tab[aria-current="page"] { color: var(--text); font-weight: 700; }
 .tabrow.businesses .tab[aria-current="page"]::after { background: var(--text); }
@@ -284,3 +285,14 @@ details.more summary { cursor: pointer; color: var(--muted); }
 .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 table.map tr.on td:first-child { color: var(--primary); }
 table.map select { max-width: 280px; }
+/* ＋ 依頼者・＋ 業務・＋ 実施回 */
+.adder { position: relative; display: flex; align-items: center; }
+.adder > summary { list-style: none; cursor: pointer; white-space: nowrap; }
+.adder > summary::-webkit-details-marker { display: none; }
+.tabrow .adder > summary { height: 30px; display: inline-flex; align-items: center; padding: 0 10px; margin: 0 4px; border-radius: 8px; color: var(--primary); font-weight: 600; }
+.tabrow .adder > summary:hover { background: var(--primary-soft); }
+.adder .panel { position: absolute; top: 40px; right: 0; width: 320px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(16,24,40,.14); padding: 14px; z-index: 20; display: flex; flex-direction: column; gap: 8px; }
+.adder .panel .field { font-weight: 600; font-size: 13px; }
+.adder.inline .panel { width: 360px; }
+.tabrow.businesses .adder .panel { left: 0; right: auto; }

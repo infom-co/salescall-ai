@@ -1,11 +1,12 @@
 {% extends "base.html" %}
-{% from "parts.html" import stat, tag, empty %}
+{% from "parts.html" import stat, tag, empty, flash, csrf %}
 {% set active = "client" %}
 {% block title %}{{ business.name ~ "（" ~ client.name ~ "）" if business else client.name }}{% endblock %}
 {% block main %}
 {# 依頼者のタブ（概要＝全業務）と業務のタブは、この1つのひな形（絞り方が違うだけ）。 #}
 <h1>{{ business.name if business else client.name }}</h1>
 <p class="lead">{% if business %}依頼者「{{ client.name }}」の業務です。今日の動きと、実施回ごとのお客様リストです。{% else %}すべての業務を合わせた、今日の動きと実施回です。業務ごとに見るときは、上の業務のタブを選んでください。{% endif %}</p>
+{{ flash(done, ok) }}
 {% for s in stopped %}
 <a class="card attention-stop notice-link stopped" href="{{ '/c/' ~ client.client_id ~ '/stops/' ~ s.event_id if s.scope in ('client', 'business') else '/t/stops/' ~ s.event_id }}">
   <b>新しい電話を止めています：{{ words.stop_cause(s.cause) }}</b>
@@ -25,7 +26,25 @@
   <span class="go">承認待ちを開く →</span>
 </a>
 {% endif %}
-<h2 style="margin-top:28px">実施回</h2>
+<div class="title-row" style="margin-top:28px"><h2 style="margin:0">実施回</h2>
+{% if business %}
+  <details class="adder inline">
+    <summary class="btn main">＋ 実施回を作る</summary>
+    <form class="panel" method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs">
+      {{ csrf(token) }}
+      {% if versions %}
+      <label class="field" for="new-run">実施回の名前</label>
+      <input id="new-run" type="text" name="name" required placeholder="例：12月分のお客様">
+      <label class="field" for="run-version">使う業務設定の版</label>
+      <select id="run-version" name="version_id">{% for v in versions %}<option value="{{ v.version_id }}">版 {{ v.version_no }}（{{ time(v.created_at) }}）{% if loop.first %}・いちばん新しい版{% endif %}</option>{% endfor %}</select>
+      <button class="btn main small" type="submit">作って、お客様リストを取り込む</button>
+      {% else %}
+      <p class="muted">この業務には、まだ業務設定の版がありません。業務の資料を取り込んで版を作ってから、実施回を作れます。</p>
+      {% endif %}
+    </form>
+  </details>
+{% endif %}
+</div>
 {% if runs %}
 <table class="list">
   <thead><tr><th>実施回</th>{% if not business %}<th>業務</th>{% endif %}<th></th></tr></thead>

@@ -281,6 +281,31 @@ class Web(_World):
                            headers={"x-test-person": "A"}, follow_redirects=False)
         self.assertIn("ok=0", r.headers["location"])
 
+    # ── 依頼者・業務・実施回を作る（docs/DASHBOARD.md 5-6） ──
+    def test_a_client_a_business_and_a_run_are_created_in_order(self):
+        tok = self.token("A")
+        self.assertIn("ok=0", self.post("A", "/t/clients", {"form_token": tok, "name": "  "}).headers["location"])   # 空の名前は作らない
+        r = self.post("A", "/t/clients", {"form_token": tok, "name": "架空の新しい依頼者"})
+        self.assertIn("ok=1", r.headers["location"])
+        cid = r.headers["location"].split("/")[2].split("?")[0]
+        self.assertIn("架空の新しい依頼者", self.get("A", "/t").text)
+        self.assertNotIn("架空の新しい依頼者", self.get("B", "/t").text)        # 別の契約者には出ない
+        r = self.post("A", f"/c/{cid}/businesses", {"form_token": tok, "name": "架空の新しい業務"})
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertEqual(self.post("B", f"/c/{cid}/businesses", {"form_token": self.token("B"), "name": "乗っ取り"}).status_code, 404)
+
+    def test_a_run_takes_only_a_version_of_its_own_business(self):
+        url = f"/c/{self.a['client']}/b/{self.a['business']}/runs"
+        tok = self.token("A")
+        other = self.post("A", url, {"form_token": tok, "name": "架空の実施回", "version_id": str(self.y["version"])})
+        self.assertEqual(other.status_code, 404)                                # 別の依頼者の業務の版は使えない
+        none = self.post("A", url, {"form_token": tok, "name": "架空の実施回", "version_id": ""})
+        self.assertIn("ok=0", none.headers["location"])
+        ensure_rules(World(), self.a)
+        r = self.post("A", url, {"form_token": tok, "name": "架空の2つ目の実施回", "version_id": str(self.a["version"])})
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertIn("/import", r.headers["location"])                         # 作ったら、取り込みへ
+
     # ── 停止と再開 ──
     def test_a_stop_of_another_contractor_is_not_seen(self):   # S-18
         eid = self._stop(self.b["tenant"], "契約者Bの試験の停止")

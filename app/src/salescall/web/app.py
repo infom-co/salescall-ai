@@ -24,7 +24,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
-from salescall.core import calling_hours, customer_contacts, customer_rows, exclusions, import_files, importer, phone, stops
+from salescall.core import (calling_hours, customer_contacts, customer_rows, exclusions, import_files, importer, phone, registry,
+                            stops)
 from salescall.core.access import Access
 from salescall.output import notices, words
 from salescall.web import actions, context, counts, importing, inbox, rowfix, uploads
@@ -139,12 +140,12 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
 
     # ── 全体（契約者） ─────────────────────────────────────────
     @app.get("/t")
-    def home(request: Request) -> HTMLResponse:
+    def home(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             waiting = _waiting(ctx)
             per_client = [{**c, **ctx.client(c["client_id"], counts.client_today, read_only=True),
                            "waiting": sum(1 for wc, _ in waiting if wc["client_id"] == c["client_id"])} for c in ctx.clients()]
-            return page(request, "home.html", person, ctx, stops=counts.open_stops(ctx), per_client=per_client,
+            return page(request, "home.html", person, ctx, stops=counts.open_stops(ctx), per_client=per_client, done=done, ok=bool(ok),
                         waiting_total=len(waiting), first=waiting[:3])
         return handle(request, render)
 
@@ -280,8 +281,52 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             return page(request, "notices.html", person, ctx, rows=rows, state_words=notices.STATE_WORDS)
         return handle(request, render)
 
+    # ── 依頼者・業務・実施回を作る（作るのは core の registry だけ。docs/DASHBOARD.md 5-6） ──────────
+    @app.post("/t/clients")
+    async def create_client(request: Request) -> HTMLResponse:
+        """見ている契約者に依頼者を作る（契約者の取引）。作ったら、その依頼者のタブを開く。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            out = actions.act(secret, person.login_id, form,
+                              lambda: ctx.tenant(lambda tx: registry.create_client(tx, actions.name_of(form))), done="依頼者を作りました。")
+            return _back(f"/c/{out.value}" if out.ok else "/t", out)
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/businesses")
+    async def create_business(request: Request, client_id: UUID) -> HTMLResponse:
+        """依頼者に業務を作る（依頼者の取引）。作ったら、その業務のタブを開く（業務設定の版は、業務の取り込みで作る）。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            out = actions.act(secret, person.login_id, form,
+                              lambda: ctx.client(client_id, lambda tx: registry.create_business(tx, actions.name_of(form))),
+                              done="業務を作りました。")
+            return _back(f"/c/{client_id}/b/{out.value}" if out.ok else f"/c/{client_id}", out)
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs")
+    async def create_run(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
+        """業務に実施回を作り、選んだ業務設定の版を割り当てる（core の registry.create_run＝割り当ての確かめは business_settings の1か所）。
+        作ったら、その実施回のお客様リストの取り込みを開く。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> UUID:
+                context.business(tx, business_id)
+                try:
+                    version = UUID(str(form.get("version_id") or ""))
+                except ValueError:
+                    raise actions.Refused("業務設定の版を選んでください") from None
+                if tx.one("SELECT 1 FROM salescall.business_versions WHERE version_id = %s AND business_id = %s",
+                          (version, business_id)) is None:
+                    raise NotFound()
+                return registry.create_run(tx, business_id, actions.name_of(form), version, reason="ダッシュボードで実施回を作った")
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), done="実施回を作りました。")
+            base = f"/c/{client_id}/b/{business_id}"
+            return _back(f"{base}/runs/{out.value}/import" if out.ok else base, out)
+        return handle(request, render)
+
     # ── 依頼者と業務（タブは2段：依頼者 → 業務。✅ 2026-11-18 管理者） ──────────────
-    def _client_or_business(request: Request, client_id: UUID, business_id: UUID | None) -> HTMLResponse:
+    def _client_or_business(request: Request, client_id: UUID, business_id: UUID | None, done: str | None = None,
+                            ok: int = 1) -> HTMLResponse:
         """依頼者のタブ（business_id が None＝概要・全業務）と業務のタブは、同じこの1つの画面の部品で出す（絞り方が違うだけ）。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
@@ -291,20 +336,23 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                               " JOIN salescall.businesses b ON b.business_id = r.business_id"
                               " WHERE %s::uuid IS NULL OR r.business_id = %s ORDER BY r.created_at DESC, r.run_id",
                               (business_id, business_id))
+                versions = [] if business_id is None else tx.all(
+                    "SELECT version_id, version_no, created_at FROM salescall.business_versions WHERE business_id = %s"
+                    " ORDER BY version_no DESC", (business_id,))
                 return {"client": c, "business": b, "businesses": context.businesses(tx),
-                        "today": counts.client_today(tx, business_id), "runs": runs}
+                        "today": counts.client_today(tx, business_id), "runs": runs, "versions": versions}
             values = ctx.client(client_id, read, read_only=True)
-            return page(request, "client.html", person, ctx, waiting=_waiting(ctx, client_id, business_id),
+            return page(request, "client.html", person, ctx, waiting=_waiting(ctx, client_id, business_id), done=done, ok=bool(ok),
                         stopped=counts.stops_for(counts.open_stops(ctx), client_id, business_id), **values)
         return handle(request, render)
 
     @app.get("/c/{client_id}")
-    def client_home(request: Request, client_id: UUID) -> HTMLResponse:
-        return _client_or_business(request, client_id, None)
+    def client_home(request: Request, client_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _client_or_business(request, client_id, None, done, ok)
 
     @app.get("/c/{client_id}/b/{business_id}")
-    def business_home(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
-        return _client_or_business(request, client_id, business_id)
+    def business_home(request: Request, client_id: UUID, business_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _client_or_business(request, client_id, business_id, done, ok)
 
     @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}")
     def rows_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, done: str | None = None,

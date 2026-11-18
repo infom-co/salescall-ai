@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% from "parts.html" import stat, tag, empty %}
+{% from "parts.html" import stat, tag, empty, flash %}
 {% set active = "home" %}
 {% block title %}ホーム{% endblock %}
 {% block main %}
 <h1>ホーム</h1>
 <p class="lead">何もしなくても電話は進みます。色の付いた所だけ見てください。</p>
+{{ flash(done, ok) }}
 
 <div class="grid cols-3 stats">
   <a class="card {{ 'attention-stop' if stops }}" href="/t/stops" style="text-decoration:none;color:inherit">

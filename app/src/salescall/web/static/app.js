@@ -17,6 +17,12 @@
     var first = visible(e.target)[0];
     if (first) { e.preventDefault(); location.href = first.getAttribute("href"); }
   });
+  // 窓（探す・＋ 依頼者・＋ 業務・＋ 実施回）は1つずつ：1つ開いたら、ほかは閉じる
+  document.addEventListener("toggle", function (e) {
+    if (!e.target.matches || !e.target.matches(".finder, .adder") || !e.target.open) return;
+    document.querySelectorAll(".finder[open], .adder[open]").forEach(function (d) { if (d !== e.target) d.open = false; });
+    var first = e.target.querySelector("input[type=text]"); if (first) first.focus();
+  }, true);
   // 探す欄を開いたら、すぐ打てるようにする
   document.addEventListener("toggle", function (e) {
     if (e.target.matches && e.target.matches(".finder") && e.target.open) {
