@@ -381,3 +381,16 @@ ul.reasons li:last-child { border-bottom: 0; }
 a.mini:hover { border-color: var(--primary); }
 .mini-stats .mini span { word-break: keep-all; }   /* 「判定できない」などの名前を途中で折らない */
 @media (max-width: 600px) { .mini-stats { gap: 6px; } .mini-stats .mini { padding: 8px; } .mini-stats .mini span { font-size: 13px; } }
+
+/* はじめかた：済みは緑の印、次にすることを強める（色だけで区別しない＝「済み」「まだ」の文字を添える） */
+ol.steps-check { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+ol.steps-check li { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; }
+ol.steps-check .mark { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px;
+                       background: var(--surface-2); color: var(--muted); }
+ol.steps-check li.done .mark { background: var(--ok-soft); color: var(--ok); }
+ol.steps-check li.done b { color: var(--muted); font-weight: 600; }
+ol.steps-check li.next { background: var(--primary-soft); }
+ol.steps-check li.next .mark { background: var(--primary); color: var(--primary-ink); }
+ol.steps-check .what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+ol.steps-check small { color: var(--muted); }
+.mini-stats .mini small { word-break: keep-all; }

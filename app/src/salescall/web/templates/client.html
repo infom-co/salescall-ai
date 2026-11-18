@@ -29,11 +29,30 @@
   {% endfor %}{% endif %}
 </details>
 {% endfor %}
+{% if steps and not (steps|selectattr("done")|list|length == steps|length) %}
+{# はじめかた：まだ動き出していない業務で、次にすることを並べる（どの手順も、データにあるかを読むだけ＝counts.setup_steps） #}
+<section class="card setup" style="margin-top:16px">
+  <h2>はじめかた</h2>
+  <ol class="steps-check">
+    {% for st in steps %}
+    <li class="{{ 'done' if st.done else ('next' if loop.index0 == (steps|map(attribute='done')|list).index(false) else '') }}">
+      <span class="mark" aria-hidden="true">{{ "✓" if st.done else loop.index }}</span>
+      <span class="what"><b>{{ st.name }}</b>{% if not st.done %}<small>{% if st.link %}<a href="{{ st.link }}">{{ st.how }}</a>{% else %}{{ st.how }}{% endif %}</small>{% endif %}</span>
+      <span class="state">{{ tag("済み", "ok") if st.done else tag("まだ", "wait") }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+  <p class="muted">手順がそろうと、この枠は消えます。電話をかけてよいかは、そのつど門が決まりどおりに確かめます。</p>
+</section>
+{% endif %}
+{% set fresh = not figures.results %}
+{% if not fresh %}
 <div class="grid cols-3 stats" {% if stopped or needs %}style="margin-top:16px"{% endif %}>
   <div class="card">{{ stat("今日かけた電話", today.dialed_today) }}<div class="muted hint" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div></div>
   <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定がある行</div></div>
   <div class="card {{ 'attention-wait' if today.hold }}">{{ stat("判定待ち", today.hold, "wait" if today.hold else "") }}<div class="muted hint" style="margin-top:6px">結果を確かめ直している行（依頼者へは出しません）</div></div>
 </div>
+{% endif %}
 {% if waiting %}
 <a class="card attention-wait notice-link" href="/t/inbox?client={{ client.client_id }}">
   <b>承認待ちが {{ waiting|length }} 件あります</b>
@@ -44,6 +63,7 @@
 {# 業務の成果（計画書 5-2）。数えるのは web/counts.business_figures の1か所・言葉は output/words の1か所。画面は数を並べるだけ #}
 {% set f = figures %}
 {% set unconfirmed = f.unconfirmed.awaiting_check + f.unconfirmed.blocked + f.unconfirmed.unknown %}
+{% if not fresh %}
 <section class="grid cols-2 outcome" style="margin-top:16px">
   <div class="card">
     <h2>結果別の行の数</h2>
@@ -73,6 +93,7 @@
     {% else %}<p class="muted">今日、新しく止めた行はありません。</p>{% endif %}
   </div>
 </section>
+{% endif %}
 {% if business %}
 <section class="card mode-card" style="margin-top:16px">
   <div class="title-row"><h2 style="margin:0">{{ "検証モード" if verification else "フルオート" }}</h2>
@@ -126,6 +147,6 @@
   </tbody>
 </table></div>
 {% else %}
-<div class="card">{{ empty("実施回はまだありません", "業務を作り、お客様リストを取り込むと、ここに出ます。") }}</div>
+<div class="card">{{ empty("実施回はまだありません", "右上の「＋ 実施回を作る」から作ります。" if business else "業務のタブを選んで、実施回を作ります（業務がまだ無ければ、上の「＋ 業務」から）。") }}</div>
 {% endif %}
 {% endblock %}

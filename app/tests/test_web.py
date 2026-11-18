@@ -506,6 +506,19 @@ class Web(_World):
         self.assertNotIn("架空の管理者あての知らせ", self.get("A", "/t/notices").text)
         self.assertIn("架空の管理者あての知らせ", self.get("ADMIN", "/t/notices").text)
 
+    def test_a_new_business_shows_how_to_begin_and_a_running_one_does_not_ask_again(self):   # はじめかた（counts.setup_steps）
+        r = self.post("A", f"/c/{self.a['client']}/businesses", {"form_token": self.token("A"), "name": "架空の新しく始める業務"})
+        self.assertEqual(r.status_code, 303)
+        page = self.get("A", r.headers["location"].split("?")[0]).text
+        self.assertIn("<h2>はじめかた</h2>", page)
+        card = page[page.index("<h2>はじめかた</h2>"):page.index("</section>", page.index("<h2>はじめかた</h2>"))]
+        self.assertNotIn("結果別の行の数", page)                                 # 行の無い業務では、0 ばかりの数の枠を出さない
+        self.assertIn("業務設定（トークスクリプト・質問）を入れる", card)
+        self.assertIn('class="next"', card)                                     # 次にすることを強める
+        self.assertEqual(card.count("済み"), 1)                                  # 回線（共有）だけが済み（試験の契約者には回線がある）
+        running = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
+        self.assertNotIn("<h2>はじめかた</h2>", running)                         # 手順がそろった業務では出さない
+
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",

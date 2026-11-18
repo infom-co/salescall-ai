@@ -95,3 +95,29 @@ def business_figures(tx: Tx, business_id: UUID | None = None) -> dict[str, Any]:
                     " WHERE " + _IN_BUSINESS + " AND salescall.jst(d.denied_at)::date = %s GROUP BY 1 ORDER BY 2 DESC, 1", (*b, tx.today()))
     return {"results": results, "unconfirmed": dict(u), "denied_today": [(r["reason"], r["n"]) for r in denied]}
 
+
+# ── はじめかた（業務のタブ。docs/DASHBOARD.md 5-8）：まだ動き出していない業務で、次にすることを並べる。どの手順も「データにあるか」を
+#    読むだけ（版・実施回・行・回線・録音の答え）。かけられるかは門だけが決める（ここでは言い切らない）。
+def setup_steps(tx: Tx, client_id: UUID, business_id: UUID, recording_needs: list[Any]) -> list[dict[str, Any]]:
+    """手順の一覧（name・done・how＝どこでするか・link）。recording_needs＝業務のタブが core の recordings.version_needs から作った
+    録音の要るもの（同じ答えを2回読まない）。"""
+    f = tx.one(
+        "SELECT (SELECT count(*) FROM salescall.business_versions WHERE business_id = %s) AS versions,"
+        " (SELECT count(*) FROM salescall.runs WHERE business_id = %s) AS runs,"
+        " (SELECT r.run_id FROM salescall.runs r WHERE r.business_id = %s ORDER BY r.created_at DESC, r.run_id LIMIT 1) AS last_run,"
+        " (SELECT count(*) FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id WHERE r.business_id = %s) AS rows,"
+        " (SELECT count(*) FROM salescall.lines l WHERE l.retired_at IS NULL AND (l.client_id IS NULL OR l.client_id = %s)) AS lines",
+        (business_id, business_id, business_id, business_id, client_id))
+    base = f"/c/{client_id}/b/{business_id}"
+    return [
+        {"name": "業務設定（トークスクリプト・質問）を入れる", "done": f["versions"] > 0,
+         "how": "業務の資料を取り込む画面は準備中です（入ると、ここから取り込めます）", "link": ""},
+        {"name": "実施回を作る", "done": f["runs"] > 0, "how": "下の「＋ 実施回を作る」から（業務設定の版を選びます）", "link": ""},
+        {"name": "お客様リストを取り込む", "done": f["rows"] > 0, "how": "実施回のお客様リストの画面から",
+         "link": f"{base}/runs/{f['last_run']}/import" if f["last_run"] else ""},
+        {"name": "回線を用意する（この依頼者で使える回線）", "done": f["lines"] > 0, "how": "「回線と PC」で足すか、使い先を決めます",
+         "link": "/t/lines"},
+        {"name": "録音をそろえる", "done": f["versions"] > 0 and not recording_needs, "how": "録音の要るものは、この画面の上の警告に出ます",
+         "link": ""},
+    ]
+
