@@ -90,7 +90,7 @@ def _deficit(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     if task is not None or n is None or n["confirmed"]:
         return []
     return [Item(kind="deficit", key={"warning_id": str(n["warning_id"])}, title="赤字の確認",
-                 decide="報酬より費用が多くなっていることを確かめたか", evidence=[("数", str(n["figures"]))],
+                 decide="報酬より費用が多くなっていることを確かめたか", evidence=[("今月の費用と報酬", str(n["figures"]))],
                  if_not="発信は止めていません。確かめるまで、決めた時刻に知らせが届きます。",
                  at=n["warned_at"], deadline=n["deadline"], buttons=(Button("confirm", "確かめた", main=True),))]
 

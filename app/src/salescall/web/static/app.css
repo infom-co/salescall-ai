@@ -41,6 +41,7 @@ h3 { font-size: 14px; margin: 0 0 8px; font-weight: 700; color: var(--muted); }
 .tenant { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .spacer { flex: 1; }
 .badges { display: flex; gap: 8px; }
+.pill .short { display: none; }   /* 狭い幅でだけ出す短い名前（下の @media） */
 .pill { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 999px; font-weight: 600;
         font-size: 13px; border: 1px solid transparent; white-space: nowrap; }
 .pill.stop { background: var(--stop-soft); color: var(--stop); border-color: color-mix(in srgb, var(--stop) 30%, transparent); }
@@ -171,7 +172,7 @@ table.list td.num, table.list th.num { text-align: right; }
 .btn.small { min-height: 30px; padding: 4px 12px; font-size: 13px; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 
-textarea, select, input[type="text"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit;
+textarea, select, input[type="text"], input[type="search"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit;
                                         background: var(--surface); color: var(--text); }
 textarea { min-height: 72px; resize: vertical; }
 label.field { display: block; font-weight: 600; margin-bottom: 6px; }
@@ -251,6 +252,7 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .brand { font-size: 13px; }
   .pill { padding: 0 10px; }
   .pill .long { display: none; }
+  .pill .short { display: inline; }
   .top { gap: 8px; padding: 0 10px; }
 }
 .question label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
@@ -329,7 +331,7 @@ td .inline-mark { margin-top: 0; } td .inline-mark select { max-width: 240px; }
 details.need { margin: 0 0 12px; } details.need > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 16px; }
 details.need b { color: var(--wait); } ul.need-list { margin: 6px 0 0; padding-left: 1.2em; } ul.need-list li { margin: 4px 0; }
 .item .see { display: inline-block; margin-top: 8px; font-weight: 600; }
-.search-inline input { height: 34px; min-width: 260px; } .search-inline.big input { max-width: 560px; height: 42px; font-size: 15px; } @media (max-width: 900px) { .search-inline input { min-width: 0; width: 100%; } }
+.search-inline input { height: 34px; min-width: 340px; } .search-inline.big input { max-width: 560px; height: 42px; font-size: 15px; } @media (max-width: 900px) { .search-inline input { min-width: 0; width: 100%; } }
 
 /* 電話のやり取り（お客様は左・こちらは右。色だけで分けず、話した側の名前を必ず添える） */
 ol.talk { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
