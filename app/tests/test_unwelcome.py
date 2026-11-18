@@ -720,8 +720,8 @@ class MonthAhead(SettleBase):
         self.assertIsNone(self.asking(s))
 
     def test_a_plan_that_keeps_the_asked_time_is_still_asked_once(self):
-        """(6) 伺っている予定を、同じ時刻のまま書き直す（門で止められたあと・番号や名前を直したあとの決め直し）⇒ 伺いを続ける（印を引き継ぐ・知らせは
-        その時刻ごとに1回）。時刻が変われば伺いは終わる。お客様が言った回そのものの決め直しは、何か月先でも伺わない（次の回へ移っていない）。"""
+        """(6) 伺っている予定を、同じ回のまま、まだかけないで書き直す（門で止められたあと・番号や名前を直したあとの決め直し。時刻が動いても）⇒ 伺いを
+        続ける（印を引き継ぐ・知らせは1回）。お客様が言った回そのものの決め直しは、何か月先でも伺わない（次の回へ移っていない）。"""
         s = self.ready()
         self.choose(s, "with_approval")
         words, first, last, repeat = self.monthly_rounds()[0]
@@ -733,8 +733,17 @@ class MonthAhead(SettleBase):
         self.assertEqual(self.asking(s), p["call_at"])
         again(p["call_at"], w)                                                   # 同じ次の回を、もう一度決めた（時刻の表し方が違っても1回）
         self.assertEqual(len(self.notices(s, "month_ahead_approval")), 1)
-        again(p["call_at"] + timedelta(hours=1))                                 # 回の中の別の時刻へ
+        # 回の中の別の時刻へ（門の待ちなど。まだかけていない）：伺いを続ける（⛔ 2026-11-18 の7回目の見直しまで：時刻が変わると伺いを終え、契約者の答えも
+        # 5分前の緊急の知らせも効かないまま、あとの時刻にかけた）。答えは、その回の中の時刻の答えとして読む（データベースの task_month_ahead_asking。0239）
+        moved = p["call_at"] + timedelta(hours=1)
+        again(moved)
+        self.assertEqual(self.asking(s), moved)
+        self.assertEqual(len(self.notices(s, "month_ahead_approval")), 1)       # 知らせは増えない
+        from salescall.core import row_fixes
+        self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=True), OPERATOR)
         self.assertIsNone(self.asking(s))
+        again(moved + timedelta(hours=1))                                        # 答えたあと、回の中でまた時刻が動いても
+        self.assertIsNone(self.asking(s))                                        # その回への答えのまま（伺い直さない・緊急の知らせを出さない）
         t = self.ready()
         self.choose(t, "with_approval")
         self.settle(t, self.call(t, report=rep(callback=callback("later", time="再来月の月末に"))))

@@ -1651,8 +1651,8 @@ def _month_ahead_ask(tx: Tx, task_id: UUID, base: dict[str, Any] | None, d: Deci
     - お客様が言った幅・日の中で話せないまま回が過ぎ、理由に合わせた次の回が1か月以上先で、業務の設定が「契約者が認めたらかける」の予定
       （決定の値 `Decision.month_ahead_after`。持たせるのは `_keep_promise` の1か所）⇒ 印を付け、契約者に知らせる（その行の、その時刻ごとに1回＝
       知らせの鍵）。知らせの文は、話せなかった回と次の回の日が分かる形（✅ 2026-11-12 ユーザーの決定に合わせた伺い）。
-    - 伺っている予定（base＝もとの予定に印がある）を、同じ時刻のまま書き直す（門で止められたあと・番号や名前を直したあとの決め直しなど）⇒ 印を
-      引き継ぐ（伺いを続ける。知らせは増えない）。時刻が変われば伺いは終わり（約束の時刻が来てかけた・回の中で次の時刻へ移った など）。
+    - 伺っている予定（base＝もとの予定に印がある）を、同じ回のまま、まだかけないで書き直す（門で止められたあと・番号や名前を直したあとの決め直しなど。
+      時刻が動いても）⇒ 印を引き継ぐ（伺いを続ける。知らせは増えない）。その回でかけた・回が変われば伺いは終わり。
     - それ以外（お客様が言った日時・その回の中の決め直し・契約者が決めた再発信の方針の間隔・時刻の決まっていない約束など）は、何か月先でも伺わない。
     伺っていて答えが無いかは、データベースの salescall.task_month_ahead_asking の1か所（答えたあとに同じ時刻で書き直しても、伺いには戻らない）。
     ⛔ 0217・0219：お客様が言った時刻・幅を持つ予定のすべて（Decision.said_by_callee）を、決めた日から1か月以上先か（salescall.month_ahead）で
@@ -1666,7 +1666,15 @@ def _month_ahead_ask(tx: Tx, task_id: UUID, base: dict[str, Any] | None, d: Deci
                             "認めなければ、次の回へは回さず、別の日に時刻の決まっていない約束の方針でかけます。お答えが無いまま約束の時刻の5分前に"
                             "なったら、緊急でお知らせして、お約束どおりおかけします）。")
         return True
-    return base is not None and base["kind"] == "call" and bool(base.get("month_ahead_ask")) and base["call_at"] == d.at
+    # 伺っている予定の書き直し：同じ回のまま（回の始まりが同じ）で、伺いを始めてからまだかけていなければ、印を引き継ぐ（時刻が動いても＝門の待ちで同じ回の
+    # 次の時刻へ移ったなど）。⛔ 2026-11-18 の7回目の見直しまで：時刻が変わると伺いを終え、契約者の答えも5分前の緊急の知らせも効かないまま、あとの時刻に
+    # かけた
+    if base is None or base["kind"] != "call" or not base.get("month_ahead_ask") or d.window is None:
+        return False
+    if base["window_from"] != d.window.since:
+        return False   # 回が変わった（伺いは、その回のもの）
+    return not tx.one(f"SELECT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.dialed('a')}"
+                      " AND a.claimed_at >= %s) AS x", (task_id, base["decided_at"]))["x"]
 
 
 def _round_days(w: Window) -> str:
@@ -1907,8 +1915,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
         else:
             # 目的のお客様に繋がらなかったが、あとでまたかけてよいと言われた ⇒ 目的のお客様がいま出られない＝「不在」の方針の間隔で
             # （「取り次げなかった」の方針＝日を改めて1回は、約束の電話には使わない＝約束の時刻が先）
-            after = _window_round_next(tx, task_id, dialed_window, rules.retry["not_reached_absent"] if unreached else policy,
-                                       now=now, dialed_at=dialed_at, period=dialed_row["person_since"], times=times)
+            after = _window_round_next(tx, task_id, dialed_window, now=now, dialed_at=dialed_at, period=dialed_row["person_since"],
+                                       times=times)
         kept = _keep_promise(tx, task_id, after, dialed_window, target, now=now, exact=dialed_exact)
     elif (target.contact_id is not None and j.state in ("open", "not_reached")
           and _served_unspecified(tx, task_id, dialed_at, dialed.purpose)):
@@ -2115,7 +2123,7 @@ def _not_before_failed(tx: Tx, task_id: UUID, d: Decision | None, failed_at: dat
 
 def _round_calls(tx: Tx, task_id: UUID, window: Window, fallback: int, period: datetime | None, *,
                  on: datetime | None = None) -> int:
-    """約束の回 [since, 回の終わり) に、この行でかけた電話のうち、お客様に届いた1回の数（今回を含む。1か所）。比べる相手の再発信の方針の
+    """約束の回 [since, 回の終わり) に、この行でかけた電話のうち、お客様に届いた1回の数（今回を含む。1か所＝`_round_dials` の数）。比べる相手の再発信の方針の
     回数（`_times`）と同じ数え方＝数え方の種類 dial_kind の 'reached'（`attempts.reached`。約束の電話なので約束かどうかは見ない。
     ⛔ 見直し16b：前は「鳴った・鳴りえた電話」で数え、方針の回数と数え方が混ざっていた）。回の始まりの分からない幅は fallback
     （その結果の方針の回数）。period＝その約束の担当の期（数える範囲は `attempts.in_promise_count` の1か所。0214）。
@@ -2123,36 +2131,59 @@ def _round_calls(tx: Tx, task_id: UUID, window: Window, fallback: int, period: d
     あと（約束をした通話そのものは、お客様と話した通話なので数えない＝`_missed` と同じ。⛔ 0215 まで：回の中で約束をした通話も数えた）。"""
     if window.since is None:
         return fallback
-    end = window.round_end
-    return tx.one(f"SELECT count(*) AS n FROM salescall.attempts a, (SELECT %s::timestamptz AS since) p"
-                  f" WHERE a.task_id = %s AND {attempts.reached('a')}"
-                  f" AND {attempts.in_promise_count('a', 'p.since')}"   # その約束の期の通話（いまの期なら、番号を直したら新しい番号で数え直す）
-                  " AND a.claimed_at >= greatest(%s::timestamptz, (SELECT min(n.decided_at) FROM salescall.task_next_actions n"
-                  "                                               WHERE n.task_id = %s AND n.window_from = %s AND n.window_until = %s))"
-                  " AND (%s::timestamptz IS NULL OR a.claimed_at < %s)"
-                  " AND (%s::timestamptz IS NULL OR salescall.jst(a.claimed_at)::date = salescall.jst(%s::timestamptz)::date)",
-                  (period, task_id, window.since, task_id, window.since, window.until, end, end, on, on))["n"]
+    return len(_round_dials(tx, task_id, window, period, on=on))
 
 
-def _window_round_next(tx: Tx, task_id: UUID, window: Window, policy: business_rules.Policy | None, *, now: datetime,
-                       dialed_at: datetime, period: datetime | None, times: int) -> datetime:
-    """お客様が言った幅の約束の電話で話せなかったあと、その回の中で次にかける時刻（回の中の本数を決める1か所。時刻ちょうどの約束は
-    `_exact_next_try`）：この結果の再発信の方針の間隔（`_retry_at`）のあと。回の中は、次の2つの上限の両方を守る（どちらかに届けば、その回は
-    終わり＝回の終わり。次の回・終わり方は `_keep_promise`）。
-    (1) 回の合計：その回にかけた数（`_round_calls`。今回を含む）が、再発信の方針の回数に届いた（回の合計は方針の回数ちょうどまで＝方針が4回
-        なら4本。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「4回なら4本まで」。⛔ 前は「超えた」で比べ、回の最初の1本＋方針の回数のかけ直し＝5本
-        まで鳴らした。回の始まりの分からない幅は times＝その結果の方針の回数で数える）。
-    (2) 1日：その日にかけた数（`_round_calls` の on）が1日の回数（業務ごとの設定 callback.window_daily_max。初め3）に届いていれば、次の日から。
-    回の終わりを過ぎれば、回の終わり。方針がかけ直さない（終える）なら、回の終わり。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回・営業時間内」
-    （1日の上限を足した決定で、回の合計の上限を外す決定ではない）。⛔ 0215 まで：1日の上限が無く、回の中で1日4回まで鳴らしえた。⛔ 0216：
-    回の合計の上限を外し、何日も続く幅（「来週なら」「月末」）で1日3回が毎日つき、「来週なら」で15回まで鳴らしえた。0216 の見直し。"""
+def _round_dials(tx: Tx, task_id: UUID, window: Window, period: datetime | None, *, on: datetime | None = None) -> list[datetime]:
+    """約束の回に、この行でかけた、お客様に届いた電話の時刻（数え方は `_round_calls` の説明のとおり。1か所）。回の始まりが分からなければ空。"""
+    if window.since is None:
+        return []
     end = window.round_end
-    at = _retry_at(tx, task_id, policy.interval, now, dialed_at) if policy is not None and policy.action == "call" else None
-    if at is None or _round_calls(tx, task_id, window, times, period) >= policy.max_times:
+    return [r["claimed_at"] for r in tx.all(
+        f"SELECT a.claimed_at FROM salescall.attempts a, (SELECT %s::timestamptz AS since) p"
+        f" WHERE a.task_id = %s AND {attempts.reached('a')}"
+        f" AND {attempts.in_promise_count('a', 'p.since')}"   # その約束の期の通話（いまの期なら、番号を直したら新しい番号で数え直す）
+        " AND a.claimed_at >= greatest(%s::timestamptz, (SELECT min(n.decided_at) FROM salescall.task_next_actions n"
+        "                                               WHERE n.task_id = %s AND n.window_from = %s AND n.window_until = %s))"
+        " AND (%s::timestamptz IS NULL OR a.claimed_at < %s)"
+        " AND (%s::timestamptz IS NULL OR salescall.jst(a.claimed_at)::date = salescall.jst(%s::timestamptz)::date)"
+        " ORDER BY a.claimed_at",
+        (period, task_id, window.since, task_id, window.since, window.until, end, end, on, on))]
+
+
+def _window_round_next(tx: Tx, task_id: UUID, window: Window, *, now: datetime, dialed_at: datetime, period: datetime | None,
+                       times: int) -> datetime:
+    """お客様が言った幅の約束の電話で話せなかったあと、その回の中で次にかける時刻（回の中の本数と間を決める1か所。時刻ちょうどの約束は
+    `_exact_next_try`）。✅ 2026-11-18 ユーザー：伺い1「案ア」（「31日に」と言われ、その日の1本目に出なかったとき）：
+    (1) 回の合計：その回にかけた数（`_round_calls`。今回を含む）が、時刻の決まっていない約束の方針の回数（`_unspecified_policy` の1か所＝回の数の上限
+        `_promise_used_up` と同じ方針。11-13 のお答えの例「方針が3回なら、31日に3本」）に届いたら、回の終わり（次の回・終わり方は `_keep_promise`）。
+        方針が「終える」なら、回の終わり。
+    (2) 間：その日に、その回でまだ試していない時間帯（お詫びの電話・番号の聞き直しと同じ区切り retry.time_band_boundaries＝`calling_hours.
+        next_opening_in_new_band`）の、お客様の幅の中で、かけてよい最も早い始まり（同じお客様への最短の間隔のあと＝gate.same_contact_free_at）。
+        その日に試していない時間帯が無ければ、次の日から。
+    (3) 1日：その日にかけた数（`_round_calls` の on）が1日の回数（業務ごとの設定 callback.window_daily_max。初め3）に届いていれば、次の日から
+        （✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回・営業時間内」）。
+    回の終わりを過ぎれば、回の終わり。⛔ 2026-11-18 の7回目の見直しまで：回の中の回数と間を、その電話の結果の方針（出なかった・不在など）で決めた＝
+    方針が「1日後」の業務では「31日に」の日に1本だけで、結果が変わると上限も変わった。⛔ 0215 まで：1日の上限が無かった。⛔ 0216：回の合計の上限を外した。"""
+    end = window.round_end
+    p = _unspecified_policy(tx, task_id)
+    if p.action != "call" or _round_calls(tx, task_id, window, times, period) >= p.max_times:
         return end or now   # かけ直さない・回の合計（方針の回数ちょうど）に届いた：回の終わり
-    cap = int(settings.resolve(tx, "callback.window_daily_max", **tasks.scope(tx, task_id)))
-    if _round_calls(tx, task_id, window, 0, period, on=at) >= cap:
-        at = max(at, _next_day(at))   # その日は使い切った：次の日の始まりから（その日の幅の中の次の始まりは `_keep_promise` が探す）
+    scope = tasks.scope(tx, task_id)
+    get = lambda key: settings.resolve(tx, key, **scope)   # noqa: E731
+    if _round_calls(tx, task_id, window, 0, period, on=now) >= int(get("callback.window_daily_max")):
+        at = _next_day(now)   # その日は使い切った：次の日の始まりから（その日の幅の中の次の始まりは `_keep_promise` が探す）
+    else:
+        boundaries = list(get("retry.time_band_boundaries"))
+        tried = {calling_hours.band_of(calling_hours.local(x), boundaries) for x in [*_round_dials(tx, task_id, window, period, on=now), dialed_at]}
+        local = max(calling_hours.local(now), gate.same_contact_free_at(tx, scope, now))
+        hours = gate.window_hours(tx, **scope, window=window.callee)
+        length = timedelta(seconds=int(get("gate.claim_lifetime")))
+        try:
+            found = calling_hours.next_opening_in_new_band(hours, holiday_checker(tx), local, length, boundaries, tried, horizon_days=0)
+        except CalendarOutOfRange:
+            found = None
+        at = calling_hours.from_local(found) if found is not None else _next_day(now)   # 試していない時間帯が今日に無い：次の日から
     return at if end is None or at < end else end
 
 

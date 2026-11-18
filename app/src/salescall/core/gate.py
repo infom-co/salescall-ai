@@ -65,6 +65,8 @@ REASONS: dict[str, Reason] = {
     "voice_redial": Reason("声が聞き取れずに終えた行です。声が通ると分かっている回線が空くのを待っています（声が聞き取れなかった電話から"
                            "15分たっても来なければ、同じ回線でお詫びとともにかけ直します）", "wait", "unoffered"),
     "awaiting_approval": Reason("契約者の承認を使う業務で、この行がまだ承認されていません", "wait", "unoffered"),
+    # 契約者が直した結果でかける電話で、直した契約者が「かけてよい」と確かめていない（✅ 2026-11-18 ユーザー：伺い2。0240。approval.uncleared の1か所）
+    "correction_unconfirmed": Reason("契約者が直した結果でかける電話で、かけてよいかの確かめがまだです", "wait", "unoffered"),
     # 言ってはいけないことを言った通話で、お客様がかけ直しを約束していた：お詫びは約束の時刻の電話の頭で伝える（✅ 2026-11-08 ユーザー＝計画書
     # 7-3 (2)「約束の時刻にお詫び」）。契約者がお詫びの案を承認するまで、その約束の電話もかけない（承認を待つ決まりはいままでと同じ。
     # 決まりはデータベースの salescall.task_apology_unapproved の1か所＝`apology_unapproved`。候補にも出さない。0216）
@@ -600,14 +602,15 @@ def _waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: 
     門に渡さずに飛ばす（門に渡すと、次の動きが決まった間ごとに予定を書き直し、記録が増え続けた＝⛔ 見直し16・17a。待つ時刻が分かる
     理由は、次の動きがその時刻へ1回書くので、ここには入れない）。見るのは、理由の表の扱いが unoffered・plan_if_known の理由のうち、
     候補のデータベースの条件（行の欄の段＝`TASK_STAGE_REASONS`・「かけない」・止まっている）で除けないもの。どれも門と同じ1か所を読む：
-    契約者の承認を待つ（approval.task_cleared）・前の担当の方の新しい約束の、契約者の選びを待つ（tasks.old_promise_waiting）・
+    契約者の承認を待つ（approval.uncleared＝検証モードの行の承認・直しでかける電話の確かめ）・前の担当の方の新しい約束の、契約者の選びを待つ（tasks.old_promise_waiting）・
     同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach）・
     番号の欄の待つ印（N-4。core/health.number_held）・目的のお客様を呼ぶ材料が無い（`_target_short`）・
     話してよい別の声が無い（`choose_voice`）・その回線の発信番号で、ほかの依頼者がこの番号へかけた（`_line_taken`。line_id を渡した
     ときだけ。ほかの回線には出す）・待つ時刻が分からない約束（`pacing` の known）・手で外した解決策の確かめ待ち（`unconfirmed_solutions`。
     seen＝同じ取引の中で、実施回ごとの答えを1回だけ読むための入れ物＝候補を出す処理が渡す）。"""
-    if not approval.task_cleared(tx, task_id):
-        return "awaiting_approval"
+    uncleared = approval.uncleared(tx, task_id)
+    if uncleared is not None:
+        return uncleared
     if tasks.old_promise_waiting(tx, task_id) is not None:
         return "old_promise_choice"
     if apology_unapproved(tx, task_id):
@@ -929,8 +932,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("judge_pending")
     if nxt["call_at"] > now:
         return _deny("not_due")
-    if not approval.task_cleared(tx, task["task_id"]):   # 契約者の承認を使う業務：契約者が承認した行だけ（モードは承認の部分が読む）
-        return _deny("awaiting_approval")
+    uncleared = approval.uncleared(tx, task["task_id"])   # 契約者の承認（検証モードの行の承認・直しでかける電話の確かめ。承認の部分の1か所）
+    if uncleared is not None:
+        return _deny(uncleared)
     # 前の発信の締め（判定の結果の版）が済むまで、次をかけない（予定を誰が書き直しても抜け道にならないよう、
     # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）。番号のせいか回線の
     # せいかがまだ分からない電話は、その電話をかけた回線でだけ待つ（ほかの回線は、ふつうの決まりでかけてよい＝止めるのは回線であって

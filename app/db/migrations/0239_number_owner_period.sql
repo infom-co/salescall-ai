@@ -33,3 +33,17 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+
+-- ═════════ 1か月以上先の伺いの答えは、その回の答え（2026-11-18 の7回目の見直し。DESIGN.md 15-2 の858） ═════════
+-- 伺っている予定が、門の待ちなどで（まだかけないまま）同じ回の中の別の時刻に書き直されても、伺いの印は引き継ぐ（core/next_action._month_ahead_ask）。
+-- 契約者の答え（task_month_ahead_answers）は、答えたときの予定の時刻で残るので、その時刻か、同じ回の中の時刻の答えを、その予定への答えとして読む。
+-- ⛔ 0219〜0238：答えは予定の時刻ちょうどとだけ比べ、印は時刻が変わると消えた（契約者の答えも約束の時刻の5分前の緊急の知らせも効かないまま、あとの
+--    時刻にかけた）。
+CREATE OR REPLACE FUNCTION salescall.task_month_ahead_asking(p_task uuid) RETURNS timestamptz
+LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$
+  SELECT n.call_at FROM salescall.current_next_actions n
+  WHERE n.task_id = p_task AND n.kind = 'call' AND n.month_ahead_ask
+    AND NOT EXISTS (SELECT 1 FROM salescall.task_month_ahead_answers k WHERE k.task_id = p_task
+                      AND (k.call_at = n.call_at
+                           OR (n.window_from IS NOT NULL AND k.call_at >= n.window_from AND (n.window_until IS NULL OR k.call_at < n.window_until))))
+$$;

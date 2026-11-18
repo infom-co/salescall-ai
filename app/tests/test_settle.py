@@ -3798,6 +3798,61 @@ class Corrections(SettleBase):
         with self.assertRaises(ValueError):
             self.correct(t, v, "callback_scheduled", detail={"policy_key": "callback_unspecified_time"})
 
+    def test_answers_that_disagree_with_a_correction_are_asked_again(self):
+        """契約者が直した通話の答えのうち、直した結果と食い違う答えは、次の電話に渡さず、判定にも使わない（使う答えの1か所 conversation_io._in_force・
+        `_dropped_by_correction`。✅ 2026-11-18 ユーザー：伺い2「契約者が直したことは優先」・続き(2)「食い違う答えだけ外す」）：「断られた」でない結果に直した
+        通話の最終目的のお断りの答え・「繋がらなかった」に直した通話の答えは全部。ほかの直しでは答えはそのまま。⛔ それまで：「断られた」を直しても、次の
+        電話で前の「いいえ」のまま用件のすぐあとに締めた（CL-1 の連絡帳 4-178 の (2)）。"""
+        from tests.test_judge import goal_refused
+        held = lambda s: set(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])))   # noqa: E731
+        for state, detail, kept in (("declined", None, True), ("open", None, False)):
+            with self.subTest(state=state):
+                s = self.ready()
+                got = self.settle(s, self.call(s, report=goal_refused(rep(), goals=("Q1",)), items=(("Q1", "accepted", "いいえ"),)))
+                self.assertEqual(held(s), {"Q1"})
+                if state != "declined":
+                    self.correct(s, got["version_no"], state)
+                self.assertEqual("Q1" in held(s), kept)
+        for state, detail, kept in (("not_reached", {"policy_key": "not_reached_absent"}, False), ("incomplete", None, True)):
+            with self.subTest(state=state):
+                s = self.ready()
+                got = self.settle(s, self.call(s, items=(("Q1", "confirmed", None),)))
+                self.correct(s, got["version_no"], state, **({"detail": detail} if detail else {}))
+                self.assertEqual("Q1" in held(s), kept)
+
+    def test_a_call_made_by_a_correction_waits_until_the_contractor_confirms_it(self):
+        """契約者の直しで電話をかけることになるときは、直した契約者（管理者も）が「かけてよい」と確かめるまでかけない（門の理由 correction_unconfirmed。
+        候補にも出さない。承認の1か所＝approval.uncleared・確かめ待ちはデータベースの salescall.task_correction_unconfirmed。0240）。✅ 2026-11-18 ユーザー：
+        伺い2「本当に折り返してよいのか確認と承認をもらう。承認なく勝手にかけたらクレームになる可能性があるため」・続き(1)「直した契約者」。確かめは人だけ・
+        確かめ待ちの直しだけ。直し直して「かけない」結果にすれば待たない。"""
+        from tests.test_judge import goal_refused
+        s = self.ready()
+        got = self.settle(s, self.call(s, report=goal_refused(rep(), goals=("Q1",)), items=(("Q1", "accepted", "いいえ"),)))
+        self.assertEqual(self.now(s), ("end", "declined"))
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.correct(s, got["version_no"], "open")                              # 「断られた」を「未決」に直した＝かける
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：予定をいまに"))
+        self.assertEqual(self.reason(s), "correction_unconfirmed")
+        self.assertEqual(self.tx(s, lambda tx: gate.waits_unknown(tx, s["task"])), "correction_unconfirmed")   # 候補に出さない
+        self.assertEqual(len(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'correction_call'"))), 1)
+        with self.assertRaises(Rejected):                                       # システムの処理は確かめられない
+            self.tx(s, lambda tx: approval.confirm_correction_call(tx, s["task"]))
+        self.tx(s, lambda tx: approval.confirm_correction_call(tx, s["task"]), OPERATOR)
+        self.assertIsInstance(self.claim(s), gate.Claim)                         # 確かめたら、かける
+        with self.assertRaises(LookupError):                                     # もう確かめ待ちでない
+            self.tx(s, lambda tx: approval.confirm_correction_call(tx, s["task"]), OPERATOR)
+        t = self.ready()
+        v = self.settle(t, self.call(t))["version_no"]
+        self.correct(t, v, "do_not_call")                                        # かけない結果への直しは、確かめ待ちにしない
+        pending = lambda x: self.tx(x, lambda tx: tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (x["task"],)))["v"]   # noqa: E731
+        self.assertIsNone(pending(t))
+        u = self.ready()
+        v = self.settle(u, self.call(u, report=goal_refused(rep(), goals=("Q1",)), items=(("Q1", "accepted", "いいえ"),)))["version_no"]
+        self.correct(u, v, "open")
+        self.assertIsNotNone(pending(u))
+        self.tx(u, lambda tx: next_action.end(tx, u["task"], "completed", cause="試験：ほかの道で行を終えた"))
+        self.assertIsNone(pending(u))                                            # 予定が「かける」でなくなれば、待たない
+
     def test_a_correction_to_do_not_call_registers_the_refusal(self):
         """「もうかけないで」に直す ⇒ 発信禁止に登録し、行を終える（ふつうの締めと同じ道）。"""
         s = self.ready()
