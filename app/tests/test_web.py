@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from salescall.core import stops
 from salescall.web.app import create_app
 from salescall.web.context import Person
-from tests.support import OPERATOR, SYSTEM, World, app_access, ensure_rules, fictional_jp_fixed
+from tests.support import OPERATOR, SYSTEM, World, app_access, ensure_rules, fictional_caller, fictional_jp_fixed
 
 SECRET = b"test-only-secret"
 
@@ -306,6 +306,27 @@ class Web(_World):
         self.assertIn("ok=1", r.headers["location"])
         self.assertIn("/import", r.headers["location"])                         # 作ったら、取り込みへ
 
+    # ── 回線と PC（docs/DASHBOARD.md 5-5） ──
+    def test_a_line_is_added_assigned_and_retired_with_reasons(self):
+        tok = self.token("A")
+        method = app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: tx.one(
+            "SELECT method FROM salescall.line_methods ORDER BY added_at LIMIT 1"))["method"]
+        bad = self.post("A", "/t/lines", {"form_token": tok, "name": "架空の回線", "method": method, "caller": "番号ではない"})
+        self.assertIn("ok=0", bad.headers["location"])                         # core の断りの文が出る（何も作らない）
+        caller = fictional_caller()
+        r = self.post("A", "/t/lines", {"form_token": tok, "name": "架空の画面試験の回線", "method": method, "caller": caller})
+        self.assertIn("ok=1", r.headers["location"])
+        page = self.get("A", "/t/lines").text
+        self.assertIn("架空の画面試験の回線", page)
+        self.assertNotIn("架空の画面試験の回線", self.get("B", "/t/lines").text)
+        lid = app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: tx.one(
+            "SELECT line_id FROM salescall.lines WHERE name = '架空の画面試験の回線'"))["line_id"]
+        self.assertEqual(self.post("A", f"/t/lines/{lid}/assign", {"form_token": tok, "client_id": str(self.b["client"])}).status_code, 404)
+        self.assertIn("ok=1", self.post("A", f"/t/lines/{lid}/assign", {"form_token": tok, "client_id": str(self.a["client"])}).headers["location"])
+        self.assertIn("ok=0", self.post("B", f"/t/lines/{lid}/retire", {"form_token": self.token("B"), "reason": "乗っ取り"}).headers["location"])
+        self.assertIn("ok=0", self.post("A", f"/t/lines/{lid}/retire", {"form_token": tok, "reason": ""}).headers["location"])
+        self.assertIn("ok=1", self.post("A", f"/t/lines/{lid}/retire", {"form_token": tok, "reason": "試験の片付け"}).headers["location"])
+
     # ── 停止と再開 ──
     def test_a_stop_of_another_contractor_is_not_seen(self):   # S-18
         eid = self._stop(self.b["tenant"], "契約者Bの試験の停止")
@@ -371,7 +392,7 @@ class Web(_World):
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",
-                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(), self._import_base()):
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(), self._import_base(), "/t/lines"):
             with self.subTest(path=path):
                 r = self.get("A", path)
                 self.assertEqual(r.status_code, 200, r.text[:300])

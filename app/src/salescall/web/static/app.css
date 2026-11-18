@@ -314,3 +314,5 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .weekly label { display: flex; align-items: center; gap: 8px; } .weekly span { width: 2.5em; font-weight: 700; }
 .gap { display: flex; gap: 8px; } .gap select { max-width: 200px; } .gap input { max-width: 120px; }
 .setting-form .unit-input input { max-width: 160px; } .setting-form .gap input { max-width: 120px; } .setting-form .gap select { max-width: 200px; }
+.danger-text { color: var(--stop) !important; }
+td .inline-mark { margin-top: 0; } td .inline-mark select { max-width: 240px; }

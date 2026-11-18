@@ -24,8 +24,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
-from salescall.core import (calling_hours, customer_contacts, customer_rows, exclusions, import_files, importer, phone, registry,
-                            settings, stops)
+from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, exclusions, health, health_rules, import_files,
+                            importer, phone, registry, settings, stops)
 from salescall.core.access import Access
 from salescall.output import notices, words
 from salescall.web import actions, context, counts, importing, inbox, rowfix, setting_forms, uploads
@@ -368,6 +368,76 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     async def business_settings_save(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
         return _settings_save(request, dict(await request.form()), "business", client_id, business_id,
                               f"/c/{client_id}/b/{business_id}/settings")
+
+    # ── 回線と PC（docs/DASHBOARD.md 5-5。Intent.md 5-3 (4)） ──────────────────────────
+    @app.get("/t/lines")
+    def lines_page(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        """回線（状態の段は core の健康の表の1か所＝health.line_of、言葉は health_rules.LineStage）と PC の一覧。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                lines = []
+                for ln in tx.all("SELECT line_id, name, method, caller_e164, client_id, retired_at, retired_reason FROM salescall.lines"
+                                 " ORDER BY retired_at NULLS FIRST, name, line_id"):
+                    st = health.line_of(tx, ln["line_id"])
+                    lines.append({**ln, "stage": st.stage, "wait": st.wait, "next_at": st.next_at,
+                                  "resting": st.stage in health_rules.RESTS})
+                return {"lines": lines, "methods": registry.line_methods(tx), "pcs": agents.pcs(tx)}
+            return page(request, "lines.html", person, ctx, active="lines", done=done, ok=bool(ok),
+                        client_names={c["client_id"]: c["name"] for c in ctx.clients()}, **ctx.tenant(read))
+        return handle(request, render)
+
+    def _line_act(request: Request, form: dict[str, Any], do: Any, done: str, reason: bool = False) -> HTMLResponse:
+        """回線と PC の操作の1か所（core の部品の理由つきの断り＝ValueError・PermissionError は、その文のまま出す）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def work() -> Any:
+                try:
+                    return ctx.tenant(lambda tx: do(tx, ctx))
+                except (ValueError, PermissionError) as e:   # registry・health の、人に見せる理由つきの断り（何も書いていない）
+                    if isinstance(e, actions.Refused):
+                        raise
+                    raise actions.Refused(str(e)) from None
+            out = actions.act(secret, person.login_id, form, work, done=done, reason_field="reason" if reason else None)
+            return _back("/t/lines", out)
+        return handle(request, render)
+
+    def _client_or_shared(ctx: Ctx, raw: Any) -> UUID | None:
+        if not raw:
+            return None
+        ids = {str(c["client_id"]): c["client_id"] for c in ctx.clients()}
+        if str(raw) not in ids:
+            raise NotFound()
+        return ids[str(raw)]
+
+    @app.post("/t/lines")
+    async def line_create(request: Request) -> HTMLResponse:
+        form = dict(await request.form())
+        return _line_act(request, form, lambda tx, ctx: registry.create_line(
+            tx, actions.name_of(form), method=str(form.get("method") or ""), caller=str(form.get("caller") or ""),
+            client_id=_client_or_shared(ctx, form.get("client_id"))), "回線を作りました。")
+
+    @app.post("/t/lines/{line_id}/assign")
+    async def line_assign(request: Request, line_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        return _line_act(request, form, lambda tx, ctx: registry.assign_line(tx, line_id, _client_or_shared(ctx, form.get("client_id"))),
+                         "回線の使い先を変えました（まだ発信していない予約は取り消しました）。")
+
+    @app.post("/t/lines/{line_id}/resume")
+    async def line_resume(request: Request, line_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        return _line_act(request, form, lambda tx, ctx: health.by_hand_line(tx, line_id, str(form.get("reason") or "")),
+                         "回線を再開しました。", reason=True)
+
+    @app.post("/t/lines/{line_id}/retire")
+    async def line_retire(request: Request, line_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        return _line_act(request, form, lambda tx, ctx: registry.retire_line(tx, line_id, reason=str(form.get("reason") or "")),
+                         "回線を使用停止にしました。", reason=True)
+
+    @app.post("/t/pcs/{pc_id}/revoke")
+    async def pc_revoke(request: Request, pc_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        return _line_act(request, form, lambda tx, ctx: agents.revoke(tx, pc_id),
+                         "この PC のログインを外しました（話している電話は、終わってから効きます）。")
 
     # ── 依頼者・業務・実施回を作る（作るのは core の registry だけ。docs/DASHBOARD.md 5-6） ──────────
     @app.post("/t/clients")

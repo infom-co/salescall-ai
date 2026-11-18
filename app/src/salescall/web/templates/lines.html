@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, flash, csrf, empty %}
+{% block title %}回線と PC{% endblock %}
+{% block main %}
+<div class="title-row"><h1>回線と PC</h1>
+  <details class="adder inline"><summary class="btn main">＋ 回線を足す</summary>
+    <form class="panel" method="post" action="/t/lines">
+      {{ csrf(token) }}
+      <label class="field" for="ln-name">回線の名前</label><input id="ln-name" type="text" name="name" required placeholder="例：スマホ1（青葉物流用）">
+      <label class="field" for="ln-method">方式</label>
+      <select id="ln-method" name="method">{% for m in methods %}<option value="{{ m.method }}">{{ m.label }}</option>{% endfor %}</select>
+      <label class="field" for="ln-caller">発信番号（日本の携帯か固定電話。あとから変えられません）</label><input id="ln-caller" type="text" inputmode="tel" name="caller" required placeholder="例：070-0000-0000">
+      <label class="field" for="ln-client">使い先</label>
+      <select id="ln-client" name="client_id"><option value="">共有（どの依頼者にも使う）</option>{% for cid, n in client_names.items() %}<option value="{{ cid }}">{{ n }} の専用</option>{% endfor %}</select>
+      <button class="btn main small" type="submit">足す</button>
+    </form>
+  </details></div>
+<p class="lead">回線（スマホ1台＝発信番号1つ）と、電話をつなぐ PC です。回線の休みは、直ったことが確かめられると自動で戻ります。</p>
+{{ flash(done, ok) }}
+<h2>回線</h2>
+{% if lines %}
+<div class="table-scroll"><table class="list">
+  <thead><tr><th>回線</th><th>発信番号</th><th>使い先</th><th>状態</th><th></th></tr></thead>
+  <tbody>
+  {% for l in lines %}
+    <tr class="{{ 'excluded' if l.retired_at }}">
+      <td><b>{{ l.name }}</b><div class="muted">{{ (methods|selectattr("method", "equalto", l.method)|map(attribute="label")|first) or l.method }}</div></td>
+      <td class="num nowrap">{{ phone(l.caller_e164) }}</td>
+      <td>{% if l.retired_at %}—{% else %}
+        <form class="inline-mark" method="post" action="/t/lines/{{ l.line_id }}/assign">{{ csrf(token) }}
+          <select name="client_id" data-autosubmit aria-label="使い先"><option value="">共有</option>{% for cid, n in client_names.items() %}<option value="{{ cid }}" {% if cid == l.client_id %}selected{% endif %}>{{ n }} の専用</option>{% endfor %}</select>
+        </form>{% endif %}</td>
+      <td>{% if l.retired_at %}{{ tag("使用停止", "") }}<div class="muted">{{ l.retired_reason }}</div>
+          {% else %}{{ tag(l.stage.value, "ok" if l.stage.name == "HEALTHY" else ("stop" if l.resting else "wait")) }}
+          {% if l.wait %}<div class="muted">待っていること：{{ l.wait.value }}{% if l.next_at %}（{{ time(l.next_at) }}）{% endif %}</div>{% endif %}{% endif %}</td>
+      <td class="nowrap">{% if not l.retired_at %}
+        {% if l.resting %}
+        <details class="adder"><summary class="btn small">手で再開</summary>
+          <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/resume" data-needs-reason>{{ csrf(token) }}
+            <p class="muted">直ったことを確かめてから再開してください。</p>
+            <input type="text" name="reason" placeholder="理由（例：端末を再起動し、テストで鳴った）"><button class="btn main small" type="submit" data-submit disabled>再開する</button></form></details>
+        {% endif %}
+        <details class="adder"><summary class="btn small danger-text">使用停止</summary>
+          <form class="panel" method="post" action="/t/lines/{{ l.line_id }}/retire" data-needs-reason>{{ csrf(token) }}
+            <p class="muted">この回線ではもうかけません（元に戻せません）。まだ発信していない予約は取り消します。</p>
+            <input type="text" name="reason" placeholder="理由（例：端末を返した）"><button class="btn danger small" type="submit" data-submit disabled>使用停止にする</button></form></details>
+      {% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<div class="card">{{ empty("回線はまだありません", "「＋ 回線を足す」から足してください。回線が無いと電話はかけられません。") }}</div>{% endif %}
+
+<h2 style="margin-top:28px">PC</h2>
+{% if pcs %}
+<div class="table-scroll"><table class="list">
+  <thead><tr><th>PC</th><th>ログインした日</th><th>最後につながった時刻</th><th></th></tr></thead>
+  <tbody>
+  {% for p in pcs %}
+    <tr class="{{ 'excluded' if p.revoked_at }}">
+      <td><b>{{ p.label }}</b></td><td class="nowrap">{{ time(p.issued_at) }}</td>
+      <td class="nowrap">{{ time(p.last_seen_at) if p.last_seen_at else "まだつながっていません" }}</td>
+      <td class="nowrap">{% if p.revoked_at %}{{ tag("ログインを外しました", "") }}{% else %}
+        <details class="adder"><summary class="btn small danger-text">ログインを外す</summary>
+          <form class="panel" method="post" action="/t/pcs/{{ p.pc_id }}/revoke">{{ csrf(token) }}
+            <p class="muted">この PC は電話をつなげなくなります。話している電話は、終わってから効きます。もう一度使うときは、PC でログインし直します。</p>
+            <button class="btn danger small" type="submit">外す</button></form></details>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<div class="card">{{ empty("PC はまだありません", "電話をつなぐ PC で SalesCall のプログラムを起動し、ブラウザでログインすると、ここに出ます。") }}</div>{% endif %}
+{% endblock %}
