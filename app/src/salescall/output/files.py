@@ -68,9 +68,14 @@ def file_name(client_name: str, run_name: str, day: date) -> str:
     return name[:116] + ".csv"
 
 
+def deliverable(rows: list[result_rows.ResultRow]) -> bool:
+    """依頼者へ渡せるか（1か所。確定した結果が1つでもあるか）。画面のボタンも、渡す処理（submit）も、これを読む。"""
+    return any(r.result for r in rows)
+
+
 def submit(tx: Any, rows: list[result_rows.ResultRow], name: str, data: bytes) -> bool:
     """依頼者へ渡すファイルを、提出用の控えに置く（依頼者の取引で）。置いたら True、同じ中身をもう置いていれば False（重ねない）。"""
-    if not any(r.result for r in rows):
+    if not deliverable(rows):
         raise NothingToDeliver("依頼者へ渡せる結果（確定した結果）が、まだありません。確かめるための書き出しは使えます")
     digest = hashlib.sha256(data).hexdigest()
     if tx.one("SELECT 1 FROM salescall.submission_files WHERE sha256 = %s", (digest,)) is not None:

@@ -49,6 +49,18 @@ class NothingBreaks(_World):
                                        headers={"x-test-person": "ADMIN"}, follow_redirects=False)
                     self.assertIn(r.status_code, (200, 303, 403, 404), r.text[:300])   # 200＝次の段の画面・確かめのファイル
 
+    def test_every_get_answers_in_words_for_a_wrong_id_in_the_address(self):
+        """住所の ID の欄すべてに、形の違う値・無い ID を入れて GET を叩く（どれも 500 にならず、日本語の返事）。住所を足しても自動で叩く。"""
+        gets = [r for r in self.http.app.routes if "GET" in getattr(r, "methods", set()) and "{" in getattr(r, "path", "")]
+        self.assertGreater(len(gets), 10)
+        for route in gets:
+            for bad in ("zz-not-an-id", str(uuid4()), "0"):
+                path = re.sub(r"\{([a-z_]+)(:[a-z]+)?\}", bad, route.path)
+                with self.subTest(path=route.path, value=bad):
+                    r = self.get("ADMIN", path)
+                    self.assertIn(r.status_code, (200, 303, 403, 404), r.text[:200])
+                    self.assertNotIn('"detail"', r.text)                          # 枠組みの英語の返事を出さない
+
     def test_a_wrong_address_answers_in_japanese(self):
         for path in ("/c/not-an-id", f"/c/{self.a['client']}/b/not-an-id", "/t/stops/not-a-number", "/t/inbox?ok=x", "/no/such/page"):
             with self.subTest(path=path):

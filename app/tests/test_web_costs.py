@@ -42,6 +42,21 @@ class DeficitOnScreen(CostRatio):
             self.assertNotIn("確かめた（これ以上お知らせしない）", page)
         self.assertNotIn("赤字の確認", http.get("/t/inbox").text)                # 待っているものではなくなった
 
+    def test_confirming_from_the_client_overview_comes_back_to_it(self):   # 戻る先の決まり（app.safe_back の1か所）
+        s = self.ready()
+        self.terms(s, per_dial_yen=10)
+        self.talked(s)
+        self.priced("0.01")
+        self.spend(s, 15)
+        person = Person("試験の契約者", False, s["tenant"], "架空の契約者")
+        http = TestClient(create_app(app_access(), lambda r: person, SECRET))
+        overview = http.get(f'/c/{s["client"]}').text
+        form = re.search(r'<form method="post" action="(/c/[^"]+/inbox/deficit/confirm)">(.*?)</form>', overview, re.S)
+        sent = dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)">', form.group(2)))
+        self.assertEqual(sent["back"], f'/c/{s["client"]}')
+        r = http.post(form.group(1), data=sent, follow_redirects=False)
+        self.assertTrue(r.headers["location"].startswith(f'/c/{s["client"]}?'), r.headers["location"])
+
 
 def load_tests(loader, tests, pattern):
     """この試験だけを読む（受け継いだ CL-2 の組の試験を、ここで流し直さない）。"""

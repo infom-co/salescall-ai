@@ -55,7 +55,14 @@
 {% if x.emergency %}
 {# 緊急の道（OpenRouter を通して Google が預かる Claude）での再開。出せるかは core の stops.emergency_possible の1か所の答え。
    出せないときは、なぜ出せないかを警告として出す（✅ 2026-10-31 管理者「ダッシュボードになぜ再開できないのかの警告を出すようにして下さい」） #}
-{% if x.emergency.pass %}
+{% if x.emergency.pass and x.resolved %}
+{# 止めた停止が解ければ、緊急の道も一緒に終わる（core の stops.emergency_pass の決まり）。⏳ いま効いているかを core が返す形＝CL-2 へのお願い 39 #}
+<section class="card" style="margin-top:16px">
+  <h2>緊急の道で再開していました</h2>
+  <p>{{ time(x.emergency.pass.at) }}・理由：{{ x.emergency.pass.reason }}</p>
+  <p class="muted">この停止は解けたので、いまは、ふだんの道でかけています。</p>
+</section>
+{% elif x.emergency.pass %}
 <section class="card attention-wait" style="margin-top:16px">
   <h2>緊急の道で再開しています</h2>
   <p>{{ time(x.emergency.pass.at) }}・理由：{{ x.emergency.pass.reason }}</p>

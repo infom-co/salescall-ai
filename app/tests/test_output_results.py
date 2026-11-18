@@ -128,6 +128,11 @@ class Screen(unittest.TestCase):
                 self.assertNotIn(n, text)
                 self.assertNotIn(n, page)
 
+    def test_the_hand_over_button_waits_for_a_confirmed_result(self):   # 渡せるかは files.deliverable の1か所（ボタンも渡す処理も）
+        page = self.http.get(self.base.replace("/results.csv", "/results")).text
+        self.assertIn("確定した結果がまだ無いので、依頼者へは渡せません", page)
+        self.assertRegex(page, r'<button class="btn main" type="submit" disabled>依頼者「')
+
     def test_a_run_of_another_client_cannot_be_written_out_here(self):
         other = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.y['run']}/results.csv"
         self.assertEqual(self.http.get(other).status_code, 404)

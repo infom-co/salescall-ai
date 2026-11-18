@@ -52,7 +52,7 @@ class Item:
 @dataclass(frozen=True)
 class Kind:
     title: str
-    collect: Callable[[Tx, Any], list[Item]]                  # その範囲の取引で、その種類の承認待ちを集める（2つ目＝行で絞る。None なら全部）
+    collect: Callable[[Tx, Any, Any], list[Item]]             # その範囲の取引で、その種類の承認待ちを集める（行・実施回で絞る。None なら全部）
     perform: dict[str, tuple[Callable[[Tx, dict[str, str]], Any], str]]   # ボタン → (決める部品, 済んだときの言葉)
     where: str = "client"   # 集めて決める取引：client＝依頼者ごと（依頼者の取引）／system＝全体（管理者だけ。システムの取引。データベースも守る）
 
@@ -65,7 +65,7 @@ def _business_of(tx: Tx, task_id: Any) -> dict[str, Any]:
     return {"business_id": bid, "business_name": name["name"] if name else ""}
 
 
-def _decisions(tx: Tx, task: Any = None) -> list[Item]:
+def _decisions(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     items = []
     for d in approval.pending_decisions(tx):
         if task is not None and str(d["task_id"]) != str(task):
@@ -85,7 +85,7 @@ def _decisions(tx: Tx, task: Any = None) -> list[Item]:
     return items
 
 
-def _deficit(tx: Tx, task: Any = None) -> list[Item]:
+def _deficit(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     n = usage.deficit_notice(tx)
     if task is not None or n is None or n["confirmed"]:
         return []
@@ -100,7 +100,7 @@ def _deficit(tx: Tx, task: Any = None) -> list[Item]:
 CAN_PLAY_RECORDINGS = False
 
 
-def _apologies(tx: Tx, task: Any = None) -> list[Item]:
+def _apologies(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     items = []
     for o in tx.all("SELECT o.order_id, o.task_id, o.pairs, o.improper, o.text_same_day, o.prepared_at,"
                     "       (SELECT s.set_id FROM salescall.recording_sets s WHERE s.unit = 'apology' AND s.order_id = o.order_id"
@@ -138,7 +138,7 @@ def _said(tx: Tx, attempt_id: Any) -> list[tuple[str, str]]:
     return [("お客様の言葉（最後の3つ）", " ／ ".join(said))] if said else []
 
 
-def _month_ahead(tx: Tx, task: Any = None) -> list[Item]:
+def _month_ahead(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """1か月以上先のかけ直しの予定で、契約者の答えを待っているもの（答えられるか＝データベースの1か所 task_month_ahead_answerable）。"""
     items = []
     for r in tx.all("SELECT task_id, salescall.task_month_ahead_answerable(task_id) AS call_at FROM salescall.tasks"
@@ -156,7 +156,7 @@ def _month_ahead(tx: Tx, task: Any = None) -> list[Item]:
     return items
 
 
-def _old_promises(tx: Tx, task: Any = None) -> list[Item]:
+def _old_promises(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """前の担当の方が新しいかけ直しの約束をして、契約者の選びを待っている行（待っているか＝データベースの1か所 task_old_promise_waiting）。"""
     items = []
     for r in tx.all("SELECT task_id, salescall.task_old_promise_waiting(task_id) AS attempt_id FROM salescall.tasks"
@@ -190,23 +190,24 @@ def _refused(do: Callable[[Tx, dict[str, str]], Any]) -> Callable[[Tx, dict[str,
     return run
 
 
-def _task_approvals(tx: Tx, task: Any = None) -> list[Item]:
+def _task_approvals(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """検証モードの業務で、発信の前の契約者の承認を待っている行（実施回ごとに1件にまとめる。待っているか＝core の approval.uncleared の1か所
     が awaiting_approval と答える行）。行が多いので、行を見てから、その実施回の待っている行をまとめて承認する。"""
     items = []
     if task is not None:   # 実施回でまとめる種類（1行ごとには出さない）
         return items
-    for run in tx.all("SELECT r.run_id, r.name, r.business_id, b.name AS business FROM salescall.runs r"
-                      " JOIN salescall.businesses b ON b.business_id = r.business_id ORDER BY r.created_at, r.run_id"):
-        waiting = _awaiting_rows(tx, run["run_id"], run["business_id"])
+    for r in tx.all("SELECT r.run_id, r.name, r.business_id, b.name AS business FROM salescall.runs r"
+                    " JOIN salescall.businesses b ON b.business_id = r.business_id WHERE (%s::uuid IS NULL OR r.run_id = %s::uuid)"
+                    " ORDER BY r.created_at, r.run_id", (run, run)):
+        waiting = _awaiting_rows(tx, r["run_id"], r["business_id"])
         if waiting:
             items.append(Item(
-                kind="task_approval", key={"run_id": str(run["run_id"]), "digest": _digest(waiting)}, title="発信前の行の承認（検証モード）",
-                decide=f"実施回「{run['name']}」の {len(waiting)} 行に、お電話してよいか",
+                kind="task_approval", key={"run_id": str(r["run_id"]), "digest": _digest(waiting)}, title="発信前の行の承認（検証モード）",
+                decide=f"実施回「{r['name']}」の {len(waiting)} 行に、お電話してよいか",
                 evidence=[("待っている行", f"{len(waiting)} 行"), ("行を見る", "お客様リストで、会社名・お呼びする方・番号を確かめてください")],
-                if_not="承認するまで、この行にはおかけしません（検証モードの業務）。", business_id=run["business_id"],
-                link=f"/c/{_client(tx)}/b/{run['business_id']}/runs/{run['run_id']}",
-                business_name=run["business"], buttons=(Button("approve_all", f"{len(waiting)} 行すべて承認する", main=True),)))
+                if_not="承認するまで、この行にはおかけしません（検証モードの業務）。", business_id=r["business_id"],
+                link=f"/c/{_client(tx)}/b/{r['business_id']}/runs/{r['run_id']}",
+                business_name=r["business"], buttons=(Button("approve_all", f"{len(waiting)} 行すべて承認する", main=True),)))
     return items
 
 
@@ -239,7 +240,7 @@ def _approve_waiting_rows(tx: Tx, run_id: UUID) -> int:
     return len(waiting)
 
 
-def _result_checks(tx: Tx, task: Any = None) -> list[Item]:
+def _result_checks(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """検証モードでかけた通話の結果で、契約者の確かめを待っているもの（システムが判定した最新の版・確定の印が無い・判定できないでない・
     確定できる版。確定できるかは core の approval._blocked と同じデータベースの1か所 salescall.release_blocked）。"""
     items = []
@@ -260,7 +261,7 @@ def _result_checks(tx: Tx, task: Any = None) -> list[Item]:
     return items
 
 
-def _corrections(tx: Tx, task: Any = None) -> list[Item]:
+def _corrections(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """契約者の直しで電話をかけることになり、「かけてよい」の確かめを待っている行（確かめ待ちか＝データベースの1か所
     task_correction_unconfirmed。✅ 2026-11-18 管理者：伺い2「本当に折り返してよいのか確認と承認をもらう。承認なく勝手にかけたらクレームになる
     可能性があるため」。CL-2 4-422）。"""
@@ -285,28 +286,29 @@ def _corrections(tx: Tx, task: Any = None) -> list[Item]:
     return items
 
 
-def _solutions(tx: Tx, task: Any = None) -> list[Item]:
+def _solutions(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """手で外した・まだ確かめていない依頼者の解決策（実施回ごと。client_solutions.unconfirmed の1か所）。確かめるまで、その実施回の新しい電話は
     かけない（2026-11-07 管理者）。⏳ 「入れる」（add_earlier）は、足す文の名前の読みを確かめる部品（find_names）を画面から渡す方法が決まって
     いない（渡さないと、読みを確かめずに台本に入る）＝CL-2 へのお願い 22。決まるまで、どちらのボタンも出さない（片方だけ出して選びを偏らせない）。"""
     items = []
     if task is not None:   # 実施回ごとの種類
         return items
-    for run in tx.all("SELECT run_id, name, business_id FROM salescall.runs ORDER BY created_at, run_id"):
-        for s in client_solutions.unconfirmed(tx, run["run_id"]):
+    for run_row in tx.all("SELECT run_id, name, business_id FROM salescall.runs WHERE (%s::uuid IS NULL OR run_id = %s::uuid)"
+                          " ORDER BY created_at, run_id", (run, run)):
+        for s in client_solutions.unconfirmed(tx, run_row["run_id"]):
             items.append(Item(
-                kind="solution", key={"run_id": str(run["run_id"]), "solution_id": str(s["solution_id"])},
-                title="依頼者の解決策の確かめ", decide=f"実施回「{run['name']}」の台本に、この解決策を入れるか",
+                kind="solution", key={"run_id": str(run_row["run_id"]), "solution_id": str(s["solution_id"])},
+                title="依頼者の解決策の確かめ", decide=f"実施回「{run_row['name']}」の台本に、この解決策を入れるか",
                 evidence=[("ご納得いただけなかった点", s["point_text"] or ""), ("問い", s["answer_name"] or ""),
                           ("解決策の文", s["solution_text"] or "")],
                 if_not="確かめるまで、この実施回では新しい電話をかけません（お約束の電話・お詫びの電話は除く）。",
-                at=s["recorded_at"], business_id=run["business_id"],
-                business_name=(tx.one("SELECT name FROM salescall.businesses WHERE business_id = %s", (run["business_id"],)) or {}).get("name", ""),
+                at=s["recorded_at"], business_id=run_row["business_id"],
+                business_name=(tx.one("SELECT name FROM salescall.businesses WHERE business_id = %s", (run_row["business_id"],)) or {}).get("name", ""),
                 waiting_why="解決策の文の、名前の読みを確かめる部品をつないでいます"))
     return items
 
 
-def _fixes(tx: Tx, task: Any = None) -> list[Item]:
+def _fixes(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """担当が「直した」と報告し、管理者がまだ承認していない修正依頼（システムの取引。管理者だけ）。"""
     items: list[Item] = []
     if task is not None:
@@ -366,7 +368,7 @@ KEY_FIELDS = ("attempt_id", "seq", "warning_id", "order_id", "set_id", "task_id"
 def collect(tx: Tx, where: str = "client", task: Any = None) -> list[Item]:
     """その範囲（client＝依頼者の取引／system＝システムの取引）の、すべての種類の承認待ち。task を渡せば、その行のものだけ
     （お客様の行の画面に、受け箱と同じ形で出す）。"""
-    return [item for kind in KINDS.values() if kind.where == where for item in kind.collect(tx, task)]
+    return [item for kind in KINDS.values() if kind.where == where for item in kind.collect(tx, task, None)]
 
 
 GONE = "この承認待ちは、もう済んだか、中身が変わりました。画面を開き直して、いまの中身を確かめてから決めてください。"
@@ -381,13 +383,12 @@ def perform(tx: Tx, kind_name: str, action: str, sent: dict[str, str], where: st
     kind = KINDS.get(kind_name)
     if kind is None or kind.where != where or action not in kind.perform:
         raise LookupError("その承認待ちの種類は無い")
-    task = sent.get("task_id") or None
-    if task is not None:
-        try:
-            task = UUID(task)
-        except ValueError:
-            raise Refused(GONE) from None
-    for item in kind.collect(tx, task):
+    try:   # 送られた鍵の行・実施回で、集め直す範囲を絞る（その実施回だけを数え直す。絞っても、鍵が同じものは必ず入る）
+        task = UUID(sent["task_id"]) if sent.get("task_id") else None
+        run = UUID(sent["run_id"]) if sent.get("run_id") else None
+    except ValueError:
+        raise Refused(GONE) from None
+    for item in kind.collect(tx, task, run):
         if all(sent.get(f, "") == v for f, v in item.key.items()):
             if action not in {b.action for b in item.buttons}:
                 raise Refused(item.waiting_why or GONE)

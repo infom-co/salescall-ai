@@ -23,7 +23,8 @@ from salescall.core.access import Tx
 from salescall.output import words
 from salescall.web import links
 
-DAYS = 7   # 終えた電話の一覧を見る日数（直近。一覧の長さを決めるだけ。数え方・決め方には使わない）
+DAYS = 7      # 終えた電話の一覧を見る日数（直近。一覧の長さを決めるだけ。数え方・決め方には使わない）
+LIMIT = 500   # 1つの項目・1つの依頼者で読む数の上限（画面を重くしない。ふだんは届かない数。届いたら、上限までを出す）
 
 
 @dataclass(frozen=True)
@@ -44,11 +45,6 @@ class Watch:
     attention: bool = True                    # ホームの「気をつけること」に数えるか（終えた電話の記録などは数えない）
 
 
-def _company(tx: Tx, task_id: Any) -> str:
-    t = tx.one("SELECT source_name, target_name FROM salescall.tasks WHERE task_id = %s", (task_id,))
-    return " ／ ".join(x for x in ((t or {}).get("source_name"), (t or {}).get("target_name")) if x) or "（会社名なし）"
-
-
 def _lines(tx: Tx) -> list[Entry]:
     out = []
     for ln in tx.all("SELECT line_id, name FROM salescall.lines WHERE retired_at IS NULL ORDER BY name, line_id"):
@@ -63,7 +59,7 @@ def _lines(tx: Tx) -> list[Entry]:
 def _ring_tests(tx: Tx) -> list[Entry]:
     rows = tx.all("SELECT t.tested_at, t.purpose, t.rang, l.name FROM salescall.line_ring_tests t"
                   " JOIN salescall.lines l ON l.line_id = t.line_id"
-                  " WHERE t.tested_at > now() - make_interval(days => %s) ORDER BY t.tested_at DESC LIMIT 50", (DAYS,))
+                  " WHERE t.tested_at > now() - make_interval(days => %s) ORDER BY t.tested_at DESC LIMIT %s", (DAYS, LIMIT))
     return [Entry(r["name"], f"{words.RING_PURPOSE_WORDS.get(r['purpose'], words.NO_WORD)}：{words.RING_WORDS[r['rang']]}", r["tested_at"], "/t/lines")
             for r in rows]
 
@@ -71,25 +67,27 @@ def _ring_tests(tx: Tx) -> list[Entry]:
 def _runner_stuck(tx: Tx) -> list[Entry]:
     rows = tx.all("SELECT e.occurred_at, e.message, l.name FROM salescall.error_events e LEFT JOIN salescall.lines l ON l.line_id = e.line_id"
                   " WHERE e.kind = 'runner_stuck' AND e.occurred_at > now() - make_interval(days => %s)"
-                  " ORDER BY e.occurred_at DESC LIMIT 50", (DAYS,))
+                  " ORDER BY e.occurred_at DESC LIMIT %s", (DAYS, LIMIT))
     return [Entry(r["name"] or "回線", errors.LABELS["runner_stuck"], r["occurred_at"], "/t/lines", r["message"] or "") for r in rows]
 
 
 def _calls(where_sql: str) -> Callable[[Tx], list[Entry]]:
     def collect(tx: Tx) -> list[Entry]:
         rows = tx.all("SELECT attempt_id, task_id, trouble, trouble_why, ended_at FROM salescall.attempts"
-                      f" WHERE {where_sql} AND ended_at > now() - make_interval(days => %s) ORDER BY ended_at DESC LIMIT 50", (DAYS,))
-        return [Entry(_company(tx, r["task_id"]), words.call_end(r["trouble"]), r["ended_at"], links.call(tx, r["task_id"], r["attempt_id"]),
-                      r["trouble_why"] or "") for r in rows]
+                      f" WHERE {where_sql} AND ended_at > now() - make_interval(days => %s) ORDER BY ended_at DESC LIMIT %s", (DAYS, LIMIT))
+        info = links.rows(tx, [r["task_id"] for r in rows])
+        return [Entry(info[r["task_id"]]["who"], words.call_end(r["trouble"]), r["ended_at"],
+                      f"{info[r['task_id']]['url']}/calls/{r['attempt_id']}", r["trouble_why"] or "") for r in rows if r["task_id"] in info]
     return collect
 
 
 def _rows(stage: str, detail: Callable[[Any], str]) -> Callable[[Tx], list[Entry]]:
     def collect(tx: Tx) -> list[Entry]:
-        out = []
-        for r in tx.all("SELECT task_id, state, moved_at FROM salescall.task_states WHERE stage = %s ORDER BY moved_at, task_id", (stage,)):
-            out.append(Entry(_company(tx, r["task_id"]), detail(health.decode(r["state"])), r["moved_at"], links.row(tx, r["task_id"])))
-        return out
+        rows = tx.all("SELECT task_id, state, moved_at FROM salescall.task_states WHERE stage = %s ORDER BY moved_at, task_id LIMIT %s",
+                      (stage, LIMIT))
+        info = links.rows(tx, [r["task_id"] for r in rows])
+        return [Entry(info[r["task_id"]]["who"], detail(health.decode(r["state"])), r["moved_at"], info[r["task_id"]]["url"])
+                for r in rows if r["task_id"] in info]
     return collect
 
 
@@ -128,15 +126,15 @@ WATCHES: dict[str, Watch] = {
 
 def collect(ctx: Any) -> list[tuple[str, Watch, list[tuple[dict[str, Any] | None, Entry]]]]:
     """すべての項目を集める（契約者の取引の項目は1回、依頼者の項目は依頼者ごとの読むだけの取引で）。(鍵, 項目, [(依頼者, 中身)])。"""
-    clients = ctx.clients()
-    out = []
-    for key, w in WATCHES.items():
-        if w.where == "tenant":
-            got = [(None, e) for e in ctx.tenant(w.collect)]
-        else:
-            got = [(c, e) for c in clients for e in ctx.client(c["client_id"], w.collect, read_only=True)]
-        out.append((key, w, got))
-    return out
+    tenant_keys = [k for k, w in WATCHES.items() if w.where == "tenant"]
+    client_keys = [k for k, w in WATCHES.items() if w.where == "client"]
+    found: dict[str, list[tuple[dict[str, Any] | None, Entry]]] = {k: [] for k in WATCHES}
+    for k, got in ctx.tenant(lambda tx: {k: WATCHES[k].collect(tx) for k in tenant_keys}).items():   # 契約者の取引は1つ
+        found[k] = [(None, e) for e in got]
+    for c in ctx.clients():   # 依頼者ごとに、読むだけの取引を1つ（その中で依頼者の項目をすべて集める）
+        for k, got in ctx.client(c["client_id"], lambda tx: {k: WATCHES[k].collect(tx) for k in client_keys}, read_only=True).items():
+            found[k] += [(c, e) for e in got]
+    return [(k, WATCHES[k], found[k]) for k in WATCHES]
 
 
 def attention_count(found: list[tuple[str, Watch, list[Any]]]) -> int:

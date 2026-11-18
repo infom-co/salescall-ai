@@ -45,6 +45,15 @@ from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, ac
 HERE = Path(__file__).resolve().parent
 ACTING_COOKIE = "acting_tenant"   # 管理者が見ている契約者（署名つき）
 TENANT_BACKS = ("/t/costs",)   # 受け箱の操作のあと、依頼者の中の住所のほかに戻ってよい全体の画面（赤字の確認ボタン）
+
+
+def safe_back(back: str, client_id: UUID, fallback: str) -> str:
+    """操作のあとに戻ってよい住所の決まり（1か所）：その依頼者の住所そのもの（/c/{依頼者}）とその下・決めた全体の画面だけ。
+    ほかのサイト・ほかの依頼者の住所へは戻さない。"""
+    own = f"/c/{client_id}"
+    if "//" not in back and (back == own or back.startswith(own + "/") or back.startswith(own + "?") or back in TENANT_BACKS):
+        return back
+    return fallback
 SYSTEM_PLACE: dict[str, Any] = {"client_id": None, "name": "全体（管理者だけ）"}   # 全体の範囲の承認待ちの「どこ」
 
 
@@ -162,6 +171,12 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         return problem(request, e.status_code if 400 <= e.status_code < 600 else 400, "受け付けられませんでした",
                        "送られた中身の形が違います。画面を開き直して、もう一度操作してください。")
 
+    @app.exception_handler(NotFound)
+    @app.exception_handler(AdminOnly)
+    async def not_found(request: Request, e: Exception) -> HTMLResponse:
+        """「見つかりません」は、どこで起きても同じ返事（handle の外＝住所の読み方の段で起きても）。"""
+        return problem(request, 404, "見つかりません", "住所を確かめてください。")
+
     @app.exception_handler(RequestValidationError)
     async def bad_address(request: Request, e: RequestValidationError) -> HTMLResponse:
         """住所や問い合わせの値の形が違う（例：ID の形でない住所）。「無い」と同じ返事にする（英語の返事を出さない）。"""
@@ -274,8 +289,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                               lambda: ctx.client(client_id, lambda tx: inbox.perform(tx, kind, action, sent, "client")),
                               done=k.perform[action][1])
             back = str(form.get("back") or "")   # 1行の画面などから決めたときは、その画面へ戻る（その依頼者の中の住所だけ）
-            ok_back = (back.startswith(f"/c/{client_id}/") and "//" not in back) or back in TENANT_BACKS   # 戻る先は決めた所だけ
-            return _back(back if ok_back else "/t/inbox", out)
+            return _back(safe_back(back, client_id, "/t/inbox"), out)
         return handle(request, render)
 
     @app.post("/admin/inbox/{kind}/{action}")
@@ -740,7 +754,12 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     def _dnc_import_routes(prefix: str, scoped: bool) -> None:
         """依頼者の台帳（/c/{依頼者}/dnc/import）と契約者の共通の台帳（/t/dnc/import）の入口を、同じ部品で作る。"""
         def cid(request: Request) -> UUID | None:
-            return request.path_params.get("client_id") if scoped else None
+            if not scoped:
+                return None
+            try:   # 住所の ID の形が違えば「見つかりません」（ほかの /c/{依頼者} の住所と同じ返事。500 にしない）
+                return UUID(str(request.path_params.get("client_id")))
+            except ValueError:
+                raise NotFound() from None
 
         @app.get(prefix)
         def dnc_import_start(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
@@ -1092,6 +1111,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx), "run": run,
                         "rows": got, "leak": leak}
             return page(request, "results.html", person, ctx, columns=result_rows.COLUMNS, please_fill=result_rows.PLEASE_FILL, zip=zip,
+                        deliverable=result_files.deliverable,
                         **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
