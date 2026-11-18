@@ -8396,7 +8396,8 @@ class Flow:
             # 確かめは提案の言葉と同じ1か所（_proposal_checked＝形・中身の判定・書き直しの回数。使い切った・中身を確かめられなかったら言葉を入れない形）。
             # ✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い29）・12時48分22秒 ユーザー（句。お言葉は phrases.CALLBACK_ASK の deepen_ahead）
             if not self._trouble_turn():
-                return self._reject(f"「{ARG_LABEL[given[0]]}」は、ほかの会社では解決できない問題を言っていただいて応える番だけに書きます。外して、もう一度呼んでください。")
+                return self._reject(f"「{ARG_LABEL[given[0]]}」は、ほかの会社では解決できない問題を言っていただいて応える番（手短に伺っている電話を除く）だけに書きます。"
+                                    "外して、もう一度呼んでください。")
             rejected, got, _ = self._proposal_checked({**dict.fromkeys(PROPOSAL_ARGS), **words}, given, self.current, False)
             if rejected is not None:
                 return rejected
@@ -9539,8 +9540,11 @@ class Flow:
             if v is None:
                 return UNCHECKED
             if v == UNGROUNDED:
+                # 例は番に合わせる（困りごとに応える提案の番＝11-19 日本時間3時17分22秒のお言葉の形。お客様の声や事例は業務の情報にあるときだけ）
+                eg = ("お客様の声や事例が業務の情報に無ければ「対応の面について」" if self._trouble_offering() else
+                      "料金の決まりが業務の情報に無ければ「料金の面も含めて」")
                 return (f"{ARG_LABEL[k]}「{t}」：こちらについて知らない事実（「{getattr(v, 'part', '') or t}」）が入っています。業務の情報にあることだけで書きます"
-                        "（例：料金の決まりが業務の情報に無ければ「料金の面も含めて」）")
+                        f"（例：{eg}）")
             if (why := own_answer_problem(t, self.names, False, verdict=v, name_readings=self.name_readings)) is not None:
                 return f"{ARG_LABEL[k]}「{t}」：{why}"
         return None
@@ -10793,16 +10797,21 @@ class Flow:
                     f"返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から選びます：{TALK_CHOICES}（使えないときは、その一言のあとにプログラムがお知らせを"
                     f"もう一度流します）。")
         if kind == "offer" and self._trouble_offering():
-            # 困りごとを伺い・深めたあと、もとの質問を困りごとに応える提案で伺う番（_deepen_then）。ひとことのあとの提案はプログラムが組む（_offer_again）。
-            # ✅ 2026-11-16 日本時間12時48分22秒 ユーザー「・伺い32 場面1：ア」
+            # 困りごとを伺い・深めたあと（手短に伺っている電話は深めずに）、もとの質問を困りごとに応える提案で伺う番（_deepen_then）。ひとことのあとの提案は
+            # プログラムが組む（_offer_again）。✅ 2026-11-16 日本時間12時48分22秒 ユーザー「・伺い32 場面1：ア」。例の文は 2026-11-19 日本時間3時17分22秒 ユーザー
+            # 「・場面2：「はい、お困りのままですとご心配ですよね。それでは対応の面について、お客様の声や事例も交えてメールでご連絡させていただくということでは
+            # いかがでしょうか？」」（読点は外す＝中身は区切りの記号を入れない offer_terms_problem・10-15。お客様の声や事例は業務の情報にあるときだけ＝中身の判定
+            # _proposal_problem の1か所。お言葉の外＝まとめ役の決め）。⛔ 9e707d0a まで、中身の例は「対応の面も含めて」・ひとことの例は無かった
             ways, method = "・".join(self._proposal_of(q.id)[1]) or "なし", q.offered is None
             said = (self.trouble_said or (None, None))[1] or (self.trouble_said or (None, None))[0] or ""
             return (f"いまは、相手のお返事（「{asked[:40]}」）にひとこと応え、相手が話してくださった、ほかの会社では解決できない困りごと（「{said[:40]}」）に応える"
-                    f"提案を書く番です。報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、相手のお返事に応えるひとことを「{ARG_LABEL['answer']}」に"
-                    f"書きます（短く1〜2文。{TALK_RECEIVE}質問や申し出の言い直しは入れません。返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から選びます："
-                    f"{TALK_CHOICES}）。続けてプログラムが、{now}を、困りごとに応える提案「それでは（{ARG_LABEL['topic']}）（申し出の中身。{ARG_LABEL['way']}はその中に"
-                    f"入ります）ということではいかがでしょうか？」で伺います。次を書きます：「{ARG_LABEL['topic']}」＝相手の困りごとに応えて、こちらがお約束する中身（例："
-                    f"対応が遅いという困りごとなら「対応の面も含めて」。業務の情報にあることだけ。「〜を」「〜て」で終える）。"
+                    f"提案を書く番です。報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、相手のお返事に応え、困りごとに寄り添うひとことを"
+                    f"「{ARG_LABEL['answer']}」に書きます（短く1〜2文。例：対応が遅いという困りごとなら「はい、お困りのままですとご心配ですよね。」。{TALK_RECEIVE}"
+                    f"質問や申し出の言い直しは入れません。返す文が使えないときの一言も「{ARG_LABEL['fallback']}」から選びます：{TALK_CHOICES}）。続けてプログラムが、"
+                    f"{now}を、困りごとに応える提案「それでは（{ARG_LABEL['topic']}）（申し出の中身。{ARG_LABEL['way']}はその中に入ります）ということではいかがでしょうか？」"
+                    f"で伺います。次を書きます：「{ARG_LABEL['topic']}」＝相手の困りごとに応えて、こちらがお約束する中身（例：対応が遅いという困りごとなら"
+                    f"「対応の面について」。業務の情報にお客様の声や事例があるときだけ「対応の面についてお客様の声や事例も交えて」。業務の情報にあることだけ。"
+                    f"区切りの記号は入れません。「〜を」「〜て」で終える）。"
                     + (f"「{ARG_LABEL['way']}」＝相手のお話に合う方法を、{'この質問の選択肢' if way_choice(q) else '業務の方法'}（{ways}）から1つ必ず選び、その名前をそのまま。"
                        if method else f"「{ARG_LABEL['way']}」＝相手が言ったご希望の方法が業務の方法（{ways}）にあれば、その名前をそのまま。")
                     + f"書けなければ「{ARG_LABEL['topic']}」を付けません（そのときプログラムは提案せず、相手が前に言ったお返事を受け直します）。")
@@ -12369,9 +12378,16 @@ class Flow:
         return self.elsewhere_from is not None and self.elsewhere_q is None and self.deepen_q is None
 
     def _trouble_turn(self) -> bool:
-        """会話AIが困りごとの言葉（ARG_LABEL の trouble）を書く番か（唯一の決まり＝受け取る入口 _op_replay_opening・会話AIへの知らせ _asked_note）：ほかの会社の
-        ことを伺った一言（E1）に問題を言っていただき、会話AIが応える番（_asked_kind の concern・concern_kind elsewhere）で、まだ深める一言を伺っていない。"""
-        return self._asked_kind() == "concern" and self.concern_kind == "elsewhere" and not self.deepen_asked
+        """会話AIが困りごとの言葉（ARG_LABEL の trouble）を書く番か＝応えたあとのお返事で深める一言（E2）を伺うか（唯一の決まり＝受け取る入口 _op_replay_opening・
+        会話AIへの知らせ _asked_note・深める一言を伺う番の印 _await_reply の deepen_wait）：ほかの会社のことを伺った一言（E1）に問題を言っていただき、会話AIが応える番
+        （_asked_kind の concern・concern_kind elsewhere）で、まだ深める一言を伺っておらず、手短に伺っている電話（brief_only＝H3 に「いいえ」・はっきりしない・聞き
+        取れないで伺い続けている電話）でもない。
+        手短に伺っている電話は、深める一言（E2〜E4）を伺わず、応えたあとのお返事で、もとの質問を困りごとに応える提案で伺う（_resume の _elsewhere_pending →
+        _deepen_then → _trouble_offering の1か所。提案で伺えない質問は今の戻り _elsewhere_back）。困りごとの言葉・困りごとが続く形の句も書かせない（使わない）。
+        ✅ 2026-11-19 日本時間3時17分22秒 ユーザー「・場面2：「はい、お困りのままですとご心配ですよね。それでは対応の面について、お客様の声や事例も交えてメールで
+        ご連絡させていただくということではいかがでしょうか？」」（伺い42 場面2。伺ったお勧めア＝手短の電話は E2〜E4 を伺わずに、すぐ困りごとに応える提案）。
+        ⛔ 9e707d0a まで、手短に伺っている電話でも、応えたあとのお返事で「はい、これまでに問題や不都合が発生したことが何度かおありなのでしょうか？」（E2）を伺った"""
+        return self._asked_kind() == "concern" and self.concern_kind == "elsewhere" and not self.deepen_asked and not self.brief_only
 
     def _deepen_ask(self) -> dict:
         """ほかの会社のことを伺った一言（E1）に問題を言っていただき、会話AIが応えたあとのお返事で（_resume の deepen_wait）、1通話1回深めて伺う唯一の場所（システムの
@@ -12450,10 +12466,11 @@ class Flow:
           ご承認は「はい」に決め直さない（「いいえ」のまま）・困りごとは通話の事実 elsewhere に残る（E1 の答えを受けた所）・not_agreed は点の無いまま outcome unresolved。
           N1 は伺い直さない（はっきりしない答えとして閉じる＝_continue の E1・E2 と同じ）
         - ほかの位置で、もとの質問が提案で伺い直せる質問（_proposal_of の1か所。ここでは選択肢がどれもご連絡の方法の名前の業務の選ぶ質問＝way_choice も）なら、
-          困りごとに応える中身を入れた提案で伺う番（1通話1回）：会話AIが、いまのお返事へのひとことと、提案の言葉（申し出に含める中身「〜も含めて」・方法）を書き、
-          11-12 日本時間13時40分05秒の提案と同じ1か所（_own_answer → _offer_again）が「それでは対応の面も含めてメールでご連絡させていただくということではいかが
-          でしょうか？」で伺う（_trouble_offering）。提案の言葉が使えない（書かない・確かめに通らない）ときと、受けていただけない・はっきりしない・聞き取れないときは、
-          下の _elsewhere_back と同じ（_trouble_declined）
+          困りごとに応える中身を入れた提案で伺う番（1通話1回）：会話AIが、いまのお返事へのひとことと、提案の言葉（申し出に含める中身「〜について」・方法）を書き、
+          11-12 日本時間13時40分05秒の提案と同じ1か所（_own_answer → _offer_again）が「それでは対応の面についてメールでご連絡させていただくということではいかが
+          でしょうか？」で伺う（_trouble_offering。中身の例は 11-19 日本時間3時17分22秒のお言葉の文＝_asked_note）。提案の言葉が使えない（書かない・確かめに通らない）
+          ときと、受けていただけない・はっきりしない・聞き取れないときは、下の _elsewhere_back と同じ（_trouble_declined）。手短に伺っている電話は、深めて伺わずに、
+          応えたあとのお返事でここへ来る（_trouble_turn。✅ 2026-11-19 日本時間3時17分22秒 伺い42 場面2）
         - ほかは、E1 の「問題は無い」と同じ1か所（_elsewhere_back）で、もとのお返事を読み直して今の決まりで受ける（伺い25 の入れた形 58fb6c7f）。
         ✅ 2026-11-16 日本時間12時48分22秒 ユーザー「・伺い32 場面1：ア　場面2：流れが分からないのでわかるように」（ア＝伺い32 の文「それでは対応の面も含めてメールで
         ご連絡させていただくということではいかがでしょうか？」・提案は申し出の質問と方法を選んでいただく質問だけ）。✅ 2026-11-16 日本時間14時46分34秒 ユーザー
