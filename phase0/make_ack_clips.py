@@ -48,6 +48,8 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        # ✅ 2026-10-16 ユーザー：重大なお詫び（2回目以降の聞き返し・最後の1回・こちらの誤り・クレーム・かけ直し）
        "moushiwake_heavy": "電話で、お客様にご迷惑をおかけしたことを、心から深くお詫びするように、誠実に、丁寧に",
        "shitsurei": "電話で、こちらの聞き違いを丁寧にお詫びするように",
+       # ✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41）「アでいいが、少し焦った感じで！」：重ねて急かされたときの「承知しました。」（phrases.ACK の shouchi_hurried）
+       "shouchi_hurried": "電話で、急いでいるお客様に合わせて、少し焦った感じで、テンポよく、短く。ただし、慌てすぎず、丁寧に",
        # ✅ 2026-10-14 ユーザー：「Sadachbia の『ありがとうございます。』の1つが、明るいのは良いが、ハイテンション過ぎて、ちょっとお客が
        #    引きそう。『前向き』なくらいでいい」「Leda の『ありがとうございます。』は逆に少し、感謝が足りない暗い感じが多い」
        "arigatou": "電話で、相手に感謝を伝えるように、前向きに、心を込めて。ただし、はしゃがず、声を張り上げず、落ち着いた調子で、短く",
@@ -110,7 +112,7 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        # 期待しているように聞こえる＝instruction.THINKING_RULE と同じ読み方）。✅ 2026-11-06 日本時間11時19分55秒 ユーザー「(1) ア」
        "aizuchi": "電話で、考えているお客様に、落ち着いた声で、語尾を上げずに短く相づちを打つように（相手の答えを期待するような言い方にしない）"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
-MAX_S = {"hai": 1.0, "shouchi": 1.4, "kashikomari": 1.6, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
+MAX_S = {"hai": 1.0, "shouchi": 1.4, "shouchi_hurried": 1.2, "kashikomari": 1.6, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
          "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 9.0, "back": 3.0, "back_again": 4.0, "aizuchi": 1.0,
