@@ -1102,9 +1102,14 @@ class EndedOn1104(unittest.TestCase):
                     [{**row, "question": ""}], [{**row, "turn": -1}], [{**row, "x": 1}], {"turn": 4}):
             with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
                 from_json({**self.raw(), "facts": {"ended_on": bad}})
-        from salescall.core.judge import not_asked
+        from salescall.core.judge import Item, not_asked
         self.assertEqual(not_asked({}, {}, r), frozenset({"Q2"}))
         self.assertEqual(not_asked({}, {}, from_json(self.raw())), frozenset())
+        # 前の通話の答えで止めたときは、止めた答えが、この通話の判定の材料の答え（その通話の担当の方の答え＝conversation_io._in_force）にあるときだけ。
+        # 新しい担当の方への電話で、前の担当の方の答えで止めた質問は対象外にしない（⛔ 2026-11-18 の7回目の見直しまで：新しい担当の方と一度も話さないまま
+        # 「完了」になりえた）
+        self.assertEqual(not_asked({}, {}, earlier), frozenset())
+        self.assertEqual(not_asked({}, {"Q1": Item("accepted", "いいえ", None)}, earlier), frozenset({"Q2"}))
 
 
 
@@ -1163,6 +1168,9 @@ class Review1118(unittest.TestCase):
         rep = replace(make_report(("target",), cut=CLOSED), brief=Brief(Said(3, "いえ、このままで。"), "いいえ", ("Q1",)))
         got = judge(JudgeInput(TALKED, rep, {}, rules, callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
         self.assertNotEqual(got.state, "completed")
+        # 依頼者へ渡す判定の中身でも、その必須の質問を「伺っていない（対象外）」にしない（伺っていない質問の1か所＝judge.not_asked。⛔ 2026-11-18 の
+        # 7回目の見直しまで：差し引きは判定の中だけで、依頼者へは対象外と渡した）
+        self.assertNotIn("Q1", got.detail.get("not_asked", []))
 
     def test_a_callback_from_an_unconfirmed_call_is_not_used(self):
         from tests.support import callback

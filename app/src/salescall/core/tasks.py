@@ -92,7 +92,7 @@ def fix_dial_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *, s
                " WHERE t.task_id = %s",
                (contact_id, same_person, keep_old_promise, back_to, task_id))
     if added:
-        _stop_added(tx, task_id, contact_id, None)
+        _stop_added(tx, task_id, contact_id)
     return contact_id
 
 
@@ -109,7 +109,7 @@ def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_atte
         (contact_id, number.e164, source_attempt_id, task_id))
     if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
         raise TaskNotFound(str(task_id))
-    _stop_added(tx, task_id, contact_id, None)
+    _stop_added(tx, task_id, contact_id)
     # お客様がこの番号を指定した記録（行にもうあった番号でも書く。いちばん新しい直しより後の指定は、直した番号より先にかける＝
     # salescall.task_designated_contact・next_action.current_dial。2026-11-06 ユーザー：「お客様の言った番号へ」。0188）
     tx.execute("INSERT INTO salescall.task_designations (tenant_id, client_id, task_id, contact_id, attempt_id)"
@@ -133,14 +133,14 @@ def add_record_number(tx: Tx, task_id: UUID, number: PhoneNumber, label: str, *,
         " ON CONFLICT (task_id, contact_id) DO NOTHING",
         (contact_id, number.e164, label, origin, attempt_id if origin == "call" else None, origin, owner_period, task_id))
     if stop:
-        _stop_added(tx, task_id, contact_id, owner_period)
+        _stop_added(tx, task_id, contact_id)
     return contact_id
 
 
-def _stop_added(tx: Tx, task_id: UUID, contact_id: UUID, owner_period: str | None) -> None:
-    """行に足した番号を、まだ有効な断りと依頼者の一覧で止める（足す関数が呼ぶ。持ち主で決める1か所は core/dnc.stop_added）。"""
+def _stop_added(tx: Tx, task_id: UUID, contact_id: UUID) -> None:
+    """行に足した番号を、その番号に届く、まだ有効な決定で止める（足す関数が、番号と持ち主が決まったあとに呼ぶ。決めるのは core/dnc.stop_added の1か所）。"""
     from salescall.core import dnc   # 発信禁止の部品が行の部品を読むので、ここで読む（読み合いにしない）
-    dnc.stop_added(tx, task_id, contact_id, owner_period)
+    dnc.stop_added(tx, task_id, contact_id)
 
 
 def record_sub_number(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:

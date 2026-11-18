@@ -122,7 +122,7 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   質問 H3）と伺い、かけ直さずに続けることになった（いいえ・はっきりしない・聞き取れない。CL-1 の連絡帳 4-173 の (3)。✅ 2026-11-16 日本時間12時48分22秒
 #   ユーザー「伺い31」）。1通話に1つまで。answer＝その答え（日本語の名前。聞き取れなければ「-」）・skipped＝伺わなかった業務の質問（必須でも最終目的でもない
 #   質問。どれを伺わないかは会話の側の1か所＝CL-1 の flowctl.brief_asks）・turn・said＝答えの発話（取れなければ turn が null・said が空）。判定は skipped を
-#   ended_on の skipped と同じく「伺っていない（対象外）」と数える（会話の側が伺わなかった質問＝`CallReport.not_asked_by_talk` の1か所）。依頼者へ返す
+#   ended_on の skipped と同じく「伺っていない（対象外）」と数える（会話の側が伺わなかった質問＝判定の `judge.not_asked` の1か所）。依頼者へ返す
 #   （判定の中身 brief＝judge._detail）。「はい」（かけ直す）は今までどおり答えの段のかけ直しの記録（callback）で、この事実は無い。お客様の言葉への伺いなので
 #   人の証（HUMAN_FACTS）
 # concern：本題に入ったあとの「もういいです。」に、ご遠慮の一言（D1）より先に1通話1回「何か問題でもございましたでしょうか？」（システムの質問 D2）と
@@ -793,14 +793,6 @@ class CallReport:
     @property
     def parties(self) -> tuple[str, ...]:
         return tuple(p.party for p in self.party_reports)
-
-    @property
-    def not_asked_by_talk(self) -> frozenset[str]:
-        """会話の側が伺わなかった業務の質問（1か所。判定は「伺っていない（対象外）」と数える＝judge.not_asked）：ここで電話を終える答えで残りを
-        伺わなかった（事実 ended_on の skipped）と、手短になら聞くと言われ、必須でも最終目的でもない質問を伺わなかった（事実 brief の skipped）。
-        どの質問を伺わないかの決まりは会話の側（CL-1 の flowctl.gate_of・held・brief_asks）で、こちらは事実だけを読む。"""
-        return frozenset((self.ended_on.skipped if self.ended_on is not None else ())
-                         + (self.brief.skipped if self.brief is not None else ()))
 
     @property
     def talked(self) -> bool:

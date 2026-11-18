@@ -2,12 +2,14 @@
 
 - PC はパスワードに触れない：ブラウザでログインしてもらい（ID とパスワード・Google・パスキー）、サーバーから PC の通行証を受け取る。
 - 受け取った通行証は PC の中にしまい、PC の部品は、それでサーバーにつなぐ（PC はデータベースにつながない）。通行証は画面・表示に出さない。
-⚠️ サーバーは試験の中の代わり（本物のサーバーは CL-3。払い出しは core.agents.issue）。通行証は試験の中で作って使うだけ。
+⚠️ サーバーの入口は試験の中の代わり（本物の入口は CL-3）。入口が呼ぶ待ちと払い出し（core.agents.login_start・login_decide・login_take＝
+表の作り 0241）は本物を使う。通行証は試験の中で作って使うだけ。
 """
 
 from __future__ import annotations
 
 import os
+import socket
 import stat
 import tempfile
 import unittest
@@ -16,27 +18,33 @@ from pathlib import Path
 
 from salescall.agent import pc_login
 from salescall.core import agents
-from tests.support import SYSTEM, World, app_access
+from tests.support import OPERATOR, SYSTEM, World, app_access
 
 SERVER = "https://salescall.example.invalid"
 
 
 class FakeServer:
-    """サーバーの代わり：始めると確かめのコードを返し、決めた回数「待って」を返したあと、ログインした契約者の PC に通行証を払い出す。"""
+    """サーバーの入口の代わり：始めると本物の待ちを作り（agents.login_start）、決めた回数「待って」を返したあと、契約者がページで
+    許可（final が access_denied なら断る）して、本物の受け取り（agents.login_take）の答えを返す。"""
 
-    def __init__(self, issue, *, waits=("authorization_pending", "slow_down"), final=None):
-        self.issue, self.waits, self.final, self.calls = issue, list(waits), final, []
+    def __init__(self, a, tenant, *, waits=("authorization_pending", "slow_down"), final=None):
+        self.a, self.tenant, self.waits, self.final, self.calls, self.started = a, tenant, list(waits), final, [], None
 
     def __call__(self, url, body):
         self.calls.append((url, body))
         if url.endswith(pc_login.START):
-            return {"device_code": "dc-1", "user_code": "ABCD-1234", "verification_uri": SERVER + "/pc",
-                    "verification_uri_complete": SERVER + "/pc?code=ABCD-1234", "interval": 5, "expires_in": 600}
+            self.started = agents.login_start(self.a, label=body.get("pc_label"), replaces=body.get("replaces"))
+            page = SERVER + "/pc"
+            return {"device_code": self.started.device_code, "user_code": self.started.user_code, "verification_uri": page,
+                    "verification_uri_complete": f"{page}?code={self.started.user_code}", "interval": self.started.interval,
+                    "expires_in": self.started.expires_in}
         if self.waits:
             return {"error": self.waits.pop(0)}
-        if self.final:
-            return {"error": self.final}
-        got = self.issue(uuid.UUID(body["replaces"]) if body.get("replaces") else None)
+        code = self.started.user_code
+        self.a.in_tenant(OPERATOR, self.tenant, lambda tx: agents.login_decide(tx, code, approve=self.final != "access_denied"))
+        state, got = agents.login_take(self.a, body["device_code"])
+        if got is None:
+            return {"error": state}
         return {"tenant_id": str(got.tenant_id), "pc": str(got.pc_id), "token": got.token}
 
 
@@ -57,7 +65,6 @@ class Login(unittest.TestCase):
         self.w = World()
         self.a = app_access()
         self.t = self.w.tenant()
-        self.issue = lambda replaces: agents.issue(self.a, SYSTEM, self.t, label="試験のPC", replaces=replaces)
         self.dir = Path(tempfile.mkdtemp(prefix="salescall-pc-"))
 
     def run_login(self, server, previous=None):
@@ -70,10 +77,11 @@ class Login(unittest.TestCase):
         return self.a.in_system(SYSTEM, lambda tx: agents.identify(tx, token))
 
     def test_the_pc_logs_in_through_the_browser_and_keeps_the_pass(self):
-        server = FakeServer(self.issue)
+        server = FakeServer(self.a, self.t)
         got, said, opened, clock = self.run_login(server)
-        self.assertEqual(opened, [SERVER + "/pc?code=ABCD-1234"])                 # ブラウザでログインのページを開く
-        self.assertIn("ABCD-1234", said[0])                                       # 確かめのコードを見せる
+        code = server.started.user_code
+        self.assertEqual(opened, [SERVER + "/pc?code=" + code])                   # ブラウザでログインのページを開く
+        self.assertIn(code, said[0])                                              # 確かめのコードを見せる
         self.assertEqual(clock.slept, [5, 5, 10])                                 # 「遅く」と言われたら間を延ばす
         self.assertEqual(got.tenant_id, self.t)
         self.assertNotIn(got.token, repr(got) + "".join(said))                   # 通行証は見せない
@@ -83,8 +91,10 @@ class Login(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)          # 本人だけが読める
         kept = pc_login.load(path)
         self.assertEqual(kept, got)
-        self.assertEqual(self.who(kept.token), agents.Who(self.t, kept.pc_id, "試験のPC"))   # サーバーが PC を決められる
-        again, *_ = self.run_login(FakeServer(self.issue, waits=()), previous=kept)   # ログインし直す：前の PC の番号を渡す
+        self.assertEqual(self.who(kept.token), agents.Who(self.t, kept.pc_id, socket.gethostname()))   # サーバーが PC を決められる
+        server = FakeServer(self.a, self.t, waits=())
+        again, *_ = self.run_login(server, previous=kept)                        # ログインし直す：前の PC の番号を、始めるときに渡す
+        self.assertEqual([b.get("replaces") for _, b in server.calls], [str(kept.pc_id), None])
         self.assertNotEqual(again.pc_id, kept.pc_id)
         self.assertIsNone(self.who(kept.token))                                  # 前の通行証は止まる
         self.assertTrue(pc_login.logout(path))
@@ -94,17 +104,17 @@ class Login(unittest.TestCase):
 
     def test_refusals_timeouts_and_plain_http_are_failures(self):
         with self.assertRaises(pc_login.LoginFailed):
-            self.run_login(FakeServer(self.issue, waits=(), final="access_denied"))
+            self.run_login(FakeServer(self.a, self.t, waits=(), final="access_denied"))
         with self.assertRaises(pc_login.LoginFailed):                            # 期限まで待っても済まない
-            self.run_login(FakeServer(self.issue, waits=["authorization_pending"] * 500))
+            self.run_login(FakeServer(self.a, self.t, waits=["authorization_pending"] * 500))
         broken = lambda url, body: {"error": "server_error"} if url.endswith(pc_login.START) else {}   # noqa: E731
         with self.assertRaises(pc_login.LoginFailed):                            # 答えの形が違っても、PC の部品を終わらせない
             self.run_login(broken)
-        half = FakeServer(self.issue, waits=())
+        half = FakeServer(self.a, self.t, waits=())
         with self.assertRaises(pc_login.LoginFailed):
             self.run_login(lambda url, body: half(url, body) if url.endswith(pc_login.START) else {"pc": "x"})
         with self.assertRaises(pc_login.LoginFailed):                            # 通行証を運ぶので https だけ
-            pc_login.login("http://salescall.example.invalid", post=FakeServer(self.issue))
+            pc_login.login("http://salescall.example.invalid", post=FakeServer(self.a, self.t))
 
 
 class Automatic(unittest.TestCase):

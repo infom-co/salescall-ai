@@ -134,6 +134,12 @@ class Stages(Base):
         self.assertIsNotNone(self.tx(s, lambda tx: quality_stage.current(tx, newer["version"])))   # 待っていた版も始めた
         self.assertEqual(self.tx(s, quality_stage.release_production), [])       # 1回だけ
         self.assertIsInstance(self.claim(Base.second_row(self, s)), gate.Claim)   # 業務はまたかけられる（本番なので承認は要らない）
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.allowance(tx, s["version"])), (True, None))   # 本番：止まった版でもかける
+        # 検証モードに戻したら、止まった版そのものは、まだかけない（止まった版そのものでは再開しない＝2026-10-16。⛔ 2026-11-18 の7回目の見直しまで：
+        # 模擬通話なしでそのまま再開した）。止まっていたあいだに割り当てた新しい版は、かけられる
+        self.put_client(s, "approval.human", True)
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.allowance(tx, s["version"])), (False, "version_not_ready"))
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.allowance(tx, newer["version"])), (True, None))
 
     def test_a_copy_of_the_stopped_version_is_the_stopped_version(self):
         """止まった版の写し（以前の版へ戻す・手で前の版に戻す＝business_settings.save_from）も、止まった版そのもの（中身が同じ）：模擬通話に

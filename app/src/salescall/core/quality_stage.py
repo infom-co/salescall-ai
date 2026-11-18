@@ -87,9 +87,14 @@ def _verification(tx: Tx, version_id: UUID) -> bool:
 
 
 def allowance(tx: Tx, version_id: UUID) -> tuple[bool, str | None]:
-    """その版で、いま新しく予約してよいか（よい, 理由の名前）。理由：version_not_ready・stage_full。"""
+    """その版で、いま新しく予約してよいか（よい, 理由の名前）。理由：version_not_ready・stage_full。
+    検証モードの業務で、本番への切り替えで品質の停止を解いた、止まった版そのもの（写しも）は、まだかけられない（version_not_ready。止まった版そのものでは
+    再開しない＝2026-10-16 ユーザー決定。新しい版が模擬通話に合格して再開する。`_released_stopped`）。⛔ 2026-11-18 の7回目の見直しまで：本番に切り替えて
+    解いたあと検証モードに戻すと、止まった版が模擬通話なしでそのまま再開した。"""
     stage = current(tx, version_id)
     if stage is None:
+        return False, "version_not_ready"
+    if _verification(tx, version_id) and _released_stopped(tx, version_id):
         return False, "version_not_ready"
     if stage["cap"] is not None and _verification(tx, version_id) and used(tx, version_id) >= stage["cap"]:
         return False, "stage_full"
@@ -327,6 +332,18 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
 
 
 OUT_OF_VERIFICATION = "本番の業務は品質では止めない（原則9：品質の門と段階的な立ち上げは、検証モードの業務だけ）"
+
+
+def _released_stopped(tx: Tx, version_id: UUID) -> bool:
+    """その版が、本番への切り替えで品質の停止を解いた（`release_production`）、止まった版そのもの（写しの元をたどった、中身の同じいちばん元の版＝
+    salescall.version_copy_root で比べる。`_stopped_version` と同じ比べ方）か（1か所。`allowance` が読む）。判定できないで止めた停止は当てはまらない
+    （原因が業務設定とは限らないので、同じ版でも再開する＝`_stopped_version` と同じ）。"""
+    return tx.one(
+        "SELECT EXISTS (SELECT 1 FROM salescall.quality_evaluations q JOIN salescall.stop_events s ON s.event_id = q.stop_event_id"
+        "               JOIN salescall.stop_events r ON r.resolves_event_id = s.event_id AND r.reason = %s"
+        "               WHERE s.cause::text <> 'judge_unknown'"
+        "                 AND salescall.version_copy_root(q.version_id) = salescall.version_copy_root(%s)) AS x",
+        (OUT_OF_VERIFICATION, version_id))["x"]
 
 
 def release_production(tx: Tx) -> list[int]:
