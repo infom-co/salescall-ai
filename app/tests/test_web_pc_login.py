@@ -73,6 +73,15 @@ class PcLogin(unittest.TestCase):
         got = [own.post("/pc-login/start", json={"pc_label": "架空の PC"}).status_code for _ in range(12)]
         self.assertIn(429, got)                                                  # ログイン不要の入口なので、同じ所から続けたら断る
 
+    def test_behind_the_proxy_each_pc_is_counted_by_its_own_address(self):
+        own = TestClient(create_app(app_access(), lambda r: None, SECRET, client_ip_header="fly-client-ip"), base_url="https://testserver")
+        apart = [own.post("/pc-login/start", json={"pc_label": "架空の PC"}, headers={"fly-client-ip": f"192.0.2.{n}"}).status_code
+                 for n in range(12)]
+        self.assertNotIn(429, apart)                                             # 中継の住所1つにまとめて数えない
+        same = [own.post("/pc-login/start", json={"pc_label": "架空の PC"}, headers={"fly-client-ip": "192.0.2.200"}).status_code
+                for _ in range(12)]
+        self.assertIn(429, same)
+
     def test_the_approval_page_needs_a_login(self):
         r = self.http.get("/pc-login?code=BCDF-GHJK", follow_redirects=False)
         self.assertEqual((r.status_code, r.headers["location"]), (303, "/login"))

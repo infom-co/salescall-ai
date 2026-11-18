@@ -67,6 +67,22 @@ class NothingBreaks(_World):
         self.assertEqual(_yen(Decimal("12.50"), unit_price=True), "12.5円")
         self.assertEqual(_yen(Decimal("NaN")), "—")
 
+    def test_the_inbox_order_keeps_the_time_difference(self):
+        from datetime import datetime, timedelta, timezone
+        from salescall.web import inbox
+        japan = timezone(timedelta(hours=9))
+        early = inbox.Item("x", {}, "早い", "", at=datetime(2026, 11, 18, 10, 0, tzinfo=japan))       # 世界の時刻で 1時
+        late = inbox.Item("x", {}, "遅い", "", at=datetime(2026, 11, 18, 2, 0, tzinfo=timezone.utc))
+        self.assertEqual([i.title for i in inbox.ordered([late, early])], ["早い", "遅い"])
+
+    def test_every_table_scrolls_inside_its_own_frame(self):
+        """表は必ず横に送る枠の中（スマホの幅で画面ごと横にはみ出さない）。ひな形を足しても、この試験が見る。"""
+        for f in TEMPLATES.glob("*.html"):
+            text = f.read_text(encoding="utf-8")
+            for m in re.finditer(r'<table class="list', text):
+                with self.subTest(template=f.name, at=m.start()):
+                    self.assertRegex(text[max(0, m.start() - 80):m.start()], r'<div class="table-scroll"[^>]*>\s*$')
+
 
 if __name__ == "__main__":
     unittest.main()

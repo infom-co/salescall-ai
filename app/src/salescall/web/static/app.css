@@ -4,7 +4,7 @@
 :root {
   --bg: #F6F7F9; --surface: #FFFFFF; --surface-2: #F1F3F6; --text: #1B1F27; --muted: #5B6472; --line: #E3E6EB;
   --primary: #3B4CCA; --primary-ink: #FFFFFF; --primary-soft: #EEF0FD;
-  --stop: #C42B2B; --stop-soft: #FDECEC; --wait: #B45309; --wait-soft: #FEF3E2;
+  --stop: #C42B2B; --stop-ink: #FFFFFF; --stop-soft: #FDECEC; --wait: #B45309; --wait-soft: #FEF3E2;
   --ok: #1F7A4D; --ok-soft: #E7F5EE; --info: #1D6FB8; --info-soft: #E8F2FC;
   --radius: 10px; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
   --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
@@ -14,7 +14,7 @@
   :root {
     --bg: #0F1115; --surface: #171A21; --surface-2: #1E222B; --text: #E7E9EE; --muted: #9AA3B2; --line: #2A2F3A;
     --primary: #8B98FF; --primary-ink: #0F1115; --primary-soft: #232849;
-    --stop: #FF7B7B; --stop-soft: #3A1E22; --wait: #F5B451; --wait-soft: #3A2C17;
+    --stop: #FF7B7B; --stop-ink: #2A0B0B; --stop-soft: #3A1E22; --wait: #F5B451; --wait-soft: #3A2C17;
     --ok: #5FD39A; --ok-soft: #173126; --info: #6CB6FF; --info-soft: #172A3D;
     --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
   }
@@ -29,6 +29,7 @@ h1 { font-size: 22px; line-height: 1.4; margin: 0 0 4px; font-weight: 700; lette
 h2 { font-size: 16px; margin: 0 0 12px; font-weight: 700; }
 h3 { font-size: 14px; margin: 0 0 8px; font-weight: 700; color: var(--muted); }
 .num { font-variant-numeric: tabular-nums; }
+.tel { font-variant-numeric: tabular-nums; white-space: nowrap; }   /* 電話番号：数字の幅はそろえるが、数量ではないので左寄せ（見出しとそろえる） */
 .muted { color: var(--muted); }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
 
@@ -149,7 +150,7 @@ table.list thead th:first-child { border-top-left-radius: var(--radius); }
 table.list thead th:last-child { border-top-right-radius: var(--radius); }
 table.list tbody tr:last-child td:first-child { border-bottom-left-radius: var(--radius); }
 table.list tbody tr:last-child td:last-child { border-bottom-right-radius: var(--radius); }
-table.list th { position: sticky; top: 56px; background: var(--surface-2); color: var(--muted); font-weight: 600; text-align: left;
+table.list th { background: var(--surface-2); color: var(--muted); font-weight: 600; text-align: left;
                 padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.list td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle;
                 word-break: keep-all; overflow-wrap: anywhere; }   /* 日本語は語の途中で折らない（「株 / 式会社」を防ぐ） */
@@ -158,15 +159,16 @@ table.list tr:last-child td { border-bottom: 0; }
 table.list tbody tr:hover td { background: color-mix(in srgb, var(--primary) 4%, transparent); }
 table.list td.num, table.list th.num { text-align: right; }
 
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 8px;
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 6px 16px; border-radius: 8px;
+       text-align: center; line-height: 1.4;   /* 長い文（名前つきの確かめ）は折り返し、ボタンの高さが伸びる */
        font: inherit; font-weight: 700; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--text); }
 .btn:hover { background: var(--surface-2); text-decoration: none; }
 .btn.main { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
 .btn.main:hover { filter: brightness(1.06); }
-.btn.danger { background: var(--stop); border-color: var(--stop); color: #fff; }
+.btn.danger { background: var(--stop); border-color: var(--stop); color: var(--stop-ink); }   /* 暗い表示では明るい赤に濃い字（読める差） */
 .btn.danger-line { color: var(--stop); border-color: color-mix(in srgb, var(--stop) 45%, transparent); }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
-.btn.small { height: 30px; padding: 0 12px; font-size: 13px; }
+.btn.small { min-height: 30px; padding: 4px 12px; font-size: 13px; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 
 textarea, select, input[type="text"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit;
@@ -252,9 +254,9 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .top { gap: 8px; padding: 0 10px; }
 }
 .question label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
-.fix-card { scroll-margin-top: 120px; }
+.fix-card { scroll-margin-top: calc(var(--chrome, 108px) + 12px); }
 /* お客様リストのレ点と一括の印 */
-.bulk { position: sticky; top: 108px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; margin-bottom: 12px; }
+.bulk { position: sticky; top: var(--chrome, 108px); z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; margin-bottom: 12px; }
 .bulk select, .bulk input[type=text], .inline-mark select, .inline-mark input[type=text] { height: 34px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--surface); color: var(--text); font: inherit; padding: 0 8px; }
 .bulk input[type=text] { flex: 1; min-width: 180px; }
@@ -266,8 +268,8 @@ tr.excluded td { color: var(--muted); }
 .inline-mark input[type=text] { flex: 1; min-width: 140px; }
 .bulk select { width: auto; flex: 0 0 auto; }
 .table-scroll { overflow-x: auto; border-radius: var(--radius); }
-.table-scroll > table.list { min-width: 100%; }
-.table-scroll table.list thead th { position: static; }
+.table-scroll > table.list { width: max-content; min-width: 100%; }   /* 欄は中身の幅を保ち（押しつぶして1字ずつ折らない）、表ごと横に送る */
+.table-scroll > table.list td { max-width: 28em; }                     /* 長い文の欄だけ、この幅で折り返す */
 table.list td.co, table.list th.co { min-width: 10em; }
 table.list td.person, table.list th.person { min-width: 8em; }
 /* 取込 */
@@ -309,7 +311,8 @@ details.setting > summary::-webkit-details-marker { display: none; }
 details.setting[open] > summary { border-bottom: 1px solid var(--line); }
 details.setting.own { border-left: 4px solid var(--info); }
 details.setting .meaning { flex: 1 1 420px; }
-details.setting .now { white-space: nowrap; }
+details.setting .now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }   /* 長い値（曜日ごとの時間帯など）は折り返す */
+details.setting .now b, details.setting .now .tag { overflow-wrap: anywhere; white-space: normal; }   /* 長い札（仮の値・見直す時）も折り返す */
 .setting-form { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 8px; }
 .setting-form input[type=text], .setting-form select { max-width: 420px; }
 .unit-input { display: flex; align-items: center; gap: 8px; } .unit-input input { max-width: 160px; }

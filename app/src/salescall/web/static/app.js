@@ -1,5 +1,20 @@
 // 画面の小さな動き（docs/DASHBOARD.md 7-5・7-6）。データは読まない・決めない。
 (function () {
+  // 上に留まる飾り（上の帯とタブ）の高さを1か所で測り、--chrome に入れる（タブが1段か2段か・スマホで折り返すかで変わる）。
+  // 上に留まるほかのもの（まとめての「かけない」の帯・飛び先の余白）は、この高さの下に置く（重ねて隠さない）。
+  function measure() {
+    var h = 0;
+    document.querySelectorAll(".top, .tabs").forEach(function (el) {
+      if (getComputedStyle(el).position === "sticky") h += el.getBoundingClientRect().height;
+    });
+    document.documentElement.style.setProperty("--chrome", Math.round(h) + "px");
+  }
+  window.addEventListener("resize", measure);
+  document.addEventListener("DOMContentLoaded", measure);
+  if (window.ResizeObserver) document.addEventListener("DOMContentLoaded", function () {
+    var ro = new ResizeObserver(measure);
+    document.querySelectorAll(".top, .tabs").forEach(function (el) { ro.observe(el); });
+  });
   // 依頼者を名前で探す欄の絞り込み（英字は大文字・小文字を問わない）。Enter で、いちばん上に残った依頼者を開く
   function visible(input) {
     return Array.prototype.filter.call(document.querySelectorAll(input.getAttribute("data-filter")),

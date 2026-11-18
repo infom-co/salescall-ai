@@ -8,7 +8,7 @@
 <div class="title-row"><h1>依頼者へ渡す内容の見本</h1>
   <span class="btn-row"><a class="btn" href="{{ rbase }}/results.csv">確かめるために書き出す（CSV）</a>
   <form method="post" action="{{ rbase }}/results.csv" data-download>{{ csrf(token) }}<button class="btn main" type="submit" {% if leak or not rows %}disabled{% endif %}>依頼者「{{ client.name }}」へ渡すファイルとして書き出す（{{ rows|length }}行・控えを残す）</button></form></span></div>
-<p class="lead">書き出すファイルと同じ中身です。確定した結果だけで、判定待ちの行は出しません。⏳ 質問ごとの答えの列は、書き方が決まってから足します。</p>
+<p class="lead">書き出すファイルと同じ中身です。確定した結果だけで、判定待ちの行は出しません。質問ごとの答えの列は、書き方が決まってから足します。</p>
 {% if leak %}<div class="flash ng" role="alert">{{ leak }}</div>{% endif %}
 {% if rows %}
 <div class="table-scroll"><table class="list">

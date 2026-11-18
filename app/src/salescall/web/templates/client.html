@@ -80,7 +80,7 @@
 {% endif %}
 </div>
 {% if runs %}
-<table class="list">
+<div class="table-scroll"><table class="list">
   <thead><tr><th>実施回</th>{% if not business %}<th>業務</th>{% endif %}<th></th></tr></thead>
   <tbody>
   {% for r in runs %}
@@ -91,7 +91,7 @@
     </tr>
   {% endfor %}
   </tbody>
-</table>
+</table></div>
 {% else %}
 <div class="card">{{ empty("実施回はまだありません", "業務を作り、お客様リストを取り込むと、ここに出ます。") }}</div>
 {% endif %}

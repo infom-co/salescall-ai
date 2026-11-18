@@ -7,7 +7,7 @@
 <p class="lead">自動で解けるものは、システムが確かめて解きます。開くと、何で止まったかと、解く前に確かめることが出ます。</p>
 {{ flash(done, ok) }}
 {% if stops %}
-<table class="list">
+<div class="table-scroll"><table class="list">
   <thead><tr><th>原因</th><th>範囲</th><th>いつから</th><th class="wide">理由</th><th></th></tr></thead>
   <tbody>
   {% for s in stops %}
@@ -20,7 +20,7 @@
     </tr>
   {% endfor %}
   </tbody>
-</table>
+</table></div>
 {% else %}
 <div class="card">{{ empty("止まっているものはありません", "電話はふだんどおり進んでいます。") }}</div>
 {% endif %}

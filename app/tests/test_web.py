@@ -577,7 +577,17 @@ class AdminSeesEverything(_World):
     def fresh(self):
         def identify(request):
             return self.people.get(request.headers.get("x-test-person", ""))
-        return TestClient(create_app(app_access(), identify, SECRET))
+        return TestClient(create_app(app_access(), identify, SECRET), base_url="https://testserver")   # クッキーは https だけで送る
+
+    def test_the_choice_cookie_is_https_only_and_not_for_scripts(self):
+        http = self.fresh()
+        tok = re.search(r'<meta name="form-token" content="([^"]+)"', http.get("/t", headers={"x-test-person": "ADMIN"}).text).group(1)
+        r = http.post("/admin/acting", data={"tenant_id": str(self.b["tenant"]), "form_token": tok},
+                      headers={"x-test-person": "ADMIN"}, follow_redirects=False)
+        cookie = r.headers["set-cookie"].lower()
+        for part in ("secure", "httponly", "samesite=strict"):
+            self.assertIn(part, cookie)
+        http.post("/admin/acting", data={"tenant_id": "", "form_token": tok}, headers={"x-test-person": "ADMIN"})
 
     def test_a_fixed_request_waits_for_the_admin_only_and_the_admin_approves_it(self):   # 修正依頼の承認（全体の範囲）
         from salescall.core import fix_requests

@@ -19,13 +19,13 @@
   {{ csrf(token) }}
   <h2>名前の読みを確かめてください（検証モードの業務）</h2>
   <p class="muted">AI が決めた読みです。違っていれば直してから「読みを確かめた」を押してください。</p>
-  <table class="list"><thead><tr><th>名前</th><th>読み</th><th class="wide">行</th></tr></thead><tbody>
+  <div class="table-scroll"><table class="list"><thead><tr><th>名前</th><th>読み</th><th class="wide">行</th></tr></thead><tbody>
   {% for c in plan.to_confirm %}
     <tr><td><input type="hidden" name="name_{{ loop.index }}" value="{{ c.text }}">{{ c.text }}</td>
         <td><input type="text" name="reading_{{ loop.index }}" value="{{ c.reading }}" aria-label="{{ c.text }}の読み"></td>
         <td class="wide muted">{{ c.rows|join("・") }}</td></tr>
   {% endfor %}
-  </tbody></table>
+  </tbody></table></div>
   <div class="actions"><button class="btn" type="submit">読みを確かめた（もう一度結果を出す）</button></div>
 </form>
 {% endif %}

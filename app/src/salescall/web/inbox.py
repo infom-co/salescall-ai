@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -391,9 +391,9 @@ def perform(tx: Tx, kind_name: str, action: str, sent: dict[str, str], where: st
 
 def ordered(items: list[Item]) -> list[Item]:
     """並べ方の1か所：緊急 → 期限が近い → 古い。"""
-    far = datetime.max.replace(tzinfo=None)
-    def key(i: Item) -> tuple[bool, Any, Any]:
-        d = i.deadline.replace(tzinfo=None) if i.deadline else far
-        a = i.at.replace(tzinfo=None) if i.at else far
-        return (not i.urgent, d, a)
-    return sorted(items, key=key)
+    far = datetime.max.replace(tzinfo=timezone.utc)
+    def utc(t: datetime | None) -> datetime:   # 時差のある時刻どうしも同じ物差しで比べる（時差を捨てない）
+        if t is None:
+            return far
+        return t.astimezone(timezone.utc) if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    return sorted(items, key=lambda i: (not i.urgent, utc(i.deadline), utc(i.at)))

@@ -104,7 +104,7 @@
 
 <h2 style="margin-top:28px">電話の記録</h2>
 {% if calls %}
-<table class="list">
+<div class="table-scroll"><table class="list">
   <thead><tr><th>かけた時刻</th><th>どうなったか</th><th class="wide">途中で終えた理由</th></tr></thead>
   <tbody>
   {% for c in calls %}
@@ -115,7 +115,7 @@
     </tr>
   {% endfor %}
   </tbody>
-</table>
+</table></div>
 {% else %}
 <div class="card">{{ empty("まだ電話をかけていません") }}</div>
 {% endif %}

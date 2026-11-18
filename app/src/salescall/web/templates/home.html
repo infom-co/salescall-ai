@@ -26,7 +26,7 @@
 
 <h2 style="margin-top:28px">依頼者ごと</h2>
 {% if per_client %}
-<table class="list">
+<div class="table-scroll"><table class="list">
   <thead><tr><th>依頼者</th><th class="num">今日かけた</th><th class="num">かけ直し待ち</th><th class="num">判定待ち</th><th class="num">済み</th><th class="num wide">これから</th><th class="num">承認待ち</th></tr></thead>
   <tbody>
   {% for c in per_client %}
@@ -41,7 +41,7 @@
     </tr>
   {% endfor %}
   </tbody>
-</table>
+</table></div>
 {% else %}
 <div class="card">{{ empty("依頼者はまだいません", "依頼者を作ると、ここに今日の数が出ます。") }}</div>
 {% endif %}

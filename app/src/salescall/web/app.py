@@ -5,6 +5,9 @@
 - identify：ログインを確かめる関数（要求 → ログインした人か None）。⏳ 利用者の表は CL-2 に頼んでいる。無い間は、画面は動かさない
   （確かめずに通す既定の形を作らない）。試験は、架空の人を返す関数を渡す。
 - secret：画面の札（なりすましの送信の確かめ）に使う秘密。値を git・画面・記録に出さない。
+- client_ip_header：前に置いた中継（Fly.io の受け口）が、元の相手の住所を入れる見出しの名前（Fly.io なら "fly-client-ip"）。中継の後ろで
+  動かすときだけ渡す（中継が無いのに渡すと、相手が見出しを偽れる）。渡さなければ、つないできた相手の住所。
+- secure_cookies：クッキーを https のときだけ送る印を付ける（本番は必ず True。既定も True）。
 
 住所の決まり（docs/DASHBOARD.md 2-1・2-2）：全体は /t/...、依頼者の中は /c/{依頼者ID}/...、業務の中は /c/{依頼者ID}/b/{業務ID}/...、
 管理者の場所は /admin/...。
@@ -107,7 +110,8 @@ def _templates() -> Jinja2Templates:
     return t
 
 
-def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
+def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_header: str | None = None,
+               secure_cookies: bool = True) -> FastAPI:
     if not secret:
         raise ValueError("画面の秘密（secret）が空です")
     app = FastAPI(title="SalesCall ダッシュボード", docs_url=None, redoc_url=None, openapi_url=None)
@@ -182,7 +186,8 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 chosen = UUID(raw)
             except ValueError:
                 return problem(request, 404, "見つかりません", "住所を確かめてください。")
-            resp.set_cookie(ACTING_COOKIE, actions.sign_choice(secret, person.login_id, chosen), httponly=True, samesite="strict")
+            resp.set_cookie(ACTING_COOKIE, actions.sign_choice(secret, person.login_id, chosen), httponly=True, samesite="strict",
+                            secure=secure_cookies)
         else:
             resp.delete_cookie(ACTING_COOKIE)
         return resp
@@ -483,7 +488,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     @app.post("/pc-login/start")
     async def pc_login_start(request: Request) -> JSONResponse:
         """PC がログインを始める（ログイン不要）。確かめのコードと、契約者が開くページを返す。"""
-        where = request.client.host if request.client else "?"
+        where = (request.headers.get(client_ip_header) if client_ip_header else None) or (request.client.host if request.client else "?")
         if _too_many(where):
             return JSONResponse({"error": "slow_down"}, status_code=429)
         body = await _json(request)

@@ -30,10 +30,10 @@
     <p>{{ x.cause.auto_resume }}</p>
     {% if x.checks %}
     <h3>確かめの記録</h3>
-    <table class="list"><thead><tr><th>時刻</th><th>結果</th><th class="num">続けて成功</th><th>次に確かめる</th></tr></thead><tbody>
+    <div class="table-scroll"><table class="list"><thead><tr><th>時刻</th><th>結果</th><th class="num">続けて成功</th><th>次に確かめる</th></tr></thead><tbody>
     {% for c in x.checks %}<tr><td class="num">{{ time(c.checked_at) }}</td><td>{{ tag("通った", "ok") if c.ok else tag("通らなかった", "stop") }}</td>
       <td class="num">{{ c.streak }}</td><td class="num">{{ time(c.next_check_at) }}</td></tr>{% endfor %}
-    </tbody></table>
+    </tbody></table></div>
     {% endif %}
   </section>
   <section class="card">
@@ -46,18 +46,18 @@
 {% if x.ai_troubles %}
 <section class="card" style="margin-top:16px">
   <h2>止まった AI</h2>
-  <table class="list"><thead><tr><th>どこで</th><th>AI</th><th>何が</th><th>時刻</th></tr></thead><tbody>
+  <div class="table-scroll"><table class="list"><thead><tr><th>どこで</th><th>AI</th><th>何が</th><th>時刻</th></tr></thead><tbody>
   {% for t in x.ai_troubles %}<tr><td>{{ words.ai_trouble_stage(t.stage) }}</td><td>{{ t.ai }}</td><td>{{ t.what }}</td><td class="num">{{ time(t.noted_at) }}</td></tr>{% endfor %}
-  </tbody></table>
+  </tbody></table></div>
 </section>
 {% endif %}
 
 {% if x.errors %}
 <section class="card" style="margin-top:16px">
   <h2>数えたエラー</h2>
-  <table class="list"><thead><tr><th>意味</th><th class="wide">出どころ</th></tr></thead><tbody>
+  <div class="table-scroll"><table class="list"><thead><tr><th>意味</th><th class="wide">出どころ</th></tr></thead><tbody>
   {% for e in x.errors %}<tr><td>{{ e.meaning }}</td><td class="wide">{{ e.origin or "" }}</td></tr>{% endfor %}
-  </tbody></table>
+  </tbody></table></div>
 </section>
 {% endif %}
 
