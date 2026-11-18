@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 from salescall.core import access as access_layer
 from salescall.core import calling_hours, customer_rows, phone, stops
 from salescall.core.access import Access
-from salescall.output import words
+from salescall.output import notices, words
 from salescall.web import actions, counts, inbox
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
@@ -210,14 +210,14 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         return _stop_resume(request, event_id, client_id, dict(await request.form()))
 
     @app.get("/t/notices")
-    def notices(request: Request) -> HTMLResponse:
+    def notices_page(request: Request) -> HTMLResponse:
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             rows = ctx.tenant(lambda tx: tx.all(
                 "SELECT e.event_id, e.client_id, e.kind, e.summary, e.occurred_at, e.urgent, e.for_admin,"
-                "       (SELECT string_agg(DISTINCT d.channel || ':' || d.status, ',') FROM salescall.notification_deliveries d"
-                "         WHERE d.event_id = e.event_id) AS sent"
+                "       ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
                 " FROM salescall.notification_events e ORDER BY e.urgent DESC, e.occurred_at DESC, e.event_id DESC LIMIT 200"))
-            return page(request, "notices.html", person, ctx, rows=rows)
+            rows = [{**r, "state": notices.delivery_state(r["statuses"])} for r in rows]
+            return page(request, "notices.html", person, ctx, rows=rows, state_words=notices.STATE_WORDS)
         return handle(request, render)
 
     # ── 依頼者 ─────────────────────────────────────────────

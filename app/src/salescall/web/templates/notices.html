@@ -15,7 +15,7 @@
       <td>{{ tag(words.notice_kind(r.kind), "stop" if r.urgent else "info") }}</td>
       <td>{{ r.summary }}</td>
       <td class="num wide">{{ time(r.occurred_at) }}</td>
-      <td class="wide">{% if r.sent and "failed" in r.sent %}{{ tag("送れていません", "stop") }}{% elif r.sent %}{{ tag("送りました", "ok") }}{% else %}<span class="muted">まだ</span>{% endif %}</td>
+      <td class="wide">{{ tag(state_words[r.state], {"sent": "ok", "gave_up": "stop", "trying": "wait"}.get(r.state, "")) }}</td>
     </tr>
     {% endif %}
   {% endfor %}
