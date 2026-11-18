@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import argparse
 import collections
+import functools
 import json
 from pathlib import Path
 
 import g59_calling_judge as g
-from flowctl import END, END_REASON, HANDOVER, TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, Limits, facts_reading
+from flowctl import TARGET_IS_THERE, Limits, facts_reading
 
 RESULTS = Path(__file__).parent / "results"
 HARD = {"取り次ぎのあと", "後任の方"}
@@ -38,46 +39,92 @@ def current() -> dict:
     return {(t, b, a is not None, s): (acc, f) for t, acc, b, a, s, f in g.cases("確かめる一言")}
 
 
-def flow_flags(f: dict, r: dict) -> tuple:
-    """項目ごとの答え f で、行 r の場面の流れの制御がどう動くか（読み・不在・電話を代わった方・後任の方の印・電話を終える言葉か）。2つの答えの印が
-    同じなら、流れの制御の動きも同じ（flow_ok と、判定どうしのそろいを数える agree の両方が使う1か所）。電話を代わった方の印は、流れの制御が
-    使うときだけ持つ（Flow._new_speaker：確かめる一言を聞いた方の返事・取り次ぎの言葉のあとの言葉では使わない＝g.HELD_BEFORE）。
-    電話を終える言葉か（END）：判定が電話を終える言葉（締める・急いでいる方への伺い・お礼の締め・確かめの一言・お呼びし直し）か「決められない」と
-    読めば、流れの制御は会話AIのどの報告より先に、その読みで次の動きを決める（Flow._end_due_now。お呼びする段では _topic_first は働かない）
-    ＝(END, その読み) だけを返す（その発話の目的のお客様の読みは、その一手に効かない）。「言っていない」・項目を足す前の記録（None）は、目的の
-    お客様の読みで決まる。⛔ 2026-11-05 に足した：11-01 に項目を足したとき、答えの段の数え（いまの g53_meaning.flow_miss の中）には入れたが、ここには入れず、
-    この項目の外れを「項目だけ」と数えていた。
-    こちらの声が届いていない様子か（HEAR）は、電話が切れたときの記録（Flow.cut）だけを変える＝ここでは数えない（g59_calling_judge が別に数える）。
-    尋ねているか（別の問い合わせ asks）は、流れの制御がほかのどの読みより先に当てる（Flow._asking_now：お客様の質問に先に答える）が、ここでは
-    数えず、g59_calling_judge の「尋ねているか」の数えに任せる＝質問の発話で目的のお客様・電話を終える読みが外れても、ここでは外れと数える
-    （本当は動きが変わらない＝多めに数える側。外れを見逃す側ではない）。"""
-    end = f.get(END)
-    if end in END_REASON or end == UNDECIDED:
-        return END, end
-    used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
-    value, away, new, succ = facts_reading(f, r["successor"])
-    if not used and value == HANDOVER:   # 印を使わない所では「代わった人が話し始めた」＝「別の方」と同じ動き（2026-10-30 に会話の試しで確かめた）
-        value = TARGET_IS_NOT
-    # 「決められない」の読みは、必ず確かめに回り、確かめたあとに、あいさつと名乗りから流す＝電話を代わった方の印は動きを変えない（同じ日に確かめた）
-    return value, away, new if used and value != UNDECIDED else None, succ
+# 外れの種類（flow_miss の1か所が返す名前）
+ALL_REPORTS = "どの報告でも動きが変わる"
+SOME_REPORTS = "報告で動きが変わる（(FN) の残り）"   # 会話AIの報告で、外れが動きを変えるかが変わる＝会話AIが判定に加わっている所（本番の穴）
+NO_SCENE = "場面を組めない（数えない）"
+UNREADABLE = "今の問いでは読めない読み（数えない）"   # 古い文で取った記録の、今の選べるものに無い答え（本番なら読みとして届かない）
+INCOMPLETE = "項目がそろわない"
 
 
-def flow_ok(got: dict, facts: dict, acc: list, r: dict) -> bool:
-    """流れの制御の動きが正解と同じか：組み合わせた読み（flowctl.facts_reading）が受け取ってよい読みに入り、印（不在・電話を代わった方・後任の方）も
-    正解の組み合わせのどれかと同じ（flow_flags）。項目だけの外れ（読みも印も変わらない）は、流れの制御の動きを変えない。電話を終える言葉か（END）が
-    読みに無い記録（項目を足す前）は、その項目を数えない（g59_calling_judge.facts_ok と同じ決まり）。"""
+@functools.cache
+def _hear_rows() -> frozenset:
+    return frozenset((t, a) for t, a, _ in g.lines_hear())
+
+
+def hear_only(r: dict) -> bool:
+    """聞こえ方だけを数える行（試しの言葉 G-73。ほかの項目は正解を付けていない＝流れの制御の動きは数えない＝g59_calling_judge の run の hear_only）。"""
+    return not r["before"] and not r["successor"] and (r["text"], bool(r["asked"])) in _hear_rows()
+
+
+def right_readings(got: dict, facts: dict) -> list[dict]:
+    """正解の項目ごとの答えの組み合わせの全部。項目を足す前の記録（got に無い、あとから足した項目 g.ADDED）は、その項目を読みに入れない
+    （g59_calling_judge.facts_ok と同じ決まり）。"""
     from itertools import product
-    facts = {k: v for k, v in facts.items() if k != END or END in got}
-    used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
-    keys = list(facts)
-    flags = [flow_flags(dict(zip(keys, c)), r) for c in product(*(facts[k] for k in keys))]
-    mine = flow_flags(got, r)
-    if mine[0] == END:   # 電話を終える読み（決められないも）が次の動きを決める：正解の組み合わせのどれかと同じ読みか
-        return mine in flags
-    want = {f[1:] for f in flags if f[0] != END}
-    value, *rest = mine
-    accepted = {TARGET_IS_NOT if not used and a == HANDOVER else a for a in acc}
-    return value in accepted and tuple(rest) in want
+    keys = [k for k in facts if not (k in g.ADDED and k not in got)]
+    return [dict(zip(keys, c)) for c in product(*(sorted(facts[k]) for k in keys))]
+
+
+def off_reports(got: dict, facts: dict, r: dict) -> list[str]:
+    """判定の読み got（項目ごとの答え）で、行 r の場面の本番の流れの制御の動きが、正しい読みの動きと違う会話AIの報告の名前の並び（唯一の比べ。同じなら空）。
+    行の場面を本番の流れの制御に組み（g59_flow_check.row_scene）、読みを本番と同じ入口で渡し、会話AIの報告（g59_flow_check.REPORTS＝ご本人・受付の方・
+    代理の方・代わった方・後任の方・報告なし）ごとに動きの名前（g59_flow_check.act_name）を比べる：その報告で、判定の読みの動きが正しい読みのどれかの
+    動きと同じなら同じ。場面を組めない行は g59_flow_check.NoScene・今の問いで読めない判定の読みは g59_flow_check.Unreadable を上げる（正解の読みが読めなければ
+    正解の表の誤り＝止める）。"""
+    import g59_flow_check as fc
+    try:
+        rights = [fc.calling_acts(r, c) for c in right_readings(got, facts)]
+    except fc.Unreadable as e:
+        raise ValueError(f"正解の表の読みが今の問いで読めない（{r['text']}）：{e}") from None
+    mine = fc.calling_acts(r, got)
+    # 正しい尋ねているかの読み（a）ごとに比べ、どれかで違えば、その報告は違う
+    return [name for i, (name, _) in enumerate(fc.REPORTS) if any(mine[a][i] not in {x[a][i] for x in rights} for a in range(len(mine)))]
+
+
+def flow_miss(got: dict, facts: dict, r: dict) -> str | None:
+    """判定の読み got で、行 r の場面の本番の流れの制御の動きが正しい読みの動きと違えば、その種類（唯一の数え。違わなければ None）：全部の報告で違う
+    （ALL_REPORTS）か、一部の報告で違う（SOME_REPORTS＋報告の名前＝会話AIの報告で外れが動きを変えるかが変わる＝会話AIが判定に加わっている所）。
+    報告ごとの比べは off_reports の1か所。場面を組めない行は NO_SCENE・今の問いで読めない読みは UNREADABLE。
+    ⛔ 2026-11-18（見直し (13) の持ち場 D の D1・D2）：それまでは流れの制御の決まりを手で写した印（flow_flags：読み・不在・電話を代わった方・後任の方・
+    電話を終える言葉か）で比べ、(D1) 前の言葉の無い「お電話代わりました。山本です。」を代理の方と読んだ外れ（本番は代理の方・後任の方の報告で動きが
+    変わる）を「項目だけ」と数え、(D2) 電話を終える言葉の読みを必ず「締める」と数えていた（本番は取り次ぎを待つ読みがあれば待つ）。"""
+    import g59_flow_check as fc
+    try:
+        off = off_reports(got, facts, r)
+    except fc.NoScene:
+        return NO_SCENE
+    except fc.Unreadable:
+        return UNREADABLE
+    if not off:
+        return None
+    return ALL_REPORTS if len(off) == len(fc.REPORTS) else f"{SOME_REPORTS}：{'・'.join(off)}"
+
+
+def flow_kind(got: dict | None, facts: dict, r: dict) -> str | None:
+    """1行の判定の読み got の、流れの制御の動きの外れの種類（同じなら None）：項目がそろわない（INCOMPLETE）・flow_miss の種類。聞こえ方だけを数える行は、
+    動きを数えない（None）。plan・agree・cascade・misses の1か所。"""
+    if not g.facts_whole(got, facts):
+        return INCOMPLETE
+    if hear_only(r):
+        return None
+    return flow_miss(got, facts, r)
+
+
+UNCOUNTED = (NO_SCENE, UNREADABLE)   # 流れの制御の動きを比べられない行（別に数えて出す＝黙って数えない形にしない）
+
+
+def moves(kind: str | None) -> bool:
+    """外れの種類が、流れの制御の動きを変える外れか（場面を組めない行・今の問いで読めない読みは、動きを数えない＝別に数える）。"""
+    return kind is not None and kind not in UNCOUNTED
+
+
+def same_moves(a: dict, b: dict, r: dict) -> bool:
+    """2つの判定の読みで、行 r の場面の流れの制御の動きが、どの報告でも同じか（判定どうしのそろいを数える agree）。場面を組めない行はそろわない。"""
+    import g59_flow_check as fc
+    try:
+        return fc.calling_acts(r, a) == fc.calling_acts(r, b)
+    except (fc.NoScene, fc.Unreadable):
+        return False
 
 
 def judged(r: dict, col: str) -> dict | None:
@@ -91,16 +138,19 @@ def judged(r: dict, col: str) -> dict | None:
 def misses(names: list[str]) -> None:
     table = current()
     for name in names:
-        for r in rows_of(name):
+        rows = rows_of(name)
+        if gone := [r for r in rows if key(r) not in table]:   # いまの正解の表に無い場面の行（前の言葉を直す前の記録＝D6 など）は数えない（cascade と同じ）
+            print(name, "｜いまの正解の表に無い行（数えない）：", len(gone))
+        for r in (r for r in rows if key(r) in table):
             acc, facts = table[key(r)]
             for col in ["jev"] if "jev" in r else [k[:-6] for k in r if k.endswith("_facts") and not k.endswith("_asks_facts")]:
                 got = judged(r, col) or {}
                 bad = {k: (got.get(k), sorted(v)) for k, v in facts.items() if got.get(k) not in v}
                 value = facts_reading(got, r["successor"])[0] if g.facts_whole(got, facts) else None
                 if bad or value not in acc:
-                    moved = not (g.facts_whole(got, facts) and flow_ok(got, facts, acc, r))
+                    kind = flow_kind(got, facts, r)
                     print(name, r.get("rep", ""), col, scene(r), r["text"], "｜前：", r["before"] or "", "｜外れ：", bad,
-                          "｜読み：", value, "○" if value in acc else "×", "｜流れの制御の動き：", "変わる" if moved else "同じ")
+                          "｜読み：", value, "○" if value in acc else "×", "｜流れの制御の動き：", kind or "同じ")
 
 
 def source(spec: str, col: str) -> tuple[str, str]:
@@ -123,7 +173,7 @@ def answer(r: dict, col: str) -> tuple[dict | None, float, float]:
 
 def plan(cheap: list[str], jev: list[str], group: str, line: float) -> None:
     """場面で選び分ける形：Jev の確からしさが線から上なら Jev、そうでなければ難しくない場面（呼ぶ一言への返事・確かめへの返事）は安い判定、難しい
-    場面（取り次ぎのあと・後任の方）は今の組。外れは、流れの制御の動きが変わるもの（flow_ok）と、項目だけのものを分けて、場面ごとに数える。
+    場面（取り次ぎのあと・後任の方）は今の組。外れは、流れの制御の動きが変わるもの（flow_kind）と、項目だけのものを分けて、場面ごとに数える。
     回りの数が違う答えは、言葉ごとに、多いほうの回りに合わせて少ないほうをくり返して組む（⛔ 2026-10-30：前は Jev だけに聞いた行の並びと、
     2つ目の判定の列しか読めず、外れも項目で数えていた）。"""
     table = current()
@@ -159,10 +209,13 @@ def plan(cheap: list[str], jev: list[str], group: str, line: float) -> None:
                 none[f"{who}・{sc}"] += 1
                 out.append((sc, who, jr["text"], jr["before"] or "", "答え無し"))
                 continue
-            if not flow_ok(got, facts, acc, jr):
+            kind = flow_kind(got, facts, jr)
+            if moves(kind):
                 moved[f"{who}・{sc}"] += 1
-                out.append((sc, who, jr["text"], jr["before"] or "", "動きが変わる",
+                out.append((sc, who, jr["text"], jr["before"] or "", kind,
                             {x: (got.get(x), sorted(v)) for x, v in facts.items() if got.get(x) not in v}))
+            elif kind in UNCOUNTED:
+                out.append((sc, who, jr["text"], jr["before"] or "", kind))
             elif not g.facts_ok(got, facts):
                 only[f"{who}・{sc}"] += 1
     print("決めた判定：", dict(by), "｜場面ごとの回：", dict(count))
@@ -176,7 +229,7 @@ def plan(cheap: list[str], jev: list[str], group: str, line: float) -> None:
 def agree(a_specs: list[str], b_specs: list[str], jev: list[str], group: str, line: float, sonnet_scenes: set[str]) -> None:
     """判定2つのそろいで決める形（✅ 2026-10-30 ユーザー：「考えない Sonnet の割合を下げながら、100％精度を出す組や仕組みを模索してください。」）：
     Jev の確からしさが線から上なら Jev。そうでなければ、sonnet_scenes の場面は今の組、ほかの場面は、安い判定 a と b（Jev と同時に出す）の流れの
-    制御の印（flow_flags）がそろえばその読み、そろわなければ今の組（a・b の両方を待ってから出す）。外れは流れの制御の動きで数え、2秒を超えた回は、
+    制御の動き（same_moves＝どの報告でも同じ動き）がそろえばその読み、そろわなければ今の組（a・b の両方を待ってから出す）。外れは流れの制御の動きで数え、2秒を超えた回は、
     正しい読みがご本人の回（繋ぐ前に判定を待ち、間に合わなければ確かめに回る）と、ほかの回に分ける（答えの段は遅れて当て直す＝Flow.hold_s）。"""
     table = current()
     def load(specs: list[str], col: str) -> dict:
@@ -203,16 +256,19 @@ def agree(a_specs: list[str], b_specs: list[str], jev: list[str], group: str, li
             else:
                 (a_got, _, a_s), (b_got, _, b_s) = answer(*ar[k][i % len(ar[k])]), answer(*br[k][i % len(br[k])])
                 both = max(a_s, b_s)
-                if g.facts_whole(a_got, facts) and g.facts_whole(b_got, facts) and flow_flags(a_got, jr) == flow_flags(b_got, jr):
+                if g.facts_whole(a_got, facts) and g.facts_whole(b_got, facts) and same_moves(a_got, b_got, jr):
                     who, got, s = "そろい", a_got, both
                 else:
                     who, got, s = "今の組（食い違い）", g_got, both + g_s
             by[who] += 1
             if s > 2.0:
                 late["ご本人の回" if TARGET_IS_THERE in acc else "ほかの回"] += 1
-            if not g.facts_whole(got, facts) or not flow_ok(got, facts, acc, jr):
+            kind = flow_kind(got, facts, jr)
+            if moves(kind):
                 moved[f"{who}・{sc}"] += 1
-                out.append((sc, who, jr["text"], jr["before"] or ""))
+                out.append((sc, who, jr["text"], jr["before"] or "", kind))
+            elif kind in UNCOUNTED:
+                out.append((sc, who, jr["text"], jr["before"] or "", kind))
             elif not g.facts_ok(got, facts):
                 only[f"{who}・{sc}"] += 1
     n = sum(by.values())
@@ -312,7 +368,8 @@ def cascade(stages: list[str]) -> dict:
     （members_for）と先に出すもの（leads_of）を本番の1か所から作り、判定ごとの記録の秒と確かな読みを、本番の決め方（Race）に記録の秒で通す
     （race_recorded）。記録の無い判定で決まりうる行は、決めたとは数えない：どの届き方でも記録の無い判定（測っていない Sonnet など）か「どれも答えない」
     になる行は「記録の無い判定に回る」、記録のある判定とない判定のどちらでも決まりうる行は「記録が足りない」（流す判定の名前つき＝次の測りの
-    --only の言葉）。決めた行の外れは、流れの制御の動きが変わるもの（目的のお客様の判定＝flow_ok・尋ねているか＝「尋ねている」かが正解と違う）と、
+    --only の言葉）。決めた行の外れは、流れの制御の動きが変わるもの（目的のお客様の判定＝flow_kind・尋ねているか＝「尋ねている」かが正解と違う。
+    種類＝外れの種類）と、
     項目だけのものに分ける。2秒超＝決めた秒が会話の側の待つ長さ（その回の待つ長さ＝waits）を超える（記録の無い判定の届き方によっては超える行も数える）。
     待つ長さ（あいさつの録音を流す回か＝waits）で決める判定が変わる行は「待つ長さで変わる」（どちらの判定の読みも外れを数える＝外れを隠さない）。
     ⛔ 2026-11-06 日本時間8時台（EN-C の指摘8）：線を手で渡し、並べた順で線から上かだけを見ていた（届いた秒を見ない＝本番の組と違う判定で決めたと
@@ -329,7 +386,7 @@ def cascade(stages: list[str]) -> dict:
         if who not in RACE:
             raise SystemExit(f"組（meaning_judge.RACE）に入っていない判定の記録です：{who}")
         have.setdefault(who, {}).update({(key(r), r.get("rep", 0)): (r, c) for r in rows})
-    by, moved, only, late, rest = (collections.Counter() for _ in range(5))
+    by, moved, only, late, rest, kinds, unbuilt = (collections.Counter() for _ in range(7))
     short, out, split = [], [], []
     for k, rep in sorted({kr for h in have.values() for kr in h}, key=str):
         acc, facts = table[k]
@@ -355,14 +412,21 @@ def cascade(stages: list[str]) -> dict:
                 """記録のある判定 w で決めたときの外れ（流れの制御の動きが変わるもの・項目だけのもの）を数える。"""
                 who, got = names[w], runs[w][2]
                 if sfx == "":
-                    if not g.facts_whole(got, facts) or not flow_ok(got, facts, acc, sc_row):
+                    kind = flow_kind(got, facts, sc_row)
+                    if moves(kind):
                         moved[(part, who, sc)] += 1
-                        out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got))
+                        kinds[(part, kind.split("：")[0])] += 1
+                        out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, kind))
+                    elif kind in UNCOUNTED:
+                        unbuilt[(part, who, sc, kind)] += 1
+                        if not g.facts_ok(got, facts):
+                            out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, f"{kind}・項目の外れ"))
                     elif not g.facts_ok(got, facts):
                         only[(part, who, sc)] += 1
                 elif sc_row.get("asks_accept") is not None and (got in ASKED) != sc_row["asks_accept"]:
                     moved[(part, who, sc)] += 1
-                    out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got))
+                    kinds[(part, "尋ねているかが正解と違う")] += 1
+                    out.append((part, sc, who, sc_row["text"], sc_row["before"] or "", got, "尋ねているかが正解と違う"))
             if winners <= known:
                 if any(at > wait for _, at, wait in outs):
                     late[(part, "ご本人の回" if TARGET_IS_THERE in acc else "ほかの回")] += 1
@@ -378,13 +442,14 @@ def cascade(stages: list[str]) -> dict:
                 need = [names[w] for w in winners if w is not None and w not in known]
                 short.append((part, sc, sc_row["text"], sc_row["before"] or "", rep, need))
     return {"決めた判定": by, "動きが変わる外れ": moved, "項目だけの外れ": only, "2秒超": late, "記録の無い判定に回る": rest,
-            "記録が足りない": short, "待つ長さで変わる": split, "外れの行": out}
+            "記録が足りない": short, "待つ長さで変わる": split, "外れの行": out, "外れの種類": kinds, "比べられない": unbuilt}
 
 
 def show_cascade(got: dict) -> None:
     n = sum(got["決めた判定"].values())
     print("決めた判定：", dict(got["決めた判定"]), f"｜決めた行 {n}")
     print("流れの制御の動きが変わる外れ：", dict(got["動きが変わる外れ"]) or 0, "｜項目だけの外れ：", dict(got["項目だけの外れ"]) or 0)
+    print("動きが変わる外れの種類：", dict(got["外れの種類"]) or 0, "｜動きを比べられない行（数えない）：", dict(got["比べられない"]) or 0)
     print("2秒超：", dict(got["2秒超"]) or 0)
     print("記録の無い判定に回る（どれで決まるか）：", dict(got["記録の無い判定に回る"]) or 0)
     print("記録が足りない（決まらない・流す判定）：", len(got["記録が足りない"]))

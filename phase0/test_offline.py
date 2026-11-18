@@ -3100,7 +3100,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
 
     def test_g59_tally_counts_the_end_reading_as_a_flow_change(self):
         # お呼びする段でも、判定の「電話を終える言葉か」の読みは、流れの制御の動きを変える（Flow._end_due_now：読めば会話AIの報告が無くても
-        # 締める・急いでいる方への伺い／「言っていない」なら続ける／決まらなければ _end_unsure）。数える1か所（g59_tally.flow_flags）が、
+        # 締める・急いでいる方への伺い／「言っていない」なら続ける／決まらなければ _end_unsure）。数える1か所（g59_tally.flow_miss＝本番の流れの制御に通す）が、
         # この項目を数えに入れる（⛔ 2026-11-05 に見つけた：11-01 に項目を足したとき、答えの段の数え（いまの g53_meaning.flow_miss の中）には入れたが、
         # お呼びする段の数えには入れず、d1-ultra が「…いま会議中で手が離せないのですが。」を急いでいると読んだ外れを「項目だけ」と数えていた）
         import g59_tally as t
@@ -3109,23 +3109,22 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         r = {"text": "はい、岡田です。申し訳ありません、いま会議中で手が離せないのですが。", "before": "岡田ですね。少々お待ちください。",
              "asked": None, "successor": False}
         facts = {SPEAKER: {SPEAKER_NEW}, WHO: {TARGET_IS_THERE}, PHONE: {"何もない"}, ABOUT: {TARGET_IS_AWAY}, END: {END_NONE}}
-        acc = [TARGET_IS_THERE]
         right = {SPEAKER: SPEAKER_NEW, WHO: TARGET_IS_THERE, PHONE: "何もない", ABOUT: TARGET_IS_AWAY, END: END_NONE}
-        self.assertTrue(t.flow_ok(right, facts, acc, r))
-        self.assertFalse(t.flow_ok(right | {END: END_HURRY}, facts, acc, r))        # 続けるべきところで、急いでいる方への伺い
-        self.assertFalse(t.flow_ok(right | {END: UNDECIDED}, facts, acc, r))        # 決まらないときの確かめ
-        self.assertFalse(t.flow_ok(right, facts | {END: {END_REFUSED}}, acc, r))   # 断られたのに締めない
-        self.assertNotEqual(t.flow_flags(right, r), t.flow_flags(right | {END: END_HURRY}, r))   # 判定どうしのそろい（agree）も同じ1か所
+        self.assertIsNone(t.flow_miss(right, facts, r))
+        self.assertEqual(t.flow_miss(right | {END: END_HURRY}, facts, r), t.ALL_REPORTS)        # 続けるべきところで、急いでいる方への伺い
+        self.assertEqual(t.flow_miss(right | {END: UNDECIDED}, facts, r), t.ALL_REPORTS)        # 決まらないときの確かめ
+        self.assertEqual(t.flow_miss(right, facts | {END: {END_REFUSED}}, r), t.ALL_REPORTS)   # 断られたのに締めない
+        self.assertFalse(t.same_moves(right, right | {END: END_HURRY}, r))   # 判定どうしのそろい（agree）も同じ1か所
         # 電話を終える読み（決められないも）は、会話AIのどの報告より先に次の動きを決める（Flow._end_due_now）＝その発話の目的のお客様の読みが
         # 違っても、電話を終える読みが同じなら動きは同じ（「申し訳ございません、今ちょっとバタバタしておりまして。」を不在＋急いでいると読んだ行）
         hurry = facts | {ABOUT: {"言っていない"}, END: {END_HURRY}}
-        self.assertTrue(t.flow_ok(right | {END: END_HURRY}, hurry, acc, r))
-        self.assertTrue(t.flow_ok(right | {WHO: UNDECIDED, END: END_HURRY}, hurry, acc, r))
-        self.assertFalse(t.flow_ok(right | {END: END_REFUSED}, hurry, acc, r))        # 違う理由で締める
-        self.assertFalse(t.flow_ok(right | {END: UNDECIDED}, hurry, acc, r))
+        self.assertIsNone(t.flow_miss(right | {END: END_HURRY}, hurry, r))
+        self.assertIsNone(t.flow_miss(right | {WHO: UNDECIDED, END: END_HURRY}, hurry, r))
+        self.assertEqual(t.flow_miss(right | {END: END_REFUSED}, hurry, r), t.ALL_REPORTS)        # 違う理由で締める
+        self.assertEqual(t.flow_miss(right | {END: UNDECIDED}, hurry, r), t.ALL_REPORTS)
         # 項目を足す前の記録（読みに END が無い）は、この項目を数えない（g59_calling_judge.facts_ok と同じ決まり）
         old = {k: v for k, v in right.items() if k != END}
-        self.assertTrue(t.flow_ok(old, facts | {END: {END_REFUSED}}, acc, r))
+        self.assertIsNone(t.flow_miss(old, facts | {END: {END_REFUSED}}, r))
 
     def test_g59_unsure_reading_is_taken_in_the_priority_order(self):
         # ⛔ 2026-11-06 日本時間23時22分41秒のご質問の見直し（判定の組と測りの持ち場 J2）：お呼びする段の測り（g59_calling_judge の fill）は、答えが無かった行の
@@ -3250,28 +3249,34 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertEqual((dict(got["決めた判定"]), len(got["待つ長さで変わる"])), ({}, 1))
 
     def test_g59_tally_never_misses_a_change_the_flow_check_finds(self):
-        # 数える道具（g59_tally.flow_ok＝流れの制御の決まりを写したもの）は、会話の試し（g59_flow_check＝流れの制御そのもの）で動きが変わる外れを、
-        # 「同じ」と数えない（✅ 2026-10-30 ユーザー：「流れの制御の動きが変わる外れの原因と理由が何かを…しっかりと分析した方がいいんじゃないですか？」
-        # ⛔ 同じ日：会話の試しの道具の字を書き間違え、どれも「同じ」と出た＝道具は、答えが分かっている例で先に確かめる）
+        # 数える道具（g59_tally.flow_miss）は、会話の試し（g59_flow_check＝流れの制御そのもの）で動きが変わる外れを、「同じ」と数えない（✅ 2026-10-30
+        # ユーザー：「流れの制御の動きが変わる外れの原因と理由が何かを…しっかりと分析した方がいいんじゃないですか？」⛔ 同じ日：会話の試しの道具の字を
+        # 書き間違え、どれも「同じ」と出た＝道具は、答えが分かっている例で先に確かめる）。2026-11-18（見直し (13) の D1・D2）から、数える道具も本番の
+        # 流れの制御に通す（報告ごとに比べる＝off_reports）＝会話の試しの形の報告で動きが変わるかが、会話の試しと同じ
         import g59_calling_judge as g
         import g59_flow_check as fc
         import g59_tally as t
+        from flowctl import ASKS_NO
         right, wrong, succ = fc.CASES[0][1:]
         self.assertTrue(fc.changes(right, wrong, succ))        # 変わる例（名乗りを聞いていない岡田様に、名乗りを流さない）
         self.assertFalse(fc.changes(right, right, succ))       # 同じ読みなら同じ
+        checked, asking = 0, 0
         for name, right, wrong, succ in fc.CASES:
+            if right[:-1] != wrong[:-1]:
+                continue   # 外れが前の言葉の読みにある形（行の数えは、行の言葉の読みを比べる＝前の言葉は正解の表の読み BEFORE_READ）
             facts = {k: {v} for k, v in fc.facts(right[-1][1]).items()}
             _, _, ctx = fc.run(wrong, succ)
-            ok = t.flow_ok(fc.facts(wrong[-1][1]), facts, g.accept_of(facts, succ), ctx)
-            if fc.changes(right, wrong, succ):
-                self.assertFalse(ok, name)
-        # 会話の試しで動きが同じと確かめた形は、数える道具も同じと数える（2026-10-30 に直した数えすぎ）
-        for name in ("Luna：確かめへの「いいえ、私は山田と申します。」（前「お電話代わりました。担当の山田です。」）を前と違う方（AIは代わった方）",
-                     "Sonnet：前の言葉の無い「お電話代わりました。」を前と同じ方（AIは目的の人→確かめ→「はい、そうです。」）"):
-            _, right, wrong, succ = next(c for c in fc.CASES if c[0] == name)
-            facts = {k: {v} for k, v in fc.facts(right[-1][1]).items()}
-            _, _, ctx = fc.run(wrong, succ)
-            self.assertTrue(t.flow_ok(fc.facts(wrong[-1][1]), facts, g.accept_of(facts, succ), ctx), name)
+            report = next(n for n, op in fc.REPORTS if op == wrong[-1][2])
+            off = t.off_reports(fc.facts(wrong[-1][1]), facts, ctx | {"text": wrong[-1][0]})
+            if g.asks_truths(wrong[-1][0]) != (ASKS_NO,):
+                # こちらへの質問（「どちらの岡田でしょうか？」）：数えは、同時に出る尋ねているかの問い合わせを正しい読みで渡す（本番は質問に先に答える＝
+                # Flow._asking_now）＝目的のお客様の判定の外れは、目的の人の報告では動きを変えない（会話の試し run は尋ねているかを渡さない形）
+                self.assertNotIn(report, off, name)
+                asking += 1
+                continue
+            self.assertEqual(report in off, fc.changes(right, wrong, succ), name)
+            checked += 1
+        self.assertEqual((checked, asking), (8, 2))
 
 
 class UnreportedNoteTest(unittest.TestCase):
@@ -7136,6 +7141,98 @@ class MeasureSceneTest(unittest.TestCase):
             f, _, _ = fc.scene(steps, successor=True)
             f.on_callee(); f.on_heard(text)
             self.assertEqual(before, f.judge_context()[2], text)
+
+
+class MeasureCallingFlowTest(unittest.TestCase):
+    """お呼びする段の測りの数え（g59_tally）は、行の場面を本番の流れの制御（g59_flow_check.scene）に組み、判定の読みを本番と同じ入口（meaning_judge.read →
+    Flow.on_check）で渡し、会話AIの考えられる報告（ご本人・受付の方・代理の方・代わった方・後任の方・報告なし）を全部流して、正しい読みの動きと比べる。
+    ⛔ 2026-11-18（見直し (13) の持ち場 D の D1・D2）：数えは流れの制御の決まりを手で写した印（g59_tally.flow_flags）で比べていて、(D1) 前の言葉の無い
+    「お電話代わりました。山本です。」を代理の方と読んだ外れ（本番は代理の方・後任の方の報告で、名乗りから伺い直さずに用件を流す・後任の方を確かめる）を
+    「項目だけ」と数え、(D2) 電話を終える言葉の読みを必ず「締める」と数えていた（本番は取り次ぎを待つ読みがあれば待つ）。"""
+
+    D1, PART = "d1 Ultra（Liquid）", "目的のお客様の判定"
+
+    def count(self, rows):
+        """判定ごとの記録（1つの判定で測った行の並び）を、測りの数え（g59_tally.cascade）に通す（0円）。"""
+        import json
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        import g59_tally as t
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "0.json").write_text(json.dumps({"rows": rows}, ensure_ascii=False), encoding="utf-8")
+            with mock.patch.object(t, "RESULTS", Path(d)):
+                return t.cascade(["0.json"])
+
+    def row(self, text, before, got):
+        return {"text": text, "before": before, "asked": None, "successor": False, "rep": 0, "asks_accept": None, "judge2_s": 0.5,
+                "judge2_by": self.D1, "judge2_sure": 0.99, "judge2_facts": got}
+
+    def test_d1_a_new_person_read_as_a_proxy_moves_the_flow(self):
+        # 前の言葉の無い「お電話代わりました。山本です。」（正解＝前と違う方・別の方）を、判定が「代理の方（どれかは分からない）」と読んだ：本番は、
+        # 会話AIが代理の方と報告すれば名乗りから伺い直さずに用件とご判断のお立場の質問を流し、後任の方と報告すれば後任の方を確かめる（ほかの報告では同じ）
+        import g59_flow_check as fc
+        from flowctl import END, END_NONE, HEAR, HEAR_OK
+        text = "お電話代わりました。山本です。"
+        got = self.count([self.row(text, None, fc.facts("違代xx") | {END: END_NONE, HEAR: HEAR_OK})])
+        self.assertEqual(dict(got["動きが変わる外れ"]), {(self.PART, self.D1, "呼ぶ一言への返事"): 1})
+        self.assertEqual(dict(got["項目だけの外れ"]), {})
+        self.assertEqual(got["外れの行"][0][-1], "報告で動きが変わる（(FN) の残り）：代理の方・後任の方")
+        right = self.count([self.row(text, None, fc.facts("違別xx") | {END: END_NONE, HEAR: HEAR_OK})])
+        self.assertEqual((dict(right["動きが変わる外れ"]), dict(right["項目だけの外れ"])), ({}, {}))
+
+    def test_d2_an_end_reading_with_holding_waits_like_production(self):
+        # 受付の方の「岡田ですね。少々お待ちください。」（正解＝取り次ぎを待つ・電話を終える言葉ではない）を、判定が電話を終える言葉（急いでいる）とも
+        # 読んだ：本番は取り次ぎを待つ読みで待つ（どの報告でも同じ）＝項目だけの外れ（動きは変わらない）
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        from flowctl import END, END_HURRY, HEAR, HEAR_OK
+        got = self.count([self.row(g.TO_TARGET, None, fc.facts("同受待x") | {END: END_HURRY, HEAR: HEAR_OK})])
+        self.assertEqual(dict(got["動きが変わる外れ"]), {})
+        self.assertEqual(dict(got["項目だけの外れ"]), {(self.PART, self.D1, "呼ぶ一言への返事"): 1})
+
+    def test_the_words_before_a_row_are_read_like_the_answer_table(self):
+        # 行の前の言葉の正しい読み（g59_calling_judge.BEFORE_READ＝場面を組む1か所）は、その言葉が表の行にもあれば、その行の正解と同じ
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        seen = 0
+        for text, _, _, _, _, facts in g.cases("x"):
+            if text in g.BEFORE_READ:
+                seen += 1
+                for k, v in fc.facts(g.BEFORE_READ[text][0]).items():
+                    self.assertIn(v, facts[k], (text, k))
+        self.assertGreater(seen, 0)
+
+    def test_every_row_is_built_in_the_production_flow_and_right_readings_never_miss(self):
+        # 正解の表の行は、聞こえ方だけを数える行のほかは、本番の流れの制御で行の場面（確かめたあとか・判定に渡す前の言葉）に組める（組めない行は名前を
+        # 挙げて数えない＝黙って数えない形にしない）。正しい読みは、どの報告でも外れと数えない
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        import g59_tally as t
+        hear = {(x, a) for x, a, _ in g.lines_hear()}
+        missing = []
+        for text, _, before, asked, succ, facts in g.cases("確かめる一言"):
+            if (text, bool(asked)) in hear:
+                continue
+            r = {"text": text, "before": before, "asked": asked, "successor": succ}
+            try:
+                fc.row_scene(r)
+            except fc.NoScene:
+                missing.append((text, before))
+                continue
+            right = {k: sorted(v)[0] for k, v in facts.items()}
+            self.assertIsNone(t.flow_miss(right, facts, r), (text, before))
+        self.assertEqual(missing, [("はい、そうです。", g.TO_TARGET)])   # 取り次ぎの言葉のあとの確かめ（表の前の言葉に、確かめたきっかけの言葉が無い）
+
+    def test_reports_are_every_report_the_ai_can_give(self):
+        # 流す報告は、お呼びする段で会話AIが出せる相手の報告の全部（流れの制御の名前の表 PARTY_LABEL の人の相手）・代わった方・報告なし
+        import g59_flow_check as fc
+        from flowctl import PERSON_PARTIES, STANDIN_PARTIES
+        parties = {op[1]["party"] for _, op in fc.REPORTS if op and op[0] == "report_party"}
+        self.assertEqual(parties, set(PERSON_PARTIES) | set(STANDIN_PARTIES))
+        self.assertIn(("replay_opening", {"part": "handover"}), [op for _, op in fc.REPORTS])
+        self.assertIn(None, [op for _, op in fc.REPORTS])
 
 
 class EnglishLineTest(unittest.TestCase):

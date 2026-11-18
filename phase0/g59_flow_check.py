@@ -1,6 +1,7 @@
 """G-59 の外れが、流れの制御の動きを本当に変えるかを、会話の試しで確かめる（0円・判定もAIも呼ばない）。外れの形ごとに、正しい読み（正解の表）と
 外れた読みで同じ会話を流し（AIの報告は、その言葉で考えられる報告を置く）、返す結果・流す録音・名乗りを聞いていない方の印を比べる。判定は1つだけ
-（その判定が外れたとき）。数える道具（g59_tally の flow_ok）は流れの制御の決まりを写したもので、数えすぎ・数え漏れがありうる＝ここで確かめる。
+（その判定が外れたとき）。測りの数え（g59_tally）も、行の場面をここで組み（row_scene）、会話AIの報告ごとの動きの名前（act_name）で比べる＝流れの制御の
+決まりを写さない（⛔ 2026-11-18 の見直し (13) の D1・D2 まで、数える道具 g59_tally.flow_ok は流れの制御の決まりを写した印で比べ、数え漏れ・数えすぎがあった）。
 ✅ 2026-10-30 ユーザー：「流れの制御の動きが変わる外れの原因と理由が何かを、Lunaと考えないSonnetでしっかりと分析した方がいいんじゃないですか？」
 ⛔ 1回目は、電話のやり取りの字に事情の字（言っていない）を入れ、判定の返事が読めない形になって、どれも「確かめる」で同じに見えた ⇒ 読めない返事を
    作ったら止める（heard の assert）"""
@@ -17,9 +18,10 @@ def facts(code):   # 例 "違本xx"＝(前と同じ方か, 誰か, 電話のや�
     return {SPEAKER: K[code[0]], WHO: K[code[1]], PHONE: K["無"] if code[2] == "x" else K[code[2]], ABOUT: K[code[3]]}
 
 def heard(f, text, code):
+    """相手の言葉 text を聞き、判定の読み code（読みの字か、項目ごとの答え＝判定の返事の形の dict）を本番と同じ入口（meaning_judge.read → Flow.on_check）で渡す。"""
     f.on_callee(); f.on_heard(text)
     if code:
-        r = read(f.judge_context()[0], json.dumps(facts(code), ensure_ascii=False))
+        r = read(f.judge_context()[0], json.dumps(facts(code) if isinstance(code, str) else code, ensure_ascii=False))
         assert r is not None, (text, code)   # 読めない返事を作っていたら止める（⛔ 1回目は電話のやり取りに事情の字を入れ、判定が届かなかった）
         f.on_check("judge", r)
 
@@ -43,6 +45,80 @@ def scene(steps, successor=False, checks=("judge",)):
     return f, out, ctx
 
 
+class NoScene(Exception):
+    """測りの行の場面を、本番の流れの制御に組めない（行の前の言葉の正しい読みが表に無い・組んだ場面が行の場面と違う）。"""
+
+
+class Unreadable(Exception):
+    """判定の読み（記録の項目ごとの答え）が、今の問いでは本番の入口（meaning_judge.read）で読めない（今の選べるものに無い答え＝古い文で取った記録）。
+    本番なら読みとして届かない＝流れの制御の動きは比べられない。"""
+
+
+def row_scene(r: dict):
+    """測りの行 r（g59_tally の行＝text・before・asked・successor）の場面を本番の流れの制御に組み、行の言葉を聞いたところ（判定を渡す前）の流れの制御を
+    返す（唯一の作り）。前の言葉は、正解の表の前の言葉の読み（g59_calling_judge.steps_before）で流す。組んだ場面が行の場面（確かめる一言のあとか・判定に
+    渡す前の言葉）と違えば NoScene（黙って違う場面で数えない）。"""
+    import g59_calling_judge as g
+    try:
+        steps = g.steps_before(r["before"])
+    except KeyError as e:
+        raise NoScene(f"前の言葉の正しい読みが表（BEFORE_READ）に無い：{e}") from None
+    f, _, _ = scene(steps, successor=r["successor"])
+    f.on_callee(); f.on_heard(r["text"])
+    built = (f.asked_target is not None, f.judge_context()[2] or None)
+    if built != (bool(r["asked"]), r["before"] or None):
+        raise NoScene(f"組んだ場面（確かめたあとか・前の言葉）が {built}")
+    return f
+
+
+def act_name(f, rep: dict | None) -> str:
+    """流れの制御の返事 rep と、そのあとの流れの制御の覚えから、お呼びする段の動きの名前（唯一の作り＝正しい読みの動きと判定の読みの動きのどちらも通る。
+    g53_meaning.flow_name と同じ考え）。返事＝お客様に聞こえること（流す録音・相づち・言い方・次の質問）と結果。会話AIへの知らせ（message）は、差し戻し
+    （rejected）のときだけ（差し戻しの種類を運ぶ）。覚え＝あとの発話の動きを変えるもの：段・名乗りを聞いていない方か（passed_on）・電話口の方の区切り
+    （speaker_from）・確かめたあとか・締めた理由・繋がらなかった理由（not_reached）・記録の事実（facts。書き留め FACT_NOTES は除く）と、まだお呼び
+    している段（締めていない）なら、いまの方をご本人と読んだ判定・不在と読んだ判定（Flow._target_readings）・前の方が不在を伝えて代わった方か（Flow._handed）
+    ＝お呼びする段の報告を決める所（_calling_reported・_away）だけが読む覚え（繋いだあと・締めたあとは読まない＝比べない。⛔ 比べると、急いでいる方への
+    伺いで繋いだあとの、使われない「ご本人」の覚えの違いを外れと数えた）。報告の無いターンで動かない（None）は「動かない」。"""
+    reply = {k: v for k, v in (rep or {}).items() if k != "message" or (rep or {}).get("result") == "rejected"}
+    keep = lambda e: {k: v for k, v in e.items() if k not in FACT_NOTES} if isinstance(e, dict) else e
+    state = {"phase": f.phase, "passed_on": f.passed_on, "speaker_from": f.speaker_from, "asked": f.asked_target is not None,
+             "end_reason": f.end_reason, "not_reached": f.not_reached, "facts": {k: [keep(e) for e in v] if isinstance(v, list) else v for k, v in f.facts.items()}}
+    if f.phase == "calling" and f.end_reason is None:
+        state |= {"target_readings": [sorted(x) if isinstance(x, set) else x for x in f._target_readings()], "handed": sorted(f._handed())}
+    return json.dumps({"reply": reply if rep is not None else "動かない", "state": state}, ensure_ascii=False, sort_keys=True, default=str)
+
+
+_ACTS: dict = {}
+# 記録の事実（Flow.facts）のうち、動きではなく「いつ・何を聞いて・誰が・どう読んだか」の書き留め（通話後の確かめの材料）＝動きの名前に入れない
+FACT_NOTES = ("turn", "said", "by", "read", "turn_reads", "judging")
+
+
+def calling_acts(r: dict, got: dict) -> tuple:
+    """行 r の場面で、判定の読み got（目的のお客様の判定の項目ごとの答え）を本番と同じ入口（meaning_judge.read → Flow.on_check("judge")）で渡し、
+    会話AIの報告（REPORTS）ごとの流れの制御の動きの名前（act_name）の並び。同時に出る「尋ねているか」の問い合わせ（convo の asks＝Flow._asking_now：
+    質問なら先に答える）の読みは、正しい読み（g59_calling_judge.asks_truths。どちらでもよい言葉は、そのどれも）を同じ入口で渡す＝目的のお客様の判定の外れだけを
+    比べる（尋ねているかの外れは、測りの数えの「尋ねているか」の問い合わせで別に数える）。返す：正しい尋ねているかの読みごとの、報告ごとの名前の並び。
+    同じ行・同じ読みは1回だけ流す。組めない場面は NoScene・今の問いで読めない読みは Unreadable。"""
+    import g59_calling_judge as g
+    k = (r["text"], r["before"] or None, bool(r["asked"]), r["successor"], json.dumps(got, ensure_ascii=False, sort_keys=True))
+    if k not in _ACTS:
+        out = []
+        for asks in g.asks_truths(r["text"]):
+            acts = []
+            for _, op in REPORTS:
+                f = row_scene(r)
+                q = f.judge_context()[0]
+                res = read(q, json.dumps(got, ensure_ascii=False))
+                if res is None:
+                    raise Unreadable(f"今の問いで読めない判定の読み：{got}")
+                f.on_check("judge", res)
+                f.on_check("asks", read(f.for_judge(f.asks_questions[q.id]), json.dumps({"choice": asks}, ensure_ascii=False)))
+                acts.append(act_name(f, f.apply(*op) if op else f.judged_turn(voiced=False)))
+            out.append(tuple(acts))
+        _ACTS[k] = tuple(out)
+    return _ACTS[k]
+
+
 def run(steps, successor=False):
     """steps：[(相手の言葉, 読みの字, AIの報告 (op, args) か None)]。最後の報告の返事と、流れの制御の状態を返す。"""
     f, out, ctx = scene(steps, successor)
@@ -50,6 +126,9 @@ def run(steps, successor=False):
 
 T, H, R, S = (("report_party", {"party": "target"}), ("replay_opening", {"part": "handover"}), ("report_party", {"party": "reception"}),
               ("report_party", {"party": "successor"}))
+# 会話AIがお呼びする段で出しうる報告の全部（g59_tally が報告ごとに流す）：相手の報告（人の相手＝flowctl.PERSON_PARTIES と、目的の人の代わりにお話しうる方
+# STANDIN_PARTIES）・代わった方（名乗りから伺い直す）・報告なし（会話AIが声だけで操作を呼ばなかった＝Flow.judged_turn）
+REPORTS = (("ご本人", T), ("受付の方", R), ("代理の方", ("report_party", {"party": "substitute"})), ("代わった方", H), ("後任の方", S), ("報告なし", None))
 YES = ("はい、そうです。", "同本xx", T)
 CASES = [
     ("Luna：前の言葉の無い「お電話代わりました、営業部の岡田です。」を前と同じ方", [("お電話代わりました、営業部の岡田です。", "違本xx", T)],
