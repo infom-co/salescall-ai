@@ -58,7 +58,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, customer_contacts, dnc, judge, settings, target_recheck, tasks
+from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, customer_contacts, dnc, judge, results, settings, target_recheck, tasks
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.attempts import AttemptNotFound
 
@@ -417,7 +417,10 @@ def _in_force(tx: Tx, task_id: UUID, *, call: UUID | None = None, including: boo
                 del state[q]
             for q, h in state.items():
                 state[q] = replace(h, own=True)
+        dropped = _dropped_by_correction(tx, e["attempt_id"], report) if not (including and e["attempt_id"] == call) else frozenset()
         for r in rows.get(e["attempt_id"], ()):
+            if dropped is None or r["question_id"] in dropped:
+                continue   # 契約者の直しと食い違う答え：使わない（次の電話で伺い直す）
             state[r["question_id"]] = _Held(r, report.connected_who if report is not None else None)
         if report is not None:
             for q, h in state.items():
@@ -436,6 +439,22 @@ def earlier_call(tx: Tx, task_id: UUID, *, before: UUID) -> UUID | None:
         return None
     return tx.one("SELECT attempt_id FROM salescall.attempts WHERE attempt_id = ANY(%s) ORDER BY claimed_at DESC, attempt_id DESC LIMIT 1",
                   (list(set(took_by.values())),))["attempt_id"]
+
+
+def _dropped_by_correction(tx: Tx, attempt_id: UUID, report: call_report.CallReport | None) -> frozenset[str] | None:
+    """契約者がその通話の結果を直していれば、直した結果と食い違う、その通話の答え（1か所＝`_in_force`。✅ 2026-11-18 ユーザー：伺い2「契約者が直したことは
+    優先」・続き(2)「食い違う答えだけ外す（お勧め）」）：「繋がらなかった」に直した＝その通話の答えは全部（None）・「断られた」でない結果に直した通話の、
+    最終目的のお断り（通話の事実 goal_refused の質問）の答え。ほかの答え（ご予算・時期など）はそのまま使う（伺い直さない）。直していなければ空。
+    その通話そのものの判定の材料（締め直し）には当てない（直しは判定の結果に重ねる＝settle._judge_and_write）。⛔ 2026-11-18 の7回目の見直しまで：
+    直しても答えはそのままで、「断られた」を「折り返し予定」に直した通話の次の電話で、前の「いいえ」のまま用件のすぐあとに締めた（CL-1 の連絡帳 4-178 の (2)）。"""
+    corr = results.correction_of(tx, attempt_id)
+    if corr is None:
+        return frozenset()
+    if corr["business_state"] == "not_reached":
+        return None
+    if corr["business_state"] != "declined" and report is not None:
+        return frozenset(q for g in report.goal_refusals for q in g.goals)
+    return frozenset()
 
 
 def _dropped_by_carried(report: call_report.CallReport, question_id: str) -> bool:

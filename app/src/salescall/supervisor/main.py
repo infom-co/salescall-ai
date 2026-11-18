@@ -151,6 +151,10 @@ class _Worker:
     restart_at: float = 0.0
     started_at: float = 0.0
     stopping: bool = False       # こちらから止めた（つながりが切れた・版がずれた・PC が替わった）
+    # 立ち上げ直す前の後始末で、進行中の試行を終える理由（core/leases.recover の why。None＝回線の処理が止まった＝leases.LOST）。データベースへの
+    # 書き込みが進まずに捨てた流れ（`_abandon` の出どころ storage）は、通話ごとの口が決めていた storage_stuck のまま（leases.LEFT＝違う行の数に数えず、
+    # 書き込みが戻ったらかけ直す道 E21 に乗る。⛔ 2026-11-18 の7回目の見直しまで：立ち上げ直しの後始末が worker_lost で終えた）
+    left_why: Any = None
 
 
 def _start_thread(cfg: config.Config, access: Access, at: Attached, line_id: UUID, holder: str, links: Links) -> tuple[Any, Any]:
@@ -299,21 +303,21 @@ class Supervisor:
         except Exception as e:  # noqa: BLE001 延ばせなければ、期限で門が通さなくなる（記録だけ）
             report(self.access, tenant_id, "回線の借用", e, line_id=line_id)
 
-    def _launch(self, line_id: UUID, at: Attached, *, fails: int, now: float) -> None:
+    def _launch(self, line_id: UUID, at: Attached, *, fails: int, now: float, why: Any = None) -> None:
         """回線ごとの流れを立ち上げる。その前に、その回線の後始末をする（いま進行中の試行があれば、前の流れが残したもの）。
         後始末も立ち上げもできなければ、間をあけてまた試す（続けるほど延ばす）。"""
         try:
-            self._recover(line_id, at.tenant_id, raise_errors=True)
+            self._recover(line_id, at.tenant_id, raise_errors=True, why=why)
             thread, stop = self.start_worker(self.cfg, self.access, at, line_id, self.holder, self.links)
         except Exception as e:  # noqa: BLE001 立ち上げない（後始末が済まないうちにかけない）
             report(self.access, at.tenant_id, "回線ごとの流れの立ち上げ", e, line_id=line_id)
-            self.workers[line_id] = _Worker(line_id, at, None, None, fails + 1, now + _backoff(fails))
+            self.workers[line_id] = _Worker(line_id, at, None, None, fails + 1, now + _backoff(fails), left_why=why)
             return
         self.workers[line_id] = _Worker(line_id, at, thread, stop, fails, started_at=now)
 
-    def _recover(self, line_id: UUID, tenant_id: UUID, *, raise_errors: bool = False) -> None:
+    def _recover(self, line_id: UUID, tenant_id: UUID, *, raise_errors: bool = False, why: Any = None) -> None:
         try:
-            self.access.in_tenant(ACTOR, tenant_id, lambda tx: leases.recover(tx, self.holder, line_id))
+            self.access.in_tenant(ACTOR, tenant_id, lambda tx: leases.recover(tx, self.holder, line_id, why=why or leases.LOST))
         except Exception as e:  # noqa: BLE001
             if raise_errors:
                 raise
@@ -354,7 +358,7 @@ class Supervisor:
             if w.thread is None:   # 立ち上げ直す時刻を待っている
                 at = attached.get(line_id)
                 if at is not None and now >= w.restart_at and line_id in self.leased and self.version_gap == updates.SAME:
-                    self._launch(line_id, at, fails=w.fails, now=now)
+                    self._launch(line_id, at, fails=w.fails, now=now, why=w.left_why)
                 continue
             if w.thread.is_alive():
                 stuck = stuck_call(line_id)
@@ -397,7 +401,8 @@ class Supervisor:
                               attempt_id=getattr(call, "attempt_id", None))
         except Exception as e:  # noqa: BLE001 伝えられなくても、立て直しは止めない
             report(self.access, w.at.tenant_id, "戻らない通話の部品の記録", e, line_id=line_id)
-        self.workers[line_id] = _Worker(line_id, w.at, None, None, w.fails, restart_at=now)
+        self.workers[line_id] = _Worker(line_id, w.at, None, None, w.fails, restart_at=now,
+                                        left_why=leases.LEFT if source == "storage" else None)
 
     def _hang_up_left(self, line_id: UUID, at: Attached) -> None:
         """回線ごとの流れが思いがけず止まった：その回線が通話中（か分からない）なら、おわびして切ってもらう（判断は発信の出口の

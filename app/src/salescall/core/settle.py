@@ -40,7 +40,8 @@ from salescall.core import (apology, approval, attempts, business_rules, busines
                             target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (ANSWERED, JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
-                                  classify_cut, corrected, cut_off as judge_cut_off, hedged_words, irreversible, judge, refusal, unreached_today)
+                                  classify_cut, corrected, cut_off as judge_cut_off, hedged_words, irreversible, judge, offered, refusal,
+                                  unreached_today)
 from salescall.core.phone import normalize
 
 
@@ -449,9 +450,11 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     found = approval.decision_wait(tx, a["task_id"], attempt_id, irr)
     # 決まるまで待つ保留（設定で決まったとみなした保留は待たない＝その中身を決まりどおり書く。approval.Wait.holds の1か所）
     wait = found if found is not None and found.holds else None
-    alternate = None if not decided or report is None or report.callback is None \
-        or report.callback.reason != "other_number" else \
-        _number_material(tx, a, report.callback.number_e164, source_attempt_id=attempt_id)
+    # お客様が言った別の番号：かけ直しの申し出を読む1か所（judge.offered＝目的のお客様だと確かめられなかった通話の申し出は使わない＝DESIGN.md 7-1e）。
+    # ⛔ 2026-11-18 の7回目の見直しまで：会話の報告の申し出を直に読み、確かめられなかった方が言った番号も行に足して、次にかける番号にした
+    offer = offered(inp) if decided else None
+    alternate = None if offer is None or offer.reason != "other_number" else \
+        _number_material(tx, a, offer.number_e164, source_attempt_id=attempt_id)
     recheck = _recheck(tx, a, j, dialed) if decided else None
 
     if j.disconnect is not None and a["disconnect"] is None and wait is None:   # 保留のあいだは、切れ方もまだ決めない
