@@ -13,8 +13,6 @@ from salescall.core import business_rules
 from salescall.output import words
 from tests.support import SYSTEM, app_access
 
-# 依頼者へ出す言葉に入れてはいけない、仕組みの言葉（docs/DESIGN.md 7-3-6。⏳ 一覧の中身はユーザーに確かめていただく）
-SYSTEM_WORDS = ("AI", "人工知能", "自動", "システム", "判定", "検証", "別の耳", "お詫びの電話", "停止", "品質", "模擬")
 
 
 def _enum(name: str) -> list[str]:
@@ -77,14 +75,26 @@ class ClientWordsSayNothingAboutTheSystem(unittest.TestCase):
             for key, w in table.items():
                 if w.client is None:
                     continue
-                for bad in SYSTEM_WORDS:
-                    with self.subTest(table=name, key=key, word=bad):
-                        self.assertNotIn(bad, w.client)
+                with self.subTest(table=name, key=key):
+                    self.assertEqual(words.not_for_client(w.client), [], w.client)
 
     def test_states_that_are_inside_the_system_are_not_given_to_the_client(self):
         self.assertIsNone(words.BUSINESS_STATES["unknown"].client)   # 判定できない＝判定待ち（依頼者へは判定し直してから）
         self.assertIsNone(words.NEXT_KINDS["hold"].client)           # 判定待ち
         self.assertIsNone(words.ATTEMPT_STATES["released"].client)   # 発信していない予約
+
+
+class NotForClient(unittest.TestCase):
+    def test_the_words_the_admin_decided_are_caught(self):   # 2026-11-18 管理者の一覧
+        for text in ("AIが電話しました", "人工知能", "自動で終えた", "システムの都合", "the System said", "データベースの誤り",
+                     "ボットです", "a bot", "ロボット", "判定待ち", "検証の段階", "模擬通話", "do_not_call", "callback_scheduled"):
+            with self.subTest(text=text):
+                self.assertTrue(words.not_for_client(text))
+
+    def test_ordinary_client_words_pass(self):
+        for text in ("完了", "お断り", "ご担当の方に繋がらず", "最後までお話しできました", "お急ぎのため途中で終えました", "Taibot商事"):
+            with self.subTest(text=text):
+                self.assertEqual(words.not_for_client(text), [])
 
 
 if __name__ == "__main__":

@@ -20,7 +20,9 @@ from tests.support import OPERATOR, World, app_access
 SECRET = b"test-only-secret"
 
 
-class Web(unittest.TestCase):
+class _World(unittest.TestCase):
+    """架空の契約者A（依頼者X・Y）と契約者B（依頼者Z）。試験の組が共通に使う準備（試験そのものは持たない）。"""
+
     @classmethod
     def setUpClass(cls):
         w = World()
@@ -33,7 +35,8 @@ class Web(unittest.TestCase):
         app_access().in_tenant(OPERATOR, cls.b["tenant"], lambda tx: tx.execute(
             "UPDATE salescall.clients SET name = '依頼者Z（契約者B）' WHERE client_id = %s", (cls.b["client"],)))
         cls.people = {"A": Person("試験の契約者A", False, cls.a["tenant"], "契約者A"),
-                      "B": Person("試験の契約者B", False, cls.b["tenant"], "契約者B")}
+                      "B": Person("試験の契約者B", False, cls.b["tenant"], "契約者B"),
+                      "ADMIN": Person("試験の管理者", True, cls.a["tenant"], "契約者A")}
 
         def identify(request):
             return cls.people.get(request.headers.get("x-test-person", ""))
@@ -50,6 +53,17 @@ class Web(unittest.TestCase):
         self.assertIsNotNone(m, "画面に札がありません")
         return m.group(1)
 
+    def _stop(self, tenant: UUID, reason: str) -> int:
+        return app_access().in_tenant(OPERATOR, tenant, lambda tx: stops.stop(
+            tx, scope="tenant", cause="manual", reason=reason, tenant_id=tenant))["event_id"]
+
+    def _open(self, tenant: UUID, eid: int) -> bool:
+        return app_access().in_tenant(OPERATOR, tenant, lambda tx: tx.one(
+            "SELECT 1 FROM salescall.open_stop_events WHERE event_id = %s", (eid,)) is not None)
+
+
+
+class Web(_World):
     # ── ログイン ──
     def test_without_login_every_page_goes_to_the_login_page(self):   # S-23
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", f"/c/{self.a['client']}", "/t/badges"):
@@ -90,10 +104,6 @@ class Web(unittest.TestCase):
         self.assertIn("これから", r.text)   # まだ次の予定が無い行
 
     # ── 停止と再開 ──
-    def _stop(self, tenant: UUID, reason: str) -> int:
-        return app_access().in_tenant(OPERATOR, tenant, lambda tx: stops.stop(
-            tx, scope="tenant", cause="manual", reason=reason, tenant_id=tenant))["event_id"]
-
     def test_a_stop_of_another_contractor_is_not_seen(self):   # S-18
         eid = self._stop(self.b["tenant"], "契約者Bの試験の停止")
         self.assertNotIn("契約者Bの試験の停止", self.get("A", "/t/stops").text)
@@ -143,10 +153,6 @@ class Web(unittest.TestCase):
         self.assertIn("ok=1", r.headers["location"])
         self.assertNotIn("依頼者Yだけの試験の停止", self.get("A", "/t/stops").text)
 
-    def _open(self, tenant: UUID, eid: int) -> bool:
-        return app_access().in_tenant(OPERATOR, tenant, lambda tx: tx.one(
-            "SELECT 1 FROM salescall.open_stop_events WHERE event_id = %s", (eid,)) is not None)
-
     # ── 文字は文字として出す ──
     def test_a_name_from_a_file_is_shown_as_text(self):   # S-17
         app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: tx.execute(
@@ -166,6 +172,51 @@ class Web(unittest.TestCase):
                 r = self.get("A", path)
                 self.assertEqual(r.status_code, 200, r.text[:300])
                 self.assertNotIn(words_missing(), r.text)
+
+
+class AdminSeesEverything(_World):
+    """✅ 2026-11-18 管理者「管理者は全てを見れて操作できる」。切り替えた契約者は、どの画面にも帯で出す（取り違えを防ぐ）。"""
+
+    def fresh(self):
+        def identify(request):
+            return self.people.get(request.headers.get("x-test-person", ""))
+        return TestClient(create_app(app_access(), identify, SECRET))
+
+    def test_the_admin_switches_to_another_contractor_sees_and_operates_it(self):
+        http = self.fresh()
+        tok = re.search(r'<meta name="form-token" content="([^"]+)"', http.get("/t", headers={"x-test-person": "ADMIN"}).text).group(1)
+        r = http.post("/admin/acting", data={"tenant_id": str(self.b["tenant"]), "form_token": tok},
+                      headers={"x-test-person": "ADMIN"}, follow_redirects=False)
+        self.assertEqual(r.status_code, 303)
+        page = http.get("/t", headers={"x-test-person": "ADMIN"}).text
+        self.assertIn("依頼者Z", page)
+        self.assertNotIn("依頼者X", page)
+        self.assertIn("管理者として", page)
+        eid = self._stop(self.b["tenant"], "管理者が解く試験の停止")
+        r = http.post(f"/t/stops/{eid}/resume", data={"reason": "試験：管理者が確かめた", "form_token": tok},
+                      headers={"x-test-person": "ADMIN"}, follow_redirects=False)
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertFalse(self._open(self.b["tenant"], eid))
+        # 戻る
+        http.post("/admin/acting", data={"tenant_id": "", "form_token": tok}, headers={"x-test-person": "ADMIN"})
+        page = http.get("/t", headers={"x-test-person": "ADMIN"}).text
+        self.assertIn("依頼者X", page)
+        self.assertNotIn("管理者として", page)
+
+    def test_a_contractor_cannot_switch_and_a_forged_choice_is_ignored(self):
+        http = self.fresh()
+        tok = re.search(r'<meta name="form-token" content="([^"]+)"', http.get("/t", headers={"x-test-person": "A"}).text).group(1)
+        r = http.post("/admin/acting", data={"tenant_id": str(self.b["tenant"]), "form_token": tok},
+                      headers={"x-test-person": "A"}, follow_redirects=False)
+        self.assertEqual(r.status_code, 404)
+        from salescall.web import actions
+        forged = actions.sign_choice(SECRET, "試験の管理者", self.b["tenant"])   # 管理者の札を契約者が使っても効かない
+        http.cookies.set("acting_tenant", forged)
+        page = http.get("/t", headers={"x-test-person": "A"}).text
+        self.assertNotIn("依頼者Z", page)
+        http.cookies.set("acting_tenant", f"{self.b['tenant']}.00")
+        page = http.get("/t", headers={"x-test-person": "ADMIN"}).text   # 署名の合わない札は捨てる
+        self.assertNotIn("依頼者Z", page)
 
 
 def words_missing() -> str:

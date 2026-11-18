@@ -39,6 +39,27 @@ def token_ok(secret: bytes, login_id: str, token: str | None) -> bool:
     return hmac.compare_digest(mac, want)
 
 
+def sign_choice(secret: bytes, login_id: str, tenant_id: Any) -> str:
+    """管理者が選んだ契約者の札（その人だけが使える署名つき）。"""
+    mac = hmac.new(secret, f"acting:{login_id}:{tenant_id}".encode(), hashlib.sha256).hexdigest()
+    return f"{tenant_id}.{mac}"
+
+
+def read_choice(secret: bytes, login_id: str, value: str | None) -> Any:
+    """署名つきの札から、選んだ契約者を読む。合わなければ None。"""
+    from uuid import UUID
+    if not value or "." not in value:
+        return None
+    raw, mac = value.split(".", 1)
+    want = hmac.new(secret, f"acting:{login_id}:{raw}".encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(mac, want):
+        return None
+    try:
+        return UUID(raw)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class Outcome:
     """操作の結果（画面に出す1行）。ok＝変わった。"""

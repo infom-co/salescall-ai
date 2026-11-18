@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from salescall.core import ai_troubles, business_import, exclusions, gate, notify, stops
@@ -187,3 +188,23 @@ def keeping_kind(name: str) -> str:
 def ai_trouble_stage(name: str) -> str:
     """AI が止まった所（正本は ai_troubles.STAGES）。"""
     return ai_troubles.STAGES.get(name, NO_WORD)
+
+
+# ── 依頼者へ出さない言葉（docs/DESIGN.md 7-3-6。✅ 2026-11-18 管理者が決めた一覧）────────────────────────
+# 依頼者は、契約者に電話業務を頼んでいると思っている（2026-10-16）。依頼者へ出すもの（ファイル・報告書・書き戻し・出力の型の言い換え）に、
+# 仕組みの言葉を出さない。確かめるのは、こちらが作る言葉だけ（お客様の言葉・依頼者のファイルから来た値は材料なので確かめない）。
+NOT_FOR_CLIENT: tuple[str, ...] = ("AI", "人工知能", "自動", "システム", "system", "データベース", "ボット", "bot", "ロボット",
+                                   "判定", "検証", "模擬")
+_ASCII_WORD = re.compile(r"[A-Za-z]+")
+_INTERNAL_NAME = re.compile(r"\b[a-z]+(?:_[a-z]+)+\b")   # 内部の英字の名前（例：do_not_call・callback_scheduled）
+
+
+def not_for_client(text: str) -> list[str]:
+    """こちらが作った言葉のうち、依頼者へ出してはいけない言葉（見つかったもの。空なら出してよい）。英字の言葉は大文字・小文字を問わず、
+    英字の語として当たったときだけ数える（「Taibot」のような語の一部では数えない）。内部の英字の名前（下線でつないだ名前）も当てる。"""
+    found = [w for w in NOT_FOR_CLIENT if not w.isascii() and w in text]
+    ascii_words = {m.group(0).lower() for m in _ASCII_WORD.finditer(text)}
+    found += [w for w in NOT_FOR_CLIENT if w.isascii() and w.lower() in ascii_words]
+    found += _INTERNAL_NAME.findall(text)
+    return found
+

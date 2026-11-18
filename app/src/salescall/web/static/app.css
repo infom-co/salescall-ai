@@ -143,6 +143,11 @@ dl.facts dd { margin: 0; }
 .item .if-not { font-size: 13px; color: var(--muted); }
 .item.urgent { border-left: 4px solid var(--stop); }
 
+/* 管理者がほかの契約者を見ている帯（取り違えを防ぐ。どの画面にも出す） */
+.acting { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 14px;
+          margin-bottom: 16px; border-radius: 8px; background: var(--wait-soft); color: var(--wait); font-weight: 600;
+          border: 1px solid color-mix(in srgb, var(--wait) 35%, transparent); }
+
 /* i マーク */
 .imark { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--muted);
          color: var(--muted); font-size: 11px; font-weight: 700; cursor: help; margin-left: 4px; }

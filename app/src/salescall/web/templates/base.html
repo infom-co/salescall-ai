@@ -13,7 +13,7 @@
 <header class="top">
   <button class="btn small menu-toggle" type="button" aria-label="道しるべを開く">≡</button>
   <a class="brand" href="/t">Sales<b>Call</b></a>
-  <span class="tenant">{{ person.tenant_name }}</span>
+  <span class="tenant">{{ ctx.tenant_name }}</span>
   <details class="switcher">
     <summary>{{ client.name if client else "依頼者を選ぶ" }}</summary>
     <div class="panel">
@@ -39,6 +39,13 @@
     {% endif %}
   </nav>
   <main class="content">
+    {% if ctx.acting_for_other %}
+    <form class="acting" method="post" action="/admin/acting">
+      <input type="hidden" name="{{ token_field }}" value="{{ token }}">
+      <span>管理者として「<b>{{ ctx.tenant_name }}</b>」を見ています。操作も「{{ ctx.tenant_name }}」に効きます。</span>
+      <button class="btn small" type="submit">自分の契約者に戻る</button>
+    </form>
+    {% endif %}
     {% block main %}{% endblock %}
   </main>
 </div>

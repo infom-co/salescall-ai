@@ -27,9 +27,10 @@ from salescall.core import calling_hours, customer_rows, phone, stops
 from salescall.core.access import Access
 from salescall.output import words
 from salescall.web import actions, counts, inbox
-from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person
+from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
+ACTING_COOKIE = "acting_tenant"   # 管理者が見ている契約者（署名つき）
 
 
 def _time(t: datetime | None) -> str:
@@ -73,7 +74,11 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     def page(request: Request, name: str, person: Person, ctx: Ctx, **values: Any) -> HTMLResponse:
         values.setdefault("client", None)
         return templates.TemplateResponse(request, name, {
-            "person": person, "clients": ctx.clients(), "token": actions.form_token(secret, person.login_id), **values})
+            "person": person, "ctx": ctx, "clients": ctx.clients(), "token": actions.form_token(secret, person.login_id), **values})
+
+    def chosen_tenant(request: Request, person: Person) -> UUID | None:
+        """管理者が選んだ契約者（署名つきの札から読む。札が合わなければ選んでいないとみなす）。"""
+        return actions.read_choice(secret, person.login_id, request.cookies.get(ACTING_COOKIE))
 
     def problem(request: Request, status: int, title: str, body: str) -> HTMLResponse:
         return templates.TemplateResponse(request, "problem.html", {"title": title, "body": body}, status_code=status)
@@ -83,7 +88,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         person = identify(request)
         if person is None:
             return RedirectResponse("/login", status_code=303)
-        ctx = Ctx(access, person)
+        ctx = acting(access, person, chosen_tenant(request, person))
         try:
             return render(person, ctx)
         except (NotFound, AdminOnly):
@@ -94,6 +99,23 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             if access_layer.unreachable(e) or access_layer.busy(e):
                 return problem(request, 503, "データベースに届きません", "古い数を出さないため、何も表示していません。少し待ってから開き直してください。")
             raise
+
+    @app.post("/admin/acting")
+    async def choose_tenant(request: Request) -> HTMLResponse:
+        """管理者が、見る契約者を選ぶ（管理者だけ。管理者でなければ「見つかりません」と同じ返事）。"""
+        form = dict(await request.form())
+        person = identify(request)
+        if person is None:
+            return RedirectResponse("/login", status_code=303)
+        if not person.is_admin or not actions.token_ok(secret, person.login_id, form.get(actions.TOKEN_FIELD)):
+            return problem(request, 404, "見つかりません", "住所を確かめてください。")
+        resp = RedirectResponse("/t", status_code=303)
+        raw = str(form.get("tenant_id") or "")
+        if raw:
+            resp.set_cookie(ACTING_COOKIE, actions.sign_choice(secret, person.login_id, UUID(raw)), httponly=True, samesite="strict")
+        else:
+            resp.delete_cookie(ACTING_COOKIE)
+        return resp
 
     @app.get("/login")
     def login(request: Request) -> HTMLResponse:
