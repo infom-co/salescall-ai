@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, flash, empty, csrf %}
+{% from "parts.html" import tag, flash, empty, csrf, inbox_item %}
 {% set active = "inbox" %}
 {% block title %}承認待ち{% endblock %}
 {% block main %}
@@ -22,34 +22,7 @@
 </div>
 <div class="stack">
 {% for c, i in rows %}
-  <article class="card item {{ 'urgent' if i.urgent }}">
-    <div class="item-head">
-      {{ tag(i.title, "stop" if i.urgent else "wait") }}
-      <span class="where">{{ c.name }}{% if i.business_name %} ／ {{ i.business_name }}{% endif %}</span>
-      <span class="when">{% if i.deadline %}期限 {{ time(i.deadline) }}{% elif i.at %}{{ time(i.at) }}から{% endif %}</span>
-    </div>
-    <div class="decide">{{ i.decide }}</div>
-    {% if i.evidence %}
-    <dl class="facts evidence">
-      {% for h, v in i.evidence %}<dt>{{ h }}</dt><dd>{{ v }}</dd>{% endfor %}
-    </dl>
-    {% endif %}
-    {% if i.if_not %}<div class="if-not">{{ i.if_not }}</div>{% endif %}
-    {% if i.link %}<a class="see" href="{{ i.link }}">決める前に見る →</a>{% endif %}
-    <div class="actions">
-      {% if i.buttons %}
-        {% for b in i.buttons %}
-        <form method="post" action="{{ '/c/' ~ c.client_id if c.client_id else '/admin' }}/inbox/{{ i.kind }}/{{ b.action }}">
-          {{ csrf(token) }}
-          {% for k, v in i.key.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
-          <button class="btn {{ 'main' if b.main }}" type="submit">{{ b.label }}</button>
-        </form>
-        {% endfor %}
-      {% else %}
-        <span class="muted">{{ i.waiting_why }}（決まるまでボタンは出ません）</span>
-      {% endif %}
-    </div>
-  </article>
+  {{ inbox_item(c, i, token) }}
 {% else %}
   <div class="card">{% if pick_kind or pick_client %}{{ empty("この絞り方では、承認待ちはありません", "上の「すべて」で、ほかの承認待ちを見られます。") }}{% else %}{{ empty("承認待ちはありません", "新しく決めることができたら、ここに並び、知らせも届きます。") }}{% endif %}</div>
 {% endfor %}

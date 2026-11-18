@@ -87,9 +87,27 @@
     var form = e.target.closest && e.target.closest(".bulk-form");
     if (form) bulkState(form);
   });
-  // 送っている間は二度押しできない
+  // 送っている間は二度押しできない。
+  // ボタンを止めるのは、ブラウザが送る中身を作り終えたあと（次の順番）にする。
+  // 先に止めると、押したボタンの名前と値（例：許可する／断る）が送る中身から落ちてしまう。
   document.addEventListener("submit", function (e) {
-    if ((e.target.method || "").toLowerCase() !== "post" || e.target.hasAttribute("data-download")) return;   // 書き出しは画面が替わらない
-    e.target.querySelectorAll("button[type=submit]").forEach(function (b) { b.disabled = true; b.textContent = "送っています…"; });
+    var form = e.target;
+    if ((form.method || "").toLowerCase() !== "post" || form.hasAttribute("data-download")) return;   // 書き出しは画面が替わらない
+    if (form.dataset.sending) { e.preventDefault(); return; }
+    form.dataset.sending = "1";
+    setTimeout(function () {
+      form.querySelectorAll("button[type=submit]").forEach(function (b) {
+        b.dataset.label = b.textContent; b.disabled = true; b.textContent = "送っています…";
+      });
+    }, 0);
+  });
+  // 「戻る」で前の画面に戻ったときは、ボタンを元に戻す
+  window.addEventListener("pageshow", function () {
+    document.querySelectorAll("form[data-sending]").forEach(function (form) {
+      delete form.dataset.sending;
+      form.querySelectorAll("button[type=submit]").forEach(function (b) {
+        b.disabled = false; if (b.dataset.label) b.textContent = b.dataset.label;
+      });
+    });
   });
 })();

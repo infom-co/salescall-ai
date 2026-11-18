@@ -25,6 +25,13 @@ from tests.test_approval import Helpers as ApprovalHelpers, TAKEN
 SECRET = b"test-only-secret"
 
 
+def form_of(page: str, action: str) -> dict[str, str]:
+    """画面の中の、その送り先のフォームが送る隠れた値（ブラウザが送るものと同じ。受け箱の鍵・二度押しの札・戻る先）。"""
+    m = re.search(r'<form[^>]*action="' + re.escape(action) + r'"[^>]*>(.*?)</form>', page, re.S)
+    assert m is not None, action
+    return dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)">', m.group(1)))
+
+
 class OldPromise(DialFixAfterCalls):
     def _waiting_row(self):
         """名前を「違う」で直した通話で、前の担当の方が新しい約束をした行（CL-2 の試験と同じ作り方）。"""
@@ -57,16 +64,14 @@ class OldPromise(DialFixAfterCalls):
         self.assertIn("前の担当の方との約束", page)
         self.assertIn(f'/c/{s["client"]}/inbox/old_promise/keep', page)        # 守れる約束なので「守る」も出る（core の1か所の答え）
         self.assertIn(f'/c/{s["client"]}/inbox/old_promise/new_person', page)
-        token = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)
-        r = http.post(f'/c/{s["client"]}/inbox/old_promise/new_person', data={"form_token": token, "task_id": str(s["task"])},
-                      follow_redirects=False)
+        sent = form_of(page, f'/c/{s["client"]}/inbox/old_promise/new_person')
+        r = http.post(f'/c/{s["client"]}/inbox/old_promise/new_person', data=sent, follow_redirects=False)
         self.assertEqual(r.status_code, 303)
         self.assertIn("ok=1", r.headers["location"])
         self.assertIsNone(self.tx(s, lambda tx: tasks.old_promise_waiting(tx, s["task"])))
         self.assertEqual(self.plan(s), self.handed_over(s["contact"]))         # 予定は core の決めたとおり
         self.assertNotIn("前の担当の方との約束", http.get("/t/inbox").text)
-        again = http.post(f'/c/{s["client"]}/inbox/old_promise/keep', data={"form_token": token, "task_id": str(s["task"])},
-                          follow_redirects=False)                              # もう選んだ行（古い画面から押した）
+        again = http.post(f'/c/{s["client"]}/inbox/old_promise/keep', data=sent, follow_redirects=False)   # もう選んだ行（古い画面から押した）
         self.assertIn("ok=0", again.headers["location"])                       # 断りの文が出る（500 にならない・何も書かない）
 
 
@@ -88,14 +93,16 @@ class MonthAheadAnswer(MonthAhead):
         page = http.get("/t/inbox").text
         self.assertIn("1か月以上先のかけ直し", page)
         self.assertIn(calling_hours.label(p["call_at"]), page)                 # お電話する日時（書き方は core の1か所）
-        token = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)
-        r = http.post(f'/c/{s["client"]}/inbox/month_ahead/approve', data={"form_token": token, "task_id": str(s["task"])},
-                      follow_redirects=False)
+        sent = form_of(page, f'/c/{s["client"]}/inbox/month_ahead/approve')
+        moved = http.post(f'/c/{s["client"]}/inbox/month_ahead/approve', data={**sent, "call_at": "2030-01-01T00:00:00+00:00"},
+                          follow_redirects=False)                              # 見せた日時と違う日時では決められない（中身が変わった）
+        self.assertIn("ok=0", moved.headers["location"])
+        self.assertEqual(self.tx(s, lambda tx: tasks.month_ahead_answerable(tx, s["task"])), p["call_at"])
+        r = http.post(f'/c/{s["client"]}/inbox/month_ahead/approve', data=sent, follow_redirects=False)
         self.assertIn("ok=1", r.headers["location"])
         self.assertIsNone(self.tx(s, lambda tx: tasks.month_ahead_answerable(tx, s["task"])))
         self.assertNotIn("1か月以上先のかけ直し", http.get("/t/inbox").text)
-        again = http.post(f'/c/{s["client"]}/inbox/month_ahead/refuse', data={"form_token": token, "task_id": str(s["task"])},
-                          follow_redirects=False)
+        again = http.post(f'/c/{s["client"]}/inbox/month_ahead/refuse', data=sent, follow_redirects=False)
         self.assertIn("ok=0", again.headers["location"])                       # もう答えた（古い画面）＝断りの文・何も書かない
 
 
@@ -112,16 +119,16 @@ class CorrectionCall(Corrections):
         self.assertIn("直しでかける電話の確かめ", http.get("/t/inbox").text)
         row = f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/rows/{s["task"]}'
         page = http.get(row).text
-        self.assertIn("直した内容でお電話してよいかの確かめを待っています", page)
-        token = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)
-        r = http.post(f'/c/{s["client"]}/inbox/correction/confirm', data={"form_token": token, "task_id": str(s["task"]), "back": row},
-                      follow_redirects=False)
+        self.assertIn("直した内容で、このお客様にお電話してよいか", page)      # 受け箱と同じ部品で、この行の承認待ちを出す
+        sent = form_of(page, f'/c/{s["client"]}/inbox/correction/confirm')
+        self.assertEqual(sent["back"], row)
+        r = http.post(f'/c/{s["client"]}/inbox/correction/confirm', data=sent, follow_redirects=False)
         self.assertTrue(r.headers["location"].startswith(row + "?"))            # 1行の画面へ戻る
         self.assertIn("ok=1", r.headers["location"])
         self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (s["task"],))["v"]))
         self.assertNotIn("直しでかける電話の確かめ", http.get("/t/inbox").text)
-        outside = http.post(f'/c/{s["client"]}/inbox/correction/confirm', data={"form_token": token, "task_id": str(s["task"]),
-                                                                              "back": "https://example.invalid/"}, follow_redirects=False)
+        outside = http.post(f'/c/{s["client"]}/inbox/correction/confirm', data={**sent, "back": "https://example.invalid/"},
+                            follow_redirects=False)
         self.assertTrue(outside.headers["location"].startswith("/t/inbox"))      # 依頼者の中の住所でなければ戻さない（ok=0：もう確かめた）
         self.assertIn("ok=0", outside.headers["location"])
 
@@ -144,11 +151,14 @@ class VerificationMode(ApprovalHelpers):
         page = http.get("/t/inbox").text
         self.assertIn("発信前の行の承認（検証モード）", page)
         self.assertIn(f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}"', page)     # 決める前に見る（お客様リスト）
-        r = self._post(http, f'/c/{s["client"]}/inbox/task_approval/approve_all', {"run_id": str(s["run"])})
+        sent = form_of(page, f'/c/{s["client"]}/inbox/task_approval/approve_all')
+        self.assertIn("ok=0", self._post(http, f'/c/{s["client"]}/inbox/task_approval/approve_all',
+                                         {"run_id": str(s["run"])}).headers["location"])   # 見せた行の印（digest）が無ければ決めない
+        r = http.post(f'/c/{s["client"]}/inbox/task_approval/approve_all', data=sent, follow_redirects=False)
         self.assertIn("ok=1", r.headers["location"])
         self.assertIsNone(self.tx(s, lambda tx: approval.uncleared(tx, s["task"])))
         self.assertNotIn("発信前の行の承認（検証モード）", http.get("/t/inbox").text)
-        again = self._post(http, f'/c/{s["client"]}/inbox/task_approval/approve_all', {"run_id": str(s["run"])})
+        again = http.post(f'/c/{s["client"]}/inbox/task_approval/approve_all', data=sent, follow_redirects=False)
         self.assertIn("ok=0", again.headers["location"])                         # もう待っている行は無い（何も書かない）
 
     def test_a_result_waits_for_the_check_and_can_be_approved_or_corrected(self):

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, next_tag, empty, flash, csrf %}
+{% from "parts.html" import tag, next_tag, empty, flash, csrf, inbox_item %}
 {% set active = "client" %}
 {% block title %}{{ row.source_name or "お客様" }}{% endblock %}
 {% block main %}
@@ -8,13 +8,10 @@
 <h1>{{ row.source_name or "（会社名なし）" }}</h1>
 <p class="lead">{% if row.target_name %}お呼びする方：{{ row.target_name }}{% if row.target_role %}（{{ row.target_role }}）{% endif %}・{% endif %}行 {{ row.source_row or "" }}{% if row.client_ref %}・管理番号 {{ row.client_ref }}{% endif %}</p>
 {{ flash(done, ok) }}
-{% if correction %}
-<form class="card attention-wait notice-link" method="post" action="/c/{{ client.client_id }}/inbox/correction/confirm">
-  {{ csrf(token) }}<input type="hidden" name="task_id" value="{{ row.task_id }}"><input type="hidden" name="back" value="{{ base }}/rows/{{ row.task_id }}">
-  <b>直した内容でお電話してよいかの確かめを待っています</b>
-  <span class="muted">確かめるまで、この電話はかけません。かけないなら「かけない」にしてください。</span>
-  <button class="btn main small go-btn" type="submit">かけてよい</button>
-</form>
+{% if pending %}
+<section class="stack row-pending" aria-label="この行の承認待ち">
+  {% for i in pending %}{{ inbox_item(client, i, token, back=base ~ "/rows/" ~ row.task_id, show_place=False) }}{% endfor %}
+</section>
 {% endif %}
 <div class="grid cols-2 row-grid">
   <section class="card">

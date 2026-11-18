@@ -22,3 +22,36 @@
 {%- endmacro %}
 
 {% macro csrf(token) -%}<input type="hidden" name="{{ token_field }}" value="{{ token }}">{%- endmacro %}
+
+{# 承認待ち1件（受け箱とお客様の行の画面で同じ部品。鍵は受け箱の1か所 inbox.Item.key をそのまま送り返す＝inbox.perform が今の中身と照らす） #}
+{% macro inbox_item(place, i, token, back="", show_place=True) -%}
+  <article class="card item {{ 'urgent' if i.urgent }}">
+    <div class="item-head">
+      {{ tag(i.title, "stop" if i.urgent else "wait") }}
+      {% if show_place %}<span class="where">{{ place.name }}{% if i.business_name %} ／ {{ i.business_name }}{% endif %}</span>{% endif %}
+      <span class="when">{% if i.deadline %}期限 {{ time(i.deadline) }}{% elif i.at %}{{ time(i.at) }}から{% endif %}</span>
+    </div>
+    <div class="decide">{{ i.decide }}</div>
+    {% if i.evidence %}
+    <dl class="facts evidence">
+      {% for h, v in i.evidence %}<dt>{{ h }}</dt><dd>{{ v }}</dd>{% endfor %}
+    </dl>
+    {% endif %}
+    {% if i.if_not %}<div class="if-not">{{ i.if_not }}</div>{% endif %}
+    {% if i.link and not back %}<a class="see" href="{{ i.link }}">決める前に見る →</a>{% endif %}
+    <div class="actions">
+      {% if i.buttons %}
+        {% for b in i.buttons %}
+        <form method="post" action="{{ '/c/' ~ place.client_id if place.client_id else '/admin' }}/inbox/{{ i.kind }}/{{ b.action }}">
+          {{ csrf(token) }}
+          {% for k, v in i.key.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+          {% if back %}<input type="hidden" name="back" value="{{ back }}">{% endif %}
+          <button class="btn {{ 'main' if b.main }}" type="submit">{{ b.label }}</button>
+        </form>
+        {% endfor %}
+      {% else %}
+        <span class="muted">{{ i.waiting_why }}（決まるまでボタンは出ません）</span>
+      {% endif %}
+    </div>
+  </article>
+{%- endmacro %}

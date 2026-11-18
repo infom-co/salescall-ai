@@ -60,15 +60,24 @@ def _back(path: str, out: actions.Outcome) -> RedirectResponse:
     return RedirectResponse(f"{path}?done={quote(out.message)}&ok={int(out.ok)}", status_code=303)
 
 
+def _picked(pair: tuple[dict[str, Any], inbox.Item], client_id: UUID | None, business_id: UUID | None, kind: str | None) -> bool:
+    """承認待ちの絞り方の1か所（依頼者・業務・種類）。全体の範囲の種類（管理者だけ）は、依頼者・業務で絞らないときだけ残す。"""
+    c, i = pair
+    if c is SYSTEM_PLACE:
+        return client_id is None and business_id is None and (kind is None or i.kind == kind)
+    return ((client_id is None or c["client_id"] == client_id) and (business_id is None or i.business_id == business_id)
+            and (kind is None or i.kind == kind))
+
+
 def _waiting(ctx: Ctx, client_id: UUID | None = None, business_id: UUID | None = None,
              kind: str | None = None) -> list[tuple[dict[str, Any], inbox.Item]]:
     """承認待ちを、受け箱の並べ方（inbox.ordered の1か所）で並べる。絞り方もここ1か所：依頼者（依頼者のタブ・受け箱の絞り）・
     業務（業務のタブ）・種類（受け箱の絞り）。どの画面の承認待ちの数も、これを数える（ホーム・帯・タブで数が食い違わない）。"""
     chosen = [c for c in ctx.clients() if client_id is None or c["client_id"] == client_id]
-    pairs = [(c, i) for c in chosen for i in ctx.client(c["client_id"], inbox.collect)
-             if (business_id is None or i.business_id == business_id) and (kind is None or i.kind == kind)]
+    pairs = [(c, i) for c in chosen for i in ctx.client(c["client_id"], inbox.collect, read_only=True)]
     if ctx.person.is_admin and client_id is None and business_id is None:   # 全体の範囲の種類（管理者だけ）は、依頼者で絞らないときだけ
-        pairs += [(SYSTEM_PLACE, i) for i in ctx.system(lambda tx: inbox.collect(tx, "system")) if kind is None or i.kind == kind]
+        pairs += [(SYSTEM_PLACE, i) for i in ctx.system(lambda tx: inbox.collect(tx, "system"))]
+    pairs = [p for p in pairs if _picked(p, client_id, business_id, kind)]
     rank = {id(i): n for n, i in enumerate(inbox.ordered([i for _, i in pairs]))}
     return sorted(pairs, key=lambda ci: rank[id(ci[1])])
 
@@ -172,7 +181,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             ids = {str(c["client_id"]): c for c in ctx.clients()}
             pick_kind = kind if kind in inbox.KINDS else None
             pick_client = ids[client]["client_id"] if client in ids else None
-            rows = every if pick_kind is None and pick_client is None else _waiting(ctx, pick_client, kind=pick_kind)
+            rows = [p for p in every if _picked(p, pick_client, None, pick_kind)]   # 集めるのは1回（同じ絞り方の1か所で絞る）
             per_kind = [(k, v.title, sum(1 for _, i in every if i.kind == k)) for k, v in inbox.KINDS.items()]   # 0 の種類は出さない
             return page(request, "inbox.html", person, ctx, rows=rows, per_kind=per_kind, total=len(every),
                         pick_kind=pick_kind or "", pick_client=str(pick_client or ""), done=done, ok=bool(ok))
@@ -185,9 +194,10 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             k = inbox.KINDS.get(kind)
             if k is None or k.where != "client" or action not in k.perform:
                 raise NotFound()
-            do, done = k.perform[action]
-            key = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
-            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, lambda tx: do(tx, key)), done=done)
+            sent = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
+            out = actions.act(secret, person.login_id, form,
+                              lambda: ctx.client(client_id, lambda tx: inbox.perform(tx, kind, action, sent, "client")),
+                              done=k.perform[action][1])
             back = str(form.get("back") or "")   # 1行の画面などから決めたときは、その画面へ戻る（その依頼者の中の住所だけ）
             return _back(back if back.startswith(f"/c/{client_id}/") and "//" not in back else "/t/inbox", out)
         return handle(request, render)
@@ -200,9 +210,10 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             k = inbox.KINDS.get(kind)
             if k is None or k.where != "system" or action not in k.perform:
                 raise NotFound()
-            do, done = k.perform[action]
-            key = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
-            out = actions.act(secret, person.login_id, form, lambda: ctx.system(lambda tx: do(tx, key)), done=done)
+            sent = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
+            out = actions.act(secret, person.login_id, form,
+                              lambda: ctx.system(lambda tx: inbox.perform(tx, kind, action, sent, "system")),
+                              done=k.perform[action][1])
             return _back("/t/inbox", out)
         return handle(request, render)
 
@@ -1032,7 +1043,10 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
                 _row_in(tx, business_id, run_id, task_id)
-                row = next(r for r in customer_rows.progress(tx, run_id) if r["task_id"] == task_id)
+                # ⏳ 1行だけを読む形（customer_rows の1か所）を CL-2 へお願い（いまは実施回の全行を読んで1行を選ぶ）。
+                row = next((r for r in customer_rows.progress(tx, run_id) if r["task_id"] == task_id), None)
+                if row is None:
+                    raise NotFound()
                 calls = tx.all("SELECT state::text AS state, claimed_at, ended_at, trouble FROM salescall.attempts"
                                " WHERE task_id = %s AND state <> 'released' ORDER BY claimed_at DESC LIMIT 30", (task_id,))
                 step: dict[str, Any] = {}
@@ -1045,7 +1059,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 latest = results.latest(tx, task_id)
                 return {"level": exclusions.level(tx, task_id),
                         "latest": latest, "can_correct": latest is not None and latest["kind"] in measure.SYSTEM_KINDS,
-                        "correction": tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (task_id,))["v"],
+                        "pending": inbox.collect(tx, task=task_id),   # この行の承認待ち（受け箱と同じ1か所・同じ形で出す）
                         "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
                         "run": tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s", (run_id,)),
