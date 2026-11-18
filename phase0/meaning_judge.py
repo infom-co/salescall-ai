@@ -1606,14 +1606,17 @@ def other_client(name: str, key: str, aio: bool = False, budget: float | None = 
 
 
 def _other_error(exc: BaseException) -> OtherJudgeError | None:
-    """部品ごとの失敗を、1つの形（OtherJudgeError）にそろえる。ほかの失敗は None（そのまま上げる）。"""
-    import anthropic
-    import httpx
+    """部品ごとの失敗を、1つの形（OtherJudgeError）にそろえる。ほかの失敗は None（そのまま上げる）。
+    部品はここで読み込まない＝読み込まれている部品の誤りだけを見る（その部品の誤りは、その部品が読み込まれているときにしか起きない）。⛔ 2026-11-18
+    日本時間21時台に見つけた（11-19 日本時間0時台に測った）：ここで anthropic・httpx を読み込んでいた＝その処理で初めての失敗のときだけ 0.75〜1.8秒かかり、
+    会話の側の待つ長さ（Limits.judge_wait_s＝2秒）の中で止まった判定の代わり（前の話の答えの Jev など）が待たされた"""
+    import sys
 
-    if isinstance(exc, anthropic.APIStatusError):
+    anthropic, httpx = sys.modules.get("anthropic"), sys.modules.get("httpx")
+    if anthropic is not None and isinstance(exc, anthropic.APIStatusError):
         r = exc.response
         return OtherJudgeError(exc.status_code, str(exc.message)[:300], float(r.headers.get("retry-after") or 0) or None)
-    if isinstance(exc, httpx.HTTPStatusError):
+    if httpx is not None and isinstance(exc, httpx.HTTPStatusError):
         r = exc.response
         return OtherJudgeError(r.status_code, r.text[:300], float(r.headers.get("retry-after") or 0) or None)
     return None

@@ -7967,6 +7967,48 @@ class JudgePanelTest(unittest.TestCase):
             self.assertEqual(asyncio.run(mj.aread_prior_first(clients, None, "前の話", state=st)), ("利用する", 0.95, "利用する"))
             self.assertEqual(sent, [JEV])   # 止まっている d1-ultra には送らない（組のほかの問い合わせと同じ印）
 
+    def test_first_judge_failure_loads_no_parts_inside_the_wait(self):
+        # ⛔ 2026-11-18 日本時間21時台に見つけた（試験の全部の中で1回だけ AmbiguousAnswerTest.test_prior_answer_is_compared_by_the_program の「d1-ultra が
+        #    答えなければ Jev」が落ち、単独では通った）：判定の失敗を1つの形にそろえる1か所（_other_error）が、その処理で初めての失敗のときに anthropic・httpx の
+        #    部品を読み込んでいた（11-19 日本時間0時台に測った＝初めの1回だけ 0.75〜1.8秒・2回目から 0.002秒）＝会話の側の待つ長さ（Limits.judge_wait_s＝2秒）の
+        #    中で、止まった判定の代わり（前の話の答えの Jev）が待たされ、読みが無くなりうる。本番の通話も、その処理で初めて判定が失敗した発話で同じ
+        #    ⇒ 失敗の見分けは部品を読み込まない（その部品の誤りは、その部品が読み込まれているときにしか起きない）
+        import subprocess
+        import sys
+
+        import anthropic
+        import httpx
+        import httpx2
+
+        import meaning_judge as mj
+        code = ("import sys, common\n"
+                "common.close_network()\n"
+                "import meaning_judge as mj\n"
+                "parts = ('anthropic', 'httpx', 'httpx2')\n"
+                "before = [p for p in parts if p in sys.modules]\n"
+                "class Down:\n"
+                "    def post(self, path, json=None):\n"
+                "        raise mj.OtherJudgeError(503, '混雑')\n"
+                "class Boom:\n"
+                "    def post(self, path, json=None):\n"
+                "        raise RuntimeError('壊れた')\n"
+                "for c in (Down(), Boom()):\n"
+                "    try:\n"
+                "        mj._send_other(c, mj.PRIOR_READERS[1], {})\n"
+                "    except Exception:\n"
+                "        pass\n"
+                "print(','.join(before) or '-', ','.join(p for p in parts if p in sys.modules) or '-')\n")
+        done = subprocess.run([sys.executable, "-c", code], cwd=Path(__file__).resolve().parent, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.stdout.split(), ["-", "-"], done.stderr[-500:])   # 失敗の見分けの前も後も、部品は読み込まれていない
+        # 部品が読み込まれていれば、見分けは今までどおり（番号と、待つ秒）
+        req2 = httpx2.Request("POST", "https://x.invalid")
+        a = mj._other_error(anthropic.RateLimitError("混んでいる", response=httpx2.Response(429, headers={"retry-after": "3"}, request=req2), body=None))
+        self.assertEqual((a.status, a.retry), (429, 3.0))
+        req = httpx.Request("POST", "https://x.invalid")
+        h = mj._other_error(httpx.HTTPStatusError("x", request=req, response=httpx.Response(503, text="混雑", headers={"retry-after": "2"}, request=req)))
+        self.assertEqual((h.status, h.retry), (503, 2.0))
+        self.assertIsNone(mj._other_error(RuntimeError("壊れた")))
+
     def test_standin_holder_is_per_utterance(self):
         # ⛔ 2026-11-06 日本時間8時台（5時56分55秒のご質問の読み直し EN-C の指摘4）：代わり（Jev）が一度ある受け持ちに入ると、その印が組に残り、そのあとの
         #    別の発話・別の質問でも、お呼びする段の組から Jev を「ほかの受け持ちが同じ会社で答えた」として外した（d1-ultra が確かでない言葉が、Jev ではなく
