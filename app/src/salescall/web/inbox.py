@@ -4,7 +4,7 @@
 なにを決めるか・根拠・決めないと何が起きるか・ボタン（承認する／差し戻す）。並び順は緊急 → 期限 → 古い順（`ordered`）。
 
 この表に無い承認を、別の画面に作らない。種類を足すときは、ここに1行足す（docs/DASHBOARD.md 4-2 の表と同じ並び）。
-⏳ まだ入れていない種類：お詫びの電話・解決策の確かめ・1か月以上先のかけ直し・前の担当の方との約束・録音の承認・修正依頼・名前の
+⏳ まだ入れていない種類：解決策の確かめ・1か月以上先のかけ直し・前の担当の方との約束・録音の承認・修正依頼・名前の
 録音の審査（docs/DASHBOARD.md 4-2。読む部品と決める部品は分かっている）。
 """
 
@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, conversation_io, usage
+from salescall.core import approval, apology, conversation_io, usage
 from salescall.core.access import Tx
 from salescall.output import words
 
@@ -78,7 +78,37 @@ def _deficit(tx: Tx) -> list[Item]:
                  at=n["warned_at"], deadline=n["deadline"], buttons=(Button("confirm", "確かめた", main=True),))]
 
 
+# 録音を聞く仕組み（録音の置き場の参照 audio_ref から音を読み出す部品）は、まだ無い（CL-2・CL-1 へのお願い）。お詫びの電話は「承認のときに
+# 録音を一緒に聞いていただく」と決まっている（2026-10-24）ので、聞けるようになるまで承認のボタンを出さない（聞かずに承認できる形を作らない）。
+CAN_PLAY_RECORDINGS = False
+
+
+def _apologies(tx: Tx) -> list[Item]:
+    items = []
+    for o in tx.all("SELECT o.order_id, o.task_id, o.pairs, o.improper, o.text_same_day, o.prepared_at,"
+                    "       (SELECT s.set_id FROM salescall.recording_sets s WHERE s.unit = 'apology' AND s.order_id = o.order_id"
+                    "         ORDER BY s.created_at DESC LIMIT 1) AS set_id"
+                    " FROM salescall.apology_orders o"
+                    " WHERE NOT EXISTS (SELECT 1 FROM salescall.apology_approvals a WHERE a.order_id = o.order_id)"
+                    " ORDER BY o.prepared_at, o.order_id"):
+        ev = [("お詫びで伝える文", o["text_same_day"])]
+        ev += [("誤って伝えたこと → 正しい案内", f"{p['wrong']} → {p['correct']}") for p in (o["pairs"] or [])]
+        ev += [("失礼な言葉", w) for w in (o["improper"] or [])]
+        ready = o["set_id"] is not None and CAN_PLAY_RECORDINGS
+        why = ("お詫びの録音を作っています" if o["set_id"] is None
+               else "録音を聞く仕組みを準備しています（聞いてから承認する決まりのため）")
+        items.append(Item(
+            kind="apology", key={"order_id": str(o["order_id"]), "set_id": str(o["set_id"] or "")},
+            title="お詫びの電話の承認", decide="この文と録音で、お客様にお詫びの電話をかけてよいか",
+            evidence=ev, if_not="承認するまで、このお客様へは、お約束の電話もかけません。", at=o["prepared_at"],
+            buttons=(Button("approve", "承認する", main=True),) if ready else (), waiting_why="" if ready else why))
+    return items
+
+
 KINDS: dict[str, Kind] = {
+    "apology": Kind("お詫びの電話の承認", _apologies, {
+        "approve": (lambda tx, k: apology.approve(tx, int(k["order_id"]), UUID(k["set_id"])), "承認しました。お詫びの電話をかけます。"),
+    }),
     "decision": Kind("取り消せない決定の確かめ", _decisions, {
         "approve": (lambda tx, k: approval.approve_decision(tx, UUID(k["attempt_id"]), int(k["seq"])), "承認しました。"),
         "send_back": (lambda tx, k: approval.send_back_decision(tx, UUID(k["attempt_id"]), int(k["seq"])), "差し戻しました。"),
@@ -87,6 +117,9 @@ KINDS: dict[str, Kind] = {
         "confirm": (lambda tx, k: usage.confirm_deficit(tx, int(k["warning_id"])), "確かめたことを記録しました。"),
     }),
 }
+
+
+KEY_FIELDS = ("attempt_id", "seq", "warning_id", "order_id", "set_id")   # 受け箱の操作が送り返してよい鍵の名前（ほかの欄は読まない）
 
 
 def collect(tx: Tx) -> list[Item]:

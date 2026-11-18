@@ -159,7 +159,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             if k is None or action not in k.perform:
                 raise NotFound()
             do, done = k.perform[action]
-            key = {f: str(form.get(f, "")) for f in ("attempt_id", "seq", "warning_id")}
+            key = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, lambda tx: do(tx, key)), done=done)
             return _back("/t/inbox", out)
         return handle(request, render)
