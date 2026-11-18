@@ -724,6 +724,26 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     def business_home(request: Request, client_id: UUID, business_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
         return _client_or_business(request, client_id, business_id, done, ok)
 
+    @app.get("/c/{client_id}/b/{business_id}/versions/{version_id}")
+    def version_page(request: Request, client_id: UUID, business_id: UUID, version_id: UUID) -> HTMLResponse:
+        """業務設定の版の中身（読むだけ。読むのは core の business_settings.load の1か所＝置いたときと同じ確かめで読む）。"""
+        from salescall.core import business_settings
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                b = context.business(tx, business_id)
+                v = tx.one("SELECT version_id, version_no, created_at FROM salescall.business_versions WHERE version_id = %s"
+                           " AND business_id = %s", (version_id, business_id))
+                if v is None:
+                    raise NotFound()
+                try:
+                    s, problem = business_settings.load(tx, version_id), None
+                except business_settings.SettingsInvalid as e:
+                    s, problem = None, str(e)
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem}
+            return page(request, "version.html", person, ctx, **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
     @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}")
     def rows_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, done: str | None = None,
                   ok: int = 1) -> HTMLResponse:

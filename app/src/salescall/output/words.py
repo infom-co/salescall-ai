@@ -236,6 +236,15 @@ QUALITY_METRIC_WORDS: dict[str, str] = {
 }
 
 
+# 業務設定の中身を見せる言葉（質問の型＝データベースの field_types のすべて・目的のお客様の種類＝business_settings.TARGET_PERSON_KINDS の
+# すべて。試験が突き合わせる）。契約者・管理者の画面だけ
+FIELD_TYPE_WORDS: dict[str, str] = {"date": "日付", "time": "時刻", "datetime": "日時", "number": "数", "amount": "金額", "name": "名前",
+                                    "phone": "電話番号", "email": "メールアドレス", "address": "住所", "yes_no": "はい／いいえ",
+                                    "choice": "選択肢", "free_text": "自由な答え"}
+TARGET_PERSON_WORDS: dict[str, str] = {"role": "役職の方", "role_and_name": "役職（部署）とお名前の方", "name": "お名前の方",
+                                       "anyone": "その店・会社の方ならどなたでも"}
+
+
 def stop_scope(name: str) -> str:
     """停止の範囲の名前（正本は stops.SCOPE_NAMES）。"""
     return stops.SCOPE_NAMES.get(name, NO_WORD)

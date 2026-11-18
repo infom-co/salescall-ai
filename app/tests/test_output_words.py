@@ -83,6 +83,12 @@ class EveryNameHasAWord(unittest.TestCase):
         from salescall.core import quality_stage
         self.assertEqual(set(words.QUALITY_METRIC_WORDS), set(quality_stage.METRICS))
 
+    def test_every_field_type_and_target_kind_has_a_word(self):
+        from salescall.core import business_settings
+        types = app_access().in_system(SYSTEM, lambda tx: {r["t"] for r in tx.all("SELECT type_name AS t FROM salescall.field_types")})
+        self.assertEqual(set(words.FIELD_TYPE_WORDS), types)
+        self.assertEqual(set(words.TARGET_PERSON_WORDS), set(business_settings.TARGET_PERSON_KINDS))
+
     def test_every_dnc_reason_has_a_word(self):
         import typing
         from salescall.core import dnc

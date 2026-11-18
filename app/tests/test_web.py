@@ -143,6 +143,14 @@ class Web(_World):
         self.assertEqual("録音がそろうまで" in page, (not need.listed) or bool(need.parts))
         self.assertNotIn("録音がそろうまで", self.get("A", f"/c/{self.a['client']}").text)   # 概要（全業務）では出さない（業務のタブで出す）
 
+    def test_a_version_page_shows_the_settings_of_its_own_business_only(self):
+        ensure_rules(World(), self.a)
+        ok = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.a['version']}")
+        self.assertEqual(ok.status_code, 200)
+        self.assertIn("業務設定の中身", ok.text)
+        self.assertNotIn(words_missing(), ok.text)
+        self.assertEqual(self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.y['version']}").status_code, 404)
+
     def test_the_inbox_filter_ignores_a_client_of_another_contractor(self):
         page = self.get("A", f"/t/inbox?client={self.b['client']}&kind=no_such_kind")
         self.assertEqual(page.status_code, 200)

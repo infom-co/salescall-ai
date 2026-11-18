@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty %}
+{% set active = "client" %}
+{% block title %}業務設定 版 {{ version.version_no }}{% endblock %}
+{% block main %}
+<p><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}">← {{ business.name }}</a></p>
+<h1>業務設定の中身：版 {{ version.version_no }}</h1>
+<p class="lead">{{ time(version.created_at) }}に作った版です。版は変えられません（直すときは新しい版を作ります。前の版も残ります）。</p>
+{% if problem %}<div class="flash ng" role="alert">この版は、いまの確かめに通りません：{{ problem }}</div>
+{% elif s %}
+<div class="grid cols-2">
+  <section class="card"><h2>目的と名乗り</h2>
+    <dl class="facts">
+      <dt>業務の目的</dt><dd>{{ s.purpose }}</dd>
+      <dt>名乗り</dt><dd>{{ s.company.text }}{% if s.company.reading %}<span class="muted">（{{ s.company.reading }}）</span>{% endif %}の{{ s.person.text }}{% if s.person.reading %}<span class="muted">（{{ s.person.reading }}）</span>{% endif %}</dd>
+      <dt>用件の一文</dt><dd>{{ s.purpose_line or "（なし）" }}</dd>
+      <dt>目的のお客様</dt><dd>{{ words.TARGET_PERSON_WORDS.get(s.target_person.kind, words.NO_WORD) }}{% if s.target_person.role %}：{{ s.target_person.role }}{% endif %}</dd>
+      <dt>留守番電話の伝言</dt><dd>{{ s.voicemail_message or "（残さない）" }}</dd>
+      <dt>「忙しい」のときの一言</dt><dd>{{ s.busy_line or "（引き止めない）" }}</dd>
+    </dl></section>
+  <section class="card"><h2>業務の情報</h2>
+    {% if s.info %}<ul class="need-list">{% for i in s.info %}<li>{{ i }}</li>{% endfor %}</ul>{% else %}{{ empty("ありません") }}{% endif %}
+  </section>
+</div>
+<h2 style="margin-top:24px">質問</h2>
+<div class="table-scroll"><table class="list">
+  <thead><tr><th class="num">順</th><th>質問</th><th>答えの形</th><th>必須</th><th class="wide">選択肢</th></tr></thead>
+  <tbody>{% for q in s.questions %}
+    <tr><td class="num">{{ loop.index }}</td><td>{{ q.text }}</td><td class="nowrap">{{ words.FIELD_TYPE_WORDS.get(q.type, words.NO_WORD) }}{% if q.unit %}（{{ q.unit }}）{% endif %}</td>
+      <td>{{ tag("必須", "info") if q.required else "" }}</td><td class="wide">{{ q.choices|join("・") }}</td></tr>
+  {% endfor %}</tbody></table></div>
+<h2 style="margin-top:24px">想定問答</h2>
+{% if s.answers %}
+<div class="table-scroll"><table class="list"><thead><tr><th>お客様の問い</th><th>答え</th></tr></thead>
+  <tbody>{% for name, text in s.answers %}<tr><td>{{ name }}</td><td>{{ text }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="card">{{ empty("この版で書いた想定問答はありません", "システムの標準の想定問答を使います。") }}</div>{% endif %}
+{% endif %}
+{% endblock %}
