@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% from "parts.html" import empty, csrf %}
+{% set active = "client" %}
+{% block title %}依頼者へ渡す内容{% endblock %}
+{% block main %}
+{% set rbase = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
+<p><a href="{{ rbase }}">← お客様リスト：{{ run.name }}</a></p>
+<div class="title-row"><h1>依頼者へ渡す内容の見本</h1>
+  <span class="btn-row"><a class="btn" href="{{ rbase }}/results.csv">確かめるために書き出す（CSV）</a>
+  <form method="post" action="{{ rbase }}/results.csv" data-download>{{ csrf(token) }}<button class="btn main" type="submit" {% if leak %}disabled{% endif %}>依頼者へ渡すファイルとして書き出す</button></form></span></div>
+<p class="lead">書き出すファイルと同じ中身です。確定した結果だけで、判定待ちの行は出しません。⏳ 質問ごとの答えの列は、書き方が決まってから足します。</p>
+{% if leak %}<div class="flash ng" role="alert">{{ leak }}</div>{% endif %}
+{% if rows %}
+<div class="table-scroll"><table class="list">
+  <thead><tr>{% for c in columns %}<th class="nowrap">{{ c }}</th>{% endfor %}</tr></thead>
+  <tbody>{% for r in rows %}<tr>{% for v in r.cells() %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<div class="card">{{ empty("渡す行はまだありません") }}</div>{% endif %}
+{% endblock %}

@@ -92,6 +92,20 @@ class Screen(unittest.TestCase):
         self.assertIn("ok=0", forged.headers["location"])
         self.assertEqual(self._submissions(), before + 1)
 
+    def test_the_file_of_client_x_has_rows_of_client_x_only(self):   # S-8
+        from salescall.core import customer_rows, phone
+        def numbers(w):
+            return app_access().in_client(OPERATOR, w["tenant"], w["client"], lambda tx: [
+                phone.normalize(r["dial_phone"]).national or r["dial_phone"] for r in customer_rows.progress(tx, w["run"])])
+        mine, theirs = numbers(self.a), numbers(self.y)
+        self.assertTrue(theirs)
+        text = self.http.get(self.base).content.decode("utf-8-sig")
+        page = self.http.get(self.base.replace("/results.csv", "/results")).text
+        for n in theirs:
+            if n not in mine:
+                self.assertNotIn(n, text)
+                self.assertNotIn(n, page)
+
     def test_a_run_of_another_client_cannot_be_written_out_here(self):
         other = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.y['run']}/results.csv"
         self.assertEqual(self.http.get(other).status_code, 404)

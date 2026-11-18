@@ -826,6 +826,24 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                                      "Cache-Control": "no-store"})
         return handle(request, render)
 
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/results")
+    def results_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
+        """依頼者へ渡す内容の見本（書き出すファイルと同じ行＝output/result_rows の1か所。依頼者へ出さない言葉の確かめも同じ）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                run = _run_in(tx, business_id, run_id)
+                got = result_rows.rows(tx, run_id)
+                try:
+                    result_files.check(got)
+                    leak = None
+                except result_files.ClientWordsLeak as e:
+                    leak = str(e)
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "business": context.business(tx, business_id), "businesses": context.businesses(tx), "run": run,
+                        "rows": got, "leak": leak}
+            return page(request, "results.html", person, ctx, columns=result_rows.COLUMNS, **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
     @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/results.csv")
     def results_check(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> Response:
         """確かめるために書き出す（控えには置かない）。"""

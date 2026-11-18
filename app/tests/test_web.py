@@ -151,6 +151,16 @@ class Web(_World):
         self.assertNotIn(words_missing(), ok.text)
         self.assertEqual(self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.y['version']}").status_code, 404)
 
+    def test_the_counts_of_client_x_do_not_move_when_client_y_changes(self):   # S-6
+        before = self.get("A", f"/c/{self.a['client']}").text
+        def busy_y(tx):
+            from salescall.core import next_action
+            next_action.schedule_now(tx, self.y["task"], cause="試験：依頼者Yの予定をいまに")
+        app_access().in_client(OPERATOR, self.y["tenant"], self.y["client"], busy_y)
+        after = self.get("A", f"/c/{self.a['client']}").text
+        grab = lambda t: re.findall(r'<span class="value">([^<]*)</span>', t)   # noqa: E731
+        self.assertEqual(grab(before), grab(after))
+
     def test_the_inbox_filter_ignores_a_client_of_another_contractor(self):
         page = self.get("A", f"/t/inbox?client={self.b['client']}&kind=no_such_kind")
         self.assertEqual(page.status_code, 200)
@@ -449,6 +459,7 @@ class Web(_World):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(), self._import_base(), "/t/lines", "/t/dnc", "/t/costs",
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/results",
                      f"/c/{self.a['client']}/dnc"):
             with self.subTest(path=path):
                 r = self.get("A", path)
