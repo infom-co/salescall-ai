@@ -2080,9 +2080,10 @@ YES_NO_FACT = ("back_today", "again")   # かけ直しの記録に、はい／�
 #    CL-2 が報告ごと断った／はい・いいえの答えが取れていないと null を書き、CL-2 が報告ごと断った（相手が切った・「わからない」のとき）
 CALLBACK_FIELD = {"C1": "time", "C2": "number", "C3": "email", "C4": "fax", "C5": "address", "C6": "back_today", "C7": "again",
                   "C8": "person", "C9": "time", "M1": "message", "P1": "again"}
-# 伺ったのに「はい」でなければ「いいえ」（よいと言われていない＝CL-2 の 4-135）と書く問い。ほかのはい／いいえは、取れたときだけ書く
-# （「本日お戻りのご予定」の「わからない」は、戻らないとは言われていない）
-NOT_YES_IS_NO = ("C7", "P1")
+# はい／いいえの答えは、どの問いも取れたときだけ書く（Flow._yes_no の1か所。「本日お戻りのご予定」の「わからない」は戻らないとは言われていない・「後ほど改めて…」
+# （C7・P1）の聞き取れない・はっきりしない・迷い・別のお話・伺う途中で切れたは、断られていない＝分からない＝書かない＝CL-2 の読みは「よいと言われていない」の
+# まま＝同じ日にはかけ直さない）。⛔ 2026-11-18 まで、C7・P1 は伺ったのに「はい」でなければ「いいえ」と書いていた（NOT_YES_IS_NO＝CL-2 の 4-135）＝分からないことを
+# 断りと同じ値で埋めていた（原則10・(GB) の (3)。分身 A の rv78 の穴）。CL-2 は null を受けない（call_report の _bool）ので、不明は項目を入れずに渡す
 # 相手の申し出への応じ方（業務設定。instruction.Business の substitute_policy・message_policy・departed_policy・follow_up）。最初が既定（ユーザーの決定）
 POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "message": ("decline", "leave"), "departed": ("successor", "end"),
             # 本題の始まり（Flow._main_talk）：asked＝最初の業務の質問を流したあと（既定）／answered＝この電話で業務の答えを1つ以上いただいたあと。
@@ -6302,7 +6303,7 @@ class Flow:
             self._note("callback", why="other_number", read=[])   # 番号を伺い直す電話：人の言葉が届いた（その発話が根拠）
         if self.callback_why and self.facts.get("callback"):
             # かけ直しの申し出の答え（Flow._callback_fields の1か所）。操作のたびに書き直す（締めの前に相手が切っても、取れた分は残る）
-            self.facts["callback"][-1].update(self._callback_fields(self.callback_ids, self.callback_why))
+            self._put_fields(self.facts["callback"][-1], self._callback_fields(self.callback_ids, self.callback_why))
         for fid in [f for f in self.follow_ups if f not in self.follow_noted and self.items[f].state in GOT
                     and self.questions[f].callback in CALLBACK_REASONS]:
             # 分かるお客様・分かる時の答え：かけ直しの記録（理由＝扱いの名前。項目は同じ1か所＝分かるお客様は person・分かる時は time）。
@@ -6311,9 +6312,9 @@ class Flow:
             self.follow_noted.add(fid)
             self._note("callback", why=self.questions[fid].callback, read=[], **self._callback_fields([fid], self.questions[fid].callback))
         if (p1 := CALLBACK_IDS["promise_again"]) in self.items and self._asked(p1) and self.facts.get("not_transferred"):
-            # 約束の電話で取り次げなかったときの一言への答え（伺ったら、「はい」のときだけ true＝CL-2 の 4-135。⛔ 2026-10-24 の見直し：
-            # 「わからない」・伺う途中で切れたときに書いていなかった＝CL-2 は「聞いていない」と読んだ）
-            self.facts["not_transferred"][-1]["again"] = self._yes_no(p1)
+            # 約束の電話で取り次げなかったときの一言への答え（はい＝true・いいえ＝false・分からない＝書かない＝_yes_no の1か所。⛔ 2026-11-18 まで、伺ったのに「はい」
+            # でなければ false＝CL-2 の 4-135 と書いていた＝分からないことを断りと同じ値で埋めた）
+            self._put_fields(self.facts["not_transferred"][-1], {k: v for k, v in (("again", self._yes_no(p1)),) if v is not None})
         if reply["result"] != "rejected" and self.reply_started and (self.own_pending or self.ai_pending):
             # この操作で応えて、お客様の返事を待ち始めた：お客様に聞こえた中身を覚える（もう一度言ってほしいと頼まれたら言い直す＝_repeat_now）
             self.reply_said = {k: reply[k] for k in ("play", "say", "speak", "silent", "message") if reply.get(k)}
@@ -9161,14 +9162,18 @@ class Flow:
             return None
         q, it = self.questions[qid], self.items[qid]
         # 条件を受けられるのは、こちらがすることの言葉のある申し出だけ（提案の言葉の1か所 _proposal_of）。こちらがかけ直す申し出（C7・P1・H1・H3）は、伺い直しの
-        # 申し出の中身（phrases.recall_do）を持っても条件は受けない＝かけ直しの時刻は時刻の質問 C1 が「はい」の言葉から読み直す（_offer_taken_time・_callback_said。
-        # 2026-11-18 の (1) で流れの制御に通して確かめた：「はい、夕方以降ならいると思うのでお願いします。」→「ありがとうございます。夕方以降でよろしいでしょうか？」）。
-        # 差し戻しの文は、受けていただいた答えでも書かない理由をそのまま言う（⛔ 57b89d93 まで「受けていただいた答えにだけ書きます」と、受けた答えに言っていた）
+        # 申し出の中身（phrases.recall_do）を持っても、ご都合の条件は受けない＝かけ直しの時刻は時刻の質問 C1 が「はい」の言葉から読み直す（_offer_taken_time・
+        # _callback_said。2026-11-18 の (1) で流れの制御に通して確かめた：「はい、夕方以降ならいると思うのでお願いします。」→「ありがとうございます。夕方以降でよろしい
+        # でしょうか？」。二重に渡さない）。申し出に含める中身（topic＝「はい、料金のことも聞きたいので」）は読み直す所が無いので受け、伺い直しの提案と同じ1か所
+        # （_proposal_note＝通話の事実 offer_terms）で依頼者へ渡す（分身 A の rv78 の穴の3。⛔ 2026-11-18 まで差し戻し、依頼者へ渡らなかった）。言い切りは締めの1回のまま
+        # （_taken_on_terms）。差し戻しの文は、受けていただいた答えでも書かない理由をそのまま言う（⛔ 57b89d93 まで「受けていただいた答えにだけ書きます」と、受けた答えに
+        # 言っていた）
         recall = q.callback in RECALL_ROLES
-        if (accept := self._offer_answer(qid)) is None or cond != accept or self._proposal_of(qid) is None or recall:
-            why = ("こちらがかけ直す申し出の答えには書きません（時刻などのご都合は、このあと時刻の質問が相手の言葉から読み直します）" if recall and cond == accept
-                   else "申し出を受けていただいた答えにだけ書きます")
-            return self._reject(f"「{ARG_LABEL[given[0]]}」は、{why}。外して、もう一度呼んでください。")
+        barred = [k for k in given if k != "topic"] if recall else []
+        if (accept := self._offer_answer(qid)) is None or cond != accept or self._proposal_of(qid) is None or barred:
+            why = ("こちらがかけ直す申し出の答えには、申し出に含める中身のほかは書きません（時刻などのご都合は、このあと時刻の質問が相手の言葉から読み直します）"
+                   if recall and cond == accept else "申し出を受けていただいた答えにだけ書きます")
+            return self._reject(f"「{ARG_LABEL[(barred or given)[0]]}」は、{why}。外して、もう一度呼んでください。")
         if (w := proposal["way"]) is not None and (q.asks_way or q.callback in WAY_ROLES):
             return self._reject(f"「{ARG_LABEL['way']}」は、この質問には書きません（方法を伺う質問なので、別の方法は「{ARG_LABEL['rest']}」に、相手の言ったとおりに書きます）。")
         # 業務に無い方法つきでも、もう受けていただいた答えは伺い直さない（その方法はお約束せず、連絡先を伺って申し伝える＝_taken_on_terms・_handoff_way・
@@ -9204,6 +9209,10 @@ class Flow:
         self.taken_terms = None
         # 伺い直しに入れた条件（申し出・方法の提案の伺い直しを受けていただいたお返事）と合わせる（新しく言われたほうを使う）
         it.offer_terms, it.offer_added, it.offer_topic, it.offer_way = (proposal[k] or getattr(it, f"offer_{k}") for k in PROPOSAL_ARGS)
+        if q.callback in RECALL_ROLES:
+            # こちらがかけ直す申し出（受けたのは中身だけ＝_terms_reported）：中身は通話の事実に残すだけ（_proposal_taken）。言い切りは、その申し出の言い切りの1か所
+            # （時刻を伺えないまま締めるときの taken_line＝1つの申し出に言い切りは1回）。ここで言い切ると、このあと時刻を伺う一言の前に重なる
+            return None
         # 言い切るのは、こちらで応えられる条件だけ（業務に無い方法はお約束しない＝言い切りに入れず、連絡先を伺って申し伝えるだけ。✅ 2026-11-12 まとめ役の (I1)）
         do, ways = self._proposal_of(qid)
         way = it.offer_way if it.offer_way in ways else None
@@ -9534,10 +9543,13 @@ class Flow:
         lead = self._resumed_explaining()
         self._await_reply(kind)
         self._point_said(kind)
-        # 申し伝える一言の種類（このあと切れたら、続きの電話で同じ種類の件を申し伝え直す＝_point_told）は、その一言を実際に流すとき（答えを持っていない質問の受け皿＝
-        # no_answer。ご説明できたか＝_point_said の explained と同じ決まり）だけ書く。⛔ 2026-11-18 CL-2 の連絡帳 4-421 の (1)：知っていることの文そのまま（own）を
-        # 流したときも書き、ご説明できた（explained）と一緒に渡して、CL-2 の受け口（申し伝える一言はご説明できなかった点にだけ＝4-99）が報告をまるごと断った
-        if point_fb is not None and kind == "no_answer" and (e := self._point_fact()) is not None:
+        # 申し伝える一言の種類（このあと切れたら、続きの電話で同じ種類の件を申し伝え直す＝_point_told）は、ご説明する段（_explaining）で、その一言を実際に流し
+        # （答えを持っていない質問の受け皿＝no_answer）、その点の記録がご説明できなかった（explained が false＝_point_said の1か所）ときだけ書く。
+        # ⛔ 2026-11-18 CL-2 の連絡帳 4-421 の (1)：知っていることの文そのまま（own）を流したときも書き、ご説明できた（explained）と一緒に渡して、CL-2 の受け口
+        # （申し伝える一言はご説明できなかった点にだけ＝4-99）が報告をまるごと断った。⛔ 4-422 の (1)：1回目はご説明できたあとの2回目の受け皿・本題で本心を伺った
+        # 一言（concern）の受け皿でも、ご説明できた記録・同じ電話で前に終えたご承認の手順の記録に書き、同じく断られた（本心への一言は気になる点の事実 concern の答え）
+        if (point_fb is not None and kind == "no_answer" and self._explaining() and (e := self._point_fact()) is not None
+                and e.get("explained") is False):
             e["told"] = pick if pick in POINT_KINDS else "question"
         why = f"答えの文は使いません（{problem}）。かわりに" if problem else ""
         if kind == "talk":
@@ -14280,7 +14292,7 @@ class Flow:
         - それ以外（聞いていない・分からない・答えたくない・聞き取れない・会話が繋がらないまま伺い終えた）：前の方の答えは使わず、最初から（代わりの方と同じ
           _start_over の1か所）
         答えは通話の事実 carried に残す（answer＝日本語の名前・取れなかったら None。kept＝前の方の答えを引き継いだか。dropped＝この電話で使わないことにした
-        前の通話の答えの質問の番号＝最初からなら全部・引き継いだなら途中の手順を始めた質問と、前の方が断った最終目的の質問だけ＝_carry_on。CL-2 は、この電話で
+        前の通話の答えの質問の番号＝最初からなら全部・引き継いだなら途中の手順を始めた質問と、前の方の電話を締める答え（最終目的のお断り・ここで終える答え）の質問だけ＝_carry_on。CL-2 は、この電話で
         取り直せなかった分も含めて、次の電話の
         前の通話の答え（earlier）から外す＝この電話が途中で切れても、次の電話で新しい方に前の方の答えで伺わない）。
         ✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」"""
@@ -14310,14 +14322,17 @@ class Flow:
         ご承認のお断りのあとの手順・ほかのご希望・その連絡先・申し伝え直し）は、前の方のお答えから始まった手順なので、その手順を始めた質問から新しい方に伺い直す
         （その質問の前の答えを外す。手順のお詫び・「前回お伺いした件で…」は言わない＝新しい方は前の電話でお話ししていない）。⛔ 前の方の「いいえ」のまま
         「ご納得いただけなかった点は…」を伺うと、お断りしていない方にお断りを前提に伺う。✅ 2026-11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」。
-        前の方の最終目的のお断りも引き継がず、その質問から伺い直す（下の again。⛔ 2026-11-18 日本時間15時台の見直し (13) で見つけた：引き継いでいたので、
-        引き継ぎを確かめる一言の答えのすぐあとに、前の方の「いいえ」で締めた）"""
+        前の方の最終目的のお断り・「ここで電話を終える」答えも引き継がず、その質問から伺い直す（下の again＝電話を締める答えの1か所 _closes_on。⛔ 2026-11-18
+        日本時間15時台の見直し (13) で見つけた：引き継いでいたので、引き継ぎを確かめる一言の答えのすぐあとに、前の方の「いいえ」で締めた。ここで終える答えは CL-2 の
+        連絡帳 4-422 の (2)）"""
         business = [q for q in self.questions.values() if not q.callback]
         again = [step[1].id] if (step := resumed_step(business, self.earlier)) is not None else []
         # 前の方の最終目的のお断り（「うちは要らない」）も、その方個人の答え＝新しい方には引き継がず、その質問から伺う（同じ理由＝前の方の「いいえ」は新しい方の
         # お答えではない。✅ 2026-11-17 日本時間2時23分01秒 管理者「鈴木様へはかける」＝CL-2 の 4-418・4-413。新しい方へかけるのは前の方のお断りがその方個人の
-        # ことだから＝引き継ぐと、用件・引き継ぎの一言のすぐあとに締める電話になる）。ほかの取れた答えは今までどおり引き継ぐ
-        again += [q.id for q in business if q.final_goal and q.id in self.earlier and q.id not in again and q.declined(self.items[q.id].condition)]
+        # ことだから＝引き継ぐと、用件・引き継ぎの一言のすぐあとに締める電話になる）。ほかの取れた答えは今までどおり引き継ぐ。
+        # 前の方の「ここで電話を終える」答え（Question.ends_on）も同じ理由で引き継がず、その質問から伺う（CL-2 の連絡帳 4-422 の (2)。⛔ 引き継いでいたので、新しい方が
+        # 「聞いている」と答えたすぐあとに、前の方の答えのまま締め、伺わなかった質問を前の方の答えで止めた事実 ended_on に書いた）
+        again += [q.id for q in business if q.id in self.earlier and q.id not in again and self._closes_on(q)]
         for qid in again:
             self.earlier.pop(qid, None)
             self.earlier_all.pop(qid, None)   # その質問で前の方に伺った連絡先も、新しい方には使わない（伺い直す）
@@ -14437,11 +14452,11 @@ class Flow:
         # 伺った答えで決める（上の asking。✅ 2026-11-03 日本時間21時38分 ユーザー：「…(1) ほかのご希望を1回だけ伺う。ということですよね？それならOKですよ」。
         # 前は確かめてから締めた＝「念のためどちらもご不要ということでよろしかったでしょうか？」＝遠ざかる向きの言葉の確かめ・そのあと 19時49分に伺うまで
         # 「承知しました。」で次へ進めていた）。業務の手立ての質問があれば、その答えで決まる（上の asking・最終目的の設定＝test_final_goal_setting_…）
-        # 前の通話の答えのお断りは、その答えをいただいた方とお話ししているときだけ数える（_earlier_ours の1か所。⛔ 2026-11-18 日本時間15時台の見直し (13) で
+        # 前の通話の答えのお断りは、その答えをいただいた方とお話ししているときだけ数える（_ours・_earlier_ours の1か所。⛔ 2026-11-18 日本時間15時台の見直し (13) で
         # 見つけた：担当の方が替わった電話で新しい担当の方に用件を言ったすぐあと・どの電話でも受付の方の「席を外しております」のあとに、前の方の「いいえ」で
         # 締め、受付の方の言葉を根拠に「目的が果たせなくなった」と報告していた）
         refused = [q.id for q in goals if self.items[q.id].state in GOT and q.declined(self.items[q.id].condition) and q.id not in asking
-                   and (q.id in self.taken or q.id not in self.earlier or self._earlier_ours())]
+                   and self._ours(q.id)]
         if not refused or (self.goal_mode == "any" and len(refused) < len(goals)):
             return None
         return refused
@@ -14455,6 +14470,20 @@ class Flow:
         ✅ 2026-11-17 日本時間2時23分01秒 管理者「鈴木様へはかける」（CL-2 の連絡帳 4-418。選んだ形の文「苦情も「うちは要らない」と同じく田中様個人のこととして…
         鈴木様への引き継ぎを確かめる電話に戻す」）・4-413「デフォルトは佐藤様へはその番号でかける」"""
         return self.in_answer_stage and self.carried_q is None
+
+    def _ours(self, qid: str) -> bool:
+        """質問 qid の答えを、いまお話ししている方の答えとして数えるか（唯一の決まり＝電話を締める答えで締めるか・締めたことを残すか：最終目的のお断り
+        _goals_lost・ここで終える答えの事実 ended_on）：この通話で受けた答え・前の通話の答えでない答えは数える。前の通話の答えは、その答えをいただいた方と
+        お話ししている間だけ（_earlier_ours）。⛔ CL-2 の連絡帳 4-422 の (2)：ended_on は前の通話の答えを区別せず、新しい担当の方への電話・受付の方の
+        「席を外しております」で終えた電話にも、前の方の「ここで終える」答えで止めた事実（turn が null）を書いた"""
+        return qid in self.taken or qid not in self.earlier or self._earlier_ours()
+
+    def _closes_on(self, q: "Question") -> bool:
+        """質問 q のいまの答えが、電話を締める答えか（唯一の決まり＝新しい方へ引き継がない前の方の答え _carry_on）：最終目的のお断り（Question.declined＝締めるかは
+        果たし方とほかの質問しだい＝_goals_lost）・ここで電話を終える答え（Question.ends_on＝gate_of の止める答え）。どちらも、その答えをいただいた方個人の答え
+        （✅ 2026-11-17 日本時間2時23分01秒 管理者「鈴木様へはかける」＝CL-2 の 4-418。ここで終える答えは CL-2 の連絡帳 4-422 の (2)）"""
+        it = self.items[q.id]
+        return (q.final_goal and q.declined(it.condition)) or (it.state in GOT and it.condition in q.ends_on)
 
     def _remaining(self) -> list[str]:
         """これから伺う質問（並びの順）：まだ伺っていない質問のうち、先へ進むのを止める答えのあとの業務の質問（held の1か所）を除いたもの。手短になら聞くと言われ、
@@ -14471,10 +14500,11 @@ class Flow:
         通話の途中では書かない）：question＝止めた質問・answer＝その答え（日本語の名前）・skipped＝伺わなかった業務の質問（トークスクリプトの順。その
         質問の答えで伺うはずだった質問も）。CL-2 の判定は skipped を「伺っていない（対象外）」と数える。答えが決まらないまま伺わなかった質問（聞き取れない
         など）は入れない（取れていない質問のまま＝分からないまま「すべて取れた」にしない）。根拠の発話は、止めた答えを受け取った発話（前の通話の答えなら
-        turn は None）。"""
+        turn は None）。前の通話の答えで止めた事実は、その答えをいただいた方とお話ししているときだけ（_ours の1か所＝最終目的のお断りと同じ。新しい担当の方が
+        引き継ぎを確かめる一言に答える前・受付の方とだけ話して終えた電話には書かない＝CL-2 の連絡帳 4-422 の (2)）。"""
         order = follow_ups_in(self.business_ids, self.questions.values(), self._read)
         g = gate_of(self.questions.values(), order, self._read)
-        if g is None or not g[1]:
+        if g is None or not g[1] or not self._ours(g[0]):
             return None
         skipped = set(held(self.questions.values(), order, self._read))
         for q in self.questions.values():   # その答えで伺うはずだった質問（伺う条件の前の質問を伺わなかった）も、トークスクリプトの順で続けて
@@ -14866,14 +14896,22 @@ class Flow:
 
     def _yes_no(self, qid: str) -> bool | None:
         """はい／いいえの問いの答えを、記録に書く真偽にする唯一の場所（書かないなら None）：「はい」＝true・「いいえ」＝false。それ以外
-        （わからない・答えたくない・聞き取れない・伺う途中で切れた）は、NOT_YES_IS_NO の問いなら false（よいと言われていない）、ほかは書かない。"""
+        （わからない・答えたくない・聞き取れない・はっきりしない・伺う途中で切れた）は分からない＝書かない（どの問いも同じ。「後ほど改めて…」の C7・P1 も＝
+        CALLBACK_FIELD の下の注・原則10）。"""
         it = self.items.get(qid)
         if it is None or not self._asked(qid):
             return None
         got = it.condition if it.state in GOT else None
-        if got in ("はい", "いいえ"):
-            return got == "はい"
-        return False if qid in NOT_YES_IS_NO else None
+        return got == "はい" if got in ("はい", "いいえ") else None
+
+    @staticmethod
+    def _put_fields(e: dict, fields: dict) -> None:
+        """記録 e（かけ直しの記録 callback・取り次げなかった記録 not_transferred）に、操作のたびに作り直した答えの項目 fields を書く唯一の場所：はい／いいえの項目
+        （YES_NO_FACT）で fields に無いもの＝いま分からない（_yes_no が None）は外す（前に書いた値を残さない・null を書かない＝CL-2 は報告ごと断る）。"""
+        for k in YES_NO_FACT:
+            if k not in fields:
+                e.pop(k, None)
+        e.update(fields)
 
     def _callback_fields(self, qids, why: str) -> dict:
         """かけ直しの記録（通話の事実 callback）の答えの項目を作る唯一の場所（CL-2 の call_report.Callback の形）：「時刻」「番号」はいつも
