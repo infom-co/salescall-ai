@@ -36,7 +36,7 @@
     {% set scale, unit_label = words.PRICE_UNITS.get(p.unit, (1, p.unit)) %}
     <tr>
       <td>{{ words.PRICE_SOURCE_WORDS.get(p.source, words.NO_WORD) }}{% if p.tier %}<div class="muted">{{ words.PRICE_TIER_WORDS.get(p.tier, "") }}</div>{% endif %}</td>
-      <td>{{ p.service }}</td>
+      <td>{{ p.service_label }}</td>
       <td class="num nowrap">{{ "{:,.4g}".format((p.yen_per_unit * scale)|float) }}円<div class="muted">{{ unit_label }}</div></td>
       <td>{{ tag("この契約者の値", "info") if p.by_contractor else tag("初めの値", "") }}</td>
       <td class="nowrap">

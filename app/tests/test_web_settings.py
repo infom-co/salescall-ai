@@ -69,6 +69,23 @@ class Forms(unittest.TestCase):
         self.assertEqual(heads - set(words.SETTING_GROUPS), set())
 
 
+class ScreenWords(unittest.TestCase):
+    def test_every_choice_has_a_word(self):
+        rows = app_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT key, choices FROM salescall.setting_definitions WHERE choices IS NOT NULL"))
+        for r in rows:
+            for c in r["choices"]:
+                with self.subTest(key=r["key"], choice=c):
+                    self.assertNotEqual(words.setting_choice(r["key"], c), words.NO_WORD)
+
+    def test_no_meaning_shows_an_internal_name_on_the_screen(self):
+        rows = app_access().in_system(SYSTEM, lambda tx: tx.all("SELECT key, meaning FROM salescall.setting_definitions"))
+        for r in rows:
+            with self.subTest(key=r["key"]):
+                shown = words.screen_meaning(r["key"], r["meaning"])
+                self.assertEqual(re.findall(r"\b[a-z]+(?:_[a-z0-9]+)+\b|\b[a-z]+\.[a-z0-9_]+\b", shown), [], shown)
+
+
 class Screens(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

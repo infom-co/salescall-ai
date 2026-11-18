@@ -6,7 +6,7 @@
 <p><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}">← {{ business.name }}</a></p>
 <h1>業務設定の中身：版 {{ version.version_no }}</h1>
 <p class="lead">{{ time(version.created_at) }}に作った版です。版は変えられません（直すときは新しい版を作ります。前の版も残ります）。</p>
-{% if problem %}<div class="flash ng" role="alert">この版は、いまの確かめに通りません：{{ problem }}</div>
+{% if problem %}<div class="flash ng" role="alert">{{ problem }}</div>
 {% elif s %}
 <div class="grid cols-2">
   <section class="card"><h2>目的と名乗り</h2>

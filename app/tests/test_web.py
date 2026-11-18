@@ -474,6 +474,30 @@ class Web(_World):
             app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: tx.execute(
                 "UPDATE salescall.clients SET name = '依頼者Y' WHERE client_id = %s", (self.y["client"],)))
 
+    def test_every_linked_page_opens_in_japanese_only(self):   # 全部のリンクをたどる（画面を足しても漏れを見つける）
+        import html as _html
+        from collections import deque
+        internal = re.compile(r"\b[a-z]+(?:_[a-z0-9]+)+\b|\b[a-z]+\.[a-z][a-z0-9_]+\b")
+        seen, todo, problems = set(), deque(["/t", f"/c/{self.a['client']}/b/{self.a['business']}"]), []
+        while todo and len(seen) < 300:
+            path = todo.popleft()
+            if path in seen:
+                continue
+            seen.add(path)
+            r = self.get("A", path)
+            if r.status_code != 200:
+                problems.append((path, r.status_code))
+                continue
+            if "text/html" not in r.headers.get("content-type", ""):
+                continue
+            visible = _html.unescape(re.sub(r"<[^>]+>", " ", re.sub(r"<script.*?</script>|<style.*?</style>", "", r.text, flags=re.S)))
+            if words_missing() in visible:
+                problems.append((path, "言葉の抜け"))
+            problems += [(path, m) for m in internal.findall(visible)]
+            todo += [h for h in re.findall(r'href="(/[^"#?]*)', r.text) if not h.startswith(("/static", "/pc-login")) and h not in seen]
+        self.assertGreater(len(seen), 10)
+        self.assertEqual(problems, [])
+
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",

@@ -20,7 +20,7 @@
     <label class="field" for="sheet-name">シートの名前（Excel で最初のシート以外を使うとき）</label>
     <input id="sheet-name" type="text" name="sheet_name" placeholder="例：お客様一覧">
     <label class="field" for="encoding">CSV の文字の決まり（読めなかったときだけ選ぶ）</label>
-    <select id="encoding" name="encoding"><option value="">自動で見分ける</option>{% for e in encodings %}<option value="{{ e }}">{{ e }}</option>{% endfor %}</select>
+    <select id="encoding" name="encoding"><option value="">自動で見分ける</option>{% for e, label in encodings %}<option value="{{ e }}">{{ label }}</option>{% endfor %}</select>
   </details>
   <div class="actions"><button class="btn main" type="submit">次へ（列を確かめる）</button></div>
 </form>

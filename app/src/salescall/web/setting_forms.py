@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from salescall.core import phone
+from salescall.output import words
 from salescall.web.actions import Refused
 
 DAYS: tuple[tuple[str, str], ...] = (("mon", "月"), ("tue", "火"), ("wed", "水"), ("thu", "木"), ("fri", "金"), ("sat", "土"),
@@ -74,10 +75,8 @@ def _gap(form: Any, p: str, special: str) -> Any:
 
 
 def _show_gap(v: Any) -> str:
-    if v == "never":
-        return "かけない"
-    if v == "next_day":
-        return "その日はかけない"
+    if isinstance(v, str) and v in words.SETTING_VALUE_WORDS:   # 特別な名前の言葉は output/words の1か所
+        return words.SETTING_VALUE_WORDS[v]
     if isinstance(v, dict) and "hours" in v:
         return f"{v['hours']}時間"
     if isinstance(v, dict) and "days" in v:

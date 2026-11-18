@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from salescall.core import ai_troubles, business_import, errors, exclusions, gate, notify, stops
+from salescall.core import ai_plans, ai_troubles, business_import, errors, exclusions, gate, notify, stops
 
 
 @dataclass(frozen=True)
@@ -243,6 +243,41 @@ FIELD_TYPE_WORDS: dict[str, str] = {"date": "日付", "time": "時刻", "datetim
                                     "choice": "選択肢", "free_text": "自由な答え"}
 TARGET_PERSON_WORDS: dict[str, str] = {"role": "役職の方", "role_and_name": "役職（部署）とお名前の方", "name": "お名前の方",
                                        "anyone": "その店・会社の方ならどなたでも"}
+
+
+# 選ぶ設定の選び肢の言葉（設定ごと。データベースの setting_definitions.choices のすべてを書く。試験が突き合わせる）
+SETTING_CHOICE_WORDS: dict[str, dict[str, str]] = {
+    "callback.month_ahead": {"never": "かけない（別の日に、時刻の決まっていない約束の方針でかける）", "with_approval": "契約者が認めたらかける"},
+    "callback.until_other_party": {"now": "今から〇時まで", "after": "〇時から", "slot_after": "〇時から1回分"},
+    "callback.until_preparing": {"now": "今から〇時まで", "after": "〇時から", "slot_after": "〇時から1回分"},
+    "callback.until_unavailable": {"now": "今から〇時まで", "after": "〇時から", "slot_after": "〇時から1回分"},
+    "gate.before_other_promise": {"call_other_voice": "声を替えてかける", "wait": "約束の時刻が過ぎるまで待つ", "never": "その番号へはかけない"},
+    "judge.models": {"jev_and_sonnet": "先に安い判定を出し、確かでなければ Claude Sonnet 5.5", "sonnet": "Claude Sonnet 5.5 だけで判定する"},
+}
+# 契約プランの言葉（プランの名前の正本は core の ai_plans.PLANS。プランの設定の名前は ai_plans の1か所＝ここに書かない）
+PLAN_WORDS: dict[str, str] = {"included": "AI料金込み（システムのキーで呼ぶ）", "own": "自分で API を契約する（契約者のキーで呼ぶ）"}
+# 値の特別な名前（値の形 gap_or_never・day_or_gap の文字の値。値を見せる web/setting_forms と、説明の文の置き換えが同じ表を読む）
+SETTING_VALUE_WORDS: dict[str, str] = {"never": "かけない", "next_day": "その日はかけない"}
+_SETTING_KEY = re.compile(r"\b([a-z]+)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*\b")
+
+
+def _choices(key: str) -> dict[str, str]:
+    if key in ai_plans._SETTING.values():   # 契約プランの設定（どれがプランの設定かは ai_plans の1か所）
+        return PLAN_WORDS
+    return SETTING_CHOICE_WORDS.get(key, {})
+
+
+def setting_choice(key: str, value: str) -> str:
+    return _choices(key).get(value, NO_WORD)
+
+
+def screen_meaning(key: str, text: str) -> str:
+    """設定の説明の文（正本は CL-2 の setting_definitions.meaning）を画面に出す形にする1か所：選び肢の英字の名前はその言葉に、
+    設定の名前（a.b の形）は、そのまとまりの名前の設定に置き換える。⏳ 説明の文そのものを画面に出せる日本語だけにする（CL-2 へのお願い 27）。"""
+    out = text
+    for value, label in sorted({**SETTING_VALUE_WORDS, **_choices(key)}.items(), key=lambda kv: -len(kv[0])):
+        out = re.sub(rf"(?<![a-z_]){re.escape(value)}(?![a-z_])", f"「{label}」", out)
+    return _SETTING_KEY.sub(lambda m: f"「{SETTING_GROUPS.get(m.group(1), '別')}」の設定", out)
 
 
 def stop_scope(name: str) -> str:

@@ -307,7 +307,9 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 got = settings.resolve_detail(tx, d["key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
             except settings.SettingMissing:
                 got = None
-            rows.append({**d, "got": got, "shown": None if got is None else setting_forms.show(d["value_type"], got["value"]),
+            shown = (None if got is None else words.setting_choice(d["key"], got["value"]) if d["value_type"] == "choice"
+                     else setting_forms.show(d["value_type"], got["value"]))
+            rows.append({**d, "meaning": words.screen_meaning(d["key"], d["meaning"]), "got": got, "shown": shown,
                          "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
                          "merge": MERGE_WORDS.get(d["merge_kind"], "")})
         return rows
@@ -474,7 +476,11 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             # 赤字か（Q26）は core の usage.deficit_notice の答えだけを見せる（画面で割合を計算して決め直さない＝Intent.md 5-1）
             month = [{**c, **ctx.client(c["client_id"], lambda tx: {**reward.month(tx), "deficit": usage.deficit_notice(tx)},
                                         read_only=True)} for c in ctx.clients()]
-            return page(request, "costs.html", person, ctx, active="costs", month=month, prices=ctx.tenant(usage.price_table),
+            def read_prices(tx: Any) -> list[dict[str, Any]]:   # 回線の方式の画面の名前は registry.line_methods の1か所
+                labels = {m["method"]: m["label"] for m in registry.line_methods(tx)}
+                return [{**p, "service_label": labels.get(p["service"], p["service"]) if p["source"] == "line" else p["service"]}
+                        for p in usage.price_table(tx)]
+            return page(request, "costs.html", person, ctx, active="costs", month=month, prices=ctx.tenant(read_prices),
                         done=done, ok=bool(ok))
         return handle(request, render)
 
@@ -772,7 +778,9 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 try:
                     s, problem = business_settings.load(tx, version_id), None
                 except business_settings.SettingsInvalid as e:
-                    s, problem = None, str(e)
+                    s, problem = None, f"この版は、いまの確かめに通りません：{e}"
+                except LookupError:   # 中身をまだ置いていない版（業務の取り込みで置く）
+                    s, problem = None, "この版には、まだ業務設定の中身がありません（業務の取り込みで作ります）。"
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem}
             return page(request, "version.html", person, ctx, **ctx.client(client_id, read, read_only=True))
@@ -907,7 +915,8 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
                         "run": _run_in(tx, business_id, run_id)}
-            return page(request, name, person, ctx, field_words=words.IMPORT_FIELD_WORDS, encodings=import_files.ENCODINGS,
+            return page(request, name, person, ctx, field_words=words.IMPORT_FIELD_WORDS,
+                        encodings=[(e, import_files._NAMES.get(e, e)) for e in import_files.ENCODINGS],   # 名前の正本は import_files の組
                         **values, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
