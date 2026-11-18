@@ -359,31 +359,30 @@ def decide_at_hand(askers: list[Asker], questions: list[tuple[str, tuple]], on_e
 DECIDERS = {"decide_units": decide_units, "decide_topics": decide_topics, "decide_meanings": decide_meanings,
             "decide_replies": decide_replies, "decide_facts": decide_facts, "decide_do_words": decide_do_words,
             "decide_away": decide_away, "decide_unclear": decide_unclear,
-            # いまの話の向きを伺う言葉・お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-199 の (1)・4-203 の (1)。⏳ CL-2 の受け口ができるまで CL2_PENDING）
+            # いまの話の向きを伺う言葉・お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-199 の (1)・4-203 の (1)。いまの話の向きは 2026-11-18 に CL-2 の受け口が main に入った。⏳ お呼びする方の一文は CL-2 の受け口ができるまで CL2_PENDING）
             "decide_doubt_words": decide_doubt_words, "decide_target_asks": decide_target_asks,
-            # ご案内の方法を伺う質問か（✅ 2026-11-05 日本時間23時19分06秒「案でOK　(2)ア」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4章で頼む）
+            # ご案内の方法を伺う質問か（✅ 2026-11-05 日本時間23時19分06秒「案でOK　(2)ア」）
             "decide_ways": decide_ways,
-            # どちらの場合もありうると言われたときに確かめる答えと言葉（⛔✅ 2026-11-09 日本時間4時36分49秒。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-123）
+            # どちらの場合もありうると言われたときに確かめる答えと言葉（⛔✅ 2026-11-09 日本時間4時36分49秒。帳面 4-123）
             "decide_maybes": decide_maybes,
-            # 用件の一文の中の用件の名詞（続きの電話の用件の一文を前の電話とつなげる＝✅ 11-09 日本時間9時48分09秒の (4)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-128）
+            # 用件の一文の中の用件の名詞（続きの電話の用件の一文を前の電話とつなげる＝✅ 11-09 日本時間9時48分09秒の (4)。帳面 4-128）
             "decide_purposes": decide_purposes,
-            # 方法を申し出の中身に入れる言い方（✅ 2026-11-12 まとめ役の (1)。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-132）
+            # 方法を申し出の中身に入れる言い方（✅ 2026-11-12 まとめ役の (1)。帳面 4-132）
             "decide_way_words": decide_way_words,
-            # その後の文の中身（✅ 2026-11-13 日本時間20時06分19秒「伺い6は…」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-149）。考える Sonnet は referee
+            # その後の文の中身（✅ 2026-11-13 日本時間20時06分19秒「伺い6は…」。帳面 4-149）。考える Sonnet は referee
             "decide_since": decide_since,
-            # ご承認のお知らせの文と、資料が届いているかを伺う質問（✅ 2026-11-13 日本時間20時06分19秒「伺い1…」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-150）。
+            # ご承認のお知らせの文と、資料が届いているかを伺う質問（✅ 2026-11-13 日本時間20時06分19秒「伺い1…」。帳面 4-150）。
             # お知らせの文は考える Sonnet が referee（書く・中身の判定）
             "decide_announces": decide_announces, "decide_at_hand": decide_at_hand,
-            # 営業の要約（✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30）。⏳ CL-2 の受け口ができるまで CL2_PENDING）。考える Sonnet は referee
+            # 営業の要約（✅ 2026-11-16 日本時間0時42分38秒 ユーザー（伺い30））。考える Sonnet は referee
             "decide_summaries": decide_summaries,
-            # お知らせの中身の名詞（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-154）と、中身を常体にした句
-            # （同じ問い合わせ・答えは (名詞, 句) の組。✅ 2026-11-15 日本時間11時59分07秒「・(3)」。⏳ CL2_PENDING＝帳面 4-162）。考える Sonnet は referee。
+            # お知らせの中身の名詞（✅ 2026-11-14 日本時間14時31分38秒「●伺い10」。帳面 4-154）と、中身を常体にした句
+            # （同じ問い合わせ・答えは (名詞, 句) の組。✅ 2026-11-15 日本時間11時59分07秒「・(3)」。帳面 4-162）。考える Sonnet は referee。
             # 渡すのは (説明, 質問の文, お知らせの文＝decide_announces の答え) の並び＝取込は decide_announces を先に呼ぶ（句はお客様が聞いた文から作る＝11-16 0時42分38秒）
             "decide_matters": decide_matters,
-            # 会話が繋がらないお返事のあとに「ところで」に続けて伺い直す、言い換えた質問（✅ 2026-11-13 日本時間22時17分01秒「9は…」。⏳ CL-2 の受け口ができるまで
-            # CL2_PENDING＝帳面 4-152）。考える Sonnet は referee（書く・中身の判定）
+            # 会話が繋がらないお返事のあとに「ところで」に続けて伺い直す、言い換えた質問（✅ 2026-11-13 日本時間22時17分01秒「9は…」。帳面 4-152）。考える Sonnet は referee（書く・中身の判定）
             "decide_rewords": decide_rewords,
-            # 意向がまだ分からないまま戻るときの選択肢を並べた質問（✅ 2026-11-14 日本時間22時15分15秒。⏳ CL-2 の受け口ができるまで CL2_PENDING＝帳面 4-156）。
+            # 意向がまだ分からないまま戻るときの選択肢を並べた質問（✅ 2026-11-14 日本時間22時15分15秒。帳面 4-156）。
             # 考える Sonnet は referee（書く・中身の判定）
             "decide_alternatives": decide_alternatives}
 # 2つの文字のAIがそろわない文を、考える Sonnet（deciders の referee）に聞く決める処理（唯一の一覧）

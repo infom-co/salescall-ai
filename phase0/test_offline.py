@@ -20,177 +20,22 @@ def fc(name, **args):
     return SimpleNamespace(name=name, args=args, id="x")
 
 
-# CL-2 に頼んで、まだ main の CL-2 の部品（app/）に入っていない名前（唯一の一覧。CL-1.md 4-72 の (k)：選ぶ質問の「どれも要らない」のあとに、ほかのご希望を
-# 伺う W1・LINE の ID を伺う C10・通話の事実 other_wish・その録音の名前。✅ 2026-11-03 日本時間20時48分のご承認）。CL-2 の部品と名前を比べる試験は、この
-# 名前を除いて比べ、CL-2 の部品に入った名前がここに残っていれば落ちる（＝ここから外す合図。⚠️ 外れるまでは、main の CL-2 の読み手が、この名前の入った報告を
-# 受けない＝TEAM_PLAN：CL-2 のブランチを main に入れるのはユーザーが確かめてから）。前の通話で取れた答えの "wish"（前の通話のほかのご希望の結果＝
-# flowctl.earlier_wish）・"hedged"（言い切っていない答えのお客様の言葉＝Flow.customer_words と同じ）も（flowctl.EARLIER_KEYS。CL-1 の 11-03 のご判断の (1)）
-# 依頼者のトークスクリプトの「この答えなら、ここで終える」（業務設定の質問の鍵 ends_on・通話の事実 ended_on。CL-1.md 4-74。✅ 2026-11-04 日本時間2時10分54秒のご承認）も
-# 「AIですか？」への標準の答えの共通の一言 ai_answer（phrases.STANDARD_PARTS。業務が書かないときに流す。CL-1.md 4-75。✅ 2026-11-02 管理者＝CL-2 の 4-188）も
-# 引き止めの一言の業務の録音の部分 busy（Business.replay_parts。質問の番号に使えない名前＝CL-2 の RESERVED_IDS に足していただく。CL-1.md 4-75）も
-# 前の通話で取れた答えの "point"（ご承認いただけなかったときの手順の進み＝flowctl.earlier_point）と、その続きの電話の一言の共通の一言の録音
-# callback_not_agreed_again（✅ 2026-11-04 日本時間18時16分 ユーザー「はい、OK」。CL-1.md 4-80）も。⇒ 前の通話で取れた答えの "wish"・"point"・"point_said"・"wish_means"
-# は、2026-11-05 にその質問の最後の事実そのもの（"wish_fact"・"point_fact"）に替えた（CL-2 の 4-212 の案2。CL-1.md 4-88）ので、ここから外した
-CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に入れる言い方（まとめ役の11-12 の (1)。CL-1.md 4-132）
-                         # 会話が繋がらないお返事のあとに「ところで」に続けて伺い直す言い換えた質問（業務設定の質問の欄 reworded・取込の決める処理 decide_rewords と
-                         # 考える Sonnet の referee）と、名前を聞き返されたあとの伝言の短い形の共通の一言の録音 message_again（11-13 22時17分01秒「9は…」・分身 D の (b)。CL-1.md 4-152）
-                         "decide_rewords", "reworded", "message_again",
-                         # 意向がまだ分からないまま戻るときの選択肢を並べた文（業務設定の質問の欄 alternatives・取込の決める処理 decide_alternatives と考える Sonnet の referee。
-                         # 11-14 22時15分15秒。CL-1.md 4-156）
-                         "decide_alternatives", "alternatives",
-                         # 先に並べる選択肢ごとの、選択肢を並べた文（業務設定の質問の欄 alternatives_led・取込は decide_alternatives の同じ問い合わせ。
-                         # 11-14 23時45分00秒「伺い16はイでOK」。CL-1.md 4-157）
-                         "alternatives_led",
-                         # お言葉に甘えたあとに戻る時刻を伺う一言の共通の一言の録音（phrases.CALLBACK_ASK の theirs_time。✅ 11-14 20時11分41秒＝CL-2 の
-                         # 4-391 の (1)。CL-1.md 4-158）
-                         "callback_theirs_time",
-                         # 不在のほかの理由でお言葉に甘えたあとに伺う一言の共通の一言の録音（theirs_workday・theirs_date・theirs_later。✅ 11-15 11時59分07秒
-                         # 「伺い17はアでOK」。CL-1.md 4-161）
-                         "callback_theirs_workday", "callback_theirs_date", "callback_theirs_later",
-                         # ご承認のお知らせの中身の名詞（業務設定の質問の欄 matter・取込の決める処理 decide_matters と考える Sonnet の referee。11-14 14時31分38秒
-                         # 「●伺い10」。CL-1.md 4-154）
-                         "decide_matters", "matter",
-                         # お知らせの中身を常体にした句（業務設定の質問の欄 matter_clause・取込は decide_matters の同じ問い合わせ＝答えは (名詞, 句) の組。
-                         # 11-15 11時59分07秒の (3)。CL-1.md 4-162）
-                         "matter_clause",
-                         # 続きの電話の判断いただける代わりの方への引き継ぎを確かめる一言の名乗りの部分（お名前が入る。11-13 22時17分01秒「11はイ」。CL-1.md 4-151）
-                         "carried_target",
-                         # その後の文の中身（業務設定の質問の欄 since・取込の決める処理 decide_since と考える Sonnet の referee。11-13 20時06分19秒「伺い6は…」。CL-1.md 4-149）
-                         "decide_since", "since",
-                         "offer_fact",   # 前の通話の答えの、申し出で伺った連絡先（CL-2 の 4-370 の (4)。CL-1.md 4-138）
-                         # ほかの会社に頼んでいる・使っていると言われたときに伺う一言の共通の一言の録音と、言っていただいた問題・心配事の通話の事実（✅ 2026-11-15
-                         # 日本時間21時55分35秒 ユーザー（伺い25）。CL-2 への知らせはまとめ役）
-                         "callback_elsewhere", "elsewhere", "E1",
-                         # 通話の事実 other_wish の、方法を並べて伺う前に方法を言わずにご希望を言っていただいた答え（伺い27 のあとに直した。flowctl.Flow._wish_note。
-                         # CL-2 への知らせはまとめ役）
-                         "before_ways",
-                         "way_words",   # その答えの業務設定の欄（instruction.Business.way_words。CL-1.md 4-132）
-                         "added",   # こちらから足した条件の欄（14時58分17秒「アで！」。CL-1.md 4-131）
-                         "offer_terms",   # 業務の申し出の質問を条件つきで受けていただいた通話の事実（11-12 日本時間13時40分05秒の (2)。CL-1.md 4-129）
-                         "apology_cut_off_same_day",   # 同じ日の続きの電話の途中で切れたお詫び（11-12 日本時間13時40分05秒の (4)。CL-1.md 4-129）
-                         "decide_purposes",   # 用件の一文の中の用件の名詞（続きの電話の用件の一文を前の電話とつなげる＝11-09 日本時間9時48分09秒の (4)。CL-1.md 4-128）
-                         "forbidden_speech",   # 約束の電話などの頭のお詫びの理由（CL-2 の 0216 の CHECK・4-350 の (2)。CL-2 の枝が main に入るまで）
-                         "ListedPart",   # 録音の部分の一覧の1つ（CL-2 の recordings.ListedPart・4-350 の (4)。CL-2 の枝が main に入るまで）
-                         "aizuchi",   # まだ考えている途中のお客様への相づち「はい。」（2026-11-06 日本時間11時19分55秒「(1) ア」＝4-100）
-                         # 締める前の申し出（業務設定 close_offer・質問 N6・通話の事実 close_offer）と、詳しい者からのお話の保留を伺う一言（callback_handoff_pending）
-                         # （2026-11-09 日本時間6時33分57秒「(ア)…ｂ」・申し出への迷い＝帳面 4-124）
-                         "close_offer", "N6", "callback_handoff_pending",
-                         "W1", "C10", "other_wish", "callback_line", "wish_told_line", "wish_told_email", "wish_told_fax", "wish_told_post",
-                         "wish_told_phone", "wish_told_other", "hedged", "ends_on", "ended_on", "ai_answer", "busy",
-                         "callback_not_agreed_again",
-                         # LINE の連絡先の伺い方（C11）・SMS でご招待する携帯電話の番号（C12）・連絡先を伺う前に切れた電話の続き（wish_means・callback_（役目）_again）・
-                         # その録音（✅ 2026-11-04 日本時間19時26分 ユーザー「(B)…修正」。CL-1.md 4-81）
-                         "C11", "C12", "callback_line_how", "callback_line_how_2", "callback_line_how_again", "callback_mobile",
-                         "callback_email_again", "callback_fax_again", "callback_address_again",
-                         # 伺い方を選んでいただいたあとのメールアドレスの一言の録音・ほかに分からない点が無いかを伺う質問の「無い」にあたる答え（業務設定の質問の鍵）
-                         # （✅ 2026-11-04 日本時間20時27分 ユーザー (1)(2)。CL-1.md 4-82）
-                         "callback_email_chosen", "unclear_none",
-                         # LINE の伺い方で選んでいただいた方法の連絡先が無いときに、ほかの方法を伺う一言とその伺い直しの録音（✅ 2026-11-05 日本時間0時48分
-                         # ユーザー (イ)。CL-1.md 4-84）
-                         *(f"callback_line_how_without_{k}{n}" for k in ("id", "sms", "email") for n in ("", "_2")),
-                         # 続きの電話の始めのご説明が受け皿で流れたときの一言（前回の件と分かる形）の録音（11-05 2時45分39秒のご指示で直した (2)。CL-1.md 4-85）
-                         "own_fallback_point_again", "resumed_fallback_lead",
-                         # ご説明できないときの一言を、お客様の言ったことの種類で（✅ 11-05 日本時間3時33分11秒 ユーザーのご修正。CL-1.md 4-85）
-                         "own_fallback_point_request", "own_fallback_point_opinion", "own_fallback_point_again_request",
-                         "own_fallback_point_again_opinion",
-                         # 続きの電話の始めに、ご納得いただけなかった点を「覚えていない」と言われたときの頭の一言の録音（✅ 11-05 日本時間4時16分52秒 ユーザー。CL-1.md 4-86）
-                         "gomottomo",
-                         # 点を言っていただけないまま手順を終えるときに挟む一言の録音（✅ 11-05 日本時間5時20分56秒・5時45分 ユーザー。CL-1.md 4-87・4-89）
-                         "point_anytime", "point_anytime_plain",
-                         # 手順を伺い終えていない業務の質問（報告の外枠の鍵）・前の通話の答えの、その質問の最後の事実（wish_fact・point_fact＝案2）・取込の決める処理
-                         # （decide_away・decide_unclear）（CL-2 の連絡帳 4-212・4-213。CL-1.md 4-88）
-                         "unfinished", "wish_fact", "point_fact", "decide_away", "decide_unclear",
-                         # 取込の決める処理：いまの話の向きを伺う言葉（Question.doubt_words）・お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-199 の (1)・
-                         # 4-203 の (1)。CL-1.md 4-90）
-                         "decide_doubt_words", "decide_target_asks",
-                         # ご案内の方法を伺う質問か（取込の決める処理）・オンラインのご希望を申し伝える一言とその連絡先を伺う前に切れた電話の続きの一言の録音
-                         # （✅ 11-05 日本時間23時19分06秒 ユーザー「案でOK　(2)ア」。CL-1.md 4-91）
-                         "decide_ways", "wish_told_online", "callback_email_online_again",
-                         # 答えの段のかけ直しの一言の録音（✅ 11-06 日本時間0時44分31秒 ユーザー。CL-1.md 4-93）
-                         "callback_later_time_answering",
-                         # 答えの段の待つ・かけ直す（会話2・11-06 1時台＝CL-1.md 4-94）：待つ一言の録音・1回伺う一言の録音・その質問の番号 H2
-                         "wait_reply", "callback_wait_or_later", "H2",
-                         # 「ほかに…」（N2）にほかに分からない点が「ある」とだけ言われたときの一言の録音（✅ 11-06 日本時間9時05分17秒 ユーザー。CL-1.md 4-97）
-                         "callback_other_point_which", "callback_other_point_which_recap",
-                         # 申し伝える一言まで言って切れた続きの電話のお詫びと申し伝える一言の録音（✅ 11-06 日本時間9時05分17秒 ユーザーの (b)。CL-1.md 4-99）
-                         # 申し伝える一言は、いつの電話か（同じ日＝先ほど・あとの日＝前回）でも分けた（23時22分41秒のご質問の見直し H10。CL-1.md 4-105）
-                         "apology_cut_end_same_day", "apology_cut_end_later",
-                         *(f"told_again_{k}_{w}" for k in ("question", "request", "opinion") for w in ("same_day", "later")),
-                         "told_follow_up",
-                         # 並べて伺ったご案内の方法を言っていただけないときの申し伝える一言・「どれでも」のあと、こちらでお伝えした方法の連絡先を伺う一言（頭の
-                         # 「それでは」を重ねない）の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(2) H3…イ」。CL-1.md 4-106）
-                         "wish_told_way",
-                         # 同じ所へ2回目に戻るときの戻る一言の録音（✅ 11-07 日本時間3時14分01秒 ユーザー「(4) H7」。CL-1.md 4-106）と、システムの質問を2回目・
-                         # 3回目からの戻る一言・方法をお伝えした一言に続けて流す形（phrases.BACK_FIT＝back_fit の1か所。4時40分35秒。CL-1.md 4-107）
-                         "back_again", *__import__("phrases").BACK_FIT,
-                         # ほかに分からない点は今のところ無いと言われたときに添える一言の録音（✅ 11-07 日本時間13時05分06秒 ユーザー。CL-1.md 4-108）
-                         "unclear_anytime",
-                         # 考えている方に5秒黙られたときの急かさない一言の録音（✅ 11-07 日本時間18時03分49秒 ユーザー「(2) イ」。CL-1.md 4-109）
-                         "concern_anytime",
-                         # 迷っていると言い終えたお客様に、選択肢ごとの良い点・気をつける点が無いときに伺う一言の録音（✅ 11-07 日本時間18時03分49秒「(1) ア」。CL-1.md 4-110）
-                         "hesitate_point",
-                         # 値を伺う質問の最初の「まだ決まっていない」に、1回だけおおよその目安を伺う一言の録音（✅ 11-08 日本時間2時21分15秒「(1)〜(4)ともイでOK」の
-                         # (1)。CL-1.md 4-112）
-                         "estimate_ask",
-                         # 本題に入ったあとの「もういいです。」に本心を伺うシステムの質問の番号（業務の質問に使えない名前）と、言っていただいた気になる点の事実
-                         # （✅ 11-08 日本時間2時21分15秒。CL-1.md 4-113）
-                         "D2", "concern",
-                         # 業務の質問の文の頭に書けない言葉に足した、続きの電話の始めの頭と3回目からの戻る一言（11-08 日本時間8時台の K-3＝CL-2 の 4-234 の (b) への
-                         # 答え。CL-1.md 4-118）
-                         __import__("phrases").QUESTION_RESUME_LEAD, __import__("phrases").BACK_TO_MIDWAY,
-                         # 前の通話の答えの繋いだ方（CL-2 の 4-320 の (a)＝flowctl.EARLIER_KEYS）と、本題の始まりの選べるもの（CL-2 の call_report.RESPONSE_POLICIES の
-                         # main_talk＝4-114・4-320 の (b)。選べるもの asked・answered は鍵の中で見る＝test_told_kinds_offers_and_reasons_match_cl2）。どちらも CL-2 の
-                         # 枝だけ（CL-1.md 4-120）
-                         "who", "main_talk",
-                         # 言い直しへのお返事がまだ決めていないときの2回目「いかがなさいますか？」の録音（✅ 11-09 日本時間3時06分51秒 ユーザー。CL-1.md 4-122）
-                         "how_now",
-                         # ご承認のお知らせの形（✅ 11-12 19時32分21秒・11-13 20時06分19秒「伺い1…」。CL-1.md 4-150）：業務設定の質問の欄 announce・at_hand・取込の決める処理・
-                         # 黙ったあとの一言へのお返事だけのときの最終の確かめの録音（流す形の印 silence_prompt は 2026-11-15 に外した＝黙ったときの一言は
-                         # 返事の silence_s と Flow.on_silence の1か所＝QuietLinesTest）
-                         "announce", "at_hand", "decide_announces", "decide_at_hand", "announce_recheck",
-                         # ご承認の手順の N1 に点を言っていただけなかったときに1回伺う一言の録音（✅ 11-09 日本時間3時46分53秒）・営業に引き継ぐ架電で詳しい者からの
-                         # 改めてのお話を伺う一言の録音・その質問の番号 N4 と方法を選んでいただく N5・通話の事実 handoff（✅ 11-09 日本時間4時36分49秒。CL-1.md 4-122）
-                         "callback_not_agreed_which", "callback_handoff", "N4", "N5", "handoff",
-                         # 取込の決める処理：どちらの場合もありうると言われたときに確かめる答えと言葉（Question.maybe。⛔✅ 11-09 日本時間4時36分49秒。CL-1.md 4-123）
-                         "decide_maybes",
-                         # 担当の方が替わった電話・後任の方に、前の担当の方からお話を聞いているかを伺うシステムの質問の番号・その一言の録音（3回目からの戻る一言に
-                         # 続ける形は上の BACK_FIT）・答えの通話の事実（✅ 11-12 日本時間19時32分21秒 ユーザー「1はウ（候補(1)）」。CL-1.md 4-141）
-                         "HC", "callback_carried", "carried",
-                         # ほかのご希望の記録 other_wish の鍵：W1 の答えの状態（✅ 11-12 日本時間19時32分21秒 ユーザー「3はイ」。CL-1.md 4-142）と、W1 の提案に入れた
-                         # 条件・中身（14時58分17秒「アで！」。CL-1.md 4-131＝CL-2 の枝 9df8ea46 の読み手はまだ受けない。比べる試験 test_other_wish_keys_match_cl2_report）
-                         "wish_state", "terms", "topic",
-                         # かけ直しの質問の途中に、お礼の一言のあとで重ねて申し出られたときの一言の録音（⏳ 言い方は伺い中・2026-11-12 まとめ役の指示＝穴1。CL-1.md 4-144）
-                         "offer_thanks_again",
-                         # 引き継ぎを確かめる一言の、前の答えに前の担当の方の答えが無い方へ伺う文の録音（3回目からの戻る一言に続ける形は上の BACK_FIT）と、そのあと
-                         # 最初から伺うときの一言の録音（✅ 2026-11-13 日本時間20時06分19秒「伺い2はア」「伺い3はア（候補2）」。CL-1.md 4-148）
-                         "callback_carried_talked_later", "callback_carried_talked_same_day", "start_over",
-                         # 2回目の好意の折り返しの申し出をお言葉に甘えて受ける一言の録音と、折り返しのお約束の印（かけ直しの記録 callback の theirs。✅ 2026-11-13
-                         # 日本時間20時06分19秒「伺い5はイ」。CL-1.md 4-149）・黙ったあとの一言へのお返事だけかの判定の項目（CL-1.md 4-149）
-                         "offer_accepted", "theirs", "prompt_reply",
-                         # 聞き取れないまま「-」にしたお知らせの締めの前の最終の確かめ（見直し (12) の B-1）と、システムの質問を戻る一言なしに伺い直す形（頭「それでは」＝
-                         # 見直し (12) の B-9）の共通の一言の録音（CL-1.md 4-159）
-                         "announce_recheck_unheard", *__import__("phrases").AGAIN_FIT,
-                         # 考えている途中の方に5秒黙られたときの「何か疑問や…」と、理由を言わずに待つ方に黙ったまましばらくたったときの頭の無い待つかかけ直すかの
-                         # 伺いの共通の一言の録音（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い23・24）。どの場面で・何秒で流すかは flowctl.QUIET_STEPS）
-                         "doubt_anytime", "callback_wait_or_later_plain",
-                         # 深める一言（システムの質問 E2・共通の一言の録音 callback_deepen）・問題は無かったと言われたときのお言葉の文の録音 deepen_ahead・困りごとの
-                         # 言葉の欄 trouble（伺い29）と、営業の要約（業務設定の欄 summary・名乗りの部分 summary・取込の決める処理 decide_summaries。伺い30）（✅ 2026-11-16
-                         # 日本時間0時42分38秒 ユーザー。CL-2 への知らせはまとめ役）
-                         "E2", "callback_deepen", "trouble", "summary", "decide_summaries",
-                         # 深める一言へのお返事に伺う一言（システムの質問 E3・E4・共通の一言の録音 callback_deepen_measures・callback_deepen_ahead・困りごとが続く形の句の欄
-                         # kept）と、手短になら聞くと言われたときに後ほどかけ直してよいかを伺う一言（システムの質問 H3・名乗りの部分 brief・要約の入らない共通の一言の録音
-                         # callback_brief・通話の事実 brief）（✅ 2026-11-16 日本時間12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）。問題は無かったと言われたときの
-                         # お言葉の文の録音 deepen_ahead は使わなくなった（同じ時。CL-2 の部品には入っていない＝ここから外した）
-                         "E3", "E4", "H3", "callback_deepen_measures", "callback_deepen_ahead", "kept", "brief", "callback_brief",
-                         # 手短になら聞くと言われて伺った一言（H3）に「いいえ」などをいただき伺い続けるとき、質問の前に流す一言の共通の一言の録音（「それでは手短に
-                         # お伺いいたしますね。」。✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」。CL-2 への知らせはまとめ役）
-                         "brief_go",
-                         # こちらがかけ直す申し出（C7・P1・H1・H3）に「はい」をいただき、かけ直す時刻を伺えないまま締めるときの言い切りの共通の一言の録音
-                         # （「また改めてお掛けいたしますね。」＝flowctl.taken_line。✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」・✅ 2026-11-18 日本時間
-                         # 3時31分56秒 ユーザー「伺い39 ア」で文が「後ほど…」から替わった。CL-2 への知らせはまとめ役＝4-175・4-177）
-                         "call_again_taken"})
-# こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
-CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
+# CL-2 に頼んで、まだ main の CL-2 の部品（app/）に入っていない名前（唯一の一覧）。CL-2 の部品と名前を比べる試験は、この名前を除いて比べ、CL-2 の部品に
+# 入った名前がここに残っていれば落ちる（＝ここから外す合図。⚠️ 外れるまでは、main の CL-2 の読み手が、この名前の入った報告を受けない＝TEAM_PLAN：
+# CL-2 のブランチを main に入れるのはユーザーが確かめてから）。2026-11-18 に CL-2 の枝が main に入った（b295499f）ので、入った名前（ほかのご希望の W1・
+# LINE の ID の C10・通話の事実 other_wish・前の通話の答えの鍵・取込の決める処理・システムの質問の番号・業務設定の欄・共通の一言の録音の名前＝CL-2 の
+# 名前と文の写し common_phrases.TEXTS に入った188件など）を外した（CL-1.md 1 の (3)）
+CL2_PENDING = frozenset({
+                         # 取込の決める処理：お呼びする方がいらっしゃるかの一文（CL-2 の連絡帳 4-203 の (1)。CL-1.md 4-90）
+                         "decide_target_asks",
+                         # 黙ったあとの一言へのお返事だけかの判定の項目（flowctl.PROMPT_REPLY。✅ 2026-11-13 日本時間20時06分19秒。CL-1.md 4-149）
+                         "prompt_reply",
+                         # 深める一言に入れる困りごとの言葉・困りごとが続く形の句を会話AIが書く道具の引数（replay_opening の trouble・kept。伺い29＝✅ 2026-11-16
+                         # 日本時間0時42分38秒・12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）
+                         "trouble", "kept"})
+# こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す。2026-11-18 に「どうなさいますか？」の
+# dounasaimasu が外れた＝CL-1.md 4-109）
+CL2_RETIRED: frozenset[str] = frozenset()
 # 共通の一言の録音の文を替えて、CL-2 が名前と文の写し（common_phrases.TEXTS）を作り直すまで、文だけを比べない名前（CL-2 の 4-403 の (1)）。
 # CL-2 の文がそろったら落ちる＝外す
 CL2_TEXT_PENDING: frozenset[str] = frozenset()
@@ -13694,7 +13539,7 @@ class TargetTest(unittest.TestCase):
     def test_apology_reasons_and_recording_list_match_cl2(self):
         # 会話の側のお詫びの理由の一覧（flowctl.APOLOGY_REASONS）は、CL-2 の次の予定のお詫びの理由の CHECK（いちばん新しい migration）と同じ（4-350 の (2)＝知らない
         # 理由を黙って捨てない見張り）。録音の部分の一覧（make_ack_clips.listed_parts＝4-350 の (4)・4-120 の入口）は、依頼主の単位の録音の表そのままで、共通の
-        # 一言を入れない。形は CL-2 の recordings.ListedPart と同じ（CL-2 の枝が main に入るまで CL2_PENDING）
+        # 一言を入れない。形は CL-2 の recordings.ListedPart と同じ（2026-11-18 に CL-2 の枝が main に入った＝下で CL-2 の形と比べる）
         import dataclasses   # ⛔ CL-2 の枝（9df8ea46）の app/ で流して見つけた：CL-2 に ListedPart があるときだけ通る行で、読み込みが抜けていた（NameError）
         import re
         from flowctl import APOLOGY_REASONS
@@ -28772,10 +28617,10 @@ class UnheardClauseTest(unittest.TestCase):
         ref = claude([{"no": 1, "matter": "キャンセル", "clause": "キャンセルは前日までにご連絡いただく"}])
         self.assertEqual(import_ai.decide_matters([(a, "m1"), (c, "m3")], pairs, referee=(ref, "claude-sonnet-5-5")),
                          [("キャンセル", self.CLAUSE), ("料金", "料金は月額3,000円となる")])
-        # CL-2 の取込に渡す処理（deciders）も同じ形。業務設定の質問の欄（Question.matter_clause）は、CL-2 の業務設定に入るまで CL2_PENDING（名詞 matter と同じ）
+        # CL-2 の取込に渡す処理（deciders）も同じ形。業務設定の質問の欄（Question.matter_clause）は、CL-2 の業務設定と同じ名前（2026-11-18 に CL-2 の枝が
+        # main に入った＝名前を比べる試験が CL-2 の欄と比べる。名詞 matter と同じ）
         self.assertEqual(import_ai.deciders(askers)["decide_matters"](pairs), [("キャンセル", self.CLAUSE), ("料金", "")])
         self.assertIn("matter_clause", {x.name for x in dataclasses.fields(Question)})
-        self.assertIn("matter_clause", CL2_PENDING)
 
 
 class HeardLineClauseTest(unittest.TestCase):
