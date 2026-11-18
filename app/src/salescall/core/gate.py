@@ -761,8 +761,10 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
         return mine
     before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s, %s) AS v", (task["phone_e164"], task["task_id"]))["v"]
     # 同じ業務の声（mine）が、いまの版で話せない（その声の録音がまだ承認されていない など）：ほかの声でかけない＝話せるようになるまで待ち、契約者に
-    # 知らせる（下の「話せる声が無い」と同じ道。⛔ 2026-11-18 の6回目の見直しまで：ほかの声を選んでかけた＝同じ業務なのに声が替わった）
-    usable = [] if mine is not None else [v for v in ready if v not in taken and v != before]
+    # 知らせる（下の「話せる声が無い」と同じ道。⛔ 2026-11-18 の6回目の見直しまで：ほかの声を選んでかけた＝同じ業務なのに声が替わった）。
+    # お詫びを伝える電話は、お詫びの録音の声が先（上の must。前に話した声の決まりより先＝0131）なので、ここでは待たない
+    waits_mine = mine is not None and must is None
+    usable = [] if waits_mine else [v for v in ready if v not in taken and v != before]
     if before is not None:
         # お客様が前に聞いた声と、別の性別の声があれば、それだけにする（2026-10-17 ユーザー：「同じ男性ならサービスを聞く前に嫌悪感を
         # 持たれるので、Ledaが対応するなど」。性別は声の一覧の表示名＝0118。分からない声は、別の性別とはみなさない）
@@ -775,7 +777,7 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     if usable:
         return next(code for code, t in sorted(types.items()) if t["voice_name"] == usable[0] and t["default_for_voice"])
     admin = False
-    if mine is not None:
+    if waits_mine:
         reason, summary, key = "voice_not_ready", SAME_VOICE_NOT_READY.format(types[mine]["voice_name"]), ":" + mine
     elif ready:
         reason, summary, key = "voice_used_by_other_client", OTHER_VOICE_MISSING, ""
