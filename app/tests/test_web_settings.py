@@ -75,7 +75,8 @@ class Screens(unittest.TestCase):
         w = World()
         cls.a = w.setup()
         cls.b = w.setup()
-        cls.people = {"A": Person("試験の契約者A", False, cls.a["tenant"], "契約者A"),
+        cls.people = {"ADMIN": Person("試験の管理者", True, cls.a["tenant"], "契約者A"),
+                      "A": Person("試験の契約者A", False, cls.a["tenant"], "契約者A"),
                       "B": Person("試験の契約者B", False, cls.b["tenant"], "契約者B")}
         cls.http = TestClient(create_app(app_access(), lambda r: cls.people.get(r.headers.get("x-test-person", "")), SECRET))
         cls.key = app_access().in_system(SYSTEM, lambda tx: tx.one(
@@ -114,6 +115,14 @@ class Screens(unittest.TestCase):
                                                                       business_id=self.a["business"]))
         self.assertEqual((got["value"], got["from"]), (5, "business"))
         self.assertIn("この段で決めた値", self.get("A", biz).text)
+
+    def test_the_system_values_are_for_the_admin_only(self):
+        self.assertEqual(self.get("A", "/admin/settings").status_code, 404)
+        self.assertEqual(self.post("A", "/admin/settings", {"form_token": self.token("A"), "key": self.key, "f_v": "9",
+                                                            "reason": "乗っ取り"}).status_code, 404)
+        page = self.get("ADMIN", "/admin/settings")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("システムの初めの値", page.text)
 
     def test_a_setting_that_cannot_be_decided_per_business_is_refused_there(self):
         if self.tenant_only is None:

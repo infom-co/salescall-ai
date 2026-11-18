@@ -37,10 +37,10 @@
 {% endif %}
 {%- endmacro %}
 {% block main %}
-{% set where = ("業務「" ~ business.name ~ "」") if business else (("依頼者「" ~ client.name ~ "」") if client else ("契約者「" ~ ctx.tenant_name ~ "」")) %}
+{% set where = "システムの初めの値（管理者だけ）" if level == "system" else (("業務「" ~ business.name ~ "」") if business else (("依頼者「" ~ client.name ~ "」") if client else ("契約者「" ~ ctx.tenant_name ~ "」"))) %}
 {% set action = request.url.path %}
 <h1>設定：{{ where }}</h1>
-<p class="lead">ここで決めた値は、{% if level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。</p>
+<p class="lead">ここで決めた値は、{% if level == "system" %}すべての契約者の初めの値になります（契約者・依頼者・業務で決めた値が勝ちます。「システムだけ」の設定は、この値だけを使います）{% elif level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。</p>
 {{ flash(done, ok) }}
 <div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>
 {% for group, items in rows|groupby("group") %}
@@ -50,12 +50,16 @@
   <details class="setting card {{ 'own' if r.own }}">
     <summary>
       <span class="meaning">{{ r.meaning }}</span>
-      <span class="now">{% if r.got %}<b>{{ r.shown }}</b> <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own %} {{ tag("この段で決めた値", "info") }}{% endif %}</span>
+      <span class="now">{% if r.got %}<b>{{ r.shown }}</b> <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own and level != "system" %} {{ tag("この段で決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag("仮の値（見直す時：" ~ r.provisional.review_when ~ "）", "wait") }}{% endif %}</span>
     </summary>
     <form method="post" action="{{ action }}" class="setting-form" data-needs-reason>
       {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
       <p class="muted">{{ r.merge }}</p>
       {{ widget(r) }}
+      {% if level == "system" %}
+      <div class="gap"><select name="status" aria-label="仮か確定か"><option value="decided">確定の値</option><option value="provisional">仮の値（あとで見直す）</option></select>
+      <input type="text" name="review_when" placeholder="仮なら、いつ見直すか" style="max-width:260px"></div>
+      {% endif %}
       <label class="field">理由（記録に残ります）</label>
       <input type="text" name="reason" placeholder="例：依頼者のご希望で、夕方はかけない">
       <div class="actions"><button class="btn main small" type="submit" data-submit disabled>この段の値にする</button></div>

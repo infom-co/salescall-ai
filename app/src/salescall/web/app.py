@@ -316,9 +316,17 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                                businesses=context.businesses(tx),
                                business=None if business_id is None else context.business(tx, business_id))
                 return out
-            values = ctx.tenant(read) if client_id is None else ctx.client(client_id, read, read_only=True)
+            if level == "system":   # 管理者だけ（ctx.system が断る）。仮の値は、見直す時と一緒に見せる（settings.provisional の1か所）
+                def read_system(tx: Any) -> dict[str, Any]:
+                    prov = {p["key"]: p for p in settings.provisional(tx)}
+                    rows = [{**r, "provisional": prov.get(r["key"])} for r in _settings_rows(tx, "system", None, None, None)]
+                    return {"rows": rows}
+                values = ctx.system(read_system)
+            else:
+                values = ctx.tenant(read) if client_id is None else ctx.client(client_id, read, read_only=True)
             return page(request, "settings.html", person, ctx, level=level, forms=setting_forms, days=setting_forms.DAYS,
-                        done=done, ok=bool(ok), active="settings" if client_id is None else "client", **values)
+                        done=done, ok=bool(ok), active=("system_settings" if level == "system" else "settings" if client_id is None else "client"),
+                        **values)
         return handle(request, render)
 
     def _settings_save(request: Request, form: dict[str, Any], level: str, client_id: UUID | None,
@@ -335,15 +343,29 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                     raise NotFound()
                 value = setting_forms.read(d["value_type"], form, "f_", d)
                 try:
+                    if level == "system":
+                        status = "provisional" if str(form.get("status") or "") == "provisional" else "decided"
+                        return settings.set_system_value(tx, key, value, status=status, rationale=str(form.get("reason") or "").strip(),
+                                                         review_when=str(form.get("review_when") or "").strip() or "変える必要が出たとき")
                     return settings.set_value(tx, key, value, scope=level, status="decided", rationale=str(form.get("reason") or "").strip(),
                                               review_when="変える必要が出たとき", tenant_id=ctx.tenant_id, client_id=client_id,
                                               business_id=business_id)
                 except ValueError as e:   # set_value の理由つきの断り（テスト番号にお客様の番号 など）
                     raise actions.Refused(str(e)) from None
-            work = (lambda: ctx.tenant(do)) if client_id is None else (lambda: ctx.client(client_id, do))
+            work = ((lambda: ctx.system(do)) if level == "system" else
+                    (lambda: ctx.tenant(do)) if client_id is None else (lambda: ctx.client(client_id, do)))
             out = actions.act(secret, person.login_id, form, work, done="変えました。前の値は記録に残っています。", reason_field="reason")
             return _back(back, out)
         return handle(request, render)
+
+    @app.get("/admin/settings")
+    def system_settings(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        """システムの初めの値（管理者だけ。管理者でなければ「見つかりません」）。"""
+        return _settings_page(request, "system", None, None, done, ok)
+
+    @app.post("/admin/settings")
+    async def system_settings_save(request: Request) -> HTMLResponse:
+        return _settings_save(request, dict(await request.form()), "system", None, None, "/admin/settings")
 
     @app.get("/t/settings")
     def tenant_settings(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:

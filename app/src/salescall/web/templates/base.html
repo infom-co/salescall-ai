@@ -50,6 +50,8 @@
     <a href="/t/lines" {% if active == "lines" %}aria-current="page"{% endif %}>回線と PC</a>
     <a href="/t/dnc" {% if active == "dnc" %}aria-current="page"{% endif %}>共通の発信禁止</a>
     <a href="/t/settings" {% if active == "settings" %}aria-current="page"{% endif %}>契約者の設定</a>
+    {% if person.is_admin %}<div class="group">管理者だけ</div>
+    <a href="/admin/settings" {% if active == "system_settings" %}aria-current="page"{% endif %}>システムの初めの値</a>{% endif %}
   </nav>
   <main class="content">
     {% if ctx.acting_for_other %}
