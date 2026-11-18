@@ -246,6 +246,11 @@ class Flow(Base):
         self.assertEqual(got["state"], "not_reached")
         self.assertEqual(self.tx(s, lambda tx: dnc.lookup(tx, normalize(said).e164))["reason"], "refused_in_call")
         self.assertIsNone(self.tx(s, lambda tx: dnc.lookup(tx, normalize(s["phone"]).e164)))
+        # あとで行に番号を足しても、番号違いの方の申告は広げない（届く決定を選ぶ1か所 dnc._standing＝いまの結果が「もうかけないで」の通話の断りだけ。
+        # ⛔ 2026-11-18 の6回目の見直しまで：通話の結果を見ずに、行全体へ広げ直した）
+        later = normalize(fictional_jp_fixed())
+        self.tx(s, lambda tx: tasks.add_record_number(tx, s["task"], later, "company", origin="dashboard"), OPERATOR)
+        self.assertIsNone(self.tx(s, lambda tx: dnc.lookup(tx, later.e164)))
 
     def test_no_declaration_without_a_callee(self):
         s = self.ready_jp()

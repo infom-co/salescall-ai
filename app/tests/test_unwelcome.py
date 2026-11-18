@@ -744,6 +744,18 @@ class MonthAhead(SettleBase):
         self.assertIsNone(self.asking(s))
         again(moved + timedelta(hours=1))                                        # 答えたあと、回の中でまた時刻が動いても
         self.assertIsNone(self.asking(s))                                        # その回への答えのまま（伺い直さない・緊急の知らせを出さない）
+        # その回でかけたあとは、伺いは終わり（印を引き継がない）
+        u = self.ready()
+        self.choose(u, "with_approval")
+        wu, _, pu = self.passed(u, first(u), last(u), repeat)
+        self.assertEqual(self.asking(u), pu["call_at"])
+        aid = self.w.insert_claim(u)
+        for st in ("dialing", "no_answer"):
+            self.w.move(u, aid, st)
+        self.tx(u, lambda tx: next_action._write(tx, u["task"], next_action._call(
+            pu["call_at"] + timedelta(hours=2), True, "試験：その回でかけたあとの決め直し", next_action.Target(u["contact"]), None,
+            next_action.window_of(pu))))
+        self.assertIsNone(self.asking(u))
         t = self.ready()
         self.choose(t, "with_approval")
         self.settle(t, self.call(t, report=rep(callback=callback("later", time="再来月の月末に"))))

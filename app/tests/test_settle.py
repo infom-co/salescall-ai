@@ -2186,6 +2186,14 @@ class DialFixAfterCalls(SettleBase):
         mobile = normalize(fictional_jp_fixed())
         self.tx(v, lambda tx: tasks.add_record_number(tx, w_task, mobile, "mobile", origin="dashboard"), OPERATOR)
         self.assertTrue(self.stopped(v, mobile.e164))
+        # 何も止めないときは、同じ番号のほかの行の予約を取り消さない（止めたときだけ取り消す。⛔ 2026-11-18 の7回目の見直しまで：番号を足すたびに
+        # 取り消し、その番号へかけようとしていたほかの行の予約まで取り消した）
+        x = self.ready()
+        claimed = self.claim(x)
+        y = self.ready()
+        self.tx(y, lambda tx: tasks.add_record_number(tx, y["task"], normalize(x["phone"]), "company", origin="dashboard"), OPERATOR)
+        self.assertEqual(self.tx(x, lambda tx: tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s",
+                                                     (claimed.attempt_id,)))["s"], "claimed")
 
     def test_a_complaint_is_the_old_persons_own_and_the_new_person_is_called(self):
         """✅ 2026-11-16 ユーザー（伺い「前の担当の方（田中様）が怒った（苦情）あと、『担当の方は違う』で鈴木様に直したら」へ）：「鈴木様へはかける」＝苦情も

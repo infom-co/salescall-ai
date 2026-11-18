@@ -3854,3 +3854,7 @@
 {"at": "2026-11-18T19:37:59+09:00", "who": "CL-2", "text": "壊す試験（Python の分44・データベースの分6）を流しています。そのあいだに、ユーザーのご判断の分を記録に書き足します。"}
 {"at": "2026-11-18T19:38:23+09:00", "who": "CL-2", "text": "会話の側の比べる試験も流して確かめます。"}
 {"at": "2026-11-18T19:39:40+09:00", "who": "CL-2", "text": "Only the 2 known ones. Commit docs, then wait for mutations."}
+{"at": "2026-11-18T19:39:48+09:00", "who": "CL-2", "text": "7回目の見直しは、まだ途中です。main には上げていません。\n\n会話の側の比べる試験は、前からの2つの既知の失敗のほかは合格です。ユーザーのお答えの記録（設計書・計画書・連絡帳）はコミットしました。\n\n7回目の壊す試験（直しを外すと試験が気づくか）50件を流していて、終わると知らせが届きます。そのあと全部の試験を流し、合格を確かめてから main に上げます。"}
+{"at": "2026-11-18T19:44:13+09:00", "who": "CL-2", "text": "Extend this wrong-party test: after it, add a number to the row → not stopped."}
+{"at": "2026-11-18T19:44:33+09:00", "who": "CL-2", "text": "Run these tests and the 3 previously missed mutations."}
+{"at": "2026-11-18T19:44:40+09:00", "who": "CL-2", "text": "Commit meanwhile."}

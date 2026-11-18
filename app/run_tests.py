@@ -7455,7 +7455,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("足した番号を止める・止め直すとき、通話の結果を見ずに断りを広げる（番号違いの方の申告を行全体へ＝6回目の見直しの前の形）", "src/salescall/core/dnc.py",
      "        \"         AND EXISTS (SELECT 1 FROM salescall.call_results r WHERE r.attempt_id = e.source_attempt_id AND r.business_state = 'do_not_call'))\"\n",
      "        \"         )\"\n",
-     ("tests.test_settle.DialFixAfterCalls.test_a_number_added_after_a_refusal_is_stopped_too",)),
+     ("tests.test_alternate.Flow.test_a_wrong_party_declaration_stops_only_that_number",)),
     ("足した番号を、番号を共有するほかの行の断りで止めない（7回目の見直しの前の形）", "src/salescall/core/dnc.py",
      "    for e in _standing(tx, _near(tx, [number], [])):", "    for e in _standing(tx, [task_id]):",
      ("tests.test_settle.DialFixAfterCalls.test_a_number_added_after_a_refusal_is_stopped_too",)),
