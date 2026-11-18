@@ -2160,7 +2160,8 @@ def _window_round_next(tx: Tx, task_id: UUID, window: Window, *, now: datetime, 
         方針が「終える」なら、回の終わり。
     (2) 間：その日に、その回でまだ試していない時間帯（お詫びの電話・番号の聞き直しと同じ区切り retry.time_band_boundaries＝`calling_hours.
         next_opening_in_new_band`）の、お客様の幅の中で、かけてよい最も早い始まり（同じお客様への最短の間隔のあと＝gate.same_contact_free_at）。
-        その日に試していない時間帯が無ければ、次の日から。
+        その日のお客様の幅に試していない時間帯が残っていなければ（「3時以降」など1つの時間帯の幅）、時刻の決まっていない約束の方針の間隔で（その日に
+        入らなければ次の日から）。
     (3) 1日：その日にかけた数（`_round_calls` の on）が1日の回数（業務ごとの設定 callback.window_daily_max。初め3）に届いていれば、次の日から
         （✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回・営業時間内」）。
     回の終わりを過ぎれば、回の終わり。⛔ 2026-11-18 の7回目の見直しまで：回の中の回数と間を、その電話の結果の方針（出なかった・不在など）で決めた＝
@@ -2183,7 +2184,13 @@ def _window_round_next(tx: Tx, task_id: UUID, window: Window, *, now: datetime, 
             found = calling_hours.next_opening_in_new_band(hours, holiday_checker(tx), local, length, boundaries, tried, horizon_days=0)
         except CalendarOutOfRange:
             found = None
-        at = calling_hours.from_local(found) if found is not None else _next_day(now)   # 試していない時間帯が今日に無い：次の日から
+        if found is not None:
+            at = calling_hours.from_local(found)
+        else:
+            # その日のお客様の幅に、試していない時間帯が残っていない（「3時以降」など1つの時間帯の幅）：時刻の決まっていない約束の方針の間隔で（1日の回数の
+            # 中で。✅ 2026-11-08 ユーザー＝計画書 7-3 (3)「1日3回・営業時間内」を、1つの時間帯の幅でも守る）。その日に入らなければ次の日から
+            nxt = _retry_at(tx, task_id, p.interval, now, dialed_at)
+            at = nxt if nxt is not None and nxt < _next_day(now) else _next_day(now)
     return at if end is None or at < end else end
 
 

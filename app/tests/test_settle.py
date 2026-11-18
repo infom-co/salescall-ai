@@ -3838,6 +3838,7 @@ class Corrections(SettleBase):
         with self.assertRaises(Rejected):                                       # システムの処理は確かめられない
             self.tx(s, lambda tx: approval.confirm_correction_call(tx, s["task"]))
         self.tx(s, lambda tx: approval.confirm_correction_call(tx, s["task"]), OPERATOR)
+        time.sleep(1.1)                                                          # 同じお客様への最短の間隔（1秒）
         self.assertIsInstance(self.claim(s), gate.Claim)                         # 確かめたら、かける
         with self.assertRaises(LookupError):                                     # もう確かめ待ちでない
             self.tx(s, lambda tx: approval.confirm_correction_call(tx, s["task"]), OPERATOR)
@@ -5870,7 +5871,7 @@ class CallbackWindow(SettleBase):
                 cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
                 if same_round:
                     self.assertEqual((cur["promised"], cur["window_round"]), (True, 0))   # 1本目：方針の回数（2回）に届かない＝同じ回の中
-                    self.assertLess(cur["call_at"], now + timedelta(hours=2))
+                    self.assertLess(cur["call_at"], w.until)                     # 同じ回の中（時間帯を変える＝伺い1 の案ア。いつかは試験を流す時刻しだい）
                 else:   # 1本目で方針の回数（1回）に届いた＝回の終わり。回の数も方針の回数（1つ）に届いた＝終える
                     self.assertEqual((cur["kind"], cur["end_reason"]), ("end", "callback_unspecified_time"))
 
