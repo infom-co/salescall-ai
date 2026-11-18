@@ -154,9 +154,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
     if j is not None and j.disconnect is not None and a["disconnect"] is None:
         attempts.record_disconnect(tx, attempt_id, j.disconnect)
     if not settled:
-        tx.execute("INSERT INTO salescall.apology_outcomes (tenant_id, client_id, attempt_id, order_id, delivered)"
-                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)",
-                   (attempt_id, order["order_id"], delivered))
+        _apology_outcome(tx, attempt_id, order["order_id"], delivered)
         # ふつうの通話と同じ1か所（引き継ぎを確かめる印が読む。0203）。書けるのは締めの記録（お詫びの電話の結び）を書いた同じ取引の中だけ（0211。
         # 締め直し＝again は、結びも話せたかも、最初の締めのまま）
         attempts.record_reached_target(tx, attempt_id, inp.reached_target)
@@ -561,8 +559,26 @@ def _decide(tx: Tx, a: dict[str, Any], j: Judgement, *, rules: Any, alternate: A
         waiting=waiting,   # 取り消せない決定の保留の種類（2026-10-30 管理者のご決定 (6)）
         # 言ってはいけないことのお詫びを伝えたか（印を外すのは伝えたときだけ＝next_action._forbidden_told。CL-1 の連絡帳 4-143）
         apology_delivered=apology_delivered)
+    if decision.apology_told:
+        # 約束の時刻の電話の頭で、承認したお詫びの案を伝えた（決めるのは次の動きの1か所 next_action._forbidden_told）：お詫びだけの電話の結びと同じ表に
+        # 残し（その案は伝えた＝apology._told の1か所。お詫びだけの電話をもう書かない）、契約者に知らせる（お詫びの電話を伝えたときと同じ知らせの種類。
+        # 計画書 7-3 (2)。0216）。✅ 2026-11-08 ユーザー＝計画書 7-3 (2)「約束の時刻にお詫び」（約束を守り、1本で済ませる）。⛔ 2026-11-18 の8回目の
+        # 見直しまで：伝えたことがどこにも残らず、締めのあとに同じ案のお詫びだけの電話を書き（2本になった）、その電話でお客様との新しい約束の予定を上書きした
+        order = apology.for_task(tx, a["task_id"])
+        if order is not None:
+            _apology_outcome(tx, attempt_id, order["order_id"], True)
+        notify.emit(tx, "apology", key=f"apology:{attempt_id}", summary="お客様と約束した電話の頭で、お詫びを伝えました（そのまま約束の用件を続けました）。",
+                    refs={"attempt_id": attempt_id, "task_id": a["task_id"]})
     apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：結果が決まったいま、予定を書く（apology の1か所）
     return decision
+
+
+def _apology_outcome(tx: Tx, attempt_id: UUID, order_id: int, delivered: bool) -> None:
+    """お詫びの案を、その通話で伝えたか（apology_outcomes）を書く1か所（お詫びだけの電話の結び・約束の電話の頭で伝えた。締めの処理だけ。
+    同じ通話に2つ目は書かない＝締め直しは最初の締めのまま）。"""
+    tx.execute("INSERT INTO salescall.apology_outcomes (tenant_id, client_id, attempt_id, order_id, delivered)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s) ON CONFLICT (attempt_id) DO NOTHING",
+               (attempt_id, order_id, delivered))
 
 
 def follow_correction(tx: Tx, attempt_id: UUID, correction: dict[str, Any]) -> dict[str, Any]:

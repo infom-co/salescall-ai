@@ -1225,6 +1225,9 @@ class Decision:
     # 「契約者が認めたらかける」なので契約者に伺う予定の、その前の話せなかった回（知らせの文に出す。持たせるのは `_keep_promise` の1か所。0220）。
     # ⛔ 0219 の said_by_callee（お客様の言葉から決まった予定か＝幅を持つ予定のすべて）は外した：お客様が言った日時そのものには当てはめない
     month_ahead_after: Window | None = None
+    # この通話（お客様と約束したかけ直しの電話）の頭で、承認した言ってはいけないことのお詫びを伝えた（`_forbidden_told` の1か所が決め、`after_call` が
+    # 付ける）。伝えた記録（apology_outcomes）と契約者への知らせは、締めの1か所（settle._decide）が書く（お詫びの電話の結びと同じ表＝締めの処理だけが書く）
+    apology_told: bool = False
 
     @property
     def contact_id(self) -> UUID | None:
@@ -1979,13 +1982,10 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     if former_promise and tasks.old_promise_waiting(tx, task_id) == attempt_id:
         _notice_old_promise(tx, task_id, attempt_id)
     if told and attempt_id is not None:
-        from salescall.core import apology   # お詫びの部品が次の動きを読むので、ここで読む（読み合いにしない）
-        apology.record_told(tx, task_id, attempt_id)   # 伝えた記録（お詫びだけの電話をもう書かない＝apology.schedule_if_ready の1か所）
         # 約束の時刻の電話の頭で、言ってはいけないことのお詫びを伝えた（会話の報告の apology_delivered。伝えたかは `_forbidden_told` の1か所。
-        # 印を外すのは `_apologised`）：契約者に知らせる（お詫びの電話を伝えたときと同じ知らせの種類。計画書 7-3 (2)。0216）。⛔ 2026-11-13 まで
-        # （CL-1 の連絡帳 4-143）：目的のお客様と話せたら（代わりの方に繋いだ電話で、お詫びを流していなくても）印を外し、この知らせを出していた
-        notify.emit(tx, "apology", key=f"apology:{attempt_id}", summary="お客様と約束した電話の頭で、お詫びを伝えました（そのまま約束の用件を続けました）。",
-                    refs={"attempt_id": attempt_id, "task_id": task_id})
+        # 印を外すのは `_apologised`）。伝えた記録と契約者への知らせは、締め（settle._decide）が書く。⛔ 2026-11-13 まで（CL-1 の連絡帳 4-143）：
+        # 目的のお客様と話せたら（代わりの方に繋いだ電話で、お詫びを流していなくても）印を外し、知らせを出していた
+        d = replace(d, apology_told=True)
     return d
 
 

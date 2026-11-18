@@ -399,7 +399,7 @@ class PromiseAndApology(ApologyBase):
         self.assertEqual((c.apology_text, c.apology_call), (self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], None))
         got = self.settle(s, self.call_claimed(s, c, delivered=True))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "completed"))   # 約束の用件を続けて果たした
-        # 伝えたので、お詫びだけの電話はもう書かない（行は果たしたまま。伝えた記録＝apology.record_told。⛔ 2026-11-18 の8回目の見直しまで：締めのあとに
+        # 伝えたので、お詫びだけの電話はもう書かない（行は果たしたまま。伝えた記録＝settle._decide。⛔ 2026-11-18 の8回目の見直しまで：締めのあとに
         # 同じ案のお詫びだけの電話を書き、2本になった。お客様が新しい約束をしていれば、その予定をお詫びの電話で上書きした）
         p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((p["kind"], p["end_reason"]), ("end", "completed"))
