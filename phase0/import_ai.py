@@ -205,28 +205,56 @@ def decide_way_words(askers: list[Asker], pairs: list[tuple[str, tuple]], on_err
     return [meanings.decide(d, w, [r[i] for r in rows], "way") for i, (d, w) in enumerate(items)]
 
 
-def _settled(askers: list[Asker], texts: list[str], by_model: Callable, decide: Callable, fits: Callable, on_error: Callable | None,
-             referee: Asker | None) -> dict[str, str]:
-    """文ごとの言葉を決める唯一の形（用件の名詞 decide_purposes・その後の文の中身 decide_since）：2つの文字のAIがそろって形に合えばその言葉・そろって空なら空
-    （decide が None を返さない）。そろわない文だけを、まとめて1回、考える Sonnet（referee＝(client, モデルの名前)。CL-2 の取込が deciders に渡す）に聞き、
-    形に合えば（fits）その言葉。referee が無い・答えない・形に合わなければ空。✅ 帳面 0-2「そろわないときは、考える Sonnet で決め」。
-    decide・fits を項目ごとの組で渡すと、1回の問い合わせで文ごとに項目をいくつも決める（by_model は文ごとに項目の組を返す＝お知らせの中身の名詞と句
-    decide_matters）：項目ごとに決め、どれかの項目が決まらない文だけを、まとめて1回、考える Sonnet に聞き、決まらなかった項目だけをその答えで埋める（決まった
-    項目は替えない）。答えは文ごとに項目の組。項目を足しても問い合わせの数は同じ（11-15 11時59分07秒の (3)）"""
-    if not texts:
-        return {}
+def _decide_each(askers: list[Asker], items: list, by_model: Callable, decide: Callable, fits: Callable, on_error: Callable | None,
+                 referee: Asker | None, grounded: Callable | None = None, groups: list | None = None) -> list:
+    """取込で、材料ごとに言葉・文を決める唯一の形（言葉を決める _settled・文を作る _drafted は、答えの形を整えるだけ）：2つの文字のAIがそろって形に合えばその答え
+    （decide）。そろわない・形に合わない材料だけを、まとめて1回、考える Sonnet（referee＝(client, モデルの名前)。CL-2 の取込が deciders に渡す）に聞き、形に合えば
+    （fits）その答え。決まらなければ空。✅ 帳面 0-2「そろわないときは、考える Sonnet で決め」。items は材料の並び（文 1つ、または材料の組＝decide・fits・grounded に
+    そのまま渡す）。decide・fits を項目ごとの組で渡すと、1回の問い合わせで材料ごとに項目をいくつも決める（by_model は材料ごとに項目の組を返す＝お知らせの中身の
+    名詞と句 decide_matters）：項目ごとに決め、どれかの項目が決まらない材料だけを考える Sonnet に聞き、決まらなかった項目だけをその答えで埋める（11-15 11時59分07秒の (3)）。
+    grounded＝中身の判定（askitems.grounded の grounding の問い＝考える Sonnet）を通ったときだけ使う（取込で作る文＝お知らせの文・言い換え・並べた文・要約）。中身の
+    判定がある決め方は、考える Sonnet が無ければ空（中身を確かめられない文は使わない＝2つの文字のAIにも聞かない＝料金。⛔ 0c55c4e7 まで、聞いてから捨てていた＝見直し
+    (12) の C-8）。groups＝材料ごとの組の印（同じ質問を並べ方を変えて書かせた文＝decide_alternatives）：同じ印の文は、中身の判定に1回でまとめて読ませる（問い合わせの数
+    は組の数＝増えない）。通らなければ組の文を全部使わない・組の初めの文が決まらなければ、組のほかの文も使わない。無ければ材料ごとに1つの組。
+    ⛔ ba505007 まで、_settled と _drafted が同じ並べ方を別々に書いていた（見直し (13) の C8）。考える Sonnet が無いときの扱い（言葉はそろった答えを使う・文は空）は
+    今のまま（揃えるかは伺い中＝rv72/r13c/ask.md の C8）"""
+    if not items:
+        return []
     many = isinstance(decide, tuple)
     decides, fitses = (decide, fits) if many else ((decide,), (fits,))
     blank = (None,) * len(decides)
-    ask = by_model if many else (lambda c, m, ts, think=False: [(w,) for w in by_model(c, m, ts, think=think)])
-    rows = _each(askers, lambda c, m: ask(c, m, texts), [blank] * len(texts), on_error)
-    out = {t: [d(t, [r[i][k] for r in rows]) for k, d in enumerate(decides)] for i, t in enumerate(texts)}
-    left = [t for t in texts if None in out[t]]
+    if grounded is not None and referee is None:
+        return [("",) * len(decides) if many else "" for _ in items]
+    args = [it if isinstance(it, tuple) else (it,) for it in items]
+    ask = by_model if many else (lambda c, m, xs, think=False: [(w,) for w in by_model(c, m, xs, think=think)])
+    rows = _each(askers, lambda c, m: ask(c, m, items), [blank] * len(items), on_error)
+    got = [[d(*a, [r[n][k] for r in rows]) for k, d in enumerate(decides)] for n, a in enumerate(args)]
+    left = [n for n, ws in enumerate(got) if None in ws]
     if left and referee is not None:
-        got = _each([referee], lambda c, m: ask(c, m, left, think=True), [blank] * len(left), on_error)[0]
-        for t, ws in zip(left, got):
-            out[t] = [w if w is not None else (ws[k] if fitses[k](t, ws[k]) else None) for k, w in enumerate(out[t])]
-    return {t: tuple(w or "" for w in ws) if many else ws[0] or "" for t, ws in out.items()}
+        drafts = _each([referee], lambda c, m: ask(c, m, [items[n] for n in left], think=True), [blank] * len(left), on_error)[0]
+        for n, ws in zip(left, drafts):
+            got[n] = [w if w is not None else (ws[k] if fitses[k](*args[n], ws[k]) else None) for k, w in enumerate(got[n])]
+    if grounded is None:
+        return [tuple(w or "" for w in ws) if many else ws[0] or "" for ws in got]
+    keys = groups if groups is not None else list(range(len(items)))
+    out = [""] * len(items)
+    for key in dict.fromkeys(keys):
+        idx = [n for n, k in enumerate(keys) if k == key]
+        if got[idx[0]][0] is None:
+            continue
+        lines = [(n, got[n][0]) for n in idx if got[n][0] is not None]
+        line = "\n".join(x for _, x in lines)
+        if _each([referee], lambda c, m: grounded(c, m, *args[idx[0]], line), False, on_error)[0]:
+            for n, x in lines:
+                out[n] = x
+    return out
+
+
+def _settled(askers: list[Asker], texts: list[str], by_model: Callable, decide: Callable, fits: Callable, on_error: Callable | None,
+             referee: Asker | None) -> dict[str, str]:
+    """文ごとの言葉を決める（用件の名詞 decide_purposes・その後の文の中身 decide_since・聞くこと・お知らせの中身の名詞と句 decide_matters）：決め方は _decide_each の
+    1か所（中身の判定なし）。答えは文ごと（項目の組なら項目ごとの組）。"""
+    return dict(zip(texts, _decide_each(askers, texts, by_model, decide, fits, on_error, referee)))
 
 
 def decide_purposes(askers: list[Asker], texts: list[str], on_error: Callable | None = None, referee: Asker | None = None) -> dict[str, str]:
@@ -240,41 +268,14 @@ def decide_since(askers: list[Asker], texts: list[str], on_error: Callable | Non
     """業務の質問の文の並び（CL-2 がかけ直す「わからない」の質問＝flowctl.Question.unknown_called_back の質問だけを渡すのは呼ぶ側）→ 文ごとの、その後の文
     「その後（中身）かお決まりになりましたでしょうか？」の中身の言葉（答えは flowctl.Question.since）。決め方は since.decide と _settled の1か所（そろわない文は
     考える Sonnet・形に合わなければ空＝今の形で伺い直す）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い6は…」"""
-    return _settled(askers, texts, since.by_model, lambda t, words: since.decide(words), lambda t, w: since.fits(w), on_error, referee)
+    return _settled(askers, texts, since.by_model, since.decide, since.fits, on_error, referee)
 
 
 def _drafted(askers: list[Asker], items: list[tuple], by_model: Callable, decide: Callable, fits: Callable, grounded: Callable,
              on_error: Callable | None, referee: Asker | None, groups: list | None = None) -> list[str]:
-    """取込で文を作る唯一の形（お知らせの文 decide_announces・言い換えた質問 decide_rewords・選択肢を並べた質問 decide_alternatives）：2つの文字のAIがそろって形に合う（fits）文、そろわない文は
-    考える Sonnet（referee）にまとめて1回書かせて形に合う文。どちらも、考える Sonnet の中身の判定（grounded＝askitems.grounded の grounding の問い）を通ったとき
-    だけ使う。referee が無ければ空（中身を確かめられない文は使わない）。items は文ごとの材料の組（decide・fits・grounded にそのまま渡す）。
-    groups＝文ごとの組の印（同じ質問を並べ方を変えて書かせた文＝decide_alternatives）：同じ印の文は、中身の判定に1回でまとめて読ませる（問い合わせの数は組の数
-    ＝増えない）。通らなければ組の文を全部使わない（どの文が事実を足したかは分からない）・組の初めの文が決まらなければ、組のほかの文も使わない（中身の判定にも
-    出さない）。無ければ文ごとに1つの組（今と同じ）。"""
-    if not items:
-        return []
-    if referee is None:
-        # 中身を確かめられない文は使わない＝2つの文字のAIにも聞かない（料金。⛔ 0c55c4e7 まで、聞いてから捨てていた＝見直し (12) の C-8）
-        return [""] * len(items)
-    rows = _each(askers, lambda c, m: by_model(c, m, items), [None] * len(items), on_error)
-    got = [decide(*it, [r[n] for r in rows]) for n, it in enumerate(items)]
-    left = [n for n, line in enumerate(got) if line is None]
-    if left:
-        drafts = _each([referee], lambda c, m: by_model(c, m, [items[n] for n in left], think=True), [None] * len(left), on_error)[0]
-        for n, line in zip(left, drafts):
-            got[n] = line if fits(*items[n], line) else None
-    keys = groups if groups is not None else list(range(len(items)))
-    out = [""] * len(items)
-    for key in dict.fromkeys(keys):
-        idx = [n for n, k in enumerate(keys) if k == key]
-        lines = [(n, got[n]) for n in idx if got[n] is not None]
-        if got[idx[0]] is None:
-            continue
-        line = "\n".join(x for _, x in lines)
-        if _each([referee], lambda c, m: grounded(c, m, *items[idx[0]], line), False, on_error)[0]:
-            for n, x in lines:
-                out[n] = x
-    return out
+    """取込で文を作る（お知らせの文 decide_announces・言い換えた質問 decide_rewords・選択肢を並べた質問 decide_alternatives・営業の要約 decide_summaries）：決め方は
+    _decide_each の1か所（中身の判定 grounded を通ったときだけ使う・考える Sonnet が無ければ空・groups の組で中身の判定をまとめる）。"""
+    return _decide_each(askers, items, by_model, decide, fits, on_error, referee, grounded=grounded, groups=groups)
 
 
 def decide_announces(askers: list[Asker], pairs: list[tuple[str, str]], on_error: Callable | None = None, referee: Asker | None = None) -> list[str]:

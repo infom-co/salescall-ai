@@ -106,9 +106,21 @@ def question_line_fits(text: str, line: str | None, leads: tuple) -> bool:
     from announces import keeps_facts
     from phrases import head_word
 
+    from announces import spoken
+
     if not line or line == text or not line.endswith("？") or line.count("？") != 1 or any(m in line for m in ("?", "。", "、", "，")):
         return False
-    return not (line.startswith(leads) or head_word(line)) and keeps_facts(text, line)
+    # かっこを含まない（声で言う文＝announces.spoken の1か所。⛔ ba505007 まで、言い換え・並べた文はかっこの入った答えも通した＝見直し (13) の C7）
+    return not (line.startswith(leads) or head_word(line)) and keeps_facts(text, line) and spoken(line)
+
+
+def spoken_noun_fits(noun: str | None, sources: tuple = (), around: tuple = ()) -> bool:
+    """声で言う名詞・句の形の唯一の確かめ（お知らせの中身の句 announces.clause_fits・営業の要約 summaries.fits・その後の文の中身 since.fits）：名詞の形（noun_fits の
+    1か所）・常体（丁寧な言い方の文の終わり announces.POLITE_ENDS で終わらない）・かっこを含まない（announces.spoken の1か所）。⛔ ba505007 まで、句と要約が同じ式を
+    別々に書き、その後の中身は常体とかっこを見なかった（見直し (13) の C7）"""
+    from announces import POLITE_ENDS, spoken
+
+    return noun_fits(noun, sources, around) and not noun.endswith(POLITE_ENDS) and spoken(noun)
 
 
 def noun_fits(noun: str | None, sources: tuple = (), around: tuple = ()) -> bool:

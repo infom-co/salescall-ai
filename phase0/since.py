@@ -39,15 +39,19 @@ def by_model(client, model: str, texts: list[str], think: bool = False) -> list[
     return [got[n].strip() if isinstance(got.get(n), str) else None for n in range(1, len(texts) + 1)]
 
 
-def fits(words: str | None) -> bool:
-    """その後の文（phrases.since_ask）の中身に入れられる言葉か（形の決まりの唯一の場所）：空でない・問いや文の終わりを含まない・頭の「その後」や終わりの「か」を
-    重ねない。"""
-    from askitems import noun_fits
+def fits(text: str, words: str | None) -> bool:
+    """質問の文 text のその後の文（phrases.since_ask）の中身に入れられる言葉か（形の決まりの唯一の場所。考える Sonnet の答えも同じ＝import_ai.decide_since）：
+    声で言う名詞の形（空でない・問いや文の終わりを含まない・常体・かっこを含まない＝askitems.spoken_noun_fits の1か所）・頭の「その後」や終わりの「か」を重ねない・
+    質問の文から作った言葉（出どころに無い言葉・数と期限の言葉を足さない・落とさない＝announces.from_source の1か所。お知らせの句と同じ）。⛔ ba505007 まで、質問の
+    文を受け取らず、出どころ・数と期限を見なかった（見直し (13) の C6）"""
+    from announces import from_source
+    from askitems import spoken_noun_fits
 
-    return noun_fits(words, around=("お決まりになり", "お分かりになり")) and not words.startswith(SINCE_HEAD) and not words.endswith("か")
+    return (spoken_noun_fits(words, around=("お決まりになり", "お分かりになり")) and not words.startswith(SINCE_HEAD) and not words.endswith("か")
+            and from_source(text, words))
 
 
-def decide(model_words: list[str | None]) -> str | None:
+def decide(text: str, model_words: list[str | None]) -> str | None:
     """2つの文字のAIの答えから決める（取込のとき）：そろって形に合えばその言葉・そろって空なら空（入れる質問ではない）・ほかは None（考える Sonnet に聞く＝
     import_ai.decide_since）。"""
     from askitems import agreed
@@ -55,4 +59,4 @@ def decide(model_words: list[str | None]) -> str | None:
     got = agreed(model_words, None)
     if got is None:
         return None
-    return got if got == "" or fits(got) else None
+    return got if got == "" or fits(text, got) else None

@@ -525,6 +525,20 @@ PROMPTED_NOTE = (f"（{PROMPTED}は、お客様が黙っていたので、こち
                  f"「大丈夫です」「特にないです」など＝気になる点は無いということ）で、質問への答えをはっきり言っていなければ「{UNDECIDED}」を選び、"
                  f"{PROMPT_REPLY_HEADING}（{PROMPT_REPLY}）は「{PROMPT_REPLY_YES}」を選びます。質問への答えをはっきり言っていれば、その答えを選びます。"
                  f"気になる点・ご事情などのお話をしたときは、声かけへのお返事だけではありません）")
+# 質問のあとにこちらが言った一言が、お客様に尋ねられたことへの答え・お客様のお話への受け答え（flowctl.Flow._turn_done＝お返事を待つ間）のときの読み方。お返事だけかを
+# 読む項目は同じ（PROMPT_REPLY）。✅ 見直し (13) の C2（決まりで決める＝11-13 20時06分19秒「「あ、はい、分かりました。」は…答えてる可能性があるので、気をつけないと
+# いけないよ。」と同じ理由）
+REPLIED_NOTE = (f"（{PROMPTED}は、お客様に尋ねられたことへの答えか、お客様のお話への受け答えとして、こちらが言った言葉です。お客様の言葉が、その言葉へのお返事だけ"
+                f"（「はい」「分かりました」「なるほど」「そうなんですね」など＝こちらの言葉を聞いたということ）で、質問への答えをはっきり言っていなければ「{UNDECIDED}」を"
+                f"選び、{PROMPT_REPLY_HEADING}（{PROMPT_REPLY}）は「{PROMPT_REPLY_YES}」を選びます。質問への答えをはっきり言っていれば、その答えを選びます。"
+                f"気になる点・ご事情などのお話をしたときは、お返事だけではありません）")
+
+
+def prompted_note(line: str) -> str:
+    """質問のあとにこちらが言った一言（Question.prompted）の読み方の注意書きを選ぶ唯一の場所（prompt_parts）：黙ったあとの一言（flowctl.QUIET_LINES）なら声かけの
+    読み方（PROMPTED_NOTE）、ほかは尋ねられた答え・受け答えの読み方（REPLIED_NOTE）。"""
+    from flowctl import QUIET_LINES
+    return PROMPTED_NOTE if line in QUIET_LINES else REPLIED_NOTE
 
 
 def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:
@@ -546,7 +560,7 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
     （Question.named）は、選べるもの（意味の定義＝長くて毎回同じ）を、その前に相手が言ったことより先に置く（定義もまとめて送れる）。
     ⛔ 2026-10-29：お客様の選択肢の言葉の質問で選べるものを先に置くと、言い直しへの返事の読みが悪くなった（G-53。上の PROMPT の注意）。
        目的のお客様の判定（G-59）は、選べるものを先に置いた形で 139 → 144/147"""
-    said = (f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else "") + (f"{PROMPTED}：「{q.prompted}」\n{PROMPTED_NOTE}\n" if getattr(q, "prompted", "") else "")
+    said = (f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else "") + (f"{PROMPTED}：「{q.prompted}」\n{prompted_note(q.prompted)}\n" if getattr(q, "prompted", "") else "")
     before = f"{BEFORE}：「{before}」\n" if before else f"{BEFORE}：{NO_BEFORE}\n" if q.facets else ""
     if q.facets:   # 項目ごとに答える質問：決まり・質問（はじめにお呼びした言葉）・項目は毎回同じ（まとめて送る前の部分）
         # ⛔ 2026-10-30 G-59（3つの段の形の1回目）：考える Haiku は、後任の方の「はい、そうです。」の事情を「在籍していない」と読んだ（この行の、
