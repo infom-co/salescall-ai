@@ -6460,7 +6460,7 @@ class SinceAskTest(unittest.TestCase):
         finally:
             mj.SPEND = old
         # 形の決まりは1か所（since.fits）：空・「？」・「その後」で始まる・「か」で終わる・文の終わりを含む言葉は使わない
-        self.assertEqual([since.fits(w) for w in ("ご予算はおいくらほど", "", "ご予算は？", "その後ご予算は", "ご予算はおいくらほどか", "ご予算はお決まりになりました")],
+        self.assertEqual([since.fits("ご予算はおいくらほどでしょうか？", w) for w in ("ご予算はおいくらほど", "", "ご予算は？", "その後ご予算は", "ご予算はおいくらほどか", "ご予算はお決まりになりました")],
                          [True, False, False, False, False, False])
 
     def test_fact_questions_ask_since_with_understood(self):
@@ -29073,8 +29073,8 @@ class ImportFormsReviewTest(unittest.TestCase):
         self.assertTrue(purposes.fits(line, "ご予約の確認"))
         for bad in ("ご予約の確認でお電話いたしました。", "ご予約の確認でお電話いたしました"):
             self.assertFalse(purposes.fits(line, bad), bad)
-        self.assertTrue(since.fits("ご予算はおいくらほど"))
-        self.assertFalse(since.fits("ご予算は、おいくらほど"))
+        self.assertTrue(since.fits("ご予算はおいくらほどでしょうか？", "ご予算はおいくらほど"))
+        self.assertFalse(since.fits("ご予算はおいくらほどでしょうか？", "ご予算は、おいくらほど"))
         intro = "ご予約の内容ですが、キャンセルや変更は前日までにご連絡いただければ料金はかかりません。それ以降になってしまいますとキャンセル料や変更料がかかってしまうのでお気を付けください"
         self.assertTrue(announces.matter_fits(intro, "ご承認いただけますでしょうか？", "キャンセル"))
         self.assertFalse(announces.matter_fits(intro, "ご承認いただけますでしょうか？", "ご予約の内容ですが、キャンセル"))
@@ -32786,6 +32786,51 @@ class Review13CTest(unittest.TestCase):
             r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"}) if report else f.judged_turn(voiced=False)
             self.assertNotEqual(f.items["Q2"].state, "accepted", (report, r))
             self.assertEqual((f.awaiting_confirm, r["play"][-1]["text"]), ("Q2", ANNOUNCE_RECHECK), (report, r))
+
+    def test_c6_the_since_words_come_from_the_question(self):
+        # (C6) その後の文の中身（since）も、質問の文・お知らせの句と同じ出どころの確かめ（出どころに無い言葉・数と期限の言葉を足さない・落とさない＝announces.from_source の
+        # 1か所を両向きに）。⛔ ba505007 まで、since.fits は質問の文を受け取らず、考える Sonnet の「来月のご予算は10万円ほど」も通した
+        import import_ai
+        import since
+        text = "ご予算はおいくらほどでしょうか？"
+        self.assertTrue(since.fits(text, "ご予算はおいくらほど"))
+        for bad in ("来月のご予算は10万円ほど", "ご予算は月額おいくらほど"):
+            self.assertFalse(since.fits(text, bad), bad)
+        self.assertFalse(since.fits("10万円以上のご予算はおいくらほどでしょうか？", "ご予算はおいくらほど"))   # 数を落とした
+        self.assertTrue(since.fits("10万円以上のご予算はおいくらほどでしょうか？", "10万円以上のご予算はおいくらほど"))
+        self.assertEqual(since.decide(text, ["来月のご予算は10万円ほど"] * 2), None)
+
+        def asker(words):
+            return lambda prompt, schema, tool, think=False: [{"no": 1, "words": words}]
+        with unittest.mock.patch("since.by_model", lambda client, model, texts, think=False: [client] * len(texts)):
+            got = import_ai.decide_since([("ご予算は", "m1"), ("ご予算はおいくら", "m2")], [text], referee=("来月のご予算は10万円ほど", "s"))
+        self.assertEqual(got[text], "")
+
+    def test_c7_one_check_for_spoken_nouns_and_brackets_everywhere(self):
+        # (C7) 声で言う名詞・句の形（名詞の形・常体・かっこを含まない）は1か所（askitems.spoken_noun_fits＝句 clause_fits・要約 summaries.fits・その後 since.fits）。
+        # かっこを含まない（announces.spoken）は、問いの文（言い換え・並べた文＝askitems.question_line_fits）と聞くこと（topics.fits）にも当てる（どれも声で言う）。
+        # ⛔ ba505007 まで、句と要約が同じ式を別々に書き、言い換え・並べた文・その後・聞くことは、かっこの入った答えも通した
+        from unittest import mock
+        import alternatives
+        import announces
+        import rewords
+        import since
+        import summaries
+        import topics
+        t = AsideTest
+        intro, ask = AnnounceTest.EXPL, AnnounceTest.ASK
+        with mock.patch("askitems.spoken_noun_fits", lambda *a, **k: False):
+            self.assertFalse(announces.clause_fits(intro, ask, "当日のキャンセルは前日までに連絡が要る"))
+            self.assertFalse(summaries.fits("ご予約の確認", ("ご予約はされていますでしょうか？",), "ご予約の確認"))
+            self.assertFalse(since.fits("ご予算はおいくらほどでしょうか？", "ご予算はおいくらほど"))
+        self.assertTrue(announces.clause_fits(intro, ask, "当日のキャンセルは前日までに連絡が要る"))
+        self.assertTrue(summaries.fits("ご予約の確認", ("ご予約はされていますでしょうか？",), "ご予約の確認"))
+        self.assertFalse(rewords.fits(t.PAY, ("カード", "振込"), "choice", "お支払いの方（ご利用料金）はカードと振込のどちらにされますか？"))
+        self.assertTrue(rewords.fits(t.PAY, ("カード", "振込"), "choice", t.PAY2))
+        self.assertFalse(alternatives.fits(t.PAY, ("カード", "振込"), "choice", "カード（一括）になさいますかそれとも振込の方がよろしいでしょうか？"))
+        self.assertFalse(since.fits("ご予算はおいくらほどでしょうか？", "ご予算（税込）はおいくらほど"))
+        self.assertFalse(topics.fits("ご連絡の方法を教えてください。", "ご連絡の方法（電話）"))
+        self.assertTrue(topics.fits("ご連絡の方法を教えてください。", "ご連絡の方法"))
 
 
 if __name__ == "__main__":

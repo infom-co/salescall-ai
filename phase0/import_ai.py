@@ -240,7 +240,7 @@ def decide_since(askers: list[Asker], texts: list[str], on_error: Callable | Non
     """業務の質問の文の並び（CL-2 がかけ直す「わからない」の質問＝flowctl.Question.unknown_called_back の質問だけを渡すのは呼ぶ側）→ 文ごとの、その後の文
     「その後（中身）かお決まりになりましたでしょうか？」の中身の言葉（答えは flowctl.Question.since）。決め方は since.decide と _settled の1か所（そろわない文は
     考える Sonnet・形に合わなければ空＝今の形で伺い直す）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い6は…」"""
-    return _settled(askers, texts, since.by_model, lambda t, words: since.decide(words), lambda t, w: since.fits(w), on_error, referee)
+    return _settled(askers, texts, since.by_model, since.decide, since.fits, on_error, referee)
 
 
 def _drafted(askers: list[Asker], items: list[tuple], by_model: Callable, decide: Callable, fits: Callable, grounded: Callable,
