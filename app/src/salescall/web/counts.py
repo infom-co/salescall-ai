@@ -64,3 +64,34 @@ def client_today(tx: Tx, business_id: UUID | None = None) -> dict[str, int]:
         " LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id WHERE true" + only + " GROUP BY 1", extra)}
     return {"dialed_today": dialed, "call": kinds.get("call", 0), "hold": kinds.get("hold", 0),
             "end": kinds.get("end", 0), "none": kinds.get("none", 0)}
+
+
+# ── 業務の成果（計画書 5-2 の「業務成果」と「門で止めた件数（理由別）」。docs/DASHBOARD.md 5-7・5-8）──────────────────
+# 確定していない結果の見分け（1か所）：受け箱の「結果の確かめ」と、ここで数える所が同じ式を使う。中の決め方はデータベースの関数
+# （version_in_verification・release_blocked）と、確定の印 result_releases（core の approval._release だけが書く）。
+UNRELEASED = ("NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = l.task_id AND x.version_no = l.version_no)")
+AWAITING_CHECK = ("l.kind::text <> 'human' AND l.business_state::text <> 'unknown'"
+                  " AND salescall.version_in_verification(l.task_id, l.version_no) AND " + UNRELEASED +
+                  " AND NOT salescall.release_blocked(l.task_id, l.version_no)")
+_BLOCKED = UNRELEASED + " AND l.business_state::text <> 'unknown' AND salescall.release_blocked(l.task_id, l.version_no)"
+_UNKNOWN = UNRELEASED + " AND l.business_state::text = 'unknown'"
+_IN_BUSINESS = "(%s::uuid IS NULL OR t.run_id IN (SELECT run_id FROM salescall.runs WHERE business_id = %s))"
+
+
+def business_figures(tx: Tx, business_id: UUID | None = None) -> dict[str, Any]:
+    """依頼者の取引で、業務（None なら依頼者のすべての業務）の成果の数。数えるだけ（決め直さない）：
+    - results：行ごとの最新の結果の状態 → 行の数（結果の無い行は open＝まだ結果なし。正本は latest_task_results）。
+    - unconfirmed：確定していない結果を3つに分けた数（確かめ待ち＝検証モードで契約者の確かめを待つ・決定待ち＝取り消せない決定や
+      あとの通話を待つ・判定できない）。3つは重ならない。
+    - denied_today：今日（日本時間）門が止め始めた行の数（理由ごと。門は理由が変わったときだけ記録する＝その日に新しく止めた数）。"""
+    b = (business_id, business_id)
+    results = {r["state"]: r["n"] for r in tx.all(
+        "SELECT coalesce(l.business_state::text, 'open') AS state, count(*) AS n FROM salescall.tasks t"
+        " LEFT JOIN salescall.latest_task_results l ON l.task_id = t.task_id WHERE " + _IN_BUSINESS + " GROUP BY 1", b)}
+    u = tx.one("SELECT count(*) FILTER (WHERE " + AWAITING_CHECK + ") AS awaiting_check,"
+               " count(*) FILTER (WHERE " + _BLOCKED + ") AS blocked, count(*) FILTER (WHERE " + _UNKNOWN + ") AS unknown"
+               " FROM salescall.latest_task_results l JOIN salescall.tasks t ON t.task_id = l.task_id WHERE " + _IN_BUSINESS, b)
+    denied = tx.all("SELECT d.reason, count(DISTINCT d.task_id) AS n FROM salescall.gate_denials d JOIN salescall.tasks t ON t.task_id = d.task_id"
+                    " WHERE " + _IN_BUSINESS + " AND salescall.jst(d.denied_at)::date = %s GROUP BY 1 ORDER BY 2 DESC, 1", (*b, tx.today()))
+    return {"results": results, "unconfirmed": dict(u), "denied_today": [(r["reason"], r["n"]) for r in denied]}
+

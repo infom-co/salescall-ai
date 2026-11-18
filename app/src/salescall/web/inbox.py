@@ -21,7 +21,7 @@ from salescall.core import (approval, apology, calling_hours, client_solutions, 
                             tasks, usage)
 from salescall.core.access import Tx
 from salescall.output import words
-from salescall.web import links
+from salescall.web import counts, links
 
 
 @dataclass(frozen=True)
@@ -246,10 +246,7 @@ def _result_checks(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     items = []
     for r in tx.all(
             "SELECT l.task_id, l.version_no, l.business_state::text AS state, l.decided_at FROM salescall.latest_task_results l"
-            " WHERE l.kind::text <> 'human' AND l.business_state::text <> 'unknown'"
-            "   AND salescall.version_in_verification(l.task_id, l.version_no)"
-            "   AND NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = l.task_id AND x.version_no = l.version_no)"
-            "   AND NOT salescall.release_blocked(l.task_id, l.version_no) AND (%s::uuid IS NULL OR l.task_id = %s::uuid)"
+            " WHERE " + counts.AWAITING_CHECK + " AND (%s::uuid IS NULL OR l.task_id = %s::uuid)"   # 確かめ待ちの式は counts の1か所
             " ORDER BY l.decided_at, l.task_id", (task, task)):
         biz = _business_of(tx, r["task_id"])
         items.append(Item(

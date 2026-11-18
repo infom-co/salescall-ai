@@ -41,6 +41,38 @@
   <span class="go">承認待ちを開く →</span>
 </a>
 {% endif %}
+{# 業務の成果（計画書 5-2）。数えるのは web/counts.business_figures の1か所・言葉は output/words の1か所。画面は数を並べるだけ #}
+{% set f = figures %}
+{% set unconfirmed = f.unconfirmed.awaiting_check + f.unconfirmed.blocked + f.unconfirmed.unknown %}
+<section class="grid cols-2 outcome" style="margin-top:16px">
+  <div class="card">
+    <h2>結果別の行の数</h2>
+    {% set total = f.results.values()|sum %}
+    {% if total %}
+    <ul class="bars">
+      {% for k, w in words.BUSINESS_STATES.items() if f.results.get(k) %}
+      <li class="{{ 'warn' if k == 'unknown' }}"><span class="name">{{ w.screen }}</span>
+        <span class="bar" aria-hidden="true"><span style="width: {{ (f.results[k] * 100 / total)|round(1) }}%"></span></span>
+        <span class="num">{{ f.results[k] }}</span></li>
+      {% endfor %}
+    </ul>
+    <p class="muted">合わせて {{ total }} 行。結果は、行ごとの最新の結果です（確定していないものも入ります）。</p>
+    {% else %}{{ empty("まだ行がありません", "お客様リストを取り込むと、ここに結果ごとの数が出ます。") }}{% endif %}
+  </div>
+  <div class="card {{ 'attention-wait' if unconfirmed }}">
+    <h2>確定していない結果</h2>
+    <div class="mini-stats">
+      <a class="mini {{ 'wait' if f.unconfirmed.awaiting_check }}" href="/t/inbox?kind=result_check&client={{ client.client_id }}">
+        <b class="num">{{ f.unconfirmed.awaiting_check }}</b><span>確かめ待ち</span><small>承認待ちで確かめる</small></a>
+      <div class="mini"><b class="num">{{ f.unconfirmed.blocked }}</b><span>決定待ち</span><small>取り消せない決定・あとの電話を待つ</small></div>
+      <div class="mini {{ 'wait' if f.unconfirmed.unknown }}"><b class="num">{{ f.unconfirmed.unknown }}</b><span>判定できない</span><small>判定し直すまで渡さない</small></div>
+    </div>
+    <h3 style="margin-top:14px">今日、門で止め始めた行（理由別）</h3>
+    {% if f.denied_today %}
+    <ul class="reasons">{% for r, n in f.denied_today %}<li><span>{{ words.gate_reason(r) }}</span><b class="num">{{ n }}</b></li>{% endfor %}</ul>
+    {% else %}<p class="muted">今日、新しく止めた行はありません。</p>{% endif %}
+  </div>
+</section>
 {% if business %}
 <section class="card mode-card" style="margin-top:16px">
   <div class="title-row"><h2 style="margin:0">{{ "検証モード" if verification else "フルオート" }}</h2>

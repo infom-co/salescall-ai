@@ -134,6 +134,11 @@ def _retry_key_words() -> dict[str, str]:
     return {key: label for label, key in business_import.LABELS["retry_key"].items()}
 
 
+def gate_reason(name: str) -> str:
+    """門が止めた理由の言葉（正本は core の gate.REASONS。無い名前は NO_WORD＝試験が見つける）。"""
+    return gate.REASONS[name].message if name in gate.REASONS else NO_WORD
+
+
 def end_reason(name: str | None) -> str:
     """終わりの理由（次の予定の end_reason）を管理者・契約者に見せる言葉（画面だけ。依頼者へは出さない＝処理の列は「済み」だけ）。"""
     if not name:

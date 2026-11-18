@@ -357,3 +357,27 @@ td.to-fill { background: var(--stop-soft); color: var(--stop); font-weight: 700;
 .calm-list details:last-child { border-bottom: 0; }
 .calm-list summary { cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .calm-list p { margin: 6px 0 0 4px; }
+
+/* 業務の成果：結果別の横棒（数は必ず文字で添える。色だけで区別しない）・門の理由の一覧 */
+ul.bars { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
+ul.bars li { display: grid; grid-template-columns: minmax(8em, 14em) 1fr 3.5em; align-items: center; gap: 10px; }
+ul.bars .bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+ul.bars .bar > span { display: block; height: 100%; border-radius: 999px; background: var(--primary); }
+ul.bars li.warn .bar > span { background: var(--wait); }
+ul.bars .num { text-align: right; font-weight: 700; }
+ul.reasons { list-style: none; margin: 0; padding: 0; }
+ul.reasons li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+ul.reasons li:last-child { border-bottom: 0; }
+.outcome h2 { display: flex; align-items: baseline; gap: 8px; }
+@media (max-width: 600px) { ul.bars li { grid-template-columns: 1fr 3em; } ul.bars .bar { grid-column: 1 / -1; grid-row: 2; } }
+.mini-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mini-stats .mini { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+                    background: var(--surface-2); color: inherit; text-decoration: none; }
+.mini-stats .mini b { font-size: 22px; line-height: 1.2; }
+.mini-stats .mini span { font-weight: 700; }
+.mini-stats .mini small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.mini-stats .mini.wait { border-color: color-mix(in srgb, var(--wait) 45%, transparent); background: var(--wait-soft); }
+.mini-stats .mini.wait b { color: var(--wait); }
+a.mini:hover { border-color: var(--primary); }
+.mini-stats .mini span { word-break: keep-all; }   /* 「判定できない」などの名前を途中で折らない */
+@media (max-width: 600px) { .mini-stats { gap: 6px; } .mini-stats .mini { padding: 8px; } .mini-stats .mini span { font-size: 13px; } }

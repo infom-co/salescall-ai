@@ -953,7 +953,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return {"client": c, "business": b, "businesses": context.businesses(tx),
                         "today": counts.client_today(tx, business_id), "runs": runs, "versions": versions, "needs": needs,
                         "verification": verification, "stages": stages,
-                        "deficit": usage.deficit_notice(tx)}   # 赤字か＝core の1か所の答え（依頼者全体のもの。業務のタブにも出す）
+                        "deficit": usage.deficit_notice(tx),   # 赤字か＝core の1か所の答え（依頼者全体のもの。業務のタブにも出す）
+                        "figures": counts.business_figures(tx, business_id)}   # 業務の成果（数えるのは counts の1か所）
             values = ctx.client(client_id, read, read_only=True)
             return page(request, "client.html", person, ctx, waiting=_waiting(ctx, client_id, business_id), done=done, ok=bool(ok),
                         stopped=counts.stops_for(counts.open_stops(ctx), client_id, business_id), **values)

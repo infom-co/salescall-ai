@@ -203,6 +203,8 @@ class VerificationMode(ApprovalHelpers):
         lines = http.get(csv_url).content.decode("utf-8-sig").strip().splitlines()
         self.assertEqual(len(lines), 1)                                          # 確かめ待ちの行は出さない（見出しだけ）
         self.assertIn("ok=0", self._post(http, csv_url, {}).headers["location"])  # 渡せる結果が無い＝渡さない
+        biz = http.get(f'/c/{s["client"]}/b/{s["business"]}').text                 # 業務のタブの数（counts.business_figures の1か所）
+        self.assertRegex(biz, r"<b class=\"num\">1</b><span>確かめ待ち</span>")   # 確かめ待ち＝受け箱の「結果の確かめ」と同じ式
         self.assertEqual(kept(), 0)
         self.assertIn("ok=1", self._post(http, f'/c/{s["client"]}/inbox/result_check/approve',
                                          {"task_id": str(s["task"]), "seq": "1"}).headers["location"])
@@ -210,6 +212,7 @@ class VerificationMode(ApprovalHelpers):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(r.content.decode("utf-8-sig").strip().splitlines()), 2)   # 確定した行が出る
         self.assertEqual(kept(), 1)
+        self.assertRegex(http.get(f"/c/{s['client']}/b/{s['business']}").text, r"<b class=\"num\">0</b><span>確かめ待ち</span>")   # 確かめたので0
         self.assertEqual(self._post(http, csv_url, {}).status_code, 200)          # 同じ中身をもう1回渡しても
         self.assertEqual(kept(), 1)                                               # 控えは重ねない
 
