@@ -21,7 +21,17 @@
     <h2>いまの状態</h2>
     <dl class="facts">
       <dt>次の予定</dt><dd>{{ next_tag(row.next_kind, row.next_call_at, row.next_end_reason) }}</dd>
-      <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}</dd>
+      <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}
+        {% if can_correct %}
+        <details class="adder"><summary class="btn small">結果を直す</summary>
+          <form class="panel" method="post" action="{{ base }}/rows/{{ row.task_id }}/result" data-needs-reason>{{ csrf(token) }}
+            <input type="hidden" name="version" value="{{ latest.version_no }}">
+            <label class="field">正しい結果</label>
+            <select name="state">{% for k, w in words.BUSINESS_STATES.items() if k != "unknown" %}<option value="{{ k }}" {% if k == latest.business_state %}selected{% endif %}>{{ w.screen }}</option>{% endfor %}</select>
+            <label class="field">理由（記録に残ります）</label><input type="text" name="reason" placeholder="例：録音では、はっきりお断りされていた">
+            <p class="muted">直した結果で確定し、次の予定も直しに従います（例：「お断り」に直すと、もうおかけしません）。</p>
+            <button class="btn main small" type="submit" data-submit disabled>直す</button></form></details>
+        {% endif %}</dd>
       <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
       <dt>印</dt><dd>{{ tag(words.exclusion_level(level), "stop" if level == "force" else ("" if level != "call" else "ok")) }}</dd>
     </dl>

@@ -44,6 +44,7 @@ class Item:
     waiting_why: str = ""         # ボタンを出さない理由（まだ AI が確かめている など）
     business_id: UUID | None = None   # どの業務のものか（業務のタブで絞る。依頼者全体のもの＝赤字の確認などは None）
     business_name: str = ""          # 業務の名前（取り消せない操作は、どの業務のものかを名前つきで見せる＝Intent.md 5-1）
+    link: str = ""                   # 決める前に見る画面（例：お客様リスト・お客様の行）
 
 
 @dataclass(frozen=True)
@@ -166,6 +167,74 @@ def _old_promises(tx: Tx) -> list[Item]:
     return items
 
 
+def _client(tx: Tx) -> Any:
+    """取引の依頼者（決める前に見る画面の住所に使う）。"""
+    return tx.one("SELECT salescall.cur_client() AS c")["c"]
+
+
+def _refused(do: Callable[[Tx, dict[str, str]], Any]) -> Callable[[Tx, dict[str, str]], Any]:
+    """core が ValueError（理由の文つき）で断る部品を、画面の断りにして返す（承認の部分の「確定できない版」など）。"""
+    def run(tx: Tx, k: dict[str, str]) -> Any:
+        try:
+            return do(tx, k)
+        except ValueError as e:
+            from salescall.web.actions import Refused
+            raise Refused(str(e)) from None
+    return run
+
+
+def _task_approvals(tx: Tx) -> list[Item]:
+    """検証モードの業務で、発信の前の契約者の承認を待っている行（実施回ごとに1件にまとめる。待っているか＝core の approval.uncleared の1か所
+    が awaiting_approval と答える行）。行が多いので、行を見てから、その実施回の待っている行をまとめて承認する。"""
+    items = []
+    for run in tx.all("SELECT r.run_id, r.name, r.business_id, b.name AS business FROM salescall.runs r"
+                      " JOIN salescall.businesses b ON b.business_id = r.business_id ORDER BY r.created_at, r.run_id"):
+        waiting = [t["task_id"] for t in tx.all("SELECT task_id FROM salescall.tasks WHERE run_id = %s ORDER BY source_row NULLS LAST, task_id",
+                                               (run["run_id"],)) if approval.uncleared(tx, t["task_id"]) == "awaiting_approval"]
+        if waiting:
+            items.append(Item(
+                kind="task_approval", key={"run_id": str(run["run_id"])}, title="発信前の行の承認（検証モード）",
+                decide=f"実施回「{run['name']}」の {len(waiting)} 行に、お電話してよいか",
+                evidence=[("待っている行", f"{len(waiting)} 行"), ("行を見る", "お客様リストで、会社名・お呼びする方・番号を確かめてください")],
+                if_not="承認するまで、この行にはおかけしません（検証モードの業務）。", business_id=run["business_id"],
+                link=f"/c/{_client(tx)}/b/{run['business_id']}/runs/{run['run_id']}",
+                business_name=run["business"], buttons=(Button("approve_all", f"{len(waiting)} 行すべて承認する", main=True),)))
+    return items
+
+
+def _approve_waiting_rows(tx: Tx, run_id: UUID) -> int:
+    """その実施回の、承認を待っている行をすべて承認する（core の approval.approve_task だけ。待っているかは同じ1か所の答え）。"""
+    n = 0
+    for t in tx.all("SELECT task_id FROM salescall.tasks WHERE run_id = %s", (run_id,)):
+        if approval.uncleared(tx, t["task_id"]) == "awaiting_approval":
+            approval.approve_task(tx, t["task_id"])
+            n += 1
+    if n == 0:
+        raise LookupError("承認を待っている行はありません")
+    return n
+
+
+def _result_checks(tx: Tx) -> list[Item]:
+    """検証モードでかけた通話の結果で、契約者の確かめを待っているもの（システムが判定した最新の版・確定の印が無い・判定できないでない・
+    確定できる版。確定できるかは core の approval._blocked と同じデータベースの1か所 salescall.release_blocked）。"""
+    items = []
+    for r in tx.all(
+            "SELECT l.task_id, l.version_no, l.business_state::text AS state, l.decided_at FROM salescall.latest_task_results l"
+            " WHERE l.kind::text <> 'human' AND l.business_state::text <> 'unknown'"
+            "   AND salescall.version_in_verification(l.task_id, l.version_no)"
+            "   AND NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = l.task_id AND x.version_no = l.version_no)"
+            "   AND NOT salescall.release_blocked(l.task_id, l.version_no) ORDER BY l.decided_at, l.task_id"):
+        biz = _business_of(tx, r["task_id"])
+        run = tx.one("SELECT run_id FROM salescall.tasks WHERE task_id = %s", (r["task_id"],))["run_id"]
+        items.append(Item(
+            kind="result_check", link=f"/c/{_client(tx)}/b/{biz['business_id']}/runs/{run}/rows/{r['task_id']}", key={"task_id": str(r["task_id"]), "seq": str(r["version_no"])}, title="結果の確かめ（検証モード）",
+            decide="この結果でよいか（違えば、お客様の行の画面で直す）",
+            evidence=_row(tx, r["task_id"]) + [("システムの読み", words.word(words.BUSINESS_STATES, r["state"]).screen)],
+            if_not="確かめるまで、この結果は依頼者へ渡しません。", at=r["decided_at"],
+            buttons=(Button("approve", "この結果でよい", main=True),), **biz))
+    return items
+
+
 def _corrections(tx: Tx) -> list[Item]:
     """契約者の直しで電話をかけることになり、「かけてよい」の確かめを待っている行（確かめ待ちか＝データベースの1か所
     task_correction_unconfirmed。✅ 2026-11-18 管理者：伺い2「本当に折り返してよいのか確認と承認をもらう。承認なく勝手にかけたらクレームになる
@@ -235,6 +304,12 @@ KINDS: dict[str, Kind] = {
     "old_promise": Kind("前の担当の方との約束", _old_promises, {
         "keep": (lambda tx, k: row_fixes.choose_old_promise(tx, UUID(k["task_id"]), keep_old_promise=True), "前の担当の方とのお約束を守ります。"),
         "new_person": (lambda tx, k: row_fixes.choose_old_promise(tx, UUID(k["task_id"]), keep_old_promise=False), "新しい担当の方へおかけします。"),
+    }),
+    "task_approval": Kind("発信前の行の承認（検証モード）", _task_approvals, {
+        "approve_all": (lambda tx, k: _approve_waiting_rows(tx, UUID(k["run_id"])), "承認しました。この実施回の行におかけします。"),
+    }),
+    "result_check": Kind("結果の確かめ（検証モード）", _result_checks, {
+        "approve": (_refused(lambda tx, k: approval.approve_result(tx, UUID(k["task_id"]), int(k["seq"]))), "この結果で確定しました。"),
     }),
     "correction": Kind("直しでかける電話の確かめ", _corrections, {
         "confirm": (lambda tx, k: approval.confirm_correction_call(tx, UUID(k["task_id"])), "確かめました。直した内容でお電話します。"),

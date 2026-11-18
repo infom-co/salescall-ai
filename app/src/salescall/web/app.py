@@ -27,7 +27,8 @@ from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
 from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, exclusions, health, health_rules,
-                            import_files, importer, phone, recordings, registry, reward, settings, stops, usage)
+                            import_files, importer, measure, phone, recordings, registry, results, reward, settings, stops, usage)
+from salescall.core import approval as approval_core
 from salescall.core.access import Access
 from salescall.output import files as result_files
 from salescall.output import notices, result_rows, words
@@ -954,7 +955,9 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                         step = {"question": q} if q else {"confirm": rowfix.summary(tx, task_id, draft)}
                     except actions.REFUSALS as e:
                         step = {"error": str(e)}
+                latest = results.latest(tx, task_id)
                 return {"level": exclusions.level(tx, task_id),
+                        "latest": latest, "can_correct": latest is not None and latest["kind"] in measure.SYSTEM_KINDS,
                         "correction": tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (task_id,))["v"],
                         "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
@@ -963,6 +966,29 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             values = ctx.client(client_id, read, read_only=True)
             return page(request, "row.html", person, ctx, draft=draft, level_names=exclusions.LEVEL_NAMES, fields=[(f, rowfix.field_name(f)) for f in rowfix.FIELDS],
                         name_fields=list(rowfix.NAME_FIELDS), kind_names=customer_contacts.KIND_NAMES, done=done, ok=bool(ok), **values)
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}/result")
+    async def row_result(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, task_id: UUID) -> HTMLResponse:
+        """契約者が、システムが判定した結果を直す（core の approval.correct_result だけ。直した版が確定し、行の次の動きも直しに従う。
+        直しで電話をかけることになれば、「かけてよい」の確かめ待ちになる）。理由は必ず（直した版の記録に残る）。"""
+        form = dict(await request.form())
+        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> int:
+                _row_in(tx, business_id, run_id, task_id)
+                state = str(form.get("state") or "")
+                if state not in words.BUSINESS_STATES or state == "unknown":
+                    raise actions.Refused("直す結果を選んでください")
+                try:
+                    return approval_core.correct_result(tx, task_id, checked_version=int(str(form.get("version") or "0")),
+                                                        business_state=state, wrong_items=[], complaint=False,
+                                                        snapshot={"理由": str(form.get("reason") or "").strip()})
+                except ValueError as e:   # 確定できない版・直しの形の誤り（core の理由の文）
+                    raise actions.Refused(str(e)) from None
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do),
+                              done="結果を直しました（直した結果で確定し、次の予定も直しに従います）。", reason_field="reason")
+            return _back(base, out)
         return handle(request, render)
 
     @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}")
