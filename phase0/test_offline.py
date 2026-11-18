@@ -35544,5 +35544,126 @@ class TroubleOfferAfterAskBackTest(unittest.TestCase):
             self.assertEqual((r["result"], f.current, f.trouble_offer_q), ("callee_asked", "Q2", "Q2"), unheard)
 
 
+class CallingRestTest(unittest.TestCase):
+    """お呼びする段の残り（CL-1 の頼み rv100/M）：
+    (1) ご事情を伺った一言（「（お名前）様は今お電話に出られないご状況ということでしょうか？」）を判定に見せたときは、判定の決まりの文を、伺った一言へのお返事を
+        読める形にする（判定に見せる一言の種類で決まりの文を選ぶ1か所）：頭は「お呼びする方のことを、質問の言葉で伺って」・「はい」「いいえ」で答えた言葉は、
+        伺ったとおりだと（そうではないと）いまの言葉で伝えたものとして読む。判断のモデル（Jev・d1）の問いにも同じ文。呼ぶ一言・確かめる一言の文は今のまま
+        （G-59 の測りの行の指紋が変わらない）
+    (2) お呼びする段で会話AIが「聞き取れない」と報告し、判定の読みが届かないときも、何も流さずに待つ返事に待つ上限（11-04 日本時間4時54分「会話の側の待つ所すべてに
+        上限」）。何と言うかは決まっていない（伺い＝rv100/M の ask_unheard.md）＝今のまま何も流さない。判定の読みが届いていれば、その読みで応じる（今のまま）
+    (3) 確かめへの返事を待っているかは、判定に見せる一言と同じ1か所から決める：確かめる一言のあとに聞かれたことへ答えて呼ぶ一言を流したら、そのあとのお返事は
+        呼ぶ一言へのお返事（受付の方の「岡田ですね。」には「はい、」のあと待つ・「はい。」に聞き返さない）。呼ぶ一言を使い切ったあとのお詫びのあとも今のまま
+    ⛔ 06661192 まで、(1) は呼ぶ一言だけを思い描いた文で、事情は「いまの言葉だけ」＝「はい、そうです。」を事情「言っていない」と読みうる（受付の方に黙る・確かめる・
+       繋ぐ）・(2) は報告を差し戻して無言が続いた・(3) は確かめへの返事を待つ印（confirm_open）が立ったままで、判定には呼ぶ一言を見せるのに、流れの制御は
+       確かめへの返事として扱った（「はい。」に聞き返し・「岡田ですね。」にお詫び）"""
+    business = staticmethod(CallingHeardQuestionTest.business)
+    opened = CallingHeardQuestionTest.opened
+    say = staticmethod(CallingHeardQuestionTest.say)
+    UNCLEAR = "申し訳ございませんが、お取り次ぎすることはできません。"
+    READ = "伺ったとおり"   # 伺った一言への「はい」の読み方の一文の芯
+
+    def test_1_the_rules_read_the_reply_to_the_asked_line(self):
+        import meaning_judge as mj
+        from flowctl import ABOUT, END_UNCLEAR
+        f = self.opened()
+        self.say(f, self.UNCLEAR, "同受xx", None, None, END_UNCLEAR)
+        f.on_callee(); f.on_heard("はい、そうです。")
+        q, _, before = f.judge_context()
+        self.assertEqual(q.text, CallingHeardQuestionTest.UNAVAILABLE)
+        fixed, _ = mj.prompt_parts(q, "はい、そうです。", None, before)
+        self.assertTrue(fixed.startswith("電話でお呼びする方のことを、質問の言葉で伺って、電話に出ている方が話しました。"), fixed[:60])
+        self.assertIn(self.READ, fixed)
+        # 判断のモデル（Jev・d1）には決まりの文を渡さない＝いまの言葉だけで読む項目の問いに、同じ一文
+        jev = mj.jev_request("Jev 1.14", q, "はい、そうです。", None, before)["questions"]
+        self.assertIn(self.READ, jev[ABOUT]["instructions"])
+        # 呼ぶ一言・確かめる一言・詳しい呼ぶ一言への言葉の文は今のまま（測りの行と同じ文＝指紋が変わらない）
+        for steps in ((), (("はい。", "同不xx"),), (("どちらの岡田でしょうか？", "同受xx", "尋ねている", ("replay_opening", {"part": "target"})),)):
+            g = self.opened()
+            for s in steps:
+                self.say(g, *s)
+            g.on_callee(); g.on_heard("はい。")
+            q2, _, before2 = g.judge_context()
+            fixed2, _ = mj.prompt_parts(q2, "はい。", None, before2)
+            self.assertTrue(fixed2.startswith("電話でお呼びする方を、質問の言葉でお呼びして、電話に出ている方が話しました。"), steps)
+            self.assertNotIn(self.READ, fixed2 + json.dumps(mj.jev_request("Jev 1.14", q2, "はい。", None, before2), ensure_ascii=False), steps)
+
+    def test_2_an_unheard_reply_without_readings_waits_with_the_limit(self):
+        from phrases import HOLD_TIMEOUT
+        for steps in ((), (("はい。", "同不xx"),)):   # 名乗りと呼ぶ一言のあと・確かめる一言のあと
+            f = self.opened()
+            for s in steps:
+                self.say(f, *s)
+            f.on_callee(); f.on_heard("（雑音）")
+            r = f.apply("report_unclear", {"question_id": "T1"})
+            # 何と言うかは決まっていない＝今のまま何も流さない。待つ上限だけ（返事を待つ上限の1か所 _silence_watch）
+            self.assertNotEqual(r["result"], "rejected", steps)
+            self.assertEqual((OtherCompanyClueSendWayTest.heard(r), r.get("hold_wait_s")), ("", f.hold_wait_s), steps)
+            end = f.on_hold_timeout()
+            self.assertIn(HOLD_TIMEOUT, OtherCompanyClueSendWayTest.heard(end), steps)
+            self.assertEqual((f.end_reason, f.not_reached), ("hold_timeout", "not_transferred"), steps)
+        # 判定の読みが届いていれば、その読みで応じる（取り次ぎを待つ＝「はい、」のあと待つ。今のまま）
+        from meaning_judge import Reading
+        from flowctl import HOLD
+        f = self.opened()
+        r = self.say(f, "（雑音まじりで）少々お待ちください。", Reading(HOLD), None, ("report_unclear", {"question_id": "T1"}))
+        self.assertEqual(r["result"], "hold")
+
+    def test_3_after_answering_with_the_call_the_reply_is_to_the_call(self):
+        from phrases import ACK
+        reconfirm = CallingHeardQuestionTest.business().replay_parts()["target_reconfirm"]
+        for text, code, want in (("岡田ですね。", "同受xx", "hold"), ("はい。", "同不xx", "call_target"),
+                                 ("はい、岡田です。", "同本xx", "connect"), ("岡田はただいま外出しております。", "同受x在", "away")):
+            f = self.opened()
+            self.say(f, "はい。", "同不xx")
+            self.assertTrue(f.confirm_open, text)   # 確かめる一言への返事を待っている
+            self.say(f, "失礼ですが、どちら様でしょうか？", "同不xx", "尋ねている", ("replay_opening", {"part": "intro"}))
+            # 名乗りと呼ぶ一言で答えた：判定に見せるのは呼ぶ一言（_calling_asked）＝確かめへの返事は、もう待っていない（同じ1か所）
+            self.assertFalse(f.confirm_open, text)
+            self.assertEqual(f._calling_asked().id, f.calling_question.id, text)
+            r = self.say(f, text, code, "尋ねていない")
+            said = OtherCompanyClueSendWayTest.heard(r)
+            self.assertNotIn(reconfirm, said, text)                      # 確かめへの聞き返しは流さない
+            if want == "hold":
+                self.assertEqual((r["result"], ACK.get(r.get("ack"))), ("hold", "はい、"), text)
+            elif want == "call_target":
+                # 確かめは1人1回・呼ぶ一言はこの方に2回使い切った（はじめと、名乗りのあと）＝何も流さずに待つ（本書 9-4 の (5) の ⏳ ア・イ・ウ に落ちる）。
+                # お詫びは確かめへの返事を受けたときだけ（呼ぶ一言への「はい。」にお詫びしない）
+                self.assertEqual((r["result"], said, r.get("hold_wait_s")), ("call_target", "", f.hold_wait_s), text)
+            elif want == "connect":
+                self.assertNotEqual(f.phase, "calling", text)
+            else:
+                self.assertTrue(f.facts.get("callback"), text)
+
+    def test_3_the_apology_after_the_calls_are_used_up_still_closes_the_confirmation(self):
+        # 確かめへの「いいえ」にお詫びだけを流した（呼ぶ一言は使い切った）あとのお言葉は、確かめへの返事ではない（今のまま＝聞き返さない・お詫びを重ねない）
+        f = self.opened()
+        self.say(f, "いいえ、私は山田と申します。", "同別xx")
+        self.say(f, "はい。", "同不xx")
+        self.assertTrue(f.confirm_open)
+        r = self.say(f, "いいえ、違います。", "同受xx")
+        self.assertEqual((r["result"], r.get("sorry")), ("call_target", True))
+        self.assertFalse(f.confirm_open)
+        self.assertEqual(f._calling_asked().id, f.calling_question.id)
+        r = self.say(f, "はい？", "同不xx")
+        self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r)), ("call_target", ""))
+        # 詳しい呼ぶ一言のあとに使い切った（何も流さない）ときも、判定に見せるのはその方が聞いた詳しい呼ぶ一言のまま（お呼びし直す返事が飛ばすのは確かめる一言だけ）
+        f = self.opened()
+        self.say(f, "どちらの岡田でしょうか？", "同受xx", "尋ねている", ("replay_opening", {"part": "target"}))
+        r = self.say(f, "どちらの岡田でしょうか？", "同受xx", "尋ねている", ("replay_opening", {"part": "target"}))
+        self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r)), ("call_target", ""))
+        f.on_callee(); f.on_heard("少々お待ちください。")
+        self.assertEqual(f.judge_context()[0].text, CallingHeardQuestionTest.FULL)
+
+    def test_2_an_unheard_report_after_a_reply_to_the_same_words_is_not_answered_twice(self):
+        # 同じ発話に、もう応じていた（会話AIの「目的の人」の報告に、判定の読みが届かず確かめた）あとの「聞き取れない」の報告：重ねて応じない（_calling_reported の again）
+        f = self.opened()
+        f.on_callee(); f.on_heard("（雑音）はい。")
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual(r["result"], "confirm_target")
+        r = f.apply("report_unclear", {"question_id": "T1"})
+        self.assertEqual((r["result"], r.get("again"), OtherCompanyClueSendWayTest.heard(r)), ("noted", True, ""))
+
+
 if __name__ == "__main__":
     unittest.main()
