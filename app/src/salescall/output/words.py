@@ -229,6 +229,13 @@ PRICE_UNITS: dict[str, tuple[int, str]] = {"input_tokens": (1_000_000, "入力 1
                                            "output_tokens": (1_000_000, "出力 100万トークンあたり"), "seconds": (60, "1分あたり")}
 
 
+# 品質の段の指標の名前（core の quality_stage.METRICS のすべてを書く。試験が突き合わせる）。契約者・管理者の画面だけ
+QUALITY_METRIC_WORDS: dict[str, str] = {
+    "unknown_judgments": "結果を判定できなかった電話（同じ原因の件数）", "forbidden_speech": "言ってはいけないことを言った",
+    "ear_disagreement": "聞き取りの食い違い（別の耳）", "complaint": "苦情・ご不満", "technical_error": "こちらの不具合で終えた電話",
+}
+
+
 def stop_scope(name: str) -> str:
     """停止の範囲の名前（正本は stops.SCOPE_NAMES）。"""
     return stops.SCOPE_NAMES.get(name, NO_WORD)

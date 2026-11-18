@@ -138,6 +138,9 @@ class VerificationMode(ApprovalHelpers):
         s = self.fresh(stage_cap=100)
         self.put_client(s, "approval.human", True)
         http = _http(s["tenant"])
+        biz = http.get(f'/c/{s["client"]}/b/{s["business"]}').text                     # 業務のタブ：検証モードと品質の段（core の答え）
+        self.assertIn("検証モード", biz)
+        self.assertIn("言ってはいけないことを言った", biz)
         page = http.get("/t/inbox").text
         self.assertIn("発信前の行の承認（検証モード）", page)
         self.assertIn(f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}"', page)     # 決める前に見る（お客様リスト）

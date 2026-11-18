@@ -38,6 +38,24 @@
   <span class="go">承認待ちを開く →</span>
 </a>
 {% endif %}
+{% if business %}
+<section class="card mode-card" style="margin-top:16px">
+  <div class="title-row"><h2 style="margin:0">{{ "検証モード" if verification else "フルオート" }}</h2>
+    <a class="btn small" href="/c/{{ client.client_id }}/b/{{ business.business_id }}/settings">切り替える（業務の設定）</a></div>
+  <p class="muted">{% if verification %}発信の前に行を承認し、結果を確かめてから確定します。少ない件数の段から始め、指標が基準の内なら次の段へ進みます。{% else %}承認なしでかけ、判定した結果をそのまま確定します。{% endif %}</p>
+  {% for st in stages %}
+  <h3 style="margin-top:14px">実施回「{{ st.run }}」：{% if st.stage %}段 {{ st.stage.stage_no }}（{% if st.stage.cap %}{{ st.used }} / {{ st.stage.cap }} 件{% else %}件数の上限なし{% endif %}）{% else %}まだ段が開いていません（模擬通話のあとに開きます）{% endif %}</h3>
+  <div class="table-scroll"><table class="list">
+    <thead><tr><th>指標</th><th class="num">いま</th><th class="num">基準</th><th></th></tr></thead>
+    <tbody>{% for name, m in st.metrics.items() %}
+      <tr><td>{{ words.QUALITY_METRIC_WORDS.get(name, words.NO_WORD) }}</td>
+        <td class="num">{% if m.kind == "count" %}{{ m.hits }} 件{% elif m.value is none %}—{% else %}{{ "{:.1f}".format(m.value * 100) }}%<span class="muted">（{{ m.hits }}/{{ m.total }}）</span>{% endif %}</td>
+        <td class="num">{% if m.kind == "count" %}{{ m.limit }} 件まで{% else %}{{ "{:.1f}".format((m.limit|float) * 100) }}%まで{% endif %}</td>
+        <td>{{ tag("基準の内", "ok") if m.inside else tag("基準の外", "stop") }}</td></tr>
+    {% endfor %}</tbody></table></div>
+  {% endfor %}
+</section>
+{% endif %}
 <div class="title-row" style="margin-top:28px"><h2 style="margin:0">実施回</h2>
 {% if business %}
   <details class="adder inline">

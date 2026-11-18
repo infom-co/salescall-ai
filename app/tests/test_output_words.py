@@ -79,6 +79,10 @@ class EveryNameHasAWord(unittest.TestCase):
         self.assertEqual(values("source") - set(words.PRICE_SOURCE_WORDS), set())
         self.assertEqual(values("unit") - set(words.PRICE_UNITS), set())
 
+    def test_every_quality_metric_has_a_word(self):
+        from salescall.core import quality_stage
+        self.assertEqual(set(words.QUALITY_METRIC_WORDS), set(quality_stage.METRICS))
+
     def test_every_dnc_reason_has_a_word(self):
         import typing
         from salescall.core import dnc
