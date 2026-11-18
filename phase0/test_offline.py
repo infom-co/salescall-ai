@@ -31904,10 +31904,20 @@ class BriefAgainTest(unittest.TestCase):
     turn = OtherCompanyClueSendWayTest.turn
     heard = staticmethod(OtherCompanyClueSendWayTest.heard)
 
-    def briefed(self):
+    ALT = "お電話になさいますかそれともメールの方がよろしいでしょうか？"
+    REWORD = "ご連絡の方法はお電話とメールのどちらになさいますか？"
+
+    def forms(self):
+        """Q2 に取込で決めた選択肢を並べた文（ALT）と言い換えた質問（REWORD）がある質問の並び（ほかは brief_questions のまま）。"""
+        import dataclasses
+        qs = BriefCallbackAskTest().brief_questions()
+        qs[1] = dataclasses.replace(qs[1], alternatives=self.ALT, reworded=self.REWORD)
+        return qs
+
+    def briefed(self, questions=None):
         """H3 に「いいえ」と言われ、「承知しました。それでは手短にお伺いいたしますね。」＋Q2 を伺ったところ。"""
         g = BriefGoAheadTest()
-        f = g.flow()
+        f = g.flow(questions)
         g.asked(f)
         r = g.replied(f, "no")
         self.assertEqual((f.current, self.heard(r)), ("Q2", "承知しました。" + g.GO + self.CONTACT))
@@ -31939,7 +31949,8 @@ class BriefAgainTest(unittest.TestCase):
             # そのあとの答えは、いまの質問の答えとして受け取る（今のまま）
             r = self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
             self.assertEqual((f.export()["Q2"], f.current), ("メール", "Q3"), report)
-        # 3回目も同じ受け方（急かされるたび）
+        # 3回目から（伺い46 イ）：形が1つしか無い質問（取込で選択肢を並べた文も言い換えも決まらなかった）は、元の形＝同じ文（言える別の形が無い＝決まりで決めた。
+        # test_from_the_third_hurry_a_form_not_yet_said_at_the_place）
         f = self.briefed()
         self.again(f)
         r = self.again(f)
@@ -31956,6 +31967,51 @@ class BriefAgainTest(unittest.TestCase):
         self.assertEqual((self.heard(r), r.get("ack"), r.get("say")), ("", None, None))
         late = f.apply("record_answer", {"question_id": "Q2", "condition_id": "unknown"})
         self.assertEqual(self.heard(late), "", late)
+
+    def test_from_the_third_hurry_a_form_not_yet_said_at_the_place(self):
+        # 伺い46 イ（✅ 2026-11-19 日本時間3時17分22秒 ユーザー「伺い46：手短に伺っている途中に、3回目の「本当に手短に」が来たとき：イ」＝2時14分22秒の報告の
+        # イ「3回目からは、まだ言っていない形にします。意向が分からないまま戻るときと同じ1か所を通します。3回目：「承知しました。お電話になさいますかそれとも
+        # メールの方がよろしいでしょうか？」 4回目：「承知しました。」＋取込で言い換えた質問」）。2回目は今のまま（伺い41 ア＝伺っていた形のまま）。
+        # 選ぶ所は意向が分からないまま戻る形の1か所（soft_form）・その所でお客様がもう聞いた文は記録（Flow.log の返事）から読む。戻る一言の回数には数えない。
+        # 5回目から（どの形ももう言った）は、いちばん前に聞いた形（直前と同じ文を続けて言わない＝11-01「全く同じ質問を2度したら、機械だと思われてしまいませんか？」。
+        # お言葉の外＝決まりで決めた）。⛔ 9e707d0a まで、3回目からも「承知しました。ご連絡はお電話とメールのどちらがよろしいでしょうか？」をくり返した
+        from flowctl import question_forms
+        for report in (False, True):
+            f = self.briefed(self.forms())
+            counts = dict(f.back_counts)
+            heard = []
+            for _ in range(6):
+                r = self.again(f, report)
+                self.assertEqual((f.current, r.get("ack")), ("Q2", "shouchi_hurried"), report)
+                heard.append((self.heard(r), [p["id"] for p in r["play"]]))
+            self.assertEqual(heard, [("承知しました。" + self.CONTACT, ["Q2_again"]),          # 2回目：伺っていた形のまま（伺い41 ア）
+                                     ("承知しました。" + self.ALT, ["Q2_alternatives"]),       # 3回目：選択肢を並べた文
+                                     ("承知しました。" + self.REWORD, ["Q2_aside_again"]),     # 4回目：言い換えた質問（頭の「ところで」は付けない）
+                                     ("承知しました。" + self.CONTACT, ["Q2_again"]),          # 5回目から：いちばん前に聞いた形
+                                     ("承知しました。" + self.ALT, ["Q2_alternatives"]),
+                                     ("承知しました。" + self.REWORD, ["Q2_aside_again"])], report)
+            self.assertEqual(f.back_counts, counts, report)   # 戻る一言の回数には数えない
+            # 流す録音は、いまの録音の一覧にある（新しい録音は作らない）
+            ids = {p["id"] for p in question_forms(list(f.given.values()), "Q2")}
+            self.assertTrue({"Q2_again", "Q2_alternatives", "Q2_aside_again"} <= ids, ids)
+            # 判定と会話AIへの知らせは、お客様が聞いた形の文を読む（意向が分からないまま戻る形と同じ1か所 _soften）
+            self.assertEqual(f.questions["Q2"].text, self.REWORD, report)
+            # そのあとの答えは、いまの質問の答えとして受け取る（今のまま）
+            r = self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
+            self.assertEqual((f.export()["Q2"], f.current), ("メール", "Q3"), report)
+        # 数えるのはその所（_place＝業務の質問は番号ごと）で重ねて急かされた回数：Q2 で2回重ねて急かされたあと、次の Q3 での初めての重ねての急かしは、
+        # 2回目と同じく伺っていた形のまま（Q3 に言い換えがあっても使わない）
+        import dataclasses
+        qs = self.forms()
+        approve = "こちらの内容でご承認いただけますでしょうか？"
+        qs[2] = dataclasses.replace(qs[2], reworded="こちらの内容でよろしいでしょうか？")
+        f = self.briefed(qs)
+        self.again(f)
+        self.again(f)
+        self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
+        self.assertEqual(f.current, "Q3")
+        r = self.again(f)
+        self.assertEqual((f.current, r.get("ack"), self.heard(r)), ("Q3", "shouchi_hurried", "承知しました。" + approve))
 
     def test_only_while_asking_briefly_without_an_answer(self):
         from flowctl import CALLBACK_IDS
@@ -31991,12 +32047,20 @@ class BriefAgainTest(unittest.TestCase):
             self.assertEqual(f.back_counts, counts, report)
             r = self.turn(f, "じゃあ、明日の午後で。", self.rd("答えた"), "record_answer", question_id=c1, condition_id="答えた", value="明日の午後")
             self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", c1), report)   # 時刻の答えは今のまま（言い直して確かめる）
+        # (S1) の3回目から（伺い46 イ）：同じ1か所（soft_form）を通るが、かけ直しの時刻の質問はシステムの決まった文で形が1つしか無い（取込の選択肢を並べた文・
+        # 言い換えが無い）＝元の形のまま
+        f = o.asked()
+        o.yes(f)
+        self.again(f)
+        for _ in range(2):
+            r = self.again(f)
+            self.assertEqual((f.current, self.heard(r), r.get("ack")), (c1, "承知しました。" + o.WHEN, "shouchi_hurried"))
         # (S2) H3 に「いいえ」→ 手短に伺っている途中に尋ねられて答え、お返事を待つ間：「承知しました。」（焦った）＋今の相づちだけのお返事と同じ戻りの形。
         #      ⛔ f7a0b81b まで「はい、」＋同じ戻りの形
         own = "メールでしたら、ご予約の内容をまとめたものをお送りしております。"
 
-        def replied():
-            f = self.briefed()
+        def replied(questions=None):
+            f = self.briefed(questions)
             q = self.rd(UNDECIDED)
             setattr(q, QUERY, QUERY_YES)
             self.turn(f, "メールだと、何か届くんですか？", q, "record_answer", question_id="Q2", condition_id="unknown")
@@ -32013,6 +32077,14 @@ class BriefAgainTest(unittest.TestCase):
             self.assertTrue(r["play"], report)
             r = self.turn(f, "じゃあ、メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
             self.assertEqual(f.export()["Q2"], "メール", report)
+        # (S2) の3回目から（伺い46 イ）：同じ1か所。お返事を待つ間の重ねての急かしで戻った形（相づちだけのお返事と同じ戻り＝1回目の戻りは選択肢を並べた文）も、
+        # その所でお客様がもう聞いた形＝3回目は言い換えた質問・4回目は元の形（どれも言った＝いちばん前に聞いた形）
+        g = replied(self.forms())
+        nod = self.turn(g, "そうですねえ。", self.rd(UNDECIDED))
+        self.assertEqual(self.heard(nod), "はい、" + self.ALT)
+        f = replied(self.forms())
+        heard = [self.heard(self.again(f)) for _ in range(3)]
+        self.assertEqual(heard, ["承知しました。" + self.ALT, "承知しました。" + self.REWORD, "承知しました。" + self.CONTACT])
 
     def test_the_first_brief_ask_is_not_said_over_the_ai_voice(self):
         # (3)（rv78/B の (5-e)）：会話AIが話す通話で、報告の無いターンに会話AIの声がもう流れた（voiced）ときの1回目の「手短に」：ほかの所（もう一度言ってほしい・迷っている・

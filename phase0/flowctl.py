@@ -1166,17 +1166,25 @@ def in_alternatives_form(q: "Question | None") -> bool:
     return re.search(re.escape(ALTERNATIVES_SUFFIX) + r"(_\d+)?$", rec) is not None
 
 
-def soft_form(q: "Question", lead: str = "") -> "Question":
-    """お客様の意向がまだ分からないまま戻るとき（Flow._continue の soft）に伺う形（唯一の決まり＝流れの制御が替える Flow._soften・録音を作る形 question_forms）：
-    選択肢を並べた文（Question.alternatives）があればその形（alternatives_form）・無ければ言い換えた質問（aside_form）・それも無ければいまの形のまま。その後の形
-    （since_form）はそのまま（「その後…かお決まりになりましたでしょうか？」のお返事を伺う前に、選択肢を並べない）。頭のつなぎの言葉は付けない（spoken_question の
-    soft）。頭の「はい、」は相づちの録音（Flow._ack）。lead＝直前のこちらのひとことが1つだけに触れた選択肢（alternatives_form。お話に沿った受け答えで待った
-    あとの戻りだけ＝Flow._resume）。"""
+def soft_form(q: "Question", lead: str = "", heard: "dict[str, int] | None" = None) -> "Question":
+    """お客様の意向がまだ分からないまま戻るとき（Flow._continue の soft）に伺う形（唯一の決まり＝流れの制御が替える Flow._soften・録音を作る形 question_forms・
+    聞くことの空な質問を伺い直す文 ask_again_text）：選択肢を並べた文（Question.alternatives）があればその形（alternatives_form）・無ければ言い換えた質問
+    （aside_form）・それも無ければいまの形のまま。その後の形（since_form）はそのまま（「その後…かお決まりになりましたでしょうか？」のお返事を伺う前に、選択肢を
+    並べない）。頭のつなぎの言葉は付けない（spoken_question の soft）。頭の「はい、」は相づちの録音（Flow._ack）。lead＝直前のこちらのひとことが1つだけに触れた
+    選択肢（alternatives_form。お話に沿った受け答えで待ったあとの戻りだけ＝Flow._resume）。
+    heard＝その所でお客様がもう聞いた文と、最後に聞いた順（文 → 順。Flow._heard_last が記録から読む）：渡すと、同じ並び（選択肢を並べた文 → 言い換えた質問 →
+    元の形 q）のうち、まだ言っていない形を先に選び、どれももう言っていれば、いちばん前に聞いた形を選ぶ（直前に聞いた形を続けて言わない＝11-01「全く同じ質問を
+    2度したら、機械だと思われてしまいませんか？」）。形が1つしか無ければ元の形（同じ文）。使う所は、重ねて急かされた3回目から（Flow._brief_again。✅ 2026-11-19
+    日本時間3時17分22秒 ユーザー「伺い46：手短に伺っている途中に、3回目の「本当に手短に」が来たとき：イ」＝「3回目からは、まだ言っていない形にします。意向が
+    分からないまま戻るときと同じ1か所を通します。」）と、聞くことの空な質問を伺い直す文（ask_again_text＝直前に聞いた文だけを渡す＝11-01）。どれももう言った
+    ときに、いちばん前に聞いた形を選ぶのはお言葉の外（まとめ役の決め）"""
     if in_since_form(q) or in_alternatives_form(q):
         return q
-    if q.alternatives and alternatives_fits(q):
-        return alternatives_form(q, lead)
-    return aside_form(q) if q.reworded and not in_aside_form(q) else q
+    forms = ([alternatives_form(q, lead)] if q.alternatives and alternatives_fits(q) else []) + (
+        [aside_form(q)] if q.reworded and not in_aside_form(q) else [])
+    if heard is None:
+        return forms[0] if forms else q
+    return min([*forms, q], key=lambda f: heard.get(f.text, -1))   # 聞いていない形は -1（同じ順なら並びの前の形）
 
 
 def rereads(q: "Question") -> bool:
@@ -1193,11 +1201,9 @@ def ask_again_text(q: "Question", heard: str) -> str:
     うち、お客様が直前に聞いた文（heard）と違うもの（同じ問いを同じ言い方で2度言わない＝11-01）。どれも無ければ元の質問の文（違う言い方の文が取込で決まらなかった
     質問・締める前の申し出 N6 など業務設定の文だけの質問は、元の文に今の伺い直しの頭を付けて伺う＝「ところで」の伺い直しで言い換えが決まらなかったときに元の文で
     伺うのと同じ）。q＝替える前の質問（Flow.given：「ところで」の形・選択肢を並べた形で伺っていても、元の質問の文と取込で決めた文を持つ）。聞くことの空な
-    「恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」はお客様に流さない（11-15 日本時間21時55分35秒のご決定のあとの決まりで直す (2) の (b)）"""
-    for text in ((q.alternatives if q.alternatives and alternatives_fits(q) else ""), q.reworded, q.text):
-        if text and text != heard:
-            return text
-    return q.text
+    「恐れ入ります。もう一度お聞かせいただいてもよろしいでしょうか？」はお客様に流さない（11-15 日本時間21時55分35秒のご決定のあとの決まりで直す (2) の (b)）。
+    選ぶのは意向が分からないまま戻る形の1か所（soft_form の heard に直前に聞いた文だけを渡す。⛔ 9e707d0a まで、同じ並びをここにも書いていた＝決まりが2か所）"""
+    return soft_form(q, heard={heard: 0}).text
 
 
 def spoken_question(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False,
@@ -9874,17 +9880,25 @@ class Flow:
         n = self.back_counts[key] = self.back_counts.get(key, 0) + 1
         return n
 
-    def _soften(self, qid: str, soft: bool, lead: str = "") -> None:
+    def _soften(self, qid: str, soft: bool, lead: str = "", heard: "dict[str, int] | None" = None) -> None:
         """お客様の意向がまだ分からないまま戻る形（soft_form）に替えるか、替える前の形に戻すかの唯一の場所（戻る1か所 _continue・「ところで」の伺い直し
-        _aside_again）：soft なら、判定と会話AIへの知らせがお客様の聞く文を読むよう、その形に替える（替える前の形は soft_plain）。soft でなければ替える前の形に
-        戻す（選択肢を並べた形は意向が分からないまま戻るときだけの形＝戻る一言のあと・もう一度言ってほしいと頼まれたとき・代わった方へ・「ところで」の伺い直しは、
-        替える前の形で伺う。話の続きを聞いていない方に選択肢だけを並べない）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー（お言葉は soft_form の上）"""
+        _aside_again・重ねて急かされた3回目から _brief_again）：soft なら、判定と会話AIへの知らせがお客様の聞く文を読むよう、その形に替える（替える前の形は
+        soft_plain）。soft でなければ替える前の形に戻す（選択肢を並べた形は意向が分からないまま戻るときだけの形＝戻る一言のあと・もう一度言ってほしいと頼まれた
+        とき・代わった方へ・「ところで」の伺い直しは、替える前の形で伺う。話の続きを聞いていない方に選択肢だけを並べない）。✅ 2026-11-14 日本時間22時15分15秒
+        ユーザー（お言葉は soft_form の上）。
+        heard＝その所でお客様がもう聞いた文（_heard_last）：いまの形からではなく替える前の形（soft_plain。「ところで」の伺い直し _aside_again は soft_plain を使わずに
+        替えるので、その形なら元の質問 given）から、まだ言っていない形を選ぶ（soft_form の heard）。元の形を選べば、替える前の形に戻す（伺い46 イ）"""
         q = self.questions[qid]
-        if soft and (s := soft_form(q, lead)) is not q:
-            self.soft_plain.setdefault(qid, q)
+        base = self.soft_plain.get(qid, q)
+        if heard is not None and in_aside_form(base):
+            base = self.given.get(qid, base)
+        s = soft_form(base if heard is not None else q, lead, heard) if soft else base
+        if s is base:
+            self.soft_plain.pop(qid, None)
+            self.questions[qid] = base
+        elif s is not q:
+            self.soft_plain[qid] = base
             self.questions[qid] = s
-        elif not soft and qid in self.soft_plain:
-            self.questions[qid] = self.soft_plain.pop(qid)
 
     def _continue(self, play: list, shown: str, final: bool = False, soft: bool = False, lead: str = "", repeat: bool = False,
                   bare: bool = False) -> dict:
@@ -12520,15 +12534,41 @@ class Flow:
         - 伺っている間（いまの質問・言い直しの確かめ・お知らせ・かけ直しの時刻の質問）：いまの位置で伺っていた形のまま（頭の「それでは」と戻る一言は付けない＝
           戻る1か所 _continue の bare）。戻る一言の回数には数えない（こちらから戻ったのではない＝もう一度言ってほしいと頼まれたときと同じ）
         - お客様に応えてお返事を待っている間（_reply_may_answer）：相づちだけのお返事と同じ戻り（_resume の1か所＝戻る形・回数も同じ。相づちだけを替える）
-        急かされるたびに同じ受け方（お言葉の外＝まとめ役の決め）。同じ発話への遅れた報告・会話AIの声がもう流れた（voiced）には重ねない（_judged_first の手短にの
-        枝の1か所）。✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41）「アでいいが、少し焦った感じで！」＝「承知しました。ご連絡はお電話とメールのどちらが
-        よろしいでしょうか？」。⛔ 57b89d93 まで聞き返し「はい、恐れ入ります。ご連絡の方法をもう一度お聞かせいただいてもよろしいでしょうか？」（お客様の「このままで」を
-        聞いていなかったように聞こえた）。同じ理由で (S1)(S2)（まとめ役の決め）：⛔ f7a0b81b まで、かけ直しの時刻を伺っている間は聞き返し「はい、恐れ入ります。ご都合の
-        よろしいお時間をもう一度…」・お客様に応えてお返事を待つ間は「はい、」＋戻りの形"""
+        同じ発話への遅れた報告・会話AIの声がもう流れた（voiced）には重ねない（_judged_first の手短にの枝の1か所）。✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41）
+        「アでいいが、少し焦った感じで！」＝「承知しました。ご連絡はお電話とメールのどちらがよろしいでしょうか？」。⛔ 57b89d93 まで聞き返し「はい、恐れ入ります。
+        ご連絡の方法をもう一度お聞かせいただいてもよろしいでしょうか？」（お客様の「このままで」を聞いていなかったように聞こえた）。同じ理由で (S1)(S2)（まとめ役の
+        決め）：⛔ f7a0b81b まで、かけ直しの時刻を伺っている間は聞き返し「はい、恐れ入ります。ご都合のよろしいお時間をもう一度…」・お客様に応えてお返事を待つ間は
+        「はい、」＋戻りの形。
+        3回目から（その所＝_place で、もう重ねて急かされて受け直した＝記録の返事の印 hurried がその所）は、伺っている質問を、その所でまだ言っていない形で伺う
+        （意向が分からないまま戻る形の1か所 soft_form・替えるのは _soften の1か所・その所でお客様がもう聞いた文は記録から読む _heard_last）：選択肢を並べた文 →
+        取込で言い換えた質問 → どれももう言っていれば、いちばん前に聞いた形（お言葉の外＝決まりで決めた。直前と同じ文を続けて言わない＝11-01）。形が1つしか無い
+        所（かけ直しの時刻などシステムの決まった文の質問・言い直しの確かめ・その後の形・ご承認のお知らせ・取込で別の形が決まらなかった質問）は同じ文。戻る一言の
+        回数には数えない。✅ 2026-11-19 日本時間3時17分22秒 ユーザー「伺い46：手短に伺っている途中に、3回目の「本当に手短に」が来たとき：イ」（2時14分22秒の報告の
+        イ「3回目からは、まだ言っていない形にします。意向が分からないまま戻るときと同じ1か所を通します。3回目：「承知しました。お電話になさいますかそれとも
+        メールの方がよろしいでしょうか？」 4回目：「承知しました。」＋取込で言い換えた質問」）。⛔ 9e707d0a まで、急かされるたびに同じ文をくり返した"""
         self.hurried_turn = self.callee_turns
+        place = self._place()
+        mark = {"hurried": place}   # 相づちを選ぶ印（_ack_choice）は、どの所で受け直したか（下の3回目からが読む）
         if self._reply_may_answer():
-            return self._resume() | {"hurried": True}
-        return self._continue([], "", repeat=True, bare=True) | {"hurried": True}
+            return self._resume() | mark
+        q = self.questions.get(self.current) if self.awaiting_confirm is None and self.current is not None else None
+        if q is not None and soft_fits(q) and any(x["reply"].get("hurried") == place for x in self.log):
+            self._soften(q.id, True, heard=self._heard_last(q.id))
+        return self._continue([], "", repeat=True, bare=True) | mark
+
+    def _heard_last(self, qid: str) -> dict[str, int]:
+        """その質問の形の文（元の形・選択肢を並べた文・先に並べた文・取込で言い換えた質問）ごとに、お客様がこの電話で最後に聞いた記録の位置（唯一の読み＝重ねて
+        急かされた3回目からの形を選ぶ _brief_again → soft_form の heard）。覚え直さずに記録（self.log の返事）から読む：流した録音の文・会話AIに言わせた文（say）・
+        会話AIが話す通話は、会話AIに伺わせた知らせの文（「…」）。業務の質問の形の文はその質問だけのもの＝その所（_place の業務の質問は番号ごと）で聞いた文"""
+        q = self.given.get(qid) or self.questions[qid]
+        texts = [t for t in (q.text, q.alternatives, *q.alternatives_led, q.reworded) if t]
+        last: dict[str, int] = {}
+        for i, x in enumerate(self.log):
+            r = x["reply"]
+            spoken = "".join(p.get("text") or "" for p in r.get("play") or []) + (r.get("say") or "") + (
+                "" if self.play_recordings else r.get("message") or "")
+            last |= {t: i for t in texts if t in spoken}
+        return last
 
     def _brief_ask(self) -> dict:
         """急いでいるが手短になら聞くと言われた（_brief_due）：「ありがとうございます。」（相づちの録音＝_ack_choice）のあと、「（要約）の件でお電話させていただきましたが
