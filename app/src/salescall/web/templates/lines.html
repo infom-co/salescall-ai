@@ -69,5 +69,6 @@
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<div class="card">{{ empty("PC はまだありません", "電話をつなぐ PC で SalesCall のプログラムを起動し、ブラウザでログインすると、ここに出ます。") }}</div>{% endif %}
+{% else %}<div class="card">{{ empty("PC はまだありません", "電話をつなぐ PC で SalesCall のプログラムを起動すると、ブラウザでログインのページが開きます。ログインして、PC の画面と同じ確かめのコードかを確かめると、ここに出ます。") }}</div>{% endif %}
+<p class="muted" style="margin-top:8px">PC のブラウザが開かないときは、<a href="/pc-login">PC のログインのページ</a>を開き、PC の画面のコードを入れてください。</p>
 {% endblock %}

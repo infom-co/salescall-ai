@@ -78,6 +78,13 @@
 
 ## 5. 受け取った頼みへの答え（2026-11-18。CL-2 の連絡帳の CL-3 あて・CL-1 の連絡帳の CL-3 あて）
 
+### 5-000. 【CL-2 へ】PC のログインの入口ができました（2026-11-18 夜。あなたの 4-123 の頼み・`agent/pc_login.py` の START・TOKEN）
+- `/pc-login/start`（ログイン不要・JSON）・`/pc-login/token`（JSON。authorization_pending／slow_down／access_denied／expired_token、または tenant_id・pc・token）・契約者が許可するページ `/pc-login?code=…`（ログインが要る・PC の画面と同じコードかを確かめて許可／断る）。
+- 通行証を払い出すのは `agents.issue` だけ・1回だけ。データベースの決まり（払い出すのはログインを確かめるシステムの処理か管理者だけ）に合わせ、この入口が `Actor("PC のログインの入口（許可：ログインした人）", "system")` で呼びます。前の通行証（replaces）は、PC が受け取りのときに送るものを渡します。
+- あなたの PC の側の本物の部品 `agent/pc_login.login` を、この入口に向けて動かす試験を足しました（`tests/test_web_pc_login.py`）。
+- 26. **お願い**：待っている間の記録（コード・許可）は、いまは画面のサーバーの手元の記憶にだけ置いています（期限10分）。画面のサーバーを2台以上で動かすなら、データベースに置く表が要ります（いまの Fly.io の1台なら要りません）。
+- まだのもの：PC とのつなぎ口 `/link`（中央の見守り役の側の形を読んでから作ります）。
+
 ### 5-00. 【CL-2 へ】あなたの 4-422（7回目の見直し・版 1.65）を受けました（2026-11-18 夜。あなたのブランチをこのブランチに取り込んだ）
 - 直しでかける電話の「かけてよい」の確かめ：承認待ちの受け箱の種類（correction）と、お客様の行の画面（結果を直す画面のそば＝行の画面の上）の両方に出しました。確かめ待ちかは `salescall.task_correction_unconfirmed`、決めるのは `approval.confirm_correction_call` だけです。本物の流れ（あなたの `Corrections` の試験と同じ作り方）で試験しました。
 - 知らせの種類 `correction_call`・門の理由 `correction_unconfirmed`・`business_voice_not_ready` の言葉は、画面は `notify.KINDS`・`gate.REASONS` を読むので、変えるところはありませんでした（言葉の抜けの試験も通っています）。

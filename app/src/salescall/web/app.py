@@ -19,7 +19,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -28,7 +28,7 @@ from salescall.core import (agents, calling_hours, customer_contacts, customer_r
                             import_files, importer, phone, registry, settings, stops)
 from salescall.core.access import Access
 from salescall.output import notices, words
-from salescall.web import actions, context, counts, importing, inbox, rowfix, setting_forms, uploads
+from salescall.web import actions, context, counts, importing, inbox, pc_login, rowfix, setting_forms, uploads
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
@@ -391,6 +391,65 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     async def business_settings_save(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
         return _settings_save(request, dict(await request.form()), "business", client_id, business_id,
                               f"/c/{client_id}/b/{business_id}/settings")
+
+    # ── PC のログイン（RFC 8628 の機器のログイン。web/pc_login.py。PC の側は agent/pc_login.py） ──────────────
+    @app.post("/pc-login/start")
+    async def pc_login_start(request: Request) -> JSONResponse:
+        """PC がログインを始める（ログイン不要。確かめのコードと、契約者が開くページを返す）。"""
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        p = pc_login.start(str(body.get("pc_label") or ""), str(body.get("replaces") or "") or None)
+        page_url = str(request.base_url).rstrip("/") + "/pc-login"
+        return JSONResponse({"device_code": p.device_code, "user_code": p.user_code, "verification_uri": page_url,
+                             "verification_uri_complete": f"{page_url}?code={p.user_code}", "interval": pc_login.INTERVAL,
+                             "expires_in": pc_login.EXPIRES})
+
+    @app.post("/pc-login/token")
+    async def pc_login_token(request: Request) -> JSONResponse:
+        """PC が通行証を受け取る。許可済みなら、core の agents.issue で1回だけ払い出す（前の通行証があれば止める）。"""
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        state, p = pc_login.poll(str(body.get("device_code") or ""))
+        if p is None:
+            return JSONResponse({"error": state}, status_code=400)
+        try:
+            replaces = UUID(str(body.get("replaces") or p.replaces or "")) if (body.get("replaces") or p.replaces) else None
+        except ValueError:
+            replaces = None
+        # 払い出すのは「ログインを確かめるシステムの処理」（データベースの決まり）＝この入口。誰が許可したかは、処理の名前に残す
+        issuer = access_layer.Actor(f"PC のログインの入口（許可：{p.actor.name}）", "system")
+        got = agents.issue(access, issuer, p.tenant_id, label=p.pc_label, replaces=replaces)
+        return JSONResponse({"tenant_id": str(got.tenant_id), "pc": str(got.pc_id), "token": got.token},
+                            headers={"Cache-Control": "no-store"})
+
+    @app.get("/pc-login")
+    def pc_login_page(request: Request, code: str = "", done: str | None = None, ok: int = 1) -> HTMLResponse:
+        """契約者が PC を許可するページ（ログインが要る）。コードが PC の画面と同じかを確かめてもらう。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            p = pc_login.by_user_code(code) if code else None
+            return page(request, "pc_login.html", person, ctx, code=pc_login.normalize(code) if code else "", pending=p,
+                        done=done, ok=bool(ok), active="lines")
+        return handle(request, render)
+
+    @app.post("/pc-login")
+    async def pc_login_decide(request: Request) -> HTMLResponse:
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            approve = str(form.get("decision") or "") == "approve"
+            def do() -> Any:
+                p = pc_login.decide(str(form.get("code") or ""), approve=approve, tenant_id=ctx.tenant_id, actor=person.actor)
+                if p is None:
+                    raise actions.Refused("そのコードの PC は見つかりません（期限の10分を過ぎたか、もう決めたコードです。PC の画面の新しいコードで、もう一度開いてください）")
+                return p
+            out = actions.act(secret, person.login_id, form, do,
+                              done=(f"この PC を「{ctx.tenant_name}」で使えるようにしました。PC の画面に戻ると、自動で動き出します。" if approve
+                                    else "断りました。この PC はログインしていません。"))
+            return _back("/pc-login", out)
+        return handle(request, render)
 
     # ── 回線と PC（docs/DASHBOARD.md 5-5。Intent.md 5-3 (4)） ──────────────────────────
     @app.get("/t/lines")

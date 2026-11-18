@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "parts.html" import flash, csrf %}
+{% block title %}PC のログイン{% endblock %}
+{% block main %}
+<h1>PC のログイン</h1>
+<p class="lead">電話をつなぐ PC を、この契約者「{{ ctx.tenant_name }}」で使えるようにします。PC の画面に出ている確かめのコードと同じかを、必ず確かめてください。</p>
+{{ flash(done, ok) }}
+{% if pending %}
+<form class="card pc-card" method="post" action="/pc-login">
+  {{ csrf(token) }}<input type="hidden" name="code" value="{{ pending.user_code }}">
+  <div class="pc-code" aria-label="確かめのコード">{{ pending.user_code }}</div>
+  <dl class="facts"><dt>PC の名前</dt><dd>{{ pending.pc_label }}</dd><dt>使う契約者</dt><dd>{{ ctx.tenant_name }}</dd></dl>
+  <p class="muted">コードが違う・覚えのない PC なら、「断る」を押してください（ほかの人がログインしようとしている恐れがあります）。</p>
+  <div class="actions">
+    <button class="btn" type="submit" name="decision" value="deny">断る</button>
+    <button class="btn main" type="submit" name="decision" value="approve">この PC を使えるようにする</button>
+  </div>
+</form>
+{% else %}
+<form class="card pc-card" method="get" action="/pc-login">
+  {% if code %}<div class="flash ng" role="alert">コード「{{ code }}」の PC は見つかりません。期限（10分）を過ぎたか、もう決めたコードです。</div>{% endif %}
+  <label class="field" for="pc-code">PC の画面に出ている確かめのコード</label>
+  <input id="pc-code" type="text" name="code" placeholder="例：BCDF-GHJK" autocomplete="off" style="max-width:240px;text-transform:uppercase">
+  <div class="actions"><button class="btn main" type="submit">次へ</button></div>
+</form>
+{% endif %}
+{% endblock %}

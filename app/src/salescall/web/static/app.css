@@ -318,3 +318,4 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 td .inline-mark { margin-top: 0; } td .inline-mark select { max-width: 240px; }
 .btn-row { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .notice-link .go-btn { margin-left: auto; }
+.pc-card { max-width: 560px; } .pc-code { font: 700 32px/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace; letter-spacing: .12em; text-align: center; padding: 14px; margin-bottom: 14px; border-radius: var(--radius); background: var(--primary-soft); color: var(--primary); }
