@@ -12,6 +12,114 @@ from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, fictional_
 from salescall.core import registry
 
 
+class Logins(unittest.TestCase):
+    """PC のログインの待ちは、データベースの1か所（表の作り 0241。DESIGN.md 5-5・15-2 の867）。画面のサーバーが2台以上でも、どのサーバー
+    からも同じ待ちが見え、払い出しは1回だけ（✅ 2026-11-18 ユーザー「契約者が増えたら、2台以上は確実なんじゃないの？」）。"""
+
+    def setUp(self):
+        self.w = World()
+        self.a, self.b = app_access(), app_access()   # 画面のサーバー2台
+        self.o = owner_access()
+
+    def age(self, start, **secs):
+        """待ちの時刻を、決めた秒だけ前へずらす（時間がたったことにする）。"""
+        sets = ", ".join(f"{col} = {col} - make_interval(secs => {n})" for col, n in secs.items())
+        self.o.in_system(SYSTEM, lambda tx: tx.execute(f"UPDATE salescall.pc_logins SET {sets} WHERE device_sha = %s",
+                                                       (agents.fingerprint(start.device_code),)))
+
+    def who(self, token):
+        return self.a.in_system(SYSTEM, lambda tx: agents.identify(tx, token))
+
+    def test_a_login_started_on_one_server_is_approved_and_taken_on_another_once(self):
+        """始めたサーバー・許可したページのサーバー・受け取りを聞くサーバーが違っても、ログインできる。待ちの印は指紋だけを置く。
+        許可した契約者の PC になり、前の PC（その契約者の PC）は止まる。受け取れるのは1回だけ。"""
+        t = self.w.tenant()
+        old = agents.issue(self.a, SYSTEM, t, label="前の PC")
+        s = agents.login_start(self.a, label="  事務所の PC  ", replaces=str(old.pc_id))
+        self.assertRegex(s.user_code, r"^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$")
+        self.assertEqual((s.interval, s.expires_in), (agents.LOGIN_EVERY, agents.LOGIN_EXPIRES))
+        kept = self.o.in_system(SYSTEM, lambda tx: tx.all("SELECT device_sha FROM salescall.pc_logins"))
+        self.assertEqual(kept, [{"device_sha": agents.fingerprint(s.device_code)}])     # PC の待ちの印そのものは置かない
+        self.assertEqual(agents.login_take(self.b, s.device_code), (agents.PENDING, None))
+        typed = s.user_code.lower().replace("-", " ")                                    # 小文字・区切りの違いは吸う
+        seen = self.b.in_tenant(OPERATOR, t, lambda tx: agents.login_waiting(tx, typed))
+        self.assertEqual((seen.user_code, seen.pc_label, seen.replaces_label), (s.user_code, "事務所の PC", "前の PC"))
+        self.assertEqual(self.b.in_tenant(OPERATOR, t, lambda tx: agents.login_decide(tx, typed, approve=True)), "事務所の PC")
+        self.assertIsNone(self.b.in_tenant(OPERATOR, t, lambda tx: agents.login_waiting(tx, s.user_code)))   # 決めたら出さない
+        self.assertIsNone(self.b.in_tenant(OPERATOR, t, lambda tx: agents.login_decide(tx, s.user_code, approve=False)))
+        state, got = agents.login_take(self.a, s.device_code)
+        self.assertEqual((state, got.tenant_id), ("ok", t))
+        self.assertEqual(self.who(got.token), agents.Who(t, got.pc_id, "事務所の PC"))
+        self.assertIsNone(self.who(old.token))                                           # 前の PC は止まる
+        issued = self.a.in_tenant(OPERATOR, t, lambda tx: tx.one("SELECT issued_by FROM salescall.pc_agents WHERE pc_id = %s",
+                                                                 (got.pc_id,)))["issued_by"]
+        self.assertIn(OPERATOR.name, issued)                                             # 誰が許可したかが残る
+        self.assertEqual(agents.login_take(self.b, s.device_code), (agents.EXPIRED, None))   # 1回だけ
+
+    def test_asking_too_fast_slows_down_and_the_wait_ends(self):
+        """間隔より早く聞けば「遅く」と答え、その待ちの間隔を5秒延ばす（RFC 8628 3.5）。断られたら1回だけ「断られた」。期限が切れたら、
+        ページにも出さず許可もできず、受け取りは「時間切れ」。期限の切れた待ちは、次に始めるときに消える。"""
+        t = self.w.tenant()
+        s = agents.login_start(self.a, label="")
+        take = lambda: agents.login_take(self.b, s.device_code)[0]   # noqa: E731
+        self.assertEqual(take(), agents.PENDING)
+        self.assertEqual(take(), agents.SLOW_DOWN)                                       # 間隔は 5→10 秒
+        self.age(s, polled_at=6)
+        self.assertEqual(take(), agents.SLOW_DOWN)                                       # 10 秒より早い（間隔は 15 秒）
+        self.age(s, polled_at=16)
+        self.assertEqual(take(), agents.PENDING)
+        self.assertEqual(self.a.in_tenant(OPERATOR, t, lambda tx: agents.login_decide(tx, s.user_code, approve=False)), "名前の無い PC")
+        self.assertEqual((take(), take()), (agents.DENIED, agents.EXPIRED))
+        late = agents.login_start(self.a, label="遅い PC")
+        self.age(late, started_at=agents.LOGIN_EXPIRES + 1, expires_at=agents.LOGIN_EXPIRES + 1)
+        self.assertIsNone(self.a.in_tenant(OPERATOR, t, lambda tx: agents.login_waiting(tx, late.user_code)))
+        self.assertIsNone(self.a.in_tenant(OPERATOR, t, lambda tx: agents.login_decide(tx, late.user_code, approve=True)))
+        self.assertEqual(agents.login_take(self.a, late.device_code), (agents.EXPIRED, None))
+        approved = agents.login_start(self.a, label="許可のあと遅い PC")
+        self.a.in_tenant(OPERATOR, t, lambda tx: agents.login_decide(tx, approved.user_code, approve=True))
+        self.age(approved, started_at=agents.LOGIN_EXPIRES + 1, expires_at=agents.LOGIN_EXPIRES + 1)
+        took = self.a.in_tenant(SYSTEM, t, lambda tx: tx.all("SELECT * FROM salescall.pc_login_take(%s)",
+                                                              (agents.fingerprint(approved.device_code),)))
+        self.assertEqual(took, [])                                                       # 期限の切れた許可は受け取れない
+        agents.login_start(self.a, label="次の PC")
+        left = self.o.in_system(SYSTEM, lambda tx: tx.all("SELECT pc_label FROM salescall.pc_logins ORDER BY pc_label"))
+        self.assertNotIn({"pc_label": "許可のあと遅い PC"}, left)                          # 期限の切れた待ちは消える
+        self.assertEqual(agents.login_take(self.a, approved.device_code), (agents.EXPIRED, None))
+        self.assertEqual(agents.login_take(self.a, ""), (agents.EXPIRED, None))
+
+    def test_who_may_see_approve_and_take_a_login(self):
+        """始める・聞くのはサーバーの全体の取引だけ。ページに出す・許可するのは、ログインした管理者か契約者だけ。受け取るのは許可した
+        契約者の取引のシステムの処理だけ。表はどの役も直接は読み書きしない。ほかの契約者の PC は、入れ替える PC として名前を見せず、止めない。"""
+        t, other = self.w.tenant(), self.w.tenant()
+        theirs = agents.issue(self.a, SYSTEM, other, label="ほかの契約者の PC")
+        s = agents.login_start(self.a, label="PC", replaces=theirs.pc_id)
+        sha = agents.fingerprint(s.device_code)
+        for actor, call in ((SYSTEM, f"SELECT * FROM salescall.pc_login_waiting('{s.user_code}')"),
+                            (SYSTEM, f"SELECT salescall.pc_login_decide('{s.user_code}', true)"),
+                            (kindless(), f"SELECT salescall.pc_login_decide('{s.user_code}', true)"),
+                            (OPERATOR, f"SELECT salescall.pc_login_start(repeat('1', 64), 'BBBB-BBBB', 'x', NULL, 600, 5)"),
+                            (OPERATOR, f"SELECT * FROM salescall.pc_login_poll('{sha}')"),
+                            (OPERATOR, f"SELECT * FROM salescall.pc_login_take('{sha}')"),
+                            (ADMIN, f"SELECT * FROM salescall.pc_login_take('{sha}')"),
+                            (OPERATOR, "SELECT * FROM salescall.pc_logins"),
+                            (OPERATOR, "DELETE FROM salescall.pc_logins")):
+            with self.subTest(actor=actor.kind, call=call), self.assertRaises(Rejected):
+                self.a.in_tenant(actor, t, lambda tx, call=call: tx.all(call))
+        for call in (f"SELECT * FROM salescall.pc_login_waiting('{s.user_code}')", "SELECT * FROM salescall.pc_logins",
+                     f"SELECT * FROM salescall.pc_login_take('{sha}')"):
+            with self.subTest(by="system", call=call), self.assertRaises(Rejected):
+                self.a.in_system(SYSTEM, lambda tx, call=call: tx.all(call))
+        with self.assertRaises(Rejected):
+            self.a.in_system(ADMIN, lambda tx: tx.all(f"SELECT * FROM salescall.pc_login_poll('{sha}')"))
+        seen = self.a.in_tenant(ADMIN, t, lambda tx: agents.login_waiting(tx, s.user_code))
+        self.assertIsNone(seen.replaces_label)                                           # ほかの契約者の PC の名前は見せない
+        self.a.in_tenant(ADMIN, t, lambda tx: agents.login_decide(tx, s.user_code, approve=True))
+        self.assertEqual(self.a.in_tenant(SYSTEM, other, lambda tx: tx.all(f"SELECT * FROM salescall.pc_login_take('{sha}')")), [])
+        state, got = agents.login_take(self.a, s.device_code)                            # 許可した契約者の PC になる
+        self.assertEqual((state, got.tenant_id), ("ok", t))
+        self.assertIsNotNone(self.who(theirs.token))                                     # ほかの契約者の PC は止めない
+
+
 class Passes(unittest.TestCase):
     def setUp(self):
         self.w = World()

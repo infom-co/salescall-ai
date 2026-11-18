@@ -282,9 +282,13 @@ class SameNumberOtherRows(SettleBase):
         others = sorted(set(types.values()) - {types[heard]})
         with mock.patch.object(recordings, "ready_voices", return_value=others):   # ほかの声は話せる（同じ業務の声だけ話せない）
             waiting = self.claim(s)
-        self.assertEqual(getattr(waiting, "reason", None), "voice_not_ready")
+        self.assertEqual(getattr(waiting, "reason", None), "business_voice_not_ready")
         told = self.tx(s, lambda tx: [r["summary"] for r in tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'")])
         self.assertIn(gate.SAME_VOICE_NOT_READY.format(types[heard]), told)
+        # 行ごとの理由：候補に出さない（実施回のほかの行は飛ばさない。⛔ 2026-11-18 の7回目の見直しまで：実施回の理由で、実施回全体がかからなかった）
+        self.assertIn("business_voice_not_ready", gate.UNOFFERED_REASONS)
+        with mock.patch.object(recordings, "ready_voices", return_value=others):
+            self.assertEqual(self.tx(s, lambda tx: gate.waits_unknown(tx, s["task"])), "business_voice_not_ready")
 
     def test_the_same_row_keeps_the_voice_the_customer_heard_not_one_that_was_not_answered(self):
         """同じ行で、お客様が出た通話の声（A）のあと、出なかった通話を別の声（B）でかけても、次の電話は A（お客様が聞いた声）。お客様がその声を聞いたかは、
@@ -641,11 +645,17 @@ class MonthAhead(SettleBase):
         once = rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}}
                                 for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")})
         words, first, last, repeat = self.monthly_rounds()[0]
-        s = self.ready(rules=once)
-        with mock.patch.object(next_action, "_missed", return_value=False):   # 試験：その回に1本かけて話せなかった（かけた回＝1＝方針の回数）
-            w, d, p = self.passed(s, first(s), last(s), repeat)
-        self.assertEqual((d.kind, d.promised, d.window), ("call", True, None), words)
-        self.assertIn("1か月以上先のため、次の回へは回さずに別の日に", d.rule)
+        # 「契約者が認めたらかける」の業務でも同じ（範囲の中の回数を使い切っていれば、伺っても次の回にはかけられない。⛔ 2026-11-18 の7回目の見直し
+        # まで：その業務では範囲の中の上限で行を終えた）
+        for setting in (None, "with_approval"):
+            with self.subTest(setting=setting):
+                s = self.ready(rules=once)
+                if setting is not None:
+                    self.choose(s, setting)
+                with mock.patch.object(next_action, "_missed", return_value=False):   # 試験：その回に1本かけて話せなかった（かけた回＝1＝方針の回数）
+                    w, d, p = self.passed(s, first(s), last(s), repeat)
+                self.assertEqual((d.kind, d.promised, d.window), ("call", True, None), words)
+                self.assertIn("1か月以上先のため、次の回へは回さずに別の日に", d.rule)
 
     def test_a_weekly_round_unanswered_goes_to_the_next_week_as_before(self):
         """(4)「金曜なら」（週ごとの理由）の回に話せないまま過ぎた ⇒ いまどおり次の金曜（1か月より手前）。業務の設定に関係なく、伺わない。"""
@@ -710,8 +720,8 @@ class MonthAhead(SettleBase):
         self.assertIsNone(self.asking(s))
 
     def test_a_plan_that_keeps_the_asked_time_is_still_asked_once(self):
-        """(6) 伺っている予定を、同じ時刻のまま書き直す（門で止められたあと・番号や名前を直したあとの決め直し）⇒ 伺いを続ける（印を引き継ぐ・知らせは
-        その時刻ごとに1回）。時刻が変われば伺いは終わる。お客様が言った回そのものの決め直しは、何か月先でも伺わない（次の回へ移っていない）。"""
+        """(6) 伺っている予定を、同じ回のまま、まだかけないで書き直す（門で止められたあと・番号や名前を直したあとの決め直し。時刻が動いても）⇒ 伺いを
+        続ける（印を引き継ぐ・知らせは1回）。お客様が言った回そのものの決め直しは、何か月先でも伺わない（次の回へ移っていない）。"""
         s = self.ready()
         self.choose(s, "with_approval")
         words, first, last, repeat = self.monthly_rounds()[0]
@@ -723,8 +733,29 @@ class MonthAhead(SettleBase):
         self.assertEqual(self.asking(s), p["call_at"])
         again(p["call_at"], w)                                                   # 同じ次の回を、もう一度決めた（時刻の表し方が違っても1回）
         self.assertEqual(len(self.notices(s, "month_ahead_approval")), 1)
-        again(p["call_at"] + timedelta(hours=1))                                 # 回の中の別の時刻へ
+        # 回の中の別の時刻へ（門の待ちなど。まだかけていない）：伺いを続ける（⛔ 2026-11-18 の7回目の見直しまで：時刻が変わると伺いを終え、契約者の答えも
+        # 5分前の緊急の知らせも効かないまま、あとの時刻にかけた）。答えは、その回の中の時刻の答えとして読む（データベースの task_month_ahead_asking。0239）
+        moved = p["call_at"] + timedelta(hours=1)
+        again(moved)
+        self.assertEqual(self.asking(s), moved)
+        self.assertEqual(len(self.notices(s, "month_ahead_approval")), 1)       # 知らせは増えない
+        from salescall.core import row_fixes
+        self.tx(s, lambda tx: row_fixes.answer_month_ahead(tx, s["task"], approve=True), OPERATOR)
         self.assertIsNone(self.asking(s))
+        again(moved + timedelta(hours=1))                                        # 答えたあと、回の中でまた時刻が動いても
+        self.assertIsNone(self.asking(s))                                        # その回への答えのまま（伺い直さない・緊急の知らせを出さない）
+        # その回でかけたあとは、伺いは終わり（印を引き継がない）
+        u = self.ready()
+        self.choose(u, "with_approval")
+        wu, _, pu = self.passed(u, first(u), last(u), repeat)
+        self.assertEqual(self.asking(u), pu["call_at"])
+        aid = self.w.insert_claim(u)
+        for st in ("dialing", "no_answer"):
+            self.w.move(u, aid, st)
+        self.tx(u, lambda tx: next_action._write(tx, u["task"], next_action._call(
+            pu["call_at"] + timedelta(hours=2), True, "試験：その回でかけたあとの決め直し", next_action.Target(u["contact"]), None,
+            next_action.window_of(pu))))
+        self.assertIsNone(self.asking(u))
         t = self.ready()
         self.choose(t, "with_approval")
         self.settle(t, self.call(t, report=rep(callback=callback("later", time="再来月の月末に"))))

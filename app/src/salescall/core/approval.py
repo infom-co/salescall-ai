@@ -4,7 +4,8 @@
   ここに問い合わせるだけ（判定の処理はモードを読まない＝両モードで1文字も変わらない）。業務設定の版を作るとき、AI の名前の
   読みの案を契約者が確かめるか（検証モードのあいだだけ。2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」）も、
   ここに問い合わせる（`human_for_business`。検証の切り替えは1つ）。
-- 発信の前（`task_cleared`。門が呼ぶ）：契約者の承認を使う業務では、契約者が承認した行だけを通す（承認の記録は `approve_task`）。
+- 発信の前（`uncleared`。門が呼ぶ）：契約者の承認を使う業務では、契約者が承認した行だけを通す（承認の記録は `approve_task`）。契約者が直した結果で
+  かける電話は、直した契約者が確かめるまで通さない（`confirm_correction_call`。0240）。
 - 「確定した」の印（result_releases。名前は前のまま「送ってよい印」）を付けるのも、ここだけ。**この印は、依頼者へ送ることでは
   ない**：依頼者へ渡すのは、依頼者ごとの形に整えた最終のもの（報告・依頼者のシステムへの書き込み）だけで、いつ・どの形で渡すかは
   出力の型（CL-3。DESIGN.md 7-3）が決める。印の付いた版だけが、その最終のものに入る。検証の段階では、依頼者へは何も渡さない。
@@ -66,11 +67,42 @@ def _human(tx: Tx, task_id: UUID) -> bool:
     return human_for_business(tx, tasks.scope(tx, task_id)["business_id"])
 
 
-def task_cleared(tx: Tx, task_id: UUID) -> bool:
-    """門が呼ぶ：この行へ発信してよいか（承認の分だけ）。フルオートなら常に通す。"""
-    if not _human(tx, task_id):
-        return True
-    return tx.one("SELECT 1 FROM salescall.task_approvals WHERE task_id = %s", (task_id,)) is not None
+def uncleared(tx: Tx, task_id: UUID) -> str | None:
+    """門が呼ぶ：この行へ発信してよいか（契約者の承認の分だけ。1か所）。通さないなら門の理由の名前、通すなら None：
+    - correction_unconfirmed：契約者が直した結果でかける電話で、直した契約者が「かけてよい」と確かめていない（データベースの
+      salescall.task_correction_unconfirmed の1か所。✅ 2026-11-18 ユーザー：伺い2「本当に折り返してよいのか確認と承認をもらう。承認なく勝手にかけたら
+      クレームになる可能性があるため」。0240）。検証モードかに関係なく。
+    - awaiting_approval：検証モードの業務で、契約者がまだ行を承認していない（フルオートなら通す）。"""
+    if tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (task_id,))["v"] is not None:
+        return "correction_unconfirmed"
+    if _human(tx, task_id) and tx.one("SELECT 1 FROM salescall.task_approvals WHERE task_id = %s", (task_id,)) is None:
+        return "awaiting_approval"
+    return None
+
+
+def confirm_correction_call(tx: Tx, task_id: UUID) -> int:
+    """契約者が、直した結果でかける電話を「かけてよい」と確かめる（管理者か契約者だけ・いま確かめ待ちの直しだけ＝データベースが守る。0240）。
+    確かめた直しの版を返す。確かめ待ちが無ければ LookupError（何も書かない）。"""
+    version = tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (task_id,))["v"]
+    if version is None:
+        raise LookupError(f"この行は、直した結果でかける電話の確かめを待っていません：{task_id}")
+    tx.execute("INSERT INTO salescall.correction_call_confirms (tenant_id, client_id, task_id, version_no, confirmed_by)"
+               " SELECT tenant_id, client_id, task_id, %s, salescall.cur_actor() FROM salescall.tasks WHERE task_id = %s", (version, task_id))
+    return version
+
+
+def _ask_correction_call(tx: Tx, task_id: UUID, version_no: int) -> None:
+    """直しに従った行の次の予定が「かける」なら、その直しを確かめ待ちにし、直した契約者に知らせる（1か所。`correct_result` だけが呼ぶ。0240）。"""
+    from salescall.core import calling_hours, next_action
+    plan = next_action.current(tx, task_id)
+    if plan is None or plan["kind"] != "call":
+        return
+    tx.execute("INSERT INTO salescall.correction_calls (tenant_id, client_id, task_id, version_no)"
+               " SELECT tenant_id, client_id, task_id, %s FROM salescall.tasks WHERE task_id = %s", (version_no, task_id))
+    when = "すぐ" if plan["call_at"] is None else f"{calling_hours.label(plan['call_at'])}から"
+    notify.emit(tx, "correction_call", key=f"correction_call:{task_id}:{version_no}", refs={"task_id": task_id, "version_no": version_no},
+                summary=f"直していただいた結果に従うと、この行のお客様に{when}おかけします。本当におかけしてよいかを、ダッシュボードで確かめてください"
+                        "（確かめていただくまで、おかけしません）。")
 
 
 def approve_task(tx: Tx, task_id: UUID) -> None:
@@ -153,6 +185,7 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
                                                                 "detail": detail or {}, "snapshot": snapshot})["version_no"]
     _release(tx, task_id, version_no)
     measure.record_check(tx, task_id, checked_version, truth_state=business_state, wrong_items=wrong_items)
+    _ask_correction_call(tx, task_id, version_no)   # 直しで電話をかけることになるなら、直した契約者が確かめるまでかけない（0240）
     return version_no
 
 
