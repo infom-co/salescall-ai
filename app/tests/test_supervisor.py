@@ -2492,6 +2492,15 @@ class Main(SupervisorBase):
             self.assertTrue(stop.is_set())                                     # 古い流れには止める印
             self.assertIsNone(sup.workers[t2["line"]].thread)                  # 立て直す（次の回に新しい流れ）
             self.assertEqual(getattr(left, "apologized", 0), 1)               # つながったままの電話は、おわびして切ってもらう（見直し22 の 8）
+            # 立ち上げ直す前の後始末は、進行中の試行をデータベースの止まり（storage_stuck）のまま終える（回線の処理が止まった worker_lost にしない＝書き込みが
+            # 戻ったらかけ直す道 E21 に乗る。⛔ 2026-11-18 の7回目の見直しまで：worker_lost で終えた）
+            self.assertEqual(sup.workers[t2["line"]].left_why, leases.LEFT)
+            sup.leased[t2["line"]] = t2["tenant"]
+            started = (FakeThread(threading.Event()), threading.Event())
+            with mock.patch.object(main_mod.leases, "recover", return_value=[]) as rec, \
+                    mock.patch.object(sup, "start_worker", return_value=started):
+                sup.watch_workers(time.monotonic() + 1)
+            self.assertEqual(rec.call_args.kwargs.get("why"), leases.LEFT)
             th.join(15)
         self.assertEqual(self.state(t2, got["r"].called), "ended")              # 話し終えた電話（おわびは流さない）
         told = self.w.a.in_tenant(SYSTEM, t2["tenant"], lambda tx: [(r["source"], r["kind"]) for r in tx.all(

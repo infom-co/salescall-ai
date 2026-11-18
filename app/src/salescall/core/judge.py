@@ -76,7 +76,7 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
 JUDGE_VERSION = f"judge-2026-11-18.2+time-{spoken_time.VERSION}"   # 2026-11-18.2（7回目の見直し）：前の通話の答えで止めた「ここで終える」事実（ended_on の turn が無い）は、止めた答えがこの通話の担当の方の答え（判定の材料）にあるときだけ、伺わなかった質問を対象外に数える（_ended_skipped の1か所）
-# 前の版：   # 2026-11-18.1（6回目の見直し・DESIGN.md 15-2 の853）：目的のお客様だと確かめられなかった通話の、こちらがかけ直す申し出（callback）も判定に使わない（_offered＝_asked の1か所）・手短にの事実 brief で伺わなかったと書かれた質問でも、必須の質問は「伺っていない（対象外）」に数えない（必須の項目不足のまま）
+# 前の版：   # 2026-11-18.1（6回目の見直し・DESIGN.md 15-2 の853）：目的のお客様だと確かめられなかった通話の、こちらがかけ直す申し出（callback）も判定に使わない（offered＝_asked の1か所）・手短にの事実 brief で伺わなかったと書かれた質問でも、必須の質問は「伺っていない（対象外）」に数えない（必須の項目不足のまま）
 # 前の版：   # 2026-11-16.2（4回目の見直し (B)・DESIGN.md 7-1e）：目的のお客様だと確かめられなかった通話で伺った業務の事実（範囲外の求め・ご納得いただけなかった点・最終目的のお断り・伺っていない質問・ほかのご希望・申し出・引き継ぎ・手短に）を、判定にも依頼者へも使わない（_asked の1か所＝答えを使わない conversation_io._in_force と同じ決まり）
 # 前の版：   # 2026-11-16.1（CL-1 の連絡帳 4-173 の (3)・伺い31）：手短になら聞くと言われ、必須でも最終目的でもない質問を伺わなかった（会話の報告の事実 brief の skipped）を「伺っていない（対象外）」に数え（ended_on の skipped と同じ1か所＝CallReport.not_asked_by_talk）、その答え（brief）を判定の中身で依頼者へ返す
 # 前の版：   # 2026-11-15.5（CL-1 の連絡帳 4-169・伺い27）：ほかのご希望で方法を並べて伺う前に言っていただいたご希望の中身（会話の報告の other_wish の before_ways）を、判定の中身の other_wish で依頼者へ返す（判定の結果は変わらない）
@@ -459,7 +459,7 @@ def unreached_today(inp: JudgeInput) -> tuple[str | None, bool]:
     r = inp.report
     if r is None:
         return None, False
-    cb = _offered(inp)
+    cb = offered(inp)
     if cb is not None and _untimed_offer(inp, cb):
         return call_report.UNTIMED_OUTCOMES[cb.reason][0], r.may_call_again(lambda c: _untimed_offer(inp, c))
     if inp.facts.reached_answer and r.talked and not inp.reached_target:
@@ -621,7 +621,7 @@ def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:
     通話でも、約束の申し出があれば、すぐにはかけず、約束を守る（次の動き。2026-10-22 ユーザー決定7と同じ扱い。見直し15）。約束に
     ならない申し出（在籍していない・ほかの手段・時刻の取れなかった不在・ご事情）は None。時刻の言葉が読めない・1つに決まらないときは
     時刻の決まっていない約束（at が None）。"""
-    cb = _offered(inp)
+    cb = offered(inp)
     if cb is None or cb.reason in call_report.ENDING_CALLBACKS:
         return None
     when = _when(inp, cb)
@@ -652,7 +652,8 @@ def _unreached_key(r: CallReport) -> str:
     return "not_reached_" + r.not_reached
 
 
-def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallReport | None" = None) -> frozenset[str]:
+def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallReport | None" = None, *,
+              required: frozenset[str] | set[str] = frozenset()) -> frozenset[str]:
     """伺っていない（対象外）の質問（1か所。CL-1 の連絡帳 4-66 の (e)）：前の答えで伺う質問のうち、伺っていない（答えが無い・空）質問で、
     前の質問の答えを受け取っていて（`ANSWERED`）その答えが伺う答えでないか（言い切っていないときだけ伺う質問＝`AskIf.hedged` は、答えが
     言い切っていた＝「曖昧」の印が無いときも。会話の側の Flow._ask_if_follow_ups と同じ決まり。CL-1 の連絡帳 4-71 の (b)）、前の質問も
@@ -672,7 +673,10 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallRep
         if cond.after in out or (src is not None and src.state in ANSWERED
                                  and (src.condition not in cond.answers or (cond.hedged and not src.hedged))):
             out.add(q)
-    talk = frozenset() if report is None else (frozenset(report.brief.skipped if report.brief is not None else ())
+    # 手短にの電話で伺わなかった質問は、必須でも最終目的でもない質問だけ（会話の側の決まり flowctl.brief_asks）：必須の質問（required＝業務の決まりの
+    # 必須）が入っていても対象外にしない（取れていない必須の質問のまま＝「完了」にしない。原則5・6。判定と依頼者へ渡す判定の中身が、この1か所を読む。
+    # ⛔ 2026-11-18 の7回目の見直しまで：この差し引きは判定の中だけで、依頼者へは「伺っていない（対象外）」と渡した）
+    talk = frozenset() if report is None else (frozenset(report.brief.skipped if report.brief is not None else ()) - frozenset(required)
                                                 | frozenset(_ended_skipped(report, items)))
     return frozenset(out | talk)
 
@@ -699,7 +703,7 @@ def _asked(inp: JudgeInput) -> CallReport | None:
     return None if inp.target_unconfirmed else inp.report
 
 
-def _offered(inp: JudgeInput) -> Any:
+def offered(inp: JudgeInput) -> Any:
     """判定が読む、かけ直しの申し出（1か所。約束・時刻の取れなかった申し出・ほかの手段＝(7)・判定できなかった通話の約束の申し出・取り次げなかった
     ときの again）：伺った事実の1か所 `_asked` の報告の callback（目的のお客様だと確かめられなかった通話は無い＝(8) の「取り次いでもらえなかった」。
     ⛔ 2026-11-18 の6回目の見直しまで：申し出だけは報告をそのまま読み、別の方が言った時刻で「折り返し予定」にした）。"""
@@ -713,7 +717,7 @@ def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, 
     業務の質問・said＝お客様の言葉・answer＝会話AIが応えた文か None）・ほかの会社に頼んでいると言われて伺い、言っていただいた問題・心配事＝elsewhere（同じ形）・業務の申し出の答え＝handoff・close_offer（事実の項目のまま＋お客様の言葉 said）・
     条件つきで受けていただいた申し出＝offer_terms・手短になら聞くと言われてかけ直さずに続けた答え＝brief。1か所。どの結果でも依頼者へ返す）。"""
     asked = _asked(inp)   # 伺った事実（目的のお客様だと確かめられなかった通話は無い）
-    skipped = not_asked(inp.ask_if, inp.answers, asked)
+    skipped = not_asked(inp.ask_if, inp.answers, asked, required=inp.rules.required)
     agreed = asked.not_agreed if asked is not None else ()
     wishes = asked.other_wishes if asked is not None else ()
     unfinished = asked.unfinished if asked is not None else ()   # 手順を伺い終えていない質問（依頼者へ返す答えはまだ途中＝`JudgeInput.answers`）
@@ -796,11 +800,7 @@ def _business(inp: JudgeInput) -> Judgement:
     if asked and asked.goal_refusals:
         return done("declined", declined_by="goal", goals=sorted({g for x in asked.goal_refusals for g in x.goals}))
     # (5) 必須の質問がすべて取れた
-    skipped = not_asked(inp.ask_if, inp.answers, asked)   # 伺っていない（対象外）の質問は、取れていない質問に数えない
-    if asked is not None and asked.brief is not None:
-        # 手短にの電話で伺わなかった質問は、必須でも最終目的でもない質問だけ（会話の側の決まり flowctl.brief_asks）：必須の質問が入っていても対象外にしない
-        # （取れていない必須の質問のまま＝「完了」にしない。原則5・6。⛔ 2026-11-18 の6回目の見直しまで：会話の側の skipped をそのまま対象外にした）
-        skipped -= frozenset(asked.brief.skipped).intersection(rules.required) - frozenset(_ended_skipped(asked, inp.answers))
+    skipped = not_asked(inp.ask_if, inp.answers, asked, required=rules.required)   # 伺っていない（対象外）の質問は、取れていない質問に数えない
     answers = inp.answers
     missing = [q for q in rules.required if q not in skipped and (q not in answers or answers[q].state not in TAKEN)]
     if not missing:
@@ -828,7 +828,7 @@ def _business(inp: JudgeInput) -> Judgement:
         return done("not_reached", not_reached="departed", policy_key="not_reached_departed")
     # (7) かけ直しの約束（在籍していないは、かけ直しの申し出ではなく通話の事実 departed で来る＝後任の方を追うのは (8)＝上の印と
     #     _unreached_key。CL-1 の連絡帳 4-69 の 4-182 の (5)）
-    if (cb := _offered(inp)) is not None:
+    if (cb := offered(inp)) is not None:
         if cb.reason in call_report.ENDING_CALLBACKS:
             # ほかの手段を望まれた・在籍していない（電話ではかけ直さない。2026-10-22 ユーザー決定。CL-1 の連絡帳 4-28）：約束にしない。
             # ほかの手段は、目的のお客様に繋がっていても同じ（希望と宛先を記録して締めた）。方針はシステムが決める（業務では変えない）

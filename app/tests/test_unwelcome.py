@@ -282,9 +282,13 @@ class SameNumberOtherRows(SettleBase):
         others = sorted(set(types.values()) - {types[heard]})
         with mock.patch.object(recordings, "ready_voices", return_value=others):   # ほかの声は話せる（同じ業務の声だけ話せない）
             waiting = self.claim(s)
-        self.assertEqual(getattr(waiting, "reason", None), "voice_not_ready")
+        self.assertEqual(getattr(waiting, "reason", None), "business_voice_not_ready")
         told = self.tx(s, lambda tx: [r["summary"] for r in tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'")])
         self.assertIn(gate.SAME_VOICE_NOT_READY.format(types[heard]), told)
+        # 行ごとの理由：候補に出さない（実施回のほかの行は飛ばさない。⛔ 2026-11-18 の7回目の見直しまで：実施回の理由で、実施回全体がかからなかった）
+        self.assertIn("business_voice_not_ready", gate.UNOFFERED_REASONS)
+        with mock.patch.object(recordings, "ready_voices", return_value=others):
+            self.assertEqual(self.tx(s, lambda tx: gate.waits_unknown(tx, s["task"])), "business_voice_not_ready")
 
     def test_the_same_row_keeps_the_voice_the_customer_heard_not_one_that_was_not_answered(self):
         """同じ行で、お客様が出た通話の声（A）のあと、出なかった通話を別の声（B）でかけても、次の電話は A（お客様が聞いた声）。お客様がその声を聞いたかは、
@@ -641,11 +645,17 @@ class MonthAhead(SettleBase):
         once = rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}}
                                 for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")})
         words, first, last, repeat = self.monthly_rounds()[0]
-        s = self.ready(rules=once)
-        with mock.patch.object(next_action, "_missed", return_value=False):   # 試験：その回に1本かけて話せなかった（かけた回＝1＝方針の回数）
-            w, d, p = self.passed(s, first(s), last(s), repeat)
-        self.assertEqual((d.kind, d.promised, d.window), ("call", True, None), words)
-        self.assertIn("1か月以上先のため、次の回へは回さずに別の日に", d.rule)
+        # 「契約者が認めたらかける」の業務でも同じ（範囲の中の回数を使い切っていれば、伺っても次の回にはかけられない。⛔ 2026-11-18 の7回目の見直し
+        # まで：その業務では範囲の中の上限で行を終えた）
+        for setting in (None, "with_approval"):
+            with self.subTest(setting=setting):
+                s = self.ready(rules=once)
+                if setting is not None:
+                    self.choose(s, setting)
+                with mock.patch.object(next_action, "_missed", return_value=False):   # 試験：その回に1本かけて話せなかった（かけた回＝1＝方針の回数）
+                    w, d, p = self.passed(s, first(s), last(s), repeat)
+                self.assertEqual((d.kind, d.promised, d.window), ("call", True, None), words)
+                self.assertIn("1か月以上先のため、次の回へは回さずに別の日に", d.rule)
 
     def test_a_weekly_round_unanswered_goes_to_the_next_week_as_before(self):
         """(4)「金曜なら」（週ごとの理由）の回に話せないまま過ぎた ⇒ いまどおり次の金曜（1か月より手前）。業務の設定に関係なく、伺わない。"""

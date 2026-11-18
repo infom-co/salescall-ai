@@ -1168,6 +1168,9 @@ class Review1118(unittest.TestCase):
         rep = replace(make_report(("target",), cut=CLOSED), brief=Brief(Said(3, "いえ、このままで。"), "いいえ", ("Q1",)))
         got = judge(JudgeInput(TALKED, rep, {}, rules, callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
         self.assertNotEqual(got.state, "completed")
+        # 依頼者へ渡す判定の中身でも、その必須の質問を「伺っていない（対象外）」にしない（伺っていない質問の1か所＝judge.not_asked。⛔ 2026-11-18 の
+        # 7回目の見直しまで：差し引きは判定の中だけで、依頼者へは対象外と渡した）
+        self.assertNotIn("Q1", got.detail.get("not_asked", []))
 
     def test_a_callback_from_an_unconfirmed_call_is_not_used(self):
         from tests.support import callback

@@ -166,6 +166,11 @@ REASONS: dict[str, Reason] = {
     # お詫びを伝える電話（core/apology.carries）で、お詫びの録音の声が、いま話してよい声でない（その声の共通の一言・業務の録音の録り直しがまだ など。
     # 2026-11-15 の見直し）。その声がそろうまで待つ（お詫びの録音はその声でしか流せない＝0131）
     "apology_voice_not_ready": Reason("お詫びの録音の声が、いま話してよい声ではありません（その声の録音がそろうまで待ちます）", "wait", "unoffered"),
+    # 同じ業務でこの番号へ前に話した声が、いまの版で話せない（✅ 2026-11-17 ユーザー「同じ業務であれば、同じ人には同じ声で」）。行ごとの理由（ほかの番号の
+    # 行は別の声で話せる）なので、実施回をまとめて飛ばさず、その行を候補に出さない（⛔ 2026-11-18 の7回目の見直しまで：実施回の理由 voice_not_ready で
+    # 断り、回線の処理が実施回のほかの行もその回は飛ばした＝その行が毎回先頭に出て、実施回全体がかからなかった）
+    "business_voice_not_ready": Reason("この番号へ同じ業務で前に話した声が、いま話してよい声ではありません（その声の録音がそろうまで待ちます）",
+                                       "wait", "unoffered"),
     "voice_used_by_other_client": Reason("ほかの依頼者・この依頼者のほかの業務や実施回が、この番号へ同じ声でかけています（別の声の録音が"
                                          "ありません）", "wait", "unoffered"),
     "client_concurrency": Reason("この依頼者の同時の本数の上限です", "wait", "client"),
@@ -778,7 +783,7 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
         return next(code for code, t in sorted(types.items()) if t["voice_name"] == usable[0] and t["default_for_voice"])
     admin = False
     if waits_mine:
-        reason, summary, key = "voice_not_ready", SAME_VOICE_NOT_READY.format(types[mine]["voice_name"]), ":" + mine
+        reason, summary, key = "business_voice_not_ready", SAME_VOICE_NOT_READY.format(types[mine]["voice_name"]), ":" + mine
     elif ready:
         reason, summary, key = "voice_used_by_other_client", OTHER_VOICE_MISSING, ""
     elif missing := recordings.missing_parts(tx, version_id):   # 業務の録音はあるが、システムの録音（共通の一言・標準の想定問答）に足りない部分がある
