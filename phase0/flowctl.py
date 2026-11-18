@@ -9989,8 +9989,9 @@ class Flow:
         「それでは」を付けない）。戻りには数えない（こちらから戻ったのではない）。✅ 11-14 22時15分15秒（選択肢を並べた文は「それでは」を付けない）・見直し (12) の A-7。
         bare＝repeat のうち、重ねて急かされた（_brief_again）：伺っていた形のまま、もう伺った業務の質問・言い直しにも頭の「それでは」を付けない（頭の無い形＝業務の質問は
         2回目の戻る一言のあとと同じ録音・言い直しは伺ったときの頭の受けの言葉だけを外した文）。✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い41）
-        fresh＝bare のうち、その所で重ねて急かされた3回目から（_brief_again の1か所が決める）：伺う質問を、その所でまだ言っていない形に替えてから伺う（意向が分からないまま
-        戻る形の1か所 soft_form の heard・替えるのは _soften の1か所）。✅ 2026-11-19 日本時間3時17分22秒 ユーザー「伺い46：…3回目の「本当に手短に」が来たとき：イ」"""
+        fresh＝その所で重ねて急かされた3回目から（_brief_again の1か所が決める。伺っている間＝repeat・bare と、お客様に応えてお返事を待つ間＝_resume の final・soft の
+        どちらも）：戻りに数えず・戻る一言と頭の「それでは」を付けず、伺う質問を、その所でまだ言っていない形に替えてから伺う（意向が分からないまま戻る形の1か所
+        soft_form の heard・替えるのは _soften の1か所）。✅ 2026-11-19 日本時間3時17分22秒 ユーザー「伺い46：…3回目の「本当に手短に」が来たとき：イ」"""
         if self.after_answer is not None:
             # 答えに添えられた相手の質問に答えた：先に作っておいた返事（次の質問・言い直し・聞き返し・念のための確認・締め＝_question_first）を、答えのあとに流す
             # （取り出す1か所 _take_after_answer＝その返事の「この発話で言った」印を、いま流すこの発話に付け直す）
@@ -10031,12 +10032,13 @@ class Flow:
             # 一言（文を終えない「…お伺いさせていただきますが」）は言い直しの頭＝言い直しと1つの文で会話AIが言う（言い直しは値を含むので会話AIの声＝録音のあとに
             # 「改めまして（値）で大丈夫でしょうか？」と言うのと同じ形）。問いでない言い直し（「…承っておきますね。」）には文を終えない一言をつながない（asks）
             # お話に沿った受け答えで待ったあとの相づちだけのお返事（soft）も、お話に応えたあとの戻り（言い直しには意向が分からないまま戻る形が無い＝戻る一言から）
-            back = self._back_play(digressed or soft, asks=self.awaiting_say.endswith(("？", "?")))
+            # 重ねて急かされた3回目から（fresh）は戻りに数えず・戻る一言を付けない（伺い41・伺い46 イ。言い直しは形が1つ＝同じ文）
+            back = [] if fresh else self._back_play(digressed or soft, asks=self.awaiting_say.endswith(("？", "?")))
             # 手短にお伺いする一言（_brief_go の1か所。戻る一言があれば流さない＝質問へ戻るときと同じ）
             go = [] if back else self._brief_go(self.questions.get(self.awaiting_confirm), shown)
             btext = "".join(p["text"] for p in back + go)
             joined = bool(back) and not closes(btext)
-            say, then = (drop_receipt(self.awaiting_say) if bare else restated_again(self.awaiting_say, btext)), ""
+            say, then = (drop_receipt(self.awaiting_say) if bare or fresh else restated_again(self.awaiting_say, btext)), ""
             note = say_note(say, "もう一度、言い直し")
             if (back or go) and not joined and self.play_recordings:
                 play += back + go
@@ -10065,10 +10067,11 @@ class Flow:
         asks = q is not None and (q.text if q.reading_of else question_play(qs, q.id)["text"]).endswith(("？", "?"))
         # お話に応えたあとでない戻り（尋ねられて答えたあと・待ったあとの相づちだけ＝final・soft）も同じ所への戻りに数える（plain）。1回目でも意向が分からないまま
         # 戻る形で言い方を変えられない質問（言い換えも選択肢を並べた文も無い・もうその形で伺っている）は、今伺った文をすぐくり返さない＝2回目の一言から（stuck）
-        plain = (final or soft) and again and not digressed and not repeat
+        # 重ねて急かされた3回目から（fresh）は戻りに数えず・戻る一言を付けない（伺い41・伺い46 イ＝その所でまだ言っていない形で伺う。下の _soften の heard）
+        plain = (final or soft) and again and not digressed and not repeat and not fresh
         base = self.soft_plain.get(q.id, q) if q is not None else None
         stuck = plain and soft_fits(q) and soft_form(base, lead) is base
-        back = self._back_play(digressed, asks=asks, plain=plain, stuck=stuck)
+        back = [] if fresh else self._back_play(digressed, asks=asks, plain=plain, stuck=stuck)
         # 手短にお伺いする一言（_brief_go の1か所。戻る一言があれば、その一言が質問へのつなぎ＝流さない）。戻る一言と同じく質問の前の言葉（頭を重ねない）だが、お客様の
         # お返事は受けない（相づちは今の決まりのまま＝bridged にしない）
         go = [] if back else self._brief_go(q, shown)
@@ -10188,8 +10191,9 @@ class Flow:
         お詫びの相づち「失礼いたしました。」（_ack）のあと、いまの位置へ戻る（_continue）。相手の質問に自分の言葉で答えたあと（_own_answer）の
         相手の返事（「そうですか」「わかりました」）も、ここから戻る（相づちはお礼）。応える前の相手の言葉にいまの質問の答えがあるか、AIが選ぶ
         ところ（_held_now・_return_note）で、AIが「入っていない」と選んだときも、ここから戻る（覚えておいた言葉は、もう使わない）。
-        fresh＝お客様に応えてお返事を待つ間に、その所で重ねて急かされた3回目から（_brief_again）：待ちを終えるのは同じで、戻り方は伺っている間の3回目からと同じ
-        （_continue の repeat・bare・fresh＝戻りに数えず・戻る一言を付けず・その所でまだ言っていない形。伺い46 イ）"""
+        fresh＝お客様に応えてお返事を待つ間に、その所で重ねて急かされた3回目から（_brief_again）：待ちを終える所も戻り方の決まり（尋ねられて答えたあとは同じ言い直し・
+        勧めた向きのある質問へ戻らずに最終の確かめ＝11-06 11時19分55秒）も同じで、質問へ戻るときは伺っている間の3回目からと同じ形（_continue の fresh＝戻りに数えず・
+        戻る一言と頭の「それでは」を付けず・その所でまだ言っていない形。伺い46 イ）"""
         # 取っておいた返事（_question_first）が、先に言われたことを伺う番（_offer_ahead が、その返事を作った発話に立てた印 offered）なら、その言葉は取っておいた
         # 返事のもの＝消さずに、流す時に使う（_take_after_answer が印を流す時の発話に付け直す）。⛔ 2026-11-08 日本時間11時台：消していたので、急いでいる方への
         # 伺いへの「はい、来週なら大丈夫です。」に添えた質問に答えたあと、「来週」の報告を答えたあとの発話の言葉に当てていた
@@ -10235,8 +10239,7 @@ class Flow:
         lead = self.items[self.current].led_by if self.current is not None else ""
         if self.current is not None:
             self.items[self.current].led_by = ""
-        r = (self._continue([], "", repeat=True, bare=True, fresh=True) if fresh else
-             self._continue([], "", final=own == ASKED_REPLY, soft=waited is not None, lead=lead))
+        r = self._continue([], "", final=own == ASKED_REPLY, soft=waited is not None, lead=lead, fresh=fresh)
         if r["result"] == "confirm_required":
             return r   # 最終の確かめ（_final_check）：相づちは確かめの一言の頭（_ack）
         if r["result"] == "end":
@@ -12727,9 +12730,10 @@ class Flow:
         mark = {"hurried": place}   # 相づちを選ぶ印（_ack_choice）は、どの所で受け直したか（下の3回目からが読む）
         fresh = any(x["reply"].get("hurried") == place for x in self.log)   # その所で、もう重ねて急かされて受け直した＝3回目から
         if self._reply_may_answer():
-            # お客様に応えてお返事を待っている間：1回目は相づちだけのお返事と同じ戻り（_resume）・3回目からは、待ちを終える所は同じ（_resume）で、伺っている間の
-            # 3回目からと同じ形（fresh。⛔ 4e94ba37 まで、その所で重ねて急かされたあとにまた尋ねられて答えてからの急かしも、相づちだけのお返事の戻り＝戻る一言の
-            # 回数で決まる形「承知しました。それではもう一度確認させていただきますね。ご連絡は…」で、まだ言っていない形を通らなかった＝分身 E の書き置きの穴 (c)）
+            # お客様に応えてお返事を待っている間：相づちだけのお返事と同じ戻り（_resume＝待ちを終える・尋ねられて答えたあとの最終の確かめの決まりも同じ）。3回目からは、
+            # 質問へ戻るとき伺っている間の3回目からと同じ形（fresh＝戻りに数えず・戻る一言を付けず・まだ言っていない形。⛔ 4e94ba37 まで、その所で重ねて急かされた
+            # あとにまた尋ねられて答えてからの急かしは、戻る一言の回数で決まる形「承知しました。それではもう一度確認させていただきますね。ご連絡は…」で、まだ言って
+            # いない形を通らなかった＝分身 E の書き置きの穴 (c)）
             return self._resume(fresh=fresh) | mark
         return self._continue([], "", repeat=True, bare=True, fresh=fresh) | mark
 

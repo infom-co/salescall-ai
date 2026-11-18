@@ -34618,6 +34618,32 @@ class HeardFormsTest(unittest.TestCase):
                 self.assertEqual(self.heard(r), "承知しました。" + b.CONTACT)
             r = self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
             self.assertEqual((f.export()["Q2"], f.current), ("メール", "Q3"), play)
+        # 言い直しの確かめ（形が1つ）について尋ねられて答えたあとの3回目からの急かし：待ちを終える戻りの決まりはそのまま（同じ言い直しへ戻らずに最終の確かめ＝
+        # 11-06 日本時間11時19分55秒）。戻る一言は付けない（⛔ 入れる途中の作り e6cdffa0 は、3回目からを伺っている間と同じ戻りにしたので、同じ言い直し
+        # 「承知しました。明日の午後でよろしいでしょうか？」をくり返した）
+        from flowctl import CALLBACK_IDS
+        from grounding import GROUNDED
+        o = BriefOfferRulesTest()
+        c1 = CALLBACK_IDS["time"]
+        f = o.asked()
+        o.yes(f)
+        r = self.turn(f, "じゃあ、明日の午後で。", self.rd("答えた"), "record_answer", question_id=c1, condition_id="答えた", value="明日の午後")
+        self.assertEqual(f.awaiting_confirm, c1)
+        from flowctl import drop_receipt
+        said = drop_receipt(f.awaiting_say)   # 伺ったときの頭の受けの言葉（「かしこまりました。」）は外す
+        r = b.again(f)   # 全体の2回目：伺っていた形のまま（今のまま）
+        self.assertEqual(self.heard(r), "承知しました。" + said)
+        from flowctl import QUERY, QUERY_YES, UNDECIDED
+        q = self.rd(UNDECIDED)
+        setattr(q, QUERY, QUERY_YES)
+        self.turn(f, "午後って何時ごろになりますか？", q, "confirm_field", question_id=c1, result="no_answer")
+        own = "午後の早い時間にお電話させていただく予定でございます。"
+        grounded(f, own, GROUNDED)
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": own})["result"], "own_answer")
+        r = b.again(f)   # 全体の3回目（お返事を待つ間）：最終の確かめ（同じ言い直しをくり返さない）
+        self.assertEqual((r.get("ack"), r["result"]), ("shouchi_hurried", "confirm_required"))
+        self.assertNotEqual(self.heard(r), "承知しました。" + said)
+        self.assertNotIn("それではもう一度確認させていただきますね。", self.heard(r))
 
     def test_e_the_ai_voice_call_reads_only_what_the_customer_was_asked(self):
         from grounding import GROUNDED
