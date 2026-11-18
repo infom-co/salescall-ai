@@ -4,7 +4,7 @@
 なにを決めるか・根拠・決めないと何が起きるか・ボタン（承認する／差し戻す）。並び順は緊急 → 期限 → 古い順（`ordered`）。
 
 この表に無い承認を、別の画面に作らない。種類を足すときは、ここに1行足す（docs/DASHBOARD.md 4-2 の表と同じ並び）。
-⏳ まだ入れていない種類：録音の承認・名前の録音の審査（どちらも録音を聞く仕組みが要る）・修正依頼（管理者だけ。システムの取引）。
+⏳ まだ入れていない種類：録音の承認・名前の録音の審査（どちらも録音を聞く仕組みが要る）。
 解決策の確かめは、出すがボタンはまだ（`_solutions` の説明）。
 """
 
@@ -16,7 +16,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, apology, calling_hours, client_solutions, conversation_io, next_action, row_fixes, tasks, usage
+from salescall.core import (approval, apology, calling_hours, client_solutions, conversation_io, fix_requests, next_action, row_fixes,
+                            tasks, usage)
 from salescall.core.access import Tx
 from salescall.output import words
 
@@ -48,8 +49,9 @@ class Item:
 @dataclass(frozen=True)
 class Kind:
     title: str
-    collect: Callable[[Tx], list[Item]]                       # 依頼者の取引で、その種類の承認待ちを集める
+    collect: Callable[[Tx], list[Item]]                       # その範囲の取引で、その種類の承認待ちを集める
     perform: dict[str, tuple[Callable[[Tx, dict[str, str]], Any], str]]   # ボタン → (決める部品, 済んだときの言葉)
+    where: str = "client"   # 集めて決める取引：client＝依頼者ごと（依頼者の取引）／system＝全体（管理者だけ。システムの取引。データベースも守る）
 
 
 def _business_of(tx: Tx, task_id: Any) -> dict[str, Any]:
@@ -183,6 +185,22 @@ def _solutions(tx: Tx) -> list[Item]:
     return items
 
 
+def _fixes(tx: Tx) -> list[Item]:
+    """担当が「直した」と報告し、管理者がまだ承認していない修正依頼（システムの取引。管理者だけ）。"""
+    items = []
+    for r in tx.all("SELECT q.request_id, q.assignee, q.summary, q.requested_at, p.note, p.reported_at FROM salescall.fix_requests q"
+                    " JOIN salescall.fix_reports p ON p.request_id = q.request_id"
+                    " WHERE NOT EXISTS (SELECT 1 FROM salescall.fix_approvals a WHERE a.request_id = q.request_id)"
+                    " ORDER BY p.reported_at, q.request_id"):
+        items.append(Item(
+            kind="fix", key={"request_id": str(r["request_id"])}, title="修正依頼の承認",
+            decide="直した中身を確かめて、承認してよいか",
+            evidence=[("不具合", r["summary"]), ("直した担当", r["assignee"]), ("直した中身", r["note"])],
+            if_not="承認するまで、この直しは確かめ待ちのまま残ります。", at=r["reported_at"],
+            buttons=(Button("approve", "確かめて承認する", main=True),)))
+    return items
+
+
 KINDS: dict[str, Kind] = {
     "apology": Kind("お詫びの電話の承認", _apologies, {
         "approve": (lambda tx, k: apology.approve(tx, int(k["order_id"]), UUID(k["set_id"])), "承認しました。お詫びの電話をかけます。"),
@@ -204,15 +222,18 @@ KINDS: dict[str, Kind] = {
     "deficit": Kind("赤字の確認", _deficit, {
         "confirm": (lambda tx, k: usage.confirm_deficit(tx, int(k["warning_id"])), "確かめたことを記録しました。"),
     }),
+    "fix": Kind("修正依頼の承認", _fixes, {
+        "approve": (lambda tx, k: fix_requests.approve(tx, int(k["request_id"])), "承認しました。"),
+    }, where="system"),
 }
 
 
-KEY_FIELDS = ("attempt_id", "seq", "warning_id", "order_id", "set_id", "task_id", "run_id", "solution_id")   # 受け箱の操作が送り返してよい鍵の名前（ほかの欄は読まない）
+KEY_FIELDS = ("attempt_id", "seq", "warning_id", "order_id", "set_id", "task_id", "run_id", "solution_id", "request_id")   # 受け箱の操作が送り返してよい鍵の名前（ほかの欄は読まない）
 
 
-def collect(tx: Tx) -> list[Item]:
-    """依頼者の取引で、すべての種類の承認待ち。"""
-    return [item for kind in KINDS.values() for item in kind.collect(tx)]
+def collect(tx: Tx, where: str = "client") -> list[Item]:
+    """その範囲（client＝依頼者の取引／system＝システムの取引）の、すべての種類の承認待ち。"""
+    return [item for kind in KINDS.values() if kind.where == where for item in kind.collect(tx)]
 
 
 def ordered(items: list[Item]) -> list[Item]:

@@ -38,7 +38,7 @@
     <div class="actions">
       {% if i.buttons %}
         {% for b in i.buttons %}
-        <form method="post" action="/c/{{ c.client_id }}/inbox/{{ i.kind }}/{{ b.action }}">
+        <form method="post" action="{{ '/c/' ~ c.client_id if c.client_id else '/admin' }}/inbox/{{ i.kind }}/{{ b.action }}">
           {{ csrf(token) }}
           {% for k, v in i.key.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
           <button class="btn {{ 'main' if b.main }}" type="submit">{{ b.label }}</button>

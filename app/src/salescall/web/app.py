@@ -32,6 +32,7 @@ from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, ac
 
 HERE = Path(__file__).resolve().parent
 ACTING_COOKIE = "acting_tenant"   # 管理者が見ている契約者（署名つき）
+SYSTEM_PLACE: dict[str, Any] = {"client_id": None, "name": "全体（管理者だけ）"}   # 全体の範囲の承認待ちの「どこ」
 
 
 def _time(t: datetime | None) -> str:
@@ -59,6 +60,8 @@ def _waiting(ctx: Ctx, client_id: UUID | None = None, business_id: UUID | None =
     chosen = [c for c in ctx.clients() if client_id is None or c["client_id"] == client_id]
     pairs = [(c, i) for c in chosen for i in ctx.client(c["client_id"], inbox.collect)
              if (business_id is None or i.business_id == business_id) and (kind is None or i.kind == kind)]
+    if ctx.person.is_admin and client_id is None and business_id is None:   # 全体の範囲の種類（管理者だけ）は、依頼者で絞らないときだけ
+        pairs += [(SYSTEM_PLACE, i) for i in ctx.system(lambda tx: inbox.collect(tx, "system")) if kind is None or i.kind == kind]
     rank = {id(i): n for n, i in enumerate(inbox.ordered([i for _, i in pairs]))}
     return sorted(pairs, key=lambda ci: rank[id(ci[1])])
 
@@ -163,7 +166,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             pick_kind = kind if kind in inbox.KINDS else None
             pick_client = ids[client]["client_id"] if client in ids else None
             rows = every if pick_kind is None and pick_client is None else _waiting(ctx, pick_client, kind=pick_kind)
-            per_kind = [(k, v.title, sum(1 for _, i in every if i.kind == k)) for k, v in inbox.KINDS.items()]
+            per_kind = [(k, v.title, sum(1 for _, i in every if i.kind == k)) for k, v in inbox.KINDS.items()]   # 0 の種類は出さない
             return page(request, "inbox.html", person, ctx, rows=rows, per_kind=per_kind, total=len(every),
                         pick_kind=pick_kind or "", pick_client=str(pick_client or ""), done=done, ok=bool(ok))
         return handle(request, render)
@@ -173,11 +176,25 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         form = dict(await request.form())
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             k = inbox.KINDS.get(kind)
-            if k is None or action not in k.perform:
+            if k is None or k.where != "client" or action not in k.perform:
                 raise NotFound()
             do, done = k.perform[action]
             key = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, lambda tx: do(tx, key)), done=done)
+            return _back("/t/inbox", out)
+        return handle(request, render)
+
+    @app.post("/admin/inbox/{kind}/{action}")
+    async def admin_inbox_act(request: Request, kind: str, action: str) -> HTMLResponse:
+        """全体の範囲の承認待ち（管理者だけ。管理者でなければ「見つかりません」＝ctx.system が断る。データベースも守る）。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            k = inbox.KINDS.get(kind)
+            if k is None or k.where != "system" or action not in k.perform:
+                raise NotFound()
+            do, done = k.perform[action]
+            key = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
+            out = actions.act(secret, person.login_id, form, lambda: ctx.system(lambda tx: do(tx, key)), done=done)
             return _back("/t/inbox", out)
         return handle(request, render)
 

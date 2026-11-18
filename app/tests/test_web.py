@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import re
 import unittest
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
 from salescall.core import stops
 from salescall.web.app import create_app
 from salescall.web.context import Person
-from tests.support import OPERATOR, World, app_access
+from tests.support import OPERATOR, SYSTEM, World, app_access
 
 SECRET = b"test-only-secret"
 
@@ -278,6 +278,29 @@ class AdminSeesEverything(_World):
         def identify(request):
             return self.people.get(request.headers.get("x-test-person", ""))
         return TestClient(create_app(app_access(), identify, SECRET))
+
+    def test_a_fixed_request_waits_for_the_admin_only_and_the_admin_approves_it(self):   # 修正依頼の承認（全体の範囲）
+        from salescall.core import fix_requests
+        key = f"web-test-{uuid4()}"
+        def make(tx):
+            fix_requests.request(tx, "CL-3", "web_test", key=key, summary="画面の試験の不具合（架空）")
+            rid = tx.one("SELECT max(request_id) AS r FROM salescall.fix_requests WHERE summary = %s", ("画面の試験の不具合（架空）",))["r"]
+            fix_requests.report_fixed(tx, rid, "試験のために直した（架空）")
+            return rid
+        rid = app_access().in_system(SYSTEM, make)
+        self.assertNotIn("画面の試験の不具合（架空）", self.get("A", "/t/inbox").text)              # 契約者には出さない
+        self.assertEqual(self.post("A", "/admin/inbox/fix/approve",
+                                   {"form_token": self.token("A"), "request_id": str(rid)}).status_code, 404)
+        self.assertEqual(self.post("A", f"/c/{self.a['client']}/inbox/fix/approve",                   # 依頼者の道からも決められない
+                                   {"form_token": self.token("A"), "request_id": str(rid)}).status_code, 404)
+        page = self.get("ADMIN", "/t/inbox").text
+        self.assertIn("画面の試験の不具合（架空）", page)
+        self.assertIn("全体（管理者だけ）", page)
+        r = self.post("ADMIN", "/admin/inbox/fix/approve", {"form_token": self.token("ADMIN"), "request_id": str(rid)})
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertTrue(app_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT 1 FROM salescall.fix_approvals WHERE request_id = %s", (rid,)) is not None))
+        self.assertNotIn("画面の試験の不具合（架空）", self.get("ADMIN", "/t/inbox").text)
 
     def test_the_admin_switches_to_another_contractor_sees_and_operates_it(self):
         http = self.fresh()
