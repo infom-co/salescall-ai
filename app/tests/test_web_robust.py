@@ -58,6 +58,15 @@ class NothingBreaks(_World):
         r = self.http.put("/t", headers={"x-test-person": "A"})                 # 開き方が違う
         self.assertIn("この開き方はできません", r.text)
 
+    def test_yen_is_written_without_an_exponent(self):
+        from decimal import Decimal
+        from salescall.web.app import _yen
+        self.assertEqual(_yen(Decimal("12345.6")), "12,346円")
+        self.assertEqual(_yen(Decimal("35000"), unit_price=True), "35,000円")
+        self.assertEqual(_yen(Decimal("0.000012"), unit_price=True), "0.000012円")
+        self.assertEqual(_yen(Decimal("12.50"), unit_price=True), "12.5円")
+        self.assertEqual(_yen(Decimal("NaN")), "—")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -145,3 +145,18 @@ class NotForClient(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NotForClientGaps(unittest.TestCase):
+    """依頼者へ出さない言葉の確かめの穴（全角・半角・大文字・漢字の隣・1語の内部の名前）。"""
+
+    def test_each_way_of_writing_is_caught(self):
+        from salescall.output import words as w
+        for text, hit in (("ＡＩが話した", "AI"), ("ｼｽﾃﾑの都合", "システム"), ("DO_NOT_CALL", "DO_NOT_CALL"),
+                          ("do_not_call電話", "do_not_call"), ("holdの行", "hold"), ("gate.same_contact_min_interval秒", "gate.same_contact_min_interval")):
+            with self.subTest(text=text):
+                self.assertIn(hit, w.not_for_client(text))
+        for text in ("Taibot社", "最後までお話しできました", "管理番号"):
+            with self.subTest(text=text):
+                self.assertEqual(w.not_for_client(text), [])
+

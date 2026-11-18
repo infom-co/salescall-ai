@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from salescall.core import ai_plans, ai_troubles, business_import, errors, exclusions, gate, notify, stops
@@ -258,7 +259,7 @@ SETTING_CHOICE_WORDS: dict[str, dict[str, str]] = {
 PLAN_WORDS: dict[str, str] = {"included": "AI料金込み（システムのキーで呼ぶ）", "own": "自分で API を契約する（契約者のキーで呼ぶ）"}
 # 値の特別な名前（値の形 gap_or_never・day_or_gap の文字の値。値を見せる web/setting_forms と、説明の文の置き換えが同じ表を読む）
 SETTING_VALUE_WORDS: dict[str, str] = {"never": "かけない", "next_day": "その日はかけない"}
-_SETTING_KEY = re.compile(r"\b([a-z]+)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*\b")
+_SETTING_KEY = re.compile(r"(?<![A-Za-z0-9_])([a-z]+)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*(?![A-Za-z0-9_])")   # 漢字の隣でも当てる（\b は漢字を語の一部と見る）
 
 
 def _choices(key: str) -> dict[str, str]:
@@ -318,15 +319,34 @@ def ai_trouble_stage(name: str) -> str:
 NOT_FOR_CLIENT: tuple[str, ...] = ("AI", "人工知能", "自動", "システム", "system", "データベース", "ボット", "bot", "ロボット",
                                    "判定", "検証", "模擬")
 _ASCII_WORD = re.compile(r"[A-Za-z]+")
-_INTERNAL_NAME = re.compile(r"\b[a-z]+(?:_[a-z]+)+\b")   # 内部の英字の名前（例：do_not_call・callback_scheduled）
+# 内部の英字の名前（下線・点でつないだ名前。例：do_not_call・DO_NOT_CALL・gate.same_contact）。漢字の隣でも当てる（\b は使わない）。
+_INTERNAL_NAME = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]+(?:[_.][A-Za-z0-9]+)+(?![A-Za-z0-9_])")
 
 
 def not_for_client(text: str) -> list[str]:
     """こちらが作った言葉のうち、依頼者へ出してはいけない言葉（見つかったもの。空なら出してよい）。英字の言葉は大文字・小文字を問わず、
     英字の語として当たったときだけ数える（「Taibot」のような語の一部では数えない）。内部の英字の名前（下線でつないだ名前）も当てる。"""
-    found = [w for w in NOT_FOR_CLIENT if not w.isascii() and w in text]
-    ascii_words = {m.group(0).lower() for m in _ASCII_WORD.finditer(text)}
+    t = unicodedata.normalize("NFKC", text)   # 全角の英字（ＡＩ）・半角のカタカナ（ｼｽﾃﾑ）も同じ字として当てる
+    found = [w for w in NOT_FOR_CLIENT if not w.isascii() and w in t]
+    ascii_words = {m.group(0).lower() for m in _ASCII_WORD.finditer(t)}
     found += [w for w in NOT_FOR_CLIENT if w.isascii() and w.lower() in ascii_words]
-    found += _INTERNAL_NAME.findall(text)
+    found += [m.group(0) for m in _INTERNAL_NAME.finditer(t)]
+    alone = {m.group(0).lower() for m in _ASCII_WORD.finditer(_INTERNAL_NAME.sub(" ", t))}   # つないだ名前の中の語は、上で当てた
+    found += sorted(w for w in alone & _internal_words() if w not in {f.lower() for f in found})   # 1語の内部の名前（例：hold）
     return found
+
+
+def _internal_words() -> frozenset[str]:
+    """内部の英字の名前（1語のものも）。正本は、この言葉の表の鍵（データベースの値・core の名前と突き合わせて試験している）。"""
+    global _INTERNAL_WORDS
+    if _INTERNAL_WORDS is None:
+        keys: set[str] = set()
+        for v in list(globals().values()):
+            if isinstance(v, dict):
+                keys |= {k for k in v if isinstance(k, str) and re.fullmatch(r"[a-z][a-z0-9_]*", k)}
+        _INTERNAL_WORDS = frozenset(w for k in keys for w in re.findall(r"[a-z]+", k) if len(w) >= 3) | frozenset(keys)
+    return _INTERNAL_WORDS
+
+
+_INTERNAL_WORDS: frozenset[str] | None = None
 

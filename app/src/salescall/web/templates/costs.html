@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% from "parts.html" import tag, flash, csrf, empty %}
 {% block title %}費用と報酬{% endblock %}
-{% macro yen(v) %}{{ "{:,.0f}".format(v|float) }}円{% endmacro %}
 {% block main %}
 <h1>費用と報酬</h1>
 <p class="lead">今月（日本時間の月初めから今まで）の、依頼者ごとの報酬と費用です。赤字になっても電話は止めません（お知らせだけです）。</p>
@@ -37,7 +36,7 @@
     <tr>
       <td>{{ words.PRICE_SOURCE_WORDS.get(p.source, words.NO_WORD) }}{% if p.tier %}<div class="muted">{{ words.PRICE_TIER_WORDS.get(p.tier, "") }}</div>{% endif %}</td>
       <td>{{ p.service_label }}</td>
-      <td class="num nowrap">{{ "{:,.4g}".format((p.yen_per_unit * scale)|float) }}円<div class="muted">{{ unit_label }}</div></td>
+      <td class="num nowrap">{{ yen(p.yen_per_unit * scale, unit_price=True) }}<div class="muted">{{ unit_label }}</div></td>
       <td>{{ tag("この契約者の値", "info") if p.by_contractor else tag("初めの値", "") }}</td>
       <td class="nowrap">
         <details class="adder"><summary class="btn small">変える</summary>

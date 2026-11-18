@@ -498,6 +498,14 @@ class Web(_World):
         self.assertGreater(len(seen), 10)
         self.assertEqual(problems, [])
 
+    def test_a_notice_for_the_admin_is_shown_to_the_admin_only(self):   # 誰に見せるかはデータベースの1か所（画面で絞り直さない）
+        from salescall.core import notify
+        kind = next(iter(notify.KINDS))
+        app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: notify.emit(
+            tx, kind, key="試験：管理者だけの知らせ", summary="架空の管理者あての知らせ", admin=True, contractor=False))
+        self.assertNotIn("架空の管理者あての知らせ", self.get("A", "/t/notices").text)
+        self.assertIn("架空の管理者あての知らせ", self.get("ADMIN", "/t/notices").text)
+
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",

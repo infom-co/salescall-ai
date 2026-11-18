@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -47,6 +49,21 @@ SYSTEM_PLACE: dict[str, Any] = {"client_id": None, "name": "全体（管理者�
 def _time(t: datetime | None) -> str:
     """時刻の書き方（1か所＝calling_hours.label。日本時間。年は出さない）。"""
     return calling_hours.label(t) if t else ""
+
+
+def _yen(v: Any, *, unit_price: bool = False) -> str:
+    """円の書き方（1か所）。金額は1円単位・3桁ごとの区切り。単価（unit_price）は小さい値もあるので有効数字6桁まで（指数の形にしない）。"""
+    if v is None:
+        return "—"
+    d = Decimal(str(v))
+    if not d.is_finite():
+        return "—"
+    if unit_price and d != 0:   # 有効数字6桁まで（0.000012 のような小さい単価も 0 にしない）
+        q = d.quantize(Decimal(1).scaleb(min(0, d.adjusted() - 5)))
+    else:
+        q = d.quantize(Decimal("1"))
+    text = f"{q:,f}"
+    return (text.rstrip("0").rstrip(".") if "." in text else text) + "円"
 
 
 def _phone(e164: str | None) -> str:
@@ -86,7 +103,7 @@ def _waiting(ctx: Ctx, client_id: UUID | None = None, business_id: UUID | None =
 
 def _templates() -> Jinja2Templates:
     t = Jinja2Templates(directory=str(HERE / "templates"))   # 文字は必ず「文字として」出す（自動のエスケープ）
-    t.env.globals.update(words=words, time=_time, phone=_phone, token_field=actions.TOKEN_FIELD)
+    t.env.globals.update(words=words, time=_time, phone=_phone, yen=_yen, token_field=actions.TOKEN_FIELD)
     return t
 
 
@@ -315,13 +332,20 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
 
     @app.get("/t/notices")
     def notices_page(request: Request) -> HTMLResponse:
+        """知らせ（契約者の台帳）。管理者には、管理者あての知らせ（全体の取引でだけ見える＝データベースの1か所 0084）も別の欄に出す。"""
+        def read(only_admin: bool) -> Callable[[Any], list[dict[str, Any]]]:
+            def run(tx: Any) -> list[dict[str, Any]]:
+                rows = tx.all(
+                    "SELECT e.event_id, e.client_id, e.kind, e.summary, e.occurred_at, e.urgent,"
+                    "       ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
+                    " FROM salescall.notification_events e WHERE e.for_admin = %s"
+                    " ORDER BY e.urgent DESC, e.occurred_at DESC, e.event_id DESC LIMIT 200", (only_admin,))
+                return [{**r, "state": notices.delivery_state(r["statuses"])} for r in rows]
+            return run
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            rows = ctx.tenant(lambda tx: tx.all(
-                "SELECT e.event_id, e.client_id, e.kind, e.summary, e.occurred_at, e.urgent, e.for_admin,"
-                "       ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
-                " FROM salescall.notification_events e ORDER BY e.urgent DESC, e.occurred_at DESC, e.event_id DESC LIMIT 200"))
-            rows = [{**r, "state": notices.delivery_state(r["statuses"])} for r in rows]
-            return page(request, "notices.html", person, ctx, rows=rows, state_words=notices.STATE_WORDS)
+            rows = ctx.tenant(read(False))
+            admin_rows = ctx.system(read(True)) if person.is_admin else []
+            return page(request, "notices.html", person, ctx, rows=rows, admin_rows=admin_rows, state_words=notices.STATE_WORDS)
         return handle(request, render)
 
     # ── 設定（docs/DASHBOARD.md 5-9。Intent.md 5-3・5-4）：契約者・依頼者・業務の段で、同じ1つの画面 ──────────
