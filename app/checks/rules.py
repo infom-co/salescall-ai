@@ -294,6 +294,10 @@ _WRITE = re.compile(r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+salescall\." + _N
 # 表と同じ1つの決まり（書く所は1か所）。データベースの関数がこの表とずれていないかは tests/test_foundation の試験が確かめる。
 WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "agent_beat": frozenset({_CORE + "agents.py"}),              # PC の合図（5-5）
+    "pc_login_start": frozenset({_CORE + "agents.py"}),          # PC のログインの待ち（5-5。0241）
+    "pc_login_decide": frozenset({_CORE + "agents.py"}),
+    "pc_login_poll": frozenset({_CORE + "agents.py"}),
+    "pc_login_take": frozenset({_CORE + "agents.py"}),
     "lease_line": frozenset({_CORE + "leases.py"}),              # 回線の借用（5-4）
     "return_line": frozenset({_CORE + "leases.py"}),
     "recover_lines": frozenset({_CORE + "leases.py"}),           # 落ちた試行の後始末
