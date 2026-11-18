@@ -185,8 +185,9 @@ CL2_PENDING = frozenset({"decide_way_words",   # 方法を申し出の中身に�
                          # 手短になら聞くと言われて伺った一言（H3）に「いいえ」などをいただき伺い続けるとき、質問の前に流す一言の共通の一言の録音（「それでは手短に
                          # お伺いいたしますね。」。✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」。CL-2 への知らせはまとめ役）
                          "brief_go",
-                         # 受付の方・約束の電話の「…後ほど改めてお掛けしてもよろしいでしょうか？」に「はい」をいただいて、そのまま締めるときの言い切りの共通の一言の録音
-                         # （「後ほど改めてお掛けいたしますね。」＝flowctl.taken_line。✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」。CL-2 への知らせはまとめ役）
+                         # こちらがかけ直す申し出（C7・P1・H1・H3）に「はい」をいただき、かけ直す時刻を伺えないまま締めるときの言い切りの共通の一言の録音
+                         # （「また改めてお掛けいたしますね。」＝flowctl.taken_line。✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」・✅ 2026-11-18 日本時間
+                         # 3時31分56秒 ユーザー「伺い39 ア」で文が「後ほど…」から替わった。CL-2 への知らせはまとめ役＝4-175・4-177）
                          "call_again_taken"})
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す）
 CL2_RETIRED = frozenset({"dounasaimasu"})   # 「どうなさいますか？」＝5秒黙られたときの一言を替えた（11-07 18時03分49秒「(2) イ」。CL-1.md 4-109）
@@ -8914,7 +8915,7 @@ class CallbackTest(unittest.TestCase):
     def test_absent_without_a_return_time_asks_about_today(self):
         # ✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」（CL-2 の 4-140 (a)：「不在なら、出られる日時を聞き出す。聞き出せなかったら、
         # その日はかけない」）：戻る時刻が分からなければ、本日のお戻りのご予定を伺い、「いいえ」でなければ改めてお掛けしてよいかを伺う
-        from phrases import CALLBACK_ASK
+        from phrases import CALLBACK_ASK, CALLBACK_ASK_ANSWERING
         f = self.flow()
         self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
         r = self.say(f, "戻りの時間はちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
@@ -8922,6 +8923,10 @@ class CallbackTest(unittest.TestCase):
         r = self.say(f, "はい、今日中には戻ると思います。", "record_answer", question_id="C6", condition_id="はい")
         self.assertEqual((r["result"], r["question_id"], r["question"]), ("next", "C7", CALLBACK_ASK["call_again"]))
         r = self.say(f, "はい、お願いします。", "record_answer", question_id="C7", condition_id="はい")
+        # 「はい」のあとは締めずに、かけ直しの時刻を伺う（✅ 2026-11-17 日本時間13時57分41秒 管理者＝CallAgainTimeTest。目的の人の無い業務は答えの段＝答えの段の
+        # 一言。⛔ bd68aa75 まで、ここで締めた）。伺えなければ今の締め
+        self.assertEqual((r["result"], r["question_id"], r["question"]), ("next", "C1", CALLBACK_ASK_ANSWERING["later_time"]))
+        r = self.say(f, "ちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
         self.assertEqual((r["result"], f.end_reason), ("end", "callback"))
         self.assertEqual({k: f.facts["callback"][0].get(k) for k in ("time", "back_today", "again")}, {"time": None, "back_today": True, "again": True})
         # 本日はお戻りにならない：改めてお掛けしてよいかは伺わない（その日は改めてお掛けしない）
@@ -13231,6 +13236,35 @@ class TargetTest(unittest.TestCase):
         self.say(f, "はい、後任の山田ですが。", "report_party", party="target")
         self.assertEqual((f.phase, f.facts["connect"][-1]["who"]), ("asking", "successor"))
 
+    def test_unavailable_not_reached_is_not_transferred_like_cl2(self):
+        # 理由を言わずに取り次げないと言われ、ご事情かを伺って「はい」をいただいた電話（今はお電話に出られないご事情＝unavailable）の繋がらなかった理由は、
+        # お呼びした方はいらっしゃるので「取り次いでいただけなかった」（不在ではない）。CL-2 の call_report.UNTIMED_OUTCOMES（時刻の取れなかったかけ直しの理由
+        # → 繋がらなかった理由）と同じ1つの決まり＝流れの制御は理由の表 flowctl.NOT_REACHED_OF_WHY の1か所で決める。⛔ 5815cf1c まで：約束の電話の P1 だけ
+        # 締めの理由（close_after）で「取り次げなかった」にし、同じ理由のご事情の道は時刻が取れても取れなくても「不在」と報告していた（CL-2 の表と食い違い）
+        import ast
+        import pathlib
+        import flowctl
+        from flowctl import Flow
+        b = self.business()
+        parts = b.replay_parts()
+        for said in (None, "4時ごろ"):
+            f = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+            self.say(f, "取り次ぐことはできません。", "request_end", reason="transfer_unclear")
+            self.say(f, "はい、そうです。会議が続いておりまして。", "request_callback", why="unavailable")
+            if said is None:
+                r = self.say(f, "ちょっと分からないですね。", "record_answer", question_id=f.current, condition_id="unknown")
+            else:
+                self.say(f, "4時ごろなら大丈夫です。", "record_answer", question_id=f.current, condition_id="答えた", value=said)
+                r = self.say(f, "はい。", "confirm_field", question_id=f.current, result="affirmed")
+            self.assertEqual((r["result"], f.facts["callback"][-1]["why"], f.not_reached), ("end", "unavailable", "not_transferred"), said)
+        core = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core"
+        if not (core / "call_report.py").is_file():
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        node = next(n.value for n in ast.parse((core / "call_report.py").read_text(encoding="utf-8")).body if isinstance(n, ast.Assign)
+                    and getattr(n.targets[0], "id", None) == "UNTIMED_OUTCOMES")
+        theirs = {why: nr for why, (nr, _) in ast.literal_eval(node).items()}
+        self.assertEqual({why: flowctl.NOT_REACHED_OF_WHY.get(why, "absent") for why in theirs}, theirs)
+
     def test_transfer_refused_without_reason_is_asked_once(self):
         # ✅ 2026-11-01 ユーザー：受付の方に理由なく「取り次ぐことはできません」とだけ言われたら、その場で「○○様は、今はお電話に出ることができない
         #    といったご事情ということでよろしいでしょうか？」で確かめる（読点は外す＝10-15）。はい・ご事情＝かけ直しの申し出＋お取り次ぎいただける日時
@@ -13277,6 +13311,7 @@ class TargetTest(unittest.TestCase):
         # 答えを通話の事実 not_transferred の again に残す（「OKなら、当日の約束の時刻の幅の中かけ直してもいい」）
         import dataclasses
         from flowctl import CLOSING, Flow
+        from phrases import CALLBACK_ASK
         for said, cond, again in (("はい、お願いします。", "はい", True), ("いえ、今日はちょっと。", "いいえ", False)):
             b = dataclasses.replace(self.business(), promised=True)
             f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), promised=True)
@@ -13284,6 +13319,11 @@ class TargetTest(unittest.TestCase):
             self.assertEqual((r["result"], r["question_id"], r["play"]), ("next", "P1", [
                 {"kind": "opening", "part": "promise_again", "text": "「おかだ」様とお電話の約束をしておりましたので後ほど改めてお掛けしてもよろしいでしょうか？"}]))
             r = self.say(f, said, "record_answer", question_id="P1", condition_id=cond)
+            if cond == "はい":
+                # 「はい」のあとは締めずに、かけ直しの時刻を伺う（✅ 2026-11-17 日本時間13時57分41秒 管理者＝CallAgainTimeTest。お呼びする段の「あとで」の時刻の
+                # 一言）。伺えなければ今の締め（締めの理由・取り次げなかった記録の again は今のまま）。⛔ bd68aa75 まで、ここで締めた
+                self.assertEqual((r["result"], r["question_id"], r["question"], f.end_reason), ("next", "C1", CALLBACK_ASK["later_time"], None))
+                r = self.say(f, "ちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
             self.assertEqual((r["result"], f.end_reason, f.not_reached, f.facts["not_transferred"][-1].get("again")), ("end", "not_transferred", "not_transferred", again))
             self.assertIn(CLOSING, r.get("say") or "".join(x["text"] for x in r.get("play", [])))   # お礼の締め
             self.assertNotIn("P1", f.export())                                                      # 依頼主へ渡す項目には入れない
@@ -20248,8 +20288,8 @@ class OfferTest(unittest.TestCase):
         # 同じ道／理由の替わった申し出（別の番号へ・あとで）は新しい申し出（10-22 の3回目「決まった答え1つに押し込めない」）。受けるのは、会話AIの報告の道でも
         # 判定だけの道でも同じ1か所（_wait_route → _callback）
         from flowctl import LATER, LATER_THEIRS, TARGET_IS_AWAY
-        from phrases import CALLBACK_ASK, CALLBACK_ASK_ANSWERING, OFFER_ACCEPTED, OFFER_THANKS, OFFER_THANKS_AGAIN
-        offer, absent = "あいにく岡田は外出しておりまして、戻りましたら折り返させますが。", "あいにく岡田は外出しております。"
+        from phrases import CALLBACK_ASK, OFFER_ACCEPTED, OFFER_THANKS, OFFER_THANKS_AGAIN
+        offer, absent ="あいにく岡田は外出しておりまして、戻りましたら折り返させますが。", "あいにく岡田は外出しております。"
 
         def again(f, words, reading, reported, **a):
             self.heard(f, words, reading)
@@ -20276,11 +20316,13 @@ class OfferTest(unittest.TestCase):
             self.heard(f, absent, TARGET_IS_AWAY)
             CallbackTimeAheadTest.joined(f, f.apply("request_callback", {"why": "absent"}))
             r = again(f, "戻る時間が分からないので、明日またかけてもらえますか。", LATER, reported, why="later")
-            # 伺う一言は答えの段のかけ直しの一言（決まりは in_answer_stage の1か所＝かけ直しの質問を伺っている段は答えの段）。お話の「明日」を判定が時刻の質問について
+            # 伺う一言はお呼びする段の「あとで」の時刻の一言（決まりは in_answer_stage の1か所＝まだどなたとも繋いでいない間に受付の方に伺うかけ直しの質問は、
+            # お呼びする段。✅ 2026-11-17 まとめ役の直し＝受付の方の C7・約束の電話の P1 の「はい」のあとの時刻の伺いと同じ1か所＝CallAgainTimeTest。⛔ bd68aa75
+            # まで段を phase だけで決めていたので、ここは答えの段の一言「いつ頃おかけ直しさせていただきましょうか？」だった）。お話の「明日」を判定が時刻の質問について
             # 読み直してから伺う（決まりで直す (3)。伺う番の頭は「はい、」）。読み直して時刻が無いと読めば「承知しました。」＋時刻の質問（伺う番の「はい、」が間に入る
             # ので、前の「承知しました。」と続かない＝11-02 日本時間7時12分の (a) の「かしこまりました。」にはならない。⛔ 58fb6c7f までは伺う番が無く「かしこまりました。」）
             self.assertEqual((r["result"], f.callback_why, r["question"], r.get("ack"), bool(r.get("ahead_offer"))),
-                             ("next", "later", CALLBACK_ASK_ANSWERING["later_time"], "hai", True), reported)
+                             ("next", "later", CALLBACK_ASK["later_time"], "hai", True), reported)
             self.assertEqual(CallbackTimeAheadTest.time_asked(f).get("ack"), "shouchi", reported)
             self.assertEqual([c["why"] for c in f.facts["callback"]], ["absent", "later"], reported)
         # (2) 戻る時刻を伺っている途中に、伝言を申し出られる（伝言を残さない業務＝お礼の一言。そのあと重ねられたら「重ねて…」）
@@ -31365,6 +31407,9 @@ class CallbackOfferRulesTest(unittest.TestCase):
         重なる＝まとめ役がユーザーに例を付けて伺う（お言葉の外）。申し出を受けていただいたお返事が、そのまま締めのお礼（CLOSING）から始まるときは受けのお礼を重ねない
         ⇒ ✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」で決まった：「ありがとうございます。後ほど改めてお掛けいたしますね。お忙しいところ…」
         （OfferTakenClosingTest。(c) の例外は外した）
+        ⇒ ✅ 2026-11-17 日本時間13時57分41秒 管理者「後ほどおかけいたしますねという時は、いつ頃がよろしいでしょうかと尋ねる決まりになっているはずです。…」で、
+        C7・P1 の「はい」は締めずに「ありがとうございます。」＋かけ直しの時刻の質問（CallAgainTimeTest）。言い切りは時刻を伺えないまま締めるときだけ
+        ⇒ ✅ 2026-11-18 日本時間3時31分56秒 ユーザー「伺い39 ア」で、その言い切りは「また改めてお掛けいたしますね。」・H1・H3 も同じ（RecallUntimedClosingTest）
     ⛔ 8aa3b4ef まで、3つとも聞き取れないお返事を伺い直さずに締め（H1 はかけ直しの記録も残らない）、H1 の「はい」は「はい、ご都合のいい日時は…」"""
     ASK_BACK = "申し訳ございません、お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"
 
@@ -31454,10 +31499,11 @@ class CallbackOfferRulesTest(unittest.TestCase):
         self.assertEqual((r.get("ahead_offer"), self.heard(r)), (True, "はい、"))
         return CallbackTimeAheadTest.time_asked(f)
 
-    def test_yes_to_h1_is_thanked_and_c7_p1_close_with_what_we_do(self):
-        # C7・P1 の「はい」で締める返事は、伺い37 のイ（OfferTakenClosingTest）：「ありがとうございます。後ほど改めてお掛けいたしますね。お忙しいところ…」。
+    def test_yes_to_h1_is_thanked_and_c7_p1_ask_when_to_call(self):
+        # C7・P1 の「はい」も H1 と同じく「ありがとうございます。」＋かけ直しの時刻の質問（✅ 2026-11-17 日本時間13時57分41秒 管理者＝CallAgainTimeTest。お呼びする
+        # 段の「あとで」の時刻の一言）。⛔ bd68aa75 まで「ありがとうございます。後ほど改めてお掛けいたしますね。お忙しいところ…」と締めた（伺い37 のイ）・
         # ⛔ a2e80cfd まで (c) の例外で「はい、お忙しいところ…」
-        from phrases import CLOSING
+        from phrases import CALLBACK_ASK
         f, qid = self.asked("hurry")
         self.assertEqual(self.heard(self.yes(f, qid)), "ありがとうございます。ご都合のいい日時はいつ頃でしょうか？")
         # 伺い直したあとの「はい」も同じ
@@ -31466,8 +31512,8 @@ class CallbackOfferRulesTest(unittest.TestCase):
         self.assertEqual(self.heard(self.yes(f, qid)), "ありがとうございます。ご都合のいい日時はいつ頃でしょうか？")
         for kind in ("again", "promise"):
             f, qid = self.asked(kind)
-            r = self.say(f, "はい、お願いします。", self.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
-            self.assertEqual((r["result"], self.heard(r)), ("end", "ありがとうございます。後ほど改めてお掛けいたしますね。" + CLOSING), kind)
+            self.assertEqual(self.heard(self.yes(f, qid)), "ありがとうございます。" + CALLBACK_ASK["later_time"], kind)
+            self.assertEqual(f.end_reason, None, kind)
 
     def test_a_hedged_yes_is_taken_like_the_other_offers(self):
         # こちらの申し出は言い直さない・言い切っていない「はい」も確かめずに受け取る（Question.firm_not_needed。N4・N6・H3 と同じ1か所の表＝ASKED_OFFER_ROLES。
@@ -31475,21 +31521,20 @@ class CallbackOfferRulesTest(unittest.TestCase):
         # を「-」にして、かけ直しの申し出を取りこぼして締めた（H1＝「承知しました。お忙しいところ申し訳ございませんでした。…」・C7＝again なしで「承知しました。…」）
         from flowctl import ASKED_OFFER_ROLES, callback_question
         self.assertTrue(all(callback_question(r, "（約束の電話の一言）" if r == "promise_again" else None).firm_not_needed for r in ASKED_OFFER_ROLES))
-        from phrases import CLOSING
         f, qid = self.asked("hurry")
         r = self.say(f, "たぶん大丈夫だと思います。", self.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
         self.assertEqual((r.get("ahead_offer"), self.heard(r), f.end_reason), (True, "はい、", None))
         self.assertEqual([e["why"] for e in f.facts["callback"]], ["later"])
         f, qid = self.asked("again")
         r = self.say(f, "たぶん大丈夫だと思います。", self.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
-        # 締める返事は伺い37 のイ（OfferTakenClosingTest。⛔ a2e80cfd まで「はい、お忙しいところ…」）
-        taken = "ありがとうございます。後ほど改めてお掛けいたしますね。" + CLOSING
-        self.assertEqual((self.heard(r), f.facts["callback"][-1].get("again")), (taken, True))
+        # 受け取って、締めずにかけ直しの時刻を伺う（✅ 2026-11-17 日本時間13時57分41秒 管理者＝CallAgainTimeTest。⛔ bd68aa75 まで、伺い37 のイで締めた。
+        # ⛔ a2e80cfd まで「はい、お忙しいところ…」）
+        self.assertEqual((r.get("ahead_offer"), self.heard(r), f.end_reason, f.facts["callback"][-1].get("again")), (True, "はい、", None, True))
         # 伺い直したあとの「はい」も言い直さない
         f, qid = self.asked("promise")
         self.unheard(f, qid)
         r = self.say(f, "はい、お願いします。", self.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
-        self.assertEqual((r["result"], self.heard(r), f.facts["not_transferred"][-1].get("again")), ("end", taken, True))
+        self.assertEqual((r.get("ahead_offer"), self.heard(r), f.end_reason, f.facts["not_transferred"][-1].get("again")), (True, "はい、", None, True))
 
     def test_hurry_again_while_asking_once_more_closes(self):
         # H1 を伺い直している途中にまた「急いでいる」と言われたら、今のまま伺わずに締める（2回目の「急いでいる」）
@@ -31524,8 +31569,11 @@ class OfferTakenClosingTest(unittest.TestCase):
     - 申し伝える一言（WISH_TOLD）を同じ返事で言うときは、それがこちらがすることの言い切り（重ねない＝お言葉の外。申し出の手順 N4・N6 はいつもこの形＝今のまま）
     - 締めない返事（次の質問へ）は今のまま（「ありがとうございます。続きまして…」）
     ⛔ a2e80cfd まで、C7・P1 は「はい、お忙しいところ…」（お礼を重ねない例外）、業務の申し出の質問は「ありがとうございます。お忙しいところ…」（言い切りが無い）、
-    先に言われた申し出の「はい」で締めると「はい、お忙しいところ…」（お礼も無い）"""
-    CALL_AGAIN = "後ほど改めてお掛けいたしますね。"
+    先に言われた申し出の「はい」で締めると「はい、お忙しいところ…」（お礼も無い）
+    ⇒ ✅ 2026-11-17 日本時間13時57分41秒 管理者：C7・P1 の「はい」のあとは締めずにかけ直しの時刻を伺う（CallAgainTimeTest）。C7・P1 の言い切りは、時刻を
+    伺えないまま締めるときに締めの前に流す（同じ1か所 Flow._taken_plays。伺い37 と同じ理由）
+    ⇒ ✅ 2026-11-18 日本時間3時31分56秒 ユーザー「伺い39 ア」：その言い切りは「また改めてお掛けいたしますね。」（H1・H3 も同じ＝RecallUntimedClosingTest）"""
+    CALL_AGAIN = "また改めてお掛けいたしますね。"
     PAMPH = "パンフレットをお送りさせていただきますね。"
     heard = staticmethod(OtherCompanyClueSendWayTest.heard)
 
@@ -31546,17 +31594,20 @@ class OfferTakenClosingTest(unittest.TestCase):
         f.on_callee(); f.on_heard(words)
         return f.apply(op, a)
 
-    def test_our_callback_offers_close_with_thanks_and_what_we_do(self):
-        # 受付の方の C7・約束の電話の P1 の「はい」：「ありがとうございます。」（相づち）＋共通の一言の録音「後ほど改めてお掛けいたしますね。」＋締めの録音
+    def test_our_callback_offers_close_with_what_we_do_when_no_time(self):
+        # 受付の方の C7・約束の電話の P1 の「はい」のあとは、かけ直しの時刻を伺う（✅ 2026-11-17 日本時間13時57分41秒 管理者＝CallAgainTimeTest）。時刻を伺えない
+        # まま締めるときに、締めの前に共通の一言の録音「また改めてお掛けいたしますね。」（伺い37 と同じ理由＝お客様にこのあと何をしてもらえるのかが伝わらない。
+        # 文は ✅ 2026-11-18 日本時間3時31分56秒「伺い39 ア」）＋
+        # 締めの録音。⛔ bd68aa75 まで、「はい」の返事で「ありがとうございます。」＋この言い切り＋締め（時刻を伺わなかった）
         from flowctl import say_note
         from phrases import CLOSING, RECORDED
         t = CallbackOfferRulesTest()
         for kind, fact in (("again", "callback"), ("promise", "not_transferred")):
             f, qid = t.asked(kind)
-            r = t.say(f, "はい、お願いします。", t.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
-            self.assertEqual((r["result"], r["ack"], [(p["kind"], p["id"]) for p in r["play"]], self.heard(r)),
-                             ("end", "arigatou", [("recorded", "call_again_taken"), ("closing", "closing")],
-                              "ありがとうございます。" + self.CALL_AGAIN + CLOSING), kind)
+            t.yes(f, qid)
+            r = t.say(f, "ちょっと分からないですね。", t.rd("unknown"), "record_answer", question_id=f.current, condition_id="unknown")
+            self.assertEqual((r["result"], [(p["kind"], p["id"]) for p in r["play"]], self.heard(r)),
+                             ("end", [("recorded", "call_again_taken"), ("closing", "closing")], "承知しました。" + self.CALL_AGAIN + CLOSING), kind)
             self.assertIs(f.facts[fact][-1].get("again"), True, kind)
         self.assertEqual(RECORDED["call_again_taken"], self.CALL_AGAIN)
         # 会話AIが話す通話（録音を流さない）：同じ文を、締めの前に会話AIが言う
@@ -31565,7 +31616,9 @@ class OfferTakenClosingTest(unittest.TestCase):
         self.say(f, "戻りの時間はちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
         self.say(f, "はい、今日中には戻ると思います。", "record_answer", question_id="C6", condition_id="はい")
         r = self.say(f, "はい、お願いします。", "record_answer", question_id="C7", condition_id="はい")
-        self.assertEqual((r["result"], r["ack"], r["say"], f.end_reason), ("end", "arigatou", CLOSING, "callback"))
+        self.assertEqual((r["result"], r["ack"], f.end_reason), ("next", "arigatou", None))
+        r = self.say(f, "ちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
+        self.assertEqual((r["result"], r["say"], f.end_reason), ("end", CLOSING, "callback"))
         self.assertIn("まず、" + say_note(self.CALL_AGAIN) + "続けて、", r["message"])
 
     def test_the_last_business_offer_closes_with_what_we_do(self):
@@ -31696,6 +31749,256 @@ class OfferTakenClosingTest(unittest.TestCase):
         say(f, "うーん、特にこれというのは…。", "record_answer", question_id=n1, condition_id="unknown")
         r = say(f, "はい。", "record_answer", question_id=n6, condition_id="はい")
         self.assertEqual((r["result"], self.heard(r)), ("end", "ありがとうございます。" + WISH_TOLD["other"] + CLOSING))
+
+
+class CallAgainTimeTest(unittest.TestCase):
+    """✅ 2026-11-17 日本時間13時57分41秒 管理者（CL-2 の会話の記録で原文確認＝CL-2 の 4-420）「後ほどおかけいたしますねという時は、いつ頃がよろしいでしょうかと
+    尋ねる決まりになっているはずです。その時間が最優先ですよ。」：受付の方の C7「後ほど改めてお掛けしてもよろしいでしょうか？」・約束の電話の P1「…後ほど改めてお掛けして
+    もよろしいでしょうか？」に「はい」をいただいたら、締めずに「ありがとうございます。」（受けていただいた申し出のお礼＝今の相づちの1か所）＋かけ直しの時刻の質問。
+    - 時刻の質問は「あとで」の時刻の質問（later_time）。言い方は段による言い方の切り替えの1か所（callback_question の answering＝Flow.in_answer_stage）：C7・P1 は
+      お呼びする段（受付の方）なので「恐れ入りますが何時ごろでしたらご都合よろしいでしょうか？」（10-19 にご承認の呼んでいる段の一言＝今ある録音 callback_later_time）。
+      答えの段の H3 は「いつ頃おかけ直しさせていただきましょうか？」のまま（同じ1か所）。戻る時刻の質問「恐れ入りますが何時ごろお戻りになられますでしょうか？」（C1 の
+      back_time）は、C7 の前にもう「分からない」と答えていただいた質問なので、もう一度流さない（本書 9-3「取得済みのことを重ねて聞かない」・11-01「全く同じ質問を2度
+      したら、機械だと思われてしまいませんか？」＝まとめ役の 11-17 の直し）
+    - こちらがかけ直す申し出を受けていただいたあとに時刻を伺う所は1か所（Flow._offer_taken_time＝H1・H3・C7・P1）
+    - 伺えた時刻はかけ直しの記録の time（C7＝今の不在の記録の中で時刻の質問を伺う・前の「分からない」は前の回の記録 taken_before に残る／P1＝かけ直しの質問を始める
+      1か所 _callback で理由 unavailable の記録を作り、P1 の「はい」も again としてその記録に。取り次げなかった記録の again・締めの理由 not_transferred は今のまま）
+    - 「はい」に時刻が添えられていたら重ねて伺わない（先に言われた答えの1か所＝_callback_ahead）
+    - 締めの言い切り「また改めてお掛けいたしますね。」（伺い37・文は伺い39 ア）：時刻を伺えたら言わない（確かめの「（時刻）でよろしいでしょうか？」でもうお伝えした）・伺えないまま
+      締めるとき（分からない・聞き取れないまま締めの前の確認も使い切った）は締めの前に1回（伺い37 と同じ理由＝Flow._taken_plays の1か所）
+    - 締めの前の念のための確認の段でいただいた「はい」も同じ
+    ⛔ bd68aa75 まで、「はい」で「ありがとうございます。後ほど改めてお掛けいたしますね。お忙しいところ…」と締め、時刻を伺わなかった"""
+    FIVE = "夕方の5時以降"
+
+    @staticmethod
+    def yes(kind, words="はい、お願いします。"):
+        t = CallbackOfferRulesTest()
+        f, qid = t.asked(kind)
+        r = t.say(f, words, t.rd("はい"), "record_answer", question_id=qid, condition_id="はい")
+        return t, f, r
+
+    def time_asked(self, kind):
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        t, f, r = self.yes(kind)
+        self.assertEqual((r["result"], r.get("question_id"), bool(r.get("ahead_offer")), f.end_reason), ("next", CALLBACK_IDS["time"], True, None), kind)
+        return t, f, CallbackTimeAheadTest.time_asked(f, UNDECIDED)
+
+    def test_yes_asks_when_to_call_again(self):
+        from flowctl import CALLBACK_IDS
+        from phrases import CALLBACK_ASK
+        for kind in ("again", "promise"):
+            t, f, r = self.time_asked(kind)
+            self.assertEqual((f.current, t.heard(r), r["play"][-1]["id"], f.questions[f.current].callback),
+                             (CALLBACK_IDS["time"], "ありがとうございます。" + CALLBACK_ASK["later_time"], "callback_later_time", "later_time"), kind)
+            cb = f.facts["callback"]
+            if kind == "again":
+                self.assertEqual([(c["why"], c.get("again")) for c in cb], [("absent", True)])   # 今の不在の記録の中で伺う
+            else:
+                self.assertEqual([(c["why"], c.get("again")) for c in cb], [("unavailable", True)])
+                self.assertIs(f.facts["not_transferred"][-1].get("again"), True)
+
+    def test_the_return_time_question_is_not_played_twice(self):
+        # まとめ役の 11-17 の直し (3)：C7 の「はい」のあとに戻る時刻の質問（C1 の back_time）をもう一度流さない（伺うのは「あとで」の時刻の質問）
+        from flowctl import TARGET_IS_AWAY, UNDECIDED
+        from phrases import CALLBACK_ASK
+        t = CallbackOfferRulesTest()
+        f = t.flow()
+        heard = []
+        for words, reading, op, a in (("あいにく岡田は外出しておりまして。", TARGET_IS_AWAY, "request_callback", {"why": "absent"}),
+                                      ("ちょっと戻りの時間は分からないですね。", t.rd("unknown"), "record_answer", {"condition_id": "unknown"}),
+                                      ("今日中には戻ると思います。", t.rd("はい"), "record_answer", {"condition_id": "はい"}),
+                                      ("はい、お願いします。", t.rd("はい"), "record_answer", {"condition_id": "はい"})):
+            r = t.say(f, words, reading, op, **({"question_id": f.current} if op == "record_answer" else {}), **a)
+            if r.get("ahead_offer"):
+                r = {**r, "play": [*(r.get("play") or []), *(CallbackTimeAheadTest.time_asked(f, UNDECIDED).get("play") or [])]}
+            heard.append("".join(p["text"] for p in r.get("play") or []))
+        said = "".join(heard)
+        self.assertEqual((said.count(CALLBACK_ASK["back_time"]), said.count(CALLBACK_ASK["later_time"])), (1, 1), heard)
+        self.assertEqual(f.end_reason, None)
+
+    def test_the_time_goes_into_the_callback_record(self):
+        from phrases import CLOSING
+        for kind, why, end in (("again", "absent", "callback"), ("promise", "unavailable", "not_transferred")):
+            t, f, r = self.time_asked(kind)
+            r = t.say(f, "夕方の5時以降なら確実です。", t.rd("答えた"), "record_answer", question_id=f.current, condition_id="答えた", value=self.FIVE)
+            self.assertEqual(r["result"], "confirm_required", kind)
+            self.assertIn("午後5時以降でよろしいでしょうか？", t.heard(r))   # 確かめの言い直しで時刻をお伝えする
+            r = t.say(f, "はい。", t.rd("affirmed"), "confirm_field", question_id=f.current, result="affirmed")
+            # 時刻をお伝えした（確かめの「（時刻）でよろしいでしょうか？」）ので、言い切りを重ねない＝今の締め
+            self.assertEqual((r["result"], f.end_reason, [p["id"] for p in r["play"]], t.heard(r).endswith(CLOSING)), ("end", end, ["closing"], True), kind)
+            self.assertEqual({k: f.facts["callback"][-1].get(k) for k in ("why", "time", "again")}, {"why": why, "time": self.FIVE, "again": True}, kind)
+            # 繋がらなかった理由（会話の報告の not_reached）は締めの理由と同じ（約束の電話は取り次いでいただけなかった＝今のまま）
+            self.assertEqual(f.not_reached, {"again": "absent", "promise": "not_transferred"}[kind], kind)
+
+    def test_closing_without_a_time_says_what_we_do_once(self):
+        from flowctl import UNDECIDED
+        from phrases import CALL_AGAIN_DONE
+        for kind, end in (("again", "callback"), ("promise", "not_transferred")):
+            for how in ("unknown", "unheard"):
+                t, f, r = self.time_asked(kind)
+                n = 0
+                while r["result"] != "end" and n < 8:
+                    n += 1
+                    if how == "unknown":
+                        r = t.say(f, "ちょっと分からないですね。", t.rd("unknown"), "record_answer", question_id=f.current, condition_id="unknown")
+                    else:
+                        r = t.say(f, "（雑音で聞き取れない）", t.rd(UNDECIDED), "report_unclear", question_id=f.current)
+                ids = [p["id"] for p in r["play"]]
+                self.assertEqual((f.end_reason, ids[-2:]), (end, ["call_again_taken", "closing"]), (kind, how))
+                self.assertEqual(t.heard(r).count(CALL_AGAIN_DONE), 1, (kind, how))
+                self.assertEqual({k: f.facts["callback"][-1].get(k) for k in ("time", "again")}, {"time": None, "again": True}, (kind, how))
+
+    def test_a_time_said_with_the_yes_is_not_asked_again(self):
+        from flowctl import CALLBACK_IDS
+        from phrases import CALLBACK_ASK
+        for kind in ("again", "promise"):
+            t, f, r = self.yes(kind, "はい、3時には戻ると思います。")
+            self.assertEqual((r["result"], r.get("question_id"), bool(r.get("ahead_offer"))), ("next", CALLBACK_IDS["time"], True), kind)
+            CallbackTimeAheadTest().reread(f, "答えた")
+            r = f.apply("record_answer", {"question_id": CALLBACK_IDS["time"], "condition_id": "答えた", "value": "3時"})
+            self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", CALLBACK_IDS["time"]), kind)
+            self.assertNotIn(CALLBACK_ASK["later_time"], t.heard(r))
+
+    def test_a_yes_in_the_recheck_stage_also_asks_the_time(self):
+        # 締めの前の念のための確認の段：聞き取れなかった戻る時刻（必須）を締めの前に伺い直し、「分からない」→ 本日のお戻り → C7 の「はい」（どれも確認の段で伺う）
+        from flowctl import CALLBACK_IDS, TARGET_IS_AWAY, UNDECIDED
+        from phrases import CALLBACK_ASK
+        t = CallbackOfferRulesTest()
+        f = t.flow()
+        t.say(f, "あいにく岡田は外出しておりまして。", TARGET_IS_AWAY, "request_callback", why="absent")
+        n = 0
+        while f.phase != "rechecking" and n < 6:
+            n += 1
+            t.say(f, "（雑音で聞き取れない）", t.rd(UNDECIDED), "report_unclear", question_id=f.current)
+        self.assertEqual((f.phase, f.current), ("rechecking", CALLBACK_IDS["time"]))
+        t.say(f, "ちょっと戻りの時間は分からないですね。", t.rd("unknown"), "record_answer", question_id=f.current, condition_id="unknown")
+        r = t.say(f, "今日中には戻ると思います。", t.rd("はい"), "record_answer", question_id=f.current, condition_id="はい")
+        if r["result"] == "confirm_required":   # 確認の段で伺った本日のお戻りは、今の作りでは言い直して確かめる（今のまま）
+            t.say(f, "はい。", t.rd("affirmed"), "confirm_field", question_id=f.current, result="affirmed")
+        self.assertEqual(f.current, CALLBACK_IDS["again"])
+        r = t.say(f, "はい、お願いします。", t.rd("はい"), "record_answer", question_id=f.current, condition_id="はい")
+        self.assertEqual((r["result"], r.get("question_id"), f.end_reason), ("next", CALLBACK_IDS["time"], None))
+        r = CallbackTimeAheadTest.time_asked(f, UNDECIDED)
+        self.assertEqual(t.heard(r), "ありがとうございます。" + CALLBACK_ASK["later_time"])
+
+    def test_one_place_asks_the_time_after_our_callback_offers(self):
+        # H1・H3・C7・P1 の「はい」は、どれも同じ1か所（Flow._offer_taken_time）を通る
+        from unittest import mock
+        from flowctl import CALLBACK_IDS, Flow
+        real = Flow._offer_taken_time
+        seen = []
+
+        def spy(self, qid, *a, **k):
+            seen.append(qid)
+            return real(self, qid, *a, **k)
+        with mock.patch.object(Flow, "_offer_taken_time", spy):
+            for kind in ("hurry", "again", "promise"):
+                self.yes(kind)
+            b = BriefCallbackAskTest()
+            f = b.flow()
+            b.asked(f)
+            b.turn(f, "はい、お願いします。", b.rd("はい"), "record_answer", question_id=CALLBACK_IDS["brief"], condition_id="はい")
+        self.assertEqual(seen, [CALLBACK_IDS[k] for k in ("hurry", "again", "promise_again", "brief")])
+
+
+class RecallUntimedClosingTest(unittest.TestCase):
+    """✅ 2026-11-18 日本時間3時31分56秒 ユーザー「伺い39 ア」：こちらがかけ直す申し出（受付の方の C7「後ほど改めてお掛けしてもよろしいでしょうか？」・約束の電話の P1
+    「…後ほど改めてお掛けしてもよろしいでしょうか？」・急いでいる方の H1「それではまた改めてお掛けしてもよろしいでしょうか？」・「手短に」の H3「…後ほどお時間のある時に
+    かけ直しさせていただきましょうか？」）に「はい」をいただいてかけ直す時刻を伺い、伺えないまま締めるときは、4つとも「承知しました。また改めてお掛けいたしますね。
+    お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」＝1つの決まり（言い切りを決める1か所 Flow._taken_plays・こちらがかけ直す申し出の
+    言い切りの1か所 flowctl.taken_line）。伺いの理由＝時刻が取れないと次にかけるのは CL-2 の方針しだいで「後ほど」は守れないことがある・11-01 日本時間22時31分
+    「後ほどだと今日中にかけるということになるので、「また、」と曖昧にしておいた方がよくないですか？」と同じ理由。共通の一言の録音 call_again_taken の文が替わる
+    （録り直し）・H1・H3 も同じ録音（録音の数は増えない）。時刻を伺えたら言わない（確かめの「（時刻）でよろしいでしょうか？」でもうお伝えした＝今のまま）。
+    ⛔ 7d1bce6b まで、C7・P1 は「後ほど改めてお掛けいたしますね。」・H1・H3 は言い切り無しで締めた"""
+    AGAIN = "また改めてお掛けいたしますね。"
+    KINDS = ("again", "promise", "hurry", "brief")
+
+    def yes(self, kind):
+        """kind（C7＝again・P1＝promise・H1＝hurry・H3＝brief）に「はい」をいただき、かけ直しの時刻の質問（C1）を流したところまで：(f, say)。
+        say(words, reading, op, **a) はお客様の1つの発話。"""
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        if kind == "brief":
+            b = BriefCallbackAskTest()
+            f = b.flow()
+            b.asked(f)
+            say = lambda words, reading, op, **a: b.turn(f, words, b.rd(reading) if isinstance(reading, str) else reading, op, **a)
+            r = say("はい、お願いします。", "はい", "record_answer", question_id=CALLBACK_IDS["brief"], condition_id="はい")
+        else:
+            t, f, r = CallAgainTimeTest.yes(kind, "はい、いいですよ。" if kind == "hurry" else "はい、お願いします。")
+            say = lambda words, reading, op, **a: t.say(f, words, t.rd(reading) if isinstance(reading, str) else reading, op, **a)
+        if r.get("ahead_offer"):
+            r = CallbackTimeAheadTest.time_asked(f, UNDECIDED)
+        self.assertEqual((f.current, f.end_reason), (CALLBACK_IDS["time"], None), kind)
+        return f, say
+
+    def closed(self, kind, how):
+        """時刻の質問への how（unknown「分からない」／unheard 聞き取れない）で締めるまで：(f, 締めの返事)。"""
+        from flowctl import UNDECIDED
+        f, say = self.yes(kind)
+        r, n = {"result": None}, 0
+        while r.get("result") != "end" and n < 8:
+            n += 1
+            if how == "unknown":
+                r = say("うーん、ちょっと分からないですね。", "unknown", "record_answer", question_id=f.current, condition_id="unknown")
+            else:
+                r = say("（雑音で聞き取れない）", UNDECIDED, "report_unclear", question_id=f.current)
+        self.assertEqual(r.get("result"), "end", (kind, how))
+        return f, r
+
+    def test_every_recall_offer_closes_with_the_same_line_when_no_time(self):
+        from phrases import CALL_AGAIN_DONE, CLOSING, RECORDED
+        self.assertEqual((CALL_AGAIN_DONE, RECORDED["call_again_taken"]), (self.AGAIN, self.AGAIN))
+        heard = OtherCompanyClueSendWayTest.heard
+        for kind in self.KINDS:
+            for how in ("unknown", "unheard"):
+                f, r = self.closed(kind, how)
+                ids = [p["id"] for p in r["play"]]
+                self.assertEqual(ids[-2:], ["call_again_taken", "closing"], (kind, how))
+                self.assertEqual(heard(r).count(self.AGAIN), 1, (kind, how))
+                self.assertTrue(heard(r).endswith(self.AGAIN + CLOSING), (kind, how, heard(r)))
+                if how == "unknown":
+                    self.assertEqual(heard(r), "承知しました。" + self.AGAIN + CLOSING, kind)
+                self.assertIsNone(f.facts["callback"][-1].get("time"), (kind, how))
+
+    def test_a_time_obtained_is_not_followed_by_the_line(self):
+        # 時刻を伺えたら言わない（4つとも同じ1か所 _offers_untimed＝時刻の質問 C1 の答え）
+        for kind in self.KINDS:
+            f, say = self.yes(kind)
+            r = say("夕方の5時以降なら確実です。", "答えた", "record_answer", question_id=f.current, condition_id="答えた", value="夕方の5時以降")
+            self.assertEqual(r["result"], "confirm_required", kind)
+            r = say("はい。", "affirmed", "confirm_field", question_id=f.current, result="affirmed")
+            self.assertEqual(r["result"], "end", kind)
+            self.assertNotIn("call_again_taken", [p["id"] for p in r["play"]], kind)
+            self.assertEqual(f.facts["callback"][-1].get("time"), "夕方の5時以降", kind)
+
+
+class FirstAskedInRecheckTest(unittest.TestCase):
+    """締めの前の念のための確認の段で、初めて伺う質問（その段で取れた答えで伺えるようになった質問）は、答えの段の決まりで伺う（本書 9-5「「はい／いいえ」・
+    選択肢などは、言い直して確かめない」。締めの前の確認の段で言い直すのは、聞き返した・もう一度伺った質問の答え＝6-11）。業務の質問は前からそうしていた
+    （_advance_to の「初めて伺う質問なので答えの段に戻す」）のに、かけ直しの質問（受付の方の「本日お戻りのご予定はございますでしょうか？」C6 など）だけ外れていた。
+    ⛔ 5815cf1c まで：受付の方の戻る時刻が聞き取れず締めの前の確認で伺い直し「分からない」→ C6「今日中には戻ると思います。」に
+    「はい、ありがとうございます。本日お戻りのご予定があるということでよろしいでしょうか？」と言い直した（答えの段で伺うと言い直さずに C7 へ進む）"""
+
+    def test_back_today_first_asked_in_the_recheck_is_not_restated(self):
+        from flowctl import CALLBACK_IDS, TARGET_IS_AWAY, UNDECIDED
+        from phrases import CALLBACK_ASK
+        t = CallbackOfferRulesTest()
+        f = t.flow()
+        t.say(f, "あいにく岡田は外出しておりまして。", TARGET_IS_AWAY, "request_callback", why="absent")
+        for _ in range(6):
+            if f.phase == "rechecking":
+                break
+            r = t.say(f, "（雑音で聞き取れない）", t.rd(UNDECIDED), "report_unclear", question_id=f.current)
+            if r.get("ahead_offer"):
+                CallbackTimeAheadTest.time_asked(f, UNDECIDED)
+        self.assertEqual((f.phase, f.current), ("rechecking", CALLBACK_IDS["time"]))
+        r = t.say(f, "ちょっと戻りの時間は分からないですね。", t.rd("unknown"), "record_answer", question_id=f.current, condition_id="unknown")
+        self.assertEqual((f.current, t.heard(r).endswith(CALLBACK_ASK["back_today"])), (CALLBACK_IDS["back_today"], True))
+        r = t.say(f, "今日中には戻ると思います。", t.rd("はい"), "record_answer", question_id=f.current, condition_id="はい")
+        self.assertEqual((r["result"], f.current), ("next", CALLBACK_IDS["again"]), t.heard(r))
+        self.assertTrue(t.heard(r).endswith(CALLBACK_ASK["call_again"]), t.heard(r))
+        self.assertNotIn("ということでよろしいでしょうか", t.heard(r))
+        self.assertIs(f.facts["callback"][-1].get("back_today"), True)
 
 
 class SameReceiptTest(unittest.TestCase):

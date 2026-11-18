@@ -1272,9 +1272,13 @@ def again_fit(rid: str, text: str) -> tuple[str, str]:
 # 言うときも同じ形（お言葉の外に当てた＝同じ理由）。決まった言い方なので読点は入れない（10-15）。✅ 2026-11-17 日本時間2時14分44秒 ユーザー「伺い37はイでOK」
 # （イ「…言い切りの頭の「それでは」は、締めの「それでは失礼いたします。」と重なるので付けない。録音が増える＝共通の一言1本・業務の申し出の質問ごとに1本」）
 OFFER_DONE = OFFER_TAKEN.removeprefix(head_word(OFFER_TAKEN) or "")
-# こちらがかけ直す申し出（受付の方の「後ほど改めてお掛けしてもよろしいでしょうか？」・約束の電話の「…後ほど改めてお掛けしてもよろしいでしょうか？」）を受けて
-# いただいたときの言い切りの共通の一言の録音の名前と文（同じお言葉の文。流すのは flowctl.taken_line の1か所）
-CALL_AGAIN_TAKEN, CALL_AGAIN_DONE = "call_again_taken", "後ほど改めてお掛けいたしますね。"
+# こちらがかけ直す申し出（受付の方の「後ほど改めてお掛けしてもよろしいでしょうか？」・約束の電話の「…後ほど改めてお掛けしてもよろしいでしょうか？」・急いでいる
+# 方の「それではまた改めてお掛けしてもよろしいでしょうか？」・「手短に」の「…後ほどお時間のある時にかけ直しさせていただきましょうか？」）を受けていただき、かけ直す
+# 時刻を伺えないまま締めるときの言い切りの共通の一言の録音の名前と文（4つとも同じ1本。流すのは flowctl.taken_line の1か所）。✅ 2026-11-18 日本時間3時31分56秒
+# ユーザー「伺い39 ア」＝「承知しました。また改めてお掛けいたしますね。お忙しいところ…」（時刻が取れないと次にかけるのは CL-2 の方針しだい＝「後ほど」は守れない
+# ことがある・11-01 日本時間22時31分「後ほどだと今日中にかけるということになるので、「また、」と曖昧にしておいた方がよくないですか？」と同じ理由）。
+# ⛔ 7d1bce6b まで「後ほど改めてお掛けいたしますね。」（11-17 日本時間2時14分44秒「伺い37はイでOK」の文）
+CALL_AGAIN_TAKEN, CALL_AGAIN_DONE = "call_again_taken", "また改めてお掛けいたしますね。"
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             STANDARD_PARTS["ai"]: AI_ANSWER, "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)), **dict(zip(THINKING_PROMPT_IDS, THINKING_PROMPT)),
             **dict(zip(CONCERN_PROMPT_IDS, CONCERN_PROMPT)), WAIT_ASK_PLAIN_ID: CALLBACK_ASK["wait_or_later"],
