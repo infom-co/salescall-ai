@@ -1,0 +1,2 @@
+{%- if n_stops %}<a class="pill stop" href="/t/stops" aria-label="止まっているもの {{ n_stops }} 件"><span class="dot"></span><span class="long">止まっている </span>{{ n_stops }}</a>{% endif -%}
+{%- if n_wait %}<a class="pill wait" href="/t/inbox" aria-label="承認待ち {{ n_wait }} 件"><span class="dot"></span><span class="long">承認待ち </span>{{ n_wait }}</a>{% endif -%}

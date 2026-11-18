@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "parts.html" import stat, tag, empty %}
+{% set active = "client" %}
+{% block title %}{{ client.name }}{% endblock %}
+{% block main %}
+<h1>{{ client.name }}</h1>
+<p class="lead">この依頼者の今日の動きと、実施回ごとのお客様リストです。</p>
+<div class="grid cols-3">
+  <div class="card">{{ stat("今日かけた電話", today.dialed_today) }}</div>
+  <div class="card">{{ stat("かけ直し待ち", today.call) }}</div>
+  <div class="card {{ 'attention-wait' if today.hold }}">{{ stat("判定待ち", today.hold, "wait" if today.hold else "") }}</div>
+</div>
+{% if waiting %}
+<div class="card attention-wait" style="margin-top:16px">
+  この依頼者の承認待ちが {{ waiting|length }} 件あります。<a href="/t/inbox">承認待ちへ</a>
+</div>
+{% endif %}
+<h2 style="margin-top:28px">実施回</h2>
+{% if runs %}
+<table class="list">
+  <thead><tr><th>実施回</th><th>業務</th><th></th></tr></thead>
+  <tbody>
+  {% for r in runs %}
+    <tr><td>{{ r.name }}</td><td>{{ r.business }}</td><td class="num"><a class="btn small" href="/c/{{ client.client_id }}/runs/{{ r.run_id }}">お客様リスト</a></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">{{ empty("実施回はまだありません", "業務を作り、お客様リストを取り込むと、ここに出ます。") }}</div>
+{% endif %}
+{% endblock %}

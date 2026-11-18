@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, next_tag, empty %}
+{% set active = "client" %}
+{% block title %}お客様リスト{% endblock %}
+{% block main %}
+<p><a href="/c/{{ client.client_id }}">← {{ client.name }}</a></p>
+<h1>お客様リスト：{{ run.name }}</h1>
+<p class="lead">業務：{{ run.business }}。いまの状態は、次の予定と結果から出しています（画面では決め直しません）。</p>
+{% if rows %}
+<table class="list">
+  <thead><tr><th class="num">行</th><th class="wide">管理番号</th><th>会社名</th><th class="wide">お呼びする方</th><th>かける番号</th><th>いまの状態</th><th class="wide">結果</th><th class="num">かけた回数</th><th class="wide">最後の電話</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td class="num nowrap">{{ r.source_row or "" }}</td>
+      <td class="wide nowrap">{{ r.client_ref or "" }}</td>
+      <td>{{ r.source_name or "" }}{% if r.excluded %} {{ tag(words.exclusion_level(r.excluded if r.excluded is string else "exclude")) }}{% endif %}</td>
+      <td class="wide">{{ r.target_name or "" }}{% if r.target_role %}<span class="muted">（{{ r.target_role }}）</span>{% endif %}</td>
+      <td class="num nowrap">{{ phone(r.dial_phone) }}</td>
+      <td class="nowrap">{{ next_tag(r.next_kind, r.next_call_at, r.next_end_reason) }}</td>
+      <td class="wide nowrap">{% if r.business_state == "open" %}<span class="muted">{{ words.word(words.BUSINESS_STATES, "open").screen }}</span>{% else %}{{ words.word(words.BUSINESS_STATES, r.business_state).screen }}{% endif %}</td>
+      <td class="num">{{ r.attempts }}</td>
+      <td class="wide">{% if r.last_state %}{{ words.word(words.ATTEMPT_STATES, r.last_state).screen }}<span class="muted">・{{ time(r.last_at) }}</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">{{ empty("この実施回には、まだ行がありません") }}</div>
+{% endif %}
+{% endblock %}

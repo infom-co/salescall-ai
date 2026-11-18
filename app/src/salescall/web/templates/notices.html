@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty %}
+{% set active = "notices" %}
+{% block title %}知らせ{% endblock %}
+{% block main %}
+<h1>知らせ</h1>
+<p class="lead">緊急のものは上に固定しています。ショートメールでも同じ知らせが届きます。</p>
+{% if rows %}
+<table class="list">
+  <thead><tr><th>種類</th><th>中身</th><th class="wide">時刻</th><th class="wide">届いたか</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    {% if not r.for_admin or person.is_admin %}
+    <tr>
+      <td>{{ tag(words.notice_kind(r.kind), "stop" if r.urgent else "info") }}</td>
+      <td>{{ r.summary }}</td>
+      <td class="num wide">{{ time(r.occurred_at) }}</td>
+      <td class="wide">{% if r.sent and "failed" in r.sent %}{{ tag("送れていません", "stop") }}{% elif r.sent %}{{ tag("送りました", "ok") }}{% else %}<span class="muted">まだ</span>{% endif %}</td>
+    </tr>
+    {% endif %}
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">{{ empty("知らせはありません") }}</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,24 @@
+{#- 画面の部品の1か所（docs/DASHBOARD.md 6-6）。画面ごとに同じ形を書かない。文字は必ず「文字として」出す（自動のエスケープ）。 -#}
+
+{% macro tag(text, tone="") -%}<span class="tag {{ tone }}">{{ text }}</span>{%- endmacro %}
+
+{% macro stat(label, value, tone="") -%}
+<div class="stat {{ tone }}"><span class="label">{{ label }}</span><span class="value">{{ value }}</span></div>
+{%- endmacro %}
+
+{% macro flash(done, ok) -%}
+{% if done %}<div class="flash {{ 'ok' if ok else 'ng' }}" role="status">{{ done }}</div>{% endif %}
+{%- endmacro %}
+
+{% macro empty(big, small="") -%}
+<div class="empty"><div class="big">{{ big }}</div>{% if small %}<div>{{ small }}</div>{% endif %}</div>
+{%- endmacro %}
+
+{% macro next_tag(kind, call_at=None, end_reason=None) -%}
+{%- if kind == "hold" -%}{{ tag(words.word(words.NEXT_KINDS, "hold").screen, "wait") }}
+{%- elif kind == "call" -%}{{ tag(words.word(words.NEXT_KINDS, "call").screen ~ ("（" ~ time(call_at) ~ "）" if call_at else ""), "info") }}
+{%- elif kind == "end" -%}{{ tag(words.word(words.NEXT_KINDS, "end").screen ~ "：" ~ words.end_reason(end_reason), "ok") }}
+{%- else -%}{{ tag("これから") }}{%- endif -%}
+{%- endmacro %}
+
+{% macro csrf(token) -%}<input type="hidden" name="{{ token_field }}" value="{{ token }}">{%- endmacro %}

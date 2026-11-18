@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}ダッシュボード{% endblock %} — SalesCall</title>
+<meta name="form-token" content="{{ token }}">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/htmx-2.0.4.min.js" defer></script>
+<script src="/static/app.js" defer></script>
+</head>
+<body hx-headers='{"X-Form-Token": "{{ token }}"}'>
+<header class="top">
+  <button class="btn small menu-toggle" type="button" aria-label="道しるべを開く">≡</button>
+  <a class="brand" href="/t">Sales<b>Call</b></a>
+  <span class="tenant">{{ person.tenant_name }}</span>
+  <details class="switcher">
+    <summary>{{ client.name if client else "依頼者を選ぶ" }}</summary>
+    <div class="panel">
+      <input type="text" placeholder="依頼者の名前で探す" data-filter=".switcher .panel a" aria-label="依頼者の名前で探す">
+      {% for c in clients %}<a href="/c/{{ c.client_id }}" {% if client and client.client_id == c.client_id %}aria-current="page"{% endif %}>{{ c.name }}</a>{% endfor %}
+      {% if not clients %}<div class="muted" style="padding:8px">依頼者はまだいません</div>{% endif %}
+    </div>
+  </details>
+  <span class="spacer"></span>
+  <div class="badges" hx-get="/t/badges" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
+  <span class="who">{{ person.login_id }}{% if person.is_admin %}（管理者）{% endif %}</span>
+</header>
+<div class="shell">
+  <nav class="nav" aria-label="道しるべ">
+    <div class="group">全体</div>
+    <a href="/t" {% if active == "home" %}aria-current="page"{% endif %}>ホーム</a>
+    <a href="/t/inbox" {% if active == "inbox" %}aria-current="page"{% endif %}>承認待ち</a>
+    <a href="/t/stops" {% if active == "stops" %}aria-current="page"{% endif %}>止まっているもの</a>
+    <a href="/t/notices" {% if active == "notices" %}aria-current="page"{% endif %}>知らせ</a>
+    {% if client %}
+    <div class="group">依頼者：{{ client.name }}</div>
+    <a href="/c/{{ client.client_id }}" {% if active == "client" %}aria-current="page"{% endif %}>概要</a>
+    {% endif %}
+  </nav>
+  <main class="content">
+    {% block main %}{% endblock %}
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, flash, csrf %}
+{% set active = "stops" %}
+{% block title %}何で止まったか{% endblock %}
+{% block main %}
+<p><a href="/t/stops">← 止まっているもの</a></p>
+<h1>{{ x.cause.label }}</h1>
+<p class="lead">{{ words.stop_scope(x.stop.scope) }}の範囲・{{ time(x.stop.at) }}から
+  {% if x.resolved %}{{ tag("解けています", "ok") }}{% else %}{{ tag("止まっています", "stop") }}{% endif %}</p>
+{{ flash(done, ok) }}
+
+<div class="grid cols-2">
+  <section class="card">
+    <h2>何が起きたか</h2>
+    <dl class="facts">
+      <dt>意味</dt><dd>{{ x.cause.meaning }}</dd>
+      <dt>理由</dt><dd>{{ x.stop.reason }}</dd>
+      {% if x.stop.evidence %}<dt>根拠</dt><dd>{{ x.stop.evidence }}</dd>{% endif %}
+      <dt>止めた</dt><dd>{{ x.stop.actor }}・{{ time(x.stop.at) }}</dd>
+    </dl>
+  </section>
+  <section class="card">
+    <h2>止めているあいだも出る電話</h2>
+    {% if x.cause.lets_through %}
+      <ul>{% for k in x.cause.lets_through %}<li>{{ words.keeping_kind(k) }}</li>{% endfor %}</ul>
+    {% else %}<p class="muted">この停止では、どの電話も出ません。</p>{% endif %}
+  </section>
+  <section class="card">
+    <h2>自動で解く決まり</h2>
+    <p>{{ x.cause.auto_resume }}</p>
+    {% if x.checks %}
+    <h3>確かめの記録</h3>
+    <table class="list"><thead><tr><th>時刻</th><th>結果</th><th class="num">続けて成功</th><th>次に確かめる</th></tr></thead><tbody>
+    {% for c in x.checks %}<tr><td class="num">{{ time(c.checked_at) }}</td><td>{{ tag("通った", "ok") if c.ok else tag("通らなかった", "stop") }}</td>
+      <td class="num">{{ c.streak }}</td><td class="num">{{ time(c.next_check_at) }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+  </section>
+  <section class="card">
+    <h2>解く前に確かめること</h2>
+    <p>{{ x.cause.before_resume }}</p>
+    <p class="hint">解ける人：{{ x.who_can_resume }}。人が解くと、エラーと品質の数は、解いた時刻から数え直します。</p>
+  </section>
+</div>
+
+{% if x.ai_troubles %}
+<section class="card" style="margin-top:16px">
+  <h2>止まった AI</h2>
+  <table class="list"><thead><tr><th>どこで</th><th>AI</th><th>何が</th><th>時刻</th></tr></thead><tbody>
+  {% for t in x.ai_troubles %}<tr><td>{{ words.ai_trouble_stage(t.stage) }}</td><td>{{ t.ai }}</td><td>{{ t.what }}</td><td class="num">{{ time(t.noted_at) }}</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+{% endif %}
+
+{% if x.errors %}
+<section class="card" style="margin-top:16px">
+  <h2>数えたエラー</h2>
+  <table class="list"><thead><tr><th>意味</th><th class="wide">出どころ</th></tr></thead><tbody>
+  {% for e in x.errors %}<tr><td>{{ e.meaning }}</td><td class="wide">{{ e.origin or "" }}</td></tr>{% endfor %}
+  </tbody></table>
+</section>
+{% endif %}
+
+{% if not x.resolved and (x.stop.scope != "system" or person.is_admin) %}
+<section class="card" style="margin-top:16px">
+  <h2>人の判断で再開する</h2>
+  <p class="muted">上の「解く前に確かめること」を確かめてから押してください。理由は記録に残ります。</p>
+  <form method="post" action="{{ base }}/resume" data-needs-reason>
+    {{ csrf(token) }}
+    <label class="field" for="reason">再開する理由</label>
+    <textarea id="reason" name="reason" required placeholder="例：回線の端末を入れ替え、テスト番号で鳴ることを確かめた"></textarea>
+    <div class="actions" style="margin-top:12px">
+      <button class="btn main" type="submit" data-submit disabled>再開する</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

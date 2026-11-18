@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "parts.html" import stat, tag, empty %}
+{% set active = "home" %}
+{% block title %}ホーム{% endblock %}
+{% block main %}
+<h1>ホーム</h1>
+<p class="lead">何もしなくても電話は進みます。色の付いた所だけ見てください。</p>
+
+<div class="grid cols-3">
+  <a class="card {{ 'attention-stop' if stops }}" href="/t/stops" style="text-decoration:none;color:inherit">
+    {{ stat("止まっているもの", stops|length, "stop" if stops else "ok") }}
+    <div class="muted" style="margin-top:6px">
+      {% if stops %}{{ words.stop_cause(stops[0].cause) }}（{{ words.stop_scope(stops[0].scope) }}{% if stops[0].client_name %}：{{ stops[0].client_name }}{% endif %}）{% if stops|length > 1 %}ほか{% endif %}{% else %}止まっているものはありません{% endif %}
+    </div>
+  </a>
+  <a class="card {{ 'attention-wait' if waiting_total }}" href="/t/inbox" style="text-decoration:none;color:inherit">
+    {{ stat("承認待ち", waiting_total, "wait" if waiting_total else "ok") }}
+    <div class="muted" style="margin-top:6px">{% if waiting_total %}いちばん急ぐもの：{{ first[0][1].title }}（{{ first[0][0].name }}）{% else %}承認待ちはありません{% endif %}</div>
+  </a>
+  <div class="card">
+    {{ stat("今日かけた電話", per_client|sum(attribute="dialed_today")) }}
+    <div class="muted" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div>
+  </div>
+</div>
+
+<h2 style="margin-top:28px">依頼者ごと</h2>
+{% if per_client %}
+<table class="list">
+  <thead><tr><th>依頼者</th><th class="num">今日かけた</th><th class="num">かけ直し待ち</th><th class="num">判定待ち</th><th class="num">済み</th><th class="num wide">これから</th><th class="num">承認待ち</th></tr></thead>
+  <tbody>
+  {% for c in per_client %}
+    <tr>
+      <td><a href="/c/{{ c.client_id }}">{{ c.name }}</a></td>
+      <td class="num">{{ c.dialed_today }}</td>
+      <td class="num">{{ c.call }}</td>
+      <td class="num">{% if c.hold %}{{ tag(c.hold, "wait") }}{% else %}0{% endif %}</td>
+      <td class="num">{{ c.end }}</td>
+      <td class="num wide">{{ c.none }}</td>
+      <td class="num">{% if c.waiting %}<a href="/t/inbox">{{ tag(c.waiting, "wait") }}</a>{% else %}0{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">{{ empty("依頼者はまだいません", "依頼者を作ると、ここに今日の数が出ます。") }}</div>
+{% endif %}
+{% endblock %}
