@@ -2176,7 +2176,7 @@ def _window_round_next(tx: Tx, task_id: UUID, window: Window, *, now: datetime, 
     else:
         boundaries = list(get("retry.time_band_boundaries"))
         tried = {calling_hours.band_of(calling_hours.local(x), boundaries) for x in [*_round_dials(tx, task_id, window, period, on=now), dialed_at]}
-        local = max(calling_hours.local(now), gate.same_contact_free_at(tx, scope, now))
+        local = max(calling_hours.local(now), calling_hours.local(gate.same_contact_free_at(tx, scope, now)))
         hours = gate.window_hours(tx, **scope, window=window.callee)
         length = timedelta(seconds=int(get("gate.claim_lifetime")))
         try:

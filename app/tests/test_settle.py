@@ -482,7 +482,7 @@ class TargetRecheck(SettleBase):
             with self.subTest(outcome=outcome):
                 s = self.ready()
                 said = normalize(fictional_jp_fixed())
-                aid = self.call(s, report=replace(self.connected_report(), callback=callback("other_number", number=said.e164)), verify=None)
+                aid = self.call(s, report=replace(self.connected_report(), callbacks=(callback("other_number", number=said.e164),)), verify=None)
                 self.tx(s, lambda tx: target_recheck.record(tx, aid, outcome, evidence="試験：別の耳で確かめた", checked_by="試験"))
                 self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
                 self.settle(s, aid)

@@ -2495,11 +2495,11 @@ class Main(SupervisorBase):
             # 立ち上げ直す前の後始末は、進行中の試行をデータベースの止まり（storage_stuck）のまま終える（回線の処理が止まった worker_lost にしない＝書き込みが
             # 戻ったらかけ直す道 E21 に乗る。⛔ 2026-11-18 の7回目の見直しまで：worker_lost で終えた）
             self.assertEqual(sup.workers[t2["line"]].left_why, leases.LEFT)
-            sup.leased[t2["line"]] = t2["tenant"]
             started = (FakeThread(threading.Event()), threading.Event())
             with mock.patch.object(main_mod.leases, "recover", return_value=[]) as rec, \
                     mock.patch.object(sup, "start_worker", return_value=started):
-                sup.watch_workers(time.monotonic() + 1)
+                sup._launch(t2["line"], Attached(t2["tenant"], uuid.UUID(int=1)), fails=0, now=time.monotonic(),
+                            why=sup.workers[t2["line"]].left_why)
             self.assertEqual(rec.call_args.kwargs.get("why"), leases.LEFT)
             th.join(15)
         self.assertEqual(self.state(t2, got["r"].called), "ended")              # 話し終えた電話（おわびは流さない）

@@ -5137,7 +5137,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      '                                        left_why=leases.LEFT if source == "storage" else None)', '                                        left_why=None)',
      ('tests.test_supervisor.Main.test_a_call_part_that_came_back_is_never_abandoned_but_a_stuck_writer_is',)),
     ('立ち上げ直しの後始末に、捨てた流れの理由を渡さない', 'src/salescall/supervisor/main.py',
-     '                    self._launch(line_id, at, fails=w.fails, now=now, why=w.left_why)', '                    self._launch(line_id, at, fails=w.fails, now=now)',
+     '            self._recover(line_id, at.tenant_id, raise_errors=True, why=why)', '            self._recover(line_id, at.tenant_id, raise_errors=True)',
      ('tests.test_supervisor.Main.test_a_call_part_that_came_back_is_never_abandoned_but_a_stuck_writer_is',)),
     ('本番への切り替えで止めを解いた版を、検証モードに戻したときもそのままかける（止まった版が模擬通話なしで再開＝7回目の見直しの前の形）', 'src/salescall/core/quality_stage.py',
      '    if _verification(tx, version_id) and _released_stopped(tx, version_id):\n', '    if False:\n',
