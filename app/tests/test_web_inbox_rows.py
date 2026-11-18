@@ -117,6 +117,10 @@ class CorrectionCall(Corrections):
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：予定をいまに"))
         http = _http(s["tenant"])
         self.assertIn("直しでかける電話の確かめ", http.get("/t/inbox").text)
+        someone = TestClient(create_app(app_access(), lambda r: Person("同じ契約者の別の方", False, s["tenant"], "架空の契約者"), SECRET))
+        theirs = someone.get("/t/inbox").text                                   # 直した方でなければ、ボタンは出ず、だれを待つかを出す
+        self.assertNotIn(f'/c/{s["client"]}/inbox/correction/confirm', theirs)
+        self.assertIn("直した方（試験の契約者）ご本人の確かめを待っています", theirs)
         row = f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/rows/{s["task"]}'
         page = http.get(row).text
         self.assertIn("直した内容で、このお客様にお電話してよいか", page)      # 受け箱と同じ部品で、この行の承認待ちを出す

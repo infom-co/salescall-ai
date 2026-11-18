@@ -109,6 +109,25 @@ def _templates() -> Jinja2Templates:
     return t
 
 
+class Limiter:
+    """回数の絞りの1か所：鍵（相手の住所・ログインした方）ごとに、決めた秒数の中で決めた回数まで。画面のサーバーの手元の記憶だけ
+    （⏳ 画面のサーバーを2台以上にするときは、データベースの数え方へ移す＝CL-2 と相談）。覚えておく鍵の数も絞る。"""
+
+    def __init__(self, limit: int, window: float) -> None:
+        self.limit, self.window = limit, window
+        self.seen: dict[str, list[float]] = {}
+
+    def hit(self, key: str) -> bool:
+        """1回数える。もう決めた回数に達していれば True（断る）。"""
+        now = time.monotonic()
+        recent = [t for t in self.seen.get(key, []) if now - t < self.window]
+        self.seen[key] = recent + [now]
+        if len(self.seen) > 10_000:   # 古いものから捨てる
+            for k in list(self.seen)[:5_000]:
+                del self.seen[k]
+        return len(recent) >= self.limit
+
+
 def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_header: str | None = None,
                secure_cookies: bool = True) -> FastAPI:
     if not secret:
@@ -488,17 +507,16 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                               f"/c/{client_id}/b/{business_id}/settings")
 
     # ── PC のログイン（RFC 8628 の機器のログイン。待ちと払い出しは core の agents.login_* の1か所＝データベース。PC の側は agent/pc_login.py） ──
-    starts: dict[str, list[float]] = {}   # 始める入口の数の絞り（ログイン不要の入口なので、同じ所から続けて呼ばれたら断る＝CL-2 4-423）
-    START_LIMIT, START_WINDOW = 10, 60.0
+    # 回数の絞りは Limiter の1か所（どの入口も同じ数え方）：始める入口＝ログイン不要なので、同じ所（相手の住所）から1分に10回まで
+    # （CL-2 4-423）。確かめのコードを試す＝ログインした方ごとに10分に20回まで（打ち試しでほかの PC のコードを当てさせない＝RFC 8628 の
+    # 5.1・CL-2 4-425）。
+    start_limit = Limiter(10, 60.0)
+    code_limit = Limiter(20, 600.0)
 
-    def _too_many(where: str) -> bool:
-        now = time.monotonic()
-        recent = [t for t in starts.get(where, []) if now - t < START_WINDOW]
-        starts[where] = recent + [now]
-        if len(starts) > 10_000:   # 覚えておく所の数も絞る（古いものから捨てる）
-            for k in list(starts)[:5_000]:
-                del starts[k]
-        return len(recent) >= START_LIMIT
+    def _address(request: Request) -> str:
+        return (request.headers.get(client_ip_header) if client_ip_header else None) or (request.client.host if request.client else "?")
+
+    TOO_MANY_CODES = "コードを試す回数が多すぎます。10分ほど待ってから、PC の画面のコードで、もう一度開いてください。"
 
     async def _json(request: Request) -> dict[str, Any]:
         try:
@@ -510,8 +528,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     @app.post("/pc-login/start")
     async def pc_login_start(request: Request) -> JSONResponse:
         """PC がログインを始める（ログイン不要）。確かめのコードと、契約者が開くページを返す。"""
-        where = (request.headers.get(client_ip_header) if client_ip_header else None) or (request.client.host if request.client else "?")
-        if _too_many(where):
+        if start_limit.hit(_address(request)):
             return JSONResponse({"error": "slow_down"}, status_code=429)
         body = await _json(request)
         got = agents.login_start(access, label=str(body.get("pc_label") or ""), replaces=body.get("replaces"))
@@ -534,6 +551,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     def pc_login_page(request: Request, code: str = "", done: str | None = None, ok: int = 1) -> HTMLResponse:
         """契約者が PC を許可するページ（ログインが要る）。コードが PC の画面と同じかを確かめてもらう。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if code and code_limit.hit(person.login_id):
+                return page(request, "pc_login.html", person, ctx, code="", pending=None, done=TOO_MANY_CODES, ok=False, active="lines")
             pending = ctx.tenant(lambda tx: agents.login_waiting(tx, code)) if code else None
             return page(request, "pc_login.html", person, ctx, code=agents.login_code(code) if code else "", pending=pending,
                         done=done, ok=bool(ok), active="lines")
@@ -545,6 +564,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             approve = str(form.get("decision") or "") == "approve"
             def do() -> Any:
+                if code_limit.hit(person.login_id):
+                    raise actions.Refused(TOO_MANY_CODES)
                 label = ctx.tenant(lambda tx: agents.login_decide(tx, str(form.get("code") or ""), approve=approve))
                 if label is None:
                     raise actions.Refused("そのコードの PC は見つかりません（期限の10分を過ぎたか、もう決めたコードです。PC の画面の新しいコードで、もう一度開いてください）")

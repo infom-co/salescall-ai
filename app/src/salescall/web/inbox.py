@@ -265,8 +265,12 @@ def _corrections(tx: Tx, task: Any = None) -> list[Item]:
     task_correction_unconfirmed。✅ 2026-11-18 管理者：伺い2「本当に折り返してよいのか確認と承認をもらう。承認なく勝手にかけたらクレームになる
     可能性があるため」。CL-2 4-422）。"""
     items = []
-    for r in tx.all("SELECT task_id FROM salescall.tasks WHERE (%s::uuid IS NULL OR task_id = %s::uuid)"
-                    " AND salescall.task_correction_unconfirmed(task_id) IS NOT NULL ORDER BY task_id", (task, task)):
+    # 確かめられるのは直した方ご本人だけ（データベースが守る＝0242 の correction_call_confirm_by_corrector。CL-2 4-425）。ボタンは、
+    # 確かめ待ちの直しの asked_by が、いまの取引の方（salescall.cur_actor）のときだけ出す。ほかの方には、だれの確かめを待っているかを見せる。
+    for r in tx.all("SELECT t.task_id, c.asked_by, c.asked_by = salescall.cur_actor() AS mine FROM salescall.tasks t"
+                    " JOIN salescall.correction_calls c ON c.task_id = t.task_id"
+                    "  AND c.version_no = salescall.task_correction_unconfirmed(t.task_id)"
+                    " WHERE (%s::uuid IS NULL OR t.task_id = %s::uuid) ORDER BY t.task_id", (task, task)):
         n = next_action.current(tx, r["task_id"]) or {}
         ev = _row(tx, r["task_id"]) + [("直したことでかける電話", n.get("cause") or "")]
         if n.get("call_at"):
@@ -275,7 +279,9 @@ def _corrections(tx: Tx, task: Any = None) -> list[Item]:
             kind="correction", key={"task_id": str(r["task_id"]), "call_at": n["call_at"].isoformat() if n.get("call_at") else ""}, title="直しでかける電話の確かめ",
             decide="直した内容で、このお客様にお電話してよいか",
             evidence=ev, if_not="確かめるまで、この電話はかけません（かけないなら、お客様の行の画面で「かけない」にしてください）。",
-            at=n.get("decided_at"), buttons=(Button("confirm", "かけてよい", main=True),), **_business_of(tx, r["task_id"])))
+            at=n.get("decided_at"), buttons=(Button("confirm", "かけてよい", main=True),) if r["mine"] else (),
+            waiting_why="" if r["mine"] else f"直した方（{r['asked_by']}）ご本人の確かめを待っています",
+            **_business_of(tx, r["task_id"])))
     return items
 
 

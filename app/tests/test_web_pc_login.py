@@ -73,6 +73,16 @@ class PcLogin(unittest.TestCase):
         got = [own.post("/pc-login/start", json={"pc_label": "架空の PC"}).status_code for _ in range(12)]
         self.assertIn(429, got)                                                  # ログイン不要の入口なので、同じ所から続けたら断る
 
+    def test_trying_codes_is_slowed_per_login(self):   # RFC 8628 の 5.1（CL-2 4-425）：打ち試しでほかの PC のコードを当てさせない
+        person = Person("打ち試しの契約者", False, self.a["tenant"], "契約者A")
+        own = TestClient(create_app(app_access(), lambda r: person, SECRET), base_url="https://testserver")
+        pages = [own.get("/pc-login", params={"code": f"ZZZZ-{n:04d}"}).text for n in range(22)]
+        self.assertNotIn("試す回数が多すぎます", pages[0])
+        self.assertIn("試す回数が多すぎます", pages[-1])
+        other = Person("別の契約者の方", False, self.a["tenant"], "契約者A")      # ほかの方は数えない（ログインした方ごと）
+        self.assertNotIn("試す回数が多すぎます", TestClient(create_app(app_access(), lambda r: other, SECRET)).get(
+            "/pc-login", params={"code": "ZZZZ-0000"}).text)
+
     def test_behind_the_proxy_each_pc_is_counted_by_its_own_address(self):
         own = TestClient(create_app(app_access(), lambda r: None, SECRET, client_ip_header="fly-client-ip"), base_url="https://testserver")
         apart = [own.post("/pc-login/start", json={"pc_label": "架空の PC"}, headers={"fly-client-ip": f"192.0.2.{n}"}).status_code
