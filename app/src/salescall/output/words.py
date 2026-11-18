@@ -192,6 +192,12 @@ IMPORT_FIELD_WORDS: dict[str, str] = {
 }
 
 
+# テスト番号の結果（line_ring_tests.rang：鳴った／鳴らない／見分けられない＝core の ring_test の決まり）と、鳴らした目的（purpose の
+# すべての値＝データベースの決まり。試験が突き合わせる）。契約者の画面だけ。
+RING_WORDS: dict[bool | None, str] = {True: "鳴った（回線は元気）", False: "鳴らなかった（回線のせい）", None: "見分けられなかった"}
+RING_PURPOSE_WORDS: dict[str, str] = {"resume_check": "再開の確かめ", "no_rows": "かける行が無い回線の確かめ"}
+
+
 # 通話のやり取りで、話した側の名前（正本は core の conversation_io.SPEAKERS。試験が突き合わせる。契約者の画面だけ）
 SPEAKER_WORDS: dict[str, str] = {"callee": "お客様", "ai": "こちら（AI）"}
 

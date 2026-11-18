@@ -39,7 +39,7 @@ from salescall.core import approval as approval_core
 from salescall.core.access import Access
 from salescall.output import files as result_files
 from salescall.output import notices, result_rows, words
-from salescall.web import actions, context, counts, importing, inbox, rowfix, setting_forms, uploads
+from salescall.web import actions, context, counts, importing, inbox, rowfix, setting_forms, uploads, watch
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
@@ -206,8 +206,18 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             waiting = _waiting(ctx)
             per_client = [{**c, **ctx.client(c["client_id"], counts.client_today, read_only=True),
                            "waiting": sum(1 for wc, _ in waiting if wc["client_id"] == c["client_id"])} for c in ctx.clients()]
+            found = watch.collect(ctx)
+            noticed = [(w, got) for _, w, got in found if w.attention and got]
             return page(request, "home.html", person, ctx, stops=counts.open_stops(ctx), per_client=per_client, done=done, ok=bool(ok),
-                        waiting_total=len(waiting), first=waiting[:3])
+                        waiting_total=len(waiting), first=waiting[:3], watch_total=watch.attention_count(found), watch_first=noticed[:1])
+        return handle(request, render)
+
+    @app.get("/t/watch")
+    def watch_page(request: Request) -> HTMLResponse:
+        """見張り（計画書 12-1 の監視。項目は web/watch.WATCHES の1か所。画面は答える場所の事実を並べるだけ）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            found = watch.collect(ctx)
+            return page(request, "watch.html", person, ctx, active="watch", found=found, days=watch.DAYS)
         return handle(request, render)
 
     @app.get("/t/badges")

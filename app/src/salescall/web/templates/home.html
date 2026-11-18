@@ -7,7 +7,7 @@
 <p class="lead">何もしなくても電話は進みます。色の付いた所だけ見てください。</p>
 {{ flash(done, ok) }}
 
-<div class="grid cols-3 stats">
+<div class="grid cols-4 stats">
   <a class="card {{ 'attention-stop' if stops }}" href="/t/stops" style="text-decoration:none;color:inherit">
     {{ stat("止まっているもの", stops|length, "stop" if stops else "ok") }}
     <div class="muted hint" style="margin-top:6px">
@@ -17,6 +17,10 @@
   <a class="card {{ 'attention-wait' if waiting_total }}" href="/t/inbox" style="text-decoration:none;color:inherit">
     {{ stat("承認待ち", waiting_total, "wait" if waiting_total else "ok") }}
     <div class="muted hint" style="margin-top:6px">{% if waiting_total %}いちばん急ぐもの：{{ first[0][1].title }}（{{ first[0][0].name }}）{% else %}承認待ちはありません{% endif %}</div>
+  </a>
+  <a class="card {{ 'attention-wait' if watch_total }}" href="/t/watch" style="text-decoration:none;color:inherit">
+    {{ stat("気をつけること", watch_total, "wait" if watch_total else "ok") }}
+    <div class="muted hint" style="margin-top:6px">{% if watch_first %}{{ watch_first[0][0].title }}（{{ watch_first[0][1]|length }}件）{% if watch_total > watch_first[0][1]|length %}ほか{% endif %}{% else %}回線・休んでいる行に、気をつけることはありません{% endif %}</div>
   </a>
   <div class="card">
     {{ stat("今日かけた電話", per_client|sum(attribute="dialed_today")) }}

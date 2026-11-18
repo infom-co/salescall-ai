@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty %}
+{% block title %}見張り{% endblock %}
+{% block main %}
+<h1>見張り</h1>
+<p class="lead">回線と、休んでいる行・終えた電話の様子です。どれもシステムが決まりどおりに動かしています。色の付いた所は、続くようなら確かめてください。</p>
+{# 項目は web/watch.WATCHES の1か所。画面は答える場所の事実を並べるだけ（決め直さない） #}
+{% set busy = found|selectattr(2)|list %}
+{% set calm = found|rejectattr(2)|list %}
+{% if busy %}
+<nav class="filters" aria-label="見張りの項目">
+  {% for key, w, got in busy %}<a class="chip" href="#{{ key }}">{{ w.title }} <b>{{ got|length }}</b></a>{% endfor %}
+</nav>
+{% endif %}
+{% for key, w, got in busy %}
+<section class="watch-block" id="{{ key }}">
+  <h2>{{ w.title }} {{ tag(got|length ~ "件", "wait" if w.attention else "info") }}</h2>
+  <p class="muted">{{ w.meaning }}</p>
+  <div class="table-scroll"><table class="list">
+    <thead><tr>{% if w.where == "client" %}<th>依頼者</th>{% endif %}<th>どれ</th><th class="wide">どうなっているか</th><th>時刻</th><th></th></tr></thead>
+    <tbody>
+    {% for c, e in got %}
+      <tr>
+        {% if w.where == "client" %}<td class="nowrap"><a href="/c/{{ c.client_id }}">{{ c.name }}</a></td>{% endif %}
+        <td>{{ e.what }}</td>
+        <td class="wide">{{ e.detail }}{% if e.note %}<div class="muted">{{ e.note }}</div>{% endif %}</td>
+        <td class="nowrap">{{ time(e.at) if e.at else "" }}</td>
+        <td class="nowrap">{% if e.link %}<a href="{{ e.link }}">見る</a>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endfor %}
+{% if calm %}
+<section class="watch-block">
+  <h2>いま、ありません</h2>
+  <div class="card calm-list">
+    {% for key, w, got in calm %}
+    <details id="{{ key }}"><summary>{{ tag("なし", "ok") }} {{ w.title }}</summary><p class="muted">{{ w.meaning }}</p></details>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

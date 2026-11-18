@@ -347,3 +347,11 @@ td.to-fill { background: var(--stop-soft); color: var(--stop); font-weight: 700;
 .card.deficit > b { flex-basis: 100%; }
 .card.deficit > .muted { flex: 1 1 320px; }
 .card.deficit form { margin: 0; }
+
+/* 見張り：項目ごとの区切り（飛び先は上に留まる飾りの下に出す） */
+.watch-block { margin-top: 28px; scroll-margin-top: calc(var(--chrome, 108px) + 12px); }
+.watch-block h2 { display: flex; align-items: center; gap: 8px; }
+.calm-list details { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.calm-list details:last-child { border-bottom: 0; }
+.calm-list summary { cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.calm-list p { margin: 6px 0 0 4px; }

@@ -21,6 +21,7 @@ from salescall.core import (approval, apology, calling_hours, client_solutions, 
                             tasks, usage)
 from salescall.core.access import Tx
 from salescall.output import words
+from salescall.web import links
 
 
 @dataclass(frozen=True)
@@ -64,13 +65,6 @@ def _business_of(tx: Tx, task_id: Any) -> dict[str, Any]:
     return {"business_id": bid, "business_name": name["name"] if name else ""}
 
 
-def _call_link(tx: Tx, task_id: Any, attempt_id: Any) -> str:
-    """その電話のやり取りの全文の画面（決める前に、その場のやり取りを確かめる＝2026-10-30 管理者）。"""
-    r = tx.one("SELECT t.run_id, r.business_id FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id WHERE t.task_id = %s",
-               (task_id,))
-    return f"/c/{_client(tx)}/b/{r['business_id']}/runs/{r['run_id']}/rows/{task_id}/calls/{attempt_id}" if r else ""
-
-
 def _decisions(tx: Tx, task: Any = None) -> list[Item]:
     items = []
     for d in approval.pending_decisions(tx):
@@ -85,7 +79,7 @@ def _decisions(tx: Tx, task: Any = None) -> list[Item]:
             kind="decision", key={"task_id": str(d["task_id"]), "attempt_id": str(d["attempt_id"]), "seq": str(d["seq"])},
             title="取り消せない決定の確かめ", decide=f"「{parts}」として確定してよいか",
             evidence=ev, if_not="決まるまで、このお客様にはかけません。",
-            at=d["waited_at"], **_business_of(tx, d["task_id"]), link=_call_link(tx, d["task_id"], d["attempt_id"]),
+            at=d["waited_at"], **_business_of(tx, d["task_id"]), link=links.call(tx, d["task_id"], d["attempt_id"]),
             buttons=(Button("send_back", "差し戻す"), Button("approve", "承認する", main=True)) if d["ask"] else (),
             waiting_why="" if d["ask"] else (approval.ASK_WHY.get(d["ask_why"] or "", "") or "AI が確かめています")))
     return items
@@ -257,9 +251,8 @@ def _result_checks(tx: Tx, task: Any = None) -> list[Item]:
             "   AND NOT salescall.release_blocked(l.task_id, l.version_no) AND (%s::uuid IS NULL OR l.task_id = %s::uuid)"
             " ORDER BY l.decided_at, l.task_id", (task, task)):
         biz = _business_of(tx, r["task_id"])
-        run = tx.one("SELECT run_id FROM salescall.tasks WHERE task_id = %s", (r["task_id"],))["run_id"]
         items.append(Item(
-            kind="result_check", link=f"/c/{_client(tx)}/b/{biz['business_id']}/runs/{run}/rows/{r['task_id']}", key={"task_id": str(r["task_id"]), "seq": str(r["version_no"])}, title="結果の確かめ（検証モード）",
+            kind="result_check", link=links.row(tx, r["task_id"]), key={"task_id": str(r["task_id"]), "seq": str(r["version_no"])}, title="結果の確かめ（検証モード）",
             decide="この結果でよいか（違えば、お客様の行の画面で直す）",
             evidence=_row(tx, r["task_id"]) + [("システムの読み", words.word(words.BUSINESS_STATES, r["state"]).screen)],
             if_not="確かめるまで、この結果は依頼者へ渡しません。", at=r["decided_at"],

@@ -172,3 +172,13 @@ class DncImportFields(unittest.TestCase):
         from salescall.output import words as w
         self.assertEqual(set(w.SPEAKER_WORDS), set(conversation_io.SPEAKERS))
 
+    def test_every_ring_test_purpose_has_a_word(self):
+        import re as _re
+        from pathlib import Path
+        from salescall.output import words as w
+        sql = (Path(__file__).resolve().parents[1] / "db" / "migrations" / "0134_test_ring_trouble_system_names.sql").read_text(encoding="utf-8")
+        m = _re.search(r"purpose\s+text NOT NULL CHECK \(purpose IN \(([^)]*)\)", sql)
+        self.assertIsNotNone(m, "鳴らした目的の決まりが見つかりません")
+        self.assertEqual(set(w.RING_PURPOSE_WORDS), set(_re.findall(r"'([a-z_]+)'", m.group(1))))
+        self.assertEqual(set(w.RING_WORDS), {True, False, None})
+
