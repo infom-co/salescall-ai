@@ -32832,6 +32832,34 @@ class Review13CTest(unittest.TestCase):
         self.assertFalse(topics.fits("ご連絡の方法を教えてください。", "ご連絡の方法（電話）"))
         self.assertTrue(topics.fits("ご連絡の方法を教えてください。", "ご連絡の方法"))
 
+    def test_c8_one_way_to_decide_at_import(self):
+        # (C8) 取込で材料ごとに言葉・文を決める形は1か所（import_ai._decide_each。中身の判定は任意＝文を作る _drafted は通す・言葉を決める _settled は通さない）。
+        # 考える Sonnet が無いときの扱いは今のまま（言葉はそろった答えを使う・文は聞かずに空＝伺いの下書き rv72/r13c/ask.md の C8）。⛔ ba505007 まで、2つの所が
+        # 同じ並べ方（2つの文字のAI → そろわないものだけ考える Sonnet → 形の確かめ）を別々に書いていた
+        from unittest import mock
+        import import_ai
+        calls = []
+        real = import_ai._decide_each
+
+        def spy(*a, **k):
+            calls.append(k.get("grounded") is not None)
+            return real(*a, **k)
+        asked = []
+
+        def model(words):
+            def by(c, m, texts, think=False):
+                asked.append(m)
+                return [words] * len(texts)
+            return by
+        text = "ご予算はおいくらほどでしょうか？"
+        with mock.patch.object(import_ai, "_decide_each", spy):
+            with mock.patch("since.by_model", model("ご予算はおいくらほど")):
+                self.assertEqual(import_ai.decide_since([(None, "m1"), (None, "m2")], [text]), {text: "ご予算はおいくらほど"})
+            with mock.patch("rewords.by_model", model(AsideTest.PAY2)):
+                self.assertEqual(import_ai.decide_rewords([(None, "m1"), (None, "m2")], [(AsideTest.PAY, ("カード", "振込"), "choice")]), [""])
+        self.assertEqual(calls, [False, True])
+        self.assertEqual(asked, ["m1", "m2"])   # 文は、考える Sonnet が無ければ2つの文字のAIにも聞かない（今のまま）
+
 
 if __name__ == "__main__":
     unittest.main()
