@@ -2144,9 +2144,37 @@ def _round_calls(tx: Tx, task_id: UUID, window: Window, period: datetime | None,
     return len(_round_dials(tx, task_id, window, period, on=on))
 
 
+# その行で、お客様がかけ直しを約束した、いちばん新しい通話の時刻（SQL。1か所＝約束の数え始め。`_unspecified_calls`・`_range_end` が読む。引数は行）
+_PROMISED_AT = ("coalesce((SELECT max(c.claimed_at) FROM salescall.attempts c JOIN salescall.call_results r ON r.attempt_id = c.attempt_id"
+                "          WHERE c.task_id = %s AND r.business_state = 'callback_scheduled'), '-infinity')")
+
+
+def _range_end(tx: Tx, task_id: UUID, window: Window) -> datetime | None:
+    """何日も続く範囲に時間の言葉を付けた約束（「来週の夕方なら」「月末の午後なら」＝その約束の最初の回が1日より長く、話せなかったときの次の回が
+    次の日の同じ幅）で、いまの回が範囲の過ぎたあとの回（別の日）なら、範囲の終わり（1か所）。ほかは None。範囲が過ぎたあとの別の日は、範囲の中の
+    回数と別に、時刻の決まっていない約束の方針の回数ちょうどまで（回の日数でなく電話の数。1日の回数は同じ）、お客様が言った時間の言葉の幅でかける
+    （✅ 2026-11-18 ユーザー：伺い「範囲＋時間」に「案イ：別の日も夕方に」。数えるのは `_round_dials`・回の上限は `_keep_promise`）。"""
+    if window.round == 0 or window.repeat != spoken_time.DAY_REPEAT or window.daily is None:
+        return None
+    first = tx.one("SELECT window_from, window_until FROM salescall.task_next_actions WHERE task_id = %s AND window_round = 0"
+                   " AND window_from IS NOT NULL AND window_until IS NOT NULL AND decided_at > " + _PROMISED_AT + " ORDER BY seq LIMIT 1",
+                   (task_id, task_id))
+    if first is None or first["window_until"] - first["window_from"] <= timedelta(days=1):
+        return None
+    return first["window_until"]
+
+
 def _round_dials(tx: Tx, task_id: UUID, window: Window, period: datetime | None, *, on: datetime | None = None) -> list[datetime]:
     """約束の回に、この行でかけた、お客様に届いた電話の時刻（数え方は `_round_calls` の説明のとおり。1か所）。回の始まりが分からない幅は、その幅の予定を
-    初めて決めたときから。"""
+    初めて決めたときから。何日も続く範囲に時間の言葉を付けた約束の、範囲が過ぎたあとの別の日は、範囲の終わりからの電話すべて（`_range_end`。回（日）ごとに
+    数え直さない＝別の日の合計が方針の回数ちょうど）。"""
+    after = _range_end(tx, task_id, window)
+    if after is not None:
+        return [r["claimed_at"] for r in tx.all(
+            f"SELECT a.claimed_at FROM salescall.attempts a, (SELECT %s::timestamptz AS since) p"
+            f" WHERE a.task_id = %s AND {attempts.reached('a')} AND {attempts.in_promise_count('a', 'p.since')} AND a.claimed_at >= %s"
+            " AND (%s::timestamptz IS NULL OR salescall.jst(a.claimed_at)::date = salescall.jst(%s::timestamptz)::date)"
+            " ORDER BY a.claimed_at", (period, task_id, after, on, on))]
     end = window.round_end
     return [r["claimed_at"] for r in tx.all(
         f"SELECT a.claimed_at FROM salescall.attempts a, (SELECT %s::timestamptz AS since) p"
@@ -2430,6 +2458,10 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
     if w2.round > window.round:
         w2 = replace(w2, missed=window.missed + int(missed_now) + skipped)
         called = w2.round - w2.missed                                    # こちらがかけた回の数
+        if _range_end(tx, task_id, w2) is not None:
+            # 何日も続く範囲に時間の言葉を付けた約束の、範囲が過ぎたあとの別の日：回（日）の数でなく、別の日にかけた電話の数（`_round_calls`）で比べる
+            # （✅ 2026-11-18 ユーザー：「案イ：別の日も夕方に」。⛔ 8回目の見直しまで：別の日も回（日）の数を方針の回数まで・1日3回まで続け、最大9本かけた）
+            called = _round_calls(tx, task_id, w2, None)
         far_next = _next_round_far(window, w2)
         limit = _promise_used_up(tx, task_id, called, exact=exact)
         # 「契約者が認めたらかける」の業務でも、範囲の中の回数を使い切っていれば次の回へは回せない（伺っても、かけられない）＝「かけない」と同じく
@@ -2931,8 +2963,6 @@ def _unspecified_calls(tx: Tx, task_id: UUID) -> int:
     rows = tx.all(
         f"SELECT a.claimed_at, a.purpose FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.reached('a')}"
         f" AND {attempts.in_promise_count('a')}"   # 前の担当の方との「守る」約束の電話は、その方の番号で数える（0214）
-        " AND a.claimed_at > coalesce((SELECT max(c.claimed_at) FROM salescall.attempts c"
-        "   JOIN salescall.call_results r ON r.attempt_id = c.attempt_id"
-        "   WHERE c.task_id = %s AND r.business_state = 'callback_scheduled'), '-infinity')",
+        " AND a.claimed_at > " + _PROMISED_AT,
         (task_id, task_id))
     return sum(_served_unspecified(tx, task_id, r["claimed_at"], r["purpose"]) for r in rows)

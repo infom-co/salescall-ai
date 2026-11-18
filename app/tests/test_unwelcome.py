@@ -894,21 +894,23 @@ class UrgentNotices(SettleBase):
 class Guards(SettleBase):
     """0216 のデータベースの守り。"""
 
-    def test_a_recovering_deadline_is_only_on_an_exact_promise(self):
-        """取り戻す電話の期限（次の予定の列 window_recover_until）は、時刻ちょうどの約束（お客様が指定した時刻と幅を持つ、かけ直す予定）にだけ
-        付けられる（データベースの守り task_next_actions_window_recover）。"""
+    def test_a_recovering_deadline_is_only_on_a_call_with_a_window(self):
+        """回の期限（次の予定の列 window_recover_until＝取り戻す電話・途中で切れた約束の電話のすぐのかけ直し）は、終わりのある幅を持つ、かけ直す予定に
+        だけ付けられる（データベースの守り task_next_actions_window_recover）。時刻の無い幅の約束（「3時以降」）にも付けられる（0244。⛔ 0216〜8回目の
+        見直しまで：時刻ちょうどの約束にだけ付けられ、時刻の無い幅の約束の電話が回の終わりのあとに切れると、締めが落ちた）。"""
         from salescall.core.access import Rejected
         s = self.ready()
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         w = next_action.Window(now + timedelta(hours=1), (0, 24 * 3600), None, now - timedelta(hours=1), "day",
                                recover_until=now + timedelta(hours=2))
-        write = lambda callee: self.tx(s, lambda tx: next_action._append(   # noqa: E731
-            tx, s["task"], call_at=now, end_reason=None, cause="試験：取り戻す電話", promised=True,
-            target=next_action.Target(s["contact"]), callee_at=callee, window=w))
+        write = lambda callee, window: self.tx(s, lambda tx: next_action._append(   # noqa: E731
+            tx, s["task"], call_at=now, end_reason=None, cause="試験：回の期限", promised=True,
+            target=next_action.Target(s["contact"]), callee_at=callee, window=window))
         with self.assertRaises(Rejected):
-            write(None)                                                          # 時刻ちょうどの約束でない
-        write(now)
+            write(None, replace(w, until=None))                                  # 終わりの無い幅
+        write(None, w)                                                           # 時刻の無い幅の約束
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["window_recover_until"], w.recover_until)
+        write(now, w)                                                            # 時刻ちょうどの約束
 
     def test_the_ask_mark_is_only_on_a_call(self):
         """契約者に伺う印（次の予定の列 month_ahead_ask。0219）は、かけ直す予定にだけ付けられる（データベースの守り task_next_actions_month_ahead_ask）。"""

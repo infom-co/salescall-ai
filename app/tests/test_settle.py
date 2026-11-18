@@ -4802,13 +4802,13 @@ class CutOffCalls(SettleBase):
         cut = ("dialing", "ringing", "answered", "in_conversation", "technical_error")
         real = settings.resolve
         long_claim = lambda tx, key, **kw: 7200 if key == "gate.claim_lifetime" else real(tx, key, **kw)   # noqa: E731
-        for longer, extended in ((False, False), (True, True)):
-            with self.subTest(longer=longer):
+        for longer, extended, exact in ((False, False, True), (True, True, True), (True, True, False)):
+            with self.subTest(longer=longer, exact=exact):   # 時刻の無い幅の約束でも延ばせる（0244。⛔ 8回目の見直しまで：データベースの守りで締めが落ちた）
                 t = self.ready()
                 said = (now - timedelta(minutes=5)).replace(second=0, microsecond=0)
                 w = self.tx(t, lambda tx: next_action._exact_window(tx, t["task"], said, day_said=True, beyond_ok=False))
                 self.tx(t, lambda tx: support.schedule_call(tx, t["task"], said, contact_id=t["contact"], cause="試験：約束の時刻",
-                                                           promised=True, callee_at=said, window=w))
+                                                           promised=True, callee_at=said if exact else None, window=w))
                 aid = self.call(t, cut, report=rep(cut=None))
                 with mock.patch.object(next_action.settings, "resolve", side_effect=long_claim) if longer else contextlib.nullcontext():
                     d = self.settle(t, aid)["decision"]
@@ -4820,7 +4820,7 @@ class CutOffCalls(SettleBase):
         u = self.ready()
         scope = {"tenant_id": u["tenant"], "client_id": u["client"], "business_id": u["business"]}
         self.tx(u, lambda tx: support.schedule_call(tx, u["task"], now, contact_id=u["contact"], cause="試験：すぐのかけ直し（回の中で決めた）",
-                                                   promised=True, purpose="resume", callee_at=ended.since, window=ended))
+                                                   promised=True, purpose="resume", window=ended))   # 時刻の約束の取り戻し（_recover_today）と分けるため時刻なし
         d = self.tx(u, lambda tx: next_action.after_denial(tx, u["task"], gate.denied("callback_window"), **scope))
         self.assertEqual((d.kind, d.target.purpose, d.window.recover_until), ("call", "resume", day_end))
         yesterday = replace(ended, since=ended.since - timedelta(days=1), until=ended.until - timedelta(days=1))
