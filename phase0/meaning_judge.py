@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, NONE, WAIT_PLAIN, ELSEWHERE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items)
 
@@ -467,7 +467,20 @@ def answer_kinds(q) -> dict:
     （迷っている＝HESITATING は、迷っているお客様に応じる質問だけ＝flowctl.hears_hesitation の1か所＝選ぶ助けを伝える業務の質問と、説明した内容のご承認の質問）。"""
     if talk_question(q):
         return KIND_DESC | {UNDECIDED: TALK_UNDECIDED}
-    return ANSWER_KINDS if hears_hesitation(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
+    kinds = ANSWER_KINDS if hears_hesitation(q) else {k: d for k, d in ANSWER_KINDS.items() if k != HESITATING}
+    if offer := getattr(q, "taken_offer", ""):
+        # 受けていただいた申し出から始まった質問（flowctl.Flow._taken_offer の1か所）だけ、その申し出の取り消し（flowctl.WITHDREW）。並びは「決められない」の前
+        # （ほかの質問の文は変えない）。✅ 2026-11-18 日本時間21時00分23秒 ユーザー（伺い40）
+        items = list(kinds.items())
+        at = next((i for i, (k, _) in enumerate(items) if k == UNDECIDED), len(items))
+        kinds = dict(items[:at] + [(WITHDREW, WITHDREW_DESC.format(offer=offer))] + items[at:])
+    return kinds
+
+
+# 受けていただいた申し出の取り消し（flowctl.WITHDREW）の説明（answer_kinds の1か所）。分かれ目は意味で書く（言葉の形の例は足さない）：いま伺っている質問への答え
+# （時刻・方法・連絡先など）ではなく、その前に受けた申し出そのものを要らないとした。この質問の答えだけを断った・答えたくない、とは分ける
+WITHDREW_DESC = ("この質問の前に、こちらの申し出（「{offer}」）を一度受けていただいたが、その申し出そのものを、やはり要らない・しなくてよいと取り消した"
+                 "（この質問への答えではない。この質問に答えるのを控えた・この質問の答えが分からない、のとは違う）")
 
 
 # 「その後（中身）かお決まりになりましたでしょうか？」（flowctl.since_form）で伺った値を伺う質問の「答えた」の説明：決まった中身を言ったときだけ答え（「はい、
@@ -1606,14 +1619,17 @@ def other_client(name: str, key: str, aio: bool = False, budget: float | None = 
 
 
 def _other_error(exc: BaseException) -> OtherJudgeError | None:
-    """部品ごとの失敗を、1つの形（OtherJudgeError）にそろえる。ほかの失敗は None（そのまま上げる）。"""
-    import anthropic
-    import httpx
+    """部品ごとの失敗を、1つの形（OtherJudgeError）にそろえる。ほかの失敗は None（そのまま上げる）。
+    部品はここで読み込まない＝読み込まれている部品の誤りだけを見る（その部品の誤りは、その部品が読み込まれているときにしか起きない）。⛔ 2026-11-18
+    日本時間21時台に見つけた（11-19 日本時間0時台に測った）：ここで anthropic・httpx を読み込んでいた＝その処理で初めての失敗のときだけ 0.75〜1.8秒かかり、
+    会話の側の待つ長さ（Limits.judge_wait_s＝2秒）の中で止まった判定の代わり（前の話の答えの Jev など）が待たされた"""
+    import sys
 
-    if isinstance(exc, anthropic.APIStatusError):
+    anthropic, httpx = sys.modules.get("anthropic"), sys.modules.get("httpx")
+    if anthropic is not None and isinstance(exc, anthropic.APIStatusError):
         r = exc.response
         return OtherJudgeError(exc.status_code, str(exc.message)[:300], float(r.headers.get("retry-after") or 0) or None)
-    if isinstance(exc, httpx.HTTPStatusError):
+    if httpx is not None and isinstance(exc, httpx.HTTPStatusError):
         r = exc.response
         return OtherJudgeError(r.status_code, r.text[:300], float(r.headers.get("retry-after") or 0) or None)
     return None
