@@ -31446,6 +31446,133 @@ class TroubleOfferTest(unittest.TestCase):
         self.assertIsNone(g._proposal_of("Q2"))
 
 
+class BriefTroubleOfferTest(unittest.TestCase):
+    """伺い42 場面2（✅ 2026-11-19 日本時間3時17分22秒 ユーザー「・場面2：「はい、お困りのままですとご心配ですよね。それでは対応の面について、お客様の声や事例も
+    交えてメールでご連絡させていただくということではいかがでしょうか？」」。伺ったときのお勧めア＝深める一言 E2〜E4 を伺わずに、すぐ困りごとに応える提案）：
+    - 手短の電話（H3 に「いいえ」・はっきりしないのあと手短に伺っている電話＝Flow.brief_only）で、ほかの会社のことを伺った一言（E1）に困りごとを言っていただき、
+      会話AIが応えたあとは、深める一言（E2〜E4）を伺わずに、困りごとに応える提案（_deepen_then → _trouble_offering → _offer_again の1か所）へ。会話AIに困りごとの
+      言葉・困りごとが続く形の句も書かせない（深めないので使わない）。提案で伺えない質問は今の戻り（_elsewhere_back）。手短でない電話は今のまま（E2〜E4 のあとに提案）。
+    - 提案の言葉の形（手短でも手短でなくても同じ1か所）：会話AIへの知らせの例をお言葉の文に（ひとこと「はい、お困りのままですとご心配ですよね。」・中身「対応の面に
+      ついて」）。お言葉の読点（「について、」）は外す（会話AIが書く中身は区切りの記号を入れない今の確かめ＝offer_terms_problem・プログラムの文は読点を外す 10-15）。
+    - お言葉の外（まとめ役の決め）：「お客様の声や事例も交えて」は業務の情報にあるときだけ（説明に無い事実は足さない＝中身の判定 Flow._proposal_problem の1か所）。
+      無ければ「対応の面について」だけ。
+    ⛔ 9e707d0a まで、手短の電話でも E1 の困りごとに応えたあとに「はい、これまでに問題や不都合が発生したことが何度かおありなのでしょうか？」（E2）を伺い、提案の
+    知らせの例は「対応の面も含めて」だった"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    reread = OtherCompanyClueSendWayTest.reread
+    ORIG = "どちらも要らないです。うちは別のところに頼んでますので。"
+    TROUBLE, REPLY = DeepenTroubleTest.TROUBLE, DeepenTroubleTest.REPLY
+    TALK = "はい、お困りのままですとご心配ですよね。"
+    TOPIC = "対応の面について"
+    VOICES = "対応の面についてお客様の声や事例も交えて"
+    PROPOSAL = "それでは対応の面についてメールでご連絡させていただくということではいかがでしょうか？"
+    PROPOSAL_VOICES = "それでは対応の面についてお客様の声や事例も交えてメールでご連絡させていただくということではいかがでしょうか？"
+    INFO = ("お客様の声や導入事例を資料でご紹介しております。",)
+
+    def to_offer(self, h3="いいえ", info=(), at_q4=False):
+        """手短の電話：「手短に」→ H3 にいいえ（はっきりしない）→ Q2（at_q4 なら Q4）へ「どれも要らない・別のところに頼んでいる」→ E1 → 困りごと → 会話AIが応える →
+        応えたあとのお返事。(流れ, そのお返事への返事, E1 の困りごとを受けた知らせ)。"""
+        from flowctl import CALLBACK_IDS, ELSEWHERE_YES, END_BRIEF, NONE, UNDECIDED
+        e1, b = CALLBACK_IDS["elsewhere"], CALLBACK_IDS["brief"]
+        f = OtherCompanyClueSendWayTest().flow(info=info)
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        self.turn(f, BriefHurryTest.WORDS, self.rd(UNDECIDED, end=END_BRIEF))
+        self.assertEqual(f.current, b)
+        if h3 == "いいえ":
+            self.turn(f, "いえ、このままで大丈夫です。", self.rd("いいえ"), "record_answer", question_id=b, condition_id="いいえ")
+        else:
+            self.turn(f, "はい、どうぞ。", self.rd(UNDECIDED))
+        self.reread(f, self.rd(UNDECIDED))
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((f.current, f.brief_only), ("Q2", True), self.heard(r))
+        if at_q4:
+            self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
+            self.turn(f, "はい、大丈夫です。", self.rd("はい"), "record_answer", question_id="Q3", condition_id="はい")
+            self.assertEqual(f.current, "Q4")
+            self.turn(f, "カードは使わないです。支払いは別の会社に頼んでますので。", self.rd("決められない", elsewhere=ELSEWHERE_YES))
+        else:
+            self.turn(f, self.ORIG, self.rd(NONE, elsewhere=ELSEWHERE_YES), "record_answer", question_id="Q2", condition_id=NONE)
+        self.assertEqual(f.current, e1)
+        r = self.turn(f, self.TROUBLE, self.rd("問題を言った"), "record_answer", question_id=e1, condition_id="問題を言った", value="対応が遅くて困っている")
+        self.assertEqual(r["result"], "callee_asked")
+        note = r["message"]
+        grounded(f, self.REPLY, "知っていることだけ")
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": self.REPLY})["result"], "own_answer")
+        r = self.turn(f, "へえ、そうなんですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
+        return f, r, note
+
+    def proposed(self, f, topic=TOPIC, verdict="事実を言っていない", part=""):
+        grounded(f, self.TALK, "事実を言っていない")
+        grounded(f, topic, verdict, part)
+        return f.apply("replay_opening", {"part": "talk", "answer": self.TALK, "topic": topic, "way": "メール"})
+
+    def test_a_brief_call_offers_right_after_the_trouble_is_answered(self):
+        from flowctl import ARG_LABEL
+        for h3 in ("いいえ", "はっきりしない"):
+            f, r, note = self.to_offer(h3)
+            # 深めないので、困りごとの言葉・困りごとが続く形の句は書かせない
+            self.assertNotIn(ARG_LABEL["trouble"], note, h3)
+            self.assertNotIn(ARG_LABEL["kept"], note, h3)
+            # 応えたあとのお返事で、E2 を伺わずに提案の番（お客様にはまだ何も聞こえない）
+            self.assertEqual((r["result"], self.heard(r), f.current, f.deepen_asked), ("callee_asked", "", "Q2", False), h3)
+            self.assertIn("提案", r["message"])
+            r = self.proposed(f)
+            self.assertEqual((r["result"], f.awaiting_confirm, self.heard(r)), ("confirm_required", "Q2", self.TALK + self.PROPOSAL), h3)
+            # 受けていただいた＝その答えで受け取り、手短に伺う残りの質問へ
+            r = self.turn(f, "はい、それでお願いします。", self.rd("メール"), "confirm_field", question_id="Q2", result="affirmed")
+            self.assertEqual((f.items["Q2"].condition, f.current), ("メール", "Q3"), h3)
+            self.assertTrue(self.heard(r).startswith("ありがとうございます。"), self.heard(r))
+            self.assertEqual([(e["question"], e["topic"]) for e in f.facts["offer_terms"]], [("Q2", self.TOPIC)])
+
+    def test_a_question_without_a_proposal_goes_back_to_the_reply_as_before(self):
+        # 提案で伺えない質問（選択肢が方法の名前でない選ぶ質問 Q4）は今の戻り：E2 を伺わずに、もとのお返事を読み直す（_elsewhere_back）
+        f, r, _ = self.to_offer(at_q4=True)
+        self.assertEqual((r.get("ahead_offer"), f.current, self.heard(r), f.deepen_asked), (True, "Q4", "はい、", False))
+
+    def test_a_call_that_is_not_brief_still_deepens_first(self):
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        f = OtherCompanyClueSendWayTest().flow()
+        DeepenTroubleTest().to_other_trouble(f)
+        r = self.turn(f, "へえ、そうなんですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
+        self.assertEqual((f.current, f.brief_only), (CALLBACK_IDS["deepen"], False), self.heard(r))
+
+    def test_the_proposal_note_shows_the_customers_words(self):
+        # 知らせの例はお言葉の文（手短でも手短でなくても同じ1か所＝_asked_note の offer）
+        f, r, _ = self.to_offer()
+        g, s = TroubleOfferTest().to_offer()
+        for msg in (r["message"], s["message"]):
+            self.assertIn(f"「{self.TALK}」", msg)
+            self.assertIn(f"「{self.TOPIC}」", msg)
+            self.assertIn("お客様の声や事例", msg)
+            self.assertNotIn("対応の面も含めて", msg)
+
+    def test_customer_voices_are_said_only_when_the_business_info_has_them(self):
+        from flowctl import OWN_REWRITES
+        # 業務の情報にある：中身の判定に、その業務の情報を見せて聞く（_proposal_problem の1か所）→ 知っていることだけ＝そのまま提案に入れる
+        f, r, _ = self.to_offer(info=self.INFO)
+        jobs = f.grounding_jobs("replay_opening", {"part": "talk", "answer": self.TALK, "topic": self.VOICES, "way": "メール"})
+        self.assertTrue(any(j[2] == self.VOICES and any(self.INFO[0] in k for k in j[0]) for j in jobs), jobs)
+        r = self.proposed(f, self.VOICES, "知っていることだけ")
+        self.assertEqual(self.heard(r), self.TALK + self.PROPOSAL_VOICES)
+        # 業務の情報に無い：知らない事実として書き直してもらい、「対応の面について」だけで提案する
+        g, r, _ = self.to_offer()
+        r = self.proposed(g, self.VOICES, "知らない事実がある", "お客様の声や事例")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("お客様の声や事例", r["message"])
+        self.assertIn(f"「{self.TOPIC}」", r["message"])   # 書き直しの例も、この番の形（⛔ 9e707d0a まで「料金の面も含めて」）
+        self.assertGreater(OWN_REWRITES, 0)
+        r = self.proposed(g)
+        self.assertEqual(self.heard(r), self.TALK + self.PROPOSAL)
+        # 手短でない電話（E2〜E4 のあとの提案）も同じ1か所
+        h, _ = TroubleOfferTest().to_offer()
+        r = self.proposed(h, self.VOICES, "知らない事実がある", "お客様の声や事例")
+        self.assertEqual(r["result"], "rejected")
+        r = self.proposed(h)
+        self.assertEqual(self.heard(r), self.TALK + self.PROPOSAL)
+
+
 class BriefNoReadAgainTest(unittest.TestCase):
     """伺い31 の H3（「（要約）の件でお電話させていただきましたが後ほどお時間のある時にかけ直しさせていただきましょうか？」）への「いいえ」・はっきりしないお返事のあと
     （まとめ役が 37b5e5e8 の確かめで決まりで直した2つ）：
@@ -33207,8 +33334,9 @@ class Review13RecallTest(unittest.TestCase):
 
 class Review13BriefTest(unittest.TestCase):
     """見直し (13) の持ち場 B のうち、決まりで決まる指摘（手短になら聞くと言われて伺う一言 H3 と、ほかの会社のことを伺う一言 E1・深める一言 E2）：
-    (B2) E1 で困りごとに応えたあとの「手短に」→ H3「いいえ」：伺う前のもとのお返事（「どちらも要らないです。」）を読み直す（同じ質問を同じ文で伺い直さない＝9-3「取得済みの
-         ことを重ねて聞かない」・f9cdfc60 の _elsewhere_back）。そのあと「それでは手短にお伺いいたしますね。」（伺い34）
+    (B2) E1 で困りごとに応えたあとの「手短に」→ H3「いいえ」：同じ質問を同じ文で伺い直さない（9-3「取得済みのことを重ねて聞かない」）。その時から手短に伺っている
+         電話なので、深めずに困りごとに応える提案の番（11-19 日本時間3時17分22秒 伺い42 場面2 と同じ理由＝まとめ役の頼みで dad3ab9e のあと直した。
+         TroubleOfferFollowTest の (2)）。⛔ dad3ab9e まで、伺う前のもとのお返事（「どちらも要らないです。」）を読み直し、そのあと「それでは手短にお伺いいたしますね。」
     (B3) E1・E2 を伺っている途中の「手短に」→ H3「いいえ」：H3 のお返事を E1・E2 の答えとして読み直さない（E1・E2 は伺い直さない＝はっきりしないのと同じ）。H3 の
          お返事を受ける頭（「はい、」のあと「承知しました。」）は、ふつうの質問の途中のときと同じ（6535c273・(18)）
     (B5) 同じ発話に「ほかの会社に頼んでいる」と「手短に」：先に「手短に」に応える（H3。E1 だけ伺って「手短に」に一度も応えない・H3 を伺わない、をしない）"""
@@ -33242,8 +33370,10 @@ class Review13BriefTest(unittest.TestCase):
             f.on_check(k, self.rd(NONE, elsewhere=ELSEWHERE_YES), f.callee_turns)
         return ctx[0].id, ctx[3], f.apply("record_answer", {"question_id": "Q2", "condition_id": NONE})
 
-    def test_brief_no_after_the_trouble_rereads_the_first_reply(self):
-        # (B2)
+    def test_brief_no_after_the_trouble_offers_without_deepening(self):
+        # (B2) 意図して直した（まとめ役の頼み・分身 F の書き置きの穴2）：H3 に「いいえ」と答えた時から手短に伺っている電話なので、11-19 日本時間3時17分22秒の
+        # 伺い42 場面2 と同じ理由で、深めずに困りごとに応える提案の番。同じ質問は伺い直さない（9-3）ことは今までどおり。⛔ dad3ab9e まで、もとのお返事を読み直し、
+        # 「承知しました。それでは手短にお伺いいたしますね。」のあとの受け方へ進んでいた（細かな確かめは TroubleOfferFollowTest の (2)）
         f = self.e1_asked()
         from flowctl import CALLBACK_IDS
         r = self.turn(f, DeepenTroubleTest.TROUBLE, self.rd("問題を言った"), "record_answer", question_id=CALLBACK_IDS["elsewhere"], condition_id="問題を言った",
@@ -33253,10 +33383,8 @@ class Review13BriefTest(unittest.TestCase):
         grounded(f, DeepenTroubleTest.WORD, "事実を言っていない")
         self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": DeepenTroubleTest.REPLY, "trouble": DeepenTroubleTest.WORD})["result"], "own_answer")
         r = self.brief_no(f)
-        q, said, r = self.back_to_q2(f, r)
-        self.assertEqual((q, said), ("Q2", self.ORIG))
+        self.assertEqual((r["result"], self.heard(r), f.current), ("callee_asked", "", "Q2"))
         self.assertNotIn(OtherCompanyClueSendWayTest.CONTACT, self.heard(r))
-        self.assertIn(self.GO, self.heard(r))
 
     def test_brief_no_while_asking_about_another_company_receives_alike(self):
         # (B3) E1 を伺っている途中：H3 のお返事を E1 の答えとして読み直さず、もとのお返事を Q2 について読み直す。受けの頭は「はい、」→「承知しました。」
@@ -34274,6 +34402,86 @@ class CallingJudgedOnlyTest(unittest.TestCase):
         # 同じ発話に遅れて届いた会話AIの報告には、重ねて応じない
         r = f.apply(*fc.T)
         self.assertNotIn("play", r)
+
+class TroubleOfferFollowTest(unittest.TestCase):
+    """伺い42 場面2 を入れたあと、分身 F の書き置きの穴1〜3 を決まりで直したもの（まとめ役の頼み・伺わない）：
+    (1) 困りごとに応える提案（_trouble_offering → _offer_again）への会話が繋がらないお返事（判定がそろって「別のお話」）は、申し出 N4・N6 の伺い直しへの別のお話と
+        同じ1か所（_offer_unlinked → _unlinked_kind の again → _talk_again）：会話AIがひとこと応え、伺い直さずに、その提案の今の道（受けていただけない・はっきり
+        しないと同じ＝もとのお返事を読み直す _elsewhere_back）へ。⛔ dad3ab9e まで、ひとことの番にしない所（_trouble_declined）と別のお話の報告を差し戻す所が食い違い、
+        「はい、」のあと会話AIのひとことに続けて「ところでご連絡はお電話とメールのどちらがよろしいでしょうか？」と、もう答えていただいた質問を伺い直した（本書 9-3）
+    (2) E1 の困りごとに応えたあとに「手短に」と言われ、H3 に「いいえ」と答えた電話も手短に伺っている電話：11-19 日本時間3時17分22秒の場面2 と同じ理由で、深めずに
+        困りごとに応える提案へ（深めるかは Flow._deepens の1か所＝_trouble_turn・_resume・H3 のあとの戻り _elsewhere_left が読む）。⛔ dad3ab9e まで、もとのお返事を
+        読み直していた（見直し (13) の B2 の試験は、この理由で直した）
+    (3) 手短の電話で E1 の困りごとに応える番の知らせの終わりは、そのあとが提案の番であることを伝える（提案で伺えるかは Flow._trouble_offer_due の1か所＝_deepen_then と
+        同じ）。⛔ dad3ab9e まで「（いまの質問 Q2…へは、そのあとプログラムが戻ります）」"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    reread = OtherCompanyClueSendWayTest.reread
+    CONTACT = OtherCompanyClueSendWayTest.CONTACT
+    W1_LINE = DeepenTroubleTest.W1_LINE
+    AWAY_WORDS = "それより、今日は暑いですね。"
+    WORD = "さようでございますね。本当に暑い日が続いておりますね。"
+
+    def offered(self, brief):
+        t = BriefTroubleOfferTest()
+        f = t.to_offer()[0] if brief else TroubleOfferTest().to_offer()[0]
+        r = t.proposed(f)
+        self.assertEqual(r["result"], "confirm_required")
+        return f
+
+    def test_1_away_reply_to_the_trouble_offer_gets_a_word_and_no_question_again(self):
+        import flowctl
+        from flowctl import ELSEWHERE_YES, NONE, UNDECIDED
+        for brief in (False, True):
+            f = self.offered(brief)
+            r = self.turn(f, self.AWAY_WORDS, self.rd(UNDECIDED, away=flowctl.AWAY_YES))
+            # 申し出の伺い直しへの別のお話と同じ番：会話AIがひとこと応える（お客様にはまだ何も聞こえない）
+            self.assertEqual((r["result"], self.heard(r)), ("callee_asked", ""), brief)
+            self.assertIn("受け直します", r["message"])
+            grounded(f, self.WORD, "事実を言っていない")
+            r = f.apply("replay_opening", {"part": "talk", "answer": self.WORD})
+            # ひとこと（会話AIが先に言う）のあとは伺い直さず、もとのお返事を読み直す（提案の今の道）。頭に「はい、」を重ねない
+            self.assertTrue(r["message"].startswith(f"まず、「{self.WORD}」とだけ言います"), r["message"][:80])
+            self.assertEqual((self.heard(r), r.get("ahead_offer"), f.current), ("", True, "Q2"), brief)
+            ctx = self.reread(f, self.rd(NONE, elsewhere=ELSEWHERE_YES))
+            self.assertEqual(ctx[0].id, "Q2")
+            r = f.apply("record_answer", {"question_id": "Q2", "condition_id": NONE})
+            self.assertEqual((r["result"], self.heard(r)), ("next", self.W1_LINE), brief)
+            self.assertEqual(f.facts["talk"][-1]["answer"], self.WORD)
+
+    def test_2_brief_no_after_the_trouble_offers_without_deepening(self):
+        from flowctl import CALLBACK_IDS
+        t13 = Review13BriefTest()
+        f = t13.e1_asked()
+        self.turn(f, DeepenTroubleTest.TROUBLE, self.rd("問題を言った"), "record_answer", question_id=CALLBACK_IDS["elsewhere"], condition_id="問題を言った",
+                  value="対応が遅くて困っている")
+        grounded(f, DeepenTroubleTest.REPLY, "知っていることだけ")
+        grounded(f, DeepenTroubleTest.WORD, "事実を言っていない")
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": DeepenTroubleTest.REPLY, "trouble": DeepenTroubleTest.WORD})["result"], "own_answer")
+        r = t13.brief_no(f)
+        # 深めずに、困りごとに応える提案の番（お客様にはまだ何も聞こえない）
+        self.assertEqual((r["result"], self.heard(r), f.current, f.deepen_asked), ("callee_asked", "", "Q2", False))
+        self.assertIn("提案", r["message"])
+        bt = BriefTroubleOfferTest()
+        r = bt.proposed(f)
+        self.assertEqual((r["result"], self.heard(r)), ("confirm_required", bt.TALK + bt.PROPOSAL))
+
+    def test_3_brief_trouble_note_tells_the_offer_comes_next(self):
+        bt = BriefTroubleOfferTest()
+        _, _, note = bt.to_offer()
+        self.assertNotIn("へは、そのあとプログラムが戻ります", note)
+        self.assertIn("困りごとに応える提案", note)
+        # 提案で伺えない質問（Q4）・手短でない電話の最初の番（このあと深める一言）は今のまま
+        _, _, note = bt.to_offer(at_q4=True)
+        self.assertIn("へは、そのあとプログラムが戻ります", note)
+        f = OtherCompanyClueSendWayTest().flow()
+        from flowctl import CALLBACK_IDS, ELSEWHERE_YES, NONE
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        self.turn(f, DeepenTroubleTest.OTHER, self.rd(NONE, elsewhere=ELSEWHERE_YES), "record_answer", question_id="Q2", condition_id=NONE)
+        r = self.turn(f, DeepenTroubleTest.TROUBLE, self.rd("問題を言った"), "record_answer", question_id=CALLBACK_IDS["elsewhere"], condition_id="問題を言った",
+                      value="対応が遅くて困っている")
+        self.assertIn("へは、そのあとプログラムが戻ります", r["message"])
 
 
 if __name__ == "__main__":
