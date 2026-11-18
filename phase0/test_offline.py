@@ -26748,7 +26748,7 @@ class AnnounceTest(unittest.TestCase):
         from phrases import ACK, TALK_FALLBACK
         own = "さようでございますか。月曜がお休みでいらっしゃるのですね。キャンセルのご連絡は前日までにいただく決まりとなっておりますので、ご了承いただければと思います。"
         f, r = self.announced()
-        self.say(f, "うちは月曜が定休日なんですよ。", "record_answer", UNDECIDED, question_id="Q2", condition_id="unknown")
+        AsideTest.unlinked(f, words="うちは月曜が定休日なんですよ。")   # 判定がそろって「別のお話」（そろって決められないだけの答えの話は最終の確かめ＝見直し (13) の C4）
         self.assertEqual(f._asked_kind(), "offer")
         note = f._asked_note("うちは月曜が定休日なんですよ。")
         self.assertIn(self.LINE, note); self.assertIn("自分の言葉", note); self.assertNotIn("申し出の中身", note)
@@ -26761,7 +26761,7 @@ class AnnounceTest(unittest.TestCase):
         self.assertEqual((f.export()["Q2"], f.current), ("はい", "Q3"))
         # 会話AIの文が使えない（知らない事実）：受け答えの録音＋「それでは」＋同じお知らせ（録音）
         g, r = self.announced()
-        self.say(g, "うちは月曜が定休日なんですよ。", "record_answer", UNDECIDED, question_id="Q2", condition_id="unknown")
+        AsideTest.unlinked(g, words="うちは月曜が定休日なんですよ。")
         bad = "さようでございますか。月曜でしたら火曜にお振替もできます。"
         for _ in range(3):   # 書き直しを使い切っても知らない事実がある
             grounded(g, bad, "知らない事実がある", "火曜にお振替もできます")
@@ -27099,9 +27099,9 @@ class AsideTest(unittest.TestCase):
         # ご承認のお知らせは今のまま：2回目の別のお話にお話に沿った受け答えをしても、戻る一言＋お知らせ（待たない）
         a, _ = AnnounceTest().announced()
         own = "さようでございますか。キャンセルのご連絡は前日までにいただく決まりとなっております。"
-        self.unlinked(a, away=None); grounded(a, own, GROUNDED)
+        self.unlinked(a, away=True); grounded(a, own, GROUNDED)
         a.apply("replay_opening", {"part": "talk", "answer": own, "fallback": "talk_heard_nod"})
-        self.unlinked(a, words="いやあ最近は暑くてねえ。", away=None); grounded(a, HOT, GROUNDED)
+        self.unlinked(a, words="いやあ最近は暑くてねえ。", away=True); grounded(a, HOT, GROUNDED)
         r = a.apply("replay_opening", {"part": "talk", "answer": HOT, "fallback": "talk_heard_nod"})
         self.assertEqual((r.get("say"), a.own_pending), (HOT + BACK_TO_AGAIN + AnnounceTest.LINE, False))
 
@@ -27451,7 +27451,7 @@ class AsideTest(unittest.TestCase):
         # (c) 別のお話が続いて「-」にしたご承認のお知らせを、次の質問の答え（「カードでお願いします。」）のすぐあとに伺い10 の形で伺う
         h, r = AnnounceTest().announced()
         for words in (self.OFF, "いやあ最近は暑くてねえ。", "いやあ最近は暑くてねえ。"):
-            self.unlinked(h, words=words, away=None)
+            self.unlinked(h, words=words, away=True)
             grounded(h, "本当に暑い日が続いておりますね。")
             h.apply("replay_opening", {"part": "talk", "answer": "本当に暑い日が続いておりますね。", "fallback": "talk_heard_nod"})
         self.assertEqual(h.current, "Q3")
@@ -27485,11 +27485,11 @@ class AsideTest(unittest.TestCase):
         own = "さようでございますか。月曜がお休みでいらっしゃるのですね。キャンセルのご連絡は前日までにいただく決まりとなっておりますので、ご了承いただければと思います。"
         hot = "本当に暑い日が続いておりますね。"
         f, r = AnnounceTest().announced()
-        self.unlinked(f, away=None)
+        self.unlinked(f, away=True)
         grounded(f, own)
         r = f.apply("replay_opening", {"part": "talk", "answer": own, "fallback": "talk_heard_nod"})
         self.assertEqual((r.get("say"), f.items["Q2"].offer_again, f.own_pending), (own, True, False))
-        self.unlinked(f, words="いやあ最近は暑くてねえ。", away=None)
+        self.unlinked(f, words="いやあ最近は暑くてねえ。", away=True)
         self.assertEqual((f._asked_kind(), f._unlinked_kind("Q2")), ("offer", "again"))
         grounded(f, hot)
         r = f.apply("replay_opening", {"part": "talk", "answer": hot, "fallback": "talk_heard_nod"})
@@ -27497,7 +27497,7 @@ class AsideTest(unittest.TestCase):
         # 3回目の別のお話は、ひとことのあと次へ（✅ 2026-11-14 日本時間14時31分38秒「伺い13 3回目は最後に回したほうがよくないですか？」）。締めの前に1回、
         # もう2回お伝えしたお知らせは言い直さず、伺い10 の形（「はい、それでは（名詞）の件はご了承ということでよろしかったでしょうか？」＝_accepted_ask の1か所）
         from phrases import ANNOUNCE_RECHECK
-        self.unlinked(f, words="いやあ最近は暑くてねえ。", away=None)
+        self.unlinked(f, words="いやあ最近は暑くてねえ。", away=True)
         grounded(f, hot)
         r = f.apply("replay_opening", {"part": "talk", "answer": hot, "fallback": "talk_heard_nod"})
         self.assertEqual((r.get("say"), f.current, f.items["Q2"].state), (hot + "続きましてお支払いはカードと振込のどちらがよろしいでしょうか？", "Q3", "unresolved"))
@@ -27508,7 +27508,7 @@ class AsideTest(unittest.TestCase):
         self.assertEqual(f.export()["Q2"], "はい")
         # 伝え直しへのお返事はご承認の答えとして受ける（今のまま）
         g, r = AnnounceTest().announced()
-        self.unlinked(g, away=None)
+        self.unlinked(g, away=True)
         grounded(g, own)
         g.apply("replay_opening", {"part": "talk", "answer": own, "fallback": "talk_heard_nod"})
         self.say(g, "分かりました。", "record_answer", "はい", question_id="Q2", condition_id="はい")
@@ -27696,7 +27696,9 @@ class AwayEntryTest(unittest.TestCase):
         q3, said = f.questions["Q3"], "100万円でよろしいでしょうか？"
         self.assertIn(AWAY, answer_items(q3, said))
         ann, _ = AnnounceTest().announced()
-        self.assertNotIn(AWAY, answer_items(ann.questions["Q2"]))   # お知らせ・申し出の最初の伺い方は今のまま（そろって決められない読みが繋がらないお返事）
+        # お知らせの最初の伺い方にも読ませる（答えの話の「決められない」は最終の確かめ・別のお話だけ伝え直す＝見直し (13) の C4）。申し出の最初の伺い方は今のまま
+        # （そろって決められない読みが繋がらないお返事）
+        self.assertIn(AWAY, answer_items(ann.questions["Q2"]))
         self.assertIn(AWAY, answer_items(ann.questions["Q2"], "それではキャンセルの件はご了承ということでよろしかったでしょうか？"))
         pamph = Question("Q4", "資料をお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True, declines=("いいえ",),
                          away=("いいえ",), do_words={"はい": "資料をお送りさせていただきます"})
@@ -27815,7 +27817,7 @@ class TalkAndAcceptedTest(unittest.TestCase):
         a.unlinked(f, words="いやあ最近は暑くてねえ。")
         notes.append(f._asked_note("いやあ最近は暑くてねえ。"))
         g, _ = AnnounceTest().announced()
-        a.unlinked(g, away=None)
+        a.unlinked(g, away=True)
         notes.append(g._asked_note(AsideTest.OFF))
         for n in notes:
             self.assertIn(TALK_RECEIVE, n)
@@ -32694,6 +32696,70 @@ class Review13CTest(unittest.TestCase):
             g = self.final_check()
             g.on_callee(); g.on_heard("はい、大丈夫です。"); g.on_check("judge", self.reading(v))
             self.assertIsNone(g.judged_turn(voiced=True), v)
+
+    def test_c5_the_same_quiet_line_is_not_played_twice(self):
+        # (C5) 黙ったときの一言（QUIET_STEPS）は、同じ質問・同じ確かめの間に言った一言を2度流さない（考えている途中が2回続く・理由を言わずに待つが2回続く）。
+        # 次の段の秒で数える（理由を言わずに待つ方の2回目は、待つかかけ直すかの伺いまでの秒）。⛔ ba505007 まで、話すたびに1つ目の一言から数え直し、
+        # 「何か疑問や気になる点が…」「何か気になる点が…」が続けて2度流れた
+        from flowctl import THINKING, WAIT_PLAIN
+        a = AnnounceTest()
+        for v, words, want in ((THINKING, ("えーと、そうですね……", "うーん……"), ["doubt_anytime", "ikaga"]),
+                               (WAIT_PLAIN, ("ちょっと待ってもらえますか。", "あ、すみません、もうちょっと待ってください。"), ["concern_anytime", "callback_wait_or_later_plain"])):
+            f, r = a.announced()
+            f.on_played([a.LINE])
+            got, secs = [], []
+            for w in words:
+                f.on_callee(); f.on_heard(w); f.on_check("judge", self.reading(v))
+                r = f.judged_turn(voiced=False)
+                secs.append(r.get("silence_s"))
+                s = f.on_silence()
+                self.assertIsNotNone(s, (v, w))
+                got.append(s["play"][-1]["id"])
+                f.on_played([p["text"] for p in s.get("play") or []])
+            self.assertEqual(got, want, v)
+            self.assertEqual(secs, [f.silence_prompt_after, f.silence_prompt_after if v == THINKING else f.wait_ask_after], v)
+
+    def test_c3_silence_after_the_announce_told_again_in_the_ai_voice(self):
+        # (C3) お知らせを会話AIの文で伝え直したあと（_announce_again の文の道）・2回目の別のお話に会話AIのひとこと＋お知らせを会話AIの声で言ったあと（録音を声に
+        # 替える1か所 _spoken_all）に黙られても、録音で伝え直したときと同じく「何か気になる点が…」（黙ったときの場面 announce）。⛔ ba505007 まで、返事に
+        # silence_s が付かず、黙っても何も流れなかった
+        from flowctl import UNDECIDED
+        a = AnnounceTest()
+        own = "さようでございますか。月曜がお休みでいらっしゃるのですね。キャンセルのご連絡は前日までにいただく決まりとなっておりますので、ご了承いただければと思います。"
+        word = "本当に寒くなってまいりましたね。"
+        for second in (False, True):
+            f, r = a.announced()
+            AsideTest.unlinked(f, words="うちは月曜が定休日なんですよ。")
+            grounded(f, own)
+            r = f.apply("replay_opening", {"part": "talk", "answer": own, "fallback": "talk_heard_nod"})
+            if second:
+                AsideTest.unlinked(f, words="最近は寒くなってきましたね。")
+                grounded(f, word)
+                r = f.apply("replay_opening", {"part": "talk", "answer": word, "fallback": "talk_heard_nod"})
+                self.assertIn(a.LINE, r.get("say") or "", r)
+            self.assertEqual(r.get("silence_s"), f.silence_prompt_after, (second, r))
+            s = f.on_silence()
+            self.assertEqual(s["play"][0]["id"], "concern_anytime", second)
+
+    def test_c4_an_answer_talk_to_the_announce_is_checked_once_not_told_again(self):
+        # (C4) お知らせへの相づち「なるほど。」（判定がそろって決められない・答えの話）：別のお話として決まりを伝え直さず、最終の確かめ（伺い10）。お知らせの最初の
+        # お返事にも「答えの話か別のお話か」を読ませる（away_fits）。そろって「別のお話」と読んだときだけ伝え直す（今のまま）。⛔ ba505007 まで、お知らせの最初の
+        # お返事には読ませず、そろって決められない読みをどれも別のお話として伝え直した
+        from flowctl import AWAY, AWAY_NO, AWAY_YES, UNDECIDED, away_fits
+        from phrases import ANNOUNCE_RECHECK
+        a = AnnounceTest()
+        f, r = a.announced()
+        self.assertTrue(away_fits(f.questions["Q2"], False))
+        for away, report in ((AWAY_NO, False), (AWAY_NO, True), (AWAY_YES, False)):
+            f, r = a.announced()
+            f.on_played([a.LINE])
+            f.on_callee(); f.on_heard("なるほど。")
+            f.on_check("judge", self.reading(UNDECIDED, **{AWAY: away}))
+            r = (f.apply("record_answer", {"question_id": "Q2", "condition_id": "unknown"}) if report else f.judged_turn(voiced=False))
+            if away == AWAY_NO:
+                self.assertEqual((r["result"], f.awaiting_confirm, r["play"][-1]["text"]), ("confirm_required", "Q2", ANNOUNCE_RECHECK), report)
+            else:
+                self.assertEqual((f._asked_kind(), f.awaiting_confirm), ("offer", None))
 
 
 if __name__ == "__main__":

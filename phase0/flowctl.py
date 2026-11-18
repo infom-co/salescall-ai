@@ -756,14 +756,13 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
         # 戻る一言（頭が「それでは」）のあとに伺い直す、頭の無い形：初めて伺う形と同じ文なら、その録音（はじめの質問）。違う文（つなぎの言葉・説明の文つき）なら
         # 別の録音（番号_again）。⛔ 2026-11-07 H7 を入れて見つけた：番号だけの名前にすると、説明の文つきのご承認の質問の録音（番号だけ）を上書きした
         base = question_play(questions, qid)
-        return base if base["text"] == text else {"kind": "question", "id": f"{rid}_again", "text": text, "lead": ""} | (
-            {"silence_scene": "announce"} if in_announce_form(q) else {})
+        return base if base["text"] == text else {"kind": "question", "id": f"{rid}_again", "text": text, "lead": ""}
     if q.intro and lead and not again and lead != q.intro and closes(before or "。"):
         # 入る一言（業務設定）の頭のつなぎの言葉を替えた形（relead）：入る一言の録音とは別の録音
         return {"kind": "question", "id": f"{rid}_intro", "text": text, "lead": head_word(lead)}
-    # お知らせの形（in_announce_form）は問いではない＝お客様が黙りうる：黙ったときの場面「ご承認のお知らせのあと」の印（流れの制御の中だけ。返事の silence_s と
-    # 流す一言は QUIET_STEPS の1か所＝Flow._silence_watch・on_silence）。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「(2)ウ」
-    return {"kind": "question", "id": rid, "text": text, "lead": lead} | ({"silence_scene": "announce"} if in_announce_form(q) else {})
+    # お知らせの形（in_announce_form）は問いではない＝お客様が黙りうる：黙ったときの場面「ご承認のお知らせのあと」は、返事を決める1か所（Flow._silence_watch）が
+    # いまの質問で決める（録音の項目に印を付けない＝会話AIの声で伝えても同じ）
+    return {"kind": "question", "id": rid, "text": text, "lead": lead}
 
 
 # 次の項目の質問に入るときの頭（✅ 2026-11-06 日本時間12時54分30秒 ユーザー：「次の項目の質問に入る前は、すべて「続きまして」でいいんじゃないですか。」。
@@ -1079,7 +1078,7 @@ def away_fits(q: "Question", asked: bool) -> bool:
     Flow._final_check・提案の伺い直し）：決められない答えの話は確かめの道（いかがなさいますか・保留）・別のお話はひとことの番で、読みが要る。⛔ 0c55c4e7 まで
     言い直しの確かめには読ませず（伺いD）、言い直しや最終の確かめへの別のお話を、会話AIの報告しだいで「はい、いかがなさいますか？」・保留を伺う・ひとことも無く
     次へ進んでいた（見直し (12) の A-9・B-3。会話AIは判定に加えない＝11-08 12時11分40秒）"""
-    return aside_fits(q) or (asked and (in_announce_form(q) or q.offered is not None))
+    return aside_fits(q) or in_announce_form(q) or (asked and q.offered is not None)
 
 
 def aside_form(q: "Question") -> "Question":
@@ -4644,6 +4643,8 @@ class Flow:
         # いま見張っている黙ったときの場面（場面の名前・次に流す並びの番号・場面を始めたお客様の発話の番号）。決めるのは _silence_watch・進めるのは on_silence・
         # お客様が話したら消す（on_callee）
         self.silence: dict | None = None
+        # 黙ったときの一言（QUIET_STEPS の録音の名前）を流した所（(名前, (言い直しの返事待ち, いまの質問))）：同じ所で同じ一言を2度流さない（_quiet_step）
+        self.quiet_said: set[tuple] = set()
         # 報告の無いターンで、判定が「決められない」と読んだ言葉に、報告があったときと同じ1か所で応じた発話の番号（_undecided_report。同じ言葉への会話AIの報告が
         # 遅れて届いても重ねない＝_apply_one）
         self.unreported_turn: int | None = None
@@ -5211,10 +5212,11 @@ class Flow:
         if q is None or self.phase == "closing" or self.end_reason is not None or q["turn"] != self.callee_turns:
             return None
         steps = QUIET_STEPS[q["scene"]]
-        if q["step"] >= len(steps):
+        at = self._quiet_step(q["scene"], q["step"])
+        if at >= len(steps):
             return None
-        do = steps[q["step"]][1]
-        q["step"] += 1
+        do = steps[at][1]
+        q["step"] = at + 1
         if do == QUIET_ASK:
             if self.wait_asked or self.wait_q is not None:
                 # 待つかかけ直すかは、この通話でもう伺った（1回だけ＝✅ 2026-11-05 日本時間23時56分48秒「(ア)」）：言葉どおり待ち続ける（待つ上限まで）
@@ -5224,11 +5226,23 @@ class Flow:
             self.prompted = None   # こちらが続けて伺った：黙ったあとの一言は、もう最後に言ったことではない（_turn_done と同じ決まり＝_prompt_now）
         else:
             line = RECORDED[do]
+            self.quiet_said.add((do, (self.awaiting_confirm, self.current)))
             reply = {"result": "noted", "silent": True, "play": [{"kind": "recorded", "id": do, "text": line}],
                      "message": f"お客様が黙ったままでした。{played_note(line)}何も言わずに、お客様のお返事を待ちます。{self._now()}"}
-        if q["step"] < len(steps):
-            reply["silence_s"] = getattr(self, steps[q["step"]][0])
+        if (nxt := self._quiet_step(q["scene"], q["step"])) < len(steps):
+            q["step"] = nxt
+            reply["silence_s"] = getattr(self, steps[nxt][0])
         return self._log_signal({"silence": q["scene"]}, reply)
+
+    def _quiet_step(self, scene: str, step: int) -> int:
+        """黙ったときの一言の表（QUIET_STEPS）の場面 scene で、段 step から先で次に流す段（唯一の決まり＝見張りを始める _silence_watch・次の一言 on_silence）：同じ所
+        （同じ質問・同じ言い直しの返事待ち）でもう流した一言（quiet_said）は流さない＝続けて同じ一言を2度言わない。待つかかけ直すかの伺い（QUIET_ASK）は1通話1回の
+        決まり（on_silence）のまま。流す段が無ければ段の数（もう流さない＝見張りを終える。使い切ったあとどうするかは伺い中＝rv72/r13c/ask.md の C5）。
+        ⛔ ba505007 まで、お客様が話すたびに1つ目の一言から数え直し、考えている途中・理由を言わずに待つが2回続くと同じ一言が続けて2度流れた（見直し (13) の C5）"""
+        steps, at = QUIET_STEPS[scene], (self.awaiting_confirm, self.current)
+        while step < len(steps) and steps[step][1] != QUIET_ASK and (steps[step][1], at) in self.quiet_said:
+            step += 1
+        return step
 
     def _start_silence(self) -> dict | None:
         """繋がってから（「もしもし」のあとも）第一声が無いまま silence_s 秒（on_silence の第一声を待つ段）：「もしもし」で、回線が繋がっているか・留守番電話では
@@ -7032,6 +7046,11 @@ class Flow:
             # 先に言われた答え（まだ伺っていない質問＝_offer_ahead）を判定が読み直して、その質問の答えは無いと読んだ：質問を流す（聞き返さない・言い直さない・「-」に
             # しない。会話AIが何を報告しても同じ＝会話AIは判定に加えない）。かけ直しを頼んだお話に時刻・日が無い（_callback_ahead。決まりで直す (3)）もここ
             return r
+        if in_announce_form(q) and not it.final:
+            # ご承認のお知らせへの答えの話の「決められない」（「なるほど。」＝判定がそろって別のお話とは読まない＝_unlinked_base）：了承として受け取らず、伝え直さず、
+            # 最終の確かめ（伺い10＝_accepted_ask の1か所）。⛔ ba505007 まで、別のお話として決まりを伝え直した（見直し (13) の C4）
+            return self._accepted_ask(qid, f"{why}（「{said}」）・ご承認のお知らせへの答えの話：最終の確かめ",
+                                      "ご承認のお知らせへのお返事が、どの答えとも決められませんでした（意味の判定）。")
         way = self._undecided_way(qid, words=False)   # 曖昧な言葉の答えは、この前に受け取る所（_op_record_answer）が受け持つ
         if way == "since":
             # その後の形（「その後ご予算はおいくらほどかお決まりになりましたでしょうか？」）への、中身を言わない「はい、決まりました。」：元の質問に戻し、「それでは」から
@@ -10059,21 +10078,30 @@ class Flow:
 
     def _silence_watch(self, reply: dict) -> None:
         """返事に、黙ったときの見張りの秒（silence_s）を付ける唯一の場所（返事を記録に残す3つの入口＝報告 _apply_one・報告の無いターン judged_turn・電話接続側からの
-        知らせ _log_signal が通る）：返事がお客様を待つ場面（印 silence_scene＝返事か、流す録音の項目に付く：考えている途中 _thinking・理由を言わずに待つ _hold の
-        plain・お知らせの形の質問 question_play・お返事を待つ間 _turn_done）を始めたら、その場面の1つ目の秒（QUIET_STEPS）を付けて覚える。同じ発話への重ねた返事
+        知らせ _log_signal が通る）：返事がお客様を待つ場面（返事の印 silence_scene：考えている途中 _thinking・理由を言わずに待つ _hold の plain・お返事を待つ間
+        _turn_done。お知らせの形の質問の答えを待つことになった返事は、いまの質問でここが決める）を始めたら、その場面の1つ目の秒（QUIET_STEPS）を付けて覚える。同じ発話への重ねた返事
         （again＝同じ場面）は、見張りを始め直さない（電話接続側は前の数えのまま）。もう秒の付いた返事（第一声を待つ段・on_silence の次の一言）は、そのまま。
         場面の無い返事で、お客様に何かを流した・待つ（取り次ぎ・確かめて戻る）・締めたなら、見張りを終える（もう、その場面の一言は流さない）。音の無い返事（差し戻し・
         受け付けた知らせ）は、見張りを変えない。"""
         if "silence_s" in reply:
             return
-        scene = reply.get("silence_scene") or next((p["silence_scene"] for p in reversed(reply.get("play") or []) if p.get("silence_scene")), None)
+        talked = reply.get("play") or reply.get("say") or reply.get("speak") or reply.get("ack")
+        # ご承認のお知らせ（in_announce_form＝問いではない＝お客様が黙りうる）の答えを待つことになった返事は、場面「お知らせのあと」（録音で流しても・会話AIの文で
+        # 伝え直しても・録音を会話AIの声に替えても同じ＝この1か所で決める。✅ 2026-11-13 日本時間20時06分19秒 ユーザー「(2)ウ」）。⛔ ba505007 まで、流す録音の項目
+        # （question_play）の印に頼り、会話AIの文で伝え直した道（_announce_again）・録音を声に替えた道（_spoken_all）では、黙っても何も流れなかった（見直し (13) の C3）
+        announcing = (talked and reply.get("result") not in ("hold", "end") and self.phase in ("asking", "rechecking") and not self.answering
+                      and self.awaiting_confirm is None and self.current is not None and in_announce_form(self.questions[self.current]))
+        scene = reply.get("silence_scene") or ("announce" if announcing else None)
         q = self.silence
         if scene is not None and self.phase != "closing":
             if not (reply.get("again") and q is not None and q["scene"] == scene and q["turn"] == self.callee_turns):
-                self.silence = {"scene": scene, "step": 0, "turn": self.callee_turns}
-                reply["silence_s"] = getattr(self, QUIET_STEPS[scene][0][0])
-        elif (reply.get("play") or reply.get("say") or reply.get("speak") or reply.get("ack")
-              or reply.get("result") in ("hold", "end") or self.phase == "closing"):
+                # 1つ目の段は、同じ所でまだ流していない一言（_quiet_step の1か所）。流す一言が残っていなければ見張らない
+                if (step := self._quiet_step(scene, 0)) < len(QUIET_STEPS[scene]):
+                    self.silence = {"scene": scene, "step": step, "turn": self.callee_turns}
+                    reply["silence_s"] = getattr(self, QUIET_STEPS[scene][step][0])
+                else:
+                    self.silence = None
+        elif talked or reply.get("result") in ("hold", "end") or self.phase == "closing":
             self.silence = None
 
     def _party(self, party: str, by: str) -> dict:
@@ -10444,7 +10472,10 @@ class Flow:
         （_unlinked_kind の説明のとおり。伺い直したあとかは見ない）。"""
         q = self.questions[qid]
         if in_announce_form(q):
-            return "announce"
+            # ご承認のお知らせ：判定がそろって「別のお話」と読んだときだけ（お知らせの最初のお返事にも「答えの話か別のお話か」を読ませる＝away_fits）。答えの話の
+            # 「決められない」（「なるほど。」）は伝え直さず、最終の確かめ（伺い10＝_accepted_ask）。⛔ ba505007 まで、お知らせの最初のお返事には読ませず、そろって
+            # 決められない読みをどれも別のお話として決まりを伝え直した（見直し (13) の C4）
+            return "announce" if talked_away([self.check.get(k) for k in JUDGMENTS]) else None
         if q.callback in RECALL_ROLES and self.in_answer_stage and not talked_away([self.check.get(k) for k in JUDGMENTS]):
             # 答えの段（判定が「答えの話か別のお話か」を読む段＝H1・H3）は、判定がそろって「別のお話」と読んだときだけ（そろって決められないだけの言葉は、はっきりしない
             # お返事＝今の道。お呼びする段の C7・P1 は申し出 N4・N6 と同じく、そろって決められないお返事がこの番）
