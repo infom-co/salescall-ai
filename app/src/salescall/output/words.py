@@ -211,6 +211,16 @@ DNC_REASON_WORDS: dict[str, str] = {
 }
 
 
+# 通話の終わり方の、依頼者へ出す言葉のうち、試行の状態の言葉（ATTEMPT_STATES の client）に無いもの（docs/DESIGN.md 7-3-4。順番の決まりは
+# output/result_rows.call_end の1か所）。電話網のお知らせ（attempts.notice）・切った側（hangup_side）・電話が1本も無いとき
+CALL_END_CLIENT: dict[str, str] = {
+    "not_yet": "まだおかけしていません", "no_call_ended": "お電話していません",
+    "notice:power_off": "電源が入っていないか圏外", "notice:out_of_range": "電源が入っていないか圏外", "notice:not_in_use": "使われていない番号",
+    "side:callee": "お客様が途中で切られました", "side:line": "回線が途中で切れました", "side:unknown": "途中で切れました",
+    "unknown": "不明",
+}
+
+
 def stop_scope(name: str) -> str:
     """停止の範囲の名前（正本は stops.SCOPE_NAMES）。"""
     return stops.SCOPE_NAMES.get(name, NO_WORD)

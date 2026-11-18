@@ -4,8 +4,19 @@
 {% block title %}お客様リスト{% endblock %}
 {% block main %}
 <p><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}">← {{ business.name }}</a></p>
+{% set rbase = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
 <div class="title-row"><h1>お客様リスト：{{ run.name }}</h1>
-  <a class="btn main" href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/import">お客様リストを取り込む</a></div>
+  <span class="btn-row">
+    <a class="btn main" href="{{ rbase }}/import">お客様リストを取り込む</a>
+    <details class="adder inline"><summary class="btn">結果を書き出す</summary>
+      <div class="panel">
+        <p class="muted">確定した結果だけを書き出します（判定待ちの行は出しません）。依頼者へ出さない言葉が入っていれば、書き出さずに止めます。</p>
+        <a class="btn small" href="{{ rbase }}/results.csv">確かめるために書き出す（CSV）</a>
+        <form method="post" action="{{ rbase }}/results.csv" data-download>{{ csrf(token) }}
+          <button class="btn main small" type="submit" style="width:100%">依頼者へ渡すファイルとして書き出す（控えを残す）</button></form>
+      </div>
+    </details>
+  </span></div>
 <p class="lead">いまの状態は、次の予定と結果から出しています（画面では決め直しません）。</p>
 {{ flash(done, ok) }}
 {% if rows %}

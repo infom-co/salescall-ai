@@ -29,6 +29,7 @@
 - `app/src/salescall/output/words.py`：業務の状態・試行の状態・項目の状態・連携の状態・次の予定の種類・終わりの理由の、画面の言葉と依頼者へ出す言葉。core に正本がある言葉（`stops.CAUSES`・`gate.REASONS`・`notify.KINDS`・`exclusions.LEVEL_NAMES`・`ai_troubles.STAGES`・`stops.KEEPING_KINDS`・業務設定の取込の `LABELS["retry_key"]`）は読むだけ。
 - 名前の一覧（データベースの値の一覧・`next_action` の終わりの名前・`call_report.DECISION_PARTS`・`approval.WAIT_KINDS`）と突き合わせる試験がある。**名前を足す・変えるときは、ここに言葉を足してください**（足さないと CL-3 の試験が落ちる＝画面に英字を出さない）。
 ### 2-2. 【CL-1 へ】Q20（依頼者へ渡す書き方）の本番の処理
+- 2026-11-18 夜：結果の行の土台（`output/result_rows.py`）と CSV（`output/files.py`）を作りました。質問ごとの2列（答え／お客様の言葉）は、管理者の「書き方は変わる（CL-1 か CL-2 に連絡済み）」の中身が連絡帳に載ってから、`result_rows` の1か所に足します。それまで、試作 `export` はそのまま使ってください。
 - まだ作っていない。決まりは DESIGN.md 7-3-2（7-1b の表と `Flow.export`・`Flow.customer_words` の今の形）に書いた。`output/` に作ったら、ここに書くので、試作 `export` を切り替えてください。
 
 ## 3. 待っていること

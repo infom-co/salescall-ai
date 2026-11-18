@@ -89,7 +89,7 @@
   });
   // 送っている間は二度押しできない
   document.addEventListener("submit", function (e) {
-    if ((e.target.method || "").toLowerCase() !== "post") return;
+    if ((e.target.method || "").toLowerCase() !== "post" || e.target.hasAttribute("data-download")) return;   // 書き出しは画面が替わらない
     e.target.querySelectorAll("button[type=submit]").forEach(function (b) { b.disabled = true; b.textContent = "送っています…"; });
   });
 })();

@@ -15,11 +15,12 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
+from salescall.core import backup
 from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -27,7 +28,8 @@ from salescall.core import access as access_layer
 from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, exclusions, health, health_rules,
                             import_files, importer, phone, recordings, registry, settings, stops)
 from salescall.core.access import Access
-from salescall.output import notices, words
+from salescall.output import files as result_files
+from salescall.output import notices, result_rows, words
 from salescall.web import actions, context, counts, importing, inbox, pc_login, rowfix, setting_forms, uploads
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
@@ -728,6 +730,45 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         """実施回の行ごとの「かけない」の印（どの印かはデータベースの1か所 task_exclusion_level を読むだけ）。"""
         return {r["task_id"]: r["level"] for r in tx.all(
             "SELECT task_id, salescall.task_exclusion_level(task_id) AS level FROM salescall.tasks WHERE run_id = %s", (run_id,))}
+
+    # ── 結果の書き出し（docs/DESIGN.md 7-3。行は output/result_rows、ファイルは output/files の1か所） ──────────
+    def _results_file(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, *, submit: bool,
+                      form: dict[str, Any] | None = None) -> Response:
+        """その実施回の結果の CSV。submit＝依頼者へ渡すファイルとして書き出す（提出用の控えに置く。同じ取引で）。依頼者へ出さない言葉が
+        入っていれば、書き出さずに止める（output/files.check）。"""
+        def render(person: Person, ctx: Ctx) -> Response:
+            base = f"/c/{client_id}/b/{business_id}/runs/{run_id}"
+            def work(tx: Any) -> tuple[str, bytes]:
+                run = _run_in(tx, business_id, run_id)
+                c = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (client_id,))
+                data = result_files.to_csv(result_rows.rows(tx, run_id))
+                name = f"{c['name']}_{run['name']}_結果_{tx.today().isoformat()}.csv"
+                if submit:
+                    backup.record_submission(tx, name, data)
+                return name, data
+            try:
+                if submit:
+                    if not actions.token_ok(secret, person.login_id, (form or {}).get(actions.TOKEN_FIELD)):
+                        return _back(base, actions.Outcome(False, "画面の札が合いません。画面を開き直してから、もう一度押してください。"))
+                    name, data = ctx.client(client_id, work)
+                else:
+                    name, data = ctx.client(client_id, work, read_only=True)
+            except result_files.ClientWordsLeak as e:
+                return _back(base, actions.Outcome(False, str(e)))
+            return Response(data, media_type="text/csv; charset=utf-8",
+                            headers={"Content-Disposition": f"attachment; filename=\"results.csv\"; filename*=UTF-8''{quote(name)}",
+                                     "Cache-Control": "no-store"})
+        return handle(request, render)
+
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/results.csv")
+    def results_check(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> Response:
+        """確かめるために書き出す（控えには置かない）。"""
+        return _results_file(request, client_id, business_id, run_id, submit=False)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/results.csv")
+    async def results_submit(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> Response:
+        """依頼者へ渡すファイルとして書き出す（提出用の控えに置く）。"""
+        return _results_file(request, client_id, business_id, run_id, submit=True, form=dict(await request.form()))
 
     # ── お客様リストの取込（docs/DASHBOARD.md 5-8）：ファイル → 列と欄の対応付け → プレビュー（行ごとの合否）→ 登録 ──────
     def _run_in(tx: Any, business_id: UUID, run_id: UUID) -> dict[str, Any]:
