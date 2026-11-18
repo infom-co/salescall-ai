@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from salescall.core.access import Tx
 from salescall.web.context import Ctx
@@ -29,13 +30,37 @@ def open_stops(ctx: Ctx) -> list[dict[str, Any]]:
     return sorted(found.values(), key=lambda r: (r["at"], r["event_id"]), reverse=True)
 
 
-def client_today(tx: Tx) -> dict[str, int]:
-    """依頼者の取引で、今日（日本時間）の数と、行の次の予定ごとの数。"""
+
+def stops_for(stops: list[dict[str, Any]], client_id: UUID, business_id: UUID | None = None) -> list[dict[str, Any]]:
+    """`open_stops` のうち、その依頼者（業務を渡せば、その業務）の新しい電話に効く停止（依頼者・業務の画面の赤い帯）。
+    効く範囲の決まりは1か所：全体・契約者の範囲＝どの依頼者にも効く／依頼者の範囲＝その依頼者／業務の範囲＝その業務（依頼者の
+    概要では、その依頼者のどの業務の停止も出す）。回線の範囲は、その回線を使う行だけに効くので、ここには出さない（「止まっているもの」に出る）。"""
+    def hits(s: dict[str, Any]) -> bool:
+        return SCOPE_HOLDS[s["scope"]](s, client_id, business_id)   # 知らない範囲は KeyError（黙って出さない形にしない）
+    return [s for s in stops if hits(s)]
+
+
+# 停止の範囲ごとに、その依頼者・業務に効くか（stops.SCOPE_NAMES のすべての範囲を書く。試験が突き合わせる）
+SCOPE_HOLDS: dict[str, Any] = {
+    "system": lambda s, c, b: True,
+    "tenant": lambda s, c, b: True,
+    "client": lambda s, c, b: s["client_id"] == c,
+    "business": lambda s, c, b: s["client_id"] == c and (b is None or s["business_id"] == b),
+    "line": lambda s, c, b: False,   # 回線の範囲は、その回線を使う行だけに効く（「止まっているもの」に出る）
+}
+
+
+def client_today(tx: Tx, business_id: UUID | None = None) -> dict[str, int]:
+    """依頼者の取引で、今日（日本時間）の数と、行の次の予定ごとの数。business_id を渡せば、その業務の行だけ（業務のタブ）。
+    依頼者のタブと業務のタブは、同じこの部品で数える（業務の絞り方は、行 → 実施回 → 業務の1つ）。"""
     today = tx.today()
-    dialed = tx.one("SELECT count(*) AS n FROM salescall.attempts a"
-                    " WHERE salescall.is_dialed(a.state) AND (a.claimed_at AT TIME ZONE 'Asia/Tokyo')::date = %s", (today,))["n"]
+    only = "" if business_id is None else " AND t.run_id IN (SELECT run_id FROM salescall.runs WHERE business_id = %s)"
+    extra = () if business_id is None else (business_id,)
+    dialed = tx.one("SELECT count(*) AS n FROM salescall.attempts a JOIN salescall.tasks t ON t.task_id = a.task_id"
+                    " WHERE salescall.is_dialed(a.state) AND (a.claimed_at AT TIME ZONE 'Asia/Tokyo')::date = %s" + only,
+                    (today, *extra))["n"]
     kinds = {r["kind"]: r["n"] for r in tx.all(
         "SELECT coalesce(n.kind::text, 'none') AS kind, count(*) AS n FROM salescall.tasks t"
-        " LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id GROUP BY 1")}
+        " LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id WHERE true" + only + " GROUP BY 1", extra)}
     return {"dialed_today": dialed, "call": kinds.get("call", 0), "hold": kinds.get("hold", 0),
             "end": kinds.get("end", 0), "none": kinds.get("none", 0)}

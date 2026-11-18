@@ -80,8 +80,23 @@ class Ctx:
         return self.access.in_system(self.person.actor, work)
 
     def clients(self) -> list[dict[str, Any]]:
-        """その契約者の依頼者の一覧（選ぶ欄に出す。名前の順）。"""
+        """その契約者の依頼者の一覧（依頼者のタブと探す欄に出す。名前の順）。
+        ⏳ 依頼者のグループ（2026-11-18 管理者「依頼者が増えた場合は『グループ』を作れるといいね」）は、グループの表ができたら（CL-2 への
+        お願い 15）、ここで選んだグループの依頼者だけに絞る（タブの並べ方だけ。データの分離・権限には使わない）。"""
         return self.tenant(lambda tx: tx.all("SELECT client_id, name FROM salescall.clients ORDER BY name, client_id"))
+
+
+def businesses(tx: Tx) -> list[dict[str, Any]]:
+    """依頼者の取引で、その依頼者の業務の一覧（業務のタブに出す。作った順）。業務のタブの並びは、ここ1か所で決める。"""
+    return tx.all("SELECT business_id, name FROM salescall.businesses ORDER BY created_at, business_id")
+
+
+def business(tx: Tx, business_id: UUID) -> dict[str, Any]:
+    """依頼者の取引で、住所の業務を確かめて読む。その依頼者の業務でなければ NotFound（別の依頼者の業務は、依頼者の取引では見えない）。"""
+    b = tx.one("SELECT business_id, name FROM salescall.businesses WHERE business_id = %s", (business_id,))
+    if b is None:
+        raise NotFound()
+    return b
 
 
 def acting(access: Access, person: Person, chosen: UUID | None) -> Ctx:

@@ -3,9 +3,9 @@
 {% set active = "client" %}
 {% block title %}お客様リスト{% endblock %}
 {% block main %}
-<p><a href="/c/{{ client.client_id }}">← {{ client.name }}</a></p>
+<p><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}">← {{ business.name }}</a></p>
 <h1>お客様リスト：{{ run.name }}</h1>
-<p class="lead">業務：{{ run.business }}。いまの状態は、次の予定と結果から出しています（画面では決め直しません）。</p>
+<p class="lead">いまの状態は、次の予定と結果から出しています（画面では決め直しません）。</p>
 {% if rows %}
 <table class="list">
   <thead><tr><th class="num">行</th><th class="wide">管理番号</th><th>会社名</th><th class="wide">お呼びする方</th><th>かける番号</th><th>いまの状態</th><th class="wide">結果</th><th class="num">かけた回数</th><th class="wide">最後の電話</th></tr></thead>

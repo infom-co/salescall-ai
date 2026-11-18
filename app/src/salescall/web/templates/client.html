@@ -1,27 +1,41 @@
 {% extends "base.html" %}
 {% from "parts.html" import stat, tag, empty %}
 {% set active = "client" %}
-{% block title %}{{ client.name }}{% endblock %}
+{% block title %}{{ business.name ~ "（" ~ client.name ~ "）" if business else client.name }}{% endblock %}
 {% block main %}
-<h1>{{ client.name }}</h1>
-<p class="lead">この依頼者の今日の動きと、実施回ごとのお客様リストです。</p>
-<div class="grid cols-3">
-  <div class="card">{{ stat("今日かけた電話", today.dialed_today) }}</div>
-  <div class="card">{{ stat("かけ直し待ち", today.call) }}</div>
-  <div class="card {{ 'attention-wait' if today.hold }}">{{ stat("判定待ち", today.hold, "wait" if today.hold else "") }}</div>
+{# 依頼者のタブ（概要＝全業務）と業務のタブは、この1つのひな形（絞り方が違うだけ）。 #}
+<h1>{{ business.name if business else client.name }}</h1>
+<p class="lead">{% if business %}依頼者「{{ client.name }}」の業務です。今日の動きと、実施回ごとのお客様リストです。{% else %}すべての業務を合わせた、今日の動きと実施回です。業務ごとに見るときは、上の業務のタブを選んでください。{% endif %}</p>
+{% for s in stopped %}
+<a class="card attention-stop notice-link stopped" href="{{ '/c/' ~ client.client_id ~ '/stops/' ~ s.event_id if s.scope in ('client', 'business') else '/t/stops/' ~ s.event_id }}">
+  <b>新しい電話を止めています：{{ words.stop_cause(s.cause) }}</b>
+  <span class="muted">範囲：{{ words.stop_scope(s.scope) }}・{{ time(s.at) }}から</span>
+  <span class="go">何で止まったか →</span>
+</a>
+{% endfor %}
+<div class="grid cols-3 stats" {% if stopped %}style="margin-top:16px"{% endif %}>
+  <div class="card">{{ stat("今日かけた電話", today.dialed_today) }}<div class="muted hint" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div></div>
+  <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定がある行</div></div>
+  <div class="card {{ 'attention-wait' if today.hold }}">{{ stat("判定待ち", today.hold, "wait" if today.hold else "") }}<div class="muted hint" style="margin-top:6px">結果を確かめ直している行（依頼者へは出しません）</div></div>
 </div>
 {% if waiting %}
-<div class="card attention-wait" style="margin-top:16px">
-  この依頼者の承認待ちが {{ waiting|length }} 件あります。<a href="/t/inbox">承認待ちへ</a>
-</div>
+<a class="card attention-wait notice-link" href="/t/inbox?client={{ client.client_id }}">
+  <b>承認待ちが {{ waiting|length }} 件あります</b>
+  <span class="muted">いちばん急ぐもの：{{ waiting[0][1].title }}</span>
+  <span class="go">承認待ちを開く →</span>
+</a>
 {% endif %}
 <h2 style="margin-top:28px">実施回</h2>
 {% if runs %}
 <table class="list">
-  <thead><tr><th>実施回</th><th>業務</th><th></th></tr></thead>
+  <thead><tr><th>実施回</th>{% if not business %}<th>業務</th>{% endif %}<th></th></tr></thead>
   <tbody>
   {% for r in runs %}
-    <tr><td>{{ r.name }}</td><td>{{ r.business }}</td><td class="num"><a class="btn small" href="/c/{{ client.client_id }}/runs/{{ r.run_id }}">お客様リスト</a></td></tr>
+    <tr>
+      <td>{{ r.name }}</td>
+      {% if not business %}<td><a href="/c/{{ client.client_id }}/b/{{ r.business_id }}">{{ r.business }}</a></td>{% endif %}
+      <td class="num"><a class="btn small" href="/c/{{ client.client_id }}/b/{{ r.business_id }}/runs/{{ r.run_id }}">お客様リスト</a></td>
+    </tr>
   {% endfor %}
   </tbody>
 </table>

@@ -6,12 +6,26 @@
 <h1>承認待ち</h1>
 <p class="lead">確かめて、決めてください。急ぐものから並んでいます。</p>
 {{ flash(done, ok) }}
+<div class="filters" role="group" aria-label="承認待ちを絞る">
+  <a class="chip" href="/t/inbox{{ '?client=' ~ pick_client if pick_client }}" {% if not pick_kind %}aria-current="true"{% endif %}>すべて <b>{{ total }}</b></a>
+  {% for k, title, n in per_kind if n %}
+  <a class="chip" href="/t/inbox?kind={{ k }}{{ '&client=' ~ pick_client if pick_client }}" {% if pick_kind == k %}aria-current="true"{% endif %}>{{ title }} <b>{{ n }}</b></a>
+  {% endfor %}
+  <form class="pick" method="get" action="/t/inbox">
+    {% if pick_kind %}<input type="hidden" name="kind" value="{{ pick_kind }}">{% endif %}
+    <label for="pick-client" class="muted">依頼者</label>
+    <select id="pick-client" name="client" data-autosubmit>
+      <option value="">すべての依頼者</option>
+      {% for c in clients %}<option value="{{ c.client_id }}" {% if pick_client == c.client_id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
 <div class="stack">
 {% for c, i in rows %}
   <article class="card item {{ 'urgent' if i.urgent }}">
     <div class="item-head">
       {{ tag(i.title, "stop" if i.urgent else "wait") }}
-      <span class="where">{{ c.name }}</span>
+      <span class="where">{{ c.name }}{% if i.business_name %} ／ {{ i.business_name }}{% endif %}</span>
       <span class="when">{% if i.deadline %}期限 {{ time(i.deadline) }}{% elif i.at %}{{ time(i.at) }}から{% endif %}</span>
     </div>
     <div class="decide">{{ i.decide }}</div>
@@ -36,7 +50,7 @@
     </div>
   </article>
 {% else %}
-  <div class="card">{{ empty("承認待ちはありません", "新しく決めることができたら、ここに並び、知らせも届きます。") }}</div>
+  <div class="card">{% if pick_kind or pick_client %}{{ empty("この絞り方では、承認待ちはありません", "上の「すべて」で、ほかの承認待ちを見られます。") }}{% else %}{{ empty("承認待ちはありません", "新しく決めることができたら、ここに並び、知らせも届きます。") }}{% endif %}</div>
 {% endfor %}
 </div>
 {% endblock %}

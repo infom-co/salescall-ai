@@ -6,20 +6,20 @@
 <h1>ホーム</h1>
 <p class="lead">何もしなくても電話は進みます。色の付いた所だけ見てください。</p>
 
-<div class="grid cols-3">
+<div class="grid cols-3 stats">
   <a class="card {{ 'attention-stop' if stops }}" href="/t/stops" style="text-decoration:none;color:inherit">
     {{ stat("止まっているもの", stops|length, "stop" if stops else "ok") }}
-    <div class="muted" style="margin-top:6px">
+    <div class="muted hint" style="margin-top:6px">
       {% if stops %}{{ words.stop_cause(stops[0].cause) }}（{{ words.stop_scope(stops[0].scope) }}{% if stops[0].client_name %}：{{ stops[0].client_name }}{% endif %}）{% if stops|length > 1 %}ほか{% endif %}{% else %}止まっているものはありません{% endif %}
     </div>
   </a>
   <a class="card {{ 'attention-wait' if waiting_total }}" href="/t/inbox" style="text-decoration:none;color:inherit">
     {{ stat("承認待ち", waiting_total, "wait" if waiting_total else "ok") }}
-    <div class="muted" style="margin-top:6px">{% if waiting_total %}いちばん急ぐもの：{{ first[0][1].title }}（{{ first[0][0].name }}）{% else %}承認待ちはありません{% endif %}</div>
+    <div class="muted hint" style="margin-top:6px">{% if waiting_total %}いちばん急ぐもの：{{ first[0][1].title }}（{{ first[0][0].name }}）{% else %}承認待ちはありません{% endif %}</div>
   </a>
   <div class="card">
     {{ stat("今日かけた電話", per_client|sum(attribute="dialed_today")) }}
-    <div class="muted" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div>
+    <div class="muted hint" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div>
   </div>
 </div>
 
@@ -36,7 +36,7 @@
       <td class="num">{% if c.hold %}{{ tag(c.hold, "wait") }}{% else %}0{% endif %}</td>
       <td class="num">{{ c.end }}</td>
       <td class="num wide">{{ c.none }}</td>
-      <td class="num">{% if c.waiting %}<a href="/t/inbox">{{ tag(c.waiting, "wait") }}</a>{% else %}0{% endif %}</td>
+      <td class="num">{% if c.waiting %}<a href="/t/inbox?client={{ c.client_id }}">{{ tag(c.waiting, "wait") }}</a>{% else %}0{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

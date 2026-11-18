@@ -6,7 +6,8 @@
   （確かめずに通す既定の形を作らない）。試験は、架空の人を返す関数を渡す。
 - secret：画面の札（なりすましの送信の確かめ）に使う秘密。値を git・画面・記録に出さない。
 
-住所の決まり（docs/DASHBOARD.md 2-2）：全体は /t/...、依頼者の中は /c/{依頼者ID}/...、管理者の場所は /admin/...。
+住所の決まり（docs/DASHBOARD.md 2-1・2-2）：全体は /t/...、依頼者の中は /c/{依頼者ID}/...、業務の中は /c/{依頼者ID}/b/{業務ID}/...、
+管理者の場所は /admin/...。
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from salescall.core import access as access_layer
 from salescall.core import calling_hours, customer_rows, phone, stops
 from salescall.core.access import Access
 from salescall.output import notices, words
-from salescall.web import actions, counts, inbox
+from salescall.web import actions, context, counts, inbox
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
@@ -51,9 +52,13 @@ def _back(path: str, out: actions.Outcome) -> RedirectResponse:
     return RedirectResponse(f"{path}?done={quote(out.message)}&ok={int(out.ok)}", status_code=303)
 
 
-def _waiting(ctx: Ctx) -> list[tuple[dict[str, Any], inbox.Item]]:
-    """全部の依頼者の承認待ちを、受け箱の並べ方（inbox.ordered の1か所）で並べる。"""
-    pairs = [(c, i) for c in ctx.clients() for i in ctx.client(c["client_id"], inbox.collect)]
+def _waiting(ctx: Ctx, client_id: UUID | None = None, business_id: UUID | None = None,
+             kind: str | None = None) -> list[tuple[dict[str, Any], inbox.Item]]:
+    """承認待ちを、受け箱の並べ方（inbox.ordered の1か所）で並べる。絞り方もここ1か所：依頼者（依頼者のタブ・受け箱の絞り）・
+    業務（業務のタブ）・種類（受け箱の絞り）。どの画面の承認待ちの数も、これを数える（ホーム・帯・タブで数が食い違わない）。"""
+    chosen = [c for c in ctx.clients() if client_id is None or c["client_id"] == client_id]
+    pairs = [(c, i) for c in chosen for i in ctx.client(c["client_id"], inbox.collect)
+             if (business_id is None or i.business_id == business_id) and (kind is None or i.kind == kind)]
     rank = {id(i): n for n, i in enumerate(inbox.ordered([i for _, i in pairs]))}
     return sorted(pairs, key=lambda ci: rank[id(ci[1])])
 
@@ -72,7 +77,11 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     templates = _templates()
 
     def page(request: Request, name: str, person: Person, ctx: Ctx, **values: Any) -> HTMLResponse:
+        """画面を出す1か所。依頼者の画面なら、業務のタブ（その依頼者の業務の一覧）も、ここで必ず添える。"""
         values.setdefault("client", None)
+        values.setdefault("business", None)
+        if values["client"] is not None and "businesses" not in values:
+            values["businesses"] = ctx.client(values["client"]["client_id"], context.businesses, read_only=True)
         return templates.TemplateResponse(request, name, {
             "person": person, "ctx": ctx, "clients": ctx.clients(), "token": actions.form_token(secret, person.login_id), **values})
 
@@ -146,9 +155,17 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         return handle(request, render)
 
     @app.get("/t/inbox")
-    def inbox_page(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+    def inbox_page(request: Request, done: str | None = None, ok: int = 1, kind: str = "", client: str = "") -> HTMLResponse:
+        """承認待ち（全部の依頼者）。上に種類ごとの数を出し、種類・依頼者で絞れる（埋もれさせない＝docs/DASHBOARD.md 4-2）。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            return page(request, "inbox.html", person, ctx, rows=_waiting(ctx), done=done, ok=bool(ok))
+            every = _waiting(ctx)
+            ids = {str(c["client_id"]): c for c in ctx.clients()}
+            pick_kind = kind if kind in inbox.KINDS else None
+            pick_client = ids[client]["client_id"] if client in ids else None
+            rows = every if pick_kind is None and pick_client is None else _waiting(ctx, pick_client, kind=pick_kind)
+            per_kind = [(k, v.title, sum(1 for _, i in every if i.kind == k)) for k, v in inbox.KINDS.items()]
+            return page(request, "inbox.html", person, ctx, rows=rows, per_kind=per_kind, total=len(every),
+                        pick_kind=pick_kind or "", pick_client=str(pick_client or ""), done=done, ok=bool(ok))
         return handle(request, render)
 
     @app.post("/c/{client_id}/inbox/{kind}/{action}")
@@ -246,28 +263,44 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             return page(request, "notices.html", person, ctx, rows=rows, state_words=notices.STATE_WORDS)
         return handle(request, render)
 
-    # ── 依頼者 ─────────────────────────────────────────────
-    @app.get("/c/{client_id}")
-    def client_home(request: Request, client_id: UUID) -> HTMLResponse:
+    # ── 依頼者と業務（タブは2段：依頼者 → 業務。✅ 2026-11-18 管理者） ──────────────
+    def _client_or_business(request: Request, client_id: UUID, business_id: UUID | None) -> HTMLResponse:
+        """依頼者のタブ（business_id が None＝概要・全業務）と業務のタブは、同じこの1つの画面の部品で出す（絞り方が違うだけ）。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
                 c = tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,))
-                runs = tx.all("SELECT r.run_id, r.name, b.name AS business FROM salescall.runs r"
-                              " JOIN salescall.businesses b ON b.business_id = r.business_id ORDER BY r.created_at DESC, r.run_id")
-                return {"client": c, "today": counts.client_today(tx), "runs": runs, "waiting": inbox.collect(tx)}
-            return page(request, "client.html", person, ctx, **ctx.client(client_id, read))
+                b = None if business_id is None else context.business(tx, business_id)
+                runs = tx.all("SELECT r.run_id, r.name, b.business_id, b.name AS business FROM salescall.runs r"
+                              " JOIN salescall.businesses b ON b.business_id = r.business_id"
+                              " WHERE %s::uuid IS NULL OR r.business_id = %s ORDER BY r.created_at DESC, r.run_id",
+                              (business_id, business_id))
+                return {"client": c, "business": b, "businesses": context.businesses(tx),
+                        "today": counts.client_today(tx, business_id), "runs": runs}
+            values = ctx.client(client_id, read, read_only=True)
+            return page(request, "client.html", person, ctx, waiting=_waiting(ctx, client_id, business_id),
+                        stopped=counts.stops_for(counts.open_stops(ctx), client_id, business_id), **values)
         return handle(request, render)
 
-    @app.get("/c/{client_id}/runs/{run_id}")
-    def rows_page(request: Request, client_id: UUID, run_id: UUID) -> HTMLResponse:
+    @app.get("/c/{client_id}")
+    def client_home(request: Request, client_id: UUID) -> HTMLResponse:
+        return _client_or_business(request, client_id, None)
+
+    @app.get("/c/{client_id}/b/{business_id}")
+    def business_home(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
+        return _client_or_business(request, client_id, business_id)
+
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}")
+    def rows_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
+        """お客様リスト（実施回ごと）。住所の依頼者の取引で、業務がその依頼者のもの・実施回がその業務のものかを確かめる。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
                 c = tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,))
-                run = tx.one("SELECT r.run_id, r.name, b.name AS business FROM salescall.runs r"
-                             " JOIN salescall.businesses b ON b.business_id = r.business_id WHERE r.run_id = %s", (run_id,))
+                b = context.business(tx, business_id)
+                run = tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s AND business_id = %s", (run_id, business_id))
                 if run is None:
                     raise NotFound()
-                return {"client": c, "run": run, "rows": customer_rows.progress(tx, run_id)}
+                return {"client": c, "business": b, "businesses": context.businesses(tx), "run": run,
+                        "rows": customer_rows.progress(tx, run_id)}
             return page(request, "rows.html", person, ctx, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 

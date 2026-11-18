@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, apology, conversation_io, usage
+from salescall.core import approval, apology, conversation_io, tasks, usage
 from salescall.core.access import Tx
 from salescall.output import words
 
@@ -41,6 +41,8 @@ class Item:
     urgent: bool = False
     buttons: tuple[Button, ...] = ()
     waiting_why: str = ""         # ボタンを出さない理由（まだ AI が確かめている など）
+    business_id: UUID | None = None   # どの業務のものか（業務のタブで絞る。依頼者全体のもの＝赤字の確認などは None）
+    business_name: str = ""          # 業務の名前（取り消せない操作は、どの業務のものかを名前つきで見せる＝Intent.md 5-1）
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,14 @@ class Kind:
     title: str
     collect: Callable[[Tx], list[Item]]                       # 依頼者の取引で、その種類の承認待ちを集める
     perform: dict[str, tuple[Callable[[Tx, dict[str, str]], Any], str]]   # ボタン → (決める部品, 済んだときの言葉)
+
+
+def _business_of(tx: Tx, task_id: Any) -> dict[str, Any]:
+    """行の業務（Item の business_id・business_name）。どの業務かは core の1か所（`tasks.scope`）を読む（行 → 実施回 → 業務を、
+    ここで書き直さない）。名前は、その業務の名前をそのまま。"""
+    bid = tasks.scope(tx, task_id)["business_id"]
+    name = tx.one("SELECT name FROM salescall.businesses WHERE business_id = %s", (bid,))
+    return {"business_id": bid, "business_name": name["name"] if name else ""}
 
 
 def _decisions(tx: Tx) -> list[Item]:
@@ -62,7 +72,7 @@ def _decisions(tx: Tx) -> list[Item]:
             kind="decision", key={"attempt_id": str(d["attempt_id"]), "seq": str(d["seq"])},
             title="取り消せない決定の確かめ", decide=f"「{parts}」として確定してよいか",
             evidence=ev, if_not="決まるまで、このお客様にはかけません。",
-            at=d["waited_at"],
+            at=d["waited_at"], **_business_of(tx, d["task_id"]),
             buttons=(Button("send_back", "差し戻す"), Button("approve", "承認する", main=True)) if d["ask"] else (),
             waiting_why="" if d["ask"] else (approval.ASK_WHY.get(d["ask_why"] or "", "") or "AI が確かめています")))
     return items
@@ -101,6 +111,7 @@ def _apologies(tx: Tx) -> list[Item]:
             kind="apology", key={"order_id": str(o["order_id"]), "set_id": str(o["set_id"] or "")},
             title="お詫びの電話の承認", decide="この文と録音で、お客様にお詫びの電話をかけてよいか",
             evidence=ev, if_not="承認するまで、このお客様へは、お約束の電話もかけません。", at=o["prepared_at"],
+            **_business_of(tx, o["task_id"]),
             buttons=(Button("approve", "承認する", main=True),) if ready else (), waiting_why="" if ready else why))
     return items
 

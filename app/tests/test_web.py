@@ -92,13 +92,56 @@ class Web(_World):
         self.assertNotIn("依頼者Z", other.text)
 
     def test_a_run_of_another_client_cannot_be_opened_under_this_client(self):   # S-4
-        r = self.get("A", f"/c/{self.a['client']}/runs/{self.y['run']}")
-        self.assertEqual(r.status_code, 404)
-        r = self.get("A", f"/c/{self.a['client']}/runs/{self.b['run']}")
-        self.assertEqual(r.status_code, 404)
+        x = self.a
+        for client, business, run in ((x["client"], x["business"], self.y["run"]),         # 同じ契約者の別の依頼者の実施回
+                                      (x["client"], self.y["business"], self.y["run"]),    # 別の依頼者の業務を、この依頼者の住所で
+                                      (x["client"], x["business"], self.b["run"]),         # 別の契約者の実施回
+                                      (x["client"], self.b["business"], self.b["run"])):
+            with self.subTest(business=business, run=run):
+                self.assertEqual(self.get("A", f"/c/{client}/b/{business}/runs/{run}").status_code, 404)
+
+    def test_a_business_of_another_client_answers_the_same_as_a_missing_one(self):   # 業務のタブの分離（S-4 と同じ考え）
+        other = self.get("A", f"/c/{self.a['client']}/b/{self.y['business']}")
+        stranger = self.get("A", f"/c/{self.a['client']}/b/{self.b['business']}")
+        missing = self.get("A", f"/c/{self.a['client']}/b/00000000-0000-0000-0000-000000000000")
+        self.assertEqual({other.status_code, stranger.status_code, missing.status_code}, {404})
+        self.assertEqual(other.text, missing.text)
+        self.assertEqual(stranger.text, missing.text)
+
+    def test_the_client_tab_shows_the_business_tabs_of_that_client_only(self):   # 2段のタブ（2026-11-18 管理者）
+        names = {k: app_access().in_client(OPERATOR, w["tenant"], w["client"], lambda tx, w=w: tx.one(   # 業務は依頼者の取引でだけ見える
+            "SELECT name FROM salescall.businesses WHERE business_id = %s", (w["business"],))["name"]) for k, w in (("x", self.a), ("y", self.y))}
+        page = self.get("A", f"/c/{self.a['client']}").text
+        self.assertIn(f'href="/c/{self.a["client"]}/b/{self.a["business"]}"', page)
+        self.assertNotIn(str(self.y["business"]), page)
+        self.assertIn("概要（全業務）", page)
+        biz = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}")
+        self.assertEqual(biz.status_code, 200)
+        self.assertIn(names["x"], biz.text)
+        self.assertIn(f'href="/c/{self.a["client"]}/b/{self.a["business"]}/runs/{self.a["run"]}"', biz.text)
+
+    def test_a_stop_that_holds_a_client_is_shown_on_its_tabs_only(self):   # 業務のタブを開いて「止まっている」と分かる
+        eid = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: stops.stop(
+            tx, scope="client", cause="manual", reason="依頼者Xだけの試験の停止", tenant_id=self.a["tenant"], client_id=self.a["client"]))["event_id"]
+        try:
+            for path in (f"/c/{self.a['client']}", f"/c/{self.a['client']}/b/{self.a['business']}"):
+                with self.subTest(path=path):
+                    self.assertIn(f"/c/{self.a['client']}/stops/{eid}", self.get("A", path).text)
+            self.assertNotIn(f"/stops/{eid}", self.get("A", f"/c/{self.y['client']}").text)   # 別の依頼者には出さない
+        finally:
+            app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: stops.resume(tx, eid, reason="試験の片付け"))
+
+    def test_every_stop_scope_is_decided_for_the_client_tabs(self):   # 範囲が増えたのに決めていなければ落ちる
+        from salescall.web import counts
+        self.assertEqual(set(counts.SCOPE_HOLDS), set(stops.SCOPE_NAMES))
+
+    def test_the_inbox_filter_ignores_a_client_of_another_contractor(self):
+        page = self.get("A", f"/t/inbox?client={self.b['client']}&kind=no_such_kind")
+        self.assertEqual(page.status_code, 200)
+        self.assertNotIn("依頼者Z", page.text)
 
     def test_the_customer_list_shows_the_rows_of_the_run(self):
-        r = self.get("A", f"/c/{self.a['client']}/runs/{self.a['run']}")
+        r = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}")
         self.assertEqual(r.status_code, 200)
         self.assertIn("お客様リスト", r.text)
         self.assertIn("これから", r.text)   # まだ次の予定が無い行
@@ -167,7 +210,8 @@ class Web(_World):
 
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
-                     f"/c/{self.a['client']}/runs/{self.a['run']}"):
+                     f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}"):
             with self.subTest(path=path):
                 r = self.get("A", path)
                 self.assertEqual(r.status_code, 200, r.text[:300])
