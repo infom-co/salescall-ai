@@ -174,6 +174,59 @@ class Web(_World):
                 self.assertNotIn(words_missing(), r.text)
 
 
+class EmergencyStop(_World):
+    """緊急停止のボタン（範囲：契約者の全部／依頼者だけ／全体＝管理者だけ）。押した停止は、試験の終わりに必ず解く（ほかの試験に響かせない）。"""
+
+    def press(self, who, data):
+        return self.post(who, "/t/emergency", {"form_token": self.token(who), "reason": "試験の緊急停止", **data})
+
+    def _opened(self, tenant, client=None, scope="tenant"):
+        def read(tx):
+            return [r["event_id"] for r in tx.all("SELECT event_id FROM salescall.open_stop_events WHERE cause = 'manual'"
+                                                     " AND scope = %s AND reason = '試験の緊急停止'", (scope,))]
+        a = app_access()
+        return a.in_client(OPERATOR, tenant, client, read) if client else a.in_tenant(OPERATOR, tenant, read)
+
+    def _resume_all(self, tenant, client=None, scope="tenant"):
+        for eid in self._opened(tenant, client, scope):
+            work = lambda tx, e=eid: stops.resume(tx, e, reason="試験の後片付け")
+            (app_access().in_client(OPERATOR, tenant, client, work) if client else app_access().in_tenant(OPERATOR, tenant, work))
+
+    def test_a_contractor_stops_the_whole_contractor_once(self):
+        try:
+            r = self.press("B", {"scope": "tenant"})
+            self.assertIn("ok=1", r.headers["location"])
+            self.assertEqual(len(self._opened(self.b["tenant"])), 1)
+            r = self.press("B", {"scope": "tenant"})          # 2回押しても重ねない
+            self.assertEqual(len(self._opened(self.b["tenant"])), 1)
+            self.assertIn("試験の緊急停止", self.get("B", "/t/stops").text)
+            self.assertNotIn("試験の緊急停止", self.get("A", "/t/stops").text)
+        finally:
+            self._resume_all(self.b["tenant"])
+
+    def test_a_contractor_stops_one_client(self):
+        try:
+            r = self.press("A", {"scope": "client", "client_id": str(self.y["client"])})
+            self.assertIn("ok=1", r.headers["location"])
+            self.assertEqual(len(self._opened(self.a["tenant"], self.y["client"], "client")), 1)
+            self.assertEqual(self._opened(self.a["tenant"], self.a["client"], "client"), [])
+        finally:
+            self._resume_all(self.a["tenant"], self.y["client"], "client")
+
+    def test_a_contractor_cannot_stop_another_contractors_client_or_everything(self):
+        r = self.press("A", {"scope": "client", "client_id": str(self.b["client"])})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self._opened(self.b["tenant"], self.b["client"], "client"), [])
+        r = self.press("A", {"scope": "system"})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self._opened(self.a["tenant"], scope="system"), [])
+
+    def test_a_reason_is_required(self):
+        r = self.post("A", "/t/emergency", {"form_token": self.token("A"), "reason": " ", "scope": "tenant"})
+        self.assertIn("ok=0", r.headers["location"])
+        self.assertEqual(self._opened(self.a["tenant"]), [])
+
+
 class AdminSeesEverything(_World):
     """✅ 2026-11-18 管理者「管理者は全てを見れて操作できる」。切り替えた契約者は、どの画面にも帯で出す（取り違えを防ぐ）。"""
 
@@ -202,6 +255,21 @@ class AdminSeesEverything(_World):
         page = http.get("/t", headers={"x-test-person": "ADMIN"}).text
         self.assertIn("依頼者X", page)
         self.assertNotIn("管理者として", page)
+
+    def test_the_admin_can_stop_everything_and_it_shows_for_every_contractor(self):
+        from tests.support import ADMIN
+        tok = self.token("ADMIN")
+        r = self.post("ADMIN", "/t/emergency", {"form_token": tok, "reason": "試験の全体の緊急停止", "scope": "system"})
+        def opened(tx):
+            return [x["event_id"] for x in tx.all("SELECT event_id FROM salescall.open_stop_events WHERE scope = 'system'"
+                                                   " AND reason = '試験の全体の緊急停止'")]
+        try:
+            self.assertIn("ok=1", r.headers["location"])
+            self.assertEqual(len(app_access().in_tenant(OPERATOR, self.b["tenant"], opened)), 1)
+            self.assertIn("試験の全体の緊急停止", self.get("B", "/t/stops").text)   # 全体の停止は、どの契約者にも見える
+        finally:
+            for eid in app_access().in_system(ADMIN, opened):
+                app_access().in_system(ADMIN, lambda tx, e=eid: stops.resume(tx, e, reason="試験の後片付け"))
 
     def test_a_contractor_cannot_switch_and_a_forged_choice_is_ignored(self):
         http = self.fresh()

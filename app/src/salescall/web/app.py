@@ -165,9 +165,9 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         return handle(request, render)
 
     @app.get("/t/stops")
-    def stops_page(request: Request) -> HTMLResponse:
+    def stops_page(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            return page(request, "stops.html", person, ctx, stops=counts.open_stops(ctx))
+            return page(request, "stops.html", person, ctx, stops=counts.open_stops(ctx), done=done, ok=bool(ok))
         return handle(request, render)
 
     def _stop_page(request: Request, event_id: int, client_id: UUID | None, done: str | None, ok: int) -> HTMLResponse:
@@ -208,6 +208,32 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     @app.post("/c/{client_id}/stops/{event_id}/resume")
     async def client_stop_resume(request: Request, client_id: UUID, event_id: int) -> HTMLResponse:
         return _stop_resume(request, event_id, client_id, dict(await request.form()))
+
+    @app.post("/t/emergency")
+    async def emergency(request: Request) -> HTMLResponse:
+        """緊急停止（人が押す。docs/DASHBOARD.md 5-3・7-4）。範囲：この契約者の全部／1つの依頼者／全体（管理者だけ＝データベースも守る）。
+        同じ範囲の人の停止がもう開いていれば重ねない（stops.open_same の1か所）。押したあとは「止まっているもの」へ戻る。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            scope = str(form.get("scope") or "")
+            reason = str(form.get("reason") or "").strip()
+            def do() -> str:
+                def stop_in(tx: Any, **where: Any) -> str:
+                    if stops.open_same(tx, scope=scope, cause="manual", **where) is not None:
+                        return "もう止まっています（重ねて止めていません）。"
+                    stops.stop(tx, scope=scope, cause="manual", reason=reason, **where)
+                    return "止めました。進行中の通話は最後まで終えます。新しい電話はかけません。"
+                if scope == "tenant":
+                    return ctx.tenant(lambda tx: stop_in(tx, tenant_id=ctx.tenant_id))
+                if scope == "client":
+                    cid = UUID(str(form.get("client_id")))
+                    return ctx.client(cid, lambda tx: stop_in(tx, tenant_id=ctx.tenant_id, client_id=cid))
+                if scope == "system":
+                    return ctx.system(lambda tx: stop_in(tx))
+                raise NotFound()
+            out = actions.act(secret, person.login_id, form, do, done="", reason_field="reason")
+            return _back("/t/stops", actions.Outcome(out.ok, out.value if out.ok else out.message))
+        return handle(request, render)
 
     @app.get("/t/notices")
     def notices_page(request: Request) -> HTMLResponse:

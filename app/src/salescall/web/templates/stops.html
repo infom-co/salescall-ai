@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% from "parts.html" import tag, empty %}
+{% from "parts.html" import tag, empty, flash %}
 {% set active = "stops" %}
 {% block title %}止まっているもの{% endblock %}
 {% block main %}
 <h1>止まっているもの</h1>
 <p class="lead">自動で解けるものは、システムが確かめて解きます。開くと、何で止まったかと、解く前に確かめることが出ます。</p>
+{{ flash(done, ok) }}
 {% if stops %}
 <table class="list">
   <thead><tr><th>原因</th><th>範囲</th><th>いつから</th><th class="wide">理由</th><th></th></tr></thead>

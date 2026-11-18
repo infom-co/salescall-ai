@@ -157,6 +157,9 @@ dialog { border: 0; border-radius: 14px; padding: 0; width: min(520px, 92vw); bo
          background: var(--surface); color: var(--text); }
 dialog::backdrop { background: rgba(15,17,21,.45); }
 dialog .body { padding: 22px 24px; } dialog .foot { padding: 14px 24px; background: var(--surface-2); }
+label.choice { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+                margin-bottom: 8px; cursor: pointer; font-weight: 600; }
+label.choice:has(input:checked) { border-color: var(--stop); background: var(--stop-soft); color: var(--stop); }
 .scope-name { font-size: 18px; font-weight: 800; padding: 10px 12px; border-radius: 8px; background: var(--stop-soft); color: var(--stop); margin: 8px 0 12px; }
 
 /* 数が変わった所を少し光らせる */
