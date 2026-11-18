@@ -2961,6 +2961,9 @@ class Review26c(SupervisorBase):
         self.assertEqual(self.trouble(t, left.called), "runner_error")
         self.assertEqual(leases.left_why(access_mod.RetryExhausted("試験")), leases.LEFT)
         self.assertEqual(leases.left_why(None), leases.LEFT)                 # 流れを立ち上げ直した（誤りが分からない）
+        import psycopg
+        self.assertEqual(leases.left_why(psycopg.errors.CheckViolation("試験")), leases.BROKEN)   # データベースの守りが断った書き込み＝プログラムの誤り
+        self.assertEqual(leases.left_why(psycopg.OperationalError("試験")), leases.LEFT)           # データベースに届かない
 
     def test_a_call_that_could_not_be_written_is_the_storages_fault(self):
         """話し終えた通話の最後の書き込みがデータベースの誤りで書けずに戻ったら、会話の部品の不具合でなく保存のせい（⛔ 見直し26c の 4：

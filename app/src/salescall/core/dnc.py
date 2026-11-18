@@ -228,6 +228,11 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     代表番号で断られたら、4月の一覧で同じ代表番号を持つ行の担当者の携帯も止める。広げるのは1段だけ＝共有する行の番号まで）、
     (c) 契約者が依頼者ごとの設定で選んでいれば、その行の管理番号（無ければ None）。依頼者をまたいでは広げない（取引の依頼者の分
     しか見えない。別の依頼者はサービスも別なので、断られるとは限らない＝2026-10-17 ユーザー）。"""
+    return _spread(tx, task_id, _row_stop(tx, task_id, former=False)), _row_ref(tx, task_id)
+
+
+def _row_ref(tx: Tx, task_id: UUID) -> str | None:
+    """断られたときに止める、その行の管理番号（契約者が依頼者ごとの設定 dnc.client_ref_is_stable_id で選んでいれば。無ければ None。1か所＝`reach`・`refusal_reach`）。"""
     t = tx.one("SELECT t.tenant_id, t.client_id, t.client_ref, r.business_id FROM salescall.tasks t"
                " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
                (task_id,))
@@ -237,7 +242,7 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     if t["client_ref"] is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", tenant_id=t["tenant_id"],
                                                         client_id=t["client_id"], business_id=t["business_id"]):
         ref = t["client_ref"]
-    return _spread(tx, task_id, _row_stop(tx, task_id, former=False)), ref
+    return ref
 
 
 def _row_stop(tx: Tx, task_id: UUID, *, former: bool, as_of_call: UUID | None = None) -> list[str]:
@@ -275,9 +280,10 @@ def refusal_reach(tx: Tx, attempt_id: UUID) -> tuple[list[str], str | None]:
         # いまの担当の方の断り：行の番号すべて（`reach`）。ただし、断ったあとにお呼びする方を替えて足した、あとの担当の方の番号は入れない（その通話を
         # 締めたときの立場で読む＝締め直し・止め直しでも同じ範囲。持ち主の期は salescall.task_number_period の1か所。⛔ 2026-11-18 の8回目の見直しまで：
         # いまの行の番号で求め、田中様の断りの通話を締め直すと（契約者の直し・判定し直し）、そのあと「担当の方は違う」で直した鈴木様の番号まで止めた）
-        own, ref = reach(tx, a["task_id"])
+        # 外してから広げる（あとの担当の方の番号を通って、ほかの行へ広げない＝7-1 (22)「鈴木様へはかける」）
         later = set(tasks.later_numbers(tx, a["task_id"], attempt_id))
-        return [n for n in own if n not in later], ref
+        own = [n for n in _row_stop(tx, a["task_id"], former=False) if n not in later]
+        return [n for n in _spread(tx, a["task_id"], own) if n not in later], _row_ref(tx, a["task_id"])
     own = _row_stop(tx, a["task_id"], former=True, as_of_call=attempt_id)
     new = set(tasks.numbers(tx, a["task_id"])) - set(own)   # 新しい担当の方の番号（ほかの行を通しても止めない）
     return [n for n in _spread(tx, a["task_id"], own) if n not in new], None

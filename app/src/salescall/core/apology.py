@@ -113,6 +113,24 @@ def waits_on(tx: Tx, task_id: UUID, attempt_id: UUID) -> bool:
     return o is not None and o["source_attempt_id"] == attempt_id and cur is not None and cur["purpose"] == "apology"
 
 
+def record_told(tx: Tx, task_id: UUID, attempt_id: UUID) -> None:
+    """お客様と約束したかけ直しの電話の頭で、承認したお詫びの案を伝えた（次の動きの1か所 next_action._forbidden_told が真のとき、その通話の締めが呼ぶ）：
+    お詫びだけの電話の結びと同じ表（apology_outcomes。伝えた＝delivered）に残す（その案は伝えた＝`_told` の1か所。お詫びだけの電話をもう書かない）。
+    ✅ 2026-11-08 ユーザー＝計画書 7-3 (2)「約束の時刻にお詫び」（約束を守り、1本で済ませる）。⛔ 2026-11-18 の8回目の見直しまで：伝えたことがどこにも残らず、
+    締めのあとに同じ案のお詫びだけの電話を書き（2本になった）、その電話でお客様との新しい約束の予定を上書きした。"""
+    o = _order(tx, task_id)
+    if o is None or tx.one("SELECT 1 AS x FROM salescall.apology_approvals WHERE order_id = %s", (o["order_id"],)) is None:
+        return
+    tx.execute("INSERT INTO salescall.apology_outcomes (tenant_id, client_id, attempt_id, order_id, delivered)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, true) ON CONFLICT (attempt_id) DO NOTHING",
+               (attempt_id, o["order_id"]))
+
+
+def _told(tx: Tx, order_id: int) -> bool:
+    """その案を、お客様に伝えたか（お詫びだけの電話で伝えた・約束の電話の頭で伝えた。1か所）。"""
+    return tx.one("SELECT 1 AS x FROM salescall.apology_outcomes WHERE order_id = %s AND delivered", (order_id,)) is not None
+
+
 def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
     """承認されたお詫びの案があれば、お詫びの電話の予定を書く（1回だけ。書いたら True）。予定を書くのはここの1か所：承認したとき
     と、誤った通話の締め・判定し直しのあと（core/settle.py）。書かないのは次のとき（⛔ 2026-10-22 の見直し：前は承認したときに
@@ -127,8 +145,8 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
                  " FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
                  " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id"
                  " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
-    if row is None:
-        return False
+    if row is None or _told(tx, row["order_id"]):
+        return False   # 承認した案が無い・もう伝えた（約束の電話の頭で伝えたときも＝`record_told`）
     if tx.one("SELECT 1 AS x FROM salescall.task_next_actions WHERE task_id = %s AND purpose = 'apology' AND decided_at >= %s",
               (task_id, row["approved_at"])) is not None:
         return False   # もう書いた（そのあとの動きは、お詫びの電話の締めが決める。もとの通話の締め直しは、お詫びの予定を書き直さない＝settle._judge_and_write）

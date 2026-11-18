@@ -68,7 +68,7 @@ from uuid import UUID
 
 from salescall.core import (attempts, conversation_io, dial_exit, gate, health, leases, next_action, ring_test, scheduler, settings,
                             troubles, watch)
-from salescall.core.access import Access, Actor, TimedOut, Tx
+from salescall.core.access import Access, Actor, TimedOut, Tx, storage_failed
 from salescall.core.errors import ErrorReport
 from salescall.core.health_rules import LineStage
 from salescall.link.protocol import APOLOGY_WAIT
@@ -402,9 +402,10 @@ class _Call:
         elif self._drain():
             with self._progress:
                 store_error = self._store_error
-            if store_error is not None:
-                # データベースの誤りで書けなかった分があって、終わりまで書けずに戻った：会話の部品の不具合でなく、保存のせい（理由を決めるのは
-                # ここの1か所。⛔ 見直し26c の 4：前は会話の部品の不具合（CL-1）として数え、修正依頼も CL-1 へ出していた）
+            if store_error is not None and storage_failed(store_error):
+                # データベースが書き込みを受けなかった分があって、終わりまで書けずに戻った：会話の部品の不具合でなく、保存のせい（理由を決めるのは
+                # ここ。書き込みの止まりかは access.storage_failed の1か所＝データベースの守りが断った書き込みはプログラムの誤り＝runner_error。
+                # ⛔ 見直し26c の 4：前は会話の部品の不具合（CL-1）として数え、修正依頼も CL-1 へ出していた）
                 self._end("storage_stuck", f"データベースへの書き込みができませんでした（{type(store_error).__name__}）",
                           type(store_error).__name__, drained=True)
             else:

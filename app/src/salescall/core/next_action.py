@@ -871,8 +871,9 @@ def _restart(tx: Tx, task_id: UUID, row: dict[str, Any] | None, *, now: datetime
       断った行へ営業の電話をかけ直した）は、前の番号からいまかける番号へ移る1か所 `_onto_dial`（まだ終えていない行で番号を直したとき・
       前の番号でかからずに移るときと同じ）。戻さない（None）のは、お詫びの電話を戻せないとき（承認されたお詫びの案が無い）と、
       `_onto_dial` が営業の電話にしないとき。
-    - **戻した電話には、お詫びの印を付けない**（前の予定の印も、その元の電話も引き継がない。計画書 7-1 (11)「行を終えたあとに番号を
-      直して戻した電話には、途中で切れたお詫びをしない」。⛔ 2026-11-06 の見直し：前は `_append` が前の予定の印を引き継いだ）。
+    - **戻した電話には、途中で切れた・約束の日にかけられなかったお詫びの印を付けない**（前の予定の印も、その元の電話も引き継がない。計画書 7-1 (11)
+      「行を終えたあとに番号を直して戻した電話には、途中で切れたお詫びをしない」。⛔ 2026-11-06 の見直し：前は `_append` が前の予定の印を引き継いだ）。
+      言ってはいけないことのお詫び（まだ伝えていない印）は残す（同じ相手なら、新しい番号の約束の電話の頭で伝える＝7-1 (12)(14)・7-3 (2)）。
       直したあと前の番号でかからずに新しい番号へ移る電話（行を終えていない＝`_moved_on_fix`）は、その決定の印（marks）のまま（同じ相手
       のときだけ。違う相手なら `_onto_dial` が外す）。"""
     served = _served_plan(tx, task_id, row)
@@ -880,7 +881,11 @@ def _restart(tx: Tx, task_id: UUID, row: dict[str, Any] | None, *, now: datetime
         _restart_plan(tx, task_id, served, now=now, rule=rule)
     if again is None:
         return None
-    again = replace(again, apology=False, cut_call=None) if marks is None else \
+    # 言ってはいけないことのお詫び（forbidden_speech）は、まだ伝えていなければ残す（同じ相手なら新しい番号の電話の頭でお詫び＝計画書 7-1 (12)(14)・7-3 (2)。
+    # 違う相手なら `_onto_dial` が外す）。途中で切れたお詫び・約束の日にかけられなかったお詫びは付けない（7-1 (11)）。⛔ 2026-11-18 の8回目の見直しまで：
+    # お詫びの印をすべて外し、言ってはいけないことのお詫びが伝わらないまま、門の承認待ちの止めも外れた
+    owed = "forbidden_speech" if _forbidden_owed(served or row) else False
+    again = replace(again, apology=owed, cut_call=None) if marks is None else \
         replace(again, apology=marks.apology, cut_call=marks.cut_call)
     return _onto_dial(tx, task_id, row, again, now=now)
 
@@ -1974,6 +1979,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     if former_promise and tasks.old_promise_waiting(tx, task_id) == attempt_id:
         _notice_old_promise(tx, task_id, attempt_id)
     if told and attempt_id is not None:
+        from salescall.core import apology   # お詫びの部品が次の動きを読むので、ここで読む（読み合いにしない）
+        apology.record_told(tx, task_id, attempt_id)   # 伝えた記録（お詫びだけの電話をもう書かない＝apology.schedule_if_ready の1か所）
         # 約束の時刻の電話の頭で、言ってはいけないことのお詫びを伝えた（会話の報告の apology_delivered。伝えたかは `_forbidden_told` の1か所。
         # 印を外すのは `_apologised`）：契約者に知らせる（お詫びの電話を伝えたときと同じ知らせの種類。計画書 7-3 (2)。0216）。⛔ 2026-11-13 まで
         # （CL-1 の連絡帳 4-143）：目的のお客様と話せたら（代わりの方に繋いだ電話で、お詫びを流していなくても）印を外し、この知らせを出していた
@@ -2461,7 +2468,7 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
         if _range_end(tx, task_id, w2) is not None:
             # 何日も続く範囲に時間の言葉を付けた約束の、範囲が過ぎたあとの別の日：回（日）の数でなく、別の日にかけた電話の数（`_round_calls`）で比べる
             # （✅ 2026-11-18 ユーザー：「案イ：別の日も夕方に」。⛔ 8回目の見直しまで：別の日も回（日）の数を方針の回数まで・1日3回まで続け、最大9本かけた）
-            called = _round_calls(tx, task_id, w2, None)
+            called = _round_calls(tx, task_id, w2, (current(tx, task_id) or {}).get("person_since"))   # その約束の担当の期で（`_window_round_next` と同じ）
         far_next = _next_round_far(window, w2)
         limit = _promise_used_up(tx, task_id, called, exact=exact)
         # 「契約者が認めたらかける」の業務でも、範囲の中の回数を使い切っていれば次の回へは回せない（伺っても、かけられない）＝「かけない」と同じく

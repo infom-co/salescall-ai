@@ -226,9 +226,11 @@ def conflict(error: BaseException) -> bool:
 
 
 def storage_failed(error: BaseException) -> bool:
-    """データベースが書き込みを受けなかった誤りか（データベースの誤り・届かない・混雑・ぶつかりのやり直しが続いた。判断はこの1か所）。こちらのプログラムの
-    誤り（データベースの外の誤り）と分ける（落ちて残った通話を終える理由＝core/leases.left_why）。"""
-    return isinstance(error, (psycopg.Error, RetryExhausted, PoolBusy))
+    """データベースが書き込みを受けなかった誤りか（届かない・つなぎが切れた・混雑・ぶつかりのやり直しが続いた。判断はこの1か所）。データベースの守りが断った
+    誤り（CHECK・守りの関数・文の誤り）は、こちらのプログラムの誤り（受け付けられない書き込みを送った）として分ける。読むのは、落ちて残った通話を終える理由
+    （core/leases.left_why）と、通話の書き込みが書けなかったときの終わり方（supervisor/line の書き手）。⛔ 2026-11-18 の8回目の見直しの途中まで：データベースの
+    誤りすべてを書き込みの止まりとし、守りが断ったプログラムの誤りまで「違う3行」の数えから外した。"""
+    return isinstance(error, (psycopg.OperationalError, psycopg.InterfaceError, RetryExhausted))   # 混雑 PoolBusy・ぶつかりも OperationalError
 
 
 def busy(error: BaseException) -> bool:

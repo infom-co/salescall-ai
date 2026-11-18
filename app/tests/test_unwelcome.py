@@ -12,7 +12,7 @@ from datetime import timedelta
 from unittest import mock
 
 from salescall.core import apology, attempts, business_rules, gate, next_action, notify, quality_stage, recordings, registry, scheduler
-from tests.support import ADMIN, OPERATOR, SYSTEM, callback, make_report, rules_raw, said
+from tests.support import ADMIN, OPERATOR, SYSTEM, callback, fictional_jp_fixed, make_report, rules_raw, said
 from tests.test_apology import ApologyBase
 from tests.test_gate import ALL_DAY
 from tests.test_judge import goal_refused
@@ -399,11 +399,30 @@ class PromiseAndApology(ApologyBase):
         self.assertEqual((c.apology_text, c.apology_call), (self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], None))
         got = self.settle(s, self.call_claimed(s, c, delivered=True))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "completed"))   # 約束の用件を続けて果たした
+        # 伝えたので、お詫びだけの電話はもう書かない（行は果たしたまま。伝えた記録＝apology.record_told。⛔ 2026-11-18 の8回目の見直しまで：締めのあとに
+        # 同じ案のお詫びだけの電話を書き、2本になった。お客様が新しい約束をしていれば、その予定をお詫びの電話で上書きした）
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["end_reason"]), ("end", "completed"))
+        self.assertFalse(self.tx(s, lambda tx: apology.schedule_if_ready(tx, s["task"])))
         notes = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'apology'"
                                              " AND refs ->> 'task_id' = %s", (str(s["task"]),)))
         self.assertEqual(len(notes), 1)
         self.assertIn("約束した電話の頭で、お詫びを伝えました", notes[0]["summary"])
         self.assertIn("apology", notify.KINDS)
+
+    def test_a_number_fix_keeps_the_head_apology_for_the_same_person(self):
+        """お詫びの印の付いた約束の電話が、決めた日数かけても話せずに終わり、契約者が番号を直した（担当の方は同じ）⇒ 戻した新しい番号の約束の電話の頭でお詫びを
+        伝える（印 forbidden_speech を残す・承認するまで門が通さない）。✅ 計画書 7-1 (12)「同じ相手なら、新しい番号へお詫び」・(14)・7-3 (2)。途中で切れた
+        お詫びは付けない（7-1 (11)）。⛔ 2026-11-18 の8回目の見直しまで：戻すときにお詫びの印をすべて外し、言ってはいけないことのお詫びが伝わらなかった。"""
+        from salescall.core import row_fixes
+        s = self.fresh(stage_cap=20)
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '1 day')::date AS d")["d"])
+        aid, _ = self.promise_call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の15時")))
+        self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=None, end_reason="callback_exact_unreached", cause="試験：日数を使い切った"))
+        self.tx(s, lambda tx: row_fixes.fix_dial_number(tx, s["task"], fictional_jp_fixed(), same_person=True), OPERATOR)
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["promised"], p["apology_reasons"]), ("call", True, ["forbidden_speech"]))
+        self.assertTrue(self.tx(s, lambda tx: gate.apology_unapproved(tx, s["task"])))   # 承認するまで門が通さない
 
     def test_the_head_apology_is_spoken_in_the_apology_recordings_voice(self):
         """約束の電話の頭のお詫び（お詫びの理由 forbidden_speech）も、お詫びだけの電話と同じく、承認したお詫びの録音の声だけで話す（録音の文を流すので声が
