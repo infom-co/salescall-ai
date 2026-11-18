@@ -10,7 +10,8 @@
   その番号へはかけない／回線のせい＝番号には数えず、回線の欄が休みになる）。
   ⛔ 0129：前は「番号のせい」（NumberRejected）と「回線のせい・分からない」をアプリの言い分で分け、どの番号も受け付けない回線では
   行がすべて終わり、1つの番号だけが続けてかけられないときは回線が止まり続けた（見直し18a の問題2・3）。
-  それ以外の失敗は、かかったかどうか分からないので「結果不明」（technical_error）にする（すぐかけ直さない。4-2）。
+  それ以外の失敗は、かかったかどうか分からないので「結果不明」（technical_error）にする（すぐかけ直さない。4-2。だれのせいかは同じく証拠で）。
+  回線ごとの処理そのものが止まる（例外でない終わりの合図）ときは、試行を残し、後始末の1か所（core/leases.recover）がこちらの不具合で終える（0238）。
 - **回線（スマホ）が、まだ前の通話の途中なら、かけない**（`LineDriver.in_call`。予約を戻す。2026-10-18 の見直し：回線ごとの処理や
   通話を進める部品が落ちると、その試行は終わった扱いになり、データベースの「1回線に進行中は1本」の守りが外れる。ところが
   スマホの通話はサーバーの回線ごとの流れが終わっても続くので、立ち上げ直した処理が、まだ通話中のスマホで二重にかけうる。回線が空いているかを
@@ -101,8 +102,14 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
     except CallNotPlaced:    # かけられなかった：「発信に失敗」（どの回数にも数えない。だれのせいかは証拠で＝状態の表の試行のせいの欄）
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
         return Outcome.NOT_PLACED
-    except BaseException:
+    except Exception:
         abandon(driver)   # かけたか分からない：かかっていれば、AI のいない電話にしない（記録より先に＝データベースが止まっていても、お客様を待たせない）
+        # 回線の部品の失敗：だれのせいかは、かけられなかったときと同じく証拠で（状態の表の試行のせいの欄＝8-8）
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "technical_error"))
+        raise
+    except BaseException:
+        # 回線ごとの処理そのものが止まる（終わりの合図＝こちらの都合）：おわびして切ってもらい、試行は後始末の1か所（core/leases.recover＝
+        # salescall.recover_lines）が、こちらの不具合（worker_lost）として終える（番号・回線に数えない＝原則6。0238）
+        abandon(driver)
         raise
     return Outcome.DIALED

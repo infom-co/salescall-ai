@@ -40,21 +40,31 @@ def return_line(tx: Tx, line_id: UUID, holder: str) -> bool:
     return bool(tx.one("SELECT salescall.return_line(%s, %s) AS ok", (line_id, holder))["ok"])
 
 
+# 後始末で進行中の試行を終える理由（こちらの不具合の理由＝core/errors.ENDS のうち、後始末だけが使うもの。0238）と根拠の文
+LOST = ("worker_lost", "回線の処理・見守り役が、通話を終えないまま止まりました（後始末）")
+LEFT = ("storage_stuck", "終わりの記録が書けないまま残った通話です（回線の処理の後始末）")
+
+
 def recover(tx: Tx, holder: str | None = None, line_id: UUID | None = None, *,
-            except_holder: str | None = None) -> list[dict[str, Any]]:
+            except_holder: str | None = None, why: tuple[str, str] = LOST) -> list[dict[str, Any]]:
     """落ちた試行の後始末（取引の契約者の回線）。holder＝その見守り役が借りている回線（起動したとき。line_id を渡せば、その回線
     だけ＝回線の流れが止まったとき）。holder が None なら、借用の期限が切れた回線（前に動いていた見守り役の分）。
     except_holder＝呼んだ見守り役の名前（自分が借りている回線は、期限が切れていても除く＝データベースに届かないあいだに期限が切れても、
-    まだ話している自分の通話を終わらせない）。終わらせた数を返す。"""
-    return tx.all("SELECT line_id, released, ended FROM salescall.recover_lines(%s, %s, %s)", (holder, line_id, except_holder))
+    まだ話している自分の通話を終わらせない）。終わらせた数を返す。
+    進行中の試行は、こちらの不具合（why＝理由と根拠の文。初めは回線の処理・見守り役が止まった＝LOST）で終える（データベースの1か所
+    recover_lines。番号・回線・行の回数のどれにも数えない＝原則6。⛔ 0238 の前は理由を残さず、お客様が出る前なら回線のせい・番号の
+    4回に数えた）。"""
+    return tx.all("SELECT line_id, released, ended FROM salescall.recover_lines(%s, %s, %s, %s, %s)",
+                  (holder, line_id, except_holder, *why))
 
 
 def recover_left(tx: Tx, holder: str, line_id: UUID) -> list[dict[str, Any]]:
     """回線ごとの流れの毎回の頭で呼ぶ：この回線に、前の回の電話（予約・進行中の試行）が残っていれば後始末する（起動・流れが止まったときと
     同じ `recover` の1か所。残っていなければ何もしない＝回線の行を毎回ロックしない）。回の頭では、この流れの電話は1本も進んでいないので、
-    残っているのは、終わりの記録が書けずに残った試行（⛔ 見直し26c の 1：その回線は門に「使用中」で断られ続け、二度とかけなかった）。"""
+    残っているのは、終わりの記録が書けずに残った試行（⛔ 見直し26c の 1：その回線は門に「使用中」で断られ続け、二度とかけなかった）＝
+    データベースへの書き込みが進まなかった（LEFT＝storage_stuck。違う行の数に数えない＝伺い5）。"""
     if tx.one("SELECT salescall.line_has_leftovers(%s) AS left", (line_id,))["left"]:
-        return recover(tx, holder, line_id)
+        return recover(tx, holder, line_id, why=LEFT)
     return []
 
 

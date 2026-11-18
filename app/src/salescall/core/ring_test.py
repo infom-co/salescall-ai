@@ -33,7 +33,7 @@ from enum import Enum
 from typing import Any, Protocol
 from uuid import UUID
 
-from salescall.core import health, settings
+from salescall.core import health, notify, settings
 from salescall.core.health_rules import RESTS
 from salescall.core.access import Access, Actor, Tx
 from salescall.link.phone import CallWithheld
@@ -76,6 +76,18 @@ def _scope(tx: Tx) -> dict[str, Any]:
     return {"tenant_id": tx.one("SELECT salescall.cur_tenant() AS t")["t"], "client_id": None, "business_id": None}
 
 
+# テスト番号がお客様の番号のときの、理由の名前 → 説明（データベースの1か所 salescall.test_number_problem の答え。0228）
+CUSTOMER_NUMBER = {"in_call": "いま発信中・通話中のお客様の番号です", "do_not_call": "発信禁止のお客様の番号です",
+                   "customer": "お客様リストにある番号です"}
+
+
+def customer_number(tx: Tx, e164: str) -> str | None:
+    """その番号がお客様の番号なら、その説明（違えば None。1か所＝設定に入れるとき core/settings.set_value と、鳴らす直前の `run` が読む）。
+    ✅ 2026-11-16 ユーザー「守りを足す（お勧め）」：テスト番号は門・発信禁止・予約を通さずに鳴らすので、お客様の番号は入れない・鳴らさない（0228）。"""
+    why = tx.one("SELECT salescall.test_number_problem(%s) AS w", (e164,))["w"]
+    return None if why is None else CUSTOMER_NUMBER[why]
+
+
 def number(tx: Tx) -> str | None:
     """取引の契約者のテスト番号（無ければ None＝試せない）。"""
     scope = _scope(tx)
@@ -103,6 +115,14 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
     to = access.in_tenant(actor, tenant_id, number)
     if to is None:   # 表が鳴らす頼みを置いたあとで、テスト番号が無くなった：試さなかったと同じ
         access.in_tenant(actor, tenant_id, lambda tx: health.tested(tx, line_id, "withheld"))
+        return Result.NO_NUMBER
+    why = access.in_tenant(actor, tenant_id, lambda tx: customer_number(tx, to))
+    if why is not None:   # お客様の番号になっていた（入れたあとにお客様リスト・発信禁止に入った・いま話している）：鳴らさず、契約者に1日1回知らせる
+        def told(tx: Tx) -> None:
+            health.tested(tx, line_id, "withheld")
+            notify.emit(tx, "setting_missing", key=f"test_number_customer:{tenant_id}:{tx.one('SELECT salescall.jst(now())::date AS d')['d']}",
+                        summary=f"テスト番号を鳴らしませんでした：{why}。テスト番号を、お客様でない番号に替えてください。", refs={})
+        access.in_tenant(actor, tenant_id, told)
         return Result.NO_NUMBER
     with access.exclusive(_lock_key(tenant_id)) as mine:   # 契約者ごとに1本ずつ（データベースの鍵）
         if not mine:   # ほかの回線・ほかの見守り役が鳴らしている途中：鳴らさない（記録もしない）

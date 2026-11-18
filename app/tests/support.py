@@ -6,14 +6,16 @@
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import os
 import json
 import uuid
 from datetime import timedelta
+from unittest import mock
 from uuid import UUID
 
-from salescall.core import calling_hours, recordings, spoken_time
+from salescall.core import calling_hours, common_phrases, recordings, spoken_time
 from salescall.core.access import Access, Actor
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
@@ -34,9 +36,44 @@ OPERATOR = Actor("試験の契約者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
 SYSTEM = Actor("試験のシステムの処理", "system")
 ADMIN = Actor("試験の管理者", "admin")
-VOICES = ("Leda", "Sadachbia")   # 試験の土台は、どちらの声も録音を承認してある（話してよい声）
+
+
+def kindless() -> Actor:
+    """誰が、の種類を持たない取引の「誰が」（読み書きの層が種類を渡しそこねた取引の代わり。`Actor` の確かめを通ったあとで種類を空にする
+    ＝いまの入口では作れない形）。データベースの守りが、種類の無い取引を断るかを試すときだけ使う（0201・0205）。"""
+    actor = Actor("試験の種類の無い取引", "system")
+    object.__setattr__(actor, "kind", "")
+    return actor
+
+
+VOICES =("Leda", "Sadachbia")   # 試験の土台は、どちらの声も録音を承認してある（話してよい声）
+# 契約者ごとの、業務の録音を承認する声（World.tenant の voices。業務の版を足すたびに、この声の組を作って承認する）
+_TENANT_VOICES: dict[UUID, tuple[str, ...]] = {}
 
 _numbers = itertools.count(int(uuid.uuid4().int % 500))
+
+
+def listed(*parts: "recordings.Part") -> list["recordings.ListedPart"]:
+    """録音の部分（Part）の名前・文・読みの、版の録音の部分の一覧（会話の担当の録音の道具の役で recordings.list_parts に渡す。0212）。"""
+    return [recordings.ListedPart(p.part, p.spoken_text, dict(p.readings)) for p in parts]
+
+
+def send_list(tx, version_id: UUID, *extra: "recordings.ListedPart", readings: dict[str, dict[str, str]] | None = None):
+    """会話の担当の録音の道具の役：その版の録音の部分の一覧を渡す（試験の名乗り intro＝approve_voices の文と、業務の想定問答の答え＝
+    answer_＋問いの名前・答えの文。extra＝ほかの部分。readings＝部分の名前 → その部分が話す名前の読み）。答えは recordings.list_parts の答え（0212）。"""
+    from salescall.core import business_settings
+    own = business_settings.own_answers(business_settings.load(tx, version_id))
+    readings = readings or {}
+    parts = [recordings.ListedPart("intro", "架空の録音（intro）。")] + [
+        recordings.ListedPart(business_settings.ANSWER_PART_PREFIX + n, t, readings.get(business_settings.ANSWER_PART_PREFIX + n, {}))
+        for n, t in own] + list(extra)
+    return recordings.list_parts(tx, version_id, parts)
+
+
+def make_business_set(tx, voice_name: str, version_id: UUID, parts: list) -> UUID:
+    """その部分で版の録音の部分の一覧を渡し（会話の担当の録音の道具の役）、業務の録音の組を作る（承認の前。0212）。"""
+    recordings.list_parts(tx, version_id, listed(*parts))
+    return recordings.create_set(tx, unit="business", voice_name=voice_name, version_id=version_id, parts=list(parts))
 
 
 def fictional_phone() -> str:
@@ -156,54 +193,121 @@ class World:
         self.a = access or app_access()
 
     def tenant(self, *, voices: tuple[str, ...] = VOICES) -> UUID:
+        """架空の契約者。voices＝業務の録音を承認する声（業務の版を足すたびに）。その声の共通の一言（システムの組）もそろえる。"""
         tid = uuid.uuid4()
         self.a.in_tenant(OPERATOR, tid, lambda tx: tx.execute(
             "INSERT INTO salescall.tenants (tenant_id, name) VALUES (%s, %s)", (tid, "架空の契約者")))
-        self.approve_voices(tid, None, None, voices)
+        _TENANT_VOICES[tid] = voices
+        self.approve_common(voices)
+        # 名前の録音の台帳も、試験の業務の初めの目的のお客様（役職のみ「総務部長」）の分と続く言葉を、システムの共通の録音でそろえる
+        # （まだ無い声の分だけ。システムの組は、すべての契約者と試験が読む）
+        self.approve_names(None, [recordings.NameKey(role=DEFAULT_ROLE)], voices, only_missing=True)
         return tid
 
-    def approve_voices(self, tenant: UUID, client: UUID | None, version: UUID | None,
-                       voices: tuple[str, ...] = VOICES, *, parts: tuple[str, ...] | None = None) -> None:
-        """声ごとに、録音の組を作って承認する（契約者の単位＝版なし／依頼者の単位＝その版。架空の録音）。parts＝組に入れる部分の
-        名前（無ければ、契約者の単位は契約者の単位の部分のすべて＝recordings.CONTRACTOR_PARTS、依頼者の単位は名乗り）。"""
-        unit = "contractor" if version is None else "business"
-        names = parts if parts is not None else (recordings.CONTRACTOR_PARTS if unit == "contractor" else ("intro",))
+    def approve_common(self, voices: tuple[str, ...]) -> None:
+        """声ごとに、共通の一言の組（システムの持ち物＝管理者がシステムの取引で作って承認する。0171）を承認する（架空の録音）。いまの組が、
+        共通の一言の部分のすべてを同じ文で持っていない声にだけ作る（システムの組は、すべての契約者と試験が読む）。文は共通の一言の文
+        （common_phrases.TEXTS。文の違う部分・足りない組は作れない＝2026-11-15）。"""
+        names = recordings.COMMON_PARTS
+        texts = [common_phrases.TEXTS[n] for n in names]
+
         def work(tx):
             for v in voices:
-                sid = recordings.create_set(tx, unit=unit, voice_name=v, version_id=version,
-                                            parts=[recordings.Part(n, f"架空の録音（{n}）。", f"test://{v}/{n}", "0" * 64)
-                                                   for n in names])
-                recordings.approve(tx, sid)
-        if version is None:
-            self.a.in_tenant(OPERATOR, tenant, work)
-            if parts is None:   # 名前の録音の台帳も、試験の業務の初めの目的のお客様（役職のみ「総務部長」）の分と続く言葉をそろえる
-                self.approve_names(tenant, [recordings.NameKey(role=DEFAULT_ROLE)], voices)
-        else:
-            self.a.in_client(OPERATOR, tenant, client, work)
+                if tx.one(
+                        "SELECT 1 FROM salescall.current_recording_sets s WHERE s.voice_name = %s AND s.unit = 'contractor'"
+                        " AND s.tenant_id IS NULL AND (SELECT count(*) FROM salescall.recordings r JOIN unnest(%s::text[], %s::text[]) p(part, t)"
+                        " ON r.part = p.part AND r.spoken_text = p.t WHERE r.set_id = s.set_id) = %s",
+                        (v, list(names), texts, len(names))) is not None:
+                    continue
+                recordings.approve(tx, recordings.create_set(
+                    tx, unit="contractor", voice_name=v,
+                    parts=[recordings.Part(n, t, f"test://{v}/{n}", "0" * 64) for n, t in zip(names, texts)]))
+        self.a.in_system(ADMIN, work)
 
-    def approve_names(self, tenant: UUID | None, keys: list, voices: tuple[str, ...] = VOICES, *, roles: tuple[str, ...] = (),
-                      tails: tuple[str, ...] | None = None, audio: str = "test") -> None:
+    @contextlib.contextmanager
+    def common_missing(self, voice: str, missing: str):
+        """その声だけ、共通の一言の部分 missing が足りない形にして試す（会話の担当がその文を替え、ほかの声は新しい文で録り直して承認したが、
+        この声はまだ＝足りない組はもう作れないので、この形で試す。2026-11-15）。終わったら文を戻し、ほかの声の組を元の文で作り直す（システムの組は
+        ほかの試験も読むので、必ず戻す）。⚠️ この中で契約者を作らない（World.tenant が共通の一言をそろえ直す）。"""
+        others = tuple(r["voice_name"] for r in self.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT DISTINCT s.voice_name FROM salescall.current_recording_sets s JOIN salescall.voices v ON v.voice_name = s.voice_name"
+            " WHERE s.unit = 'contractor' AND s.tenant_id IS NULL AND v.retired_at IS NULL AND s.voice_name <> %s ORDER BY s.voice_name",
+            (voice,))))   # 使わない声（retired）の組は作れない
+        try:
+            with mock.patch.dict(common_phrases.TEXTS, {missing: common_phrases.TEXTS[missing] + "（試験で替えた文）"}):
+                self.approve_common(others)
+                yield
+        finally:
+            self.approve_common(others)
+
+    @contextlib.contextmanager
+    def standard(self, answers: tuple[tuple[str, str], ...], *, voices: tuple[str, ...] = ()):
+        """管理者が、システムの標準の想定問答の新しい版（answers＝(問いの名前, 答え) の並び）を作り、その中でいまの標準にして試す。
+        voices の声には、その版の標準の録音の組を作って承認する（架空の録音）。終わったら、想定問答の無い標準の版を作って、いまの標準を
+        空に戻す（標準の版はシステムの持ち物で、変えられない＝ほかの試験も、いまの標準を重ねる）。"""
+        from salescall.core import business_settings
+
+        def make(tx):
+            sid = business_settings.save_standard(tx, {"answers": [{"name": a, "text": t} for a, t in answers]})
+            for v in voices:
+                recordings.approve(tx, recordings.create_set(
+                    tx, unit="standard", voice_name=v, standard_id=sid,
+                    parts=[recordings.Part(business_settings.ANSWER_PART_PREFIX + a, t, f"test://{v}/standard/{a}", "0" * 64)
+                           for a, t in answers]))
+            return sid
+        sid = self.a.in_system(ADMIN, make)
+        try:
+            yield sid
+        finally:
+            self.a.in_system(ADMIN, lambda tx: business_settings.save_standard(tx, {"answers": []}))
+
+    def approve_voices(self, tenant: UUID, client: UUID, version: UUID,
+                       voices: tuple[str, ...] | None = None, *, parts: tuple[str, ...] = ("intro",)) -> None:
+        """声ごとに、その版の業務の録音の組（依頼者の単位）を作って承認する（架空の録音）。voices が無ければ、その契約者の声
+        （World.tenant の voices）。parts＝組に入れる部分の名前（無ければ名乗り）。録音の部分の一覧も、その部分で渡す（会話の担当の録音の
+        道具の役。recordings.list_parts。0212）。"""
+        def work(tx):
+            recordings.list_parts(tx, version, [recordings.ListedPart(n, f"架空の録音（{n}）。") for n in parts])
+            for v in (_TENANT_VOICES.get(tenant, VOICES) if voices is None else voices):
+                sid = recordings.create_set(tx, unit="business", voice_name=v, version_id=version,
+                                            parts=[recordings.Part(n, f"架空の録音（{n}）。", f"test://{v}/{n}", "0" * 64)
+                                                   for n in parts])
+                recordings.approve(tx, sid)
+        self.a.in_client(OPERATOR, tenant, client, work)
+
+    def approve_names(self, owner: dict | None, keys: list, voices: tuple[str, ...] = VOICES, *, roles: tuple[str, ...] = (),
+                      tails: tuple[str, ...] | None = None, audio: str = "test", only_missing: bool = False) -> None:
         """名前の録音の台帳に、名前の部分（keys＝recordings.NameKey の並び）・役職の部分（roles）・続く言葉（無ければ全部）を作って承認する
-        （架空の録音。切れ目＝助詞の置き場は決め打ちしない＝0137。CL-1 の G-65 とユーザーの判断待ち）。tenant が None なら、管理者がシステムの取引で
-        作るシステムの単位（すべての契約者が読む。0134）。"""
+        （架空の録音。切れ目＝助詞の置き場は決め打ちしない＝0137）。owner が None なら、管理者がシステムの取引で作るシステムの共通の録音
+        （すべての契約者が読む）。owner＝setup の行（tenant・client・business）なら、契約者がその業務の録音として作って承認する（その業務の
+        電話で使う。0173）。only_missing＝その声のいまのシステムの録音が無い鍵だけ作る（システムの組は、すべての試験が読む）。"""
         P = recordings.Part
+        biz = None if owner is None else owner["business"]
+
+        def wanted(tx, v, unit, role=None, reading=None, tail=None):
+            return not only_missing or tx.one("SELECT salescall.current_name_set(NULL, %s, %s, %s, %s, %s) AS s",
+                                              (v, unit, role, reading, tail))["s"] is None
 
         def work(tx):
             for v in voices:
                 for r in roles:
-                    recordings.approve(tx, recordings.add_name_role(
-                        tx, voice_name=v, role=r, part=P("role", f"{r}の", f"{audio}://{v}/role/{r}", "0" * 64)))
+                    if wanted(tx, v, "name_role", role=r):
+                        recordings.approve(tx, recordings.add_name_role(
+                            tx, voice_name=v, role=r, part=P("role", f"{r}の", f"{audio}://{v}/role/{r}", "0" * 64), business_id=biz))
                 for k in keys:
                     text = f"{k.role}様" if k.reading is None else f"「{k.reading}」様"
-                    recordings.approve(tx, recordings.add_name_part(
-                        tx, voice_name=v, key=k, part=P("name", text, f"{audio}://{v}/name", "0" * 64)))
+                    if wanted(tx, v, "name", role=k.role, reading=k.reading):
+                        recordings.approve(tx, recordings.add_name_part(
+                            tx, voice_name=v, key=k, part=P("name", text, f"{audio}://{v}/name", "0" * 64), business_id=biz))
                 for t in (recordings.NAME_TAILS if tails is None else tails):
-                    recordings.approve(tx, recordings.add_name_tail(
-                        tx, voice_name=v, tail=t, part=P(t, f"架空の続く言葉（{t}）。", f"{audio}://{v}/{t}", "0" * 64)))
-        if tenant is None:
+                    if wanted(tx, v, "name_tail", tail=t):
+                        recordings.approve(tx, recordings.add_name_tail(
+                            tx, voice_name=v, tail=t, part=P(t, f"架空の続く言葉（{t}）。", f"{audio}://{v}/{t}", "0" * 64),
+                            business_id=biz))
+        if owner is None:
             self.a.in_system(ADMIN, work)
         else:
-            self.a.in_tenant(OPERATOR, tenant, work)
+            self.a.in_client(OPERATOR, owner["tenant"], owner["client"], work)
 
     def client(self, tenant: UUID) -> UUID:
         cid = uuid.uuid4()
@@ -362,7 +466,7 @@ def content(target_person: dict | None = None) -> dict:
             "ai_answer": None, "answers": [], "voice": "S2",
             "questions": [{"id": "Q1", "text": "ご希望の日時をお聞かせください。", "ask_about": None, "type": "datetime",
                            "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-                           "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": []}],
+                           "asks_fact": True, "do_words": None, "away": None, "intro": None, "ask_if": None, "approval": False, "final_goal": False, "declines": [], "tell_words": {}, "ends_on": [], "unclear_none": "", "doubt_words": {}, "asks_way": False, "unclear_none": "", "doubt_words": {}, "asks_way": False, "option_notes": {}, "change_by": "", "definite_value": False, "maybe": [], "since": "", "announce": "", "at_hand": "", "reworded": "", "matter": "", "matter_clause": "", "alternatives": "", "alternatives_led": []}],
             "names": [{"text": "株式会社テスト", "reading": "かぶしきがいしゃてすと", "source": "caller", "reading_by": "given",
                        "candidates": [], "likely": None},
                       {"text": "山田", "reading": "やまだ", "source": "caller", "reading_by": "given",
@@ -413,5 +517,6 @@ def schedule_call(tx, task_id, call_at, *, contact_id, cause: str, promised: boo
     return next_action._append(tx, task_id, call_at=call_at, end_reason=None, cause=cause, promised=promised,
                                target=next_action.Target(contact_id, None, purpose, wrong_contact_id, successor=successor,
                                                          number_again=number_again or ("wrong_party" if purpose == "ask_number_again"
-                                                                                       else None)), callee_at=callee_at,
+                                                                                       else None)),
+                               callee_at=callee_at,
                                window=window)

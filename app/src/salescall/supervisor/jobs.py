@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import (agents, answer_rate, attempts, backup, calendar, conversation_io, health, leases, measure, next_action,
-                            settle, usage, watch)
+from salescall.core import (agents, ai_versions, answer_rate, attempts, backup, business_settings, calendar, conversation_io, gate, health,
+                            leases, measure, next_action, quality_stage, recordings, settle, usage, watch)
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, line, plugins, report
 from salescall.supervisor.links import Links
@@ -113,6 +113,20 @@ def reopen_revoked(ctx: Context) -> None:
               tx, cause="発信禁止の取り消し：終える前の予定に戻す")))
 
 
+def versions(ctx: Context) -> None:
+    """版を足して、そろったら自動で替える（依頼者ごと。DESIGN.md 3-8-3 の (5)・0183）：標準の想定問答が新しくなっていれば、使っている
+    業務の版のつながりの先に新しい版を作り（business_settings.derive_for_standard）、話せる後の版があれば実施回に割り当てる
+    （business_settings.adopt_ready。電話は止めない＝そろうまでは今の版のまま）。版ごと・実施回ごとに別の取引（1つが落ちても記録して
+    残りを続ける＝⛔ 見直し(B) の5：前は依頼者ごとに1つの取引で、1つの版の失敗が、その依頼者のすべての実施回の自動の替えを止めた）。"""
+    def per_client(client_id: UUID) -> None:
+        in_client = lambda work: ctx.access.in_client(ACTOR, ctx.tenant_id, client_id, work)   # noqa: E731
+        _each(ctx, "版を足す（標準）", in_client(business_settings.in_use_versions),
+              lambda v: in_client(lambda tx: business_settings.derive_for_standard(tx, v)))
+        _each(ctx, "版を自動で替える", in_client(business_settings.in_use_runs),
+              lambda r: in_client(lambda tx: business_settings.adopt_ready(tx, r)))
+    _each(ctx, "版を足して自動で替える（依頼者）", _clients(ctx), per_client)
+
+
 def purge_utterances(ctx: Context) -> None:
     """残す日数を過ぎた通話のやり取りの文字を消す（その契約者の分。1日1回。決まりは core/conversation_io.purge_utterances の1か所。
     計画書 11-4）。"""
@@ -192,6 +206,23 @@ def fixed_stops(ctx: Context) -> None:
     ctx.access.in_tenant(ACTOR, ctx.tenant_id, health.fixed)
 
 
+def month_ahead_notices(ctx: Context) -> None:
+    """1か月以上先のかけ直しで契約者に伺っていて、お答えの無いまま約束の時刻の5分前を過ぎた予定の、契約者への緊急の知らせ（依頼者ごと。候補は
+    core/gate.month_ahead_notice_rows、出すかは core/gate.month_ahead_unanswered の1か所＝門が通すときと同じ。行ごとに別の取引＝1つの行の誤りで、
+    ほかの行の知らせを止めない）。✅ 2026-11-12 ユーザー：「時刻は5分前」。"""
+    for client_id in _clients(ctx):
+        in_client = lambda work, c=client_id: ctx.access.in_client(ACTOR, ctx.tenant_id, c, work)   # noqa: E731
+        _each(ctx, "1か月以上先のかけ直しの緊急の知らせ", in_client(gate.month_ahead_notice_rows),
+              lambda t, in_client=in_client: in_client(lambda tx: gate.month_ahead_unanswered(tx, t)))
+
+
+def quality_production(ctx: Context) -> None:
+    """本番になった業務の品質の停止を解く（依頼者ごと。決めるのは core/quality_stage.release_production の1か所。品質の門は検証モードの業務
+    だけ＝原則9）。依頼者ごとに別の取引（1つの依頼者の誤りで、ほかの依頼者を止めない）。"""
+    _each(ctx, "本番になった業務の品質の停止を解く", _clients(ctx),
+          lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, quality_stage.release_production))
+
+
 def storage_recovery(ctx: Context) -> None:
     """データベースへの書き込みが戻った（E21）を、その契約者の復旧待ちの行へ渡す（core/health.storage_back。1か所）。渡す取引そのものが
     書き込みの確かめ（supervisor/line.timed_write＝確定まで call.frozen_after のうちに終わるか。回線の流れの `storage_back` と同じ1か所）
@@ -213,6 +244,20 @@ def budget(ctx: Context) -> None:
     """費用の見張り（その契約者の分）：今日の費用の注意・赤字の警告と、期限までに確認されなければもう一度の知らせ（赤字では止めない＝
     2026-10-22 深夜 ユーザー。12-1）。"""
     usage.tick(ctx.access, ACTOR, ctx.tenant_id)
+
+
+def trusted_names(ctx: Context) -> None:
+    """管理者のチェックを要らないとした契約者の、まだ決めていない業務の名前の録音を、システムの共通の録音に入れる（すべての契約者に
+    共通の仕事・システムの取引。入れ方は管理者が入れるときと同じ1か所＝core/recordings.admit_unreviewed_names。0173）。"""
+    ctx.access.in_system(ACTOR, recordings.admit_unreviewed_names)
+
+
+def ai_version_check(ctx: Context) -> None:
+    """使っている AI に新しい版が出ていないか（確かめるのは CL-1 の部品・何を知らせるかは core/ai_versions の1か所。全体の取引）。✅ 2026-11-15
+    ユーザー「本番に入っても10日に一回は最新版が出ていないかを確認して」＝CL-1 の連絡帳 4-163。作り手の一覧を読むのは取引の外（待つ間、
+    データベースのつなぎを持たない）。"""
+    rows = ctx.part(ctx.cfg.version_checker).check()
+    ctx.access.in_system(ACTOR, lambda tx: ai_versions.record(tx, rows))
 
 
 def holidays(ctx: Context) -> None:
@@ -258,6 +303,7 @@ def pc_watch(ctx: Context) -> None:
 # - stop_checks：確かめてよい時刻は停止の記録が決める（ここは、その時刻を見に行く間隔）
 # - rejudge：判定できない原因が直るのは、修正が入ったとき（数分の遅れは問題にならない）
 # - reopen_revoked：契約者の共通の発信禁止を取り消したあと、その登録で終えた行を予定に戻すまでの遅れ（5分。依頼者の台帳の取り消しは、その場で戻す）
+# - versions：後の版の録音がそろってから実施回を替えるまでの遅れ（5分。そろうまでは今の版で電話を続けているので、遅れても止まらない）
 # - budget：赤字の警告の期限（1時間）を見る。数分の遅れは問題にならない
 # - holidays：取りに行くかは calendar が決める（1日1回で足りる）
 # - samples：週に1回でよい（週の終わりから1日あけて選ぶ。するかは measure が決める）
@@ -272,6 +318,12 @@ def pc_watch(ctx: Context) -> None:
 # - lasting_stops・system_lasting_stops：止まったまま1時間続いた停止の修正依頼（確かめの部品が無くても動く。依頼は同じ不具合で1つ）
 # - backup_watch・whole_backup_watch：控えが1日以上取れていないことに気づく（取る仕事は設定が無いと動かないので、別の仕事にする）。
 #   1時間に1回で足りる（知らせは1日1回）
+# - month_ahead_notices：1か月以上先のかけ直しで、お答えの無いまま約束の時刻の5分前を過ぎた予定の緊急の知らせ（1分。5分前から4分前のあいだに
+#   出る。出しそびれても、門が通すときに同じ1か所で出す）
+# - trusted_names：管理者のチェックを要らないとした契約者の名前の録音を、システムの共通の録音に入れるまでの遅れ（5分。その業務では、
+#   契約者が承認したときから使っている＝遅れるのは、ほかの契約者の電話で使えるまでだけ）
+# - ai_versions：使っている AI の新しい版の見張り（1日。✅ 2026-11-15 ユーザー「10日に一回は」を毎日で満たす＝作り手の公開の一覧を読むだけで
+#   料金0円・前の確かめの時刻を持たないので、見守り役が止まっても1回落ちても次の回に確かめる。同じ知らせは鍵で1回＝core/ai_versions）
 JOBS: tuple[Job, ...] = (
     Job("recover", 60, "tenant", 300, recover_expired),
     Job("settle", 15, "tenant", 600, settle_ready),
@@ -280,12 +332,17 @@ JOBS: tuple[Job, ...] = (
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None, parts=True),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
     Job("reopen_revoked", 300, "tenant", 600, reopen_revoked),
+    Job("month_ahead_notices", 60, "tenant", 300, month_ahead_notices),   # 1か月以上先のかけ直しの、約束の時刻の5分前の緊急の知らせ
+    Job("versions", 300, "tenant", 600, versions),   # 版を足して、そろったら自動で替える（0183）
+    Job("quality_production", 60, "tenant", 300, quality_production),   # 本番になった業務の品質の停止を解く（原則9。1分＝切り替えてすぐ効く）
     Job("utterances", 86400, "tenant", 600, purge_utterances),   # やり取りの文字を、録音と同じ日数で消す（1日1回。0157）
     Job("samples", 3600, "tenant", 1800, draw_samples),
     Job("answer_rates", 1800, "tenant", 600, answer_rates),
     Job("budget", 60, "tenant", 600, budget),
     Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None, parts=True),
+    Job("trusted_names", 300, "system", 600, trusted_names),   # 管理者のチェック不要の契約者の名前の録音（0173）
     Job("holidays", 86400, "system", 600, holidays),   # 1日1回（⛔ 2026-10-22 の見直し：1時間ごとで、翌年の分が載るまで毎時間取りに行った）
+    Job("ai_versions", 86400, "system", 600, ai_version_check, wanted=lambda cfg: cfg.version_checker is not None, parts=True),
     Job("backups", 300, "tenant", 4 * 3600, backups, heavy=True),
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),
     Job("backup_watch", 3600, "tenant", 600, backup_watch),

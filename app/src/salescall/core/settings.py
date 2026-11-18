@@ -80,6 +80,13 @@ def set_value(tx: Tx, key: str, value: Any, *, scope: Literal["system", "tenant"
     **同じ取引の中で、その範囲のまだ発信していない予約を取り消す**（門の判定に効く変更。DESIGN.md 5-2-1 の2）。
     どの設定が門に効くかを一覧にすると漏れるので、設定を変えたら必ず取り消す（予約は次の回にまた取れる）。
     """
+    if key == "line.test_number" and value is not None:
+        # テスト番号にお客様の番号は入れない（1か所＝core/ring_test.customer_number。0228。✅ 2026-11-16 ユーザー「守りを足す（お勧め）」）
+        from salescall.core import ring_test
+        from salescall.core.phone import normalize
+        why = ring_test.customer_number(tx, normalize(str(value)).e164 or str(value))
+        if why is not None:
+            raise ValueError(f"テスト番号にできません：{why}")
     row = tx.one(
         "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
         "                                      review_when, set_by)"

@@ -18,13 +18,26 @@
       番号違いの電話口が断った・何も言わずに切ったときも、ここ（止めるのは、その番号だけ。行のお客様が断ったのではない
       ので、行の番号すべて・管理番号へ広げない。DESIGN.md 3-6。2026-10-16 見直し：前は断りを先に見て、番号違いの相手の
       断りで、行のお客様ごと止めていた）
-  (2) 発信の拒否（通話中の申告・切れ方の判定が「断った」＝営業拒否の言葉のあとに切れた・
-      切れ方の分からない通話のあとの確かめのかけ直しが鳴ったのに、お客様が出て話さなかった＝2026-10-30 管理者の決定）  ⇒ do_not_call
-      (1)(2) は `refusal` の1か所（お詫びの電話の締めも使う）。はっきりした拒否は、切れ方の材料が無くても拒否
+  (2) 発信の拒否                                                                    ⇒ do_not_call
+      - 通話中の申告（会話の報告の事実 do_not_call・申告の入口が台帳に入れた登録＝dnc.declared_in）。受付で「営業はお断り」と言われた
+        ときも、会話の側がお客様の「あとで」を営業拒否と読んだとき（計画書 7-1 (16)）も、この1本（2026-11-07 見直し(3)の1：前は
+        かけ直しの申し出の intent＝refusal という2つ目の道があった）。中身の refusal＝in_call
+      - 判定が届かず、会話AIの読みで「通話を断られた」と締めた（事実 end_unjudged。録音の確かめまで保留の候補）。中身の refusal＝unjudged
+      - 切れ方の分からない通話のあとの確かめのかけ直しが鳴ったのに、お客様が出て話さなかった（2026-10-30 管理者の決定）。
+        発信禁止 refused_unclear_checked・中身の refusal＝unclear_checked
+      - 言ってはいけないことを言った通話で、切れ方が決められない（断りの候補。取り消せない決定の保留で決める＝2026-10-31 管理者：伺い3）。
+        発信禁止 refused_unclear_checked・中身の refusal＝unclear_forbidden
+      - 切れ方の判定が「断った」（営業拒否の言葉のあとに切れた）。中身の refusal＝cut
+      はっきりした拒否（申告）は、切れ方の材料が無くても拒否。断りが無く、お客様と話したのに切れ方の材料が無ければ unknown（cut_missing）。
+      (0)(1)(2) は `refusal` の1か所（お詫びの電話の締めも使う）
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
-  (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
-  (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
-  (6) 取れていない必須の質問の扱いが「結論として終える」                              ⇒ concluded（結論の名前）
+  (3b) ご承認の質問でご納得いただけず、担当の者に申し伝えることにして締めた（締めた理由 not_agreed） ⇒ concluded（not_agreed）
+  (4) 用件を断られた（最終目的の申し出を断られ、目的が果たせなくなった＝会話の報告の事実 goal_refused）  ⇒ declined
+  (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義。伺っていない（対象外）の質問は数えない） ⇒ completed
+  (6) 取れていない必須の質問の扱いが「結論として終える」のものが1つでもある（お客様と話した通話だけ見る。⛔ 「どれもが」＝見直し J7 は
+      2026-10-17 に取り下げた）                                                    ⇒ concluded（結論の名前）
+      理由の無い「わからない」「答えない」⇒ unknown（reason_missing）
+  (6b) お呼びした方が在籍しておらず、行を終える（事実 departed。約束・かけ直しより先）  ⇒ not_reached（departed）
   (7) かけ直しの約束（お客様に頼まれた・分かるお客様／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
       読むのは、いちばん新しい申し出（その質問の途中で目的のお客様に繋がった申し出＝要らなくなったものは読まない。
       call_report.CallReport.callback の1か所。2026-10-22 CL-1 の連絡帳 4-27）
@@ -32,6 +45,11 @@
       2026-10-19 ユーザー）。ちょうどの時刻・幅 ⇒ その幅の中でかける。時刻を任せる答え・時刻を聞けなかった ⇒ 時刻の決まっていない
       約束（再発信の方針）。1つに決まらない言い方（「昼」など）を通話の中で確かめないまま終わった ⇒ unknown（直すのは会話＝CL-1）。
       読めない言い方 ⇒ unknown（直すのは読み方＝CL-2）。どちらも推し量って別の時刻にかけない（直したら判定し直す）
+      お客様のほうから折り返すお約束（お言葉に甘えて受けた＝会話の報告の Callback.theirs）で、戻りを伺えた ⇒ いちばん遅い戻りの1時間後
+      （THEIRS_WAIT）から終わり無しの幅の約束（✅ 2026-11-14 ユーザー：「15時に戻ります」なら16時。✅ 2026-11-15 ユーザー：幅の言葉は幅の終わりの
+      1時間後・「〇時まで」はその時刻の1時間後。ずらした時刻はお客様が指定した時刻でない＝ふつうの電話の時間でかける。かけてはいけない時間なら、
+      時点は30分後から1時間後の間・幅の言葉は幅の中のかけてよい時間の最後の方で選び、無ければ次のかけてよい時刻＝次の動きの
+      next_action._theirs_at。戻りの幅は `_theirs_back`、約束の形は `_after_theirs` の1か所）
       ただし、不在で戻る時刻が取れなかった申し出（理由 absent・時刻の言葉が無い／任せる）は約束にしない ⇒ not_reached（不在。2026-10-13
       ユーザー：「不在」はかけ直しの回数の上限までかけ直す）
   (8) お客様と話したが、目的のお客様に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
@@ -46,7 +64,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from salescall.core import call_report, calling_hours, spoken_time
@@ -57,7 +75,24 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-02.4+time-{spoken_time.VERSION}"   # 2026-11-02.4（CL-1 の 4-69 の 4-182 の (e)）：用件を断られたは、会話の報告の通話の事実 goal_refused（最終目的の申し出を断られ、目的が果たせなくなった）だけで決める（業務の決まりの断りの答えで決め直さない。最終目的でない質問の断る答えは、用件を断られたにしない）
+JUDGE_VERSION = f"judge-2026-11-18.1+time-{spoken_time.VERSION}"   # 2026-11-18.1（6回目の見直し・DESIGN.md 15-2 の853）：目的のお客様だと確かめられなかった通話の、こちらがかけ直す申し出（callback）も判定に使わない（_offered＝_asked の1か所）・手短にの事実 brief で伺わなかったと書かれた質問でも、必須の質問は「伺っていない（対象外）」に数えない（必須の項目不足のまま）
+# 前の版：   # 2026-11-16.2（4回目の見直し (B)・DESIGN.md 7-1e）：目的のお客様だと確かめられなかった通話で伺った業務の事実（範囲外の求め・ご納得いただけなかった点・最終目的のお断り・伺っていない質問・ほかのご希望・申し出・引き継ぎ・手短に）を、判定にも依頼者へも使わない（_asked の1か所＝答えを使わない conversation_io._in_force と同じ決まり）
+# 前の版：   # 2026-11-16.1（CL-1 の連絡帳 4-173 の (3)・伺い31）：手短になら聞くと言われ、必須でも最終目的でもない質問を伺わなかった（会話の報告の事実 brief の skipped）を「伺っていない（対象外）」に数え（ended_on の skipped と同じ1か所＝CallReport.not_asked_by_talk）、その答え（brief）を判定の中身で依頼者へ返す
+# 前の版：   # 2026-11-15.5（CL-1 の連絡帳 4-169・伺い27）：ほかのご希望で方法を並べて伺う前に言っていただいたご希望の中身（会話の報告の other_wish の before_ways）を、判定の中身の other_wish で依頼者へ返す（判定の結果は変わらない）
+# 前の版：   # 2026-11-15.4（CL-1 の 58fb6c7f。✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25））：ほかの会社に頼んでいる・使っていると言われて伺い、言っていただいた問題・心配事（会話の報告の事実 elsewhere）を、判定の中身 elsewhere で依頼者へ返す（concern と同じ形・同じ1か所。判定の結果は変わらない）
+# 前の版：   # 2026-11-15.3（✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」）：お客様のほうから折り返すお約束の終わりの無い戻り（「16日以降に出社します」）はその始まりの日のうち・日の種類だけの戻り（「平日の4時までに」）は判定の中身 callback の back_days・back_clock（日は次の動きが暦で決める）。2026-11-15.2（2026-11-15 の見直し。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束の「〇時まで」「〇日まで」を、いま電話を続けられなかった理由と契約者の設定（callback.until_*）で読まず、口にした時刻・日をいちばん遅い戻りと読む1か所（THEIRS_READ）にした（前は設定 now の業務で戻る前にかけえた・「18日までには出社します」で18日の始まりにかけた）。「平日の4時までに」（日の決まらない「〇時まで」）は、いまを戻りとみなさず、ずらさない。2026-11-15.1（✅ 2026-11-15 ユーザー「幅の終わりの1時間後、ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方。」・「1時間後にかける（お勧め）」。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束で伺った戻りが幅の言葉なら、いちばん遅い戻り（幅の終わり）の1時間後から・「〇時まで」はその時刻の1時間後から（判定の中身 callback に back_until）。あとで・ご事情の「〇時まで」も読む（前は判定できなかった）。2026-11-14.2（✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで待つ」。DESIGN.md 2章 Q248）：ずらした時刻は、お客様が指定した時刻でない（時刻ちょうどの約束にしない＝NG時間の枠・依頼者の時間帯の外でかけてよい例外を使わない）。お客様のほうから折り返すお約束の約束は、こちらからかけたい時刻（戻る時刻の1時間後）から終わり無しの幅（日を言っていない＝依頼者のかける日・ふつうの電話の時間）にする。かける時刻は、次の動きがふつうの電話の決まりで選ぶ（next_action._theirs_at）。歯止め時間の外・日をまたぐときも、ずらさない例外を外した
+# 前の版：   # 2026-11-14.1（✅ 2026-11-14 ユーザー。DESIGN.md 2章 Q248）：お客様のほうから折り返すお約束（会話の報告の Callback.theirs）で戻る時刻を伺えた申し出は、戻る時刻の1時間後（THEIRS_WAIT）からかける約束にする（ちょうどの時刻・「すぐ」「30分後」だけ。`_after_theirs` の1か所）。判定の中身 callback に theirs・back_at（お客様が言った戻る時刻）を足す。戻る時刻の取れなかった申し出は今までどおり
+# 前の版：   # 2026-11-13.1（CL-1 の連絡帳 4-131・4-135・4-141・4-142）：判定の中身で依頼者へ返す申し出・ほかのご希望に、こちらから足した条件 added（お客様のご都合 terms と分ける）・ほかのご希望の W1 の答えの状態 wish_state と提案の terms・topic を足し、新しい担当の方に引き継ぎを確かめた答え（会話の報告の事実 carried）を carried で返す（引き継いだと言った前の方の答え＝carried_answers。判定の結果は変えない）
+# 前の版：   # 2026-11-12.1（CL-1 の連絡帳 4-122〜4-129）：業務の申し出の答え（会話の報告の事実 handoff・close_offer）と、条件つきで受けていただいた申し出（事実 offer_terms）を判定の中身で依頼者へ返す（判定の結果は変えない。handoff のはっきりしたお断りは会話の側が残す事実 goal_refused で今までどおり読む）
+# 前の版：   # 2026-11-08.1（CL-1 の連絡帳 4-113・4-115）：本題で本心を伺った一言に言っていただいた気になる点（会話の報告の事実 concern）を判定の中身で依頼者へ返す（判定の結果は変えない）。「曖昧」の印（伺う条件の hedged が読む）は、項目の値の欄 hedged（依頼者へ渡すお客様の言葉）を、取れた答えのときだけ読む（`hedged_words` の1か所。「-」「✕」の答えに添えたお客様の言葉を、言い切っていない答えと読まない）
+# 前の版：   # 2026-11-07.1（見直し(3)の1・5）：断りを言い表す道を1本にした。会話の側が営業拒否と読んだ「あとで」も、受付の営業拒否と同じ事実 do_not_call（2つ目の判定は irreversible_check）で来る。かけ直しの申し出の intent は約束の一環（promise）だけ（"refusal" は報告の誤り＝call_report.from_json）。判定の中身 refusal の later は無くなった（申告と同じ in_call）。通話の途中の申告かは、申告の入口が入れた登録だけで見る（dnc.declared_in。締めが自分で入れた登録を締め直しで申告と読まない）
+# 前の版：   # 2026-11-06.2（計画書 7-1 (16)・0195）：かけ直しの申し出「あとで」を会話の側が営業拒否と読んだ（会話の報告の Callback.intent＝refusal）通話は、断り（発信の拒否＝もうかけない・発信禁止に登録。受付で営業拒否を言われたときと同じ (2) の道＝call_report.CallReport.do_not_call の1か所。判定の中身 refusal＝later）。約束の一環・読んでいないときは変わらない
+# 前の版：   # 2026-11-06.1（計画書 7-1 (13)・0194）：時刻の無いかけ直しの申し出が約束の一環か営業拒否か（会話の報告の Callback.intent）を、判定の中身 callback.intent に残す（判定の結果は変わらない。番号を直したとき「あとで」を方針の回数より多く言って終えた行を戻すかが読む）
+# 前の版：   # 2026-11-05.2（CL-2 の連絡帳 4-213）：手順を伺い終えていない答え（会話の報告の unfinished）は、まだ受け取っていない答えとして読む（JudgeInput.answers。続きの電話がかかる）・判定の中身で依頼者へ返す
+# 前の版：   # 2026-11-05.1（CL-1 の 4-81 の (3)）：ほかのご希望の LINE の連絡先をどの形でいただいたか（事実 other_wish の via）も判定の中身で依頼者へ返す（判定の結果は変わらない）
+# 前の版：   # 2026-11-04.1（CL-1 の 4-74）：ここで終える答えで伺わなかった質問（事実 ended_on の skipped）を「伺っていない（対象外）」に数える
+# 前の版：   # 2026-11-03.1（CL-1 の 4-72 の (k)）：ほかのご希望を伺った答え（事実 other_wish）を判定の中身で依頼者へ返す（判定の結果は変わらない）
+# 前の版：   # 2026-11-02.4（CL-1 の 4-69 の 4-182 の (e)）：用件を断られたは、会話の報告の通話の事実 goal_refused（最終目的の申し出を断られ、目的が果たせなくなった）だけで決める（業務の決まりの断りの答えで決め直さない。最終目的でない質問の断る答えは、用件を断られたにしない）
 # 前の版：   # 2026-11-02.3（CL-1 の 4-69 の 4-185 の (1)・4-178）：ご納得いただけなかった点を根拠の発話（said）と値（point）に分けて返す・かけ直しの理由「今はお電話に出られないご事情」で日時が取れなければ日を改めて1回。
 # 前の版：   # 2026-11-02.2（CL-1 の 4-66 のあとの (g)）：締めた理由 not_agreed は結論として終えた（断られたにしない）・ご納得いただけなかった点の回・ご説明できたか・結び。
 # 前の版：   # 2026-11-02.1（CL-1 の 4-66）：伺っていない（対象外）の質問は取れていない必須の質問に数えない（not_asked）・断る答えのある質問の「どれも要らない」は用件を断られた・ご納得いただけなかった点を中身に残す。
@@ -91,10 +126,30 @@ PROGRAM_CAUSES = frozenset(UNKNOWN_CAUSE_FIXERS)
 REFUSAL_KNOWN: dict[str, bool] = {"report_missing": False, "cut_missing": False, "reason_missing": True,
                                   "not_reached_reason_missing": True, "callback_time_unreadable": True,
                                   "callback_time_unconfirmed": True}
+# 判定が出す発信禁止の理由 → その通話の取り消せない決定の中身（call_report.DECISION_PARTS。1つの表）。お客様の断り（refused_*）は
+# refusal。発信禁止の部品の断りの組（dnc.REFUSALS＝お客様ごと止める理由）・取り消せない決定（`irreversible`）が、これを読む。データベースの
+# salescall.revoked_parts（取り消したときに報告から外す中身。0161）の読み替えも同じもの（試験が比べる＝tests.test_irreversible.Declared）。
+# ⛔ 2026-11-07 見直し(3)の7：前は judge・dnc・データベースの3か所に別々にあった
+DNC_PARTS: dict[str, str] = {"refused_in_call": "refusal", "refused_unclear_checked": "refusal", "wrong_party": "wrong_party",
+                             "fax_line": "fax"}
+# 発信禁止の理由のうち、お客様の断りでなく、その番号のせいのもの（番号違い＝その番号の持ち主が別のお客様・FAX の回線。1か所＝DNC_PARTS の断りでないもの）：
+# 発信禁止の部品の dnc.NUMBER_ONLY（その番号だけ止める・行のほかの番号のその登録はお客様を止めない）・前の担当の方の番号の答え
+# （next_action.FORMER_NUMBER_ANSWERS）・お詫びの電話の番号の止め（settle）が読む。⛔ 2026-11-15 の見直しまで：3か所に同じ組を書いていた
+NUMBER_ONLY = frozenset(r for r, part in DNC_PARTS.items() if part != "refusal")
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 # 会話の報告を受け取った状態（取れた＋「わからない」「答えたくない」。会話の側の flowctl.TAKEN と同じ）：前の答えで伺う質問は、前の質問が
 # この状態になってから、その答えで伺うかが決まる（会話の側の Flow._follow_ups。`not_asked` の1か所）
 ANSWERED = TAKEN | {"dont_know", "refused"}
+
+
+def hedged_words(state: str, words: str | None) -> str | None:
+    """項目の値の欄 hedged（会話の側が書く、依頼者へ渡すお客様の言葉＝CL-1 の Flow.customer_words）から、「曖昧」の印（言い切っていない答えの
+    お客様の言葉）として読む言葉（唯一の決まり。判定の入力の項目＝settle._items・前の通話の答えの "hedged"＝conversation_io.earlier が読む）：
+    取れた答え（`TAKEN`）のときだけ。CL-1 の連絡帳 4-115 の (2)（✅ 2026-11-08 日本時間3時48分03秒 ユーザー：「本題のお客様の意向は、依頼者に
+    「-」が渡っても、「今は決められない」状態か、「拒否」や「必要ない」ということなのか分からないので、お客様の言葉で簡潔に渡せるように！」）から、
+    この欄には「-」「✕」で渡る答え（わからない・答えたくない・保留・聞き取れない・伺ったがお答えをいただけない）にも、その答えをいただいた発話の
+    言葉が入る。それを言い切っていない答えと読むと、伺う条件の「言い切っていないときだけ伺う」（`AskIf.hedged`）が取り違える。"""
+    return words if state in TAKEN and words else None
 
 
 @dataclass(frozen=True)
@@ -102,6 +157,7 @@ class Item:
     state: str
     condition: str | None        # 選んだ選択肢
     reason: str | None           # 「わからない」「答えない」の理由（15-2-3）
+    hedged: bool = False         # 言い切っていない答えだった（「曖昧」の印＝`hedged_words` の1か所。伺う条件の hedged が読む＝`not_asked`）
 
 
 @dataclass(frozen=True)
@@ -124,7 +180,8 @@ class JudgeInput:
     # ⛔ 2026-10-30 に外した入力：refused_after（通話後の検証で見つけた断り。書く入口がどこにも無く、使われない道だった。断りを
     # あとから見つける道は「録音から作り直した報告」の1本＝call_report.save_rebuilt）・unclear_is_refusal（設定
     # judge.unclear_disconnect_is_refusal。決め方が管理者の決定の1つ＝確かめのかけ直しになったので、設定ごと外した）
-    # 通話の途中の「もうかけないで」が、その場で台帳に入っている（dnc.register_declared）。⚠️ 会話の処理が報告を書く前に
+    # 通話の途中の「もうかけないで」が、その場で台帳に入っている（申告の入口 dnc.register_declared が入れた登録だけ＝dnc.declared_in の
+    # 1か所。締めが自分で入れた登録は入れない＝2026-11-07 見直し(3)の5。断りを外すと答えた通話は見ない＝settle._judge_input）。⚠️ 会話の処理が報告を書く前に
     # 落ちても、申告は台帳にある：報告だけを見ると、断りを見落として、行のほかの番号へ広げず、お詫びしてかけ直そうとした
     # （2026-10-19 の見直し）
     declared_in_call: bool = False
@@ -152,6 +209,10 @@ class JudgeInput:
     # 伺わなかった質問は「伺っていない（対象外）」（`not_asked`）：取れていない必須の質問に数えず、依頼者へは答えが取れなかった質問と
     # 分けて返す（CL-1 の連絡帳 4-66 の (e)）
     ask_if: dict[str, AskIf] = field(kw_only=True)
+    # この通話より前の通話で取った答えの質問（行の項目の値のうち、取った通話＝attempt_id がこの通話より前のもの。読むのは settle._judge_input の1か所）。
+    # 新しい担当の方が引き継いだと言った前の方の答えを、依頼者へ分かる形で渡す（判定の中身 carried の carried_answers＝`_carried_detail`。CL-1 の連絡帳
+    # 4-141 の (b)）。判定の結果には使わない
+    earlier_answers: frozenset[str] = field(default=frozenset(), kw_only=True)
 
     @property
     def reached_target(self) -> bool:
@@ -161,6 +222,17 @@ class JudgeInput:
         「繋がらなかった」と別々に読み、別の方だった約束の電話を「一部だけ取れた」にして、約束の幅を外していた）。"""
         return self.report is not None and self.report.reached(self.anyone_target) and not self.target_unconfirmed
 
+    @property
+    def answers(self) -> dict[str, Item]:
+        """判定が読む答え（1か所。取れたか・伺っていない質問か・取れていない答えの扱いは、どれもこれを読む）：行の項目のうち、会話の報告で
+        手順を伺い終えていない質問（`call_report.CallReport.unfinished`＝ほかのご希望 W1・その連絡先・ご納得いただけなかった点の手順の途中で
+        切れた答え）を除いたもの＝まだ受け取っていない答えとして読む。CL-1 の続きの電話（お詫びのすぐあとに、切れた所から伺う。✅ 2026-11-03
+        日本時間23時52分36秒・11-04 18時16分・19時26分 ユーザー）がかかるため（⛔ 2026-11-05 CL-2 の連絡帳 4-213：前は「どれも要らない」の
+        あとの W1 の途中で切れても、必須の質問が全部取れていれば「完了」にして、続きの電話が1本もかからなかった。その答えのときだけ伺う質問
+        も、W1 で選び直されうるのに「伺っていない」にした）。行の項目そのもの（items）は変えない（判定の入力の控えには元の答えが残る）。"""
+        pending = set(self.report.unfinished) if self.report is not None else set()
+        return {q: it for q, it in self.items.items() if q not in pending}
+
 
 @dataclass(frozen=True)
 class Judgement:
@@ -169,6 +241,33 @@ class Judgement:
     disconnect: str | None       # 試行に記録する切れ方（normal / refused / interrupted。決められないものは設定で決めたほう）
     dnc_reason: str | None       # 発信禁止に登録する理由（refused_in_call / refused_unclear_checked / wrong_party / fax_line）
     detail: dict[str, Any]       # 判定の中身（依頼者への報告・次の動きが読む。policy_key＝再発信の方針の鍵）
+
+
+# 契約者が直した結果を、その通話の判定として読む形（1か所。✅ 2026-11-16 ユーザー「直しに従う（お勧め）」＝検証モードで契約者が結果を直したら、
+# 次に電話をかけるかも直しに従う。締めの settle.follow_correction が、ふつうの締めと同じ次の動きの道に渡す）。
+CORRECTABLE_STATES = ("open", "completed", "callback_scheduled", "incomplete", "declined", "do_not_call", "out_of_scope", "not_reached",
+                      "concluded")   # 直せる業務の状態（「判定できない」には直さない）
+_CORRECTION_KEEPS = ("cut", "cut_recorded", "target_unconfirmed")   # 状態を替えた直しでも、もとの判定から残す中身（切れ方・確かめ直し）
+
+
+def corrected(state: str, complaint: bool, detail: dict[str, Any] | None, *, base_state: str,
+              base_detail: dict[str, Any]) -> Judgement:
+    """契約者の直し（業務の状態・苦情・中身）を、その通話の判定として読む（1か所）：同じ状態への直し（苦情の印・中身だけ）は、もとの判定の中身に直しの
+    中身を重ねる。状態を替えた直しは、直しの中身と、もとの判定の切れ方・確かめ直しだけ。次にいつかけるかの鍵（policy_key）は、未決・必須項目不足なら
+    その状態の名前。目的のお客様に繋がらなかったへ直すなら policy_key、折り返し予定へ直すなら callback が要る（どの理由・いつかけるかは
+    契約者が決める＝こちらで推し量らない）。「もうかけないで」への直しは、発信禁止に登録する（refused_in_call。自動では取り消さない＝もとが
+    「もうかけないで」なら登録し直さない）。"""
+    if state not in CORRECTABLE_STATES:
+        raise ValueError(f"直せる業務の状態は {CORRECTABLE_STATES} のどれかです：{state!r}")
+    given = dict(detail or {})
+    out = {**base_detail, **given} if state == base_state else {**{k: base_detail[k] for k in _CORRECTION_KEEPS if k in base_detail}, **given}
+    if state in ("open", "incomplete"):
+        out.setdefault("policy_key", state)
+    elif state == "not_reached" and not out.get("policy_key"):
+        raise ValueError("「目的のお客様に繋がらなかった」に直すときは、どの理由の方針でかけ直すか（policy_key）も要ります")
+    elif state == "callback_scheduled" and not isinstance(out.get("callback"), dict):
+        raise ValueError("「折り返し予定」に直すときは、いつかけるか（callback）も要ります")
+    return Judgement(state, complaint, None, "refused_in_call" if state == "do_not_call" and base_state != "do_not_call" else None, out)
 
 
 @dataclass(frozen=True)
@@ -197,13 +296,14 @@ def irreversible(inp: JudgeInput, j: Judgement) -> Irreversible | None:
     parts: set[str] = set()
     unsure: set[str] = set()
     undecided: set[str] = set()
-    if j.dnc_reason in ("refused_in_call", "refused_unclear_checked"):
+    part = DNC_PARTS.get(j.dnc_reason or "")   # 発信禁止の理由の読み替えは1つの表（FAX の回線は音の信号から分かるので入れない）
+    if part == "refusal":
         parts.add("refusal")
         if j.detail.get("refusal") == "unclear_forbidden":
             undecided.add("refusal")
         elif not (inp.declared_in_call or j.detail.get("refusal") == "unclear_checked"):
             unsure.add("refusal")
-    if j.dnc_reason == "wrong_party":
+    if part == "wrong_party":
         parts.add("wrong_party")
         unsure.add("wrong_party")
     if j.complaint:
@@ -323,9 +423,10 @@ def refusal(inp: JudgeInput) -> Judgement | None:
         return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party", **refused)
     # (2) 発信の拒否（原則14）：はっきりした拒否が先、切れ方はそのあと
     if (r and r.do_not_call) or inp.declared_in_call:   # 申告の台帳も見る（報告が無い・報告から抜けた＝結果不明の通話も）
-        # 判定が届かず会話AIの読みで「通話を断られた」と締めただけ（申告が無い）は、録音の確かめまで保留の候補（judge.irreversible）
-        unjudged = r is not None and not r.refusals and not inp.declared_in_call
-        return done("do_not_call", dnc="refused_in_call", refusal="unjudged" if unjudged else "in_call")
+        # 判定が届かず会話AIの読みで「通話を断られた」と締めただけ（申告が無い）は、録音の確かめまで保留の候補（judge.irreversible）。
+        # 会話の側が営業拒否と読んだ「あとで」も申告（事実 do_not_call）で来る（計画書 7-1 (16)。2026-11-07 見直し(3)の1）＝in_call
+        how = "in_call" if r is None or r.refusals or inp.declared_in_call else "unjudged"
+        return done("do_not_call", dnc="refused_in_call", refusal=how)
     # 切れ方の分からない通話のあとの確かめのかけ直しが、お客様の電話まで鳴ったのに、お客様が出て話さなかった（出なかった・留守電）：
     # 両方の回線は元気なので、前の通話はお客様が切った＝営業拒否とみなす（2026-10-30 管理者の決定。発信禁止の登録は、ほかの営業拒否と
     # 同じこの1か所・広げ方も同じ＝dnc.CUSTOMER_WIDE。台帳には、はっきり断られた refused_in_call と別の理由 refused_unclear_checked で残す）。お客様が出て話を続けたら、その話の結果どおり（下へ進む）
@@ -357,7 +458,7 @@ def unreached_today(inp: JudgeInput) -> tuple[str | None, bool]:
     r = inp.report
     if r is None:
         return None, False
-    cb = r.callback
+    cb = _offered(inp)
     if cb is not None and _untimed_offer(inp, cb):
         return call_report.UNTIMED_OUTCOMES[cb.reason][0], r.may_call_again(lambda c: _untimed_offer(inp, c))
     if inp.facts.reached_answer and r.talked and not inp.reached_target:
@@ -383,10 +484,111 @@ def _when(inp: JudgeInput, cb: Any) -> spoken_time.Reading:
     # beyond_ok＝お客様指定の歯止め時間の外の時刻（「23時以降なら」）を、通話の中で確かめて「はい」と言われた（会話の報告の
     # callback.beyond_limit_ok。無い＝確かめていない＝今までどおり判定できない）。until＝「〇時まで」の言い方のときの、かけてよい
     # 時間の決め方（いま電話を続けられなかった理由＝Callback.until_reason から、お客様の時間の設定の1か所が決める）
+    # お客様のほうから折り返すお約束（cb.theirs）は、理由・設定によらず戻りの読み（`THEIRS_READ`）
     c = inp.callee
     return spoken_time.read(cb.time_said, inp.facts.called_at, business_hours=c.business_hours, periods=c.period_table(),
                             monthly=cb.cycle == "month", limit=c.designated_limit, beyond_ok=cb.beyond_limit_ok,
-                            slot=c.exact_slot, until=c.until_rule(cb.until_reason))
+                            slot=c.exact_slot, until=THEIRS_READ if cb.theirs else c.until_rule(cb.until_reason))
+
+
+# お客様のほうから折り返すお約束（会話の報告の Callback.theirs＝お礼の一言のあとに重ねて折り返しを申し出られ、お言葉に甘えて受けた）で、
+# 戻る時刻を伺えたとき、こちらからかけるまで待つ長さ（1か所＝`theirs_span`）。✅ 2026-11-14 ユーザー：「お言葉に甘えた電話の時に、『お電話を
+# いただいた際に出られないことがないように、お戻りになられる時間はお分かりになるでしょうか？』のような確認をしておいた方がいいんじゃないでしょうか。」・
+# 戻る時刻（例 15時）を過ぎても折り返しが無いとき、こちらからかけるのは「戻る時刻の1時間後（16時）」。
+# THEIRS_EARLIEST＝1時間後がかけてはいけない時間のとき、早めてよい所まで（✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整して
+# もOK。その枠外なら、次にかけて良い時刻まで待つ」）
+THEIRS_WAIT = timedelta(hours=1)
+THEIRS_EARLIEST = timedelta(minutes=30)
+# お客様のほうから折り返すお約束で伺った「〇時まで」「〇日まで」の読み方（1か所。`_when`）：口にした時刻・日が、いちばん遅い戻り（「3時までには戻ります」
+# ⇒ 戻りは3時＝16時から／「18日までには出社します」⇒ 18日のうち＝18日の終わりの1時間後、依頼者の時間の外なら18日のかけてよい時間の最後の方。✅ 2026-11-15
+# ユーザー「幅の終わりの1時間後…「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方」・「1時間後にかける（お勧め）」）。spoken_time の決め方の
+# slot_after（その時刻から1回分・その日）＝始まりが口にした時刻・日。いま電話を続けられなかった理由と、その理由ごとの契約者の設定（callback.until_*＝
+# こちらからかけてよい時間の決め方）では読まない（お客様の戻りは、こちらがかけてよい時間の話ではない）。⛔ 2026-11-15 の見直しまで：理由ごとの設定で
+# 読み、now の業務では「いま〜3時」と読んで戻る前にかけえた・「〇日まで」はその日から終わり無しと読んで、その日の時間帯の始まりにかけた
+THEIRS_READ = "slot_after"
+
+
+def theirs_span(back: datetime, until: datetime | None = None) -> tuple[datetime, datetime]:
+    """お客様のほうから折り返すお約束で、お客様が言った戻り（いちばん早い戻り back・いちばん遅い戻り until。時点なら until は無し＝back）から、
+    こちらからかける時を探す間（1か所）：（早めてよい所＝いちばん早い戻りの THEIRS_EARLIEST あと, かけたい時刻＝いちばん遅い戻りの THEIRS_WAIT あと）。
+    かける時刻を、ふつうの電話の決まりで選ぶのは次の動き（next_action._theirs_at）。"""
+    return back + THEIRS_EARLIEST, (until or back) + THEIRS_WAIT
+
+
+def _day_end(day: Any, daily: tuple[int, int] | None, *, until_point: bool = False) -> datetime:
+    """その日のうちの、いちばん遅い戻り（1か所。`_theirs_back`・next_action の日の種類だけの戻りが読む＝秒は `theirs_clock`）。"""
+    return datetime.combine(day, datetime.min.time(), tzinfo=calling_hours.JST) + timedelta(seconds=theirs_clock(daily, until_point))
+
+
+def theirs_clock(daily: tuple[int, int] | None, until_point: bool) -> int:
+    """その日のうちの、いちばん遅い戻りの、0時からの秒（1か所）：「〇時まで」は口にした時刻（1日の中の幅の始まり）・時間の言葉は幅の終わり・
+    時間の言葉が無ければ、その日の終わり（翌日の0時）。"""
+    if daily is None:
+        return spoken_time.DAY
+    return daily[0] if until_point else daily[1]
+
+
+def _theirs_back(when: spoken_time.Reading) -> tuple[datetime, datetime] | None:
+    """お客様のほうから折り返すお約束で伺った時刻の言葉の、戻りの幅（いちばん早い戻り, いちばん遅い戻り）（1か所。`_after_theirs` だけが呼ぶ）。
+    - 1つの時点（spoken_time.Reading.moment＝「15時」「3時ごろ」「明日の15時」「すぐ」「30分後」）⇒ その時点（早い・遅いとも同じ）。
+    - 「〇時まで」（spoken_time.Reading.until_point＝「3時までには戻ります」「4時までにはお電話できると思います」）⇒ 口にした時刻（それまでには戻る＝
+      いちばん遅い戻りはその時刻）。
+    - 幅の言葉（「夕方」「3時から5時」「3時以降」「明日」「来週中」など）⇒ 幅の始まりから終わりまで（✅ 2026-11-15 ユーザー「幅の終わりの1時間後、
+      ただし、（依頼者のかける時間の外なら、かけて良い時間の最後の方）。「明日」⇒明日の終わりの後＝明日のかけて良い時間の最後の方。」。「3時以降」
+      「午後」の終わりは、その日の終わり＝言葉の読みの幅の終わり）。
+    - 終わりの無い幅（「16日以降に出社します」）⇒ その始まりの日のうち（その日の時間の言葉の終わり・無ければその日の終わり）＝その日のかけてよい時間の
+      最後の方（✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」）。
+    - 日の種類だけの読み（「平日の4時までに」「平日の夕方なら」＝どの日か決まらない）⇒ None（判定は暦を読まない。日を決めるのは次の動き
+      next_action._theirs_days＝暦で次のその種類の日。`_after_theirs` が日の種類と時刻を判定の中身に残す）。
+    - 始まりの無い読み ⇒ None（ずらさない）。"""
+    if when.start is None or when.kind not in (spoken_time.AT, spoken_time.WINDOW):
+        return None
+    if when.since is None and when.days is not None and not when.moment:
+        return None                                   # 日の種類だけ（次の動きが暦で日を決める）
+    if when.until_point:
+        return None if when.since is None else (when.since, when.since)
+    if when.moment:
+        return when.start, when.start
+    if when.end is None:                              # 終わりの無い幅：その始まりの日のうち
+        start = when.since or when.start
+        return start, _day_end(start.astimezone(calling_hours.JST).date(), when.daily)
+    return when.start, when.end
+
+
+def _after_theirs(cb: Any, when: spoken_time.Reading) -> tuple[spoken_time.Reading, datetime | None, datetime | None]:
+    """お客様のほうから折り返すお約束のあと、こちらからかける約束（1か所。約束の中身＝`_callback` だけが呼ぶ）。答えは（かける約束の読み,
+    いちばん早い戻り, いちばん遅い戻り（時点なら None））。ずらさなければ（読みのまま, None, None）。
+    - 印（cb.theirs）が無い・時刻の取れなかった申し出 ⇒ ずらさない（戻る時刻が分からないお言葉に甘えた電話は、今までどおり不在の方針・
+      時刻の決まっていない約束＝判定の (7)）。
+    - 戻りの幅（`_theirs_back`＝時点・「〇時まで」・幅の言葉）がある ⇒ かけたい時刻（いちばん遅い戻りの1時間後＝`theirs_span`）から終わり無しの幅
+      （「すぐ」と同じ形。話せなければ「すぐ」と同じ決まりでかけ直す＝計画書の 2026-10-19 ユーザー「30分後」「1時間後」の読みと同じ）。
+      ずらした時刻はお客様が指定した時刻ではない（✅ 2026-11-14 ユーザー）ので、時刻ちょうどの約束（exact＝NG時間の枠・依頼者の時間帯の外でも
+      かけてよい根拠）にせず、日も言っていない（day_said 偽＝依頼者のかける日だけ）：かけてよい時間はふつうの電話と同じ（依頼者の時間帯・NG時間・
+      休みの日＝calling_hours.callee_hours の日だけの幅）。かけたい時刻がかけてはいけない時間なら、いちばん早い戻りの30分後からかけたい時刻までの
+      間で、かけたい時刻にいちばん近い（遅い）時刻、無ければ次のかけてよい時刻（次の動きの next_action._theirs_at。時間帯・暦は判定では読まない）：
+      時点なら30分後から1時間後の間（✅ 2026-11-14 ユーザー「1時間後が問題なら、30分から1時間の間で調整してもOK。その枠外なら、次にかけて良い時刻まで
+      待つ」）、幅の言葉なら、幅の中のかけてよい時間の最後の方（✅ 2026-11-15 ユーザー「依頼者のかける時間の外なら、かけて良い時間の最後の方」）。
+      ⛔ 2026-11-15 まで：幅の言葉はずらさず、幅のまま（「明日戻ります」⇒明日の時間帯の始まりにかけ、折り返しの前にかけえた）・あとでの「〇時まで」は
+      理由が無く判定できなかった。"""
+    back = _theirs_back(when) if cb.theirs else None
+    if back is None and _theirs_days(cb, when) is not None:
+        # 日の種類だけの戻り：日と時刻は次の動きが暦で決める（back_days・back_clock）。約束は、時点の戻りと同じく、日を言っていない終わり無しの幅
+        # （ふつうの電話の時間。1日の中の幅・日の種類の幅にしない＝いちばん遅い戻りの1時間後が、読みの幅の外にならない）
+        return spoken_time.Reading(spoken_time.WINDOW, when.start, None, repeat=spoken_time.DAY_REPEAT), None, None
+    if back is None:
+        return when, None, None
+    want = theirs_span(*back)[1]
+    return (spoken_time.Reading(spoken_time.WINDOW, want, None, repeat=spoken_time.DAY_REPEAT), back[0],
+            None if back[1] == back[0] else back[1])
+
+
+def _theirs_days(cb: Any, when: spoken_time.Reading) -> dict[str, Any] | None:
+    """お客様のほうから折り返すお約束で伺った戻りが、日の種類だけ（「平日の4時までに」「平日の夕方なら」）のときの、戻りの日の種類といちばん遅い戻りの
+    時刻（判定の中身 callback の back_days・back_clock。1か所）。日は次の動き（next_action._theirs_days）が暦で決める＝次のその種類の日のうち、
+    いちばん遅い戻りがまだ来ていない日（✅ 2026-11-15 ユーザー「その日の最後の方（お勧め）」＝「平日の4時までに」⇒次の平日の17時）。"""
+    if not cb.theirs or when.kind != spoken_time.WINDOW or when.since is not None or when.days is None or when.moment:
+        return None
+    return {"back_days": list(when.days), "back_clock": theirs_clock(when.daily, when.until_point)}
 
 
 def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
@@ -396,14 +598,21 @@ def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
     said＝1日の中の幅の始まり・終わりをお客様が言ったか・day_said＝お客様がその日を言ったか（どちらも、依頼者の時間帯の外で
     かけてよいかを決める材料＝calling_hours.callee_hours）・until_why＝「〇時まで」の言い方のときの、いま電話を続けられなかった理由
     （Callback.until_reason。記録だけ＝幅はもう決まっている）・beyond_ok＝お客様指定の歯止め時間の外の時刻を通話の中で確かめた
-    （時刻ちょうどの約束の回を、歯止めの外で1回分使ってよいか＝next_action._exact_window が読む）。"""
+    （時刻ちょうどの約束の回を、歯止めの外で1回分使ってよいか＝next_action._exact_window が読む）・theirs＝お客様のほうから折り返すお約束
+    （会話の報告の Callback.theirs）・back_at＝その戻り（お客様が言った時刻・幅のいちばん早い戻り。こちらからかける時をずらしたときだけ）・
+    back_until＝幅の言葉のいちばん遅い戻り（時点・「〇時まで」は無し）。at・until などは、ずらしたあとの約束＝`_after_theirs` の1か所。at はかけたい
+    時刻＝いちばん遅い戻りの1時間後。実際にかける時刻は次の予定）・back_days／back_clock＝日の種類だけの戻り（「平日の4時までに」）の日の種類と、
+    その日のいちばん遅い戻りの0時からの秒（`_theirs_days`。日は次の動きが暦で決める）。"""
     iso = lambda t: None if t is None else t.isoformat()   # noqa: E731
+    days = _theirs_days(cb, when)
+    when, back, back_until = _after_theirs(cb, when)
     return {"reason": cb.reason, "at": iso(when.start), "until": iso(when.end), "since": iso(when.since), "repeat": when.repeat,
             "cycle": cb.cycle, "daily": None if when.daily is None else list(when.daily),
             "days": None if when.days is None else list(when.days), "exact": when.exact, "said": list(when.said),
             "day_said": when.day_said, "time_said": cb.time_said, "number_said": cb.number_said,
             "number_e164": cb.number_e164, "person": cb.person, "until_why": cb.until_reason,
-            "beyond_ok": cb.beyond_limit_ok}
+            "beyond_ok": cb.beyond_limit_ok, "intent": cb.intent, "theirs": cb.theirs, "back_at": iso(back), "back_until": iso(back_until),
+            "back_days": None if days is None else days["back_days"], "back_clock": None if days is None else days["back_clock"]}
 
 
 def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:
@@ -411,8 +620,7 @@ def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:
     通話でも、約束の申し出があれば、すぐにはかけず、約束を守る（次の動き。2026-10-22 ユーザー決定7と同じ扱い。見直し15）。約束に
     ならない申し出（在籍していない・ほかの手段・時刻の取れなかった不在・ご事情）は None。時刻の言葉が読めない・1つに決まらないときは
     時刻の決まっていない約束（at が None）。"""
-    r = inp.report
-    cb = None if r is None else r.callback
+    cb = _offered(inp)
     if cb is None or cb.reason in call_report.ENDING_CALLBACKS:
         return None
     when = _when(inp, cb)
@@ -443,11 +651,16 @@ def _unreached_key(r: CallReport) -> str:
     return "not_reached_" + r.not_reached
 
 
-def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item]) -> frozenset[str]:
+def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallReport | None" = None) -> frozenset[str]:
     """伺っていない（対象外）の質問（1か所。CL-1 の連絡帳 4-66 の (e)）：前の答えで伺う質問のうち、伺っていない（答えが無い・空）質問で、
-    前の質問の答えを受け取っていて（`ANSWERED`）その答えが伺う答えでないか、前の質問も対象外のもの（前の質問のその答えのときだけ伺う
-    質問の、さらに前の答えで伺う質問）。前の質問の答えをまだ受け取っていない（聞けていない・確かめの途中で切れた）質問は、伺うかが
-    決まっていないので対象外にしない（取れていない質問のまま）。前の質問は、業務設定で前に並ぶ質問に決まっている（輪にならない）。"""
+    前の質問の答えを受け取っていて（`ANSWERED`）その答えが伺う答えでないか（言い切っていないときだけ伺う質問＝`AskIf.hedged` は、答えが
+    言い切っていた＝「曖昧」の印が無いときも。会話の側の Flow._ask_if_follow_ups と同じ決まり。CL-1 の連絡帳 4-71 の (b)）、前の質問も
+    対象外のもの（前の質問のその答えのときだけ伺う質問の、さらに前の答えで伺う質問）。前の質問の答えをまだ受け取っていない（聞けていない・確かめの途中で切れた）質問は、伺うかが
+    決まっていないので対象外にしない（取れていない質問のまま）。前の質問は、業務設定で前に並ぶ質問に決まっている（輪にならない）。
+    あわせて、会話の側が伺わなかった質問（ここで電話を終える答え＝業務設定の ends_on で残りを伺わなかった・手短になら聞くと言われ、必須でも最終目的でもない
+    質問を伺わなかった）は、会話の報告の事実だけで読む（`CallReport.not_asked_by_talk` の1か所。どの質問を伺わないかの決まりは会話の側＝CL-1 の
+    flowctl.gate_of・held・brief_asks。こちらで同じ決まりを持たない＝CL-1 の連絡帳 4-74・4-173。答えが決まらないまま伺わなかった質問は skipped に
+    入らない＝取れていない質問のまま）。"""
     out: set[str] = set()
     for q in ask_if:   # 業務設定の並び順（前の質問が先に決まる）
         it = items.get(q)
@@ -455,20 +668,79 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item]) -> frozenset[str
             continue
         cond = ask_if[q]
         src = items.get(cond.after)
-        if cond.after in out or (src is not None and src.state in ANSWERED and src.condition not in cond.answers):
+        if cond.after in out or (src is not None and src.state in ANSWERED
+                                 and (src.condition not in cond.answers or (cond.hedged and not src.hedged))):
             out.add(q)
-    return frozenset(out)
+    return frozenset(out | (report.not_asked_by_talk if report is not None else frozenset()))
+
+
+def _asked(inp: JudgeInput) -> CallReport | None:
+    """その通話で伺った業務の事実を読む報告（1か所。範囲外の求め・ご納得いただけなかった点・用件を断られた・伺っていない質問・ほかのご希望・申し出・
+    引き継ぎ・手短に など＝判定の中身と業務の判定が読む）：目的のお客様だと確かめられなかった通話（`JudgeInput.target_unconfirmed`）は None＝別の方・
+    確かめていない方に伺った事実を、判定にも依頼者へも使わない（答えは conversation_io._in_force がその通話を飛ばす＝同じ決まり。DESIGN.md 7-1e）。
+    ⛔ 2026-11-16 の4回目の見直し：答えだけを外し、事実は読んでいた＝判定なしで繋いだ別の方の「うちは要らない」で「用件を断られた」になり行を終え、
+    別の方のご希望・申し出の答えが依頼者へ渡った。発信の拒否・苦情は電話口のどなたのものでも受ける（`refusal`・complaint は今のまま）。"""
+    return None if inp.target_unconfirmed else inp.report
+
+
+def _offered(inp: JudgeInput) -> Any:
+    """判定が読む、かけ直しの申し出（1か所。約束・時刻の取れなかった申し出・ほかの手段＝(7)・判定できなかった通話の約束の申し出・取り次げなかった
+    ときの again）：伺った事実の1か所 `_asked` の報告の callback（目的のお客様だと確かめられなかった通話は無い＝(8) の「取り次いでもらえなかった」。
+    ⛔ 2026-11-18 の6回目の見直しまで：申し出だけは報告をそのまま読み、別の方が言った時刻で「折り返し予定」にした）。"""
+    asked = _asked(inp)
+    return None if asked is None else asked.callback
 
 
 def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, Any]:
-    """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか・伺っていない（対象外）の質問・ご納得いただけなかった点。
-    1か所。どの結果でも依頼者へ返す）。"""
-    skipped = not_asked(inp.ask_if, inp.items)
-    agreed = inp.report.not_agreed if inp.report is not None else ()
+    """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか・伺っていない（対象外）の質問・ご納得いただけなかった点・
+    ほかのご希望を伺った答え・手順を伺い終えていない質問・本題で本心を伺って言っていただいた気になる点＝concern（question＝そのとき伺っていた
+    業務の質問・said＝お客様の言葉・answer＝会話AIが応えた文か None）・ほかの会社に頼んでいると言われて伺い、言っていただいた問題・心配事＝elsewhere（同じ形）・業務の申し出の答え＝handoff・close_offer（事実の項目のまま＋お客様の言葉 said）・
+    条件つきで受けていただいた申し出＝offer_terms・手短になら聞くと言われてかけ直さずに続けた答え＝brief。1か所。どの結果でも依頼者へ返す）。"""
+    asked = _asked(inp)   # 伺った事実（目的のお客様だと確かめられなかった通話は無い）
+    skipped = not_asked(inp.ask_if, inp.answers, asked)
+    agreed = asked.not_agreed if asked is not None else ()
+    wishes = asked.other_wishes if asked is not None else ()
+    unfinished = asked.unfinished if asked is not None else ()   # 手順を伺い終えていない質問（依頼者へ返す答えはまだ途中＝`JudgeInput.answers`）
+    concerns = asked.concerns if asked is not None else ()       # 言っていただいた気になる点・問題（concern・elsewhere。今後の改善。CL-1 の連絡帳 4-113）
+    offers = asked.offers if asked is not None else ()           # 業務の申し出の答え（事実 handoff・close_offer。CL-1 の連絡帳 4-122〜4-128）
+    terms = asked.offer_terms if asked is not None else ()       # 条件つきで受けていただいた申し出（事実 offer_terms。CL-1 の連絡帳 4-129）
+    carried = asked.carried if asked is not None else ()         # 新しい担当の方に引き継ぎを確かめた答え（事実 carried。CL-1 の連絡帳 4-141）
     return {"cut": raw_cut, "cut_recorded": cut, **({"target_unconfirmed": True} if inp.target_unconfirmed else {}),
             **({"not_asked": sorted(skipped)} if skipped else {}),
             **({"not_agreed": [{"question": n.question, "point": n.point, "said": n.said, "round": n.round,
-                                "explained": n.explained, "outcome": n.outcome} for n in agreed]} if agreed else {})}
+                                "explained": n.explained, "outcome": n.outcome} for n in agreed]} if agreed else {}),
+            # 提案の欄（terms＝お客様のご都合・topic＝中身・added＝こちらから足した条件）は、お客様のご都合とこちらの提案を分けて渡す（CL-1 の連絡帳 4-131）
+            **({"other_wish": [{"question": w.question, "wish": w.wish, "value": w.value, "means": w.means, "contact": w.contact,
+                                "via": w.via, "outcome": w.outcome, "wish_state": w.wish_state, "terms": w.terms, "topic": w.topic,
+                                "added": w.added, "said": w.evidence.said,
+                                # 方法を並べて伺う前に言っていただいたご希望の中身（「説明書を送ってほしい」。CL-1 の連絡帳 4-169。並べていなければ None）
+                                "before_ways": None if w.before_ways is None else {"said": w.before_ways.said, "value": w.before_ways.value}}
+                               for w in wishes]} if wishes else {}),
+            **({"unfinished": list(unfinished)} if unfinished else {}),
+            **{kind: rows for kind in call_report.CONCERN_KINDS
+               if (rows := [{"question": c.question, "said": c.evidence.said, "answer": c.own.answer} for c in concerns if c.kind == kind])},
+            **{kind: rows for kind in call_report.OFFER_KINDS
+               if (rows := [{"question": o.question, "agreed": o.agreed, "way": o.way, "means": o.means, "via": o.via, "contact": o.contact,
+                             "outcome": o.outcome, "terms": o.terms, "topic": o.topic, "added": o.added, "said": o.evidence.said}
+                            for o in offers if o.kind == kind])},
+            **({"offer_terms": [{"question": t.question, "terms": t.terms, "topic": t.topic, "added": t.added, "said": t.evidence.said}
+                                for t in terms]} if terms else {}),
+            **({"carried": [_carried_detail(inp, c) for c in carried]} if carried else {}),
+            # 手短になら聞くと言われ、かけ直さずに続けた答えと伺わなかった質問（事実 brief。CL-1 の連絡帳 4-173 の (3)。伺わなかった質問は not_asked にも入る）
+            **({"brief": {"answer": brief.answer, "skipped": list(brief.skipped), "said": brief.evidence.said}}
+               if (brief := asked.brief if asked is not None else None) is not None else {})}
+
+
+def _carried_detail(inp: JudgeInput, c: call_report.Carried) -> dict[str, Any]:
+    """新しい担当の方に引き継ぎを確かめた答えの、依頼者へ渡す形（判定の中身 carried。1か所＝`_detail`。CL-1 の連絡帳 4-141 の (b)）：
+    - answer・said：新しい方の答えの名前とお言葉。この電話の答え（項目の値）は、新しい方の答え（繋いだ方は事実 connect の who）。
+    - kept：前の担当の方の答えを引き継いだか。
+    - carried_answers：kept が真のとき、新しい方が引き継いだと言った前の担当の方の答え（この通話より前の通話で取った答え＝`JudgeInput.earlier_answers`
+      のうち、この電話で使わないことにした質問 dropped を除いたもの。この電話で取り直した答えは、新しい方の答えなので入れない）。kept が偽なら空
+      （前の方の答えは、この電話では使っていない）。
+    - dropped：この電話で使わないことにした前の通話の答えの質問（次の電話の前の通話の答えからも外す＝conversation_io.earlier）。"""
+    kept_from = sorted(q for q in inp.earlier_answers if q not in c.dropped) if c.kept else []
+    return {"answer": c.answer, "kept": c.kept, "carried_answers": kept_from, "dropped": list(c.dropped), "said": c.evidence.said}
 
 
 def _business(inp: JudgeInput) -> Judgement:
@@ -489,14 +761,15 @@ def _business(inp: JudgeInput) -> Judgement:
     # 2026-10-22 ユーザー：「基本は後任へつないでもらう」）
     if r and r.turned_to_successor:
         detail["successor"] = True
+    asked = _asked(inp)   # 伺った業務の事実（目的のお客様だと確かめられなかった通話は無い＝(3)〜(5) を読まない）
     # (3) 範囲外
-    if r and r.out_of_scope:
+    if asked and asked.out_of_scope:
         return done("out_of_scope", out_of_scope="request")
     # (3b) 最終目的のご承認で、ご納得いただけなかった点を担当の者に申し伝えることにして締めた（締めた理由 not_agreed。CL-1 の連絡帳 4-66
     #      のあとの (g)＝2026-11-02 5時56分 ✅ ユーザー：「最終目的のご承認なら、お礼を言って締め、依頼者へ不満点を返します。ただし
     #      『もうかけない』の印は付けず、改めてご案内するかは依頼者が決めます」）：結論として終えた（用件を断られた＝(4) より先に決める。
     #      ご承認の質問の「いいえ」が断る答えでも、断られたにはしない＝同じ業務の次の実施回でもかけうる）
-    if r and r.end_reason == "not_agreed":
+    if asked and asked.end_reason == "not_agreed":
         return done("concluded", conclusion="not_agreed")
     # (4) 用件を断られた：最終目的の申し出を断られ、業務の目的が果たせなくなった（事実 goal_refused。CL-1 の 4-64 の (f)。2026-11-01 ✅
     #     ユーザー：「その業務だけかけない（依頼者全体ではない）」＝発信禁止にはしない）。目的が果たせなくなったか（最終目的の質問・断る答え・
@@ -504,11 +777,16 @@ def _business(inp: JudgeInput) -> Judgement:
     #     4-182 の (e)）。最終目的でない質問の断る答えは、用件を断られたにしない（✅ 2026-11-01 日本時間20時11分 ユーザー：「登録とかが
     #     目的なら、営業を拒否したのではなく、担当者からの折り返しを拒否しただけ」）。⛔ 2026-11-02.3 まで：業務の決まりの断りの答え
     #     （business_rules の decline）が取れたら、最終目的かを問わず「用件を断られた」とも決めていた（同じ決まりを2か所に持っていた）
-    if r and r.goal_refusals:
-        return done("declined", declined_by="goal", goals=sorted({g for x in r.goal_refusals for g in x.goals}))
+    if asked and asked.goal_refusals:
+        return done("declined", declined_by="goal", goals=sorted({g for x in asked.goal_refusals for g in x.goals}))
     # (5) 必須の質問がすべて取れた
-    skipped = not_asked(inp.ask_if, inp.items)   # 伺っていない（対象外）の質問は、取れていない質問に数えない
-    missing = [q for q in rules.required if q not in skipped and (q not in inp.items or inp.items[q].state not in TAKEN)]
+    skipped = not_asked(inp.ask_if, inp.answers, asked)   # 伺っていない（対象外）の質問は、取れていない質問に数えない
+    if asked is not None and asked.brief is not None:
+        # 手短にの電話で伺わなかった質問は、必須でも最終目的でもない質問だけ（会話の側の決まり flowctl.brief_asks）：必須の質問が入っていても対象外にしない
+        # （取れていない必須の質問のまま＝「完了」にしない。原則5・6。⛔ 2026-11-18 の6回目の見直しまで：会話の側の skipped をそのまま対象外にした）
+        skipped -= frozenset(asked.brief.skipped).intersection(rules.required) - frozenset(asked.ended_on.skipped if asked.ended_on else ())
+    answers = inp.answers
+    missing = [q for q in rules.required if q not in skipped and (q not in answers or answers[q].state not in TAKEN)]
     if not missing:
         return done("completed")
     # (6) 取れていない必須の質問の扱い（「わからない」「答えない」は理由×扱いの宣言どおり。宣言が無ければ入力の誤り）。
@@ -520,7 +798,7 @@ def _business(inp: JudgeInput) -> Judgement:
     human = bool(r and r.talked)
     conversation = inp.facts.reached_answer and human
     for q in (missing if conversation else []):
-        it = inp.items.get(q)
+        it = answers.get(q)
         if it is None or it.state not in ("dont_know", "refused"):
             continue
         h = rules.handling.get((q, it.state, it.reason)) if it.reason is not None else None
@@ -534,8 +812,7 @@ def _business(inp: JudgeInput) -> Judgement:
         return done("not_reached", not_reached="departed", policy_key="not_reached_departed")
     # (7) かけ直しの約束（在籍していないは、かけ直しの申し出ではなく通話の事実 departed で来る＝後任の方を追うのは (8)＝上の印と
     #     _unreached_key。CL-1 の連絡帳 4-69 の 4-182 の (5)）
-    if r and r.callback is not None:
-        cb = r.callback
+    if (cb := _offered(inp)) is not None:
         if cb.reason in call_report.ENDING_CALLBACKS:
             # ほかの手段を望まれた・在籍していない（電話ではかけ直さない。2026-10-22 ユーザー決定。CL-1 の連絡帳 4-28）：約束にしない。
             # ほかの手段は、目的のお客様に繋がっていても同じ（希望と宛先を記録して締めた）。方針はシステムが決める（業務では変えない）

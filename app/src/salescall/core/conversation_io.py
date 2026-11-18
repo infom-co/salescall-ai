@@ -7,8 +7,8 @@
 - 取引は呼ぶ側が持つ（`access.in_client(actor, 契約者, 依頼者, lambda tx: conversation_io.write_item(tx, …))`。ほかの書く部品
   ＝target_recheck.record・attempts.record_verification と同じ形）。1つの取引に、状態の移り・答え・報告をまとめてもよい。
 - **項目の値を1つ書く**（`write_item`）：通話の途中で答えが決まるたびに呼べる（会話の処理が落ちても、取れた答えは残る）。同じ
-  質問をもう一度書けば、いまの値を書き換える。どの通話で取ったか（attempt_id）は必ず入る。前の通話の答えを上書きするときは、
-  前の答えをデータベースが残す（0108）。書けるのは、次のときだけ（確かめは、それぞれ今の1か所を使う。2つ目を作らない）：
+  通話で同じ質問をもう一度書けば、その通話の値を書き換える。答えは通話ごとに残る（どの通話で取ったか＝attempt_id は必ず入る。前の通話の
+  答えは、その通話の答えのまま残る＝0231）。どの担当の方にどの答えを使うかは `answers`・`earlier` の1か所が決める。書けるのは、次のときだけ（確かめは、それぞれ今の1か所を使う。2つ目を作らない）：
   - お客様が出た通話（`salescall.reached_answer`。発信禁止の申告 dnc.register_declared と同じ見方）で、通話中か通話後の検証が
     済む前（`verification` が無い・pending。検証が済むと締めが答えを読むので、そのあとは書き換えない）。
   - そのタスクのいちばん新しい通話（データベースの守り item_values_from_newest_call＝0108）。
@@ -53,11 +53,12 @@ from __future__ import annotations
 import json
 import typing
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, dnc, settings, tasks
+from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, customer_contacts, dnc, judge, settings, target_recheck, tasks
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.attempts import AttemptNotFound
 
@@ -82,7 +83,11 @@ class ItemValue:
     value: Any = None              # 取れた値（JSON にできる形。⏳ 形の確かめは core/value_types.py ができてから）
     condition: str | None = None   # 選んだ選択肢（business_settings.possible_answers のどれか）
     reason: str | None = None      # 「わからない」「答えない」の理由（dont_know・refused のときだけ）
-    hedged: str | None = None      # 言い切っていない返事の言葉（お客様の言葉そのまま。CL-1 の 4-21）
+    # 依頼者へ渡すお客様の言葉（お客様の言葉そのまま。会話の側の Flow.customer_words の1か所が作る。依頼者への報告では値の欄の横の別の欄＝DESIGN.md
+    # 7-1b）。取れた答えでは言い切っていない返事の言葉（CL-1 の 4-21）、「-」「✕」で渡る答え（わからない・答えたくない・保留・聞き取れない・伺ったが
+    # お答えをいただけない）では、その答えをいただいた発話の言葉（CL-1 の連絡帳 4-115 の (2)。最後の2つまでを「／」でつなぐ）。どの状態でも書ける。
+    # 「曖昧」の印として読むのは取れた答えのときだけ（judge.hedged_words の1か所）。欄の名前は前のまま（hedged）
+    hedged: str | None = None
 
 
 @dataclass(frozen=True)
@@ -223,7 +228,7 @@ def ai_trouble_work(attempt_id: UUID, raw: Any) -> AiTroubleWork:
 
 
 def write_item(tx: Tx, attempt_id: UUID, item: ItemValue) -> None:
-    """その通話で取った答えを1つ書く（同じ質問なら書き換える）。書けなければ ItemInvalid。"""
+    """その通話で取った答えを1つ書く（その通話で同じ質問なら書き換える。前の通話の答えは残る）。書けなければ ItemInvalid。"""
     check_item(item)
     a = tx.one("SELECT task_id, version_id, verification::text AS verification,"
                " salescall.reached_answer(attempt_id) AS reached FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
@@ -244,9 +249,9 @@ def write_item(tx: Tx, attempt_id: UUID, item: ItemValue) -> None:
         "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, value, condition,"
         "                                   reason, hedged, attempt_id)"
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        " ON CONFLICT (task_id, question_id) DO UPDATE SET version_id = EXCLUDED.version_id, state = EXCLUDED.state,"
+        " ON CONFLICT (task_id, question_id, attempt_id) DO UPDATE SET version_id = EXCLUDED.version_id, state = EXCLUDED.state,"
         "   value = EXCLUDED.value, condition = EXCLUDED.condition, reason = EXCLUDED.reason, hedged = EXCLUDED.hedged,"
-        "   attempt_id = EXCLUDED.attempt_id, updated_at = now()",
+        "   updated_at = now()",
         (a["task_id"], a["version_id"], item.question_id, item.state,
          None if item.value is None else json.dumps(item.value, ensure_ascii=False), item.condition, item.reason, item.hedged, attempt_id))
 
@@ -256,12 +261,30 @@ def save_report(tx: Tx, attempt_id: UUID, raw: Any) -> call_report.CallReport:
     report = call_report.from_json(raw)
     call_report.save(tx, attempt_id, report)
     ai_troubles.note(tx, attempt_id, report.ai_troubles)   # 止まったAI（通話の途中に書いた分は重ねない。0155）
+    _contacts_heard(tx, attempt_id, report)
     return report
+
+
+def _contacts_heard(tx: Tx, attempt_id: UUID, report: call_report.CallReport) -> None:
+    """通話で伺えた連絡先を、その行（お客様リストの1行）に足す（customer_contacts.from_report の1か所。元の報告も作り直しも）。"""
+    task = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+    if task is not None:
+        customer_contacts.from_report(tx, task["task_id"], attempt_id, report)
+
+
+def known_contacts(tx: Tx, task_id: UUID) -> dict[str, str]:
+    """その行（お客様リストの1行）で、もう分かっている連絡先（会話の側の連絡先の役目 → 値。customer_contacts.by_role の1か所）。お客様リストに
+    書かれていた・ダッシュボードで直した・前の通話で伺えた連絡先。会話の側は、これを重ねて伺わない（取得済みのことを重ねて聞かない＝計画書 9-3。
+    CL-1 の連絡帳 4-92 の (5)）。"""
+    return customer_contacts.by_role(tx, task_id)
 
 
 def save_rebuilt_report(tx: Tx, attempt_id: UUID, raw: Any, *, evidence: str) -> int:
     """通話の録音から作り直した報告を置く（通話後の検証が呼ぶ。「判定できない」の通話を判定し直すため）。作り直しの番号を返す。"""
-    return call_report.save_rebuilt(tx, attempt_id, call_report.from_json(raw), evidence=evidence)
+    report = call_report.from_json(raw)
+    rebuild_id = call_report.save_rebuilt(tx, attempt_id, report, evidence=evidence)
+    _contacts_heard(tx, attempt_id, report)
+    return rebuild_id
 
 
 def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
@@ -269,13 +292,158 @@ def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     return dnc.register_declared(tx, attempt_id)
 
 
-def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
-    """その行で、前の通話までに取れた答え（質問の番号 → {"state", "value", "condition"}）。続きから聞く電話（目的 resume）で、取れた
-    答えの質問を伺わないために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の番号の
-    まま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。"""
-    return {r["question_id"]: {"state": r["state"], "value": r["value"], "condition": r["condition"]} for r in tx.all(
-        "SELECT question_id, state::text AS state, value, condition FROM salescall.item_values WHERE task_id = %s"
-        " ORDER BY question_id", (task_id,))}
+# 前の通話で取れた答えの項目のうち、値のあるときだけ渡すもの（`earlier`。state・value・condition は無くても渡す）
+# 前の通話の答えで、値が無ければ入れない項目（入れないこと自体が意味を持つ＝言い切っていた・その質問の事実が無い・繋いだ事実が無い。会話の側の
+# flowctl.earlier_fact は無い鍵と null を同じに読むが、渡す形をそろえる）
+_EARLIER_IF_ANY = ("hedged", "wish_fact", "point_fact", "who", "offer_fact")
+
+
+def earlier(tx: Tx, task_id: UUID, *, before: UUID | None = None, took_by: dict[str, UUID] | None = None) -> dict[str, dict[str, Any]]:
+    """その行で、前の通話までに取れた答え（質問の番号 → 会話の側の flowctl.EARLIER_KEYS の形）。続きから聞く電話（目的 resume）で、取れた答えの
+    質問を伺わないため・切れた所から伺うために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の
+    番号のまま残す＝write_item は、この通話で取った答えだけ）。どの答えを渡すか（その通話の担当の方に使う答え）は `_in_force` の1か所（判定の材料 `answers` と同じ）。
+    - "state"・"value"・"condition"：項目の値のまま。
+    - "hedged"：言い切っていない答えのお客様の言葉（項目の値の hedged。言い切っていれば入れない。CL-1 の連絡帳 4-73 の (2)）。項目の値の hedged には
+      「-」「✕」の答えに添えたお客様の言葉も入る（CL-1 の連絡帳 4-115 の (2)）ので、取れた答えのときだけ入れる（judge.hedged_words の1か所）。
+    - "who"：その答えを取った通話（項目の値の attempt_id）で繋いだ方（`call_report.CallReport.connected_who`＝CONNECT_WHO の target・successor・
+      substitute）。前の通話で判断いただける代わりの方とお話しした答えかを、続きの電話で見分ける（CL-1 の連絡帳 4-106 の H6）。繋いだ事実の無い通話
+      （目的のお客様のいない業務・報告の無い通話）は入れない。
+    - "wish_fact"・"point_fact"：その答えを取った通話（項目の値の attempt_id。作り直した報告があればそれ＝`call_report.load`）の会話の報告の通話の
+      事実 other_wish・not_agreed のうち、その質問の最後の1つを、報告に書く形のまま（`OtherWish.to_json`・`NotAgreed.to_json`＝報告の書き出しと
+      同じ1か所）。無ければ入れない（W1・ご納得いただけなかった点の答えをいただく前に切れた・伺っていない）。どこまで伺えたか・伺えた連絡先・
+      ご説明する点の読み方は、会話の側の1か所だけ（flowctl.earlier_wish_of・earlier_means_of・earlier_point_of・earlier_said_of・
+      earlier_records）で、ここでは読まない（✅ 2026-11-05 CL-2 の連絡帳 4-212 の案2・CL-1 の連絡帳 4-88。⛔ 前は、ここで結果・方法・連絡先・
+      手順の進み・点を読み分けて6つの項目で渡し、会話の側にも同じ読み方があった＝2か所。会話の側が連絡先の方法を別の項目から読み、もう伺った
+      連絡先を伺い直す不具合が出た）。
+    - "offer_fact"：同じ通話の報告の、業務の申し出の事実 handoff・close_offer のうち、その質問（ご承認の質問）の最後の1つを、報告に書く形のまま
+      （`Offer.to_json`。種類は入れない）。無ければ入れない。申し出で伺った連絡先を、続きの電話で重ねて伺わないため（読み方は会話の側の
+      flowctl.earlier_records の1か所。CL-2 の連絡帳 4-370 の (4)・CL-1 の連絡帳 4-138 の (4)）。
+    **担当の方が替わった電話で、前の担当の方の答えを使わないことにした答えは入れない**（CL-1 の連絡帳 4-141 の (a)＝✅ 2026-11-12 日本時間19時32分21秒
+    ユーザー「1はウ（候補(1)）」）・**ほかの担当の方の答えは入れない**（✅ 2026-11-16 ユーザー「担当の方ごとに持つ（お勧め）」）：決まりは `_in_force` の1か所。
+    外さないと、その電話が途中で切れたとき、次の電話で新しい方に前の方の答えのまま伺う（「前回お伺いした件でご納得いただけなかった点は…」）。
+    before＝その通話（試行）より前の通話だけを読み、その通話の担当の期の答えを返す（その通話を始めたときに会話へ渡した前の通話の答えと同じもの）。
+    無ければ、いまの担当の期の答え。依頼者へ「新しい担当の方が引き継いだと
+    言った前の方の答え」を返す所（settle._earlier_answers）が読む。took_by＝渡せば、入れた答えごとに、その答えを取った通話を入れる（質問の番号 → 通話。`earlier_call` が読む）。⛔ 2026-11-13 の見直し：はじめはそこで項目の値を通話の順だけで拾い、ここの「使わない
+    ことにした答え」を見ていなかった＝前の通話の答えの決まりが2か所になり、3人目の担当の方の電話で、会話へ渡していない答えを引き継いだと返しえた。
+    ⛔ 2026-11-03 の見直し：はじめは行のすべての通話から質問ごとに最後のものを拾っていた＝通話のあとの確かめで答えが「-」に戻り、別の通話で取り直した
+    答えに、前の通話（別の方と話していた通話）の事実を付けうる形だった。⇒ その答えを取った通話と、そのあとの通話の報告から読む（その答えを
+    取った通話より前の通話は読まない）。⛔ 2026-11-06 の見直し (C) の1：その答えを取った通話の報告だけを読んでいたので、続きの電話で
+    申し伝え直した事実（not_agreed の outcome unresolved・told＝答えは取り直さない）が次の電話に伝わらず、また切れると3回目を言った
+    （CL-1 の連絡帳 4-99「また切れても3回目は言いません」）。続きの電話で伺い直したほかのご希望も同じ。"""
+    held = _in_force(tx, task_id, call=before)
+    out: dict[str, dict[str, Any]] = {}
+    for q, h in sorted(held.items()):
+        r = h.row
+        item = {"state": r["state"], "value": r["value"], "condition": r["condition"],
+                "hedged": judge.hedged_words(r["state"], r["hedged"]),
+                "wish_fact": h.wish.to_json() if h.wish is not None else None,
+                "point_fact": h.point.to_json() if h.point is not None else None,
+                "who": h.who, "offer_fact": h.offer.to_json() if h.offer is not None else None}
+        out[q] = {k: v for k, v in item.items() if v is not None or k not in _EARLIER_IF_ANY}
+        if took_by is not None:
+            took_by[q] = r["attempt_id"]
+    return out
+
+
+def answers(tx: Tx, task_id: UUID, attempt_id: UUID) -> dict[str, dict[str, Any]]:
+    """その通話（attempt_id）の担当の方に使う答え（質問の番号 → 項目の値の行。判定の材料＝settle._items が読む）：その通話までの通話（その通話を含む）で
+    決まる、その通話の担当の期の答えのうち、その方の答え（`_Held.own`。新しい期が前の担当の方から引き継いだまま、新しい担当の方がまだ引き継ぎを確かめて
+    いない答えは入れない）。決まりは `_in_force` の1か所（前の通話の答え `earlier` と同じ決まり）。
+    ⛔ 2026-11-16 の4回目の見直し：(a) 引き継いだ前の担当の方の答えも入れていた＝前の担当の方が必須の質問に答えたあと最終目的を断り、「担当の方は違う」で
+    戻した行で、新しい担当の方への最初の電話が出ない・引き継ぎを伺う前に切れると、前の方の答えのまま「完了」で行を終え、新しい担当の方に一度もかからなかった
+    (b) その通話のあとの同じ期の通話の答えも入れていた＝承認の答えで締め直すと、もとの判定と違う答えで判定した。"""
+    return {q: h.row for q, h in _in_force(tx, task_id, call=attempt_id, including=True).items() if h.own}
+
+
+@dataclass(frozen=True)
+class _Held:
+    """ある担当の期に使う答え1つ（`_in_force`）：項目の値の行（取った通話 attempt_id を含む）と、その答えを取った通話で繋いだ方（who）・その答えを取った
+    通話とそのあとの同じ期の通話の、その質問の最後の事実（ほかのご希望・ご納得いただけなかった点・業務の申し出）。"""
+    row: dict[str, Any]
+    who: str | None
+    wish: call_report.OtherWish | None = None
+    point: call_report.NotAgreed | None = None
+    offer: call_report.Offer | None = None
+    # その期の方の答えか：その期の通話で取った・その期の担当の方が引き継ぎを確かめた（通話の事実 carried の kept）答えは真。新しい期が前の期から
+    # 引き継いだばかりの答えは偽（会話へは前の通話の答えとして渡す＝引き継ぎを確かめる一言を伺うため。判定の材料 `answers` には入れない）
+    own: bool = True
+
+
+def _in_force(tx: Tx, task_id: UUID, *, call: UUID | None = None, including: bool = False) -> dict[str, _Held]:
+    """ある担当の方（担当の期）に使う答えを決める唯一の場所（✅ 2026-11-16 ユーザー「担当の方ごとに持つ（お勧め）」＝DESIGN.md 3-5-9。0231）。
+    答えは通話ごと（項目の値の表の鍵＝行・質問・通話）。その行の「担当の方が替わった」直し（salescall.task_person_changes）と通話を、起きた順にたどる：
+    - 新しい期が始まった：すぐ前の期（そのときのいまの期）で使っていた答えを、その期の答えとして引き継ぐ（前の期のその後の通話は、引き継いだ答えを変えない）。
+      引き継いだ答えは、新しい担当の方が引き継ぎを確かめる（通話の事実 carried の kept が真）まで、その方の答えではない（`_Held.own` が偽）。
+    - 前の期に戻した（back_to）：その期の答え（その期がはじめに引き継いだものを含む）を、そのまま使う（ほかの期の通話の答えは入らない＝計画書 7-1 (30)
+      「戻すと、前の担当の方のそのときの答えも戻る」）。
+    - 通話（その通話の担当の期＝attempts.person_since の答えに入れる）：その通話で引き継ぎを確かめた答え（通話の事実 carried）で使わないことにした答え
+      （`_dropped_by_carried`＝引き継がなければ、それより前の答え全部・引き継いだら dropped の質問）を外し、残った答えをその方の答えにし（引き継いだ）、
+      その通話の答えを入れ、その期の答えごとに、
+      その通話のその質問の事実（ほかのご希望・ご納得いただけなかった点・業務の申し出）を最後のものにする。目的のお客様だと確かめられなかった通話
+      （データベースの salescall.call_unconfirmed の1か所）は、何も入れず何も外さない（別の方の答え・確かめていない答えを使わない）。
+    call＝その通話の期の答えを、その通話より前の通話（including が真なら、その通話まで）だけをたどって返す（その通話を始めたときに会話へ渡す答え＝
+    `earlier`・その通話の判定の材料＝`answers`。あとで締め直しても、もとの判定と同じ答え）。無ければ、いまの期（salescall.task_person_since）の、いままでの
+    すべての通話からの答え。
+    ⛔ 0108〜0230：答えは行と質問ごとに1つで、あとの通話が上書きした（前の担当の方に戻しても答えが戻らない・判定の材料に、新しい担当の方が
+    引き継いでいないと答えた前の方の答えや、ほかの方の答えが入った）。"""
+    calls = tx.all("SELECT a.attempt_id, a.claimed_at, a.person_since,"
+                   "       salescall.call_unconfirmed(a.attempt_id) AS unconfirmed"
+                   " FROM salescall.attempts a WHERE a.task_id = %s ORDER BY a.claimed_at, a.attempt_id", (task_id,))
+    if call is not None:
+        at = next((i for i, c in enumerate(calls) if c["attempt_id"] == call), None)
+        period = None if at is None else calls[at]["person_since"]
+        calls = calls[:at + int(including)] if at is not None else []
+    else:
+        period = tx.one("SELECT salescall.task_person_since(%s, now()) AS s", (task_id,))["s"]
+    rows: dict[UUID, list[dict[str, Any]]] = {}
+    for r in tx.all("SELECT question_id, state::text AS state, value, condition, reason, hedged, attempt_id, version_id FROM salescall.item_values"
+                    " WHERE task_id = %s ORDER BY question_id", (task_id,)):
+        rows.setdefault(r["attempt_id"], []).append(r)
+    events = [(c["at"], 0, c["since"]) for c in tx.all("SELECT at, since FROM salescall.task_person_changes(%s)", (task_id,))]
+    events += [(c["claimed_at"], 1, c) for c in calls]
+    held: dict[datetime | None, dict[str, _Held]] = {None: {}}
+    now: datetime | None = None
+    for _, kind, e in sorted(events, key=lambda x: (x[0], x[1])):
+        if kind == 0:                                   # 担当の方が替わった（新しい期は、すぐ前の期の答えを引き継ぐ・戻した期は、その期の答えのまま）
+            held.setdefault(e, {q: replace(h, own=False) for q, h in held[now].items()})
+            now = e
+            continue
+        state = held.setdefault(e["person_since"], {q: replace(h, own=False) for q, h in held[now].items()})
+        if e["unconfirmed"]:
+            continue
+        report = call_report.load(tx, e["attempt_id"])
+        if report is not None and report.carried:     # 引き継ぎを確かめた：使わないことにした答えを外し、残りはこの方が引き継いだ答え
+            for q in [q for q in state if _dropped_by_carried(report, q)]:
+                del state[q]
+            for q, h in state.items():
+                state[q] = replace(h, own=True)
+        for r in rows.get(e["attempt_id"], ()):
+            state[r["question_id"]] = _Held(r, report.connected_who if report is not None else None)
+        if report is not None:
+            for q, h in state.items():
+                state[q] = replace(h, wish=next((x for x in reversed(report.other_wishes) if x.question == q), h.wish),
+                                   point=next((x for x in reversed(report.not_agreed) if x.question == q), h.point),
+                                   offer=next((x for x in reversed(report.offers) if x.question == q), h.offer))
+    return held.get(period, {})
+
+
+def earlier_call(tx: Tx, task_id: UUID, *, before: UUID) -> UUID | None:
+    """その通話（before）を始めたときに会話へ渡す前の通話の答え（`earlier(before=…)` と同じ1か所）を取った通話のうち、いちばん新しい通話（答えが無ければ None）。
+    引き継ぎを確かめる一言の「先ほど／先日」（予約証の earlier_when＝core/apology.earlier_when）が読む（CL-1 の連絡帳 4-148 の「頼みたいこと (同じ日か)」）。"""
+    took_by: dict[str, UUID] = {}
+    earlier(tx, task_id, before=before, took_by=took_by)
+    if not took_by:
+        return None
+    return tx.one("SELECT attempt_id FROM salescall.attempts WHERE attempt_id = ANY(%s) ORDER BY claimed_at DESC, attempt_id DESC LIMIT 1",
+                  (list(set(took_by.values())),))["attempt_id"]
+
+
+def _dropped_by_carried(report: call_report.CallReport, question_id: str) -> bool:
+    """あとの通話（report）で、新しい担当の方に引き継ぎを確かめた答え（事実 carried）により、それより前に取った質問 question_id の答えを使わないことに
+    したか（1か所＝`_in_force`）：引き継がなかった（kept が偽）なら前の答えは全部・引き継いだなら dropped の質問だけ。1つの通話に carried は1つ（会話の側が
+    1通話1回伺う）なので、いちばん新しいものを読む。"""
+    c = report.carried[-1] if report.carried else None
+    return c is not None and (not c.kept or question_id in c.dropped)
 
 
 def handlings(tx: Tx, version_id: UUID, question_id: str) -> dict[tuple[str, str], str]:
@@ -292,7 +460,8 @@ CALL_SETTING_PREFIXES = ("call.", "conversation.")
 def call_setting(tx: Tx, attempt_id: UUID, key: str) -> Any:
     """その通話の業務で、会話の決まりの設定がいくつか（settings.resolve の1か所。業務 → 依頼者 → 契約者 → システムの順で、細かい
     ほうが勝つ）。読めるのは会話の決まりの設定だけ（`CALL_SETTING_PREFIXES`）。例：受付で保留になったときに待つ長さ
-    `call.hold_wait`（秒。初め300。お客様が長く待つ理由を言ったら、その時まで待つのは会話の側で決める）・`call.silence_prompt_after`。"""
+    `call.hold_wait`（秒。初め300。お客様が長く待つ理由を言ったら、その時まで待つのは会話の側で決める）・`call.silence_prompt_after`・
+    `call.wait_ask_after`（黙ったときの一言の秒。何を流すかは会話の側の flowctl.QUIET_STEPS の1か所）。"""
     if not key.startswith(CALL_SETTING_PREFIXES):
         raise ValueError(f"会話の処理が読む設定ではありません：{key}")
     row = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))

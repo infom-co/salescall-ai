@@ -35,12 +35,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (apology, approval, attempts, business_rules, business_settings, call_report, calling_hours, dnc,
+from salescall.core import (apology, approval, attempts, business_rules, business_settings, call_report, calling_hours, conversation_io, dnc,
                             fix_requests, gate, health, next_action, notify, number_recheck, quality_stage, results, settings,
                             target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
-from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
-                                  classify_cut, cut_off as judge_cut_off, irreversible, judge, refusal, unreached_today)
+from salescall.core.judge import (ANSWERED, JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
+                                  classify_cut, corrected, cut_off as judge_cut_off, hedged_words, irreversible, judge, refusal, unreached_today)
 from salescall.core.phone import normalize
 
 
@@ -123,8 +123,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
         raise NotReady("承認されたお詫びの案が無いのに、お詫びの電話をかけています")
     inp, _, _ = _judge_input(tx, a, a["version_id"])
     report = inp.report
-    # 伝えたか：目的のお客様だと確かめられなかった通話（別の方に伝えた・確かめられなかった）は、伝えていない側に倒す
-    delivered = bool(report is not None and report.apology_delivered) and not inp.target_unconfirmed
+    delivered = _apology_delivered(inp)
     # 発信の拒否・番号違いは、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6：前は通話中の申告だけを見て、
     # 何も言わずに切った＝断った、を見落としていた）。断ったかを決められない（報告・切れ方の抜け）・通話後の検証で確かめられ
     # なかった ⇒ もうかけない（かけない側に倒す）
@@ -156,10 +155,13 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
         tx.execute("INSERT INTO salescall.apology_outcomes (tenant_id, client_id, attempt_id, order_id, delivered)"
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)",
                    (attempt_id, order["order_id"], delivered))
+        # ふつうの通話と同じ1か所（引き継ぎを確かめる印が読む。0203）。書けるのは締めの記録（お詫びの電話の結び）を書いた同じ取引の中だけ（0211。
+        # 締め直し＝again は、結びも話せたかも、最初の締めのまま）
+        attempts.record_reached_target(tx, attempt_id, inp.reached_target)
     if j is not None and j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     refused = j is not None and j.state == "do_not_call"
-    stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else None
+    stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in dnc.NUMBER_ONLY else None   # 番号のせいの理由の1か所
     _notice_forbidden(tx, a, prepare=False)
     # 途中で切れたかを試行に残す（ふつうの通話と同じ1か所。すぐかけ直してよいかは、残したものをデータベースの resume_allowed が読む）
     _cut_off(tx, a, classify_cut(inp.facts, report), report)
@@ -172,7 +174,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
                                          reached_target=inp.reached_target, not_reached=not_reached, again=again,
-                                         dialed_at=a["claimed_at"], blame=health.blame_of(tx, attempt_id))
+                                         dialed_at=a["claimed_at"], blame=health.blame_of(tx, attempt_id), attempt_id=attempt_id)
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -194,11 +196,13 @@ def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> boo
     forbidden = attempts.forbidden_speech(tx, a["attempt_id"])
     if not forbidden:
         return False
-    summary = "言ってはいけないことを言った通話がありました。その行はひとまず終えました。"
+    summary = "言ってはいけないことを言った通話がありました。"
     refs: dict[str, Any] = {"attempt_id": a["attempt_id"], "task_id": a["task_id"], "version_id": a["version_id"]}
     if prepare:
         draft = apology.prepare(tx, a["attempt_id"])
-        summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこのお客様にかけて伝えます。"
+        # お客様がかけ直しを約束していれば、お詫びは約束の時刻の電話の頭で伝え、そのまま約束の用件を続ける（計画書 7-3 (2)。0216）
+        summary += (f"お詫びの案：「{draft['text']}」承認すると、AI がこのお客様にかけて伝えます（お客様がかけ直しを約束していれば、約束の時刻の"
+                    "電話の頭で伝え、そのまま約束の用件を続けます。承認するまで、その電話はかけません）。")
         refs["apology_order_id"] = draft["order_id"]
     # 同じ不具合は1つ＝業務設定の版ごと（台本が違えば原因も違いうる。⛔ 2026-10-22 の見直し13：前は版をまたいで1つにまとめ、
     # 直したと報告するまで、ほかの業務の版で起きても依頼が出なかった）
@@ -214,15 +218,18 @@ def _after(tx: Tx, a: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _items(tx: Tx, task_id: UUID) -> dict[str, Item]:
-    """行の項目（判定の入力。読むのはここだけ）。"""
-    return {r["question_id"]: Item(r["state"], r["condition"], r["reason"]) for r in tx.all(
-        "SELECT question_id, state::text AS state, condition, reason FROM salescall.item_values WHERE task_id = %s",
-        (task_id,))}
+def _items(tx: Tx, a: dict[str, Any]) -> dict[str, Item]:
+    """行の項目（判定の入力。読むのはここだけ）：その通話の担当の方に使う答え（conversation_io.answers＝前の通話の答えと同じ1か所。ほかの担当の方の
+    答え・新しい担当の方が引き継いでいないと答えた前の方の答え・目的のお客様だと確かめられなかった通話の答えは入らない＝0231）。"""
+    return {q: Item(r["state"], r["condition"], r["reason"], hedged_words(r["state"], r["hedged"]) is not None)
+            for q, r in conversation_io.answers(tx, a["task_id"], a["attempt_id"]).items()}
 
 
 def _items_snapshot(items: dict[str, Item]) -> dict[str, dict[str, Any]]:
-    return {q: {"state": i.state, "condition": i.condition, "reason": i.reason} for q, i in sorted(items.items())}
+    """判定の入力の行の項目の写し（判定し直すかを比べる）。「曖昧」の印は、あるときだけ入れる（伺う条件の hedged で判定が変わる。印の無い
+    項目の写しは、印を読む前の写しと同じ形のまま＝印の無い通話を判定し直さない）。"""
+    return {q: {"state": i.state, "condition": i.condition, "reason": i.reason, **({"hedged": True} if i.hedged else {})}
+            for q, i in sorted(items.items())}
 
 
 def _callee(tx: Tx, a: dict[str, Any]) -> calling_hours.CalleeSettings:
@@ -236,8 +243,8 @@ def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     version = tx.one("SELECT salescall.run_current_version(%s) AS v", (a["run_id"],))["v"]
     return {"judge_version": JUDGE_VERSION, "rules_version": str(version),
             "report_source": call_report.load_with_source(tx, a["attempt_id"])[1],
-            "items": _items_snapshot(_items(tx, a["task_id"])),
-            "declared_in_call": dnc.refused_in(tx, a["attempt_id"], "refused_in_call"),   # 通話の途中の申告（2026-10-19 の見直し）
+            "items": _items_snapshot(_items(tx, a)),
+            "declared_in_call": dnc.declared_in(tx, a["attempt_id"]),   # 通話の途中の申告（2026-10-19 の見直し。申告の入口の登録だけ＝見直し(3)の5）
             "target_recheck": target_recheck.load(tx, a["attempt_id"]),   # 目的のお客様の確かめ直し（0108）
             # お客様の時間の設定（歯止め時間・1回分の長さ・営業時間。直したら判定し直す＝⛔ 見直し17b：前は比べていなかった）
             "callee": _callee(tx, a).to_json()}
@@ -265,31 +272,30 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     return _after(tx, a, out)
 
 
-def resettle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
+def resettle(tx: Tx, attempt_id: UUID, *, correction: dict[str, Any] | None = None) -> dict[str, Any]:
     """取り消せない決定に答えが出た通話を締め直す（1か所。core/approval の答えの入口が呼ぶ）。答えの中身は、締めの処理がいつも読む
     （確定した決定は保留にしない・外した決定は報告から外す＝`_judge_input`・approval.decision_wait）。ふつうの通話は、結果の版
     rejudged を足し、ふつうの締めと同じ道で保留・発信禁止・次の動きを書く（この通話のあとに同じ行で発信があれば、行の予定は書き直さない。
     断り・怒っていたが決まったときは除く＝`_later_talk`）。お詫びの電話は、保留のあいだ締めていないので、ここで締める（締めてあれば、
-    次の動きを決め直す）。録音から作り直した報告が届いて、保留を決め直すとき（`_recheck_waits`）も、ここを通る。"""
+    次の動きを決め直す）。録音から作り直した報告が届いて、保留を決め直すとき（`_recheck_waits`）も、ここを通る。
+    correction＝契約者がいま結果を直した（`follow_correction`）：足す版は、その直しの契約者の版（kind human。判定の版を足さない＝判定の正しさの
+    測り・同じ通話の新しいシステムの版にならない）。"""
     a = _attempt(tx, attempt_id)
     if a["purpose"] == "apology":
         return _settle_apology(tx, a, again=True)   # 締めてあれば、伝えたかの記録はそのまま次の動きを決め直す
     if tx.one("SELECT 1 FROM salescall.task_results WHERE attempt_id = %s AND kind = 'judged'", (attempt_id,)) is None:
         return settle(tx, attempt_id)
     version = tx.one("SELECT salescall.run_current_version(%s) AS v", (a["run_id"],))["v"]
-    before = results.latest_of_attempt(tx, attempt_id)
-    out = _after(tx, a, _judge_and_write(tx, a, kind="rejudged", rules_version=version))
+    before = results.of_call(tx, attempt_id)
+    out = _after(tx, a, _judge_and_write(tx, a, kind="human" if correction is not None else "rejudged", rules_version=version,
+                                         correction=correction))
     # この通話の決定（断り・怒っていた）で、あとに発信のある行を終えていたのに、締め直しで終えなくなった（差し戻し・発信禁止の取り消し）：
     # 行の予定と依頼者へ渡す結果は、その行のいちばん新しい通話の締めが決め直す（0161。⛔ 見直し26b の 1：あとに発信があるので予定を
     # 書き直さず、行は「営業拒否」で終わったまま・確定した結果も「営業拒否」のままだった＝2026-10-30 (7) に反した）
     if before is not None and _later_dial(tx, a) \
             and _ends(tx, a, before) \
-            and not _ends(tx, a, results.latest_of_attempt(tx, attempt_id)):
-        last = tx.one("SELECT attempt_id FROM salescall.attempts b WHERE b.task_id = %s AND b.claimed_at > %s AND "
-                      f"{attempts.dialed('b')} AND EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = b.attempt_id)"
-                      " ORDER BY b.claimed_at DESC LIMIT 1", (a["task_id"], a["claimed_at"]))
-        if last is not None:
-            resettle(tx, last["attempt_id"])
+            and not _ends(tx, a, results.of_call(tx, attempt_id)):
+        _resettle_last(tx, a)
     return out
 
 
@@ -373,8 +379,9 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
         report = report.without(gone)
     dialed = number_recheck.dialed(tx, attempt_id)
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["spoken_at"]),
-                     report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version),
-                     dnc.refused_in(tx, attempt_id, "refused_in_call") and "refusal" not in gone,
+                     report, _items(tx, a), business_rules.load(tx, rules_version),
+                     # 通話の途中の申告（申告の入口が入れた登録だけ＝dnc.declared_in。断りを外すと答えたら見ない）
+                     dnc.declared_in(tx, attempt_id) and "refusal" not in gone,
                      target_recheck.unconfirmed(tx, attempt_id),
                      callee=_callee(tx, a),   # お客様の時間の設定・言葉ごとの幅（読むのは gate.callee_settings の1か所）
                      anyone_target=business_settings.anyone_target(tx, rules_version),   # 「誰でも」の業務か（見直し18b の (3)）
@@ -383,25 +390,62 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                      # 切れ方の分からなかった通話のあとの確かめのかけ直しで、お客様の電話まで鳴ったか（next_action.check_outcome の1か所）
                      check_rang=_check_rang(next_action.check_outcome(tx, attempt_id)) and "refusal" not in gone,
                      # 言ってはいけないことを言った通話（切れ方が決められなければ、断ったかを保留で決める＝伺い3。断りを外すと答えたら見ない）
-                     forbidden=attempts.forbidden_speech(tx, attempt_id) and "refusal" not in gone)
+                     forbidden=attempts.forbidden_speech(tx, attempt_id) and "refusal" not in gone,
+                     # この通話より前の通話で取った答え（新しい担当の方が引き継いだと言った前の方の答えを依頼者へ分かる形で返す＝判定の中身 carried）
+                     earlier_answers=_earlier_answers(tx, a["task_id"], attempt_id))
     return inp, report_source, dialed
+
+
+def _earlier_answers(tx: Tx, task_id: UUID, attempt_id: UUID) -> frozenset[str]:
+    """その行で、この通話を始めたときに会話へ渡した前の通話の答えのうち、答えを受け取った状態（judge.ANSWERED）の質問（判定の入力
+    JudgeInput.earlier_answers を読む1か所）。どの答えが前の通話の答えかの決まりは conversation_io.earlier の1か所（担当の方が替わった電話で使わない
+    ことにした答えは入らない）。⛔ 2026-11-13 の見直し：はじめはここで項目の値を通話の順だけで拾っていた（決まりが2か所）。"""
+    return frozenset(q for q, v in conversation_io.earlier(tx, task_id, before=attempt_id).items() if v["state"] in ANSWERED)
+
+
+def _apology_delivered(inp: JudgeInput) -> bool:
+    """会話の報告が、お詫びの文面を伝えたと言っているか（1か所。お詫びの電話の締め＝`_settle_apology` と、約束の電話の頭の言ってはいけないことの
+    お詫び＝next_action.after_call の両方が読む）：報告の apology_delivered が真で、目的のお客様だと確かめられなかった通話（別の方に伝えた・確かめられ
+    なかった）でない（伝えていない側に倒す）。"""
+    return bool(inp.report is not None and inp.report.apology_delivered) and not inp.target_unconfirmed
 
 
 def _check_rang(check: next_action.Check | None) -> bool:
     return check is not None and check.outcome == "rang"
 
 
-def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any) -> dict[str, Any]:
+def _resettle_last(tx: Tx, a: dict[str, Any]) -> None:
+    """その通話の決定で、あとに発信のある行を終えていたのに、締め直し・契約者の直しで終えなくなった：行の予定と依頼者へ渡す結果は、その行の
+    いちばん新しい締めた通話の締めが決め直す（1か所。`resettle`・`follow_correction`）。"""
+    last = tx.one("SELECT attempt_id FROM salescall.attempts b WHERE b.task_id = %s AND b.claimed_at > %s AND "
+                  f"{attempts.dialed('b')} AND EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = b.attempt_id)"
+                  " ORDER BY b.claimed_at DESC LIMIT 1", (a["task_id"], a["claimed_at"]))
+    if last is not None:
+        resettle(tx, last["attempt_id"])
+
+
+def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any, correction: dict[str, Any] | None = None) -> dict[str, Any]:
     """判定して書く（最初の締めと、判定し直しの、同じ1つの道）。判定できなかったときは何も決めない（切れ方・発信禁止・
     別の番号を書かず、結果 unknown と判定待ちだけ）。"""
     attempt_id = a["attempt_id"]
     inp, report_source, dialed = _judge_input(tx, a, rules_version)
     report, rules, items = inp.report, inp.rules, inp.items
     j = judge(inp)
+    # 契約者がこの通話の結果を直していれば、その直しが通話の結果（✅ 2026-11-16 ユーザー「直しに従う」。直したときも、締め直しても、同じこの1か所。
+    # 発信禁止の登録は、すでにあれば台帳は同じまま＝dnc._put）
+    corr = correction or results.correction_of(tx, attempt_id)   # いま直した（契約者の版をここで書く）か、前に直した
+    use_corr = corr is not None and not (corr["business_state"] == "do_not_call" and "refusal" in approval.withdrawn(tx, attempt_id))
+    if use_corr:
+        kind = "human"   # 直しを読んだ版は契約者の版（判定の版にしない＝判定の正しさの測りに直しを入れない。⛔ 2026-11-18 の6回目の見直しまで：締め直しの版は判定の版）
+    if use_corr:
+        # 「もうかけないで」への直しのあと、依頼者の正式な求めで発信禁止を取り消したら、取り消しが勝つ（2026-10-30 (7)。直しを読まない）
+        j = corrected(corr["business_state"], corr["complaint"], corr["detail"], base_state=j.state, base_detail=j.detail)
     decided = j.state != "unknown"
     # 取り消せない決定（断り・番号違い・怒っていた）を、その場で決めるか、決まるまで保留にするか（判定の1か所 judge.irreversible と、
     # 承認の部分の1か所 approval.decision_wait。2026-10-30 管理者のご決定 (6)）
-    irr = irreversible(inp, j)
+    # 契約者が直した通話の取り消せない決定は、契約者が決めた（承認を求め直さない＝保留にしない。⛔ 2026-11-17 の5回目の見直しまで：直した通話を締め直すと、
+    # また承認待ちの保留を作った）
+    irr = None if use_corr else irreversible(inp, j)
     found = approval.decision_wait(tx, a["task_id"], attempt_id, irr)
     # 決まるまで待つ保留（設定で決まったとみなした保留は待たない＝その中身を決まりどおり書く。approval.Wait.holds の1か所）
     wait = found if found is not None and found.holds else None
@@ -428,14 +472,21 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         "withdrawn": sorted(approval.withdrawn(tx, attempt_id)),
     }
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
-                                judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot,
+                                judge_version=None if kind == "human" else JUDGE_VERSION, complaint=j.complaint,
+                                snapshot={**snapshot, **({"correction": correction["snapshot"]} if correction is not None else {})},
                                 detail={**j.detail, **({"decision_wait": wait.kind} if wait else {}),   # 保留の種類（画面・出力が読む）
                                         **({"decision_assumed": found.assumed} if found is not None and not found.holds else {}),
+                                        # 「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話（tasks.former_person_call の1か所）：その答えの
+                                        # 種類（next_action.FORMER_ANSWERS の1か所。personal＝行を終えず新しい担当の方へ・company＝行を終える など。
+                                        # 計画書 7-1 (22)(23)(24)。画面・出力が読む＝CL-3）
+                                        **({"former_person": next_action.judged_answer(j)} if tasks.former_person_call(tx, attempt_id) else {}),
                                         # お名前だけではどの方か分からなかった行：依頼者に埋めていただく欄（フルネーム・部署のうち空いている欄。
                                         # 1か所＝business_settings.who_unclear_blanks。出力が読む＝CL-3。CL-1 の連絡帳 4-65 の (g)）
                                         **({"who_unclear_blanks": list(business_settings.who_unclear_blanks(tx, a["task_id"]))}
                                            if j.detail.get("not_reached") == "who_unclear" else {})},
-                                decided_by="判定")
+                                decided_by="契約者" if kind == "human" else "判定")
+    # 目的のお客様と話せたか（引き継ぎを確かめる印が読む。0203）：書けるのは締めの記録（結果の版）を書いた同じ取引の中だけ（守り。0211）
+    attempts.record_reached_target(tx, attempt_id, inp.reached_target)
     # 保留を書く（承認の部分の1か所。報告や答えが変われば版を足し、待たなくなれば閉じる。承認待ちは契約者へ知らせる）
     approval.record_wait(tx, a, found, version_no, report_source)
     if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）
@@ -455,8 +506,10 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     # まだ分からない電話（番号のせいか回線のせいか。試行のせいの欄が pending のまま）を、ほかの回線の予約で待たずに締めるとき（表の R-4）も、
     # 行の予定は書かない（予約に使った、いまの予定のまま。⛔ 見直し26a の 3：ほかの回線の予約が、かける前に取り消されると「あとの発信」が
     # 無いので、鳴っていない電話を出なかった電話として、再発信の決まりで予定を書き直していた）
-    if (_later_dial(tx, a) or health.blame_of(tx, attempt_id) == "pending") \
+    if (_later_dial(tx, a) or health.blame_of(tx, attempt_id) == "pending" or apology.waits_on(tx, a["task_id"], attempt_id)) \
             and not _ends_row(tx, a, j.state, j.complaint, wait is not None):
+        # いまの予定が、この通話のお詫びの電話（承認したお詫び＝apology.waits_on。⛔ 2026-11-17 の5回目の見直しまで：もとの通話の締め直し（契約者の直しなど）が
+        # お詫びの予定を上書きし、承認したお詫びの電話が一度もかからなかった）も同じく、行の予定は書き直さない。
         # この通話のあとに、この行でもう発信している（判定し直した通話・ほかの回線がかけたあとに締めた、まだ分からなかった電話＝
         # 見直し22 の 5）：行の予定は、あとの発信の締めが決める（結果の版と発信禁止だけを足し、予定は書き直さない＝判断はここの1か所。
         # お詫びの電話も同じ＝`_settle_apology`）。⛔ 見直し16：前は、何日も前に途中で切れた通話を判定し直すと、終えた行が
@@ -464,22 +517,47 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         # いま書く（apology の1か所）
         apology.schedule_if_ready(tx, a["task_id"])
         return {"version_no": version_no, "state": j.state, "decision": None, "already": False}
+    decision = _decide(tx, a, j, rules=rules, alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
+                       reached_target=inp.reached_target, waiting=None if wait is None else wait.kind,
+                       apology_delivered=_apology_delivered(inp))
+    return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
+
+
+def _decide(tx: Tx, a: dict[str, Any], j: Judgement, *, rules: Any, alternate: Any, recheck: Any, forbidden: bool, cut_off: bool,
+            reached_target: bool, waiting: str | None, apology_delivered: bool) -> Any:
+    """その通話の結果（判定・契約者の直し）から、行の次の動きを書く（1か所。締め・締め直し・契約者の直し `follow_correction` が通る）。"""
+    attempt_id = a["attempt_id"]
     decision = next_action.after_call(
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
-        reached_target=inp.reached_target,   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
+        reached_target=reached_target,   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
         blame=health.blame_of(tx, attempt_id),   # 回線のせい・こちらのせい（試行のせいの欄）：かけた予定のまま（0129・0136）
         attempt_id=attempt_id, check=next_action.check_outcome(tx, attempt_id),   # 確かめのかけ直し（2026-10-30 管理者の決定）
-        waiting=None if wait is None else wait.kind)   # 取り消せない決定の保留の種類（2026-10-30 管理者のご決定 (6)）
-    apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
-    return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
+        waiting=waiting,   # 取り消せない決定の保留の種類（2026-10-30 管理者のご決定 (6)）
+        # 言ってはいけないことのお詫びを伝えたか（印を外すのは伝えたときだけ＝next_action._forbidden_told。CL-1 の連絡帳 4-143）
+        apology_delivered=apology_delivered)
+    apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：結果が決まったいま、予定を書く（apology の1か所）
+    return decision
 
+
+def follow_correction(tx: Tx, attempt_id: UUID, correction: dict[str, Any]) -> dict[str, Any]:
+    """契約者がその通話の結果を直した（approval.correct_result の1か所が呼ぶ。✅ 2026-11-16 ユーザー「直しに従う（お勧め）」）：ふつうの締め直しと
+    同じ1つの道（`resettle`）で締め直し、その版を契約者の版として書く（correction＝{business_state, complaint, detail, snapshot}）。判定は直しを
+    通話の結果として読み（`_judge_and_write`＝judge.corrected の1か所）、発信禁止・苦情の知らせ・行の次の動き・別の番号の材料・言ってはいけないことの
+    お詫びの印・あとの発信の扱いは、締めがいつも読む材料のまま決まる。書いた版の番号などを返す（`resettle` と同じ）。
+    ⛔ 2026-11-17 の5回目の見直しまで：締めとは別の道で次の動きだけを書き直し（別の番号へのかけ直しの直しで落ち・お詫びを伝えた印を落とし・言っては
+    いけないことの印を締めと別の値から読んだ）、そのあと締め直しの道にしたときは、契約者の版に加えて判定の版も足した（判定の正しさの測りに直しが
+    入り、同じ通話をもう一度直せなかった）。"""
+    return resettle(tx, attempt_id, correction=correction)
 
 def _ends_row(tx: Tx, a: dict[str, Any], state: str, complaint: bool, waiting: bool) -> bool:
     """この通話の決定で、あとに発信のある行を終えるか（1か所。締め・締め直しが読む）：断り・怒っていたが決まり（保留でない）、あとでお客様と
-    話していない（話していれば、その通話の結果が行の結果）。"""
-    return not waiting and (state == "do_not_call" or complaint) and not _later_talk(tx, a)
+    話していない（話していれば、その通話の結果が行の結果）。断りで行を終えるかは次の動きの1か所（next_action.answer_ends_row：「担当の方は
+    違う」を選んだ直しのあとの、前の担当の方個人の答えは行を終えない＝計画書 7-1 (22)(24)。0202）。"""
+    return not waiting and (state == "do_not_call" or complaint) \
+        and next_action.answer_ends_row(tx, a["attempt_id"], next_action.former_answer(state, complaint=complaint), state) \
+        and not _later_talk(tx, a)
 
 
 def _ends(tx: Tx, a: dict[str, Any], version: dict[str, Any]) -> bool:
@@ -537,7 +615,7 @@ def _number_material(tx: Tx, a: dict[str, Any], e164: str | None, *, source_atte
         return next_action.Alternate(None, allowed, "number_unknown")
     number = normalize(e164)
     contact_id = tasks.add_callee_number(tx, a["task_id"], number, source_attempt_id=source_attempt_id)
-    blocked = target_policy.block_reason(tx, number, client_ref=a["client_ref"], **scope)
+    blocked = target_policy.block_reason(tx, number, client_ref=a["client_ref"], task_id=a["task_id"], **scope)
     return next_action.Alternate(contact_id, allowed, None if blocked is None else blocked[0])
 
 

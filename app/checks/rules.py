@@ -167,6 +167,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "business_versions": {"INSERT": frozenset({_CORE + "business_settings.py"})},   # 業務設定の版（(10)。版を作るのは1か所）
     "questions": {"INSERT": frozenset({_CORE + "business_settings.py"})},
     "business_contents": {"INSERT": frozenset({_CORE + "business_settings.py"})},
+    "standard_versions": {"INSERT": frozenset({_CORE + "business_settings.py"})},   # システムの標準の想定問答の版（0174。形と重ね方は1か所）
     "run_versions": {"INSERT": frozenset({_CORE + "business_settings.py"})},        # 実施回への版の割り当て（記録つき）
     "version_stages": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段（Q22）
     "calendar_loads": {"INSERT": frozenset({_CORE + "calendar.py"})},        # 祝日の暦（Q12 の材料）
@@ -175,6 +176,26 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "result_releases": {"INSERT": frozenset({_CORE + "approval.py"})},
     "task_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},       # 発信の前の契約者の承認（10-2）       # 送ってよい印は承認の部分だけ（10章）
     "task_next_actions": {"INSERT": frozenset({_CORE + "next_action.py"})},  # 次の予定（Q4）
+    # 前の担当の方との約束の選び（0201・0202）：書くのは、予定も同じ取引で決め直す入口の部品だけ（見直し H の (B2)。かける番号の直しは
+    # tasks.fix_dial_number＝下の PY_ENTRY_CALLERS で入口 row_fixes だけが呼ぶ。新しい約束の選びは row_fixes.choose_old_promise）
+    "task_dial_fixes": {"INSERT": frozenset({_CORE + "tasks.py"})},
+    "task_old_promise_choices": {"INSERT": frozenset({_CORE + "row_fixes.py"})},
+    # 1か月以上先のかけ直しへの契約者の答え（0217）：書くのは、予定も同じ取引で決め直す入口 row_fixes.answer_month_ahead だけ
+    "task_month_ahead_answers": {"INSERT": frozenset({_CORE + "row_fixes.py"})},
+    # 0206 で足した（それまで一覧に無く、業務の土台のどこからでも書けた表）。お客様リストの行の欄の直し（お呼びする方の名前などの直しは、前の
+    # 担当の方との約束の選びも持つ＝予定も同じ取引で決め直す入口 row_fixes.fix だけ）・行の連絡先・お客様が指定した番号・サブの番号・版の写しと
+    # つながり
+    "task_fixes": {"INSERT": frozenset({_CORE + "row_fixes.py"})},
+    "task_contacts": {"INSERT": frozenset({_CORE + "customer_contacts.py"})},
+    "task_designations": {"INSERT": frozenset({_CORE + "tasks.py"})},
+    "task_sub_numbers": {"INSERT": frozenset({_CORE + "tasks.py"})},
+    "version_copies": {"INSERT": frozenset({_CORE + "business_settings.py"})},
+    "version_successions": {"INSERT": frozenset({_CORE + "business_settings.py"})},
+    # 0206 で足した：アプリの役は読むだけの表（書くのは表の作り・データベースの関数だけ。仕事の借用 take_job・修正依頼 request_fix などは
+    # 下の WRITE_FUNCTIONS）
+    **{t: {"INSERT": frozenset(), "UPDATE": frozenset()}
+       for t in ("approved_contents", "attempt_transitions", "field_types", "fix_requests", "job_leases", "name_recording_reviews",
+                 "name_review_skips", "part_contents", "setting_definitions", "stop_lets_through")},
     "dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},  # Q3
     "contractor_dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},
     "stop_events": {"INSERT": frozenset({_CORE + "stops.py"})},              # 運転の状態（Q13）
@@ -197,6 +218,9 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "recordings": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "recording_approvals": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "recording_readings": {"INSERT": frozenset({_CORE + "recordings.py"})},    # 録音で選んだ名前の読み（Intent.md 6-2。0099）
+    # 版の録音の部分の一覧（会話の担当の録音の道具が recordings.list_parts で渡す。計画書 6-1 (4)。0212）
+    "recording_lists": {"INSERT": frozenset({_CORE + "recordings.py"})},
+    "recording_list_parts": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "version_name_readings": {"INSERT": frozenset({_CORE + "recordings.py"})},  # 録音を聞いて選んだ名前の読み（6-2。0100。版の読みは
     #                                                                           データベースが版の中身を置いたときに入れる＝0101）
     "recording_holds": {"INSERT": frozenset({_CORE + "recordings.py"}),        # 測り終わるまで消さない録音（11-4 第2版。0056）
@@ -213,7 +237,6 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "number_rechecks": {"INSERT": frozenset({_CORE + "number_recheck.py"})},   # 番号の確かめ（3-5。検証 Q21 が入口を呼ぶ）
     # 目的のお客様の確かめ直し（6-12 の (e)。検証 Q21 が入口を呼ぶ。答えを「-」にするのは 0108 の仕掛けの1か所）
     "target_rechecks": {"INSERT": frozenset({_CORE + "target_recheck.py"})},
-    "item_value_history": {"INSERT": frozenset()},   # 前の通話の答えを残すのは、データベースの仕掛けだけ（0108 の item_value_guard）
     # 2026-10-22 の見直し：書く権限があるのに一覧に無く、core のどこからでも書けた表
     "attempt_state_history": {"INSERT": frozenset()},   # 状態の移り変わりを残すのは、データベースの仕掛けだけ（attempt_after_write）
     "name_changes": {"INSERT": frozenset()},            # 名前の変更を残すのは、データベースの仕掛けだけ（only_name_changes など）
@@ -288,6 +311,9 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "health_take": frozenset({_CORE + "health.py"}),   # 状態の欄の鍵を取って読む（0145。表を引く入口の1か所）
     "health_save": frozenset({_CORE + "health.py"}),   # 状態の欄の次の状態と移った記録（0145。表を引く入口の1か所）
     "purge_utterances": frozenset({_CORE + "conversation_io.py"}),   # やり取りの文字を、録音と同じ日数で消す（0157。計画書 11-4）
+    "review_name_recordings": frozenset({_CORE + "recordings.py"}),   # 管理者が業務の名前の録音をシステムの共通の録音に入れるか決める（0173）
+    "admit_unreviewed_name_recordings": frozenset({_CORE + "recordings.py"}),   # 管理者のチェック不要の契約者の録音を入れる（0173）
+    "set_name_review_skip": frozenset({_CORE + "recordings.py"}),     # 管理者のチェックを要らないとするか（0173）
 }
 _CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
 
@@ -452,6 +478,25 @@ def pc_side_stays_off_the_server(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── ファイルを読むのは1か所だけ（core/import_files.py。発信対象の表・発信禁止の一覧・業務の資料。DESIGN.md 3-4・3-7-1）：ファイルの
+#    中身を読む部品（Excel＝openpyxl・XML＝defusedxml・PDF＝pypdf）を使ってよいのは、その1か所だけ（読み方の決まり＝推し量らない・読めない所は
+#    理由をつけて断る、を1か所で守る。2026-11-06 ユーザー：PDF の部品を足す）
+FILE_READER_MODULES = ("openpyxl", "defusedxml", "pypdf", "zipfile", "xml.etree")   # 見直し(B) の9：zip と xml を直に読む部品も
+FILE_READER_HOME = "src/salescall/core/import_files.py"
+
+
+def file_readers_in_one_place(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py" or rel == FILE_READER_HOME:
+            continue
+        for module, line in _imported_modules(_parse(path)):
+            if any(module == m or module.startswith(m + ".") for m in FILE_READER_MODULES):
+                out.append(Violation("一本化", rel, line, f"ファイルの中身を読む部品（{module}）を使うのは {FILE_READER_HOME} だけです"))
+    return out
+
+
 # ── 決まった設定を読んでよいのは1か所だけ（設定の名前 → 読んでよいファイル・決まりの番号・理由）
 #    - 時間帯（かけてよい時間帯・かけない時間）：実際に使う時間帯を出す gate の1か所（NG時間を引き忘れない。5-2-2）
 #    - 契約者の承認のモード：承認の部分だけ（I-13。判定などがモードを読むと、両モードで動きが変わる）
@@ -462,9 +507,20 @@ SETTING_READERS: dict[str, tuple[str, str, str]] = {
     # AI でも決められない取り消せない決定の決め方（0164。2026-10-31 管理者：伺い3）：決めるのは承認の部分の1か所（approval.assumable）
     "decision.undecided_as_decided": ("src/salescall/core/approval.py", "10-2-2",
                                       "AI でも決められない取り消せない決定の決め方は approval.assumable の1か所で読みます"),
+    # 契約プラン（0176・0177。見直し(B) の9）：どの AI をどのキーで呼ぶかを決めるのは ai_plans.plan の1か所
+    "ai.plan_conversation": ("src/salescall/core/ai_plans.py", "8章", "契約プランは ai_plans.plan の1か所で読みます"),
+    "ai.plan_import": ("src/salescall/core/ai_plans.py", "8章", "契約プランは ai_plans.plan の1か所で読みます"),
     # 断られたお客様に同じ業務の次の実施回でかけるか（0168。2026-11-01 管理者：伺い8）：かけない理由の1か所（target_policy.block_reason）
     "business.call_declined_again": ("src/salescall/core/target_policy.py", "5-2-1",
                                      "断られたお客様に同じ業務でまたかけるかは target_policy.block_reason の1か所で読みます"),
+    # 同じ依頼者のほかの業務で断られた・苦情があったお客様にかけるか・同じ番号へのほかの行の電話の間・幅の約束の1日の回数（0216。2026-11-08
+    # ユーザー＝計画書 7-3 (1)(3)）：それぞれ決める1か所だけが読む
+    "calling.call_after_refusal": ("src/salescall/core/target_policy.py", "5-2-1",
+                                   "断り・苦情のあと同じ依頼者からかけるかは target_policy.block_reason の1か所で読みます"),
+    "gate.same_number_gap": ("src/salescall/core/gate.py", "5-2",
+                             "同じ番号へのほかの行の電話の間は gate.same_number_gap の1か所で読みます"),
+    "callback.window_daily_max": ("src/salescall/core/next_action.py", "7-2",
+                                  "幅の約束の1日の回数は next_action._window_round_next の1か所で読みます"),
     # Fly.io に残す日数（0157）：やり取りの文字を消す1か所（conversation_io.purge_utterances）。録音を Fly.io から消す処理を作るときも、
     # 同じ1か所から日数を読む（⛔ 見直し25b の 5：片方だけ変えると、録音とやり取りで消える日がずれる）
     "recording.keep_days_cloud": ("src/salescall/core/conversation_io.py", "11-4",
@@ -496,6 +552,9 @@ def settings_read_in_one_place(app_root: Path) -> list[Violation]:
 _SUP = "src/salescall/supervisor/"
 PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("attempts", "end_for_trouble"): frozenset({_SUP + "line.py"}),          # 甚大な問題で終える：通話ごとの口だけ
+    # 目的のお客様と話せたか（引き継ぎを確かめる印が読む）：締めの処理だけ（締めの記録を書いた同じ取引の中だけ＝データベースの守りも。0211。
+    # ⛔ 見直し K の (d)：守りが無く、どこからでも書けた）
+    ("attempts", "record_reached_target"): frozenset({_CORE + "settle.py"}),
     ("ring_test", "run"): frozenset({_SUP + "line.py"}),                     # テスト番号を鳴らす：電話の部品を持つ回線ごとの処理だけ
     ("watch", "record_check"): frozenset({_SUP + "jobs.py"}),               # 止めた停止（会話AI）の確かめ：確かめの部品だけ
     ("troubles", "after_trouble"): frozenset({_SUP + "line.py"}),           # こちらの不具合を伝える：通話ごとの口だけ（0139）
@@ -513,6 +572,28 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("approval", "sent_back_on_spot"): frozenset({_CORE + "measure.py"}),     # 差し戻しを誤判定率へ：正解を入れる1か所だけ
     ("settle", "resettle"): frozenset({_CORE + "approval.py"}),              # 締め直し：答えの1か所だけ（締めの処理の中は、いつでもよい）
     ("next_action", "reopen_revoked"): frozenset({_CORE + "dnc.py", _SUP + "jobs.py"}),   # 取り消しで行を戻す：取り消しと決まった間隔の仕事
+    # 版を足して自動で替える（0183）：決まった間隔の仕事だけ（そろった後の版を割り当てる・標準に合わせた版を作る）
+    ("business_settings", "adopt_ready"): frozenset({_SUP + "jobs.py"}),
+    ("client_solutions", "add"): frozenset({WEB_PLACE}),   # 依頼者の解決策を足す：画面だけ（契約者が書く・返った報告を取り込む。0184）
+    ("client_solutions", "add_earlier"): frozenset({WEB_PLACE}),   # 流れに入っていない前の解決策を、契約者が選んで足す：画面だけ（0194）
+    ("recordings", "carry"): frozenset({_CORE + "business_settings.py"}),   # 版を作ったあと録音を引き継ぐ：版を作る道（写し・版を足す）だけ（0194）
+    # 取り込み直した中身で置き換えられた解決策を残す：取込の登録の共通の1か所（business_import.register_shaped）だけ（0197）
+    ("client_solutions", "replaced"): frozenset({_CORE + "business_import.py"}),
+    # 業務設定の形の確かめと、確かめた中身の登録：取込の部品の中だけ（取込の入口は、解決策を残す1か所 _kept を通る preview_shaped・
+    # register_shaped。依頼者の解決策を足す道は review_solution。⛔ 2026-11-07 の第三者の見直し (2) の8：外から直に呼べば、解決策を残さずに
+    # 版を作れた）
+    ("business_import", "review"): frozenset({_CORE + "business_import.py"}),
+    ("business_import", "register_reviewed"): frozenset({_CORE + "business_import.py"}),
+    ("business_import", "review_solution"): frozenset({_CORE + "client_solutions.py"}),
+    # 手で外した解決策を残す：版を割り当てる1か所（business_settings.assign。手か自動か・古い版で作ったかは removed_by_hand が決める）だけ（0197・0200）
+    ("client_solutions", "removed_by_hand"): frozenset({_CORE + "business_settings.py"}),
+    # 手で外した解決策を「入れない」と確かめる（承認）：画面だけ（契約者・管理者。0200。「入れる」は add_earlier）
+    ("client_solutions", "leave_out"): frozenset({WEB_PLACE}),
+    ("business_settings", "derive_for_standard"): frozenset({_SUP + "jobs.py"}),
+    # 版を足す・割り当てる（見直し(B) の4）：版を足すのは解決策の1か所（ほかは business_settings の中＝標準・自動の替え）。手の割り当ては
+    # 実施回を作る所と画面だけ（自動の印 auto はデータベースがシステムの処理だけに守る＝0189）
+    ("business_settings", "derive"): frozenset({_CORE + "client_solutions.py"}),
+    ("business_settings", "assign"): frozenset({_CORE + "registry.py", WEB_PLACE}),
     # AIの不具合での一時停止（2026-10-30 深夜 管理者のご決定。0155）：止まったAIを受け取るのは、会話の書き込み口だけ。止めるかを決める入口は、
     # 通話ごとの口と回線ごとの処理だけ。緊急の道での再開は、画面だけ（契約者・管理者）
     ("ai_troubles", "note"): frozenset({_CORE + "conversation_io.py"}),
@@ -541,6 +622,25 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("health", "number_set"): frozenset({_CORE + "settings.py"}),                    # E14：テスト番号が入った（契約者の値）
     ("health", "number_set_everywhere"): frozenset({_CORE + "settings.py"}),         # E14：システムの初めの値（契約者ごとに1回ずつ）
     ("health", "claimed"): frozenset({_CORE + "gate.py"}),                           # E15：門の通過
+    # かける番号の直しの記録（前の担当の方との約束の選びも持つ）：書くのは入口 row_fixes.fix_dial_number だけ（同じ取引で予定を決め直す＝
+    # next_action.after_dial_fix。見直し H の (B2)：下の層を直に呼ぶと、記録は「約束をやめた」、予定は前の担当の方への約束のまま、と食い違った）
+    ("tasks", "fix_dial_number"): frozenset({_CORE + "row_fixes.py"}),
+    # お客様リストの行の直し（ダッシュボード。0178・0179・0202・0206）：契約者・管理者が画面で直す入口は、画面だけ（直しの記録と、前の担当の方との
+    # 約束の選びと、予定の決め直しを、同じ取引で行う1か所。ほかの部品から呼ぶと、契約者の選び無しに担当の期が替わる）。画面が2つ目の選びを出すか
+    # 読む入口も画面だけ。直したあと・選んだあとの予定を決め直すのは、その入口の部品だけ（予定だけ・記録だけを書く道を作らない）
+    ("row_fixes", "fix"): frozenset({WEB_PLACE}),
+    ("row_fixes", "fix_dial_number"): frozenset({WEB_PLACE}),
+    ("row_fixes", "choose_old_promise"): frozenset({WEB_PLACE}),
+    ("row_fixes", "old_promise_choice_needed"): frozenset({WEB_PLACE}),
+    ("row_fixes", "same_person_choice_needed"): frozenset({WEB_PLACE}),   # 1つ目の選び（いまの担当の方と同じ方か）を出すか（0210）
+    ("row_fixes", "back_choices"): frozenset({WEB_PLACE}),          # 「前の担当の方に戻す」で選べる期の一覧（0213。計画書 7-1 (30)）
+    ("row_fixes", "old_promise_keepable"): frozenset({WEB_PLACE}),  # 前の担当の方の新しい約束の選びで「約束も守る」を出すか（0213）
+    ("next_action", "after_dial_fix"): frozenset({_CORE + "row_fixes.py"}),
+    ("next_action", "after_person_fix"): frozenset({_CORE + "row_fixes.py"}),
+    ("next_action", "after_old_promise_choice"): frozenset({_CORE + "row_fixes.py"}),
+    # 1か月以上先のかけ直しへの契約者の答え（0217）：答える入口は画面だけ、答えのあとの予定の決め直しは、その入口の部品だけ
+    ("row_fixes", "answer_month_ahead"): frozenset({WEB_PLACE}),
+    ("next_action", "after_month_ahead_answer"): frozenset({_CORE + "row_fixes.py"}),
 }
 
 
@@ -608,6 +708,61 @@ def call_errors_only_through_troubles(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── 一本化（2章 Q74・Q100。0205）：「管理者か契約者か（人か）」を、誰が、の種類の組（admin と operator だけの組）で Python に書かない。
+#    人かは、データベースの1か所（salescall.cur_is_person＝種類からは salescall.is_person_kind）に問い合わせる（⛔ 0205 の前は
+#    core/health.py の BY が組を書き写していた）。Python の組（集まり・辞書の鍵）と、文字に書いた SQL の組（IN (…)・ARRAY[…]）を見る。
+#    種類の呼び名を3つとも並べた表（core/health.py の KIND_NAMES）・種類の一覧（core/access.ACTOR_KINDS）は、組ではない
+_PERSON_KINDS = frozenset({"admin", "operator"})
+_SQL_LIST = re.compile(r"\bIN\s*\(([^()]*)\)|\bARRAY\s*\[([^\]]*)\]", re.IGNORECASE)
+
+
+def _quoted_words(text: str) -> set[str]:
+    return set(re.findall(r"'([^']*)'", text))
+
+
+def person_kinds_only_in_the_database(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py":
+            continue
+        tree = _parse(path)
+        found: list[int] = []
+        for node in ast.walk(tree):
+            items = node.keys if isinstance(node, ast.Dict) else node.elts if isinstance(node, (ast.Set, ast.List, ast.Tuple)) else None
+            if items and {k.value for k in items if isinstance(k, ast.Constant)} == _PERSON_KINDS \
+                    and all(isinstance(k, ast.Constant) for k in items):
+                found.append(node.lineno)
+        for text, line in _string_constants(tree):
+            if any(_quoted_words(m.group(1) or m.group(2)) == _PERSON_KINDS for m in _SQL_LIST.finditer(text)):
+                found.append(line)
+        out.extend(Violation("一本化", rel, line, "管理者か契約者か（人か）は、データベースの salescall.cur_is_person"
+                             "（種類からは salescall.is_person_kind）に問い合わせます。種類の組を書き写しません（0205）")
+                   for line in sorted(set(found)))
+    return out
+
+
+def no_shadowed_definitions(app_root: Path) -> list[Violation]:
+    """同じ場所（部品のいちばん上・1つのクラスの中）に、同じ名前の関数・クラスを2つ書かない（あとの定義が前の定義を黙って上書きし、
+    前の試験が流れない・前の処理が使われない＝⛔ 2026-11-06：test_gate.py の同じ名前の試験2つで、前の試験が流れず、壊し試し3件が
+    見張れていなかった）。"""
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        tree = _parse(path)
+        for body in [tree.body] + [n.body for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+            seen: dict[str, int] = {}
+            for node in body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    if any(isinstance(d, ast.Attribute) and d.attr in ("setter", "deleter", "getter") for d in node.decorator_list) \
+                            or any(isinstance(d, ast.Name) and d.id == "overload" for d in node.decorator_list):
+                        continue
+                    if node.name in seen:
+                        out.append(Violation("定義の上書き", _rel(app_root, path), node.lineno,
+                                             f"{node.name} を {seen[node.name]} 行目と同じ場所にもう一度定義しています（前の定義が消えます）"))
+                    seen[node.name] = node.lineno
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     value_types_stays_pure,
     phone_formatting_only_in_q1,
@@ -618,10 +773,13 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     key_values_only_in_key_selection,
     dial_only_through_exit,
     pc_side_stays_off_the_server,
+    file_readers_in_one_place,
     settings_read_in_one_place,
     web_parts_only_in_web,
     entries_called_from_their_places,
     call_errors_only_through_troubles,
+    person_kinds_only_in_the_database,
+    no_shadowed_definitions,
 )
 
 

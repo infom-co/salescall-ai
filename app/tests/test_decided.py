@@ -373,6 +373,24 @@ class Decided(DecidedBase):
         self.poor(s, 1)
         self.assertEqual(self.line_of(s).stage, LineStage.HEALTHY)             # 1本では止めない
 
+    def test_1116_the_test_number_is_never_a_customers_number(self):
+        """✅ 2026-11-16 ユーザー「守りを足す（お勧め）」：テスト番号は門・発信禁止・予約を通さずに鳴らすので、お客様の番号（お客様リストの番号・発信禁止の
+        番号・いま発信中の番号）は、設定に入れられず（core/settings.set_value）、入れたあとにお客様の番号になっていたら鳴らさない（core/ring_test.run）。
+        決めるのは1か所（core/ring_test.customer_number＝データベースの salescall.test_number_problem。0228）。"""
+        from salescall.core import dnc
+        a = self.ready()
+        self.set_ring_hours(a, ("00:00", "24:00"))
+        self.fail_once(a, self.Refuses(self.bad_number(a)))
+        self.due(a)
+        with self.assertRaises(ValueError):                                     # お客様リストの番号は入れられない
+            self.w.a.in_tenant(OPERATOR, a["tenant"], lambda tx: settings.set_value(
+                tx, "line.test_number", a["phone"], scope="tenant", tenant_id=a["tenant"], status="decided", rationale="試験", review_when="試験"))
+        own = self.numbered(a)
+        self.w.a.in_client(OPERATOR, a["tenant"], a["client"], lambda tx: dnc.register(tx, own, "manual"))   # そのあと発信禁止に入った
+        d = FakeDriver(ring=True)
+        self.round_(a, d)
+        self.assertEqual(d.rings, [])                                           # 鳴らさない
+
     def test_1029_a_temporary_test_number_in_the_settings_until_the_contractor_sets_one(self):
         """2026-10-29：「一時的なtestcallは環境設定に追加」（L-13・E14）：管理者が入れたシステムの初めの値のテスト番号を、自分の番号を持たない
         契約者が使い、テスト番号を待っていた回線はすぐ鳴らす。契約者が自分の番号を入れたら、そちらを使う。"""

@@ -50,7 +50,7 @@ class Base(unittest.TestCase):
     def blocked(self, number, ref=None, s=None):
         s = s or self.s
         return self.client_tx(lambda tx: target_policy.block_reason(
-            tx, normalize(number), client_ref=ref, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]), s=s)
+            tx, normalize(number), client_ref=ref, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"], task_id=None), s=s)
 
 
 class ClientList(Base):

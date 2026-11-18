@@ -64,12 +64,10 @@ class Forbidden:
     correct: str | None          # 正しい案内（お詫びの電話で伝える。無ければ None）
 
 
-# 決まった選択肢の質問にシステムが足す答え「どれも要らない」（会話の中の名前 none。CL-1 の連絡帳 4-66 の (a)）。読むのは業務設定の部品
-# （business_settings.NONE_CHOICE はこの値。断る答えの決まりは business_settings.declined_answers）。ここに置いているのは、CL-1 の名前比べの
-# 試験（test_offline の test_names_match_cl2_business_settings）がここを読むため（業務設定の部品へ移すのは、CL-1 がその試験を替えてから＝
-# CL-2 の連絡帳 4-191。⛔ 2026-11-02 まで：判定も読んでいた＝判定は「用件を断られた」を決め直さなくなった）
-NONE_CHOICE = "どれも要らない"
+# ⛔ 2026-11-03 まで：決まった選択肢の質問にシステムが足す答え「どれも要らない」（NONE_CHOICE）をここに置いていた。業務設定の部品
+# （business_settings.NONE_CHOICE）の1か所へ移した（CL-1 の連絡帳 4-70 の 4-191：CL-1 の名前比べの試験は業務設定の部品から読む）
 KEYS = ("handling", "retry", "forbidden")
+ALL_REQUIRED = "*"                       # 理由×扱いの、必須の質問すべてに当てる扱いの鍵（質問の番号には使えない＝業務設定の RESERVED の外の記号）
 
 
 @dataclass(frozen=True)
@@ -79,6 +77,14 @@ class Rules:
     handling: dict[tuple[str, str, str], Handling]     # (質問, dont_know / refused, 理由) → 扱い
     retry: dict[str, Policy]                           # 再発信の方針の鍵 → 方針
     forbidden: dict[str, "Forbidden"]                  # 言ってはいけないことの名前 → 中身
+
+    def calls_back(self, question_id: str) -> bool:
+        """その質問の「わからない」で、続きの電話をかけうるか（1か所）：必須の質問で（扱いを持つのは必須の質問だけ＝`check`）、「わからない」の扱いが、どの理由でも
+        結論として終える、ではない（分かるお客様を聞く・分かる時を聞く・日を改める、のどれかがある）。判定は、取れていない必須の質問の「わからない」を、その理由の扱いで決める
+        （結論として終えるなら行を終え、ほかはかけ直す＝judge の (6)〜(10)）ので、かけ直しがありうるのはこの質問だけ。その後の文の中身（業務設定の
+        `Question.since`）を取込で決める質問を選ぶ所（business_import の `_decided_later`）と、付けてよい質問の確かめ（business_settings.check）が読む。
+        会話の側の同じ決まりは flowctl.Question.unknown_called_back（比べる試験 test_reasked_earlier_answers_match_cl2。CL-1 の連絡帳 4-149）。"""
+        return any(h.kind != "conclude" for (q, state, _), h in self.handling.items() if q == question_id and state == "dont_know")
 
 
 # 目的のお客様に取り次いでもらえなかった（not_reached_not_transferred）は、2つに分けて決める（2026-10-22 ユーザー：「『取り次いで
@@ -103,7 +109,8 @@ SYSTEM_POLICIES["not_reached_departed"] = Policy("end", None, None)
 # いただけなかった＝繋がらなかった理由 who_unclear。CL-1 の連絡帳 4-65 の (e)）：日を改めて同じお名前でかけても同じになるので、かけ直さずに
 # 行を終え、依頼者に「お名前だけではどの方か分からなかった」と返して、フルネームや部署を足していただく（埋めていただく欄は
 # business_settings.who_unclear_blanks の1か所。✅ 2026-11-02 日本時間1時22分 ユーザー：(a)「どちらもなければ、(イ)」・1時54分「OK」）
-SYSTEM_POLICIES["not_reached_who_unclear"] = Policy("end", None, None)
+WHO_UNCLEAR = "not_reached_who_unclear"   # この方針の鍵＝行の終わりの理由（依頼者に埋めていただく欄を埋めたら戻す＝計画書 7-1 (29)。0213）
+SYSTEM_POLICIES[WHO_UNCLEAR] = Policy("end", None, None)
 SYSTEM_ENDS = frozenset(k for k, p in SYSTEM_POLICIES.items() if p.action == "end")
 
 # 業務で決める再発信の方針の初めの値（業務設定に書かれていなければ、この値で入れる。入れたことはプレビューに出す＝契約者が見て
@@ -154,15 +161,28 @@ def check(version_id: UUID, required: tuple[str, ...], raw: Any) -> Rules:
             raise RulesInvalid(f"言ってはいけないこと {key} の correct は、正しい案内の文か null です")
         forbidden[key] = Forbidden(say_not.strip(), None if correct is None else correct.strip())
     handling: dict[tuple[str, str, str], Handling] = {}
-    if set(raw["handling"]) != set(required):
-        raise RulesInvalid(f"理由×扱いは、必須の質問ごとに1つずつ要ります（必須：{list(required)}）")
-    for q, per_state in raw["handling"].items():
-        if not isinstance(per_state, dict) or set(per_state) != {"dont_know", "refused"}:
+    # 必須の質問すべてに当てる扱い（`ALL_REQUIRED` の鍵。質問ごとの行は、答え・理由ごとにそれより勝つ）。どの質問が必須かは業務設定の確かめが
+    # 決める（分岐のシートの置き換えで、先へ進むかを決める質問が必須になる＝business_settings._branch_flow）ので、全部に当てる行は、ここで
+    # 必須の質問へ広げる（取込で広げると、置き換えのあとに必須になった質問に当たらない）。⚠️ 2026-11-04 より前の版は、取込で広げた質問ごとの形
+    keys = set(raw["handling"])
+    if not keys <= set(required) | {ALL_REQUIRED} or not (ALL_REQUIRED in keys or set(required) <= keys):
+        raise RulesInvalid(f"理由×扱いは、必須の質問ごとに1つずつ要ります（必須：{list(required)}。分岐のシートで「→ 終わり」のある質問は、"
+                           f"先へ進むかを決める質問なので必須になります。「{ALL_REQUIRED}」＝取込の質問ID「全部」で、必須の質問すべてに当てる扱いを書けます）")
+    common = raw["handling"].get(ALL_REQUIRED)
+    if common is not None and (not isinstance(common, dict) or set(common) != {"dont_know", "refused"}
+                               or not all(isinstance(common[s], dict) for s in common)):
+        raise RulesInvalid(f"必須の質問すべてに当てる理由×扱い（{ALL_REQUIRED}）は dont_know と refused の両方です")
+    for q in required:
+        own = raw["handling"].get(q)
+        if own is not None and (not isinstance(own, dict) or not set(own) <= {"dont_know", "refused"}
+                                or not all(isinstance(own[s], dict) for s in own)
+                                or (common is None and set(own) != {"dont_know", "refused"})):
             raise RulesInvalid(f"質問 {q} の理由×扱いは dont_know と refused の両方です")
+        per_state = {s: {**(common or {}).get(s, {}), **(own or {}).get(s, {})} for s in ("dont_know", "refused")}
         for state, reasons, allowed in (("dont_know", DONT_KNOW_REASONS, HANDLINGS),
                                         ("refused", REFUSED_REASONS, REFUSED_HANDLINGS)):
             given = per_state[state]
-            if not isinstance(given, dict) or set(given) != set(reasons):
+            if set(given) != set(reasons):
                 raise RulesInvalid(f"質問 {q} の {state} は、理由 {list(reasons)} のすべてに扱いが要ります")
             for reason, h in given.items():
                 if not isinstance(h, dict) or set(h) - {"kind", "conclusion"} or h.get("kind") not in allowed:

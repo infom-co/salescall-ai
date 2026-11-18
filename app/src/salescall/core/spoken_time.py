@@ -34,9 +34,9 @@ callee.business_hours。会社の初めは 9:00〜19:00。日をまたいでよ�
 gate.callee_settings の CalleeSettings.periods。この部品は初めの値を持たない＝`read` に必ず渡す。2026-10-19 ユーザー「OK」。幅はお客様の指定＝2026-10-23 ユーザー「『朝』も時間帯が決まっているでしょ」）：朝・朝一＝〜10時・午前（中）＝〜12時・
 午後一＝13〜14時・午後＝13時〜・夕方＝16〜18時・夜（晩）＝18〜20時。日の言葉の一覧は DESIGN.md 7-1d の表。
 幅の端のうち、お客様が実際に口にした端（「4時以降」の4時・「3時まで」の3時・時刻ちょうど）を返す（`Reading.said`）。端の決まって
-いない側（「朝」の0時・「午後」の24時）は、かける所（calling_hours.callee_range の1か所）がお客様指定の歯止め時間（設定
-callee.designated_limit）で埋めて切る（口にした端はその外でも切らない）。お客様の営業時間（callee.business_hours）は、午前・午後の
-読み分けだけに使う（2026-10-23 ユーザー）。
+いない側（「朝」の0時・「午後」の24時）は、かける所（calling_hours.callee_range の1か所）がお客様の営業時間（設定
+callee.business_hours）で切る（✅ 2026-11-08 ユーザー＝計画書 7-3 (3)。営業時間で切ると空になるときだけ、お客様指定の歯止め時間
+callee.designated_limit で埋める。口にした端はその外でも切らない。0216）。営業時間は、午前・午後の読み分けにも使う。
 - 時刻は日本の時刻（日本標準時）で読む。結果は時差つきの時刻。
 """
 
@@ -186,11 +186,23 @@ class Reading:
     #                                      日を言わない「3時なら」「夕方なら」「すぐ」も、いま話している今日の回は言った日（見直し16：
     #                                      依頼者の休みの日に約束の電話で話していても、お客様は今日のつもり）。次の日からの回は、
     #                                      言っていない（依頼者のかける日だけ＝next_action の Window.later）
+    point: bool = False                  # WINDOW：1つの時点から終わり無し（「すぐ」「30分後」「1時間後」＝言葉が言うのは1つの時点。
+    #                                      幅の形は「すぐ」と同じ。読み方は変えない＝お客様のほうから折り返すお約束の待ち＝judge._after_theirs が読む）
+    until_point: bool = False            # WINDOW：幅の始まりが「〇時まで」の時刻（終わりだけを口にした幅を、いま電話を続けられなかった理由で、その時刻から・
+    #                                      その時刻から1回分にした＝「3時までには戻ります」の3時）。幅の形は「3時以降」と同じで、読み方は変えない。お客様のほうから
+    #                                      折り返すお約束で、その時刻を「いちばん遅い戻り」と読む（judge._theirs_back が読む。2026-11-15）
 
     @property
     def exact(self) -> bool:
         """お客様が自分で時刻を指定したか（その時刻を含むNG時間の枠でもかけてよい根拠）。"""
         return self.kind == AT
+
+    @property
+    def moment(self) -> bool:
+        """言葉が1つの時点を言うか（1か所）：ちょうどの時刻（AT。「15時」「3時ごろ」「明日の15時」）と、その時点から終わり無しの幅
+        （「すぐ」「30分後」「1時間後」＝point）。幅の言葉（「夕方」「3時から5時」「3時以降」「明日」「平日なら」など）は言わない。
+        お客様のほうから折り返すお約束で、戻る時刻の1時間後からかける（judge._after_theirs。✅ 2026-11-14 ユーザー）のは、この時点だけ。"""
+        return self.kind == AT or (self.kind == WINDOW and self.point)
 
 
 class _Ambiguous(Exception):
@@ -534,6 +546,13 @@ def _at(d: date, sec: int) -> datetime:
     return datetime.combine(d, time(), tzinfo=JST) + timedelta(seconds=sec)
 
 
+def unspecified(text: str | None) -> bool:
+    """時刻の言葉が「時刻の決まっていない」（言葉が無い＝時刻を聞けなかった・時刻をこちらに任せる答え・「あとで」「後ほど」など）か
+    （1か所。言葉だけで決まる＝通話の時刻・お客様の設定を見ない）。`read` の UNSPECIFIED も、会話の報告に約束の一環か（intent）を書ける
+    申し出か（call_report.Callback.later。2026-11-07 見直し(3)の3）も、これを読む。"""
+    return text is None or not text.strip() or _UNSPECIFIED.fullmatch(_clean(text)) is not None
+
+
 def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], limit: tuple[int, int], slot: int,
          until: str | None, periods: Mapping[str, tuple[int, int]], monthly: bool = False,
          beyond_ok: bool = False) -> Reading:
@@ -543,8 +562,8 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
     periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの。読むのは gate.callee_settings の1か所＝
     CalleeSettings.period_table。初めの値を持たない＝必ず渡す）。
     monthly＝お客様が月の理由（月ぎめの業務・入金の間隔など）を言った（会話の報告の callback.cycle＝month）。
-    limit＝お客様指定の歯止め時間（設定 callee.designated_limit。幅の端の決まっていない側を埋めて切る＝calling_hours.callee_range）。
-    埋めると幅が空になる言い方（口にした端が歯止め時間の外：「23時以降なら」「明日の朝6時まで」）は、通話の中で確かめる（CONFIRM）。
+    limit＝お客様指定の歯止め時間（設定 callee.designated_limit。幅の端の決まっていない側は営業時間で切り、空になるときだけ歯止め時間で
+    埋める＝calling_hours.callee_range。0216）。埋めると幅が空になる言い方（口にした端が歯止め時間の外：「23時以降なら」「明日の朝6時まで」）は、通話の中で確かめる（CONFIRM）。
     確かめて「はい」と言われた（会話の報告の callback.beyond_limit_ok＝beyond_ok）ときは、口にした端から1回分（slot＝設定
     callback.exact_slot。時刻ちょうどの約束と同じ）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」。決めるのは
     calling_hours.callee_range の1か所。⛔ 見直し16b：前は空の幅が時刻の決まっていない約束になり、お客様の言ったことと反対の
@@ -554,14 +573,12 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
     （「〇時以降」と同じ）・slot_after＝〇時から1回分（slot）。None なら決めずに確かめる（CONFIRM。2026-10-23 ユーザー：「電話を
     切った理由があるから、電話を続けられなかったと考えるべきでしょ。その理由を確かめないと、何時から3時までの何時が決められない
     でしょ！」。⛔ 前は理由を見ずに、いつも「今から〇時まで」にしていた）。"""
-    if text is None or not text.strip():
+    if unspecified(text):
         return Reading(UNSPECIFIED)
     t = _clean(text)
     local = now.astimezone(JST)
-    if _UNSPECIFIED.fullmatch(t):
-        return Reading(UNSPECIFIED)
     if _ASAP.fullmatch(t):
-        return Reading(WINDOW, local, None, repeat=DAY_REPEAT, day_said=True)
+        return Reading(WINDOW, local, None, repeat=DAY_REPEAT, day_said=True, point=True)
     if (m := _LATER_CLOCK.match(t)) and _TAIL.fullmatch(t[m.end():]):   # 「30分後」「1時間後」「1時間半後」
         n = int(m.group("n"))
         minutes = n if m.group("unit") == "分" else n * 60 + (30 if m.group("half") else 0)
@@ -569,7 +586,7 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
             return _confirm("「〜後」が読めません")
         # 「いまは忙しいが、できるだけ早くかけ直して」（2026-10-19 ユーザー）：時刻ちょうどの約束ではなく、その時からの「すぐ」と
         # 同じ（終わり無しの幅。話せなければ「すぐ」と同じ決まりでかけ直す。NG時間は守る）
-        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True)
+        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True, point=True)
     try:
         days, period, pos, cycle = _day_part(t, local.date())
         pos = _JOIN.match(t, pos).end()
@@ -623,6 +640,7 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
     daily = (s0, s1) if kind == "window" else None
     said = said if daily is not None else NOT_SAID
     made = False                                      # 幅の終わりを、口にした時刻からこちらが作った（1回分。callee_range の made）
+    until_point = False                               # 幅の始まりが「〇時まで」の時刻（Reading.until_point）
     if daily is not None and said == UNTIL_SAID:      # 「〇時まで」：いま電話を続けられなかった理由で、かけてよい時間を決める
         if until is None:
             return _confirm("「〇時まで」は、いま電話を続けられない理由で、かけてよい時間が変わります（別の番号・別の方へ＝今から・"
@@ -634,29 +652,30 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
             daily, said, made = (s1, min(s1 + slot, DAY)), (True, False), True
         elif until != "now":
             raise ValueError(f"「〇時まで」の決め方が違います：{until!r}")
+        until_point = until != "now"
         s0, s1 = daily
-    got = None if daily is None else callee_range(daily, said, limit, made=made)
+    got = None if daily is None else callee_range(daily, said, limit, made=made, business=business_hours)
     if made and got is not None:                      # 作った終わりは歯止め時間で切る（「21時45分までに確認」＝21:45〜22:00）
         daily = got
         s0, s1 = daily
     if daily is not None and got is None:             # かけてよい時間が空になる（判断は callee_range の1か所）
-        slotted = callee_range(daily, said, limit, slot, made=made) if beyond_ok else None
+        slotted = callee_range(daily, said, limit, slot, made=made, business=business_hours) if beyond_ok else None
         if slotted is None:
             return _confirm("お客様が言った時刻が、お客様指定の歯止め時間の外です（夜遅く・朝早く）。その時刻でよいかを確かめてください"
                             "（「はい」なら、その時刻から1回分かける）")
         daily, said = slotted, (True, True)            # 確かめ済み：口にした端から1回分（両方の端をお客様が認めた幅）
         s0, s1 = daily
     if days is None:                                  # 「平日の夕方」「土日祝ならいつでも」：日の種類だけ（終わり無し）
-        return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT, said=said, day_said=day_said)
+        return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT, said=said, day_said=day_said, until_point=until_point)
     start = _at(days[0], s0)
     if days[1] is None:                               # 「〇日以降」：その日から終わり無し（「すぐ」と同じく、話せなければ次の日）
         return Reading(WINDOW, max(start, local), None, daily, days=kinds, repeat=DAY_REPEAT, since=start, said=said,
-                       day_said=day_said)
+                       day_said=day_said, until_point=until_point)
     end_at = _at(days[1], s1)
     if end_at <= local:
         return _confirm("その頃はもう過ぎています（今日のことか、明日以降か決まりません）")
     return Reading(WINDOW, max(start, local), end_at, daily, days=kinds, repeat=_repeat(cycle, daily, monthly), since=start,
-                   said=said, day_said=day_said)
+                   said=said, day_said=day_said, until_point=until_point)
 
 
 def _named_day(days: tuple[date | None, date | None] | None, kinds: tuple[str, ...] | None, cycle: str | None) -> bool:

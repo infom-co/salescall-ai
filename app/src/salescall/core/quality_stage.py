@@ -26,6 +26,7 @@
   合格したら、自動で再開する。ほかの原因（言ってはいけないこと・品質の基準）で止めた業務でも、止めた版の測りの中に判定できなかった
   通話があれば、その場面を入れることを求める（すでに止まっているあいだの判定できないを、見落として再開しない）。原因は業務設定とは限らない（会話の処理・判定の処理）ので、同じ版でも再開する。どの場面を入れたかは
   模擬通話の記録（scenes）で確かめる（入れていなければ再開しない）。
+- **本番になった業務の品質の停止は、システムが解く**（`release_production`。決まった間隔の仕事が呼ぶ。品質の門は検証モードの業務だけ＝原則9）。
 - **管理者か契約者が品質の停止を解いたら、その版を測り直す**（2026-10-15 ユーザー：「人の判断で再開できる仕組みは？」）。段の件数と指標は、
   その版の通話のうち「人が解いた時刻に、まだ締めていなかった通話」から数える（数える通話の範囲は `_WINDOW` の1か所）。
   ⚠️ いままでは版の通話をすべて数えたので、管理者か契約者が解いても、前の数（言ってはいけないこと 1件など）で、次の通話の締めでまた止まった。
@@ -137,18 +138,41 @@ def _quality_stop(tx: Tx, business_id: UUID) -> dict[str, Any] | None:
         " ORDER BY s.event_id LIMIT 1", (business_id, list(STOP_CAUSES)))
 
 
-def prepare(tx: Tx, version_id: UUID) -> str:
-    """版を始める（実施回に版を割り当てたときに呼ぶ）。答え：already（もう段がある）／stopped_version（品質で止まった版そのもの。
-    再開しない）／mock_needed（模擬通話の合格を待つ）／opened（最初の段を開いた）。"""
+def _stopped_version(tx: Tx, stop: dict[str, Any] | None, version_id: UUID) -> bool:
+    """その版が、品質で止まった版そのもの（中身の同じ版）か（1か所。`start_kind` と `record_mock` が読む）。判定できないで止めた停止は
+    当てはまらない（原因が業務設定とは限らないので、同じ版でも再開する）。止まった版の写し（以前の版へ戻す・手で前の版に戻す・業務の複製＝
+    business_settings.save_from）も、止まった版そのもの：写しの元をたどった、中身の同じいちばん元の版（データベースの salescall.
+    version_copy_root＝版の元の1か所。0197）で比べる（⛔ 2026-11-07 の第三者の見直し (2) の5：前は版の番号で比べたので、止まった版の写しで
+    模擬通話に合格すると、同じ中身のまま再開できた）。"""
+    if stop is None or stop["cause"] == "judge_unknown" or stop["version_id"] is None:
+        return False
+    return tx.one("SELECT salescall.version_copy_root(%s) = salescall.version_copy_root(%s) AS same",
+                  (stop["version_id"], version_id))["same"]
+
+
+def start_kind(tx: Tx, version_id: UUID) -> str:
+    """その版を始めるとどうなるか（何も書かない。決めるのはここだけ＝`prepare` と、版を自動で替える business_settings.adopt_ready が読む）：
+    already（もう段がある）／stopped_version（品質で止まった版そのもの。再開しない）／mock_needed（模擬通話の合格を待つ）／open（最初の段を
+    開ける）。"""
     if current(tx, version_id) is not None:
         return "already"
     v = _version(tx, version_id)
     stop = _quality_stop(tx, v["business_id"])
-    if stop is not None and stop["cause"] != "judge_unknown" and stop["version_id"] == version_id:
+    if _stopped_version(tx, stop, version_id):
         return "stopped_version"
     passed_before = tx.one("SELECT 1 FROM salescall.mock_runs WHERE passed LIMIT 1") is not None   # この依頼者（取引の範囲）
     if stop is not None or not passed_before:
         return "mock_needed"
+    return "open"
+
+
+def prepare(tx: Tx, version_id: UUID) -> str:
+    """版を始める（実施回に版を割り当てたときに呼ぶ）。答え：already（もう段がある）／stopped_version（品質で止まった版そのもの。
+    再開しない）／mock_needed（模擬通話の合格を待つ）／opened（最初の段を開いた）。どれになるかは `start_kind` の1か所。"""
+    kind = start_kind(tx, version_id)
+    if kind != "open":
+        return kind
+    v = _version(tx, version_id)
     sizes = list(_get(tx, v, "quality.stage.sizes"))
     open_stage(tx, version_id, 1, sizes[0], evidence="この依頼者は模擬通話に合格済み（依頼者ごとに最初のみ）")
     return "opened"
@@ -178,8 +202,8 @@ def record_mock(tx: Tx, version_id: UUID, r: MockResult) -> dict[str, Any]:
             # 判定できなかった通話の場面を入れていない模擬通話では、直ったと言えない。止めた原因が判定できないでなくても同じ
             # （2026-10-16 見直し：品質の停止がもうあるあいだに締めた通話が判定できなかったとき、前は場面を求めずに再開していた）
             outcome = "scenes_missing"
-        elif stop is not None and stop["cause"] != "judge_unknown" and stop["version_id"] == version_id:
-            outcome = "stopped_version"          # 止まった版そのもの：合格でも再開しない（新しい版で）
+        elif _stopped_version(tx, stop, version_id):
+            outcome = "stopped_version"          # 止まった版そのもの（写しも）：合格でも再開しない（新しい版で）
         else:
             if stop is not None:
                 stops.resume(tx, stop["event_id"], reason=f"新しい版が模擬通話に合格（模擬通話 {mock_id}）",
@@ -300,6 +324,29 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
         " RETURNING eval_id",
         (version_id, stage["stage_no"], stage["cap"], n_used, json.dumps(m, default=str), outcome, stop_id))
     return {"eval_id": row["eval_id"], "outcome": outcome, "metrics": m, "stop_event_id": stop_id}
+
+
+OUT_OF_VERIFICATION = "本番の業務は品質では止めない（原則9：品質の門と段階的な立ち上げは、検証モードの業務だけ）"
+
+
+def release_production(tx: Tx) -> list[int]:
+    """品質の停止は、検証モードの業務だけに効く（原則9）：取引の依頼者の、まだ解かれていない品質の停止のうち、業務が本番（検証モードを
+    使わない＝承認の部分の1か所 approval.human_for_business）になったものを解き、その業務の実施回のいまの版で、まだ段の無い版を始める
+    （`prepare` の1か所。止まっていたあいだに割り当てた版は、模擬通話の合格を待っていた）。解いた記録の番号を返す。決まった間隔の仕事が
+    呼ぶ（止めるのも解くのも、原因ごとに決めた条件でシステムが行う＝計画書 10-3）。⛔ 2026-11-18 の6回目の見直しまで：検証モードで品質で
+    止めた業務は、本番に切り替えても止まったまま（解く道は新しい版の模擬通話の合格だけ）で、お詫びのほかの電話がかからなかった。"""
+    done: list[int] = []
+    for s in tx.all("SELECT event_id, business_id FROM salescall.open_stop_events"
+                    " WHERE scope = 'business' AND client_id = salescall.cur_client() AND cause::text = ANY(%s) ORDER BY event_id",
+                    (list(STOP_CAUSES),)):
+        if approval.human_for_business(tx, s["business_id"]):
+            continue
+        done.append(stops.resume(tx, s["event_id"], reason=OUT_OF_VERIFICATION, evidence="業務の設定 approval.human が本番"))
+        for r in tx.all("SELECT DISTINCT salescall.run_current_version(run_id) AS version_id FROM salescall.runs"
+                        " WHERE business_id = %s ORDER BY 1", (s["business_id"],)):
+            if r["version_id"] is not None:
+                prepare(tx, r["version_id"])
+    return done
 
 
 def _stop(tx: Tx, v: dict[str, Any], version_id: UUID, cause: str, reason: str, *, unknown_cause: str | None) -> int:

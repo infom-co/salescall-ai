@@ -506,6 +506,10 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
         #   解くまで、約束のお客様も途中で切れたお客様も待ち続ける（管理者も契約者も確かめと承認だけ＝2026-10-17 ユーザー。⛔ 見直し14）
         raise config.ConfigMissing("設定 SALESCALL_PROBER が入っていません（電話をかけるときは、停止を解く確かめの部品も要ります。"
                                    "手順：app/README.md）")
+    if cfg.call_runner and not cfg.version_checker:   # 使っている AI の新しい版を確かめる部品が無いと、本番で新しい版に気づかない（✅ 2026-11-15
+        #   ユーザー「本番に入っても10日に一回は最新版が出ていないかを確認して、最新版が出れば置き換えてください。」＝CL-1 の連絡帳 4-163）
+        raise config.ConfigMissing("設定 SALESCALL_VERSION_CHECKER が入っていません（電話をかけるときは、使っている AI の新しい版を確かめる"
+                                   "部品も要ります。手順：app/README.md）")
     if cfg.local_only and cfg.admin_tenant is None:   # 移る間の形は、この機械の PC の部品の通行証を自分で払い出す（local_pc）。
         #   どの契約者の分か無いと、通行証が無いまま黙って動き、電話もかけず控えも書かない（⛔ 2026-10-22 の見直し13）
         raise config.ConfigMissing("設定 SALESCALL_ADMIN_TENANT が入っていません（つなぎ口がこの機械の中だけのときは、この機械の"

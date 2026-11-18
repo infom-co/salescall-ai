@@ -16,7 +16,7 @@ from dataclasses import replace
 from unittest import mock
 from datetime import timedelta
 
-from salescall.core import attempts, errors, fix_requests, gate, next_action, scheduler, settings, stops, troubles
+from salescall.core import attempts, errors, fix_requests, gate, leases, next_action, scheduler, settings, stops, troubles
 from salescall.core import call_report, conversation_io, health
 from salescall.core.access import Rejected, RetryExhausted
 from salescall.core.health_rules import LineStage
@@ -284,7 +284,7 @@ class OurTroubles(SupervisorBase):
         self.assertTrue(self.requests("CL-2", "call_storage_stuck"))           # 直す担当（保存）へ
         self.assertTrue(self.tx(s, lambda tx: support.task_stage(tx, rows[0]) == "await_recovery"))   # 行は復旧を待つ
         self.assertFalse(errors.counts_rows("call_storage_stuck"))
-        self.assertTrue(all(errors.counts_rows(k) for r, k in errors.TROUBLES.items() if r != "storage_stuck"))
+        self.assertTrue(all(errors.counts_rows(k) for r, k in errors.TROUBLES.items() if r not in ("storage_stuck", "worker_lost")))
         b = self.row(s)                                                        # ほかの種類は、これまでどおり3行で止める
         others = (b["task"], self.row(s)["task"], self.row(s)["task"])
         for task in others:
@@ -304,6 +304,35 @@ class OurTroubles(SupervisorBase):
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.error_events WHERE source = 'storage'"
                                                       " AND attempt_id IS NULL AND line_id = %s", (s["line"],)))["n"], 1)
         self.assertTrue(self.requests("CL-2", "storage"))
+
+    def test_a_crash_ending_calls_on_three_rows_does_not_stop_the_contractor(self):
+        """回線の処理・見守り役が止まって、後始末が終えた電話（worker_lost）は、違う行の数に数えない（✅ 2026-11-18 ユーザー「案B」：サーバーが1回
+        落ちると、話していた回線の電話が同時に終わり、その1回だけで「違う3行」になって契約者の新しい電話を止めてしまう＝データベースの一時的な
+        止まりと同じ扱い）。電話ごとに伝え（CL-2 へ修正依頼）、その行は復旧を待つのは、ほかの種類と同じ。番号・回線の数にも入れない（原則6）。"""
+        class Lost(BaseException):
+            pass
+
+        class Crashed(support.OpensConvo):   # 通話の途中で、回線の処理そのものが止まる（例外でない終わり＝後始末に任せる）
+            def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+                call.beat()
+                access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, claim.attempt_id, "ringing"))
+                raise Lost()
+
+        s = self.ready()
+        rows = [s["task"]] + [self.row(s)["task"] for _ in range(3)]
+        for _ in rows:
+            with self.assertRaises(Lost):
+                line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Crashed())
+            self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.recover(tx, HOLDER, s["line"]))   # 止まった流れの後始末
+            jobs.settle_ready(self.ctx(s))
+        ended = self.tx(s, lambda tx: [r["trouble"] for r in tx.all(
+            "SELECT trouble FROM salescall.attempts WHERE task_id = ANY(%s) AND state = 'technical_error'", (rows,))])
+        self.assertEqual(ended, ["worker_lost"] * 4)
+        self.assertEqual(self.tenant_stops(s), [])                             # 4行でも止めない
+        self.assertEqual(self.rows_counted(s, "call_worker_lost"), 0)          # 違う行の数に入れていない
+        self.assertTrue(self.requests("CL-2", "call_worker_lost"))             # 直す担当へ
+        self.assertTrue(self.tx(s, lambda tx: support.task_stage(tx, rows[0]) == "await_recovery"))   # 行は復旧を待つ
+        self.assertFalse(errors.counts_rows("call_worker_lost"))
 
     def test_the_recovery_job_reaches_rows_whatever_happened_to_the_line(self):
         """データベースの止まりで電話を終えた行へ「書き込みが戻った」（E21）を渡すのは、決まった間隔の仕事 jobs.storage_recovery の1か所
@@ -463,7 +492,7 @@ class OurTroubles(SupervisorBase):
         self.assertTrue(self.requests("CL-1", "call_runner_error"))           # 修正依頼は直す担当へ（ほかの試験の依頼と同じ1つ）
         self.assertEqual({r: errors.ACTIONS[k].fixer for r, k in errors.TROUBLES.items()},
                          {"frozen": "CL-1", "ai_malfunction": "CL-1", "cannot_proceed": "CL-1", "runner_error": "CL-1",
-                          "storage_stuck": "CL-2"})
+                          "storage_stuck": "CL-2", "worker_lost": "CL-2"})   # 回線の処理・見守り役が止まった＝CL-2（0238）
         self.trouble(s, "ai_malfunction", task=self.row(s)["task"], again=False)   # 同じ理由は2行：まだ止めない
         self.assertEqual(self.tenant_stops(s), [])
         for source, trouble in (("call", "storage_stuck"), ("storage", "frozen")):   # 理由と出どころが合わない伝え方は断る

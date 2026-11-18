@@ -146,7 +146,8 @@ class Line:
     """回線の欄（17-1-1）。声の続き（audio＝声が聞き取れなかった、違うお客様の番号の組。m はその数。お客様の回線のせいと分かった
     お客様は入れない）・お客様の回線のせいと見た電話の続き（suspect）・声で止めた続きの回数 j は、回線が外れるまで、どの段でも持ち越す
     （L-5 が続けて L-3 を引くため）。audio と suspect を0に戻すのは、声が通った証拠（話し終えた電話 E5）だけ。テストの回数 t・続き・
-    待つ理由・次に動く時刻は、元気でない段だけが持つ。"""
+    待つ理由・次に動く時刻は、元気でない段だけが持つ（続きを持つのは確かめ中と、声の不調・休み＝ほかの回線の出来事で休みに入る前から
+    かけていた電話。L-35）。"""
     stage: LineStage
     audio: frozenset[str] = frozenset()
     suspect: int = 0
@@ -592,6 +593,11 @@ def _l6(line: Line, ev: Event, rules: Rules) -> _Step:
     return _Step(replace(line, run=line.run + ((ev.attempt, ev.number),)))
 
 
+def _l35(line: Line, ev: Event, rules: Rules) -> _Step:
+    # 声の休みに入る前からかけていた電話が鳴らずに終わった：続きに入れる（休みのまま。決めるのは再開のテスト番号・手の再開のあとの次の電話）
+    return _Step(replace(line, run=line.run + ((ev.attempt, ev.number),), run_start=line.run_start or ev.at))
+
+
 def _l7_l8(line: Line, ev: Event, rules: Rules) -> _Step:
     return _ring_or_wait(line, ev, rules, checking=True)
 
@@ -707,20 +713,28 @@ def _resumed(line: Line) -> Line:
 
 
 def _l21(line: Line, ev: Event, rules: Rules) -> _Step:
-    return _Step(_resumed(line), (_do(RECORD, about=f"{ev.by}が手で再開した：{ev.reason}"),
+    # L-35 の続き（まだ分からない電話）があれば、手の再開はその証拠にならないので、確かめ中 (a) で同じ回線の次の電話を待つ（L-2 と同じ。8-8
+    # 「同じ回線の次の電話で決める」。声の続き・お客様の回線のせいの続きは、再開と同じく0から＝`_resumed`）
+    again = _resumed(line) if not line.run else \
+        Line(LineStage.CHECK_A, j=line.j, run_start=ev.at, run=line.run, next_at=ev.at + rules.first_gap())
+    return _Step(again, (_do(RECORD, about=f"{ev.by}が手で再開した：{ev.reason}"),
                                   _do(NOTIFY, to=("契約者",), note="resumed", about="この回線を手で再開しました")))
 
 
 def _l24(line: Line, ev: Event, rules: Rules) -> _Step:
+    # 休みに入る前からかけていて鳴らずに終わった電話（L-35 の続き）は、テスト番号が鳴った＝回線は発信できた＝番号のせい（L-9 と同じ）
     return _Step(_resumed(line),
+                 _decide_run(line, "番号") +
                  (_do(RECORD, about="テスト番号が鳴ったので、声で休ませた回線を再開した"),
                   _do(NOTIFY, to=("契約者",), note="resumed", about="テスト番号が鳴ったので、この回線を再開しました")))
 
 
 def _l25(line: Line, ev: Event, rules: Rules) -> _Step:
     t = line.t + 1
+    # L-35 の続きは、テスト番号が鳴らなかった＝回線のせい（L-10 と同じ）
     return _Step(_rest(LineStage.LINE_REST, rules, ev.at, audio=line.audio, j=line.j, t=t, next_at=ev.at + rules.gap(t),
-                       tested_at=ev.at), (_do(RECORD, about="声で休ませた回線で、テスト番号が鳴らなかった（回線のせい）"),))
+                       tested_at=ev.at),
+                 _decide_run(line, "回線") + (_do(RECORD, about="声で休ませた回線で、テスト番号が鳴らなかった（回線のせい）"),))
 
 
 def _l28(line: Line, ev: Event, rules: Rules) -> _Step:
@@ -1049,6 +1063,14 @@ TABLE: tuple[TableRow, ...] = (
     _row("L-32", L, {LS.HEALTHY} | CHECKING, "E12", _record_only, "【当】（手の再開は休みの状態だけ＝決定 10-29「手で再開」）"),
     _row("L-33", L, LS.OUT_OF_USE, "E2", _l33, "【当】（L-14「かけている途中の電話も、終わって鳴っていなければ回線」）"),
     _row("L-34", L, IN_USE, "E20", _l34, "【決 10-30 夜（お客様の回線のせいと分かったお客様は、前の回線の数からも外す・3回）】"),
+    # 声の不調・休みに、ほかの回線の出来事（E20＝L-34）で入ったとき、この回線で話している途中だった電話の終わり（休みに入る前からかけていた電話。
+    # 声の休みに入る道で、この回線が通話中でありうるのは E20 だけ＝L-3 はこの回線の電話の終わり・L-10・L-25 はテスト番号の答え）。⛔ 2026-11-18 の
+    # 6回目の見直しまで：「起きない」穴（G-L7）として誤りの値にし、鳴らなかった電話の試行のせいがどこでも決まらず、番号の「まだ分からない」が
+    # 残り続けた（番号の欄の保留が外れず、その行は門にも候補にも出ないまま止まった＝8-8「一つの行で止まり続けない」に反した）
+    _row("L-35", L, LS.AUDIO_REST, "E2", _l35, "【当】（8-8「まだ分からない：同じ回線の次の電話で決める」：続きに入れ、再開のテスト番号（L-24＝番号・"
+                                               "L-25＝回線）・手の再開のあとの次の電話（L-21→確かめ中 (a)）・外したとき（L-22＝回線）で決める）"),
+    _row("L-36", L, LS.AUDIO_REST, ("E1", "E3", "E4", "E5"), _nothing,
+         "【当】（休みに入る前からかけていた電話の、鳴らなかった電話のほかの終わり：休みのまま。再開はテスト番号か手だけ＝決 10-29）", nothing=True),
 
     # ── 17-3-2 行 ──
     _row("R-1", T, TS.ON_PLAN, "E2", _r1, "【決 10-24】"),
@@ -1151,7 +1173,9 @@ GAPS: tuple[Gap, ...] = (
     # 回線
     _gap("G-L6", L, ({LS.HEALTHY, LS.CHECK_A, LS.CHECK_B}), ("E6", "E7", "E8", "E9"), "起きない",
          "テスト番号を鳴らしていない段に、テスト番号の答えは来ない"),
-    _gap("G-L7", L, RESTS, ("E1", "E2", "E3", "E4", "E5"), "起きない", "休みの回線はお客様へかけないので、お客様の電話の出来事は来ない"),
+    _gap("G-L7", L, LS.LINE_REST, ("E1", "E2", "E3", "E4", "E5"), "起きない",
+         "回線のせい・休みに入るのはテスト番号の答えのときだけ（L-10・L-25。そのあいだお客様へかけていない）なので、お客様の電話の出来事は来ない"
+         "（声の不調・休みは、ほかの回線の出来事で話している途中に入りうる＝L-35・L-36）"),
     # 行
     _gap("G-R10", T, (TS.ON_PLAN, TS.AWAIT_RECOVERY, TS.RESTING, TS.VOICE_REDIAL), "E15", "起きない",
          "判定待ちでない行に、E15（判定待ちの行に、ほかの回線がかけた）は来ない"),
@@ -1206,8 +1230,10 @@ def _contents_wrong(state: Any) -> str | None:
             if (s is LineStage.CHECK_B) != (state.wait is not None):
                 return "待つ理由を持つのは (b) だけ"
             return None
-        if state.entered_at is None or state.run:
-            return "休みなのに、入った時刻が無い・続きの電話がある"
+        if state.entered_at is None:
+            return "休みなのに、入った時刻が無い"
+        if state.run and (s is not LineStage.AUDIO_REST or state.run_start is None):
+            return "続きの電話を持てる休みは、声の不調・休みだけ（休みに入る前からかけていた電話＝L-35。続きの始まりと組で）"
         if s is LineStage.LINE_REST and state.t < 1:
             return "回線のせい・休みなのに、鳴らなかったテストの回数が無い"
         if s is LineStage.AUDIO_REST and state.j < 1:
