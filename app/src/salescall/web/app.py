@@ -724,6 +724,30 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     def business_home(request: Request, client_id: UUID, business_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
         return _client_or_business(request, client_id, business_id, done, ok)
 
+    @app.get("/c/{client_id}/search")
+    def client_search(request: Request, client_id: UUID, q: str = "") -> HTMLResponse:
+        """その依頼者のお客様の行を探す（会社名・お呼びする方・管理番号の一部、または電話番号＝そろえ方は core の phone.normalize の1か所）。
+        住所の依頼者の取引の中だけを探す（ほかの依頼者・契約者の行は出ない＝データベースが見せない）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            term = q.strip()
+            def read(tx: Any) -> dict[str, Any]:
+                found: list[dict[str, Any]] = []
+                if term:
+                    n = phone.normalize(term)
+                    found = tx.all(
+                        "SELECT DISTINCT t.task_id, t.source_name, t.target_name, t.client_ref, r.run_id, r.name AS run, r.business_id,"
+                        "       b.name AS business FROM salescall.tasks_now t JOIN salescall.runs r ON r.run_id = t.run_id"
+                        " JOIN salescall.businesses b ON b.business_id = r.business_id"
+                        " WHERE strpos(coalesce(t.source_name, ''), %s) > 0 OR strpos(coalesce(t.target_name, ''), %s) > 0"
+                        "    OR strpos(coalesce(t.client_ref, ''), %s) > 0"
+                        "    OR (%s::text IS NOT NULL AND EXISTS (SELECT 1 FROM salescall.task_numbers k WHERE k.task_id = t.task_id"
+                        "                                          AND k.phone_e164 = %s))"
+                        " ORDER BY t.source_name NULLS LAST, t.task_id LIMIT 200", (term, term, term, n.e164, n.e164))
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "businesses": context.businesses(tx), "found": found}
+            return page(request, "search.html", person, ctx, q=term, **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
     @app.get("/c/{client_id}/b/{business_id}/versions/{version_id}")
     def version_page(request: Request, client_id: UUID, business_id: UUID, version_id: UUID) -> HTMLResponse:
         """業務設定の版の中身（読むだけ。読むのは core の business_settings.load の1か所＝置いたときと同じ確かめで読む）。"""

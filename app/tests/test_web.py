@@ -161,6 +161,25 @@ class Web(_World):
         grab = lambda t: re.findall(r'<span class="value">([^<]*)</span>', t)   # noqa: E731
         self.assertEqual(grab(before), grab(after))
 
+    def test_search_finds_rows_of_this_client_only(self):   # S-7
+        from salescall.core import customer_rows, phone
+        def first(w):
+            return app_access().in_client(OPERATOR, w["tenant"], w["client"], lambda tx: customer_rows.progress(tx, w["run"])[0])
+        mine, other = first(self.a), first(self.b)                       # 契約者Bの依頼者Zは、同じ番号のお客様
+        hit = self.get("A", f"/c/{self.a['client']}/search?q={phone.normalize(mine['dial_phone']).national}").text
+        self.assertIn(f"/rows/{mine['task_id']}", hit)
+        self.assertNotIn(str(other["task_id"]), hit)
+        self.assertNotIn(str(other["task_id"]), self.get("A", f"/c/{self.y['client']}/search?q={phone.normalize(mine['dial_phone']).national}").text)
+        self.assertEqual(self.get("A", f"/c/{self.b['client']}/search?q=a").status_code, 404)
+
+    def test_an_operation_sent_from_an_old_tab_only_touches_the_client_in_its_address(self):   # S-5
+        tok = self.token("A")
+        other_task = self.y["task"]                                         # タブ2で開いていた依頼者Yの行を、タブ1の依頼者Xの住所で送る
+        url = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}/exclude"
+        self.assertEqual(self.post("A", url, {"form_token": tok, "task_id": str(other_task), "level": "exclude", "reason": "試験"}).status_code, 404)
+        r = self.post("A", f"/c/{self.a['client']}/inbox/old_promise/keep", {"form_token": tok, "task_id": str(other_task)})
+        self.assertIn("ok=0", r.headers["location"])
+
     def test_the_inbox_filter_ignores_a_client_of_another_contractor(self):
         page = self.get("A", f"/t/inbox?client={self.b['client']}&kind=no_such_kind")
         self.assertEqual(page.status_code, 200)
