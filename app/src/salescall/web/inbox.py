@@ -166,6 +166,24 @@ def _old_promises(tx: Tx) -> list[Item]:
     return items
 
 
+def _corrections(tx: Tx) -> list[Item]:
+    """契約者の直しで電話をかけることになり、「かけてよい」の確かめを待っている行（確かめ待ちか＝データベースの1か所
+    task_correction_unconfirmed。✅ 2026-11-18 管理者：伺い2「本当に折り返してよいのか確認と承認をもらう。承認なく勝手にかけたらクレームになる
+    可能性があるため」。CL-2 4-422）。"""
+    items = []
+    for r in tx.all("SELECT task_id FROM salescall.tasks WHERE salescall.task_correction_unconfirmed(task_id) IS NOT NULL ORDER BY task_id"):
+        n = next_action.current(tx, r["task_id"]) or {}
+        ev = _row(tx, r["task_id"]) + [("直したことでかける電話", n.get("cause") or "")]
+        if n.get("call_at"):
+            ev.append(("かける時刻", calling_hours.label(n["call_at"])))
+        items.append(Item(
+            kind="correction", key={"task_id": str(r["task_id"])}, title="直しでかける電話の確かめ",
+            decide="直した内容で、このお客様にお電話してよいか",
+            evidence=ev, if_not="確かめるまで、この電話はかけません（かけないなら、お客様の行の画面で「かけない」にしてください）。",
+            at=n.get("decided_at"), buttons=(Button("confirm", "かけてよい", main=True),), **_business_of(tx, r["task_id"])))
+    return items
+
+
 def _solutions(tx: Tx) -> list[Item]:
     """手で外した・まだ確かめていない依頼者の解決策（実施回ごと。client_solutions.unconfirmed の1か所）。確かめるまで、その実施回の新しい電話は
     かけない（2026-11-07 管理者）。⏳ 「入れる」（add_earlier）は、足す文の名前の読みを確かめる部品（find_names）を画面から渡す方法が決まって
@@ -217,6 +235,9 @@ KINDS: dict[str, Kind] = {
     "old_promise": Kind("前の担当の方との約束", _old_promises, {
         "keep": (lambda tx, k: row_fixes.choose_old_promise(tx, UUID(k["task_id"]), keep_old_promise=True), "前の担当の方とのお約束を守ります。"),
         "new_person": (lambda tx, k: row_fixes.choose_old_promise(tx, UUID(k["task_id"]), keep_old_promise=False), "新しい担当の方へおかけします。"),
+    }),
+    "correction": Kind("直しでかける電話の確かめ", _corrections, {
+        "confirm": (lambda tx, k: approval.confirm_correction_call(tx, UUID(k["task_id"])), "確かめました。直した内容でお電話します。"),
     }),
     "solution": Kind("依頼者の解決策の確かめ", _solutions, {}),
     "deficit": Kind("赤字の確認", _deficit, {

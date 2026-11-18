@@ -3,6 +3,7 @@
 前の担当の方との約束（old_promise）：選びを待つ行が受け箱に出る・「守る」を出すかは core の1か所（old_promise_keepable）に従う・
 画面のボタンで選ぶと受け箱から消え、行の予定が core の決めたとおりになる。
 1か月以上先のかけ直し（month_ahead）：伺っている行が受け箱に出る（お電話する日時つき）・画面のボタンで答えると消え、もう答えられない。
+直しでかける電話（correction）：確かめ待ちの行が受け箱と1行の画面に出る・1行の画面から確かめると、その画面へ戻り、確かめ待ちが無くなる（CL-2 4-422）。
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from salescall.web.app import create_app
 from salescall.web.context import Person
 from tests.support import CLEAN, app_access, callback
 from tests.test_gate import FakeDriver, dial_exit
-from tests.test_settle import DialFixAfterCalls, rep
+from tests.test_settle import Corrections, DialFixAfterCalls, rep
 from tests.test_unwelcome import MonthAhead
 
 SECRET = b"test-only-secret"
@@ -97,10 +98,37 @@ class MonthAheadAnswer(MonthAhead):
         self.assertIn("ok=0", again.headers["location"])                       # もう答えた（古い画面）＝断りの文・何も書かない
 
 
+class CorrectionCall(Corrections):
+    def test_a_correction_call_waits_in_the_inbox_and_on_the_row_until_confirmed(self):
+        from salescall.core import next_action
+        from tests.test_judge import goal_refused
+        s = self.ready()
+        got = self.settle(s, self.call(s, report=goal_refused(rep(), goals=("Q1",)), items=(("Q1", "accepted", "いいえ"),)))
+        self.put_client(s, "gate.same_contact_min_interval", 1)
+        self.correct(s, got["version_no"], "open")                              # 「断られた」を「未決」に直した＝かける（CL-2 の試験と同じ）
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：予定をいまに"))
+        http = _http(s["tenant"])
+        self.assertIn("直しでかける電話の確かめ", http.get("/t/inbox").text)
+        row = f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/rows/{s["task"]}'
+        page = http.get(row).text
+        self.assertIn("直した内容でお電話してよいかの確かめを待っています", page)
+        token = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)
+        r = http.post(f'/c/{s["client"]}/inbox/correction/confirm', data={"form_token": token, "task_id": str(s["task"]), "back": row},
+                      follow_redirects=False)
+        self.assertTrue(r.headers["location"].startswith(row + "?"))            # 1行の画面へ戻る
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (s["task"],))["v"]))
+        self.assertNotIn("直しでかける電話の確かめ", http.get("/t/inbox").text)
+        outside = http.post(f'/c/{s["client"]}/inbox/correction/confirm', data={"form_token": token, "task_id": str(s["task"]),
+                                                                              "back": "https://example.invalid/"}, follow_redirects=False)
+        self.assertTrue(outside.headers["location"].startswith("/t/inbox"))      # 依頼者の中の住所でなければ戻さない（ok=0：もう確かめた）
+        self.assertIn("ok=0", outside.headers["location"])
+
+
 def load_tests(loader, tests, pattern):
     """この試験だけを読む（受け継いだ CL-2 の組の試験を、ここで流し直さない）。"""
     return unittest.TestSuite(loader.loadTestsFromNames(
-        [f"{__name__}.{c.__name__}.{n}" for c in (OldPromise, MonthAheadAnswer) for n in c.__dict__ if n.startswith("test_")]))
+        [f"{__name__}.{c.__name__}.{n}" for c in (OldPromise, MonthAheadAnswer, CorrectionCall) for n in c.__dict__ if n.startswith("test_")]))
 
 
 if __name__ == "__main__":

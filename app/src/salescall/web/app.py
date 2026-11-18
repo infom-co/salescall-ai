@@ -182,7 +182,8 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             do, done = k.perform[action]
             key = {f: str(form.get(f, "")) for f in inbox.KEY_FIELDS}
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, lambda tx: do(tx, key)), done=done)
-            return _back("/t/inbox", out)
+            back = str(form.get("back") or "")   # 1行の画面などから決めたときは、その画面へ戻る（その依頼者の中の住所だけ）
+            return _back(back if back.startswith(f"/c/{client_id}/") and "//" not in back else "/t/inbox", out)
         return handle(request, render)
 
     @app.post("/admin/inbox/{kind}/{action}")
@@ -786,6 +787,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                     except actions.REFUSALS as e:
                         step = {"error": str(e)}
                 return {"level": exclusions.level(tx, task_id),
+                        "correction": tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (task_id,))["v"],
                         "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
                         "run": tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s", (run_id,)),
