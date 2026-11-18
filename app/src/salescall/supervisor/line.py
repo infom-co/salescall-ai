@@ -527,11 +527,11 @@ def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id:
 
 
 def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: CallDriver,
-              runner: plugins.CallRunner) -> Round:
+              runner: plugins.CallRunner, *, fell: BaseException | None = None) -> Round:
     """回線ごとの処理の1回分（1か所）：回線の欄を聞き（core/health.tick。次に動く時刻が来ていれば表が引く）、その段のとおり、テスト番号を
     鳴らす・お客様へかける・待つ、のどれかをするだけ（説明の 6）。その前に、この回線に前の回の電話が残っていれば後始末する
-    （core/leases.recover_left。終わりの記録が書けずに残った試行で、回線が止まり続けない）。"""
-    access.in_tenant(actor, tenant_id, lambda tx: leases.recover_left(tx, holder, line_id))
+    （core/leases.recover_left。終わりの記録が書けずに残った試行で、回線が止まり続けない。fell＝前の回が落ちた誤り＝終える理由は leases.left_why の1か所）。"""
+    access.in_tenant(actor, tenant_id, lambda tx: leases.recover_left(tx, holder, line_id, why=leases.left_why(fell)))
     now = access.in_tenant(actor, tenant_id, lambda tx: health.tick(tx, line_id))
     if now.ring:   # 表が鳴らす頼みを置いた：鳴らして、答えを表へ（ring_test.run の1か所）。そのあと、もう一度回線の欄を聞く
         ring_test.run(access, actor, tenant_id, line_id, driver)
@@ -651,6 +651,7 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
     storage = False   # 前の電話を、データベースが止まって終えた：書き込みが戻ったと確かめるまで、この回線の次の電話をかけない（`storage_back`。
     #                   この印は自分の次の電話のためだけ。復旧待ちの行へ伝えるのは jobs.storage_recovery＝見直し29a の 1）
     told = False      # 書き込みが戻らない続きを、もう記録した（続きのあいだは2回目を出さない。戻ったら数え直す）
+    fell: BaseException | None = None   # 前の回が落ちた誤り（次の回の頭の後始末が、残った試行を終える理由を決める＝leases.left_why）
     while not stop.is_set():
         try:
             if storage:
@@ -666,7 +667,8 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
             if access.in_tenant(ACTOR, tenant_id, updates.current) != updates.SAME:
                 stop.wait(IDLE_SECONDS)
                 continue
-            got = one_round(access, ACTOR, tenant_id, line, holder, driver, runner)
+            got = one_round(access, ACTOR, tenant_id, line, holder, driver, runner, fell=fell)
+            fell = None
             storage = got.storage
             wait = float(pause)
             if got.until is not None:   # 回線の欄の次に動く時刻より長く休まない（休みの次のテスト・確かめ中の15分 など）
@@ -682,6 +684,7 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
                 stop.wait(wait if got.pause else min(wait, IDLE_SECONDS))
         except Exception as e:  # noqa: BLE001 記録して、少し待ってから続ける（止めない）
             report(access, tenant_id, "回線ごとの処理", e, line_id=line)
+            fell = e
             # 落ちたのはデータベースの誤りかもしれない（通話の終わりの記録・状態の表）：次の電話の前に、書き込みが戻ったかを確かめる
             # （`storage_back`。誤りでなければ、すぐ確かめが通る）
             storage = True

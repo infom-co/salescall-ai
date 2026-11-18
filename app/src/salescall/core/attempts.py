@@ -217,6 +217,13 @@ def release(tx: Tx, attempt_ids: list[UUID]) -> int:
     ).rowcount
 
 
+def release_task(tx: Tx, task_id: UUID) -> int:
+    """その行のまだ発信していない予約を、すべて取り消す（門の前提が変わった：行を終えた・判定待ちにした・行を直した・契約者の直しでかける電話を
+    確かめ待ちにした。1か所。DESIGN.md 5-2-1 の2）。⛔ 2026-11-18 の8回目の見直しまで：同じ文が3か所にあり、確かめ待ちにしたときは取り消さなかった。"""
+    return release(tx, [r["attempt_id"] for r in tx.all(
+        "SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND state = 'claimed'", (task_id,))])
+
+
 # 使ったキーの種類（試行の keys_used。CL-1 の連絡帳 4-34 の 4-67。形の守りはデータベースの salescall.keys_used_ok）
 KEY_SERVICES = ("live", "judge", "ear", "own_check")
 
@@ -412,7 +419,10 @@ def last_talk(tx: Tx, task_id: UUID, period: Any, *, besides: UUID | None = None
     - 予約証の「前の電話が今日か」（core/apology.when：この電話の期の前の電話。✅ 2026-11-12 ユーザー：「案Bでお願いします」＝担当の方ごとに
       数える。例：昨日田中様と話したあと、契約者がお呼びする方を鈴木様に直したら、今日の鈴木様への電話に「前の電話」は無い。⛔ 前は担当の期を
       見ず、行でいちばん新しい話せた電話＝田中様との電話を「前の電話」とし、会話の側が鈴木様に「前回のお電話で…」と言いうる形だった）。"""
+    # 契約者がいま効いている直しで「繋がらなかった」にした通話は、話せた電話にしない（目的のお客様だと確かめられなかった通話の1か所＝データベースの
+    # salescall.call_unconfirmed。0242。話せたかの記録そのものは、システムの締めが書いたまま＝人の直しの取引では書かない守り 0233・0239）
     row = tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND person_since IS NOT DISTINCT FROM %s AND reached_target"
+                 " AND NOT salescall.call_unconfirmed(attempt_id)"
                  " AND attempt_id IS DISTINCT FROM %s ORDER BY coalesce(ended_at, claimed_at) DESC, attempt_id DESC LIMIT 1",
                  (task_id, period, besides))
     return None if row is None else row["attempt_id"]

@@ -43,6 +43,18 @@ def return_line(tx: Tx, line_id: UUID, holder: str) -> bool:
 # 後始末で進行中の試行を終える理由（こちらの不具合の理由＝core/errors.ENDS のうち、後始末だけが使うもの。0238）と根拠の文
 LOST = ("worker_lost", "回線の処理・見守り役が、通話を終えないまま止まりました（後始末）")
 LEFT = ("storage_stuck", "終わりの記録が書けないまま残った通話です（回線の処理の後始末）")
+BROKEN = ("runner_error", "回線の処理が、通話の終わりを書く前に、こちらのプログラムの誤りで落ちて残った通話です（回線の処理の後始末）")
+
+
+def left_why(error: BaseException | None) -> tuple[str, str]:
+    """回線の処理の回が落ちて残った試行を、どの理由で終えるか（1か所。回線の流れが、落ちた誤りを持って次の回の頭へ渡す＝`recover_left`）：データベースが
+    書き込みを受けなかった誤り（access.storage_failed の1か所）か、誤りが分からない（流れを立ち上げ直した）なら LEFT
+    （storage_stuck。違う行の数に数えない＝伺い5）。ほかの誤り（こちらのプログラムの誤り）は BROKEN（runner_error。違う3行で同じ誤りなら新しい電話を止める
+    ＝原則6）。⛔ 2026-11-18 の8回目の見直しまで：どんな誤りで落ちても storage_stuck とし、プログラムの誤りを「違う3行」の数えから外していた。"""
+    from salescall.core import access
+    if error is None or access.storage_failed(error):
+        return LEFT
+    return BROKEN
 
 
 def recover(tx: Tx, holder: str | None = None, line_id: UUID | None = None, *,
@@ -58,13 +70,13 @@ def recover(tx: Tx, holder: str | None = None, line_id: UUID | None = None, *,
                   (holder, line_id, except_holder, *why))
 
 
-def recover_left(tx: Tx, holder: str, line_id: UUID) -> list[dict[str, Any]]:
+def recover_left(tx: Tx, holder: str, line_id: UUID, *, why: tuple[str, str] = LEFT) -> list[dict[str, Any]]:
     """回線ごとの流れの毎回の頭で呼ぶ：この回線に、前の回の電話（予約・進行中の試行）が残っていれば後始末する（起動・流れが止まったときと
     同じ `recover` の1か所。残っていなければ何もしない＝回線の行を毎回ロックしない）。回の頭では、この流れの電話は1本も進んでいないので、
     残っているのは、終わりの記録が書けずに残った試行（⛔ 見直し26c の 1：その回線は門に「使用中」で断られ続け、二度とかけなかった）＝
-    データベースへの書き込みが進まなかった（LEFT＝storage_stuck。違う行の数に数えない＝伺い5）。"""
+    データベースへの書き込みが進まなかった・こちらのプログラムの誤りで落ちた（why＝`left_why` の1か所が、前の回の落ちた誤りから決めたもの）。"""
     if tx.one("SELECT salescall.line_has_leftovers(%s) AS left", (line_id,))["left"]:
-        return recover(tx, holder, line_id, why=LEFT)
+        return recover(tx, holder, line_id, why=why)
     return []
 
 

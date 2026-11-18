@@ -856,6 +856,10 @@ def month_ahead_unanswered(tx: Tx, task_id: UUID) -> bool:
     at = tasks.month_ahead_asking(tx, task_id)
     if at is None or tx.one("SELECT now() AS t")["t"] < at - MONTH_AHEAD_NOTICE:
         return False
+    if approval.uncleared(tx, task_id) is not None:
+        # 契約者の承認・直した方の確かめを待つ行は、約束の時刻にもかけない（門の1か所）：「約束の時刻におかけします」とは知らせない（⛔ 2026-11-18 の
+        # 8回目の見直しまで：かけない行にも、かけると知らせた）
+        return False
     notify.emit(tx, "month_ahead_unanswered", key=f"month_ahead_unanswered:{task_id}:{notify.key_time(at)}",
                 refs={"task_id": task_id, "call_at": at},
                 summary=f"お約束の次の回（{calling_hours.label(at)}から）は1か月以上先のため伺っていましたが、お答えが無いので、"

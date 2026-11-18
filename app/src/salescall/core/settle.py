@@ -383,7 +383,7 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                      report, _items(tx, a), business_rules.load(tx, rules_version),
                      # 通話の途中の申告（申告の入口が入れた登録だけ＝dnc.declared_in。断りを外すと答えたら見ない）
                      dnc.declared_in(tx, attempt_id) and "refusal" not in gone,
-                     target_recheck.unconfirmed(tx, attempt_id),
+                     target_recheck.recheck_failed(tx, attempt_id),   # システムの確かめ直し（直しは判定の結果に重ねる＝`_judge_and_write`）
                      callee=_callee(tx, a),   # お客様の時間の設定・言葉ごとの幅（読むのは gate.callee_settings の1か所）
                      anyone_target=business_settings.anyone_target(tx, rules_version),   # 「誰でも」の業務か（見直し18b の (3)）
                      # 前の答えで伺う質問（伺っていない＝対象外を決める材料。CL-1 の連絡帳 4-66 の (e)）
@@ -434,10 +434,16 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     j = judge(inp)
     # 契約者がこの通話の結果を直していれば、その直しが通話の結果（✅ 2026-11-16 ユーザー「直しに従う」。直したときも、締め直しても、同じこの1か所。
     # 発信禁止の登録は、すでにあれば台帳は同じまま＝dnc._put）
-    corr = correction or results.correction_of(tx, attempt_id)   # いま直した（契約者の版をここで書く）か、前に直した
+    corr = correction or results.correction_of(tx, attempt_id)   # いま直した（契約者の版をここで書く）か、いま効いている前の直し
+    # 直しを読むか（1か所。読んだ版は契約者の版＝あとは results.correction_of・データベースの call_unconfirmed がこの版を読む）
     use_corr = corr is not None and not (corr["business_state"] == "do_not_call" and "refusal" in approval.withdrawn(tx, attempt_id))
+    origin: dict[str, Any] = {}
     if use_corr:
         kind = "human"   # 直しを読んだ版は契約者の版（判定の版にしない＝判定の正しさの測りに直しを入れない。⛔ 2026-11-18 の6回目の見直しまで：締め直しの版は判定の版）
+        # 直しの元（直した版・直した方・違っていた項目）：いま直したなら、いま操作している方（版はこの版）。締め直しの写しなら、もとの直しのまま
+        who = tx.one("SELECT salescall.cur_actor() AS by, salescall.cur_actor_kind() AS kind")
+        origin = corr["corrected"] if correction is None else results.corrected_by(
+            version=None, by=who["by"], kind=who["kind"], wrong_items=correction.get("wrong_items") or ())
     if use_corr:
         # 「もうかけないで」への直しのあと、依頼者の正式な求めで発信禁止を取り消したら、取り消しが勝つ（2026-10-30 (7)。直しを読まない）
         j = corrected(corr["business_state"], corr["complaint"], corr["detail"], base_state=j.state, base_detail=j.detail)
@@ -476,7 +482,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     }
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=None if kind == "human" else JUDGE_VERSION, complaint=j.complaint,
-                                snapshot={**snapshot, **({"correction": correction["snapshot"]} if correction is not None else {})},
+                                snapshot={**snapshot, **({"correction": correction["snapshot"]} if correction is not None else {}),
+                                          **({"corrected": origin} if use_corr else {})},
                                 detail={**j.detail, **({"decision_wait": wait.kind} if wait else {}),   # 保留の種類（画面・出力が読む）
                                         **({"decision_assumed": found.assumed} if found is not None and not found.holds else {}),
                                         # 「担当の方は違う」を選んだ直しのあとの、前の担当の方への通話（tasks.former_person_call の1か所）：その答えの
@@ -487,7 +494,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
                                         # 1か所＝business_settings.who_unclear_blanks。出力が読む＝CL-3。CL-1 の連絡帳 4-65 の (g)）
                                         **({"who_unclear_blanks": list(business_settings.who_unclear_blanks(tx, a["task_id"]))}
                                            if j.detail.get("not_reached") == "who_unclear" else {})},
-                                decided_by="契約者" if kind == "human" else "判定")
+                                decided_by=origin["by"] if use_corr else "判定")
     # 目的のお客様と話せたか（引き継ぎを確かめる印が読む。0203）：書けるのは締めの記録（結果の版）を書いた同じ取引の中だけ（守り。0211）
     attempts.record_reached_target(tx, attempt_id, inp.reached_target)
     # 保留を書く（承認の部分の1か所。報告や答えが変われば版を足し、待たなくなれば閉じる。承認待ちは契約者へ知らせる）
@@ -523,6 +530,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     decision = _decide(tx, a, j, rules=rules, alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
                        reached_target=inp.reached_target, waiting=None if wait is None else wait.kind,
                        apology_delivered=_apology_delivered(inp))
+    if use_corr:   # 直しに従って行の予定を書いた：その予定が「かける」なら、直した方が確かめるまでかけない（approval の1か所。0242）
+        approval.correction_decided(tx, a["task_id"], origin, version_no, calls=decision.kind == "call")
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
 

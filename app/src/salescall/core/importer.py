@@ -244,6 +244,9 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
                  r.person_full_reading.by, list(r.person_full_reading.candidates), r.person_full_reading.likely,
                  r.person_department, r.list_label),
             )["task_id"]
+            # 一覧の番号は、行を作ったときにデータベースが足す（task_after_insert）：ほかの番号と同じく、届く決定で止め直す（番号を足したときの1か所。
+            # ⛔ 2026-11-18 の8回目の見直しまで：一覧の番号だけ、この1か所を通らなかった）
+            tasks._stop_added(tx, task_id, contact_id)
             for number, label in r.record_numbers:     # 記録だけの番号・番号ではない連絡先（customer_contacts の1か所）
                 customer_contacts.add_number(tx, task_id, number, label, origin="list")
             for kind, value, service in r.contact_values:

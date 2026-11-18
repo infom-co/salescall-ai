@@ -71,6 +71,13 @@ def load(tx: Tx, attempt_id: UUID) -> str | None:
 
 
 def unconfirmed(tx: Tx, attempt_id: UUID) -> bool:
-    """確かめ直して、目的のお客様だと確かめられなかった通話か（別の方だった・確かめられなかった）。決めるのはデータベースの1か所
-    salescall.call_unconfirmed（使う答え conversation_io._in_force・いまの連絡先・解決策を求める点・携帯の番号も同じものを読む＝0234）。"""
+    """目的のお客様だと確かめられなかった通話か（確かめ直しで、別の方だった・確かめられなかった。契約者がいま効いている直しで「繋がらなかった」に
+    した＝0242）。決めるのはデータベースの1か所 salescall.call_unconfirmed（使う答え conversation_io._in_force・いまの連絡先・解決策を求める点・
+    携帯の番号・目的のお客様と話せたかの記録も同じものを読む＝0234）。"""
     return tx.one("SELECT salescall.call_unconfirmed(%s) AS u", (attempt_id,))["u"]
+
+
+def recheck_failed(tx: Tx, attempt_id: UUID) -> bool:
+    """システムの確かめ直しで、目的のお客様だと確かめられなかった通話か（契約者の直しを重ねない。その通話そのものの判定の材料＝settle._judge_input が読む。
+    直しは判定の結果に重ねる＝settle._judge_and_write。データベースの salescall.call_recheck_failed の1か所＝0242）。"""
+    return tx.one("SELECT salescall.call_recheck_failed(%s) AS u", (attempt_id,))["u"]

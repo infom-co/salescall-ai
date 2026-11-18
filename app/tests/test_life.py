@@ -959,6 +959,24 @@ class CallsNotUnwelcome(SupervisorBase):
         mon = [t for t in self.times(s) if t.date() == monday.date()]
         self.assertEqual([t.hour for t in mon], [9, 12, 15], mon)
 
+    def test_after_the_day_the_other_days_start_the_next_day_from_the_last_call(self):
+        """「今日に」と言われた日に方針の回数（3回）かけて話せず、その日が過ぎた ⇒ 別の日は、時刻の決まっていない約束の方針の間隔（「1日後」）を、その日の最後の
+        電話（15時・夕方）から数え、次の日（火曜）の、最後の電話と別の時間帯（午前）からかける（next_action._window_over の1か所）。✅ 2026-11-12 ユーザー：
+        「どうしても、その日に繋がらなければ制限回数の範囲で、別の日にかけてもOK」。⛔ 2026-11-18 の8回目の見直しまで：その日の終わり（火曜の0時）から数え、
+        別の日の1本目が水曜になり、前の時間帯も0時（午前）として選んだ。"""
+        monday = self.next_monday_9()
+        self.jump(monday.replace(hour=8, minute=50))
+        daily = {"action": "call", "max_times": 3, "interval": {"days": 1}}
+        s = self.ready(rules=rules_raw(retry={k: daily for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")}))
+        self.put_client(s, "calling.hours", WEEKDAY_9_18)
+        self.give_test_number(s)
+        midnight = monday.replace(hour=0)
+        self.promise(s, next_action.Window(midnight + timedelta(days=1), None, None, midnight, None, day_said=True))   # 「今日に」（日だけ）
+        self.run_until(s, Phone(), Script(default="no_answer"), monday.replace(hour=18) + timedelta(days=1), step=timedelta(minutes=30),
+                       night=timedelta(hours=2))
+        tue = [t for t in self.times(s) if t.date() == (monday + timedelta(days=1)).date()]
+        self.assertEqual([t.hour for t in tue][:1], [9], self.times(s))
+
     def test_the_daily_count_is_the_business_setting_and_the_end_is_the_business_hours(self):
         """1日の回数を業務ごとに増やしても（10回）、言葉で決まっていない終わりは営業時間の19時（19時からはかけない＝次の日の回）。"""
         monday, calls = self.range_day(10)
