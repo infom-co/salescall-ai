@@ -4,8 +4,8 @@
 なにを決めるか・根拠・決めないと何が起きるか・ボタン（承認する／差し戻す）。並び順は緊急 → 期限 → 古い順（`ordered`）。
 
 この表に無い承認を、別の画面に作らない。種類を足すときは、ここに1行足す（docs/DASHBOARD.md 4-2 の表と同じ並び）。
-⏳ まだ入れていない種類：解決策の確かめ・1か月以上先のかけ直し・前の担当の方との約束・録音の承認・修正依頼・名前の
-録音の審査（docs/DASHBOARD.md 4-2。読む部品と決める部品は分かっている）。
+⏳ まだ入れていない種類：録音の承認・名前の録音の審査（どちらも録音を聞く仕組みが要る）・修正依頼（管理者だけ。システムの取引）。
+解決策の確かめは、出すがボタンはまだ（`_solutions` の説明）。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, apology, conversation_io, tasks, usage
+from salescall.core import approval, apology, calling_hours, client_solutions, conversation_io, next_action, row_fixes, tasks, usage
 from salescall.core.access import Tx
 from salescall.output import words
 
@@ -116,6 +116,73 @@ def _apologies(tx: Tx) -> list[Item]:
     return items
 
 
+def _row(tx: Tx, task_id: Any) -> list[tuple[str, str]]:
+    """どのお客様の行か（根拠の頭に出す。取り消せない操作は、どのお客様のものかを名前つきで見せる＝Intent.md 5-1）。"""
+    t = tx.one("SELECT source_name, target_name, target_role, client_ref FROM salescall.tasks WHERE task_id = %s", (task_id,))
+    if t is None:
+        return []
+    who = (t["target_name"] or "") + (f"（{t['target_role']}）" if t["target_role"] else "")
+    return [("お客様", " ／ ".join(x for x in (t["source_name"], who, t["client_ref"] and f"管理番号 {t['client_ref']}") if x))]
+
+
+def _said(tx: Tx, attempt_id: Any) -> list[tuple[str, str]]:
+    said = [u["said"] for u in conversation_io.utterances(tx, attempt_id) if u.get("speaker") == "callee"][-3:]
+    return [("お客様の言葉（最後の3つ）", " ／ ".join(said))] if said else []
+
+
+def _month_ahead(tx: Tx) -> list[Item]:
+    """1か月以上先のかけ直しの予定で、契約者の答えを待っているもの（答えられるか＝データベースの1か所 task_month_ahead_answerable）。"""
+    items = []
+    for r in tx.all("SELECT task_id, salescall.task_month_ahead_answerable(task_id) AS call_at FROM salescall.tasks"
+                    " WHERE salescall.task_month_ahead_answerable(task_id) IS NOT NULL ORDER BY 2, task_id"):
+        n = next_action.current(tx, r["task_id"]) or {}
+        items.append(Item(
+            kind="month_ahead", key={"task_id": str(r["task_id"])}, title="1か月以上先のかけ直し",
+            decide="1か月以上先のこの日時に、お電話してよいか",
+            evidence=_row(tx, r["task_id"]) + [("お電話する日時", calling_hours.label(r["call_at"])), ("予定の理由", n.get("cause") or "")],
+            if_not="お答えが無いまま約束の時刻になったら、お電話します（その前に緊急の知らせが届きます）。",
+            at=n.get("decided_at"), deadline=r["call_at"],
+            buttons=(Button("refuse", "認めない（別の日にかける）"), Button("approve", "この日時にかける", main=True)),
+            **_business_of(tx, r["task_id"])))
+    return items
+
+
+def _old_promises(tx: Tx) -> list[Item]:
+    """前の担当の方が新しいかけ直しの約束をして、契約者の選びを待っている行（待っているか＝データベースの1か所 task_old_promise_waiting）。"""
+    items = []
+    for r in tx.all("SELECT task_id, salescall.task_old_promise_waiting(task_id) AS attempt_id FROM salescall.tasks"
+                    " WHERE salescall.task_old_promise_waiting(task_id) IS NOT NULL ORDER BY task_id"):
+        keep = row_fixes.old_promise_keepable(tx, r["task_id"])
+        buttons = (Button("new_person", "新しい担当の方へかける", main=not keep),)
+        if keep:   # 「約束も守る」を出すかは core の1か所（old_promise_keepable）
+            buttons = (Button("new_person", "新しい担当の方へかける"), Button("keep", "前の担当の方との約束を守る", main=True))
+        items.append(Item(
+            kind="old_promise", key={"task_id": str(r["task_id"])}, title="前の担当の方との約束",
+            decide="前の担当の方とのお約束を守るか、新しい担当の方へかけるか",
+            evidence=_row(tx, r["task_id"]) + _said(tx, r["attempt_id"]),
+            if_not="選ぶまで、このお客様にはかけません。", buttons=buttons, **_business_of(tx, r["task_id"])))
+    return items
+
+
+def _solutions(tx: Tx) -> list[Item]:
+    """手で外した・まだ確かめていない依頼者の解決策（実施回ごと。client_solutions.unconfirmed の1か所）。確かめるまで、その実施回の新しい電話は
+    かけない（2026-11-07 管理者）。⏳ 「入れる」（add_earlier）は、足す文の名前の読みを確かめる部品（find_names）を画面から渡す方法が決まって
+    いない（渡さないと、読みを確かめずに台本に入る）＝CL-2 へのお願い 22。決まるまで、どちらのボタンも出さない（片方だけ出して選びを偏らせない）。"""
+    items = []
+    for run in tx.all("SELECT run_id, name, business_id FROM salescall.runs ORDER BY created_at, run_id"):
+        for s in client_solutions.unconfirmed(tx, run["run_id"]):
+            items.append(Item(
+                kind="solution", key={"run_id": str(run["run_id"]), "solution_id": str(s["solution_id"])},
+                title="依頼者の解決策の確かめ", decide=f"実施回「{run['name']}」の台本に、この解決策を入れるか",
+                evidence=[("ご納得いただけなかった点", s["point_text"] or ""), ("問い", s["answer_name"] or ""),
+                          ("解決策の文", s["solution_text"] or "")],
+                if_not="確かめるまで、この実施回では新しい電話をかけません（お約束の電話・お詫びの電話は除く）。",
+                at=s["recorded_at"], business_id=run["business_id"],
+                business_name=(tx.one("SELECT name FROM salescall.businesses WHERE business_id = %s", (run["business_id"],)) or {}).get("name", ""),
+                waiting_why="解決策の文の、名前の読みを確かめる部品をつないでいます"))
+    return items
+
+
 KINDS: dict[str, Kind] = {
     "apology": Kind("お詫びの電話の承認", _apologies, {
         "approve": (lambda tx, k: apology.approve(tx, int(k["order_id"]), UUID(k["set_id"])), "承認しました。お詫びの電話をかけます。"),
@@ -124,13 +191,23 @@ KINDS: dict[str, Kind] = {
         "approve": (lambda tx, k: approval.approve_decision(tx, UUID(k["attempt_id"]), int(k["seq"])), "承認しました。"),
         "send_back": (lambda tx, k: approval.send_back_decision(tx, UUID(k["attempt_id"]), int(k["seq"])), "差し戻しました。"),
     }),
+    "month_ahead": Kind("1か月以上先のかけ直し", _month_ahead, {
+        "approve": (lambda tx, k: row_fixes.answer_month_ahead(tx, UUID(k["task_id"]), approve=True), "認めました。その日時にお電話します。"),
+        "refuse": (lambda tx, k: row_fixes.answer_month_ahead(tx, UUID(k["task_id"]), approve=False),
+                   "認めませんでした。別の日に、時刻の決まっていない約束の決まりでお電話します。"),
+    }),
+    "old_promise": Kind("前の担当の方との約束", _old_promises, {
+        "keep": (lambda tx, k: row_fixes.choose_old_promise(tx, UUID(k["task_id"]), keep_old_promise=True), "前の担当の方とのお約束を守ります。"),
+        "new_person": (lambda tx, k: row_fixes.choose_old_promise(tx, UUID(k["task_id"]), keep_old_promise=False), "新しい担当の方へおかけします。"),
+    }),
+    "solution": Kind("依頼者の解決策の確かめ", _solutions, {}),
     "deficit": Kind("赤字の確認", _deficit, {
         "confirm": (lambda tx, k: usage.confirm_deficit(tx, int(k["warning_id"])), "確かめたことを記録しました。"),
     }),
 }
 
 
-KEY_FIELDS = ("attempt_id", "seq", "warning_id", "order_id", "set_id")   # 受け箱の操作が送り返してよい鍵の名前（ほかの欄は読まない）
+KEY_FIELDS = ("attempt_id", "seq", "warning_id", "order_id", "set_id", "task_id", "run_id", "solution_id")   # 受け箱の操作が送り返してよい鍵の名前（ほかの欄は読まない）
 
 
 def collect(tx: Tx) -> list[Item]:

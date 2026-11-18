@@ -19,7 +19,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from salescall.core import access
+from salescall.core import access, client_solutions, customer_contacts, row_fixes, stops
+
+# core が「理由の文つきで断った（何も書いていない）」ときの例外（1か所）。画面は、その文をそのまま出す。
+# ⏳ core に共通の元が無いので、画面が呼ぶ部品の断りをここに並べている（CL-2 へのお願い 21：共通の元を作ってもらえば、この一覧は要らない）。
+REFUSALS: tuple[type[Exception], ...] = (row_fixes.FixInvalid, client_solutions.SolutionInvalid, customer_contacts.ContactInvalid,
+                                         stops.EmergencyNotAllowed)
 
 TOKEN_FIELD = "form_token"
 
@@ -80,6 +85,8 @@ def act(secret: bytes, login_id: str, form: dict[str, Any], do: Callable[[], Any
         value = do()
     except access.Rejected as e:
         return Outcome(False, f"受け付けられませんでした：{e.message or '理由が返っていません'}")
+    except REFUSALS as e:
+        return Outcome(False, f"受け付けられませんでした：{str(e).strip() or '理由が返っていません'}（何も変わっていません）")
     except LookupError:
         # 「無い」と「見てはいけない」を同じ返事にする（core は取引の範囲の外を LookupError で返す。docs/DASHBOARD.md 8-3）
         return Outcome(False, "見つかりません（すでに片付いたか、この範囲の外です）。何も変わっていません。")
