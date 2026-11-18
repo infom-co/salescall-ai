@@ -649,6 +649,11 @@ class Revoke(Helpers):
         got = self.tx(s, lambda tx: dnc.revoke(tx, entries[extra], "試験"), ADMIN)
         self.assertEqual(got["resettled"], [])
         self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["business_state"], "do_not_call")
+        # 依頼者の正式な求めで取り消した番号は、その通話を締め直しても（取り消せない決定の答え・ほかの番号の取り消し）止め直さない（dnc._put の1か所。
+        # ⛔ 2026-11-18 の6回目の見直しまで：締め直しの登録が、取り消した番号をまた止めた）
+        self.tx(s, lambda tx: settle.resettle(tx, aid))
+        self.assertIsNone(self.tx(s, lambda tx: dnc.lookup(tx, extra)))
+        self.assertIsNotNone(self.tx(s, lambda tx: dnc.lookup(tx, s["phone"])))
         got = self.tx(s, lambda tx: dnc.revoke(tx, entries[s["phone"]], "試験"), ADMIN)
         self.assertEqual(got["resettled"], [aid])
         self.assertEqual(self.tx(s, lambda tx: results.latest(tx, s["task"]))["business_state"], "completed")

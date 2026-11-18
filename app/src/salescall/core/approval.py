@@ -98,8 +98,9 @@ def _in_verification(tx: Tx, task_id: UUID, version_no: int) -> bool:
 def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> list[tuple[UUID, int]]:
     """締めの処理が呼ぶ（判定の版を足し、品質の段を評価したあと）。フルオートでかけた通話の版なら、その版に「確定した」の印を付ける。
     付けた（行, 版の番号）を返す（付けなければ空）。"""
-    if _in_verification(tx, task_id, version_no):
-        return []                                  # 検証モードでかけた通話：契約者が確かめる（かけたあとにモードを替えても同じ）
+    human = tx.one("SELECT kind = 'human' AS h FROM salescall.task_results WHERE task_id = %s AND version_no = %s", (task_id, version_no))["h"]
+    if _in_verification(tx, task_id, version_no) and not human:
+        return []                                  # 検証モードでかけた通話：契約者が確かめる（契約者の直しの版は、確かめ済み）
     if tx.one("SELECT business_state::text AS s FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
               (task_id, version_no))["s"] == "unknown":
         return []                                  # 判定できなかった結果は確定しない（判定し直した版が確定する）

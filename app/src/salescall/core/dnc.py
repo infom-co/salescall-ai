@@ -19,7 +19,7 @@
   まとめて取り消す）の2つの入口があり、どちらも `_revoke` の1か所を通る。取り消したあと（2026-10-30 管理者のご決定 (7)）：その通話から
   入れた発信禁止がすべて取り消されたら、その通話の決定（断り・番号違い・FAX）を報告から外して締め直す（core/approval.withdraw_revoked。
   その発信禁止で終えた行は予定に戻り、依頼者へ渡す結果の「営業拒否」も外れる）。取り消した番号・管理番号が、まだ有効なほかの決定（ほかの
-  通話の断り・依頼者の一覧）の止める範囲に入っていれば、その決定で止め直す（`_restop`）。発信禁止で門が終えた行のうち、もう止まって
+  通話の断り・依頼者の一覧）の止める範囲に入っていれば、その決定で止め直す（`restop`）。発信禁止で門が終えた行のうち、もう止まって
   いないものは、終える前の予定に戻す（core/next_action.reopen_revoked の1か所）。
 - 通話の途中の「もうかけないで」の申告（`register_declared`）は、検証モードの業務では台帳へ入れない（契約者が承認を押した場合だけ
   営業拒否と確定＝2026-10-30 (6)。承認の部分 approval.decides_on_spot が答える）。
@@ -122,7 +122,14 @@ def register(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_
 def _put(tx: Tx, numbers: list[str], refs: list[str], reason: str, source_attempt_id: UUID | None, import_id: UUID | None,
          *, in_call: bool = False) -> None:
     """台帳へ書く1か所（同じ番号・管理番号に、取り消していない登録があれば、そのまま＝台帳は番号ごとに1つ）。in_call＝通話の途中の申告
-    （`register_declared` だけ。その通話の番号1つ。印は `declared_in` が読む＝0198）。"""
+    （`register_declared` だけ。その通話の番号1つ。印は `declared_in` が読む＝0198）。同じ出どころ（同じ通話・同じ一覧の取込）の、依頼者の正式な求めで
+    取り消した番号・管理番号は、書き直さない（取り消しは依頼者の正式な求め＝2026-10-30 (7)。⛔ 2026-11-18 の6回目の見直しまで：止め直し `restop` だけが
+    除き、締め直しの登録は、取り消した番号をまた止めた）。"""
+    if source_attempt_id is not None or import_id is not None:
+        gone = tx.all("SELECT phone_e164, client_ref FROM salescall.dnc_entries WHERE revoked_at IS NOT NULL"
+                      " AND source_attempt_id IS NOT DISTINCT FROM %s AND import_id IS NOT DISTINCT FROM %s", (source_attempt_id, import_id))
+        numbers = [n for n in numbers if n not in {g["phone_e164"] for g in gone}]
+        refs = [r for r in refs if r not in {g["client_ref"] for g in gone}]
     for e164 in numbers:
         tx.execute(
             "INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, source_attempt_id, registered_by,"
@@ -433,14 +440,38 @@ def _revoke(tx: Tx, entry_ids: list[UUID], reason: str) -> dict[str, Any]:
     return {"revoked": [r["entry_id"] for r in rows], "resettled": resettled, "reopened": reopened}
 
 
+def stop_added(tx: Tx, task_id: UUID, contact_id: UUID, owner_period: str | None) -> None:
+    """行に足した番号を、まだ有効な断りと依頼者の一覧で止める（1か所。行に番号を足す core/tasks の関数が、番号と持ち主が決まったあとに呼ぶ。
+    ✅ 原則14「そのお客様の行の番号すべて」・7-1 (22)「止めるのは前の担当の方の番号」）：
+    - その行の通話の断り（いまの結果が「もうかけないで」の通話の登録＝番号違いの方の申告・断りでなくなった通話は入れない）：足した番号が、断った方の番号の
+      とき止める＝持ち主の期（owner_period）が書いてあれば、それが断った通話の担当の期と同じとき。書いていなければ（いまの担当の方の番号）、断った方が
+      いまも担当の方のとき（salescall.attempt_in_period(通話, now())）。
+    - 依頼者の一覧（client_list）がその行に当たる（行の番号・管理番号）：お客様ごとなので止める。
+    同じ出どころで正式に取り消した番号は止めない（`_put`）。⛔ 2026-11-18 の6回目の見直しまで：いまの行の番号から止める範囲を求め直し（`restop`）、
+    番号違いの方の申告を行全体へ広げ・前の担当の方の断りで新しい担当の方の番号を止め・あとで足した前の担当の方の番号を止めなかった。"""
+    number = tx.one("SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id))["phone_e164"]
+    calls = tx.all(
+        "SELECT DISTINCT ON (e.source_attempt_id) e.reason::text AS reason, e.source_attempt_id,"
+        "       CASE WHEN %s::timestamptz IS NOT NULL THEN salescall.back_period(%s::timestamptz) IS NOT DISTINCT FROM a.person_since"
+        "            ELSE salescall.attempt_in_period(a.attempt_id, now()) END AS owner"
+        " FROM salescall.dnc_entries e JOIN salescall.attempts a ON a.attempt_id = e.source_attempt_id"
+        " JOIN salescall.call_results r ON r.attempt_id = a.attempt_id"
+        " WHERE e.revoked_at IS NULL AND e.reason::text = ANY(%s) AND a.task_id = %s AND r.business_state = 'do_not_call'"
+        " ORDER BY e.source_attempt_id, e.entry_id", (owner_period, owner_period, sorted(REFUSALS), task_id))
+    for c in calls:
+        if c["owner"]:
+            _put(tx, [number], [], c["reason"], c["source_attempt_id"], None)
+    for e in tx.all("SELECT DISTINCT import_id FROM salescall.dnc_entries e WHERE e.revoked_at IS NULL AND e.reason = 'client_list'"
+                    " AND (e.phone_e164 IN (SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s)"
+                    "      OR e.client_ref = (SELECT client_ref FROM salescall.tasks WHERE task_id = %s))", (task_id, task_id)):
+        _put(tx, [number], [], "client_list", None, e["import_id"])
+    _release_claims(tx, [number], [])
+
+
 def restop(tx: Tx, numbers: list[str], refs: list[str]) -> None:
     """その番号・管理番号を、止める範囲に持つ、まだ有効な決定（通話の断り・依頼者の一覧）で止め直す（1か所。止める範囲は `stop_set` の1か所＝
     いまの行の番号から求め直す）。呼ぶのは2つ：
-    (1) 行に番号を足したとき（core/tasks.add_callee_number・add_record_number＝行に番号を足すのはこの2つだけ。取り込み直し・ダッシュボードの直し・
-        通話で言われた番号）：断ったお客様の行に、あとから番号が増えても止める（✅ 原則14「そのお客様の行の番号すべて」・2026-10-17「同じ依頼者、同じ
-        番号でかけ直しは絶対にNG」。前の担当の方の断りなら、新しい担当の方の番号は止めない＝`refusal_reach`）。⛔ 2026-11-16 の5回目の見直しまで：
-        断りを登録したときの番号だけを止め、あとで足した番号（取り込み直しの携帯など）と、その番号を持つほかの行へかけた。
-    (2) 発信禁止を取り消したとき（`revoke` の1か所。下の見直し24a）。
+    呼ぶのは、発信禁止を取り消したとき（`revoke` の1か所。下の見直し24a）。行に番号を足したときは `stop_added`（持ち主で決める）。
     取り消した番号・管理番号を、止める範囲に持つ、まだ有効なほかの決定（ほかの通話の断り・依頼者の一覧）で止め直す（見直し24a の
     (1)：台帳は番号ごとに1つなので、番号違いの登録の番号が、あとの通話の断りの止める範囲にも入っていると、断りの登録は書かれていなかった。
     番号違いの登録を取り消すと、断ったお客様の番号が止まらなくなった）。止める範囲は `stop_set` の1か所。同じ出どころ（同じ通話・同じ一覧の

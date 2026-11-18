@@ -9,7 +9,9 @@
 使い方：
 - hook として：標準入力に hook の JSON（transcript_path＝会話の記録）。最近の段（直近 BOUNDARIES 回の人の発言・道具の結果まで・
   MINUTES 分以内）にこちらが書いた文の中に、まだ止めていない英語の一言があれば、終了コード2で理由を返す（その道具は呼ばれない。理由は
-  こちらに届く）。止めた文は覚えておき（STATE）、二度は止めない。それ以外は何もしない（終了コード0）。
+  こちらに届く）。止めた一言は、会話の記録のどの行の一言かで覚えておき（STATE）、同じ行の一言は二度は止めない。同じ文をあとの一言でまた書いたら、
+  また止める（⛔ 2026-11-18 日本時間15時25分44秒の275回目＝文そのもので覚えていたので、前に止めた「Now the Intent.md files.」と同じ文を
+  あとでまた書いても止めなかった。同じ場面・同じ文の形が13回続いた一因）。それ以外は何もしない（終了コード0）。
   ⛔ 2026-11-02 日本時間7時23分に確かめて分かったこと：記録への書き込みは道具の呼び出しより少し遅れる＝見張りが動いた時点では、いまの
   一言がまだ記録に無いことがある（「直前の段だけ」を読む形では、試した2回とも空だった）。⇒ 最近の段まで読み、遅くとも次の道具の前に止める。
 - python3.13 oneliner_guard.py --install：このコンテナのユーザー設定（~/.claude/settings.json）に hook を足す（ほかの設定は残す・
@@ -106,14 +108,21 @@ def _is_boundary(row: dict) -> bool:
     return row.get("type") == "system" and row.get("subtype") == "compact_boundary"
 
 
+def _step(row: dict) -> str:
+    """人の発言・道具の結果の行（記録の type が user）の印（uuid、無ければ時刻）。"""
+    return str(row.get("uuid") or row.get("timestamp") or "")
+
+
 def recent_texts(path: str | Path, boundaries: int = BOUNDARIES, minutes: float = MINUTES,
-                 tail_bytes: int = TAIL_BYTES, rows: list[dict] | None = None) -> list[str]:
+                 tail_bytes: int = TAIL_BYTES, rows: list[dict] | None = None) -> list[tuple[str, str]]:
     """会話の記録の末尾から、最近の段（直近 boundaries 回の人の発言・道具の結果＝記録の type が user の行まで・minutes 分以内）に、
-    こちらが書いた文（古い順）。"""
+    こちらが書いた文（古い順）。1つずつ (その一言の印, 文)：印は、その一言の直前の人の発言・道具の結果の行＝同じ段の一言は記録に入る前
+    （hook が渡す最後の返事）と後で同じ印・同じ文をあとの段でまた書けば印は別になる（止めた一言を覚えるのは、文ではなく印と文の組）。"""
     import datetime as dt
-    texts: list[str] = []
-    newest, seen = None, 0
-    for row in reversed(rows if rows is not None else _tail_rows(path, tail_bytes)):
+    rows = rows if rows is not None else _tail_rows(path, tail_bytes)
+    start, newest, seen = len(rows), None, 0
+    for idx in range(len(rows) - 1, -1, -1):
+        row = rows[idx]
         if _is_boundary(row):
             break   # 要約の区切りより前は見ない（--after-compact の英語の数えの1か所で出す）
         try:
@@ -128,13 +137,22 @@ def recent_texts(path: str | Path, boundaries: int = BOUNDARIES, minutes: float 
             seen += 1
             if seen > boundaries:
                 break
-            continue
-        if row.get("type") != "assistant":
-            continue
-        for block in reversed((row.get("message") or {}).get("content") or []):
-            if isinstance(block, dict) and block.get("type") == "text":
-                texts.append(block.get("text") or "")
-    return list(reversed(texts))
+        start = idx
+    texts: list[tuple[str, str]] = []
+    step = ""
+    for idx, row in enumerate(rows):
+        if row.get("type") == "user":
+            step = _step(row)
+        elif idx >= start and row.get("type") == "assistant":
+            for block in (row.get("message") or {}).get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    texts.append((step, block.get("text") or ""))
+    return texts
+
+
+def last_step(rows: list[dict]) -> str:
+    """いまの段の印（記録のいちばん新しい人の発言・道具の結果の行）＝hook が渡す、記録にまだ無い最後の返事の印。"""
+    return next((_step(r) for r in reversed(rows) if r.get("type") == "user"), "")
 
 
 def jst(ts: str) -> str:
@@ -402,13 +420,17 @@ def verdict(hook: dict) -> str | None:
         return None   # 止めたあとの書き直しの返事（同じ所で止め続けない）
     import hashlib
     done = set(json.loads(STATE.read_text(encoding="utf-8"))) if STATE.exists() else set()
-    texts = recent_texts(hook["transcript_path"], rows=rows) + [t for t in [hook.get("last_assistant_message")] if isinstance(t, str) and t]
-    bad = [t for t in dict.fromkeys(texts) if english(t) and hashlib.sha1(t.encode("utf-8")).hexdigest() not in done]
+    lines = recent_texts(hook["transcript_path"], rows=rows)
+    last = hook.get("last_assistant_message")
+    if isinstance(last, str) and last:
+        lines.append((last_step(rows), last))   # 記録にまだ無い最後の返事（記録に入っても同じ印）
+    mark = lambda key, t: hashlib.sha1(f"{key}\n{t}".encode("utf-8")).hexdigest()   # noqa: E731
+    bad = [(key, t) for key, t in dict.fromkeys(lines) if english(t) and mark(key, t) not in done]
     if not bad:
         return None
-    done |= {hashlib.sha1(t.encode("utf-8")).hexdigest() for t in bad}
+    done |= {mark(key, t) for key, t in bad}
     STATE.write_text(json.dumps(sorted(done)), encoding="utf-8")
-    said = "」「".join(t.strip()[:100] for t in bad)
+    said = "」「".join(dict.fromkeys(t.strip()[:100] for _, t in bad))
     if stop:
         return (f"⛔ 最近の返事が英語です（「{said}」）。日本語で書き直し、経過の記録（docs/team/CL-1_HISTORY.md の末尾の「失敗の記録」）に書いてから、"
                 "返事を終えてください。")

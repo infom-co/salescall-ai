@@ -166,8 +166,10 @@ LASTING = timedelta(hours=1)   # 一時的なものが「続いている」と�
 # 関係のない文を話し続ける・声が出ない など）／poor_audio＝声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まり
 # どおりの会話が進められない（2026-10-24 ユーザー決定）／runner_error＝通話を進める部品が例外で落ちた・終えずに戻った（回線ごとの見張りが
 # 決める。0136）／storage_stuck＝データベースへの書き込みが進まない（書き込み1つが call.frozen_after より長く終わらない。回線ごとの見張りが
-# 決める。0143）
-ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error", "storage_stuck")
+# 決める。0143）／worker_lost＝回線ごとの処理・見守り役そのものが、通話を終えないまま止まった（落ちた・借用の期限が切れた。後始末の1か所
+# salescall.recover_lines が決める。0238。⛔ 0238 の前は理由を残さず、お客様が出る前なら「回線のせい（鳴らなかった）」と読まれ、回線の確かめと
+# 番号の4回に数えられた＝原則6「こちらの不具合は番号・回線・行の回数に数えない」に反した）
+ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error", "storage_stuck", "worker_lost")
 # そのうち、こちらのプログラムの不具合の理由 → エラーの種類（理由ごとの直す担当・止め方は ACTIONS の行）。どの理由がこちらの不具合かを決める
 # のはデータベースの salescall.trouble_ours の1か所（0141。通話ごとの口は、終えた電話をこちらの不具合として伝えるかを、そこに聞く）。ここは
 # その種類の名前の表だけ（種類の名前は salescall.trouble_kind と同じ形＝試験が確かめる）。2026-10-25 夜 管理者：「声が聞き取れない」は
@@ -175,6 +177,7 @@ ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proce
 TROUBLES: dict[str, str] = {
     "frozen": "call_frozen", "ai_malfunction": "call_ai_malfunction",
     "cannot_proceed": "call_cannot_proceed", "runner_error": "call_runner_error", "storage_stuck": "call_storage_stuck",
+    "worker_lost": "call_worker_lost",
 }
 # 理由ごとのエラーの出どころ（無ければ「通話」。0143）：データベースへの書き込みが進まないのは「保存」（直す担当 CL-2）
 TROUBLE_SOURCES: dict[str, str] = {"storage_stuck": "storage"}
@@ -203,10 +206,11 @@ RECOVERY_WAIT = ("同じ契約者で、こちらの不具合なしにお客様�
                  "替わったら、すぐにかけ直します。お客様が出たあとに終えた電話は、お詫びとともに")
 
 
-def _trouble(what: str, fixer: str, *, rows: bool = True) -> "Action":
-    """こちらのプログラムの不具合で終えた電話の種類の処置（どの種類も同じ決まり。作るのはこの1か所）。rows＝違う行の数で、その契約者の
-    新しい電話を止めるか：止める原因（stop_cause＝program_trouble）と説明の文を、この1つの値から作る（数えるかを読むのは `counts_rows`
-    で、処置の止める原因だけを見る＝説明と動きが食い違わない。データベースの一時的な止まりは数えない＝2026-10-31 管理者）。2026-10-25 ユーザー：「同じ行で、こちらのプログラムの不具合が
+def _trouble(what: str, fixer: str, *, apart: str | None = None) -> "Action":
+    """こちらのプログラムの不具合で終えた電話の種類の処置（どの種類も同じ決まり。作るのはこの1か所）。apart＝違う行の数に数えない種類の、
+    数えない理由と、そのあいだの動き（None＝数える＝違う行が決めた数続いたら、その契約者の新しい電話を止める）：止める原因
+    （stop_cause＝program_trouble）と説明の文を、この1つの値から作る（数えるかを読むのは `counts_rows` で、処置の止める原因だけを見る＝
+    説明と動きが食い違わない。数えないのは、データベースの一時的な止まり＝2026-10-31 管理者・回線の処理が止まった＝2026-11-18 ユーザー「案B」）。2026-10-25 ユーザー：「同じ行で、こちらのプログラムの不具合が
     続くとき：その行だけの問題なのか、すべての行にかかわる問題なのかを見極めないといけないでしょ？その行だけなら、契約者(管理者含む)と、
     開発AIの担当、記録にそれを伝え、2回続いたら、次の行へ。3行同じ問題なら、甚大な問題と判断。」）。"""
     meaning = (f"{what}（こちらのプログラムの不具合。その電話はお詫びして終え、番号・回線・行の回数のどれにも数えない）：電話ごとに、"
@@ -214,12 +218,10 @@ def _trouble(what: str, fixer: str, *, rows: bool = True) -> "Action":
             "その行は休ませて次の行へ進む（その不具合を直したと記録され、そのあとプログラムが替わるか、管理者・契約者が戻すまで）。"
             + ("違う行で同じ理由が決めた数（設定 stop.trouble.stop_after_rows。初め3行）続いたら（こちらの不具合なしにお客様と話し終えた"
                "電話があれば数え直す）、すべての行にかかわる甚大な問題として、その契約者の新しい電話を止める（話している電話は切らない。"
-               "その不具合を直したと記録され、そのあと版が替わったら解く。管理者・契約者も解ける）" if rows else
-               "違う行で続いても、その契約者の新しい電話は止めない（データベースの一時的な止まり＝2026-10-31 管理者。止まりで終えた回線は、"
-               "データベースへの書き込みが call.frozen_after のうちに終わると確かめてから、次の電話をかける＝戻らないあいだは、かけない。"
-               "戻ったと確かめた時に、この種類で復旧を待つ行は、ほかの電話を待たずにお詫びとともにかけ直す＝状態の表の E21。見直し28）"))
-    return Action("keep", "none", "program_trouble" if rows else None, "tenant" if rows else None, True, meaning, fixer=fixer,
-                  per_call=True)
+               "その不具合を直したと記録され、そのあと版が替わったら解く。管理者・契約者も解ける）" if apart is None else
+               f"違う行で続いても、その契約者の新しい電話は止めない（{apart}）"))
+    return Action("keep", "none", "program_trouble" if apart is None else None, "tenant" if apart is None else None, True, meaning,
+                  fixer=fixer, per_call=True)
 
 
 # 知らせに出す短い名前（注意は短く。詳しい意味は Action.meaning＝画面の「止まった理由」・i マークで。2026-10-17 ユーザー）
@@ -240,6 +242,7 @@ LABELS: dict[str, str] = {
     "call_cannot_proceed": "会話を決まりどおり進められませんでした",
     "call_runner_error": "通話の部品が落ちました（お詫びして終えた）",
     "call_storage_stuck": "記録の書き込みが進みません（お詫びして終えた）",
+    "call_worker_lost": "回線の処理が通話の途中で止まりました",
     "runner_stuck": "通話の部品が戻りません",
     "ai_stopped": "Sonnet（意味の判定のAI）が止まりました",
     "judge_stopped": "判定のAI（緊急の道で代われない）が止まりました",
@@ -393,7 +396,16 @@ ACTIONS: dict[str, Action] = {
     # プログラムが替わるか、人が解くまで再開しなかった）。戻らないあいだに新しい電話をかけないのは、回線ごとの処理の1か所
     # （supervisor/line.loop が、止まりで終えた回線の次の電話の前に、書き込みが戻ったかを確かめる）
     "call_storage_stuck": _trouble("データベースへの書き込みが進まなかった（書き込み1つが call.frozen_after より長く終わらない）",
-                                   "CL-2", rows=False),
+                                   "CL-2", apart="データベースの一時的な止まり＝2026-10-31 管理者。止まりで終えた回線は、データベースへの書き込みが"
+                                   " call.frozen_after のうちに終わると確かめてから、次の電話をかける＝戻らないあいだは、かけない。戻ったと確かめた時に、"
+                                   "この種類で復旧を待つ行は、ほかの電話を待たずにお詫びとともにかけ直す＝状態の表の E21。見直し28"),
+    # 回線ごとの処理・見守り役そのものが、通話を終えないまま止まった（後始末 salescall.recover_lines が決める。0238）：こちらのプログラムの
+    # 不具合（原則6）。違う行の数には数えない（✅ 2026-11-18 ユーザー「案B」：サーバーが1回落ちると、話していた回線の電話が同時に終わり、
+    # その1回だけで「違う3行」になって契約者の新しい電話を止めてしまう＝データベースの一時的な止まりと同じ扱い＝伺い5。止まった流れは、
+    # 見守り役が間をあけて立ち上げ直す＝supervisor/main.watch_workers）
+    "call_worker_lost": _trouble("回線ごとの処理・見守り役が、通話を終えないまま止まった（落ちた・借用の期限が切れた）", "CL-2",
+                                 apart="サーバー・回線の処理が1回落ちると、話していた回線の電話が同時に終わり、その1回だけで違う行が重なるため＝"
+                                       "2026-11-18 ユーザー「案B」。止まった流れは、見守り役が間をあけて立ち上げ直す"),
     # 通話を進める部品が、こちらの不具合でおわびして終えたあとも戻らない（0141。見直し20a）：その電話は、もう call_frozen などとして伝えて
     # ある。ここで伝えるのは「その回線の処理が止まっていた」こと（回線ごとの処理を立て直したので、電話は止まらない）。戻らない長さは、
     # おわびを流し終えるまでの長さ（protocol.APOLOGY_WAIT）と call.frozen_after から決める（0143。仮の設定 call.stuck_after は外した）

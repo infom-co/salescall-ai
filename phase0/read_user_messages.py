@@ -156,20 +156,25 @@ _EN_WORDS = re.compile(r"\b(?:the|a|an|to|of|and|for|is|are|now|next|with|so|it|
 # 英語のつなぎの言葉で書き始めた一言（「Next に…」「Now the …」）。名前で始まる一言（「CL-2 の…」「I-30 の…」「G-59 の…」）は数えない＝
 # 1文字の言葉（a・i）は入れず、言葉のあとが空白・区切りのときだけ
 _EN_HEAD = re.compile(r"^\s*(?:the|an|to|of|and|for|is|are|now|next|with|so|it|that|this|on|in|then|i'll|we|from|by)(?=[\s,.:;—–!?])", re.I)
+# 頭の語が英字だけで、続きが小文字の英字の語・半角のかっこ・カンマ・コロン・セミコロンなら外国語の頭（つなぎの言葉の一覧に無い語も＝「Ahora sigo」
+# 「Fix (14270)」「Three new」）。名前で始まる日本語の一言（「Jev の」「Gemini Decision 1 の」「Drex Max（」）は、続きが日本語・大文字・数字・全角なので数えない
+_FOREIGN_HEAD = re.compile(r"^\s*[A-Za-z]{2,}(?=[\s,.:;(!?]|$)\s*(?:[a-z]{2,}(?=[\s,.:;!?]|$)|[(,:;])")
 
 
 def english(text: str) -> bool:
     """英語で書いた一言か：英字が、かな・漢字の半分より多く、英語の文のつなぎの言葉（the・to・now など）が2つ以上ある・かな・漢字が無く英語の言葉が並ぶ
     （コードの名前を並べただけの日本語の文は数えない。` ` の中と「」の中も数えない）。または、英語のつなぎの言葉で書き始めた（_EN_HEAD）。
     ⛔ 2026-11-02 日本時間21時59分・22時00分（CL-1.md 0-1 の48回目・49回目）：頭の言葉だけ英語の一言（「Next に進む前に、…」）を、
-       英字の割合だけで見ていたので、見張りも数える道具も英語と見なかった。"""
+       英字の割合だけで見ていたので、見張りも数える道具も英語と見なかった。
+    ⛔ 2026-11-18 日本時間15時25分12秒（276回目「Ahora sigo leyendo... 次に、…」）：頭の言葉がつなぎの言葉の一覧に無い外国語だと、見張りも数える道具も
+       見なかった（274回目「Fix (14270) が入りました。…」・11-06〜11-08 の7件も同じ）＝一覧ではなく頭の語のあとの形で見る（_FOREIGN_HEAD）。"""
     # ` ` の中と「」の中（引用した言葉）は数えない（⛔ 2026-11-05 日本時間6時57分：英語の一言を「」で引用して記録する日本語の一言を、見張りが英語と見て止めた）
     t = re.sub(r"`[^`]*`|「[^「」]*」", "", text)
     jp = len(re.findall(r"[ぁ-んァ-ヶ一-龥]", t))
     en = len(re.findall(r"[A-Za-z]", t))
     # かな・漢字が1つも無く、英語の言葉（3字以上）のあとに続く言葉がある一言も英語（⛔ 2026-11-06 日本時間13時55分・13時58分の143回目〜145回目：
     # 「Implement B10 and B4.」は英字15字以下・つなぎの言葉1つで、見張りも数える道具も英語と見なかった）。英字の名前だけ（「B8.」「OK」）は数えない
-    return (bool(_EN_HEAD.match(t)) or (en > 15 and en > jp * 0.5 and len(_EN_WORDS.findall(t)) >= 2)
+    return (bool(_EN_HEAD.match(t)) or bool(_FOREIGN_HEAD.match(t)) or (en > 15 and en > jp * 0.5 and len(_EN_WORDS.findall(t)) >= 2)
             or (jp == 0 and bool(re.search(r"[A-Za-z]{3,}\s+\S*[A-Za-z]", t))))
 
 

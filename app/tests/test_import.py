@@ -505,6 +505,23 @@ class CustomerContacts(Base):
         with self.assertRaises(customer_contacts.ContactInvalid):         # 形の決まりは取込と同じ1か所
             self.tx(lambda tx: customer_contacts.add(tx, task, "email", "x@", origin="dashboard"))
 
+    def test_a_fax_number_that_cannot_be_a_phone_number_stays_a_contact(self):
+        """そろえられないファクス番号（海外の番号・「#」の番号）は、連絡先としてだけ持つ（行の番号＝止める範囲・ほかの行との共有には入れられない）。
+        国内のファクス番号は、連絡先と、記録だけの番号（名札 fax）の両方（0237）。⛔ 2026-11-18 の6回目の見直しまで：そろえられない番号も行の番号に
+        足そうとして落ち、通話の報告の受け取り・取り込みがまるごと失敗した。"""
+        task = self.s["task"]
+        for value in ("+1 212 555 0100", "#123"):
+            with self.subTest(value=value):
+                self.tx(lambda tx: customer_contacts.add(tx, task, "fax", value, origin="dashboard"))
+        domestic = "03-0000-0163"
+        self.tx(lambda tx: customer_contacts.add(tx, task, "fax", domestic, origin="dashboard"))
+        self.assertEqual(sorted(r["value"] for r in self.tx(lambda tx: tx.all(
+            "SELECT value FROM salescall.task_contacts WHERE task_id = %s AND kind = 'fax'", (task,)))),
+            sorted(["+1 212 555 0100", "#123", domestic]))
+        self.assertEqual([r["phone_e164"] for r in self.tx(lambda tx: tx.all(
+            "SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND label = 'fax'", (task,)))],
+            [normalize(domestic).e164])
+
     def test_the_contacts_in_the_list_are_checked_by_one_rule(self):
         """連絡先の形の決まりは1か所（customer_contacts.problem）。サービス名だけの列は選べない。"""
         with self.assertRaises(importer.ImportRejected):

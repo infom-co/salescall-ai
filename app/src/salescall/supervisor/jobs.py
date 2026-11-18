@@ -17,7 +17,7 @@ from typing import Any, Callable
 from uuid import UUID
 
 from salescall.core import (agents, ai_versions, answer_rate, attempts, backup, business_settings, calendar, conversation_io, gate, health,
-                            leases, measure, next_action, recordings, settle, usage, watch)
+                            leases, measure, next_action, quality_stage, recordings, settle, usage, watch)
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, line, plugins, report
 from salescall.supervisor.links import Links
@@ -216,6 +216,13 @@ def month_ahead_notices(ctx: Context) -> None:
               lambda t, in_client=in_client: in_client(lambda tx: gate.month_ahead_unanswered(tx, t)))
 
 
+def quality_production(ctx: Context) -> None:
+    """本番になった業務の品質の停止を解く（依頼者ごと。決めるのは core/quality_stage.release_production の1か所。品質の門は検証モードの業務
+    だけ＝原則9）。依頼者ごとに別の取引（1つの依頼者の誤りで、ほかの依頼者を止めない）。"""
+    _each(ctx, "本番になった業務の品質の停止を解く", _clients(ctx),
+          lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, quality_stage.release_production))
+
+
 def storage_recovery(ctx: Context) -> None:
     """データベースへの書き込みが戻った（E21）を、その契約者の復旧待ちの行へ渡す（core/health.storage_back。1か所）。渡す取引そのものが
     書き込みの確かめ（supervisor/line.timed_write＝確定まで call.frozen_after のうちに終わるか。回線の流れの `storage_back` と同じ1か所）
@@ -327,6 +334,7 @@ JOBS: tuple[Job, ...] = (
     Job("reopen_revoked", 300, "tenant", 600, reopen_revoked),
     Job("month_ahead_notices", 60, "tenant", 300, month_ahead_notices),   # 1か月以上先のかけ直しの、約束の時刻の5分前の緊急の知らせ
     Job("versions", 300, "tenant", 600, versions),   # 版を足して、そろったら自動で替える（0183）
+    Job("quality_production", 60, "tenant", 300, quality_production),   # 本番になった業務の品質の停止を解く（原則9。1分＝切り替えてすぐ効く）
     Job("utterances", 86400, "tenant", 600, purge_utterances),   # やり取りの文字を、録音と同じ日数で消す（1日1回。0157）
     Job("samples", 3600, "tenant", 1800, draw_samples),
     Job("answer_rates", 1800, "tenant", 600, answer_rates),

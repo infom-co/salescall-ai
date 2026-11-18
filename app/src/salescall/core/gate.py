@@ -580,6 +580,17 @@ def apology_unapproved(tx: Tx, task_id: UUID) -> bool:
 
 
 def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: dict[UUID, bool] | None = None) -> str | None:
+    """門が必ず断り、いつまで待てば変わるか分からない行の理由（`_waits_unknown`）。設定の値が決まっていない・祝日の暦が無い日で
+    決められないときは、門に渡す（None）：門が同じ例外を実施回の理由（setting_missing・calendar_out_of_range）にして、その実施回を
+    この回だけ飛ばし、知らせる（`claim` の1か所）。⛔ 2026-11-18 の6回目の見直しまで：候補を出す処理では受けず、回線の1回分の処理ごと
+    落ちた（前の依頼者で落ちると、後ろの依頼者の約束の電話まで毎回かからなかった）。"""
+    try:
+        return _waits_unknown(tx, task_id, line_id, seen=seen)
+    except (settings.SettingMissing, CalendarOutOfRange):
+        return None
+
+
+def _waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None, *, seen: dict[UUID, bool] | None = None) -> str | None:
     """門が必ず断り、いつまで待てば変わるか分からない行の理由（無ければ None。1か所）：候補を出す処理（scheduler.due_tasks）が、
     門に渡さずに飛ばす（門に渡すと、次の動きが決まった間ごとに予定を書き直し、記録が増え続けた＝⛔ 見直し16・17a。待つ時刻が分かる
     理由は、次の動きがその時刻へ1回書くので、ここには入れない）。見るのは、理由の表の扱いが unoffered・plan_if_known の理由のうち、
@@ -689,6 +700,8 @@ NAME_RECORDING_MISSING = ("お名前の録音（名前の録音の台帳）が�
                           "ください（それまで、その行はかけません）。")
 APOLOGY_VOICE_NOT_READY = ("お詫びを伝える電話（お詫びだけの電話・約束の電話の頭のお詫び）は、お詫びの録音の声（{}）で話しますが、その声がいま話してよい声"
                            "ではありません（その声の共通の一言・業務の録音の録り直しや承認がまだ など）。その声の録音がそろうまで、この行にはかけません。")
+SAME_VOICE_NOT_READY = ("この番号へ同じ業務で前に話した声（{}）が、いまの業務設定の版では話せません（その声の録音がまだ承認されていない など）。同じ業務は"
+                        "同じ声でかけるので、その声の録音を承認するまで、この行にはかけません。")
 OTHER_VOICE_MISSING = ("別の声の録音がありません。ほかの依頼者や、この依頼者のほかの業務・実施回がかけた番号へは、同じ声ではかけません。"
                        "別の声の録音を承認してください。")
 
@@ -747,7 +760,11 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     if mine is not None and types[mine]["voice_name"] in ready:
         return mine
     before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s, %s) AS v", (task["phone_e164"], task["task_id"]))["v"]
-    usable = [v for v in ready if v not in taken and v != before]
+    # 同じ業務の声（mine）が、いまの版で話せない（その声の録音がまだ承認されていない など）：ほかの声でかけない＝話せるようになるまで待ち、契約者に
+    # 知らせる（下の「話せる声が無い」と同じ道。⛔ 2026-11-18 の6回目の見直しまで：ほかの声を選んでかけた＝同じ業務なのに声が替わった）。
+    # お詫びを伝える電話は、お詫びの録音の声が先（上の must。前に話した声の決まりより先＝0131）なので、ここでは待たない
+    waits_mine = mine is not None and must is None
+    usable = [] if waits_mine else [v for v in ready if v not in taken and v != before]
     if before is not None:
         # お客様が前に聞いた声と、別の性別の声があれば、それだけにする（2026-10-17 ユーザー：「同じ男性ならサービスを聞く前に嫌悪感を
         # 持たれるので、Ledaが対応するなど」。性別は声の一覧の表示名＝0118。分からない声は、別の性別とはみなさない）
@@ -760,7 +777,9 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     if usable:
         return next(code for code, t in sorted(types.items()) if t["voice_name"] == usable[0] and t["default_for_voice"])
     admin = False
-    if ready:
+    if waits_mine:
+        reason, summary, key = "voice_not_ready", SAME_VOICE_NOT_READY.format(types[mine]["voice_name"]), ":" + mine
+    elif ready:
         reason, summary, key = "voice_used_by_other_client", OTHER_VOICE_MISSING, ""
     elif missing := recordings.missing_parts(tx, version_id):   # 業務の録音はあるが、システムの録音（共通の一言・標準の想定問答）に足りない部分がある
         reason, summary, key = "voice_not_ready", VOICE_PARTS_MISSING.format("・".join(missing)), ":" + ",".join(missing)

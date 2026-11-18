@@ -5874,12 +5874,116 @@ class PlayRecordingsTest(unittest.TestCase):
         self.assertNotIn(hc, heard(r))
         self.assertTrue(heard(r).endswith("恐れ入りますが先日お話しさせていただいた方からこれまでのお話はお聞き及びでしょうか？"), heard(r))
 
+    def test_an_earlier_refusal_is_counted_only_with_the_person_who_gave_it(self):
+        # 前の通話の答えは、その答えをいただいた方の答え（✅ 2026-11-17 日本時間2時23分01秒 管理者「鈴木様へはかける」＝CL-2 の連絡帳 4-418：苦情も
+        # 「うちは要らない」と同じく前の担当の方個人のこと・4-413「デフォルトは佐藤様へはその番号でかける」）。最終目的の質問の前の「いいえ」で締めてよいのは、
+        # その方とお話ししているときだけ。⛔ 直す前は、(a) 担当の方が替わった電話で、新しい担当の方に用件を言ったすぐあとに「承知いたしました。お忙しいところ
+        # お時間をいただきましてありがとうございました。それでは失礼いたします。」と締めた（引き継ぎを確かめる一言も最終目的の質問も伺わない＝新しい担当の方へ
+        # かけるご決定が意味を失う） (b) 担当替わりでも同じ方への続きでも、お詫びの電話・番号を伺い直す電話でも、受付の方の「あいにく岡田は席を外しております。」
+        # （ご本人と話す前）で同じ締めをし、受付の方の言葉を根拠に「目的が果たせなくなった」（goal_refused）と報告した
+        from flowctl import CALLBACK_IDS, Question
+        from instruction import Business, Target
+        from meaning_judge import Reading
+        from phrases import ACK
+        okada = Target(name="岡田", reading="おかだ", role="営業部部長")
+        hc = "恐れ入りますが前のご担当者様からこれまでのお話はお聞き及びでしょうか？"
+        hid = CALLBACK_IDS["carried"]
+        refused = {"Q1": {"state": "accepted", "condition": "いいえ", "who": "target"}}
+
+        def heard(r):
+            return ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+
+        def start(earlier, goals=("Q1",), **kw):
+            qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal="Q1" in goals, declines=("いいえ",)),
+                  Question("Q2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), final_goal="Q2" in goals, declines=("いいえ",)),
+                  Question("Q3", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))]
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=qs,
+                         purpose_line="ご予約の確認でお電話いたしました。", purpose_noun="ご予約の確認", target=okada, earlier=earlier, **kw)
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            return f, (r if r.get("result") in ("opening", "end") else f.on_first_words_end())
+
+        def reach(f):
+            f.on_callee(); f.on_heard("はい、お電話代わりました。岡田です。")
+            f.on_check("judge", Reading("ご本人"))
+            return f.apply("report_party", {"party": "target"})
+
+        def say(f, words, op, **a):
+            f.on_callee(); f.on_heard(words)
+            return f.apply(op, a)
+
+        # (a) 担当の方が替わった電話：用件のあと引き継ぎを確かめる一言（締めない）
+        for carried, words, cond in ((True, "はい、前の担当から聞いています。", "聞いている"), (False, "いえ、特に何も聞いていないですね。", "聞いていない")):
+            f, r = start(refused, apology_when="later", handover=True)
+            r = reach(f)
+            self.assertEqual((heard(r), r.get("result"), f.current), ("ご予約の確認でお電話いたしました。" + hc, "next", hid), carried)
+            # 聞いていても聞いていなくても、最終目的の質問は新しい担当の方に伺う（前の方の「いいえ」は新しい方のお答えではない＝聞いていれば前の方の取れた答えの
+            # ほかは引き継ぐ。最終目的のお断りだけは引き継がない＝その方個人の答え）
+            r = say(f, words, "record_answer", question_id=hid, condition_id=cond)
+            self.assertTrue(heard(r).endswith("ご予約はされていますでしょうか？"), (carried, heard(r)))
+            self.assertEqual((f.current, f.facts["carried"][0]["kept"], f.facts["carried"][0]["dropped"], f.facts.get("goal_refused")),
+                             ("Q1", carried, ["Q1"], None), carried)
+            # 新しい担当の方ご自身のお答えで決まる：はい＝次へ・いいえ＝この方のお断りで締める（根拠はこの方の言葉）
+            r = say(f, "はい、しています。", "record_answer", question_id="Q1", condition_id="はい")
+            self.assertTrue(heard(r).endswith("パンフレットをお送りしてもよろしいでしょうか？"), (carried, heard(r)))
+            f, r = start(refused, apology_when="later", handover=True)
+            reach(f)
+            say(f, words, "record_answer", question_id=hid, condition_id=cond)
+            r = say(f, "いえ、うちは要らないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+            self.assertEqual((r.get("result"), [x["said"] for x in f.facts["goal_refused"]]), ("end", ["いえ、うちは要らないです。"]), carried)
+        # (b) ご本人と話す前（受付の方の「席を外しております」）は、前の通話の「いいえ」で締めない＝戻る時刻を伺う（どの電話でも同じ）
+        for kw in ({"apology_when": "later", "handover": True}, {"apology_when": "later"},
+                   {"apology_call": True, "apology_when": "later", "apology_text": "先日のお電話では大変失礼いたしました。"},
+                   {"number_again": "unreachable"}):
+            f, r = start(refused, **kw)
+            r = say(f, "あいにく岡田は席を外しております。", "request_callback", why="absent")
+            self.assertNotEqual(r.get("result"), "end", (kw, heard(r)))
+            self.assertIsNone(f.facts.get("goal_refused"), kw)
+            self.assertTrue(heard(r).endswith("恐れ入りますが何時ごろお戻りになられますでしょうか？"), (kw, heard(r)))
+        # 同じ方（前の電話でお話しした方）とお話ししているときは、前の通話の答えもこの方の答え＝今までどおり数える（果たし方が「どれか1つ」の業務で、前の電話で
+        # Q1 を断られ、この電話で Q2 も断られたら締める。根拠はこの電話のお断り）
+        f, r = start(refused, goals=("Q1", "Q2"), apology_when="later")
+        r = reach(f)
+        self.assertTrue(heard(r).endswith("パンフレットをお送りしてもよろしいでしょうか？"), heard(r))
+        r = say(f, "いえ、それも結構です。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((r.get("result"), [(x["goals"], x["said"]) for x in f.facts["goal_refused"]]), ("end", [(["Q1", "Q2"], "いえ、それも結構です。")]))
+
+    def test_the_carried_line_says_the_day_the_answers_were_taken(self):
+        # 引き継ぎを確かめる一言「先日（先ほど）お話しさせていただいた方から…」の「先日／先ほど」は、前の通話の答えをいただいた電話の日（予約証の earlier_when＝
+        # CL-2 の core/apology.earlier_when の1か所・CL-2 の 4-389。CL-1 の連絡帳 4-148 の「頼みたいこと (同じ日か)」で頼んだもの）。⛔ 2026-11-18 の見直し (13) で
+        # 見つけた：CL-2 が渡すようにしたのに会話の側がつながず、お詫びの日（apology_when）で選んでいた＝担当の方が替わった電話（apology_when が None）では今日
+        # いただいた答えでも「先日」・今日お話ししたが答えをいただいたのは前の日の電話だったご本人には「先ほど」
+        from flowctl import CALLBACK_IDS, Question
+        from instruction import Business, Target
+        from meaning_judge import Reading
+        from phrases import ACK
+        okada = Target(name="岡田", reading="おかだ", role="営業部部長")
+        qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+              Question("Q3", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))]
+        talked = {"later": "恐れ入りますが先日お話しさせていただいた方からこれまでのお話はお聞き及びでしょうか？",
+                  "same_day": "恐れ入りますが先ほどお話しさせていただいた方からこれまでのお話はお聞き及びでしょうか？"}
+        sub1 = {"Q1": {"state": "accepted", "condition": "はい", "who": "substitute"}}
+        for handover, apology_when, earlier_when in ((True, None, "same_day"), (True, None, "later"), (False, "same_day", "later"), (False, "later", "same_day")):
+            b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=qs,
+                         purpose_line="ご予約の確認でお電話いたしました。", purpose_noun="ご予約の確認", target=okada, earlier=sub1,
+                         apology_when=apology_when, earlier_when=earlier_when, handover=handover, apology=("cut_off",))
+            f = b.flow(play_recordings=True)
+            f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+            r = f.apply("report_party", {"party": "person"})
+            r = r if r.get("result") in ("opening", "end") else f.on_first_words_end()
+            f.on_callee(); f.on_heard("はい、お電話代わりました。岡田です。")
+            f.on_check("judge", Reading("ご本人"))
+            r = f.apply("report_party", {"party": "target"})
+            heard = ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
+            self.assertEqual((heard, f.current), ("ご予約の確認でお電話いたしました。" + talked[earlier_when], CALLBACK_IDS["carried"]), (handover, apology_when, earlier_when))
+
     def test_everyone_not_in_the_earlier_call_is_asked_whether_the_talk_was_carried(self):
         # ✅ 2026-11-13 日本時間20時06分19秒 ユーザー「伺い2はア」「伺い3はア（候補2）」（11-12 日本時間20時44分50秒の伺い2・3）：
         # (伺い3) 引き継ぎを確かめる一言（HC）を伺う決まりは「前の電話でお話ししていない方（flowctl.earlier_talked が False）で、前の通話の答えがある」の1か所
         #   （担当の方が替わった電話・後任の方・前の答えが代わりの方の答えだけのご本人・前の方と代わりの方の混ざった答えの後任の方がみな同じ道）。文は、前の答えに
         #   前の担当の方（お呼びした方ご本人）の答えがあれば「前のご担当者様から…」、無ければ「先日お話しさせていただいた方から…」（同じ日は「先ほど」＝予約証の
-        #   apology_when）。聞いている＝前の答えを引き継いで続きから（代わりの方の途中の手順＝ご承認の「いいえ」のあとは、その手順を始めた質問から伺い直す＝
+        #   earlier_when＝答えをいただいた電話の日。11-18 まではお詫びの日 apology_when＝test_the_carried_line_says_the_day_the_answers_were_taken）。聞いている＝前の答えを引き継いで続きから（代わりの方の途中の手順＝ご承認の「いいえ」のあとは、その手順を始めた質問から伺い直す＝
         #   代わりの方の「いいえ」をご本人のお断りにしない）。⛔ 直す前は、代わりの方の答えだけのご本人と、混ざった答えの後任の方に、代わりの方の「いいえ」のまま
         #   「前回お伺いした件でご納得いただけなかった点はどの部分になりますでしょうか？」と伺った
         # (伺い2) 一言に「聞いていない」「分からない」・会話が繋がらないお返事（最初から伺う）なら「承知しました。」＋「それでは改めて確認させていただきますね。」
@@ -5902,10 +6006,10 @@ class PlayRecordingsTest(unittest.TestCase):
         def heard(r):
             return ACK.get(r.get("ack"), "") + "".join(p["text"] for p in r.get("play") or []) + (r.get("say") or "")
 
-        def start(qs, earlier, handover=False, successor=False, when="later"):
+        def start(qs, earlier, handover=False, successor=False, when="later", earlier_when="later"):
             b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認", questions=qs,
                          purpose_line="ご予約の確認でお電話いたしました。", purpose_noun="ご予約の確認", target=okada, earlier=earlier,
-                         apology_when=when, handover=handover, apology=("cut_off",))
+                         apology_when=when, earlier_when=earlier_when, handover=handover, apology=("cut_off",))
             f = b.flow(play_recordings=True)
             f.on_connect(); f.on_callee(); f.on_heard("はい、テスト商事でございます。")
             r = f.apply("report_party", {"party": "person"})
@@ -5934,7 +6038,7 @@ class PlayRecordingsTest(unittest.TestCase):
         purpose = "ご予約の確認でお電話いたしました。"
         # (伺い3) 前の答えが代わりの方の答えだけのご本人：前の電話のお詫び・「前回お伺いした件で…」は言わず、用件のあとに「先日お話しさせていただいた方から…」
         for when in ("later", "same_day"):
-            f, r = start([q_res, q_app, q_pay], sub2, when=when)
+            f, r = start([q_res, q_app, q_pay], sub2, when=when, earlier_when=when)   # 代わりの方とお話しした電話で答えをいただいた
             self.assertEqual((heard(r), f.current), (purpose + talked[when], hid), when)
         # 聞いている＝代わりの方の答えを引き継ぐ（ご予約はされている）。代わりの方の途中の手順（ご承認の「いいえ」のあと）は、ご承認の質問からご本人に伺い直す
         f, r = start([q_res, q_app, q_pay], sub2)
@@ -5946,8 +6050,9 @@ class PlayRecordingsTest(unittest.TestCase):
         f, r = start([q_res, q_app, q_pay], mix, successor=True)
         self.assertEqual((f.current, heard(r).endswith(purpose + hc)), (hid, True), heard(r))
         self.assertNotIn("ご納得いただけなかった点", heard(r))
-        # 担当の方が替わった電話で、前の答えが前の担当の方の代わりの方の答えだけ：同じ日かが渡らない（予約証の apology_when が None＝CL-2 の 4-382）＝「先日」
-        f, r = start([q_res, q_pay], sub1, handover=True, when=None)
+        # 担当の方が替わった電話で、前の答えが前の担当の方の代わりの方の答えだけ：お詫びの日は渡らない（予約証の apology_when が None＝CL-2 の 4-382）・
+        # 答えをいただいた電話の日（earlier_when）があとの日＝「先日」（今日なら「先ほど」＝test_the_carried_line_says_the_day_the_answers_were_taken）
+        f, r = start([q_res, q_pay], sub1, handover=True, when=None, earlier_when="later")
         self.assertEqual((heard(r), f.current), (purpose + talked["later"], hid))
         # 前の電話でお話しした方（前の答えにご本人の答えがある・混ざった答えのご本人）には伺わない＝今までどおり
         for earlier in (mine, mix):
@@ -6987,6 +7092,63 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(len(calls), 3)  # やり直しを使い切ったら、誤りをそのまま上げる
 
 
+class ClosedNetworkTest(unittest.TestCase):
+    """組み立てだけ（--dry-run）の印が立った処理は、外へのつなぎ（名前引き・接続・送り）を作りの1か所（common.close_network）で全部止める。
+    ⛔ 2026-11-18 日本時間15時台（見直し (13) の持ち場 D の D12）：鍵の要らない一覧の読み（latest_ai --dry-run）・形の確かめ（judge_try --dry-run --check）が
+    外へつながった。帳面の「つなぎ先を手元の閉じた口に（HTTPS_PROXY=http://127.0.0.1:9）」は、作業環境の小文字の https_proxy と no_proxy
+    （api.anthropic.com）が先に効いて閉じていなかった＝流す人の環境変数ではなく、印を受けた作りで閉じる。手元の口（127.0.0.1）と asyncio は止めない。"""
+
+    def _run(self, code: str) -> list[str]:
+        import subprocess
+        import sys
+        here = Path(__file__).resolve().parent
+        done = subprocess.run([sys.executable, "-c", code], cwd=here, capture_output=True, text=True, timeout=60)
+        return done.stdout.split()
+
+    def test_dry_run_closes_every_outbound_connection(self):
+        # 外の先は、名前の引けない名前（.invalid）と、どこにもつながらない例の番地（192.0.2.1＝例に使う番地）＝直す前の作りで流しても何も届かない
+        code = ("import socket, common\n"
+                "common.base_parser('x').parse_args(['--dry-run'])\n"
+                "for f in (lambda: socket.getaddrinfo('example.invalid', 443),\n"
+                "          lambda: socket.create_connection(('192.0.2.1', 9), timeout=0.5)):\n"
+                "    try:\n"
+                "        f(); print('OPEN')\n"
+                "    except OSError as e:\n"
+                "        print('CLOSED' if '組み立てだけ' in str(e) else 'OTHER')\n")
+        self.assertEqual(self._run(code), ["CLOSED", "CLOSED"])
+
+    def test_loopback_and_asyncio_stay_open(self):
+        code = ("import asyncio, socket, common\n"
+                "srv = socket.socket(); srv.bind(('127.0.0.1', 0)); srv.listen(1)\n"
+                "common.base_parser('x').parse_args(['--dry-run'])\n"
+                "c = socket.create_connection(srv.getsockname(), timeout=2); print('OPEN'); c.close()\n"
+                "asyncio.run(asyncio.sleep(0)); print('ASYNCIO')\n")
+        self.assertEqual(self._run(code), ["OPEN", "ASYNCIO"])
+
+    def test_the_local_relay_to_the_outside_is_closed_too(self):
+        # 作業環境の外への道は手元の中継所（proxy の変数が指す 127.0.0.1 の口）＝手元の口でも、中継所の口は止める（大文字・小文字のどちらの変数でも）
+        code = ("import os, socket, common\n"
+                "relay = socket.socket(); relay.bind(('127.0.0.1', 0)); relay.listen(1)\n"
+                "other = socket.socket(); other.bind(('127.0.0.1', 0)); other.listen(1)\n"
+                "os.environ['https_proxy'] = 'http://127.0.0.1:%d' % relay.getsockname()[1]\n"
+                "common.base_parser('x').parse_args(['--dry-run'])\n"
+                "for where in (relay.getsockname(), ('localhost', relay.getsockname()[1]), other.getsockname()):\n"
+                "    try:\n"
+                "        socket.create_connection(where, timeout=2).close(); print('OPEN')\n"
+                "    except OSError as e:\n"
+                "        print('CLOSED' if '組み立てだけ' in str(e) else 'OTHER')\n")
+        self.assertEqual(self._run(code), ["CLOSED", "CLOSED", "OPEN"])
+
+    def test_without_dry_run_nothing_is_closed(self):
+        code = ("import socket, common\n"
+                "common.base_parser('x').parse_args([])\n"
+                "try:\n"
+                "    socket.getaddrinfo('example.invalid', 443); print('OPEN')\n"
+                "except OSError as e:\n"
+                "    print('CLOSED' if '組み立てだけ' in str(e) else 'OTHER')\n")
+        self.assertEqual(self._run(code), ["OTHER"])   # 名前は引けない（.invalid）が、止めたのは作りではない
+
+
 class EnglishLineTest(unittest.TestCase):
     """読み直しの道具が、英語で書いた一言を見つける（CL-1.md 0-2 の書き方。⛔ 2026-10-24：コンパクトの前後で56回、英語の一言を書いた）。"""
 
@@ -7009,6 +7171,16 @@ class EnglishLineTest(unittest.TestCase):
         for said in ("Write the B10 + B4 failing tests.", "Implement B10 and B4.", "Implement `_prepend_played` used by both."):
             self.assertTrue(english(said), said)
         for said in ("B8.", "OK", "`Flow._note`"):
+            self.assertFalse(english(said), said)
+        # 頭の語がつなぎの言葉の一覧に無い外国語でも、続きが小文字の英字の語・半角のかっこ・カンマ・コロンなら外国語の頭（⛔ 2026-11-18 日本時間15時25分12秒の
+        # 276回目「Ahora sigo leyendo...」・274回目「Fix (14270) が入りました。」・11-06〜11-08 の7件を、見張りも数える道具も見なかった）。名前で始まる日本語の一言は数えない
+        for said in ("Ahora sigo leyendo... 次に、要約のあとの手順で読みます。", "Fix (14270) が入りました。次に、試験を流します。",
+                     "Three new tests pass. 次に、試験の全部を流します。", "Fingerprints unchanged (5b7a887f182ac9f7) でした。次に、送ります。",
+                     "Falls (state 引数がまだ無い)。次に、直します。", "Still running. 次に、待つ間に確かめます。"):
+            self.assertTrue(english(said), said)
+        for said in ("Jev の読みは確かでした。", "Gemini Decision 1 の外れを読みます。", "Drex Max（Nace.AI）の線を見ます。",
+                     "Sonnet 5.5 の秒を数えます。", "flowctl の直しが入りました。", "Intent.md を読みます。",
+                     "「Fix (14270) が入りました。」と書いた一言を記録します。"):
             self.assertFalse(english(said), said)
 
 
@@ -19163,7 +19335,9 @@ class DryRunTest(unittest.TestCase):
 
 class OnelinerGuardTest(unittest.TestCase):
     """道具を呼ぶ前に、最近の一言が英語なら止める見張り（oneliner_guard。✅ 2026-11-02 日本時間7時12分 ユーザー「(b) OK」）。記録への書き込みが
-    道具の呼び出しより遅れるので、最近の段（直近3回の道具の結果まで・15分以内）を読み、止めた文は二度は止めない。"""
+    道具の呼び出しより遅れるので、最近の段（直近3回の道具の結果まで・15分以内）を読み、止めた一言は二度は止めない。止めた一言は文ではなく、
+    その一言の直前の段（人の発言・道具の結果の行）と文の組で覚える＝同じ文をあとの段でまた書いたら、また止める（⛔ 2026-11-18 日本時間15時25分44秒の
+    275回目「Now the Intent.md files.」＝文で覚えていたので、271回目に止めた同じ文を止めなかった）。"""
 
     def run_guard(self, rows, state, **hook):
         import json, os, subprocess, sys, tempfile
@@ -19186,6 +19360,8 @@ class OnelinerGuardTest(unittest.TestCase):
         self.assertEqual((self.run_guard(late, state), self.run_guard(late, state)), (2, 0))   # 止める・同じ文で二度は止めない
         self.assertEqual(self.run_guard([res("00:00"), txt(ja, "00:05"), use("00:06")], state), 0)
         self.assertEqual(self.run_guard([txt(en, "00:01"), use("00:02"), res("30:00"), txt(ja, "30:05")], state + "2"), 0)   # 15分より古い
+        again = late + [txt(ja, "00:09"), use("00:10"), res("00:11"), txt(en, "00:12"), use("00:13")]
+        self.assertEqual((self.run_guard(again, state), self.run_guard(again, state)), (2, 0))   # 同じ文をあとの段でまた書いたら、また止める
 
     def test_stops_an_english_reply_at_the_end(self):
         # ⛔ 2026-11-03 日本時間1時22分51秒（56回目）：道具を呼ばずに終える返事を英語で書き、道具を呼ぶ前だけの見張りでは止まらなかった
@@ -19200,6 +19376,9 @@ class OnelinerGuardTest(unittest.TestCase):
         self.assertEqual(self.run_guard(rows, state, hook_event_name="Stop"), 0)                          # 同じ文で二度は止めない
         # 記録にまだ無い最後の返事（hook が渡す last_assistant_message）も見る
         self.assertEqual(self.run_guard(rows[:1], state + "2", hook_event_name="Stop", last_assistant_message=en), 2)
+        # 返事の終わりで止めた最後の返事が、あとで記録に入っても、同じ一言は二度は止めない（印は直前の段＝記録に入る前と後で同じ）
+        later = rows + [row([{"type": "tool_use"}], "23:00")]
+        self.assertEqual(self.run_guard(later, state + "2"), 0)
         import oneliner_guard as g
         p = Path(tempfile.mkdtemp()) / "settings.json"
         p.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "x"}]}]}}), encoding="utf-8")
@@ -26076,6 +26255,23 @@ class RemainingNineTest(unittest.TestCase):
         self.assertEqual(point_fallback("question", True), "恐れ入ります。前回お伺いしたご質問は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。")
         self.assertEqual(point_fallback("request", False), "恐れ入ります。そのご要望は私では正確にお返事できませんので担当の者に申し伝えさせていただきますね。")
         self.assertNotIn("点は", "".join(point_fallback(k, a) for k in ("question", "request", "opinion") for a in (False, True)))
+
+    def test_2c_told_is_written_only_when_the_told_line_is_played(self):
+        # CL-2 の連絡帳 4-421 の (1)（2026-11-18）：ご説明の段で、会話AIの答えの文が使えず、知っていることの文そのまま（受け皿の own）を流したときも、ご納得いただけな
+        # かった点の記録に申し伝える一言の種類（told）を書いていた。同じ所で「ご説明できた」（explained）も真になるので、CL-2 の受け口（申し伝える一言は、ご説明できな
+        # かった点にだけ＝4-99）が報告をまるごと断り、判定できない・ご納得いただけなかった点が依頼者へ渡らなかった。told は、申し伝える一言（_point_fallback）を
+        # 実際に流したとき（答えを持っていない質問の受け皿＝no_answer）だけ
+        from flowctl import CALLBACK_IDS
+        from phrases import point_fallback
+        n1 = CALLBACK_IDS["not_agreed"]
+        for part, args, said, explained, told in (("own", {"fallback": self.INFO}, self.INFO, True, None),
+                                                  ("no_answer", {"answer": "そちらは担当の者に申し伝えさせていただきますね。"}, point_fallback("question", False), False, "question")):
+            f = self.approval({"state": "accepted", "condition": "いいえ"})
+            self.say(f, self.POINT, "record_answer", question_id=n1, condition_id="点を言った", value="料金のところ")
+            r = f.apply("replay_opening", {"part": part, **args})
+            heard = "".join(p["text"] for p in r.get("play") or ()) + (r.get("say") or "")
+            e = next(x for x in f.facts["not_agreed"] if x.get("question") == "Q1")
+            self.assertEqual((r["result"], heard, f.point["explained"], e.get("explained"), e.get("told")), ("own_answer", said, explained, explained, told), part)
 
     def test_3_talk_is_not_an_explanation(self):
         # (3) ご説明の段で、会話AIが受け答え（「さようでございますか。」）だけを返したら、ご説明したとは数えない＝受け取らずにご説明を頼む。⛔ ご説明したと数え、

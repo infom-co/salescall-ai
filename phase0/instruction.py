@@ -226,6 +226,9 @@ class Business:
     # その文が、いつの電話のことか（same_day＝同じ日「先ほど」・later＝あとの日「先日」。CL-2 の apology.for_task が選んだ文の部分
     # apology_same_day・apology_later）。繋がる前に用件を聞かれたときの一言も、これで選ぶ（phrases.APOLOGY_PURPOSE）
     apology_when: str | None = "later"   # None＝この電話と同じ担当の期に話せた電話が無い（CL-2 の 4-382）＝前の電話でお話ししていない方（flowctl.earlier_talked）
+    # 前の通話の答え（earlier）をいただいた、いちばん新しい電話が今日か（same_day・later。答えが無ければ None。予約証の earlier_when＝CL-2 の core/apology.earlier_when
+    # の1か所・4-389）。読むのは引き継ぎを確かめる一言の「先日／先ほど」（flowctl.carried_ask。CL-1 の連絡帳 4-148 の「頼みたいこと (同じ日か)」）
+    earlier_when: str | None = None
     # 約束の電話などの頭で流す、承認したお詫びの文（予約証のお詫びの理由 forbidden_speech のとき要る＝CL-2 の apology.for_task の text。承認したときに聞いて
     # いただいた録音で流す＝お詫びだけの電話の apology_call と同じ流し方。並べる順は flowctl.apology_order の1か所）。✅ CL-2 の 4-350 の (2)
     apology_text: str | None = None
@@ -342,6 +345,7 @@ class Business:
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か・担当の方が替わった電話か
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again, handover=self.handover,
                     hold_wait_s=self.hold_wait_s, silence_prompt_after=self.silence_prompt_after, wait_ask_after=self.wait_ask_after, apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
+                    earlier_when=self.earlier_when,
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
                     opening=self.replay_parts() if recorded else None, **kw)

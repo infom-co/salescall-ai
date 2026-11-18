@@ -1146,6 +1146,34 @@ class Brief1116(unittest.TestCase):
                                  callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
         self.assertEqual(("brief" in plain.detail, "not_asked" in plain.detail), (False, False))
 
+
+class Review1118(unittest.TestCase):
+    """2026-11-18 の6回目の見直し：(1) 判定が届かずに会話AIの読みで締めた理由に not_agreed も来る（CL-1 の flowctl.END_LABEL。前は報告をまるごと断った）
+    (2) 手短にの電話で伺わなかった質問に必須の質問が入っていても、対象外にしない（取れていない必須の質問のまま＝「完了」にしない）(3) 目的のお客様だと確かめ
+    られなかった通話のかけ直しの申し出は、判定に使わない（別の方が言った時刻で「折り返し予定」にしない＝伺った事実の1か所 judge._asked）。"""
+
+    def test_an_unjudged_not_agreed_end_is_received(self):
+        raw = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None,
+               "facts": {"end_unjudged": [{"turn": 5, "said": "では担当の方に伝えてください。", "reason": "not_agreed"}]}}
+        self.assertEqual([u.reason for u in from_json(raw).unjudged_ends], ["not_agreed"])
+
+    def test_a_required_question_skipped_on_a_brief_call_is_still_missing(self):
+        from salescall.core.call_report import Brief, Said
+        rules = check(V, ("Q1",), rules_raw(("Q1",)))
+        rep = replace(make_report(("target",), cut=CLOSED), brief=Brief(Said(3, "いえ、このままで。"), "いいえ", ("Q1",)))
+        got = judge(JudgeInput(TALKED, rep, {}, rules, callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
+        self.assertNotEqual(got.state, "completed")
+
+    def test_a_callback_from_an_unconfirmed_call_is_not_used(self):
+        from tests.support import callback
+        from tests.test_judge import LATER
+        rep = make_report(("target",), callback=callback("later", LATER), cut=CLOSED)
+        base = dict(callee=CALLEE, anyone_target=False, check_rang=False, forbidden=False, ask_if={})
+        sure = judge(JudgeInput(TALKED, rep, {}, RULES, **base))
+        unsure = judge(JudgeInput(TALKED, rep, {}, RULES, target_unconfirmed=True, **base))
+        self.assertEqual(sure.state, "callback_scheduled")
+        self.assertEqual((unsure.state, unsure.detail.get("not_reached")), ("not_reached", "not_transferred"))
+
 class NotAgreedEnd1102(unittest.TestCase):
     """CL-1 の連絡帳 4-66 のあとの (f)(g)（2026-11-02 5時56分・6時21分 ✅ ユーザー：「最終目的のご承認なら、お礼を言って締め、依頼者へ不満点を
     返します。ただし『もうかけない』の印は付けず、改めてご案内するかは依頼者が決めます」）：ご納得いただけなかった点は点ごとに1件（何回目

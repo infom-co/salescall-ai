@@ -269,6 +269,23 @@ class SameNumberOtherRows(SettleBase):
         self.assertIsInstance(again, gate.Claim, again)
         self.assertEqual(types[again.voice_type], types[x1["voice_type"]])         # 同じ業務は同じ声
 
+    def test_when_the_businesss_voice_cannot_speak_the_row_waits(self):
+        """同じ業務の声が、いまの版で話せなければ（録音がまだ承認されていない など）、ほかの声が話せても、その声でかけずに待ち、事情を知らせる
+        （同じ業務なら同じ声＝✅ 2026-11-17 ユーザー）。⛔ 2026-11-18 の6回目の見直しまで：ほかの声を選んでかけた。"""
+        s = self.ready()
+        aid = self.call(s)
+        self.settle(s, aid)
+        heard = self.tx(s, lambda tx: tx.one("SELECT voice_type FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["voice_type"]
+        types = self.tx(s, lambda tx: {r["code"]: r["voice_name"] for r in tx.all("SELECT code, voice_name FROM salescall.voice_types")})
+        self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=tx.one("SELECT now() AS t")["t"], end_reason=None,
+                                                  cause="試験：約束したかけ直し", promised=True, target=next_action.Target(s["contact"])))
+        others = sorted(set(types.values()) - {types[heard]})
+        with mock.patch.object(recordings, "ready_voices", return_value=others):   # ほかの声は話せる（同じ業務の声だけ話せない）
+            waiting = self.claim(s)
+        self.assertEqual(getattr(waiting, "reason", None), "voice_not_ready")
+        told = self.tx(s, lambda tx: [r["summary"] for r in tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'")])
+        self.assertIn(gate.SAME_VOICE_NOT_READY.format(types[heard]), told)
+
     def test_the_same_row_keeps_the_voice_the_customer_heard_not_one_that_was_not_answered(self):
         """同じ行で、お客様が出た通話の声（A）のあと、出なかった通話を別の声（B）でかけても、次の電話は A（お客様が聞いた声）。お客様がその声を聞いたかは、
         ほかの行の声と同じ1か所（salescall.voice_heard＝発信まで進み、相手が出た。0227）。⛔ 2026-11-16 の3回目の見直しまで：同じ行は発信した通話の声を

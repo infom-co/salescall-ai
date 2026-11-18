@@ -436,6 +436,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     corr = correction or results.correction_of(tx, attempt_id)   # いま直した（契約者の版をここで書く）か、前に直した
     use_corr = corr is not None and not (corr["business_state"] == "do_not_call" and "refusal" in approval.withdrawn(tx, attempt_id))
     if use_corr:
+        kind = "human"   # 直しを読んだ版は契約者の版（判定の版にしない＝判定の正しさの測りに直しを入れない。⛔ 2026-11-18 の6回目の見直しまで：締め直しの版は判定の版）
+    if use_corr:
         # 「もうかけないで」への直しのあと、依頼者の正式な求めで発信禁止を取り消したら、取り消しが勝つ（2026-10-30 (7)。直しを読まない）
         j = corrected(corr["business_state"], corr["complaint"], corr["detail"], base_state=j.state, base_detail=j.detail)
     decided = j.state != "unknown"
