@@ -55,3 +55,20 @@
     </div>
   </article>
 {%- endmacro %}
+
+{# 赤字の知らせ（費用と報酬・依頼者のタブで同じ部品）。確認ボタンは、赤字が続くあいだ画面に出したまま（✅ 2026-10-30 管理者「確認ボタンは画面に出したまま」）。
+   押したあとは「確かめました」の印のボタンにして残す（もう知らせない＝core の usage.confirm_deficit）。赤字かは core の usage.deficit_notice の答えだけ #}
+{% macro deficit_card(client, d, token, back) -%}
+  <div class="card attention-stop deficit">
+    <b>「{{ client.name }}」は今月、報酬より費用が多くなっています（赤字）</b>
+    <span class="muted">{{ d.figures }}・{{ time(d.warned_at) }}にお知らせ。電話は止めていません。</span>
+    {% if d.confirmed %}
+      <button class="btn small" type="button" disabled>確かめました（{{ time(d.confirmed_at) }}）</button>
+    {% else %}
+      <form method="post" action="/c/{{ client.client_id }}/inbox/deficit/confirm">{{ csrf(token) }}
+        <input type="hidden" name="warning_id" value="{{ d.warning_id }}"><input type="hidden" name="back" value="{{ back }}">
+        <button class="btn main small" type="submit">確かめた（これ以上お知らせしない）</button></form>
+      <span class="muted">{{ time(d.deadline) }}までに確かめないと、契約者と管理者にもう一度お知らせします。</span>
+    {% endif %}
+  </div>
+{%- endmacro %}

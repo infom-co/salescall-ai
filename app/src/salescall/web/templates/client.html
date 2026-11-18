@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "parts.html" import stat, tag, empty, flash, csrf %}
+{% from "parts.html" import stat, tag, empty, flash, csrf, deficit_card %}
 {% set active = "client" %}
 {% block title %}{{ business.name ~ "（" ~ client.name ~ "）" if business else client.name }}{% endblock %}
 {% block main %}
@@ -11,6 +11,7 @@
   <a class="btn" href="{{ '/c/' ~ client.client_id ~ ('/b/' ~ business.business_id if business else '') ~ '/settings' }}">{{ "この業務の設定" if business else "この依頼者の設定" }}</a></span></div>
 <p class="lead">{% if business %}依頼者「{{ client.name }}」の業務です。今日の動きと、実施回ごとのお客様リストです。{% else %}すべての業務を合わせた、今日の動きと実施回です。業務ごとに見るときは、上の業務のタブを選んでください。{% endif %}</p>
 {{ flash(done, ok) }}
+{% if deficit %}{{ deficit_card(client, deficit, token, "/c/" ~ client.client_id ~ ("/b/" ~ business.business_id if business else "")) }}{% endif %}
 {% for s in stopped %}
 <a class="card attention-stop notice-link stopped" href="{{ '/c/' ~ client.client_id ~ '/stops/' ~ s.event_id if s.scope in ('client', 'business') else '/t/stops/' ~ s.event_id }}">
   <b>新しい電話を止めています：{{ words.stop_cause(s.cause) }}</b>

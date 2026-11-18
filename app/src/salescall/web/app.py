@@ -46,6 +46,7 @@ from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, ac
 
 HERE = Path(__file__).resolve().parent
 ACTING_COOKIE = "acting_tenant"   # 管理者が見ている契約者（署名つき）
+TENANT_BACKS = ("/t/costs",)   # 受け箱の操作のあと、依頼者の中の住所のほかに戻ってよい全体の画面（赤字の確認ボタン）
 SYSTEM_PLACE: dict[str, Any] = {"client_id": None, "name": "全体（管理者だけ）"}   # 全体の範囲の承認待ちの「どこ」
 
 
@@ -246,7 +247,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                               lambda: ctx.client(client_id, lambda tx: inbox.perform(tx, kind, action, sent, "client")),
                               done=k.perform[action][1])
             back = str(form.get("back") or "")   # 1行の画面などから決めたときは、その画面へ戻る（その依頼者の中の住所だけ）
-            return _back(back if back.startswith(f"/c/{client_id}/") and "//" not in back else "/t/inbox", out)
+            ok_back = (back.startswith(f"/c/{client_id}/") and "//" not in back) or back in TENANT_BACKS   # 戻る先は決めた所だけ
+            return _back(back if ok_back else "/t/inbox", out)
         return handle(request, render)
 
     @app.post("/admin/inbox/{kind}/{action}")
@@ -304,6 +306,18 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     @app.post("/t/stops/{event_id}/resume")
     async def stop_resume(request: Request, event_id: int) -> HTMLResponse:
         return _stop_resume(request, event_id, None, dict(await request.form()))
+
+    @app.post("/t/stops/{event_id}/emergency")
+    async def stop_emergency(request: Request, event_id: int) -> HTMLResponse:
+        """AIの不具合の停止のあいだ、契約者以上が緊急の道で新しい電話を再開する（Intent.md 10-3「ボタンと権限は CL-3・CL-2」。出せるかと
+        出すのは core の stops.emergency_possible・emergency_pass の1か所。理由は必ず）。AIの不具合の停止は契約者の範囲（全体の画面）。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            reason = str(form.get("reason") or "").strip()
+            out = actions.act(secret, person.login_id, form, lambda: ctx.tenant(lambda tx: stops.emergency_pass(tx, event_id, reason=reason)),
+                              done="緊急の道で再開しました。止まった AI が戻ったと確かめられたら、ふだんの道に戻ります。", reason_field="reason")
+            return _back(f"/t/stops/{event_id}", out)
+        return handle(request, render)
 
     @app.post("/c/{client_id}/stops/{event_id}/resume")
     async def client_stop_resume(request: Request, client_id: UUID, event_id: int) -> HTMLResponse:
@@ -795,7 +809,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                             needs.append({"run": r["name"], "listed": got.listed, "parts": got.parts})
                 return {"client": c, "business": b, "businesses": context.businesses(tx),
                         "today": counts.client_today(tx, business_id), "runs": runs, "versions": versions, "needs": needs,
-                        "verification": verification, "stages": stages}
+                        "verification": verification, "stages": stages,
+                        "deficit": usage.deficit_notice(tx)}   # 赤字か＝core の1か所の答え（依頼者全体のもの。業務のタブにも出す）
             values = ctx.client(client_id, read, read_only=True)
             return page(request, "client.html", person, ctx, waiting=_waiting(ctx, client_id, business_id), done=done, ok=bool(ok),
                         stopped=counts.stops_for(counts.open_stops(ctx), client_id, business_id), **values)
