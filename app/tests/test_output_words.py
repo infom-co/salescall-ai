@@ -66,6 +66,19 @@ class EveryNameHasAWord(unittest.TestCase):
                     self.assertNotIn(name, words.CALL_ENDS_NOT_OURS)   # 正本を写さない
         self.assertEqual(words.call_end("worker_lost"), "回線の処理が通話の途中で止まりました")
 
+    def test_every_price_source_unit_and_tier_has_a_word(self):
+        import re as _re
+        defs = app_access().in_system(SYSTEM, lambda tx: " ".join(r["d"] for r in tx.all(
+            "SELECT pg_get_constraintdef(c.oid) AS d FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid"
+            " JOIN pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = 'salescall' AND t.relname = 'price_versions'"
+            " AND c.contype = 'c'")))
+        def values(col):
+            m = _re.search(col + r"\)? = ANY \(\(?ARRAY\[([^\]]*)\]", defs) or _re.search(col + r" = ANY \(ARRAY\[([^\]]*)\]", defs)
+            return set(_re.findall(r"'([a-z_]+)'", m.group(1))) if m else set()
+        self.assertTrue(values("source"))
+        self.assertEqual(values("source") - set(words.PRICE_SOURCE_WORDS), set())
+        self.assertEqual(values("unit") - set(words.PRICE_UNITS), set())
+
     def test_every_dnc_reason_has_a_word(self):
         import typing
         from salescall.core import dnc

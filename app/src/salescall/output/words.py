@@ -221,6 +221,14 @@ CALL_END_CLIENT: dict[str, str] = {
 }
 
 
+# 単価の表の言葉と、見せる単位（データベースの price_versions の source・unit・tier の決まりのすべて。試験が突き合わせる）。
+# 単価はデータベースでは「1単位あたりの円」。画面では人が読みやすい量あたりで見せ・入れる（PRICE_UNITS の倍数。決めるのはここだけ）
+PRICE_SOURCE_WORDS: dict[str, str] = {"ai": "会話AI", "ear": "別の耳（聞き取りの確かめ）", "line": "回線", "judge": "意味の判定"}
+PRICE_TIER_WORDS: dict[str, str] = {"free": "無料枠", "paid": "有料枠"}
+PRICE_UNITS: dict[str, tuple[int, str]] = {"input_tokens": (1_000_000, "入力 100万トークンあたり"),
+                                           "output_tokens": (1_000_000, "出力 100万トークンあたり"), "seconds": (60, "1分あたり")}
+
+
 def stop_scope(name: str) -> str:
     """停止の範囲の名前（正本は stops.SCOPE_NAMES）。"""
     return stops.SCOPE_NAMES.get(name, NO_WORD)

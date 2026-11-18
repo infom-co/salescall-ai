@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, flash, csrf, empty %}
+{% block title %}費用と報酬{% endblock %}
+{% macro yen(v) %}{{ "{:,.0f}".format(v|float) }}円{% endmacro %}
+{% block main %}
+<h1>費用と報酬</h1>
+<p class="lead">今月（日本時間の月初めから今まで）の、依頼者ごとの報酬と費用です。赤字になっても電話は止めません（お知らせだけです）。</p>
+{{ flash(done, ok) }}
+<h2>今月</h2>
+{% if month %}
+<div class="table-scroll"><table class="list">
+  <thead><tr><th>依頼者</th><th class="num">報酬</th><th class="num">費用（実測と推定の合計）</th><th>注意</th></tr></thead>
+  <tbody>
+  {% for m in month %}
+    <tr>
+      <td><a href="/c/{{ m.client_id }}">{{ m.name }}</a></td>
+      <td class="num">{{ yen(m.revenue) }}</td>
+      <td class="num">{{ yen(m.cost) }}</td>
+      <td>{% if not m.has_terms %}{{ tag("報酬の決まりが設定されていません", "wait") }}{% endif %}
+          {% if m.unpriced_entries %}{{ tag("単価の無い利用量が " ~ m.unpriced_entries ~ " 件（費用に入っていません）", "wait") }}{% endif %}
+          {% if m.deficit %}{{ tag("赤字のお知らせ中" if not m.deficit.confirmed else "赤字（確かめ済み）", "stop") }}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<p class="muted">⏳ 費用の実測と推定の内訳は、準備中です（いまは合計だけ）。報酬の決まりの入力は、業務ごとの形ができてから出します。</p>
+{% else %}<div class="card">{{ empty("依頼者はまだいません") }}</div>{% endif %}
+
+<h2 style="margin-top:28px">単価の表</h2>
+<p class="muted">この契約者で入れた単価は、初めの値（管理者が入れた値）より強く効きます。変えると、いまからの利用量に使います。前の値は残ります。</p>
+{% if prices %}
+<div class="table-scroll"><table class="list">
+  <thead><tr><th>何の費用か</th><th>サービス</th><th class="num">単価</th><th>どの値か</th><th></th></tr></thead>
+  <tbody>
+  {% for p in prices %}
+    {% set scale, unit_label = words.PRICE_UNITS.get(p.unit, (1, p.unit)) %}
+    <tr>
+      <td>{{ words.PRICE_SOURCE_WORDS.get(p.source, words.NO_WORD) }}{% if p.tier %}<div class="muted">{{ words.PRICE_TIER_WORDS.get(p.tier, "") }}</div>{% endif %}</td>
+      <td>{{ p.service }}</td>
+      <td class="num nowrap">{{ "{:,.4g}".format((p.yen_per_unit * scale)|float) }}円<div class="muted">{{ unit_label }}</div></td>
+      <td>{{ tag("この契約者の値", "info") if p.by_contractor else tag("初めの値", "") }}</td>
+      <td class="nowrap">
+        <details class="adder"><summary class="btn small">変える</summary>
+          <form class="panel" method="post" action="/t/costs/price" data-needs-reason>{{ csrf(token) }}
+            {% for k in ("source", "service", "unit") %}<input type="hidden" name="{{ k }}" value="{{ p[k] }}">{% endfor %}
+            <input type="hidden" name="tier" value="{{ p.tier or '' }}">
+            <label class="field">新しい単価（円・{{ unit_label }}）</label><input type="text" inputmode="decimal" name="yen" required>
+            <label class="field">理由（記録に残ります）</label><input type="text" name="reason" placeholder="例：有料枠の料金が変わった">
+            <button class="btn main small" type="submit" data-submit disabled>この契約者の単価にする</button></form></details>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<div class="card">{{ empty("単価がまだありません", "管理者が初めの値を入れると、ここに出ます。") }}</div>{% endif %}
+{% endblock %}

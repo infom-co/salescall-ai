@@ -12,7 +12,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote
 from salescall.core import backup
@@ -26,7 +27,7 @@ from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
 from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, exclusions, health, health_rules,
-                            import_files, importer, phone, recordings, registry, settings, stops)
+                            import_files, importer, phone, recordings, registry, reward, settings, stops, usage)
 from salescall.core.access import Access
 from salescall.output import files as result_files
 from salescall.output import notices, result_rows, words
@@ -451,6 +452,44 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                               done=(f"この PC を「{ctx.tenant_name}」で使えるようにしました。PC の画面に戻ると、自動で動き出します。" if approve
                                     else "断りました。この PC はログインしていません。"))
             return _back("/pc-login", out)
+        return handle(request, render)
+
+    # ── 費用と報酬（docs/DASHBOARD.md 5-11。Intent.md 5-2・5-3 (9)） ──────────────────────────
+    @app.get("/t/costs")
+    def costs_page(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        """今月の報酬と費用（依頼者ごと＝core の reward.month の1か所）と、単価の表（usage.price_table の1か所。契約者の値が初めの値より強い）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            # 赤字か（Q26）は core の usage.deficit_notice の答えだけを見せる（画面で割合を計算して決め直さない＝Intent.md 5-1）
+            month = [{**c, **ctx.client(c["client_id"], lambda tx: {**reward.month(tx), "deficit": usage.deficit_notice(tx)},
+                                        read_only=True)} for c in ctx.clients()]
+            return page(request, "costs.html", person, ctx, active="costs", month=month, prices=ctx.tenant(usage.price_table),
+                        done=done, ok=bool(ok))
+        return handle(request, render)
+
+    @app.post("/t/costs/price")
+    async def price_set(request: Request) -> HTMLResponse:
+        """単価を足す（前の値は残る。この契約者の単価＝初めの値より強い。core の usage.set_price だけ）。画面の量あたりの円を、1単位あたりに直す
+        （倍数は output/words.PRICE_UNITS の1か所）。"""
+        form = dict(await request.form())
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> int:
+                source, service, unit = (str(form.get(k) or "") for k in ("source", "service", "unit"))
+                tier = str(form.get("tier") or "") or None
+                if source not in words.PRICE_SOURCE_WORDS or unit not in words.PRICE_UNITS or not service:
+                    raise NotFound()
+                raw = str(form.get("yen") or "").strip().replace(",", "")
+                try:
+                    yen = Decimal(raw)
+                except Exception:
+                    raise actions.Refused("円は数で入れてください（例：12.5）") from None
+                if yen < 0:
+                    raise actions.Refused("円は 0 以上で入れてください")
+                return usage.set_price(tx, source=source, service=service, tier=tier, unit=unit,
+                                       yen_per_unit=yen / Decimal(words.PRICE_UNITS[unit][0]), valid_from=datetime.now(timezone.utc),
+                                       note=str(form.get("reason") or "").strip())
+            out = actions.act(secret, person.login_id, form, lambda: ctx.tenant(do), done="単価を変えました。いまから記録する利用量に使います（前の値は残ります）。",
+                              reason_field="reason")
+            return _back("/t/costs", out)
         return handle(request, render)
 
     # ── 回線と PC（docs/DASHBOARD.md 5-5。Intent.md 5-3 (4)） ──────────────────────────

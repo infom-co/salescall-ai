@@ -358,6 +358,23 @@ class Web(_World):
         self.assertIn("試験（架空）", self.get("A", "/t/dnc").text)
         self.assertNotIn("試験（架空）", self.get("B", "/t/dnc").text)
 
+    def test_a_contractor_price_is_added_and_only_this_contractor_sees_it(self):
+        prices = app_access().in_tenant(OPERATOR, self.a["tenant"], __import__("salescall.core.usage", fromlist=["x"]).price_table)
+        if not prices:
+            self.skipTest("初めの単価がありません")
+        p = prices[0]
+        form = {"form_token": self.token("A"), "source": p["source"], "service": p["service"], "unit": p["unit"], "tier": p["tier"] or "",
+                "yen": "12.5", "reason": ""}
+        self.assertIn("ok=0", self.post("A", "/t/costs/price", form).headers["location"])            # 理由が要る
+        self.assertIn("ok=0", self.post("A", "/t/costs/price", {**form, "yen": "十円", "reason": "試験"}).headers["location"])
+        self.assertIn("ok=1", self.post("A", "/t/costs/price", {**form, "reason": "試験（架空）"}).headers["location"])
+        mine = [x for x in app_access().in_tenant(OPERATOR, self.a["tenant"], __import__("salescall.core.usage", fromlist=["x"]).price_table)
+                if (x["source"], x["service"], x["unit"], x["tier"]) == (p["source"], p["service"], p["unit"], p["tier"])][0]
+        self.assertTrue(mine["by_contractor"])
+        theirs = [x for x in app_access().in_tenant(OPERATOR, self.b["tenant"], __import__("salescall.core.usage", fromlist=["x"]).price_table)
+                  if (x["source"], x["service"], x["unit"], x["tier"]) == (p["source"], p["service"], p["unit"], p["tier"])][0]
+        self.assertFalse(theirs["by_contractor"])                                # 別の契約者には効かない
+
     # ── 停止と再開 ──
     def test_a_stop_of_another_contractor_is_not_seen(self):   # S-18
         eid = self._stop(self.b["tenant"], "契約者Bの試験の停止")
@@ -423,7 +440,7 @@ class Web(_World):
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",
-                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(), self._import_base(), "/t/lines", "/t/dnc",
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(), self._import_base(), "/t/lines", "/t/dnc", "/t/costs",
                      f"/c/{self.a['client']}/dnc"):
             with self.subTest(path=path):
                 r = self.get("A", path)
