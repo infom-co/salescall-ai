@@ -95,6 +95,22 @@ h3 { font-size: 14px; margin: 0 0 8px; font-weight: 700; color: var(--muted); }
 .filters .pick { margin-left: auto; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .filters select { height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; padding: 0 8px; max-width: 260px; }
 
+/* 1行の画面（中身・直す所） */
+.row-grid { align-items: start; }
+ul.numbers { list-style: none; margin: 0; padding: 0; }
+ul.numbers li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+ul.numbers li:last-child { border-bottom: 0; }
+ul.numbers li .num { font-weight: 700; font-size: 15px; }
+ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.fix-card select, .fix-card input[type=text] { width: 100%; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--text); font: inherit; }
+.fix-card .field { display: block; margin: 12px 0 6px; font-weight: 600; font-size: 13px; }
+.fix-card .actions { margin-top: 16px; }
+.question, .confirm { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; background: var(--surface-2); }
+.q-title { font-weight: 700; margin-bottom: 4px; }
+.question .choice { margin-top: 8px; }
+.reading-box[hidden] { display: none; }
+
 /* ── 左の道しるべと中身 ── */
 .shell { display: grid; grid-template-columns: 232px 1fr; min-height: calc(100vh - 98px); }
 .nav { border-right: 1px solid var(--line); padding: 16px 10px; background: var(--surface); }
@@ -229,3 +245,5 @@ label.choice:has(input:checked) { border-color: var(--stop); background: var(--s
   .pill .long { display: none; }
   .top { gap: 8px; padding: 0 10px; }
 }
+.question label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+.fix-card { scroll-margin-top: 120px; }

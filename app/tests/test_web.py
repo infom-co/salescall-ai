@@ -146,6 +146,65 @@ class Web(_World):
         self.assertIn("お客様リスト", r.text)
         self.assertIn("これから", r.text)   # まだ次の予定が無い行
 
+    # ── お客様の行の画面と直し（docs/DASHBOARD.md 5-7） ──
+    def _row_url(self, w=None, task=None):
+        w = w or self.a
+        return f"/c/{self.a['client']}/b/{w['business']}/runs/{w['run']}/rows/{task or w['task']}"
+
+    def _tasks_now(self, field):
+        return app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: tx.one(
+            f"SELECT {field} AS v FROM salescall.tasks_now WHERE task_id = %s", (self.a["task"],))["v"])
+
+    def test_a_row_of_another_client_or_run_cannot_be_opened_or_fixed_here(self):   # S-4 と同じ考え
+        for url in (self._row_url(task=self.y["task"]), self._row_url(task=self.b["task"]),
+                    f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.y['run']}/rows/{self.a['task']}"):
+            with self.subTest(url=url):
+                self.assertEqual(self.get("A", url).status_code, 404)
+                r = self.post("A", url + "/fix", {"form_token": self.token("A"), "field": "source_name", "value": "乗っ取り",
+                                                 "go": "1"})
+                self.assertEqual(r.status_code, 404)
+        self.assertEqual(self.get("B", self._row_url()).status_code, 404)
+
+    def test_the_row_page_shows_the_numbers_and_the_fix_form(self):
+        page = self.get("A", self._row_url())
+        self.assertEqual(page.status_code, 200, page.text[:300])
+        self.assertIn("いまかける番号", page.text)
+        self.assertIn("直す欄", page.text)
+
+    def test_a_company_name_fix_goes_through_a_confirmation_then_is_written(self):
+        url, tok = self._row_url(), self.token("A")
+        form = {"form_token": tok, "field": "source_name", "value": "架空商事（直した）", "reading": "かくうしょうじ"}
+        step = self.post("A", url + "/fix", form)
+        self.assertEqual(step.status_code, 200)
+        self.assertIn("この内容で直します", step.text)                       # 会社名は担当の方の選びが要らない（core の答え）
+        self.assertNotEqual(self._tasks_now("source_name"), "架空商事（直した）")   # 確かめまでは何も書かない
+        r = self.post("A", url + "/fix", {**form, "go": "1"})
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertEqual(self._tasks_now("source_name"), "架空商事（直した）")
+
+    def test_a_person_fix_asks_whether_it_is_the_same_person_first(self):
+        url, tok = self._row_url(), self.token("A")
+        form = {"form_token": tok, "field": "target_name", "value": "架空の別の方", "reading": "べつのかた"}
+        step = self.post("A", url + "/fix", form)
+        self.assertIn("いまの担当の方と同じ方ですか", step.text)
+        forged = self.post("A", url + "/fix", {**form, "go": "1"})             # 選ばずに「直す」を送っても書かない
+        self.assertIn("ok=0", forged.headers["location"])
+        self.assertNotEqual(self._tasks_now("target_name"), "架空の別の方")
+        step = self.post("A", url + "/fix", {**form, "same": "1"})
+        self.assertIn("この内容で直します", step.text)
+        self.assertIn("同じ方", step.text)
+        r = self.post("A", url + "/fix", {**form, "same": "1", "go": "1"})
+        self.assertIn("ok=1", r.headers["location"])
+        self.assertEqual(self._tasks_now("target_name"), "架空の別の方")
+
+    def test_a_wrong_number_is_refused_with_the_reason_and_nothing_changes(self):
+        step = self.post("A", self._row_url() + "/fix", {"form_token": self.token("A"), "field": "dial_phone", "value": "0120"})
+        self.assertEqual(step.status_code, 200)
+        self.assertIn("same", step.text)                                       # 番号の直しは、まず担当の方の選び
+        r = self.post("A", self._row_url() + "/fix", {"form_token": self.token("A"), "field": "dial_phone", "value": "番号ではない",
+                                                     "same": "1", "go": "1"})
+        self.assertIn("ok=0", r.headers["location"])                           # core の断りの文が出る（500 にならない）
+
     # ── 停止と再開 ──
     def test_a_stop_of_another_contractor_is_not_seen(self):   # S-18
         eid = self._stop(self.b["tenant"], "契約者Bの試験の停止")
@@ -211,7 +270,7 @@ class Web(_World):
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",
-                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}"):
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url()):
             with self.subTest(path=path):
                 r = self.get("A", path)
                 self.assertEqual(r.status_code, 200, r.text[:300])

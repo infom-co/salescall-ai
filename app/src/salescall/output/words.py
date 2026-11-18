@@ -174,6 +174,12 @@ def call_end(name: str | None) -> str:
     return CALL_ENDS_NOT_OURS.get(name, NO_WORD)
 
 
+# お客様の行の番号の名札と、どこから来たか（core の customer_contacts.NUMBER_LABELS・ORIGINS のすべてを書く。試験が突き合わせる）
+NUMBER_LABEL_WORDS: dict[str, str] = {"company": "会社の番号", "designated": "お客様が指定した番号", "mobile": "携帯電話",
+                                      "line": "LINE の番号", "said": "お電話で伺った番号", "fax": "ファクス番号"}
+ORIGIN_WORDS: dict[str, str] = {"list": "お客様リスト", "call": "お電話で伺った", "dashboard": "ダッシュボードで足した"}
+
+
 def stop_scope(name: str) -> str:
     """停止の範囲の名前（正本は stops.SCOPE_NAMES）。"""
     return stops.SCOPE_NAMES.get(name, NO_WORD)

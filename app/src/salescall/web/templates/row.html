@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, next_tag, empty, flash, csrf %}
+{% set active = "client" %}
+{% block title %}{{ row.source_name or "お客様" }}{% endblock %}
+{% block main %}
+{% set base = "/c/" ~ client.client_id ~ "/b/" ~ business.business_id ~ "/runs/" ~ run.run_id %}
+<p><a href="{{ base }}">← お客様リスト：{{ run.name }}</a></p>
+<h1>{{ row.source_name or "（会社名なし）" }}</h1>
+<p class="lead">{% if row.target_name %}お呼びする方：{{ row.target_name }}{% if row.target_role %}（{{ row.target_role }}）{% endif %}・{% endif %}行 {{ row.source_row or "" }}{% if row.client_ref %}・管理番号 {{ row.client_ref }}{% endif %}</p>
+{{ flash(done, ok) }}
+<div class="grid cols-2 row-grid">
+  <section class="card">
+    <h2>いまの状態</h2>
+    <dl class="facts">
+      <dt>次の予定</dt><dd>{{ next_tag(row.next_kind, row.next_call_at, row.next_end_reason) }}</dd>
+      <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}</dd>
+      <dt>かけた回数</dt><dd class="num">{{ row.attempts }}</dd>
+      {% if row.excluded %}<dt>かけない</dt><dd>{{ tag(words.exclusion_level(row.excluded if row.excluded is string else "exclude")) }}</dd>{% endif %}
+    </dl>
+    <h3 style="margin-top:18px">電話番号</h3>
+    <ul class="numbers">
+      {% for n in row.contacts.numbers %}
+      <li class="{{ 'dialing' if n.dialing else 'old' }}">
+        <span class="num nowrap">{{ phone(n.phone) }}</span>
+        <span class="muted">{{ words.NUMBER_LABEL_WORDS.get(n.label, words.NO_WORD) }}・{{ words.ORIGIN_WORDS.get(n.source, words.NO_WORD) }}</span>
+        {% if n.dialing %}{{ tag("いまかける番号", "ok") }}{% elif n.sub %}{{ tag("サブ", "info") }}{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% if row.contacts.contacts %}
+    <h3 style="margin-top:18px">ほかの連絡先</h3>
+    <dl class="facts">
+      {% for c in row.contacts.contacts %}<dt>{{ kind_names.get(c.kind, words.NO_WORD) }}</dt><dd>{{ c.value }}{% if c.service %}（{{ c.service }}）{% endif %} <span class="muted">{{ words.ORIGIN_WORDS.get(c.origin, "") }}</span></dd>{% endfor %}
+    </dl>
+    {% endif %}
+  </section>
+
+  <section class="card fix-card" id="fix">
+    <h2>直す</h2>
+    <p class="muted">直したことは記録に残ります。直すと、次の予定は決まりに沿って自動で組み直されます。</p>
+    <form method="post" action="{{ base }}/rows/{{ row.task_id }}/fix#fix">
+      {{ csrf(token) }}
+      {% if not draft or error %}
+        {% if error %}<div class="flash ng" role="alert">{{ error }}</div>{% endif %}
+        <label class="field" for="fix-field">直す欄</label>
+        <select id="fix-field" name="field" data-reading-fields="{{ name_fields|join(' ') }}">
+          {% for f, label in fields %}<option value="{{ f }}" {% if draft and draft.field == f %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+        <label class="field" for="fix-value">新しい値</label>
+        <input id="fix-value" type="text" name="value" value="{{ draft.value if draft and draft.value else '' }}" placeholder="空のまま進めると、その欄を消します（番号は消せません）">
+        <div class="reading-box">
+          <label class="field" for="fix-reading">読み（ひらがな・カタカナ。名前の欄だけ）</label>
+          <input id="fix-reading" type="text" name="reading" value="{{ draft.reading if draft and draft.reading else '' }}" placeholder="例：すずき">
+        </div>
+        <div class="actions"><button class="btn main" type="submit">次へ</button></div>
+      {% else %}
+        {% for k in ("field", "value", "reading") %}<input type="hidden" name="{{ k }}" value="{{ draft[k] or '' }}">{% endfor %}
+        {% if draft.same is not none %}<input type="hidden" name="same" value="{{ 1 if draft.same else 0 }}">{% endif %}
+        {% if draft.back_answered %}<input type="hidden" name="back" value="{{ draft.back or 'new' }}">{% endif %}
+        {% if draft.keep is not none %}<input type="hidden" name="keep" value="{{ 1 if draft.keep else 0 }}">{% endif %}
+        {% if question %}
+          <div class="question">
+            <div class="q-title">{{ question.title }}</div>
+            <p class="muted">{{ question.hint }}</p>
+            {% for v, label in question.options %}
+            <label class="choice"><input type="radio" name="{{ question.name }}" value="{{ v }}" required {% if loop.first and question.options|length > 2 %}{% endif %}> {{ label }}</label>
+            {% endfor %}
+          </div>
+          <div class="actions"><a class="btn" href="{{ base }}/rows/{{ row.task_id }}#fix">やめる</a><button class="btn main" type="submit">次へ</button></div>
+        {% else %}
+          <div class="confirm">
+            <div class="q-title">この内容で直します</div>
+            <dl class="facts">{% for h, v in confirm %}<dt>{{ h }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
+          </div>
+          <input type="hidden" name="go" value="1">
+          <div class="actions"><a class="btn" href="{{ base }}/rows/{{ row.task_id }}#fix">やめる</a><button class="btn main" type="submit">直す</button></div>
+        {% endif %}
+      {% endif %}
+    </form>
+  </section>
+</div>
+
+<h2 style="margin-top:28px">電話の記録</h2>
+{% if calls %}
+<table class="list">
+  <thead><tr><th>かけた時刻</th><th>どうなったか</th><th class="wide">途中で終えた理由</th></tr></thead>
+  <tbody>
+  {% for c in calls %}
+    <tr>
+      <td class="nowrap">{{ time(c.claimed_at) }}</td>
+      <td>{{ words.word(words.ATTEMPT_STATES, c.state).screen }}</td>
+      <td class="wide">{{ words.call_end(c.trouble) }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card">{{ empty("まだ電話をかけていません") }}</div>
+{% endif %}
+{% endblock %}

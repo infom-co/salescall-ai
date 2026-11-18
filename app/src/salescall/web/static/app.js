@@ -50,6 +50,17 @@
   document.addEventListener("change", function (e) {
     if (e.target.matches("[data-autosubmit]")) e.target.form.submit();
   });
+  // 直す欄が名前の欄のときだけ、読みの欄を出す（読みを持つ欄は core の決まり＝ひな形に渡した一覧）
+  function readingBox(sel) {
+    var box = sel.form && sel.form.querySelector(".reading-box");
+    if (!box) return;
+    var names = (sel.getAttribute("data-reading-fields") || "").split(" ");
+    box.hidden = names.indexOf(sel.value) < 0;
+  }
+  document.addEventListener("change", function (e) { if (e.target.matches("[data-reading-fields]")) readingBox(e.target); });
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("[data-reading-fields]").forEach(readingBox);
+  });
   // 送っている間は二度押しできない
   document.addEventListener("submit", function (e) {
     if ((e.target.method || "").toLowerCase() !== "post") return;

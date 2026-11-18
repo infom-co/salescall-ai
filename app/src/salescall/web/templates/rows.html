@@ -14,7 +14,7 @@
     <tr>
       <td class="num nowrap">{{ r.source_row or "" }}</td>
       <td class="wide nowrap">{{ r.client_ref or "" }}</td>
-      <td>{{ r.source_name or "" }}{% if r.excluded %} {{ tag(words.exclusion_level(r.excluded if r.excluded is string else "exclude")) }}{% endif %}</td>
+      <td><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/rows/{{ r.task_id }}">{{ r.source_name or "（会社名なし）" }}</a>{% if r.excluded %} {{ tag(words.exclusion_level(r.excluded if r.excluded is string else "exclude")) }}{% endif %}</td>
       <td class="wide">{{ r.target_name or "" }}{% if r.target_role %}<span class="muted">（{{ r.target_role }}）</span>{% endif %}</td>
       <td class="num nowrap">{{ phone(r.dial_phone) }}</td>
       <td class="nowrap">{{ next_tag(r.next_kind, r.next_call_at, r.next_end_reason) }}</td>

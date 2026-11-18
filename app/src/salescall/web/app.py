@@ -24,10 +24,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
-from salescall.core import calling_hours, customer_rows, phone, stops
+from salescall.core import calling_hours, customer_contacts, customer_rows, phone, stops
 from salescall.core.access import Access
 from salescall.output import notices, words
-from salescall.web import actions, context, counts, inbox
+from salescall.web import actions, context, counts, inbox, rowfix
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
@@ -319,6 +319,62 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 return {"client": c, "business": b, "businesses": context.businesses(tx), "run": run,
                         "rows": customer_rows.progress(tx, run_id)}
             return page(request, "rows.html", person, ctx, **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
+    # ── お客様の行（1行の中身と直し。docs/DASHBOARD.md 5-7） ──────────────────
+    def _row_in(tx: Any, business_id: UUID, run_id: UUID, task_id: UUID) -> None:
+        """住所の業務・実施回・行が、住所の依頼者の中でつながっているか（依頼者の取引で確かめる。違えば NotFound）。"""
+        context.business(tx, business_id)
+        if tx.one("SELECT 1 FROM salescall.tasks t JOIN salescall.runs r ON r.run_id = t.run_id"
+                  " WHERE t.task_id = %s AND r.run_id = %s AND r.business_id = %s", (task_id, run_id, business_id)) is None:
+            raise NotFound()
+
+    def _row_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, task_id: UUID, *,
+                  draft: rowfix.Draft | None = None, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        """1行の画面：行の中身（一覧と同じ1か所＝customer_rows.progress の行）・番号と連絡先・電話の記録・直す所。
+        直しの下書きがあれば、次に聞く選び（rowfix.next_question）か、確かめ（何をどう直すか）を出す。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                _row_in(tx, business_id, run_id, task_id)
+                row = next(r for r in customer_rows.progress(tx, run_id) if r["task_id"] == task_id)
+                calls = tx.all("SELECT state::text AS state, claimed_at, ended_at, trouble FROM salescall.attempts"
+                               " WHERE task_id = %s AND state <> 'released' ORDER BY claimed_at DESC LIMIT 30", (task_id,))
+                step: dict[str, Any] = {}
+                if draft is not None:
+                    try:
+                        q = rowfix.next_question(tx, task_id, draft)
+                        step = {"question": q} if q else {"confirm": rowfix.summary(tx, task_id, draft)}
+                    except actions.REFUSALS as e:
+                        step = {"error": str(e)}
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "business": context.business(tx, business_id), "businesses": context.businesses(tx),
+                        "run": tx.one("SELECT run_id, name FROM salescall.runs WHERE run_id = %s", (run_id,)),
+                        "row": row, "calls": calls, **step}
+            values = ctx.client(client_id, read, read_only=True)
+            return page(request, "row.html", person, ctx, draft=draft, fields=[(f, rowfix.field_name(f)) for f in rowfix.FIELDS],
+                        name_fields=list(rowfix.NAME_FIELDS), kind_names=customer_contacts.KIND_NAMES, done=done, ok=bool(ok), **values)
+        return handle(request, render)
+
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}")
+    def row_page(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, task_id: UUID,
+                 done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _row_page(request, client_id, business_id, run_id, task_id, done=done, ok=ok)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}/fix")
+    async def row_fix(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, task_id: UUID) -> HTMLResponse:
+        """直す。go が無ければ、次の選び・確かめを出すだけ（何も書かない）。go があれば、core の入口で直す（足りない選びは core と rowfix が断る）。"""
+        form = dict(await request.form())
+        draft = rowfix.from_form(form)
+        if str(form.get("go") or "") != "1":
+            return _row_page(request, client_id, business_id, run_id, task_id, draft=draft)
+        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}/rows/{task_id}"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> Any:
+                _row_in(tx, business_id, run_id, task_id)
+                return rowfix.perform(tx, task_id, draft)
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do),
+                              done=f"{rowfix.field_name(draft.field)}を直しました。")
+            return _back(base, out)
         return handle(request, render)
 
     return app
