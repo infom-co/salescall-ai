@@ -327,6 +327,29 @@ class Web(_World):
         self.assertIn("ok=0", self.post("A", f"/t/lines/{lid}/retire", {"form_token": tok, "reason": ""}).headers["location"])
         self.assertIn("ok=1", self.post("A", f"/t/lines/{lid}/retire", {"form_token": tok, "reason": "試験の片付け"}).headers["location"])
 
+    # ── 発信禁止（docs/DASHBOARD.md 5-10） ──
+    def test_a_number_is_registered_not_to_call_and_revoked_with_a_reason(self):
+        tok = self.token("A")
+        number = fictional_jp_fixed()
+        self.assertIn("ok=0", self.post("A", f"/c/{self.a['client']}/dnc", {"form_token": tok, "phone": "番号ではない"}).headers["location"])
+        self.assertIn("ok=1", self.post("A", f"/c/{self.a['client']}/dnc", {"form_token": tok, "phone": number}).headers["location"])
+        entry = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: tx.one(
+            "SELECT entry_id FROM salescall.dnc_entries WHERE reason = 'manual' AND revoked_at IS NULL ORDER BY registered_at DESC LIMIT 1"))["entry_id"]
+        self.assertIn("ダッシュボードで登録した", self.get("A", f"/c/{self.a['client']}/dnc").text)
+        self.assertEqual(self.get("A", f"/c/{self.b['client']}/dnc").status_code, 404)                   # 別の契約者の依頼者
+        self.assertIn("ok=0", self.post("A", f"/c/{self.y['client']}/dnc/revoke",                        # 別の依頼者の住所からは取り消せない
+                                         {"form_token": tok, "entry_id": str(entry), "reason": "試験"}).headers["location"])
+        self.assertIn("ok=0", self.post("A", f"/c/{self.a['client']}/dnc/revoke", {"form_token": tok, "entry_id": str(entry), "reason": ""}).headers["location"])
+        self.assertIn("ok=1", self.post("A", f"/c/{self.a['client']}/dnc/revoke",
+                                         {"form_token": tok, "entry_id": str(entry), "reason": "試験の片付け"}).headers["location"])
+
+    def test_the_contractor_list_is_per_contractor(self):
+        tok = self.token("A")
+        self.assertIn("ok=0", self.post("A", "/t/dnc", {"form_token": tok, "phone": fictional_jp_fixed(), "reason": ""}).headers["location"])
+        self.assertIn("ok=1", self.post("A", "/t/dnc", {"form_token": tok, "phone": fictional_jp_fixed(), "reason": "試験（架空）"}).headers["location"])
+        self.assertIn("試験（架空）", self.get("A", "/t/dnc").text)
+        self.assertNotIn("試験（架空）", self.get("B", "/t/dnc").text)
+
     # ── 停止と再開 ──
     def test_a_stop_of_another_contractor_is_not_seen(self):   # S-18
         eid = self._stop(self.b["tenant"], "契約者Bの試験の停止")
@@ -392,7 +415,8 @@ class Web(_World):
     def test_every_page_opens(self):
         for path in ("/t", "/t/inbox", "/t/stops", "/t/notices", "/t/badges", f"/c/{self.a['client']}",
                      f"/c/{self.a['client']}/b/{self.a['business']}", f"/t/inbox?client={self.a['client']}",
-                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(), self._import_base(), "/t/lines"):
+                     f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.a['run']}", self._row_url(), self._import_base(), "/t/lines", "/t/dnc",
+                     f"/c/{self.a['client']}/dnc"):
             with self.subTest(path=path):
                 r = self.get("A", path)
                 self.assertEqual(r.status_code, 200, r.text[:300])

@@ -24,8 +24,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, exclusions, health, health_rules, import_files,
-                            importer, phone, registry, settings, stops)
+from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, exclusions, health, health_rules,
+                            import_files, importer, phone, registry, settings, stops)
 from salescall.core.access import Access
 from salescall.output import notices, words
 from salescall.web import actions, context, counts, importing, inbox, rowfix, setting_forms, uploads
@@ -438,6 +438,81 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         form = dict(await request.form())
         return _line_act(request, form, lambda tx, ctx: agents.revoke(tx, pc_id),
                          "この PC のログインを外しました（話している電話は、終わってから効きます）。")
+
+    # ── 発信禁止（docs/DASHBOARD.md 5-10。Intent.md 原則14・1-4）：依頼者の台帳と、契約者の共通の発信禁止 ──────────
+    def _dnc_rows(tx: Any, table: str) -> list[dict[str, Any]]:
+        return tx.all(f"SELECT entry_id, phone_e164, reason, registered_at, revoked_at, revoke_reason,"
+                      f"       to_jsonb(d) ->> 'client_ref' AS client_ref FROM salescall.{table} d"
+                      f" ORDER BY revoked_at NULLS FIRST, registered_at DESC LIMIT 500")
+
+    def _dnc_page(request: Request, client_id: UUID | None, done: str | None, ok: int) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if client_id is None:
+                values = ctx.tenant(lambda tx: {"rows": _dnc_rows(tx, "contractor_dnc_entries")})
+            else:
+                values = ctx.client(client_id, lambda tx: {
+                    "rows": _dnc_rows(tx, "dnc_entries"), "businesses": context.businesses(tx),
+                    "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,))}, read_only=True)
+            return page(request, "dnc.html", person, ctx, active="dnc" if client_id is None else "client", done=done, ok=bool(ok), **values)
+        return handle(request, render)
+
+    def _dnc_act(request: Request, form: dict[str, Any], client_id: UUID | None, do: Any, done: str, *,
+                 reason: bool = True) -> HTMLResponse:
+        """発信禁止の登録・取り消しの1か所（core の dnc だけ。理由は必ず。番号が読めない＝core の理由の文のまま）。"""
+        back = "/t/dnc" if client_id is None else f"/c/{client_id}/dnc"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def work(tx: Any) -> Any:
+                try:
+                    return do(tx)
+                except dnc.DncEntryNotFound:
+                    raise LookupError("その登録は無い") from None
+                except ValueError as e:   # dnc の理由つきの断り（そろえられない番号 など）
+                    if isinstance(e, actions.Refused):
+                        raise
+                    raise actions.Refused(str(e)) from None
+            run = (lambda: ctx.tenant(work)) if client_id is None else (lambda: ctx.client(client_id, work))
+            return _back(back, actions.act(secret, person.login_id, form, run, done=done, reason_field="reason" if reason else None))
+        return handle(request, render)
+
+    def _entry(form: dict[str, Any]) -> UUID:
+        try:
+            return UUID(str(form.get("entry_id") or ""))
+        except ValueError:
+            raise NotFound() from None
+
+    @app.get("/t/dnc")
+    def tenant_dnc(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _dnc_page(request, None, done, ok)
+
+    @app.post("/t/dnc")
+    async def tenant_dnc_add(request: Request) -> HTMLResponse:
+        form = dict(await request.form())
+        return _dnc_act(request, form, None, lambda tx: dnc.register_contractor(tx, str(form.get("phone") or ""),
+                                                                                str(form.get("reason") or "").strip()),
+                        "登録しました。この契約者のすべての依頼者で、この番号へはかけません。")
+
+    @app.post("/t/dnc/revoke")
+    async def tenant_dnc_revoke(request: Request) -> HTMLResponse:
+        form = dict(await request.form())
+        return _dnc_act(request, form, None, lambda tx: dnc.revoke_contractor(tx, _entry(form), str(form.get("reason") or "").strip()),
+                        "取り消しました。この登録で終えた行は、決まった間隔の仕事が予定に戻します。")
+
+    @app.get("/c/{client_id}/dnc")
+    def client_dnc(request: Request, client_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _dnc_page(request, client_id, done, ok)
+
+    @app.post("/c/{client_id}/dnc")
+    async def client_dnc_add(request: Request, client_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        # ⏳ dnc.register は理由の文を受けない（理由の名前 manual だけ）＝理由の欄を出さない（残らない理由を「記録に残ります」と書かない）。CL-2 へのお願い 25
+        return _dnc_act(request, form, client_id, lambda tx: dnc.register(tx, str(form.get("phone") or ""), "manual"),
+                        "登録しました。この番号のお客様へは、この依頼者のどの一覧からもかけません。", reason=False)
+
+    @app.post("/c/{client_id}/dnc/revoke")
+    async def client_dnc_revoke(request: Request, client_id: UUID) -> HTMLResponse:
+        form = dict(await request.form())
+        return _dnc_act(request, form, client_id, lambda tx: dnc.revoke(tx, _entry(form), str(form.get("reason") or "").strip()),
+                        "取り消しました。この登録で終えた行は予定に戻り、依頼者へ渡す結果の「営業拒否」も外れます。")
 
     # ── 依頼者・業務・実施回を作る（作るのは core の registry だけ。docs/DASHBOARD.md 5-6） ──────────
     @app.post("/t/clients")

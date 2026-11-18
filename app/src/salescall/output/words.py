@@ -203,6 +203,14 @@ SCOPE_WORDS: dict[str, str] = {"system": "初めの値（システム）", "tena
                                "merged": "組み合わせた値"}
 
 
+# 発信禁止に入った理由（core の dnc.Reason のすべてを書く。試験が突き合わせる）。契約者・管理者の画面の言葉（依頼者へは出さない）
+DNC_REASON_WORDS: dict[str, str] = {
+    "refused_in_call": "お電話の中で断られた", "refused_unclear_checked": "切れ方の分からない電話のあと、確かめの電話に出られなかった（断りとみなした）",
+    "wrong_party": "番号違い（別の方の番号）", "fax_line": "ファクスの回線", "manual": "ダッシュボードで登録した",
+    "client_list": "依頼者の一覧（かけないでとのお申し出）",
+}
+
+
 def stop_scope(name: str) -> str:
     """停止の範囲の名前（正本は stops.SCOPE_NAMES）。"""
     return stops.SCOPE_NAMES.get(name, NO_WORD)

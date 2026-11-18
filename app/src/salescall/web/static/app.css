@@ -316,3 +316,4 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; }
 .setting-form .unit-input input { max-width: 160px; } .setting-form .gap input { max-width: 120px; } .setting-form .gap select { max-width: 200px; }
 .danger-text { color: var(--stop) !important; }
 td .inline-mark { margin-top: 0; } td .inline-mark select { max-width: 240px; }
+.btn-row { display: inline-flex; gap: 8px; flex-wrap: wrap; }
