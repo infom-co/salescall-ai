@@ -75,7 +75,8 @@ if TYPE_CHECKING:   # 業務設定の部品は判定を（approval を通して�
     from salescall.core.business_settings import AskIf
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-11-18.1+time-{spoken_time.VERSION}"   # 2026-11-18.1（6回目の見直し・DESIGN.md 15-2 の853）：目的のお客様だと確かめられなかった通話の、こちらがかけ直す申し出（callback）も判定に使わない（_offered＝_asked の1か所）・手短にの事実 brief で伺わなかったと書かれた質問でも、必須の質問は「伺っていない（対象外）」に数えない（必須の項目不足のまま）
+JUDGE_VERSION = f"judge-2026-11-18.2+time-{spoken_time.VERSION}"   # 2026-11-18.2（7回目の見直し）：前の通話の答えで止めた「ここで終える」事実（ended_on の turn が無い）は、止めた答えがこの通話の担当の方の答え（判定の材料）にあるときだけ、伺わなかった質問を対象外に数える（_ended_skipped の1か所）
+# 前の版：   # 2026-11-18.1（6回目の見直し・DESIGN.md 15-2 の853）：目的のお客様だと確かめられなかった通話の、こちらがかけ直す申し出（callback）も判定に使わない（_offered＝_asked の1か所）・手短にの事実 brief で伺わなかったと書かれた質問でも、必須の質問は「伺っていない（対象外）」に数えない（必須の項目不足のまま）
 # 前の版：   # 2026-11-16.2（4回目の見直し (B)・DESIGN.md 7-1e）：目的のお客様だと確かめられなかった通話で伺った業務の事実（範囲外の求め・ご納得いただけなかった点・最終目的のお断り・伺っていない質問・ほかのご希望・申し出・引き継ぎ・手短に）を、判定にも依頼者へも使わない（_asked の1か所＝答えを使わない conversation_io._in_force と同じ決まり）
 # 前の版：   # 2026-11-16.1（CL-1 の連絡帳 4-173 の (3)・伺い31）：手短になら聞くと言われ、必須でも最終目的でもない質問を伺わなかった（会話の報告の事実 brief の skipped）を「伺っていない（対象外）」に数え（ended_on の skipped と同じ1か所＝CallReport.not_asked_by_talk）、その答え（brief）を判定の中身で依頼者へ返す
 # 前の版：   # 2026-11-15.5（CL-1 の連絡帳 4-169・伺い27）：ほかのご希望で方法を並べて伺う前に言っていただいたご希望の中身（会話の報告の other_wish の before_ways）を、判定の中身の other_wish で依頼者へ返す（判定の結果は変わらない）
@@ -658,7 +659,7 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallRep
     対象外のもの（前の質問のその答えのときだけ伺う質問の、さらに前の答えで伺う質問）。前の質問の答えをまだ受け取っていない（聞けていない・確かめの途中で切れた）質問は、伺うかが
     決まっていないので対象外にしない（取れていない質問のまま）。前の質問は、業務設定で前に並ぶ質問に決まっている（輪にならない）。
     あわせて、会話の側が伺わなかった質問（ここで電話を終える答え＝業務設定の ends_on で残りを伺わなかった・手短になら聞くと言われ、必須でも最終目的でもない
-    質問を伺わなかった）は、会話の報告の事実だけで読む（`CallReport.not_asked_by_talk` の1か所。どの質問を伺わないかの決まりは会話の側＝CL-1 の
+    質問を伺わなかった）は、会話の報告の事実だけで読む（ここで終える答えは `_ended_skipped` の1か所。どの質問を伺わないかの決まりは会話の側＝CL-1 の
     flowctl.gate_of・held・brief_asks。こちらで同じ決まりを持たない＝CL-1 の連絡帳 4-74・4-173。答えが決まらないまま伺わなかった質問は skipped に
     入らない＝取れていない質問のまま）。"""
     out: set[str] = set()
@@ -671,7 +672,22 @@ def not_asked(ask_if: dict[str, AskIf], items: dict[str, Item], report: "CallRep
         if cond.after in out or (src is not None and src.state in ANSWERED
                                  and (src.condition not in cond.answers or (cond.hedged and not src.hedged))):
             out.add(q)
-    return frozenset(out | (report.not_asked_by_talk if report is not None else frozenset()))
+    talk = frozenset() if report is None else (frozenset(report.brief.skipped if report.brief is not None else ())
+                                                | frozenset(_ended_skipped(report, items)))
+    return frozenset(out | talk)
+
+
+def _ended_skipped(report: "CallReport", items: dict[str, Item]) -> tuple[str, ...]:
+    """ここで電話を終える答えで伺わなかった質問（事実 ended_on の skipped。1か所＝`not_asked`・手短にの差し引きが読む）。前の通話の答えで止めた
+    （turn が無い）ときは、止めた答えが、この通話の判定の材料の答え（その通話の担当の方の答え＝conversation_io._in_force の1か所。前の担当の方・
+    引き継ぎを確かめる前の答えは入らない）にあるときだけ（⛔ 2026-11-18 の7回目の見直しまで：新しい担当の方への電話でも、前の担当の方の「ここで終える」
+    答えで伺わなかった質問を対象外に数え、新しい担当の方と一度も話さないまま「完了」になりえた）。"""
+    e = report.ended_on
+    if e is None:
+        return ()
+    if e.turn is None and (e.question not in items or items[e.question].state not in ANSWERED):
+        return ()
+    return e.skipped
 
 
 def _asked(inp: JudgeInput) -> CallReport | None:
@@ -784,7 +800,7 @@ def _business(inp: JudgeInput) -> Judgement:
     if asked is not None and asked.brief is not None:
         # 手短にの電話で伺わなかった質問は、必須でも最終目的でもない質問だけ（会話の側の決まり flowctl.brief_asks）：必須の質問が入っていても対象外にしない
         # （取れていない必須の質問のまま＝「完了」にしない。原則5・6。⛔ 2026-11-18 の6回目の見直しまで：会話の側の skipped をそのまま対象外にした）
-        skipped -= frozenset(asked.brief.skipped).intersection(rules.required) - frozenset(asked.ended_on.skipped if asked.ended_on else ())
+        skipped -= frozenset(asked.brief.skipped).intersection(rules.required) - frozenset(_ended_skipped(asked, inp.answers))
     answers = inp.answers
     missing = [q for q in rules.required if q not in skipped and (q not in answers or answers[q].state not in TAKEN)]
     if not missing:
