@@ -26774,7 +26774,7 @@ class AnnounceTest(unittest.TestCase):
 
     def test_the_announce_is_played_instead_of_the_question(self):
         from flowctl import approval_explanation, question_play
-        from meaning_judge import options
+        from meaning_judge import choice_desc, options
         f, r = self.announced()
         p = r["play"][-1]
         # 入る一言の説明を含む1つの文＝入る一言と同じく頭のつなぎの言葉は付けない。流し終えたら黙った秒を数える（返事の silence_s。5秒で流れの制御が返す
@@ -26784,10 +26784,12 @@ class AnnounceTest(unittest.TestCase):
         self.assertEqual([x["text"] for x in f.on_silence()["play"]], [CONCERN_PROMPT[0]])
         self.assertEqual(f.judge_context()[0].text, self.LINE)   # 判定はお客様が聞いた文（説明を重ねない）
         self.assertEqual(approval_explanation(f.questions["Q2"]), self.EXPL)   # 点のご説明・振り返りの材料は説明のまま
-        # 判定の選べるものの説明は、お知らせへのお返事の形（「はい」と答えた、ではない）。資料が届いているかを伺う質問の説明は今のまま
+        # 判定の選べるものの説明は、お知らせへのお返事の形（ふつうの選択肢の説明＝choice_desc の1か所、ではない）。資料が届いているかを伺う質問の説明は
+        # ふつうの選択肢の説明のまま（2026-11-17：ふつうの説明を「「はい」と答えた」から「「はい」という答え」にした＝DescriptionBorderTest。期待は1か所から取る）
+        plain = choice_desc(f.questions["Q1"], "はい")
         descs = {n: d for n, d, _ in options(f.judge_context()[0])}
-        self.assertNotIn("「はい」と答えた", descs["はい"]); self.assertIn("受け入れ", descs["はい"]); self.assertIn("受け入れ", descs["いいえ"])
-        self.assertEqual({n: d for n, d, _ in options(f.questions["Q1"])}["はい"], "「はい」と答えた")
+        self.assertNotEqual(plain, descs["はい"]); self.assertIn("受け入れ", descs["はい"]); self.assertIn("受け入れ", descs["いいえ"])
+        self.assertEqual({n: d for n, d, _ in options(f.questions["Q1"])}["はい"], plain)
         # 戻るとき（それでは＋同じ文）は同じ名前の頭つきの録音（録音は名前と頭の組＝今の決まり）
         self.assertEqual({k: question_play(list(f.questions.values()), "Q2", again=True)[k] for k in ("id", "text", "lead")},
                          {"id": "Q2_announce", "text": "それでは" + self.LINE, "lead": "それでは"})
@@ -29412,6 +29414,81 @@ class MeasureReviewTest(unittest.TestCase):
         self.assertEqual(G.query_truths(f_row), (QUERY_NO,))
         r_row = next(it for it in G.set_r() if it["qid"] == "R5" and it["text"] == "そうなんですね。")
         self.assertIsNotNone(G.why_accept(r_row))
+
+
+class DescriptionBorderTest(unittest.TestCase):
+    """判定に見せる説明の文の境目（11-16 の残りの (1)・帳面 0-3 の (a)＝境目は1か所に意味で書く）。説明の文の言い回しで、お客様の言葉がどちらの説明へ
+    引かれるかを見る（直したあと、境目にかかる正解の表の行は、答えを伏せた読み手2人で両側を読み直す＝帳面 0-3 の (c)）。"""
+
+    def test_elsewhere_counts_a_decided_switch(self):
+        # 伺い25（11-15 日本時間21時55分35秒）の理由（ほかの会社で解決できない問題や心配事を伺う）は、これからほかの会社にすると決めた方にも当たる
+        # （帳面 0-2 の「いただいた理由は、同じ理由が当たる場面すべてに当てる」）＝「ほかの会社さんの方が安いので、そちらにします」も、こちら
+        from flowctl import ELSEWHERE_NO, ELSEWHERE_YES, elsewhere_choices
+        c = elsewhere_choices(False)
+        self.assertIn("これから", c[ELSEWHERE_YES])
+        self.assertIn("決めた", c[ELSEWHERE_YES])
+        self.assertNotIn("決めた", c[ELSEWHERE_NO])
+
+    def test_away_clue_border_is_the_answer_direction(self):
+        # 別のお話に入る「答えの手がかり」は、どの答えの向きも示さないご事情だけ（伺い26 ア＝日にちを伺ったのに定休日のお話）。ご事情から答えの向きが分かるもの
+        # （✅ 11-03 のお答え：「前の時間だと行けなくなってしまって」＝変更あり・当日のキャンセルの事情だけ＝ほぼキャンセル＝どちらも確かめる答え）は答えの話。
+        # ⛔ 直す前は「どれにするか・いつにするかは言っていない」と書き、はい／いいえの質問の「行けなくなりました」を読み手2人とも別のお話にも取った（rv38 の C29）。
+        # 境目は「別のお話」の説明の1か所（答えの話には書かない）
+        from flowctl import AWAY_NO, AWAY_YES, away_choices
+        c = away_choices(False, True)
+        self.assertNotIn("いつにするかは言っていない", c[AWAY_YES])
+        self.assertIn("向き", c[AWAY_YES])
+        self.assertNotIn("向き", c[AWAY_NO])
+
+    def test_wait_alone_does_not_mean_holding_the_line(self):
+        # 会話2（✅ 11-05 日本時間23時19分06秒）：「妻に話してからにしたいので、少し待ってください。」は、つないだまま待つのか、あとでかけ直すのかで対応が
+        # 変わる＝待ってほしいと言っただけでは、つないだままとは決められない（23時56分48秒「(ア)」＝1回伺う）。⛔ 直す前は「返事を待つ」の「相談してくる
+        # あいだ…待つように言った」に「上司に相談してみるので、少し待っていてください。」が当たった（rv38 の C4）。境目は「待つかかけ直すか決められない」の1か所
+        from flowctl import HOLD_BACK, WAIT_OR_LATER
+        from meaning_judge import ANSWER_KINDS
+        self.assertIn("と言っただけでは", ANSWER_KINDS[WAIT_OR_LATER])
+        self.assertNotIn("と言っただけでは", ANSWER_KINDS[HOLD_BACK])
+
+    def test_w1_none_yields_to_the_listed_choices(self):
+        # W1 で元の質問の選択肢を選び直した言葉（「メールだけで大丈夫です。」）は、ほかに希望は無いとも読めるが、選び直した答え（_wish_choices の決まり＝同じ
+        # 方法が選択肢にあれば、その選択肢を選んだことになる＝元の質問の答え・9-5 の (3)）。⛔ 直す前は読み手2人とも「無い」にも取った（rv38 の C19）。
+        # 境目は「無い」の意味の言葉の1か所（「ほかの希望」の「上のどれでもない」と同じ言い方）
+        from flowctl import WISH_NONE, WISH_OTHER, Question, _wish_choices
+        q = Question("Q1", "ご連絡はお電話とメールのどちらがよろしいでしょうか？", "choice", conditions=("電話", "メール"))
+        _, meanings = _wish_choices(q)
+        self.assertIn("上のどれかでよい", meanings[WISH_NONE])
+        self.assertNotIn("でよい", meanings[WISH_OTHER])
+
+    def test_choice_description_is_not_literal(self):
+        # 選択肢の説明「「カード」と答えた」は字どおりに読める＝同じ文の決まり（答えは言ったことから必ずその答えになることでも選ぶ・選べるもう一方を打ち消した
+        # だけなら、そのまま記録する）と食い違う（rv38 の C28＝「振込じゃないほうがいいかなとは思いますけど」）。選び方は決まりの文の1か所に任せ、選択肢の
+        # 説明はどの答えかだけを書く（値を伺う質問の最初の答えの「答えた」は、このままにする）
+        from flowctl import Question
+        from meaning_judge import options
+        q = Question("Q1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        desc = {c: d for _, d, c in options(q)}
+        self.assertEqual(desc["カード"], "「カード」という答え")
+        self.assertFalse(any(d.endswith("と答えた") for d in desc.values()))
+
+    def test_refused_does_not_pull_cannot_say(self):
+        # 「答えたくない」の「言えない」が「何とも言えない」（いまは言いようがない）まで引いていた（11-15 日本時間19時台の読み手2人＝rv29 の (iii)）。
+        # 答えたくないは、答えを教えるのを拒んだことだけ。事実を伺う質問の文（REFUSED_FACT）と頭を1か所から作る
+        from meaning_judge import REFUSED_FACT, SYSTEM_DESC
+        for d in (SYSTEM_DESC["refused"], REFUSED_FACT):
+            self.assertNotIn("言えない", d)
+        head = SYSTEM_DESC["refused"].split("申し出を断った")[0]
+        self.assertTrue(REFUSED_FACT.startswith(head))
+
+    def test_maybe_and_unknown_have_one_boundary(self):
+        # 「まだ決めていない」＝わからない（✅ 11-07 日本時間22時02分54秒「イでOK」＝先に選ぶ助け）・「どっちでもいいですよ」「当日次第ですね」＝どの答えにも
+        # なりうる（✅ 11-09 日本時間4時36分49秒＝可能性で確かめる）。⛔ 直す前は可能性の説明に「どの答えになるかが、まだ決まっていない」と書き、わからないの
+        # 「まだ決めていない」と同じ場面を引きえた。境目は可能性の説明の1か所（わからないの説明は全部の質問に出るので、可能性のある質問にだけ出る側に書く）
+        from meaning_judge import MAYBE_DESC, SYSTEM_DESC
+        self.assertNotIn("まだ決まっていない", MAYBE_DESC)
+        self.assertIn("「わからない」", MAYBE_DESC)
+        unknown = SYSTEM_DESC["unknown"]
+        N = 14
+        self.assertEqual([MAYBE_DESC[i:i + N] for i in range(len(MAYBE_DESC) - N + 1) if MAYBE_DESC[i:i + N] in unknown], [])
 
 
 class LatestAITest(unittest.TestCase):
