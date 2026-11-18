@@ -82,6 +82,20 @@ class Csv(unittest.TestCase):
         with self.assertRaises(files.ClientWordsLeak):
             files.file_name("架空商事", "AI検証の回", date(2026, 11, 18))
 
+    def test_the_red_is_readable_and_the_same_on_the_screen(self):   # ✅ 2026-11-18 管理者「文字が見えにくい奇抜な赤にならないように」
+        from pathlib import Path
+
+        def lum(h):
+            c = [int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+            c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+            return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+        a, b = sorted((lum(result_rows.TO_FILL_TEXT), lum(result_rows.TO_FILL_BACKGROUND)), reverse=True)
+        self.assertGreaterEqual((a + 0.05) / (b + 0.05), 4.5)
+        css = (Path(__file__).resolve().parents[1] / "src" / "salescall" / "web" / "static" / "app.css").read_text(encoding="utf-8")
+        light = css[:css.index("@media (prefers-color-scheme: dark)")]
+        self.assertIn(f"--stop: {result_rows.TO_FILL_TEXT}", light)
+        self.assertIn(f"--stop-soft: {result_rows.TO_FILL_BACKGROUND}", light)
+
     def test_customer_data_is_not_checked(self):   # 会社名はお客様・依頼者のデータ（確かめない）
         self.assertTrue(files.to_csv([self._row(company="AIシステム開発 株式会社")]))
 

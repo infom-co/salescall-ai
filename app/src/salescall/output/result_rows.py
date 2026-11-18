@@ -31,6 +31,10 @@ COLUMNS: tuple[str, ...] = ("管理番号", "会社名", "お呼びした方", "
 # 空欄部分が、その行だけ赤背景になると分かりやすいですね」）。欄の名前 → 列の名前の組はここ1か所。
 TO_FILL_COLUMNS: dict[str, str] = {"full_name": "お呼びする方のフルネーム", "department": "お呼びする方の部署"}
 PLEASE_FILL = "（ご記入ください）"
+# 赤い背景の色（1か所。Excel の出力と画面の見本で同じ色＝画面の色の値 --stop-soft・--stop と同じかを試験が見る）。✅ 2026-11-18 管理者「文字が
+# 見えにくい奇抜な赤にならないように」⇒ 淡い赤の地に濃い赤の文字。文字が読める差（コントラスト比）4.5 以上を試験が確かめる。
+TO_FILL_BACKGROUND = "#FDECEC"
+TO_FILL_TEXT = "#C42B2B"
 
 
 @dataclass(frozen=True)
