@@ -63,6 +63,22 @@ class Forms(unittest.TestCase):
                 with self.assertRaises(Refused):
                     setting_forms.read(t, form, "f_", {"choices": ["あ", "い"]})
 
+    def test_spaces_around_the_range_mark_are_part_of_the_range(self):
+        got = setting_forms.read("daily_ranges", {"f_v": "09:00 - 12:00, 13:00 〜 18:00"}, "f_", {})
+        self.assertEqual(got, [["09:00", "12:00"], ["13:00", "18:00"]])
+        self.assertEqual(setting_forms.read("weekly_hours", {"f_mon": "9:00 - 12:00 13:00 - 18:00"}, "f_", {})["mon"],
+                         [["09:00", "12:00"], ["13:00", "18:00"]])
+
+    def test_a_phone_number_is_cleared_only_when_asked_and_shown_by_the_last_four(self):
+        with self.assertRaises(Refused):
+            setting_forms.read("phone", {"f_v": ""}, "f_", {})                 # 空のまま送っても消えない
+        self.assertIsNone(setting_forms.read("phone", {"f_v": "", "f_clear": "1"}, "f_", {}))
+        with self.assertRaises(Refused):
+            setting_forms.read("phone", {"f_v": "03-0000-0001", "f_clear": "1"}, "f_", {})
+        shown = setting_forms.show("phone", "+81300000001")
+        self.assertIn("0001", shown)
+        self.assertNotIn("0300", shown)                                        # 下4桁のほかは出さない
+
     def test_every_setting_group_has_a_word(self):
         heads = app_access().in_system(SYSTEM, lambda tx: {r["k"].split(".")[0] for r in tx.all(
             "SELECT key AS k FROM salescall.setting_definitions")})

@@ -11,10 +11,8 @@
     <details class="adder inline"><summary class="btn">結果を書き出す</summary>
       <div class="panel">
         <p class="muted">確定した結果だけを書き出します（判定待ちの行は出しません）。依頼者へ出さない言葉が入っていれば、書き出さずに止めます。</p>
-        <a class="btn small" href="{{ rbase }}/results">画面で見本を見る</a>
         <a class="btn small" href="{{ rbase }}/results.csv">確かめるために書き出す（CSV）</a>
-        <form method="post" action="{{ rbase }}/results.csv" data-download>{{ csrf(token) }}
-          <button class="btn main small" type="submit" style="width:100%">依頼者へ渡すファイルとして書き出す（控えを残す）</button></form>
+        <a class="btn main small" href="{{ rbase }}/results">依頼者へ渡す（中身を見てから）</a>
       </div>
     </details>
   </span></div>

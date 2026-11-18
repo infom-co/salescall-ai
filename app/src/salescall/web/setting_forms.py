@@ -36,7 +36,8 @@ def _range(s: str) -> list[str]:
 
 
 def _ranges(s: str, *, empty_ok: bool) -> list[list[str]]:
-    items = [x for x in re.split(r"[、,，\s]+(?=\d)", s.strip()) if x.strip()]
+    joined = re.sub(r"\s*([-〜~－])\s*", r"\1", s.strip())   # 「09:00 - 12:00」の区切りの前後の空白は、時間帯の中のもの
+    items = [x for x in re.split(r"[、,，\s]+", joined) if x.strip()]
     if not items and not empty_ok:
         raise Refused("時間帯を1つ以上入れてください（例：09:00-12:00, 14:00-18:00）")
     return [_range(x) for x in items]
@@ -100,12 +101,22 @@ def _choice(form: Any, p: str, d: Any) -> str:
 
 def _phone(form: Any, p: str, d: Any) -> str | None:
     s = str(form.get(f"{p}v") or "").strip()
-    if not s:
+    if form.get(f"{p}clear"):   # 消すのは「番号を消す」を選んだときだけ（空のまま送って、うっかり消さない）
+        if s:
+            raise Refused("番号を消すときは、番号の欄を空にしてください")
         return None
+    if not s:
+        raise Refused("番号を入れてください（消すときは「番号を消す」を選んでください）")
     n = phone.normalize(s)
     if n.e164 is None:
         raise Refused(f"番号として読めません（{n.reason or s}）")
     return n.e164
+
+
+def _last4(v: Any) -> str:
+    """契約者・管理者の電話番号は、画面では下4桁だけ（個人情報。docs/DASHBOARD.md 5-12）。"""
+    digits = re.sub(r"\D", "", str(v))
+    return f"末尾が {digits[-4:]} の番号" if len(digits) >= 4 else "登録済みの番号"
 
 
 def _weekly(form: Any, p: str, d: Any) -> dict[str, list[list[str]]]:
@@ -133,7 +144,7 @@ FORMS: dict[str, Form] = {
     "gap_or_never": Form("gap_never", _show_gap, lambda f, p, d: _gap(f, p, "never")),
     "day_or_gap": Form("gap_day", _show_gap, lambda f, p, d: _gap(f, p, "next_day")),
     "limit": Form("limit", lambda v: "上限なし" if v is None else f"{v}", _limit),
-    "phone": Form("phone", lambda v: "まだありません" if v is None else (phone.normalize(v).national or v), _phone),
+    "phone": Form("phone", lambda v: "まだありません" if v is None else _last4(v), _phone),
     "choice": Form("choice", lambda v: str(v), _choice),
 }
 

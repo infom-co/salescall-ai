@@ -41,7 +41,7 @@
   {{ csrf(token) }}
   <div class="actions">
     <a class="btn" href="{{ base }}">やめる（何も登録しない）</a>
-    <button class="btn main" type="submit" {% if not counts.registered and not counts.already %}disabled{% endif %}>{{ counts.registered }}行を登録する</button>
+    <button class="btn main" type="submit" {% if not counts.registered and not counts.already %}disabled{% endif %}>依頼者「{{ client.name }}」・業務「{{ business.name }}」の実施回「{{ run.name }}」に {{ counts.registered }}行を登録する</button>
   </div>
 </form>
 {% endblock %}

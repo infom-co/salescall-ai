@@ -25,6 +25,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
 from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, exclusions, health, health_rules,
@@ -110,6 +112,21 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
 
     def problem(request: Request, status: int, title: str, body: str) -> HTMLResponse:
         return templates.TemplateResponse(request, "problem.html", {"title": title, "body": body}, status_code=status)
+
+    @app.exception_handler(HTTPException)
+    async def http_problem(request: Request, e: HTTPException) -> HTMLResponse:
+        """枠組みが返す誤り（無い住所・送り方の形の違い など）も、日本語の画面で返す（英語の返事を出さない。1か所）。"""
+        if e.status_code == 404:
+            return problem(request, 404, "見つかりません", "住所を確かめてください。")
+        if e.status_code == 405:
+            return problem(request, 405, "この開き方はできません", "画面のボタンから操作してください。")
+        return problem(request, e.status_code if 400 <= e.status_code < 600 else 400, "受け付けられませんでした",
+                       "送られた中身の形が違います。画面を開き直して、もう一度操作してください。")
+
+    @app.exception_handler(RequestValidationError)
+    async def bad_address(request: Request, e: RequestValidationError) -> HTMLResponse:
+        """住所や問い合わせの値の形が違う（例：ID の形でない住所）。「無い」と同じ返事にする（英語の返事を出さない）。"""
+        return problem(request, 404, "見つかりません", "住所を確かめてください。")
 
     def handle(request: Request, render: Any) -> HTMLResponse:
         """ログインの確かめと、見つからない・届かないの返事の1か所。"""
@@ -560,25 +577,29 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             return _back("/t/lines", out)
         return handle(request, render)
 
-    def _client_or_shared(ctx: Ctx, raw: Any) -> UUID | None:
+    def _client_or_shared(tx: Any, raw: Any) -> UUID | None:
+        """回線の使い先（空＝共有）。同じ契約者の取引の中で、その契約者の依頼者かを確かめる（取引の中で別の取引を開かない）。"""
         if not raw:
             return None
-        ids = {str(c["client_id"]): c["client_id"] for c in ctx.clients()}
-        if str(raw) not in ids:
+        try:
+            cid = UUID(str(raw))
+        except ValueError:
+            raise NotFound() from None
+        if tx.one("SELECT 1 FROM salescall.clients WHERE client_id = %s", (cid,)) is None:
             raise NotFound()
-        return ids[str(raw)]
+        return cid
 
     @app.post("/t/lines")
     async def line_create(request: Request) -> HTMLResponse:
         form = dict(await request.form())
         return _line_act(request, form, lambda tx, ctx: registry.create_line(
             tx, actions.name_of(form), method=str(form.get("method") or ""), caller=str(form.get("caller") or ""),
-            client_id=_client_or_shared(ctx, form.get("client_id"))), "回線を作りました。")
+            client_id=_client_or_shared(tx, form.get("client_id"))), "回線を作りました。")
 
     @app.post("/t/lines/{line_id}/assign")
     async def line_assign(request: Request, line_id: UUID) -> HTMLResponse:
         form = dict(await request.form())
-        return _line_act(request, form, lambda tx, ctx: registry.assign_line(tx, line_id, _client_or_shared(ctx, form.get("client_id"))),
+        return _line_act(request, form, lambda tx, ctx: registry.assign_line(tx, line_id, _client_or_shared(tx, form.get("client_id"))),
                          "回線の使い先を変えました（まだ発信していない予約は取り消しました）。")
 
     @app.post("/t/lines/{line_id}/resume")
@@ -826,7 +847,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
     async def rows_exclude(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
         """「かけない」の印（レ点・一括。1行の画面からも同じ所）。付けるのは core の1か所（exclusions.mark）。選んだ行がすべて、住所の
         実施回の行でなければ、何も書かない（「見つかりません」）。理由は必ず。"""
-        form = await request.form()
+        form = await request.form(max_fields=200_000)   # 選んだ行の数だけ欄が来る（行の多い実施回でも、まとめて付けられる）
         ids = [str(v) for v in form.getlist("task_id")]
         level = str(form.get("level") or "")
         back = str(form.get("back") or "")
@@ -949,25 +970,37 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
 
     @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/import")
     async def import_upload(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
-        """ファイルを受け、読めるかを確かめて一時置き場に置く（書くのは手元の記憶だけ）。"""
-        form = await request.form()
+        """ファイルを受け、読めるかを確かめて一時置き場に置く（書くのは手元の記憶だけ）。読む順：ログインの確かめ → 送られてくる大きさ
+        （読む前に断る）→ 中身を読む → 中身の大きさ → 読めるか（表として開く）→ 置く。ログインしていない人の送ったファイルは読まない。"""
+        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}/import"
+        if identify(request) is None:
+            return RedirectResponse("/login", status_code=303)
+        try:
+            size = int(request.headers.get("content-length") or "")
+            uploads.check_size(size - 64 * 1024)   # フォームの他の欄と区切りの分を引く
+        except ValueError as e:   # 大きさが分からない送り方・大きすぎる（TooLarge も ValueError）
+            return _back(base, actions.Outcome(False, str(e) if isinstance(e, uploads.TooLarge) else "ファイルを選び直してください。"))
+        try:
+            form = await request.form(max_files=1, max_fields=20)
+        except HTTPException:   # 送り方の形が違う（ファイルが2つ以上・欄が多すぎる）。英語の返事を出さない
+            return _back(base, actions.Outcome(False, "ファイルを1つだけ選んで、もう一度送ってください。"))
         f = form.get("file")
         data = await f.read() if hasattr(f, "read") else b""
         file_name = getattr(f, "filename", "") or ""
-        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}/import"
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             ctx.client(client_id, lambda tx: _run_in(tx, business_id, run_id), read_only=True)
             def do() -> str:
                 if not data:
                     raise actions.Refused("ファイルを選んでください")
+                try:
+                    uploads.check_size(len(data))   # 開く前に大きさ（大きなファイルを開いて重くしない）
+                except uploads.TooLarge as e:
+                    raise actions.Refused(str(e)) from None
                 u = uploads.Upload(person.login_id, client_id, run_id, file_name, data,
                                    sheet_name=str(form.get("sheet_name") or "").strip() or None,
                                    encoding=str(form.get("encoding") or "") or None)
                 _sheet(u)   # 読めるか（読めなければ理由の文つきで断る）
-                try:
-                    return uploads.put(u)
-                except uploads.TooLarge as e:
-                    raise actions.Refused(str(e)) from None
+                return uploads.put(u)
             out = actions.act(secret, person.login_id, dict(form), do, done="")
             if not out.ok:
                 return _back(base, out)

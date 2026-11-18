@@ -49,6 +49,15 @@ class NothingBreaks(_World):
                                        headers={"x-test-person": "ADMIN"}, follow_redirects=False)
                     self.assertIn(r.status_code, (200, 303, 403, 404), r.text[:300])   # 200＝次の段の画面・確かめのファイル
 
+    def test_a_wrong_address_answers_in_japanese(self):
+        for path in ("/c/not-an-id", f"/c/{self.a['client']}/b/not-an-id", "/t/stops/not-a-number", "/t/inbox?ok=x", "/no/such/page"):
+            with self.subTest(path=path):
+                r = self.get("A", path)
+                self.assertEqual(r.status_code, 404, r.text[:200])
+                self.assertIn("見つかりません", r.text)
+        r = self.http.put("/t", headers={"x-test-person": "A"})                 # 開き方が違う
+        self.assertIn("この開き方はできません", r.text)
+
 
 if __name__ == "__main__":
     unittest.main()

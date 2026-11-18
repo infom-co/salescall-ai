@@ -29,7 +29,8 @@
   <div class="unit-input"><input type="text" inputmode="numeric" name="f_v" value="{{ v if v is not none else '' }}" aria-label="上限">
   <label class="inline"><input type="checkbox" name="f_none" value="1" {% if r.got and v is none %}checked{% endif %}> 上限なし</label></div>
 {% elif w == "phone" %}
-  <input type="text" inputmode="tel" name="f_v" value="" placeholder="例：090-0000-0000（空＝まだ無い）" aria-label="番号">
+  <input type="text" inputmode="tel" name="f_v" value="" placeholder="例：090-0000-0000" aria-label="番号">
+  <label class="choice"><input type="checkbox" name="f_clear" value="1"> 番号を消す（欄は空のまま）</label>
 {% elif w == "choice" %}
   <select name="f_v">{% for c in r.choices or [] %}<option value="{{ c }}" {% if c == v %}selected{% endif %}>{{ words.setting_choice(r.key, c) }}</option>{% endfor %}</select>
 {% else %}
