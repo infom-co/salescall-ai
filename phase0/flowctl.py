@@ -6264,6 +6264,11 @@ class Flow:
                 # 印は返事に付ける（会話AIの声で応えた返事には流す録音が無い）。見直し (12) の A-4（⛔ 393f474b まで待つ返事に印が無く、黙られると何も言わずに
                 # 待ち続けた）
                 reply = reply | {"silence_scene": "reply"}
+                # こちらが応えた言葉（会話AIの答え・受け答え・録音）は、質問のあとにこちらが言った一言（黙ったあとの一言と同じ1か所＝判定に見せる judge_context・
+                # そのあとのお返事の受け方 _prompt_due）：「はい、分かりました。」はこの言葉へのお返事だけかもしれない（11-13 20時06分19秒の注意と同じ理由）。
+                # ⛔ ba505007 まで、判定に見せず、そのお返事をご了承・ご承諾として受け取った（見直し (13) の C2）
+                if said := reply.get("say") or "".join(p.get("text", "") for p in reply.get("play") or []):
+                    self.prompted = {"line": said, "turn": self.callee_turns, "at": (self.awaiting_confirm, self.current)}
         if reply["result"] != "rejected" and not self.reply_started:
             # 決まった言い方・自分の言葉の答えへの返事を待つのは、その次の報告まで（答え・ほかの報告が来たら、もう待っていない）。この報告で応えて、
             # いま待ち始めた（_await_reply の1か所）ときは残す。差し戻した報告は、何も変えない（受け付けていない）。⛔ 2026-11-06 日本時間5時56分55秒の
@@ -7568,9 +7573,10 @@ class Flow:
         日本時間11時55分13秒 ユーザー「(2) イ」。お断り・決められないは、言い直しの返事待ちと同じく、その答え・保留で受ける）。"""
         it, q = self.items[qid], self.questions[qid]
         if in_announce_form(q):
-            # ご承認のお知らせのあと、黙ったあとの一言へのお返事だけ（_prompt_due）：了承として受け取らず、最終の確かめ（_accepted_ask の1か所）
-            return self._accepted_ask(qid, "ご承認のお知らせのあと、黙ったあとの一言へのお返事だけ：最終の確かめ",
-                                      "ご承認のお知らせのあと、黙ったあとの一言へのお返事だけでした（意味の判定）。")
+            # ご承認のお知らせのあと、質問のあとにこちらが言った一言（黙ったあとの一言・尋ねられた答え・受け答え）へのお返事だけ（_prompt_due）：了承として受け取らず、
+            # 最終の確かめ（_accepted_ask の1か所）
+            return self._accepted_ask(qid, "ご承認のお知らせのあと、こちらが言った一言へのお返事だけ：最終の確かめ",
+                                      "ご承認のお知らせのあと、こちらが言った一言へのお返事だけでした（意味の判定）。")
         if toward is not None:
             it.condition, it.value = toward, None
         # ⛔ 2026-11-06 日本時間12時台に見つけた：はじめは確かめの回数（corrections）を使い切らせて印にしていた＝最終の確かめへの、はっきり違う答え
@@ -9966,8 +9972,10 @@ class Flow:
         ahead = held and bool(self._held_now().get("ahead"))   # 先に言われたことに、次に伺う質問の答えは無かった
         if ahead and (told := self._ahead_answered()) is not None:
             return told
+        # こちらの言葉へのお返事だけ（判定の項目 PROMPT_REPLY がそろって「お返事だけ」＝_prompt_only）なら、答えの読みがあっても答えとしない（見直し (13) の C2）
         if (self._reply_may_answer() and (qid := self.awaiting_confirm or self.current) is not None
-                and self.meaning_said in self.questions[qid].all_conditions):
+                and self.meaning_said in self.questions[qid].all_conditions
+                and not self._prompt_only([self.heard_check[k] for k in JUDGMENTS if k in self.heard_check])):
             # いまの質問について尋ねられて答えたあとの、お客様の返事（「じゃあ、お願いします。」）が、判定の読みでいまの質問の答え：質問に戻らずに、答えとして
             # 報告し直させる（判定が届いてから決める＝wants_checks）。⛔ 2026-11-06 日本時間5時56分55秒のご質問のあとの読み直しで見つけた：会話AIが「質問に
             # 戻る」を選ぶと、答えたお客様に質問を流し直した。別のお話にお話に沿った受け答えで応えて待ったあとも同じ（_reply_may_answer の1か所）

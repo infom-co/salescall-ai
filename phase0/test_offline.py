@@ -32761,6 +32761,32 @@ class Review13CTest(unittest.TestCase):
             else:
                 self.assertEqual((f._asked_kind(), f.awaiting_confirm), ("offer", None))
 
+    def test_c2_a_reply_only_to_our_answer_is_not_taken_as_consent(self):
+        # (C2) 尋ねられて答えたあと（お返事を待つ間）の「はい、分かりました。」は、こちらの答えへのお返事だけかもしれない：こちらの直前の一言を「質問のあとにこちらが
+        # 言った一言」として判定に見せ（judge_context）、判定の項目（PROMPT_REPLY）がそろって「お返事だけ」なら、答えの読みが「はい」でもご了承として受け取らず
+        # 最終の確かめ（伺い10）。黙ったあとの一言と同じ1か所（_prompt_now・_prompt_due）。⛔ ba505007 まで、判定に見せず、ご了承と記録した
+        from flowctl import PROMPT_REPLY, PROMPT_REPLY_YES, QUERY, QUERY_YES, UNDECIDED
+        from grounding import Verdict
+        from phrases import ANNOUNCE_RECHECK
+        a = AnnounceTest()
+        ours = "店舗の前に駐車場がございます。"
+        for report in (True, False):
+            f, r = a.announced()
+            f.on_played([a.LINE])
+            f.on_callee(); f.on_heard("そういえば御社って駐車場ありましたっけ？")
+            f.on_check("judge", self.reading(UNDECIDED, **{QUERY: QUERY_YES}))
+            f.judged_turn(voiced=False)
+            v = Verdict("知っていることだけ", ""); v.by = "test"
+            f.on_grounded(ours, v)
+            r = f.apply("replay_opening", {"part": "own", "answer": ours})
+            self.assertEqual(r.get("say"), ours, r)
+            f.on_callee(); f.on_heard("はい、分かりました。")
+            self.assertEqual(f.judge_context()[0].prompted, ours, report)
+            f.on_check("judge", self.reading("はい", **{PROMPT_REPLY: PROMPT_REPLY_YES}))
+            r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"}) if report else f.judged_turn(voiced=False)
+            self.assertNotEqual(f.items["Q2"].state, "accepted", (report, r))
+            self.assertEqual((f.awaiting_confirm, r["play"][-1]["text"]), ("Q2", ANNOUNCE_RECHECK), (report, r))
+
 
 if __name__ == "__main__":
     unittest.main()
