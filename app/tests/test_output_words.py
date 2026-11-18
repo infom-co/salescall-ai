@@ -160,3 +160,10 @@ class NotForClientGaps(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(w.not_for_client(text), [])
 
+
+class DncImportFields(unittest.TestCase):
+    def test_every_field_of_the_dnc_import_has_a_word(self):
+        from salescall.core import dnc_import
+        from salescall.output import words as w
+        self.assertEqual(set(w.DNC_IMPORT_FIELD_WORDS), set(dnc_import.FIELDS))
+

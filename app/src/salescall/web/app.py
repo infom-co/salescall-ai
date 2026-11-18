@@ -15,28 +15,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from urllib.parse import quote
-from salescall.core import backup
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, exclusions, health, health_rules,
-                            import_files, importer, measure, phone, quality_stage, recordings, registry, results, reward, settings, stops,
-                            usage)
+from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, dnc_import, exclusions, health,
+                            health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results, reward,
+                            settings, stops, usage)
 from salescall.core import approval as approval_core
 from salescall.core.access import Access
 from salescall.output import files as result_files
@@ -680,6 +678,101 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return page(request, "dnc.html", person, ctx, active="dnc" if client_id is None else "client", done=done, ok=bool(ok), **values)
         return handle(request, render)
 
+    # ── 発信禁止の一覧の取り込み（Intent.md 7-2「依頼者から受け取った『かけないで』の一覧も…プレビューで確かめてから台帳に入れる」・
+    #    「契約者の共通の台帳にも、同じ入口で入れられる」）。行の結果・登録は core の dnc_import.preview・register の1か所。ファイルの
+    #    受け方と一時置き場は、お客様リストの取り込みと同じ1か所（_receive_file・uploads）。依頼者の台帳と契約者の共通の台帳は、
+    #    同じこの部品で、取引（依頼者／契約者）と住所だけが違う。
+    def _dnc_in(ctx: Ctx, client_id: UUID | None, work: Callable[[Any], Any], *, read_only: bool = False) -> Any:
+        return ctx.tenant(work) if client_id is None else ctx.client(client_id, work, read_only=read_only)
+
+    def _dnc_place(ctx: Ctx, client_id: UUID | None) -> tuple[Any, ...]:
+        return ("dnc", ctx.tenant_id, client_id)
+
+    def _dnc_import_page(request: Request, client_id: UUID | None, stage: str, *, key: str = "",
+                         extra: Callable[[Person, Ctx], dict[str, Any]] | None = None, **values: Any) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            if extra is not None:
+                values.update(extra(person, ctx))
+            if client_id is not None:
+                values.update(ctx.client(client_id, lambda tx: {
+                    "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                    "businesses": context.businesses(tx)}, read_only=True))
+            fields = [f for f in dnc_import.FIELDS if client_id is not None or f == "phone"]   # 契約者の共通の台帳は番号だけ（core と同じ）
+            values.setdefault("stage", stage)   # 行ごとの結果を出せなかったときは、列の段に戻す（extra が決める）
+            return page(request, "dnc_import.html", person, ctx, active="dnc" if client_id is None else "client", key=key,
+                        fields=fields, encodings=[(e, import_files._NAMES.get(e, e)) for e in import_files.ENCODINGS], **values)
+        return handle(request, render)
+
+    def _dnc_base(client_id: UUID | None) -> str:
+        return "/t/dnc/import" if client_id is None else f"/c/{client_id}/dnc/import"
+
+    def _dnc_import_routes(prefix: str, scoped: bool) -> None:
+        """依頼者の台帳（/c/{依頼者}/dnc/import）と契約者の共通の台帳（/t/dnc/import）の入口を、同じ部品で作る。"""
+        def cid(request: Request) -> UUID | None:
+            return request.path_params.get("client_id") if scoped else None
+
+        @app.get(prefix)
+        def dnc_import_start(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+            return _dnc_import_page(request, cid(request), "upload", done=done, ok=bool(ok))
+
+        @app.post(prefix)
+        async def dnc_import_upload(request: Request) -> HTMLResponse:
+            c = cid(request)
+            return await _receive_file(request, _dnc_base(c), check=lambda ctx: _dnc_in(ctx, c, lambda tx: None, read_only=True),
+                                       place=lambda ctx: _dnc_place(ctx, c))
+
+        @app.get(prefix + "/{key}")
+        def dnc_import_map(request: Request, key: str) -> HTMLResponse:
+            c = cid(request)
+            def extra(person: Person, ctx: Ctx) -> dict[str, Any]:
+                u = _upload_or_missing(person, _dnc_place(ctx, c), key)
+                sheet = _sheet(u)
+                guess = {f: h for f, h in importing.guess(sheet).items() if f in dnc_import.FIELDS and (c is not None or f == "phone")}
+                return {"sheet": sheet, "sample": sheet.rows[:3], "mapping": u.mapping or guess, "file_name": u.file_name}
+            return _dnc_import_page(request, c, "map", key=key, extra=extra)
+
+        @app.post(prefix + "/{key}/preview")
+        async def dnc_import_preview(request: Request, key: str) -> HTMLResponse:
+            c = cid(request)
+            form = await request.form()
+            def extra(person: Person, ctx: Ctx) -> dict[str, Any]:
+                u = _upload_or_missing(person, _dnc_place(ctx, c), key)
+                sheet = _sheet(u)
+                u.mapping = {f: str(form.get(f"map_{f}")) for f in dnc_import.FIELDS if form.get(f"map_{f}")}
+                try:
+                    plan = _dnc_in(ctx, c, lambda tx: dnc_import.preview(tx, sheet, u.mapping), read_only=True)
+                except actions.REFUSALS as e:
+                    u.preview = {}
+                    return {"stage": "map", "sheet": sheet, "sample": sheet.rows[:3], "mapping": u.mapping, "error": str(e),
+                            "file_name": u.file_name}
+                u.preview = {"digest": plan.digest}
+                return {"stage": "preview", "counts": plan.counts(), "file_name": u.file_name,
+                        "stopped": [r for r in plan.rows if r.outcome == "stopped"]}
+            return _dnc_import_page(request, c, "preview", key=key, extra=extra)
+
+        @app.post(prefix + "/{key}/register")
+        async def dnc_import_register(request: Request, key: str) -> HTMLResponse:
+            c = cid(request)
+            form = dict(await request.form())
+            back = "/t/dnc" if c is None else f"/c/{c}/dnc"
+            def render(person: Person, ctx: Ctx) -> HTMLResponse:
+                u = _upload_or_missing(person, _dnc_place(ctx, c), key)
+                if not u.preview:
+                    raise NotFound()
+                out = actions.act(secret, person.login_id, form, lambda: _dnc_in(ctx, c, lambda tx: dnc_import.register(
+                    tx, _sheet(u), u.mapping, expected_digest=u.preview["digest"])), done="")
+                if not out.ok:
+                    return _back(_dnc_base(c), out)
+                uploads.drop(key)
+                n = out.value["counts"]
+                return _back(back, actions.Outcome(True, f"取り込みました：新しく止めた行 {n['registered']}行（番号 {n['numbers']}件・"
+                                                         f"管理番号 {n['client_refs']}件）・登録済み {n['already']}行・止められなかった行 "
+                                                         f"{n['stopped']}行・空の行 {n['empty']}行。"))
+            return handle(request, render)
+
+    _dnc_import_routes("/t/dnc/import", scoped=False)
+    _dnc_import_routes("/c/{client_id}/dnc/import", scoped=True)
+
     def _dnc_act(request: Request, form: dict[str, Any], client_id: UUID | None, do: Any, done: str, *,
                  reason: bool = True) -> HTMLResponse:
         """発信禁止の登録・取り消しの1か所（core の dnc だけ。理由は必ず。番号が読めない＝core の理由の文のまま）。"""
@@ -994,7 +1087,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         """取込の画面を出す1か所。extra＝ログインした人から足す値（置き場のファイルなど。見つからなければ NotFound）。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             if extra is not None:
-                values.update(extra(person))
+                values.update(extra(person, ctx))
             def read(tx: Any) -> dict[str, Any]:
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
@@ -1012,11 +1105,11 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                      ok: int = 1) -> HTMLResponse:
         return _import_page(request, "import.html", client_id, business_id, run_id, done=done, ok=bool(ok))
 
-    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/import")
-    async def import_upload(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
-        """ファイルを受け、読めるかを確かめて一時置き場に置く（書くのは手元の記憶だけ）。読む順：ログインの確かめ → 送られてくる大きさ
-        （読む前に断る）→ 中身を読む → 中身の大きさ → 読めるか（表として開く）→ 置く。ログインしていない人の送ったファイルは読まない。"""
-        base = f"/c/{client_id}/b/{business_id}/runs/{run_id}/import"
+    async def _receive_file(request: Request, base: str, *, check: Callable[[Ctx], Any],
+                            place: Callable[[Ctx], tuple[Any, ...]]) -> HTMLResponse:
+        """取り込むファイルを受ける1か所（お客様リスト・発信禁止の一覧）。読む順：ログインの確かめ → 送られてくる大きさ（読む前に断る）→
+        中身を読む → 中身の大きさ → 読めるか（表として開く）→ 一時置き場に置く（置き場＝place。書くのは手元の記憶だけ）。check＝住所の
+        依頼者・実施回などを確かめる（違えば NotFound）。置いたら base/{鍵} へ進む。ログインしていない方の送ったファイルは読まない。"""
         if identify(request) is None:
             return RedirectResponse("/login", status_code=303)
         try:
@@ -1032,7 +1125,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         data = await f.read() if hasattr(f, "read") else b""
         file_name = getattr(f, "filename", "") or ""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            ctx.client(client_id, lambda tx: _run_in(tx, business_id, run_id), read_only=True)
+            check(ctx)
             def do() -> str:
                 if not data:
                     raise actions.Refused("ファイルを選んでください")
@@ -1040,7 +1133,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     uploads.check_size(len(data))   # 開く前に大きさ（大きなファイルを開いて重くしない）
                 except uploads.TooLarge as e:
                     raise actions.Refused(str(e)) from None
-                u = uploads.Upload(person.login_id, client_id, run_id, file_name, data,
+                u = uploads.Upload(person.login_id, place(ctx), file_name, data,
                                    sheet_name=str(form.get("sheet_name") or "").strip() or None,
                                    encoding=str(form.get("encoding") or "") or None)
                 _sheet(u)   # 読めるか（読めなければ理由の文つきで断る）
@@ -1051,8 +1144,19 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             return RedirectResponse(f"{base}/{out.value}", status_code=303)
         return handle(request, render)
 
-    def _upload_or_missing(request: Request, person: Person, client_id: UUID, run_id: UUID, key: str) -> uploads.Upload:
-        u = uploads.get(key, person.login_id, client_id, run_id)
+    def _list_place(ctx: Ctx, client_id: UUID, run_id: UUID) -> tuple[Any, ...]:
+        return ("list", ctx.tenant_id, client_id, run_id)
+
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/import")
+    async def import_upload(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> HTMLResponse:
+        """お客様リストのファイルを受ける（受け方は _receive_file の1か所）。"""
+        return await _receive_file(
+            request, f"/c/{client_id}/b/{business_id}/runs/{run_id}/import",
+            check=lambda ctx: ctx.client(client_id, lambda tx: _run_in(tx, business_id, run_id), read_only=True),
+            place=lambda ctx: _list_place(ctx, client_id, run_id))
+
+    def _upload_or_missing(person: Person, place: tuple[Any, ...], key: str) -> uploads.Upload:
+        u = uploads.get(key, person.login_id, place)
         if u is None:
             raise NotFound()
         return u
@@ -1060,8 +1164,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/import/{key}")
     def import_map(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, key: str) -> HTMLResponse:
         """列と欄の対応付け（はじめの案つき）と、ファイルの最初の数行。"""
-        def extra(person: Person) -> dict[str, Any]:
-            u = _upload_or_missing(request, person, client_id, run_id, key)
+        def extra(person: Person, ctx: Ctx) -> dict[str, Any]:
+            u = _upload_or_missing(person, _list_place(ctx, client_id, run_id), key)
             sheet = _sheet(u)
             return {"sheet": sheet, "sample": sheet.rows[:3], "mapping": u.mapping or importing.guess(sheet)}
         return _import_page(request, "import_map.html", client_id, business_id, run_id, key=key, extra=extra)
@@ -1071,7 +1175,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         """行ごとの合否（何も書かない）。指紋・AI の読み・確かめた読みは置き場に残し、登録はそれと同じときだけ受ける。"""
         form = await request.form()
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            u = _upload_or_missing(request, person, client_id, run_id, key)
+            u = _upload_or_missing(person, _list_place(ctx, client_id, run_id), key)
             sheet = _sheet(u)
             if any(k.startswith("map_") for k in form.keys()):   # 対応付けの画面から来たときだけ、対応付けを置き直す
                 u.mapping = importing.mapping_from_form(form, sheet)
@@ -1097,7 +1201,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         form = dict(await request.form())
         rows_url = f"/c/{client_id}/b/{business_id}/runs/{run_id}"
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            u = _upload_or_missing(request, person, client_id, run_id, key)
+            u = _upload_or_missing(person, _list_place(ctx, client_id, run_id), key)
             if not u.preview:
                 raise NotFound()
             def do(tx: Any) -> dict[str, Any]:

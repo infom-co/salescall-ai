@@ -192,6 +192,10 @@ IMPORT_FIELD_WORDS: dict[str, str] = {
 }
 
 
+# 発信禁止の一覧の取り込みの欄の名前（欄の正本は core の dnc_import.FIELDS。試験が突き合わせる）
+DNC_IMPORT_FIELD_WORDS: dict[str, str] = {"phone": "電話番号", "client_ref": "依頼者の管理番号"}
+
+
 # 設定のまとまりの名前（設定の名前の頭。データベースの設定の定義のすべての頭を書く。試験が突き合わせる）
 SETTING_GROUPS: dict[str, str] = {
     "calling": "かける時間帯", "gate": "かける前の確かめ（回数・間隔）", "callback": "かけ直し", "retry": "かけ直しの回数",

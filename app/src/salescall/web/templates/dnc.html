@@ -4,6 +4,7 @@
 {% block main %}
 {% set base = ("/c/" ~ client.client_id ~ "/dnc") if client else "/t/dnc" %}
 <div class="title-row"><h1>{{ ("発信禁止：" ~ client.name) if client else "共通の発信禁止（" ~ ctx.tenant_name ~ "）" }}</h1>
+  <span class="btn-row"><a class="btn" href="{{ base }}/import">一覧を取り込む</a>
   <details class="adder inline"><summary class="btn main">＋ 番号を登録する</summary>
     <form class="panel" method="post" action="{{ base }}" {% if not client %}data-needs-reason{% endif %}>
       {{ csrf(token) }}
@@ -11,7 +12,7 @@
       {% if not client %}<label class="field" for="dnc-reason">理由（記録に残ります）</label><input id="dnc-reason" type="text" name="reason" placeholder="例：依頼者から、かけないでとのご連絡">{% endif %}
       <p class="muted">{% if client %}この番号のお客様へは、この依頼者のどの一覧・業務からもかけません。{% else %}この契約者のすべての依頼者で、この番号へはかけません。{% endif %}</p>
       <button class="btn main small" type="submit" {% if not client %}data-submit disabled{% endif %}>登録する</button>
-    </form></details></div>
+    </form></details></span></div>
 <p class="lead">{% if client %}お客様が断った・番号違いなどで、この依頼者の電話を止めている番号です。依頼者をまたいでは止めません。{% else %}この契約者のすべての依頼者に効く発信禁止です。{% endif %}取り消しは、依頼者からの正式なお求めがあったときだけにしてください。</p>
 {{ flash(done, ok) }}
 {% if rows %}

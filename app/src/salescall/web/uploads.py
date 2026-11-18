@@ -2,7 +2,8 @@
 
 ファイルを選んでから登録するまで（列の対応付け → プレビュー → 登録）、同じファイルを使う。ファイルにはお客様の情報が入るので、
 **画面のサーバーの手元の記憶にだけ置き、ディスク・データベース・記録には書かない**。置くのは決まった時間だけ（`KEEP`）・決まった数と
-大きさまで。取り出せるのは、置いたのと同じログインの人・同じ依頼者・同じ実施回だけ（ほかは「無い」と同じ）。
+大きさまで。取り出せるのは、置いたのと同じログイン・同じ置き場（`place`＝何のための取り込みか・契約者・依頼者・実施回）だけ
+（ほかは「無い」と同じ）。お客様リストの取り込みも、発信禁止の一覧の取り込みも、この1つの置き場を使う。
 """
 
 from __future__ import annotations
@@ -25,8 +26,7 @@ MAX_TOTAL = 200 * 1024 * 1024  # 手元の記憶に置く合計の上限（超�
 @dataclass
 class Upload:
     login_id: str
-    client_id: UUID
-    run_id: UUID
+    place: tuple[Any, ...]       # 何のための取り込みか（例：("list", 契約者, 依頼者, 実施回)・("dnc", 契約者, 依頼者か None)）
     file_name: str
     data: bytes
     sheet_name: str | None = None
@@ -75,11 +75,11 @@ def put(u: Upload) -> str:
     return key
 
 
-def get(key: str, login_id: str, client_id: UUID, run_id: UUID) -> Upload | None:
+def get(key: str, login_id: str, place: tuple[Any, ...]) -> Upload | None:
     with _lock:
         _sweep(time.monotonic())
         u = _items.get(key)
-    if u is None or (u.login_id, u.client_id, u.run_id) != (login_id, client_id, run_id):
+    if u is None or (u.login_id, u.place) != (login_id, place):
         return None
     return u
 
