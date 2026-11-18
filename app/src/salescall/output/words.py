@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from salescall.core import ai_troubles, business_import, exclusions, gate, notify, stops
+from salescall.core import ai_troubles, business_import, errors, exclusions, gate, notify, stops
 
 
 @dataclass(frozen=True)
@@ -156,6 +156,22 @@ def stop_cause(name: str) -> str:
     """停止の原因の短い名前（正本は stops.CAUSES）。"""
     info = stops.CAUSES.get(name)
     return info.label if info else NO_WORD
+
+
+# 電話を途中で終えた理由（core の errors.ENDS）のうち、こちらの不具合でないもの（errors.TROUBLES に無い）の画面の言葉。
+# こちらの不具合の理由の言葉は、core の errors.LABELS が正本（ここに写さない。2026-11-18 CL-2 4-421 の (1)：worker_lost も、そこを読む）。
+CALL_ENDS_NOT_OURS: dict[str, str] = {"poor_audio": "お声が聞き取れず終えた（こちらの不具合には数えない）"}
+
+
+def call_end(name: str | None) -> str:
+    """電話を途中で終えた理由の画面の言葉（1か所）。こちらの不具合＝errors.LABELS を読む／それ以外＝CALL_ENDS_NOT_OURS。
+    依頼者へは出さない（依頼者へは、試行の状態の依頼者の言葉＝「こちらの都合で途中で終わりました」など）。"""
+    if not name:
+        return ""
+    kind = errors.TROUBLES.get(name)
+    if kind is not None:
+        return errors.LABELS.get(kind, NO_WORD)
+    return CALL_ENDS_NOT_OURS.get(name, NO_WORD)
 
 
 def stop_scope(name: str) -> str:

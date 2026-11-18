@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import unittest
 
-from salescall.core import ai_troubles, approval, call_report, exclusions, next_action, notify, stops
+from salescall.core import ai_troubles, approval, call_report, errors, exclusions, next_action, notify, stops
 from salescall.core import business_rules
 from salescall.output import words
 from tests.support import SYSTEM, app_access
@@ -56,6 +56,15 @@ class EveryNameHasAWord(unittest.TestCase):
             self.assertEqual(words.ai_trouble_stage(stage), ai_troubles.STAGES[stage])
         for k in stops.KEEPING_KINDS:
             self.assertEqual(words.keeping_kind(k), stops.KEEPING_KINDS[k])
+
+    def test_every_way_a_call_was_ended_early_has_a_word_read_from_core(self):   # 2026-11-18 CL-2 4-421 の (1)：worker_lost
+        for name in errors.ENDS:
+            with self.subTest(end=name):
+                self.assertNotEqual(words.call_end(name), words.NO_WORD)
+                if name in errors.TROUBLES:
+                    self.assertEqual(words.call_end(name), errors.LABELS[errors.TROUBLES[name]])
+                    self.assertNotIn(name, words.CALL_ENDS_NOT_OURS)   # 正本を写さない
+        self.assertEqual(words.call_end("worker_lost"), "回線の処理が通話の途中で止まりました")
 
     def test_the_decision_parts_and_kinds_have_words(self):
         self.assertEqual(set(words.DECISION_PARTS), set(call_report.DECISION_PARTS))
