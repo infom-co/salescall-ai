@@ -296,3 +296,21 @@ table.map select { max-width: 280px; }
 .adder .panel .field { font-weight: 600; font-size: 13px; }
 .adder.inline .panel { width: 360px; }
 .tabrow.businesses .adder .panel { left: 0; right: auto; }
+/* 設定 */
+.settings-filter input { max-width: 420px; }
+.setting-group { margin-top: 24px; }
+details.setting { padding: 0; margin-top: 8px; }
+details.setting > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 14px 18px; }
+details.setting > summary::-webkit-details-marker { display: none; }
+details.setting[open] > summary { border-bottom: 1px solid var(--line); }
+details.setting.own { border-left: 4px solid var(--info); }
+details.setting .meaning { flex: 1 1 420px; }
+details.setting .now { white-space: nowrap; }
+.setting-form { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 8px; }
+.setting-form input[type=text], .setting-form select { max-width: 420px; }
+.unit-input { display: flex; align-items: center; gap: 8px; } .unit-input input { max-width: 160px; }
+label.inline { display: inline-flex; align-items: center; gap: 6px; }
+.weekly { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.weekly label { display: flex; align-items: center; gap: 8px; } .weekly span { width: 2.5em; font-weight: 700; }
+.gap { display: flex; gap: 8px; } .gap select { max-width: 200px; } .gap input { max-width: 120px; }
+.setting-form .unit-input input { max-width: 160px; } .setting-form .gap input { max-width: 120px; } .setting-form .gap select { max-width: 200px; }

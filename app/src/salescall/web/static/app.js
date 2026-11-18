@@ -15,7 +15,7 @@
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Enter" || !e.target.matches("[data-filter]")) return;
     var first = visible(e.target)[0];
-    if (first) { e.preventDefault(); location.href = first.getAttribute("href"); }
+    if (first && first.getAttribute("href")) { e.preventDefault(); location.href = first.getAttribute("href"); }
   });
   // 窓（探す・＋ 依頼者・＋ 業務・＋ 実施回）は1つずつ：1つ開いたら、ほかは閉じる
   document.addEventListener("toggle", function (e) {

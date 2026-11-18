@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, flash, csrf, empty %}
+{% block title %}設定{% endblock %}
+{% macro widget(r) -%}
+{% set w = forms.FORMS[r.value_type].widget if r.value_type in forms.FORMS else "" %}
+{% set v = r.got.value if r.got else none %}
+{% if w == "yesno" %}
+  <label class="choice"><input type="radio" name="f_v" value="1" {% if v %}checked{% endif %}> はい</label>
+  <label class="choice"><input type="radio" name="f_v" value="0" {% if v == false %}checked{% endif %}> いいえ</label>
+{% elif w in ("number", "seconds", "percent") %}
+  <div class="unit-input"><input type="text" inputmode="decimal" name="f_v" value="{{ (v * 100)|round(2) if w == 'percent' and v is not none else (v if v is not none else '') }}" aria-label="値">
+  <span>{{ {"seconds": "秒", "percent": "%"}.get(w, "") }}</span></div>
+{% elif w == "list" %}
+  <input type="text" name="f_v" value="{{ v|join(', ') if v else '' }}" placeholder="例：1, 3, 7" aria-label="値">
+{% elif w == "range" %}
+  <input type="text" name="f_v" value="{{ v|join('-') if v else '' }}" placeholder="例：09:00-18:00" aria-label="時間帯">
+{% elif w == "ranges" %}
+  <input type="text" name="f_v" value="{% if v %}{% for a in v %}{{ a|join('-') }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}" placeholder="例：09:00-12:00, 14:00-18:00" aria-label="時間帯">
+{% elif w == "weekly" %}
+  <div class="weekly">{% for k, label in days %}<label><span>{{ label }}</span><input type="text" name="f_{{ k }}" value="{% if v and v[k] %}{% for a in v[k] %}{{ a|join('-') }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}" placeholder="空＝かけない"></label>{% endfor %}</div>
+{% elif w in ("gap_never", "gap_day") %}
+  {% set special = "never" if w == "gap_never" else "next_day" %}
+  <div class="gap"><select name="f_unit">
+    <option value="hours" {% if v is mapping and "hours" in v %}selected{% endif %}>時間あける</option>
+    <option value="days" {% if v is mapping and "days" in v %}selected{% endif %}>日あける</option>
+    <option value="{{ special }}" {% if v == special %}selected{% endif %}>{{ "かけない" if special == "never" else "その日はかけない" }}</option>
+  </select><input type="text" inputmode="numeric" name="f_n" value="{{ (v.hours or v.days) if v is mapping else '' }}" aria-label="数"></div>
+{% elif w == "limit" %}
+  <div class="unit-input"><input type="text" inputmode="numeric" name="f_v" value="{{ v if v is not none else '' }}" aria-label="上限">
+  <label class="inline"><input type="checkbox" name="f_none" value="1" {% if r.got and v is none %}checked{% endif %}> 上限なし</label></div>
+{% elif w == "phone" %}
+  <input type="text" inputmode="tel" name="f_v" value="" placeholder="例：090-0000-0000（空＝まだ無い）" aria-label="番号">
+{% elif w == "choice" %}
+  <select name="f_v">{% for c in r.choices or [] %}<option value="{{ c }}" {% if c == v %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+{% else %}
+  <p class="muted">この設定は、まだ画面から変えられません。</p>
+{% endif %}
+{%- endmacro %}
+{% block main %}
+{% set where = ("業務「" ~ business.name ~ "」") if business else (("依頼者「" ~ client.name ~ "」") if client else ("契約者「" ~ ctx.tenant_name ~ "」")) %}
+{% set action = request.url.path %}
+<h1>設定：{{ where }}</h1>
+<p class="lead">ここで決めた値は、{% if level == "tenant" %}すべての依頼者・業務の初めの値になります（依頼者・業務で決めた値が勝ちます）{% elif level == "client" %}この依頼者のすべての業務に効きます（業務で決めた値が勝ちます）{% else %}この業務だけに効きます{% endif %}。変えた値と前の値は、記録に残ります。</p>
+{{ flash(done, ok) }}
+<div class="settings-filter"><input type="text" placeholder="設定を探す（例：時間帯・回数・間隔）" data-filter=".setting" aria-label="設定を探す"></div>
+{% for group, items in rows|groupby("group") %}
+<section class="setting-group">
+  <h2>{{ words.SETTING_GROUPS.get(group, words.NO_WORD) }}</h2>
+  {% for r in items %}
+  <details class="setting card {{ 'own' if r.own }}">
+    <summary>
+      <span class="meaning">{{ r.meaning }}</span>
+      <span class="now">{% if r.got %}<b>{{ r.shown }}</b> <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own %} {{ tag("この段で決めた値", "info") }}{% endif %}</span>
+    </summary>
+    <form method="post" action="{{ action }}" class="setting-form" data-needs-reason>
+      {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
+      <p class="muted">{{ r.merge }}</p>
+      {{ widget(r) }}
+      <label class="field">理由（記録に残ります）</label>
+      <input type="text" name="reason" placeholder="例：依頼者のご希望で、夕方はかけない">
+      <div class="actions"><button class="btn main small" type="submit" data-submit disabled>この段の値にする</button></div>
+    </form>
+  </details>
+  {% endfor %}
+</section>
+{% else %}
+<div class="card">{{ empty("この段で決められる設定はありません") }}</div>
+{% endfor %}
+{% endblock %}

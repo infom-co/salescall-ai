@@ -191,6 +191,18 @@ IMPORT_FIELD_WORDS: dict[str, str] = {
 }
 
 
+# 設定のまとまりの名前（設定の名前の頭。データベースの設定の定義のすべての頭を書く。試験が突き合わせる）
+SETTING_GROUPS: dict[str, str] = {
+    "calling": "かける時間帯", "gate": "かける前の確かめ（回数・間隔）", "callback": "かけ直し", "retry": "かけ直しの回数",
+    "call": "通話の進め方", "callee": "お客様の扱い", "conversation": "会話", "line": "回線", "dial": "発信", "pc": "PC",
+    "stop": "止める・解く", "quality": "品質の段（検証モード）", "verification": "通話のあとの確かめ", "judge": "判定",
+    "decision": "取り消せない決定", "approval": "承認", "recording": "録音", "budget": "費用と予算", "backup": "控え",
+    "measure": "測り", "dnc": "発信禁止", "ai": "AI", "business": "業務",
+}
+SCOPE_WORDS: dict[str, str] = {"system": "初めの値（システム）", "tenant": "契約者の値", "client": "依頼者の値", "business": "業務の値",
+                               "merged": "組み合わせた値"}
+
+
 def stop_scope(name: str) -> str:
     """停止の範囲の名前（正本は stops.SCOPE_NAMES）。"""
     return stops.SCOPE_NAMES.get(name, NO_WORD)

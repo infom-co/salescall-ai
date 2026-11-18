@@ -25,10 +25,10 @@ from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
 from salescall.core import (calling_hours, customer_contacts, customer_rows, exclusions, import_files, importer, phone, registry,
-                            stops)
+                            settings, stops)
 from salescall.core.access import Access
 from salescall.output import notices, words
-from salescall.web import actions, context, counts, importing, inbox, rowfix, uploads
+from salescall.web import actions, context, counts, importing, inbox, rowfix, setting_forms, uploads
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
@@ -280,6 +280,94 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
             rows = [{**r, "state": notices.delivery_state(r["statuses"])} for r in rows]
             return page(request, "notices.html", person, ctx, rows=rows, state_words=notices.STATE_WORDS)
         return handle(request, render)
+
+    # ── 設定（docs/DASHBOARD.md 5-9。Intent.md 5-3・5-4）：契約者・依頼者・業務の段で、同じ1つの画面 ──────────
+    SCOPES = ("system", "tenant", "client", "business")
+    MERGE_WORDS = {"override": "下の段（業務 ＞ 依頼者 ＞ 契約者 ＞ 初めの値）の値が勝ちます",
+                   "min": "どの段の値より小さくなりません（いちばん小さい値を使います）",
+                   "max": "どの段の値より大きくなりません（いちばん大きい値を使います）",
+                   "intersect": "どの段の時間帯にも入る時間だけを使います", "union": "どの段の値もすべて合わせて使います"}
+
+    def _settings_rows(tx: Any, level: str, tenant_id: UUID, client_id: UUID | None, business_id: UUID | None) -> list[dict[str, Any]]:
+        """その段で決められる設定（いちばん細かく決められる段＝finest_scope がその段より細かいか同じ）と、その段で結局いくつか
+        （合成は core の settings.resolve_detail の1か所）。"""
+        rows = []
+        for d in tx.all("SELECT key, meaning, value_type::text AS value_type, merge_kind::text AS merge_kind,"
+                        "       finest_scope::text AS finest_scope, choices, bound_key FROM salescall.setting_definitions ORDER BY key"):
+            if SCOPES.index(d["finest_scope"]) < SCOPES.index(level):
+                continue
+            try:
+                got = settings.resolve_detail(tx, d["key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+            except settings.SettingMissing:
+                got = None
+            rows.append({**d, "got": got, "shown": None if got is None else setting_forms.show(d["value_type"], got["value"]),
+                         "own": got is not None and got["from"] == level, "group": d["key"].split(".")[0],
+                         "merge": MERGE_WORDS.get(d["merge_kind"], "")})
+        return rows
+
+    def _settings_page(request: Request, level: str, client_id: UUID | None, business_id: UUID | None,
+                       done: str | None, ok: int) -> HTMLResponse:
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                out: dict[str, Any] = {"rows": _settings_rows(tx, level, ctx.tenant_id, client_id, business_id)}
+                if client_id is not None:
+                    out.update(client=tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                               businesses=context.businesses(tx),
+                               business=None if business_id is None else context.business(tx, business_id))
+                return out
+            values = ctx.tenant(read) if client_id is None else ctx.client(client_id, read, read_only=True)
+            return page(request, "settings.html", person, ctx, level=level, forms=setting_forms, days=setting_forms.DAYS,
+                        done=done, ok=bool(ok), active="settings" if client_id is None else "client", **values)
+        return handle(request, render)
+
+    def _settings_save(request: Request, form: dict[str, Any], level: str, client_id: UUID | None,
+                       business_id: UUID | None, back: str) -> HTMLResponse:
+        """1つの設定の、その段の値を足す（前の値は記録に残る。入れるのは core の settings.set_value の1か所。値の形はデータベースが確かめる）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            key = str(form.get("key") or "")
+            def do(tx: Any) -> Any:
+                if business_id is not None:
+                    context.business(tx, business_id)
+                d = tx.one("SELECT key, value_type::text AS value_type, finest_scope::text AS finest_scope, choices"
+                           " FROM salescall.setting_definitions WHERE key = %s", (key,))
+                if d is None or SCOPES.index(d["finest_scope"]) < SCOPES.index(level):
+                    raise NotFound()
+                value = setting_forms.read(d["value_type"], form, "f_", d)
+                try:
+                    return settings.set_value(tx, key, value, scope=level, status="decided", rationale=str(form.get("reason") or "").strip(),
+                                              review_when="変える必要が出たとき", tenant_id=ctx.tenant_id, client_id=client_id,
+                                              business_id=business_id)
+                except ValueError as e:   # set_value の理由つきの断り（テスト番号にお客様の番号 など）
+                    raise actions.Refused(str(e)) from None
+            work = (lambda: ctx.tenant(do)) if client_id is None else (lambda: ctx.client(client_id, do))
+            out = actions.act(secret, person.login_id, form, work, done="変えました。前の値は記録に残っています。", reason_field="reason")
+            return _back(back, out)
+        return handle(request, render)
+
+    @app.get("/t/settings")
+    def tenant_settings(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _settings_page(request, "tenant", None, None, done, ok)
+
+    @app.post("/t/settings")
+    async def tenant_settings_save(request: Request) -> HTMLResponse:
+        return _settings_save(request, dict(await request.form()), "tenant", None, None, "/t/settings")
+
+    @app.get("/c/{client_id}/settings")
+    def client_settings(request: Request, client_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _settings_page(request, "client", client_id, None, done, ok)
+
+    @app.post("/c/{client_id}/settings")
+    async def client_settings_save(request: Request, client_id: UUID) -> HTMLResponse:
+        return _settings_save(request, dict(await request.form()), "client", client_id, None, f"/c/{client_id}/settings")
+
+    @app.get("/c/{client_id}/b/{business_id}/settings")
+    def business_settings_page(request: Request, client_id: UUID, business_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        return _settings_page(request, "business", client_id, business_id, done, ok)
+
+    @app.post("/c/{client_id}/b/{business_id}/settings")
+    async def business_settings_save(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
+        return _settings_save(request, dict(await request.form()), "business", client_id, business_id,
+                              f"/c/{client_id}/b/{business_id}/settings")
 
     # ── 依頼者・業務・実施回を作る（作るのは core の registry だけ。docs/DASHBOARD.md 5-6） ──────────
     @app.post("/t/clients")
