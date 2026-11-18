@@ -60,6 +60,17 @@ class Csv(unittest.TestCase):
         with self.assertRaises(files.ClientWordsLeak):
             files.to_csv([self._row(call_end="AIが終えた")])
 
+    def test_a_cell_that_looks_like_a_formula_stays_text(self):
+        got = list(csv.reader(io.StringIO(files.to_csv([self._row(company="=HYPERLINK(\"x\")", client_ref="@1", person="+1", phone="-2")])
+                                          .decode("utf-8-sig"))))[1]
+        self.assertEqual(got[:4], ["'@1", "'=HYPERLINK(\"x\")", "'+1", "'-2"])   # 管理番号・会社名・お呼びした方・電話番号
+
+    def test_the_file_name_is_checked_and_safe(self):
+        from datetime import date
+        self.assertEqual(files.file_name("架空/商事", "11月分", date(2026, 11, 18)), "架空_商事_11月分_結果_2026-11-18.csv")
+        with self.assertRaises(files.ClientWordsLeak):
+            files.file_name("架空商事", "AI検証の回", date(2026, 11, 18))
+
     def test_customer_data_is_not_checked(self):   # 会社名はお客様・依頼者のデータ（確かめない）
         self.assertTrue(files.to_csv([self._row(company="AIシステム開発 株式会社")]))
 
@@ -85,12 +96,12 @@ class Screen(unittest.TestCase):
         self.assertTrue(r.headers["content-type"].startswith("text/csv"))
         self.assertEqual(self._submissions(), before)
         tok = re.search(r'<meta name="form-token" content="([^"]+)"', self.http.get("/t").text).group(1)
-        r = self.http.post(self.base, data={"form_token": tok})
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(self._submissions(), before + 1)
+        r = self.http.post(self.base, data={"form_token": tok}, follow_redirects=False)
+        self.assertIn("ok=0", r.headers["location"])        # 確定した結果がまだ無い＝依頼者へは何も渡さない（控えにも置かない）
+        self.assertEqual(self._submissions(), before)
         forged = self.http.post(self.base, data={"form_token": "でたらめ"}, follow_redirects=False)
         self.assertIn("ok=0", forged.headers["location"])
-        self.assertEqual(self._submissions(), before + 1)
+        self.assertEqual(self._submissions(), before)
 
     def test_the_file_of_client_x_has_rows_of_client_x_only(self):   # S-8
         from salescall.core import customer_rows, phone

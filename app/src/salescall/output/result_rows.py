@@ -5,7 +5,7 @@
 - **出す結果は確定した版だけ**（確定の印のある版のうち、段が `DELIVERABLE_STAGES` のもの）。✅ 2026-11-18 管理者：サンプル検証（＝模擬通話）は
   渡さない・実検証（＝検証モード）は渡せる・そのあとフルオート（＝本番）。⇒ verification と production。模擬通話は結果の版を作らない。
   ⏳ 依頼者のシステムへの書き戻し（`deliveries`）は、データベースの守りが本番の版だけのまま（CL-2 へのお願い 17）。ファイルはこの決まりで出す。
-- **判定待ち（次の予定が hold）の行は出さない**（判定し直してから）。
+- **判定待ち（次の予定が hold）の行と、最新の結果の版がまだ確定していない行は出さない**（古い確定の版を、今の答えとして渡さない）。
 - ⏳ 質問ごとの2列（答え／お客様の言葉）と判定の中身の列（ご質問・ほかのご希望 など）は、書き方の変更（2026-11-18 管理者「変更 CL-1かCL-2に
   連絡済み」）が届いてから、この部品の `QUESTION_COLUMNS` の1か所に足す。
 """
@@ -61,11 +61,14 @@ def call_end(last: dict[str, Any] | None, next_kind: str | None) -> str:
 
 def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
     """その実施回の、依頼者へ渡す結果の行（一覧の行番号の順。判定待ちの行は出さない）。"""
-    released = {r["task_id"]: r["business_state"] for r in tx.all(
-        "SELECT DISTINCT ON (x.task_id) x.task_id, t.business_state::text AS business_state FROM salescall.result_releases x"
-        " JOIN salescall.task_results t ON t.client_id = x.client_id AND t.task_id = x.task_id AND t.version_no = x.version_no"
-        " JOIN salescall.tasks k ON k.task_id = x.task_id WHERE k.run_id = %s AND x.stage = ANY(%s)"
-        " ORDER BY x.task_id, x.version_no DESC", (run_id, list(DELIVERABLE_STAGES)))}
+    # 行ごとの最新の版が、渡せる段で確定しているか。最新の版がまだ確定していない行（確かめ待ち・判定できない・直した版の確かめ待ち）は、
+    # 古い確定の版を出さずに、行ごと出さない（判定待ちと同じ。古い答えを今の答えとして渡さない）。
+    latest = {r["task_id"]: r for r in tx.all(
+        "SELECT l.task_id, l.version_no, l.business_state::text AS business_state,"
+        "       EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = l.task_id AND x.version_no = l.version_no"
+        "               AND x.stage = ANY(%s)) AS released"
+        " FROM salescall.latest_task_results l JOIN salescall.tasks k ON k.task_id = l.task_id WHERE k.run_id = %s",
+        (list(DELIVERABLE_STAGES), run_id))}
     calls = {r["task_id"]: r for r in tx.all(
         "SELECT DISTINCT ON (a.task_id) a.task_id, a.state::text AS state, a.notice, a.hangup_side::text AS hangup_side, a.claimed_at,"
         "       count(*) OVER (PARTITION BY a.task_id) AS dialed"
@@ -74,9 +77,10 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
     out = []
     for r in customer_rows.progress(tx, run_id):
         kind = r["next_kind"]
-        if kind == "hold":
+        v = latest.get(r["task_id"])
+        if kind == "hold" or (v is not None and not v["released"]):
             continue
-        state = released.get(r["task_id"])
+        state = v["business_state"] if v is not None else None
         result = (words.BUSINESS_STATES[state].client or "") if state in words.BUSINESS_STATES else ""
         last = calls.get(r["task_id"])
         person = (r["target_name"] or "") + (f"（{r['target_role']}）" if r["target_role"] else "")

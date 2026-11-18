@@ -116,13 +116,17 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         person = identify(request)
         if person is None:
             return RedirectResponse("/login", status_code=303)
-        ctx = acting(access, person, chosen_tenant(request, person))
         try:
+            ctx = acting(access, person, chosen_tenant(request, person))   # 契約者の名前を読む（データベースに届かないときも、下の返事にする）
             return render(person, ctx)
         except (NotFound, AdminOnly):
             return problem(request, 404, "見つかりません", "住所を確かめてください。")
         except access_layer.TimedOut:
             return problem(request, 503, "読めませんでした", "データベースの返事が遅れています。少し待ってから開き直してください。")
+        except access_layer.RetryExhausted:
+            return problem(request, 503, "読めませんでした", "ほかの操作と重なりました。少し待ってから開き直してください。")
+        except access_layer.Rejected as e:   # 読む画面でデータベースが断った（読める範囲の外など）。英語の文は出さない（actions の1か所）
+            return problem(request, 403, "開けませんでした", actions.rejected_text(e) + "。")
         except Exception as e:
             if access_layer.unreachable(e) or access_layer.busy(e):
                 return problem(request, 503, "データベースに届きません", "古い数を出さないため、何も表示していません。少し待ってから開き直してください。")
@@ -140,7 +144,11 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         resp = RedirectResponse("/t", status_code=303)
         raw = str(form.get("tenant_id") or "")
         if raw:
-            resp.set_cookie(ACTING_COOKIE, actions.sign_choice(secret, person.login_id, UUID(raw)), httponly=True, samesite="strict")
+            try:
+                chosen = UUID(raw)
+            except ValueError:
+                return problem(request, 404, "見つかりません", "住所を確かめてください。")
+            resp.set_cookie(ACTING_COOKIE, actions.sign_choice(secret, person.login_id, chosen), httponly=True, samesite="strict")
         else:
             resp.delete_cookie(ACTING_COOKIE)
         return resp
@@ -279,7 +287,7 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 if scope == "tenant":
                     return ctx.tenant(lambda tx: stop_in(tx, tenant_id=ctx.tenant_id))
                 if scope == "client":
-                    cid = UUID(str(form.get("client_id")))
+                    cid = actions.uuid_of(form, "client_id")
                     return ctx.client(cid, lambda tx: stop_in(tx, tenant_id=ctx.tenant_id, client_id=cid))
                 if scope == "system":
                     return ctx.system(lambda tx: stop_in(tx))
@@ -511,8 +519,8 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                     yen = Decimal(raw)
                 except Exception:
                     raise actions.Refused("円は数で入れてください（例：12.5）") from None
-                if yen < 0:
-                    raise actions.Refused("円は 0 以上で入れてください")
+                if not yen.is_finite() or yen < 0:
+                    raise actions.Refused("円は 0 以上の数で入れてください")
                 return usage.set_price(tx, source=source, service=service, tier=tier, unit=unit,
                                        yen_per_unit=yen / Decimal(words.PRICE_UNITS[unit][0]), valid_from=datetime.now(timezone.utc),
                                        note=str(form.get("reason") or "").strip())
@@ -857,23 +865,23 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
         入っていれば、書き出さずに止める（output/files.check）。"""
         def render(person: Person, ctx: Ctx) -> Response:
             base = f"/c/{client_id}/b/{business_id}/runs/{run_id}"
-            def work(tx: Any) -> tuple[str, bytes]:
+            def work(tx: Any) -> tuple[str, bytes, bool]:
                 run = _run_in(tx, business_id, run_id)
                 c = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (client_id,))
-                data = result_files.to_csv(result_rows.rows(tx, run_id))
-                name = f"{c['name']}_{run['name']}_結果_{tx.today().isoformat()}.csv"
-                if submit:
-                    backup.record_submission(tx, name, data)
-                return name, data
-            try:
-                if submit:
-                    if not actions.token_ok(secret, person.login_id, (form or {}).get(actions.TOKEN_FIELD)):
-                        return _back(base, actions.Outcome(False, "画面の札が合いません。画面を開き直してから、もう一度押してください。"))
-                    name, data = ctx.client(client_id, work)
-                else:
-                    name, data = ctx.client(client_id, work, read_only=True)
-            except result_files.ClientWordsLeak as e:
-                return _back(base, actions.Outcome(False, str(e)))
+                got = result_rows.rows(tx, run_id)
+                name = result_files.file_name(c["name"], run["name"], tx.today())
+                data = result_files.to_csv(got, run["name"])
+                return name, data, (result_files.submit(tx, got, name, data) if submit else False)
+            if submit:   # 依頼者へ渡す：変える操作の1か所（札・断りの言い換え）を通す
+                out = actions.act(secret, person.login_id, form or {}, lambda: ctx.client(client_id, work), done="")
+                if not out.ok:
+                    return _back(base, out)
+                name, data, _ = out.value
+            else:
+                try:
+                    name, data, _ = ctx.client(client_id, work, read_only=True)
+                except result_files.ClientWordsLeak as e:
+                    return _back(base, actions.Outcome(False, str(e)))
             return Response(data, media_type="text/csv; charset=utf-8",
                             headers={"Content-Disposition": f"attachment; filename=\"results.csv\"; filename*=UTF-8''{quote(name)}",
                                      "Cache-Control": "no-store"})
@@ -1082,7 +1090,11 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 if state not in words.BUSINESS_STATES or state == "unknown":
                     raise actions.Refused("直す結果を選んでください")
                 try:
-                    return approval_core.correct_result(tx, task_id, checked_version=int(str(form.get("version") or "0")),
+                    checked = int(str(form.get("version") or ""))
+                except ValueError:
+                    raise LookupError("version") from None
+                try:
+                    return approval_core.correct_result(tx, task_id, checked_version=checked,
                                                         business_state=state, wrong_items=[], complaint=False,
                                                         snapshot={"理由": str(form.get("reason") or "").strip()})
                 except ValueError as e:   # 確定できない版・直しの形の誤り（core の理由の文）

@@ -185,6 +185,31 @@ class VerificationMode(ApprovalHelpers):
                 self.assertNotIn("結果の確かめ（検証モード）", http.get("/t/inbox").text)
 
 
+    def test_the_result_file_waits_for_the_check_and_is_kept_once(self):
+        from salescall.core import approval, quality_stage
+        from salescall.core.attempts import VerificationSummary
+        s = self.fresh(stage_cap=100)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 2, None, evidence="試験"), OPERATOR)
+        self.put_client(s, "approval.human", True)
+        self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
+        self.verified_call(s, VerificationSummary(2, 0, 0), items=TAKEN)
+        http = _http(s["tenant"])
+        csv_url = f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}/results.csv'
+        kept = lambda: self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.submission_files")["n"])
+        lines = http.get(csv_url).content.decode("utf-8-sig").strip().splitlines()
+        self.assertEqual(len(lines), 1)                                          # 確かめ待ちの行は出さない（見出しだけ）
+        self.assertIn("ok=0", self._post(http, csv_url, {}).headers["location"])  # 渡せる結果が無い＝渡さない
+        self.assertEqual(kept(), 0)
+        self.assertIn("ok=1", self._post(http, f'/c/{s["client"]}/inbox/result_check/approve',
+                                         {"task_id": str(s["task"]), "seq": "1"}).headers["location"])
+        r = self._post(http, csv_url, {})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.content.decode("utf-8-sig").strip().splitlines()), 2)   # 確定した行が出る
+        self.assertEqual(kept(), 1)
+        self.assertEqual(self._post(http, csv_url, {}).status_code, 200)          # 同じ中身をもう1回渡しても
+        self.assertEqual(kept(), 1)                                               # 控えは重ねない
+
+
 def load_tests(loader, tests, pattern):
     """この試験だけを読む（受け継いだ CL-2 の組の試験を、ここで流し直さない）。"""
     return unittest.TestSuite(loader.loadTestsFromNames(

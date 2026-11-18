@@ -21,6 +21,7 @@ from typing import Any
 
 from salescall.core import (access, business_settings, client_solutions, customer_contacts, import_columns, import_files, importer,
                             row_fixes, stops)
+from salescall.output import files as result_files
 
 # core が「理由の文つきで断った（何も書いていない）」ときの例外（1か所）。画面は、その文をそのまま出す。
 # ⏳ core に共通の元が無いので、画面が呼ぶ部品の断りをここに並べている（CL-2 へのお願い 21：共通の元を作ってもらえば、この一覧は要らない）。
@@ -36,9 +37,38 @@ def name_of(form: dict[str, Any], field: str = "name") -> str:
     return n
 
 
+def uuid_of(form: dict[str, Any], field: str) -> Any:
+    """フォームの ID の欄を読む1か所。形が違えば「見つかりません」と同じ返事（LookupError＝`act` が言い換える）。"""
+    from uuid import UUID
+    try:
+        return UUID(str(form.get(field) or ""))
+    except ValueError:
+        raise LookupError(field) from None
+
+
 REFUSALS: tuple[type[Exception], ...] = (Refused, row_fixes.FixInvalid, client_solutions.SolutionInvalid, customer_contacts.ContactInvalid,
                                          stops.EmergencyNotAllowed, import_files.FileRejected, import_columns.ImportRejected,
-                                         importer.PlanChanged, business_settings.SettingsInvalid)
+                                         importer.PlanChanged, business_settings.SettingsInvalid,
+                                         result_files.ClientWordsLeak, result_files.NothingToDeliver)
+
+# データベースの断りの言い換え（1か所）。日本語の理由を書いて断る種類（P0001＝データベースの決まりの RAISE）だけ、その文をそのまま出す。
+# ほかの種類（一意の約束・つながりの約束・読める範囲の外 など）の文は、データベースの英語の文なので出さず、種類ごとの言葉にする。
+REJECTED_WORDS: dict[str, str] = {
+    "23505": "もう済んでいます（同じものが、すでに記録されています）",
+    "23503": "つながる記録が無いか、もう使われています",
+    "23514": "記録の決まりに合いません",
+    "23502": "入れなければならない値が空です",
+    "23P01": "同じ時間に重なる記録が、すでにあります",
+    "42501": "この範囲では、この操作はできません",
+    "25006": "読むだけの画面からは変えられません",
+}
+
+
+def rejected_text(e: access.Rejected) -> str:
+    if e.sqlstate == "P0001" and e.message.strip():
+        return e.message.strip()
+    return REJECTED_WORDS.get(e.sqlstate or "", "記録の決まりに合わないため、受け付けられませんでした")
+
 
 TOKEN_FIELD = "form_token"
 
@@ -98,7 +128,7 @@ def act(secret: bytes, login_id: str, form: dict[str, Any], do: Callable[[], Any
     try:
         value = do()
     except access.Rejected as e:
-        return Outcome(False, f"受け付けられませんでした：{e.message or '理由が返っていません'}")
+        return Outcome(False, f"受け付けられませんでした：{rejected_text(e)}（何も変わっていません）")
     except REFUSALS as e:
         return Outcome(False, f"受け付けられませんでした：{str(e).strip() or '理由が返っていません'}（何も変わっていません）")
     except LookupError:
