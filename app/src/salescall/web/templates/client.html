@@ -16,7 +16,17 @@
   <span class="go">何で止まったか →</span>
 </a>
 {% endfor %}
-<div class="grid cols-3 stats" {% if stopped %}style="margin-top:16px"{% endif %}>
+{% for n in needs %}
+<details class="card attention-wait need">
+  <summary><b>録音がそろうまで、実施回「{{ n.run }}」ではおかけしません</b>
+    <span class="muted">{% if not n.listed %}録音の部分の一覧がまだ作られていません{% else %}{% for voice, parts in n.parts.items() %}声「{{ voice }}」で {{ parts|length }} か所{% if not loop.last %}・{% endif %}{% endfor %}{% endif %}</span></summary>
+  {% if n.listed %}{% for voice, parts in n.parts.items() %}
+  <h3 style="margin-top:12px">声「{{ voice }}」で録音が要る文</h3>
+  <ul class="need-list">{% for name, text in parts.items() %}<li>{{ text }}</li>{% endfor %}</ul>
+  {% endfor %}{% endif %}
+</details>
+{% endfor %}
+<div class="grid cols-3 stats" {% if stopped or needs %}style="margin-top:16px"{% endif %}>
   <div class="card">{{ stat("今日かけた電話", today.dialed_today) }}<div class="muted hint" style="margin-top:6px">日本時間の今日・発信まで進んだ電話</div></div>
   <div class="card">{{ stat("かけ直し待ち", today.call) }}<div class="muted hint" style="margin-top:6px">次の電話の予定がある行</div></div>
   <div class="card {{ 'attention-wait' if today.hold }}">{{ stat("判定待ち", today.hold, "wait" if today.hold else "") }}<div class="muted hint" style="margin-top:6px">結果を確かめ直している行（依頼者へは出しません）</div></div>

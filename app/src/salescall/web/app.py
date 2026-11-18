@@ -25,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 
 from salescall.core import access as access_layer
 from salescall.core import (agents, calling_hours, customer_contacts, customer_rows, dnc, exclusions, health, health_rules,
-                            import_files, importer, phone, registry, settings, stops)
+                            import_files, importer, phone, recordings, registry, settings, stops)
 from salescall.core.access import Access
 from salescall.output import notices, words
 from salescall.web import actions, context, counts, importing, inbox, pc_login, rowfix, setting_forms, uploads
@@ -654,8 +654,15 @@ def create_app(access: Access, identify: Identify, secret: bytes) -> FastAPI:
                 versions = [] if business_id is None else tx.all(
                     "SELECT version_id, version_no, created_at FROM salescall.business_versions WHERE business_id = %s"
                     " ORDER BY version_no DESC", (business_id,))
+                needs = []   # 録音の要るもの（業務のタブだけ。実施回のいまの版ごと。判断は core の recordings.version_needs の1か所）
+                for r in (runs if business_id is not None else []):
+                    v = tx.one("SELECT salescall.run_current_version(%s) AS v", (r["run_id"],))["v"]
+                    if v is not None:
+                        got = recordings.version_needs(tx, v)
+                        if not got.listed or got.parts:
+                            needs.append({"run": r["name"], "listed": got.listed, "parts": got.parts})
                 return {"client": c, "business": b, "businesses": context.businesses(tx),
-                        "today": counts.client_today(tx, business_id), "runs": runs, "versions": versions}
+                        "today": counts.client_today(tx, business_id), "runs": runs, "versions": versions, "needs": needs}
             values = ctx.client(client_id, read, read_only=True)
             return page(request, "client.html", person, ctx, waiting=_waiting(ctx, client_id, business_id), done=done, ok=bool(ok),
                         stopped=counts.stops_for(counts.open_stops(ctx), client_id, business_id), **values)

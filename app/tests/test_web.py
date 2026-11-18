@@ -135,6 +135,14 @@ class Web(_World):
         from salescall.web import counts
         self.assertEqual(set(counts.SCOPE_HOLDS), set(stops.SCOPE_NAMES))
 
+    def test_the_business_tab_says_when_recordings_hold_a_run(self):   # 録音の要るものは core の1か所の答えのとおりに出す
+        from salescall.core import recordings
+        need = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: recordings.version_needs(
+            tx, tx.one("SELECT salescall.run_current_version(%s) AS v", (self.a["run"],))["v"]))
+        page = self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}").text
+        self.assertEqual("録音がそろうまで" in page, (not need.listed) or bool(need.parts))
+        self.assertNotIn("録音がそろうまで", self.get("A", f"/c/{self.a['client']}").text)   # 概要（全業務）では出さない（業務のタブで出す）
+
     def test_the_inbox_filter_ignores_a_client_of_another_contractor(self):
         page = self.get("A", f"/t/inbox?client={self.b['client']}&kind=no_such_kind")
         self.assertEqual(page.status_code, 200)
