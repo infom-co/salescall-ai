@@ -11148,6 +11148,8 @@ class EndJudgedTest(unittest.TestCase):
                     v = {i: x for i, x in v.items() if i != "carried"}
                 elif k == "answer_words":
                     v = [w for w in v.values() if w != unheard]
+                elif k == "ahead_ack" and v is not None:
+                    v = (None, *v[1:])   # 取っておいた相づちの頭は発話の番号（分身 J から、ご承認の手順の印も伺う番で取っておく＝PointAckAheadTest）
                 elif isinstance(v, dict) and "turn" in v:
                     v = {**v, "turn": None, **({"offered": None} if "offered" in v else {})}
                 out[k] = repr(v)
@@ -34811,6 +34813,127 @@ class TroubleOfferUnheardTest(unittest.TestCase):
         r = self.unheard(f, qid)
         self.assertEqual((r["result"], self.heard(r)), ("ask_back", self.ASK))
         self.assertIn("お電話が少し遠いようでして", r["message"])
+
+
+class PointAckAheadTest(unittest.TestCase):
+    """分身 I の書き置きの穴 (5) の3（まとめ役の頼み・決まりで直す＝本書 9-7「相づちは受け取った答えで選ぶ」）：ご承認の手順の相づちの印（Flow.point の thank＝ご納得の
+    お礼「ありがとうございます。」・shouchi＝「承知しました。」＋「その中でも…」・gomottomo＝「ごもっともです。」＋振り返りの一言・hai）を立てた発話で、お客様が次の
+    質問の答えも一緒に言った（先に言われた答え＝会話AIの「ほかに言われたこと」）とき、伺う番（ahead_offer）の頭は、ほかの答えのときと同じ「はい、」（待ちの言葉）で、
+    印の相づちは、ふつうなら流した相づちとして取っておき（Flow._ack_choice の ahead_offer の1か所）、同じ発話の次の返事の頭に流す（Flow._ack の same_turn・
+    ahead_closed）。11-04 日本時間20時27分「はい、ありがとうございます。abc_123でよろしいでしょうか？」・11-09 まとめ役の見直し (D)「先に言われた答えを伺う番の
+    「はい、」は待ちの言葉で、受け取った答えへの受けの言葉は残す」と同じ並び。
+    ⛔ 8e993fcf まで、印を伺う番より先に読んでいたので、伺う番の頭が印の相づち（「ありがとうございます。」など）になり（待ちの言葉「はい、」が無い）、取っておく相づちは
+    無くなって、同じ発話の次の返事の頭は順番の相づち（「承知しました。続きまして…」＝ご納得のお礼のあとに受けの言葉が2つ）か、相づち無し（「続きまして…」）だった"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    reread = OtherCompanyClueSendWayTest.reread
+    INFO = "キャンセルのご連絡は前日までにお電話かメールでいただければ、キャンセル料はかかりません。"
+    CONTACT = "ご連絡はお電話とメールのどちらがよろしいでしょうか？"
+    PAY = "お支払いはカードと振込のどちらがよろしいでしょうか？"
+
+    def flow(self):
+        from flowctl import JUDGMENTS, Question
+        from instruction import Business
+        b = Business(company="株式会社テスト", caller="山田", caller_reading="やまだ", purpose="予約の確認",
+                     questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), topic="ご予約"),
+                                Question("Q2", "こちらの内容でご承認いただけますでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True,
+                                         intro="ご予約の内容ですがキャンセルや変更は前日までにご連絡いただければ料金はかかりません。", topic="キャンセルのご連絡の決まり",
+                                         matter="キャンセル"),
+                                Question("Q3", self.CONTACT, "choice", conditions=("電話", "メール"), topic="ご連絡の方法"),
+                                Question("Q4", self.PAY, "choice", conditions=("カード", "振込"), topic="お支払いの方法")],
+                     purpose_line="ご予約の確認でお電話いたしました。", purpose_noun="ご予約の確認", info=[self.INFO])
+        f = b.flow(play_recordings=True)
+        f.use_checks(*JUDGMENTS)
+        f.on_connect(); f.on_callee(); f.on_heard("はい、株式会社〇〇でございます。")
+        f.apply("report_party", {"party": "person"})
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        return f
+
+    def to_n2(self):
+        """ご承認に「いいえ」（お断りの言葉に点がある＝N1 の先に言われた答え）→ ご説明 →「そうなんですね。」→「ほかにご納得いただけない点は…」（N2）まで。"""
+        from flowctl import CALLBACK_IDS, POINT_SAID
+        from grounding import GROUNDED
+        n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        f = self.flow()
+        r = self.turn(f, "うーん、前日までだと厳しいかもしれないですね。", self.rd("いいえ"), "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertTrue(r.get("ahead_offer"))
+        self.reread(f, self.rd(POINT_SAID["not_agreed"]))
+        f.apply("record_answer", {"question_id": n1, "condition_id": POINT_SAID["not_agreed"], "value": "前日までの連絡"})
+        grounded(f, self.INFO, GROUNDED)
+        f.apply("replay_opening", {"part": "own", "answer": self.INFO})
+        self.turn(f, "そうなんですね。", self.rd("決められない"), "replay_opening", part="resume")
+        self.assertEqual(f.current, n2)
+        return f
+
+    def ahead(self, f, words, reading, qid, cond, rest, **args):
+        """印を立てる答え（ほかに言われたこと rest つき）→ 伺う番の返事。"""
+        r = self.turn(f, words, reading, "record_answer", question_id=qid, condition_id=cond, rest=rest, **args)
+        self.assertTrue(r.get("ahead_offer"), self.heard(r))
+        return r
+
+    def test_thanks_for_agreeing_wait_for_the_word_hai_then_head_the_next_reply(self):
+        from flowctl import CALLBACK_IDS
+        n2 = CALLBACK_IDS["other_point"]
+        # 次の質問の答えも言われた（「連絡はメールで」）：伺う番は「はい、」・同じ発話の次の返事の頭はご納得のお礼（受けの言葉は1つ）
+        f = self.to_n2()
+        r = self.ahead(f, "それなら納得です。連絡はメールでお願いします。", self.rd("分かった"), n2, "分かった", "連絡はメールでお願いします")
+        self.assertEqual(self.heard(r), "はい、")
+        self.reread(f, self.rd("メール"))
+        r = f.apply("record_answer", {"question_id": "Q3", "condition_id": "メール"})
+        self.assertEqual((f.export()["Q2"], f.export()["Q3"], self.heard(r)), ("はい", "メール", "ありがとうございます。続きまして" + self.PAY))
+        # 言われたことに次の質問の答えが無かった：伺う番は「はい、」・質問へ戻る返事の頭はご納得のお礼
+        g = self.to_n2()
+        r = self.ahead(g, "それなら納得です。月曜はちょっと忙しいんですけどね。", self.rd("分かった"), n2, "分かった", "月曜は忙しい")
+        self.assertEqual(self.heard(r), "はい、")
+        self.reread(g, self.rd("決められない"))
+        r = g.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(self.heard(r), "ありがとうございます。続きまして" + self.CONTACT)
+        # 先に言われた答えが無ければ今のまま（「ありがとうございます。続きまして…」）
+        h = self.to_n2()
+        r = self.turn(h, "それなら納得です。", self.rd("分かった"), "record_answer", question_id=n2, condition_id="分かった")
+        self.assertEqual(self.heard(r), "ありがとうございます。続きまして" + self.CONTACT)
+
+    def test_the_which_question_after_no_point_is_headed_after_hai(self):
+        # N1 に点を言っていただけない（どの部分か分からない）＝「承知しました。」＋「その中でも…」（✅ 2026-11-09 日本時間3時46分53秒）：先に言われたことがあっても
+        # 伺う番は「はい、」、「その中でも…」の頭は「承知しました。」
+        from flowctl import CALLBACK_IDS, UNDECIDED
+        from phrases import CALLBACK_ASK_WHICH
+        n1 = CALLBACK_IDS["not_agreed"]
+        f = self.flow()
+        r = self.turn(f, "いいえ、ちょっと考えさせてください。", self.rd("いいえ"), "record_answer", question_id="Q2", condition_id="いいえ")
+        self.reread(f, self.rd(UNDECIDED))
+        f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(f.current, n1)
+        r = self.ahead(f, "うーん、なんとなくですかね。連絡はメールでいいですよ。", self.rd("unknown"), n1, "unknown", "連絡はメールでいい")
+        self.assertEqual(self.heard(r), "はい、")
+        self.reread(f, self.rd(UNDECIDED))
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(self.heard(r), "承知しました。" + CALLBACK_ASK_WHICH["not_agreed"])
+
+    def test_the_recap_after_not_remembering_is_headed_after_hai(self):
+        # 続きの電話の始めに「覚えていない」＝「ごもっともです。」＋振り返りの一言（✅ 2026-11-05 日本時間4時16分52秒）：先に言われたことがあっても伺う番は「はい、」、
+        # 振り返りの一言の頭は「ごもっともです。」
+        from flowctl import CALLBACK_IDS, JUDGMENTS, UNDECIDED
+        n1 = CALLBACK_IDS["not_agreed"]
+        f = ApprovalReviewTest().resumed(point=False, checks=tuple(JUDGMENTS))
+        self.assertEqual(f.current, n1)
+        r = self.ahead(f, "うーん、何だったか覚えてないですね。訪問なら来週の月曜がいいですけど。", self.rd("unknown"), n1, "unknown", "訪問なら来週の月曜")
+        self.assertEqual(self.heard(r), "はい、")
+        self.reread(f, self.rd(UNDECIDED))
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertTrue(self.heard(r).startswith("ごもっともです。前回は"), self.heard(r))
+
+    def test_hai_after_some_point_unsaid_is_as_now(self):
+        # N2 に分からない点があるとだけ言われた＝「はい、」＋「ほかにご不明な点は…」（今のまま＝伺う番の「はい、」が、その「はい、」）
+        from flowctl import CALLBACK_IDS, POINT_UNSAID, UNDECIDED
+        n2 = CALLBACK_IDS["other_point"]
+        f = self.to_n2()
+        r = self.ahead(f, "うーん、まだ分からないところがあるんですよね。連絡はメールでいいですよ。", self.rd(POINT_UNSAID), n2, POINT_UNSAID, "連絡はメールでいい")
+        self.assertEqual(self.heard(r), "はい、")
+        self.reread(f, self.rd(UNDECIDED))
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(self.heard(r), "ほかにご不明な点はどのようなことになりますでしょうか？")
 
 
 if __name__ == "__main__":

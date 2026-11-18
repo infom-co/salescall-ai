@@ -804,7 +804,9 @@ RELEAD_ORDER = ("続きまして", *(w for w in LEAD_IN["次の質問"] if w != 
 SAME_RECEIPT = {"shouchi": "kashikomari", "kashikomari": "shouchi", "arigatou": "shouchi",
                 **{w: LEAD_IN["言い直し"][(i + 1) % len(LEAD_IN["言い直し"])] for i, w in enumerate(LEAD_IN["言い直し"])}}
 # 受けの言葉の相づち（答えを受け取ったことを言う一言＝次の質問・申し伝える一言の頭。唯一の表＝Flow._ack の same_turn）
-RECEIPTS = ("shouchi", "arigatou", "kashikomari", "shouchi_hurried")   # 重ねて急かされたときの「承知しました。」も受けの言葉（次の「承知しました。」は替える）
+RECEIPTS = ("shouchi", "arigatou", "kashikomari", "shouchi_hurried", "gomottomo")   # 重ねて急かされたときの「承知しました。」も受けの言葉（次の「承知しました。」は替える）。
+# 「ごもっともです。」（覚えていない・分からないと言われた＝わからないの答えへの受けの言葉。振り返りの一言・挟む一言の頭＝11-05 日本時間4時16分52秒）も、先に言われた
+# 答えを伺う番のあとの頭に取っておいた相づちとして流す（Flow._ack の ahead_closed。⛔ 8e993fcf まで表に無く、取っておいても流さなかった＝分身 J）
 
 # 文の頭のつなぎの言葉を読む head_word・heads_said は phrases の1か所（決まった文の質問を戻る一言に続ける phrases.back_fit も同じ2つで読む）
 
@@ -6641,6 +6643,22 @@ class Flow:
             return None   # 深める一言へのお返事に伺う一言（_deepen_decided）：頭の「そうだったんですね。」「それは何よりです。」が受けの言葉（相づちを重ねない）
         if result == "next" and reply.get("question_id") == CALLBACK_IDS["brief"]:
             return "arigatou"   # 手短になら聞くと言われた（_brief_ask）：「ありがとうございます。」＋「（要約）の件でお電話させていただきましたが…」（伺い30・伺い31）
+        if reply.get("ahead_offer"):
+            if (self.ahead_ack or (None,))[0] != self.callee_turns:
+                # この発話で初めて伺う番を開いた：ふつうなら流した相づち（受け取った答えで選ぶ＝この下の決まりそのもの。本書 9-7）を取っておき、同じ発話の最後の
+                # 返事の頭に受けの言葉が要るときに流す（Flow._ack）。同じ発話のうちに続けて伺う番を開いても（「LINEなら、IDは abc_123 です」）、最初の答えのもの。
+                # 順番に回す数は、選んだ時には進めず、その相づちを流したときの数を一緒に取っておく（進めるのは流したときだけ＝_ack の1か所）
+                n = self.ack_count
+                pick = self._ack_choice(name, args, {k: v for k, v in reply.items() if k != "ahead_offer"})
+                self.ahead_ack, self.ack_count = (self.callee_turns, pick, self._thanks_barred(reply), self.ack_count), n
+            # 先に言われたことを伺う（_offer_ahead）間は「はい、」だけ（ご承認の手順の相づちの印＝下の thank・hai・shouchi・gomottomo も、ふつうなら流した相づちとして
+            # 上で取っておく＝印を立てた返事の頭は、同じ発話の次の返事の頭＝Flow._ack の same_turn・ahead_closed。印の「はい、」は、ここで流したもの＝伺い直すときに重ねない。
+            # ⛔ 2026-11-05 日本時間2時台、(a) を入れる途中で流して見つけた：ご説明のあとの「そうなんですね。」に、伺った報告の「はい、」と、ご納得の質問の前の
+            # 「はい、」を2回流した。⛔ 8e993fcf まで、印をこの番より先に読んでいたので、伺う番の頭が印の相づち（「ありがとうございます。」など＝待ちの言葉が無い）になり、
+            # 取っておく相づちが無くなって、同じ発話の次の返事の頭は順番の相づち（ご納得のお礼のあとに「承知しました。続きまして…」＝受けの言葉が2つ）か相づち無しだった
+            # ＝分身 I の書き置きの穴 (5) の3・分身 J＝PointAckAheadTest）。返事の録音がお礼・お詫びの一言から始まる（led）・まだ名乗りを聞いていない方への
+            # あいさつ・名乗りから始まる（renamed）なら重ねない（下の led・renamed と同じ決まり。かけ直しの時刻の質問を伺う番＝_callback_ahead は、その録音のあとに開く）
+            return None if reply.get("led") or reply.get("renamed") else "hai"
         # ご承認の手順の相づちの印は、その印を立てた返事のもの＝取っておいた返事（after_answer）を流す前は、どの返事でも読まない（先に答える番・会話AIの答え。
         # ⛔ 2026-11-08 日本時間11時台：会話AIの答えの頭に、取っておいた返事のお礼「ありがとうございます。」を流していた）
         p = self.point if self.after_answer is None else None
@@ -6659,19 +6677,6 @@ class Flow:
             # 続きの電話の始めに「覚えていない」と言われ、振り返りの一言を流す（_point_step の recap）：「ごもっともです。」（✅ 2026-11-05 日本時間4時16分52秒 ユーザー）
             p["gomottomo"] = None
             return "gomottomo"
-        if reply.get("ahead_offer"):
-            if (self.ahead_ack or (None,))[0] != self.callee_turns:
-                # この発話で初めて伺う番を開いた：ふつうなら流した相づち（受け取った答えで選ぶ＝この下の決まりそのもの。本書 9-7）を取っておき、同じ発話の最後の
-                # 返事の頭に受けの言葉が要るときに流す（Flow._ack）。同じ発話のうちに続けて伺う番を開いても（「LINEなら、IDは abc_123 です」）、最初の答えのもの。
-                # 順番に回す数は、選んだ時には進めず、その相づちを流したときの数を一緒に取っておく（進めるのは流したときだけ＝_ack の1か所）
-                n = self.ack_count
-                pick = self._ack_choice(name, args, {k: v for k, v in reply.items() if k != "ahead_offer"})
-                self.ahead_ack, self.ack_count = (self.callee_turns, pick, self._thanks_barred(reply), self.ack_count), n
-            # 先に言われたことを伺う（_offer_ahead）間は「はい、」だけ（ご承認の手順の「はい、」＝上の hai も、ここで流したもの＝伺い直すときに重ねない。
-            # ⛔ 2026-11-05 日本時間2時台、(a) を入れる途中で流して見つけた：ご説明のあとの「そうなんですね。」に、伺った報告の「はい、」と、ご納得の質問の前の
-            # 「はい、」を2回流した）。返事の録音がお礼・お詫びの一言から始まる（led）・まだ名乗りを聞いていない方へのあいさつ・名乗りから始まる（renamed）なら重ねない
-            # （下の led・renamed と同じ決まり。かけ直しの時刻の質問を伺う番＝_callback_ahead は、その録音のあとに開く）
-            return None if reply.get("led") or reply.get("renamed") else "hai"
         if result == "hold":
             # 待つように言われた（取り次ぐ・代わる・理由を言わずに待つ・確かめて戻る。どの段・どの報告から来ても同じ＝Flow._hold の1か所）：「はい、」を
             # 返してから待つ（確かめて戻る方には、続けて「それではこのままお返事を待っております。」＝_hold の back）。✅ 2026-11-06 日本時間2時28分41秒
