@@ -5388,6 +5388,9 @@ class Flow:
         # 待っていただく一言を流したお客様の発話（前のお話）の、そのときの言葉と判定の読み（次の発話の始め _callee が覚える）。次の言葉がこの一言へのお返事だけなら、
         # 前のお話に戻す（_wait_answered の1か所）。分身 AF（まとめ役の頼み rv144/AF の (1)）
         self.story: dict | None = None
+        # 待っていただく一言をもう一度言ってほしいと頼まれ（_wait_answered の again）、まだ応じていないお客様の発話：報告の無いターンなら同じ一言を言い直す
+        # （_wait_again）・言い直す前に会話AIの報告が届いたら言い直さずに受ける。どちらでも、その発話への最初の返事の頭はお詫び「失礼いたしました。」（_ack の1か所）
+        self.wait_repeat_turn: int | None = None
         # いま見張っている黙ったときの場面（場面の名前・次に流す並びの番号・場面を始めたお客様の発話の番号）。決めるのは _silence_watch・進めるのは on_silence・
         # お客様が話したら消す（on_callee）
         self.silence: dict | None = None
@@ -6097,13 +6100,46 @@ class Flow:
         if do == QUIET_WAIT:
             name = weighted("wait", self.ours_waits == 0 and self.resent_turn is None)
             self.ours_waits += 1
-            q["waited"] = True
-            reply = {"result": "wait", "silent": True, "play": [{"kind": "recorded", "id": name, "text": RECORDED[name]}], "drop_short": True}
+            q["waited"] = name   # 流した一言の録音の名前（もう一度言ってほしいと頼まれたら、同じ一言を言い直す＝_wait_again）
+            reply = self._wait_line_reply(name)
         else:
             self.hai_turn = self.callee_turns
             reply = {"result": "wait", "silent": True, "ack": do, "ack_pause_s": ack_pause_s(do)}
         q["sounded"], q["step"] = True, at + 1
         reply["silence_s"] = getattr(self, steps[self._our_step(q["step"])][0])
+        return self._log_signal({"silence": OUR_SCENE}, reply)
+
+    @staticmethod
+    def _wait_line_reply(name: str) -> dict:
+        """待っていただく一言（録音 name＝wait・wait_heavy）を流す返事（唯一の形＝初めて流す _our_silence・もう一度言ってほしいと頼まれて言い直す _wait_again）：
+        会話AIの声が流れ始めるまでのお客様の短い声は相づち＝会話AIへ送らずに捨てる（drop_short）。会話AIへは何も知らせない（message が無い）。"""
+        return {"result": "wait", "silent": True, "play": [{"kind": "recorded", "id": name, "text": RECORDED[name]}], "drop_short": True}
+
+    def _wait_again(self, voiced: bool) -> dict | None:
+        """待っていただく一言（「少々お待ちいただいてもよろしいでしょうか？」）をもう一度言ってほしいと頼まれ（判定の読みがそろって REPEAT＝_wait_answered が前のお話に
+        戻して印 wait_repeat_turn を立てた）、この発話にまだ応じていないときに、流した一言をそのまま言い直す返事（唯一の場所。報告の無いターンの入口 judged_turn が
+        はじめに呼ぶ＝こちらの声が出ていない場面の入口 _our_silence から来ても同じ）。頭はお詫び「失礼いたしました。」（_ack の1か所＝お詫びは1つの発話に1回）。
+        言い直したあとも前のお話への会話AIの返事を待ち続ける（張り替えまでの秒は今のまま・会話AIへは何も知らせない）。言い直す前に会話AIの報告（前のお話の答え）が
+        届いた＝その返事で印は下りている（言い直さない）。会話AIの声がもう流れた（voiced＝会話AIが自分で応じた）なら、言い直しもお詫びも重ねない。
+        決まり＝✅ 2026-11-06 日本時間15時20分30秒「(1)…プログラムが「失礼いたしました。」＋「それでは（質問）」を流します。OK」・11-08 の A-3（直前にこちらが
+        言ったことをもう一度言ってほしいなら、それをそのまま言い直す）と同じ理由（お客様はこちらの言ったことを聞き取れていない）・11-13 日本時間20時06分19秒
+        （一言へのお返事を前のお話の答えと決めつけない＝前のお話は捨てない）。⛔ 72dbd454 まで、新しいお話として「失礼いたしました。それではご予約はされて
+        いますでしょうか？」と前の質問を伺い直し、前のお話の「いいえ」を捨てた（伺い76）"""
+        if self.wait_repeat_turn != self.callee_turns:
+            return None
+        if voiced:
+            self.wait_repeat_turn = None
+            return None
+        q = self.ours
+        if (q is None or q["turn"] != self.callee_turns or self.answering or self.holding or self.phase == "closing"
+                or self.end_reason is not None or self.trouble is not None):
+            return None
+        q.pop("kept", None)   # 黙ったままなら、言い直したあとは今の秒で張り替え（_our_silence）
+        reply = self._wait_line_reply(q["waited"])
+        reply["ack"] = self._ack("judged_turn", {}, reply)
+        if reply["ack"]:
+            reply["ack_pause_s"] = ack_pause_s(reply["ack"])
+        reply["silence_s"] = getattr(self, QUIET_STEPS[OUR_SCENE][self._our_step(q["step"])][0])
         return self._log_signal({"silence": OUR_SCENE}, reply)
 
     def _our_step(self, step: int) -> int:
@@ -6660,9 +6696,10 @@ class Flow:
         ⛔ a5699306・7cdc721b まで、「いえ、まだです。」→（会話AIが黙り）「はい、」→ 待っていただく一言 →「はい、大丈夫ですよ。」を新しいお話として読み、判定が「はい」と
         読めばご予約は「済み」で依頼者へ（逆の答え）・決められないと読めば「はい、恐れ入ります。ご予約はされていますでしょうか？」と伺い直した"""
         st = self.story
+        again = Flow._meaning_of(self.heard_check) == REPEAT
         if (st is None or st["turn"] != self.callee_turns - 1 or not waiting_line(self._prompt_now())
-                or not self._prompt_only([self.heard_check[k] for k in JUDGMENTS if k in self.heard_check])
-                or any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait") for x in self.log)):
+                or not (again or self._prompt_only([self.heard_check[k] for k in JUDGMENTS if k in self.heard_check]))
+                or self._replied_now()):
             return False
         old, now = st["turn"], self.callee_turns
         self.story = None
@@ -6681,6 +6718,8 @@ class Flow:
         o = st["ours"]
         o["turn"], o["kept"] = now, True
         self.ours = o
+        if again:
+            self.wait_repeat_turn = now   # 一言をもう一度言ってほしい：まだ応じていなければ言い直す（_wait_again）・最初の返事の頭はお詫び（_ack）
         return True
 
     def for_judge(self, q: "Question | None") -> "Question | None":
@@ -7503,6 +7542,15 @@ class Flow:
             # 「失礼いたしました。それでは平日と土日のどちらが…」）
             ack = None if self.apology_turn == self.callee_turns else "shitsurei"
             self.apology_turn = self.callee_turns
+        if self.wait_repeat_turn == self.callee_turns and reply.get("result") != "rejected":
+            # お客様が、待っていただく一言を聞き取れなかった（もう一度言ってほしい＝_wait_answered の again）：この発話への最初の返事（その一言の言い直し＝_wait_again・
+            # 言い直す前に届いた前のお話の答えの報告）の頭はお詫び「失礼いたしました。」（もう一度言ってほしいの決まり＝✅ 2026-11-06 日本時間15時20分30秒 (1) と
+            # 同じ理由）。お詫びは1つの発話に1回（apology_turn＝不快な様子へのお詫びと同じ印）。申し出を受けていただいた答えは必ず「ありがとうございます。」
+            # （11-12 日本時間13時40分05秒の (5)＝伺い38 ア と同じ順）・締めは締めの決まった言い方のまま（上の不快な様子と同じ）
+            self.wait_repeat_turn = None
+            if reply.get("result") != "end" and not self._taken_now() and self.apology_turn != self.callee_turns:
+                ack, src = "shitsurei", None
+                self.apology_turn = self.callee_turns
         if ack in ("hai", "aizuchi") and self.hai_turn == self.callee_turns:
             # この発話に「はい、」をもう流した（会話AIが黙ったときのつなぎ＝_our_silence・判定を待つ間＝hold_ack）：返事の「はい、」「はい。」は重ねない（設計書 1-2
             # 「返事の相づちも「はい、」なら重ねない」・6-15。ほかの相づちは続けて流す＝「はい、承知しました、」）
@@ -13598,9 +13646,11 @@ class Flow:
         電話接続側だけが知っている事実）。流れていれば、考えている方への「はい。」・もう一度言ってほしい方への流し直しは、会話AIが言ったので重ねない。
         ⛔ 2026-11-06 日本時間13時台の見直し（C10）で見つけた：流れたかを「流してよいか」（speech_allowed）で代わりに決めていた＝会話AIが話す通話では、会話AIが
         黙っていても流れたとみなし、「はい。」も流し直しも出さなかった（お客様には無言）"""
+        self._wait_answered()   # 待っていただく一言へのお返事だけ・その一言をもう一度言ってほしいなら、前のお話の言葉と読みで受ける（1か所）
+        if (again := self._wait_again(voiced)) is not None:
+            return again
         if voiced:
             self.ours = None   # 会話AIの声がお客様に流れた：こちらの声を待つ見張りは終わり（そのあとのお客様の言葉は、待っていただく一言へのお返事ではない＝_callee の story）
-        self._wait_answered()   # 待っていただく一言へのお返事だけなら、前のお話の言葉と読みで受ける（1か所）
         before = {qid: it.state for qid, it in self.items.items()}
         # いまのターンで受け取った答え（_received_now＝相づち・材料 _material）と、その記録（_record_received）は、報告の入口 _apply_one と同じ決まり。
         # ⛔ 2026-11-08 日本時間10時台に見つけた：この入口は記録を書く所を通らず、ここで受け取った答え（選ぶ助けのあとの「まだ決められないです」＝保留）は
@@ -13650,6 +13700,11 @@ class Flow:
         finally:
             self.report_before = None
 
+    def _replied_now(self) -> bool:
+        """いまのお客様の発話に、もう返事をしたか（唯一の決まり＝報告の無いターン judged_turn・待っていただく一言へのお返事 _wait_answered・ほかの「この発話に
+        まだ返事をしていない」の決まり）：差し戻し（rejected）と待つ返事（wait＝判定を待たせた返事・黙って待つ）は返事に数えない。"""
+        return any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait") for x in self.log)
+
     def _calling_judged_due(self) -> bool:
         """報告の無いターンに、呼んでいる段の電話口の方への応じ方を決めるか（唯一の決まり＝judged_turn）：呼んでいる段で、判定を使う通話の言葉が出揃い、
         いまの言葉に判定の読みが届き、こちらに尋ねていない（尋ねているなら答えるのが先＝会話AIに知らせる unreported_note。問いの形の申し出＝判定が代理の方と
@@ -13679,7 +13734,7 @@ class Flow:
                 return None
         elif Flow._meaning_of(self.check) != UNDECIDED:
             return None
-        if any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait") for x in self.log):
+        if self._replied_now():
             return None
         if confirm is not None:
             return "confirm_field", {"question_id": confirm, "result": "no_answer"}
@@ -13692,8 +13747,7 @@ class Flow:
             name, args = "request_end", {"reason": due}
             reply = self._op_request_end({"reason": due, "judged": True})
         else:
-            replied = any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait")
-                          for x in self.log)
+            replied = self._replied_now()
             w = self._wait_now()
             if replied:
                 # この発話にもう返事をした（決めた＝on_decided）：このあとに届いた読みは記録だけ（_after_decision）＝もう動かない
@@ -13932,7 +13986,7 @@ class Flow:
         readings = [self.check.get(k) for k in JUDGMENTS]
         if not withdrew(readings) or not self._plain_reply(readings):
             return False
-        return not any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait") for x in self.log)
+        return not self._replied_now()
 
     def _withdraw_ask(self) -> dict:
         """受けていただいた申し出を取り消された（_withdraw_due）：本心を伺う一言 D2「何か問題でもございましたでしょうか？」（今ある1か所 _concern_ask・共通の一言の
@@ -14069,7 +14123,7 @@ class Flow:
             # 同じお言葉に「手短に」もある（「うちは別のところに頼んでますので…手短にお願いできますか。」）：先に「手短に」に応える（H3＝_brief_due。E1 だけ伺って
             # 「手短に」に一度も応えないことをしない＝⛔ eb72ce4e まで、E1 を伺い、H3 は伺わなかった＝見直し (13) の B5）。H3 のあと E1 を伺うかはお言葉の外（伺い中）
             return False
-        return not any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait") for x in self.log)
+        return not self._replied_now()
 
     def _elsewhere_ask(self) -> dict:
         """ほかの会社に頼んでいる・使っていると言われた（_elsewhere_due）：そのお返事への応じ方の前に、共通の一言の録音「そうだったんですね。そちらの会社の方で解決
@@ -14396,7 +14450,7 @@ class Flow:
         if self.brief_said and not (self.brief_q is None and undecided(self.heard_check.get(k) for k in JUDGMENTS)
                                     and (self._asked_last() or self._reply_may_answer())):
             return False
-        return not any(x.get("callee_turns") == self.callee_turns and x["reply"].get("result") not in ("rejected", "wait") for x in self.log)
+        return not self._replied_now()
 
     def _brief_again(self) -> dict:
         """H3 を伺い終えたあとに、重ねて急かされた（_brief_due の2回目＝「すみません、本当に手短にお願いしますね。」）唯一の返事：「承知しました。」（少し焦った感じの

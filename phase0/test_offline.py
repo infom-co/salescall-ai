@@ -19655,6 +19655,23 @@ class OnelinerGuardTest(unittest.TestCase):
         got = json.loads(p.read_text(encoding="utf-8"))["hooks"]
         self.assertEqual((len(got["PreToolUse"]), len(got["Stop"])), (2, 1))
 
+    def test_stops_a_line_that_starts_with_a_code_name_once(self):
+        # ⛔ 2026-11-19 日本時間22時57分〜23時11分（6回）・11-03 からの35回：一言の頭にコードの名前（「`judged_turn` を…」）を置いた。
+        #    英語の見分けはコードの名前を数えない（` ` の中を外して見る＝EnglishLineTest）ので、見張りも数える道具も止めなかった
+        #    ＝一言は「次に、」から打ち始める（帳面 0-1 の書き方）。英語の一言の数え（--english）は変えない
+        import os, tempfile
+        row = lambda t, c, ts: {"type": t, "timestamp": f"2026-11-19T14:{ts}Z", "message": {"content": c}}   # noqa: E731
+        res, use = (lambda ts: row("user", [{"type": "tool_result"}], ts)), (lambda ts: row("assistant", [{"type": "tool_use"}], ts))
+        txt = lambda s, ts: row("assistant", [{"type": "text", "text": s}], ts)   # noqa: E731
+        state = os.path.join(tempfile.mkdtemp(), "seen.json")
+        head = [res("00:00"), txt("`_wait_answered` の待つ読みを確かめます。", "00:05"), use("00:06")]
+        self.assertEqual((self.run_guard(head, state), self.run_guard(head, state)), (2, 0))   # 止める・同じ一言で二度は止めない
+        for i, ok in enumerate(["次に、`_wait_answered` の待つ読みを確かめます。",
+                                "読み直しが終わりました。次に、「`x` を読みます。」と書いた一言を記録します。"]):
+            self.assertEqual(self.run_guard([res("00:00"), txt(ok, "00:05"), use("00:06")], state + str(i)), 0, ok)
+        self.assertEqual(self.run_guard(head[:1], state + "s", hook_event_name="Stop",
+                                        last_assistant_message="`Flow._ack` を直しました。"), 2)   # 返事の終わりも同じ
+
 
 
 class CompactGuardTest(unittest.TestCase):
@@ -40519,6 +40536,13 @@ class WaitLineReplyTest(unittest.TestCase):
                 self.assertEqual(f.callee_said, self.STORY)   # 受け取った答えの言葉は前のお話
                 self.assertEqual(f.taken["Q1"]["said"], self.STORY)
                 self.assertNotIn(self.OK, f.answer_words.values())   # お返事は、そのあとの判定に「その前に相手が言ったこと」として見せない（お話ではない）
+        # お返事だけのあと、会話AIが声だけで応じた（報告の無いターンに声が流れた）：前のお話に戻しても、こちらの声を待つ見張りは終わり（judged_turn の voiced＝
+        # 「会話AIの声がお客様に流れた：こちらの声を待つ見張りは終わり」。⛔ 72dbd454 まで、見張りを下ろしたあとに前のお話の見張りを戻し、黙ったまま張り替えた）
+        k = self.waited()
+        self.replied(k, self.OK, UNDECIDED, PROMPT_REPLY_YES)
+        self.assertIsNone(k.judged_turn(voiced=True))
+        self.assertEqual(k.callee_said, self.STORY)
+        self.assertIsNone(k.on_silence(ours=True))
 
     def test_no_report_swaps_at_the_same_seconds(self):
         from flowctl import PROMPT_REPLY_YES, UNDECIDED
@@ -40569,6 +40593,94 @@ class WaitLineReplyTest(unittest.TestCase):
         self.replied(k, self.OK, UNDECIDED, PROMPT_REPLY_YES)
         k.judged_turn(voiced=False)
         self.assertEqual(k.callee_said, self.OK)
+
+    def test_asked_to_hear_the_wait_line_again(self):
+        """伺い76 の「もう一度言ってほしい」（決まりで決まる＝伺わない）：待っていただく一言のあとに、その一言を聞き取れなかった・もう一度言ってほしいと言われた（判定の組が
+        そろって REPEAT）ら、新しいお話にせず前のお話に戻し（_wait_answered の1か所）、「失礼いたしました。」＋流した待っていただく一言をそのまま言い直して、前のお話への
+        会話AIの返事を待ち続ける（張り替えの秒は今のまま・同じ発話に重ねない）。言い直す前に会話AIの報告（前のお話の答え）が届いたら、言い直さずにその答えで受け、頭は
+        「失礼いたしました。」（申し出を受けていただいた答えなら、必ず「ありがとうございます。」＝11-12 日本時間13時40分05秒の (5)）。判定に見せる「もう一度言ってほしい」の
+        説明は、伺ったことだけでなく、直前にこちらが言ったこと（お答え・お待ちいただくお願いも）の1か所（ANSWER_KINDS[REPEAT]＝流れの制御が言い直すものと同じ）。
+        決まり＝✅ 2026-11-06 日本時間15時20分30秒「(1)…プログラムが
+        「失礼いたしました。」＋「それでは（質問）」を流します。OK」・11-08 の A-3（直前にこちらが言ったことをもう一度言ってほしいなら、それをそのまま言い直す）・
+        11-13 日本時間20時06分19秒（一言へのお返事を前のお話の答えと決めつけない＝前のお話は捨てない）。⛔ 72dbd454 まで、新しいお話として「失礼いたしました。それでは
+        ご予約はされていますでしょうか？」と前の質問を伺い直し、前のお話の「いいえ」を捨てた"""
+        from flowctl import PROMPT_REPLY_NO, REPEAT
+        from meaning_judge import ANSWER_KINDS
+        from phrases import WAIT
+        self.assertIn("お待ちいただくようにお願いしたこと", ANSWER_KINDS[REPEAT])   # この一言をもう一度言ってほしいと頼んだのも「もう一度言ってほしい」
+        words = "すみません、ちょっと聞こえなかったんですけど。"
+        for play in (True, False):
+            # 会話AIが黙ったまま（報告の無いターン）：判定の読みが届いたところで言い直す
+            f = self.waited(play)
+            self.replied(f, words, REPEAT, PROMPT_REPLY_NO)
+            r = f.judged_turn(voiced=False)
+            self.assertEqual((r["result"], r.get("ack"), [p["id"] for p in r.get("play") or []], r["silence_s"], "message" in r),
+                             ("wait", "shitsurei", ["wait"], f.swap_after, False), play)
+            self.assertEqual(f.callee_said, self.STORY, play)   # 前のお話に戻した
+            f.on_played([WAIT])
+            self.assertIsNone(f.judged_turn(voiced=False), play)   # 同じ発話に重ねない
+            self.assertEqual(f.on_silence(ours=True)["result"], "swap", play)   # 黙ったままなら、今の秒で張り替え
+            # 言い直したあとに会話AIが前のお話の答えを報告した
+            g = self.waited(play)
+            self.replied(g, words, REPEAT, PROMPT_REPLY_NO)
+            self.assertEqual(g.on_silence(ours=True)["ack"], "shitsurei", play)   # 黙る間の見張りから来ても同じ1か所
+            g.on_played([WAIT])
+            r = g.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+            self.assertEqual((r["result"], g.items["Q1"].condition, g.taken["Q1"]["said"]), ("next", "いいえ", self.STORY), play)
+            self.assertNotEqual(r.get("ack"), "shitsurei", play)   # お詫びは1つの発話に1回（言い直したときに流した）
+            # 言い直す前に会話AIの報告が届いた：言い直さずに前のお話の答えで受け、頭は「失礼いたしました。」
+            h = self.waited(play)
+            self.replied(h, words, REPEAT, PROMPT_REPLY_NO)
+            r = h.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+            self.assertEqual((r["result"], h.items["Q1"].condition, r.get("ack"), h.taken["Q1"]["said"]), ("next", "いいえ", "shitsurei", self.STORY), play)
+            self.assertFalse(any(p.get("id") == "wait" for p in r.get("play") or []), play)
+            self.assertIsNone(h.judged_turn(voiced=False), play)
+            if play:
+                self.assertIsNone(h.on_silence(ours=True))   # 録音で応じた返事で、こちらの声を待つ見張りは終わり
+        # 言い直したあと、また聞き取れなかった（次の発話）：同じく言い直す（聞き返しの回数には数えない＝もう一度言ってほしいの決まりと同じ）
+        k = self.waited()
+        self.replied(k, words, REPEAT, PROMPT_REPLY_NO)
+        k.judged_turn(voiced=False); k.on_played([WAIT])
+        self.replied(k, "え？", REPEAT, PROMPT_REPLY_NO)
+        self.assertEqual(k.judged_turn(voiced=False)["ack"], "shitsurei")
+        self.assertEqual(k.callee_said, self.STORY)
+        # 判定が割れた（1つは REPEAT・1つはお返事だけではない答え）：前のお話に戻さない（今の道）
+        m = self.waited()
+        m.use_checks("judge", "judge2")
+        m.on_callee(); m.on_heard(words)
+        m.on_check("judge", self.rd(REPEAT, PROMPT_REPLY_NO))
+        m.on_check("judge2", self.rd("はい", PROMPT_REPLY_NO))
+        m.judged_turn(voiced=False)
+        self.assertEqual(m.callee_said, words)
+        # 前のお話が、こちらの申し出（パンフレット）を受けていただいた答え：言い直す前に会話AIの報告が届いても、言い直したあとに届いても、頭は必ず
+        # 「ありがとうございます。」（11-12 日本時間13時40分05秒の (5)「申し出を受けていただいたお返事には、必ず「ありがとうございます。」」が先＝伺い38 ア と同じ順）
+        for resay in (False, True):
+            n = self.offered()
+            self.replied(n, words, REPEAT, PROMPT_REPLY_NO)
+            if resay:
+                self.assertEqual(n.judged_turn(voiced=False)["ack"], "shitsurei")
+                n.on_played([WAIT])
+            r = n.apply("record_answer", {"question_id": "Q2", "condition_id": "はい"})
+            self.assertEqual((r["result"], n.items["Q2"].condition, r.get("ack"), n.taken["Q2"]["said"]), ("next", "はい", "arigatou", self.TAKEN), resay)
+
+    TAKEN = "はい、お願いします。"
+
+    def offered(self, play=True):
+        """Q1 に答えていただき、こちらの申し出 Q2（「パンフレットをお送りしてもよろしいでしょうか？」）への「はい、お願いします。」（判定ははい）のあと、会話AIが声も報告も
+        出さず、「はい、」→ 待っていただく一言を流し終えたところ。"""
+        from flowctl import Flow
+        from phrases import WAIT
+        f = Flow(OfferTakenClosingTest.questions(last=False), play_recordings=play)
+        f.use_checks("judge")
+        AnnounceTest.say(f, "はい、しています。", "record_answer", "はい", question_id="Q1", condition_id="はい")
+        self.assertEqual(f.current, "Q2")
+        f.on_callee(); f.on_heard(self.TAKEN)
+        f.on_check("judge", self.rd("はい"))
+        self.assertEqual(f.on_silence(ours=True)["ack"], "hai")
+        w = f.on_silence(ours=True)
+        self.assertEqual([p["text"] for p in w["play"]], [WAIT])
+        f.on_played([WAIT])
+        return f
 
 
 class WrongBeforeEndTest(unittest.TestCase):
