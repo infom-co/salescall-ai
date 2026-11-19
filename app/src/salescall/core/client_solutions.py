@@ -13,6 +13,7 @@ CL-1 の連絡帳 4-66 のあとの (h)）。確かめに通らない（検証�
 
 from __future__ import annotations
 
+import json
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -20,7 +21,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import business_import, business_settings, call_report, notify, target_recheck
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 from salescall.core.readings import NameFinder
 
 ORIGINS = ("dashboard", "report_file")   # 0184 の CHECK と同じ
@@ -29,7 +30,7 @@ ORIGINS = ("dashboard", "report_file")   # 0184 の CHECK と同じ
 AnswerNamer = Callable[[str, str, list[tuple[str, str]]], str]
 
 
-class SolutionInvalid(ValueError):
+class SolutionInvalid(Refused):
     """その解決策は受けられない（点が無い・ご説明できた点・文が空 など。理由は日本語）。何も書かない。"""
 
 
@@ -98,12 +99,14 @@ def _lines(tx: Tx, business_id: UUID, first: UUID) -> list[UUID]:
 
 
 def add(tx: Tx, attempt_id: UUID, point_index: int, solution: str, *, origin: str, name_answer: AnswerNamer,
-        find_names: NameFinder | None = None, confirmed_names: Any = ()) -> Added:
+        find_names: NameFinder, confirmed_names: Any = ()) -> Added:
     """依頼者からの解決策を、その業務の想定問答に足す（1か所。上の説明）。足すのは、その業務のまだ終えていない実施回の版の流れすべて
     （`_lines`。それぞれのつながりの先＝business_settings.derive が決める）。問いの名前は、解決策を求めた通話の実施回の流れの今の答えと
     比べて AI が1回決め、どの流れにも同じ名前で置く。流れごとに取込と同じ確かめを通し（重ねる標準は、その版の標準のまま＝標準を替える
     のは derive_for_standard の1か所。見直し(B) の2）、中身が変わらなければ新しい版を作らない（見直し(B) の8）。足したかどうか
-    （流れごとの版・確かめに通らなかった理由）を記録して返す。"""
+    （流れごとの版・確かめに通らなかった理由）を記録して返す。
+    足す文の名前と読みは、文ごとに1回だけ決めて残し（`_text_names`）、どの流れにも同じ答えを使う（find_names＝名前を洗い出す処理。必ず渡す
+    ＝渡さずに名前の読みを確かめないまま台本に入れない。0246）。"""
     if origin not in ORIGINS:
         raise ValueError(f"入口は {list(ORIGINS)} のどれかです（{origin!r}）")
     text = solution.strip() if isinstance(solution, str) else ""
@@ -128,7 +131,8 @@ def add(tx: Tx, attempt_id: UUID, point_index: int, solution: str, *, origin: st
         " RETURNING solution_id",
         (attempt_id, row["task_id"], point_index, point["point"], text, name, origin))["solution_id"]
     note = f"ご納得いただけなかった点「{point['point']}」への解決策（問い「{name}」）"
-    lines = [_add_line(tx, sid, attempt_id, row["business_id"], tip, name, text, note, find_names=find_names,
+    names = _text_names(tx, text, find_names)   # どの流れにも同じ答え（流れごとに聞き直さない）
+    lines = [_add_line(tx, sid, attempt_id, row["business_id"], tip, name, text, note, names=names,
                        confirmed_names=confirmed_names) for tip in tips]
     for line in lines:
         # 戻す前に足した解決策が入っていない流れ（手で前の版に戻した流れ など）：自動では入れず、契約者にダッシュボードで確かめていただく
@@ -149,13 +153,71 @@ def add(tx: Tx, attempt_id: UUID, point_index: int, solution: str, *, origin: st
     return Added(sid, name, tuple(lines))
 
 
+def _text_names(tx: Tx, text: str, find_names: NameFinder | None) -> dict[str, Any]:
+    """足す文の名前と読み（AI の答え。core/readings.to_json の形）を決める1か所（0246）：その依頼者で、その文の答えを残していれば、それを
+    読む（AI に聞き直さない＝同じ文は、どの流れでも、あとで「入れる」ときも、同じ読み）。無ければ、名前を洗い出す処理（find_names）に
+    その文だけを1回聞いて残す（`_record_names`）。処理が無く、答えも無ければ断る（名前の読みを確かめないまま台本に入れない＝原則10。⛔ 0245
+    まで：渡さないと readings.find が黙って空を返し、名前の無い問答として足した）。"""
+    got = _stored_names(tx, text)
+    if got is not None:
+        return got
+    if find_names is None:
+        raise SolutionInvalid(f"この文の名前の読みが、まだ決まっていません（「{text}」）。名前を洗い出す処理がつながるまで、この文は入れられません"
+                              "（「入れない」は選べます）")
+    return _record_names(tx, text, _ask_names(text, find_names))
+
+
+def _stored_names(tx: Tx, text: str) -> dict[str, Any] | None:
+    """その依頼者で残した、その文の名前の答え（無ければ None。読むのはここだけ）。"""
+    row = tx.one("SELECT names FROM salescall.solution_text_names WHERE client_id = salescall.cur_client() AND text = %s", (text,))
+    return None if row is None else row["names"]
+
+
+def _ask_names(text: str, find_names: NameFinder) -> dict[str, Any]:
+    """その文だけの名前を、名前を洗い出す処理に1回聞く（取込と同じ1か所 business_import.ask_ai。何も書かない）。"""
+    return business_import.ask_ai({"answers": [{"text": text}]}, find_names=find_names)["names"]
+
+
+def _record_names(tx: Tx, text: str, names: dict[str, Any]) -> dict[str, Any]:
+    """文の名前の答えを残す（書くのはここだけ。0246）。同時に2つの取引が同じ文を残そうとしても、先に残した答えだけを使う（後の取引は、
+    残っている答えを読み直して返す）。"""
+    tx.execute("INSERT INTO salescall.solution_text_names (tenant_id, client_id, text, names, recorded_by)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())"
+               " ON CONFLICT (client_id, text) DO NOTHING", (text, json.dumps(names, ensure_ascii=False)))
+    return _stored_names(tx, text)
+
+
+def replacing_names(tx: Tx, business_id: UUID, raw: dict[str, Any], overridden: list[UUID],
+                    find_names: NameFinder | None) -> dict[str, dict[str, Any]]:
+    """取り込み直した中身が、解決策を置き換えた答えの文ごとの名前の答え（{文: 答え}。取込のプレビューが1回だけ決め、登録が `replaced` で
+    残す＝プレビューで聞いた答えを、登録でもそのまま使う。何も書かない）。置き換えた答えは、あとで契約者が手で前の版に戻した実施回に
+    「入れる」ことがある（`_latest` の replaced＝計画書 6-1 (5)(6)）ので、そのときに名前の読みを聞き直さずに済むように、AI に聞ける取込の
+    ときに決める（0246）。もう残した文は読むだけ（聞かない）。名前を洗い出す処理が無ければ入れない（あとで「入れる」とき、断る）。
+    「使わない」にした問い（答えが無い）は入れない。"""
+    if not overridden:
+        return {}
+    own = {a.get("name"): a.get("text") for a in (raw.get("answers") or []) if isinstance(a, dict)}
+    by_id = {r["solution_id"]: r["answer_name"] for r in _latest(tx, business_id)}
+    out: dict[str, dict[str, Any]] = {}
+    for sid in overridden:
+        text = own.get(by_id.get(sid))
+        if not isinstance(text, str) or not text.strip() or text in out:
+            continue
+        got = _stored_names(tx, text)
+        if got is None and find_names is not None:
+            got = _ask_names(text, find_names)
+        if got is not None:
+            out[text] = got
+    return out
+
+
 def _run_version(tx: Tx, run_id: UUID) -> UUID:
     """その実施回のいまの版（データベースの salescall.run_current_version の1か所）。"""
     return tx.one("SELECT salescall.run_current_version(%s) AS v", (run_id,))["v"]
 
 
 def _add_line(tx: Tx, sid: UUID, attempt_id: UUID, business_id: UUID, version: UUID, name: str, text: str, note: str, *,
-              find_names: NameFinder | None, confirmed_names: Any, chosen: UUID | None = None) -> Line:
+              names: dict[str, Any], confirmed_names: Any, chosen: UUID | None = None) -> Line:
     """業務の版の流れ1つ（version＝その流れの版。足す元は、そのつながりのいちばん後の版＝`business_settings.successor_tip`＝データベースの
     salescall.version_tip の1か所。derive も同じ1か所で決める）に、解決策の問答を足す（1か所。`add` と、契約者が前の解決策を選んで足す
     `add_earlier` の両方が通る）：取込と同じ確かめ（business_import.review_solution＝review。重ねる標準は、その版の標準のまま）を通し、通れば業務設定の版を
@@ -163,13 +225,14 @@ def _add_line(tx: Tx, sid: UUID, attempt_id: UUID, business_id: UUID, version: U
     足した＝選んだ方と実施回を残す。0194・0200）、通らなければ契約者に知らせる。
     名前（✅ 2026-11-07 の第三者の見直し (2) の1）：AI に名前を探させるのは、足す問答の文だけ。元の版にある名前と読みは、版のまま変えない
     （review の placed_names。⛔ 前は台本全体の名前を探し直したので、版の名前の一覧が増え、前からある名前の AI の読みも変わりえて、録音を
-    引き継げなかった）。新しい版の中身は、derive が渡す元の版の中身から作る（⛔ 前は先に作った中身を渡し、元の版の中身を捨てていた）。"""
+    引き継げなかった）。足す文の名前の答え（names）は、文ごとに1回だけ決めて残したもの（`_text_names`。⛔ 0245 まで：流れごとに AI に
+    聞き直し、同じ文でも流れごとに読みが変わりえた）。新しい版の中身は、derive が渡す元の版の中身から作る（⛔ 前は先に作った中身を渡し、元の版の中身を捨てていた）。"""
     tip = business_settings.successor_tip(tx, version)
     now = business_settings.load(tx, tip)
     replaced = name in {a for a, _ in now.answers}
     made, problems = tip, ()
     if business_settings.with_answer(now.raw, name, text) != now.raw:
-        ai = business_import.ask_ai({"answers": [{"name": name, "text": text}]}, find_names=find_names)   # 足す文の名前だけ（1回）
+        ai = {"names": names}   # 足す文の名前だけ（文ごとに1回だけ決めた答え＝`_text_names`）
 
         def change(old: dict[str, Any]) -> dict[str, Any]:
             raw = business_settings.with_answer(old, name, text)
@@ -290,7 +353,10 @@ def add_earlier(tx: Tx, run_id: UUID, solution_ids: list[UUID], *, find_names: N
     呼ぶのは画面だけ＝CL-3。管理者か契約者だけ＝データベースの守り client_solution_line_chosen_by_person）。足し方は新しい解決策と同じ
     `_add_line`（取込と同じ確かめ・版を足す道）。流れの結果に、選んだ方と実施回を残す（足せば、その実施回の流れに入るので一覧に出なくなる
     ＝その実施回で確かめたことになる。ほかの実施回の流れには入らない）。
-    一覧に無い解決策は受けない（何も書かない）。足した流れの結果（版・通らなかった理由）を、選んだ順に返す。"""
+    一覧に無い解決策は受けない（何も書かない）。足した流れの結果（版・通らなかった理由）を、選んだ順に返す。
+    足す文の名前と読みは、その文を足したときに残した答え（`_text_names`）を読む＝AI に聞き直さない（解決策を足したときに必ず残すので、
+    名前を洗い出す処理は渡さなくてよい。CL-3 の 22）。文が取り込み直しの答えに置き換わっていて（replaced）、その文の答えがまだ無いときだけ
+    find_names が要る（無ければ断る＝名前の読みを確かめないまま台本に入れない）。"""
     offered = {r["solution_id"]: r for r in not_in_line(tx, run_id)}
     _picked(solution_ids, offered, "足す解決策が選ばれていません", "その流れに入っていない前の解決策の一覧に無いものが選ばれています")
     run = tx.one("SELECT business_id, salescall.run_current_version(run_id) AS v FROM salescall.runs WHERE run_id = %s", (run_id,))
@@ -299,7 +365,8 @@ def add_earlier(tx: Tx, run_id: UUID, solution_ids: list[UUID], *, find_names: N
         r = offered[sid]
         lines.append(_add_line(tx, sid, r["attempt_id"], run["business_id"], run["v"], r["answer_name"], r["solution_text"],
                                f"契約者が選んで足した前の解決策（点「{r['point_text']}」・問い「{r['answer_name']}」）",
-                               find_names=find_names, confirmed_names=confirmed_names, chosen=run_id))
+                               names=_text_names(tx, r["solution_text"], find_names), confirmed_names=confirmed_names,
+                               chosen=run_id))
     return lines
 
 
@@ -400,11 +467,17 @@ def removed_by_hand(tx: Tx, run_id: UUID, version_id: UUID) -> None:
                     refs={"run_id": str(run_id), "version_id": str(version_id), "solutions": [str(r["solution_id"]) for r in out]})
 
 
-def replaced(tx: Tx, solution_ids: list[UUID], version_id: UUID) -> None:
+def replaced(tx: Tx, solution_ids: list[UUID], version_id: UUID, names: dict[str, dict[str, Any]]) -> None:
     """取り込み直して登録した版（version_id）の中身が先になった解決策を、置き換えられたと残す（1か所。0197 の client_solution_replacements。
     取り込み直すたびに残す＝0204。書くのは取込の登録の共通の1か所 business_import.register_shaped だけ）。置き換えられた解決策は、`_latest` では
     いちばん新しく置き換えた取り込みの答えになる（取り込み直しでは残さない。流れに入っていない前の解決策の一覧・手で外した印・承認待ちは、
-    その答えで数える＝計画書 6-1 (5)(6)。答えを置かなかった取り込みなら入れない）。"""
+    その答えで数える＝計画書 6-1 (5)(6)。答えを置かなかった取り込みなら入れない）。
+    names＝プレビューが決めた、置き換えた答えの文ごとの名前の答え（`replacing_names`）：登録した版の、その問いの答えの文のものを残す
+    （`_record_names`。あとで「入れる」ときに読む。0246）。"""
     for sid in solution_ids:
+        text = tx.one("SELECT salescall.version_answer(%s, c.answer_name) AS t FROM salescall.client_solutions c WHERE c.solution_id = %s",
+                      (version_id, sid))["t"]
+        if text in names:
+            _record_names(tx, text, names[text])
         tx.execute("INSERT INTO salescall.client_solution_replacements (tenant_id, client_id, solution_id, version_id, recorded_by)"
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (sid, version_id))

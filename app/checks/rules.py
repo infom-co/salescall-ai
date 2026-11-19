@@ -256,6 +256,9 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "forbidden_findings": {"INSERT": frozenset({_CORE + "attempts.py"})},     # 言ってしまったこと（検証を済ませる1か所）
     "apology_outcomes": {"INSERT": frozenset({_CORE + "settle.py"})},         # お詫びの電話の結果（締めの処理だけ）
     "more_call_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},    # 「さらにかける」の承認（管理者か契約者だけ。0245）
+    "solution_text_names": {"INSERT": frozenset({_CORE + "client_solutions.py"})},   # 解決策の文ごとの名前の答え（文ごとに1回。0246）
+    "action_tokens": {"INSERT": frozenset({_CORE + "once.py"})},              # 画面の操作の1回きりの札（0247）
+    "action_token_uses": {"INSERT": frozenset({_CORE + "once.py"})},          # その札を使った記録（札ごとに1つ。0247）
     "quality_evaluations": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段の評価（Q22）
     "imports": {"INSERT": frozenset({_CORE + "importer.py"})},
     "task_confirmed_readings": {"INSERT": frozenset({_CORE + "tasks.py"})},   # 会話で確かめた名前の読み（CL-1 の 4-15）
@@ -585,6 +588,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("recordings", "carry"): frozenset({_CORE + "business_settings.py"}),   # 版を作ったあと録音を引き継ぐ：版を作る道（写し・版を足す）だけ（0194）
     # 取り込み直した中身で置き換えられた解決策を残す：取込の登録の共通の1か所（business_import.register_shaped）だけ（0197）
     ("client_solutions", "replaced"): frozenset({_CORE + "business_import.py"}),
+    ("client_solutions", "replacing_names"): frozenset({_CORE + "business_import.py"}),   # 置き換えた答えの文の名前（取込のプレビューだけ。0246）
     # 業務設定の形の確かめと、確かめた中身の登録：取込の部品の中だけ（取込の入口は、解決策を残す1か所 _kept を通る preview_shaped・
     # register_shaped。依頼者の解決策を足す道は review_solution。⛔ 2026-11-07 の第三者の見直し (2) の8：外から直に呼べば、解決策を残さずに
     # 版を作れた）

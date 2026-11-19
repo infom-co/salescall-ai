@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 
 DONT_KNOW_REASONS = ("not_in_charge", "undecided", "unknown_now", "unspecified")
 # 担当ではない／まだ決まっていない／いまは分からない／理由を言わなかった（受け皿）
@@ -34,7 +34,7 @@ POLICY_KEYS = ("open", "incomplete", "not_reached_absent", "callback_unspecified
 SYSTEM_POLICIES: dict[str, "Policy"] = {}   # システムが決める再発信の方針（業務では変えない。下の Policy のあとで入れる）
 
 
-class RulesInvalid(Exception):
+class RulesInvalid(Refused):
     """業務の決まりの形が違う・抜けがある（理由は日本語）。"""
 
 

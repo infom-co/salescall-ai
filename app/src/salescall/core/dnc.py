@@ -102,15 +102,16 @@ def stop_set(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_
 
 
 def register(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_attempt_id: UUID | None = None,
-             client_ref: str | None = None, import_id: UUID | None = None, in_call: bool = False) -> dict[str, Any]:
+             client_ref: str | None = None, import_id: UUID | None = None, in_call: bool = False, note: str | None = None) -> dict[str, Any]:
     """取引の依頼者の発信禁止台帳に登録する（どこまで広げるかは `stop_set` の1か所で決める）。import_id＝一覧の取込から入れるとき
-    （理由 client_list は必ず取込から。データベースが守る）。
+    （理由 client_list は必ず取込から。データベースが守る）。note＝手で入れる（理由 manual）ときの、なぜ入れたかの文（手で入れるときは必ず要り、
+    ほかの理由では渡さない＝データベースが守る dnc_entries_manual_note。0249・CL-3 の 25）。
 
     返すもの：entry_id（渡された番号の登録。番号が無ければ管理番号の登録）・reason・numbers（止めた番号）・client_refs（止めた
     管理番号）・released_claims。
     """
     numbers, refs = stop_set(tx, phone, reason, source_attempt_id=source_attempt_id, client_ref=client_ref, in_call=in_call)
-    _put(tx, numbers, refs, reason, source_attempt_id, import_id, in_call=in_call)
+    _put(tx, numbers, refs, reason, source_attempt_id, import_id, in_call=in_call, note=note)
     entry = (tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
                     (_number(phone).e164,)) if phone is not None else
              tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE client_ref = %s AND revoked_at IS NULL",
@@ -120,7 +121,7 @@ def register(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_
 
 
 def _put(tx: Tx, numbers: list[str], refs: list[str], reason: str, source_attempt_id: UUID | None, import_id: UUID | None,
-         *, in_call: bool = False) -> tuple[list[str], list[str]]:
+         *, in_call: bool = False, note: str | None = None) -> tuple[list[str], list[str]]:
     """台帳へ書く1か所（同じ番号・管理番号に、取り消していない登録があれば、そのまま＝台帳は番号ごとに1つ）。新しく書いた番号・管理番号を返す。
     in_call＝通話の途中の申告（`register_declared` だけ。その通話の番号1つ。印は `declared_in` が読む＝0198）。同じ出どころ（同じ通話・同じ一覧の取込）の、
     依頼者の正式な求めで取り消した番号・管理番号は、書き直さない（取り消しは依頼者の正式な求め＝2026-10-30 (7)。⛔ 2026-11-18 の6回目の見直しまで：止め直し
@@ -132,16 +133,16 @@ def _put(tx: Tx, numbers: list[str], refs: list[str], reason: str, source_attemp
         refs = [r for r in refs if r not in {g["client_ref"] for g in gone}]
     new_numbers = [e164 for e164 in dict.fromkeys(numbers) if tx.one(
         "INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, source_attempt_id, registered_by,"
-        "                                   import_id, in_call)"
-        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), %s, %s)"
+        "                                   import_id, in_call, note)"
+        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), %s, %s, %s)"
         " ON CONFLICT (client_id, phone_e164) WHERE revoked_at IS NULL DO NOTHING RETURNING entry_id",
-        (e164, reason, source_attempt_id, import_id, in_call)) is not None]
+        (e164, reason, source_attempt_id, import_id, in_call, note)) is not None]
     new_refs = [ref for ref in dict.fromkeys(refs) if tx.one(
         "INSERT INTO salescall.dnc_entries (tenant_id, client_id, client_ref, reason, source_attempt_id, registered_by,"
-        "                                   import_id)"
-        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), %s)"
+        "                                   import_id, note)"
+        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), %s, %s)"
         " ON CONFLICT (client_id, client_ref) WHERE revoked_at IS NULL DO NOTHING RETURNING entry_id",
-        (ref, reason, source_attempt_id, import_id)) is not None]
+        (ref, reason, source_attempt_id, import_id, note)) is not None]
     return new_numbers, new_refs
 
 

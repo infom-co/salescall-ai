@@ -42,7 +42,7 @@ from uuid import UUID
 
 from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, notify, quality_stage,
                             readings)
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
 # 質問の番号に使えない名前（1か所）。質問の番号は、会話の側で、システムが足す質問の番号（phase0/flowctl.py の CALLBACK_IDS・
@@ -281,7 +281,7 @@ ANSWER_NAME_MAX = 30                              # 問いの名前の長さの�
 _FILE_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')    # Windows のファイル名に使えない文字
 
 
-class SettingsInvalid(Exception):
+class SettingsInvalid(Refused):
     """業務設定の形が違う・抜けがある（理由は日本語。すべての理由を並べて返す）。"""
 
     def __init__(self, problems: list[str]) -> None:

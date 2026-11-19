@@ -3895,6 +3895,7 @@ class Corrections(SettleBase):
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：予定をいまに"))
         self.assertEqual(self.reason(s), "correction_unconfirmed")
         self.assertEqual(self.tx(s, lambda tx: gate.waits_unknown(tx, s["task"])), "correction_unconfirmed")   # 候補に出さない
+        self.assertEqual(self.tx(s, lambda tx: approval.uncleared_in_run(tx, s["run"])), {s["task"]: "correction_unconfirmed"})   # 画面の一覧も同じ1か所
         self.assertEqual(len(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'correction_call'"))), 1)
         with self.assertRaises(Rejected):                                       # システムの処理は確かめられない
             self.tx(s, lambda tx: approval.confirm_correction_call(tx, s["task"]))
@@ -6578,7 +6579,7 @@ class AfterDenial(Base):
 
     def test_permanent_reason_ends_and_waiting_reason_reschedules(self):
         s = self.ready()
-        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"))
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual", note="試験：手で入れた"))
         d = self.claim(s)
         got = self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], d, tenant_id=s["tenant"], client_id=s["client"],
                                                              business_id=s["business"]))

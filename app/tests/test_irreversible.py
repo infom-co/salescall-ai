@@ -694,7 +694,7 @@ class EndedWithoutCheck(Helpers):
                         report=rep(cut=Cut("ai", False, False)))
         self.assertEqual(self.settle(s, aid)["state"], "incomplete")
         self.assertEqual(self.released(s, aid), 0)                               # 確かめのかけ直しを待つあいだは確定しない
-        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"), OPERATOR)  # 契約者が止めた：門が終える
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual", note="試験：手で入れた"), OPERATOR)  # 契約者が止めた：門が終える
         denied = self.claim(s)
         self.assertEqual(denied.reason, "dnc_client")
         self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
@@ -1115,8 +1115,8 @@ class ByPart(Helpers):
         extra = normalize(fictional_jp_fixed()).e164
         self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], normalize(extra), source_attempt_id=aid))
         self.settle(s, aid)
-        e_extra = self.tx(s, lambda tx: dnc.register(tx, extra, "manual"), OPERATOR)
-        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"), OPERATOR)
+        e_extra = self.tx(s, lambda tx: dnc.register(tx, extra, "manual", note="試験：手で入れた"), OPERATOR)
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual", note="試験：手で入れた"), OPERATOR)
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：いま"))
         denied = self.claim(s)
         self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
@@ -1133,8 +1133,8 @@ class ByPart(Helpers):
         extra = normalize(fictional_jp_fixed()).e164
         self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], normalize(extra), source_attempt_id=aid))
         self.settle(s, aid)
-        self.tx(s, lambda tx: dnc.register(tx, extra, "manual"), OPERATOR)
-        e_dial = self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"), OPERATOR)
+        self.tx(s, lambda tx: dnc.register(tx, extra, "manual", note="試験：手で入れた"), OPERATOR)
+        e_dial = self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual", note="試験：手で入れた"), OPERATOR)
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：いま"))
         denied = self.claim(s)
         self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],

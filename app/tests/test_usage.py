@@ -219,6 +219,19 @@ class CostRatio(Priced):
         return [r["cause"] for r in self.tx(s, lambda tx: stops.open_stops(tx, tenant_id=s["tenant"], client_id=s["client"],
                                                                           business_id=None))]
 
+    def test_the_cost_is_split_into_measured_and_estimated_by_the_same_count(self):
+        """今月の費用の、実測と推定の内訳（reward.month の cost_by_kind。計画書 5-2・CL-3 の 23）：合計と同じ1つの問い合わせで数えるので、
+        内訳を足すと合計（cost）になる。"""
+        from decimal import Decimal
+        s = self.ready()
+        self.priced("0.01")
+        self.spend(s, 3)                                                                # 実測 3円
+        self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="estimated",
+                                           quantity=200, unit="input_tokens"))         # 推定 2円
+        m = self.month(s)
+        self.assertEqual(m["cost_by_kind"], {"measured": Decimal("3.00"), "estimated": Decimal("2.00")})
+        self.assertEqual(m["cost"], sum(m["cost_by_kind"].values()))
+
     def test_each_form_is_counted_at_the_price_of_its_time(self):
         s = self.ready()
         self.terms(s, per_completed_yen=100, per_dial_yen=1, per_talk_yen=10)

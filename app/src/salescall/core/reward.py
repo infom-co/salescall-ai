@@ -109,7 +109,9 @@ _PRICE_AT = ("coalesce((SELECT t.{col} FROM salescall.reward_terms t WHERE t.val
 def month(tx: Tx) -> dict[str, Any]:
     """取引の依頼者の、今月（日本時間）の数。cost・revenue（合計）・breakdown（形ごとの数と円。時給は秒）・
     upper（余裕を足した報酬）・has_terms（いま効いている報酬の決まりがあるか。先の日付からの決まりだけなら無い）・
-    unpriced_entries（単価が設定されておらず金額の無い利用量の数。費用はその分を含まない＝画面で注意として出す）。
+    unpriced_entries（単価が設定されておらず金額の無い利用量の数。費用はその分を含まない＝画面で注意として出す）・
+    cost_by_kind（費用の、実測と推定の内訳 {"measured": 円, "estimated": 円}。合計は cost と同じ＝同じ1つの問い合わせで数える。計画書 5-2
+    「今月の費用（実測と推定を分けて）」・CL-3 の 23）。
     余裕は、いまの報酬の決まりの赤字の知らせの早さ（`CAUTIONS`。決まりが無ければ、足さない）。"""
     b = tx.one("SELECT salescall.from_jst(date_trunc('month', salescall.jst(now()))) AS s,"
                " salescall.from_jst(date_trunc('month', salescall.jst(now())) + interval '1 month') AS e, now() AS now")
@@ -141,7 +143,9 @@ def month(tx: Tx) -> dict[str, Any]:
         if end > start:
             monthly += Decimal(t["monthly_yen"]) * Decimal((end - start).total_seconds()) / Decimal(span)
     breakdown["monthly"] = {"count": None, "yen": monthly}
-    c = tx.one("SELECT coalesce(sum(amount_yen), 0) AS y, count(*) FILTER (WHERE amount_yen IS NULL) AS unpriced"
+    c = tx.one("SELECT coalesce(sum(amount_yen), 0) AS y, count(*) FILTER (WHERE amount_yen IS NULL) AS unpriced,"
+               "       coalesce(sum(amount_yen) FILTER (WHERE kind = 'measured'), 0) AS measured,"
+               "       coalesce(sum(amount_yen) FILTER (WHERE kind = 'estimated'), 0) AS estimated"
                " FROM salescall.usage_entries WHERE occurred_at >= %s AND occurred_at <= %s", (b["s"], b["now"]))
     cost = Decimal(c["y"])
     revenue = sum((x["yen"] for x in breakdown.values()), Decimal(0))
@@ -152,4 +156,5 @@ def month(tx: Tx) -> dict[str, Any]:
         margin = caution_margin(now_terms["deficit_caution"])
         upper += (Decimal(now_terms["per_completed_yen"]) + Decimal(now_terms["per_talk_yen"])) * margin
     return {"month_start": b["s"], "cost": cost, "revenue": revenue, "upper": upper, "breakdown": breakdown,
-            "has_terms": now_terms is not None, "unpriced_entries": c["unpriced"]}
+            "has_terms": now_terms is not None, "unpriced_entries": c["unpriced"],
+            "cost_by_kind": {"measured": Decimal(c["measured"]), "estimated": Decimal(c["estimated"])}}

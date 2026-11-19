@@ -45,7 +45,7 @@ from uuid import UUID
 
 from salescall.core import (approval, business_settings, contacts, customer_contacts, exclusions, import_columns, next_action,
                             readings, row_fixes, target_policy, tasks)
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 from salescall.core.import_columns import ImportRejected
 from salescall.core.import_files import Cell, Sheet
 from salescall.core.phone import PhoneNumber, normalize
@@ -67,7 +67,7 @@ _READING_OF = {"name": "name_reading", "person_name": "person_name_reading",
                "person_full_name": "person_full_name_reading"}   # 名前の欄 → 読みの欄
 
 
-class PlanChanged(Exception):
+class PlanChanged(Refused):
     """プレビューのあとで結果が変わった（発信禁止・設定・ほかの取込）。何も登録していない。もう一度プレビューを見る。"""
 
 

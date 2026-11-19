@@ -186,6 +186,9 @@ def owner_access() -> Access:
     return Access(os.environ["SALESCALL_TEST_OWNER_DSN"])
 
 
+_NAMES_MADE: dict[tuple[UUID, str], int] = {}   # 依頼者・業務の名前に付けた番号（World._unique_name）
+
+
 class World:
     """架空のデータを、本番と同じ読み書きの層で作る。"""
 
@@ -309,10 +312,16 @@ class World:
         else:
             self.a.in_client(OPERATOR, owner["tenant"], owner["client"], work)
 
+    def _unique_name(self, owner: UUID, base: str) -> str:
+        """同じ契約者の依頼者・同じ依頼者の業務の名前は重ねられない（0248）ので、2つ目からは番号を付ける（1つ目は前のまま）。"""
+        seen = _NAMES_MADE   # 同じ契約者を、ほかの World からも使う試験があるので、試験の流れ全体で数える
+        n = seen[(owner, base)] = seen.get((owner, base), 0) + 1
+        return base if n == 1 else f"{base}{n}"
+
     def client(self, tenant: UUID) -> UUID:
         cid = uuid.uuid4()
         self.a.in_tenant(OPERATOR, tenant, lambda tx: tx.execute(
-            "INSERT INTO salescall.clients (tenant_id, client_id, name) VALUES (%s, %s, %s)", (tenant, cid, "架空の依頼者")))
+            "INSERT INTO salescall.clients (tenant_id, client_id, name) VALUES (%s, %s, %s)", (tenant, cid, self._unique_name(tenant, "架空の依頼者"))))
         return cid
 
     def line(self, tenant: UUID) -> UUID:
@@ -326,7 +335,7 @@ class World:
 
         def work(tx):
             tx.execute("INSERT INTO salescall.businesses (tenant_id, client_id, business_id, name)"
-                       " VALUES (%s, %s, %s, %s)", (tenant, client, bid, "架空の業務"))
+                       " VALUES (%s, %s, %s, %s)", (tenant, client, bid, self._unique_name(client, "架空の業務")))
             tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, created_by)"
                        " VALUES (%s, %s, %s, %s, %s)", (tenant, client, bid, vid, OPERATOR.name))   # 版の番号はデータベースが決める
             tx.execute("INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
