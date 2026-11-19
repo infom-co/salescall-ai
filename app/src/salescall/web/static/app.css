@@ -136,6 +136,8 @@ ul.numbers li.old .num { color: var(--muted); font-weight: 500; text-decoration:
 .stat.stop .value { color: var(--stop); } .stat.wait .value { color: var(--wait); } .stat.ok .value { color: var(--ok); }
 .card.attention-stop { border-left: 4px solid var(--stop); }
 .card.attention-wait { border-left: 4px solid var(--wait); }
+.more-act { margin-top: 6px; }   /* 「さらにかける」：状態の下に置く（隣の列に重ねない・スマホの枠からはみ出さない） */
+.more-note { margin-bottom: 14px; }
 
 .tag { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;
        background: var(--surface-2); color: var(--muted); white-space: nowrap; }

@@ -179,12 +179,13 @@ def _client(tx: Tx) -> Any:
     return tx.one("SELECT salescall.cur_client() AS c")["c"]
 
 
-def _refused(do: Callable[[Tx, dict[str, str]], Any]) -> Callable[[Tx, dict[str, str]], Any]:
-    """core が ValueError（理由の文つき）で断る部品を、画面の断りにして返す（承認の部分の「確定できない版」など）。"""
+def _refused(do: Callable[[Tx, dict[str, str]], Any], *errors: type[Exception]) -> Callable[[Tx, dict[str, str]], Any]:
+    """core が理由の文つきで断る部品（既定は ValueError。承認の部分の「確定できない版」など）を、画面の断りにして返す。断りの文は core の
+    文をそのまま見せる（「見つかりません」の一言に言い換えない）。"""
     def run(tx: Tx, k: dict[str, str]) -> Any:
         try:
             return do(tx, k)
-        except ValueError as e:
+        except errors or (ValueError,) as e:
             from salescall.web.actions import Refused
             raise Refused(str(e)) from None
     return run
@@ -283,6 +284,36 @@ def _corrections(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     return items
 
 
+def _more_calls(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
+    """お客様と約束した電話・お詫びの電話を、決めた日数・回数かけても話せずに終えた行の「さらにかける」の承認（行ごと。承認できるかは core の
+    next_action.more_calls_offered の1か所。押すと core の approval.more_calls）。✅ 2026-11-19 管理者：「契約者が承認ボタンを押したら、さらに
+    3回かける。それでも繋がらなければ、再度承認ボタンを出す。繋がるまで承認ボタンは出し続ける。。承認ボタンが押されなければかけない」・
+    「ダッシュボードの取り込んだ行に承認ボタンを出します」（CL-2 4-427）。お客様リストの行のボタンも、この承認待ちをそのまま出す（同じ鍵・同じ受け口）。
+    鍵に終えた予定の番号（end_seq）を入れる：押したあとにまた話せずに終えた行は、新しい番号の別の承認待ちになる（前の画面のボタンでは押せない）。"""
+    items = []
+    for r in tx.all("SELECT n.task_id, n.end_reason, n.decided_at FROM salescall.current_next_actions n JOIN salescall.tasks t ON t.task_id = n.task_id"
+                    " WHERE n.kind = 'end' AND n.end_reason = ANY(%s) AND (%s::uuid IS NULL OR n.task_id = %s::uuid)"
+                    " AND (%s::uuid IS NULL OR t.run_id = %s::uuid) ORDER BY n.decided_at, n.task_id",
+                    (sorted(next_action.MORE_CALL_ENDS), task, task, run, run)):
+        seq = next_action.more_calls_offered(tx, r["task_id"])
+        if seq is None:
+            continue
+        calls = tx.one("SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND state <> 'released'", (r["task_id"],))["n"]
+        items.append(Item(
+            kind="more_calls", key={"task_id": str(r["task_id"]), "end_seq": str(seq)}, title=MORE_CALLS_TITLE,
+            decide="お約束・お詫びの電話で話せずに終えたこのお客様に、さらにおかけするか",
+            evidence=_row(tx, r["task_id"]) + [("終えた理由", words.end_reason(r["end_reason"])), ("かけた回数", f"{calls} 回")],
+            if_not="押さなければ、このお客様にはおかけしません（終えたままです）。押すと、この行だけ、もう一度かけ始めます"
+                   "（お約束の電話は約束の時刻・幅のまま、お詫びの電話は時間帯を変えて決めた回数）。また話せなければ、もう一度ここに出ます。",
+            at=r["decided_at"], link=links.row(tx, r["task_id"]),
+            buttons=(Button("approve", MORE_CALLS_BUTTON, main=True),), **_business_of(tx, r["task_id"])))
+    return items
+
+
+MORE_CALLS_TITLE = "さらにかける承認"
+MORE_CALLS_BUTTON = "さらにかける"
+
+
 def _solutions(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """手で外した・まだ確かめていない依頼者の解決策（実施回ごと。client_solutions.unconfirmed の1か所）。確かめるまで、その実施回の新しい電話は
     かけない（2026-11-07 管理者）。⏳ 「入れる」（add_earlier）は、足す文の名前の読みを確かめる部品（find_names）を画面から渡す方法が決まって
@@ -349,6 +380,11 @@ KINDS: dict[str, Kind] = {
     "correction": Kind("直しでかける電話の確かめ", _corrections, {
         "confirm": (lambda tx, k: approval.confirm_correction_call(tx, UUID(k["task_id"])), "確かめました。直した内容でお電話します。"),
     }),
+    "more_calls": Kind(MORE_CALLS_TITLE, _more_calls, {
+        # 戻せない行（お詫びの案が無い・業務を終えた）は core が理由の文つきの LookupError で断る＝その文をそのまま見せる
+        "approve": (_refused(lambda tx, k: approval.more_calls(tx, UUID(k["task_id"])), LookupError),
+                    "承認しました。この行だけ、もう一度おかけします。"),
+    }),
     "solution": Kind("依頼者の解決策の確かめ", _solutions, {}),
     "deficit": Kind("赤字の確認", _deficit, {
         "confirm": (lambda tx, k: usage.confirm_deficit(tx, int(k["warning_id"])), "確かめたことを記録しました。"),
@@ -359,7 +395,7 @@ KINDS: dict[str, Kind] = {
 }
 
 
-KEY_FIELDS = ("attempt_id", "seq", "warning_id", "order_id", "set_id", "task_id", "run_id", "solution_id", "request_id", "call_at", "digest")   # 受け箱の操作が送り返してよい鍵の名前（ほかの欄は読まない）
+KEY_FIELDS = ("attempt_id", "seq", "warning_id", "order_id", "set_id", "task_id", "run_id", "solution_id", "request_id", "call_at", "digest", "end_seq")   # 受け箱の操作が送り返してよい鍵の名前（ほかの欄は読まない）
 
 
 def collect(tx: Tx, where: str = "client", task: Any = None) -> list[Item]:

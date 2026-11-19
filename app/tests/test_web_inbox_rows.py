@@ -21,6 +21,7 @@ from tests.test_gate import FakeDriver, dial_exit
 from tests.test_settle import Corrections, DialFixAfterCalls, rep
 from tests.test_unwelcome import MonthAhead
 from tests.test_approval import Helpers as ApprovalHelpers, TAKEN
+from tests.test_apology import MoreCalls
 
 SECRET = b"test-only-secret"
 
@@ -137,6 +138,52 @@ class CorrectionCall(Corrections):
         self.assertIn("ok=0", outside.headers["location"])
 
 
+class MoreCallsButton(MoreCalls):
+    """「さらにかける」の承認（CL-2 4-427。✅ 2026-11-19 管理者「ダッシュボードの取り込んだ行に承認ボタンを出します」）：受け箱の種類 more_calls の1か所。
+    お客様リストの行・1行の画面・受け箱に同じ鍵・同じ受け口で出る。押すとお客様リストへ戻り、その行だけ、もう一度かけ始める。古い画面からは押せない。"""
+
+    def test_the_row_in_the_list_has_the_button_and_pressing_it_starts_the_row_again(self):
+        from salescall.core import next_action
+        from salescall.web import inbox
+        from tests.support import callback
+        s = self.fresh(stage_cap=20)
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '1 day')::date AS d")["d"])
+        self.settle(s, self.call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の15時"))))
+        promise = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        http = _http(s["tenant"])
+        rows = f'/c/{s["client"]}/b/{s["business"]}/runs/{s["run"]}'
+        act = f'/c/{s["client"]}/inbox/more_calls/approve'
+        self.assertNotIn(act, http.get(rows).text)                              # かけ直す予定のあいだは出さない
+        self.tx(s, lambda tx: next_action.end(tx, s["task"], "callback_exact_unreached", cause="試験：決めた日数・回数かけても話せなかった"))
+        page = http.get(rows).text
+        self.assertIn("1 行が「さらにかける」の承認を待っています", page)
+        self.assertIn(f'form="more-{s["task"]}"', page)                         # 行の中のボタンは、表の外の送り先を指す（form を入れ子にしない）
+        self.assertRegex(page, r'class="tag wait"[^>]*>' + inbox.MORE_CALLS_TITLE + "：")   # 終えた行でも緑の「済み」にせず、待ちの色（色の決まり）
+        sent = form_of(page, act)
+        self.assertEqual(sent["back"], rows)
+        self.assertIn(inbox.MORE_CALLS_TITLE, http.get("/t/inbox").text)       # 受け箱にも同じ承認待ち（ホームの数もここから）
+        row = http.get(f"{rows}/rows/{s['task']}").text
+        self.assertIn(f'action="{act}"', row)                                   # 1行の画面にも同じ部品で出る
+        notices = http.get("/t/notices").text                                   # 知らせから、その行へ飛べる（links の1か所）
+        self.assertIn(f"{rows}/rows/{s['task']}", notices[notices.index("話せずに終えた行"):])
+        r = http.post(act, data=sent, follow_redirects=False)
+        self.assertTrue(r.headers["location"].startswith(rows + "?"))           # お客様リストへ戻る
+        self.assertIn("ok=1", r.headers["location"])
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["promised"], p["callee_at"]), ("call", True, promise["callee_at"]))   # 約束の時刻のまま（core の決めたとおり）
+        after = http.get(rows).text
+        self.assertNotIn(act, after)
+        self.assertNotIn("「さらにかける」の承認を待っています", after)
+        again = http.post(act, data=sent, follow_redirects=False)               # 古い画面からもう1回押しても
+        self.assertIn("ok=0", again.headers["location"])                        # 断りの文・何も書かない
+        self.tx(s, lambda tx: next_action.end(tx, s["task"], "callback_exact_unreached", cause="試験：また話せなかった"))
+        fresh = form_of(http.get(rows).text, act)                               # また話せなければ、またボタン（新しい終わりの鍵）
+        self.assertNotEqual(fresh["end_seq"], sent["end_seq"])
+        stale = http.post(act, data=sent, follow_redirects=False)               # 前の終わりの鍵では押せない（見せた中身と決める中身を同じに）
+        self.assertIn("ok=0", stale.headers["location"])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
+
+
 class VerificationMode(ApprovalHelpers):
     """検証モードの2つの承認（発信前の行の承認・結果の確かめ）と、結果を直す画面（CL-2 の承認の試験と同じ作り方）。"""
 
@@ -220,7 +267,7 @@ class VerificationMode(ApprovalHelpers):
 def load_tests(loader, tests, pattern):
     """この試験だけを読む（受け継いだ CL-2 の組の試験を、ここで流し直さない）。"""
     return unittest.TestSuite(loader.loadTestsFromNames(
-        [f"{__name__}.{c.__name__}.{n}" for c in (OldPromise, MonthAheadAnswer, CorrectionCall, VerificationMode) for n in c.__dict__ if n.startswith("test_")]))
+        [f"{__name__}.{c.__name__}.{n}" for c in (OldPromise, MonthAheadAnswer, CorrectionCall, MoreCallsButton, VerificationMode) for n in c.__dict__ if n.startswith("test_")]))
 
 
 if __name__ == "__main__":

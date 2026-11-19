@@ -17,6 +17,12 @@
   </span></div>
 <p class="lead">お客様ごとの、いまの状態と結果です。会社名を押すと、そのお客様の画面を開きます。</p>
 {{ flash(done, ok) }}
+{% if more %}
+<div class="card attention-wait more-note" id="more-calls">
+  <b>{{ more|length }} 行が「さらにかける」の承認を待っています。</b>
+  お約束・お詫びの電話を決めた回数かけても、お客様と話せずに終えた行です。押さなければおかけしません。押すと、その行だけ、もう一度かけ始めます（また話せなければ、もう一度ボタンが出ます）。
+</div>
+{% endif %}
 {% if rows %}
 <form method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/exclude" data-needs-reason class="bulk-form">
   {{ csrf(token) }}
@@ -41,7 +47,8 @@
       <td class="co"><a href="/c/{{ client.client_id }}/b/{{ business.business_id }}/runs/{{ run.run_id }}/rows/{{ r.task_id }}">{{ r.source_name or "（会社名なし）" }}</a>{% if lv != "call" %} {{ tag(words.exclusion_level(lv), "stop" if lv == "force" else "") }}{% endif %}</td>
       <td class="wide person">{{ r.target_name or "" }}{% if r.target_role %}<span class="muted">（{{ r.target_role }}）</span>{% endif %}</td>
       <td class="tel">{{ phone(r.dial_phone) }}</td>
-      <td class="nowrap">{{ next_tag(r.next_kind, r.next_call_at, r.next_end_reason) }}</td>
+      <td class="nowrap">{{ next_tag(r.next_kind, r.next_call_at, r.next_end_reason, waiting=more[r.task_id].title if r.task_id in more else "") }}{% if r.task_id in more %}
+        <div class="more-act"><button class="btn main small" type="submit" form="more-{{ r.task_id }}">{{ more[r.task_id].buttons[0].label }}</button></div>{% endif %}</td>
       <td class="wide nowrap">{% if r.business_state == "open" %}<span class="muted">{{ words.word(words.BUSINESS_STATES, "open").screen }}</span>{% else %}{{ words.word(words.BUSINESS_STATES, r.business_state).screen }}{% endif %}</td>
       <td class="num">{{ r.attempts }}</td>
       <td class="wide">{% if r.last_state %}{{ words.word(words.ATTEMPT_STATES, r.last_state).screen }}<span class="muted">・{{ time(r.last_at) }}</span>{% endif %}</td>
@@ -50,6 +57,15 @@
   </tbody>
 </table></div>
 </form>
+{# 「さらにかける」の送り先（表は「かけない」の印の form の中にあるので、form を入れ子にせず、ボタンの form 属性でこちらを指す）。
+   受け箱と同じ受け口・同じ鍵（web/inbox.perform が集め直して確かめる）。済んだら、このお客様リストへ戻る #}
+{% for tid, i in more.items() %}
+<form method="post" action="/c/{{ client.client_id }}/inbox/{{ i.kind }}/{{ i.buttons[0].action }}" id="more-{{ tid }}" hidden>
+  {{ csrf(token) }}
+  {% for k, v in i.key.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <input type="hidden" name="back" value="{{ rbase }}">
+</form>
+{% endfor %}
 {% else %}
 <div class="card">{{ empty("この実施回には、まだ行がありません") }}</div>
 {% endif %}

@@ -17,7 +17,7 @@
   <section class="card">
     <h2>いまの状態</h2>
     <dl class="facts">
-      <dt>次の予定</dt><dd>{{ next_tag(row.next_kind, row.next_call_at, row.next_end_reason) }}</dd>
+      <dt>次の予定</dt><dd>{% set mc = pending|selectattr("kind", "equalto", "more_calls")|first %}{{ next_tag(row.next_kind, row.next_call_at, row.next_end_reason, waiting=mc.title if mc else "") }}</dd>
       <dt>結果</dt><dd>{{ words.word(words.BUSINESS_STATES, row.business_state).screen }}
         {% if can_correct %}
         <details class="adder"><summary class="btn small">結果を直す</summary>

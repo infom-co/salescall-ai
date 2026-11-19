@@ -1056,7 +1056,9 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 if run is None:
                     raise NotFound()
                 return {"client": c, "business": b, "businesses": context.businesses(tx), "run": run,
-                        "rows": customer_rows.progress(tx, run_id), "levels": _levels(tx, run_id)}
+                        "rows": customer_rows.progress(tx, run_id), "levels": _levels(tx, run_id),
+                        # 「さらにかける」の承認待ち（受け箱の種類 more_calls の1か所。行のボタンは、受け箱と同じ鍵・同じ受け口で送る）
+                        "more": {UUID(i.key["task_id"]): i for i in inbox.KINDS["more_calls"].collect(tx, None, run_id)}}
             return page(request, "rows.html", person, ctx, done=done, ok=bool(ok), level_names=exclusions.LEVEL_NAMES,
                         **ctx.client(client_id, read, read_only=True))
         return handle(request, render)

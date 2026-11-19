@@ -14,8 +14,11 @@
 <div class="empty"><div class="big">{{ big }}</div>{% if small %}<div>{{ small }}</div>{% endif %}</div>
 {%- endmacro %}
 
-{% macro next_tag(kind, call_at=None, end_reason=None) -%}
-{%- if kind == "hold" -%}{{ tag(words.word(words.NEXT_KINDS, "hold").screen, "wait") }}
+{# waiting＝その行で契約者が決めることの名前（例：さらにかける承認）。あれば、終えた行でも「済み」の緑にせず、待ちの色でそれを先に書く
+   （色は、契約者がすることがあるときだけ＝設計書 7-9） #}
+{% macro next_tag(kind, call_at=None, end_reason=None, waiting="") -%}
+{%- if waiting -%}{{ tag(waiting ~ ("：" ~ words.end_reason(end_reason) if kind == "end" else ""), "wait") }}
+{%- elif kind == "hold" -%}{{ tag(words.word(words.NEXT_KINDS, "hold").screen, "wait") }}
 {%- elif kind == "call" -%}{{ tag(words.word(words.NEXT_KINDS, "call").screen ~ ("（" ~ time(call_at) ~ "）" if call_at else ""), "info") }}
 {%- elif kind == "end" -%}{{ tag(words.word(words.NEXT_KINDS, "end").screen ~ "：" ~ words.end_reason(end_reason), "ok") }}
 {%- else -%}{{ tag("これから") }}{%- endif -%}

@@ -369,6 +369,7 @@ NOTICE_KIND_WORDS: dict[str, str] = {
     "program_update": "PC のプログラムの更新が要ります", "backup_failed": "控えを取れませんでした",
     "answer_rate_drop": "電話に出てもらえる割合が下がりました", "sample_ready": "正解を付ける電話を抜き取りました",
     "old_promise_choice": "前の担当の方との約束を選んでください", "correction_call": "直した結果でおかけしてよいか確かめてください",
+    "more_calls": "お約束・お詫びの電話で話せずに終えた行があります（さらにかけるか選んでください）",
     "month_ahead_approval": "1か月以上先のお電話を確かめてください", "month_ahead_unanswered": "【緊急】1か月以上先のお電話の答えがありません",
     "solution_held": "依頼者の解決策を、まだ入れていません", "solution_earlier": "入っていない前の解決策があります",
     "solution_unconfirmed": "解決策を入れるか選んでください", "declared_after_settle": "「もうかけないで」が電話のあとに届きました",
