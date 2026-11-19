@@ -18,7 +18,7 @@ from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LA
                      check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, mobile_confirm, role_honorific, standard_message, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, mobile_confirm, role_honorific, standard_message, target_call, target_transfer, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -101,6 +101,11 @@ class Target:
         """かけた番号が携帯電話の番号のときの、2回目の聞き返しの確かめる一言（phrases.mobile_confirm。お名前は確かめる一言と同じ呼び方）。お名前の無い目的のお客様
         （役職だけ）・後任のご担当者様は空＝作らない（flowctl.Flow._calling_unheard は「もう一回よろしいでしょうか？」のまま）。"""
         return "" if self.successor else mobile_confirm(self._name())
+
+    def transfer(self) -> str:
+        """呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（phrases.target_transfer。呼び名は呼ぶ一言と同じ。法人だけ＝個人の
+        お客様は空＝作らない。後任のご担当者様は共通の一言の録音 SUCCESSOR＝flowctl.Flow が差し替える）。✅ 2026-11-19 日本時間15時10分27秒 伺い51 のイ"""
+        return target_transfer(self.kind, self._name(), self.role)
 
     def promise_again(self) -> str:
         """約束の電話で取り次げないと言われたときに伺う一言（お名前は確かめる一言と同じ呼び方）。"""
@@ -467,7 +472,7 @@ class Business:
         その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
         法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
         お名前の入る部分（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・carried_target・target_successor・target_full＝フルネームのあるときだけ・
-        mobile_confirm＝お名前のある目的のお客様だけ）は、業務の録音の組ではなく、名前の録音の
+        mobile_confirm＝お名前のある目的のお客様だけ・target_transfer＝法人の目的のお客様だけ）は、業務の録音の組ではなく、名前の録音の
         台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
         分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
@@ -495,6 +500,10 @@ class Business:
                          promise_again=t.promise_again(),  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
                          unavailable_confirm=t.unavailable_confirm(),  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
                          carried_target=t.carried_from())  # 続きの電話の判断いただける代わりの方への引き継ぎの確かめ（flowctl.carried_ask の "target"）
+            if t.transfer():
+                # 呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（flowctl.Flow._call_target。✅ 2026-11-19 日本時間15時10分27秒
+                # 伺い51 のイ＝かけた番号が携帯電話の番号なら流さない）。どの行が携帯電話の番号になるかは取込では決めない＝法人のどの電話にも返す
+                parts["target_transfer"] = t.transfer()
             if t.mobile_confirm():
                 # かけた番号が携帯電話の番号のときの、聞き取れないお返事への2回目の聞き返しの確かめる一言（flowctl.Flow._calling_unheard。✅ 2026-11-19 日本時間14時18分13秒
                 # 伺い54 のイ）。どの行が携帯電話の番号になるかは取込では決めない（かける番号は予約証＝phone_e164）＝ほかの部分と同じく、お名前のある業務のどの電話にも返す

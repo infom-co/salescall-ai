@@ -670,6 +670,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                # ack：その報告が届いた瞬間に、電話接続側が流す相づち（flowctl.Flow._ack。試験では流さず、時刻と中身だけを記録する）
                "tool_events": [{"at_s": live.get("at_s"), "answered_s": live.get("answered_s"), "name": log["op"], "args": log["args"],
                                 "reply": log["reply"].get("result"),
+                                # 聞き返しの何回目か（お呼びする段の聞き返しで流した確かめる一言を、確かめの数に入れない＝scenes.confirms_to）
+                                "ask_n": log["reply"].get("ask_n"),
                                 "ack": log["reply"].get("ack"), "say": log["reply"].get("say"), "play": log["reply"].get("play")}
                                for live, log in zip([e for e in r["events"] if e["kind"] == "tool_call"], flow.log[log_start:])],
                "first_audio_after_s": r["first_audio_after_s"], "finished_after_s": r["finished_after_s"],
