@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, CALLBACK_ASK_ANSWERING, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
-from phrases import BRIEF_GO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
+from phrases import BRIEF_GO, BRIEF_LEFT, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
 from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
 from phrases import OFFER_ACCEPTED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALL_AGAIN_TAKEN, OFFER_DONE, OFFER_TAKEN, WISH_WAY_TOPIC, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OFFER_THANKS_AGAIN, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import RECORDED, STANDARD_PARTS, THINKING_PROMPT, ack_pause_s, ask_again as ask_again_phrase
@@ -3844,6 +3844,22 @@ def brief_asks(q: "Question") -> bool:
     return bool(q.required or getattr(q, "final_goal", False))
 
 
+# 安心していただく一言（phrases.BRIEF_LEFT）の録音の名前の終わり（鍵＝いまの質問のあとに伺いうる質問の数）
+BRIEF_LEFT_IDS = {0: "brief_only", 1: "brief_one_more"}
+
+
+def brief_left_line(q: "Question", n: int) -> "tuple[str, str] | None":
+    """手短に伺っている途中の言い直しの確かめで重ねて急かされた2回目に流す、安心していただく一言（phrases.BRIEF_LEFT）の（録音の名前, 文）を作る唯一の場所（流すかを
+    決める Flow._brief_again・録音の表 make_ack_clips.script_table）：n＝いまの質問のあとに伺いうる質問の数（Flow._brief_left）。録音は質問ごとの依頼主の単位
+    （「（番号）_brief_only」・「（番号）_brief_one_more」）＝（聞くこと）は取込で決めた言葉（Question.topic）で、お客様の言った値を含まない（値を含む言い直しは会話AIの声＝
+    言い直しの前の録音として流す。保留でよいかを伺う一言 pending_line と同じ形）。流しうる質問＝手短にでも伺う（brief_asks）・言い直して確かめる（restates）業務の質問
+    （システムの質問・名前の読みの確かめは除く）で、聞くことのあるもの。ほか・2つ以上（言い方が決まっていない）は None（今のまま＝伺い41）。
+    ✅ 2026-11-19 日本時間14時18分13秒 ユーザー（伺い52 場面A。お言葉は phrases.BRIEF_LEFT）"""
+    if n not in BRIEF_LEFT or not q.topic or not brief_asks(q) or not restates(q) or q.callback or q.of or q.reading_of:
+        return None
+    return f"{q.id}_{BRIEF_LEFT_IDS[n]}", BRIEF_LEFT[n].format(t=q.topic)
+
+
 def asked_offer(q: "Question") -> str | None:
     """こちらの申し出をはい／いいえで伺うシステムの質問（ASKED_OFFER_ROLES）なら、受けていただく答え（はい＝選択肢の1つ目）。違えば None。「こちらの申し出の
     システムの質問か」を読む唯一の場所＝申し出の決まり2つ：
@@ -5125,6 +5141,9 @@ class Flow:
         self.hurried_turn: int | None = None
         # 伺い続けると決まった H3 へのお返事の発話の番号（その発話への返事で質問を流すとき、前に「それでは手短にお伺いいたしますね。」を流す＝_brief_go の1か所。流したら外す）
         self.brief_go: int | None = None
+        # 言い直しの確かめで重ねて急かされた2回目に、言い直しの前に流す安心していただく一言（_brief_again が決める・流すのは _brief_go の1か所）：（発話の番号, 言い直して
+        # いる質問,（録音の名前, 文））
+        self.brief_left: "tuple[int, str, tuple[str, str]] | None" = None
         # 気になる点・問題を言っていただき会話AIが応える番（concern_turn）の、応えた文を書き足す通話の事実の種類（_concern_heard の1か所＝本心を伺った一言は concern・
         # ほかの会社のことを伺った一言は elsewhere。書き手は _question_note）
         self.concern_kind = "concern"
@@ -13075,6 +13094,13 @@ class Flow:
         place = self._place()
         mark = {"hurried": place}   # 相づちを選ぶ印（_ack_choice）は、どの所で受け直したか（下の3回目からが読む）
         fresh = any(x["reply"].get("hurried") == place for x in self.log)   # その所で、もう重ねて急かされて受け直した＝3回目から
+        # 手短に伺っている途中（H3 に「いいえ」のあと）の言い直しの確かめで、その所で初めて重ねて急かされた（2回目）：伺っていた言い直しの前に、安心していただく一言
+        # （伺い52 場面A。文と流しうる質問は brief_left_line・残りの数は _brief_left の1か所。流すのは伺う一言の前に添える1か所 _brief_go＝録音で流す通話は言い直しの
+        # 前の録音・会話AIが話す通話は言い直しと1つの文。残りが2つ以上・聞くことの無い質問は今のまま）
+        qid = self.awaiting_confirm
+        line = (brief_left_line(self.questions[qid], self._brief_left(qid))
+                if self.brief_only and qid is not None and not fresh else None)
+        self.brief_left = (self.callee_turns, qid, line) if line else None
         if self._reply_may_answer():
             # お客様に応えてお返事を待っている間：相づちだけのお返事と同じ戻り（_resume＝待ちを終える・尋ねられて答えたあとの最終の確かめの決まりも同じ）。3回目からは、
             # 質問へ戻るとき伺っている間の3回目からと同じ形（fresh＝戻りに数えず・戻る一言を付けず・まだ言っていない形。⛔ 4e94ba37 まで、その所で重ねて急かされた
@@ -13182,7 +13208,13 @@ class Flow:
         まだ伺っていない次の項目は「続きまして」のまま（重ならない。11-06 日本時間12時54分30秒「次の項目の質問に入る前は、すべて「続きまして」」）。
         ✅ 2026-11-16 日本時間14時46分34秒 ユーザー「伺い34：ア」（ア「はい、承知しました。それでは手短にお伺いいたしますね。ご連絡はお電話とメールのどちらがよろしい
         でしょうか？」）。1通話1回・すぐあとの返事だけ・こちらから伺う一言の前だけ・頭が重なれば流さないは、お言葉の外（まとめ役が分身に任せた決め）。⛔ 9c577835 まで
-        「はい、承知しました。それではご連絡は…」（「手短に」に応える一言が無いまま伺った）"""
+        「はい、承知しました。それではご連絡は…」（「手短に」に応える一言が無いまま伺った）
+        同じ1か所で、言い直しの確かめで重ねて急かされた2回目の、安心していただく一言（phrases.BRIEF_LEFT。流すかと文を決めるのは _brief_again の1か所＝印 brief_left）
+        も、伺い直す言い直しの前に流す（録音で流す通話は言い直しの前の録音・会話AIが話す通話は言い直しと1つの文＝_continue の go の扱いのまま。伺い52 場面A）"""
+        if self.brief_left is not None and self.brief_left[0] == self.callee_turns:
+            # 言い直しの確かめで重ねて急かされた2回目の、安心していただく一言（決めたのは _brief_again の1か所＝伺い52 場面A）：その言い直しを伺い直す前だけ（流したら外す）
+            (_, qid, line), self.brief_left = self.brief_left, None
+            return [line_play(*line)] if q is not None and q.id == qid else []
         if self.brief_go is None or self.brief_go != self.callee_turns:
             return []
         self.brief_go = None
@@ -15119,13 +15151,37 @@ class Flow:
         it = self.items[q.id]
         return (q.final_goal and q.declined(it.condition)) or (it.state in GOT and it.condition in q.ends_on)
 
-    def _remaining(self) -> list[str]:
+    def _remaining(self, maybe: bool = False) -> list[str]:
         """これから伺う質問（並びの順）：まだ伺っていない質問のうち、先へ進むのを止める答えのあとの業務の質問（held の1か所）を除いたもの。手短になら聞くと言われ、
-        かけ直さずに続けると言われた電話（brief_only＝_brief_decided）は、必須でも最終目的でもない業務の質問も除く（決まりは brief_asks の1か所。✅ 2026-11-16
-        日本時間12時48分22秒 ユーザー「noなら、必須の項目を伺う。」）。"""
-        hold = set(held(self.questions.values(), self.order, self._read))
-        return [qid for qid in self.order if self.items[qid].state == "empty" and qid not in hold
-                and not (self.brief_only and qid in self.business_ids and not brief_asks(self.questions[qid]))]
+        かけ直さずに続けると言われた電話（brief_only＝_brief_decided）は、必須でも最終目的でもない業務の質問も除く（決まりは _brief_skips の1か所。✅ 2026-11-16
+        日本時間12時48分22秒 ユーザー「noなら、必須の項目を伺う。」）。maybe＝これから伺いうる質問（お客様に約束する数の上限＝_brief_left）：止める質問の答えが
+        まだ決まっていなければ、そのあとの質問も伺いうる（止める答え ends_on が決まったときだけ除く）。"""
+        g = gate_of(self.questions.values(), self.order, self._read) if maybe else None
+        hold = set(held(self.questions.values(), self.order, self._read)) if not maybe or (g is not None and g[1]) else set()
+        return [qid for qid in self.order if self.items[qid].state == "empty" and qid not in hold and not self._brief_skips(qid)]
+
+    def _brief_skips(self, qid: str) -> bool:
+        """手短に伺っている電話（brief_only）で伺わない質問か（唯一の決まり＝これから伺う質問 _remaining・約束する数 _brief_left）：必須でも最終目的でもない業務の質問
+        （決まりは brief_asks の1か所）。"""
+        return self.brief_only and qid in self.business_ids and not brief_asks(self.questions[qid])
+
+    def _brief_left(self, qid: str) -> int:
+        """手短に伺っている途中に、いまの質問 qid のあとに伺いうる質問の数（お客様に約束する数の唯一の数え方＝安心していただく一言を選ぶ _brief_again）。約束を
+        破らないよう、答えしだいで伺いうる質問は伺う側に数える（数の上限）：
+        - これから伺う質問（_remaining の maybe＝手短に伺わない質問は除く・先へ進むのを止める質問のあとは、止める答えが決まったときだけ除く）
+        - まだ並びに入っていない、前の答えで伺う質問（Question.ask_if）のうち、qid とこれから伺う質問の答えしだいで伺いうるもの（どの答えになるかは分からない＝答えごとの
+          数の多い方。その質問の答えで伺う質問もたどる）
+        数えないもの（お客様には「今の（聞くこと）」の続き＝同じ聞くことの伺い）：聞き返し・値を直していただいたあとの言い直し・最終の確かめ・選ぶ質問の「どれも要らない」の
+        あとのほかのご希望 W1・選んでいただいた方法の連絡先・保留でよいかの伺い。✅ 2026-11-19 日本時間14時18分13秒 ユーザー（伺い52 場面A。数え方はお言葉の外＝
+        まとめ役の頼み「お客様に約束する数なので正直な数にする」で決めた）"""
+        rest = [x for x in self._remaining(maybe=True) if x != qid]
+
+        def more(src: str, seen: frozenset) -> int:
+            nxt = [x for x in self.questions.values() if x.ask_if and x.ask_if[0] == src and x.id not in self.order and x.id not in seen
+                   and self._read(x.id)[0] == "empty" and not self._brief_skips(x.id)]
+            conds = {c for x in nxt for c in x.ask_if[1]}
+            return max((sum(1 + more(x.id, seen | {x.id}) for x in nxt if c in x.ask_if[1]) for c in conds), default=0)
+        return len(rest) + sum(more(x, frozenset({x})) for x in (qid, *rest))
 
     @property
     def ended_on(self) -> dict | None:

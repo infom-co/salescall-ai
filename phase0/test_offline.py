@@ -35832,5 +35832,161 @@ class OfferQuestionUnheardTest(unittest.TestCase):
             self.assertEqual((self.heard(r0), r1["result"], self.heard(r1), f.items["Q5"].ask_backs), ("", "ask_back", self.ASK, 1), play)
 
 
+class BriefLeftReassureTest(unittest.TestCase):
+    """伺い52 場面A（✅ 2026-11-19 日本時間14時18分13秒 ユーザー「・伺い52 場面A：「今の○○のみ（今の○○ともう一つだけ）お聞かせいただけましたら、ご質問は終了と
+    なりますのでご安心ください。」3回目じゃなくて、2回目でのこれでいい」）：「手短に」の H3 に「いいえ」と言われて手短に伺っている途中（brief_only）、言い直しの確かめ
+    （形が1つしか無い所）で重ねて急かされた2回目（その所で初めて＝伺い41 の所）に、「承知しました。」（焦った）のあと、安心していただく一言（決まった言い方＝読点を入れない
+    ＝10-15）を流してから、伺っていた言い直しのまま：残りがこの1つなら「今の（聞くこと）のみ…」・もう1つなら「今の（聞くこと）ともう一つだけ…」。残りの数は約束なので、
+    答えしだいで伺いうる質問（前の答えで伺う質問 ask_if・先へ進むのを止める質問のあと）も伺う側に数える（Flow._brief_left の1か所）。2つ以上なら今のまま（伺い41）。
+    一言は質問ごとの依頼主の単位の録音（（番号）_brief_only・（番号）_brief_one_more）・会話AIが話す通話は言い直しと1つの文で会話AIが言う。
+    ⛔ 894b082f まで「承知しました。15日の14時、午後2時でよろしいでしょうか？」（お急ぎの方に、あとどれだけ伺うかを伝えないまま同じ確かめをくり返した）"""
+    HURRY = "すみません、本当に手短にお願いしますね。"
+    SAY = "15日の14時、午後2時でよろしいでしょうか？"
+    ONLY = "今のご来店の日時のみお聞かせいただけましたらご質問は終了となりますのでご安心ください。"
+    ONE_MORE = "今のご来店の日時ともう一つだけお聞かせいただけましたらご質問は終了となりますのでご安心ください。"
+    PAY = BriefGoAheadTest.PAY
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+
+    @staticmethod
+    def visit(*extra):
+        """必須の Q1（ご予約）・必須の業務の日時の質問 Q2（ご来店の日時＝言い直して確かめる）と、そのあとの質問 extra。"""
+        from flowctl import Question
+        base = OtherCompanyClueSendWayTest().business().questions
+        qd = Question("Q2", "ご来店の日時はいつがよろしいでしょうか？", "datetime", conditions=("答えた",), required=True, topic="ご来店の日時")
+        return [base[0], qd, *extra]
+
+    @staticmethod
+    def pay(**kw):
+        import dataclasses
+        return dataclasses.replace(OtherCompanyClueSendWayTest().business().questions[3], **kw)
+
+    def restated(self, questions, play=True):
+        """H3 に「いいえ」→ 手短に Q2 を伺い、「15日の14時でお願いします。」を言い直して確かめているところ。"""
+        g = BriefGoAheadTest()
+        f = g.flow(questions, play=play)
+        g.asked(f)
+        g.replied(f, "no")
+        self.assertTrue(f.brief_only)
+        r = self.turn(f, "15日の14時でお願いします。", self.rd("答えた"), "record_answer", question_id="Q2", condition_id="答えた", value="15日の14時")
+        self.assertEqual((r["result"], f.awaiting_confirm, f.awaiting_say), ("confirm_required", "Q2", "ありがとうございます。" + self.SAY))
+        return f
+
+    def hurry(self, f):
+        from flowctl import END_BRIEF, UNDECIDED
+        return self.turn(f, self.HURRY, self.rd(UNDECIDED, end=END_BRIEF))
+
+    def test_the_lines_are_fixed_and_without_commas(self):
+        from phrases import BRIEF_LEFT
+        self.assertEqual(set(BRIEF_LEFT), {0, 1})
+        for text in BRIEF_LEFT.values():
+            self.assertNotIn("、", text)   # 決まった言い方の途中に読点を入れない（10-15）
+        from flowctl import brief_left_line
+        q = self.visit()[1]
+        self.assertEqual(brief_left_line(q, 0), ("Q2_brief_only", self.ONLY))
+        self.assertEqual(brief_left_line(q, 1), ("Q2_brief_one_more", self.ONE_MORE))
+        self.assertIsNone(brief_left_line(q, 2))   # 2つ以上は今のまま（伺い41）
+        import dataclasses
+        self.assertIsNone(brief_left_line(dataclasses.replace(q, topic=""), 0))   # 聞くことが決まらなかった質問は今のまま
+
+    def test_one_more_then_the_restatement_as_asked(self):
+        for report in (False, True):
+            f = self.restated(self.visit(self.pay()))
+            counts, value = dict(f.back_counts), (f.items["Q2"].condition, f.items["Q2"].value)
+            r = self.hurry(f) if not report else self.turn(
+                f, self.HURRY, self.rd(__import__("flowctl").UNDECIDED, end=__import__("flowctl").END_BRIEF), "confirm_field", question_id="Q2", result="no_answer")
+            self.assertEqual((self.heard(r), r.get("ack"), [p["id"] for p in r["play"]], r.get("say")),
+                             ("承知しました。" + self.ONE_MORE + self.SAY, "shouchi_hurried", ["Q2_brief_one_more"], self.SAY), report)
+            self.assertEqual(f.back_counts, counts, report)   # 戻る一言の回数には数えない（伺い41 のまま）
+            # 急かしの前後で、言い直している値と判定に見せる文は変わらない
+            self.assertEqual(((f.items["Q2"].condition, f.items["Q2"].value), f.awaiting_confirm, f.awaiting_say),
+                             (value, "Q2", "ありがとうございます。" + self.SAY), report)
+            r = self.turn(f, "はい、それでお願いします。", self.rd("affirmed"), "confirm_field", question_id="Q2", result="affirmed")
+            self.assertEqual((f.items["Q2"].value, f.current, self.heard(r)), ("15日の14時", "Q4", "ありがとうございます。続きまして" + self.PAY), report)
+
+    def test_only_when_this_is_the_last(self):
+        f = self.restated(self.visit())
+        r = self.hurry(f)
+        self.assertEqual((self.heard(r), [p["id"] for p in r["play"]]), ("承知しました。" + self.ONLY + self.SAY, ["Q2_brief_only"]))
+
+    def test_the_ai_voice_says_it_with_the_restatement(self):
+        from flowctl import say_note
+        f = self.restated(self.visit(self.pay()), play=False)
+        r = self.hurry(f)
+        self.assertEqual((r.get("ack"), r.get("play"), r.get("say")), ("shouchi_hurried", [], self.ONE_MORE + self.SAY))
+        self.assertIn(say_note(self.ONE_MORE), r["message"])
+
+    def test_from_the_third_hurry_as_before(self):
+        # 3回目から（伺い46 イ）は今のまま＝形が1つしか無い言い直しは同じ文（一言はくり返さない）
+        f = self.restated(self.visit(self.pay()))
+        self.hurry(f)
+        r = self.hurry(f)
+        self.assertEqual((self.heard(r), r.get("ack")), ("承知しました。" + self.SAY, "shouchi_hurried"))
+
+    def test_two_or_more_left_is_as_before(self):
+        from flowctl import Question
+        q5 = Question("Q5", "ご来店の人数は何名様でしょうか？", "number", conditions=("答えた",), required=True, topic="ご来店の人数")
+        f = self.restated(self.visit(self.pay(), q5))
+        r = self.hurry(f)
+        self.assertEqual((self.heard(r), r.get("play")), ("承知しました。" + self.SAY, []))
+
+    def test_questions_asked_by_the_answer_are_counted(self):
+        # 約束を破らない数：前の答えで伺う質問（ask_if）は、答えしだいで伺いうる＝伺う側に数える。⛔ 数えないと、いまの質問の答えで伺う質問があっても「のみ」と言いうる
+        from flowctl import Question
+        follow = Question("Q6", "ご来店の際のお車の台数は何台でしょうか？", "number", conditions=("答えた",), required=True, topic="お車の台数",
+                          ask_if=("Q2", ("答えた",)))
+        f = self.restated(self.visit(follow))
+        r = self.hurry(f)
+        self.assertEqual(self.heard(r), "承知しました。" + self.ONE_MORE + self.SAY)
+        # 残りの質問の答えで伺う質問も（お支払いがカードならカードのご名義）＝2つ以上なら今のまま
+        name = Question("Q7", "カードのご名義はどなたでしょうか？", "free_text", conditions=("答えた",), required=True, topic="カードのご名義",
+                        ask_if=("Q4", ("カード",)))
+        f = self.restated(self.visit(self.pay(), name))
+        r = self.hurry(f)
+        self.assertEqual(self.heard(r), "承知しました。" + self.SAY)
+
+    def test_questions_after_an_undecided_stop_are_counted(self):
+        # 先へ進むのを止める質問（ここで終える答え ends_on）の答えがまだ決まっていなければ、そのあとの質問も伺いうる（振込でなければ伺う）＝今のまま
+        from flowctl import Question
+        q5 = Question("Q5", "ご来店の人数は何名様でしょうか？", "number", conditions=("答えた",), required=True, topic="ご来店の人数")
+        f = self.restated(self.visit(self.pay(ends_on=("振込",)), q5))
+        self.assertEqual([x for x in f._remaining() if x != "Q2"], ["Q4"])   # これから伺う質問（今の決まり）は止める質問まで
+        r = self.hurry(f)
+        self.assertEqual(self.heard(r), "承知しました。" + self.SAY)
+
+    def test_the_question_place_and_the_full_call_are_as_before(self):
+        # 言い直しの確かめのほかの所は今のまま：ふつうの質問の2回目＝伺い41 ア（「承知しました。」＋伺っていた形のまま）
+        f = self.restated(self.visit(self.pay()))
+        self.turn(f, "はい、それでお願いします。", self.rd("affirmed"), "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual(f.current, "Q4")
+        r = self.hurry(f)
+        self.assertEqual((self.heard(r), r.get("ack")), ("承知しました。" + self.PAY, "shouchi_hurried"))
+        # 手短に伺っていない電話の言い直し（H3 を伺っていない）には流さない＝1回目の「手短に」は H3（伺い31）
+        from flowctl import CALLBACK_IDS
+        g = BriefGoAheadTest()
+        f = g.flow(self.visit(self.pay()))
+        r = self.turn(f, "15日の14時でお願いします。", self.rd("答えた"), "record_answer", question_id="Q2", condition_id="答えた", value="15日の14時")
+        self.assertEqual(r["result"], "confirm_required")
+        r = self.hurry(f)
+        self.assertEqual((f.current, r.get("ack")), (CALLBACK_IDS["brief"], "arigatou"))
+
+    def test_recordings_per_question(self):
+        # 依頼主の単位の録音（質問ごとに2つの形）：手短にでも伺う質問（brief_asks）で、言い直して確かめる（restates）・聞くことのある業務の質問だけ
+        import dataclasses
+        from make_ack_clips import HOW, MAX_S, script_table
+        b = dataclasses.replace(OtherCompanyClueSendWayTest().business(), questions=self.visit(self.pay(), self.pay(id="Q8", required=False)))
+        table, _ = script_table(b)
+        self.assertEqual(table["Q2_brief_only"][0], self.ONLY)
+        self.assertEqual(table["Q2_brief_one_more"][0], self.ONE_MORE)
+        self.assertEqual(table["Q4_brief_one_more"][0], "今のお支払いの方法ともう一つだけお聞かせいただけましたらご質問は終了となりますのでご安心ください。")
+        self.assertNotIn("Q8_brief_only", table)   # 手短にでは伺わない質問には作らない
+        how = table["Q2_brief_one_more"][1]
+        self.assertIn(how, HOW)
+        self.assertLessEqual(len(self.ONE_MORE) * __import__("make_ack_clips").CHAR_S * 1.15, MAX_S[how])
+        from phrases import RECORDED
+        self.assertNotIn("Q2_brief_only", RECORDED)   # 共通の一言ではない
+
+
 if __name__ == "__main__":
     unittest.main()
