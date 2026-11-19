@@ -40,7 +40,7 @@ class Entry:
 class Watch:
     title: str
     meaning: str                              # この項目が何か・システムが何をしているか（契約者が読む）
-    where: str                                # tenant＝契約者の取引で読む／client＝依頼者ごとの取引で読む
+    where: str                                # tenant＝契約者の取引で読む／client＝依頼者ごとの取引で読む／system＝管理者の取引で読む（管理者にだけ見せる）
     collect: Callable[[Tx], list[Entry]]
     attention: bool = True                    # ホームの「気をつけること」に数えるか（終えた電話の記録などは数えない）
 
@@ -101,20 +101,26 @@ def _resting(st: Any) -> str:
     return _stage_reason("resting")(st) + (f"（続いた不具合：{kinds}）" if kinds else "")
 
 
-def _undelivered(tx: Tx) -> list[Entry]:
+def _undelivered(for_admin: bool) -> Callable[[Tx], list[Entry]]:
     """送れていない知らせ（届いたかの決め方は output/notices.delivery_state の1か所。知らせの画面と同じ）。肝心の知らせが届いて
-    いないので、ホームの「気をつけること」に数える。"""
-    rows = tx.all("SELECT e.kind, e.summary, e.occurred_at,"
-                  " ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
-                  " FROM salescall.notification_events e WHERE e.for_admin = false AND e.occurred_at > now() - make_interval(days => %s)"
-                  " ORDER BY e.occurred_at DESC LIMIT %s", (DAYS, LIMIT))
-    return [Entry(words.notice_kind(r["kind"]), r["summary"], r["occurred_at"], "/t/notices") for r in rows
-            if notices.delivery_state(r["statuses"]) == "gave_up"]
+    いないので、ホームの「気をつけること」に数える。契約者あては契約者の取引で、管理者あては管理者の取引（system）で読む。"""
+    link = "/t/notices#admin-notices" if for_admin else "/t/notices"
+
+    def collect(tx: Tx) -> list[Entry]:
+        rows = tx.all("SELECT e.kind, e.summary, e.occurred_at,"
+                      " ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
+                      " FROM salescall.notification_events e WHERE e.for_admin = %s AND e.occurred_at > now() - make_interval(days => %s)"
+                      " ORDER BY e.occurred_at DESC LIMIT %s", (for_admin, DAYS, LIMIT))
+        return [Entry(words.notice_kind(r["kind"]), r["summary"], r["occurred_at"], link) for r in rows
+                if notices.delivery_state(r["statuses"]) == "gave_up"]
+    return collect
 
 
 WATCHES: dict[str, Watch] = {
     "undelivered": Watch("送れていない知らせ（直近7日）", "ショートメールもチャットワークも、決めた回数送っても届かなかった知らせです。"
-                         "中身を「知らせ」で確かめ、送り先の設定を見直してください。", "tenant", _undelivered),
+                         "中身を「知らせ」で確かめ、送り先の設定を見直してください。", "tenant", _undelivered(False)),
+    "undelivered_admin": Watch("送れていない管理者あての知らせ（直近7日）", "管理者あての知らせが、決めた回数送っても届かなかったものです。"
+                               "管理者にだけ見えます。中身を「知らせ」の「管理者あて」で確かめてください。", "system", _undelivered(True)),
     "lines": Watch("確かめ中・休みの回線", "回線のせいか番号のせいかを確かめている回線と、休ませている回線です。直ったと確かめられると自動で戻ります"
                    "（手で再開するときは「回線と PC」から）。", "tenant", _lines),
     "ring_tests": Watch("テスト番号の結果（直近7日）", "回線が電話網につながるかを、テスト番号に鳴らして確かめた結果です。「見分けられなかった」ときは、"
@@ -138,16 +144,25 @@ WATCHES: dict[str, Watch] = {
 
 
 def collect(ctx: Any) -> list[tuple[str, Watch, list[tuple[dict[str, Any] | None, Entry]]]]:
-    """すべての項目を集める（契約者の取引の項目は1回、依頼者の項目は依頼者ごとの読むだけの取引で）。(鍵, 項目, [(依頼者, 中身)])。"""
-    tenant_keys = [k for k, w in WATCHES.items() if w.where == "tenant"]
-    client_keys = [k for k, w in WATCHES.items() if w.where == "client"]
-    found: dict[str, list[tuple[dict[str, Any] | None, Entry]]] = {k: [] for k in WATCHES}
-    for k, got in ctx.tenant(lambda tx: {k: WATCHES[k].collect(tx) for k in tenant_keys}).items():   # 契約者の取引は1つ
+    """すべての項目を集める（契約者の取引の項目は1回、依頼者の項目は依頼者ごとの読むだけの取引で、管理者の項目は管理者のときだけ
+    管理者の取引で1回）。(鍵, 項目, [(依頼者, 中身)])。管理者でなければ、管理者の項目は並べない（「なし」とも出さない）。"""
+    shown = {k: w for k, w in WATCHES.items() if w.where != "system" or ctx.person.is_admin}
+    found: dict[str, list[tuple[dict[str, Any] | None, Entry]]] = {k: [] for k in shown}
+
+    def keys(where: str) -> list[str]:
+        return [k for k, w in shown.items() if w.where == where]
+
+    def read(ks: list[str]) -> Callable[[Tx], dict[str, list[Entry]]]:
+        return lambda tx: {k: shown[k].collect(tx) for k in ks}
+    if keys("system"):
+        for k, got in ctx.system(read(keys("system"))).items():
+            found[k] = [(None, e) for e in got]
+    for k, got in ctx.tenant(read(keys("tenant"))).items():   # 契約者の取引は1つ
         found[k] = [(None, e) for e in got]
     for c in ctx.clients():   # 依頼者ごとに、読むだけの取引を1つ（その中で依頼者の項目をすべて集める）
-        for k, got in ctx.client(c["client_id"], lambda tx: {k: WATCHES[k].collect(tx) for k in client_keys}, read_only=True).items():
+        for k, got in ctx.client(c["client_id"], read(keys("client")), read_only=True).items():
             found[k] += [(c, e) for e in got]
-    return [(k, WATCHES[k], found[k]) for k in WATCHES]
+    return [(k, w, found[k]) for k, w in shown.items()]
 
 
 def attention_count(found: list[tuple[str, Watch, list[Any]]]) -> int:

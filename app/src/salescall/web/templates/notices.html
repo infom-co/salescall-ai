@@ -24,7 +24,7 @@
 <p class="lead">緊急のものは上に固定しています。ショートメールでも同じ知らせが届きます。</p>
 {# 誰にどの知らせを見せるかは、データベースの1か所（知らせの台帳の読める範囲＝0084）が決める。画面では絞り直さない #}
 {% if person.is_admin %}
-<h2>管理者あて（全体）</h2>
+<h2 id="admin-notices">管理者あて（全体）</h2>
 {% if admin_rows %}{{ notice_table(admin_rows) }}{% else %}<div class="card">{{ empty("管理者あての知らせはありません") }}</div>{% endif %}
 <h2 style="margin-top:28px">「{{ ctx.tenant_name }}」あて</h2>
 {% endif %}

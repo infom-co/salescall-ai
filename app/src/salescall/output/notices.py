@@ -112,10 +112,15 @@ def _record(tx: Tx, event_id: int, step: Step, status: str, error: str | None) -
                " VALUES (%s, %s, %s, %s, %s)", (event_id, step.channel, status, step.attempt_no, error))
 
 
-def deliver_tenant_event(access: Access, actor: Actor, tenant_id: Any, event_id: int,
-                         transports: Mapping[str, Transport], max_tries: int) -> str:
-    """契約者の出来事を1つ送る（1回の一手だけ。呼ぶ側が、送り終わるまで繰り返す）。答え：sent／failed／gave_up／done（もう済み）。
+def deliver_event(access: Access, actor: Actor, tenant_id: Any | None, event_id: int,
+                  transports: Mapping[str, Transport], max_tries: int) -> str:
+    """出来事を1つ送る（1回の一手だけ。呼ぶ側が、送り終わるまで繰り返す）。答え：sent／failed／gave_up／done（もう済み）。
+    契約者あて（tenant_id あり）は契約者の取引で、管理者あて（for_admin。tenant_id＝None）は全体の取引で読み書きする（管理者あては
+    全体の取引でしか読めない決まり＝0084）。送る順・文・送り直し・記録は、どちらもこの1か所。
     送る処理は同時に1つだけ（`Access.exclusive`。取れなければ busy＝ほかの処理が送っている）。"""
+    def in_tx(work: Any) -> Any:
+        return access.in_system(actor, work) if tenant_id is None else access.in_tenant(actor, tenant_id, work)
+
     with access.exclusive(f"notice:{event_id}") as mine:
         if not mine:
             return "busy"
@@ -126,18 +131,18 @@ def deliver_tenant_event(access: Access, actor: Actor, tenant_id: Any, event_id:
                 raise LookupError(f"その知らせは無い（または範囲の外）：{event_id}")
             return next_step(_history(tx, event_id), list(transports), max_tries), e
 
-        step, event = access.in_tenant(actor, tenant_id, plan)
+        step, event = in_tx(plan)
         if step is None:
             return "done"
         if step.action == "give_up":
-            access.in_tenant(actor, tenant_id, lambda tx: _record(
+            in_tx(lambda tx: _record(
                 tx, event_id, step, "gave_up", f"{max_tries}回送っても届きませんでした"))
             return "gave_up"
         try:
             transports[step.channel].send(text_for(event["kind"], event["summary"]))   # 取引の外で1回だけ
         except SendFailed as e:
             reason = str(e).strip() or "理由が返っていません"
-            access.in_tenant(actor, tenant_id, lambda tx: _record(tx, event_id, step, "failed", reason))
+            in_tx(lambda tx: _record(tx, event_id, step, "failed", reason))
             return "failed"
-        access.in_tenant(actor, tenant_id, lambda tx: _record(tx, event_id, step, "sent", None))
+        in_tx(lambda tx: _record(tx, event_id, step, "sent", None))
         return "sent"

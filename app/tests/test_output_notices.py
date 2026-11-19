@@ -87,7 +87,7 @@ class Delivery(unittest.TestCase):
             "SELECT event_id FROM salescall.notification_events WHERE event_key = %s", (key,)))["event_id"]
 
     def _deliver(self, eid, transports, tries=2):
-        return notices.deliver_tenant_event(app_access(), SYSTEM, self.s["tenant"], eid, transports, tries)
+        return notices.deliver_event(app_access(), SYSTEM, self.s["tenant"], eid, transports, tries)
 
     def _rows(self, eid):
         return app_access().in_tenant(OPERATOR, self.s["tenant"], lambda tx: [(r["channel"], r["status"], r["attempt_no"]) for r in tx.all(

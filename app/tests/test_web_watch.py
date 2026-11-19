@@ -53,7 +53,7 @@ class WatchOnScreen(OurTroubles):
     def test_every_watch_says_where_it_is_read_and_what_it_means(self):
         for key, w in watch.WATCHES.items():
             with self.subTest(key=key):
-                self.assertIn(w.where, ("tenant", "client"))
+                self.assertIn(w.where, ("tenant", "client", "system"))
                 self.assertTrue(w.title and w.meaning)
 
 

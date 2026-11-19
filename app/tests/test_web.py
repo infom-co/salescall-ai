@@ -514,6 +514,30 @@ class Web(_World):
         self.assertNotIn("架空の管理者あての知らせ", self.get("A", "/t/notices").text)
         self.assertIn("架空の管理者あての知らせ", self.get("ADMIN", "/t/notices").text)
 
+    def test_an_undelivered_notice_for_the_admin_is_watched_for_the_admin_only(self):   # 送信も見張りも、契約者あてと同じ1か所
+        from salescall.core import notify
+        from salescall.output import notices
+        from tests.support import ADMIN
+
+        class Broken:
+            def send(self, text):
+                raise notices.SendFailed("試験：つながらない")
+        kind = next(iter(notify.KINDS))
+        app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: notify.emit(
+            tx, kind, key="試験：管理者あての届かない知らせ", summary="架空の届かない管理者あての知らせ", admin=True, contractor=False))
+        eid = app_access().in_system(ADMIN, lambda tx: tx.one(
+            "SELECT event_id FROM salescall.notification_events WHERE event_key = %s AND for_admin", ("admin:試験：管理者あての届かない知らせ",)))["event_id"]
+        got = [notices.deliver_event(app_access(), SYSTEM, None, eid, {"sms": Broken()}, 1) for _ in range(2)]
+        self.assertEqual(got, ["failed", "gave_up"])                             # 管理者あても、回数を使い切れば記録して止める
+        admin = self.get("ADMIN", "/t/watch").text
+        part = admin[admin.index('id="undelivered_admin"'):]
+        self.assertIn("架空の届かない管理者あての知らせ", part[:3000])
+        self.assertIn("/t/notices#admin-notices", part[:3000])                  # 知らせの画面の「管理者あて」へ飛べる
+        self.assertIn("送れていない管理者あての知らせ", self.get("ADMIN", "/t").text)   # 管理者のホームの「気をつけること」
+        operator = self.get("A", "/t/watch").text
+        self.assertNotIn('id="undelivered_admin"', operator)                    # 契約者には項目ごと出さない
+        self.assertNotIn("架空の届かない管理者あての知らせ", operator)
+
     def test_a_new_business_shows_how_to_begin_and_a_running_one_does_not_ask_again(self):   # はじめかた（counts.setup_steps）
         r = self.post("A", f"/c/{self.a['client']}/businesses", {"form_token": self.token("A"), "name": "架空の新しく始める業務"})
         self.assertEqual(r.status_code, 303)

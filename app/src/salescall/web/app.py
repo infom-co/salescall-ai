@@ -1315,7 +1315,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
                 _row_in(tx, business_id, run_id, task_id)
-                # ⏳ 1行だけを読む形（customer_rows の1か所）を CL-2 へお願い（いまは実施回の全行を読んで1行を選ぶ）。
+                # ⏳ 1行だけを読む形（customer_rows の1か所）を CL-2 へお願い 47（いまは実施回の全行を読んで1行を選ぶ）。
                 row = next((r for r in customer_rows.progress(tx, run_id) if r["task_id"] == task_id), None)
                 if row is None:
                     raise NotFound()
