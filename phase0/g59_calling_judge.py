@@ -100,13 +100,20 @@ LINES_AFTER = [
 # 正しく設計できているんですか？」で足した（確かめに「いいえ」と答えた方を「ご本人」と読めば、AIの読み違いと重なったときに別の方に繋ぐ）。
 # 前の言葉は、本番と同じに、確かめるきっかけになった言葉（ASKED_AFTER）か、取り次いだ方の言葉。⛔ 2026-10-30 まで、前の言葉の無い確かめへの返事を
 # 測っていた（本番では、呼んでいる段の相手の言葉は消えない＝Flow.judge_context。前の言葉が無いのは、呼ぶ一言のあとに初めて話した言葉だけ）
+# 確かめのきっかけは、前の言葉の最後に必ずある（本番は、目的のお客様か決まらない読みとご本人の報告のあとにだけ確かめる一言を流す＝取り次ぎの言葉のすぐあと・
+# 「別の方」と読んだ言葉のすぐあとには流さない）。⛔ e055c397 まで、取り次ぎの言葉「岡田ですね。少々お待ちください。」のすぐあとの「はい、そうです。」（正解
+# 前と違う方・ご本人）と、「お電話代わりました。担当の山田です。」のすぐあとの「いいえ、私は山田と申します。」を確かめへの返事として測っていた＝本番では組めない
+# 場面（帳面 1 の (13) の (c)・頼み rv123/Y3 の (2)）
 ASKED_AFTER = "はい。"
 LINES_CONFIRMED = [
     ("はい、そうです。", ASKED_AFTER, F("同", "本", "無", "無")),
     ("はい、私です。", ASKED_AFTER, F("同", "本", "無", "無")),
-    ("はい、そうです。", TO_TARGET, F("違", "本", "無", "無")),            # 前の言葉は取り次いだ方（ご本人ではない）＝話している方は違う方
+    # 取り次ぎのあとに出た方の「はい。」で確かめた（取り次ぐと言われたことだけでは前と違う方にしない＝「はい。」の方と同じ方）。⛔ e055c397 まで前の言葉は
+    # 取り次ぎの言葉だけで、正解は前と違う方だった
+    ("はい、そうです。", f"{TO_TARGET}／{ASKED_AFTER}", F("同", "本", "無", "無")),
     ("いいえ、私は山田と申します。", ASKED_AFTER, F("同", "受", "無", "無")),
-    ("いいえ、私は山田と申します。", "お電話代わりました。担当の山田です。", F("同", "別", "無", "無")),   # 電話を代わった方が違うお名前を名乗っただけ
+    # 電話を代わった方が違うお名前を名乗ったのでお呼びし直し、「はい。」で確かめた（前の言葉で「代わって出た」山田様が、違うお名前を名乗っただけ＝別の方）
+    ("いいえ、私は山田と申します。", f"お電話代わりました。担当の山田です。／{ASKED_AFTER}", F("同", "別", "無", "無")),
     ("いえ、違います。", ASKED_AFTER, F("同", "受", "無", "無")),
     ("いえ、受付の者です。少々お待ちください。", ASKED_AFTER, F("同", "受", "待", "無")),
     ("いえ、岡田は席を外しております。", ASKED_AFTER, F("同", "受", "無", "在")),
@@ -257,6 +264,13 @@ def unsure_of(target: bool, exc: NoJudgment) -> str | None:
     return label(counted) if counted else None
 
 
+def hear_before(asked: bool) -> str | None:
+    """試しの言葉（G-73）の行の「その前に相手が言ったこと」（唯一の決まり＝正解の表 cases・聞こえ方だけを数える行の見分け g59_tally.hear_only・G-73 の
+    場面の質問 g73_system_words.calling_questions）：確かめる一言のあとの行は、確かめのきっかけ（ASKED_AFTER）。呼ぶ一言のあとの行は無し。
+    ⛔ e055c397 まで、確かめる一言のあとの行も前の言葉が無かった（本番は確かめる一言の前に必ずお客様の言葉がある＝本番では組めない場面）"""
+    return ASKED_AFTER if asked else None
+
+
 def lines_hear() -> list[tuple[str, bool, dict[str, set]]]:
     """試しの言葉（G-73 の組 HEAR_CALL・読み口は g73_system_words.latest の1か所）：お呼びする段の2つの一言のあとの、こちらの声が届いていない様子か
     の言葉 (相手の言葉, 確かめる一言のあとか, 正解)。✅ 2026-11-02 日本時間23時15分58秒 ユーザー「特にない」＝正解は作らせた種類のまま。
@@ -314,7 +328,7 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED]
             + [(t, successor_before(t, b, c), c, True, f) for t, b, c, f in LINES_SUCCESSOR]
-            + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, None, a, False, f) for t, a, f in lines_hear()])
+            + [(t, b, False, False, f) for t, b, f in lines_end()] + [(t, hear_before(a), a, False, f) for t, a, f in lines_hear()])
     # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉の正解は、行に END を書いたもの（ご本人の「…会議中で手が離せないのですが。」＝
     #    急いでいる）のほかは「言っていない」（断り・取り次げない・急ぎ・怒りの言葉は無い。⛔ 11-01 は1つずつ読まずに全部を「言っていない」にしていた＝
     #    2026-11-05 に71の言葉を1つずつ読み直した）。
@@ -377,7 +391,7 @@ async def run(args) -> dict:
     else:
         judges = measured_judges(args)   # 測るのは選んだ意味の判定だけ（中身の判定は g63_grounding。選んでいなければ止める）
     rows, items, where = [], [], {}
-    hear_only = {(t, a) for t, a, _ in lines_hear()}   # 聞こえ方だけを数える行（試しの言葉 G-73）
+    hear_only = {(t, hear_before(a), a) for t, a, _ in lines_hear()}   # 聞こえ方だけを数える行（試しの言葉 G-73）
 
     def finish(row) -> None:
         # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
@@ -395,7 +409,7 @@ async def run(args) -> dict:
         fl = fs if successor else f
         q = question_of(fl, asked)
         for rep in range(args.repeat):
-            only = (text, bool(asked)) in hear_only
+            only = (text, before, bool(asked)) in hear_only
             truths = asks_truths(text, only)   # 尋ねているかの正しい読み（1か所）：1つに決まる言葉だけ数える（「尋ねている」か＝ASKED に入るか）
             want = truths[0] in ASKED if len(truths) == 1 else None
             kind = truths[0] if len(truths) == 1 and truths[0] in ASKED else None

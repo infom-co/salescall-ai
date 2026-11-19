@@ -7267,9 +7267,9 @@ class MeasureCallingFlowTest(unittest.TestCase):
                 continue
             right = {k: sorted(v)[0] for k, v in facts.items()}
             self.assertIsNone(t.flow_miss(right, facts, r), (text, before))
-        # 取り次ぎの言葉のあとの確かめ（表の前の言葉に、確かめたきっかけの言葉が無い）・「お電話代わりました。担当の山田です。」のあとの確かめへの返事（その言葉の
-        # 正しい読み＝前と違う方・別の方は、確かめずに名乗ってからお呼びする＝本書 9-4 の (5)。⛔ 9e707d0a までは会話AIの「目的の人」の報告で確かめていた）
-        self.assertEqual(missing, [("はい、そうです。", g.TO_TARGET), ("いいえ、私は山田と申します。", "お電話代わりました。担当の山田です。")])
+        # ⛔ e055c397 までは2行（取り次ぎの言葉のすぐあとの確かめ・「お電話代わりました。担当の山田です。」のすぐあとの確かめ）を組めなかった＝表の前の言葉に
+        # 確かめのきっかけの言葉を足した（MeasureCallingConfirmTriggerTest・頼み rv123/Y3 の (2)）
+        self.assertEqual(missing, [])
 
     def test_reports_are_every_report_the_ai_can_give(self):
         # 流す報告は、お呼びする段で会話AIが出せる相手の報告の全部（流れの制御の名前の表 PARTY_LABEL の人の相手）・代わった方・報告なし
@@ -38090,3 +38090,49 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
                 self.assertEqual(asked, it["asked"], it)   # 最終の確かめは、正解の表の行と同じ本番の1か所（accepted_line）の文
         self.assertEqual([m[0] for m in missing], ["R7"], missing)
         self.assertIn("聞き取れなかった", missing[0][1])
+
+
+class MeasureCallingConfirmTriggerTest(unittest.TestCase):
+    """お呼びする段の正解の表（g59_calling_judge.cases）の行は、聞こえ方だけを数える行も含めて、どれも本番の流れの制御で行の場面（確かめたあとか・判定に渡す
+    前の言葉）に組める＝確かめへの返事の行の前の言葉には、確かめのきっかけになった言葉（目的のお客様か決まらない読みとご本人の報告＝流れの制御が確かめる一言を
+    流す言葉）がある（帳面 docs/team/CL-1.md の 1 の (13) の (c)・頼み rv123/Y3 の (2)）。
+    ⛔ e055c397 まで、26行は本番の流れの制御では組めなかった：(c) 取り次ぎの言葉「岡田ですね。少々お待ちください。」のすぐあとの確かめへの「はい、そうです。」
+       （本番は取り次ぎの言葉のあとは黙って待つ＝確かめる一言を流さない）・「お電話代わりました。担当の山田です。」のあとの確かめへの「いいえ、私は山田と申します。」
+       （本番は「別の方」の読みでは確かめずにお呼びし直す）・試しの言葉（G-73）の確かめる一言のあとの24行（前の言葉が無い＝本番は確かめる一言の前に必ず
+       お客様の言葉がある）。判定には、本番が渡さない前の言葉で読ませていた。"""
+
+    def test_every_row_including_the_hearing_rows_is_built_in_the_production_flow(self):
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        missing = []
+        for text, _, before, asked, succ, _ in g.cases("確かめる一言"):
+            try:
+                fc.row_scene({"text": text, "before": before, "asked": asked, "successor": succ})
+            except fc.NoScene:
+                missing.append((text, before, bool(asked)))
+        self.assertEqual(missing, [])
+
+    def test_the_hold_confirm_row_reads_like_the_other_confirm_replies(self):
+        # (c)：取り次ぎの言葉のあとに出た方の「はい。」（確かめのきっかけ＝取り次ぐと言われたことだけでは前と違う方にしない）のあとの、確かめへの「はい、そうです。」
+        # ＝前の方（「はい。」の方）と同じ方・ご本人。ほかの確かめへの「はい、そうです。」の行（前の言葉「はい。」）と同じ正解
+        import g59_calling_judge as g
+        rows = {(t, b): f for t, _, b, a, s, f in g.cases("x") if a and not s}
+        self.assertNotIn(("はい、そうです。", g.TO_TARGET), rows)
+        self.assertEqual(rows[("はい、そうです。", f"{g.TO_TARGET}／{g.ASKED_AFTER}")], rows[("はい、そうです。", g.ASKED_AFTER)])
+        # 「お電話代わりました。担当の山田です。」のあと、お呼びし直した一言への「はい。」で確かめた：正解は前と同じ（前の言葉に「代わって出た」山田様がいる＝別の方）
+        self.assertNotIn(("いいえ、私は山田と申します。", "お電話代わりました。担当の山田です。"), rows)
+        yamada = rows[("いいえ、私は山田と申します。", f"お電話代わりました。担当の山田です。／{g.ASKED_AFTER}")]
+        self.assertEqual((yamada["speaker"], yamada["who"]), ({"前と同じ方"}, {"別の方（どなたかは分からない）"}))
+
+    def test_the_hearing_rows_after_the_confirm_have_its_trigger_and_are_still_hearing_only(self):
+        # 試しの言葉（G-73）の確かめる一言のあとの行：前の言葉は確かめのきっかけ（g59_calling_judge.hear_before の1か所）。聞こえ方だけを数える行の見分け
+        # （g59_tally.hear_only）も同じ1か所で見る
+        import g59_calling_judge as g
+        import g59_tally as t
+        hear = g.lines_hear()
+        self.assertTrue(any(a for _, a, _ in hear) and any(not a for _, a, _ in hear))
+        keys = {(x, b, bool(a)) for x, _, b, a, s, _ in g.cases("x") if not s}
+        for text, asked, _ in hear:
+            self.assertEqual(g.hear_before(asked), g.ASKED_AFTER if asked else None)
+            self.assertIn((text, g.hear_before(asked), asked), keys)
+            self.assertTrue(t.hear_only({"text": text, "before": g.hear_before(asked), "asked": asked, "successor": False}), text)
