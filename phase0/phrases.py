@@ -1109,7 +1109,11 @@ SUCCESSOR = {"target": "恐れ入りますが後任のご担当者様はいら�
              "unavailable_confirm": UNAVAILABLE_CONFIRM.format(who="後任のご担当者様"),
              # お取り次ぎをお願いし直す一言（TARGET_TRANSFER）の後任のご担当者様の形（伺い51 イと同じ理由＝後任のご担当者様をお呼びする電話も、通話の中で切り替えたあとも）
              "target_transfer": TARGET_TRANSFER.format(who="後任のご担当者様")}
-SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confirm", "target_reconfirm": "successor_reconfirm",
+# 共通の一言の録音で流す形（流れの制御が流しうるものだけ＝録音の表 RECORDED の名前）。はっきりしない返事への聞き返し target_reconfirm（「…でお間違えなかったでしょうか？」）は
+# 流れの制御がもう流さない（flowctl.CONFIRM_PARTS の説明＝✅ 2026-11-19 日本時間15時10分27秒 伺い50 イ）ので、その後任の方の形 successor_reconfirm も流れない＝作らない
+# （文 SUCCESSOR["target_reconfirm"] は名前の録音の台帳の続く言葉 target_reconfirm と一緒に残る＝CL-2 と同時に外す＝分身 R）。⛔ 2026-11-19（分身 AA＝穴 (C)）まで
+# successor_reconfirm を録音の表に入れていた
+SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confirm",
                  "unavailable_confirm": "successor_unavailable", "target_transfer": "successor_transfer"}
 # 前の電話で、お呼びした方が在籍していないと言われた会社への次の電話（予約証の successor）：その方の後任のご担当者様をお呼びする一言（依頼主の単位の
 # 録音＝前任の方のお名前が入る）。✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」（CL-2 の連絡帳 4-140：「（前任の方のお名前）様の後任の
@@ -1407,7 +1411,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(""),
-            "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
+            "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{rid: SUCCESSOR[k] for k, rid in SUCCESSOR_IDS.items()},
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
@@ -1429,13 +1433,18 @@ RESUMED_IDS = {f"callback_{k}_again" for k in CALLBACK_ASK_RESUMED}
 # 流れない録音まで契約者に録って聞いていただくことになる＝CL-2 の連絡帳 4-411 の (1)）。⛔ 66eb3d76 まで、どのシステムの質問にも形を作っていた
 NOT_ASKED_AGAIN = ("elsewhere", "deepen", "deepen_measures", "deepen_ahead", "elsewhere_point")
 _NOT_ASKED_AGAIN_IDS = {f"callback_{k}" for k in NOT_ASKED_AGAIN}
-BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS and k not in _NOT_ASKED_AGAIN_IDS]
+# 保留でよいかを伺う一言（callback_（役目）_pending＝CALLBACK_PENDING）も、戻る一言のあとの形と伺い直す形は流れない＝表に入れない：その一言はお返事を待つ言い直し
+# （flowctl.Flow._ask_pending が awaiting_say に置く）で、言い直しへ戻るときは会話AIが言う（flowctl.Flow._continue の言い直しの枝＝restated_again。録音は流さない）。
+# ⛔ 2026-11-19（分身 AA＝穴 (C)）まで、ほかのシステムの質問と同じく _bare・_midway を作っていた（試験の全部で一度も流れない＝流れの制御が流さない形）
+PENDING_IDS = {f"callback_{k}_pending" for k in CALLBACK_PENDING}
+BACK_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS and k not in _NOT_ASKED_AGAIN_IDS
+                                     and k not in PENDING_IDS]
             for b in (BACK_TO_AGAIN, BACK_TO_MIDWAY) for rid, t in [back_fit(base, text, b)] if rid != base}
 RECORDED.update(BACK_FIT)
 # システムの質問を、戻る一言なしに伺い直す形（again_fit の1か所。もう伺った質問へ戻る頭「それでは」＝見直し (12) の B-9）。続きの電話の前置きつきの一言
 # （RESUMED_IDS）は、伺い直すときは前置きを言い直さない形（flowctl.Question.plain）なので作らない
 AGAIN_FIT = {rid: t for base, text in [(k, v) for k, v in RECORDED.items() if k.startswith("callback_") and k not in RESUMED_IDS and k not in BACK_FIT
-                                         and k not in _NOT_ASKED_AGAIN_IDS]
+                                         and k not in _NOT_ASKED_AGAIN_IDS and k not in PENDING_IDS]
              for rid, t in [again_fit(base, text)] if rid != base}
 RECORDED.update(AGAIN_FIT)
 
