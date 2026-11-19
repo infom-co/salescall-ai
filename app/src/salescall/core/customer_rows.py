@@ -12,13 +12,14 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import customer_contacts
+from salescall.core import customer_contacts, next_action
 from salescall.core.access import Tx
 
 
 def progress(tx: Tx, run_id: UUID) -> list[dict[str, Any]]:
     """その実施回の行ごとの進み具合（一覧の行番号の順）：行・管理番号・会社名・お呼びする方（名前・役職・部署）・かける番号・業務の状態・
-    次の予定（かける／判定待ち／終える・時刻・理由）・「かけない」の印・かけた回数・最後の電話（状態・時刻）・連絡先と番号。"""
+    次の予定（かける／判定待ち／終える・時刻・理由）・「かけない」の印・かけた回数・最後の電話（状態・時刻）・連絡先と番号・
+    「さらにかける」の承認ボタンを出すか（more_calls。押すのは core/approval.more_calls。0245）。"""
     rows = tx.all(
         "SELECT t.task_id, t.source_row, t.client_ref, t.source_name, t.target_name, t.target_role, t.target_department,"
         "       k.phone_e164 AS dial_phone, coalesce(r.business_state::text, 'open') AS business_state,"
@@ -33,4 +34,7 @@ def progress(tx: Tx, run_id: UUID) -> list[dict[str, Any]]:
         " LEFT JOIN LATERAL (SELECT a.state, a.claimed_at FROM salescall.attempts a WHERE a.task_id = t.task_id AND a.state <> 'released'"
         "                    ORDER BY a.claimed_at DESC LIMIT 1) l ON true"
         " WHERE t.run_id = %s ORDER BY t.source_row NULLS LAST, t.task_id", (run_id,))
-    return [{**dict(r), "contacts": customer_contacts.now(tx, r["task_id"])} for r in rows]
+    # 「さらにかける」の承認ボタンを出すか（決めるのは next_action.more_calls_offered の1か所。終えた行だけを聞く）
+    return [{**dict(r), "contacts": customer_contacts.now(tx, r["task_id"]),
+             "more_calls": r["next_kind"] == "end" and r["next_end_reason"] in next_action.MORE_CALL_ENDS
+             and next_action.more_calls_offered(tx, r["task_id"]) is not None} for r in rows]

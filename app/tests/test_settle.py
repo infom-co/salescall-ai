@@ -5715,25 +5715,34 @@ class CallbackWindow(SettleBase):
         """日だけの約束（「（d4）なら」）で、その日にかけられる時刻が無い（その曜日は1日じゅうNG時間。依頼者の休みの曜日なら、
         ほかの日の時間を当ててかける＝別の試験）：その日が過ぎてから、時刻の
         決まっていない約束の方針の間隔で。お客様と約束したかけ直しのまま。⚠️ 前は、いまから間隔を数え、お客様が言った日より前にかけた（2026-10-19 の見直し）。
-        門で幅が過ぎたと分かったとき（_window_over）も同じ。"""
+        門で幅が過ぎたと分かったとき（_window_over）も同じ。
+        間隔は、その日より前の最後の電話から数え、同じ日にはかけ直さず、その日が過ぎた時刻より前にはしない。前に当たれば、その日が過ぎた日の、
+        前の電話と別の時間帯の、かけてよい最も早い時刻（`_window_over`・`_unspecified_next`。2026-11-18 の8回目の見直し）。
+        ⛔ 2026-11-19 まで：この試験は、その日が過ぎた時刻から方針の間隔（1時間）を数える前の決まりを確かめていて、試験を流す時刻（前の電話の
+        時間帯）しだいで落ちた。時間帯の区切りを決めて、前の電話の時間帯から、答えの時刻をちょうどで確かめる。"""
         from salescall.core.calendar import holiday_checker
         s = self.ready()
         d4 = self.local_now(s).date() + timedelta(days=4)
         key = self.tx(s, lambda tx: calling_hours.day_key(d4, holiday_checker(tx)))
         self.put_client(s, "calling.hours", {k: [["00:00", "24:00"]] for k in KEYS})
         self.put_client(s, "calling.ng_hours", {k: ([["00:00", "24:00"]] if k == key else []) for k in KEYS})
+        self.put_client(s, "retry.time_band_boundaries", [12])   # 午前・午後の2つ
         aid = self.call(s, report=rep(callback=callback("later", time=f"{d4.month}月{d4.day}日なら")))
         self.assertEqual(self.settle(s, aid)["state"], "callback_scheduled")
         after_day = datetime.combine(d4 + timedelta(days=1), datetime.min.time())
+        last = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(max(claimed_at)) AS t FROM salescall.attempts WHERE task_id = %s",
+                                            (s["task"],))["t"])
+        # その日が過ぎた日の、前の電話と別の時間帯の始まり（前の電話が午前なら12時、午後なら0時）
+        expected = after_day + timedelta(hours=12 if calling_hours.band_of(last, [12]) == 0 else 0)
         nxt = self.latest(s)
         self.assertEqual((nxt["kind"], nxt["promised"], nxt["until"]), ("call", True, None))
-        self.assertGreaterEqual(nxt["at"], after_day + timedelta(hours=1))   # 試験の方針の間隔＝1時間
+        self.assertEqual(nxt["at"], expected)
         target = next_action.Target(s["contact"])
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         d = self.tx(s, lambda tx: next_action._window_over(
             tx, s["task"], now, target, next_action.Window(self.from_jst(s, after_day), None)))
         self.assertEqual((d.kind, d.promised), ("call", True))
-        self.assertGreaterEqual(d.at, self.from_jst(s, after_day + timedelta(hours=1)))
+        self.assertEqual(d.at, self.from_jst(s, expected))
 
     def test_a_weekday_promise_moves_to_the_same_weekday_and_ends_after_the_policy_count(self):
         """「（曜日）なら」：その日に話せなかったら、次の週の同じ曜日（お客様がその日を選んだ理由に合わせる）。約束したかけ直しのまま。

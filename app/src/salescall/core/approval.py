@@ -91,6 +91,21 @@ def confirm_correction_call(tx: Tx, task_id: UUID) -> int:
     return version
 
 
+def more_calls(tx: Tx, task_id: UUID) -> int:
+    """ダッシュボードの取り込んだ行の「さらにかける」の承認（管理者か契約者。いま操作している方）：約束の電話・お詫びの電話を決めた日数・回数かけても話せずに
+    終えた行（承認できるかは next_action.more_calls_offered の1か所）を、その行だけ、もう一度かけ始める（next_action.after_more_calls。回数は承認から
+    数え直す）。書いた予定の番号を返す。承認できない行は LookupError。✅ 2026-11-19 ユーザー：「契約者が承認ボタンを押したら、さらに3回かける。それでも
+    繋がらなければ、再度承認ボタンを出す。繋がるまで承認ボタンは出し続ける。。承認ボタンが押されなければかけない」（0245）。"""
+    from salescall.core import next_action   # 次の動きの部品がこの部品を読むので、ここで読む（読み合いにしない）
+    tasks.lock(tx, task_id)
+    end_seq = next_action.more_calls_offered(tx, task_id)
+    if end_seq is None:
+        raise LookupError("その行は、さらにかける承認を待っていません")
+    tx.execute("INSERT INTO salescall.more_call_approvals (tenant_id, client_id, task_id, end_seq, approved_by)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (task_id, end_seq))
+    return next_action.after_more_calls(tx, task_id, cause="契約者が「さらにかける」を承認した")
+
+
 def correction_decided(tx: Tx, task_id: UUID, origin: dict[str, Any], version_no: int, *, calls: bool) -> None:
     """契約者の直しに従って、行の予定を書いた（締めの1か所＝settle._judge_and_write が、直しを読んで予定を書いたときだけ呼ぶ。0242）：その直し（origin＝
     results.corrected_by の形。version が None なら、いま書いた版 version_no そのもの）の記録を1つ書く（直しごとに1つ。締め直しの写しは書き足さない）。
