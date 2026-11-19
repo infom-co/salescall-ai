@@ -93,6 +93,22 @@ class Delivery(unittest.TestCase):
         return app_access().in_tenant(OPERATOR, self.s["tenant"], lambda tx: [(r["channel"], r["status"], r["attempt_no"]) for r in tx.all(
             "SELECT channel, status, attempt_no FROM salescall.notification_deliveries WHERE event_id = %s ORDER BY delivery_id", (eid,))])
 
+    def test_an_undelivered_notice_shows_on_the_watch_and_the_home(self):   # 計画書 5-2「知らせが送れたか」・見張りの1か所
+        from fastapi.testclient import TestClient
+        from salescall.web.app import create_app
+        from salescall.web.context import Person
+        eid = self._event()
+        broken = {"sms": FakeTransport("試験：つながらない")}   # ⏳ 送り方 chatwork はデータベースがまだ受けない（CL-2 へお願い 10）
+        for _ in range(6):
+            if self._deliver(eid, broken, tries=1) == "gave_up":
+                break
+        self.assertEqual(notices.delivery_state([r[1] for r in self._rows(eid)]), "gave_up")
+        http = TestClient(create_app(app_access(), lambda r: Person("試験の契約者", False, self.s["tenant"], "架空の契約者"), b"test-only-secret"))
+        watch = http.get("/t/watch").text
+        part = watch[watch.index('id="undelivered"'):]
+        self.assertIn("PC のプログラムに新しい版があります（試験）", part[:3000])
+        self.assertIn("送れていない知らせ", http.get("/t").text)               # ホームの「気をつけること」に出る
+
     def test_a_delivered_notice_is_not_sent_twice(self):
         eid, sms = self._event(), FakeTransport()
         self.assertEqual(self._deliver(eid, {"sms": sms}), "sent")

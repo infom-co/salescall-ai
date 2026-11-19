@@ -20,7 +20,7 @@ from typing import Any
 
 from salescall.core import errors, gate, health, health_rules
 from salescall.core.access import Tx
-from salescall.output import words
+from salescall.output import notices, words
 from salescall.web import links
 
 DAYS = 7      # 終えた電話の一覧を見る日数（直近。一覧の長さを決めるだけ。数え方・決め方には使わない）
@@ -101,7 +101,20 @@ def _resting(st: Any) -> str:
     return _stage_reason("resting")(st) + (f"（続いた不具合：{kinds}）" if kinds else "")
 
 
+def _undelivered(tx: Tx) -> list[Entry]:
+    """送れていない知らせ（届いたかの決め方は output/notices.delivery_state の1か所。知らせの画面と同じ）。肝心の知らせが届いて
+    いないので、ホームの「気をつけること」に数える。"""
+    rows = tx.all("SELECT e.kind, e.summary, e.occurred_at,"
+                  " ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
+                  " FROM salescall.notification_events e WHERE e.for_admin = false AND e.occurred_at > now() - make_interval(days => %s)"
+                  " ORDER BY e.occurred_at DESC LIMIT %s", (DAYS, LIMIT))
+    return [Entry(words.notice_kind(r["kind"]), r["summary"], r["occurred_at"], "/t/notices") for r in rows
+            if notices.delivery_state(r["statuses"]) == "gave_up"]
+
+
 WATCHES: dict[str, Watch] = {
+    "undelivered": Watch("送れていない知らせ（直近7日）", "ショートメールもチャットワークも、決めた回数送っても届かなかった知らせです。"
+                         "中身を「知らせ」で確かめ、送り先の設定を見直してください。", "tenant", _undelivered),
     "lines": Watch("確かめ中・休みの回線", "回線のせいか番号のせいかを確かめている回線と、休ませている回線です。直ったと確かめられると自動で戻ります"
                    "（手で再開するときは「回線と PC」から）。", "tenant", _lines),
     "ring_tests": Watch("テスト番号の結果（直近7日）", "回線が電話網につながるかを、テスト番号に鳴らして確かめた結果です。「見分けられなかった」ときは、"
