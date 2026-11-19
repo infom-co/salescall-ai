@@ -39583,3 +39583,124 @@ class RecordedWatchTest(unittest.TestCase):
         self.assertEqual(sorted(set(RECORDED) - heard - set(UNPLAYED_RECORDED)), [], "録音の表にあって、どの試験でも流れない名前")
         self.assertEqual(sorted(set(UNPLAYED_RECORDED) & heard), [], "流れの制御が流した名前は、UNPLAYED_RECORDED から外す")
         self.assertEqual(sorted(set(UNPLAYED_RECORDED) - set(RECORDED)), [], "表に無い名前は、UNPLAYED_RECORDED から外す")
+
+
+class CallingBeforeTest(unittest.TestCase):
+    """分身 AB（枝 cl1-calling-before）：お呼びする段の判定（目的のお客様の判定・尋ねているかの問い合わせ・待たせた方が戻ったかの問い合わせ）に渡す「その前に
+    相手が言ったこと」は、こちらがはじめにお呼びしたあとの相手の言葉だけ（電話に出た方の第一声は渡さない）。判定への説明（flowctl.target_facets の「前と同じ方か」の
+    注＝「電話に出たときの言葉は見せていない」）・言葉の決まり（facet_terms の「その前に相手が言ったこと＝こちらがはじめにお呼びしたあとに…」）・正解の表の行の形
+    （第一声なし）に、本番（Flow.judge_context の1か所＝Flow._called_words）を合わせた。⛔ d8d03a78 まで、本番は第一声（「はい、テスト商事でございます。」）も
+    前の言葉として渡していた（分身 Y3 の書き置き rv123/Y3/notes.md の穴1・まとめ役の頼み rv140/AB の (1)）"""
+    FIRST = "はい、テスト商事でございます。"
+
+    @staticmethod
+    def said(f, text):
+        f.on_callee(); f.on_heard(text)
+        q, asked, before = f.judge_context()
+        return q, asked, before, f.asks_context()[1]
+
+    def test_first_words_are_not_given_as_before_words(self):
+        import g59_flow_check as fc
+        from flowctl import Flow
+        from meaning_judge import BEFORE, NO_BEFORE, prompt
+        b, R = fc.b, ("report_party", {"party": "reception"})
+        # (1) 第一声のあと、呼ぶ一言への最初のお言葉：前の言葉は無い（判定には「無し」と見せる）。質問は呼ぶ一言（第一声を待たない形の場面と同じ）
+        f, _, _ = fc.scene([], first=self.FIRST)
+        q, asked, before, asks = self.said(f, "お電話代わりました。")
+        old, _, _ = fc.scene([])
+        self.assertEqual((q, asked, before, asks), (self.said(old, "お電話代わりました。")[0], None, None, None))
+        self.assertIn(f"{BEFORE}：{NO_BEFORE}\n", prompt(q, "お電話代わりました。", asked, before))
+        # (2) 受付の方が取り次いだあとの方：前の言葉は取り次いだ方の言葉だけ（待たせた方が戻ったかの問い合わせも同じ1か所）
+        f, _, _ = fc.scene([("岡田ですね。少々お待ちください。", "同受待x", R)], first=self.FIRST)
+        _, _, before, asks = self.said(f, "はい、お電話代わりました。")
+        self.assertEqual((before, asks, f.returned_context()[1]), ("岡田ですね。少々お待ちください。",) * 3)
+        # (3) 第一声でお呼びする方ご本人が名乗った電話（確かめる一言から始まる）：確かめへのお返事の前の言葉は無い（第一声「はい、岡田です。」は、こちらがお呼びする前）
+        f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
+        f.use_checks("judge")
+        f.on_connect(); f.on_callee(); f.on_heard("はい、岡田です。")
+        r = f.apply("report_party", {"party": "target"}); f.on_activity(False)
+        self.assertEqual((f.on_first_words_end() or r)["play"][-1]["text"], b.target.confirm())
+        q, asked, before, asks = self.said(f, "はい、そうです。")
+        self.assertEqual((q.id, f.asked_target is not None, before, asks), ("T2", True, None, None))
+        # (4) 名乗りの途中（あいさつだけ届いたところ）に話されたお言葉は、呼ぶ一言を流したあとのお言葉（流れの制御は、呼ぶ一言を流した数に数え、そのお言葉を呼ぶ一言への
+        #     お言葉として判定に読ませる）＝次のお言葉の前の言葉に入る。第一声は入らない
+        f, _, _ = fc.scene([], first=self.FIRST)
+        f.on_callee(); f.on_opening_cut([b.replay_parts()["greeting"]]); f.on_heard("はい？")
+        self.assertEqual((f.judge_context()[2], f.asks_context()[1]), (None, None))   # 「はい？」自身の前の言葉も無い（第一声は入らない）
+        f.apply("replay_opening", {"part": "all"}); f.on_activity(False)
+        self.assertEqual(self.said(f, "岡田ですね。少々お待ちください。")[2:], ("はい？", "はい？"))
+        # (5) 留守番電話の案内のあとに人が出た電話：案内も、そのあとの第一声も、電話に出たときの言葉（こちらがお呼びする前）
+        f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
+        f.use_checks("judge")
+        f.on_connect(); f.on_callee(); f.on_heard("ただいま電話に出ることができません。")
+        f.apply("report_party", {"party": "voicemail"})
+        f.on_callee(); f.on_heard("あ、もしもし、お待たせしました。")
+        r = f.apply("report_party", {"party": "person"}); f.on_activity(False)
+        self.assertEqual((f.on_first_words_end() or r)["play"][-1]["part"], "target")
+        self.assertEqual(self.said(f, "お電話代わりました。")[2:], (None, None))
+        # (6) 後任の方をお呼びしたあと：退職を伝えた言葉（はじめにお呼びしたあと）は前の言葉に残る。第一声は入らない
+        f, _, _ = fc.scene([("後任は田中になります。少々お待ちください。", "同受待x", R)], successor=True, first=self.FIRST)
+        self.assertEqual(self.said(f, "お電話代わりました。田中です。")[2],
+                         "岡田は先月退職いたしました。／後任は田中になります。少々お待ちください。")
+
+    def test_table_rows_are_built_the_same_from_the_first_words(self):
+        # 正解の表の行と候補の行の場面は、本番の始まり（第一声から）で組んでも、判定に見せる質問・その前の言葉・尋ねているかの質問と前の言葉が、第一声を待たない
+        # 形の場面（測りの1か所 row_scene）と同じ（＝測りの表は本番の場面を表す）。組めない行は無い（row_scene は場面が行と違えば NoScene）
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        rows = [{"text": t, "before": bf, "asked": a, "successor": s} for t, _, bf, a, s, _ in g.cases("x")] + g.candidates()
+        for r in rows:
+            got = []
+            for first in (None, self.FIRST):
+                f = fc.row_scene(r, first=first)
+                got.append((f.judge_context(), f.asks_context()))
+            self.assertEqual(got[0], got[1], r)
+        self.assertGreater(len(rows), 100)   # 表の行（G-59 の測りの全部）と候補の行の全部を通した
+
+    def test_flow_check_case_names_say_which_words_were_answered(self):
+        # 外れの形の会話の試し（g59_flow_check.CASES）の名前の「確かめへの」は、読みが分かれた言葉が、確かめる一言のあとの言葉のとき（そのときは必ず付ける）。「お呼びし直した
+        # 呼ぶ一言への」と付けた名前は、その前のこちらの返事がお呼びし直し（call_target）（名前は本番の流れの制御の場面のとおり）。⛔ d8d03a78 まで、電話を代わった方が違うお名前を名乗った
+        # あと（名乗りから呼ぶ一言でお呼びし直す＝本書 9-4 の (5)）の「いいえ、私は山田と申します。」を「確かめへの」と名付けていた（分身 Y3 の知らせ・頼み rv140/AB の (2) の (a)）
+        import g59_flow_check as fc
+        for name, right, wrong, succ in fc.CASES:
+            i = next(k for k, (a, w) in enumerate(zip(right, wrong)) if a != w)   # 読みが分かれた言葉
+            f, out, _ = fc.scene(right[:i], succ)
+            f.on_callee(); f.on_heard(right[i][0])
+            self.assertEqual("確かめへの" in name, f.asked_target is not None, name)
+            if "お呼びし直した呼ぶ一言への" in name:
+                self.assertEqual(out[-1][0] if out else None, "call_target", name)
+
+    def test_measured_business_is_defined_once(self):
+        # 測りの業務（岡田・おかだ・営業部部長。フルネームのある形も）は g59_flow_check の1か所（b・b_full）。G-59 の測りの業務（g59_calling_judge.flows）と、電話を終える言葉の
+        # 試しの表のお呼びする段の流れ（end_words.calling_flow）は、そこを読む（頼み rv140/AB の (2) の (b)。⛔ d8d03a78 まで、同じ定義を3か所に書いていた）
+        import dataclasses
+        import end_words
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        from instruction import Target
+        other = dataclasses.replace(fc.b, target=Target(name="岡田", reading="おかだ", role="総務部部長"))
+        other_full = dataclasses.replace(fc.b_full, target=Target(name="岡田", reading="おかだ", role="総務部部長", full_name="岡田太郎", full_reading="おかだたろう"))
+        with unittest.mock.patch.object(fc, "b", other), unittest.mock.patch.object(fc, "b_full", other_full):
+            b, f, fs = g.flows()
+            self.assertIs(b, other)
+            self.assertIn("総務部部長", f.target["target"])
+            row = next(r for r in end_words.CALLING if end_words.calling_flow(r) is not None)
+            self.assertIn("総務部部長", end_words.calling_flow(row)[0].target["target"])
+
+    def test_first_words_are_not_answer_stage_words_either(self):
+        # 目的のお客様のいない業務も同じ理由（電話に出た方の第一声は、こちらが伺う前の言葉）：第一声は、答えの段の前の言葉（answer_words＝答えの段の相手の言葉）にも、
+        # 最初の質問の答えをいただいたお客様の言葉（Item.said＝依頼者へ「-」「✕」の答えに添える）にも入らない（第一声を聞く段は答えの段ではない＝judge_context は
+        # 第一声を最初の質問の答えとして読ませない・_said_about は伺っていた質問だけ）。目的のお客様のいる業務は、もとから第一声が答えの段に入らない。
+        # ⛔ d8d03a78 まで、目的のお客様のいない業務では、第一声「はい、テスト商事でございます。」が最初の質問の前の言葉として判定（前の話の答え＝PRIOR）に渡り、
+        # 最初の質問の根拠の発話にも残った（頼み rv140/AB の (3)＝(1) の確かめで見つけた）
+        from g22_opening import BUSINESS
+        f = BUSINESS.flow(play_recordings=True)
+        f.use_checks("judge")
+        f.on_connect(); f.on_callee(); f.on_heard(self.FIRST)
+        r = f.apply("report_party", {"party": "person"}); f.on_activity(False)
+        self.assertEqual(((f.on_first_words_end() or r)["play"][-1]["kind"], f.current), ("question", "Q1"))
+        f.on_callee(); f.on_heard("結構です。")
+        self.assertEqual(f.judge_context()[2], None)
+        self.assertEqual(f.items["Q1"].said, [])
+        f.on_callee(); f.on_heard("いえ、予約はしています。")
+        self.assertEqual((f.judge_context()[2], f.answer_words), ("結構です。", {2: "結構です。"}))

@@ -10,6 +10,8 @@ from flowctl import Flow, ABOUT, PHONE, SPEAKER, WHO
 from instruction import Target
 from g22_opening import BUSINESS
 from meaning_judge import read
+# 測りの業務（岡田・おかだ・営業部部長）の唯一の定義（G-59 の測りの業務 g59_calling_judge.flows・電話を終える言葉の試しの表の流れ end_words.calling_flow もここを読む。
+# 頼み rv140/AB の (2) の (b)。⛔ d8d03a78 まで、同じ定義を3か所に書いていた）
 b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
 # フルネームのある業務（詳しい呼ぶ一言＝target_full を流せる場面の行だけ。行の印 full）。呼ぶ一言・確かめる一言・ご事情を伺う一言の文は b と同じ
 b_full = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長", full_name="岡田太郎", full_reading="おかだたろう"))
@@ -30,14 +32,20 @@ def heard(f, text, code):
 def shown(r):
     return r.get("result"), [p.get("part", p.get("kind")) for p in r.get("play") or []], (r.get("say") or "")[:30]
 
-def scene(steps, successor=False, checks=("judge",), business=None, sees_target=None):
+def scene(steps, successor=False, checks=("judge",), business=None, sees_target=None, first=None):
     """お呼びする段の場面を、本番の流れの制御（Flow）に組む唯一の所（会話の試し run・G-68 の測り g68_returned が通る）。steps：[(相手の言葉, 読みの字,
     AIの報告 (op, args) か None)]。checks＝流れの制御が待つ確かめの名前（Flow.use_checks）。business＝業務（既定は b・フルネームのある行は b_full）。
     sees_target＝お呼びする方の名前と読みを判定に見せるか（測りの --hide-names＝instruction.Business.judge_names の1か所）。
+    first＝電話に出た方の第一声（本番の始まり＝繋がってから第一声を聞き、会話AIの「人」の報告のあとに名乗りと呼ぶ一言を流す Flow.on_connect の道で組む）。
+    None は第一声を待たない古い形（名乗りの終わりが呼ぶ一言＝測りの表の行の場面）。2つの形で、判定に見せる質問とその前の言葉が同じこと（第一声は判定に渡らない）を
+    試験 CallingBeforeTest が確かめる。
     返す：(流れの制御, 報告の返事の並び, 最後の言葉の場面)。"""
     bz = business or b
     f = Flow(bz.questions, opening=bz.replay_parts(), target=bz.replay_parts(), play_recordings=True, judge_names=bz.judge_names(sees_target=sees_target))
     f.use_checks(*checks)
+    if first is not None:
+        f.on_connect(); f.on_callee(); f.on_heard(first)
+        f.apply("report_party", {"party": "person"}); f.on_activity(False); f.on_first_words_end()
     if successor:
         heard(f, "岡田は先月退職いたしました。", "同受x籍")
         f.apply("request_callback", {"why": "departed"})
@@ -59,17 +67,17 @@ class Unreadable(Exception):
     本番なら読みとして届かない＝流れの制御の動きは比べられない。"""
 
 
-def row_scene(r: dict, sees_target=None):
+def row_scene(r: dict, sees_target=None, first=None):
     """測りの行 r（g59_tally の行＝text・before・asked・successor。フルネームのある業務の行は印 full）の場面を本番の流れの制御に組み、行の言葉を聞いた
     ところ（判定を渡す前）の流れの制御を返す（唯一の作り。判定に見せる質問 g59_calling_judge.judge_questions もここを通る）。前の言葉は、正解の表の前の
     言葉の読み（g59_calling_judge.steps_before）で流す。組んだ場面が行の場面（確かめる一言のあとか・判定に渡す前の言葉）と違えば NoScene（黙って違う場面で
-    数えない）。sees_target は scene と同じ（測りの --hide-names）。"""
+    数えない）。sees_target・first は scene と同じ（測りの --hide-names・電話に出た方の第一声から始める本番の始まり）。"""
     import g59_calling_judge as g
     try:
         steps = g.steps_before(r["before"])
     except KeyError as e:
         raise NoScene(f"前の言葉の正しい読みが表（BEFORE_READ）に無い：{e}") from None
-    f, _, _ = scene(steps, successor=r["successor"], business=b_full if r.get("full") else None, sees_target=sees_target)
+    f, _, _ = scene(steps, successor=r["successor"], business=b_full if r.get("full") else None, sees_target=sees_target, first=first)
     f.on_callee(); f.on_heard(r["text"])
     built = (f.asked_target is not None, f.judge_context()[2] or None)
     if built != (bool(r["asked"]), r["before"] or None):
@@ -137,6 +145,9 @@ T, H, R, S = (("report_party", {"party": "target"}), ("replay_opening", {"part":
 # STANDIN_PARTIES）・代わった方（名乗りから伺い直す）・報告なし（会話AIが声だけで操作を呼ばなかった＝Flow.judged_turn）
 REPORTS = (("ご本人", T), ("受付の方", R), ("代理の方", ("report_party", {"party": "substitute"})), ("代わった方", H), ("後任の方", S), ("報告なし", None))
 YES = ("はい、そうです。", "同本xx", T)
+# 名前の「確かめへの」は、読みが分かれた言葉が確かめる一言のあとの言葉のとき・「お呼びし直した呼ぶ一言への」は、その前のこちらの返事がお呼びし直し（call_target）のとき
+# （本番の流れの制御の場面のとおり＝試験 CallingBeforeTest が確かめる）。⛔ d8d03a78 まで、電話を代わった方が違うお名前を名乗ったあと（名乗りから呼ぶ一言でお呼びし直す
+# ＝本書 9-4 の (5)）の「いいえ、私は山田と申します。」を「確かめへの」と名付けていた（流れの制御が、その言葉のあとに確かめずに名乗りからお呼びし直す形になってからも、名前が古いままだった＝分身 Y3 の知らせ）
 CASES = [
     ("Luna：前の言葉の無い「お電話代わりました、営業部の岡田です。」を前と同じ方", [("お電話代わりました、営業部の岡田です。", "違本xx", T)],
      [("お電話代わりました、営業部の岡田です。", "同本xx", T)], False),
@@ -147,7 +158,7 @@ CASES = [
     ("Luna：「それでは岡田にお繋ぎします。」のあとの「はい、お電話代わりました。」を決められない（AIは目的の人）",
      [("それでは岡田にお繋ぎします。", "同受待x", R), ("はい、お電話代わりました。", "違本xx", T)],
      [("それでは岡田にお繋ぎします。", "同受待x", R), ("はい、お電話代わりました。", "違不xx", T)], False),
-    ("Luna：確かめへの「いいえ、私は山田と申します。」（前「お電話代わりました。担当の山田です。」）を前と違う方（AIは代わった方）",
+    ("Luna：名乗りからお呼びし直した呼ぶ一言への「いいえ、私は山田と申します。」（前「お電話代わりました。担当の山田です。」）を前と違う方（AIは代わった方）",
      [("お電話代わりました。担当の山田です。", "違別xx", T), ("いいえ、私は山田と申します。", "同別xx", H)],
      [("お電話代わりました。担当の山田です。", "違別xx", T), ("いいえ、私は山田と申します。", "違別xx", H)], False),
     ("Luna：確かめへの「いいえ、山田です。岡田に代わりますので少々お待ちください。」を不在（AIは受付の方→次に「お電話代わりました。岡田です。」）",
@@ -159,7 +170,7 @@ CASES = [
     ("Sonnet：確かめへの「いえ、岡田は退職しまして、私が後任の田中です。」の事情を言っていない（AIは後任の方）",
      [("はい。", "同不xx", T), ("いえ、岡田は退職しまして、私が後任の田中です。", "同後x籍", S)],
      [("はい。", "同不xx", T), ("いえ、岡田は退職しまして、私が後任の田中です。", "同後xx", S)], False),
-    ("Luna：確かめへの「いいえ、私は山田と申します。」（前「お電話代わりました。担当の山田です。」）をご本人（AIは代わった方）",
+    ("Luna：名乗りからお呼びし直した呼ぶ一言への「いいえ、私は山田と申します。」（前「お電話代わりました。担当の山田です。」）をご本人（AIは代わった方）",
      [("お電話代わりました。担当の山田です。", "違別xx", T), ("いいえ、私は山田と申します。", "同別xx", H)],
      [("お電話代わりました。担当の山田です。", "違別xx", T), ("いいえ、私は山田と申します。", "違本xx", H)], False),
     ("Luna：同じ言葉をご本人（AIも読み違えて目的の人）",

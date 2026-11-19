@@ -220,11 +220,9 @@ def calling_flow(row: tuple):
     _, words, ends, _, _ = row
     if ends[0] == END_NONE:
         return None
-    import dataclasses
     from flowctl import Flow
-    from g22_opening import BUSINESS
-    from instruction import Target
-    b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長", full_name="岡田太郎", full_reading="おかだたろう"))
+    import g59_flow_check as fc
+    b = fc.b_full   # 測りの業務（フルネームのある形）の唯一の定義（g59_flow_check.b_full。⛔ d8d03a78 まで、ここにも同じ定義を書いていた＝頼み rv140/AB の (2) の (b)）
     f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts())
     f.use_checks("judge")
     f.on_callee(); f.on_heard(words); f.on_check("judge", _reading(UNDECIDED, ends[0]))
