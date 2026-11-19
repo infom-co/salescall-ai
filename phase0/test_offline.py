@@ -36751,3 +36751,109 @@ class QuietAfterAskTest(unittest.TestCase):
         f = self.flow()
         self.quiet(f)
         self.assertEqual((f.wait_q, f.silence, f.on_silence()), (CALLBACK_IDS["wait_or_later"], None, None))
+
+
+class UnheardAfterFinalCheckTest(unittest.TestCase):
+    """最終の確かめ・保留の伺いへのお返事が聞き取れない（判定の確かな読みも無い・会話AIの報告は「答えなかった」＝confirm_field の no_answer）とき（まとめ役の頼み＝
+    分身 T の書き置き 4 の (e)）：保留を伺うのは「最終の確かめのあとも決められないのがお客様の最終の決定」のとき（11-06 日本時間11時19分55秒の (2)・11-09 日本時間
+    3時46分53秒）＝お客様が決められないと言ったときだけ。聞き取れないのは決められないではない＝聞き取れないかは決まり (K2)（`Flow._unheard_now` の印）・聞き取れなければ
+    聞き返しの1か所 `Flow._ask_again`（10-14 の回数・必須でない質問は聞き返さない＝6-11・申し出は1回＝伺い53 ア・最終の確かめは同じ確かめを言い直さない＝Item.final）。
+    会話AIは判定に加えない（11-08 日本時間12時11分40秒）＝会話AIの報告は判定を待つきっかけ。言い直し・最終の確かめ・保留の伺いのどれへのお返事でも、聞き取れないお返事は
+    同じ1か所（`Flow._unheard_reply`）を通る。⛔ 547725d4 まで、保留の伺いへの聞き取れないお返事は、聞き返さずに「はっきりしない＝保留のまま」に決め、締めていた"""
+
+    q = QuietAfterAskTest()
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    BACK = "申し訳ございません、お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"
+    PENDING = "承知しました。それではこの件は保留ということでよろしいでしょうか？"
+
+    def final(self, play=True):
+        """パンフレットをお送りしてもよいかを伺い、黙ったあとの「いかがなさいましたか？」への「いえ、大丈夫です。」で最終の確かめを伺ったところ。"""
+        from flowctl import PROMPT_REPLY_YES, UNDECIDED
+        f = self.q.pamphlet(play)
+        self.q.quiet(f, upto=2)
+        f.on_callee(); f.on_heard("あ、いえ、大丈夫です。")
+        f.on_check("judge", self.q.rd(UNDECIDED, PROMPT_REPLY_YES))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((r["result"], self.heard(r), f.items["G8n"].final), ("confirm_required", "はい、それではパンフレットをお送りさせていただきましょうか？", True))
+        return f
+
+    def pending(self):
+        """最終の確かめに「ちょっと今は決められないですね。」（判定は「わからない」）＝保留を伺ったところ。"""
+        f = self.final()
+        r = self.reply(f, "ちょっと今は決められないですね。", "unknown", "affirmed")
+        self.assertEqual((r["result"], self.heard(r), f.pending_wait), ("confirm_required", self.PENDING, "G8n"))
+        return f
+
+    def reply(self, f, words, reading, result):
+        """お客様のお返事（reading＝判定の確かな読み。None＝確かな読みが届かない）を、会話AIが confirm_field で報告する。"""
+        f.on_callee(); f.on_heard(words)
+        if reading is not None:
+            f.on_check("judge", self.q.rd(reading))
+        return f.apply("confirm_field", {"question_id": "G8n", "result": result})
+
+    def test_an_unheard_reply_to_the_final_check_is_asked_again(self):
+        # 最終の確かめへの聞き取れないお返事：聞き返し（申し出は1回）。保留を伺わない。聞き返しへのお返事は同じ確かめへのお返事
+        f = self.final()
+        r = self.reply(f, "（雑音）……", None, "no_answer")
+        self.assertEqual((r["result"], self.heard(r), f.awaiting_confirm, f.pending_wait, f._unheard_now()), ("ask_back", self.BACK, "G8n", None, True))
+        r = self.reply(f, "あ、はい、お願いします。", "はい", "affirmed")
+        self.assertEqual((f.items["G8n"].state, f.export()["G8n"]), ("confirmed", "はい"))
+        # また聞き取れなければ、聞き返しの1か所の決まりのまま（申し出の1回を使い切った＝「-」）。保留は伺わない
+        f = self.final()
+        self.reply(f, "（雑音）……", None, "no_answer")
+        r = self.reply(f, "（雑音）……", None, "no_answer")
+        self.assertNotIn("保留", self.heard(r))
+        self.assertEqual((f.pending_wait, f.export()["G8n"]), (None, "-"))
+
+    def test_an_unheard_reply_to_the_pending_ask_is_asked_again(self):
+        # 保留の伺いへの聞き取れないお返事：「はっきりしない」とは扱わず、聞き返す（保留に決めない）。聞き返しへのお返事は、保留の伺いへのお返事（_pending_reply）
+        f = self.pending()
+        r = self.reply(f, "（雑音）……", None, "no_answer")
+        self.assertEqual((r["result"], self.heard(r), f.awaiting_confirm, f.pending_wait, f._unheard_now()), ("ask_back", self.BACK, "G8n", "G8n", True))
+        self.assertNotEqual(f.items["G8n"].reason, None)   # 「わからない（まだ決まっていない）」はまだ伺っている途中
+        r = self.reply(f, "いや、やっぱり送ってください。", "はい", "corrected")
+        # 聞き返したあとの答えは、選択肢の型も言い直して確かめる（6-11＝今の決まり）
+        self.assertEqual((r["result"], f.pending_wait, f.awaiting_confirm), ("confirm_required", None, "G8n"))
+        self.reply(f, "はい、お願いします。", "はい", "affirmed")
+        self.assertEqual((f.items["G8n"].state, f.export()["G8n"]), ("confirmed", "はい"))
+        g = self.pending()
+        self.reply(g, "（雑音）……", None, "no_answer")
+        r = self.reply(g, "はい、それで大丈夫です。", "affirmed", "affirmed")
+        self.assertEqual((g.items["G8n"].state, g.items["G8n"].reason, g.pending_wait), ("dont_know", "undecided", None))
+        # 聞き返しも聞き取れなければ、最終の確かめへの聞き取れないお返事と同じ1か所の決まり（必須の項目はその場で2回聞き返し、使い切ったら「-」にして締めの前の
+        # 念のための確認で1回＝10-14）。どの段でも保留は伺わない・保留に決めない
+        got = {}
+        for name, make in (("保留の伺い", self.pending), ("最終の確かめ", self.final)):
+            x, said = make(), []
+            for _ in range(5):
+                r = self.reply(x, "（雑音）……", None, "no_answer")
+                said.append((r["result"], self.heard(r)))
+                if r["result"] != "ask_back":
+                    break
+                self.assertEqual((x.awaiting_confirm, x.pending_wait), ("G8n", "G8n" if name == "保留の伺い" else None), name)
+            self.assertFalse(any("保留" in t for _, t in said), (name, said))
+            got[name] = (said, x.pending_wait, x.items["G8n"].state)
+        self.assertEqual(got["保留の伺い"], got["最終の確かめ"])
+        self.assertEqual([k for k, _ in got["最終の確かめ"][0]][:2], ["ask_back", "ask_back"])
+
+    def test_heard_but_unclear_replies_keep_the_rules(self):
+        # 聞き取れたのにはっきりしないお返事（判定が確かに「決められない」と読んだ）は聞き取れないではない＝今の決まりのまま（保留の伺いへのお返事なら保留のまま次へ）。
+        # 会話AIが「答えなかった」と報告しても同じ（会話AIは判定に加えない）
+        from flowctl import UNDECIDED
+        for result in ("no_answer", "affirmed"):
+            f = self.pending()
+            r = self.reply(f, "うーん、まあ……", UNDECIDED, result)
+            self.assertEqual((f.items["G8n"].state, f.pending_wait, f._unheard_now()), ("dont_know", None, False), result)
+            self.assertNotEqual(r["result"], "ask_back", result)
+
+    def test_an_unheard_reply_after_moshimoshi_is_asked_again(self):
+        # 伺い T-1 の「もしもし？」のあとの道も同じ：最終の確かめ・保留の伺いのあと黙られて「もしもし？」を流し、そのお返事が聞き取れない（判定の確かな読みも無い）＝
+        # 聞き返しの1か所（「もしもし？」へのお返事だけ＝聞こえていると読んだときの、意向が分からないまま戻る道とは別）
+        for name, make in (("最終の確かめ", self.final), ("保留の伺い", self.pending)):
+            f = make()
+            s = f.on_silence()
+            self.assertEqual(s["play"][-1]["id"], "moshimoshi", name)
+            f.on_played([p["text"] for p in s["play"]])
+            r = self.reply(f, "（雑音）……", None, "no_answer")
+            self.assertEqual((r["result"], self.heard(r), f.awaiting_confirm, f._unheard_now()), ("ask_back", self.BACK, "G8n", True), name)
+            self.assertEqual(f.pending_wait, "G8n" if name == "保留の伺い" else None, name)

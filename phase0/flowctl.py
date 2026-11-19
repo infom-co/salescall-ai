@@ -8303,6 +8303,23 @@ class Flow:
         return self._fixed_ask(qid, [line_play(pending_recording_id(q), text)], "pending",
                                f"まだ決められないというお返事です。{qid} を保留にしてよいかを伺いました。")
 
+    def _unheard_reply(self, qid: str, why: str) -> dict:
+        """言い直し（提案・最終の確かめも）・保留の伺いへのお返事が聞き取れない（判定の確かな読みも無い「答えなかった」＝confirm_field の no_answer）ときの唯一の場所
+        （言い直しへの返事の報告 _op_confirm_field・保留を伺ったあとのお返事 _pending_reply）：聞き取れないお返事の印（決まり (K2) の1か所 _unheard_now＝答えを
+        いただけないまま先へ進むときの頭は「はい、」）を立て、聞き返しの1か所 _ask_again で決める（必須の項目はその場で2回・使い切ったら「-」にして締めの前の念の
+        ための確認で1回＝10-14。必須でない項目は聞き返さない＝6-11。申し出は1回＝伺い53 ア。聞き返しへのお返事は、同じ言い直しへの返事として受ける＝confirming）。
+        保留の伺いへのお返事を聞き返したら、そのあとのお返事も保留の伺いへのお返事として受ける（_pending_reply）。保留を伺うのはお客様が決められないと言ったときだけ
+        （11-06 日本時間11時19分55秒の (2)・11-09 日本時間3時46分53秒）＝聞き取れないお返事を「決められない」「はっきりしない」の道に入れない。会話AIは判定に加え
+        ない（11-08 日本時間12時11分40秒）＝会話AIの「答えなかった」は判定を待つきっかけ。✅ 2026-11-12 まとめ役の (K1)(K2)・2026-11-19 まとめ役の頼み（分身 T の
+        書き置き 4 の (e)）"""
+        pending = self.pending_wait == qid
+        self.pending_wait = None
+        self.unheard_turn = self.callee_turns
+        r = self._ask_again(qid, "unclear", why, confirming=True)
+        if pending and self.awaiting_confirm == qid:
+            self.pending_wait = qid   # 聞き返した：保留の伺いへのお返事を待つまま（伺い直さなければ _ask_again が言い直しの返事待ちを消している）
+        return r
+
     def _pending_reply(self, qid: str, result: str | None, correction: str | None) -> dict:
         """保留を伺ったあとのお返事（唯一の場所＝_op_confirm_field の頭）：
         - 判定が「合っている」（保留でよい）と読んだ ⇒ 保留（わからない・まだ決まっていない）のまま次へ
@@ -8310,6 +8327,10 @@ class Flow:
         - それ以外（はっきりしない・まだ決められない・答えたくない など）⇒ 同じ伺いをくり返さず、保留のまま次へ
         会話AIは判定に加えない（_judged_answer の1か所。判定を使わない通話＝会話AIの通話の試験だけ、会話AIの報告で同じ3つに分ける）。"""
         q, it = self.questions[qid], self.items[qid]
+        if result == "no_answer" and self._judged_answer() is None:
+            # 聞き取れないお返事（判定の確かな読みも無い「答えなかった」）は、はっきりしないお返事ではない＝保留に決めず、聞き返しの1か所（_unheard_reply）。
+            # ⛔ 547725d4 まで、下の「それ以外」に入り、聞き返さずに保留のまま次へ（締め）進んでいた（分身 T の書き置き 4 の (e)・まとめ役の頼み）
+            return self._unheard_reply(qid, "保留を伺ったあとのお返事が聞き取れない")
         self.pending_wait = self.awaiting_confirm = None
         judged = self._judged_answer()
         if judged is None and not self.judging:
@@ -8831,9 +8852,7 @@ class Flow:
             # 困りごとに応える提案へのお返事は、こちらの申し出と同じ1回（_offer_backs）・また聞き取れなければ、もとのお返事を読み直す（_ask_again の _trouble_declined）
             # （提案へのお返事）と同じ理由。⛔ (GB) まで、提案のほかの言い直し（値・選択肢の確かめ・最終の確かめ）は1回聞き取れないだけで「-」にしていた＝業務の必須の
             # 日時の言い直しへの聞き取れないお返事に、その場の聞き返しをせず、すぐ締めの前の確認「お声が聞き取れませんでしたので…もう一度だけ…」を伺っていた
-            self.unheard_turn = self.callee_turns
-            return self._ask_again(qid, "unclear", "提案へのお返事が聞き取れない" if it.offer_again else "言い直しへのお返事が聞き取れない",
-                                   confirming=True)
+            return self._unheard_reply(qid, "提案へのお返事が聞き取れない" if it.offer_again else "言い直しへのお返事が聞き取れない")
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
         return self._dash(qid)
 
