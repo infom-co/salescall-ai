@@ -67,7 +67,10 @@ CL2_PENDING = frozenset({
                          # 通話の事実 refusal_said（断り文句）・締めた理由 yes_used_up（材料が尽きて日を改める）・共通の一言の録音（受け止め3つ・「手短に」への一言）・
                          # 名前の録音の台帳の続く言葉 yes_received（「〇〇様ももう大丈夫でしたよね。」）
                          "Y1", "yes", "Yesの質問の中身", "refusal_said", "yes_used_up",
-                         "yes_received_refused", "yes_received_again", "yes_received_busy", "yes_brief", "yes_received"})
+                         "yes_received_refused", "yes_received_again", "yes_received_busy", "yes_brief", "yes_received",
+                         # お名前の前の言葉「恐れ入りますが」を名前の録音の前に流す共通の一言の録音（phrases.NAME_HEAD_IDS＝flowctl.name_plays。CL-2 の連絡帳 4-443 の
+                         # ご相談への答え「前者でよいと思います」＝分身 L。CL-2 への知らせは分身 L の書き置き＝rv175/L/notes.md）
+                         "name_head_osoreirimasuga"})
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
@@ -95,7 +98,10 @@ CL2_RETIRED: frozenset[str] = frozenset({"callback_later_time", "callback_later_
                                          # 流れの制御が流さない形（試験の全部で一度も流れない名前を、流しうる道ごとに分けた＝分身 AA＝穴 (C)。CL-2 への知らせは
                                          # rv129/AA/notes.md）：保留でよいかを伺う一言の戻る形（言い直しへの戻りは会話AIが言う＝phrases.PENDING_IDS）・後任の方への
                                          # はっきりしない返事への聞き返し（target_reconfirm を流さなくなった＝伺い50 イ）
-                                         "callback_handoff_pending_bare", "callback_handoff_pending_midway", "successor_reconfirm"})
+                                         "callback_handoff_pending_bare", "callback_handoff_pending_midway", "successor_reconfirm",
+                                         # 名前の録音の台帳の続く言葉（CL-2 の写し NAME_TAILS）：はっきりしない返事への聞き返し（伺い50 イで流さなくなった。CL-2 の連絡帳 4-443 の
+                                         # (c)「外してよいです。あなたが NAME_FORMS から外せば、私が道具で写しを作り直すと NAME_TAILS から外れます」＝分身 L）
+                                         "target_reconfirm"})
 # 共通の一言の録音の文を替えて、CL-2 が名前と文の写し（common_phrases.TEXTS）を作り直すまで、文だけを比べない名前（CL-2 の 4-403 の (1)）。
 # CL-2 の文がそろったら落ちる＝外す
 CL2_TEXT_PENDING: frozenset[str] = frozenset()
@@ -2988,7 +2994,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         from flowctl import Flow, Question
         return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
                     target={"target": "営業部部長の「岡田」様はいらっしゃいますでしょうか？", "target_confirm": "「おかだ」様でいらっしゃいますでしょうか？",
-                            "target_reconfirm": "「おかだ」様でお間違えなかったでしょうか？"})
+                            "mobile_confirm": "「おかだ」様で大丈夫でしょうか？"})   # 確かめる一言は2つ（CONFIRM_PARTS。⛔ 2026-11-20 まで target_reconfirm）
 
     def test_target_judgment_answers_each_fact_separately(self):
         # 目的のお客様の判定は、1つの言葉に同時に入りうる別々の事実を、項目ごとに1つずつ答える（✅ 2026-10-29 ユーザー：「『不在』と『別の方』と
@@ -6714,7 +6720,9 @@ class Answers2217Test(unittest.TestCase):
         self.assertTrue(carried_due(mine, "substitute", False, "later"))
         b, f, r = self.substitute_call(mine)
         self.assertEqual(b.replay_parts()["carried_target"], named)
-        self.assertEqual((f.current, self.heard(r), r["play"][-1]), (hid, "承知しました。" + named, {"kind": "opening", "part": "carried_target", "text": named}))
+        # 頭の「恐れ入りますが」は共通の一言の録音・お名前からは名前の録音（name_plays の1か所＝NameHeadTest）
+        self.assertEqual((f.current, self.heard(r), r["play"][-1]),
+                         (hid, "承知しました。" + named, {"kind": "opening", "part": "carried_target", "text": named.removeprefix("恐れ入りますが")}))
         # 聞いている＝岡田様の答えを引き継いで、まだ伺っていない質問から
         self.hear(f, "はい、岡田から聞いております。")
         r = f.apply("record_answer", {"question_id": hid, "condition_id": "聞いている"})
@@ -15229,7 +15237,7 @@ class TargetTest(unittest.TestCase):
         # いらっしゃいますでしょうか？』と1回確かめるのはおかしいし、…お呼びし直すのも明らかにおかしいでしょ」）
         f, r = confirmed(TARGET_IS_AWAY, TARGET_IS_AWAY)
         self.assertEqual((r["result"], r["question_id"]), ("next", "C1"))
-        self.assertFalse(any(p.get("part") in ("target", "target_confirm", "target_reconfirm") for p in r.get("play") or []))
+        self.assertFalse(any(p.get("part") in ("target", "target_confirm") for p in r.get("play") or []))
         f, r = confirmed()                                       # 判定が1つも届かない ⇒ 会話AIの読みだけでは受け取らない（11-08）＝聞き取れなかったときと同じ聞き返し（伺い50 イ）
         self.assertEqual((r["result"], "callback" in f.facts), ("ask_back", False))
         f, r = confirmed(HOLD, TARGET_IS_NOT)                    # 取り次ぎの読み ⇒ 黙って待つ
@@ -15280,7 +15288,7 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(f.check["judge"].facts[WHO], WHO_RECEPTION)   # 話している方も、読みに残る
         r = f.apply("request_callback", {"why": "absent"})
         self.assertEqual((r["result"], r["question_id"]), ("next", "C1"))
-        self.assertFalse(any(p.get("part") in ("target", "target_confirm", "target_reconfirm") for p in r.get("play") or []))
+        self.assertFalse(any(p.get("part") in ("target", "target_confirm") for p in r.get("play") or []))
         # (2) 不在を伝えてから別の方に取り次ぐ（尋ねているかの問い合わせが「取り次ぎを待つ」を読まなくても）：黙って待ち、代わって出た方は代わりの方
         #     （⛔ 1つだけ選ぶ形では、判定は「不在」か「取り次ぎを待つ」のどちらかしか言えず、取り次ぎは尋ねているかの問い合わせに頼っていた＝J10b）
         z, _ = self.checked()
@@ -15638,7 +15646,8 @@ class TargetTest(unittest.TestCase):
             parts = self.cl2_names("recordings.py", "CONTRACTOR_PARTS")
         if parts is None:
             self.skipTest("CL-2 の録音の部品（app/）がまだ無い")
-        self.assertEqual(sorted(CL2_RETIRED - parts), [], "CL-2 の部品から外れた名前は、CL2_RETIRED から外す")
+        # 待つ名前は、CL-2 の共通の一言か名前の録音の台帳の続く言葉（cl2_tails）のどちらかにまだある（どちらからも外れたら外す）
+        self.assertEqual(sorted(CL2_RETIRED - parts - set(self.cl2_tails() or ())), [], "CL-2 の部品から外れた名前は、CL2_RETIRED から外す")
         self.assertEqual(sorted(CL2_RETIRED & set(RECORDED)), [], "使わなくなった名前は、こちらの表に残さない")
         self.assertEqual((sorted(without_cl2_pending(self, set(RECORDED), parts) - parts), sorted(parts - set(RECORDED) - CL2_RETIRED)), ([], []),
                          "（こちらだけにある名前, CL-2 の一覧だけにある名前）")
@@ -15668,6 +15677,16 @@ class TargetTest(unittest.TestCase):
         import ast
         node = cls._cl2_node(path, var)
         return None if node is None else {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)}
+
+    @classmethod
+    def cl2_tails(cls) -> dict[str, str | None] | None:
+        """CL-2 の名前の録音の台帳の続く言葉（名前 → 文）：文の写し common_phrases.NAME_TAILS（こちらの phrases.NAME_TAILS から CL-2 の道具で作る＝CL-2 の連絡帳
+        4-443）。写しの無い前の形は recordings.NAME_TAILS の名前だけ（文は None）。どちらも無ければ None。"""
+        texts = cls.cl2_value("common_phrases.py", "NAME_TAILS")
+        if texts is not None:
+            return dict(texts)
+        names = cls.cl2_names("recordings.py", "NAME_TAILS")
+        return None if names is None else dict.fromkeys(names)
 
     @classmethod
     def cl2_value(cls, path: str, var: str):
@@ -35772,7 +35791,7 @@ class CallingRestTest(unittest.TestCase):
 
     def test_3_after_answering_with_the_call_the_reply_is_to_the_call(self):
         from phrases import ACK
-        reconfirm = CallingHeardQuestionTest.business().replay_parts()["target_reconfirm"]
+        reconfirm = "でお間違えなかったでしょうか？"   # 確かめへの聞き返し（伺い50 イで流さなくなり、名前も外した＝NameHeadTest）
         for text, code, want in (("岡田ですね。", "同受xx", "hold"), ("はい。", "同不xx", "call_target"),
                                  ("はい、岡田です。", "同本xx", "connect"), ("岡田はただいま外出しております。", "同受x在", "away")):
             f = self.opened()
@@ -37816,7 +37835,7 @@ class CallingConfirmAskBackTest(unittest.TestCase):
         for codes in ({"judge": "同不xx"}, {"judge": "同本xx", "judge2": "同不xx"}):
             f = self.confirmed()
             r = self.say(f, "はい？", codes)
-            self.assertNotIn("target_reconfirm", [p.get("part") for p in r.get("play") or []])
+            self.assertNotIn("でお間違えなかったでしょうか？", CallingUnheardAskBackTest.heard(r))
             self.assertFalse(r.get("again"))
 
 
@@ -37846,8 +37865,9 @@ class CallingTransferAskTest(unittest.TestCase):
         f = self.opened()
         self.used_up(f)
         r = self.say(f, "ですから、山田ですが。", {"judge": "同別xx"})
-        self.assertEqual((r["result"], r.get("ack"), [(p.get("part"), p.get("text")) for p in r.get("play") or []]),
-                         ("call_target", "taihen_shitsurei", [("target_transfer", self.LINE)]))
+        # 頭の「恐れ入りますが」は共通の一言の録音・お名前からは名前の録音（name_plays の1か所＝NameHeadTest）
+        self.assertEqual((r["result"], r.get("ack"), [(p.get("id") or p.get("part"), p.get("text")) for p in r.get("play") or []]),
+                         ("call_target", "taihen_shitsurei", [("name_head_osoreirimasuga", "恐れ入りますが"), ("target_transfer", self.LINE.removeprefix("恐れ入りますが"))]))
         self.assertEqual(self.heard(r), "大変失礼いたしました。" + self.LINE)
         self.assertEqual(ACK["taihen_shitsurei"], "大変失礼いたしました。")
         self.assertEqual(r.get("hold_wait_s"), f.hold_wait_s)
@@ -37921,6 +37941,98 @@ class CallingTransferAskTest(unittest.TestCase):
         # 新しい名前（名前の録音の台帳の続く言葉 target_transfer・共通の一言の録音 taihen_shitsurei・successor_transfer）は CL-2 に頼む名前の一覧に入れる
         for name in ("target_transfer", "taihen_shitsurei", "successor_transfer"):
             self.assertIn(name, CL2_PENDING)
+
+
+class NameHeadTest(unittest.TestCase):
+    """分身 L（枝 cl1-name-head。CL-2 の連絡帳 4-443 の「名前の録音の続く言葉」の段への応え）：
+    (1) 確かめる一言の伺い直し target_reconfirm（「…様でお間違えなかったでしょうか？」）は流れの制御がもう流さない（伺い50 イ）＝名前の形・続く言葉・確かめる一言・
+        名乗りの部分・後任の方の文から外す（CL-2「外してよいです。あなたが NAME_FORMS から外せば、私が道具で写しを作り直すと NAME_TAILS から外れます」）。CL-2 の
+        写しから外れるまでは CL2_RETIRED（こちらは外した・CL-2 の写しにはまだある名前）
+    (2) お名前の前に言葉のある形（phrases.NAME_HEADS＝「恐れ入りますが」）は、その言葉を共通の一言の録音（phrases.NAME_HEAD_IDS＝NAME_HEADS から作る）で名前の録音の
+        前に流し、名前の録音（台帳の役職・名前・続く言葉）には頭を入れない（CL-2「あなたのお勧めの前者（共通の一言の録音を1本足し、名前の録音の前に流す）でよいと
+        思います」）。流す並びと会話AIへの知らせの文は同じ1か所（flowctl.name_plays）から作る＝つなげた文は今と同じ（お客様に聞こえる文は変えない）"""
+    HEAD = "恐れ入りますが"
+
+    def test_1_the_reconfirm_line_is_gone(self):
+        import dataclasses
+        import flowctl
+        import instruction
+        import phrases
+        from g22_opening import BUSINESS
+        from instruction import Target
+        self.assertEqual([n for n, table in (("NAME_FORMS", phrases.NAME_FORMS), ("NAME_TAILS", phrases.NAME_TAILS), ("SUCCESSOR", phrases.SUCCESSOR),
+                                             ("CONFIRM_PARTS", flowctl.CONFIRM_PARTS)) if "target_reconfirm" in table], [])
+        self.assertEqual([n for n in ("target_reconfirm", "TARGET_RECONFIRM") if hasattr(phrases, n)], [])
+        self.assertFalse(hasattr(instruction.Target, "reconfirm"))
+        for t in (Target(name="岡田", reading="おかだ", role="営業部部長"), Target(kind="個人", name="岡田", reading="おかだ"), Target(role="社長"),
+                  Target(name="岡田", reading="おかだ", role="営業部部長", successor=True)):
+            parts = dataclasses.replace(BUSINESS, target=t).replay_parts()
+            self.assertNotIn("target_reconfirm", parts, t)
+            self.assertEqual([k for k, v in parts.items() if v.endswith("でお間違えなかったでしょうか？")], [], t)
+            f = dataclasses.replace(BUSINESS, target=t).flow(play_recordings=True)
+            self.assertEqual([k for k, v in f.target.items() if v.endswith("でお間違えなかったでしょうか？")], [], t)
+        # CL-2 の写し（続く言葉）にはまだある名前は CL2_RETIRED で待つ（見張るのは CL-2 と比べる試験 Cl2Answers1119Test の 8＝写しが作り直されたら外す）
+
+    def test_2_the_head_is_one_common_recording(self):
+        from phrases import NAME_HEAD_IDS, NAME_HEADS, NAME_TAILS, RECORDED
+        self.assertEqual({k: NAME_HEADS.get(k) for k in ("carried_target", "target_transfer")}, {"carried_target": self.HEAD, "target_transfer": self.HEAD})
+        # 頭の言葉ごとに1本（形ごとには作らない＝名前の録音の数は増えない）。頭のある形を足しても、頭の言葉は NAME_HEADS から決まる
+        self.assertEqual(set(NAME_HEAD_IDS), set(NAME_HEADS.values()))
+        self.assertEqual(NAME_HEAD_IDS[self.HEAD], "name_head_osoreirimasuga")
+        self.assertEqual({rid: RECORDED.get(rid) for rid in NAME_HEAD_IDS.values()}, {rid: w for w, rid in NAME_HEAD_IDS.items()})
+        self.assertEqual([k for k in NAME_HEADS if NAME_TAILS[k].startswith(self.HEAD)], [])   # 続く言葉には頭が入らない（前から）
+        # CL-2 の写し（common_phrases.TEXTS）に入るまでは CL2_PENDING（見張るのは CL-2 と比べる試験 TargetTest の test_recorded_names_match_cl2_common_parts）
+
+    def test_3_name_plays_is_the_one_place(self):
+        from flowctl import name_plays
+        from phrases import NAME_FORMS, NAME_HEAD_IDS, NAME_HEADS
+        for part, form in NAME_FORMS.items():
+            text = form.format(who="営業部部長の「おかだ」様")
+            plays = name_plays(part, text)
+            self.assertEqual("".join(p["text"] for p in plays), text, part)   # つなげると、お客様に聞こえる文のまま
+            head = NAME_HEADS.get(part)
+            if head is None:
+                self.assertEqual(plays, [{"kind": "opening", "part": part, "text": text}], part)
+                continue
+            self.assertEqual(plays, [{"kind": "recorded", "id": NAME_HEAD_IDS[head], "text": head},
+                                     {"kind": "opening", "part": part, "text": text[len(head):]}], part)
+
+    def test_4_the_transfer_line_plays_the_head_first(self):
+        from flowctl import played_note
+        t = CallingTransferAskTest()
+        line = CallingTransferAskTest.LINE
+        for recorded in (True, False):
+            f = CallingUnheardAskBackTest.opened(t, CallingUnheardAskBackTest.business(t.FIXED), recorded=recorded)
+            # 呼ぶ一言を2回使い切ったところ（会話AIが話す通話は、はじめの呼ぶ一言を会話AIが言う＝流れの制御のお呼びし直しを2回）
+            t.used_up(f) if recorded else CallingConfirmAskBackTest.say(f, "いいえ、私は山田と申します。", {"judge": "同別xx"})
+            r = CallingConfirmAskBackTest.say(f, "ですから、山田ですが。" if recorded else "いいえ、山田です。", {"judge": "同別xx"})
+            if recorded:
+                self.assertEqual([(p.get("kind"), p.get("id") or p.get("part"), p.get("text")) for p in r["play"]],
+                                 [("recorded", "name_head_osoreirimasuga", self.HEAD), ("opening", "target_transfer", line[len(self.HEAD):])])
+                self.assertIn(played_note(line), r["message"])
+            else:
+                self.assertEqual((r.get("play"), r.get("say")), (None, line))
+            self.assertEqual(CallingUnheardAskBackTest.heard(r), "大変失礼いたしました。" + line, recorded)
+            # そのあとのお返事は、つなげた文（お客様が聞いた一言）へのお返事として判定に見せる
+            f.on_callee(); f.on_heard("いえ、ですから山田ですが。")
+            self.assertEqual(f.judge_context()[0].text, CallingTransferAskTest.JUDGED, recorded)
+
+    def test_5_the_carried_ask_plays_the_head_first(self):
+        from flowctl import played_note
+        named = "恐れ入りますが「おかだ」様のほうからこれまでのお話はお聞き及びでしょうか？"
+        b, f, r = Answers2217Test().substitute_call({"Q1": {"state": "accepted", "condition": "はい", "who": "target"}})
+        self.assertEqual([(p.get("kind"), p.get("id") or p.get("part"), p.get("text")) for p in r["play"][-2:]],
+                         [("recorded", "name_head_osoreirimasuga", self.HEAD), ("opening", "carried_target", named[len(self.HEAD):])])
+        self.assertEqual(Answers2217Test.heard(r), "承知しました。" + named)
+        self.assertIn(played_note(named), r["message"])
+        self.assertEqual(f.questions[f.current].text, named)   # 判定に見せる質問の文は、お客様が聞いた文のまま
+        # 名乗りを流し直したあとに伺い直しても同じ並び（名乗りの部分で伺う質問の流す並びは1か所）
+        f.on_callee(); f.on_heard("失礼ですが、どちら様でしたっけ？")
+        r = f.apply("replay_opening", {"part": "intro"})
+        self.assertEqual([(p.get("kind"), p.get("id") or p.get("part")) for p in r["play"]],
+                         [("opening", "intro"), ("recorded", "name_head_osoreirimasuga"), ("opening", "carried_target")], r)
+        self.assertTrue(Answers2217Test.heard(r).endswith(named), r)
+        self.assertIn(played_note("".join(p["text"] for p in r["play"])), r["message"])
 
 
 class LiveSceneConfirmCountTest(unittest.TestCase):
@@ -38385,9 +38497,14 @@ class Cl2Answers1119Test(unittest.TestCase):
                 self.assertTrue(text.startswith(NAME_HEADS.get(key, "")) and text.endswith(NAME_TAILS[key]), (t, part, text))
                 who = text[len(NAME_HEADS.get(key, "")):len(text) - len(NAME_TAILS[key])]
                 self.assertTrue(who.endswith("様") or who in (role_honorific(t.role), target_who(t.kind, "", t.role)), (part, who))
-        theirs = TargetTest.cl2_names("recordings.py", "NAME_TAILS")
+        # CL-2 の写し（cl2_tails）と名前・文を比べる。こちらで外した名前は CL-2 が写しを作り直すまで CL2_RETIRED（共通の一言と同じ扱い。target_reconfirm＝分身 L）
+        theirs = TargetTest.cl2_tails()
         if theirs is not None:
-            self.assertEqual((sorted(without_cl2_pending(self, set(NAME_TAILS), theirs) - theirs), sorted(theirs - set(NAME_TAILS))), ([], []))
+            self.assertEqual(sorted(CL2_RETIRED & set(NAME_TAILS)), [], "使わなくなった名前は、こちらの表に残さない")
+            self.assertEqual((sorted(without_cl2_pending(self, set(NAME_TAILS), set(theirs)) - set(theirs)), sorted(set(theirs) - set(NAME_TAILS) - CL2_RETIRED)),
+                             ([], []), "（こちらだけにある名前, CL-2 の写しだけにある名前）")
+            self.assertEqual({k: (v, NAME_TAILS[k]) for k, v in theirs.items() if v is not None and k in NAME_TAILS and v != NAME_TAILS[k]}, {},
+                             "名前は同じで文が違う（文を替えたら CL-2 の連絡帳へ知らせる）")
 
     def test_11_call_settings_reach_the_flow_from_one_place(self):
         # CL-2 の 4-405 の (1) の後半：お客様の営業時間・歯止め時間・待つ上限・黙ったときの秒（流れの制御 Flow の business_hours・designated_limit・hold_wait_s・

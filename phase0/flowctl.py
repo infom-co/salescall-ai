@@ -29,6 +29,7 @@ from phrases import YES_LEADS, YES_RECEIVE, fixed_words, yes_line
 from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
 from phrases import OFFER_ACCEPTED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALL_AGAIN_TAKEN, OFFER_DONE, OFFER_TAKEN, WISH_WAY_TOPIC, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OFFER_THANKS_AGAIN, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import NOT_ASKED_AGAIN, RECORDED, STANDARD_PARTS, THINKING_PROMPT, ack_pause_s, ask_again as ask_again_phrase
+from phrases import NAME_HEAD_IDS, NAME_HEADS
 from phrases import ASKED_PROMPT_IDS, CONCERN_PROMPT_IDS, QUIET_LINES, THINKING_PROMPT_IDS, WAIT, WAIT_ASK_PLAIN_ID
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
@@ -1021,6 +1022,14 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
     # お知らせの形（in_announce_form）は問いではない＝お客様が黙りうる：黙ったときの場面「ご承認のお知らせのあと」は、返事を決める1か所（Flow._silence_watch）が
     # いまの質問で決める（録音の項目に印を付けない＝会話AIの声で伝えても同じ）
     return {"kind": "question", "id": rid, "text": text, "lead": lead}
+
+
+def question_plays(questions: list["Question"], qid: str, before: str = "", again: bool = False, resumed: bool = False, soft: bool = False) -> list[dict]:
+    """その質問を録音で流す並び（電話接続側が流す順。返事の play に入れる所はここを通す＝次の質問 Flow._next_question・その頭の替え _relead_next・伺い直し _continue
+    など）：question_play の1つ。名乗りの部分で伺う質問（opening_part）は、名乗りの部分を流す並びの1か所（name_plays＝お名前の前の言葉を共通の一言の録音に分ける）。
+    つなげた文は question_play の文のまま（会話AIへの知らせ・判定に見せる質問の文）。"""
+    p = question_play(questions, qid, before, again, resumed, soft)
+    return name_plays(p["part"], p["text"]) if p["kind"] == "opening" else [p]
 
 
 # 次の項目の質問に入るときの頭（✅ 2026-11-06 日本時間12時54分30秒 ユーザー：「次の項目の質問に入る前は、すべて「続きまして」でいいんじゃないですか。」。
@@ -2576,10 +2585,10 @@ RETURN_MEANINGS = {RETURNED_SAME: "前の言葉で取り次ぎのためにこち
                    RETURNED_OTHER: "前の言葉を言った方とは別の方が、電話に出ている（「お電話代わりました」と出た・前の方と違うお名前を名乗った・"
                                    "お呼びした方ご本人が名乗った など）"}
 RETURN_CHECKS = ("returned", "returned2")
-CONFIRM_PARTS = ("target_confirm", "target_reconfirm", "mobile_confirm")  # 目的の人かを確かめる一言（名乗りの部分）：確かめ・はっきりしない返事への聞き返し・携帯電話の番号の確かめ
-# target_reconfirm（「（お名前）様でお間違えなかったでしょうか？」＝10-22）は、流れの制御はもう流さない（✅ 2026-11-19 日本時間15時10分27秒 伺い50 イ＝確かめへのお返事を
-# 判定が決められないときも、聞き取れなかったときと同じ聞き返し＝Flow._calling_ask_back）。名前（録音の台帳の続く言葉・判定の質問の番号 T3）は、CL-2 が録音の一覧から外すまで
-# 残す（外すと mobile_confirm の質問の番号 T4 が T3 になり、判定に送る文の指紋が変わる＝CL-2 と同時に外す。CL-2 への知らせの下書き＝rv110/R/notes.md）
+CONFIRM_PARTS = ("target_confirm", "mobile_confirm")  # 目的の人かを確かめる一言（名乗りの部分）：確かめ・携帯電話の番号の確かめ
+# ⛔ 2026-11-20（分身 L）まで、はっきりしない返事への聞き返し target_reconfirm（「（お名前）様でお間違えなかったでしょうか？」＝10-22）も入れていた。✅ 2026-11-19 日本時間
+# 15時10分27秒 伺い50 イ（確かめへのお返事を判定が決められないときも、聞き取れなかったときと同じ聞き返し＝Flow._calling_ask_back）で流さなくなり、CL-2 の連絡帳 4-443 の
+# (c)「外してよいです」で外した（判定の質問の番号は表の並び＝携帯電話の番号の確かめは T4 から T3 に。番号は判定に送る文に入らない＝指紋は変わらない）
 # mobile_confirm＝かけた番号が携帯電話の番号のとき、電話口の方のお言葉が聞き取れず判定の読みも届かない2回目の聞き返しで流す確かめる一言「（お名前）様で大丈夫でしょうか？」
 # （流すのは _calling_unheard の1か所・お名前のある目的のお客様だけ＝instruction.Target.mobile_confirm）。お客様が聞いたこの一言へのお返事は、ほかの確かめる一言と同じく
 # 確かめる一言の項目（target_facets の asked）で読み、「はい」でご本人なら今の確かめへの「はい」と同じ道（繋ぐ）。✅ 2026-11-19 日本時間14時18分13秒 ユーザー「伺い54：イ　ただし、
@@ -4086,6 +4095,18 @@ CARRIED_PART = "carried_target"
 # 急いでいるが手短になら聞くと言われたときに伺う一言の、要約の入る形（phrases.brief_line＝instruction.Business.replay_parts の brief。業務ごとの録音）。✅ 2026-11-16
 # 日本時間12時48分22秒 ユーザー（伺い31。お言葉は phrases.CALLBACK_ASK の brief）
 BRIEF_PART = "brief"
+
+
+def name_plays(part: str, text: str) -> list[dict]:
+    """名乗りの部分 part（文 text＝お客様に聞こえる文）を録音で流す並び（唯一の場所＝流れの制御の名乗りの部分 Flow._part_plays・名乗りの部分で伺う質問 question_plays）：
+    お名前の前に言葉のある形（phrases.NAME_HEADS＝「恐れ入りますが」）は、その言葉を共通の一言の録音（phrases.NAME_HEAD_IDS）で先に流し、名乗りの部分（名前の録音の
+    台帳＝役職・名前・続く言葉）には頭を入れない（CL-2 の連絡帳 4-443。流す順は返した並びのまま＝電話接続側）。並びの文をつなげると text のまま（会話AIへの「プログラムが
+    流す録音」の知らせ played_note・判定に見せる一言・お呼びする段で最後に聞いた一言 Flow._calling_heard も、つなげた文）。頭の無い形・頭で始まらない文（試験で手で
+    渡した名乗り）は、その部分だけ。⛔ 2026-11-20（分身 L）まで、頭は名乗りの部分の文に入ったまま流していた"""
+    head = NAME_HEADS.get(part, "")
+    if head and text.startswith(head) and len(text) > len(head):
+        return [{"kind": "recorded", "id": NAME_HEAD_IDS[head], "text": head}, {"kind": "opening", "part": part, "text": text[len(head):]}]
+    return [{"kind": "opening", "part": part, "text": text}]
 
 
 def opening_part(q: "Question") -> str | None:
@@ -5862,7 +5883,7 @@ class Flow:
         self.hesitating: dict[str, dict] = {}
         self.pending_wait: str | None = None    # 保留にしてよいかを伺い、お返事を待っている質問（Flow._ask_pending・_pending_reply）
         self.repeat_turn: int | None = None   # もう一度言ってほしいと読んで、伺ったことを流し直した発話（_repeat_now。同じ発話に流し直しを重ねない）
-        self._asked_next: tuple[dict, dict | None, bool] | None = None   # 次の質問を伺う返事とその中の質問の録音・もう伺った質問か（_next_question。替えるのは _relead_next）
+        self._asked_next: tuple[dict, list[dict] | None, bool] | None = None   # 次の質問を伺う返事とその中の質問の録音・もう伺った質問か（_next_question。替えるのは _relead_next）
         self.end_doubt: int | None = None         # 電話を終える言葉か判定でも決まらず、いまの話への返事として受け取る発話（_topic_first。答えは向きを確かめる＝_checks）
         # 通話の事実（種類 → 起きた順の記録。_note だけが書く）。業務の判定（DESIGN.md 7-1。CL-2 の judge_task）へ渡す、会話の側が決めるもの：
         # do_not_call＝発信禁止の申告（原則14）／complaint＝怒り・苦情（人へ知らせる印）／end＝通話を終えた理由。どれも根拠の発話つき
@@ -6047,12 +6068,12 @@ class Flow:
 
     def _calling_questions(self) -> None:
         """呼んでいる段の判定の質問（judge_context）を作る唯一の場所（始めと、後任の方へ切り替えたとき＝_to_successor）：呼ぶ一言と、確かめる一言
-        （確かめへの返事を待つ間は、こちらが実際に聞いた問いを質問にする）。確かめる一言は2つ（CONFIRM_PARTS：確かめ・はっきりしない返事への
-        聞き返し）。返事を待っている方を confirm_part に持つ。こちらに尋ねているかの問い合わせ（asks_context）の質問の文も、こちらが最後に聞いたこと
+        （確かめへの返事を待つ間は、こちらが実際に聞いた問いを質問にする）。確かめる一言は2つ（CONFIRM_PARTS：確かめ・携帯電話の番号の
+        確かめ）。返事を待っている方を confirm_part に持つ。こちらに尋ねているかの問い合わせ（asks_context）の質問の文も、こちらが最後に聞いたこと
         ＝呼ぶ一言か確かめる一言。目的のお客様の判定は、後任の方をお呼びしたあとも同じ物差し（target_facets）で、「ご本人」は、はじめにお呼びした方
         （判定に、はじめにお呼びした言葉を見せる＝first_called。次の電話で初めから後任の方をお呼びするときは、呼ぶ一言にお名前が入っている）。"""
         target = self.target
-        # 番号は表の並びのまま（T2＝確かめ・T3＝聞き返し・T4＝携帯電話の番号の確かめ）。その業務に無い一言（お名前の無い業務・後任の方の mobile_confirm）は作らない
+        # 番号は表の並びのまま（T2＝確かめ・T3＝携帯電話の番号の確かめ）。その業務に無い一言（お名前の無い業務・後任の方の mobile_confirm）は作らない
         asked_parts = (("T1", "target"),) + tuple((f"T{i + 2}", part) for i, part in enumerate(CONFIRM_PARTS) if target.get(part)) if target else ()
         scene = {"seeks_successor": self.successor, "called": self.first_called if self.successor else ""}
         self.calling_question = (Question("T1", target["target"], "yes_no", required=False, conditions=(TARGET_IS_THERE, TARGET_IS_NOT),
@@ -6067,14 +6088,20 @@ class Flow:
         self.return_question = (Question("R1", target["target"], "yes_no", required=False, conditions=tuple(RETURN_MEANINGS),
                                          meanings=dict(RETURN_MEANINGS), named=True) if target else None)
 
-    def _part_play(self, k: str) -> dict:
-        """名乗りの部分 k を流す1つ（唯一の場所）：依頼主の単位の録音（名乗りの部分）か、共通の一言の録音（system_parts）＝後任の方へ切り替えた
-        あとの呼ぶ一言・確かめる一言と、業務が書かなかった標準の部分（phrases.STANDARD_PARTS。文は共通の一言の表 RECORDED）。"""
+    def _part_plays(self, k: str) -> list[dict]:
+        """名乗りの部分 k を流す並び（唯一の場所）：依頼主の単位の録音（名乗りの部分。お名前の前に言葉のある形は、その言葉の共通の一言の録音のあとに名前の録音＝
+        name_plays の1か所）か、共通の一言の録音（system_parts）＝後任の方へ切り替えたあとの呼ぶ一言・確かめる一言と、業務が書かなかった標準の部分
+        （phrases.STANDARD_PARTS。文は共通の一言の表 RECORDED）。並びの文をつなげると、お客様に聞こえる文（target・opening の文）のまま。"""
         if k in self.system_parts:
             rid = self.system_parts[k]
-            return {"kind": "recorded", "id": rid, "text": (self.target or {}).get(k) or RECORDED[rid]}
+            return [{"kind": "recorded", "id": rid, "text": (self.target or {}).get(k) or RECORDED[rid]}]
         k = self.part_names.get(k, k)
-        return {"kind": "opening", "part": k, "text": self.opening.get(k) or self.target[k]}
+        return name_plays(k, self.opening.get(k) or self.target[k])
+
+    def _part_play(self, k: str) -> dict:
+        """名乗りの部分 k を流す1つ（_part_plays の並びが1つのもの＝お名前の前に言葉の無い部分。言葉のある部分を1つで流そうとしたら止まる）。"""
+        (p,) = self._part_plays(k)
+        return p
 
     # ── 名乗りの録音の途中で相手が話し始めて、録音を止めた（電話接続側の見張りが止めた。DESIGN.md 6-13）
     def on_opening_cut(self, done: list[str]) -> None:
@@ -6371,8 +6398,7 @@ class Flow:
                 if self.opening.get("purpose"):
                     lines.append(self._purpose_play())
             if self.current is not None:
-                lines.append(question_play(self._plays(), self.current, "".join(x["text"] for x in lines),
-                                           resumed=self._resumed_call()))
+                lines += question_plays(self._plays(), self.current, "".join(x["text"] for x in lines), resumed=self._resumed_call())
                 self.items[self.current].played = True
             say, then = None, "相手の答えを待ってください。" + answer_wait() if self.current else "相手のお返事を待ちます。"
         texts = "".join(x["text"] for x in lines)
@@ -6905,7 +6931,9 @@ class Flow:
             if x["callee_turns"] < self.speaker_from:
                 break
             r = x["reply"]
-            for said in [*(r.get("say") and [r["say"]] or []), *reversed([p.get("text", "") for p in r.get("play") or []])]:
+            # 録音は流した並びの頭からつなげた文で当てる（お名前の前の言葉を別の録音で流した一言＝name_plays も、お客様が聞いたつながった文で当たる）
+            played = [p.get("text", "") for p in r.get("play") or []]
+            for said in [*(r.get("say") and [r["say"]] or []), *("".join(played[:n]) for n in range(len(played), 0, -1))]:
                 k = next((k for t, k in texts if said.endswith(t)), None)
                 if k is not None and not (closed and k in CONFIRM_PARTS):
                     return k
@@ -10311,13 +10339,14 @@ class Flow:
         fb = TALK_FALLBACK[pick][0]
         self._note("talk", answer=fb, fallback=pick, **drafts, **checked)
         self._mark_answered()
-        line = question_play(self._plays(), qid, again=True)
+        line = question_plays(self._plays(), qid, again=True)
+        said = fb + "".join(p["text"] for p in line)
         how = answer_wait()
         if self.play_recordings:
-            play = [{"kind": "recorded", "id": pick, "text": fb}, line]
-            return {"result": "replayed", "play": play, "quiet": True, "message": played_note(fb + line["text"]) + "何も言わずに、相手の答えを待ってください。" + how}
-        return {"result": "replayed", "say": fb + line["text"], "speak": True, "quiet": True,
-                "message": f"{say_note(fb + line['text'])}相手の答えを待ってください。{how}"}
+            play = [{"kind": "recorded", "id": pick, "text": fb}, *line]
+            return {"result": "replayed", "play": play, "quiet": True, "message": played_note(said) + "何も言わずに、相手の答えを待ってください。" + how}
+        return {"result": "replayed", "say": said, "speak": True, "quiet": True,
+                "message": f"{say_note(said)}相手の答えを待ってください。{how}"}
 
     def _aside_again(self, said: str | None, pick: str | None, drafts: dict, checked: dict) -> dict:
         """申し出でない業務の質問（aside_fits）への会話が繋がらないお返事に応える唯一の返事（_own_answer から。番は _asked_kind の offer＝_offer_unlinked・
@@ -11475,10 +11504,10 @@ class Flow:
         # 前置きを言い直さない形 B-5 と同じ理由。業務の質問は「失礼いたしました。」＋「それでは（質問）」＝11-06 15時20分30秒のまま）
         fixed_again = again and not (repeat and (q.callback or q.of)) if q is not None else again
         if q is not None and self.play_recordings and not q.reading_of:
-            qp = question_play(qs, q.id, again=fixed_again, before=prior, soft=soft)
-            play += ([] if joined else back + go) + [qp]
+            qp = question_plays(qs, q.id, again=fixed_again, before=prior, soft=soft)
+            play += ([] if joined else back + go) + qp
             return {"result": "replayed", "play": play,
-                    "message": played_note(shown + ("" if joined else btext) + qp["text"]) + "何も言わずに、相手の答えを待ってください。"
+                    "message": played_note(shown + ("" if joined else btext) + "".join(p["text"] for p in qp)) + "何も言わずに、相手の答えを待ってください。"
                                + answer_wait()} | bridged
         if q is not None:
             then = f"{say_note(btext)}続けて、" if (back or go) and not joined else ""
@@ -13485,8 +13514,8 @@ class Flow:
         （passed_on。繋いだら、あいさつ・名乗りから全部）。判定が届かずに確かめるとき（AIは「目的の人」と報告し、新しい方の印は無い）は付けない。
         ⛔ 2026-10-19 G-62：いつも付けていたので、判定が遅れて最初に出たご本人に確かめたとき、繋いだあとに名乗りをもう一度流した
         part：流す確かめる一言（CONFIRM_PARTS のどれか）＝確かめ（target_confirm）・携帯電話の番号の確かめ（mobile_confirm＝お呼びする段の聞き返しの2回目＝
-        _calling_ask_back）。どれを流しても、確かめへの返事を待つ（confirm_open）・判定に見せる一言は同じ1か所。はっきりしない返事への聞き返し（target_reconfirm）は
-        もう流さない（伺い50 イ＝聞き取れなかったときと同じ聞き返し＝_calling_reply）"""
+        _calling_ask_back）。どれを流しても、確かめへの返事を待つ（confirm_open）・判定に見せる一言は同じ1か所。はっきりしない返事への聞き返し（「…様でお間違え
+        なかったでしょうか？」）は流さない（伺い50 イ＝聞き取れなかったときと同じ聞き返し＝_calling_reply。2026-11-20 に名前も外した）"""
         if new_person:
             self.passed_on = True
         self.target_confirmed.append(self.callee_turns)   # 確かめへの返事を待つ（confirm_open）は、流した確かめる一言から決まる（_calling_heard の1か所）
@@ -13541,7 +13570,8 @@ class Flow:
             keys.append("target_transfer")
             self.transfer_asked.append(self.callee_turns)
             transfer = True
-        text = "".join(self.target[k] for k in keys)
+        plays = [p for k in keys for p in self._part_plays(k)]   # 流す並びと会話AIへの知らせ・会話AIが言う文は同じ1か所（お取り次ぎをお願いし直す一言は頭が別の録音）
+        text = "".join(p["text"] for p in plays)
         head = {"result": "call_target", "sorry": sorry, **({"transfer": True} if transfer else {})}
         what = "相手の方は、目的の人ではありませんでした（目的の人だと、はっきりしませんでした）。"
         if not keys:
@@ -13551,8 +13581,7 @@ class Flow:
             return head | {"silent": True, "message": f"{what}{done}（お呼びする一言は、この方にもう2回お伝えしました＝同じお願いを繰り返しません）。"
                                                       f"何も言わずに、{self._calling_note()}"}
         if self.opening:
-            return head | {"silent": True, "play": [self._part_play(k) for k in keys],
-                           "message": f"{what}{played_note(text)}何も言わずに、{self._calling_note()}"}
+            return head | {"silent": True, "play": plays, "message": f"{what}{played_note(text)}何も言わずに、{self._calling_note()}"}
         return head | {"say": text, "message": f"{what}{say_note(text)}そのあと、{self._calling_note()}"}
 
     def _own_phone(self) -> bool:
@@ -17201,9 +17230,9 @@ class Flow:
         if self.play_recordings:
             # かけ直しで足す質問も録音（⛔ 2026-10-19 G-57：AIに言わせると、3本中1本で「私の方では折り返しのお電話ができかねますので」と
             # 足し、もう1本でも「かしこまりました。」を足した＝決まった文は録音にする決まり（6-13）に戻した）
-            play = question_play(self._plays(), q.id, again=again)
-            text = play["text"]
-            r = {"result": "next", "question_id": q.id, "question": q.text, "play": [play],
+            play = question_plays(self._plays(), q.id, again=again)   # 質問の並び（名乗りの部分で伺う質問は、お名前の前の言葉の録音から＝name_plays）
+            text = "".join(p["text"] for p in play)
+            r = {"result": "next", "question_id": q.id, "question": q.text, "play": list(play),
                  "message": prefix + played_note(text, f"次の質問 {q.id}") + "何も言わずに、相手の答えを待ってください。" + answer_wait()
                             + choices_note(q)}
         else:
@@ -17247,14 +17276,15 @@ class Flow:
         # 同じ回に、こちらの名乗り（intro）を先に流す＝まだ名乗りを聞いていなかった方（取り次がれて代わった方＝_reception_lead）：この方にはまだ伺っていない質問
         # なので、もう伺った質問へ戻る頭「それでは」は付けない（初めて伺う形。見直し (12) の B-9 を入れる途中に見つけた：「…と申します。それでは恐れ入りますが…」）
         again = m[2] and not any(p.get("part") == "intro" for p in [*before, *plays])
-        if m[1] is not None:   # 録音で流す通話：質問の録音を替える
-            at = next((i for i, p in enumerate(plays) if p is m[1]), None)
+        if m[1] is not None:   # 録音で流す通話：質問の録音の並び（question_plays）を替える
+            at = next((i for i, p in enumerate(plays) if p is m[1][0]), None)
             if at is None:
                 return r
-            new = question_play(qs, qid, "".join(p["text"] for p in [*before, *plays[:at]]), again=again, resumed=resumed)
-            if new != plays[at]:
-                r["message"] = r["message"].replace(plays[at]["text"], new["text"], 1)
-                plays[at] = new
+            old = plays[at:at + len(m[1])]
+            new = question_plays(qs, qid, "".join(p["text"] for p in [*before, *plays[:at]]), again=again, resumed=resumed)
+            if new != old:
+                r["message"] = r["message"].replace("".join(p["text"] for p in old), "".join(p["text"] for p in new), 1)
+                plays[at:at + len(old)] = new
                 self._asked_next = (r, new, m[2])
             return r
         old = spoken_question(qs, qid, again=m[2])[1]   # AIが話す通話：AIに渡す話し始めの言葉を替える
