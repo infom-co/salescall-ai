@@ -566,6 +566,38 @@ def brief_line(noun: str | None) -> str:
     return BRIEF_ASK.format(t=of_matter(noun)) if noun else CALLBACK_ASK["brief"]
 
 
+# ── こちらからおかけする営業の電話（顧客獲得型）の用件の一言と Yes の質問の段の言葉（本書 9-9 の (1)〜(3)）。
+# ✅ 2026-11-20 日本時間0時09分49秒 ユーザー：「電話をかけて挨拶したら、「○○の件でお電話しているんですけど、」…と用件を1つだけ言う」「そして、間髪おかずに、
+# 「ちなみに、～」必ず、「Yesを取れる」簡単な質問をする。」（法人の例「今、求人でタウンワークにご掲載されてて、これお間違いなかったですよね？」）「要件前に最初の方で、
+# 断られたら「あっ、そうですよね、いらなかったですよね、突然のお電話、大変申し訳ございません！」と、受け止めた後で、また、「ちなみに、」と角度を変えて簡単な質問をする。」
+# 「また、断られても、「あっ、そうでしたよね。もう、ほとんどのお客様は『そういう話は大丈夫』って最初おっしゃっていただけるんですよ。○○様ももう大丈夫でしたよね。」と
+# 心の底から受け止める。」「また、「ちなみにですけど、」「で、それでなんですけど、」と角度を変えて簡単な質問をする。」・伺い84 イ（「ありがとうございます！」＋「それでは
+# 手短にお伺いいたしますね。」のあと、すぐ Yes の質問）・decided の (2)（「忙しい」には「あっ、お忙しいところ突然のお電話、大変申し訳ございません！」）。
+# 決まった言い方なので言葉の途中の読点は外す（10-15＝fixed_words の1か所）。流すのは flowctl.Flow（_yes_ask・_yes_again）・録音の一覧は flowctl.yes_forms・RECORDED。
+ACQUIRE_PURPOSE = "{p}の件でお電話しているんですけど、"   # (1) 用件の一言（{p}＝用件の名詞。依頼者の単位の録音＝名乗りの部分 purpose。すぐあとに Yes の質問）
+# Yes の質問の頭（鍵 → 言葉）：first＝用件の一言のすぐあと・受け止めの1回目・「忙しい」「手短に」の受け止めのあと（「ちなみに、」）／next＝はい・いいえ・答えの決まらない
+# お返事のあとの2つ目から（「ちなみにですけど、」）／again＝2回目からの受け止めのあと（「で、それでなんですけど、」）
+YES_LEADS = {"first": "ちなみに、", "next": "ちなみにですけど、", "again": "で、それでなんですけど、"}
+YES_ASK = "{lead}{c}、これお間違いなかったですよね？"   # Yes の質問の形（{c}＝中身＝業務設定の材料か、使い切ったら会話AIが書いた中身）
+# 用件の前のお断りなどの受け止め（共通の一言の録音 yes_received_（鍵））：refused＝1回目・again＝2回目から（このあと、お名前のある方には名前の録音の台帳の
+# yes_received＝NAME_FORMS）・busy＝「忙しい」
+YES_RECEIVE = {"refused": "あっ、そうですよね、いらなかったですよね、突然のお電話、大変申し訳ございません！",
+               "again": "あっ、そうでしたよね。もう、ほとんどのお客様は『そういう話は大丈夫』って最初おっしゃっていただけるんですよ。",
+               "busy": "あっ、お忙しいところ突然のお電話、大変申し訳ございません！"}
+YES_RECEIVE_NAMED = "{who}ももう大丈夫でしたよね。"   # 2回目からの受け止めの終わり（{who}＝お呼びした方の「〇〇様」）
+YES_BRIEF = "ありがとうございます！" + BRIEF_GO     # 「手短に」への一言（共通の一言の録音 yes_brief）
+
+
+def fixed_words(text: str) -> str:
+    """決まった言い方として録音する文から、言葉の途中の読点を外す唯一の場所（10-15。文の終わりの「、」＝続く録音へのつなぎは残す）。"""
+    return text[:-1].replace("、", "") + text[-1] if text else text
+
+
+def yes_line(content: str, lead: str) -> str:
+    """Yes の質問の文（唯一の作り方＝flowctl.yes_question）：頭（YES_LEADS の鍵）＋中身＋「これお間違いなかったですよね？」。言葉の途中の読点は外す（10-15）。"""
+    return fixed_words(YES_ASK.format(lead=YES_LEADS[lead], c=content.strip().rstrip("、")))
+
+
 # ほかの会社の困りごとを伺い・深めたあとに、選択肢がどれもご連絡の方法の名前の業務の選ぶ質問（flowctl.way_choice）を提案で伺い直すときの、こちらがすることの言葉
 # （flowctl.Flow._proposal_of の1か所。方法は offer_words が終わりの動詞の前に「（方法）で」で入れる）。✅ 2026-11-16 日本時間12時48分22秒 ユーザー「・伺い32 場面1：ア」
 # ＝伺いの例「それでは対応の面も含めてメールでご連絡させていただくということではいかがでしょうか？」の「ご連絡させていただく」
@@ -1132,7 +1164,9 @@ PROMISE_AGAIN = "{who}とお電話の約束をしておりましたので後ほ�
 # 4-405 の (3)：⛔ 66eb3d76 まで、続く言葉の文を出す1か所が無く、CL-2 は鍵だけで録音を選んでいた）
 NAME_FORMS = {"target": TARGET_CALL["法人"], "target_individual": TARGET_CALL["個人"], "target_confirm": TARGET_CONFIRM, "target_reconfirm": TARGET_RECONFIRM,
               "promise_again": PROMISE_AGAIN, "target_successor": SUCCESSOR_OF, "unavailable_confirm": UNAVAILABLE_CONFIRM, "carried_target": CARRIED_FROM,
-              "mobile_confirm": MOBILE_CONFIRM, "target_transfer": TARGET_TRANSFER}
+              "mobile_confirm": MOBILE_CONFIRM, "target_transfer": TARGET_TRANSFER,
+              # 顧客獲得型の2回目からの受け止めの終わり（「〇〇様ももう大丈夫でしたよね。」＝YES_RECEIVE_NAMED。お呼びした方ご本人と話しているとき）
+              "yes_received": YES_RECEIVE_NAMED}
 NAME_TAILS = {k: v.split("{who}", 1)[1] for k, v in NAME_FORMS.items()}
 NAME_HEADS = {k: v.split("{who}", 1)[0] for k, v in NAME_FORMS.items() if v.split("{who}", 1)[0]}
 # 前の電話の事情で、まずお詫びする一言（予約証の apology の理由ごと。共通の一言の録音）。目的の方に繋がったら（目的の人の無い業務は名乗りのあと）、
@@ -1422,7 +1456,9 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "wait_reply": WAIT_REPLY,
             "moshimoshi": MOSHIMOSHI, **{f"callback_{k}_pending": PENDING_LINE.format(t=t) for k, t in CALLBACK_PENDING.items()},
             **{f"callback_carried_talked_{k}": v for k, v in CARRIED_TALKED.items()}, "start_over": START_OVER, "brief_go": BRIEF_GO,
-            CALL_AGAIN_TAKEN: CALL_AGAIN_DONE}
+            CALL_AGAIN_TAKEN: CALL_AGAIN_DONE,
+            # 顧客獲得型の Yes の質問の段の受け止め・「手短に」への一言（どの業務でも同じ文＝共通の一言。言葉の途中の読点は外す＝10-15）
+            **{f"yes_received_{k}": fixed_words(v) for k, v in YES_RECEIVE.items()}, "yes_brief": fixed_words(YES_BRIEF)}
 # システムの質問（callback_〜）を、2回目・3回目からの戻る一言のあとに流す形（決まりは back_fit の1か所。方法をお伝えした一言のあとの連絡先の一言も、2回目と同じ
 # 「それでは」を外した形＝flowctl.callback_question の announced）。⛔ 2026-11-07 日本時間4時台に見つけた：3時台に足した方法をお伺いしたあとの形（_announced）は
 # 読み方の表にだけあり、この表に無かった＝録音が作られない形だった。続きの電話で切れた所から伺う一言（callback_〜_again＝前置き「前回…」つき）へ戻るときは、
