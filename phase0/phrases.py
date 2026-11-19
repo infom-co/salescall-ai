@@ -274,7 +274,8 @@ CALLBACK_ASK = {
     "theirs_workday": "お電話をいただいた際に出られないことがないように次のご出社はいつかお分かりになりますでしょうか？",   # お休み
     "theirs_date": "お電話をいただいた際に出られないことがないようにいつごろお戻りのご予定かお分かりでしょうか？",           # 出張など長期の不在
     "theirs_later": "お電話をいただいた際に出られないことがないようにいつ頃お電話をいただけそうかお分かりになりますでしょうか？",   # ご事情・あとで
-    "later_time": "恐れ入りますが何時ごろでしたらご都合よろしいでしょうか？",             # あとで：かけ直してよい時刻
+    # あとで：かけ直してよい時刻（later_time）は、日時の2択の段（TIME_LADDER）で伺う＝この表に一言を持たない。⛔ 894b082f まで「恐れ入りますが何時ごろでしたら
+    # ご都合よろしいでしょうか？」（10-19 にご承認・✅⛔ 2026-11-19 日本時間14時18分13秒のお言葉で覆った）
     # 別の番号へ：番号。「おかけ直しする番号」とは言わない（かけ直すかは門と次の動きが決める＝約束しない。G-22）
     "number": "恐れ入りますがお電話番号をお伺いしてもよろしいでしょうか？",
     "reachable_time": "電話に出られる時間などはお分かりになりますでしょうか？",          # 別の番号へ：出られる時間（✅ ユーザーの言い方のまま）
@@ -360,7 +361,8 @@ CALLBACK_ASK = {
     # 「また、」と曖昧にしておいた方がよくないですか？」（同じ日にかけるかを伺う call_again・promise_again の「後ほど」は、その日のことなので今のまま）。
     # ⏳ 録音は声の型ごとに作って聞いていただく
     "hurry_again": "それではまた改めてお掛けしてもよろしいでしょうか？",
-    "hurry_when": "ご都合のいい日時はいつ頃でしょうか？",
+    # 「はい」のあとのご都合のいい日時（hurry_when）は、日時の2択の段（TIME_LADDER）で伺う。⛔ 894b082f まで「ご都合のいい日時はいつ頃でしょうか？」
+    # （11-01 日本時間20時56分。✅⛔ 2026-11-19 日本時間14時18分13秒のお言葉で覆った）
     # 答えの段で、電話をつないだまま待つのか、あとでかけ直すのか、お言葉から決まらないとき（flowctl.Flow._wait_or_later）：1回だけ伺う。頭の「かしこまりました。」は
     # 相づちの録音（ACK の kashikomari）。✅ 2026-11-05 日本時間23時56分48秒 ユーザー：「待つか、かけ直すかが言葉から決まらないとき：(ア)」（23時台のご報告の (ア)
     # ＝「かしこまりました。このままお待ちしていた方がよろしいでしょうか？それとも改めておかけ直しさせていただいた方がよろしいでしょうか？」）。⏳ 録音は声の型ごとに
@@ -633,7 +635,21 @@ def of_matter(noun: str) -> str:
     return noun[:-1] if noun.endswith("件") else f"{noun}の" if noun else ""
 
 
-CALLBACK_ASK_ANSWERING = {"later_time": "いつ頃おかけ直しさせていただきましょうか？"}
+# 日時の2択の段（✅ 2026-11-19 日本時間14時18分13秒 ユーザー（伺い52 場面B・C）：「それでは、平日と土日のどちらがよろしいでしょうか？」⇒平日「○曜日と○曜日では
+# どちらがよろしいでしょうか？」土日「はい、承知致しました。土日にあらためてご連絡させていただきますね。」⇒間髪おかず「お時間は午前と午後のどちらがよろしい
+# でしょうか？」⇒すぐに「○時と○時ではどちらがよろしいでしょうか？」と次々に2択してもらっていく。1回目からこのパターン　営業でいつ頃と聞くのは最悪。これを聞くと
+# 相手は断ろうとする。これまでの指示を覆すことになるけど、急いでいないときでも、日時を伺う時はこのパターンを採用して。」「場面C：上記同様、明日の午後まで効けたなら、
+# ⇒すぐに「○時と○時ではどちらがよろしいでしょうか？」」）。決まった言い方なので言葉の途中の読点は外した（10-15）。表記はお言葉の文のまま（「致しました」「あらためて」）。
+# 平日と土日・土日の受け・午前と午後は共通の一言の録音（名前は TIME_LADDER_IDS）。曜日・時刻の入る2択（pair）は値の入る文＝言い直し（confirm）と同じく会話AIの声
+# （flowctl.question_play の voiced）。段を決めるのは flowctl.ladder_step の1か所・質問の文を置き換えるのは flowctl.Flow._ladder_set の1か所。
+# ⛔ 894b082f まで、答えの段のかけ直しは「いつ頃おかけ直しさせていただきましょうか？」（11-06 日本時間0時44分31秒・録音 callback_later_time_answering）
+TIME_LADDER = {"kind": "それでは平日と土日のどちらがよろしいでしょうか？",
+               # 土日の受け：お言葉の文「はい、承知致しました。土日にあらためてご連絡させていただきますね。」の頭の「はい、」は相づちの録音（ACK の hai）で流し、
+               # 続きをこの録音にする（録音の文には読点を入れない＝10-15。flowctl.Flow._ack_choice が土日の受けの頭に hai を選ぶ）
+               "weekend": "承知致しました。土日にあらためてご連絡させていただきますね。",
+               "half": "お時間は午前と午後のどちらがよろしいでしょうか？",
+               "pair": "{a}と{b}ではどちらがよろしいでしょうか？"}
+TIME_LADDER_IDS = {"kind": "callback_time_kind", "weekend": "time_weekend", "half": "callback_time_half"}
 CALLBACK_ASK_RESUMED = {"not_agreed": "前回お伺いした件で" + CALLBACK_ASK["not_agreed"]}
 # ほかのご希望でご連絡の方法までは伺えて、その連絡先を伺う前に切れた電話の続き（前の通話の答えの "wish_means"＝flowctl.resumed_step）。✅ 2026-11-04 日本時間19時26分
 # ユーザー：「前回、選択いただいたLINEでのご連絡の件でLINEの連絡先を伺う前に切れてしまいましたので、恐れ入りますがLINEのIDをお伺いするか、SMSかメールからご招待する
@@ -1342,7 +1358,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_{k}_which_recap": v for k, v in CALLBACK_ASK_WHICH_RECAP.items()},
             **{f"callback_{k}_again": v for k, v in CALLBACK_ASK_RESUMED.items()},
             **{f"callback_{k}_chosen": v for k, v in CALLBACK_ASK_CHOSEN.items()},
-            **{f"callback_{k}_answering": v for k, v in CALLBACK_ASK_ANSWERING.items()},
+            **{TIME_LADDER_IDS[k]: TIME_LADDER[k] for k in TIME_LADDER_IDS},
             **{f"callback_line_how_without_{k}": v for k, v in CALLBACK_ASK_OTHER_WAYS.items()},
             **{f"callback_line_how_without_{k}_2": v for k, v in CALLBACK_ASK_OTHER_WAYS_AGAIN.items()},
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
