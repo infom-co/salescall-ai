@@ -18,7 +18,7 @@ from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LA
                      check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, standard_message, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, mobile_confirm, role_honorific, standard_message, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -96,6 +96,11 @@ class Target:
 
     def reconfirm(self) -> str:
         return SUCCESSOR["target_reconfirm"] if self.successor else target_reconfirm(self._name(), self.role)
+
+    def mobile_confirm(self) -> str:
+        """かけた番号が携帯電話の番号のときの、2回目の聞き返しの確かめる一言（phrases.mobile_confirm。お名前は確かめる一言と同じ呼び方）。お名前の無い目的のお客様
+        （役職だけ）・後任のご担当者様は空＝作らない（flowctl.Flow._calling_unheard は「もう一回よろしいでしょうか？」のまま）。"""
+        return "" if self.successor else mobile_confirm(self._name())
 
     def promise_again(self) -> str:
         """約束の電話で取り次げないと言われたときに伺う一言（お名前は確かめる一言と同じ呼び方）。"""
@@ -229,6 +234,11 @@ class Business:
     # 前の通話の答え（earlier）をいただいた、いちばん新しい電話が今日か（same_day・later。答えが無ければ None。予約証の earlier_when＝CL-2 の core/apology.earlier_when
     # の1か所・4-389）。読むのは引き継ぎを確かめる一言の「先日／先ほど」（flowctl.carried_ask。CL-1 の連絡帳 4-148 の「頼みたいこと (同じ日か)」）
     earlier_when: str | None = None
+    # この電話でかける番号（予約証の phone_e164＝CL-2 の core/gate.Claim.phone_e164 をそのまま写す。E.164 の「+81…」の形も、0 から始まる形も読める＝flowctl.number_kind）。
+    # 会話の側が読むのは、携帯電話の番号か（flowctl.is_mobile の1か所）だけ＝流れの制御へは真偽だけを渡す（Flow の dialed_mobile。番号そのものは判定・会話AIへの文・
+    # 通話の事実に入れない）。読むのは、お呼びする段で聞き取れないお返事の2回目の聞き返しの言い方（Flow._calling_unheard）。✅ 2026-11-19 日本時間14時18分13秒
+    # ユーザー「伺い54：イ　ただし、携帯番号の場合は、2回目は「申し訳ございません、「おかだ」様で大丈夫でしょうか？」」。None＝分からない（携帯ではない側＝今の言い方）
+    phone_e164: str | None = None
     # 約束の電話などの頭で流す、承認したお詫びの文（予約証のお詫びの理由 forbidden_speech のとき要る＝CL-2 の apology.for_task の text。承認したときに聞いて
     # いただいた録音で流す＝お詫びだけの電話の apology_call と同じ流し方。並べる順は flowctl.apology_order の1か所）。✅ CL-2 の 4-350 の (2)
     apology_text: str | None = None
@@ -340,7 +350,7 @@ class Business:
         """この業務・この電話の流れの制御（flowctl.Flow）を作る唯一の場所（通話の駆動側・試験の両方）。recorded＝名乗りを録音で流す形（本番の形＝
         DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
         AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
-        from flowctl import Flow
+        from flowctl import Flow, is_mobile
         return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does, handoff_ways=tuple(self.handoff_ways),
                     close_offer=self.close_offer, way_words=self.way_words, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
@@ -348,7 +358,7 @@ class Business:
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か・担当の方が替わった電話か
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again, handover=self.handover,
                     hold_wait_s=self.hold_wait_s, silence_prompt_after=self.silence_prompt_after, wait_ask_after=self.wait_ask_after, apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
-                    earlier_when=self.earlier_when,
+                    earlier_when=self.earlier_when, dialed_mobile=is_mobile(self.phone_e164),
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
                     opening=self.replay_parts() if recorded else None, **kw)
@@ -454,7 +464,8 @@ class Business:
         文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
         その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
         法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
-        お名前の入る7つ（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・target_successor・target_full＝フルネームのあるときだけ）は、業務の録音の組ではなく、名前の録音の
+        お名前の入る部分（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・carried_target・target_successor・target_full＝フルネームのあるときだけ・
+        mobile_confirm＝お名前のある目的のお客様だけ）は、業務の録音の組ではなく、名前の録音の
         台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
         分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
@@ -482,6 +493,10 @@ class Business:
                          promise_again=t.promise_again(),  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
                          unavailable_confirm=t.unavailable_confirm(),  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
                          carried_target=t.carried_from())  # 続きの電話の判断いただける代わりの方への引き継ぎの確かめ（flowctl.carried_ask の "target"）
+            if t.mobile_confirm():
+                # かけた番号が携帯電話の番号のときの、聞き取れないお返事への2回目の聞き返しの確かめる一言（flowctl.Flow._calling_unheard。✅ 2026-11-19 日本時間14時18分13秒
+                # 伺い54 のイ）。どの行が携帯電話の番号になるかは取込では決めない（かける番号は予約証＝phone_e164）＝ほかの部分と同じく、お名前のある業務のどの電話にも返す
+                parts["mobile_confirm"] = t.mobile_confirm()
             if t.full_call():
                 parts["target_full"] = t.full_call()   # お名前だけでは分からないと言われたとき（部署・フルネーム。flowctl.Flow._who_unclear）
                 if t.successor_full_call():

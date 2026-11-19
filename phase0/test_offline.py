@@ -32,7 +32,11 @@ CL2_PENDING = frozenset({
                          "prompt_reply",
                          # 深める一言に入れる困りごとの言葉・困りごとが続く形の句を会話AIが書く道具の引数（replay_opening の trouble・kept。伺い29＝✅ 2026-11-16
                          # 日本時間0時42分38秒・12時48分22秒 ユーザー。CL-2 への知らせはまとめ役）
-                         "trouble", "kept"})
+                         "trouble", "kept",
+                         # 名乗りの部分（名前の録音の台帳の続く言葉）：かけた番号が携帯電話の番号のときの、聞き取れないお返事への2回目の聞き返しの確かめる一言
+                         # 「（お名前）様で大丈夫でしょうか？」（instruction.Business.replay_parts の mobile_confirm。伺い54 のイ＝✅ 2026-11-19 日本時間14時18分13秒。
+                         # CL-2 への知らせは分身 O の書き置き rv105/O/notes.md の下書き＝まとめ役が送る）
+                         "mobile_confirm"})
 # （2026-11-19 に外した：手短に伺っている途中の少し焦った「承知しました。」の録音 shouchi_hurried＝CL-2 の common_phrases.TEXTS に入った＝CL-2 の
 # 連絡帳 4-426 の (1)・CL-1.md 4-190）
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す。2026-11-18 に「どうなさいますか？」の
@@ -35593,11 +35597,14 @@ class CallingRestTest(unittest.TestCase):
             f = self.opened()
             for s in steps:
                 self.say(f, *s)
-            f.on_callee(); f.on_heard("（雑音）")
-            r = f.apply("report_unclear", {"question_id": "T1"})
-            # 何と言うかは決まっていない＝今のまま何も流さない。待つ上限だけ（返事を待つ上限の1か所 _silence_watch）
-            self.assertNotEqual(r["result"], "rejected", steps)
-            self.assertEqual((OtherCompanyClueSendWayTest.heard(r), r.get("hold_wait_s")), ("", f.hold_wait_s), steps)
+            # ✅ 2026-11-19 日本時間14時18分13秒「伺い54：イ」：1回目・2回目は聞き返し（言い方は CallingUnheardAskBackTest）、3回目からは何も流さない。
+            # 待つ上限は、どの返事にも（返事を待つ上限の1か所 _silence_watch）
+            for _ in range(3):
+                f.on_callee(); f.on_heard("（雑音）")
+                r = f.apply("report_unclear", {"question_id": "T1"})
+                self.assertNotEqual(r["result"], "rejected", steps)
+                self.assertEqual(r.get("hold_wait_s"), f.hold_wait_s, steps)
+            self.assertEqual(OtherCompanyClueSendWayTest.heard(r), "", steps)
             end = f.on_hold_timeout()
             self.assertIn(HOLD_TIMEOUT, OtherCompanyClueSendWayTest.heard(end), steps)
             self.assertEqual((f.end_reason, f.not_reached), ("hold_timeout", "not_transferred"), steps)
@@ -35662,6 +35669,242 @@ class CallingRestTest(unittest.TestCase):
         self.assertEqual(r["result"], "confirm_target")
         r = f.apply("report_unclear", {"question_id": "T1"})
         self.assertEqual((r["result"], r.get("again"), OtherCompanyClueSendWayTest.heard(r)), ("noted", True, ""))
+
+
+class CallingUnheardAskBackTest(unittest.TestCase):
+    """お呼びする段で、電話口の方のお言葉が聞き取れず判定の読みも届かないとき（唯一の場所＝Flow._calling_unheard）。✅ 2026-11-19 日本時間14時18分13秒 ユーザー
+    「伺い54：イ　ただし、携帯番号の場合は、2回目は「申し訳ございません、「おかだ」様で大丈夫でしょうか？」」（伺いの文＝CL-1 の頼み rv100/M の ask_unheard.md）：
+    (1) 1回目＝「申し訳ございません、」（軽いお詫びの録音）＋「お電話が少し遠いようでして…」（答えの段の聞き返しと同じ1か所＝phrases.ask_again・相づちの決まり）
+    (2) 2回目＝かけた番号が携帯電話の番号（flowctl.is_mobile の1か所）でお名前のある業務なら「申し訳ございません、」（重いお詫び）＋確かめる一言「「おかだ」様で
+        大丈夫でしょうか？」（名乗りの部分 mobile_confirm＝名前の録音＋続く言葉）・ほかは「申し訳ございません、」（重い）＋「もう一回よろしいでしょうか？」
+    (3) 3回目からは何も流さずに待ち、待つ上限（業務設定）で締める
+    (4) 回数は電話口の方ごと（取り次がれて代わった方は数え直す）
+    (5) 聞き返しのあとのお返事は、前の一言（呼ぶ一言・確かめる一言）への答え直し＝判定に見せる一言は前の一言のまま。携帯電話の番号の確かめる一言のあとのお返事は、
+        その一言へのお返事（「はい」でご本人なら今の確かめと同じ道＝繋ぐ）
+    ⛔ 894b082f まで、何も流さずに待つだけだった（伺い54 のア＝9e49f606）"""
+    MOBILE, FIXED = "+819012345678", "03-1234-5678"
+    CALL = "部長の岡田（おかだ）様はいらっしゃいますでしょうか？"
+    CONFIRM = "岡田（おかだ）様でいらっしゃいますでしょうか？"
+    SURE = "「おかだ」様で大丈夫でしょうか？"
+    SURE_JUDGED = "岡田（おかだ）様で大丈夫でしょうか？"
+    AGAIN = "もう一回よろしいでしょうか？"
+
+    @staticmethod
+    def business(phone=None, target="named"):
+        import dataclasses
+        import g59_flow_check as fc
+        from instruction import Target
+        t = {"named": CallingHeardQuestionTest.business().target, "role": Target(role="社長"), "anyone": None,
+             "individual": Target(kind="個人", name="岡田", reading="おかだ"),
+             "successor": dataclasses.replace(CallingHeardQuestionTest.business().target, successor=True)}[target]
+        return dataclasses.replace(fc.b, target=t, phone_e164=phone)
+
+    def opened(self, b, judging=True, recorded=True):
+        """電話が繋がり、第一声のあと名乗り（と呼ぶ一言）を流したところ（業務設定の入口 Business.flow から組む＝かけた番号も同じ入口）。"""
+        import g59_flow_check as fc
+        f = b.flow(recorded=recorded, play_recordings=recorded)
+        if judging:
+            f.use_checks("judge", "asks")
+        if not recorded:
+            return f   # 会話AIが話す形：第一声を待つ段は無い（名乗りと呼ぶ一言は会話AIが言う＝お呼びする段から始まる）
+        f.on_connect()
+        fc.heard(f, "はい、テスト商事でございます。", "同受xx" if judging and b.target is not None else None)
+        f.apply("report_party", {"party": "reception" if b.target is not None else "person"})
+        f.on_activity(False)
+        f.on_first_words_end()
+        return f
+
+    @staticmethod
+    def unheard(f, words="（雑音）"):
+        f.on_callee(); f.on_heard(words)
+        return f.apply("report_unclear", {"question_id": f.current or "T1"})
+
+    @staticmethod
+    def heard(r):
+        return OtherCompanyClueSendWayTest.heard(r)
+
+    def test_1_fixed_line_asks_twice_like_the_answer_stage_and_then_waits(self):
+        from phrases import ACK, HOLD_TIMEOUT, ask_again
+        for phone in (self.FIXED, None, "0120-123-456"):
+            f = self.opened(self.business(phone))
+            self.assertFalse(f.dialed_mobile, phone)
+            r = self.unheard(f)
+            self.assertEqual((r["result"], r.get("ack"), r.get("say")), ("ask_back", "moushiwake", ask_again(1, "unclear")), phone)
+            self.assertEqual(self.heard(r), ACK["moushiwake"] + "お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？", phone)
+            self.assertEqual(r.get("hold_wait_s"), f.hold_wait_s, phone)   # 黙られたら待つ上限で締める（_silence_watch の1か所）
+            r = self.unheard(f)
+            self.assertEqual((r["result"], r.get("ack"), r.get("say")), ("ask_back", "moushiwake_heavy", self.AGAIN), phone)
+            self.assertEqual(r.get("say"), ask_again(2, "unclear"), phone)
+            r = self.unheard(f)   # 3回目：何も流さずに待つ
+            self.assertEqual((r["result"], self.heard(r), r.get("hold_wait_s")), ("noted", "", f.hold_wait_s), phone)
+            r = self.unheard(f)   # 4回目も何も流さない
+            self.assertEqual(self.heard(r), "", phone)
+            end = f.on_hold_timeout()
+            self.assertIn(HOLD_TIMEOUT, self.heard(end), phone)
+            self.assertEqual((f.end_reason, f.not_reached), ("hold_timeout", "not_transferred"), phone)
+
+    def test_1_after_asking_again_the_judge_reads_the_reply_to_the_line_before(self):
+        # 「もう一度お聞かせ…」のあとのお返事は、前の一言（呼ぶ一言・確かめる一言）への答え直し＝判定に見せる一言は前の一言のまま（本書 9-5 の 6.）
+        for phone in (self.FIXED, self.MOBILE):
+            f = self.opened(self.business(phone))
+            self.unheard(f)
+            f.on_callee(); f.on_heard("はい、岡田です。")
+            self.assertEqual((f.judge_context()[0].text, f.asks_context()[0].text), (self.CALL, self.CALL), phone)
+            self.assertFalse(f.confirm_open, phone)
+            g = self.opened(self.business(phone))
+            CallingHeardQuestionTest.say(g, "はい。", "同不xx")   # 確かめる一言
+            self.unheard(g)
+            g.on_callee(); g.on_heard("はい、岡田です。")
+            self.assertTrue(g.confirm_open, phone)
+            self.assertEqual(g.judge_context()[0].text, self.CONFIRM, phone)
+
+    def test_2_mobile_second_ask_is_the_name_check(self):
+        from phrases import ACK
+        for phone in (self.MOBILE, "090-1234-5678", "080 1234 5678"):
+            f = self.opened(self.business(phone))
+            self.assertTrue(f.dialed_mobile, phone)
+            r = self.unheard(f)
+            self.assertEqual((r["result"], r.get("ack"), r.get("say")), ("ask_back", "moushiwake", "お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"))
+            r = self.unheard(f)
+            self.assertEqual((r["result"], r.get("ack")), ("confirm_target", "moushiwake_heavy"), phone)
+            self.assertEqual([(p.get("kind"), p.get("part"), p.get("text")) for p in r.get("play") or []], [("opening", "mobile_confirm", self.SURE)], phone)
+            self.assertEqual(self.heard(r), ACK["moushiwake_heavy"] + self.SURE, phone)
+            self.assertEqual(r.get("hold_wait_s"), f.hold_wait_s, phone)
+            # 判定に見せるのは、お客様が聞いたこの一言（書いてあるとおり＋読み）＝確かめる一言の項目で読む
+            self.assertTrue(f.confirm_open, phone)
+            f.on_callee(); f.on_heard("はい。")
+            q, a = f.judge_context()[0], f.asks_context()[0]
+            self.assertEqual((q.text, a.text), (self.SURE_JUDGED, self.SURE_JUDGED), phone)
+            self.assertEqual(q.facets, f.confirm_questions["target_confirm"].facets, phone)
+            self.assertNotIn("9012345678", json.dumps([x["reply"] for x in f.log], ensure_ascii=False) + q.text, phone)
+
+    def test_2_replies_to_the_name_check(self):
+        from phrases import ACK
+        reconfirm = "「おかだ」様でお間違えなかったでしょうか？"
+        for words, code, want in (("はい、そうです。", "同本xx", "connect"), ("はい。", "同本xx", "connect"),
+                                  ("いいえ、山田です。", "同受xx", "call_target"), ("はい？", "同不xx", "reconfirm"), (None, None, "silent")):
+            f = self.opened(self.business(self.MOBILE))
+            self.unheard(f)
+            self.unheard(f)
+            self.assertTrue(f.confirm_open, words)
+            r = self.unheard(f) if words is None else CallingHeardQuestionTest.say(f, words, code)
+            said = self.heard(r)
+            if want == "connect":
+                self.assertNotEqual(f.phase, "calling", words)     # 今の確かめへの「はい」と同じ道（繋ぐ）
+            elif want == "call_target":
+                self.assertEqual((r["result"], r.get("ack")), ("call_target", "shitsurei"), words)
+                self.assertIn("いらっしゃいますでしょうか？", said, words)
+            elif want == "reconfirm":
+                self.assertEqual((r["result"], said), ("confirm_target", reconfirm), words)
+            else:
+                self.assertEqual((r["result"], said, r.get("hold_wait_s")), ("noted", "", f.hold_wait_s), words)   # 3回目は何も言わない
+        # 判定を使わない通話：会話AIの「目的の人」の報告で繋ぐ（今の確かめと同じ）
+        f = self.opened(self.business(self.MOBILE), judging=False)
+        self.unheard(f)
+        r = self.unheard(f)
+        self.assertEqual((r["result"], self.heard(r)), ("confirm_target", ACK["moushiwake_heavy"] + self.SURE))
+        f.on_callee(); f.on_heard("はい、そうです。")
+        f.apply("report_party", {"party": "target"})
+        self.assertNotEqual(f.phase, "calling")
+
+    def test_3_without_a_name_the_second_ask_is_the_plain_one(self):
+        # お名前の無い業務（役職だけ・後任のご担当者様）は、携帯電話の番号でも「…様で大丈夫でしょうか？」を作れない＝「もう一回よろしいでしょうか？」
+        for target in ("role", "successor"):
+            b = self.business(self.MOBILE, target)
+            self.assertNotIn("mobile_confirm", b.replay_parts() if target == "role" else {}, target)
+            f = self.opened(b)
+            self.unheard(f)
+            r = self.unheard(f)
+            self.assertEqual((r["result"], r.get("ack"), r.get("say")), ("ask_back", "moushiwake_heavy", self.AGAIN), target)
+        # 通話の中で後任の方へ切り替えたあとも、前にお呼びした方のお名前で確かめない
+        f = self.opened(self.business(self.MOBILE))
+        CallingHeardQuestionTest.say(f, "岡田は先月退職いたしました。", "同受x籍", None, ("request_callback", {"why": "departed"}))
+        self.assertTrue(f.successor)
+        self.assertNotIn("mobile_confirm", f.target)
+        self.unheard(f)
+        r = self.unheard(f)
+        self.assertEqual((r["result"], r.get("say")), ("ask_back", self.AGAIN))
+
+    def test_3_anyone_business_keeps_the_answer_stage(self):
+        # 目的のお客様の無い業務（どなたでも）はお呼びする段が無い＝最初の質問の聞き返しは答えの段のまま（携帯電話の番号でも替えない）
+        f = self.opened(self.business(self.MOBILE, "anyone"))
+        self.assertEqual(f.phase, "asking")
+        r = self.unheard(f)
+        self.assertEqual((r["result"], r.get("ack"), r.get("say")), ("ask_back", "moushiwake", "お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"))
+        r = self.unheard(f)
+        self.assertEqual((r["result"], r.get("ack"), r.get("say")), ("ask_back", "moushiwake_heavy", self.AGAIN))
+
+    def test_4_individual_on_a_mobile(self):
+        from phrases import ACK
+        b = self.business(self.MOBILE, "individual")
+        self.assertEqual(b.replay_parts()["mobile_confirm"], self.SURE)
+        f = self.opened(b)
+        self.unheard(f)
+        r = self.unheard(f)
+        self.assertEqual(self.heard(r), ACK["moushiwake_heavy"] + self.SURE)
+        CallingHeardQuestionTest.say(f, "はい、そうです。", "同本xx")
+        self.assertNotEqual(f.phase, "calling")
+
+    def test_5_after_the_confirm_line(self):
+        # 確かめる一言へのお返事が聞き取れない：1回目は聞き返し（判定は確かめる一言へのお返事として読む）・携帯電話の番号なら2回目は「…様で大丈夫でしょうか？」
+        for phone, second in ((self.FIXED, self.AGAIN), (self.MOBILE, self.SURE)):
+            f = self.opened(self.business(phone))
+            CallingHeardQuestionTest.say(f, "はい。", "同不xx")
+            self.assertTrue(f.confirm_open, phone)
+            r = self.unheard(f)
+            self.assertEqual((r.get("ack"), r.get("say")), ("moushiwake", "お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"), phone)
+            r = self.unheard(f)
+            self.assertEqual((r.get("ack"), self.heard(r).removeprefix("申し訳ございません、")), ("moushiwake_heavy", second), phone)
+            CallingHeardQuestionTest.say(f, "はい、岡田です。", "同本xx")
+            self.assertNotEqual(f.phase, "calling", phone)
+
+    def test_6_a_new_person_is_counted_again(self):
+        # 取り次がれて代わった方は数え直す（今の呼ぶ一言・確かめの数え方と同じ単位＝speaker_from）
+        from meaning_judge import Reading
+        from flowctl import HOLD
+        f = self.opened(self.business(self.MOBILE))
+        self.unheard(f)
+        r = CallingHeardQuestionTest.say(f, "少々お待ちください。", Reading(HOLD))
+        self.assertEqual(r["result"], "hold")
+        r = self.unheard(f, "（雑音）お電話代わりました。")
+        self.assertEqual((r["result"], r.get("ack"), r.get("say")), ("ask_back", "moushiwake", "お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？"))
+        r = self.unheard(f)
+        self.assertEqual((r["result"], self.heard(r)), ("confirm_target", "申し訳ございません、" + self.SURE))
+
+    def test_7_the_same_words_are_not_answered_twice(self):
+        # 聞き返したあとに、同じお言葉への判定の読みが遅れて届いても・会話AIが同じお言葉を報告し直しても、重ねて応じない（同じ言葉に2つ応じない＝報告の無いターンは
+        # この発話への返事の有無 _judged_turn・報告は _calling_reported の calling_turn）。お客様は聞き返しに答え直してくださる＝その答えで決める
+        import g59_flow_check as fc
+        from meaning_judge import read
+        f = self.opened(self.business(self.FIXED))
+        self.unheard(f, "はい、岡田です。")
+        f.on_check("judge", read(f.judge_context()[0], json.dumps(fc.facts("同本xx"), ensure_ascii=False)))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual(self.heard(r or {}), "")
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual((r["result"], r.get("again"), self.heard(r)), ("noted", True, ""))
+        self.assertEqual(f.phase, "calling")
+        CallingHeardQuestionTest.say(f, "はい、岡田です。", "同本xx")
+        self.assertNotEqual(f.phase, "calling")
+
+    def test_8_the_dialed_number_enters_only_as_mobile_or_not(self):
+        # かけた番号（予約証の phone_e164）は業務設定の入口 Business.flow で携帯電話の番号か（flowctl.is_mobile の1か所）だけにする＝番号そのものは判定・会話AIへの
+        # 文に入れない。名前の入る一言の文は名前の録音の台帳（名乗りの部分）＝お名前のある業務だけ
+        from flowctl import is_mobile
+        from instruction import build
+        for phone in (self.MOBILE, self.FIXED, None):
+            b = self.business(phone)
+            f = b.flow(play_recordings=True)
+            self.assertEqual(f.dialed_mobile, is_mobile(phone), phone)
+            _, text = build(b, "S4")
+            self.assertNotIn("1234", text, phone)
+            self.assertEqual(b.replay_parts()["mobile_confirm"], self.SURE, phone)   # 番号に関わらず同じ部分を返す（どの行が携帯かは取込で分からない）
+        self.assertNotIn("、", self.SURE.removeprefix("「おかだ」様"))   # 決まった言い方には言葉の途中の読点を入れない（10-15）
+        # 録音を流さない通話（会話AIが話す形）は、確かめる一言を会話AIに言わせる（今の確かめる一言と同じ）
+        f = self.opened(self.business(self.MOBILE), recorded=False)
+        self.unheard(f)
+        r = self.unheard(f)
+        self.assertEqual((r["result"], r.get("say")), ("confirm_target", self.SURE))
 
 
 if __name__ == "__main__":
