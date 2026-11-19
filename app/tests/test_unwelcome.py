@@ -424,6 +424,26 @@ class PromiseAndApology(ApologyBase):
         self.assertEqual((p["kind"], p["promised"], p["apology_reasons"]), ("call", True, ["forbidden_speech"]))
         self.assertTrue(self.tx(s, lambda tx: gate.apology_unapproved(tx, s["task"])))   # 承認するまで門が通さない
 
+    def test_a_used_up_promise_with_the_head_apology_waits_for_the_button_and_keeps_the_apology(self):
+        """お詫びの印の付いた約束の電話が、決めた日数かけても話せずに終わった ⇒ お詫びが届かないまま終えず、契約者に知らせ、ダッシュボードの行の「さらにかける」で
+        その行だけ、約束の時刻のまま1日目から、頭でお詫びを伝える約束の電話をかけ直す（印 forbidden_speech を残す・承認したお詫びの案のまま）。押されなければ
+        かけない。✅ 2026-11-19 ユーザー（0245）。⛔ それまで：お詫びが届かないまま終え、だれにも知らせなかった。"""
+        from salescall.core import approval, customer_rows
+        s = self.fresh(stage_cap=20)
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '1 day')::date AS d")["d"])
+        aid, _ = self.promise_call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の15時")))
+        self.order(s, aid)
+        self.tx(s, lambda tx: next_action.end(tx, s["task"], "callback_exact_unreached", cause="試験：日数を使い切った", apology=("forbidden_speech",)))
+        self.assertEqual(len(self.tx(s, lambda tx: tx.all("SELECT 1 FROM salescall.notification_events WHERE kind = 'more_calls'"
+                                                          " AND refs ->> 'task_id' = %s", (str(s["task"]),)))), 1)
+        run = self.tx(s, lambda tx: tx.one("SELECT run_id FROM salescall.tasks WHERE task_id = %s", (s["task"],))["run_id"])
+        self.assertTrue([r for r in self.tx(s, lambda tx: customer_rows.progress(tx, run)) if r["task_id"] == s["task"]][0]["more_calls"])
+        self.tx(s, lambda tx: approval.more_calls(tx, s["task"]), OPERATOR)
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["promised"], p["purpose"], p["apology_reasons"], p["callee_at"] is not None),
+                         ("call", True, "normal", ["forbidden_speech"], True))   # 頭でお詫びを伝える約束の電話
+        self.assertFalse(self.tx(s, lambda tx: gate.apology_unapproved(tx, s["task"])))   # 承認したお詫びの案のまま
+
     def test_the_head_apology_is_spoken_in_the_apology_recordings_voice(self):
         """約束の電話の頭のお詫び（お詫びの理由 forbidden_speech）も、お詫びだけの電話と同じく、承認したお詫びの録音の声だけで話す（録音の文を流すので声が
         まじらない＝0131。お詫びを伝える電話かは core/apology.carries の1か所）。その声が話してよい声でなければ、事情どおりの理由で待ち、知らせる。

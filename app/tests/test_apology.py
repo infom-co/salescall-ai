@@ -927,5 +927,93 @@ class ApologyAfterDialFix(ApologyBase):
                 self.assertEqual((d.kind, d.target.purpose, d.target.contact_id), ("call", "apology", new))
 
 
+
+class MoreCalls(ApologyBase):
+    """約束の電話・お詫びの電話を、決めた日数・回数かけても話せずに終えた行は、契約者がダッシュボードの取り込んだ行の「さらにかける」を押したら、その行だけ、
+    もう一度かけ始める（番号を直して戻すのと同じ1か所＝next_action._restart。回数は押したときから数え直す）。また話せなければ、また押せる。押されなければ
+    かけない。✅ 2026-11-19 ユーザー：「約束の電話やお詫びの電話は、その行だけ、契約者が承認ボタンを押したら、さらに3回かける。それでも繋がらなければ、
+    再度承認ボタンを出す。繋がるまで承認ボタンは出し続ける。。承認ボタンが押されなければかけない」・「約束+お詫びでかけられなかったものすべて」・
+    「ダッシュボードの取り込んだ行に承認ボタンを出します」（0245）。⛔ それまで：終えたまま（番号を直したときだけ戻した）。お詫びの印を持つ約束の電話で
+    終えた行は、お詫びが届かないまま、だれにも知らせなかった。"""
+
+    def notices(self, s, kind):
+        return self.tx(s, lambda tx: tx.all("SELECT summary, refs FROM salescall.notification_events WHERE kind = %s"
+                                            " AND refs ->> 'task_id' = %s ORDER BY event_id", (kind, str(s["task"]))))
+
+    def button(self, s):
+        from salescall.core import customer_rows
+        run = self.tx(s, lambda tx: tx.one("SELECT run_id FROM salescall.tasks WHERE task_id = %s", (s["task"],))["run_id"])
+        return {r["task_id"]: r["more_calls"] for r in self.tx(s, lambda tx: customer_rows.progress(tx, run))}[s["task"]]
+
+    def approve(self, s, actor=OPERATOR):
+        from salescall.core import approval
+        return self.tx(s, lambda tx: approval.more_calls(tx, s["task"]), actor)
+
+    def test_an_apology_call_that_never_reached_starts_again_only_when_approved(self):
+        from salescall.core import approval
+        s = self.fresh(stage_cap=20)
+        self.put_client(s, "retry.apology_max", 1)
+        self.order(s, self.incident(s))
+        got = self.apology_call(s)                                             # 報告に無い ⇒ 伝えていない側
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "apology_unreached"))
+        end = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual(self.tx(s, lambda tx: next_action.more_calls_offered(tx, s["task"])), end["seq"])
+        self.assertTrue(self.button(s))                                        # ダッシュボードの行に承認ボタン
+        self.assertEqual(len(self.notices(s, "more_calls")), 1)                # 契約者に1回知らせる
+        self.assertEqual(self.notices(s, "apology"), [])                       # 同じことを2回知らせない（お詫びの電話の結果の知らせは出さない）
+        tries = lambda: self.tx(s, lambda tx: next_action._new_band_retry(   # noqa: E731
+            tx, s["task"], tx.one("SELECT now() AS t")["t"], purpose="apology", number=s["contact"]).tries)
+        self.assertEqual(tries(), 1)
+        with self.assertRaises(Rejected):                                      # 押せるのは、管理者か契約者だけ
+            self.approve(s, SYSTEM)
+        self.approve(s)
+        p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((p["kind"], p["purpose"], p["promised"]), ("call", "apology", True))   # その行だけ、もう一度お詫びの電話
+        self.assertEqual(tries(), 0)                                           # 回数は押したときから数え直す（さらに決めた回数）
+        self.assertIsNone(self.tx(s, lambda tx: next_action.more_calls_offered(tx, s["task"])))
+        self.assertFalse(self.button(s))
+        with self.assertRaises(LookupError):                                   # 同じ終わりに2回は押せない
+            self.approve(s)
+        got = self.apology_call(s)                                             # また届かない ⇒ また押せる
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "apology_unreached"))
+        self.assertTrue(self.button(s))
+        self.assertEqual(len(self.notices(s, "more_calls")), 2)
+        with self.assertRaises(Rejected):                                      # 守りはデータベースにもある（いまの終えた予定だけ。前のかける予定は押せない）
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.more_call_approvals (tenant_id, client_id, task_id, end_seq, approved_by)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor())", (s["task"], p["seq"])), OPERATOR)
+        self.assertIsNotNone(approval)
+
+    def test_a_promise_that_never_reached_starts_again_at_the_promised_time(self):
+        from tests.support import callback
+        s = self.fresh(stage_cap=20)
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '1 day')::date AS d")["d"])
+        self.settle(s, self.call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の15時"))))
+        promise = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((promise["kind"], promise["promised"], promise["callee_at"] is not None), ("call", True, True))
+        self.assertFalse(self.button(s))                                       # かけ直す予定のあいだは出さない
+        for reason in ("callback_exact_unreached", "callback_unspecified_time"):
+            with self.subTest(reason=reason):
+                self.tx(s, lambda tx: next_action.end(tx, s["task"], reason, cause="試験：決めた日数・回数かけても話せなかった"))
+                self.assertTrue(self.button(s))
+                self.approve(s)
+                p = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+                self.assertEqual((p["kind"], p["promised"], p["callee_at"], p["window_round"]),
+                                 ("call", True, promise["callee_at"], 0))      # 約束の時刻のまま、1日目から
+        self.assertEqual([n["refs"]["end_reason"] for n in self.notices(s, "more_calls")],
+                         ["callback_exact_unreached", "callback_unspecified_time"])
+        # 時刻の決まっていない約束を、回数でなく契約者の再発信の方針が「終える」ので終えた行（かけていない）には出さない（番号の直しで戻すかと同じ決まり）
+        from salescall.core import business_rules
+        with unittest.mock.patch.object(next_action, "_unspecified_policy", return_value=business_rules.Policy("end", 1, None)):
+            self.tx(s, lambda tx: next_action.end(tx, s["task"], "callback_unspecified_time", cause="試験：方針が終える"))
+            self.assertFalse(self.button(s))
+            with self.assertRaises(LookupError):
+                self.approve(s)
+        self.assertEqual(len(self.notices(s, "more_calls")), 2)
+        # お客様が断った・業務を終えた行には出さない
+        self.tx(s, lambda tx: next_action.end(tx, s["task"], "do_not_call", cause="試験：断った"))
+        self.assertFalse(self.button(s))
+
+
 if __name__ == "__main__":
     unittest.main()
