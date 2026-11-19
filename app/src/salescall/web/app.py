@@ -33,7 +33,7 @@ from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
 from salescall.core import (agents, calling_hours, conversation_io, customer_contacts, customer_rows, dnc, dnc_import, exclusions, gate,
-                            health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
+                            health, health_rules, import_files, importer, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
 from salescall.core import once, people
@@ -1397,7 +1397,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 rest = (gate.REASONS[gate.TASK_STAGE_REASONS[stage.name.lower()]].message
                         if stage in troubles.RESTORABLE else "")
                 return {"level": exclusions.level(tx, task_id), "rest": rest,
-                        "latest": latest, "can_correct": latest is not None and latest["kind"] in measure.SYSTEM_KINDS,
+                        "latest": latest, "can_correct": approval_core.correctable(tx, task_id) is not None,   # 直せるかは core の1か所（29 の (c)）
                         "pending": inbox.collect(tx, task=task_id),   # この行の承認待ち（受け箱と同じ1か所・同じ形で出す）
                         "client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),

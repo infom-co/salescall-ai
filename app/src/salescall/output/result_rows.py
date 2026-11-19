@@ -13,8 +13,9 @@
   伺わなかった質問（判定の中身の not_asked）は「伺っていない（対象外）」。答えは、結果を決めた通話の担当の方の答え（core の
   `conversation_io.answers` の1か所。担当の方ごとの決まりをここで決め直さない）。
 - ⏳ 判定の中身の列（ほかのご希望・ご納得いただけなかった点 など）は、まだ（出し方を決めてから。DESIGN.md 7-3-3）。
-- ⏳ 「お客様からのご質問」の列（計画書 11-3「お答えできなかったご質問は必ず載せる」）は、書き方の変更とは別：判定の中身にまだご質問が
-  入っていない（CL-2 へのお願い 51）。通話の報告を直に読まない（目的のお客様だと確かめていない方の言葉を渡さない決まりを、判定の1か所で守る）。
+- 「お答えできなかったご質問」の列（計画書 11-3「お答えできなかったご質問は必ず載せる」）：判定の中身の callee_questions（CL-2 4-441）の
+  答えを持っていなかったもの（`unanswered_questions` の1か所）。通話の報告を直に読まない（目的のお客様だと確かめていない方の言葉を渡さない決まりを、
+  判定の1か所で守る）。
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from salescall.output import words
 DELIVERABLE_STAGES: tuple[str, ...] = ("verification", "production")
 
 COLUMNS: tuple[str, ...] = ("管理番号", "会社名", "お呼びする方", "お呼びする方のフルネーム", "お呼びする方の部署", "電話番号", "処理", "結果",
-                            "通話の終わり方", "かけた回数", "最後にかけた日時")
+                            "通話の終わり方", "かけた回数", "最後にかけた日時", "お答えできなかったご質問")
 
 # 依頼者に埋めていただく欄（「お名前だけではどの方か分からなかった」行。どの行のどの欄かは core の business_settings.who_unclear_blanks の
 # 1か所）。✅ 2026-11-18 管理者「(ア)でOK」：結果のファイルに「フルネーム」「部署」の欄を足し、色の付かない形（CSV）では空欄に
@@ -59,6 +60,7 @@ class ResultRow:
     call_end: str          # 通話の終わり方（7-3-4）
     dialed: int            # かけた回数（発信まで進んだ電話）
     last_at: str           # 最後にかけた日時（日本時間）
+    questions: str = ""    # お答えできなかったお客様からのご質問（計画書 11-3「必ず載せる」。判定の中身 callee_questions の answered が偽のもの）
     to_fill: tuple[str, ...] = ()   # 依頼者に埋めていただく欄の列の名前（TO_FILL_COLUMNS の値）
     headers: tuple[str, ...] = ()   # 質問ごとの2列の見出し（実施回のいまの版の質問の順。`question_headers`）
     answers: tuple[str, ...] = ()   # 質問ごとの2列の値（headers と同じ並び）
@@ -71,7 +73,7 @@ class ResultRow:
     def values(self) -> list[str]:
         """列の順の値（そのまま。埋めていただく欄は空）。"""
         return [self.client_ref, self.company, self.person, self.full_name, self.department, self.phone, self.handling, self.result,
-                self.call_end, str(self.dialed), self.last_at] + list(self.answers)
+                self.call_end, str(self.dialed), self.last_at, self.questions] + list(self.answers)
 
     def cells(self) -> list[str]:
         """色の付かない形（CSV）の値：埋めていただく欄には PLEASE_FILL を書く。"""
@@ -130,6 +132,15 @@ def _value_text(value: Any) -> str:
     if isinstance(value, dict) and isinstance(value.get("text"), str):
         return value["text"]
     return json.dumps(value, ensure_ascii=False)
+
+
+def unanswered_questions(detail: dict[str, Any] | None, mode: str = "short") -> str:
+    """お答えできなかったお客様からのご質問（1か所）：判定の中身 callee_questions（決め方は判定の1か所 judge._asked＝目的のお客様だと確かめ
+    られなかった方のご質問は入らない＝CL-2 4-441）のうち、答えを持っていなかったもの（answered が偽）を、言われた言葉のまま「／」でつなぐ。
+    言葉の縮め方は、ほかのお客様の言葉と同じ業務の設定（`words_mode`）。"""
+    said = [(q.get("said") or "").strip() for q in (detail or {}).get("callee_questions") or () if q.get("answered") is False]
+    # 数は減らさない（どのご質問も必ず載せる）。縮める業務でも、1つずつの長さだけを縮める
+    return "／".join(x[:WORDS_MAX_CHARS] if mode == "short" else x for x in said if x)
 
 
 def answer_cells(q: Any, item: dict[str, Any] | None, not_asked: set[str], mode: str = "short") -> tuple[str, str, str | None]:
@@ -217,5 +228,6 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
             phone=(phone.normalize(r["dial_phone"]).national or r["dial_phone"]) if r["dial_phone"] else "",
             handling=words.NEXT_KINDS["end"].client if kind == "end" else words.NEXT_KINDS["call"].client,
             result=result, call_end=call_end(last, kind), dialed=int(last["dialed"]) if last else 0,
-            last_at=calling_hours.label(last["claimed_at"]) if last else "", headers=headers, answers=tuple(cells), ours=tuple(ours)))
+            last_at=calling_hours.label(last["claimed_at"]) if last else "",
+            questions=unanswered_questions(v["detail"], mode) if v is not None else "", headers=headers, answers=tuple(cells), ours=tuple(ours)))
     return out

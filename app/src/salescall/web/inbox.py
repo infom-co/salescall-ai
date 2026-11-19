@@ -239,15 +239,12 @@ def _result_checks(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
     """検証モードでかけた通話の結果で、契約者の確かめを待っているもの（システムが判定した最新の版・確定の印が無い・判定できないでない・
     確定できる版。確定できるかは core の approval._blocked と同じデータベースの1か所 salescall.release_blocked）。"""
     items = []
-    for r in tx.all(
-            "SELECT l.task_id, l.version_no, l.business_state::text AS state, l.decided_at FROM salescall.latest_task_results l"
-            " WHERE " + counts.AWAITING_CHECK + " AND (%s::uuid IS NULL OR l.task_id = %s::uuid)"   # 確かめ待ちの式は counts の1か所
-            " ORDER BY l.decided_at, l.task_id", (task, task)):
+    for r in approval.results_to_check(tx, task_id=task, run_id=run):   # 確かめ待ちは core の1か所（CL-2 4-439 の 29）
         biz = _business_of(tx, r["task_id"])
         items.append(Item(
             kind="result_check", link=links.row(tx, r["task_id"]), key={"task_id": str(r["task_id"]), "seq": str(r["version_no"])}, title="結果の確かめ（検証モード）",
             decide="この結果でよいか（違えば、お客様の行の画面で直す）",
-            evidence=_row(tx, r["task_id"]) + [("システムの読み", words.word(words.BUSINESS_STATES, r["state"]).screen)],
+            evidence=_row(tx, r["task_id"]) + [("システムの読み", words.word(words.BUSINESS_STATES, r["business_state"]).screen)],
             if_not="確かめるまで、この結果は依頼者へ渡しません。", at=r["decided_at"],
             buttons=(Button("approve", "この結果でよい", main=True),), **biz))
     return items

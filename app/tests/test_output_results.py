@@ -85,6 +85,18 @@ class AnswerCells(unittest.TestCase):
         whole = result_rows.answer_cells(self.CHOICE, item, set(), "full")[0]
         self.assertEqual(whole, item["hedged"])                                    # 全部残す業務は、言ったとおり全部
 
+    def test_every_question_we_could_not_answer_is_listed(self):   # 計画書 11-3「お答えできなかったご質問は必ず載せる」（判定の中身 callee_questions）
+        detail = {"callee_questions": [{"said": "解約金はかかりますか？", "answered": False, "answer": None},
+                                       {"said": "営業時間は何時までですか？", "answered": True, "answer": "19時までです。"},
+                                       {"said": "支店でも使えますか？", "answered": False, "answer": None},
+                                       {"said": "請求書は郵送ですか？" + "あ" * 50, "answered": False, "answer": None}]}
+        got = result_rows.unanswered_questions(detail)
+        self.assertEqual(got.split("／")[:2], ["解約金はかかりますか？", "支店でも使えますか？"])   # 答えた質問は入れない・数は減らさない
+        self.assertEqual(len(got.split("／")), 3)
+        self.assertEqual(len(got.split("／")[2]), result_rows.WORDS_MAX_CHARS)                   # 縮める業務は1つずつの長さだけ
+        self.assertTrue(result_rows.unanswered_questions(detail, "full").endswith("あ" * 50))
+        self.assertEqual(result_rows.unanswered_questions({}), "")
+
     def test_the_headers_are_two_per_question(self):
         self.assertEqual(result_rows.question_headers([self.VALUE, self.CHOICE]),
                          ("ご希望の日", "ご希望の日（お客様の言葉）", "ご予約はされていますか？", "ご予約はされていますか？（お客様の言葉）"))

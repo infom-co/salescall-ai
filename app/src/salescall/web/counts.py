@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from salescall.core import approval
 from salescall.core.access import Tx
 from salescall.web.context import Ctx
 
@@ -67,14 +68,8 @@ def client_today(tx: Tx, business_id: UUID | None = None) -> dict[str, int]:
 
 
 # ── 業務の成果（計画書 5-2 の「業務成果」と「門で止めた件数（理由別）」。docs/DASHBOARD.md 5-7・5-8）──────────────────
-# 確定していない結果の見分け（1か所）：受け箱の「結果の確かめ」と、ここで数える所が同じ式を使う。中の決め方はデータベースの関数
-# （version_in_verification・release_blocked）と、確定の印 result_releases（core の approval._release だけが書く）。
-UNRELEASED = ("NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = l.task_id AND x.version_no = l.version_no)")
-AWAITING_CHECK = ("l.kind::text <> 'human' AND l.business_state::text <> 'unknown'"
-                  " AND salescall.version_in_verification(l.task_id, l.version_no) AND " + UNRELEASED +
-                  " AND NOT salescall.release_blocked(l.task_id, l.version_no)")
-_BLOCKED = UNRELEASED + " AND l.business_state::text <> 'unknown' AND salescall.release_blocked(l.task_id, l.version_no)"
-_UNKNOWN = UNRELEASED + " AND l.business_state::text = 'unknown'"
+# 確定していない結果の数（確かめ待ち・決定待ち・判定できない）は core の approval.unconfirmed_counts の1か所（受け箱の「結果の確かめ」の
+# approval.results_to_check と同じ式。CL-2 4-439 の 29。⛔ 前は、同じ式をここに書き写していた）。
 _IN_BUSINESS = "(%s::uuid IS NULL OR t.run_id IN (SELECT run_id FROM salescall.runs WHERE business_id = %s))"
 
 
@@ -88,9 +83,7 @@ def business_figures(tx: Tx, business_id: UUID | None = None) -> dict[str, Any]:
     results = {r["state"]: r["n"] for r in tx.all(
         "SELECT coalesce(l.business_state::text, 'open') AS state, count(*) AS n FROM salescall.tasks t"
         " LEFT JOIN salescall.latest_task_results l ON l.task_id = t.task_id WHERE " + _IN_BUSINESS + " GROUP BY 1", b)}
-    u = tx.one("SELECT count(*) FILTER (WHERE " + AWAITING_CHECK + ") AS awaiting_check,"
-               " count(*) FILTER (WHERE " + _BLOCKED + ") AS blocked, count(*) FILTER (WHERE " + _UNKNOWN + ") AS unknown"
-               " FROM salescall.latest_task_results l JOIN salescall.tasks t ON t.task_id = l.task_id WHERE " + _IN_BUSINESS, b)
+    u = approval.unconfirmed_counts(tx, business_id=business_id)
     denied = tx.all("SELECT d.reason, count(DISTINCT d.task_id) AS n FROM salescall.gate_denials d JOIN salescall.tasks t ON t.task_id = d.task_id"
                     " WHERE " + _IN_BUSINESS + " AND salescall.jst(d.denied_at)::date = %s GROUP BY 1 ORDER BY 2 DESC, 1", (*b, tx.today()))
     return {"results": results, "unconfirmed": dict(u), "denied_today": [(r["reason"], r["n"]) for r in denied]}
