@@ -439,3 +439,10 @@ table.list .tag { white-space: normal; text-align: left; }
 .login-page form.stack { display: grid; gap: 8px; }
 .login-page form.stack .btn { margin-top: 8px; }
 form.logout { display: inline; margin: 0; }
+
+/* 結果ごとのかけ直しを、まとめて変える欄（1つの結果が1行。スマホでは折り返す） */
+fieldset.retry-row { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+fieldset.retry-row legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
+fieldset.retry-row input { width: 5em; }
+details.adder-block > summary { list-style: none; cursor: pointer; display: inline-block; }
+details.adder-block > summary::-webkit-details-marker { display: none; }

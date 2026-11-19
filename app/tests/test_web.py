@@ -158,6 +158,26 @@ class Web(_World):
         part = ok.text[ok.text.index('id="retry"'):]                            # 結果ごとのかけ直し（計画書 6-2。読むのは core の1か所）
         for k in business_rules.POLICY_KEYS:
             self.assertIn(f"{words.RETRY_POLICY_WORDS[k]}</td><td class=\"wide\">{words.retry_policy(rules.retry[k])}", part)
+        # まとめて変える（方針だけを変えた新しい版を作る＝core の business_settings.change_retry。CL-2 4-440 の 49）
+        from salescall.core import business_settings
+        url = f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.a['version']}/retry"
+        latest = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: business_settings.successor_tip(tx, self.a["version"]))
+        self.assertEqual(latest, self.a["version"])                                 # 試験の業務の版は、つながりのいちばん後
+        self.assertIn(f'action="{url}"', ok.text)
+        data = {"form_token": self.token("A")}
+        for k in business_rules.POLICY_KEYS:
+            p = rules.retry[k]
+            data.update({f"{k}_action": p.action, f"{k}_times": str(p.max_times or ""), f"{k}_n": str(p.interval[1] if p.interval else ""),
+                         f"{k}_unit": p.interval[0] if p.interval else "hours"})
+        data.update({"not_reached_absent_action": "call", "not_reached_absent_times": "2", "not_reached_absent_n": "1",
+                     "not_reached_absent_unit": "days"})
+        self.assertIn("ok=0", self.post("A", url, {**data, "reason": ""}).headers["location"])   # 理由は必ず
+        r = self.post("A", url, {**data, "reason": "試験：不在は2回まで"})
+        self.assertIn("ok=1", r.headers["location"])
+        new = r.headers["location"].split("/versions/")[1].split("?")[0]
+        self.assertNotEqual(new, str(self.a["version"]))                        # 新しい版（前の版は残る）
+        changed = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: business_rules.load(tx, UUID(new)))
+        self.assertEqual(changed.retry["not_reached_absent"], business_rules.Policy("call", 2, ("days", 1)))
         self.assertEqual(self.get("A", f"/c/{self.a['client']}/b/{self.a['business']}/versions/{self.y['version']}").status_code, 404)
 
     def test_the_counts_of_client_x_do_not_move_when_client_y_changes(self):   # S-6

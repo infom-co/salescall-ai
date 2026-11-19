@@ -1168,11 +1168,47 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     rules = business_rules.load(tx, version_id)
                 except (business_rules.RulesMissing, business_rules.RulesInvalid):
                     rules = None
+                latest = business_settings.successor_tip(tx, version_id) == version_id   # 変える欄は、つながりのいちばん後の版にだけ出す
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
-                        "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem,
+                        "business": b, "businesses": context.businesses(tx), "version": v, "s": s, "problem": problem, "latest": latest,
                         "policies": [(k, rules.retry[k]) for k in business_rules.POLICY_KEYS] if rules else [],
                         "system_policies": [(k, rules.retry[k]) for k in business_rules.SYSTEM_POLICIES] if rules else []}
-            return page(request, "version.html", person, ctx, **ctx.client(client_id, read, read_only=True))
+            return page(request, "version.html", person, ctx, done=request.query_params.get("done"), ok=request.query_params.get("ok", "1") == "1",
+                        units=business_rules.INTERVAL_UNITS, **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/b/{business_id}/versions/{version_id}/retry")
+    async def version_retry(request: Request, client_id: UUID, business_id: UUID, version_id: UUID) -> HTMLResponse:
+        """結果ごとのかけ直し（再発信の方針）を、まとめて変える（計画書 6-2「ダッシュボードでは一括登録できるように」）。方針だけを変えた新しい版を
+        足すのは core の business_settings.change_retry の1か所（CL-2 4-440 の 49。確かめ・登録は取込と同じ道。前の版は残る）。実施回への切り替えは、
+        決まった間隔の仕事（adopt_ready）が、録音などがそろってから行う。理由は必ず。"""
+        from salescall.core import business_rules, business_settings
+        form = dict(await request.form())
+        base = f"/c/{client_id}/b/{business_id}/versions"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> UUID:
+                if tx.one("SELECT 1 FROM salescall.business_versions WHERE version_id = %s AND business_id = %s",
+                          (version_id, business_id)) is None:
+                    raise NotFound()
+                policies = {}
+                for key in business_rules.POLICY_KEYS:
+                    action = str(form.get(f"{key}_action") or "")
+                    if action == "end":
+                        policies[key] = business_rules.Policy("end", None, None)
+                    elif action == "call":
+                        times, n, unit = (str(form.get(f"{key}_{x}") or "").strip() for x in ("times", "n", "unit"))
+                        if not (times.isdigit() and n.isdigit() and int(times) >= 1 and int(n) >= 1) or unit not in business_rules.INTERVAL_UNITS:
+                            raise actions.Refused(f"「{words.RETRY_POLICY_WORDS.get(key, key)}」の回数と間隔を、1以上の数で入れてください")
+                        policies[key] = business_rules.Policy("call", int(times), (unit, int(n)))
+                    else:
+                        raise actions.Refused("かけ直すか、終えるかを選んでください")
+                try:
+                    return business_settings.change_retry(tx, version_id, policies, reason=str(form.get("reason") or "").strip())
+                except business_settings.SettingsInvalid as e:
+                    raise actions.Refused(str(e)) from None
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), reason_field="reason",
+                              done="結果ごとのかけ直しを変えた、新しい版を作りました（前の版は残ります）。録音などがそろえば、実施回は自動でこの版に替わります。")
+            return _back(f"{base}/{out.value}" if out.ok else f"{base}/{version_id}", out)
         return handle(request, render)
 
     @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}")
