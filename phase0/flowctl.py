@@ -2470,6 +2470,13 @@ CALL_TYPES = (CALL_CONFIRM, CALL_ACQUIRE)
 #   main_concern      本題のお断りに本心を伺う一言 D2「何か問題でもございましたでしょうか？」を当てる所（1通話1回）：first＝本題の最初の決まらないお断り（今の道）／second＝顧客獲得型：
 #                     最初は「そうですよね。ただ～」・2回目のお断りに D2（⏳ 9-9 の「(8) と本題の「もういいです」への本心を伺う一言 D2 の順」は CL-1 が会話つきで伺う＝この1行を
 #                     first にすれば D2 が先）
+#   concern_refusal   本心を伺う一言 D2 のお返事を待っている間に、判定が電話を終える言葉「断った」（念押し・強い勢いの断りも＝ANGRY_NOT）と読んだとき、どちらが先に当たるか
+#                     （Flow._retreat_way の1か所）：concern_answer＝D2 の答え「断ろうとしている」（これ以上は話したくない・電話を終えたい）として、D2 の答えの1か所
+#                     （Flow._concern_decided）で受ける＝本題の「もういいです」なら締めずにご遠慮の一言 R1・申し出の取り消し「やっぱり」なら取り消しを受ける（伺い40）／
+#                     as_refusal＝D2 を待っていないときと同じお断りの行（顧客獲得型＝今の道＝本題のお断りの「そうですよね。ただ～」）。✅ 2026-11-08 日本時間2時21分15秒 ユーザー
+#                     （本書 9-4 の「断られた」の行）「…まだ電話を終えたい（「もういいって言ってるでしょう。」）＝ここでご遠慮の一言（R1）」。⛔ main の 42b075b6 まで、伺い81 の
+#                     境目のあとは、この言葉を判定が「断った（念押し）」と読み、ご遠慮の一言を伺わずにお断りの締め・もうかけない印になった（書く担当 W2 の控え rv176/W2/notes.md の
+#                     3 の 2＝分身 T）。はっきり怒っている（angry）・急いでいる（hurry）は、D2 を待っていても今の行のまま
 SCALES = {"refusal_mark": {CALL_CONFIRM: "every_end", CALL_ACQUIRE: "cut_or_angry"},
           "early_refusal": {CALL_CONFIRM: "close", CALL_ACQUIRE: "yes_again"},
           "reception_sales": {CALL_CONFIRM: "close", CALL_ACQUIRE: "call_again"},
@@ -2481,7 +2488,8 @@ SCALES = {"refusal_mark": {CALL_CONFIRM: "every_end", CALL_ACQUIRE: "cut_or_angr
           "main_refusal": {CALL_CONFIRM: "close", CALL_ACQUIRE: "yes_but"},
           "main_hurry": {CALL_CONFIRM: "hurry_ask", CALL_ACQUIRE: "yes_but"},
           "main_brief": {CALL_CONFIRM: "brief_ask", CALL_ACQUIRE: "brief_again"},
-          "main_concern": {CALL_CONFIRM: "first", CALL_ACQUIRE: "second"}}
+          "main_concern": {CALL_CONFIRM: "first", CALL_ACQUIRE: "second"},
+          "concern_refusal": {CALL_CONFIRM: "concern_answer", CALL_ACQUIRE: "as_refusal"}}
 YES_WAYS = ("yes_again", "yes_brief")   # Yes の質問の段（Flow._yes_open）の中だけの道（段の外では Flow._scale が今の道を仮に返す）
 MAIN_WAYS = ("yes_but", "brief_again")   # 本題の段（Flow._main_open）の中だけの道（段の外では Flow._scale が今の道を仮に返す）
 KEEP_ON_WAYS = ("yes_again", "yes_but", "call_again")   # 引き下がらずに続ける道（判定が断った・急いでいると読んでも締めない＝Flow._keep_on の1か所が振り分ける）
@@ -14340,6 +14348,10 @@ class Flow:
             return taken
         # 引き下がる所：尺度の表の1行で道を選ぶ（_retreat_way の1か所。確認の電話の型の道は今のまま＝hurry_ask・close）
         way = self._retreat_way(reason)
+        if way == "concern_answer":
+            # 本心を伺う一言 D2 のお返事を待っている間の「断った」（念押し・強い勢いの断りも）：締めずに D2 の答え「断ろうとしている」として受ける（_concern_refused。
+            # 本題の「もういいです」ならご遠慮の一言 R1＝本書 9-4 の 11-08 日本時間2時21分15秒）
+            return self._concern_refused()
         if way in KEEP_ON_WAYS:
             # 顧客獲得型：Yes の質問の段の用件の前のお断り（「もうかけないで」も）・急いでいる＝受け止め＋角度を変えた次の Yes の質問（伺い79 ウ）／本題の段のお断り・忙しい＝
             # 「そうですよね。ただ～」（9-9 の (8)）／受付の方の営業のお断り＝大切なお話としてお呼びし直す（伺い85）。こちらからは締めない（_keep_on の1か所）
@@ -14744,7 +14756,10 @@ class Flow:
 
     def _retreat_way(self, reason: str) -> str | None:
         """電話を終える読み（終わりの理由 reason）の、引き下がる所の道（尺度の表の行を選ぶ唯一の場所＝締めの報告 _op_request_end・判定が届かなかった _end_late）：急いでいる＝
-        hurry・怒っている＝angry・通話・営業を断った＝お呼びする段は受付の方の営業のお断り（reception_sales）・答えの段は用件の前のお断り（early_refusal）。ほかは None。"""
+        hurry・怒っている＝angry・通話・営業を断った＝お呼びする段は受付の方の営業のお断り（reception_sales）・答えの段は用件の前のお断り（early_refusal）。ほかは None。
+        通話・営業を断ったと読んだのが、本心を伺う一言 D2 のお返事を待っている間なら、先に尺度の表の concern_refusal（concern_answer＝D2 の答えとして受ける＝_concern_refused）。"""
+        if reason == "callee_refused_call" and self.concern_q is not None and (way := self._scale("concern_refusal")) != "as_refusal":
+            return way
         # 本題に入ったあと（_main_talk）は本題の行（main_refusal・main_hurry＝分身 K2。確認の電話の型の値は序盤の行と同じ今の道）
         main = reason in ("callee_hurry", "callee_refused_call") and self.phase != "calling" and self._main_talk()
         row = {"callee_hurry": "main_hurry" if main else "hurry", "callee_complaint": "angry",
@@ -15055,7 +15070,8 @@ class Flow:
         - 問題を言った（「説明が長くて分かりにくいんですよ。」）：伺う前の質問の位置へ戻し、会話AIが、言っていただいた点に業務の情報の範囲で応える（お客様に
           尋ねられて答える1か所と同じ道＝_asked_now の concern_turn・知らせ _asked_note。応えたらお返事を待ち、お答えがいまの質問の答えなら受け取る＝_resume）。
           言っていただいた点は、依頼者へ渡すお客様の言葉の記録に残る（_question_note＝今後の改善）
-        - 断ろうとしている（まだ電話を終えたい）：ここでご遠慮の一言（_refusal_confirm。伺う前の位置から）
+        - 断ろうとしている（まだ電話を終えたい）：ここでご遠慮の一言（_refusal_confirm。伺う前の位置から）。判定が電話を終える言葉「断った」（念押し・強い勢いの断りも）
+          と読んだときも、この答えとして受ける（_concern_refused。尺度の表の concern_refusal）
         - 問題は無い・はっきりしない：断ったとは言われていないので、伺う前の質問へ戻る（_back_from_aside＝ご遠慮の一言の「いいえ」と同じ1か所）"""
         qid, self.concern_q = self.concern_q, None
         it, q = self.items[qid], self.questions[qid]
@@ -15075,6 +15091,18 @@ class Flow:
         if cond == "問題を言った":
             return self._concern_heard(prefix, "concern")
         return self._back_from_aside(prefix)
+
+    def _concern_refused(self) -> dict:
+        """本心を伺う一言 D2 のお返事を待っている間に、判定が電話を終える言葉「断った」（念押し・強い勢いの断りも）と読んだ（尺度の表の concern_refusal が concern_answer＝
+        _retreat_way・締めの報告 _op_request_end。会話AIが報告しなくても・D2 の答えや終わりを報告しても同じ）：締めずに、D2 の答えを「断ろうとしている」（これ以上は話したく
+        ない・電話を終えたい＝_ROLE_MEANINGS の concern）に決めて、D2 の答えの唯一の入口（_advance → _concern_decided）へ通す＝本題の「もういいです」ならご遠慮の一言 R1・
+        申し出の取り消しなら取り消しを受ける（伺い40）。発信の拒否は、ここでは聞いたとしない（R1 の「はい」で決める＝_refusal_decided。R1 の「いいえ」なら断ったとは言われて
+        いない）。✅ 2026-11-08 日本時間2時21分15秒 ユーザー（本書 9-4 の「断られた」の行）「…まだ電話を終えたい（「もういいって言ってるでしょう。」）＝ここでご遠慮の一言（R1）」"""
+        qid = self.concern_q
+        q, it = self.questions[qid], self.items[qid]
+        it.condition = it.value = next(c for c in q.conditions if q.declined(c))
+        it.set("accepted", f"判定が電話を終える言葉「{END_REFUSED}」と読んだ（まだ電話を終えたい）")
+        return self._advance("")
 
     def _taken_offer(self) -> str | None:
         """いま伺っている質問が、一度受けていただいたこちらの申し出から始まった質問なら、その申し出の質問の番号（唯一の決まり＝判定の選べるものに「申し出を取り
