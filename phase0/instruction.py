@@ -15,12 +15,13 @@ from dataclasses import dataclass, field
 from flowctl import notice  # AIへの知らせの枠の唯一の場所
 from flowctl import approval_explanation, CloseOffer, KNOWN_HEADS, TALK_RECEIVE, label, offer_questions
 from flowctl import DEFAULT_BUSINESS_HOURS, DEFAULT_DESIGNATED_LIMIT
-from flowctl import CALL_ACQUIRE, CALL_CONFIRM, CALL_TYPES, yes_first
+from flowctl import CALL_ACQUIRE, CALL_CONFIRM, CALL_TYPES, PAINS_MAX, yes_first
 from flowctl import (ANY_LABEL, NONE_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
                      check_policies, choices_note, offers_rule, opening_question, resumed_call, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import ACQUIRE_PURPOSE, YES_RECEIVE_NAMED, fixed_words
+from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD, RECEPTION_WHO, WHO_LINES
 from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, mobile_confirm, role_honorific, standard_message, target_call, target_transfer, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
@@ -125,6 +126,18 @@ class Target:
         確かめる一言と同じ呼び方＝お名前の無い業務は役職の呼び名）。流すのは flowctl.Flow._yes_again（お呼びした方ご本人と話しているときだけ）。"""
         return YES_RECEIVE_NAMED.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
 
+    def acquire_line(self, k: str) -> str:
+        """顧客獲得型の本題の段のお名前の入る文（phrases.NAME_FORMS の acquire_glad「じゃあ（お名前）様ちょうど良かったです！」・WHO_LINES の悩みの伺いと「聞かせてください」の
+        一続きの3つ。名前の録音の台帳の同じ名前。お名前は yes_received と同じ呼び方＝お名前の無い業務は役職の呼び名）。流すのは flowctl.Flow（お呼びした方ご本人と話している
+        ときだけ＝_who_play）。分身 K2"""
+        return NAME_FORMS[k].format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
+
+    def reception_purpose(self) -> str:
+        """受付の方へ伝える用件の一文（伺い85＝✅ 2026-11-20 日本時間2時18分01秒「営業ではなく、○○様にとって、「大切な話」「役に立つ話」としてかけるので、営業では断られない。」。
+        phrases.RECEPTION_PURPOSE「（お呼びする方）にとって大切なお話がございましてお電話いたしました。」＝名前の録音の台帳 reception_purpose）。お名前の無い業務・後任の方を
+        お呼びする電話は「ご担当者様にとって」（まとめ役の頼み rv174/K2 の (3)）。流すのは flowctl.Flow（受付の方に用件を聞かれた・営業のお断り＝_reception_again）。分身 K2"""
+        return NAME_FORMS["reception_purpose"].format(who=RECEPTION_WHO if not self.name or self.successor else f"{self._name()}様")
+
     def full_call(self) -> str:
         """お名前だけではどの方か分からないと言われた・どなたをお呼びかを聞かれたときにお呼びし直す一言（まだお伝えしていない部署とフルネームの、
         分かるほうを足す。呼ぶ一言と同じ言い方＝phrases.target_call・後任の方は SUCCESSOR_OF）。お伝えすることが増えない（フルネームも部署も無い・
@@ -146,7 +159,8 @@ class Target:
 
 # CL-2 へ頼んだ顧客獲得型の業務設定の欄（CL-1.md 4-207 の (a)(b)。名前は仮）：CL-2 の欄の名前 → 業務の入口（Business）の欄の名前（唯一の表＝CL-2 の答えで替えるのは
 # 左だけ。CL-2 の業務設定の欄は、会話の側の Business の欄と同じ名前で受け渡す＝CL-2 の business_settings の main_talk_policy などと同じ形）
-CL2_ACQUIRE_FIELDS = {"call_type": "call_type", "yes_asks": "yes_asks"}
+# 本題の段の欄（4-207 の (c)(d)(e)＝特別感の条件・悩みと事例・お時間）も同じ表（分身 K2）
+CL2_ACQUIRE_FIELDS = {"call_type": "call_type", "yes_asks": "yes_asks", "special": "special", "pains": "pains", "meeting_time": "meeting_time"}
 
 
 # 業務設定の会話の秒と時間：CL-2 の設定の名前 → 業務の入口（Business）の欄の名前（唯一の表＝Business.with_call_settings が読み、Business.flow が流れの制御へ渡す）。
@@ -232,6 +246,14 @@ class Business:
     # Yes の質問の材料（顧客獲得型だけ。4-207 の (b)・名前は仮）：中身の並び（並びの順が伺う順。「ちなみに、（中身）、これお間違いなかったですよね？」の（中身）＝
     # 依頼者の業務の事実・お客様の一覧の欄だけ＝事実でない中身は言わない＝本書 9-9）。1つ目は用件の一言のすぐあと（名乗りの録音）。使い切ったら会話AIが中身を書く（伺い82 ア）
     yes_asks: tuple = ()
+    # 顧客獲得型の本題の段の材料（4-207 の (c)(d)(e)・名前は仮＝CL2_ACQUIRE_FIELDS。どれも依頼者の業務の事実だけ＝事実でない特別感・事例は言わない＝本書 9-9。分身 K2）：
+    # special＝特別感の条件（phrases.ACQUIRE_SPECIAL「（条件）な方に、特別に直接お電話させていただいております。」の（条件）＝「な方に」に続く言葉。例「ドライバーさんの採用に
+    # 積極的」）／pains＝悩みと事例の組の並び（3つまで・並びの順が伺う順＝flowctl.PAINS_MAX。悩み＝phrases.PAIN_TOLD「（悩み）のようなお悩みを…」に入る名詞の句。事例＝
+    # 「とあるサービスがありまして、」に続くビフォーアフターの文＝何をするかは言わない）／meeting_time＝お時間（phrases.LISTEN_TIME「そのためのお時間、（お時間）だけ…」。例「1時間」）。
+    # 顧客獲得型の最初の業務の質問は、アポの日時（日時の2択で伺う＝flowctl.ladder_step）
+    special: str = ""
+    pains: tuple = ()
+    meeting_time: str = ""
     # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら標準の文（phrases.AI_ANSWER＝共通の一言の録音 ai_answer）
     ai_answer: str | None = None
     # 目的の人（DESIGN.md 4-3）。None＝「誰でも」（最初に出た人が目的の人）。目的の人のある業務では、名乗りの終わりは目的の人を呼ぶ一言で、
@@ -319,6 +341,9 @@ class Business:
         self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
         self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask
         self.yes_asks = tuple(quote_in_text(x, self.names) for x in self.yes_asks)   # Yes の質問の中身も声に出す文
+        # 本題の段の材料も声に出す文（分身 K2）
+        self.special, self.meeting_time = quote_in_text(self.special, self.names), quote_in_text(self.meeting_time, self.names)
+        self.pains = tuple((quote_in_text(p, self.names), quote_in_text(c, self.names)) for p, c in self.pains)
         # ⛔ 2026-10-22 の4回目の見直しで見つけた漏れ：声に出す文・指示文のうち、下の項目は名前の読みへの置き換えを通っていなかった（6-8 の
         #    「声に出す文は、すべてここを通す」に反する）。⛔ G-57 tc36〜tc38・OWN-ANSWER-EARS（10-22）：業務の情報の「東京都港区」をAIが自分の声で
         #    言うと、独立した2つの耳とも 3本中1本しか「港区」と聞こえなかった（S2・L4 は「東京ま特に」「東京もきく」・港区が抜ける）。読み
@@ -336,8 +361,8 @@ class Business:
         if self.call_type not in CALL_TYPES:
             raise ValueError(f"電話の型「{self.call_type}」は選べません（選べるのは {'・'.join(CALL_TYPES)}）")
         if self.call_type != CALL_ACQUIRE:
-            if self.yes_asks:
-                raise ValueError("Yes の質問の材料（yes_asks）は、顧客獲得型の業務だけに書きます")
+            if self.yes_asks or self.special or self.pains or self.meeting_time:
+                raise ValueError("Yes の質問の材料（yes_asks）と本題の段の材料（special・pains・meeting_time）は、顧客獲得型の業務だけに書きます")
             return
         if self.target is not None and self.target.kind == "個人":
             raise ValueError("顧客獲得型は法人の業務だけです（個人のお客様の業務は、断られたら受け止めて締める＝本書 13章の再勧誘の禁止）")
@@ -345,6 +370,13 @@ class Business:
             raise ValueError("顧客獲得型の業務には、用件の一言（「（用件の名詞）の件でお電話しているんですけど、」）の名詞（purpose_noun）が要ります")
         if not self.yes_asks:
             raise ValueError("顧客獲得型の業務には、用件のすぐあとに伺う Yes の質問の材料（yes_asks）が1つ以上要ります")
+        # 本題の段（本書 9-9 の (4)〜(9)。分身 K2）：特別感の条件・悩みと事例の組（1つから PAINS_MAX まで）・お時間・日時の2択で伺うアポの日時の質問（最初の業務の質問）
+        if not self.special or not self.meeting_time:
+            raise ValueError("顧客獲得型の業務には、特別感の条件（special）とお時間（meeting_time）が要ります")
+        if not 1 <= len(self.pains) <= PAINS_MAX or any(len(x) != 2 or not all((y or "").strip() for y in x) for x in self.pains):
+            raise ValueError(f"顧客獲得型の業務には、悩みと事例の組（pains）が1つから{PAINS_MAX}つまで要ります（悩みと事例のどちらも書きます）")
+        if not self.questions or self.questions[0].type != "datetime":
+            raise ValueError("顧客獲得型の業務の最初の質問は、日時の2択で伺うアポの日時の質問（日時の型）です")
 
     def purpose_text(self) -> str:
         """名乗りのあとに言う用件の一文（唯一の決まり＝名乗りの録音 opening_parts・replay_parts・録音の表 make_ack_clips.script_table）：顧客獲得型は「（用件の名詞）の件で
@@ -372,6 +404,10 @@ class Business:
                 + [f"お客様に伺うこと（{len(self.questions)}つ）：" + "／".join(q.text for q in self.questions)]
                 # 顧客獲得型の Yes の質問で確かめる事実（依頼者の業務の事実・お客様の一覧の欄＝業務設定の材料）。会話AIが書く中身の確かめの材料（伺い82 ア）
                 + [f"Yes の質問で確かめる事実：{x}" for x in self.yes_asks]
+                # 顧客獲得型の本題の段の材料（依頼者の業務の事実。会話AIが書く「ただ（中身）」の確かめの材料＝分身 K2）
+                + ([f"特別にお電話している方：{fixed_words(ACQUIRE_SPECIAL.format(c=self.special))}"] if self.special else [])
+                + [f"よくあるお悩み：{fixed_words(PAIN_TOLD.format(p=p))}／その事例：{c}" for p, c in self.pains]
+                + ([f"お願いするお時間：{fixed_words(LISTEN_TIME.format(t=self.meeting_time))}"] if self.meeting_time else [])
                 + [f"{KNOWN_HEADS['info']}：{x}" for x in self.info] + [f"{KNOWN_HEADS['answer']}（{n}）：{a}" for n, a in self.answers]
                 # ご承認いただく内容の説明（ご承認を伺う質問に入る一言＝トークスクリプトの説明。点をご説明するときの材料と受け皿＝flowctl.approval_explanation
                 # の1か所。✅ 2026-11-05 日本時間3時49分00秒 ユーザーのご指摘で足した）
@@ -439,7 +475,9 @@ class Business:
                     # 業務の録音が無い通話で、お客様が聞いた用件として判定に見せる（flowctl.Flow._heard_purpose）
                     purpose=self.purpose_text() or self.purpose_noun,
                     # 電話の型と Yes の質問の材料（尺度の表を読む入口 Flow._scale・Yes の質問の段 Flow._yes_ask）
-                    call_type=self.call_type, yes_asks=tuple(self.yes_asks), **kw)
+                    call_type=self.call_type, yes_asks=tuple(self.yes_asks),
+                    # 本題の段の材料（Flow._main_ask・_main_listen＝分身 K2）
+                    special=self.special, pains=tuple(self.pains), meeting_time=self.meeting_time, **kw)
 
     def with_call_settings(self, read) -> "Business":
         """業務設定の会話の秒と時間（CALL_SETTINGS の欄）を、CL-2 の設定から入れたこの業務の入口（唯一の場所＝電話を始めるときに、つなぐ所が呼ぶ）。read＝設定の名前 →
@@ -596,6 +634,10 @@ class Business:
             if self.call_type == CALL_ACQUIRE:
                 # 顧客獲得型の2回目からの受け止めの終わり（「（お名前）様ももう大丈夫でしたよね。」＝名前の録音の台帳。流すのは flowctl.Flow._yes_again）
                 parts["yes_received"] = t.yes_received()
+                # 本題の段のお名前の入る文と、受付の方へ伝える用件の一文（名前の録音の台帳。流すのは flowctl.Flow＝分身 K2）
+                parts.update({k: t.acquire_line(k) for k in ("acquire_glad", *WHO_LINES)})
+                if t.kind == "法人":
+                    parts["reception_purpose"] = t.reception_purpose()
         if self.voicemail_message:
             parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
         if self.message or self.target is not None:
