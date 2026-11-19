@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
                      restates, side_items)
 
@@ -757,7 +757,10 @@ def answer_items(q, asked: str | None = None) -> dict:
     # 読みを組み合わせるのは flowctl.talked_away の1か所）も。✅ 2026-11-13 日本時間22時17分01秒「9は…」を本番で働かせる（意味は判定が読む＝11-08 12時11分40秒。
     # ⛔ 分身 D の f5fa2a9c までは、流れの制御は読みを使うのに問い合わせに入れていなかった＝本番の判定は読まず、伺い9 が働かなかった。⛔ 0c55c4e7 までは言い直しの
     # 確かめに読ませなかった＝見直し (12) の A-9・B-3）。答えの段の業務の質問・言い直しの判定の文が変わる＝整理が済んでからの1回の測りで測る（帳面 1 の (1)）
-    return (side_items(False) | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
+    # ほかの会社に頼んでいるのがご案内全体かを読む項目だけ、お客様が聞いた用件の一文を説明に入れる（判定に見せる質問の heard_purpose＝flowctl.Flow.for_judge の1か所。
+    # ほかの項目・質問の文は変えない。✅ 2026-11-19 まとめ役 CL-1 の頼み (2)）
+    purpose = {ELSEWHERE: elsewhere_choices(False, p)} if (p := getattr(q, "heard_purpose", "")) else {}
+    return (side_items(False) | purpose | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
             | ({AWAY: away_choices(False, True)} if away_fits(q, bool(asked)) else {}))
 
 
@@ -1239,8 +1242,9 @@ JEV_ITEMS = {END: "お客様の言葉は、この電話を終える言葉に当�
 JEV_ITEMS[AWAY] = ("お客様の言葉は、質問の答えの話ですか、それとも答えの話ではない別のお話ですか？（答えとは別に読みます。" + NOW_ONLY
                    + "。境目は選べるものの説明＝flowctl.away_choices の1か所）")   # ✅ 2026-11-13 日本時間22時17分01秒「9は…」（flowctl.AWAY）
 # ✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25。flowctl.ELSEWHERE・said_elsewhere）
-JEV_ITEMS[ELSEWHERE] = ("お客様は、こちらがご案内している事柄を、ほかの会社に頼んでいる・ほかの会社のものを使っていると言いましたか？（答えとは別に読みます。"
-                        + NOW_ONLY + "）")
+# ご案内全体か、いまの質問のことだけかも同じ項目で読む（✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い48：ア-2」。境目は選べるものの説明＝flowctl.elsewhere_choices の1か所）
+JEV_ITEMS[ELSEWHERE] = ("お客様は、こちらがご案内している事柄を、ほかの会社に頼んでいる・ほかの会社のものを使っていると言いましたか？言ったなら、ご案内全体のことですか、"
+                        "いまの質問のことだけですか？（答えとは別に読みます。" + NOW_ONLY + "）")
 # お呼びする段だけの2つ（flowctl.offer_choices・absent_why_choices。項目ごとに答える質問の Jev の問いは見出しから作る＝jev_request。表をそろえるための問い）
 JEV_ITEMS[OFFER] = "電話に出ている方は、こちらに何か申し出ましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
 JEV_ITEMS[ABSENT_WHY] = "いまお呼びしている方が電話に出られないなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）"
