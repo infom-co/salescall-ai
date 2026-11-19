@@ -10,7 +10,7 @@
     <tr>
       <td>{{ tag(words.notice_kind(r.kind), "stop" if r.urgent else "info") }}</td>
       <td>{{ r.where or "全体" }}{% if r.who %}<div class="muted">{{ r.who }}</div>{% endif %}</td>
-      <td>{{ r.summary }}</td>
+      <td>{{ words.plain(r.summary) }}</td>
       <td class="num wide">{{ time(r.occurred_at) }}</td>
       <td class="wide">{{ tag(state_words[r.state], {"sent": "ok", "gave_up": "stop", "trying": "wait"}.get(r.state, "")) }}</td>
       <td class="nowrap">{% if r.link %}<a href="{{ r.link }}">見る</a>{% endif %}</td>

@@ -514,6 +514,22 @@ class Web(_World):
         self.assertNotIn("架空の管理者あての知らせ", self.get("A", "/t/notices").text)
         self.assertIn("架空の管理者あての知らせ", self.get("ADMIN", "/t/notices").text)
 
+    def test_a_notice_written_with_the_fixer_name_is_shown_in_screen_words(self):   # 知らせの本文はデータの文＝words.plain の1か所を通す
+        from salescall.core import notify
+        kind = next(iter(notify.KINDS))
+        app_access().in_tenant(OPERATOR, self.a["tenant"], lambda tx: notify.emit(
+            tx, kind, key="試験：担当の名前の入った知らせ", summary="CL-2 に修正依頼：架空の不具合（CL-2 4-425）", admin=True))
+        for who in ("A", "ADMIN"):   # 契約者あて・管理者あての両方に同じ本文が出る
+            with self.subTest(who=who):
+                page = self.get(who, "/t/notices").text
+                self.assertIn("業務の土台の担当に修正依頼：架空の不具合", page)
+                self.assertNotRegex(page, r"CL-\d")
+
+    def test_every_fixer_has_a_screen_name(self):
+        from salescall.core import fix_requests
+        from salescall.output import words
+        self.assertEqual(set(words.ASSIGNEE_WORDS), set(fix_requests.ASSIGNEES))
+
     def test_an_undelivered_notice_for_the_admin_is_watched_for_the_admin_only(self):   # 送信も見張りも、契約者あてと同じ1か所
         from salescall.core import notify
         from salescall.output import notices

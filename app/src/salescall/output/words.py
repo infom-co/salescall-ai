@@ -220,6 +220,10 @@ _DEV_MARK = re.compile(r"Intent|DESIGN|ユーザー|管理者「|✅|⏳|⛔|20\
 # 説明の文の中の内部の言い方 → 契約者の画面の言い方（1か所）
 _INNER_WORDS: dict[str, str] = {"見守り役": "システム", "電話接続モジュール": "電話をつなぐ部品", "別の耳": "聞き取りの確かめ",
                                 "ユーザー": "管理者"}   # 計画書の「ユーザー」は、画面の呼び方では管理者（計画書 1-4）
+# 修正依頼の担当（正本は core の fix_requests.ASSIGNEES。試験が突き合わせる）の、画面の呼び方。知らせの本文などに「CL-2 に修正依頼」のように
+# 担当の名前が入るので、画面では役割の名前にする（契約者あての知らせにも同じ本文が出る）。
+ASSIGNEE_WORDS: dict[str, str] = {"CL-1": "会話の担当", "CL-2": "業務の土台の担当", "CL-3": "画面と出力の担当"}
+_ASSIGNEE = re.compile(r"\s?(CL-\d+)\s?")   # 英字の名前の前後の空き（「CL-2 に」）も一緒に（日本語の中では空けない）
 _OPEN, _CLOSE = "（(", "）)"
 
 
@@ -248,11 +252,12 @@ def screen_help(key: str, text: str) -> str:
 
 
 def plain(text: str) -> str:
-    """データに入っている文（設定の説明・仮の値の見直す時 など）を、管理者・契約者の画面に出す形にする1か所：開発の覚え書きの入った
-    括弧書きを外し、内部の言い方を画面の言い方にする。"""
+    """データに入っている文（設定の説明・仮の値の見直す時・知らせの本文・修正依頼の中身 など）を、管理者・契約者の画面に出す形にする
+    1か所：開発の覚え書きの入った括弧書きを外し、内部の言い方・担当の名前を画面の言い方にする。お客様の言葉には使わない（言い換えない）。"""
     out = _drop_dev_parens(text or "")
     for inner, word in _INNER_WORDS.items():
         out = out.replace(inner, word)
+    out = _ASSIGNEE.sub(lambda m: ASSIGNEE_WORDS.get(m.group(1), "直す担当"), out)
     return re.sub(r"\s+([。、）])", r"\1", out).strip()
 
 

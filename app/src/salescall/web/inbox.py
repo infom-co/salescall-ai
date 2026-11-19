@@ -348,7 +348,7 @@ def _fixes(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
         items.append(Item(
             kind="fix", key={"request_id": str(r["request_id"])}, title="修正依頼の承認",
             decide="直した中身を確かめて、承認してよいか",
-            evidence=[("不具合", r["summary"]), ("直した担当", r["assignee"]), ("直した中身", r["note"])],
+            evidence=[("不具合", words.plain(r["summary"])), ("直した担当", words.plain(r["assignee"])), ("直した中身", words.plain(r["note"]))],
             if_not="承認するまで、この直しは確かめ待ちのまま残ります。", at=r["reported_at"],
             buttons=(Button("approve", "確かめて承認する", main=True),)))
     return items

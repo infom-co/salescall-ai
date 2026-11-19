@@ -77,7 +77,7 @@ def _calls(where_sql: str) -> Callable[[Tx], list[Entry]]:
                       f" WHERE {where_sql} AND ended_at > now() - make_interval(days => %s) ORDER BY ended_at DESC LIMIT %s", (DAYS, LIMIT))
         info = links.rows(tx, [r["task_id"] for r in rows])
         return [Entry(info[r["task_id"]]["who"], words.call_end(r["trouble"]), r["ended_at"],
-                      f"{info[r['task_id']]['url']}/calls/{r['attempt_id']}", r["trouble_why"] or "") for r in rows if r["task_id"] in info]
+                      f"{info[r['task_id']]['url']}/calls/{r['attempt_id']}", words.plain(r["trouble_why"] or "")) for r in rows if r["task_id"] in info]
     return collect
 
 
@@ -111,7 +111,7 @@ def _undelivered(for_admin: bool) -> Callable[[Tx], list[Entry]]:
                       " ARRAY(SELECT d.status FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id) AS statuses"
                       " FROM salescall.notification_events e WHERE e.for_admin = %s AND e.occurred_at > now() - make_interval(days => %s)"
                       " ORDER BY e.occurred_at DESC LIMIT %s", (for_admin, DAYS, LIMIT))
-        return [Entry(words.notice_kind(r["kind"]), r["summary"], r["occurred_at"], link) for r in rows
+        return [Entry(words.notice_kind(r["kind"]), words.plain(r["summary"]), r["occurred_at"], link) for r in rows
                 if notices.delivery_state(r["statuses"]) == "gave_up"]
     return collect
 
