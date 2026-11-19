@@ -113,6 +113,14 @@ class Target:
         （役職だけ）・後任のご担当者様は空＝作らない（flowctl.Flow._calling_unheard は「もう一回よろしいでしょうか？」のまま）。"""
         return "" if self.successor else mobile_confirm(self._name())
 
+    def mobile_owner(self) -> str:
+        """かけた番号が携帯電話の番号で、呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、同じ方に1回だけ伺う確かめる一言（10-16 の個人の言い方
+        phrases.TARGET_CALL の「個人」＝「（お名前）様のお電話でお間違えないでしょうか？」。続く言葉は個人の呼ぶ一言と同じ録音＝名前の録音の台帳の target_individual）。
+        法人のお名前のある目的のお客様だけ（個人のお客様は呼ぶ一言がこの形・お名前の無い業務・後任のご担当者様は作らない）。流すのは flowctl.Flow._call_target。
+        ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い65：イ」"""
+        from phrases import TARGET_CALL
+        return TARGET_CALL["個人"].format(who=f"{self._name()}様") if self.kind == "法人" and self.name and not self.successor else ""
+
     def transfer(self) -> str:
         """呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（phrases.target_transfer。呼び名は呼ぶ一言と同じ。法人だけ＝個人の
         お客様は空＝作らない。後任のご担当者様は共通の一言の録音 SUCCESSOR＝flowctl.Flow が差し替える）。✅ 2026-11-19 日本時間15時10分27秒 伺い51 のイ"""
@@ -168,6 +176,9 @@ class Target:
 # 左だけ。CL-2 の業務設定の欄は、会話の側の Business の欄と同じ名前で受け渡す＝CL-2 の business_settings の main_talk_policy などと同じ形）
 # 本題の段の欄（4-207 の (c)(d)(e)＝特別感の条件・悩みと事例・お時間）も同じ表（分身 K2）
 CL2_ACQUIRE_FIELDS = {"call_type": "call_type", "yes_asks": "yes_asks", "special": "special", "pains": "pains", "meeting_time": "meeting_time"}
+# CL-2 へ頼む空いている予定の業務設定の欄（伺い60・62。名前は仮＝CL-2 の答えで替えるのは左だけ）：依頼者が受けられる日時の空き。電話をかけられる日時の空きは業務設定では
+# なく電話ごとの暦（conversation_io.call_dates の並び）から flowctl.Flow の call_free へ（電話の日 today・電話をかけられる日 call_days と同じ受け口）
+CL2_SCHEDULE_FIELDS = {"accept_free": "accept_free"}
 
 
 # 業務設定の会話の秒と時間：CL-2 の設定の名前 → 業務の入口（Business）の欄の名前（唯一の表＝Business.with_call_settings が読み、Business.flow が流れの制御へ渡す）。
@@ -261,6 +272,10 @@ class Business:
     special: str = ""
     pains: tuple = ()
     meeting_time: str = ""
+    # 依頼者が受けられる日時の空き（CL-2 に頼む業務設定の欄・名前と形は仮＝CL2_SCHEDULE_FIELDS。flowctl.free_slots の形＝("YYYY-MM-DD", "HH:MM", "HH:MM") の並び）。あれば、
+    # お客様に日時を選んでいただく業務の質問（flowctl.chooses_when）とアポの日時は、日時の2択の段でこの中からだけ伺う（✅ 2026-11-20 日本時間4時44分42秒「伺い60」「伺い62」）。
+    # 空の業務は今のまま依頼者の文（受けられない日時をこちらから出さない＝本書 1-3）
+    accept_free: tuple = ()
     # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら標準の文（phrases.AI_ANSWER＝共通の一言の録音 ai_answer）
     ai_answer: str | None = None
     # 目的の人（DESIGN.md 4-3）。None＝「誰でも」（最初に出た人が目的の人）。目的の人のある業務では、名乗りの終わりは目的の人を呼ぶ一言で、
@@ -485,7 +500,9 @@ class Business:
                     # 電話の型と Yes の質問の材料（尺度の表を読む入口 Flow._scale・Yes の質問の段 Flow._yes_ask）
                     call_type=self.call_type, yes_asks=tuple(self.yes_asks),
                     # 本題の段の材料（Flow._main_ask・_main_listen＝分身 K2）
-                    special=self.special, pains=tuple(self.pains), meeting_time=self.meeting_time, **kw)
+                    special=self.special, pains=tuple(self.pains), meeting_time=self.meeting_time,
+                    # 依頼者が受けられる日時の空き（伺い60・62。日時の2択の段の候補の材料の1か所 flowctl.Flow._ladder_ctx が読む）
+                    accept_free=tuple(self.accept_free), **kw)
 
     def with_call_settings(self, read) -> "Business":
         """業務設定の会話の秒と時間（CALL_SETTINGS の欄）を、CL-2 の設定から入れたこの業務の入口（唯一の場所＝電話を始めるときに、つなぐ所が呼ぶ）。read＝設定の名前 →
@@ -631,6 +648,10 @@ class Business:
                 # 呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（flowctl.Flow._call_target。✅ 2026-11-19 日本時間15時10分27秒
                 # 伺い51 のイ＝かけた番号が携帯電話の番号なら流さない）。どの行が携帯電話の番号になるかは取込では決めない＝法人のどの電話にも返す
                 parts["target_transfer"] = t.transfer()
+            if t.mobile_owner():
+                # かけた番号が携帯電話の番号で、別の方だと言われ続けたときの確かめる一言（flowctl.Flow._call_target。✅ 2026-11-20 日本時間4時44分42秒 伺い65 のイ）。
+                # どの行が携帯電話の番号になるかは取込では決めない＝お名前のある法人の業務のどの電話にも返す
+                parts["mobile_owner"] = t.mobile_owner()
             if t.mobile_confirm():
                 # かけた番号が携帯電話の番号のときの、聞き取れないお返事への2回目の聞き返しの確かめる一言（flowctl.Flow._calling_unheard。✅ 2026-11-19 日本時間14時18分13秒
                 # 伺い54 のイ）。どの行が携帯電話の番号になるかは取込では決めない（かける番号は予約証＝phone_e164）＝ほかの部分と同じく、お名前のある業務のどの電話にも返す
