@@ -7,8 +7,8 @@
   gate.TASK_STAGE_REASONS の1か所）。
 - 電話の終わり方＝試行の trouble（こちらの不具合か＝データベースの salescall.trouble_ours の1か所。言葉は output/words.call_end）。
 - テスト番号の結果＝line_ring_tests（rang：鳴った／鳴らない／見分けられない）。
-⏳ 名前の録音がそろわずかけられない行：行ごとの事実を読む部品が core に無い（門がその場で決める）＝CL-2 へのお願い 37。いまは業務のタブ
-  の録音の警告（実施回ごと）に出している。
+- 名前の録音がそろわずかけられない行＝core の gate.name_recording_missing（門と同じ1か所＝voice_candidates。CL-2 4-440 の 37）。これからかける
+  行（次の予定がかける・まだ予定の無い行）だけを、行ごとに聞く（終えた行は門が見ない）。
 """
 
 from __future__ import annotations
@@ -101,6 +101,23 @@ def _resting(st: Any) -> str:
     return _stage_reason("resting")(st) + (f"（続いた不具合：{kinds}）" if kinds else "")
 
 
+def _name_recordings(tx: Tx) -> list[Entry]:
+    """名前の録音がそろわず、かけられない行（計画書 12-1）。足りない録音の部分の名前を見せる（録音を作るのは業務のタブ・録音の画面）。"""
+    rows = tx.all("SELECT t.task_id, n.decided_at FROM salescall.tasks t LEFT JOIN salescall.current_next_actions n ON n.task_id = t.task_id"
+                  " WHERE coalesce(n.kind::text, 'call') = 'call' ORDER BY n.decided_at NULLS FIRST, t.task_id LIMIT %s", (LIMIT,))
+    missing = {}
+    for r in rows:
+        try:
+            got = gate.name_recording_missing(tx, r["task_id"])
+        except LookupError:   # 業務設定の中身をまだ置いていない版（業務の取り込みの前）：録音の前に、そもそもかけられない
+            continue
+        if got:
+            missing[r["task_id"]] = (got, r["decided_at"])
+    info = links.rows(tx, list(missing))
+    return [Entry(info[t]["who"], "名前の録音がそろうまで、おかけしません（足りない録音：" + "・".join(names) + "）", at, info[t]["url"])
+            for t, (names, at) in missing.items() if t in info]
+
+
 def _undelivered(for_admin: bool) -> Callable[[Tx], list[Entry]]:
     """送れていない知らせ（届いたかの決め方は output/notices.delivery_state の1か所。知らせの画面と同じ）。肝心の知らせが届いて
     いないので、ホームの「気をつけること」に数える。契約者あては契約者の取引で、管理者あては管理者の取引（system）で読む。"""
@@ -138,6 +155,8 @@ WATCHES: dict[str, Watch] = {
                            "かけ直します。", "client", _rows("await_recovery", _stage_reason("await_recovery"))),
     "voice_rows": Watch("声が聞き取れず、かけ直しを待っている行", "声が聞き取れずに終えた電話（こちらの不具合には数えません）のあと、声が通ると"
                         "分かっている回線を待っています。", "client", _rows("voice_redial", _stage_reason("voice_redial"))),
+    "name_recordings": Watch("名前の録音がそろわず、かけられない行", "お呼びする方のお名前などの録音がそろうまで、その行にはおかけしません。"
+                             "録音がそろうと、自動でかけ始めます。", "client", _name_recordings),
     "voice_calls": Watch("声が聞き取れずに終えた電話（直近7日）", "お客様の電波などで声が聞き取れず、お詫びして終えた電話です。同じ回線で違うお客様に"
                          "続けば、回線の異常として扱います。", "client", _calls("trouble = 'poor_audio'"), attention=False),
 }

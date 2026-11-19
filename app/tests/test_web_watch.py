@@ -72,6 +72,17 @@ class WatchOnScreen(OurTroubles):
         again = http.post(f"{row}/restore", data={"form_token": token, "reason": "試験：もう1回"}, follow_redirects=False)
         self.assertIn("ok=0", again.headers["location"])                        # もう休んでいない＝断る・何も変えない
 
+    def test_a_row_waiting_for_name_recordings_shows_with_the_missing_parts(self):   # 計画書 12-1（決めるのは門と同じ core の1か所）
+        import unittest.mock
+        from salescall.core import gate
+        s = self.ready()
+        with unittest.mock.patch.object(gate, "name_recording_missing",
+                                        lambda tx, task: ["お名前「架空」"] if task == s["task"] else None):
+            page = _http(s["tenant"]).get("/t/watch").text
+        part = page[page.index('id="name_recordings"'):]
+        self.assertIn("足りない録音：お名前「架空」", part[:3000])
+        self.assertIn(f'/rows/{s["task"]}', part[:3000])
+
     def test_every_watch_says_where_it_is_read_and_what_it_means(self):
         for key, w in watch.WATCHES.items():
             with self.subTest(key=key):
