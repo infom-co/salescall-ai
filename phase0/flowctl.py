@@ -2214,8 +2214,23 @@ END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急い�
 # 質問を続ける）／all＝全部が要る（1つ断られたら果たせない）。✅ 2026-11-01 日本時間22時31分 ユーザー：「片方だけでも目的が達成できるときは、
 # 質問を続け、片方断られたら、目的は達成できない場合は、途中で締めるという形になるんではないでしょうか。」
 GOAL_MODES = ("any", "all")
-# 断られたときの締め（CLOSE_DECLINED）で終える理由。念のための確認はしない（DESIGN.md 6-5）
-DECLINED_ENDS = ("callee_hurry", "callee_refused_call", "callee_complaint")
+# 締めた理由ごとの締めの種類（唯一の表。締めの言葉を選ぶ Flow._close・急いでいる方の締めか Flow.hurried・電話を終える言葉を聞いた所 Flow._end_heard は、ここから
+# 作った並びを読む）：
+#   thanks＝お礼の締め（phrases.CLOSING。お断り・目的から遠ざかる向きの答えのすぐあとは CLOSING_AFTER_DECLINE＝Flow._close）
+#   declined＝断られたときの締めの言葉（phrases.CLOSE_DECLINED）だけ同じ（番号違い＝本書 9-4「番号違いも同じ締めで終える」）。締めのあと7秒で切ってよい・念のための確認を
+#     しない、には入らない（DESIGN.md 6-14 の7秒は「お客様が急いでいる・通話を断られた」。CL-2 の call_report.HURRIED_ENDS も入れていない）
+#   hurried＝断られたときの締め（CLOSE_DECLINED）で、締めのあと7秒で切ってよい・念のための確認をしない（DESIGN.md 6-14・6-5＝Flow.hurried）
+#   refused＝hurried のうち、通話を断られた・怒っている（取り消せない事実＝発信の拒否・苦情を残す＝Flow._end_heard。こちらがかけ直す申し出の言い切りを足さない＝Flow._close）
+# 表に無い理由（留守番電話・保留で待ちきった＝決まった文で締める／人ではない相手＝話さずに切る／取り次げない2つ＝締めない）は、締めの言葉を渡さずに締めることが無い
+# （渡さなければ断られたときの締めの言葉＝お礼の締めは thanks の理由だけ）。⛔ 2026-11-20 まで、断られたときの締めで終える理由を2つの表（DECLINED_ENDS と Flow._close の
+# 中の表）と Flow._close の中で直に書いた断り・苦情で持ち、番号違いで食い違った（読む担当 G が見つけ、CL-1 が作りで確かめた）
+CLOSE_KINDS = {"done": "thanks", "callback": "thanks", "not_transferred": "thanks", "departed": "thanks", "other_means": "thanks",
+               "goal_refused": "thanks", "not_agreed": "thanks", "wrong_party": "declined", "callee_hurry": "hurried",
+               "callee_refused_call": "refused", "callee_complaint": "refused"}
+THANKS_ENDS = tuple(k for k, v in CLOSE_KINDS.items() if v == "thanks")   # お礼の締めで終える理由
+# 急いでいる方の締め（hurried・refused）で終える理由＝念のための確認はしない（DESIGN.md 6-5）・締めのあと7秒で切ってよい（6-14）。CL-2 の call_report.HURRIED_ENDS と同じ（試験で比べる）
+DECLINED_ENDS = tuple(k for k, v in CLOSE_KINDS.items() if v in ("hurried", "refused"))
+REFUSED_ENDS = tuple(k for k, v in CLOSE_KINDS.items() if v == "refused")   # 通話を断られた・怒っている
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
                 "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言", "replayed": "録音で流し直した",
@@ -5607,6 +5622,7 @@ class Flow:
         # その間、同じ契約者のほかの回線が、止まったAIで新しい電話をかけていた
         self.tell_ai_trouble = None
         self.irr_checks: list[str] = []    # 取り消せない事実ごとの、2つ目の判定とそろったか（_note_irreversible の1か所。報告の irreversible_check）
+        self.refusals_heard: list[dict] = []   # 聞いた発信の拒否で、まだ印（do_not_call）を付けていないもの（_refusal_heard が取っておき、電話の終わりの _mark_refusals が付ける）
         self.unclear_qids: set[str] = set()
         self.resent_turn: int | None = None
         # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
@@ -13465,10 +13481,8 @@ class Flow:
         if self.end_reason is not None:
             # もう締めた（保留で待ちきった・断られた など。電話接続側の知らせで締めたあとに、AIが終える報告をした）：二度締めない・締めた理由を
             # 変えない（⛔ 2026-10-24 の見直し（調べ役）：二つ目の締めを流し、締めた理由を「質問が終わった」に上書きしていた）。締めたあとの
-            # 発信の拒否・苦情は、記録には残す（原則14：その場で発信禁止に登録）
-            if reason in ("callee_refused_call", "callee_complaint"):
-                self._note_irreversible("do_not_call" if reason == "callee_refused_call" else "complaint",
-                                        self._end_check(reason, bool(a.get("judged"))))
+            # 発信の拒否・苦情は、記録には残す（原則14：その場で発信禁止に登録＝_end_heard）
+            self._end_heard(reason, bool(a.get("judged")))
             if self.after_answer is not None:
                 return self._take_after_answer()   # 相手の質問に答えてから流すはずだった締め：いま流す（取り出す1か所）
             return self._ended()
@@ -13517,9 +13531,7 @@ class Flow:
             # 「今ちょっと忙しい」。⛔ eb72ce4e まで、手短にの H3 のお返事を待っている途中だけ H1 を重ね、「いいえ」でもうかけないにした＝見直し (13) の A3）
             return self._hurry_ask()
         if reason in DECLINED_ENDS:
-            if reason in ("callee_refused_call", "callee_complaint"):
-                self._note_irreversible("do_not_call" if reason == "callee_refused_call" else "complaint",
-                                        self._end_check(reason, bool(a.get("judged"))))
+            self._end_heard(reason, bool(a.get("judged")))
             return self._close(reason)
         if self.current is not None:
             # いま聞いている質問がある間は、終えられない（まだ聞いていない・言い直しの返事待ち・念のための確認の最中）
@@ -14625,7 +14637,7 @@ class Flow:
         ✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」＝⛔ はじめは、いまの質問の録音をそのまま流し直していた"""
         qid, self.refusal_q = self.refusal_q, None
         if self._yes_no(qid):
-            self._note_irreversible("do_not_call", self._answer_check(qid, "はい"))
+            self._refusal_heard(self._answer_check(qid, "はい"))
             return self._close("callee_refused_call", prefix=prefix)
         return self._back_from_aside(prefix)
 
@@ -14661,8 +14673,8 @@ class Flow:
             # 根拠の発話は、その答えの根拠（_evidence＝ふつうはいまの「いいえ」・受けていただいたあとの取り消し＝_withdraw_take は取り消しの言葉。本心を伺った一言
             # への「いえ、特に。」ではない）
             ev = self._evidence(qid) or {}
-            self._note_irreversible("do_not_call", self._answer_check(qid, "いいえ"),
-                                    **({"turn": ev["turn"], "said": fact_said(ev.get("said"))} if ev.get("turn") is not None else {}))
+            self._refusal_heard(self._answer_check(qid, "いいえ"),
+                                **({"turn": ev["turn"], "said": fact_said(ev.get("said"))} if ev.get("turn") is not None else {}))
             return self._close("callee_refused_call", prefix=prefix)
         return self._close("callee_hurry", prefix=prefix)
 
@@ -14944,8 +14956,11 @@ class Flow:
         - in_closing：締めに入っていた・締めのあと（締めの言葉を決めた＝phase が closing。締めの言葉を流している途中に切れても入る）
         - callee_refused_last：相手の最後の発話を、通話の断りとして受け取った（発信禁止の申告 do_not_call が、その発話についた）。
           「結構です」だけの言葉は、断りと決めない（_ambiguous_only。✅ 2026-10-17 ユーザー）＝ここでも断りに数えない
-        2回目からは何もしない（最初の瞬間の様子を残す）。"""
+        2回目からは何もしない（最初の瞬間の様子を残す）。
+        まだ締めていないのに切れたら、ここが電話の終わり：聞いた発信の拒否で、まだ印を付けていないものを、材料を決める前に付ける（_mark_refusals の入口の1つ。
+        今の確認の電話の型では、聞いたらその場で締めるので残っていない）。"""
         if self._cut is None:
+            self._mark_refusals(self.end_reason)
             callee = self.callee_speaking if callee_speaking is None else callee_speaking
             self._cut = {"speaker": "callee" if callee else {True: "ai", False: "none"}.get(ai_speaking),
                          "in_closing": self.phase == "closing",
@@ -17197,8 +17212,46 @@ class Flow:
         # 根拠の発話は、答えを当てている言葉（heard_said・その発話の番号）：伺う前の位置へ戻って読み直した言葉（ほかの会社のことを伺う前の言葉＝_elsewhere_decided・
         # 待たずに続けた言葉＝_wait_continue・先に言われた答え＝_offer_ahead）の答えなら、その言葉と発話（⛔ 2026-11-15 伺い25 を入れる途中、例の会話で見つけた：
         # いまの発話（「いえ、特にないです。」）を、ご納得いただけなかった点の記録の根拠にしていた）
-        turn = self.judged["turn"] if self.judged else self.callee_turns
-        self.facts.setdefault(kind, []).append({"turn": turn, "said": fact_said(self.heard_said), **extra})
+        self.facts.setdefault(kind, []).append({**self._heard_at(), **extra})
+
+    def _heard_at(self) -> dict:
+        """いまの根拠の発話（番号と言葉。唯一の作り方＝事実を残す _note の既定・発信の拒否を聞いた時に取っておく _refusal_heard）：判定で決めているターンなら
+        その発話（judged）、無ければいまの発話。"""
+        return {"turn": self.judged["turn"] if self.judged else self.callee_turns, "said": fact_said(self.heard_said)}
+
+    def _end_heard(self, reason: str, judged: bool) -> None:
+        """電話を終える言葉（会話AIの終わりの報告の理由 reason）を聞いた唯一の場所（締めの報告 _op_request_end の、まだ締めていない枝と締めたあとの枝）：
+        通話を断られた・怒っている（REFUSED_ENDS）なら、取り消せない事実を、判定とそろったか（_end_check）つきで残す。断られた＝発信の拒否を聞いた（_refusal_heard。
+        印は電話の終わりで付ける）／怒っている＝苦情（その場で残す）。急いでいる・ほかの理由は何もしない。"""
+        if reason not in REFUSED_ENDS:
+            return
+        if reason == "callee_refused_call":
+            self._refusal_heard(self._end_check(reason, judged))
+        else:
+            self._note_irreversible("complaint", self._end_check(reason, judged))
+
+    def _refusal_heard(self, check: str, **at) -> None:
+        """発信の拒否を聞いた（根拠の発話と判定のそろいつき）を取っておく唯一の場所（締めの報告の「通話を断られた」＝_end_heard・ご遠慮の確かめへの「はい」＝
+        _refusal_decided・急いでいる方への伺いへの「いいえ」＝_hurry_decided）。check＝判定とそろったか（_end_check・_answer_check）。at＝答えの根拠の発話（番号・言葉＝
+        _hurry_decided の _evidence）。無ければいまの言葉（_heard_at）。どちらも聞いた時に決める（印を付けるのが電話の終わりでも、根拠は聞いた発話）。
+        印（通話の事実 do_not_call）を付けるのは電話の終わりの1か所 _mark_refusals：こちらが締める _close・まだ締めていないのに切れた on_line_end。もう締めたあと
+        （締めたあとの「もうかけないで」）は、電話の終わりはもう来ている＝その場で付ける（原則14）。✅ 2026-11-20 日本時間2時18分01秒 ユーザー（伺い80）「電話の
+        終わりに切られたり、起こっていたらつける。」＝顧客獲得型は「もうかけないで」と言われても電話を続け、印を電話の終わりで決める。判定が届かずに締めた
+        _end_late は、ここを通らない（印を付けない）。"""
+        self.refusals_heard.append({**self._heard_at(), **at, "check": check})
+        if self.end_reason is not None:
+            self._mark_refusals(self.end_reason)
+
+    def _mark_refusals(self, end: str | None) -> None:
+        """発信の拒否の印（通話の事実 do_not_call）を付ける唯一の場所（電話の終わり＝こちらが締める _close・まだ締めていないのに切れた on_line_end・締めたあとに
+        聞いた _refusal_heard）：取っておいた断り（_refusal_heard）を、聞いた時の根拠の発話と判定のそろいのまま、取り消せない事実の1か所 _note_irreversible へ渡す。
+        end＝電話の終わり方（締めた理由 END_REASONS の名前・締める前に切れたら None）。今の確認の電話の型は、どの終わり方でも付ける（断りを聞いたら、その場で締める＝
+        聞いた時と付ける時が同じ）。⏳ 顧客獲得型の「いつ付けるか」（伺い80：切られた・怒っていた＝付ける／アポ・かけ直しの約束を受けていただいた＝付けない／
+        こちらがお礼を言って締めた＝付けない）は、型ごとの尺度の表の1行（CL-2 の業務設定待ち）を、ここで end に当てて決める。"""
+        assert end is None or end in END_REASONS, end
+        heard, self.refusals_heard = self.refusals_heard, []
+        for h in heard:
+            self._note_irreversible("do_not_call", h["check"], turn=h["turn"], said=h["said"])
 
     def _note_irreversible(self, kind: str, check: str, **at) -> None:
         """取り消せない決定（発信の拒否 do_not_call・怒っていた complaint・番号違い）を残す唯一の場所：事実と、会話AIの読みと2つ目の判定
@@ -17207,7 +17260,7 @@ class Flow:
         確かめで決まるまで、そのお客様にかけずに保留する」（Intent.md 18-3）。⛔ 11-02 まで、そろったかを報告に入れておらず（CL-2 の連絡帳
         4-182 の (1)）、どの通話も「判定が無い」になって、そろった断りも毎回録音の確かめまで保留になっていた。"""
         if kind != "party":
-            self._note(kind, **at)   # at＝根拠の発話（番号・言葉）を答えの根拠にするとき（_hurry_decided）。無ければいまの言葉
+            self._note(kind, **at)   # at＝根拠の発話（番号・言葉）を聞いた時に決めたとき（発信の拒否の印＝_mark_refusals）。無ければいまの言葉
         self.irr_checks.append(check)
 
     def _end_check(self, reason: str, judged: bool) -> str:
@@ -17254,10 +17307,13 @@ class Flow:
         留守番電話の伝言）は、AIがその言い方のまま言う。相手が最後に質問をしていたら、その質問に答えてから流す（_question_first の after_answer）。⛔ 2026-10-17 の見直しで見つけた漏れ：ふつうの締めは、録音で流す形のときしか言い方を渡しておらず、
         AIが話す形では「締めの言葉を言って」とだけ伝えていた＝AIが自分で文を作り、「お気軽にお問い合わせください」「お気をつけて
         お越しくださいませ」（命令の形）を足した（G-45）。断られたときの締めは録音にしていなかった（「お忙しいところ」はAIの声で崩れやすい）。
-        part：text の録音が依頼主の単位（名乗りの部分。留守番電話の伝言）。無ければ共通の一言（締めの録音）。"""
+        part：text の録音が依頼主の単位（名乗りの部分。留守番電話の伝言）。無ければ共通の一言（締めの録音）。
+        締めの言葉の種類は、締めた理由ごとの表 CLOSE_KINDS の1か所（お礼の締め＝THANKS_ENDS・ほかは断られたときの締め）。
+        こちらが締めるのは電話の終わり：聞いた発信の拒否で、まだ印を付けていないもの（_refusal_heard）を、締めの言葉を決める前に付ける（_mark_refusals の入口の1つ。
+        もう締めた・こちらの不具合で終えたあとでも、聞いた断りは付ける＝前の作りで締める前に付けていたのと同じ）。"""
+        self._mark_refusals(self.end_reason or reason)
         if self.end_reason is not None or self.trouble is not None:
             return self._ended()
-        polite = ("done", "callback", "not_transferred", "departed", "other_means", "goal_refused", "not_agreed")  # お礼の締め（ほかは断られたときの締め）
         # お客様がお断りになって業務の最終目的が果たせなくなった（goal_refused）と、お礼の締めの直前にお断り・目的から遠ざかる向きの答えを受け取った
         # （_turned_down_now＝最終目的が2つの業務で片方を受けていただいたあとの最後のお断り・ここで終える答え）：「承知いたしました。」で受けてから
         # お礼の締め（✅ 2026-11-02 日本時間6時33分 ユーザー：「…だと唐突なので、こちら「はい、承知いたしました。お忙しいところ…」の方がいいんじゃない
@@ -17274,15 +17330,15 @@ class Flow:
         # もうかけない・怒っているの締めには足さない。どの道で締めても（次へ進む返事・急いでいる・お言葉に甘えた締め）ここを通る（✅ 2026-11-18 日本時間3時31分56秒
         # ユーザー「伺い39 ア」。⛔ eb72ce4e まで次へ進む返事 _taken_plays だけが流し、時刻を伺う途中の「急いでいる」の締めでは抜けた＝見直し (13) の A2）
         lines: list[dict] = []
-        if text is None and reason not in ("callee_refused_call", "callee_complaint"):
+        if text is None and reason not in REFUSED_ENDS:
             for qid in self._offers_untimed():
                 if qid not in self.taken_stated and (line := taken_line(self.questions[qid])) is not None:
                     self.taken_stated.add(qid)
                     if line_play(*line) not in lines:
                         lines.append(line_play(*line))
         text, rid = text or ((CLOSING_AFTER_DECLINE, "closing_after_decline")
-                             if not self._unheard_now() and (reason == "goal_refused" or (reason in polite and self._turned_down_now() and not received))
-                             else (CLOSING, "closing") if reason in polite else (CLOSE_DECLINED, "closing_declined"))
+                             if not self._unheard_now() and (reason == "goal_refused" or (reason in THANKS_ENDS and self._turned_down_now() and not received))
+                             else (CLOSING, "closing") if reason in THANKS_ENDS else (CLOSE_DECLINED, "closing_declined"))
         self._end(reason)
         if self.play_recordings and not spoken:
             item = {"kind": "opening", "part": rid, "text": text} if part else {"kind": "closing", "id": rid, "text": text}
