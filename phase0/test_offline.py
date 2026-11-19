@@ -3089,8 +3089,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
             self.assertLessEqual(set(accept) - set(g.accept_of(facts, successor)), set(g.EXTRA.get((text, before), ())), text)   # 足した読みはご決定の分だけ
             # 正解の項目と中の名前は、その場面で判定に見せる項目と選べるものの中（Flow._calling_questions と同じ選び分け）
             shown = {fc.key: fc.choices for fc in target_facets(bool(asked), successor)}
-            # 正解をまだ付けていない項目（g.UNLABELED＝相手の申し出・お呼びした方が出られない理由。⏳ 0円・読み手2人）は、表に無くてよい（測りは外れと数えない）
-            self.assertEqual(set(facts) | (set(g.UNLABELED) & set(shown)), set(shown), text)
+            self.assertEqual(set(facts), set(shown), text)   # どの行も、判定に見せる項目のすべてに正解がある（相手の申し出・理由も＝2026-11-19 日本時間21時台）
             for k, got in facts.items():
                 self.assertTrue(got and got <= set(shown[k]), (text, k))
         for text, before, confirmed, f in g.LINES_BOTH:
@@ -34947,17 +34946,25 @@ class CallingOffersJudgedTest(unittest.TestCase):
         heard, cb, role = self.same(self.run_all(text, self.facts("同本x在", None, "別の番号へ")), "別の番号へ")
         self.assertIn(CALLBACK_ASK["number"], heard)
 
-    def test_1_measuring_does_not_count_unlabeled_items_as_misses(self):
-        # 正解の表に、まだ申し出・理由の正解を付けていない（⏳ 0円・読み手2人）：測りの数えは、正解の無い項目の判定の読みを外れと数えない
+    def test_1_measuring_counts_offer_and_reason_only_where_recorded(self):
+        # 2026-11-19 日本時間21時台に、正解の表の全部の行に申し出・理由の正解を付けた（G59OfferWhyLabelTest）：測りの数えは、
+        # (a) 項目を足す前の記録（申し出・理由の読みが無い）は、その2つを数えない（ADDED＝facts_ok・facts_whole の1か所）
+        # (b) 正しい読みは外れではない (c) 申し出を読み違えた読み（お休みの言葉を折り返しの申し出と読む）は外れ＝流れの制御の動きが変わる
+        # （⛔ それまでは正解の無い項目の読みを、正解の側に入れて外れと数えなかった＝外した UNLABELED）
         import g59_calling_judge as g
         import g59_tally as t
         text = "岡田は本日休みをいただいております。"
         facts = next(f for tt, _, b, _, _, f in g.cases("x") if tt == text and not b)
-        self.assertNotIn(self.OFFER, facts)
         r = {"text": text, "before": None, "asked": False, "successor": False}
-        got = {k: next(iter(v)) for k, v in facts.items()} | {self.OFFER: "折り返し", self.WHY: "お休み"}
-        self.assertTrue(g.facts_ok(got, facts))
-        self.assertIsNone(t.flow_kind(got, facts, r))
+        right = {k: next(iter(v)) for k, v in facts.items()}
+        self.assertEqual(right[self.WHY], "お休み")
+        older = {k: v for k, v in right.items() if k not in (self.OFFER, self.WHY)}
+        for got in (older, right):
+            self.assertTrue(g.facts_ok(got, facts), got)
+            self.assertIsNone(t.flow_kind(got, facts, r), got)
+        wrong = right | {self.OFFER: "折り返し"}
+        self.assertFalse(g.facts_ok(wrong, facts))
+        self.assertTrue(t.moves(t.flow_kind(wrong, facts, r)))
 
     def test_2_same_person_who_is_not_the_target_is_called_again_without_the_check(self):
         import g59_flow_check as fc
@@ -40762,3 +40769,42 @@ class MissedNoReportTest(unittest.TestCase):
         self.assertIsNone(g.judged_turn(voiced=False))
         g, _ = self.flow()
         self.assertIsNone(g.judged_turn(voiced=True))   # 会話AIの声がもう流れた：重ねない（今のまま）
+
+
+class G59OfferWhyLabelTest(unittest.TestCase):
+    """G-59 の正解の表の全部の行に、相手の申し出（offer）とお呼びした方が出られない理由（absent_why）の正解を付けた（2026-11-19 日本時間21時台・
+    答えを伏せた読み手2人＝作業場所 rv150/readers/y3 の A_b・B_b ＋CL-1 が決まりに当てた。2人がそろって1つに決めた113行はその読み・割れた16行は理由の説明の文
+    （flowctl.absent_why_choices）とご決定・お客様に聞こえる伺う一言で決めた）。行に書かなければ「言っていない」（END と同じ既定＝cases の1か所）。"""
+    CONFIRM = "「おかだ」様でいらっしゃいますでしょうか？"
+
+    def test_every_row_has_offer_and_absent_why_truths(self):
+        import g59_calling_judge as g
+        from flowctl import ABSENT_WHY, OFFER
+        self.assertFalse(hasattr(g, "UNLABELED"))               # 正解の無い項目はもう無い
+        self.assertLessEqual({OFFER, ABSENT_WHY}, set(g.ADDED))  # 項目を足す前の記録（10-31〜11-02）は、この2つを数えない
+        for text, _, before, asked, s, facts in g.cases(self.CONFIRM):
+            self.assertIn(OFFER, facts, text)
+            self.assertIn(ABSENT_WHY, facts, text)
+
+    def test_reasons_follow_the_rules(self):
+        import g59_calling_judge as g
+        from flowctl import ABSENT_WHY, ABSENT_WHY_NOT_SAID, CALLBACK_LABEL as L, OFFER, OFFER_NOT_SAID, UNDECIDED
+        got = {(t, b, bool(a)): f for t, _, b, a, _, f in g.cases(self.CONFIRM)}
+        want = {("岡田は本日休みをいただいております。", None, False): {L["day_off"]},
+                ("いいえ、私は部下の山田です。岡田は出張中でして、戻りは来週になります。", "はい。", True): {L["long_absent"]},
+                # 「本日おりません」「本日終日外出」＝その日のうちには戻らない（不在の説明の「その日のうちに戻る」に当たらない・お休みとは言っていない＝
+                #  2026-10-25「休みとは言われず…だけなら「お戻り」（お休みと決めつけない）」）＝「何時ごろお戻りに…」と今日の時刻を伺わない
+                ("いいえ、山田と申します。岡田は本日おりません。", "はい。", True): {L["long_absent"]},
+                ("岡田は本日終日外出しておりまして。", None, False): {L["long_absent"]},
+                # 会議中で本日は難しい＝その場（社内）にいるが取り込んでいて、その日は出られない＝あとで（不在の「その日のうちに戻る」に当たらない）
+                ("お待たせいたしました。岡田は会議中でして、本日は難しいようです。", "岡田ですね。少々お待ちください。", False): {L["later"]},
+                # 会議中とだけ＝席にいない（不在）とも、取り込んでいる（あとで）とも読める・どちらの伺う一言（戻る時刻／かけ直す日時）も差し支えない＝境目
+                ("違います。岡田は会議中です。", "はい。", True): {L["later"], L["absent"]},
+                ("いえ、岡田は席を外しております。", "はい。", True): {L["absent"]},
+                # 事情が「在籍していない」・電話を終える言葉の行は、理由を読まない（流れの制御は使わない）＝言っていない・決められないのどちらも正解
+                ("営業のお電話でしたらお繋ぎできません。", None, False): {ABSENT_WHY_NOT_SAID, UNDECIDED},
+                ("岡田は異動になりまして、今は私が担当しております。", None, False): {ABSENT_WHY_NOT_SAID, UNDECIDED},
+                ("お電話代わりました。岡田です。", None, False): {ABSENT_WHY_NOT_SAID}}
+        for key, why in want.items():
+            self.assertEqual(got[key][ABSENT_WHY], why, key)
+            self.assertEqual(got[key][OFFER], {OFFER_NOT_SAID}, key)

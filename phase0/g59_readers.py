@@ -2,7 +2,7 @@
 - 束 a：正解の表の候補（g59_calling_judge.candidates＝分身 M の5場面50行。ご事情を伺った一言・詳しい呼ぶ一言・確かめたあとに答えてお呼びし直した一言のあと）の、
   目的のお客様の判定の全部の項目と、尋ねているか
 - 束 b：正解の表（g59_calling_judge.cases）の全部の行の、相手の申し出（flowctl.offer_choices）と電話に出られない理由（flowctl.absent_why_choices）
-  （⏳ 2026-11-18 の rv92/H で足した2つの項目は、まだ正解が無い＝g59_calling_judge.UNLABELED）
+  （2026-11-18 の rv92/H で足した2つの項目。2026-11-19 日本時間21時台に、この束の読み（rv150/readers/y3 の A_b・B_b）で正解の表に正解を付けた）
 読み手に見せるのは、判定が見る文（説明の文と選べるもの＝meaning_judge.prompt_parts の1か所）と、行の場面の会話（本番の流れの制御で組んだ場面＝
 g59_flow_check.row_scene）だけ。正解の表の正解・前の言葉の読み（BEFORE_READ）は渡さない。答えの欄の書き方の例は、形だけの置き場（実在の行を使わない）。
 使い方：python g59_readers.py --out <書き出す場所> --dry-run（束 packet_a.md・packet_b.md・頼みの文 request_a.md・request_b.md・行の名札 key_a.json・key_b.json）
