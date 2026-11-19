@@ -103,6 +103,14 @@ class Target:
         （役職だけ）・後任のご担当者様は空＝作らない（flowctl.Flow._calling_unheard は「もう一回よろしいでしょうか？」のまま）。"""
         return "" if self.successor else mobile_confirm(self._name())
 
+    def mobile_owner(self) -> str:
+        """かけた番号が携帯電話の番号で、呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、同じ方に1回だけ伺う確かめる一言（10-16 の個人の言い方
+        phrases.TARGET_CALL の「個人」＝「（お名前）様のお電話でお間違えないでしょうか？」。続く言葉は個人の呼ぶ一言と同じ録音＝名前の録音の台帳の target_individual）。
+        法人のお名前のある目的のお客様だけ（個人のお客様は呼ぶ一言がこの形・お名前の無い業務・後任のご担当者様は作らない）。流すのは flowctl.Flow._call_target。
+        ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い65：イ」"""
+        from phrases import TARGET_CALL
+        return TARGET_CALL["個人"].format(who=f"{self._name()}様") if self.kind == "法人" and self.name and not self.successor else ""
+
     def transfer(self) -> str:
         """呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（phrases.target_transfer。呼び名は呼ぶ一言と同じ。法人だけ＝個人の
         お客様は空＝作らない。後任のご担当者様は共通の一言の録音 SUCCESSOR＝flowctl.Flow が差し替える）。✅ 2026-11-19 日本時間15時10分27秒 伺い51 のイ"""
@@ -620,6 +628,10 @@ class Business:
                 # 呼ぶ一言を使い切ったあとも別の方だと言われ続けたときに、1回だけお取り次ぎをお願いし直す一言（flowctl.Flow._call_target。✅ 2026-11-19 日本時間15時10分27秒
                 # 伺い51 のイ＝かけた番号が携帯電話の番号なら流さない）。どの行が携帯電話の番号になるかは取込では決めない＝法人のどの電話にも返す
                 parts["target_transfer"] = t.transfer()
+            if t.mobile_owner():
+                # かけた番号が携帯電話の番号で、別の方だと言われ続けたときの確かめる一言（flowctl.Flow._call_target。✅ 2026-11-20 日本時間4時44分42秒 伺い65 のイ）。
+                # どの行が携帯電話の番号になるかは取込では決めない＝お名前のある法人の業務のどの電話にも返す
+                parts["mobile_owner"] = t.mobile_owner()
             if t.mobile_confirm():
                 # かけた番号が携帯電話の番号のときの、聞き取れないお返事への2回目の聞き返しの確かめる一言（flowctl.Flow._calling_unheard。✅ 2026-11-19 日本時間14時18分13秒
                 # 伺い54 のイ）。どの行が携帯電話の番号になるかは取込では決めない（かける番号は予約証＝phone_e164）＝ほかの部分と同じく、お名前のある業務のどの電話にも返す

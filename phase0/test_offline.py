@@ -86,7 +86,9 @@ CL2_PENDING = frozenset({
                          # 「〇時まで」の理由を伺い直した一言に「はい」＝それまでは出られる（UNTIL_LABEL の available_until＝伺い63）
                          "available_until",
                          # 言い直して確かめた時刻の24時間の値（通話の事実 clock24＝Flow.clock24_facts。伺い68 ア・CL-1.md 4-199 の鍵の名前と形のご相談）
-                         "clock24"})
+                         "clock24",
+                         # 携帯電話の持ち主の確かめの名乗りの部分（instruction.Target.mobile_owner＝名前の部分＋続く言葉 target_individual の録音。伺い65 イ）
+                         "mobile_owner"})
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
@@ -32330,6 +32332,9 @@ class BriefAgainTest(unittest.TestCase):
 
     ALT = "お電話になさいますかそれともメールの方がよろしいでしょうか？"
     REWORD = "ご連絡の方法はお電話とメールのどちらになさいますか？"
+    # ふつうの質問の所の2回目の安心していただく一言（伺い58 イ）と、形が1つしか無い所の3回目からの一言（伺い57）
+    LEFT = "今のご連絡の方法ともう一つだけお聞かせいただけましたらご質問は終了となりますのでご安心ください。"
+    SORRY = "お忙しいところ本当に恐れ入ります。ご連絡の方法の方はいかがでしょうか？"
 
     def forms(self):
         """Q2 に取込で決めた選択肢を並べた文（ALT）と言い換えた質問（REWORD）がある質問の並び（ほかは brief_questions のまま）。"""
@@ -32362,8 +32367,9 @@ class BriefAgainTest(unittest.TestCase):
             f = self.briefed()
             counts = dict(f.back_counts)
             r = self.again(f, report)
+            # ふつうの質問の所の2回目も、安心していただく一言を添える（伺い58 イ（✅ 2026-11-20 日本時間4時44分42秒「伺い57」「伺い58：イ」で替わった＝分身 N）。⛔ f1c0af7e まで「承知しました。」＋伺っていた形のまま）
             self.assertEqual((f.current, self.heard(r), r.get("ack"), [p["id"] for p in r["play"]]),
-                             ("Q2", "承知しました。" + self.CONTACT, "shouchi_hurried", ["Q2_again"]), report)
+                             ("Q2", "承知しました。" + self.LEFT + self.CONTACT, "shouchi_hurried", ["Q2_brief_one_more", "Q2_again"]), report)
             self.assertEqual(f.back_counts, counts, report)   # 戻る一言の回数には数えない
             self.assertNotIn("hurried", f._reply_out(r))   # 相づちを選ぶ印は会話AIに見せない
             # 同じ発話への遅れた報告には重ねない
@@ -32373,10 +32379,13 @@ class BriefAgainTest(unittest.TestCase):
             # そのあとの答えは、いまの質問の答えとして受け取る（今のまま）
             r = self.turn(f, "メールでお願いします。", self.rd("メール"), "record_answer", question_id="Q2", condition_id="メール")
             self.assertEqual((f.export()["Q2"], f.current), ("メール", "Q3"), report)
-        # 3回目から（伺い46 イ）：形が1つしか無い質問（取込で選択肢を並べた文も言い換えも決まらなかった）は、元の形＝同じ文（言える別の形が無い＝決まりで決めた。
-        # test_from_the_third_hurry_a_form_not_yet_said_at_the_place）
+        # 3回目から：形が1つしか無い質問（取込で選択肢を並べた文も言い換えも決まらなかった）は、同じ質問をくり返さず「お忙しいところ本当に恐れ入ります。（聞くこと）の
+        # 方はいかがでしょうか？」（伺い57 の確かめの所と同じ理由＝同じ文を3度言わない。決まりで決めた（✅ 2026-11-20 日本時間4時44分42秒「伺い57」「伺い58：イ」で替わった＝分身 N）。頭の相づちは無し。4回目は伺っていた形（直前と
+        # 同じ文を続けて言わない＝11-01）。⛔ f1c0af7e まで元の形＝同じ文（伺い46 イ）。形の多い質問は伺い46 イのまま＝test_from_the_third_hurry_a_form_not_yet_said_at_the_place
         f = self.briefed()
         self.again(f)
+        r = self.again(f)
+        self.assertEqual((self.heard(r), r.get("ack"), [p["id"] for p in r["play"]], f.current), (self.SORRY, None, ["Q2_brief_sorry"], "Q2"))
         r = self.again(f)
         self.assertEqual((self.heard(r), r.get("ack")), ("承知しました。" + self.CONTACT, "shouchi_hurried"))
         # 会話AIが話す通話で、報告の無いターンに会話AIの声がもう流れた（voiced）：重ねて言わせない（もう一度言ってほしいの _repeat_now の voiced と同じ）。
@@ -32408,7 +32417,7 @@ class BriefAgainTest(unittest.TestCase):
                 r = self.again(f, report)
                 self.assertEqual((f.current, r.get("ack")), ("Q2", "shouchi_hurried"), report)
                 heard.append((self.heard(r), [p["id"] for p in r["play"]]))
-            self.assertEqual(heard, [("承知しました。" + self.CONTACT, ["Q2_again"]),          # 2回目：伺っていた形のまま（伺い41 ア）
+            self.assertEqual(heard, [("承知しました。" + self.LEFT + self.CONTACT, ["Q2_brief_one_more", "Q2_again"]),   # 2回目：一言＋伺っていた形のまま（伺い41 ア・伺い58 イ）
                                      ("承知しました。" + self.ALT, ["Q2_alternatives"]),       # 3回目：選択肢を並べた文
                                      ("承知しました。" + self.REWORD, ["Q2_aside_again"]),     # 4回目：言い換えた質問（頭の「ところで」は付けない）
                                      ("承知しました。" + self.CONTACT, ["Q2_again"]),          # 5回目から：いちばん前に聞いた形
@@ -32508,7 +32517,8 @@ class BriefAgainTest(unittest.TestCase):
         self.assertEqual(self.heard(nod), "はい、" + self.ALT)
         f = replied(self.forms())
         heard = [self.heard(self.again(f)) for _ in range(3)]
-        self.assertEqual(heard, ["承知しました。" + self.ALT, "承知しました。" + self.REWORD, "承知しました。" + self.CONTACT])
+        # 2回目（その所で初めて）は安心していただく一言を添える（伺い58 イ＝お返事を待つ間の戻りでも、ふつうの質問へ戻るなら同じ。分身 N）
+        self.assertEqual(heard, ["承知しました。" + self.LEFT + self.ALT, "承知しました。" + self.REWORD, "承知しました。" + self.CONTACT])
 
     def test_the_first_brief_ask_is_not_said_over_the_ai_voice(self):
         # (3)（rv78/B の (5-e)）：会話AIが話す通話で、報告の無いターンに会話AIの声がもう流れた（voiced）ときの1回目の「手短に」：ほかの所（もう一度言ってほしい・迷っている・
@@ -36059,6 +36069,8 @@ class BriefLeftReassureTest(unittest.TestCase):
     SAY = "15日の14時、午後2時でよろしいでしょうか？"
     ONLY = "今のご来店の日時のみお聞かせいただけましたらご質問は終了となりますのでご安心ください。"
     ONE_MORE = "今のご来店の日時ともう一つだけお聞かせいただけましたらご質問は終了となりますのでご安心ください。"
+    MORE = "今のご来店の日時とあと{n}だけお聞かせいただけましたらご質問は終了となりますのでご安心ください。"
+    SORRY = "お忙しいところ本当に恐れ入ります。ご来店の日時の方はいかがでしょうか？"
     PAY = BriefGoAheadTest.PAY
     rd = staticmethod(OtherCompanyClueSendWayTest.rd)
     turn = OtherCompanyClueSendWayTest.turn
@@ -36093,15 +36105,17 @@ class BriefLeftReassureTest(unittest.TestCase):
         return self.turn(f, self.HURRY, self.rd(UNDECIDED, end=END_BRIEF))
 
     def test_the_lines_are_fixed_and_without_commas(self):
-        from phrases import BRIEF_LEFT
+        from phrases import BRIEF_LEFT, BRIEF_LEFT_MORE, BRIEF_SORRY
         self.assertEqual(set(BRIEF_LEFT), {0, 1})
-        for text in BRIEF_LEFT.values():
+        for text in (*BRIEF_LEFT.values(), BRIEF_LEFT_MORE, BRIEF_SORRY):
             self.assertNotIn("、", text)   # 決まった言い方の途中に読点を入れない（10-15）
         from flowctl import brief_left_line
         q = self.visit()[1]
         self.assertEqual(brief_left_line(q, 0), ("Q2_brief_only", self.ONLY))
         self.assertEqual(brief_left_line(q, 1), ("Q2_brief_one_more", self.ONE_MORE))
-        self.assertIsNone(brief_left_line(q, 2))   # 2つ以上は今のまま（伺い41）
+        # 2つ以上も数を言う（伺い56 イ（✅ 2026-11-20 日本時間4時44分42秒「伺い56：イ」「伺い57」「伺い58：イ」で替わった＝分身 N））。⛔ f1c0af7e まで 2つ以上は None（今のまま＝伺い41）
+        self.assertEqual(brief_left_line(q, 2), ("Q2_brief_more_2", self.MORE.format(n="二つ")))
+        self.assertEqual(brief_left_line(q, 9)[1], self.MORE.format(n="九つ"))
         import dataclasses
         self.assertIsNone(brief_left_line(dataclasses.replace(q, topic=""), 0))   # 聞くことが決まらなかった質問は今のまま
 
@@ -36133,18 +36147,27 @@ class BriefLeftReassureTest(unittest.TestCase):
         self.assertIn(say_note(self.ONE_MORE), r["message"])
 
     def test_from_the_third_hurry_as_before(self):
-        # 3回目から（伺い46 イ）は今のまま＝形が1つしか無い言い直しは同じ文（一言はくり返さない）
+        # 3回目から：確かめ（形が1つ）をくり返さず「お忙しいところ本当に恐れ入ります。（聞くこと）の方はいかがでしょうか？」（伺い57（✅ 2026-11-20 日本時間4時44分42秒「伺い56：イ」「伺い57」「伺い58：イ」で替わった＝分身 N））。頭の相づちは無し
+        # （その一言が受けの言葉）・録音は質問ごとの依頼主の単位（（番号）_brief_sorry）。言い直しの返事待ちのまま（お返事は言い直しへのお返事）。4回目は直前と同じ文を続けて
+        # 言わない（11-01）＝伺っていた言い直し。⛔ f1c0af7e まで 3回目も「承知しました。15日の14時、午後2時でよろしいでしょうか？」（伺い46 イ＝形が1つの所は同じ文）
         f = self.restated(self.visit(self.pay()))
         self.hurry(f)
         r = self.hurry(f)
+        self.assertEqual((self.heard(r), r.get("ack"), [p["id"] for p in r["play"]], f.awaiting_confirm), (self.SORRY, None, ["Q2_brief_sorry"], "Q2"))
+        r = self.hurry(f)
         self.assertEqual((self.heard(r), r.get("ack")), ("承知しました。" + self.SAY, "shouchi_hurried"))
+        r = self.hurry(f)
+        self.assertEqual(self.heard(r), self.SORRY)
+        r = self.turn(f, "はい、それでお願いします。", self.rd("affirmed"), "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((f.items["Q2"].value, f.current), ("15日の14時", "Q4"))
 
     def test_two_or_more_left_is_as_before(self):
         from flowctl import Question
         q5 = Question("Q5", "ご来店の人数は何名様でしょうか？", "number", conditions=("答えた",), required=True, topic="ご来店の人数")
         f = self.restated(self.visit(self.pay(), q5))
         r = self.hurry(f)
-        self.assertEqual((self.heard(r), r.get("play")), ("承知しました。" + self.SAY, []))
+        # 2つ以上も数を言う（伺い56 イ（✅ 2026-11-20 日本時間4時44分42秒「伺い56：イ」「伺い57」「伺い58：イ」で替わった＝分身 N）。⛔ f1c0af7e まで今のまま「承知しました。15日の14時…」）
+        self.assertEqual((self.heard(r), [p["id"] for p in r["play"]]), ("承知しました。" + self.MORE.format(n="二つ") + self.SAY, ["Q2_brief_more_2"]))
 
     def test_questions_asked_by_the_answer_are_counted(self):
         # 約束を破らない数：前の答えで伺う質問（ask_if）は、答えしだいで伺いうる＝伺う側に数える。⛔ 数えないと、いまの質問の答えで伺う質問があっても「のみ」と言いうる
@@ -36159,7 +36182,7 @@ class BriefLeftReassureTest(unittest.TestCase):
                         ask_if=("Q4", ("カード",)))
         f = self.restated(self.visit(self.pay(), name))
         r = self.hurry(f)
-        self.assertEqual(self.heard(r), "承知しました。" + self.SAY)
+        self.assertEqual(self.heard(r), "承知しました。" + self.MORE.format(n="二つ") + self.SAY)   # 2つ以上も数を言う（伺い56 イ）
 
     def test_questions_after_an_undecided_stop_are_counted(self):
         # 先へ進むのを止める質問（ここで終える答え ends_on）の答えがまだ決まっていなければ、そのあとの質問も伺いうる（振込でなければ伺う）＝今のまま
@@ -36168,15 +36191,17 @@ class BriefLeftReassureTest(unittest.TestCase):
         f = self.restated(self.visit(self.pay(ends_on=("振込",)), q5))
         self.assertEqual([x for x in f._remaining() if x != "Q2"], ["Q4"])   # これから伺う質問（今の決まり）は止める質問まで
         r = self.hurry(f)
-        self.assertEqual(self.heard(r), "承知しました。" + self.SAY)
+        self.assertEqual(self.heard(r), "承知しました。" + self.MORE.format(n="二つ") + self.SAY)   # 2つ以上も数を言う（伺い56 イ）
 
     def test_the_question_place_and_the_full_call_are_as_before(self):
-        # 言い直しの確かめのほかの所は今のまま：ふつうの質問の2回目＝伺い41 ア（「承知しました。」＋伺っていた形のまま）
+        # ふつうの質問の2回目も、確かめの所と同じ一言を添える（伺い58 イ（✅ 2026-11-20 日本時間4時44分42秒「伺い56：イ」「伺い57」「伺い58：イ」で替わった＝分身 N））：「承知しました。」＋一言＋伺っていた形のまま。
+        # ⛔ f1c0af7e まで「承知しました。」＋伺っていた形のまま（伺い41 ア）
         f = self.restated(self.visit(self.pay()))
         self.turn(f, "はい、それでお願いします。", self.rd("affirmed"), "confirm_field", question_id="Q2", result="affirmed")
         self.assertEqual(f.current, "Q4")
         r = self.hurry(f)
-        self.assertEqual((self.heard(r), r.get("ack")), ("承知しました。" + self.PAY, "shouchi_hurried"))
+        only = "今のお支払いの方法のみお聞かせいただけましたらご質問は終了となりますのでご安心ください。"
+        self.assertEqual((self.heard(r), r.get("ack"), [p["id"] for p in r["play"]]), ("承知しました。" + only + self.PAY, "shouchi_hurried", ["Q4_brief_only", "Q4_again"]))
         # 手短に伺っていない電話の言い直し（H3 を伺っていない）には流さない＝1回目の「手短に」は H3（伺い31）
         from flowctl import CALLBACK_IDS
         g = BriefGoAheadTest()
@@ -37475,8 +37500,9 @@ class NopqHolesTest(unittest.TestCase):
                 self.assertEqual((r.get("play") or [], r.get("say")), ([], t.ONE_MORE + final))   # 会話AIが一言と最終の確かめを1つの文で言う
                 self.assertIn(say_note(t.ONE_MORE), r["message"])
             self.assertEqual((f.awaiting_confirm, f.awaiting_say), ("Q2", final), play)   # 判定に見せる文は最終の確かめのまま
-            r = t.hurry(f)   # 3回目：一言はくり返さない（伺っていた形のまま）
-            self.assertEqual((r.get("ack"), self.heard(r)), ("shouchi_hurried", "承知しました。" + final), play)
+            r = t.hurry(f)   # 3回目：一言はくり返さない。形が1つの所（最終の確かめ）は「お忙しいところ本当に恐れ入ります。（聞くこと）の方はいかがでしょうか？」
+            # （✅ 2026-11-20 日本時間4時44分42秒「伺い57」＝BriefCountAndSorryTest。⛔ f1c0af7e まで「承知しました。」＋伺っていた形のまま＝伺い46 イ。分身 N）
+            self.assertEqual((r.get("ack"), self.heard(r), f.awaiting_say), (None, t.SORRY, final), play)
             r = t.turn(f, "はい、それでお願いします。", self.rd("affirmed"), "confirm_field", question_id="Q2", result="affirmed")
             self.assertEqual((f.items["Q2"].value, f.current), ("15日の14時", "Q4"), play)
 
@@ -37944,10 +37970,12 @@ class CallingTransferAskTest(unittest.TestCase):
         self.assertEqual(self.heard(r), "大変失礼いたしました。" + self.LINE)
 
     def test_4_not_on_a_mobile(self):
+        # 携帯電話の番号ではお取り次ぎをお願いしない。代わりに持ち主の確かめを1回（✅ 2026-11-20 日本時間4時44分42秒「伺い65：イ」＝MobileOwnerAskTest。⛔ f1c0af7e まで
+        # 何も言わずに待った）
         f = self.opened(self.MOBILE)
         self.used_up(f)
         r = self.say(f, "ですから、山田ですが。", {"judge": "同別xx"})
-        self.assertEqual((r["result"], self.heard(r), r.get("hold_wait_s")), ("call_target", "", f.hold_wait_s))
+        self.assertEqual((r["result"], self.heard(r)), ("confirm_target", "大変失礼いたしました。" + MobileOwnerAskTest.LINE))
         self.assertEqual(f.transfer_asked, [])
 
     def test_5_who_is_asked_for(self):
@@ -38188,7 +38216,8 @@ class CallingSilentWaitLimitTest(unittest.TestCase):
             r = self.say(f, "いいえ、私は山田と申します。", {"judge": "同別xx"})
             self.assertEqual(r["result"], "call_target", (phone, target))
             r = self.say(f, "ですから、山田ですが。", {"judge": "同別xx"})
-            if phone == self.FIXED:   # 固定電話の番号はお取り次ぎのお願い（声を出す）
+            # 固定電話の番号はお取り次ぎのお願い・携帯電話の番号でお名前のある業務は持ち主の確かめ（声を出す。✅ 2026-11-20 日本時間4時44分42秒「伺い65：イ」＝分身 N）
+            if phone == self.FIXED or target == "named":
                 self.assertTrue(self.heard(r), target)
                 r = self.say(f, "いえ、ですから山田ですが。", {"judge": "同別xx"})
             self.assertEqual(self.kept(r), ("", f.hold_wait_s, False), (phone, target))
@@ -38522,7 +38551,8 @@ class Cl2Answers1119Test(unittest.TestCase):
         self.assertEqual(set(NAME_TAILS), set(NAME_FORMS))
         self.assertTrue(all(NAME_TAILS.values()))
         # 名前の部分の名前 → 続く言葉の名前（フルネームでお呼びし直す一言は呼ぶ一言と同じ続く言葉＝CL-2 の recordings.name_needs）
-        tail_of = {"target_full": "target", "target_successor_full": "target_successor"}
+        # 携帯電話の持ち主の確かめ mobile_owner（伺い65 イ＝分身 N）は、個人の呼ぶ一言と同じ続く言葉（新しい録音を作らない＝CL-2 の recordings.name_needs に足していただく）
+        tail_of = {"target_full": "target", "target_successor_full": "target_successor", "mobile_owner": "target_individual"}
         for t in (Target(name="岡田", reading="おかだ", role="営業部部長", full_name="岡田太郎", full_reading="おかだたろう"),
                   Target(kind="個人", name="岡田", reading="おかだ"), Target(role="社長")):
             parts = dataclasses.replace(BUSINESS, target=t).replay_parts()
@@ -42252,3 +42282,117 @@ class TheirsDayPairTest(unittest.TestCase):
         r = g.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "金曜日の4時まで"})
         self.assertEqual(r["result"], "confirm_required")
         self.assertTrue(heard_words(r).endswith("金曜日の16時まで、午後4時までということでよろしいでしょうか？"), heard_words(r))
+
+
+class BriefCountAndSorryTest(unittest.TestCase):
+    """伺い56・57・58（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い56：イ」「伺い57：お忙しいところ本当に恐れ入ります、日時の方は、いかがでしょうか？」「伺い58：イ」）：
+    手短に伺っている途中、2回目に急かされたら、確かめの所でもふつうの質問の所でも、残りの数にかかわらず数を言う一言（「今の（聞くこと）とあと二つだけ…」）。同じ所で
+    3回目に急かされたら、形が1つしか無い所は「お忙しいところ本当に恐れ入ります。（聞くこと）の方はいかがでしょうか？」。録音はどれも質問ごとの依頼主の単位
+    （（番号）_brief_more_（数）・（番号）_brief_sorry）。お返事は伺っていた所の今の1か所で受ける。"""
+    b = BriefLeftReassureTest()
+
+    def test_recordings_for_every_count_and_the_sorry_line(self):
+        import dataclasses
+        from make_ack_clips import HOW, MAX_S, script_table
+        from flowctl import Question
+        q5 = Question("Q5", "ご来店の人数は何名様でしょうか？", "number", conditions=("答えた",), required=True, topic="ご来店の人数")
+        b = dataclasses.replace(OtherCompanyClueSendWayTest().business(), questions=self.b.visit(self.b.pay(), q5, self.b.pay(id="Q8", required=False)))
+        table, _ = script_table(b)
+        mine = {k: v[0] for k, v in table.items() if "_brief_" in k and k.startswith("Q2_")}
+        # Q2 のほかに手短にでも伺う質問は Q1・Q4・Q5 の3つ＝0〜3（手短にでは伺わない Q8 は数えない）
+        self.assertEqual(mine, {"Q2_brief_only": self.b.ONLY, "Q2_brief_one_more": self.b.ONE_MORE, "Q2_brief_more_2": self.b.MORE.format(n="二つ"),
+                                "Q2_brief_more_3": self.b.MORE.format(n="三つ"), "Q2_brief_sorry": self.b.SORRY})
+        self.assertNotIn("Q8_brief_sorry", table)
+        self.assertEqual(table["Q2_brief_sorry"][1], "brief_sorry")
+        self.assertIn("brief_sorry", HOW)
+        self.assertLessEqual(len(self.b.SORRY) * __import__("make_ack_clips").CHAR_S * 1.15, MAX_S["brief_sorry"])
+        for w in WordingTest.BANNED:
+            self.assertNotIn(w, HOW["brief_sorry"])
+
+    def test_the_ai_voice_says_the_sorry_line(self):
+        f = self.b.restated(self.b.visit(self.b.pay()), play=False)
+        self.b.hurry(f)
+        r = self.b.hurry(f)
+        self.assertEqual((r.get("ack"), r.get("play"), r.get("say")), (None, None, self.b.SORRY))
+
+    def test_replies_after_the_sorry_line(self):
+        # 「お忙しいところ本当に恐れ入ります。ご来店の日時の方はいかがでしょうか？」のあと：お返事は言い直し（15日の14時…）へのお返事のまま受ける
+        for said, reading, args, want in (
+                ("はい、それでお願いします。", "affirmed", {"result": "affirmed"}, "ありがとうございます。続きまして" + self.b.PAY),
+                ("いえ、16日の15時でお願いします。", "corrected", {"result": "corrected", "correction": "16日の15時"}, "改めまして16日の15時、午後3時")):
+            f = self.b.restated(self.b.visit(self.b.pay()))
+            self.b.hurry(f)
+            r = self.b.hurry(f)
+            self.assertEqual(self.b.heard(r), self.b.SORRY)
+            r = self.b.turn(f, said, self.b.rd(reading), "confirm_field", question_id="Q2", **args)
+            self.assertIn(want, self.b.heard(r), said)
+
+    def test_a_question_place_with_many_forms_keeps_the_form_not_yet_said(self):
+        # 形の多い質問の所の3回目からは伺い46 イのまま（まだ言っていない形）＝BriefAgainTest.test_from_the_third_hurry_a_form_not_yet_said_at_the_place
+        a = BriefAgainTest()
+        f = a.briefed(a.forms())
+        a.again(f)
+        r = a.again(f)
+        self.assertEqual((a.heard(r), r.get("ack")), ("承知しました。" + a.ALT, "shouchi_hurried"))
+
+
+class MobileOwnerAskTest(unittest.TestCase):
+    """伺い65（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い65：イ」）：携帯電話の番号におかけして、お呼びしても「山田です」と別の方のお名前を言われ続けたら（呼ぶ一言を
+    2回使い切ったあと）、同じ方に1回だけ「大変失礼いたしました。」（相づちの録音 taihen_shitsurei）＋「（お名前）様のお電話でお間違えないでしょうか？」（10-16 の個人の言い方＝
+    名前の録音の台帳の名前の部分＋続く言葉 target_individual の録音。名乗りの部分 mobile_owner）。この一言は確かめる一言（CONFIRM_PARTS）＝お返事は今の確かめの1か所：
+    はい＝ご本人・番号違い＝判定の組の読みで今の番号違いの道。会社の電話は今のまま（伺い51 イ＝お取り次ぎのお願い）。⛔ f1c0af7e まで、何も言わずに待ち、待つ上限で
+    「お返事がないようですので…」と締めた（お話しになっている方に「お返事がない」と言った＝分身 R2 の書き置き 4 の (2)）"""
+    LINE = "「おかだ」様のお電話でお間違えないでしょうか？"
+    JUDGED = "岡田（おかだ）様のお電話でお間違えないでしょうか？"
+    t = CallingTransferAskTest()
+
+    def asked(self):
+        f = self.t.opened(self.t.MOBILE)
+        self.t.used_up(f)
+        return f, self.t.say(f, "ですから、山田ですが。", {"judge": "同別xx"})
+
+    def test_asks_whose_phone_once(self):
+        from flowctl import CONFIRM_PARTS
+        self.assertIn("mobile_owner", CONFIRM_PARTS)
+        f, r = self.asked()
+        self.assertEqual((r["result"], r.get("ack"), [(p.get("kind"), p.get("part"), p.get("text")) for p in r.get("play") or []]),
+                         ("confirm_target", "taihen_shitsurei", [("opening", "mobile_owner", self.LINE)]))
+        self.assertEqual(self.t.heard(r), "大変失礼いたしました。" + self.LINE)
+        self.assertEqual(f.transfer_asked, [])   # 携帯電話の番号ではお取り次ぎをお願いしない（伺い51 イ）
+        # そのあとのお返事は、この一言へのお返事として判定に見せる（確かめる一言の項目）
+        f.on_callee(); f.on_heard("いえ、ですから山田ですが。")
+        self.assertEqual((f.judge_context()[0].text, f.confirm_open), (self.JUDGED, True))
+        # また別の方：同じ方には1回だけ＝何も言わずに待つ（待つ上限で締める）
+        r = self.t.say(f, "いえ、ですから山田ですが。", {"judge": "同別xx"})
+        self.assertEqual((r["result"], self.t.heard(r)), ("call_target", ""))
+
+    def test_replies(self):
+        # はい＝ご本人（今の確かめへの「はい」と同じ道＝繋ぐ）
+        f, _ = self.asked()
+        r = self.t.say(f, "はい、そうです。", {"judge": "同本xx"})
+        self.assertEqual(f.phase, "asking", r)
+        # 番号違い（判定の組の読み）：今の番号違いの締め
+        import g59_flow_check as fc
+        from flowctl import ABOUT, ABOUT_WRONG
+        from meaning_judge import read
+        f, _ = self.asked()
+        f.on_callee(); f.on_heard("いいえ、違いますけど。")
+        f.on_check("judge", read(f.judge_context()[0], json.dumps({**fc.facts("同別xx"), ABOUT: ABOUT_WRONG}, ensure_ascii=False)))
+        r = f.judged_turn(voiced=False)
+        self.assertEqual((r["result"], f.end_reason), ("end", "wrong_party"))
+
+    def test_the_line_and_the_name_ledger(self):
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import Target
+        from phrases import NAME_TAILS
+        parts = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長")).replay_parts()
+        self.assertEqual(parts["mobile_owner"], self.LINE)
+        self.assertTrue(parts["mobile_owner"].endswith(NAME_TAILS["target_individual"]))   # 続く言葉は個人の呼ぶ一言と同じ録音（新しい録音は作らない）
+        for t in (Target(kind="個人", name="岡田", reading="おかだ"), Target(role="社長")):
+            self.assertNotIn("mobile_owner", dataclasses.replace(BUSINESS, target=t).replay_parts(), t)   # 個人（呼ぶ一言がこの形）・お名前の無い業務は作らない
+        # 後任のご担当者様の電話・会社の電話では流さない
+        f = self.t.opened()
+        self.t.used_up(f)
+        r = self.t.say(f, "ですから、山田ですが。", {"judge": "同別xx"})
+        self.assertEqual((r["result"], r.get("transfer")), ("call_target", True))

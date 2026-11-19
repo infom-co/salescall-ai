@@ -248,6 +248,12 @@ HOW_OF["brief_go"] = "back_again"
 HOW["brief_left"] = ("電話で、お急ぎのお客様に、伺うことがもう少しで終わることを伝えて、安心していただけるように、丁寧に、少し急いだ調子で。"
                      "言葉の途中で区切らずに")
 MAX_S["brief_left"] = 12.0
+# 手短に伺っている途中、形が1つしか無い所で3回目に急かされたときの一言（phrases.BRIEF_SORRY・質問ごとの依頼主の単位の録音＝script_table。✅ 2026-11-20 日本時間4時44分42秒
+# ユーザー「伺い57」）：急いでいるお客様にお時間をいただいていることを心からお詫びし、伺っていることを一言だけ丁寧に伺う。「お忙しいところ」は崩れやすい（帳面 0-4＝人が聞いて
+# 選ぶ前に通ったと言わない）
+HOW["brief_sorry"] = ("電話で、お急ぎのお客様にお時間をいただいていることを心からお詫びしながら、伺っていることを一言だけ丁寧に伺うように、誠実に、少し急いだ調子で。"
+                      "言葉の途中で区切らずに")
+MAX_S["brief_sorry"] = 9.0
 # 連絡先の一言の鍵は言い方の表の1か所（phrases._CONTACT_RESUMED＝flowctl.contact_again_key。⛔ 2026-11-05 まで役目を手で並べていた＝オンラインの一言を足すと漏れる）
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
@@ -400,7 +406,7 @@ def script_table(business) -> tuple[dict, dict]:
     ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
     用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
     読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
-    from flowctl import (ANSWER_PREFIX, BRIEF_LEFT_IDS, BUSINESS_ROLES, accepted_line, brief_left_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
+    from flowctl import (ANSWER_PREFIX, BUSINESS_ROLES, accepted_line, brief_left_counts, brief_left_line, brief_sorry_line, offer_questions, DAY_VARIANTS, approval_explanation, callback_question, day_question, day_recording_id, fill_day, asks_wish, may_wish, pending_line, pending_recording_id, question_forms, recap_recording_id, way_any_line, way_offer, wish_ways,
                          taken_line, tell_recording_id)
     from instruction import reading_variants
     from phrases import BACK_TO_AGAIN, BACK_TO_MIDWAY, again_fit, back_fit, question_clip
@@ -442,7 +448,10 @@ def script_table(business) -> tuple[dict, dict]:
             items.append((*taken, "own_fallback"))
         # 手短に伺っている途中の言い直しの確かめで重ねて急かされた2回目に流す、安心していただく一言（文・名前・流しうる質問は flowctl.brief_left_line の1か所＝「（番号）_brief_only」
         # 「（番号）_brief_one_more」。✅ 2026-11-19 日本時間14時18分13秒 ユーザー（伺い52 場面A））
-        items += [(*line, "brief_left") for n in BRIEF_LEFT_IDS if (line := brief_left_line(q, n)) is not None]
+        items += [(*line, "brief_left") for n in brief_left_counts(business.questions, q) if (line := brief_left_line(q, n)) is not None]
+        # 形が1つしか無い所で3回目に急かされたときの一言（文・名前は flowctl.brief_sorry_line の1か所＝「（番号）_brief_sorry」。✅ 2026-11-20 日本時間4時44分42秒「伺い57」）
+        if (line := brief_sorry_line(q)) is not None:
+            items.append((*line, "brief_sorry"))
         if asks_wish(q):
             # 決められないのがお客様の最終の決定のとき、その質問を締める一言（文は flowctl.pending_line・名前は flowctl.pending_recording_id。✅ 2026-11-06
             # 日本時間11時19分55秒 ユーザー「(2) …「承知しました。それではパンフレットは保留とさせていただきますね。」とパンフレットは締めて、次へ」）
