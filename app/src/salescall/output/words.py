@@ -218,7 +218,8 @@ SETTING_LABELS: dict[str, str] = json.loads((Path(__file__).with_name("setting_l
 
 _DEV_MARK = re.compile(r"Intent|DESIGN|ユーザー|管理者「|✅|⏳|⛔|20\d\d-\d\d|CL-\d|0\d{3}|計画書|設計書")
 # 説明の文の中の内部の言い方 → 契約者の画面の言い方（1か所）
-_INNER_WORDS: dict[str, str] = {"見守り役": "システム", "電話接続モジュール": "電話をつなぐ部品", "別の耳": "聞き取りの確かめ"}
+_INNER_WORDS: dict[str, str] = {"見守り役": "システム", "電話接続モジュール": "電話をつなぐ部品", "別の耳": "聞き取りの確かめ",
+                                "ユーザー": "管理者"}   # 計画書の「ユーザー」は、画面の呼び方では管理者（計画書 1-4）
 _OPEN, _CLOSE = "（(", "）)"
 
 
@@ -243,9 +244,15 @@ def screen_help(key: str, text: str) -> str:
     """設定の説明の文を、契約者の画面に出す形にする1か所：選び肢・設定の名前を言葉に置き換え（screen_meaning）、開発の覚え書きの入った
     括弧書き（決めた日付・文書の名前・担当の名前など）は出さず、内部の言い方は画面の言い方にする。⏳ 契約者向けの説明を定義に持って
     もらう＝CL-2 へのお願い 45（できたら、ここはそれを出すだけになる）。"""
-    out = _drop_dev_parens(screen_meaning(key, text))
-    for inner, plain in _INNER_WORDS.items():
-        out = out.replace(inner, plain)
+    return plain(screen_meaning(key, text))
+
+
+def plain(text: str) -> str:
+    """データに入っている文（設定の説明・仮の値の見直す時 など）を、管理者・契約者の画面に出す形にする1か所：開発の覚え書きの入った
+    括弧書きを外し、内部の言い方を画面の言い方にする。"""
+    out = _drop_dev_parens(text or "")
+    for inner, word in _INNER_WORDS.items():
+        out = out.replace(inner, word)
     return re.sub(r"\s+([。、）])", r"\1", out).strip()
 
 

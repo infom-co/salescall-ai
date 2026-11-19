@@ -476,16 +476,22 @@ class Web(_World):
                 "UPDATE salescall.clients SET name = '依頼者Y' WHERE client_id = %s", (self.y["client"],)))
 
     def test_every_linked_page_opens_in_japanese_only(self):   # 全部のリンクをたどる（画面を足しても漏れを見つける）
+        self._crawl("A", ["/t", f"/c/{self.a['client']}/b/{self.a['business']}"])
+
+    def test_every_page_the_admin_sees_opens_in_japanese_only(self):   # 管理者だけの画面（システムの初めの値・全体の知らせ など）も
+        self._crawl("ADMIN", ["/t", "/admin/settings", "/t/notices", f"/c/{self.a['client']}/b/{self.a['business']}"])
+
+    def _crawl(self, who, start):
         import html as _html
         from collections import deque
         internal = re.compile(r"\b[a-z]+(?:_[a-z0-9]+)+\b|\b[a-z]+\.[a-z][a-z0-9_]+\b")
-        seen, todo, problems = set(), deque(["/t", f"/c/{self.a['client']}/b/{self.a['business']}"]), []
+        seen, todo, problems = set(), deque(start), []
         while todo and len(seen) < 300:
             path = todo.popleft()
             if path in seen:
                 continue
             seen.add(path)
-            r = self.get("A", path)
+            r = self.get(who, path)
             if r.status_code != 200:
                 problems.append((path, r.status_code))
                 continue

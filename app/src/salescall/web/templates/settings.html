@@ -54,7 +54,7 @@
   <details class="setting card {{ 'own' if r.own }}">
     <summary>
       <span class="meaning"><b>{{ r.label }}</b></span>
-      <span class="now">{% if r.got %}<b>{{ r.shown }}</b> <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own and level != "system" %} {{ tag("この段で決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag("仮の値（見直す時：" ~ r.provisional.review_when ~ "）", "wait") }}{% endif %}</span>
+      <span class="now">{% if r.got %}<b>{{ r.shown }}</b> <span class="muted">{{ words.SCOPE_WORDS.get(r.got["from"], "") }}</span>{% if r.got.bounded_by %} {{ tag("枠で収めています", "wait") }}{% endif %}{% else %}{{ tag("決まっていません", "stop") }}{% endif %}{% if r.own and level != "system" %} {{ tag("この段で決めた値", "info") }}{% endif %}{% if r.provisional %} {{ tag("仮の値（見直す時：" ~ words.plain(r.provisional.review_when) ~ "）", "wait") }}{% endif %}</span>
     </summary>
     <form method="post" action="{{ action }}" class="setting-form" data-needs-reason>
       {{ csrf(token) }}<input type="hidden" name="key" value="{{ r.key }}">
