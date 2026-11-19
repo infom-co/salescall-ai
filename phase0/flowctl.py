@@ -1954,7 +1954,7 @@ def off_talk(q: "Question", got: str | None, prior: str | None = None) -> bool:
 def before_words(q: "Question | None", said: "list[str]") -> str | None:
     """判定に渡す「その前に相手が言ったこと」（唯一の決まり＝流れの制御 Flow.judge_context（呼んでいる段・答えの段）・ahead_context と、測りの場面
     g73_system_words.answer_scenes）：その段の相手の言葉 said（古い順）の、直前の3つまで。業務の質問には、前の答えも前の話として渡す（前に言ったことと
-    食い違う答えを見つける＝G-70・10-31「(a) 検査OK」）。呼んでいる段の質問（呼ぶ一言・確かめる一言）には、取り次いだ方の言葉を渡す（target_facets）。
+    食い違う答えを見つける＝G-70・10-31「(a) 検査OK」）。呼んでいる段の質問（呼ぶ一言・確かめる一言）には、取り次いだ方の言葉を渡す（target_facets。渡すのは、はじめにお呼びしたあとの言葉だけ＝Flow._called_words）。
     プログラムが前の答えをきっかけに足す質問（システムの質問＝Question.callback。ほかのご希望 W1・ご承認いただけなかったときの N1〜N3・待つかかけ直すかの
     H2・ご遠慮の確かめ・かけ直しの時刻など）には渡さない（その質問への言葉だけで読む）：それまでの言葉は、それぞれの質問について判定がもう読み、流れの制御は
     その読みで要るものが無いと決めて、この質問を伺う＝同じ言葉をこの質問の前の話の答えとしてもう一度読むと、同じ言葉に2つの決めができる（一本化の破れ）。
@@ -2534,8 +2534,9 @@ ABOUT_WRONG = "番号違い"
 #    「名前を確かめただけでは、ご本人か受付の方か決められません」と読んだ（3回とも）⇒ 名前の確かめは「名前を確かめた」の1つにする
 CHANGED, OTHER_PERSON, NAME_CHECK, RELAY_WORDS, FIRST_ANSWERER, OTHER_NAME = (
     "「代わって出た」", "「ほかの人として話した」", "「名前を確かめた」", "「取り次ぎの言葉」", "「はじめに出た方」", "「違うお名前」")
-# 目的のお客様の判定に見せる、その前に相手が言ったことの行の見出しと、無いときの中身（Flow.judge_context が渡すもの＝呼んでいる段の相手の言葉
-# の最後の3つまで。電話に出たときの第一声は呼ぶ一言より前なので入らない＝本番で無いのは、呼ぶ一言のあとに相手が初めて話した言葉だけ）。
+# 目的のお客様の判定に見せる、その前に相手が言ったことの行の見出しと、無いときの中身（Flow.judge_context が渡すもの＝呼んでいる段の、こちらがはじめにお呼びした
+# あとの相手の言葉の最後の3つまで＝Flow._called_words。電話に出たときの第一声は呼ぶ一言より前なので入らない＝本番で無いのは、はじめにお呼びしたあと（呼ぶ一言の
+# あと・第一声でお呼びする方ご本人が名乗った電話は確かめる一言のあと）に相手が初めて話した言葉だけ。⛔ d8d03a78 まで、本番は第一声も渡していた）。
 # 言葉の決まりの「その前に相手が言ったこと」（facet_terms）と合わせて、渡すものについて本当のことだけを書く。
 # ⛔ 2026-10-30 G-59（3つの段の形の1回目）：前の言葉の行が無いと、考える Haiku は「前に話した方がいない」と読んで前と同じ方かを「決められない」
 #    にし（前の言葉の無い言葉の 22件中16件）、「はい、岡田です。」の話している方まで「決められない」にした
@@ -5649,6 +5650,10 @@ class Flow:
         # 確かめると、あとで代わった方を確かめられず、回数を使い切ったあとは判定に関係なく繋いでいた（不在・取り次ぎと読んでいても）
         self.speaker_from = 0
         self.target_called: list[int] = [0] if target else []  # 呼ぶ一言を流したときの相手の発話の番号（名乗りの終わりの1回から）
+        # こちらがはじめにお呼びした（呼ぶ一言か確かめる一言を初めて流した）ときの相手の発話の番号（通話に1つ。後任の方へ切り替えても数え直さない）。これより後の
+        # 呼んでいる段の相手の言葉だけが、判定に渡す「その前に相手が言ったこと」（_called_words の1か所）。第一声を待たない古い形は名乗りの終わりが呼ぶ一言＝0。
+        # 第一声から始める電話（on_connect）は、第一声のあとに名乗りを流す所（_opening_reply）で決まる＝電話に出たときの言葉（第一声）は入らない
+        self.called_at: int | None = 0 if target else None
         # 通話の始めの、出た方の第一声を聞く段（on_connect から、名乗りを流すまで）・留守番電話と分かって聞き続けている・「もしもし」を流した回数
         self.answering = self.voicemail_waiting = False
         self.moshimoshi = 0
@@ -5667,7 +5672,8 @@ class Flow:
         # 呼んだあとに取り次がれた（受付の方の報告・取り次ぎを待つ・代わった人）＝いま電話口にいる方は、まだ名乗りを聞いていない（その方に
         # 名乗りを流し直したら消す＝_call_target）
         self.passed_on = False
-        # 呼んでいる段の、相手の発話ごとの言葉（出揃ったもの。判定に「その前に相手が言ったこと」として渡す＝judge_context）と判定（遅れて
+        # 呼んでいる段の、相手の発話ごとの言葉（出揃ったもの。電話に出た方の第一声も。判定に「その前に相手が言ったこと」として渡すのは、はじめにお呼びしたあとの
+        # 分だけ＝_called_words）と判定（遅れて
         # 届いた分も。出揃った言葉のものだけ。電話口の方の「ご本人」の読みを数える＝_target_readings）
         self.calling_words: dict[int, str] = {}
         self.calling_judged: dict[int, dict[str, str]] = {}
@@ -5675,7 +5681,9 @@ class Flow:
         # 流れの回答として会話になっていないだけです。それを分かるようにしないと！」（「車で伺うので、駐車場を使わせてください」のあとの、駐車場の
         # 質問への「差し控えさせていただきます」は会話になっていない）⇒ 判定が、前の流れとつながるかを読めるように渡す（呼んでいる段と同じ形）
         self.answer_words: dict[int, str] = {}
-        # いまの相手の発話が始まったときの段（on_callee の1か所で決める。答えの段の前の言葉に、呼んでいる段で話された言葉＝繋いだ発話などを入れない）
+        # いまの相手の発話が始まったときの段（on_callee の1か所で決める。答えの段の前の言葉に、呼んでいる段で話された言葉＝繋いだ発話などを入れない）。電話に出た方の
+        # 第一声を聞く段の発話は "answering"（答えの段の言葉 answer_words にも、伺っていた質問の答え _said_about にもしない＝こちらが伺う前の言葉。⛔ d8d03a78 まで、
+        # 目的のお客様のいない業務では段の名前が asking のままで、第一声が最初の質問の前の言葉として判定に渡り、最初の質問の根拠の発話 Item.said にも残った）
         self.turn_phase: str | None = None
         # 呼んでいる段の、こちらに尋ねているかの読み（発話の番号ごと＝on_check の asks）と、取り次ぎの判定が区切りを動かす前の区切り（尋ねて
         # いた発話なら戻す＝尋ねた方は、こちらの答えを待っている）
@@ -5827,6 +5835,7 @@ class Flow:
         if self.apology_call and not self.target:
             self.apology_asked = self.apology_played = False   # お詫びは、第一声のあとに流す名乗りの終わりに流れる（_opening_reply）
         self.target_called = []   # 呼ぶ一言は、第一声のあとに流す（_opening_reply。第一声への判定の読みは、呼ぶ一言への返事に数えない）
+        self.called_at = None     # まだお呼びしていない（第一声のあとに名乗りを流す所＝_opening_reply で決まる）
         self.speaker_from = 1     # 最初の電話口の方は、第一声（相手の発話の1つ目）から（第一声を「代わった人」と読まれても、替わった印にしない）
         return self._log_signal({"connect": True}, {
             "result": "wait", "silent": True, "silence_s": FIRST_WORDS_SILENCE_S,
@@ -5947,6 +5956,7 @@ class Flow:
         lines = [self._part_play(k) if self.target else {"kind": "opening", "part": k, "text": self.opening[k]}
                  for k in ("greeting", "intro") if self.opening.get(k)]
         if self.target and not self.number_again:
+            self.called_at = self.callee_turns   # こちらがはじめにお呼びした（このあとの相手の言葉から、判定に渡す前の言葉＝_called_words）
             if self._first_words_named_target():
                 r = self._ask_target(new_person=False)
                 lines += r.get("play") or []
@@ -6003,11 +6013,11 @@ class Flow:
             self.end_due = END_REASON[end]   # この発話の判定が電話を終える言葉と読んだのに、まだ当てていない（次の報告で締める＝_end_due_now）
         if self.phase == "calling":
             self._keep_calling_turn()
-        elif self.turn_phase not in (None, "calling") and self.callee_said.strip():
+        elif self.turn_phase not in (None, "calling", "answering") and self.callee_said.strip():
             self.answer_words[self.callee_turns] = self.callee_said.strip()
         self.doubt, self.judging_now = {}, {}
         self.callee_turns += 1
-        self.turn_phase = self.phase
+        self.turn_phase = "answering" if self.answering else self.phase   # 第一声を聞く段の発話は、その段の名前（answer_words・_said_about に入れない）
         self.callee_said = ""
         self.callee_ended, self.callee_end_at, self.callee_voice_end = False, None, None
         self.check, self.check_said = {}, {}
@@ -6321,7 +6331,8 @@ class Flow:
     def judge_context(self) -> tuple["Question | None", str | None, str | None]:
         """意味の判定に渡すもの（相手の発話の始めに決める）：いまの質問と、こちらが言い直して確かめた言葉（言い直しの返事を待っているとき）と、
         その前に相手が言ったこと。目的の人を呼んでいる段（calling）では、呼ぶ一言を質問にし（目的の人かを確かめたあとは、その言い方を添える）、
-        その段の相手の言葉（直前の3つまで）を添える（取り次いだ方の言葉で、代わった方が誰かが決まる＝target_facets）。答えの段も、その段の
+        その段の、こちらがはじめにお呼びしたあとの相手の言葉（直前の3つまで＝_called_words。電話に出た方の第一声は渡さない）を添える（取り次いだ方の言葉で、
+        代わった方が誰かが決まる＝target_facets）。答えの段も、その段の
         相手の言葉（直前の3つまで＝answer_words）を添える（前の話だけから決まる答えを判定が別に読み、いまの言葉の答えとプログラムが比べる＝
         meaning_judge.PRIOR・off_talk）。
         ⛔ 2026-10-31：答えの段では、その前の言葉を渡していなかった（「車で伺うので、駐車場を使わせてください」のあとの「差し控えさせて
@@ -6336,7 +6347,7 @@ class Flow:
             # 確かめた言葉」として添えていたので、3.5 Flash Lite は「お電話代わりました。担当の山田です。」のあとの「いいえ、私は山田と申します。」を3回中2回
             # 「ご本人」と読んだ（決まりの文を足す形は、判定ごとに誤りの出方が入れ替わるだけだった＝Jev が「いえ、違います。」を「ご本人」と読んだ）
             q = self._calling_asked()
-            return self.for_judge(q), None, before_words(q, list(self.calling_words.values()))
+            return self.for_judge(q), None, before_words(q, self._called_words())
         if self.answering:
             return None, None, None   # 出た方の第一声（「はい、〇〇でございます」）は、まだ流していない最初の質問の答えではない
         q = self.questions.get(self.current) if self.current else None
@@ -6351,6 +6362,17 @@ class Flow:
             # ⛔ 2026-11-12 まとめ役の (1)：渡していなかったので、「何か気になる点が…」への「いえ、大丈夫です。」を、質問への「いいえ」と読みえた
             shown = dataclasses.replace(shown, prompted=line)
         return shown, (self._judge_text(self.awaiting_say) if self.awaiting_confirm is not None else None), before
+
+    def _called_words(self) -> list[str]:
+        """呼んでいる段の、こちらがはじめにお呼びしたあとの相手の言葉（古い順。唯一の決まり＝判定に渡す「その前に相手が言ったこと」judge_context の呼んでいる段・
+        同じものを渡す asks_context・returned_context）：はじめにお呼びした発話の番号（called_at）より後の発話だけ。判定への説明（target_facets の「前と同じ方か」の注
+        「電話に出たときの言葉は見せていない」）・言葉の決まり（facet_terms の「その前に相手が言ったこと」＝こちらがはじめにお呼びしたあとに…相手が言った言葉）・
+        正解の表の行の形（第一声なし）と同じ。名乗りの途中に話されたお言葉は、呼ぶ一言を流したあと（流れの制御は呼ぶ一言を流した数に数え・呼ぶ一言へのお言葉として
+        判定に読ませる）なので入る。後任の方へ切り替えても数え直さない（退職を伝えた言葉は、はじめにお呼びしたあと）。
+        ⛔ d8d03a78 まで、第一声（「はい、テスト商事でございます。」）も渡していた（分身 Y3 の書き置き rv123/Y3/notes.md の穴1）"""
+        if self.called_at is None:
+            return []
+        return [w for t, w in self.calling_words.items() if t > self.called_at]
 
     def _prompt_now(self) -> str | None:
         """いまのお客様の発話の前に、お客様が黙ったので流した一言（QUIET_STEPS・on_silence）があれば、その文（唯一の決まり＝判定に渡す judge_context・
