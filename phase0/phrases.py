@@ -557,12 +557,16 @@ UNTIL_ASK = "恐れ入ります。{t}までということはそれ以降はお�
 # 言い方は1つの形（LISTED_ASK_FORM）：値の入る一言（メールアドレス・携帯電話の番号・ファクス番号・ご住所・LINE の ID）は会話AIの声で、メールと同じ形「それでは（連絡の手段）は
 # （値）宛に…」（ご住所は「宛」でなく「に」）。連絡の手段の名前は、ご希望の方法の名前（flowctl.WISH_MEANS・LINE の伺い方 LINE_HOW の SMS）と同じ言葉。値の入らない一言
 # （いまお電話している番号へ SMS）は、どんな営業トークにも出てくる決まった文＝共通の一言の録音 LISTED_DIALED_ID（✅ 2026-10-22「必ずどんな営業トークにも出てくるパターンは
-# システム側に録音しておいた方がよくない？」）。分身 P の (9)＝決まりで決めた。⛔ 2f61767d まで、言い方はメールと SMS だけ・値の入らない一言も会話AIの声
-LISTED_ASK_FORM = "それでは{m}は{v}{to}お送りしてもよろしいでしょうか？"
-LISTED_MEANS = {"email": ("メール", "宛に"), "mobile": ("SMS", "宛に"), "fax": ("ファクス", "宛に"), "address": ("郵送", "に"), "line": ("LINE", "宛に")}
+# システム側に録音しておいた方がよくない？」）。分身 P の (9)＝決まりで決めた。⛔ 2f61767d まで、言い方はメールと SMS だけ・値の入らない一言も会話AIの声。
+# LINE の ID は送り先ではなく、伺って登録するもの＝今の LINE の伺い方の言葉「LINEのIDから登録」（✅ 2026-11-05 日本時間1時29分06秒「招待はメールとSMSだけだよ。」・CL-1 の続きの
+# 頼み＝決まりで決めた（イ））。⛔ 577ea248 まで「それではLINEは（ID）宛にお送りしてもよろしいでしょうか？」
+LISTED_ASK_FORM = "それでは{m}は{v}{how}よろしいでしょうか？"
+LISTED_SEND, LISTED_SEND_TO = "宛にお送りしても", "にお送りしても"
+LISTED_MEANS = {"email": ("メール", LISTED_SEND), "mobile": ("SMS", LISTED_SEND), "fax": ("ファクス", LISTED_SEND), "address": ("郵送", LISTED_SEND_TO),
+                "line": ("LINE", "のIDから登録させていただいても")}
 LISTED_DIALED, LISTED_DIALED_ID = "いまお電話しているこちらの番号", "listed_mobile_dialed"
-LISTED_ASK = {**{k: LISTED_ASK_FORM.format(m=m, v="{v}", to=to) for k, (m, to) in LISTED_MEANS.items()},
-              "mobile_dialed": LISTED_ASK_FORM.format(m=LISTED_MEANS["mobile"][0], v=LISTED_DIALED, to="に")}
+LISTED_ASK = {**{k: LISTED_ASK_FORM.format(m=m, v="{v}", how=how) for k, (m, how) in LISTED_MEANS.items()},
+              "mobile_dialed": LISTED_ASK_FORM.format(m=LISTED_MEANS["mobile"][0], v=LISTED_DIALED, how=LISTED_SEND_TO)}
 # 手短に伺っている途中（H3 に「いいえ」のあと）の言い直しの確かめで、重ねて急かされた2回目（その所で初めて＝伺い41 の所）に、「承知しました。」（焦った）のあと、伺って
 # いた言い直しの前に流す、安心していただく一言（{t}＝いまの質問の聞くこと Question.topic）。鍵＝いまの質問のあとに伺いうる質問の数（数え方は flowctl.Flow._brief_left
 # の1か所・流すかの決まりは flowctl.Flow._brief_again の1か所・文と録音の名前は flowctl.brief_left_line の1か所＝質問ごとの依頼主の単位の録音）。2つ以上の形は無い

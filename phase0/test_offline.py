@@ -43618,7 +43618,30 @@ class PListedSmsRecordedTest(unittest.TestCase):
         self.assertEqual({k: LISTED_ASK[k].format(v="（値）") for k in ("email", "mobile", "fax", "address", "line")},
                          {"email": "それではメールは（値）宛にお送りしてもよろしいでしょうか？", "mobile": "それではSMSは（値）宛にお送りしてもよろしいでしょうか？",
                           "fax": "それではファクスは（値）宛にお送りしてもよろしいでしょうか？", "address": "それでは郵送は（値）にお送りしてもよろしいでしょうか？",
-                          "line": "それではLINEは（値）宛にお送りしてもよろしいでしょうか？"})
+                          "line": "それではLINEは（値）のIDから登録させていただいてもよろしいでしょうか？"})
+
+    def test_line_id_is_registered_not_sent(self):
+        """LINE の ID は送り先ではなく、伺って登録するもの（✅ 2026-11-05 日本時間1時29分06秒「招待はメールとSMSだけだよ。」）＝今の LINE の伺い方の言葉「LINEのIDから登録」に
+        合わせる（頼みの文の (9)「言い方は今の連絡先の伺い方の1か所に合わせる」・CL-1 の続きの頼み＝決まりで決めた（イ））。⛔ 577ea248 まで「それではLINEは（ID）宛に
+        お送りしてもよろしいでしょうか？」"""
+        import dataclasses
+        from flowctl import CALLBACK_IDS, JUDGMENTS, NONE, wish_label
+        L = ListedContactTest()
+        b = dataclasses.replace(OtherCompanyClueSendWayTest().business(), phone_e164="+819012345678")
+        f = b.flow(play_recordings=True, listed_contacts=({"kind": "line", "value": "okada_0123", "source": "customer"},))
+        f.use_checks(*JUDGMENTS)
+        f.on_connect(); f.on_callee(); f.on_heard("はい、株式会社〇〇でございます。")
+        f.apply("report_party", {"party": "person"}); f.on_activity(False)
+        w1 = CALLBACK_IDS["other_wish"]
+        L.turn(f, "はい、しています。", L.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        L.turn(f, "いえ、電話もメールもいらないです。", L.rd(NONE), "record_answer", question_id="Q2", condition_id=NONE)
+        L.turn(f, "LINEならいいですよ。", L.rd(wish_label("line")), "record_answer", question_id=w1, condition_id=wish_label("line"), value="LINE")
+        r = L.turn(f, "IDでお願いします。", L.rd("ID"), "record_answer", question_id=CALLBACK_IDS["line_how"], condition_id="ID")
+        self.assertEqual((r["result"], heard_words(r)), ("confirm_required", "かしこまりました。それではLINEはokada_0123のIDから登録させていただいてもよろしいでしょうか？"))
+        # お返事の受け方は今の言い直しの1か所のまま（はい＝その ID）
+        qid = f.awaiting_confirm
+        L.turn(f, "はい、お願いします。", L.rd("affirmed"), "confirm_field", question_id=qid, result="affirmed")
+        self.assertEqual(f.items[qid].value, "okada_0123")
 
 
 class PReceptionWhoTest(unittest.TestCase):
