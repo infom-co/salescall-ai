@@ -9,13 +9,15 @@
 {% for m in month if m.deficit %}{{ deficit_card(m, m.deficit, token, "/t/costs") }}{% endfor %}
 {% if month %}
 <div class="table-scroll"><table class="list">
-  <thead><tr><th>依頼者</th><th class="num">報酬</th><th class="num">費用（実測と推定の合計）</th><th>注意</th></tr></thead>
+  <thead><tr><th>依頼者</th><th class="num">報酬</th><th class="num">費用</th><th class="num">うち実測</th><th class="num">うち推定</th><th>注意</th></tr></thead>
   <tbody>
   {% for m in month %}
     <tr>
       <td><a href="/c/{{ m.client_id }}">{{ m.name }}</a></td>
       <td class="num">{{ yen(m.revenue) }}</td>
       <td class="num">{{ yen(m.cost) }}</td>
+      <td class="num">{{ yen(m.cost_by_kind.measured) }}</td>
+      <td class="num">{{ yen(m.cost_by_kind.estimated) }}</td>
       <td>{% if not m.has_terms %}{{ tag("報酬の決まりが設定されていません", "wait") }}{% endif %}
           {% if m.unpriced_entries %}{{ tag("単価の無い利用量が " ~ m.unpriced_entries ~ " 件（費用に入っていません）", "wait") }}{% endif %}
           {% if m.deficit %}{{ tag("赤字のお知らせ中" if not m.deficit.confirmed else "赤字（確かめ済み）", "stop") }}{% endif %}</td>
@@ -23,7 +25,7 @@
   {% endfor %}
   </tbody>
 </table></div>
-<p class="muted">費用の実測と推定の内訳は、準備中です（いまは合計だけ）。報酬の決まりの入力は、業務ごとの形ができてから出します。</p>
+<p class="muted">実測は、請求の元になる数で測った費用、推定は、まだ測れていないので単価と使った量から見込んだ費用です（足すと費用の合計になります）。報酬の決まりの入力は、業務ごとの形ができてから出します。</p>
 {% else %}<div class="card">{{ empty("依頼者はまだいません") }}</div>{% endif %}
 
 <h2 style="margin-top:28px">単価の表</h2>

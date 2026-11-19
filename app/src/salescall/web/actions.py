@@ -19,13 +19,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from salescall.core import (access, business_settings, client_solutions, customer_contacts, import_columns, import_files, importer,
-                            row_fixes, stops)
-from salescall.output import files as result_files
+from salescall.core import access
 
-# core が「理由の文つきで断った（何も書いていない）」ときの例外（1か所）。画面は、その文をそのまま出す。
-# ⏳ core に共通の元が無いので、画面が呼ぶ部品の断りをここに並べている（CL-2 へのお願い 21：共通の元を作ってもらえば、この一覧は要らない）。
-class Refused(ValueError):
+# 理由の文つきの断り（何も書いていない）の共通の元は core の access.Refused の1か所（CL-2 4-430 の 21）。画面の側の断りも、それを元にする。
+# 画面は、これ1つを受けて文をそのまま出す（core が新しい断りを足しても、ここに足し忘れて画面が「誤り」で止まることが無い）。
+class Refused(access.Refused):
     """画面の側の理由つきの断り（何も書いていない）。"""
 
 
@@ -46,10 +44,8 @@ def uuid_of(form: dict[str, Any], field: str) -> Any:
         raise LookupError(field) from None
 
 
-REFUSALS: tuple[type[Exception], ...] = (Refused, row_fixes.FixInvalid, client_solutions.SolutionInvalid, customer_contacts.ContactInvalid,
-                                         stops.EmergencyNotAllowed, import_files.FileRejected, import_columns.ImportRejected,
-                                         importer.PlanChanged, business_settings.SettingsInvalid,
-                                         result_files.ClientWordsLeak, result_files.NothingToDeliver)
+REFUSALS: tuple[type[Exception], ...] = (access.Refused,)
+
 
 # データベースの断りの言い換え（1か所）。日本語の理由を書いて断る種類（P0001＝データベースの決まりの RAISE）だけ、その文をそのまま出す。
 # ほかの種類（一意の約束・つながりの約束・読める範囲の外 など）の文は、データベースの英語の文なので出さず、種類ごとの言葉にする。

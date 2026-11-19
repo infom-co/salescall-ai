@@ -746,7 +746,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     # ── 発信禁止（docs/DASHBOARD.md 5-10。Intent.md 原則14・1-4）：依頼者の台帳と、契約者の共通の発信禁止 ──────────
     def _dnc_rows(tx: Any, table: str) -> list[dict[str, Any]]:
         return tx.all(f"SELECT entry_id, phone_e164, reason, registered_at, revoked_at, revoke_reason,"
-                      f"       to_jsonb(d) ->> 'client_ref' AS client_ref FROM salescall.{table} d"
+                      f"       to_jsonb(d) ->> 'client_ref' AS client_ref, to_jsonb(d) ->> 'note' AS note FROM salescall.{table} d"
                       f" ORDER BY revoked_at NULLS FIRST, registered_at DESC LIMIT 500")
 
     def _dnc_page(request: Request, client_id: UUID | None, done: str | None, ok: int) -> HTMLResponse:
@@ -860,8 +860,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     _dnc_import_routes("/t/dnc/import", scoped=False)
     _dnc_import_routes("/c/{client_id}/dnc/import", scoped=True)
 
-    def _dnc_act(request: Request, form: dict[str, Any], client_id: UUID | None, do: Any, done: str, *,
-                 reason: bool = True) -> HTMLResponse:
+    def _dnc_act(request: Request, form: dict[str, Any], client_id: UUID | None, do: Any, done: str) -> HTMLResponse:
         """発信禁止の登録・取り消しの1か所（core の dnc だけ。理由は必ず。番号が読めない＝core の理由の文のまま）。"""
         back = "/t/dnc" if client_id is None else f"/c/{client_id}/dnc"
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
@@ -875,7 +874,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         raise
                     raise actions.Refused(str(e)) from None
             run = (lambda: ctx.tenant(work)) if client_id is None else (lambda: ctx.client(client_id, work))
-            return _back(back, actions.act(secret, person.login_id, form, run, done=done, reason_field="reason" if reason else None))
+            return _back(back, actions.act(secret, person.login_id, form, run, done=done, reason_field="reason"))
         return handle(request, render)
 
     def _entry(form: dict[str, Any]) -> UUID:
@@ -908,9 +907,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
     @app.post("/c/{client_id}/dnc")
     async def client_dnc_add(request: Request, client_id: UUID) -> HTMLResponse:
         form = dict(await request.form())
-        # ⏳ dnc.register は理由の文を受けない（理由の名前 manual だけ）＝理由の欄を出さない（残らない理由を「記録に残ります」と書かない）。CL-2 へのお願い 25
-        return _dnc_act(request, form, client_id, lambda tx: dnc.register(tx, str(form.get("phone") or ""), "manual"),
-                        "登録しました。この番号のお客様へは、この依頼者のどの一覧からもかけません。", reason=False)
+        # 手で入れるときは、なぜ入れたかの文が必ず要る（台帳の note に残る。無ければデータベースが断る＝CL-2 4-430 の 25）。理由の欄は共通の発信禁止と同じ
+        return _dnc_act(request, form, client_id, lambda tx: dnc.register(tx, str(form.get("phone") or ""), "manual",
+                                                                          note=str(form.get("reason") or "").strip()),
+                        "登録しました。この番号のお客様へは、この依頼者のどの一覧からもかけません。")
 
     @app.post("/c/{client_id}/dnc/revoke")
     async def client_dnc_revoke(request: Request, client_id: UUID) -> HTMLResponse:
@@ -1120,13 +1120,13 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         入っていれば、書き出さずに止める（output/files.check）。"""
         def render(person: Person, ctx: Ctx) -> Response:
             base = f"/c/{client_id}/b/{business_id}/runs/{run_id}"
-            def work(tx: Any) -> tuple[str, bytes, bool]:
+            def work(tx: Any) -> tuple[str, bytes, int | None]:
                 run = _run_in(tx, business_id, run_id)
                 c = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (client_id,))
                 got = result_rows.rows(tx, run_id)
                 name = result_files.file_name(c["name"], run["name"], tx.today())
                 data = result_files.to_csv(got, run["name"])
-                return name, data, (result_files.submit(tx, got, name, data) if submit else False)
+                return name, data, (result_files.submit(tx, got, name, data) if submit else None)
             if submit:   # 依頼者へ渡す：変える操作の1か所（札・断りの言い換え）を通す
                 out = actions.act(secret, person.login_id, form or {}, lambda: ctx.client(client_id, work), done="")
                 if not out.ok:
@@ -1331,8 +1331,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             def read(tx: Any) -> dict[str, Any]:
                 _row_in(tx, business_id, run_id, task_id)
-                # ⏳ 1行だけを読む形（customer_rows の1か所）を CL-2 へお願い 47（いまは実施回の全行を読んで1行を選ぶ）。
-                row = next((r for r in customer_rows.progress(tx, run_id) if r["task_id"] == task_id), None)
+                row = next(iter(customer_rows.progress(tx, run_id, task_id=task_id)), None)   # 1行だけ（同じ1つの問い合わせ＝CL-2 4-431 の 47）
                 if row is None:
                     raise NotFound()
                 calls = tx.all("SELECT attempt_id, state::text AS state, claimed_at, ended_at, trouble FROM salescall.attempts"

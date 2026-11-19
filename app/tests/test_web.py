@@ -383,11 +383,15 @@ class Web(_World):
     def test_a_number_is_registered_not_to_call_and_revoked_with_a_reason(self):
         tok = self.token("A")
         number = fictional_jp_fixed()
-        self.assertIn("ok=0", self.post("A", f"/c/{self.a['client']}/dnc", {"form_token": tok, "phone": "番号ではない"}).headers["location"])
-        self.assertIn("ok=1", self.post("A", f"/c/{self.a['client']}/dnc", {"form_token": tok, "phone": number}).headers["location"])
+        self.assertIn("ok=0", self.post("A", f"/c/{self.a['client']}/dnc", {"form_token": tok, "phone": "番号ではない", "reason": "試験"}).headers["location"])
+        self.assertIn("ok=0", self.post("A", f"/c/{self.a['client']}/dnc", {"form_token": tok, "phone": number}).headers["location"])   # 理由が無ければ入れない（CL-2 4-430 の 25）
+        self.assertIn("ok=1", self.post("A", f"/c/{self.a['client']}/dnc", {"form_token": tok, "phone": number,
+                                                                          "reason": "試験：依頼者から、かけないでとのご連絡"}).headers["location"])
         entry = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: tx.one(
             "SELECT entry_id FROM salescall.dnc_entries WHERE reason = 'manual' AND revoked_at IS NULL ORDER BY registered_at DESC LIMIT 1"))["entry_id"]
-        self.assertIn("ダッシュボードで登録した", self.get("A", f"/c/{self.a['client']}/dnc").text)
+        page = self.get("A", f"/c/{self.a['client']}/dnc").text
+        self.assertIn("ダッシュボードで登録した", page)
+        self.assertIn("試験：依頼者から、かけないでとのご連絡", page)                                     # なぜ入れたかが一覧に残る
         self.assertEqual(self.get("A", f"/c/{self.b['client']}/dnc").status_code, 404)                   # 別の契約者の依頼者
         self.assertIn("ok=0", self.post("A", f"/c/{self.y['client']}/dnc/revoke",                        # 別の依頼者の住所からは取り消せない
                                          {"form_token": tok, "entry_id": str(entry), "reason": "試験"}).headers["location"])

@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from salescall.web.app import create_app
 from salescall.web.context import Person
-from tests.support import app_access
+from tests.support import OPERATOR, app_access
 from tests.test_usage import CostRatio
 
 SECRET = b"test-only-secret"
@@ -29,6 +29,12 @@ class DeficitOnScreen(CostRatio):
         person = Person("試験の契約者", False, s["tenant"], "架空の契約者")
         http = TestClient(create_app(app_access(), lambda r: person, SECRET))
         costs = http.get("/t/costs").text
+        from salescall.core import reward
+        from salescall.web.app import _yen
+        month = app_access().in_client(OPERATOR, s["tenant"], s["client"], lambda tx: reward.month(tx))
+        self.assertIn("うち実測", costs)                                         # 費用の実測と推定（core の reward.month の cost_by_kind をそのまま）
+        self.assertIn(_yen(month["cost_by_kind"]["measured"]), costs)
+        self.assertEqual(month["cost_by_kind"]["measured"] + month["cost_by_kind"]["estimated"], month["cost"])
         self.assertIn("確かめた（これ以上お知らせしない）", costs)
         self.assertIn("赤字の確認", http.get("/t/inbox").text)
         self.assertIn("報酬より費用が多くなっています", http.get(f'/c/{s["client"]}').text)

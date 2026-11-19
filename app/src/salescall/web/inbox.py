@@ -5,7 +5,6 @@
 
 この表に無い承認を、別の画面に作らない。種類を足すときは、ここに1行足す（docs/DASHBOARD.md 4-2 の表と同じ並び）。
 ⏳ まだ入れていない種類：録音の承認・名前の録音の審査（どちらも録音を聞く仕組みが要る）。
-解決策の確かめは、出すがボタンはまだ（`_solutions` の説明）。
 """
 
 from __future__ import annotations
@@ -213,15 +212,10 @@ def _task_approvals(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
 
 
 def _awaiting_rows(tx: Tx, run_id: Any, business_id: Any) -> list[Any]:
-    """その実施回の、発信前の承認を待っている行。待っているかを決めるのは core の approval.uncleared の1か所。聞く相手は、答えが「承認待ち」に
-    なりうる行（検証モードの業務＝approval.human_for_business の1か所・まだ承認の記録が無い行）に先に絞る（行が多いと、行ごとに聞くと
-    重いため。絞っても答えは変わらない＝承認待ちの行は、どれもこの中にある）。"""
-    if not approval.human_for_business(tx, business_id):
-        return []
-    rows = tx.all("SELECT t.task_id FROM salescall.tasks t WHERE t.run_id = %s"
-                  " AND NOT EXISTS (SELECT 1 FROM salescall.task_approvals a WHERE a.task_id = t.task_id)"
-                  " ORDER BY t.source_row NULLS LAST, t.task_id", (run_id,))
-    return [r["task_id"] for r in rows if approval.uncleared(tx, r["task_id"]) == "awaiting_approval"]
+    """その実施回の、発信前の承認を待っている行（取り込んだ順）。決めるのは core の approval.uncleared_in_run の1か所（門が1行ずつ聞く
+    approval.uncleared と同じ問い合わせを、実施回まとめて1回で＝CL-2 4-429。⛔ 前は行ごとに uncleared を呼び、行が多い実施回で重かった）。
+    business_id は呼ぶ側の形をそろえるために受ける（決め方には使わない）。"""
+    return [t for t, why in approval.uncleared_in_run(tx, run_id).items() if why == "awaiting_approval"]
 
 
 def _digest(task_ids: list[Any]) -> str:
@@ -315,24 +309,34 @@ MORE_CALLS_BUTTON = "さらにかける"
 
 
 def _solutions(tx: Tx, task: Any = None, run: Any = None) -> list[Item]:
-    """手で外した・まだ確かめていない依頼者の解決策（実施回ごと。client_solutions.unconfirmed の1か所）。確かめるまで、その実施回の新しい電話は
-    かけない（2026-11-07 管理者）。⏳ 「入れる」（add_earlier）は、足す文の名前の読みを確かめる部品（find_names）を画面から渡す方法が決まって
-    いない（渡さないと、読みを確かめずに台本に入る）＝CL-2 へのお願い 22。決まるまで、どちらのボタンも出さない（片方だけ出して選びを偏らせない）。"""
+    """その実施回のいまの版の流れに入っていない、その業務の前の依頼者の解決策（実施回ごと。core の client_solutions.not_in_line の1か所）。
+    - 手で外して、まだ確かめていないもの（unconfirmed）：確かめるまで、その実施回の新しい電話はかけない（2026-11-07 管理者「契約者が承認を
+      しないと自動で入らず、新規の電話もかけられません、ダッシュボードに承認ボタンを分かりやすく表示」）＝「入れる」（add_earlier）と
+      「入れない」（leave_out）の両方を出す。
+    - ほかの入っていないもの：電話は止まらない。「入れる」を出す（2026-11-06 管理者「契約者にそれをダッシュボードで確認します」＝自動では
+      入れない。計画書 6-1 (3)(5)）。
+    - 手で外して「入れない」と確かめたもの：もう決まっているので出さない。
+    「入れる」に名前を洗い出す処理は要らない（足す文の名前と読みは、core が依頼者で文ごとに1回だけ聞いて残したものを読む＝CL-2 4-428）。"""
     items = []
     if task is not None:   # 実施回ごとの種類
         return items
-    for run_row in tx.all("SELECT run_id, name, business_id FROM salescall.runs WHERE (%s::uuid IS NULL OR run_id = %s::uuid)"
-                          " ORDER BY created_at, run_id", (run, run)):
-        for s in client_solutions.unconfirmed(tx, run_row["run_id"]):
+    for run_row in tx.all("SELECT r.run_id, r.name, r.business_id, b.name AS business FROM salescall.runs r"
+                          " JOIN salescall.businesses b ON b.business_id = r.business_id WHERE (%s::uuid IS NULL OR r.run_id = %s::uuid)"
+                          " ORDER BY r.created_at, r.run_id", (run, run)):
+        for s in client_solutions.not_in_line(tx, run_row["run_id"]):
+            if s["removed"] and not s["unconfirmed"]:
+                continue
+            blocking = bool(s["unconfirmed"])
             items.append(Item(
                 kind="solution", key={"run_id": str(run_row["run_id"]), "solution_id": str(s["solution_id"])},
                 title="依頼者の解決策の確かめ", decide=f"実施回「{run_row['name']}」の台本に、この解決策を入れるか",
                 evidence=[("ご納得いただけなかった点", s["point_text"] or ""), ("問い", s["answer_name"] or ""),
                           ("解決策の文", s["solution_text"] or "")],
-                if_not="確かめるまで、この実施回では新しい電話をかけません（お約束の電話・お詫びの電話は除く）。",
-                at=s["recorded_at"], business_id=run_row["business_id"],
-                business_name=(tx.one("SELECT name FROM salescall.businesses WHERE business_id = %s", (run_row["business_id"],)) or {}).get("name", ""),
-                waiting_why="解決策の文の、名前の読みを確かめる部品をつないでいます"))
+                if_not=("確かめるまで、この実施回では新しい電話をかけません（お約束の電話・お詫びの電話は除く）。" if blocking else
+                        "入れなくても、この実施回の電話は止まりません（入れるまで、この解決策は台本に入りません）。"),
+                at=s["recorded_at"], urgent=False, business_id=run_row["business_id"], business_name=run_row["business"],
+                buttons=((Button("leave_out", "入れない"), Button("add", "入れる", main=True)) if blocking
+                         else (Button("add", "入れる", main=True),))))
     return items
 
 
@@ -385,7 +389,12 @@ KINDS: dict[str, Kind] = {
         "approve": (_refused(lambda tx, k: approval.more_calls(tx, UUID(k["task_id"])), LookupError),
                     "承認しました。この行だけ、もう一度おかけします。"),
     }),
-    "solution": Kind("依頼者の解決策の確かめ", _solutions, {}),
+    "solution": Kind("依頼者の解決策の確かめ", _solutions, {
+        "add": (lambda tx, k: client_solutions.add_earlier(tx, UUID(k["run_id"]), [UUID(k["solution_id"])]),
+                "入れました。この実施回の台本に、この解決策が入ります。"),
+        "leave_out": (lambda tx, k: client_solutions.leave_out(tx, UUID(k["run_id"]), [UUID(k["solution_id"])]),
+                      "入れないと確かめました。この実施回の電話を続けます。"),
+    }),
     "deficit": Kind("赤字の確認", _deficit, {
         "confirm": (lambda tx, k: usage.confirm_deficit(tx, int(k["warning_id"])), "確かめたことを記録しました。"),
     }),

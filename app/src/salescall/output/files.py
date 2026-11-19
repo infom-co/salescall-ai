@@ -15,21 +15,20 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import io
 import re
 from datetime import date
 from typing import Any
 
-from salescall.core import backup
+from salescall.core import access, backup
 from salescall.output import result_rows, words
 
 
-class ClientWordsLeak(ValueError):
+class ClientWordsLeak(access.Refused):
     """依頼者へ出さない言葉が、こちらの作った言葉に入っていた（何も書き出さない）。"""
 
 
-class NothingToDeliver(ValueError):
+class NothingToDeliver(access.Refused):
     """依頼者へ渡せる結果（確定した版）が、まだ1つも無い。"""
 
 
@@ -73,12 +72,9 @@ def deliverable(rows: list[result_rows.ResultRow]) -> bool:
     return any(r.result for r in rows)
 
 
-def submit(tx: Any, rows: list[result_rows.ResultRow], name: str, data: bytes) -> bool:
-    """依頼者へ渡すファイルを、提出用の控えに置く（依頼者の取引で）。置いたら True、同じ中身をもう置いていれば False（重ねない）。"""
+def submit(tx: Any, rows: list[result_rows.ResultRow], name: str, data: bytes) -> int:
+    """依頼者へ渡すファイルを、提出用の控えに置く（依頼者の取引で）。答えは控えの番号。同じ中身をもう置いていれば、重ねずに前の控えの番号
+    （決めるのは core の backup.record_submission の1か所＝データベースの一意の約束。CL-2 4-431 の 31。ここで確かめ直さない）。"""
     if not deliverable(rows):
         raise NothingToDeliver("依頼者へ渡せる結果（確定した結果）が、まだありません。確かめるための書き出しは使えます")
-    digest = hashlib.sha256(data).hexdigest()
-    if tx.one("SELECT 1 FROM salescall.submission_files WHERE sha256 = %s", (digest,)) is not None:
-        return False
-    backup.record_submission(tx, name, data)
-    return True
+    return backup.record_submission(tx, name, data)

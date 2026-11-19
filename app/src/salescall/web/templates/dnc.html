@@ -6,12 +6,12 @@
 <div class="title-row"><h1>{{ ("発信禁止（依頼者「" ~ client.name ~ "」）") if client else ("共通の発信禁止（「" ~ ctx.tenant_name ~ "」のすべての依頼者）") }}</h1>
   <span class="btn-row"><a class="btn" href="{{ base }}/import">一覧を取り込む</a>
   <details class="adder inline"><summary class="btn main">＋ 番号を登録する</summary>
-    <form class="panel" method="post" action="{{ base }}" {% if not client %}data-needs-reason{% endif %}>
+    <form class="panel" method="post" action="{{ base }}" data-needs-reason>
       {{ csrf(token) }}
       <label class="field" for="dnc-phone">電話番号</label><input id="dnc-phone" type="text" inputmode="tel" name="phone" required placeholder="例：03-0000-0000">
-      {% if not client %}<label class="field" for="dnc-reason">理由（記録に残ります）</label><input id="dnc-reason" type="text" name="reason" placeholder="例：依頼者から、かけないでとのご連絡">{% endif %}
+      <label class="field" for="dnc-reason">理由（記録に残ります）</label><input id="dnc-reason" type="text" name="reason" placeholder="例：依頼者から、かけないでとのご連絡">
       <p class="muted">{% if client %}この番号のお客様へは、この依頼者のどの一覧・業務からもかけません。{% else %}この契約者のすべての依頼者で、この番号へはかけません。{% endif %}</p>
-      <button class="btn main small" type="submit" {% if not client %}data-submit disabled{% endif %}>登録する</button>
+      <button class="btn main small" type="submit" data-submit disabled>登録する</button>
     </form></details></span></div>
 <p class="lead">{% if client %}お客様が断った・番号違いなどで、この依頼者の電話を止めている番号です。依頼者をまたいでは止めません。{% else %}この契約者のすべての依頼者に効く発信禁止です。{% endif %}取り消しは、依頼者からの正式なお求めがあったときだけにしてください。</p>
 {{ flash(done, ok) }}
@@ -22,7 +22,7 @@
   {% for r in rows %}
     <tr class="{{ 'excluded' if r.revoked_at }}">
       <td class="tel">{{ phone(r.phone_e164) if r.phone_e164 else ("管理番号 " ~ r.client_ref) }}</td>
-      {% if client %}<td>{{ words.DNC_REASON_WORDS.get(r.reason, words.NO_WORD) }}</td>{% endif %}
+      {% if client %}<td>{{ words.DNC_REASON_WORDS.get(r.reason, words.NO_WORD) }}{% if r.note %}<div class="muted">{{ r.note }}</div>{% endif %}</td>{% endif %}
       <td class="nowrap">{{ time(r.registered_at) }}</td>
       <td>{% if r.revoked_at %}{{ tag("取り消し済み", "") }}<div class="muted">{{ r.revoke_reason }}</div>{% else %}{{ tag("かけない", "stop") }}{% if not client and r.reason %}<div class="muted">{{ r.reason }}</div>{% endif %}{% endif %}</td>
       <td class="nowrap">{% if not r.revoked_at %}

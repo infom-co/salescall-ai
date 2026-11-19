@@ -40,6 +40,12 @@ class EmergencyRouteOnScreen(Pause):
         self.assertIn("緊急の道で再開しています", http.get(f"/t/stops/{sid}").text)
         again = http.post(f"/t/stops/{sid}/emergency", data={"form_token": token, "reason": "もう一度"}, follow_redirects=False)
         self.assertIn("ok=0", again.headers["location"])                       # 2回は出さない（core の理由の文）
+        from salescall.core import stops
+        from tests.support import OPERATOR, app_access
+        app_access().in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験：止めた停止を解く"))
+        page = http.get(f"/t/stops/{sid}").text                                 # 停止が解ければ、緊急の道も終わる（いま効いているかは core の active だけを見る）
+        self.assertIn("緊急の道で再開していました", page)
+        self.assertNotIn("緊急の道で再開しています", page)
 
     def test_a_stop_that_cannot_be_reopened_says_why(self):
         w = World().setup()
