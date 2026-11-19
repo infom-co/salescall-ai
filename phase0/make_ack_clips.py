@@ -252,12 +252,20 @@ MAX_S["brief_left"] = 12.0
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
-# お名前の前の言葉（phrases.NAME_HEAD_IDS＝「恐れ入りますが」。名前の録音の前に流す共通の一言＝flowctl.name_plays）：お願い・お尋ねの前に添える言葉として、言い切らずに
-# 後ろの名前の録音へ続く調子で（つなぎの言葉の録音と同じく短い）。分身 L（CL-2 の連絡帳 4-443）
+# お名前の前の言葉（phrases.NAME_HEAD_IDS。名前の録音の前に流す共通の一言＝flowctl.name_plays）の読み方：言葉ごとの役目の唯一の表（頭の言葉 → 読み方の鍵）。どれも
+# 言い切らずに後ろの名前の録音へ続く調子で（つなぎの言葉の録音と同じく短い）。「恐れ入りますが」＝お願い・お尋ねの前に添える（分身 L・CL-2 の連絡帳 4-443）／
+# 「じゃあ」＝話を前へ進める切り替え／「ただですね」「理由はですね」＝誠実に言葉を選んで続ける前置き／「そういった意味で」＝ここまでをまとめてお願いへつなぐ前置き
+# （顧客獲得型の本題の段の文の頭＝分身 K2）。頭の言葉を足したら、ここにも役目を足す（試験 NameHeadReadingTest が漏れを見る）。⛔ f1c0af7e まで、どの頭の言葉も
+# お願い・お尋ねの前に添える読み方1つだった（分身 K2 の問い・分身 N の (12)）。禁止の言葉（「明るく」「はきはき」）は使わない（帳面 0-4）
 from phrases import NAME_HEAD_IDS  # noqa: E402
+NAME_HEAD_ROLES = {"恐れ入りますが": "name_head", "じゃあ": "name_head_shift", "ただですね": "name_head_care", "理由はですね": "name_head_care",
+                   "そういった意味で": "name_head_sum"}
 HOW["name_head"] = "電話で、お願いやお尋ねの前に添える言葉として、丁寧に、柔らかく、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
-MAX_S["name_head"] = 1.4
-HOW_OF.update({rid: "name_head" for rid in NAME_HEAD_IDS.values()})
+HOW["name_head_shift"] = "電話で、お話を前へ進める切り替えの言葉として、前向きに、自然に、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+HOW["name_head_care"] = "電話で、誠実に言葉を選んでお話を続ける前置きとして、落ち着いて、丁寧に、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+HOW["name_head_sum"] = "電話で、ここまでのお話をまとめてお願いへつなぐ前置きとして、誠実に、丁寧に、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+MAX_S.update({"name_head": 1.4, "name_head_shift": 1.0, "name_head_care": 1.6, "name_head_sum": 1.8})
+HOW_OF.update({NAME_HEAD_IDS[w]: k for w, k in NAME_HEAD_ROLES.items() if w in NAME_HEAD_IDS})
 HOW_OF["callback_authority"] = "authority"
 # 待つか、かけ直すかを1回伺う一言（phrases.CALLBACK_ASK["wait_or_later"]・約59字）：判断いただけるお立場かの一言と同じ「2つから選んでいただく問い」の形なので、
 # 同じ読み方と長さの上限（✅ 2026-11-05 日本時間23時56分48秒 ユーザー「(ア)」）

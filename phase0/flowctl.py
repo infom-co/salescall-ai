@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
-from phrases import BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
+from phrases import UNTIL_ASK, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
 from phrases import YES_LEADS, YES_RECEIVE, fixed_words, yes_line
 from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD
 from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
@@ -375,6 +375,13 @@ def fill_ampm(value: str | None, hours: tuple = DEFAULT_BUSINESS_HOURS, limit: t
     """時刻の値に午前・午後が無いとき、営業時間と歯止め時間から補う。返り値＝(値, 聞く必要があるか)。言い直しの言い方の形で報告された値は、
     もとの値に戻してから（plain_clock。値はいつも、もとの形で持つ）。"""
     value = plain_clock(value)
+    if (m := _CLOCK.search(value or "")) and m.group("part") in ("午前", "午後") and int(m.group("h")) == 12:
+        # どちらとも取れる「午後12時」「午前12時」：午前・午後の言葉を外して伺う（夜中の12時のことも、お昼の12時のこともある）。伺っても決まらなければ、外した値＝
+        # 昼の12時（下の「12時」の決まり）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」（伺いの文のア「どちらとも取れる「午後12時」「午前12時」だけは、
+        # 午前か午後かを伺います（今ある一言「恐れ入ります。午前と午後どちらになりますでしょうか？」）」。⛔ f1c0af7e まで「午後12時」は昼の12時と読んで伺わなかった）
+        start = m.start("part")
+        rest = value[m.end("part"):]
+        return value[:start] + (rest[1:] if rest.startswith("の") else rest), True
     if not value or AMPM_WORDS.search(value) or not (m := _CLOCK.search(value)):
         return value, False
     h = int(m.group("h"))
@@ -449,6 +456,34 @@ def spoken_value(qtype: str, value: str | None) -> str | None:
     return spoken_clock(value) if qtype in AMPM_TYPES else spoken_amount(value) if qtype == "amount" else value
 
 
+# 夜中の時刻（日付が変わったあと）と読む、夜・晩のいちばん遅い時（「夜1時」〜「夜4時」は夜中＝午前。「夜5時」からは午後）。深夜・夜中は 5時まで（前からの決まり）。
+# ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」（伺いの文のア「夜中の時刻（夜・深夜・夜中の0時〜4時ごろ）は日付を言葉にして確かめます」）
+NIGHT_LAST = {"夜": 4, "晩": 4, "深夜": 5, "夜中": 5}
+
+
+def clock_h24(part: str | None, h: int, half: str | None = None) -> int | None:
+    """時間帯の言葉（_CLOCK の part）と時（1〜23）から、24時間の時を決める唯一の場所（言い直しの言い方 _speak_clock・日時の2択の段の午前・午後 ladder_read・日付まで
+    言う形 night_dated・確かめた24時間の値 clock24）。時間帯の言葉で読む（時刻と合わない言葉＝「夕方2時」は、その言葉の午前・午後＝14時）。夜・晩の1〜4時・深夜・夜中の
+    1〜5時は日付が変わったあと（NIGHT_LAST）・夜・晩・深夜・夜中の12時は0時・昼の12時と言葉の無い12時は12時。言葉が無く12時より前の時は、前の時刻の午前・午後（half＝
+    "am"／"pm"）があればそれ、無ければ None（決まっていない）。13時からは、そのまま（言葉があれば None＝崩れた値）。⛔ f1c0af7e まで、夜・晩はいつも午後と読み、
+    「明日の夜1時」を「明日の13時、午後1時」と言い直した（伺い68）"""
+    if h >= 13:
+        return None if part else h
+    if part in NIGHT_LAST:
+        return 0 if h == 12 else (h if h <= NIGHT_LAST[part] else h + 12)
+    if part in ("午後", "夕方", "夕刻"):
+        return h if h == 12 else h + 12
+    if part in ("午前", "朝", "明け方"):
+        return h % 12
+    if part == "昼":
+        return 12 if h == 12 else h + 12
+    if h == 12:
+        return 12   # 「12時」は昼の12時（fill_ampm の決まり）
+    if half is not None:
+        return h if half == "am" else h + 12
+    return None
+
+
 def _speak_clock(value: str | None) -> str | None:
     """時刻の値を、言い直しで言う形にする（spoken_clock の中身）。午後は24時間＋午後の両方、午前は「午前○時」、昼の12時台は
     「昼の12時」（✅ 2026-10-24 ユーザー：「確認の言葉は、24時間方式（午前は、午前○○時、午後は○○(24時間)時+(午後○○時の両方)を使う」）。
@@ -463,22 +498,8 @@ def _speak_clock(value: str | None) -> str | None:
         minute = 30 if m.group("half") else int(m.group("min") or 0)
         if h > 23 or minute > 59 or (part and h > 12):
             return value
-        if h >= 13:
-            h24 = h
-        elif part in ("午後", "夕方", "夕刻", "夜", "晩"):
-            h24 = 0 if h == 12 and part in ("夜", "晩") else (h if h == 12 else h + 12)
-        elif part in ("午前", "朝", "明け方"):
-            h24 = h % 12
-        elif part == "昼":
-            h24 = 12 if h == 12 else h + 12
-        elif part in ("深夜", "夜中"):
-            h24 = 0 if h == 12 else (h if h <= 5 else h + 12)
-        elif h == 12:
-            h24 = 12   # 「12時」は昼の12時（fill_ampm の決まり）
-        elif half is not None:
-            h24 = h if half == "am" else h + 12
-        else:
-            return value   # 午前か午後かが決まっていない
+        if (h24 := clock_h24(part, h, half)) is None:
+            return value   # 午前か午後かが決まっていない（時間帯の言葉の読みは clock_h24 の1か所）
         half = "am" if h24 < 12 else "pm"
         times.append(h24 * 60 + minute)
     tail = _CLOCK_TAIL.match(value, ms[-1].end()).group()
@@ -649,8 +670,8 @@ def ladder_read(text: str | None, slots: dict, today=None) -> dict:
     if (m := _CLOCK.search(t)):
         s["clock"] = m.group(0) + _CLOCK_TAIL.match(t, m.end()).group()
         part, h = m.group("part"), int(m.group("h"))
-        if part:
-            s["half"] = "午前" if part in ("午前", "朝", "明け方") else "午後"
+        if part and (h24 := clock_h24(part, h)) is not None:
+            s["half"] = "午前" if h24 < 12 else "午後"   # 時間帯の言葉の読みは clock_h24 の1か所（「夜1時」は午前＝伺い68）
         elif h >= 13:
             s["half"] = "午後"
     elif (w := AMPM_WORDS.search(t)):
@@ -687,7 +708,21 @@ def ladder_days(s: dict, ctx: LadderCtx) -> tuple:
     else:
         lo, hi = ctx.today + dt.timedelta(days=1), ctx.today + dt.timedelta(days=6)
     weekend = s.get("kind") == "土日"
-    return tuple([d for d in sorted(days) if lo <= d <= hi and d > ctx.today and (d.weekday() >= 5) == weekend][:2])
+    if s.get("theirs") and not s.get("week") and theirs_today(s, ctx):
+        # お客様から折り返していただく日（theirs＝伺い67 ア）：今日の言われた時刻に間に合えば今日から（電話の日は、お客様のほうはお電話いただける日）
+        days, lo = (ctx.today, *days), ctx.today
+    return tuple([d for d in sorted(set(days)) if lo <= d <= hi and (d > ctx.today or (s.get("theirs") and d == ctx.today))
+                  and (d.weekday() >= 5) == weekend][:2])
+
+
+def theirs_today(s: dict, ctx: LadderCtx) -> bool:
+    """お客様から折り返していただく日の2択（theirs）に今日を並べるか：今日がその種類の日で、言われた時刻（「4時まで」＝午前・午後を補う fill_ampm の1か所で読む）が
+    いまより後。時刻が無い・読めない・いまの時刻が分からなければ並べる（今日のうちに折り返していただけるかもしれない）。"""
+    if ctx.today is None or (ctx.today.weekday() >= 5) != (s.get("kind") == "土日"):
+        return False
+    m = _CLOCK.search(fill_ampm(s.get("clock") or "", ctx.hours, ctx.limit)[0] or "")
+    h24 = clock_h24(m.group("part"), int(m.group("h"))) if m else None
+    return h24 is None or ctx.minute is None or h24 * 60 > ctx.minute
 
 
 def ladder_hours(s: dict, ctx: LadderCtx, half: str) -> tuple:
@@ -720,12 +755,13 @@ def ladder_step(s: dict, ctx: LadderCtx) -> tuple | None:
     if s.get("any"):
         return None
     # アポの日時（meeting＝顧客獲得型の業務の質問・Flow._main_listen）は日が要る＝土日を選ばれても曜日を伺う（9-9 の (9)「月曜日と火曜日だったら」の段。分身 K2）
-    if not (s.get("day") or s.get("today") or (s.get("kind") == "土日" and not s.get("meeting"))):
+    if not (s.get("day") or s.get("today") or (s.get("kind") == "土日" and not (s.get("meeting") or s.get("theirs")))):
         if s.get("kind") is None and ladder_weekends(ctx):
             return "kind", LADDER_KINDS
         if (days := ladder_days(s, ctx)):
             return "day", days
-    if s.get("clock") or s.get("frame"):
+    # お客様から折り返していただく日（theirs＝伺い67 ア）は日だけを伺う（時刻は、お客様がご存じのことを伺った答えのまま＝伺い61 ア）
+    if s.get("clock") or s.get("frame") or s.get("theirs"):
         return None
     if not s.get("half"):
         halves = tuple(h for h in LADDER_HALVES if ladder_hours(s, ctx, h))
@@ -737,6 +773,8 @@ def ladder_step(s: dict, ctx: LadderCtx) -> tuple | None:
 def ladder_label(step: str, choice, s: dict) -> str:
     """2択の候補の言い方（唯一の場所）：曜日＝「金曜日」（週を言われていれば「来週の金曜日」）・時刻＝「2時」（午前・午後はもう伺えている）・ほかはそのまま。"""
     if step == "day":
+        if (on := s.get("theirs")) and not s.get("week") and (choice - on).days in (0, 1):
+            return ("本日", "明日")[(choice - on).days]   # お客様から折り返していただく日の2択（伺い67 ア「本日と明日では」）
         return (f"{s['week']}の" if s.get("week") else "") + f"{WEEKDAY_WORDS[choice.weekday()]}曜日"
     if step == "clock":
         return f"{choice % 12 or 12}時"
@@ -761,7 +799,7 @@ def ladder_line(step: str, cands: tuple, s: dict) -> tuple[str, str, bool]:
     if step in ("kind", "half"):
         return TIME_LADDER[step], TIME_LADDER_IDS[step], False
     a, b = (ladder_label(step, c, s) for c in cands)
-    return TIME_LADDER["pair"].format(a=a, b=b), "", True
+    return TIME_LADDER["theirs_pair" if s.get("theirs") else "pair"].format(a=a, b=b), "", True
 
 
 def ladder_value(s: dict) -> str:
@@ -779,6 +817,51 @@ def ladder_value(s: dict) -> str:
     if s.get("any"):
         return f"{v}ならいつでも" if v else s["any"]
     return v
+
+
+def _date_words(day, today) -> str:
+    """日付を言う言葉（唯一の言い方＝night_dated）：電話の日と同じ月なら「21日」・違う月なら「12月1日」（day_words の「〇日以降」と同じ分け方）。"""
+    return f"{day.day}日" if (day.year, day.month) == (today.year, today.month) else f"{day.month}月{day.day}日"
+
+
+def night_dated(value: str | None, today) -> str | None:
+    """夜中の時刻（日付が変わったあと＝夜・晩・深夜・夜中の言葉で clock_h24 が12時より前と読んだ時刻）を、日付まで言う形にする唯一の場所（Flow._op_record_answer が
+    午前・午後を補ったあとに値へ当てる＝言い直し・依頼者へ渡す値・確かめた24時間の値 clock24 は、みなこの値を読む）：言った日（無ければ電話の日）の次の日の日付＋
+    「午前（時）」（「明日の夜1時」⇒電話の日が19日なら「21日の午前1時」）。電話の日が分からない・日の言葉が読めない・夜中の時刻でなければ、そのまま。
+    ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」（伺いの文のア「21日の午前1時でよろしいでしょうか？」）"""
+    import datetime as dt
+    m = _CLOCK.search(value or "")
+    if today is None or m is None or m.group("part") not in NIGHT_LAST:
+        return value
+    h24 = clock_h24(m.group("part"), int(m.group("h")))
+    if h24 is None or h24 >= 12:
+        return value
+    word, day, _ = _ladder_date(value[:m.start()], today)
+    if word and (day is None or value.find(word) < 0):
+        return value
+    start = value.find(word) if word else m.start()
+    clock = f"午前{h24}時" + ("半" if m.group("half") else f"{int(m.group('min'))}分" if m.group("min") else "")
+    return value[:start] + _date_words((day or today) + dt.timedelta(days=1), today) + "の" + clock + value[m.end():]
+
+
+def clock24(value: str | None, today=None) -> dict | None:
+    """言い直して確かめた時刻の値の、24時間の値（唯一の作り方＝会話の報告の通話の事実 clock24・Flow.report）：{"date": 言った日（ISO の形。日の言葉が無い・読めなければ
+    None）, "times": 値の中の時刻ごとの「HH:MM」}。時刻の無い値・午前か午後かの決まらない時刻があれば None。読みは clock_h24 の1か所（前の時刻の午前・午後を引き継ぐ＝
+    「午後3時から5時」の5時）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」（伺いの文の「確かめた時刻は、ご依頼主へ渡す記録に24時間の形で書きます」・CL-2 の
+    連絡帳 4-405 の (1) への答え＝CL-1.md 4-199「言い直して確かめた時刻（24時間の値）を報告に書き、あなたの判定はそれを読む形」。鍵の名前と形は仮＝CL-2 へ知らせる）"""
+    ms = list(_CLOCK.finditer(plain_clock(value) or ""))
+    if not ms:
+        return None
+    times, half = [], None
+    for m in ms:
+        h = int(m.group("h"))
+        minute = 30 if m.group("half") else int(m.group("min") or 0)
+        if h > 23 or minute > 59 or (h24 := clock_h24(m.group("part"), h, half)) is None:
+            return None
+        half = "am" if h24 < 12 else "pm"
+        times.append(f"{h24:02d}:{minute:02d}")
+    _, day, _ = _ladder_date(value[:ms[0].start()], today)
+    return {"date": day.isoformat() if day is not None else None, "times": times}
 
 
 def day_recording_id(qid: str, words: str) -> str:
@@ -2407,7 +2490,8 @@ def ear_ai(kind: str) -> str:
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end", "connect", "answered",
               "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question", "talk", "hold_timeout",
               "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern", "handoff",
-              "close_offer", "offer_terms", "carried", "elsewhere", "brief", "elsewhere_whole", "elsewhere_point", "refusal_said")   # end_unjudged：判定の答えが届かず、会話AIの読みで丁寧に締めた（Flow._end_late。通話のあとの確かめが読み直す）
+              "close_offer", "offer_terms", "carried", "elsewhere", "brief", "elsewhere_whole", "elsewhere_point", "refusal_said",
+              "clock24")   # end_unjudged：判定の答えが届かず、会話AIの読みで丁寧に締めた（Flow._end_late。通話のあとの確かめが読み直す）
 # offer_terms：業務の申し出の質問の伺い直しに入れた条件・条件つきで受けていただいた条件（Flow._proposal_note の1か所。question・terms・added・topic。terms・topic は
 # 伺い直したときから＝受けたかはその質問の答え・added は受けていただいたときだけ＝✅ 2026-11-12 まとめ役の (J2)。申し出のシステムの質問は handoff・close_offer に残す）。
 # こちらがかけ直す申し出（C7・P1・H1・H3）の「はい」に添えた中身・伺い直しの条件も同じ記録：question は業務の質問の番号か null（Flow._business_of の1か所。かけ直す
@@ -2457,7 +2541,10 @@ STANDIN_PARTIES = ("substitute", "successor")  # 目的の人の代わりにお�
 # 「あとで」のかけ直しで「〇時まで」と言われたときの、いま電話を続けられない理由（CL-2 の call_report.UNTIL_WHYS。✅ 2026-10-23 ユーザー：「かけ直さないと
 # いけない理由によるでしょ。3時までに別の番号にかけてなら、すぐでいいし、3時まで出られないなら、3時以降になるし、3時までに担当者へ聞いて折り返してなら、
 # 確認後になるだろうし」＝CL-2 の 4-149。✅ 2026-10-24 ユーザー「進めてよい」）。ほかのかけ直しの理由は、理由そのものが決める（CL-2 の UNTIL_BY_REASON＝書かない）
-UNTIL_LABEL = {"other_party": "別の番号・別の方へ", "unavailable": "それまでは出られない", "preparing": "それまでに確認・準備"}
+# available_until＝伺い直した一言（phrases.UNTIL_ASK「…それ以降はお電話が難しいということでしょうか？」）に「はい」＝それまでなら出られる（それより前にかける）。
+# ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」（名前は仮＝CL-2 の call_report.UNTIL_WHYS に足していただく。分身 N）
+UNTIL_LABEL = {"other_party": "別の番号・別の方へ", "unavailable": "それまでは出られない", "preparing": "それまでに確認・準備",
+               "available_until": "それまでは出られる（それ以降は難しい）"}
 # かけ直しの日・頃を、月単位の理由で選んだ（かけ直しの記録の cycle。✅ 2026-10-19 ユーザー：「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の
 # 場合は、月単位で考えた方がいい」＝CL-2 の 4-106。言葉だけでは、たまたまその頃になったのか分からないので、理由を言われたときだけ書く）
 CYCLE_LABEL = {"month": "月単位の理由（月ぎめ・締め・振り込みや入金の間隔など）"}
@@ -2478,6 +2565,14 @@ WHY_ROUTED = ("not_in_charge", "unknown_now")
 #    「3時10分前」は2時50分とも3時10分より前とも取れる（CL-2 は決めない）、「3日前」は日付ではない
 UNTIL_TAIL = ("までに", "まで", "より前", "前")
 _UNTIL = re.compile(rf"\d{{1,2}}時半?(?:{'|'.join(UNTIL_TAIL[:-1])}|前(?!後))|\d{{1,2}}(?:時\d{{1,2}}分|日)(?:{'|'.join(UNTIL_TAIL[:-1])})")
+
+
+def until_ask_line(value: str | None) -> str:
+    """「〇時まで」の理由を伺い直す一言（phrases.UNTIL_ASK）を作る唯一の場所（Flow._ask_until）：{t}＝お客様の言った「〇時まで」の時刻・日（_UNTIL の当たりから終わりの
+    言葉 UNTIL_TAIL を外した所＝「3時までなら」⇒「3時」・「15時までに」⇒「15時」）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」"""
+    m = _UNTIL.search(value or "")
+    t = re.sub("(?:" + "|".join(UNTIL_TAIL) + ")$", "", m.group()) if m else (value or "")
+    return UNTIL_ASK.format(t=t)
 # ✅ 2026-10-25 日本時間の夕方 ユーザー：お休みは長期の不在から分ける（「本日は休み・出張 → 「いつごろお戻りのご予定かお分かりでしょうか？」
 # 出張ならいいが、お休みだとおかしい⇒ 「次のご出社はいつかお分かりになりますでしょうか？」」）。違うのは伺う一言だけ（CALLBACK_PLAN）
 CALLBACK_LABEL = {"absent": "不在", "day_off": "お休み", "long_absent": "長期の不在", "other_number": "別の番号へ", "later": "あとで",
@@ -5457,6 +5552,10 @@ class Item:
     cycle: str | None = None          # かけ直しの日・頃を選んだ月単位の理由（CYCLE_LABEL の中の名前。かけ直しの記録の cycle）
     reason: str | None = None         # 「わからない」「答えたくない」の理由（DONT_KNOW_LABEL・REFUSED_LABEL の中の名前。CL-2 の項目の reason）
     until_asked: bool = False         # 理由が分からないので、時刻を伺い直したか（1項目1回まで）
+    # 伺い直した一言（phrases.UNTIL_ASK）へのお返事を待つ間の、伺い直す前の値と質問（Flow._ask_until が置き、お返事を受ける Flow._until_take が外す）
+    until_held: tuple | None = None
+    # お客様から折り返していただく日の2択（伺い67 ア＝Flow._theirs_begin）を伺っている間の、伺う前の値と質問（Flow._theirs_take が外す）
+    theirs_held: tuple | None = None
     ambiguous_asked: bool = False     # 曖昧な答えの意味を確かめたか（そのあとの「結構です」は、確かめへの返事として受け取る）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
     told: bool = False                # その答えのあとに伝える一言（Question.tell_words）を、もう言った
@@ -7957,6 +8056,8 @@ class Flow:
             # ほかは、次の質問へ進む返事と同じ決まり（下の next＝「承知しました。」「ありがとうございます。」を順番に・ほかの言葉は挟まない）。⛔ d54df841 まで、ここだけ
             # 相づちを付けない例外（お言葉の「⇒間髪おかず」「⇒すぐに」を相づち無しと読んでいた＝まとめ役の続きの (3)）
             result = "next"
+        if result == "ask_back" and reply.get("ask_reason") == "until":
+            return None   # 「〇時まで」の理由を伺い直す一言（_ask_until）：頭の「恐れ入ります。」が受けの言葉（相づちを重ねない＝伺い63 ア の文のまま）
         if result == "ask_back":
             # 1回目の「答えが質問に合わない」は「はい、」（続けてAIが「恐れ入ります。（聞くこと）を、もう一度…」）。
             # 聞き取れなかったとき・2回目からは、申し訳なさそうに読んだ「申し訳ございません、」（✅ 2026-10-14 ユーザー）
@@ -8211,12 +8312,21 @@ class Flow:
         # 時刻の答えと一緒に受け取る理由（月単位の理由・「〇時まで」の理由）。午前・午後を伺ったときは、前の報告の理由を引き継ぐ（⛔ 2026-10-24 の
         # 見直し：午前・午後の答えの報告には理由が無いので、理由が消え、承認済みの時刻の問いでもう一度伺っていた）
         reasons = {k: a.get(k) for k in ("cycle", "until_why")}
-        if answered and it.ladder is not None:
+        if it.until_held is not None and (answered or cond == UNDECIDED):
+            # 「〇時まで」の理由を伺い直した一言（_ask_until）へのお返事：はい・いいえ・理由（判定の決められないも）は、伺い直す前の値で受け取る（伺い直しは1回まで＝
+            # 10-24。理由は会話AIの報告 until_why）。値を言い直されたら、その値（2択の段は伺えた所に重ねる）＝_until_take の1か所
+            value, cond, answered = self._until_take(qid, value if answered else None), VALUE_CHOICE, True
+        elif it.theirs_held is not None and not answered and cond in SYSTEM_CONDITIONS:
+            # お客様から折り返していただく日の2択（_theirs_begin）に「分からない」：伺えた所のまま（「平日の4時まで」）で受け取る（伺い67 ア の伺いの文の「分からない」の行）
+            value, cond, answered = self._theirs_take(qid, None), VALUE_CHOICE, True
+        elif answered and it.ladder is not None and it.pending_value is None:
             # 日時の2択の段（✅ 2026-11-19 日本時間14時18分13秒）：伺えた所に入れ、まだ決まっていない所があれば次の2択を伺う（_ladder_take の1か所）
             took = self._ladder_take(qid, value)
             if isinstance(took, dict):
                 return took
             value = took
+        elif answered and (asked := self._theirs_begin(qid, value)) is not None:
+            return asked
         if answered and q.type in AMPM_TYPES:
             if it.pending_value is not None:
                 reasons = {k: v or it.pending_reasons.get(k) for k, v in reasons.items()}
@@ -8225,6 +8335,8 @@ class Flow:
             if ask and not it.ampm_asked:
                 it.pending_reasons = reasons
                 return self._ask_ampm(qid, value)
+            # 夜中の時刻（日付が変わったあと）は日付まで言う形に（night_dated の1か所。✅ 2026-11-20 日本時間4時44分42秒「伺い68：ア」）
+            value = night_dated(value, self._ladder_ctx().today)
         if CALLBACK_FIELD.get(qid) == "time":
             # かけ直しの時刻の質問（分かる時 C9 も）：月単位の理由でその日・頃を選んだか（⛔ 2026-10-24 の見直し：前は C1 だけで、C9 では捨てていた）
             it.cycle = reasons["cycle"] if answered else None
@@ -8234,9 +8346,9 @@ class Flow:
             # （判定は「理由が分からない」＝通話の中で確かめが要った時刻として CL-2 が扱う）
             until = bool(_UNTIL.search(value or ""))
             it.until_why = reasons["until_why"] if until else None
-            # 日時の2択の段で伺った質問には、伺い直す「その時刻の質問を伺ったときと同じ一言」が無い（2択の文は理由を伺う一言にならない）＝伺い直さずに受け取る
-            # （伺い直しても理由が無かったときと同じ＝CL-2 が通話の中で確かめが要った時刻として扱う。⏳ 伺い (i)）
-            if until and not it.until_why and not it.until_asked and not q.ladder:
+            # 日時の2択の段で伺った質問も同じ（伺い直す一言は phrases.UNTIL_ASK＝2択の文ではない。✅ 2026-11-20 日本時間4時44分42秒「伺い63：ア」。⛔ f1c0af7e まで、
+            # 2択の段では伺い直さずに受け取った＝10-24 の「1回だけ伺い直す」に合っていなかった）
+            if until and not it.until_why and not it.until_asked:
                 return self._ask_until(qid, value)
         if cond in SYSTEM_CONDITIONS and judged is None and (taken := self._ambiguous_only(f"「{SYSTEM_LABEL[cond]}」")):
             # 相手の言葉が「大丈夫です」「結構です」だけなのに、AIが「わからない」「答えたくない」を選んだ：その言葉だけで決めない（判定の組の確かな読みが
@@ -15658,7 +15770,9 @@ class Flow:
         if s == before:
             return self._ask_again(qid, self._ask_kind(), f"日時の2択の答えとして読めない値（{value}）")
         start, it.ladder = it.ladder_start, s
-        if (now := self._ladder_set(qid)) is None:
+        if (now := self._ladder_set(qid)) is None and s.get("theirs"):
+            return self._theirs_take(qid, s)   # お客様から折り返していただく日の2択（伺い67 ア）：伺えた日で、伺う前の値を言い直す
+        if now is None:
             # 1つの答えで決まった（伺い始めの所から、その答えだけで時刻まで・幅・「いつでも」）なら、お客様の言葉のまま（言い直しで言い方を崩さない＝今までの
             # 答えの受け方と同じ）。いくつかの2択で決まったなら、伺えた所から作る
             return value if before == start else ladder_value(s)
@@ -15669,6 +15783,38 @@ class Flow:
         # 答えがほかの所だけを埋め、いまの2択がまだ伺えていない（平日を選んだあとの「3時ごろなら」）：同じ2択へもう一度伺う＝もう伺った質問へ戻る頭（again）
         # 土日の受け（「承知致しました。土日にあらためてご連絡させていただきますね。」）は、こちらがかけ直す日時の段だけ（アポの日時は、こちらからのご連絡ではない＝分身 K2）
         return self._ladder_ask(qid, weekend=s.get("kind") == "土日" and before.get("kind") != "土日" and not s.get("meeting"), ahead=ahead, again=now == step)
+
+    def _theirs_begin(self, qid: str, value: str | None) -> dict | None:
+        """お言葉に甘えてお客様から折り返していただくお約束で伺った時刻（THEIRS_ROLES）に、日の種類（平日・土日）だけを言われた（「平日の4時までには折り返します。」）：
+        どの日かを日時の2択の段の1か所（ladder_step の theirs＝日だけ）で伺う返事（「ありがとうございます。それでは本日と明日ではどちらになりますでしょうか？」＝頭は
+        答えを受ける「ありがとうございます。」＝_ladder_ask の ahead）。日まで言われた・日の種類も無い・候補が2つ無い（伺わずに決めない＝お客様の決めていることを
+        こちらで決めない）なら None（今のまま言い直して確かめる）。答えは _ladder_take → _theirs_take の1か所。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い67：ア」
+        （11-16「平日の4時という返答自体がおかしいしいつをさしているのか意味が分からない。会話の中で、平日とはいつを指すのか聞かないと、戻る時間の確認の意味がない。」）"""
+        q, it = self.questions[qid], self.items[qid]
+        today = self._ladder_ctx().today
+        if q.callback not in THEIRS_ROLES or it.ladder is not None or today is None:
+            return None
+        s = ladder_read(value, {}, today)
+        if not s.get("kind") or s.get("day") or s.get("week") or s.get("any"):
+            return None
+        it.ladder, it.theirs_held = {**s, "theirs": today}, (value, q)
+        it.ladder_start = dict(it.ladder)
+        if self._ladder_set(qid) is None:
+            self.questions[qid], it.ladder, it.ladder_start, it.theirs_held = q, None, {}, None
+            return None
+        it.set(it.state, f"お客様から折り返していただく日：「{value}」の日を2択で伺う")
+        return self._ladder_ask(qid, ahead=True)
+
+    def _theirs_take(self, qid: str, s: dict | None) -> str:
+        """お客様から折り返していただく日の2択（_theirs_begin）の答えの値を決める唯一の場所：伺う前の値の日の種類の言葉を、伺えた日（「本日」「来週の月曜日」）に替える
+        （伺えなければ伺う前の値のまま）。伺う前の質問に戻す（そのあとの言い直し・伺い直しは、もとの質問のまま）。"""
+        it = self.items[qid]
+        (said, q), it.theirs_held = it.theirs_held, None
+        self.questions[qid], it.ladder, it.ladder_start = q, None, {}
+        if not s or not s.get("day"):
+            return said
+        kind = re.compile("平日|" + _LADDER_WEEKEND.pattern)
+        return kind.sub(s["day"], said, count=1) if kind.search(said) else f"{s['day']}の{said}"
 
     def _ladder_ask(self, qid: str, weekend: bool = False, ahead: bool = False, again: bool = False) -> dict:
         """日時の2択の段の次の2択を伺う返事（唯一の場所）：頭の相づちは相づちの1か所（_ack_choice＝次の質問へ進む返事と同じ「承知しました。」「ありがとうございます。」
@@ -15688,23 +15834,37 @@ class Flow:
         return base | {"say": say, "message": f"{say_note(say)}相手の答えを待ってください。{hint}"}
 
     def _ask_until(self, qid: str, value: str) -> dict:
-        """「あとで」のかけ直しの「〇時まで」で、いま電話を続けられない理由が分からない：その時刻の質問を伺ったときと同じ一言（question_play の1か所＝
-        callback_question が段で選んだ一言。答えの段は「いつ頃おかけ直しさせていただきましょうか？」・お呼びする段は承認済みの phrases.CALLBACK_ASK の later_time。
-        録音で流す通話では、その録音）で1回だけ伺い直す。聞き返しの回数には数えない。
-        ⛔ 2026-11-06 日本時間7時台（5時56分55秒のご質問の読み直し EN-A の指摘5）：答えの段でも、お呼びする段の一言（録音 callback_later_time）を流していた
-        （✅ 2026-11-06 日本時間0時44分31秒「(イ) 答えの段のかけ直しすべてで大丈夫」）"""
-        it = self.items[qid]
-        it.until_asked = True
+        """「あとで」のかけ直しの「〇時まで」で、いま電話を続けられない理由が分からない：1回だけ「恐れ入ります。（時刻）までということはそれ以降はお電話が難しいと
+        いうことでしょうか？」（phrases.UNTIL_ASK・文は until_ask_line の1か所。時刻の入る文＝会話AIの声）で伺い直す。聞き返しの回数には数えない。お返事を待つ間は、
+        判定に見せる質問・聞き返し・別のお話のあとの戻りも、この一言（質問の文を置き換える＝日時の2択の段の文と同じ形 _ladder_set）。お返事は _until_take の1か所。
+        ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」。⛔ f1c0af7e まで、その時刻の質問を伺ったときと同じ一言をもう一度流した（2択の段では伺い直さなかった）"""
+        it, q = self.items[qid], self.questions[qid]
+        it.until_asked, it.until_held = True, (value, q)
         it.set("unclear", f"「{value}」の、いま電話を続けられない理由が分からない（理由で、かけてよい時間が決まる）")
-        line = question_play(self._plays(), qid)
-        say = line["text"]
+        say = until_ask_line(value)
+        self.questions[qid] = dataclasses.replace(q, text=say, recording="", voiced=True, plain=None)
         hint = (f"相手の答えに、いま電話を続けられない理由（{'・'.join(UNTIL_LABEL.values())}）があれば「{ARG_LABEL['until_why']}」も選んで、"
-                "聞いたとおりの値で record_answer で報告します。")
+                f"record_answer で報告します（値は、相手が時刻を言い直さなければ「{value}」のまま）。")
+        base = {"result": "ask_back", "question_id": qid, "ask_n": 0, "ask_reason": "until"}
         if self.play_recordings:
-            return {"result": "ask_back", "question_id": qid, "ask_n": 0, "ask_reason": "until", "play": [line],
-                    "message": f"{played_note(say)}何も言わずに、相手の答えを待ってください。{answer_wait(hint)}"}
-        return {"result": "ask_back", "question_id": qid, "say": say, "ask_n": 0, "ask_reason": "until",
-                "message": f"「{value}」の、いま電話を続けられない理由が分かりません。{say_note(say)}相手の答えを待ってください。{answer_wait(hint)}"}
+            return base | {"play": [{"kind": "said", "text": say}], "message": f"{played_note(say)}何も言わずに、相手の答えを待ってください。{answer_wait(hint)}"}
+        return base | {"say": say, "message": f"「{value}」の、いま電話を続けられない理由が分かりません。{say_note(say)}相手の答えを待ってください。{answer_wait(hint)}"}
+
+    def _until_take(self, qid: str, value: str | None) -> str:
+        """「〇時まで」の理由を伺い直した一言（_ask_until）へのお返事の値を決める唯一の場所：伺い直す前の質問の文に戻し、値は伺い直す前の値のまま。時刻・日を言い直されたら、
+        その値（日時の2択の段は、伺えた所に重ねて読む＝ladder_read。伺い始めの所からは読み直さない＝2択で伺えた曜日を残す）。"""
+        it = self.items[qid]
+        (held, q), it.until_held = it.until_held, None
+        self.questions[qid] = q
+        if not value:
+            return held
+        if it.ladder is None:
+            return value
+        s = ladder_read(value, it.ladder, self._ladder_ctx().today)
+        if s == it.ladder:
+            return held
+        it.ladder = s
+        return ladder_value(s)
 
     def _ask_again(self, qid: str, reason: str, why: str, shown: str = "", kind: bool = False, confirming: bool = False) -> dict:
         """聞き返しの唯一の場所（DESIGN.md 6-11。聞き取れない・曖昧＝"unclear"／答えが質問に合わない＝"form"）。AIに選ばせず、ここで
@@ -17842,9 +18002,25 @@ class Flow:
         # 手順を伺い終えていない業務の質問（_unfinished の1か所。CL-2 の判定は、その答えを「まだ受け取っていない答え」と読む＝必須なら行を続ける。CL-2 の連絡帳
         # 4-213。⛔ それまで、W1・連絡先・ご承認の手順の途中で切れても、ほかの必須の質問が取れていれば判定が「完了」にし、続きの電話が1本もかからなかった）
         unfinished = [q.id for q in self.questions.values() if not q.callback and self._unfinished(q)]
+        # 言い直して確かめた時刻の24時間の値（通話の事実 clock24＝名前は仮。CL-2 の判定が読む＝伺い68 ア・CL-1.md 4-199）：通話の終わりの答えで決まる（ended_on と同じ）
+        facts = facts if not (c24 := self.clock24_facts) else {**facts, "clock24": c24}
         return {"version": REPORT_VERSION, "unfinished": unfinished, "facts": facts, "not_reached": self.not_reached, "cut": self.cut,
                 "apology_delivered": self.apology_delivered, "apologies_delivered": self.apologies_delivered,
                 "irreversible_check": self.irreversible_check, "ai_trouble": self.ai_trouble}
+
+    @property
+    def clock24_facts(self) -> list[dict]:
+        """言い直して確かめた時刻の24時間の値（会話の報告の通話の事実 clock24 の唯一の作り方＝Flow.report）：言い直しに「はい」をいただいた（confirmed）日時・時刻の型の
+        答えごとに {question: 質問の番号（かけ直しの時刻は C1 など）, value: 答えの値, date・times: clock24 の1か所}。24時間の値が決まらない答えは入れない。
+        ✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」。鍵の名前と形は仮（CL-2 の連絡帳 4-405 の (1) の続き＝CL-2 へ知らせる。分身 N）"""
+        today = self._ladder_ctx().today
+        out = []
+        for qid, it in self.items.items():
+            q = self.questions.get(qid)
+            if q is None or q.type not in AMPM_TYPES or it.state != "confirmed" or (c := clock24(it.value, today)) is None:
+                continue
+            out.append({"question": qid, "value": it.value, **c})
+        return out
 
     def _close(self, reason: str, prefix: str = "", spoken: bool = False, text: tuple[str, str] | None = None, part: bool = False) -> dict:
         """締め（DESIGN.md 6-14）を作る唯一の場所。毎回同じ文なので、言い方は決まった1つ（ふつう＝CLOSING・急いでいる／断られた／怒っている

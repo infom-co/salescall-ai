@@ -81,7 +81,12 @@ CL2_PENDING = frozenset({
                          "name_head_osoreirimasuga",
                          # 顧客獲得型の本題の段のお名前の入る文の頭（「じゃあ」「ただですね」「理由はですね」「そういった意味で」）も同じ形の共通の一言の録音（分身 K2 の続き。
                          # CL-2 への知らせは分身 K2 の書き置き＝rv174/K2/notes.md）
-                         "name_head_jaa", "name_head_tadadesune", "name_head_riyuuhadesune", "name_head_souittaimide"})
+                         "name_head_jaa", "name_head_tadadesune", "name_head_riyuuhadesune", "name_head_souittaimide",
+                         # 伺い56〜68 のお答え（✅ 2026-11-20 日本時間4時44分42秒 ユーザー。分身 N。CL-2 への知らせは分身 N の書き置き＝rv175/N/notes.md。名前はどれも仮）：
+                         # 「〇時まで」の理由を伺い直した一言に「はい」＝それまでは出られる（UNTIL_LABEL の available_until＝伺い63）
+                         "available_until",
+                         # 言い直して確かめた時刻の24時間の値（通話の事実 clock24＝Flow.clock24_facts。伺い68 ア・CL-1.md 4-199 の鍵の名前と形のご相談）
+                         "clock24"})
 # CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
 # その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
 # CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
@@ -90,6 +95,8 @@ CL2_PENDING_VALUES = {
     ("party", "by"): ("PARTY_SOURCES", frozenset({"judge"})),
     # 顧客獲得型の Yes の質問の段で材料も会話AIの中身も尽きて日を改めた締め（flowctl.END_REASONS の yes_used_up＝分身 K1。CL-2 への知らせは rv174/K1/notes.md）
     ("end", "reason"): ("END_REASONS", frozenset({"yes_used_up", "no_pain"})),   # no_pain＝本題の段で悩みがどれも無く日を改めた締め（分身 K2）
+    # 「〇時まで」の理由を伺い直した一言（phrases.UNTIL_ASK）に「はい」＝それまでは出られる（伺い63 ア＝分身 N。CL-2 への知らせは rv175/N/notes.md）
+    ("callback", "until_why"): ("UNTIL_WHYS", frozenset({"available_until"})),
 }
 # （2026-11-19 に外した：手短に伺っている途中の少し焦った「承知しました。」の録音 shouchi_hurried＝CL-2 の common_phrases.TEXTS に入った＝CL-2 の
 # 連絡帳 4-426 の (1)・CL-1.md 4-190）
@@ -9366,21 +9373,27 @@ class CallbackTest(unittest.TestCase):
         # 理由が無い：⛔✅ 2026-11-19 日本時間14時18分13秒（伺い52 場面B・C）で「いつ頃」と伺う一言が無くなった＝伺い直す「その時刻の質問を伺ったときと
         # 同じ一言」が無い（2択の文は理由を伺う一言にならない）：伺い直さずに受け取る（伺い直しても理由が無かったときと同じ＝CL-2 が確かめの要った時刻として
         # 扱う。⏳ 伺い (i)）。⛔ 894b082f まで、答えの段は「いつ頃おかけ直しさせていただきましょうか？」・お呼びする段は「恐れ入りますが何時ごろでしたら…」で伺い直した
+        # ⇒ ✅ 2026-11-20 日本時間4時44分42秒「伺い63：ア」：日時の2択の段でも1回だけ「恐れ入ります。3時までということはそれ以降はお電話が難しいということでしょうか？」
+        # （phrases.UNTIL_ASK）で伺い直す。伺い直しても理由が無ければ、そのまま受け取る（分身 N）
+        from flowctl import until_ask_line
         f = self.flow()
         self.say(f, "今ちょっと手が離せなくて、あとでかけてもらえますか。", "request_callback", why="later")
         r = self.say(f, "3時までなら大丈夫です。", "record_answer", question_id="C1", condition_id="答えた", value="3時までなら")
+        self.assertEqual((r["result"], r.get("ask_reason"), r.get("say")), ("ask_back", "until", until_ask_line("3時までなら")))
+        r = self.say(f, "いえ、そういうわけではないです。", "record_answer", question_id="C1", condition_id="答えた", value="3時まで")
         self.assertEqual(r["result"], "confirm_required")
         for play in (False, True):
             h, _ = TargetTest("test_opening_ends_with_the_call_and_no_question_until_connected").flow(play=play)
             first = self.say(h, "岡田はいま手が離せないので、あとでかけていただけますか。", "request_callback", why="later")
             self.assertIn(TIME_LADDER["half"], str(first), play)   # お呼びする段の「あとで」は今日の時刻から（午前と午後）
             r3 = self.say(h, "3時までなら大丈夫です。", "record_answer", question_id="C1", condition_id="答えた", value="3時までなら")
-            self.assertEqual((h.asking_reception, r3["result"]), (True, "confirm_required"), play)   # 繋ぐ前の受付の方に伺っている（お呼びする段のかけ直し）
+            self.assertEqual((h.asking_reception, r3["result"], r3.get("ask_reason")), (True, "ask_back", "until"), play)   # 繋ぐ前の受付の方に伺っている
         self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
         self.assertNotIn("until_why", f.facts["callback"][0])                                     # 分からないまま（CL-2 が確かめの要る時刻として扱う）
         # ⛔ CL-2 の 4-182 の (3)：「3時前なら」も「3時まで」と同じ（CL-2 の時刻の読みと同じ）＝理由を伺い直す。「3時前後」は「3時ごろ」＝伺わない。
         # ⇒ 2026-11-19 日本時間14時18分13秒から、あとでの時刻は日時の2択の段で伺う＝伺い直す一言が無い（上と同じ＝伺い (i)）。どちらも伺い直さない
-        for said, value, asked in (("3時前なら大丈夫です。", "3時前なら", False), ("3時前後なら大丈夫です。", "3時前後", False)):
+        # ⇒ ✅ 2026-11-20 日本時間4時44分42秒「伺い63：ア」で2択の段でも伺い直す＝「3時前なら」は伺い直す・「3時前後」は伺わない（分身 N）
+        for said, value, asked in (("3時前なら大丈夫です。", "3時前なら", True), ("3時前後なら大丈夫です。", "3時前後", False)):
             f = self.flow()
             self.say(f, "今ちょっと手が離せなくて、あとでかけてもらえますか。", "request_callback", why="later")
             r = self.say(f, said, "record_answer", question_id="C1", condition_id="答えた", value=value)
@@ -37572,7 +37585,11 @@ class NopqHolesTest(unittest.TestCase):
                 # 午前・午後は伺えた＝時刻の2択だけ（午前と午後は重ねて伺わない）
                 self.assertEqual((r["result"], d.heard(r).endswith(d.pair("2時", "4時"))), ("ask_back", True), d.heard(r))
                 continue
-            # 時刻は伺えた＝曜日のあとは伺わずに、伺えた所から作った値で言い直して確かめる（午前・午後は今の1か所 fill_ampm）
+            # 時刻は伺えた＝曜日のあとは伺わずに、伺えた所から作った値で言い直して確かめる（午前・午後は今の1か所 fill_ampm）。「〇時まで」は理由を1回だけ伺い直す
+            # （✅ 2026-11-20 日本時間4時44分42秒「伺い63：ア」＝UntilAskAgainTest。「いいえ」のお返事のあとを見る。分身 N）
+            if value.endswith("まで"):
+                self.assertEqual((r["result"], r.get("ask_reason")), ("ask_back", "until"), words)
+                r = d.answer(f, "いえ、そういうわけではないです。", value)
             self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", c1), (words, d.heard(r)))
             self.assertIn("金曜日", f.items[c1].value, words)
             self.assertIn(value, f.items[c1].value, words)
@@ -38866,6 +38883,11 @@ class HolesZTest(unittest.TestCase):
             f, _ = d.first()
             d.answer(f, "平日でお願いします。", "平日"); d.answer(f, "火曜日で。", "火曜日"); d.answer(f, "午後がいいですね。", "午後")
             r = d.answer(f, words, value)
+            if r.get("ask_reason") == "until":
+                # 「〇時まで」「〇時より前」は、理由が分からなければ1回だけ伺い直す（✅ 2026-11-20 日本時間4時44分42秒「伺い63：ア」＝UntilAskAgainTest。分身 N）。
+                # 「いいえ」のお返事（理由なし）のあとの言い直しを見る
+                self.assertIn(value.split("時")[0] + "時", d.heard(r), words)
+                r = d.answer(f, "いえ、そういうわけではないです。", value)
             said = d.heard(r)
             self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", c1), said)
             self.assertIn(part, said, words)
@@ -42020,3 +42042,213 @@ class AcquireNameHeadTest(unittest.TestCase):
             self.assertEqual(plays[i + 1][:2], ("opening", part), part)
             self.assertEqual(head + plays[i + 1][2], f.target[part], part)          # 名前の録音（台帳の部分）は頭のあとから
         self.assertEqual([p for p in plays if p[0] == "opening" and p[2].startswith(tuple(h for h, _ in self.WANT.values()))], [])
+
+
+class NameHeadReadingTest(unittest.TestCase):
+    """分身 N の (12)（分身 K2 の問い）：お名前の前の言葉の録音（phrases.NAME_HEAD_IDS）の読み方を、言葉ごとの役目に合わせて1か所（make_ack_clips.NAME_HEAD_ROLES）で
+    持つ：「恐れ入りますが」＝お願い・お尋ねの前に添える／「じゃあ」＝話を前へ進める切り替え／「ただですね」「理由はですね」＝誠実に言葉を選んで続ける前置き／
+    「そういった意味で」＝まとめてお願いへつなぐ前置き。禁止の言葉（「明るく」「はきはき」＝帳面 0-4）は使わない。⛔ f1c0af7e まで、どの頭の言葉も「お願いやお尋ねの前に
+    添える言葉」の読み方1つ（「じゃあ」「理由はですね」もお願いの前の調子で録ることになった）"""
+    ROLES = {"恐れ入りますが": "name_head", "じゃあ": "name_head_shift", "ただですね": "name_head_care", "理由はですね": "name_head_care",
+             "そういった意味で": "name_head_sum"}
+
+    def test_each_head_word_reads_by_its_role(self):
+        from make_ack_clips import HOW, HOW_OF, MAX_S, NAME_HEAD_ROLES
+        from phrases import NAME_HEAD_IDS
+        self.assertEqual(NAME_HEAD_ROLES, self.ROLES)
+        self.assertEqual(set(NAME_HEAD_ROLES), set(NAME_HEAD_IDS))   # 頭の言葉を足したら、役目もここに足す（読み方の漏れが無い）
+        self.assertEqual({rid: HOW_OF[rid] for rid in NAME_HEAD_IDS.values()}, {NAME_HEAD_IDS[w]: k for w, k in self.ROLES.items()})
+        roles = set(self.ROLES.values())
+        self.assertEqual(len({HOW[k] for k in roles}), len(roles))   # 役目ごとに違う読み方
+        for k in roles:
+            self.assertIn("言い切らずに", HOW[k], k)   # どれも、すぐ後ろに名前の録音が続く
+            self.assertIn(k, MAX_S, k)
+            for w in WordingTest.BANNED:
+                self.assertNotIn(w, HOW[k], k)
+        self.assertIn("お願い", HOW["name_head"])
+        self.assertIn("切り替え", HOW["name_head_shift"])
+        self.assertIn("誠実", HOW["name_head_care"])
+        self.assertIn("まとめ", HOW["name_head_sum"])
+
+
+class UntilAskAgainTest(unittest.TestCase):
+    """伺い63（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い63：ア」）：「あと」のかけ直しの日時の2択で「3時までなら大丈夫です。」と言われ、いま電話を続けられない理由が
+    分からないときは、1回だけ「恐れ入ります。（時刻）までということはそれ以降はお電話が難しいということでしょうか？」と伺い直す（値の入る文＝会話AIの声）。お返事が
+    「はい」なら理由は「それまでは出られる（それ以降は難しい）」（until_why の available_until＝CL-2 へ知らせる仮の名前）・「いいえ」なら理由なし（今の確かめの要る時刻）。
+    どちらも伺えた日時（2択で伺えた曜日）のまま言い直して確かめる。伺い直しは1回まで（10-24 の決まり）。⛔ f1c0af7e まで、2択の段の「〇時まで」は伺い直さずに言い直した
+    （10-24 の「1回だけ伺い直す」に合っていなかった＝分身 R2 の書き置き 4 の (1)）"""
+    ASK = "恐れ入ります。3時までということはそれ以降はお電話が難しいということでしょうか？"
+    SAY = "火曜日の15時まで、午後3時までということでよろしいでしょうか？"
+
+    def at_hours(self):
+        d = DateTimePairsTest()
+        f, _ = d.first()
+        d.answer(f, "平日でお願いします。", "平日")
+        d.answer(f, "火曜日で。", "火曜日")
+        r = d.answer(f, "午後がいいですね。", "午後")
+        self.assertEqual(d.asked(r), d.pair("2時", "4時"))
+        return d, f
+
+    def test_until_in_the_pairs_is_asked_once(self):
+        from flowctl import CALLBACK_IDS
+        c1 = CALLBACK_IDS["time"]
+        d, f = self.at_hours()
+        r = d.answer(f, "3時までなら大丈夫です。", "3時までなら")
+        self.assertEqual((r["result"], d.heard(r), f.awaiting_confirm), ("ask_back", self.ASK, None))
+        self.assertEqual([p["kind"] for p in r["play"]], ["said"])   # 時刻の入る文＝会話AIの声
+        r = d.answer(f, "はい、3時から会議なんです。", "3時まで")
+        f2 = f
+        # 理由はまだ報告に無い（会話AIが「それまでは出られる」を選ぶ）
+        self.assertEqual((r["result"], f2.awaiting_confirm), ("confirm_required", c1))
+        self.assertTrue(d.heard(r).endswith(self.SAY), d.heard(r))
+        self.assertEqual(f2.items[c1].value, "火曜日の午後3時まで")
+
+    def test_yes_gives_the_reason_and_no_gives_none(self):
+        from flowctl import CALLBACK_IDS, JUDGMENTS, UNTIL_LABEL
+        c1 = CALLBACK_IDS["time"]
+        self.assertEqual(UNTIL_LABEL["available_until"], "それまでは出られる（それ以降は難しい）")
+        for why in ("available_until", None):
+            d, f = self.at_hours()
+            d.answer(f, "3時までなら大丈夫です。", "3時までなら")
+            f.on_callee(); f.on_heard("はい、3時から会議なんです。" if why else "いえ、そういうわけではないです。")
+            for k in JUDGMENTS:
+                f.on_check(k, CallbackTimeAheadTest.rd("答えた"))
+            f.on_decided()
+            r = f.apply("record_answer", {"question_id": c1, "condition_id": "答えた", "value": "3時まで", **({"until_why": why} if why else {})})
+            self.assertTrue(d.heard(r).endswith(self.SAY), (why, d.heard(r)))
+            f.on_callee(); f.on_heard("はい、お願いします。")
+            for k in JUDGMENTS:
+                f.on_check(k, CallbackTimeAheadTest.rd("affirmed"))
+            f.on_decided()
+            f.apply("confirm_field", {"question_id": c1, "result": "affirmed"})
+            got = f.facts["callback"][0]
+            self.assertEqual((got.get("time"), got.get("until_why")), ("火曜日の午後3時まで", why), why)
+
+    def test_the_line_says_the_customers_time(self):
+        from flowctl import until_ask_line
+        self.assertEqual(until_ask_line("3時までなら"), self.ASK)
+        self.assertEqual(until_ask_line("火曜日の15時までに"), "恐れ入ります。15時までということはそれ以降はお電話が難しいということでしょうか？")
+        self.assertEqual(until_ask_line("3時半まで"), "恐れ入ります。3時半までということはそれ以降はお電話が難しいということでしょうか？")
+        self.assertNotIn("、", until_ask_line("3時まで").removeprefix("恐れ入ります。"))   # 決まった言い方の途中に読点を入れない（10-15）
+
+
+class NightClockTest(unittest.TestCase):
+    """伺い68（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い68：ア」）：時刻と合わない時間帯の言葉（「夜1時」「深夜2時」）は時間帯の言葉で読み（夜の0〜4時台・深夜／夜中の
+    0〜5時台は日付が変わったあとの時刻）、日付まで言い直して確かめる（「明日の夜1時」⇒「21日の午前1時でよろしいでしょうか？」＝電話の日が19日）。「夕方2時」は時間帯の言葉
+    で午後（「14時、午後2時」のまま）。どちらとも取れる「午後12時」「午前12時」だけ午前か午後かを伺う（今ある一言 phrases.AMPM_ASK）。読みの1か所は clock_h24（言い直しの
+    _speak_clock・日時の2択の段の ladder_read が読む）・日付まで言う形にするのは night_dated の1か所。言い直して確かめた時刻は、24時間の値を会話の報告の通話の事実
+    clock24（名前は仮＝CL-2 へ知らせる）に書く。⛔ f1c0af7e まで「明日の夜1時」を「明日の13時、午後1時」と言い直した（夜中の1時をおっしゃった方に、お昼の1時で確かめた）"""
+
+    def test_the_band_word_reads_the_hour(self):
+        from flowctl import clock_h24, spoken_clock
+        self.assertEqual([clock_h24(p, h) for p, h in (("夜", 1), ("夜", 4), ("夜", 8), ("夜", 12), ("晩", 2), ("深夜", 2), ("夜中", 1), ("深夜", 11),
+                                                        ("夕方", 2), ("夕方", 5), ("午後", 2), ("午前", 1), ("朝", 7), ("昼", 1), (None, 3), (None, 15))],
+                         [1, 4, 20, 0, 2, 2, 1, 23, 14, 17, 14, 1, 7, 13, None, 15])
+        self.assertEqual(spoken_clock("明日の夕方2時"), "明日の14時、午後2時")   # 時間帯と合わない時刻は時間帯の言葉で（違えばお客様が直してくださる）
+        self.assertEqual(spoken_clock("夜1時"), "午前1時")                      # 日付の分からないときも、お昼の1時とは言わない
+
+    def test_after_midnight_says_the_date(self):
+        import datetime as dt
+        from flowctl import night_dated
+        today = dt.date(2026, 11, 19)
+        for v, want in (("明日の夜1時", "21日の午前1時"), ("夜1時", "20日の午前1時"), ("明日の深夜2時", "21日の午前2時"), ("今日の夜中の1時", "20日の午前1時"),
+                        ("明日の夜12時", "21日の午前0時"), ("明日の夜1時半ごろ", "21日の午前1時半ごろ"), ("11月30日の夜2時", "12月1日の午前2時"),
+                        ("明日の夜8時", "明日の夜8時"), ("明日の夕方2時", "明日の夕方2時"), ("明日の明け方4時", "明日の明け方4時"), ("15日の14時", "15日の14時")):
+            self.assertEqual(night_dated(v, today), want, v)
+        self.assertEqual(night_dated("明日の夜1時", None), "明日の夜1時")   # 電話の日が分からなければ、そのまま
+
+    def flow(self):
+        import datetime as dt
+        f = AmPmTest().flow()
+        f.today, f.now = dt.date(2026, 11, 19), dt.datetime(2026, 11, 19, 10, 0)
+        return f
+
+    def test_restated_with_the_date(self):
+        f = self.flow()
+        r = AmPmTest.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="明日の夜1時")
+        self.assertEqual((r["result"], f.items["Q1"].value), ("confirm_required", "21日の午前1時"))
+        self.assertEqual(r["say"], "ありがとうございます。21日の午前1時でよろしいでしょうか？")
+        AmPmTest.do(f, "confirm_field", question_id="Q1", result="affirmed")
+        self.assertEqual(f.report()["facts"]["clock24"], [{"question": "Q1", "value": "21日の午前1時", "date": "2026-11-21", "times": ["01:00"]}])
+
+    def test_twelve_with_am_or_pm_is_asked(self):
+        from phrases import AMPM_ASK
+        for said in ("明日の午後12時", "明日の午前12時"):
+            f = self.flow()
+            r = AmPmTest.do(f, "record_answer", question_id="Q1", condition_id="答えた", value=said)
+            self.assertEqual((r["result"], r.get("ask_reason"), r.get("say")), ("ask_back", "ampm", AMPM_ASK), said)
+            r = AmPmTest.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="夜中です")
+            self.assertEqual((r["result"], f.items["Q1"].value), ("confirm_required", "21日の午前0時"), said)
+        f = self.flow()
+        AmPmTest.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="明日の午後12時")
+        r = AmPmTest.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="お昼です")
+        self.assertEqual((r["result"], r["say"]), ("confirm_required", "ありがとうございます。明日の昼の12時でよろしいでしょうか？"))
+        AmPmTest.do(f, "confirm_field", question_id="Q1", result="affirmed")
+        self.assertEqual(f.report()["facts"]["clock24"], [{"question": "Q1", "value": "明日の昼12時", "date": "2026-11-20", "times": ["12:00"]}])
+
+    def test_the_pairs_read_night_hours_as_morning(self):
+        from flowctl import ladder_read
+        self.assertEqual(ladder_read("夜1時", {})["half"], "午前")
+        self.assertEqual(ladder_read("夜8時", {})["half"], "午後")
+
+
+class TheirsDayPairTest(unittest.TestCase):
+    """伺い67（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い67：ア」）：お言葉に甘えてお客様から折り返していただくお約束で、お戻りの時間を伺い「平日の4時までには
+    折り返します。」と日の種類だけを言われたら「ありがとうございます。それでは本日と明日ではどちらになりますでしょうか？」（日時の2択の段の1か所 ladder_step の続き＝
+    14時18分13秒の場面C と同じ形。候補は今日の時刻に間に合えば今日から、近いその種類の日の2つ）。2択のどちら・2択の外の日は、その日で言い直して確かめる・分からないは
+    伺えた所のまま（「平日の16時まで…」）。⛔ f1c0af7e まで、どの日かを伺わずに「平日の16時まで、午後4時までということでよろしいでしょうか？」（11-16「平日とはいつを指すのか
+    聞かないと、戻る時間の確認の意味がない」）"""
+    ASK = "ありがとうございます。それでは本日と明日ではどちらになりますでしょうか？"
+
+    def asked(self, hour=10):
+        o = OfferTest()
+        offer = "あいにく岡田は外出しておりまして、戻りましたら折り返させますが。"
+        f, _ = o.flow()
+        DateTimePairsTest().dated(f, hour)
+        o.heard(f, offer, away_reading("absent", "callback"))
+        CallbackTimeAheadTest.joined(f, f.apply("request_callback", {"why": "absent", "offer": "callback"}))
+        from flowctl import LATER_THEIRS
+        o.heard(f, "いえいえ、戻りましたらこちらから折り返させますので。", LATER_THEIRS)
+        CallbackTimeAheadTest.joined(f, f.apply("request_callback", {"why": "absent", "offer": "callback"}))
+        self.assertEqual(f.current, "C1")
+        o.heard(f, "平日の4時までには折り返します。")
+        return o, f, f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "平日の4時まで"})
+
+    def test_the_day_is_asked_in_two(self):
+        o, f, r = self.asked()
+        self.assertEqual((r["result"], heard_words(r)), ("ask_back", self.ASK))
+        for said, value, want in (("本日で大丈夫です。", "本日", "本日の16時まで、午後4時まで"), ("明日になります。", "明日", "明日の16時まで、午後4時まで"),
+                                  ("来週の月曜日になると思います。", "来週の月曜日", "来週の月曜日の16時まで、午後4時まで")):
+            o, f, _ = self.asked()
+            o.heard(f, said)
+            r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": value})
+            self.assertEqual(r["result"], "confirm_required", said)
+            self.assertTrue(heard_words(r).endswith(want + "ということでよろしいでしょうか？"), (said, heard_words(r)))
+
+    def test_unknown_keeps_what_was_said(self):
+        o, f, _ = self.asked()
+        o.heard(f, "ちょっと分からないですね。")
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "unknown"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertTrue(heard_words(r).endswith("平日の16時まで、午後4時までということでよろしいでしょうか？"), heard_words(r))
+
+    def test_after_the_time_today_the_next_days(self):
+        # 17時の電話＝今日の4時には間に合わない ⇒ 明日（金曜日）と、次の平日（月曜日は祝日で電話をかけない日＝火曜日）
+        o, f, r = self.asked(hour=17)
+        self.assertEqual(heard_words(r), "ありがとうございます。それでは明日と火曜日ではどちらになりますでしょうか？")
+
+    def test_a_day_already_said_is_not_asked(self):
+        # 日まで言われた答え（「金曜日の4時までには」）は今のまま言い直して確かめる（どの日かは分かっている＝伺い61 ア の今の作り）
+        o, f, _ = self.asked()
+        o2 = OfferTest()
+        g, _ = o2.flow()
+        DateTimePairsTest().dated(g)
+        from flowctl import LATER_THEIRS
+        o2.heard(g, "あいにく岡田は外出しておりまして、戻りましたら折り返させますが。", away_reading("absent", "callback"))
+        CallbackTimeAheadTest.joined(g, g.apply("request_callback", {"why": "absent", "offer": "callback"}))
+        o2.heard(g, "いえいえ、戻りましたらこちらから折り返させますので。", LATER_THEIRS)
+        CallbackTimeAheadTest.joined(g, g.apply("request_callback", {"why": "absent", "offer": "callback"}))
+        o2.heard(g, "金曜日の4時までには折り返します。")
+        r = g.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "金曜日の4時まで"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertTrue(heard_words(r).endswith("金曜日の16時まで、午後4時までということでよろしいでしょうか？"), heard_words(r))
