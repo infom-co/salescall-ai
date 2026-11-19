@@ -2242,7 +2242,10 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
               "end_unjudged", "goal_refused", "who_unclear", "not_agreed", "other_wish", "ended_on", "concern", "handoff",
               "close_offer", "offer_terms", "carried", "elsewhere", "brief", "elsewhere_whole", "elsewhere_point")   # end_unjudged：判定の答えが届かず、会話AIの読みで丁寧に締めた（Flow._end_late。通話のあとの確かめが読み直す）
 # offer_terms：業務の申し出の質問の伺い直しに入れた条件・条件つきで受けていただいた条件（Flow._proposal_note の1か所。question・terms・added・topic。terms・topic は
-# 伺い直したときから＝受けたかはその質問の答え・added は受けていただいたときだけ＝✅ 2026-11-12 まとめ役の (J2)。申し出のシステムの質問は handoff・close_offer に残す）
+# 伺い直したときから＝受けたかはその質問の答え・added は受けていただいたときだけ＝✅ 2026-11-12 まとめ役の (J2)。申し出のシステムの質問は handoff・close_offer に残す）。
+# こちらがかけ直す申し出（C7・P1・H1・H3）の「はい」に添えた中身・伺い直しの条件も同じ記録：question は業務の質問の番号か null（Flow._business_of の1か所。かけ直す
+# 申し出はもとの業務の質問を持たない＝null）・recall＝どの申し出か（RECALL_ROLES の名前。業務の申し出の質問なら null。CL-1.md 4-199 の約束＝分身 AA）。受けたかは、
+# その申し出の答えの記録（はいならかけ直しの記録 callback・C7 と P1 は again・H3 のいいえは brief・H1 のいいえは do_not_call）で読む＝ここには書かない
 # goal_refused：最終目的の申し出を断られ、業務の目的が果たせなくなったので途中で締めた（Flow._goals_lost。その業務だけかけない＝CL-2）
 # concern：本題に入ったあとの「もういいです。」に本心を伺い（「何か問題でもございましたでしょうか？」）、こちらの話し方・進め方・ご案内についての気になる点を
 # 言っていただいた（Flow._concern_decided。question＝そのとき伺っていた業務の質問・said＝お客様の言葉。会話AIが応えた文は callee_question と同じ形＝
@@ -10199,7 +10202,11 @@ class Flow:
         """提案の条件と中身を通話の事実に残す唯一の場所（伺い直したとき _offer_again・受けていただいたとき _proposal_taken。何を残すかは _proposal_terms の
         1か所＝お客様の条件は伺い直したときから・こちらから足した条件は受けていただいたときだけ）。どの手順でも同じ：申し出の手順（N4・N6・その方法 N5・
         伺い方 C11）は申し出の通話の事実（handoff・close_offer）・ほかのご希望の手順（W1・その伺い方 C11）は other_wish（W1 の答えの前でまだ無ければ、
-        答えを受けるときに _wish_step が同じ形で書く）・業務の申し出の質問は offer_terms（1つ）。✅ 2026-11-12 まとめ役の (J2)"""
+        答えを受けるときに _wish_step が同じ形で書く）・業務の申し出の質問とこちらがかけ直す申し出（RECALL_ROLES）は offer_terms（1つ）。✅ 2026-11-12 まとめ役の (J2)
+        offer_terms の question は業務の質問の番号か null（_business_of の1か所＝依頼者に意味の分からない番号を渡さない）・どの申し出かは recall（こちらがかけ直す
+        申し出の役目の名前＝RECALL_ROLES。業務の申し出の質問なら null）。こちらがかけ直す申し出（C7・P1・H1・H3）はもとの業務の質問を持たない＝question は null・
+        recall がその申し出。⛔ 2026-11-19（分身 W の書き置きの穴 (A)・まとめ役 CL-1 の頼み rv129/AA の (1)）まで、question に C7・P1・H1・H3 をそのまま書いていた。
+        かけ直しの記録（callback の again など）は申し出への答えだけを持ち、条件・中身は持たない＝条件と中身の置き場はここだけ（1つの事実は1か所）"""
         q = self.questions[qid]
         terms = self._proposal_terms(qid)
         p = self._way_proc(q) if q.callback in WAY_ROLES else None
@@ -10210,12 +10217,15 @@ class Flow:
             if e is not None:
                 e.update(terms)
         elif q.callback not in WAY_ROLES and any(terms.values()):
-            # 同じ質問に2つ作らない（受けていただいた答えを、あとで決め直しても1つ）
-            e = next((e for e in self.facts.get("offer_terms", []) if e.get("question") == qid), None)
+            # 業務の申し出の質問か、こちらがかけ直す申し出だけ（ほかのシステムの質問の提案は、ここへ来ない＝来れば question がもとの業務の質問の記録と重なる）
+            assert self._business(qid) or q.callback in RECALL_ROLES, qid
+            key = {"question": self._business_of(qid), "recall": q.callback if q.callback in RECALL_ROLES else None}
+            # 同じ申し出に2つ作らない（受けていただいた答えを、あとで決め直しても1つ）
+            e = next((e for e in self.facts.get("offer_terms", []) if all(e.get(k) == v for k, v in key.items())), None)
             if e is not None:
                 e.update(self._proposal_terms(qid))
             else:
-                self._note("offer_terms", question=qid, **self._proposal_terms(qid))
+                self._note("offer_terms", **key, **self._proposal_terms(qid))
 
     def _proposal_taken(self) -> None:
         """申し出・提案を受けていただいた（_offer_taken）とき、伺い直しに入れた条件（お客様の条件・こちらから足した条件・中身）を必ず通話の事実に残す唯一の
