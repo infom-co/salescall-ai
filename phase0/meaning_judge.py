@@ -23,7 +23,7 @@ import json
 
 from flowctl import (ABOUT, ABSENT_WHY, OFFER, ANY, NONE, WAIT_PLAIN, WITHDREW, ELSEWHERE, elsewhere_choices, away_fits, away_choices, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, END, END_HEADING, HANDOVER, HEAR, SIDE_ITEMS, WHY, QUERY, PROMPT_REPLY, PROMPT_REPLY_HEADING, PROMPT_REPLY_YES, AWAY, HOLD, HOLD_BACK, LATER, LATER_THEIRS, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
                      REPEAT, THINKING, HESITATING, UNDECIDED, WAIT_OR_LATER, WHO, called_words, facts_reading, hears_hesitation, in_announce_form, in_since_form, label, prompt_reply_choices,
-                     restates, side_items)
+                     restates, side_items, WRONG, wrong_choices)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -776,7 +776,10 @@ def answer_items(q, asked: str | None = None) -> dict:
     # ほかの会社に頼んでいるのがご案内全体かを読む項目だけ、お客様が聞いた用件の一文を説明に入れる（判定に見せる質問の heard_purpose＝flowctl.Flow.for_judge の1か所。
     # ほかの項目・質問の文は変えない。✅ 2026-11-19 まとめ役 CL-1 の頼み (2)）
     purpose = {ELSEWHERE: elsewhere_choices(False, p)} if (p := getattr(q, "heard_purpose", "")) else {}
-    return (side_items(False) | purpose | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
+    # こちらがかけた電話番号が違うと伝えたか（WRONG）の番号違いの説明は、かけた番号がお呼びした方ご本人の電話か（判定に見せる質問の own_phone＝flowctl.Flow.for_judge の
+    # 1か所）で替える（表 SIDE_ITEMS の既定は会社・お店の電話。ほかの項目・質問の文は変えない。分身 AC＝まとめ役 CL-1 の頼み rv140/AC の (1)）
+    own = {WRONG: wrong_choices(False, True)} if getattr(q, "own_phone", False) else {}
+    return (side_items(False) | purpose | own | ({PROMPT_REPLY: prompt_reply_choices(False, True)} if getattr(q, "prompted", "") else {})
             | ({AWAY: away_choices(False, True)} if away_fits(q, bool(asked)) else {}))
 
 
@@ -1264,6 +1267,8 @@ JEV_ITEMS[ELSEWHERE] = ("お客様は、こちらがご案内している事柄�
 # お呼びする段だけの2つ（flowctl.offer_choices・absent_why_choices。項目ごとに答える質問の Jev の問いは見出しから作る＝jev_request。表をそろえるための問い）
 JEV_ITEMS[OFFER] = "電話に出ている方は、こちらに何か申し出ましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
 JEV_ITEMS[ABSENT_WHY] = "いまお呼びしている方が電話に出られないなら、その理由はどれですか？（答えとは別に読みます。" + NOW_ONLY + "）"
+# 答えの段だけ（flowctl.wrong_choices・wrong_said。お呼びする段は「お呼びした方の事情」の項目が読む。分身 AC）
+JEV_ITEMS[WRONG] = "お客様は、こちらがかけた電話番号が違うと伝えましたか？（答えとは別に読みます。" + NOW_ONLY + "）"
 assert set(JEV_ITEMS) == set(SIDE_ITEMS), "判断のモデルの項目の問いは、答えとは別に読む項目の表（flowctl.SIDE_ITEMS）と同じ項目"
 
 

@@ -3739,11 +3739,11 @@ class AmbiguousAnswerTest(unittest.TestCase):
         # 「ところで」で伺い直しうる業務の質問は、質問の答えの話か・別のお話か（away_talk）も（分身 E＝伺い9 を本番で働かせる）。言い直しの確かめでも読む
         # （見直し (12) の A-9＝言い直しへの別のお話も別のお話の番。⛔ 0c55c4e7 までは読まなかった）
         # ほかの会社に頼んでいる・使っていると言ったか（elsewhere）も（✅ 2026-11-15 日本時間21時55分35秒 ユーザー（伺い25）。答えの段のどの質問でも）
-        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end", "hear", "why", "query", "elsewhere", "away_talk"])
+        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end", "hear", "why", "query", "elsewhere", "wrong_number", "away_talk"])
         self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]),
-                         {"choice", FIRM, "end", "hear", "why", "query", "elsewhere", "away_talk"})
+                         {"choice", FIRM, "end", "hear", "why", "query", "elsewhere", "wrong_number", "away_talk"})
         self.assertEqual(_schema(ans, "それでは差し控えるということでよろしいでしょうか？")["required"],
-                         ["choice", FIRM, "end", "hear", "why", "query", "elsewhere", "away_talk"])
+                         ["choice", FIRM, "end", "hear", "why", "query", "elsewhere", "wrong_number", "away_talk"])
 
     def test_end_item_is_asked_apart_from_the_answer(self):
         # ✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」＝電話を終える言葉か（通話・営業を断った・急いでいる・怒っている・取り次げない）を、
@@ -3761,9 +3761,9 @@ class AmbiguousAnswerTest(unittest.TestCase):
         from flowctl import HEAR, hear_choices
         facets = {f.key: f for f in target_facets()}                         # お呼びする段は項目の1つ（答えとは別に読む項目の表 SIDE_ITEMS から）
         self.assertEqual((set(facets[END].choices), set(facets[HEAR].choices)), (set(end_choices(True)), set(hear_choices(True))))
-        from flowctl import AWAY, ELSEWHERE, QUERY, WHY, away_choices, elsewhere_choices, query_choices, why_choices
+        from flowctl import AWAY, ELSEWHERE, QUERY, WHY, away_choices, elsewhere_choices, query_choices, why_choices, WRONG, wrong_choices
         self.assertEqual(answer_items(q), {END: end_choices(False), HEAR: hear_choices(False), WHY: why_choices(False),
-                                           QUERY: query_choices(False), ELSEWHERE: elsewhere_choices(False),
+                                           QUERY: query_choices(False), ELSEWHERE: elsewhere_choices(False), WRONG: wrong_choices(False),
                                            AWAY: away_choices(False, True)})   # 答えの段は答えとは別の項目（同じ表から。別のお話か＝分身 E・ほかの会社か＝伺い25）
         self.assertTrue(all(d in prompt(q, "x") for d in hear_choices(False).values()))
         text = prompt(q, "結構です。もうかけてこないでください。")
@@ -39704,3 +39704,248 @@ class CallingBeforeTest(unittest.TestCase):
         self.assertEqual(f.items["Q1"].said, [])
         f.on_callee(); f.on_heard("いえ、予約はしています。")
         self.assertEqual((f.judge_context()[2], f.answer_words), ("結構です。", {2: "結構です。"}))
+
+
+class WrongNumberAnswerStageTest(unittest.TestCase):
+    """分身 AC（枝 cl1-wrong-number・まとめ役 CL-1 の頼み rv140/AC の (1)(3)。分身 Z の書き置き rv124/Z/notes.md の 4 の (b)）：答えの段（繋いだあと・お呼びする段の
+    かけ直しの質問も）と目的のお客様のいない業務の最初の質問の段の番号違いも、お呼びする段と同じく判定の組の読みで決める（✅ 2026-11-08 日本時間12時11分40秒「会話AIは
+    判定に加えない」）。同じ説明の文（番号違いの説明の1か所 wrong_number_choice＝お呼びする段の項目「お呼びした方の事情」の「番号違い」と同じ文）・同じ決まり（ご本人の電話か
+    ＝Flow._own_phone の1か所・締めと取り消せない決定の1か所 Flow._wrong_party・読みのそろいの1か所 wrong_said）。答えの段には「お呼びした方の事情」の項目が無いので、
+    答えとは別に読む項目の表 SIDE_ITEMS に「こちらがかけた電話番号が違うと伝えたか」（WRONG・答えの段だけ）を足した（お呼びする段は {}＝1つの事実は1つの項目・G-59 の文は
+    変わらない）。⛔ d8d03a78 まで、答えの段の番号違いは会話AIの報告だけで決まり（取り消せない決定は none＝録音の確かめまで保留）、判定がそろって番号違いと読んでも、会話AIが
+    報告しなければ「はい、恐れ入ります。（質問）」と伺い直していた。
+    (3) で見つけた穴：お呼びする段で、判定の1つが番号違い・もう1つが番号違いでない（ご本人・受付の方で事情は言っていない）と読んでも、番号違いと決めて締めていた（そろいを、
+    不在と読んだ読みだけで数えていた＝_away_about）・取り消せない番号違いの読みが届いた一部だけでも、判定の残りを待たなかった（waits_again）"""
+    FIXED, MOBILE = "03-1234-5678", "+819012345678"
+    STATEMENT = "うちはそういう会社じゃないですよ。番号をお間違えだと思います。"
+    ASKED = "え、うちは山田ですけど、番号をお間違えではないですか？"
+
+    @staticmethod
+    def business(phone, target):
+        return CallingUnheardAskBackTest.business(phone, target)
+
+    def opened(self, phone=FIXED, target="anyone", judging=True):
+        """名乗り（と用件・最初の質問）を流したところ。目的のお客様のいる業務は、ご本人に繋いで最初の質問を流したところ（答えの段）。"""
+        import json
+        import g59_flow_check as fc
+        from flowctl import ASKS_NO, JUDGMENTS
+        b = self.business(phone, target)
+        f = b.flow(recorded=True, play_recordings=True)
+        if judging:
+            f.use_checks(*JUDGMENTS, "asks")
+        f.on_connect()
+        f.on_callee(); f.on_heard("はい、テスト商事でございます。")
+        f.apply("report_party", {"party": "reception" if b.target is not None else "person"})
+        f.on_activity(False)
+        f.on_first_words_end()
+        if b.target is not None:
+            f.on_callee(); f.on_heard("はい、私です。")
+            if judging:
+                for k in JUDGMENTS:
+                    f.on_check(k, fc.read(f.judge_context()[0], json.dumps(fc.facts("同本xx"), ensure_ascii=False)))
+                f.on_check("asks", ASKS_NO)
+            r = f.apply("report_party", {"party": "target"})
+            self.assertEqual(r["result"], "next", r)
+        self.assertEqual((f.phase, f.current is not None), ("asking", True))
+        return f
+
+    @staticmethod
+    def rd(wrong=None, query=None):
+        """答えの段の判定の読み（答えは決められない・電話を終える言葉ではない）に、番号違いの項目の読み wrong を添えたもの。"""
+        from flowctl import END, END_NONE, HEAR, HEAR_OK, QUERY, QUERY_NO, UNDECIDED, WRONG
+        from meaning_judge import Reading
+        r = Reading(UNDECIDED, True)
+        setattr(r, END, END_NONE); setattr(r, QUERY, query or QUERY_NO); setattr(r, HEAR, HEAR_OK)
+        setattr(r, WRONG, wrong)
+        return r
+
+    def said(self, f, words, readings, op=None):
+        """お客様の言葉 words・判定の読み readings（{受け持ち: 読み}・"unsure"＝確かでない読みだけ・None＝届かない）・会話AIの報告 op（None＝報告の無いターン）。"""
+        from flowctl import JUDGMENTS, UNDECIDED
+        f.on_callee(); f.on_heard(words)
+        if readings == "unsure":
+            for k in JUDGMENTS:
+                f.on_unsure(k, UNDECIDED)
+        elif readings:
+            for k, v in readings.items():
+                f.on_check(k, v)
+        f.on_decided()
+        return f.judged_turn(voiced=False) if op is None else f.apply(*op)
+
+    def both(self, wrong, query=None):
+        from flowctl import JUDGMENTS
+        return {k: self.rd(wrong, query) for k in JUDGMENTS}
+
+    REPORT = ("report_party", {"party": "wrong_party"})
+
+    def closed(self, f, r, check="agreed", by="judge"):
+        from phrases import CLOSE_DECLINED
+        heard = OtherCompanyClueSendWayTest.heard(r)
+        self.assertEqual((r["result"], heard, f.end_reason), ("end", CLOSE_DECLINED, "wrong_party"), r)
+        self.assertEqual(({k: f.facts["party"][-1][k] for k in ("party", "by")}, f.irreversible_check), ({"party": "wrong_party", "by": by}, check))
+
+    def not_closed(self, f):
+        self.assertIsNone(f.end_reason)
+        self.assertNotIn("wrong_party", [p.get("party") for p in f.facts.get("party", [])])
+
+    # ── (1) 項目と説明の文は1か所 ─────────────────────────────────────────
+    def test_1_the_answer_stage_item_uses_the_one_description(self):
+        from flowctl import ABOUT_WRONG, UNDECIDED, WRONG, WRONG_NOT_SAID, Question, side_items, target_facets
+        from meaning_judge import answer_items
+        office = target_facets(False, False, own_phone=False)[3].choices[ABOUT_WRONG]
+        own = target_facets(False, False, own_phone=True)[3].choices[ABOUT_WRONG]
+        self.assertEqual(set(side_items(False)[WRONG]), {ABOUT_WRONG, WRONG_NOT_SAID, UNDECIDED})
+        self.assertEqual(side_items(False)[WRONG][ABOUT_WRONG], office)                      # 既定は会社・お店の電話（そういう方はいない、を入れない）
+        self.assertNotIn(WRONG, side_items(True))                                             # お呼びする段は「お呼びした方の事情」が読む（1つの事実は1つの項目）
+        q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        self.assertEqual(answer_items(q)[WRONG][ABOUT_WRONG], office)
+        self.assertEqual(answer_items(__import__("dataclasses").replace(q, own_phone=True))[WRONG][ABOUT_WRONG], own)
+        self.assertIn("そういう方はいない", own)
+        self.assertNotIn("そういう方", office)
+
+    def test_1_the_judge_sees_whose_phone_from_the_one_place(self):
+        # かけた番号がお呼びした方ご本人の電話か（Flow._own_phone の1か所）：お呼びする方のいない業務・番号を伺い直す電話（どなたもお呼びしない）は、携帯電話の番号でも
+        # ご本人の電話ではない（「そういう方はいない」と言われる場面が無い＝名乗りの録音は、あいさつ・名乗り・お詫び・用件・最初の質問だけ＝instruction.Business.opening_parts）
+        import dataclasses
+        from flowctl import ABOUT_WRONG, WRONG
+        from meaning_judge import answer_items
+        for phone, target, own in ((self.FIXED, "anyone", False), (self.MOBILE, "anyone", False), (self.FIXED, "named", False),
+                                   (self.MOBILE, "named", True), (self.FIXED, "individual", True)):
+            f = self.opened(phone, target)
+            self.assertEqual(f._own_phone(), own, (phone, target))
+            q = f.for_judge(f.questions[f.current])
+            self.assertEqual(q.own_phone, own, (phone, target))
+            self.assertEqual("そういう方はいない" in answer_items(q)[WRONG][ABOUT_WRONG], own, (phone, target))
+            self.assertFalse(f.questions[f.current].own_phone)   # 流れの制御の質問は変えない（判定に見せるだけ）
+        n = dataclasses.replace(self.business(self.MOBILE, "named"), number_again="wrong_party")
+        self.assertFalse(n.flow(recorded=True, play_recordings=True)._own_phone())
+
+    # ── (1) 判定の組がそろって番号違いと読んだら、会話AIの報告にかかわらず締める ──────────────
+    def test_1_agreed_readings_close_whatever_the_ai_reports(self):
+        from flowctl import ABOUT_WRONG, QUERY_YES
+        for phone, target, words, query in ((self.FIXED, "anyone", self.STATEMENT, None), (self.MOBILE, "anyone", self.ASKED, QUERY_YES),
+                                            (self.FIXED, "named", self.ASKED, QUERY_YES), (self.FIXED, "individual", "え、そういう方はいませんけど。", None)):
+            for op in (self.REPORT, None, ("record_answer", {"question_id": "Q1", "condition_id": "unknown"})):
+                f = self.opened(phone, target)
+                r = self.said(f, words, self.both(ABOUT_WRONG, query), op)
+                with self.subTest(phone=phone, target=target, op=op and op[0]):
+                    self.closed(f, r)
+
+    def test_1_the_ai_end_report_still_reads_the_end_item_first(self):
+        # 電話を終える言葉（断った など）と番号違いの順は、お呼びする段と同じ（電話を終える言葉が先＝_end_due_now・_end_judged。番号違いが先かは伺いの候補＝書き置き）
+        from flowctl import ABOUT_WRONG, END, END_NONE, END_REFUSED
+        f = self.opened()
+        rs = self.both(ABOUT_WRONG)
+        for v in rs.values():
+            setattr(v, END, END_REFUSED)
+        r = self.said(f, "番号違いですよ。もうかけてこないでください。", rs, ("request_end", {"reason": "callee_refused_call"}))
+        self.assertEqual((r["result"], f.end_reason), ("end", "callee_refused_call"))
+        f = self.opened()
+        rs = self.both(ABOUT_WRONG)
+        r = self.said(f, self.STATEMENT, rs, ("request_end", {"reason": "callee_refused_call"}))   # 電話を終える言葉ではない ⇒ 番号違い
+        self.assertEqual(getattr(rs["judge"], END), END_NONE)
+        self.closed(f, r)
+        f = self.opened()
+        self.closed(f, self.said(f, self.STATEMENT, self.both(ABOUT_WRONG), ("request_end", {"reason": "done"})))   # 「質問が終わった」の報告でも
+
+    # ── (1) そろわない・確かでない読みでは締めない ──────────────────────────────
+    def test_1_split_or_unsure_readings_do_not_close(self):
+        from flowctl import ABOUT_WRONG, WRONG_NOT_SAID
+        for readings in ({"judge": self.rd(ABOUT_WRONG), "judge2": self.rd(WRONG_NOT_SAID)}, self.both(WRONG_NOT_SAID), "unsure"):
+            for op in (self.REPORT, None):
+                f = self.opened()
+                r = self.said(f, self.STATEMENT, readings if readings == "unsure" else {k: __import__("copy").copy(v) for k, v in readings.items()}, op)
+                with self.subTest(readings=str(readings)[:40], op=op and op[0]):
+                    self.not_closed(f)
+                    if op is not None:
+                        self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r)), ("rejected", ""), r)   # 会話AIへの差し戻し（お客様には何も聞こえない）
+                        self.assertIn("番号違いとは読んでいません", r["message"])
+
+    def test_1_when_no_reading_comes_the_ai_report_closes_but_stays_held(self):
+        # 判定の読みが1つも届かない（判定が止まった・待ちきった）：判定が止まったときの決まり（会話AIの読みで進め、通話のあとに録音で確かめ直す）＝今までどおり番号違いで
+        # 締め、取り消せない決定は none（録音の確かめまで保留）。事実は会話AIの報告で分かった（by＝ai）
+        f = self.opened()
+        r = self.said(f, self.STATEMENT, None, self.REPORT)
+        self.closed(f, r, check="none", by="ai")
+        f = self.opened()
+        f.on_callee(); f.on_heard(self.STATEMENT); f.on_judging("judge"); f.on_judging("judge2")
+        self.assertTrue(f.waits_again(*self.REPORT))   # 取り消せない報告：まだ答えの返っていない判定を、もう一度だけ全部待つ
+        self.closed(f, f.apply(*self.REPORT), check="none", by="ai")
+
+    def test_1_judging_off_is_unchanged(self):
+        # 判定を使わない通話は今までどおり会話AIの報告で決まる（取り消せない決定は none）
+        for target in ("anyone", "named"):
+            f = self.opened(target=target, judging=False)
+            r = self.said(f, self.STATEMENT, None, self.REPORT)
+            self.closed(f, r, check="none", by="ai")
+
+    def test_1_the_ai_report_waits_for_every_judge(self):
+        # 取り消せない報告（番号違い）は、判定を全部待ってから決める（電話を終える報告と同じ決まり＝wants_checks・waits_every・waits_again）
+        from flowctl import ABOUT_WRONG
+        f = self.opened()
+        f.on_callee(); f.on_heard(self.STATEMENT)
+        self.assertTrue(f.wants_checks(*self.REPORT))
+        self.assertTrue(f.waits_every(*self.REPORT))
+        f.on_judging("judge"); f.on_judging("judge2")
+        f.on_check("judge", self.rd(ABOUT_WRONG)); f.on_judged("judge")
+        self.assertTrue(f.waits_again(None, None))         # 報告の無いターンも、届いた読みに番号違いがあれば残りを待つ
+        self.assertTrue(f.waits_again(*self.REPORT))
+
+    # ── (3) お呼びする段：そろいは、その言葉の読みの全部で数える ─────────────────────
+    def test_3_calling_stage_closes_only_when_every_reading_says_wrong(self):
+        import json
+        from flowctl import ABOUT, ABOUT_NONE, ABOUT_WRONG, ASKS_NO, PHONE, SPEAKER, WHO
+        from meaning_judge import read
+
+        def facts(who, about):
+            return json.dumps({SPEAKER: "前と同じ方", WHO: who, PHONE: "何もない", ABOUT: about}, ensure_ascii=False)
+        for second in ("受付・取次ぎの方", "ご本人", "決められない"):
+            for op in (self.REPORT, None):
+                f = CallingUnheardAskBackTest().opened(self.business(self.FIXED, "named"))
+                f.use_checks("judge", "judge2", "asks")
+                f.on_callee(); f.on_heard("番号をお間違えではないでしょうか。うちはそういう会社ではありませんが。")
+                q = f.judge_context()[0]
+                f.on_check("judge", read(q, facts("受付・取次ぎの方", ABOUT_WRONG)))
+                f.on_check("judge2", read(q, facts(second, ABOUT_NONE)))
+                f.on_check("asks", ASKS_NO)
+                r = f.apply(*op) if op else f.judged_turn(voiced=False)
+                with self.subTest(second=second, op=op and op[0]):
+                    self.assertNotEqual(f.end_reason, "wrong_party", r)
+                    self.not_closed(f)
+        # 届いた一部の読みが番号違い：残りの判定をもう一度だけ待つ（取り消せない）
+        f = CallingUnheardAskBackTest().opened(self.business(self.FIXED, "named"))
+        f.use_checks("judge", "judge2", "asks")
+        f.on_callee(); f.on_heard("番号をお間違えではないでしょうか。うちはそういう会社ではありませんが。")
+        f.on_judging("judge"); f.on_judging("judge2")
+        f.on_check("judge", read(f.judge_context()[0], facts("受付・取次ぎの方", ABOUT_WRONG))); f.on_judged("judge")
+        self.assertTrue(f.waits_again(None, None))
+        self.assertTrue(f.waits_again(*self.REPORT))
+
+    # ── (2) 測りの試しの言葉（review_words。流さない）──────────────────────────────
+    def test_2_review_rows_read_the_one_description_and_flow(self):
+        """答えの段の行（G-53）：正解の名前は選べるものの名前・場面の印のある行は本番の繋ぐ1か所で組み、判定に見せる番号違いの説明はご本人の電話かで替わる・正解の動きは、
+        番号違いの行は番号違いの締め、言っていない行は締めない（数えの1か所 step_wants＝本番の流れの制御）。お呼びする段の行（G-59 の案）：正解の名前は、その場面の
+        target_facets の選べるもの。"""
+        import review_words as rw
+        from flowctl import ABOUT_WRONG, WRONG, WRONG_NOT_SAID, side_items, target_facets
+        from g53_meaning import judge_inputs, step_wants
+        from meaning_judge import answer_items
+        qs = rw.questions()
+        rows = rw.WRONG_ANSWER_ROWS
+        self.assertTrue(all(r in rw.answer_words() for r in rows))
+        self.assertEqual({r["label"][WRONG][0] for r in rows}, {ABOUT_WRONG, WRONG_NOT_SAID})
+        for it in rows:
+            with self.subTest(text=it["text"], scene=it.get("scene")):
+                self.assertTrue(set(it["label"][WRONG]) <= set(side_items(False)[WRONG]))
+                shown, asked, before = judge_inputs(it, qs[it["qid"]])
+                own = it.get("scene") == "繋いだあと・ご本人の電話"
+                self.assertEqual(shown.own_phone, own)
+                self.assertEqual("そういう方はいない" in answer_items(shown, asked)[WRONG][ABOUT_WRONG], own)
+                wants = step_wants(it, qs[it["qid"]], True)
+                self.assertEqual(wants == {"締める（wrong_party）"}, it["label"][WRONG] == [ABOUT_WRONG], wants)
+        self.assertEqual(rw.counts()["G-59（正解の表へ足す案）"], len(rw.CALLING_WORDS))
+        for text, scene, label, why in rw.CALLING_WORDS:
+            facets = {f.key: f for f in target_facets(scene["asked"], False, own_phone=scene["own_phone"])}
+            for key, got in label.items():
+                self.assertTrue(got <= set(facets[key].choices), (text, key, got))
+            self.assertTrue(why)
