@@ -61,9 +61,11 @@ class Ctx:
         """管理者が、自分のでない契約者を見ているか（画面の上に帯を出す＝取り違えを防ぐ）。"""
         return self.tenant_id != self.person.tenant_id
 
-    def tenant(self, work: Callable[[Tx], T], *, time_limit: float | None = 10) -> T:
-        """見ている契約者の取引（全体の画面）。"""
-        return self.access.in_tenant(self.person.actor, self.tenant_id, work, time_limit=time_limit)
+    def tenant(self, work: Callable[[Tx], T], *, time_limit: float | None = 10, read_only: bool = False) -> T:
+        """見ている契約者の取引（全体の画面）。read_only＝読むだけの画面（書けない取引。CL-2 4-430 の 32）。"""
+        if read_only:
+            return self.access.in_tenant(self.person.actor, self.tenant_id, work, time_limit=time_limit, read_only=True)
+        return _once(lambda w: self.access.in_tenant(self.person.actor, self.tenant_id, w, time_limit=time_limit), work)
 
     def client(self, client_id: UUID, work: Callable[[Tx], T], *, read_only: bool = False) -> T:
         """住所の依頼者の取引（依頼者の画面）。その契約者の依頼者でなければ NotFound（データベースが行を見せないことで分かる）。"""
@@ -71,7 +73,9 @@ class Ctx:
             if tx.one("SELECT 1 FROM salescall.clients WHERE client_id = %s", (client_id,)) is None:
                 raise NotFound()
             return work(tx)
-        return self.access.in_client(self.person.actor, self.tenant_id, client_id, guarded, read_only=read_only)
+        if read_only:
+            return self.access.in_client(self.person.actor, self.tenant_id, client_id, guarded, read_only=True)
+        return _once(lambda w: self.access.in_client(self.person.actor, self.tenant_id, client_id, w), guarded)
 
     def system(self, work: Callable[[Tx], T]) -> T:
         """管理者の場所の取引（管理者だけ）。"""
@@ -97,6 +101,22 @@ def business(tx: Tx, business_id: UUID) -> dict[str, Any]:
     if b is None:
         raise NotFound()
     return b
+
+
+def _once(open_tx: Callable[[Callable[[Tx], T]], T], work: Callable[[Tx], T]) -> T:
+    """変える取引の入口の1か所：受けている操作に、まだ使っていない二度押しの札があれば、その取引の最初で使う（web/actions の札の決まり）。
+    取引が確定したら、同じ操作の2つ目の取引では使わない。取引が戻れば（断り・やり直し）、札も使っていないまま。"""
+    from salescall.web import actions
+    token = actions.pending_once()
+    if token is None:
+        return open_tx(work)
+
+    def guarded(tx: Tx) -> T:
+        actions.use_once(tx, token)
+        return work(tx)
+    out = open_tx(guarded)
+    actions.spent_once()
+    return out
 
 
 def acting(access: Access, person: Person, chosen: UUID | None) -> Ctx:

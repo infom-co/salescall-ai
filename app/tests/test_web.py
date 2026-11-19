@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import quote
 import unittest
 from uuid import UUID, uuid4
 
@@ -50,9 +51,10 @@ class _World(unittest.TestCase):
         return self.http.post(path, data=data, headers={"x-test-person": who}, follow_redirects=False)
 
     def token(self, who, path="/t"):
+        """なりすましの札（二度押しの札を外したもの＝1つの札で、いくつもの操作を送る試験のため。二度押しは、その試験で確かめる）。"""
         m = re.search(r'<meta name="form-token" content="([^"]+)"', self.get(who, path).text)
         self.assertIsNotNone(m, "画面に札がありません")
-        return m.group(1)
+        return m.group(1).split("~")[0]
 
     def _stop(self, tenant: UUID, reason: str) -> int:
         return app_access().in_tenant(OPERATOR, tenant, lambda tx: stops.stop(
@@ -380,6 +382,25 @@ class Web(_World):
         self.assertIn("ok=1", self.post("A", f"/t/lines/{lid}/retire", {"form_token": tok, "reason": "試験の片付け"}).headers["location"])
 
     # ── 発信禁止（docs/DASHBOARD.md 5-10） ──
+    def test_an_operation_sent_twice_from_the_same_page_works_once(self):   # 二度押しの札（DASHBOARD.md 8-1。札は core の once の1か所）
+        page = self.get("A", f"/c/{self.a['client']}/dnc").text
+        tok = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)
+        self.assertIn("~", tok)                                                  # 画面を開くたびに出す札が、なりすましの札につながっている
+        number = fictional_jp_fixed()
+        data = {"form_token": tok, "phone": number, "reason": "試験：二度押し"}
+        no_reason = self.post("A", f"/c/{self.a['client']}/dnc", {**data, "reason": ""})
+        self.assertIn("ok=0", no_reason.headers["location"])                     # 断られた操作では札を使わない（もう一度送れる）
+        first = self.post("A", f"/c/{self.a['client']}/dnc", data)
+        self.assertIn("ok=1", first.headers["location"])
+        second = self.post("A", f"/c/{self.a['client']}/dnc", data)               # 同じ画面からもう1回（二度押し）
+        self.assertIn("ok=0", second.headers["location"])
+        count = app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.dnc_entries WHERE note = %s", ("試験：二度押し",)))["n"]
+        self.assertEqual(count, 1)                                               # 1回だけ効いた
+        other = re.search(r'<meta name="form-token" content="([^"]+)"', self.get("B", "/t").text).group(1)
+        stolen = self.post("A", f"/c/{self.a['client']}/dnc", {**data, "form_token": tok.split("~")[0] + "~" + other.split("~")[1]})
+        self.assertIn("ok=0", stolen.headers["location"])                        # ほかの方の札は使えない（データベースが断る）
+
     def test_a_number_is_registered_not_to_call_and_revoked_with_a_reason(self):
         tok = self.token("A")
         number = fictional_jp_fixed()
@@ -695,6 +716,19 @@ class AdminSeesEverything(_World):
             self.assertIn(part, cookie)
         http.post("/admin/acting", data={"tenant_id": "", "form_token": tok}, headers={"x-test-person": "ADMIN"})
 
+    def test_the_admin_picks_a_contractor_from_the_list_and_others_cannot_see_it(self):   # 一覧は core の registry.tenants（CL-2 4-430 の 9）
+        http = self.fresh()
+        page = http.get("/admin/tenants", headers={"x-test-person": "ADMIN"}).text
+        b_name = app_access().in_tenant(OPERATOR, self.b["tenant"], lambda tx: tx.one(
+            "SELECT name FROM salescall.tenants WHERE tenant_id = %s", (self.b["tenant"],)))["name"]
+        self.assertIn(b_name, page)
+        self.assertIn(f'value="{self.b["tenant"]}"', page)                     # 選ぶボタン（/admin/acting の1か所へ送る）
+        self.assertEqual(http.get("/admin/tenants", headers={"x-test-person": "A"}).status_code, 404)   # 契約者には無い画面
+        tok = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)
+        http.post("/admin/acting", data={"tenant_id": str(self.b["tenant"]), "form_token": tok}, headers={"x-test-person": "ADMIN"})
+        self.assertIn(f"管理者として「<b>{b_name}</b>」を見ています", http.get("/t", headers={"x-test-person": "ADMIN"}).text)
+        http.post("/admin/acting", data={"tenant_id": "", "form_token": tok}, headers={"x-test-person": "ADMIN"})
+
     def test_a_fixed_request_waits_for_the_admin_only_and_the_admin_approves_it(self):   # 修正依頼の承認（全体の範囲）
         from salescall.core import fix_requests
         key = f"web-test-{uuid4()}"
@@ -729,7 +763,13 @@ class AdminSeesEverything(_World):
         self.assertNotIn("依頼者X", page)
         self.assertIn("管理者として", page)
         eid = self._stop(self.b["tenant"], "管理者が解く試験の停止")
-        r = http.post(f"/t/stops/{eid}/resume", data={"reason": "試験：管理者が確かめた", "form_token": tok},
+        stale = http.post(f"/t/stops/{eid}/resume", data={"reason": "試験：前の契約者の画面から", "form_token": tok},
+                          headers={"x-test-person": "ADMIN"}, follow_redirects=False)
+        self.assertIn("ok=0", stale.headers["location"])                         # 切り替える前の契約者の画面の札では、切り替えた先に効かせない
+        self.assertIn(quote("古くなっています"), stale.headers["location"])
+        self.assertTrue(self._open(self.b["tenant"], eid))
+        b_tok = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1)   # 切り替えたあとに開いた画面の札
+        r = http.post(f"/t/stops/{eid}/resume", data={"reason": "試験：管理者が確かめた", "form_token": b_tok},
                       headers={"x-test-person": "ADMIN"}, follow_redirects=False)
         self.assertIn("ok=1", r.headers["location"])
         self.assertFalse(self._open(self.b["tenant"], eid))

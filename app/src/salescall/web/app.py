@@ -36,6 +36,7 @@ from salescall.core import (agents, calling_hours, conversation_io, customer_con
                             health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
+from salescall.core import once
 from salescall.core.access import Access
 from salescall.output import files as result_files
 from salescall.output import notices, result_rows, words
@@ -160,7 +161,10 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         if values["client"] is not None and "businesses" not in values:
             values["businesses"] = ctx.client(values["client"]["client_id"], context.businesses, read_only=True)
         return templates.TemplateResponse(request, name, {
-            "person": person, "ctx": ctx, "clients": ctx.clients(), "token": actions.form_token(secret, person.login_id), **values})
+            "person": person, "ctx": ctx, "clients": ctx.clients(),
+            # なりすましの札に、この画面の二度押しの札をつなぐ（札は core の once の1か所。画面を開くたびに1枚。web/actions の決まり）
+            "token": actions.with_once(actions.form_token(secret, person.login_id),
+                                       ctx.tenant(lambda tx: once.issue(tx, actions.ONCE_ACTION))), **values})
 
     def chosen_tenant(request: Request, person: Person) -> UUID | None:
         """管理者が選んだ契約者（署名つきの札から読む。札が合わなければ選んでいないとみなす）。"""
@@ -422,7 +426,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return out
             return run
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
-            rows = ctx.tenant(read(False))
+            rows = ctx.tenant(read(False), read_only=True)
             admin_rows = ctx.system(read(True)) if person.is_admin else []
             # 知らせ1件ずつの「どこの」と「見る」：依頼者の知らせは依頼者の名前、お客様の知らせはその行へ（住所は links の1か所。
             # 行は依頼者の取引でしか見えないので、依頼者ごとに1回で引く）
@@ -521,6 +525,15 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     (lambda: ctx.tenant(do)) if client_id is None else (lambda: ctx.client(client_id, do)))
             out = actions.act(secret, person.login_id, form, work, done="変えました。前の値は記録に残っています。", reason_field="reason")
             return _back(back, out)
+        return handle(request, render)
+
+    @app.get("/admin/tenants")
+    def admin_tenants(request: Request) -> HTMLResponse:
+        """管理者が、見る契約者を選ぶ画面（管理者だけ。全体の取引で、core の registry.tenants の1か所を読む＝CL-2 4-430 の 9。
+        ✅ 2026-11-18 管理者「管理者は全てを見れて操作できる」）。選ぶ操作は /admin/acting の1か所。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            rows = ctx.system(registry.tenants)
+            return page(request, "admin_tenants.html", person, ctx, tenants=rows, active="admin_tenants")
         return handle(request, render)
 
     @app.get("/admin/settings")

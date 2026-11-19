@@ -157,7 +157,7 @@ def collect(ctx: Any) -> list[tuple[str, Watch, list[tuple[dict[str, Any] | None
     if keys("system"):
         for k, got in ctx.system(read(keys("system"))).items():
             found[k] = [(None, e) for e in got]
-    for k, got in ctx.tenant(read(keys("tenant"))).items():   # 契約者の取引は1つ
+    for k, got in ctx.tenant(read(keys("tenant")), read_only=True).items():   # 契約者の取引は1つ（読むだけ）
         found[k] = [(None, e) for e in got]
     for c in ctx.clients():   # 依頼者ごとに、読むだけの取引を1つ（その中で依頼者の項目をすべて集める）
         for k, got in ctx.client(c["client_id"], read(keys("client")), read_only=True).items():

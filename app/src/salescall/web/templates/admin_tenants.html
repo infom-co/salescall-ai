@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty %}
+{% block title %}契約者を選ぶ{% endblock %}
+{% block main %}
+<h1>契約者を選ぶ</h1>
+<p class="lead">管理者として、どの契約者の画面を見るかを選びます。選ぶと、その契約者のホームを開きます。見ている間の操作は、その契約者に効きます（上の帯に、いつも契約者の名前が出ます）。</p>
+{# 一覧は core の registry.tenants の1か所（全体の取引の管理者だけが読める）。選ぶ操作は /admin/acting の1か所 #}
+{% if tenants %}
+<div class="table-scroll"><table class="list">
+  <thead><tr><th>契約者</th><th></th></tr></thead>
+  <tbody>
+  {% for t in tenants %}
+    <tr>
+      <td>{{ t.name }}{% if t.tenant_id == ctx.tenant_id %} {{ tag("いま見ている", "info") }}{% endif %}{% if t.tenant_id == person.tenant_id %} <span class="muted">（自分の契約者）</span>{% endif %}</td>
+      <td class="nowrap">{% if t.tenant_id != ctx.tenant_id %}
+        <form method="post" action="/admin/acting"><input type="hidden" name="{{ token_field }}" value="{{ token }}">
+          {% if t.tenant_id != person.tenant_id %}<input type="hidden" name="tenant_id" value="{{ t.tenant_id }}">{% endif %}
+          <button class="btn small main" type="submit">この契約者を見る</button></form>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<div class="card">{{ empty("契約者はまだいません") }}</div>{% endif %}
+{% endblock %}

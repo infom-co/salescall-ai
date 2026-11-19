@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import secrets
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -76,7 +77,53 @@ def form_token(secret: bytes, login_id: str) -> str:
     return f"{nonce}.{mac}"
 
 
+# ── 二度押しの札（docs/DASHBOARD.md 8-1。札をしまう表と出し方・使い方は core の once の1か所＝CL-2 4-430 の 2）──────────────
+# 画面を開くたびに札を1枚出し（app の page の1か所）、なりすましの札（form_token）のうしろに「~」でつないでフォームへ入れる（フォームの札の欄は
+# parts.csrf の1か所なので、どの操作にも入る）。操作を受けたら（`act`）、変える取引の最初で札を使う（web/context.Ctx の1か所）。もう使った札
+# なら、何も変えずに「もう受け付けています」と出す。操作が断られて取引が戻れば、札も使っていないまま（もう一度送れる）。
+# 札の無い送信（画面を通さない送り方）は、なりすましの札だけで受ける（二度押しの守りは、画面から押したときのもの）。
+# 管理者の全体の範囲の操作（全体の取引）は、札を出した契約者の取引と違うので、札を使わない（全体の範囲の操作は、core の一意の約束に頼る）。
+ONCE_ACTION = "画面の操作"
+_ONCE: ContextVar[Any] = ContextVar("salescall_once", default=None)
+
+
+class AlreadyDone(Refused):
+    """同じ画面の札で2回送られた（二度押し・同時の2回）。何も変えていない。"""
+
+
+def with_once(token: str, once_id: Any) -> str:
+    return f"{token}~{once_id}"
+
+
+def _split(raw: str | None) -> tuple[str, str | None]:
+    csrf, _, once = (raw or "").partition("~")
+    return csrf, (once or None)
+
+
+def pending_once() -> Any:
+    """いま受けている操作の、まだ使っていない二度押しの札（無ければ None）。"""
+    return _ONCE.get()
+
+
+def use_once(tx: Any, token: Any) -> None:
+    """変える取引の最初で札を使う（core の once.use の1か所）。もう使った札なら断る（取引ごと戻る）。"""
+    from salescall.core import once
+    try:
+        fresh = once.use(tx, token, ONCE_ACTION)
+    except access.Rejected:   # 出した方・契約者が違う札（ほかの画面で見ている契約者を切り替えたあとの、前の画面など）＝データベースが断る
+        raise Refused("この画面は古くなっています（ほかの画面で、見ている契約者を切り替えた など）。"
+                      "画面を開き直してから、もう一度押してください") from None
+    if not fresh:
+        raise AlreadyDone("この操作は、もう受け付けています（同じ画面から2回送られました）")
+
+
+def spent_once() -> None:
+    """札を使った取引が確定した（同じ操作の中で、2つ目の取引では使わない）。"""
+    _ONCE.set(None)
+
+
 def token_ok(secret: bytes, login_id: str, token: str | None) -> bool:
+    token = _split(token)[0]
     if not token or "." not in token:
         return False
     nonce, mac = token.split(".", 1)
@@ -121,6 +168,20 @@ def act(secret: bytes, login_id: str, form: dict[str, Any], do: Callable[[], Any
         return Outcome(False, "画面の札が合いません。画面を開き直してから、もう一度押してください。")
     if reason_field is not None and not str(form.get(reason_field) or "").strip():
         return Outcome(False, "理由を書いてください（理由は記録に残ります）。")
+    from uuid import UUID
+    raw_once = _split(str(form.get(TOKEN_FIELD) or ""))[1]
+    try:
+        once_id = UUID(raw_once) if raw_once else None
+    except ValueError:
+        return Outcome(False, "画面の札が合いません。画面を開き直してから、もう一度押してください。")
+    pending = _ONCE.set(once_id)
+    try:
+        return _act(do, done)
+    finally:
+        _ONCE.reset(pending)
+
+
+def _act(do: Callable[[], Any], done: str) -> Outcome:
     try:
         value = do()
     except access.Rejected as e:
