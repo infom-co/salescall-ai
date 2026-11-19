@@ -446,3 +446,6 @@ fieldset.retry-row legend { font-weight: 600; font-size: 13px; padding: 0 4px; }
 fieldset.retry-row input { width: 5em; }
 details.adder-block > summary { list-style: none; cursor: pointer; display: inline-block; }
 details.adder-block > summary::-webkit-details-marker { display: none; }
+
+/* 依頼者へ渡すファイルの枠（形を選んで書き出す） */
+form.handover { display: grid; gap: 8px; margin: 12px 0; }

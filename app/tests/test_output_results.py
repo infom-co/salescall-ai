@@ -135,6 +135,22 @@ class Csv(unittest.TestCase):
         from salescall.core import business_settings
         self.assertEqual(set(result_rows.TO_FILL_COLUMNS), set(business_settings.WHO_UNCLEAR_FIELDS))   # 欄の正本と突き合わせる
 
+    def test_the_excel_file_marks_the_blanks_in_red_and_keeps_formulas_as_text(self):   # ✅ 2026-11-18 管理者「(ア)でOK」・CL-2 4-439 の 6
+        import io as _io
+        from openpyxl import load_workbook
+        row = self._row(company="=HYPERLINK(\"x\")", to_fill=("お呼びする方のフルネーム",))
+        wb = load_workbook(_io.BytesIO(files.write("xlsx", [row])))
+        ws = wb.active
+        head = [c.value for c in ws[1]]
+        self.assertEqual(head[:len(result_rows.COLUMNS)], list(result_rows.COLUMNS))
+        cells = {h: ws.cell(row=2, column=i + 1) for i, h in enumerate(head)}
+        self.assertEqual((cells["会社名"].value, cells["会社名"].data_type), ("=HYPERLINK(\"x\")", "s"))   # 式として動かさない
+        blank = cells["お呼びする方のフルネーム"]
+        self.assertIsNone(blank.value)                                            # 依頼者に入れていただく空欄
+        self.assertEqual(blank.fill.fgColor.rgb[-6:], result_rows.TO_FILL_BACKGROUND.lstrip("#"))
+        self.assertEqual(blank.font.color.rgb[-6:], result_rows.TO_FILL_TEXT.lstrip("#"))
+        self.assertTrue(files.file_name("依頼者", "実施回", __import__("datetime").date(2026, 11, 20), "xlsx").endswith(".xlsx"))
+
     def test_the_file_name_is_checked_and_safe(self):
         from datetime import date
         self.assertEqual(files.file_name("架空/商事", "11月分", date(2026, 11, 18)), "架空_商事_11月分_結果_2026-11-18.csv")
@@ -204,7 +220,8 @@ class Screen(unittest.TestCase):
     def test_the_hand_over_button_waits_for_a_confirmed_result(self):   # 渡せるかは files.deliverable の1か所（ボタンも渡す処理も）
         page = self.http.get(self.base.replace("/results.csv", "/results")).text
         self.assertIn("確定した結果がまだ無いので、依頼者へは渡せません", page)
-        self.assertRegex(page, r'<button class="btn main" type="submit" disabled>依頼者「')
+        self.assertRegex(page, r'<button class="btn main" type="submit" disabled>Excel で書き出す')
+        self.assertRegex(page, r'formaction="[^"]+/results.csv" disabled>CSV で書き出す')
 
     def test_a_run_of_another_client_cannot_be_written_out_here(self):
         other = f"/c/{self.a['client']}/b/{self.a['business']}/runs/{self.y['run']}/results.csv"

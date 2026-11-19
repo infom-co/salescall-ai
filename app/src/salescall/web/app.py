@@ -1268,7 +1268,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
 
     # ── 結果の書き出し（docs/DESIGN.md 7-3。行は output/result_rows、ファイルは output/files の1か所） ──────────
     def _results_file(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, *, submit: bool,
-                      form: dict[str, Any] | None = None) -> Response:
+                      form: dict[str, Any] | None = None, fmt: str = "csv") -> Response:
         """その実施回の結果の CSV。submit＝依頼者へ渡すファイルとして書き出す（提出用の控えに置く。同じ取引で）。依頼者へ出さない言葉が
         入っていれば、書き出さずに止める（output/files.check）。"""
         def render(person: Person, ctx: Ctx) -> Response:
@@ -1277,8 +1277,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 run = _run_in(tx, business_id, run_id)
                 c = tx.one("SELECT name FROM salescall.clients WHERE client_id = %s", (client_id,))
                 got = result_rows.rows(tx, run_id)
-                name = result_files.file_name(c["name"], run["name"], tx.today())
-                data = result_files.to_csv(got, run["name"])
+                name = result_files.file_name(c["name"], run["name"], tx.today(), fmt)
+                data = result_files.write(fmt, got, run["name"])
                 return name, data, (result_files.submit(tx, got, name, data) if submit else None)
             if submit:   # 依頼者へ渡す：変える操作の1か所（札・断りの言い換え）を通す
                 out = actions.act(secret, person.login_id, form or {}, lambda: ctx.client(client_id, work), done="")
@@ -1290,8 +1290,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                     name, data, _ = ctx.client(client_id, work, read_only=True)
                 except result_files.ClientWordsLeak as e:
                     return _back(base, actions.Outcome(False, str(e)))
-            return Response(data, media_type="text/csv; charset=utf-8",
-                            headers={"Content-Disposition": f"attachment; filename=\"results.csv\"; filename*=UTF-8''{quote(name)}",
+            return Response(data, media_type=result_files.FORMATS[fmt][2],
+                            headers={"Content-Disposition": f"attachment; filename=\"results{result_files.FORMATS[fmt][1]}\"; filename*=UTF-8''{quote(name)}",
                                      "Cache-Control": "no-store"})
         return handle(request, render)
 
@@ -1315,15 +1315,19 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 
-    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/results.csv")
-    def results_check(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> Response:
-        """確かめるために書き出す（控えには置かない）。"""
-        return _results_file(request, client_id, business_id, run_id, submit=False)
+    @app.get("/c/{client_id}/b/{business_id}/runs/{run_id}/results.{fmt}")
+    def results_check(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, fmt: str) -> Response:
+        """確かめるために書き出す（控えには置かない）。形は output/files.FORMATS（CSV・Excel）。"""
+        if fmt not in result_files.FORMATS:
+            return problem(request, 404, "見つかりません", "住所を確かめてください。")
+        return _results_file(request, client_id, business_id, run_id, submit=False, fmt=fmt)
 
-    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/results.csv")
-    async def results_submit(request: Request, client_id: UUID, business_id: UUID, run_id: UUID) -> Response:
+    @app.post("/c/{client_id}/b/{business_id}/runs/{run_id}/results.{fmt}")
+    async def results_submit(request: Request, client_id: UUID, business_id: UUID, run_id: UUID, fmt: str) -> Response:
         """依頼者へ渡すファイルとして書き出す（提出用の控えに置く）。"""
-        return _results_file(request, client_id, business_id, run_id, submit=True, form=dict(await request.form()))
+        if fmt not in result_files.FORMATS:
+            return problem(request, 404, "見つかりません", "住所を確かめてください。")
+        return _results_file(request, client_id, business_id, run_id, submit=True, form=dict(await request.form()), fmt=fmt)
 
     # ── お客様リストの取込（docs/DASHBOARD.md 5-8）：ファイル → 列と欄の対応付け → プレビュー（行ごとの合否）→ 登録 ──────
     def _run_in(tx: Any, business_id: UUID, run_id: UUID) -> dict[str, Any]:
