@@ -1160,6 +1160,13 @@ SUCCESSOR = {"target": "恐れ入りますが後任のご担当者様はいら�
 # 流れの制御がもう流さない（flowctl.CONFIRM_PARTS の説明＝✅ 2026-11-19 日本時間15時10分27秒 伺い50 イ）ので、その後任の方の形 successor_reconfirm も流れない＝作らない
 # （文 SUCCESSOR["target_reconfirm"] は名前の録音の台帳の続く言葉 target_reconfirm と一緒に残る＝CL-2 と同時に外す＝分身 R）。⛔ 2026-11-19（分身 AA＝穴 (C)）まで
 # successor_reconfirm を録音の表に入れていた
+# 後任の方もいらっしゃらないと言われ、その役職の方をお呼びするときの名乗りの部分（流れの制御の部分 → 業務の名乗りの部分。唯一の表＝作る instruction.Business.replay_parts・
+# 切り替える flowctl.Flow._to_role）。文は役職だけでお呼びする業務の一言と同じ1か所（instruction.Target の役職だけの形＝target_call・target_confirm・unavailable_confirm・
+# target_transfer の名前の無い形「部長様はいらっしゃいますでしょうか？」など）。録音は名前の録音の台帳の、役職の呼び方の名前の部分（役職だけの目的のお客様と同じ鍵＝役職）＋
+# 今ある続く言葉（target・target_confirm・unavailable_confirm・target_transfer）＝新しい文・続く言葉は作らない（CL-2 は、名前と役職のある法人の行にも役職の呼び方の名前の
+# 部分を要る録音に入れる＝分身 M の書き置きの CL-2 へ知らせるもの）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいないときは、該当の役職の方」
+ROLE_PARTS = {"target": "target_role", "target_confirm": "target_role_confirm", "unavailable_confirm": "target_role_unavailable",
+              "target_transfer": "target_role_transfer"}
 SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confirm",
                  "unavailable_confirm": "successor_unavailable", "target_transfer": "successor_transfer"}
 # 前の電話で、お呼びした方が在籍していないと言われた会社への次の電話（予約証の successor）：その方の後任のご担当者様をお呼びする一言（依頼主の単位の

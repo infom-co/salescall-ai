@@ -30,7 +30,7 @@ from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, c
 from phrases import OFFER_ACCEPTED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALL_AGAIN_TAKEN, OFFER_DONE, OFFER_TAKEN, WISH_WAY_TOPIC, APOLOGY_PURPOSE, BACK_LINES, DEPARTED_ACK, HOLD_TIMEOUT, WAIT_REPLY, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OFFER_THANKS_AGAIN, OWN_FALLBACK, point_fallback, point_fallback_id, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import NOT_ASKED_AGAIN, RECORDED, STANDARD_PARTS, THINKING_PROMPT, ack_pause_s, ask_again as ask_again_phrase
 from phrases import ASKED_PROMPT_IDS, CONCERN_PROMPT_IDS, QUIET_LINES, THINKING_PROMPT_IDS, WAIT, WAIT_ASK_PLAIN_ID
-from phrases import OMATASE, WAIT_SOON, WRONG_NUMBER_ASK
+from phrases import OMATASE, ROLE_PARTS, WAIT_SOON, WRONG_NUMBER_ASK
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
@@ -2668,6 +2668,12 @@ WHO_SUCCESSOR, WHO_BOSS, WHO_CAN, WHO_CANNOT, WHO_PROXY = ("代理の方（後�
 PROXIES = (WHO_SUCCESSOR, WHO_BOSS, WHO_CAN, WHO_CANNOT, WHO_PROXY)
 WHO_CHOICES = (TARGET_IS_THERE, WHO_RECEPTION, *PROXIES, WHO_OTHER, UNDECIDED)   # 第2層・第3層（どの場面でも同じ選べるもの。説明だけが場面で違う）
 PHONE_NONE, ABOUT_NONE, ABOUT_DEPARTED = "何もない", "言っていない", "在籍していない"
+# 会社やお店の電話で、はじめにお呼びした方を「そういう者はおりませんが。」とだけ言われた（退職・異動・担当が替わったとは言っていない＝名簿の誤り・受付の方の聞き違い・同じ名字の方が
+# 多い、もありうる）。在籍していない（ABOUT_DEPARTED）と同じ「お呼びした方の事情」の項目の選べるもの（1つの事実は1つの項目）。流れの制御は、まだなら部署・フルネームで1回だけ
+# お呼びし直し（Flow._recall_full）、それでもいらっしゃらなければ在籍していないと同じ道（Flow._departed）。ご本人の電話（携帯電話の番号・個人のお客様）の「そういう方はいない」は
+# 番号違い（wrong_number_choice）・後任の方の場面は在籍していないの説明のまま（後任の方はいない）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいないときは、
+# 該当の役職の方」（エ＝辞めた・異動したとはっきり言われたときは今のまま後任の方）
+ABOUT_NO_SUCH = "そういう方はいない"
 # お呼びした方の事情の「番号違い」（かけた電話番号が、お呼びした方の電話ではない＝そういう方はもともといない）。はじめの場面だけ（後任の方をお呼びしているときは、
 # 番号はもう合っている＝選べるものに出さない）。番号違いかは、この項目の判定の組の読みだけで決める（Flow._away の1か所＝在籍していないと同じ所。会話AIの「番号違い」の
 # 報告は判定を待つきっかけだけ）。✅ 2026-11-08 日本時間12時11分40秒 ユーザー「そもそも会話 AI がなぜ判定に加わっているんですか？…」・本書 9-5 の 6.・10-30 (6)
@@ -3266,8 +3272,11 @@ def target_facets(asked: bool = False, seeks_successor: bool = False, own_phone:
                         f"また出てそう伝えたときも・{P}ご本人が、いまは手が離せないと言ったときも）",
         ABOUT_DEPARTED: ("いまの言葉で、後任の方はいない・後任の方ももういない、と伝えた（はじめにお呼びした方が在籍していないことは、もう分かっているので、"
                          "こちらにしない）" if s else
-                         "いまの言葉で、お呼びした方は、退職・異動などで、もうその会社・部署にいない（担当が替わったときも）"
-                         + ("" if own_phone else "・そういう方はいない") + "、と伝えた"),
+                         "いまの言葉で、お呼びした方は、退職・異動などで、もうその会社・部署にいない（担当が替わったときも）、と伝えた"),
+        # 会社・お店の電話のはじめの場面だけ：退職・異動とは言わずに「そういう方はいない」とだけ伝えた（ABOUT_NO_SUCH の注。ご本人の電話は番号違い・後任の方の場面は
+        # 在籍していないの説明のまま）
+        **({} if s or own_phone else {ABOUT_NO_SUCH: "いまの言葉で、お呼びした方は、そういう方はいない（その名前の方に心当たりがない）、とだけ伝えた（退職・異動・"
+                                                     "担当が替わったとは言っていない）"}),
         # 番号違い（ABOUT_WRONG の注）の説明は、かけた番号がお呼びした方ご本人の電話か（own_phone＝Flow._own_phone の1か所）で分ける：ご本人の電話（個人のお客様・
         # 携帯電話の番号）なら「そういう方はいない」＝その方の電話ではない＝番号違い。会社・お店の電話では、番号の間違い・そういう会社やお店ではないと言ったときだけ
         # 番号違いで、「そういう方はいない」は在籍していない（後任の方を伺う道。何と言うかは伺う＝⏳ 帳面 1 の (6)）。⛔ 586a2871（分身 Z）は、どの電話でも
@@ -3292,7 +3301,7 @@ def facts_reading(facts: dict, seeks_successor: bool = False) -> tuple[str, bool
     unsure = (UNDECIDED, TARGET_IS_THERE, WHO_PROXY) if seeks_successor else (UNDECIDED,)
     person = TARGET_IS_THERE if who == sought else UNDECIDED if who in unsure else TARGET_IS_NOT
     new = facts[SPEAKER] == SPEAKER_NEW
-    about = TARGET_IS_AWAY if facts[ABOUT] in (TARGET_IS_AWAY, ABOUT_DEPARTED, ABOUT_WRONG) else ABOUT_NONE
+    about = TARGET_IS_AWAY if facts[ABOUT] in (TARGET_IS_AWAY, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_WRONG) else ABOUT_NONE
     value, away, _ = target_reading(person, HOLD if facts[PHONE] == HOLD else HANDOVER if new else PHONE_NONE, about)
     return value, away, new, not seeks_successor and who == WHO_SUCCESSOR
 
@@ -5636,6 +5645,9 @@ class Flow:
         # お呼びした方が在籍しておらず、後任の方をお呼びしている（_to_successor）：呼ぶ一言・確かめる一言は後任の方の録音（共通の一言）。
         # target_from＝切り替えたあとの最初の相手の発話の番号（それより前の読み・回数は、前にお呼びした方のもの＝数えない）
         self.successor = False
+        # 後任の方もいらっしゃらないと言われ、その役職の方をお呼びしている（_to_role。1つの電話で1回）：役職の方は、お呼びした方ではない方（繋いだ方は後任の方と同じ扱い＝
+        # _connect の who）。後任の方の印 successor は下ろす（判定は役職だけでお呼びする業務と同じ問いで読む＝_calling_questions）
+        self.role_called = False
         self.first_called = ""  # 後任の方へ切り替えたときの、はじめにお呼びした言葉（判定に見せる＝_calling_questions。次の電話の後任の方は空）
         self.target_from = 0
         self.system_parts: dict[str, str] = {}  # 名乗りの部分のうち、共通の一言の録音で流すもの（部分 → 録音の中の名前。_part_play）
@@ -12157,7 +12169,7 @@ class Flow:
             お呼びした方ではないと言ったときは、確かめずにお呼びし直す）／確かめたあと ⇒ はっきりしなければ1回だけ聞き返し、ほかはお詫びのあとお呼びし直す（本書 9-4 の
             (5)）。名乗りから流すかは、新しい方の印の1か所（_new_person_read＝判定の組の「前と同じ方か」）"""
         j = self.meaning_said if self.words_complete else None
-        if self.successor and ai == "successor":
+        if (self.successor or self.role_called) and ai == "successor":
             # 後任の方へ切り替えたあと（_to_successor）は、後任の方が目的の人：AIの「後任の方」は「目的の人」の報告（⛔ 2026-10-22 G-57 tc33
             # （在籍していない・S4）：お呼びした後任の田中様の「お電話代わりました。田中です。」を、AIが「後任の方」と報告し、在籍していないと
             # 同じに扱って締めた）
@@ -12842,8 +12854,8 @@ class Flow:
             words = (self.callee_said or "").strip()[:30]
             if (back := self._calling_ask_back(f"相手の言葉（「{words}」）は、番号違いと言ったのか、意味の判定で決められませんでした。")) is not None:
                 return back
-        if about == ABOUT_DEPARTED:
-            why = "departed"
+        if about in (ABOUT_DEPARTED, ABOUT_NO_SUCH):
+            why = "departed"   # そういう方はいない（ABOUT_NO_SUCH）も在籍していないと同じ道（まだならお呼びし直すかは _departed の1か所）
         elif self.judging:
             # 判定を使う通話：理由は判定の組の読み（_absent_why＝読みが届かない・割れたら不在で伺う）。why は判定の読みの申し出（ほかの手段）だけ
             # （_calling_reply）＝会話AIに理由を報告させて待たない（⛔ 4e94ba37 まで、報告の無いターンは会話AIに理由の報告を頼んで黙った）
@@ -12851,7 +12863,7 @@ class Flow:
         elif about == TARGET_IS_AWAY and why == "departed":
             why = "absent"
         if why or party in STANDIN_PARTIES:
-            told = {"ai"} if why and about != ABOUT_DEPARTED and not self.judging else set()   # 理由を会話AIが選んだ（通話の事実に残す読み）
+            told = {"ai"} if why and about not in (ABOUT_DEPARTED, ABOUT_NO_SUCH) and not self.judging else set()   # 理由を会話AIが選んだ（通話の事実に残す読み）
             return self._not_available(party, why, offer, told | self._target_readings()[2])
         if any(x["reply"].get("away") and self.target_from <= x["callee_turns"] < self.callee_turns for x in self.log):
             # 前の発話でかけ直しへ進むように伝えたのに、AIはまた別の報告をした：プログラムが「不在」として進める（同じ発話の報告し直しは待つ＝
@@ -12870,6 +12882,10 @@ class Flow:
         ABOUT_DEPARTED・そろって不在 TARGET_IS_AWAY・決まらない（食い違う・項目ごとに答えない読み）None。読む言葉は、いまの言葉が不在と読まれて
         いればその言葉、なければこの段の前の言葉（_target_readings の不在と同じ区切り）。"""
         abouts = {(getattr(v, "facts", None) or {}).get(ABOUT) for v in self._away_got()}
+        if abouts == {ABOUT_DEPARTED, ABOUT_NO_SUCH}:
+            # 在籍していない（退職・異動）とそういう方はいないに割れた：どちらも、お呼びした方はいないと伝えた＝在籍していない（はっきり辞めた・異動したと読んだ判定がある
+            # ＝お呼びし直さない側。⛔ 分けて読む前の在籍していないの道のまま）
+            return ABOUT_DEPARTED
         return next(iter(abouts)) if len(abouts) == 1 else None
 
     def _away_got(self, every: bool = False) -> list:
@@ -12992,7 +13008,7 @@ class Flow:
         """はじめの場面で、いまの言葉（出揃ったもの）を「電話に出ている方は後任の方」と読んだ判定の名前（唯一の場所）。どれか1つでも「ご本人」と
         読んでいれば空（後任の方の道へは進まない＝取り消せない側へは1つの読みで止める）。後任の方をお呼びしたあとは、後任の方かは読みそのもの
         （facts_reading）なので空。"""
-        now = self._judged_now() if self.words_complete and not self.successor else {}
+        now = self._judged_now() if self.words_complete and not (self.successor or self.role_called) else {}
         return set() if TARGET_IS_THERE in now.values() else {k for k, v in now.items() if says_successor(v)}
 
     def _handed(self) -> set[str]:
@@ -13052,7 +13068,8 @@ class Flow:
         下＝on_unsure の値。繋ぐのを止める側だけの読み）も同じ所に残す（確かな読みがあれば確かな読み）＝弱い読みが「ご本人」を止めたのに伺い直したあとで繋いだ
         （伺い50 イ＝_calling_reply）通話も、通話のあとで確かめ直す印が付く。who＝繋いだ方（目的の人 target・後任の方 successor・代わりの方 substitute。依頼主へ渡す
         答えが、誰の答えか＝✅ 2026-10-22 ユーザー：代わりの方とも話す）。"""
-        who = "successor" if who == "target" and self.successor else who
+        # 後任の方もいらっしゃらずにお呼びした役職の方（_to_role）も、お呼びした方ではない方＝後任の方と同じ（お名前の読みは伺わない・続きの電話の引き継ぎの確かめ）
+        who = "successor" if who == "target" and (self.successor or self.role_called) else who
         self._note("connect", read=sorted(read), judging=self.judging, who=who,
                    **({"turn_reads": r} if (r := {**self._weak_now(), **self._judged_now()}) else {}))
         if who != "target":
@@ -13076,7 +13093,7 @@ class Flow:
             # なりますでしょうか？」）。11-13 まで、前の答えが代わりの方の答えだけのご本人・混ざった答えの後任の方には、代わりの方の「いいえ」のまま同じ一言を伺った・
             # 代わりの方には伺わず、いつも営業の最初から伺った
             self.resume_due = False
-            form = carried_ask(self.earlier_all, who, self.handover, self.successor, self.earlier_when)
+            form = carried_ask(self.earlier_all, who, self.handover, self.successor or self.role_called, self.earlier_when)
             # お呼びした方のお名前の文は名乗りの部分（業務の部分を渡していない流れ＝試験で手で渡した名乗りでは「前のご担当者様から」）
             named = (self.target or {}).get(CARRIED_PART, "") if form == "target" else ""
             q = callback_question("carried", talked=form if form in CARRIED_TALKED else None, named=named)
@@ -13253,23 +13270,42 @@ class Flow:
           「退職いたしまして、後任の田中に代わります。…」のあとに出た田中様に「そうでしたか。大変失礼いたしました。」を流した）
         - お礼を言って終える（end）：同じお詫びのあと、ふつうの締め。後任の方へ切り替えたあとにまた在籍していないと言われたときも終える"""
         policy = self.policies["departed"]
+        if (not agreed and not self.successor and not self.role_called and self._away_about() == ABOUT_NO_SUCH
+                and (r := self._recall_full()) is not None):
+            # はじめにお呼びした方を「そういう者はおりませんが。」とだけ言われた（退職・異動とは言っていない＝ABOUT_NO_SUCH）：まだお伝えしていない部署・フルネームで1回だけ
+            # お呼びし直す（お名前だけでは分からないと言われたときと同じ1か所 _recall_full）。在籍していないとは決めない（通話の事実 departed を残さない）。このあとのお言葉は
+            # 新しい呼ぶ一言へのお返事＝前の「そういう方はいない」の読みを数えない区切り（target_from＝後任の方へ切り替えるときと同じ考え）。✅ 2026-11-20 日本時間3時55分24秒
+            # ユーザー「伺い69：エ…」。⛔ 35042abf まで、辞めた・異動したと言われたときと同じに後任の方をお呼びした（伺い69 のア）
+            self._keep_calling_turn()
+            self.target_from = self.callee_turns + 1
+            return r
         self._note("departed", policy=policy, read=sorted(read), successor=self.successor)
         now = self._judged_now()
         told = why == "departed" or not now or any(says_away(v) for v in now.values())
         self._keep_calling_turn()
         lead = [{"kind": "recorded", "id": "departed", "text": DEPARTED_ACK}] if told else []
-        if policy == "end" or self.successor:
+        if self.successor and policy != "end" and not self.role_called and (self.target or {}).get(ROLE_PARTS["target"]):
+            # 後任の方もいらっしゃらない（後任の方をお呼びしたどの道でも＝はじめから後任の方をお呼びする電話も）：その役職の方をお呼びする（役職だけでお呼びする業務の呼ぶ一言と
+            # 同じ1か所＝名乗りの部分 ROLE_PARTS・_to_role）。頭は後任の方をお呼びするときと同じ（在籍していないことを伝えられたときのお詫びの録音＝下の呼ぶ所）。
+            # ✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいないときは、該当の役職の方」（名簿に役職が無ければ今のお礼の締め＝下）
+            self._to_role()
+            return self._departed_call(lead, "後任の方もいらっしゃいません。ここからは、その役職の方（役職だけでお呼びする方）が目的の人です。")
+        if policy == "end" or self.successor or self.role_called:
             return self._led(lead, "", self._close("departed")) | {"led": True}
         self._to_successor()
         if agreed:
             return self._led(lead, "お呼びした方は在籍しておらず、電話口の方が後任の方だと伺いました（読みがそろいました）。", self._connect(read)) | {"led": True}
         if confirm:
             return self._led(lead, "お呼びした方は在籍しておらず、電話口の方が後任の方だと伺いました。", self._ask_target(new_person=False)) | {"led": True}
+        return self._departed_call(lead, "お呼びした方は在籍していません（退職・異動）。ここからは後任の方が目的の人です。")
+
+    def _departed_call(self, lead: list[dict], note: str) -> dict:
+        """在籍していないと言われたあと、切り替えた目的の人（後任の方＝_to_successor・その役職の方＝_to_role）をお呼びする唯一の返事（_departed）：お詫びの録音 lead
+        （在籍していないことを、いま電話口の方が伝えたときだけ）のあと、まだ名乗りを聞いていない方ならあいさつ・名乗りから、呼ぶ一言（その方の形の名乗りの部分 target）。"""
         keys = [k for k in ("greeting", "intro") if self._new_ears() and self.target.get(k) and not (k == "greeting" and self._greeted())]
         self.passed_on = False
         self.target_called.append(self.callee_turns)
-        return self._speak_lines(lead + [self._part_play(k) for k in keys + ["target"]], "call_target",
-                                 "お呼びした方は在籍していません（退職・異動）。ここからは後任の方が目的の人です。") | {"led": True}
+        return self._speak_lines(lead + [self._part_play(k) for k in keys + ["target"]], "call_target", note) | {"led": True}
 
     def _to_successor(self) -> None:
         """目的の人を、後任の方に切り替える（唯一の場所。_departed）。呼ぶ一言・確かめる一言・聞き返しは後任の方の録音（共通の一言。phrases.SUCCESSOR）
@@ -13284,6 +13320,30 @@ class Flow:
         self._calling_questions()
         self.target_from = self.callee_turns + 1
         self.target_called, self.target_confirmed, self.target_sorry, self.transfer_asked = [], [], [], []   # 確かめを数え直す＝確かめへの返事も待っていない（confirm_open）
+        self.target_claimed = False
+        self.back_turn = None
+
+    def _to_role(self) -> None:
+        """目的の人を、はじめにお呼びした方の役職の方に切り替える（唯一の場所。後任の方もいらっしゃらないと言われた＝_departed）。呼ぶ一言・確かめる一言・ご事情を伺う一言・
+        お取り次ぎのお願いは、役職だけでお呼びする業務と同じ形（名乗りの部分 ROLE_PARTS＝instruction.Business.replay_parts の名前の無い Target の形）。判定は役職だけで
+        お呼びする業務と同じ問い（後任の方の印 successor を下ろす＝はじめにお呼びした言葉は見せない）。前にお呼びした方への読み・回数は数えない（_to_successor と同じ区切り）。
+        お名前の入る一言（フルネームでお呼びし直す・携帯電話の番号の確かめ）は、役職の方には使わない。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいない
+        ときは、該当の役職の方」"""
+        self.successor, self.role_called = False, True
+        for d in {id(d): d for d in (self.target, self.opening) if d}.values():
+            for k, part in ROLE_PARTS.items():
+                if d.get(part):
+                    d[k] = d[part]
+                else:
+                    d.pop(k, None)
+            for k in ("target_full", "mobile_confirm", "target_reconfirm"):
+                d.pop(k, None)
+        for k in ROLE_PARTS:
+            self.system_parts.pop(k, None)   # 後任の方の共通の一言の録音（SUCCESSOR_IDS）は使わない
+        self.part_names.update(ROLE_PARTS)
+        self._calling_questions()
+        self.target_from = self.callee_turns + 1
+        self.target_called, self.target_confirmed, self.target_sorry, self.transfer_asked = [], [], [], []
         self.target_claimed = False
         self.back_turn = None
 
@@ -15360,11 +15420,19 @@ class Flow:
             return self._wait_for_words()
         if self._hold_now():
             return self._hold()
+        if (r := self._recall_full()) is not None:
+            return r
+        self._note("who_unclear", recalled=self.full_called)
+        return self._not_transferred()
+
+    def _recall_full(self) -> dict | None:
+        """まだお伝えしていない部署・役職とフルネームの入った呼ぶ一言（名乗りの部分 target_full）で、1回だけお呼びし直す唯一の場所（お名前だけではどの方か分からないと
+        言われた _who_unclear・そういう方はいないと言われた _departed）。頭は「失礼いたしました。」（_call_target の sorry）。お伝えすることが無い・もうお呼びし直した ⇒ None
+        （呼ぶ所が今の道を続ける）。✅ 2026-11-01 日本時間23時59分・11-02 日本時間1時22分・2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エ…」"""
         if (self.target or {}).get("target_full") and not self.full_called:
             self.full_called = True
             return self._call_target(sorry=True, part="target_full")
-        self._note("who_unclear", recalled=self.full_called)
-        return self._not_transferred()
+        return None
 
     def _not_transferred(self) -> dict:
         """受付の方が、営業のお断りではない事情で、目的の人に取り次げないと言った（「担当が分からないのでお繋ぎできません」「個人宛のお電話は

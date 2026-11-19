@@ -593,6 +593,13 @@ class Business:
                     parts["target_successor_full"] = t.successor_full_call()   # 後任の方の電話で、同じとき（flowctl.Flow の successor が差し替える）
             if t.kind == "法人":
                 parts["target_successor"] = t.successor_call()
+            if t.kind == "法人" and t.name and t.role:
+                # 後任の方もいらっしゃらないと言われ、その役職の方をお呼びするときの一言（役職だけでお呼びする業務の一言と同じ1か所＝名前の無い Target の形。名乗りの部分の
+                # 名前は phrases.ROLE_PARTS。流すのは flowctl.Flow._to_role）。✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い69：エで後任もいないときは、該当の役職の方」
+                from phrases import ROLE_PARTS
+                r = Target(kind="法人", role=t.role)
+                parts.update({ROLE_PARTS["target"]: r.call(), ROLE_PARTS["target_confirm"]: r.confirm(),
+                              ROLE_PARTS["unavailable_confirm"]: r.unavailable_confirm(), ROLE_PARTS["target_transfer"]: r.transfer()})
             if self.call_type == CALL_ACQUIRE:
                 # 顧客獲得型の2回目からの受け止めの終わり（「（お名前）様ももう大丈夫でしたよね。」＝名前の録音の台帳。流すのは flowctl.Flow._yes_again）
                 parts["yes_received"] = t.yes_received()
