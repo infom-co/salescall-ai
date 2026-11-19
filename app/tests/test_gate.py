@@ -2097,17 +2097,22 @@ class NameLedger(Content):
         求める（`COMMON_PARTS`）：考えている途中の方に黙られたときの1つ目の一言（doubt_anytime）・理由を言わずに待つ方に黙られたままのときの頭の無い
         待つかかけ直すかの伺い（callback_wait_or_later_plain）・ほかの会社に頼んでいると言われたときに伺う一言（callback_elsewhere）と、それぞれの
         3回目から戻る形（_midway）・頭「それでは」の形（_lead_soredeha）。無いと、その一言を流せないまま声を「話してよい」にする。"""
-        bases = ("callback_wait_or_later_plain", "callback_elsewhere", "callback_deepen")   # callback_deepen＝深める一言 E2（4-170）
-        self.assertLessEqual({"doubt_anytime"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")},
-                             set(recordings.COMMON_PARTS))
+        self.assertLessEqual({"doubt_anytime"} | {f"callback_wait_or_later_plain{tail}" for tail in ("", "_midway", "_lead_soredeha")}
+                             | {"callback_elsewhere", "callback_deepen"}, set(recordings.COMMON_PARTS))   # callback_deepen＝深める一言 E2（4-170）
+        # ほかの会社のことを伺う一言 E1・深める一言 E2 は、流れの制御が伺い直さないので、戻る形・頭「それでは」の形は流れない（11-19 に外れた＝CL-1 の連絡帳 4-199 の 4-411）
+        self.assertFalse({f"{b}{tail}" for b in ("callback_elsewhere", "callback_deepen") for tail in ("_midway", "_lead_soredeha")}
+                         & set(recordings.COMMON_PARTS))
 
     def test_the_parts_cl1_added_for_brief_calls_and_deepening_are_received(self):
         """CL-1 の連絡帳 4-173・4-174（✅ 2026-11-16 日本時間12時48分22秒・14時46分34秒 ユーザー）の共通の一言の録音も、話してよい声が求める（`COMMON_PARTS`）：
         深める一言へのお返事を受けて伺う一言（callback_deepen_measures・callback_deepen_ahead）・要約も用件の名詞も無い業務の手短にのかけ直しの伺い
         （callback_brief）と、それぞれの3回目から戻る形・頭「それでは」の形、手短にお伺いする一言（brief_go）。4-170 の deepen_ahead（受け止めの言葉が
         使えないときの録音）は使わなくなったので求めない（求めると、使わない録音が無いだけで声を「話せない」にする）。"""
-        bases = ("callback_deepen_measures", "callback_deepen_ahead", "callback_brief")
-        self.assertLessEqual({"brief_go"} | {f"{b}{tail}" for b in bases for tail in ("", "_midway", "_lead_soredeha")}, set(recordings.COMMON_PARTS))
+        self.assertLessEqual({"brief_go", "callback_deepen_measures", "callback_deepen_ahead"}
+                             | {f"callback_brief{tail}" for tail in ("", "_midway", "_lead_soredeha")}, set(recordings.COMMON_PARTS))
+        # 深める一言 E3・E4 の戻る形・頭「それでは」の形は流れない（11-19 に外れた＝CL-1 の連絡帳 4-199 の 4-411）
+        self.assertFalse({f"{b}{tail}" for b in ("callback_deepen_measures", "callback_deepen_ahead") for tail in ("_midway", "_lead_soredeha")}
+                         & set(recordings.COMMON_PARTS))
         self.assertNotIn("deepen_ahead", recordings.COMMON_PARTS)
         self.assertIn("call_again_taken", recordings.COMMON_PARTS)   # 4-175：かけ直しの伺いに「はい」をいただいて締めるときの言い切り
 
