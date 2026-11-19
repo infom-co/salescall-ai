@@ -40062,7 +40062,7 @@ class WrongNumberAnswerStageTest(unittest.TestCase):
 
     def test_1_the_ai_end_report_still_reads_the_end_item_first(self):
         # 電話を終える言葉（断った など）と番号違いの順は、お呼びする段と同じ。⛔ 分身 AC（2c8eb858）までは電話を終える言葉が先だった ⇒ 分身 AF（まとめ役の頼み
-        # rv144/AF の (2)＝伺い候補 B の (1)(2)）から、そろった番号違いが先（Flow._wrong_first の1か所。怒っている・苦情は今のまま＝WrongBeforeEndTest）
+        # rv144/AF の (2)＝伺い候補 B の (1)(2)）から、そろった番号違いが先（Flow._wrong_first の1か所。怒っている・苦情も番号違いが先で苦情の印も残す＝伺い73 ウ＝WrongBeforeEndTest）
         from flowctl import ABOUT_WRONG, END, END_NONE, END_REFUSED
         f = self.opened()
         rs = self.both(ABOUT_WRONG)
@@ -40575,8 +40575,8 @@ class WrongBeforeEndTest(unittest.TestCase):
     """分身 AF（枝 cl1-our-silence・まとめ役の頼み rv144/AF の (2)＝分身 AC の伺い候補 B の (1)(2)）：1つの言葉に番号違いと電話を終える言葉（断った・急いでいる）が両方あり、
     判定の組がそろって番号違いと読んだら、番号違いを先に当てる（番号違いの決まった締め・その番号の発信禁止・番号の伺い直し＝通話の事実 party の wrong_party。依頼者の
     お客様の「もうかけない」・急いでいる方への伺い H1 は当てない）。当てる所は1か所（Flow._wrong_first＝電話を終える言葉を当てる所 _end_due_now・_end_judged・次の発話の
-    始めの end_due より先）。お呼びする段も答えの段も同じ1つの決まり。怒っている・苦情（伺い候補 B の (3)＝苦情の印も残すか）は決まりで決まらない＝今のまま（電話を終える
-    言葉が先）。決まり＝取り消せない動き（もうかけない）は言葉から1つに決まるときだけ（本書 1-3・帳面 1 の (6) の 11-15 日本時間19時13分46秒の段）。番号違いの方の
+    始めの end_due より先）。お呼びする段も答えの段も同じ1つの決まり。怒っている・苦情（伺い候補 B の (3)＝伺い73）も番号違いが先で、判定の組がそろって怒っていると
+    読めば苦情の印も残す（決まりで決まる＝ウ＝test_angry_wrong_number_keeps_both_marks）。決まり＝取り消せない動き（もうかけない）は言葉から1つに決まるときだけ（本書 1-3・帳面 1 の (6) の 11-15 日本時間19時13分46秒の段）。番号違いの方の
     「もうかけてこないで」は依頼者のお客様の言葉ではない。番号違いの方に「また改めてお掛けしてもよろしいでしょうか？」は伺わない。
     ⛔ 7cdc721b まで、電話を終える言葉が先に当たり、番号違いの方の「もうかけてこないで」で依頼者のお客様を「もうかけない」にし（取り消せない）、その番号は番号違いとして
     残らなかった。急いでいると言われると、番号違いの方に「また改めてお掛けしてもよろしいでしょうか？」と伺った"""
@@ -40632,11 +40632,26 @@ class WrongBeforeEndTest(unittest.TestCase):
             f, r = self.said(stage, "通話・営業を断った", None, unsure_end=True)
             self.assertEqual((f.end_reason, OtherCompanyClueSendWayTest.heard(r)), ("wrong_party", CLOSE_DECLINED), (stage, r))
 
-    def test_angry_and_split_keep_today_s_way(self):
-        # 怒っている・苦情（伺い候補 B の (3)＝決まりで決まらない）：今のまま（電話を終える言葉が先＝苦情の印で締める）
+    def test_angry_wrong_number_keeps_both_marks(self):
+        # 伺い73（分身 AF の ask_angry＝伺い候補 B の (3)）は決まりで決まる＝ウ：番号違いを先に当て（番号違いの決まった締め・その番号の発信禁止・番号の伺い直し）、
+        # 判定の組がそろって怒っていると読んだら苦情の印も残す（10-29「別の評価軸…両方並立は相手の発言次第では当然あり得る」＝電話口の方の事実と、怒っていたかの
+        # 事実は別の軸・9-4 の「怒り・苦情」＝苦情の印を根拠の発話つきで残す・CL-2 の判定は番号違いと苦情を別々に受ける＝発信の拒否・苦情は電話口のどなたのものでも
+        # 受ける）。お客様に聞こえる締めは同じ（どちらも断られたときの締め）。⛔ c8f5174f まで、怒っている言葉が先に当たり、番号違いの事実が残らなかった＝その番号を
+        # 止めず、依頼者のお客様から伺った番号なら伺い直しもしなかった
+        from phrases import CLOSE_DECLINED
         for stage in ("anyone", "named", "calling"):
-            f, r = self.said(stage, "怒っている・苦情", None)
-            self.assertEqual((f.end_reason, "complaint" in f.facts), ("callee_complaint", True), stage)
+            for op in self.ops("怒っている・苦情"):
+                with self.subTest(stage=stage, op=op):
+                    f, r = self.said(stage, "怒っている・苦情", op)
+                    self.assertEqual((r["result"], OtherCompanyClueSendWayTest.heard(r), f.end_reason), ("end", CLOSE_DECLINED, "wrong_party"), r)
+                    self.assertEqual(([(p["party"], p["by"]) for p in f.facts["party"]][-1], f.irreversible_check), (("wrong_party", "judge"), "agreed"))
+                    self.assertEqual((len(f.facts.get("complaint", [])), "do_not_call" in f.facts), (1, False))
+        # 怒っているかは決められず寄りだけ（判定の組がそろって読んでいない）：苦情の印は付けない（取り消せない決定は言葉から1つに決まるときだけ＝本書 1-3）・番号違いは先
+        for stage in ("anyone", "calling"):
+            f, r = self.said(stage, "怒っている・苦情", None, unsure_end=True)
+            self.assertEqual((f.end_reason, "complaint" in f.facts), ("wrong_party", False), (stage, r))
+
+    def test_split_wrong_reading_keeps_the_end_words_way(self):
         # 番号違いの読みが割れた：番号違いで締めない（取り消せない側へ倒さない）＝電話を終える言葉の今の道
         for stage in ("anyone", "calling"):
             f, r = self.said(stage, "通話・営業を断った", None, wrong=False)

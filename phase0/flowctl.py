@@ -11653,11 +11653,18 @@ class Flow:
 
     def _wrong_party(self, check: str, by: str | None = None) -> dict:
         """番号違いで締める唯一の場所（会話AIの報告で決まる _party_known・判定の組の読みで決まるお呼びする段の _away）：番号違いの決まった締め（Intent.md 9-4）。
-        取り消せない決定と、判定とそろったか（check）を残す。by＝事実を残す所がここのとき（判定で分かった＝judge。会話AIの報告・信号は _party が残した）。"""
+        取り消せない決定と、判定とそろったか（check）を残す。by＝事実を残す所がここのとき（判定で分かった＝judge。会話AIの報告・信号は _party が残した）。
+        いまの言葉を判定の組がそろって怒っている・苦情と読んでいれば（_end_now＝電話を終える言葉で締めるときと同じ読み）、苦情の印も根拠の発話つきで残す（伺い73 は決まりで
+        決まる＝ウ：電話口の方の事実と怒っていたかの事実は別の軸＝10-29「両方並立は相手の発言次第では当然あり得る」・本書 9-4 の「怒り・苦情」＝苦情の印を残して人へ知らせる・
+        CL-2 の判定は番号違いと苦情を別々に受ける＝苦情は電話口のどなたのものでも受け、行の答えは番号違いが苦情より強い）。怒っているかが寄りだけ・判定が届かないときは
+        付けない（取り消せない決定は言葉から1つに決まるときだけ＝本書 1-3。電話を終える言葉の締めと同じ）。⛔ c8f5174f まで、怒っている言葉があると番号違いを当てず
+        （_wrong_first）、番号違いの事実が残らなかった＝その番号を止めず、お客様から伺った番号なら伺い直しもしなかった"""
         if by is not None:
             self._note_party("wrong_party", by)
         self.party = "wrong_party"
         self._note_irreversible("party", check)
+        if self._end_now() == END_ANGRY:
+            self._note_irreversible("complaint", "agreed")
         return self._close("wrong_party")
 
     def _wrong_due(self) -> bool:
@@ -11674,14 +11681,13 @@ class Flow:
         報告の無いターン・報告の入口 _end_due_now・会話AIの終わりの報告 _end_judged・次の発話の始めの end_due＝_callee）：お呼びする段も答えの段も、判定の組がいまの言葉を
         そろって番号違いと読んだ（wrong_said の1か所）。当てれば、電話を終える言葉は当てない＝番号違いの決まった締め・その番号の発信禁止・番号の伺い直し（お呼びする段は
         _away・答えの段は _wrong_due が締める＝_wrong_party の1か所）。依頼者のお客様の「もうかけない」・急いでいる方への伺い H1・ご遠慮の一言は当てない（番号違いの方の
-        言葉は依頼者のお客様の言葉ではない）。電話を終える読み（寄りも）に怒っている・苦情があれば当てない（今のまま＝苦情の印も残すかは決まりで決まらない＝分身 AC の
-        伺い候補 B の (3)）。分身 AF（まとめ役の頼み rv144/AF の (2)＝伺い候補 B の (1)(2)）。決まり＝取り消せない動き（もうかけない）は言葉から1つに決まるときだけ
+        言葉は依頼者のお客様の言葉ではない）。怒っている・苦情の言葉も同じく番号違いが先（締めは同じ断られたときの締め）＝苦情の印は番号違いで締める1か所 _wrong_party が
+        読みのそろいで残す（伺い73 は決まりで決まる＝ウ。⛔ c8f5174f まで、電話を終える読み（寄りも）に怒っている・苦情があれば当てず、番号違いの事実が残らなかった）。
+        分身 AF（まとめ役の頼み rv144/AF の (2)＝伺い候補 B の (1)(2)）。決まり＝取り消せない動き（もうかけない）は言葉から1つに決まるときだけ
         （本書 1-3・帳面 1 の (6) の 11-15 日本時間19時13分46秒の段）。⛔ 7cdc721b まで、電話を終える言葉が先に当たり、番号違いの方の「もうかけてこないで」で依頼者の
         お客様を「もうかけない」にし、急いでいると言われると番号違いの方に「また改めてお掛けしてもよろしいでしょうか？」と伺った"""
-        if (not self.judging or self.answering or self.end_reason is not None or self.trouble is not None or not self.words_complete or self.midway
-                or not wrong_said(self._judged_now().values())):
-            return False
-        return END_ANGRY not in ({getattr(v, "end", None) for v in self._judged_now().values()} | self._end_lean())
+        return (self.judging and not self.answering and self.end_reason is None and self.trouble is None and self.words_complete and not self.midway
+                and wrong_said(self._judged_now().values()))
 
     def _wrong_reported(self) -> dict:
         """答えの段の会話AIの「番号違い」の報告（判定を待つきっかけだけ＝_party の入口から。唯一の場所）：
