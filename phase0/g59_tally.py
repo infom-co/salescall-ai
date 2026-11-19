@@ -380,7 +380,6 @@ def cascade(stages: list[str]) -> dict:
     from flowctl import ASKED
     from meaning_judge import RACE, leads_of, members_for, question_kind
     table = current()
-    _, f, fs = g.flows()
     have: dict[str, dict] = {}                         # 判定の名前 ⇒ {(場面の鍵, 回): (行, 列)}
     for spec in stages:
         name, c = source(spec, "judge2")
@@ -394,11 +393,10 @@ def cascade(stages: list[str]) -> dict:
     for k, rep in sorted({kr for h in have.values() for kr in h}, key=str):
         acc, facts = table[k]
         sc_row = next(h[(k, rep)][0] for h in have.values() if (k, rep) in h)
-        fl = fs if sc_row["successor"] else f
-        target_q = g.question_of(fl, sc_row["asked"])
+        shown = g.judge_questions(sc_row)   # 判定に見せる質問は、行の場面の本番の流れの制御の1か所（Flow._calling_asked）
         sc = scene(sc_row)
         for part, sfx in PARTS:
-            q = target_q if sfx == "" else fl.for_judge(fl.asks_questions[target_q.id])
+            q = shown[0] if sfx == "" else shown[1]
             names = members_for(RACE, question_kind(q))
             runs = []
             for n in names:

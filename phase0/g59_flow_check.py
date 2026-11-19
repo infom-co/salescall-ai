@@ -11,6 +11,8 @@ from instruction import Target
 from g22_opening import BUSINESS
 from meaning_judge import read
 b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+# フルネームのある業務（詳しい呼ぶ一言＝target_full を流せる場面の行だけ。行の印 full）。呼ぶ一言・確かめる一言・ご事情を伺う一言の文は b と同じ
+b_full = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長", full_name="岡田太郎", full_reading="おかだたろう"))
 K = {"同": "前と同じ方", "違": "前と違う方", "本": "ご本人", "受": "受付・取次ぎの方", "後": "代理の方（後任）", "代": "代理の方（どれかは分からない）",
      "別": "別の方（どなたかは分からない）", "不": "決められない", "無": "何もない", "待": "取り次ぎを待つ", "x": "言っていない", "在": "不在", "籍": "在籍していない"}
 
@@ -28,10 +30,13 @@ def heard(f, text, code):
 def shown(r):
     return r.get("result"), [p.get("part", p.get("kind")) for p in r.get("play") or []], (r.get("say") or "")[:30]
 
-def scene(steps, successor=False, checks=("judge",)):
+def scene(steps, successor=False, checks=("judge",), business=None, sees_target=None):
     """お呼びする段の場面を、本番の流れの制御（Flow）に組む唯一の所（会話の試し run・G-68 の測り g68_returned が通る）。steps：[(相手の言葉, 読みの字,
-    AIの報告 (op, args) か None)]。checks＝流れの制御が待つ確かめの名前（Flow.use_checks）。返す：(流れの制御, 報告の返事の並び, 最後の言葉の場面)。"""
-    f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
+    AIの報告 (op, args) か None)]。checks＝流れの制御が待つ確かめの名前（Flow.use_checks）。business＝業務（既定は b・フルネームのある行は b_full）。
+    sees_target＝お呼びする方の名前と読みを判定に見せるか（測りの --hide-names＝instruction.Business.judge_names の1か所）。
+    返す：(流れの制御, 報告の返事の並び, 最後の言葉の場面)。"""
+    bz = business or b
+    f = Flow(bz.questions, opening=bz.replay_parts(), target=bz.replay_parts(), play_recordings=True, judge_names=bz.judge_names(sees_target=sees_target))
     f.use_checks(*checks)
     if successor:
         heard(f, "岡田は先月退職いたしました。", "同受x籍")
@@ -54,16 +59,17 @@ class Unreadable(Exception):
     本番なら読みとして届かない＝流れの制御の動きは比べられない。"""
 
 
-def row_scene(r: dict):
-    """測りの行 r（g59_tally の行＝text・before・asked・successor）の場面を本番の流れの制御に組み、行の言葉を聞いたところ（判定を渡す前）の流れの制御を
-    返す（唯一の作り）。前の言葉は、正解の表の前の言葉の読み（g59_calling_judge.steps_before）で流す。組んだ場面が行の場面（確かめる一言のあとか・判定に
-    渡す前の言葉）と違えば NoScene（黙って違う場面で数えない）。"""
+def row_scene(r: dict, sees_target=None):
+    """測りの行 r（g59_tally の行＝text・before・asked・successor。フルネームのある業務の行は印 full）の場面を本番の流れの制御に組み、行の言葉を聞いた
+    ところ（判定を渡す前）の流れの制御を返す（唯一の作り。判定に見せる質問 g59_calling_judge.judge_questions もここを通る）。前の言葉は、正解の表の前の
+    言葉の読み（g59_calling_judge.steps_before）で流す。組んだ場面が行の場面（確かめる一言のあとか・判定に渡す前の言葉）と違えば NoScene（黙って違う場面で
+    数えない）。sees_target は scene と同じ（測りの --hide-names）。"""
     import g59_calling_judge as g
     try:
         steps = g.steps_before(r["before"])
     except KeyError as e:
         raise NoScene(f"前の言葉の正しい読みが表（BEFORE_READ）に無い：{e}") from None
-    f, _, _ = scene(steps, successor=r["successor"])
+    f, _, _ = scene(steps, successor=r["successor"], business=b_full if r.get("full") else None, sees_target=sees_target)
     f.on_callee(); f.on_heard(r["text"])
     built = (f.asked_target is not None, f.judge_context()[2] or None)
     if built != (bool(r["asked"]), r["before"] or None):

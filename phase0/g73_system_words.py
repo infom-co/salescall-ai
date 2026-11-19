@@ -123,10 +123,10 @@ CONFUSING_NOTE = ("こちらの声は届いていて、ふつうに答えた・�
 
 
 def calling_questions() -> dict[bool, str]:
-    """お呼びする段の2つの一言（{確かめる一言か: 判定に見せる質問の文}）。お呼びする段の測り（G-59）が判定に見せる質問と同じ1か所（question_of）。"""
+    """お呼びする段の2つの一言（{確かめる一言か: 判定に見せる質問の文}）。お呼びする段の測り（G-59）が判定に見せる質問と同じ1か所（judge_questions＝
+    行の場面の本番の流れの制御の Flow._calling_asked。場面は試しの言葉の行 hear_scene）。"""
     import g59_calling_judge as g
-    _, f, _ = g.flows()
-    return {asked: g.question_of(f, asked).text for asked in CALLING_SCENES}
+    return {asked: g.judge_questions(g.hear_scene(asked))[0].text for asked in CALLING_SCENES}
 
 
 PROMPT = (
