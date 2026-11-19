@@ -25,6 +25,16 @@ def _enum(name: str) -> list[str]:
         (name,))])
 
 
+class PlainText(unittest.TestCase):
+    """データの文（知らせの本文・修正依頼の中身など）を画面の形にする1か所（words.plain）。"""
+    def test_a_clause_with_an_internal_name_is_left_out_and_the_rest_stays(self):
+        got = words.plain("確かめ直してください（確かめ直す通話の一覧は approval.awaiting_ai_recheck。それまで、そのお客様にはかけません）")
+        self.assertEqual(got, "確かめ直してください（それまで、そのお客様にはかけません）")
+        self.assertEqual(words.plain("一覧は approval.x_y です。次の文です。"), "次の文です。")
+        self.assertEqual(words.plain("Claude Sonnet 5.5 と Jev 1.14 で判定"), "Claude Sonnet 5.5 と Jev 1.14 で判定")   # 名前の版はそのまま
+        self.assertEqual(words.not_for_client(words.plain("（a_b。c.d_e）のこと")), [])
+
+
 class EveryNameHasAWord(unittest.TestCase):
     def test_every_retry_policy_and_interval_has_a_screen_word(self):   # 計画書 6-2「再発信の方針」（業務設定の版の画面）
         from salescall.core import business_rules

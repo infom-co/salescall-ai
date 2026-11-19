@@ -258,6 +258,9 @@ def plain(text: str) -> str:
     for inner, word in _INNER_WORDS.items():
         out = out.replace(inner, word)
     out = _ASSIGNEE.sub(lambda m: ASSIGNEE_WORDS.get(m.group(1), "直す担当"), out)
+    # 内部の英字の名前（approval.awaiting_ai_recheck など）を含む、ひと区切りの文（句点・括弧の内側まで）を外す（名前だけ外すと文が壊れる）
+    out = _INTERNAL_CLAUSE.sub("", out)
+    out = re.sub(r"[（(]\s*[）)]", "", out)   # 中身が無くなった括弧
     return re.sub(r"\s+([。、）])", r"\1", out).strip()
 
 
@@ -443,6 +446,7 @@ NOT_FOR_CLIENT: tuple[str, ...] = ("AI", "人工知能", "自動", "システム
 _ASCII_WORD = re.compile(r"[A-Za-z]+")
 # 内部の英字の名前（下線・点でつないだ名前。例：do_not_call・DO_NOT_CALL・gate.same_contact）。漢字の隣でも当てる（\b は使わない）。
 _INTERNAL_NAME = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]+(?:[_.][A-Za-z0-9]+)+(?![A-Za-z0-9_])")
+_INTERNAL_CLAUSE = re.compile(r"[^（(。\n]*" + _INTERNAL_NAME.pattern + r"[^。）)\n]*。?")   # その名前を含むひと区切り（plain が外す）
 
 
 def not_for_client(text: str) -> list[str]:
