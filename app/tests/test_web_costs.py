@@ -20,6 +20,28 @@ SECRET = b"test-only-secret"
 
 
 class DeficitOnScreen(CostRatio):
+    def test_reward_terms_are_added_per_business_from_its_page(self):   # 報酬の決まりは業務ごと（✅ 2026-11-18 管理者・CL-2 4-437）
+        s = self.ready()
+        self.talked(s)                                                            # 決まりの無いまま、今月かけた
+        http = TestClient(create_app(app_access(), lambda r: Person("試験の契約者", False, s["tenant"], "架空の契約者"), b"test-only-secret"))
+        reward_url = f'/c/{s["client"]}/b/{s["business"]}/reward'
+        costs = http.get("/t/costs").text
+        self.assertIn(f'href="{reward_url}"', costs)                              # 決まりの無い業務から、その業務の報酬の決まりの画面へ
+        page = http.get(reward_url).text
+        self.assertIn("報酬の決まりが設定されていません", page)
+        tok = re.search(r'<meta name="form-token" content="([^"]+)"', page).group(1).split("~")[0]
+        post = lambda data: http.post(reward_url, data={"form_token": tok, **data}, follow_redirects=False)   # noqa: E731
+        self.assertIn("ok=0", post({"per_completed_yen": "5000", "deficit_caution": "normal", "reason": ""}).headers["location"])   # 理由は必ず
+        self.assertIn("ok=0", post({"deficit_caution": "normal", "reason": "試験"}).headers["location"])   # どれも 0 円は足せない（core の断り）
+        self.assertIn("ok=0", post({"per_completed_yen": "五千", "deficit_caution": "normal", "reason": "試験"}).headers["location"])
+        r = post({"per_completed_yen": "5,000", "per_dial_yen": "10", "deficit_caution": "early", "reason": "試験：架空の契約のとおり"})
+        self.assertIn("ok=1", r.headers["location"])
+        page = http.get(reward_url).text
+        self.assertIn("5,000円", page)
+        self.assertIn("試験：架空の契約のとおり", page)
+        self.assertNotIn(f'href="{reward_url}"', http.get("/t/costs").text)       # 決まりが入ったので、もう出さない
+
+
     def test_the_deficit_stays_on_screen_after_it_is_confirmed(self):
         s = self.ready()
         self.terms(s, per_dial_yen=10)

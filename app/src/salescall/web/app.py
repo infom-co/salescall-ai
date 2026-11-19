@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -70,6 +70,20 @@ SYSTEM_PLACE: dict[str, Any] = {"client_id": None, "name": "全体（管理者�
 def _time(t: datetime | None) -> str:
     """時刻の書き方（1か所＝calling_hours.label。日本時間。年は出さない）。"""
     return calling_hours.label(t) if t else ""
+
+
+def _yen_input(raw: Any, what: str = "円") -> Decimal:
+    """画面で入れた円を数にする（1か所。3桁ごとの「,」は外す。空は 0。数でない・負・無限は理由つきで断る）。"""
+    text = str(raw or "").strip().replace(",", "").replace("，", "")
+    if not text:
+        return Decimal(0)
+    try:
+        yen = Decimal(text)
+    except Exception:
+        raise actions.Refused(f"{what}は数で入れてください（例：1200）") from None
+    if not yen.is_finite() or yen < 0:
+        raise actions.Refused(f"{what}は 0 以上の数で入れてください")
+    return yen
 
 
 def _yen(v: Any, *, unit_price: bool = False) -> str:
@@ -681,8 +695,13 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         """今月の報酬と費用（依頼者ごと＝core の reward.month の1か所）と、単価の表（usage.price_table の1か所。契約者の値が初めの値より強い）。"""
         def render(person: Person, ctx: Ctx) -> HTMLResponse:
             # 赤字か（Q26）は core の usage.deficit_notice の答えだけを見せる（画面で割合を計算して決め直さない＝Intent.md 5-1）
-            month = [{**c, **ctx.client(c["client_id"], lambda tx: {**reward.month(tx), "deficit": usage.deficit_notice(tx)},
-                                        read_only=True)} for c in ctx.clients()]
+            def read_month(tx: Any) -> dict[str, Any]:
+                m = reward.month(tx)
+                names = {b["business_id"]: b["name"] for b in context.businesses(tx)}
+                # 今月かけたのに、いま効いている報酬の決まりの無い業務（決めるのは reward.month の1か所。報酬の決まりの画面へつなぐ）
+                return {**m, "deficit": usage.deficit_notice(tx),
+                        "without_terms": [(bid, names.get(bid, words.NO_WORD)) for bid in m["businesses_without_terms"]]}
+            month = [{**c, **ctx.client(c["client_id"], read_month, read_only=True)} for c in ctx.clients()]
             def read_prices(tx: Any) -> list[dict[str, Any]]:   # 回線の方式の画面の名前は registry.line_methods の1か所
                 labels = {m["method"]: m["label"] for m in registry.line_methods(tx)}
                 return [{**p, "service_label": labels.get(p["service"], p["service"]) if p["source"] == "line" else p["service"]}
@@ -702,13 +721,9 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 tier = str(form.get("tier") or "") or None
                 if source not in words.PRICE_SOURCE_WORDS or unit not in words.PRICE_UNITS or not service:
                     raise NotFound()
-                raw = str(form.get("yen") or "").strip().replace(",", "")
-                try:
-                    yen = Decimal(raw)
-                except Exception:
-                    raise actions.Refused("円は数で入れてください（例：12.5）") from None
-                if not yen.is_finite() or yen < 0:
-                    raise actions.Refused("円は 0 以上の数で入れてください")
+                if not str(form.get("yen") or "").strip():
+                    raise actions.Refused("円を入れてください")
+                yen = _yen_input(form.get("yen"))
                 return usage.set_price(tx, source=source, service=service, tier=tier, unit=unit,
                                        yen_per_unit=yen / Decimal(words.PRICE_UNITS[unit][0]), valid_from=datetime.now(timezone.utc),
                                        note=str(form.get("reason") or "").strip())
@@ -1076,6 +1091,60 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "businesses": context.businesses(tx), "found": found}
             return page(request, "search.html", person, ctx, q=term, **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
+    # ── 報酬の決まり（業務ごと。docs/DASHBOARD.md 5-11。✅ 2026-11-18 管理者「報酬の決まりは『業務』ごと」。core の reward.set_terms の1か所＝CL-2 4-437）
+    REWARD_FIELDS = (("per_completed_yen", "成果1件"), ("per_dial_yen", "かけた1本"), ("per_talk_yen", "話せた1本"),
+                     ("monthly_yen", "月額"), ("hourly_yen", "時給（1時間）"))
+
+    @app.get("/c/{client_id}/b/{business_id}/reward")
+    def reward_page(request: Request, client_id: UUID, business_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        """その業務の報酬の決まり（いま効いている決まりと、これまでの決まり。足すだけ＝前の決まりは残る）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                b = context.business(tx, business_id)
+                rows = tx.all("SELECT terms_id, valid_from, per_completed_yen, per_dial_yen, per_talk_yen, monthly_yen, hourly_yen,"
+                              " hourly_gap_seconds, deficit_caution, note, set_by FROM salescall.reward_terms WHERE business_id = %s"
+                              " ORDER BY valid_from DESC, terms_id DESC", (business_id,))
+                now = tx.one("SELECT now() AS t")["t"]
+                current = next((r for r in rows if r["valid_from"] <= now), None)
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "business": b, "businesses": context.businesses(tx), "rows": rows, "current": current, "now": now}
+            return page(request, "reward.html", person, ctx, fields=REWARD_FIELDS, cautions=reward.CAUTIONS, done=done, ok=bool(ok),
+                        **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/b/{business_id}/reward")
+    async def reward_set(request: Request, client_id: UUID, business_id: UUID) -> HTMLResponse:
+        """報酬の決まりを足す（core の reward.set_terms だけ。理由は必ず＝決まりの記録に残る。いつからは、空なら今から）。"""
+        form = dict(await request.form())
+        back = f"/c/{client_id}/b/{business_id}/reward"
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> int:
+                context.business(tx, business_id)
+                yen = {k: _yen_input(form.get(k), label) for k, label in REWARD_FIELDS}
+                gap = str(form.get("hourly_gap_seconds") or "").strip()
+                if gap and not gap.isdigit():
+                    raise actions.Refused("電話と電話の間の秒数は、数で入れてください")
+                day = str(form.get("valid_from") or "").strip()
+                if day:
+                    try:
+                        start = calling_hours.from_local(datetime.combine(date.fromisoformat(day), datetime.min.time()))
+                    except ValueError:
+                        raise actions.Refused("いつからは、日付で入れてください") from None
+                else:
+                    start = tx.one("SELECT now() AS t")["t"]
+                try:
+                    return reward.set_terms(tx, business_id, reward.Terms(deficit_caution=str(form.get("deficit_caution") or "") or None,
+                                                                          hourly_gap_seconds=int(gap) if gap else None, **yen),
+                                            valid_from=start, note=str(form.get("reason") or "").strip())
+                except ValueError as e:
+                    if isinstance(e, actions.Refused):
+                        raise
+                    raise actions.Refused(str(e)) from None
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), reason_field="reason",
+                              done="報酬の決まりを足しました（前の決まりは残ります）。")
+            return _back(back, out)
         return handle(request, render)
 
     @app.get("/c/{client_id}/b/{business_id}/versions/{version_id}")

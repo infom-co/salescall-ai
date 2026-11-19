@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty, flash, csrf %}
+{% set active = "client" %}
+{% block title %}報酬の決まり{% endblock %}
+{% block crumb %}報酬の決まり{% endblock %}
+{% block main %}
+<h1>報酬の決まり：{{ business.name }}</h1>
+<p class="lead">依頼者「{{ client.name }}」から、この業務でいただく報酬です。今月の報酬と費用、赤字の判断に使います。足すだけで、前の決まりは残ります。</p>
+{{ flash(done, ok) }}
+{# 決まりを足すのは core の reward.set_terms の1か所。今月の数・赤字の判断は reward.month・usage.deficit_notice の答え（画面で計算し直さない） #}
+<div class="grid cols-2">
+<section class="card">
+  <h2>いま効いている決まり</h2>
+  {% if current %}
+  <dl class="facts">
+    {% for k, label in fields %}<dt>{{ label }}</dt><dd>{{ yen(current[k]) if current[k] else "—" }}</dd>{% endfor %}
+    {% if current.hourly_yen %}<dt>電話と電話の間</dt><dd>{{ current.hourly_gap_seconds }} 秒</dd>{% endif %}
+    <dt>赤字の知らせの早さ</dt><dd>{{ cautions[current.deficit_caution][0] if current.deficit_caution in cautions else "—" }}</dd>
+    <dt>いつから</dt><dd>{{ time(current.valid_from) }}</dd>
+  </dl>
+  {% else %}{{ empty("報酬の決まりが設定されていません", "決まりが無いあいだは、赤字かどうかを判断しません（発信は止めません）。右の欄から入れてください。") }}{% endif %}
+</section>
+<section class="card">
+  <h2>決まりを足す</h2>
+  <form method="post" action="/c/{{ client.client_id }}/b/{{ business.business_id }}/reward" data-needs-reason class="stack">
+    {{ csrf(token) }}
+    <p class="muted">使う形にだけ円を入れてください（組み合わせても構いません）。使わない形は空のままにします。</p>
+    {% for k, label in fields %}
+    <label class="field" for="rw-{{ k }}">{{ label }}（円）</label>
+    <input id="rw-{{ k }}" type="text" inputmode="decimal" name="{{ k }}" value="{{ current[k]|int if current and current[k] else '' }}">
+    {% endfor %}
+    <label class="field" for="rw-gap">時給のとき：電話と電話の間（秒）</label>
+    <input id="rw-gap" type="text" inputmode="numeric" name="hourly_gap_seconds" value="{{ current.hourly_gap_seconds if current and current.hourly_gap_seconds else '' }}" placeholder="時給を使うときだけ">
+    <label class="field" for="rw-caution">赤字の知らせの早さ</label>
+    <select id="rw-caution" name="deficit_caution">{% for k, c in cautions.items() %}<option value="{{ k }}" {% if current and current.deficit_caution == k %}selected{% elif not current and k == "normal" %}selected{% endif %}>{{ c[0] }}</option>{% endfor %}</select>
+    <p class="muted">{% for k, c in cautions.items() %}{{ c[0] }}：{{ c[1] }}。{% endfor %}</p>
+    <label class="field" for="rw-from">いつから（空なら今から）</label>
+    <input id="rw-from" type="date" name="valid_from">
+    <label class="field" for="rw-reason">理由（記録に残ります）</label>
+    <input id="rw-reason" type="text" name="reason" placeholder="例：依頼者との契約書（11月分）のとおり">
+    <button class="btn main" type="submit" data-submit disabled>この決まりを足す</button>
+  </form>
+</section>
+</div>
+{% if rows %}
+<h2 style="margin-top:24px">これまでの決まり</h2>
+<div class="table-scroll"><table class="list">
+  <thead><tr><th>いつから</th>{% for k, label in fields %}<th class="num">{{ label }}</th>{% endfor %}<th>赤字の知らせ</th><th class="wide">理由</th><th>入れた方</th></tr></thead>
+  <tbody>{% for r in rows %}
+    <tr><td class="nowrap">{{ time(r.valid_from) }}{% if current and r.terms_id == current.terms_id %} {{ tag("いま", "info") }}{% elif r.valid_from > now %} {{ tag("これから", "") }}{% endif %}</td>
+      {% for k, label in fields %}<td class="num">{{ yen(r[k]) if r[k] else "—" }}</td>{% endfor %}
+      <td>{{ cautions[r.deficit_caution][0] if r.deficit_caution in cautions else "—" }}</td><td class="wide">{{ r.note }}</td><td>{{ r.set_by }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}

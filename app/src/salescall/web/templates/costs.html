@@ -18,7 +18,8 @@
       <td class="num">{{ yen(m.cost) }}</td>
       <td class="num">{{ yen(m.cost_by_kind.measured) }}</td>
       <td class="num">{{ yen(m.cost_by_kind.estimated) }}</td>
-      <td>{% if not m.has_terms %}{{ tag("報酬の決まりが設定されていません", "wait") }}{% endif %}
+      <td>{% if not m.has_terms %}{{ tag("報酬の決まりが設定されていません", "wait") }}
+          {% for bid, name in m.without_terms %}<div><a href="/c/{{ m.client_id }}/b/{{ bid }}/reward">業務「{{ name }}」の報酬の決まりを入れる</a></div>{% endfor %}{% endif %}
           {% if m.unpriced_entries %}{{ tag("単価の無い利用量が " ~ m.unpriced_entries ~ " 件（費用に入っていません）", "wait") }}{% endif %}
           {% if m.deficit %}{{ tag("赤字のお知らせ中" if not m.deficit.confirmed else "赤字（確かめ済み）", "stop") }}{% endif %}</td>
     </tr>
