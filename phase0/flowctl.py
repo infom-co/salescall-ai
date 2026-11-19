@@ -3848,7 +3848,8 @@ def asked_offer(q: "Question") -> str | None:
     """こちらの申し出をはい／いいえで伺うシステムの質問（ASKED_OFFER_ROLES）なら、受けていただく答え（はい＝選択肢の1つ目）。違えば None。「こちらの申し出の
     システムの質問か」を読む唯一の場所＝申し出の決まり2つ：
     - 聞き取れないお返事も、その場で1回だけ伺い直す（取りこぼすと申し出が無くなる＝本書 9-4 の 11-09 日本時間6時33分57秒の段。申し出への聞き取れないお返事の回数を
-      読む1か所 Flow._offer_backs が、この質問と困りごとに応える提案を読む＝Flow._ask_again の here）
+      読む1か所 Flow._offer_backs が、この質問と困りごとに応える提案と必須でない業務の申し出の質問（Question.offered。✅ 2026-11-19 日本時間14時18分13秒「伺い53：ア」）
+      を読む＝Flow._ask_again の here）
     - 受けていただいたお返事の頭は「ありがとうございます。」（✅ 2026-11-12 日本時間13時40分05秒 (5)「申し出を受けていただいたお返事には、必ず「ありがとうござい
       ます。」」。受けていただいた答えの1か所 Flow._offer_answer → 相づち _ack_choice）
     業務の申し出の質問（こちらがすることの言葉の種類で決まる＝Question.offered）は、その1か所のまま。⛔ 323cf618 まで、H3 は申し出なのにこの2つから漏れていた
@@ -13020,11 +13021,17 @@ class Flow:
           伺い直しへのお返事も聞き取れなければ、提案の今の道（もとのお返事を読み直す _elsewhere_back）。✅ 2026-11-19 まとめ役の頼み（分身 J＝決まりで直す）。⛔ 8e993fcf
           まで、提案は必須の質問ならもとの質問の回数で2回伺い直してから答えを「-」にし（もとのお返事が無くなった）、必須でない業務の申し出の質問ならすぐ「-」にした
           （提案ももとのお返事も無くなった）
+        - 必須でない業務の申し出の質問（こちらがすることの言葉が申し出の言葉の業務の質問＝Question.offered。ご案内の方法の申し出 asks_way も同じ）：その質問の聞き返しの
+          回数（Item.ask_backs）。最初に伺ったときも、尋ねられて答えたあとの最終の確かめ（「はい、それでは…させていただきましょうか？」）への聞き取れないお返事も
+          （言い直しへのお返事の聞き返し＝_ask_again の confirming）。会話が繋がらないお返事のあとの申し出の伺い直し（_offer_again）は、申し出のシステムの質問と同じく
+          この1回を使った扱い。✅ 2026-11-19 日本時間14時18分13秒 ユーザー「伺い53：ア」（必須でない項目は聞き返さない＝9-5・設計書 6-11 より、申し出を取りこぼさない
+          決まりが先）。⛔ 894b082f まで、伺い直さずに「はい、続きまして…」で答えを「-」にした（申し出が無くなった）。必須の業務の申し出の質問は、ここを通らない
+          （必須の質問のその場の回数 _on_spot_left＋締めの前の念のための確認＝10-14。申し出の1回より多い）
         聞き取れたがはっきりしないお返事（判定が確かに「決められない」と読んだ＝_unheard_now の (K2)）は、ここを通らない（今の道＝伺い直さない）。"""
-        it = self.items[qid]
+        it, q = self.items[qid], self.questions[qid]
         if self._trouble_declined(qid):
             return it.offer_backs
-        return it.ask_backs if asked_offer(self.questions[qid]) is not None else None
+        return it.ask_backs if asked_offer(q) is not None or (q.offered is not None and not q.callback and not q.required) else None
 
     def _brief_due(self) -> bool:
         """急いでいるが手短になら聞く、と判定がそろって読んだ言葉に応じるか（唯一の決まり＝先に判定の読みで応じる1か所 _judged_first・_judged_due）：答えの段で、
@@ -13673,8 +13680,9 @@ class Flow:
         # 制御から出したお返事の種類ごとの表で見つけた）。会話が繋がらないお返事は、ここで「もう一度お聞かせ…」と伺い直さず、ひとこと応えてから申し出を伺い直す
         # （応える番 _asked_kind の offer → _offer_again。✅ 7時57分50秒）
         # 必須の質問のその場の回数は、別のお話の伺い直しと合わせた数（_on_spot_left の1か所。✅ 2026-11-14 日本時間14時31分38秒「●伺い13」）
-        # こちらの申し出（_offer_backs の1か所＝はい／いいえで伺う申し出のシステムの質問 N4・N6・H3・H1・C7・P1 と、困りごとに応える提案）は、聞き取れないときも1回
-        # （答えが質問に合わない＝form の1回は asks_once の決まり＝N4・N6）。困りごとに応える提案は、もとの質問が必須でも申し出の1回（その場の回数ではない）
+        # こちらの申し出（_offer_backs の1か所＝はい／いいえで伺う申し出のシステムの質問 N4・N6・H3・H1・C7・P1 と、困りごとに応える提案と、必須でない業務の申し出の
+        # 質問＝✅ 2026-11-19 日本時間14時18分13秒「伺い53：ア」）は、聞き取れないときも1回（答えが質問に合わない＝form の1回は asks_once の決まり＝N4・N6）。
+        # 困りごとに応える提案は、もとの質問が必須でも申し出の1回（その場の回数ではない）
         offer = self._offer_backs(qid) if reason != "form" else None
         here = self.phase == "asking" and (offer < 1 if offer is not None else
                                            self._on_spot_left(qid) if q.required else q.asks_once and reason == "form" and it.ask_backs < 1)

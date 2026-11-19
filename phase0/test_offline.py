@@ -35664,5 +35664,173 @@ class CallingRestTest(unittest.TestCase):
         self.assertEqual((r["result"], r.get("again"), OtherCompanyClueSendWayTest.heard(r)), ("noted", True, ""))
 
 
+class OfferQuestionUnheardTest(unittest.TestCase):
+    """✅ 2026-11-19 日本時間14時18分13秒 ユーザー「伺い53：ア」：必須でない業務の申し出の質問（こちらがすることの言葉が申し出の言葉の業務の質問＝Question.offered。
+    ご案内の方法の申し出 asks_way も同じ）への聞き取れないお返事も、こちらの申し出（申し出のシステムの質問 N4・N6・H3・H1・C7・P1・困りごとに応える提案）と同じく、
+    断られた扱いにせず、その場で1回だけ伺い直す（取りこぼすと申し出が無くなる＝本書 9-4 の 11-09 日本時間6時33分57秒の段）。言い方はいつも1回目（「申し訳ございません、」
+    ＋「お電話が少し遠いようでしてもう一度お聞かせいただいてもよろしいでしょうか？」）。最初に伺ったときも、尋ねられて答えたあとの最終の確かめ（「はい、それでは…させて
+    いただきましょうか？」）も、申し出への聞き取れないお返事の回数を読む1か所 Flow._offer_backs（聞き返しの1か所 Flow._ask_again）を通る。伺い直しへのお返事：はい＝
+    お礼で受け取る・いいえ＝断る答え・また聞き取れない＝今の道（「はい、」＋「続きまして…」で「-」）・はっきりしない＝今の道（会話AIのひとこと＋申し出の伺い直し）。
+    当てない所は今のまま：必須でない申し出でない質問は聞き返さない（9-5・設計書 6-11）・必須の申し出の質問はその場2回＋締めの前1回（10-14）・会話が繋がらない
+    お返事のあとの申し出の伺い直し（_offer_again）は伺い直しの1回を使った扱い（11-09 7時57分50秒）・必須でない質問に締めの前の確認は足さない・困りごとに応える
+    提案の回数（Item.offer_backs）は、もとの質問の聞き返しの回数と混ぜない。
+    ⛔ 894b082f まで、伺い直さずに「はい、続きまして…」で答えを「-」にした（申し出が無くなった＝分身 J の now.md の c1・rv98/L/ask_3.md の 3-first-i・3-final-i）"""
+    rd = staticmethod(OtherCompanyClueSendWayTest.rd)
+    turn = OtherCompanyClueSendWayTest.turn
+    heard = staticmethod(OtherCompanyClueSendWayTest.heard)
+    ASK = TroubleOfferUnheardTest.ASK
+    PAY = "続きましてお支払いはカードと振込のどちらがよろしいでしょうか？"
+    FINAL = "はい、それではパンフレットをお送りさせていただきましょうか？"
+
+    def flow(self, kind="pamph", required=False, play=True):
+        """Q1（ご予約・必須）に答えて、Q5（kind＝pamph：パンフレットの申し出・guide：ご案内の方法の申し出・fact：申し出でない事実を伺う質問）を伺ったところまで。
+        Q5 のあとは Q4（お支払い・必須）。"""
+        import dataclasses
+        from flowctl import JUDGMENTS, Question
+        b = OtherCompanyClueSendWayTest().business()
+        if kind == "pamph":
+            q5 = Question("Q5", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), topic="パンフレット",
+                          do_words={"はい": "パンフレットをお送りさせていただきます", "いいえ": "パンフレットの送付は控えさせていただきます"},
+                          offer_ways=("メール", "郵送"), required=required)
+        elif kind == "guide":
+            q5 = Question("Q5", "お電話にてご案内させていただいてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), topic="ご案内",
+                          asks_way=True, offer_ways=("お電話", "メール"), do_words={"はい": "お電話にてご案内させていただきます"}, required=required)
+        else:
+            q5 = Question("Q5", "パンフレットはお手元にございますでしょうか？", "yes_no", conditions=("はい", "いいえ"), topic="パンフレットのお手元",
+                          asks_fact=True, required=required)
+        f = dataclasses.replace(b, questions=[b.questions[0], q5, b.questions[3]]).flow(play_recordings=play)
+        f.use_checks(*JUDGMENTS)
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        self.assertEqual((f.current, f.questions["Q5"].offered), ("Q5", None if kind == "fact" else "はい"))
+        return f
+
+    @staticmethod
+    def unheard(f):
+        """判定の確かな読みが届かない聞き取れないお返事：最初に伺ったときは会話AIの「聞き取れない」報告・言い直し（最終の確かめ）へのお返事は「答えなかった」。"""
+        f.on_callee(); f.on_heard("（雑音）……"); f.on_decided()
+        if f.awaiting_confirm is not None:
+            return f.apply("confirm_field", {"question_id": f.awaiting_confirm, "result": "no_answer"})
+        return f.apply("report_unclear", {"question_id": f.current})
+
+    def final(self, f):
+        """同じ質問について尋ねられて答えたあとの最終の確かめ（「はい、それではパンフレットをお送りさせていただきましょうか？」）を伺ったところまで。"""
+        from flowctl import QUERY, QUERY_YES, UNDECIDED
+        from grounding import GROUNDED
+        q = self.rd(UNDECIDED)
+        setattr(q, QUERY, QUERY_YES)
+        self.turn(f, "パンフレットってどんな内容ですか？", q, "record_answer", question_id="Q5", condition_id="unknown")
+        grounded(f, "パンフレットにはご予約のプランと料金をまとめております。", GROUNDED)
+        f.apply("replay_opening", {"part": "own", "answer": "パンフレットにはご予約のプランと料金をまとめております。"})
+        r = self.turn(f, "そうなんですね。", self.rd(UNDECIDED))
+        if f.awaiting_confirm != "Q5":
+            r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((f.awaiting_confirm, self.heard(r)), ("Q5", self.FINAL))
+        return f
+
+    def test_1_the_first_unheard_reply_is_asked_once_more(self):
+        for kind in ("pamph", "guide"):
+            for play in (True, False):
+                f = self.flow(kind, play=play)
+                r = self.unheard(f)
+                self.assertEqual((r["result"], self.heard(r), r.get("ack"), r.get("ask_n"), r.get("ask_last")),
+                                 ("ask_back", self.ASK, "moushiwake", 1, False), (kind, play))
+                self.assertEqual((f.current, f.items["Q5"].state, f.items["Q5"].ask_backs), ("Q5", "unclear", 1), (kind, play))
+
+    def test_2_replies_to_the_ask_back(self):
+        from flowctl import UNDECIDED
+        # はい：申し出を受けていただいた＝お礼で受け取る（11-12 日本時間13時40分05秒 (5)）
+        f = self.flow()
+        self.unheard(f)
+        r = self.turn(f, "はい。", self.rd("はい"), "record_answer", question_id="Q5", condition_id="はい")
+        self.assertEqual((f.export()["Q5"], f.current, self.heard(r)), ("はい", "Q4", "ありがとうございます。" + self.PAY))
+        # いいえ：断る答えの道
+        f = self.flow()
+        self.unheard(f)
+        r = self.turn(f, "いえ、結構です。", self.rd("いいえ"), "record_answer", question_id="Q5", condition_id="いいえ")
+        self.assertEqual((f.export()["Q5"], f.current, self.heard(r)), ("いいえ", "Q4", "承知しました。" + self.PAY))
+        # また聞き取れない：今の道（伺い直しは1回＝「はい、」（(K2) の頭）＋「続きまして…」で「-」）
+        f = self.flow()
+        self.unheard(f)
+        r = self.unheard(f)
+        self.assertEqual((f.export()["Q5"], f.current, self.heard(r), f.items["Q5"].ask_backs), ("-", "Q4", "はい、" + self.PAY, 1))
+        # はっきりしない（聞き取れた）：伺い直す前の最初のお返事と同じ今の道（伺い直しはしない）
+        g = self.flow()
+        want = self.turn(g, "うーん、どうしようかな。", self.rd(UNDECIDED), "record_answer", question_id="Q5", condition_id="unknown")
+        f = self.flow()
+        self.unheard(f)
+        r = self.turn(f, "うーん、どうしようかな。", self.rd(UNDECIDED), "record_answer", question_id="Q5", condition_id="unknown")
+        self.assertEqual((r["result"], self.heard(r), f.current), (want["result"], self.heard(want), g.current))
+        self.assertNotEqual(r["result"], "ask_back")
+
+    def test_3_the_final_confirmation_is_asked_once_more(self):
+        f = self.flow()
+        self.final(f)
+        r = self.unheard(f)
+        self.assertEqual((r["result"], self.heard(r), r.get("ack"), f.awaiting_confirm), ("ask_back", self.ASK, "moushiwake", "Q5"))
+        r = self.turn(f, "はい、それでお願いします。", self.rd("affirmed"), "confirm_field", question_id="Q5", result="affirmed")
+        self.assertEqual((f.export()["Q5"], f.current, self.heard(r)), ("はい", "Q4", "ありがとうございます。" + self.PAY))
+        # 伺い直しへのお返事もまた聞き取れない：今の道（「-」）
+        f = self.flow()
+        self.final(f)
+        self.unheard(f)
+        r = self.unheard(f)
+        self.assertEqual((f.export()["Q5"], f.current, f.awaiting_confirm, self.heard(r)), ("-", "Q4", None, "はい、" + self.PAY))
+
+    def test_4_where_the_rule_does_not_reach_stays_as_now(self):
+        from flowctl import UNDECIDED
+        # 必須でない申し出でない質問：聞き返さない（9-5・6-11）
+        f = self.flow("fact")
+        r = self.unheard(f)
+        self.assertEqual((f.export()["Q5"], f.current, self.heard(r)), ("-", "Q4", "はい、" + self.PAY))
+        # 必須の申し出の質問：その場で2回（10-14。申し出の1回より多い＝今のまま）
+        f = self.flow(required=True)
+        self.assertEqual([self.unheard(f).get("ask_n") for _ in range(2)], [1, 2])
+        self.assertEqual(f.current, "Q5")
+        # 会話が繋がらないお返事のあとの申し出の伺い直し（_offer_again）：伺い直しの1回を使った扱い＝聞き取れなくても伺い直さない（11-09 7時57分50秒）
+        f = self.flow()
+        r = self.turn(f, "うーん、どうしようかな。", self.rd(UNDECIDED), "record_answer", question_id="Q5", condition_id="unknown")
+        self.assertIn("ひとこと応える番", r["message"])
+        grounded(f, "さようでございますか。")
+        r = f.apply("replay_opening", {"part": "talk", "answer": "さようでございますか。"})
+        self.assertEqual(f.awaiting_confirm, "Q5")
+        r = self.unheard(f)
+        self.assertEqual((f.export()["Q5"], f.current, self.heard(r)), ("-", "Q4", "はい、" + self.PAY))
+
+    def test_5_no_closing_recheck_and_the_counts_are_not_mixed(self):
+        from flowctl import CALLBACK_IDS, ELSEWHERE_YES, UNDECIDED
+        # 必須でない質問には、締めの前の念のための確認を足さない
+        f = self.flow()
+        self.unheard(f)
+        self.unheard(f)
+        r = self.turn(f, "カードでお願いします。", self.rd("カード"), "record_answer", question_id="Q4", condition_id="カード")
+        self.assertEqual((f.items["Q5"].rechecks, f.recheck_queue, f.end_reason is not None), (0, [], True))
+        self.assertTrue(self.heard(r).endswith("それでは失礼いたします。"), self.heard(r))
+        # 伺い直したあとの「どれも要らない・別のところに頼んでいる」から困りごとに応える提案へ進んでも、提案への聞き取れないお返事は提案の1回（Item.offer_backs）で
+        # 伺い直す（もとの質問の聞き返しの回数と混ぜない）
+        f = self.flow()
+        self.unheard(f)
+        self.turn(f, "いえ、要らないです。別のところに頼んでますので。", self.rd("いいえ", elsewhere=ELSEWHERE_YES), "record_answer", question_id="Q5",
+                  condition_id="いいえ")
+        self.turn(f, DeepenTroubleTest.TROUBLE, self.rd("問題を言った"), "record_answer", question_id=CALLBACK_IDS["elsewhere"], condition_id="問題を言った")
+        grounded(f, DeepenTroubleTest.REPLY, "知っていることだけ")
+        f.apply("replay_opening", {"part": "own", "answer": DeepenTroubleTest.REPLY})
+        self.turn(f, "へえ、そうなんですね。", self.rd(UNDECIDED), "replay_opening", part="resume")
+        r = self.turn(f, "うーん、どうでしたかね。", self.rd("unknown"), "record_answer", question_id=CALLBACK_IDS["deepen"], condition_id="unknown")
+        self.assertEqual((r["result"], f.current), ("callee_asked", "Q5"))
+        TroubleOfferTest().proposed(f)
+        r = TroubleOfferUnheardTest.unheard(f, "Q5")
+        self.assertEqual((r["result"], self.heard(r), f.items["Q5"].ask_backs, f.items["Q5"].offer_backs), ("ask_back", self.ASK, 1, 1))
+
+    def test_6_one_ask_back_for_one_utterance(self):
+        # 本番の順（報告の無いターンの入口 judged_turn が先に動き、判定の確かな読みが届かないので黙って待ち、同じ発話への会話AIの「聞き取れない」報告があとから
+        # 届く）でも、1つの発話への伺い直しは1回（報告の無いターンは何も流さない）
+        for play in (True, False):
+            f = self.flow(play=play)
+            f.on_callee(); f.on_heard("（雑音）……"); f.on_decided()
+            r0 = f.judged_turn(voiced=False) or {}
+            r1 = f.apply("report_unclear", {"question_id": "Q5"})
+            self.assertEqual((self.heard(r0), r1["result"], self.heard(r1), f.items["Q5"].ask_backs), ("", "ask_back", self.ASK, 1), play)
+
+
 if __name__ == "__main__":
     unittest.main()
