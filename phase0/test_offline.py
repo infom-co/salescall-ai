@@ -7337,10 +7337,11 @@ class MeasureCallingFlowTest(unittest.TestCase):
         import g59_tally as t
         hear = {(x, a) for x, a, _ in g.lines_hear()}
         missing = []
-        for text, _, before, asked, succ, facts in g.cases("確かめる一言"):
+        for c in g.cases("確かめる一言"):
+            text, _, before, asked, succ, facts = c
             if (text, bool(asked)) in hear:
                 continue
-            r = {"text": text, "before": before, "asked": asked, "successor": succ}
+            r = g.case_row(c)   # 行の場面の欄の唯一の作り（フルネームのある業務の行の印 full も＝2026-11-20 rv176/S）
             try:
                 fc.row_scene(r)
             except fc.NoScene:
@@ -38357,12 +38358,12 @@ class MeasureInputsFromFlowTest(unittest.TestCase):
         # 見直し (12) の形の質問：その後の形（R3・R4）・「ところで」の形（R5）・選択肢を並べた形（R6）・ご承認のお知らせ（R7）を、本番の流れの制御がその形で
         # 伺う所まで組む（判定に見せる質問は、お客様が聞いた文）。聞き取れなかったお知らせの締めの前の確かめ（R7 の1行）だけは、まだ組めない（理由つき）
         import g53_meaning
-        from review_words import UNBUILT_SCENES, answer_words, questions
+        from review_words import NEW_SCENES, answer_words, questions
         qs = questions()
         missing = []
         for it in answer_words():
-            if it.get("scene") in UNBUILT_SCENES:
-                continue   # 組む作りがまだ無い場面の印の行（分身 S の読み直し待ちの行）は RereadRowsTest が「場面を組めない」と出すことを確かめる
+            if it.get("scene") in NEW_SCENES:
+                continue   # 場面の印の行（日時の2択の段・番号違いを伺う一言のあと など＝2026-11-20 rv176/S）は、その場面でお客様が聞いた質問を RereadRowsTest の SHOWN で確かめる
             try:
                 shown, asked, before = g53_meaning.judge_inputs(it, qs[it["qid"]])
             except g53_meaning.NoScene as e:
@@ -39261,9 +39262,10 @@ class MeasureCallingConfirmTriggerTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_flow_check as fc
         missing = []
-        for text, _, before, asked, succ, _ in g.cases("確かめる一言"):
+        for c in g.cases("確かめる一言"):
+            text, _, before, asked, succ, _ = c
             try:
-                fc.row_scene({"text": text, "before": before, "asked": asked, "successor": succ})
+                fc.row_scene(g.case_row(c))   # フルネームのある業務の行の印 full も（2026-11-20 rv176/S）
             except fc.NoScene:
                 missing.append((text, before, bool(asked)))
         self.assertEqual(missing, [])
@@ -39324,11 +39326,18 @@ class MeasureCallingShownQuestionTest(unittest.TestCase):
         from meaning_judge import sent_text
         for hide in (None, False):
             b, f, fs = g.flows(hide)
-            for text, _, before, asked, succ, _ in g.cases(b.target.confirm()):
-                r = self.row(text, before, asked, succ)
+            for c in g.cases(b.target.confirm()):
+                text, _, before, asked, succ, _ = c
+                r = g.case_row(c)
                 q, aq = g.judge_questions(r, hide)
                 built = fc.row_scene(r, hide)
                 self.assertEqual((q, aq), (built.judge_context()[0], built.asks_context()[0]), text)
+                if c.full and before and not asked:
+                    # 詳しい呼ぶ一言のきっかけ（どちらの岡田か・お名前だけでは分からない）のあとの行（2026-11-20 rv176/S に候補 S3-5・S4-5 から表へ移した）：
+                    # 判定に見せる質問は、部署・フルネームでお呼びし直した一言（候補の試し test_the_inquiry_and_detailed_call_candidates_are_built_in_production_scenes と同じ。
+                    # お名前を伏せる測りでは、お名前の所が伏せた印になる）
+                    self.assertIn("岡田太郎" if hide is None else "営業部部長の（お呼びしている方のお名前）様", q.text, text)
+                    continue
                 fl = fs if succ else f
                 old = fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
                 self.assertEqual(sent_text(q, text, None, before), sent_text(old, text, None, before), (text, before))
@@ -39341,8 +39350,11 @@ class MeasureCallingShownQuestionTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_flow_check as fc
         rows = g.candidates()
-        self.assertEqual([sum(1 for r in rows if r["scene"] == s) for s in ("S1", "S2", "S3", "S4", "S5")], [19, 6, 9, 6, 10])
-        self.assertEqual(len({(r["text"], r["before"], r["asked"], r["full"]) for r in rows}), 50)
+        # 2026-11-20 rv176/S：S3-5・S4-5 は、答えを伏せた読み手2人の読みで正解の表へ移した（g59_calling_judge.LINES_FULL）＝候補は 19・6・8・5・10 の48行。番号は並びのまま
+        self.assertEqual([sum(1 for r in rows if r["scene"] == s) for s in ("S1", "S2", "S3", "S4", "S5")], [19, 6, 8, 5, 10])
+        self.assertEqual(len({(r["text"], r["before"], r["asked"], r["full"]) for r in rows}), 48)
+        self.assertNotIn("S3-5", {r["id"] for r in rows})
+        self.assertIn("S3-6", {r["id"] for r in rows})
         want = {"S1": ("岡田（おかだ）様は今お電話に出られないご状況ということでしょうか？", True),
                 "S2": ("岡田（おかだ）様は今お電話に出られないご状況ということでしょうか？", True),
                 "S3": ("営業部部長の岡田太郎（おかだたろう）様はいらっしゃいますでしょうか？", False),
@@ -39450,7 +39462,7 @@ class CallingReadersPacketTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_readers as rd
         p = rd.packet("a")
-        self.assertEqual(len(p["rows"]), 50)
+        self.assertEqual(len(p["rows"]), 48)   # 2026-11-20 rv176/S：S3-5・S4-5 は正解の表へ移した（候補の試しの注）
         for r, row in zip(g.candidates(), p["rows"]):
             q, aq = g.judge_questions(r)
             self.assertIn(q.text, p["variants"][row["p"]], r["id"])
@@ -39485,7 +39497,7 @@ class CallingReadersPacketTest(unittest.TestCase):
         import g59_calling_judge as g
         import g59_readers as rd
         real = g.cases("x")
-        marked = [(t, acc, b, a, s, {k: {"★正解の印★"} for k in f}) for t, acc, b, a, s, f in real]
+        marked = [g._case((t, acc, b, a, s, {k: {"★正解の印★"} for k in f}), c.full) for c in real for t, acc, b, a, s, f in (c,)]
         with unittest.mock.patch.object(g, "cases", lambda confirm: marked):
             for name in ("a", "b"):
                 text = rd.packet_text(name) + rd.request_text(name, "/x")
@@ -40124,7 +40136,7 @@ class CallingBeforeTest(unittest.TestCase):
         # 形の場面（測りの1か所 row_scene）と同じ（＝測りの表は本番の場面を表す）。組めない行は無い（row_scene は場面が行と違えば NoScene）
         import g59_calling_judge as g
         import g59_flow_check as fc
-        rows = [{"text": t, "before": bf, "asked": a, "successor": s} for t, _, bf, a, s, _ in g.cases("x")] + g.candidates()
+        rows = [g.case_row(c) for c in g.cases("x")] + g.candidates()
         for r in rows:
             got = []
             for first in (None, self.FIRST):
@@ -40429,48 +40441,118 @@ class WrongNumberAnswerStageTest(unittest.TestCase):
             self.assertTrue(why)
 
 
-class RereadRowsTest(unittest.TestCase):
-    """分身 S（まとめ役 CL-1 の頼み rv176/S）：判定に送る文が 2026-11-20 日本時間4時台〜6時台に変わった所の試しの言葉（review_words.REREAD_ROWS・CALLING_WORDS の印 REREAD）。
-    (1) 場面の印の場面（日時の2択の段・番号違いを伺う一言のあと・待っていただく一言のあと・顧客獲得型の悩みの伺いと本心を伺う一言＝review_words.UNBUILT_SCENES）は、測りの数えで
-        組む作りがまだ無い＝数えの1か所（g53_meaning.step_act・step_wants・flow_miss）も送る所（judge_inputs）も「場面を組めない」と出す（ほかの組み立ての枝＝黙ったあとの一言の
-        場面などに落として、違う場面で送る・数えることをしない）。⛔ 直す前は、待っていただく一言のあとの行（正解に「声かけへのお返事だけか」がある）を、黙ったあとの一言
-        （「もしもし？」など）のあとの場面に組み、判定に違う一言を見せて数えていた
-    (2) 読み直し待ちの印と数
-    (3) 選ぶ質問の言い直しへの「違う」（meaning_judge.CHOICE_DENIED＝中の名前 corrected。分身 M の伺い70 の (1)）は、数えの1か所で、もう一方・決められないと違う動き"""
+class ComplaintSceneLineTest(unittest.TestCase):
+    """CL-1 が決めた苦情の場面の台詞（2026-11-20 rv176/S の続き (5)）：会話AIの通話の試験（G-57）の場面「苦情」（scenes.SCENES）のお客様の台詞は
+    「なんて失礼な電話なんですか。責任者を出してください。」（はっきり怒っている・責任者を出すように求めた＝伺い81 の怒っている側。前の「何回電話してくるんですか。
+    迷惑なんですけど。」は、電話が重なることへの不満＝断った側に寄る＝flowctl.ANGRY_NOT）。直すのは台詞の文の1か所（make_callee_samples.UTTERANCES）だけ。
+    声は作らない（お金がかかる）＝前の文で作った声は、作ってある声として数えず（matches_script）、新しい声を作るまで場面は動かさない（scenes の missing）"""
 
-    def test_1_unbuilt_scenes_are_reported_by_the_one_count(self):
+    LINE = "なんて失礼な電話なんですか。責任者を出してください。"
+
+    def test_the_complaint_scene_says_the_decided_line_and_the_old_voice_is_not_used(self):
+        import scenes
+        from make_callee_samples import UTTERANCES, matches_script, text_and_how
+        self.assertEqual(text_and_how(UTTERANCES["complaint"])[0], self.LINE)
+        lines, _ = scenes.SCENES["苦情"].call()
+        self.assertTrue(any(x.get("wav", "").endswith("_complaint.wav") for x in lines))   # 場面は台詞の名前で声を指す（文は台詞の1か所）
+        self.assertFalse(matches_script({"id": "complaint", "text": "何回電話してくるんですか。迷惑なんですけど。"}))   # 前の文の声は使わない
+        self.assertTrue(matches_script({"id": "complaint", "text": self.LINE}))
+
+
+class ReaderBorderTest(unittest.TestCase):
+    """分身 S の続き (2)（まとめ役 CL-1 の頼み）：答えを伏せた読み手2人（rv176/S/readers）が2人とも2つに読んだのに、ご判断で答えが決まっている行は、判定への説明の文の
+    境目の1か所を直す（お客様に聞こえる言葉・流れの制御の動きは変えない）。"""
+
+    def test_1_check_and_wait_is_wait_for_the_reply(self):
+        # ✅ 2026-11-20 日本時間3時55分24秒 ユーザー「伺い71：ア」＝「担当者に確認しますので、少々お待ちいただけますでしょうか。」「少し調べてくるので、待っていてください。」は
+        # いま確かめてくる言い方で電話をつないだまま待つ頼み方＝返事を待つ／「上司に相談してみるので、少し待っていてください。」は待つかかけ直すか決められない（境目は今の1か所＝
+        # 待つかかけ直すか決められないの説明）。⛔ 直す前は、その説明に「確かめたいので待ってほしい」があり、読み手2人とも「担当者に確認しますので…」を両方に読んだ
+        from flowctl import HOLD_BACK, WAIT_OR_LATER
+        from meaning_judge import ANSWER_KINDS
+        d = ANSWER_KINDS[WAIT_OR_LATER]
+        self.assertNotIn("確かめたい", d)
+        self.assertIn("相談したい", d)
+        self.assertIn(f"「{HOLD_BACK}」", d)
+        self.assertIn("確認する", d)
+
+    def test_2_angry_border_reads_complaints_about_calls_and_commands(self):
+        # ✅ 2026-11-01 日本時間20時11分02秒「4.「こういう営業の電話、迷惑なんですけど。」：(ア) 断った」・2026-11-20 日本時間2時18分01秒「伺い81：…OK」（伺いの文の、
+        # はっきり怒っている例「いい加減にしてください！」）。境目は怒っている・苦情の説明の終わり（flowctl.ANGRY_NOT）の1か所。⛔ 直す前は、読み手2人とも、営業の電話を嫌がる
+        # 不満を「苦情」とも、強い言葉でやめるように言いつけた言葉を「断りを強い勢いで言った」とも読んだ（両方に当たる文だった）
+        from flowctl import ANGRY_NOT, END_ANGRY, END_REFUSED, end_choices
+        self.assertIn("営業の電話", ANGRY_NOT)
+        self.assertIn("不満", ANGRY_NOT)
+        self.assertIn("命じた", ANGRY_NOT)
+        for calling in (True, False):
+            self.assertTrue(end_choices(calling)[END_ANGRY].endswith(f"{ANGRY_NOT}）"))
+            self.assertNotIn(ANGRY_NOT, end_choices(calling)[END_REFUSED])   # 境目は1か所
+
+
+class RereadRowsTest(unittest.TestCase):
+    """分身 S（まとめ役 CL-1 の頼み rv176/S とその続き）：判定に送る文が 2026-11-20 日本時間4時台〜6時台に変わった場面の試しの言葉（review_words.NEW_SCENE_ROWS）。
+    (1) 場面の印の場面（日時の2択の段・番号違いを伺う一言のあと・待っていただく一言のあと・顧客獲得型の悩みの伺いと本心を伺う一言＝review_words.NEW_SCENES）を、測りの
+        数えの1か所（g53_meaning.flow_scene・flow_reply・flow_name）が本番の流れの制御で組み、正しい読みと外れた読みの動きを分けて数える（CL-1 が決まりで決めた (c)）。
+        ⛔ rv176/S の 290f6696 までは「場面を組めない」と出していた（送らない・数えない）。⛔ その前は、待っていただく一言のあとの行（正解に「声かけへのお返事だけか」が
+        ある）を、黙ったあとの一言（「もしもし？」など）のあとの場面に組み、判定に違う一言を見せて数えていた
+    (2) 答えを伏せた読み手2人の読みを当てたあと（読み直し待ちの印は外した）
+    (3) 選ぶ質問の言い直しへの「違う」（meaning_judge.CHOICE_DENIED＝中の名前 corrected。分身 M の伺い70 の (1)）は、数えの1か所で、もう一方・決められないと違う動き"""
+    # 場面ごとに、判定に見せる質問（文・質問のあとにこちらが言った一言）が本番の場面の形か
+    SHOWN = {"日時の2択の段（平日と答えたあとの曜日の2択）": ("C1", "金曜日と火曜日ではどちらがよろしいでしょうか？", ""),
+             "番号違いを伺う一言のあと（答えの段・判定の組が割れた）": ("R1", "お支払いはカードと振込のどちらがよろしいでしょうか？", "番号を間違えてお掛けしてしまいましたでしょうか？"),
+             "待っていただく一言のあと（答えを言ったあと、こちらの声が出ていない）": ("R1", "お支払いはカードと振込のどちらがよろしいでしょうか？",
+                                                                   "少々お待ちいただいてもよろしいでしょうか？"),
+             "顧客獲得型の悩みの伺い（Y2）": ("Y2", "御社はこういうお悩みはございませんですか？", ""),
+             "顧客獲得型の本心を伺う一言（D2）": ("D2", "何か問題でもございましたでしょうか？", "")}
+
+    def reading(self, it, **change):
+        """行の正解の1つ目の読み（答え・項目）に change を当てた記録の行（数えの読み口 g53_meaning.reading の形）。"""
+        from g53_meaning import SIDE_SUFFIX
+        lab = it["label"]
+        out = {**it, "j": change.pop("answer", lab["accept"][0]), "j言い切り": True}
+        for k, suffix in SIDE_SUFFIX.items():
+            if k in change:
+                out[f"j{suffix}"] = change[k]
+            elif k in lab:
+                out[f"j{suffix}"] = lab[k][0]
+        return out
+
+    def test_1_new_scenes_are_built_by_the_one_count(self):
         import g53_meaning as g
-        from review_words import REREAD_ROWS, UNBUILT_SCENES, answer_words, questions
+        from flowctl import AWAY, AWAY_NO, PROMPT_REPLY, PROMPT_REPLY_YES, VALUE_CHOICE, WRONG, WRONG_NOT_SAID
+        from review_words import NEW_SCENE_ROWS, NEW_SCENES, answer_words, questions
         qs = questions()
-        rows = [it for it in answer_words() if it.get("scene") in UNBUILT_SCENES]
-        self.assertEqual({it["scene"] for it in rows}, set(UNBUILT_SCENES))
-        self.assertEqual(rows, [it for it in REREAD_ROWS if it.get("scene") in UNBUILT_SCENES])
+        rows = [it for it in answer_words() if it.get("scene") in NEW_SCENES]
+        self.assertEqual({it["scene"] for it in rows}, set(NEW_SCENES))
+        self.assertEqual(set(self.SHOWN), set(NEW_SCENES))
+        self.assertEqual(rows, [it for it in NEW_SCENE_ROWS if it.get("scene") in NEW_SCENES])
         for it in rows:
             with self.subTest(text=it["text"], scene=it["scene"]):
                 q = qs[it["qid"]]
                 self.assertFalse(g.prompted_row(it))   # 場面の印のある行は、印の場面（黙ったあとの一言の場面ではない）
-                with self.assertRaises(g.NoScene) as e:
-                    g.judge_inputs(it, q)
-                self.assertIn("場面の印の場面を組む作りがまだ無い", str(e.exception))
-                self.assertIn(it["scene"], str(e.exception))
-                self.assertEqual(g.step_wants(it, q, False), {g.SCENE_MISSING + str(e.exception)})
-                self.assertEqual(g.flow_miss({**it, "j": it["label"]["accept"][0], "j言い切り": True}, q, "j"), "場面を組めない（数えない）")
+                shown, asked, before = g.judge_inputs(it, q)
+                self.assertEqual((shown.id, shown.text, getattr(shown, "prompted", "") or ""), self.SHOWN[it["scene"]])
+                wants = g.step_wants(it, q, False)
+                self.assertFalse(any(w.startswith((g.SCENE_MISSING, g.OTHER_ACT)) for w in wants), wants)
+                self.assertIsNone(g.flow_miss(self.reading(it), q, "j"))
+        # 外れた読みは、正しい読みと違う動きと数える（場面ごとに1つずつ）
+        by = {(it["scene"], it["text"]): it for it in rows}
+        misses = [(("日時の2択の段（平日と答えたあとの曜日の2択）", "どちらもちょっと難しいですね。"), {"answer": VALUE_CHOICE}),
+                  (("番号違いを伺う一言のあと（答えの段・判定の組が割れた）", "はい、そうです。"), {WRONG: WRONG_NOT_SAID}),
+                  (("待っていただく一言のあと（答えを言ったあと、こちらの声が出ていない）", "えー、待つんですか、どうしようかなあ。"), {PROMPT_REPLY: PROMPT_REPLY_YES}),
+                  (("顧客獲得型の悩みの伺い（Y2）", "今日は暑いですねえ。"), {AWAY: AWAY_NO}),
+                  (("顧客獲得型の本心を伺う一言（D2）", "今日は暑いですね。"), {AWAY: AWAY_NO})]
+        for k, change in misses:
+            with self.subTest(miss=k):
+                it = by[k]
+                got = g.flow_miss(self.reading(it, **change), qs[it["qid"]], "j")
+                self.assertIsNotNone(got)
+                self.assertNotEqual(got, "場面を組めない（数えない）")
 
-    def test_2_reread_rows_are_marked_and_counted(self):
+    def test_2_readers_are_applied(self):
         import review_words as rw
-        from flowctl import ABOUT, ABOUT_NO_SUCH
-        self.assertTrue(rw.REREAD_ROWS)
-        self.assertTrue(all(it["reread"] == rw.REREAD for it in rw.REREAD_ROWS))
-        self.assertTrue(all(it in rw.answer_words() for it in rw.REREAD_ROWS))
-        c = rw.counts()
-        self.assertEqual(c["G-53（読み直し待ち）"], len(rw.REREAD_ROWS))
-        self.assertEqual(c["G-53（場面を組む作りがまだ無い）"], len(rw.REREAD_ROWS))
-        pending = [(text, scene, label) for text, scene, label, why in rw.CALLING_WORDS if why.startswith(rw.REREAD)]
-        self.assertEqual(c["G-59（正解の表へ足す案・読み直し待ち）"], len(pending))
-        # 「そういう方はいない」は会社・お店の電話のはじめの場面だけの選べるもの（ご本人の電話の行には付けない）
-        for text, scene, label in pending:
-            if ABOUT_NO_SUCH in label[ABOUT]:
-                self.assertFalse(scene["own_phone"], text)
+        self.assertFalse(hasattr(rw, "REREAD"))   # 読み直し待ちの印は外した（読み手2人の読みを当てた）
+        self.assertTrue(all("reread" not in it for it in rw.answer_words()))
+        self.assertNotIn("G-53（読み直し待ち）", rw.counts())
 
     def test_3_choice_denied_is_its_own_move(self):
         import json
@@ -40481,12 +40563,17 @@ class RereadRowsTest(unittest.TestCase):
         q = g.question_map()["G16"]
         asked = "念のためお支払いはカードでよろしいでしょうか？"
         it = {"set": "D", "qid": "G16", "text": "違います。", "asked": asked, "asked_choice": "カード"}
-        self.assertEqual(labels[f"D|G16|違います。|{asked}"]["accept"], ["振込", "corrected"])
+        # 2026-11-20 rv176/S：答えを伏せた読み手2人がそろって「違う」だけと読んだ（打ち消しただけ）＝「違う」だけ。もう一方を言った「カードではないです」は境目のまま
+        self.assertEqual(labels[f"D|G16|違います。|{asked}"]["accept"], ["corrected"])
+        self.assertEqual(labels[f"D|G16|いえ、カードではないです。|{asked}"]["accept"], ["振込", "corrected"])
         acts = {c: g.act_of(it, q, Reading(c, True)) for c in ("corrected", "カード", "振込", g.UNDECIDED)}
         self.assertFalse(acts["corrected"].startswith(g.SCENE_MISSING), acts)
         self.assertEqual(len(set(acts.values())), len(acts), acts)   # 「違う」はほかの読みと違う動き＝数えで外れを見分けられる
-        self.assertEqual(g.step_wants(it, q, False), {acts["corrected"], acts["振込"]})   # 2択の打ち消し＝もう一方と「違う」の境目（どちらも正解）
+        self.assertEqual(g.step_wants(it, q, False), {acts["corrected"]})
+        border = {**it, "text": "いえ、カードではないです。"}
+        self.assertEqual(g.step_wants(border, q, False), {acts["corrected"], acts["振込"]})   # 境目＝どちらも正解
         self.assertIsNone(g.flow_miss({**it, "j": "corrected", "j言い切り": True}, q, "j"))
+        self.assertIsNotNone(g.flow_miss({**it, "j": "振込", "j言い切り": True}, q, "j"))
         self.assertIsNotNone(g.flow_miss({**it, "j": g.UNDECIDED, "j言い切り": True}, q, "j"))
 
     def test_4_calling_count_keeps_the_full_name_mark(self):
@@ -40504,6 +40591,27 @@ class RereadRowsTest(unittest.TestCase):
             self.assertEqual(no_such != departed, differ, full)
             if full:
                 self.assertIn("おかだたろう", no_such[0][0])   # 部署・フルネームの呼ぶ一言（target_full）
+
+    def test_5_calling_table_counts_the_full_name_recall(self):
+        # CL-1 が決まりで決めた (b)（rv176/S の続き (3)）：G-59 の正解の表の行が、フルネームのある業務の印 full を持てる（行の形＝cases の1行の印・測りの鍵
+        # g59_tally.key・送る文の指紋 prompts_fingerprint）＝「そういう方はいない」の行で、在籍していないと読んだ外れ（後任の方を伺う）を、部署・フルネームでお呼びし直す
+        # 正しい動きと違う動きと数える（帳面 0-3 の (1)）。⛔ 直す前は、表の行に印 full が無く、フルネームの無い業務でしか数えなかった（同じ動きに見えた）
+        import g59_calling_judge as g
+        import g59_tally as t
+        from flowctl import ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH
+        full = [c for c in g.cases("x") if getattr(c, "full", False)]
+        self.assertTrue(full)
+        c = next(c for c in full if c[5][ABOUT] == {ABOUT_NO_SUCH} and not c[2] and c[3] is None)
+        r = {"text": c[0], "before": c[2], "asked": c[3] is not None, "successor": c[4], "full": True}
+        self.assertIn(t.key(r), t.current())
+        self.assertNotIn(t.key({**r, "full": False}), t.current())   # 印の無い同じ行は表に無い（鍵が印を読む）
+        facts = c[5]
+        right = {k: sorted(v)[0] for k, v in facts.items()}
+        self.assertIsNone(t.flow_miss(right, facts, r))
+        self.assertTrue(t.moves(t.flow_miss(right | {ABOUT: ABOUT_DEPARTED}, facts, r)))
+        # 送る文の指紋の行も印を持つ（判定に見せる質問は印の業務の場面＝g59_flow_check.row_scene）
+        q, _ = g.judge_questions(r)
+        self.assertEqual(q.text, g.judge_questions({**r, "full": False})[0].text)
 
 
 class HolesAGTest(unittest.TestCase):
@@ -42357,9 +42465,11 @@ class AngryBoundaryTest(unittest.TestCase):
 
     def test_both_sides_of_the_boundary_are_in_the_correct_table(self):
         from end_words import ANSWER, CALLING, SIDE, answer_truths
-        from flowctl import END_ANGRY, END_REFUSED
+        from flowctl import END_ANGRY, END_NONE, END_REFUSED
         ends = {r[1]: r[2] for r in ANSWER} | {r[1]: r[2] for r in CALLING}
-        want = {"しつこいですね。いらないって言ってるでしょう。": (END_REFUSED,), "何度も言ってるでしょう、もう結構ですって。": (END_REFUSED,),
+        # ⏳ 「しつこいですね。いらないって…」は伺い93 のお答え待ち＝境目の印（断った・言っていないのどちらも正解。2026-11-20 CL-1 の頼み rv176/S の続き (1)）。
+        #    並びの頭は断った（今の確認の電話の型の締め＝test_confirm_type_hears_the_same_close_as_each_side_of_today）
+        want = {"しつこいですね。いらないって言ってるでしょう。": (END_REFUSED, END_NONE), "何度も言ってるでしょう、もう結構ですって。": (END_REFUSED,),
                 "いい加減にしてください！": (END_ANGRY,), "上の者を出してください。": (END_ANGRY,),
                 "しつこいですね。営業のお電話はお繋ぎできないと言ってるでしょう。": (END_REFUSED,), "いい加減にしてください、失礼ですよ。": (END_ANGRY,)}
         self.assertEqual({w: ends.get(w) for w in want}, want)

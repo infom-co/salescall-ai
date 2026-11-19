@@ -8,12 +8,13 @@
 - IMPORT_WORDS：取込の中身の判定（askitems.grounded の same＝元の質問と同じことを伺っているか）。
 - TALK_WORDS：会話AIの通話の試験（G-57）の別のお話。会話AIへの決まり（flowctl.TALK_RECEIVE）の例の言葉（「うちは月曜が定休日なんですよ。」）と違う言葉を
   主に使い、支払日の事実の無い業務（KNOW_NO_DAY）でも流す（決まりの例を写しただけで通らないように＝担当 D の D-13）。
-- REREAD_ROWS（答えの段）・CALLING_WORDS の印 REREAD の行：判定に送る文が 2026-11-20 に変わった所に足した行（分身 S）。正解は答えを伏せた読み手2人の読み直し待ち。
-  場面の印が UNBUILT_SCENES の行は、測りの数えで場面を組む作りがまだ無い＝「場面を組めない」と出す（送らない・数えない）。
+- NEW_SCENE_ROWS（答えの段）：判定に送る文が 2026-11-20 に変わった場面（NEW_SCENES の印）に足した行（分身 S）。正解は答えを伏せた読み手2人（rv176/S/readers の
+  束 n）の読みを当てたもの。場面は測りの数え（g53_meaning._flow_scene）が本番の流れの制御で組む。
 """
 from __future__ import annotations
 
-from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRONG, AWAY, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, HESITATING, KEEP_ON,
+from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NO_SUCH, ABOUT_NONE, ABOUT_WRONG, ABSENT_WHY, ABSENT_WHY_NOT_SAID, AWAY, END, END_NONE, HEAR, HEAR_OK, OFFER,
+                     OFFER_NOT_SAID, AWAY_NO, AWAY_YES, CALL_LATER, DONT_KNOW_LABEL, HESITATING, KEEP_ON,
                      LADDER_NEITHER, PHONE, PHONE_NONE, PROMPT_REPLY, PROMPT_REPLY_NO, PROMPT_REPLY_WAVER, PROMPT_REPLY_YES, QUERY, QUERY_NO, QUERY_YES,
                      REFUSED_LABEL, SPEAKER, SPEAKER_SAME, TARGET_IS_AWAY, THINKING, VALUE_CHOICE, WAIT_NOW, WHO, WHO_RECEPTION, WHY_NOT_SAID, WRONG,
                      WRONG_NOT_SAID, Question, accepted_line, alternatives_form, aside_form, callback_question, pain_question, since_form)
@@ -21,16 +22,14 @@ from grounding import TOUCHED, UNTOUCHED, one_touched
 from meaning_judge import UNDECIDED
 from phrases import PAIN_ASK
 
-# 正解の読み直し待ちの印（2026-11-20 分身 S＝まとめ役 CL-1 の頼み rv176/S）：判定に送る文が変わった所（11-20 日本時間4時台〜6時台＝帳面 1 の (1) の ⏳）に足した行の正解は、
-# 判定に見せる言葉と説明の文だけから分身 S が決めた（境目はどちらも正解）。答えを伏せた読み手2人の読み直し（帳面 0-3）が届くまで、この印を残す（届いたら外す・直す）
-REREAD = "⏳ 読み直し待ち（答えを伏せた読み手2人・rv176/S）"
-# 場面の印の場面を、測りの数え（g53_meaning._flow_scene）で組む作りがまだ無い行の場面の名前（数えずに「場面を組めない」と出す＝送らない・数えない。組む作りを足すまで）
+# 判定に送る文が 2026-11-20 日本時間4時台〜6時台に変わった場面の印（行の印 scene。場面は測りの数えの1か所 g53_meaning._flow_scene が本番の流れの制御で組む＝
+# 台本は試験の場面 DateTimePairsTest・WrongSplitAskTest・WaitedReplyHeadTest・PPainAskAgainTest・PConcernAwayTest と同じ手順。分身 S＝まとめ役 CL-1 の頼み rv176/S の続き (4)）
 LADDER_SCENE = "日時の2択の段（平日と答えたあとの曜日の2択）"
 WRONG_ASK_SCENE = "番号違いを伺う一言のあと（答えの段・判定の組が割れた）"
 WAIT_SCENE = "待っていただく一言のあと（答えを言ったあと、こちらの声が出ていない）"
 PAIN_SCENE = "顧客獲得型の悩みの伺い（Y2）"
 CONCERN_SCENE = "顧客獲得型の本心を伺う一言（D2）"
-UNBUILT_SCENES = (LADDER_SCENE, WRONG_ASK_SCENE, WAIT_SCENE, PAIN_SCENE, CONCERN_SCENE)
+NEW_SCENES = (LADDER_SCENE, WRONG_ASK_SCENE, WAIT_SCENE, PAIN_SCENE, CONCERN_SCENE)
 
 PAY = "お支払いはカードと振込のどちらがよろしいでしょうか？"
 PAY_REWORDED = "お支払いの方はカードと振込のどちらにされますか？"
@@ -75,17 +74,19 @@ WHY_HESITATING = (DONT_KNOW_LABEL["undecided"], *WHY_OTHER)
 
 
 def _row(qid: str, text: str, accept, away=None, query=QUERY_NO, prompt=None, hedged=False, asked: str | None = None, why: str = "",
-         reason=None, wrong=None, scene=None) -> dict:
+         reason=None, wrong=None, scene=None, value: str | None = None) -> dict:
     label = {"accept": list(accept), "why": why}
     if hedged:
         label["hedged"] = True
     if reason:
         label["reason"] = list(reason)
-    for key, value in ((AWAY, away), (QUERY, query), (PROMPT_REPLY, prompt), (WRONG, wrong)):
-        if value is not None:
-            label[key] = [value]
-    # scene＝場面の印（g53_meaning._connected_scene：お呼びした方に繋いだあとの答えの段。無ければ目的のお客様のいない業務の最初の質問＝今までの行）
-    return {"set": "R", "maker": "見直し (12)", "qid": qid, "text": text, "asked": asked, "label": label} | ({"scene": scene} if scene else {})
+    for key, got in ((AWAY, away), (QUERY, query), (PROMPT_REPLY, prompt), (WRONG, wrong)):
+        if got is not None:
+            label[key] = list(got) if isinstance(got, (list, tuple)) else [got]   # 境目の行は並べた名前のどれも正解
+    # scene＝場面の印（g53_meaning._connected_scene：お呼びした方に繋いだあとの答えの段・NEW_SCENES。無ければ目的のお客様のいない業務の最初の質問＝今までの行）。
+    # value＝会話AIが答えの報告で渡す値の文字（判定は値の文字を読まない＝測りの中立の報告 g53_meaning._neutral_report が渡す。無ければ質問の型の置き場の値）
+    return ({"set": "R", "maker": "見直し (12)", "qid": qid, "text": text, "asked": asked, "label": label} | ({"scene": scene} if scene else {})
+            | ({"value": value} if value else {}))
 
 
 def restated_line(q: Question) -> str:
@@ -172,7 +173,7 @@ def answer_words() -> list[dict]:
         _row("H2", "じゃあ、少しだけ待っていてもらえますか。", [WAIT_NOW], why="このまま待ってほしいと言った"),
         _row("H2", "今ちょっと無理なので、また後でかけてください。", [CALL_LATER], why="あとでかけ直してほしいと言った"),
         *WRONG_ANSWER_ROWS,
-        *REREAD_ROWS,
+        *NEW_SCENE_ROWS,
     ]
 
 
@@ -205,90 +206,70 @@ WRONG_ANSWER_ROWS = [
 ]
 
 
-def _reread(*args, **kw) -> dict:
-    """読み直し待ちの行（REREAD の印つき。形は _row と同じ）。"""
-    return {**_row(*args, **kw), "reread": REREAD}
-
-
-# 判定に送る文が変わった所（2026-11-20 日本時間4時台〜6時台・帳面 1 の (1) の ⏳）の試しの言葉（分身 S＝まとめ役 CL-1 の頼み rv176/S の (b)(e)(f)）。正解は判定に見せる言葉と
-# 説明の文（選べるものの説明・質問のあとにこちらが言った一言の読み方の注意書き）だけから決めた・境目はどちらも正解（理由は行ごと）。⏳ どの行も、答えを伏せた読み手2人の読み直し待ち
-# （REREAD）・場面の印の場面は、測りの数え（g53_meaning._flow_scene）で組む作りがまだ無い＝数えずに「場面を組めない」と出す（送らない・数えない。組む作りを足すまで）
-REREAD_ROWS = [
+# 判定に送る文が変わった場面（2026-11-20 日本時間4時台〜6時台・帳面 1 の (1) の ⏳）の試しの言葉（分身 S＝まとめ役 CL-1 の頼み rv176/S の (b)(e)(f)）。正解は、判定に見せる言葉と
+# 説明の文から分身 S が案を作り、答えを伏せた読み手2人（rv176/S/readers の束 n）の読みを当てた：2人がそろった読みはその読み・割れた所と2人とも「どちらとも取れる」の所は
+# 決まりとご判断で決めた（境目はどちらも正解。行ごとの決め方は rv176/S/notes.md の 9）。場面は NEW_SCENES の印（測りの数えの1か所 g53_meaning._flow_scene が組む）
+NEW_SCENE_ROWS = [
     # (b) 日時の2択の段（分身 N の伺い60＝選べるものに「迷っている」「どちらも合わない」＝flowctl.LADDER_NEITHER）。場面は、かけ直しを頼まれ、平日と土日の2択に「平日」と
     # 答えたあとの曜日の2択（「金曜日と火曜日ではどちらがよろしいでしょうか？」＝電話の日 2026-11-19 木曜日 10時・11-23 は祝日。試験 DateTimePairsTest の場面）
-    _reread("C1", "どちらもちょっと難しいですね。", [LADDER_NEITHER], AWAY_NO, scene=LADDER_SCENE,
-            why="並べた2つのどちらも難しいと言った（「どちらも合わない」の説明のとおり）"),
-    _reread("C1", "うーん、どっちがいいかなあ。", [HESITATING, THINKING], AWAY_NO, scene=LADDER_SCENE,
-            why="2つのあいだで迷っていると言った＝迷っている。言いよどみで、このあと続けて答えそう＝考えている途中、とも読める（正解の表の R1「うーん、どっちがいいですかねえ。」"
-                "と同じ境目。こちらの考えは尋ねていない＝決められないは入れない）"),
-    _reread("C1", "金曜日でお願いします。", [VALUE_CHOICE], AWAY_NO, scene=LADDER_SCENE, why="並べた2つの1つ（金曜日）を選んだ＝答えた"),
-    _reread("C1", "来週の月曜日なら空いてます。", [VALUE_CHOICE], AWAY_NO, scene=LADDER_SCENE,
-            why="2択の外の日を答えた＝答えた（日時の2択の段は2択の外の答えも受け取る＝Flow._ladder_take）。どちらも合わない、とは言っていない"),
-    _reread("C1", "金曜日はちょっと…。", [UNDECIDED], AWAY_NO, scene=LADDER_SCENE, reason=WHY_OTHER,
-            why="境目：1つ（金曜日）だけを避けた＝もう一方（火曜日）がよいとも、どちらも合わないとも言っていない＝決められない"),
+    _row("C1", "どちらもちょっと難しいですね。", [LADDER_NEITHER], AWAY_NO, scene=LADDER_SCENE,
+         why="並べた2つのどちらも難しいと言った（「どちらも合わない」の説明のとおり・2026-11-20 rv176/S の束 n の読み手2人がそろった）"),
+    _row("C1", "うーん、どっちがいいかなあ。", [HESITATING, THINKING], AWAY_NO, scene=LADDER_SCENE,
+         why="2つのあいだで迷っていると言った＝迷っている。言いよどみで、このあと続けて答えそう＝考えている途中、とも読める（正解の表の R1「うーん、どっちがいいですかねえ。」"
+             f"と同じ境目。2026-11-20 rv176/S の束 n の読み手2人も2人とも同じ2つ）"),
+    _row("C1", "金曜日でお願いします。", [VALUE_CHOICE], AWAY_NO, scene=LADDER_SCENE, value="金曜日", why=f"並べた2つの1つ（金曜日）を選んだ＝答えた（2026-11-20 rv176/S の束 n の読み手2人がそろった）"),
+    _row("C1", "来週の月曜日なら空いてます。", [VALUE_CHOICE, LADDER_NEITHER], AWAY_NO, scene=LADDER_SCENE, value="来週の月曜日",
+         why=f"2択の外の日を答えた＝答えた（日時の2択の段は2択の外の答えも受け取る＝Flow._ladder_take）。ほかの日を出した＝並べた2つは合わない、とも読める（2026-11-20 rv176/S の束 n の読み手2人が2人とも挙げた）。"
+             "2人は決められないも挙げたが、決められないの説明「どの答えも指していない」には当たらない（日を答えた）＝決まりで外した"),
+    _row("C1", "金曜日はちょっと…。", [UNDECIDED, VALUE_CHOICE, THINKING], AWAY_NO, scene=LADDER_SCENE, value="火曜日", reason=WHY_OTHER,
+         why=f"境目：1つ（金曜日）だけを避けた＝もう一方（火曜日）がよいとも、何も決めていないとも、言いかけ（考えている途中）とも読める（2026-11-20 rv176/S の束 n の読み手2人が2人とも3つを挙げた）。"
+             "何と言うかは伺うもの（rv176/S/notes.md の 5 の (2)）"),
     # (e) 番号違いを伺う一言のあと（分身 M の伺い72 エ＝meaning_judge.WRONG_ASK_NOTE。「はい」「そうです」は伺ったとおり＝番号違い）。場面は、支払いの質問（R1）への
     # 「うちはそういう会社じゃないですよ。番号をお間違えだと思います。」を判定の組の1つだけが番号違いと読み、こちらが「大変失礼いたしました。番号を間違えてお掛けして
-# しまいましたでしょうか？」と伺ったあと（目的のお客様のいない業務の最初の質問）
-    _reread("R1", "はい、そうです。", [UNDECIDED], AWAY_NO, wrong=ABOUT_WRONG, scene=WRONG_ASK_SCENE, reason=WHY_OTHER,
-            why="番号違いかを伺った一言に「はい、そうです。」＝伺ったとおり番号違い（WRONG_ASK_NOTE）。支払いの質問には答えていない"),
-    _reread("R1", "いえ、合ってますよ。", [UNDECIDED], AWAY_NO, wrong=WRONG_NOT_SAID, scene=WRONG_ASK_SCENE, reason=WHY_OTHER,
-            why="番号は合っていると言った＝番号違いとは言っていない。支払いの質問には答えていない"),
+    # しまいましたでしょうか？」と伺ったあと（目的のお客様のいない業務の最初の質問）。別のお話かは、番号違いの行と同じ（どちらの読みも正解＝WRONG_ANSWER_ROWS の注）
+    _row("R1", "はい、そうです。", [UNDECIDED], (AWAY_NO, AWAY_YES, UNDECIDED), wrong=ABOUT_WRONG, scene=WRONG_ASK_SCENE, reason=WHY_OTHER,
+         why=f"番号違いかを伺った一言に「はい、そうです」＝伺ったとおり番号違い（WRONG_ASK_NOTE・2026-11-20 rv176/S の束 n の読み手2人がそろった）。支払いの質問には答えていない"),
+    _row("R1", "いえ、合ってますよ。", [UNDECIDED], (AWAY_NO, AWAY_YES, UNDECIDED), wrong=WRONG_NOT_SAID, scene=WRONG_ASK_SCENE, reason=WHY_OTHER,
+         why=f"番号は合っていると言った＝番号違いとは言っていない（2026-11-20 rv176/S の束 n の読み手2人がそろった）。支払いの質問には答えていない。別のお話かは、読み手2人とも別のお話・決められないも挙げた"),
     # (e) 待っていただく一言のあと（分身 M の伺い76 ウ＝flowctl.PROMPT_REPLY_WAVER・meaning_judge.WAIT_NOTE）。場面は、支払いの質問（R1）に答えたあと（「振込でお願いします。」）、
     # こちらの声が出ていないので「少々お待ちいただいてもよろしいでしょうか？」を流したところ
-    _reread("R1", "えー、待つんですか、どうしようかなあ。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_WAVER, scene=WAIT_SCENE, reason=WHY_OTHER,
-            why="待つかどうかを迷っているだけ（質問への答えの迷いではない）＝答えは決められない・お返事だけかは「待つかどうかの迷いだけ」（WAIT_NOTE のとおり）"),
-    _reread("R1", "はい、構いませんよ。", [UNDECIDED], AWAY_NO, prompt=PROMPT_REPLY_YES, scene=WAIT_SCENE, reason=WHY_OTHER,
-            why="待つお願いへのお返事だけ（待ってよい）＝答えは言い直していない（WAIT_NOTE のとおり。このお願いへの「はい」は質問への「はい」ではない）"),
+    _row("R1", "えー、待つんですか、どうしようかなあ。", [UNDECIDED], (AWAY_YES, UNDECIDED), query=(QUERY_YES, QUERY_NO), prompt=PROMPT_REPLY_WAVER,
+         scene=WAIT_SCENE, reason=WHY_OTHER,
+         why="待つかどうかの迷いだけ（WAIT_NOTE のとおり・✅ 2026-11-20 日本時間3時55分24秒「伺い76：ウ」の伺いの言葉＝待つことに迷われたとき。読み手の1人はお返事だけではない"
+             f"とも読んだ＝ご判断で迷いだけ）。別のお話か・こちらへ尋ねた問いかは、2026-11-20 rv176/S の束 n の読み手2人が2人とも2つを挙げた（「待つんですか」は尋ねたとも、ためらいを言っただけとも）"),
+    _row("R1", "はい、構いませんよ。", [UNDECIDED], (AWAY_NO, UNDECIDED, AWAY_YES), prompt=PROMPT_REPLY_YES, scene=WAIT_SCENE, reason=WHY_OTHER,
+         why=f"待つお願いへのお返事だけ（待ってよい）＝答えは言い直していない（WAIT_NOTE のとおり・2026-11-20 rv176/S の束 n の読み手2人がそろった）。別のお話かは読み手2人が割れた＝挙げた読みのどれも"),
     # (f) 顧客獲得型の悩みの伺い（Y2）・本心を伺う一言（D2）の「質問の答えの話か、別のお話か」（分身 P＝flowctl.AWAY_ROLES に pain・concern）。場面は、試験の顧客獲得型の
     # 業務（PPainAskAgainTest・PConcernAwayTest の場面）
-    _reread("Y2", "今日は暑いですねえ。", [UNDECIDED], AWAY_YES, scene=PAIN_SCENE, reason=WHY_OTHER, why="悩みの伺いと関わりのない世間話＝別のお話"),
-    _reread("Y2", "うーん、どうでしょうねえ。", [UNDECIDED, THINKING], AWAY_NO, scene=PAIN_SCENE, reason=WHY_OTHER,
-            why="悩みがあるとも無いとも言っていない＝決められない・言いよどみで、このあと続けて答えそう＝考えている途中、の境目。悩みの伺いへの返事＝答えの話"),
-    _reread("D2", "今日は暑いですね。", [UNDECIDED], AWAY_YES, scene=CONCERN_SCENE, reason=WHY_OTHER, why="本心を伺う一言と関わりのない世間話＝別のお話"),
-    _reread("D2", "説明が長くてよく分からないんですよ。", ["問題を言った"], AWAY_NO, scene=CONCERN_SCENE,
-            why="こちらの話し方・進め方への気になる点を言った＝問題を言った・答えの話（「よく分からない」は説明のことで、答えを持っていないとは言っていない）"),
+    _row("Y2", "今日は暑いですねえ。", [UNDECIDED], AWAY_YES, scene=PAIN_SCENE, reason=WHY_OTHER, why=f"悩みの伺いと関わりのない世間話＝別のお話（2026-11-20 rv176/S の束 n の読み手2人がそろった）"),
+    _row("Y2", "うーん、どうでしょうねえ。", [UNDECIDED, THINKING, "unknown"], AWAY_NO, scene=PAIN_SCENE, reason=WHY_OTHER,
+         why="悩みがあるとも無いとも言っていない＝決められない・言いよどみ＝考えている途中・自分でもよく分からない＝わからない、の境目（"
+             f"2026-11-20 rv176/S の束 n の読み手2人が2人とも3つを挙げた）。悩みの伺いへの返事＝答えの話"),
+    _row("D2", "今日は暑いですね。", [UNDECIDED], AWAY_YES, scene=CONCERN_SCENE, reason=WHY_OTHER, why=f"本心を伺う一言と関わりのない世間話＝別のお話（2026-11-20 rv176/S の束 n の読み手2人がそろった）"),
+    _row("D2", "説明が長くてよく分からないんですよ。", ["問題を言った"], AWAY_NO, scene=CONCERN_SCENE,
+         why="こちらの話し方・進め方への気になる点を言った＝問題を言った・答えの話（「よく分からない」は説明のことで、答えを持っていないとは言っていない）。電話を終える言葉か"
+             "は、読み手の1人が怒っている・苦情とも読んだが、無礼だと責める・強い言葉で言いつける・責任者を求める、のどれでもない＝伺い81 の説明の文で言っていない"),
 ]
 
 
-# お呼びする段（目的のお客様の判定＝G-59）の番号違いの試しの言葉（分身 AC＝頼みの (2)）。⛔ G-59 の正解の表（g59_calling_judge.LINES）はこの分身の持ち場ではない＝
-# ここに置き、正解の表へ足す案は書き置き（rv140/AC/notes.md）。行＝(相手の言葉, 場面, 正解)。場面＝{"asked": 確かめる一言への返事か, "own_phone": ご本人の電話か}
-# （判定の説明の文は flowctl.target_facets(asked, False, own_phone) の1か所）。正解＝{項目の名前: 正しい選べるものの集まり}（書いていない項目は数えない）。
-# 正解は説明の文と決まりの文の言葉だけから決める（理由は行ごと）
+# お呼びする段（目的のお客様の判定＝G-59）の番号違いの試しの言葉（分身 AC＝頼みの (2)）のうち、ご本人の電話の行。行＝(相手の言葉, 場面, 正解)。
+# 場面＝{"asked": 確かめる一言への返事か, "own_phone": ご本人の電話か}（判定の説明の文は flowctl.target_facets(asked, False, own_phone) の1か所）。正解＝{項目の名前:
+# 正しい選べるものの集まり}（書いていない項目は数えない）。2026-11-20 rv176/S：答えを伏せた読み手2人（rv176/S/readers の束 c）の読みを当てた（2人がそろった読みはその読み・
+# 割れた項目は決まりで決めた＝rv176/S/notes.md の 9。お呼びした方が出られない理由は、番号違いでは使わない＝言っていないも決められないも正解＝11-19 日本時間21時台の決め）。
+# 会社の電話の行は G-59 の正解の表へ移した（g59_calling_judge.LINES_FULL）。ご本人の電話の行は、表の場面の業務（会社の電話＝g59_flow_check.b）では組めない＝ここに案として残す
+# （表へ移すには、ご本人の電話の業務の印を表の行が持つ形が要る）
+_SIDE_NONE = {END: {END_NONE}, HEAR: {HEAR_OK}, OFFER: {OFFER_NOT_SAID}}
 CALLING_WORDS = [
-    ("うちには岡田という者はおりませんが。", {"asked": False, "own_phone": False},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NO_SUCH}},
-     "会社の電話：「そういう方はいない」の説明そのもの（退職・異動とは言っていない＝2026-11-20 分身 M が在籍していないから分けた選べるもの。伺い69 エ）・番号違いの説明は"
-     "番号の間違い・そういう会社やお店ではないだけ。お呼びした方をほかの人として話した"
-     "はじめに出た方＝受付・取次ぎの方（まとめ役 CL-1 の 11-19 日本時間19時台の直し。⛔ 分身 Z の案 F(同,受,無,番)）"),
     ("うちには岡田という者はおりませんが。", {"asked": False, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}},
+     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID, UNDECIDED}},
      "ご本人の電話（携帯電話の番号）：番号違いの説明「お呼びした方の電話ではない（そういう方はいない・…）」・在籍していないの説明から「そういう方はいない」を外した"),
-    ("そちらは番号をお間違えではないですか。うちはそういう会社ではありませんが。", {"asked": False, "own_phone": False},
-     {SPEAKER: {SPEAKER_SAME}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}},
-     "会社の電話の番号違いの説明そのもの。話している方は誰かは付けない（受付・取次ぎの方の印＝ほかの人として話した・名前を確かめた などが無く、別の方は代わって出た方"
-     "だけ＝説明のどれでも決まらない＝「決められない」とも読める。⛔ 分身 Z の案の「別の方」は、代わって出た方の説明）"),
     ("いえ、そういう方はいませんけど。", {"asked": False, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}},
-     "ご本人の電話（個人のお客様の呼ぶ一言「（名前）様のお電話でお間違えないでしょうか？」への返事）：そういう方はいない＝番号違い"),
-    ("いいえ、違いますけど。", {"asked": True, "own_phone": False},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NONE}},
-     "確かめる一言への「いいえ」：番号違い・在籍していないのどちらの言葉も無い＝事情は言っていない（分身 Z の書き置きの行）"),
+     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_WRONG}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID, UNDECIDED}},
+     "ご本人の電話（個人のお客様の呼ぶ一言「（名前）様のお電話でお間違えないでしょうか？」への返事）：そういう方はいない＝番号違い。話している方は読み手2人がそろって"
+     "受付・取次ぎの方（お呼びした方をほかの人として話した）"),
     ("いいえ、違いますけど。", {"asked": True, "own_phone": True},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NONE}},
+     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NONE}, **_SIDE_NONE, ABSENT_WHY: {ABSENT_WHY_NOT_SAID}},
      "ご本人の電話でも、「違います」だけは「そういう方はいない・番号の間違いではないか」とは伝えていない＝事情は言っていない"),
-    # 2026-11-20 分身 S（まとめ役 CL-1 の頼み rv176/S の (c)＝分身 M の「そういう方はいない」ABOUT_NO_SUCH・会社・お店の電話のはじめの場面だけ）。正解は言葉と説明の文だけから
-    # 決めた（⏳ 読み直し待ち＝理由の頭の REREAD）
-    ("そういう者はおりませんが。", {"asked": False, "own_phone": False},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NO_SUCH}},
-     f"{REREAD}：会社の電話の呼ぶ一言への言葉：退職・異動・担当が替わったとは言わずに、そういう方はいないとだけ伝えた（「そういう方はいない」の説明そのもの）。"
-     "お呼びした方を「そういう者」とほかの人のこととして話した＝受付・取次ぎの方（「うちには岡田という者は…」の行と同じ）"),
-    ("いえ、そういう者はおりませんが。", {"asked": True, "own_phone": False},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_NO_SUCH}},
-     f"{REREAD}：会社の電話の確かめる一言への言葉：確かめた問いに「いえ」と答え（受付・取次ぎの方の説明の「いいえ」）、そういう方はいないとだけ伝えた"),
-    ("岡田はもうおりませんが。", {"asked": False, "own_phone": False},
-     {SPEAKER: {SPEAKER_SAME}, WHO: {WHO_RECEPTION}, PHONE: {PHONE_NONE}, ABOUT: {ABOUT_DEPARTED, TARGET_IS_AWAY}},
-     f"{REREAD}：境目：「もう」は、退職・異動などでもういない（在籍していない）とも、今日はもう帰った・出た（不在）とも読める。お呼びした方がいたことは言っている＝"
-     "「そういう方はいない（その名前の方に心当たりがない）」ではない。お呼びした方をほかの人のこととして話した＝受付・取次ぎの方"),
 ]
 
 
@@ -348,6 +329,4 @@ def counts() -> dict[str, int]:
     """足した試しの言葉の数（表ごと）。G-63 は添える形ごと（選択肢つき・質問だけ・添えない）に流すので、その数も。"""
     return {"G-53": len(answer_words()), "G-53（読み手へ）": len(TO_READERS), "G-63": len(GROUND_WORDS), "G-63（3つの形で流す行）": len(GROUND_WORDS) * 3,
             "取込の中身の判定": len(IMPORT_WORDS), "G-57": len(TALK_WORDS), "G-59（正解の表へ足す案）": len(CALLING_WORDS),
-            "G-53（読み直し待ち）": sum(1 for it in answer_words() if it.get("reread")),
-            "G-53（場面を組む作りがまだ無い）": sum(1 for it in answer_words() if it.get("scene") in UNBUILT_SCENES),
-            "G-59（正解の表へ足す案・読み直し待ち）": sum(1 for *_, why in CALLING_WORDS if why.startswith(REREAD))}
+            "G-53（判定に送る文が変わった場面の行）": sum(1 for it in answer_words() if it.get("scene") in NEW_SCENES)}

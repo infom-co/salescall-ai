@@ -24,8 +24,7 @@ def _rows(name: str) -> list[dict]:
     import g59_calling_judge as g
     if name == "a":
         return g.candidates()
-    return [{"id": f"T{i}", "text": t, "before": b, "asked": bool(a), "successor": s, "full": False}
-            for i, (t, _, b, a, s, _) in enumerate(g.cases("確かめる一言"), 1)]
+    return [{"id": f"T{i}", **g.case_row(c)} for i, c in enumerate(g.cases("確かめる一言"), 1)]
 
 
 def _spoken(rep: dict) -> str:
