@@ -36,8 +36,8 @@
     <label class="field" for="nd-name">名前（例：依頼者の顧客台帳）</label>
     <input id="nd-name" type="text" name="name" required maxlength="60">
     <label class="field" for="nd-method">送り方</label>
-    <select id="nd-method" name="method">{% for k, m in methods.items() %}<option value="{{ k }}" data-upsert="{{ 1 if m.upsert_capable else 0 }}">{{ m.label }}</option>{% endfor %}</select>
-    {% if methods.values()|selectattr("upsert_capable")|list %}<label class="choice auto-choice"><input type="checkbox" name="auto_writeback" value="1"> 結果が確定するたびに、自動で書き戻す（同じお客様の結果は上書きで1件のまま）</label>{% endif %}
+    <select id="nd-method" name="method">{% for k, m in methods.items() %}<option value="{{ k }}">{{ m.label }}</option>{% endfor %}</select>
+    <label class="choice"><input type="checkbox" name="auto_writeback" value="1"> 結果が確定するたびに、自動で書き戻す（同じお客様の結果は上書きで1件のまま）</label>
     <p class="muted">送り方は、あとから変えられません（変えるときは新しい送り先を足します）。</p>
     <button class="btn main small" type="submit">足す</button>
   </form>

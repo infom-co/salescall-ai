@@ -16,8 +16,7 @@ from tests.support import OPERATOR, World, app_access
 
 SECRET = b"test-only-secret"
 # 試験のための架空の送り方（本物の部品ではない）
-FAKE = {"fake_upsert": result_destinations.Method("架空の上書きできる送り方", True),
-        "fake_plain": result_destinations.Method("架空の上書きできない送り方", False)}
+FAKE = {"fake_a": result_destinations.Method("架空の送り方A"), "fake_b": result_destinations.Method("架空の送り方B")}
 
 
 class Destinations(unittest.TestCase):
@@ -49,14 +48,13 @@ class Destinations(unittest.TestCase):
     def test_make_fix_and_choose_per_business(self):
         with mock.patch.dict(result_destinations.METHODS, FAKE, clear=True):
             self.assertIn('value="create"', self.http.get(self.path).text)
-            self.assertIn("ok=1", self.post({"op": "create", "name": "架空の台帳", "method": "fake_upsert", "auto_writeback": "1"}))
-            self.assertIn("ok=1", self.post({"op": "create", "name": "架空の表", "method": "fake_plain"}))
-            # 上書きで受けられない送り先は、自動で書き戻せない（データベースの1か所が断る）
-            self.assertIn("ok=0", self.post({"op": "create", "name": "架空の表2", "method": "fake_plain", "auto_writeback": "1"}))
+            self.assertIn("ok=1", self.post({"op": "create", "name": "架空の台帳", "method": "fake_a", "auto_writeback": "1"}))
+            self.assertIn("ok=1", self.post({"op": "create", "name": "架空の表", "method": "fake_b"}))
+            self.assertIn("ok=0", self.post({"op": "create", "name": "  ", "method": "fake_b"}))          # 名前は必ず
             dests = {d["name"]: d for d in app_access().in_client(OPERATOR, self.a["tenant"], self.a["client"], result_destinations.of_client)}
-            self.assertTrue(dests["架空の台帳"]["auto_writeback"] and dests["架空の台帳"]["upsert_capable"])
-            self.assertFalse(dests["架空の表"]["upsert_capable"])
-            self.assertNotIn("架空の表2", dests)
+            self.assertTrue(dests["架空の台帳"]["auto_writeback"])
+            self.assertFalse(dests["架空の表"]["auto_writeback"])
+            self.assertTrue(all(d["upsert_capable"] for d in dests.values()))         # 送り先は、上書きで受けられるものだけ（4-5）
             # 選んでいない業務は、すべての送り先へ
             self.assertEqual(self.sends(self.a["business"]), {"架空の台帳", "架空の表"})
             # 1つ目の業務は台帳だけに

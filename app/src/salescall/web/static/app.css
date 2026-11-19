@@ -464,5 +464,3 @@ ul.dest-list { list-style: none; margin: 0; padding: 0; }
 ul.dest-list > li { padding: 12px 0; border-top: 1px solid var(--line); }
 ul.dest-list > li:first-child { border-top: 0; padding-top: 0; }
 ul.dest-list details.adder-block form { margin-top: 10px; }
-/* 上書きで受けられない送り方を選んでいるあいだは「自動で書き戻す」を出さない（受けられるかは送り方の部品が決める＝output/destinations.METHODS） */
-form:has(option[data-upsert="0"]:checked) .auto-choice { display: none; }

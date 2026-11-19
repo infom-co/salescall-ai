@@ -4,8 +4,9 @@
 - **送り方は、送り方の部品があるものだけ選べる**（`METHODS` の1か所）。部品の無い送り方で送り先を作ると、契約者は渡しているつもりで
   何も渡らないため。部品は、依頼者の仕組みの種類ごとに1つ（4-5。例：kintone・依頼者の独自の仕組み）で、最初にその仕組みを使う依頼者が
   決まったときに作る。Google スプレッドシートは、書き方（A 丸ごと書き直す／B 鍵の列で探して上書き）をユーザーに選んでいただいてから（4-5）。
-- **「同じ鍵なら上書き」で受けられるかは、送り方の部品が決める**（契約者には分からないことなので、画面では聞かない）。
-  自動で書き戻せるのは、受けられる送り先だけ（決めるのはデータベースの destinations_auto_only_upsert の1か所。画面は受けられない送り先に、その欄を出さない）。
+- **送り方の部品は、「同じ鍵なら上書き、無ければ作る」で受けられるものだけ**（4-5：受けられない先は送り先として登録させず、ファイルで渡す
+  ＝返事が来ないまま時間切れになって送り直しても、依頼者の側で1件のまま）。部品を作るときに上書きで受けられるようにし、送り先は必ず
+  upsert_capable を真で作る（契約者には分からないことなので、画面では聞かない）。
 - 認証情報は、値を表に入れず参照だけを持つ（credential_ref）。⏳ 参照の付け方（サーバーの秘密の名前）は、最初の送り方の部品と一緒に決める。
 - どの業務の結果をどの送り先へ渡すかを決めるのは core の destinations.for_business の1か所（ここでは決め直さない）。
 """
@@ -22,8 +23,7 @@ from salescall.core.access import Tx
 
 @dataclass(frozen=True)
 class Method:
-    label: str              # 画面に出す送り方の名前（例：「kintone」）
-    upsert_capable: bool    # 「同じ鍵なら上書き、無ければ作る」で受けられるか（部品が決める）
+    label: str              # 画面に出す送り方の名前（例：「kintone」）。部品は、上書きで受けられるように作る（上の決まり）
 
 
 # 送り方の部品があるもの（送り方の名前 → 中身）。部品を作ったら、ここに足す。いまは、まだ1つも無い（結果はファイルで渡す）。
@@ -57,13 +57,12 @@ def _name(raw: str) -> str:
 
 
 def create(tx: Tx, name: str, method: str, auto_writeback: bool) -> UUID:
-    """依頼者の取引で、送り先を作る。送り方は部品のあるものだけ。上書きで受けられるかは部品が決める。"""
-    m = METHODS.get(method)
-    if m is None:
+    """依頼者の取引で、送り先を作る。送り方は部品のあるものだけ（どれも上書きで受けられる）。"""
+    if method not in METHODS:
         raise DestinationInvalid("この送り方は、まだ選べません（送る部品がありません）")
     return tx.one("INSERT INTO salescall.destinations (tenant_id, client_id, name, method, upsert_capable, auto_writeback)"
                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s) RETURNING destination_id",
-                  (_name(name), method, m.upsert_capable, auto_writeback))["destination_id"]
+                  (_name(name), method, True, auto_writeback))["destination_id"]
 
 
 def update(tx: Tx, destination_id: UUID, name: str, auto_writeback: bool) -> None:
