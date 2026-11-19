@@ -42396,3 +42396,192 @@ class MobileOwnerAskTest(unittest.TestCase):
         self.t.used_up(f)
         r = self.t.say(f, "ですから、山田ですが。", {"judge": "同別xx"})
         self.assertEqual((r["result"], r.get("transfer")), ("call_target", True))
+
+
+class LadderUnheardTest(unittest.TestCase):
+    """伺い64（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い64：イ、それでも聞こえなかった場合は最後身もう一度、聞き取れなかった部分のみ聞き直す」）：日時の2択を次々に
+    伺うときの聞き直しの回数は2択ごとに数え直す（次の2択へ進んだら、その2択の1回目の言い方から）。それでも聞き取れなかったら、締めの前の最後に1回、聞き取れなかった2択だけを
+    聞き直す（日時を開かない・伺い始めの2択からやり直さない）。伺い64 の場面は急いでいる方（H1 の「はい」のあと）＝本書 9-5 の「急いでいる方には念のための確認をしない」より、
+    この場面のお言葉が先（あとの・場面を名指したお言葉）。⛔ f1c0af7e まで、聞き直しの回数は質問ごと（3つ目の2択の1回目の聞き取れないお返事で「-」にして締めた）"""
+    KIND = "それでは平日と土日のどちらがよろしいでしょうか？"
+
+    @staticmethod
+    def unheard(f, qid):
+        f.on_callee(); f.on_heard("（雑音）……")
+        f.on_decided()
+        return f.apply("report_unclear", {"question_id": qid})
+
+    def started(self):
+        """答えの段の急いでいる方（H1 の「はい」）の日時の2択を伺い始めたところ＝BriefOfferRulesTest の道（hurry_when）。"""
+        o = BriefOfferRulesTest()
+        f = o.asked()
+        DateTimePairsTest().dated(f)
+        o.yes(f)
+        from flowctl import CALLBACK_IDS
+        self.assertEqual(f.current, CALLBACK_IDS["time"])
+        return f
+
+    def test_counted_again_for_each_pair(self):
+        from flowctl import CALLBACK_IDS
+        c1 = CALLBACK_IDS["time"]
+        d = DateTimePairsTest()
+        f = DateTimePairsTest().first()[0]   # 答えの段の「あとで」（急いでいない方）
+        r = self.unheard(f, c1)
+        self.assertEqual(r["result"], "ask_back")
+        d.answer(f, "平日でお願いします。", "平日")
+        r = self.unheard(f, c1)
+        self.assertEqual((r["result"], r.get("ask_n")), ("ask_back", 1))   # 次の2択では1回目から
+        self.assertIn(d.ASK_BACK, d.heard(r))
+        d.answer(f, "火曜日で。", "火曜日")
+        r = self.unheard(f, c1)
+        self.assertEqual((r["result"], r.get("ask_n")), ("ask_back", 1))
+        self.assertTrue(d.heard(r).endswith(d.ASK_BACK), d.heard(r))
+        r = d.answer(f, "午後がいいですね。", "午後")
+        self.assertEqual(d.asked(r), d.pair("2時", "4時"))
+
+    def test_hurried_caller_gets_the_last_pair_once_more_before_closing(self):
+        from flowctl import CALLBACK_IDS, Limits
+        c1 = CALLBACK_IDS["time"]
+        d = DateTimePairsTest()
+        f = self.started()
+        d.answer(f, "平日でお願いします。", "平日")
+        for _ in range(Limits().ask_back):
+            self.assertEqual(self.unheard(f, c1)["result"], "ask_back")
+        # その場の回数を使い切った：締めの前の最後に1回、聞き取れなかった2択だけ（曜日の2択）を聞き直す
+        r = self.unheard(f, c1)
+        self.assertEqual((r["result"], f.end_reason), ("recheck", None), d.heard(r))
+        self.assertTrue(d.heard(r).endswith(d.pair("金曜日", "火曜日")), d.heard(r))
+        self.assertNotIn("平日と土日", d.heard(r))
+        # そこで答えていただければ、続きの2択から
+        r = d.answer(f, "火曜日で。", "火曜日")
+        self.assertTrue(d.heard(r).endswith(d.HALF), d.heard(r))
+        # それでも聞き取れなければ締める
+        f = self.started()
+        d.answer(f, "平日でお願いします。", "平日")
+        for _ in range(Limits().ask_back + 1):
+            self.unheard(f, c1)
+        r = self.unheard(f, c1)
+        self.assertEqual(r["result"], "end")
+
+
+class LadderFreeTest(unittest.TestCase):
+    """伺い60（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い60：1.空スケジュールの中から2つ　2.別の空スケジュールの2つ」）と、決まりで決めた同じ伺いの一部：
+    (1) 2択に並べる2つは、空いている予定の中から2つ（空いている予定は1か所＝LadderCtx.free。かけ直し＝電話をかけられる日時の空き Flow(call_free=…)・アポ＝依頼者が受けられる
+        日時の空き Business.accept_free＝どちらも CL-2 から受ける仮の名前。受けるまでは今の候補の作り＝暦・営業時間・歯止め時間・いまの時刻を空いている予定として読む）
+    (2) 2つとも合わなければ（判定の選べるもの「どちらも合わない」＝LADDER_NEITHER）、別の空いている予定から2つ（もう並べた所は外す＝6日先を越えてよい）。午前も午後も合わなければ、
+        その日を外して曜日から（決まりで決めた）。平日も土日も合わない・別の予定が無いときは、いま伺った2択の文で聞き直す（決まりで決めた (a) のまま）
+    (3) 迷っている方には「はい、どういった点でお迷いでしょうか？」を1回（こちらから1つに絞ってお勧めはしない＝0時09分49秒）"""
+    d = DateTimePairsTest()
+
+    def neither(self, f, words="どちらもちょっと難しいですね。"):
+        from flowctl import CALLBACK_IDS, JUDGMENTS, LADDER_NEITHER
+        f.on_callee(); f.on_heard(words)
+        for k in JUDGMENTS:
+            f.on_check(k, CallbackTimeAheadTest.rd(LADDER_NEITHER))
+        f.on_decided()
+        return f.apply("record_answer", {"question_id": CALLBACK_IDS["time"], "condition_id": LADDER_NEITHER})
+
+    def test_both_not_fitting_lists_two_others(self):
+        from flowctl import callback_question, LADDER_NEITHER
+        self.assertIn(LADDER_NEITHER, callback_question("later_time").conditions)
+        f, _ = self.d.first()
+        self.d.answer(f, "平日でお願いします。", "平日")
+        r = self.neither(f)
+        # 金曜日・火曜日を外した次の近い平日2つ（祝日の月曜日は並べない・6日先を越えてよい）
+        self.assertEqual((r["result"], self.d.heard(r)), ("ask_back", "承知しました。それでは" + self.d.pair("水曜日", "木曜日")))
+        r = self.neither(f)
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("金曜日", "月曜日")), self.d.heard(r))   # 次の週（11-27 金・11-30 月）
+        r = self.d.answer(f, "月曜日で。", "月曜日")
+        self.assertTrue(self.d.heard(r).endswith(self.d.HALF), self.d.heard(r))
+        r = self.d.answer(f, "午後がいいですね。", "午後")
+        r = self.neither(f)
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("1時", "3時")), self.d.heard(r))   # 2時・4時を外した次の2つ（早い順）
+
+    def test_neither_half_moves_to_other_days(self):
+        f, _ = self.d.first()
+        self.d.answer(f, "平日でお願いします。", "平日")
+        self.d.answer(f, "火曜日で。", "火曜日")
+        r = self.neither(f, "午前も午後もちょっと…。")
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("金曜日", "水曜日")), self.d.heard(r))   # 火曜日を外した曜日
+
+    def test_neither_kind_asks_the_same_pair(self):
+        f, _ = self.d.first()
+        r = self.neither(f)
+        self.assertTrue(self.d.heard(r).endswith(self.d.KIND.removeprefix("それでは")), self.d.heard(r))
+
+    def test_free_slots_are_the_one_source(self):
+        import datetime as dt
+        from flowctl import CALLBACK_IDS
+        f, _ = self.d.started()
+        # 電話をかけられる日時の空き（CL-2 から受ける仮の形＝("YYYY-MM-DD", "HH:MM", "HH:MM")）：金曜日は午後だけ・水曜日は午前だけ
+        f.call_free = (("2026-11-20", "13:00", "17:00"), ("2026-11-25", "09:30", "12:00"))
+        CallbackTimeAheadTest.time_asked(f)
+        r = self.d.answer(f, "平日でお願いします。", "平日")
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("金曜日", "水曜日")), self.d.heard(r))
+        r = self.d.answer(f, "金曜日で。", "金曜日")
+        self.assertTrue(self.d.heard(r).endswith(self.d.pair("2時", "4時")), self.d.heard(r))   # 午前に空きが無い＝午前と午後は伺わない
+        f, _ = self.d.started()
+        f.call_free = (("2026-11-25", "09:30", "12:00"),)
+        CallbackTimeAheadTest.time_asked(f)
+        r = self.d.answer(f, "平日でお願いします。", "平日")
+        self.assertEqual((f.items[CALLBACK_IDS["time"]].ladder.get("day"), self.d.heard(r).endswith(self.d.pair("10時", "11時"))), ("水曜日", True), self.d.heard(r))
+
+    def test_hesitation_gets_the_point_ask_once(self):
+        from flowctl import HESITATING, JUDGMENTS, callback_question
+        from meaning_judge import answer_kinds
+        self.assertIn(HESITATING, answer_kinds(callback_question("later_time")))   # 判定に「迷っている」を読ませる
+        f, _ = self.d.first()
+        self.d.answer(f, "平日でお願いします。", "平日")
+        f.on_callee(); f.on_heard("うーん、どっちがいいかな…。")
+        for k in JUDGMENTS:
+            f.on_check(k, CallbackTimeAheadTest.rd(HESITATING))
+        f.on_decided()
+        r = f.judged_turn(voiced=False)
+        self.assertEqual(self.d.heard(r), "はい、どういった点でお迷いでしょうか？")
+
+
+class ChooseWhenLadderTest(unittest.TestCase):
+    """伺い62（✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い62：イ」＝決まりで決めた形と同じ）：依頼者のトークスクリプトの、お客様に日時を選んでいただく質問
+    （日時の型で、事実を伺う質問ではない＝取込の決め方の1か所 asks_fact の flowctl.chooses_when）も、2択を次々に伺う（今の1か所 ladder_step）。候補は依頼者が受けられる日時の
+    空き（Business.accept_free＝仮の名前）からだけ。その欄の無い業務・お客様に事実を伺う日時の質問は今のまま依頼者の文。⛔ f1c0af7e まで「ご来店の日時はいつがよろしいでしょうか？」
+    （0時09分49秒「「いつ都合がよろしいですか」だと、時間がないと言われるのでダメ。」）"""
+    ASK = "ご来店の日時はいつがよろしいでしょうか？"
+
+    def flow(self, free=(), fact=False):
+        import dataclasses
+        from flowctl import Question
+        qd = Question("Q2", self.ASK, "datetime", conditions=("答えた",), required=True, topic="ご来店の日時", asks_fact=fact)
+        b = dataclasses.replace(OtherCompanyClueSendWayTest().business(), accept_free=tuple(free))
+        b = dataclasses.replace(b, questions=[b.questions[0], qd])
+        f = b.flow(play_recordings=True)
+        DateTimePairsTest().dated(f)
+        return f
+
+    FREE = (("2026-11-20", "10:00", "17:00"), ("2026-11-24", "13:00", "17:00"), ("2026-11-25", "10:00", "12:00"))
+
+    def test_chooses_when_is_one_place(self):
+        from flowctl import Question, chooses_when
+        q = Question("Q2", self.ASK, "datetime", conditions=("答えた",), topic="ご来店の日時")
+        self.assertTrue(chooses_when(q))
+        import dataclasses
+        self.assertFalse(chooses_when(dataclasses.replace(q, asks_fact=True)))   # お客様がもうご存じの日時を伺う質問（伺い61）
+        self.assertFalse(chooses_when(dataclasses.replace(q, type="number")))
+
+    def test_the_pairs_from_the_clients_free_schedule(self):
+        f = self.flow(self.FREE)
+        g = OtherCompanyClueSendWayTest()
+        r = g.turn(f, "はい、しています。", g.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        # 依頼者の空きに土日が無い＝平日と土日は伺わない（ladder_weekends の1か所）・曜日は空きのある近い順の2つ
+        self.assertTrue(heard_words(r).endswith("金曜日と火曜日ではどちらがよろしいでしょうか？"), heard_words(r))
+        self.assertNotIn("いつがよろしいでしょうか", heard_words(r))
+        r = g.turn(f, "火曜日で。", g.rd("答えた"), "record_answer", question_id="Q2", condition_id="答えた", value="火曜日")
+        self.assertTrue(heard_words(r).endswith("2時と4時ではどちらがよろしいでしょうか？"), heard_words(r))   # 火曜日の空きは午後だけ＝午前と午後は伺わない
+        r = g.turn(f, "2時でお願いします。", g.rd("答えた"), "record_answer", question_id="Q2", condition_id="答えた", value="2時")
+        self.assertEqual((r["result"], f.items["Q2"].value), ("confirm_required", "火曜日の午後2時"))
+
+    def test_without_the_field_or_for_a_fact_as_before(self):
+        for free, fact in (((), False), (self.FREE, True)):
+            f = self.flow(free, fact)
+            g = OtherCompanyClueSendWayTest()
+            r = g.turn(f, "はい、しています。", g.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+            self.assertTrue(heard_words(r).endswith(self.ASK), (free, fact, heard_words(r)))

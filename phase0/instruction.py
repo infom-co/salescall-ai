@@ -166,6 +166,9 @@ class Target:
 # 左だけ。CL-2 の業務設定の欄は、会話の側の Business の欄と同じ名前で受け渡す＝CL-2 の business_settings の main_talk_policy などと同じ形）
 # 本題の段の欄（4-207 の (c)(d)(e)＝特別感の条件・悩みと事例・お時間）も同じ表（分身 K2）
 CL2_ACQUIRE_FIELDS = {"call_type": "call_type", "yes_asks": "yes_asks", "special": "special", "pains": "pains", "meeting_time": "meeting_time"}
+# CL-2 へ頼む空いている予定の業務設定の欄（伺い60・62。名前は仮＝CL-2 の答えで替えるのは左だけ）：依頼者が受けられる日時の空き。電話をかけられる日時の空きは業務設定では
+# なく電話ごとの暦（conversation_io.call_dates の並び）から flowctl.Flow の call_free へ（電話の日 today・電話をかけられる日 call_days と同じ受け口）
+CL2_SCHEDULE_FIELDS = {"accept_free": "accept_free"}
 
 
 # 業務設定の会話の秒と時間：CL-2 の設定の名前 → 業務の入口（Business）の欄の名前（唯一の表＝Business.with_call_settings が読み、Business.flow が流れの制御へ渡す）。
@@ -259,6 +262,10 @@ class Business:
     special: str = ""
     pains: tuple = ()
     meeting_time: str = ""
+    # 依頼者が受けられる日時の空き（CL-2 に頼む業務設定の欄・名前と形は仮＝CL2_SCHEDULE_FIELDS。flowctl.free_slots の形＝("YYYY-MM-DD", "HH:MM", "HH:MM") の並び）。あれば、
+    # お客様に日時を選んでいただく業務の質問（flowctl.chooses_when）とアポの日時は、日時の2択の段でこの中からだけ伺う（✅ 2026-11-20 日本時間4時44分42秒「伺い60」「伺い62」）。
+    # 空の業務は今のまま依頼者の文（受けられない日時をこちらから出さない＝本書 1-3）
+    accept_free: tuple = ()
     # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら標準の文（phrases.AI_ANSWER＝共通の一言の録音 ai_answer）
     ai_answer: str | None = None
     # 目的の人（DESIGN.md 4-3）。None＝「誰でも」（最初に出た人が目的の人）。目的の人のある業務では、名乗りの終わりは目的の人を呼ぶ一言で、
@@ -482,7 +489,9 @@ class Business:
                     # 電話の型と Yes の質問の材料（尺度の表を読む入口 Flow._scale・Yes の質問の段 Flow._yes_ask）
                     call_type=self.call_type, yes_asks=tuple(self.yes_asks),
                     # 本題の段の材料（Flow._main_ask・_main_listen＝分身 K2）
-                    special=self.special, pains=tuple(self.pains), meeting_time=self.meeting_time, **kw)
+                    special=self.special, pains=tuple(self.pains), meeting_time=self.meeting_time,
+                    # 依頼者が受けられる日時の空き（伺い60・62。日時の2択の段の候補の材料の1か所 flowctl.Flow._ladder_ctx が読む）
+                    accept_free=tuple(self.accept_free), **kw)
 
     def with_call_settings(self, read) -> "Business":
         """業務設定の会話の秒と時間（CALL_SETTINGS の欄）を、CL-2 の設定から入れたこの業務の入口（唯一の場所＝電話を始めるときに、つなぐ所が呼ぶ）。read＝設定の名前 →
