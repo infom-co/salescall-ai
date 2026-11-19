@@ -59,6 +59,7 @@ class Ctx:
     person: Person
     tenant_id: UUID
     tenant_name: str
+    group: str | None = None   # 選んだ依頼者のグループ（グループの番号／NO_GROUP＝どのグループにも入っていない依頼者／None＝すべて）
 
     @property
     def acting_for_other(self) -> bool:
@@ -88,10 +89,23 @@ class Ctx:
         return self.access.in_system(self.person.actor, work)
 
     def clients(self) -> list[dict[str, Any]]:
-        """その契約者の依頼者の一覧（依頼者のタブと探す欄に出す。名前の順）。
-        ⏳ 依頼者のグループ（2026-11-18 管理者「依頼者が増えた場合は『グループ』を作れるといいね」）は、グループの表ができたら（CL-2 への
-        お願い 15）、ここで選んだグループの依頼者だけに絞る（タブの並べ方だけ。データの分離・権限には使わない）。"""
-        return self.tenant(lambda tx: tx.all("SELECT client_id, name FROM salescall.clients ORDER BY name, client_id"))
+        """その契約者の依頼者の一覧（依頼者のタブと探す欄に出す。名前の順）。選んだグループ（`group`）があれば、そのグループの依頼者だけ
+        （✅ 2026-11-18 管理者「依頼者が増えた場合は『グループ』を作れるといいね」。グループは core の registry.groups の1か所＝CL-2 4-436）。
+        グループはタブの並べ方だけに使う（データの分離・権限には使わない）。無くなったグループを選んでいたら、すべてを並べる。"""
+        rows = self.tenant(lambda tx: tx.all("SELECT client_id, name FROM salescall.clients ORDER BY name, client_id"), read_only=True)
+        if self.group is None:
+            return rows
+        groups = self.groups()
+        if self.group == NO_GROUP:
+            inside = {c for g in groups for c in g["clients"]}
+            return [r for r in rows if r["client_id"] not in inside]
+        chosen = next((g for g in groups if str(g["group_id"]) == self.group), None)
+        return rows if chosen is None else [r for r in rows if r["client_id"] in set(chosen["clients"])]
+
+    def groups(self) -> list[dict[str, Any]]:
+        """その契約者の依頼者のグループ（並び順。core の registry.groups の1か所）。"""
+        from salescall.core import registry
+        return self.tenant(registry.groups, read_only=True)
 
 
 def businesses(tx: Tx) -> list[dict[str, Any]]:
@@ -130,13 +144,16 @@ def tenant_name(access: Access, actor: Actor, tenant_id: UUID) -> str:
     return row["name"] if row else ""
 
 
-def acting(access: Access, person: Person, chosen: UUID | None) -> Ctx:
+NO_GROUP = "none"   # グループの選び：どのグループにも入っていない依頼者
+
+
+def acting(access: Access, person: Person, chosen: UUID | None, group: str | None = None) -> Ctx:
     """見ている契約者を決める1か所。管理者が選んだ契約者（chosen）があり、その契約者が在れば、その契約者。それ以外（管理者でない・
     選んでいない・無い契約者）は、ログインした人の契約者。管理者でない人の選びは、黙って捨てる（契約者は自分の契約者だけ）。"""
     if person.is_admin and chosen is not None and chosen != person.tenant_id:
         row = access.in_tenant(person.actor, chosen, lambda tx: tx.one(
             "SELECT name FROM salescall.tenants WHERE tenant_id = %s", (chosen,)))
         if row is not None:
-            return Ctx(access, person, chosen, row["name"])
-    return Ctx(access, person, person.tenant_id, person.tenant_name)
+            return Ctx(access, person, chosen, row["name"], group)   # ほかの契約者のグループの番号なら、当たらずに「すべて」になる
+    return Ctx(access, person, person.tenant_id, person.tenant_name, group)
 

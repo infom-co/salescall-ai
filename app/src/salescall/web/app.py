@@ -46,6 +46,7 @@ from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, ac
 
 HERE = Path(__file__).resolve().parent
 ACTING_COOKIE = "acting_tenant"   # 管理者が見ている契約者（署名つき）
+GROUP_COOKIE = "client_group"     # タブに並べる依頼者のグループ（並べ方だけ。権限には使わない＝署名は要らない）
 TENANT_BACKS = ("/t/costs",)   # 受け箱の操作のあと、依頼者の中の住所のほかに戻ってよい全体の画面（赤字の確認ボタン）
 
 
@@ -176,7 +177,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         if values["client"] is not None and "businesses" not in values:
             values["businesses"] = ctx.client(values["client"]["client_id"], context.businesses, read_only=True)
         return templates.TemplateResponse(request, name, {
-            "person": person, "ctx": ctx, "clients": ctx.clients(),
+            "person": person, "ctx": ctx, "clients": ctx.clients(), "groups": ctx.groups(), "no_group": context.NO_GROUP,
             # なりすましの札に、この画面の二度押しの札をつなぐ（札は core の once の1か所。画面を開くたびに1枚。web/actions の決まり）
             "token": actions.with_once(actions.form_token(secret, person.login_id),
                                        ctx.tenant(lambda tx: once.issue(tx, actions.ONCE_ACTION))), **values})
@@ -215,7 +216,8 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
         if person is None:
             return RedirectResponse("/login", status_code=303)
         try:
-            ctx = acting(access, person, chosen_tenant(request, person))   # 契約者の名前を読む（データベースに届かないときも、下の返事にする）
+            ctx = acting(access, person, chosen_tenant(request, person),   # 契約者の名前を読む（データベースに届かないときも、下の返事にする）
+                         request.cookies.get(GROUP_COOKIE) or None)
             return render(person, ctx)
         except (NotFound, AdminOnly):
             return problem(request, 404, "見つかりません", "住所を確かめてください。")
@@ -1091,6 +1093,62 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
                         "businesses": context.businesses(tx), "found": found}
             return page(request, "search.html", person, ctx, q=term, **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
+    # ── 依頼者のグループ（docs/DASHBOARD.md 3章のタブ。並べ方だけ。core の registry のグループの部品＝CL-2 4-436）──────────
+    @app.get("/t/group")
+    def choose_group(request: Request, g: str = "", back: str = "/t") -> Response:
+        """タブに並べるグループを選ぶ（ブラウザに覚えさせる。空＝すべて）。戻る先は、この画面の中の住所だけ。"""
+        if identify(request) is None:
+            return RedirectResponse("/login", status_code=303)
+        resp = RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/t", status_code=303)
+        if g:
+            resp.set_cookie(GROUP_COOKIE, g[:64], httponly=True, samesite="strict", secure=secure_cookies)
+        else:
+            resp.delete_cookie(GROUP_COOKIE)
+        return resp
+
+    @app.get("/t/groups")
+    def groups_page(request: Request, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        """グループを整える（作る・名前を変える・並べ替える・やめる・依頼者を入れる／外す）。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            every = ctx.tenant(lambda tx: tx.all("SELECT client_id, name FROM salescall.clients ORDER BY name, client_id"), read_only=True)
+            return page(request, "groups.html", person, ctx, all_clients=every, done=done, ok=bool(ok), active="groups")
+        return handle(request, render)
+
+    @app.post("/t/groups")
+    async def groups_change(request: Request) -> HTMLResponse:
+        """グループの操作の1か所（form の op で分ける。どれも core の registry のグループの部品だけを呼ぶ）。"""
+        form = dict(await request.form())
+        members = (await request.form()).getlist("client_id")
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> Any:
+                op = str(form.get("op") or "")
+                if op == "create":
+                    return registry.create_group(tx, actions.name_of(form))
+                gid = actions.uuid_of(form, "group_id")
+                if op == "rename":
+                    return registry.rename_group(tx, gid, actions.name_of(form))
+                if op == "move":
+                    pos = str(form.get("position") or "")
+                    if not pos.isdigit() or int(pos) < 1:
+                        raise actions.Refused("並びの位置は1以上の数です")
+                    return registry.move_group(tx, gid, int(pos))
+                if op == "remove":
+                    return registry.remove_group(tx, gid)
+                if op == "members":
+                    now = next((g for g in registry.groups(tx) if g["group_id"] == gid), None)
+                    if now is None:
+                        raise LookupError("group")
+                    want = {UUID(m) for m in members if _is_uuid(m)}
+                    for cid in want - set(now["clients"]):
+                        registry.set_group_member(tx, gid, cid, True)
+                    for cid in set(now["clients"]) - want:
+                        registry.set_group_member(tx, gid, cid, False)
+                    return None
+                raise NotFound()
+            out = actions.act(secret, person.login_id, form, lambda: ctx.tenant(do), done="グループを変えました。")
+            return _back("/t/groups", out)
         return handle(request, render)
 
     # ── 報酬の決まり（業務ごと。docs/DASHBOARD.md 5-11。✅ 2026-11-18 管理者「報酬の決まりは『業務』ごと」。core の reward.set_terms の1か所＝CL-2 4-437）

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty, flash, csrf %}
+{% block title %}依頼者のグループ{% endblock %}
+{% block main %}
+<h1>依頼者のグループ</h1>
+<p class="lead">依頼者が増えたときに、タブに並べる依頼者をグループで絞れます（タブの左の「すべての依頼者 ▾」で選びます）。1つの依頼者を、いくつのグループに入れても構いません。グループは並べ方だけで、見られる範囲は変わりません。</p>
+{{ flash(done, ok) }}
+{# グループの作る・直す・並べ替える・やめる・入れる／外すは core の registry のグループの部品だけ（CL-2 4-436） #}
+<section class="card">
+  <h2>グループを作る</h2>
+  <form method="post" action="/t/groups" class="inline-form">{{ csrf(token) }}<input type="hidden" name="op" value="create">
+    <input type="text" name="name" required placeholder="例：保険の依頼者" aria-label="新しいグループの名前">
+    <button class="btn main small" type="submit">作る</button></form>
+</section>
+{% for g in groups %}
+<section class="card" style="margin-top:12px">
+  <div class="title-row"><h2 style="margin:0">{{ loop.index }}. {{ g.name }} <span class="muted">（{{ g.clients|length }}）</span></h2>
+    <span class="btn-row">
+      {% if not loop.first %}<form method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="move"><input type="hidden" name="group_id" value="{{ g.group_id }}"><input type="hidden" name="position" value="{{ loop.index - 1 }}"><button class="btn small" type="submit" aria-label="上へ">↑</button></form>{% endif %}
+      {% if not loop.last %}<form method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="move"><input type="hidden" name="group_id" value="{{ g.group_id }}"><input type="hidden" name="position" value="{{ loop.index + 1 }}"><button class="btn small" type="submit" aria-label="下へ">↓</button></form>{% endif %}
+      <details class="adder"><summary class="btn small">名前を変える</summary>
+        <form class="panel" method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="rename"><input type="hidden" name="group_id" value="{{ g.group_id }}">
+          <input type="text" name="name" value="{{ g.name }}" required aria-label="グループの名前"><button class="btn main small" type="submit">変える</button></form></details>
+      <details class="adder"><summary class="btn small danger-text">やめる</summary>
+        <form class="panel" method="post" action="/t/groups">{{ csrf(token) }}<input type="hidden" name="op" value="remove"><input type="hidden" name="group_id" value="{{ g.group_id }}">
+          <p class="muted">グループだけをやめます。依頼者とそのデータは、そのまま残ります。</p><button class="btn danger small" type="submit">「{{ g.name }}」をやめる</button></form></details>
+    </span></div>
+  <form method="post" action="/t/groups" style="margin-top:10px">{{ csrf(token) }}<input type="hidden" name="op" value="members"><input type="hidden" name="group_id" value="{{ g.group_id }}">
+    <div class="check-grid">{% for c in all_clients %}<label class="choice"><input type="checkbox" name="client_id" value="{{ c.client_id }}" {% if c.client_id in g.clients %}checked{% endif %}> {{ c.name }}</label>{% endfor %}</div>
+    {% if all_clients %}<button class="btn small main" type="submit" style="margin-top:8px">このグループの依頼者を決める</button>{% else %}{{ empty("依頼者はまだいません") }}{% endif %}
+  </form>
+</section>
+{% else %}
+<div class="card" style="margin-top:12px">{{ empty("グループはまだありません", "依頼者が増えてタブが探しにくくなったら、グループを作って絞り込めます。") }}</div>
+{% endfor %}
+{% endblock %}

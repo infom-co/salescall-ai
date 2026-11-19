@@ -449,3 +449,13 @@ details.adder-block > summary::-webkit-details-marker { display: none; }
 
 /* 依頼者へ渡すファイルの枠（形を選んで書き出す） */
 form.handover { display: grid; gap: 8px; margin: 12px 0; }
+
+/* 依頼者のグループ：タブの左の選び・グループの画面の依頼者のレ点 */
+.group-pick > summary { font-size: 13px; color: var(--muted); padding: 0 10px; white-space: nowrap; }
+.group-pick .panel { left: 0; right: auto; display: grid; gap: 2px; }
+.group-pick .panel a { padding: 6px 8px; border-radius: 6px; text-decoration: none; color: var(--ink); }
+.group-pick .panel a[aria-current] { background: var(--wait-soft); font-weight: 600; }
+.group-pick .panel a.manage { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 8px; color: var(--primary); }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; }
+.check-grid label.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }  /* 入れる・外すは止める操作ではないので、赤にしない */
+.inline-form { display: flex; gap: 8px; flex-wrap: wrap; }

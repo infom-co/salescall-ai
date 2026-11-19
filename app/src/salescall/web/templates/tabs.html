@@ -1,9 +1,21 @@
 {# タブの1か所（2段：依頼者 → 業務。✅ 2026-11-18 管理者「(ウ) 両方」「タブは『依頼者』の下位に『業務』が来ることを忘れずに」）。
    上の段：全体・依頼者のタブ（横に送れる）・名前で探す欄。下の段：選んだ依頼者の業務のタブ（概要＝全業務と、業務ごと）。
-   ⏳ 依頼者のグループの選び（グループの表ができたら＝CL-2 へのお願い 15）は、上の段の左に足す。 #}
+   依頼者のグループの選び（並べ方だけ。グループは core の registry.groups の1か所）は、上の段の左。グループが無ければ「グループを作る」だけ。 #}
 <nav class="tabs" aria-label="依頼者と業務">
   <div class="tabrow clients">
     <a class="tab home" href="/t" {% if not client %}aria-current="page"{% endif %}>全体</a>
+    {% set chosen = namespace(name="すべての依頼者") %}
+    {% for g in groups %}{% if g.group_id|string == ctx.group %}{% set chosen.name = g.name %}{% endif %}{% endfor %}
+    {% if ctx.group == no_group %}{% set chosen.name = "グループなし" %}{% endif %}
+    <details class="adder group-pick">
+      <summary aria-label="タブに並べるグループを選ぶ">{{ chosen.name }} ▾</summary>
+      <div class="panel">
+        <a href="/t/group?back={{ request.url.path }}" {% if not ctx.group %}aria-current="true"{% endif %}>すべての依頼者</a>
+        {% for g in groups %}<a href="/t/group?g={{ g.group_id }}&amp;back={{ request.url.path }}" {% if g.group_id|string == ctx.group %}aria-current="true"{% endif %}>{{ g.name }}<span class="muted">（{{ g.clients|length }}）</span></a>{% endfor %}
+        {% if groups %}<a href="/t/group?g={{ no_group }}&amp;back={{ request.url.path }}" {% if ctx.group == no_group %}aria-current="true"{% endif %}>グループなし</a>{% endif %}
+        <a class="manage" href="/t/groups">{{ "グループを整える" if groups else "＋ グループを作る" }}</a>
+      </div>
+    </details>
     <div class="scroller" data-scroll-current>
       {% for c in clients %}<a class="tab" href="/c/{{ c.client_id }}" {% if client and client.client_id == c.client_id %}aria-current="page"{% endif %}>{{ c.name }}</a>{% endfor %}
       {% if not clients %}<span class="tab empty">依頼者はまだいません</span>{% endif %}
