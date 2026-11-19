@@ -692,14 +692,19 @@ def ladder_hours(s: dict, ctx: LadderCtx, half: str) -> tuple:
 def ladder_step(s: dict, ctx: LadderCtx) -> tuple | None:
     """日時の2択の段で、まだ決まっていない最初の所と、その候補（唯一の決まり）：(段, 候補)。段は平日と土日（kind）→ 曜日（day）→ 午前と午後（half）→ 時刻（clock）の順で、
     お客様がもう言った所は飛ばす（場面C）。時刻まで決まった・「いつでも」・候補が無い（その日に、かけられる時刻が無いなど）なら None（伺えた所までの値で受け取る）。
-    候補が1つだけの段は、その1つ（伺わずに入れる＝Flow._ladder_set）。土日を選ばれたら曜日は伺わない（お言葉の流れ）。"""
-    if s.get("any") or s.get("clock") or s.get("frame"):
+    候補が1つだけの段は、その1つ（伺わずに入れる＝Flow._ladder_set）。土日を選ばれたら曜日は伺わない（お言葉の流れ）。時刻・幅だけを言われても、まだ伺えて
+    いない日（平日を選んだあとの曜日）は伺う（時刻・幅は重ねて伺わない。日を言わない時刻は今日のこと＝ladder_read の today なので、平日と土日から伺っている
+    ところへの時刻だけの答えは今のまま）。⛔ d54df841 まで、時刻・幅を言われたらどの段でも None＝平日を選んだあとの「3時ごろなら」で曜日を伺わずに締めた
+    （まとめ役の続きの (2)・14時18分13秒の場面C「まだ伺えていない所は伺う・伺えた所は重ねて伺わない」）"""
+    if s.get("any"):
         return None
     if not (s.get("day") or s.get("today") or s.get("kind") == "土日"):
         if s.get("kind") is None and ladder_weekends(ctx):
             return "kind", LADDER_KINDS
         if (days := ladder_days(s, ctx)):
             return "day", days
+    if s.get("clock") or s.get("frame"):
+        return None
     if not s.get("half"):
         halves = tuple(h for h in LADDER_HALVES if ladder_hours(s, ctx, h))
         return ("half", halves) if halves else None
@@ -965,8 +970,6 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
         # お客様は聞き取れていないので伺った文のまま
         # もう伺った質問を伺い直す（again）ときは、前置きを言い直さない形（Question.plain）から（戻る一言の有無にかかわらず、前置きはお客様に届いている。もう一度
         # 言ってほしいと頼まれたときは呼ぶ所＝Flow._continue が again を渡さない＝伺った文のまま）
-        if q.voiced:
-            return {"kind": "said", "text": q.text}   # 値の入る文（日時の2択の曜日・時刻）＝会話AIの声（言い直しと同じ決まり。録音の名前は無い）
         rid, text = q.plain if again and q.plain else (q.recording or f"callback_{q.callback}", q.text)
         # もう伺った質問を伺い直す（again）ときの頭は、業務の質問と同じ決まり（spoken_question の again）：戻る一言のあと（3回目からの文を終えない一言・頭が
         # 「それでは」の一言）はその一言に続ける形（back_fit）、ほか（戻る一言なし・お礼の一言のあと）は「それでは」から（again_fit＝見直し (12) の B-9）
@@ -974,6 +977,11 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
             rid, text = again_fit(rid, text)
         else:
             rid, text = back_fit(rid, text, before)
+        if q.voiced:
+            # 値の入る文（日時の2択の曜日・時刻）＝会話AIの声（言い直しと同じ決まり。録音の名前は無い）。頭（もう伺った2択へ戻る「それでは」・戻る一言に続ける形）は
+            # ほかのシステムの質問と同じ決まり（again_fit・back_fit）。⛔ d54df841 まで、声の2択は頭の決まりの前に返していた＝もう伺った2択へ戻るときも同じ文を
+            # 続けて言い（11-01）、3回目からの戻る一言（文を終えない一言）に続ける形では、その一言を落とした
+            return {"kind": "said", "text": text}
         # 業務設定から文を作ったシステムの質問（改めてのお話の方法を選んでいただく一言＝BUSINESS_ROLES）も依頼主の単位の録音
         return {"kind": "question", "id": rid, "text": text, "lead": ""} if q.of or q.callback in BUSINESS_ROLES else {"kind": "recorded", "id": rid, "text": text}
     text, lead = spoken_question(questions, qid, before, again, resumed, soft)
@@ -1315,8 +1323,10 @@ def away_fits(q: "Question", asked: bool) -> bool:
     言い直し・最終の確かめのお返事を読む問い合わせ（asked）は、それに加えて、ご承認のお知らせ（最終の確かめ Flow._accepted_ask）と申し出の質問（最終の確かめ
     Flow._final_check・提案の伺い直し）：決められない答えの話は確かめの道（いかがなさいますか・保留）・別のお話はひとことの番で、読みが要る。⛔ 0c55c4e7 まで
     言い直しの確かめには読ませず（伺いD）、言い直しや最終の確かめへの別のお話を、会話AIの報告しだいで「はい、いかがなさいますか？」・保留を伺う・ひとことも無く
-    次へ進んでいた（見直し (12) の A-9・B-3。会話AIは判定に加えない＝11-08 12時11分40秒）"""
-    return aside_fits(q) or in_announce_form(q) or (asked and q.offered is not None)
+    次へ進んでいた（見直し (12) の A-9・B-3。会話AIは判定に加えない＝11-08 12時11分40秒）。
+    時刻・日を伺うシステムの質問（WHEN_ROLES＝日時の2択・お戻りの時刻など）も、質問とその言い直しの両方で読む（別のお話はひとこと＋戻る一言＋いまの質問・2択＝
+    Flow._unlinked_base の when。まとめ役の続きの (4)。⛔ d54df841 まで読ませなかった）"""
+    return aside_fits(q) or in_announce_form(q) or (asked and q.offered is not None) or getattr(q, "callback", "") in WHEN_ROLES
 
 
 def aside_form(q: "Question") -> "Question":
@@ -2338,6 +2348,12 @@ ROLE_KEY = {"back_time": "time", **{r: "time" for rs in THEIRS_PLAN.values() for
             "line": "line", "other_wish": "other_wish", "line_how": "line_how", "mobile": "mobile", "wait_or_later": "wait_or_later",
             "concern": "concern", "handoff": "handoff", "handoff_way": "handoff_way", "close_offer": "close_offer", "carried": "carried",
             "elsewhere": "elsewhere", "deepen": "deepen", "deepen_measures": "deepen_measures", "deepen_ahead": "deepen_ahead", "brief": "brief"}
+# 時刻・日を伺うシステムの質問の役目（唯一の一覧＝判定に「答えの話か別のお話か」を読ませる away_fits・別のお話の番の形 Flow._unlinked_base）：かけ直しの記録の
+# 時刻（time＝日時の2択・お戻りの時刻・次のご出社・お戻りのご予定・電話に出られる時間・お取り次ぎいただけそうな時期・お言葉に甘えたあとの時刻）・本日の
+# お戻り（back_today）・分かる時（when）に入る役目（記録の名前の表 ROLE_KEY から作る＝役目を足せば一緒に入る）。別のお話（「そういえば、うちは月曜が定休日
+# なんですよ。」）には、会話AIのひとこと（9-3）＋戻る一言の1か所（Flow._back_play）＋いまの質問・2択（日時は開かない＝別のお話の言葉を答えとして受け取らない）。
+# まとめ役の続きの (4)（V の伺い60 (2) の「別のお話」）。⛔ d54df841 まで、判定に読ませず、別のお話にひとことも応えなかった
+WHEN_ROLES = tuple(r for r, k in ROLE_KEY.items() if k in ("time", "back_today", "when"))
 # 必須の質問の「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules.HANDLINGS と同じ名前。Question.handlings の値）：
 # 分かるお客様を聞く・分かる時を聞く（聞き足しの質問を1通話1回）・日を改める（会話は次の質問へ進む）・結論として終える（丁寧に締める）
 HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")
@@ -2613,8 +2629,9 @@ def prompt_reply_choices(calling: bool, prompted: bool = False) -> dict:
 
 
 # 業務の質問への言葉が、質問の答えの話か、別のお話か（「うちは月曜が定休日なんですよ。」）。「ところで」＋言い換えた質問で伺い直す質問（aside_fits＝伺い直した
-# あとの形・続きの電話のその後の形も）の答えの段と、その言い直し・最終の確かめ（ご承認のお知らせ・申し出の質問の言い直し・最終の確かめも）だけ読む項目（読ませる
-# 問い合わせの決まりは away_fits の1か所＝meaning_judge.answer_items。段ごとの項目 side_items には出ない＝お呼びする段・システムの質問の文は変わらない）。読みを
+# あとの形・続きの電話のその後の形も）の答えの段と、その言い直し・最終の確かめ（ご承認のお知らせ・申し出の質問の言い直し・最終の確かめも）と、時刻・日を伺う
+# システムの質問（WHEN_ROLES）とその言い直しだけ読む項目（読ませる問い合わせの決まりは away_fits の1か所＝meaning_judge.answer_items。段ごとの項目 side_items
+# には出ない＝お呼びする段・ほかのシステムの質問の文は変わらない。時刻・日のシステムの質問の文は d54df841 のあとの続きの (4) で変わった）。読みを
 # 組み合わせるのは talked_away の1か所（Flow._unlinked_kind・_offer_unlinked・_resume_due）：そろって「別のお話」のときだけ、会話AIのひとことのあと
 # 「ところで」で伺い直す（伺い直したあとも続く別のお話にも、何回目でもひとこと＝Flow._talk_again）。答えの話（どれとも決められない答え・答えの一部・迷い・
 # 分からない）・割れた・項目が届いていないときは今の道（質問から聞き直す・目的に進む向きで確かめる＝11-03）。✅ 2026-11-13 日本時間22時17分01秒 ユーザー
@@ -7145,16 +7162,18 @@ class Flow:
         if reply.get("talked"):
             return "hai"  # 受け答え（世間話・お礼への返事）のあとに、いまの位置へ戻る（_resume）
         if result == "ask_back" and reply.get("ask_reason") == "ladder":
-            # 日時の2択の段の次の2択：相づちは付けない（✅ 2026-11-19 日本時間14時18分13秒「⇒間髪おかず」「⇒すぐに」＝お言葉の会話そのもの。土日の受けの一言は
-            # 返事の中＝_ladder_ask）。土日を選ばれたら、その受けの一言の頭の「はい、」（お言葉の文「はい、承知致しました。土日に…」）。⏳ 平日の曜日を選んで
-            # いただいたあとの受け（伺い (c)）
-            # 申し出を受けていただいた同じ発話で日時を言われて（先に言われた答え＝場面C）次の2択へ進むときは、受けのお礼（✅ 2026-11-12 日本時間13時40分05秒
-            # 「申し出の受けには必ずお礼」＝言い直しの確かめと同じ）
+            # 日時の2択の段の次の2択：土日を選ばれたら、その受けの一言の頭の「はい、」（✅ 2026-11-19 日本時間14時18分13秒 お言葉の文「はい、承知致しました。土日に…」。
+            # 受けの一言は返事の中＝_ladder_ask）。申し出を受けていただいた同じ発話で日時を言われて（先に言われた答え＝場面C）次の2択へ進むときは、受けのお礼（✅ 2026-11-12
+            # 日本時間13時40分05秒「申し出の受けには必ずお礼」＝言い直しの確かめと同じ）
             if self._taken_now() or reply.get("ahead"):
                 # （先に言われた答えから進むときも、その答えを受ける「ありがとうございます。」＝言い直しの頭と同じ受け）
                 self.ack_count += 2 - self.ack_count % 2
                 return "arigatou"
-            return "hai" if reply.get("weekend") else None
+            if reply.get("weekend"):
+                return "hai"
+            # ほかは、次の質問へ進む返事と同じ決まり（下の next＝「承知しました。」「ありがとうございます。」を順番に・ほかの言葉は挟まない）。⛔ d54df841 まで、ここだけ
+            # 相づちを付けない例外（お言葉の「⇒間髪おかず」「⇒すぐに」を相づち無しと読んでいた＝まとめ役の続きの (3)）
+            result = "next"
         if result == "ask_back":
             # 1回目の「答えが質問に合わない」は「はい、」（続けてAIが「恐れ入ります。（聞くこと）を、もう一度…」）。
             # 聞き取れなかったとき・2回目からは、申し訳なさそうに読んだ「申し訳ございません、」（✅ 2026-10-14 ユーザー）
@@ -7476,8 +7495,12 @@ class Flow:
             cond = it.condition = decided
         why, back = self._checks(q, cond, policy=not decided, words=said, decided=decided) if q.type in CHOICE_TYPES else (None, None)
         if why:
-            # 必須でない項目は、聞き返さない決まり（6-11）に合わせて確かめず「-」（その場で1回だけ伺い直す質問＝Question.asks_once は除く）
-            if not q.checks_now:
+            # 必須でない項目は、聞き返さない決まり（6-11）に合わせて確かめず「-」（その場で1回だけ伺い直す質問＝Question.asks_once は除く）。言い切っていない答え
+            # （HEDGE_WHY＝判定か言葉が言い切っていないと読んだ・向きは決まっている）は聞き返しではなく言い直しの確かめ＝必須の質問と同じく、言い切っていない答えの
+            # 1か所（_check_again → _hedged_after）で言い直す（設計書 1章の表「はい／いいえ・選択肢の最初の答え｜そろった＝受け取る。言い切っていなければ…言い直して
+            # 確かめる」＝必須でない項目の「-」は「そろわない」欄だけ・11-01 日本時間20時56分／23時59分のご判断の例はパンフレットの申し出）。⛔ d54df841 まで、必須で
+            # なければ「かしこまりました。」で「-」にした＝お客様は送ってもらえると思ったまま申し出が無くなった（分身 N の書き置きの穴 (b)）
+            if not q.checks_now and not why.startswith(HEDGE_WHY):
                 it.set("unresolved", f"{why}（「{said[:20]}」）・必須でないので確かめない")
                 return self._dash(qid)
             return self._check_again(qid, why, cond, back)
@@ -11347,19 +11370,26 @@ class Flow:
         # （_talk_again＝「それではもう一度確認させていただきますね。」＋質問）。⛔ 393f474b まで、言い換えた質問で戻った直後の別のお話に「ところで」＋同じ言い換え
         # （同じ文を続けて言う＝11-01・見直し (12) の A-3）
         returned = kind == "aside" and self.back_counts.get(self._place(), 0) > 0
-        # 決まった伝言のお願い（"message"）は伺い直さない道：ひとことのあと、今の回数の決まりの次の一歩（_talk_again＝必須でない質問は「-」にして次へ＝締め）
-        return "again" if self.items[qid].offer_again or spent or returned or self.awaiting_confirm == qid or kind == "message" else kind
+        # 決まった伝言のお願い（"message"）は伺い直さない道：ひとことのあと、今の回数の決まりの次の一歩（_talk_again＝必須でない質問は「-」にして次へ＝締め）。
+        # 時刻・日を伺うシステムの質問（"when"）は言い換えて伺い直す形を持たない：1回目から戻る一言の1か所（_talk_again＝1回目「話を戻させていただきますね。」・
+        # 2回目「それではもう一度確認させていただきますね。」＋いまの質問・2択）
+        return "again" if self.items[qid].offer_again or spent or returned or self.awaiting_confirm == qid or kind in ("message", "when") else kind
 
     def _unlinked_base(self, qid: str) -> str | None:
         """会話が繋がらないお返事にひとこと応える番の、質問の種類ごとの形（唯一の決まり＝_unlinked_kind・伺い直したあとの _talk_again が、お話に沿った受け答えの
-        あと待つのは申し出でない業務の質問だけ＝_informs）："announce"・"offer"・"aside"・"message"（決まった伝言のお願い M1＝伺い直さない道）・None
-        （_unlinked_kind の説明のとおり。伺い直したあとかは見ない）。"""
+        あと待つのは申し出でない業務の質問だけ＝_informs）："announce"・"offer"・"aside"・"message"（決まった伝言のお願い M1＝伺い直さない道）・"when"（時刻・日を
+        伺うシステムの質問＝戻る一言＋いまの質問・2択）・None（_unlinked_kind の説明のとおり。伺い直したあとかは見ない）。"""
         q = self.questions[qid]
         if in_announce_form(q):
             # ご承認のお知らせ：判定がそろって「別のお話」と読んだときだけ（お知らせの最初のお返事にも「答えの話か別のお話か」を読ませる＝away_fits）。答えの話の
             # 「決められない」（「なるほど。」）は伝え直さず、最終の確かめ（伺い10＝_accepted_ask）。⛔ ba505007 まで、お知らせの最初のお返事には読ませず、そろって
             # 決められない読みをどれも別のお話として決まりを伝え直した（見直し (13) の C4）
             return "announce" if talked_away([self.check.get(k) for k in JUDGMENTS]) else None
+        if q.callback in WHEN_ROLES:
+            # 時刻・日を伺うシステムの質問（日時の2択・お戻りの時刻など＝WHEN_ROLES）：判定がそろって「別のお話」と読んだときだけ（そろって決められないだけの答えの話は、
+            # 今の聞き直しの道）。ひとことのあとは戻る一言の1か所（_talk_again＝_unlinked_kind の again・数える単位 _place）＋いまの質問・2択（必須でない質問・回数を
+            # 使い切った質問は今の回数の決まりのまま「-」にして次へ）。まとめ役の続きの (4)
+            return "when" if talked_away([self.check.get(k) for k in JUDGMENTS]) else None
         if q.callback in RECALL_ROLES and self.in_answer_stage and not talked_away([self.check.get(k) for k in JUDGMENTS]):
             # 答えの段（判定が「答えの話か別のお話か」を読む段＝H1・H3）は、判定がそろって「別のお話」と読んだときだけ（そろって決められないだけの言葉は、はっきりしない
             # お返事＝今の道。お呼びする段の C7・P1 は申し出 N4・N6 と同じく、そろって決められないお返事がこの番）
@@ -14058,7 +14088,7 @@ class Flow:
         if s == before:
             return self._ask_again(qid, self._ask_kind(), f"日時の2択の答えとして読めない値（{value}）")
         start, it.ladder = it.ladder_start, s
-        if self._ladder_set(qid) is None:
+        if (now := self._ladder_set(qid)) is None:
             # 1つの答えで決まった（伺い始めの所から、その答えだけで時刻まで・幅・「いつでも」）なら、お客様の言葉のまま（言い直しで言い方を崩さない＝今までの
             # 答えの受け方と同じ）。いくつかの2択で決まったなら、伺えた所から作る
             return value if before == start else ladder_value(s)
@@ -14066,14 +14096,17 @@ class Flow:
         if ahead:
             self.answer_held = None   # 先に言われた答え（場面C）も、伺えた所から先の2択へ
         it.set(it.state, f"日時の2択：「{ladder_value(s)}」まで伺えた")
-        return self._ladder_ask(qid, weekend=s.get("kind") == "土日" and before.get("kind") != "土日", ahead=ahead)
+        # 答えがほかの所だけを埋め、いまの2択がまだ伺えていない（平日を選んだあとの「3時ごろなら」）：同じ2択へもう一度伺う＝もう伺った質問へ戻る頭（again）
+        return self._ladder_ask(qid, weekend=s.get("kind") == "土日" and before.get("kind") != "土日", ahead=ahead, again=now == step)
 
-    def _ladder_ask(self, qid: str, weekend: bool = False, ahead: bool = False) -> dict:
-        """日時の2択の段の次の2択を伺う返事（唯一の場所）：頭に相づちは付けない（「間髪おかず」「すぐに」＝お言葉）。土日を選ばれたら、その受けの一言
-        （「はい、」＝相づちの1か所 _ack_choice が weekend の印で選ぶ＋「承知致しました。土日にあらためてご連絡させていただきますね。」＝共通の一言の録音）のあとに
-        続ける。先に言われた答え（伺う前のお話に日時があった＝場面C・ahead）から進むときは、その答えを受ける一言（言い直しの頭と同じ「ありがとうございます。」）。
-        聞き返しの回数には数えない。"""
-        line = question_play(self._plays(), qid)
+    def _ladder_ask(self, qid: str, weekend: bool = False, ahead: bool = False, again: bool = False) -> dict:
+        """日時の2択の段の次の2択を伺う返事（唯一の場所）：頭の相づちは相づちの1か所（_ack_choice＝次の質問へ進む返事と同じ「承知しました。」「ありがとうございます。」
+        の順番。ほかの言葉は挟まない）。土日を選ばれたら、その受けの一言（「はい、」＝相づちの1か所 _ack_choice が weekend の印で選ぶ＋「承知致しました。土日に
+        あらためてご連絡させていただきますね。」＝共通の一言の録音）のあとに続ける。先に言われた答え（伺う前のお話に日時があった＝場面C・ahead）から進むときは、
+        その答えを受ける一言（言い直しの頭と同じ「ありがとうございます。」）。again＝同じ2択へもう一度伺う（答えがほかの所だけを埋めた）：頭はもう伺った質問へ戻る
+        「それでは」（question_play の again＝phrases.again_fit の1か所）。聞き返しの回数には数えない。
+        ⛔ d54df841 まで、相づちを付けない例外だった（「⇒間髪おかず」「⇒すぐに」を相づち無しと読んでいた＝まとめ役の続きの (3)）"""
+        line = question_play(self._plays(), qid, again=again)
         plays = [*([{"kind": "recorded", "id": TIME_LADDER_IDS["weekend"], "text": TIME_LADDER["weekend"]}] if weekend else []), line]
         say = "".join(p["text"] for p in plays)
         hint = answer_wait("相手が答えたら、聞いたとおりの値（選んだほう・2択の外の言葉もそのまま）で record_answer で報告します。")
