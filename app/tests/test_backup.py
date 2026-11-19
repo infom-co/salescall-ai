@@ -358,6 +358,35 @@ class PerClient(unittest.TestCase):
                 "INSERT INTO salescall.backup_runs (kind, tenant_id, restore_ok, error)"
                 " VALUES ('system', salescall.cur_tenant(), false, '試験')"))
 
+    def test_the_same_submission_is_placed_once_even_when_sent_twice_at_once(self):
+        """同じ依頼者に同じ中身の提出用のファイルは1つだけ置く（2回目は何も書かず、前の控えの番号を返す。同時に2回届いても1つ。0250・CL-3 の 31）。
+        ほかの依頼者なら同じ中身でも置く。"""
+        import threading
+        s = World().setup()
+        other = World().setup(tenant=s["tenant"])
+        put = lambda x, name: self.w.a.in_client(SYSTEM, x["tenant"], x["client"], lambda tx: backup.record_submission(   # noqa: E731
+            tx, name, "同じ結果".encode()))
+        got, started = [], threading.Event()
+
+        def first(tx):
+            got.append(backup.record_submission(tx, "結果.csv", "同じ結果".encode()))
+            started.set()
+            import time
+            time.sleep(1.0)
+
+        a = threading.Thread(target=lambda: self.w.a.in_client(SYSTEM, s["tenant"], s["client"], first))
+        a.start()
+        started.wait(10)
+        got.append(put(s, "結果（もう一度）.csv"))
+        a.join()
+        self.assertEqual(got[0], got[1])
+        self.assertEqual(put(s, "結果（三度目）.csv"), got[0])
+        count = lambda x: self.w.a.in_client(SYSTEM, x["tenant"], x["client"], lambda tx: tx.one(   # noqa: E731
+            "SELECT count(*) AS n FROM salescall.submission_files")["n"])
+        self.assertEqual(count(s), 1)
+        self.assertNotEqual(put(other, "結果.csv"), got[0])                  # ほかの依頼者なら置く
+        self.assertEqual(count(other), 1)
+
     def test_submissions_are_copied_right_away_and_kept_while_the_drive_is_missing(self):
         """中央の見守り役が数分ごとに写す（Fly.io に残る時間を短く）。ハードディスクが外れていれば写さずに残し（消すと失う）、つないだら
         写す。つなぐのは契約者（その PC の持ち主）なので、修正依頼ではなく、その契約者に「つないでください」と知らせる。"""
@@ -463,10 +492,10 @@ class PerClient(unittest.TestCase):
 
     def test_folder_names_do_not_show_other_contractors_clients(self):
         """フォルダの名前の重なりは、契約者の中だけで見る（ほかの契約者に同じ名前の依頼者がいても、名前はずれない＝いるかが分からない。
-        0084）。同じ契約者の中では重ならない。"""
+        0084）。同じ契約者の中では重ならない（同じ名前の依頼者は作れない＝0248 ので、名前は違うがフォルダの名前が同じになる依頼者で確かめる）。"""
         t1, t2 = self.w.tenant(), self.w.tenant()
         a, b = self.named_client(t1, "架空商事株式会社"), self.named_client(t2, "架空商事株式会社")
-        c = self.named_client(t1, "架空商事株式会社")
+        c = self.named_client(t1, "株式会社 架空商事")                       # 会社の種類の言葉を外すと同じ「架空商事」
         names = [backup.client_folder(self.app, t, x) for t, x in ((t1, a), (t2, b), (t1, c))]
         self.assertEqual(names[0], names[1])
         self.assertNotEqual(names[0].lower(), names[2].lower())

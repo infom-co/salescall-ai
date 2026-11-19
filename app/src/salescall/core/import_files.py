@@ -36,8 +36,10 @@ import openpyxl
 import pypdf
 from defusedxml import ElementTree
 
+from salescall.core.access import Refused
 
-class FileRejected(Exception):
+
+class FileRejected(Refused):
     """ファイルを読めない（理由は日本語）。何も登録しない。"""
 
 

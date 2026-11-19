@@ -44,7 +44,7 @@ class Register(unittest.TestCase):
         for spelling in (digits, "０３－００００－" + digits[-4:].translate(str.maketrans("0123456789", "０１２３４５６７８９")),
                          "+81 " + digits[1:], f"TEL:{s['raw']}"):
             with self.subTest(spelling=spelling):
-                again = in_client(w, s, lambda tx: dnc.register(tx, spelling, "manual"))
+                again = in_client(w, s, lambda tx: dnc.register(tx, spelling, "manual", note="試験：手で入れた"))
                 self.assertEqual(again["entry_id"], first["entry_id"])   # 何度登録しても1つ
                 self.assertEqual(again["reason"], "refused_in_call")     # 前の登録はそのまま
         n = in_client(w, s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.dnc_entries"))["n"]
@@ -55,7 +55,7 @@ class Register(unittest.TestCase):
         for raw in ("03-0000-0001 内線12", "300000001", "FAX 03-0000-0001", ""):
             with self.subTest(raw=raw):
                 with self.assertRaises(ValueError):
-                    in_client(w, s, lambda tx: dnc.register(tx, raw, "manual"))
+                    in_client(w, s, lambda tx: dnc.register(tx, raw, "manual", note="試験：手で入れた"))
 
     def test_registering_releases_claims_of_that_number_in_the_same_transaction(self):
         w = World(); s = jp_setup(w); other_number = jp_setup(w)
@@ -88,7 +88,7 @@ class Register(unittest.TestCase):
 
     def test_other_clients_cannot_see_the_ledger(self):
         w = World(); s = jp_setup(w); other = jp_setup(w, tenant=s["tenant"])
-        in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "manual"))
+        in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "manual", note="試験：手で入れた"))
         n = in_client(w, other, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.dnc_entries"))["n"]
         self.assertEqual(n, 0)
 
@@ -96,7 +96,7 @@ class Register(unittest.TestCase):
 class Revoke(unittest.TestCase):
     def test_only_a_person_revokes_once_and_can_register_again(self):
         w = World(); s = jp_setup(w)
-        e = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "manual"))["entry_id"]
+        e = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "manual", note="試験：手で入れた"))["entry_id"]
         with self.assertRaises(Rejected):
             in_client(w, s, lambda tx: dnc.revoke(tx, e, "システムは取り消せない"))
         in_client(w, s, lambda tx: dnc.revoke(tx, e, "依頼者から登録の誤りと連絡（試験）"), actor=OPERATOR)
@@ -110,7 +110,7 @@ class Revoke(unittest.TestCase):
     def test_the_admin_can_revoke_too(self):
         # 2026-10-16 見直し：断る文は「管理者か契約者」なのに、契約者しか通していなかった
         w = World(); s = jp_setup(w)
-        e = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "manual"))["entry_id"]
+        e = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "manual", note="試験：手で入れた"))["entry_id"]
         in_client(w, s, lambda tx: dnc.revoke(tx, e, "依頼者から登録の誤りと連絡（試験）"), actor=ADMIN)
         self.assertIsNone(blocked(w, s, s["raw"]))
 
@@ -287,10 +287,25 @@ class RefusalScope(unittest.TestCase):
             "       count(*) FILTER (WHERE client_ref IS NOT NULL) AS refs FROM salescall.dnc_entries"))
         self.assertEqual((n["numbers"], n["refs"]), (1, 1))
 
+    def test_a_manual_entry_keeps_why_it_was_added(self):
+        """手で入れた登録（理由 manual）だけ、なぜ入れたかの文を必ず持つ（番号でも管理番号でも。ほかの理由の登録は持たない。0249・CL-3 の 25）。"""
+        got = in_client(self.w, self.s, lambda tx: dnc.register(tx, "+81300000006", "manual", note="依頼者から電話で頼まれた"), OPERATOR)
+        ref = in_client(self.w, self.s, lambda tx: dnc.register(tx, None, "manual", client_ref="A-9", note="依頼者の一覧で外した"), OPERATOR)
+        notes = in_client(self.w, self.s, lambda tx: tx.all("SELECT note FROM salescall.dnc_entries WHERE entry_id = ANY(%s) ORDER BY note",
+                                                            ([got["entry_id"], ref["entry_id"]],)))
+        self.assertEqual([n["note"] for n in notes], ["依頼者から電話で頼まれた", "依頼者の一覧で外した"])
+        for name, run in (("手で入れたのに文が無い", lambda tx: dnc.register(tx, "+81300000004", "manual")),
+                          ("手で入れていないのに文がある", lambda tx: dnc.register(tx, "+81300000005", "wrong_party", note="試験"))):
+            with self.subTest(name=name), self.assertRaises(Rejected) as e:
+                in_client(self.w, self.s, run, OPERATOR)
+            self.assertEqual(e.exception.constraint, "dnc_entries_manual_note")
+
     def test_database_refuses_bad_entries(self):
         for cols, vals in ((("client_ref", "reason"), ("A-1", "wrong_party")),   # 番号違いでお客様を止めない
-                           (("reason",), ("manual",)),                           # 番号も管理番号も無い
-                           (("phone_e164", "client_ref", "reason"), ("+81300000001", "A-1", "manual"))):  # 両方
+                           (("reason", "note"), ("manual", "試験")),               # 番号も管理番号も無い
+                           (("phone_e164", "client_ref", "reason", "note"), ("+81300000001", "A-1", "manual", "試験")),  # 両方
+                           (("phone_e164", "reason"), ("+81300000002", "manual")),   # 手で入れたのに、なぜ入れたかの文が無い（0249）
+                           (("phone_e164", "reason", "note"), ("+81300000003", "wrong_party", "試験"))):   # 手で入れていないのに文がある
             with self.subTest(cols=cols), self.assertRaises(Rejected):
                 in_client(self.w, self.s, lambda tx: tx.execute(
                     f"INSERT INTO salescall.dnc_entries (tenant_id, client_id, registered_by, {', '.join(cols)})"

@@ -118,7 +118,7 @@ class Registers(Base):
 class StopsRows(Base):
     def test_each_reason(self):
         dup, dnc_number = fictional_jp_fixed(), fictional_jp_fixed()
-        self.tx(lambda tx: dnc.register(tx, dnc_number, "manual"))
+        self.tx(lambda tx: dnc.register(tx, dnc_number, "manual", note="試験：手で入れた"))
         rows = [
             ("R-2", "番号が不明", "03-0000-0001 内線12"),
             ("R-3", "FAX", "FAX 03-0000-0002"),
@@ -408,7 +408,7 @@ class CustomerContacts(Base):
     def test_a_customer_who_refused_on_a_recorded_number_is_not_registered(self):
         """記録だけの番号でも、そのお客様が断っていれば（発信禁止）、その行は登録しない（どの番号でかけても同じお客様＝原則14）。"""
         mobile = "090-0000-0121"
-        self.tx(lambda tx: dnc.register(tx, mobile, "manual"))
+        self.tx(lambda tx: dnc.register(tx, mobile, "manual", note="試験：手で入れた"))
         r = self.register(csv_file([("A", "架空商事", fictional_jp_fixed(), None, mobile, None, None, None, None, None, None)],
                                    header=self.HEADER), mapping=self.MAP)
         self.assertEqual(self.outcomes(r), [(2, "stopped", "dnc_client")])
@@ -443,7 +443,7 @@ class CustomerContacts(Base):
         got = self.tx(lambda tx: customer_contacts.now(tx, task))["contacts"]
         self.assertEqual([(c["kind"], c["value"]) for c in got], [("email", "b@example.com")])
         refused = "090-0000-0172"                                            # 足す番号でお客様が断っている：足して、門が止める
-        self.tx(lambda tx: dnc.register(tx, refused, "manual"))
+        self.tx(lambda tx: dnc.register(tx, refused, "manual", note="試験：手で入れた"))
         data = csv_file([("A", "架空商事", company, None, refused, None, None, None, None, None, None)], header=self.HEADER)
         sheet, plan = self.preview(data, self.MAP)
         self.assertIn("この行には、門がかけません", plan.rows[0].reason)
@@ -933,6 +933,20 @@ class RowFixes(Targets):
         self.w.move({**self.s, "task": task}, aid, "released")
         self.assertEqual(self.tx(lambda tx: customer_rows.progress(tx, run))[0]["attempts"], 0)   # 取り消した予約は数えない
 
+    def test_one_row_of_the_progress_is_read_by_the_same_query(self):
+        """お客様の行の画面は、同じ1つの問い合わせで1行だけ読む（customer_rows.progress の task_id。CL-3 の 30・47）：全行で読んだその行と同じ。
+        その実施回に無い行なら空。"""
+        from uuid import uuid4
+
+        from salescall.core import customer_rows
+        _, task = self.one_row(kind="role_and_name", name=("岡田", "おかだ"), role="部長")
+        run = self.tx(lambda tx: tx.one("SELECT run_id FROM salescall.tasks WHERE task_id = %s", (task,)))["run_id"]
+        other = self.w.task(self.s["tenant"], self.s["client"], run, self.w.contact(self.s["tenant"], self.s["client"], "+81312349876"))
+        every = self.tx(lambda tx: customer_rows.progress(tx, run))
+        self.assertEqual({r["task_id"] for r in every}, {task, other})
+        self.assertEqual(self.tx(lambda tx: customer_rows.progress(tx, run, task_id=task)), [r for r in every if r["task_id"] == task])
+        self.assertEqual(self.tx(lambda tx: customer_rows.progress(tx, run, task_id=uuid4())), [])
+
 
 class DialFixes(CustomerContacts):
     """かける番号の直し（ダッシュボード。0179・row_fixes.fix_dial_number。2026-11-06 ユーザー：「取り込んだ電話番号は残したまま、新しい電話番号が
@@ -1018,7 +1032,7 @@ class DialFixes(CustomerContacts):
                 # 発信禁止で終えた行には、その登録がある（お客様の断り。戻すかは、直したあとの番号で門と同じ1か所が決める＝next_action._blocked_by_number）
                 dial = self.tx(lambda tx: tasks.dial_number(tx, task))["phone_e164"]
                 if reason.removeprefix("alternate_blocked:") == "dnc_client":
-                    self.tx(lambda tx: dnc.register(tx, dial, "manual"))
+                    self.tx(lambda tx: dnc.register(tx, dial, "manual", note="試験：手で入れた"))
                 if reason.removeprefix("alternate_blocked:") == "dnc_contractor":
                     self.tx(lambda tx: dnc.register_contractor(tx, dial, "manual"))
                 self.tx(lambda tx: next_action.end(tx, task, reason, cause="試験"))
@@ -1084,9 +1098,10 @@ class DialFixes(CustomerContacts):
                 mobile = normalize(f"090-0001-{n:04d}").e164
                 task = self.row(mobile=mobile, ref=f"D{n}")
                 old = self.tx(lambda tx: tasks.dial_number(tx, task))
-                self.tx(lambda tx: dnc.register(tx, old["phone_e164"], reasons[0]))
+                note = lambda r: "試験：手で入れた" if r == "manual" else None   # noqa: E731
+                self.tx(lambda tx: dnc.register(tx, old["phone_e164"], reasons[0], note=note(reasons[0])))
                 for reason in reasons[1:]:
-                    self.tx(lambda tx: dnc.register(tx, mobile, reason))
+                    self.tx(lambda tx: dnc.register(tx, mobile, reason, note=note(reason)))
                 self.tx(lambda tx: next_action.end(tx, task, end, cause="試験：発信禁止で止めて終えた"))
                 got = self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
                 p = self.plan(task)
@@ -1270,7 +1285,7 @@ class DialFixes(CustomerContacts):
         now = self.tx(lambda tx: tx.one("SELECT now() AS t")["t"])
         self.tx(lambda tx: support.schedule_call(tx, task, now, contact_id=old["contact_id"], cause="試験：約束", promised=True))
         self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, fictional_jp_fixed(), same_person=True))
-        entry = self.tx(lambda tx: dnc.register(tx, old["phone_e164"], "manual"))
+        entry = self.tx(lambda tx: dnc.register(tx, old["phone_e164"], "manual", note="試験：手で入れた"))
         self.tx(lambda tx: next_action.end(tx, task, "dnc_client", cause="試験：門が発信禁止で終えた"))
         ids = [r["entry_id"] for r in self.tx(lambda tx: tx.all(
             "SELECT entry_id FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL", (old["phone_e164"],)))]
@@ -1302,7 +1317,7 @@ class DialFixes(CustomerContacts):
         """直した番号も取込と同じ確かめ（読めない・発信禁止は断る）。直せるのは管理者か契約者だけ（データベースが守る）。"""
         task = self.row()
         bad = fictional_jp_fixed()
-        self.tx(lambda tx: dnc.register(tx, bad, "manual"))
+        self.tx(lambda tx: dnc.register(tx, bad, "manual", note="試験：手で入れた"))
         for phone in ("abc", bad):
             with self.subTest(phone=phone), self.assertRaises(row_fixes.FixInvalid):
                 self.tx(lambda tx: row_fixes.fix_dial_number(tx, task, phone, same_person=True))

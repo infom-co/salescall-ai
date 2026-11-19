@@ -68,6 +68,27 @@ class HumanApproval(Helpers):
         self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
         self.assertIsInstance(self.claim(s), gate.Claim)
 
+    def test_the_rows_waiting_in_a_run_are_read_at_once_by_the_gates_rule(self):
+        """実施回の承認待ちの行を1回で返す（approval.uncleared_in_run。CL-3 の連絡帳 4-1c の 33・40）：決め方は門と同じ1か所（`_UNCLEARED`）なので、
+        どの行の理由も1行ずつの approval.uncleared と同じ。承認した行・終えた行（門がもう見ない）は入らない。フルオートの業務は入らない。"""
+        from uuid import uuid4
+
+        from salescall.core import next_action
+        s = self.fresh(stage_cap=100)
+        rows = lambda: self.tx(s, lambda tx: approval.uncleared_in_run(tx, s["run"]))   # noqa: E731
+        t2 = self.w.task(s["tenant"], s["client"], s["run"], self.w.contact(s["tenant"], s["client"], "+81312340002"))
+        t3 = self.w.task(s["tenant"], s["client"], s["run"], self.w.contact(s["tenant"], s["client"], "+81312340003"))
+        self.assertEqual(rows(), {})                                                    # フルオート
+        self.human(s)
+        self.assertEqual(rows(), {s["task"]: "awaiting_approval", t2: "awaiting_approval", t3: "awaiting_approval"})
+        self.tx(s, lambda tx: approval.approve_task(tx, t2), OPERATOR)
+        self.tx(s, lambda tx: next_action.end(tx, t3, "do_not_call", cause="試験：行を終えた"))
+        self.assertEqual(rows(), {s["task"]: "awaiting_approval"})
+        for t in (s["task"], t2):                                                       # 1行ずつの門の答えと同じ
+            self.assertEqual(self.tx(s, lambda tx, t=t: approval.uncleared(tx, t)), rows().get(t))
+        with self.assertRaises(LookupError):
+            self.tx(s, lambda tx: approval.uncleared_in_run(tx, uuid4()))
+
     def test_results_are_released_only_by_the_operator(self):
         s = self.fresh(stage_cap=100)
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 2, None, evidence="試験"), OPERATOR)

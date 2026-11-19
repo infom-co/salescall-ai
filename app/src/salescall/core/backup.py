@@ -404,10 +404,17 @@ def _client_ai(app: Access, writer: Writer, tenant_id: UUID, client_id: UUID) ->
 
 def record_submission(tx: Tx, file_name: str, data: bytes) -> int:
     """依頼者へ渡した結果のファイルを、提出用の控えのために置く（出力＝CL-3 が、渡したときに依頼者の取引で1回呼ぶ）。
-    契約者の PC の控えの処理がハードディスクへ写したら、中身は消える（Fly.io には残さない＝2026-10-17 ユーザー）。"""
-    return tx.one("INSERT INTO salescall.submission_files (tenant_id, client_id, file_name, sha256, content)"
-                  " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s) RETURNING submission_id",
-                  (file_name, hashlib.sha256(data).hexdigest(), data))["submission_id"]
+    契約者の PC の控えの処理がハードディスクへ写したら、中身は消える（Fly.io には残さない＝2026-10-17 ユーザー）。
+    同じ依頼者に同じ中身（指紋 sha256）をもう置いていれば、何も書かずに、その控えの番号を返す（データベースの一意の約束
+    submission_files_same_content＝同時に2回届いても1つだけ。0250・CL-3 の 31。画面の側で確かめ直さない）。"""
+    sha = hashlib.sha256(data).hexdigest()
+    got = tx.one("INSERT INTO salescall.submission_files (tenant_id, client_id, file_name, sha256, content)"
+                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)"
+                 " ON CONFLICT (client_id, sha256) DO NOTHING RETURNING submission_id", (file_name, sha, data))
+    if got is not None:
+        return got["submission_id"]
+    return tx.one("SELECT submission_id FROM salescall.submission_files WHERE client_id = salescall.cur_client() AND sha256 = %s",
+                  (sha,))["submission_id"]
 
 
 def client_ids(app: Access, tenant_id: UUID) -> list[UUID]:

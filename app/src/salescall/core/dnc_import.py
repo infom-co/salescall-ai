@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from salescall.core import dnc, import_columns
-from salescall.core.access import Tx
+from salescall.core.access import Refused, Tx
 from salescall.core.import_columns import ImportRejected
 from salescall.core.import_files import Sheet
 from salescall.core.phone import PhoneNumber, normalize
@@ -40,7 +40,7 @@ FIELDS = ("phone", "client_ref")              # 番号・依頼者の管理番�
 LIST_REASON = "契約者の一覧の取込"               # 契約者の共通の台帳の理由（どのファイルかは、登録が指す取込の記録にある）
 
 
-class PlanChanged(Exception):
+class PlanChanged(Refused):
     """プレビューのあとで結果が変わった（台帳・行）。何も登録していない。もう一度プレビューを見る。"""
 
 

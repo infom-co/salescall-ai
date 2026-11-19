@@ -67,17 +67,35 @@ def _human(tx: Tx, task_id: UUID) -> bool:
     return human_for_business(tx, tasks.scope(tx, task_id)["business_id"])
 
 
+# 行ごとの、契約者の承認で止める理由（1か所。`uncleared`＝門が1行ずつ・`uncleared_in_run`＝画面が実施回まとめて、の両方が、この1つの問い合わせで
+# 決める＝決め方が2か所にならない）。%s＝その業務が検証モードか（`human_for_business`。設定の合成は Python の1か所 settings.resolve なので、ここで渡す）
+_UNCLEARED = (
+    "SELECT t.task_id, CASE"
+    " WHEN salescall.task_correction_unconfirmed(t.task_id) IS NOT NULL THEN 'correction_unconfirmed'"
+    " WHEN %s AND NOT EXISTS (SELECT 1 FROM salescall.task_approvals a WHERE a.task_id = t.task_id) THEN 'awaiting_approval'"
+    " END AS reason FROM salescall.tasks t")
+
+
 def uncleared(tx: Tx, task_id: UUID) -> str | None:
-    """門が呼ぶ：この行へ発信してよいか（契約者の承認の分だけ。1か所）。通さないなら門の理由の名前、通すなら None：
+    """門が呼ぶ：この行へ発信してよいか（契約者の承認の分だけ。1か所＝`_UNCLEARED`）。通さないなら門の理由の名前、通すなら None：
     - correction_unconfirmed：契約者が直した結果でかける電話で、直した契約者が「かけてよい」と確かめていない（データベースの
       salescall.task_correction_unconfirmed の1か所。✅ 2026-11-18 ユーザー：伺い2「本当に折り返してよいのか確認と承認をもらう。承認なく勝手にかけたら
       クレームになる可能性があるため」。0240）。検証モードかに関係なく。
     - awaiting_approval：検証モードの業務で、契約者がまだ行を承認していない（フルオートなら通す）。"""
-    if tx.one("SELECT salescall.task_correction_unconfirmed(%s) AS v", (task_id,))["v"] is not None:
-        return "correction_unconfirmed"
-    if _human(tx, task_id) and tx.one("SELECT 1 FROM salescall.task_approvals WHERE task_id = %s", (task_id,)) is None:
-        return "awaiting_approval"
-    return None
+    return tx.one(_UNCLEARED + " WHERE t.task_id = %s", (_human(tx, task_id), task_id))["reason"]
+
+
+def uncleared_in_run(tx: Tx, run_id: UUID) -> dict[UUID, str]:
+    """画面が呼ぶ：その実施回の、契約者の承認を待っている行と理由（{行: 門の理由の名前}。取り込んだ順）。決め方は門と同じ1か所（`_UNCLEARED`。
+    1回の問い合わせ＝行ごとに `uncleared` を呼ばない。CL-3 の連絡帳 4-1c の 33・40）。数えるのは、まだ終えていない行だけ（salescall.task_open の
+    1か所。終えた行は門がもう見ないので、承認を待っていない）。無い実施回は LookupError。"""
+    run = tx.one("SELECT business_id FROM salescall.runs WHERE run_id = %s", (run_id,))
+    if run is None:
+        raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
+    rows = tx.all(f"SELECT x.task_id, x.reason FROM ({_UNCLEARED} WHERE t.run_id = %s AND salescall.task_open(t.task_id)"
+                  " ORDER BY t.created_at, t.task_id) x WHERE x.reason IS NOT NULL",
+                  (human_for_business(tx, run["business_id"]), run_id))
+    return {r["task_id"]: r["reason"] for r in rows}
 
 
 def confirm_correction_call(tx: Tx, task_id: UUID) -> int:
