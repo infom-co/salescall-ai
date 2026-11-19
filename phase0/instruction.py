@@ -383,6 +383,7 @@ class Business:
                     business_hours=tuple(self.business_hours), designated_limit=tuple(self.designated_limit),
                     apology_call=self.apology_call, apology_when=self.apology_when, apology_text=self.apology_text,
                     earlier_when=self.earlier_when, dialed_mobile=is_mobile(self.phone_e164),
+                    personal=self.target is not None and self.target.kind == "個人",
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
                     opening=self.replay_parts() if recorded else None,

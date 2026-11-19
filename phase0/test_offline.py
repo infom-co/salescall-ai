@@ -59,6 +59,13 @@ CL2_PENDING = frozenset({
                          # （instruction.CALL_SETTINGS の callee.business_hours・callee.designated_limit。CL-2 の連絡帳 4-405 の (1) への答え＝まとめ役 CL-1 の頼み (11)。
                          # CL-2 への知らせは分身 W の書き置き＝rv120/W/notes.md）
                          "callee."})
+# CL-2 の読み手がまだ受けない値（CL2_PENDING の値の版）：{(通話の事実の種類, 欄): (CL-2 の call_report の組の名前, まだ入っていない値)}。FlowWatch は、読み手に通す前に、
+# その値だけを読み手の組の最初の値に置き換えて、記録のほかの所（種別・根拠の発話・ほかの鍵）を読み手に確かめさせる（値そのものは比べる試験が見る）。
+# CL-2 の組に入ったら、ここから外す（比べる試験 PartyByTest が落ちる＝CL2_PENDING と同じ）
+CL2_PENDING_VALUES = {
+    # 判定の組の読みで分かった電話口の種別（flowctl.PARTY_BY の judge＝お呼びする段の番号違い＝分身 Z の (3)。CL-2 への知らせは CL-1.md 4-200）
+    ("party", "by"): ("PARTY_SOURCES", frozenset({"judge"})),
+}
 # （2026-11-19 に外した：手短に伺っている途中の少し焦った「承知しました。」の録音 shouchi_hurried＝CL-2 の common_phrases.TEXTS に入った＝CL-2 の
 # 連絡帳 4-426 の (1)・CL-1.md 4-190）
 # こちらで使わなくなり、CL-2 の部品から外すのを待つ名前（CL2_PENDING の逆向き。CL-2 の部品から外れたら、ここからも外す。2026-11-18 に「どうなさいますか？」の
@@ -38460,6 +38467,16 @@ class FlowWatch:
         return v
 
     @classmethod
+    def _pending_values(cls, report: dict) -> dict:
+        """CL-2 の読み手がまだ受けない値（CL2_PENDING_VALUES）を、読み手の組の最初の値に置き換える（読み手の組に入った値は置き換えない）。"""
+        for (kind, field), (const, pending) in CL2_PENDING_VALUES.items():
+            allowed = tuple(getattr(cls.reader, const))
+            for r in (report.get("facts") or {}).get(kind) or []:
+                if isinstance(r, dict) and r.get(field) in pending and r[field] not in allowed:
+                    r[field] = allowed[0]
+        return report
+
+    @classmethod
     def check(cls, case: unittest.TestCase) -> None:
         """その試験で作った Flow と、流した録音の名前を確かめて、空にする。"""
         from phrases import RECORDED
@@ -38472,7 +38489,7 @@ class FlowWatch:
         for f in flows:
             report = json.loads(json.dumps(f.report(), ensure_ascii=False, default=str))
             try:
-                cls.reader.from_json(cls._stripped(report))
+                cls.reader.from_json(cls._pending_values(cls._stripped(report)))
             except Exception as e:   # CL-2 の読み手の断り（ReportInvalid）も、読み手の誤りも、報告を受けない＝落とす
                 case.fail(f"CL-2 の会話の報告の読み手（call_report.from_json）が報告を断った：{type(e).__name__}: {e}")
 
@@ -38649,10 +38666,11 @@ class HolesZTest(unittest.TestCase):
 
     # ── (3) お呼びする段の番号違い ──────────────────────────────────────
     def test_3_wrong_number_in_calling_is_read_by_the_judges(self):
-        """(3) お呼びする段の番号違い（かけた番号がお呼びした方の番号ではない＝「うちには岡田という者はおりませんが。」）は、判定の組の読み（項目「お呼びした方の事情」の
+        """(3) お呼びする段の番号違い（かけた番号がお呼びした方の番号ではない＝「番号をお間違えではないでしょうか。うちはそういう会社ではありませんが。」）は、判定の組の読み（項目「お呼びした方の事情」の
         選べるもの「番号違い」）がそろったときだけ決める（お呼びした方の事情を読む1か所 _away＝在籍していないと同じ）。会話AIの「番号違い」の報告は判定を待つきっかけだけ
         （11-08 日本時間12時11分40秒・本書 9-5 の 6.）。⛔ f74974fd まで、会話AIの報告だけで締め、判定の項目に番号違いが無かった（「そういう方はいない」は在籍していない
-        の説明に入っていた）。"""
+        の説明に入っていた）。まとめ役 CL-1（2026-11-19 日本時間19時台）：「そういう方はいない」を番号違いに読ませるのは、かけた番号がご本人の電話のときだけ
+        （OwnPhoneWrongNumberTest）。この組の業務は会社の電話＝番号違いの例は番号の間違い・そういう会社ではないと言った言葉。"""
         from flowctl import ABOUT, ABOUT_DEPARTED, ABOUT_WRONG, TARGET_IS_AWAY, WHO_RECEPTION, target_facets
         from phrases import CLOSE_DECLINED
         o = OfferTest()
@@ -38660,12 +38678,12 @@ class HolesZTest(unittest.TestCase):
         for asked in (False, True):
             self.assertIn(ABOUT_WRONG, target_facets(asked, False)[3].choices)
             self.assertNotIn(ABOUT_WRONG, target_facets(asked, True)[3].choices)
-        self.assertNotIn("そういう方はいない", target_facets(False, False)[3].choices[ABOUT_DEPARTED])
+        self.assertNotIn("そういう方はいない", target_facets(False, False, own_phone=True)[3].choices[ABOUT_DEPARTED])
         wrong = who_reading(TARGET_IS_AWAY, who=WHO_RECEPTION, about=ABOUT_WRONG)
         # (a) 判定がそろって番号違い：会話AIの報告が無くても（報告の無いターン）締める。事実は判定で分かった（by＝judge）・取り消せない決定は判定とそろった
         for report in (False, True):
             f, b = o.flow()
-            o.heard(f, "うちには岡田という者はおりませんが。", wrong)
+            o.heard(f, "番号をお間違えではないでしょうか。うちはそういう会社ではありませんが。", wrong)
             r = f.apply("report_party", {"party": "wrong_party"}) if report else f.judged_turn(voiced=False)
             self.assertEqual((r["result"], r["say"] if "say" in r else r["play"][-1]["text"], f.end_reason), ("end", CLOSE_DECLINED, "wrong_party"), report)
             self.assertEqual(({k: f.facts["party"][-1][k] for k in ("party", "by")}, f.irreversible_check), ({"party": "wrong_party", "by": "judge"}, "agreed"), report)
@@ -38678,7 +38696,7 @@ class HolesZTest(unittest.TestCase):
         self.assertEqual(o.played(r)[0], "departed")
         # (c) 判定の読みがまだ届いていない：会話AIの報告では締めずに待つ（判定を待つきっかけ）。読みが届いたら、その読みで決める
         f, b = o.flow()
-        o.heard(f, "うちには岡田という者はおりませんが。")
+        o.heard(f, "番号をお間違えではないでしょうか。うちはそういう会社ではありませんが。")
         r = f.apply("report_party", {"party": "wrong_party"})
         self.assertEqual((f.end_reason, f.party), (None, None), r)
         f.on_check("judge", wrong)
@@ -38686,7 +38704,7 @@ class HolesZTest(unittest.TestCase):
         self.assertEqual((r["result"], f.end_reason), ("end", "wrong_party"))
         # (d) 判定を使わない通話・お呼びする段の前（第一声の段・目的の人の無い業務）は今のまま（会話AIの報告。判定の項目が無い）
         f, b = o.flow(judging=False)
-        o.heard(f, "うちには岡田という者はおりませんが。")
+        o.heard(f, "番号をお間違えではないでしょうか。うちはそういう会社ではありませんが。")
         r = f.apply("report_party", {"party": "wrong_party"})
         self.assertEqual((r["result"], f.end_reason, f.irreversible_check), ("end", "wrong_party", "none"))
 
@@ -39192,3 +39210,83 @@ class CallingReadersPacketTest(unittest.TestCase):
                 self.assertNotIn(t, example)
             for r in g.candidates():
                 self.assertNotIn(r["text"], example)
+
+
+class OwnPhoneWrongNumberTest(unittest.TestCase):
+    """まとめ役 CL-1（2026-11-19 日本時間19時台・分身 Z を main に入れるとき）：お呼びする段の判定の項目「お呼びした方の事情」で、「そういう方はいない」をどの選べるものに
+    読ませるかは、かけた番号がお呼びした方ご本人の電話か（個人のお客様・携帯電話の番号＝Flow._own_phone の1か所）で分ける。ご本人の電話なら、そういう方はいない＝その方の
+    電話ではない＝番号違い（個人のお客様の呼ぶ一言は「（名前）様のお電話でお間違えないでしょうか？」・携帯電話に出るのはたいていその番号の持ち主＝伺い51 のお言葉
+    「携帯番号なら、取次ぎはおかしい」）。会社・お店の電話では、番号違いは番号の間違い・そういう会社やお店ではないと言ったときだけで、そういう方はいないは今のまま在籍して
+    いない（後任の方を伺う道。会社の電話で何と言うかは伺う）。⛔ 586a2871（分身 Z）は、どの電話でも「そういう方はいない」を番号違いへ移した＝会社の電話で「うちには岡田という
+    者はおりませんが。」を取り消せない番号違いで締めうる（根拠はまとめ役の頼みの文の例だけで、お言葉には無かった）。"""
+
+    def test_who_is_not_here_is_read_by_whose_phone_was_dialed(self):
+        from flowctl import ABOUT_DEPARTED, ABOUT_WRONG, target_facets
+        for asked in (False, True):
+            own = target_facets(asked, False, own_phone=True)[3].choices
+            office = target_facets(asked, False, own_phone=False)[3].choices
+            self.assertIn("そういう方はいない", own[ABOUT_WRONG])
+            self.assertNotIn("そういう方はいない", own[ABOUT_DEPARTED])
+            self.assertIn("そういう方はいない", office[ABOUT_DEPARTED])
+            self.assertNotIn("そういう方", office[ABOUT_WRONG])
+            self.assertIn("番号の間違い", office[ABOUT_WRONG])
+            # 既定は会社の電話（測りの表の業務＝g59_calling_judge の試しの言葉の行も同じ形）
+            self.assertEqual(target_facets(asked, False), target_facets(asked, False, own_phone=False))
+
+    def test_the_flow_reads_whose_phone_from_the_one_place(self):
+        from flowctl import ABOUT_DEPARTED, ABOUT_WRONG
+        B = CallingUnheardAskBackTest
+        for phone, target, own in ((B.FIXED, "named", False), (B.MOBILE, "named", True), (B.FIXED, "individual", True),
+                                   (B.MOBILE, "individual", True), (None, "named", False)):
+            f = B.business(phone, target).flow(recorded=True, play_recordings=True)
+            self.assertEqual(f._own_phone(), own, (phone, target))
+            for q in (f.calling_question, *f.confirm_questions.values()):
+                about = q.facets[3].choices
+                self.assertEqual("そういう方はいない" in about[ABOUT_WRONG], own, (phone, target, q.id))
+                self.assertEqual("そういう方はいない" in about[ABOUT_DEPARTED], not own, (phone, target, q.id))
+            # お取り次ぎのお願い（伺い51 イ）も同じ1か所を読む：ご本人の電話にはお願いしない
+            self.assertEqual(f._transfer_due(), not own and bool(f.target.get("target_transfer")), (phone, target))
+        f = B.business(B.FIXED, "named").flow(recorded=True, play_recordings=True)
+        f._own_phone = lambda: True
+        self.assertFalse(f._transfer_due())
+
+
+class PartyByTest(unittest.TestCase):
+    """電話口の種別の記録（通話の事実 party）の by＝その種別が何で分かったか、の値は1つの表 flowctl.PARTY_BY（会話AIの報告 ai・音と回線の信号 signal・
+    判定の組の読み judge＝お呼びする段の番号違い＝分身 Z の (3)・✅ 2026-11-08 日本時間12時11分40秒「会話AIは判定に加えない」）。書くのは1か所 Flow._note_party。
+    CL-2 の会話の報告の読み手（call_report.PARTY_SOURCES）と同じ値を受ける（CL-2 がまだ入れていない値は CL2_PENDING_VALUES で待つ＝CL-2 への知らせは 4-200）。
+    ⛔ 586a2871（分身 Z）は by に judge を書き、表も比べる試験も無かった＝CL-2 の読み手が番号違いの通話の報告をまるごと断った（試験の全部の FlowWatch で見つけた）。"""
+
+    def test_party_sources_are_one_table_that_cl2_reads(self):
+        import flowctl
+        theirs = TargetTest.cl2_names("call_report.py", "PARTY_SOURCES")
+        if theirs is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        const, pending = CL2_PENDING_VALUES[("party", "by")]
+        self.assertEqual(const, "PARTY_SOURCES")
+        self.assertEqual(sorted(pending & theirs), [], "CL-2 の読み手に入った値は CL2_PENDING_VALUES から外す")
+        self.assertEqual((sorted(set(flowctl.PARTY_BY) - pending - theirs), sorted(theirs - set(flowctl.PARTY_BY))), ([], []))
+
+    def test_party_records_are_written_at_one_place_with_a_value_of_the_table(self):
+        import flowctl
+        B = CallingUnheardAskBackTest
+        f = B.business(B.FIXED, "named").flow(recorded=True, play_recordings=True)
+        f.on_signal("fax")
+        self.assertEqual([(x["party"], x["by"]) for x in f.facts["party"]], [("fax", "signal")])
+        f = B.business(B.FIXED, "named").flow(recorded=True, play_recordings=True)
+        with self.assertRaises(AssertionError):
+            f._note_party("reception", by="report")   # 表に無い出どころは書かない
+        self.assertNotIn("party", f.facts)
+
+    def test_pending_values_are_replaced_only_while_cl2_lacks_them(self):
+        # 待つ表の値だけを置き換え、表に無い知らない値（"report"）はそのまま＝読み手に断らせる（ほかの食い違いを隠さない）
+        reader = FlowWatch.reader or FlowWatch._load_reader()[0]
+        if reader is None:
+            self.skipTest("CL-2 の部品（app/）がまだ無い")
+        saved, FlowWatch.reader = FlowWatch.reader, reader
+        try:
+            out = FlowWatch._pending_values({"facts": {"party": [{"party": "wrong_party", "by": "judge"}, {"party": "fax", "by": "report"}]}})
+        finally:
+            FlowWatch.reader = saved
+        judge = "judge" if "judge" in reader.PARTY_SOURCES else reader.PARTY_SOURCES[0]
+        self.assertEqual([r["by"] for r in out["facts"]["party"]], [judge, "report"])
