@@ -77,6 +77,14 @@ class AnswerCells(unittest.TestCase):
                 self.assertNotIn(w.client, ("-", "✕"))
                 self.assertEqual(words.not_for_client(w.client or ""), [])
 
+    def test_the_words_are_shortened_or_kept_whole_by_the_business_setting(self):   # ✅ 2026-11-20 管理者「ウ」「業務ごと」
+        long = "それは上の者と相談してから決めることになっていますので、今すぐにはお答えできないんです"
+        item = {"state": "dont_know", "hedged": f"えっと／まだ決めていないんですよね／{long}"}
+        short = self.cell(self.CHOICE, item)[0]
+        self.assertEqual(short, f"まだ決めていないんですよね／{long[:result_rows.WORDS_MAX_CHARS]}")   # 最後の2つまで・1つ40字まで
+        whole = result_rows.answer_cells(self.CHOICE, item, set(), "full")[0]
+        self.assertEqual(whole, item["hedged"])                                    # 全部残す業務は、言ったとおり全部
+
     def test_the_headers_are_two_per_question(self):
         self.assertEqual(result_rows.question_headers([self.VALUE, self.CHOICE]),
                          ("ご希望の日", "ご希望の日（お客様の言葉）", "ご予約はされていますか？", "ご予約はされていますか？（お客様の言葉）"))

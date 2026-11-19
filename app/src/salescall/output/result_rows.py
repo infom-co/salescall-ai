@@ -83,6 +83,32 @@ class ResultRow:
 
 
 NOT_ASKED = "伺っていない（対象外）"   # 伺わなかった質問（決めるのは判定の not_asked の1か所＝判定の中身）
+
+# お客様の言葉の書き方（✅ 2026-11-20 管理者：40字で切るのは「場合によっては残した方がいいね」・選び「ウ」（依頼者ごとに選べる）・「業務ごと」）。
+# 業務ごとの設定 `WORDS_SETTING`（short＝縮める／full＝全部残す。初めの値は short＝2026-11-08「お客様の言葉で簡潔に渡せるように！」のまま）。
+# 縮め方はここ1か所（`shorten`）：発話を「／」でつないだもののうち最後の2つまで・1つ40字まで（会話の側の今の縮め方 Flow.customer_words と同じ）。
+# ⏳ 設定の定義は CL-2 へのお願い 54（無い間は short）。⏳ 会話の側が、しまう前に40字で切っているので、全部残す業務でも、いまは切れた言葉が
+# 届く（縮めずに全部しまうのは CL-1 へのお願い 4-2 の6）。
+WORDS_SETTING = "output.customer_words"
+WORDS_MAX_SAID = 2
+WORDS_MAX_CHARS = 40
+
+
+def shorten(text: str) -> str:
+    """お客様の言葉を縮める（1か所）：最後の2つの発話まで・1つ40字まで。"""
+    said = [p.strip() for p in text.split("／") if p.strip()]
+    return "／".join(p[:WORDS_MAX_CHARS] for p in said[-WORDS_MAX_SAID:])
+
+
+def words_mode(tx: Tx, business_id: Any) -> str:
+    """その業務のお客様の言葉の書き方（設定 `WORDS_SETTING` の1か所。無ければ short）。"""
+    from salescall.core import settings
+    try:
+        mode = settings.resolve(tx, WORDS_SETTING, tenant_id=tx.one("SELECT salescall.cur_tenant() AS t")["t"],
+                                client_id=tx.one("SELECT salescall.cur_client() AS c")["c"], business_id=business_id)
+    except settings.SettingMissing:
+        return "short"
+    return "full" if mode == "full" else "short"
 WORDS_SUFFIX = "（お客様の言葉）"       # 質問ごとの2列目の見出しの後ろ
 
 
@@ -106,14 +132,16 @@ def _value_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def answer_cells(q: Any, item: dict[str, Any] | None, not_asked: set[str]) -> tuple[str, str, str | None]:
-    """質問1つの2列（答え・お客様の言葉）と、こちらが作った言葉（あれば。確かめに通す）。決まりは DESIGN.md 7-3-2 の1か所。"""
+def answer_cells(q: Any, item: dict[str, Any] | None, not_asked: set[str], mode: str = "short") -> tuple[str, str, str | None]:
+    """質問1つの2列（答え・お客様の言葉）と、こちらが作った言葉（あれば。確かめに通す）。決まりは DESIGN.md 7-3-2 の1か所。
+    mode＝お客様の言葉の書き方（short＝縮める／full＝全部残す。`words_mode`）。"""
     if q.id in not_asked:
         return NOT_ASKED, "", NOT_ASKED
     if item is None:
         word = words.ITEM_STATES["empty"].client or ""
         return word, "", word
     state, said = item["state"], (item.get("hedged") or "").strip()
+    said = shorten(said) if mode == "short" else said
     if state in judge.TAKEN:   # 「取れた」の定義は判定の1か所（DESIGN.md 4-4）
         answer = item.get("condition") if q.type in business_settings.CHOICE_TYPES or item.get("value") in (None, "") else _value_text(item.get("value"))
         return answer or "", judge.hedged_words(state, said) or "", None   # 言い切っていない返事のときだけ横の欄（判定の1か所）
@@ -159,6 +187,7 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
     except LookupError:
         questions = ()
     headers = question_headers(questions)
+    mode = words_mode(tx, tx.one("SELECT business_id FROM salescall.runs WHERE run_id = %s", (run_id,))["business_id"])
     out = []
     for r in customer_rows.progress(tx, run_id):
         kind = r["next_kind"]
@@ -175,7 +204,7 @@ def rows(tx: Tx, run_id: UUID) -> list[ResultRow]:
             items = conversation_io.answers(tx, r["task_id"], v["attempt_id"])
             not_asked = set((v["detail"] or {}).get("not_asked") or ())
             for q in questions:
-                answer, said, our = answer_cells(q, items.get(q.id), not_asked)
+                answer, said, our = answer_cells(q, items.get(q.id), not_asked, mode)
                 cells += [answer, said]
                 ours += [our] if our else []
         else:
