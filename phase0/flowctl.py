@@ -6914,9 +6914,19 @@ class Flow:
         readings = [self.heard_check[k] for k in JUDGMENTS if k in self.heard_check]
         # 待つかどうかの迷いだけ（判定がそろって PROMPT_REPLY_WAVER＝伺い76 ウ）：お返事だけと同じく前のお話に戻し、まだならこの電話で1回だけ添える一言を流す（_wait_again）
         waver = not again and prompt_wavered(readings)
-        if (st is None or st["turn"] != self.callee_turns - 1 or not waiting_line(self._prompt_now())
-                or not (again or waver or self._prompt_only(readings))
-                or self._replied_now()):
+        if st is None or st["turn"] != self.callee_turns - 1 or not waiting_line(self._prompt_now()) or self._replied_now():
+            return False
+        if not (again or waver or self._prompt_only(readings)):
+            if readings and self.words_complete:
+                # 待っていただく一言へのお返事ではない、新しいお話（別のお話・ご事情など）：前のお話は捨てない＝判定が前のお話を伺っていた質問の答えと読んでいれば、その言葉と
+                # 読みを覚えておく（answer_held＝答えと世間話を一緒に言われたときと同じ1か所 _held_words。会話AIが新しいお話に応えたあとに前のお話の答えを報告すれば、その
+                # 答えで受け取る＝もう答えていただいた質問を伺い直さない）。✅ 2026-11-13 日本時間20時06分19秒（前のお話は捨てない）・本書 9-3「取得済みのことを重ねて
+                # 聞かない」。⛔ d4e3a6c0 まで、前のお話の答えの報告を差し戻し、答えは空のままだった（控え rv174/R/notes.md の 4 の (3)）
+                self.story = None
+                q = self.questions.get(self.current) if self.current else None
+                if (q is not None and st["for"] in (None, q.id) and self.awaiting_confirm is None and self.items[q.id].state not in GOT
+                        and any(st["check"].get(k) in q.all_conditions for k in JUDGMENTS)):
+                    self.answer_held = {"turn": st["turn"], "qid": q.id, "said": st["said"], "check": st["check"]}
             return False
         old, now = st["turn"], self.callee_turns
         self.story = None
@@ -9776,7 +9786,9 @@ class Flow:
           報告すれば「わからない」の答え（理由は判定の読み）で、会話AIの報告の置き方で道と業務の決まり（理由ごとの次の動き）が変わる形だった"""
         q, it = self.questions[qid], self.items[qid]
         choice = q.type in CHOICE_TYPES
-        if judged not in ((it.condition, "affirmed", *q.all_conditions) if choice else ("affirmed", "corrected", *SYSTEM_CONDITIONS)):
+        # 選ぶ質問（choice）の言い直しへの「違う」（打ち消しただけ＝meaning_judge.CHOICE_DENIED。中の名前は値の型と同じ corrected）も、この質問の言い直しへの返事
+        denied = ("corrected",) if q.type == "choice" else ()
+        if judged not in ((it.condition, "affirmed", *denied, *q.all_conditions) if choice else ("affirmed", "corrected", *SYSTEM_CONDITIONS)):
             judged = UNDECIDED   # この質問の言い直しへの返事に無い読み＝答えを決められない読みと同じ（会話AIの報告へ戻して決めない）
         if (self._trouble_declined(qid) and judged not in (it.condition, "affirmed")
                 and not (choice and judged in q.all_conditions and judged not in SYSTEM_CONDITIONS)):
@@ -9802,6 +9814,11 @@ class Flow:
                 return "affirmed", None
             if judged in (it.condition, "affirmed"):
                 return "affirmed", None
+            if judged == "corrected":
+                # 選ぶ質問の言い直しを打ち消しただけ（ほかの選択肢は言っていない）：こちらの聞き違い＝値の型の「違います」と同じ1か所（_denied_again＝「失礼いたしました。」＋
+                # 「それでは（いまの質問）」・回数は訂正のあとの復唱）。✅ 決まりで決めた＝伺い70 の (1)。⛔ d4e3a6c0 まで選べるものが無く、「決められない」と読まれて
+                # 迷っている方への「はい、いかがなさいますか？」を当てていた（このあと別のお話をされると、打ち消された言い直しへ戻った）
+                return self._denied_again(qid)
             return ("corrected", label(judged)) if judged in q.all_conditions else None
         if judged == "affirmed":
             return "affirmed", correction if result == "affirmed" else None
@@ -10475,6 +10492,16 @@ class Flow:
         fb = TALK_FALLBACK[pick][0] if said is None else None
         self._note("talk", answer=said or fb, **({"fallback": pick} if said is None else {}), **drafts, **checked)
         self._mark_answered()
+        if self._held_now() is not None:
+            # 前のお話の答えを覚えている（待っていただく一言のあとの別のお話＝_wait_answered が answer_held に置いた）：もう答えていただいた質問を「ところで」で伺い
+            # 直さない（本書 9-3「取得済みのことを重ねて聞かない」・11-01 日本時間18時11分53秒）。ひとことのあと、その答えの報告か質問に戻るかを会話AIが選ぶ（応えたあとの
+            # 戻りの1か所 _return_note＝答えと世間話を一緒に言われたときと同じ）。伺い直していない＝伺い直しの回数・戻りに数えない
+            note = self._return_note()
+            if said is not None:
+                return {"result": "replayed", "say": said, "speak": True, "quiet": True, "message": f"{say_note(said)}そのあと、{note}"}
+            if self.play_recordings:
+                return {"result": "replayed", "play": [{"kind": "recorded", "id": pick, "text": fb}], "quiet": True, "message": played_note(fb) + note}
+            return {"result": "replayed", "say": fb, "speak": True, "quiet": True, "message": f"{say_note(fb)}そのあと、{note}"}
         # 伺い直しは1項目1回。数えるのは別のお話の伺い直しの回数（Item.talk_backs）：その場の回数（10-14）は聞き返しと合わせた数（_on_spot_left の1か所。
         # ✅ 2026-11-14 日本時間14時31分38秒「●伺い13」）。聞き返しの回数（Item.ask_backs）には数えない：お客様の言葉は聞き取れている（数えると、伺い直しへの答えを
         # 聞き取れなかったあとの言い方「（値）とおっしゃいましたでしょうか？」で確かめる＝お言葉の外の選べる形は ie/ に出した）。このあとのお返事は今の道

@@ -41748,3 +41748,78 @@ class WrongSplitAskTest(unittest.TestCase):
         f.on_check("judge2", who_reading(TARGET_IS_AWAY, who=WHO_RECEPTION, about=ABOUT_NONE))
         r = f.judged_turn(voiced=False)
         self.assertNotIn(WRONG_NUMBER_ASK, heard_words(r))
+
+
+class WaitedStoryKeptTest(unittest.TestCase):
+    """分身 M（控え rv174/R/notes.md の 4 の (3)＝決まりで決めた）：待っていただく一言のあとに、お客様が別のお話（「今日は暑いですねえ。」）をしても、前のお話（「いえ、まだです。」）の
+    答えは捨てない＝判定が前のお話を伺っていた質問の答えと読んでいれば、その言葉と読みを覚えておく（answer_held＝答えと世間話を一緒に言われたときと同じ1か所 _held_words）。
+    会話AIが別のお話にひとこと応えたあとに前のお話の答えを報告すれば、その答えで受け取る（もう答えていただいた質問を伺い直さない）。決めるのは、待っていただく一言への
+    お返事かを決める1か所（Flow._wait_answered）。決まり＝✅ 2026-11-13 日本時間20時06分19秒（前のお話は捨てない）・11-01 日本時間18時11分53秒「全く同じ質問を2度したら、
+    機械だと思われてしまいませんか？」・本書 9-3「取得済みのことを重ねて聞かない」。⛔ d4e3a6c0 まで、前のお話の答えの報告を差し戻し、ご予約は空のままだった"""
+
+    def test_an_aside_after_the_wait_line_keeps_the_story_answer(self):
+        from flowctl import AWAY, AWAY_YES, PROMPT_REPLY_NO, UNDECIDED
+        w = WaitLineReplyTest()
+        for play in (True, False):
+            f = w.waited(play)
+            f.on_callee(); f.on_heard("今日は暑いですねえ。")
+            r0 = w.rd(UNDECIDED, PROMPT_REPLY_NO)
+            setattr(r0, AWAY, AWAY_YES)
+            f.on_check("judge", r0)
+            f.on_silence(ours=True)   # 別のお話：会話AIがひとこと応える番（今の道）
+            grounded(f, "本当に暑いですね。")
+            r = f.apply("replay_opening", {"part": "talk", "answer": "本当に暑いですね。"})
+            # ひとことだけ（もう答えていただいたご予約の質問を「ところで」で伺い直さない）。そのあと会話AIが前のお話の答えを報告する
+            self.assertEqual((r["result"], heard_words(r)), ("replayed", "本当に暑いですね。"), play)
+            self.assertIn("record_answer", r["message"], play)
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+            self.assertEqual(r["result"], "next", play)
+            self.assertEqual((f.items["Q1"].condition, f.taken["Q1"]["said"]), ("いいえ", w.STORY), play)
+            self.assertNotIn("ご予約はされていますでしょうか", heard_words(r), play)
+
+
+class ChoiceDeniedTest(unittest.TestCase):
+    """分身 M（伺い70 の (1)＝決まりで決めた）：選ぶ質問の言い直し（「はい、それではカードで承りますね？」）への「いえ、違います。」は迷いではなく、こちらの言い直しを
+    打ち消した言葉。判定の選べるものに「違う（こちらの言い直しを打ち消しただけで、ほかの選択肢は言っていない）」を足し（値を伺う型の「違う値を言われた」と同じ中の名前
+    corrected＝meaning_judge.CHOICE_DENIED）、判定がそろって「違う」と読めば、値の型と同じ1か所（Flow._denied_again）で「失礼いたしました。」＋「それでは（いまの質問）」
+    （回数は訂正のあとの復唱）。打ち消されなかった選択肢を読めば今の訂正の言い方（「失礼いたしました。改めまして振込で大丈夫でしょうか？」）、迷い（「うーん、どうでしょう
+    ね。」＝決められない）は今のまま「はい、いかがなさいますか？」。決まり＝10-14「値を直されたあと：こちらの聞き違い＝録音「失礼いたしました。」」・11-06 日本時間
+    15時20分30秒 (1)・11-01 日本時間18時11分53秒「全く同じ質問を2度したら、機械だと思われてしまいませんか？」・11-09 日本時間3時06分51秒（迷っている方へ「いかがなさいますか？」）"""
+    H = HolesAGTest
+
+    def setUp(self):
+        self.h = HolesAGTest()
+
+    def test_the_judge_can_read_denied_on_choice_restatements_only(self):
+        from g53_meaning import question_by_text
+        from meaning_judge import CHOICE_DENIED, options
+        pay = question_by_text("お支払いはカードと振込のどちらがよろしいでしょうか？")
+        got = {n: c for n, _, c in options(pay, "念のためお支払いはカードでよろしいでしょうか？")}
+        self.assertEqual(got.get(CHOICE_DENIED[0]), "corrected")
+        self.assertNotIn(CHOICE_DENIED[0], {n for n, _, _ in options(pay)})   # 最初の答えには並べない
+        yn = question_by_text("ご予約はされていますでしょうか？")
+        self.assertNotIn(CHOICE_DENIED[0], {n for n, _, _ in options(yn, "念のためご予約はされているということでよろしいでしょうか？")})   # はい・いいえの質問は今のまま
+
+    def test_denied_apologizes_and_asks_the_question_again(self):
+        from phrases import ACK
+        for play in (True, False):
+            f = self.h.paid_hedged(play)
+            r = self.h.turn(f, "いえ、違います。", self.h.rd("corrected"))
+            self.assertEqual(r.get("ack"), "shitsurei", play)
+            if play:
+                self.assertEqual(self.h.heard(r), ACK["shitsurei"] + "それではお支払いはカードと振込のどちらがよろしいでしょうか？")
+            else:
+                self.assertIn("「それでは」から話し始めてください", r["message"])
+            self.assertEqual((f.current, f.awaiting_confirm, f.items["Q4"].condition, f.items["Q4"].corrections), ("Q4", None, None, 1), play)
+            # 伺い直した質問への答えは今の道（振込と読めば受け取る）
+            r = self.h.turn(f, "振込でお願いします。", self.h.rd("振込"), "record_answer", question_id="Q4", condition_id="振込")
+            self.assertEqual(f.items["Q4"].condition, "振込", play)
+
+    def test_the_other_choice_and_hesitation_are_as_before(self):
+        from flowctl import UNDECIDED
+        f = self.h.paid_hedged()
+        r = self.h.turn(f, "いえ、違います。", self.h.rd("振込"))
+        self.assertEqual(self.h.heard(r), "失礼いたしました。改めまして振込で大丈夫でしょうか？")
+        g = self.h.paid_hedged()
+        r = self.h.turn(g, "うーん、どうでしょうね。", self.h.rd(UNDECIDED))
+        self.assertEqual(self.h.heard(r), "はい、いかがなさいますか？")

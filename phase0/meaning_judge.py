@@ -122,6 +122,11 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
 TALK_UNDECIDED = ("この言葉と、前の会話からは決められない（聞き違いもありうるので、近い言葉に読み替えない。待つように言った・代わった人が"
                   "話し始めた、に当たるときは、そちら）")
 CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると認めた", "corrected": "違う・直した（別の値を言った）"}
+# 選ぶ質問（choice）の言い直しへの「違う」（判定に見せる名前, 説明）。中の名前は値を伺う型の言い直しへの「違う・直した」と同じ corrected（流れの制御は同じ1か所
+# Flow._denied_again＝「失礼いたしました。」＋「それでは（いまの質問）」）。選べるもう一方を言ったなら、その選択肢（今の訂正の道）・迷い・どれとも決まらないなら
+# 「決められない」（「はい、いかがなさいますか？」）。✅ 決まりで決めた＝伺い70 の (1)（10-14「値を直されたあと：こちらの聞き違い＝録音「失礼いたしました。」」・
+# 11-06 日本時間15時20分30秒 (1)・11-01 日本時間18時11分53秒）。はい・いいえの質問（yes_no）は打ち消し＝もう一方なので並べない（今のまま）
+CHOICE_DENIED = ("違う", "こちらの言い直しを打ち消しただけで、ほかの選択肢は言っていない（言い直した答えが違う、とだけ言った）")
 
 # 言い切っているか（✅ 2026-10-18 ユーザー：「『急ぎと言えば急ぎですが』『まあ、できれば早くとは思います』『さらっとは見たんですが』
 #    『していないはずですが…』『5万円くらいかなとは思いますが』なんかは、『yes,but 曖昧』のような返答にしておけばいいんじゃないですか？」）。
@@ -570,6 +575,10 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
                              "この意味の答え" if name != label(c) else choice_desc(q, c), c))
             elif not talk_question(q):   # 電話のやり取りを読む問い合わせには、お客様の答えの「わからない」「答えたくない」を並べない
                 head.append((label(c), system_desc(q, c), c))
+        if (asked is not None and q.type == "choice" and not getattr(q, "named", False) and not talk_question(q)
+                and CHOICE_DENIED[0] not in {n for n, _, _ in head} | taken):
+            # 選ぶ質問の言い直しへの返事だけ：言い直しを打ち消しただけ（CHOICE_DENIED。並びは答えでない言葉の前）
+            head.append((*CHOICE_DENIED, "corrected"))
     else:
         head = [(CONFIRM_LABEL[k], d, k) for k, d in CONFIRM_DESC.items()]
     kinds = answer_kinds(q)
