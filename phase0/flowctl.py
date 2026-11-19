@@ -4445,16 +4445,18 @@ def resumed_step(questions, earlier: dict | None) -> "tuple[str, Question] | Non
         if state not in TAKEN:
             continue
         entry = (earlier or {}).get(q.id) or {}
-        if earlier_whole(entry):
-            continue   # ご案内全体をほかの会社に頼んでいると言われた答え：W1・N1 を伺わない（伺い48 ア-2 と同じ理由）
-        if earlier_wish_open(entry) and wish_trigger(q, state, cond, hedged, questions):
+        # ご案内全体をほかの会社に頼んでいると言われた答え（earlier_whole）：W1・N1 は伺わない（伺い48 ア-2 と同じ理由）。受けていただいた提案の送り先を伺う前に
+        # 切れた連絡先の段は伺う（11-03 日本時間20時48分「…また、電話をかけて伺わないといけなくなりますよ。」。⛔ cc778913 まで、その質問の手順を全部飛ばしていた
+        # ＝まとめ役 CL-1 の頼み (H-a)）
+        whole = earlier_whole(entry)
+        if not whole and earlier_wish_open(entry) and wish_trigger(q, state, cond, hedged, questions):
             return "other_wish", q
         if ((means := earlier_means_of(entry)) in WISH_MEANS and (role := WISH_MEANS[means][2])
                 and known_contact(role, answers, earlier_records(earlier)) is None):
             # ご連絡の方法までは伺えて、その連絡先を伺う前に切れた（earlier_wish_means）：切れた所から連絡先を伺う（その方法の連絡先の役目）。
             # もう取れている連絡先は伺わない（known_contact の1か所＝流れの制御の _wish_contact と同じ決まり）
             return role, q
-        if q.approval and state in GOT and q.declined(cond) and earlier_point_open(point := earlier_point_of(entry)):
+        if not whole and q.approval and state in GOT and q.declined(cond) and earlier_point_open(point := earlier_point_of(entry)):
             if point == "told":
                 # 申し伝える一言まで言って、お返事の前に切れた：お詫びのすぐあとに申し伝える一言を言い直す（伺う質問は無い＝Flow._sorry_lines）
                 return "told", q
@@ -9920,12 +9922,13 @@ class Flow:
         for qid, it in self._received_now():
             q = self.questions[qid]
             # お送りする提案（方法を選ぶ業務の質問への提案＝困りごとに応える提案・伺い47 のア・イ）を受けていただいた：その方法の送り先も伺う（もう取れていれば伺わない＝
-            # _wish_contact の1か所）。ご案内全体の電話（伺い48 ア-2）も同じ。業務のあとの質問でその送り先を伺うなら、そちらで伺う（_contact_later。二度伺わない＝9-3）。
+            # _wish_contact の1か所）。ご案内全体の電話（伺い48 ア-2）も同じ。業務のあとの質問でその送り先を伺うなら、その場では伺わない（_wish_contact の _contact_later。
+            # 二度伺わない＝9-3。方法の記録 other_wish と申し伝えは今のまま）。
             # ✅ 2026-11-03 日本時間20時48分「「LINEならいいです」と回答いただけたら、LINEアドレスを伺うというステップを忘れないように。そうしないと、また、電話をかけて
             # 伺わないといけなくなりますよ。」（まとめ役 CL-1 の頼み (2)＝場面F）
             proposed = not q.callback and way_choice(q) and self._offer_taken(qid)
             if (q.callback not in OFFER_ROLES and it.state in GOT and (it.condition == q.offered or proposed) and it.offer_way is not None
-                    and qid not in self.wished and (ms := means_in(it.offer_way)) and not self._contact_later(WISH_MEANS[ms[0]][2])):
+                    and qid not in self.wished and (ms := means_in(it.offer_way))):
                 # 提案（_offer_again）でこちらからお伝えしたお約束できる方法は、申し伝える一言を重ねない（伺い37 と同じ理由＝その伺いが言い切り）
                 stated = it.offer_stated or (it.offer_way if it.offer_again and it.offer_way in self._proposal_of(qid)[1] else None)
                 self._wish_means(q, ms[0], told_said=stated)
@@ -10132,7 +10135,7 @@ class Flow:
         t = proc.get("told_said")
         if not isinstance(t, str):
             return bool(t)
-        if proc.get("contact") is None and (m := proc.get("means")) in WISH_MEANS and WISH_MEANS[m][2] is not None:
+        if proc.get("contact") is None and not proc.get("later") and (m := proc.get("means")) in WISH_MEANS and WISH_MEANS[m][2] is not None:
             return False
         if proc is self.handoff:
             return t == proc.get("way")
@@ -15216,6 +15219,12 @@ class Flow:
         known = self._known_contact(role)
         if known is not None and self._ahead_now() is None:
             return self._wish_known(known, w)
+        if not again and known is None and self._contact_later(role):
+            # これから伺う業務の質問でその連絡先を伺う（_contact_later）：その場では伺わない（二度伺わない＝9-3）。方法の段はここで終える（通話の事実 other_wish の方法・
+            # 申し伝えは今のまま＝_wish_end。送り先はその業務の質問で取れる＝申し伝えるかを決める _told_said は「あとで取れる」として読む＝later）。まとめ役 CL-1 の頼み (H-c)
+            # （⛔ cc778913 まで、_offer_wish で _wish_means ごと飛ばし、方法の記録と業務に無い方法の申し伝えが消えた）
+            w["later"] = True
+            return self._contact_end(w, None)
         # もう伺った連絡先があっても、いま一緒に言われたこと（先に言われた答え＝_offer_ahead）があれば、まずその中の連絡先を伺わずに報告していただく
         # （20時27分 (3)「前の答えの中にその連絡先があれば、伺わずに…言い直して確かめます」。⛔ 21時台の見直しで見つけた：もう伺った連絡先を確かめずに
         # 渡し、いま言われた別の連絡先を捨てていた）。言われたことに無ければ、もう伺った連絡先を使う（_resume の _wish_known）
@@ -15525,7 +15534,9 @@ class Flow:
         # ことだから＝引き継ぐと、用件・引き継ぎの一言のすぐあとに締める電話になる）。ほかの取れた答えは今までどおり引き継ぐ。
         # 前の方の「ここで電話を終える」答え（Question.ends_on）も同じ理由で引き継がず、その質問から伺う（CL-2 の連絡帳 4-422 の (2)。⛔ 引き継いでいたので、新しい方が
         # 「聞いている」と答えたすぐあとに、前の方の答えのまま締め、伺わなかった質問を前の方の答えで止めた事実 ended_on に書いた）
-        again += [q.id for q in business if q.id in self.earlier and q.id not in again and self._closes_on(q)]
+        # 前の方が「ご案内全体」と言った質問（earlier_whole）も、前の方個人のお答え＝新しい方には伺い直す（まとめ役 CL-1 の頼み (H-b)。_closes_on と同じ理由。
+        # ⛔ cc778913 で resumed_step が W1 を飛ばしてから、前の方のお断りを新しい方に引き継いでいた）
+        again += [q.id for q in business if q.id in self.earlier and q.id not in again and (self._closes_on(q) or earlier_whole(self.earlier.get(q.id)))]
         for qid in again:
             self.earlier.pop(qid, None)
             self.earlier_all.pop(qid, None)   # その質問で前の方に伺った連絡先も、新しい方には使わない（伺い直す）
@@ -15702,7 +15713,10 @@ class Flow:
         念のための確認 _will_ask_again・通話の事実 whole_fact）。提案を受けていただいた・断られた・はっきりしない（もとのお返事を読み直して受け取った）のどれでも。
         それを言った方とお話ししている間だけ（_ours の by の1か所）。"""
         q = self._whole_q()
-        return q if q is not None and self.items[q].state in GOT else None
+        if q is not None and self.items[q].state in GOT:
+            return q
+        # 前の通話でご案内全体と言われた答え（その方とお話ししている間・この通話で答え直していない＝_whole_of の1か所）。まとめ役 CL-1 の頼み (H-d)
+        return next((x for x in self.earlier if x in self.items and self._whole_of(x)), None)
 
     def _whole_of(self, qid: str) -> bool:
         """質問 qid が、ご案内全体をほかの会社に頼んでいると言われた質問か（唯一の決まり＝W1 を伺うか _wish_trigger・ご納得いただけなかった点の手順 _point_step・
@@ -15735,7 +15749,8 @@ class Flow:
             return None
         hold = set(held(self.questions.values(), self.order, self._read))
         skipped = [x for x in self.order if self.items[x].state == "empty" and x not in hold and not self._brief_skips(x) and self._whole_skips(x)]
-        w = self.whole
+        # 前の通話でご案内全体と言われた答え（_whole_done）なら、その答えの事実の言葉（turn は無し＝前の通話の答え。ended_on と同じ）
+        w = self.whole if self._whole_q() == qid else {"turn": None, "said": earlier_fact(self.earlier.get(qid), "whole_fact").get("said")}
         return {"turn": w["turn"], "said": w["said"], "question": qid, "answer": label(self.items[qid].condition), "skipped": skipped}
 
     def _brief_skips(self, qid: str) -> bool:

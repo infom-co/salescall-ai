@@ -36757,6 +36757,9 @@ class ElsewhereWholeTest(unittest.TestCase):
         self.assertEqual(f.current, "Q3")
         self.assertNotIn(CALLBACK_IDS["email"], f.items)
         self.assertIn("Q5", f._remaining())
+        # 飛ばすのはその場で連絡先を伺う所だけ（まとめ役 CL-1 の頼み (H-c)）：方法の記録（通話の事実 other_wish）は今までどおり。提案でお伝えした方法なので申し伝える
+        # 一言は重ねない（_told_said の1か所）
+        self.assertEqual([(e["question"], e["means"], e["contact"]) for e in f.facts.get("other_wish", [])], [("Q2", "email", None)])
 
     def test_a_resumed_call_does_not_ask_w1_or_n1_for_a_whole_answer(self):
         # まとめ役の頼み (3)：前の通話でご案内全体と言われた質問（前の通話の答えの whole_fact＝通話の事実 elsewhere_whole）には、続きの電話の始めに W1・N1 を
@@ -36772,3 +36775,39 @@ class ElsewhereWholeTest(unittest.TestCase):
                     "Q3": {"state": "accepted", "condition": "いいえ"}}
         self.assertEqual(resumed_step(qs, approval)[0], "not_agreed")
         self.assertIsNone(resumed_step(qs, {**approval, "Q3": {**approval["Q3"], "whole_fact": {**fact, "question": "Q3"}}}))
+
+    WHOLE = {"question": "Q2", "answer": "メール", "skipped": ["Q3", "Q4"], "said": "どちらも要らないです。うちは別のところに頼んでますので。"}
+
+    def test_a_resumed_call_still_asks_the_address_cut_off_on_a_whole_answer(self):
+        # まとめ役 CL-1 の頼み (H-a)：ご案内全体の答えで飛ばすのは W1・N1 だけ。提案を受けていただき送り先を伺う前に切れた続きの電話は、連絡先の段を伺う
+        from flowctl import resumed_step
+        qs = OtherCompanyClueSendWayTest().business().questions
+        cut = {"Q1": {"state": "accepted", "condition": "はい"},
+               "Q2": {"state": "accepted", "condition": "メール", "whole_fact": self.WHOLE,
+                      "wish_fact": {"question": "Q2", "means": "email", "contact": None, "outcome": None}}}
+        self.assertEqual(resumed_step(qs, cut)[0], "email")
+
+    def test_a_resumed_call_to_the_same_person_skips_the_rest_after_a_whole_answer(self):
+        # まとめ役 CL-1 の頼み (H-d)：同じ方への続きの電話で、前の通話の答えにご案内全体の印がある：残りの業務の質問は伺わない（_whole_of と同じ1か所の読み）。
+        # 伺わなかった質問は、この通話の報告にも elsewhere_whole（turn は無し＝前の通話の答え）
+        import dataclasses
+        b = OtherCompanyClueSendWayTest().business()
+        earlier = {"Q1": {"state": "accepted", "condition": "はい"}, "Q2": {"state": "accepted", "condition": "メール", "whole_fact": self.WHOLE}}
+        f = dataclasses.replace(b, earlier=earlier).flow(play_recordings=True)
+        self.assertEqual([x for x in f._remaining() if not f.questions[x].callback], [])
+        got = f.report()["facts"]["elsewhere_whole"][0]
+        self.assertEqual((got["question"], got["skipped"], got["turn"], got["said"]), ("Q2", ["Q3", "Q4"], None, self.WHOLE["said"]))
+
+    def test_a_new_person_who_heard_is_asked_the_whole_answer_again(self):
+        # まとめ役 CL-1 の頼み (H-b)：引き継ぎを確かめる一言に「聞いている」新しい方には、前の方が「ご案内全体」と言った質問を伺い直す（前の方のお断りは新しい方の
+        # お答えではない＝_carry_on の again の1か所。_closes_on と同じ理由）
+        import dataclasses
+        from flowctl import NONE
+        b = OtherCompanyClueSendWayTest().business()
+        earlier = {"Q1": {"state": "accepted", "condition": "はい"},
+                   "Q2": {"state": "accepted", "condition": NONE, "whole_fact": {**self.WHOLE, "answer": "どれも要らない"}}}
+        f = dataclasses.replace(b, earlier=earlier).flow(play_recordings=True)
+        f._carry_on()
+        self.assertNotIn("Q2", f.earlier)
+        self.assertEqual(f.items["Q2"].state, "empty")
+        self.assertIn("Q2", f._remaining())
