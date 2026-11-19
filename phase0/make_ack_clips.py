@@ -252,6 +252,12 @@ MAX_S["brief_left"] = 12.0
 HOW_OF.update({k: "question_long" for k in ("callback_line_how", *(f"callback_{r}_again" for r in _CONTACT_RESUMED))})
 HOW_OF.update({f"callback_line_how_without_{k}": "question_long" for k in CALLBACK_ASK_OTHER_WAYS})
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
+# お名前の前の言葉（phrases.NAME_HEAD_IDS＝「恐れ入りますが」。名前の録音の前に流す共通の一言＝flowctl.name_plays）：お願い・お尋ねの前に添える言葉として、言い切らずに
+# 後ろの名前の録音へ続く調子で（つなぎの言葉の録音と同じく短い）。分身 L（CL-2 の連絡帳 4-443）
+from phrases import NAME_HEAD_IDS  # noqa: E402
+HOW["name_head"] = "電話で、お願いやお尋ねの前に添える言葉として、丁寧に、柔らかく、短く。言い切らずに、すぐ後ろに言葉が続く調子で"
+MAX_S["name_head"] = 1.4
+HOW_OF.update({rid: "name_head" for rid in NAME_HEAD_IDS.values()})
 HOW_OF["callback_authority"] = "authority"
 # 待つか、かけ直すかを1回伺う一言（phrases.CALLBACK_ASK["wait_or_later"]・約59字）：判断いただけるお立場かの一言と同じ「2つから選んでいただく問い」の形なので、
 # 同じ読み方と長さの上限（✅ 2026-11-05 日本時間23時56分48秒 ユーザー「(ア)」）

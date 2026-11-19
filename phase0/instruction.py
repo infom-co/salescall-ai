@@ -22,7 +22,7 @@ from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa:
 
 from phrases import ACQUIRE_PURPOSE, YES_RECEIVE_NAMED, fixed_words
 from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD, RECEPTION_WHO, WHO_LINES
-from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, mobile_confirm, role_honorific, standard_message, target_call, target_transfer, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, APOLOGY_FIRST, ASK_BACK, CARRIED_FROM, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, mobile_confirm, role_honorific, standard_message, target_call, target_transfer, target_confirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -98,9 +98,6 @@ class Target:
     def confirm(self) -> str:
         return SUCCESSOR["target_confirm"] if self.successor else target_confirm(self._name(), self.role)
 
-    def reconfirm(self) -> str:
-        return SUCCESSOR["target_reconfirm"] if self.successor else target_reconfirm(self._name(), self.role)
-
     def mobile_confirm(self) -> str:
         """かけた番号が携帯電話の番号のときの、2回目の聞き返しの確かめる一言（phrases.mobile_confirm。お名前は確かめる一言と同じ呼び方）。お名前の無い目的のお客様
         （役職だけ）・後任のご担当者様は空＝作らない（flowctl.Flow._calling_unheard は「もう一回よろしいでしょうか？」のまま）。"""
@@ -129,7 +126,7 @@ class Target:
     def acquire_line(self, k: str) -> str:
         """顧客獲得型の本題の段のお名前の入る文（phrases.NAME_FORMS の acquire_glad「じゃあ（お名前）様ちょうど良かったです！」・WHO_LINES の悩みの伺いと「聞かせてください」の
         一続きの3つ。名前の録音の台帳の同じ名前。お名前は yes_received と同じ呼び方＝お名前の無い業務は役職の呼び名）。流すのは flowctl.Flow（お呼びした方ご本人と話している
-        ときだけ＝_who_play）。分身 K2"""
+        ときだけ＝_who_plays）。分身 K2"""
         return NAME_FORMS[k].format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
 
     def reception_purpose(self) -> str:
@@ -586,11 +583,13 @@ class Business:
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
         文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
-        その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
-        法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
-        お名前の入る部分（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・carried_target・target_successor・target_full＝フルネームのあるときだけ・
+        約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
+        お名前の入る部分（target・target_confirm・promise_again・unavailable_confirm・carried_target・target_successor・target_full＝フルネームのあるときだけ・
         mobile_confirm＝お名前のある目的のお客様だけ・target_transfer＝法人の目的のお客様だけ）は、業務の録音の組ではなく、名前の録音の
-        台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
+        台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。お名前の前に言葉のある部分（carried_target・target_transfer＝phrases.NAME_HEADS「恐れ入りますが」）の
+        文は、お客様に聞こえる文のまま頭から（判定に見せる一言・会話AIへの知らせも、この文）。流すときは、頭を共通の一言の録音・残りを名前の録音に分ける
+        （flowctl.name_plays の1か所＝台帳には頭を入れない）。⛔ 2026-11-20（分身 L）まで、確かめへの返事がはっきりしないときの聞き返し target_reconfirm も
+        返していた（伺い50 イで流さなくなった＝CL-2 の連絡帳 4-443 の (c)）。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
         分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
         company, caller = self._said()
@@ -613,7 +612,7 @@ class Business:
             parts["busy"] = self.busy_ask
         if self.target is not None:
             t = dataclasses.replace(self.target, successor=False)
-            parts.update(target=t.call(), target_confirm=t.confirm(), target_reconfirm=t.reconfirm(),
+            parts.update(target=t.call(), target_confirm=t.confirm(),
                          promise_again=t.promise_again(),  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
                          unavailable_confirm=t.unavailable_confirm(),  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
                          carried_target=t.carried_from())  # 続きの電話の判断いただける代わりの方への引き継ぎの確かめ（flowctl.carried_ask の "target"）

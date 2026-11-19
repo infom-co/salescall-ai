@@ -224,14 +224,9 @@ def target_confirm(name: str, role: str = "") -> str:
     return TARGET_CONFIRM.format(who=f"{name}様" if name else role_honorific(role))
 
 
-# 確かめへの返事がはっきりしないときの、1回だけの聞き返し（DESIGN.md 4-3。お呼びし直さない＝本当はご本人かもしれない）。
-# ✅ 2026-10-22 ユーザー：「「おかだ様でお間違えなかったでしょうか？」のような形の方がよくないですか？」（前は「申し訳ございません、」＋確かめる一言。
-#    「お間違えない」はユーザーの言い方のまま＝10-16 の決まり）
-TARGET_RECONFIRM = "{who}でお間違えなかったでしょうか？"
-
-
-def target_reconfirm(name: str, role: str = "") -> str:
-    return TARGET_RECONFIRM.format(who=f"{name}様" if name else role_honorific(role))
+# ⛔ 2026-11-20（分身 L）まで、確かめへの返事がはっきりしないときの1回だけの聞き返し TARGET_RECONFIRM「{who}でお間違えなかったでしょうか？」（✅ 2026-10-22
+# ユーザー）があった。✅ 2026-11-19 日本時間15時10分27秒 伺い50 イ（確かめへのお返事を判定が決められないときも、聞き取れなかったときと同じ聞き返し＝flowctl.Flow.
+# _calling_ask_back）で流さなくなり、CL-2 の連絡帳 4-443 の (c)「外してよいです」で名前の形・続く言葉・後任の方の文から外した
 
 
 # お呼びする段で、電話口の方のお言葉が聞き取れず判定の読みも届かない2回目の聞き返しの、かけた番号が携帯電話の番号のときの確かめる一言（名前の録音の台帳の「〇〇様」＋
@@ -1169,14 +1164,11 @@ def unavailable_confirm(name: str, role: str = "") -> str:
 
 SUCCESSOR = {"target": "恐れ入りますが後任のご担当者様はいらっしゃいますでしょうか？",
              "target_confirm": "後任のご担当者様でいらっしゃいますでしょうか？",
-             "target_reconfirm": "後任のご担当者様でお間違えなかったでしょうか？",
              "unavailable_confirm": UNAVAILABLE_CONFIRM.format(who="後任のご担当者様"),
              # お取り次ぎをお願いし直す一言（TARGET_TRANSFER）の後任のご担当者様の形（伺い51 イと同じ理由＝後任のご担当者様をお呼びする電話も、通話の中で切り替えたあとも）
              "target_transfer": TARGET_TRANSFER.format(who="後任のご担当者様")}
-# 共通の一言の録音で流す形（流れの制御が流しうるものだけ＝録音の表 RECORDED の名前）。はっきりしない返事への聞き返し target_reconfirm（「…でお間違えなかったでしょうか？」）は
-# 流れの制御がもう流さない（flowctl.CONFIRM_PARTS の説明＝✅ 2026-11-19 日本時間15時10分27秒 伺い50 イ）ので、その後任の方の形 successor_reconfirm も流れない＝作らない
-# （文 SUCCESSOR["target_reconfirm"] は名前の録音の台帳の続く言葉 target_reconfirm と一緒に残る＝CL-2 と同時に外す＝分身 R）。⛔ 2026-11-19（分身 AA＝穴 (C)）まで
-# successor_reconfirm を録音の表に入れていた
+# 共通の一言の録音で流す形（流れの制御が流しうるものだけ＝録音の表 RECORDED の名前）。⛔ 2026-11-19（分身 AA＝穴 (C)）まで、流れないはっきりしない返事への
+# 聞き返しの後任の方の形 successor_reconfirm を録音の表に入れていた（文 SUCCESSOR["target_reconfirm"] は 2026-11-20 の分身 L まで残っていた＝上の TARGET_RECONFIRM）
 SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confirm",
                  "unavailable_confirm": "successor_unavailable", "target_transfer": "successor_transfer"}
 # 前の電話で、お呼びした方が在籍していないと言われた会社への次の電話（予約証の successor）：その方の後任のご担当者様をお呼びする一言（依頼主の単位の
@@ -1192,7 +1184,7 @@ PROMISE_AGAIN = "{who}とお電話の約束をしておりましたので後ほ�
 # target_individual）。続く言葉（NAME_TAILS）は形の {who} より後ろ（助詞から＝✅ 2026-10-25 日本時間の夕方 ユーザー＝CL-1.md 4-55 の (2)）。お名前の前に言葉の
 # ある形（「恐れ入りますが」）は、その言葉を NAME_HEADS に持つ。CL-2 は共通の一言（RECORDED）と同じ道具で写しを作り、続く言葉の録音を文で比べる（CL-2 の連絡帳
 # 4-405 の (3)：⛔ 66eb3d76 まで、続く言葉の文を出す1か所が無く、CL-2 は鍵だけで録音を選んでいた）
-NAME_FORMS = {"target": TARGET_CALL["法人"], "target_individual": TARGET_CALL["個人"], "target_confirm": TARGET_CONFIRM, "target_reconfirm": TARGET_RECONFIRM,
+NAME_FORMS = {"target": TARGET_CALL["法人"], "target_individual": TARGET_CALL["個人"], "target_confirm": TARGET_CONFIRM,
               "promise_again": PROMISE_AGAIN, "target_successor": SUCCESSOR_OF, "unavailable_confirm": UNAVAILABLE_CONFIRM, "carried_target": CARRIED_FROM,
               "mobile_confirm": MOBILE_CONFIRM, "target_transfer": TARGET_TRANSFER,
               # 顧客獲得型の2回目からの受け止めの終わり（「〇〇様ももう大丈夫でしたよね。」＝YES_RECEIVE_NAMED。お呼びした方ご本人と話しているとき）
@@ -1201,6 +1193,15 @@ NAME_FORMS = {"target": TARGET_CALL["法人"], "target_individual": TARGET_CALL[
               **{k: fixed_words(v) for k, v in {"acquire_glad": ACQUIRE_GLAD_NAMED, **WHO_LINES, "reception_purpose": RECEPTION_PURPOSE}.items()}}
 NAME_TAILS = {k: v.split("{who}", 1)[1] for k, v in NAME_FORMS.items()}
 NAME_HEADS = {k: v.split("{who}", 1)[0] for k, v in NAME_FORMS.items() if v.split("{who}", 1)[0]}
+# お名前の前の言葉（NAME_HEADS の値＝「恐れ入りますが」）を流す共通の一言の録音の名前（頭の言葉 → 録音の名前。唯一の対応＝流す flowctl.name_plays・録音の表 RECORDED。
+# 頭の言葉は NAME_HEADS から作る＝ここに持つのは名前に使う読みだけ。名付けは相づち・つなぎの言葉と同じ読みのローマ字＝「lead_soredeha」の形）。名前の録音の台帳の
+# 部分（役職・名前・続く言葉）には頭を入れず、この録音を名前の録音の前に流す＝名前の録音の数は増えない・台帳は3つの部分のまま。頭の言葉ごとに1本（形ごとには作らない）。
+# ✅ CL-2 の連絡帳 4-443（CL-1.md 4-199 の 4-405 の (3) のご相談への答え）「あなたのお勧めの前者（共通の一言の録音を1本足し、名前の録音の前に流す）でよいと思います
+# …RECORDED に足していただければ、写しの作り直しで入ります。流す順は電話接続の担当の持ち場です。」（流す並びは流れの制御が返す＝電話接続はその順に流す）
+# ⛔ 2026-11-20（分身 L）まで、頭は名前の部分の文に入ったまま＝台帳の3つの部分で組む電話接続側には頭の録音が無かった
+# 顧客獲得型の本題の段のお名前の入る文の頭（「じゃあ（お名前）様ちょうど良かったです！」・「聞かせてください」の一続きの3つ＝ACQUIRE_GLAD_NAMED・WHO_LINES。分身 K2）も同じ形
+_HEAD_SOUNDS = {"恐れ入りますが": "osoreirimasuga", "じゃあ": "jaa", "ただですね": "tadadesune", "理由はですね": "riyuuhadesune", "そういった意味で": "souittaimide"}
+NAME_HEAD_IDS = {w: f"name_head_{_HEAD_SOUNDS[w]}" for w in dict.fromkeys(NAME_HEADS.values())}
 # 前の電話の事情で、まずお詫びする一言（予約証の apology の理由ごと。共通の一言の録音）。目的の方に繋がったら（目的の人の無い業務は名乗りのあと）、
 # 用件・質問の前に流す。いつの電話のことかは予約証に無いので、「先ほど」「先日」と言わない形。✅ 2026-10-24 ユーザー：約束の時間にかけられなかったとき
 # 「お約束の時間にお電話ができず誠に申し訳ございませんでした。」（「お」が多すぎのため修正＝案の「お時間」）・途中で切れたとき「OK」
@@ -1480,6 +1481,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"wish_told_{k}": v for k, v in WISH_TOLD.items()},
             "message_again": MESSAGE_AGAIN, "closing_after_decline": CLOSING_AFTER_DECLINE, **POINT_FALLBACK, "resumed_fallback_lead": RESUMED_FALLBACK_LEAD, "point_anytime": POINT_ANYTIME, "point_anytime_plain": POINT_ANYTIME_PLAIN, "unclear_anytime": UNCLEAR_ANYTIME, "hesitate_point": HESITATE_POINT, "estimate_ask": ESTIMATE_ASK, "how_now": HOW_NOW, "announce_recheck": ANNOUNCE_RECHECK, "announce_recheck_unheard": unheard_form(""),
             "offer_thanks": OFFER_THANKS, "offer_thanks_again": OFFER_THANKS_AGAIN, "offer_accepted": OFFER_ACCEPTED, "departed": DEPARTED_ACK, **{rid: SUCCESSOR[k] for k, rid in SUCCESSOR_IDS.items()},
+            **{rid: w for w, rid in NAME_HEAD_IDS.items()},   # お名前の前の言葉（「恐れ入りますが」）＝名前の録音の前に流す（flowctl.name_plays）
             "own_fallback": OWN_FALLBACK, **{k: v for k, v in BACK_LINES if closes(v)}, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"apology_{k}_same_day": v for k, v in APOLOGY_SAME_DAY.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
             **{f"apology_cut_end_{k}": v for k, v in APOLOGY_CUT_END.items()}, **{f"told_again_{k}": v for k, v in TOLD_AGAIN.items()},
