@@ -24,7 +24,7 @@ from names import hira, quote, unvoiced
 from phrases import SENSE_NONE, sense_ask, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CALLBACK_ASK_AGAIN, TIME_LADDER, TIME_LADDER_IDS, CALLBACK_ASK_CHOSEN, CALLBACK_ASK_WHICH, CALLBACK_ASK_WHICH_RECAP, CALLBACK_ASK_RESUMED, CLOSE_DECLINED, CLOSING, CLOSING_AFTER_DECLINE, LEAD_IN, NAME_READING_ASK
 from phrases import CALLBACK_ASK_FORM, CALLBACK_ASK_REUSED, CALLBACK_ASK_OTHER_WAYS, CALLBACK_ASK_OTHER_WAYS_AGAIN, POINT_KINDS, RESUMED_FALLBACK_LEAD, recap_line
 from phrases import APOLOGY_CUT_END, CARRIED_TALKED, QUESTION_RESUME_LEAD, START_OVER, TOLD_AGAIN, TOLD_FOLLOW_UP, WAY_ANY_ANNOUNCE, since_ask, ASIDE_LEAD, message_again, of_matter
-from phrases import LISTED_ASK, UNTIL_ASK, BRIEF_SORRY, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
+from phrases import LISTED_ASK, LISTED_DIALED_ID, UNTIL_ASK, brief_sorry_text, brief_left_text, BRIEF_GO, BRIEF_LEFT, COMPARE_DO, TROUBLE_WAY_DO, brief_line, deepen_ahead_line, deepen_line
 from phrases import YES_LEADS, YES_RECEIVE, fixed_words, yes_line
 from phrases import ACQUIRE_SPECIAL, LISTEN_TIME, NAME_FORMS, PAIN_TOLD
 from phrases import AGAIN_LEAD, LEAD_PIECES, OTHERS_HEAD, again_fit, back_fit, closes, drop_receipt, head_join, head_word, heads_said
@@ -32,7 +32,7 @@ from phrases import OFFER_ACCEPTED, APOLOGY_FIRST, APOLOGY_SAME_DAY, CALL_AGAIN_
 from phrases import NOT_ASKED_AGAIN, RECORDED, STANDARD_PARTS, THINKING_PROMPT, ack_pause_s, ask_again as ask_again_phrase
 from phrases import NAME_HEAD_IDS, NAME_HEADS, NAME_PART_TAILS
 from phrases import ASKED_PROMPT_IDS, CONCERN_PROMPT_IDS, QUIET_LINES, THINKING_PROMPT_IDS, WAIT, WAIT_ASK_PLAIN_ID
-from phrases import OMATASE, ROLE_PARTS, WAIT_SOON, WRONG_NUMBER_ASK
+from phrases import OMATASE, ROLE_PARTS, SUCCESSOR_IF_PART, WAIT_SOON, WRONG_NUMBER_ASK, ladder_topic_head, question_body
 from phrases import CHANGE_BY, CHANGE_BY_AGAIN, TENTATIVELY, confirm as confirm_phrase, restate_words
 from phrases import ACK, OTHER_WISH_AGAIN, OTHER_WISH_AGAIN_PLAIN, OTHER_WISH_ASK, OTHER_WISH_ASK_PLAIN, OTHER_WAYS_ASK, OTHER_WAYS_ASK_AGAIN, OTHER_WAYS_OFFER, OTHER_WAYS_OFFER_AGAIN, OTHER_WAYS_WHICH, WISH_TOLD
 from phrases import lead_in as lead_in_phrase
@@ -838,6 +838,26 @@ def ladder_line(step: str, cands: tuple, s: dict) -> tuple[str, str, bool]:
     return TIME_LADDER["theirs_pair" if s.get("theirs") else "pair"].format(a=a, b=b), "", True
 
 
+LADDER_OPENING = "_ladder_"   # 依頼者の日時の質問を2択で伺い始める形の録音の名前の間（依頼主の単位の録音「番号_ladder_（段）」＝ladder_opening）
+
+
+def ladder_opening(q: "Question", step: str, cands: tuple, s: dict) -> "Question":
+    """依頼者のお客様に日時を選んでいただく質問（伺い62＝Question.ladder の accept）を2択で伺い始める形（唯一の作り方＝段の文を置き換える Flow._ladder_set の伺い始めの所・
+    録音の一覧 question_forms＝make_ack_clips.script_table）：その質問の聞くこと（Question.topic「ご来店の日時」→「ご来店は」＝phrases.ladder_topic_head）を2択の頭に入れた文
+    （「ご来店は平日と土日のどちらがよろしいでしょうか？」）。頭のつなぎの言葉は業務の質問と同じ1か所（spoken_question＝次の項目は「続きまして」・前の答えで伺う質問は
+    「それでは」など＝question_play が業務の質問の道で付ける）。値の入らない2択（平日と土日・午前と午後）は質問ごとの依頼主の単位の録音（「番号_ladder_kind」「番号_ladder_half」）、
+    値の入る2択（曜日・時刻）は会話AIの声。2つ目からの2択は今のまま（ladder_line）。✅ 2026-11-20 日本時間4時44分42秒「伺い62：イ」（お見せしたイの文「承知しました。続きまして
+    ご来店は平日と土日のどちらがよろしいでしょうか？」）＝分身 P の (5)。顧客獲得型のアポの日時（meeting）は、すぐ前の「聞かせてください」の一続きのお時間の文が聞くことを
+    言っている＝この形にしない（重ねない）。⛔ 2f61767d まで「承知しました。金曜日と火曜日ではどちらがよろしいでしょうか？」（何を伺っているか分からない）"""
+    text, _, voiced = ladder_line(step, cands, s)
+    return dataclasses.replace(q, text=ladder_topic_head(q.topic, question_body(text)), recording=f"{q.id}{LADDER_OPENING}{step}", voiced=voiced)
+
+
+def in_ladder_opening(q: "Question | None") -> bool:
+    """依頼者の日時の質問を2択で伺い始める形（ladder_opening）の質問か（唯一の見分け＝流す形 question_play・録音の一覧 question_forms）。"""
+    return q is not None and bool(q.ladder) and str(q.recording or "").startswith(f"{q.id}{LADDER_OPENING}")
+
+
 def ladder_value(s: dict) -> str:
     """伺えた所から、かけ直しの記録の time の値を作る唯一の場所（「火曜日の午後4時」「土日の午前11時」「明日の午後2時」・日を言わない今日は時刻だけ「午後3時」・
     「いつでも」は伺えた所＋「ならいつでも」）。CL-2 の時刻の読み（spoken_time）で読む形（土日の時刻＝「土日の午前11時」は CL-2 への知らせ）。"""
@@ -1111,8 +1131,8 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
         if q.callback == "pain":
             return {"kind": "opening", "part": q.recording, "text": q.text} if q.recording in NAME_FORMS else {"kind": "recorded", "id": q.recording, "text": q.text}
         return {"kind": "said", "text": q.text} if q.voiced else {"kind": "question", "id": q.recording, "text": q.text, "lead": ""}
-    if q.of or q.callback or q.ladder:
-        # q.ladder：日時の2択の段で伺う業務の質問（顧客獲得型のアポの日時＝Flow._main_listen。段の文はシステムの質問の日時の2択と同じ1か所＝ladder_line。分身 K2）
+    if q.of or q.callback or (q.ladder and not in_ladder_opening(q)):
+        # q.ladder：日時の2択の段で伺う業務の質問（伺い始めの形 ladder_opening は、下の業務の質問の道＝頭のつなぎの言葉を spoken_question で付ける）（顧客獲得型のアポの日時＝Flow._main_listen。段の文はシステムの質問の日時の2択と同じ1か所＝ladder_line。分身 K2）
         # 業務の質問から文を作ったシステムの質問（ほかのご希望を伺う質問・振り返りの一言）＝業務の質問と同じ依頼主の単位の録音・ほかのシステムの質問＝共通の
         # 一言の録音。直前に流す一言 before（2回目・3回目からの戻る一言）に続ける形は phrases.back_fit の1か所。戻る一言のあと（again で before がある＝
         # Flow._continue）は、初めて伺ったときの前置きを言い直さない形（Question.plain＝B-5）。もう一度言ってほしいと頼まれた（before が無い）ときは、
@@ -1134,6 +1154,9 @@ def question_play(questions: list["Question"], qid: str, before: str = "", again
         # 業務設定から文を作ったシステムの質問（改めてのお話の方法を選んでいただく一言＝BUSINESS_ROLES）も依頼主の単位の録音
         return {"kind": "question", "id": rid, "text": text, "lead": ""} if q.of or q.callback in BUSINESS_ROLES else {"kind": "recorded", "id": rid, "text": text}
     text, lead = spoken_question(questions, qid, before, again, resumed, soft)
+    if in_ladder_opening(q) and q.voiced:
+        # 依頼者の日時の質問を2択で伺い始める形の、値の入る2択（曜日・時刻）＝会話AIの声（頭のつなぎの言葉も一緒に言う）
+        return {"kind": "said", "text": text}
     # 日によって変わる言い方の入った質問は、その言い方の録音（Question.recording＝day_recording_id。名前の組み方は今と同じ「番号＋つなぎの言葉」）
     rid = q.recording or q.id
     if again and not lead:
@@ -1281,6 +1304,10 @@ def question_forms(questions: list["Question"], qid: str) -> list[dict]:
         # 「確認の途中でしたので…」の形（「番号_aside」）も載せていた（そのころは3回目からの戻りで流れた）
         if not in_aside_form(q):
             forms += [question_play(questions, qid, again=True, before=text) for _, text in BACK_LINES]
+    if in_ladder_opening(q):
+        # 依頼者の日時の質問を2択で伺い始める形（ladder_opening）：頭のつなぎの言葉の形だけ（意向が分からないまま戻る形・その後の形・「ところで」の形は、2択の段では流さない＝
+        # 聞き直しはいま伺った2択の文・別のお話は戻る一言＝Flow._unlinked_base の when）。分身 P の (5)
+        return list({(p["id"], p.get("lead") or ""): p for p in forms}.values())
     if soft_fits(q) and not (in_aside_form(q) or in_since_form(q) or in_alternatives_form(q)):
         # お客様の意向がまだ分からないまま戻る形（soft_form・頭のつなぎの言葉は無い）。新しい録音は選択肢を並べた文の「番号_alternatives」だけ（言い換えた質問・元の
         # 質問の頭の無い形は、2回目に戻る一言のあとの形と同じ録音）。✅ 2026-11-14 日本時間22時15分15秒 ユーザー
@@ -2724,7 +2751,11 @@ WHEN_ROLES = tuple(r for r, k in ROLE_KEY.items() if k in ("time", "back_today",
 # お返事と同じく言葉どおり待つ（Flow._wait_or_later_decided。H2 は1回＝11-05 日本時間23時56分48秒「(ア)」）。理由＝9-3「質問ではない言葉・お客様のお話にも、AIが自分の
 # 言葉でひとこと返す」・11-13 日本時間22時17分01秒（分身 Z の (1) と同じ）。⛔ 4596fda4 まで H2 は読ませず、別のお話にひとことも無く「はい、それではこのままお返事を
 # 待っております。」（分身 AE の書き置き rv140/AE/notes.md の 5 の (2)・まとめ役の頼み rv144/AG の (2)）
-AWAY_ROLES = (*WHEN_ROLES, "wait_or_later")
+# 顧客獲得型の本題の段の悩みの伺い（pain＝Y2）と本心を伺う一言（concern＝D2。確認の電話の型でも同じ）も同じ番：会話AIのひとこと＋戻る一言の1か所（Flow._back_play）＋悩みの
+# 伺いは同じ悩みを1回だけ伺い直す（TALK_ONCE_ROLES＝Flow._talk_then）・本心を伺う一言は伺い直さず、伺う前の質問へ戻る（問題は無いときと同じ Flow._concern_decided）。本書 9-3
+# 「質問ではない言葉（…お客様のお話）にも、AIが自分の言葉でひとこと返す」・✅ 2026-11-14 日本時間14時31分38秒（相づちだけで終えず、お話の中身を受けた受け答え）＝分身 P の
+# (2)(3)・決まりで決めた。⛔ 2f61767d まで判定に読ませず、悩みの伺いは次の悩みへ・本心を伺う一言は「はい、話を戻させていただきますね。」だけ（ひとことが無かった）
+AWAY_ROLES = (*WHEN_ROLES, "wait_or_later", "pain", "concern")
 # 必須の質問の「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules.HANDLINGS と同じ名前。Question.handlings の値）：
 # 分かるお客様を聞く・分かる時を聞く（聞き足しの質問を1通話1回）・日を改める（会話は次の質問へ進む）・結論として終える（丁寧に締める）
 HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")
@@ -4367,7 +4398,12 @@ ASKED_OFFER_ROLES = (*OFFER_ROLES, *RECALL_ROLES)
 # 待つことになる（伺い53 ア「申し出を取りこぼさない決まりが先」と同じ理由）。聞き返しは H2 の1回（11-05 日本時間23時56分48秒「(ア)」）とは別＝伺い直すのは、もう一度
 # お聞かせいただくことで、待つかかけ直すかを重ねて伺うのではない。⛔ 4596fda4 まで、聞き返さずに「はい、それではこのままお返事を待っております。」（分身 AE の書き置き
 # rv140/AE/notes.md の 5 の (2)・まとめ役の頼み rv144/AG の (2)）
-ASK_BACK_ONCE_ROLES = (*ASKED_OFFER_ROLES, "wait_or_later")
+# 顧客獲得型の本題の段の悩みの伺い（pain＝Y2）も同じ（取りこぼすと「ある」と言った方を失う＝申し出と同じ理由＝✅ 2026-11-19 日本時間14時18分13秒「伺い53：ア」。言い方も
+# 申し出と同じ1回目の言い方＝Flow._ask_again の offer。分身 P の (2)。⛔ 2f61767d まで、伺い直さずに次の悩みへ進んだ）
+ASK_BACK_ONCE_ROLES = (*ASKED_OFFER_ROLES, "wait_or_later", "pain")
+# 必須でなくても、別のお話に会話AIがひとこと応えたあと、1回だけ同じ質問を伺い直すシステムの質問（唯一の並び＝Flow._talk_then）：顧客獲得型の本題の段の悩みの伺い（聞き取れない
+# ときの1回 ASK_BACK_ONCE_ROLES と同じ理由・必須でない業務の質問の「ところで」の伺い直しと同じ1回）。分身 P の (2)
+TALK_ONCE_ROLES = ("pain",)
 # ほかの会社の困りごとを深めて伺う一言（Flow.deepen_q が指す質問）：E2「これまでに（困りごと）で…何度かおありなのでしょうか？」・E2 に問題があったときの E3「そうだったんですね。
 # …何か手をお打ちですか？」・無かったときの E4「それは何よりです。しかし…懸念されそうですね？」（✅ 2026-11-16 日本時間0時42分38秒・12時48分22秒 ユーザー）
 # elsewhere_point（E5）＝ほかの会社のことを伺った一言（E1）に困りごとは無いと言われた、手短でない電話で伺う決め手（伺い47 のイ。Flow._elsewhere_decided）。
@@ -4720,10 +4756,11 @@ def brief_left_line(q: "Question", n: int) -> "tuple[str, str] | None":
 
 
 def brief_sorry_line(q: "Question") -> "tuple[str, str] | None":
-    """手短に伺っている途中、形が1つしか無い所で3回目に急かされたときの一言（phrases.BRIEF_SORRY「お忙しいところ本当に恐れ入ります。（聞くこと）の方はいかがでしょうか？」）の
+    """手短に伺っている途中、形が1つしか無い所で3回目に急かされたときの一言（phrases.BRIEF_SORRY「お忙しいところ本当に恐れ入ります。（聞くこと）の方はいかがでしょうか？」＝文は
+    phrases.brief_sorry_text の1か所＝聞くことが「方」「方法」で終わるときは「の方」を重ねない）の
     （録音の名前, 文）を作る唯一の場所（流すかを決める Flow._brief_again・録音の表 make_ack_clips.script_table）：録音は質問ごとの依頼主の単位（「（番号）_brief_sorry」）。
     流しうる質問は安心していただく一言と同じ（brief_says）。✅ 2026-11-20 日本時間4時44分42秒 ユーザー「伺い57」"""
-    return (f"{q.id}_brief_sorry", BRIEF_SORRY.format(t=q.topic)) if brief_says(q) else None
+    return (f"{q.id}_brief_sorry", brief_sorry_text(q.topic)) if brief_says(q) else None
 
 
 def asked_offer(q: "Question") -> str | None:
@@ -5276,6 +5313,13 @@ def wish_ways(q: "Question") -> list[str]:
     ways = way_offer(q)
     ways = _business_ways(q) if ways is None else ways
     return ways if len(ways) > 1 else []
+
+
+def successor_parts(parts: dict) -> dict:
+    """後任のご担当者様をお呼びする形の文（phrases.SUCCESSOR）のうち、その電話の名乗りの部分 parts に当てるもの（唯一の選び＝はじめから後任の方の電話 Flow.__init__・
+    通話の中で切り替える Flow._to_successor。共通の一言の録音の名前 SUCCESSOR_IDS も同じ選び）：受付の方への一文（SUCCESSOR_IF_PART＝顧客獲得型の法人の業務の部分）は、
+    その部分のある電話だけ。ほかはいつも。いまお呼びしている方の呼び名にそろえる＝分身 P の (10)"""
+    return {k: v for k, v in SUCCESSOR.items() if k not in SUCCESSOR_IF_PART or k in parts}
 
 
 def line_play(rid: str, text: str) -> dict:
@@ -5929,7 +5973,7 @@ class Flow:
             # instruction.Business.replay_parts）、確かめる一言・聞き返しは共通の一言の録音（_to_successor と同じ）。
             # ⛔ 2026-10-24 CL-2 の 4-152：1つの録音の組に同じ名前の部分は1つだけ＝ふつうの電話の呼ぶ一言（target）と同じ名前では録音できない
             self.successor = True
-            self.system_parts.update({k: v for k, v in SUCCESSOR_IDS.items() if k != "target"})
+            self.system_parts.update({k: v for k, v in SUCCESSOR_IDS.items() if k != "target" and k in successor_parts(target or {})})
             self.part_names["target"] = "target_successor"
             self.part_names["target_full"] = "target_successor_full"   # お名前だけでは分からないと言われたときの一言も、後任の方の形（_who_unclear）
         self.busy_asked = False
@@ -6220,7 +6264,7 @@ class Flow:
         if self.successor:
             for d in {id(d): d for d in (self.target, self.opening) if d}.values():   # 在る入れ物だけ（名乗りの録音が無い通話＝AIが話す形でも作れる）
                 # この電話の呼ぶ一言（流す録音は target_successor＝_part_play）と、確かめる一言・聞き返し（共通の一言の録音の文＝system_parts）
-                d.update({k: v for k, v in SUCCESSOR.items() if k != "target"}, target=d["target_successor"])
+                d.update({k: v for k, v in successor_parts(d).items() if k != "target"}, target=d["target_successor"])
                 d.pop("mobile_confirm", None)   # 後任の方のお名前は分からない＝携帯電話の番号の確かめる一言は無い（_calling_unheard は「もう一回…」）
                 d.pop("mobile_owner", None)     # 同じ理由（携帯電話の持ち主の確かめ＝伺い65 イ）
                 if d.get("target_successor_full"):
@@ -9119,7 +9163,16 @@ class Flow:
         if q.ladder and self.items[qid].ladder is not None:
             # 日時の2択の段（伺い60＝決まりで決めた）：迷っている方には「はい、どういった点でお迷いでしょうか？」を1回だけ。選ぶ助け（こちらから1つに絞ってお勧めする＝
             # 0時09分49秒「こっちが一瞬でも提案したら…強制感」）・保留の締め（かけ直しの日時を保留で締めない）は当てない＝2回目からは今の道（会話AIの報告を待つ）
-            return "point" if hesitates(readings) and point is None else None
+            if hesitates(readings) and point is None:
+                return "point"
+            # 伺ったあとの、答えではないお返事（迷っている点を言った＝判定が迷っている・決められないと読んだ。別のお話・電話を終える言葉・こちらへの問いは除く＝それぞれの道）：
+            # 本書 9-3（お客様のお話にもひとこと返す）のとおり、会話AIが業務の情報の範囲でひとこと応えてから、いまの2択を伺い直す番（help＝_ladder_word。こちらから1つに
+            # 絞ってお勧めしない＝0時09分49秒）。1回だけ（ひとことを伝えた印 helped のあとは今の道）。点が2つとも合わない向きなら、判定の「どちらも合わない」の今の1か所
+            # （_ladder_neither）が先に受け持つ。分身 P の (6)。⛔ 2f61767d まで、迷っている点に応えずに「はい、恐れ入ります。（いまの2択）」と伺い直した
+            if (point is not None and helped is None and not talked_away(readings) and (hesitates(readings) or undecided(readings))
+                    and self._plain_reply(readings)):
+                return "help"
+            return None
         # 答えを選んでいず、迷っていない答えの道でもなく（_plain_reply）、理由がそろって「担当ではない」「いまは分からない」（WHY_ROUTED）でもない言葉（唯一の決まり）
         open_ = undecided(readings) and self._plain_reply(readings) and self._why_of("unknown") not in WHY_ROUTED
         # 最初の答えの「まだ決めていない」（まだ助けも伺いもしていない・最終の確かめの前・判定を使う通話。理由の読みが割れた・無い「分からない」も）
@@ -10307,8 +10360,9 @@ class Flow:
             self.digressed = True
         if part.startswith(ANSWER_PREFIX):
             return self._answer(part)
-        # 申し出への会話が繋がらないお返事にひとこと応える番（_asked_kind の offer）は、受け答えが応え方そのもの（_own_answer → _offer_again）
-        if part == "talk" and self._asked_kind() != "offer" and (asked is not None or (self.after_answer is not None and not (self.own_pending or self.ai_pending))):
+        # 申し出への会話が繋がらないお返事にひとこと応える番（_asked_kind の offer）・日時の2択の段で迷っている点を言われた番（help＝_ladder_word。分身 P の (6)）は、
+        # 受け答えが応え方そのもの（_own_answer → _offer_again・_ladder_word）
+        if part == "talk" and not self._talk_turn() and (asked is not None or (self.after_answer is not None and not (self.own_pending or self.ai_pending))):
             # 答えに添えられた相手の質問・いまの質問について尋ねられた問いに、まだ答えていない：受け答えでは答えたことにならない（⛔ 2026-10-23 G-57
             # tc42：AIが質問に答えないまま、相手の次の言葉に受け答えし、プログラムが次の質問へ進んだ＝相手の質問が答えられずに残った）。
             # 尋ねられた問い（この発話の問い＝_asked_now）は、前の発話で応えて返事を待っている印が残っていても同じ（⛔ 2026-11-06 日本時間5時56分55秒の
@@ -10717,6 +10771,10 @@ class Flow:
             return self._reject(f"「{ARG_LABEL[given[0]]}」は、申し出へのお客様のお話にひとこと応える番だけに書きます（いまは書きません）。外して、もう一度呼んでください。")
         if offer and part != "talk":
             return self._reject(f"いまは、相手のお話にひとこと応える番です。replay_opening を「{PART_LABEL['talk']}」で呼びます。")
+        # 日時の2択の段で迷っている点を言われた番（_hesitation の help＝_ladder_word）：お話にひとこと応え、そのあとプログラムがいまの2択を伺い直す（分身 P の (6)）
+        ladder_word = self._talk_turn() and not offer
+        if ladder_word and part != "talk":
+            return self._reject(f"いまは、相手が言った迷っている点にひとこと応える番です。replay_opening を「{PART_LABEL['talk']}」で呼びます。")
         # 困りごとに応える提案の番（_trouble_offering）で中身「〜も含めて」を書かなかった：方法の書き直しは頼まずに、提案しない（_offer_again が _elsewhere_back へ）
         offering = unlinked == "offer" and not (self._trouble_offering() and proposal["topic"] is None)
         rejected, proposal, dropped = self._proposal_checked(proposal, given, self.current, offering)   # dropped＝声に出さなかった提案の言葉と、その理由（受け答えの記録に残す）
@@ -10736,6 +10794,8 @@ class Flow:
             if pick is not None:
                 # 一言だけを選んだ：その一言で応える（決まった言い方・知っていることの文そのまま＝確かめなくてよい。AIの選んだ言い方）
                 self.own_turn = self.callee_turns
+                if ladder_word:
+                    return self._ladder_word(None, pick, {}, {"checked": "fallback"})
                 if again:
                     return self._talk_again(None, pick, {}, {"checked": "fallback"})
                 if announcing:
@@ -10779,6 +10839,8 @@ class Flow:
             kind, pick = "own", line
         if problem and asked and kind == "own" and pick is None:
             return self._asked_skip(problem, drafts, checked)   # 尋ねられた考えの答えが使えない：尋ねられる前の流れのとおりに進める
+        if ladder_word:
+            return self._ladder_word(None if problem else answer, pick if problem else None, drafts, checked)
         if again:
             return self._talk_again(None if problem else answer, pick if problem else None, drafts, checked)
         if announcing:
@@ -11009,6 +11071,25 @@ class Flow:
             return self._wait_after_word(qid, said, dash=dash)
         return self._led(plays, "", self._talk_dash(qid, dash)) | {"quiet": True}
 
+    def _talk_turn(self) -> bool:
+        """会話AIの受け答え（replay_opening の talk）そのものが応え方になる番か（唯一の決まり＝受け答えを受け付ける入口 _op_replay_opening・応え方 _own_answer）：申し出への
+        会話が繋がらないお返事にひとこと応える番（_asked_kind の offer）と、日時の2択の段で迷っている点を言われた番（help＝_ladder_word）。"""
+        kind = self._asked_kind()
+        return kind == "offer" or (kind == "help" and self._in_ladder(self.awaiting_confirm or self.current))
+
+    def _ladder_word(self, said: str | None, pick: str | None, drafts: dict, checked: dict) -> dict:
+        """日時の2択の段で「どういった点でお迷いでしょうか？」と伺ったあと、迷っている点を言われたときの唯一の返事（_own_answer から。番は _hesitation の help＝日時の2択の
+        段）：(1) 会話AIのひとこと（said＝受け答えと同じ確かめを通った自分の言葉。使えなければ pick＝受け答えの録音 TALK_FALLBACK）、(2)「それでは」＋いまの2択（もう伺った
+        質問へ戻る1か所 _continue）。こちらから1つに絞ってお勧めしない（知らせ _asked_note）。ひとことを伝えた印（hesitating の helped）のあとは今の道（1回）。分身 P の (6)"""
+        qid = self.current
+        fb = TALK_FALLBACK[pick][0] if said is None else None
+        self._note("talk", answer=said or fb, **({"fallback": pick} if said is None else {}), **drafts, **checked)
+        self._mark_answered()
+        self.hesitating.setdefault(qid, {})["helped"] = self.callee_turns
+        self.items[qid].set(self.items[qid].state, "日時の2択の段で迷っている点にひとこと応えた・いまの2択を伺い直す")
+        plays = [{"kind": "said", "text": said}] if said is not None else [{"kind": "recorded", "id": pick, "text": fb}]
+        return self._led(plays, "", self._continue([], "")) | {"quiet": True}
+
     def _talk_settled(self, qid: str) -> bool:
         """別のお話にひとこと応えたとき、言い直し・最終の確かめのお返事を待っていた質問で、同じ確かめをもう言い直さないか（唯一の決まり＝_talk_again・_talk_then）：
         最終の確かめ（Item.final）・申し出と方法の提案の伺い直し（1回＝_confirm_again と同じ）。"""
@@ -11027,7 +11108,8 @@ class Flow:
             # 困りごとに応える提案（_trouble_offering）への別のお話：伺い直さずに、提案の今の道（受けていただけない・はっきりしないと同じ＝もとのお返事を読み直す
             # _elsewhere_back）。申し出 N4・N6 の伺い直しへの別のお話と同じく、提案はもう伺い直さない
             return "back"
-        if not self._talk_settled(qid) and q.required and self._on_spot_left(qid, talk=True):
+        if not self._talk_settled(qid) and ((q.required and self._on_spot_left(qid, talk=True))
+                                            or (q.callback in TALK_ONCE_ROLES and self.items[qid].talk_backs < 1)):
             return "again"
         if (q.callback and q.callback != "message") or [x for x in self._remaining() if x != qid]:
             return "next"
@@ -12870,7 +12952,9 @@ class Flow:
             # 「決められない」（「なるほど。」）は伝え直さず、最終の確かめ（伺い10＝_accepted_ask）。⛔ ba505007 まで、お知らせの最初のお返事には読ませず、そろって
             # 決められない読みをどれも別のお話として決まりを伝え直した（見直し (13) の C4）
             return "announce" if talked_away([self.check.get(k) for k in JUDGMENTS]) else None
-        if q.callback in AWAY_ROLES:
+        if q.callback in AWAY_ROLES or self._in_ladder(qid):
+            # 依頼者の日時の質問を2択で伺っている途中（_in_ladder＝顧客獲得型のアポの日時・伺い62）も、こちらがかけ直す日時の2択と同じ番（「ところで」＋業務の質問の言い換えで
+            # 日時を開かない＝本書 9-4 の【決まりで決めた】(d)。分身 P の (1)。⛔ 2f61767d まで「ところで」の番に入り、ひとことのあと伺い直さなかった）
             # 時刻・日・連絡先を伺うシステムの質問・待つかかけ直すかを伺う一言 H2（AWAY_ROLES。H2 は必須でない＝ひとことのあと伺い直さずに言葉どおり待つ）（日時の2択・お戻りの時刻・メールアドレスなど＝WHEN_ROLES）：判定がそろって「別のお話」と読んだときだけ（そろって決められないだけの答えの話は、
             # 今の聞き直しの道）。ひとことのあとは戻る一言の1か所（_talk_again＝_unlinked_kind の again・数える単位 _place）＋いまの質問・2択（必須でない質問・回数を
             # 使い切った質問は今の回数の決まりのまま「-」にして次へ）。まとめ役の続きの (4)
@@ -13119,6 +13203,13 @@ class Flow:
                        f"問題は無かったと答えたら、プログラムが「{deepen_ahead_line('（句）')}」と伺います。「〜と」で終える形＝「対応が遅いままだと」など。"
                        "書けなければ付けません）。" if self._trouble_turn() else "")
                     + f"応えたら、相手の返事を待ちます（{self._concern_then(q.id, now)}）。")
+        if kind == "help" and self._in_ladder(q.id):
+            # 日時の2択の段で迷っている点を言われた（_hesitation の help＝_ladder_word）：お話にひとこと応える番（TALK_RECEIVE の1か所）。こちらから1つに絞ってお勧めしない
+            # （✅ 2026-11-20 日本時間0時09分49秒「こっちが一瞬でも提案したら、お客さんは強制感を一瞬でも出せる」）。分身 P の (6)
+            return (f"いまは、相手が言った迷っている点（「{asked[:40]}」）に、ひとこと応える番です。相手は、{now}について、どちらにするか迷っています（意味の判定）。"
+                    f"報告はまだしません。replay_opening を「{PART_LABEL['talk']}」で呼び、迷っている点に応えるひとことを「{ARG_LABEL['answer']}」に書きます"
+                    f"（短く1〜2文。{TALK_RECEIVE}どちらかに決めつけず、こちらから1つに絞ってお勧めしません。2択の言い直し・別の日時の提案は入れません。返す文が使えない"
+                    f"ときの一言も「{ARG_LABEL['fallback']}」から選びます：{TALK_CHOICES}）。続けてプログラムが、いまの2択をもう一度伺います。")
         if kind == "help":
             # 迷っているお客様に選ぶ助けを伝える番（_hesitation の1か所）。✅ 2026-11-07 日本時間13時05分06秒 ユーザー（_hesitation に引いたお言葉）
             notes = "／".join(f"{label(c)}＝{n}" for c, n in q.option_notes.items())
@@ -13667,10 +13758,10 @@ class Flow:
         self.successor = True
         self.first_called = self.first_called or self.target.get("target", "")   # はじめにお呼びした言葉（判定に見せる＝_calling_questions）
         for d in {id(d): d for d in (self.target, self.opening) if d}.values():
-            d.update(SUCCESSOR)
+            d.update(successor_parts(d))
             d.pop("mobile_confirm", None)   # 前にお呼びした方のお名前の確かめる一言は、後任の方には使わない（後任の方のお名前は分からない）
             d.pop("mobile_owner", None)
-        self.system_parts.update(SUCCESSOR_IDS)
+        self.system_parts.update({k: v for k, v in SUCCESSOR_IDS.items() if k in successor_parts(self.target or self.opening or {})})
         self._calling_questions()
         self.target_from = self.callee_turns + 1
         self.target_called, self.target_confirmed, self.target_sorry, self.transfer_asked = [], [], [], []   # 確かめを数え直す＝確かめへの返事も待っていない（confirm_open）
@@ -16175,10 +16266,15 @@ class Flow:
         """いまの段の質問の文・録音の名前・会話AIの声かを置き換える唯一の場所（判定に見せる質問・流す質問・伺い直し・急かされたときの「承知しました。」＋いまの質問は、
         みなこの文を読む）。候補が1つだけの段は伺わずに入れる。決まった（時刻まで・「いつでも」・候補が無い）なら None（文は替えない）。"""
         it, ctx = self.items[qid], self._ladder_ctx(qid)
+        # 依頼者のお客様に日時を選んでいただく質問（伺い62）の伺い始めの所（まだ何も伺えていない）：聞くことを頭に入れた形（ladder_opening＝分身 P の (5)）
+        opening = self.questions[qid].ladder == "accept" and it.ladder == it.ladder_start
         while (step := ladder_step(it.ladder, ctx)) is not None and len(step[1]) == 1:
             it.ladder = ladder_fill(it.ladder, step[0], step[1][0])
         if step is None:
             return None
+        if opening:
+            self.questions[qid] = ladder_opening(self.questions[qid], step[0], step[1], it.ladder)
+            return step
         text, rid, voiced = ladder_line(step[0], step[1], it.ladder)
         self.questions[qid] = dataclasses.replace(self.questions[qid], text=text, recording=rid, voiced=voiced)
         return step
@@ -16447,9 +16543,19 @@ class Flow:
         # 質問と同じ道で、いま伺った2択の文で伺い直す（「恐れ入ります。平日と土日のどちらがよろしいでしょうか？」）。✅ 2026-11-19 日本時間14時18分13秒 ユーザー「営業で
         # いつ頃と聞くのは最悪。これを聞くと相手は断ろうとする。…日時を伺う時はこのパターンを採用して」・分身 Q の設計（判定に見せる文・流す文・聞き返しは段の文を読む）。
         # ⛔ 05212957 まで「恐れ入ります。ご都合のよろしいお時間をもう一度お聞かせいただいても…」（分身 Q の書き置きの穴 (5) を流れの制御で確かめて見つけた）
-        topic = "" if it.ladder is not None and ladder_step(it.ladder, self._ladder_ctx()) is not None else q.topic
-        question = "" if topic else ask_again_text(self.given.get(qid, q), self._heard_last(qid))
+        # 業務の質問を2択で伺っている途中（顧客獲得型のアポの日時・お客様に日時を選んでいただく質問＝伺い62）も、いま伺った2択の文（_ladder_set が入れた質問の文）で
+        # 伺い直す（替える前の業務の質問の文 Flow.given では伺わない＝「いつがよろしいでしょうか」を開かない）。⛔ 2f61767d まで、業務の質問の2択だけ「はい、恐れ入ります。
+        # ご説明のお時間はいつがよろしいでしょうか？」（担当 W の控えの 3 の 1＝分身 P の (1)）
+        ladder = self._in_ladder(qid)
+        topic = "" if ladder else q.topic
+        question = q.text if ladder else "" if topic else ask_again_text(self.given.get(qid, q), self._heard_last(qid))
         return ask_again_phrase(n, reason, topic, last=last, question=question)
+
+    def _in_ladder(self, qid: str) -> bool:
+        """日時の2択の段の途中か（いま伺っている2択の文が質問の文＝_ladder_set・まだ決まっていない所がある。唯一の決まり＝聞き直しの文 _ask_again_say・別のお話の番の形
+        _unlinked_base）：こちらがかけ直す日時の2択・依頼者の日時の質問（顧客獲得型のアポの日時・お客様に日時を選んでいただく質問）のどれも同じ1か所。"""
+        it = self.items.get(qid)
+        return it is not None and it.ladder is not None and ladder_step(it.ladder, self._ladder_ctx(qid)) is not None
 
     def _enter_reading(self, qid: str, prefix: str = "") -> dict:
         """名前の読みの確かめを始める（reading_question）。まず言ってみる読みを値にして、言い直しの返事待ちにする。言い方は質問の文。"""
@@ -16549,9 +16655,14 @@ class Flow:
         elif after == "sense":
             phrase = sense_ask(self.heard_said, shown)   # 「（お客様の言葉）とおっしゃったのは、（候補の言葉）という意味合いでしょうか？」
         elif after == "listed":
-            # お客様リストに分かっている連絡先をこちらから言って確かめる（_listed_ask＝伺い66 ア。いまお電話している番号へは番号を言わない形）
+            # お客様リストに分かっている連絡先をこちらから言って確かめる（_listed_ask＝伺い66 ア。いまお電話している番号へは番号を言わない形＝値の入らない決まった文＝
+            # 共通の一言の録音 LISTED_DIALED_ID。値の入る一言は会話AIの声。分身 P の (9)）
             dialed = bool(it.listed and it.listed[1])
             phrase = LISTED_ASK[q.callback + ("_dialed" if dialed else "")].format(v=it.value)
+            if dialed and not lead and self._plays_recorded(line := [line_play(LISTED_DIALED_ID, phrase)]):
+                self.awaiting_say = phrase
+                return {"result": "confirm_required", "value": shown, "play": line, "after": after,
+                        "message": f"言い直して確かめます。{played_note(phrase)}何も言わずに、相手の返事を待ってください。" + (self._confirm_how(qid) if choice else "")}
         elif after == "final_do":
             # 迷っている方への最終の確かめ：こちらがすることの言葉（「〜させていただきます」）を「〜させていただきましょうか？」で伺う（_final_check）
             phrase = confirm_phrase((shown if choice else said_as + "とさせていただきます").removesuffix("ます"), situation, n, meaning=True)

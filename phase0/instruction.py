@@ -149,9 +149,14 @@ class Target:
 
     def reception_purpose(self) -> str:
         """受付の方へ伝える用件の一文（伺い85＝✅ 2026-11-20 日本時間2時18分01秒「営業ではなく、○○様にとって、「大切な話」「役に立つ話」としてかけるので、営業では断られない。」。
-        phrases.RECEPTION_PURPOSE「（お呼びする方）にとって大切なお話がございましてお電話いたしました。」＝名前の録音の台帳 reception_purpose）。お名前の無い業務・後任の方を
-        お呼びする電話は「ご担当者様にとって」（まとめ役の頼み rv174/K2 の (3)）。流すのは flowctl.Flow（受付の方に用件を聞かれた・営業のお断り＝_reception_again）。分身 K2"""
-        return NAME_FORMS["reception_purpose"].format(who=RECEPTION_WHO if not self.name or self.successor else f"{self._name()}様")
+        phrases.RECEPTION_PURPOSE「（お呼びする方）にとって大切なお話がございましてお電話いたしました。」＝名前の録音の台帳 reception_purpose）。流すのは flowctl.Flow（受付の方に
+        用件を聞かれた・営業のお断り＝_reception_again）。分身 K2。呼び名は、お呼びする一言と同じ呼び方（いまお呼びしている方の呼び名にそろえる＝本書 9-9 の終わりの【決まりで
+        決めて入れる】・分身 P の (10)）：お名前のある方＝確かめる一言と同じ「（お名前）様」・役職だけでお呼びする業務＝役職の呼び方（「採用ご担当様」）・後任の方＝「後任の
+        ご担当者様」（共通の一言の録音＝phrases.SUCCESSOR の reception_purpose。名前の録音の台帳の部分は、はじめにお呼びする方の形＝replay_parts）・どれも無ければ「ご担当者様」。
+        ⛔ 2f61767d まで、役職だけの業務・後任の方は「ご担当者様にとって」（まとめ役の頼み rv174/K2 の (3) の形）"""
+        if self.successor:
+            return SUCCESSOR["reception_purpose"]
+        return NAME_FORMS["reception_purpose"].format(who=f"{self._name()}様" if self.name else role_honorific(self.role) if self.role else RECEPTION_WHO)
 
     def full_call(self) -> str:
         """お名前だけではどの方か分からないと言われた・どなたをお呼びかを聞かれたときにお呼びし直す一言（まだお伝えしていない部署とフルネームの、
@@ -676,6 +681,11 @@ class Business:
                 parts.update({k: t.acquire_line(k) for k in ("acquire_glad", *WHO_LINES)})
                 if t.kind == "法人":
                     parts["reception_purpose"] = t.reception_purpose()
+                if t.kind == "法人" and t.name and t.role:
+                    # 役職の方へ切り替えたあとの受付の方への一文（役職の方の名乗りの部分 phrases.ROLE_PARTS の reception_purpose_role＝名前の録音の台帳の役職の呼び方＋今ある
+                    # 続く言葉。流すのは flowctl.Flow._role_parts で切り替えたあと）。分身 P の (10)
+                    from phrases import ROLE_PARTS
+                    parts[ROLE_PARTS["reception_purpose"]] = Target(kind="法人", role=t.role).reception_purpose()
         if self.voicemail_message:
             parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
         if self.message or self.target is not None:
