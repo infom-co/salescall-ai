@@ -8,6 +8,7 @@
   <span class="btn-row">
   <form class="search-inline" method="get" action="/c/{{ client.client_id }}/search"><input type="search" name="q" placeholder="お客様を探す（会社名・管理番号・電話番号）" aria-label="お客様を探す"></form>
   {% if not business %}<a class="btn" href="/c/{{ client.client_id }}/dnc">発信禁止</a>{% endif %}
+  <a class="btn" href="/c/{{ client.client_id }}/destinations{{ '#b-' ~ business.business_id if business else '' }}">結果の送り先</a>
   <a class="btn" href="{{ '/c/' ~ client.client_id ~ ('/b/' ~ business.business_id if business else '') ~ '/settings' }}">{{ "この業務の設定" if business else "この依頼者の設定" }}</a></span></div>
 <p class="lead">{% if business %}依頼者「{{ client.name }}」の業務です。今日の動きと、実施回ごとのお客様リストです。{% else %}すべての業務を合わせた、今日の動きと実施回です。業務ごとに見るときは、上の業務のタブを選んでください。{% endif %}</p>
 {{ flash(done, ok) }}

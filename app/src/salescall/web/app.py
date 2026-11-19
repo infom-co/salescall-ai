@@ -32,12 +32,13 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException
 
 from salescall.core import access as access_layer
-from salescall.core import (agents, calling_hours, conversation_io, customer_contacts, customer_rows, dnc, dnc_import, exclusions, gate,
-                            health, health_rules, import_files, importer, phone, quality_stage, recordings, registry, results,
+from salescall.core import (agents, calling_hours, conversation_io, customer_contacts, customer_rows, destinations, dnc, dnc_import, exclusions,
+                            gate, health, health_rules, import_files, importer, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
 from salescall.core import once, people
 from salescall.core.access import Access
+from salescall.output import destinations as result_destinations
 from salescall.output import files as result_files
 from salescall.output import notices, result_rows, words
 from salescall.web import actions, context, counts, importing, inbox, links, rowfix, setting_forms, uploads, watch
@@ -1203,6 +1204,51 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), reason_field="reason",
                               done="報酬の決まりを足しました（前の決まりは残ります）。")
             return _back(back, out)
+        return handle(request, render)
+
+    # ── 結果の送り先（依頼者ごと。docs/DESIGN.md 4-5・docs/DASHBOARD.md 5-10。送り先を作る・直すのは output/destinations の1か所。
+    #    どの業務の結果をどこへ渡すかを決めるのは core の destinations.for_business、選ぶのは destinations.choose の1か所＝CL-2 4-435）
+    @app.get("/c/{client_id}/destinations")
+    def destinations_page(request: Request, client_id: UUID, done: str | None = None, ok: int = 1) -> HTMLResponse:
+        """依頼者の送り先の一覧・作る・直す、業務ごとに渡す送り先を選ぶ。"""
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def read(tx: Any) -> dict[str, Any]:
+                every = result_destinations.of_client(tx)
+                per = [dict(b, sends={d["destination_id"] for d in destinations.for_business(tx, b["business_id"])})
+                       for b in context.businesses(tx)]
+                return {"client": tx.one("SELECT client_id, name FROM salescall.clients WHERE client_id = %s", (client_id,)),
+                        "dests": every, "per_business": per}
+            return page(request, "destinations.html", person, ctx, methods=result_destinations.METHODS, done=done, ok=bool(ok),
+                        **ctx.client(client_id, read, read_only=True))
+        return handle(request, render)
+
+    @app.post("/c/{client_id}/destinations")
+    async def destinations_change(request: Request, client_id: UUID) -> HTMLResponse:
+        """送り先の操作の1か所（form の op で分ける）：create・update は output/destinations、business は core の destinations.choose。"""
+        raw = await request.form()
+        form = dict(raw)
+        picked = {UUID(v) for v in raw.getlist("destination_id") if _is_uuid(v)}
+        def render(person: Person, ctx: Ctx) -> HTMLResponse:
+            def do(tx: Any) -> Any:
+                op = str(form.get("op") or "")
+                auto = form.get("auto_writeback") == "1"
+                if op == "create":
+                    return result_destinations.create(tx, str(form.get("name") or ""), str(form.get("method") or ""), auto)
+                if op == "update":
+                    return result_destinations.update(tx, actions.uuid_of(form, "id"), str(form.get("name") or ""), auto)
+                if op == "business":
+                    bid = actions.uuid_of(form, "business_id")
+                    context.business(tx, bid)
+                    every = {d["destination_id"] for d in result_destinations.of_client(tx)}
+                    if not picked & every:
+                        # 1つも選ばないと、core の決まりでは「依頼者のすべての送り先へ」に戻る（for_business）。画面の見た目と逆になるので受けない
+                        raise actions.Refused("渡す送り先を1つ以上選んでください")
+                    for d in every:
+                        destinations.choose(tx, bid, d, d in picked)
+                    return None
+                raise NotFound()
+            out = actions.act(secret, person.login_id, form, lambda: ctx.client(client_id, do), done="送り先を変えました。")
+            return _back(f"/c/{client_id}/destinations", out)
         return handle(request, render)
 
     @app.get("/c/{client_id}/b/{business_id}/versions/{version_id}")

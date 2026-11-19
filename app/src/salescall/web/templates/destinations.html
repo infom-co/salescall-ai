@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "parts.html" import tag, empty, flash, csrf %}
+{% set active = "client" %}
+{% block title %}結果の送り先{% endblock %}
+{% block crumb %}結果の送り先{% endblock %}
+{% block main %}
+<h1>結果の送り先</h1>
+<p class="lead">確定した結果を、依頼者「{{ client.name }}」の仕組みへ直接書き戻す先です。送り先が無い業務の結果は、ファイル（Excel・CSV）で渡します。</p>
+{{ flash(done, ok) }}
+{# 送り先を作る・直すのは output/destinations の1か所。業務がどこへ渡すかを決めるのは core の destinations.for_business の1か所（画面で決め直さない） #}
+<section class="card">
+  <h2>送り先</h2>
+  {% if dests %}
+  <ul class="dest-list">{% for d in dests %}
+    <li>
+      <div class="title-row"><b>{{ d.name }}</b>
+        <span class="btn-row">{{ tag(d.method_label, "" if d.sendable else "wait") }}
+          {% if d.auto_writeback %}{{ tag("確定するたびに自動で書き戻す", "info") }}{% elif d.upsert_capable %}{{ tag("自動では書き戻さない", "") }}{% endif %}</span></div>
+      {% if not d.sendable %}<p class="muted">この送り方で送る部品がまだ無いため、いまは何も送りません（結果はファイルで渡してください）。</p>{% endif %}
+      <details class="adder-block"><summary class="btn small">直す</summary>
+        <form method="post" action="/c/{{ client.client_id }}/destinations" class="stack">{{ csrf(token) }}
+          <input type="hidden" name="op" value="update"><input type="hidden" name="id" value="{{ d.destination_id }}">
+          <label class="field" for="dn-{{ loop.index }}">名前</label>
+          <input id="dn-{{ loop.index }}" type="text" name="name" value="{{ d.name }}" required maxlength="60">
+          {% if d.upsert_capable %}<label class="choice"><input type="checkbox" name="auto_writeback" value="1" {% if d.auto_writeback %}checked{% endif %}> 結果が確定するたびに、自動で書き戻す</label>{% endif %}
+          <button class="btn main small" type="submit">直す</button>
+        </form></details>
+    </li>{% endfor %}</ul>
+  {% else %}{{ empty("送り先はまだありません", "いまは、結果をファイル（Excel・CSV）で渡します。") }}{% endif %}
+</section>
+
+<section class="card" style="margin-top:12px">
+  <h2>送り先を足す</h2>
+  {% if methods %}
+  <form method="post" action="/c/{{ client.client_id }}/destinations" class="stack">{{ csrf(token) }}<input type="hidden" name="op" value="create">
+    <label class="field" for="nd-name">名前（例：依頼者の顧客台帳）</label>
+    <input id="nd-name" type="text" name="name" required maxlength="60">
+    <label class="field" for="nd-method">送り方</label>
+    <select id="nd-method" name="method">{% for k, m in methods.items() %}<option value="{{ k }}" data-upsert="{{ 1 if m.upsert_capable else 0 }}">{{ m.label }}</option>{% endfor %}</select>
+    {% if methods.values()|selectattr("upsert_capable")|list %}<label class="choice auto-choice"><input type="checkbox" name="auto_writeback" value="1"> 結果が確定するたびに、自動で書き戻す（同じお客様の結果は上書きで1件のまま）</label>{% endif %}
+    <p class="muted">送り方は、あとから変えられません（変えるときは新しい送り先を足します）。</p>
+    <button class="btn main small" type="submit">足す</button>
+  </form>
+  {% else %}
+  <p class="muted">依頼者の仕組みへ直接書き戻す部品は、その仕組みを使う依頼者が決まったときに用意します。それまでは、結果をファイル（Excel・CSV）で渡します。</p>
+  {% endif %}
+</section>
+
+{% if dests %}
+<h2 style="margin-top:24px">業務ごとの送り先</h2>
+<p class="muted">業務ごとに、どの送り先へ渡すかを選べます。新しく足した送り先は、送り先を選んでいない業務にだけ自動で加わります。</p>
+{% for b in per_business %}
+<section class="card" id="b-{{ b.business_id }}" style="margin-top:12px">
+  <h3 style="margin:0 0 8px">{{ b.name }}</h3>
+  <form method="post" action="/c/{{ client.client_id }}/destinations">{{ csrf(token) }}<input type="hidden" name="op" value="business"><input type="hidden" name="business_id" value="{{ b.business_id }}">
+    <div class="check-grid">{% for d in dests %}<label class="choice"><input type="checkbox" name="destination_id" value="{{ d.destination_id }}" {% if d.destination_id in b.sends %}checked{% endif %}> {{ d.name }}</label>{% endfor %}</div>
+    <button class="btn small main" type="submit" style="margin-top:8px">この業務の送り先を決める</button>
+  </form>
+</section>
+{% else %}<div class="card" style="margin-top:12px">{{ empty("業務はまだありません") }}</div>{% endfor %}
+{% endif %}
+{% endblock %}
