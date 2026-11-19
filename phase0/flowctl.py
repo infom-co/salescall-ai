@@ -3042,7 +3042,7 @@ def stops_connect(value) -> bool:
             or (says_new(value) and value != TARGET_IS_THERE))
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
-                 "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s", "ahead_offer", "ahead_closed", "form_reason",
+                 "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s", "hold_wait_kept", "ahead_offer", "ahead_closed", "form_reason",
                  "started_over", "silence_s", "silence_scene", "hurried", "unheard", "transfer"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
@@ -5294,6 +5294,9 @@ class Flow:
         self.holding = False
         # いま待っている上限の秒（_wait_limit が決め、待ちきったら通話の事実 hold_timeout の waited_s に残す。お客様が話したら None＝待ちきったかの印＝on_hold_timeout）
         self.hold_wait: int | None = None
+        # お呼びする段で、こちらが何も言わずに待ち始めた返事からの待つ上限の数え（{"s": 上限の秒, "speaker": その電話口の方＝speaker_from}。None＝数えていない）。
+        # そのあとの、こちらが何も言わずに待つ返事が続く間は数え直さない（返事に印 hold_wait_kept）。書く・読むのは待つ上限を付ける _silence_watch の1か所
+        self.wait_kept: dict | None = None
         self.nudged_turn = -1            # 報告を促す知らせを出した相手の発話の番号（unreported_note。1つの発話に1回まで）
         # こちらの不具合で電話を途中で終えた（_trouble の1か所）：理由と根拠（None＝終えていない）。聞き返しを使い切っても聞き取れないまま「-」に
         # なった必須の質問のうち、答えを受け取らないまま続いているもの（答えを1つ受け取ったら空）。張り替えて相手の発話を送り直した、相手の発話の
@@ -5851,7 +5854,9 @@ class Flow:
         self.check, self.check_said = {}, {}
         self.check_for = self.current   # この発話の判定は、いまの質問について読む（judge_context と同じ時点）
         self.holding = False
-        self.hold_wait = None   # お客様が話した：待つ上限の見張りも終わり（電話接続側も数えるのをやめる。この発話への返事で決め直す＝_wait_limit）
+        # お客様が話した：待つ上限の見張りも終わり（電話接続側も待ちきったかの知らせをやめる。この発話への返事で決め直す＝_wait_limit。返事が数え直さない印
+        # hold_wait_kept を付けていれば、電話接続側は前に待ち始めた返事からの数えのまま＝_silence_watch）
+        self.hold_wait = None
         self.silence = None   # お客様が話した：黙ったときの場面は終わり（この発話への返事で決め直す＝_silence_watch）
 
     def _judged_now(self) -> dict[str, str]:
@@ -10931,8 +10936,22 @@ class Flow:
         # お呼びする段も同じ（名乗り・呼ぶ一言・確かめる一言・お呼びし直す一言・聞かれたことへの答えを流して、電話口の方の次の言葉を待つ返事）。受付の方と読んで
         # 待つ返事は、取り次ぎ・保留と同じ待つ返事の1か所（_hold）が上限の秒を付ける。待ちきったら保留と同じ締め（on_hold_timeout＝繋がらなかった理由は取り次いで
         # いただけなかった＝not_reached）。⛔ 4e94ba37 まで、お呼びする段には上限が無く、呼ぶ一言のあと黙られると無言が続いた（rv87/E の穴 (a)）
+        # お呼びする段で、こちらが何も言わずに待つ返事（呼ぶ一言・お取り次ぎのお願いを使い切ったあとの _call_target・聞き返しを使い切った _calling_unheard など）が同じ
+        # 電話口の方に続く間は、何も言わずに待ち始めた返事からの数えのまま（同じ上限の秒に、数え直さない印 hold_wait_kept＝電話接続側は待ち始めた返事からの数えを続け、
+        # もう過ぎていればすぐ on_hold_timeout）。こちらが声を出して応じた返事（待つ言葉への「はい、」・不在の伺い・確かめる一言）・保留・締め・取り次がれて代わった方
+        # （speaker_from が進んだ）からは今までどおり数え直す。答えの段の数え方（待ち始めた返事から数え、黙ったときの一言・伺いでは数え直さない＝上の quiet）と同じ
+        # 理由・同じ1か所。11-04 日本時間4時54分「会話の側の待つ所すべてに上限」・10-14「止まらない」・伺い51 イ（また別の方と言われたら黙って待つ上限で締める）。
+        # ⛔ 8d108878 まで、こちらが応じないお言葉のたびに上限が数え直され、別の方だと言い続けられる限り締まらなかった（rv110/R/notes.md の 4. の (3)）
+        mute = (self.phase == "calling" and not talked and bool(reply.get("silent")) and reply.get("result") not in ("rejected", "wait", "hold", "end"))
         if limit and "hold_wait_s" not in reply:
-            reply["hold_wait_s"] = self._wait_limit(self.callee_said if self._wait_now() is not None else None)
+            if mute and (k := self.wait_kept) is not None and k["speaker"] == self.speaker_from:
+                self.hold_wait = reply["hold_wait_s"] = k["s"]
+                reply["hold_wait_kept"] = True
+            else:
+                reply["hold_wait_s"] = self._wait_limit(self.callee_said if self._wait_now() is not None else None)
+                self.wait_kept = {"s": reply["hold_wait_s"], "speaker": self.speaker_from} if mute else None
+        elif talked or reply.get("result") in ("hold", "end") or self.phase == "closing" or "hold_wait_s" in reply:
+            self.wait_kept = None
 
     def _party(self, party: str, by: str) -> dict:
         """相手の種別が分かったときの扱いの唯一の場所（AIの報告 report_party と、音・回線の信号 on_signal の両方）。by＝どちらで分かったか。"""

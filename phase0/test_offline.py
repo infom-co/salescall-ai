@@ -36832,3 +36832,94 @@ class CallingUnheardEndTest(unittest.TestCase):
         f.apply("report_unclear", {"question_id": "T1"})
         self.assertNotEqual(f.phase, "calling")
         self.assertIsNone(f.trouble)
+
+
+class CallingSilentWaitLimitTest(unittest.TestCase):
+    """お呼びする段で、こちらが何も言わずに待つ返事（呼ぶ一言・お取り次ぎのお願いを使い切ったあとの _call_target・聞き返しを使い切った _calling_unheard の3回目など）が
+    続くときの待つ上限（まとめ役の決め＝決まりで決める。8d108878 の書き置き rv110/R/notes.md の 4. の (3)）：同じ電話口の方に、こちらが何も言わずに待ち始めた返事から
+    数え、そのあとの、こちらが何も言わずに待つ返事が続く間は数え直さない（返事は同じ上限の秒に「数え直さない」印 hold_wait_kept を付ける＝電話接続側は待ち始めた返事
+    からの数えのまま。もう過ぎていればすぐ on_hold_timeout）。こちらが声を出して応じた返事・取り次がれて代わった方からは今までどおり数え直す。決まり：11-04 日本時間
+    4時54分「会話の側の待つ所すべてに上限」・10-14「止まらない」・伺い51 イのお返事の受け方「また別の方と言われたら黙って待つ上限で締める」・答えの段の待つ上限の数え方
+    （f9b62dfb＝上限は待ち始めた返事から数え、黙ったときの一言・伺いを流しても数え直さない＝秒は Flow._wait_limit・付けるのは Flow._silence_watch の1か所）。
+    ⛔ 8d108878 まで、こちらが応じないお言葉のたびに上限が数え直され、別の方だと言い続けられる限り締まらなかった"""
+    FIXED, MOBILE = CallingTransferAskTest.FIXED, CallingTransferAskTest.MOBILE
+    say = staticmethod(CallingConfirmAskBackTest.say)
+    heard = staticmethod(CallingUnheardAskBackTest.heard)
+    unheard = staticmethod(CallingUnheardAskBackTest.unheard)
+
+    def opened(self, phone=FIXED, target="named"):
+        return CallingUnheardAskBackTest.opened(self, CallingUnheardAskBackTest.business(phone, target))
+
+    def kept(self, r):
+        return (self.heard(r), r.get("hold_wait_s"), bool(r.get("hold_wait_kept")))
+
+    def test_1_other_person_again_and_again_after_the_transfer_ask(self):
+        from phrases import HOLD_TIMEOUT
+        f = self.opened()
+        CallingTransferAskTest.used_up(self, f)
+        r = self.say(f, "ですから、山田ですが。", {"judge": "同別xx"})   # お取り次ぎのお願い（声を出して応じた＝ここから数える）
+        self.assertEqual((r.get("hold_wait_s"), bool(r.get("hold_wait_kept"))), (f.hold_wait_s, False))
+        r = self.say(f, "いえ、ですから山田ですが。", {"judge": "同別xx"})   # 何も言わずに待ち始めた返事＝ここから数える
+        self.assertEqual(self.kept(r), ("", f.hold_wait_s, False))
+        for words in ("山田ですって。", "ですから、違いますよ。", "山田ですけど。"):
+            r = self.say(f, words, {"judge": "同別xx"})   # 何も言わずに待つ返事が続く＝数え直さない
+            self.assertEqual(self.kept(r), ("", f.hold_wait_s, True), words)
+            self.assertEqual(f.hold_wait, f.hold_wait_s, words)
+        end = f.on_hold_timeout()   # 電話接続側：待ち始めた返事から上限が過ぎた
+        self.assertIn(HOLD_TIMEOUT, self.heard(end))
+        self.assertEqual((f.end_reason, f.not_reached), ("hold_timeout", "not_transferred"))
+
+    def test_2_mobile_number_and_role_only(self):
+        for phone, target in ((self.MOBILE, "named"), (self.FIXED, "role"), (self.MOBILE, "role")):
+            f = self.opened(phone, target)
+            r = self.say(f, "いいえ、私は山田と申します。", {"judge": "同別xx"})
+            self.assertEqual(r["result"], "call_target", (phone, target))
+            r = self.say(f, "ですから、山田ですが。", {"judge": "同別xx"})
+            if phone == self.FIXED:   # 固定電話の番号はお取り次ぎのお願い（声を出す）
+                self.assertTrue(self.heard(r), target)
+                r = self.say(f, "いえ、ですから山田ですが。", {"judge": "同別xx"})
+            self.assertEqual(self.kept(r), ("", f.hold_wait_s, False), (phone, target))
+            r = self.say(f, "山田ですって。", {"judge": "同別xx"})
+            self.assertEqual(self.kept(r), ("", f.hold_wait_s, True), (phone, target))
+
+    def test_3_unheard_third_wait_then_other_person(self):
+        # 聞き返しを使い切って何も言わずに待った（3回目）あと、聞き取れたお言葉にもこちらが何も言わずに待つなら、同じ数えのまま
+        f = self.opened()
+        CallingTransferAskTest.used_up(self, f)
+        self.say(f, "ですから、山田ですが。", {"judge": "同別xx"})   # お取り次ぎのお願い
+        self.assertEqual(self.unheard(f)["result"], "ask_back")
+        self.assertEqual(self.unheard(f)["result"], "ask_back")
+        r = self.unheard(f)   # 3回目：何も言わずに待ち始めた
+        self.assertEqual(self.kept(r), ("", f.hold_wait_s, False))
+        r = self.say(f, "いえ、ですから山田ですが。", {"judge": "同別xx"})
+        self.assertEqual(self.kept(r), ("", f.hold_wait_s, True))
+
+    def test_4_a_voiced_reply_counts_again(self):
+        # こちらが声を出して応じた返事（待つ言葉への「はい、」・不在の伺い）からは今までどおり数え直す。そのあとまた何も言わずに待てば、そこから新しく数える
+        for words, code in (("はい、少々お待ちください。", "同受待x"), ("ああ、岡田ですか。岡田は本日外出しております。", "同受x在")):
+            f = self.opened()
+            CallingTransferAskTest.used_up(self, f)
+            self.say(f, "ですから、山田ですが。", {"judge": "同別xx"})
+            r = self.say(f, "いえ、ですから山田ですが。", {"judge": "同別xx"})
+            self.assertEqual(self.kept(r), ("", f.hold_wait_s, False), words)
+            r = self.say(f, words, {"judge": code})
+            self.assertTrue(self.heard(r), words)
+            self.assertFalse(r.get("hold_wait_kept"), words)
+        # 聞き取れたお言葉に確かめる一言（声）で応じた：その後の何も言わずに待つ返事は、新しく数え始める
+        f = self.opened()
+        self.unheard(f); self.unheard(f)
+        r = self.unheard(f)
+        self.assertEqual(self.kept(r), ("", f.hold_wait_s, False))
+        r = CallingHeardQuestionTest.say(f, "はい。", "同不xx")
+        self.assertEqual((r["result"], bool(r.get("hold_wait_kept"))), ("confirm_target", False))
+        r = self.unheard(f)
+        self.assertEqual(self.kept(r), ("", f.hold_wait_s, False))
+
+    def test_5_the_answer_stage_is_as_before(self):
+        # 答えの段は今のまま（お客様が話したら上限は止まり、その言葉への返事で決め直す）。数え直さない印は付かない
+        f = self.opened()
+        r = self.say(f, "はい、岡田です。", {"judge": "同本xx"})
+        self.assertEqual(f.phase, "asking")
+        f.on_callee(); f.on_heard("えーと")
+        self.assertIsNone(f.on_hold_timeout())
+        self.assertFalse(r.get("hold_wait_kept"))
