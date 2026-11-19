@@ -299,7 +299,7 @@ SETTING_GROUPS: dict[str, str] = {
     "call": "通話の進め方", "callee": "お客様の扱い", "conversation": "会話", "line": "回線", "dial": "発信", "pc": "PC",
     "stop": "止める・解く", "quality": "品質の段（検証モード）", "verification": "通話のあとの確かめ", "judge": "判定",
     "decision": "取り消せない決定", "approval": "承認", "recording": "録音", "budget": "費用と予算", "backup": "控え",
-    "measure": "測り", "dnc": "発信禁止", "ai": "AI", "business": "業務",
+    "measure": "測り", "dnc": "発信禁止", "ai": "AI", "business": "業務", "notify": "知らせ", "login": "ログイン",
 }
 SCOPE_WORDS: dict[str, str] = {"system": "初めの値（システム）", "tenant": "契約者の値", "client": "依頼者の値", "business": "業務の値",
                                "merged": "組み合わせた値"}
@@ -363,14 +363,23 @@ SETTING_VALUE_WORDS: dict[str, str] = {"never": "かけない", "next_day": "そ
 _SETTING_KEY = re.compile(r"(?<![A-Za-z0-9_])([a-z]+)\.[a-z0-9_]+(?:\.[a-z0-9_]+)*(?![A-Za-z0-9_])")   # 漢字の隣でも当てる（\b は漢字を語の一部と見る）
 
 
-def _choices(key: str) -> dict[str, str]:
-    if key in ai_plans._SETTING.values():   # 契約プランの設定（どれがプランの設定かは ai_plans の1か所）
+# 会話AI・業務を取り込む AI の枠の言葉（枠の名前の正本は core の ai_plans.TIERS。枠の設定の名前は ai_plans の1か所＝ここに書かない。
+# ⏳ 枠の設定の名前を外から読める名前にしてもらう＝CL-2 へのお願い 55。それまでは、選び肢が枠の名前のそろいと同じ設定を、枠の設定として読む）
+TIER_WORDS: dict[str, str] = {"free": "無料枠", "paid": "有料枠（おすすめ）"}
+
+
+def _choices(key: str, choices: Any = None) -> dict[str, str]:
+    if key in ai_plans.PLAN_SETTINGS.values():   # 契約プランの設定（どれがプランの設定かは ai_plans の1か所）
         return PLAN_WORDS
-    return SETTING_CHOICE_WORDS.get(key, {})
+    if key in SETTING_CHOICE_WORDS:
+        return SETTING_CHOICE_WORDS[key]
+    if choices is not None and set(choices) == set(ai_plans.TIERS):
+        return TIER_WORDS
+    return {}
 
 
-def setting_choice(key: str, value: str) -> str:
-    return _choices(key).get(value, NO_WORD)
+def setting_choice(key: str, value: str, choices: Any = None) -> str:
+    return _choices(key, choices).get(value, NO_WORD)
 
 
 def screen_meaning(key: str, text: str) -> str:

@@ -113,6 +113,18 @@ def _phone(form: Any, p: str, d: Any) -> str | None:
     return n.e164
 
 
+def _room(form: Any, p: str, d: Any) -> str | None:
+    """チャットワークの部屋の番号（数字だけ。データベースの値の形 chatwork_room と同じ決まり）。消すのは「部屋を消す」を選んだときだけ。"""
+    s = re.sub(r"\s", "", str(form.get(f"{p}v") or ""))
+    if form.get(f"{p}clear"):
+        if s:
+            raise Refused("部屋を消すときは、部屋の番号の欄を空にしてください")
+        return None
+    if not re.fullmatch(r"[0-9]{1,20}", s):
+        raise Refused("チャットワークの部屋の番号（数字だけ）を入れてください（消すときは「部屋を消す」を選んでください）")
+    return s
+
+
 def _last4(v: Any) -> str:
     """契約者・管理者の電話番号は、画面では下4桁だけ（個人情報。docs/DASHBOARD.md 5-12）。"""
     digits = re.sub(r"\D", "", str(v))
@@ -146,6 +158,7 @@ FORMS: dict[str, Form] = {
     "limit": Form("limit", lambda v: "上限なし" if v is None else f"{v}", _limit),
     "phone": Form("phone", lambda v: "まだありません" if v is None else _last4(v), _phone),
     "choice": Form("choice", lambda v: str(v), _choice),
+    "chatwork_room": Form("room", lambda v: "まだありません" if v is None else "登録済みの部屋", _room),
 }
 
 

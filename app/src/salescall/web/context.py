@@ -25,15 +25,19 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class Person:
-    """ログインした管理者か契約者。どちらかの見分けは、データベースが最後に守る（画面は、出すボタンを決めるためだけに使う）。"""
+    """ログインした管理者か契約者。どちらかの見分けは、データベースが最後に守る（画面は、出すボタンを決めるためだけに使う）。
+    name・person_id＝ログインの表（core の people）の、記録に残る名前とログインの番号。取引は、このログインで開く（データベースが範囲を
+    確かめる＝salescall.check_scope。CL-2 4-433）。ログインを確かめるのは web/login の1か所。"""
     login_id: str
     is_admin: bool
     tenant_id: UUID
     tenant_name: str
+    name: str = ""
+    person_id: UUID | None = None
 
     @property
     def actor(self) -> Actor:
-        return Actor(self.login_id, "admin" if self.is_admin else "operator")
+        return Actor(self.name or self.login_id, "admin" if self.is_admin else "operator", self.person_id)
 
 
 # ログインを確かめる関数：要求を受け取り、ログインした人（無ければ None）を返す。
@@ -117,6 +121,13 @@ def _once(open_tx: Callable[[Callable[[Tx], T]], T], work: Callable[[Tx], T]) ->
     out = open_tx(guarded)
     actions.spent_once()
     return out
+
+
+def tenant_name(access: Access, actor: Actor, tenant_id: UUID) -> str:
+    """契約者の名前（ログインを確かめたとき、上の帯に出す。取引を開くのは、この場所の1か所＝web/login は呼ぶだけ）。"""
+    row = access.in_tenant(actor, tenant_id, lambda tx: tx.one("SELECT name FROM salescall.tenants WHERE tenant_id = %s", (tenant_id,)),
+                           read_only=True)
+    return row["name"] if row else ""
 
 
 def acting(access: Access, person: Person, chosen: UUID | None) -> Ctx:

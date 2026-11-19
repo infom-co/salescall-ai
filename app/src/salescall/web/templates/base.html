@@ -17,7 +17,8 @@
   <span class="spacer"></span>
   <div class="badges" hx-get="/t/badges" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
   <button class="btn small danger" type="button" data-open="emergency-dialog">緊急停止</button>
-  <span class="who">{{ person.login_id }}{% if person.is_admin %}（管理者）{% endif %}</span>
+  <span class="who">{{ person.name or person.login_id }}{% if person.is_admin %}（管理者）{% endif %}</span>
+  <form method="post" action="/logout" class="logout"><input type="hidden" name="{{ token_field }}" value="{{ token }}"><button class="btn small" type="submit">ログアウト</button></form>
 </header>
 <dialog id="emergency-dialog" aria-labelledby="emergency-title">
   <form method="post" action="/t/emergency">

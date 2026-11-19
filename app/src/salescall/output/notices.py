@@ -63,7 +63,17 @@ def text_for(kind: str, summary: str) -> str:
     return body[:SMS_LIMIT - len(TAIL)] + TAIL
 
 
-def next_step(history: Sequence[tuple[str, str]], ready: Sequence[str], max_tries: int) -> Step | None:
+Tries = int | Mapping[str, int]   # 送り方ごとの回数（設定 notify.max_tries_sms・notify.max_tries_chatwork）。1つの数なら、どの送り方も同じ
+
+
+def _tries(max_tries: Tries, channel: str) -> int:
+    n = max_tries.get(channel, 1) if isinstance(max_tries, Mapping) else max_tries
+    if n < 1:
+        raise ValueError("回数は1以上")
+    return n
+
+
+def next_step(history: Sequence[tuple[str, str]], ready: Sequence[str], max_tries: Tries) -> Step | None:
     """次の一手（1か所）。history＝これまでの記録 [(送り方, 状態)]、ready＝いま使える送り方、max_tries＝送り方ごとの回数。
 
     - どれかで sent なら、もう何もしない（1回届けば終わり）。
@@ -72,12 +82,10 @@ def next_step(history: Sequence[tuple[str, str]], ready: Sequence[str], max_trie
     - 使える送り方がすべて回数を使い切ったら、まだ gave_up を書いていない送り方に gave_up を書く。全部書いたら、何もしない。"""
     if any(status == "sent" for _, status in history):
         return None
-    if max_tries < 1:
-        raise ValueError("回数は1以上")
     failed = {ch: sum(1 for c, st in history if c == ch and st == "failed") for ch in ORDER}
     gave_up = {ch for ch, st in history if st == "gave_up"}
     usable = [ch for ch in ORDER if ch in ready and ch not in gave_up]
-    trying = [ch for ch in usable if failed[ch] < max_tries]
+    trying = [ch for ch in usable if failed[ch] < _tries(max_tries, ch)]
     if trying:
         ch = min(trying, key=lambda c: (failed[c], ORDER.index(c)))
         return Step(ch, "send", _attempt_no(history, ch))
@@ -105,7 +113,7 @@ def delivery_state(statuses: Sequence[str]) -> str:
 # (3) 電話の中で起きた問題 (4) 仕組み・機械の不具合 (5) お金 は、送ってよい時間ならすぐ。外（夜中・休みの日）に起きた分は、次に時間が開いたときに
 # 1通にまとめて送る (6) そのほかの報告は、毎朝（その日の最初に時間が開いたとき）の1通にまとめる。ダッシュボードの「知らせ」には、どれも起きたときに
 # すぐ出す（画面に出すのは送信ではない＝台帳をそのまま読む）。送ってよい時間は契約者ごとの設定 `SEND_HOURS`（曜日ごと・祝日ごとの時間の幅＝
-# かける時間帯と同じ形。休みの日もこれで表す。⏳ 設定の定義は CL-2 へのお願い 52。無い間は、どれもすぐ送る＝知らせを止めて取りこぼさない側）。
+# かける時間帯と同じ形。休みの日もこれで表す。全体の値は毎日 8〜22時＝✅ 2026-11-19 管理者。CL-2 4-442）。
 NOW, DAYTIME, MORNING = "now", "daytime", "morning"
 TIMING: dict[str, str] = {
     # (1) 停止・再開
@@ -126,7 +134,7 @@ TIMING: dict[str, str] = {
     # (6) そのほかの報告
     "quality_stage": MORNING, "answer_rate_drop": MORNING, "sample_ready": MORNING, "ai_newer_version": MORNING, "apology": MORNING,
 }
-SEND_HOURS = "notice.send_hours"   # 知らせを送ってよい時間（契約者ごと。値の形は calling.hours と同じ weekly_hours）
+SEND_HOURS = "notify.send_hours"   # 知らせを送ってよい時間（契約者ごと。値の形は calling.hours と同じ weekly_hours。全体の値は毎日 8〜22時）
 
 
 @dataclass(frozen=True)
@@ -167,10 +175,7 @@ def schedule(tx: Tx, tenant_id: Any | None) -> Callable[[dict[str, Any]], SendTi
     送ってよい時間は、契約者あて＝その契約者の値・管理者あて（tenant_id＝None）＝システムの値。祝日の暦が無い年は、曜日で決める
     （暦が無いことで知らせを止めない。暦が無いことは別の知らせ calendar_next_year_missing が伝える）。"""
     from salescall.core import calendar, settings
-    try:
-        hours = settings.resolve(tx, SEND_HOURS, tenant_id=tenant_id, client_id=None, business_id=None)
-    except settings.SettingMissing:   # ⏳ 設定の定義がまだ無い（CL-2 へのお願い 52）＝すぐ送る
-        hours = None
+    hours = settings.resolve(tx, SEND_HOURS, tenant_id=tenant_id, client_id=None, business_id=None)   # 定義も全体の値も必ずある（CL-2 4-442）
     check = calendar.holiday_checker(tx)
 
     def is_holiday(d: date) -> bool:
@@ -206,7 +211,7 @@ def _record(tx: Tx, event_id: int, step: Step, status: str, error: str | None) -
 
 
 def deliver_event(access: Access, actor: Actor, tenant_id: Any | None, event_id: int,
-                  transports: Mapping[str, Transport], max_tries: int) -> str:
+                  transports: Mapping[str, Transport], max_tries: Tries) -> str:
     """出来事を1つ送る（1回の一手だけ。呼ぶ側が、送り終わるまで繰り返す）。答え：sent／failed／gave_up／done（もう済み）／bundled（まとめて
     送る知らせ＝`deliver_bundle` が送る）。
     契約者あて（tenant_id あり）は契約者の取引で、管理者あて（for_admin。tenant_id＝None）は全体の取引で読み書きする（管理者あては
@@ -232,7 +237,7 @@ def deliver_event(access: Access, actor: Actor, tenant_id: Any | None, event_id:
             return "bundled"
         if step.action == "give_up":
             in_tx(lambda tx: _record(
-                tx, event_id, step, "gave_up", f"{max_tries}回送っても届きませんでした"))
+                tx, event_id, step, "gave_up", f"{_tries(max_tries, step.channel)}回送っても届きませんでした"))
             return "gave_up"
         try:
             transports[step.channel].send(text_for(event["kind"], event["summary"]))   # 取引の外で1回だけ
@@ -244,7 +249,7 @@ def deliver_event(access: Access, actor: Actor, tenant_id: Any | None, event_id:
         return "sent"
 
 
-def deliver_bundle(access: Access, actor: Actor, tenant_id: Any | None, transports: Mapping[str, Transport], max_tries: int,
+def deliver_bundle(access: Access, actor: Actor, tenant_id: Any | None, transports: Mapping[str, Transport], max_tries: Tries,
                    *, days: int = 7) -> dict[str, int]:
     """まとめて送る知らせ（`send_time` の bundled）のうち、送る時刻が来たものを、1通にまとめて送る（1回の一手。呼ぶ側が決まった間隔で呼ぶ）。
     送る順・送り直し・回数・記録は1件ずつと同じ（知らせごとに `next_step`。同じ一手になった知らせを1通にまとめ、送れたら・送れなかったら、
@@ -274,7 +279,7 @@ def deliver_bundle(access: Access, actor: Actor, tenant_id: Any | None, transpor
         done: dict[str, int] = {}
         for (channel, action), items in in_tx(plan).items():
             if action == "give_up":
-                in_tx(lambda tx: [_record(tx, eid, st, "gave_up", f"{max_tries}回送っても届きませんでした") for eid, _, st in items])
+                in_tx(lambda tx: [_record(tx, eid, st, "gave_up", f"{_tries(max_tries, st.channel)}回送っても届きませんでした") for eid, _, st in items])
                 done["gave_up"] = done.get("gave_up", 0) + len(items)
                 continue
             try:
@@ -287,3 +292,96 @@ def deliver_bundle(access: Access, actor: Actor, tenant_id: Any | None, transpor
             in_tx(lambda tx: [_record(tx, eid, st, "sent", None) for eid, _, st in items])
             done["sent"] = done.get("sent", 0) + len(items)
         return done
+
+
+# ── 見守り役から呼ばれる入口（CL-2 4-434・4-442。supervisor/plugins.NoticeSender）────────────────────────────────
+# 見守り役は1分ごとに、契約者ごとに1回と、管理者あてに1回 `deliver(access, actor, tenant_id)` を呼ぶだけ。送り先と回数を設定から読む・
+# 送り方の部品を作る・まだ届いていない知らせを1件ずつ送る・送る時刻が来た、まとめる知らせを1通で送る、は、すべてこの部品の中の1か所。
+# サーバーの設定 SALESCALL_NOTICE_SENDER="salescall.output.notices:sender"。
+DESTINATIONS = {False: {"sms": "notify.sms_to", "chatwork": "notify.chatwork_room"},          # 契約者あて
+                True: {"sms": "notify.admin_sms_to", "chatwork": "notify.admin_chatwork_room"}}  # 管理者あて（契約者の値を受け継がない）
+TRIES = {"sms": "notify.max_tries_sms", "chatwork": "notify.max_tries_chatwork"}
+CHATWORK_TOKEN_ENV = "SALESCALL_CHATWORK_TOKEN"   # チャットワークの鍵（サーバーの秘密。値は設定にも記録にも入れない）
+CHATWORK_URL = "https://api.chatwork.com/v2/rooms/{room}/messages"
+
+
+class ChatworkTransport:
+    """チャットワークの部屋へ1回送る（鍵はサーバーの秘密から。送れなければ SendFailed＝理由に鍵・文を入れない）。"""
+
+    def __init__(self, room: str, token: str, timeout: float = 10.0) -> None:
+        self.room, self._token, self.timeout = room, token, timeout
+
+    def send(self, text: str) -> None:
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        req = urllib.request.Request(CHATWORK_URL.format(room=self.room), data=urllib.parse.urlencode({"body": text}).encode(),
+                                     headers={"X-ChatWorkToken": self._token}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:   # noqa: S310（決まった https の宛先だけ）
+                if r.status >= 300:
+                    raise SendFailed(f"チャットワークが受け付けませんでした（{r.status}）")
+        except urllib.error.HTTPError as e:
+            raise SendFailed(f"チャットワークが受け付けませんでした（{e.code}）") from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise SendFailed("チャットワークにつながりませんでした") from None
+
+
+def _sms_transport(number: str) -> Transport | None:
+    """Rakuten Link のショートメールを、契約者の PC の部品に頼んで送る部品。⏳ PC の部品への頼み方は、電話接続の担当と決めること（CL-2 4-434 の
+    12）。決まるまでは作らない（使える送り方に入れない＝チャットワークで送る）。"""
+    return None
+
+
+class Sender:
+    """見守り役から呼ばれる知らせの送る部品（supervisor/plugins.NoticeSender）。"""
+
+    def __init__(self, *, chatwork_token: str | None = None, sms: Callable[[str], Transport | None] = _sms_transport,
+                 days: int = 7) -> None:
+        import os
+        self.chatwork_token = chatwork_token if chatwork_token is not None else os.environ.get(CHATWORK_TOKEN_ENV)
+        self.sms, self.days = sms, days
+
+    def _plan(self, tx: Tx, tenant_id: Any | None) -> tuple[dict[str, Transport], dict[str, int], list[int]]:
+        from salescall.core import settings
+        admin = tenant_id is None
+
+        def read(key: str) -> Any:
+            return settings.resolve(tx, key, tenant_id=tenant_id, client_id=None, business_id=None)
+        where = DESTINATIONS[admin]
+        transports: dict[str, Transport] = {}
+        number, room = read(where["sms"]), read(where["chatwork"])
+        if number:
+            made = self.sms(number)
+            if made is not None:
+                transports["sms"] = made
+        if room and self.chatwork_token:
+            transports["chatwork"] = ChatworkTransport(str(room), self.chatwork_token)
+        tries = {ch: int(read(key)) for ch, key in TRIES.items()}
+        events = [r["event_id"] for r in tx.all(
+            "SELECT e.event_id FROM salescall.notification_events e WHERE e.for_admin = %s"
+            " AND e.occurred_at > now() - make_interval(days => %s)"
+            " AND NOT EXISTS (SELECT 1 FROM salescall.notification_deliveries d WHERE d.event_id = e.event_id AND d.status = 'sent')"
+            " ORDER BY e.urgent DESC, e.occurred_at, e.event_id", (admin, self.days))]
+        return transports, tries, events
+
+    def deliver(self, access: Access, actor: Actor, tenant_id: Any | None) -> dict[str, int]:
+        """1回の一手：まだ届いていない知らせを1件ずつ（まとめる知らせは除く）と、送る時刻が来た、まとめる知らせを1通で。答え：一手ごとの件数。
+        送り先が1つも無ければ、何も送らない（記録もしない＝送り先を入れたら送り始める。画面の「知らせ」には、どれも出ている）。"""
+        def in_tx(work: Any) -> Any:
+            return access.in_system(actor, work) if tenant_id is None else access.in_tenant(actor, tenant_id, work)
+        transports, tries, events = in_tx(lambda tx: self._plan(tx, tenant_id))
+        done: dict[str, int] = {}
+        if not transports:
+            return done
+        for eid in events:
+            got = deliver_event(access, actor, tenant_id, eid, transports, tries)
+            done[got] = done.get(got, 0) + 1
+        for k, n in deliver_bundle(access, actor, tenant_id, transports, tries, days=self.days).items():
+            done[f"bundle_{k}"] = n
+        return done
+
+
+def sender() -> Sender:
+    """見守り役の設定 SALESCALL_NOTICE_SENDER が指す、部品を返す関数（ほかの担当の部品と同じ作り方）。"""
+    return Sender()

@@ -36,11 +36,12 @@ from salescall.core import (agents, calling_hours, conversation_io, customer_con
                             health, health_rules, import_files, importer, measure, phone, quality_stage, recordings, registry, results,
                             reward, settings, stops, troubles, usage)
 from salescall.core import approval as approval_core
-from salescall.core import once
+from salescall.core import once, people
 from salescall.core.access import Access
 from salescall.output import files as result_files
 from salescall.output import notices, result_rows, words
 from salescall.web import actions, context, counts, importing, inbox, links, rowfix, setting_forms, uploads, watch
+from salescall.web import login as web_login
 from salescall.web.context import AdminOnly, Ctx, Identify, NotFound, Person, acting
 
 HERE = Path(__file__).resolve().parent
@@ -237,9 +238,43 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             resp.delete_cookie(ACTING_COOKIE)
         return resp
 
+    # ── ログイン（web/login の1か所。ログインの表・パスワード・印は core の people＝CL-2 4-433）──────────
+    login_limit = Limiter(10, 60.0)   # 同じ住所からのログインの試し（続けて誤ったときの止め方は、ログインごとに core が持つ）
+
+    def _login_page(request: Request, error: str = "", status: int = 200) -> HTMLResponse:
+        return templates.TemplateResponse(request, "login.html", {"error": error, "note": web_login.NOTE_2FA}, status_code=status)
+
     @app.get("/login")
-    def login(request: Request) -> HTMLResponse:
-        return templates.TemplateResponse(request, "login.html", {})
+    def login(request: Request) -> Response:
+        if identify(request) is not None:
+            return RedirectResponse("/t", status_code=303)
+        return _login_page(request)
+
+    @app.post("/login")
+    async def login_post(request: Request) -> Response:
+        if login_limit.hit(_address(request)):
+            return _login_page(request, "試す回数が多すぎます。1分ほど待ってから、もう一度入れてください。", 429)
+        form = dict(await request.form())
+        session = people.login(access, str(form.get("login_id") or "").strip(), str(form.get("password") or ""))
+        if session is None:
+            return _login_page(request, web_login.WRONG, 401)
+        resp = RedirectResponse("/t", status_code=303)
+        resp.set_cookie(web_login.COOKIE, session.token, httponly=True, samesite="strict", secure=secure_cookies)
+        return resp
+
+    @app.post("/logout")
+    async def logout(request: Request) -> Response:
+        form = dict(await request.form())
+        person = identify(request)
+        if person is not None and not actions.token_ok(secret, person.login_id, form.get(actions.TOKEN_FIELD)):
+            return problem(request, 404, "見つかりません", "住所を確かめてください。")
+        token = request.cookies.get(web_login.COOKIE)
+        if token:
+            people.logout(access, token)
+        resp = RedirectResponse("/login", status_code=303)
+        resp.delete_cookie(web_login.COOKIE)
+        resp.delete_cookie(ACTING_COOKIE)
+        return resp
 
     @app.get("/")
     def root() -> RedirectResponse:
@@ -467,7 +502,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                 got = settings.resolve_detail(tx, d["key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
             except settings.SettingMissing:
                 got = None
-            shown = (None if got is None else words.setting_choice(d["key"], got["value"]) if d["value_type"] == "choice"
+            shown = (None if got is None else words.setting_choice(d["key"], got["value"], d.get("choices")) if d["value_type"] == "choice"
                      else setting_forms.show(d["value_type"], got["value"]))
             rows.append({**d, "label": words.SETTING_LABELS.get(d["key"], words.NO_WORD), "meaning": words.screen_help(d["key"], d["meaning"]),
                          "got": got, "shown": shown,
@@ -795,7 +830,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
             fields = [f for f in dnc_import.FIELDS if client_id is not None or f == "phone"]   # 契約者の共通の台帳は番号だけ（core と同じ）
             values.setdefault("stage", stage)   # 行ごとの結果を出せなかったときは、列の段に戻す（extra が決める）
             return page(request, "dnc_import.html", person, ctx, active="dnc" if client_id is None else "client", key=key,
-                        fields=fields, encodings=[(e, import_files._NAMES.get(e, e)) for e in import_files.ENCODINGS], **values)
+                        fields=fields, encodings=[(e, import_files.ENCODING_NAMES.get(e, e)) for e in import_files.ENCODINGS], **values)
         return handle(request, render)
 
     def _dnc_base(client_id: UUID | None) -> str:
@@ -1205,7 +1240,7 @@ def create_app(access: Access, identify: Identify, secret: bytes, *, client_ip_h
                         "business": context.business(tx, business_id), "businesses": context.businesses(tx),
                         "run": _run_in(tx, business_id, run_id)}
             return page(request, name, person, ctx, field_words=words.IMPORT_FIELD_WORDS,
-                        encodings=[(e, import_files._NAMES.get(e, e)) for e in import_files.ENCODINGS],   # 名前の正本は import_files の組
+                        encodings=[(e, import_files.ENCODING_NAMES.get(e, e)) for e in import_files.ENCODINGS],   # 名前の正本は import_files の組
                         **values, **ctx.client(client_id, read, read_only=True))
         return handle(request, render)
 

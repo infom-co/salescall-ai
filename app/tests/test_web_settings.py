@@ -27,6 +27,7 @@ SAMPLES: dict[str, dict[str, str]] = {
     "weekly_hours": {"f_mon": "09:00-12:00, 13:00-18:00", "f_tue": "9:00〜18:00", "f_sun": "", "f_holiday": ""},
     "gap_or_never": {"f_unit": "days", "f_n": "3"}, "day_or_gap": {"f_unit": "next_day"}, "limit": {"f_none": "1"},
     "phone": {"f_v": "03-0000-0001"}, "choice": {"f_v": "あ"},
+    "chatwork_room": {"f_v": "123456"},
 }
 
 
@@ -99,7 +100,7 @@ class ScreenWords(unittest.TestCase):
         for r in rows:
             for c in r["choices"]:
                 with self.subTest(key=r["key"], choice=c):
-                    self.assertNotEqual(words.setting_choice(r["key"], c), words.NO_WORD)
+                    self.assertNotEqual(words.setting_choice(r["key"], c, r["choices"]), words.NO_WORD)
 
     def test_no_meaning_shows_an_internal_name_on_the_screen(self):
         rows = app_access().in_system(SYSTEM, lambda tx: tx.all("SELECT key, meaning FROM salescall.setting_definitions"))

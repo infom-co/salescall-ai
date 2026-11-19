@@ -121,6 +121,13 @@ class Delivery(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.s = World().setup()
+        from salescall.core import settings
+        anytime = {k: [["00:00", "24:00"]] for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")}
+        # 送る流れの試験は、流す時刻で答えが変わらないように、この契約者の「知らせを送ってよい時間」をいつでもにする（契約者が選べる値。
+        # いつ送るかの決まりそのものは Timing の試験が確かめる）
+        app_access().in_tenant(OPERATOR, cls.s["tenant"], lambda tx: settings.set_value(
+            tx, notices.SEND_HOURS, anytime, scope="tenant", status="decided", rationale="試験：いつでも送ってよい", review_when="試験のあいだ",
+            tenant_id=cls.s["tenant"]))
 
     def _event(self) -> int:
         key = f"試験の知らせ-{next(_keys)}"
@@ -178,6 +185,25 @@ class Delivery(unittest.TestCase):
             for _ in range(6):
                 notices.deliver_bundle(app_access(), SYSTEM, self.s["tenant"], {"sms": broken}, 1)
             self.assertEqual(notices.delivery_state([r[1] for r in self._rows(eid)]), "gave_up")
+
+    def test_the_sender_called_by_the_supervisor_reads_where_to_send_and_sends_once(self):   # CL-2 4-434・4-442（plugins.NoticeSender）
+        from salescall.core import settings
+        sent = FakeTransport()
+        sender = notices.Sender(chatwork_token="", sms=lambda number: sent)
+        none = World().setup()                                                    # 送り先を入れていない契約者：何も送らない・記録もしない
+        app_access().in_tenant(OPERATOR, none["tenant"], lambda tx: notify.emit(tx, "stopped", key="試験：送り先の無い知らせ",
+                                                                                 summary="架空の止めた知らせ"))
+        self.assertEqual(sender.deliver(app_access(), SYSTEM, none["tenant"]), {})
+        app_access().in_tenant(OPERATOR, self.s["tenant"], lambda tx: settings.set_value(
+            tx, "notify.sms_to", "+81300000000", scope="tenant", status="decided", rationale="試験：架空の番号", review_when="試験のあいだ",
+            tenant_id=self.s["tenant"]))
+        eid = self._event()
+        got = sender.deliver(app_access(), SYSTEM, self.s["tenant"])
+        self.assertGreaterEqual(got.get("sent", 0), 1)
+        self.assertIn(("sms", "sent", 1), self._rows(eid))
+        before = len(sent.sent)
+        sender.deliver(app_access(), SYSTEM, self.s["tenant"])
+        self.assertEqual(len(sent.sent), before)                                  # 届いた知らせは、もう送らない
 
     def test_a_delivered_notice_is_not_sent_twice(self):
         eid, sms = self._event(), FakeTransport()

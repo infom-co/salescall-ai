@@ -47,7 +47,8 @@ class NothingBreaks(_World):
                         continue
                     r = self.http.post(path, data={"form_token": token, **{n: bad for n in names}},
                                        headers={"x-test-person": "ADMIN"}, follow_redirects=False)
-                    self.assertIn(r.status_code, (200, 303, 403, 404), r.text[:300])   # 200＝次の段の画面・確かめのファイル
+                    allowed = (200, 303, 401, 429) if route.path == "/login" else (200, 303, 403, 404)   # ログイン：通らない＝401・試しすぎ＝429
+                    self.assertIn(r.status_code, allowed, r.text[:300])   # 200＝次の段の画面・確かめのファイル
 
     def test_every_get_answers_in_words_for_a_wrong_id_in_the_address(self):
         """住所の ID の欄すべてに、形の違う値・無い ID を入れて GET を叩く（どれも 500 にならず、日本語の返事）。住所を足しても自動で叩く。"""
