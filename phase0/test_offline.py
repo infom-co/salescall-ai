@@ -36538,8 +36538,8 @@ class ElsewhereWholeTest(unittest.TestCase):
         r = self.back_to(f, "Q2", NONE, self.no_trouble(f))
         self.assertEqual((self.heard(r), f.end_reason), (self.CLOSE_DOWN, "done"))
         self.assertNotIn(CALLBACK_IDS["other_wish"], f.items)
-        self.assertEqual([(e["question"], e["skipped"]) for e in f.facts["elsewhere_whole"]], [("Q2", ["Q3", "Q4"])])
-        self.assertEqual(f.facts["elsewhere_whole"][0]["said"], self.ORIG)
+        self.assertEqual([(e["question"], e["skipped"]) for e in f.report()["facts"]["elsewhere_whole"]], [("Q2", ["Q3", "Q4"])])
+        self.assertEqual(f.report()["facts"]["elsewhere_whole"][0]["said"], self.ORIG)
         self.assertNotIn("goal_refused", f.facts)
 
     def test_this_question_only_or_split_readings_keep_the_current_flow(self):
@@ -36548,7 +36548,7 @@ class ElsewhereWholeTest(unittest.TestCase):
             f = self.to_e1(scope)
             self.no_trouble(f)
             self.back_to(f, "Q2", NONE)
-            self.assertEqual((f.current, f.end_reason, f.facts.get("elsewhere_whole")), (CALLBACK_IDS["other_wish"], None, None), scope)
+            self.assertEqual((f.current, f.end_reason, f.report()["facts"].get("elsewhere_whole")), (CALLBACK_IDS["other_wish"], None, None), scope)
 
     def test_whole_but_not_turning_down_keeps_the_current_flow(self):
         # お断りの向きでないお返事（答えた）には当てない（お言葉の理由＝お断りの方向に進んでいるのに…）
@@ -36556,7 +36556,7 @@ class ElsewhereWholeTest(unittest.TestCase):
         f = self.to_e1((ELSEWHERE_ALL, ELSEWHERE_ALL), words="メールでお願いします。うちは全部別の会社に頼んでますけど。", reading="メール")
         self.no_trouble(f)
         self.back_to(f, "Q2", "メール")
-        self.assertEqual((f.current, f.facts.get("elsewhere_whole")), ("Q3", None))
+        self.assertEqual((f.current, f.report()["facts"].get("elsewhere_whole")), ("Q3", None))
 
     def test_brief_call_offers_comparison_material_when_there_is_no_trouble(self):
         # 伺い47：手短の電話は伺いを重ねずにア（いまの質問のことだけでも同じ＝受けていただいたら、手短に伺う残りの質問へ）
@@ -36595,7 +36595,7 @@ class ElsewhereWholeTest(unittest.TestCase):
         r = f.apply("confirm_field", {"question_id": mail, "result": "affirmed"})
         # 約束の言葉はくり返さない（伺い37）・申し伝える一言も言わない（提案でお伝えした方法）
         self.assertEqual((self.heard(r), f.end_reason), (self.CLOSE, "done"))
-        self.assertEqual([(e["question"], e["skipped"]) for e in f.facts["elsewhere_whole"]], [("Q2", ["Q3", "Q4"])])
+        self.assertEqual([(e["question"], e["skipped"]) for e in f.report()["facts"]["elsewhere_whole"]], [("Q2", ["Q3", "Q4"])])
         self.assertEqual(f.facts["other_wish"][-1]["contact"], "yamada@example.co.jp")
 
     def test_whole_offer_declined_or_unclear_closes_with_the_turned_down_close(self):
@@ -36619,4 +36619,62 @@ class ElsewhereWholeTest(unittest.TestCase):
             r = self.back_to(f, "Q3", "いいえ", self.no_trouble(f))
             self.assertNotIn(CALLBACK_IDS["not_agreed"], f.items, goal)
             self.assertEqual((self.heard(r), f.end_reason), (self.CLOSE_DOWN, "goal_refused" if goal else "done"), goal)
-            self.assertEqual([(e["question"], e["skipped"]) for e in f.facts["elsewhere_whole"]], [("Q3", ["Q4"])], goal)
+            self.assertEqual([(e["question"], e["skipped"]) for e in f.report()["facts"]["elsewhere_whole"]], [("Q3", ["Q4"])], goal)
+
+    def test_whole_counts_only_while_talking_with_the_person_who_said_it(self):
+        # 穴5（まとめ役 CL-1 の頼み (1)）：ご案内全体の印は、それを言った方とお話ししている間だけ数える（前の方の最終目的のお断りを、その答えをいただいた方と
+        # お話ししているときだけ数える Flow._ours・_earlier_ours と同じ理由・同じ1か所）。電話口の方が替わったら、新しい方への業務の質問は今の流れ
+        from flowctl import CALLBACK_IDS, ELSEWHERE_ALL
+        f = self.to_e1((ELSEWHERE_ALL, ELSEWHERE_ALL), brief=True)
+        self.no_trouble(f)
+        self.offered(f)
+        self.turn(f, "はい、それならお願いします。", self.rd("メール"), "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((f.current, f._remaining()), (CALLBACK_IDS["email"], [CALLBACK_IDS["email"]]))
+        f._note("connect", read=["ai"], judging=False, who="substitute")   # 電話口の方が替わった（代わりの方と繋いだ＝_connect が書く事実）
+        self.assertEqual(f._remaining(), [CALLBACK_IDS["email"], "Q3", "Q4"])
+        self.assertIsNone(f.report()["facts"].get("elsewhere_whole"))
+
+    def test_the_judge_sees_the_purpose_only_in_the_whole_or_this_question_item(self):
+        # 穴1（まとめ役 CL-1 の頼み (2)）：判定は、お客様が聞いた文で読む（Flow.for_judge）。項目「ご案内全体か、いまの質問のことだけか」を読ませるときだけ、
+        # お客様が名乗りのあとに聞いた用件の一文を見せる（見せる所は1か所＝ほかの項目・質問の文は変えない）。業務の録音が無い通話は、業務の用件の一文・用件の名詞
+        from flowctl import ELSEWHERE, ELSEWHERE_ALL
+        from meaning_judge import answer_items
+        f = OtherCompanyClueSendWayTest().flow()
+        self.turn(f, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        shown = f.judge_context()[0]
+        plain = answer_items(f.questions["Q2"])
+        got = answer_items(shown)
+        self.assertIn("ご予約の確認でお電話いたしました。", got[ELSEWHERE][ELSEWHERE_ALL])
+        self.assertNotIn("ご予約の確認", plain[ELSEWHERE][ELSEWHERE_ALL])
+        self.assertEqual({k: v for k, v in got.items() if k != ELSEWHERE}, {k: v for k, v in plain.items() if k != ELSEWHERE})
+        self.assertEqual(shown.text, f.questions["Q2"].text)
+        # 業務の録音が無い（AIが話す）通話も、業務の用件の一文
+        g = OtherCompanyClueSendWayTest().business().flow(play_recordings=False)
+        g.use_checks(*__import__("flowctl").JUDGMENTS)
+        self.turn(g, "はい、しています。", self.rd("はい"), "record_answer", question_id="Q1", condition_id="はい")
+        self.assertIn("ご予約の確認でお電話いたしました。", answer_items(g.judge_context()[0])[ELSEWHERE][ELSEWHERE_ALL])
+
+    def test_whole_also_skips_follow_up_business_questions(self):
+        # 業務設定の、前の答えで伺う質問（Question.ask_if。並びの初めには無い＝business_ids に入らない）も業務の質問：ご案内全体なら伺わない（分身 S が S2 の会話を
+        # 流れの制御から出して見つけた：「ご契約の更新時期は…」を伺っていた）。伺わなかった質問の事実にも入る
+        import dataclasses
+        from flowctl import CALLBACK_IDS, ELSEWHERE_ALL, JUDGMENTS, Question
+        b = OtherCompanyClueSendWayTest().business(info=self.INFO)
+        q5 = Question("Q5", "メールの送り先はご担当者様宛でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=True, topic="メールの送り先",
+                      ask_if=("Q2", ("メール",)))
+        orig = OtherCompanyClueSendWayTest.flow
+        try:
+            def flow(_, goal=False, offer_ways=(), info=()):
+                f = dataclasses.replace(b, questions=[*b.questions, q5]).flow(play_recordings=True)
+                f.use_checks(*JUDGMENTS)
+                return f
+            OtherCompanyClueSendWayTest.flow = flow
+            f = self.to_e1((ELSEWHERE_ALL, ELSEWHERE_ALL), brief=True)
+        finally:
+            OtherCompanyClueSendWayTest.flow = orig
+        self.no_trouble(f)
+        self.offered(f)
+        r = self.turn(f, "はい、それならお願いします。", self.rd("メール"), "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((f.current, self.heard(r)), (CALLBACK_IDS["email"], self.ASK_MAIL))
+        self.assertNotIn("Q5", f._remaining())
+        self.assertIn("Q5", f.report()["facts"]["elsewhere_whole"][0]["skipped"])

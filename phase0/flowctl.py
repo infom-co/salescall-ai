@@ -2227,7 +2227,7 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 # （必須でも最終目的でもない＝brief_asks。ended_on の skipped と同じ形＝CL-2 の判定は「伺っていない（対象外）」と数える）・turn・said＝答えの発話。依頼者へ返す。
 # ✅ 2026-11-16 日本時間12時48分22秒 ユーザー「・伺い31：…noなら、必須の項目を伺う。」（はいのときはかけ直しの記録 callback）
 # elsewhere_whole：ご案内全体をほかの会社に頼んでいると言われ（判定がそろって全体・そのお返事がその質問のお断り・目的から遠ざかる向き）、その質問の答えが決まった
-# あと、残りの業務の質問を伺わなかった（Flow._whole_note の1か所。question＝その質問・answer＝その答え（日本語の名前）・skipped＝伺わなかった業務の質問（brief・ended_on
+# あと、それを言った方とお話ししたまま残りの業務の質問を伺わなかった（Flow.whole_fact が通話の終わりの答えで決め、Flow.report が入れる。question＝その質問・answer＝その答え（日本語の名前）・skipped＝伺わなかった業務の質問（brief・ended_on
 # の skipped と同じ形＝CL-2 の判定は「伺っていない（対象外）」と数える）・turn・said＝ご案内全体と言ったお返事。もうかけない印ではない（最終目的の質問を断られたときだけ
 # goal_refused＝今と同じ）。依頼者へ返す。✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い48：ア-2」）
 # ended_on：ここで電話を終える答え（Question.ends_on）で、残りの業務の質問を伺わなかった（Flow.ended_on が通話の終わりの答えで決め、Flow.report が入れる。
@@ -2698,9 +2698,10 @@ ELSEWHERE_ALL = "ご案内全体をほかの会社に頼んでいる・使って
 ELSEWHERE_YES, ELSEWHERE_NO = "いまの質問のことだけ、ほかの会社に頼んでいる・使っている", "ほかの会社のことは言っていない"
 
 
-def elsewhere_choices(calling: bool) -> dict:
+def elsewhere_choices(calling: bool, purpose: str = "") -> dict:
     """ほかの会社に頼んでいる・使っていると言ったかの選べるもの（{中の名前: 説明}）。答えの段だけ（お呼びする段は {}）。説明は意味で書き、試しの言葉と同じ言い方の
-    例は書かない。"""
+    例は書かない。purpose＝お客様が聞いた用件の一文（判定に見せる質問の heard_purpose＝meaning_judge.answer_items の1か所から）：ご案内全体の説明に、何をご案内
+    している電話かとして入れる（無ければ入れない＝用件の無い試しの文は今のまま）。"""
     if calling:
         return {}
     # ⛔ 2026-11-17（11-16 の残りの (1)・rv38 の C3）：いまのこと（頼んでいる・使っている・契約している・使い始めた）だけを挙げていたので、「ほかの会社さんの方が
@@ -2709,7 +2710,8 @@ def elsewhere_choices(calling: bool) -> dict:
     #    理由が当たる場面すべてに当てる」）
     # ご案内全体か、いまの質問のことだけかの境目は、ほかの会社に頼んでいる事柄が、いまの質問で伺っている事柄に限るか（説明どうしが補い合う形で1回ずつ）
     said = "（もう契約している・使い始めた・これからそちらに頼むと決めた、も。その理由で断っていても）"
-    return {ELSEWHERE_ALL: "いまの言葉で、こちらがご案内している事柄そのもの（サービス・商品）を、ほかの会社に頼んでいる・ほかの会社のものを使っている、と言った"
+    told = f"（この電話の用件として、お客様は「{purpose}」と聞いています）" if purpose else ""
+    return {ELSEWHERE_ALL: f"いまの言葉で、こちらがご案内している事柄そのもの（サービス・商品）{told}を、ほかの会社に頼んでいる・ほかの会社のものを使っている、と言った"
                            + said + "。何を頼んでいるかを、いまの質問で伺っている事柄に限っていないときも",
             ELSEWHERE_YES: "いまの言葉で、いまの質問で伺っている事柄（お支払い・配送など、ご案内の一部）だけを、ほかの会社に頼んでいる・ほかの会社のものを使っている、"
                            "と言った" + said,
@@ -3456,6 +3458,10 @@ class Question:
     # 判定に見せるだけ：その質問（言い直し）のあとに、こちらが言った一言（お客様が黙ったあとに流した一言＝QUIET_STEPS・Flow.on_silence。入れるのは
     # Flow.judge_context の1か所＝流れの制御の質問は空のまま。meaning_judge.PROMPTED の行）
     prompted: str = ""
+    # 判定に見せるだけ：お客様が名乗りのあとに聞いた用件の一文（業務の録音が無ければ業務の用件の一文・用件の名詞）。入れるのは Flow.for_judge の1か所（答えの段だけ。
+    # 流れの制御の質問は空のまま）。読むのは、ほかの会社に頼んでいるのがご案内全体かを読む項目の説明だけ（meaning_judge.answer_items＝elsewhere_choices の purpose。
+    # ほかの項目・質問の文は変えない）。✅ 2026-11-19 まとめ役 CL-1 の頼み (2)（判定はお客様が聞いた文で読む＝11-12 日本時間21時台のまとめ役の (2)）
+    heard_purpose: str = ""
     # 一度受けていただいたこちらの申し出から始まった質問として判定に見せるとき、その申し出の言葉（「改めてお掛けさせていただく」。Flow.judge_context が入れる＝
     # Flow._taken_offer の1か所）。あれば、判定の選べるものに「申し出を取り消した」（WITHDREW）を足す（meaning_judge.answer_kinds）。空なら今のまま（文は変えない）
     taken_offer: str = ""
@@ -5067,7 +5073,7 @@ class Flow:
                  apology_call: str | None = None, apology_when: str | None = "later", client_does: str = "", apology_text: str | None = None,
                  earliest_day=None, today=None, handoff_ways: tuple = (), close_offer: "CloseOffer | None" = None,
                  way_words: dict | None = None, handover: bool = False, silence_prompt_after: float = 5, wait_ask_after: float = 20,
-                 earlier_when: str | None = None, dialed_mobile: bool = False, now=None, call_days: tuple = ()):
+                 earlier_when: str | None = None, dialed_mobile: bool = False, now=None, call_days: tuple = (), purpose: str = ""):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う引き止めの一言（業務設定。録音で流す電話では業務の録音 busy。None なら引き止めず、
         締める前の伺い「それではまた改めてお掛けしてもよろしいでしょうか？」へ＝_hurry_ask。✅ 2026-11-01 日本時間20時56分。Intent.md 9-4）。
@@ -5403,8 +5409,10 @@ class Flow:
         self.elsewhere_q: str | None = None
         self.elsewhere_from: dict | None = None
         # ご案内全体をほかの会社に頼んでいると言われ、そのお返事がその質問のお断り・目的から遠ざかる向きだった（_elsewhere_ask が覚える。唯一の読み手＝
-        # _whole_done）：{"q": その質問, "turn"・"said": そのお返事, "noted": 通話の事実 elsewhere_whole を書いたか}。✅ 2026-11-19 日本時間15時10分27秒「伺い48：ア-2」
+        # _whole_done）：{"q": その質問, "turn"・"said": そのお返事, "by": そのとき電話口にいた方（_party_now）}。✅ 2026-11-19 日本時間15時10分27秒「伺い48：ア-2」
         self.whole: dict | None = None
+        # 業務の用件の一文（無ければ用件の名詞）：業務の録音が無い通話で、お客様が聞いた用件として判定に見せる（_heard_purpose の1か所）
+        self.purpose = purpose
         # 深める一言（_deepen_ask。1通話1回）：伺った印・いま伺っている深める一言（E2・E3・E4＝DEEPEN_ROLES）の質問の番号（答えが決まったら _deepen_decided）・
         # 伺う前の位置・伺う番（E1 の困りごとに会話AIが応えた発話の番号＝そのお返事で伺う）・会話AIが書いた困りごとの言葉と、困りごとが続く形の句（確かめを通ったもの）・
         # E1 で言っていただいた困りごと（(値, 根拠の発話)＝ご承認の手順の点として残す）
@@ -6239,11 +6247,19 @@ class Flow:
             return None
         intro = "" if in_announce_form(q) else getattr(q, "intro", "")   # お知らせの形は説明を含む1つの文（入る一言を重ねない）
         text, called = self._judge_text(head_join(intro, q.text) if intro else q.text), self._judge_text(getattr(q, "called", ""))
-        if (text, called) == (q.text, getattr(q, "called", "")):
+        # 答えの段：お客様が名乗りのあとに聞いた用件の一文（読むのは、ご案内全体かを読む項目の説明だけ＝Question.heard_purpose）。お呼びする段の文は変えない
+        purpose = self._judge_text(self._heard_purpose()) if self.in_answer_stage and not getattr(q, "facets", ()) else ""
+        if (text, called, purpose) == (q.text, getattr(q, "called", ""), getattr(q, "heard_purpose", "")):
             return q
         # お知らせの形は、お知らせの文も判定に見せる形に（判定の側の見分け in_announce_form が同じ文で当たる）
         shown = {"announce": self._judge_text(q.announce)} if in_announce_form(q) else {}
-        return dataclasses.replace(q, text=text, called=called, **({"intro": ""} if intro else {}), **shown)
+        return dataclasses.replace(q, text=text, called=called, heard_purpose=purpose, **({"intro": ""} if intro else {}), **shown)
+
+    def _heard_purpose(self) -> str:
+        """お客様が名乗りのあとに聞いた用件の一文（唯一の場所＝判定に見せる質問 for_judge）：業務の録音があれば、流した用件の一文（続きの電話は前の電話と
+        つなげた一文＝_purpose_play の1か所）。無ければ業務の用件の一文・用件の名詞（Flow の purpose＝instruction.Business.flow が渡す）。"""
+        parts = self.target or self.opening or {}
+        return self._purpose_play()["text"] if parts.get("purpose") else self.purpose
 
     def _judge_text(self, text: str | None) -> str | None:
         for spoken in sorted(self.judge_names, key=len, reverse=True):   # 長い名前から先に（短い名前が長い名前の中に入っていても1回だけ）
@@ -13156,7 +13172,8 @@ class Flow:
         readings = [self.check.get(k) for k in JUDGMENTS]
         back, answers = self.awaiting_confirm or self.current, [str(r) for r in readings if r is not None]
         if elsewhere_whole(readings) and answers and all(self.questions[back].turned_down(a) for a in answers):
-            self.whole = {"q": back, "turn": self.callee_turns, "said": fact_said(self.callee_said), "noted": False}
+            # by＝そのとき電話口にいる方（_party_now。数えるのは、その方とお話ししている間だけ＝_ours の by）
+            self.whole = {"q": back, "turn": self.callee_turns, "said": fact_said(self.callee_said), "by": self._party_now()}
         self.elsewhere_q = self._ask_aside("elsewhere")
         return self._advance("", handled=True)
 
@@ -14500,7 +14517,7 @@ class Flow:
             done = {e.get("question") for e in self.facts.get("not_agreed", [])} | ({p["q"]} if p is not None else set())
             # ご案内全体をほかの会社に頼んでいると言われたご承認の質問は、ご納得いただけなかった点を伺わない（点で断ったのではない＝伺い48 ア-2）
             q = next((q for q in self.questions.values() if q.approval and q.id not in self.earlier and q.id not in done
-                      and not (self.whole is not None and self.whole["q"] == q.id)
+                      and self._whole_q() != q.id
                       and self._approval_open(q) is not None), None)
             if q is not None and self._point_begin(q):
                 self._point_step()   # 同じご承認で手順をまた始めた（N1 はもう伺った）：伺ったときのお返事で進める（_point_begin）
@@ -15312,7 +15329,7 @@ class Flow:
         """この質問の答えが、ほかのご希望を伺う答えか（伺ったか・いつ伺うかは見ない。唯一の決まり＝_wish_due・_unfinished）：選ぶ質問の「どれも要らない」・
         最終目的の質問への言い切っていないお断り（決まりは wish_trigger の1か所。続きの電話の始めの resumed_step も同じ決まり）。"""
         it = self.items[q.id]
-        if self.whole is not None and self.whole["q"] == q.id:
+        if self._whole_q() == q.id:
             # ご案内全体をほかの会社に頼んでいると言われた質問：ほかのご希望（「電話とメールのほかに…」）は伺わない（伺い48 ア-2。伺い終えていない手順にもしない＝_unfinished）
             return False
         return wish_trigger(q, it.state, it.condition, bool(it.hedged), self.questions.values())
@@ -15342,7 +15359,7 @@ class Flow:
             f = self._wish_fact(q.id)
             if f is None or earlier_wish(f) is None or earlier_wish_means(f) is not None:
                 return True
-        if q.approval and it.state in GOT and q.declined(it.condition) and not (self.whole is not None and self.whole["q"] == q.id):
+        if q.approval and it.state in GOT and q.declined(it.condition) and self._whole_q() != q.id:
             p = self.point
             if p is not None and p["q"] == q.id:
                 return p["outcome"] is None
@@ -15591,11 +15608,21 @@ class Flow:
         鈴木様への引き継ぎを確かめる電話に戻す」）・4-413「デフォルトは佐藤様へはその番号でかける」"""
         return self.in_answer_stage and self.carried_q is None
 
-    def _ours(self, qid: str) -> bool:
+    def _party_now(self) -> str | None:
+        """いま電話口にいる方（唯一の読み方＝ご案内全体の印を覚える _elsewhere_ask・数える _ours の by）：最後に繋いだ方（通話の事実 connect の who＝目的の人・
+        後任の方・代わりの方）。目的のお客様のいない業務・まだどなたとも繋いでいなければ None。"""
+        return c[-1].get("who") if (c := self.facts.get("connect")) else None
+
+    def _ours(self, qid: str, by: "str | None | bool" = False) -> bool:
         """質問 qid の答えを、いまお話ししている方の答えとして数えるか（唯一の決まり＝電話を締める答えで締めるか・締めたことを残すか：最終目的のお断り
         _goals_lost・ここで終える答えの事実 ended_on）：この通話で受けた答え・前の通話の答えでない答えは数える。前の通話の答えは、その答えをいただいた方と
         お話ししている間だけ（_earlier_ours）。⛔ CL-2 の連絡帳 4-422 の (2)：ended_on は前の通話の答えを区別せず、新しい担当の方への電話・受付の方の
         「席を外しております」で終えた電話にも、前の方の「ここで終える」答えで止めた事実（turn が null）を書いた"""
+        if by is not False:
+            # この通話で言っていただいた、その方個人のこと（ご案内全体をほかの会社に頼んでいる＝Flow.whole。by＝そのとき電話口にいた方）：前の通話の答えと同じ理由で、
+            # その方とお話ししている間だけ数える（答えの段で、引き継ぎを確かめる一言の答えを待っておらず＝_earlier_ours、電話口の方が同じ＝_party_now）。電話口の方が
+            # 替わったら、新しい方への業務の質問は今の流れ。✅ 2026-11-19 まとめ役 CL-1 の頼み (1)（CL-2 の 4-418・管理者「鈴木様へはかける」と同じ理由）
+            return self._earlier_ours() and by == self._party_now()
         return qid in self.taken or qid not in self.earlier or self._earlier_ours()
 
     def _closes_on(self, q: "Question") -> bool:
@@ -15616,28 +15643,38 @@ class Flow:
 
     def _whole_done(self) -> str | None:
         """ご案内全体をほかの会社に頼んでいると言われた質問（Flow.whole）の答えが決まったなら、その質問の番号（唯一の決まり＝伺わない業務の質問 _whole_skips・締めの前の
-        念のための確認 _will_ask_again・通話の事実 _whole_note）。提案を受けていただいた・断られた・はっきりしない（もとのお返事を読み直して受け取った）のどれでも。"""
+        念のための確認 _will_ask_again・通話の事実 whole_fact）。提案を受けていただいた・断られた・はっきりしない（もとのお返事を読み直して受け取った）のどれでも。
+        それを言った方とお話ししている間だけ（_ours の by の1か所）。"""
+        q = self._whole_q()
+        return q if q is not None and self.items[q].state in GOT else None
+
+    def _whole_q(self) -> str | None:
+        """ご案内全体をほかの会社に頼んでいると言われた質問（Flow.whole）の番号を、いま数えるなら返す唯一の場所（伺わない W1 _wish_trigger・ご納得いただけなかった点の
+        手順 _point_step・_unfinished・答えが決まったか _whole_done）：それを言った方とお話ししている間だけ（_ours の by の1か所）。"""
         w = self.whole
-        return w["q"] if w is not None and self.items[w["q"]].state in GOT else None
+        return w["q"] if w is not None and self._ours(w["q"], by=w["by"]) else None
 
     def _whole_skips(self, qid: str) -> bool:
         """ご案内全体をほかの会社に頼んでいると言われた電話で伺わない質問か（唯一の決まり＝これから伺う質問 _remaining・締めの前の念のための確認 _will_ask_again・
-        通話の事実 _whole_note）：その質問の答えが決まったあとの業務の質問（ご契約を前提にした説明・質問へ進まない）。連絡先など、提案を受けていただいた約束の
-        段取りのシステムの質問は伺う。✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い48：ア-2」"""
-        return self._whole_done() is not None and qid in self.business_ids
+        通話の事実 whole_fact）：その質問の答えが決まったあとの業務の質問（ご契約を前提にした説明・質問へ進まない）。連絡先など、提案を受けていただいた約束の
+        段取りのシステムの質問は伺う。業務の質問は、システムの質問でない質問（Question.callback が空＝報告の unfinished と同じ見分け）：業務設定の、前の答えで伺う
+        質問（ask_if。並びの初めには無い＝business_ids に入らない）も（⛔ 分身 S が伺いS2 の会話を流れの制御から出して見つけた：「ご契約の更新時期は…」を伺っていた）。
+        ✅ 2026-11-19 日本時間15時10分27秒 ユーザー「伺い48：ア-2」"""
+        return self._whole_done() is not None and not self.questions[qid].callback
 
-    def _whole_note(self) -> None:
-        """ご案内全体をほかの会社に頼んでいると言われ、残りの業務の質問を伺わないことを、通話の事実 elsewhere_whole に1回書く唯一の場所（次へ進む _advance_to）：
-        question＝その質問・answer＝その答え（日本語の名前）・skipped＝伺わない業務の質問（brief・ended_on の skipped と同じ形＝CL-2 の判定は「伺っていない
+    @property
+    def whole_fact(self) -> dict | None:
+        """ご案内全体をほかの会社に頼んでいると言われ、残りの業務の質問を伺わなかった（会話の報告の事実 elsewhere_whole。無ければ None）を、通話の終わりの答えで
+        決める唯一の場所（Flow.report が報告に入れる。ended_on と同じ形＝電話口の方が替わって新しい方に伺った・質問の答えがあとから変わる、ので通話の途中では書かない）：
+        question＝その質問・answer＝その答え（日本語の名前）・skipped＝伺わなかった業務の質問（brief・ended_on の skipped と同じ形＝CL-2 の判定は「伺っていない
         （対象外）」と数える。手短に伺っていて伺わない質問は brief の skipped・先へ進むのを止める答えのあとの質問は ended_on の skipped にあるので入れない）・
         turn・said＝ご案内全体と言ったお返事。依頼者へ返す。"""
-        w = self.whole
-        if w is None or w["noted"] or (qid := self._whole_done()) is None:
-            return
-        w["noted"] = True
+        if (qid := self._whole_done()) is None:
+            return None
         hold = set(held(self.questions.values(), self.order, self._read))
         skipped = [x for x in self.order if self.items[x].state == "empty" and x not in hold and not self._brief_skips(x) and self._whole_skips(x)]
-        self._note("elsewhere_whole", question=qid, answer=label(self.items[qid].condition), skipped=skipped, turn=w["turn"], said=w["said"])
+        w = self.whole
+        return {"turn": w["turn"], "said": w["said"], "question": qid, "answer": label(self.items[qid].condition), "skipped": skipped}
 
     def _brief_skips(self, qid: str) -> bool:
         """手短に伺っている電話（brief_only）で伺わない質問か（唯一の決まり＝これから伺う質問 _remaining・約束する数 _brief_left）：必須でも最終目的でもない業務の質問
@@ -15932,7 +15969,6 @@ class Flow:
             # ご納得いただけなかった点を伺った（続きの電話の始めは、前の電話で伺った）：次へ進む前に、AIが知っていることでご説明する（相手の質問・お話に答える
             # 1か所＝replay_opening）
             return {"result": "explain_point", "message": f"{prefix}{self._point_note()}"}
-        self._whole_note()
         if self.end_reason is None and (lost := self._goals_lost()) is not None:
             # 最終目的の申し出を断られ、業務の目的が果たせなくなった：残りの質問は伺わずに、お礼の締め（その業務だけかけない＝CL-2 が通話の事実から決める）
             # 根拠の発話は、目的が果たせなくなった断りの答えの発話（受け取ったときの材料＝_evidence の1か所。⛔ 2026-11-05 日本時間2時05分37秒のご質問のあとの
@@ -16113,7 +16149,7 @@ class Flow:
         """通話の事実を残す唯一の場所（self.facts）。根拠の発話＝相手の発話の番号（on_callee で数えた番号）と、その文字（会話AIの聞き取り）。
         Intent.md 9-5「各項目には、根拠になった発話（時刻つき）を保存する」・11-1「拒否・同意の記録（根拠の発話）」。時刻は電話接続側が
         発話の番号に付ける（試作では通話の記録の turns）。"""
-        assert kind in FACT_KINDS and kind != "ended_on", kind   # ended_on は通話の終わりの答えで決める（Flow.ended_on・Flow.report）
+        assert kind in FACT_KINDS and kind not in ("ended_on", "elsewhere_whole"), kind   # ended_on は通話の終わりの答えで決める（Flow.ended_on・Flow.report）
         assert kind != "callback" or extra.get("why") in CALLBACK_REASONS, extra.get("why")   # 一覧に無い理由は、CL-2 の読み手が報告ごと断る
         # 根拠の発話は、答えを当てている言葉（heard_said・その発話の番号）：伺う前の位置へ戻って読み直した言葉（ほかの会社のことを伺う前の言葉＝_elsewhere_decided・
         # 待たずに続けた言葉＝_wait_continue・先に言われた答え＝_offer_ahead）の答えなら、その言葉と発話（⛔ 2026-11-15 伺い25 を入れる途中、例の会話で見つけた：
@@ -16159,6 +16195,8 @@ class Flow:
         （CL-2 の conversation_io.write_item。名前は日本語の名前＝label）で渡す。"""
         # ここで終える答えで伺わなかった質問（ended_on）は、通話の終わりの答えで決まるので、ここで足す（通話の途中の記録 self.facts には書かない）
         facts = self.facts if (e := self.ended_on) is None else {**self.facts, "ended_on": [e]}
+        # ご案内全体をほかの会社に頼んでいると言われて伺わなかった質問（elsewhere_whole）も、通話の終わりの答えで決まる（ended_on と同じ）
+        facts = facts if (w := self.whole_fact) is None else {**facts, "elsewhere_whole": [w]}
         # 手順を伺い終えていない業務の質問（_unfinished の1か所。CL-2 の判定は、その答えを「まだ受け取っていない答え」と読む＝必須なら行を続ける。CL-2 の連絡帳
         # 4-213。⛔ それまで、W1・連絡先・ご承認の手順の途中で切れても、ほかの必須の質問が取れていれば判定が「完了」にし、続きの電話が1本もかからなかった）
         unfinished = [q.id for q in self.questions.values() if not q.callback and self._unfinished(q)]

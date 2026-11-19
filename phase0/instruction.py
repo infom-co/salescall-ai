@@ -361,7 +361,9 @@ class Business:
                     earlier_when=self.earlier_when, dialed_mobile=is_mobile(self.phone_e164),
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
-                    opening=self.replay_parts() if recorded else None, **kw)
+                    opening=self.replay_parts() if recorded else None,
+                    # 業務の録音が無い通話で、お客様が聞いた用件として判定に見せる（flowctl.Flow._heard_purpose）
+                    purpose=self.purpose_line or self.purpose_noun, **kw)
 
     def spoken_names(self) -> list[str]:
         """声に出す名前（表記と読み）：社名・担当者名・お呼びした方の名前・読みの決まらない名前。名前は録音だけで言い、AIの自分の言葉には入れない
